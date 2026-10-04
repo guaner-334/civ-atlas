@@ -871,20 +871,21 @@ export function seaHatchAlpha(r: SeaGrid, dist: Uint16Array, fade: Uint8Array): 
   const L = HATCH_D * DIST_Q;
   const a = new Uint8Array(N);
   for (let k = 0; k < N; k++) if (water[k] === 1 && fade[k] && dist[k] < L) a[k] = Math.round(fade[k] * (1 - dist[k] / L));
+  // 离陆地不到 1.5 格的海面像素把自己的浓度推给四周的陆地像素(取最大)
+  const near = 1.5 * DIST_Q;
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       const k = y * w + x;
-      if (water[k] === 1) continue;
-      let m = 0;
+      const v = a[k];
+      if (!v || water[k] !== 1 || dist[k] > near) continue;
       for (let dy = -1; dy <= 1; dy++) {
         const yy = y + dy;
         if (yy < 0 || yy >= h) continue;
         for (let dx = -1; dx <= 1; dx++) {
           const q = yy * w + (x + dx < 0 ? x + dx + w : x + dx >= w ? x + dx - w : x + dx);
-          if (water[q] === 1 && a[q] > m) m = a[q];
+          if (water[q] !== 1 && a[q] < v) a[q] = v;
         }
       }
-      a[k] = m;
     }
   }
   return a;
