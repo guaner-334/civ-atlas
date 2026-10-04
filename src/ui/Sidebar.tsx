@@ -283,7 +283,7 @@ function WorldHome(p: SidebarProps) {
           </div>
           <div className="sb-group">
             {recent.map((e) => (
-              <button key={e.id} className="sb-row ev recent-row" onClick={() => pickChronicleEntry(e)}>
+              <button key={e.id} className="sb-row ev" onClick={() => pickChronicleEntry(e)}>
                 <span className="sb-year">{Math.floor(e.year)}</span>
                 <span className="sb-ev-text">{evText(e)}</span>
               </button>

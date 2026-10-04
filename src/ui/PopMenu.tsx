@@ -80,6 +80,7 @@ export function MenuItem({
   note,
   href,
   act,
+  ain,
   disabled,
   onClick,
   children,
@@ -89,6 +90,8 @@ export function MenuItem({
   note?: ReactNode;
   href?: string;
   act?: string;
+  /** 名字由来 / AI 起名(data-ain) */
+  ain?: string;
   disabled?: boolean;
   onClick?: () => void;
   children: ReactNode;
@@ -107,7 +110,7 @@ export function MenuItem({
       </a>
     );
   return (
-    <button className="pm-item" role="menuitem" data-act={act} disabled={disabled} onClick={onClick}>
+    <button className="pm-item" role="menuitem" data-act={act} data-ain={ain} disabled={disabled} onClick={onClick}>
       {body}
     </button>
   );
