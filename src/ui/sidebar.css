@@ -133,8 +133,10 @@
 .sb-more-wrap {
   display: contents;
 }
-/* "用一句话改写世界"的框:浮在侧栏卡片右边、和卡片顶对齐(侧栏这时压在地图按钮上面) */
-.sidebar:has(.sb-rewrite) {
+/* "用一句话改写世界"的框:浮在侧栏卡片右边、和卡片顶对齐;面板里"更多"的菜单也弹到卡片右边(.pm-side,
+   位置由 PopMenu 按按钮算好)。这时侧栏压在地图按钮上面 */
+.sidebar:has(.sb-rewrite),
+.sidebar:has(.pm-side) {
   z-index: 8;
 }
 .sb-rewrite {

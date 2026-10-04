@@ -42,7 +42,7 @@ import {
   type DetailProps,
   useRevealAi,
 } from './panelParts';
-import { MenuItem } from './PopMenu';
+import { AiMenuItem, MenuItem } from './PopMenu';
 import { Icon } from './icons';
 
 /** 兴衰小柱图的柱数 */
@@ -145,9 +145,9 @@ export function CityPanel({ civ, raw, raster, world, id, year, names }: DetailPr
           <MenuItem icon={<Icon name="flag" size={16} />} act="owner" disabled={!owner} onClick={() => owner && setSelection({ kind: 'polity', id: owner.id })}>
             看所属国家
           </MenuItem>
-          <MenuItem icon={<Icon name="sparkle" size={16} />} ain="explain" disabled={ai.busy} onClick={ai.ask}>
+          <AiMenuItem icon={<Icon name="sparkle" size={16} />} ain="explain" disabled={ai.busy} onClick={ai.ask}>
             让 AI 讲名字由来
-          </MenuItem>
+          </AiMenuItem>
         </MoreAct>
       </Acts>
       {msg && <div className="cp-msg">{msg}</div>}

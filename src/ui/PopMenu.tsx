@@ -2,7 +2,8 @@
  * 点按钮弹出的小菜单(侧栏顶上的"更多"、面板里的"更多"):按钮 + 一列菜单项。
  * 点菜单项、点外面、按 Esc 收起。样式在 sidebar.css(.pm-*)。
  */
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { useAiStatus } from '../ai/client';
 
 export function PopMenu({
   label,
@@ -11,6 +12,7 @@ export function PopMenu({
   title,
   act,
   align = 'left',
+  side,
   disabled,
   children,
 }: {
@@ -23,11 +25,22 @@ export function PopMenu({
   act?: string;
   /** 菜单和按钮左对齐还是右对齐 */
   align?: 'left' | 'right';
+  /**
+   * 按钮在宽屏的侧栏卡片里时,菜单弹到卡片右边、和按钮顶对齐(不盖住面板里的内容);
+   * 不在侧栏里(手机的底部抽屉)照常挂在按钮下面
+   */
+  side?: boolean;
   disabled?: boolean;
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
+  const [at, setAt] = useState<CSSProperties | undefined>(undefined);
+  useLayoutEffect(() => {
+    const card = side && open ? root.current?.closest('.sidebar') : null;
+    if (!card || !root.current) return setAt(undefined);
+    setAt({ position: 'fixed', left: card.getBoundingClientRect().right + 8, top: root.current.getBoundingClientRect().top, right: 'auto' });
+  }, [open, side]);
   useEffect(() => {
     if (!open) return;
     const onDown = (e: PointerEvent) => {
@@ -38,13 +51,19 @@ export function PopMenu({
       e.stopPropagation();
       setOpen(false);
     };
+    // 弹到侧栏右边的菜单不跟着侧栏滚动:侧栏一滚就收起
+    const onScroll = (e: Event) => {
+      if (at && !(e.target instanceof Node && root.current?.contains(e.target))) setOpen(false);
+    };
     document.addEventListener('pointerdown', onDown, true);
     window.addEventListener('keydown', onKey, true);
+    window.addEventListener('scroll', onScroll, true);
     return () => {
       document.removeEventListener('pointerdown', onDown, true);
       window.removeEventListener('keydown', onKey, true);
+      window.removeEventListener('scroll', onScroll, true);
     };
-  }, [open]);
+  }, [open, at]);
   return (
     <div className={`pm${className ? ` ${className}` : ''}${open ? ' open' : ''}`} ref={root}>
       <button
@@ -61,7 +80,8 @@ export function PopMenu({
       </button>
       {open && (
         <div
-          className={`pm-menu pm-${align}`}
+          className={`pm-menu pm-${align}${at ? ' pm-side' : ''}`}
+          style={at}
           role="menu"
           onClick={(e) => {
             if ((e.target as HTMLElement).closest('.pm-item:not(:disabled)')) setOpen(false);
@@ -114,6 +134,12 @@ export function MenuItem({
       {body}
     </button>
   );
+}
+
+/** 要用 AI 的一项:还没设置 AI 时右边的小字是"需设置" */
+export function AiMenuItem(props: Parameters<typeof MenuItem>[0]) {
+  const ai = useAiStatus();
+  return <MenuItem {...props} note={ai.ready ? props.note : '需设置'} />;
 }
 
 export function MenuSep() {

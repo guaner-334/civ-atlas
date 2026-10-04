@@ -23,7 +23,7 @@ import { addIntervention, useEdits } from './editsStore';
 import { habitatScore, habitatWord } from './civDescribe';
 import { MineList, getPolityPick, nameAt, regionOrders, setPolityPick } from './Interventions';
 import { NameEdit } from './NameEdit';
-import { MenuItem } from './PopMenu';
+import { AiMenuItem, MenuItem } from './PopMenu';
 import { Icon } from './icons';
 import { setSheet } from './panelStore';
 import { entriesUpTo, firstOwned, ownerSpans, ownersOf, regionEntries } from './panelData';
@@ -115,9 +115,9 @@ export function RegionPanel(props: DetailProps) {
             </Act>
             <MoreAct>
               {canAct && <CenterItem world={world} civ={civ} sel={{ kind: 'region', id }} year={year} />}
-              <MenuItem icon={<Icon name="sparkle" size={16} />} ain="explain" disabled={ai.busy} onClick={ai.ask}>
+              <AiMenuItem icon={<Icon name="sparkle" size={16} />} ain="explain" disabled={ai.busy} onClick={ai.ask}>
                 让 AI 讲名字由来
-              </MenuItem>
+              </AiMenuItem>
             </MoreAct>
           </Acts>
           <RegionInfo {...props} ai={ai} aiRef={aiRef} />

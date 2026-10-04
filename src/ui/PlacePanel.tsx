@@ -15,7 +15,7 @@ import { placeKeyOf } from '../gen/edits';
 import { NameEdit } from './NameEdit';
 import { areaText, kmText, metersText, ownersOf, placeFacts } from './panelData';
 import { Act, Acts, AiBox, CenterAct, Link, MoreAct, PanelHead, Row, Stats, SubLine, rgb, type DetailProps, type Stat, useRevealAi } from './panelParts';
-import { MenuItem } from './PopMenu';
+import { AiMenuItem, MenuItem } from './PopMenu';
 import { Icon } from './icons';
 
 const PLACE_KIND: Record<Place['kind'], string> = {
@@ -110,12 +110,12 @@ export function PlacePanel({ civ, raw, raster, world, id, year, names }: DetailP
           改名
         </Act>
         <MoreAct>
-          <MenuItem icon={<Icon name="sparkle" size={16} />} ain="explain" disabled={ai.busy} onClick={ai.ask}>
+          <AiMenuItem icon={<Icon name="sparkle" size={16} />} ain="explain" disabled={ai.busy} onClick={ai.ask}>
             让 AI 讲名字由来
-          </MenuItem>
-          <MenuItem icon={<Icon name="sparkle" size={16} />} ain="suggest" disabled={ai.busy} onClick={ai.suggestNow}>
+          </AiMenuItem>
+          <AiMenuItem icon={<Icon name="sparkle" size={16} />} ain="suggest" disabled={ai.busy} onClick={ai.suggestNow}>
             让 AI 起名
-          </MenuItem>
+          </AiMenuItem>
         </MoreAct>
       </Acts>
       <div className="cp-body">

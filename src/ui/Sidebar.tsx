@@ -30,7 +30,7 @@ import { countUpTo, evText } from './timelineLayout';
 import { Inspector } from './Inspector';
 import { RewriteBox } from './Rewrite';
 import { Icon } from './icons';
-import { MenuItem, MenuSep, PopMenu } from './PopMenu';
+import { AiMenuItem, MenuItem, MenuSep, PopMenu } from './PopMenu';
 import { PRIVACY_URL, SOURCE_URL, TERMS_URL } from './links';
 import { APP_VERSION } from './version';
 import { rgb } from './panelParts';
@@ -170,12 +170,12 @@ function WorldHead(p: SidebarProps) {
         </button>
         <div className="sb-more-wrap" ref={more}>
           <PopMenu className="sb-pill sb-more" icon={<Icon name="more" size={17} />} title="更多" act="world-more" align="right">
-            <MenuItem icon={<Icon name="rename" size={16} />} act="rewrite" disabled={!canRewrite} onClick={() => setRewriting(true)} note="AI">
+            <AiMenuItem icon={<Icon name="rename" size={16} />} act="rewrite" disabled={!canRewrite} onClick={() => setRewriting(true)} note="AI">
               用一句话改写世界
-            </MenuItem>
-            <MenuItem icon={<Icon name="book" size={16} />} act="book" disabled={!p.civ || !p.civ.viable} onClick={() => openHistoryBook()} note="AI">
+            </AiMenuItem>
+            <AiMenuItem icon={<Icon name="book" size={16} />} act="book" disabled={!p.civ || !p.civ.viable} onClick={() => openHistoryBook()} note="AI">
               把历史写成史书
-            </MenuItem>
+            </AiMenuItem>
             <MenuItem icon={<Icon name="sparkle" size={16} />} act="ai-settings" onClick={() => openAiSettings()}>
               AI 设置
             </MenuItem>

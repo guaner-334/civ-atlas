@@ -100,7 +100,7 @@ export function Act({
 /** 最后一个按钮"更多":点开一列菜单(MenuItem) */
 export function MoreAct({ children }: { children: ReactNode }) {
   return (
-    <PopMenu className="cp-act" icon={<Icon name="more" size={19} />} label={<span>更多</span>} act="more" align="right" title="更多操作">
+    <PopMenu className="cp-act" icon={<Icon name="more" size={19} />} label={<span>更多</span>} act="more" align="right" side title="更多操作">
       {children}
     </PopMenu>
   );

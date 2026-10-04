@@ -255,6 +255,10 @@
 .cpanel .cp-act > .pm-btn.on {
   background: var(--hover-bg);
 }
+/* "更多"的菜单开着:按钮描一圈浅蓝 */
+.cpanel .cp-act > .pm-btn.on {
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--accent) 45%, transparent);
+}
 .cpanel .cp-act.primary {
   background: var(--accent);
   color: var(--on-accent);

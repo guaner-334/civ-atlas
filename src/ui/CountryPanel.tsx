@@ -33,7 +33,7 @@ import { shownYearOf } from './flyTo';
 import { SPARK_N, polityHistory } from './WorldOverviewCountries';
 import { openOverview } from './overviewStore';
 import { Act, Acts, AiBox, AiSuggestLink, CenterAct, EventList, Link, MoreAct, PanelHead, Row, Spark, Stats, SubLine, rgb, useRevealAi } from './panelParts';
-import { MenuItem, MenuSep } from './PopMenu';
+import { AiMenuItem, MenuItem, MenuSep } from './PopMenu';
 import { Icon } from './icons';
 import './countryPanel.css';
 
@@ -208,12 +208,12 @@ function InfoPage({ civ, world, id, year, p, shared }: CountryPanelProps & { p: 
             在编年史中查看
           </MenuItem>
           <MenuSep />
-          <MenuItem icon={<Icon name="book" size={16} />} act="book" onClick={() => openHistoryBook({ polity: id })}>
+          <AiMenuItem icon={<Icon name="book" size={16} />} act="book" onClick={() => openHistoryBook({ polity: id })}>
             让 AI 写国史
-          </MenuItem>
-          <MenuItem icon={<Icon name="sparkle" size={16} />} ain="explain" disabled={ai.busy} onClick={ai.ask}>
+          </AiMenuItem>
+          <AiMenuItem icon={<Icon name="sparkle" size={16} />} ain="explain" disabled={ai.busy} onClick={ai.ask}>
             让 AI 讲名字由来
-          </MenuItem>
+          </AiMenuItem>
         </MoreAct>
       </Acts>
       <div className="cp-body">
