@@ -29,6 +29,7 @@ import {
   unmergeRewrite,
   cleanWish,
   type RewriteChange,
+  type RewriteLock,
   type RewriteItem,
   type RewriteTurn,
 } from '../ai/prompts/rewrite';
@@ -112,6 +113,8 @@ export interface WishContext {
   civ: Civ;
   /** 时间轴现在的年份 */
   year: number;
+  /** 锁住了哪一样:世界建好了不能改地形 / 还在新建只能改地形 */
+  lock?: RewriteLock;
 }
 
 /** 前几轮(给 AI 看前情;执行过的那一轮,没勾的几条注明没执行) */
@@ -149,10 +152,10 @@ export async function sendWish(ctx: WishContext, wish: string): Promise<number> 
   running = id;
   try {
     const wishes = [...prev.map((t) => t.wish), w];
-    const mat = rewriteMaterial(ctx.world, ctx.civ, year, basis, wishes);
+    const mat = rewriteMaterial(ctx.world, ctx.civ, year, basis, wishes, ctx.lock);
     const r = await aiChat(rewriteRequest(mat, prev, w), { signal: c.signal });
     if (c.signal.aborted) throw new AiError('aborted', '已停止');
-    const pctx = { world: ctx.world, civ: ctx.civ, year, edits: basis };
+    const pctx = { world: ctx.world, civ: ctx.civ, year, edits: basis, lock: ctx.lock };
     const mock = isMockReply(r.text);
     const p = parseRewrite(mock ? mockRewrite(pctx, w) : r.text, pctx);
     if (!p.ok) throw new AiError('bad-response', p.message);
