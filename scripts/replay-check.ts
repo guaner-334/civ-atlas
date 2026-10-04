@@ -17,8 +17,8 @@ page.on('pageerror', (e) => errs.push(e.message));
 page.on('console', (m) => m.type() === 'error' && errs.push(m.text()));
 
 /**
- * 打开世界概览(点左上角的世界名),翻到某一页:countries 国家 / chronicle 编年史 / interventions 我的干预 /
- * genesis 创世(种子、新世界、参数、回放世界形成、改地形)。头部有存档、导出、AI、成书
+ * 打开世界概览(点侧栏顶上的世界名;窄屏是左上角的世界名),翻到某一页:countries 国家 / chronicle 编年史 /
+ * interventions 我的干预 / genesis 创世(种子、新世界、参数、回放世界形成、改地形)
  */
 const openOverview = async (p: Page = page, tab?: string) => {
   if (!(await p.locator('.ov-root:not([hidden])').count())) await p.click('[data-act=overview]');
@@ -796,7 +796,7 @@ for (const style of ['realistic', 'fantasy']) {
       const save = JSON.parse(text);
       fileOk = save.app === '文明与地图' && save.seed === 7 && Object.values(save.edits?.names ?? {}).includes('饕餮城') && /^[0-9a-f]{12}$/.test(save.check);
       // 换一个世界(种子 2024),再从文件打开
-      await page.click('.ov-tab[data-tab=genesis]');
+      await openOverview(page, 'genesis');
       await page.fill('.ov-seed input', '2024');
       await page.press('.ov-seed input', 'Enter');
       await page.waitForFunction(() => location.search.includes('seed=2024') && (window as any).__wfLabels?.polities > 0, null, { timeout: 60000 });
@@ -1078,11 +1078,11 @@ for (const style of ['realistic', 'fantasy']) {
   const boot = await sp.evaluate(() => ({
     booting: !!document.querySelector('.app.booting'),
     toast: document.querySelector('.toast[data-toast=progress]')?.textContent ?? '',
-    corner: getComputedStyle(document.querySelector('.corner-tl')!).visibility,
+    corner: getComputedStyle((document.querySelector('.map-bar') ?? document.querySelector('.corner-tl'))!).visibility,
     world: !!(window as any).__wf?.ready,
   }));
   await sp.waitForFunction(() => (window as any).__wfLabels?.polities > 0, null, { timeout: 60000 });
-  const after = await sp.evaluate(() => ({ booting: !!document.querySelector('.app.booting'), corner: getComputedStyle(document.querySelector('.corner-tl')!).visibility }));
+  const after = await sp.evaluate(() => ({ booting: !!document.querySelector('.app.booting'), corner: getComputedStyle((document.querySelector('.map-bar') ?? document.querySelector('.corner-tl'))!).visibility }));
   // 坏文件
   const fs = await import('node:fs');
   const os = await import('node:os');
