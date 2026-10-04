@@ -522,6 +522,8 @@ export function App() {
       const id = ++reqId.current;
       genParams.current = p;
       setProgress({ stage: '准备', pct: 0, seed: p.seed });
+      // 手机:新世界、打开存档都要看地图 —— 拉到顶的世界卡片先收起来
+      setWorldSheet('peek');
       // 改过地形的世界(浏览器里存过 / 正要打开的存档)直接带着地形修改生成,不用先生成原样再重新生成一遍
       const terrain = terrainHint(p);
       genTerrain.current = terrain;

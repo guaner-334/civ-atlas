@@ -3283,13 +3283,22 @@ for (const style of ['realistic', 'fantasy']) {
   await hit.tap().catch(() => {});
   await mp.waitForTimeout(900);
   const searchIns = await mp.locator('.inspector').innerText().catch(() => '');
+  // 拉到顶的世界卡片里点"新世界":卡片先收起,看得到新生成的世界
+  await mp.tap('.inspector .cp-x').catch(() => {});
+  await mp.waitForTimeout(400);
+  await mp.tap('.psheet .sheet-grip').catch(() => {});
+  await mp.waitForTimeout(500);
+  const newFull = (await mp.locator('.psheet.ps-full').count()) === 1;
+  await mp.tap('.psheet [data-act=new-world]').catch(() => {});
+  await mp.waitForTimeout(500);
+  const newPeek = (await mp.locator('.psheet.ps-peek').count()) === 1;
   console.log(
     `手机布局:胶囊 ${JSON.stringify(row)},轨道 ${JSON.stringify(track)};世界卡片 ${JSON.stringify(ws0)}「${sub}」;右上 ${btnActs} ${JSON.stringify(btns)};提示「${hint0}」;+ − ${zoomBtns} 个;` +
       `上拖 → 拉到顶 ${JSON.stringify(wsFull)}、大按钮 ${tiles} 个、胶囊藏起 ${capsuleHidden};点拖动条 → 收起 ${JSON.stringify(ws1)};拉到顶点改地形 → 收起 ${terrainPeek};` +
       `捏合 k ${k0.toFixed(2)} → ${k1.toFixed(2)}(中点下 ${mid0?.map((v: number) => v.toFixed(0))} → ${mid1?.map((v: number) => v.toFixed(0))});单指拖动 ${panned};点两下回正 k ${kReset.toFixed(2)};` +
       `点「${pol?.text}」→ 详情卡片 ${JSON.stringify(sheet0)}、胶囊 ${JSON.stringify(row1)}、国都圆环 ${JSON.stringify(ring)}、悬停卡片 ${hover};上拖 → 拉到顶 ${full} ${JSON.stringify(sheet1)}、胶囊藏起 ${fullCapsuleHidden};` +
       `干预页 ${cmds} 条;结盟提示「${pickToast}」、卡片藏起 ${hiddenWhilePicking};点「${tgtText}」→「${doneToast}」;撤销 →「${undoToast}」;` +
-      `图层抽屉 ${JSON.stringify(lp)} → 实景 ${dark}、收起 ${lpClosed};概览「${ovRowText}」→ 收起 ${ovClosed};搜索框 ${JSON.stringify(sb)} 拉到顶 ${searchFull} → 「${hitName}」`,
+      `图层抽屉 ${JSON.stringify(lp)} → 实景 ${dark}、收起 ${lpClosed};概览「${ovRowText}」→ 收起 ${ovClosed};搜索框 ${JSON.stringify(sb)} 拉到顶 ${searchFull} → 「${hitName}」;拉到顶 ${newFull} 点新世界 → 收起 ${newPeek}`,
   );
   if (!ws0 || Math.abs(ws0.y - (VH - PEEK)) > 2 || Math.abs(ws0.y + ws0.height - VH) > 1 || ws0.width !== VW) errs.push(`手机:世界卡片没有收在最底(${JSON.stringify(ws0)})`);
   if (!row || !ws0 || Math.abs(row.y + row.height - (ws0.y - 10)) > 2 || Math.abs(row.width - (VW - 24)) > 1 || row.height > 56)
@@ -3327,6 +3336,7 @@ for (const style of ['realistic', 'fantasy']) {
   if (!ovClosed || !ovName || !ovIns.includes(ovName)) errs.push(`手机:概览的国家列表点一国没有打开这国(${ovName})`);
   if (!sb || sb.width < VW - 40 || !searchFull) errs.push(`手机:搜索时世界卡片没有拉到顶(${JSON.stringify(sb)})`);
   if (!hitName || !searchIns.includes(hitName)) errs.push(`手机:搜索点一条没有打开它(${hitName})`);
+  if (!newFull || !newPeek) errs.push(`手机:拉到顶的世界卡片里点"新世界",卡片没有收起(拉到顶 ${newFull},收起 ${newPeek})`);
   await mctx.close();
 }
 
