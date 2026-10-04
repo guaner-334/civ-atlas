@@ -889,7 +889,11 @@ function simpleEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
       const p = polityOf(civ, e.a);
       const imp = p && p.eastern && polityTierAt(p, y) >= DYNASTY_TIER ? 3 : 2;
       const i = p ? Math.max(1, dynastyIndexAt(p, y)) : 1;
-      return withPeople(base(e, id, dynastyText(civ, e, ctx.ix), imp, [e.a], [e.region]), endedAt(ctx.ix, e.a, y), founderOf(ctx.ix, e.a, i));
+      const text = dynastyText(civ, e, ctx.ix);
+      // 末代只在权臣篡位时写到("废少帝自立")
+      const old = endedAt(ctx.ix, e.a, y);
+      const ousted = !!old && (text.includes(`废${old.name}`) || (!!old.title && text.includes(`废${old.title}`)));
+      return withPeople(base(e, id, text, imp, [e.a], [e.region]), ousted ? old : null, founderOf(ctx.ix, e.a, i));
     }
     case 'sack':
       return base(e, id, sackText(civ, e), 2, [e.a, e.b], [e.region]);

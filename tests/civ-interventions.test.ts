@@ -321,7 +321,7 @@ describe('干预 · 推演', () => {
           const before = c.annals.slice(0, i).reverse().find((x) => x.kind === 'war' && x.year === e.year);
           expect(before && before.b === e.settlement && before.a === e.b).toBe(true);
           const entry = buildChronicle(c).find((x) => x.kind === 'war' && x.id === i);
-          expect(entry?.text).toMatch(/应.+之约伐/);
+          expect(entry?.text).toMatch(/应.+之约(,遣.+)?伐/);
         }
         if (tried >= 5 * (seed === 7 ? 1 : 2)) break;
       }
