@@ -3,7 +3,7 @@
  * 零星浮冰和冰间水道、只在挨着海面的那几截描墨线、冰缘带。(真正的画面在 scripts/snap.ts 放大截图里看)
  */
 import { describe, expect, it } from 'vitest';
-import { clipLoopRect, fillLoops, forTilesIn, iceBand, iceLines, inkRuns, projTileGeom, projTilePolys, tileLoops, traceOriented, worldWindow, type OrientedLine, type TileGrid } from '../src/render/fantasy';
+import { clipLoopRect, fillLoops, forTilesIn, iceBand, iceLines, inkRuns, projTileGeom, projTilePolys, simplifyOriented, tileLoops, traceOriented, worldWindow, type OrientedLine, type TileGrid } from '../src/render/fantasy';
 import { mapProj, projector, type ProjectionId } from '../src/render/projection';
 
 const w = 64;
@@ -47,7 +47,7 @@ const tiling: TileGrid = { x0: 0, y0: 0, tw: W / 4, th: h / 2, nc: 4, nr: 2 };
 
 /** 范围 [x0, x1] × [y0, y1] 里填色的子路径(同 fantasy.ts 的 tilePathIn:闭合多边形 → 切进格子 → 挑范围附近的格子,伸出左右边的平移整圈) */
 function fillPolys(lines: OrientedLine[], x0: number, y0: number, x1: number, y1: number): number[][] {
-  const tiles = tileLoops(fillLoops(lines, W, h), tiling, 0);
+  const tiles = tileLoops(fillLoops(lines, W, h), tiling);
   const out: number[][] = [];
   forTilesIn(tiling, W, x0, y0, x1, y1, (i, dx) => {
     for (const q of tiles[i]) out.push(q.map((v, j) => (j % 2 ? v : v + dx)));
@@ -164,7 +164,7 @@ describe('冰的分界线(有方向,冰在左手边)', () => {
 
   it('切进格子后每格的多边形都在自己的格子里,伸出地图的部分不要', () => {
     const { r, iceM } = grid((x, y) => y < 6 || y >= 29 || blob(x, y) || (x === 63 && y === 15));
-    const tiles = tileLoops(fillLoops(iceLines(r, iceM), W, h), tiling, 0);
+    const tiles = tileLoops(fillLoops(iceLines(r, iceM), W, h), tiling);
     tiles.forEach((polys, i) => {
       const c = i % tiling.nc;
       const rr = (i - c) / tiling.nc;
@@ -176,6 +176,46 @@ describe('冰的分界线(有方向,冰在左手边)', () => {
           expect(q[j + 1]).toBeLessThanOrEqual((rr + 1) * tiling.th + 1e-9);
         }
     });
+  });
+
+  it('分界线抽稀(一段一段做):剩下的点都是原来的、首点留着;原来每一点离抽稀后的线(绕一圈的接上下一份)不超过容差,零星浮冰不会抽没', () => {
+    const cap = (x: number, y: number) => y < 8 + Math.round(3 * Math.sin((x / w) * 2 * Math.PI * 3));
+    const { r, iceM } = grid((x, y) => cap(x, y) || y >= 27 || blob(x, y) || (x === 50 && y === 20));
+    const lines = iceLines(r, iceM);
+    // 最长的线有好几段那么长
+    expect(Math.max(...lines.map((l) => l.pts.length / 2))).toBeGreaterThan(300);
+    const segDist = (px: number, py: number, ax: number, ay: number, bx: number, by: number) => {
+      const dx = bx - ax;
+      const dy = by - ay;
+      const L2 = dx * dx + dy * dy;
+      const t = L2 > 0 ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / L2)) : 0;
+      return Math.hypot(px - ax - t * dx, py - ay - t * dy);
+    };
+    for (const tol of [0.05, 0.3]) {
+      let before = 0;
+      let after = 0;
+      for (const l of lines) {
+        const s = simplifyOriented(l, W, tol);
+        before += l.pts.length;
+        after += s.pts.length;
+        expect(s.wrap).toBe(l.wrap);
+        // 环至少剩三点;沿地图上下边的直线绕一圈,剩一点也行(接回去就是一整圈)
+        expect(s.pts.length).toBeGreaterThanOrEqual(l.wrap ? 2 : 6);
+        expect([s.pts[0], s.pts[1]]).toEqual([l.pts[0], l.pts[1]]);
+        let j = 0;
+        for (let i = 0; i < l.pts.length && j < s.pts.length; i += 2) if (l.pts[i] === s.pts[j] && l.pts[i + 1] === s.pts[j + 1]) j += 2;
+        expect(j).toBe(s.pts.length);
+        const q = [...s.pts, s.pts[0] + s.wrap * W, s.pts[1]];
+        let worst = 0;
+        for (let i = 0; i < l.pts.length; i += 2) {
+          let d = Infinity;
+          for (let k = 0; k + 3 < q.length; k += 2) d = Math.min(d, segDist(l.pts[i], l.pts[i + 1], q[k], q[k + 1], q[k + 2], q[k + 3]));
+          worst = Math.max(worst, d);
+        }
+        expect(worst).toBeLessThanOrEqual(tol + 1e-5);
+      }
+      expect(after).toBeLessThan(before * 0.7);
+    }
   });
 
   it('traceOriented 走出来的每条线都首尾相接(最后一点离首点不到一格;绕一圈的接回首点 + 一圈)', () => {
@@ -214,7 +254,7 @@ describe('弯边投影:只投影视口那一块', () => {
   for (const [id, lon0] of cases)
     it(`${id} 中心 ${lon0}°:视口里每个像素中心投影过去,都在挑出的世界范围里,填色(格子边不加密、换中心乘加、碰到中央经线对面的裁开)和冰像素对得上`, () => {
       const { r, iceM } = grid(ice);
-      const polys = tileLoops(fillLoops(iceLines(r, iceM), W, h), tiling, 0);
+      const polys = tileLoops(fillLoops(iceLines(r, iceM), W, h), tiling);
       const pj = projector(mapProj(id, lon0, W, h));
       const xc = (lon0 / 360 + 0.5) * W;
       const k2 = (2 * Math.PI) / W;

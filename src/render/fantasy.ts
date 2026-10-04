@@ -1273,17 +1273,31 @@ function iceCross(r: Pick<Raster, 'w' | 'h' | 'water'>, iceM: Uint8Array): (ka: 
 
 /** 二值图往外扩 R 格(切比雪夫距离;东西相连,上下不出图) */
 function dilateWrap(m: Uint8Array, w: number, h: number, R: number): Uint8Array {
+  // 先横着扩(窗口里数有几格,滑过去加一格减一格),再竖着扩(每列数窗口里那几行)
   const tmp = new Uint8Array(w * h);
   for (let y = 0; y < h; y++) {
     const row = y * w;
-    for (let x = 0; x < w; x++) if (m[row + x]) for (let dx = -R; dx <= R; dx++) tmp[row + ((x + dx + w) % w)] = 1;
+    if (2 * R + 1 >= w) {
+      let any = 0;
+      for (let x = 0; x < w; x++) any |= m[row + x];
+      tmp.fill(any, row, row + w);
+      continue;
+    }
+    let cnt = 0;
+    for (let dx = -R; dx <= R; dx++) cnt += m[row + ((dx + w) % w)];
+    for (let x = 0; x < w; x++) {
+      tmp[row + x] = cnt ? 1 : 0;
+      cnt += m[row + ((x + R + 1) % w)] - m[row + ((x - R + w) % w)];
+    }
   }
   const out = new Uint8Array(w * h);
-  for (let y = 0; y < h; y++)
-    for (let x = 0; x < w; x++) {
-      if (!tmp[y * w + x]) continue;
-      for (let dy = Math.max(-y, -R); dy <= R && y + dy < h; dy++) out[(y + dy) * w + x] = 1;
-    }
+  const cnt = new Int32Array(w);
+  for (let y = 0; y < Math.min(R, h); y++) for (let x = 0; x < w; x++) cnt[x] += tmp[y * w + x];
+  for (let y = 0; y < h; y++) {
+    if (y + R < h) for (let x = 0, o = (y + R) * w; x < w; x++) cnt[x] += tmp[o + x];
+    if (y - R - 1 >= 0) for (let x = 0, o = (y - R - 1) * w; x < w; x++) cnt[x] -= tmp[o + x];
+    for (let x = 0, o = y * w; x < w; x++) out[o + x] = cnt[x] ? 1 : 0;
+  }
   return out;
 }
 
@@ -1310,7 +1324,7 @@ export function iceLines(r: Pick<Raster, 'w' | 'h' | 'scale' | 'water'>, iceM: U
 }
 
 /** 折线外框(x0, y0, x1, y1;绕一圈的线算一个周期,含接回去的那一点) */
-function lineBox(l: OrientedLine, W: number): [number, number, number, number] {
+function lineBox(l: Pick<OrientedLine, 'pts' | 'wrap'>, W: number): [number, number, number, number] {
   const p = l.pts;
   let x0 = Infinity;
   let y0 = Infinity;
@@ -1399,7 +1413,7 @@ export function clipLoopRect(p: ArrayLike<number>, x0: number, y0: number, x1: n
  * 再从地图下边以外绕回来 —— 每条就是"线以下"的一整片(往东、往西的正负相反),几条叠起来正好是冰的范围。
  * 之后按格子裁到地图里(见 tileLoops)
  */
-export function fillLoops(lines: OrientedLine[], W: number, H: number, ddx = 0, ddy = 0): Float64Array[] {
+export function fillLoops(lines: Pick<OrientedLine, 'pts' | 'wrap'>[], W: number, H: number, ddx = 0, ddy = 0): Float64Array[] {
   const out: Float64Array[] = [];
   for (const l of lines) {
     const [bx0, by0, bx1] = lineBox(l, W);
@@ -1443,23 +1457,34 @@ export interface TileGrid {
   nr: number;
 }
 
-/** 首尾相接的多边形抽稀(Douglas–Peucker,同 simplifyLine;首点留着) */
-function simplifyLoop(p: ArrayLike<number>, tol: number): ArrayLike<number> {
-  const n = p.length;
-  if (tol <= 0 || n < 8) return p;
-  const q = new Float32Array(n + 2);
-  q.set(p);
-  q[n] = p[0];
-  q[n + 1] = p[1];
-  const s = simplifyLine(q, tol);
-  return s.subarray(0, s.length - 2);
+/** 抽稀时一段多少个点:一段一段做 Douglas–Peucker(接头的点留着);整条长线一起做要慢很多 */
+const SIMPLIFY_RUN = 128;
+
+/**
+ * 首尾相接的线按 tol 抽稀(同 simplifyLine,每 SIMPLIFY_RUN 个点一段)。首点留着、最后接回去的还是首点(绕一圈的平移一整圈),
+ * 所以绕一圈的线抽稀后一份一份照样接得上
+ */
+export function simplifyOriented(l: Pick<OrientedLine, 'pts' | 'wrap'>, W: number, tol: number): Pick<OrientedLine, 'pts' | 'wrap'> {
+  if (tol <= 0) return l;
+  const q = closedPts(l, W);
+  const m = q.length / 2;
+  const out: number[] = [];
+  for (let a = 0; a < m - 1; a += SIMPLIFY_RUN) {
+    const b = Math.min(m - 1, a + SIMPLIFY_RUN);
+    const s = simplifyLine(q.subarray(a * 2, b * 2 + 2), tol);
+    // 末点是下一段的首点(最后一段的末点 = 接回去的首点),不重复
+    for (let i = 0; i < s.length - 2; i++) out.push(s[i]);
+  }
+  // 一格的零星浮冰圈得很小(直径不到半格),容差大时会抽成一个点:这种小环照原样留着,不抽没
+  if (!l.wrap && out.length < 6) return l;
+  return { pts: Float32Array.from(out), wrap: l.wrap };
 }
 
 /**
- * 多边形(先按 tol 抽稀)切进格子:每格一批多边形,格子里每一点的环绕数和原来一样(Sutherland–Hodgman,对半切下去),
+ * 多边形切进格子:每格一批多边形,格子里每一点的环绕数和原来一样(Sutherland–Hodgman,对半切下去),
  * 伸出整个格子范围的部分不要。相邻两格共用的那条格子边上,两边各有一段方向相反的边,拼进同一条路径填色时互相抵消
  */
-export function tileLoops(loops: ArrayLike<number>[], g: TileGrid, tol: number): number[][][] {
+export function tileLoops(loops: ArrayLike<number>[], g: TileGrid): number[][][] {
   const out: number[][][] = Array.from({ length: g.nc * g.nr }, () => []);
   const rec = (p: number[], c0: number, c1: number, r0: number, r1: number) => {
     if (p.length < 6) return;
@@ -1479,8 +1504,7 @@ export function tileLoops(loops: ArrayLike<number>[], g: TileGrid, tol: number):
       rec(clipHalf(p, 1, lim, true), c0, c1, rm, r1);
     }
   };
-  for (const loop of loops) {
-    const q = simplifyLoop(loop, tol);
+  for (const q of loops) {
     let bx0 = Infinity;
     let by0 = Infinity;
     let bx1 = -Infinity;
@@ -1524,12 +1548,19 @@ export function forTilesIn(g: TileGrid, W: number, x0: number, y0: number, x1: n
   }
 }
 
-/** 填色范围的格子(世界坐标,东西相连;每格一批多边形、一条路径,按 COAST_LOD 每档抽稀一份,用到时才切) */
+/**
+ * 填色范围的格子(世界坐标,东西相连;每格一批多边形、一条路径)。按 COAST_LOD 每档一份,用到时才做:
+ * 分界线先抽稀,再拼成多边形(见 fillLoops)、切进格子
+ */
 interface FillTiles {
-  loops: Float64Array[];
+  /** 分界线(填色在左手边)和整体平移(见 fillLoops) */
+  lines: OrientedLine[];
+  ddx: number;
+  ddy: number;
   g: TileGrid;
-  /** 世界宽 */
+  /** 世界宽、高 */
   W: number;
+  H: number;
   polys: (number[][][] | undefined)[];
   paths: ((Path2D | null)[] | undefined)[];
   /** 弯边投影:按纬度加密好的多边形(每种投影一份,见 projTileGeom) */
@@ -1539,14 +1570,19 @@ interface FillTiles {
 /** 格子大约多大(世界单位):放大后视口里只有几格到十几格 */
 const FILL_TILE = 128;
 
-function fillTiles(loops: Float64Array[], W: number, H: number): FillTiles {
+function fillTiles(lines: OrientedLine[], W: number, H: number, ddx = 0, ddy = 0): FillTiles {
   const nc = Math.max(1, Math.round(W / FILL_TILE));
   const nr = Math.max(1, Math.round(H / FILL_TILE));
-  return { loops, g: { x0: 0, y0: 0, tw: W / nc, th: H / nr, nc, nr }, W, polys: COAST_LOD.map(() => undefined), paths: COAST_LOD.map(() => undefined), proj: COAST_LOD.map(() => undefined) };
+  return { lines, ddx, ddy, g: { x0: 0, y0: 0, tw: W / nc, th: H / nr, nc, nr }, W, H, polys: COAST_LOD.map(() => undefined), paths: COAST_LOD.map(() => undefined), proj: COAST_LOD.map(() => undefined) };
 }
 
 function tilePolys(t: FillTiles, lod: number): number[][][] {
-  return (t.polys[lod] ??= tileLoops(t.loops, t.g, COAST_LOD[lod]));
+  let p = t.polys[lod];
+  if (!p) {
+    const lines = t.lines.map((l) => simplifyOriented(l, t.W, COAST_LOD[lod]));
+    p = t.polys[lod] = tileLoops(fillLoops(lines, t.W, t.H, t.ddx, t.ddy), t.g);
+  }
+  return p;
 }
 
 /** 范围里的填色路径(第 lod 档;世界坐标) */
@@ -1768,13 +1804,13 @@ interface IceGeo {
   raster: Raster;
   /** 冰的分界线(冰在左手边) */
   fill: OrientedLine[];
-  /** 冰面填色范围按格子切好(世界坐标,一圈) */
+  /** 冰面填色范围按格子切(世界坐标,一圈;用到哪一档才切哪一档) */
   fillT: FillTiles;
   /** 冰缘墨线(要描的那几截),切成小段 */
   ink: CoastChunks;
   /** 背光边排线要躲开的范围:冰 + 冰附近的陆地(往西北挪一个背光边宽后,冰面里没被它盖住的那一条就是背光边) */
   shade: OrientedLine[];
-  /** 同上,已往西北挪好、按格子切好 */
+  /** 同上,往西北挪一个背光边宽、按格子切 */
   shadeT: FillTiles;
   /** 背光边的斜排线:shade 的每一小段附近一批(x0, y0, x1, y1 交错,世界坐标),切成小段 */
   hatch: CoastChunks;
@@ -1785,7 +1821,7 @@ interface IceGeo {
 let iceGeo: IceGeo | null = null;
 
 /** 一条首尾相接的线展开成一段折线(首点重复在末尾,绕一圈的末点平移一整圈) */
-function closedPts(l: OrientedLine, W: number): Float32Array {
+function closedPts(l: Pick<OrientedLine, 'pts' | 'wrap'>, W: number): Float32Array {
   const p = l.pts;
   const q = new Float32Array(p.length + 2);
   q.set(p);
@@ -1901,10 +1937,10 @@ function iceGeoOf(world: World, r: Raster): IceGeo | null {
   iceGeo = {
     raster: r,
     fill,
-    fillT: fillTiles(fillLoops(fill, W, H), W, H),
+    fillT: fillTiles(fill, W, H),
     ink: coastChunks(fill.flatMap((l) => inkRuns(l, W))),
     shade,
-    shadeT: fillTiles(fillLoops(shade, W, H, -d, -d), W, H),
+    shadeT: fillTiles(shade, W, H, -d, -d),
     hatch,
     inkFade,
     pats: null,
