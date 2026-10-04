@@ -1275,6 +1275,8 @@ for (const style of ['realistic', 'fantasy']) {
   let ivToast = '';
   let insChron = '';
   let events = '';
+  /** 面板大事里干预那一条(类型只用圆点颜色表示,类型名在悬停提示里) */
+  let ivEvent = '';
   if (name) {
     // 国家面板"相关事件"旁的"全部 ›" = 打开概览的编年史页、只看这国;收起概览再下干预
     await page.click('.inspector [data-act=chronicle]');
@@ -1296,6 +1298,7 @@ for (const style of ['realistic', 'fantasy']) {
     // 还活着:没有"结局"一行,小字是"N 年立国"
     aliveAfter = again ? (again.includes('结局') ? `还是亡了(${again.replace(/\n/g, ' ').slice(0, 80)})` : '至今还在') : '';
     events = await page.locator('.inspector .cp-events').innerText().catch(() => '');
+    ivEvent = await page.locator('.inspector .cp-events .cp-ev[data-ev=order][title=干预]').innerText().catch(() => '');
     await page.keyboard.press('Escape');
     await openOverview(page, 'chronicle');
     chron = await page.locator('.chronicle').innerText().catch(() => '');
@@ -1306,13 +1309,13 @@ for (const style of ['realistic', 'fantasy']) {
   console.log(
     `干预:「${name}」原本第 ${fellAt} 年亡 → 点"保护" → 重推 ${resim ? `${resim.paintedMs.toFixed(0)} ms(线程里 ${resim.workerMs.toFixed(0)} ms)` : '没完成'};` +
       `面板「${aliveAfter}」;时间轴 ${tl}${playing ? '(在放)' : '(停着)'}、「令」${orders} 枚;提示条「${ivToast}」;概览里干预 ${listed} 条;` +
-      `面板的"全部 ›"打开概览、只看「${insChron}」;面板相关事件里有干预 ${/干预/.test(events)};编年史里有干预 ${/干预\s+[^\n]*自此不亡/.test(chron)}`,
+      `面板的"全部 ›"打开概览、只看「${insChron}」;面板相关事件里有干预 ${ivEvent.includes('自此不亡')};编年史里有干预 ${/干预\s+[^\n]*自此不亡/.test(chron)}`,
   );
   if (!name) errs.push('干预:没在地图上点到一个后来会亡的国家');
   else {
     if (!resim) errs.push('干预:点"保护"后没有重推');
     if (!aliveAfter.includes('至今')) errs.push(`干预:加了"保护"以后「${name}」还是亡了(${aliveAfter})`);
-    if (!/干预/.test(events) || !events.includes('自此不亡')) errs.push(`干预:国家面板的相关事件里没有这条干预(${events.replace(/\n/g, ' ')})`);
+    if (!ivEvent.includes('自此不亡')) errs.push(`干预:国家面板的相关事件里没有这条干预(${events.replace(/\n/g, ' ')})`);
     if (!/干预\s+[^\n]*自此不亡/.test(chron)) errs.push('干预:编年史里没有记这条干预');
     if (!insChron || insChron === '全部国家') errs.push(`干预:面板里点"全部 ›"没有打开概览的编年史页、只看这国(${insChron})`);
     const ty = Number(tl.match(/\d+/)?.[0] ?? NaN);
@@ -1520,7 +1523,9 @@ for (const style of ['realistic', 'fantasy']) {
       `海里点火山 → 重新生成 ${t ? `${t.paintedMs.toFixed(0)} ms(线程里 ${t.workerMs.toFixed(0)} ms)` : '没完成'};` +
       `之前「${before.split(' / ')[1] ?? ''}」→ 之后「${after.split(' / ')[1] ?? ''}」;工具条「${count}」;提示条在 ${tBox ? Math.round(tBox.y) : '-'}`,
   );
-  if (!['火山', '山脉', '湖', '撤销', '完成'].every((w) => panel.includes(w)) || !barBox || barBox.y > 40) errs.push(`改地形:进入后顶部没有工具条(${panel})`);
+  // 宽屏:工具条在卡片右边那一块的顶上(右上那排按钮下面),不压在侧栏卡片上
+  const sideR = await page.evaluate(() => document.querySelector('.sidebar')?.getBoundingClientRect().right ?? 0);
+  if (!['火山', '山脉', '湖', '撤销', '完成'].every((w) => panel.includes(w)) || !barBox || barBox.y > 80 || barBox.x < sideR) errs.push(`改地形:进入后顶部没有工具条(${panel})`);
   if (tBox && barBox && tBox.y < barBox.y + barBox.height) errs.push('改地形:提示条压在工具条上');
   // 工具条只有一行(用法在各工具的悬停提示里,不另写一行说明)
   if (barBox && barBox.height > 56) errs.push(`改地形:工具条不止一行(高 ${Math.round(barBox.height)})`);
@@ -2265,7 +2270,9 @@ for (const style of ['realistic', 'fantasy']) {
   };
   const v0 = await view();
   const box = (await page.locator('.map-box').boundingBox())!;
-  const sx = box.x + box.width * 0.3;
+  // 从卡片右边那一块里起手(左边浮着侧栏卡片,按在卡片上拖不动地图)
+  const side = await page.locator('.sidebar').boundingBox();
+  const sx = Math.max(box.x + box.width * 0.3, (side ? side.x + side.width : 0) + 40);
   const sy = box.y + box.height * 0.5;
   // 1. 拖动时每帧耗时:按住以后在页面里连发 60 次移动,每次量"事件 → 地图层变换、文字层重排、视窗装饰重画"做完
   await page.mouse.move(sx, sy);
