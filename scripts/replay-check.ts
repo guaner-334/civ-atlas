@@ -360,7 +360,8 @@ const cached = await wf();
 console.log('切回画过的画风 renderMs:', cached.renderMs.toFixed(1));
 if (!(cached.renderMs < 20)) errs.push(`切回画过的画风仍在重画(renderMs=${cached.renderMs.toFixed(1)})`);
 
-// 回放中点概览"世界设定"页的"以它为底稿新建…":概览收起,左边换成新建卡片(种子锁着,地形、参数带过去)
+// 回放中点概览"世界设定"页的"以它为底稿新建…":概览收起,左边换成新建卡片(种子锁着,地形、参数带过去);
+// 带着东西、起好了名,一开始就存成没建完的(网址 w=编号,刷新不丢);什么都没动就点返回,这一份删掉
 await replayClick();
 await page.waitForTimeout(1000);
 await openOverview(page, 'genesis');
@@ -369,10 +370,17 @@ const fromCard = await page.locator('.sidebar.nw-card').waitFor({ timeout: 5000 
 const fromClosed = !(await page.locator('.ov-root:not([hidden])').count());
 const fromSeed = (await page.locator('.nw-card [data-act=seed-locked]').innerText().catch(() => '')).replace(/\n/g, ' ');
 const fromUrl = page.url();
-console.log(`以它为底稿新建:卡片 ${fromCard}、概览收起 ${fromClosed}、种子「${fromSeed}」、网址 ${fromUrl.split('?')[1]}`);
+const fromId = new URL(fromUrl).searchParams.get('w');
+const fromKey = `wenming-ditu:world:${fromId}`;
+const fromStored = !!fromId && (await page.evaluate((k) => localStorage.getItem(k) !== null, fromKey));
+await page.click('.nw-card [data-act=back]').catch(() => {});
+await page.locator('.sidebar.nw-card').waitFor({ state: 'detached', timeout: 10000 }).catch(() => {});
+const fromLeft = !!fromId && (await page.evaluate((k) => localStorage.getItem(k) !== null, fromKey));
+console.log(`以它为底稿新建:卡片 ${fromCard}、概览收起 ${fromClosed}、种子「${fromSeed}」、网址 ${fromUrl.split('?')[1]}、存下了 ${fromStored};没动就返回后还在 ${fromLeft}`);
 if (!fromCard || !fromClosed) errs.push('点"以它为底稿新建"后没有换成新建卡片 / 概览没收起');
 if (!/种子.*7/.test(fromSeed)) errs.push(`以它为底稿新建:种子应锁着、还是 7(${fromSeed})`);
-if (!/[?&]new=1/.test(fromUrl)) errs.push(`以它为底稿新建:网址没有 new=1(${fromUrl})`);
+if (!fromStored) errs.push(`以它为底稿新建:应一开始就存成没建完的、网址带 w=编号(${fromUrl})`);
+if (fromLeft) errs.push('以它为底稿新建后什么都没动就返回,没建完的那一份没有删掉');
 
 // 新建中回放时点"换一颗":新星球出来后回放按钮要恢复正常、还能再点
 await page.goto(`${dev.url}/?new=1&seed=7&style=realistic`);

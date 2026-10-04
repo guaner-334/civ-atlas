@@ -539,8 +539,7 @@ export function deleteWorld(id: string) {
   removeKeys(id);
   if (current?.id === id) {
     current = null;
-    if (thumbTimer !== undefined) clearTimeout(thumbTimer);
-    thumbTimer = undefined;
+    stopThumb();
   }
   changed();
 }
@@ -644,6 +643,15 @@ let current: Current | null = null;
 /** 截缩略图(App 给):画布还没画好这个世界 = null */
 let thumbMaker: ((id: string) => string | null) | null = null;
 let thumbTimer: ReturnType<typeof setTimeout> | undefined;
+/** 等着的那一张是要重截的(已经有了也截):这个世界的编号 */
+let thumbForce: string | null = null;
+
+/** 不截了(换世界、删掉) */
+function stopThumb() {
+  if (thumbTimer !== undefined) clearTimeout(thumbTimer);
+  thumbTimer = undefined;
+  thumbForce = null;
+}
 
 export function setThumbMaker(f: ((id: string) => string | null) | null) {
   thumbMaker = f;
@@ -664,10 +672,14 @@ export function currentSave(): SaveFile | null {
 
 /** 过一会儿截一张缩略图(画布这时可能还没画好这个世界,截不到就再等等);force = 已经有了也重截 */
 function scheduleThumb(id: string, force = false, tries = 0) {
+  // 等着重截的不被随后一次普通的盖掉
+  if (thumbForce === id) force = true;
+  stopThumb();
   if (tries > 40) return;
-  if (thumbTimer !== undefined) clearTimeout(thumbTimer);
+  if (force) thumbForce = id;
   thumbTimer = setTimeout(() => {
     thumbTimer = undefined;
+    thumbForce = null;
     if (current?.id !== id || !store().get(PREFIX + id) || (!force && store().get(THUMB + id))) return;
     let url: string | null = null;
     try {
@@ -700,6 +712,9 @@ function saveCurrent(force = false): boolean {
   if (!c) return false;
   const edits = getEdits();
   if (!force && edits === c.saved) return false;
+  // 干预变了:历史要重推,缩略图上结束那一年的国家跟着变,重截(App 等重推完才给图)
+  const was = c.saved?.interventions;
+  const redraw = !!was && edits.interventions !== was && JSON.stringify(edits.interventions) !== JSON.stringify(was);
   c.saved = edits;
   // 新建中:走到这里就是作者动了(改了地形、起了名、调了参数);只换投影的走不到这里(没存过的不为它存)
   if (c.kind === 'draft') c.pristine = false;
@@ -708,7 +723,7 @@ function saveCurrent(force = false): boolean {
   const view = currentView();
   c.savedView = view;
   const ok = writeSave(c.id, makeSave(c.params, edits, c.check, c.title, undefined, view), metaOf(c));
-  if (ok) scheduleThumb(c.id);
+  if (ok) scheduleThumb(c.id, redraw);
   changed();
   return ok;
 }
@@ -838,8 +853,7 @@ export function updateCheck(check: string) {
 /** 换世界(或读档)之前:之后的修改(clearEdits)不再算这个世界的 */
 export function detachWorld() {
   current = null;
-  if (thumbTimer !== undefined) clearTimeout(thumbTimer);
-  thumbTimer = undefined;
+  stopThumb();
   changed();
 }
 
@@ -858,6 +872,5 @@ export function _resetForTest() {
   memoryWarned = false;
   evicted = [];
   mem.clear();
-  if (thumbTimer !== undefined) clearTimeout(thumbTimer);
-  thumbTimer = undefined;
+  stopThumb();
 }

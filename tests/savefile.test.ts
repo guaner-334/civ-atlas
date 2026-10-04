@@ -563,6 +563,34 @@ describe('浏览器存储(saveStore)', () => {
     }
   });
 
+  it('下了干预(历史重推):缩略图重截,紧接着改名也不会把这次重截盖掉;只改名不重截;重推中截不到就等等', async () => {
+    const wait = () => new Promise((r) => setTimeout(r, 800));
+    let n = 0;
+    let busy = false;
+    saveStore.setThumbMaker(() => (busy ? null : `data:image/jpeg;base64,T${++n}`));
+    try {
+      const id = openWorld(7, { title: '苍澜界' });
+      await wait();
+      expect(saveStore.loadWorld(id)?.thumb).toBe('data:image/jpeg;base64,T1');
+      // 只改名:结束那一年的国家没变,缩略图不动
+      setName('region:c1', '九嶷州');
+      await wait();
+      expect(saveStore.loadWorld(id)?.thumb).toBe('data:image/jpeg;base64,T1');
+      // 下了一条干预(App 在重推,截不到),紧接着又改了个名
+      busy = true;
+      setEdits({ ...getEdits(), interventions: EDITS.interventions.slice(0, 1) });
+      setName('region:c2', '赤水州');
+      await wait();
+      expect(saveStore.loadWorld(id)?.thumb).toBe('data:image/jpeg;base64,T1');
+      // 推完了:重截
+      busy = false;
+      await wait();
+      expect(saveStore.loadWorld(id)?.thumb).toBe('data:image/jpeg;base64,T2');
+    } finally {
+      saveStore.setThumbMaker(null);
+    }
+  });
+
   it('新建中改了地形(存成没建完)又换了一颗星球、没起名、参数默认:又算没动过,原来存的那份拿掉', () => {
     const id = openWorld(7, { kind: 'draft', pristine: true });
     setEdits({ ...EMPTY_EDITS, terrain: [{ kind: 'volcano', pts: [100, 100], r: 28, s: 1 }] as unknown as WorldEdits['terrain'] });

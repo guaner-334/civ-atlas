@@ -114,6 +114,7 @@ import {
   briefError,
   briefWarning,
   currentWorld,
+  deleteWorld,
   detachWorld,
   importSave,
   isStored,
@@ -255,6 +256,11 @@ interface Target {
 /** 随机一个种子(新建世界、"换一颗") */
 function randomSeedValue(): number {
   return Math.floor(Math.random() * 999999) + 1;
+}
+
+/** 新建中的世界现在的样子(参数、修改、名字),比较动没动过用 */
+function draftSig(params: WorldParams, edits: WorldEdits, title?: string): string {
+  return JSON.stringify([worldKey(params), edits, title ?? '']);
 }
 
 /** 一个新建中的世界(还没动过) */
@@ -484,6 +490,9 @@ export function App() {
     note?: RewriteNote;
   } | null>(null);
   const [resim, setResim] = useState<{ year: number } | null>(null);
+  /** 正在按新的干预重推历史(缩略图等推完再截) */
+  const resimRef = useRef(false);
+  resimRef.current = !!resim;
   const rawRef = useRef<Civ | null>(null);
   rawRef.current = rawCiv;
   /** 当前这个世界(编号 reqId.current)的参数;回放时带给线程,线程重开过也能按参数重算 */
@@ -850,12 +859,12 @@ export function App() {
   // AI(阶段 5):登记服务商、恢复设置、调用记录存本地
   useEffect(() => setupAi(), []);
   // 缩略图("我的世界"的卡片、存档菜单):手绘风的地形 480×240;建好的世界叠上结束那一年的国家色块(和正在看哪个图层、哪一年无关)。
-  // 世界还在生成、按新地形重新生成时 = null,saveStore 过一会儿再来要
+  // 世界还在生成、按新地形重新生成、按新的干预重推历史时 = null,saveStore 过一会儿再来要
   useEffect(() => {
     setThumbMaker((id) => {
       const d = dataRef.current;
       const t = targetRef.current;
-      if (!d || fresh.current || regenRef.current || !t || t.id !== id) return null;
+      if (!d || fresh.current || regenRef.current || resimRef.current || !t || t.id !== id) return null;
       const base = baseCanvas('fantasy');
       if (!base) return null;
       const cv = document.createElement('canvas');
@@ -1136,7 +1145,10 @@ export function App() {
     takeAutoplay();
     if (storyOk()) startCivReplay();
   };
-  /** 以正在看的世界为底稿新建:设定、改名、干预都带过去(还是这张图,不用重新生成);存成另一个世界 */
+  /**
+   * 以正在看的世界为底稿新建:设定、改名、干预都带过去(还是这张图,不用重新生成);存成另一个世界。
+   * 带着东西、起好了名,一开始就存(作为没建完的,刷新不丢);什么都没动就点返回,这一份删掉
+   */
   const draftFromCurrent = () => {
     const t = targetRef.current;
     const cur = currentWorld();
@@ -1144,10 +1156,22 @@ export function App() {
     const e = getEdits();
     const base: DraftBase = { id: cur.id, title: cur.title || '未命名世界', names: Object.keys(e.names).length, interventions: e.interventions.length };
     backRef.current = { ...t, kind: cur.kind, edits: e, saved: undefined, title: cur.title, from: undefined, save: undefined, view: undefined };
-    openTarget({ ...draftTarget(t.params, base, e, nextTitle(base.title)), view: undefined });
+    const d = draftTarget(t.params, base, e, nextTitle(base.title));
+    derivedRef.current = { id: d.id, sig: draftSig(d.params, d.edits, d.title) };
+    openTarget({ ...d, pristine: false, view: undefined });
   };
   /** 以别的世界为底稿新建时,那个世界(没存过的也回得去) */
   const backRef = useRef<Target | null>(null);
+  /** 以别的世界为底稿新建的那一份:编号和一开始的样子(返回时没动过就删掉) */
+  const derivedRef = useRef<{ id: string; sig: string } | null>(null);
+  /** 以底稿新建的那一份还是一开始的样子(参数、修改、名字都没动) */
+  const derivedUntouched = (): string | null => {
+    const d = derivedRef.current;
+    const t = targetRef.current;
+    const cur = currentWorld();
+    if (!d || !t || !cur || t.id !== d.id || cur.id !== d.id) return null;
+    return draftSig(t.params, getEdits(), cur.title) === d.sig ? d.id : null;
+  };
   /** 回到"我的世界"(一个都没有就直接新建) */
   const goHome = () => {
     if (!listWorlds().length) return startDraft();
@@ -1166,6 +1190,8 @@ export function App() {
         label: stageBase.title,
         onClick: () => {
           const b = backRef.current;
+          const left = derivedUntouched();
+          if (left) deleteWorld(left);
           if (isStored(stageBase.id)) openStored(stageBase.id);
           else if (b && b.id === stageBase.id) openTarget(b);
           else goHome();
