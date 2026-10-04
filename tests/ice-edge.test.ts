@@ -3,7 +3,7 @@
  * 零星浮冰和冰间水道、只在挨着海面的那几截描墨线、冰缘带。(真正的画面在 scripts/snap.ts 放大截图里看)
  */
 import { describe, expect, it } from 'vitest';
-import { clipLoopRect, forFillIn, iceBand, iceLines, inkRuns, traceOriented, type OrientedLine } from '../src/render/fantasy';
+import { clipLoopRect, fillLoops, forTilesIn, iceBand, iceLines, inkRuns, tileLoops, traceOriented, type OrientedLine, type TileGrid } from '../src/render/fantasy';
 
 const w = 64;
 const h = 32;
@@ -41,47 +41,16 @@ function winding(p: ArrayLike<number>, px: number, py: number): number {
   return wn;
 }
 
-function boxes(lines: OrientedLine[]): Float32Array {
-  const b = new Float32Array(lines.length * 4);
-  lines.forEach((l, i) => {
-    let x0 = Infinity;
-    let y0 = Infinity;
-    let x1 = -Infinity;
-    let y1 = -Infinity;
-    for (let j = 0; j < l.pts.length; j += 2) {
-      x0 = Math.min(x0, l.pts[j]);
-      x1 = Math.max(x1, l.pts[j]);
-      y0 = Math.min(y0, l.pts[j + 1]);
-      y1 = Math.max(y1, l.pts[j + 1]);
-    }
-    const ex = l.pts[0] + l.wrap * W;
-    b.set([Math.min(x0, ex), y0, Math.max(x1, ex), y1], i * 4);
-  });
-  return b;
-}
+/** 格子:4 × 2 格铺满一圈(同 fantasy.ts 等距圆柱的切法,格子小一点好测切开的地方) */
+const tiling: TileGrid = { x0: 0, y0: 0, tw: W / 4, th: h / 2, nc: 4, nr: 2 };
 
-/** 范围 [x0, x1] × [y0, y1] 里填色的子路径(同 fantasy.ts 的 fillPathIn:线首尾自动相连,矩形补到 yb) */
+/** 范围 [x0, x1] × [y0, y1] 里填色的子路径(同 fantasy.ts 的 tilePathIn:闭合多边形 → 切进格子 → 挑范围附近的格子,伸出左右边的平移整圈) */
 function fillPolys(lines: OrientedLine[], x0: number, y0: number, x1: number, y1: number): number[][] {
-  const yb = h + 1;
+  const tiles = tileLoops(fillLoops(lines, W, h), tiling, 0);
   const out: number[][] = [];
-  forFillIn(
-    lines,
-    boxes(lines),
-    W,
-    x0,
-    y0,
-    x1,
-    y1,
-    (i, dx) => {
-      const l = lines[i];
-      const q: number[] = [];
-      for (let j = 0; j < l.pts.length; j += 2) q.push(l.pts[j] + dx, l.pts[j + 1]);
-      // 绕一圈的线:末点接回"首点 + 一圈"(fillPathIn 的路径也是这样),再自动连回首点
-      if (l.wrap) q.push(l.pts[0] + l.wrap * W + dx, l.pts[1]);
-      out.push(q);
-    },
-    (xa, xb, ya) => out.push([xb, ya, xb, yb, xa, yb, xa, ya]),
-  );
+  forTilesIn(tiling, W, x0, y0, x1, y1, (i, dx) => {
+    for (const q of tiles[i]) out.push(q.map((v, j) => (j % 2 ? v : v + dx)));
+  });
   return out;
 }
 
@@ -190,6 +159,22 @@ describe('冰的分界线(有方向,冰在左手边)', () => {
     const lines = iceLines(r, iceM);
     expect(lines.filter((l) => l.wrap !== 0 && l.ink.some((v) => v)).length).toBe(2);
     expectFillMatches(lines, iceM, -5, w + 5);
+  });
+
+  it('切进格子后每格的多边形都在自己的格子里,伸出地图的部分不要', () => {
+    const { r, iceM } = grid((x, y) => y < 6 || y >= 29 || blob(x, y) || (x === 63 && y === 15));
+    const tiles = tileLoops(fillLoops(iceLines(r, iceM), W, h), tiling, 0);
+    tiles.forEach((polys, i) => {
+      const c = i % tiling.nc;
+      const rr = (i - c) / tiling.nc;
+      for (const q of polys)
+        for (let j = 0; j < q.length; j += 2) {
+          expect(q[j]).toBeGreaterThanOrEqual(c * tiling.tw - 1e-9);
+          expect(q[j]).toBeLessThanOrEqual((c + 1) * tiling.tw + 1e-9);
+          expect(q[j + 1]).toBeGreaterThanOrEqual(rr * tiling.th - 1e-9);
+          expect(q[j + 1]).toBeLessThanOrEqual((rr + 1) * tiling.th + 1e-9);
+        }
+    });
   });
 
   it('traceOriented 走出来的每条线都首尾相接(最后一点离首点不到一格;绕一圈的接回首点 + 一圈)', () => {
