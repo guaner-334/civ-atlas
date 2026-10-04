@@ -19,7 +19,7 @@ import type { World } from '../../gen/world';
 import { AdjKind, type Civ, type Place, type Polity } from '../../gen/civ/types';
 import { BIOMES } from '../../gen/biomes';
 import { KIND_INFO, regionLabel, regionNamed } from '../../gen/civ/display';
-import { capitalAt, dynastyIndexAt, polityAlive, polityName, polityRootAt, polityTitleChain, populationAt, populationLabel } from '../../gen/civ/growth';
+import { capitalAt, dynastyIndexAt, polityAlive, polityName, polityRootAt, polityRoots, polityTitleChain, populationAt, populationLabel } from '../../gen/civ/growth';
 import { ownersAt, type Owners } from '../../gen/civ/timeline';
 import { cnNumber } from '../../gen/civ/chronicle';
 import { KM_PER_UNIT } from '../../gen/civ/geo';
@@ -64,6 +64,26 @@ export function toLonLat(x: number, y: number): [number, number] {
 /** [经度, 纬度] → 世界坐标(经度不取模:跨 180° 经线的一笔由 cleanTerrainOp 规整) */
 export function toWorld(lon: number, lat: number): [number, number] {
   return [((lon + 180) / 360) * TERRAIN_W, ((90 - lat) / 180) * TERRAIN_H];
+}
+
+/** 世界坐标里一点到一处地形修改(点或折线)的距离;东西方向首尾相接 */
+function distToOp(x: number, y: number, op: TerrainOp): number {
+  const q = op.pts;
+  let best = Infinity;
+  for (const k of [-1, 0, 1]) {
+    const px = x + k * TERRAIN_W;
+    if (q.length < 4) best = Math.min(best, Math.hypot(px - q[0], y - q[1]));
+    for (let i = 0; i + 3 < q.length; i += 2) {
+      const ax = q[i];
+      const ay = q[i + 1];
+      const dx = q[i + 2] - ax;
+      const dy = q[i + 3] - ay;
+      const L = dx * dx + dy * dy;
+      const t = L > 0 ? Math.max(0, Math.min(1, ((px - ax) * dx + (y - ay) * dy) / L)) : 0;
+      best = Math.min(best, Math.hypot(px - ax - t * dx, y - ay - t * dy));
+    }
+  }
+  return best;
 }
 
 /** 地球半径(公里):赤道一圈 = 地图宽 */
@@ -272,7 +292,11 @@ export function rewriteMaterial(world: World, civ: Civ, year: number, edits: Wor
   const S = civ.settlements;
   if (P.length) {
     out.push('', `## 国家(第 ${Y} 年在世的在前)`);
-    for (const p of [...alive, ...later, ...gone].slice(0, 80)) {
+    const order = [...alive, ...later, ...gone];
+    // 太多的只列前 80 个;排在后面、但作者点了名的也列上
+    const listed = order.slice(0, 80);
+    for (const p of order.slice(80)) if ([nameAt(p, Y), ...polityRoots(p), ...polityTitleChain(p).split(' → ')].some(named)) listed.push(p);
+    for (const p of listed) {
       const chain = polityTitleChain(p);
       const cu = civ.cultures[p.culture];
       out.push(
@@ -706,6 +730,8 @@ class Checker {
   private readonly owners = new Map<number, Owners>();
   private readonly seen = new Set<string>();
   private terrainLeft: number;
+  /** 这一批里已经收下的地形修改(核对湖的位置要算上它们) */
+  private readonly batchTerrain: TerrainOp[] = [];
   constructor(private readonly ctx: RewriteContext) {
     for (const x of ctx.edits.interventions) this.seen.add(JSON.stringify(cleanIntervention(x)));
     this.terrainLeft = TERRAIN_MAX_OPS - ctx.edits.terrain.length;
@@ -921,14 +947,18 @@ class Checker {
             ? `从${a}到${b}抬起一道山脉${sizeText}`
             : `把${pts.length > 1 ? `${a}到${b}` : a}一带${kind === 'raise' ? '抬成陆地' : '沉成海'}${sizeText}`;
     if (kind === 'lake') {
+      // 同一批前面抬起陆地、堆山、放火山的地方,现在是海也可能到时候成了陆地:这里不拦,生成时湖心落在海里就不挖
+      const [x, y] = toWorld(pts[0][0], pts[0][1]);
+      const raised = this.batchTerrain.some((op) => op.kind !== 'sink' && op.kind !== 'lake' && distToOp(x, y, op) < op.r * 1.5);
       const c = nearestCell(world, pts[0]);
-      if (c >= 0 && world.water[c] === 1) return fail(text, '这里是海,湖要挖在陆地上');
+      if (!raised && c >= 0 && world.water[c] === 1) return fail(text, '这里是海,湖要挖在陆地上');
     }
     if (this.terrainLeft <= 0) return fail(text, `改地形最多 ${TERRAIN_MAX_OPS} 处,已经满了`);
     const [r, s] = TERRAIN_PRESETS[kind][size];
     const op = cleanTerrainOp({ kind, pts: pts.flatMap((p) => toWorld(p[0], p[1])), r, s });
     if (!op) return fail(text, '位置不对');
     this.terrainLeft--;
+    this.batchTerrain.push(op);
     return { change: { kind: 'terrain', op }, text };
   }
 

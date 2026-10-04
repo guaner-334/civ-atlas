@@ -7,7 +7,7 @@ import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { generateCiv } from '../src/gen/civ';
 import { Biome } from '../src/gen/biomes';
 import { AdjKind, type Civ } from '../src/gen/civ/types';
-import { capitalAt, polityAlive } from '../src/gen/civ/growth';
+import { capitalAt, polityAlive, polityTitleChain } from '../src/gen/civ/growth';
 import { regionLabel, regionNamed } from '../src/gen/civ/display';
 import { ownersAt } from '../src/gen/civ/timeline';
 import { TERRAIN_MAX_OPS, TERRAIN_PRESETS } from '../src/gen/terrainEdits';
@@ -179,6 +179,20 @@ describe('改写 · 材料与提示词(seed 7)', () => {
     expect(rewriteMaterial(world, civ, 99999, EMPTY, ['x']).year).toBe(civ.endYear);
     expect(rewriteMaterial(world, civ, -5, EMPTY, ['x']).year).toBe(0);
     expect(rewriteMaterial(world, civ, Number.NaN, EMPTY, ['x']).year).toBe(civ.endYear);
+  });
+
+  it('国家太多只列前 80 个;排在后面、但作者点了名的也列上(说国号、词根都算)', () => {
+    const extra = Array.from({ length: 100 }, (_, i) => ({ ...dead, id: civ.polities.length + i, name: `测${i}乌`, eastern: false, dynasties: undefined }));
+    const many: Civ = { ...civ, polities: [...civ.polities, ...extra] };
+    const last = extra[extra.length - 1];
+    const m0 = rewriteMaterial(world, many, Y, EMPTY, ['随便说一句']).text;
+    expect(m0).not.toMatch(new RegExp(`^P${last.id} `, 'm'));
+    expect(m0.match(/^P\d+ /gm)?.length).toBe(80);
+    for (const wish of [`让${last.name}复国`, `让${polityTitleChain(last).split(' → ').pop()}复国`]) {
+      const t = rewriteMaterial(world, many, Y, EMPTY, [wish]).text;
+      expect(t, wish).toMatch(new RegExp(`^P${last.id} `, 'm'));
+      expect(t.match(/^P\d+ /gm)?.length).toBe(81);
+    }
   });
 
   it('已经做过的修改列在最后(干预用编号、改名只说几处、改地形写经纬度)', () => {
@@ -385,6 +399,25 @@ describe('改写 · 核对 AI 的回复', () => {
     const land = civ.settlements[capital].cell;
     expect(one({ op: 'lake', at: toLonLat(world.mesh.x[sea], world.mesh.y[sea]) }).problem).toMatch(/这里是海/);
     expect(one({ op: 'lake', at: toLonLat(world.mesh.x[land], world.mesh.y[land]) }).change).toMatchObject({ kind: 'terrain', op: { kind: 'lake' } });
+    // 同一批前面在那片海上抬起陆地 / 放火山 / 拉山脉:湖先收下(生成时湖心还在海里就不挖);沉成海、离得远的不算
+    const seaLL = toLonLat(world.mesh.x[sea], world.mesh.y[sea]);
+    const lakeAfter = (first: Record<string, unknown>, at = seaLL) => {
+      const p = parseRewrite(json([first, { op: 'lake', at }]), ctx());
+      if (!p.ok) throw new Error(p.message);
+      expect(p.items[0].change).toBeTruthy();
+      return p.items[1];
+    };
+    const LAKE = { kind: 'terrain', op: { kind: 'lake' } };
+    expect(lakeAfter({ op: 'raise', path: [seaLL], size: '大' }).change).toMatchObject(LAKE);
+    expect(lakeAfter({ op: 'volcano', at: seaLL }).change).toMatchObject(LAKE);
+    expect(lakeAfter({ op: 'range', path: [[seaLL[0] - 3, seaLL[1]], [seaLL[0] + 3, seaLL[1]]] }).change).toMatchObject(LAKE);
+    expect(lakeAfter({ op: 'sink', path: [seaLL] }).problem).toMatch(/这里是海/);
+    expect(lakeAfter({ op: 'raise', path: [[seaLL[0] > 0 ? seaLL[0] - 90 : seaLL[0] + 90, seaLL[1]]] }).problem).toMatch(/这里是海/);
+    // 跨 180° 经线也算近
+    const edge = [...Array(world.mesh.n).keys()].find((i) => world.water[i] === 1 && world.mesh.x[i] < 2 && world.mesh.y[i] > 300 && world.mesh.y[i] < 700)!;
+    const edgeLL = toLonLat(world.mesh.x[edge], world.mesh.y[edge]);
+    expect(one({ op: 'lake', at: edgeLL }).problem).toMatch(/这里是海/);
+    expect(lakeAfter({ op: 'raise', path: [[179.9, edgeLL[1]]] }, edgeLL).change).toMatchObject(LAKE);
     // 地形处数满了
     const full: TerrainOp[] = Array.from({ length: TERRAIN_MAX_OPS }, (_, i) => ({ kind: 'volcano', pts: [i * 10, 500], r: 20, s: 1 }));
     expect(one({ op: 'volcano', at: [0, 0] }, ctx({ ...EMPTY, terrain: full })).problem).toMatch(/已经满了/);
