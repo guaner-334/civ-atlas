@@ -504,6 +504,14 @@ function writeMeta(id: string, m: Meta): boolean {
   return put(META + id, JSON.stringify(v), id);
 }
 
+/** 只写本地信息(最近打开、现存几国):存不下删了旧世界的,也提示一句 */
+function touchMeta(id: string, m: Meta): boolean {
+  evicted = [];
+  const ok = writeMeta(id, m);
+  reportEvicted('quota');
+  return ok;
+}
+
 /**
  * 写一个世界的存档(和本地信息);新存一个超过上限就删最旧的。
  * 本地信息没写进去也算没存成:没有"还在新建"那一条,没建完的世界下次打开会被当成建好的、锁住。
@@ -818,7 +826,7 @@ export function attachWorld(spec: AttachSpec) {
     // 新建中又变回没动过(换了一颗星球,改过的地形作废):原来存的那份拿掉
     removeKeys(spec.id);
   } else if (prev) {
-    writeMeta(spec.id, metaOf(current, new Date().toISOString()));
+    touchMeta(spec.id, metaOf(current, new Date().toISOString()));
     // 刚从文件打开的(先存了、再生成):还没有缩略图,截一张
     if (store().get(THUMB + spec.id) === null) scheduleThumb(spec.id);
   }
@@ -829,7 +837,7 @@ export function attachWorld(spec: AttachSpec) {
 export function markOpened(id: string) {
   const c = current;
   if (!c || c.id !== id || store().get(PREFIX + id) === null) return;
-  writeMeta(id, metaOf(c, new Date().toISOString()));
+  touchMeta(id, metaOf(c, new Date().toISOString()));
   changed();
 }
 
@@ -849,7 +857,7 @@ export function setWorldStats(alive: number) {
   if (!c || c.alive === alive) return;
   c.alive = alive;
   if (store().get(PREFIX + c.id) !== null) {
-    writeMeta(c.id, metaOf(c));
+    touchMeta(c.id, metaOf(c));
     changed();
   }
 }

@@ -64,6 +64,7 @@ import {
   pausePlayback,
   playFrom,
   prepareCivReplay,
+  resetCivTime,
   setChronicle,
   takeAutoplay,
   setCivShow,
@@ -1041,7 +1042,11 @@ export function App() {
     // 下面一直开着的就是它、存的和开着的一样(没在别的页面里改过):不用重新打开
     const cur = currentWorld();
     const same =
-      !!cur && worldKey(cur.params) === worldKey(w.save.params) && (cur.title ?? '') === (w.save.title ?? '') && JSON.stringify(getEdits()) === JSON.stringify(w.save.edits);
+      !!cur &&
+      (cur.kind === 'draft') === w.draft &&
+      worldKey(cur.params) === worldKey(w.save.params) &&
+      (cur.title ?? '') === (w.save.title ?? '') &&
+      JSON.stringify(getEdits()) === JSON.stringify(w.save.edits);
     if (cur?.id === id && targetRef.current?.id === id && same) {
       markOpened(id);
       enterStage(w.draft ? 'draft' : 'world', w.draft ? (w.base ?? null) : null);
@@ -1147,9 +1152,11 @@ export function App() {
       more: [stored ? '自动存在这个浏览器里，在「我的世界」里随时能找到' : keep ? '浏览器存储已满，没能存下；关掉页面前请存成文件' : '浏览器不让网页存数据，关掉页面前请存成文件'],
       ttl: 7000,
     });
-    // 历史从第 0 年起放一遍(这次打开网页不再另外自动播放)
+    // 历史从第 0 年起放一遍(这次打开网页不再另外自动播放);不放(play=0、无头浏览器)时,
+    // 新建时放过"这颗星球的形成"、时间停在第 0 年的,回到结束那一年
     takeAutoplay();
     if (storyOk()) startCivReplay();
+    else if (getCivTime().year === 0) resetCivTime();
   };
   /**
    * 以正在看的世界为底稿新建:设定、改名、干预都带过去(还是这张图,不用重新生成);存成另一个世界。

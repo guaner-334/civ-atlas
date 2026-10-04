@@ -733,6 +733,26 @@ describe('浏览器存储(saveStore)', () => {
     expect(t?.more?.[0]).toMatch(/^已删掉最旧的存档「种子 \d+」/);
   });
 
+  it('只记"最近打开"时存满了:删了最旧的世界,也提示一句', () => {
+    const fake = new FakeStorage();
+    useStorage(fake);
+    const a = openWorld(7, { title: '最旧的' });
+    tick();
+    const b = openWorld(8, { title: '新的' });
+    tick();
+    // 存满:再多一个字都写不下
+    let used = 0;
+    for (const [k, v] of fake.map) used += k.length + v.length;
+    fake.cap = used;
+    _resetToasts();
+    openWorld(8, { id: b });
+    expect(saveStore.loadWorld(a)).toBeNull();
+    expect(saveStore.loadWorld(b)).not.toBeNull();
+    const t = peekToast('storage');
+    expect(t?.text).toBe('浏览器存储已满');
+    expect(t?.more?.[0]).toContain('最旧的');
+  });
+
   it('配额满了、删光别的也存不下:提示"没能自动存档"(同一次满只说一回),腾出地方后接着存', () => {
     const fake = new FakeStorage(120);
     useStorage(fake);
