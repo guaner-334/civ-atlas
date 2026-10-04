@@ -13,7 +13,7 @@ import { useEffect, useState, type RefObject } from 'react';
 
 /** 要让开的界面元素 */
 export const AVOID_UI =
-  '.sidebar, .psheet, .phone-btns, .ps-rewrite, .corner-tl, .map-bar, .book-chip, .toast, .map-controls, .bottom-row, .lp-pop, .inspector:not(.hidden), .first-hint, .civ-top, .terrain-bar';
+  '.sidebar, .psheet, .phone-btns, .ps-rewrite .rw-box, .corner-tl, .map-bar, .book-chip, .toast, .map-controls, .bottom-row, .lp-pop, .inspector:not(.hidden), .first-hint, .civ-top, .terrain-bar';
 
 /** 让开的范围多久重新量一次(毫秒) */
 export const AVOID_MS = 200;
