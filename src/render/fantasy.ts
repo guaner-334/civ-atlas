@@ -618,14 +618,15 @@ export function simplifyLine(p: Float32Array, tol: number): Float32Array {
     const ay = p[a * 2 + 1];
     const dx = p[b * 2] - ax;
     const dy = p[b * 2 + 1] - ay;
-    const L = Math.hypot(dx, dy);
+    const L2 = dx * dx + dy * dy;
     let worst = tol;
     let wi = -1;
     for (let i = a + 1; i < b; i++) {
       const qx = p[i * 2] - ax;
       const qy = p[i * 2 + 1] - ay;
-      // 到弦的距离(首尾重合的环:到起点的距离)
-      const d = L > 1e-9 ? Math.abs(qx * dy - qy * dx) / L : Math.hypot(qx, qy);
+      // 到弦(线段,不是整条直线)的距离:折回去、伸出弦两头的点也按真实偏差算(首尾重合的环:到起点的距离)
+      const t = L2 > 1e-18 ? Math.max(0, Math.min(1, (qx * dx + qy * dy) / L2)) : 0;
+      const d = Math.hypot(qx - t * dx, qy - t * dy);
       if (d > worst) {
         worst = d;
         wi = i;
