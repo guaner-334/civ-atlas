@@ -42,7 +42,7 @@ import {
 } from './common';
 import { keyed, smoothstep, subSeed } from '../gen/util';
 import { geometryOf } from '../gen/geometry';
-import { addProjectedLine, clipOutline, glyphMetric, insideProj, outlineOnCanvas, projector, relShifts, reprojectImage, type GlyphMetric, type MapProj, type Projector, type ProjectionId } from './projection';
+import { addProjectedLine, clipOutline, glyphMetric, insideProj, outlineOnCanvas, projectLinePts, projector, relShifts, reprojectImage, type GlyphMetric, type MapProj, type Projector, type ProjectionId } from './projection';
 
 const PAPER = hexRGB('#efe2c2');
 const PAPER_EDGE = hexRGB('#c9ae7c');
@@ -708,13 +708,18 @@ export function simplifyLine(p: Float32Array, tol: number): Float32Array {
 
 /**
  * 范围 [x0, x1] × [y0, y1](世界坐标,x 可以伸出左右边)里有哪些段:每一份调一次 fn(段号, 横向平移量)。
- * 东西相连(周期 W):一段平移整圈后落进范围的也算(挨着左右边的段在另一边再出一份;范围比一整圈宽时可能出好几份)
+ * 东西相连(周期 W):一段平移整圈后落进范围的也算(挨着左右边的段在另一边再出一份;范围比一整圈宽时可能出好几份)。
+ * W = 0:不相连(弯边投影的地图平面),只看外框和范围有没有交叠
  */
 export function forChunksIn(c: CoastChunks, W: number, x0: number, y0: number, x1: number, y1: number, fn: (j: number, dx: number) => void): void {
   const b = c.box;
   for (let j = 0; j < c.pts.length; j++) {
     const o = j * 4;
     if (b[o + 1] > y1 || b[o + 3] < y0) continue;
+    if (!W) {
+      if (b[o] <= x1 && b[o + 2] >= x0) fn(j, 0);
+      continue;
+    }
     // 从刚好不在范围左边的那一份起,往右一份一份地挪
     for (let dx = Math.ceil((x0 - b[o + 2]) / W) * W; b[o] + dx <= x1; dx += W) fn(j, dx);
   }
@@ -893,7 +898,7 @@ export function seaHatchAlpha(r: SeaGrid, dist: Uint16Array, fade: Uint8Array): 
 
 /**
  * 范围 [x0, x1] × [y0, y1](世界坐标,x 可以伸出左右边)里有哪些排线:每一份调一次 fn(第几条, 横向平移量)。
- * 东西相连(周期 W),同 forChunksIn
+ * 东西相连(周期 W;W = 0 不相连),同 forChunksIn
  */
 export function forHatchIn(seg: Float32Array, W: number, x0: number, y0: number, x1: number, y1: number, fn: (i: number, dx: number) => void): void {
   const n = seg.length / 3;
@@ -908,6 +913,10 @@ export function forHatchIn(seg: Float32Array, W: number, x0: number, y0: number,
   for (let i = lo; i < n && seg[i * 3 + 2] <= y1; i++) {
     const a = seg[i * 3];
     const b = seg[i * 3 + 1];
+    if (!W) {
+      if (a <= x1 && b >= x0) fn(i, 0);
+      continue;
+    }
     for (let dx = Math.ceil((x0 - b) / W) * W; a + dx <= x1; dx += W) fn(i, dx);
   }
 }
@@ -947,8 +956,29 @@ function seaLinesOf(world: World, r: Raster): SeaLines {
   return seaLines;
 }
 
-/** 弯边投影:波纹、排线的投影路径(地图平面坐标)和投影后的浓度图(和地图平面一样大);每个投影 + 中心一份 */
-let seaPaths: { raster: Raster; key: string; rings: Path2D[]; hatch: Path2D; rippleFade: AnyCanvas; hatchFade: AnyCanvas; pats: { ripple: CanvasPattern; hatch: CanvasPattern } | null } | null = null;
+/**
+ * 弯边投影:波纹、排线投影到地图平面(每个投影 + 中心一份)。波纹逐点投影后照样切成小段(只画视口附近的、按画布像素抽稀,
+ * 同等距圆柱);排线:纬线投影后还是水平线,横线段投影后还是横线段(伸出 ±180° 的那截在另一边再出一份),按 y 排好。
+ * 浓度图按投影重铺一张(和地图平面一样大)
+ */
+let seaPaths: { raster: Raster; key: string; rings: CoastChunks[]; hatch: Float32Array; rippleFade: AnyCanvas; hatchFade: AnyCanvas; pats: { ripple: CanvasPattern; hatch: CanvasPattern } | null } | null = null;
+
+/** 排线 (x0, x1, y) 投影到地图平面,按 y 排好 */
+export function projectHatch(seg: Float32Array, pj: Projector): Float32Array {
+  const unit = { s: 1, ox: 0, oy: 0 };
+  const out: number[] = [];
+  for (let i = 0; i < seg.length; i += 3)
+    for (const p of projectLinePts([seg[i], seg[i + 2], seg[i + 1], seg[i + 2]], 2, pj, unit)) {
+      const xa = p[0];
+      const xb = p[p.length - 2];
+      out.push(Math.min(xa, xb), Math.max(xa, xb), p[1]);
+    }
+  const n = out.length / 3;
+  const order = Array.from({ length: n }, (_, i) => i).sort((i, j) => out[i * 3 + 2] - out[j * 3 + 2]);
+  const res = new Float32Array(out.length);
+  order.forEach((i, j) => res.set(out.slice(i * 3, i * 3 + 3), j * 3));
+  return res;
+}
 
 /** 浓度图当线的颜色:图案按像素图的像素 → 世界(地图平面)坐标摆放 */
 function fadePatterns(ctx: CanvasRenderingContext2D, ripple: AnyCanvas, hatch: AnyCanvas, S: number, rep: 'repeat' | 'no-repeat') {
@@ -964,58 +994,53 @@ function fadePatterns(ctx: CanvasRenderingContext2D, ripple: AnyCanvas, hatch: A
 /**
  * 放大后的岸线外波纹、近岸排线(代替像素层里的那两样,像素层放大后是一格一格的方块),位置、浓淡和像素层一样,
  * 线宽跟着符号一起按 glyphScale 收(和海岸墨线同一套)。画在海岸墨线之前。
- *   弯边投影(v.proj):逐点投影,整张图一条路径;浓度图按投影重铺一张(每个投影 + 中心一份)
- *   等距圆柱:只画画布附近的段(同 drawFantasyCoasts);东西相连,浓度图左右平铺
+ * 只画画布附近的波纹段、排线,波纹按画布像素抽稀(同 drawFantasyCoasts 的等距圆柱)。
+ *   弯边投影(v.proj):地图平面上的段、排线(见 seaPaths),浓度图按投影重铺
+ *   等距圆柱:世界坐标;东西相连,伸出左右边的在另一边再画一份,浓度图左右平铺
  */
 export function drawFantasySeaLines(ctx: CanvasRenderingContext2D, world: World, r: Raster, v: VecView): void {
   const sl = seaLinesOf(world, r);
   const S = r.scale;
   const gs = glyphScale(v.k);
-  let rings: Path2D[];
-  let hatch: Path2D;
+  let chunks: CoastChunks[];
+  let seg: Float32Array;
+  let W: number;
   let pats: { ripple: CanvasPattern; hatch: CanvasPattern };
   const pj = v.proj;
   if (pj) {
     if (!seaPaths || seaPaths.raster !== r || seaPaths.key !== pj.mp.key) {
       if (seaPaths) seaPaths.rippleFade.width = seaPaths.rippleFade.height = seaPaths.hatchFade.width = seaPaths.hatchFade.height = 0;
       const unit = { s: 1, ox: 0, oy: 0 };
-      const rings = sl.rings.map((ls) => {
-        const p = new Path2D();
-        for (const q of ls) addProjectedLine(p, q, 2, pj, unit);
-        return p;
-      });
-      const hatch = new Path2D();
-      const seg = sl.hatch;
-      for (let i = 0; i < seg.length; i += 3) addProjectedLine(hatch, [seg[i], seg[i + 2], seg[i + 1], seg[i + 2]], 2, pj, unit);
+      const rings = sl.rings.map((ls) => coastChunks(ls.flatMap((q) => projectLinePts(q, 2, pj, unit).map((p) => Float32Array.from(p)))));
       const reproj = (src: AnyCanvas) => {
         const cv = makeCanvas(r.w, r.h);
         reprojectImage(cv.getContext('2d') as CanvasRenderingContext2D, src, r.w, r.h, pj.mp, { s: S, ox: 0, oy: 0 }, 'low');
         return cv;
       };
-      seaPaths = { raster: r, key: pj.mp.key, rings, hatch, rippleFade: reproj(sl.rippleFade), hatchFade: reproj(sl.hatchFade), pats: null };
+      seaPaths = { raster: r, key: pj.mp.key, rings, hatch: projectHatch(sl.hatch, pj), rippleFade: reproj(sl.rippleFade), hatchFade: reproj(sl.hatchFade), pats: null };
     }
     seaPaths.pats ??= fadePatterns(ctx, seaPaths.rippleFade, seaPaths.hatchFade, S, 'no-repeat');
-    ({ rings, hatch, pats } = seaPaths);
+    ({ rings: chunks, hatch: seg, pats } = seaPaths);
+    W = 0;
   } else {
-    // 抽稀、范围同 drawFantasyCoasts
-    let lod = 0;
-    while (lod + 1 < COAST_LOD.length && COAST_LOD[lod + 1] * v.s <= COAST_TOL) lod++;
-    const pad = RIPPLE_SIG * gs + COAST_LOD[lod];
-    const x0 = -v.ox / v.s - pad;
-    const y0 = -v.oy / v.s - pad;
-    const x1 = (ctx.canvas.width - v.ox) / v.s + pad;
-    const y1 = (ctx.canvas.height - v.oy) / v.s + pad;
-    const W = r.w / S;
-    rings = sl.ringChunks.map((c) => chunkPath(c, lod, W, x0, y0, x1, y1));
-    hatch = new Path2D();
-    const seg = sl.hatch;
-    forHatchIn(seg, W, x0, y0, x1, y1, (i, dx) => {
-      hatch.moveTo(seg[i * 3] + dx, seg[i * 3 + 2]);
-      hatch.lineTo(seg[i * 3 + 1] + dx, seg[i * 3 + 2]);
-    });
     sl.pats ??= fadePatterns(ctx, sl.rippleFade, sl.hatchFade, S, 'repeat');
-    pats = sl.pats;
+    ({ ringChunks: chunks, hatch: seg, pats } = sl);
+    W = r.w / S;
   }
+  // 抽稀、范围同 drawFantasyCoasts
+  let lod = 0;
+  while (lod + 1 < COAST_LOD.length && COAST_LOD[lod + 1] * v.s <= COAST_TOL) lod++;
+  const pad = RIPPLE_SIG * gs + COAST_LOD[lod];
+  const x0 = -v.ox / v.s - pad;
+  const y0 = -v.oy / v.s - pad;
+  const x1 = (ctx.canvas.width - v.ox) / v.s + pad;
+  const y1 = (ctx.canvas.height - v.oy) / v.s + pad;
+  const rings = chunks.map((c) => chunkPath(c, lod, W, x0, y0, x1, y1));
+  const hatch = new Path2D();
+  forHatchIn(seg, W, x0, y0, x1, y1, (i, dx) => {
+    hatch.moveTo(seg[i * 3] + dx, seg[i * 3 + 2]);
+    hatch.lineTo(seg[i * 3 + 1] + dx, seg[i * 3 + 2]);
+  });
   ctx.save();
   ctx.setTransform(v.s, 0, 0, v.s, v.ox, v.oy);
   ctx.imageSmoothingEnabled = true;

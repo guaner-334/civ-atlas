@@ -4,7 +4,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import { distanceTo } from '../src/render/common';
-import { DIST_Q, PixelPatch, forHatchIn, seaHatchAlpha, seaHatchSegments, seaRippleLines, type SeaGrid } from '../src/render/fantasy';
+import { DIST_Q, PixelPatch, coastChunks, forChunksIn, forHatchIn, projectHatch, seaHatchAlpha, seaHatchSegments, seaRippleLines, type SeaGrid } from '../src/render/fantasy';
+import { mapProj, projector } from '../src/render/projection';
 
 const w = 256;
 const h = 128;
@@ -188,6 +189,61 @@ describe('近岸排线', () => {
     // 看主图右边接的那一份:第一条挪过来
     expect(got(w + 5, 0, w + 30, 10)).toEqual([[0, w]]);
     expect(got(30, 0, 90, 10)).toEqual([]);
+  });
+});
+
+describe('弯边投影的地图平面', () => {
+  it('排线投影后还是横线段,按 y 排好;伸出 ±180° 的那截在另一边再出一份', () => {
+    const W = 2048;
+    const H = 1024;
+    // 中央经线 150°:离它 180° 的经线(−30°)在世界 x = W·150/360 处
+    const pj = projector(mapProj('robinson', 150, W, H));
+    const xs = (W * 150) / 360;
+    const seg = Float32Array.from([100, 140, 200.5, xs - 20, xs + 30, 300.5, 900, 960, 700.5, 500, 520, 800.5]);
+    const out = projectHatch(seg, pj);
+    const k2 = (2 * Math.PI) / W;
+    // 跨经线的那条出两份,其余各一份
+    expect(out.length / 3).toBe(5);
+    for (let i = 3; i < out.length; i += 3) expect(out[i + 2]).toBeGreaterThanOrEqual(out[i - 1]);
+    for (let i = 0; i < seg.length; i += 3) {
+      const y = pj.Y(seg[i + 2]);
+      const got: number[][] = [];
+      for (let j = 0; j < out.length; j += 3) if (Math.abs(out[j + 2] - y) < 1e-3) got.push([out[j], out[j + 1]]);
+      const r0 = pj.rel(seg[i]);
+      const r1 = r0 + (seg[i + 1] - seg[i]) * k2;
+      const want = [[r0, r1]];
+      if (r1 > Math.PI) want.push([r0 - 2 * Math.PI, r1 - 2 * Math.PI]);
+      expect(got.length).toBe(want.length);
+      const at = (rr: number) => W / 2 + pj.K(seg[i + 2]) * rr;
+      want.forEach(([a, b], n) => {
+        const g = got.find((q) => Math.abs(q[0] - at(a)) < 0.05);
+        expect(g, `第 ${i / 3} 条第 ${n} 份`).toBeDefined();
+        expect(g![1]).toBeCloseTo(at(b), 1);
+      });
+    }
+  });
+
+  it('按范围挑段、挑排线:W = 0 时不东西相连,只看有没有交叠', () => {
+    const c = coastChunks([Float32Array.from([0, 0, 10, 0, 10, 10]), Float32Array.from([100, 50, 120, 60])]);
+    const got: [number, number][] = [];
+    forChunksIn(c, 0, 5, -1, 15, 20, (j, dx) => got.push([j, dx]));
+    expect(got).toEqual([[0, 0]]);
+    got.length = 0;
+    forChunksIn(c, 0, -500, -500, 500, 500, (j, dx) => got.push([j, dx]));
+    expect(got).toEqual([
+      [0, 0],
+      [1, 0],
+    ]);
+    const seg = Float32Array.from([-30, -10, 0.5, 10, 20, 3.5]);
+    got.length = 0;
+    forHatchIn(seg, 0, -20, 0, 15, 10, (i, dx) => got.push([i, dx]));
+    expect(got).toEqual([
+      [0, 0],
+      [1, 0],
+    ]);
+    got.length = 0;
+    forHatchIn(seg, 0, 21, 0, 2000, 10, (i, dx) => got.push([i, dx]));
+    expect(got).toEqual([]);
   });
 });
 
