@@ -3283,13 +3283,15 @@ for (const style of ['realistic', 'fantasy']) {
   await hit.tap().catch(() => {});
   await mp.waitForTimeout(900);
   const searchIns = await mp.locator('.inspector').innerText().catch(() => '');
-  // 拉到顶的世界卡片里点"新世界":卡片先收起,看得到新生成的世界
+  // 拉到顶的世界卡片里点"新世界":卡片先收起,看得到新生成的世界(关掉详情卡片时世界卡片还是搜索时拉到顶的样子)
   await mp.tap('.inspector .cp-x').catch(() => {});
   await mp.waitForTimeout(400);
-  await mp.tap('.psheet .sheet-grip').catch(() => {});
-  await mp.waitForTimeout(500);
-  const newFull = (await mp.locator('.psheet.ps-full').count()) === 1;
-  await mp.tap('.psheet [data-act=new-world]').catch(() => {});
+  if (!(await mp.locator('.psheet.ps-full').count())) {
+    await mp.tap('.psheet .sheet-grip').catch(() => {});
+    await mp.waitForTimeout(500);
+  }
+  const newFull = (await mp.locator('.psheet.ps-full .ps-tiles [data-act=new-world]').count()) === 1;
+  await mp.tap('.psheet .ps-tiles [data-act=new-world]').catch(() => {});
   await mp.waitForTimeout(500);
   const newPeek = (await mp.locator('.psheet.ps-peek').count()) === 1;
   console.log(
