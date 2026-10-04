@@ -182,7 +182,20 @@ export function useWorldInfo(civ: Civ | null, data: SidebarProps['data']): { tit
 }
 
 /** "更多"菜单:用一句话改写世界、写成史书、AI 设置、源代码和两份协议;最底下一行版本号 */
-export function WorldMoreMenu({ civ, data, onRewrite, className = 'sb-pill sb-more' }: { civ: Civ | null; data: SidebarProps['data']; onRewrite: () => void; className?: string }) {
+export function WorldMoreMenu({
+  civ,
+  data,
+  onRewrite,
+  onBook,
+  className = 'sb-pill sb-more',
+}: {
+  civ: Civ | null;
+  data: SidebarProps['data'];
+  onRewrite: () => void;
+  /** 点"写成史书"时先做的事(手机:世界卡片收起,写作进度在右上看得到) */
+  onBook?: () => void;
+  className?: string;
+}) {
   // 改写不要求有文明:没长出文明的世界也能改地形
   const canRewrite = !!civ && !!data;
   return (
@@ -190,7 +203,16 @@ export function WorldMoreMenu({ civ, data, onRewrite, className = 'sb-pill sb-mo
       <AiMenuItem icon={<Icon name="rename" size={16} />} act="rewrite" disabled={!canRewrite} onClick={onRewrite} note="AI">
         用一句话改写世界
       </AiMenuItem>
-      <AiMenuItem icon={<Icon name="book" size={16} />} act="book" disabled={!civ || !civ.viable} onClick={() => openHistoryBook()} note="AI">
+      <AiMenuItem
+        icon={<Icon name="book" size={16} />}
+        act="book"
+        disabled={!civ || !civ.viable}
+        onClick={() => {
+          onBook?.();
+          openHistoryBook();
+        }}
+        note="AI"
+      >
         把历史写成史书
       </AiMenuItem>
       <MenuItem icon={<Icon name="sparkle" size={16} />} act="ai-settings" onClick={() => openAiSettings()}>

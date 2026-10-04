@@ -586,6 +586,12 @@
 .app.phone.panel-open .globe {
   transform: translateY(calc((var(--top-room) + var(--sheet-half) - var(--above-sheet)) / 2 - 48%));
 }
+/* 横着拿手机:收起的世界卡片和胶囊占掉下面将近一半,没开详情卡片时球心也移到上面看得见的那截正中 */
+@media (orientation: landscape) {
+  .app.phone:not(.panel-open) .globe {
+    transform: translateY(calc((var(--top-room) + 100% - var(--peek-h) - var(--above-sheet)) / 2 - 48%));
+  }
+}
 
 @media (prefers-reduced-motion: reduce) {
   .psheet,

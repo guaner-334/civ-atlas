@@ -100,6 +100,10 @@ export function PhoneSheet(p: PhoneSheetProps) {
                         setRewriting(true);
                         setWorldSheet('peek');
                       }}
+                      onBook={() => {
+                        // 写史书在后台进行,进度在右上(卡片拉到顶时右上的按钮藏着)
+                        setWorldSheet('peek');
+                      }}
                     />
                   </div>
                 )}
