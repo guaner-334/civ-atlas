@@ -1,6 +1,6 @@
 /**
  * 地球仪按投影重画:
- *   - 面板打开时球心横向挪(globeFrame 的 shift):往返、以某点缩放照样对
+ *   - 左边有侧栏卡片时球心横向挪(globeFrame 的 shift):往返、以某点缩放照样对,窗口窄时球按剩下的宽度缩小
  *   - 手绘符号:规划按球面距离留间距(高纬度不挤)、每帧挑选(背面不画、分级、从上到下排、快速档只画第一级)、
  *     山脊走向换算到屏幕上、大小和平面主图同样缩放时一样
  *   - 写实风重新打光:地球仪正中、北在上时和平面主图的明暗几乎一样;任何位置、任何视角,
@@ -25,6 +25,15 @@ const H = 820;
 const SHIFT = 200;
 
 describe('球心横向挪动(给左边的侧栏让地方)', () => {
+  it('窗口窄、卡片右边那一块比高还窄时,球按那一块的宽度缩小,整个球都在卡片右边', () => {
+    const v: GlobeView = { lon: 0, lat: 0, k: 1 };
+    // 761 宽的窗口:卡片占左边 368,剩下 393
+    const f = globeFrame(v, 761, 900, 184);
+    expect(f.cx - f.R).toBeGreaterThanOrEqual(368);
+    expect(f.cx + f.R).toBeLessThanOrEqual(761);
+    expect(f.R).toBeCloseTo(globeFrame(v, 393, 900).R, 9);
+  });
+
   it('球心挪 shift,半径不变;屏幕 ↔ 经纬度往返照样对', () => {
     const v: GlobeView = { lon: 0.4, lat: 0.3, k: 1.3 };
     const f0 = globeFrame(v, W, H);

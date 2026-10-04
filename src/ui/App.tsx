@@ -1,5 +1,6 @@
 import './theme.css';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { createPortal } from 'react-dom';
 import { DEFAULT_PARAMS, type World, type WorldParams } from '../gen/world';
 import type { Raster } from '../gen/raster';
 import { renderRealistic } from '../render/realistic';
@@ -1985,6 +1986,19 @@ export function App() {
   const civReady = !!civ && civ.viable;
   /** 正在重推 / 按新地形重新生成 / 生成新世界:改写框里这时发不了话、提议也不能执行 */
   const rewriteBusy = !!resim || terrainStatus.busy || !!progress;
+  // 详情面板只挂一份:挂进一个自己建的容器,窄屏把容器放在底部抽屉的位置,宽屏放进侧栏(放哪儿由那边的空位 ref 决定)。
+  // 窗口跨过窄屏断点(比如手机横过来)时面板不重新挂,正在干预的那几步、填了一半的年份和名字都留着
+  const inspectorHost = useMemo(() => {
+    const el = document.createElement('div');
+    el.className = 'inspector-host';
+    return el;
+  }, []);
+  const inspectorSlot = useCallback(
+    (slot: HTMLElement | null) => {
+      if (slot && inspectorHost.parentNode !== slot) slot.appendChild(inspectorHost);
+    },
+    [inspectorHost],
+  );
   // 两层放大的地图框共用一个变换、按视窗裁;两层屏幕层按同一个视窗裁(见下面的 JSX)
   const wrapStyle: CSSProperties = { transform: `translate(${view.x}px, ${view.y}px) scale(${view.k})`, clipPath: wrapClip(view, sb, wrapW), display: globeOn ? 'none' : undefined };
   const screenStyle: CSSProperties = { clipPath: screenClip(view, sb, wrapW), display: globeOn ? 'none' : undefined };
@@ -2107,6 +2121,7 @@ export function App() {
             onOpenText={openText}
             onOpenStored={openStored}
             rewriteBusy={rewriteBusy}
+            inspectorSlot={inspectorSlot}
           />
           <MapBar
             civ={civ}
@@ -2131,8 +2146,9 @@ export function App() {
         <div className="bottom-tl">{data && <CivTimeline civ={civ} hidden={replayOn} dock="inline" />}</div>
         {narrow && <LayerPopover layer={mapLayer} civ={civ} onLayer={applyLayer} thumbs={thumbs} requestThumbs={requestThumbs} disabled={!data} />}
       </div>
-      {/* 窄屏:详情面板是底部抽屉(宽屏在侧栏里) */}
-      {narrow && data && <Inspector civ={civ} raw={rawCiv} raster={data.raster} world={data.world} />}
+      {/* 详情面板:窄屏是底部抽屉(在这儿的空位里),宽屏在侧栏里(见上面的 inspectorHost) */}
+      {data && createPortal(<Inspector civ={civ} raw={rawCiv} raster={data.raster} world={data.world} />, inspectorHost)}
+      {narrow && <div className="inspector-slot" ref={inspectorSlot} />}
       {hover && <HoverCard info={hover.info} x={hover.x} y={hover.y} />}
       {/* 世界概览(点左上角的世界名打开):国家 / 编年史 / 我的干预 / 创世 */}
       <WorldOverview

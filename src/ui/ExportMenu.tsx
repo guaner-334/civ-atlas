@@ -14,7 +14,7 @@
  * 用的是 App 当前显示的 civ(套过改名等修改的那份),不重新生成。
  * 文件名带种子、年份、画风:文明与地图-种子7-第3000年-手绘.png(JPEG 是 .jpg)
  */
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { DEFAULT_PARAMS, type World, type WorldParams } from '../gen/world';
 import { rasterize, type Raster } from '../gen/raster';
 import type { Civ } from '../gen/civ/types';
@@ -113,6 +113,42 @@ function toBlob(cv: HTMLCanvasElement, format: ImageFormat = 'png'): Promise<Blo
   );
 }
 
+/**
+ * 导出的进度和结果放在这里,不放在菜单组件里:窗口跨过窄屏 / 宽屏时换成另一处的菜单(右上角工具条 ↔ 世界概览),
+ * 正在导出的进度、做完的提示、"正在导出时不能再点"都接得上。进度、结果显示在顶部的提示条上(菜单收起了也看得到)
+ */
+let status: Status | null = null;
+const statusSubs = new Set<() => void>();
+let okTimer: ReturnType<typeof setTimeout> | undefined;
+
+function setStatus(next: Status | null) {
+  status = next;
+  clearTimeout(okTimer);
+  // 成功的提示过一会儿自己消失(带"下载说明"的留着,等用户点)
+  if (next?.kind === 'ok' && !next.note) okTimer = setTimeout(() => setStatus(null), 7000);
+  if (!next) clearToast('export');
+  else {
+    const note = next.note;
+    showToast({
+      id: 'export',
+      kind: next.kind === 'busy' ? 'progress' : next.kind,
+      text: next.text,
+      more: next.more ? [next.more] : undefined,
+      action: note ? { label: '下载说明', onClick: () => download(new Blob([note.text], { type: 'text/plain;charset=utf-8' }), note.name) } : undefined,
+      ttl: next.kind === 'ok' && !note ? 7000 : 0,
+      dismissible: next.kind !== 'busy',
+    });
+  }
+  for (const f of statusSubs) f();
+}
+
+function subscribeStatus(f: () => void) {
+  statusSubs.add(f);
+  return () => statusSubs.delete(f);
+}
+
+const useExportStatus = () => useSyncExternalStore(subscribeStatus, () => status);
+
 /** 让"正在导出…"先显示出来,再开始干活 */
 const nextFrame = () => new Promise<void>((r) => requestAnimationFrame(() => setTimeout(r, 0)));
 
@@ -200,11 +236,10 @@ export interface ExportMenuProps {
 export function ExportMenu({ data, civ, style, layer, icon }: ExportMenuProps) {
   const [open, setOpen] = useState(false);
   const [scale, setScale] = useState<ExportScale>(1);
-  const [status, setStatus] = useState<Status | null>(null);
+  const busy = useExportStatus()?.kind === 'busy';
   const time = useCivTime();
   const globeOn = useGlobeOn();
   const rootRef = useRef<HTMLDivElement>(null);
-  const busy = status?.kind === 'busy';
 
   // 点菜单外面就收起
   useEffect(() => {
@@ -221,27 +256,6 @@ export function ExportMenu({ data, civ, style, layer, icon }: ExportMenuProps) {
     };
   }, [open]);
 
-  // 成功的提示过一会儿自己消失(带"下载说明"的留着,等用户点)
-  useEffect(() => {
-    if (status?.kind !== 'ok' || status.note) return;
-    const t = setTimeout(() => setStatus(null), 7000);
-    return () => clearTimeout(t);
-  }, [status]);
-  // 导出的进度、结果显示在顶部的提示条上(菜单在世界概览的头部;概览收起了也看得到)
-  useEffect(() => {
-    if (!status) return clearToast('export');
-    const note = status.note;
-    showToast({
-      id: 'export',
-      kind: status.kind === 'busy' ? 'progress' : status.kind,
-      text: status.text,
-      more: status.more ? [status.more] : undefined,
-      action: note ? { label: '下载说明', onClick: () => download(new Blob([note.text], { type: 'text/plain;charset=utf-8' }), note.name) } : undefined,
-      ttl: status.kind === 'ok' && !note ? 7000 : 0,
-      dismissible: status.kind !== 'busy',
-    });
-  }, [status]);
-
   const ok = !!data && !!civ && civ.habitat.suitability.length === data.world.mesh.n;
   const endYear = civ ? Math.floor(civ.endYear) : 0;
   const year = Math.max(0, Math.min(endYear, Math.floor(time.year ?? endYear)));
@@ -251,7 +265,7 @@ export function ExportMenu({ data, civ, style, layer, icon }: ExportMenuProps) {
   const x2 = scale === 2 ? '-2x' : '';
 
   const run = async (job: Job) => {
-    if (!data || busy) return;
+    if (!data || status?.kind === 'busy') return;
     setOpen(false);
     const { world, raster } = data;
     const seedN = world.params.seed;

@@ -561,10 +561,9 @@ function civParamsOf(p: { world: World; raster: Raster; civ: Civ | null; geo?: C
  * "一个世界单位是几个 CSS 像素"(矢量线的线宽按它):平面主图同样缩放时的比例 ——
  * 缩到 1 倍以下跟着变细,放大到 1 倍以上不再变(线宽固定,放大后照样是细线)
  */
-function lineUnit(view: GlobeView, w: number, h: number, W: number): number {
-  // (半径和球心挪没挪无关)
-  const kEq = equivalentZoom(globeFrame(view, w, h).R, REF_MAP_CSS);
-  const kEq1 = equivalentZoom(globeFrame({ ...view, k: 1 }, w, h).R, REF_MAP_CSS);
+function lineUnit(view: GlobeView, w: number, h: number, W: number, shift: number): number {
+  const kEq = equivalentZoom(globeFrame(view, w, h, shift).R, REF_MAP_CSS);
+  const kEq1 = equivalentZoom(globeFrame({ ...view, k: 1 }, w, h, shift).R, REF_MAP_CSS);
   return (REF_MAP_CSS / W) * Math.min(kEq, kEq1);
 }
 
@@ -909,7 +908,7 @@ export function Globe({ world, raster, civ, geo, style, layer, terrain, terrainK
     if (!gl || !p.terrain || s.hd.world !== p.world) return;
     const key = hdKey(p);
     const { w, h, dpr } = s.size;
-    const f = globeFrame(s.view, w, h);
+    const f = frameOf(s.view, w, h);
     const want = wantHdTexture({
       k: s.view.k,
       texel: (2 * Math.PI * f.R * dpr) / p.terrain.width,
@@ -947,8 +946,8 @@ export function Globe({ world, raster, civ, geo, style, layer, terrain, terrainK
     const L = s.selTex.lines;
     if (!L) return [];
     const look = selectionLook(props.current.style);
-    const kEq = equivalentZoom(globeFrame(s.view, w, h).R, REF_MAP_CSS);
-    const kEq1 = equivalentZoom(globeFrame({ ...s.view, k: 1 }, w, h).R, REF_MAP_CSS);
+    const kEq = equivalentZoom(frameOf(s.view, w, h).R, REF_MAP_CSS);
+    const kEq1 = equivalentZoom(frameOf({ ...s.view, k: 1 }, w, h).R, REF_MAP_CSS);
     const thin = 1 / Math.sqrt(Math.max(1, Math.min(kEq, kEq1)));
     if (L.kind === 'band') return [{ sets: [L.set], color: look.band, width: L.width * thin, blur: 8 * thin }];
     return [
@@ -1007,7 +1006,7 @@ export function Globe({ world, raster, civ, geo, style, layer, terrain, terrainK
       cpuDecor: !s.gl,
       graticule: p.graticule,
       lines: civLineStrokes(cp).concat(selStrokes(w, h)),
-      unit: lineUnit(s.view, w, h, p.world.width),
+      unit: lineUnit(s.view, w, h, p.world.width, s.shift),
       lineAlpha: 1 - s.replayMix,
       hl: s.hlA > 0.001 && (s.hlTex.strokes.length || s.hlTex.ring) ? { strokes: s.hlTex.strokes, ring: s.hlTex.ring, alpha: s.hlA } : null,
       placement: pl,
@@ -1036,7 +1035,7 @@ export function Globe({ world, raster, civ, geo, style, layer, terrain, terrainK
       const decay = Math.exp(-dt / 320);
       s.inertia.vx *= decay;
       s.inertia.vy *= decay;
-      const R = globeFrame(s.view, s.size.w, s.size.h).R;
+      const R = frameOf(s.view, s.size.w, s.size.h).R;
       s.view = dragView(s.view, R, s.inertia.vx * dt, s.inertia.vy * dt);
       if (Math.hypot(s.inertia.vx, s.inertia.vy) > 0.01) more = true;
       else s.inertia = null;
@@ -1488,7 +1487,7 @@ export function Globe({ world, raster, civ, geo, style, layer, terrain, terrainK
       const dy = y - dr.y;
       if (Math.abs(x - dr.x0) + Math.abs(y - dr.y0) > CLICK_SLOP) s.moved = true;
       if (!s.moved) return;
-      const R = globeFrame(s.view, s.size.w, s.size.h).R;
+      const R = frameOf(s.view, s.size.w, s.size.h).R;
       s.view = dragView(s.view, R, dx, dy);
       const dt = Math.max(1, now - dr.t);
       // 速度(像素 / 毫秒)做一点平滑,松手时的惯性按它

@@ -13,6 +13,12 @@
   --cp-serif: 'Source Han Serif SC', 'Noto Serif CJK SC', 'Songti SC', 'STSong', 'SimSun', serif;
 }
 
+/* 面板只挂一份,外面套的容器(App 的 inspectorHost)和放容器的空位不占地方,面板直接按所在的位置排 */
+.inspector-host,
+.inspector-slot {
+  display: contents;
+}
+
 /* ---- 面板外壳:右侧,宽 340,上 72、下 84 ---- */
 .inspector.cpanel {
   position: absolute;

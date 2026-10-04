@@ -27,7 +27,6 @@ import { openOverview } from './overviewStore';
 import { setTerrainTool } from './TerrainTools';
 import { searchCiv, type SearchHit } from './searchIndex';
 import { countUpTo, evText } from './timelineLayout';
-import { Inspector, useSelectionReset } from './Inspector';
 import { RewriteBox } from './Rewrite';
 import { Icon } from './icons';
 import { AiMenuItem, MenuItem, MenuSep, PopMenu } from './PopMenu';
@@ -57,6 +56,8 @@ export interface SidebarProps {
   onOpenStored: (id: string) => void;
   /** 正在重推 / 按新地形重新生成 / 生成新世界(改写框里这时不能发话、不能执行) */
   rewriteBusy: boolean;
+  /** 详情面板放进来的空位(面板只挂一份,由 App 挪到这里;见 App 的 inspectorHost) */
+  inspectorSlot: (el: HTMLElement | null) => void;
 }
 
 const subscribeYear = (f: () => void) => subscribeCivTime(() => f());
@@ -86,8 +87,6 @@ export function Sidebar(p: SidebarProps) {
     setQ('');
     setSelection(h.select);
   };
-  // 面板在搜索、取消选中时卸掉:选中的变化在这里也记下(再选别的东西时面板回到信息页)
-  useSelectionReset(p.raw);
   const searching = q.trim() !== '';
   return (
     <aside className="sidebar" aria-label="侧栏" onPointerDown={stop} onDoubleClick={stop} onClick={stop}>
@@ -131,7 +130,7 @@ export function Sidebar(p: SidebarProps) {
         {searching ? (
           <SearchResults q={q} hits={hits} active={active} onActive={setActive} onPick={pick} />
         ) : sel && p.civ && p.raw && p.data ? (
-          <Inspector civ={p.civ} raw={p.raw} raster={p.data.raster} world={p.data.world} />
+          <div className="inspector-slot" ref={p.inspectorSlot} />
         ) : (
           <WorldHome {...p} />
         )}
@@ -303,7 +302,7 @@ function WorldHome(p: SidebarProps) {
         <section className="sb-sec">
           <div className="sb-sec-head">
             <span>最近大事</span>
-            <button className="sb-link" data-act="chronicle" onClick={() => openOverview('chronicle')}>
+            <button className="sb-link" data-act="chronicle" onClick={() => openOverview('chronicle', { polity: null })}>
               编年史
             </button>
           </div>

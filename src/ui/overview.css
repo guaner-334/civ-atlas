@@ -69,6 +69,10 @@
   color: var(--ink-2);
   white-space: nowrap;
 }
+/* 统计那一句长,窄屏放不下就折行 */
+.ov-subline.ov-stats {
+  white-space: normal;
+}
 
 .ov-actions {
   margin-left: auto;
