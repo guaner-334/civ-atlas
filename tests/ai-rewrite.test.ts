@@ -399,7 +399,8 @@ describe('改写 · 核对 AI 的回复', () => {
     const land = civ.settlements[capital].cell;
     expect(one({ op: 'lake', at: toLonLat(world.mesh.x[sea], world.mesh.y[sea]) }).problem).toMatch(/这里是海/);
     expect(one({ op: 'lake', at: toLonLat(world.mesh.x[land], world.mesh.y[land]) }).change).toMatchObject({ kind: 'terrain', op: { kind: 'lake' } });
-    // 同一批前面在那片海上抬起陆地 / 放火山 / 拉山脉:湖先收下(生成时湖心还在海里就不挖);沉成海、离得远的不算
+    // 同一批前面在那片海上抬起陆地 / 放火山 / 拉山脉:湖先收下(生成时湖心还在海里就不挖);沉成海、离得远的不算;
+    // 前面把陆地沉成海的,湖不收
     const seaLL = toLonLat(world.mesh.x[sea], world.mesh.y[sea]);
     const lakeAfter = (first: Record<string, unknown>, at = seaLL) => {
       const p = parseRewrite(json([first, { op: 'lake', at }]), ctx());
@@ -411,7 +412,10 @@ describe('改写 · 核对 AI 的回复', () => {
     expect(lakeAfter({ op: 'raise', path: [seaLL], size: '大' }).change).toMatchObject(LAKE);
     expect(lakeAfter({ op: 'volcano', at: seaLL }).change).toMatchObject(LAKE);
     expect(lakeAfter({ op: 'range', path: [[seaLL[0] - 3, seaLL[1]], [seaLL[0] + 3, seaLL[1]]] }).change).toMatchObject(LAKE);
-    expect(lakeAfter({ op: 'sink', path: [seaLL] }).problem).toMatch(/这里是海/);
+    expect(lakeAfter({ op: 'sink', path: [seaLL] }).problem).toMatch(/海,湖要挖在陆地上/);
+    const landLL = toLonLat(world.mesh.x[land], world.mesh.y[land]);
+    expect(lakeAfter({ op: 'sink', path: [landLL] }, landLL).problem).toMatch(/同一批前面把这里沉成了海/);
+    expect(lakeAfter({ op: 'volcano', at: [landLL[0] > 0 ? landLL[0] - 90 : landLL[0] + 90, landLL[1]] }, landLL).change).toMatchObject(LAKE);
     expect(lakeAfter({ op: 'raise', path: [[seaLL[0] > 0 ? seaLL[0] - 90 : seaLL[0] + 90, seaLL[1]]] }).problem).toMatch(/这里是海/);
     // 跨 180° 经线也算近
     const edge = [...Array(world.mesh.n).keys()].find((i) => world.water[i] === 1 && world.mesh.x[i] < 2 && world.mesh.y[i] > 300 && world.mesh.y[i] < 700)!;

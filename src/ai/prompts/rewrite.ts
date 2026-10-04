@@ -491,7 +491,7 @@ export const REWRITE_SYSTEM = [
   '',
   '### 改地形:整个世界按新地形重新生成,历史整个重来(命令和改名按位置尽量保留)。动静很大,只在作者明确要改地形、地貌或气候时用',
   '- volcano 在 at 放一座火山;放在海里 = 火山岛',
-  '- lake 在 at 挖一个湖(要在陆地上)',
+  '- lake 在 at 挖一个湖(要在陆地上;在同一批前面抬起的新陆地上也行,湖排在抬陆地的后面)',
   '- range 沿 path 抬起一道山脉;穿过海面的一段成岛链、半岛',
   '- raise 沿 path 把海抬成陆地(像用画笔涂一条带子)',
   '- sink 沿 path 把陆地沉成海',
@@ -947,10 +947,13 @@ class Checker {
             ? `从${a}到${b}抬起一道山脉${sizeText}`
             : `把${pts.length > 1 ? `${a}到${b}` : a}一带${kind === 'raise' ? '抬成陆地' : '沉成海'}${sizeText}`;
     if (kind === 'lake') {
-      // 同一批前面抬起陆地、堆山、放火山的地方,现在是海也可能到时候成了陆地:这里不拦,生成时湖心落在海里就不挖
+      // 同一批前面抬起陆地、堆山、放火山的地方,现在是海也可能到时候成了陆地:这里不拦,生成时湖心落在海里就不挖;
+      // 前面沉成海的地方,现在是陆地也挖不成
       const [x, y] = toWorld(pts[0][0], pts[0][1]);
       const raised = this.batchTerrain.some((op) => op.kind !== 'sink' && op.kind !== 'lake' && distToOp(x, y, op) < op.r * 1.5);
+      const sunk = this.batchTerrain.some((op) => op.kind === 'sink' && distToOp(x, y, op) < op.r);
       const c = nearestCell(world, pts[0]);
+      if (!raised && sunk) return fail(text, '同一批前面把这里沉成了海,湖要挖在陆地上');
       if (!raised && c >= 0 && world.water[c] === 1) return fail(text, '这里是海,湖要挖在陆地上');
     }
     if (this.terrainLeft <= 0) return fail(text, `改地形最多 ${TERRAIN_MAX_OPS} 处,已经满了`);
