@@ -8,8 +8,8 @@
  *   - 之后父死子继(年纪对不上时是兄终弟及):即位的年纪、在位多少年按"国家的位置锚 + 第几位"随机取,一生不超过 MAX_AGE 岁;
  *     共和国的执政官任期短、任满卸任
  *   - 一朝结束(改朝换代、亡国、并入他国)时在位的那一位是末代:被废、死于兵乱、殉国、出降、出奔、归附
- *   - 称号(Person.title)去世以后才定,还在位的没有:东方按去世那年的国号档位 —— 帝国(王朝)用庙号(太祖、太宗、世宗……,
- *     末代"哀帝""末帝""废帝""少帝"),王国、国用谥号 + 王 / 公(按在位时开疆还是失地挑字),部落首领、可汗没有称号;
+ *   - 称号(Person.title)去世以后才定,还在位的没有:东方按去世那年的国号档位 —— 帝国(王朝)用庙号(开国之君太祖,
+ *     这一朝中途才称帝的第一位世祖;太宗、世宗……,末代"哀帝""末帝""废帝""少帝"),王国、国用谥号 + 王 / 公(按在位时开疆还是失地挑字),部落首领、可汗没有称号;
  *     西幻:同一国里同名的国王按先后编序数("阿尔德里克三世"),帝国里开疆最多的一位称"大帝";共和国执政官、汗不编序数
  * **统帅**(按战争先后):开战时两边各有一位 —— 好战的君主有时亲征,否则派一位将领(本国在世、正闲着的将领先用,没有就新起一位);
  *   每一仗输的一方统帅有机会战死,下一仗换人;将领到年纪卸甲、去世也换人。君主亲征不会战死。
@@ -18,7 +18,7 @@
  * (+ 这块地上第几个立国,同 naming.ts);一场战争里按"攻守两国的位置锚 + 宣战的年份"取(同 wars.ts)。
  * 干预某一年之前的历史不变,那之前的人物也不变。名字按民族的语感取(naming.ts 的 personNamers)。纯计算,不碰 DOM。
  */
-import type { Annal, Civ, Person, PersonFate, Polity, RulerRise, Year } from './types';
+import type { Annal, Civ, Person, PersonCommand, PersonFate, Polity, RulerRise, Year } from './types';
 import { anchorTag, keyed4, subSeed } from './rand';
 import { anchorsOf, personNamers } from './naming';
 import { capitalAt, polityTierAt } from './growth';
@@ -27,14 +27,14 @@ import { capitalAt, polityTierAt } from './growth';
 /** 开国之君、新朝之君即位的年纪(随机) */
 const FOUNDER_AGE: [number, number] = [28, 50];
 /** 继位的年纪:HEIR_AGE[0] + 跨度 × u^HEIR_EXP(偏年轻,偶有幼主) */
-const HEIR_AGE: [number, number] = [8, 45];
+const HEIR_AGE: [number, number] = [10, 40];
 const HEIR_EXP = 1.3;
 /** 在位年数:1 + REIGN_MAX × u^REIGN_EXP(中位数十几年,偶有四五十年) */
-const REIGN_MAX = 44;
-const REIGN_EXP = 1.7;
+const REIGN_MAX = 50;
+const REIGN_EXP = 1.3;
 /** 共和国执政官:就任的年纪、任期 */
 const CONSUL_AGE: [number, number] = [40, 62];
-const TERM: [number, number] = [2, 16];
+const TERM: [number, number] = [4, 20];
 /** 一生最多这么多岁 */
 const MAX_AGE = 88;
 /** 在位时遇弑的机会 */
@@ -244,7 +244,7 @@ export function buildPeople(civ: PeopleInput): Person[] {
         const natural = q(from + L);
         const person: Person = { id: -1, role: 'ruler', polity: p.id, name: '', born, from, dynasty: i, rise: j === 0 ? rise : 'heir' };
         // 名字
-        person.name = rulerName(namer, tag[p.id], k, j, surname, usedGiven, pool, R, republic, heirOf && pools[fallen!.id]);
+        person.name = rulerName(namer, tag[p.id], k, j, surname, usedGiven, pool, R, republic, heirOf && pools[fallen!.id], list[list.length - 1]?.name);
         list.push(person);
         if (natural < segEnd) {
           // 这一朝里正常交接:驾崩(偶尔遇弑);执政官任满卸任
@@ -295,7 +295,7 @@ export function buildPeople(civ: PeopleInput): Person[] {
   for (const w of wars) {
     const sides = [w.a, w.b];
     const wr = (x: number, use: number) => keyed4((warBase ^ Math.imul(Math.round(w.start * TICK), 0x27d4eb2d)) >>> 0, tag[w.a] ?? 0, tag[w.b] ?? 0, x, use);
-    const cur: ({ p: Person; careerEnd: number; cmd: NonNullable<Person['commands']>[number]; general: boolean } | null)[] = [null, null];
+    const cur: ({ p: Person; careerEnd: number; cmd: PersonCommand; general: boolean } | null)[] = [null, null];
     const close = (s: number, until: Year) => {
       const c = cur[s];
       if (!c) return;
@@ -306,12 +306,12 @@ export function buildPeople(civ: PeopleInput): Person[] {
       } else busyRuler.set(c.p, c.cmd.until);
       cur[s] = null;
     };
-    const appoint = (s: number, t: Year, x: number) => {
+    const appoint = (s: number, t: Year, x: number, idx: number) => {
       const pid = sides[s];
       const P = polities[pid];
       if (!P || !(t >= P.founded) || (P.ended !== undefined && t > P.ended)) return;
       const command = (p: Person) => {
-        const cmd = { war: w.id, side: s as 0 | 1, from: t, until: t };
+        const cmd: PersonCommand = { war: w.id, side: s as 0 | 1, from: t, until: t, first: idx, last: idx };
         (p.commands ??= []).push(cmd);
         return cmd;
       };
@@ -352,15 +352,18 @@ export function buildPeople(civ: PeopleInput): Person[] {
       g.busy = Infinity;
       cur[s] = { p: g.p, careerEnd: g.careerEnd, cmd: command(g.p), general: true };
     };
-    appoint(0, w.start, 0);
-    appoint(1, w.start, 0);
+    appoint(0, w.start, 0, w.decl);
+    appoint(1, w.start, 0, w.decl);
     for (let n = 0; n < w.events.length; n++) {
-      const e = w.events[n];
+      const idx = w.events[n];
+      const e = civ.annals[idx];
       const t = e.year;
       for (let s = 0; s < 2; s++) {
         const c = cur[s];
         if (c && c.careerEnd < t) close(s, c.careerEnd);
-        if (!cur[s]) appoint(s, t, n + 1);
+        if (!cur[s]) appoint(s, t, n + 1, idx);
+        const cs = cur[s];
+        if (cs) cs.cmd.last = idx;
       }
       // 输的一方:攻方没打下来(battle 的 a)/ 丢了州(conquer 的 b)
       const loser = e.kind === 'battle' ? e.a : e.b;
@@ -404,7 +407,7 @@ const COMPOUND = new Set(['司马', '欧阳', '上官', '慕容', '宇文', '长
 /**
  * 第 k 位君主(这一朝第 j 位)的名字:
  * - 东方中式:本朝的姓 + 名(同一朝里不重名);边塞、山海:名(同一国里不重名)
- * - 西幻:继位的君主有 REUSE 的机会沿用本朝用过的名字(复国的第一位沿用故国末代王朝的名字);共和国执政官一律另起
+ * - 西幻:继位的君主有 REUSE 的机会沿用本朝用过的名字(上一位的除外;复国的第一位沿用故国末代王朝的名字);共和国执政官一律另起
  */
 function rulerName(
   namer: ReturnType<ReturnType<typeof personNamers>>,
@@ -416,13 +419,18 @@ function rulerName(
   pool: string[],
   R: (k: number, use: number) => number,
   republic: boolean,
-  fallenPools?: string[][],
+  fallenPools: string[][] | undefined,
+  prev: string | undefined,
 ): string {
   if (namer.family === 'western') {
     let name = '';
     const old = fallenPools?.[fallenPools.length - 1];
     if (j === 0 && old?.length) name = old[Math.floor(R(k, U_PICK) * old.length)];
-    else if (!republic && j > 0 && pool.length && R(k, U_REUSE) < REUSE) name = pool[Math.floor(R(k, U_PICK) * pool.length)];
+    else if (!republic && j > 0 && R(k, U_REUSE) < REUSE) {
+      // 不沿用上一位的名字(兄弟同名、父子接连同名读起来都别扭)
+      const names = pool.filter((x) => x !== prev);
+      if (names.length) name = names[Math.floor(R(k, U_PICK) * names.length)];
+    }
     for (let a = 0; !name || (republic && used.has(name) && a < 12); a++) name = namer.given(tag, 0, k, a);
     if (!pool.includes(name)) pool.push(name);
     used.add(name);
@@ -491,14 +499,16 @@ function titleRulers(p: Polity, list: Person[], f: PolityFacts, base: number, ta
     else if (prevDeed === 'bad' && d.gains >= 2) deed = 'restore';
     else if (until - r.from! >= 35) deed = 'long';
     const lastOne = !!r.fate && ENDED.has(r.fate);
+    // 这一朝的第一位(开国之君;这一朝中途才称帝的,第一位称帝驾崩的叫"世祖")
+    const founder = !prev || (prev.dynasty ?? 0) !== dyn;
     let title = '';
     if (tier <= 0) title = '';
     else if (tier >= 3) {
       if (lastOne) {
         const pool = r.fate === 'deposed' ? ['废帝', ...LAST_EMPEROR] : ageAtEnd < 20 ? ['少帝', ...LAST_EMPEROR] : LAST_EMPEROR;
         title = pickUnused(pool, u, r.fate === 'deposed' || ageAtEnd < 20 ? 0 : T(k, U_TITLE));
-      } else if (!u.has('太祖')) title = '太祖';
-      else if (prev?.title === '太祖' && (prev.dynasty ?? 0) === dyn && !u.has('太宗')) title = '太宗';
+      } else if (!u.has('太祖') && !u.has('世祖')) title = founder ? '太祖' : '世祖';
+      else if (prev?.title === '太祖' && (prev.dynasty ?? 0) === dyn && !u.has('太宗') && deed !== 'young' && deed !== 'bad') title = '太宗';
       else title = pickUnused(TEMPLE[deed], u, T(k, U_TITLE)) || pickUnused(TEMPLE.plain, u, T(k, U_TITLE));
       if (!title) title = `${pickUnused(POSTHUMOUS.plain, u, T(k, U_TITLE)) || '后'}帝`;
     } else {
@@ -515,14 +525,18 @@ function titleRulers(p: Polity, list: Person[], f: PolityFacts, base: number, ta
   });
 }
 
-/** 一场战争:双方、起止、要排统帅的每一仗(没打下来的战役、战役里打下来的州;议和割让、亡国时残部归攻方的不算) */
+/**
+ * 一场战争:双方、起止、宣战那条史事的下标、要排统帅的每一仗(没打下来的战役、战役里打下来的州;
+ * 议和割让、亡国时残部归攻方的不算;史事下标)
+ */
 interface WarFacts {
   id: number;
   a: number;
   b: number;
   start: Year;
   end: Year;
-  events: Annal[];
+  decl: number;
+  events: number[];
 }
 
 function warsOf(civ: PeopleInput): WarFacts[] {
@@ -547,10 +561,10 @@ function warsOf(civ: PeopleInput): WarFacts[] {
   });
   A.forEach((e, i) => {
     if (e.kind === 'war' && e.war >= 0 && !byId.has(e.war)) {
-      const w: WarFacts = { id: e.war, a: e.a, b: e.b, start: e.year, end: civ.endYear, events: [] };
+      const w: WarFacts = { id: e.war, a: e.a, b: e.b, start: e.year, end: civ.endYear, decl: i, events: [] };
       byId.set(e.war, w);
       wars.push(w);
-    } else if (e.war >= 0 && (e.kind === 'battle' || (e.kind === 'conquer' && !skip.has(i)))) byId.get(e.war)?.events.push(e);
+    } else if (e.war >= 0 && (e.kind === 'battle' || (e.kind === 'conquer' && !skip.has(i)))) byId.get(e.war)?.events.push(i);
     else if (e.kind === 'peace' && e.war >= 0) {
       const w = byId.get(e.war);
       if (w) w.end = e.year;

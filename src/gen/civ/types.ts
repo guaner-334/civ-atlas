@@ -391,8 +391,23 @@ export interface Person {
    * 西幻 = 同名君主的序数("三世")或"大帝"。称呼的写法见 peopleText.ts
    */
   title?: string;
-  /** 领兵打过的仗(君主亲征也记在这里):战争编号、哪一方(0 = 攻方,1 = 守方)、从哪年到哪年 */
-  commands?: { war: number; side: 0 | 1; from: Year; until: Year }[];
+  /** 领兵打过的仗(君主亲征也记在这里) */
+  commands?: PersonCommand[];
+}
+
+/** 一次领兵:哪场战争、哪一方、任期 */
+export interface PersonCommand {
+  war: number;
+  /** 0 = 攻方(宣战的一方),1 = 守方 */
+  side: 0 | 1;
+  from: Year;
+  until: Year;
+  /**
+   * 经手的第一件、最后一件事在 Civ.annals 里的下标(宣战,或者那场战争里的战役、攻占)。
+   * 同一刻接连几件事中途换了人(上一位战死)时,靠它分清哪一件是谁打的
+   */
+  first: number;
+  last: number;
 }
 
 /**
