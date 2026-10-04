@@ -120,7 +120,7 @@ import {
 import { getPolityPick, interventionText, setPickHover, setPolityPick, usePolityPick } from './Interventions';
 import { Inspector } from './Inspector';
 import { TargetLayer } from './TargetPlates';
-import { FLY_MS, NARROW_ROW_H, NARROW_TOP_ROOM, curvedFly, easeOutCubic, flatFly, selectionFocus, selectionKey, type FlyGoal } from './flyTo';
+import { FLY_MS, NARROW_ROW_H, NARROW_TOP_ROOM, curvedFly, easeOutCubic, flatFly, selectionFocus, selectionKey, sideRoom, type FlyGoal } from './flyTo';
 import { usePanel } from './panelStore';
 import { useCoarse, useNarrow } from './device';
 import { isDoubleTap, pinchStep, sheetGeometry, type Pt, type Tap } from './gestures';
@@ -2054,7 +2054,7 @@ export function App() {
             startLon={getMapCenter()}
             apiRef={globeApi}
             onHover={onGlobeHover}
-            panelOpen={false}
+            leftRoom={narrow ? 0 : sideRoom(stageSize.w)}
           />
         )}
       </main>

@@ -11,8 +11,8 @@ const dev = await startDevServer();
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1400, height: 820 } });
 const errs: string[] = [];
-/** 宽屏(视口宽 ≥ 1100)左边侧栏的宽度:地图从这里往右 */
-const SIDE_W = 372;
+/** 宽屏(视口宽 ≥ 1100)左边浮着的侧栏卡片占掉的宽度(左边距 14 + 卡片 372 + 右边留空 14):看得见的地图从这里往右 */
+const SIDE_ROOM = 400;
 page.on('pageerror', (e) => errs.push(e.message));
 page.on('console', (m) => m.type() === 'error' && errs.push(m.text()));
 
@@ -31,17 +31,18 @@ const closeOverview = async (p: Page = page) => {
   await p.waitForTimeout(200);
 };
 /**
- * 宽屏的地图在侧栏右边、比整张世界窄(等距圆柱左右无限拖动):世界坐标 (wx, wy) 不在地图里时左右平移,把它挪到地图正中;
+ * 宽屏左边被侧栏卡片挡住一截,看得见的地图比整张世界窄(等距圆柱左右无限拖动):世界坐标 (wx, wy) 不在看得见的地方时
+ * 左右平移,把它挪到卡片右边那一块的正中;
  * 返回它的屏幕坐标
  */
 const centerOn = async (p: Page, wx: number, wy: number): Promise<[number, number] | null> => {
   const at = (await p.evaluate(([x, y]) => (window as any).__wfWorldToClient(x, y), [wx, wy])) as [number, number] | null;
   const vw = p.viewportSize()!.width;
-  if (!at || (at[0] > SIDE_W + 60 && at[0] < vw - 60)) return at;
+  if (!at || (at[0] > SIDE_ROOM + 60 && at[0] < vw - 60)) return at;
   await p.evaluate((dx) => {
     const v = (window as any).__wfView;
     (window as any).__wfSetView({ k: v.k, x: v.x + dx, y: v.y });
-  }, SIDE_W + (vw - SIDE_W) / 2 - at[0]);
+  }, SIDE_ROOM + (vw - SIDE_ROOM) / 2 - at[0]);
   await p.waitForTimeout(250);
   return (await p.evaluate(([x, y]) => (window as any).__wfWorldToClient(x, y), [wx, wy])) as [number, number] | null;
 };
@@ -100,7 +101,7 @@ const probe = (p: Page, x: number, y: number) =>
 /** 顶部提示条上某个来源的那条(save 存档 / export 导出 / progress 生成……) */
 const toastText = (p: Page, id: string, timeout = 3000) =>
   p.locator(`.toast[data-toast=${id}]`).innerText({ timeout }).then((t) => t.replace(/\n/g, ' '), () => '');
-// 界面骨架:左边侧栏(世界名 + 副标、搜索框),地图铺满侧栏右边;右上图层分段按钮"政区"亮着;第一次打开有操作提示(拖一下就没了);
+// 界面骨架:地图铺满窗口,左边浮着侧栏卡片(世界名 + 副标、搜索框);右上图层分段按钮"政区"亮着;第一次打开有操作提示(拖一下就没了);
 // 悬停小卡片(国名 + 州数);右下 + − 缩放;弹层("更多图层"):缩略图、切到实景 → 深色主题、网址记下;叠加开关(地名……)、民族图例;
 // 世界概览:打开、四个页签、Esc / 点外面收起、国家表点一行 → 概览收起、选中这国;点国家 → 详情在侧栏里(世界首页换成面板)
 {
@@ -111,6 +112,7 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
   const stage = (await page.locator('main.stage').boundingBox())!;
   const mapBox = (await page.locator('.map-box').boundingBox())!;
   const side = await page.locator('aside.sidebar').boundingBox();
+  const sideRadius = await page.locator('aside.sidebar').evaluate((e) => getComputedStyle(e).borderTopLeftRadius);
   const title = (await page.locator('.sb-title').innerText()).replace(/\n/g, ' ');
   const label0 = await page.locator('.seg-btn.on').innerText();
   const theme0 = await page.locator('.app').getAttribute('data-theme');
@@ -196,8 +198,8 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
   // 点国家:右侧面板,右下按钮左移
   type Pick = { kind: string; id: number; text: string; x: number; y: number };
   const pol = ((await page.evaluate('window.__wfPickables()')) as Pick[])
-    .filter((q) => q.kind === 'polity' && q.x > SIDE_W + 60 && q.x < vp.width - 80 && q.y > 120 && q.y < vp.height - 140)
-    .sort((a, b) => Math.abs(a.x - (SIDE_W + vp.width) / 2) - Math.abs(b.x - (SIDE_W + vp.width) / 2))[0];
+    .filter((q) => q.kind === 'polity' && q.x > SIDE_ROOM + 60 && q.x < vp.width - 80 && q.y > 120 && q.y < vp.height - 140)
+    .sort((a, b) => Math.abs(a.x - (SIDE_ROOM + vp.width) / 2) - Math.abs(b.x - (SIDE_ROOM + vp.width) / 2))[0];
   let ins: { x: number; y: number; width: number; height: number } | null = null;
   let home = -1;
   if (pol) {
@@ -215,8 +217,18 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
       `创世「${pages.genesis?.slice(0, 40)}…」;Esc 收起 ${escClosed}、点外面收起 ${scrimClosed};国家表点「${rowName}」→ 概览收起 ${rowClosed}、面板「${rowIns.slice(0, 30)}」;` +
       `点「${pol?.text}」→ 侧栏里的面板 ${ins ? `${Math.round(ins.width)}×${Math.round(ins.height)} @ ${Math.round(ins.x)},${Math.round(ins.y)}` : '没出来'}、世界首页收起 ${home === 0}`,
   );
-  if (!side || side.x !== 0 || side.height !== vp.height || Math.abs(stage.x - side.width) > 1 || Math.abs(stage.x + stage.width - vp.width) > 1 || stage.height !== vp.height)
-    errs.push('界面骨架:应是左边侧栏 + 地图铺满右边');
+  if (
+    !side ||
+    side.x !== 14 ||
+    side.y !== 14 ||
+    side.height !== vp.height - 28 ||
+    Math.abs(side.x + side.width + 14 - SIDE_ROOM) > 1 ||
+    sideRadius !== '14px' ||
+    stage.x !== 0 ||
+    stage.width !== vp.width ||
+    stage.height !== vp.height
+  )
+    errs.push(`界面骨架:应是地图铺满窗口 + 左边浮着圆角的侧栏卡片(卡片 ${JSON.stringify(side)}、圆角 ${sideRadius};舞台 ${JSON.stringify(stage)})`);
   if (!(mapBox.height >= stage.height - 1 && mapBox.width >= stage.width - 1)) errs.push('界面骨架:地图框没有盖满舞台');
   if (!/未命名世界/.test(title) || !/种子 7，现存 \d+ 国/.test(title)) errs.push(`界面骨架:侧栏顶上的世界名 / 副标不对(${title})`);
   if (label0 !== '政区' || theme0 !== 'light') errs.push(`界面骨架:默认图层应为"政区"、浅色(${label0},${theme0})`);
@@ -235,7 +247,7 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
   if (!['新世界', '世界参数', '回放世界形成', '改地形', '地块', '板块', '河流'].every((w) => (pages.genesis ?? '').includes(w))) errs.push(`世界概览:创世页功能不全(${pages.genesis})`);
   if (!escClosed || !scrimClosed) errs.push('世界概览:Esc / 点外面收不起');
   if (!rowClosed || !rowIns.includes(rowName)) errs.push(`世界概览:国家表点一行没有收起概览、选中这国(${rowName};${rowIns.slice(0, 40)})`);
-  if (!ins || !side || ins.x < 0 || ins.x + ins.width > side.width + 1 || home !== 0) errs.push('界面骨架:点国家后面板没有出现在侧栏里 / 世界首页没收起');
+  if (!ins || !side || ins.x < side.x - 1 || ins.x + ins.width > side.x + side.width + 1 || home !== 0) errs.push('界面骨架:点国家后面板没有出现在侧栏里 / 世界首页没收起');
   await page.evaluate(() => localStorage.clear());
 }
 
@@ -462,7 +474,7 @@ for (const style of ['realistic', 'fantasy']) {
     page
       .waitForFunction(() => [...document.querySelectorAll('.ev-pin')].find((e) => (e as HTMLElement).style.visibility === 'visible')?.textContent ?? '', null, { timeout })
       .then((h) => h.jsonValue() as Promise<string>, () => '');
-  // 宽屏的地图在侧栏右边,只露出大半个世界:先算出 2640 年以后第一件大事的事发地,打开后把地图挪过去(播放经过它时标签才在地图里)
+  // 宽屏左边被侧栏卡片挡住一截,只露出大半个世界:先算出 2640 年以后第一件大事的事发地,打开后把地图挪过去(播放经过它时标签才在地图里)
   const { DEFAULT_PARAMS: DP, generateWorld: genW } = await import('../src/gen/world');
   const { generateCiv: genC } = await import('../src/gen/civ');
   const { buildChronicle: buildC, filterChronicle: filterC } = await import('../src/gen/civ/chronicle');
@@ -1598,7 +1610,7 @@ for (const style of ['realistic', 'fantasy']) {
       await page.keyboard.press('Escape');
       await page.waitForTimeout(700);
       const at = (await page.evaluate(([x, y]) => (window as any).__wfWorldToClient(x, y), [wx, wy])) as [number, number] | null;
-      if (!at || at[0] < SIDE_W + 40 || at[0] > page.viewportSize()!.width - 80 || at[1] < 100 || at[1] > page.viewportSize()!.height - 120) continue;
+      if (!at || at[0] < SIDE_ROOM + 40 || at[0] > page.viewportSize()!.width - 80 || at[1] < 100 || at[1] > page.viewportSize()!.height - 120) continue;
       const [x, y] = at;
       await page.mouse.move(x, y);
       await page.waitForTimeout(150);
@@ -1688,7 +1700,7 @@ for (const style of ['realistic', 'fantasy']) {
   await page.waitForFunction(() => (window as any).__wfLabels?.polities > 0, null, { timeout: 60000 });
   await page.waitForTimeout(300);
   const vp = page.viewportSize()!;
-  const free = (x: number, y: number) => x > SIDE_W + 60 && x < vp.width - 80 && y > 110 && y < vp.height - 150;
+  const free = (x: number, y: number) => x > SIDE_ROOM + 60 && x < vp.width - 80 && y > 110 && y < vp.height - 150;
   const panel = () =>
     page
       .locator('.inspector')
@@ -2345,7 +2357,7 @@ for (const style of ['realistic', 'fantasy']) {
       if (pairs >= 6) break;
       const got: string[] = [];
       for (const side of [1, -1]) {
-        const X = Math.round(stage.x + stage.width / 2 + side * 300);
+        const X = Math.round(SIDE_ROOM + (stage.x + stage.width - SIDE_ROOM) / 2 + side * 280);
         const d = X - stage.x - vv.sw / 2;
         // 上一下选中后地图飞走了(国家:缩放到看全疆域):先放回原来的视图
         await page.evaluate((v) => (window as any).__wfSetView({ k: v.k, x: v.x, y: v.y }), vv);
@@ -2516,8 +2528,8 @@ for (const style of ['realistic', 'fantasy']) {
   const pk = await page.evaluate(() => {
     const all = (window as any).__wfPickables() as { kind: string; id: number; text: string; x: number; y: number }[];
     const names = all.filter((p) => p.kind === 'settlement' && p.text);
-    // 在地图那一块里的(宽屏左边是侧栏)
-    const sideW = document.querySelector('.stage')!.getBoundingClientRect().left;
+    // 在侧栏卡片右边那一块里的
+    const sideW = document.querySelector('.sidebar')?.getBoundingClientRect().right ?? 0;
     for (const n of names) {
       const m = all.find((p) => p.kind === 'mark' && p.id === n.id && p.x > sideW + 20 && p.x < innerWidth - 20);
       if (m) return { name: n.text, x: m.x, y: m.y };
@@ -2736,9 +2748,9 @@ for (const style of ['realistic', 'fantasy']) {
   console.log('地球仪悬停:', hov.replace(/\n/g, ' / ') || '(无)');
   if (!hov.trim()) errs.push('地球仪:悬停小卡片没有出现');
 
-  // 单击一座城(正面中间一带、详情面板盖不到的地方)→ 详情是这座城
+  // 单击一座城(正面中间一带、侧栏卡片挡不到的地方)→ 详情是这座城
   type GMark = { id: number; name: string; x: number; y: number; d: number };
-  const marks = ((await gp.evaluate('window.__wfGlobeMarks()')) as GMark[]).filter((m) => m.name && m.d > 0.5 && m.x > gb.x + 380 && m.x < gb.x + gb.width - 380 && m.y > gb.y + 120 && m.y < gb.y + gb.height - 160);
+  const marks = ((await gp.evaluate('window.__wfGlobeMarks()')) as GMark[]).filter((m) => m.name && m.d > 0.5 && m.x > SIDE_ROOM + 40 && m.x < gb.x + gb.width - 120 && m.y > gb.y + 120 && m.y < gb.y + gb.height - 160);
   let picked = '';
   let panel = '';
   for (const m of marks.slice(0, 6)) {
@@ -2749,13 +2761,13 @@ for (const style of ['realistic', 'fantasy']) {
       break;
     }
     await gp.keyboard.press('Escape');
-    // 面板开过一下,球心会往左挪再挪回来:等它回到原位再点下一个
+    // 等转到这座城的飞行停下再点下一个
     await gp.waitForTimeout(700);
   }
   console.log(`地球仪单击城:候选 ${marks.length} 个,点到「${picked || '—'}」,详情「${panel.replace(/\n/g, ' ')}」`);
   if (!picked) errs.push('地球仪:单击城镇符号没有打开这座城的详情');
   await gp.keyboard.press('Escape');
-  // 面板关上,球心挪回原位(约 0.6 秒)
+  // 等球停稳(约 0.6 秒)
   await gp.waitForTimeout(700);
 
   // 时间轴拖到早年:文明层贴图重新上传,球上画面变了;拖动时每帧(文明底图 + 上传 + 画一帧)耗时
@@ -2873,8 +2885,9 @@ for (const style of ['realistic', 'fantasy']) {
     const back = await gp.evaluate(() => (window as any).__wfView);
     const pk = await gp.evaluate(() => {
       const all = (window as any).__wfPickables() as { kind: string; id: number; text: string; x: number; y: number }[];
+      const sideW = document.querySelector('.sidebar')?.getBoundingClientRect().right ?? 0;
       for (const n of all.filter((p) => p.kind === 'settlement' && p.text)) {
-        const m = all.find((p) => p.kind === 'mark' && p.id === n.id);
+        const m = all.find((p) => p.kind === 'mark' && p.id === n.id && p.x > sideW + 20 && p.x < innerWidth - 20);
         if (m) return { name: n.text, x: m.x, y: m.y };
       }
       return null;
@@ -2947,7 +2960,7 @@ for (const style of ['realistic', 'fantasy']) {
   }
 
   // 地球仪按投影重画:手绘的山丘等符号每帧正立着画(贴图里不带)、写实风换上不打光 + 坡度的贴图(后台画好换上);
-  // 宽屏的国家面板在左边侧栏里、不挡球:选中国家时球心不挪;事件标签钉在球上的事发地,转到背面就藏起来
+  // 宽屏左边浮着侧栏卡片:球心一直往右挪卡片宽的一半(选中国家、关掉面板都不变);事件标签钉在球上的事发地,转到背面就藏起来
   {
     const pp = await gBrowser.newPage({ viewport: { width: 1400, height: 820 } });
     pp.on('pageerror', (e) => errs.push(`地球仪按投影重画:${e.message}`));
@@ -2961,7 +2974,7 @@ for (const style of ['realistic', 'fantasy']) {
     await pickLayer(pp, 'realistic');
     const relit = await pp.waitForFunction(() => (window as any).__wfGlobe?.style === 'realistic' && (window as any).__wfGlobe?.relief, null, { timeout: 60000 }).then(() => true, () => false);
     const r1 = await P();
-    // 面板:选中球上的一个名字 → 球心不挪(面板在侧栏里);Esc 关掉 → 还在原处
+    // 面板:选中球上的一个名字 → 球心不挪(面板在侧栏里);Esc 关掉 → 还在原处(都在卡片右边那一块的正中)
     const name = r1.texts[0];
     await pp.evaluate((n) => (window as any).__wfGlobeSelectName(n), name);
     await pp.waitForTimeout(900);
@@ -2975,7 +2988,7 @@ for (const style of ['realistic', 'fantasy']) {
     );
     if (f1.tex !== 'globe' || !(f1.glyphs > 50)) errs.push('地球仪:手绘风的山丘等符号没有在球上正立着画');
     if (!relit || r1.tex !== 'globe') errs.push('地球仪:写实风没有换上重新打光的贴图');
-    if (s1 !== 0 || s2 !== 0) errs.push(`地球仪:国家面板在侧栏里,球心却挪了(${s1} → ${s2})`);
+    if (Math.abs(s1 - SIDE_ROOM / 2) > 1 || Math.abs(s2 - SIDE_ROOM / 2) > 1) errs.push(`地球仪:球心应往右挪侧栏卡片宽的一半(${SIDE_ROOM / 2}),选中、关掉都不变(${s1} → ${s2})`);
     // 事件标签:点侧栏里的最近大事(球转到事发地,那一条的标签停约 5 秒)→ 标签在球上(在球的圆盘里),转到对面就藏起来
     // (不靠播放:CI 上软件渲染一帧几百毫秒,放到下一件大事要很久)
     await pp.goto(`${dev.url}/?seed=7&style=fantasy&view=globe`);

@@ -8,7 +8,7 @@
  * (画面在 scripts/globe-snap.ts 截图里看)
  */
 import { describe, expect, it } from 'vitest';
-import { GLOBE_PANEL_SHIFT, globeBasis, globeFrame, lonLatToScreen, reliefShade, screenToLonLat, zoomAt, type GlobeView, type Vec3 } from '../src/render/globe';
+import { globeBasis, globeFrame, lonLatToScreen, reliefShade, screenToLonLat, zoomAt, type GlobeView, type Vec3 } from '../src/render/globe';
 import { globeProjector } from '../src/render/globeLines';
 import { globeGlyphScale, globeGlyphSet, placeGlobeGlyphs, sphereMetric, type GlobeGlyphView } from '../src/render/globeGlyphs';
 import { G_MOUNTAIN, glyphScale, sphereStretch } from '../src/render/fantasy';
@@ -21,13 +21,15 @@ import { equivalentZoom } from '../src/render/globe';
 const D = Math.PI / 180;
 const W = 1400;
 const H = 820;
+/** 球心往右挪多少(宽屏左边有侧栏卡片时) */
+const SHIFT = 200;
 
-describe('国家面板打开时球心左移', () => {
+describe('球心横向挪动(给左边的侧栏让地方)', () => {
   it('球心挪 shift,半径不变;屏幕 ↔ 经纬度往返照样对', () => {
     const v: GlobeView = { lon: 0.4, lat: 0.3, k: 1.3 };
     const f0 = globeFrame(v, W, H);
-    const f1 = globeFrame(v, W, H, GLOBE_PANEL_SHIFT);
-    expect(f1.cx).toBe(f0.cx + GLOBE_PANEL_SHIFT);
+    const f1 = globeFrame(v, W, H, SHIFT);
+    expect(f1.cx).toBe(f0.cx + SHIFT);
     expect(f1.R).toBe(f0.R);
     // 视图中心在挪过的球心上
     const [x, y, d] = lonLatToScreen(v, f1, v.lon, v.lat);
@@ -35,9 +37,9 @@ describe('国家面板打开时球心左移', () => {
     expect(y).toBeCloseTo(f1.cy, 9);
     expect(d).toBeCloseTo(1, 9);
     for (const [sx, sy] of [
-      [300, 200],
-      [620, 500],
-      [800, 390],
+      [f1.cx - 220, 200],
+      [f1.cx + 100, 500],
+      [f1.cx + 280, 390],
     ]) {
       const ll = screenToLonLat(v, f1, sx, sy)!;
       const back = lonLatToScreen(v, f1, ll[0], ll[1]);
@@ -48,11 +50,11 @@ describe('国家面板打开时球心左移', () => {
 
   it('挪过的球上以某点缩放:那一点下面的地方缩放后还在那里', () => {
     const v: GlobeView = { lon: 1, lat: 0.2, k: 1 };
-    const sx = 450;
+    const sx = W / 2 + SHIFT - 70;
     const sy = 330;
-    const before = screenToLonLat(v, globeFrame(v, W, H, GLOBE_PANEL_SHIFT), sx, sy)!;
-    const z = zoomAt(v, W, H, sx, sy, 2.5, GLOBE_PANEL_SHIFT);
-    const after = screenToLonLat(z, globeFrame(z, W, H, GLOBE_PANEL_SHIFT), sx, sy)!;
+    const before = screenToLonLat(v, globeFrame(v, W, H, SHIFT), sx, sy)!;
+    const z = zoomAt(v, W, H, sx, sy, 2.5, SHIFT);
+    const after = screenToLonLat(z, globeFrame(z, W, H, SHIFT), sx, sy)!;
     expect(Math.abs(after[0] - before[0])).toBeLessThan(1e-4);
     expect(Math.abs(after[1] - before[1])).toBeLessThan(1e-4);
   });

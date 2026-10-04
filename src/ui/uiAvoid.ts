@@ -1,7 +1,7 @@
 /**
  * 地图上的字要让开的界面:平面主图(CivLayer.tsx)和地球仪(Globe.tsx)共用。
  *
- * 宽屏:右上图层分段按钮、导出、编年史(MapBar,含写作进度、打开的图层弹层);窄屏:左上世界名、右上搜索 / 成书
+ * 宽屏:左边浮着的侧栏卡片、右上图层分段按钮、导出、编年史(MapBar,含写作进度、打开的图层弹层);窄屏:左上世界名、右上搜索 / 成书
  * (含打开的搜索框)、底部图层按钮(含打开的图层抽屉)、左下最近事件、底部抽屉。
  * 两边都有:顶部提示条、右下地球仪切换和缩放、底部时间轴、第一次打开的操作提示、回放时的顶部说明、改地形工具条。
  * 这些东西下面不放地名和城镇符号(压在按钮、面板底下的字读不清,还会被误点)。
@@ -13,7 +13,7 @@ import { useEffect, useState, type RefObject } from 'react';
 
 /** 要让开的界面元素 */
 export const AVOID_UI =
-  '.corner-tl, .top-actions, .map-bar, .search-box, .book-chip, .toast, .map-controls, .bottom-row, .lp-pop, .recent-ev, .inspector:not(.hidden), .first-hint, .civ-top, .terrain-bar';
+  '.sidebar, .corner-tl, .top-actions, .map-bar, .search-box, .book-chip, .toast, .map-controls, .bottom-row, .lp-pop, .recent-ev, .inspector:not(.hidden), .first-hint, .civ-top, .terrain-bar';
 
 /** 让开的范围多久重新量一次(毫秒) */
 export const AVOID_MS = 200;

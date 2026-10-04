@@ -1,21 +1,34 @@
 /*
- * 宽屏布局(.app.has-side,视口宽 > 760px):左边侧栏(Sidebar.tsx,宽 --side-w),地图(.stage)在它右边。
+ * 宽屏布局(.app.has-side,视口宽 > 760px):地图(.stage)铺满整个窗口,左边浮着一张圆角卡片(侧栏 Sidebar.tsx,宽 --side-w,
+ * 四周留 --side-gap);卡片右边那一块(从 --side-room 起)是"看得见的地图"。
  * 浮在地图上的按钮都是毛玻璃(.glass):右上图层分段按钮、导出、编年史(MapBar);右下地球、缩放(MapControls);
  * 底部一条胶囊形的时间轴(CivTimeline)。提示条、操作提示、回放说明在地图那一块里居中。
  * 窄屏(手机)的布局不受这里影响(没有 .has-side)。
  */
 .app.has-side {
   --side-w: 340px;
-  /* 地图那一块的水平中线 */
-  --map-mid: calc(var(--side-w) + (100% - var(--side-w)) / 2);
+  --side-gap: 14px;
+  /* 卡片占掉的宽度(左边距 + 卡片 + 右边留空;flyTo.ts 的 sideRoom 和这里一致) */
+  --side-room: calc(var(--side-w) + 2 * var(--side-gap));
+  /* 卡片右边那一块地图的水平中线 */
+  --map-mid: calc(var(--side-room) + (100% - var(--side-room)) / 2);
 }
 @media (min-width: 1100px) {
   .app.has-side {
     --side-w: 372px;
   }
 }
-.app.has-side .stage {
-  left: var(--side-w);
+/* 浮在地图上的侧栏卡片 */
+.app.has-side .sidebar {
+  left: var(--side-gap);
+  top: var(--side-gap);
+  bottom: var(--side-gap);
+  border: 0;
+  border-radius: 14px;
+  box-shadow: var(--shadow-float);
+}
+.app.has-side .sidebar .sb-body {
+  border-radius: 0 0 14px 14px;
 }
 
 /* 毛玻璃:浮在地图上的按钮、时间轴 */
@@ -36,7 +49,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  max-width: calc(100% - var(--side-w) - 28px);
+  max-width: calc(100% - var(--side-room) - 14px);
 }
 .map-bar button {
   font: inherit;
@@ -167,7 +180,7 @@
 
 /* ---- 底部:胶囊形的时间轴 ---- */
 .app.has-side .bottom-row {
-  left: calc(var(--side-w) + 14px);
+  left: var(--side-room);
   right: 14px;
   bottom: 14px;
   text-shadow: none;
@@ -234,7 +247,7 @@
 .app.has-side .terrain-bar {
   left: var(--map-mid);
   top: 64px;
-  max-width: calc(100% - var(--side-w) - 32px);
+  max-width: calc(100% - var(--side-room) - 32px);
 }
 .app.has-side .stage.terrain-on ~ .toast {
   top: calc(var(--tbar-bottom, 112px) + 8px);
@@ -256,7 +269,7 @@
   left: var(--map-mid);
 }
 .app.has-side .corner-tl {
-  left: calc(var(--side-w) + 16px);
+  left: calc(var(--side-room) + 2px);
   top: 16px;
   text-shadow: none;
 }

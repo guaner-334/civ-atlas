@@ -20,7 +20,7 @@ import { sheetGeometry } from './gestures';
 export const FLY_MS = 600;
 export const easeOutCubic = (t: number) => 1 - (1 - t) ** 3;
 
-/** 看全疆域时上下留出的地方:右上的图层按钮 / 提示条、时间轴(宽屏的详情面板在侧栏里,不压地图,左右不用让) */
+/** 看全疆域时上下留出的地方:右上的图层按钮 / 提示条、时间轴(宽屏左边让出侧栏卡片,见 sideRoom) */
 const TOP_ROOM = 64;
 const BOTTOM_ROOM = 104;
 /** 四周再留一点 */
@@ -139,6 +139,11 @@ export interface FlyGoal {
 export const NARROW_ROW_H = 92;
 export const NARROW_TOP_ROOM = 72;
 
+/** 宽屏左边浮着的侧栏卡片占掉的宽度:左边距 + 卡片 + 右边留空(和 desktop.css 的 --side-room 一致) */
+export function sideRoom(sw: number): number {
+  return 14 + (sw >= 1100 ? 372 : 340) + 14;
+}
+
 /** 面板开着时"看得见的地方"(舞台坐标):左、上、右、下 */
 export function freeArea(b: StageBox, panel: boolean): [number, number, number, number] {
   const narrow = b.sw <= NARROW_MAX;
@@ -147,7 +152,8 @@ export function freeArea(b: StageBox, panel: boolean): [number, number, number, 
     const [top, bottom] = panel ? sheetGeometry(b.sh, NARROW_ROW_H, NARROW_TOP_ROOM).free : [NARROW_TOP_ROOM, b.sh - NARROW_ROW_H - 24];
     return [0, top, b.sw, Math.max(top + 80, bottom)];
   }
-  return [0, TOP_ROOM, b.sw, Math.max(TOP_ROOM + 80, b.sh - BOTTOM_ROOM)];
+  // 宽屏:地图铺满窗口,左边被侧栏卡片挡住的那一截不算
+  return [sideRoom(b.sw), TOP_ROOM, b.sw, Math.max(TOP_ROOM + 80, b.sh - BOTTOM_ROOM)];
 }
 
 /**
