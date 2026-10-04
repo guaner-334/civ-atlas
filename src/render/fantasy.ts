@@ -2441,9 +2441,8 @@ const ICE_BAND = 2;
  */
 export function iceBand(r: Pick<Raster, 'w' | 'h' | 'water'>, iceM: Uint8Array, near: Uint8Array): Uint8Array {
   const { w, h, water } = r;
-  const N = w * h;
-  const edge = new Uint8Array(N);
-  let any = false;
+  const out = new Uint8Array(w * h);
+  const R = ICE_BAND;
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       const k = y * w + x;
@@ -2457,15 +2456,17 @@ export function iceBand(r: Pick<Raster, 'w' | 'h' | 'water'>, iceM: Uint8Array, 
         (y > 0 && water[k - w] === 1 && iceM[k - w] !== m) ||
         (y < h - 1 && water[k + w] === 1 && iceM[k + w] !== m)
       ) {
-        edge[k] = 1;
-        any = true;
+        // 往外扩 ICE_BAND 格,只留海面
+        for (let yy = Math.max(0, y - R); yy <= Math.min(h - 1, y + R); yy++) {
+          const row = yy * w;
+          for (let dx = -R; dx <= R; dx++) {
+            const q = row + (x + dx < 0 ? x + dx + w : x + dx >= w ? x + dx - w : x + dx);
+            if (water[q] === 1) out[q] = 1;
+          }
+        }
       }
     }
   }
-  if (!any) return edge;
-  // 往外扩 ICE_BAND 格,只留海面
-  const out = dilateWrap(edge, w, h, ICE_BAND);
-  for (let k = 0; k < N; k++) if (water[k] !== 1) out[k] = 0;
   return out;
 }
 
