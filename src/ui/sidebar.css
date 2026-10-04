@@ -130,6 +130,34 @@
   top: calc(100% + 8px);
 }
 
+.sb-more-wrap {
+  display: contents;
+}
+/* "用一句话改写世界"的框:浮在侧栏右边、地图左上角,和右上的图层按钮一样高(侧栏这时压在地图按钮上面) */
+.sidebar:has(.sb-rewrite) {
+  z-index: 8;
+}
+.sb-rewrite {
+  position: absolute;
+  top: 0;
+  left: calc(100% + 26px);
+}
+.sb-rewrite .rw-box {
+  position: static;
+  max-width: calc(100vw - var(--side-w) - 28px);
+  border: 0;
+  border-radius: 12px;
+  background: var(--panel);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: var(--shadow-float);
+  font-size: 13.5px;
+}
+.sb-rewrite .rw-unset .rw-link {
+  flex: none;
+  white-space: nowrap;
+}
+
 .sb-search {
   position: relative;
   display: flex;

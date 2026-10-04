@@ -1,7 +1,8 @@
 /**
  * 左边的侧栏(宽屏):界面的主体都在这里,地图在它右边。样子照常见的地图应用。
  *
- *   顶上   世界名、"种子 7，现存 14 国";存档、新世界、更多(AI 设置、写成史书、关于);下面一个搜索框
+ *   顶上   世界名、"种子 7，现存 14 国";存档、新世界、更多(用一句话改写世界、写成史书、AI 设置、关于);下面一个搜索框
+ *          "改写"的框(Rewrite.tsx)浮在侧栏右边、地图的左上角
  *   下面   三选一 ——
  *          搜索框里有字:搜索结果(点一条 = 选中它,地图飞过去)
  *          地图上选中了东西:它的详情(Inspector:国家 / 城 / 地理实体 / 州的面板)
@@ -9,7 +10,7 @@
  *
  * 窄屏(手机)不用这个侧栏,见 App 里的窄屏布局。
  */
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { Civ } from '../gen/civ/types';
 import type { Raster } from '../gen/raster';
 import type { World, WorldParams } from '../gen/world';
@@ -27,6 +28,7 @@ import { setTerrainTool } from './TerrainTools';
 import { searchCiv, type SearchHit } from './searchIndex';
 import { countUpTo, evText } from './timelineLayout';
 import { Inspector } from './Inspector';
+import { RewriteBox } from './Rewrite';
 import { Icon } from './icons';
 import { MenuItem, MenuSep, PopMenu } from './PopMenu';
 import { PRIVACY_URL, SOURCE_URL, TERMS_URL } from './links';
@@ -53,6 +55,8 @@ export interface SidebarProps {
   /** 读档:文件内容 / "我的世界"里的一个 */
   onOpenText: (text: string, fileName?: string) => void;
   onOpenStored: (id: string) => void;
+  /** 正在重推 / 按新地形重新生成 / 生成新世界(改写框里这时不能发话、不能执行) */
+  rewriteBusy: boolean;
 }
 
 const subscribeYear = (f: () => void) => subscribeCivTime(() => f());
@@ -146,6 +150,12 @@ function WorldHead(p: SidebarProps) {
   const n = edits.interventions.length;
   const seed = p.data ? p.data.world.params.seed : null;
   const sub = seed === null ? '正在生成' : `种子 ${seed}，${p.civ ? (p.civ.viable ? `现存 ${alive} 国` : '没有文明') : '正在推演历史'}${n ? `，干预了 ${n} 处` : ''}`;
+  const [rewriting, setRewriting] = useState(false);
+  /** "更多"菜单:点它不关改写框 */
+  const more = useRef<HTMLDivElement>(null);
+  const closeRewrite = useCallback(() => setRewriting(false), []);
+  // 改写不要求有文明:没长出文明的世界也能改地形
+  const canRewrite = !!p.civ && !!p.data;
   return (
     <div className="sb-world">
       <button className="sb-title" data-act="overview" onClick={() => openOverview()} title="世界概览:国家、编年史、干预、世界参数">
@@ -158,28 +168,38 @@ function WorldHead(p: SidebarProps) {
           <Icon name="plus" size={15} />
           新世界
         </button>
-        <PopMenu className="sb-pill sb-more" icon={<Icon name="more" size={17} />} title="更多" act="world-more" align="right">
-          <MenuItem icon={<Icon name="book" size={16} />} act="book" disabled={!p.civ || !p.civ.viable} onClick={() => openHistoryBook()} note="AI">
-            把历史写成史书
-          </MenuItem>
-          <MenuItem icon={<Icon name="sparkle" size={16} />} act="ai-settings" onClick={() => openAiSettings()}>
-            AI 设置
-          </MenuItem>
-          <MenuSep />
-          <MenuItem icon={<Icon name="info" size={16} />} href={SOURCE_URL} act="source">
-            源代码
-          </MenuItem>
-          <MenuItem href={PRIVACY_URL} act="privacy">
-            隐私政策
-          </MenuItem>
-          <MenuItem href={TERMS_URL} act="terms">
-            用户协议
-          </MenuItem>
-          <div className="pm-foot" data-version>
-            版本 {APP_VERSION}
-          </div>
-        </PopMenu>
+        <div className="sb-more-wrap" ref={more}>
+          <PopMenu className="sb-pill sb-more" icon={<Icon name="more" size={17} />} title="更多" act="world-more" align="right">
+            <MenuItem icon={<Icon name="rename" size={16} />} act="rewrite" disabled={!canRewrite} onClick={() => setRewriting(true)} note="AI">
+              用一句话改写世界
+            </MenuItem>
+            <MenuItem icon={<Icon name="book" size={16} />} act="book" disabled={!p.civ || !p.civ.viable} onClick={() => openHistoryBook()} note="AI">
+              把历史写成史书
+            </MenuItem>
+            <MenuItem icon={<Icon name="sparkle" size={16} />} act="ai-settings" onClick={() => openAiSettings()}>
+              AI 设置
+            </MenuItem>
+            <MenuSep />
+            <MenuItem icon={<Icon name="info" size={16} />} href={SOURCE_URL} act="source">
+              源代码
+            </MenuItem>
+            <MenuItem href={PRIVACY_URL} act="privacy">
+              隐私政策
+            </MenuItem>
+            <MenuItem href={TERMS_URL} act="terms">
+              用户协议
+            </MenuItem>
+            <div className="pm-foot" data-version>
+              版本 {APP_VERSION}
+            </div>
+          </PopMenu>
+        </div>
       </div>
+      {rewriting && canRewrite && (
+        <div className="sb-rewrite">
+          <RewriteBox civ={p.civ!} world={p.data!.world} busy={p.rewriteBusy} onClose={closeRewrite} anchor={more} />
+        </div>
+      )}
     </div>
   );
 }

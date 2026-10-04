@@ -30,6 +30,21 @@ const closeOverview = async (p: Page = page) => {
   if (await p.locator('.ov-root:not([hidden])').count()) await p.click('.ov-x');
   await p.waitForTimeout(200);
 };
+/**
+ * 宽屏的地图在侧栏右边、比整张世界窄(等距圆柱左右无限拖动):世界坐标 (wx, wy) 不在地图里时左右平移,把它挪到地图正中;
+ * 返回它的屏幕坐标
+ */
+const centerOn = async (p: Page, wx: number, wy: number): Promise<[number, number] | null> => {
+  const at = (await p.evaluate(([x, y]) => (window as any).__wfWorldToClient(x, y), [wx, wy])) as [number, number] | null;
+  const vw = p.viewportSize()!.width;
+  if (!at || (at[0] > SIDE_W + 60 && at[0] < vw - 60)) return at;
+  await p.evaluate((dx) => {
+    const v = (window as any).__wfView;
+    (window as any).__wfSetView({ k: v.k, x: v.x + dx, y: v.y });
+  }, SIDE_W + (vw - SIDE_W) / 2 - at[0]);
+  await p.waitForTimeout(250);
+  return (await p.evaluate(([x, y]) => (window as any).__wfWorldToClient(x, y), [wx, wy])) as [number, number] | null;
+};
 /** 详情面板藏起来了(在地图上选目标、正在推演):窄屏的抽屉整个藏起;宽屏侧栏里的面板留着、变淡不能点 */
 const insHidden = async (p: Page = page) =>
   (await p.locator('.inspector.hidden').count()) > 0 || !(await p.locator('.inspector').isVisible().catch(() => false));
@@ -447,9 +462,19 @@ for (const style of ['realistic', 'fantasy']) {
     page
       .waitForFunction(() => [...document.querySelectorAll('.ev-pin')].find((e) => (e as HTMLElement).style.visibility === 'visible')?.textContent ?? '', null, { timeout })
       .then((h) => h.jsonValue() as Promise<string>, () => '');
+  // 宽屏的地图在侧栏右边,只露出大半个世界:先算出 2640 年以后第一件大事的事发地,打开后把地图挪过去(播放经过它时标签才在地图里)
+  const { DEFAULT_PARAMS: DP, generateWorld: genW } = await import('../src/gen/world');
+  const { generateCiv: genC } = await import('../src/gen/civ');
+  const { buildChronicle: buildC, filterChronicle: filterC } = await import('../src/gen/civ/chronicle');
+  const { entryAnchor } = await import('../src/ui/timelineLayout');
+  const wT = genW({ ...DP, seed: 7 });
+  const cT = genC(wT);
+  const evNext = filterC(buildC(cT), { major: true }).find((e) => e.year >= 2640 && entryAnchor(wT, cT, e));
+  const evAt = evNext ? entryAnchor(wT, cT, evNext) : null;
   await page.goto(`${dev.url}/?seed=7&style=fantasy&play=1`);
   await page.waitForFunction(() => (window as any).__wfCiv?.ready, null, { timeout: 60000 });
   const s0 = await tlState();
+  if (evAt) await centerOn(page, evAt[0], evAt[1]);
   const pin = await visiblePin(15000);
   const recent = await page.locator('.sidebar .sb-row.ev').count();
   const a = await tlState();
@@ -1196,7 +1221,7 @@ for (const style of ['realistic', 'fantasy']) {
         // 上一下选中后地图还在飞过去:停稳了再换算坐标
         await page.keyboard.press('Escape');
         await page.waitForTimeout(700);
-        const at = (await page.evaluate(([x, y]) => (window as any).__wfWorldToClient(x, y), [w7.mesh.x[far], w7.mesh.y[far]])) as [number, number] | null;
+        const at = await centerOn(page, w7.mesh.x[far], w7.mesh.y[far]);
         if (!at) continue;
         await page.mouse.click(at[0], at[1]);
         const id = await page
@@ -1217,7 +1242,7 @@ for (const style of ['realistic', 'fantasy']) {
     for (const r of best.regs.slice(0, 12)) {
       await page.keyboard.press('Escape');
       await page.waitForTimeout(700);
-      const at = (await page.evaluate(([x, y]) => (window as any).__wfWorldToClient(x, y), seatAt(r))) as [number, number] | null;
+      const at = await centerOn(page, ...seatAt(r));
       if (!at) continue;
       await page.mouse.click(at[0], at[1]);
       const id = await page
@@ -1581,10 +1606,14 @@ for (const style of ['realistic', 'fantasy']) {
       const hv = await probe(page, x, y);
       await page.mouse.click(x, y);
       await page.waitForTimeout(100);
-      // 面板顶部:州名(可能带"恢复默认"),下一行"州，属 某国，…"(州名以外的"第 N 州"只看顶部)
+      // 面板顶部:州名(可能带"恢复默认"),下一行"州，属 某国，…"(州名以外的"第 N 州"只看顶部这两行)
+      await page.locator('.inspector .cp-head').waitFor({ timeout: 2000 }).catch(() => {});
       const t = await page
-        .locator('.inspector .cp-head')
-        .innerText({ timeout: 2000 })
+        .evaluate(() => {
+          const h = document.querySelector('.inspector .cp-head') as HTMLElement | null;
+          const sub = document.querySelector('.inspector .cp-sub') as HTMLElement | null;
+          return h ? `${h.innerText}\n${sub?.innerText ?? ''}` : '';
+        })
         .catch(() => '');
       const m = /^(.+?)\s*\n(?:\s*恢复默认\s*\n)?\s*州，属(.+?)(?:，|\n|$)/.exec(t.trim());
       const inHover = /第 (\d+) 州/.exec(hv)?.[1];
@@ -1974,6 +2003,98 @@ for (const style of ['realistic', 'fantasy']) {
   if (!scopes.includes('整个世界') || !scopes.includes(name) || !worldFirst) errs.push(`搜索:选中国家后成书的"写什么"没有这一国 / 默认不是整个世界(${scopes})`);
   if (polityDefault !== name) errs.push(`成书:国家面板里的"让 AI 写国史"没有默认写这一国(${polityDefault})`);
   await sp.close();
+}
+
+// AI 改写(阶段 5「对话式编辑」,不联网):侧栏"更多"里的"用一句话改写世界" → 框里一行说明 + 三句按这个世界写的例子;没设置 AI 时"发送"点不了,
+// 底部一行提示 +"设置 AI"(打开设置;Esc 只关设置)。测试用假 AI(时间轴在 2000 年):说一句(不提地形)→ 列出一条"保护"提议(2000 年起、至 2300 年)→
+// "执行 1 条":框收起、后台重推,提示条"已按你说的改写"(带撤销)、侧栏顶上"干预了 1 处" → 提示条上点撤销 → 重推回没有干预;
+// 再打开框,那一轮写"已撤销";点框外面关上
+{
+  const rp = await browser.newPage({ viewport: { width: 1400, height: 820 } });
+  rp.on('pageerror', (e) => errs.push(`[改写] ${e.message}`));
+  rp.on('console', (m) => m.type() === 'error' && errs.push(`[改写] ${m.text()}`));
+  /** 侧栏"更多" → "用一句话改写世界"(历史推完才能点) */
+  const openRewrite = async () => {
+    await rp.click('[data-act=world-more]');
+    await rp.click('.pm-menu [data-act=rewrite]:not([disabled])', { timeout: 10000 }).catch(() => rp.keyboard.press('Escape'));
+  };
+  await rp.goto(`${dev.url}/?seed=7&style=fantasy`);
+  await rp.waitForFunction(() => (window as any).__wfLabels?.polities > 0, null, { timeout: 60000 });
+  await openRewrite();
+  const shown = await rp.waitForSelector('.rw-box', { timeout: 5000 }).then(() => true, () => false);
+  const hint = await rp.locator('.rw-hint').innerText().catch(() => '');
+  const examples = (await rp.locator('.rw-example').allInnerTexts().catch(() => [] as string[])) as string[];
+  const unset = await rp.locator('.rw-unset').innerText().catch(() => '');
+  await rp.fill('.rw-input textarea', '让最大的国家多撑三百年');
+  const sendOff = await rp.locator('[data-act=rw-send]').isDisabled().catch(() => false);
+  await rp.click('.rw-unset .rw-link').catch(() => null);
+  const aiOpened = await rp.waitForSelector('.ai-dialog', { timeout: 5000 }).then(() => true, () => false);
+  await rp.keyboard.press('Escape');
+  await rp.waitForTimeout(150);
+  const boxKept = (await rp.locator('.rw-box').count()) === 1 && !(await rp.locator('.ai-dialog').count());
+  await rp.keyboard.press('Escape');
+  const escClosed = !(await rp.locator('.rw-box').count());
+  console.log(
+    `改写(没设置 AI):框 ${shown ? '出来' : '没出来'}「${hint.slice(0, 24)}…」,例子 ${examples.join(' / ')};「${unset.replace(/\n/g, ' ')}」,发送点不了 ${sendOff};` +
+      `"设置 AI"打开设置 ${aiOpened}、Esc 只关设置 ${boxKept};再 Esc 关上 ${escClosed}`,
+  );
+  if (!shown) errs.push('改写:点侧栏"更多"里的"用一句话改写世界"没有出来框');
+  else {
+    if (!hint.includes('点了执行才改')) errs.push(`改写:框里没有说明(${hint})`);
+    if (examples.length !== 3) errs.push(`改写:空的时候应该有三句例子(${examples.join(' / ')})`);
+    if (!unset.includes('设置 AI') || !sendOff) errs.push(`改写:没设置 AI 时应该提示、"发送"点不了(${unset};点不了 ${sendOff})`);
+    if (!aiOpened || !boxKept || !escClosed) errs.push(`改写:"设置 AI"没打开设置 / Esc 把改写框也关了 / 再按 Esc 没关上(${aiOpened}、${boxKept}、${escClosed})`);
+  }
+
+  await rp.goto(`${dev.url}/?seed=7&style=fantasy&ai=mock&civYear=2000`);
+  await rp.waitForFunction(() => (window as any).__wfLabels?.polities > 0, null, { timeout: 60000 });
+  await rp.waitForTimeout(300);
+  const sub0 = await rp.locator('.sb-sub').innerText().catch(() => '');
+  await openRewrite();
+  await rp.fill('.rw-input textarea', '让最大的国家多撑三百年');
+  await rp.click('[data-act=rw-send]');
+  await rp.waitForSelector('.rw-turn .rw-ans', { timeout: 10000 }).catch(() => null);
+  const items = (await rp.locator('.rw-item .rw-text').allInnerTexts().catch(() => [] as string[])) as string[];
+  const years = (await rp.locator('.rw-item .rw-year').allInnerTexts().catch(() => [] as string[])) as string[];
+  const checked = await rp.locator('.rw-check[aria-checked=true]').count();
+  const go = await rp.locator('[data-act=rw-apply]').innerText().catch(() => '');
+  const cannot = await rp.locator('.rw-cannot').count();
+  const prev = await rp.evaluate(() => (window as any).__wfResim?.seq ?? 0);
+  await rp.click('[data-act=rw-apply]').catch(() => null);
+  await rp.waitForTimeout(100);
+  const boxGone = !(await rp.locator('.rw-box').count());
+  const resimmed = await rp
+    .waitForFunction((s) => ((window as any).__wfResim?.seq ?? 0) > s, prev, { timeout: 20000 })
+    .then(() => true, () => false);
+  const done = await toastText(rp, 'resim-done', 5000);
+  const sub1 = await rp.locator('.sb-sub').innerText().catch(() => '');
+  const prevU = await rp.evaluate(() => (window as any).__wfResim?.seq ?? 0);
+  await rp.click('.toast[data-toast=resim-done] [data-act=rw-undo]').catch(() => null);
+  const undone = await rp
+    .waitForFunction((s) => ((window as any).__wfResim?.seq ?? 0) > s, prevU, { timeout: 20000 })
+    .then(() => true, () => false);
+  const undoToast = await toastText(rp, 'resim-done', 5000);
+  const sub2 = await rp.locator('.sb-sub').innerText().catch(() => '');
+  await openRewrite();
+  const turnState = await rp.locator('.rw-turn .rw-done').innerText({ timeout: 3000 }).catch(() => '');
+  await rp.mouse.click(700, 450);
+  await rp.waitForTimeout(150);
+  const outsideClosed = !(await rp.locator('.rw-box').count());
+  console.log(
+    `改写(假 AI):提议 ${items.map((t, i) => `${years[i]} ${t}`).join(';')}(勾着 ${checked} 条,按钮「${go}」,做不到 ${cannot} 句);` +
+      `执行:框收起 ${boxGone}、重推 ${resimmed}、提示「${done}」、左上「${sub0}」→「${sub1}」;撤销:重推 ${undone}、提示「${undoToast}」、左上「${sub2}」;` +
+      `再打开那一轮「${turnState}」;点外面关上 ${outsideClosed}`,
+  );
+  if (items.length !== 1 || !/:保护\(至第 2300 年\)$/.test(items[0] ?? '') || years[0] !== '2000') errs.push(`改写:假 AI 的提议不对(${items.join(';')})`);
+  if (checked !== 1 || go !== '执行 1 条' || cannot !== 1) errs.push(`改写:提议默认全勾、按钮写条数、做不到的一句(勾 ${checked},「${go}」,做不到 ${cannot})`);
+  if (!boxGone || !resimmed) errs.push(`改写:点"执行"后框没收起 / 没有重推(${boxGone}、${resimmed})`);
+  if (!/已按你说的改写 · 从 \d+ 年重新推演.*撤销/.test(done)) errs.push(`改写:执行后提示条不对(${done})`);
+  if (!sub0 || sub0.includes('干预') || !sub1.includes('干预了 1 处')) errs.push(`改写:执行后侧栏顶上应从没有干预变成"干预了 1 处"(${sub0} → ${sub1})`);
+  if (!undone || !undoToast.includes('已撤销改写') || !sub2 || sub2.includes('干预')) errs.push(`改写:提示条上的撤销不对(重推 ${undone},「${undoToast}」,侧栏顶上「${sub2}」)`);
+  if (turnState !== '已撤销') errs.push(`改写:撤销后再打开,那一轮应写"已撤销"(${turnState})`);
+  if (!outsideClosed) errs.push('改写:点框外面没关上');
+  await rp.evaluate(() => localStorage.clear());
+  await rp.close();
 }
 
 // AI 设置(阶段 5):打开"AI" → 我们的 AI 显示"内测" → 假 AI(ai=mock,不联网)"测试一下"成功 → 调用记录里有一条、刷新后还在 → 清空
@@ -2395,8 +2516,10 @@ for (const style of ['realistic', 'fantasy']) {
   const pk = await page.evaluate(() => {
     const all = (window as any).__wfPickables() as { kind: string; id: number; text: string; x: number; y: number }[];
     const names = all.filter((p) => p.kind === 'settlement' && p.text);
+    // 在地图那一块里的(宽屏左边是侧栏)
+    const sideW = document.querySelector('.stage')!.getBoundingClientRect().left;
     for (const n of names) {
-      const m = all.find((p) => p.kind === 'mark' && p.id === n.id);
+      const m = all.find((p) => p.kind === 'mark' && p.id === n.id && p.x > sideW + 20 && p.x < innerWidth - 20);
       if (m) return { name: n.text, x: m.x, y: m.y };
     }
     return null;
