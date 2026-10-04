@@ -3287,7 +3287,7 @@ for (const style of ['realistic', 'fantasy']) {
   if (!/^种子 7，现存 \d+ 国$/.test(sub)) errs.push(`手机:世界名后面的副标不对(${sub})`);
   if (btnActs !== 'layers,globe' || !btns || Math.abs(btns.x + btns.width - (VW - 12)) > 1 || btns.y > 20 || btns.height < 80)
     errs.push(`手机:右上不是竖排的图层、地球两个按钮(${btnActs} ${JSON.stringify(btns)})`);
-  if (!wsFull || Math.abs(wsFull.y - 0.12 * VH) > 8 || tiles !== 4 || !capsuleHidden) errs.push(`手机:往上拖世界卡片没有拉到顶(${JSON.stringify(wsFull)},大按钮 ${tiles},胶囊藏起 ${capsuleHidden})`);
+  if (!wsFull || Math.abs(wsFull.y - 0.08 * VH) > 8 || tiles !== 4 || !capsuleHidden) errs.push(`手机:往上拖世界卡片没有拉到顶(${JSON.stringify(wsFull)},大按钮 ${tiles},胶囊藏起 ${capsuleHidden})`);
   if (!ws1 || Math.abs(ws1.y - (VH - PEEK)) > 2) errs.push(`手机:点拖动条没有收起世界卡片(${JSON.stringify(ws1)})`);
   if (!hint0.includes('双指缩放') || hint1 !== 0) errs.push(`手机:操作提示不对 / 捏合后没消失(${hint0})`);
   if (zoomBtns) errs.push('手机:右下还有地球仪 / 缩放按钮');
@@ -3304,7 +3304,7 @@ for (const style of ['realistic', 'fantasy']) {
     if (!/ \/ 国家，/.test(info) || !info.includes('干预历史')) errs.push(`手机:卡片里不是国家面板(${info.slice(0, 80)})`);
     if (!ring || !row1 || !(ring.y > 20 && ring.y + ring.height < row1.y)) errs.push(`手机:选中的国家没有落在时间轴胶囊上方(国都圆环 ${JSON.stringify(ring)})`);
     if (hover) errs.push('手机:点了以后出了悬停卡片');
-    if (!full || !sheet1 || Math.abs(sheet1.y - 0.12 * VH) > 8 || !fullCapsuleHidden) errs.push(`手机:往上拖没有拉到顶 / 胶囊没藏起来(${JSON.stringify(sheet1)})`);
+    if (!full || !sheet1 || Math.abs(sheet1.y - 0.08 * VH) > 8 || !fullCapsuleHidden) errs.push(`手机:往上拖没有拉到顶 / 胶囊没藏起来(${JSON.stringify(sheet1)})`);
     if (cmds !== 6) errs.push(`手机:干预页不对(${cmds} 条命令)`);
     if (!/^选择与.+结盟的国家 \d+ 年起生效 取消$/.test(pickToast) || !hiddenWhilePicking) errs.push(`手机:选目标的提示条 / 卡片收起不对(${pickToast})`);
     if (!/^已从 \d+ 年重新推演 · .+与.+结盟 撤销$/.test(doneToast)) errs.push(`手机:点名牌后没有生效(${doneToast})`);

@@ -13,7 +13,7 @@
  *   --peek-h       世界卡片收起时露出的高度(底部有横条时多出横条那一截)
  *   --above-sheet  卡片上方被时间轴胶囊占掉的一截(胶囊 + 上下各一道空)
  *   --sheet-half   详情卡片半屏时上边的位置:约在屏幕一半;太矮的屏幕上至少露出卡片头部和一排按钮,上面至少留胶囊 + 一截地图
- *   --sheet-full   拉到顶时上边的位置:屏高 12%
+ *   --sheet-full   拉到顶时上边的位置:屏高 8%(上面还露一条地图)
  */
 .app.phone {
   height: 100dvh;
@@ -27,7 +27,7 @@
   --capsule-gap: 10px;
   --above-sheet: calc(var(--capsule-h) + 2 * var(--capsule-gap));
   --sheet-half: max(calc(var(--top-room) + var(--above-sheet) + 80px), min(calc(100% - 240px), 50%));
-  --sheet-full: min(var(--sheet-half), max(12%, 8px));
+  --sheet-full: min(var(--sheet-half), max(8%, 8px));
   --sheet-ease: cubic-bezier(0.33, 1, 0.68, 1);
 }
 

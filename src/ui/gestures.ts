@@ -59,7 +59,7 @@ export const ABOVE_SHEET = CAPSULE_H + 2 * CAPSULE_GAP;
 
 /** 半高:详情卡片占屏高的比例(卡片一直铺到屏幕底);展开:上边离屏幕顶的比例 */
 export const SHEET_HALF = 0.5;
-export const SHEET_FULL_TOP = 0.12;
+export const SHEET_FULL_TOP = 0.08;
 
 /**
  * 手机底部卡片的几何(舞台坐标,像素):H = 界面高,topRoom = 顶上留给提示条的一截。

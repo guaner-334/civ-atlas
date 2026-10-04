@@ -1309,7 +1309,7 @@
     animation: sheet-up 0.26s ease-out;
   }
   .inspector.cpanel.sheet-full {
-    top: var(--sheet-full, 12%);
+    top: var(--sheet-full, 8%);
   }
   /* 手指拖着:跟手,不过渡 */
   .inspector.cpanel.dragging {

@@ -33,12 +33,12 @@ describe('双指捏合', () => {
 });
 
 describe('底部卡片', () => {
-  it('详情卡片半屏约占屏高一半、拉到顶在屏高 12%,一直铺到屏幕底;看得见的地图在顶上那截和卡片上的时间轴胶囊之间', () => {
+  it('详情卡片半屏约占屏高一半、拉到顶在屏高 8%,一直铺到屏幕底;看得见的地图在顶上那截和卡片上的时间轴胶囊之间', () => {
     for (const H of [844, 740, 667]) {
       const g = sheetGeometry(H, NARROW_TOP_ROOM);
       expect(g.bottom).toBe(H);
       expect((g.bottom - g.halfTop) / H).toBeCloseTo(0.5, 2);
-      expect(g.fullTop).toBeCloseTo(0.12 * H);
+      expect(g.fullTop).toBeCloseTo(0.08 * H);
       expect(g.free).toEqual([NARROW_TOP_ROOM, g.halfTop - ABOVE_SHEET]);
     }
   });
