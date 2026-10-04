@@ -302,7 +302,16 @@ function WorldCard({
                 <Icon name="copy" size={16} />
                 <span className="pm-text">复制一份</span>
               </button>
-              <button className="pm-item" data-act="world-file" onClick={act(() => downloadSave(w.save))}>
+              <button
+                className="pm-item"
+                data-act="world-file"
+                onClick={act(() => {
+                  // 按点的这一刻存着的存(别的页面里可能又改过、删了)
+                  const cur = loadWorld(w.id);
+                  if (!cur) return notify({ kind: 'error', text: '打不开这个存档', more: ['可能已在别的页面里删掉了'] });
+                  downloadSave(cur.save);
+                })}
+              >
                 <Icon name="save" size={16} />
                 <span className="pm-text">存成文件</span>
               </button>
