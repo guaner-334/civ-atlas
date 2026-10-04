@@ -127,4 +127,14 @@ describe('等距圆柱的海岸线:抽稀', () => {
     expect(q.length).toBeGreaterThanOrEqual(8);
     expect([q[q.length - 2], q[q.length - 1]]).toEqual([q[0], q[1]]);
   });
+
+  it('折回去、伸出弦两头的点不会因为离那条直线近就被去掉', () => {
+    // 离直线只有 0.1,但离线段 (0,0)–(1,0) 有 10
+    const p = Float32Array.from([0, 0, -10, 0.1, 1, 0]);
+    expect(Array.from(simplifyLine(p, 0.3))).toEqual(Array.from(p));
+    // 来回折的窄岬:去掉的点离抽稀后的折线照样不到容差
+    const spit = Float32Array.from([0, 0, 5, 0.05, 10, 0.1, 5, 0.15, -3, 0.2, 2, 0.25]);
+    const q = simplifyLine(spit, 0.3);
+    for (let i = 0; i < spit.length; i += 2) expect(distTo(q, spit[i], spit[i + 1])).toBeLessThanOrEqual(0.3 + 1e-6);
+  });
 });
