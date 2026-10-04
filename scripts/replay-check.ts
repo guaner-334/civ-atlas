@@ -2290,7 +2290,7 @@ for (const style of ['realistic', 'fantasy']) {
 
   // 5. 手绘风:外框、罗盘、纸边做旧画在视窗上(视窗装饰层画了,地形图本身没有外框)
   const decor = await page.evaluate(() => {
-    const d = document.querySelector('.map-box canvas.decor') as HTMLCanvasElement | null;
+    const d = document.querySelector('canvas.decor') as HTMLCanvasElement | null;
     return { shown: !!d && d.style.display !== 'none' && d.width > 0, dbg: (window as any).__wfDecor };
   });
   console.log(`视窗装饰:${JSON.stringify(decor)}`);

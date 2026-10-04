@@ -1,11 +1,11 @@
 /**
- * 放大后的地形细节层(canvas.detail,在 .map-box 里紧贴地形图之上、文明层之下):
+ * 放大后的地形细节层(canvas.detail,在地形图之上、文明层之下的屏幕层里,见 mapWrap.ts 的"屏幕层"):
  * 放大到 DETAIL_K 倍以上时,把视口附近那一块按屏幕像素重画(render/detail.ts)——
  * 手绘风的符号逐级变大、细节变多,写实风的河流按缩放分级;放大多少倍都不糊。
  *
- * 和文字层一样,画布只盖住看得见的那一块(外加四周各留 1/4 视口的余量),CSS 尺寸 = 那一块 ÷ k,跟着地图一起被放大。
- * 重画一次要几十毫秒,所以不是每一帧都画:
- *   - 视口还在画好的那一块里、缩放倍数和画的时候差不到 30%:不重画(CSS 放大一点点,看不出)
+ * 和文字层一样,画布只盖住看得见的那一块(外加四周各留 1/4 视口的余量),画布像素 = 屏幕像素;地图平移、缩放时按地图框的位置
+ * 挪过去(placeOnScreen)。重画一次要几十毫秒,所以不是每一帧都画:
+ *   - 视口还在画好的那一块里、缩放倍数和画的时候差不到 30%:不重画,只挪位置(缩放倍数变了就按比例放大一点点,看不出)
  *   - 否则马上重画;停下来约 0.15 秒后,再按准确的缩放倍数补画一次
  * 没盖到的地方(拖得太快)露出底下的地形图(缩放 1 倍的那一份),不会出现空白。
  *
@@ -23,7 +23,7 @@ import type { World } from '../gen/world';
 import type { Raster } from '../gen/raster';
 import { DETAIL_K, drawTerrainDetail, drawTerrainProjected, type DetailStyle } from '../render/detail';
 import { centerShift, type MapProj } from '../render/projection';
-import { visibleBox, type Visible } from './mapWrap';
+import { mapBoxOf, placeOnScreen, visibleBox, type Visible } from './mapWrap';
 import { useMapMoving } from './projection';
 
 /** 画好的那一块(地图框 CSS 坐标,缩放前)和画的时候的缩放倍数 */
@@ -89,7 +89,7 @@ export function TerrainDetail({
   // 地图框大小变了(窗口缩放)也要重画
   const [tick, setTick] = useState(0);
   useEffect(() => {
-    const box = ref.current?.parentElement;
+    const box = mapBoxOf(ref.current);
     if (!box || typeof ResizeObserver === 'undefined') return;
     const ro = new ResizeObserver(() => setTick((t) => t + 1));
     ro.observe(box);
@@ -99,7 +99,7 @@ export function TerrainDetail({
 
   useLayoutEffect(() => {
     const cv = ref.current;
-    const box = cv?.parentElement;
+    const box = mapBoxOf(cv);
     if (!cv || !box) return;
     window.clearTimeout(timer.current);
     /** release = false:只藏起来,画布留着(拖动中;停下来接着用这一张,不重新分配) */
@@ -132,7 +132,7 @@ export function TerrainDetail({
         const covers = d.x0 + dx <= vis.x0 + 0.5 && d.y0 <= vis.y0 + 0.5 && d.x1 + dx >= vis.x1 - 0.5 && d.y1 >= vis.y1 - 0.5;
         const dk = Math.abs(Math.log(vis.k / d.k));
         if (covers && (exact ? dk < 0.02 : dk < K_SLACK)) {
-          cv.style.left = `${d.x0 + dx}px`;
+          placeOnScreen(cv, vis, d.x0 + dx, d.y0, d.k);
           if (dx) (window as unknown as { __wfDetail?: unknown }).__wfDetail = { on: true, k: d.k, slide: dx, proj: mp?.def.id ?? 'equirect', lon: mp?.lon0 };
           return;
         }
@@ -154,15 +154,8 @@ export function TerrainDetail({
         cv.width = W;
         cv.height = H;
       }
-      Object.assign(cv.style, {
-        display: '',
-        left: `${x0}px`,
-        top: `${y0}px`,
-        right: 'auto',
-        bottom: 'auto',
-        width: `${x1 - x0}px`,
-        height: `${y1 - y0}px`,
-      });
+      Object.assign(cv.style, { display: '', width: `${W / dpr}px`, height: `${H / dpr}px` });
+      placeOnScreen(cv, vis, x0, y0, vis.k);
       const ctx = cv.getContext('2d')!;
       const s = (vis.bw / world.width) * vis.k * dpr; // 画布像素 / 世界单位
       const v = { s, ox: -x0 * vis.k * dpr, oy: -y0 * vis.k * dpr, k: vis.k };
