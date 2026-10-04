@@ -48,10 +48,15 @@ export type SheetSnap = 'half' | 'full';
 export type WorldSnap = 'peek' | 'full';
 
 /**
- * 手机布局的几块高度(CSS 像素,不含刘海、底部横条的安全区;和 phone.css 的 --peek-h、--capsule-h、--capsule-gap 一致):
- * PEEK_H = 世界卡片收起时露出的高度;CAPSULE_H = 时间轴胶囊;CAPSULE_GAP = 胶囊和下面卡片之间的空(上面再留一道一样的)
+ * 手机布局的几块高度(CSS 像素;和 phone.css 的 --peek-h、--capsule-h、--capsule-gap 一致):
+ * PEEK_H = 世界卡片收起时露出的高度(没有底部横条时;有横条见 peekHeight);CAPSULE_H = 时间轴胶囊;
+ * CAPSULE_GAP = 胶囊和下面卡片之间的空(上面再留一道一样的)
  */
 export const PEEK_H = 108;
+/** 世界卡片收起时露出的高度:底部有横条(安全区 safeB)时多出横条那一截,和 phone.css 的 calc(100px + max(安全区, 8px)) 一致 */
+export function peekHeight(safeB = 0): number {
+  return PEEK_H - 8 + Math.max(safeB, 8);
+}
 export const CAPSULE_H = 52;
 export const CAPSULE_GAP = 10;
 /** 卡片上方被时间轴胶囊占掉的一截(胶囊 + 上下各一道空) */
@@ -62,16 +67,16 @@ export const SHEET_HALF = 0.5;
 export const SHEET_FULL_TOP = 0.08;
 
 /**
- * 手机底部卡片的几何(舞台坐标,像素):H = 界面高,topRoom = 顶上留给提示条的一截。
+ * 手机底部卡片的几何(舞台坐标,像素):H = 界面高,topRoom = 顶上留给提示条的一截(含刘海),safeB = 底部横条的安全区。
  * halfTop / fullTop = 详情卡片半高 / 展开时上边的 y;peekTop = 世界卡片收起时上边的 y;bottom = 卡片下边(屏幕底);
  * free = 详情卡片半高时,它上面的时间轴胶囊再往上、顶上那截往下看得见的地图 [上, 下]
  */
-export function sheetGeometry(H: number, topRoom = 24): { halfTop: number; fullTop: number; peekTop: number; bottom: number; free: [number, number] } {
+export function sheetGeometry(H: number, topRoom = 24, safeB = 0): { halfTop: number; fullTop: number; peekTop: number; bottom: number; free: [number, number] } {
   const bottom = H;
   // 太矮的屏幕:半高的卡片至少露出头部和一排按钮(240),上面至少留胶囊 + 80 的地图
   const halfTop = Math.max(topRoom + ABOVE_SHEET + 80, Math.min(bottom - 240, bottom - SHEET_HALF * H));
   const fullTop = Math.min(halfTop, Math.max(SHEET_FULL_TOP * H, 8));
-  return { halfTop, fullTop, peekTop: bottom - PEEK_H, bottom, free: [topRoom, Math.max(topRoom + 80, halfTop - ABOVE_SHEET)] };
+  return { halfTop, fullTop, peekTop: bottom - peekHeight(safeB), bottom, free: [topRoom, Math.max(topRoom + 80, halfTop - ABOVE_SHEET)] };
 }
 
 /**

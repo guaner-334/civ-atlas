@@ -1298,6 +1298,8 @@
     max-width: none;
     top: var(--sheet-half, 50%);
     bottom: 0;
+    /* 卡片铺到屏幕底:内容和底部按钮让开 iPhone 的横条 */
+    padding-bottom: var(--safe-b, 0px);
     height: auto;
     max-height: none;
     border-bottom: 0;
@@ -1353,7 +1355,6 @@
   }
   .inspector.sheet .cp-body {
     touch-action: pan-y;
-    padding-bottom: calc(16px + var(--safe-b, 0px));
   }
   /* 半高时要露出头部、三格数字和下一块的开头:三格、底部按钮稍微紧一点 */
   .inspector.sheet .cp-stat {

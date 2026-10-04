@@ -48,3 +48,23 @@ export function useNarrow(): boolean {
 export function useCoarse(): boolean {
   return useSyncExternalStore(subCoarse, isCoarse, () => false);
 }
+
+let insetProbe: HTMLDivElement | null = null;
+
+/**
+ * 刘海、底部横条占掉的安全区(CSS 像素;没有就是 0):量一个用 env(safe-area-inset-*) 当内边距的隐藏元素,
+ * 和 phone.css 里 --safe-t / --safe-b 是同一个值。转屏后会变,用的时候现量。
+ */
+export function safeInsets(): { t: number; b: number } {
+  if (typeof document === 'undefined' || !document.body) return { t: 0, b: 0 };
+  if (!insetProbe) {
+    insetProbe = document.createElement('div');
+    insetProbe.setAttribute('aria-hidden', 'true');
+    insetProbe.style.cssText =
+      'position:fixed;left:0;top:0;width:0;height:0;visibility:hidden;pointer-events:none;' +
+      'padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)';
+    document.body.appendChild(insetProbe);
+  }
+  const cs = getComputedStyle(insetProbe);
+  return { t: parseFloat(cs.paddingTop) || 0, b: parseFloat(cs.paddingBottom) || 0 };
+}

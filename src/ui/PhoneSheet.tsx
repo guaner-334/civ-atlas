@@ -15,8 +15,8 @@ import { ExportMenu, type ExportMenuProps } from './ExportMenu';
 import { RewriteBox } from './Rewrite';
 import { openOverview } from './overviewStore';
 import { setSheetDrag, setWorldSheet, usePanel } from './panelStore';
-import { sheetGeometry, worldSnap } from './gestures';
-import { NARROW_TOP_ROOM } from './flyTo';
+import { worldSnap } from './gestures';
+import { phoneSheet } from './flyTo';
 import { Icon } from './icons';
 import { SearchField, SearchResults, WorldHome, WorldMoreMenu, useSearch, useWorldInfo, type SidebarProps } from './Sidebar';
 
@@ -144,7 +144,7 @@ function useWorldDrag(snap: 'peek' | 'full') {
   /** 拖动中卡片上边的 y(相对界面;不在拖 = null,按 CSS 停在收起 / 拉到顶) */
   const [top, setTop] = useState<number | null>(null);
   const press = useRef<{ id: number; y0: number; top0: number; moved: boolean; samples: { y: number; t: number }[] } | null>(null);
-  const geo = () => sheetGeometry(ref.current?.offsetParent?.clientHeight ?? window.innerHeight, NARROW_TOP_ROOM);
+  const geo = () => phoneSheet(ref.current?.offsetParent?.clientHeight ?? window.innerHeight);
   const clampTop = (y: number) => {
     const g = geo();
     return Math.max(g.fullTop - 24, Math.min(g.peekTop + 24, y));

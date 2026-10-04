@@ -29,9 +29,9 @@ import { PlacePanel } from './PlacePanel';
 import { RegionPanel } from './RegionPanel';
 import { setPanelTab, setSheet, setSheetDrag, usePanel } from './panelStore';
 import { ownersOf } from './panelData';
-import { NARROW_TOP_ROOM, selectionKey } from './flyTo';
+import { phoneSheet, selectionKey } from './flyTo';
 import { useNarrow } from './device';
-import { sheetGeometry, sheetSnap, type SheetSnap } from './gestures';
+import { sheetSnap, type SheetSnap } from './gestures';
 import './countryPanel.css';
 
 /** 最近一次画面板时的历史(冒烟检查、截图挑例子用) */
@@ -122,7 +122,7 @@ export function Inspector({ civ, raw, raster, world }: { civ: Civ | null; raw: C
 /** 卡片现在的几何(和 phone.css 的 --sheet-half / --sheet-full 同一个算法) */
 function sheetNow(el: HTMLElement) {
   const app = el.offsetParent as HTMLElement | null;
-  return sheetGeometry(app?.clientHeight ?? window.innerHeight, NARROW_TOP_ROOM);
+  return phoneSheet(app?.clientHeight ?? window.innerHeight);
 }
 
 function useSheetDrag(narrow: boolean, sheet: SheetSnap) {

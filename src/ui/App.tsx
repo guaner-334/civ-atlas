@@ -120,10 +120,10 @@ import {
 import { getPolityPick, interventionText, setPickHover, setPolityPick, usePolityPick } from './Interventions';
 import { Inspector } from './Inspector';
 import { TargetLayer } from './TargetPlates';
-import { FLY_MS, NARROW_BOTTOM, NARROW_TOP_ROOM, curvedFly, easeOutCubic, flatFly, selectionFocus, selectionKey, sideRoom, type FlyGoal } from './flyTo';
-import { usePanel } from './panelStore';
+import { FLY_MS, curvedFly, easeOutCubic, flatFly, selectionFocus, selectionKey, sideRoom, phoneFree, type FlyGoal } from './flyTo';
+import { setWorldSheet, usePanel } from './panelStore';
 import { useCoarse, useNarrow } from './device';
-import { isDoubleTap, pinchStep, sheetGeometry, type Pt, type Tap } from './gestures';
+import { isDoubleTap, pinchStep, type Pt, type Tap } from './gestures';
 import { pickLabelAt } from './mapPick';
 import { ownersAt } from '../gen/civ/timeline';
 import { interventionOutcome } from '../gen/civ/chronicle';
@@ -327,6 +327,10 @@ export function App() {
   const [shownTerrain, setShownTerrain] = useState<readonly TerrainOp[]>(EMPTY_EDITS.terrain);
   const [terrainStatus, setTerrainStatus] = useState<TerrainStatus>({ busy: false });
   const terrainTool = useTerrainTool();
+  // 手机:改地形、回放世界形成都要看地图 —— 拉到顶的世界卡片先收起来(两样都是从卡片里的"地形"那一组点开的)
+  useEffect(() => {
+    if (terrainTool.on || replayOn) setWorldSheet('peek');
+  }, [terrainTool.on, replayOn]);
   // 3D 地球仪(网址 proj=globe,旧链接的 view=globe 也认 / 地图右下角的按钮):主图藏起来,同一套时间轴、详情面板、选中逻辑
   const globeOn = useGlobeOn();
   const globeApi = useRef<GlobeApi | null>(null);
@@ -1049,7 +1053,7 @@ export function App() {
    * 窄屏底部被卡片和时间轴胶囊盖住的那一截:没选东西时是收起的世界卡片 + 胶囊,详情卡片开着时是半高的卡片 + 胶囊。
    * 地图可以往上推进这一截(见 mapWrap.ts 的 StageBox.padB),下半截的国家也能飞到上方看得见的地方;卡片收回去后慢慢回到原来的范围
    */
-  const padB = !narrow || !stageSize.h ? 0 : panelOpen ? Math.max(0, stageSize.h - sheetGeometry(stageSize.h, NARROW_TOP_ROOM).free[1]) : NARROW_BOTTOM;
+  const padB = !narrow || !stageSize.h ? 0 : Math.max(0, stageSize.h - phoneFree(stageSize.h, panelOpen)[1]);
   const geo = useRef<{ wrap: number; bw: number; bh: number; W: number; H: number; padB: number }>({ wrap: 0, bw: 0, bh: 0, W: 1, H: 1, padB: 0 });
   geo.current = { wrap: wrapW, bw: box.w, bh: box.h, W: data?.world.width ?? 1, H: data?.world.height ?? 1, padB };
   const curvedRef = useRef(curved);
@@ -1319,7 +1323,7 @@ export function App() {
    */
   const jumpBand = (H: number): [number, number, number] => {
     if (!narrow) return [80, H - 110, (H - 16) / 2];
-    const [t, b] = panelOpen ? sheetGeometry(H, NARROW_TOP_ROOM).free : [NARROW_TOP_ROOM, H - NARROW_BOTTOM];
+    const [t, b] = phoneFree(H, panelOpen);
     return [t + 8, b - 16, (t + b) / 2];
   };
   /**

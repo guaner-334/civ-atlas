@@ -3,8 +3,8 @@
  * 卡片开着时地图能往上推进卡片那一截、地名让开界面的矩形换算。
  */
 import { describe, expect, it } from 'vitest';
-import { ABOVE_SHEET, CAPSULE_GAP, CAPSULE_H, PEEK_H, isDoubleTap, pinchStep, sheetGeometry, sheetSnap, worldSnap } from '../src/ui/gestures';
-import { NARROW_BOTTOM, NARROW_TOP_ROOM, freeArea, sideRoom } from '../src/ui/flyTo';
+import { ABOVE_SHEET, CAPSULE_GAP, CAPSULE_H, PEEK_H, isDoubleTap, peekHeight, pinchStep, sheetGeometry, sheetSnap, worldSnap } from '../src/ui/gestures';
+import { NARROW_TOP_ROOM, freeArea, sideRoom } from '../src/ui/flyTo';
 import { clampCurved, clampSphere, type StageBox } from '../src/ui/mapWrap';
 import { reserveCanvasBoxes } from '../src/render/civ/labels';
 import { sameBoxes } from '../src/ui/uiAvoid';
@@ -45,8 +45,17 @@ describe('底部卡片', () => {
   it('世界卡片收起时只露底下一截,时间轴胶囊在它上面', () => {
     const g = sheetGeometry(844, NARROW_TOP_ROOM);
     expect(g.peekTop).toBe(844 - PEEK_H);
-    expect(NARROW_BOTTOM).toBe(PEEK_H + ABOVE_SHEET);
     expect(ABOVE_SHEET).toBe(CAPSULE_H + 2 * CAPSULE_GAP);
+  });
+  it('刘海、底部横条:收起的世界卡片多出横条那一截(没横条时底下留 8);顶上那截和半屏的下限跟着刘海往下', () => {
+    expect(peekHeight(0)).toBe(PEEK_H);
+    expect(peekHeight(5)).toBe(PEEK_H);
+    expect(peekHeight(34)).toBe(PEEK_H - 8 + 34);
+    const g = sheetGeometry(844, NARROW_TOP_ROOM + 47, 34);
+    expect(g.peekTop).toBe(844 - 134);
+    expect(g.free[0]).toBe(NARROW_TOP_ROOM + 47);
+    const short = sheetGeometry(420, NARROW_TOP_ROOM + 47, 34);
+    expect(short.halfTop).toBeGreaterThanOrEqual(NARROW_TOP_ROOM + 47 + ABOVE_SHEET + 80);
   });
   it('很矮的屏幕:半屏的卡片至少露出 240 像素,上面至少留胶囊和一截地图', () => {
     for (const H of [420, 560]) {
@@ -89,7 +98,7 @@ describe('地图飞过去、卡片开着时的平移范围', () => {
   it('窄屏:详情卡片开着时是卡片上的胶囊再往上、顶上那截往下;没开时让出收起的世界卡片和胶囊;左右不让', () => {
     const g = sheetGeometry(844, NARROW_TOP_ROOM);
     expect(freeArea(phone, true)).toEqual([0, NARROW_TOP_ROOM, 390, g.halfTop - ABOVE_SHEET]);
-    expect(freeArea(phone, false)).toEqual([0, NARROW_TOP_ROOM, 390, 844 - NARROW_BOTTOM]);
+    expect(freeArea(phone, false)).toEqual([0, NARROW_TOP_ROOM, 390, 844 - PEEK_H - ABOVE_SHEET]);
   });
   it('padB:地图能往上推进卡片那一截(缩放 1 倍时本来不能上下动);没有 padB 时和原来一样', () => {
     const v = { k: 1, x: 0, y: -300 };

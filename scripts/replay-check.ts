@@ -3088,6 +3088,7 @@ for (const style of ['realistic', 'fantasy']) {
 
 // 手机布局(390×844,触屏):底部是收起的世界卡片(搜索框 + 世界名一行),时间轴胶囊浮在它上面、一行;右上竖排图层、地球两个按钮;
 // 右下没有 + −、操作提示是"双指缩放"、悬停卡片不出来;往上拖世界卡片 → 拉到顶(四个大按钮、整个世界,胶囊藏起来)→ 点拖动条收起;
+// 拉到顶后点"改地形" → 卡片收起;
 // 双指捏合 → 地图比例变了;点国家 → 详情卡片升到半屏(胶囊跟上去,国家落在胶囊上方)→ 往上拖拉到顶 → 干预 → 结盟 → 点名牌 → 已生效 → 撤销;
 // 图层抽屉(从底部升起)切到实景;点世界名打开概览,国家列表点一国;搜索框打字(卡片拉到顶)点一条
 {
@@ -3134,6 +3135,7 @@ for (const style of ['realistic', 'fantasy']) {
   let tiles = 0;
   let capsuleHidden = false;
   let ws1: Rect = null;
+  let terrainPeek = false;
   if (wRow) {
     await swipe([[wRow.x + 60, wRow.y + wRow.height / 2]], [[wRow.x + 60, wRow.y + wRow.height / 2 - 420]]);
     await mp.waitForTimeout(500);
@@ -3143,6 +3145,15 @@ for (const style of ['realistic', 'fantasy']) {
     await mp.tap('.psheet .sheet-grip');
     await mp.waitForTimeout(500);
     ws1 = await box('.psheet.ps-peek');
+    // 再拉到顶,点"改地形":卡片先收起、上面是工具条;点"完成"退出
+    await mp.tap('.psheet .sheet-grip');
+    await mp.waitForTimeout(500);
+    await mp.locator('.psheet [data-act=terrain]').scrollIntoViewIfNeeded().catch(() => {});
+    await mp.tap('.psheet [data-act=terrain]').catch(() => {});
+    await mp.waitForTimeout(500);
+    terrainPeek = (await mp.locator('.psheet.ps-peek').count()) === 1 && (await mp.locator('.terrain-bar').isVisible().catch(() => false));
+    await mp.tap('[data-act=terrain-done]').catch(() => {});
+    await mp.waitForTimeout(400);
   }
   // 双指捏合:两指从中间往两边分开 → 放大;中点下的地方还在中点下
   const k0 = (await mp.evaluate(() => (window as any).__wfView)).k;
@@ -3274,7 +3285,7 @@ for (const style of ['realistic', 'fantasy']) {
   const searchIns = await mp.locator('.inspector').innerText().catch(() => '');
   console.log(
     `手机布局:胶囊 ${JSON.stringify(row)},轨道 ${JSON.stringify(track)};世界卡片 ${JSON.stringify(ws0)}「${sub}」;右上 ${btnActs} ${JSON.stringify(btns)};提示「${hint0}」;+ − ${zoomBtns} 个;` +
-      `上拖 → 拉到顶 ${JSON.stringify(wsFull)}、大按钮 ${tiles} 个、胶囊藏起 ${capsuleHidden};点拖动条 → 收起 ${JSON.stringify(ws1)};` +
+      `上拖 → 拉到顶 ${JSON.stringify(wsFull)}、大按钮 ${tiles} 个、胶囊藏起 ${capsuleHidden};点拖动条 → 收起 ${JSON.stringify(ws1)};拉到顶点改地形 → 收起 ${terrainPeek};` +
       `捏合 k ${k0.toFixed(2)} → ${k1.toFixed(2)}(中点下 ${mid0?.map((v: number) => v.toFixed(0))} → ${mid1?.map((v: number) => v.toFixed(0))});单指拖动 ${panned};点两下回正 k ${kReset.toFixed(2)};` +
       `点「${pol?.text}」→ 详情卡片 ${JSON.stringify(sheet0)}、胶囊 ${JSON.stringify(row1)}、国都圆环 ${JSON.stringify(ring)}、悬停卡片 ${hover};上拖 → 拉到顶 ${full} ${JSON.stringify(sheet1)}、胶囊藏起 ${fullCapsuleHidden};` +
       `干预页 ${cmds} 条;结盟提示「${pickToast}」、卡片藏起 ${hiddenWhilePicking};点「${tgtText}」→「${doneToast}」;撤销 →「${undoToast}」;` +
@@ -3289,6 +3300,7 @@ for (const style of ['realistic', 'fantasy']) {
     errs.push(`手机:右上不是竖排的图层、地球两个按钮(${btnActs} ${JSON.stringify(btns)})`);
   if (!wsFull || Math.abs(wsFull.y - 0.08 * VH) > 8 || tiles !== 4 || !capsuleHidden) errs.push(`手机:往上拖世界卡片没有拉到顶(${JSON.stringify(wsFull)},大按钮 ${tiles},胶囊藏起 ${capsuleHidden})`);
   if (!ws1 || Math.abs(ws1.y - (VH - PEEK)) > 2) errs.push(`手机:点拖动条没有收起世界卡片(${JSON.stringify(ws1)})`);
+  if (!terrainPeek) errs.push('手机:拉到顶的世界卡片里点"改地形",卡片没有收起 / 工具条没出来');
   if (!hint0.includes('双指缩放') || hint1 !== 0) errs.push(`手机:操作提示不对 / 捏合后没消失(${hint0})`);
   if (zoomBtns) errs.push('手机:右下还有地球仪 / 缩放按钮');
   if (!(k1 > k0 * 1.6)) errs.push(`手机:双指捏合后地图比例没变(${k0} → ${k1})`);

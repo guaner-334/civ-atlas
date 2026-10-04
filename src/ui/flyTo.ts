@@ -13,8 +13,8 @@ import { placeKeyOf, polityKey, regionKey, settlementKey } from '../gen/edits';
 import { projectWorld, projectWorldNear, type MapProj } from '../render/projection';
 import { clampCurved, clampSphere, stageToWorld, type MapView, type StageBox } from './mapWrap';
 import type { MapSelection } from './civView';
-import { NARROW_MAX } from './device';
-import { ABOVE_SHEET, PEEK_H, sheetGeometry } from './gestures';
+import { NARROW_MAX, safeInsets } from './device';
+import { ABOVE_SHEET, sheetGeometry } from './gestures';
 
 /** 飞行时长(毫秒) */
 export const FLY_MS = 600;
@@ -135,10 +135,20 @@ export interface FlyGoal {
   kind: MapSelection['kind'] | 'home';
 }
 
-/** 窄屏(手机)顶上留给提示条的一截(和 phone.css 的 --top-room 一致,不含刘海安全区;右上的按钮竖着排在右边,不占这一截) */
+/** 窄屏(手机)顶上留给提示条的一截(和 phone.css 的 --top-room 一致,刘海另算;右上的按钮竖着排在右边,不占这一截) */
 export const NARROW_TOP_ROOM = 24;
-/** 手机上没选东西时,底部被世界卡片(收起)和时间轴胶囊盖住的一截 */
-export const NARROW_BOTTOM = PEEK_H + ABOVE_SHEET;
+
+/** 手机底部卡片的几何(gestures.ts 的 sheetGeometry),算上这台手机刘海、底部横条的安全区。H = 界面高 */
+export function phoneSheet(H: number): ReturnType<typeof sheetGeometry> {
+  const ins = safeInsets();
+  return sheetGeometry(H, NARROW_TOP_ROOM + ins.t, ins.b);
+}
+
+/** 手机上看得见的地图 [上, 下]:详情卡片开着 = 卡片上的时间轴胶囊再往上;没开 = 收起的世界卡片和胶囊再往上 */
+export function phoneFree(H: number, panel: boolean): [number, number] {
+  const g = phoneSheet(H);
+  return panel ? g.free : [g.free[0], Math.max(g.free[0] + 80, g.peekTop - ABOVE_SHEET)];
+}
 
 /**
  * 宽屏左边浮着的侧栏卡片占掉的宽度:左边距 + 卡片 + 右边留空(和 desktop.css 的 --side-room 一致);
@@ -154,7 +164,7 @@ export function freeArea(b: StageBox, panel: boolean): [number, number, number, 
   const narrow = b.sw <= NARROW_MAX;
   if (narrow) {
     // 窄屏:面板是底部卡片(半高),看得见的是它上面的时间轴胶囊再往上那一截;没面板时让出收起的世界卡片和胶囊
-    const [top, bottom] = panel ? sheetGeometry(b.sh, NARROW_TOP_ROOM).free : [NARROW_TOP_ROOM, b.sh - NARROW_BOTTOM];
+    const [top, bottom] = phoneFree(b.sh, panel);
     return [0, top, b.sw, Math.max(top + 80, bottom)];
   }
   // 宽屏:地图铺满窗口,左边被侧栏卡片挡住的那一截不算
