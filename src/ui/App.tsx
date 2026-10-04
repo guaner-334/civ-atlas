@@ -70,6 +70,7 @@ import {
   startCivReplay,
   useChronicle,
   useCivHighlight,
+  useChroniclePick,
   useCivShow,
   useSelection,
   type MapSelection,
@@ -331,6 +332,11 @@ export function App() {
   useEffect(() => {
     if (terrainTool.on || replayOn) setWorldSheet('peek');
   }, [terrainTool.on, replayOn]);
+  // 点了一条大事(卡片里的"最近大事"、编年史):时间轴跳过去、地图上标出来 —— 世界卡片也先收起
+  const chronPick = useChroniclePick();
+  useEffect(() => {
+    if (chronPick.entry) setWorldSheet('peek');
+  }, [chronPick]);
   // 3D 地球仪(网址 proj=globe,旧链接的 view=globe 也认 / 地图右下角的按钮):主图藏起来,同一套时间轴、详情面板、选中逻辑
   const globeOn = useGlobeOn();
   const globeApi = useRef<GlobeApi | null>(null);
@@ -811,6 +817,8 @@ export function App() {
    * 正在看的就是这个世界:直接套上;正在生成的就是这个世界:等它生成完(readyRef)
    */
   const openSave = (save: SaveFile, warnings: string[], from: 'file' | 'link') => {
+    // 手机:读档 / 打开链接后要看地图(同一个世界不重新生成,generate 里那次收起管不到)
+    setWorldSheet('peek');
     const id = worldKey(save.params);
     pendingRef.current = { id, save, warnings, from };
     const last = lastReady.current;

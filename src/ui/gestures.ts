@@ -5,6 +5,7 @@
  *   isDoubleTap    这一下和上一下算不算"双击"(手指点两下:时间、距离都够近)
  *   sheetSnap      详情卡片(底部)拖完松手停在哪:半高 / 展开 / 关掉(按拖了多远和甩的速度)
  *   worldSnap      世界卡片(没选东西时的底部卡片)拖完松手停在哪:收起 / 拉到顶
+ *   releaseVelocity 松手时的速度(只看最后一小段;停住再松手不算甩)
  *   sheetGeometry  底部卡片各档的上边在哪、地图上"卡片和时间轴上方看得见的地方"(地图飞过去、地球仪球心上移用)
  */
 
@@ -91,6 +92,24 @@ export function sheetSnap(from: SheetSnap, top: number, vy: number, g: { halfTop
   const closeAt = g.halfTop + (g.bottom - g.halfTop) / 3;
   if (top > closeAt) return 'close';
   return Math.abs(top - g.fullTop) < Math.abs(top - g.halfTop) ? 'full' : 'half';
+}
+
+/** 拖动时记下的手指位置(clientY、performance.now() 毫秒) */
+export interface DragSample {
+  y: number;
+  t: number;
+}
+
+/** 算松手时的速度只看最后这么多毫秒的移动 */
+export const VELOCITY_MS = 120;
+
+/**
+ * 松手时的速度(像素 / 毫秒,往下为正):松手前 VELOCITY_MS 毫秒内记下的位置连到松手那一点。
+ * 甩完按住停一会儿再松手 = 0,按慢慢拖算(停在离得近的那一档)
+ */
+export function releaseVelocity(samples: readonly DragSample[], y: number, t: number): number {
+  const a = samples.find((s) => t - s.t <= VELOCITY_MS);
+  return a && t > a.t ? (y - a.y) / (t - a.t) : 0;
 }
 
 /** 世界卡片拖完松手停在哪:快速甩 → 甩的方向;慢慢拖 → 离得近的那一档(收起 / 拉到顶) */

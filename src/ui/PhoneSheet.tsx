@@ -15,7 +15,7 @@ import { ExportMenu, type ExportMenuProps } from './ExportMenu';
 import { RewriteBox } from './Rewrite';
 import { openOverview } from './overviewStore';
 import { setSheetDrag, setWorldSheet, usePanel } from './panelStore';
-import { worldSnap } from './gestures';
+import { VELOCITY_MS, releaseVelocity, worldSnap } from './gestures';
 import { phoneSheet } from './flyTo';
 import { Icon } from './icons';
 import { SearchField, SearchResults, WorldHome, WorldMoreMenu, useSearch, useWorldInfo, type SidebarProps } from './Sidebar';
@@ -175,7 +175,7 @@ function useWorldDrag(snap: 'peek' | 'full') {
     }
     const now = performance.now();
     p.samples.push({ y: e.clientY, t: now });
-    while (p.samples.length > 2 && now - p.samples[0].t > 120) p.samples.shift();
+    while (p.samples.length > 2 && now - p.samples[0].t > VELOCITY_MS) p.samples.shift();
     setTop(clampTop(p.top0 + dy));
   };
   const up = (e: React.PointerEvent) => {
@@ -184,9 +184,7 @@ function useWorldDrag(snap: 'peek' | 'full') {
     press.current = null;
     if (!p.moved) return;
     setSheetDrag(false);
-    const a = p.samples[0];
-    const b = p.samples[p.samples.length - 1];
-    const vy = b.t > a.t ? (b.y - a.y) / (b.t - a.t) : 0;
+    const vy = releaseVelocity(p.samples, e.clientY, performance.now());
     setWorldSheet(worldSnap(clampTop(p.top0 + e.clientY - p.y0), vy, geo()));
     setTop(null);
   };

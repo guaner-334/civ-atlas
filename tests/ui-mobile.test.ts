@@ -1,9 +1,9 @@
 /**
- * 手机布局的纯逻辑:双指捏合、手指双击、底部卡片(世界 / 详情)的几何和松手停在哪、地图飞过去时"看得见的地方"、
+ * 手机布局的纯逻辑:双指捏合、手指双击、底部卡片(世界 / 详情)的几何、松手速度和松手停在哪、地图飞过去时"看得见的地方"、
  * 卡片开着时地图能往上推进卡片那一截、地名让开界面的矩形换算。
  */
 import { describe, expect, it } from 'vitest';
-import { ABOVE_SHEET, CAPSULE_GAP, CAPSULE_H, PEEK_H, isDoubleTap, peekHeight, pinchStep, sheetGeometry, sheetSnap, worldSnap } from '../src/ui/gestures';
+import { ABOVE_SHEET, CAPSULE_GAP, CAPSULE_H, PEEK_H, VELOCITY_MS, isDoubleTap, peekHeight, pinchStep, releaseVelocity, sheetGeometry, sheetSnap, worldSnap } from '../src/ui/gestures';
 import { NARROW_TOP_ROOM, freeArea, sideRoom } from '../src/ui/flyTo';
 import { clampCurved, clampSphere, type StageBox } from '../src/ui/mapWrap';
 import { reserveCanvasBoxes } from '../src/render/civ/labels';
@@ -75,6 +75,21 @@ describe('底部卡片', () => {
     expect(sheetSnap('half', g.halfTop + 20, 0, g)).toBe('half');
     expect(sheetSnap('half', g.bottom - 60, 0, g)).toBe('close');
     expect(sheetSnap('full', g.halfTop - 30, 0.1, g)).toBe('half');
+  });
+  it('松手速度:只看最后一小段;甩完按住停一会儿再松手不算甩', () => {
+    const flick = [
+      { y: 700, t: 1000 },
+      { y: 600, t: 1040 },
+      { y: 500, t: 1080 },
+    ];
+    expect(releaseVelocity(flick, 480, 1090)).toBeCloseTo(-220 / 90);
+    // 停了 300 毫秒才松手:速度 0,按位置停
+    expect(releaseVelocity(flick, 500, 1080 + 300)).toBe(0);
+    const g = sheetGeometry(844, NARROW_TOP_ROOM);
+    expect(worldSnap(g.peekTop - 100, releaseVelocity(flick, 500, 1080 + 300), g)).toBe('peek');
+    // 窗口边上的那一点还算;没有记录也不出 NaN
+    expect(releaseVelocity([{ y: 0, t: 0 }], 60, VELOCITY_MS)).toBeCloseTo(60 / VELOCITY_MS);
+    expect(releaseVelocity([], 10, 5)).toBe(0);
   });
   it('世界卡片松手:快甩往哪就去哪;慢慢拖停在离得近的那一档', () => {
     const g = sheetGeometry(844, NARROW_TOP_ROOM);

@@ -31,7 +31,7 @@ import { setPanelTab, setSheet, setSheetDrag, usePanel } from './panelStore';
 import { ownersOf } from './panelData';
 import { phoneSheet, selectionKey } from './flyTo';
 import { useNarrow } from './device';
-import { sheetSnap, type SheetSnap } from './gestures';
+import { VELOCITY_MS, releaseVelocity, sheetSnap, type SheetSnap } from './gestures';
 import './countryPanel.css';
 
 /** 最近一次画面板时的历史(冒烟检查、截图挑例子用) */
@@ -166,7 +166,7 @@ function useSheetDrag(narrow: boolean, sheet: SheetSnap) {
     }
     const now = performance.now();
     p.samples.push({ y: e.clientY, t: now });
-    while (p.samples.length > 2 && now - p.samples[0].t > 120) p.samples.shift();
+    while (p.samples.length > 2 && now - p.samples[0].t > VELOCITY_MS) p.samples.shift();
     const g = sheetNow(el);
     setTop(Math.max(g.fullTop - 24, Math.min(g.bottom - 48, p.top0 + dy)));
   };
@@ -177,9 +177,7 @@ function useSheetDrag(narrow: boolean, sheet: SheetSnap) {
     press.current = null;
     if (!p.moved) return;
     setSheetDrag(false);
-    const a = p.samples[0];
-    const b = p.samples[p.samples.length - 1];
-    const vy = b.t > a.t ? (b.y - a.y) / (b.t - a.t) : 0;
+    const vy = releaseVelocity(p.samples, e.clientY, performance.now());
     const g = sheetNow(el);
     const snap = sheetSnap(p.from, Math.max(g.fullTop - 24, Math.min(g.bottom - 48, p.top0 + e.clientY - p.y0)), vy, g);
     if (snap === 'close') {
