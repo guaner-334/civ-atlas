@@ -368,6 +368,7 @@ const TAG: Record<AnnalKind, string> = {
   rebuild: '建',
   decline: '衰',
   intervene: '干',
+  battle: '役',
 };
 
 function base(
