@@ -2025,13 +2025,15 @@ for (const style of ['realistic', 'fantasy']) {
   const rp = await browser.newPage({ viewport: { width: 1400, height: 820 } });
   rp.on('pageerror', (e) => errs.push(`[改写] ${e.message}`));
   rp.on('console', (m) => m.type() === 'error' && errs.push(`[改写] ${m.text()}`));
+  /** 历史推完了:侧栏顶上的小字写出现存几国(这个网址默认是地形图层,地图上没有国名,不能按国名等) */
+  const historyReady = () => /现存/.test(document.querySelector('.sb-sub')?.textContent ?? '');
   /** 侧栏"更多" → "用一句话改写世界"(历史推完才能点) */
   const openRewrite = async () => {
     await rp.click('[data-act=world-more]');
     await rp.click('.pm-menu [data-act=rewrite]:not([disabled])', { timeout: 10000 }).catch(() => rp.keyboard.press('Escape'));
   };
   await rp.goto(`${dev.url}/?seed=7&style=fantasy`);
-  await rp.waitForFunction(() => (window as any).__wfLabels?.polities > 0, null, { timeout: 60000 });
+  await rp.waitForFunction(historyReady, null, { timeout: 60000 });
   await openRewrite();
   const shown = await rp.waitForSelector('.rw-box', { timeout: 5000 }).then(() => true, () => false);
   const hint = await rp.locator('.rw-hint').innerText().catch(() => '');
@@ -2059,7 +2061,7 @@ for (const style of ['realistic', 'fantasy']) {
   }
 
   await rp.goto(`${dev.url}/?seed=7&style=fantasy&ai=mock&civYear=2000`);
-  await rp.waitForFunction(() => (window as any).__wfLabels?.polities > 0, null, { timeout: 60000 });
+  await rp.waitForFunction(historyReady, null, { timeout: 60000 });
   await rp.waitForTimeout(300);
   const sub0 = await rp.locator('.sb-sub').innerText().catch(() => '');
   await openRewrite();
