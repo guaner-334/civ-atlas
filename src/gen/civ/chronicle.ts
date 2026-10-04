@@ -1124,8 +1124,10 @@ function warEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
       const capital = !!owner && owner.founded <= y && capitalBefore(owner, y) === e.settlement;
       const guard = cd ? (named.has(cd.id) && cd.role === 'general' ? cd.name : generalRef(civ, cd, y)) : '';
       const v = n >= 2 || capital ? 0 : (Math.max(0, e.settlement) * 7 + Math.floor(y)) % 3;
-      const attack = capital ? `${counter ? '反攻' : '围攻'}${pn(civ, e.b, y)}国都` : ['攻至城下', '围城', '攻城'][v];
-      t = `${city}之战,${who}${times}${counter && !capital ? '反' : ''}${attack}`;
+      const attack = capital
+        ? `${counter ? '反攻' : '围攻'}${pn(civ, e.b, y)}国都`
+        : (counter ? ['反攻至城下', '回师围城', '反攻其城'] : ['攻至城下', '围城', '攻城'])[v];
+      t = `${city}之战,${who}${times}${attack}`;
       if (v === 0) t += guard ? `,${guard}坚守,${all}不克` : `,${all}不克`;
       else if (v === 1) t += guard ? `,${guard}据城死守,城不下` : ',城坚不下';
       else t += guard ? `,为${guard}所却` : '不下';
