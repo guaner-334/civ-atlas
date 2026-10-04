@@ -147,10 +147,10 @@ function WorldHead(p: SidebarProps) {
   const sub = seed === null ? '正在生成' : `种子 ${seed}，${p.civ ? (p.civ.viable ? `现存 ${alive} 国` : '没有文明') : '正在推演历史'}${n ? `，干预了 ${n} 处` : ''}`;
   return (
     <div className="sb-world">
-      <div className="sb-title world-title">
-        <b className="sb-name wt-name">{title || '未命名世界'}</b>
-        <span className="sb-sub wt-sub">{sub}</span>
-      </div>
+      <button className="sb-title" data-act="overview" onClick={() => openOverview()} title="世界概览:国家、编年史、干预、世界参数">
+        <b className="sb-name">{title || '未命名世界'}</b>
+        <span className="sb-sub">{sub}</span>
+      </button>
       <div className="sb-acts">
         <SaveMenu ready={!!p.data && !p.generating} onOpenText={p.onOpenText} onOpenStored={p.onOpenStored} icon={<Icon name="save" size={15} />} />
         <button className="sb-pill" data-act="new-world" disabled={p.generating} onClick={p.onRandomSeed} title="随机一个种子,生成一个新世界">

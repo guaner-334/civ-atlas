@@ -189,16 +189,10 @@
 .app.has-side button.tb-play {
   width: 40px;
   height: 40px;
-  border: 0;
-  background: var(--accent);
-  color: var(--on-accent);
-}
-.app.has-side button.tb-play:hover {
-  background: var(--accent-hover);
 }
 .app.has-side .tb-year {
   min-width: 92px;
-  font: 700 20px/1 var(--font-sans);
+  font-size: 20px;
 }
 .app.has-side .tb-speed {
   order: 9;
@@ -224,42 +218,8 @@
 .app.has-side[data-theme='dark'] .tb-speed button.on {
   background: rgba(255, 255, 255, 0.18);
 }
-.app.has-side .tb-base {
-  top: 23px;
-  height: 5px;
-  border-radius: 3px;
-  background: var(--btn);
-}
-.app.has-side .tb-prog {
-  top: 23px;
-  height: 5px;
-  border-radius: 3px;
-  background: var(--accent);
-}
 .app.has-side .tb-tick {
   display: none;
-}
-.app.has-side .tb-head {
-  top: 15px;
-  width: 21px;
-  height: 21px;
-  margin-left: -10.5px;
-  border: 0;
-  background: #fff;
-  box-shadow:
-    0 1px 4px rgba(0, 0, 0, 0.3),
-    0 0 0 0.5px rgba(0, 0, 0, 0.12);
-}
-.app.has-side .tb-mark {
-  top: 10px;
-  border-radius: 50%;
-  transform: none;
-}
-.app.has-side .tb-mark.many {
-  top: 9.5px;
-}
-.app.has-side .tb-mark.on {
-  transform: scale(1.6);
 }
 .app.has-side .tb-label {
   top: 35px;
