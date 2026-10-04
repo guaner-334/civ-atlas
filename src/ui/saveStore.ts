@@ -605,7 +605,12 @@ export function duplicateWorld(id: string): string | null {
   shield = id;
   try {
     if (!writeSave(nid, save, { draft: w.draft, alive: w.alive })) return null;
-    if (w.thumb) put(THUMB + nid, w.thumb, nid);
+    // 缩略图写不下(删了旧的也不行)就先不要,打开它时再截一张;删了旧的照样提示
+    if (w.thumb) {
+      evicted = [];
+      put(THUMB + nid, w.thumb, nid);
+      reportEvicted('quota');
+    }
   } finally {
     shield = null;
   }

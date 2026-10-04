@@ -1130,7 +1130,8 @@ export function App() {
     if (!t || !cur || cur.id !== t.id || fresh.current || regenRef.current || resim || replayOn) return;
     const clean = cleanTitle(title) || undefined;
     if ((clean ?? '') !== (cur.title ?? '')) renameWorld(t.id, clean ?? '');
-    const stored = markCreated();
+    // 说存住了,要真的写进了浏览器(存储满了、删了旧的也写不下,或者浏览器不让存 = 只在这一页里)
+    const stored = markCreated() && persistent();
     // 新建时 AI 提的改地形(执行过的也一样)从此不能再执行、撤销:对话清空
     syncRewriteWorld('terrain');
     targetRef.current = { ...t, kind: 'created', base: null, pristine: false, title: clean, from: undefined, save: undefined };
@@ -1142,7 +1143,6 @@ export function App() {
     writeWorldUrl(targetRef.current);
     if (rawRef.current) setWorldStats(aliveAtEnd(rawRef.current));
     refreshThumb();
-    // 说存住了,要真的写进了浏览器(存储满了、删了旧的也写不下 = 只在这一页里)
     const keep = persistent();
     showToast({
       id: 'created',
