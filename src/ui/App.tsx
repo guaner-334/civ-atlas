@@ -2186,7 +2186,7 @@ export function App() {
         id: 'progress',
         kind: 'progress',
         text: progress.regen ? '正在按新地形重新生成' : '正在生成世界',
-        more: [progress.seed !== undefined && !progress.regen ? `种子 ${progress.seed} · ${progress.stage}` : progress.stage],
+        more: [progress.seed !== undefined && !progress.regen ? `种子 ${progress.seed}，${progress.stage}` : progress.stage],
         progress: progress.pct,
       });
     else clearToast('progress');

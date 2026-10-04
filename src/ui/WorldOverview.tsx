@@ -220,7 +220,7 @@ function OverviewSummary({ civ, seed }: { civ: Civ | null; seed: number | null }
     for (const s of civ.settlements) if (populationAt(s, year) > 0) towns++;
     return { alive, founded, cultures, towns, regions: civ.regions.count };
   }, [civ, year]);
-  const sub = [seed !== null ? `种子 ${seed}` : '正在生成', civ ? `当前 ${year} 年` : null, n ? `已干预 ${n} 处` : '未干预'].filter(Boolean).join('，');
+  const sub = [seed !== null ? `种子 ${seed}` : '正在生成', civ ? `当前 ${year} 年` : null, n ? `干预了 ${n} 处` : '未干预'].filter(Boolean).join('，');
   return (
     <div className="ov-summary">
       <div className="ov-title">
