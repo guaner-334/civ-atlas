@@ -148,9 +148,16 @@ export interface LayerPopoverProps {
   thumbs: Partial<Record<MapLayer, string>>;
   requestThumbs: (ids: MapLayer[]) => void;
   disabled?: boolean;
+  /**
+   * 按钮的样子:thumb = 小缩略图 + "政区 · 等距圆柱"(窄屏底部那一行);
+   * seg = 一段文字"更多图层"(宽屏右上的分段按钮最后一段;当前图层不在前几段里时写当前图层名)
+   */
+  trigger?: 'thumb' | 'seg';
+  /** trigger = seg 时:当前图层在不在前几段里(在 = 这一段不亮) */
+  inSeg?: boolean;
 }
 
-export function LayerPopover({ layer, civ = null, onLayer, thumbs, requestThumbs, disabled }: LayerPopoverProps) {
+export function LayerPopover({ layer, civ = null, onLayer, thumbs, requestThumbs, disabled, trigger = 'thumb', inSeg = true }: LayerPopoverProps) {
   const [open, setOpen] = useState(false);
   const proj = useProjection();
   const rootRef = useRef<HTMLDivElement>(null);
@@ -177,13 +184,29 @@ export function LayerPopover({ layer, civ = null, onLayer, thumbs, requestThumbs
   };
   const stop = (e: { stopPropagation(): void }) => e.stopPropagation();
   return (
-    <div className="lp" ref={rootRef} onPointerDown={stop} onDoubleClick={stop}>
-      <button className={`lp-btn map-btn${open ? ' on' : ''}`} data-act="layers" disabled={disabled} onClick={() => setOpen((o) => !o)} aria-expanded={open}>
-        <Thumb src={thumbs[layer]} small />
-        <span className="lp-label">
-          {cur.name} · {projectionName(proj)}
-        </span>
-      </button>
+    <div className={`lp${trigger === 'seg' ? ' lp-seg' : ''}`} ref={rootRef} onPointerDown={stop} onDoubleClick={stop}>
+      {trigger === 'seg' ? (
+        <button
+          className={`seg-btn lp-btn${open ? ' open' : ''}${inSeg ? '' : ' on'}`}
+          data-act="layers"
+          disabled={disabled}
+          onClick={() => setOpen((o) => !o)}
+          aria-expanded={open}
+          title="全部图层、地图上显示什么、投影"
+        >
+          {inSeg ? '更多图层' : cur.name}
+          <svg className="seg-caret" width="9" height="9" viewBox="0 0 10 10" aria-hidden="true">
+            <path d="M2 3.5l3 3 3-3" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+      ) : (
+        <button className={`lp-btn map-btn${open ? ' on' : ''}`} data-act="layers" disabled={disabled} onClick={() => setOpen((o) => !o)} aria-expanded={open}>
+          <Thumb src={thumbs[layer]} small />
+          <span className="lp-label">
+            {cur.name}，{projectionName(proj)}
+          </span>
+        </button>
+      )}
       {open && (
         <div className="lp-pop" role="dialog" aria-label="图层与投影">
           {/* 窄屏是底部抽屉:顶上一条拖动条的样子 + 关闭(宽屏不显示) */}

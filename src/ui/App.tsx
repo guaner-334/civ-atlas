@@ -130,7 +130,8 @@ import { interventionOutcome } from '../gen/civ/chronicle';
 import { Globe, getGlobeOn, setGlobeOn, useGlobeOn, type GlobeApi } from './Globe';
 import { setupAi } from '../ai/setup';
 import { ToastBar, clearToast, showToast } from './Toast';
-import { FirstHint, HoverCard, MapControls, TopActions, WorldTitle, hintSeen, markHintSeen } from './Corners';
+import { FirstHint, HoverCard, MapBar, MapControls, TopActions, WorldTitle, hintSeen, markHintSeen } from './Corners';
+import { Sidebar } from './Sidebar';
 import { LayerPopover, useLayerThumbs } from './LayerPopover';
 import { WorldOverview } from './WorldOverview';
 import { openOverview } from './overviewStore';
@@ -1253,13 +1254,13 @@ export function App() {
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
   }, []);
-  /** 右下角的 + −:以看得见的地图中间为中心(右侧详情面板开着时让开它);地球仪里交给地球仪自己的滚轮缩放 */
+  /** 右下角的 + −:以地图中间为中心(宽屏的侧栏在地图外面,不用让);地球仪里交给地球仪自己的滚轮缩放 */
   const zoomButton = (f: number) => {
     touchRef.current();
     const el = stageRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
-    const cx = (rect.width - (panelOpen ? 360 : 0)) / 2;
+    const cx = rect.width / 2;
     const cy = rect.height / 2;
     if (getGlobeOn()) {
       const g = el.querySelector('.globe');
@@ -1923,7 +1924,7 @@ export function App() {
   const screenStyle: CSSProperties = { clipPath: screenClip(view, sb, wrapW), display: globeOn ? 'none' : undefined };
   return (
     <div
-      className={`app${chron.open ? ' chron-open' : ''}${panelOpen ? ' panel-open' : ''}${narrow && panelOpen && panelUi.sheet === 'full' ? ' sheet-full' : ''}${picking ? ' picking' : ''}${globeOn ? ' globe-on' : ''}${data ? '' : ' booting'}`}
+      className={`app${narrow ? '' : ' has-side'}${chron.open ? ' chron-open' : ''}${panelOpen ? ' panel-open' : ''}${narrow && panelOpen && panelUi.sheet === 'full' ? ' sheet-full' : ''}${picking ? ' picking' : ''}${globeOn ? ' globe-on' : ''}${data ? '' : ' booting'}`}
       data-theme={theme}
       data-layer={mapLayer}
       onDragOver={onDragOver}
@@ -1992,19 +1993,18 @@ export function App() {
             startLon={getMapCenter()}
             apiRef={globeApi}
             onHover={onGlobeHover}
-            panelOpen={panelOpen}
+            panelOpen={false}
           />
         )}
       </main>
       {/* 选干预目标 / 推演中:压暗地图、浮出名牌;选中国家:国都的圆环(TargetPlates.tsx) */}
       {data && <TargetLayer civ={civ} world={data.world} toClient={globeOn ? globeToClient : worldToClient} resim={resim} generating={!!progress} labelAt={labelAt} />}
 
-      {/* 上下两条和图层同色的渐变遮罩:文字压在地图上也读得清 */}
-      <div className="vignette top" aria-hidden="true" />
-      <div className="vignette bottom" aria-hidden="true" />
-      {/* 左下:最近几条事件(在渐变遮罩上面) */}
-      {/* 窄屏:只留最新 1 条,在时间轴上方一行;底部抽屉打开时藏起来 */}
-      {data && <RecentEvents civ={civ} hidden={replayOn || (narrow && panelOpen)} rows={narrow ? 1 : undefined} />}
+      {/* 窄屏:上下两条和图层同色的渐变遮罩(文字压在地图上也读得清);左下最近 1 条事件,在时间轴上方一行(底部抽屉打开时藏起来)。
+          宽屏的界面都在侧栏和毛玻璃按钮上,不用遮罩;最近大事在侧栏里 */}
+      {narrow && <div className="vignette top" aria-hidden="true" />}
+      {narrow && <div className="vignette bottom" aria-hidden="true" />}
+      {narrow && data && <RecentEvents civ={civ} hidden={replayOn || panelOpen} rows={1} />}
 
       {replayOn && replay && (
         <div className="caption">
@@ -2016,27 +2016,56 @@ export function App() {
         </div>
       )}
 
-      {/* 左上:世界名 + 副标(点一下打开世界概览);数据图层的图例 */}
-      <div className="corner-tl">
-        <WorldTitle seed={data ? data.world.params.seed : null} civ={civ} onOpen={() => openOverview('countries')} />
-        {style === 'data' && !terrainTool.on && <Legend layer={layer} />}
-      </div>
-      {/* 右上:搜索、成书(写史书时前面是进度) */}
-      <TopActions canWrite={civReady} civ={civ} />
+      {narrow ? (
+        <>
+          {/* 窄屏左上:世界名 + 副标(点一下打开世界概览);右上:搜索、成书 */}
+          <div className="corner-tl">
+            <WorldTitle seed={data ? data.world.params.seed : null} civ={civ} onOpen={() => openOverview('countries')} />
+            {style === 'data' && !terrainTool.on && <Legend layer={layer} />}
+          </div>
+          <TopActions canWrite={civReady} civ={civ} />
+        </>
+      ) : (
+        <>
+          {/* 宽屏:左边侧栏(世界 / 选中的东西的详情、搜索、存档);右上图层、导出、编年史;数据图层的图例在地图左上 */}
+          <Sidebar
+            data={data}
+            civ={civ}
+            raw={rawCiv}
+            params={params}
+            onRandomSeed={randomSeed}
+            generating={!!progress}
+            replay={{ on: replayOn, ready: !!replay }}
+            onReplay={startReplay}
+            terrainDisabled={replayOn || (!!progress && !terrainStatus.busy)}
+            onOpenText={openText}
+            onOpenStored={openStored}
+          />
+          <MapBar
+            civ={civ}
+            layers={{ layer: mapLayer, civ, onLayer: applyLayer, thumbs, requestThumbs, disabled: !data }}
+            exp={{ data, civ, style, layer }}
+          />
+          {style === 'data' && !terrainTool.on && (
+            <div className="corner-tl">
+              <Legend layer={layer} />
+            </div>
+          )}
+        </>
+      )}
       {/* 顶部居中:提示条(同一时间只有一条);改地形时上面是工具条,提示条挪到它下面 */}
       <ToastBar />
       {data && <TerrainBar disabled={!!progress && !terrainStatus.busy} />}
-      {/* 右下(时间轴上方):地球仪 / 平面地图、放大、缩小;右侧面板打开时左移。
-          触屏不放 + −(用双指捏合);窄屏整个不放(地球仪在图层弹层的投影里) */}
-      <MapControls globeOn={globeOn} onToggleGlobe={toggleGlobe} onZoom={zoomButton} shifted={panelOpen} hidden={!data || narrow} zoom={!coarse} />
+      {/* 右下(时间轴上方):地球 / 平面、放大、缩小。触屏不放 + −(用双指捏合);窄屏整个不放(地球仪在图层弹层的投影里) */}
+      <MapControls globeOn={globeOn} onToggleGlobe={toggleGlobe} onZoom={zoomButton} shifted={false} hidden={!data || narrow} zoom={!coarse} />
       <FirstHint show={hintOn && !!data && !terrainTool.on} touch={coarse} />
-      {/* 底部一行:时间轴 + 图层与投影 */}
+      {/* 底部:时间轴(窄屏右边还有图层与投影按钮) */}
       <div className="bottom-row">
         <div className="bottom-tl">{data && <CivTimeline civ={civ} hidden={replayOn} dock="inline" />}</div>
-        <LayerPopover layer={mapLayer} civ={civ} onLayer={applyLayer} thumbs={thumbs} requestThumbs={requestThumbs} disabled={!data} />
+        {narrow && <LayerPopover layer={mapLayer} civ={civ} onLayer={applyLayer} thumbs={thumbs} requestThumbs={requestThumbs} disabled={!data} />}
       </div>
-      {/* 右侧:详情面板(选中时出现) */}
-      {data && <Inspector civ={civ} raw={rawCiv} raster={data.raster} world={data.world} />}
+      {/* 窄屏:详情面板是底部抽屉(宽屏在侧栏里) */}
+      {narrow && data && <Inspector civ={civ} raw={rawCiv} raster={data.raster} world={data.world} />}
       {hover && <HoverCard info={hover.info} x={hover.x} y={hover.y} />}
       {/* 世界概览(点左上角的世界名打开):国家 / 编年史 / 我的干预 / 创世 */}
       <WorldOverview

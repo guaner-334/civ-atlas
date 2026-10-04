@@ -14,7 +14,7 @@
  * 用的是 App 当前显示的 civ(套过改名等修改的那份),不重新生成。
  * 文件名带种子、年份、画风:文明与地图-种子7-第3000年-手绘.png(JPEG 是 .jpg)
  */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { DEFAULT_PARAMS, type World, type WorldParams } from '../gen/world';
 import { rasterize, type Raster } from '../gen/raster';
 import type { Civ } from '../gen/civ/types';
@@ -193,9 +193,11 @@ export interface ExportMenuProps {
   civ: Civ | null;
   style: CivStyle;
   layer: LayerId;
+  /** 按钮上文字前面的小图标 */
+  icon?: ReactNode;
 }
 
-export function ExportMenu({ data, civ, style, layer }: ExportMenuProps) {
+export function ExportMenu({ data, civ, style, layer, icon }: ExportMenuProps) {
   const [open, setOpen] = useState(false);
   const [scale, setScale] = useState<ExportScale>(1);
   const [status, setStatus] = useState<Status | null>(null);
@@ -355,7 +357,7 @@ export function ExportMenu({ data, civ, style, layer }: ExportMenuProps) {
   return (
     <div className="export" ref={rootRef}>
       <button
-        className={`export-btn${open ? ' on' : ''}`}
+        className={`export-btn${icon ? ' glass mb-btn' : ''}${open ? ' on' : ''}`}
         disabled={!data}
         onClick={() => setOpen((o) => !o)}
         title="导出地图图片、高度图、编年史、图例"
@@ -365,7 +367,10 @@ export function ExportMenu({ data, civ, style, layer }: ExportMenuProps) {
             <span className="spin" /> 正在导出…
           </>
         ) : (
-          '导出'
+          <>
+            {icon}
+            导出
+          </>
         )}
       </button>
       {open && (
