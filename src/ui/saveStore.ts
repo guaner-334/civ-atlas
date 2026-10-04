@@ -579,7 +579,18 @@ export function duplicateWorld(id: string): string | null {
  */
 export function importSave(save: SaveFile): string | null {
   const same = (s: SaveFile) => worldKey(s.params) === worldKey(save.params) && (s.title ?? '') === (save.title ?? '') && JSON.stringify(s.edits) === JSON.stringify(save.edits);
-  for (const w of listWorlds()) if (!w.draft && same(w.save)) return w.id;
+  for (const w of listWorlds()) {
+    if (w.draft || !same(w.save)) continue;
+    // 只差投影 / 中央经线:用文件里的(下次打开还是文件里的样子)
+    if (!sameView(w.save.view, save.view)) {
+      const next: SaveFile = { ...w.save, savedAt: new Date().toISOString() };
+      if (save.view) next.view = save.view;
+      else delete next.view;
+      writeSave(w.id, next);
+      changed();
+    }
+    return w.id;
+  }
   const id = newWorldId();
   const copy: SaveFile = { ...save, savedAt: new Date().toISOString() };
   if (!writeSave(id, copy, { opened: copy.savedAt })) return null;
@@ -755,7 +766,22 @@ export function attachWorld(spec: AttachSpec) {
     saveCurrent(true);
     // 新建中换了参数、地形:换了一颗星球,缩略图重截
     if (prev && (worldKey(prev.params) !== worldKey(spec.params) || prev.check !== spec.check)) scheduleThumb(spec.id, true);
-  } else if (prev) writeMeta(spec.id, metaOf(current, new Date().toISOString()));
+  } else if (prev && spec.kind === 'draft' && spec.pristine) {
+    // 新建中又变回没动过(换了一颗星球,改过的地形作废):原来存的那份拿掉
+    removeKeys(spec.id);
+  } else if (prev) {
+    writeMeta(spec.id, metaOf(current, new Date().toISOString()));
+    // 刚从文件打开的(先存了、再生成):还没有缩略图,截一张
+    if (store().get(THUMB + spec.id) === null) scheduleThumb(spec.id);
+  }
+  changed();
+}
+
+/** 回到我的世界、又点开下面一直开着的这个世界(不用重新打开):记一下"最近打开" */
+export function markOpened(id: string) {
+  const c = current;
+  if (!c || c.id !== id || store().get(PREFIX + id) === null) return;
+  writeMeta(id, metaOf(c, new Date().toISOString()));
   changed();
 }
 

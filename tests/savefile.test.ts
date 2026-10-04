@@ -543,6 +543,50 @@ describe('浏览器存储(saveStore)', () => {
     expect(getEdits()).toEqual(EDITS);
   });
 
+  it('从文件打开:只差投影的同一个世界,用文件里的投影;刚存进来的没有缩略图,打开后截一张', async () => {
+    const file = makeSave({ ...DEFAULT_PARAMS, seed: 7 }, EDITS, 'check7', '九州大陆');
+    const id = saveStore.importSave(file)!;
+    tick();
+    const view = { projection: 'robinson', center: 30 };
+    expect(saveStore.importSave({ ...file, view })).toBe(id);
+    expect(saveStore.loadWorld(id)?.save.view).toEqual(view);
+    expect(saveStore.listWorlds().length).toBe(1);
+    // 缩略图
+    expect(saveStore.loadWorld(id)?.thumb).toBeFalsy();
+    saveStore.setThumbMaker(() => 'data:image/jpeg;base64,CCCC');
+    try {
+      openWorld(7, { id });
+      await new Promise((r) => setTimeout(r, 800));
+      expect(saveStore.loadWorld(id)?.thumb).toBe('data:image/jpeg;base64,CCCC');
+    } finally {
+      saveStore.setThumbMaker(null);
+    }
+  });
+
+  it('新建中改了地形(存成没建完)又换了一颗星球、没起名、参数默认:又算没动过,原来存的那份拿掉', () => {
+    const id = openWorld(7, { kind: 'draft', pristine: true });
+    setEdits({ ...EMPTY_EDITS, terrain: [{ kind: 'volcano', pts: [100, 100], r: 28, s: 1 }] as unknown as WorldEdits['terrain'] });
+    expect(saveStore.loadWorld(id)).toMatchObject({ draft: true });
+    // App 换种子:同一个编号、地形作废、又算没动过
+    openWorld(8, { id, kind: 'draft', pristine: true, edits: EMPTY_EDITS });
+    expect(saveStore.loadWorld(id)).toBeNull();
+    expect(saveStore.listWorlds()).toEqual([]);
+  });
+
+  it('回到我的世界、又点开下面一直开着的那个:记一下最近打开,排到前面', () => {
+    const a = openWorld(7, { title: '苍澜界' });
+    tick();
+    const b = saveStore.importSave(makeSave({ ...DEFAULT_PARAMS, seed: 8 }, EDITS, 'check8', '赤水纪'))!;
+    expect(saveStore.listWorlds().map((w) => w.id)).toEqual([b, a]);
+    tick();
+    saveStore.markOpened(a);
+    expect(saveStore.listWorlds().map((w) => w.id)).toEqual([a, b]);
+    // 不是当前世界的:不管
+    tick();
+    saveStore.markOpened(b);
+    expect(saveStore.listWorlds()[0].id).toBe(a);
+  });
+
   it('以前按"种子 + 参数"存的世界:换成新编号,缩略图、AI 写的东西跟过去,当作建好的', () => {
     const fake = new FakeStorage();
     const old = worldKey({ ...DEFAULT_PARAMS, seed: 7 });

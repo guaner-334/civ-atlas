@@ -121,6 +121,7 @@ import {
   listWorlds,
   loadWorld,
   markCreated,
+  markOpened,
   newWorldId,
   nextTitle,
   notify,
@@ -1021,6 +1022,7 @@ export function App() {
     const w = loadWorld(id);
     if (!w) return notify({ kind: 'error', text: '打不开这个存档', more: ['可能已在别的页面里删掉了'] });
     if (currentWorld()?.id === id && targetRef.current?.id === id) {
+      markOpened(id);
       enterStage(w.draft ? 'draft' : 'world', w.draft ? (w.base ?? null) : null);
       if (w.draft) setDraftTitle(w.save.title ?? '');
       writeWorldUrl(targetRef.current);
@@ -1069,13 +1071,14 @@ export function App() {
     const attached = cur?.id === t.id;
     return { title: attached ? cur.title : t.title, pristine: attached ? cur.pristine : t.pristine, edits: attached ? getEdits() : t.edits };
   };
-  /** 新建中换种子:另一颗星球,改过的地形作废(还算没动过) */
+  /** 新建中换种子:另一颗星球,改过的地形作废;没起名、参数也是默认的 = 又算没动过(不存) */
   const draftSeed = (seed: number) => {
     const t = draftNow();
     if (!t || t.base) return;
     const st = draftState(t);
+    const plain = !st.title && worldKey({ ...t.params, seed: 0 }) === worldKey({ ...DEFAULT_PARAMS, seed: 0 });
     setDraftTip(false);
-    generate({ ...t, params: { ...t.params, seed }, edits: EMPTY_EDITS, saved: undefined, title: st.title, pristine: st.pristine, view: undefined, from: undefined, save: undefined });
+    generate({ ...t, params: { ...t.params, seed }, edits: EMPTY_EDITS, saved: undefined, title: st.title, pristine: st.pristine || plain, view: undefined, from: undefined, save: undefined });
   };
   /** 新建中调参数:改过的地形留着(按新参数重新生成) */
   const draftParams = (p: WorldParams) => {
