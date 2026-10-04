@@ -472,21 +472,29 @@ function put(key: string, value: string, keep: string): boolean {
   return false;
 }
 
-function writeMeta(id: string, m: Meta) {
+function writeMeta(id: string, m: Meta): boolean {
   const v: Meta = {};
   if (m.draft) v.draft = true;
   if (m.opened) v.opened = m.opened;
   if (m.alive !== undefined) v.alive = m.alive;
   if (m.draft && m.base) v.base = m.base;
-  put(META + id, JSON.stringify(v), id);
+  return put(META + id, JSON.stringify(v), id);
 }
 
-/** 写一个世界的存档(和本地信息);新存一个超过上限就删最旧的 */
+/**
+ * 写一个世界的存档(和本地信息);新存一个超过上限就删最旧的。
+ * 本地信息没写进去也算没存成:没有"还在新建"那一条,没建完的世界下次打开会被当成建好的、锁住。
+ * 新存的就把存档也拿掉;原来就有的留着原来那份本地信息
+ */
 function writeSave(id: string, save: SaveFile, meta?: Meta): boolean {
-  const fresh = store().get(PREFIX + id) === null;
+  const kv = store();
+  const fresh = kv.get(PREFIX + id) === null;
   evicted = [];
-  const ok = put(PREFIX + id, JSON.stringify(save), id);
-  if (ok && meta) writeMeta(id, meta);
+  let ok = put(PREFIX + id, JSON.stringify(save), id);
+  if (ok && meta && !writeMeta(id, meta)) {
+    if (fresh) kv.remove(PREFIX + id);
+    ok = false;
+  }
   reportEvicted('quota');
   // 新存一个世界:超过上限就删最旧的
   if (ok && fresh) {
@@ -529,7 +537,8 @@ export function renameWorld(id: string, title: string) {
   }
   const w = readSave(id);
   if (!w) return;
-  const next: SaveFile = { ...w };
+  // 改名也算改了它:最后修改时间跟着变(我的世界里排到前面)
+  const next: SaveFile = { ...w, savedAt: new Date().toISOString() };
   if (t) next.title = t;
   else delete next.title;
   writeSave(id, next);
@@ -552,17 +561,14 @@ export function nextTitle(base: string): string {
   return root;
 }
 
-/** "我的世界"里复制一份(名字加"(二)",缩略图、AI 写的东西一起);返回新编号,复制不了 = null */
+/** "我的世界"里复制一份(名字加"(二)",缩略图一起;AI 写的东西由 ai/library 的 copyNotes 复制);返回新编号,复制不了 = null */
 export function duplicateWorld(id: string): string | null {
   const w = loadWorld(id);
   if (!w) return null;
   const nid = newWorldId();
   const save: SaveFile = { ...w.save, title: nextTitle(w.save.title || '未命名世界'), savedAt: new Date().toISOString() };
   if (!writeSave(nid, save, { draft: w.draft, alive: w.alive })) return null;
-  const kv = store();
   if (w.thumb) put(THUMB + nid, w.thumb, nid);
-  const notes = kv.get(NOTES + id);
-  if (notes !== null) kv.set(NOTES + nid, notes);
   changed();
   return nid;
 }
@@ -658,11 +664,12 @@ function metaOf(c: Current, opened?: string): Meta {
 }
 
 /** 把当前世界存下来(修改没变就不存;force = 起名、换了投影、刚创建……) */
-function saveCurrent(force = false) {
+/** 存当前世界;返回写进去没有(没有当前世界、没改过不用存 = false) */
+function saveCurrent(force = false): boolean {
   const c = current;
-  if (!c) return;
+  if (!c) return false;
   const edits = getEdits();
-  if (!force && edits === c.saved) return;
+  if (!force && edits === c.saved) return false;
   c.saved = edits;
   // 新建中:走到这里就是作者动了(改了地形、起了名、调了参数);只换投影的走不到这里(没存过的不为它存)
   if (c.kind === 'draft') c.pristine = false;
@@ -670,8 +677,10 @@ function saveCurrent(force = false) {
   if (c.kind === 'visit') c.kind = 'created';
   const view = currentView();
   c.savedView = view;
-  if (writeSave(c.id, makeSave(c.params, edits, c.check, c.title, undefined, view), metaOf(c))) scheduleThumb(c.id);
+  const ok = writeSave(c.id, makeSave(c.params, edits, c.check, c.title, undefined, view), metaOf(c));
+  if (ok) scheduleThumb(c.id);
   changed();
+  return ok;
 }
 
 /**
@@ -751,13 +760,13 @@ export function attachWorld(spec: AttachSpec) {
 }
 
 /** 新建世界点了"创建世界":从此算建好的(种子、参数、地形锁住),一直存着 */
-export function markCreated() {
+export function markCreated(): boolean {
   const c = current;
-  if (!c || c.kind !== 'draft') return;
+  if (!c || c.kind !== 'draft') return false;
   c.kind = 'created';
   c.pristine = false;
   c.base = undefined;
-  saveCurrent(true);
+  return saveCurrent(true);
 }
 
 /** 结束那一年现存几国(App 推演完告诉这里;"我的世界"的卡片上写) */

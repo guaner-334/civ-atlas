@@ -13,6 +13,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { deleteWorld, duplicateWorld, listWorlds, loadWorld, notify, persistent, renameWorld, useSavesVersion, type StoredWorld } from './saveStore';
 import { downloadSave } from './SaveMenu';
+import { copyNotes } from '../ai/library';
 import { Icon } from './icons';
 import { TitleInput, when } from './worldParts';
 import { PRIVACY_URL, SOURCE_URL, TERMS_URL } from './links';
@@ -291,8 +292,11 @@ function WorldCard({
                 data-act="world-copy"
                 onClick={act(() => {
                   const id = duplicateWorld(w.id);
-                  if (id) notify({ kind: 'ok', text: `已复制一份「${name}」`, more: [`新的叫「${loadWorld(id)?.save.title ?? ''}」`] });
-                  else notify({ kind: 'error', text: '没能复制', more: ['浏览器存储已满'] });
+                  if (!id) return notify({ kind: 'error', text: '没能复制', more: ['浏览器存储已满'] });
+                  const more = [`新的叫「${loadWorld(id)?.save.title ?? ''}」`];
+                  // AI 写的史书、名字由来跟着复制;存不下就说一声(这一页里还看得到,刷新以后没有)
+                  if (!copyNotes(w.id, id)) more.push('AI 写的史书、名字由来没能一起存下（浏览器存储已满）');
+                  notify({ kind: more.length > 1 ? 'warn' : 'ok', text: `已复制一份「${name}」`, more });
                 })}
               >
                 <Icon name="copy" size={16} />

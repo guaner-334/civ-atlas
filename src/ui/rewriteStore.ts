@@ -60,6 +60,8 @@ export interface RwTurn {
 export interface RewriteState {
   /** 对话属于哪个世界(saveStore 的世界编号) */
   world: string | null;
+  /** 和哪一种锁一起说的(新建中只改地形 / 建好了只改历史);锁变了,原来的提议就不能再执行 */
+  lock?: RewriteLock;
   turns: RwTurn[];
 }
 
@@ -86,13 +88,17 @@ export function useRewrite(): RewriteState {
   );
 }
 
-/** 换了世界:对话清空(打开框、换世界、发话时调) */
-export function syncRewriteWorld() {
+/**
+ * 换了世界,或者同一个世界换了锁(点了"创建世界":地形从此锁住):对话清空(打开框、换世界、发话、创建时调)。
+ * 新建时提的改地形,创建以后就不能再执行或撤销
+ */
+export function syncRewriteWorld(lock?: RewriteLock) {
   const w = currentWorld()?.id ?? null;
-  if (w === state.world) return;
+  if (w === state.world && lock === state.lock) return;
   stopWish();
   turnCiv = null;
-  set({ world: w, turns: [] });
+  note = null;
+  set({ world: w, lock, turns: [] });
 }
 
 let seq = 0;
@@ -139,7 +145,7 @@ function history(): RewriteTurn[] {
 export async function sendWish(ctx: WishContext, wish: string): Promise<number> {
   const w = cleanWish(wish);
   if (!w) return -1;
-  syncRewriteWorld();
+  syncRewriteWorld(ctx.lock);
   stopWish();
   const id = ++seq;
   const year = Math.floor(ctx.year);

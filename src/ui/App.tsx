@@ -152,7 +152,7 @@ import { isDoubleTap, pinchStep, type Pt, type Tap } from './gestures';
 import { pickLabelAt } from './mapPick';
 import { ownersAt } from '../gen/civ/timeline';
 import { interventionOutcome } from '../gen/civ/chronicle';
-import { takeRewriteNote, undoTurn, type RewriteNote } from './rewriteStore';
+import { syncRewriteWorld, takeRewriteNote, undoTurn, type RewriteNote } from './rewriteStore';
 import { Globe, getGlobeOn, setGlobeOn, useGlobeOn, type GlobeApi } from './Globe';
 import { setupAi } from '../ai/setup';
 import { ToastBar, clearToast, showToast } from './Toast';
@@ -1097,10 +1097,13 @@ export function App() {
   const createWorld = (title: string) => {
     const t = draftNow();
     const cur = currentWorld();
-    if (!t || !cur || cur.id !== t.id || fresh.current || regenRef.current) return;
+    // 还在生成、在重推带过来的干预、在放这颗星球的形成:等它完
+    if (!t || !cur || cur.id !== t.id || fresh.current || regenRef.current || resim || replayOn) return;
     const clean = cleanTitle(title) || undefined;
     if ((clean ?? '') !== (cur.title ?? '')) renameWorld(t.id, clean ?? '');
-    markCreated();
+    const stored = markCreated();
+    // 新建时 AI 提的改地形(执行过的也一样)从此不能再执行、撤销:对话清空
+    syncRewriteWorld('terrain');
     targetRef.current = { ...t, kind: 'created', base: null, pristine: false, title: clean, from: undefined, save: undefined };
     setDraftTip(false);
     enterStage('world');
@@ -1110,13 +1113,14 @@ export function App() {
     writeWorldUrl(targetRef.current);
     if (rawRef.current) setWorldStats(aliveAtEnd(rawRef.current));
     refreshThumb();
+    // 说存住了,要真的写进了浏览器(存储满了、删了旧的也写不下 = 只在这一页里)
     const keep = persistent();
     showToast({
       id: 'created',
-      kind: keep ? 'ok' : 'warn',
-      dot: keep,
+      kind: stored ? 'ok' : 'warn',
+      dot: stored,
       text: `${clean ?? '新世界'}已创建`,
-      more: [keep ? '自动存在这个浏览器里，在「我的世界」里随时能找到' : '浏览器不让网页存数据，关掉页面前请存成文件'],
+      more: [stored ? '自动存在这个浏览器里，在「我的世界」里随时能找到' : keep ? '浏览器存储已满，没能存下；关掉页面前请存成文件' : '浏览器不让网页存数据，关掉页面前请存成文件'],
       ttl: 7000,
     });
     // 历史从第 0 年起放一遍(这次打开网页不再另外自动播放)
@@ -2269,7 +2273,8 @@ export function App() {
     onParams: draftParams,
     onTitle: draftRename,
     onCreate: createWorld,
-    busy: !!progress,
+    // 以它为底稿新建、调过参数:带过来的干预要等重推完(不然创建时截的缩略图、放的历史是没干预的)
+    busy: !!progress || !!resim,
     ready: !!data && !progress,
     replay: { on: replayOn, ready: !!replay },
     onReplay: startReplay,

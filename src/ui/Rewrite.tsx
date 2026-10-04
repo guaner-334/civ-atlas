@@ -69,8 +69,8 @@ export function RewriteBox({
   const box = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
   const log = useRef<HTMLDivElement>(null);
-  // 换了世界(比如框开着时粘贴了别的世界的分享链接):对话清空
-  useEffect(() => syncRewriteWorld(), [world, civ]);
+  // 换了世界(比如框开着时粘贴了别的世界的分享链接)、世界刚建好(锁变了):对话清空
+  useEffect(() => syncRewriteWorld(lock), [world, civ, lock]);
   useEffect(() => {
     draft = text;
   }, [text]);

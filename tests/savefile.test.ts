@@ -5,7 +5,7 @@
  * 存储不可用(隐私模式)时退回内存、配额满了删最旧的;这几种情况顶部提示条上说一句;读档提示的短说法。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { putNote } from '../src/ai/library';
+import { copyNotes, listNotes, putNote } from '../src/ai/library';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { generateCiv } from '../src/gen/civ';
 import type { Civ } from '../src/gen/civ/types';
@@ -57,6 +57,8 @@ const EDITS: WorldEdits = {
   // 地形修改的往返在 terrain-edits.test.ts
   terrain: [],
 };
+/** 一条 AI 写的东西(史书) */
+const NOTE = { key: '史书:world', kind: '史书', title: '世界通史', text: '……', createdAt: '2026-10-04T08:00:00.000Z', provider: 'mock', model: 'mock' };
 
 describe('存档文件 · 往返', () => {
   it('makeSave → JSON → parseSave 不变', () => {
@@ -453,18 +455,76 @@ describe('浏览器存储(saveStore)', () => {
     useStorage(fake);
     const id = openWorld(7, { title: '苍澜界', edits: EDITS });
     fake.setItem(`wenming-ditu:thumb:${id}`, 'data:image/jpeg;base64,AAAA');
-    fake.setItem(`civ-atlas:ai-notes:${id}`, '{"n":1}');
+    putNote(id, NOTE);
     saveStore.setWorldStats(13);
     const copy = saveStore.duplicateWorld(id)!;
     const w = saveStore.loadWorld(copy)!;
     expect(w.save.title).toBe('苍澜界（二）');
     expect(w.save.edits).toEqual(EDITS);
     expect(w).toMatchObject({ thumb: 'data:image/jpeg;base64,AAAA', alive: 13, draft: false });
-    expect(fake.getItem(`civ-atlas:ai-notes:${copy}`)).toBe('{"n":1}');
+    expect(copyNotes(id, copy)).toBe(true);
+    expect(listNotes(copy)).toEqual([NOTE]);
+    expect(JSON.parse(fake.getItem(`civ-atlas:ai-notes:${copy}`)!)).toEqual([NOTE]);
     saveStore.deleteWorld(copy);
     expect(fake.getItem(`civ-atlas:ai-notes:${copy}`)).toBeNull();
     expect(saveStore.loadWorld(id)?.save.edits).toEqual(EDITS);
     expect(saveStore.duplicateWorld('wnothere001')).toBeNull();
+  });
+
+  it('复制 AI 写的东西:只在内存里的也带上;原来那份存在浏览器里、复制的存不下 = 说没存成', () => {
+    // 隐私模式:都只在内存里,照样带上,不算失败
+    useStorage(throwing);
+    const a = openWorld(7, { title: '苍澜界' });
+    putNote(a, NOTE);
+    expect(copyNotes(a, 'wcopy000001')).toBe(true);
+    expect(listNotes('wcopy000001')).toEqual([NOTE]);
+    // 存储满了:内存里有,但说没存成
+    const fake = new FakeStorage();
+    useStorage(fake);
+    const b = openWorld(8, { title: '赤水纪' });
+    putNote(b, NOTE);
+    fake.cap = 0;
+    expect(copyNotes(b, 'wcopy000002')).toBe(false);
+    expect(listNotes('wcopy000002')).toEqual([NOTE]);
+    // 没写过东西的:什么都不用做
+    expect(copyNotes('wnothere002', 'wcopy000003')).toBe(true);
+  });
+
+  it('不是当前世界的改名:最后修改时间跟着变,排到前面', () => {
+    const a = openWorld(7, { title: '苍澜界' });
+    tick();
+    openWorld(8, { title: '赤水纪' });
+    tick();
+    saveStore.detachWorld();
+    expect(saveStore.listWorlds().map((w) => w.save.title)).toEqual(['赤水纪', '苍澜界']);
+    tick();
+    saveStore.renameWorld(a, '九州大陆');
+    expect(saveStore.loadWorld(a)?.save.savedAt).toBe(new Date(clock).toISOString());
+    expect(saveStore.listWorlds().map((w) => w.save.title)).toEqual(['九州大陆', '赤水纪']);
+  });
+
+  it('本地信息写不进去:新存的没建完的世界不存(不然下次打开会当成建好的锁住);创建时说没存成', () => {
+    // 存档写得进、本地信息写不进(只拦本地信息那一条)
+    class NoMeta extends FakeStorage {
+      setItem(k: string, v: string) {
+        if (k.startsWith('wenming-ditu:meta:')) {
+          const e = new Error('quota') as Error & { name: string };
+          e.name = 'QuotaExceededError';
+          throw e;
+        }
+        super.setItem(k, v);
+      }
+    }
+    useStorage(new NoMeta());
+    const d = openWorld(7, { kind: 'draft', pristine: true });
+    setEdits({ ...EMPTY_EDITS, names: { a: '临川' } });
+    expect(saveStore.loadWorld(d)).toBeNull();
+    expect(saveStore.markCreated()).toBe(false);
+    expect(saveStore.isStored(d)).toBe(false);
+    // 写得进:创建时说存住了
+    useStorage(new FakeStorage());
+    openWorld(9, { kind: 'draft', pristine: true });
+    expect(saveStore.markCreated()).toBe(true);
   });
 
   it('从文件打开:存成一个建好的世界;同一个文件再打开一次不重复存', () => {

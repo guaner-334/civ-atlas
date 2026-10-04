@@ -76,6 +76,30 @@ export function putNote(world: string, note: AiNote): void {
   keepWorld(world);
 }
 
+/**
+ * 把一个世界的 AI 笔记复制给另一个世界(我的世界里"复制一份"时用)。内存里的一定带上;
+ * 原来那份存在浏览器里、复制的这份存不下(存储满了)= false,原来那份本来就只在内存里的不算
+ */
+export function copyNotes(from: string, to: string): boolean {
+  const list = read(from);
+  if (!list.length) return true;
+  mem.set(to, list.slice());
+  emit();
+  let stored = false;
+  try {
+    stored = localStorage.getItem(PREFIX + from) !== null;
+  } catch {
+    /* 隐私模式:原来那份也只在内存里 */
+  }
+  if (!stored) return true;
+  try {
+    localStorage.setItem(PREFIX + to, JSON.stringify(list));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function deleteNote(world: string, key: string): void {
   const list = read(world);
   if (!list.some((n) => n.key === key)) return;

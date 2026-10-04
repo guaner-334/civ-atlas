@@ -196,7 +196,7 @@ export function NewWorld(p: NewWorldProps) {
     />
   );
   const createBtn = (
-    <button className="nw-create" data-act="create-world" disabled={p.busy || !p.ready} onClick={() => p.onCreate(name)}>
+    <button className="nw-create" data-act="create-world" disabled={p.busy || !p.ready || p.replay.on} onClick={() => p.onCreate(name)}>
       {base ? '创建新世界' : '创建世界'}
     </button>
   );
