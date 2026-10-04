@@ -3,7 +3,8 @@
  * 零星浮冰和冰间水道、只在挨着海面的那几截描墨线、冰缘带。(真正的画面在 scripts/snap.ts 放大截图里看)
  */
 import { describe, expect, it } from 'vitest';
-import { clipLoopRect, fillLoops, forTilesIn, iceBand, iceLines, inkRuns, tileLoops, traceOriented, type OrientedLine, type TileGrid } from '../src/render/fantasy';
+import { clipLoopRect, fillLoops, forTilesIn, iceBand, iceLines, inkRuns, projTileGeom, projTilePolys, tileLoops, traceOriented, worldWindow, type OrientedLine, type TileGrid } from '../src/render/fantasy';
+import { mapProj, projector, type ProjectionId } from '../src/render/projection';
 
 const w = 64;
 const h = 32;
@@ -184,6 +185,109 @@ describe('冰的分界线(有方向,冰在左手边)', () => {
       const dx = l.pts[0] + l.wrap * W - l.pts[n - 2];
       const dy = l.pts[1] - l.pts[n - 1];
       expect(Math.hypot(dx, dy)).toBeLessThanOrEqual(1 + 1e-6);
+    }
+  });
+});
+
+describe('弯边投影:只投影视口那一块', () => {
+  // 梳子形的冰:齿来回跨过格子边好几次(沿格子边的小段两边端点要完全相同,投影成弯的以后才不露缝,见 clipHalf)
+  const comb = (x: number, y: number) =>
+    (x >= 26 && x < 29 && y >= 8 && y < 24) ||
+    (x >= 29 && x < 37 && y >= 8 && y < 24 && (y - 8) % 4 < 2) ||
+    (y >= 9 && y < 12 && x >= 40 && x < 56) ||
+    (y >= 12 && y < 21 && x >= 40 && x < 56 && (x - 40) % 4 < 2);
+  // 两个冰盖、跨格子的冰块、梳子、跨 180° 的冰块、一格浮冰
+  const ice = (x: number, y: number) =>
+    y < 5 + Math.round(2 * Math.sin((x / w) * 2 * Math.PI * 2)) ||
+    y >= 28 ||
+    blob(x, y) ||
+    comb(x, y) ||
+    Math.hypot(Math.min(x, w - x) - 0.5, y - 16) < 4 ||
+    (x === 44 && y === 6);
+  const cases: [ProjectionId, number][] = [
+    ['robinson', 0],
+    ['robinson', 150],
+    ['mollweide', -37],
+    ['naturalEarth', 90],
+    ['mercator', -100],
+  ];
+  for (const [id, lon0] of cases)
+    it(`${id} 中心 ${lon0}°:视口里每个像素中心投影过去,都在挑出的世界范围里,填色(格子边不加密、换中心乘加、碰到中央经线对面的裁开)和冰像素对得上`, () => {
+      const { r, iceM } = grid(ice);
+      const polys = tileLoops(fillLoops(iceLines(r, iceM), W, h), tiling, 0);
+      const pj = projector(mapProj(id, lon0, W, h));
+      const xc = (lon0 / 360 + 0.5) * W;
+      const k2 = (2 * Math.PI) / W;
+      for (const [vx0, vy0, vx1, vy1] of [
+        [0, 0, W, h],
+        [W * 0.3, h * 0.1, W * 0.7, h * 0.6],
+        [W * 0.05, h * 0.55, W * 0.4, h],
+      ]) {
+        const R = worldWindow(pj, vx0, vy0, vx1, vy1);
+        const P: number[][] = [];
+        projTilePolys(projTileGeom(polys, pj), tiling, W, pj, R, vx0, vy0, vx1, vy1, {
+          moveTo: (x, y) => P.push([x, y]),
+          lineTo: (x, y) => P[P.length - 1].push(x, y),
+          closePath: () => {},
+        });
+        const bad: string[] = [];
+        let n = 0;
+        for (let y = 0; y < h; y++)
+          for (let x = 0; x < w; x++) {
+            const cy = y + 0.5;
+            let rel = (x + 0.5 - xc) * k2;
+            rel -= 2 * Math.PI * Math.round(rel / (2 * Math.PI));
+            const mx = W / 2 + pj.K(cy) * rel;
+            const my = pj.Y(cy);
+            if (mx < vx0 || mx > vx1 || my < vy0 || my > vy1) continue;
+            n++;
+            const wx = xc + rel / k2;
+            if (wx < R.x0 || wx > R.x1 || cy < R.y0 || cy > R.y1) bad.push(`(${x},${y}) 不在范围里`);
+            let wn = 0;
+            for (const q of P) wn += winding(q, mx, my);
+            if (wn !== (iceM[y * w + x] ? -1 : 0)) bad.push(`(${x},${y}) wn=${wn} ice=${iceM[y * w + x]}`);
+          }
+        expect(n).toBeGreaterThan(50);
+        expect(bad).toEqual([]);
+        // 跨中央经线对面的部分裁掉了:每一点都在地图外框以内(|X − 中线| ≤ K · π)
+        const yOf = (my: number) => {
+          let a = 0;
+          let b = h;
+          for (let i = 0; i < 50; i++) {
+            const m = (a + b) / 2;
+            if (pj.Y(m) < my) a = m;
+            else b = m;
+          }
+          return (a + b) / 2;
+        };
+        for (const q of P)
+          for (let i = 0; i < q.length; i += 2) expect(Math.abs(q[i] - W / 2)).toBeLessThanOrEqual(pj.K(yOf(q[i + 1])) * Math.PI + 1e-6);
+      }
+    });
+
+  it('拉长倍数不小于范围里实际的拉长(有限差分量)', () => {
+    for (const [id, lon0] of cases) {
+      const pj = projector(mapProj(id, lon0, W, h));
+      const R = worldWindow(pj, W * 0.1, h * 0.02, W * 0.9, h * 0.5);
+      const xc = (lon0 / 360 + 0.5) * W;
+      const k2 = (2 * Math.PI) / W;
+      const at = (x: number, y: number) => [W / 2 + pj.K(y) * (x - xc) * k2, pj.Y(y)];
+      let worst = 0;
+      for (let i = 0; i <= 20; i++)
+        for (let j = 0; j <= 20; j++) {
+          const x = R.x0 + ((R.x1 - R.x0) * i) / 20;
+          const y = Math.min(R.y1 - 0.01, R.y0 + ((R.y1 - R.y0) * j) / 20);
+          const [ax, ay] = at(x, y);
+          for (const [dx, dy] of [
+            [0.01, 0],
+            [0, 0.01],
+            [0.007, 0.007],
+          ]) {
+            const [bx, by] = at(x + dx, y + dy);
+            worst = Math.max(worst, Math.hypot(bx - ax, by - ay) / Math.hypot(dx, dy));
+          }
+        }
+      expect(R.stretch * 1.01).toBeGreaterThanOrEqual(worst);
     }
   });
 });

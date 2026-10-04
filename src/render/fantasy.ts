@@ -1328,27 +1328,63 @@ function lineBox(l: OrientedLine, W: number): [number, number, number, number] {
 
 /**
  * 多边形(x, y 交错,首尾自动相连)按一条直线(axis = 0:x = lim;1:y = lim)裁剪,留 ≥ lim(ge)或 ≤ lim 那一边
- * (Sutherland–Hodgman 的一步:留下的那一边里每一点的环绕数不变,伸出去的部分换成沿直线走,来回重叠的边互相抵消)
+ * (Sutherland–Hodgman 的一步:留下的那一边里每一点的环绕数不变,伸出去的部分换成沿直线走,来回重叠的边互相抵消)。
+ * 沿直线走的每一段都在多边形和这条直线的所有交点处断开(两边裁出来的一样):同一条线切开的两半,沿线的边一小段一小段
+ * 端点完全相同、方向相反 —— 拼在一起填色时正好抵消,投影成弯的以后也一样(见 projTilePolys)
  */
 function clipHalf(cur: ArrayLike<number>, axis: number, lim: number, ge: boolean): number[] {
   const n = cur.length / 2;
   const out: number[] = [];
   if (n < 3) return out;
+  const o = 1 - axis;
   const sgn = ge ? 1 : -1;
+  // 第 h 点 → 第 i 点这一段和直线的交点(沿直线的那个坐标;端点正好在线上就是那个端点)
+  const cross = (h: number, i: number) => {
+    const da = cur[h * 2 + axis] - lim;
+    const db = cur[i * 2 + axis] - lim;
+    if (da === 0) return cur[h * 2 + o];
+    if (db === 0) return cur[i * 2 + o];
+    return cur[h * 2 + o] + (cur[i * 2 + o] - cur[h * 2 + o]) * (da / (da - db));
+  };
+  // 直线上的点:跨过去的交点、正好在线上的顶点(和留哪一边无关),沿直线排好
+  const on: number[] = [];
+  for (let i = 0, h = n - 1; i < n; h = i++) {
+    const da = cur[h * 2 + axis] - lim;
+    const db = cur[i * 2 + axis] - lim;
+    if (db === 0) on.push(cur[i * 2 + o]);
+    else if (da !== 0 && da < 0 !== db < 0) on.push(cross(h, i));
+  }
+  on.sort((p, q) => p - q);
+  const push = (u: number) => out.push(axis === 0 ? lim : u, axis === 1 ? lim : u);
+  // 沿直线从 u0 走到 u1:中间经过的交点都补上
+  const along = (u0: number, u1: number) => {
+    if (u0 < u1) {
+      for (const u of on) if (u > u0 && u < u1) push(u);
+    } else for (let k = on.length - 1; k >= 0; k--) if (on[k] < u0 && on[k] > u1) push(on[k]);
+  };
+  let exit = NaN;
+  let first = NaN;
   let bi = sgn * (cur[(n - 1) * 2 + axis] - lim) >= 0;
   for (let i = 0, h = n - 1; i < n; h = i++) {
     const ai = bi;
     bi = sgn * (cur[i * 2 + axis] - lim) >= 0;
-    // 第 h 点 → 第 i 点这一段:跨过直线就补交点,第 i 点在留下的一边就留
+    // 第 h 点 → 第 i 点这一段:跨过直线就补交点(出去时记下,回来时沿直线接上),第 i 点在留下的一边就留
     if (ai !== bi) {
-      const da = cur[h * 2 + axis] - lim;
-      const t = da / (da - (cur[i * 2 + axis] - lim));
-      const x = cur[h * 2] + (cur[i * 2] - cur[h * 2]) * t;
-      const y = cur[h * 2 + 1] + (cur[i * 2 + 1] - cur[h * 2 + 1]) * t;
-      out.push(axis === 0 ? lim : x, axis === 1 ? lim : y);
+      const u = cross(h, i);
+      if (bi) {
+        if (!Number.isNaN(exit)) along(exit, u);
+        else if (Number.isNaN(first)) first = u;
+        exit = NaN;
+        push(u);
+      } else {
+        push(u);
+        exit = u;
+      }
     }
     if (bi) out.push(cur[i * 2], cur[i * 2 + 1]);
   }
+  // 最后一次出去、绕回开头第一次回来的那一段
+  if (!Number.isNaN(exit) && !Number.isNaN(first)) along(exit, first);
   return out;
 }
 
@@ -1358,61 +1394,31 @@ export function clipLoopRect(p: ArrayLike<number>, x0: number, y0: number, x1: n
 }
 
 /**
- * 填色范围拼成闭合多边形(按非零环绕规则填 = 在 lines 的左手边),整体平移 (ddx, ddy):
- * 环摆几份,盖住一圈 [xa, xb];绕地球一圈的线(冰盖边,以及冰挨着地图上下边时的那条边)按走向接上几份、盖住 [xa − W, xb + W],
+ * 填色范围拼成闭合多边形(世界坐标;按非零环绕规则填 = 在 lines 的左手边),整体平移 (ddx, ddy):
+ * 环摆几份,盖住一圈 [0, W];绕地球一圈的线(冰盖边,以及冰挨着地图上下边时的那条边)按走向接上几份、盖住 [−W, 2W],
  * 再从地图下边以外绕回来 —— 每条就是"线以下"的一整片(往东、往西的正负相反),几条叠起来正好是冰的范围。
- *   等距圆柱(没有 pj):[xa, xb] = [0, W],世界坐标(之后按格子裁到地图里,见 tileLoops);
- *   弯边投影:[xa, xb] = 中央经线两边各半圈,裁到这一圈 × 地图上下边,再逐点投影(长段加密)到地图平面
+ * 之后按格子裁到地图里(见 tileLoops)
  */
-export function fillLoops(lines: OrientedLine[], W: number, H: number, ddx = 0, ddy = 0, pj?: Projector): Float64Array[] {
-  const xc = pj ? (pj.mp.lon0 / 360 + 0.5) * W : W / 2;
-  const xa = xc - W / 2;
-  const xb = xc + W / 2;
+export function fillLoops(lines: OrientedLine[], W: number, H: number, ddx = 0, ddy = 0): Float64Array[] {
   const out: Float64Array[] = [];
-  const k2 = (2 * Math.PI) / W;
-  const emit = (loop: ArrayLike<number>) => {
-    if (!pj) {
-      out.push(Float64Array.from(loop));
-      return;
-    }
-    const c = clipLoopRect(loop, xa, 0, xb, H);
-    const n = c.length / 2;
-    if (n < 3) return;
-    const q: number[] = [];
-    for (let i = 0; i < n; i++) {
-      const j = i + 1 === n ? 0 : i + 1;
-      const px = c[i * 2];
-      const py = c[i * 2 + 1];
-      const x = c[j * 2];
-      const y = c[j * 2 + 1];
-      const len = Math.abs(x - px) + Math.abs(y - py);
-      const m = len > pj.step ? Math.ceil(len / pj.step) : 1;
-      for (let s = 0; s < m; s++) {
-        const t = s / m;
-        const yy = py + (y - py) * t;
-        q.push(W / 2 + pj.K(yy) * (px + (x - px) * t - xc) * k2, pj.Y(yy));
-      }
-    }
-    out.push(Float64Array.from(q));
-  };
   for (const l of lines) {
     const [bx0, by0, bx1] = lineBox(l, W);
     const p = l.pts;
     const n = p.length / 2;
     if (!l.wrap) {
-      for (let dx = Math.ceil((xa - ddx - bx1) / W) * W; bx0 + dx + ddx <= xb; dx += W) {
+      for (let dx = Math.ceil((-ddx - bx1) / W) * W; bx0 + dx + ddx <= W; dx += W) {
         const loop = new Float64Array(p.length);
         for (let i = 0; i < n; i++) {
           loop[i * 2] = p[i * 2] + dx + ddx;
           loop[i * 2 + 1] = p[i * 2 + 1] + ddy;
         }
-        emit(loop);
+        out.push(loop);
       }
       continue;
     }
     if (by0 + ddy > H) continue;
-    const kLo = Math.ceil((xa - W - ddx - bx1) / W);
-    const kHi = Math.floor((xb + W - ddx - bx0) / W);
+    const kLo = Math.ceil((-W - ddx - bx1) / W);
+    const kHi = Math.floor((2 * W - ddx - bx0) / W);
     const order: number[] = [];
     for (let k = kLo; k <= kHi; k++) order.push(k);
     if (l.wrap < 0) order.reverse();
@@ -1422,12 +1428,12 @@ export function fillLoops(lines: OrientedLine[], W: number, H: number, ddx = 0, 
     loop.push(p[0] + (last + l.wrap) * W + ddx, p[1] + ddy);
     const ex = loop[loop.length - 2];
     loop.push(ex, H + 1, loop[0], H + 1);
-    emit(loop);
+    out.push(Float64Array.from(loop));
   }
   return out;
 }
 
-/** 填色多边形按格子切开(地图平面坐标):格子 (c, r) 是 [x0 + c·tw, x0 + (c + 1)·tw] × [y0 + r·th, …] */
+/** 填色多边形按格子切开(世界坐标):格子 (c, r) 是 [x0 + c·tw, x0 + (c + 1)·tw] × [y0 + r·th, …] */
 export interface TileGrid {
   x0: number;
   y0: number;
@@ -1518,39 +1524,43 @@ export function forTilesIn(g: TileGrid, W: number, x0: number, y0: number, x1: n
   }
 }
 
-/** 填色范围的格子(每格一条路径,按 COAST_LOD 每档抽稀一份,用到时才切) */
+/** 填色范围的格子(世界坐标,东西相连;每格一批多边形、一条路径,按 COAST_LOD 每档抽稀一份,用到时才切) */
 interface FillTiles {
   loops: Float64Array[];
   g: TileGrid;
-  /** 东西相连的周期(等距圆柱 = 世界宽;弯边投影 0) */
+  /** 世界宽 */
   W: number;
+  polys: (number[][][] | undefined)[];
   paths: ((Path2D | null)[] | undefined)[];
+  /** 弯边投影:按纬度加密好的多边形(每种投影一份,见 projTileGeom) */
+  proj: ({ key: string; geom: Float64Array[][] } | undefined)[];
 }
 
-/** 格子大约多大(地图平面单位):放大后视口里只有几格到十几格 */
+/** 格子大约多大(世界单位):放大后视口里只有几格到十几格 */
 const FILL_TILE = 128;
 
-function fillTiles(loops: Float64Array[], W: number, x0: number, y0: number, x1: number, y1: number): FillTiles {
-  const nc = Math.max(1, Math.round((x1 - x0) / FILL_TILE));
-  const nr = Math.max(1, Math.round((y1 - y0) / FILL_TILE));
-  return { loops, g: { x0, y0, tw: (x1 - x0) / nc, th: (y1 - y0) / nr, nc, nr }, W, paths: COAST_LOD.map(() => undefined) };
+function fillTiles(loops: Float64Array[], W: number, H: number): FillTiles {
+  const nc = Math.max(1, Math.round(W / FILL_TILE));
+  const nr = Math.max(1, Math.round(H / FILL_TILE));
+  return { loops, g: { x0: 0, y0: 0, tw: W / nc, th: H / nr, nc, nr }, W, polys: COAST_LOD.map(() => undefined), paths: COAST_LOD.map(() => undefined), proj: COAST_LOD.map(() => undefined) };
 }
 
-/** 范围里的填色路径(第 lod 档) */
+function tilePolys(t: FillTiles, lod: number): number[][][] {
+  return (t.polys[lod] ??= tileLoops(t.loops, t.g, COAST_LOD[lod]));
+}
+
+/** 范围里的填色路径(第 lod 档;世界坐标) */
 function tilePathIn(t: FillTiles, lod: number, x0: number, y0: number, x1: number, y1: number): Path2D {
-  let ps = t.paths[lod];
-  if (!ps) {
-    ps = t.paths[lod] = tileLoops(t.loops, t.g, COAST_LOD[lod]).map((polys) => {
-      if (!polys.length) return null;
-      const p = new Path2D();
-      for (const q of polys) {
-        p.moveTo(q[0], q[1]);
-        for (let i = 2; i < q.length; i += 2) p.lineTo(q[i], q[i + 1]);
-        p.closePath();
-      }
-      return p;
-    });
-  }
+  const ps = (t.paths[lod] ??= tilePolys(t, lod).map((polys) => {
+    if (!polys.length) return null;
+    const p = new Path2D();
+    for (const q of polys) {
+      p.moveTo(q[0], q[1]);
+      for (let i = 2; i < q.length; i += 2) p.lineTo(q[i], q[i + 1]);
+      p.closePath();
+    }
+    return p;
+  }));
   const out = new Path2D();
   forTilesIn(t.g, t.W, x0, y0, x1, y1, (i, dx) => {
     const p = ps[i];
@@ -1561,11 +1571,190 @@ function tilePathIn(t: FillTiles, lod: number, x0: number, y0: number, x1: numbe
   return out;
 }
 
+/**
+ * 弯边投影:格子里的填色多边形每点记下世界 x、y 和投影里只看纬度的两样:K(y)·2π/W、地图平面 Y ——
+ * 和中央经线无关,每种投影算一次;换中心时 x 方向只差一次乘加(见 projTilePolys)。
+ * 格子边上的长段不加密:投影后是直的,和真正的经线不重合,但相邻两格沿这条边的那几小段端点完全相同、方向相反
+ * (见 clipHalf),拼在一起正好抵消,不露缝;冰缘线本身每段都很短
+ */
+export function projTileGeom(polys: number[][][], pj: Projector): Float64Array[][] {
+  const k2 = (2 * Math.PI) / pj.W;
+  return polys.map((ps) =>
+    ps.map((c) => {
+      const o = new Float64Array(c.length * 2);
+      for (let j = 0, k = 0; j < c.length; j += 2) {
+        const y = c[j + 1];
+        o[k++] = c[j];
+        o[k++] = y;
+        o[k++] = pj.K(y) * k2;
+        o[k++] = pj.Y(y);
+      }
+      return o;
+    }),
+  );
+}
+
+/**
+ * 弯边投影:投影到地图平面后挨着 V = [x0, x1] × [y0, y1] 的填色多边形(geom = projTileGeom 的结果;R = V 从世界上哪一块投过来),
+ * 画进 out。挑 R 里的格子,挪到中央经线两边各半圈那一圈;格子投影后的外框碰不到 V 的不要。整格在这一圈里的直接乘加;
+ * 碰到这一圈左右边(中央经线对面)的格子先裁掉伸出去的部分,外框上的边加密后投影
+ */
+export function projTilePolys(geom: Float64Array[][], g: TileGrid, W: number, pj: Projector, R: WorldWindow, x0: number, y0: number, x1: number, y1: number, out: PathSink): void {
+  const xc = (pj.mp.lon0 / 360 + 0.5) * W;
+  const xa = xc - W / 2;
+  const xb = xc + W / 2;
+  const k2 = (2 * Math.PI) / W;
+  // 地图外框上的边按这个步长加密(两极附近弯得厉害)
+  const step = pj.step / 16;
+  forTilesIn(g, W, R.x0, R.y0, R.x1, R.y1, (i, dx) => {
+    const ps = geom[i];
+    if (!ps.length) return;
+    const c = i % g.nc;
+    const r = (i - c) / g.nc;
+    const ta = Math.max(xa, g.x0 + c * g.tw + dx);
+    const tb = Math.min(xb, g.x0 + (c + 1) * g.tw + dx);
+    if (tb <= ta) return;
+    // 格子投影后的外框:Y 随纬度单调;K 两头最小、赤道最大
+    const ty0 = g.y0 + r * g.th;
+    const ty1 = ty0 + g.th;
+    if (pj.Y(ty1) < y0 || pj.Y(ty0) > y1) return;
+    const ks = [pj.K(ty0), pj.K(ty1)];
+    if (ty0 < pj.H / 2 && ty1 > pj.H / 2) ks.push(pj.K(pj.H / 2));
+    let bx0 = Infinity;
+    let bx1 = -Infinity;
+    for (const K of ks)
+      for (const x of [ta, tb]) {
+        const X = W / 2 + K * (x - xc) * k2;
+        if (X < bx0) bx0 = X;
+        if (X > bx1) bx1 = X;
+      }
+    if (bx1 < x0 - 1 || bx0 > x1 + 1) return;
+    // 碰到这一圈左右边(也就是地图外框)的格子要裁、要加密,其余的直接乘加
+    const inside = ta > xa && tb < xb;
+    for (const q of ps) {
+      if (inside) {
+        out.moveTo(W / 2 + q[2] * (q[0] + dx - xc), q[3]);
+        for (let j = 4; j < q.length; j += 4) out.lineTo(W / 2 + q[j + 2] * (q[j] + dx - xc), q[j + 3]);
+        out.closePath();
+        continue;
+      }
+      const p: number[] = [];
+      for (let j = 0; j < q.length; j += 4) p.push(q[j] + dx, q[j + 1]);
+      const cl = clipHalf(clipHalf(p, 0, xa, true), 0, xb, false);
+      const n = cl.length / 2;
+      if (n < 3) continue;
+      for (let j = 0; j < n; j++) {
+        const h = j * 2;
+        const e = j + 1 === n ? 0 : h + 2;
+        const px = cl[h];
+        const py = cl[h + 1];
+        // 其余的点和整格的算法一样(同样的乘加顺序),和相邻格子的点完全相同
+        const edge = (px === xa && cl[e] === xa) || (px === xb && cl[e] === xb);
+        const m = edge ? Math.max(1, Math.ceil(Math.abs(cl[e + 1] - py) / step)) : 1;
+        for (let s = 0; s < m; s++) {
+          const y = s ? py + ((cl[e + 1] - py) * s) / m : py;
+          const X = W / 2 + pj.K(y) * k2 * (px - xc);
+          if (j || s) out.lineTo(X, pj.Y(y));
+          else out.moveTo(X, pj.Y(y));
+        }
+      }
+      out.closePath();
+    }
+  });
+}
+
+/** 路径的那几样画法(Path2D;测试里记下各点) */
+export interface PathSink {
+  moveTo(x: number, y: number): void;
+  lineTo(x: number, y: number): void;
+  closePath(): void;
+}
+
+/** 弯边投影:地图平面 [x0, x1] × [y0, y1] 附近的填色路径(第 lod 档,见 projTilePolys) */
+function projFillIn(t: FillTiles, lod: number, pj: Projector, R: WorldWindow, x0: number, y0: number, x1: number, y1: number): Path2D {
+  const key = pj.mp.def.id;
+  let pre = t.proj[lod];
+  if (!pre || pre.key !== key) pre = t.proj[lod] = { key, geom: projTileGeom(tilePolys(t, lod), pj) };
+  const out = new Path2D();
+  projTilePolys(pre.geom, t.g, t.W, pj, R, x0, y0, x1, y1, out);
+  return out;
+}
+
+/** 世界上的一块(中央经线两边各半圈以内),和它投影后最多拉长几倍 */
+export interface WorldWindow {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+  stretch: number;
+}
+
+/**
+ * 弯边投影:地图平面上 [mx0, mx1] × [my0, my1] 这一块是从世界上哪一块投过来的(往外留 1 格),
+ * 以及那一块里投影最多把世界上的长度拉长几倍(在世界坐标里抽稀时容差要除以它)。
+ * 投影都是"纬线投影后是水平直线":地图平面 y 只看纬度,x = 中线 + K(纬度) × 经度差
+ */
+export function worldWindow(pj: Projector, mx0: number, my0: number, mx1: number, my1: number): WorldWindow {
+  const { W, H } = pj;
+  const xc = (pj.mp.lon0 / 360 + 0.5) * W;
+  const k2 = (2 * Math.PI) / W;
+  const yOf = (my: number) => {
+    let a = 0;
+    let b = H;
+    for (let i = 0; i < 32; i++) {
+      const m = (a + b) / 2;
+      if (pj.Y(m) < my) a = m;
+      else b = m;
+    }
+    return a;
+  };
+  const y0 = Math.max(0, yOf(my0) - 1);
+  const y1 = Math.min(H, yOf(my1) + 1);
+  // 这条纬度带里横向最多拉长、压扁多少:K 两头最小、赤道最大
+  const rows = [y0, y1];
+  for (let i = 1; i < 32; i++) rows.push(y0 + ((y1 - y0) * i) / 32);
+  if (y0 < H / 2 && y1 > H / 2) rows.push(H / 2);
+  let rLo = Infinity;
+  let rHi = -Infinity;
+  for (const y of rows) {
+    const K = Math.max(1e-9, pj.K(y));
+    for (const mx of [mx0, mx1]) {
+      const rel = (mx - W / 2) / K;
+      if (rel < rLo) rLo = rel;
+      if (rel > rHi) rHi = rel;
+    }
+  }
+  rLo = Math.max(-Math.PI, rLo);
+  rHi = Math.min(Math.PI, rHi);
+  // 拉长倍数 = 投影导数矩阵 [[K·2π/W, K′·经度差], [0, Y′]] 的最大奇异值
+  const relMax = Math.max(Math.abs(rLo), Math.abs(rHi));
+  let stretch = 1;
+  for (const y of rows) {
+    const a = pj.K(y) * k2;
+    const b = pj.dK(y) * relMax;
+    const d = pj.dY(y);
+    const t = a * a + b * b + d * d;
+    stretch = Math.max(stretch, Math.sqrt((t + Math.sqrt(Math.max(0, t * t - 4 * a * a * d * d))) / 2));
+  }
+  return {
+    x0: Math.max(xc - W / 2, xc + rLo / k2 - 1),
+    y0,
+    x1: Math.min(xc + W / 2, xc + rHi / k2 + 1),
+    y1,
+    stretch,
+  };
+}
+
 /** 冰缘墨线:比海岸墨线细一点、淡一点;线宽(格,放大后乘 glyphScale)、最浓多少(墨量和像素层那两格宽的冰缘线一样) */
 const ICE_LW = 1.5;
 const ICE_INK_A = 0.62;
 /** 墨线浓淡图的像素比像素图粗几倍(附近结冰比例本来就是粗网格插出来的,平滑) */
 const ICE_FADE_STEP = 4;
+/**
+ * 弯边投影里冰面、背光边范围抽稀的容差(画布像素):冰面的边压在冰缘墨线底下(线宽好几个像素),
+ * 比墨线本身(COAST_TOL)松一倍也看不出来,点数少很多(转中心时每次都要重新投影)
+ */
+const ICE_FILL_TOL = 2 * COAST_TOL;
 
 /** 冰面东南侧背光边:宽几格、排线间隔几格(同像素层;间隔取图宽的约数,左右对得上) */
 const iceRimOf = (S: number) => Math.max(2, Math.round(2.5 * S));
@@ -1712,10 +1901,10 @@ function iceGeoOf(world: World, r: Raster): IceGeo | null {
   iceGeo = {
     raster: r,
     fill,
-    fillT: fillTiles(fillLoops(fill, W, H), W, 0, 0, W, H),
+    fillT: fillTiles(fillLoops(fill, W, H), W, H),
     ink: coastChunks(fill.flatMap((l) => inkRuns(l, W))),
     shade,
-    shadeT: fillTiles(fillLoops(shade, W, H, -d, -d), W, 0, 0, W, H),
+    shadeT: fillTiles(fillLoops(shade, W, H, -d, -d), W, H),
     hatch,
     inkFade,
     pats: null,
@@ -1757,23 +1946,108 @@ function hatchPathIn(c: CoastChunks, W: number, x0: number, y0: number, x1: numb
   return any ? out : null;
 }
 
-/** 弯边投影:冰面范围、背光边要躲开的范围、墨线、排线投影到地图平面(每个投影 + 中心一份),冰面色、浓淡图按投影重铺 */
+/**
+ * 弯边投影:视口附近的冰面范围、背光边要躲开的范围、墨线、排线投影到地图平面,冰面色、浓淡图按投影重铺那一块
+ * (按投影 + 中心 + 那一块地图平面范围一份;拖动时转中心每次都换,所以只投影看得见的那一块)
+ */
 let iceProj: {
   raster: Raster;
   key: string;
-  fill: FillTiles;
-  shade: FillTiles;
-  ink: CoastChunks;
-  hatch: CoastChunks;
-  face: AnyCanvas;
-  inkFade: AnyCanvas;
+  /** 墨线、填色范围的抽稀档 */
+  lod: number;
+  lodF: number;
+  /** 盖住的地图平面范围 */
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+  fill: Path2D;
+  /** 背光边要躲开的范围(视口里有排线才要,用到时才投影) */
+  shade: () => Path2D;
+  ink: Path2D;
+  hatch: Path2D | null;
+  /** 冰面色、浓淡图重铺的那一块(左上角在地图平面上的位置) */
+  face: { cv: AnyCanvas; ox: number; oy: number };
+  inkFade: { cv: AnyCanvas; ox: number; oy: number };
   pats: { face: CanvasPattern; ink: CanvasPattern } | null;
 } | null = null;
 
 function releaseIceProj(): void {
   if (!iceProj) return;
-  iceProj.face.width = iceProj.face.height = iceProj.inkFade.width = iceProj.inkFade.height = 0;
+  iceProj.face.cv.width = iceProj.face.cv.height = iceProj.inkFade.cv.width = iceProj.inkFade.cv.height = 0;
   iceProj = null;
+}
+
+/**
+ * 弯边投影:铺满世界的图 src(sw × sh)按投影重铺到地图平面 [x0, x1] × [y0, y1] 这一块(往外对齐到像素),
+ * 一个像素 = 地图平面 1 / px;返回画布和它左上角在地图平面上的位置
+ */
+function reprojWindow(src: AnyCanvas, sw: number, sh: number, mp: MapProj, px: number, x0: number, y0: number, x1: number, y1: number): { cv: AnyCanvas; ox: number; oy: number } {
+  const gx = Math.floor(x0 * px);
+  const gy = Math.floor(y0 * px);
+  const cv = makeCanvas(Math.max(1, Math.ceil(x1 * px) - gx), Math.max(1, Math.ceil(y1 * px) - gy));
+  reprojectImage(cv.getContext('2d') as CanvasRenderingContext2D, src, sw, sh, mp, { s: px, ox: -gx, oy: -gy }, 'low');
+  return { cv, ox: gx / px, oy: gy / px };
+}
+
+/** 弯边投影:地图平面 [x0, x1] × [y0, y1] 这一块里的冰(墨线按第 lod 档、冰面范围按第 lodF 档抽稀;R = 它从世界上哪一块投过来) */
+function iceProjOf(world: World, r: Raster, g: IceGeo, pj: Projector, lod: number, lodF: number, R: WorldWindow, x0: number, y0: number, x1: number, y1: number): NonNullable<typeof iceProj> {
+  const S = r.scale;
+  const W = r.w / S;
+  const H = r.h / S;
+  const unit = { s: 1, ox: 0, oy: 0 };
+  // 冰面色、浓淡图:只重铺这一块(地图平面裁到地图里)
+  const mx0 = Math.max(0, x0);
+  const my0 = Math.max(0, y0);
+  const mx1 = Math.min(W, Math.max(mx0, x1));
+  const my1 = Math.min(H, Math.max(my0, y1));
+  const face = reprojWindow(fantasyIceFace(world, r), r.w, r.h, pj.mp, S, mx0, my0, mx1, my1);
+  const fw = g.inkFade.width;
+  const fade = reprojWindow(g.inkFade, fw, g.inkFade.height, pj.mp, fw / W, mx0, my0, mx1, my1);
+  // 墨线、排线:挑出挨着 R 的小段逐点投影(一小段可能伸出 R 好几份,只投一次)
+  const tol = COAST_LOD[lod];
+  const ink = new Path2D();
+  const seen = new Uint8Array(g.ink.pts.length);
+  forChunksIn(g.ink, W, R.x0, R.y0, R.x1, R.y1, (j) => {
+    if (seen[j]) return;
+    seen[j] = 1;
+    for (const q of projectLinePts(simplifyLine(g.ink.pts[j], tol), 2, pj, unit)) {
+      ink.moveTo(q[0], q[1]);
+      for (let i = 2; i < q.length; i += 2) ink.lineTo(q[i], q[i + 1]);
+    }
+  });
+  let hatch: Path2D | null = null;
+  const seenH = new Uint8Array(g.hatch.pts.length);
+  forChunksIn(g.hatch, W, R.x0, R.y0, R.x1, R.y1, (j) => {
+    if (seenH[j]) return;
+    seenH[j] = 1;
+    const s = g.hatch.pts[j];
+    // 斜线投影后是弯的:加密得比岸线细一些
+    for (let i = 0; i < s.length; i += 4)
+      for (const q of projectLinePts([s[i], s[i + 1], s[i + 2], s[i + 3]], 2, pj, unit, pj.step / 4)) {
+        hatch ??= new Path2D();
+        hatch.moveTo(q[0], q[1]);
+        for (let k = 2; k < q.length; k += 2) hatch.lineTo(q[k], q[k + 1]);
+      }
+  });
+  let shade: Path2D | undefined;
+  return {
+    raster: r,
+    key: pj.mp.key,
+    lod,
+    lodF,
+    x0,
+    y0,
+    x1,
+    y1,
+    fill: projFillIn(g.fillT, lodF, pj, R, x0, y0, x1, y1),
+    shade: () => (shade ??= projFillIn(g.shadeT, lodF, pj, R, x0, y0, x1, y1)),
+    ink,
+    hatch,
+    face,
+    inkFade: fade,
+    pats: null,
+  };
 }
 
 /**
@@ -1781,9 +2055,9 @@ function releaseIceProj(): void {
  * 冰面按冰缘线围成的范围取冰面色那一张(底图在冰缘带里是没结冰的海色)—— 冰、水正好在线下分界,不从线两边露出格子;
  * 背光边 = 冰面里、往东南挪一个背光边宽就到了开阔海面的那一条:淡蓝灰斜排线;
  * 最后描冰缘墨线(浓淡按附近结冰比例,零星碎冰处淡)。线宽、排线宽放大后按 glyphScale 收。画在波纹之后、海岸墨线之前。
- *   弯边投影(v.proj):填色范围按投影裁好、投影(见 fillLoops),线逐点投影
+ * 填色范围事先按格子切好(世界坐标,见 tileLoops),每次只拼视口附近的几格(整圈的冰盖边很长,整条填一遍很费):
  *   等距圆柱:世界坐标;东西相连,伸出左右边的在另一边再画一份
- * 填色范围事先按格子切好(见 tileLoops),每次只拼视口附近的几格(整圈的冰盖边很长,整条填一遍很费)
+ *   弯边投影(v.proj):视口附近的格子、墨线、排线逐点投影(见 iceProjOf)
  */
 export function drawFantasyIce(ctx: CanvasRenderingContext2D, world: World, r: Raster, v: VecView): void {
   const g = iceGeoOf(world, r);
@@ -1799,75 +2073,41 @@ export function drawFantasyIce(ctx: CanvasRenderingContext2D, world: World, r: R
   const y0 = -v.oy / v.s - pad;
   const x1 = (ctx.canvas.width - v.ox) / v.s + pad;
   const y1 = (ctx.canvas.height - v.oy) / v.s + pad;
-  const d = iceRimOf(S) / S;
-  const H = r.h / S;
-  let fillT: FillTiles;
-  let shadeT: FillTiles;
+  let fill: Path2D;
+  let shade: () => Path2D;
   let ink: Path2D;
   let hatch: Path2D | null;
   let pats: { face: CanvasPattern; ink: CanvasPattern };
   if (pj) {
-    if (!iceProj || iceProj.raster !== r || iceProj.key !== pj.mp.key) {
-      releaseIceProj();
-      const unit = { s: 1, ox: 0, oy: 0 };
-      const face = makeCanvas(r.w, r.h);
-      reprojectImage(face.getContext('2d') as CanvasRenderingContext2D, fantasyIceFace(world, r), r.w, r.h, pj.mp, { s: S, ox: 0, oy: 0 }, 'low');
-      const fw = g.inkFade.width;
-      const fh = g.inkFade.height;
-      const inkFade = makeCanvas(fw, fh);
-      reprojectImage(inkFade.getContext('2d') as CanvasRenderingContext2D, g.inkFade, fw, fh, pj.mp, { s: fw / W, ox: 0, oy: 0 }, 'low');
-      const projLines = (c: CoastChunks) => coastChunks(c.pts.flatMap((q) => projectLinePts(q, 2, pj, unit).map((p) => Float32Array.from(p))));
-      const hatchProj: Float32Array[] = [];
-      for (const s of g.hatch.pts) {
-        const segs: number[] = [];
-        for (let i = 0; i < s.length; i += 4)
-          for (const p of projectLinePts([s[i], s[i + 1], s[i + 2], s[i + 3]], 2, pj, unit, pj.step / 4)) {
-            for (let j = 0; j + 3 < p.length; j += 2) segs.push(p[j], p[j + 1], p[j + 2], p[j + 3]);
-          }
-        if (segs.length) hatchProj.push(Float32Array.from(segs));
-      }
-      const fl = fillLoops(g.fill, W, H, 0, 0, pj);
-      const sl = fillLoops(g.shade, W, H, -d, -d, pj);
-      // 格子铺满所有多边形的外框(地图平面)
-      let bx0 = Infinity;
-      let by0 = Infinity;
-      let bx1 = -Infinity;
-      let by1 = -Infinity;
-      for (const q of [...fl, ...sl])
-        for (let i = 0; i < q.length; i += 2) {
-          if (q[i] < bx0) bx0 = q[i];
-          if (q[i] > bx1) bx1 = q[i];
-          if (q[i + 1] < by0) by0 = q[i + 1];
-          if (q[i + 1] > by1) by1 = q[i + 1];
-        }
-      if (!(bx1 > bx0)) bx0 = by0 = bx1 = by1 = 0;
-      iceProj = {
-        raster: r,
-        key: pj.mp.key,
-        fill: fillTiles(fl, 0, bx0, by0, bx1 + 1, by1 + 1),
-        shade: fillTiles(sl, 0, bx0, by0, bx1 + 1, by1 + 1),
-        ink: projLines(g.ink),
-        hatch: segChunks(hatchProj),
-        face,
-        inkFade,
-        pats: null,
-      };
-    }
-    iceProj.pats ??= {
-      face: fadePattern(ctx, iceProj.face, 1 / S, 'no-repeat'),
-      ink: fadePattern(ctx, iceProj.inkFade, W / iceProj.inkFade.width, 'no-repeat'),
+    // 世界坐标里抽稀:容差按投影拉长的倍数收
+    const R = worldWindow(pj, x0, y0, x1, y1);
+    const lodOf = (tol: number) => {
+      let l = 0;
+      while (l + 1 < COAST_LOD.length && COAST_LOD[l + 1] * v.s * R.stretch <= tol) l++;
+      return l;
     };
-    ({ fill: fillT, shade: shadeT, pats } = iceProj);
-    ink = chunkPath(iceProj.ink, lod, 0, x0, y0, x1, y1);
-    hatch = hatchPathIn(iceProj.hatch, 0, x0, y0, x1, y1);
+    const lw = lodOf(COAST_TOL);
+    const lf = lodOf(ICE_FILL_TOL);
+    const c = iceProj;
+    if (!c || c.raster !== r || c.key !== pj.mp.key || c.lod > lw || c.lodF > lf || c.x0 > x0 || c.y0 > y0 || c.x1 < x1 || c.y1 < y1) {
+      releaseIceProj();
+      iceProj = iceProjOf(world, r, g, pj, lw, lf, R, x0, y0, x1, y1);
+    }
+    const p = iceProj!;
+    p.pats ??= {
+      face: fadePattern(ctx, p.face.cv, 1 / S, 'no-repeat', p.face.ox, p.face.oy),
+      ink: fadePattern(ctx, p.inkFade.cv, W / g.inkFade.width, 'no-repeat', p.inkFade.ox, p.inkFade.oy),
+    };
+    ({ fill, ink, hatch, pats } = p);
+    shade = p.shade;
   } else {
     g.pats ??= {
       face: fadePattern(ctx, fantasyIceFace(world, r), 1 / S, 'repeat-x'),
       ink: fadePattern(ctx, g.inkFade, W / g.inkFade.width, 'repeat'),
     };
     pats = g.pats;
-    fillT = g.fillT;
-    shadeT = g.shadeT;
+    fill = tilePathIn(g.fillT, lod, x0, y0, x1, y1);
+    shade = () => tilePathIn(g.shadeT, lod, x0, y0, x1, y1);
     ink = chunkPath(g.ink, lod, W, x0, y0, x1, y1);
     hatch = hatchPathIn(g.hatch, W, x0, y0, x1, y1);
   }
@@ -1876,7 +2116,6 @@ export function drawFantasyIce(ctx: CanvasRenderingContext2D, world: World, r: R
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'low';
   // 冰面
-  const fill = tilePathIn(fillT, lod, x0, y0, x1, y1);
   ctx.fillStyle = pats.face;
   ctx.fill(fill);
   if (hatch) {
@@ -1885,7 +2124,7 @@ export function drawFantasyIce(ctx: CanvasRenderingContext2D, world: World, r: R
     ctx.clip(fill);
     const outside = new Path2D();
     outside.rect(x0, y0, x1 - x0, y1 - y0);
-    outside.addPath(tilePathIn(shadeT, lod, x0, y0, x1, y1));
+    outside.addPath(shade());
     ctx.clip(outside, 'evenodd');
     ctx.strokeStyle = `rgba(${ICE_SHADOW[0]},${ICE_SHADOW[1]},${ICE_SHADOW[2]},0.42)`;
     ctx.lineWidth = (0.6 * gs) / S;
@@ -1903,10 +2142,10 @@ export function drawFantasyIce(ctx: CanvasRenderingContext2D, world: World, r: R
   ctx.restore();
 }
 
-/** 一张图当填色 / 描线的图案:图的一个像素 = 世界(地图平面)px 个单位 */
-function fadePattern(ctx: CanvasRenderingContext2D, cv: AnyCanvas, px: number, rep: 'repeat' | 'repeat-x' | 'no-repeat'): CanvasPattern {
+/** 一张图当填色 / 描线的图案:图的一个像素 = 世界(地图平面)px 个单位,左上角在 (ox, oy) */
+function fadePattern(ctx: CanvasRenderingContext2D, cv: AnyCanvas, px: number, rep: 'repeat' | 'repeat-x' | 'no-repeat', ox = 0, oy = 0): CanvasPattern {
   const p = ctx.createPattern(cv, rep)!;
-  p.setTransform(new DOMMatrix([px, 0, 0, px, 0, 0]));
+  p.setTransform(new DOMMatrix([px, 0, 0, px, ox, oy]));
   return p;
 }
 
