@@ -450,6 +450,25 @@ describe('浏览器存储(saveStore)', () => {
     expect(saveStore.listWorlds().map((w) => w.save.title)).toEqual(['九州大陆（二）']);
   });
 
+  it('复制一份时存满了(世界个数到上限):删的是别的旧世界,不删原件(哪怕它最旧)', () => {
+    const src = saveStore.importSave(makeSave({ ...DEFAULT_PARAMS, seed: 1 }, EDITS, 'check1', '最旧的'))!;
+    const ids: string[] = [];
+    for (let i = 2; i <= saveStore.MAX_WORLDS; i++) {
+      tick();
+      ids.push(saveStore.importSave(makeSave({ ...DEFAULT_PARAMS, seed: i }, EMPTY_EDITS, `check${i}`, `世界${i}`))!);
+    }
+    expect(saveStore.listWorlds().length).toBe(saveStore.MAX_WORLDS);
+    tick();
+    const copy = saveStore.duplicateWorld(src);
+    expect(copy).toBeTruthy();
+    const left = saveStore.listWorlds().map((w) => w.id);
+    expect(left.length).toBe(saveStore.MAX_WORLDS);
+    expect(left).toContain(src);
+    expect(left).toContain(copy);
+    // 删的是除原件以外最旧的那个
+    expect(left).not.toContain(ids[0]);
+  });
+
   it('复制一份:名字加(二),修改、缩略图、AI 写的东西都带上;删掉复制的那份不动原来的', () => {
     const fake = new FakeStorage();
     useStorage(fake);

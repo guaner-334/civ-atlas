@@ -327,7 +327,9 @@ function writeWorldUrl(t: Target) {
   }
   q.delete('w');
   q.delete('new');
-  if (isStored(t.id)) q.set('w', t.id);
+  // 存着的记录还是换参数之前的(新建中换了种子、参数,正在生成):先不指向它,存好了再换成 w=
+  const w = isStored(t.id) ? loadWorld(t.id) : null;
+  if (w && worldKey(w.save.params) === worldKey(t.params)) q.set('w', t.id);
   else if (t.kind === 'draft') q.set('new', '1');
   const next = `?${q}`;
   if (next !== location.search) history.replaceState(null, '', next);
@@ -1036,7 +1038,11 @@ export function App() {
   const openStored = (id: string) => {
     const w = loadWorld(id);
     if (!w) return notify({ kind: 'error', text: '打不开这个存档', more: ['可能已在别的页面里删掉了'] });
-    if (currentWorld()?.id === id && targetRef.current?.id === id) {
+    // 下面一直开着的就是它、存的和开着的一样(没在别的页面里改过):不用重新打开
+    const cur = currentWorld();
+    const same =
+      !!cur && worldKey(cur.params) === worldKey(w.save.params) && (cur.title ?? '') === (w.save.title ?? '') && JSON.stringify(getEdits()) === JSON.stringify(w.save.edits);
+    if (cur?.id === id && targetRef.current?.id === id && same) {
       markOpened(id);
       enterStage(w.draft ? 'draft' : 'world', w.draft ? (w.base ?? null) : null);
       if (w.draft) setDraftTitle(w.save.title ?? '');

@@ -463,6 +463,7 @@ function evictOldest(keep: string): boolean {
     for (const p of [PREFIX, THUMB, META]) if (k.startsWith(p)) ids.add(k.slice(p.length));
   }
   ids.delete(keep);
+  if (shield) ids.delete(shield);
   let oldest: string | null = null;
   let at = '￿';
   for (const id of ids) {
@@ -480,6 +481,9 @@ function evictOldest(keep: string): boolean {
   removeKeys(oldest);
   return true;
 }
+
+/** 存不下要删旧世界时,除了正在写的那个,这一个也不删(复制时的原件) */
+let shield: string | null = null;
 
 /** 写一个键;写不下就删最旧的世界再试 */
 function put(key: string, value: string, keep: string): boolean {
@@ -517,11 +521,15 @@ function writeSave(id: string, save: SaveFile, meta?: Meta): boolean {
   reportEvicted('quota');
   // 新存一个世界:超过上限就删最旧的
   if (ok && fresh) {
-    for (const w of listWorlds().slice(MAX_WORLDS))
-      if (w.id !== id) {
-        evicted.push(w.save.title || `种子 ${w.save.seed}`);
-        removeKeys(w.id);
-      }
+    const list = listWorlds();
+    let extra = list.length - MAX_WORLDS;
+    for (let i = list.length - 1; i >= 0 && extra > 0; i--) {
+      const w = list[i];
+      if (w.id === id || w.id === shield) continue;
+      evicted.push(w.save.title || `种子 ${w.save.seed}`);
+      removeKeys(w.id);
+      extra--;
+    }
     reportEvicted('count');
   }
   if (ok) {
@@ -585,8 +593,14 @@ export function duplicateWorld(id: string): string | null {
   if (!w) return null;
   const nid = newWorldId();
   const save: SaveFile = { ...w.save, title: nextTitle(w.save.title || '未命名世界'), savedAt: new Date().toISOString() };
-  if (!writeSave(nid, save, { draft: w.draft, alive: w.alive })) return null;
-  if (w.thumb) put(THUMB + nid, w.thumb, nid);
+  // 存不下要删旧的:原件不删(它可能正好是最旧的)
+  shield = id;
+  try {
+    if (!writeSave(nid, save, { draft: w.draft, alive: w.alive })) return null;
+    if (w.thumb) put(THUMB + nid, w.thumb, nid);
+  } finally {
+    shield = null;
+  }
   changed();
   return nid;
 }
