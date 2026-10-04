@@ -1082,9 +1082,9 @@
   width: 24px;
   height: 24px;
   box-sizing: border-box;
-  border: 2px solid var(--accent);
+  border: 2px solid var(--map-mark);
   border-radius: 50%;
-  box-shadow: 0 0 0 5px rgba(184, 67, 47, 0.22);
+  box-shadow: 0 0 0 5px rgba(212, 57, 43, 0.2);
 }
 /* 字默认写在圆环下面(地图自己的城名多半在城镇符号左右两边);压着地图上的字时 TargetPlates 换个地方(改 transform) */
 .tp-mark-text {
