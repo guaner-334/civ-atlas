@@ -128,6 +128,9 @@ function nameAt(p: Polity, y: number): string {
 /** 国家最后(或现在)的那一刻 */
 const lastYear = (civ: Civ, p: Polity) => Math.min(p.ended !== undefined ? p.ended - 1 / 512 : civ.endYear, civ.endYear);
 
+/** 没写年份的命令从哪一年起:时间轴的年份,最晚是最后一年的前一年 */
+const defaultFrom = (civ: Civ, year: number) => Math.max(0, Math.min(civ.endYear - 1, Math.floor(Number.isFinite(year) ? year : civ.endYear)));
+
 /** 城 s 在 y 年还在(建了、没毁) */
 const stands = (civ: Civ, sid: number, y: number) => {
   const s = civ.settlements[sid];
@@ -190,7 +193,8 @@ export function rewriteMaterial(world: World, civ: Civ, year: number, edits: Wor
 
   out.push('# 这个世界');
   out.push(
-    `历史从第 0 年推演到第 ${civ.endYear} 年;时间轴现在在第 ${Y} 年。` +
+    `历史从第 0 年推演到第 ${civ.endYear} 年;时间轴现在在第 ${Y} 年` +
+      (civ.viable ? `,作者没说年份的命令从第 ${defaultFrom(civ, Y)} 年起。` : '。') +
       '位置写成(经度, 纬度):经度 −180~180,东经为正;纬度 −90~90,北纬为正。赤道一圈约 4 万公里,纬度 1° 约 111 公里。',
   );
   if (!civ.viable) out.push('这颗星球太冷或陆地太少,没有长出文明:没有国家、城和民族,只能改地形。');
@@ -474,7 +478,7 @@ export const REWRITE_SYSTEM = [
   '',
   '## 规则',
   '1. 国家、城、州、民族、山河只能用材料里的编号(P3、C12、R45、E2、M7);作者说的名字对不上任何一个,写进 cannot,不要编。',
-  '2. from 是整数年份,要在那个国家存在的年份里(立国当年到亡国前一年)。作者没说年份,就用时间轴现在的那一年;那一年这国还没立或已亡,挑一个合理的年份,在 why 里说。',
+  '2. from 是整数年份,要在那个国家存在的年份里(立国当年到亡国前一年),而且早于历史的最后一年。作者没说年份,就用材料开头写的默认年份;那一年这国还没立或已亡,挑一个合理的年份,在 why 里说。',
   '   例:"让它多撑三百年" → 从原本亡国前约 30 年起 protect,until = 原本亡国那年 + 300。',
   '3. 只做作者要的,不要额外加作者没提的事;一句话可以拆成几条修改。能用历史命令做到的,不要动地形。',
   '   同一次不要既改地形又下历史命令:地形一改历史整个重来,材料里的国家、城、年份就对不上了。作者两样都要时,这次只改地形,在 cannot 里说"地形改好后再说历史那部分"。',
@@ -752,7 +756,9 @@ class Checker {
   private command(kind: Intervention['kind'], o: Record<string, unknown>): Omit<RewriteItem, 'op' | 'why'> {
     const { civ } = this.ctx;
     const P = civ.polities;
-    const from = yearOf(o.from ?? o.year ?? o['年份']) ?? Math.floor(this.ctx.year);
+    // 没写年份 = 时间轴的年份;时间轴在最后一年(刚打开时就是)= 前一年(命令最晚从那一年起)
+    const given = yearOf(o.from ?? o.year ?? o['年份']);
+    const from = given === null || given === civ.endYear ? defaultFrom(civ, given ?? this.ctx.year) : given;
     const untilRaw = yearOf(o.until ?? o.to ?? o['截止']);
     const fail = (text: string, problem: string) => ({ change: null, text, year: from, problem });
     const label = KIND_LABEL[kind];

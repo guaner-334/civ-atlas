@@ -5,7 +5,7 @@
  *                     (窄屏:世界名 20px,副标缩成"种子 7 · 12 国 · 概览 ›")
  *   右上 TopActions   "搜索""改写""成书";写史书时前面是"正在撰写《某某通史》"+ 细进度条,写完变成"《某某通史》已完成 · 打开"
  *                     (窄屏:进度缩成按钮下面的一条小进度条;搜索框、改写框全宽展开在顶栏下方)。
- *                     改写 = 用一句话让 AI 改世界(Rewrite.tsx),和搜索框同一时间只开一个
+ *                     改写 = 用一句话让 AI 改世界(Rewrite.tsx;没长出文明的世界也能用,只能改地形),和搜索框同一时间只开一个
  *   右下 MapControls  "地球仪 / 平面地图"切换、放大、缩小;右侧详情面板打开时整体左移(触屏不放 + −,窄屏整个不放)
  *   底部 FirstHint    第一次打开时的一行操作提示,第一次拖动 / 缩放 / 点击之后不再出现(触屏换成"双指缩放"的说法)
  *   跟随鼠标 HoverCard 悬停小卡片(内容见 hoverInfo.ts)
@@ -49,13 +49,14 @@ export function WorldTitle({ seed, civ, onOpen }: { seed: number | null; civ: Ci
   );
 }
 
-export function TopActions({ canWrite, civ, world }: { canWrite: boolean; civ?: Civ | null; world?: World | null }) {
+export function TopActions({ canWrite, civ, world, busy = false }: { canWrite: boolean; civ?: Civ | null; world?: World | null; busy?: boolean }) {
   const [open, setOpen] = useState<'search' | 'rewrite' | null>(null);
   const searchBtn = useRef<HTMLButtonElement>(null);
   const rewriteBtn = useRef<HTMLButtonElement>(null);
   const close = useCallback(() => setOpen(null), []);
   const canSearch = !!civ && civ.viable;
-  const canRewrite = canWrite && !!civ && !!world;
+  // 改写不要求有文明:没长出文明的世界也能改地形
+  const canRewrite = !!civ && !!world;
   const toggle = (k: 'search' | 'rewrite') => setOpen((o) => (o === k ? null : k));
   return (
     <div
@@ -88,7 +89,7 @@ export function TopActions({ canWrite, civ, world }: { canWrite: boolean; civ?: 
         成书
       </button>
       {open === 'search' && canSearch && <SearchBox civ={civ!} onClose={close} anchor={searchBtn} />}
-      {open === 'rewrite' && canRewrite && <RewriteBox civ={civ!} world={world!} onClose={close} anchor={rewriteBtn} />}
+      {open === 'rewrite' && canRewrite && <RewriteBox civ={civ!} world={world!} busy={busy} onClose={close} anchor={rewriteBtn} />}
     </div>
   );
 }

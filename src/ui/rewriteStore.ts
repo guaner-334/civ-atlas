@@ -5,8 +5,9 @@
  *   sendWish(ctx, wish)   发一句话:按现在的世界写材料、带上前几轮,调 AI;回来的修改逐条核对(不合格的写明原因,不能勾)
  *   stopWish()            停下正在想的那一轮
  *   toggleItem(turn, i)   勾 / 不勾第 i 条
- *   applyTurn(turn)       执行勾着的几条:一次 setEdits(干预、改地形只重推 / 重新生成一回)。
- *                         只有最新的一轮能执行,而且发出去之后世界没再改过(否则提议是按旧世界写的,要重说一遍)
+ *   applyTurn(turn, now)  执行勾着的几条:一次 setEdits(干预、改地形只重推 / 重新生成一回)。
+ *                         只有最新的一轮能执行,而且发出去之后世界没再改过、现在也没在重推(否则提议是按旧世界写的,要重说一遍);
+ *                         now = 界面上现在的这份历史(换了世界、重推完都会换成另一份)和是不是正在重推
  *   undoTurn(turn)        撤销执行过的那一轮(只拿掉这一轮加的修改,见 unmergeRewrite)
  *   takeRewriteNote(e)    App 用:修改变成 e 是不是一次改写 / 撤销改写(推完在提示条上说"已按你说的改写"并带撤销)
  *
@@ -84,17 +85,26 @@ export function useRewrite(): RewriteState {
   );
 }
 
-/** 换了世界:对话清空(打开框、发话时调) */
+/** 换了世界:对话清空(打开框、换世界、发话时调) */
 export function syncRewriteWorld() {
   const w = currentWorld()?.id ?? null;
   if (w === state.world) return;
   stopWish();
+  turnCiv = null;
   set({ world: w, turns: [] });
 }
 
 let seq = 0;
 let ctrl: AbortController | null = null;
 let running = -1;
+/** 最新一轮是按哪一份历史写的(只记最新一轮:旧的几轮本来就不能执行) */
+let turnCiv: { id: number; civ: Civ } | null = null;
+
+/** 界面上现在的情形:这份历史(套上了改名的)、是不是正在重推 / 按新地形重新生成 */
+export interface WorldNow {
+  civ: Civ;
+  busy?: boolean;
+}
 
 export interface WishContext {
   world: World;
@@ -104,16 +114,22 @@ export interface WishContext {
   year: number;
 }
 
-/** 前几轮(给 AI 看前情) */
+/** 前几轮(给 AI 看前情;执行过的那一轮,没勾的几条注明没执行) */
 function history(): RewriteTurn[] {
   return state.turns
     .filter((t) => t.status === 'done')
-    .map((t) => ({
-      wish: t.wish,
-      reply: t.reply,
-      items: t.items?.filter((x) => x.change).map((x) => (x.year !== undefined ? `第 ${x.year} 年起 ${x.text}` : x.text)),
-      applied: !!t.applied && !t.applied.undone,
-    }));
+    .map((t) => {
+      const applied = !!t.applied && !t.applied.undone;
+      const off = new Set(t.off ?? []);
+      return {
+        wish: t.wish,
+        reply: t.reply,
+        items: t.items?.flatMap((x, i) =>
+          x.change ? [`${x.year !== undefined ? `第 ${x.year} 年起 ` : ''}${x.text}${applied && off.has(i) ? '(作者没勾,没执行)' : ''}`] : [],
+        ),
+        applied,
+      };
+    });
 }
 
 /** 发一句话;返回这一轮的编号(空话 = −1) */
@@ -126,6 +142,7 @@ export async function sendWish(ctx: WishContext, wish: string): Promise<number> 
   const year = Math.floor(ctx.year);
   const basis = getEdits();
   const prev = history();
+  turnCiv = { id, civ: ctx.civ };
   set({ ...state, turns: [...state.turns, { id, wish: w, year, basis, status: 'thinking' }] });
   const c = new AbortController();
   ctrl = c;
@@ -173,11 +190,12 @@ export function pickedChanges(t: RwTurn): RewriteChange[] {
   return (t.items ?? []).flatMap((x, i) => (x.change && !off.has(i) ? [x.change] : []));
 }
 
-/** 这一轮现在能不能执行;不能 = 原因 */
-export function applyBlock(t: RwTurn): string | null {
+/** 这一轮现在能不能执行;不能 = 原因(不用说原因 = 空串) */
+export function applyBlock(t: RwTurn, now: WorldNow): string | null {
   if (t.status !== 'done' || t.applied) return '';
   if (state.turns[state.turns.length - 1]?.id !== t.id) return '后面又说过话了,执行最新的那一轮';
-  if (getEdits() !== t.basis) return '世界在这之后改过,这份提议是按改之前写的;再说一遍,按现在的世界重想';
+  if (now.busy) return '世界正在重推,推完再执行';
+  if (getEdits() !== t.basis || turnCiv?.id !== t.id || turnCiv.civ !== now.civ) return '世界在这之后改过,这份提议是按改之前写的;再说一遍,按现在的世界重想';
   if (!pickedChanges(t).length) return '没有勾选能执行的修改';
   return null;
 }
@@ -204,10 +222,10 @@ export function takeRewriteNote(e: WorldEdits): RewriteNote | null {
 }
 
 /** 执行这一轮勾着的修改;返回原因(执行了 = null) */
-export function applyTurn(id: number): string | null {
+export function applyTurn(id: number, now: WorldNow): string | null {
   const t = state.turns.find((x) => x.id === id);
   if (!t) return '找不到这一轮了';
-  const why = applyBlock(t);
+  const why = applyBlock(t, now);
   if (why !== null) return why || '这一轮执行过了';
   const before = getEdits();
   const after = mergeRewrite(before, pickedChanges(t));

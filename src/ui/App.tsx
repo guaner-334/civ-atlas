@@ -2069,7 +2069,7 @@ export function App() {
         {style === 'data' && !terrainTool.on && <Legend layer={layer} />}
       </div>
       {/* 右上:搜索、改写(用一句话让 AI 改世界)、成书(写史书时前面是进度) */}
-      <TopActions canWrite={civReady} civ={civ} world={data?.world ?? null} />
+      <TopActions canWrite={civReady} civ={civ} world={data?.world ?? null} busy={!!resim || terrainStatus.busy || !!progress} />
       {/* 顶部居中:提示条(同一时间只有一条);改地形时上面是工具条,提示条挪到它下面 */}
       <ToastBar />
       {data && <TerrainBar disabled={!!progress && !terrainStatus.busy} />}

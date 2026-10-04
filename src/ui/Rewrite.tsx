@@ -4,7 +4,8 @@
  *   空的时候     一行说明 + 三句按这个世界写的例子(点一下填进输入框)
  *   一轮对话     作者的话 → "AI 正在想"(可停止)→ AI 的一两句话 + 修改清单(年份 + 一句话 + 理由;
  *               不能执行的变淡、写原因、不能勾)+ 做不到的几句 + "执行 N 条";执行过的写"已执行 · 撤销"
- *   底部         输入框(回车发送,Shift + 回车换行)+ "发送";没设置 AI 时上面一行提示 + "设置 AI"
+ *   底部         输入框(回车发送,Shift + 回车换行)+ "发送";没设置 AI 时上面一行提示 + "设置 AI";
+ *               正在重推 / 按新地形重新生成时一行"世界正在重推,好了再说"(这时发不了,提议也不能执行)
  * 执行:框收起,修改一次合进去(App 在后台重推 / 按新地形重新生成),推完提示条"已按你说的改写"带撤销(App.tsx)。
  * Esc、点框外面关上(对话留着,再打开接着说)。状态在 rewriteStore.ts,材料和核对在 ai/prompts/rewrite.ts。
  */
@@ -18,7 +19,19 @@ import { WISH_MAX } from '../ai/prompts/rewrite';
 import { openAiSettings } from './AiSettings';
 import { getCivTime } from './civView';
 import { useEdits } from './editsStore';
-import { applyBlock, applyTurn, pickedChanges, sendWish, stopWish, syncRewriteWorld, toggleItem, undoTurn, useRewrite, type RwTurn } from './rewriteStore';
+import {
+  applyBlock,
+  applyTurn,
+  pickedChanges,
+  sendWish,
+  stopWish,
+  syncRewriteWorld,
+  toggleItem,
+  undoTurn,
+  useRewrite,
+  type RwTurn,
+  type WorldNow,
+} from './rewriteStore';
 import './rewrite.css';
 
 const TERRAIN_OPS = ['volcano', 'lake', 'range', 'raise', 'sink'];
@@ -26,7 +39,20 @@ const TERRAIN_OPS = ['volcano', 'lake', 'range', 'raise', 'sink'];
 /** 没发出去的话(框关了再打开还在) */
 let draft = '';
 
-export function RewriteBox({ world, civ, onClose, anchor }: { world: World; civ: Civ; onClose: () => void; anchor?: React.RefObject<HTMLElement> }) {
+export function RewriteBox({
+  world,
+  civ,
+  busy = false,
+  onClose,
+  anchor,
+}: {
+  world: World;
+  civ: Civ;
+  /** 正在重推 / 按新地形重新生成(界面上的 civ 还是旧的) */
+  busy?: boolean;
+  onClose: () => void;
+  anchor?: React.RefObject<HTMLElement>;
+}) {
   const st = useRewrite();
   const ai = useAiStatus();
   useEdits();
@@ -34,7 +60,8 @@ export function RewriteBox({ world, civ, onClose, anchor }: { world: World; civ:
   const box = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
   const log = useRef<HTMLDivElement>(null);
-  useEffect(() => syncRewriteWorld(), []);
+  // 换了世界(比如框开着时粘贴了别的世界的分享链接):对话清空
+  useEffect(() => syncRewriteWorld(), [world, civ]);
   useEffect(() => {
     draft = text;
   }, [text]);
@@ -70,7 +97,7 @@ export function RewriteBox({ world, civ, onClose, anchor }: { world: World; civ:
   const thinking = last?.status === 'thinking';
   const send = () => {
     const w = text.trim();
-    if (!w || thinking || !ai.ready) return;
+    if (!w || thinking || !ai.ready || busy) return;
     setText('');
     void sendWish({ world, civ, year: getCivTime().year ?? civ.endYear }, w);
   };
@@ -93,9 +120,10 @@ export function RewriteBox({ world, civ, onClose, anchor }: { world: World; civ:
           </div>
         )}
         {st.turns.map((t) => (
-          <Turn key={t.id} t={t} latest={t === last} onApplied={onClose} onRetry={() => setText(t.wish)} />
+          <Turn key={t.id} t={t} latest={t === last} now={{ civ, busy }} onApplied={onClose} onRetry={() => setText(t.wish)} />
         ))}
       </div>
+      {ai.ready && busy && <div className="rw-unset">世界正在重推,好了再说</div>}
       {!ai.ready && (
         <div className="rw-unset">
           <span>{ai.reason ?? '还没有设置 AI'}</span>
@@ -120,7 +148,7 @@ export function RewriteBox({ world, civ, onClose, anchor }: { world: World; civ:
             }
           }}
         />
-        <button className="rw-send" data-act="rw-send" disabled={!text.trim() || thinking || !ai.ready} onClick={send}>
+        <button className="rw-send" data-act="rw-send" disabled={!text.trim() || thinking || !ai.ready || busy} onClick={send}>
           发送
         </button>
       </div>
@@ -128,11 +156,11 @@ export function RewriteBox({ world, civ, onClose, anchor }: { world: World; civ:
   );
 }
 
-function Turn({ t, latest, onApplied, onRetry }: { t: RwTurn; latest: boolean; onApplied: () => void; onRetry: () => void }) {
+function Turn({ t, latest, now, onApplied, onRetry }: { t: RwTurn; latest: boolean; now: WorldNow; onApplied: () => void; onRetry: () => void }) {
   const [msg, setMsg] = useState<string | null>(null);
   const off = new Set(t.off ?? []);
   const n = pickedChanges(t).length;
-  const block = t.status === 'done' && !t.applied ? applyBlock(t) : '';
+  const block = t.status === 'done' && !t.applied ? applyBlock(t, now) : '';
   const terrain = (t.items ?? []).some((x, i) => x.change?.kind === 'terrain' && !off.has(i));
   const mixed = terrain && (t.items ?? []).some((x, i) => x.change?.kind === 'intervention' && !off.has(i));
   return (
@@ -221,7 +249,7 @@ function Turn({ t, latest, onApplied, onRetry }: { t: RwTurn; latest: boolean; o
                   data-act="rw-apply"
                   disabled={block !== null}
                   onClick={() => {
-                    const why = applyTurn(t.id);
+                    const why = applyTurn(t.id, now);
                     setMsg(why);
                     if (!why) onApplied();
                   }}

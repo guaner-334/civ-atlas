@@ -49,6 +49,8 @@ const civ = generateCiv(world);
 const EMPTY: WorldEdits = { names: {}, interventions: [], terrain: [] };
 const Y = 2000;
 const ctx = (edits: WorldEdits = EMPTY, year = Y, c: Civ = civ, w: World = world): RewriteContext => ({ world: w, civ: c, year, edits });
+/** 界面上现在的情形:就是这份历史,没在重推 */
+const NOW = { civ };
 const json = (edits: unknown[], extra: Record<string, unknown> = {}) => JSON.stringify({ reply: '好的', edits, ...extra });
 /** 只有一条修改的回复 → 那一条 */
 const one = (edit: Record<string, unknown>, c: RewriteContext = ctx()) => {
@@ -251,6 +253,15 @@ describe('改写 · 核对 AI 的回复', () => {
     expect(one({ op: 'protect', country: `P${big}`, from: '第 1500 年', until: 1400 }).change).toEqual({ kind: 'intervention', v: { kind: 'protect', a, from: 1500 } });
     expect(one({ op: 'halt', country: `P${big} 某国`, until: Y + 100 }).change).toEqual({ kind: 'intervention', v: { kind: 'halt', a, from: Y, until: Y + 100 } });
     expect(one({ op: 'unity', country: big, from: 1999.7 }).change).toEqual({ kind: 'intervention', v: { kind: 'unity', a, from: 1999 } });
+    // 时间轴在最后一年(刚打开时就是):没写年份、或写的就是最后一年 = 前一年起
+    const end = ctx(EMPTY, civ.endYear);
+    const last = civ.polities.find((p) => p.ended === undefined)!;
+    for (const from of [undefined, civ.endYear])
+      expect(one({ op: 'protect', country: `P${last.id}`, from }, end)).toMatchObject({
+        year: civ.endYear - 1,
+        change: { kind: 'intervention', v: { kind: 'protect', from: civ.endYear - 1 } },
+      });
+    expect(rewriteMaterial(world, civ, civ.endYear, EMPTY, ['x']).text).toContain(`作者没说年份的命令从第 ${civ.endYear - 1} 年起`);
   });
 
   it('国家对不上、那一年还没立 / 已亡、年份超出范围:列出来、写明原因、不能执行', () => {
@@ -263,7 +274,7 @@ describe('改写 · 核对 AI 的回复', () => {
     bad({ op: 'protect', country: '大昌' }, /没说是哪个国家/);
     bad({ op: 'protect', country: `P${dead.id}`, from: deadYear }, /已亡/);
     bad({ op: 'protect', country: `P${unborn.id}`, from: unbornYear }, /还没立国/);
-    bad({ op: 'protect', country: `P${big}`, from: civ.endYear }, /年份要在/);
+    bad({ op: 'protect', country: `P${big}`, from: civ.endYear + 1 }, /年份要在/);
     bad({ op: 'protect', country: `P${big}`, from: -3 }, /年份要在/);
     bad({ op: 'ally', country: `P${big}`, other: `P${big}` }, /两个不同的国家/);
     bad({ op: 'ally', country: `P${big}` }, /没说是哪个对方国家/);
@@ -465,19 +476,22 @@ describe('改写 · 测试用假 AI', () => {
     let t = getRewrite().turns.find((x) => x.id === id)!;
     expect(t).toMatchObject({ status: 'done', mock: true, year: Y, wish: '让最大的国家多撑三百年' });
     expect(t.items?.length).toBe(1);
-    expect(applyBlock(t)).toBeNull();
+    expect(applyBlock(t, NOW)).toBeNull();
+    // 正在重推 / 界面上已经换成另一份历史:不能执行
+    expect(applyBlock(t, { civ, busy: true })).toMatch(/正在重推/);
+    expect(applyBlock(t, { civ: { ...civ } })).toMatch(/世界在这之后改过/);
     // 不勾 → 没有能执行的;再勾上
     toggleItem(id, 0);
     t = getRewrite().turns.find((x) => x.id === id)!;
-    expect(applyBlock(t)).toMatch(/没有勾选/);
+    expect(applyBlock(t, NOW)).toMatch(/没有勾选/);
     toggleItem(id, 0);
-    expect(applyTurn(id)).toBeNull();
+    expect(applyTurn(id, NOW)).toBeNull();
     const after = getEdits();
     expect(after.interventions).toEqual([{ kind: 'protect', a: polityKey(civ, largest), from: Y, until: Y + 300 }]);
     expect(takeRewriteNote(after)).toMatchObject({ kind: 'apply', turn: id, before: start, after });
     expect(takeRewriteNote(after)).toBeNull();
     // 执行过的不能再执行
-    expect(applyTurn(id)).toMatch(/执行过了/);
+    expect(applyTurn(id, NOW)).toMatch(/执行过了/);
     undoTurn(id);
     expect(getEdits()).toBe(start);
     expect(takeRewriteNote(getEdits())).toMatchObject({ kind: 'undo', turn: id });
@@ -490,9 +504,9 @@ describe('改写 · 测试用假 AI', () => {
     expect(await sendWish(wctx, '   ')).toBe(-1);
     const a = await sendWish(wctx, '让它多撑三百年');
     const b = await sendWish(wctx, '在海上放一座火山');
-    expect(applyTurn(a)).toMatch(/后面又说过话了/);
+    expect(applyTurn(a, NOW)).toMatch(/后面又说过话了/);
     setEdits({ ...getEdits(), interventions: [{ kind: 'unity', a: polityKey(civ, big), from: 100 }] });
-    expect(applyTurn(b)).toMatch(/世界在这之后改过/);
+    expect(applyTurn(b, NOW)).toMatch(/世界在这之后改过/);
     // 再说一句:带上前几轮(执行了没有),材料按现在的世界重写
     let seen: AiRequest | null = null;
     setMockResponder((req) => ((seen = req), JSON.stringify({ mock: true })));
@@ -505,13 +519,31 @@ describe('改写 · 测试用假 AI', () => {
     expect(u).toContain(`- 第 100 年起:P${big} 禁止分裂`);
   });
 
+  it('执行时没勾的几条,之后的前情里注明"没执行"', async () => {
+    setActiveProvider('mock');
+    const two = [
+      { op: 'protect', country: `P${big}` },
+      { op: 'halt', country: `P${big}` },
+    ];
+    setMockResponder(() => JSON.stringify({ reply: '好', edits: two }));
+    const id = await sendWish({ world, civ, year: Y }, '保护它,别让它扩张');
+    toggleItem(id, 1);
+    expect(applyTurn(id, NOW)).toBeNull();
+    expect(getEdits().interventions.map((v) => v.kind)).toEqual(['protect']);
+    let seen: AiRequest | null = null;
+    setMockResponder((req) => ((seen = req), JSON.stringify({ mock: true })));
+    await sendWish({ world, civ, year: Y }, '再说一句');
+    const u = seen!.messages[1].content;
+    expect(u).toMatch(/列的修改:第 2000 年起 [^;]+:保护;第 2000 年起 [^;]+:禁止扩张\(作者没勾,没执行\)\)—— 作者执行了/);
+  });
+
   it('真 AI 回的只改名:当场生效(不用重推);回的看不懂 = 这一轮出错,写明原因', async () => {
     setActiveProvider('mock');
     setMockResponder(() => JSON.stringify({ reply: '给国都换个名字', edits: [{ op: 'rename', target: `C${capital}`, name: '测试城' }] }));
     const id = await sendWish({ world, civ, year: Y }, '给国都换个名字');
     const t = getRewrite().turns.find((x) => x.id === id)!;
     expect(t).toMatchObject({ status: 'done', mock: false, reply: '给国都换个名字' });
-    expect(applyTurn(id)).toBeNull();
+    expect(applyTurn(id, NOW)).toBeNull();
     expect(getEdits().names[settlementKey(civ, capital)]).toBe('测试城');
     expect(takeRewriteNote(getEdits())).toBeNull();
     undoTurn(id);
