@@ -103,7 +103,7 @@
 .sb-more > .pm-btn {
   padding: 0 7px;
 }
-.sb-pill:hover:not(:disabled),
+.sb-pill:not(.pm):hover:not(:disabled),
 .sb-acts .save-btn:hover,
 .sb-acts .save-btn.on,
 .sb-pill > .pm-btn:hover,
