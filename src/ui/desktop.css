@@ -101,6 +101,15 @@
   bottom: auto;
   right: 0;
   left: auto;
+  max-height: calc(100vh - 120px);
+}
+/* 导出菜单同样从按钮下面展开;窗口矮时在菜单里滚动(留出按钮条折成两行时的高度) */
+.map-bar .export-menu {
+  max-height: calc(100vh - 120px);
+  overflow-y: auto;
+  border-radius: var(--r-panel);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.22);
+  backdrop-filter: blur(8px);
 }
 .mb-btn {
   height: 36px;

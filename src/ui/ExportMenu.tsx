@@ -241,17 +241,17 @@ export function ExportMenu({ data, civ, style, layer, icon }: ExportMenuProps) {
   const globeOn = useGlobeOn();
   const rootRef = useRef<HTMLDivElement>(null);
 
-  // 点菜单外面就收起
+  // 点菜单外面就收起(在捕获阶段听:地图上的按钮条拦了冒泡,点旁边的按钮照样收起)
   useEffect(() => {
     if (!open) return;
     const onDown = (e: PointerEvent) => {
       if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
     };
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
-    document.addEventListener('pointerdown', onDown);
+    document.addEventListener('pointerdown', onDown, true);
     document.addEventListener('keydown', onKey);
     return () => {
-      document.removeEventListener('pointerdown', onDown);
+      document.removeEventListener('pointerdown', onDown, true);
       document.removeEventListener('keydown', onKey);
     };
   }, [open]);

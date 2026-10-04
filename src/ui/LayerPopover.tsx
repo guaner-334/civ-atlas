@@ -4,7 +4,7 @@
  *         + 一行叠加开关(地名、宜居度、州、城址、道路;CivPanel.tsx 的 CivToggles);
  *         选中"民族"时下面是紧凑的民族色块列表(CultureLegend)
  *   投影:ProjectionSection(六种投影、中央经线滑条、经纬网)
- * 点图层就换(弹层收起);点叠加开关不收起;点外面、Esc 收起。
+ * 点图层就换(弹层收起);点叠加开关不收起;点外面(包括旁边的按钮)、Esc 收起。
  * 窄屏(手机):按钮只放缩略图,弹层是从底部升起的抽屉(右上 ✕ 收起);"地球仪 / 平面地图"就在投影里。
  *
  * 缩略图是当前世界真实画出来的小图:App 给 baseCanvas(画风键)取整张底图(画过的直接从缓存拿,没画过的画一张放进缓存),
@@ -170,10 +170,10 @@ export function LayerPopover({ layer, civ = null, onLayer, thumbs, requestThumbs
       if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
     };
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
-    document.addEventListener('pointerdown', onDown);
+    document.addEventListener('pointerdown', onDown, true);
     document.addEventListener('keydown', onKey);
     return () => {
-      document.removeEventListener('pointerdown', onDown);
+      document.removeEventListener('pointerdown', onDown, true);
       document.removeEventListener('keydown', onKey);
     };
   }, [open, requestThumbs]);
