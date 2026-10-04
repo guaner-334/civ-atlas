@@ -255,6 +255,10 @@
   text-decoration: underline;
   text-underline-offset: 2px;
 }
+.ov-ver {
+  margin-left: auto;
+  color: var(--ink-3);
+}
 
 /* ---- 国家页:表格 ---- */
 .ov-tr {

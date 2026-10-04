@@ -267,7 +267,9 @@
   -webkit-backdrop-filter: none;
   animation: none;
 }
-/* 在地图上选目标、正在推演时:宽屏的面板不挡地图,照常留着 */
+/* 在地图上选目标、正在推演时:宽屏的面板不挡地图,留着,只是变淡、不能点(取消用提示条上的"取消"或 Esc) */
 .sidebar .inspector.cpanel.hidden {
   display: flex;
+  opacity: 0.45;
+  pointer-events: none;
 }

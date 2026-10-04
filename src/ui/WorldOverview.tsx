@@ -34,6 +34,7 @@ import type { Style } from './mapLayers';
 import { PRIVACY_URL, SOURCE_URL, TERMS_URL } from './links';
 import { useNarrow } from './device';
 import { Icon } from './icons';
+import { APP_VERSION } from './version';
 import './overview.css';
 
 export interface WorldOverviewProps {
@@ -151,7 +152,7 @@ const ABOUT = [
   { id: 'terms', name: '用户协议', href: TERMS_URL },
 ];
 
-/** 底部一行小字:源代码、隐私政策、用户协议(新标签页打开) */
+/** 底部一行小字:源代码、隐私政策、用户协议(新标签页打开),最右边是版本号 */
 function AboutLinks() {
   return (
     <footer className="ov-about">
@@ -160,6 +161,9 @@ function AboutLinks() {
           {l.name}
         </a>
       ))}
+      <span className="ov-ver" data-version>
+        版本 {APP_VERSION}
+      </span>
     </footer>
   );
 }

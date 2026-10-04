@@ -30,6 +30,7 @@ import { Inspector } from './Inspector';
 import { Icon } from './icons';
 import { MenuItem, MenuSep, PopMenu } from './PopMenu';
 import { PRIVACY_URL, SOURCE_URL, TERMS_URL } from './links';
+import { APP_VERSION } from './version';
 import { rgb } from './panelParts';
 import './sidebar.css';
 
@@ -174,6 +175,9 @@ function WorldHead(p: SidebarProps) {
           <MenuItem href={TERMS_URL} act="terms">
             用户协议
           </MenuItem>
+          <div className="pm-foot" data-version>
+            版本 {APP_VERSION}
+          </div>
         </PopMenu>
       </div>
     </div>
@@ -200,7 +204,7 @@ function SearchResults({ q, hits, active, onActive, onPick }: { q: string; hits:
           >
             <i className="sb-sw" style={{ background: h.color }} />
             <span className="sb-row-main">
-              <b>{h.name}</b>
+              <b className="search-name">{h.name}</b>
             </span>
             <span className="sb-row-side">{h.sub}</span>
           </button>

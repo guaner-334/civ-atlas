@@ -393,3 +393,10 @@
   border-top: 0.5px solid var(--line);
   margin: 4px 8px;
 }
+/* 菜单最底下一行灰色小字(版本号) */
+.pm-foot {
+  padding: 4px 9px 2px 36px;
+  font-size: 11.5px;
+  color: var(--ink-3);
+  user-select: text;
+}
