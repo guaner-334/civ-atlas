@@ -919,8 +919,14 @@ function simpleEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
       return assimChild(civ, e, id);
     case 'migrate':
       return migrateChild(civ, e, id, false);
-    case 'intervene':
-      return base(e, id, interveneStory(civ, e, id).text, 3, [e.a, e.b], [e.region]);
+    case 'intervene': {
+      const story = interveneStory(civ, e, id);
+      const x = base(e, id, story.text, 3, [e.a, e.b], [e.region]);
+      // 干预立的国:立国那条并进了这一条,开国之君也写在这里
+      const who = story.ok && civ.interventions?.[e.war]?.kind === 'found' && e.a >= 0 ? founderOf(ctx.ix, e.a, 0) : null;
+      if (who) x.text += `,奉${who.name}为主`;
+      return withPeople(x, who);
+    }
     default:
       return base(e, id, `${pn(civ, e.a, y)}有事`, 1, [e.a], []);
   }
@@ -1214,6 +1220,8 @@ function warEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
   const polities = [atk, def];
   for (const e of list) polities.push(e.a, e.b);
   if (ally >= 0) polities.push(ally);
+  // 事发地:打下来的州;一州没打下来的,就是没打下来的那几仗的战场
+  const sites = fought.length ? fought : uniq(list.filter((e) => e.kind === 'battle' && e.region >= 0).map((e) => e.region));
   return withPeople(
     {
       id: ids[0],
@@ -1224,7 +1232,7 @@ function warEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
       tag: '战',
       importance,
       polities: uniq(polities),
-      regions: fought,
+      regions: sites,
       settlement: -1,
       children,
       ongoing: !over,
@@ -1421,6 +1429,7 @@ function combine(ctx: Ctx, list: ChronicleEntry[]): Map<ChronicleEntry, number> 
         d.text += `;${later(Math.floor(e.year) - Math.floor(d.year))}${e.text}`;
         d.polities = uniq([...d.polities, ...e.polities]);
         d.regions = uniq([...d.regions, ...e.regions]);
+        if (e.people?.length) d.people = uniq([...(d.people ?? []), ...e.people]);
         e.importance = 2;
         told.set(d, e.polities[0]);
       }
@@ -1650,7 +1659,7 @@ function deathWord(p: Polity, tier: number): [string, string] {
  * 东方 "大昌太宗崩,在位 23 年;太子李昭即位,是为高宗"(王国"世子",年少的加",时年 9 岁");
  * 汗国、部落 "乌耐汗国咄苾可汗卒,在位 12 年;其弟阿史那继为可汗";
  * 西幻 "索拉特国王阿尔德里克二世驾崩,在位 31 年;其子阿尔德里克三世即位";共和国 "提布里亚执政官卡西乌斯任满,马库斯继任"。
- * 父子、兄弟按两人的年纪差说(差十四岁以上是子,四十岁以上是孙,不然是弟)。
+ * 父子、兄弟按两人的年纪差说(差十四岁以上是子,四十岁以上是孙,不然是弟;新君年长的是兄)。
  * 标签"嗣",重要度 1;id = civ.annals.length + 新君的 Person.id。没有人物 = 空数组。
  * 不在 buildChronicle 里(那里只有史事,AI 材料、地点的纪事都用它);要列继位的地方自己并进去(mergeChronicle)。按 civ 缓存
  */
@@ -1677,7 +1686,7 @@ export function reignEntries(civ: Civ): ChronicleEntry[] {
         const [died, killed] = deathWord(p, tier);
         const gap = x.born - prev.born;
         const son = gap >= 14 && gap < 40;
-        const kin = gap >= 40 ? '其孙' : !son ? '其弟' : p.eastern && p.lineage !== 'khanate' && tier >= 3 ? '太子' : p.eastern && p.lineage !== 'khanate' && tier === 2 ? '世子' : '其子';
+        const kin = gap >= 40 ? '其孙' : gap < 0 ? '其兄' : !son ? '其弟' : p.eastern && p.lineage !== 'khanate' && tier >= 3 ? '太子' : p.eastern && p.lineage !== 'khanate' && tier === 2 ? '世子' : '其子';
         const age = ageAt(x, y);
         const young = age < 15 ? `,时年 ${age} 岁` : '';
         let then: string;

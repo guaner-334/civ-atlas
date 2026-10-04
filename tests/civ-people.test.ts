@@ -112,6 +112,12 @@ describe.each([7, 2024])('人物 · seed=%i', (seed) => {
           expect(['war', 'battle', 'conquer']).toContain(A[i].kind);
         }
         expect(A[c.first].year).toBeGreaterThanOrEqual(c.from - 1e-9);
+        // 经手的最后一件事时人还在:将领没过卒年(战死的死在那一件事上);君主没下台(亡国那一刻除外)
+        if (x.role === 'general' && x.died !== undefined && x.fate !== 'battle') expect(A[c.last].year).toBeLessThan(x.died);
+        if (x.role === 'ruler' && x.until !== undefined) {
+          if (x.until === civ.polities[x.polity].ended) expect(A[c.last].year).toBeLessThanOrEqual(x.until);
+          else expect(A[c.last].year).toBeLessThan(x.until);
+        }
         const key = `${c.war}|${c.side}`;
         bySide.set(key, [...(bySide.get(key) ?? []), { first: c.first, last: c.last, x }]);
       }
@@ -158,6 +164,12 @@ describe.each([7, 2024])('人物 · seed=%i', (seed) => {
     }
     // 不在战争外单列
     expect(list.some((e) => e.kind === 'battle')).toBe(false);
+    // 一州没打下来的战争:事发地是战场
+    for (const w of list) {
+      if (w.kind !== 'war' || !w.children || w.children.some((c) => c.kind === 'conquer')) continue;
+      const sites = w.children.filter((c) => c.kind === 'battle').flatMap((c) => c.regions);
+      if (sites.length) expect(new Set(w.regions)).toEqual(new Set(sites));
+    }
     const decls = kids.filter((e) => e.kind === 'war');
     expect(decls.length).toBeGreaterThan(5);
     for (const e of decls) expect(e.text).toMatch(/为将|亲征/);
@@ -170,6 +182,13 @@ describe.each([7, 2024])('人物 · seed=%i', (seed) => {
         expect(e.text.includes(x.name) || (!!x.title && e.text.includes(x.title)), `${e.text} / ${x.name}`).toBe(true);
       }
       expect(e.text).not.toMatch(/undefined|NaN|某国/);
+      // 句子里写到的开国之君(立国、分裂、复国、改朝换代;和别的事并成一条的也算)都记在 people 上
+      for (const pid of e.polities) {
+        for (const x of rulersOf(civ, pid)) {
+          if (x.rise === 'heir' || !e.text.includes(x.name) || Math.abs(x.from! - e.year) > 30) continue;
+          expect(e.people ?? [], `${e.text} / ${x.name}`).toContain(x.id);
+        }
+      }
     }
     // 君主继位:每一位"继位"的君主一条,只有选了国家时并进去
     const reigns = reignEntries(civ);
@@ -182,6 +201,10 @@ describe.each([7, 2024])('人物 · seed=%i', (seed) => {
       expect(e.polities).toHaveLength(1);
       expect(ids.has(e.id)).toBe(false);
       expect(e.text).toMatch(/(即位|继为|继任)/);
+      // 新君比先君年长:是兄,不是弟、子、孙
+      const x = P[e.id - civ.annals.length];
+      const prev = rulersOf(civ, x.polity).find((r) => r.until === x.from)!;
+      if (civ.polities[x.polity].lineage !== 'republic' && x.born < prev.born) expect(e.text).toContain('其兄');
       expect(e.text).not.toMatch(/undefined|NaN/);
     }
     // 并进去之后照样按年份排好

@@ -361,7 +361,8 @@ export function buildPeople(civ: PeopleInput): Person[] {
       const t = e.year;
       for (let s = 0; s < 2; s++) {
         const c = cur[s];
-        if (c && c.careerEnd < t) close(s, c.careerEnd);
+        // 任期到头就换人:将领到了卒年、退下的那一刻,君主下台的那一刻(亡国那一刻君主还在:殉国、出降、出奔)
+        if (c && (c.careerEnd < t || (c.careerEnd === t && (c.general || t !== polities[c.p.polity].ended)))) close(s, c.careerEnd);
         if (!cur[s]) appoint(s, t, n + 1, idx);
         const cs = cur[s];
         if (cs) cs.cmd.last = idx;

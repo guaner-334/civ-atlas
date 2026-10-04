@@ -613,6 +613,11 @@ describe('干预 · 划州 / 立国 / 迁都 / 不许扩张 · 推演', () => {
         const text = ivText(c);
         expect(text).toEqual([parent >= 0 ? expect.stringMatching(/^【干预】.+脱.+自立,号饕餮.+都/) : expect.stringMatching(/^【干预】.+立国,号饕餮/)]);
         expect(buildChronicle(c).some((e) => e.kind === 'found' && e.polities[0] === p.id)).toBe(false);
+        // 开国之君写在干预那一条里
+        const founder = c.people!.find((x) => x.role === 'ruler' && x.polity === p.id)!;
+        const entry = buildChronicle(c).find((e) => e.kind === 'intervene')!;
+        expect(entry.text).toContain(`奉${founder.name}为主`);
+        expect(entry.people).toContain(founder.id);
         expect(interventionOutcome(c, 0)).toMatchObject({ ok: true });
       }
     }
