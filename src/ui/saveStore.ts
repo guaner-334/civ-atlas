@@ -3,7 +3,8 @@
  *
  * - 一个世界一个编号(newWorldId,网址里的 w=):同一个种子 + 参数可以存好几个,各走各的历史。
  *   存档本身(gen/savefile.ts 的 SaveFile,和"存成文件"同一个格式)、缩略图、几项只在本地用的信息(还在新建、最近打开、现存几国)
- *   各存一个键;以前按"种子 + 参数"当编号存的,第一次读的时候原地换成新编号(换不了就照旧用老编号,照样能打开)。
+ *   各存一个键;以前按"种子 + 参数"当编号存的,第一次读的时候原地换成新编号(换不了就照旧用老编号,照样能打开);
+ *   改版前的网址(只带种子、参数)刷新还回到它(legacyWorld)。
  * - 世界分三种(attachWorld 的 kind):
  *     draft    新建世界这一步(种子、参数、地形还能改):作者动过(起名、调参数、改地形)才存,在"我的世界"里标"没建完"
  *     created  建好的世界(种子、参数、地形锁住):一直存着,没有修改也在列表里
@@ -54,6 +55,8 @@ const THUMB = 'wenming-ditu:thumb:';
 const META = 'wenming-ditu:meta:';
 /** AI 写的东西(ai/library.ts)按世界编号存的键 */
 const NOTES = 'civ-atlas:ai-notes:';
+/** 以前按"种子 + 参数"当编号存的世界换成了哪个新编号(旧网址只带种子、参数,刷新还回到它) */
+const LEGACY = 'wenming-ditu:legacy:';
 /** 最多存多少个世界(每个几 KB + 缩略图三十来 KB) */
 export const MAX_WORLDS = 60;
 /** 缩略图的大小("我的世界"里一张卡片宽 480) */
@@ -210,7 +213,23 @@ function migrateLegacy(kv: KV) {
       continue;
     }
     for (const p of [PREFIX, THUMB, NOTES, META]) kv.remove(p + old);
+    kv.set(LEGACY + old, id);
   }
+}
+
+/** 以前按"种子 + 参数"存的那个世界(改版前的网址只带种子、参数,刷新时找回它);没有 = null */
+export function legacyWorld(params: WorldParams): StoredWorld | null {
+  const kv = store();
+  const old = worldKey(params);
+  // 没换成新编号的(写不下)照旧用老编号
+  const direct = loadWorld(old);
+  if (direct) return direct;
+  const id = kv.get(LEGACY + old);
+  if (id === null) return null;
+  const w = ID_RE.test(id) ? loadWorld(id) : null;
+  if (w && worldKey(w.save.params) === old) return w;
+  kv.remove(LEGACY + old);
+  return null;
 }
 
 // ---------------------------------------------------------------------------

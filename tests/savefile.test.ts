@@ -603,6 +603,25 @@ describe('浏览器存储(saveStore)', () => {
     expect(fake.getItem(`civ-atlas:ai-notes:${w.id}`)).toBe('{"n":2}');
     expect(fake.getItem(`wenming-ditu:world:${old}`)).toBeNull();
     expect(fake.getItem(`wenming-ditu:thumb:${old}`)).toBeNull();
+    // 改版前的网址(只带种子、参数)刷新还找得回它;别的种子、参数不算
+    expect(saveStore.legacyWorld({ ...DEFAULT_PARAMS, seed: 7 })?.id).toBe(w.id);
+    expect(saveStore.legacyWorld({ ...DEFAULT_PARAMS, seed: 7, plates: 15 })).toBeNull();
+    expect(saveStore.legacyWorld({ ...DEFAULT_PARAMS, seed: 8 })).toBeNull();
+    // 删掉以后就找不回了(对照也一起清掉)
+    saveStore.deleteWorld(w.id);
+    expect(saveStore.legacyWorld({ ...DEFAULT_PARAMS, seed: 7 })).toBeNull();
+    expect(fake.getItem(`wenming-ditu:legacy:${old}`)).toBeNull();
+  });
+
+  it('以前的世界换不了新编号(存储满了):照旧用老编号,改版前的网址照样找得回', () => {
+    const text = saveText(makeSave({ ...DEFAULT_PARAMS, seed: 7 }, EDITS, 'check7', '九州大陆'));
+    const old = worldKey({ ...DEFAULT_PARAMS, seed: 7 });
+    // 放得下这一份(和打开时探测用的一个小键),放不下第二份
+    const fake = new FakeStorage(`wenming-ditu:world:${old}`.length + text.length + 100);
+    fake.setItem(`wenming-ditu:world:${old}`, text);
+    useStorage(fake);
+    expect(saveStore.legacyWorld({ ...DEFAULT_PARAMS, seed: 7 })).toMatchObject({ id: old, draft: false });
+    expect(saveStore.legacyWorld({ ...DEFAULT_PARAMS, seed: 7 })?.save.title).toBe('九州大陆');
   });
 
   it('列表按最近打开 / 修改排;现存几国记在本地(存着的才记)', () => {

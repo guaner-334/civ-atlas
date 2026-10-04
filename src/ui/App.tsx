@@ -118,6 +118,7 @@ import {
   importSave,
   isStored,
   isWorldId,
+  legacyWorld,
   listWorlds,
   loadWorld,
   markCreated,
@@ -288,7 +289,7 @@ function visitTarget(params: WorldParams): Target {
  *   分享链接(#)       → 那个世界(先按网址生成,解开以后套上修改)
  *   w=世界编号(存着)   → 这个世界(没建完的回到新建)
  *   new=1             → 新建(网址里的种子、参数)
- *   带种子的网址       → 直接看这个世界
+ *   带种子的网址       → 直接看这个世界(改版前存过的就回到那个存档)
  *   都没有             → 有存档就到"我的世界";第一次来直接新建(随机一颗星球)
  */
 function firstRoute(init: ReturnType<typeof readUrl>): { stage: Stage; target: Target | null } {
@@ -298,7 +299,12 @@ function firstRoute(init: ReturnType<typeof readUrl>): { stage: Stage; target: T
   const stored = isWorldId(w) ? loadWorld(w) : null;
   if (stored) return { stage: stored.draft ? 'draft' : 'world', target: storedTarget(stored, 'restore') };
   if (q.get('new') === '1') return { stage: 'draft', target: draftTarget(init.params) };
-  if (q.has('seed')) return { stage: 'world', target: visitTarget(init.params) };
+  if (q.has('seed')) {
+    // 改版前自动存的世界:那时的网址只带种子、参数,刷新照旧回到它
+    const old = legacyWorld(init.params);
+    if (old) return { stage: old.draft ? 'draft' : 'world', target: storedTarget(old, 'restore') };
+    return { stage: 'world', target: visitTarget(init.params) };
+  }
   if (listWorlds().length) return { stage: 'home', target: null };
   return { stage: 'draft', target: draftTarget({ ...init.params, seed: randomSeedValue() }) };
 }

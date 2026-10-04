@@ -977,6 +977,21 @@ for (const style of ['realistic', 'fantasy']) {
   if (!newKey) errs.push(`旧版本的自动存档没有换成新编号(${keysNow.join()},旧的 ${id})`);
   if (!upgraded) errs.push(`旧存档里 r 格式的键没有换成 c 格式:${JSON.stringify(names)}`);
   if (/找不到对应的地方/.test(note)) errs.push(`旧存档的改名有找不到的:${note}`);
+  // 改版前的网址(只带种子、参数,没有 w=)刷新:回到这个存档(换成新编号,改名都在),不是一个空白的"看看"
+  await page.evaluate(() => localStorage.clear());
+  await page.evaluate(([k, v]) => localStorage.setItem(k, v), [`wenming-ditu:world:${id}`, JSON.stringify(legacy)]);
+  await page.goto(`${dev.url}/?seed=7&style=fantasy&civ=polities`);
+  await page.waitForFunction(() => (window as any).__wfLabels?.polities > 0, null, { timeout: 60000 });
+  await page.waitForTimeout(500);
+  const back = await page.evaluate(() => {
+    const w = new URLSearchParams(location.search).get('w');
+    const keys = Object.keys(localStorage).filter((k) => k.startsWith('wenming-ditu:world:'));
+    return { w, keys, stored: w ? localStorage.getItem(`wenming-ditu:world:${w}`) : null };
+  });
+  const backNames = back.stored ? Object.values(JSON.parse(back.stored).edits?.names ?? {}).sort().join() : '';
+  console.log(`改版前的网址刷新:网址里的世界编号 ${back.w},存档的键 ${back.keys.join()},改名 ${backNames}`);
+  if (!back.w || back.keys.length !== 1 || backNames !== '九嶷州,饕餮城')
+    errs.push(`改版前的网址刷新没有回到原来的存档(w=${back.w},键 ${back.keys.join()},改名 ${backNames})`);
   await page.evaluate(() => localStorage.clear());
 }
 // 世界换成球面以前(生成器版本 4 及以前)的存档文件、分享链接:照常打开成同一个种子的球面世界,提示"来自旧版本",
