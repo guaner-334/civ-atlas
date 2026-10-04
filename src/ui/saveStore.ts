@@ -675,6 +675,16 @@ function saveCurrent(force = false) {
 }
 
 /**
+ * 这个世界里存了 AI 写的东西(史书、名字由来):只是看看的世界从此存进"我的世界"(那些东西按世界编号存,
+ * 不存这个世界的话刷新以后就找不回来了)。新建中的、已经存着的不用管
+ */
+export function keepWorld(id: string) {
+  const c = current;
+  if (!c || c.id !== id || c.kind !== 'visit') return;
+  saveCurrent(true);
+}
+
+/**
  * 投影 / 中央经线变了(App 停下来以后调):当前世界已经存着的话重写一次(最后修改时间跟着变);
  * 没存过的世界不存(只改了看法、没改世界,不占"我的世界"列表)
  */

@@ -5,6 +5,7 @@
  * 存储不可用(隐私模式)时退回内存、配额满了删最旧的;这几种情况顶部提示条上说一句;读档提示的短说法。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { putNote } from '../src/ai/library';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { generateCiv } from '../src/gen/civ';
 import type { Civ } from '../src/gen/civ/types';
@@ -418,6 +419,16 @@ describe('浏览器存储(saveStore)', () => {
     setName('settlement:r1#0', '饕餮城');
     expect(saveStore.loadWorld(id)).toMatchObject({ draft: false, count: editCount(EDITS) + 1 });
     expect(saveStore.currentWorld()?.kind).toBe('created');
+  });
+
+  it('只是看看的世界里存了 AI 写的东西:这个世界跟着存进我的世界(刷新还找得到);新建中的不存', () => {
+    const id = openWorld(7, { kind: 'visit' });
+    putNote(id, { key: '史书:world', kind: '史书', title: '世界通史', text: '……', createdAt: '2026-10-04T08:00:00.000Z', provider: 'mock', model: 'mock' });
+    expect(saveStore.loadWorld(id)).toMatchObject({ draft: false, count: 0 });
+    expect(saveStore.currentWorld()?.kind).toBe('created');
+    const d = openWorld(8, { kind: 'draft', pristine: true });
+    saveStore.keepWorld(d);
+    expect(saveStore.loadWorld(d)).toBeNull();
   });
 
   it('改名、删除;另起的名字加(二)(三),不和别的世界重名', () => {

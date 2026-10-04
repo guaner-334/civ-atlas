@@ -185,14 +185,14 @@ export function SaveMenu({ ready, icon }: SaveMenuProps) {
 
   const title = cur?.title;
   const nTerrain = edits.terrain.length;
-  // 存没存住:已经在"我的世界"里 / 只在这个页面里 / 存不下 / 打开的链接还没动过
-  const status = full
-    ? { cls: 'warn', text: '浏览器存储已满，没能自动存' }
-    : curStored
-      ? keep
+  // 存没存住:浏览器不让存 / 存不下 / 已经在"我的世界"里 / 打开的链接还没动过
+  const status = !keep
+    ? { cls: 'warn', text: '浏览器不让网页存数据，关掉前请存成文件' }
+    : full
+      ? { cls: 'warn', text: '浏览器存储已满，没能自动存' }
+      : curStored
         ? { cls: 'ok', text: '已自动存在这个浏览器里' }
-        : { cls: 'warn', text: '只存在这个页面里，关掉前请存成文件' }
-      : { cls: '', text: '还没存进我的世界；改了名字或历史就会自动存' };
+        : { cls: '', text: '还没存进我的世界；改了名字或历史就会自动存' };
   return (
     <div className="save" ref={rootRef}>
       <button className={`save-btn${open ? ' on' : ''}`} onClick={() => setOpen((o) => !o)} title="存成文件、复制分享链接">
