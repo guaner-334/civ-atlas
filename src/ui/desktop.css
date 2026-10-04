@@ -134,6 +134,25 @@
   text-shadow: none;
 }
 
+/* 窗口窄、整条放不下(平板竖着拿这种宽度):导出、编年史只留图标,分段按钮收紧;右上还有写作进度时再放不下就折到下一行 */
+@media (max-width: 1000px) {
+  .app.has-side .map-bar {
+    gap: 6px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  .app.has-side .map-bar .mb-label {
+    display: none;
+  }
+  .app.has-side .map-bar .mb-btn {
+    padding: 0 10px;
+  }
+  .app.has-side .seg-btn {
+    padding: 0 9px;
+    font-size: 13px;
+  }
+}
+
 /* ---- 右下:地球 / 平面、放大、缩小 ---- */
 .app.has-side .map-controls {
   right: 14px;

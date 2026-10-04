@@ -1290,13 +1290,13 @@ export function App() {
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
   }, []);
-  /** 右下角的 + −:以地图中间为中心(宽屏的侧栏在地图外面,不用让);地球仪里交给地球仪自己的滚轮缩放 */
+  /** 右下角的 + −:以看得见的地图中间为中心(宽屏让出左边的侧栏卡片);地球仪里交给地球仪自己的滚轮缩放 */
   const zoomButton = (f: number) => {
     touchRef.current();
     const el = stageRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
-    const cx = rect.width / 2;
+    const cx = (sideRoom(rect.width) + rect.width) / 2;
     const cy = rect.height / 2;
     if (getGlobeOn()) {
       const g = el.querySelector('.globe');
@@ -1348,10 +1348,13 @@ export function App() {
     const xs = pts.map((p) => p[0]);
     const ys = pts.map((p) => p[1]);
     const [bandT, bandB, midY] = jumpBand(H);
-    const inX = Math.min(...xs) >= 30 && Math.max(...xs) <= W - 30;
+    // 宽屏左边被侧栏卡片挡住的那一截不算看得见;转过去以后事发地落在卡片右边那一块的正中(按赤道上每度多少像素估)
+    const L = sideRoom(W);
+    const inX = Math.min(...xs) >= L + 30 && Math.max(...xs) <= W - 30;
     const inY = Math.min(...ys) >= bandT && Math.max(...ys) <= bandB;
     if (inX && inY) return;
-    const dLon = inX ? 0 : wrapLon(lonOfX(bx, g.W) - m.lon0);
+    const pxPerDeg = v0.k * (box.w / m.W) * m.s * m.def.kx(0) * (Math.PI / 180);
+    const dLon = inX ? 0 : wrapLon(lonOfX(bx, g.W) - m.lon0 - (pxPerDeg > 0 ? L / 2 / pxPerDeg : 0));
     const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
     const toY = inY ? v0.y : Math.min(0, Math.max(H - H * v0.k, v0.y + midY - cy));
     if (Math.abs(dLon) < 0.5 && Math.abs(toY - v0.y) < 1) return;
@@ -1402,11 +1405,13 @@ export function App() {
     const y1 = sy(b[3]);
     // 上面留出世界名、提示条,下面留出时间轴(窄屏:底部抽屉开着时是抽屉上方)
     const [bandT, bandB, midY] = jumpBand(H);
-    if (x0 >= 30 && x1 <= W - 30 && y0 >= bandT && y1 <= bandB) return;
+    // 宽屏左边被侧栏卡片挡住的那一截不算看得见,平移到卡片右边那一块的正中
+    const L = sideRoom(W);
+    if (x0 >= L + 30 && x1 <= W - 30 && y0 >= bandT && y1 <= bandB) return;
     const cx = (x0 + x1) / 2;
     const cy = (y0 + y1) / 2;
     // 左右不夹(每一帧再挪整数圈,画面是连着的);上下夹在两极以内
-    const to = { k: v0.k, x: v0.x + W / 2 - cx, y: Math.min(0, Math.max(H - H * v0.k, v0.y + midY - cy)) };
+    const to = { k: v0.k, x: v0.x + (L + W) / 2 - cx, y: Math.min(0, Math.max(H - H * v0.k, v0.y + midY - cy)) };
     if (Math.abs(to.x - v0.x) < 1 && Math.abs(to.y - v0.y) < 1) return;
     (window as unknown as { __wfPan: unknown }).__wfPan = { dx: to.x - v0.x, dy: to.y - v0.y, stamp: hlStamp };
     const t0 = performance.now();
@@ -2054,7 +2059,7 @@ export function App() {
             startLon={getMapCenter()}
             apiRef={globeApi}
             onHover={onGlobeHover}
-            leftRoom={narrow ? 0 : sideRoom(stageSize.w)}
+            leftRoom={sideRoom(stageSize.w)}
           />
         )}
       </main>

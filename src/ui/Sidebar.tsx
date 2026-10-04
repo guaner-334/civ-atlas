@@ -27,7 +27,7 @@ import { openOverview } from './overviewStore';
 import { setTerrainTool } from './TerrainTools';
 import { searchCiv, type SearchHit } from './searchIndex';
 import { countUpTo, evText } from './timelineLayout';
-import { Inspector } from './Inspector';
+import { Inspector, useSelectionReset } from './Inspector';
 import { RewriteBox } from './Rewrite';
 import { Icon } from './icons';
 import { AiMenuItem, MenuItem, MenuSep, PopMenu } from './PopMenu';
@@ -86,6 +86,8 @@ export function Sidebar(p: SidebarProps) {
     setQ('');
     setSelection(h.select);
   };
+  // 面板在搜索、取消选中时卸掉:选中的变化在这里也记下(再选别的东西时面板回到信息页)
+  useSelectionReset(p.raw);
   const searching = q.trim() !== '';
   return (
     <aside className="sidebar" aria-label="侧栏" onPointerDown={stop} onDoubleClick={stop} onClick={stop}>

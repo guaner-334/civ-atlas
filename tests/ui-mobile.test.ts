@@ -65,6 +65,7 @@ describe('地图飞过去、抽屉开着时的平移范围', () => {
   it('宽屏:左边让出浮着的侧栏卡片(详情也在里面);上下留出右上的按钮和时间轴', () => {
     expect(sideRoom(1440)).toBe(400);
     expect(sideRoom(1024)).toBe(368);
+    expect(sideRoom(390)).toBe(0);
     expect(freeArea(desk, true)).toEqual([400, 64, 1440, 796]);
     expect(freeArea(desk, false)).toEqual([400, 64, 1440, 796]);
   });

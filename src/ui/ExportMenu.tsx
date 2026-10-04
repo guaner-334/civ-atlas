@@ -364,12 +364,12 @@ export function ExportMenu({ data, civ, style, layer, icon }: ExportMenuProps) {
       >
         {busy ? (
           <>
-            <span className="spin" /> 正在导出…
+            <span className="spin" /> <span className="mb-label">正在导出…</span>
           </>
         ) : (
           <>
             {icon}
-            导出
+            <span className="mb-label">导出</span>
           </>
         )}
       </button>

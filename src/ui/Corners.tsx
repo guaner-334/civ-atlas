@@ -129,7 +129,7 @@ export function MapBar({ layers, exp, civ }: { layers: LayerPopoverProps; exp: E
       <ExportMenu {...exp} icon={<Icon name="export" size={16} />} />
       <button className="glass mb-btn" data-act="chronicle" disabled={!civ || !civ.viable} onClick={() => openOverview('chronicle')} title="按年份看全部大事">
         <Icon name="book" size={16} />
-        编年史
+        <span className="mb-label">编年史</span>
       </button>
     </div>
   );

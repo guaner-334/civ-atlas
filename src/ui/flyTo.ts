@@ -139,8 +139,12 @@ export interface FlyGoal {
 export const NARROW_ROW_H = 92;
 export const NARROW_TOP_ROOM = 72;
 
-/** 宽屏左边浮着的侧栏卡片占掉的宽度:左边距 + 卡片 + 右边留空(和 desktop.css 的 --side-room 一致) */
+/**
+ * 宽屏左边浮着的侧栏卡片占掉的宽度:左边距 + 卡片 + 右边留空(和 desktop.css 的 --side-room 一致);
+ * 窄屏没有侧栏 = 0。sw = 舞台宽(铺满窗口,和视口一样宽)
+ */
 export function sideRoom(sw: number): number {
+  if (sw <= NARROW_MAX) return 0;
   return 14 + (sw >= 1100 ? 372 : 340) + 14;
 }
 
