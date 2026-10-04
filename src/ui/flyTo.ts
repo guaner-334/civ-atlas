@@ -14,7 +14,7 @@ import { projectWorld, projectWorldNear, type MapProj } from '../render/projecti
 import { clampCurved, clampSphere, stageToWorld, type MapView, type StageBox } from './mapWrap';
 import type { MapSelection } from './civView';
 import { NARROW_MAX } from './device';
-import { sheetGeometry } from './gestures';
+import { ABOVE_SHEET, PEEK_H, sheetGeometry } from './gestures';
 
 /** 飞行时长(毫秒) */
 export const FLY_MS = 600;
@@ -135,9 +135,10 @@ export interface FlyGoal {
   kind: MapSelection['kind'] | 'home';
 }
 
-/** 窄屏底部一行(两行的时间轴)的高度、顶上世界名那一截(和 app.css 窄屏的 --row-h、--top-room 一致,不含刘海安全区) */
-export const NARROW_ROW_H = 92;
-export const NARROW_TOP_ROOM = 72;
+/** 窄屏(手机)顶上留给提示条的一截(和 phone.css 的 --top-room 一致,不含刘海安全区;右上的按钮竖着排在右边,不占这一截) */
+export const NARROW_TOP_ROOM = 24;
+/** 手机上没选东西时,底部被世界卡片(收起)和时间轴胶囊盖住的一截 */
+export const NARROW_BOTTOM = PEEK_H + ABOVE_SHEET;
 
 /**
  * 宽屏左边浮着的侧栏卡片占掉的宽度:左边距 + 卡片 + 右边留空(和 desktop.css 的 --side-room 一致);
@@ -152,8 +153,8 @@ export function sideRoom(sw: number): number {
 export function freeArea(b: StageBox, panel: boolean): [number, number, number, number] {
   const narrow = b.sw <= NARROW_MAX;
   if (narrow) {
-    // 窄屏:面板是底部抽屉(半高),看得见的是抽屉上方、顶栏下方那一截
-    const [top, bottom] = panel ? sheetGeometry(b.sh, NARROW_ROW_H, NARROW_TOP_ROOM).free : [NARROW_TOP_ROOM, b.sh - NARROW_ROW_H - 24];
+    // 窄屏:面板是底部卡片(半高),看得见的是它上面的时间轴胶囊再往上那一截;没面板时让出收起的世界卡片和胶囊
+    const [top, bottom] = panel ? sheetGeometry(b.sh, NARROW_TOP_ROOM).free : [NARROW_TOP_ROOM, b.sh - NARROW_BOTTOM];
     return [0, top, b.sw, Math.max(top + 80, bottom)];
   }
   // 宽屏:地图铺满窗口,左边被侧栏卡片挡住的那一截不算
