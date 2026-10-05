@@ -104,8 +104,11 @@ export const ASSIM_MINOR = 3;
 /** 一波迁徙迁入这么多州以上是大事 */
 export const MIGRATE_MAJOR = 5;
 
-/** 纪事的种类:史事的种类,加上按人物排出来的君主继位(reign,不是史事,见 reignEntries) */
-export type EntryKind = AnnalKind | 'reign';
+/**
+ * 纪事的种类:史事的种类,加上按人物排出来的君主继位(reign,不是史事,见 reignEntries)、
+ * 信仰的大事(faith,不是史事,见 religionText.ts 的 faithEntries)
+ */
+export type EntryKind = AnnalKind | 'reign' | 'faith';
 
 export interface ChronicleEntry {
   /** 这一条(第一条)史事在 civ.annals 里的下标;列表里唯一,当 key 用(君主继位 = civ.annals.length + 新君的 Person.id) */
@@ -117,7 +120,7 @@ export interface ChronicleEntry {
   end: Year;
   /** 纪事正文(不带年份) */
   text: string;
-  /** 一个字的标签(界面上的小印章):立 升 降 战 占 征 和 割 亡 迁 分 复 合 朝 徙 化 湮 掠 毁 建 衰 干 役 嗣 */
+  /** 一个字的标签(界面上的小印章):立 升 降 战 占 征 和 割 亡 迁 分 复 合 朝 徙 化 湮 掠 毁 建 衰 干 役 嗣;信仰:创 皈 传 派 圣 */
   tag: string;
   importance: Importance;
   /** 相关国家(按国家筛选、地图高亮用;先主后次,不含 −1) */
@@ -132,6 +135,8 @@ export interface ChronicleEntry {
   ongoing?: boolean;
   /** 正文里写到的人物(Person.id;没有 = 不给) */
   people?: number[];
+  /** 信仰的大事:哪种信仰(civ.religion.faiths 的下标;教派分立 = 新的教派) */
+  faith?: number;
 }
 
 // ---------------------------------------------------------------------------

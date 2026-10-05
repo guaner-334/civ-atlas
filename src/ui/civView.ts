@@ -3,7 +3,7 @@
  * 放在这里而不是 App.tsx 里,这样以后加开关 / 时间轴时只改文明自己的文件。
  *
  * 网址参数(截图脚本用):
- *   civ=habitat,regions,sites,routes,cultures,polities,wars   直接打开对应显示;前面加减号是关掉,
+ *   civ=habitat,regions,sites,routes,cultures,polities,faiths,wars   直接打开对应显示;前面加减号是关掉,
  *                                               如 civ=-labels 关掉默认打开的地名、civ=-wars 关掉默认打开的战事
  *   civYear=1200                                时间轴停在第 1200 年(不给 = 结束年份);给了就不自动播放
  *   chron=1 / chron=all                         打开世界概览的编年史页(1 = 只看大事,all = 全部)
@@ -277,13 +277,14 @@ export function useChroniclePick(): { entry: ChronicleEntry | null; stamp: numbe
 
 /**
  * 选中的东西(这个世界里的编号;改名不改编号,换世界时清掉):
- * 国家、城(含故城遗址)、地理实体(civ.places 的下标)、州(没点到别的东西时)
+ * 国家、城(含故城遗址)、地理实体(civ.places 的下标)、州(没点到别的东西时)、信仰(civ.religion.faiths 的下标)
  */
 export type MapSelection =
   | { kind: 'polity'; id: number }
   | { kind: 'settlement'; id: number }
   | { kind: 'place'; id: number }
-  | { kind: 'region'; id: number };
+  | { kind: 'region'; id: number }
+  | { kind: 'faith'; id: number };
 
 export interface SelectionState {
   sel: MapSelection | null;
