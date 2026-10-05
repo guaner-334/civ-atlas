@@ -4,6 +4,7 @@
  *   showToast({ kind, text, progress?, more?, action?, actions?, ttl?, id? })  显示 / 更新一条,返回它的 id
  *   clearToast(id?)                                               收起这一条(不给 id = 收起正在显示的那条)
  *   useToast() / getToast()                                        正在显示的那条(没有 = null)
+ *   useToastOpen(id, act?)                                         某个来源的那条还在不在(可以只认右边是 act 这个按钮的)
  *
  * 几个来源各自一条(生成进度、重推历史、选目标、存档通知、导出……),按 id 区分:
  * 同一个 id 再 show 就是更新(并排到最前);显示的是最近 show 的那条,它收起以后露出下面还在的那条
@@ -121,6 +122,12 @@ export function useToast(): Toast | null {
     getToast,
     getToast,
   );
+}
+
+/** 某个来源的那条还在不在(不管是不是正在显示;给了 act 就只认右边是这个按钮的)。只在有 / 没有变了时重画 */
+export function useToastOpen(id: string, act?: string): boolean {
+  const has = () => list.some((x) => x.id === id && (act === undefined || x.action?.act === act));
+  return useSyncExternalStore((f) => (subs.add(f), () => subs.delete(f)), has, has);
 }
 
 /** 单测用 */

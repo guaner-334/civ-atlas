@@ -1166,6 +1166,16 @@ for (const style of ['realistic', 'fantasy']) {
   console.log(`我的世界里删除:${cardsBefore} 个 → 删后 ${cardsGone} 个(提示「${delNote}」)→ 撤销后 ${cardsBack} 个,存档 ${keptKeys} 个`);
   if (cardsBefore !== 1 || cardsGone !== 0 || !/已删除.*撤销/.test(delNote) || cardsBack !== 1 || keptKeys !== 1)
     errs.push(`"我的世界"里点一下删除、再点撤销不对(${cardsBefore} → ${cardsGone} → ${cardsBack},存档 ${keptKeys} 个,提示「${delNote}」)`);
+  // 删的是最后一个:提示条还在(还能撤销)的时候停在"我的世界",提示收起了才新建
+  await page.locator('.mw [data-act=world-menu]').first().click().catch(() => {});
+  await page.locator('[data-act=world-delete]').click({ timeout: 3000 }).catch(() => {});
+  await page.waitForTimeout(1500);
+  const waitHome = (await page.locator('.mw').count()) > 0 && /撤销/.test(await toastText(page, 'save'));
+  const t0 = Date.now();
+  await page.waitForFunction(() => !document.querySelector('.mw'), null, { timeout: 20000 }).catch(() => null);
+  const newAfter = (await page.locator('.mw').count()) === 0 ? ((Date.now() - t0 + 1500) / 1000).toFixed(1) : null;
+  console.log(`删掉最后一个世界:提示条在的时候停在我的世界 ${waitHome},${newAfter ? `${newAfter} 秒后新建` : '没有新建'}`);
+  if (!waitHome || !newAfter) errs.push(`删掉最后一个世界:提示条在时应停在"我的世界"、收起后新建(停住 ${waitHome},新建 ${newAfter})`);
   await page.evaluate(() => localStorage.clear());
 }
 // 世界换成球面以前(生成器版本 4 及以前)的存档文件、分享链接:照常打开成同一个种子的球面世界,提示"来自旧版本",
