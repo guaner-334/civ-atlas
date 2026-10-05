@@ -46,7 +46,7 @@ import {
 import { getStage } from '../ui/stageStore';
 import { clearToast, getToast, showToast } from '../ui/toastStore';
 import { deleteCloud, getCloud, listCloud, putCloud, type CloudEntry, type CloudWorld, type PutBody } from './cloud';
-import { authed, getSession, logout, onLogin, onSessionChange, updateUser } from './session';
+import { authed, getSession, logout, onLogin, onSessionChange, refreshSession, updateUser } from './session';
 import { ServerError, serverBase } from './server';
 
 // ---------------------------------------------------------------------------
@@ -285,6 +285,7 @@ export function worldSync(id: string): WorldSync | null {
   return { state: view.phase === 'offline' || view.phase === 'error' ? 'failed' : 'busy', message: view.message };
 }
 
+const FULL_WHY = '浏览器存储满了，账号里这个世界的样子没能放进来：先删掉几个世界';
 const LEGACY_WHY = '以前存的世界，浏览器存储满了，没能换成新的存法，存不进账号；删掉几个世界、刷新页面再试';
 
 // ---------------------------------------------------------------------------
@@ -412,7 +413,11 @@ async function pull(st: SyncState, id: string, expect?: string | null): Promise<
   if (!storedIds().includes(id) && storedCount() >= MAX_WORLDS) return false;
   const raw = remoteRaw(w);
   const notes = Array.isArray(w.notes) ? w.notes : null;
-  if (!store(id, raw, notes)) return false;
+  if (!store(id, raw, notes)) {
+    // 存不进浏览器:算没同步上(不然卡片、账号窗都说同步好了,可这个世界在这里还是旧的、或者根本没有)
+    failedNow.set(id, FULL_WHY);
+    return false;
+  }
   const l = localWorld(id);
   if (l) st.worlds[id] = { rev: w.rev, sum: l.sum, at: nowIso() };
   forgetOffer(id);
@@ -457,9 +462,15 @@ export async function pullWorld(id: string): Promise<boolean> {
     if (!s || s.token !== token || !st || st.user !== s.user.id) return false;
     cycleToken = token;
     active = st;
+    failedNow = new Map();
     try {
       const ok = await pull(st, id);
       writeState(st);
+      const why = failedNow.get(id);
+      if (why) {
+        showToast({ id: 'sync', kind: 'error', text: '没能载入', more: [why] });
+        setView({ failed: new Map([...view.failed, [id, why]]) });
+      }
       return ok;
     } catch (e) {
       if (!(e instanceof SessionChanged)) showToast({ id: 'sync', kind: 'error', text: '没能载入', more: [e instanceof Error ? e.message : String(e)] });
@@ -895,6 +906,8 @@ function onLoggedIn() {
 
 /** 退出登录。keep = 这台设备上的世界留着(下次登录再同步);否则先全部同步好,再从这台设备上删掉 */
 export async function signOut(keep: boolean): Promise<{ ok: true } | { ok: false; message: string }> {
+  // 替点"退出"时登着的这次登录做:等同步的工夫别的标签页换了账号,就不删、不退出(不然删的、退出的是新账号的)
+  const token = getSession()?.token;
   const old = keep ? 0 : legacyIds().length;
   if (old) {
     return { ok: false, message: `有 ${old} 个以前存的世界还存不进账号（浏览器存储满了，没能换成新的存法），现在删掉就没了。先把它们存成文件，或者选「留着」` };
@@ -905,6 +918,8 @@ export async function signOut(keep: boolean): Promise<{ ok: true } | { ok: false
   }
   if (!keep && getSession()) {
     const v = await syncNow();
+    refreshSession();
+    if (getSession()?.token !== token) return { ok: false, message: '别的页面里已经退出或换了账号，这里没有删' };
     if (v.phase !== 'idle' || v.failed.size) {
       return { ok: false, message: v.failed.size ? `还有 ${v.failed.size} 个世界没同步上，现在删掉会丢：${v.message ?? [...v.failed.values()][0]}` : (v.message ?? '没能同步，稍后再试') };
     }

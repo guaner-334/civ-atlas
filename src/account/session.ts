@@ -61,19 +61,24 @@ function emit() {
   for (const f of subs) f();
 }
 
-function persist(s: Session | null) {
+/** 写进浏览器存储;返回写进去没有(存不下、隐私模式 = false,只留在内存里) */
+function persist(s: Session | null): boolean {
   try {
     const st = storage();
-    if (s) st?.setItem(KEY, JSON.stringify(s));
-    else st?.removeItem(KEY);
+    if (!st) return false;
+    if (s) st.setItem(KEY, JSON.stringify(s));
+    else st.removeItem(KEY);
+    return true;
   } catch {
-    /* 存不下 / 隐私模式:只留在内存里 */
+    return false;
   }
 }
 
 function write(s: Session | null) {
   session = s;
   persist(s);
+  // 以前"我们的 AI"的令牌还留着的(当初挪过来时没写进去):登录、退出以后就作废了,不然下次打开又挪回来
+  if (getSecrets().official) setSecret('official', undefined);
   emit();
 }
 
@@ -91,8 +96,8 @@ function load(): Session | null {
   const old = getSecrets().official;
   if (old) {
     if (!s) s = { token: old.token, user: { id: '', account: old.account ?? '' } };
-    persist(s);
-    queueMicrotask(() => setSecret('official', undefined));
+    // 写进去了才清掉原来那份(存储满了写不进去:原来那份留着,下次打开再挪,不然刷新一下登录就没了)
+    if (persist(s)) queueMicrotask(() => setSecret('official', undefined));
   }
   session = s;
   return s;

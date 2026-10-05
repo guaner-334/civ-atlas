@@ -87,11 +87,12 @@ function Thumb({ src }: { src: string | null }) {
   return src ? <img className="save-thumb" src={src} alt="" draggable={false} /> : <div className="save-thumb empty" />;
 }
 
-/** 分享链接的网址部分:种子、参数、图层……照当前网址;去掉只在这个浏览器里有意义的世界编号 */
+/** 分享链接的网址部分:种子、参数、图层……照当前网址;去掉只在这个浏览器里有意义的世界编号、别人的分享短链接的码(那个分享停了,链接就打不开了) */
 function shareBase(): string {
   const q = new URLSearchParams(location.search);
   q.delete('w');
   q.delete('new');
+  q.delete('s');
   const s = q.toString();
   return location.origin + location.pathname + (s ? `?${s}` : '');
 }

@@ -13,7 +13,7 @@ import { setStage } from '../src/ui/stageStore';
 import { _resetToasts, getToast } from '../src/ui/toastStore';
 import { forgetNotes, listNotes, putNote } from '../src/ai/library';
 import { setServerForTest } from '../src/account/server';
-import { _resetSessionForTest, deleteAccount, fetchAuthOptions, getSession, login, refreshSession, sendCode } from '../src/account/session';
+import { _resetSessionForTest, deleteAccount, fetchAuthOptions, getSession, login, logout, refreshSession, sendCode } from '../src/account/session';
 import { _resetSyncForTest, getSyncView, inAccount, pullWorld, signOut, startSync, syncNow, worldSync } from '../src/account/sync';
 import { createShare, listShares, openShareCode, stopShare } from '../src/account/cloud';
 
@@ -154,6 +154,28 @@ describe('网站账号', () => {
     expect(getSecrets().official).toBeUndefined();
     expect(getSecrets().deepseek).toBe('sk-keep-0123456789');
     expect(JSON.parse(s.getItem('civ-atlas:account')!).token).toBe('old-token');
+    resetAiSettingsForTest();
+  });
+  it('以前的令牌挪过来时写不进浏览器(存储满了):原来那份留着,刷新以后还是登录着', async () => {
+    const s = new FakeStorage();
+    s.setItem('civ-atlas:ai-settings', JSON.stringify({ remember: true }));
+    s.setItem('civ-atlas:ai-secrets', JSON.stringify({ official: { token: 'old-token', account: 'a@example.com' } }));
+    s.deny = (k) => k === 'civ-atlas:account';
+    const { resetAiSettingsForTest, getSecrets } = await import('../src/ai/settings');
+    resetAiSettingsForTest();
+    device(s);
+    expect(getSession()).toMatchObject({ token: 'old-token' });
+    await Promise.resolve();
+    expect(getSecrets().official).toMatchObject({ token: 'old-token' });
+    // 刷新:还是登录着
+    resetAiSettingsForTest();
+    _resetSessionForTest();
+    expect(getSession()).toMatchObject({ token: 'old-token' });
+    // 退出以后原来那份也作废(不然下次打开又登录上了)
+    await logout();
+    resetAiSettingsForTest();
+    _resetSessionForTest();
+    expect(getSession()).toBeNull();
     resetAiSettingsForTest();
   });
 });
@@ -874,6 +896,20 @@ describe('云同步:同一个网站开着几个标签页', () => {
     expect((fake.users.get('writer@example.com')!.worlds.get(id)!.notes as { text: string }[]).map((n) => n.text)).toEqual(['别的标签页写的']);
   });
 
+  it('取回来的世界存不进浏览器(存储满了):算没同步上,不说同步好了', async () => {
+    const a = new FakeStorage();
+    device(a);
+    const x = addWorld(7, '苍澜界');
+    await signIn();
+    const b = new FakeStorage();
+    b.deny = (k) => k.includes(x);
+    device(b);
+    const v = await signIn();
+    expect(v.failed.get(x)).toContain('存储满了');
+    expect(v.lastOk).toBeNull();
+    expect(titles()).toEqual([]);
+  });
+
   it('删掉以后在提示条上点"撤销":已经告诉服务器删了的,账号里也跟着存回去', async () => {
     device(new FakeStorage());
     const id = addWorld(7, '苍澜界');
@@ -963,6 +999,31 @@ describe('云同步:同一个网站开着几个标签页', () => {
     const mine = JSON.parse(a.map.get(`civ-atlas:sync:${me}`)!) as { user: string; worlds: Record<string, { rev: number }> };
     expect(mine.user).toBe(me);
     expect(mine.worlds[x].rev).toBeGreaterThan(rev);
+  });
+
+  it('退出选"删掉"、等同步的工夫别的标签页换了账号:不删这台设备上的世界,也不把新账号退出', async () => {
+    const a = new FakeStorage();
+    device(a);
+    const x = addWorld(7, '苍澜界');
+    await signIn();
+    const writer = a.map.get('civ-atlas:account')!;
+    await login('other@example.com', FAKE_CODE, FAKE_INVITE);
+    const other = a.map.get('civ-atlas:account')!;
+    a.map.set('civ-atlas:account', writer);
+    refreshSession();
+    await syncNow();
+    putNote(x, note('刚写完'));
+    gate = (req) => {
+      if (!isWorld(req, x, 'PUT')) return;
+      gate = null;
+      // 别的标签页换成了 other(这里还没收到通知)
+      a.map.set('civ-atlas:account', other);
+    };
+    const r = await signOut(false);
+    expect(r).toMatchObject({ ok: false });
+    expect(titles()).toEqual(['苍澜界']);
+    expect(getSession()?.user.account).toBe('other@example.com');
+    expect(a.map.get('civ-atlas:account')).toBe(other);
   });
 
   it('注销账号等回话的工夫,别的标签页换成了另一个账号:不把新登录的那个也退出', async () => {
