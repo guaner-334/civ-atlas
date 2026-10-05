@@ -243,6 +243,13 @@ function changed() {
   version++;
   for (const f of subs) f();
 }
+// 别的标签页存了、删了世界(同步取回来的也算):这里跟着刷新"我的世界",云同步也看一眼
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (e) => {
+    if (e.key === null || [PREFIX, THUMB, META, NOTES, LEGACY].some((p) => e.key!.startsWith(p))) changed();
+  });
+}
+
 /** 存档有变化时调 f(返回取消函数) */
 export function subscribe(f: () => void) {
   subs.add(f);

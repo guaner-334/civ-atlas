@@ -273,6 +273,7 @@ function requestId(): string {
 }
 
 const IDLE_MS = 90_000;
+const ACCOUNT_CHANGED = '写的工夫退出或换了账号,这次没写完';
 
 export const officialProvider: AiProvider = {
   kind: 'official',
@@ -345,6 +346,8 @@ export const officialProvider: AiProvider = {
           } catch {
             throw new AiError('bad-response', '我们的服务器返回的内容看不懂');
           }
+          // 写的工夫退出、换了账号:不再往下交(写出来的是原来那个账号付的,不能存进新账号的世界里)
+          if (t !== token()) throw new AiError('auth', ACCOUNT_CHANGED);
           if (ev.event === 'delta' && typeof j?.text === 'string') {
             text += j.text;
             if (j.text) opts.onDelta?.(j.text, text);
@@ -359,6 +362,7 @@ export const officialProvider: AiProvider = {
         throw fail(e, 'read');
       }
       if (!done) throw new AiError('network', '和我们服务器的连接中途断了,请再试一次');
+      if (t !== token()) throw new AiError('auth', ACCOUNT_CHANGED);
       const usage =
         done.usage && typeof done.usage === 'object'
           ? { inputTokens: num(done.usage.inputTokens) ?? 0, outputTokens: num(done.usage.outputTokens) ?? 0 }

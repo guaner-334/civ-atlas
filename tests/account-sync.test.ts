@@ -937,6 +937,127 @@ describe('云同步:同一个网站开着几个标签页', () => {
     expect(titles()).toEqual(['苍澜界']);
   });
 
+  it('别的标签页直接换成了另一个账号:原来那个账号"没同步上"的不算到新账号头上,新账号从头同步', async () => {
+    const a = new FakeStorage();
+    device(a);
+    const x = addWorld(7, '苍澜界');
+    gate = (req) => {
+      if (!isWorld(req, x, 'PUT')) return;
+      return new Response(JSON.stringify({ error: { code: 'bad-request', message: '账号里的世界太多了' } }), { status: 400, headers: { 'content-type': 'application/json' } });
+    };
+    const v = await signIn();
+    expect(v.failed.has(x)).toBe(true);
+    gate = null;
+    const writer = a.map.get('civ-atlas:account')!;
+    await login('other@example.com', FAKE_CODE, FAKE_INVITE);
+    const other = a.map.get('civ-atlas:account')!;
+    a.map.set('civ-atlas:account', writer);
+    refreshSession();
+    await syncNow();
+    expect(getSyncView().failed.has(x)).toBe(true);
+    a.map.set('civ-atlas:account', other);
+    refreshSession();
+    expect(getSyncView().failed.size).toBe(0);
+    const w = await syncNow();
+    expect(w.failed.size).toBe(0);
+    expect(fake.users.get('other@example.com')!.worlds.get(x)).toBeDefined();
+  });
+
+  it('点"载入"以后、取回来之前这里又改了:不拿账号里的盖掉', async () => {
+    const a = new FakeStorage();
+    const b = new FakeStorage();
+    device(a);
+    const id = addWorld(7, '苍澜界');
+    await signIn();
+    device(b);
+    await signIn();
+    device(a);
+    tick();
+    saveStore.renameWorld(id, '新名字');
+    await syncNow();
+    device(b);
+    const w = saveStore.loadWorld(id)!;
+    setEdits(w.save.edits);
+    saveStore.attachWorld({ id, params: w.save.params, check: w.save.check, kind: 'created', title: w.save.title, saved: w.save.edits });
+    setStage('world');
+    await syncNow();
+    expect(getToast()).toMatchObject({ id: 'sync-reload' });
+    gate = (req) => {
+      if (!isWorld(req, id, 'GET')) return;
+      gate = null;
+      putNote(id, note('刚写完'));
+    };
+    expect(await pullWorld(id)).toBe(false);
+    expect(saveStore.loadWorld(id)!.save.title).toBe('苍澜界');
+    expect(listNotes(id).map((n) => n.text)).toEqual(['刚写完']);
+  });
+
+  it('存上去的工夫用户删了它、回话又断了:下次照样删掉,不取回来', async () => {
+    const a = new FakeStorage();
+    device(a);
+    await signIn();
+    const x = addWorld(7, '苍澜界');
+    late = (req) => {
+      if (!isWorld(req, x, 'PUT')) return;
+      late = null;
+      // 服务器已经存上了;回话到网页之前用户删了它,接着断网
+      saveStore.deleteWorld(x);
+      throw new TypeError('Failed to fetch');
+    };
+    await syncNow();
+    const v = await syncNow();
+    expect(v.failed.size).toBe(0);
+    expect(titles()).toEqual([]);
+    expect(fake.users.get('writer@example.com')!.worlds.get(x)!.deletedAt).not.toBeNull();
+  });
+
+  it('退出选"删掉":同步的工夫正在看的世界存不进浏览器了:不删', async () => {
+    const a = new FakeStorage();
+    device(a);
+    const id = addWorld(7, '苍澜界');
+    await signIn();
+    const w = saveStore.loadWorld(id)!;
+    setEdits(w.save.edits);
+    saveStore.attachWorld({ id, params: w.save.params, check: w.save.check, kind: 'created', title: w.save.title, saved: w.save.edits });
+    setStage('world');
+    putNote(id, note('刚写完'));
+    gate = (req) => {
+      if (!isWorld(req, id, 'PUT')) return;
+      gate = null;
+      a.deny = (k) => k.startsWith('wenming-ditu:');
+      tick();
+      saveStore.renameWorld(id, '新名字');
+    };
+    const r = await signOut(false);
+    expect(saveStore.currentUnsaved()).toBe(true);
+    expect(r).toMatchObject({ ok: false });
+    expect(getSession()).not.toBeNull();
+    expect(titles()).toEqual(['苍澜界']);
+  });
+
+  it('正在看的世界被别的设备删了、先放着没删:回到"我的世界"马上跟着删', async () => {
+    const a = new FakeStorage();
+    const b = new FakeStorage();
+    device(a);
+    const id = addWorld(7, '苍澜界');
+    addWorld(99, '北境编年');
+    await signIn();
+    device(b);
+    await signIn();
+    const w = saveStore.loadWorld(id)!;
+    setEdits(w.save.edits);
+    saveStore.attachWorld({ id, params: w.save.params, check: w.save.check, kind: 'created', title: w.save.title, saved: w.save.edits });
+    setStage('world');
+    // A 那边删了它(直接在服务器上删,不切换设备:B 这边的页面一直开着)
+    const u = fake.users.get('writer@example.com')!;
+    u.worlds.get(id)!.deletedAt = Date.now();
+    u.worlds.get(id)!.rev += 1;
+    await syncNow();
+    expect(titles()).toContain('苍澜界');
+    setStage('home');
+    await vi.waitFor(() => expect(titles()).toEqual(['北境编年']));
+  });
+
   it('这里同步的工夫别的标签页删了一个世界:它记下的删除不被这里写回去的记录盖掉', async () => {
     const a = new FakeStorage();
     device(a);

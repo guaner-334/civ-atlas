@@ -43,7 +43,7 @@ import {
   syncable,
   type RawWorld,
 } from '../ui/saveStore';
-import { getStage } from '../ui/stageStore';
+import { getStage, subscribeStage } from '../ui/stageStore';
 import { clearToast, getToast, showToast } from '../ui/toastStore';
 import { deleteCloud, getCloud, listCloud, putCloud, type CloudEntry, type CloudWorld, type PutBody } from './cloud';
 import { authed, getSession, logout, onLogin, onSessionChange, refreshSession, updateUser } from './session';
@@ -306,9 +306,13 @@ let failedNow = new Map<string, string>();
 let busyNow = new Set<string>();
 
 /** 正在看的这个世界(不在"我的世界"那一页):别的设备的改动先不覆盖它 */
+/** 正在看的世界(不被别的设备的改动覆盖、删掉);因为它先放着没做的,回到"我的世界"时再全看一遍 */
+let pinnedSkipped = false;
 function pinned(id: string): boolean {
   const c = currentWorld();
-  return !!c && c.id === id && getStage().stage !== 'home';
+  const on = !!c && c.id === id && getStage().stage !== 'home';
+  if (on) pinnedSkipped = true;
+  return on;
 }
 
 function done(id: string) {
@@ -359,6 +363,16 @@ async function upload(st: SyncState, id: string, l: Local, baseRev: number, revi
   let r: { rev: number };
   try {
     r = await net(() => putCloud(id, body));
+  } catch (e) {
+    // 没收到回话(断网、服务器出错、换了账号):存上去没有说不准。这期间用户删了它的,删除照样记着,下一轮不按版本号直接删
+    // (要是存上去了,版本号已经变了,按原来的版本号删会对不上,又被取回来)
+    const unsure = e instanceof SessionChanged || (e instanceof ServerError && (e.code === 'network' || e.status === 0 || e.status >= 500));
+    if (deletedWhileUp.delete(id) && unsure) {
+      st.deletes[id] = 0;
+      delete st.worlds[id];
+      writeState(st);
+    }
+    throw e;
   } finally {
     uploading.delete(id);
   }
@@ -455,6 +469,8 @@ function offerReload(id: string, rev: number) {
 export async function pullWorld(id: string): Promise<boolean> {
   const token = getSession()?.token;
   if (!token) return false;
+  // 点"载入"时这个世界的样子:等的工夫又改了,就不拿账号里的盖掉(下次同步两份都留)
+  const expect = localWorld(id)?.sum ?? null;
   clearToast('sync-reload');
   return serial(async () => {
     const s = getSession();
@@ -464,8 +480,11 @@ export async function pullWorld(id: string): Promise<boolean> {
     active = st;
     failedNow = new Map();
     try {
-      const ok = await pull(st, id);
+      const ok = await pull(st, id, expect);
       writeState(st);
+      if (!ok && (localWorld(id)?.sum ?? null) !== expect) {
+        showToast({ id: 'sync', kind: 'info', text: '没有载入', more: ['等的工夫这里又改过了；下次同步时两边改的都会留下'] });
+      }
       const why = failedNow.get(id);
       if (why) {
         showToast({ id: 'sync', kind: 'error', text: '没能载入', more: [why] });
@@ -904,6 +923,8 @@ function onLoggedIn() {
   requestSync('full', 0);
 }
 
+const UNSAVED_WHY = '正在看的这个世界最新的改动没能存进浏览器（存储满了），也就没同步上。先把它存成文件，或者选「留着」';
+
 /** 退出登录。keep = 这台设备上的世界留着(下次登录再同步);否则先全部同步好,再从这台设备上删掉 */
 export async function signOut(keep: boolean): Promise<{ ok: true } | { ok: false; message: string }> {
   // 替点"退出"时登着的这次登录做:等同步的工夫别的标签页换了账号,就不删、不退出(不然删的、退出的是新账号的)
@@ -914,12 +935,13 @@ export async function signOut(keep: boolean): Promise<{ ok: true } | { ok: false
   }
   if (!keep && currentUnsaved()) {
     // 最新的改动只在这个页面里(浏览器存储满了,没写进去,也就没同步上):删了就没了
-    return { ok: false, message: '正在看的这个世界最新的改动没能存进浏览器（存储满了），也就没同步上。先把它存成文件，或者选「留着」' };
+    return { ok: false, message: UNSAVED_WHY };
   }
   if (!keep && getSession()) {
     const v = await syncNow();
     refreshSession();
     if (getSession()?.token !== token) return { ok: false, message: '别的页面里已经退出或换了账号，这里没有删' };
+    if (currentUnsaved()) return { ok: false, message: UNSAVED_WHY };
     if (v.phase !== 'idle' || v.failed.size) {
       return { ok: false, message: v.failed.size ? `还有 ${v.failed.size} 个世界没同步上，现在删掉会丢：${v.message ?? [...v.failed.values()][0]}` : (v.message ?? '没能同步，稍后再试') };
     }
@@ -969,10 +991,25 @@ export function startSync(): () => void {
     if (!applying) requestSync('push', 2000);
   });
   const offLogin = onLogin(onLoggedIn);
+  let lastToken = getSession()?.token ?? null;
   const offSession = onSessionChange(() => {
-    if (!getSession() && view.phase !== 'off') setView({ phase: 'off', busy: new Set(), failed: new Map(), message: undefined });
-    // 别的标签页登录了:这里也开始同步
-    if (getSession() && view.phase === 'off') requestSync('full', 0);
+    const tok = getSession()?.token ?? null;
+    if (tok === lastToken) return;
+    const was = lastToken;
+    lastToken = tok;
+    if (!tok) {
+      if (view.phase !== 'off') setView({ phase: 'off', busy: new Set(), failed: new Map(), message: undefined });
+      return;
+    }
+    // 登录了、换了账号(别的标签页里也算):原来那个账号的同步状态不算了,这个账号从头全看一遍
+    if (was) setView({ phase: 'idle', busy: new Set(), failed: new Map(), message: undefined, lastOk: null });
+    requestSync('full', 0);
+  });
+  // 正在看的世界被别的设备改了、删了,先放着没做的:回到"我的世界"时再全看一遍
+  const offStage = subscribeStage(() => {
+    if (!pinnedSkipped || getStage().stage !== 'home' || !getSession()) return;
+    pinnedSkipped = false;
+    requestSync('full', 0);
   });
   let lastFocus = 0;
   const onFocus = () => {
@@ -1000,6 +1037,7 @@ export function startSync(): () => void {
     offNotes();
     offLogin();
     offSession();
+    offStage();
     clearInterval(every);
     if (timer !== undefined) clearTimeout(timer);
     timer = undefined;
@@ -1021,6 +1059,7 @@ export function _resetSyncForTest(): void {
   offered.clear();
   uploading.clear();
   deletedWhileUp.clear();
+  pinnedSkipped = false;
   running = null;
   again = null;
   if (timer !== undefined) clearTimeout(timer);

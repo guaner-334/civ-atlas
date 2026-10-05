@@ -429,6 +429,42 @@ describe('我们的 AI(开发假服务器,假 fetch 直连,不开端口)', () =>
     setOfficialServerForTest(undefined);
   });
 
+  it('写的工夫换了账号:原来那个账号写的不交给新账号', async () => {
+    const fake = createFakeAiServer({ chunkDelayMs: 0 });
+    let hold: Promise<void> | null = null;
+    let reached!: () => void;
+    const hit = new Promise<void>((r) => (reached = r));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (u: string, init?: RequestInit) => {
+        const req = new Request(String(u), init);
+        const res = await fake.handle(req);
+        // 服务器写好了、回话还在路上
+        if (hold && new URL(req.url).pathname === '/v1/chat') {
+          const h = hold;
+          hold = null;
+          reached();
+          await h;
+        }
+        return res;
+      }),
+    );
+    setOfficialServerForTest('http://fake-ai.test');
+    chooseProvider('official');
+    await loginOfficial('writer@example.com', FAKE_CODE);
+    let release!: () => void;
+    hold = new Promise<void>((r) => (release = r));
+    const late = aiChat(REQ).catch((e: unknown) => e);
+    await hit;
+    // 不退出就换成另一个账号(另一个标签页里登录的;原来的令牌在服务器上还有效)
+    await loginOfficial('other@example.com', FAKE_CODE);
+    release();
+    expect(await late).toMatchObject({ code: 'auth' });
+    expect(getOfficialAccount()).toMatchObject({ loggedIn: true, account: 'other@example.com' });
+    await logoutOfficial();
+    setOfficialServerForTest(undefined);
+  });
+
   it('退出后换了账号:旧账号晚回来的账号资料不会套到新登录上', async () => {
     const fake = createFakeAiServer({ chunkDelayMs: 0 });
     let hold: Promise<void> | null = null;
