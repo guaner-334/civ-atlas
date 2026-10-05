@@ -15,6 +15,8 @@ import { nameAt } from '../prompts/rewrite';
 export interface PolityRef {
   id: number;
   name: string;
+  /** 结局对照里的国家按最后的国号叫(和左边卡片对得上);第 from 年时叫法不一样的,这里是那时的国号 */
+  then?: string;
 }
 
 /** 一个国家的结局 */
@@ -141,11 +143,17 @@ export function compareTrial(before: Civ, after: Civ, focus: readonly number[], 
     if (fall && fall.b >= 0) return { end, way: 'fall', by: ref(fall.b, fall.year), size: size(id, last) };
     return { end, way: 'collapse', size: size(id, last) };
   };
+  // 结局对照里的国家:按最后的国号(到最后仍在 = 现在的国号,和左边卡片一样;亡了的 = 亡国前的)
+  const last = (id: number): PolityRef => {
+    const name = nameAt(P0[id], before.endYear);
+    const early = nameAt(P0[id], from);
+    return { id, name, ...(early !== name ? { then: early } : {}) };
+  };
   const fate0 = (id: number) => fate(before, id, size0, ref0);
   const fate1 = (id: number) => fate(after, id, size1, ref1);
   const change0 = (id: number): FateChange => {
     const a = toAfter.get(id);
-    return { who: ref0(id), before: fate0(id), after: a !== undefined ? fate1(a) : null };
+    return { who: last(id), before: fate0(id), after: a !== undefined ? fate1(a) : null };
   };
 
   const focusSet = new Set(focus.filter((id) => id >= 0 && id < P0.length));
@@ -173,7 +181,7 @@ export function compareTrial(before: Civ, after: Civ, focus: readonly number[], 
     const s = size1(p.id, p.ended === undefined ? after.endYear : Math.max(Math.floor(p.founded), Math.floor(p.ended) - 1));
     if (s < 3) continue;
     const born = { year: Math.floor(p.founded), ...(p.parent !== undefined ? { from: ref1(p.parent, p.founded) } : {}) };
-    scored.push({ c: { who: ref1(p.id), before: null, after: fate1(p.id), born }, score: 500 + s });
+    scored.push({ c: { who: { id: -1, name: nameAt(p, after.endYear) }, before: null, after: fate1(p.id), born }, score: 500 + s });
   }
   scored.sort((x, y) => y.score - x.score || x.c.who.name.localeCompare(y.c.who.name));
   const others = scored.slice(0, OTHERS_MAX).map(({ c }) => (c.who.id >= 0 ? change0(c.who.id) : c));
@@ -204,6 +212,7 @@ export function compareTrial(before: Civ, after: Civ, focus: readonly number[], 
 
 /** 国家的叫法(给 AI 看):"P5 大澜王朝";只在试推演里有的:"某某(试推演里新出现的国家)" */
 const refText = (r: PolityRef) => (r.id >= 0 ? `P${r.id} ${r.name}` : `${r.name}(试推演里新出现的国家)`);
+const whoText = (r: PolityRef, from: number) => `${refText(r)}${r.then ? `(第 ${from} 年时叫${r.then})` : ''}`;
 
 /** 结局(给 AI 看):"到第 3000 年仍在,5 州""第 2873 年被 P5 大澜王朝所灭(亡国前 4 州)" */
 export function fateText(f: Fate | null, endYear: number): string {
@@ -216,7 +225,7 @@ export function fateText(f: Fate | null, endYear: number): string {
 /** 整份对照(交回 AI 的试推演结果) */
 export function trialText(d: TrialDiff): string {
   const out: string[] = [];
-  const line = (c: FateChange) => `- ${refText(c.who)}:现在 ${fateText(c.before, d.endYear)} → 试推演 ${fateText(c.after, d.endYear)}`;
+  const line = (c: FateChange) => `- ${whoText(c.who, d.from)}:现在 ${fateText(c.before, d.endYear)} → 试推演 ${fateText(c.after, d.endYear)}`;
   if (d.focus.length) out.push('关注的国家:', ...d.focus.map(line));
   if (d.others.length) out.push('其他变化最大的国家:', ...d.others.map(line));
   out.push(`到第 ${d.endYear} 年在世的国家:现在 ${d.alive[0]} 个 → 试推演 ${d.alive[1]} 个`);

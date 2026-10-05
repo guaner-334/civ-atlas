@@ -264,6 +264,8 @@ export async function compatChat(cfg: CompatConfig, req: AiRequest, opts: AiCall
     }
     const toolCalls = tools.calls();
     if (toolCalls.length) return { text, toolCalls, model, usage };
+    // 带着工具、刚交回工具结果:模型看结果已经摆在那儿,正常收尾不说话也行(要不要算空回复由助手循环定)
+    if (!text && finish === 'stop' && req.tools?.length && req.messages.some((m) => m.role === 'tool')) return { text, model, usage };
     if (!text) {
       throw new AiError(
         'bad-response',

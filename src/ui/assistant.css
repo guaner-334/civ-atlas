@@ -547,7 +547,7 @@ button.ast-row.link:hover {
   gap: 9px;
 }
 .ast-panel.phone .ast-input {
-  padding: 10px 16px calc(14px + var(--safe-b, 12px));
+  padding: 10px 16px calc(14px + max(var(--safe-b, 0px), 12px));
 }
 .ast-panel.phone .ast-me {
   max-width: 270px;

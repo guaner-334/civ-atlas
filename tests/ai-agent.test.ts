@@ -154,6 +154,17 @@ describe('助手的循环', () => {
     expect(AGENT_MAX_ROUNDS).toBeGreaterThanOrEqual(6);
   });
 
+  it('做过步骤再收尾不说话可以(结果已经在面板上);一步没做、一句没说算空回复', async () => {
+    script({ calls: [['echo', { x: 4 }]] }, '');
+    const out = await runAgent({ feature: '测试', messages: [{ role: 'user', content: '…' }], tools: [echo] });
+    expect(out.text).toBe('');
+    expect(out.steps).toHaveLength(1);
+    script('  ');
+    const e = (await runAgent({ feature: '测试', messages: [{ role: 'user', content: '…' }], tools: [echo] }).catch((x) => x)) as AiError;
+    expect(e).toBeInstanceOf(AiError);
+    expect(e.code).toBe('bad-response');
+  });
+
   it('停下:工具执行时停下 → aborted,不再问 AI', async () => {
     const ac = new AbortController();
     const seen = script({ calls: [['stop', {}], ['echo', { x: 3 }]] }, '不该到这里');
@@ -191,6 +202,14 @@ describe('试推演的对照', () => {
     expect(trialText(d)).toContain('大事没有变化');
   });
 
+  it('结局对照里的国家按最后的国号叫(和左边卡片一样);那时叫法不一样的,给 AI 的文字里补一句', () => {
+    const p = civ.polities.find((q) => q.ended === undefined && q.founded < 2500 && nameAt(q, 2500) !== nameAt(q, civ.endYear))!;
+    expect(p).toBeDefined();
+    const d = compareTrial(civ, civ, [p.id], 2500);
+    expect(d.focus[0].who).toEqual({ id: p.id, name: nameAt(p, civ.endYear), then: nameAt(p, 2500) });
+    expect(trialText(d)).toContain(`P${p.id} ${nameAt(p, civ.endYear)}(第 2500 年时叫${nameAt(p, 2500)})`);
+  });
+
   it('保护一个原本被灭的国家:试推演里它活到最后,它被灭的那条大事不再发生', async () => {
     const after = generateCiv(world, { interventions: [{ kind: 'protect', a: polityKey(civ, victim), from }] });
     const d = compareTrial(civ, after, [victim], from);
@@ -223,11 +242,13 @@ describe('助手', () => {
     const r = await runAssistant(ctx(), [], `让${vName}撑到最后`, { onEvent: (e) => e.type === 'step-done' && steps.push(e.step.label) });
     expect(r.text).toBe('试推演里它撑到了最后。');
     expect(r.end).toBe('done');
-    expect(steps).toEqual([`查国家：${nameAt(civ.polities[victim], 2000)}`, `试推演：第 ${from} 年起保护${vName}`, expect.stringMatching(/^试推演：保护.+，再和.+结盟$/), '列出要改的 2 条']);
+    // 刚查过的国家不再重复国名
+    expect(steps).toEqual([`查国家：${nameAt(civ.polities[victim], 2000)}`, `试推演：第 ${from} 年起保护`, expect.stringMatching(/^试推演：保护，再和.+结盟$/), '列出要改的 2 条']);
     expect(r.steps.every((s) => s.state === 'ok')).toBe(true);
     // 每一步下面一句给作者看的结果
-    expect(r.steps[0].summary).toMatch(/^第 \d+ 年立国；/);
-    expect(r.steps[1].summary).toBe(`${vName}撑到了第 ${civ.endYear} 年，最后 ${r.trials[0].diff.focus[0].after!.size} 州`);
+    // (分出来的国家说"自立";试推演那一行说的就是刚查过的国家,不写国名)
+    expect(r.steps[0].summary).toMatch(new RegExp(`^第 \\d+ 年${civ.polities[victim].parent !== undefined ? '自立' : '立国'}；`));
+    expect(r.steps[1].summary).toBe(`撑到了第 ${civ.endYear} 年，最后 ${r.trials[0].diff.focus[0].after!.size} 州`);
 
     // 第一轮:提示词、材料、作者的话、五个工具
     expect(seen[0].feature).toBe(ASSISTANT_FEATURE);
@@ -314,9 +335,18 @@ describe('助手', () => {
     }
     expect(tools.chronicle.label!({ country: `P${victim}`, from: 100, to: 200 })).toBe(`查编年史：${nameAt(civ.polities[victim], 2000)}，第 100—200 年`);
 
-    const s = await said(tools.situation.run({ year: from }));
+    const sr = await tools.situation.run({ year: from });
+    const s = await said(sr);
     expect(s.split('\n')[0]).toMatch(new RegExp(`^第 ${from} 年在世的国家 \\d+ 个`));
     expect(s).toContain(`P${victim} ${vName}`);
+    // 刚查过这个国家:小字说它那年的州数和邻国;邻国那年的国号和现在不一样的,补一句后来叫什么
+    const sum = (sr as AgentToolResult).summary!;
+    expect(sum).toMatch(/^剩 \d+ 州/);
+    for (const q of civ.polities) {
+      const then = nameAt(q, from);
+      const now = nameAt(q, civ.endYear);
+      if (q.ended === undefined && now !== then && sum.includes(then)) expect(sum).toContain(`${then}（后来的${now}）`);
+    }
   });
 
   it('提示词:改写的提示词带的修改写法和助手的是同一份;前几轮带上执行没执行', () => {

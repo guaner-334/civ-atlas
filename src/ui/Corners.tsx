@@ -23,6 +23,7 @@ import { ExportMenu, type ExportMenuProps } from './ExportMenu';
 import { openOverview } from './overviewStore';
 import { layerDef, type MapLayer } from './mapLayers';
 import { toggleAssistant, useAstOpen } from './astPanel';
+import { useAssistant } from './assistantStore';
 import './book.css';
 
 /** 右上图层分段按钮里直接列出的几个图层(其余的在"更多图层"里) */
@@ -77,11 +78,17 @@ function AssistantButton({ disabled }: { disabled: boolean }) {
   );
 }
 
-/** 右上的写作进度:"正在撰写《某某通史》"+ 80px 细进度条;写完"《某某通史》已完成 · 打开",点开读过就收起 */
+/**
+ * 右上的写作进度:"正在撰写《某某通史》"+ 80px 细进度条;写完"《某某通史》已完成 · 打开",点开读过就收起。
+ * 助手开着、这本书是助手写的:进度在助手里那一行,这里不再重复
+ */
 function BookChip() {
   const { job } = useBook();
+  const astOpen = useAstOpen();
+  const ast = useAssistant();
   useSavesVersion();
   if (!job || !(job.status === 'writing' || (job.status === 'done' && !job.seen))) return null;
+  if (astOpen && ast.turns.some((t) => t.steps.some((s) => s.book?.key === job.key))) return null;
   const name = bookTitleText(job.title, job.opts.scope, currentWorld()?.title);
   const writing = job.status === 'writing';
   const pct = Math.round(bookProgress(job) * 100);

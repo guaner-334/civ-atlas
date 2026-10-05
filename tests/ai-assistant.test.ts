@@ -166,11 +166,13 @@ describe('试推演结果的几行', () => {
     expect(v.others).toBe('多了新甲、远方');
   });
 
-  it('关注的国家比 3 个多:都列上;什么都没变 = "别的国家和大事没有变化"', () => {
-    const f = [1, 2, 3, 4].map((i) => ch(i, `国${i}`, fate(10), fate(10)));
-    const v = trialView(diff(f, [ch(9, '外国', fate(5), fate(6))]));
-    expect(v.rows).toHaveLength(4);
+  it('关注的国家比 3 个多:变了的都列上,没变的(主角除外)不占一行;什么都没变 = "别的国家和大事没有变化"', () => {
+    const f = [1, 2, 3, 4].map((i) => ch(i, `国${i}`, fate(10), fate(10 + i)));
+    const v = trialView(diff([...f, ch(5, '盟友', fate(7), fate(7))], [ch(9, '外国', fate(5), fate(6))]));
+    expect(v.rows.map((r) => r.name)).toEqual(['国1', '国2', '国3', '国4']);
+    expect(v.focus).toBe(4);
     expect(v.rest.map((r) => r.name)).toEqual(['外国']);
+    expect(trialView(diff([ch(1, '主角', fate(3), fate(3))], [])).rows.map((r) => r.name)).toEqual(['主角']);
     expect(trialView(diff(f.slice(0, 1), [])).others).toBe('别的国家和大事没有变化');
     expect(trialView(diff(f.slice(0, 1), [], [1, 0])).others).toBe('大事少了 0 件，多了 1 件');
   });
@@ -186,7 +188,11 @@ describe('试推演结果的几行', () => {
     const s = (tool: string, summary?: string, state: 'ok' | 'error' = 'ok') => ({ tool, label: tool, state, ...(summary ? { summary } : {}) });
     expect(stepsSummary([s('country'), s('situation'), s('try_edits'), s('try_edits', undefined, 'error'), s('propose_edits')])).toBe('查了 2 次，试推演 1 次');
     const q = (tool: string, label: string) => ({ tool, label, state: 'ok' as const });
-    expect(stepsSummary([q('country', '查国家：甲国'), s('show', '在地图上打开了甲国')])).toBe('查了甲国，在地图上打开了甲国');
+    expect(stepsSummary([q('country', '查国家：甲国'), s('show', '在地图上打开了甲国')])).toBe('查了甲国，在地图上打开了它');
+    expect(stepsSummary([q('country', '查国家：甲国'), s('show', '在地图上打开了乙国')])).toBe('查了甲国，在地图上打开了乙国');
+    expect(stepsSummary([q('country', '查国家：甲国'), { ...q('chronicle', '查编年史：甲国'), summary: '26 件大事' }, s('show', '在地图上打开了甲国')])).toBe(
+      '查了甲国和它的 26 件大事，在地图上打开了它',
+    );
     expect(stepsSummary([q('situation', '查第 1200 年的格局'), s('try_edits')])).toBe('查了第 1200 年的格局，试推演 1 次');
     expect(stepsSummary([q('chronicle', '查编年史：甲国，第 100—200 年'), s('try_edits')])).toBe('查了甲国的编年史，试推演 1 次');
     expect(stepsSummary([s('propose_edits')])).toBe('做了 1 步');
@@ -217,8 +223,8 @@ describe('助手面板', () => {
     expect(t.status).toBe('done');
     expect(t.steps.map((s) => s.tool)).toEqual(['country', 'situation', 'try_edits', 'try_edits', 'propose_edits']);
     expect(t.steps[0].label).toBe(`查国家：${wardName}`);
-    expect(t.steps[2].label).toMatch(new RegExp(`^试推演：第 \\d+ 年起保护${wardName}$`));
-    expect(t.steps[3].label).toMatch(new RegExp(`^试推演：保护${wardName}，再和.+结盟$`));
+    expect(t.steps[2].label).toMatch(/^试推演：第 \d+ 年起保护$/);
+    expect(t.steps[3].label).toMatch(/^试推演：保护，再和.+结盟$/);
     expect(t.steps[4].label).toBe('列出要改的 2 条');
     expect(runs).toBe(2);
     const p = t.proposal!;

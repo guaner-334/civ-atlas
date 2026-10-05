@@ -481,6 +481,17 @@ describe('工具调用(助手用,假 fetch)', () => {
     updateAiSettings({ bailian: { thinking: false } });
   });
 
+  it('交回工具结果以后正常收尾、不说话:不算出错(由助手循环判断);没有工具结果的照旧算空回复', async () => {
+    setSecret('deepseek', KEY);
+    chooseProvider('deepseek');
+    const end = [{ id: 'x', choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] }];
+    fakeFetch(() => sseResponse(sseBody(end)));
+    expect((await aiChat(ROUND2)).text).toBe('');
+    fakeFetch(() => sseResponse(sseBody(end)));
+    const e = (await aiChat({ ...ROUND2, messages: ROUND2.messages.slice(0, 2) }).catch((x) => x)) as AiError;
+    expect(e.code).toBe('bad-response');
+  });
+
   it('我们的 AI:tools、toolChoice、带工具调用的消息原样转给服务器;done.tool_calls 读回', async () => {
     const fake = createFakeAiServer({ chunkDelayMs: 0 });
     const BASE = 'http://fake-ai.test';

@@ -139,10 +139,17 @@
   opacity: 0.5;
   cursor: default;
 }
+/* 助手面板开着:按钮变蓝(和手机右上的按钮一样) */
+.mb-btn[data-act='assistant'].on {
+  color: var(--accent);
+}
 .map-bar .export {
   position: relative;
 }
+/* 放不下时写作进度先缩(书名省略成"…",进度条留着),按钮不被挤到助手面板底下 */
 .map-bar .book-chip {
+  min-width: 0;
+  flex: 0 1 auto;
   height: 36px;
   border-radius: 10px;
   background: var(--panel);

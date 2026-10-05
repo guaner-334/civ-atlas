@@ -20,7 +20,7 @@ import { openAiSettings, useAiStatus } from '../ai/client';
 import { stepsSummary, type TrialRow, type TrialView } from '../ai/agent/assistant';
 import { WISH_MAX, type RewriteLock } from '../ai/prompts/rewrite';
 import { bookProgress, openBookReader, useBook } from './bookStore';
-import { getCivTime, pickChronicleEntry, setSelection, type MapSelection } from './civView';
+import { getCivTime, pickChronicleEntry, setSelection, useSelection, type MapSelection } from './civView';
 import { useEdits } from './editsStore';
 import { requestFly } from './panelStore';
 import { useSavesVersion } from './saveStore';
@@ -216,7 +216,7 @@ export function AssistantPanel({ phone, world, raster, civ, raw, lock, busy }: A
             value={text}
             rows={phone ? 1 : 2}
             maxLength={WISH_MAX}
-            placeholder={placeholder(last, working)}
+            placeholder={placeholder(last, working, phone)}
             spellCheck={false}
             aria-label="对助手说"
             onChange={(e) => setText(e.target.value)}
@@ -242,10 +242,11 @@ export function AssistantPanel({ phone, world, raster, civ, raw, lock, busy }: A
   );
 }
 
-/** 输入框里的灰字:空的时候 / 助手在做 / 接着说(按上一轮是改世界、起名还是问答) */
-function placeholder(last: AsTurn | undefined, working: boolean): string {
+/** 输入框里的灰字:空的时候 / 助手在做 / 接着说(按上一轮是改世界、起名还是问答;手机上不带例子) */
+function placeholder(last: AsTurn | undefined, working: boolean, phone: boolean): string {
   if (working) return '助手在做，可以随时停下';
   if (!last) return '说说想怎么改这个世界，或者问点什么';
+  if (phone && (last.proposal || last.names)) return '接着说';
   if (last.proposal) return '接着说，比如“再让它多几个州”';
   if (last.names) return '接着说，比如“再古朴一点”';
   if (last.steps.some((s) => s.tool === 'write_book')) return '接着说';
@@ -271,7 +272,8 @@ function Turn({ t, latest, phone, busy, civ, links, previewing }: TurnProps) {
     <div className="ast-turn" data-turn={t.id}>
       <div className="ast-me">{t.ask}</div>
       <Steps t={t} />
-      {!!t.text && <Say text={t.text} links={links} phone={phone} />}
+      {/* 问答的回话里国名、城名是蓝字;交确认单的那一轮下面有结果对比,不再标 */}
+      {!!t.text && <Say text={t.text} links={done && !t.proposal ? links : null} phone={phone} />}
       {t.proposal?.cannot.map((c, i) => (
         <div key={i} className="ast-cant">
           <b>做不到</b>
@@ -377,8 +379,18 @@ function BookRow({ s }: { s: AsStep }) {
   );
 }
 
-/** 助手说的话:一段一行;说到的国家、城是蓝字,点了在地图上打开(手机先收起面板) */
-function Say({ text, links, phone }: { text: string; links: LinkDict; phone: boolean }) {
+/** 确认单上一条、列出的大事换成全角标点,和助手说的话一样("特拉维亚共和国:保护(至第 2300 年)" → "特拉维亚共和国：保护（至第 2300 年）") */
+const wide = (t: string) =>
+  t
+    .replace(/:/g, '：')
+    .replace(/\(/g, '（')
+    .replace(/\)/g, '）')
+    .replace(/,/g, '，')
+    .replace(/;/g, '；');
+
+/** 助手说的话:一段一行;给了 links = 说到的国家、城是蓝字,点了在地图上打开(手机先收起面板;已经打开着的那个不标) */
+function Say({ text, links, phone }: { text: string; links: LinkDict | null; phone: boolean }) {
+  const cur = useSelection().sel;
   const open = (sel: MapSelection) => {
     setSelection(sel);
     requestFly('sel');
@@ -392,7 +404,7 @@ function Say({ text, links, phone }: { text: string; links: LinkDict; phone: boo
         .filter(Boolean)
         .map((p, i) => (
           <p key={i} className="ast-say">
-            {linkify(p, links, open)}
+            {links ? linkify(p, links, open, cur) : p}
           </p>
         ))}
     </>
@@ -486,7 +498,7 @@ function Proposal({ t, latest, phone, busy, previewing }: { t: AsTurn; latest: b
                   </button>
                   <span className="yr">{itemYear(x)}</span>
                   <span className="tx">
-                    <b>{x.text}</b>
+                    <b>{wide(x.text)}</b>
                     {(x.problem || x.why) && <small>{x.problem ? `不能执行：${x.problem}` : x.why}</small>}
                   </span>
                 </div>
@@ -523,7 +535,7 @@ function Proposal({ t, latest, phone, busy, previewing }: { t: AsTurn; latest: b
               </button>
               {previewable(t) && (
                 <button className={`ast-btn${previewing ? ' on' : ''}`} data-act="ast-preview" disabled={!previewing && pblock !== null} onClick={preview}>
-                  <Icon name="map" size={15} />
+                  {!phone && <Icon name="map" size={15} />}
                   {previewing ? (loading ? '正在推演' : '正在地图上看') : phone ? '在地图上看看' : '先在地图上看看'}
                 </button>
               )}
@@ -639,7 +651,7 @@ function EventDiff({ v }: { v: TrialView }) {
             <div key={i} className="ast-row">
               <span className="yr">{e.year}</span>
               <span className="tx">
-                <b>{e.text}</b>
+                <b>{wide(e.text)}</b>
               </span>
             </div>
           ))}
@@ -669,11 +681,11 @@ function linkDict(civ: Civ): LinkDict {
   return { re: names.length ? new RegExp(`(${names.map(esc).join('|')})`, 'g') : null, map };
 }
 
-function linkify(text: string, d: LinkDict, open: (sel: MapSelection) => void): ReactNode[] {
+function linkify(text: string, d: LinkDict, open: (sel: MapSelection) => void, skip?: MapSelection | null): ReactNode[] {
   if (!d.re) return [text];
   return text.split(d.re).map((part, i) => {
     const sel = i % 2 === 1 ? d.map.get(part) : undefined;
-    return sel ? (
+    return sel && !(skip && skip.kind === sel.kind && skip.id === sel.id) ? (
       <button key={i} className="ast-name" data-act="ast-name" onClick={() => open(sel)}>
         {part}
       </button>
@@ -697,7 +709,7 @@ function Events({ text, civ, links }: { text: string; civ: Civ; links: LinkDict 
           <button key={i} className="ast-row link" data-act="ast-event" onClick={() => pickChronicleEntry(e)}>
             <span className="yr">{Math.floor(e.year)}</span>
             <span className="tx">
-              <b>{e.text}</b>
+              <b>{wide(e.text)}</b>
             </span>
           </button>
         ))}
@@ -744,8 +756,9 @@ export function exampleAsks(civ: Civ, lock?: RewriteLock): string[] {
   const alive = P.filter((p) => polityAlive(p, end) && (size.get(p.id) ?? 0) > 0).sort((a, b) => (size.get(b.id) ?? 0) - (size.get(a.id) ?? 0) || a.id - b.id);
   const name = (p: (typeof P)[number], y = end) => polityName(p, y) || p.name;
   const out: string[] = [];
-  // 最近亡的、撑过百年的国家:撑到最后一年
-  const fallen = P.filter((p) => p.ended !== undefined && p.ended - p.founded >= 100 && p.ended < end).sort((a, b) => b.ended! - a.ended! || a.id - b.id)[0];
+  // 最近被灭的、撑过百年的国家:撑到最后一年
+  const conquered = new Set(civ.annals.filter((e) => e.kind === 'fall').map((e) => e.a));
+  const fallen = P.filter((p) => p.ended !== undefined && p.ended - p.founded >= 100 && p.ended < end && conquered.has(p.id)).sort((a, b) => b.ended! - a.ended! || a.id - b.id)[0];
   if (fallen) out.push(`让${name(fallen, Math.floor(fallen.ended!) - 1)}撑到第 ${end} 年`);
   if (alive[0]) out.push(`${name(alive[0])}为什么能变成最大的国家？`);
   const book = alive[Math.min(4, alive.length - 1)];

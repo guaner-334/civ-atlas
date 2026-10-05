@@ -132,6 +132,8 @@ export async function runAgent(req: AgentRequest): Promise<AgentOutcome> {
     const calls = r.toolCalls ?? [];
     // 不调工具了(或者最后一轮还想调:不理,拿它说的话收尾)
     if (!calls.length || last) {
+      // 一步没做、一句没说:算空回复(做过步骤再收尾不说话可以,结果已经摆在面板上)
+      if (!steps.length && !r.text.trim()) throw new AiError('bad-response', 'AI 返回了空回复,请再试一次');
       msgs.push({ role: 'assistant', content: r.text });
       return { text: r.text.trim(), steps, messages: msgs, end: calls.length ? 'rounds' : 'done', rounds: round + 1, usage };
     }

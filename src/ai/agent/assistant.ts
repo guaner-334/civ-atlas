@@ -299,27 +299,29 @@ function editWord(civ: Civ, x: unknown): string {
 
 /**
  * 一批修改的简短说法(试推演那一行):一条 = "第 2850 年起保护特拉维亚共和国";
- * 几条 = "保护特拉维亚共和国，再和有梧王朝结盟"(后面几条是同一个国家的,不再重复国名;最多说三条)
+ * 几条 = "保护特拉维亚共和国，再和有梧王朝结盟"(后面几条是同一个国家的,不再重复国名;最多说三条)。
+ * omit = 刚查过的那个国家:说的都是它时国名也省掉("第 2850 年起保护""保护，再和有梧王朝结盟")
  */
-function editsWord(civ: Civ, edits: unknown): string {
+function editsWord(civ: Civ, edits: unknown, omit = -1): string {
   if (!Array.isArray(edits) || !edits.length) return '';
   const first = edits[0] as Record<string, unknown> | null;
   const who = first && typeof first === 'object' ? polityOf(civ, first.country) : -1;
+  /** 不带主语的说法(主语是 who 的几种命令);别的 = 空 */
+  const bare = (o: Record<string, unknown> | null): string => {
+    if (!o || typeof o !== 'object' || who < 0 || polityOf(civ, o.country) !== who) return '';
+    const other = polityOf(civ, o.other);
+    const n = other >= 0 ? nameAt(civ.polities[other], typeof o.from === 'number' ? o.from : civ.endYear) : '';
+    if (o.op === 'ally') return `和${n}结盟`;
+    if (o.op === 'declare') return `向${n}宣战`;
+    if (o.op === 'protect' || o.op === 'unity' || o.op === 'halt') return IV_WORD[o.op];
+    return '';
+  };
+  const drop = who >= 0 && who === omit && edits.slice(0, 3).every((x) => bare(x as Record<string, unknown> | null));
   if (edits.length === 1) {
-    const w = editWord(civ, first);
+    const w = drop ? bare(first) : editWord(civ, first);
     return w && first && typeof first.from === 'number' ? `第 ${Math.floor(first.from)} 年起${w}` : w;
   }
-  const words = edits.slice(0, 3).map((x, i) => {
-    const o = x as Record<string, unknown> | null;
-    if (i > 0 && o && typeof o === 'object' && who >= 0 && polityOf(civ, o.country) === who) {
-      const other = polityOf(civ, o.other);
-      const n = other >= 0 ? nameAt(civ.polities[other], typeof o.from === 'number' ? o.from : civ.endYear) : '';
-      if (o.op === 'ally') return `和${n}结盟`;
-      if (o.op === 'declare') return `向${n}宣战`;
-      if (o.op === 'protect' || o.op === 'unity' || o.op === 'halt') return IV_WORD[o.op];
-    }
-    return editWord(civ, x);
-  });
+  const words = edits.slice(0, 3).map((x, i) => ((i > 0 || drop) && bare(x as Record<string, unknown> | null)) || editWord(civ, x));
   return words.filter(Boolean).join('，再');
 }
 
@@ -353,17 +355,18 @@ export function fateShort(f: Fate | null): string {
   return f.end === undefined ? `存续，${f.size} 州` : `${f.end} 年亡`;
 }
 
-/** 一次试推演的一句话(步骤下面的小字):先说关注的第一个国家,没有就说大事增减 */
-export function trialSummary(d: TrialDiff): string {
+/** 一次试推演的一句话(步骤下面的小字):先说关注的第一个国家,没有就说大事增减;它是刚查过的国家(omit)就不写国名 */
+export function trialSummary(d: TrialDiff, omit = -1): string {
   const f = d.focus[0];
   const ev = d.addedCount || d.removedCount ? `大事少了 ${d.removedCount} 件，多了 ${d.addedCount} 件` : '大事没有变化';
   if (!f) return ev;
+  const who = omit >= 0 && f.who.id === omit ? '' : f.who.name;
   const b = f.before;
   const a = f.after;
-  if (!a) return `${f.who.name}在试推演里没有了`;
+  if (!a) return `${who || '它'}在试推演里没有了`;
   const how = (x: Fate) => (x.way === 'merge' && x.by ? `并入${x.by.name}` : x.way === 'fall' && x.by ? `被${x.by.name}所灭` : '瓦解');
-  if (a.end === undefined) return b && b.end !== undefined ? `${f.who.name}撑到了第 ${d.endYear} 年，最后 ${a.size} 州` : `${f.who.name}最后 ${b?.size ?? 0} 州 → ${a.size} 州`;
-  return `${f.who.name}第 ${a.end} 年${how(a)}${b && b.end !== undefined ? `（原本第 ${b.end} 年）` : ''}`;
+  if (a.end === undefined) return b && b.end !== undefined ? `${who}撑到了第 ${d.endYear} 年，最后 ${a.size} 州` : `${who}最后 ${b?.size ?? 0} 州 → ${a.size} 州`;
+  return `${who}第 ${a.end} 年${how(a)}${b && b.end !== undefined ? `（原本第 ${b.end} 年）` : ''}`;
 }
 
 /** 试推演结果里的一行(给作者看):国名、现在 → 试推演;note = 下面的小字 */
@@ -418,7 +421,9 @@ function othersLine(cs: readonly FateChange[]): string {
     else if (b.end === undefined && a.end === undefined) add(a.size < b.size ? '变小' : '变大', c.who.name);
     else add('亡国的年份变了', c.who.name);
   }
+  // 原有国家的变化在前,"多了谁"放最后
   return [...groups]
+    .sort(([a], [b]) => Number(a === '多了') - Number(b === '多了'))
     .map(([k, ns]) => {
       const n = ns.length > 3 ? `${ns.slice(0, 3).join('、')}等 ${ns.length} 国` : ns.join('、');
       return k === '多了' ? `多了${n}` : `${n}${k}`;
@@ -428,20 +433,23 @@ function othersLine(cs: readonly FateChange[]): string {
 
 /** 试推演的结果整理成确认单下面那几行(关注的国家在前;试推演里新分出来的国家写在母国那一行的小字里) */
 export function trialView(d: TrialDiff, max = 3): TrialView {
-  const listed = new Set([...d.focus, ...d.others].filter((c) => c.who.id >= 0).map((c) => c.who.id));
+  // 关注的国家里没变的(比如拉来结盟、结果一样的那一方)不占一行;第一个(主角)照样列
+  const same = (c: FateChange) => JSON.stringify(c.before) === JSON.stringify(c.after);
+  const focus = d.focus.filter((c, i) => i === 0 || !same(c));
+  const listed = new Set([...focus, ...d.others].filter((c) => c.who.id >= 0).map((c) => c.who.id));
   const attached = (c: FateChange) => !!c.born && !c.before && c.born.from !== undefined && listed.has(c.born.from.id);
   const toRow = (c: FateChange): TrialRow => {
     const r = rowOf(c);
     const kids = r.id >= 0 ? d.others.filter((k) => attached(k) && k.born!.from!.id === r.id) : [];
     return kids.length ? { ...r, note: kids.map((k) => `${k.born!.year} 年${k.who.name}从它那里自立`).join(';') } : r;
   };
-  const list = [...d.focus, ...d.others.filter((c) => !attached(c))].map(toRow);
-  const n = Math.max(max, d.focus.length);
+  const list = [...focus, ...d.others.filter((c) => !attached(c))].map(toRow);
+  const n = Math.max(max, focus.length);
   const ev = d.addedCount || d.removedCount ? `大事少了 ${d.removedCount} 件，多了 ${d.addedCount} 件` : '';
   return {
     from: d.from,
     endYear: d.endYear,
-    focus: d.focus.length,
+    focus: focus.length,
     rows: list.slice(0, n),
     others: othersLine(d.others) || ev || '别的国家和大事没有变化',
     rest: list.slice(n),
@@ -466,12 +474,20 @@ export function stepsSummary(steps: readonly Pick<AgentStep, 'tool' | 'state' | 
   const queries = steps.filter((s) => s.tool === 'country' || s.tool === 'chronicle' || s.tool === 'situation');
   const query = queries.length;
   const tries = steps.filter((s) => s.tool === 'try_edits' && s.state === 'ok').length;
+  /** 查过的国家(后面说到它就叫"它") */
+  const who = /^查国家：(.+)$/.exec(queries.find((s) => s.tool === 'country')?.label ?? '')?.[1];
   const parts: string[] = [];
-  // 只查了一次:说查了什么("查了利松德""查了第 1200 年的格局")
+  const chron = queries.find((s) => s.tool === 'chronicle');
+  // 只查了一次:说查了什么("查了利松德""查了第 1200 年的格局");查了一国又查它的编年史:"查了大澜王朝和它的 26 件大事"
   if (query === 1) parts.push(queryWords(queries[0]));
+  else if (query === 2 && who && chron?.summary && chron.label.startsWith(`查编年史：${who}`)) parts.push(`查了${who}和它的 ${chron.summary}`);
   else if (query) parts.push(`查了 ${query} 次`);
   if (tries) parts.push(`试推演 ${tries} 次`);
-  for (const st of steps) if (st.tool !== 'country' && st.tool !== 'chronicle' && st.tool !== 'situation' && st.tool !== 'try_edits' && st.tool !== 'propose_edits' && st.state === 'ok') parts.push(st.summary ?? st.label);
+  for (const st of steps) {
+    if (st.tool === 'country' || st.tool === 'chronicle' || st.tool === 'situation' || st.tool === 'try_edits' || st.tool === 'propose_edits' || st.state !== 'ok') continue;
+    const w = st.summary ?? st.label;
+    parts.push(who && st.tool === 'show' && w === `在地图上打开了${who}` ? '在地图上打开了它' : w);
+  }
   return parts.join('，') || `做了 ${steps.length} 步`;
 }
 
@@ -492,6 +508,8 @@ export function assistantTools(ctx: AssistantContext, state: { trials: Assistant
   const rctx: RewriteContext = { world: ctx.world, civ, year: ctx.year, edits: ctx.edits, lock: ctx.lock };
   const noCiv = '这颗星球没有长出文明:没有国家和历史。';
   const end = Math.floor(civ.endYear);
+  /** 这一轮刚查过的国家(试推演那一行说的都是它时不再写国名) */
+  let subject = -1;
 
   const parse = (args: Record<string, unknown>, cannot?: unknown) => {
     const p = parseRewrite(JSON.stringify({ reply: '', edits: args.edits ?? [], ...(cannot !== undefined ? { cannot } : {}) }), rctx);
@@ -534,6 +552,7 @@ export function assistantTools(ctx: AssistantContext, state: { trials: Assistant
       if (!civ.viable) return noCiv;
       const id = polityOf(civ, a.country);
       if (id < 0) return `找不到国家「${String(a.country ?? '')}」;请用材料里的编号(P3 这样)`;
+      subject = id;
       const p = civ.polities[id];
       const S = civ.settlements;
       const out: string[] = [];
@@ -581,7 +600,8 @@ export function assistantTools(ctx: AssistantContext, state: { trials: Assistant
       out.push(`和它有关的大事(共 ${all.length} 条,列${list.length < all.length ? '最近的' : ''} ${list.length} 条;更多用 chronicle 查):`);
       for (const e of list) out.push(`- ${entryLine(e)}`);
       const ending = p.ended === undefined ? `到最后仍在，${nLast} 州` : endWords(civ, p);
-      return { result: out.join('\n'), summary: `第 ${Math.floor(p.founded)} 年立国；${ending}` };
+      // 分出来的国家没有立国史事,说"自立"
+      return { result: out.join('\n'), summary: `第 ${Math.floor(p.founded)} 年${p.parent !== undefined ? '自立' : '立国'}；${ending}` };
     },
   };
 
@@ -622,7 +642,8 @@ export function assistantTools(ctx: AssistantContext, state: { trials: Assistant
           `第 ${from}—${to} 年${id >= 0 ? `和 P${id} ${nameAt(civ.polities[id], to)} 有关的` : '的'}${a.all === true ? '史事' : '大事'}:共 ${list.length} 条${shown.length < list.length ? `,列前 ${shown.length} 条(缩小年份范围看后面的)` : ''}`,
           ...shown.map((e) => `- ${entryLine(e)}`),
         ].join('\n'),
-        summary: `${list.length} 件${a.all === true ? '史事' : '大事'}`,
+        // 给作者看的都叫"大事"(和左边卡片的"大事 全部 N 件"一个叫法)
+        summary: `${list.length} 件大事`,
       };
     },
   };
@@ -649,7 +670,20 @@ export function assistantTools(ctx: AssistantContext, state: { trials: Assistant
       }
       const wars = buildChronicle(civ).filter((e) => e.kind === 'war' && Math.floor(e.year) <= Y && Math.floor(e.end) >= Y);
       if (wars.length) out.push(`这一年正在打的仗:`, ...wars.slice(0, 12).map((e) => `- ${entryLine(e)}`));
-      return { result: out.join('\n'), summary: `${alive.length} 个国家在世${wars.length ? `，${wars.length} 场仗在打` : ''}` };
+      // 刚查过的国家那一年还在:小字说它(紧跟在查它那一行下面,不再写国名:"剩 9 州，和有梧王朝、提布里亚帝国接壤"),否则说整个天下
+      const me = subject >= 0 && size.get(subject) ? subject : -1;
+      const near = me >= 0 ? [...bordersAt(civ, own, me)].sort((x, y) => (size.get(y) ?? 0) - (size.get(x) ?? 0) || x - y) : [];
+      // 那年的国号和现在(左边卡片上)不一样的,补一句后来叫什么
+      const names = near.slice(0, 3).map((q) => {
+        const then = nameAt(civ.polities[q], Y);
+        const now = nameAt(civ.polities[q], civ.endYear);
+        return now !== then && civ.polities[q].ended === undefined ? `${then}（后来的${now}）` : then;
+      });
+      const summary =
+        me >= 0
+          ? `剩 ${size.get(me)} 州${names.length ? `，和${names.join('、')}${near.length > 3 ? `等 ${near.length} 国` : ''}接壤` : ''}`
+          : `${alive.length} 个国家在世${wars.length ? `，${wars.length} 场仗在打` : ''}`;
+      return { result: out.join('\n'), summary };
     },
   };
 
@@ -668,7 +702,10 @@ export function assistantTools(ctx: AssistantContext, state: { trials: Assistant
         required: ['edits'],
       },
     },
-    label: (a) => `试推演${editsWord(civ, a.edits) ? `：${editsWord(civ, a.edits)}` : ''}`,
+    label: (a) => {
+      const w = editsWord(civ, a.edits, subject);
+      return w ? `试推演：${w}` : '试推演';
+    },
     run: async (a, signal) => {
       if (!ctx.simulate) throw new Error('这里不能试推演,直接用 propose_edits 列给作者');
       const done = state.trials.filter((t) => t.n > 0).length;
@@ -682,7 +719,7 @@ export function assistantTools(ctx: AssistantContext, state: { trials: Assistant
       const watch = (Array.isArray(a.watch) ? a.watch : []).map((x) => polityOf(civ, x)).filter((id) => id >= 0);
       const t = await trial(p.items, changes, done + 1, watch, signal);
       state.trials.push(t);
-      return { result: [`第 ${t.n} 次试推演(没有执行),修改:`, itemsText(p.items), ...notes, trialText(t.diff)].join('\n'), summary: trialSummary(t.diff) };
+      return { result: [`第 ${t.n} 次试推演(没有执行),修改:`, itemsText(p.items), ...notes, trialText(t.diff)].join('\n'), summary: trialSummary(t.diff, subject) };
     },
   };
 
