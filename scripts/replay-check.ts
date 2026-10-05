@@ -2043,7 +2043,7 @@ for (const style of ['realistic', 'fantasy']) {
     const u = await regen(() => page.click('.tp [data-act=terrain-undo]'));
     const undone = await probeSea();
     const t2 = await volcano();
-    // "完成":工具收起,卡片上写着改过几处
+    // "完成":工具收起,左边「地形」那行写着改了几处
     await page.click('.tp [data-act=terrain-done]');
     await page.waitForTimeout(200);
     const barGone = !(await page.locator('.tp').count());
@@ -2051,7 +2051,7 @@ for (const style of ['realistic', 'fantasy']) {
     console.log(`改地形:撤销 → 「${undone.split(' / ')[1] ?? ''}」;再放一次 ${!!t2};点"完成"工具收起 ${barGone}、卡片上「${row}」`);
     if (!u || !undone.includes('水深')) errs.push(`改地形:撤销后没有变回海(${undone})`);
     if (!barGone) errs.push('改地形:点"完成"后工具没收起');
-    if (!row.includes('改过 1 处')) errs.push(`改地形:收起后卡片上没写改过几处(${row})`);
+    if (!row.includes('改了 1 处')) errs.push(`改地形:收起后左边「地形」那行没写改了几处(${row})`);
     // 自动存:动过的新建世界存下来了(网址换成 w=编号),刷新后还在新建、直接带着地形修改生成(只生成一次),那里还是陆地
     await page.waitForFunction(() => /[?&]w=w/.test(location.search), null, { timeout: 5000 }).catch(() => {});
     const urlStored = page.url();
@@ -2092,6 +2092,10 @@ for (const style of ['realistic', 'fantasy']) {
       await p3.goto(link);
       await p3.waitForFunction(() => (window as any).__wf?.ready, null, { timeout: 60000 });
       await p3.waitForTimeout(800);
+      // 建好的世界从星球展开时正对的经线接着看,分享链接里带着它:转回 0° 再按世界坐标取那一点(不然那一点可能在窗口外)
+      await p3.evaluate(() => (window as any).__wfSetCenter?.(0));
+      await p3.waitForFunction(() => Math.abs((window as any).__wfView?.lon ?? 99) < 0.01, null, { timeout: 5000 }).catch(() => {});
+      await p3.waitForTimeout(200);
       shared = await probeSea(p3);
       regenShared = await p3.evaluate(() => (window as any).__wfTerrain ?? null);
     }
