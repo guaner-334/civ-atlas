@@ -94,7 +94,7 @@ import {
   type WorldEdits,
 } from '../gen/edits';
 import { sameTerrain } from '../gen/terrainEdits';
-import { clearEditHistory, clearEdits, getEdits, removeIntervention, setEdits, undoTerrainOp, useEdits } from './editsStore';
+import { clearEditHistory, clearEdits, getEdits, removeIntervention, setEditGate, setEdits, undoTerrainOp, useEdits } from './editsStore';
 import { redoLastEdit, undoLastEdit } from './undo';
 import { useShortcuts } from './useShortcuts';
 import { ShortcutsHost, openShortcuts } from './ShortcutsDialog';
@@ -169,7 +169,7 @@ import { interventionOutcome } from '../gen/civ/chronicle';
 import { takeRewriteNote, type RewriteNote } from './rewriteStore';
 import { AssistantPanel, PreviewBanner } from './Assistant';
 import { astRoom, useAstOpen } from './astPanel';
-import { exitPreview, getAssistant, setTrialRunner, syncAssistantWorld, useAssistantPreview } from './assistantStore';
+import { PREVIEW_EDIT_BLOCK, exitPreview, getAssistant, sameInBoth, setTrialRunner, syncAssistantWorld, useAssistantPreview } from './assistantStore';
 import { Globe, getGlobeOn, setGlobeOn, useGlobeOn, type GlobeApi } from './Globe';
 import { setupAi } from '../ai/setup';
 import { ToastBar, clearToast, showToast } from './Toast';
@@ -2525,6 +2525,14 @@ export function App() {
   useEffect(() => {
     if (stage !== 'world') exitPreview();
   }, [stage]);
+  // 在地图上看试推演:面板里是试推演的历史,只许改两份历史里是同一个的国家、城(改名、下令用它的键)
+  useEffect(() => {
+    const real = rawCiv;
+    const sim = previewRaw;
+    if (!real || !sim) return;
+    setEditGate((keys) => (keys.every((k) => sameInBoth(real, sim, k)) ? null : PREVIEW_EDIT_BLOCK));
+    return () => setEditGate(null);
+  }, [rawCiv, previewRaw]);
   // 在地图上看试推演 / 回到现在:选中的东西按稳定键换到另一份历史里;刚开始看时没选东西,选上关注的那个国家
   const prevPreview = useRef<Civ | null>(null);
   useLayoutEffect(() => {

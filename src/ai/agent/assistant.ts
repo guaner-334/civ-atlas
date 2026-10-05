@@ -505,10 +505,15 @@ export interface AssistantOptions {
   maxRounds?: number;
   /** 另外给的工具(写史书、起名、在地图上打开这些要碰界面的,由界面给) */
   extraTools?: AgentTool[];
+  /** 确认单列好了(之后最后那句话没说完、出错或停下,界面照样能把确认单留下) */
+  onProposal?: (p: AssistantProposal) => void;
 }
 
 /** 给 AI 的工具(带着这次对话的试推演和确认单) */
-export function assistantTools(ctx: AssistantContext, state: { trials: AssistantTrial[]; proposal: AssistantProposal | null }): AgentTool[] {
+export function assistantTools(
+  ctx: AssistantContext,
+  state: { trials: AssistantTrial[]; proposal: AssistantProposal | null; onProposal?: (p: AssistantProposal) => void },
+): AgentTool[] {
   const { civ } = ctx;
   const rctx: RewriteContext = { world: ctx.world, civ, year: ctx.year, edits: ctx.edits, lock: ctx.lock };
   const noCiv = '这颗星球没有长出文明:没有国家和历史。';
@@ -759,6 +764,7 @@ export function assistantTools(ctx: AssistantContext, state: { trials: Assistant
       }
       const replaced = !!state.proposal;
       state.proposal = { items: p.items, cannot: p.cannot, ...(t ? { trial: t } : {}) };
+      state.onProposal?.(state.proposal);
       const out = [
         `${replaced ? '已换掉上一张,' : ''}列给作者 ${p.items.length} 条${ok.length < p.items.length ? `(其中 ${p.items.length - ok.length} 条不合格,作者执行不了)` : ''}:`,
         itemsText(p.items),
@@ -775,7 +781,11 @@ export function assistantTools(ctx: AssistantContext, state: { trials: Assistant
 
 /** 助手的一次对话:问 → 查 / 试 → 列确认单 → 回话 */
 export async function runAssistant(ctx: AssistantContext, history: readonly AssistantTurn[], ask: string, opts: AssistantOptions = {}): Promise<AssistantResult> {
-  const state: { trials: AssistantTrial[]; proposal: AssistantProposal | null } = { trials: [], proposal: null };
+  const state: { trials: AssistantTrial[]; proposal: AssistantProposal | null; onProposal?: (p: AssistantProposal) => void } = {
+    trials: [],
+    proposal: null,
+    onProposal: opts.onProposal,
+  };
   const w = cleanWish(ask);
   // 回给作者的话里漏出来的编号、英文种类名换成名字(边说边换,面板上不会闪过编号)
   const plain = (t: string) => plainIds(t, ctx);

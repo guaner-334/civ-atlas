@@ -722,7 +722,8 @@ export function Globe({ world, raster, civ, geo, style, layer, terrain, terrainK
 
   /** 左边被侧栏卡片挡住的宽度(画布太窄就不让) */
   const leftOf = () => (s.size.w > 2 * props.current.leftRoom ? props.current.leftRoom : 0);
-  const rightOf = () => (s.size.w > 2 * (props.current.leftRoom + props.current.rightRoom) ? props.current.rightRoom : 0);
+  /** 右边被助手面板挡住的宽度(App 只在窗口够宽、面板让位时给;剩下的地方太窄就不让) */
+  const rightOf = () => (s.size.w - leftOf() - props.current.rightRoom >= s.size.w / 3 ? props.current.rightRoom : 0);
   /** 这一帧的球(w、h 是什么像素单位,unit = 一个 CSS 像素是几个那种像素:球心挪的量跟着换算) */
   const frameOf = (view: GlobeView, w: number, h: number, unit = 1) => globeFrame(view, w, h, s.shift * unit);
 

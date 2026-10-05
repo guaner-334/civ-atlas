@@ -7,13 +7,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld } from '../src/gen/world';
 import { generateCiv } from '../src/gen/civ';
 import type { Civ } from '../src/gen/civ/types';
-import { EMPTY_EDITS, GENERATOR_VERSION, polityKey, type Intervention } from '../src/gen/edits';
+import { EMPTY_EDITS, GENERATOR_VERSION, polityKey, regionKey, type Intervention } from '../src/gen/edits';
 import { setActiveProvider, setMockResponder } from '../src/ai/client';
+import { AiError } from '../src/ai/types';
 import { compareTrial, type Fate, type FateChange, type TrialDiff } from '../src/ai/agent/trial';
 import { fateShort, stepsSummary, trialView } from '../src/ai/agent/assistant';
 import { bordersAt, nameAt } from '../src/ai/prompts/rewrite';
 import { ownersAt } from '../src/gen/civ/timeline';
-import { clearEdits, getEdits, setEdits } from '../src/ui/editsStore';
+import { addIntervention, clearEdits, getEdits, setEditGate, setEdits, setName } from '../src/ui/editsStore';
 import { takeRewriteNote } from '../src/ui/rewriteStore';
 import { redoLastEdit, undoLastEdit } from '../src/ui/undo';
 import { getCivTime, getSelection, resetCivTime, setSelection } from '../src/ui/civView';
@@ -21,6 +22,7 @@ import { _resetBook, getBook, setBookContext } from '../src/ui/bookStore';
 import { _resetToasts, getToast } from '../src/ui/toastStore';
 import * as saveStore from '../src/ui/saveStore';
 import {
+  PREVIEW_EDIT_BLOCK,
   _resetAssistant,
   applyBlock,
   applyProposal,
@@ -29,6 +31,7 @@ import {
   newConversation,
   pickName,
   previewBlock,
+  sameInBoth,
   previewProposal,
   sendAsk,
   setTrialRunner,
@@ -106,6 +109,7 @@ afterEach(() => {
   _resetToasts();
   setMockResponder(null);
   setActiveProvider(null);
+  setEditGate(null);
   saveStore.detachWorld();
   saveStore._resetForTest();
   delete g.localStorage;
@@ -321,6 +325,43 @@ describe('助手面板', () => {
     expect(getEdits()).toEqual(after);
     expect(redoLastEdit()).toBe(true);
     expect(getEdits().interventions).toEqual([]);
+  });
+
+  it('确认单列好以后,最后那句话出错、停下:确认单留着,照样能先看、执行', async () => {
+    setTrialRunner(runner);
+    const from = Math.max(Math.ceil(ward.founded), Math.floor(ward.ended!) - 30);
+    let round = 0;
+    setMockResponder(() => {
+      if (round++ === 0) return { toolCalls: [{ id: 'c0', name: 'propose_edits', args: JSON.stringify({ edits: [{ op: 'protect', country: `P${ward.id}`, from, why: '…' }] }) }] };
+      throw new AiError('network', '连不上');
+    });
+    const id = await sendAsk(ctx(), `让${wardName}多撑一阵`);
+    const t = turn(id);
+    expect(t.status).toBe('done');
+    expect(t.error).toBeUndefined();
+    expect(t.proposal!.items.map((x) => x.change?.kind)).toEqual(['intervention']);
+    expect(t.proposal!.trial).toBeTruthy();
+    expect(previewBlock(t, {})).toBeNull();
+    expect(applyBlock(t, {})).toBeNull();
+  });
+
+  it('在地图上看试推演时:两份历史里是同一个的国家能改,试推演里才有的(或对不上的)不能改,提示条说原因', async () => {
+    // 试推演:第 2000 年在一州立一个新国家(它只在试推演里有)
+    const from = 2000;
+    const r = ownersAt(civ, from).culture.findIndex((c, i) => c >= 0 && ownersAt(civ, from).polity[i] >= 0);
+    const sim = await runner([{ kind: 'found', region: regionKey(civ, r), from }]);
+    const old = civ.polities.find((p) => p.founded < from - 50)!;
+    const fresh = sim.polities.find((p) => !sameInBoth(civ, sim, polityKey(sim, p.id)))!;
+    expect(fresh.founded).toBeGreaterThanOrEqual(from);
+    expect(sameInBoth(civ, sim, polityKey(sim, old.id))).toBe(true);
+    setEditGate((keys) => (keys.every((k) => sameInBoth(civ, sim, k)) ? null : PREVIEW_EDIT_BLOCK));
+    setName(polityKey(sim, fresh.id), '阿尔瑟');
+    expect(getEdits().names).toEqual({});
+    expect(getToast()).toMatchObject({ kind: 'warn', text: PREVIEW_EDIT_BLOCK });
+    expect(addIntervention({ kind: 'protect', a: polityKey(sim, fresh.id), from: Math.ceil(fresh.founded) })).toBe(false);
+    expect(getEdits().interventions).toEqual([]);
+    setName(polityKey(sim, old.id), '阿尔瑟');
+    expect(getEdits().names).toEqual({ [polityKey(civ, old.id)]: '阿尔瑟' });
   });
 
   it('世界在这之后改过:不能执行、不能先看;不要的确认单不能再执行', async () => {

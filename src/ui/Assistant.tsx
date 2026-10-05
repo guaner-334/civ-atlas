@@ -415,6 +415,8 @@ function Say({ text, links, phone }: { text: string; links: LinkDict | null; pho
 /** 起名的候选:名字(西文写法)+ 含义 +「就用这个」 */
 function Names({ t }: { t: AsTurn }) {
   const n = t.names!;
+  // "正在用"看现在的名字(⌘Z 撤销了改名,又是"就用这个")
+  const { names } = useEdits();
   return (
     <div className="ast-grp ast-names">
       {n.list.map((c, i) => (
@@ -426,7 +428,7 @@ function Names({ t }: { t: AsTurn }) {
             </b>
             {c.meaning && <small>{c.meaning}</small>}
           </span>
-          {n.used === c.name ? (
+          {(names[c.key] ?? null) === c.value ? (
             <span className="end">正在用</span>
           ) : (
             <button className="ast-link end" data-act="ast-use-name" onClick={() => pickName(t.id, i)}>

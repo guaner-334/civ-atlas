@@ -22,7 +22,7 @@ import { useSyncExternalStore } from 'react';
 import type { World } from '../gen/world';
 import type { Raster } from '../gen/raster';
 import type { Civ } from '../gen/civ/types';
-import { GENERATOR_VERSION, applyNames, type Intervention, type WorldEdits } from '../gen/edits';
+import { GENERATOR_VERSION, applyNames, resolveKey, type Intervention, type ResolvedKey, type WorldEdits } from '../gen/edits';
 import { aiChat, getActiveProvider, setFeatureMock } from '../ai/client';
 import { AiError, type AiErrorCode } from '../ai/types';
 import {
@@ -32,6 +32,7 @@ import {
   runAssistant,
   trialView,
   type AssistantContext,
+  type AssistantProposal,
   type AssistantTurn,
   type TrialView,
 } from '../ai/agent/assistant';
@@ -328,10 +329,24 @@ export async function sendAsk(ctx: AskContext, text: string): Promise<number> {
     ...(s.summary ? { summary: s.summary } : s.state === 'error' && s.result ? { summary: s.result.replace(/^出错了:/, '') } : {}),
     ...(book ? { book } : {}),
   });
+  /** 交上来的确认单(之后出错、停下也留着,见 catch) */
+  let got: AssistantProposal | null = null;
+  const done = (p: AssistantProposal | null, text: string) => {
+    if (p?.trial) {
+      const raw = rawOf.get(p.trial.civ);
+      if (raw) trialRaw.set(id, { sig: ivSig(p.trial.edits.interventions), raw });
+    }
+    live(() => ({
+      status: 'done',
+      text,
+      ...(p ? { proposal: { items: p.items, cannot: p.cannot, ...(p.trial ? { trial: trialView(p.trial.diff) } : {}) } } : {}),
+    }));
+  };
   try {
     const r = await runAssistant(actx, prev, w, {
       signal: c.signal,
       extraTools,
+      onProposal: (p) => (got = p),
       onEvent: (e) => {
         if (e.type === 'round') live(() => ({ text: '' }));
         else if (e.type === 'text') live(() => ({ text: e.text }));
@@ -344,19 +359,14 @@ export async function sendAsk(ctx: AskContext, text: string): Promise<number> {
       },
     });
     if (c.signal.aborted) throw new AiError('aborted', '已停下');
-    const p = r.proposal;
-    if (p?.trial) {
-      const raw = rawOf.get(p.trial.civ);
-      if (raw) trialRaw.set(id, { sig: ivSig(p.trial.edits.interventions), raw });
-    }
-    live(() => ({
-      status: 'done',
-      text: r.text,
-      ...(p ? { proposal: { items: p.items, cannot: p.cannot, ...(p.trial ? { trial: trialView(p.trial.diff) } : {}) } } : {}),
-    }));
+    done(r.proposal, r.text);
   } catch (e) {
     const err = errOf(e);
-    if (state.turns.some((t) => t.id === id))
+    // 确认单已经列好(最后那句话没说完就出错、停下了):留下确认单,照样能先看、执行
+    if (got && running === id) {
+      done(got, state.turns.find((t) => t.id === id)?.text ?? '');
+      patch(id, (t) => ({ steps: t.steps.map((s) => (s.state === 'run' ? { ...s, state: 'error' as const } : s)) }));
+    } else if (state.turns.some((t) => t.id === id))
       patch(id, (t) => ({
         status: 'error',
         error: { code: err.code, message: err.code === 'aborted' ? '已停下' : err.message },
@@ -712,6 +722,26 @@ function showPreview(id: number) {
     },
   );
 }
+
+/**
+ * 一个键在两份历史里是不是同一个东西(在地图上看试推演时改名、下令用):州、山河湖海两边一样;
+ * 国家、城、民族要两边都有、而且立国 / 建城 / 出现的年份一样(生效年份以前的历史一字不差,这样的就是同一个)
+ */
+export function sameInBoth(a: Civ, b: Civ, key: string): boolean {
+  const x = resolveKey(a, key);
+  const y = resolveKey(b, key);
+  if (!x || !y || x.kind !== y.kind) return false;
+  if (x.kind === 'region' || x.kind === 'place') return true;
+  const born = (c: Civ, r: ResolvedKey) =>
+    r.kind === 'settlement' ? c.settlements[r.id]?.founded : r.kind === 'culture' ? c.cultures[r.id]?.born : c.polities[r.id]?.founded;
+  const ba = born(a, x);
+  const bb = born(b, y);
+  if (ba === undefined || bb === undefined || Math.floor(ba) !== Math.floor(bb)) return false;
+  return x.kind !== 'dynasty' || (!!a.polities[x.id].dynasties?.[x.index!] && !!b.polities[y.id].dynasties?.[y.index!]);
+}
+
+/** 在地图上看试推演时,改的东西在现在的历史里不是同一个:这样说 */
+export const PREVIEW_EDIT_BLOCK = '这是试推演里的样子，和现在的历史对不上；回到现在再改';
 
 /** 回到现在 */
 export function exitPreview() {
