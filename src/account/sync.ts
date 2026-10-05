@@ -675,7 +675,9 @@ async function reconcile(st: SyncState, id: string, s: CloudEntry | null, depth 
     if (e instanceof ServerError && e.code === 'not-found') return push(st, id, l, s.rev, true, depth);
     throw e;
   }
-  if (sumOf(remoteRaw(remote), Array.isArray(remote.notes) ? remote.notes : null) === l.sum) {
+  // 一样就不算两边都改过。缩略图不比:两边做了同样的改动,不同的浏览器画出来的图也可能差一点点,各留各的
+  const bare = (w: RawWorld): RawWorld => ({ ...w, thumb: null });
+  if (sumOf(bare(remoteRaw(remote)), Array.isArray(remote.notes) ? remote.notes : null) === sumOf(bare(l.raw), l.notes)) {
     st.worlds[id] = { rev: remote.rev, sum: l.sum, at: nowIso() };
     return;
   }
@@ -1069,12 +1071,15 @@ export async function signOut(keep: boolean): Promise<{ ok: true } | { ok: false
   if (!keep) {
     // 先删再退出:等服务器回话的工夫退出窗已经关了,这期间新建、改的世界不能被后删掉
     applying = true;
+    let gone: boolean;
     try {
-      removeAllWorlds();
+      gone = removeAllWorlds();
       forgetNotes();
     } finally {
       applying = false;
     }
+    // 浏览器不让删(存储突然不让用了之类):不退出,不然以为删干净了,刷新以后世界又都在。没删掉的同步记录还在,下次同步不会当成删了
+    if (!gone) return { ok: false, message: '浏览器没让删掉这台设备上的世界，没有退出。可以选「留着」再退出' };
     writeState(null);
     rejected.clear();
   }

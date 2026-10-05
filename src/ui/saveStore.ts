@@ -1151,13 +1151,15 @@ export function removeSyncedWorld(id: string) {
   changed();
 }
 
-/** 退出登录时选了"从这台设备上删掉":浏览器里的世界全删 */
-export function removeAllWorlds() {
+/** 退出登录时选了"从这台设备上删掉":浏览器里的世界全删;返回删干净了没有(浏览器不让删 = false) */
+export function removeAllWorlds(): boolean {
   const kv = store();
-  for (const k of kv.keys()) if ([PREFIX, THUMB, META, NOTES, LEGACY].some((p) => k.startsWith(p))) kv.remove(k);
+  const ours = (k: string) => [PREFIX, THUMB, META, NOTES, LEGACY].some((p) => k.startsWith(p));
+  for (const k of kv.keys()) if (ours(k)) kv.remove(k);
   current = null;
   stopThumb();
   changed();
+  return !kv.keys().some(ours);
 }
 
 /** 测试用:清空内存里的状态(不动浏览器存储) */

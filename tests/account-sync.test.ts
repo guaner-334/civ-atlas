@@ -524,6 +524,29 @@ describe('云同步:边改边同步、出错、换账号', () => {
     expect(cloudTitles()).toEqual(['同一个名字']);
   });
 
+  it('两台设备做了同样的改动、只是缩略图画得不完全一样:不算两边都改过', async () => {
+    const a = new FakeStorage();
+    const b = new FakeStorage();
+    device(a);
+    const id = addWorld(7, '苍澜界');
+    a.setItem(`wenming-ditu:thumb:${id}`, 'data:image/jpeg;base64,AAAA');
+    await signIn();
+    device(b);
+    await signIn();
+
+    tick();
+    device(a);
+    saveStore.renameWorld(id, '同一个名字');
+    a.setItem(`wenming-ditu:thumb:${id}`, 'data:image/jpeg;base64,BBBB');
+    await syncNow();
+    device(b);
+    saveStore.renameWorld(id, '同一个名字');
+    b.setItem(`wenming-ditu:thumb:${id}`, 'data:image/jpeg;base64,CCCC');
+    await syncNow();
+    expect(titles()).toEqual(['同一个名字']);
+    expect(cloudTitles()).toEqual(['同一个名字']);
+  });
+
   it('换个账号登录再换回来:没登录时删掉的世界,换回原来的账号照样跟着删', async () => {
     device(new FakeStorage());
     const id1 = addWorld(7, '苍澜界');
@@ -1667,5 +1690,27 @@ describe('云同步:放满了、服务器不回话、分享前、别的标签页
     online = true;
     win.dispatchEvent(new Event('online'));
     expect(await until(() => getSyncView().phase === 'idle' && cloudTitles()[0] === '断网时改的')).toBe(true);
+  });
+  it('退出选"删掉"、浏览器却不让删:不退出,也不说删好了;世界还在账号里', async () => {
+    let locked = false;
+    const a = new (class extends FakeStorage {
+      removeItem(k: string) {
+        if (locked && k.startsWith('wenming-ditu:')) throw new Error('不让删');
+        super.removeItem(k);
+      }
+    })();
+    device(a);
+    addWorld(7, '苍澜界');
+    addWorld(2024, '赤水纪');
+    await signIn();
+    locked = true;
+    const r = await signOut(false);
+    expect(r).toMatchObject({ ok: false });
+    expect(r.ok ? '' : r.message).toContain('没让删掉');
+    expect(getSession()).not.toBeNull();
+    locked = false;
+    await syncNow();
+    expect(titles()).toEqual(['苍澜界', '赤水纪']);
+    expect(cloudTitles()).toEqual(['苍澜界', '赤水纪']);
   });
 });
