@@ -35,6 +35,8 @@ export interface FateChange {
   before: Fate | null;
   /** 试推演里的结局;试推演里没有了 = null */
   after: Fate | null;
+  /** 只在试推演里有的国家:哪年立的、从哪国分出来的(分出来的才有 from) */
+  born?: { year: number; from?: PolityRef };
 }
 
 export interface TrialEvent {
@@ -169,7 +171,9 @@ export function compareTrial(before: Civ, after: Civ, focus: readonly number[], 
   for (const p of P1) {
     if (toBefore.has(p.id) || p.founded < from) continue;
     const s = size1(p.id, p.ended === undefined ? after.endYear : Math.max(Math.floor(p.founded), Math.floor(p.ended) - 1));
-    if (s >= 3) scored.push({ c: { who: ref1(p.id), before: null, after: fate1(p.id) }, score: 500 + s });
+    if (s < 3) continue;
+    const born = { year: Math.floor(p.founded), ...(p.parent !== undefined ? { from: ref1(p.parent, p.founded) } : {}) };
+    scored.push({ c: { who: ref1(p.id), before: null, after: fate1(p.id), born }, score: 500 + s });
   }
   scored.sort((x, y) => y.score - x.score || x.c.who.name.localeCompare(y.c.who.name));
   const others = scored.slice(0, OTHERS_MAX).map(({ c }) => (c.who.id >= 0 ? change0(c.who.id) : c));

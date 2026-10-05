@@ -247,13 +247,20 @@ function mockDelay(): number {
 export function setMockResponder(f: MockResponder | null): void {
   mockResponder = f ?? defaultMockResponder;
 }
+/** 各功能自己的假回复(助手要按世界走固定的步骤);setMockResponder 定制过的优先 */
+const featureMocks = new Map<string, MockResponder>();
+/** 给某个功能挂一个假回复;传 null 拿掉 */
+export function setFeatureMock(feature: string, f: MockResponder | null): void {
+  if (f) featureMocks.set(feature, f);
+  else featureMocks.delete(feature);
+}
 
 registerProvider({
   kind: 'mock',
   label: '测试用假 AI',
   status: () => ({ ready: true, model: 'mock' }),
   async chat(req, opts) {
-    const reply = mockResponder(req);
+    const reply = (mockResponder === defaultMockResponder ? featureMocks.get(req.feature) : undefined)?.(req) ?? mockResponder(req);
     const text = typeof reply === 'string' ? reply : (reply.text ?? '');
     const toolCalls = typeof reply === 'string' ? undefined : reply.toolCalls?.length ? reply.toolCalls : undefined;
     // 模拟流式:切成几段,每段让出一次事件循环(网址带 mockms=N 时每段等 N 毫秒:冒烟、截图看"正在写"用)

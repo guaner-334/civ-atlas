@@ -10,7 +10,7 @@ import { ownersAt } from '../src/gen/civ/timeline';
 import { applyNames, polityKey, type WorldEdits } from '../src/gen/edits';
 import { setActiveProvider, setMockResponder } from '../src/ai/client';
 import { AiError, type AiRequest } from '../src/ai/types';
-import { AGENT_MAX_ROUNDS, TOOL_RESULT_MAX, parseToolArgs, runAgent, type AgentEvent, type AgentTool } from '../src/ai/agent/loop';
+import { AGENT_MAX_ROUNDS, TOOL_RESULT_MAX, parseToolArgs, runAgent, type AgentEvent, type AgentTool, type AgentToolResult } from '../src/ai/agent/loop';
 import { compareTrial, fateText, trialText } from '../src/ai/agent/trial';
 import {
   ASSISTANT_FEATURE,
@@ -45,6 +45,12 @@ const friend =
   civ.polities.find((p) => p.id !== victim && p.id !== conqueror && p.founded <= from && (p.ended === undefined || p.ended > from))!.id;
 const PROTECT = { op: 'protect', country: `P${victim}`, from, why: '国都攻不下' };
 const ALLY = { op: 'ally', country: `P${victim}`, other: `P${friend}`, from, why: '找个帮手' };
+
+/** 工具交回模型的那段文字 */
+const said = async (r: Promise<string | AgentToolResult> | string | AgentToolResult): Promise<string> => {
+  const v = await r;
+  return typeof v === 'string' ? v : v.result;
+};
 
 /** 假 AI 按剧本一轮一轮回(字符串 = 只回话;calls = 要调用的工具 [名字, 参数]);记下每一轮收到的请求 */
 type Round = string | { text?: string; calls: [string, unknown][] };
@@ -217,8 +223,11 @@ describe('助手', () => {
     const r = await runAssistant(ctx(), [], `让${vName}撑到最后`, { onEvent: (e) => e.type === 'step-done' && steps.push(e.step.label) });
     expect(r.text).toBe('试推演里它撑到了最后。');
     expect(r.end).toBe('done');
-    expect(steps).toEqual([`查${nameAt(civ.polities[victim], 2000)}`, `试推演:保护${vName}`, expect.stringMatching(/^试推演:保护.+、.+与.+结盟$/), '列出要改的 2 条']);
+    expect(steps).toEqual([`查国家：${nameAt(civ.polities[victim], 2000)}`, `试推演：第 ${from} 年起保护${vName}`, expect.stringMatching(/^试推演：保护.+，再和.+结盟$/), '列出要改的 2 条']);
     expect(r.steps.every((s) => s.state === 'ok')).toBe(true);
+    // 每一步下面一句给作者看的结果
+    expect(r.steps[0].summary).toMatch(/^第 \d+ 年立国；/);
+    expect(r.steps[1].summary).toBe(`${vName}撑到了第 ${civ.endYear} 年，最后 ${r.trials[0].diff.focus[0].after!.size} 州`);
 
     // 第一轮:提示词、材料、作者的话、五个工具
     expect(seen[0].feature).toBe(ASSISTANT_FEATURE);
@@ -256,22 +265,22 @@ describe('助手', () => {
     };
     const state: { trials: AssistantTrial[]; proposal: AssistantProposal | null } = { trials: [], proposal: null };
     const tools = Object.fromEntries(assistantTools(ctx({ simulate: fast }), state).map((t) => [t.def.name, t]));
-    const r1 = await tools.propose_edits.run({ edits: [PROTECT] });
+    const r1 = await said(tools.propose_edits.run({ edits: [PROTECT] }));
     expect(runs).toBe(1);
     expect(state.proposal!.trial!.n).toBe(0);
     expect(r1).toContain('顺带试推演了一次');
     expect(state.trials).toHaveLength(0);
 
-    const r2 = await tools.propose_edits.run({ edits: [{ op: 'volcano', at: [10, 10], size: '中', why: '…' }] });
+    const r2 = await said(tools.propose_edits.run({ edits: [{ op: 'volcano', at: [10, 10], size: '中', why: '…' }] }));
     expect(runs).toBe(1);
     expect(state.proposal!.trial).toBeUndefined();
     expect(r2).toContain('已换掉上一张');
 
     // 只有改名:不用试推演
-    const rn = await tools.try_edits.run({ edits: [{ op: 'rename', target: `P${victim}`, name: '阿尔瑟', why: '…' }] });
+    const rn = await said(tools.try_edits.run({ edits: [{ op: 'rename', target: `P${victim}`, name: '阿尔瑟', why: '…' }] }));
     expect(rn).toContain('不用试推演');
     // 不合格的修改:原因交回去
-    const bad = await tools.try_edits.run({ edits: [{ op: 'protect', country: 'P99999', from, why: '…' }] });
+    const bad = await said(tools.try_edits.run({ edits: [{ op: 'protect', country: 'P99999', from, why: '…' }] }));
     expect(bad).toContain('不合格');
     expect(runs).toBe(1);
 
@@ -281,21 +290,21 @@ describe('助手', () => {
     // 不能试推演的地方(没给 simulate)
     const noSim = Object.fromEntries(assistantTools(ctx({ simulate: undefined }), { trials: [], proposal: null }).map((t) => [t.def.name, t]));
     await expect(Promise.resolve().then(() => noSim.try_edits.run({ edits: [PROTECT] }))).rejects.toThrow('不能试推演');
-    const r3 = await noSim.propose_edits.run({ edits: [PROTECT] });
+    const r3 = await said(noSim.propose_edits.run({ edits: [PROTECT] }));
     expect(r3).not.toContain('试推演');
   });
 
   it('查资料:国家用编号或国名都能查,找不到的说找不到;编年史按年份和国家筛;某一年的格局', async () => {
     const tools = Object.fromEntries(assistantTools(ctx(), { trials: [], proposal: null }).map((t) => [t.def.name, t]));
-    const c = (await tools.country.run({ country: `P${victim}` })) as string;
+    const c = await said(tools.country.run({ country: `P${victim}` }));
     expect(c.split('\n')[0]).toMatch(new RegExp(`^P${victim} `));
     expect(c).toContain('国都:');
     expect(c).toMatch(/国土:.*最盛约第 \d+ 年 \d+ 州/);
     expect(c).toMatch(new RegExp(`结局:第 \\d+ 年被 P${conqueror} .+ 所灭`));
-    expect(await tools.country.run({ country: vName })).toBe(c);
-    expect(await tools.country.run({ country: '不存在的国' })).toContain('找不到');
+    expect(await said(tools.country.run({ country: vName }))).toBe(c);
+    expect(await said(tools.country.run({ country: '不存在的国' }))).toContain('找不到');
 
-    const ch = (await tools.chronicle.run({ country: `P${victim}`, from, to: civ.endYear, all: true })) as string;
+    const ch = await said(tools.chronicle.run({ country: `P${victim}`, from, to: civ.endYear, all: true }));
     expect(ch.split('\n')[0]).toContain(`和 P${victim} `);
     expect(ch).toContain(`〔`);
     for (const line of ch.split('\n').slice(1)) {
@@ -303,9 +312,9 @@ describe('助手', () => {
       const end = Number(/第 \d+(?:—(\d+))? 年/.exec(line)![1] ?? y);
       expect(end).toBeGreaterThanOrEqual(from);
     }
-    expect(tools.chronicle.label!({ country: `P${victim}`, from: 100, to: 200 })).toBe(`查编年史:${nameAt(civ.polities[victim], 2000)},第 100—200 年`);
+    expect(tools.chronicle.label!({ country: `P${victim}`, from: 100, to: 200 })).toBe(`查编年史：${nameAt(civ.polities[victim], 2000)}，第 100—200 年`);
 
-    const s = (await tools.situation.run({ year: from })) as string;
+    const s = await said(tools.situation.run({ year: from }));
     expect(s.split('\n')[0]).toMatch(new RegExp(`^第 ${from} 年在世的国家 \\d+ 个`));
     expect(s).toContain(`P${victim} ${vName}`);
   });

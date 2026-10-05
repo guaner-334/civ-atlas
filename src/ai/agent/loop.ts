@@ -14,10 +14,16 @@ import { AiError, type AiMessage, type AiTool, type AiUsage } from '../types';
 /** 给模型用的一个工具,连同网页这边怎么执行 */
 export interface AgentTool {
   def: AiTool;
-  /** 这一步的说法(界面上一行):"查特拉维亚共和国""试推演:保护特拉维亚共和国"。不给 = 工具名 */
+  /** 这一步的说法(界面上一行):"查国家：特拉维亚共和国""试推演：保护特拉维亚共和国"。不给 = 工具名 */
   label?: (args: Record<string, unknown>) => string;
-  /** 执行;返回交回模型的文字。抛错 = 这一步没做成(错误的说明交回模型) */
-  run: (args: Record<string, unknown>, signal?: AbortSignal) => Promise<string> | string;
+  /** 执行;返回交回模型的文字(或连同给作者看的一句话)。抛错 = 这一步没做成(错误的说明交回模型) */
+  run: (args: Record<string, unknown>, signal?: AbortSignal) => Promise<string | AgentToolResult> | string | AgentToolResult;
+}
+
+/** 一步的结果:交回模型的文字 + 给作者看的一句话(界面上那一行下面的小字) */
+export interface AgentToolResult {
+  result: string;
+  summary?: string;
 }
 
 /** 做过的一步 */
@@ -30,6 +36,8 @@ export interface AgentStep {
   state: 'run' | 'ok' | 'error';
   /** 交回模型的结果(出错 = 错误的说明) */
   result?: string;
+  /** 给作者看的一句话(工具给了才有) */
+  summary?: string;
   ms?: number;
 }
 
@@ -158,7 +166,12 @@ export async function runAgent(req: AgentRequest): Promise<AgentOutcome> {
         result = '参数不是一个合法的 JSON 对象,请改好再调';
       } else {
         try {
-          result = await tool.run(args, req.signal);
+          const r = await tool.run(args, req.signal);
+          if (typeof r === 'string') result = r;
+          else {
+            result = r.result;
+            if (r.summary) step.summary = r.summary;
+          }
           step.state = 'ok';
         } catch (e) {
           if (req.signal?.aborted || (e instanceof AiError && e.code === 'aborted')) throw aborted();
