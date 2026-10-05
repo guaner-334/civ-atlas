@@ -153,6 +153,7 @@ import { NewWorld } from './NewWorld';
 import { MyWorlds } from './MyWorlds';
 import { useCoarse, useNarrow } from './device';
 import { isDoubleTap, pinchStep, type Pt, type Tap } from './gestures';
+import { createWheelReader, inGesturePinch, isPinchLike, pinchDelta, setGesturePinch, wheelSample } from './wheel';
 import { pickLabelAt } from './mapPick';
 import { ownersAt } from '../gen/civ/timeline';
 import { interventionOutcome } from '../gen/civ/chronicle';
@@ -1648,16 +1649,48 @@ export function App() {
   };
   const zoomRef = useRef(zoomAt);
   zoomRef.current = zoomAt;
+  /**
+   * 触控板两指滑动:平移(dx / dy = 滚轮的读数,地图往 −dx、−dy 挪,方向和滑动网页一样)。
+   * 弯边投影:左右 = 转中央经线(和拖动一样),上下 = 平移;滑完停一小会儿算停下(国名按投影后的国土重新摆)
+   */
+  const panIdle = useRef(0);
+  useEffect(() => () => clearTimeout(panIdle.current), []);
+  const wheelPan = (dx: number, dy: number) => {
+    stopFly();
+    const el = stageRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    if (hover) setHover(null);
+    if (mp && box.w) {
+      setMapMoving(true);
+      clearTimeout(panIdle.current);
+      panIdle.current = window.setTimeout(() => !drag.current && setMapMoving(false), 150);
+      const pxPerDeg = view.k * (box.w / mp.W) * mp.s * mp.def.kx(0) * (Math.PI / 180);
+      if (pxPerDeg > 0 && dx) scheduleCenter((centerFrame.current.lon ?? getMapCenter()) + dx / pxPerDeg);
+      if (dy) setView((v) => clampRef.current({ k: v.k, x: v.x, y: v.y - dy }, rect.width, rect.height));
+      return;
+    }
+    setView((v) => clampRef.current({ k: v.k, x: v.x - dx, y: v.y - dy }, rect.width, rect.height));
+  };
+  const panRef = useRef(wheelPan);
+  panRef.current = wheelPan;
+  // 滚轮:鼠标滚轮 / 捏合 = 缩放,触控板两指滑动 = 平移(怎么分见 wheel.ts)
   useEffect(() => {
     const el = stageRef.current;
     if (!el) return;
+    const read = createWheelReader();
     const onWheel = (e: WheelEvent) => {
       touchRef.current();
       // 详情面板里滚动 = 滚面板,不缩放地图;地球仪自己管缩放
       if ((e.target as HTMLElement | null)?.closest?.('.inspector') || getGlobeOn()) return;
       e.preventDefault();
+      // Safari 的捏合已经按 gesture 事件缩放了(见下面"浏览器自己的页面缩放")
+      if (e.ctrlKey && e.isTrusted && inGesturePinch()) return;
+      const a = read(wheelSample(e));
+      if (!a) return;
       const rect = el.getBoundingClientRect();
-      zoomRef.current(e.clientX - rect.left, e.clientY - rect.top, Math.exp(-e.deltaY * 0.0015));
+      if (a.kind === 'zoom') zoomRef.current(e.clientX - rect.left, e.clientY - rect.top, a.f);
+      else panRef.current(a.dx, a.dy);
     };
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
@@ -1672,7 +1705,8 @@ export function App() {
     const cy = rect.height / 2;
     if (getGlobeOn()) {
       const g = el.querySelector('.globe');
-      g?.dispatchEvent(new WheelEvent('wheel', { deltaY: -Math.log(f) / 0.0015, clientX: rect.left + cx, clientY: rect.top + cy, bubbles: true, cancelable: true }));
+      // 当成一下捏合发过去:正好缩放 f 倍(不管前面是不是正在用触控板滑)
+      g?.dispatchEvent(new WheelEvent('wheel', { deltaY: pinchDelta(f), ctrlKey: true, clientX: rect.left + cx, clientY: rect.top + cy, bubbles: true, cancelable: true }));
       return;
     }
     zoomAt(cx, cy, f);
@@ -2199,14 +2233,55 @@ export function App() {
     const s = civ.settlements.find((q) => q.region === r && q.founded <= yr && (q.ended === undefined || q.ended > yr));
     return s ? s.id : -1;
   };
-  // 手机:浏览器自己的页面缩放不抢双指捏合(Safari 的 gesture 事件;别的浏览器靠 touch-action,见 app.css)
+  // 浏览器自己的页面缩放不抢捏合:
+  // - 手机:双指捏合(Safari 的 gesture 事件;别的浏览器靠 touch-action,见 app.css),交给上面的手指处理
+  // - 电脑上 Safari 的触控板捏合也是 gesture 事件(没有手指按在屏幕上):落在地图上就缩放地图
+  // - Chrome、Firefox 的触控板捏合是按着 Ctrl 的滚轮:落在侧栏、时间轴、按钮上时也拦下,不放大整个网页
   useEffect(() => {
-    const stop = (e: Event) => e.preventDefault();
-    document.addEventListener('gesturestart', stop, { passive: false });
-    document.addEventListener('gesturechange', stop, { passive: false });
+    /** 这次触控板捏合上一回的倍数(0 = 不归地图管) */
+    let pinchAt = 0;
+    const onMap = (t: EventTarget | null) => {
+      const el = t as HTMLElement | null;
+      return !!el?.closest?.('.stage') && !el.closest('.inspector');
+    };
+    const start = (e: Event) => {
+      e.preventDefault();
+      const fingers = touches.current.size > 0;
+      setGesturePinch(!fingers);
+      pinchAt = !fingers && onMap(e.target) ? 1 : 0;
+    };
+    const change = (e: Event) => {
+      e.preventDefault();
+      const g = e as Event & { scale?: number; clientX?: number; clientY?: number };
+      if (!pinchAt || touches.current.size || !(typeof g.scale === 'number' && g.scale > 0)) return;
+      const f = g.scale / pinchAt;
+      pinchAt = g.scale;
+      const el = stageRef.current;
+      if (!el || !Number.isFinite(f)) return;
+      const rect = el.getBoundingClientRect();
+      const cx = g.clientX ?? mouseAt.current[0];
+      const cy = g.clientY ?? mouseAt.current[1];
+      touchRef.current();
+      if (getGlobeOn()) {
+        el.querySelector('.globe')?.dispatchEvent(new WheelEvent('wheel', { deltaY: pinchDelta(f), ctrlKey: true, clientX: cx, clientY: cy, bubbles: true, cancelable: true }));
+      } else zoomRef.current(cx - rect.left, cy - rect.top, f);
+    };
+    const end = () => {
+      pinchAt = 0;
+      setGesturePinch(false);
+    };
+    const pageZoom = (e: WheelEvent) => {
+      if (isPinchLike(e)) e.preventDefault();
+    };
+    document.addEventListener('gesturestart', start, { passive: false });
+    document.addEventListener('gesturechange', change, { passive: false });
+    document.addEventListener('gestureend', end);
+    window.addEventListener('wheel', pageZoom, { passive: false, capture: true });
     return () => {
-      document.removeEventListener('gesturestart', stop);
-      document.removeEventListener('gesturechange', stop);
+      document.removeEventListener('gesturestart', start);
+      document.removeEventListener('gesturechange', change);
+      document.removeEventListener('gestureend', end);
+      window.removeEventListener('wheel', pageZoom, { capture: true });
     };
   }, []);
   // Esc:先取消"在地图上点一个国家 / 城",再取消选中(在输入框里打字时不管)

@@ -116,6 +116,7 @@ import { AVOID_MS, measureAvoid, type Box } from './uiAvoid';
 import type { GlobeTexRequest, GlobeTexResponse } from '../globeWorker';
 import { fileBaseName } from '../gen/savefile';
 import { currentWorld } from './saveStore';
+import { createWheelReader, inGesturePinch, wheelSample } from './wheel';
 import './globe.css';
 
 const D = Math.PI / 180;
@@ -1557,17 +1558,30 @@ export function Globe({ world, raster, civ, geo, style, layer, terrain, terrainK
     if (s.moved && performance.now() - dr.t < 80 && Math.hypot(dr.vx, dr.vy) > 0.05) s.inertia = { vx: dr.vx, vy: dr.vy, t: performance.now() };
     invalidate();
   };
+  const hoverRef = useRef(onHover);
+  hoverRef.current = onHover;
   useEffect(() => {
     const el = rootRef.current;
     if (!el) return;
+    // 鼠标滚轮 / 捏合 = 缩放,触控板两指滑动 = 转动(方向和滑动网页一样;怎么分见 wheel.ts)
+    const read = createWheelReader();
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       e.stopPropagation();
-      const r = el.getBoundingClientRect();
+      // Safari 的捏合 App 按 gesture 事件转成了 Ctrl 滚轮发过来(isTrusted = false)
+      if (e.ctrlKey && e.isTrusted && inGesturePinch()) return;
+      const a = read(wheelSample(e));
+      if (!a) return;
       s.fly = null;
       s.inertia = null;
-      const k2 = Math.min(GLOBE_K_MAX, Math.max(GLOBE_K_MIN, s.view.k * Math.exp(-e.deltaY * 0.0015)));
-      s.view = zoomAt(s.view, s.size.w, s.size.h, e.clientX - r.left, e.clientY - r.top, k2, s.shift);
+      if (a.kind === 'pan') {
+        s.view = dragView(s.view, frameOf(s.view, s.size.w, s.size.h).R, -a.dx, -a.dy);
+        hoverRef.current(null);
+      } else {
+        const r = el.getBoundingClientRect();
+        const k2 = Math.min(GLOBE_K_MAX, Math.max(GLOBE_K_MIN, s.view.k * a.f));
+        s.view = zoomAt(s.view, s.size.w, s.size.h, e.clientX - r.left, e.clientY - r.top, k2, s.shift);
+      }
       invalidate();
     };
     el.addEventListener('wheel', onWheel, { passive: false });
