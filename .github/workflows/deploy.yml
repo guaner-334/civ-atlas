@@ -8,6 +8,7 @@ name: 发布网站
 # - DEPLOY_SSH_KEY:发布专用的 SSH 私钥。服务器上这把钥匙只能往网站目录传文件,不能登录、不能执行别的命令
 # - DEPLOY_KNOWN_HOSTS:服务器的 SSH 主机指纹(known_hosts 的一行),只连这台机器
 # - DEPLOY_DEST:rsync 的目标,形如 user@host:
+# - DEPLOY_PORT:服务器的 SSH 端口(可不配,默认 22);不是 22 时 DEPLOY_KNOWN_HOSTS 那一行要写成 [host]:端口 的形式
 on:
   push:
     branches: [main]
@@ -62,8 +63,9 @@ jobs:
       - name: 上传
         env:
           DEPLOY_DEST: ${{ secrets.DEPLOY_DEST }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
         run: |
-          export RSYNC_RSH="ssh -i $HOME/.ssh/deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20 -o ServerAliveInterval=10"
+          export RSYNC_RSH="ssh -p ${DEPLOY_PORT:-22} -i $HOME/.ssh/deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20 -o ServerAliveInterval=10"
           retry() { local n; for n in 1 2 3 4; do "$@" && return 0; echo "第 $n 次失败,10 秒后重试" >&2; sleep 10; done; return 1; }
           retry rsync -rltz --chmod=D755,F644 --exclude='/*.html' dist/ "$DEPLOY_DEST"
           retry rsync -ltz --chmod=F644 dist/*.html "$DEPLOY_DEST"
