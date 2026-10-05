@@ -103,11 +103,16 @@ function openLocal(): Storage | null {
 }
 
 let local: Storage | null | undefined;
+/** 这次打开页面时浏览器存储能用(后来出错退回内存的也算:浏览器里可能还存着) */
+let hadLocal = false;
 /** 以前按"种子 + 参数"当编号存的世界换过新编号了(每次打开页面查一次) */
 let migrated = false;
 /** 浏览器存储能不能用(第一次用到时探测) */
 function store(): KV {
-  if (local === undefined) local = openLocal();
+  if (local === undefined) {
+    local = openLocal();
+    hadLocal = !!local;
+  }
   const s = local;
   const kv: KV = !s
     ? memKV
@@ -1151,15 +1156,43 @@ export function removeSyncedWorld(id: string) {
   changed();
 }
 
-/** 退出登录时选了"从这台设备上删掉":浏览器里的世界全删;返回删干净了没有(浏览器不让删 = false) */
+/**
+ * 退出登录时选了"从这台设备上删掉":浏览器里的世界全删;返回删干净了没有(浏览器不让删、看不了还剩什么 = false)。
+ * 没删干净的:正在看的世界接着用(它那份刚删掉了就马上存回去),不然以为还在自动存、其实没有
+ */
 export function removeAllWorlds(): boolean {
   const kv = store();
   const ours = (k: string) => [PREFIX, THUMB, META, NOTES, LEGACY].some((p) => k.startsWith(p));
   for (const k of kv.keys()) if (ours(k)) kv.remove(k);
-  current = null;
-  stopThumb();
+  for (const k of [...mem.keys()]) if (ours(k)) mem.delete(k);
+  const ok = wipeBrowser(ours);
+  if (ok) {
+    current = null;
+    stopThumb();
+  } else if (current?.wrote != null && kv.get(PREFIX + current.id) === null) saveCurrent(true);
   changed();
-  return !kv.keys().some(ours);
+  return ok;
+}
+
+/** 直接对浏览器存储删一遍、再看一遍还剩没剩;看不了 = false(这次打开页面时浏览器存储就不能用的:世界只在内存里,删了就没了) */
+function wipeBrowser(ours: (k: string) => boolean): boolean {
+  if (!hadLocal) return true;
+  try {
+    const s = (globalThis as { localStorage?: Storage }).localStorage;
+    if (!s) return false;
+    const left = () => {
+      const out: string[] = [];
+      for (let i = 0; i < s.length; i++) {
+        const k = s.key(i);
+        if (k !== null && ours(k)) out.push(k);
+      }
+      return out;
+    };
+    for (const k of left()) s.removeItem(k);
+    return left().length === 0;
+  } catch {
+    return false;
+  }
 }
 
 /** 测试用:清空内存里的状态(不动浏览器存储) */
