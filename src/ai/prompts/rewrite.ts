@@ -140,13 +140,13 @@ function nearestCell(world: World, p: readonly [number, number]): number {
 // 历史的小工具
 
 /** 国家在 y 年的全称(还没立国 / 已亡:立国时 / 亡国前的国号) */
-function nameAt(p: Polity, y: number): string {
+export function nameAt(p: Polity, y: number): string {
   const t = y < p.founded ? p.founded : p.ended !== undefined && y >= p.ended ? p.ended - 1 / 512 : y;
   return polityName(p, t) || p.name || '某国';
 }
 
 /** 国家最后(或现在)的那一刻 */
-const lastYear = (civ: Civ, p: Polity) => Math.min(p.ended !== undefined ? p.ended - 1 / 512 : civ.endYear, civ.endYear);
+export const lastYear = (civ: Civ, p: Polity) => Math.min(p.ended !== undefined ? p.ended - 1 / 512 : civ.endYear, civ.endYear);
 
 /** 没写年份的命令从哪一年起:时间轴的年份,最晚是最后一年的前一年 */
 const defaultFrom = (civ: Civ, year: number) => Math.max(0, Math.min(civ.endYear - 1, Math.floor(Number.isFinite(year) ? year : civ.endYear)));
@@ -158,7 +158,7 @@ const stands = (civ: Civ, sid: number, y: number) => {
 };
 
 /** y 年和国家 id 接壤的国家(和国家面板的"宣战"同一口径:海洋国家隔海峡、航线也算) */
-function bordersAt(civ: Civ, own: Int16Array, id: number): Set<number> {
+export function bordersAt(civ: Civ, own: Int16Array, id: number): Set<number> {
   const reg = civ.regions;
   const near = new Set<number>();
   const sea = civ.polities[id]?.kind === 'sea';
@@ -174,7 +174,7 @@ function bordersAt(civ: Civ, own: Int16Array, id: number): Set<number> {
 }
 
 /** 国家怎么亡的:"第 2450 年被 P5 所灭""第 2450 年并入 P5""第 2450 年瓦解";还在 = 空串 */
-function endText(civ: Civ, p: Polity): string {
+export function endText(civ: Civ, p: Polity): string {
   if (p.ended === undefined) return '';
   const y = Math.floor(p.ended);
   const merge = civ.annals.find((e) => e.kind === 'merge' && e.b === p.id);
@@ -471,12 +471,8 @@ function ivText(civ: Civ, v: Intervention): string {
 const presetKm = (k: TerrainKind, i: number) => Math.round((2 * TERRAIN_PRESETS[k][i][0] * KM_PER_UNIT) / 50) * 50;
 const sizesKm = (k: TerrainKind) => [0, 1, 2].map((i) => `${['小', '中', '大'][i]}约 ${presetKm(k, i)}`).join('、');
 
-export const REWRITE_SYSTEM = [
-  '你是「文明与地图」里帮作者改世界的助手。这是一颗虚构的星球:地形由板块、侵蚀、气候生成,历史从第 0 年按规则推演到最后一年。',
-  '作者用一句话说想怎么改(历史、名字或地形),你把它翻成下面这些"修改",列给作者确认,作者点了执行才生效。',
-  '',
-  '## 能用的修改(op)',
-  '',
+/** 能用的修改(op)和各自的规矩:改写和助手的提示词共用 */
+export const REWRITE_OPS = [
   '### 历史命令:从 from 那一年的年初生效;那一年之前的历史一字不变,之后整段重新推演',
   '- protect 保护 country:国都攻不下,不会被灭、不会被并(国土照样会丢、会分裂、会改朝换代)。可给 until = 保护到哪一年为止,之后照常可能被灭',
   '- unity 禁止 country 分裂:不会有州叛离自立,也不会有遗民复国',
@@ -501,6 +497,15 @@ export const REWRITE_SYSTEM = [
   `size = "小" / "中" / "大"(山脉是低 / 中 / 高),宽度(公里):火山山体 ${sizesKm('volcano')};湖 ${sizesKm('lake')};山脉 ${sizesKm('range')};画笔带子 ${sizesKm('raise')}。`,
   '气候不能直接改,只能借地形:纬度 0–30° 吹东风,30–60° 吹西风,60° 以上吹东风;水汽从海上顺风吹来,遇山在迎风坡下雨,翻过山就干(雨影)。',
   '所以"让某地更干旱"可以在它的上风一侧拉一道山脉挡住水汽;"更湿润"可以在它的上风一侧沉出一片海湾。用这种办法时在 why 里说清楚。',
+].join('\n');
+
+export const REWRITE_SYSTEM = [
+  '你是「文明与地图」里帮作者改世界的助手。这是一颗虚构的星球:地形由板块、侵蚀、气候生成,历史从第 0 年按规则推演到最后一年。',
+  '作者用一句话说想怎么改(历史、名字或地形),你把它翻成下面这些"修改",列给作者确认,作者点了执行才生效。',
+  '',
+  '## 能用的修改(op)',
+  '',
+  REWRITE_OPS,
   '',
   '## 规则',
   '1. 国家、城、州、民族、山河只能用材料里的编号(P3、C12、R45、E2、M7);作者说的名字对不上任何一个,写进 cannot,不要编。',
