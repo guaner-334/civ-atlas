@@ -27,7 +27,7 @@ import { refreshOfficialAccount, useOfficialAccount } from '../ai/providers/offi
 import { useAiOn } from '../ai/client';
 import { ServerError } from '../account/server';
 import { deleteAccount, displayName, fetchAuthOptions, getSession, login, pendingInvite, sendCode, useSession, type AuthOptions } from '../account/session';
-import { accountDeleted, behindCloud, signOut, syncNow, useSyncView } from '../account/sync';
+import { accountDeleted, behindCloud, signOut, syncNow, unsyncedCount, useSyncView } from '../account/sync';
 import { createShare, listShares, listTrash, shortLink, stopShare, type ShareInfo, type TrashEntry } from '../account/cloud';
 import './account.css';
 
@@ -504,11 +504,12 @@ function AccountDialog({ phone, onClose }: { phone: boolean; onClose: () => void
   }, [copied]);
 
   const n = listWorlds().length;
+  const unsynced = unsyncedCount(sync);
   const syncText =
     sync.phase === 'syncing' || sync.busy.size
       ? { text: '正在同步', warn: false }
-      : sync.failed.size
-        ? { text: `${sync.failed.size} 个世界还没同步上`, warn: true }
+      : unsynced
+        ? { text: `${unsynced} 个世界还没同步上`, warn: true }
         : sync.phase === 'offline' || sync.phase === 'error'
           ? { text: sync.message ?? '连不上服务器，联网后会自动同步', warn: true }
           : !n

@@ -14,7 +14,7 @@ import { _resetToasts, getToast } from '../src/ui/toastStore';
 import { forgetNotes, listNotes, putNote } from '../src/ai/library';
 import { setServerForTest, setTimeoutForTest } from '../src/account/server';
 import { _resetSessionForTest, currentAccount, deleteAccount, fetchAuthOptions, getSession, login, logout, refreshSession, sendCode } from '../src/account/session';
-import { _resetSyncForTest, behindCloud, getSyncView, inAccount, pullWorld, signOut, startSync, syncNow, worldSync } from '../src/account/sync';
+import { _resetSyncForTest, behindCloud, getSyncView, inAccount, pullWorld, signOut, startSync, syncNow, unsyncedCount, worldSync } from '../src/account/sync';
 import { createShare, listShares, openShareCode, stopShare } from '../src/account/cloud';
 
 class FakeStorage {
@@ -789,6 +789,9 @@ describe('云同步:载入、挤掉、放满了、老编号', () => {
     addWorld(7, '苍澜界');
     await signIn();
     expect(worldSync(oldId)).toMatchObject({ state: 'failed' });
+    // 账号窗里那句也算上它:不说"都已同步"
+    expect(getSyncView().failed.size).toBe(0);
+    expect(unsyncedCount()).toBe(1);
     const r = await signOut(false);
     expect(r).toMatchObject({ ok: false });
     expect(r.ok ? '' : r.message).toContain('以前存的世界');

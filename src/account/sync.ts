@@ -279,6 +279,11 @@ export function getSyncView(): SyncView {
   return view;
 }
 
+/** 还没同步上的世界有几个:同步没成的,加上还用老编号存着、存不进账号的(同步不碰它们,不在 failed 里) */
+export function unsyncedCount(v: SyncView = view): number {
+  return new Set([...v.failed.keys(), ...legacyIds()]).size;
+}
+
 /** React:同步状态变了就重渲染 */
 export function useSyncView(): SyncView {
   useSyncExternalStore(
