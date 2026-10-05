@@ -1,6 +1,6 @@
 import './theme.css';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import { createPortal } from 'react-dom';
+import { createPortal, flushSync } from 'react-dom';
 import { DEFAULT_PARAMS, type World, type WorldParams } from '../gen/world';
 import type { Raster } from '../gen/raster';
 import { renderRealistic } from '../render/realistic';
@@ -155,7 +155,7 @@ import { getPolityPick, interventionActorThen, interventionDoneText, setPickHove
 import { Inspector } from './Inspector';
 import { TargetLayer } from './TargetPlates';
 import { FLY_MS, curvedFly, easeOutCubic, flatFly, selectionFocus, selectionKey, sideRoom, phoneFree, type FlyGoal } from './flyTo';
-import { setSideHold, useSide } from './sideStore';
+import { collapseSide, expandSide, getSide, setSideHold, useSide } from './sideStore';
 import { getPanel, setWorldSheet, usePanel } from './panelStore';
 import { closeOverview } from './overviewStore';
 import { NewWorld } from './NewWorld';
@@ -2310,6 +2310,10 @@ export function App() {
     const end = civ?.endYear ?? 0;
     // 有历史可放:建好的世界、长出了文明、不在回放世界形成
     const history = !draft && !!civ && civ.viable && !replayOn;
+    // 宽屏、建好的世界:左边的卡片能收起(sideStore.ts);收起着要用卡片里的搜索框、存档时先展开
+    const foldable = !narrow && !!world && stage === 'world';
+    const sideHidden = () => foldable && getSide().collapsed && !getSide().peek;
+    const showSide = () => sideHidden() && flushSync(expandSide);
     switch (a) {
       case 'play':
         if (!history) return false;
@@ -2336,6 +2340,7 @@ export function App() {
         return true;
       }
       case 'search': {
+        showSide();
         const box = [...document.querySelectorAll<HTMLInputElement>('input.search-input')].find(
           (el) => !el.disabled && el.getClientRects().length > 0 && !el.closest('[inert]'),
         );
@@ -2356,9 +2361,15 @@ export function App() {
         else redoLastEdit();
         return true;
       case 'save':
-        return !draft && openSaveMenu();
+        if (draft) return false;
+        showSide();
+        return openSaveMenu();
       case 'side':
-        return false;
+        // 和卡片上的收起按钮、收起后左上角的小按钮一样(卡片弹出来显示选中的东西时 = 收回去)
+        if (!foldable) return false;
+        if (sideHidden()) expandSide();
+        else collapseSide();
+        return true;
       case 'help':
         openShortcuts();
         return true;

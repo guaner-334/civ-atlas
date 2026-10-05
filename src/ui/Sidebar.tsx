@@ -90,7 +90,7 @@ export function Sidebar(p: SidebarProps) {
       >
         <header className="sb-head">
           <BackHome onClick={p.onHome} />
-          <button className="sb-collapse" data-act="side-collapse" aria-label="收起侧栏" data-tip="收起侧栏" onClick={collapseSide}>
+          <button className="sb-collapse" data-act="side-collapse" aria-label="收起侧栏" data-tip="收起侧栏" data-tip-key="side" data-tip-side="left" onClick={collapseSide}>
             <Icon name="sidebar" size={19} />
           </button>
           <WorldHead {...p} />

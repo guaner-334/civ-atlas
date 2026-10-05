@@ -46,8 +46,10 @@ function ShortcutsDialog() {
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
   }, []);
+  // 挂在 body 下:深浅色跟着页面(实景、高程等图层是深色)
+  const theme = document.querySelector('.app')?.getAttribute('data-theme') ?? undefined;
   return createPortal(
-    <div className="kb-bg" onPointerDown={(e) => e.target === e.currentTarget && closeShortcuts()}>
+    <div className="kb-bg" data-theme={theme} onPointerDown={(e) => e.target === e.currentTarget && closeShortcuts()}>
       <section className="kb-panel" role="dialog" aria-modal="true" aria-label="键盘快捷键" data-testid="shortcuts" onWheel={(e) => e.stopPropagation()}>
         <header className="kb-head">
           <h2>键盘快捷键</h2>

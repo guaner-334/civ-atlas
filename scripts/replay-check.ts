@@ -275,7 +275,7 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
 
 // 键盘快捷键(电脑上):← → 走 10 年(Shift 100 年)、空格播放 / 暂停(用鼠标点过播放键以后按空格只算一下)、+ − 缩放、1–4 换图层、
 // / 跳进搜索框(在框里打数字不换图层)、? 打开一览(开着时空格不播放,Esc 收起)、Ctrl+S 打开存档菜单(拦下浏览器的"存储网页")、
-// 改名后 Ctrl+Z 撤销、Ctrl+Shift+Z 重做;按钮的提示框右边写着键;"更多"菜单里有"键盘快捷键"
+// 改名后 Ctrl+Z 撤销、Ctrl+Shift+Z 重做;Ctrl+\ 收起 / 展开左边的卡片(收起着按 / 先展开);按钮的提示框右边写着键;"更多"菜单里有"键盘快捷键"
 {
   await page.goto(`${dev.url}/?seed=7`);
   await page.waitForFunction(() => (window as any).__wfLabels?.polities > 0, null, { timeout: 60000 });
@@ -376,11 +376,31 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
     await page.waitForTimeout(400);
     named.push(await has('快捷键城'));
   }
+  // 收起按钮的提示框;Ctrl+\ 收起、再按展开;收起着按 / :卡片展开、光标在搜索框里
+  await page.keyboard.press('Escape');
+  await page.hover('[data-act=side-collapse]');
+  await page.waitForTimeout(700);
+  const tipSide = (await page.locator('.ui-tip').innerText().catch(() => '')).replace(/\s+/g, ' ');
+  await page.mouse.move(SIDE_ROOM + (vp.width - SIDE_ROOM) / 2, vp.height / 2);
+  const folded = async () => (await page.locator('.side-open').count()) === 1;
+  await page.keyboard.press('Control+Backslash');
+  await page.waitForTimeout(400);
+  const fold1 = await folded();
+  await page.keyboard.press('Control+Backslash');
+  await page.waitForTimeout(400);
+  const fold2 = await folded();
+  await page.keyboard.press('Control+Backslash');
+  await page.waitForTimeout(400);
+  await page.keyboard.press('/');
+  await page.waitForTimeout(300);
+  const fold3 = await folded();
+  const searchAfterFold = await page.evaluate(() => document.activeElement?.classList.contains('search-input') ?? false);
+  await page.keyboard.press('Escape');
   console.log(
     `快捷键:年份 ${y0} → ← ${y1} → Shift+← ${y2} → → ${y3};空格 ${play1}/${play2},点播放键 ${play3} 后空格 ${play4};缩放 ${k0.toFixed(2)} → ${k1.toFixed(2)} → ${k2.toFixed(2)};` +
       `2 → ${l2}、1 → ${l1};/ 进搜索框 ${searchFocused}、打「${typed}」图层 ${lTyped};? 一览「${help.slice(0, 30)}…」、开着时空格播放 ${playUnderHelp}、Esc 收起 ${helpClosed};` +
       `Ctrl+S 存档菜单 ${saveMenu}、拦下 ${savePrevented};提示「${tip}」;更多菜单「${menu}」→ 一览 ${menuOpens};` +
-      `改名「${city?.text}」→ 快捷键城 ${named.join('/')}、撤销「${undo}」、重做「${redo}」`,
+      `改名「${city?.text}」→ 快捷键城 ${named.join('/')}、撤销「${undo}」、重做「${redo}」;收起按钮提示「${tipSide}」;Ctrl+\\ 收起 ${fold1} → 展开 ${!fold2};收起着按 / → 展开 ${!fold3}、进搜索框 ${searchAfterFold}`,
   );
   if (!(y1 === y0 - 10 && y2 === y0 - 110 && y3 === y0 - 100)) errs.push(`快捷键:← → 没有按 10 年 / Shift 100 年走(${y0} → ${y1} → ${y2} → ${y3})`);
   if (!play1 || play2) errs.push(`快捷键:空格没有播放 / 暂停(${play1}、${play2})`);
@@ -396,6 +416,9 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
   if (!city) errs.push('快捷键:没找到能点的城');
   else if (named.join() !== 'true,false,true,true' || undo !== '已撤销改名' || redo !== '已重做改名')
     errs.push(`快捷键:改名后 Ctrl+Z / Ctrl+Shift+Z 不对(${named.join('/')};${undo};${redo})`);
+  if (!/收起侧栏\s*Ctrl\+\\/.test(tipSide)) errs.push(`快捷键:收起按钮的提示框没写键(${tipSide})`);
+  if (!fold1 || fold2) errs.push(`快捷键:Ctrl+\\ 没有收起 / 展开左边的卡片(${fold1}、${fold2})`);
+  if (fold3 || !searchAfterFold) errs.push(`快捷键:卡片收起着按 / ,应先展开再跳进搜索框(${fold3}、${searchAfterFold})`);
   await page.evaluate(() => localStorage.clear());
 }
 
