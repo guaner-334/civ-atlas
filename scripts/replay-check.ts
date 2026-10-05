@@ -679,7 +679,7 @@ await page.waitForFunction(() => (window as any).__wf?.ready, null, { timeout: 6
 
 // 新建时让助手改(测试用假 AI):左边「地形」里「让助手改」→ 右边的样式和投影换成助手面板;说一句要改的 →
 // 列出改地形的两条(带编号),星球转过去、圈出这两处;勾掉一条,圈跟着少一个;执行 → 按新地形重新生成,左边「地形」写"改了 2 处",
-// 不放提示条,助手里一行"已执行 2 条"带撤销;撤销 → 回到"还没改"。打开改地形工具时助手收起;换一颗,对话清掉
+// 不放提示条,清单收起、助手里只留一行"已执行 2 条"带撤销;撤销 → 回到"还没改"。打开改地形工具时助手收起;换一颗,对话清掉
 {
   const actx = await browser.newContext({ viewport: { width: 1600, height: 900 } });
   const ap = await actx.newPage();
@@ -713,6 +713,7 @@ await page.waitForFunction(() => (window as any).__wf?.ready, null, { timeout: 6
   const applied = (await ap.locator('.ast-applied').innerText().catch(() => '')).replace(/\n/g, ' ');
   const toast = await ap.locator('.toast[data-toast=terrain]').count();
   const marksGone = !(await ap.locator('.st-marks.on').count());
+  const listGone = !(await ap.locator('.ast-items').count());
   await ap.click('.ast-applied [data-act=ast-undo]').catch(() => {});
   await ap.waitForFunction(() => /还没改/.test(document.querySelector('.studio [data-act=terrain] .sb-row-side')?.textContent ?? ''), null, { timeout: 30000 }).catch(() => {});
   const row0 = await row();
@@ -729,14 +730,15 @@ await page.waitForFunction(() => (window as any).__wf?.ready, null, { timeout: 6
   const turnsAfter = await ap.locator('.ast-turn').count();
   console.log(
     `新建时让助手改:面板 ${shown}(左边 ${panel ? Math.round(panel.x) : '-'}、宽 ${panel ? Math.round(panel.width) : '-'}),右边样式投影让开 ${rightGone};「${hint.slice(0, 16)}…」;` +
-      `编号 ${nos.join(',')},星球上圈 ${marks2 ? 2 : '?'} → 勾掉一条 ${marks1 ? 1 : '?'};执行 → 左边「${row2}」、「${applied}」、提示条 ${toast}、圈没了 ${marksGone};` +
+      `编号 ${nos.join(',')},星球上圈 ${marks2 ? 2 : '?'} → 勾掉一条 ${marks1 ? 1 : '?'};执行 → 左边「${row2}」、「${applied}」、清单收起 ${listGone}、提示条 ${toast}、圈没了 ${marksGone};` +
       `撤销 → 「${row0}」;开改地形工具助手收起 ${closedByTool};换一颗对话 ${turns} → ${turnsAfter} 轮`,
   );
   if (!shown || !panel || Math.abs(panel.x + panel.width - 1600) > 1 || Math.abs(panel.width - 372) > 1 || !rightGone)
     errs.push(`新建时让助手改:助手面板没有换掉右边的样式和投影(${shown},${JSON.stringify(panel)},${rightGone})`);
   if (!hint.includes('圈出')) errs.push(`新建时让助手改:空的时候的说明不对(${hint})`);
   if (nos.join(',') !== '1,2' || !marks2 || !marks1) errs.push(`新建时让助手改:确认单没编号,或星球上没圈出要改的地方 / 勾掉一条圈没跟着少(${nos},${marks2},${marks1})`);
-  if (row2 !== '改了 2 处' || !applied.includes('已执行 2 条') || toast || !marksGone) errs.push(`新建时让助手改:执行后左边没写"改了 2 处" / 助手里没写已执行 / 放了提示条(${row2},${applied},${toast},${marksGone})`);
+  if (row2 !== '改了 2 处' || !applied.includes('已执行 2 条') || !listGone || toast || !marksGone)
+    errs.push(`新建时让助手改:执行后左边没写"改了 2 处" / 助手里没写已执行 / 清单没收起 / 放了提示条(${row2},${applied},${listGone},${toast},${marksGone})`);
   if (row0 !== '还没改') errs.push(`新建时让助手改:撤销以后地形没回去(${row0})`);
   if (!closedByTool) errs.push('新建时让助手改:打开改地形工具时助手没收起');
   if (!turns || turnsAfter) errs.push(`新建时让助手改:换一颗以后对话没清掉(${turns} → ${turnsAfter})`);
@@ -3685,8 +3687,9 @@ for (const style of ['realistic', 'fantasy']) {
     await op.click('.save-btn');
     const [odl] = await Promise.all([op.waitForEvent('download', { timeout: 30000 }), op.click('[data-act=save-file]')]);
     const ofile = await odl.path();
-    await op.close();
+    // 下载的文件跟着这一页的浏览器环境走,关页面会删掉:先读完再关
     if (ofile) await openFile(hp, ofile);
+    await op.close();
     await hp.waitForFunction(() => (window as any).__wfGlobe?.hdCached === 0 && (window as any).__wf?.ready && /seed=2024/.test(location.search), null, { timeout: 60000 }).catch(() => {});
     await hp.waitForTimeout(1500);
     const g = await H();

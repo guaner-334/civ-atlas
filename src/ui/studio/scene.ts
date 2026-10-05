@@ -60,6 +60,15 @@ type Num = 'mix' | 's' | 'drift' | 'boxT' | 'markA' | 'lon' | 'tilt';
 const SPIN = 0.00011;
 const linear = (t: number) => t;
 
+/**
+ * 卷起来时的俯仰跟着卷的程度走,但几乎卷好才开始俯:没卷严的球两极还开着口、背后还有一道缝,
+ * 早早俯下去会从北极的口里看穿背后的缝,露出一块黑
+ */
+function tiltIn(m: number): number {
+  const x = Math.min(1, Math.max(0, (m - 0.94) / 0.06));
+  return x * x * (3 - 2 * x);
+}
+
 export class StudioScene {
   readonly gl: PlanetGL;
   private hooks: SceneHooks;
@@ -306,7 +315,7 @@ export class StudioScene {
       k: p.k,
       cx: p.cx,
       cy: p.cy,
-      tilt: (TILT + this.tilt) * p.m * p.m,
+      tilt: (TILT + this.tilt) * tiltIn(p.m),
       lon: this.lon,
       a: this.a,
       b: this.b || this.a,

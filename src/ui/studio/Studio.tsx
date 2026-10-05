@@ -1023,7 +1023,7 @@ export function Studio(p: StudioProps) {
           跳过
         </button>
       </div>
-      <div ref={tipRef} className={`st-cap st-tip${tip && !capOn && !tool.on && !out ? '' : ' off'}`}>
+      <div ref={tipRef} className={`st-cap st-tip${tip && !capOn && !tool.on && !out && !(p.phone && (drawer || sheetFull)) ? '' : ' off'}`}>
         拖动看看这颗星球；不满意就点「换一颗」
       </div>
       {confirm && (

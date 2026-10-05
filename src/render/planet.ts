@@ -186,7 +186,9 @@ void main() {
     n = vec3(0.0, 0.0, 1.0);
   } else {
     float r = 1.0 / u_m;
-    n = vec3(cos(u_m * p.y) * sin(u_m * p.x), sin(u_m * p.y), cos(u_m * p.y) * cos(u_m * p.x));
+    // 东西方向比南北方向先合拢(卷到 0.94 时背后的缝已经合上),快卷好时从北极的口里看进去不会看穿到背后
+    float mx = min(1.0, u_m + 0.06 * smoothstep(0.5, 0.94, u_m));
+    n = vec3(cos(u_m * p.y) * sin(mx * p.x), sin(u_m * p.y), cos(u_m * p.y) * cos(mx * p.x));
     q = r * n - vec3(0.0, 0.0, r);
   }
   float ct = cos(u_tilt), st = sin(u_tilt);

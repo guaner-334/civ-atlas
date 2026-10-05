@@ -479,7 +479,8 @@ function Proposal({ t, latest, phone, busy, previewing }: { t: AsTurn; latest: b
   };
   return (
     <>
-      {!!p.items.length && (
+      {/* 新建时执行了就只留"已执行 N 条"那一行,清单收起来 */}
+      {!!p.items.length && !(numbered && t.applied) && (
         <>
           {!phone && (
             <div className="ast-sec">
