@@ -114,6 +114,8 @@ import { fantasyGlobeBase, releaseFantasyGlobeBase } from '../render/fantasy';
 import type { LabelPick } from './mapPick';
 import { AVOID_MS, measureAvoid, type Box } from './uiAvoid';
 import type { GlobeTexRequest, GlobeTexResponse } from '../globeWorker';
+import { fileBaseName } from '../gen/savefile';
+import { currentWorld } from './saveStore';
 import './globe.css';
 
 const D = Math.PI / 180;
@@ -1617,7 +1619,7 @@ export function Globe({ world, raster, civ, geo, style, layer, terrain, terrainK
       const civ = p.civ;
       const year = civ ? Math.floor(Math.max(0, Math.min(civ.endYear, getCivTime().year ?? civ.endYear))) : 0;
       const styleName = p.style === 'realistic' ? '写实' : p.style === 'fantasy' ? '手绘' : '数据图层';
-      const name = `文明与地图-种子${p.world.params.seed}-第${year}年-地球仪-${styleName}.png`;
+      const name = `${fileBaseName({ title: currentWorld()?.title, seed: p.world.params.seed })}-第${year}年-地球仪-${styleName}.png`;
       (window as unknown as { __wfGlobeExport: unknown }).__wfGlobeExport = { name, w: W, h: H, bytes: blob.size };
       return { blob, name, w: W, h: H };
     } finally {

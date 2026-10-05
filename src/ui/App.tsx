@@ -179,6 +179,7 @@ import {
   useTerrainTool,
   type TerrainStatus,
 } from './TerrainTools';
+import { tookDismissClick } from './dismissClick';
 
 type Replay = { w: number; h: number; frames: Uint8ClampedArray[]; mya: number[]; idx: number };
 
@@ -2118,6 +2119,8 @@ export function App() {
     // 只管点在地图(或地图外的空白)上的:时间轴、按钮、图例上的点击冒泡上来不算
     const t = e.target as HTMLElement;
     if (t !== e.currentTarget && !t.closest('.canvas-wrap, .globe')) return;
+    // 点地图收起菜单的那一下只收起菜单(dismissClick.ts)
+    if (tookDismissClick()) return;
     if ((getGlobeOn() ? globeApi.current?.dragged() : moved.current) || replayOn) return;
     // 改地形:单击放火山 / 挖湖,不看详情(双击的第二下不再放)
     if (getTerrainTool().on) {
