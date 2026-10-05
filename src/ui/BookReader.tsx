@@ -129,11 +129,11 @@ export function layout(text: string, bookTitle: string): { blocks: ReactNode[]; 
 
 // ---------------------------------------------------------------------------
 
-/** 元信息:"纪传体 · 中篇 · 截至 3000 年"(一国的写起止年份) */
+/** 元信息:"纪传体，中篇，截至 3000 年"(一国的写起止年份) */
 function metaLine(style: HistoryStyle, length: HistoryLength, range: string, scopeKind: string): string {
   const m = /(\d+)\D+(\d+)/.exec(range);
   const when = m ? (scopeKind === 'world' ? `截至 ${m[2]} 年` : `${m[1]}–${m[2]} 年`) : range;
-  return [historyStyleLabel(style), `${HISTORY_LENGTHS[length].label}篇`, when].filter(Boolean).join(' · ');
+  return [historyStyleLabel(style), `${HISTORY_LENGTHS[length].label}篇`, when].filter(Boolean).join('，');
 }
 
 export function BookReader({ civ }: { civ: Civ }) {
@@ -188,7 +188,7 @@ function Reader({ civ }: { civ: Civ }) {
   };
 
   const info = note
-    ? [`${fmt(textLength(note.text))} 字`, historyWriter(note), shortDate(note.createdAt)].filter(Boolean).join(' · ')
+    ? [`${fmt(textLength(note.text))} 字`, historyWriter(note, '，'), shortDate(note.createdAt)].filter(Boolean).join('，')
     : writing
       ? `正在写${live!.calls > 1 ? `第 ${live!.call + 1} ${bookUnit(style)}(共 ${live!.calls} ${bookUnit(style)})` : ''}…… ${text ? `${fmt(textLength(text))} 字` : ''}`
       : live!.status === 'stopped'

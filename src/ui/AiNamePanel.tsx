@@ -354,7 +354,7 @@ export function useAiName({ civ, raw, raster, target, compact, lazy, what }: AiN
                   <button onClick={() => patch(key, { expanded: !s.expanded })}>{s.expanded ? '收起' : '展开'}</button>
                   <span className="ain-by">
                     {providerLabel(note.provider, note.model)}
-                    {dateLabel(note.createdAt) && ` · ${dateLabel(note.createdAt)}`}
+                    {dateLabel(note.createdAt) && `，${dateLabel(note.createdAt)}`}
                   </span>
                 </>
               )
