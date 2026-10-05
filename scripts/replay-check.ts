@@ -3757,7 +3757,8 @@ for (const style of ['realistic', 'fantasy']) {
     // 换世界(把另一颗星球的存档文件拖进页面,在地球仪上直接打开):扔掉,1 倍时也不重铺
     await closeOverview(hp);
     const op = await gBrowser.newPage({ viewport: { width: 1400, height: 820 } });
-    await op.goto(`${dev.url}/?seed=2024&style=realistic`);
+    // 存档里记着投影:在地球仪上存的,打开时才留在地球仪上
+    await op.goto(`${dev.url}/?seed=2024&style=realistic&view=globe`);
     await op.waitForFunction(() => (window as any).__wf?.ready, null, { timeout: 60000 });
     await op.click('.save-btn');
     const [odl] = await Promise.all([op.waitForEvent('download', { timeout: 30000 }), op.click('[data-act=save-file]')]);
