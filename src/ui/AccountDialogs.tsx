@@ -3,7 +3,7 @@
  *
  *   登录       邮箱收验证码(不设密码);「手机号」那一格先置灰写"暂未开放"(网页这边还没做手机号登录);
  *              邀请制下新邮箱要邀请码:从邀请链接打开的已经填好,没填的点"获取验证码"时先说明、露出邀请码一栏(不发邮件)
- *   账号       云同步、最近删除、AI 积分、分享出去的世界(复制链接、停止分享);左下注销账号,右下退出登录
+ *   账号       云同步、最近删除、AI 积分(「使用 AI 功能」关着时不显示)、分享出去的世界(复制链接、停止分享);左下注销账号,右下退出登录
  *   退出登录   问这台设备上的世界留不留(默认留);选"删掉"先全部同步好再删
  *   注销账号   给自己的邮箱发验证码,填上才注销(账号里的都删掉;这台设备上的不动)
  *   分享       一个开关管开和停;短链接、复制;手机上多一个"发给…"(系统分享)
@@ -24,6 +24,7 @@ import { copyText } from './clipboard';
 import { currentUnsaved, currentWorld, isStored, keepWorld, listWorlds, loadWorld, notify, useSavesVersion } from './saveStore';
 import { closeAiSettings, openAiSettings } from './AiSettings';
 import { refreshOfficialAccount, useOfficialAccount } from '../ai/providers/official';
+import { useAiOn } from '../ai/client';
 import { ServerError } from '../account/server';
 import { deleteAccount, displayName, fetchAuthOptions, getSession, login, pendingInvite, sendCode, useSession, type AuthOptions } from '../account/session';
 import { accountDeleted, pushNow, signOut, useSyncView } from '../account/sync';
@@ -477,6 +478,7 @@ function AccountDialog({ phone, onClose }: { phone: boolean; onClose: () => void
   const s = useSession()!;
   const sync = useSyncView();
   const acct = useOfficialAccount();
+  const aiOn = useAiOn();
   useSavesVersion();
   const [trashList, setTrashList] = useState<TrashEntry[] | null>(null);
   const [shares, setShares] = useState<ShareInfo[] | null>(null);
@@ -555,21 +557,23 @@ function AccountDialog({ phone, onClose }: { phone: boolean; onClose: () => void
             <span className="side">{trashText}</span>
             <Icon name="chevron" size={14} className="chev" />
           </button>
-          <button
-            className="acct-gr"
-            data-act="open-credits"
-            onClick={() => {
-              onClose();
-              openAiSettings('settings');
-            }}
-          >
-            <Icon name="sparkle" size={19} />
-            <span className="main">
-              <b>AI 积分</b>
-            </span>
-            <span className="side">{acct.credits !== undefined ? `剩 ${acct.credits}` : ''}</span>
-            <Icon name="chevron" size={14} className="chev" />
-          </button>
+          {aiOn && (
+            <button
+              className="acct-gr"
+              data-act="open-credits"
+              onClick={() => {
+                onClose();
+                openAiSettings('settings');
+              }}
+            >
+              <Icon name="sparkle" size={19} />
+              <span className="main">
+                <b>AI 积分</b>
+              </span>
+              <span className="side">{acct.credits !== undefined ? `剩 ${acct.credits}` : ''}</span>
+              <Icon name="chevron" size={14} className="chev" />
+            </button>
+          )}
         </div>
         {!!shares?.length && (
           <>
