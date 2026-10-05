@@ -3,7 +3,7 @@
  * 纯计算,不碰 DOM。
  *
  *   - 民间信仰:每个民族自带一种(编号 = 民族编号),州一有人住就是它;民族换了(同化、迁徙),民间信仰跟着换
- *   - 大教:2–5 个(按州数),在 FOUND_SPAN 里几个年份上,挑当时人口最多、离别的圣城够远、还信民间信仰的大城,
+ *   - 大教:2–5 个(按州数),在 FOUND_SPAN 里几个年份上(那年没有合适的城:不到两个大教就往后推,够两个就不创这一个),挑当时人口最多、离别的圣城够远、还信民间信仰的大城,
  *     由一位创教者创立;那座城是圣城
  *   - 传播:每 STEP 年向相邻的州传一次;同一国里快,奉它为国教的国里更快,跨国界、出海、翻山慢,已经信了别的大教的州很难改信
  *   - 国教:一国里某个大教占到 ADOPT 以上的州,或者国都改信了,国君皈依、立为国教;亡国时国教跟着结束
@@ -123,6 +123,8 @@ export function buildReligion(world: World, civ: Civ): Religion {
   const stateOf = new Int32Array(P).fill(-1);
   /** 各大教分出了几派 */
   const sects = new Map<number, number>();
+  /** 各大教是哪个民族创的(教派起名的语感跟着它) */
+  const foundedBy = new Map<number, number>();
   /** 各大教的圣城上一步属哪国(−2 = 还没看过) */
   const holyOwner = new Map<number, number>();
   /** 已经传入过的(国家, 大教):记过"传入"就不再记 */
@@ -282,8 +284,10 @@ export function buildReligion(world: World, civ: Civ): Religion {
         });
         set(y, s.region, k);
         events.push({ year: y, kind: 'found', faith: k, polity: ownP[s.region], region: s.region, settlement: best });
-      }
-      nextFound++;
+        foundedBy.set(k, cu.id);
+        nextFound++;
+      } else if (faiths.filter((f) => f.kind === 'great').length >= 2) nextFound++;
+      // 这一年没有合适的城(都信了大教、离圣城太近):已经有两个大教就不创这一个,不到两个下一步再找
     }
 
     // 传播:大教 / 教派向相邻的州传
@@ -361,7 +365,7 @@ export function buildReligion(world: World, civ: Civ): Religion {
           if (keyed(seed, 20 + y, s.polity, f.id) >= SCHISM_ODDS) continue;
           const k = faiths.length;
           const nth = sects.get(f.id) ?? 0;
-          const eastern = namers(civ.cultures[S[f.holy!].culture].style).family === 'eastern';
+          const eastern = namers(civ.cultures[foundedBy.get(f.id) ?? S[f.holy!].culture].style).family === 'eastern';
           addFaith({
             id: k,
             kind: 'sect',

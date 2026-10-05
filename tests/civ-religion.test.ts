@@ -256,7 +256,7 @@ describe('信仰 · 改名、搜索、图层、地图上的选中', () => {
     expect(layerDef('faith')).toMatchObject({ polities: true, cultures: false, faiths: true });
   });
 
-  it('在信仰图层上点编年史:宗教大事留在信仰图层,别的事换到政区图层', () => {
+  it('点编年史:在信仰图层上点宗教大事留在信仰图层,别的情形都换到政区图层(民族色块也关掉)', () => {
     const all = fullChronicle(civ);
     const faithEv = all.find((e) => e.kind === 'faith')!;
     const other = all.find((e) => e.kind !== 'faith')!;
@@ -269,6 +269,7 @@ describe('信仰 · 改名、搜索、图层、地图上的选中', () => {
     setCivShow({ polities: false, cultures: true, faiths: false });
     pickChronicleEntry(faithEv);
     expect(layer()).toBe('political');
+    expect(getCivShow()).toMatchObject({ polities: true, cultures: false, faiths: false });
   });
 
   it('导出的编年史给了全部纪事就带上宗教大事', () => {
