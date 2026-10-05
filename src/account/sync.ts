@@ -1096,7 +1096,22 @@ export async function signOut(keep: boolean): Promise<{ ok: true } | { ok: false
       applying = false;
     }
     // 浏览器不让删(存储突然不让用了之类):不退出,不然以为删干净了,刷新以后世界又都在。没删掉的同步记录还在,下次同步不会当成删了
-    if (!gone) return { ok: false, message: '浏览器没让删掉这台设备上的世界，没有退出。可以选「留着」再退出' };
+    if (!gone) {
+      // 删前每个世界都和账号里的一样(上面查过);现在不一样的 = 删了一部分又没能放回去(比如存档还在、AI 写的东西没了):
+      // 不能当成在账号那份上改过、存上去盖掉完整的那份。记成"比账号里的旧"(服务器的版本号从 1 起),下次同步把完整的取回来
+      const st = readState();
+      if (st) {
+        let hurt = false;
+        for (const [id, k] of Object.entries(st.worlds)) {
+          const l = localWorld(id);
+          if (!l || k.sum === l.sum) continue;
+          st.worlds[id] = { ...k, rev: 0, sum: l.sum, core: l.core };
+          hurt = true;
+        }
+        if (hurt) writeState(st);
+      }
+      return { ok: false, message: '浏览器没让删掉这台设备上的世界，没有退出。可以选「留着」再退出' };
+    }
     writeState(null);
     rejected.clear();
   }

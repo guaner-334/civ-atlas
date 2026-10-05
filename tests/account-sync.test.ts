@@ -1858,6 +1858,34 @@ describe('云同步:放满了、服务器不回话、分享前、别的标签页
     expect(fake.users.get('writer@example.com')!.worlds.get(id)!.notes).toHaveLength(1);
   });
 
+  it('退出选"删掉"、删了一部分又没能放回去(存档删不掉、AI 写的东西删掉后写不回去):不把缺了东西的那份存上去,下次同步取回完整的', async () => {
+    let locked = false;
+    const a = new (class extends FakeStorage {
+      removeItem(k: string) {
+        if (locked && k.startsWith('wenming-ditu:world:')) throw new Error('不让删');
+        super.removeItem(k);
+      }
+    })();
+    device(a);
+    const id = addWorld(7, '苍澜界');
+    putNote(id, { key: 'k', kind: '史书', title: '大昌', text: '大昌兴于碧溪谷。', createdAt: '2026-10-05T00:00:00Z', provider: 'mock', model: 'm' });
+    await signIn();
+    const cloud = () => fake.users.get('writer@example.com')!.worlds.get(id)!;
+    expect(cloud().notes).toHaveLength(1);
+    locked = true;
+    a.deny = (k) => k.startsWith('civ-atlas:ai-notes:');
+    expect(await signOut(false)).toMatchObject({ ok: false });
+    expect(a.map.has(`civ-atlas:ai-notes:${id}`)).toBe(false);
+    locked = false;
+    a.deny = null;
+    const rev = cloud().rev;
+    await syncNow();
+    expect(cloud().notes).toHaveLength(1);
+    expect(cloud().rev).toBe(rev);
+    expect(listNotes(id)).toHaveLength(1);
+    expect(a.map.has(`civ-atlas:ai-notes:${id}`)).toBe(true);
+  });
+
   it('退出选"删掉"、打开页面时浏览器存储没探测成功(只能读):照样直接删,删不干净就不退出', async () => {
     const a = new (class extends FakeStorage {
       setItem(k: string, v: string) {
