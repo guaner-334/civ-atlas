@@ -286,6 +286,7 @@ export function worldSync(id: string): WorldSync | null {
 }
 
 const FULL_WHY = '浏览器存储满了，账号里这个世界的样子没能放进来：先删掉几个世界';
+const LIST_FULL_WHY = `「我的世界」满了（最多 ${MAX_WORLDS} 个），账号里的这个世界放不进来：先删掉几个世界`;
 const LEGACY_WHY = '以前存的世界，浏览器存储满了，没能换成新的存法，存不进账号；删掉几个世界、刷新页面再试';
 
 // ---------------------------------------------------------------------------
@@ -294,9 +295,16 @@ const LEGACY_WHY = '以前存的世界，浏览器存储满了，没能换成新
 const nowIso = () => new Date().toISOString();
 /** 写进浏览器的是同步带来的(不为它再排一次同步) */
 let applying = false;
-/** 存不上去的(太大、太多):内容没再变就不重试。跟着账号(换了账号从头试:可能是那个账号自己的上限) */
-const rejected = new Map<string, { sum: string; why: string }>();
+/**
+ * 存不上去的(太大、账号里放满了):内容没再变、账号里也没腾出地方就不重试。跟着账号(换了账号从头试:可能是那个账号自己的上限)。
+ * room = 记下时的 roomMark:之后账号里删掉了世界(可能腾出了地方)就再试一次
+ */
+const rejected = new Map<string, { sum: string; why: string; room: number }>();
 let rejectedFor: string | null = null;
+/** 账号里删掉了世界(这里删的告诉了服务器、全看一遍时发现别的设备删了)就加一 */
+let roomMark = 0;
+/** 上次全看一遍时账号里还在的世界 */
+let lastAlive = new Set<string>();
 /** 正在看的世界在别的设备上改过,已经提示过的版本 */
 const offered = new Map<string, number>();
 /** 两边都改过、两份都留的世界名字(这一次同步里) */
@@ -389,7 +397,7 @@ async function upload(st: SyncState, id: string, l: Local, baseRev: number, revi
 /** 存上去;版本号对不上就按"全看一遍"的规矩合并 */
 async function push(st: SyncState, id: string, l: Local, baseRev: number, revive = false, depth = 0): Promise<void> {
   const no = rejected.get(id);
-  if (no && no.sum === l.sum) {
+  if (no && no.sum === l.sum && no.room === roomMark) {
     failedNow.set(id, no.why);
     return;
   }
@@ -401,7 +409,7 @@ async function push(st: SyncState, id: string, l: Local, baseRev: number, revive
       return reconcile(st, id, entry, depth + 1);
     }
     if (e instanceof ServerError && e.status === 400) {
-      rejected.set(id, { sum: l.sum, why: e.message });
+      rejected.set(id, { sum: l.sum, why: e.message, room: roomMark });
       failedNow.set(id, e.message);
       return;
     }
@@ -423,8 +431,11 @@ async function pull(st: SyncState, id: string, expect?: string | null): Promise<
   }
   if (id in st.deletes) return false;
   if (expect !== undefined && (localWorld(id)?.sum ?? null) !== expect) return false;
-  // 取的工夫用户新建了世界、放满了:新的这个先不放(下次有地方再取)
-  if (!storedIds().includes(id) && storedCount() >= MAX_WORLDS) return false;
+  // 取的工夫用户新建了世界、放满了:新的这个先不放(下次有地方再取),算没同步上
+  if (!storedIds().includes(id) && storedCount() >= MAX_WORLDS) {
+    failedNow.set(id, LIST_FULL_WHY);
+    return false;
+  }
   const raw = remoteRaw(w);
   const notes = Array.isArray(w.notes) ? w.notes : null;
   if (!store(id, raw, notes)) {
@@ -506,7 +517,7 @@ async function fork(st: SyncState, id: string, l: Local, remote: CloudWorld) {
   const other = otherTitle((save as { title?: unknown })?.title);
   if (save && typeof save === 'object') (save as Record<string, unknown>).title = other;
   const no = rejected.get(id);
-  if (no && no.sum === l.sum) {
+  if (no && no.sum === l.sum && no.room === roomMark) {
     failedNow.set(id, no.why);
     return;
   }
@@ -539,7 +550,7 @@ async function fork(st: SyncState, id: string, l: Local, remote: CloudWorld) {
       applying = false;
     }
     if (e instanceof ServerError && e.status === 400) {
-      rejected.set(id, { sum: l.sum, why: e.message });
+      rejected.set(id, { sum: l.sum, why: e.message, room: roomMark });
       failedNow.set(id, e.message);
       return;
     }
@@ -589,7 +600,9 @@ async function reconcile(st: SyncState, id: string, s: CloudEntry | null, depth 
     return;
   }
   if (!l) {
+    // 「我的世界」满了放不下:算没同步上(不然账号窗说都同步好了,这台设备上却看不到它)
     if (storedCount() < MAX_WORLDS) await pull(st, id, null);
+    else failedNow.set(id, LIST_FULL_WHY);
     return;
   }
   if (k && k.rev === s.rev) {
@@ -689,6 +702,7 @@ async function cycle(full: boolean): Promise<void> {
   if (rejectedFor !== s.user.id) {
     rejected.clear();
     rejectedFor = s.user.id;
+    lastAlive = new Set();
   }
   active = st;
   try {
@@ -714,6 +728,8 @@ async function cycleWith(st: SyncState, full: boolean): Promise<void> {
     if (!local.has(id)) {
       try {
         await net(() => deleteCloud(id, baseRev || undefined));
+        // 腾出了地方:存不上去的再试一次
+        roomMark++;
       } catch (e) {
         if (!(e instanceof ServerError && e.code === 'conflict')) throw e;
         full = true;
@@ -727,6 +743,10 @@ async function cycleWith(st: SyncState, full: boolean): Promise<void> {
   if (full) {
     const list = await net(() => listCloud());
     const server = new Map(list.map((e) => [e.id, e]));
+    // 别的设备删了世界,可能腾出了地方:存不上去的再试一次
+    const alive = new Set(list.filter((e) => !e.deleted).map((e) => e.id));
+    if ([...lastAlive].some((id) => !alive.has(id))) roomMark++;
+    lastAlive = alive;
     for (const e of list) if (!e.deleted && st.worlds[e.id]?.rev !== e.rev && !pinned(e.id)) busyNow.add(e.id);
     setView({ busy: new Set(busyNow) });
     for (const id of new Set([...local.keys(), ...server.keys()])) {
@@ -982,8 +1002,10 @@ export async function signOut(keep: boolean): Promise<{ ok: true } | { ok: false
     refreshSession();
     if (getSession()?.token !== token) return { ok: false, message: '别的页面里已经退出或换了账号，这里没有删' };
     if (currentUnsaved()) return { ok: false, message: UNSAVED_WHY };
-    if (v.phase !== 'idle' || v.failed.size) {
-      return { ok: false, message: v.failed.size ? `还有 ${v.failed.size} 个世界没同步上，现在删掉会丢：${v.message ?? [...v.failed.values()][0]}` : (v.message ?? '没能同步，稍后再试') };
+    // 账号里有、这台设备上放不下没取回来的不算:删的是这台设备上的,它们在账号里好好的
+    const failed = [...v.failed].filter(([id]) => localWorld(id));
+    if (v.phase !== 'idle' || failed.length) {
+      return { ok: false, message: failed.length ? `还有 ${failed.length} 个世界没同步上，现在删掉会丢：${v.message ?? failed[0][1]}` : (v.message ?? '没能同步，稍后再试') };
     }
     // 同步完以后又改了的(比如 AI 刚写完一段):没同步上,不删
     const st = readState();
@@ -1096,6 +1118,8 @@ export function _resetSyncForTest(): void {
   cycleToken = null;
   rejected.clear();
   rejectedFor = null;
+  roomMark = 0;
+  lastAlive = new Set();
   offered.clear();
   uploading.clear();
   deletedWhileUp.clear();

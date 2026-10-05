@@ -74,6 +74,17 @@ export interface CallInit {
   token?: string;
 }
 
+/**
+ * 一个请求最多等多久(连上了、回话迟迟不来或者传到一半卡住):到了就算连不上,
+ * 不然后面的同步、分享、退出前的核对都排在它后面一直等。存一个世界最大几 MB,慢网也够传完
+ */
+let timeoutMs = 90_000;
+/** 单测用:改等多久(undefined = 恢复) */
+export function setTimeoutForTest(ms: number | undefined): void {
+  timeoutMs = ms ?? 90_000;
+}
+const TIMEOUT_MSG = '服务器很久没有回话，请检查网络后再试';
+
 /** 调一个接口,回 JSON(204 = null);出错抛 ServerError */
 export async function call<T>(path: string, init: CallInit = {}): Promise<T> {
   const base = serverBase();
@@ -81,18 +92,31 @@ export async function call<T>(path: string, init: CallInit = {}): Promise<T> {
   const headers: Record<string, string> = { Accept: 'application/json' };
   if (init.body !== undefined) headers['Content-Type'] = 'application/json';
   if (init.token) headers.Authorization = `Bearer ${init.token}`;
+  const ctl = typeof AbortController === 'undefined' ? null : new AbortController();
+  const timer = ctl ? setTimeout(() => ctl.abort(), timeoutMs) : undefined;
   let res: Response;
+  let raw: string;
   try {
-    res = await fetch(base + path, {
-      method: init.method ?? 'GET',
-      headers,
-      body: init.body === undefined ? undefined : JSON.stringify(init.body),
-      credentials: 'omit',
-    });
-  } catch {
-    throw new ServerError(0, 'network', DEFAULT_MSG.network);
+    try {
+      res = await fetch(base + path, {
+        method: init.method ?? 'GET',
+        headers,
+        body: init.body === undefined ? undefined : JSON.stringify(init.body),
+        credentials: 'omit',
+        signal: ctl?.signal,
+      });
+    } catch {
+      throw new ServerError(0, 'network', ctl?.signal.aborted ? TIMEOUT_MSG : DEFAULT_MSG.network);
+    }
+    try {
+      raw = await res.text();
+    } catch {
+      // 回话传到一半断了、卡住了:当连不上(服务器可能已经做了,也可能没做)
+      throw new ServerError(0, 'network', ctl?.signal.aborted ? TIMEOUT_MSG : DEFAULT_MSG.network);
+    }
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
   }
-  const raw = await res.text().catch(() => '');
   let j: any = null;
   try {
     j = raw ? JSON.parse(raw) : null;

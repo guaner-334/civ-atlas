@@ -8,11 +8,11 @@ import { DEFAULT_PARAMS } from '../src/gen/world';
 import { EMPTY_EDITS } from '../src/gen/edits';
 import { makeSave, worldKey, type SaveFile } from '../src/gen/savefile';
 import * as saveStore from '../src/ui/saveStore';
-import { clearEdits, setEdits } from '../src/ui/editsStore';
+import { clearEdits, setEdits, setName } from '../src/ui/editsStore';
 import { setStage } from '../src/ui/stageStore';
 import { _resetToasts, getToast } from '../src/ui/toastStore';
 import { forgetNotes, listNotes, putNote } from '../src/ai/library';
-import { setServerForTest } from '../src/account/server';
+import { setServerForTest, setTimeoutForTest } from '../src/account/server';
 import { _resetSessionForTest, deleteAccount, fetchAuthOptions, getSession, login, logout, refreshSession, sendCode } from '../src/account/session';
 import { _resetSyncForTest, getSyncView, inAccount, pullWorld, signOut, startSync, syncNow, worldSync } from '../src/account/sync';
 import { createShare, listShares, openShareCode, stopShare } from '../src/account/cloud';
@@ -1276,5 +1276,132 @@ describe('分享短链接', () => {
     await syncNow();
     await expect(openShareCode(s2.code)).rejects.toMatchObject({ code: 'share-gone' });
     expect(await listShares()).toEqual([]);
+  });
+});
+
+describe('云同步:放满了、腾出地方、服务器不回话', () => {
+  const isWorld = (req: Request, id: string, method: string) => req.method === method && new URL(req.url).pathname === `/v1/worlds/${id}`;
+  const full = () =>
+    new Response(JSON.stringify({ error: { code: 'bad-request', message: '账号里最多存 1 个世界，删掉几个再同步' } }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+  it('账号里放满了存不上去:内容没变不重试;删掉别的世界腾出地方以后再试一次', async () => {
+    device(new FakeStorage());
+    const a1 = addWorld(7, '苍澜界');
+    await signIn();
+    tick();
+    const b1 = addWorld(99, '北境编年');
+    let room = false;
+    let puts = 0;
+    gate = (req) => {
+      if (!isWorld(req, b1, 'PUT')) return;
+      puts++;
+      if (!room) return full();
+    };
+    expect((await syncNow()).failed.get(b1)).toContain('最多存');
+    expect((await syncNow()).failed.get(b1)).toContain('最多存');
+    expect(puts).toBe(1);
+    room = true;
+    saveStore.deleteWorld(a1);
+    const v = await syncNow();
+    expect(v.failed.size).toBe(0);
+    expect(puts).toBe(2);
+    expect(fake.users.get('writer@example.com')!.worlds.get(b1)).toBeDefined();
+  });
+
+  it('账号里放满了存不上去:另一台设备删了世界、腾出地方以后再试一次;只是别处改过不重试', async () => {
+    device(new FakeStorage());
+    const a1 = addWorld(7, '苍澜界');
+    const a2 = addWorld(8, '赤原');
+    await signIn();
+    tick();
+    const b1 = addWorld(99, '北境编年');
+    let room = false;
+    let puts = 0;
+    gate = (req) => {
+      if (!isWorld(req, b1, 'PUT')) return;
+      puts++;
+      if (!room) return full();
+    };
+    expect((await syncNow()).failed.get(b1)).toContain('最多存');
+    const cloud = fake.users.get('writer@example.com')!.worlds;
+    // 另一台设备改了一个:没腾出地方,不重试
+    cloud.get(a2)!.rev++;
+    expect((await syncNow()).failed.get(b1)).toContain('最多存');
+    expect(puts).toBe(1);
+    // 另一台设备删了一个
+    cloud.get(a1)!.deletedAt = Date.now();
+    cloud.get(a1)!.rev++;
+    room = true;
+    expect((await syncNow()).failed.size).toBe(0);
+    expect(puts).toBe(2);
+    expect(cloud.get(b1)).toBeDefined();
+  });
+
+  it('「我的世界」满了、账号里的世界放不下:写没同步上;退出照样能选"删掉"(它在账号里好好的)', async () => {
+    const a = new FakeStorage();
+    const b = new FakeStorage();
+    device(a);
+    const x = addWorld(7, '苍澜界');
+    await signIn();
+    device(b);
+    for (let i = 0; i < saveStore.MAX_WORLDS; i++) addWorld(1000 + i, `世界${i}`);
+    const v = await signIn();
+    expect(titles()).not.toContain('苍澜界');
+    expect(v.failed.get(x)).toContain('满了');
+    expect([...v.failed.keys()]).toEqual([x]);
+    expect(await signOut(false)).toEqual({ ok: true });
+    expect(saveStore.listWorlds()).toEqual([]);
+    expect(fake.users.get('writer@example.com')!.worlds.get(x)!.deletedAt).toBeNull();
+  });
+
+  it('正在看的世界存不进浏览器:删掉别的世界腾出地方后马上补存(不用等再改一处)', async () => {
+    const a = new FakeStorage();
+    device(a);
+    const id = addWorld(7, '苍澜界');
+    const other = addWorld(99, '北境编年');
+    const w = saveStore.loadWorld(id)!;
+    setEdits(w.save.edits);
+    saveStore.attachWorld({ id, params: w.save.params, check: w.save.check, kind: 'created', title: w.save.title, saved: w.save.edits });
+    setStage('world');
+    const unsub = saveStore.startAutoSave();
+    try {
+      a.deny = (k) => k.startsWith('wenming-ditu:');
+      tick();
+      setName('polity:c4567#0', '青渊');
+      expect(saveStore.currentUnsaved()).toBe(true);
+      a.deny = null;
+      saveStore.deleteWorld(other);
+      expect(saveStore.currentUnsaved()).toBe(false);
+      expect(JSON.stringify(saveStore.loadWorld(id)!.save.edits)).toContain('青渊');
+    } finally {
+      unsub();
+    }
+  });
+
+  it('服务器连上了却一直不回话:等到时候算连不上,后面的同步照常', async () => {
+    device(new FakeStorage());
+    addWorld(7, '苍澜界');
+    await signIn();
+    tick();
+    const id = addWorld(99, '北境编年');
+    setTimeoutForTest(50);
+    try {
+      gate = (req) =>
+        new Promise<void>((_, reject) => {
+          req.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+        });
+      const v = await syncNow();
+      expect(v.phase).toBe('offline');
+      expect(v.failed.has(id)).toBe(true);
+      await expect(listShares()).rejects.toMatchObject({ code: 'network', message: expect.stringContaining('很久没有回话') });
+      gate = null;
+      expect((await syncNow()).failed.size).toBe(0);
+      expect(fake.users.get('writer@example.com')!.worlds.get(id)).toBeDefined();
+    } finally {
+      setTimeoutForTest(undefined);
+    }
   });
 });

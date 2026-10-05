@@ -246,7 +246,11 @@ function changed() {
 // 别的标签页存了、删了世界(同步取回来的也算):这里跟着刷新"我的世界",云同步也看一眼
 if (typeof window !== 'undefined') {
   window.addEventListener('storage', (e) => {
-    if (e.key === null || [PREFIX, THUMB, META, NOTES, LEGACY].some((p) => e.key!.startsWith(p))) changed();
+    if (e.key === null || [PREFIX, THUMB, META, NOTES, LEGACY].some((p) => e.key!.startsWith(p))) {
+      // 别的标签页删了世界,可能腾出了地方
+      if (e.newValue === null) retryUnsaved();
+      changed();
+    }
   });
 }
 
@@ -587,6 +591,7 @@ export function deleteWorld(id: string): DeletedWorld | null {
     current = null;
     stopThumb();
   }
+  retryUnsaved();
   changed();
   return had ? { id, keys } : null;
 }
@@ -806,7 +811,8 @@ function saveCurrent(force = false): boolean {
   const c = current;
   if (!c) return false;
   const edits = getEdits();
-  if (!force && edits === c.saved) return false;
+  // 上次没写进去的(存储满了):修改没再变也再试一次
+  if (!force && edits === c.saved && !c.unsaved) return false;
   // 干预变了:历史要重推,缩略图上结束那一年的国家跟着变,重截(App 等重推完才给图)
   const was = c.saved?.interventions;
   const redraw = !!was && edits.interventions !== was && JSON.stringify(edits.interventions) !== JSON.stringify(was);
@@ -822,6 +828,11 @@ function saveCurrent(force = false): boolean {
   if (ok) scheduleThumb(c.id, redraw);
   changed();
   return ok;
+}
+
+/** 当前世界上次没写进浏览器(存储满了):删了别的世界、腾出地方以后再存一次(不然要等再改一处才存) */
+function retryUnsaved() {
+  if (current?.unsaved) saveCurrent(true);
 }
 
 /**
@@ -1068,6 +1079,7 @@ export function removeSyncedWorld(id: string) {
     current = null;
     stopThumb();
   }
+  retryUnsaved();
   changed();
 }
 
