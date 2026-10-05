@@ -5,7 +5,7 @@
  * 存储不可用(隐私模式)时退回内存、配额满了删最旧的;这几种情况顶部提示条上说一句;读档提示的短说法。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { copyNotes, getNote, listNotes, putNote } from '../src/ai/library';
+import { copyNotes, getNote, listNotes, putNote, replaceNotes } from '../src/ai/library';
 import { asHistoryNote } from '../src/ai/history';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { generateCiv } from '../src/gen/civ';
@@ -1431,6 +1431,44 @@ describe('全部存成文件(bundle)', () => {
     expect(saveStore.loadWorld(a)?.save.view).toEqual(view);
     expect(importBundle(one({ ...view, center: 60 }))).toMatchObject({ added: [], same: 1, filled: 0 });
     expect(saveStore.loadWorld(a)?.save.view).toEqual(view);
+  });
+
+  it('正在看的世界是放回时原来就有的那个:补上的底稿下次自动存还在;投影按页面上的,不补', () => {
+    const a = saveStore.importSave(makeSave({ ...DEFAULT_PARAMS, seed: 7 }, EDITS, 'c7', '苍澜界'))!;
+    tick();
+    const d = openWorld(8, { kind: 'draft', title: '续篇', pristine: false });
+    const cur = saveStore.loadWorld(d)!;
+    expect(cur.base).toBeUndefined();
+    const base = { id: a, title: '苍澜界', names: 0, interventions: 0 };
+    const r = importBundle({ worlds: [{ save: cur.save, meta: { draft: true, base, alive: 9 }, thumb: null, notes: [] }], bad: 0 });
+    expect(r).toMatchObject({ added: [], same: 1, filled: 1 });
+    expect(saveStore.loadWorld(d)).toMatchObject({ base, alive: 9 });
+    // 接着改一处(自动存):补上的底稿、现存几国还在
+    setName('settlement:r1#0', '新名字');
+    expect(saveStore.loadWorld(d)).toMatchObject({ base, alive: 9, save: { edits: { names: { 'settlement:r1#0': '新名字' } } } });
+
+    // 正在看的世界存档里没记投影(旧版存的、原样打开没重写):不补,页面上是什么样下次就存什么样
+    const old = makeSave({ ...DEFAULT_PARAMS, seed: 9 }, EDITS, 'check9', '赤水纪');
+    const b = saveStore.importSave(old)!;
+    openWorld(9, { id: b });
+    expect(saveStore.loadWorld(b)?.save.view).toBeUndefined();
+    const view = { projection: 'robinson', center: 30 };
+    expect(importBundle({ worlds: [{ save: { ...old, view }, meta: {}, thumb: null, notes: [] }], bad: 0 })).toMatchObject({ same: 1, filled: 0 });
+    expect(saveStore.loadWorld(b)?.save.view).toBeUndefined();
+  });
+
+  it('AI 写的东西多(5000 条以上)、很长的:都存进文件,都放回来', () => {
+    const a = saveStore.importSave(makeSave({ ...DEFAULT_PARAMS, seed: 7 }, EDITS, 'c7', '苍澜界'))!;
+    const many = Array.from({ length: 5002 }, (_, i) => ({ ...NOTE, key: `释名:settlement:c${i}#0`, kind: '释名', text: `${i}` }));
+    many.push({ ...NOTE, key: '史书:long', text: '长'.repeat(250_000) });
+    replaceNotes(a, many);
+    const text = bundleText()!.text;
+    freshBrowser();
+    openBundleText(text);
+    expect(getToast()).toMatchObject({ kind: 'ok', text: '已放回 1 个世界' });
+    const na = saveStore.listWorlds()[0];
+    expect(listNotes(na.id)).toHaveLength(5003);
+    expect(getNote(na.id, '史书:long')?.text).toHaveLength(250_000);
   });
 
   it('没建完的和建好的分开算:同样的参数、名字,一个没建完一个建好的,不算同一个', () => {

@@ -1164,19 +1164,20 @@ export function fillMissing(id: string, w: { view?: SaveView; thumb: string | nu
   const save = readSave(id);
   if (!save) return false;
   let done = false;
-  if (w.view && !save.view) {
-    const text = JSON.stringify({ ...save, view: w.view });
-    if (kv.set(PREFIX + id, text)) {
-      if (current?.id === id) current.wrote = text;
-      done = true;
-    }
-  }
+  // 正在看的这个:投影按页面上的(下次自动存就写页面上的),不补
+  const open = current?.id === id ? current : null;
+  if (w.view && !save.view && !open && kv.set(PREFIX + id, JSON.stringify({ ...save, view: w.view }))) done = true;
   if (w.thumb && !kv.get(THUMB + id) && kv.set(THUMB + id, w.thumb)) done = true;
   const m = readMeta(id);
   const next: Meta = { ...m };
   if (w.alive !== undefined && m.alive === undefined) next.alive = w.alive;
   if (w.base && m.draft && !m.base) next.base = w.base;
-  if ((next.alive !== m.alive || next.base !== m.base) && kv.set(META + id, JSON.stringify(next))) done = true;
+  if ((next.alive !== m.alive || next.base !== m.base) && kv.set(META + id, JSON.stringify(next))) {
+    // 正在看的这个也记上(下次自动存按页面里的写本地信息,不然又写没了)
+    if (open && open.alive === undefined && next.alive !== undefined) open.alive = next.alive;
+    if (open && open.kind === 'draft' && !open.base && next.base) open.base = next.base;
+    done = true;
+  }
   if (done) changed();
   return done;
 }
