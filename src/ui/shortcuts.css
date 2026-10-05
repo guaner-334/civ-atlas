@@ -42,6 +42,9 @@
   border-radius: 50%;
   background: var(--btn);
   color: var(--ink-2);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
 }
 .kb-x:hover {
   color: var(--ink);

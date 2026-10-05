@@ -26,8 +26,9 @@ interface Shown {
 
 /** 鼠标停多久才出 */
 const DELAY = 400;
-/** 离按钮多远 */
-const GAP = 6;
+/** 离按钮多远:上下 8,左右 6 */
+const GAP_Y = 8;
+const GAP_X = 6;
 
 function tipOf(el: Element): Shown {
   const k = el.getAttribute('data-tip-key') as ShortcutKey | null;
@@ -102,11 +103,11 @@ function Tip({ text, kbd, side, rect, theme }: Shown) {
   let y = 0;
   if (box) {
     if (side === 'left' || side === 'right') {
-      x = side === 'left' ? rect.left - GAP - box.w : rect.right + GAP;
+      x = side === 'left' ? rect.left - GAP_X - box.w : rect.right + GAP_X;
       y = rect.top + rect.height / 2 - box.h / 2;
     } else {
       x = rect.left + rect.width / 2 - box.w / 2;
-      y = side === 'above' ? rect.top - GAP - box.h : rect.bottom + GAP;
+      y = side === 'above' ? rect.top - GAP_Y - box.h : rect.bottom + GAP_Y;
     }
     x = Math.max(8, Math.min(vw - 8 - box.w, x));
     y = Math.max(8, Math.min(vh - 8 - box.h, y));

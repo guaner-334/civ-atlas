@@ -8,7 +8,6 @@
 import { useEffect, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import { SHORTCUT_GROUPS, keyLabel, matchShortcut } from './shortcuts';
-import { Icon } from './icons';
 import './shortcuts.css';
 
 let open = false;
@@ -54,7 +53,7 @@ function ShortcutsDialog() {
         <header className="kb-head">
           <h2>键盘快捷键</h2>
           <button className="kb-x" data-act="shortcuts-close" onClick={closeShortcuts} aria-label="关闭">
-            <Icon name="close" size={13} />
+            ✕
           </button>
         </header>
         {SHORTCUT_GROUPS.map((g) => (
