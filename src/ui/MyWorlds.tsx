@@ -315,6 +315,8 @@ function WorldCard({
             onClick={act(() => {
               // 点一下就删,不再问;提示条上的"撤销"兜底(提示条还在的时候点,放回原处)
               const gone = deleteWorld(w.id);
+              // 别的页面里已经删掉了(这一页的列表还没跟上):没有可撤销的
+              if (!gone) return notify({ kind: 'ok', text: `「${name}」已在别的页面里删掉了` });
               notify({
                 kind: 'ok',
                 text: `已删除「${name}」`,
