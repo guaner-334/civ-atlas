@@ -864,31 +864,47 @@ function ShareDialog({ phone, worldId, title, onClose }: { phone: boolean; world
       setBusy(false);
     }
   };
-  /** 署名改完(离开输入框、回车):和链接上的不一样就存上去;没存成的说一声,框里换回原来的 */
-  const saveBy = async () => {
-    if (!live || busy) return;
+  /** 正在存的署名(离开输入框时开始存、紧接着点了完成:等这一次) */
+  const pendingBy = useRef<Promise<boolean> | null>(null);
+  /** 署名改完(离开输入框、回车):和链接上的不一样就存上去;没存成的说一声,框里换回原来的。返回存好了没有(没改 = 存好了) */
+  const saveBy = (): Promise<boolean> => {
+    if (pendingBy.current) return pendingBy.current;
+    if (!live) return Promise.resolve(true);
     const next = cleanSignature(by);
-    if (next === (live.by ?? '')) return setBy(next);
+    if (next === (live.by ?? '')) {
+      setBy(next);
+      return Promise.resolve(true);
+    }
+    if (busy) return Promise.resolve(false);
     const token = getSession()?.token;
     setBusy(true);
-    try {
-      sameLogin(token);
-      const share = await createShare(worldId, next);
-      sameLogin(token);
-      setSt({ phase: 'on', share });
-      setBy(share.by ?? '');
-    } catch (e) {
-      if (e instanceof ShareAborted) return;
-      setSt({ phase: 'error', message: errText(e), share: live });
-      setBy(live.by ?? '');
-    } finally {
-      setBusy(false);
-    }
+    const p = (async () => {
+      try {
+        sameLogin(token);
+        const share = await createShare(worldId, next);
+        sameLogin(token);
+        setSt({ phase: 'on', share });
+        setBy(share.by ?? '');
+        return true;
+      } catch (e) {
+        // 换了账号、退出了:这个窗口本来就该关
+        if (e instanceof ShareAborted) return true;
+        setSt({ phase: 'error', message: errText(e), share: live });
+        setBy(live.by ?? '');
+        return false;
+      } finally {
+        setBusy(false);
+        pendingBy.current = null;
+      }
+    })();
+    pendingBy.current = p;
+    return p;
   };
-  /** 关窗口(完成、Esc、点外面):署名还没存的先存上 */
+  /** 关窗口(完成、Esc、点外面):署名还没存的先存上,存好了再关;没存成就留着窗口,上面说为什么 */
   const done = () => {
-    void saveBy();
-    onClose();
+    void saveBy().then((ok) => {
+      if (ok) onClose();
+    });
   };
   const copy = async () => {
     if (!url) return;

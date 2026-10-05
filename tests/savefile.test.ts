@@ -1239,6 +1239,74 @@ describe('全部存成文件(bundle)', () => {
     expect(saveStore.listWorlds().map((w) => w.save.title).sort()).toEqual(['没建完', '苍澜界', '苍澜界改', '赤水纪']);
   });
 
+  it('再放一次时,原来就有的那份缺了 AI 写的东西、缩略图、现存几国:用文件里的补上(这边另有的 AI 写的东西留着)', () => {
+    const { a, b } = threeWorlds();
+    const kv = globalThis.localStorage as unknown as FakeStorage;
+    kv.setItem(`wenming-ditu:thumb:${a}`, THUMB);
+    const text = bundleText()!.text;
+    // 这边丢了:a 的 AI 写的东西和缩略图,b 的现存几国;a 另外又写了一条
+    kv.removeItem(`civ-atlas:ai-notes:${a}`);
+    kv.removeItem(`wenming-ditu:thumb:${a}`);
+    kv.setItem(`wenming-ditu:meta:${b}`, '{}');
+    forgetNotes();
+    const other = { ...NOTE, key: '名字由来:饕餮城', kind: '名字由来', title: '饕餮城' };
+    putNote(a, other);
+    expect(openBundleText(text)).toBe(true);
+    expect(getToast()).toMatchObject({ kind: 'ok', text: '这些世界都已经在「我的世界」里了', more: ['2 个原来就有的补上了缺的 AI 写的东西或缩略图'] });
+    expect(saveStore.listWorlds()).toHaveLength(3);
+    expect(listNotes(a).map((n) => n.key).sort()).toEqual([NOTE.key, other.key].sort());
+    expect(saveStore.listWorlds().find((w) => w.id === a)?.thumb).toBe(THUMB);
+    expect(saveStore.listWorlds().find((w) => w.id === b)?.alive).toBe(16);
+    // 什么都不缺了:再放一次不说补上
+    openBundleText(text);
+    expect(getToast()?.more ?? []).toEqual([]);
+  });
+
+  it('没建完的世界以另一个世界为底稿:放回来以后记着的底稿换成新编号,还能回到那个世界', () => {
+    const a = saveStore.importSave(makeSave({ ...DEFAULT_PARAMS, seed: 7 }, EDITS, 'c7', '苍澜界'))!;
+    tick();
+    saveStore.detachWorld();
+    clearEdits();
+    const d = saveStore.newWorldId();
+    saveStore.attachWorld({
+      id: d,
+      params: { ...DEFAULT_PARAMS, seed: 8 },
+      check: 'check8',
+      kind: 'draft',
+      title: '苍澜界续篇',
+      saved: EMPTY_EDITS,
+      pristine: false,
+      base: { id: a, title: '苍澜界', names: 0, interventions: 0 },
+    });
+    saveStore.detachWorld();
+    expect(saveStore.listWorlds().find((w) => w.id === d)?.base?.id).toBe(a);
+    const text = bundleText()!.text;
+    // 文件里没建完的那个排在前面(最近改的在前):放的时候也要先有底稿的新编号
+    expect(JSON.parse(text).worlds.map((w: { meta: { draft?: boolean } }) => !!w.meta.draft)).toEqual([true, false]);
+    freshBrowser();
+    openBundleText(text);
+    const after = saveStore.listWorlds();
+    const na = after.find((w) => !w.draft)!;
+    const nd = after.find((w) => w.draft)!;
+    expect(na.id).not.toBe(a);
+    expect(nd.base).toEqual({ id: na.id, title: '苍澜界', names: 0, interventions: 0 });
+  });
+
+  it('正在看的世界一次都没能存进浏览器(存储满了):也放进文件,放回来就有了', () => {
+    const kv = globalThis.localStorage as unknown as FakeStorage;
+    expect(saveStore.listWorlds()).toEqual([]);
+    kv.cap = 0;
+    const id = openWorld(7, { title: '只在页面里' });
+    expect(saveStore.currentUnsaved()).toBe(true);
+    expect(saveStore.listWorlds().some((w) => w.id === id)).toBe(false);
+    const out = bundleText()!;
+    expect(out.count).toBe(1);
+    saveStore.detachWorld();
+    freshBrowser();
+    openBundleText(out.text);
+    expect(saveStore.listWorlds().map((w) => w.save.title)).toEqual(['只在页面里']);
+  });
+
   it('没建完的和建好的分开算:同样的参数、名字,一个没建完一个建好的,不算同一个', () => {
     const save = makeSave({ ...DEFAULT_PARAMS, seed: 5 }, EMPTY_EDITS, 'c5', '同名');
     const r = importBundle({ worlds: [{ save, meta: { draft: true }, thumb: null, notes: [] }], bad: 0 });

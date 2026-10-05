@@ -1149,6 +1149,21 @@ export function putSyncedWorld(id: string, w: RawWorld): boolean {
   return true;
 }
 
+/**
+ * 「全部存成文件」放回来时,已经有的同一个世界:缺缩略图、不知道现存几国的,用文件里的补上(存不下就算了,不为它删别的);
+ * 返回补了没有
+ */
+export function fillMissing(id: string, w: { thumb: string | null; alive?: number }): boolean {
+  const kv = store();
+  if (!kv.get(PREFIX + id)) return false;
+  let done = false;
+  if (w.thumb && !kv.get(THUMB + id) && kv.set(THUMB + id, w.thumb)) done = true;
+  const m = readMeta(id);
+  if (w.alive !== undefined && m.alive === undefined && kv.set(META + id, JSON.stringify({ ...m, alive: w.alive }))) done = true;
+  if (done) changed();
+  return done;
+}
+
 /** 别的设备上删掉了:这里跟着删(不算这台设备上的删除) */
 export function removeSyncedWorld(id: string) {
   removeKeys(id);

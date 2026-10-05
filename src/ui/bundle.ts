@@ -3,15 +3,18 @@
  *
  * ```json
  * { "app": "文明与地图", "bundle": 1, "savedAt": "2026-10-05T08:00:00.000Z",
- *   "worlds": [ { "save": { …和单个世界的存档文件一样… }, "meta": { "draft": true, "alive": 13 },
+ *   "worlds": [ { "id": "wk3j9x2m1a", "save": { …和单个世界的存档文件一样… }, "meta": { "draft": true, "alive": 13 },
  *                 "thumb": "data:image/jpeg;base64,…", "notes": [ …AI 写的史书、名字由来… ] } ] }
  * ```
  *
  * - bundle:这种文件的格式版本(不兼容的变化时加一;比自己新的不读,提示刷新页面)
+ * - id:存的时候这个世界的编号(放回来都换新编号;没建完的世界记着的底稿编号跟着换)。可以没有
  * - save:和单个世界的存档文件(gen/savefile.ts)一模一样,读的时候同样过 parseSave
  * - meta:卡片上的几样(还在新建、现存几国、新建时的底稿);thumb:缩略图;notes:AI 写的东西(ai/library.ts)。都可以没有
  *
- * 放回来:逐个放进「我的世界」(都是新编号)。已经有一模一样的(参数、修改、名字都相同;没建完的和建好的分开算)不重复放;
+ * 存:「我的世界」里的全部世界;正在看的那个没能存进浏览器(存储满了)的,用页面里的那份,一次都没存进去的也放进去。
+ * 放回来:逐个放进「我的世界」(都是新编号;建好的先放,没建完的后放,好把底稿编号换成新的)。
+ * 已经有一模一样的(参数、修改、名字都相同;没建完的和建好的分开算)不重复放,那边缺的 AI 写的东西、缩略图、现存几国补上;
  * 放满了(MAX_WORLDS)、浏览器存不下就停,不为它删别的世界。登录了的,放回来的世界照常同步进账号。
  */
 import { SAVE_APP, fileBaseName, parseSave, type SaveFile } from '../gen/savefile';
@@ -22,6 +25,7 @@ import {
   currentSave,
   currentUnsaved,
   currentWorld,
+  fillMissing,
   listWorlds,
   newWorldId,
   notify,
@@ -41,6 +45,8 @@ const NOTE_MAX = 200_000;
 const THUMB_MAX = 1_000_000;
 
 export interface BundleWorld {
+  /** 存的时候的编号(换底稿编号用);没有 = 不知道 */
+  id?: string;
   save: SaveFile;
   meta: SyncMeta;
   thumb: string | null;
@@ -65,15 +71,20 @@ export function bundleFileName(at = new Date()): string {
 export function bundleText(at = new Date()): { text: string; count: number } | null {
   const cur = currentWorld();
   const fresh = cur && currentUnsaved() ? currentSave() : null;
-  const worlds = listWorlds().map((w) => {
-    const save = fresh && cur?.id === w.id ? { ...fresh, savedAt: at.toISOString() } : w.save;
+  const one = (id: string, save: SaveFile, w: { draft: boolean; alive?: number; base?: SyncMeta['base'] }, thumb: string | null) => {
     const meta: SyncMeta = {};
     if (w.draft) meta.draft = true;
     if (w.alive !== undefined) meta.alive = w.alive;
     if (w.draft && w.base) meta.base = w.base;
-    const notes = exportNotes(w.id);
-    return { save, meta, ...(w.thumb ? { thumb: w.thumb } : {}), ...(notes.length ? { notes } : {}) };
-  });
+    const notes = exportNotes(id);
+    return { id, save, meta, ...(thumb ? { thumb } : {}), ...(notes.length ? { notes } : {}) };
+  };
+  const list = listWorlds();
+  const worlds = list.map((w) => one(w.id, fresh && cur?.id === w.id ? { ...fresh, savedAt: at.toISOString() } : w.save, w, w.thumb));
+  // 正在看的这个一次都没能存进浏览器(存储满了):页面里这份是唯一的一份,也放进去
+  if (cur && fresh && !list.some((w) => w.id === cur.id)) {
+    worlds.unshift(one(cur.id, { ...fresh, savedAt: at.toISOString() }, { draft: cur.kind === 'draft', alive: cur.alive, base: cur.base }, null));
+  }
   if (!worlds.length) return null;
   const text = JSON.stringify({ app: SAVE_APP, bundle: BUNDLE_FORMAT, savedAt: at.toISOString(), worlds }, null, 2) + '\n';
   return { text, count: worlds.length };
@@ -128,7 +139,8 @@ export function parseBundle(text: string): { ok: true; bundle: Bundle } | { ok: 
       continue;
     }
     const thumb = typeof x.thumb === 'string' && x.thumb.length <= THUMB_MAX && /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(x.thumb) ? x.thumb : null;
-    worlds.push({ save: r.save, meta: cleanSyncMeta(x.meta), thumb, notes: cleanNotes(x.notes) });
+    const id = typeof x.id === 'string' && x.id.length <= 64 ? x.id : undefined;
+    worlds.push({ ...(id ? { id } : {}), save: r.save, meta: cleanSyncMeta(x.meta), thumb, notes: cleanNotes(x.notes) });
   }
   return { ok: true, bundle: { worlds, bad } };
 }
@@ -138,6 +150,8 @@ export interface ImportResult {
   added: string[];
   /** 已经有一模一样的、没重复放的 */
   same: number;
+  /** 其中补上了缺的 AI 写的东西、缩略图的 */
+  filled: number;
   /** 没放进去的(放满了、存不下) */
   left: number;
   /** 为什么没放进去:"full" 放满了、"storage" 浏览器存不下 */
@@ -146,15 +160,38 @@ export interface ImportResult {
   notesLost: boolean;
 }
 
+/** 已经有的同一个世界:文件里有、这边缺的 AI 写的东西(按条)、缩略图、现存几国补上;返回补了没有、AI 写的东西存进去没有 */
+function fillFrom(id: string, w: BundleWorld): { filled: boolean; notesOk: boolean } {
+  let filled = fillMissing(id, { thumb: w.thumb, alive: w.meta.alive });
+  let notesOk = true;
+  const have = exportNotes(id);
+  const keys = new Set(have.map((n) => n.key));
+  const more = w.notes.filter((n) => !keys.has(n.key));
+  if (more.length) {
+    notesOk = replaceNotes(id, [...have, ...more]);
+    filled = true;
+  }
+  return { filled, notesOk };
+}
+
 /** 放回「我的世界」(见文件头) */
 export function importBundle(b: Bundle): ImportResult {
-  const have = listWorlds().map((w) => ({ save: w.save, draft: w.draft }));
+  const have = listWorlds().map((w) => ({ id: w.id, save: w.save, draft: w.draft }));
   let count = have.length;
-  const res: ImportResult = { added: [], same: 0, left: 0, notesLost: false };
-  for (const w of b.worlds) {
+  const res: ImportResult = { added: [], same: 0, filled: 0, left: 0, notesLost: false };
+  /** 文件里的编号 → 现在的编号(放进来的、原来就有的) */
+  const ids = new Map<string, string>();
+  // 建好的先放:没建完的放的时候,它的底稿已经有了新编号
+  const order = [...b.worlds.filter((w) => !w.meta.draft), ...b.worlds.filter((w) => w.meta.draft)];
+  for (const w of order) {
     const draft = !!w.meta.draft;
-    if (have.some((h) => h.draft === draft && sameSave(h.save, w.save))) {
+    const dup = have.find((h) => h.draft === draft && sameSave(h.save, w.save));
+    if (dup) {
+      if (w.id) ids.set(w.id, dup.id);
       res.same++;
+      const f = fillFrom(dup.id, w);
+      if (f.filled) res.filled++;
+      if (!f.notesOk) res.notesLost = true;
       continue;
     }
     if (res.why) {
@@ -167,13 +204,16 @@ export function importBundle(b: Bundle): ImportResult {
       continue;
     }
     const id = newWorldId();
-    if (!putSyncedWorld(id, { save: JSON.stringify(w.save), meta: w.meta, thumb: w.thumb })) {
+    const base = w.meta.base;
+    const meta: SyncMeta = base && ids.has(base.id) ? { ...w.meta, base: { ...base, id: ids.get(base.id)! } } : w.meta;
+    if (!putSyncedWorld(id, { save: JSON.stringify(w.save), meta, thumb: w.thumb })) {
       res.why = 'storage';
       res.left++;
       continue;
     }
+    if (w.id) ids.set(w.id, id);
     if (w.notes.length && !replaceNotes(id, w.notes)) res.notesLost = true;
-    have.push({ save: w.save, draft });
+    have.push({ id, save: w.save, draft });
     count++;
     res.added.push(id);
   }
@@ -215,6 +255,7 @@ export function openBundleText(text: string, fileName?: string): boolean {
   const res = importBundle(r.bundle);
   const more: string[] = [];
   if (res.same) more.push(res.added.length ? `${res.same} 个原来就有，没重复放` : '');
+  if (res.filled) more.push(`${res.filled} 个原来就有的补上了缺的 AI 写的东西或缩略图`);
   if (res.left) more.push(`还有 ${res.left} 个没放进去：${res.why === 'full' ? `「我的世界」最多存 ${MAX_WORLDS} 个世界，先删掉几个再打开一次` : '浏览器存储已满，先删掉几个世界再打开一次'}`);
   if (bad) more.push(`${bad} 个世界读不出来，跳过了`);
   if (res.notesLost) more.push('有的 AI 写的东西没能放回来（浏览器存储已满）');
