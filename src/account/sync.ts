@@ -63,6 +63,9 @@ interface Known {
   at: string;
 }
 
+/** Known.rev 记成这个 = 这里的那份比账号里的旧、缺了东西(退出时删了一半没能放回去),下次同步取回来。服务器的版本号从 1 起 */
+const STALE_REV = 0;
+
 interface SyncState {
   /** 哪个账号的 */
   user: string;
@@ -811,6 +814,8 @@ async function cycleWith(st: SyncState, full: boolean): Promise<void> {
     writeState(st);
   }
 
+  // 有记成"比账号里的旧"的(退出时删了一半):这次也全看一遍,先把完整的取回来,不按这里缺了东西的那份存上去
+  if (!full && [...local.keys()].some((id) => st.worlds[id]?.rev === STALE_REV)) full = true;
   if (full) {
     behindNow = new Set();
     const list = await net(() => listCloud());
@@ -1098,17 +1103,21 @@ export async function signOut(keep: boolean): Promise<{ ok: true } | { ok: false
     // 浏览器不让删(存储突然不让用了之类):不退出,不然以为删干净了,刷新以后世界又都在。没删掉的同步记录还在,下次同步不会当成删了
     if (!gone) {
       // 删前每个世界都和账号里的一样(上面查过);现在不一样的 = 删了一部分又没能放回去(比如存档还在、AI 写的东西没了):
-      // 不能当成在账号那份上改过、存上去盖掉完整的那份。记成"比账号里的旧"(服务器的版本号从 1 起),下次同步把完整的取回来
+      // 不能当成在账号那份上改过、存上去盖掉完整的那份。记成"比账号里的旧"(STALE_REV),下次同步把完整的取回来
       const st = readState();
       if (st) {
         let hurt = false;
         for (const [id, k] of Object.entries(st.worlds)) {
           const l = localWorld(id);
           if (!l || k.sum === l.sum) continue;
-          st.worlds[id] = { ...k, rev: 0, sum: l.sum, core: l.core };
+          st.worlds[id] = { ...k, rev: STALE_REV, sum: l.sum, core: l.core };
           hurt = true;
         }
-        if (hurt) writeState(st);
+        if (hurt) {
+          writeState(st);
+          // 马上取回来,别等用户在缺了东西的那份上接着改
+          requestSync('full');
+        }
       }
       return { ok: false, message: '浏览器没让删掉这台设备上的世界，没有退出。可以选「留着」再退出' };
     }

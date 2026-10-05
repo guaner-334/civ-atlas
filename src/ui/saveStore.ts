@@ -1173,7 +1173,8 @@ export function removeAllWorlds(): boolean {
 
 /**
  * 直接对浏览器存储删一遍、再看一遍还剩没剩。浏览器存储能不能用以这时直接看的为准(打开页面时探测不成功、
- * 后来出错退回内存的,浏览器里都可能还存着);看不了 = false。没删干净:删掉了的按删之前的样子放回去
+ * 后来出错退回内存的,浏览器里都可能还存着);看不了 = false。这个页面存在内存里、浏览器里却还存着的 = false,不删
+ * (页面没看到它们,不知道同步过没有)。没删干净:删掉了的按删之前的样子放回去
  */
 function wipeBrowser(ours: (k: string) => boolean): boolean {
   let s: Storage | undefined;
@@ -1185,6 +1186,9 @@ function wipeBrowser(ours: (k: string) => boolean): boolean {
   // 没有浏览器存储(不在网页里):世界只在内存里
   if (!s) return true;
   const st = s;
+  // 这个页面存在内存里(打开时探测不成功、后来出错退回内存):浏览器里还存着的这个页面没列出来、也就没同步过,删了就没了
+  if (local === undefined) store();
+  const fallback = local === null;
   const left = () => {
     const out: string[] = [];
     for (let i = 0; i < st.length; i++) {
@@ -1202,6 +1206,7 @@ function wipeBrowser(ours: (k: string) => boolean): boolean {
   } catch {
     return false;
   }
+  if (fallback && before.size) return false;
   let ok = true;
   for (const k of before.keys()) {
     try {
