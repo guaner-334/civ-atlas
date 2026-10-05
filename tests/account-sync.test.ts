@@ -874,6 +874,33 @@ describe('云同步:同一个网站开着几个标签页', () => {
     expect((fake.users.get('writer@example.com')!.worlds.get(id)!.notes as { text: string }[]).map((n) => n.text)).toEqual(['别的标签页写的']);
   });
 
+  it('删掉以后在提示条上点"撤销":已经告诉服务器删了的,账号里也跟着存回去', async () => {
+    device(new FakeStorage());
+    const id = addWorld(7, '苍澜界');
+    await signIn();
+    const gone = saveStore.deleteWorld(id)!;
+    await syncNow();
+    expect(fake.users.get('writer@example.com')!.worlds.get(id)!.deletedAt).not.toBeNull();
+    expect(saveStore.restoreWorld(gone)).toBe(true);
+    const v = await syncNow();
+    expect(v.failed.size).toBe(0);
+    expect(fake.users.get('writer@example.com')!.worlds.get(id)!.deletedAt).toBeNull();
+    expect(titles()).toEqual(['苍澜界']);
+    expect(inAccount(id)).toBe(true);
+  });
+
+  it('删掉以后马上"撤销"(还没告诉服务器):账号里不删', async () => {
+    device(new FakeStorage());
+    const id = addWorld(7, '苍澜界');
+    await signIn();
+    const gone = saveStore.deleteWorld(id)!;
+    expect(saveStore.restoreWorld(gone)).toBe(true);
+    const v = await syncNow();
+    expect(v.failed.size).toBe(0);
+    expect(fake.users.get('writer@example.com')!.worlds.get(id)!.deletedAt).toBeNull();
+    expect(titles()).toEqual(['苍澜界']);
+  });
+
   it('这里同步的工夫别的标签页删了一个世界:它记下的删除不被这里写回去的记录盖掉', async () => {
     const a = new FakeStorage();
     device(a);
