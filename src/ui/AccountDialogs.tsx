@@ -29,7 +29,7 @@ import { ServerError } from '../account/server';
 import { deleteAccount, displayName, fetchAuthOptions, getSession, login, pendingInvite, sendCode, useSession, type AuthOptions } from '../account/session';
 import { accountDeleted, behindCloud, signOut, syncNow, unsyncedCount, useSyncView } from '../account/sync';
 import { createShare, listShares, listTrash, shortLink, stopShare, type ShareInfo, type TrashEntry } from '../account/cloud';
-import { SIGNATURE_MAX, cleanSignature } from '../gen/savefile';
+import { SIGNATURE_UNITS, cleanSignature } from '../gen/savefile';
 import './account.css';
 
 // ---------------------------------------------------------------------------
@@ -963,7 +963,8 @@ function ShareDialog({ phone, worldId, title, onClose }: { phone: boolean; world
               data-act="share-by"
               aria-label="署名"
               value={by}
-              maxLength={SIGNATURE_MAX}
+              // 只防太长;按看到的字截到 20 个由 cleanSignature 做(maxLength 按 UTF-16 算,一个组合表情就占好几个)
+              maxLength={SIGNATURE_UNITS}
               disabled={!live || busy}
               onChange={(e) => setBy(e.target.value)}
               onBlur={() => void saveBy()}

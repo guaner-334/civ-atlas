@@ -1130,13 +1130,14 @@ export function rawWorld(id: string): RawWorld | null {
 
 /**
  * 把同步下来的世界写进浏览器(不为它删别的世界:写不下 = false,原来的不动)。
+ * opened:这边还没记"最近打开"时用它(「全部存成文件」放回来时带着)。
  * 正在看的就是它:先不再自动存它(App 重新打开)
  */
-export function putSyncedWorld(id: string, w: RawWorld): boolean {
+export function putSyncedWorld(id: string, w: RawWorld, opened0?: string): boolean {
   if (!ID_RE.test(id) || !parseSave(w.save).ok) return false;
   const kv = store();
   const old = kv.get(PREFIX + id);
-  const opened = readMeta(id).opened;
+  const opened = readMeta(id).opened ?? opened0;
   if (!kv.set(PREFIX + id, w.save)) return false;
   const m: Meta = { ...w.meta };
   if (opened) m.opened = opened;

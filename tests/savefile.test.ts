@@ -1472,6 +1472,51 @@ describe('全部存成文件(bundle)', () => {
     expect(getNote(na.id, '史书:long')?.text).toHaveLength(250_000);
   });
 
+  it('一个文件放不下:先不带 AI 写的东西,还放不下再不带缩略图,存出来的都能放回来;都不带也放不下就不存', () => {
+    const { a } = threeWorlds();
+    const kv = globalThis.localStorage as unknown as FakeStorage;
+    kv.setItem(`wenming-ditu:thumb:${a}`, THUMB);
+    const at = new Date('2026-10-05T09:00:00.000Z');
+    const full = bundleText(at)!;
+    expect(full.dropped).toBeUndefined();
+    expect(full.text).toContain(NOTE.text);
+    // 上限比全带上的短一点:不带 AI 写的东西
+    const noNotes = bundleText(at, full.text.length - 1)!;
+    expect(noNotes).toMatchObject({ count: 3, dropped: 'notes' });
+    expect(noNotes.text.length).toBeLessThanOrEqual(full.text.length - 1);
+    expect(noNotes.text).not.toContain(NOTE.text);
+    expect(noNotes.text).toContain(THUMB);
+    // 还放不下:缩略图也不带
+    const bare = bundleText(at, noNotes.text.length - 1)!;
+    expect(bare).toMatchObject({ count: 3, dropped: 'notes+thumbs' });
+    expect(bare.text).not.toContain(THUMB);
+    // 存出来的,同样的上限下都能读
+    for (const [t, max] of [[noNotes.text, full.text.length - 1], [bare.text, noNotes.text.length - 1]] as const) {
+      const r = parseBundle(t, max);
+      expect(r?.ok && r.bundle.worlds).toHaveLength(3);
+    }
+    // 世界本身就放不下:不存
+    expect(bundleText(at, 100)).toMatchObject({ text: '', count: 3, tooBig: true });
+  });
+
+  it('最近打开过(比最后一次修改晚):放回来以后卡片上的时间和排序一样', () => {
+    const a = saveStore.importSave(makeSave({ ...DEFAULT_PARAMS, seed: 7 }, EDITS, 'check7', '苍澜界'))!;
+    tick();
+    saveStore.importSave(makeSave({ ...DEFAULT_PARAMS, seed: 8 }, EDITS, 'check8', '赤水纪'));
+    tick();
+    // 苍澜界又打开了一次、没改:排到前面
+    openWorld(7, { id: a });
+    saveStore.detachWorld();
+    const before = saveStore.listWorlds();
+    expect(before[0].id).toBe(a);
+    expect(before[0].at > before[0].save.savedAt).toBe(true);
+    const text = bundleText()!.text;
+    freshBrowser();
+    openBundleText(text);
+    const pick = (l: saveStore.StoredWorld[]) => l.map((w) => [w.save.title, w.at]);
+    expect(pick(saveStore.listWorlds())).toEqual(pick(before));
+  });
+
   it('没建完的和建好的分开算:同样的参数、名字,一个没建完一个建好的,不算同一个', () => {
     const save = makeSave({ ...DEFAULT_PARAMS, seed: 5 }, EMPTY_EDITS, 'c5', '同名');
     const r = importBundle({ worlds: [{ save, meta: { draft: true }, thumb: null, notes: [] }], bad: 0 });
