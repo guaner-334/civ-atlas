@@ -1129,8 +1129,13 @@ describe('底稿出处(origin)', () => {
     // 组合表情要用的看不见的字符留着(👩‍💻 不拆成 👩💻、❤️ 不变成黑白的 ❤、旗帜里的标签);只有这些、没有看得见的字 = 没署名
     for (const e of ['👩\u200d💻', '\u2764\ufe0f', '🏴\u{e0067}\u{e0062}\u{e0073}\u{e0063}\u{e0074}\u{e007f}', 'क्\u200dष']) expect(cleanSignature(` ${e}\u200b `)).toBe(e);
     expect(cleanSignature('\u200d\ufe0f \u200c')).toBe('');
-    expect(cleanSignature('\u200d'.repeat(25) + '明')).toBe('');
+    expect(cleanSignature('\u200d'.repeat(25) + '明')).toBe('明');
+    // 一个字后面挂上一长串看不见的字符:总长限住
+    expect(cleanSignature('明月' + '\u200d'.repeat(400))).toBe('明');
     expect(cleanSignature('一二三四五六七八九十一二三四五六七八九 十')).toBe('一二三四五六七八九十一二三四五六七八九');
+    // 字数按看到的算:一个组合表情、一个 ❤️ 都是一个字
+    for (const e of ['一二三四五六七八九十一二三四五六七八九\u2764\ufe0f', '\u2764\ufe0f'.repeat(20), '👩\u200d💻'.repeat(20)]) expect(cleanSignature(e)).toBe(e);
+    expect(cleanSignature('👩\u200d💻'.repeat(21))).toBe('👩\u200d💻'.repeat(20));
     const text = JSON.stringify({ ...makeSave({ ...DEFAULT_PARAMS, seed: 7 }, EDITS, 'c'), origin: { by: 'x', title: 't', url: 'javascript:void(0)' } });
     const r = parseSave(text);
     expect(r.ok && r.save.origin).toBeUndefined();
