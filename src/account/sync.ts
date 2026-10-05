@@ -1090,7 +1090,8 @@ export async function signOut(keep: boolean): Promise<{ ok: true } | { ok: false
     let gone: boolean;
     try {
       gone = removeAllWorlds();
-      forgetNotes();
+      // 没删成:页面里的 AI 写的东西留着(有的只在页面里,浏览器存不下),不然之后同步会把账号里的清空
+      if (gone) forgetNotes();
     } finally {
       applying = false;
     }

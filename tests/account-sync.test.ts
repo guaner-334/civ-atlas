@@ -1836,6 +1836,28 @@ describe('云同步:放满了、服务器不回话、分享前、别的标签页
     expect(fake.users.get('writer@example.com')!.worlds.get(id)!.notes).toHaveLength(1);
   });
 
+  it('退出选"删掉"、浏览器不让删:只在页面里的 AI 写的东西(浏览器存不下的)也不丢,之后同步不会把账号里的清空', async () => {
+    let locked = false;
+    const a = new (class extends FakeStorage {
+      removeItem(k: string) {
+        if (locked && k.startsWith('wenming-ditu:world:')) throw new Error('不让删');
+        super.removeItem(k);
+      }
+    })();
+    device(a);
+    const id = addWorld(7, '苍澜界');
+    a.deny = (k) => k.startsWith('civ-atlas:ai-notes:');
+    putNote(id, { key: 'k', kind: '史书', title: '大昌', text: '大昌兴于碧溪谷。', createdAt: '2026-10-05T00:00:00Z', provider: 'mock', model: 'm' });
+    await signIn();
+    expect(fake.users.get('writer@example.com')!.worlds.get(id)!.notes).toHaveLength(1);
+    locked = true;
+    expect(await signOut(false)).toMatchObject({ ok: false });
+    expect(listNotes(id)).toHaveLength(1);
+    locked = false;
+    await syncNow();
+    expect(fake.users.get('writer@example.com')!.worlds.get(id)!.notes).toHaveLength(1);
+  });
+
   it('退出选"删掉"、打开页面时浏览器存储没探测成功(只能读):照样直接删,删不干净就不退出', async () => {
     const a = new (class extends FakeStorage {
       setItem(k: string, v: string) {
