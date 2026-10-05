@@ -4,8 +4,11 @@
  *   中间     这颗星球(StudioScene + PlanetGL):进来先放开场 —— 平面实景上板块漂移 → 卷成地球仪 → 自转;
  *            拖动转动。改地形时摊成平面,换成平常的平面地图和改地形覆盖层(App 按 studioStore 的 flat 摆地图)
  *   左边     设定(电脑贴着窗口左边、能收起;手机是底部卡片,平时只露种子和「创建世界」):
- *            种子 + 换一颗、世界参数、重看星球形成;地形(改地形工具);名字;底部「创建世界」
+ *            种子 + 换一颗、世界参数、重看星球形成;地形(改地形工具、让助手改);名字;底部「创建世界」
  *   右边     样式(不用历史的 7 种,带缩略图)和投影(地球仪 + 5 种平面);手机上是右上两个按钮,点开是列表
+ *   助手     「让助手改」打开:电脑上换掉右边的样式和投影,手机上是盖住设定卡片的底部卡片(上面留出星球)。
+ *            新建时助手只改地形、回答问题;列出来还没执行的改地形在星球上用白色虚线圈出来、编号和清单对上,
+ *            星球先转过去正对着那一块。执行后和手动改地形一样重新生成、星球淡入新样子(不放提示条)
  *   底下     开场时的年代、进度、跳过;放完以后一句提示
  *   确认框   点「创建世界」先列出建好以后不能改的三样;确认后两边面板滑出、星球展开成平常的地图、淡出
  *
@@ -13,7 +16,7 @@
  * 没有 WebGL(或显卡丢了):不放开场,中间一直是平常的平面地图;样式照样能换。
  * 系统设了"减少动态效果":直接是地球仪、不自转,换样式和投影只做很短的过渡。
  */
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { World, WorldParams } from '../../gen/world';
 import { DEFAULT_PARAMS } from '../../gen/world';
 import type { Civ } from '../../gen/civ/types';
@@ -23,9 +26,11 @@ import type { DraftBase } from '../stageStore';
 import { useEdits } from '../editsStore';
 import { TerrainPanel, setTerrainTool, useTerrainTool } from '../TerrainTools';
 import { ParamSlider, SLIDERS, paramsSide } from '../WorldOverviewGenesis';
-import { RewriteBox } from '../Rewrite';
 import { openAiSettings } from '../AiSettings';
-import { AiMenuItem, MenuItem, MenuSep, PopMenu } from '../PopMenu';
+import { MenuItem, MenuSep, PopMenu } from '../PopMenu';
+import { AssistantPanel } from '../Assistant';
+import { useAssistant } from '../assistantStore';
+import { AST_W, closeAssistant, openAssistant, useAstOpen } from '../astPanel';
 import { PRIVACY_URL, SOURCE_URL, TERMS_URL } from '../links';
 import { APP_VERSION } from '../version';
 import { Icon } from '../icons';
@@ -36,6 +41,7 @@ import { landCenterLon, plateRotations, plateTexels, type PlanetProjection } fro
 import { PlanetGL } from './planetGL';
 import { StudioScene, type SceneHooks, type StillPose } from './scene';
 import { drawPlanetLabels } from './planetLabels';
+import { drawPlanetMarks, marksCenter, type PlanetMark } from './planetMarks';
 import { getCivFeed, subscribeCivFeed } from '../CivLayer';
 import { labelSurface } from '../../render/civ/labels';
 import type { LabelView } from '../../render/labels/draw';
@@ -66,6 +72,9 @@ const PROJS: { id: PlanetProjection; name: string; hint: string; icon: [number, 
   { id: 'mercator', name: '墨卡托', hint: '航海图，高纬度放大', icon: [24, 22, '1px'] },
 ];
 
+/** 手机上助手的底部卡片占屏幕多高(和 studio.css 的 .st-phone > .ast-panel 一致) */
+const AST_SHEET = 0.58;
+
 /** 漂移贴图、板块贴图的大小 */
 const PLATE_W = 1024;
 const PLATE_H = 512;
@@ -90,8 +99,11 @@ export interface StudioProps {
   ready: boolean;
   noCiv: boolean;
   data: { world: World; raster: Raster } | null;
+  /** 这颗星球推演出来的历史(套上改名的、没套的):助手要用 */
   civ: Civ | null;
-  rewriteBusy: boolean;
+  raw: Civ | null;
+  /** 正在生成 / 按新地形重新生成:助手这时发不了话、确认单也不能执行 */
+  worldBusy: boolean;
   /** 平常页面现在的图层(新建时 = 这里选的样式) */
   layer: MapLayer;
   onLayer: (id: MapLayer) => void;
@@ -157,9 +169,27 @@ export function Studio(p: StudioProps) {
   const [seedText, setSeedText] = useState(String(p.params.seed));
   useEffect(() => setSeedText(String(p.params.seed)), [p.params.seed]);
   const [seedBad, setSeedBad] = useState(false);
-  const [rewriting, setRewriting] = useState(false);
-  const closeRewrite = useCallback(() => setRewriting(false), []);
-  const more = useRef<HTMLDivElement>(null);
+
+  // ---- 助手(只改地形、回答问题;对话、确认单在 assistantStore) ----
+  const astOpen = useAstOpen();
+  const ast = useAssistant();
+  const astShown = astOpen && !!p.data && !!p.civ && !!p.raw;
+  /** 列出来、还没执行的那一份(最新的) */
+  const pending = useMemo(() => {
+    for (let i = ast.turns.length - 1; i >= 0; i--) {
+      const t = ast.turns[i];
+      if (t.status === 'done' && t.proposal && !t.applied && !t.dismissed && t.lock === 'history') return t;
+    }
+    return null;
+  }, [ast.turns]);
+  /** 星球上要圈出来的几处(勾着的改地形;编号 = 清单上第几条) */
+  const marks = useMemo<PlanetMark[]>(() => {
+    if (!pending?.proposal) return [];
+    const off = new Set(pending.off ?? []);
+    return pending.proposal.items.flatMap((x, i) => (x.change?.kind === 'terrain' && !off.has(i) ? [{ n: i + 1, op: x.change.op }] : []));
+  }, [pending]);
+  const marksRef = useRef<PlanetMark[]>([]);
+  marksRef.current = astShown ? marks : [];
 
   // ---- 进来时平常的地图换成等距圆柱(改地形、没有 WebGL 时露出来的是它;藏着的时候换图层也最省事);
   //      没创建就离开时换回原来的投影 ----
@@ -168,7 +198,10 @@ export function Studio(p: StudioProps) {
   useLayoutEffect(() => {
     prevProj.current = getProjection();
     if (prevProj.current !== 'equirect') setProjection('equirect');
+    // 平常页面上开着的助手不跟进来(新建里从「让助手改」打开);离开时也收起
+    closeAssistant();
     return () => {
+      closeAssistant();
       setStudioFlat(null);
       if (!created.current && prevProj.current !== 'equirect' && getProjection() === 'equirect') setProjection(prevProj.current);
     };
@@ -178,10 +211,16 @@ export function Studio(p: StudioProps) {
   const stillRef = useRef<StillPose | null>(null);
   const labTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [labOn, setLabOn] = useState(false);
+  const markRef = useRef<HTMLCanvasElement>(null);
+  const [markOn, setMarkOn] = useState(false);
   const surf = useRef<{ data: object; fn: LabelView['surface'] } | null>(null);
   const queueLabels = () => {
     clearTimeout(labTimer.current);
-    if (!stillRef.current) return setLabOn(false);
+    if (!stillRef.current) {
+      setLabOn(false);
+      setMarkOn(false);
+      return;
+    }
     // 停稳一下再排(拖完松手、变形刚停时不急着排)
     labTimer.current = setTimeout(() => {
       const cv = labRef.current;
@@ -190,8 +229,11 @@ export function Studio(p: StudioProps) {
       if (!cv || !d || !pose || gone.current) return;
       if (surf.current?.data !== d) surf.current = { data: d, fn: labelSurface(d.world, d.raster, 1) };
       const feed = getCivFeed();
-      const n = drawPlanetLabels(cv, feed.fontsOk ? feed.places : [], pose, d.world, surf.current.fn, Math.min(2, devicePixelRatio || 1));
+      const dpr = Math.min(2, devicePixelRatio || 1);
+      const n = drawPlanetLabels(cv, feed.fontsOk ? feed.places : [], pose, d.world, surf.current.fn, dpr);
       setLabOn(n > 0);
+      const mc = markRef.current;
+      if (mc) setMarkOn(drawPlanetMarks(mc, marksRef.current, pose, d.world, dpr) > 0);
     }, 160);
   };
   // 地名换了(换了样式、换了一颗、字体刚加载好):停着的话重排
@@ -331,9 +373,10 @@ export function Studio(p: StudioProps) {
 
   // 两边让出多少;开场时占满窗口。面板滑进滑出时星球跟着挪(第一次直接摆好)
   const laidOut = useRef(false);
+  // 助手开着:电脑上右边换成助手面板(更宽);手机上助手的底部卡片占屏幕的 58%(星球摆在它上面)
   const insets = useMemo(
-    () => (p.phone ? { l: 0, r: 0, b: sheetH } : { l: collapsed ? 0 : LEFT_W, r: RIGHT_W, b: 0 }),
-    [p.phone, collapsed, sheetH],
+    () => (p.phone ? { l: 0, r: 0, b: astShown ? Math.round(vh * AST_SHEET) : sheetH } : { l: collapsed ? 0 : LEFT_W, r: astShown ? AST_W : RIGHT_W, b: 0 }),
+    [p.phone, collapsed, sheetH, astShown, vh],
   );
   useLayoutEffect(() => {
     const sc = sceneRef.current;
@@ -341,6 +384,12 @@ export function Studio(p: StudioProps) {
     sc.setLayout({ ...insets, intro: intro || out > 0, phone: p.phone }, laidOut.current);
     laidOut.current = true;
   }, [insets, intro, out, p.phone, glOk]);
+
+  // 没有 WebGL:右边样式的缩略图照样要做(有星球时开场放完才做)
+  useEffect(() => {
+    if (glOk === false && p.ready) p.requestThumbs(STYLE_IDS);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [glOk, p.ready, p.data]);
 
   // 没有 WebGL:平常的地图一直铺在中间那块
   useEffect(() => {
@@ -452,10 +501,24 @@ export function Studio(p: StudioProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [style]);
 
-  // 改地形:摊成平面,换成平常的地图;改完从平常的地图现在的样子变回去
+  // 助手列出了要改的地方:星球转过去正对着它(新的一份才转);圈、编号停住时画,勾掉一条重画
+  const faced = useRef(0);
+  useEffect(() => {
+    if (!astShown || !pending || faced.current === pending.id || !p.data) return;
+    faced.current = pending.id;
+    const c = marksCenter(marks, p.data.world);
+    if (c) void sceneRef.current?.face(c[0], c[1]);
+  }, [astShown, pending, marks, p.data]);
+  useEffect(() => {
+    if (stillRef.current) queueLabels();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [marks, astShown]);
+
+  // 改地形:摊成平面,换成平常的地图;改完从平常的地图现在的样子变回去(助手先收起,右边是样式和投影)
   const flatAsked = useRef(false);
   useEffect(() => {
     const sc = sceneRef.current;
+    if (tool.on) closeAssistant();
     if (!sc || gone.current) return;
     if (tool.on) {
       flatAsked.current = true;
@@ -489,8 +552,15 @@ export function Studio(p: StudioProps) {
   const askCreate = () => {
     commitName();
     setDrawer(null);
-    setRewriting(false);
     setConfirm(true);
+  };
+  /** 「让助手改」:改地形工具开着就先收起(星球卷回来,圈画在星球上) */
+  const askAssistant = () => {
+    setDrawer(null);
+    setTip(false);
+    setSheetFull(false);
+    if (tool.on) setTerrainTool({ on: false });
+    openAssistant();
   };
   const doCreate = async () => {
     setConfirm(false);
@@ -501,6 +571,7 @@ export function Studio(p: StudioProps) {
     gone.current = true;
     setOut(1);
     setTip(false);
+    closeAssistant();
     if (tool.on) setTerrainTool({ on: false });
     setStudioFlat(null);
     setFlatShown(false);
@@ -553,7 +624,7 @@ export function Studio(p: StudioProps) {
   };
   const intro0 = base ? `设定都带过来了，改完存成一个新世界，${base.title}本身不变。` : '先定下这颗星球的样子。创建以后，再推演它三千年的历史。';
   const isDefault = SLIDERS.every((s) => p.params[s.key] === DEFAULT_PARAMS[s.key]);
-  const canRewrite = !!p.civ && !!p.data;
+  const canAsk = p.ready && !intro && !capOn && !!p.civ && !!p.raw;
   const ico = p.phone ? 18 : 17;
   const peek = p.phone && !sheetFull && !tool.on;
   const busyIntro = intro || capOn;
@@ -657,7 +728,18 @@ export function Studio(p: StudioProps) {
       <span className="sb-row-main">
         <b>火山、山脉、湖……</b>
       </span>
-      <span className="sb-row-side">{nTerrain ? `改过 ${nTerrain} 处` : '还没改'}</span>
+      <span className="sb-row-side">{nTerrain ? `改了 ${nTerrain} 处` : '还没改'}</span>
+      <Icon name="chevron" size={14} className="sb-chev" />
+    </button>
+  );
+  const askRow = (sub: boolean) => (
+    <button className={`sb-row st-ask${astShown ? ' on' : ''}`} data-act="ask-assistant" disabled={!canAsk} onClick={askAssistant} title="说说想要什么样，助手替你放火山、拉山脉、挖湖">
+      <Icon name="bubble" size={ico} className="sb-ico" />
+      <span className="sb-row-main">
+        <b>让助手改</b>
+        {sub && <small>说想要什么样，它替你一处处放</small>}
+      </span>
+      {!sub && <span className="sb-row-side">说一句话就行</span>}
       <Icon name="chevron" size={14} className="sb-chev" />
     </button>
   );
@@ -682,11 +764,8 @@ export function Studio(p: StudioProps) {
     </>
   );
   const moreMenu = (
-    <div className="nw-more-wrap" ref={more}>
+    <div className="nw-more-wrap">
       <PopMenu className="sb-pill sb-more" icon={<Icon name="more" size={17} />} title="更多" act="world-more" align="right">
-        <AiMenuItem icon={<Icon name="terrain" size={16} />} act="rewrite" disabled={!canRewrite} onClick={() => setRewriting(true)} note="AI">
-          用一句话改地形
-        </AiMenuItem>
         <MenuItem icon={<Icon name="sparkle" size={16} />} act="ai-settings" onClick={() => openAiSettings()}>
           AI 设置
         </MenuItem>
@@ -732,14 +811,11 @@ export function Studio(p: StudioProps) {
       {base ? '创建新世界' : '创建世界'}
     </button>
   );
-  const rewrite = rewriting && canRewrite && (
-    <div className="st-rewrite">
-      <RewriteBox civ={p.civ!} world={p.data!.world} busy={p.rewriteBusy} onClose={closeRewrite} anchor={more} lock="history" />
-    </div>
-  );
-
   const settings = tool.on ? (
-    <TerrainPanel disabled={p.busy} />
+    <>
+      <TerrainPanel disabled={p.busy} />
+      {!p.phone && <div className="sb-group st-ask-group">{askRow(true)}</div>}
+    </>
   ) : (
     <>
       <section className="sb-sec">
@@ -761,7 +837,10 @@ export function Studio(p: StudioProps) {
             <span>地形</span>
             <small>可选</small>
           </div>
-          <div className="sb-group">{terrainRow}</div>
+          <div className="sb-group">
+            {terrainRow}
+            {askRow(false)}
+          </div>
         </section>
       )}
       {!peek && carried && (
@@ -818,7 +897,6 @@ export function Studio(p: StudioProps) {
         {settings}
       </div>
       <footer className="st-foot">{createBtn}</footer>
-      {rewrite}
     </aside>
   );
 
@@ -890,6 +968,7 @@ export function Studio(p: StudioProps) {
     out === 2 ? 'fade' : '',
     drawer ? `drawer-${drawer}` : '',
     sheetFull ? 'sheet-full' : '',
+    astShown ? 'ast' : '',
   ]
     .filter(Boolean)
     .join(' ');
@@ -899,6 +978,7 @@ export function Studio(p: StudioProps) {
       <div ref={glowRef} className="st-glow" aria-hidden="true" />
       <canvas ref={glRef} className="st-gl" aria-label="这颗星球" />
       <canvas ref={labRef} className={`st-labels${labOn && !intro && !capOn && !tool.on && !out && glOk ? ' on' : ''}`} aria-hidden="true" />
+      <canvas ref={markRef} className={`st-labels st-marks${markOn && astShown && !intro && !capOn && !tool.on && !out && glOk ? ' on' : ''}`} data-marks={markOn && astShown ? marks.length : 0} aria-hidden="true" />
       {drawer && <div className="st-dismiss" onPointerDown={() => setDrawer(null)} />}
       {left}
       {!p.phone && (
@@ -917,10 +997,20 @@ export function Studio(p: StudioProps) {
               <i style={{ width: Math.round(curProj.icon[0] * 0.8), height: Math.round(curProj.icon[1] * 0.8), borderRadius: curProj.icon[2] }} />
             </span>
           </button>
+          <button
+            className={`st-ph-btn${astShown ? ' on' : ''}`}
+            data-act="assistant"
+            aria-label="让助手改"
+            aria-pressed={astShown}
+            disabled={!canAsk}
+            onClick={() => (astShown ? closeAssistant() : askAssistant())}
+          >
+            <Icon name="bubble" size={22} />
+          </button>
         </div>
       )}
       {right}
-      {p.phone && rewrite}
+      {astShown && <AssistantPanel phone={p.phone} world={p.data!.world} raster={p.data!.raster} civ={p.civ!} raw={p.raw!} lock="history" busy={p.worldBusy} />}
       <div ref={capRef} className={`st-cap${capOn ? '' : ' off'}`} aria-hidden={!capOn}>
         <b>板块漂移</b>
         <span className="st-yr" ref={yrRef}>

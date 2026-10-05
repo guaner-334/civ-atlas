@@ -32,6 +32,9 @@
   position: absolute;
   inset: 0;
   z-index: 20;
+  /* 滑出去的面板不撑出滚动(输入框拿到焦点时整页不会被挪开) */
+  overflow: hidden;
+  overflow: clip;
   pointer-events: none;
   color: var(--ink);
   font-family: var(--font-sans);
@@ -198,22 +201,20 @@
   cursor: default;
 }
 /* 用一句话改地形的框:浮在左边面板右边 */
-.st-rewrite {
-  position: absolute;
-  top: 14px;
-  left: calc(100% + 14px);
-  z-index: 8;
+/* 「让助手改」:助手开着时这一行是选中的样子;改地形工具底下单独一组 */
+.studio .st-ask.on {
+  background: var(--accent-soft);
 }
-.st-rewrite .rw-box {
-  position: static;
-  max-width: calc(100vw - 340px - 28px);
-  border: 0;
-  border-radius: 12px;
-  background: var(--panel);
-  -webkit-backdrop-filter: var(--glass-blur);
-  backdrop-filter: var(--glass-blur);
-  box-shadow: var(--shadow-float);
-  font-size: 13.5px;
+.studio .st-ask.on b,
+.studio .st-ask.on .sb-ico {
+  color: var(--link);
+}
+.st-ask .sb-row-main small {
+  font-size: 12px;
+  color: var(--ink-2);
+}
+.st-ask-group {
+  margin-top: 10px;
 }
 /* 收起以后左上角的小按钮(和平常页面收起侧栏同一个样子,sidebar.css 的 .side-open) */
 .studio:not(.collapsed) .st-pill,
@@ -637,16 +638,65 @@
   padding: 8px 14px;
   text-align: center;
 }
-/* 手机上用一句话改地形的框:屏幕上方 */
-.st-phone .st-rewrite {
-  position: absolute;
-  top: calc(12px + env(safe-area-inset-top, 0px));
-  left: 12px;
-  right: 12px;
+
+/* ---- 助手(Assistant.tsx 的面板,深色):电脑上贴着右边、换掉样式和投影;手机上盖住设定卡片,上面留出星球 ---- */
+.studio.ast .st-right {
+  transform: translateX(calc(100% + 2px));
 }
-.st-phone .st-rewrite .rw-box {
-  max-width: none;
-  max-height: calc(100% - var(--sheet-h, 260px) - 24px);
+.studio > .ast-panel {
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 9;
+  width: 372px;
+  border-radius: 0;
+  box-shadow: none;
+  background: var(--panel);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border-left: 0.5px solid var(--line);
+  animation: st-ast-in 0.36s cubic-bezier(0.3, 0.7, 0.2, 1);
+  transition: transform 0.36s cubic-bezier(0.3, 0.7, 0.2, 1);
+}
+@keyframes st-ast-in {
+  from {
+    transform: translateX(100%);
+  }
+}
+.studio.intro > .ast-panel,
+.studio.out > .ast-panel {
+  transform: translateX(calc(100% + 2px));
+}
+/* 手机:屏幕下面 58%(和 Studio.tsx 的 AST_SHEET 一致) */
+.st-phone > .ast-panel.phone {
+  top: 42%;
+  z-index: 9;
+  left: 0;
+  right: 0;
+  width: auto;
+  border-left: 0;
+  border-radius: 14px 14px 0 0;
+  /* 盖着设定卡片:实色底,底下的字不透上来 */
+  background: var(--panel-solid);
+  box-shadow:
+    0 0 0 0.5px var(--line),
+    0 -6px 30px rgba(0, 0, 0, 0.35);
+  animation-name: st-ast-up;
+  transition: transform 0.2s ease;
+}
+@keyframes st-ast-up {
+  from {
+    transform: translateY(100%);
+  }
+}
+.st-phone.intro > .ast-panel,
+.st-phone.out > .ast-panel {
+  transform: translateY(100%);
+}
+.st-phone.ast .st-ph-btns,
+.st-phone.ast .st-cap.st-tip {
+  opacity: 0;
+  pointer-events: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -658,7 +708,8 @@
   .st-cap,
   .st-ph-btns,
   .st-scrim,
-  .st-dlg {
+  .st-dlg,
+  .studio > .ast-panel {
     transition: none;
     animation: none;
   }

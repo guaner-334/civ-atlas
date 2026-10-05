@@ -293,7 +293,8 @@ export function driftLoop(count: number, maxUniforms: number): number {
 
 /**
  * 陆地最集中的那条经线(弧度,−π … π):开场把它摆在正中,卷成地球仪时正对着人的是大陆而不是一片海。
- * px 是 plateTexels 的结果(G 通道 = 陆地);只看纬度 ±60° 以内、按 cos 纬度加权,前后各约 40° 平滑以后取最大。
+ * px 是 plateTexels 的结果(G 通道 = 陆地);只看纬度 ±60° 以内、按 cos 纬度加权,前后各约 40° 平滑以后取最大
+ * (平滑时离得越近权重越大:一块比 80° 窄的大陆取到它正中,而不是它西边的边)。
  */
 export function landCenterLon(px: Uint8Array, w: number, h: number): number {
   const col = new Float64Array(w);
@@ -306,15 +307,14 @@ export function landCenterLon(px: Uint8Array, w: number, h: number): number {
   const r = Math.max(1, Math.round((w * 40) / 360));
   let best = -1;
   let bx = 0;
-  // 滑动窗口(东西相连)
-  let s = 0;
-  for (let i = -r; i <= r; i++) s += col[(i + w) % w];
+  // 三角形权重的窗口(东西相连)
   for (let x = 0; x < w; x++) {
+    let s = 0;
+    for (let i = -r; i <= r; i++) s += col[(((x + i) % w) + w) % w] * (r + 1 - Math.abs(i));
     if (s > best) {
       best = s;
       bx = x;
     }
-    s += col[(x + r + 1) % w] - col[(x - r + w) % w];
   }
   return ((bx + 0.5) / w) * 2 * Math.PI - Math.PI;
 }

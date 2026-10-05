@@ -285,6 +285,16 @@ export class StudioScene {
     this.hooks.still(pose);
   }
 
+  /** 转到正对着某处(经度、纬度,弧度;只在停着的地球仪上转),约 0.9 秒;转过去以后不再自转 */
+  face(lon: number, lat: number): Promise<void> {
+    if (this.projB !== 'globe' || this.s < 1 || this.flatOn || this.drift !== null || this.drag) return Promise.resolve();
+    this.spin = false;
+    const d = lon - this.lon;
+    const to = this.lon + d - 2 * Math.PI * Math.round(d / (2 * Math.PI));
+    const tilt = Math.max(-1.1, Math.min(0.9, lat - TILT));
+    return Promise.all([this.tween('lon', to, 900), this.tween('tilt', tilt, 900)]).then(() => undefined);
+  }
+
   /** 马上画一帧(从平常的地图接回来时,要先画好再露出来) */
   draw(): void {
     const p = this.pose();

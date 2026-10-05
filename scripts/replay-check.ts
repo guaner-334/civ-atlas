@@ -1,7 +1,7 @@
 /**
  * 冒烟检查:npx tsx scripts/replay-check.ts
  * 界面骨架(左边侧栏 + 地图、右上图层按钮、图层与投影弹层、世界概览浮层、侧栏里的详情面板)、回放、悬停、点选改名、
- * 存档读档分享、导出、干预、改地形、AI、东西相连、多种投影、地球仪、宽屏侧栏收起;手机布局(390×844 触屏:底部的世界 / 详情卡片、时间轴胶囊、双指捏合)。
+ * 存档读档分享、导出、干预、改地形、AI、键盘快捷键、东西相连、多种投影、地球仪、宽屏侧栏收起;手机布局(390×844 触屏:底部的世界 / 详情卡片、时间轴胶囊、双指捏合)。
  * 宽屏:存档在侧栏顶上,成书、AI 设置在侧栏右上的"更多"里,导出在地图右上;创建时定下的种子、参数、地形在世界概览的"世界设定"页(只能看)
  * (点侧栏顶上的世界名打开);某一点的完整读数用 window.__wfProbe(悬停卡片只露一两行)。
  */
@@ -312,6 +312,155 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
   await page.evaluate(() => localStorage.clear());
 }
 
+// 键盘快捷键(电脑上):← → 走 10 年(Shift 100 年)、空格播放 / 暂停(用鼠标点过播放键以后按空格只算一下)、+ − 缩放、1–4 换图层、
+// / 跳进搜索框(在框里打数字不换图层)、? 打开一览(开着时空格不播放,Esc 收起)、Ctrl+S 打开存档菜单(拦下浏览器的"存储网页")、
+// 改名后 Ctrl+Z 撤销、Ctrl+Shift+Z 重做;Ctrl+\ 收起 / 展开左边的卡片(收起着按 / 先展开);按钮的提示框右边写着键;"更多"菜单里有"键盘快捷键"
+{
+  await page.goto(`${dev.url}/?seed=7`);
+  await page.waitForFunction(() => (window as any).__wfLabels?.polities > 0, null, { timeout: 60000 });
+  await page.waitForTimeout(300);
+  const vp = page.viewportSize()!;
+  const year = async () => Number((await page.locator('.timebar .tb-year').innerText()).replace(/[^\d]/g, ''));
+  const playing = async () => (await page.locator('.timebar .tb-play.on').count()) > 0;
+  const layer = () => page.locator('.seg-btn.on').innerText();
+  const k = async () => (await page.evaluate(() => (window as any).__wfView)).k as number;
+  await page.mouse.click(SIDE_ROOM + (vp.width - SIDE_ROOM) / 2, vp.height / 2);
+  await page.keyboard.press('Escape');
+  const y0 = await year();
+  await page.keyboard.press('ArrowLeft');
+  const y1 = await year();
+  await page.keyboard.press('Shift+ArrowLeft');
+  const y2 = await year();
+  await page.keyboard.press('ArrowRight');
+  const y3 = await year();
+  await page.keyboard.press('Space');
+  await page.waitForTimeout(250);
+  const play1 = await playing();
+  await page.keyboard.press('Space');
+  const play2 = await playing();
+  await page.click('.timebar button.tb-play');
+  await page.waitForTimeout(150);
+  const play3 = await playing();
+  await page.keyboard.press('Space');
+  await page.waitForTimeout(150);
+  const play4 = await playing();
+  const k0 = await k();
+  await page.keyboard.press('Equal');
+  await page.waitForTimeout(400);
+  const k1 = await k();
+  await page.keyboard.press('Minus');
+  await page.waitForTimeout(400);
+  const k2 = await k();
+  await page.keyboard.press('2');
+  await page.waitForTimeout(250);
+  const l2 = await layer();
+  await page.keyboard.press('1');
+  await page.waitForTimeout(250);
+  const l1 = await layer();
+  await page.keyboard.press('/');
+  const searchFocused = await page.evaluate(() => document.activeElement?.classList.contains('search-input') ?? false);
+  await page.keyboard.type('2');
+  const typed = await page.locator('input.search-input').inputValue();
+  const lTyped = await layer();
+  await page.keyboard.press('Escape');
+  await page.locator('input.search-input').fill('');
+  await page.mouse.click(SIDE_ROOM + (vp.width - SIDE_ROOM) / 2, vp.height / 2);
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Shift+Slash');
+  await page.waitForTimeout(200);
+  const help = (await page.locator('[data-testid=shortcuts]').innerText().catch(() => '')).replace(/\n/g, ' ');
+  await page.keyboard.press('Space');
+  const playUnderHelp = await playing();
+  await page.keyboard.press('Escape');
+  const helpClosed = !(await page.locator('[data-testid=shortcuts]').count());
+  await page.evaluate(() => window.addEventListener('keydown', (e) => e.code === 'KeyS' && ((window as any).__kbSave = e.defaultPrevented)));
+  await page.keyboard.press('Control+s');
+  await page.waitForTimeout(200);
+  const saveMenu = await page.locator('.save-menu').isVisible().catch(() => false);
+  const savePrevented = await page.evaluate(() => (window as any).__kbSave);
+  await page.keyboard.press('Escape');
+  // 提示框:鼠标停在"民族"上
+  await page.hover('.seg-btn[data-layer=cultures]');
+  await page.waitForTimeout(700);
+  const tip = (await page.locator('.ui-tip').innerText().catch(() => '')).replace(/\s+/g, ' ');
+  await page.mouse.move(SIDE_ROOM + (vp.width - SIDE_ROOM) / 2, vp.height / 2);
+  // "更多"菜单 → 键盘快捷键
+  await page.click('[data-act=world-more]');
+  const menu = (await page.locator('.pm-menu').innerText().catch(() => '')).replace(/\s+/g, ' ');
+  await page.click('[data-act=shortcuts]');
+  const menuOpens = (await page.locator('[data-testid=shortcuts]').count()) === 1;
+  await page.click('[data-act=shortcuts-close]');
+  // 改一座城的名字,Ctrl+Z 撤销、Ctrl+Shift+Z 重做
+  type Pick = { kind: string; id: number; text: string; x: number; y: number };
+  const ps = (await page.evaluate('window.__wfPickables()')) as Pick[];
+  const city = ps.find((c) => c.kind === 'settlement' && ps.some((m) => m.kind === 'mark' && m.id === c.id && m.x > SIDE_ROOM + 60 && m.x < vp.width - 60 && m.y > 120 && m.y < vp.height - 160));
+  const has = (n: string) => page.evaluate((t) => ((window as any).__wfLabels?.texts ?? []).includes(t), n);
+  let undo = '';
+  let redo = '';
+  const named: boolean[] = [];
+  if (city) {
+    const m = ps.find((q) => q.kind === 'mark' && q.id === city.id)!;
+    await page.mouse.click(m.x, m.y);
+    await page.click('.inspector .ins-name');
+    await page.fill('.inspector .ins-edit input', '快捷键城');
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(400);
+    named.push(await has('快捷键城'));
+    await page.keyboard.press('Control+z');
+    undo = await toastText(page, 'resim-done');
+    await page.waitForTimeout(400);
+    named.push(await has('快捷键城'), await has(city.text));
+    await page.keyboard.press('Control+Shift+z');
+    redo = await toastText(page, 'resim-done');
+    await page.waitForTimeout(400);
+    named.push(await has('快捷键城'));
+  }
+  // 收起按钮的提示框;Ctrl+\ 收起、再按展开;收起着按 / :卡片展开、光标在搜索框里
+  await page.keyboard.press('Escape');
+  await page.hover('[data-act=side-collapse]');
+  await page.waitForTimeout(700);
+  const tipSide = (await page.locator('.ui-tip').innerText().catch(() => '')).replace(/\s+/g, ' ');
+  await page.mouse.move(SIDE_ROOM + (vp.width - SIDE_ROOM) / 2, vp.height / 2);
+  const folded = async () => (await page.locator('.side-open').count()) === 1;
+  await page.keyboard.press('Control+Backslash');
+  await page.waitForTimeout(400);
+  const fold1 = await folded();
+  await page.keyboard.press('Control+Backslash');
+  await page.waitForTimeout(400);
+  const fold2 = await folded();
+  await page.keyboard.press('Control+Backslash');
+  await page.waitForTimeout(400);
+  await page.keyboard.press('/');
+  await page.waitForTimeout(300);
+  const fold3 = await folded();
+  const searchAfterFold = await page.evaluate(() => document.activeElement?.classList.contains('search-input') ?? false);
+  await page.keyboard.press('Escape');
+  console.log(
+    `快捷键:年份 ${y0} → ← ${y1} → Shift+← ${y2} → → ${y3};空格 ${play1}/${play2},点播放键 ${play3} 后空格 ${play4};缩放 ${k0.toFixed(2)} → ${k1.toFixed(2)} → ${k2.toFixed(2)};` +
+      `2 → ${l2}、1 → ${l1};/ 进搜索框 ${searchFocused}、打「${typed}」图层 ${lTyped};? 一览「${help.slice(0, 30)}…」、开着时空格播放 ${playUnderHelp}、Esc 收起 ${helpClosed};` +
+      `Ctrl+S 存档菜单 ${saveMenu}、拦下 ${savePrevented};提示「${tip}」;更多菜单「${menu}」→ 一览 ${menuOpens};` +
+      `改名「${city?.text}」→ 快捷键城 ${named.join('/')}、撤销「${undo}」、重做「${redo}」;收起按钮提示「${tipSide}」;Ctrl+\\ 收起 ${fold1} → 展开 ${!fold2};收起着按 / → 展开 ${!fold3}、进搜索框 ${searchAfterFold}`,
+  );
+  if (!(y1 === y0 - 10 && y2 === y0 - 110 && y3 === y0 - 100)) errs.push(`快捷键:← → 没有按 10 年 / Shift 100 年走(${y0} → ${y1} → ${y2} → ${y3})`);
+  if (!play1 || play2) errs.push(`快捷键:空格没有播放 / 暂停(${play1}、${play2})`);
+  if (!play3 || play4) errs.push(`快捷键:点过播放键以后按空格,应只暂停一次(${play3} → ${play4})`);
+  if (!(k1 > k0 * 1.3 && Math.abs(k2 - k0) < 0.01)) errs.push(`快捷键:+ − 没有缩放(${k0} → ${k1} → ${k2})`);
+  if (l2 !== '民族' || l1 !== '政区') errs.push(`快捷键:1 2 没有换图层(${l2}、${l1})`);
+  if (!searchFocused || typed !== '2' || lTyped !== '政区') errs.push(`快捷键:/ 没有跳进搜索框,或在框里打字换了图层(${searchFocused}、「${typed}」、${lTyped})`);
+  if (!['时间', '地图', '世界', '播放 / 暂停', '撤销 / 重做', 'Ctrl+S'].every((w) => help.includes(w)) || playUnderHelp || !helpClosed)
+    errs.push(`快捷键:? 一览不对,或开着时空格还在播放 / Esc 收不起(${help.slice(0, 60)};${playUnderHelp};${helpClosed})`);
+  if (!saveMenu || savePrevented !== true) errs.push(`快捷键:Ctrl+S 没有打开存档菜单 / 没拦下浏览器的存网页(${saveMenu}、${savePrevented})`);
+  if (!/民族\s*2/.test(tip)) errs.push(`快捷键:"民族"按钮的提示框没写键(${tip})`);
+  if (!/键盘快捷键\s*\?/.test(menu) || !menuOpens) errs.push(`快捷键:"更多"菜单里没有"键盘快捷键",或点了没打开一览(${menu})`);
+  if (!city) errs.push('快捷键:没找到能点的城');
+  else if (named.join() !== 'true,false,true,true' || undo !== '已撤销改名' || redo !== '已重做改名')
+    errs.push(`快捷键:改名后 Ctrl+Z / Ctrl+Shift+Z 不对(${named.join('/')};${undo};${redo})`);
+  if (!/收起侧栏\s*Ctrl\+\\/.test(tipSide)) errs.push(`快捷键:收起按钮的提示框没写键(${tipSide})`);
+  if (!fold1 || fold2) errs.push(`快捷键:Ctrl+\\ 没有收起 / 展开左边的卡片(${fold1}、${fold2})`);
+  if (fold3 || !searchAfterFold) errs.push(`快捷键:卡片收起着按 / ,应先展开再跳进搜索框(${fold3}、${searchAfterFold})`);
+  await page.evaluate(() => localStorage.clear());
+}
+
 await page.goto(`${dev.url}/?seed=7&style=realistic`);
 await page.waitForFunction(() => (window as any).__wf?.ready);
 
@@ -526,6 +675,72 @@ await page.waitForFunction(() => (window as any).__wf?.ready, null, { timeout: 6
   if (!g || !sheet || gcy + R > sheet.y + 1 || gcy - R < 0 || Math.abs(gcx - 195) > 2 || R < 120) errs.push(`手机新建:星球没有整个摆在底部卡片上面(中心 ${gcx},${gcy} 半径 ${R},卡片 ${sheet?.y})`);
   if (!(land >= 0.3)) errs.push(`手机新建:创建以后正中对着的大半是海(陆地 ${(land * 100).toFixed(0)}%)`);
   await pctx.close();
+}
+
+// 新建时让助手改(测试用假 AI):左边「地形」里「让助手改」→ 右边的样式和投影换成助手面板;说一句要改的 →
+// 列出改地形的两条(带编号),星球转过去、圈出这两处;勾掉一条,圈跟着少一个;执行 → 按新地形重新生成,左边「地形」写"改了 2 处",
+// 不放提示条,助手里一行"已执行 2 条"带撤销;撤销 → 回到"还没改"。打开改地形工具时助手收起;换一颗,对话清掉
+{
+  const actx = await browser.newContext({ viewport: { width: 1600, height: 900 } });
+  const ap = await actx.newPage();
+  ap.on('pageerror', (e) => errs.push(`新建时让助手改:${e.message}`));
+  const row = () => ap.locator('.studio [data-act=terrain] .sb-row-side').innerText().catch(() => '');
+  await ap.goto(`${dev.url}/?new=1&seed=7&play=0&ai=mock`);
+  await studioReady(ap);
+  await ap.click('.studio [data-act=ask-assistant]');
+  const shown = await ap.locator('.studio > .ast-panel').waitFor({ timeout: 5000 }).then(() => true, () => false);
+  await ap.waitForTimeout(500);
+  const panel = await ap.locator('.studio > .ast-panel').boundingBox();
+  const rightGone = await ap.evaluate(() => (document.querySelector('.st-right')?.getBoundingClientRect().left ?? 0) >= innerWidth - 1);
+  const hint = await ap.locator('.ast-hint').innerText().catch(() => '');
+  await ap.fill('.ast-field textarea', '在最大的那块陆地中间挖个大湖，湖北边再加一道山脉');
+  await ap.press('.ast-field textarea', 'Enter');
+  await ap.waitForSelector('[data-act=ast-apply]', { timeout: 30000 }).catch(() => null);
+  const nos = (await ap.locator('.ast-items .ast-no').allInnerTexts().catch(() => [] as string[])) as string[];
+  const marksAt = (n: string) =>
+    ap
+      .waitForFunction((v) => document.querySelector('.st-marks.on')?.getAttribute('data-marks') === v, n, { timeout: 8000 })
+      .then(() => true, () => false);
+  const marks2 = await marksAt('2');
+  await ap.click('.ast-items .ast-ck >> nth=1');
+  const marks1 = await marksAt('1');
+  await ap.click('.ast-items .ast-ck >> nth=1');
+  await ap.click('[data-act=ast-apply]');
+  await ap.waitForFunction(() => /改了 2 处/.test(document.querySelector('.studio [data-act=terrain] .sb-row-side')?.textContent ?? ''), null, { timeout: 30000 }).catch(() => {});
+  await ap.waitForFunction(() => !document.querySelector('.toast[data-toast=progress]'), null, { timeout: 30000 }).catch(() => {});
+  await ap.waitForTimeout(600);
+  const row2 = await row();
+  const applied = (await ap.locator('.ast-applied').innerText().catch(() => '')).replace(/\n/g, ' ');
+  const toast = await ap.locator('.toast[data-toast=terrain]').count();
+  const marksGone = !(await ap.locator('.st-marks.on').count());
+  await ap.click('.ast-applied [data-act=ast-undo]').catch(() => {});
+  await ap.waitForFunction(() => /还没改/.test(document.querySelector('.studio [data-act=terrain] .sb-row-side')?.textContent ?? ''), null, { timeout: 30000 }).catch(() => {});
+  const row0 = await row();
+  await ap.waitForFunction(() => !document.querySelector('.toast[data-toast=progress]'), null, { timeout: 30000 }).catch(() => {});
+  await ap.click('.studio [data-act=terrain]');
+  await ap.locator('.tp').waitFor({ timeout: 5000 }).catch(() => {});
+  const closedByTool = !(await ap.locator('.ast-panel').count());
+  await ap.click('.tp [data-act=terrain-done]');
+  await ap.waitForTimeout(1200);
+  await ap.click('.studio [data-act=ask-assistant]');
+  const turns = await ap.locator('.ast-turn').count();
+  await ap.click('.studio [data-act=new-seed]');
+  await ap.waitForFunction(() => !document.querySelector('.ast-turn'), null, { timeout: 10000 }).catch(() => {});
+  const turnsAfter = await ap.locator('.ast-turn').count();
+  console.log(
+    `新建时让助手改:面板 ${shown}(左边 ${panel ? Math.round(panel.x) : '-'}、宽 ${panel ? Math.round(panel.width) : '-'}),右边样式投影让开 ${rightGone};「${hint.slice(0, 16)}…」;` +
+      `编号 ${nos.join(',')},星球上圈 ${marks2 ? 2 : '?'} → 勾掉一条 ${marks1 ? 1 : '?'};执行 → 左边「${row2}」、「${applied}」、提示条 ${toast}、圈没了 ${marksGone};` +
+      `撤销 → 「${row0}」;开改地形工具助手收起 ${closedByTool};换一颗对话 ${turns} → ${turnsAfter} 轮`,
+  );
+  if (!shown || !panel || Math.abs(panel.x + panel.width - 1600) > 1 || Math.abs(panel.width - 372) > 1 || !rightGone)
+    errs.push(`新建时让助手改:助手面板没有换掉右边的样式和投影(${shown},${JSON.stringify(panel)},${rightGone})`);
+  if (!hint.includes('圈出')) errs.push(`新建时让助手改:空的时候的说明不对(${hint})`);
+  if (nos.join(',') !== '1,2' || !marks2 || !marks1) errs.push(`新建时让助手改:确认单没编号,或星球上没圈出要改的地方 / 勾掉一条圈没跟着少(${nos},${marks2},${marks1})`);
+  if (row2 !== '改了 2 处' || !applied.includes('已执行 2 条') || toast || !marksGone) errs.push(`新建时让助手改:执行后左边没写"改了 2 处" / 助手里没写已执行 / 放了提示条(${row2},${applied},${toast},${marksGone})`);
+  if (row0 !== '还没改') errs.push(`新建时让助手改:撤销以后地形没回去(${row0})`);
+  if (!closedByTool) errs.push('新建时让助手改:打开改地形工具时助手没收起');
+  if (!turns || turnsAfter) errs.push(`新建时让助手改:换一颗以后对话没清掉(${turns} → ${turnsAfter})`);
+  await actx.close();
 }
 
 // 打开"民族"视图:悬停在有人住的地方要显示"XX族"
@@ -2290,71 +2505,98 @@ for (const style of ['realistic', 'fantasy']) {
   await sp.close();
 }
 
-// AI 改写(阶段 5「对话式编辑」,不联网):侧栏"更多"里的"用一句话改写世界" → 框里一行说明 + 三句按这个世界写的例子;没设置 AI 时"发送"点不了,
-// 底部一行提示 +"设置 AI"(打开设置;Esc 只关设置)。测试用假 AI(时间轴在 2000 年):说一句(不提地形)→ 列出一条"保护"提议(2000 年起、至 2300 年)→
-// "执行 1 条":框收起、后台重推,提示条"已按你说的改写"(带撤销)、侧栏顶上"干预了 1 处" → 提示条上点撤销 → 重推回没有干预;
-// 再打开框,那一轮写"已撤销";点框外面关上
+// 助手(不联网):右上「助手」开关右边的面板,地图那一块往左让;"更多"菜单里不再有改写。没设置 AI 时一行说明 + 五句按这个世界写的例子、
+// 底部"设置 AI",照样能发(这一轮报"还没有设置 AI")。测试用假 AI(时间轴在 2000 年):说一句要改的 → 查、试推演、列确认单(附试推演的结果),做完的几步收成一行 →
+// "先在地图上看看":地图上方的提示条,"回到现在"收起 → "执行 N 条":后台重推,提示条"已按你说的改写"(带撤销)、侧栏顶上"干预了 N 处",
+// 确认单写"已执行" → 提示条上点撤销 → 重推回没有干预、确认单写"已撤销"。问一句 → 地图上选中它;再点「助手」收起、地图回原位。
+// 手机:右上第三个按钮打开拉到顶的卡片;"先在地图上看看"收起卡片,提示条上能直接执行
 {
   const rp = await browser.newPage({ viewport: { width: 1400, height: 820 } });
-  rp.on('pageerror', (e) => errs.push(`[改写] ${e.message}`));
-  rp.on('console', (m) => m.type() === 'error' && errs.push(`[改写] ${m.text()}`));
+  rp.on('pageerror', (e) => errs.push(`[助手] ${e.message}`));
+  rp.on('console', (m) => m.type() === 'error' && errs.push(`[助手] ${m.text()}`));
   /** 历史推完了:侧栏顶上的小字写出现存几国(这个网址默认是地形图层,地图上没有国名,不能按国名等) */
   const historyReady = () => /现存/.test(document.querySelector('.sb-sub')?.textContent ?? '');
-  /** 侧栏"更多" → "用一句话改写世界"(历史推完才能点) */
-  const openRewrite = async () => {
-    await rp.click('[data-act=world-more]');
-    await rp.click('.pm-menu [data-act=rewrite]:not([disabled])', { timeout: 10000 }).catch(() => rp.keyboard.press('Escape'));
-  };
+  const right = (sel: string) => rp.evaluate((s) => document.querySelector(s)?.getBoundingClientRect().right ?? -1, sel);
   await rp.goto(`${dev.url}/?seed=7&style=fantasy`);
   await rp.waitForFunction(historyReady, null, { timeout: 60000 });
-  await openRewrite();
-  const shown = await rp.waitForSelector('.rw-box', { timeout: 5000 }).then(() => true, () => false);
-  const hint = await rp.locator('.rw-hint').innerText().catch(() => '');
-  const examples = (await rp.locator('.rw-example').allInnerTexts().catch(() => [] as string[])) as string[];
-  const unset = await rp.locator('.rw-unset').innerText().catch(() => '');
-  await rp.fill('.rw-input textarea', '让最大的国家多撑三百年');
-  const sendOff = await rp.locator('[data-act=rw-send]').isDisabled().catch(() => false);
-  await rp.click('.rw-unset .rw-link').catch(() => null);
-  const aiOpened = await rp.waitForSelector('.ai-dialog', { timeout: 5000 }).then(() => true, () => false);
+  await rp.click('[data-act=world-more]');
+  const rewriteGone = (await rp.locator('.pm-menu [data-act=rewrite]').count()) === 0;
   await rp.keyboard.press('Escape');
-  await rp.waitForTimeout(150);
-  const boxKept = (await rp.locator('.rw-box').count()) === 1 && !(await rp.locator('.ai-dialog').count());
-  await rp.keyboard.press('Escape');
-  const escClosed = !(await rp.locator('.rw-box').count());
+  const barRight0 = await right('.map-bar');
+  await rp.click('.map-bar [data-act=assistant]');
+  const shown = await rp.waitForSelector('.ast-panel', { timeout: 5000 }).then(() => true, () => false);
+  const pressed = await rp.locator('.map-bar [data-act=assistant]').getAttribute('aria-pressed');
+  await rp.waitForTimeout(300);
+  const panelLeft = await rp.evaluate(() => document.querySelector('.ast-panel')?.getBoundingClientRect().left ?? -1);
+  const barRight1 = await right('.map-bar');
+  const timeRight = await right('.bottom-row');
+  const hint = await rp.locator('.ast-hint').innerText().catch(() => '');
+  const examples = (await rp.locator('.ast-example').allInnerTexts().catch(() => [] as string[])) as string[];
+  const unset = await rp.locator('.ast-unset').first().innerText().catch(() => '');
+  // 没设置 AI 也能发:按回车,这一轮报"还没有设置 AI",旁边一个"设置 AI"
+  await rp.fill('.ast-field textarea', '让最大的国家多撑三百年');
+  await rp.press('.ast-field textarea', 'Enter');
+  const sentErr = await rp
+    .waitForSelector('.ast-error', { timeout: 5000 })
+    .then((el) => el.innerText())
+    .catch(() => '');
+  // 清掉这一轮(对话按世界存着,后面再打开同一个世界要从空的开始)
+  await rp.click('[data-act=ast-new]').catch(() => null);
+  await rp.click('.map-bar [data-act=assistant]');
+  await rp.waitForTimeout(300);
+  const closed = !(await rp.locator('.ast-panel').count());
+  const barRight2 = await right('.map-bar');
   console.log(
-    `改写(没设置 AI):框 ${shown ? '出来' : '没出来'}「${hint.slice(0, 24)}…」,例子 ${examples.join(' / ')};「${unset.replace(/\n/g, ' ')}」,发送点不了 ${sendOff};` +
-      `"设置 AI"打开设置 ${aiOpened}、Esc 只关设置 ${boxKept};再 Esc 关上 ${escClosed}`,
+    `助手(没设置 AI):更多菜单里没有改写 ${rewriteGone};面板 ${shown ? '出来' : '没出来'}(按钮按下 ${pressed}),左边 ${Math.round(panelLeft)},` +
+      `右上按钮右边 ${Math.round(barRight0)} → ${Math.round(barRight1)}、时间轴右边 ${Math.round(timeRight)};「${hint.slice(0, 20)}…」,例子 ${examples.join(' / ')};` +
+      `「${unset.replace(/\n/g, ' ')}」,按回车「${sentErr.replace(/\n/g, ' ')}」;再点收起 ${closed}、右上按钮回到 ${Math.round(barRight2)}`,
   );
-  if (!shown) errs.push('改写:点侧栏"更多"里的"用一句话改写世界"没有出来框');
+  if (!rewriteGone) errs.push('助手:"更多"菜单里还有"用一句话改写世界"');
+  if (!shown || pressed !== 'true') errs.push(`助手:点右上「助手」没有出来面板 / 按钮没按下(${shown}、${pressed})`);
   else {
-    if (!hint.includes('点了执行才改')) errs.push(`改写:框里没有说明(${hint})`);
-    if (examples.length !== 3) errs.push(`改写:空的时候应该有三句例子(${examples.join(' / ')})`);
-    if (!unset.includes('设置 AI') || !sendOff) errs.push(`改写:没设置 AI 时应该提示、"发送"点不了(${unset};点不了 ${sendOff})`);
-    if (!aiOpened || !boxKept || !escClosed) errs.push(`改写:"设置 AI"没打开设置 / Esc 把改写框也关了 / 再按 Esc 没关上(${aiOpened}、${boxKept}、${escClosed})`);
+    if (!(barRight1 <= panelLeft + 1 && timeRight <= panelLeft + 1 && barRight1 < barRight0 - 300))
+      errs.push(`助手:面板开着时右上按钮、时间轴没有挪到面板左边(面板左边 ${panelLeft},按钮 ${barRight0} → ${barRight1},时间轴 ${timeRight})`);
+    if (!hint.includes('都会先列出来给你确认')) errs.push(`助手:空的时候没有说明(${hint})`);
+    if (examples.length !== 5) errs.push(`助手:空的时候应该有五句例子(${examples.join(' / ')})`);
+    if (!unset.includes('设置 AI') || !sentErr.includes('设置 AI')) errs.push(`助手:没设置 AI 时应该提示,按回车这一轮报还没有设置 AI(${unset};${sentErr})`);
+    if (!closed || Math.abs(barRight2 - barRight0) > 1) errs.push(`助手:再点「助手」没收起 / 右上按钮没回原位(${closed},${barRight0} → ${barRight2})`);
   }
 
   await rp.goto(`${dev.url}/?seed=7&style=fantasy&ai=mock&civYear=2000`);
   await rp.waitForFunction(historyReady, null, { timeout: 60000 });
   await rp.waitForTimeout(300);
   const sub0 = await rp.locator('.sb-sub').innerText().catch(() => '');
-  await openRewrite();
-  await rp.fill('.rw-input textarea', '让最大的国家多撑三百年');
-  await rp.click('[data-act=rw-send]');
-  await rp.waitForSelector('.rw-turn .rw-ans', { timeout: 10000 }).catch(() => null);
-  const items = (await rp.locator('.rw-item .rw-text').allInnerTexts().catch(() => [] as string[])) as string[];
-  const years = (await rp.locator('.rw-item .rw-year').allInnerTexts().catch(() => [] as string[])) as string[];
-  const checked = await rp.locator('.rw-check[aria-checked=true]').count();
-  const go = await rp.locator('[data-act=rw-apply]').innerText().catch(() => '');
-  const cannot = await rp.locator('.rw-cannot').count();
+  await rp.click('.map-bar [data-act=assistant]');
+  await rp.fill('.ast-field textarea', '让它多撑一阵');
+  await rp.click('[data-act=ast-send]');
+  await rp.waitForSelector('[data-act=ast-apply]', { timeout: 30000 }).catch(() => null);
+  const folded = await rp.locator('[data-act=ast-steps]').innerText().catch(() => '');
+  const items = (await rp.locator('.ast-items .ast-row .tx b').allInnerTexts().catch(() => [] as string[])) as string[];
+  const years = (await rp.locator('.ast-items .ast-row .yr').allInnerTexts().catch(() => [] as string[])) as string[];
+  const checked = await rp.locator('.ast-ck[aria-checked=true]').count();
+  const result = (await rp.locator('.ast-result .ast-row').allInnerTexts().catch(() => [] as string[])) as string[];
+  const go = await rp.locator('[data-act=ast-apply]').innerText().catch(() => '');
+  const cant = await rp.locator('.ast-cant').count();
+  await rp.click('[data-act=ast-steps]').catch(() => null);
+  const stepRows = (await rp.locator('.ast-steps .ast-row .tx b').allInnerTexts().catch(() => [] as string[])) as string[];
+  // 先在地图上看看
+  await rp.click('[data-act=ast-preview]').catch(() => null);
+  const banner = await rp
+    .waitForFunction(() => document.querySelector('.ast-banner-text')?.textContent?.includes('还没执行'), null, { timeout: 20000 })
+    .then(() => true, () => false);
+  const previewCls = await rp.evaluate(() => document.querySelector('.app')?.classList.contains('ast-preview') ?? false);
+  await rp.click('[data-act=ast-banner-back]').catch(() => null);
+  await rp.waitForTimeout(150);
+  const backed = !(await rp.locator('.ast-banner').count());
+  // 执行 → 撤销
   const prev = await rp.evaluate(() => (window as any).__wfResim?.seq ?? 0);
-  await rp.click('[data-act=rw-apply]').catch(() => null);
-  await rp.waitForTimeout(100);
-  const boxGone = !(await rp.locator('.rw-box').count());
+  await rp.click('[data-act=ast-apply]').catch(() => null);
   const resimmed = await rp
     .waitForFunction((s) => ((window as any).__wfResim?.seq ?? 0) > s, prev, { timeout: 20000 })
     .then(() => true, () => false);
   const done = await toastText(rp, 'resim-done', 5000);
   const sub1 = await rp.locator('.sb-sub').innerText().catch(() => '');
+  const doneMark = await rp.locator('.ast-done').innerText().catch(() => '');
   const prevU = await rp.evaluate(() => (window as any).__wfResim?.seq ?? 0);
   await rp.click('.toast[data-toast=resim-done] [data-act=rw-undo]').catch(() => null);
   const undone = await rp
@@ -2362,26 +2604,60 @@ for (const style of ['realistic', 'fantasy']) {
     .then(() => true, () => false);
   const undoToast = await toastText(rp, 'resim-done', 5000);
   const sub2 = await rp.locator('.sb-sub').innerText().catch(() => '');
-  await openRewrite();
-  const turnState = await rp.locator('.rw-turn .rw-done').innerText({ timeout: 3000 }).catch(() => '');
-  await rp.mouse.click(700, 450);
-  await rp.waitForTimeout(150);
-  const outsideClosed = !(await rp.locator('.rw-box').count());
+  const undoMark = await rp.locator('.ast-done').innerText().catch(() => '');
+  // 问一句:地图上选中它
+  await rp.fill('.ast-field textarea', '它为什么会亡？');
+  await rp.click('[data-act=ast-send]');
+  await rp.waitForFunction(() => document.querySelectorAll('.ast-turn').length === 2 && !document.querySelector('[data-act=ast-stop]'), null, { timeout: 20000 }).catch(() => null);
+  const asked = await rp.locator('.ast-turn').last().locator('[data-act=ast-steps]').innerText().catch(() => '');
+  const said = await rp.locator('.ast-turn').last().locator('.ast-say').first().innerText().catch(() => '');
+  const opened = await rp.evaluate(() => !!document.querySelector('.inspector'));
   console.log(
-    `改写(假 AI):提议 ${items.map((t, i) => `${years[i]} ${t}`).join(';')}(勾着 ${checked} 条,按钮「${go}」,做不到 ${cannot} 句);` +
-      `执行:框收起 ${boxGone}、重推 ${resimmed}、提示「${done}」、左上「${sub0}」→「${sub1}」;撤销:重推 ${undone}、提示「${undoToast}」、左上「${sub2}」;` +
-      `再打开那一轮「${turnState}」;点外面关上 ${outsideClosed}`,
+    `助手(假 AI):做完收成「${folded}」(展开 ${stepRows.join(' / ')});确认单 ${items.map((t, i) => `${years[i]} ${t}`).join(';')}(勾着 ${checked} 条,按钮「${go}」,做不到 ${cant} 句);` +
+      `试推演的结果 ${result.map((r) => r.replace(/\n/g, ' ')).join(';')};先在地图上看看:提示条 ${banner}、地图换成试推演 ${previewCls}、回到现在 ${backed};` +
+      `执行:重推 ${resimmed}、提示「${done}」、左上「${sub0}」→「${sub1}」、确认单「${doneMark}」;撤销:重推 ${undone}、提示「${undoToast}」、左上「${sub2}」、确认单「${undoMark}」;` +
+      `问一句:「${asked}」「${said.slice(0, 30)}…」,详情打开 ${opened}`,
   );
-  if (items.length !== 1 || !/:保护\(至第 2300 年\)$/.test(items[0] ?? '') || years[0] !== '2000') errs.push(`改写:假 AI 的提议不对(${items.join(';')})`);
-  if (checked !== 1 || go !== '执行 1 条' || cannot !== 1) errs.push(`改写:提议默认全勾、按钮写条数、做不到的一句(勾 ${checked},「${go}」,做不到 ${cannot})`);
-  if (!boxGone || !resimmed) errs.push(`改写:点"执行"后框没收起 / 没有重推(${boxGone}、${resimmed})`);
-  if (!/已按你说的改写 · 从 \d+ 年重新推演.*撤销/.test(done)) errs.push(`改写:执行后提示条不对(${done})`);
-  if (!sub0 || sub0.includes('干预') || !sub1.includes('干预了 1 处')) errs.push(`改写:执行后侧栏顶上应从没有干预变成"干预了 1 处"(${sub0} → ${sub1})`);
-  if (!undone || !undoToast.includes('已撤销改写') || !sub2 || sub2.includes('干预')) errs.push(`改写:提示条上的撤销不对(重推 ${undone},「${undoToast}」,侧栏顶上「${sub2}」)`);
-  if (turnState !== '已撤销') errs.push(`改写:撤销后再打开,那一轮应写"已撤销"(${turnState})`);
-  if (!outsideClosed) errs.push('改写:点框外面没关上');
+  if (!/^查了 2 次，试推演 \d 次$/.test(folded)) errs.push(`助手:做完的几步没有收成一行(${folded})`);
+  if (!stepRows.some((t) => t.startsWith('查国家：')) || !stepRows.some((t) => t.startsWith('试推演：'))) errs.push(`助手:展开后的步骤不对(${stepRows.join(' / ')})`);
+  if (!items.length || items.length !== checked || go !== `执行 ${items.length} 条` || cant !== 1) errs.push(`助手:确认单默认全勾、按钮写条数、做不到的一句(${items.length} 条,勾 ${checked},「${go}」,做不到 ${cant})`);
+  if (!items[0]?.includes('保护') || !/^\d+$/.test(years[0] ?? '')) errs.push(`助手:假 AI 的确认单不对(${years[0]} ${items[0]})`);
+  if (!result.length || !result[0].includes('→')) errs.push(`助手:确认单下面没有试推演的结果(${result.join(';')})`);
+  if (!banner || !previewCls || !backed) errs.push(`助手:"先在地图上看看"不对(提示条 ${banner},地图 ${previewCls},回到现在 ${backed})`);
+  if (!resimmed || !/已按你说的改写 · 从 \d+ 年重新推演.*撤销/.test(done)) errs.push(`助手:执行后没有重推 / 提示条不对(${resimmed},${done})`);
+  if (!sub0 || sub0.includes('干预') || !sub1.includes(`干预了 ${items.length} 处`) || doneMark !== '已执行') errs.push(`助手:执行后侧栏顶上 / 确认单不对(${sub0} → ${sub1},「${doneMark}」)`);
+  if (!undone || !undoToast.includes('已撤销改写') || !sub2 || sub2.includes('干预') || undoMark !== '已撤销') errs.push(`助手:提示条上的撤销不对(重推 ${undone},「${undoToast}」,「${sub2}」,「${undoMark}」)`);
+  if (!asked.includes('在地图上打开了') || !said.startsWith('【测试用假 AI】') || !opened) errs.push(`助手:问一句没在地图上打开它(${asked};${said};详情 ${opened})`);
   await rp.evaluate(() => localStorage.clear());
   await rp.close();
+
+  // 手机
+  const pctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+  const pp = await pctx.newPage();
+  pp.on('pageerror', (e) => errs.push(`[助手 手机] ${e.message}`));
+  await pp.goto(`${dev.url}/?seed=7&style=fantasy&ai=mock&civYear=2000`);
+  await pp.waitForFunction(() => (window as any).__wf?.ready && /现存/.test(document.querySelector('.sb-sub')?.textContent ?? ''), null, { timeout: 60000 });
+  await pp.click('.phone-btns [data-act=assistant]');
+  const sheet = await pp.waitForSelector('.ast-panel.phone', { timeout: 5000 }).then(() => true, () => false);
+  await pp.fill('.ast-field textarea', '让它多撑一阵');
+  await pp.click('[data-act=ast-send]');
+  await pp.waitForSelector('[data-act=ast-preview]', { timeout: 30000 }).catch(() => null);
+  const pGo = await pp.locator('[data-act=ast-apply]').innerText().catch(() => '');
+  await pp.click('[data-act=ast-preview]').catch(() => null);
+  await pp.waitForTimeout(300);
+  const sheetGone = !(await pp.locator('.ast-panel').count());
+  const pBanner = await pp.waitForSelector('.ast-banner.phone [data-act=ast-banner-apply]:not([disabled])', { timeout: 20000 }).then(() => true, () => false);
+  const pPrev = await pp.evaluate(() => (window as any).__wfResim?.seq ?? 0);
+  await pp.click('[data-act=ast-banner-apply]').catch(() => null);
+  const pResim = await pp
+    .waitForFunction((s) => ((window as any).__wfResim?.seq ?? 0) > s, pPrev, { timeout: 20000 })
+    .then(() => true, () => false);
+  const pBannerGone = !(await pp.locator('.ast-banner').count());
+  console.log(`助手(手机):卡片 ${sheet}、按钮「${pGo}」;先在地图上看看:卡片收起 ${sheetGone}、提示条 ${pBanner};提示条上执行:重推 ${pResim}、提示条收起 ${pBannerGone}`);
+  if (!sheet || !pGo.startsWith('执行')) errs.push(`助手(手机):右上第三个按钮没打开卡片 / 没列确认单(${sheet},「${pGo}」)`);
+  if (!sheetGone || !pBanner || !pResim || !pBannerGone) errs.push(`助手(手机):先看再执行不对(卡片收起 ${sheetGone},提示条 ${pBanner},重推 ${pResim},提示条收起 ${pBannerGone})`);
+  await pp.evaluate(() => localStorage.clear());
+  await pctx.close();
 }
 
 // AI 设置(阶段 5):打开"AI" → 我们的 AI 显示"内测" → 假 AI(ai=mock,不联网)"测试一下"成功 → 调用记录里有一条、刷新后还在 → 清空
@@ -3514,7 +3790,7 @@ for (const style of ['realistic', 'fantasy']) {
   await gBrowser.close();
 }
 
-// 手机布局(390×844,触屏):底部是收起的世界卡片(搜索框 + 世界名一行),时间轴胶囊浮在它上面、一行;右上竖排图层、地球两个按钮;
+// 手机布局(390×844,触屏):底部是收起的世界卡片(搜索框 + 世界名一行),时间轴胶囊浮在它上面、一行;右上竖排图层、地球、助手三个按钮;
 // 右下没有 + −、操作提示是"双指缩放"、悬停卡片不出来;往上拖世界卡片 → 拉到顶(四个大按钮、整个世界,胶囊藏起来)→ 点拖动条收起;
 // 拉到顶后点"改地形" → 卡片收起;
 // 双指捏合 → 地图比例变了;点国家 → 详情卡片升到半屏(胶囊跟上去,国家落在胶囊上方)→ 往上拖拉到顶 → 干预 → 结盟 → 点名牌 → 已生效 → 撤销;
@@ -3740,8 +4016,8 @@ for (const style of ['realistic', 'fantasy']) {
     errs.push(`手机:时间轴胶囊不在世界卡片上面 / 不是一行(${JSON.stringify(row)})`);
   if (!track || !row || track.height < 32 || track.y < row.y || track.y + track.height > row.y + row.height) errs.push(`手机:时间轴轨道不在胶囊里 / 太矮(${JSON.stringify(track)})`);
   if (!/^种子 7，现存 \d+ 国$/.test(sub)) errs.push(`手机:世界名后面的副标不对(${sub})`);
-  if (btnActs !== 'layers,globe' || !btns || Math.abs(btns.x + btns.width - (VW - 12)) > 1 || btns.y > 20 || btns.height < 80)
-    errs.push(`手机:右上不是竖排的图层、地球两个按钮(${btnActs} ${JSON.stringify(btns)})`);
+  if (btnActs !== 'layers,globe,assistant' || !btns || Math.abs(btns.x + btns.width - (VW - 12)) > 1 || btns.y > 20 || btns.height < 120)
+    errs.push(`手机:右上不是竖排的图层、地球、助手三个按钮(${btnActs} ${JSON.stringify(btns)})`);
   if (!wsFull || Math.abs(wsFull.y - 0.08 * VH) > 8 || tiles !== 4 || !capsuleHidden) errs.push(`手机:往上拖世界卡片没有拉到顶(${JSON.stringify(wsFull)},大按钮 ${tiles},胶囊藏起 ${capsuleHidden})`);
   if (!ws1 || Math.abs(ws1.y - (VH - PEEK)) > 2) errs.push(`手机:点拖动条没有收起世界卡片(${JSON.stringify(ws1)})`);
   if (!hint0.includes('双指缩放') || hint1 !== 0) errs.push(`手机:操作提示不对 / 捏合后没消失(${hint0})`);
