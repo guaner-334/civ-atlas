@@ -15,7 +15,7 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import type { Civ } from '../gen/civ/types';
 import { currentWorld, useSavesVersion } from './saveStore';
-import { bookProgress, bookTitleText, openBookReader, useBook } from './bookStore';
+import { bookProgress, bookTitleText, bookUnit, openBookReader, useBook } from './bookStore';
 import type { HoverInfo } from './hoverInfo';
 import { Icon } from './icons';
 import { LayerPopover, type LayerPopoverProps } from './LayerPopover';
@@ -81,7 +81,8 @@ function AssistantButton({ disabled }: { disabled: boolean }) {
 }
 
 /**
- * 右上的写作进度:"正在撰写《某某通史》"+ 80px 细进度条;写完"《某某通史》已完成 · 打开",点开读过就收起。
+ * 右上的写作进度:"正在撰写《某某通史》"+ 80px 细进度条;分几次写的(长篇一章一次)写"正在写《某某通史》第 2 章(共 5 章)",
+ * 手机上只有进度条和左边的"2/5 章"。写完"《某某通史》已完成 · 打开",点开读过就收起。
  * 助手开着、这本书是助手写的:进度在助手里那一行,这里不再重复
  */
 function BookChip() {
@@ -94,6 +95,8 @@ function BookChip() {
   const name = bookTitleText(job.title, job.opts.scope, currentWorld()?.title);
   const writing = job.status === 'writing';
   const pct = Math.round(bookProgress(job) * 100);
+  const unit = bookUnit(job.opts.style);
+  const parts = writing && job.calls > 1;
   return (
     <button
       className={`book-chip${writing ? '' : ' done'}`}
@@ -101,7 +104,10 @@ function BookChip() {
       onClick={() => openBookReader(writing ? null : job.key)}
       title={writing ? '看看写到哪了' : '打开阅读'}
     >
-      <span className="book-chip-text">{writing ? `正在撰写${name}` : `${name}已完成 · 打开`}</span>
+      <span className="book-chip-text">
+        {!writing ? `${name}已完成 · 打开` : parts ? `正在写${name}第 ${job.call + 1} ${unit}（共 ${job.calls} ${unit}）` : `正在撰写${name}`}
+      </span>
+      {parts && <span className="book-chip-n">{`${job.call + 1}/${job.calls} ${unit}`}</span>}
       <span className="book-chip-bar" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
         <span style={{ width: `${pct}%` }} />
       </span>
@@ -204,7 +210,7 @@ export function FirstHint({ show, touch }: { show: boolean; touch?: boolean }) {
   return <div className="first-hint">{touch ? '拖动地图，双指缩放，点国家看它的历史' : '拖动地图，滚轮缩放，点一个国家看它的历史'}</div>;
 }
 
-/** 悬停小卡片:跟着鼠标,靠右 / 靠下时翻到另一边 */
+/** 悬停小卡片:跟着鼠标,靠右 / 靠下时翻到另一边;放在鼠标下面会压住底部的时间轴时也翻到上面 */
 export function HoverCard({ info, x, y }: { info: HoverInfo; x: number; y: number }) {
   const ref = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
@@ -218,7 +224,9 @@ export function HoverCard({ info, x, y }: { info: HoverInfo; x: number; y: numbe
   const vw = typeof window === 'undefined' ? 1e4 : window.innerWidth;
   const vh = typeof window === 'undefined' ? 1e4 : window.innerHeight;
   const left = x + 16 + size.w > vw - 8 ? x - 12 - size.w : x + 16;
-  const top = y + 14 + size.h > vh - 8 ? y - 10 - size.h : y + 14;
+  let top = y + 14 + size.h > vh - 8 ? y - 10 - size.h : y + 14;
+  const bar = ref.current?.closest('.app')?.querySelector('.bottom-row .timebar')?.getBoundingClientRect();
+  if (bar && bar.height && top > y && y < bar.top && top + size.h > bar.top - 4 && left < bar.right && left + size.w > bar.left) top = y - 10 - size.h;
   return (
     <div ref={ref} className="hover hover-card" style={{ left, top }} role="tooltip">
       <div className="hc-line">
