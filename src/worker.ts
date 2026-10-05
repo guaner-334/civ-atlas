@@ -10,7 +10,7 @@
 import { generateWorld, type World, type WorldParams } from './gen/world';
 import { rasterize, type Raster } from './gen/raster';
 import { buildHistoryFrames, type HistoryFrames } from './gen/history';
-import { generateCiv, civTransferables, type Civ } from './gen/civ';
+import { generateCiv, civTransferables, planetTempo, type Civ } from './gen/civ';
 import type { Intervention, TerrainOp } from './gen/edits';
 
 export type WorkerRequest =
@@ -39,6 +39,26 @@ const keyOf = (p: WorldParams, terrain?: TerrainOp[]) =>
 
 const post = (m: WorkerResponse, transfer: Transferable[] = []) => self.postMessage(m, { transfer });
 
+/**
+ * 各组参数(没改地形的星球)的扩张节拍(gen/civ 的 planetTempo;null = 长不出文明):改过地形的世界推文明时要用。
+ * 生成没改过地形的世界时顺手记下(线程不改 pace,civ.spreadYears 就是节拍),新建时先看原样再改地形就不用多生成一遍
+ */
+const tempos = new Map<string, number | null>();
+const TEMPO_KEEP = 32;
+function rememberTempo(params: WorldParams, tempo: number | null) {
+  const key = keyOf(params);
+  tempos.delete(key);
+  tempos.set(key, tempo);
+  if (tempos.size > TEMPO_KEEP) tempos.delete(tempos.keys().next().value!);
+}
+/** 推文明时带的节拍:没改地形 = 不用(按世界自己标定);改过 = 这组参数的星球的节拍,手里没有就现算 */
+function tempoOf(params: WorldParams, terrain?: TerrainOp[]): number | null | undefined {
+  if (!terrain?.length) return undefined;
+  const key = keyOf(params);
+  if (!tempos.has(key)) rememberTempo(params, planetTempo(params) ?? null);
+  return tempos.get(key);
+}
+
 /** 这组参数(+ 地形修改)的世界:手里有就用,没有(线程被重开过)就重新生成(同样的输入 = 同一个世界) */
 function worldOf(params: WorldParams, terrain?: TerrainOp[]): World {
   const key = keyOf(params, terrain);
@@ -54,7 +74,8 @@ self.onmessage = (e: MessageEvent<WorkerRequest>) => {
     last = { key: keyOf(m.params, m.terrain), world };
     // 文明骨架(宜居度、州……)只读 World,之后的文明步骤都在 gen/civ/index.ts 里接
     post({ type: 'progress', id: m.id, stage: '文明', pct: 0.93 });
-    const civ = generateCiv(world, m.interventions?.length ? { interventions: m.interventions } : undefined);
+    const civ = generateCiv(world, { interventions: m.interventions?.length ? m.interventions : undefined, tempo: tempoOf(m.params, m.terrain) });
+    if (!m.terrain?.length) rememberTempo(m.params, civ.spreadYears ?? null);
     post({ type: 'progress', id: m.id, stage: '铺展地图', pct: 0.95 });
     const raster = rasterize(world, m.scale);
     const transfer = [raster.elev, raster.temp, raster.precip, raster.water, raster.biome, raster.cell, raster.ice, raster.iceConc, raster.iceTone].map((a) => a.buffer);
@@ -68,7 +89,7 @@ self.onmessage = (e: MessageEvent<WorkerRequest>) => {
     post({ type: 'history', id: m.id, ...h }, h.frames.map((f) => f.buffer));
   } else if (m.type === 'resim') {
     const t0 = performance.now();
-    const civ = generateCiv(worldOf(m.params, m.terrain), { interventions: m.interventions });
+    const civ = generateCiv(worldOf(m.params, m.terrain), { interventions: m.interventions, tempo: tempoOf(m.params, m.terrain) });
     post({ type: 'civ', id: m.id, seq: m.seq, civ, ms: performance.now() - t0 }, civTransferables(civ));
   }
 };
