@@ -89,6 +89,8 @@ import {
   EMPTY_EDITS,
   GENERATOR_VERSION,
   applyNames,
+  aiNameKeys,
+  namesWithoutAi,
   placeKeyOf,
   polityKey,
   resolveKey,
@@ -174,8 +176,10 @@ import { ownersAt } from '../gen/civ/timeline';
 import { interventionOutcome } from '../gen/civ/chronicle';
 import { takeRewriteNote, type RewriteNote } from './rewriteStore';
 import { AssistantPanel, PreviewBanner } from './Assistant';
-import { astRoom, useAstOpen } from './astPanel';
-import { PREVIEW_EDIT_BLOCK, exitPreview, getAssistant, sameInBoth, setTrialRunner, syncAssistantWorld, useAssistantPreview } from './assistantStore';
+import { astRoom, closeAssistant, useAstOpen } from './astPanel';
+import { PREVIEW_EDIT_BLOCK, exitPreview, getAssistant, sameInBoth, setTrialRunner, stopAsk, syncAssistantWorld, useAssistantPreview } from './assistantStore';
+import { closeBookReader, closeHistoryBook, stopBook } from './bookStore';
+import { useAiOn } from '../ai/client';
 import { Globe, getGlobeOn, setGlobeOn, useGlobeOn, type GlobeApi } from './Globe';
 import { setupAi } from '../ai/setup';
 import { ToastBar, clearToast, showToast, useToastOpen } from './Toast';
@@ -446,6 +450,8 @@ export function App() {
   const previewRaw = preview?.raw ?? null;
   const shownRaw = previewRaw ?? rawCiv;
   const civ = useMemo(() => (previewRaw ? applyNames(previewRaw, preview!.names) : realCiv), [previewRaw, preview?.names, realCiv]);
+  // 导出时"换回原名"用的:AI 起的名字换回原来的(没有 AI 起的名字、助手"先看看"时 = null,导出菜单不问)
+  const plainCiv = useMemo(() => (rawCiv && !previewRaw && aiNameKeys(edits).length ? applyNames(rawCiv, namesWithoutAi(edits)) : null), [rawCiv, previewRaw, edits]);
   /** 右侧详情面板开着(右下角的地球仪 / 缩放按钮让开它) */
   const selState = useSelection();
   // 右侧面板开着(选目标、下了令正在推演时面板藏起来,右下按钮回到原位)
@@ -963,6 +969,17 @@ export function App() {
   useEffect(() => startAutoSave(), []);
   // AI(阶段 5):登记服务商、恢复设置、调用记录存本地
   useEffect(() => setupAi(), []);
+  // 「使用 AI 功能」关了:助手停下、回到现在、收起;正在写的史书停下(写到一半的不存),写史书的窗口、阅读页关上
+  const aiOn = useAiOn();
+  useEffect(() => {
+    if (aiOn) return;
+    stopAsk();
+    exitPreview();
+    closeAssistant();
+    stopBook();
+    closeHistoryBook();
+    closeBookReader();
+  }, [aiOn]);
   // 缩略图("我的世界"的卡片、存档菜单):手绘风的地形 480×240;建好的世界叠上结束那一年的国家色块(和正在看哪个图层、哪一年无关)。
   // 世界还在生成、按新地形重新生成、按新的干预重推历史时 = null,saveStore 过一会儿再来要
   useEffect(() => {
@@ -2791,7 +2808,7 @@ export function App() {
                 replay={{ on: replayOn, ready: !!replay }}
                 onReplay={startReplay}
                 onHome={goHome}
-                exp={{ data, civ, style, layer }}
+                exp={{ data, civ, plain: plainCiv, style, layer }}
               />
             )
           )}
@@ -2820,7 +2837,7 @@ export function App() {
               inspectorSlot={inspectorSlot}
             />
           )}
-          <MapBar civ={civ} layers={layerProps} exp={{ data, civ, style, layer }} draft={draft} />
+          <MapBar civ={civ} layers={layerProps} exp={{ data, civ, plain: plainCiv, style, layer }} draft={draft} />
           {style === 'data' && !terrainTool.on && (
             <div className="corner-tl">
               <Legend layer={layer} />
@@ -2830,7 +2847,7 @@ export function App() {
         </>
       )}
       {/* 助手面板(宽屏右边一张卡片,手机是拉到顶的底部卡片;窗口跨过窄屏断点时不重新挂,没发出去的话留着)、在地图上看试推演时的提示条 */}
-      {astOpen && !home && data && realCiv && rawCiv && (
+      {astOpen && aiOn && !home && data && realCiv && rawCiv && (
         <AssistantPanel phone={narrow} world={data.world} raster={data.raster} civ={realCiv} raw={rawCiv} lock={draft ? 'history' : 'terrain'} busy={worldBusy} />
       )}
       {world && <PreviewBanner busy={worldBusy} phone={narrow} />}

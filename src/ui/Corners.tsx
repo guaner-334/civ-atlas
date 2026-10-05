@@ -15,7 +15,7 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import type { Civ } from '../gen/civ/types';
 import { currentWorld, useSavesVersion } from './saveStore';
-import { bookProgress, bookTitleText, openBookReader, useBook } from './bookStore';
+import { bookProgress, bookTitleText, bookUnit, openBookReader, useBook } from './bookStore';
 import type { HoverInfo } from './hoverInfo';
 import { Icon } from './icons';
 import { LayerPopover, type LayerPopoverProps } from './LayerPopover';
@@ -24,6 +24,7 @@ import { openOverview } from './overviewStore';
 import { layerDef, type MapLayer } from './mapLayers';
 import { toggleAssistant, useAstOpen } from './astPanel';
 import { useAssistant } from './assistantStore';
+import { useAiOn } from '../ai/client';
 import './book.css';
 
 /** 右上图层分段按钮里直接列出的几个图层(其余的在"更多图层"里) */
@@ -31,7 +32,7 @@ export const SEG_LAYERS: MapLayer[] = ['political', 'cultures', 'terrain', 'real
 /** 新建世界时(还没有历史) */
 export const DRAFT_SEG: MapLayer[] = ['terrain', 'realistic', 'elevation'];
 
-/** 宽屏右上:写作进度、图层分段按钮、导出、编年史、助手 */
+/** 宽屏右上:写作进度、图层分段按钮、导出、编年史、助手(「使用 AI 功能」关着时没有助手和写作进度) */
 export function MapBar({ layers, exp, civ, draft }: { layers: LayerPopoverProps; exp: ExportMenuProps; civ: Civ | null; draft?: boolean }) {
   const stop = (e: { stopPropagation(): void }) => e.stopPropagation();
   const seg = draft ? DRAFT_SEG : SEG_LAYERS;
@@ -72,6 +73,7 @@ export function MapBar({ layers, exp, civ, draft }: { layers: LayerPopoverProps;
 /** 「助手」:开 / 关右边的助手面板(世界第一次生成出来之前点不了) */
 function AssistantButton({ disabled }: { disabled: boolean }) {
   const open = useAstOpen();
+  if (!useAiOn()) return null;
   return (
     <button className={`glass mb-btn${open ? ' on' : ''}`} data-act="assistant" aria-pressed={open} disabled={disabled} onClick={toggleAssistant} title={open ? '收起助手' : '用一句话改世界、问问这个世界'}>
       <Icon name="bubble" size={16} />
@@ -81,19 +83,23 @@ function AssistantButton({ disabled }: { disabled: boolean }) {
 }
 
 /**
- * 右上的写作进度:"正在撰写《某某通史》"+ 80px 细进度条;写完"《某某通史》已完成 · 打开",点开读过就收起。
+ * 右上的写作进度:"正在撰写《某某通史》"+ 80px 细进度条;分几次写的(长篇一章一次)写"正在写《某某通史》第 2 章(共 5 章)",
+ * 手机上只有进度条和左边的"2/5 章"。写完"《某某通史》已完成 · 打开",点开读过就收起。
  * 助手开着、这本书是助手写的:进度在助手里那一行,这里不再重复
  */
 function BookChip() {
   const { job } = useBook();
   const astOpen = useAstOpen();
   const ast = useAssistant();
+  const on = useAiOn();
   useSavesVersion();
-  if (!job || !(job.status === 'writing' || (job.status === 'done' && !job.seen))) return null;
+  if (!on || !job || !(job.status === 'writing' || (job.status === 'done' && !job.seen))) return null;
   if (astOpen && ast.turns.some((t) => t.steps.some((s) => s.book?.id === job.id))) return null;
   const name = bookTitleText(job.title, job.opts.scope, currentWorld()?.title);
   const writing = job.status === 'writing';
   const pct = Math.round(bookProgress(job) * 100);
+  const unit = bookUnit(job.opts.style);
+  const parts = writing && job.calls > 1;
   return (
     <button
       className={`book-chip${writing ? '' : ' done'}`}
@@ -101,7 +107,10 @@ function BookChip() {
       onClick={() => openBookReader(writing ? null : job.key)}
       title={writing ? '看看写到哪了' : '打开阅读'}
     >
-      <span className="book-chip-text">{writing ? `正在撰写${name}` : `${name}已完成 · 打开`}</span>
+      <span className="book-chip-text">
+        {!writing ? `${name}已完成 · 打开` : parts ? `正在写${name}第 ${job.call + 1} ${unit}（共 ${job.calls} ${unit}）` : `正在撰写${name}`}
+      </span>
+      {parts && <span className="book-chip-n">{`${job.call + 1}/${job.calls} ${unit}`}</span>}
       <span className="book-chip-bar" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
         <span style={{ width: `${pct}%` }} />
       </span>
@@ -109,10 +118,11 @@ function BookChip() {
   );
 }
 
-/** 手机右上:竖排的毛玻璃按钮(图层与投影、地球 / 平面、助手);写史书时进度条在它们左边 */
+/** 手机右上:竖排的毛玻璃按钮(图层与投影、地球 / 平面、助手;「使用 AI 功能」关着时没有助手);写史书时进度条在它们左边 */
 export function PhoneButtons({ layers, globeOn, onToggleGlobe }: { layers: LayerPopoverProps; globeOn: boolean; onToggleGlobe: () => void }) {
   const stop = (e: { stopPropagation(): void }) => e.stopPropagation();
   const astOpen = useAstOpen();
+  const aiOn = useAiOn();
   return (
     <div className="phone-btns" onPointerDown={stop} onDoubleClick={stop} onClick={stop}>
       <BookChip />
@@ -128,17 +138,19 @@ export function PhoneButtons({ layers, globeOn, onToggleGlobe }: { layers: Layer
         >
           <Icon name={globeOn ? 'map' : 'globe'} size={19} />
         </button>
-        <button
-          className={`pb-btn${astOpen ? ' on' : ''}`}
-          data-act="assistant"
-          aria-pressed={astOpen}
-          disabled={layers.disabled}
-          onClick={toggleAssistant}
-          aria-label="助手"
-          title="用一句话改世界、问问这个世界"
-        >
-          <Icon name="bubble" size={22} />
-        </button>
+        {aiOn && (
+          <button
+            className={`pb-btn${astOpen ? ' on' : ''}`}
+            data-act="assistant"
+            aria-pressed={astOpen}
+            disabled={layers.disabled}
+            onClick={toggleAssistant}
+            aria-label="助手"
+            title="用一句话改世界、问问这个世界"
+          >
+            <Icon name="bubble" size={22} />
+          </button>
+        )}
       </div>
     </div>
   );

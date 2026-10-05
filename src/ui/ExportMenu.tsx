@@ -12,6 +12,8 @@
  *
  * 重活在后台线程(src/exportWorker.ts,每次导出临时开一个)里做,界面不卡;主线程只画文字(要用页面里加载好的字体)、编码 PNG。
  * 用的是 App 当前显示的 civ(套过改名等修改的那份),不重新生成。
+ * 世界里有从 AI 起名里挑的名字时,清晰度下面多一行"AI 起的名字:带上 / 换回原名":换回原名 = 地图、图例、编年史用 App 给的 plain
+ * (AI 起的名字换回挑之前的,见 gen/edits.ts 的 namesWithoutAi)。
  * 文件名带世界名(没起名 = 种子)、年份、画风:文明与地图-九州大陆-第3000年-手绘.png、文明与地图-种子7-第3000年-手绘.png(JPEG 是 .jpg)
  */
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
@@ -229,15 +231,19 @@ export interface ExportMenuProps {
   data: { world: World; raster: Raster } | null;
   /** App 当前显示的文明(套过用户的修改) */
   civ: Civ | null;
+  /** 同一份文明,AI 起的名字换回原来的(没有 AI 起的名字 = null / 不给,菜单里不问) */
+  plain?: Civ | null;
   style: CivStyle;
   layer: LayerId;
   /** 按钮上文字前面的小图标 */
   icon?: ReactNode;
 }
 
-export function ExportMenu({ data, civ, style, layer, icon }: ExportMenuProps) {
+export function ExportMenu({ data, civ: shown, plain, style, layer, icon }: ExportMenuProps) {
   const [open, setOpen] = useState(false);
   const [scale, setScale] = useState<ExportScale>(1);
+  const [usePlain, setUsePlain] = useState(false);
+  const civ = usePlain && plain ? plain : shown;
   const busy = useExportStatus()?.kind === 'busy';
   const time = useCivTime();
   const globeOn = useGlobeOn();
@@ -301,7 +307,7 @@ export function ExportMenu({ data, civ, style, layer, icon }: ExportMenuProps) {
         download(r.blob, r.name);
         dbg = { job, name: r.name, bytes: r.blob.size, w: r.w, h: r.h, ms: performance.now() - t0 };
         const gmb = r.blob.size >= 1e6 ? `${(r.blob.size / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(r.blob.size / 1e3))} KB`;
-        setStatus({ kind: 'ok', text: `已导出 ${r.name}`, more: `${r.w}×${r.h} · ${gmb} · 用时 ${((performance.now() - t0) / 1000).toFixed(1)} 秒` });
+        setStatus({ kind: 'ok', text: `已导出 ${r.name}`, more: `${r.w}×${r.h}，${gmb}，用时 ${((performance.now() - t0) / 1000).toFixed(1)} 秒` });
       } else if (job === 'map' || job === 'mapjpg') {
         const format: ImageFormat = job === 'map' ? 'png' : 'jpeg';
         const name = `${base}-第${yi}年-${styleName(style, layer)}${x2}.${IMAGE_FORMATS[format].ext}`;
@@ -313,7 +319,7 @@ export function ExportMenu({ data, civ, style, layer, icon }: ExportMenuProps) {
         download(r.blob, name);
         dbg = { job, name, bytes: r.blob.size, w: r.w, h: r.h, ms: performance.now() - t0, detail: r.detail };
         const mb = r.blob.size >= 1e6 ? `${(r.blob.size / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(r.blob.size / 1e3))} KB`;
-        setStatus({ kind: 'ok', text: `已导出 ${name}`, more: `${r.w}×${r.h} · ${mb} · 用时 ${((performance.now() - t0) / 1000).toFixed(1)} 秒` });
+        setStatus({ kind: 'ok', text: `已导出 ${name}`, more: `${r.w}×${r.h}，${mb}，用时 ${((performance.now() - t0) / 1000).toFixed(1)} 秒` });
       } else if (job === 'height16' || job === 'height8') {
         const bits: HeightmapBits = job === 'height16' ? 16 : 8;
         const name = `${base}-高度图-${bits}位${x2}.png`;
@@ -363,12 +369,12 @@ export function ExportMenu({ data, civ, style, layer, icon }: ExportMenuProps) {
   };
 
   const items: { job: Job; title: string; sub: string; need?: boolean }[] = [
-    ...(globeOn ? [{ job: 'globe' as const, title: '导出地球仪这一面', sub: '现在看到的样子 · PNG' }] : []),
-    { job: 'map', title: '地图图片(PNG)', sub: `整张地图 · ${styleName(style, layer)} · 第 ${year} 年 · ${W}×${H}`, need: true },
+    ...(globeOn ? [{ job: 'globe' as const, title: '导出地球仪这一面', sub: '现在看到的样子，PNG' }] : []),
+    { job: 'map', title: '地图图片(PNG)', sub: `整张地图，${styleName(style, layer)}，第 ${year} 年，${W}×${H}`, need: true },
     { job: 'mapjpg', title: '地图图片(JPEG)', sub: `同上,文件小好几倍(质量 ${Math.round(IMAGE_FORMATS.jpeg.quality! * 100)}%)`, need: true },
     { job: 'legend', title: '图例(PNG)', sub: `第 ${year} 年的国家 / 民族 + 颜色、城镇符号、道路`, need: true },
-    { job: 'height16', title: '高度图 · 16 位(PNG)', sub: `游戏引擎、World Machine 用 · ${W}×${H}` },
-    { job: 'height8', title: '高度图 · 8 位(PNG)', sub: `Azgaar 导入用 · 海平面 = 灰度 ${AZGAAR_SEA_GRAY}(Azgaar 的 20)` },
+    { job: 'height16', title: '高度图(16 位 PNG)', sub: `游戏引擎、World Machine 用，${W}×${H}` },
+    { job: 'height8', title: '高度图(8 位 PNG)', sub: `Azgaar 导入用，海平面 = 灰度 ${AZGAAR_SEA_GRAY}(Azgaar 的 20)` },
     { job: 'md', title: '编年史(Markdown)', sub: '按时代分节,大事在前、全部附后', need: true },
     { job: 'txt', title: '编年史(纯文本)', sub: '同上,不带 Markdown 记号', need: true },
   ];
@@ -399,11 +405,25 @@ export function ExportMenu({ data, civ, style, layer, icon }: ExportMenuProps) {
             <div className="seg">
               {([1, 2] as const).map((s) => (
                 <button key={s} className={scale === s ? 'on' : ''} onClick={() => setScale(s)} title={s === 2 ? '重新铺两倍像素,文字按两倍密度重画;适合打印、放大看' : undefined}>
-                  {s}× · {(data?.world.width ?? 2048) * s}×{(data?.world.height ?? 1024) * s}
+                  {/* 按钮上只写像素大小;"两倍"的意思在鼠标停上去的说明里 */}
+                  {(data?.world.width ?? 2048) * s}×{(data?.world.height ?? 1024) * s}
                 </button>
               ))}
             </div>
           </div>
+          {plain && (
+            <div className="export-scale export-ainames">
+              <span>AI 起的名字</span>
+              <div className="seg">
+                <button className={usePlain ? '' : 'on'} onClick={() => setUsePlain(false)}>
+                  带上
+                </button>
+                <button className={usePlain ? 'on' : ''} onClick={() => setUsePlain(true)} title="导出的地图、图例、编年史里用原来的名字">
+                  换回原名
+                </button>
+              </div>
+            </div>
+          )}
           {items.map((it) => (
             <button key={it.job} className="export-item" role="menuitem" data-job={it.job} disabled={busy || (it.need && !ok)} onClick={() => void run(it.job)}>
               <b>{it.title}</b>
