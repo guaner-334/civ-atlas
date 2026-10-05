@@ -21,7 +21,7 @@ import { PRIVACY_URL, SOURCE_URL, TERMS_URL } from './links';
 import { APP_VERSION } from './version';
 import { when } from './worldParts';
 import { copyText } from './clipboard';
-import { isStored, keepWorld, listWorlds, loadWorld, notify, useSavesVersion } from './saveStore';
+import { currentUnsaved, currentWorld, isStored, keepWorld, listWorlds, loadWorld, notify, useSavesVersion } from './saveStore';
 import { closeAiSettings, openAiSettings } from './AiSettings';
 import { refreshOfficialAccount, useOfficialAccount } from '../ai/providers/official';
 import { ServerError } from '../account/server';
@@ -760,11 +760,25 @@ function DeleteDialog({ phone, onClose, onBack }: { phone: boolean; onClose: () 
 type ShareState = { phase: 'prep' } | { phase: 'on'; share: ShareInfo } | { phase: 'off' } | { phase: 'error'; message: string; share?: ShareInfo };
 
 /** 分享前把改过的存上去;这个世界没存上就不开分享(不然链接给出去的是账号里的旧样子) */
-async function pushForShare(worldId: string): Promise<void> {
+/** 分享是替哪一次登录做的:等的工夫别的标签页退出、换了账号就停下(后面的请求会带上新账号的令牌,链接就开到新账号名下了) */
+class ShareAborted extends Error {}
+function sameLogin(token: string | undefined): void {
+  if (!token || getSession()?.token !== token) throw new ShareAborted('账号变了');
+}
+
+/** 正在看的这个世界最新的改动没写进浏览器(存储满了,只在这个页面里):也就存不进账号,分享出去的会是旧的 */
+const UNSAVED_WHY = '这个世界最新的改动没能存进浏览器（存储满了），也就没存进账号。先删掉几个世界腾出地方，再分享';
+const unsavedHere = (worldId: string) => currentWorld()?.id === worldId && currentUnsaved();
+
+async function pushForShare(worldId: string, token: string | undefined): Promise<void> {
+  sameLogin(token);
+  if (unsavedHere(worldId)) throw new Error(UNSAVED_WHY);
   const v = await pushNow();
+  sameLogin(token);
   if (v.phase === 'offline') throw new ServerError(0, 'network', v.message ?? '连不上服务器');
   const why = v.failed.get(worldId);
   if (why !== undefined) throw new Error(`这个世界最新的样子还没存进账号：${why}`);
+  if (unsavedHere(worldId)) throw new Error(UNSAVED_WHY);
 }
 
 function ShareDialog({ phone, worldId, title, onClose }: { phone: boolean; worldId: string; title: string; onClose: () => void }) {
@@ -774,15 +788,20 @@ function ShareDialog({ phone, worldId, title, onClose }: { phone: boolean; world
   const [manual, setManual] = useState(false);
   useEffect(() => {
     let live = true;
+    const token = getSession()?.token;
     void (async () => {
       // 世界要先在账号里:只是看看的(别人分享的)先存进"我的世界",再把改过的存上去
       if (!isStored(worldId)) keepWorld(worldId);
-      await pushForShare(worldId);
-      const have = (await listShares()).find((x) => x.worldId === worldId);
-      const share = have ?? (await createShare(worldId));
+      await pushForShare(worldId, token);
+      // 每个请求发出去之前都看一眼还是不是同一次登录(请求带的是发出去那一刻登着的令牌)
+      sameLogin(token);
+      const list = await listShares();
+      sameLogin(token);
+      const share = list.find((x) => x.worldId === worldId) ?? (await createShare(worldId));
+      sameLogin(token);
       if (live) setSt({ phase: 'on', share });
     })().catch((e) => {
-      if (!live) return;
+      if (!live || e instanceof ShareAborted) return;
       const c = codeOf(e);
       setSt({ phase: 'error', message: c === 'not-found' || c === 'network' ? '这个世界还没存进账号，联网以后再试' : errText(e) });
     });
@@ -802,16 +821,22 @@ function ShareDialog({ phone, worldId, title, onClose }: { phone: boolean; world
   const url = live ? shortLink(live.code) : '';
   const toggle = async () => {
     if (busy || st.phase === 'prep') return;
+    const token = getSession()?.token;
     setBusy(true);
     try {
       if (live) {
+        sameLogin(token);
         await stopShare(worldId);
         setSt({ phase: 'off' });
       } else {
-        await pushForShare(worldId);
-        setSt({ phase: 'on', share: await createShare(worldId) });
+        await pushForShare(worldId, token);
+        sameLogin(token);
+        const share = await createShare(worldId);
+        sameLogin(token);
+        setSt({ phase: 'on', share });
       }
     } catch (e) {
+      if (e instanceof ShareAborted) return;
       // 停没停成:链接照旧算开着(服务器出错时确实还开着;断网时不知道,按开着说)
       setSt({ phase: 'error', message: errText(e), share: live });
     } finally {

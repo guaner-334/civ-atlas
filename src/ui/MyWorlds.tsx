@@ -14,7 +14,7 @@
  * 存、读、列都在 saveStore.ts;打开一个世界(生成 + 套上修改)由 App 做。一个世界都不剩时 App 直接进新建。
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { MAX_WORLDS, deleteWorld, duplicateWorld, listWorlds, loadWorld, notify, persistent, renameWorld, restoreWorld, storedCount, useSavesVersion, type StoredWorld } from './saveStore';
+import { MAX_WORLDS, deleteWorld, duplicateWorld, listWorlds, loadWorld, notify, persistent, renameWorld, restoreWorld, storedCount, syncable, useSavesVersion, type StoredWorld } from './saveStore';
 import { closeTrash, openAccount, openLogin, useAccountPanelOpen, useTrashView } from './AccountDialogs';
 import { serverBase } from '../account/server';
 import { displayName, useSession } from '../account/session';
@@ -94,7 +94,8 @@ export function MyWorlds({ phone, onOpen, onNew, onOpenText }: MyWorldsProps) {
   );
   /** 卡片时间那个位置:没同步好时换成同步状态 */
   const syncOf = (id: string): 'sync' | 'off' | null =>
-    !session ? null : sync.failed.has(id) ? 'off' : sync.busy.has(id) ? 'sync' : null;
+    // 老编号的世界存不进账号(浏览器存储满了没换成新编号):一直算没同步上
+    !session ? null : !syncable(id) || sync.failed.has(id) ? 'off' : sync.busy.has(id) ? 'sync' : null;
   if (trash && session) return <TrashPage phone={phone} />;
 
   return (
