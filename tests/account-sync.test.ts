@@ -14,11 +14,13 @@ import { _resetToasts, getToast } from '../src/ui/toastStore';
 import { forgetNotes, listNotes, putNote } from '../src/ai/library';
 import { setServerForTest } from '../src/account/server';
 import { _resetSessionForTest, fetchAuthOptions, getSession, login, sendCode } from '../src/account/session';
-import { _resetSyncForTest, getSyncView, signOut, startSync, syncNow } from '../src/account/sync';
+import { _resetSyncForTest, getSyncView, inAccount, signOut, startSync, syncNow } from '../src/account/sync';
 import { createShare, listShares, openShareCode, stopShare } from '../src/account/cloud';
 
 class FakeStorage {
   map = new Map<string, string>();
+  /** 这些键写不进去(模拟浏览器存储满了) */
+  deny: ((k: string) => boolean) | null = null;
   get length() {
     return this.map.size;
   }
@@ -29,6 +31,7 @@ class FakeStorage {
     return this.map.get(k) ?? null;
   }
   setItem(k: string, v: string) {
+    if (this.deny?.(k)) throw Object.assign(new Error('存储满了'), { name: 'QuotaExceededError' });
     this.map.set(k, v);
   }
   removeItem(k: string) {
@@ -42,6 +45,8 @@ let fake: ReturnType<typeof createFakeAiServer>;
 let online = true;
 /** 请求到服务器之前调:模拟服务器回话前的工夫用户又做了什么;抛错 = 这一个请求断网 */
 let gate: ((req: Request) => void | Promise<void>) | null = null;
+/** 服务器处理完、回话到网页之前调(模拟回话在路上的工夫用户又做了什么) */
+let late: ((req: Request) => void | Promise<void>) | null = null;
 let stop: (() => void) | null = null;
 
 /** 换到另一台设备(另一份浏览器存储);内存里的状态都清掉,像刚打开网页 */
@@ -85,6 +90,7 @@ beforeEach(() => {
   tick();
   online = true;
   gate = null;
+  late = null;
   fake = createFakeAiServer({ chunkDelayMs: 0, inviteOnly: true });
   vi.stubGlobal(
     'fetch',
@@ -92,7 +98,9 @@ beforeEach(() => {
       if (!online) throw new TypeError('Failed to fetch');
       const req = new Request(String(u), init);
       if (gate) await gate(req);
-      return fake.handle(req);
+      const res = await fake.handle(req);
+      if (late) await late(req);
+      return res;
     }),
   );
   setServerForTest(BASE);
@@ -480,6 +488,105 @@ describe('云同步:边改边同步、出错、换账号', () => {
     release();
     expect(await late).toMatchObject({ code: 'auth', status: 401 });
     expect(getSession()?.user.account).toBe('other@example.com');
+  });
+});
+
+describe('云同步:换账号、存储满了', () => {
+  const note = (text: string) => ({ key: 'k', kind: '史书', title: '大昌', text, createdAt: '2026-10-05T00:00:00Z', provider: 'mock', model: 'm' });
+
+  it('同步途中退出、换了账号:原来那个账号没做完的删除不会删到新账号里', async () => {
+    device(new FakeStorage());
+    const x = addWorld(7, '苍澜界');
+    const w = addWorld(99, '北境编年');
+    // 两个账号里都有这两个世界(同一台设备先后登录过)
+    await signIn('other@example.com');
+    await signOut(true);
+    await signIn();
+    const other = fake.users.get('other@example.com')!.worlds;
+    expect(other.size).toBe(2);
+
+    // 登录着 writer 时删掉两个;告诉服务器的半路上退出、换成 other
+    let hit!: () => void;
+    const reached = new Promise<void>((r) => (hit = r));
+    let release!: () => void;
+    const held = new Promise<void>((r) => (release = r));
+    late = async (req) => {
+      if (req.method !== 'DELETE') return;
+      late = null;
+      hit();
+      await held;
+    };
+    saveStore.deleteWorld(x);
+    saveStore.deleteWorld(w);
+    const run = syncNow();
+    await reached;
+    await signOut(true);
+    await login('other@example.com', FAKE_CODE);
+    release();
+    await run;
+    await syncNow();
+    expect(other.get(x)!.deletedAt).toBeNull();
+    expect(other.get(w)!.deletedAt).toBeNull();
+    expect(getSession()?.user.account).toBe('other@example.com');
+  });
+
+  it('取回来的 AI 写的东西存不进浏览器:这次不算取回,刷新以后也不会拿旧的冲掉服务器上的', async () => {
+    const a = new FakeStorage();
+    const b = new FakeStorage();
+    device(a);
+    const id = addWorld(7, '苍澜界');
+    putNote(id, note('旧的'));
+    await signIn();
+    device(b);
+    await signIn();
+    expect(listNotes(id).map((n) => n.text)).toEqual(['旧的']);
+
+    device(a);
+    tick();
+    putNote(id, note('新的'));
+    await syncNow();
+
+    device(b);
+    b.deny = (k) => k.startsWith('civ-atlas:ai-notes:');
+    await syncNow();
+    b.deny = null;
+    // 刷新(内存里的都清掉,从浏览器存储重读)
+    device(b);
+    await syncNow();
+    expect(listNotes(id).map((n) => n.text)).toEqual(['新的']);
+    expect((fake.users.get('writer@example.com')!.worlds.get(id)!.notes as { text: string }[]).map((n) => n.text)).toEqual(['新的']);
+  });
+
+  it('正在看的世界最新的改动没存进浏览器(存储满了):退出登录不让选"删掉"', async () => {
+    const a = new FakeStorage();
+    device(a);
+    const id = addWorld(7, '苍澜界');
+    await signIn();
+    const w = saveStore.loadWorld(id)!;
+    setEdits(w.save.edits);
+    saveStore.attachWorld({ id, params: w.save.params, check: w.save.check, kind: 'created', title: w.save.title, saved: w.save.edits });
+    setStage('world');
+    a.deny = (k) => k.startsWith('wenming-ditu:');
+    tick();
+    saveStore.renameWorld(id, '新名字');
+    expect(saveStore.currentUnsaved()).toBe(true);
+    const r = await signOut(false);
+    expect(r).toMatchObject({ ok: false });
+    expect(getSession()).not.toBeNull();
+    expect(titles()).toEqual(['苍澜界']);
+  });
+
+  it('删掉时能不能在「最近删除」里找回:只有已经存进账号的才能', async () => {
+    device(new FakeStorage());
+    const id = addWorld(7, '苍澜界');
+    expect(inAccount(id)).toBe(false);
+    await signIn();
+    expect(inAccount(id)).toBe(true);
+    tick();
+    const fresh = addWorld(99, '北境编年');
+    expect(inAccount(fresh)).toBe(false);
+    await signOut(true);
+    expect(inAccount(id)).toBe(false);
   });
 });
 

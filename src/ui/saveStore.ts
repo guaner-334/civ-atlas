@@ -678,6 +678,8 @@ interface Current {
   saved: WorldEdits | null;
   /** 最近一次存下的投影设置 */
   savedView?: SaveView;
+  /** 最近一次没写进去(浏览器存储满了):最新的改动只在这个页面里 */
+  unsaved?: boolean;
 }
 
 let current: Current | null = null;
@@ -703,6 +705,11 @@ export type CurrentWorld = Readonly<Omit<Current, 'saved' | 'savedView'>>;
 /** 当前世界(自动存的对象);换世界途中 = null */
 export function currentWorld(): CurrentWorld | null {
   return current;
+}
+
+/** 当前世界最近的改动没写进浏览器(存储满了,只在这个页面里;退出登录选"删掉"前要拦住) */
+export function currentUnsaved(): boolean {
+  return !!current?.unsaved;
 }
 
 /** 当前世界 → 存档(存成文件用) */
@@ -764,6 +771,7 @@ function saveCurrent(force = false): boolean {
   const view = currentView();
   c.savedView = view;
   const ok = writeSave(c.id, makeSave(c.params, edits, c.check, c.title, undefined, view), metaOf(c));
+  c.unsaved = !ok;
   if (ok) scheduleThumb(c.id, redraw);
   changed();
   return ok;

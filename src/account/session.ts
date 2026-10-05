@@ -266,9 +266,10 @@ export function authed<T>(path: string, init: { method?: string; body?: unknown 
 }
 
 /** 服务器返回的用户信息补进本地(/v1/me 用) */
-export function updateUser(u: { id?: unknown; account?: unknown; name?: unknown } | undefined): void {
+export function updateUser(u: { id?: unknown; account?: unknown; name?: unknown } | undefined, token?: string): void {
   const s = load();
-  if (!s || !u) return;
+  // token = 查这份资料时用的令牌:已经退出、换了账号就不用(不然新登录的令牌配上了旧账号的资料)
+  if (!s || !u || (token !== undefined && s.token !== token)) return;
   const next = sanitize({ token: s.token, user: { ...s.user, ...u } });
   if (next && JSON.stringify(next) !== JSON.stringify(s)) write(next);
 }

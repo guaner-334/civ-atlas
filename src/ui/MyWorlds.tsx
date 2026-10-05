@@ -18,7 +18,7 @@ import { MAX_WORLDS, deleteWorld, duplicateWorld, listWorlds, loadWorld, notify,
 import { closeTrash, openAccount, openLogin, useAccountPanelOpen, useTrashView } from './AccountDialogs';
 import { serverBase } from '../account/server';
 import { displayName, useSession } from '../account/session';
-import { syncNow, useSyncView } from '../account/sync';
+import { inAccount, syncNow, useSyncView } from '../account/sync';
 import { listTrash, restoreTrash, type TrashEntry } from '../account/cloud';
 import { downloadSave } from './SaveMenu';
 import { copyNotes } from '../ai/library';
@@ -379,9 +379,10 @@ function WorldCard({
             onClick={() => {
               if (!arm) return setArm(true);
               onMenu(false);
+              // 已经存进账号的:账号里跟着删,进最近删除(还没传上去的只是从这里删掉,找不回来,不这么说)
+              const synced = loggedIn && inAccount(w.id);
               deleteWorld(w.id);
-              // 登录了:账号里跟着删,进最近删除
-              if (loggedIn) notify({ kind: 'ok', text: `已删除「${name}」`, more: ['所有设备上都会删掉；30 天内能在账号的「最近删除」里找回'] });
+              if (synced) notify({ kind: 'ok', text: `已删除「${name}」`, more: ['所有设备上都会删掉；30 天内能在账号的「最近删除」里找回'] });
             }}
           >
             <Icon name="trash" size={16} />

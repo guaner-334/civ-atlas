@@ -25,6 +25,7 @@ import { TITLE_MAX, cleanTitle } from '../gen/savefile';
 import {
   MAX_WORLDS,
   cleanSyncMeta,
+  currentUnsaved,
   currentWorld,
   listWorlds,
   newWorldId,
@@ -254,12 +255,18 @@ function otherTitle(t: unknown): string {
   return [...root].slice(0, TITLE_MAX - FORK_SUFFIX.length).join('') + FORK_SUFFIX;
 }
 
-/** 写进浏览器(同步带来的);写不下 = false */
+/**
+ * 写进浏览器(同步带来的);写不下 = false,什么都不动。AI 写的东西先写:它写不下而存档写进去了的话,
+ * 刷新以后那些东西没了,下一轮会当成这里删了、把服务器上的也冲掉
+ */
 function store(id: string, raw: RawWorld, notes: AiNote[] | null): boolean {
   applying = true;
   try {
-    if (!putSyncedWorld(id, raw)) return false;
-    replaceNotes(id, notes);
+    const before = exportNotes(id);
+    if (!replaceNotes(id, notes) || !putSyncedWorld(id, raw)) {
+      replaceNotes(id, before);
+      return false;
+    }
     return true;
   } finally {
     applying = false;
@@ -277,7 +284,7 @@ async function upload(st: SyncState, id: string, l: Local, baseRev: number, revi
   }
   const body: PutBody = { baseRev, save: JSON.parse(l.raw.save), meta: { ...l.raw.meta }, thumb: thumbOf(l.raw.thumb), notes: l.notes.length ? l.notes : null };
   if (revive) body.revive = true;
-  const r = await putCloud(id, body);
+  const r = await net(() => putCloud(id, body));
   if (!storedIds().includes(id)) {
     // 存上去的工夫用户把它删了:按删掉算,下一轮告诉服务器
     st.deletes[id] = r.rev;
@@ -317,7 +324,7 @@ async function push(st: SyncState, id: string, l: Local, baseRev: number, revive
 async function pull(st: SyncState, id: string, expect?: string | null): Promise<boolean> {
   let w: CloudWorld;
   try {
-    w = await getCloud(id);
+    w = await net(() => getCloud(id));
   } catch (e) {
     if (e instanceof ServerError && e.code === 'not-found') return false;
     throw e;
@@ -463,7 +470,7 @@ async function reconcile(st: SyncState, id: string, s: CloudEntry | null, depth 
   // 两边都变了(或者这台设备不知道上次同步到哪):先取回来看看是不是一样
   let remote: CloudWorld;
   try {
-    remote = await getCloud(id);
+    remote = await net(() => getCloud(id));
   } catch (e) {
     if (e instanceof ServerError && e.code === 'not-found') return push(st, id, l, s.rev, true, depth);
     throw e;
@@ -509,6 +516,23 @@ function stateFor(user: string): SyncState {
 /** 正在跑的这次同步用的记录(这期间用户删了世界,记在它上面,免得被这次同步写回去盖掉) */
 let active: SyncState | null = null;
 
+/** 这次同步是替哪一次登录(令牌)做的 */
+let cycleToken: string | null = null;
+/** 同步途中退出了、换了账号:这次停下(剩下的请求会带上新账号的令牌,记录却是原来那个账号的) */
+class SessionChanged extends Error {}
+function sameSession(): void {
+  if (getSession()?.token !== cycleToken) throw new SessionChanged('换了账号');
+}
+/** 同步里的每个请求都过这里:发之前、回来以后都看一眼还是不是同一次登录 */
+async function net<T>(f: () => Promise<T>): Promise<T> {
+  sameSession();
+  try {
+    return await f();
+  } finally {
+    sameSession();
+  }
+}
+
 /** 同步一次:full = 全看一遍;否则只把改过的存上去 */
 async function cycle(full: boolean): Promise<void> {
   let s = getSession();
@@ -516,10 +540,11 @@ async function cycle(full: boolean): Promise<void> {
     setView({ phase: 'off', busy: new Set(), failed: new Map() });
     return;
   }
+  cycleToken = s.token;
   if (!s.user.id) {
     // 以前只为 AI 登录的(没记账号编号):问一次服务器
-    const me = await authed<{ user?: { id?: unknown; account?: unknown; name?: unknown } }>('/v1/me');
-    updateUser(me.user);
+    const me = await net(() => authed<{ user?: { id?: unknown; account?: unknown; name?: unknown } }>('/v1/me'));
+    updateUser(me.user, cycleToken);
     s = getSession();
     if (!s?.user.id) return;
   }
@@ -547,7 +572,7 @@ async function cycleWith(st: SyncState, full: boolean): Promise<void> {
   for (const [id, baseRev] of Object.entries(st.deletes)) {
     if (!local.has(id)) {
       try {
-        await deleteCloud(id, baseRev || undefined);
+        await net(() => deleteCloud(id, baseRev || undefined));
       } catch (e) {
         if (!(e instanceof ServerError && e.code === 'conflict')) throw e;
         full = true;
@@ -559,7 +584,7 @@ async function cycleWith(st: SyncState, full: boolean): Promise<void> {
   }
 
   if (full) {
-    const list = await listCloud();
+    const list = await net(() => listCloud());
     const server = new Map(list.map((e) => [e.id, e]));
     for (const e of list) if (!e.deleted && st.worlds[e.id]?.rev !== e.rev && !pinned(e.id)) busyNow.add(e.id);
     setView({ busy: new Set(busyNow) });
@@ -625,6 +650,12 @@ async function runOnce(mode: 'full' | 'push') {
   try {
     await cycle(mode === 'full');
   } catch (e) {
+    if (e instanceof SessionChanged) {
+      // 新登录的账号会另外同步一次(登录时排上了);这一次的不算出错
+      busyNow = new Set();
+      if (getSession()) setView({ busy: new Set() });
+      return;
+    }
     failAll(e);
   }
 }
@@ -709,6 +740,13 @@ export async function pushNow(): Promise<SyncView> {
 // ---------------------------------------------------------------------------
 // 登录、退出、删除
 
+/** 这个世界已经存进现在登录的账号了(删掉以后能在「最近删除」里找回;还没传上去的删了就没了) */
+export function inAccount(id: string): boolean {
+  const s = getSession();
+  const st = active ?? readState();
+  return !!s?.user.id && !!st && st.user === s.user.id && !!st.worlds[id];
+}
+
 /** 用户删掉一个世界:记下来,告诉服务器(断网、没登录时等下次) */
 function onLocalDelete(id: string) {
   rejected.delete(id);
@@ -744,6 +782,10 @@ function onLoggedIn() {
 
 /** 退出登录。keep = 这台设备上的世界留着(下次登录再同步);否则先全部同步好,再从这台设备上删掉 */
 export async function signOut(keep: boolean): Promise<{ ok: true } | { ok: false; message: string }> {
+  if (!keep && currentUnsaved()) {
+    // 最新的改动只在这个页面里(浏览器存储满了,没写进去,也就没同步上):删了就没了
+    return { ok: false, message: '正在看的这个世界最新的改动没能存进浏览器（存储满了），也就没同步上。先把它存成文件，或者选「留着」' };
+  }
   if (!keep && getSession()) {
     const v = await syncNow();
     if (v.phase !== 'idle' || v.failed.size) {
@@ -826,6 +868,7 @@ export function startSync(): () => void {
 export function _resetSyncForTest(): void {
   memState = null;
   active = null;
+  cycleToken = null;
   rejected.clear();
   offered.clear();
   running = null;

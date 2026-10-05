@@ -6,7 +6,7 @@
  * 各功能用自己的 kind 区分("史书""释名"……),key 由功能自己定(比如 "史书:polity:c4567#0" 或 "释名:settlement:c123#0")。
  */
 import { useSyncExternalStore } from 'react';
-import { keepWorld } from '../ui/saveStore';
+import { keepWorld, persistent } from '../ui/saveStore';
 
 export interface AiNote {
   /** 功能内唯一的键 */
@@ -48,15 +48,19 @@ function read(world: string): AiNote[] {
   return list;
 }
 
-function write(world: string, list: AiNote[]) {
+/** 返回写进浏览器没有(浏览器本来就不让存、整个只在内存里的,算写进去了) */
+function write(world: string, list: AiNote[]): boolean {
   mem.set(world, list);
+  let ok = true;
   try {
     if (list.length) localStorage.setItem(PREFIX + world, JSON.stringify(list));
     else localStorage.removeItem(PREFIX + world);
   } catch {
     /* 存不下 / 隐私模式:只留在内存里 */
+    ok = !persistent();
   }
   emit();
+  return ok;
 }
 
 export function listNotes(world: string, kind?: string): AiNote[] {
@@ -114,10 +118,10 @@ export function exportNotes(world: string): AiNote[] {
   return read(world).slice();
 }
 
-/** 同步下来的笔记换上(null / 空 = 没有);不存这个世界(它已经在"我的世界"里了) */
-export function replaceNotes(world: string, list: AiNote[] | null): void {
+/** 同步下来的笔记换上(null / 空 = 没有);不存这个世界(它已经在"我的世界"里了)。返回写进浏览器没有(存储满了 = false) */
+export function replaceNotes(world: string, list: AiNote[] | null): boolean {
   const clean = (list ?? []).filter((x) => x && typeof x.key === 'string' && typeof x.text === 'string');
-  write(world, clean);
+  return write(world, clean);
 }
 
 /** 世界删掉了:内存里的也忘掉(浏览器里的由 saveStore 删) */

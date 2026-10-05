@@ -140,10 +140,12 @@ interface ErrorBody {
 function toAiError(status: number, e: ErrorBody | undefined, usedToken?: string): AiError {
   const code = e?.code ?? '';
   const msg = e?.message ? scrubSecrets(String(e.message)).slice(0, 200) : '';
-  if (typeof e?.balance === 'number') setAcct({ credits: e.balance });
+  // 只认这次请求用的令牌:退出后换了账号,旧账号的请求晚回来的余额、401 都不算
+  const same = usedToken === undefined || usedToken === token();
+  if (same && typeof e?.balance === 'number') setAcct({ credits: e.balance });
   if (status === 401 || code === 'auth') {
-    // 令牌过期:清掉,请用户重新登录。只认这次请求用的令牌:退出后换了账号,旧账号的请求晚回来的 401 不算
-    if (usedToken === undefined || usedToken === token()) {
+    // 令牌过期:清掉,请用户重新登录
+    if (same) {
       if (usedToken) sessionExpired(usedToken);
       setAcct({}, true);
     }
@@ -241,11 +243,14 @@ const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : u
 
 /** 查积分余额和登录状态 */
 export async function refreshOfficialAccount(): Promise<void> {
-  if (!officialServer() || !token()) return;
+  const used = token();
+  if (!officialServer() || !used) return;
   setAcct({ checking: true, error: undefined });
   try {
     const r = await api<{ user?: UserInfo; credits?: number; pricing?: { note?: string } }>('/v1/me', { auth: true });
-    updateUser(r.user);
+    // 等回话的工夫退出、换了账号:查到的是原来那个账号的,不用
+    if (token() !== used) return;
+    updateUser(r.user, used);
     setAcct({
       checking: false,
       loggedIn: true,
@@ -255,7 +260,7 @@ export async function refreshOfficialAccount(): Promise<void> {
       pricing: typeof r.pricing?.note === 'string' ? r.pricing.note : undefined,
     });
   } catch (e) {
-    setAcct({ checking: false, error: e instanceof AiError ? e.message : String(e) });
+    setAcct(token() === used ? { checking: false, error: e instanceof AiError ? e.message : String(e) } : { checking: false });
   }
 }
 
@@ -359,7 +364,7 @@ export const officialProvider: AiProvider = {
           ? { inputTokens: num(done.usage.inputTokens) ?? 0, outputTokens: num(done.usage.outputTokens) ?? 0 }
           : undefined;
       const model = typeof done.model === 'string' && done.model ? done.model : '我们的 AI';
-      setAcct({ credits: num(done.balance) ?? acct.credits, model });
+      if (t === token()) setAcct({ credits: num(done.balance) ?? acct.credits, model });
       const acc = new ToolCallAcc();
       acc.add(done.tool_calls);
       const toolCalls = acc.calls();

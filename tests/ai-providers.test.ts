@@ -20,6 +20,7 @@ import {
 } from '../src/ai/providers/official';
 import { AiError, type AiRequest } from '../src/ai/types';
 import { createFakeAiServer, FAKE_CODE } from '../scripts/lib/fakeAiServer';
+import { getSession } from '../src/account/session';
 
 const KEY = 'sk-test-secret-0123456789';
 
@@ -424,6 +425,44 @@ describe('我们的 AI(开发假服务器,假 fetch 直连,不开端口)', () =>
     expect(await late).toMatchObject({ code: 'auth' });
     expect(getOfficialAccount()).toMatchObject({ loggedIn: true, account: 'other@example.com' });
     expect(getAiStatus().ready).toBe(true);
+    await logoutOfficial();
+    setOfficialServerForTest(undefined);
+  });
+
+  it('退出后换了账号:旧账号晚回来的账号资料不会套到新登录上', async () => {
+    const fake = createFakeAiServer({ chunkDelayMs: 0 });
+    let hold: Promise<void> | null = null;
+    let reached!: () => void;
+    const hit = new Promise<void>((r) => (reached = r));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (u: string, init?: RequestInit) => {
+        const req = new Request(String(u), init);
+        const res = await fake.handle(req);
+        // 服务器回了话、还在路上
+        if (hold && new URL(req.url).pathname === '/v1/me') {
+          const h = hold;
+          hold = null;
+          reached();
+          await h;
+        }
+        return res;
+      }),
+    );
+    setOfficialServerForTest('http://fake-ai.test');
+    chooseProvider('official');
+    let release!: () => void;
+    hold = new Promise<void>((r) => (release = r));
+    // 登录后顺手查一次积分:这一次晚回来
+    await loginOfficial('writer@example.com', FAKE_CODE);
+    await hit;
+    await logoutOfficial();
+    await loginOfficial('other@example.com', FAKE_CODE);
+    await refreshOfficialAccount();
+    release();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(getSession()?.user.account).toBe('other@example.com');
+    expect(getOfficialAccount()).toMatchObject({ loggedIn: true, account: 'other@example.com' });
     await logoutOfficial();
     setOfficialServerForTest(undefined);
   });
