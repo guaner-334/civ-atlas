@@ -257,8 +257,9 @@ export function useAiName({ civ, raw, raster, target, compact, lazy, what }: AiN
   };
 
   const apply = (c: Suggestion) => {
-    const e = suggestionEdit(info, c.name, defaultName(raw, target, info));
-    setName(e.key, e.value, 'ai');
+    const fallback = defaultName(raw, target, info);
+    const e = suggestionEdit(info, c.name, fallback);
+    setName(e.key, e.value, 'ai', fallback);
     patch(key, { picked: -1, applied: c.name });
   };
 

@@ -197,14 +197,17 @@ export function interventionKeys(v: Intervention): string[] {
 
 /**
  * 改名:name 为空(或 null)= 恢复默认(从 names 里去掉这个键)。现在不能改(editBlock)= 提示条说原因,不改。
- * from = 'ai':从 AI 起名里挑的,记一笔(名字旁标"AI 写",见 gen/edits.ts 的 aiNames);别的改名把这一笔去掉
+ * from = 'ai':从 AI 起名里挑的,记一笔(名字旁标"AI 写",见 gen/edits.ts 的 aiNames);别的改名把这一笔去掉。
+ * fallback = 生成时的名字:之前自己改过名、又从 AI 候选里挑回了生成时的名字,照样算 AI 起的(改名表里写明这个名字),
+ * 导出"换回原名"时回到自己改的那个
  */
-export function setName(key: string, name: string | null, from?: 'ai') {
+export function setName(key: string, name: string | null, from?: 'ai', fallback?: string) {
   const why = editBlock([key]);
   if (why) {
     showToast({ id: 'edit-block', kind: 'warn', text: why });
     return;
   }
+  if (from === 'ai' && !name && fallback && key in state.names) name = fallback;
   const names = { ...state.names };
   if (name) names[key] = name;
   else if (key in names) delete names[key];

@@ -16,15 +16,15 @@ if (typeof window !== 'undefined') {
   for (const t of ['pointerup', 'pointercancel']) window.addEventListener(t, () => (pressing = false), true);
 }
 
-/** 等这一下点完(松开、点击都派发过了)再做 */
+/** 等这一下点完(松开、点击都派发过了)再做。在捕获阶段听:地球仪之类自己拦下 pointerup 的,也照样收得到 */
 function afterPress(f: () => void) {
   const go = () => {
-    window.removeEventListener('pointerup', go);
-    window.removeEventListener('pointercancel', go);
+    window.removeEventListener('pointerup', go, true);
+    window.removeEventListener('pointercancel', go, true);
     setTimeout(f);
   };
-  window.addEventListener('pointerup', go);
-  window.addEventListener('pointercancel', go);
+  window.addEventListener('pointerup', go, true);
+  window.addEventListener('pointercancel', go, true);
 }
 
 export interface NameEditProps {

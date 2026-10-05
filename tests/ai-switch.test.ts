@@ -70,6 +70,22 @@ describe('"AI 写"的记号', () => {
     expect(getEdits().names).toEqual({ [K]: '玄' });
   });
 
+  it('自己改过名、又从 AI 候选里挑回生成时的名字:照样算 AI 起的,换回原名回到自己改的;没改过的挑回 = 不动', () => {
+    setName(K, '渊');
+    setName(K, null, 'ai', '昌');
+    expect(getEdits().names[K]).toBe('昌');
+    expect(getEdits().aiNames).toEqual({ [K]: { name: '昌', was: '渊' } });
+    expect(namesWithoutAi(getEdits())[K]).toBe('渊');
+    // 没给 fallback(旧对话里的候选)、或者不是 AI:照旧恢复默认
+    setName(CITY, '揽月城');
+    setName(CITY, null, 'ai');
+    expect(getEdits().names[CITY]).toBeUndefined();
+    // 本来就是生成时的名字:什么都不改
+    const before = getEdits();
+    setName(CITY, null, 'ai', '揽霞城');
+    expect(getEdits()).toBe(before);
+  });
+
   it('撤销挑名字:名字和记号一起回去;重做又回来', () => {
     setName(K, '渊');
     setName(K, '青渊', 'ai');
