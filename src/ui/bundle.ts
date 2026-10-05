@@ -15,7 +15,7 @@
  * 存:「我的世界」里的全部世界;正在看的那个没能存进浏览器(存储满了)的,用页面里的那份,一次都没存进去的也放进去。
  * 放回来:逐个放进「我的世界」(都是新编号;建好的先放,没建完的后放,好把底稿编号换成新的)。
  * 已经有一模一样的(参数、修改、名字、底稿出处都相同;没建完的和建好的分开算,没建完的还要底稿相同)不重复放,
- * 那边缺的 AI 写的东西、缩略图、现存几国、底稿补上,
+ * 那边缺的投影、AI 写的东西、缩略图、现存几国、底稿补上,
  * 上次没能写进浏览器(存储满了)的 AI 写的东西再写一次;
  * 放满了(MAX_WORLDS)、浏览器存不下就停,不为它删别的世界。登录了的,放回来的世界照常同步进账号。
  */
@@ -172,9 +172,9 @@ export interface ImportResult {
   notesLost: boolean;
 }
 
-/** 已经有的同一个世界:文件里有、这边缺的 AI 写的东西(按条)、缩略图、现存几国、底稿补上;返回补了没有、AI 写的东西存进去没有 */
+/** 已经有的同一个世界:文件里有、这边缺的投影、AI 写的东西(按条)、缩略图、现存几国、底稿补上;返回补了没有、AI 写的东西存进去没有 */
 function fillFrom(id: string, w: BundleWorld, base: DraftBase | undefined): { filled: boolean; notesOk: boolean } {
-  let filled = fillMissing(id, { thumb: w.thumb, alive: w.meta.alive, base });
+  let filled = fillMissing(id, { view: w.save.view, thumb: w.thumb, alive: w.meta.alive, base });
   let notesOk = true;
   const have = exportNotes(id);
   const keys = new Set(have.map((n) => n.key));

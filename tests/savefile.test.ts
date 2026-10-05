@@ -1126,6 +1126,11 @@ describe('底稿出处(origin)', () => {
     expect(cleanSignature('明\u200b\u202e月\u00ad\u0085')).toBe('明月');
     expect(cleanSignature('明\n\t月\u2028')).toBe('明 月');
     expect(cleanSignature('\u200b\u2060')).toBe('');
+    // 组合表情要用的看不见的字符留着(👩‍💻 不拆成 👩💻、❤️ 不变成黑白的 ❤、旗帜里的标签);只有这些、没有看得见的字 = 没署名
+    for (const e of ['👩\u200d💻', '\u2764\ufe0f', '🏴\u{e0067}\u{e0062}\u{e0073}\u{e0063}\u{e0074}\u{e007f}', 'क्\u200dष']) expect(cleanSignature(` ${e}\u200b `)).toBe(e);
+    expect(cleanSignature('\u200d\ufe0f \u200c')).toBe('');
+    expect(cleanSignature('\u200d'.repeat(25) + '明')).toBe('');
+    expect(cleanSignature('一二三四五六七八九十一二三四五六七八九 十')).toBe('一二三四五六七八九十一二三四五六七八九');
     const text = JSON.stringify({ ...makeSave({ ...DEFAULT_PARAMS, seed: 7 }, EDITS, 'c'), origin: { by: 'x', title: 't', url: 'javascript:void(0)' } });
     const r = parseSave(text);
     expect(r.ok && r.save.origin).toBeUndefined();
@@ -1409,6 +1414,18 @@ describe('全部存成文件(bundle)', () => {
     const w = JSON.parse(bundleText()!.text).worlds.find((x: { id: string }) => x.id === d);
     expect(w.meta).toEqual({});
     expect(w.save.title).toBe('续篇');
+  });
+
+  it('再放一次时,原来那份没记投影(旧版存的):用文件里的;这边记着的不换', () => {
+    const save = makeSave({ ...DEFAULT_PARAMS, seed: 7 }, EDITS, 'c7', '苍澜界');
+    const a = saveStore.importSave(save)!;
+    expect(saveStore.loadWorld(a)?.save.view).toBeUndefined();
+    const view = { projection: 'robinson', center: 30 };
+    const one = (v: typeof view) => ({ worlds: [{ save: { ...save, view: v }, meta: {}, thumb: null, notes: [] }], bad: 0 });
+    expect(importBundle(one(view))).toMatchObject({ added: [], same: 1, filled: 1 });
+    expect(saveStore.loadWorld(a)?.save.view).toEqual(view);
+    expect(importBundle(one({ ...view, center: 60 }))).toMatchObject({ added: [], same: 1, filled: 0 });
+    expect(saveStore.loadWorld(a)?.save.view).toEqual(view);
   });
 
   it('没建完的和建好的分开算:同样的参数、名字,一个没建完一个建好的,不算同一个', () => {

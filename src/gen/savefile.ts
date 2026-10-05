@@ -97,15 +97,23 @@ export function cleanView(raw: unknown): SaveView | null {
 /** 署名最长几个字 */
 export const SIGNATURE_MAX = 20;
 
-/** 署名:去掉控制字符和看不见的字符(换行、制表这类算空白)、首尾空白,连续空白并成一个,超长截断;空 = 没署名 */
+/** 看不见、但组合表情和连写离不开的字符:零宽连接(👩‍💻)、零宽不连接、变体选择(❤️)、表情旗帜里的标签 */
+const JOINERS = /[\u200C\u200D\uFE00-\uFE0F\u{E0020}-\u{E007F}\u{E0100}-\u{E01EF}]/u;
+const JOINERS_ALL = new RegExp(JOINERS.source, 'gu');
+
+/**
+ * 署名:去掉控制字符和别的看不见的字符(换行、制表这类算空白;零宽空格、改文字方向的都去掉,组合表情要用的留着)、首尾空白,
+ * 连续空白并成一个,超长截断;空(只剩组合用的字符也算)= 没署名
+ */
 export function cleanSignature(raw: unknown): string {
   if (typeof raw !== 'string') return '';
   const s = raw
-    .replace(/[\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}]/gu, (c) => (/\s/.test(c) ? ' ' : ''))
+    .replace(/[\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}]/gu, (c) => (/\s/.test(c) ? ' ' : JOINERS.test(c) ? c : ''))
     .replace(/\s+/g, ' ')
     .trim();
   const cs = [...s];
-  return cs.length > SIGNATURE_MAX ? cs.slice(0, SIGNATURE_MAX).join('') : s;
+  const t = cs.length > SIGNATURE_MAX ? cs.slice(0, SIGNATURE_MAX).join('').trimEnd() : s;
+  return t.replace(JOINERS_ALL, '').trim() ? t : '';
 }
 
 /** 分享短链接的样子:http(s)://网站地址/s/<码>(网站可以在子目录里) */

@@ -1156,13 +1156,21 @@ export function putSyncedWorld(id: string, w: RawWorld): boolean {
 }
 
 /**
- * 「全部存成文件」放回来时,已经有的同一个世界:缺缩略图、不知道现存几国、没建完的不知道底稿的,用文件里的补上
+ * 「全部存成文件」放回来时,已经有的同一个世界:存档里没记投影、缺缩略图、不知道现存几国、没建完的不知道底稿的,用文件里的补上
  * (存不下就算了,不为它删别的);返回补了没有
  */
-export function fillMissing(id: string, w: { thumb: string | null; alive?: number; base?: DraftBase }): boolean {
+export function fillMissing(id: string, w: { view?: SaveView; thumb: string | null; alive?: number; base?: DraftBase }): boolean {
   const kv = store();
-  if (!kv.get(PREFIX + id)) return false;
+  const save = readSave(id);
+  if (!save) return false;
   let done = false;
+  if (w.view && !save.view) {
+    const text = JSON.stringify({ ...save, view: w.view });
+    if (kv.set(PREFIX + id, text)) {
+      if (current?.id === id) current.wrote = text;
+      done = true;
+    }
+  }
   if (w.thumb && !kv.get(THUMB + id) && kv.set(THUMB + id, w.thumb)) done = true;
   const m = readMeta(id);
   const next: Meta = { ...m };
