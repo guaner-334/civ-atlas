@@ -124,9 +124,10 @@ export function useSession(): Session | null {
   return load();
 }
 
-/** 服务器说令牌不认了(401):清掉,算退出 */
-export function sessionExpired(): void {
-  if (load()) write(null);
+/** 服务器说令牌不认了(401):清掉,算退出。只认这次请求用的那个令牌(退出后换了账号,旧账号的请求晚回来的 401 不算) */
+export function sessionExpired(token?: string): void {
+  const s = load();
+  if (s && (token === undefined || s.token === token)) write(null);
 }
 setAuthLostHandler(sessionExpired);
 

@@ -1,7 +1,7 @@
 /**
  * 网站账号的几个窗口(电脑是居中的弹窗,手机是从下面升起的卡片):
  *
- *   登录       邮箱收验证码(不设密码);「手机号」那一格服务器没开就置灰写"暂未开放";
+ *   登录       邮箱收验证码(不设密码);「手机号」那一格先置灰写"暂未开放"(网页这边还没做手机号登录);
  *              邀请制下新邮箱要邀请码:从邀请链接打开的已经填好,没填的点"获取验证码"时先说明、露出邀请码一栏(不发邮件)
  *   账号       云同步、最近删除、AI 积分、分享出去的世界(复制链接、停止分享);左下注销账号,右下退出登录
  *   退出登录   问这台设备上的世界留不留(默认留);选"删掉"先全部同步好再删
@@ -253,7 +253,6 @@ function LoginDialog({ phone, onClose }: { phone: boolean; onClose: () => void }
   useEffect(() => emailRef.current?.focus(), []);
 
   const inviteOnly = opts?.inviteOnly ?? !!linkInvite;
-  const phoneOpen = !!opts?.accountKinds.includes('phone');
   const okEmail = EMAIL.test(email.trim());
   const sentNow = !!sent && sent.to === email.trim();
   const canSend = okEmail && !busy && !(sentNow && left > 0);
@@ -310,8 +309,9 @@ function LoginDialog({ phone, onClose }: { phone: boolean; onClose: () => void }
           <button className="on" role="tab" aria-selected="true">
             邮箱
           </button>
-          <button role="tab" aria-selected="false" disabled={!phoneOpen} title={phoneOpen ? undefined : '手机号登录暂未开放'}>
-            手机号{!phoneOpen && <em>暂未开放</em>}
+          {/* 手机号登录网页这边还没做:服务器开了也先置灰 */}
+          <button role="tab" aria-selected="false" disabled title="手机号登录暂未开放">
+            手机号<em>暂未开放</em>
           </button>
         </div>
         <p className="acct-lead">
@@ -743,7 +743,16 @@ function DeleteDialog({ phone, onClose, onBack }: { phone: boolean; onClose: () 
 // ---------------------------------------------------------------------------
 // 分享
 
-type ShareState = { phase: 'prep' } | { phase: 'on'; share: ShareInfo } | { phase: 'off' } | { phase: 'error'; message: string };
+/** error 时带着 share = 链接还开着(停分享没成功),开关和链接照旧显示开着 */
+type ShareState = { phase: 'prep' } | { phase: 'on'; share: ShareInfo } | { phase: 'off' } | { phase: 'error'; message: string; share?: ShareInfo };
+
+/** 分享前把改过的存上去;这个世界没存上就不开分享(不然链接给出去的是账号里的旧样子) */
+async function pushForShare(worldId: string): Promise<void> {
+  const v = await pushNow();
+  if (v.phase === 'offline') throw new ServerError(0, 'network', v.message ?? '连不上服务器');
+  const why = v.failed.get(worldId);
+  if (why !== undefined) throw new Error(`这个世界最新的样子还没存进账号：${why}`);
+}
 
 function ShareDialog({ phone, worldId, title, onClose }: { phone: boolean; worldId: string; title: string; onClose: () => void }) {
   const [st, setSt] = useState<ShareState>({ phase: 'prep' });
@@ -755,7 +764,7 @@ function ShareDialog({ phone, worldId, title, onClose }: { phone: boolean; world
     void (async () => {
       // 世界要先在账号里:只是看看的(别人分享的)先存进"我的世界",再把改过的存上去
       if (!isStored(worldId)) keepWorld(worldId);
-      await pushNow();
+      await pushForShare(worldId);
       const have = (await listShares()).find((x) => x.worldId === worldId);
       const share = have ?? (await createShare(worldId));
       if (live) setSt({ phase: 'on', share });
@@ -774,21 +783,24 @@ function ShareDialog({ phone, worldId, title, onClose }: { phone: boolean; world
     return () => clearTimeout(t);
   }, [copied]);
 
-  const on = st.phase === 'on' || st.phase === 'prep';
-  const url = st.phase === 'on' ? shortLink(st.share.code) : '';
+  /** 开着的链接(停分享失败时还开着) */
+  const live = st.phase === 'on' || st.phase === 'error' ? st.share : undefined;
+  const on = !!live || st.phase === 'prep';
+  const url = live ? shortLink(live.code) : '';
   const toggle = async () => {
     if (busy || st.phase === 'prep') return;
     setBusy(true);
     try {
-      if (st.phase === 'on') {
+      if (live) {
         await stopShare(worldId);
         setSt({ phase: 'off' });
       } else {
-        await pushNow();
+        await pushForShare(worldId);
         setSt({ phase: 'on', share: await createShare(worldId) });
       }
     } catch (e) {
-      setSt({ phase: 'error', message: errText(e) });
+      // 停没停成:链接照旧算开着(服务器出错时确实还开着;断网时不知道,按开着说)
+      setSt({ phase: 'error', message: errText(e), share: live });
     } finally {
       setBusy(false);
     }
@@ -803,13 +815,13 @@ function ShareDialog({ phone, worldId, title, onClose }: { phone: boolean; world
   const canSend = phone && typeof navigator !== 'undefined' && typeof navigator.share === 'function';
   const name = title || '未命名世界';
   const urlBox = (
-    <div className={`url${st.phase === 'on' ? '' : ' off'}`} data-testid="share-url">
+    <div className={`url${live ? '' : ' off'}`} data-testid="share-url">
       <Icon name="link" size={15} />
-      <span>{st.phase === 'on' ? url.replace(/^https?:\/\//, '') : st.phase === 'prep' ? '正在生成链接' : '分享已停止，链接打不开了'}</span>
+      <span>{live ? url.replace(/^https?:\/\//, '') : st.phase === 'prep' ? '正在生成链接' : '分享已停止，链接打不开了'}</span>
     </div>
   );
   const copyBtn = (
-    <button className={`acct-btn lg blue${phone ? ' full' : ''}`} data-act="copy-short-link" disabled={st.phase !== 'on'} onClick={() => void copy()}>
+    <button className={`acct-btn lg blue${phone ? ' full' : ''}`} data-act="copy-short-link" disabled={!live} onClick={() => void copy()}>
       <Icon name="copy" size={phone ? 17 : 16} />
       {copied ? '已复制' : '复制链接'}
     </button>
@@ -844,7 +856,7 @@ function ShareDialog({ phone, worldId, title, onClose }: { phone: boolean; world
                 <button
                   className="acct-btn full"
                   style={{ fontWeight: 500 }}
-                  disabled={st.phase !== 'on'}
+                  disabled={!live}
                   onClick={() => void navigator.share({ title: `「${name}」`, url }).catch(() => {})}
                 >
                   <Icon name="share" size={17} />

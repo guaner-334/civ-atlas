@@ -396,4 +396,35 @@ describe('我们的 AI(开发假服务器,假 fetch 直连,不开端口)', () =>
     expect(getAiStatus().ready).toBe(false);
     setOfficialServerForTest(undefined);
   });
+
+  it('退出后换了账号:旧账号晚回来的 401 不把新登录踢掉', async () => {
+    const fake = createFakeAiServer({ chunkDelayMs: 0 });
+    let hold: Promise<void> | null = null;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (u: string, init?: RequestInit) => {
+        const req = new Request(String(u), init);
+        if (hold && new URL(req.url).pathname === '/v1/chat') {
+          const h = hold;
+          hold = null;
+          await h;
+        }
+        return fake.handle(req);
+      }),
+    );
+    setOfficialServerForTest('http://fake-ai.test');
+    chooseProvider('official');
+    await loginOfficial('writer@example.com', FAKE_CODE);
+    let release!: () => void;
+    hold = new Promise<void>((r) => (release = r));
+    const late = aiChat(REQ).catch((e: unknown) => e);
+    await logoutOfficial();
+    await loginOfficial('other@example.com', FAKE_CODE);
+    release();
+    expect(await late).toMatchObject({ code: 'auth' });
+    expect(getOfficialAccount()).toMatchObject({ loggedIn: true, account: 'other@example.com' });
+    expect(getAiStatus().ready).toBe(true);
+    await logoutOfficial();
+    setOfficialServerForTest(undefined);
+  });
 });

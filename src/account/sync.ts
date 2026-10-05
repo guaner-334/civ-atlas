@@ -3,7 +3,9 @@
  * 换电脑、换手机登录同一个账号就能接着改。服务器只管"版本号对上才存"(cloud.ts),怎么合并在这里定:
  *
  * - 记着每个世界上次同步到的版本号(rev)和那时内容的指纹(sum);指纹变了 = 这台设备上改过
- *   (存在 localStorage 'civ-atlas:sync',跟着账号:换了账号从头来,这台设备上的世界都存进新账号)
+ *   (存在 localStorage 'civ-atlas:sync',跟着账号:换了账号从头来,这台设备上的世界都存进新账号;
+ *   原来那个账号的记录另外收着,换回来接着用,没告诉服务器的删除不会丢)
+ * - 内容指纹按键名排好序算(键的先后不同不算改过);同步途中用户又改了、删了的,按现在的样子对,不覆盖
  * - 什么时候同步:登录后、打开网页时、回到这个页面 / 联网时、每分钟一次(都是"全看一遍");
  *   改了以后 2 秒(只把改过的存上去,不看服务器那边)
  * - 全看一遍时逐个对:
@@ -104,10 +106,33 @@ function cyrb53(str: string): string {
   return `${str.length.toString(36)}-${(h2 >>> 0).toString(16).padStart(8, '0')}${(h1 >>> 0).toString(16).padStart(8, '0')}`;
 }
 
-const notesText = (n: AiNote[] | null | undefined) => (n && n.length ? JSON.stringify(n) : '');
+/** 按键名排好序再转成字(同样的内容,键的先后不同也算一样:服务器那边存取可能换了顺序) */
+function canon(v: unknown): string {
+  return JSON.stringify(v, (_k, x: unknown) =>
+    x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.entries(x as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) : x,
+  );
+}
+
+/** 存档原文 → 排好序的样子(存档大,同一份只算一次) */
+const canonSaves = new Map<string, string>();
+function canonSave(text: string): string {
+  let c = canonSaves.get(text);
+  if (c === undefined) {
+    try {
+      c = canon(JSON.parse(text));
+    } catch {
+      c = text;
+    }
+    if (canonSaves.size >= 200) canonSaves.delete(canonSaves.keys().next().value as string);
+    canonSaves.set(text, c);
+  }
+  return c;
+}
+
+const notesText = (n: AiNote[] | null | undefined) => (n && n.length ? canon(n) : '');
 
 function sumOf(w: RawWorld, notes: AiNote[] | null | undefined): string {
-  return cyrb53([w.save, JSON.stringify(w.meta), w.thumb ?? '', notesText(notes)].join('\u0000'));
+  return cyrb53([canonSave(w.save), canon(w.meta), w.thumb ?? '', notesText(notes)].join('\u0000'));
 }
 
 interface Local {
@@ -242,14 +267,23 @@ function store(id: string, raw: RawWorld, notes: AiNote[] | null): boolean {
 }
 
 const thumbOf = (t: string | null) => (t && t.length <= 200_000 ? t : null);
-const notesOf = (n: AiNote[]) => (!n.length ? null : JSON.stringify(n).length <= 1_000_000 ? n : undefined);
+/** AI 写的东西最多存多少字(服务器的上限) */
+const NOTES_MAX = 1_000_000;
 
 async function upload(st: SyncState, id: string, l: Local, baseRev: number, revive = false) {
-  const body: PutBody = { baseRev, save: JSON.parse(l.raw.save), meta: { ...l.raw.meta }, thumb: thumbOf(l.raw.thumb) };
-  const notes = notesOf(l.notes);
-  if (notes !== undefined) body.notes = notes;
+  // AI 写的东西太多:存不进账号,算没同步上(不能当存好了:退出登录选"删掉"时会把唯一的一份删了)
+  if (l.notes.length && JSON.stringify(l.notes).length > NOTES_MAX) {
+    throw new ServerError(400, 'bad-request', 'AI 给这个世界写的东西太多了，存不进账号');
+  }
+  const body: PutBody = { baseRev, save: JSON.parse(l.raw.save), meta: { ...l.raw.meta }, thumb: thumbOf(l.raw.thumb), notes: l.notes.length ? l.notes : null };
   if (revive) body.revive = true;
   const r = await putCloud(id, body);
+  if (!storedIds().includes(id)) {
+    // 存上去的工夫用户把它删了:按删掉算,下一轮告诉服务器
+    st.deletes[id] = r.rev;
+    delete st.worlds[id];
+    return;
+  }
   st.worlds[id] = { rev: r.rev, sum: l.sum, at: nowIso() };
 }
 
@@ -265,7 +299,7 @@ async function push(st: SyncState, id: string, l: Local, baseRev: number, revive
   } catch (e) {
     if (e instanceof ServerError && e.code === 'conflict' && depth < 2) {
       const entry: CloudEntry = { id, rev: Number(e.data.rev) || 0, deleted: e.data.deleted === true };
-      return reconcile(st, id, l, entry, depth + 1);
+      return reconcile(st, id, entry, depth + 1);
     }
     if (e instanceof ServerError && e.status === 400) {
       rejected.set(id, { sum: l.sum, why: e.message });
@@ -276,8 +310,11 @@ async function push(st: SyncState, id: string, l: Local, baseRev: number, revive
   }
 }
 
-/** 取回来覆盖本地(本地没有就新存一个;"我的世界"满了、写不下就先不取) */
-async function pull(st: SyncState, id: string): Promise<boolean> {
+/**
+ * 取回来覆盖本地(本地没有就新存一个;"我的世界"满了、写不下就先不取)。
+ * expect = 决定取回来时本地的指纹(null = 本地没有):等服务器回话的工夫用户又改了、删了,就不覆盖,下一轮再对
+ */
+async function pull(st: SyncState, id: string, expect?: string | null): Promise<boolean> {
   let w: CloudWorld;
   try {
     w = await getCloud(id);
@@ -285,6 +322,8 @@ async function pull(st: SyncState, id: string): Promise<boolean> {
     if (e instanceof ServerError && e.code === 'not-found') return false;
     throw e;
   }
+  if (expect !== undefined && (localWorld(id)?.sum ?? null) !== expect) return false;
+  if (expect === null && id in st.deletes) return false;
   const raw = remoteRaw(w);
   const notes = Array.isArray(w.notes) ? w.notes : null;
   if (!store(id, raw, notes)) return false;
@@ -339,21 +378,46 @@ async function fork(st: SyncState, id: string, l: Local, remote: CloudWorld) {
   const save = remote.save && typeof remote.save === 'object' ? { ...(remote.save as Record<string, unknown>) } : remote.save;
   const other = otherTitle((save as { title?: unknown })?.title);
   if (save && typeof save === 'object') (save as Record<string, unknown>).title = other;
+  const no = rejected.get(id);
+  if (no && no.sum === l.sum) {
+    failedNow.set(id, no.why);
+    return;
+  }
   const nid = newWorldId();
   if (!store(nid, remoteRaw(remote, save), Array.isArray(remote.notes) ? remote.notes : null)) {
     // 存不下另一份:先不覆盖服务器上的(两份都还在),等腾出地方
     failedNow.set(id, '浏览器存储满了，两台设备上改的没法都留下');
     return;
   }
-  await upload(st, id, l, remote.rev);
+  try {
+    await upload(st, id, l, remote.rev);
+  } catch (e) {
+    // 本地这份没存上去:刚另存的那份撤掉(服务器上还是那份),下次重来,不然每试一次多一份
+    applying = true;
+    try {
+      removeSyncedWorld(nid);
+      forgetNotes(nid);
+    } finally {
+      applying = false;
+    }
+    if (e instanceof ServerError && e.status === 400) {
+      rejected.set(id, { sum: l.sum, why: e.message });
+      failedNow.set(id, e.message);
+      return;
+    }
+    throw e;
+  }
   const n = localWorld(nid);
   if (n) await push(st, nid, n, 0);
   const name = cleanTitle((JSON.parse(l.raw.save) as { title?: string }).title) || '未命名世界';
   forks.push({ name, other });
 }
 
-/** 一个世界:本地(l)、上次同步(st.worlds)、服务器上(s)三方对一遍 */
-async function reconcile(st: SyncState, id: string, l: Local | null, s: CloudEntry | null, depth = 0): Promise<void> {
+/** 一个世界:本地、上次同步(st.worlds)、服务器上(s)三方对一遍。本地按现在的样子(同步途中用户可能又改了、删了) */
+async function reconcile(st: SyncState, id: string, s: CloudEntry | null, depth = 0): Promise<void> {
+  const l = localWorld(id);
+  // 刚删掉、还没告诉服务器的:下一轮去删,这次不取回来
+  if (!l && id in st.deletes) return;
   const k = st.worlds[id];
   if (!s) {
     if (l) await push(st, id, l, 0, false, depth);
@@ -383,7 +447,7 @@ async function reconcile(st: SyncState, id: string, l: Local | null, s: CloudEnt
     return;
   }
   if (!l) {
-    if (storedIds().length < MAX_WORLDS) await pull(st, id);
+    if (storedIds().length < MAX_WORLDS) await pull(st, id, null);
     return;
   }
   if (k && k.rev === s.rev) {
@@ -393,7 +457,7 @@ async function reconcile(st: SyncState, id: string, l: Local | null, s: CloudEnt
   if (k && k.sum === l.sum) {
     // 只有服务器变了
     if (pinned(id)) return offerReload(id, s.rev);
-    await pull(st, id);
+    await pull(st, id, l.sum);
     return;
   }
   // 两边都变了(或者这台设备不知道上次同步到哪):先取回来看看是不是一样
@@ -411,13 +475,39 @@ async function reconcile(st: SyncState, id: string, l: Local | null, s: CloudEnt
   await fork(st, id, l, remote);
 }
 
+/** 换了账号:原来那个账号的同步记录另外收着(里面可能有还没告诉服务器的删除),换回来时接着用 */
+const STASH = 'civ-atlas:sync:';
+function stash(st: SyncState) {
+  try {
+    if (typeof localStorage !== 'undefined') localStorage.setItem(STASH + st.user, JSON.stringify(st));
+  } catch {
+    /* 存不下:算了 */
+  }
+}
+function unstash(user: string): SyncState | null {
+  try {
+    if (typeof localStorage === 'undefined') return null;
+    const raw = localStorage.getItem(STASH + user);
+    if (!raw) return null;
+    localStorage.removeItem(STASH + user);
+    const v = JSON.parse(raw) as SyncState;
+    return v && v.user === user && v.worlds && typeof v.worlds === 'object' && v.deletes && typeof v.deletes === 'object' ? v : null;
+  } catch {
+    return null;
+  }
+}
+
 function stateFor(user: string): SyncState {
   const st = readState();
   if (st && st.user === user) return st;
-  const fresh: SyncState = { user, worlds: {}, deletes: {} };
-  writeState(fresh);
-  return fresh;
+  if (st) stash(st);
+  const next: SyncState = unstash(user) ?? { user, worlds: {}, deletes: {} };
+  writeState(next);
+  return next;
 }
+
+/** 正在跑的这次同步用的记录(这期间用户删了世界,记在它上面,免得被这次同步写回去盖掉) */
+let active: SyncState | null = null;
 
 /** 同步一次:full = 全看一遍;否则只把改过的存上去 */
 async function cycle(full: boolean): Promise<void> {
@@ -434,6 +524,15 @@ async function cycle(full: boolean): Promise<void> {
     if (!s?.user.id) return;
   }
   const st = stateFor(s.user.id);
+  active = st;
+  try {
+    await cycleWith(st, full);
+  } finally {
+    active = null;
+  }
+}
+
+async function cycleWith(st: SyncState, full: boolean): Promise<void> {
   const local = new Map<string, Local>();
   for (const id of syncOrder()) {
     const l = localWorld(id);
@@ -465,14 +564,19 @@ async function cycle(full: boolean): Promise<void> {
     for (const e of list) if (!e.deleted && st.worlds[e.id]?.rev !== e.rev && !pinned(e.id)) busyNow.add(e.id);
     setView({ busy: new Set(busyNow) });
     for (const id of new Set([...local.keys(), ...server.keys()])) {
-      await reconcile(st, id, local.get(id) ?? null, server.get(id) ?? null);
+      await reconcile(st, id, server.get(id) ?? null);
       writeState(st);
       done(id);
     }
   } else {
-    for (const [id, l] of local) {
+    for (const id of local.keys()) {
+      // 按现在的样子(前面几个存上去的工夫,用户可能又改了、删了)
+      const l = localWorld(id);
       const k = st.worlds[id];
-      if (k && k.sum === l.sum) continue;
+      if (!l || (k && k.sum === l.sum)) {
+        done(id);
+        continue;
+      }
       await push(st, id, l, k?.rev ?? 0);
       writeState(st);
       done(id);
@@ -608,7 +712,7 @@ export async function pushNow(): Promise<SyncView> {
 /** 用户删掉一个世界:记下来,告诉服务器(断网、没登录时等下次) */
 function onLocalDelete(id: string) {
   rejected.delete(id);
-  const st = readState();
+  const st = active ?? readState();
   if (!st) return;
   const k = st.worlds[id];
   if (k) {
@@ -721,6 +825,7 @@ export function startSync(): () => void {
 /** 单测用:清掉内存里的状态 */
 export function _resetSyncForTest(): void {
   memState = null;
+  active = null;
   rejected.clear();
   offered.clear();
   running = null;

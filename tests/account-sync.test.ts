@@ -40,6 +40,8 @@ const g = globalThis as { localStorage?: unknown };
 const BASE = 'http://fake-server.test';
 let fake: ReturnType<typeof createFakeAiServer>;
 let online = true;
+/** 请求到服务器之前调:模拟服务器回话前的工夫用户又做了什么;抛错 = 这一个请求断网 */
+let gate: ((req: Request) => void | Promise<void>) | null = null;
 let stop: (() => void) | null = null;
 
 /** 换到另一台设备(另一份浏览器存储);内存里的状态都清掉,像刚打开网页 */
@@ -82,12 +84,15 @@ beforeEach(() => {
   vi.useFakeTimers({ toFake: ['Date'] });
   tick();
   online = true;
+  gate = null;
   fake = createFakeAiServer({ chunkDelayMs: 0, inviteOnly: true });
   vi.stubGlobal(
     'fetch',
     vi.fn(async (u: string, init?: RequestInit) => {
       if (!online) throw new TypeError('Failed to fetch');
-      return fake.handle(new Request(String(u), init));
+      const req = new Request(String(u), init);
+      if (gate) await gate(req);
+      return fake.handle(req);
     }),
   );
   setServerForTest(BASE);
@@ -304,6 +309,177 @@ describe('云同步', () => {
     // 再登录:都回来了
     await signIn();
     expect(titles()).toEqual(['九州大陆', '北境编年', '新的']);
+  });
+});
+
+describe('云同步:边改边同步、出错、换账号', () => {
+  const note = (text: string) => ({ key: 'k', kind: '史书', title: '大昌', text, createdAt: '2026-10-05T00:00:00Z', provider: 'mock', model: 'm' });
+  const isWorld = (req: Request, id: string, method: string) => req.method === method && new URL(req.url).pathname === `/v1/worlds/${id}`;
+
+  it('取回另一台设备改的那份时,用户在这边又改了:不覆盖,按两边都改过两份都留', async () => {
+    const a = new FakeStorage();
+    const b = new FakeStorage();
+    device(a);
+    const id = addWorld(7, '苍澜界');
+    await signIn();
+    device(b);
+    await signIn();
+    device(a);
+    tick();
+    saveStore.renameWorld(id, 'A 改的');
+    await syncNow();
+
+    device(b);
+    gate = (req) => {
+      if (!isWorld(req, id, 'GET')) return;
+      gate = null;
+      tick();
+      saveStore.renameWorld(id, 'B 改的');
+    };
+    await syncNow();
+    await syncNow();
+    expect(titles()).toEqual(['A 改的（另一台设备）', 'B 改的']);
+  });
+
+  it('存上去的工夫把这个世界删了:下一轮照样告诉服务器删掉,不会再取回来', async () => {
+    const a = new FakeStorage();
+    device(a);
+    addWorld(99, '北境编年');
+    await signIn();
+    tick();
+    const id = addWorld(7, '苍澜界');
+    gate = (req) => {
+      if (!isWorld(req, id, 'PUT')) return;
+      gate = null;
+      saveStore.deleteWorld(id);
+    };
+    await syncNow();
+    await syncNow();
+    expect(fake.users.get('writer@example.com')!.worlds.get(id)!.deletedAt).not.toBeNull();
+    expect(titles()).toEqual(['北境编年']);
+    device(a);
+    await syncNow();
+    expect(titles()).toEqual(['北境编年']);
+  });
+
+  it('两边都改过、另存好另一份后自己这份没存上(断网):另存的撤掉,不会每试一次多一份', async () => {
+    const a = new FakeStorage();
+    const b = new FakeStorage();
+    device(a);
+    const id = addWorld(7, '苍澜界');
+    await signIn();
+    device(b);
+    await signIn();
+    device(a);
+    tick();
+    saveStore.renameWorld(id, 'A 改的');
+    await syncNow();
+    device(b);
+    tick();
+    saveStore.renameWorld(id, 'B 改的');
+
+    gate = (req) => {
+      if (req.method === 'PUT') throw new TypeError('Failed to fetch');
+    };
+    expect((await syncNow()).phase).toBe('offline');
+    expect(titles()).toEqual(['B 改的']);
+    expect((await syncNow()).phase).toBe('offline');
+    expect(titles()).toEqual(['B 改的']);
+    gate = null;
+    await syncNow();
+    expect(titles()).toEqual(['A 改的（另一台设备）', 'B 改的']);
+  });
+
+  it('AI 写的东西太多、存不进账号:算没同步上,退出登录不让选"删掉";两边都改过时也不会每次多出一份', async () => {
+    const a = new FakeStorage();
+    const b = new FakeStorage();
+    device(a);
+    const id = addWorld(7, '苍澜界');
+    await signIn();
+    device(b);
+    await signIn();
+    device(a);
+    tick();
+    saveStore.renameWorld(id, 'A 改的');
+    await syncNow();
+
+    device(b);
+    tick();
+    saveStore.renameWorld(id, 'B 改的');
+    putNote(id, note('长'.repeat(1_000_001)));
+    tick();
+    const big = addWorld(99, '北境编年');
+    putNote(big, note('长'.repeat(1_000_001)));
+    let v = await syncNow();
+    expect([...v.failed.keys()].sort()).toEqual([big, id].sort());
+    expect(v.failed.get(big)).toContain('太多');
+    expect(titles()).toEqual(['B 改的', '北境编年']);
+    v = await syncNow();
+    expect(v.failed.size).toBe(2);
+    expect(titles()).toEqual(['B 改的', '北境编年']);
+    expect(fake.users.get('writer@example.com')!.worlds.has(big)).toBe(false);
+
+    const r = await signOut(false);
+    expect(r.ok).toBe(false);
+    expect(getSession()).not.toBeNull();
+    expect(titles()).toEqual(['B 改的', '北境编年']);
+  });
+
+  it('两台设备改得一模一样,只是服务器存取时键的先后变了:不算两边都改过', async () => {
+    const a = new FakeStorage();
+    const b = new FakeStorage();
+    device(a);
+    const id = addWorld(7, '苍澜界');
+    await signIn();
+    device(b);
+    await signIn();
+
+    // 同一时刻改成同一个名字
+    tick();
+    device(a);
+    saveStore.renameWorld(id, '同一个名字');
+    await syncNow();
+    const flip = (v: unknown): unknown =>
+      v && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).reverse().map(([k, x]) => [k, flip(x)])) : v;
+    const w = fake.users.get('writer@example.com')!.worlds.get(id)!;
+    w.save = flip(w.save);
+    device(b);
+    saveStore.renameWorld(id, '同一个名字');
+    await syncNow();
+    expect(titles()).toEqual(['同一个名字']);
+  });
+
+  it('换个账号登录再换回来:没登录时删掉的世界,换回原来的账号照样跟着删', async () => {
+    device(new FakeStorage());
+    const id1 = addWorld(7, '苍澜界');
+    addWorld(99, '北境编年');
+    await signIn();
+    await signOut(true);
+    saveStore.deleteWorld(id1);
+    await signIn('other@example.com');
+    expect(fake.users.get('other@example.com')!.worlds.size).toBe(1);
+    await signOut(true);
+    await signIn();
+    expect(fake.users.get('writer@example.com')!.worlds.get(id1)!.deletedAt).not.toBeNull();
+    expect(titles()).toEqual(['北境编年']);
+  });
+
+  it('退出后换了账号:旧账号晚回来的"登录过期"不把新登录踢掉', async () => {
+    device(new FakeStorage());
+    await signIn();
+    let release!: () => void;
+    const held = new Promise<void>((r) => (release = r));
+    gate = async (req) => {
+      if (new URL(req.url).pathname !== '/v1/shares') return;
+      gate = null;
+      await held;
+    };
+    const late = listShares().catch((e: unknown) => e);
+    await signOut(true);
+    await signIn('other@example.com');
+    release();
+    expect(await late).toMatchObject({ code: 'auth', status: 401 });
+    expect(getSession()?.user.account).toBe('other@example.com');
   });
 });
 

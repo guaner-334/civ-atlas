@@ -61,9 +61,9 @@ const DEFAULT_MSG: Record<string, string> = {
 const codeOf = (status: number) =>
   status === 401 ? 'auth' : status === 404 ? 'not-found' : status === 409 ? 'conflict' : status === 429 ? 'rate-limit' : status === 503 ? 'unavailable' : status >= 500 ? 'server' : 'bad-request';
 
-/** 401(令牌过期 / 作废)时调:清掉本地令牌(session.ts 登记) */
-let onAuthLost: (() => void) | null = null;
-export function setAuthLostHandler(f: (() => void) | null): void {
+/** 401(令牌过期 / 作废)时调,带上这次请求用的令牌:清掉本地令牌(session.ts 登记) */
+let onAuthLost: ((token: string) => void) | null = null;
+export function setAuthLostHandler(f: ((token: string) => void) | null): void {
   onAuthLost = f;
 }
 
@@ -103,7 +103,7 @@ export async function call<T>(path: string, init: CallInit = {}): Promise<T> {
     const e = (j && typeof j === 'object' ? j.error : null) ?? {};
     const code = typeof e.code === 'string' && e.code ? e.code : codeOf(res.status);
     const message = typeof e.message === 'string' && e.message ? e.message.slice(0, 200) : (DEFAULT_MSG[code] ?? `服务器出错了(HTTP ${res.status})，稍后再试`);
-    if ((res.status === 401 || code === 'auth') && init.token) onAuthLost?.();
+    if ((res.status === 401 || code === 'auth') && init.token) onAuthLost?.(init.token);
     const { code: _c, message: _m, ...data } = e as Record<string, unknown>;
     throw new ServerError(res.status, code, message, data);
   }

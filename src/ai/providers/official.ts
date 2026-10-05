@@ -130,14 +130,17 @@ interface ErrorBody {
   need?: number;
 }
 
-function toAiError(status: number, e: ErrorBody | undefined): AiError {
+/** usedToken = 这次请求带的令牌(没带、或者已经在 call() 里处理过的不传) */
+function toAiError(status: number, e: ErrorBody | undefined, usedToken?: string): AiError {
   const code = e?.code ?? '';
   const msg = e?.message ? scrubSecrets(String(e.message)).slice(0, 200) : '';
   if (typeof e?.balance === 'number') setAcct({ credits: e.balance });
   if (status === 401 || code === 'auth') {
-    // 令牌过期:清掉,请用户重新登录
-    if (token()) sessionExpired();
-    setAcct({}, true);
+    // 令牌过期:清掉,请用户重新登录。只认这次请求用的令牌:退出后换了账号,旧账号的请求晚回来的 401 不算
+    if (usedToken === undefined || usedToken === token()) {
+      if (usedToken) sessionExpired(usedToken);
+      setAcct({}, true);
+    }
     return new AiError('auth', msg || '登录过期了,请在"AI"设置里重新登录');
   }
   if (status === 402 || code === 'quota') {
@@ -157,10 +160,11 @@ async function api<T>(path: string, init: { method?: string; body?: unknown; aut
   if (!base) throw new AiError('not-configured', '我们的 AI 还在内测,暂未开放');
   const headers: Record<string, string> = { Accept: 'application/json' };
   if (init.body !== undefined) headers['Content-Type'] = 'application/json';
+  let used: string | undefined;
   if (init.auth) {
-    const t = token();
-    if (!t) throw new AiError('not-configured', '还没登录我们的 AI');
-    headers.Authorization = `Bearer ${t}`;
+    used = token();
+    if (!used) throw new AiError('not-configured', '还没登录我们的 AI');
+    headers.Authorization = `Bearer ${used}`;
   }
   let res: Response;
   try {
@@ -180,7 +184,7 @@ async function api<T>(path: string, init: { method?: string; body?: unknown; aut
   } catch {
     /* 不是 JSON */
   }
-  if (!res.ok) throw toAiError(res.status, j?.error);
+  if (!res.ok) throw toAiError(res.status, j?.error, used);
   if (res.status !== 204 && (j === null || typeof j !== 'object')) throw new AiError('bad-response', '我们的服务器返回的内容看不懂');
   return j as T;
 }
@@ -314,7 +318,7 @@ export const officialProvider: AiProvider = {
         } catch {
           /* 不是 JSON */
         }
-        throw toAiError(res.status, j?.error);
+        throw toAiError(res.status, j?.error, t);
       }
       let text = '';
       let done: { model?: string; usage?: AiUsage; charged?: number; balance?: number } | null = null;
@@ -333,7 +337,7 @@ export const officialProvider: AiProvider = {
             done = j ?? {};
             break;
           } else if (ev.event === 'error') {
-            throw toAiError(j?.code === 'quota' ? 402 : j?.code === 'auth' ? 401 : 500, j);
+            throw toAiError(j?.code === 'quota' ? 402 : j?.code === 'auth' ? 401 : 500, j, t);
           }
         }
       } catch (e) {
