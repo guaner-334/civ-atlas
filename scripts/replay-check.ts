@@ -7,6 +7,7 @@
  */
 import { chromium, type Page } from 'playwright';
 import { startDevServer } from './lib/devserver';
+import { GENERATOR_VERSION } from '../src/gen/edits';
 const dev = await startDevServer();
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1400, height: 820 } });
@@ -1357,6 +1358,33 @@ for (const style of ['realistic', 'fantasy']) {
   }
   await ctxA.close();
   await ctxB.close();
+}
+
+// 没改过的世界:复制出来的普通链接、地址栏都带生成器版本(gen=);打开旧版本时的普通链接,提示条说清变了什么;版本一样不提示
+{
+  const ctx = await browser.newContext({ viewport: { width: 1400, height: 820 }, permissions: ['clipboard-read', 'clipboard-write'] });
+  const p = await ctx.newPage();
+  p.on('pageerror', (e) => errs.push(`版本号:${e.message}`));
+  const ready = () => p.waitForFunction(() => (window as any).__wf?.ready, null, { timeout: 60000 });
+  await p.goto(`${dev.url}/?seed=7`);
+  await ready();
+  const bar = new URLSearchParams(await p.evaluate(() => location.search)).get('gen');
+  await p.click('.save-btn');
+  await p.click('[data-act=share-link]');
+  const plain = await p.waitForFunction(() => (window as any).__wfShare, null, { timeout: 10000 }).then((h) => h.jsonValue() as Promise<{ url: string; withData: boolean }>, () => null);
+  const linkGen = plain ? new URL(plain.url).searchParams.get('gen') : null;
+  await p.goto(`${dev.url}/?seed=7&gen=6`);
+  await ready();
+  const oldNote = await toastText(p, 'save', 8000);
+  await p.goto(`${dev.url}/?seed=7&gen=${GENERATOR_VERSION}`);
+  await ready();
+  const sameNote = await toastText(p, 'save', 1500);
+  console.log(`版本号:地址栏 gen=${bar},普通链接 gen=${linkGen}(带修改 ${plain?.withData});旧版本链接提示「${oldNote}」;同版本「${sameNote}」`);
+  if (bar !== String(GENERATOR_VERSION)) errs.push(`版本号:地址栏没带 gen=${GENERATOR_VERSION}(${bar})`);
+  if (!plain || plain.withData || linkGen !== String(GENERATOR_VERSION)) errs.push(`版本号:没改过的世界复制的链接没带 gen=${GENERATOR_VERSION}(${plain?.url})`);
+  if (!oldNote.startsWith('已打开「种子 7」') || !oldNote.includes('来自旧版本：')) errs.push(`版本号:打开旧版本的普通链接,提示不对(${oldNote})`);
+  if (sameNote) errs.push(`版本号:同版本的链接不该有提示(${sameNote})`);
+  await ctx.close();
 }
 
 // 各种状态(统一走顶部提示条,不另开窗口):首次打开世界出来之前只有同色底 + "正在生成世界"的进度(四角先藏着);

@@ -10,7 +10,8 @@
  * ⌘S 打开这个菜单(openSaveMenu;世界本来就自动存着,菜单上写着存没存好)。
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { SHARE_WARN_LENGTH, editCount, encodeShare, hasShareData, saveFileName, saveText, type SaveFile } from '../gen/savefile';
+import { GEN_KEY, SHARE_WARN_LENGTH, editCount, encodeShare, hasShareData, saveFileName, saveText, type SaveFile } from '../gen/savefile';
+import { GENERATOR_VERSION } from '../gen/edits';
 import { useEdits } from './editsStore';
 import { addFileSaver, currentSave, currentWorld, loadWorld, notify, persistent, storageIsFull, useSavesVersion } from './saveStore';
 import { Icon } from './icons';
@@ -108,11 +109,12 @@ function Thumb({ src }: { src: string | null }) {
   return src ? <img className="save-thumb" src={src} alt="" draggable={false} /> : <div className="save-thumb empty" />;
 }
 
-/** 分享链接的网址部分:种子、参数、图层……照当前网址;去掉只在这个浏览器里有意义的世界编号 */
+/** 分享链接的网址部分:种子、参数、图层……照当前网址,带上生成器版本;去掉只在这个浏览器里有意义的世界编号 */
 function shareBase(): string {
   const q = new URLSearchParams(location.search);
   q.delete('w');
   q.delete('new');
+  q.set(GEN_KEY, String(GENERATOR_VERSION));
   const s = q.toString();
   return location.origin + location.pathname + (s ? `?${s}` : '');
 }
