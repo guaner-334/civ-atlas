@@ -1,5 +1,5 @@
 /**
- * 详情面板的公共零件:国家(CountryPanel)、城(CityPanel)、地理实体(PlacePanel)、州(RegionPanel)四种面板共用,
+ * 详情面板的公共零件:国家(CountryPanel)、城(CityPanel)、地理实体(PlacePanel)、州(RegionPanel)、信仰(FaithPanel)几种面板共用,
  * 保证它们看起来是同一套东西(样式都在 countryPanel.css)。
  *
  *   PanelHead    顶部:颜色块、名字、一行关键信息("国家，1446 年立国")、右上角圆形的关闭
@@ -351,7 +351,7 @@ export function EntryText({ civ, e, self = -1 }: { civ?: Civ; e: Pick<ChronicleE
 }
 
 /**
- * 大事:upTo = 到当前年份为止的(按年份排好),显示最近 5 条(新的在上)。
+ * 大事:upTo = 到当前年份为止的(按年份排好),显示最近 limit 条(默认 5 条,新的在上)。
  * more = 标题右边的"全部 N 件"(不给 = 只写条数);empty = 一条都没有时写的一行(不给 = 整块不显示);
  * civ = 正文里的人名变成蓝字(不给 = 纯文字);title = 标题(默认"大事");limit = 最多列几条;self = 人物卡片里他自己(名字不变蓝)
  */
