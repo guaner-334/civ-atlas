@@ -4,7 +4,8 @@
  *
  * - 记着每个世界上次同步到的版本号(rev)和那时内容的指纹(sum);指纹变了 = 这台设备上改过
  *   (存在 localStorage 'civ-atlas:sync',跟着账号:换了账号从头来,这台设备上的世界都存进新账号;
- *   原来那个账号的记录另外收着,换回来接着用,没告诉服务器的删除不会丢)
+ *   原来那个账号的记录另外收着,换回来接着用,没告诉服务器的删除不会丢;
+ *   几个标签页共用这一份,写回去时只换上自己改过的那几条)
  * - 内容指纹按键名排好序算(键的先后不同不算改过);同步途中用户又改了、删了的,按现在的样子对,不覆盖
  * - 什么时候同步:登录后、打开网页时、回到这个页面 / 联网时、每分钟一次(都是"全看一遍");
  *   改了以后 2 秒(只把改过的存上去,不看服务器那边)
@@ -69,27 +70,84 @@ interface SyncState {
 }
 
 const KEY = 'civ-atlas:sync';
+/** 换了账号时,原来那个账号的记录另外收在 STASH + 账号编号 */
+const STASH = 'civ-atlas:sync:';
 let memState: SyncState | null = null;
 
-function readState(): SyncState | null {
+/** 浏览器里存着的记录(key 默认是现在这份;undefined = 浏览器存储用不了) */
+function storedState(key = KEY): SyncState | null | undefined {
   try {
-    const raw = typeof localStorage === 'undefined' ? null : localStorage.getItem(KEY);
-    if (raw) {
-      const v = JSON.parse(raw) as SyncState;
-      if (v && typeof v.user === 'string' && v.worlds && typeof v.worlds === 'object' && v.deletes && typeof v.deletes === 'object') return v;
-    }
+    if (typeof localStorage === 'undefined') return undefined;
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const v = JSON.parse(raw) as SyncState;
+    return v && typeof v.user === 'string' && v.worlds && typeof v.worlds === 'object' && v.deletes && typeof v.deletes === 'object' ? v : null;
   } catch {
-    /* 隐私模式 / 坏数据 */
+    return undefined;
   }
-  return memState;
+}
+
+/**
+ * 一份记录从浏览器里读出来(或上次写进去)时的样子。同一个网站开着几个标签页时,它们共用浏览器里的记录,
+ * 各自同步、各自记删除:写回去时只换上这边改过的那几条,别的照浏览器里现在的(别的标签页刚记下的删除不会被盖掉)
+ */
+const bases = new WeakMap<SyncState, SyncState>();
+const copyState = (st: SyncState): SyncState => ({ user: st.user, worlds: { ...st.worlds }, deletes: { ...st.deletes } });
+const sameKnown = (a: Known | undefined, b: Known | undefined) => a === b || (!!a && !!b && a.rev === b.rev && a.sum === b.sum && a.at === b.at);
+
+/** 三方合:这边没动过的(ours 和 base 一样)换成浏览器里现在的(theirs) */
+function mergeInto<T>(ours: Record<string, T>, base: Record<string, T>, theirs: Record<string, T>, same: (a: T | undefined, b: T | undefined) => boolean) {
+  for (const id of new Set([...Object.keys(base), ...Object.keys(theirs)])) {
+    if (!same(ours[id], base[id])) continue;
+    if (id in theirs) ours[id] = theirs[id];
+    else delete ours[id];
+  }
+}
+
+function readState(): SyncState | null {
+  const v = storedState();
+  if (v === undefined) return memState;
+  if (!v) {
+    // 写进去过、现在没了:别的标签页清掉了(退出时删了这台设备上的世界、注销了账号)
+    if (memState && bases.has(memState)) memState = null;
+    return memState;
+  }
+  bases.set(v, copyState(v));
+  return v;
 }
 
 function writeState(st: SyncState | null) {
-  memState = st;
+  if (!st) {
+    memState = null;
+    try {
+      if (typeof localStorage !== 'undefined') localStorage.removeItem(KEY);
+    } catch {
+      /* 隐私模式 */
+    }
+    return;
+  }
+  const base = bases.get(st);
+  let key = KEY;
+  let now = storedState();
+  if (base && now && now.user !== st.user) {
+    // 别的标签页换了账号,这个账号的记录它另外收着了:写进收着的那份
+    key = STASH + st.user;
+    now = storedState(key);
+  }
+  if (base && now === null) {
+    // 别的标签页把记录清掉了:不写回去
+    if (key === KEY) memState = null;
+    return;
+  }
+  if (base && now) {
+    mergeInto(st.worlds, base.worlds, now.worlds, sameKnown);
+    mergeInto(st.deletes, base.deletes, now.deletes, (a, b) => a === b);
+  }
+  if (key === KEY) memState = st;
   try {
     if (typeof localStorage === 'undefined') return;
-    if (st) localStorage.setItem(KEY, JSON.stringify(st));
-    else localStorage.removeItem(KEY);
+    localStorage.setItem(key, JSON.stringify(st));
+    bases.set(st, copyState(st));
   } catch {
     /* 存不下:只在内存里 */
   }
@@ -519,8 +577,7 @@ async function reconcile(st: SyncState, id: string, s: CloudEntry | null, depth 
   await fork(st, id, l, remote);
 }
 
-/** 换了账号:原来那个账号的同步记录另外收着(里面可能有还没告诉服务器的删除),换回来时接着用 */
-const STASH = 'civ-atlas:sync:';
+/** 换了账号:原来那个账号的同步记录另外收着(STASH + 账号编号;里面可能有还没告诉服务器的删除),换回来时接着用 */
 function stash(st: SyncState) {
   try {
     if (typeof localStorage !== 'undefined') localStorage.setItem(STASH + st.user, JSON.stringify(st));

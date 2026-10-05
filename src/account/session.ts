@@ -273,12 +273,18 @@ export async function logout(): Promise<void> {
   if (serverBase()) await call('/v1/auth/logout', { method: 'POST', token: had.token }).catch(() => {});
 }
 
-/** 注销账号(先用 sendCode 给自己的邮箱发验证码);成功后本地也算退出 */
-export async function deleteAccount(code: string): Promise<void> {
+/**
+ * 注销账号(先用 sendCode 给自己的邮箱发验证码);成功后本地也算退出。
+ * 返回注销完时登着的还是不是这个账号(等服务器回话的工夫别的标签页退出、换了账号:不动新登录的,返回 false)
+ */
+export async function deleteAccount(code: string): Promise<boolean> {
   const s = load();
   if (!s) throw new ServerError(401, 'auth', '还没登录');
   await call('/v1/account/delete', { method: 'POST', body: { code: code.trim() }, token: s.token });
+  refreshSession();
+  if (load()?.token !== s.token) return false;
   write(null);
+  return true;
 }
 
 /** 带令牌调一个接口(没登录:抛 auth) */

@@ -25,7 +25,7 @@ import { isStored, keepWorld, listWorlds, loadWorld, notify, useSavesVersion } f
 import { closeAiSettings, openAiSettings } from './AiSettings';
 import { refreshOfficialAccount, useOfficialAccount } from '../ai/providers/official';
 import { ServerError } from '../account/server';
-import { deleteAccount, displayName, fetchAuthOptions, login, pendingInvite, sendCode, useSession, type AuthOptions } from '../account/session';
+import { deleteAccount, displayName, fetchAuthOptions, getSession, login, pendingInvite, sendCode, useSession, type AuthOptions } from '../account/session';
 import { accountDeleted, pushNow, signOut, useSyncView } from '../account/sync';
 import { createShare, listShares, listTrash, shortLink, stopShare, type ShareInfo, type TrashEntry } from '../account/cloud';
 import './account.css';
@@ -37,6 +37,11 @@ type Panel = { kind: 'login' } | { kind: 'account' } | { kind: 'logout' } | { ki
 
 let panel: Panel | null = null;
 let trash = false;
+/** 账号窗、分享窗、最近删除是替哪一次登录(令牌)开的:别的标签页退出、换了账号,开着的就是原来那个账号的了,关掉 */
+let openedFor: string | null = null;
+const forNow = () => {
+  openedFor = getSession()?.token ?? null;
+};
 let version = 0;
 const subs = new Set<() => void>();
 function emit() {
@@ -58,10 +63,12 @@ export function openLogin(): void {
 }
 export function openAccount(): void {
   panel = { kind: 'account' };
+  forNow();
   emit();
 }
 export function openShareDialog(worldId: string, title: string): void {
   panel = { kind: 'share', worldId, title };
+  forNow();
   emit();
 }
 export function closeAccountPanel(): void {
@@ -85,6 +92,7 @@ export function setGoHome(f: (() => void) | null): void {
 export function openTrash(): void {
   panel = null;
   trash = true;
+  forNow();
   emit();
   closeAiSettings();
   goHome?.();
@@ -94,21 +102,24 @@ export function closeTrash(): void {
   trash = false;
   emit();
 }
-/** React:「我的世界」那一页是不是在看最近删除 */
+/** React:「我的世界」那一页是不是在看最近删除(只算替现在登着的这次登录开的) */
 export function useTrashView(): boolean {
-  return useUi().trash;
+  const { trash: t } = useUi();
+  const s = useSession();
+  return t && !!s && s.token === openedFor;
 }
 
 /** 窗口:App 里挂一次 */
 export function AccountHost({ phone }: { phone: boolean }) {
-  const { panel: p } = useUi();
+  const { panel: p, trash: t } = useUi();
   const s = useSession();
-  // 退出了(别的页面里退的、令牌过期):只留登录窗
+  // 退出了、换了账号(别的标签页里、令牌过期):开着的账号窗、分享窗、最近删除都是原来那个账号的,关掉;只留登录窗
+  const stale = !s || s.token !== openedFor;
   useEffect(() => {
-    if (p && p.kind !== 'login' && !s) closeAccountPanel();
+    if (p && p.kind !== 'login' && stale) closeAccountPanel();
     if (p?.kind === 'login' && s) closeAccountPanel();
-    if (!s) closeTrash();
-  }, [p, s]);
+    if (t && stale) closeTrash();
+  }, [p, s, t, stale]);
   if (!p) return null;
   const close = closeAccountPanel;
   const back = () => {
@@ -116,7 +127,7 @@ export function AccountHost({ phone }: { phone: boolean }) {
     emit();
   };
   if (p.kind === 'login') return <LoginDialog phone={phone} onClose={close} />;
-  if (!s) return null;
+  if (stale) return null;
   if (p.kind === 'account') return <AccountDialog phone={phone} onClose={close} />;
   if (p.kind === 'logout') return <LogoutDialog phone={phone} onClose={close} onBack={back} />;
   if (p.kind === 'delete') return <DeleteDialog phone={phone} onClose={close} onBack={back} />;
@@ -693,9 +704,11 @@ function DeleteDialog({ phone, onClose, onBack }: { phone: boolean; onClose: () 
     setBusy('delete');
     setErr('');
     try {
-      await deleteAccount(code);
-      accountDeleted();
-      onClose();
+      // 等回话的工夫别的标签页换了账号:这个窗已经关了,新登录的那个账号的同步不动
+      if (await deleteAccount(code)) {
+        accountDeleted();
+        onClose();
+      }
       notify({ kind: 'ok', text: '账号已注销', more: ['这台设备上的世界还在'] });
     } catch (e) {
       setErr(errText(e));

@@ -13,7 +13,7 @@ import { setStage } from '../src/ui/stageStore';
 import { _resetToasts, getToast } from '../src/ui/toastStore';
 import { forgetNotes, listNotes, putNote } from '../src/ai/library';
 import { setServerForTest } from '../src/account/server';
-import { _resetSessionForTest, fetchAuthOptions, getSession, login, refreshSession, sendCode } from '../src/account/session';
+import { _resetSessionForTest, deleteAccount, fetchAuthOptions, getSession, login, refreshSession, sendCode } from '../src/account/session';
 import { _resetSyncForTest, getSyncView, inAccount, pullWorld, signOut, startSync, syncNow, worldSync } from '../src/account/sync';
 import { createShare, listShares, openShareCode, stopShare } from '../src/account/cloud';
 
@@ -855,6 +855,117 @@ describe('云同步:退出、换账号、别的标签页', () => {
     expect(getSession()?.user.account).toBe('other@example.com');
     const v = await syncNow();
     expect(v.phase).toBe('idle');
+  });
+});
+
+describe('云同步:同一个网站开着几个标签页', () => {
+  const isWorld = (req: Request, id: string, method: string) => req.method === method && new URL(req.url).pathname === `/v1/worlds/${id}`;
+  const note = (text: string) => ({ key: 'k', kind: '史书', title: '大昌', text, createdAt: '2026-10-05T00:00:00Z', provider: 'mock', model: 'm' });
+
+  it('别的标签页刚写的 AI 笔记(这里还没收到通知)也同步上去,不用这里内存里的旧的', async () => {
+    const a = new FakeStorage();
+    device(a);
+    const id = addWorld(7, '苍澜界');
+    await signIn();
+    expect(listNotes(id)).toEqual([]);
+    a.map.set(`civ-atlas:ai-notes:${id}`, JSON.stringify([note('别的标签页写的')]));
+    expect(listNotes(id).map((n) => n.text)).toEqual(['别的标签页写的']);
+    await syncNow();
+    expect((fake.users.get('writer@example.com')!.worlds.get(id)!.notes as { text: string }[]).map((n) => n.text)).toEqual(['别的标签页写的']);
+  });
+
+  it('这里同步的工夫别的标签页删了一个世界:它记下的删除不被这里写回去的记录盖掉', async () => {
+    const a = new FakeStorage();
+    device(a);
+    const x = addWorld(7, '苍澜界');
+    const y = addWorld(99, '北境编年');
+    await signIn();
+    putNote(x, note('刚写完'));
+    gate = (req) => {
+      if (!isWorld(req, x, 'PUT')) return;
+      gate = null;
+      // 别的标签页删了 y:世界从浏览器里删掉,同步记录里记下"要告诉服务器删掉"
+      a.map.delete(`wenming-ditu:world:${y}`);
+      const st = JSON.parse(a.map.get('civ-atlas:sync')!) as { worlds: Record<string, { rev: number }>; deletes: Record<string, number> };
+      st.deletes[y] = st.worlds[y].rev;
+      delete st.worlds[y];
+      a.map.set('civ-atlas:sync', JSON.stringify(st));
+    };
+    await syncNow();
+    const st = JSON.parse(a.map.get('civ-atlas:sync')!) as { worlds: Record<string, unknown>; deletes: Record<string, number> };
+    expect(st.deletes[y]).toBeDefined();
+    expect(st.worlds[y]).toBeUndefined();
+    expect(st.worlds[x]).toBeDefined();
+    await syncNow();
+    expect(fake.users.get('writer@example.com')!.worlds.get(y)!.deletedAt).not.toBeNull();
+  });
+
+  it('这里同步的工夫别的标签页退出、删掉了这台设备上的世界:同步记录不被写回来', async () => {
+    const a = new FakeStorage();
+    device(a);
+    const x = addWorld(7, '苍澜界');
+    await signIn();
+    putNote(x, note('刚写完'));
+    gate = (req) => {
+      if (!isWorld(req, x, 'PUT')) return;
+      gate = null;
+      a.map.delete('civ-atlas:sync');
+    };
+    await syncNow();
+    expect(a.map.has('civ-atlas:sync')).toBe(false);
+  });
+
+  it('这里同步的工夫别的标签页换了账号:这里的同步记录写进原来那个账号收着的那份,不盖掉新账号的', async () => {
+    const a = new FakeStorage();
+    device(a);
+    const x = addWorld(7, '苍澜界');
+    await signIn();
+    const me = getSession()!.user.id;
+    const rev = (JSON.parse(a.map.get('civ-atlas:sync')!) as { worlds: Record<string, { rev: number }> }).worlds[x].rev;
+    putNote(x, note('刚写完'));
+    const theirs = JSON.stringify({ user: 'someone-else', worlds: {}, deletes: { gone: 3 } });
+    gate = (req) => {
+      if (!isWorld(req, x, 'PUT')) return;
+      gate = null;
+      // 别的标签页换了账号:原来这个账号的记录另外收着,现在这份是新账号的
+      a.map.set(`civ-atlas:sync:${me}`, a.map.get('civ-atlas:sync')!);
+      a.map.set('civ-atlas:sync', theirs);
+    };
+    await syncNow();
+    expect(a.map.get('civ-atlas:sync')).toBe(theirs);
+    const mine = JSON.parse(a.map.get(`civ-atlas:sync:${me}`)!) as { user: string; worlds: Record<string, { rev: number }> };
+    expect(mine.user).toBe(me);
+    expect(mine.worlds[x].rev).toBeGreaterThan(rev);
+  });
+
+  it('注销账号等回话的工夫,别的标签页换成了另一个账号:不把新登录的那个也退出', async () => {
+    const a = new FakeStorage();
+    device(a);
+    await signIn();
+    const writer = a.map.get('civ-atlas:account')!;
+    await login('other@example.com', FAKE_CODE, FAKE_INVITE);
+    const other = a.map.get('civ-atlas:account')!;
+    a.map.set('civ-atlas:account', writer);
+    refreshSession();
+    await sendCode('writer@example.com');
+    gate = (req) => {
+      if (new URL(req.url).pathname !== '/v1/account/delete') return;
+      gate = null;
+      // 别的标签页换成了 other(这里还没收到通知)
+      a.map.set('civ-atlas:account', other);
+    };
+    expect(await deleteAccount(FAKE_CODE)).toBe(false);
+    expect(fake.users.has('writer@example.com')).toBe(false);
+    expect(getSession()?.user.account).toBe('other@example.com');
+    expect(a.map.get('civ-atlas:account')).toBe(other);
+  });
+
+  it('注销账号:登着的还是这个账号就退出', async () => {
+    device(new FakeStorage());
+    await signIn();
+    await sendCode('writer@example.com');
+    expect(await deleteAccount(FAKE_CODE)).toBe(true);
+    expect(getSession()).toBeNull();
   });
 });
 

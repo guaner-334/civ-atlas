@@ -1,6 +1,7 @@
 /**
  * AI 写出来的东西(史书、释名……)按世界存在本地浏览器里(阶段 5)。登录了网站账号的,跟着世界同步进账号(account/sync.ts)。
  * 世界 = saveStore 的世界编号(每个世界一个);浏览器存储不可用(隐私模式)时只在内存里。
+ * 内存里有一份,每次用之前和浏览器里的原文对一下(同一个网站开了几个标签页,别的标签页可能改过)。
  * 只是看看的世界(打开的种子、分享链接)存进一条:这个世界跟着存进"我的世界",刷新以后还找得到。
  *
  * 各功能用自己的 kind 区分("史书""释名"……),key 由功能自己定(比如 "史书:polity:c4567#0" 或 "释名:settlement:c123#0")。
@@ -24,6 +25,8 @@ export interface AiNote {
 
 const PREFIX = 'civ-atlas:ai-notes:';
 const mem = new Map<string, AiNote[]>();
+/** 内存里那份对应的浏览器原文(别的标签页改了,原文就对不上了,重读) */
+const seen = new Map<string, string | null>();
 const subs = new Set<() => void>();
 let version = 0;
 const emit = () => {
@@ -31,20 +34,30 @@ const emit = () => {
   for (const f of subs) f();
 };
 
+/** 浏览器里存着的原文;undefined = 浏览器存储用不了(隐私模式) */
+function stored(world: string): string | null | undefined {
+  try {
+    return localStorage.getItem(PREFIX + world);
+  } catch {
+    return undefined;
+  }
+}
+
 function read(world: string): AiNote[] {
+  const raw = stored(world);
   const m = mem.get(world);
-  if (m) return m;
+  if (m && (raw === undefined || seen.get(world) === raw)) return m;
   let list: AiNote[] = [];
   try {
-    const raw = localStorage.getItem(PREFIX + world);
     if (raw) {
       const v = JSON.parse(raw);
       if (Array.isArray(v)) list = v.filter((x) => x && typeof x.key === 'string' && typeof x.text === 'string');
     }
   } catch {
-    /* 隐私模式 / 坏数据:当作没有 */
+    /* 坏数据:当作没有 */
   }
   mem.set(world, list);
+  seen.set(world, raw ?? null);
   return list;
 }
 
@@ -53,14 +66,24 @@ function write(world: string, list: AiNote[]): boolean {
   mem.set(world, list);
   let ok = true;
   try {
-    if (list.length) localStorage.setItem(PREFIX + world, JSON.stringify(list));
+    const raw = list.length ? JSON.stringify(list) : null;
+    if (raw) localStorage.setItem(PREFIX + world, raw);
     else localStorage.removeItem(PREFIX + world);
+    seen.set(world, raw);
   } catch {
-    /* 存不下 / 隐私模式:只留在内存里 */
+    /* 存不下 / 隐私模式:只留在内存里(浏览器里还是原来那份,别的标签页没改它就一直用内存里的) */
     ok = !persistent();
+    seen.set(world, stored(world) ?? null);
   }
   emit();
   return ok;
+}
+
+// 别的标签页写了、删了笔记:这里跟着重画(重读时按原文对上没有)
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (e) => {
+    if (e.key === null || e.key.startsWith(PREFIX)) emit();
+  });
 }
 
 export function listNotes(world: string, kind?: string): AiNote[] {
@@ -88,16 +111,14 @@ export function copyNotes(from: string, to: string): boolean {
   const list = read(from);
   if (!list.length) return true;
   mem.set(to, list.slice());
+  seen.set(to, stored(to) ?? null);
   emit();
-  let stored = false;
+  // 原来那份在浏览器里没有(隐私模式、存不下只在内存里):复制的这份也只放内存里
+  if (!stored(from)) return true;
   try {
-    stored = localStorage.getItem(PREFIX + from) !== null;
-  } catch {
-    /* 隐私模式:原来那份也只在内存里 */
-  }
-  if (!stored) return true;
-  try {
-    localStorage.setItem(PREFIX + to, JSON.stringify(list));
+    const raw = JSON.stringify(list);
+    localStorage.setItem(PREFIX + to, raw);
+    seen.set(to, raw);
     return true;
   } catch {
     return false;
@@ -126,8 +147,13 @@ export function replaceNotes(world: string, list: AiNote[] | null): boolean {
 
 /** 世界删掉了:内存里的也忘掉(浏览器里的由 saveStore 删) */
 export function forgetNotes(world?: string): void {
-  if (world === undefined) mem.clear();
-  else mem.delete(world);
+  if (world === undefined) {
+    mem.clear();
+    seen.clear();
+  } else {
+    mem.delete(world);
+    seen.delete(world);
+  }
   emit();
 }
 
