@@ -795,9 +795,16 @@ async function pushForShare(worldId: string, token: string | undefined): Promise
 
 function ShareDialog({ phone, worldId, title, onClose }: { phone: boolean; worldId: string; title: string; onClose: () => void }) {
   const [st, setSt] = useState<ShareState>({ phase: 'prep' });
+  /** 正在开 / 停分享 */
   const [busy, setBusy] = useState(false);
+  /** 同一件事,给不等重新渲染就要看的地方(刚离开署名框就点了开关) */
+  const busyRef = useRef(false);
+  /** 正在存署名 */
+  const [savingBy, setSavingBy] = useState(false);
   const [copied, setCopied] = useState(false);
   const [manual, setManual] = useState(false);
+  /** 刚改的署名存好了,但系统的分享面板没让打开(等存的时候"刚点过"过期了):请再点一次 */
+  const [again, setAgain] = useState(false);
   /** 署名输入框里的字(链接开着时按链接上的填好) */
   const [by, setBy] = useState('');
   useEffect(() => {
@@ -839,10 +846,13 @@ function ShareDialog({ phone, worldId, title, onClose }: { phone: boolean; world
   const on = !!live || st.phase === 'prep';
   const url = live ? shortLink(live.code) : '';
   const toggle = async () => {
-    if (busy || st.phase === 'prep') return;
+    if (busyRef.current || st.phase === 'prep') return;
     const token = getSession()?.token;
+    busyRef.current = true;
     setBusy(true);
     try {
+      // 刚离开署名框就点了开关:署名那次先存完再停 / 开(两个请求一起发的话,后回来的会把开关改回去)
+      if (pendingBy.current) await pendingBy.current;
       if (live) {
         sameLogin(token);
         await stopShare(worldId);
@@ -861,6 +871,7 @@ function ShareDialog({ phone, worldId, title, onClose }: { phone: boolean; world
       // 停没停成:链接照旧算开着(服务器出错时确实还开着;断网时不知道,按开着说)
       setSt({ phase: 'error', message: errText(e), share: live });
     } finally {
+      busyRef.current = false;
       setBusy(false);
     }
   };
@@ -875,9 +886,9 @@ function ShareDialog({ phone, worldId, title, onClose }: { phone: boolean; world
       setBy(next);
       return Promise.resolve(true);
     }
-    if (busy) return Promise.resolve(false);
+    if (busyRef.current) return Promise.resolve(false);
     const token = getSession()?.token;
-    setBusy(true);
+    setSavingBy(true);
     const p = (async () => {
       try {
         sameLogin(token);
@@ -893,7 +904,7 @@ function ShareDialog({ phone, worldId, title, onClose }: { phone: boolean; world
         setBy(live.by ?? '');
         return false;
       } finally {
-        setBusy(false);
+        setSavingBy(false);
         pendingBy.current = null;
       }
     })();
@@ -916,8 +927,16 @@ function ShareDialog({ phone, worldId, title, onClose }: { phone: boolean; world
     (window as unknown as { __wfShortShare?: { url: string; copied: boolean } }).__wfShortShare = { url, copied: ok };
   };
   const sendTo = async () => {
-    if (!url || !(await saveBy())) return;
-    await navigator.share({ title: `「${name}」`, url }).catch(() => {});
+    if (!url) return;
+    setAgain(false);
+    // 署名没改:马上打开系统的分享面板(要在点按钮的那一下里打开)
+    const dirty = !!pendingBy.current || cleanSignature(by) !== (live?.by ?? '');
+    if (dirty && !(await saveBy())) return;
+    const act = (navigator as Navigator & { userActivation?: { isActive: boolean } }).userActivation;
+    if (dirty && act && !act.isActive) return setAgain(true);
+    await navigator.share({ title: `「${name}」`, url }).catch((e: unknown) => {
+      if (dirty && e instanceof DOMException && e.name === 'NotAllowedError') setAgain(true);
+    });
   };
   const canSend = phone && typeof navigator !== 'undefined' && typeof navigator.share === 'function';
   const urlBox = (
@@ -965,7 +984,7 @@ function ShareDialog({ phone, worldId, title, onClose }: { phone: boolean; world
               value={by}
               // 只防太长;按看到的字截到 20 个由 cleanSignature 做(maxLength 按 UTF-16 算,一个组合表情就占好几个)
               maxLength={SIGNATURE_UNITS}
-              disabled={!live || busy}
+              disabled={!live || busy || savingBy}
               onChange={(e) => setBy(e.target.value)}
               onBlur={() => void saveBy()}
               onKeyDown={(e) => {
@@ -1003,6 +1022,7 @@ function ShareDialog({ phone, worldId, title, onClose }: { phone: boolean; world
             没能自动复制，请手动复制：{url}
           </p>
         )}
+        {again && <p className="acct-small">署名存好了，再点一次「发给…」</p>}
         {st.phase === 'error' && <p className="acct-err">{st.message}</p>}
         <ul className="acct-notes">
           <li>

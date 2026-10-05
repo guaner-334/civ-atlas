@@ -62,6 +62,8 @@ const CORS = {
 const WORLD_ID = /^w[0-9a-z]{6,24}$/;
 const iso = (t: number) => new Date(t).toISOString();
 const normInvite = (v: unknown) => (typeof v === 'string' ? v.toUpperCase().replace(/[\s-]/g, '') : '');
+/** 看到的几个字(一个组合表情算一个) */
+const seen = (s: string) => [...new Intl.Segmenter('zh', { granularity: 'grapheme' }).segment(s)].length;
 const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
 
 const json = (status: number, body: unknown) =>
@@ -278,9 +280,9 @@ export function createFakeAiServer(opts: FakeAiOptions = {}) {
       if (one[2]) {
         const active = [...shares].find(([, sh]) => sh.user === u && sh.worldId === id && !sh.stopped);
         if (req.method === 'POST') {
-          // 署名:带了就改(空 = 不署名),不带 = 不动;最多 20 个字
+          // 署名:带了就改(空 = 不署名),不带 = 不动;最多 20 个字(按看到的字算,一个组合表情算一个),总长不超过 320
           const raw = (await body(req))?.by;
-          if (raw !== undefined && (typeof raw !== 'string' || [...raw.trim()].length > 20)) return fail(400, 'bad-request', '署名最多 20 个字');
+          if (raw !== undefined && (typeof raw !== 'string' || raw.length > 320 || seen(raw.trim()) > 20)) return fail(400, 'bad-request', '署名最多 20 个字');
           const by = typeof raw === 'string' ? raw.trim() : undefined;
           if (!w || w.deletedAt !== null) return fail(404, 'not-found', '账号里还没有这个世界,等同步好了再分享');
           const out = (code: string, sh: Share) => json(200, { code, worldId: id, createdAt: iso(sh.createdAt), opens: sh.opens, ...(sh.by ? { by: sh.by } : {}) });

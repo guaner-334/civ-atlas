@@ -16,7 +16,7 @@
  * 存:「我的世界」里的全部世界;正在看的那个没能存进浏览器(存储满了)的,用页面里的那份,一次都没存进去的也放进去。
  * 一个文件放不下(MAX_LEN)的,先不带 AI 写的东西,还放不下再不带缩略图(存出来的文件总能放回来);都不带还放不下就不存。
  * 放回来:逐个放进「我的世界」(都是新编号;建好的先放,没建完的后放,好把底稿编号换成新的)。
- * 已经有一模一样的(参数、修改、名字、底稿出处都相同;没建完的和建好的分开算,没建完的还要底稿相同)不重复放,
+ * 已经有一模一样的(参数、修改、名字、底稿出处、生成器版本、地形哈希都相同;没建完的和建好的分开算,没建完的还要底稿相同)不重复放,
  * 那边缺的投影、AI 写的东西、缩略图、现存几国、底稿补上,
  * 上次没能写进浏览器(存储满了)的 AI 写的东西再写一次;
  * 放满了(MAX_WORLDS)、浏览器存不下就停,不为它删别的世界。登录了的,放回来的世界照常同步进账号。
@@ -227,6 +227,9 @@ function fillFrom(id: string, w: BundleWorld, base: DraftBase | undefined): { fi
   return { filled, notesOk };
 }
 
+/** 同一个世界:存档一样(sameSave),生成器版本、地形哈希也一样(版本不同的同样参数可能是两个不同的世界) */
+const sameWorld = (a: SaveFile, b: SaveFile) => sameSave(a, b) && a.generator === b.generator && a.check === b.check;
+
 /** 放回「我的世界」(见文件头) */
 export function importBundle(b: Bundle): ImportResult {
   const have = listWorlds().map((w) => ({ id: w.id, save: w.save, draft: w.draft, base: w.base }));
@@ -242,7 +245,7 @@ export function importBundle(b: Bundle): ImportResult {
     const old = w.meta.base;
     const base = old && ids.has(old.id) ? { ...old, id: ids.get(old.id)! } : old;
     // 没建完的还要底稿一样才算同一个(有一边不知道底稿的不算不一样,这边缺的用文件里的补上)
-    const dup = have.find((h) => h.draft === draft && sameSave(h.save, w.save) && (!draft || !h.base || !base || h.base.id === base.id));
+    const dup = have.find((h) => h.draft === draft && sameWorld(h.save, w.save) && (!draft || !h.base || !base || h.base.id === base.id));
     if (dup) {
       if (w.id) ids.set(w.id, dup.id);
       res.same++;

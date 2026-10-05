@@ -1468,6 +1468,11 @@ describe('分享短链接', () => {
     await signIn();
     expect((await createShare(id, '')).by).toBeUndefined();
     expect((await openShareCode(s1.code)).by).toBeUndefined();
+
+    // 组合表情一个算一个字:20 个 👩‍💻 也收
+    const coder = '👩\u200d💻'.repeat(20);
+    expect((await createShare(id, coder)).by).toBe(coder);
+    expect((await openShareCode(s1.code)).by).toBe(coder);
   });
 });
 

@@ -1499,6 +1499,22 @@ describe('全部存成文件(bundle)', () => {
     expect(bundleText(at, 100)).toMatchObject({ text: '', count: 3, tooBig: true });
   });
 
+  it('参数、名字、修改都一样,生成器版本或地形哈希不同:可能是两个不同的世界,都放回来', () => {
+    const save = makeSave({ ...DEFAULT_PARAMS, seed: 5 }, EDITS, 'c5', '同名');
+    const r = importBundle({
+      worlds: [
+        { save, meta: {}, thumb: null, notes: [] },
+        { save: { ...save, generator: save.generator - 1 }, meta: {}, thumb: null, notes: [] },
+        { save: { ...save, check: 'other' }, meta: {}, thumb: null, notes: [] },
+      ],
+      bad: 0,
+    });
+    expect(r).toMatchObject({ same: 0, left: 0 });
+    expect(r.added).toHaveLength(3);
+    // 同一个文件再放一次:都不重复
+    expect(importBundle({ worlds: [{ save, meta: {}, thumb: null, notes: [] }, { save: { ...save, check: 'other' }, meta: {}, thumb: null, notes: [] }], bad: 0 })).toMatchObject({ same: 2, added: [] });
+  });
+
   it('最近打开过(比最后一次修改晚):放回来以后卡片上的时间和排序一样', () => {
     const a = saveStore.importSave(makeSave({ ...DEFAULT_PARAMS, seed: 7 }, EDITS, 'check7', '苍澜界'))!;
     tick();
