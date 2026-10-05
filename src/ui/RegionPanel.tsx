@@ -20,7 +20,7 @@ import { SETTLEMENT_RANKS, capitalAt, polityAlive, polityName, populationAt, pop
 import { ownersAt } from '../gen/civ/timeline';
 import { faithAt } from '../gen/civ/religion';
 import { cleanName, cultureKey, polityKey, regionKey, type Intervention } from '../gen/edits';
-import { addIntervention, useEdits } from './editsStore';
+import { addIntervention, editBlock, interventionKeys, useEdits } from './editsStore';
 import { habitatScore, habitatWord } from './civDescribe';
 import { MineList, getPolityPick, nameAt, regionOrders, setPolityPick } from './Interventions';
 import { NameEdit } from './NameEdit';
@@ -269,6 +269,8 @@ function RegionOrder({ civ, id, year, page, back }: { civ: Civ; id: number; year
         ? '该年没有别的国家'
         : null;
   const add = (v: Intervention): string | null => {
+    const blocked = editBlock(interventionKeys(v));
+    if (blocked) return blocked;
     if (!addIntervention(v)) return '这条干预已经下过了';
     back();
     return null;
