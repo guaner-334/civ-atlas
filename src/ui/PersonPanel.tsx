@@ -14,7 +14,7 @@ import type { Civ, Person } from '../gen/civ/types';
 import { polityName } from '../gen/civ/growth';
 import { buildChronicle, filterChronicle, reignEntries, type ChronicleEntry } from '../gen/civ/chronicle';
 import { commandFoes, peopleIndex, personFame, personSpan, rulerNeighbors, type Foe } from '../gen/civ/peopleInfo';
-import { KIN_BACK, generalRole, isConsul, kinOf, personName, rulerFateWord, rulerRole } from '../gen/civ/peopleText';
+import { KIN_BACK, ageAt, generalRole, isConsul, kinOf, personName, rulerFateWord, rulerRole } from '../gen/civ/peopleText';
 import { openOverview } from './overviewStore';
 import { Act, Acts, EventList, Link, PanelHead, Row, Stats, SubLine, copyText, jumpTo, rgb, type DetailProps } from './panelParts';
 
@@ -159,7 +159,8 @@ function personLines(civ: Civ, x: Person): Line[] {
   const pn = polityName(p, span.from);
   out.push({ k: '国家', node: <Link to={{ kind: 'polity', id: p.id }}>{pn}</Link>, text: pn });
   if (x.died !== undefined) {
-    const age = F(x.died) - F(x.born);
+    // 享年按实际活了多久算(和编年史的"时年"一样),不是两个年份相减
+    const age = ageAt(x, x.died);
     out.push({
       k: '生卒',
       node: (

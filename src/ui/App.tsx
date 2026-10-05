@@ -157,7 +157,7 @@ import { TargetLayer } from './TargetPlates';
 import { FLY_MS, curvedFly, easeOutCubic, flatFly, personKey, resolvePersonKey, selectionFocus, selectionKey, sideRoom, phoneFree, type FlyGoal } from './flyTo';
 import { collapseSide, expandSide, getSide, setSideHold, useSide } from './sideStore';
 import { getPanel, setWorldSheet, usePanel } from './panelStore';
-import { closeOverview } from './overviewStore';
+import { closeOverview, getPeople, setPeople } from './overviewStore';
 import { NewWorld } from './NewWorld';
 import { MyWorlds } from './MyWorlds';
 import { useCoarse, useNarrow } from './device';
@@ -664,7 +664,7 @@ export function App() {
     return () => setTrialRunner(null);
   }, [send]);
 
-  /** 历史换了一份(重推完、在地图上看试推演 / 回到现在):选中的东西、编年史的国家筛选按稳定键换成新历史里的编号(指不到就取消) */
+  /** 历史换了一份(重推完、在地图上看试推演 / 回到现在):选中的东西、编年史和人物页的国家筛选按稳定键换成新历史里的编号(指不到就取消) */
   const remapSelection = (old: Civ, civ: Civ) => {
     const { sel } = getSelection();
     if (sel) {
@@ -691,6 +691,11 @@ export function App() {
     if (cp !== null) {
       const r = old.polities[cp] ? resolveKey(civ, polityKey(old, cp)) : null;
       setChronicle({ polity: r && r.kind === 'polity' ? r.id : null });
+    }
+    const pp = getPeople().polity;
+    if (pp !== null) {
+      const r = old.polities[pp] ? resolveKey(civ, polityKey(old, pp)) : null;
+      setPeople({ polity: r && r.kind === 'polity' ? r.id : null });
     }
   };
   /**
@@ -802,6 +807,7 @@ export function App() {
       setPolityPick(null);
       clearEdits();
       clearSelection();
+      if (getPeople().polity !== null) setPeople({ polity: null });
       // 正在进行 / 已算好的回放都属于旧世界,一起作废
       setReplay(null);
       setReplayOn(false);
@@ -853,13 +859,14 @@ export function App() {
     regenNote.current = takeRewriteNote(getEdits());
     setTerrainStatus((s) => ({ ...s, busy: true }));
     setProgress({ stage: '准备', pct: 0, regen: true });
-    // 回放、选中、编年史的国家筛选都属于旧地形上的历史
+    // 回放、选中、编年史和人物页的国家筛选都属于旧地形上的历史
     setReplay(null);
     setReplayOn(false);
     clearSelection();
     setPolityPick(null);
     clearChroniclePick();
     if (getChronicle().polity !== null) setChronicle({ polity: null });
+    if (getPeople().polity !== null) setPeople({ polity: null });
     send({ type: 'generate', id, params: genParams.current, scale: 1, terrain: [...t], interventions: [...interventions] });
   }, [edits.terrain, data, send]);
 
