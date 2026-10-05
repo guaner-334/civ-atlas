@@ -312,6 +312,25 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
   await page.evaluate(() => localStorage.clear());
 }
 
+// 早年一个国家都没有:侧栏"国家"下说一句为什么、第一个国家哪年立国,不显示"全部 0 国";点"跳到 N 年"时间轴跳过去,列表里有了它
+{
+  await page.goto(`${dev.url}/?seed=7&style=fantasy&civYear=600`);
+  await page.waitForFunction(() => (window as any).__wfCiv?.ready, null, { timeout: 60000 });
+  await page.waitForTimeout(300);
+  const empty = await page.locator('.sidebar .sb-no-polity').innerText({ timeout: 3000 }).then((t) => t.replace(/\n/g, ' '), () => '');
+  const allLink = await page.locator('.sidebar [data-act=all-countries]').count();
+  // 刚打开时地图头几帧很忙,点击要等按钮"稳定",多给点时间
+  await page.locator('.sidebar [data-act=first-polity]').click({ timeout: 15000 }).catch(() => {});
+  await page.waitForTimeout(400);
+  const yearNow = await page.locator('.timebar .tb-year').innerText().catch(() => '');
+  const rowsNow = await page.locator('.sidebar .sb-home .sb-row.two').count();
+  const gone = (await page.locator('.sidebar .sb-no-polity').count()) === 0;
+  console.log(`早年没有国家:第 600 年「${empty}」,"全部 N 国"${allLink ? '还在' : '不显示'};点跳转 → ${yearNow},国家 ${rowsNow} 个,说明收起 ${gone}`);
+  const m = empty.match(/在 \d+ 年立国.*跳到 (\d+) 年/);
+  if (!m || allLink) errs.push(`第 600 年一个国家都没有时侧栏没有说明 / 还显示"全部 0 国"(「${empty}」)`);
+  else if (yearNow !== `第 ${m[1]} 年` || rowsNow < 1 || !gone) errs.push(`点"跳到 ${m[1]} 年"没跳到第一个国家立国(${yearNow},国家 ${rowsNow} 个)`);
+}
+
 // 键盘快捷键(电脑上):← → 走 10 年(Shift 100 年)、空格播放 / 暂停(用鼠标点过播放键以后按空格只算一下)、+ − 缩放、1–4 换图层、
 // / 跳进搜索框(在框里打数字不换图层)、? 打开一览(开着时空格不播放,Esc 收起)、Ctrl+S 打开存档菜单(拦下浏览器的"存储网页")、
 // 改名后 Ctrl+Z 撤销、Ctrl+Shift+Z 重做;Ctrl+\ 收起 / 展开左边的卡片(收起着按 / 先展开);按钮的提示框右边写着键;"更多"菜单里有"键盘快捷键"
@@ -1334,6 +1353,33 @@ for (const style of ['realistic', 'fantasy']) {
   console.log(`改版前的网址刷新:网址里的世界编号 ${back.w},存档的键 ${back.keys.join()},改名 ${backNames}`);
   if (!back.w || back.keys.length !== 1 || backNames !== '九嶷州,饕餮城')
     errs.push(`改版前的网址刷新没有回到原来的存档(w=${back.w},键 ${back.keys.join()},改名 ${backNames})`);
+  // "我的世界"里删除:点一下就删(不再问第二次),提示条上点"撤销"放回来
+  await page.goto(`${dev.url}/?style=fantasy&civ=polities`);
+  await page.locator('.mw [data-act=open-world]').first().waitFor({ timeout: 10000 }).catch(() => {});
+  const cardCount = () => page.locator('.mw [data-act=open-world]').count();
+  const cardsBefore = await cardCount();
+  await page.locator('.mw [data-act=world-menu]').first().click().catch(() => {});
+  await page.locator('[data-act=world-delete]').click({ timeout: 3000 }).catch(() => {});
+  await page.waitForTimeout(200);
+  const cardsGone = await cardCount();
+  const delNote = await toastText(page, 'save');
+  await page.locator('[data-act=world-undelete]').click({ timeout: 3000 }).catch(() => {});
+  await page.waitForTimeout(200);
+  const cardsBack = await cardCount();
+  const keptKeys = await page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('wenming-ditu:world:')).length);
+  console.log(`我的世界里删除:${cardsBefore} 个 → 删后 ${cardsGone} 个(提示「${delNote}」)→ 撤销后 ${cardsBack} 个,存档 ${keptKeys} 个`);
+  if (cardsBefore !== 1 || cardsGone !== 0 || !/已删除.*撤销/.test(delNote) || cardsBack !== 1 || keptKeys !== 1)
+    errs.push(`"我的世界"里点一下删除、再点撤销不对(${cardsBefore} → ${cardsGone} → ${cardsBack},存档 ${keptKeys} 个,提示「${delNote}」)`);
+  // 删的是最后一个:停在"我的世界"(提示条上还能撤销);提示收起了也不自动新建,留在空的首页等用户点「新建世界」
+  await page.locator('.mw [data-act=world-menu]').first().click().catch(() => {});
+  await page.locator('[data-act=world-delete]').click({ timeout: 3000 }).catch(() => {});
+  await page.waitForTimeout(1500);
+  const waitHome = (await page.locator('.mw').count()) > 0 && /撤销/.test(await toastText(page, 'save'));
+  await page.waitForFunction(() => !document.querySelector('[data-act=world-undelete]'), null, { timeout: 20000 }).catch(() => null);
+  await page.waitForTimeout(500);
+  const emptyHome = (await page.locator('.mw-empty [data-act=new-world]').count()) > 0 && !(await page.locator('.studio').count());
+  console.log(`删掉最后一个世界:提示条在的时候停在我的世界 ${waitHome},提示收起后是空的首页 ${emptyHome}`);
+  if (!waitHome || !emptyHome) errs.push(`删掉最后一个世界:应停在"我的世界"(提示条上能撤销),提示收起后是空的首页、不自动新建(停住 ${waitHome},空首页 ${emptyHome})`);
   await page.evaluate(() => localStorage.clear());
 }
 // 世界换成球面以前(生成器版本 4 及以前)的存档文件、分享链接:照常打开成同一个种子的球面世界,提示"来自旧版本",
@@ -1734,7 +1780,7 @@ for (const style of ['realistic', 'fantasy']) {
     orders = await page.locator('.timebar .tb-order').count();
     // 已生效的提示(带撤销)
     ivToast = await toastText(page, 'resim-done');
-    await page.click('.timebar button.tb-play'); // 暂停,下面重新点开这个国家读面板(下了令面板就收起了)
+    await page.click('.timebar button.tb-play'); // 暂停,下面在地图上重新点开这个国家读面板
     const again = await reopen();
     // 还活着:没有"结局"一行,小字是"N 年立国"
     aliveAfter = again ? (again.includes('结局') ? `还是亡了(${again.replace(/\n/g, ' ').slice(0, 80)})` : '至今还在') : '';
@@ -1799,7 +1845,8 @@ for (const style of ['realistic', 'fantasy']) {
 
 // 国家面板:点国家 → 暂停、地图飞过去(疆域在面板左边)、国都圆环;信息页(三格数字、朝代条、疆域、邻国、相关事件、2×2 按钮)
 // → 干预历史 → 干预页(生效年份、六条命令)→ 宣战:只有相邻国家浮出名牌 → Esc 回到干预页 → 结盟:地图压暗、提示条"选择与…结盟的国家"、
-// 悬停名牌反色、悬停国土"点击选择" → 点名牌 → 面板收起、"…结盟,已从 N 年起重新推演"带撤销、从 N 年接着放 → 撤销 →"已撤销"
+// 悬停名牌反色、悬停国土"点击选择" → 点名牌 → 推演时面板藏起,推完面板还在(回到信息页)、地图飞回这国、"…结盟,已从 N 年起重新推演"带撤销、
+// 从 N 年接着放 → 撤销 →"已撤销"
 {
   type Plate = { kind: string; id: number; text: string; note: string; x: number; y: number; on: boolean; self: boolean };
   type Pick = { kind: string; id: number; text: string; x: number; y: number };
@@ -1829,6 +1876,9 @@ for (const style of ['realistic', 'fantasy']) {
   let hoverVerdict = '';
   let doneToast = '';
   let panelAfter = -1;
+  let infoAfter = false;
+  let kPick = NaN;
+  let kAfter = NaN;
   let tlAfter = '';
   let playingAfter = false;
   let undoToast = '';
@@ -1861,6 +1911,7 @@ for (const style of ['realistic', 'fantasy']) {
     await page.waitForTimeout(900);
     dim = await page.locator('.tp-dim').count();
     allyPlates = await plates();
+    kPick = await page.evaluate(() => (window as any).__wfView.k);
     pickToast = await toastText(page, 'pick');
     hiddenWhilePicking = (await insHidden(page));
     const tgt = allyPlates.filter((p) => !p.self).sort((a, b) => Math.abs(a.x - vp.width / 2) - Math.abs(b.x - vp.width / 2))[0];
@@ -1881,9 +1932,15 @@ for (const style of ['realistic', 'fantasy']) {
       await page.waitForFunction((s) => ((window as any).__wfResim?.seq ?? 0) > s, prev, { timeout: 20000 }).catch(() => null);
       await page.waitForTimeout(300);
       doneToast = await toastText(page, 'resim-done');
-      panelAfter = await page.locator('.inspector').count();
+      // 提示条 7 秒就收,后面要点它的"撤销":先记下时间轴、停下播放(放着的时候每一步都慢),再看面板和地图
       tlAfter = await page.locator('.timebar .tb-year').innerText().catch(() => '');
       playingAfter = (await page.locator('.timebar .tb-play.on').count()) > 0;
+      if (playingAfter) await page.click('.timebar .tb-play').catch(() => {});
+      panelAfter = await page.locator('.inspector:not(.hidden)').count();
+      infoAfter = await page.locator('.inspector .cp[data-tab=info]').isVisible().catch(() => false);
+      // 选对象时地图缩回了整张图:推完飞回这个国家
+      await page.waitForFunction((k0) => (window as any).__wfView.k > k0 + 0.01, kPick, { timeout: 3000 }).catch(() => null);
+      kAfter = await page.evaluate(() => (window as any).__wfView.k);
       // 撤销
       const prev2 = await page.evaluate(() => (window as any).__wfResim?.seq ?? 0);
       await page.click('.toast[data-toast=resim-done] .toast-act').catch(() => {});
@@ -1897,7 +1954,7 @@ for (const style of ['realistic', 'fantasy']) {
     `国家面板:点「${pol?.text}」→ 飞过去 ${flown};国都圆环 ${mark};面板「${info.slice(0, 160)}…」;` +
       `干预页 ${cmds} 条命令、「${cmdText}」;宣战名牌 ${warNames.join('、') || '—'}(邻国 ${near.join('、') || '—'});Esc 回到干预页 ${backToCmd};` +
       `结盟:压暗 ${dim}、名牌 ${allyPlates.length} 个、提示条「${pickToast}」、面板藏起 ${hiddenWhilePicking}、悬停「${hoverVerdict}」、名牌反色 ${plateOn};` +
-      `点名牌 →「${doneToast}」,面板 ${panelAfter} 个,时间轴 ${tlAfter}${playingAfter ? '(在放)' : '(停着)'};撤销 →「${undoToast}」`,
+      `点名牌 →「${doneToast}」,面板 ${panelAfter} 个${infoAfter ? '(信息页)' : ''},地图 k ${kPick.toFixed(2)} → ${kAfter.toFixed(2)},时间轴 ${tlAfter}${playingAfter ? '(在放)' : '(停着)'};撤销 →「${undoToast}」`,
   );
   if (!pol) errs.push('国家面板:没找到能点的国家');
   else {
@@ -1914,7 +1971,8 @@ for (const style of ['realistic', 'fantasy']) {
     if (!/点击选择/.test(hoverVerdict)) errs.push(`国家面板:选目标时悬停可选的国家没有"点击选择"(${hoverVerdict})`);
     if (!plateOn) errs.push('国家面板:鼠标移到可选目标上名牌没有反色');
     if (!/^.+与.+结盟,已从 \d+ 年起重新推演( \d+ 年时它叫.+)? 撤销$/.test(doneToast)) errs.push(`国家面板:下令后没有"…结盟,已从 N 年起重新推演"带撤销(${doneToast})`);
-    if (panelAfter !== 0) errs.push('国家面板:下令后面板没有收起');
+    if (panelAfter !== 1 || !infoAfter) errs.push(`国家面板:下令推完面板应留着、回到信息页(面板 ${panelAfter} 个,信息页 ${infoAfter})`);
+    if (!(kAfter > kPick + 0.01)) errs.push(`国家面板:结盟推完地图没有飞回这个国家(k ${kPick.toFixed(2)} → ${kAfter.toFixed(2)})`);
     const ty = Number(tlAfter.match(/\d+/)?.[0] ?? NaN);
     if (!(ty >= Y - 1 && ty <= Y + 40) || !playingAfter) errs.push(`国家面板:下令后没有从生效年份接着放(${tlAfter}${playingAfter ? '' : ',没在放'})`);
     if (!/^已撤销/.test(undoToast)) errs.push(`国家面板:撤销后没有"已撤销"(${undoToast})`);
@@ -2798,6 +2856,23 @@ for (const style of ['realistic', 'fantasy']) {
     if (!renamed) errs.push('AI 起名:选中候选、确定后地图上的城名没有变');
     if (!stale.includes('写于改名前')) errs.push('AI 起名:改名后释名没有标"写于改名前"');
   }
+  // 国家"更多"里也能讲主体民族的族名由来(和州面板民族一行的同一套),写在面板最下面
+  let folkItem = '';
+  let folkNote = '';
+  const pol = ((await page.evaluate('window.__wfPickables()')) as Pick[]).find((q) => q.kind === 'polity');
+  if (pol) {
+    await page.keyboard.press('Escape');
+    await page.evaluate((id) => (window as any).__wfSelect('polity', id), pol.id);
+    await page.waitForTimeout(600);
+    await page.click('.inspector [data-act=more]');
+    folkItem = await page.locator('.pm-menu [data-act=culture-explain]').innerText({ timeout: 3000 }).catch(() => '');
+    await page.click('.pm-menu [data-act=culture-explain]', { timeout: 3000 }).catch(() => {});
+    await page.waitForSelector('.inspector .cp-ai .ain-note:not(.writing) .ain-text', { timeout: 10000 }).catch(() => null);
+    folkNote = (await page.locator('.inspector .cp-ai').last().innerText().catch(() => '')).replace(/\n/g, ' ');
+  }
+  console.log(`国家「${pol?.text}」的"更多"里「${folkItem.replace(/\n/g, ' ')}」→ 面板最下面「${folkNote.slice(0, 40)}…」`);
+  if (!/^让 AI 讲.+族的族名由来/.test(folkItem) || !folkNote.includes('族名由来') || !folkNote.includes('测试用假 AI'))
+    errs.push(`国家面板:"更多"里讲主体民族的族名由来不对(「${folkItem}」→「${folkNote.slice(0, 60)}」)`);
   await page.evaluate(() => localStorage.clear());
 }
 

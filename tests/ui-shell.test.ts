@@ -1,6 +1,6 @@
 /**
  * 界面骨架的纯逻辑:图层 ↔ (画风, 数据图层, 国家 / 民族开关) 的换算、网址里的图层、深浅主题;顶部提示条的 store;
- * 宽屏左边侧栏卡片的收起 / 展开。
+ * 宽屏左边侧栏卡片的收起 / 展开;地图飞回整张图时的进度。
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MAP_LAYERS, layerDark, layerDef, layerFromUrl, layerOf } from '../src/ui/mapLayers';
@@ -8,7 +8,7 @@ import { _resetToasts, clearToast, getToast, peekToast, showToast } from '../src
 import { closeOverview, getOverview, openOverview } from '../src/ui/overviewStore';
 import { clearSelection, getChronicle, getSelection, setChronicle, setSelection } from '../src/ui/civView';
 import { collapseSide, expandSide, getSide, setSideHold } from '../src/ui/sideStore';
-import { sideRoom } from '../src/ui/flyTo';
+import { FLY_MS, animProgress, easeOutCubic, flatFly, sideRoom } from '../src/ui/flyTo';
 
 describe('图层换算', () => {
   it('每个图层换成设置再换回来还是它自己', () => {
@@ -64,6 +64,14 @@ describe('顶部提示条', () => {
     clearToast('pick');
     clearToast('save');
     expect(getToast()?.id).toBe('terrain');
+  });
+  it('带"撤销"的已完成照常排最前:它几秒就收,压在警告下面就一眼都看不到', () => {
+    vi.useFakeTimers();
+    showToast({ id: 'storage', kind: 'warn', text: '没能自动存档:浏览器存储已满' });
+    showToast({ id: 'save', kind: 'ok', text: '已删除「苍澜界」', action: { label: '撤销', onClick: () => {} } });
+    expect(getToast()?.id).toBe('save');
+    vi.advanceTimersByTime(7100);
+    expect(getToast()?.id).toBe('storage');
   });
   it('两个按钮(二选一):按顺序排,只给 action 的老调用照旧', () => {
     const picked: string[] = [];
@@ -173,5 +181,21 @@ describe('侧栏收起', () => {
     expect(sideRoom(1440)).toBe(400);
     setSideHold(false);
     expect(sideRoom(1440)).toBe(14);
+  });
+});
+
+describe('地图飞过去的进度', () => {
+  it('帧时刻比起步还早(主线程刚忙过)按 0 算,超过时长按 1 算', () => {
+    expect(animProgress(1000 - 1800, 1000, FLY_MS)).toBe(0);
+    expect(animProgress(1000 + FLY_MS / 2, 1000, FLY_MS)).toBe(0.5);
+    expect(animProgress(1000 + 5 * FLY_MS, 1000, FLY_MS)).toBe(1);
+  });
+  it('从放大 3 倍飞回整张图:晚到的那一帧缩放还在 3 倍以内,不会冲到天文数字', () => {
+    const b = { sw: 1600, sh: 900, bw: 1800, bh: 900 };
+    const at = flatFly({ k: 3, x: -400, y: -1000 }, b, 2048, 1024, { focus: null, kind: 'home' });
+    expect(at).not.toBeNull();
+    const first = at!(easeOutCubic(animProgress(1000 - 1800, 1000, FLY_MS)));
+    expect(first.k).toBeCloseTo(3, 6);
+    expect(at!(easeOutCubic(animProgress(1000 + FLY_MS, 1000, FLY_MS))).k).toBeCloseTo(1, 6);
   });
 });
