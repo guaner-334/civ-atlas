@@ -1547,4 +1547,48 @@ describe('云同步:放满了、服务器不回话、分享前、别的标签页
     setServerForTest(BASE);
     expect(currentAccount()?.user.account).toBe('writer@example.com');
   });
+
+  it('正在看的世界没存进浏览器、同步时跟着别的设备删掉的世界腾出了地方:补存以后在这次同步里接着存进账号', async () => {
+    const a = new FakeStorage();
+    const b = new FakeStorage();
+    device(a);
+    const id = addWorld(7, '苍澜界');
+    const y = addWorld(99, '北境编年');
+    await signIn();
+    device(b);
+    await signIn();
+    saveStore.deleteWorld(y);
+    await syncNow();
+
+    // 浏览器满了:写不进去,为腾地方删旧世界也删不掉(这里拦着),等同步跟着那边删掉北境编年才腾出地方
+    let full = true;
+    const c = new (class extends FakeStorage {
+      removeItem(k: string) {
+        if (full && k.includes(y)) return;
+        super.removeItem(k);
+      }
+    })();
+    c.map = new Map(a.map);
+    device(c);
+    const w = saveStore.loadWorld(id)!;
+    setEdits(w.save.edits);
+    saveStore.attachWorld({ id, params: w.save.params, check: w.save.check, kind: 'created', title: w.save.title, saved: w.save.edits });
+    setStage('world');
+    const unsub = saveStore.startAutoSave();
+    try {
+      c.deny = (k) => full && k.startsWith('wenming-ditu:');
+      tick();
+      setName('polity:c4567#0', '青渊');
+      expect(saveStore.currentUnsaved()).toBe(true);
+      gate = (req) => {
+        if (req.method === 'GET' && new URL(req.url).pathname === '/v1/worlds') full = false;
+      };
+      await syncNow();
+      expect(titles()).toEqual(['苍澜界']);
+      expect(saveStore.currentUnsaved()).toBe(false);
+      expect(JSON.stringify(fake.users.get('writer@example.com')!.worlds.get(id)!.save)).toContain('青渊');
+    } finally {
+      unsub();
+    }
+  });
 });

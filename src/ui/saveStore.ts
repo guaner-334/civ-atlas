@@ -1097,7 +1097,8 @@ export function removeSyncedWorld(id: string) {
     current = null;
     stopThumb();
   }
-  retryUnsaved();
+  // 腾出了地方:当前世界没存进去的再存一次。放到这一步做完以后(同步这时不理睬"存了"的通知),存了就会再排一次同步把它传上去
+  queueMicrotask(retryUnsaved);
   changed();
 }
 
