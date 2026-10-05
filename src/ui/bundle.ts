@@ -14,12 +14,14 @@
  *
  * 存:「我的世界」里的全部世界;正在看的那个没能存进浏览器(存储满了)的,用页面里的那份,一次都没存进去的也放进去。
  * 放回来:逐个放进「我的世界」(都是新编号;建好的先放,没建完的后放,好把底稿编号换成新的)。
- * 已经有一模一样的(参数、修改、名字、底稿出处都相同;没建完的和建好的分开算)不重复放,那边缺的 AI 写的东西、缩略图、现存几国补上,
+ * 已经有一模一样的(参数、修改、名字、底稿出处都相同;没建完的和建好的分开算,没建完的还要底稿相同)不重复放,
+ * 那边缺的 AI 写的东西、缩略图、现存几国、底稿补上,
  * 上次没能写进浏览器(存储满了)的 AI 写的东西再写一次;
  * 放满了(MAX_WORLDS)、浏览器存不下就停,不为它删别的世界。登录了的,放回来的世界照常同步进账号。
  */
 import { SAVE_APP, fileBaseName, parseSave, type SaveFile } from '../gen/savefile';
 import { exportNotes, notesSaved, replaceNotes, type AiNote } from '../ai/library';
+import type { DraftBase } from './stageStore';
 import {
   MAX_WORLDS,
   cleanSyncMeta,
@@ -83,7 +85,12 @@ export function bundleText(at = new Date()): { text: string; count: number } | n
     return { id, save, meta, ...(thumb ? { thumb } : {}), ...(notes.length ? { notes } : {}) };
   };
   const list = listWorlds();
-  const worlds = list.map((w) => one(w.id, fresh && cur?.id === w.id ? { ...fresh, savedAt: at.toISOString() } : w.save, w, w.thumb));
+  const worlds = list.map((w) =>
+    fresh && cur?.id === w.id
+      ? // 卡片上的几样也按页面里的(比如刚点了「创建世界」,存档和"还在新建"都没能改写进浏览器)
+        one(w.id, { ...fresh, savedAt: at.toISOString() }, { draft: cur.kind === 'draft', alive: cur.alive ?? w.alive, base: cur.base }, w.thumb)
+      : one(w.id, w.save, w, w.thumb),
+  );
   // 正在看的这个一次都没能存进浏览器(存储满了):页面里这份是唯一的一份,也放进去
   if (cur && fresh && !list.some((w) => w.id === cur.id)) {
     worlds.unshift(one(cur.id, { ...fresh, savedAt: at.toISOString() }, { draft: cur.kind === 'draft', alive: cur.alive, base: cur.base }, null));
@@ -165,9 +172,9 @@ export interface ImportResult {
   notesLost: boolean;
 }
 
-/** 已经有的同一个世界:文件里有、这边缺的 AI 写的东西(按条)、缩略图、现存几国补上;返回补了没有、AI 写的东西存进去没有 */
-function fillFrom(id: string, w: BundleWorld): { filled: boolean; notesOk: boolean } {
-  let filled = fillMissing(id, { thumb: w.thumb, alive: w.meta.alive });
+/** 已经有的同一个世界:文件里有、这边缺的 AI 写的东西(按条)、缩略图、现存几国、底稿补上;返回补了没有、AI 写的东西存进去没有 */
+function fillFrom(id: string, w: BundleWorld, base: DraftBase | undefined): { filled: boolean; notesOk: boolean } {
+  let filled = fillMissing(id, { thumb: w.thumb, alive: w.meta.alive, base });
   let notesOk = true;
   const have = exportNotes(id);
   const keys = new Set(have.map((n) => n.key));
@@ -183,7 +190,7 @@ function fillFrom(id: string, w: BundleWorld): { filled: boolean; notesOk: boole
 
 /** 放回「我的世界」(见文件头) */
 export function importBundle(b: Bundle): ImportResult {
-  const have = listWorlds().map((w) => ({ id: w.id, save: w.save, draft: w.draft }));
+  const have = listWorlds().map((w) => ({ id: w.id, save: w.save, draft: w.draft, base: w.base }));
   let count = have.length;
   const res: ImportResult = { added: [], same: 0, filled: 0, left: 0, notesLost: false };
   /** 文件里的编号 → 现在的编号(放进来的、原来就有的) */
@@ -192,11 +199,15 @@ export function importBundle(b: Bundle): ImportResult {
   const order = [...b.worlds.filter((w) => !w.meta.draft), ...b.worlds.filter((w) => w.meta.draft)];
   for (const w of order) {
     const draft = !!w.meta.draft;
-    const dup = have.find((h) => h.draft === draft && sameSave(h.save, w.save));
+    // 没建完的记着的底稿:文件里的编号换成现在的
+    const old = w.meta.base;
+    const base = old && ids.has(old.id) ? { ...old, id: ids.get(old.id)! } : old;
+    // 没建完的还要底稿一样才算同一个(有一边不知道底稿的不算不一样,这边缺的用文件里的补上)
+    const dup = have.find((h) => h.draft === draft && sameSave(h.save, w.save) && (!draft || !h.base || !base || h.base.id === base.id));
     if (dup) {
       if (w.id) ids.set(w.id, dup.id);
       res.same++;
-      const f = fillFrom(dup.id, w);
+      const f = fillFrom(dup.id, w, draft && !dup.base ? base : undefined);
       if (f.filled) res.filled++;
       if (!f.notesOk) res.notesLost = true;
       continue;
@@ -211,8 +222,7 @@ export function importBundle(b: Bundle): ImportResult {
       continue;
     }
     const id = newWorldId();
-    const base = w.meta.base;
-    const meta: SyncMeta = base && ids.has(base.id) ? { ...w.meta, base: { ...base, id: ids.get(base.id)! } } : w.meta;
+    const meta: SyncMeta = base !== old ? { ...w.meta, base } : w.meta;
     if (!putSyncedWorld(id, { save: JSON.stringify(w.save), meta, thumb: w.thumb })) {
       res.why = 'storage';
       res.left++;
@@ -220,7 +230,7 @@ export function importBundle(b: Bundle): ImportResult {
     }
     if (w.id) ids.set(w.id, id);
     if (w.notes.length && !replaceNotes(id, w.notes)) res.notesLost = true;
-    have.push({ id, save: w.save, draft });
+    have.push({ id, save: w.save, draft, base: draft ? base : undefined });
     count++;
     res.added.push(id);
   }

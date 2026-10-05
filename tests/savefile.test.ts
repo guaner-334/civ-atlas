@@ -1369,6 +1369,48 @@ describe('全部存成文件(bundle)', () => {
     expect(JSON.parse(s.getItem(`civ-atlas:ai-notes:${na.id}`)!)).toEqual([NOTE]);
   });
 
+  it('没建完的世界:存档一样、底稿不一样的不算同一个;这边丢了底稿的,用文件里的补上', () => {
+    const kv = globalThis.localStorage as unknown as FakeStorage;
+    const a = saveStore.importSave(makeSave({ ...DEFAULT_PARAMS, seed: 7 }, EDITS, 'c7', '苍澜界'))!;
+    const b = saveStore.importSave(makeSave({ ...DEFAULT_PARAMS, seed: 9 }, EDITS, 'c9', '赤水纪'))!;
+    const save = makeSave({ ...DEFAULT_PARAMS, seed: 8 }, EMPTY_EDITS, 'c8', '续篇');
+    const baseA = { id: a, title: '苍澜界', names: 0, interventions: 0 };
+    const baseB = { id: b, title: '赤水纪', names: 0, interventions: 0 };
+    const draftOf = (base: typeof baseA) => ({ worlds: [{ save, meta: { draft: true, base }, thumb: null, notes: [] }], bad: 0 });
+    const d = importBundle(draftOf(baseA)).added[0];
+    expect(saveStore.listWorlds().find((w) => w.id === d)?.base).toEqual(baseA);
+    expect(importBundle(draftOf(baseB)).added).toHaveLength(1);
+    expect(importBundle(draftOf(baseA))).toMatchObject({ added: [], same: 1, filled: 0 });
+    kv.setItem(`wenming-ditu:meta:${d}`, JSON.stringify({ draft: true }));
+    expect(importBundle(draftOf(baseA))).toMatchObject({ added: [], same: 1, filled: 1 });
+    expect(saveStore.listWorlds().find((w) => w.id === d)?.base).toEqual(baseA);
+    expect(saveStore.listWorlds()).toHaveLength(4);
+  });
+
+  it('正在看的世界刚点了「创建世界」,存储满了没改写进浏览器:文件里按页面里的算(建好了,不再记底稿)', () => {
+    const a = saveStore.importSave(makeSave({ ...DEFAULT_PARAMS, seed: 7 }, EDITS, 'c7', '苍澜界'))!;
+    tick();
+    const d = saveStore.newWorldId();
+    saveStore.attachWorld({
+      id: d,
+      params: { ...DEFAULT_PARAMS, seed: 8 },
+      check: 'check8',
+      kind: 'draft',
+      title: '续篇',
+      saved: EMPTY_EDITS,
+      pristine: false,
+      base: { id: a, title: '苍澜界', names: 0, interventions: 0 },
+    });
+    expect(saveStore.listWorlds().find((w) => w.id === d)?.draft).toBe(true);
+    (globalThis.localStorage as unknown as FakeStorage).cap = 0;
+    expect(saveStore.markCreated()).toBe(false);
+    expect(saveStore.currentUnsaved()).toBe(true);
+    expect(saveStore.loadWorld(d)?.draft).toBe(true);
+    const w = JSON.parse(bundleText()!.text).worlds.find((x: { id: string }) => x.id === d);
+    expect(w.meta).toEqual({});
+    expect(w.save.title).toBe('续篇');
+  });
+
   it('没建完的和建好的分开算:同样的参数、名字,一个没建完一个建好的,不算同一个', () => {
     const save = makeSave({ ...DEFAULT_PARAMS, seed: 5 }, EMPTY_EDITS, 'c5', '同名');
     const r = importBundle({ worlds: [{ save, meta: { draft: true }, thumb: null, notes: [] }], bad: 0 });

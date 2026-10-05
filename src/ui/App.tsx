@@ -152,6 +152,7 @@ import {
   persistent,
   refreshThumb,
   renameWorld,
+  sameOrigin,
   setReopenHandler,
   setThumbMaker,
   setWorldStats,
@@ -1203,6 +1204,7 @@ export function App() {
       (cur.kind === 'draft') === w.draft &&
       worldKey(cur.params) === worldKey(w.save.params) &&
       (cur.title ?? '') === (w.save.title ?? '') &&
+      sameOrigin(cur.origin, w.save.origin) &&
       JSON.stringify(getEdits()) === JSON.stringify(w.save.edits);
     if (cur?.id === id && targetRef.current?.id === id && same) {
       markOpened(id);

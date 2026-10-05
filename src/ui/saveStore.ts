@@ -741,7 +741,8 @@ export function sameSave(a: SaveFile, b: SaveFile): boolean {
   return worldKey(a.params) === worldKey(b.params) && (a.title ?? '') === (b.title ?? '') && JSON.stringify(a.edits) === JSON.stringify(b.edits) && sameOrigin(a.origin, b.origin);
 }
 
-function sameOrigin(a: SaveFile['origin'], b: SaveFile['origin']): boolean {
+/** 两个底稿出处是不是一样(都没有也算) */
+export function sameOrigin(a: SaveFile['origin'], b: SaveFile['origin']): boolean {
   if (!a || !b) return !a && !b;
   return (a.by ?? '') === (b.by ?? '') && a.title === b.title && a.url === b.url;
 }
@@ -1155,16 +1156,19 @@ export function putSyncedWorld(id: string, w: RawWorld): boolean {
 }
 
 /**
- * 「全部存成文件」放回来时,已经有的同一个世界:缺缩略图、不知道现存几国的,用文件里的补上(存不下就算了,不为它删别的);
- * 返回补了没有
+ * 「全部存成文件」放回来时,已经有的同一个世界:缺缩略图、不知道现存几国、没建完的不知道底稿的,用文件里的补上
+ * (存不下就算了,不为它删别的);返回补了没有
  */
-export function fillMissing(id: string, w: { thumb: string | null; alive?: number }): boolean {
+export function fillMissing(id: string, w: { thumb: string | null; alive?: number; base?: DraftBase }): boolean {
   const kv = store();
   if (!kv.get(PREFIX + id)) return false;
   let done = false;
   if (w.thumb && !kv.get(THUMB + id) && kv.set(THUMB + id, w.thumb)) done = true;
   const m = readMeta(id);
-  if (w.alive !== undefined && m.alive === undefined && kv.set(META + id, JSON.stringify({ ...m, alive: w.alive }))) done = true;
+  const next: Meta = { ...m };
+  if (w.alive !== undefined && m.alive === undefined) next.alive = w.alive;
+  if (w.base && m.draft && !m.base) next.base = w.base;
+  if ((next.alive !== m.alive || next.base !== m.base) && kv.set(META + id, JSON.stringify(next))) done = true;
   if (done) changed();
   return done;
 }
