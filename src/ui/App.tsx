@@ -143,11 +143,11 @@ import {
 import { getStage, setStage, useStage, type DraftBase, type Stage } from './stageStore';
 import { polityAlive } from '../gen/civ/growth';
 import { CIV_SHOW_OFF, drawCivOverlay } from '../render/civ/overlay';
-import { getPolityPick, interventionText, setPickHover, setPolityPick, usePolityPick } from './Interventions';
+import { getPolityPick, interventionActorThen, interventionDoneText, setPickHover, setPolityPick, usePolityPick } from './Interventions';
 import { Inspector } from './Inspector';
 import { TargetLayer } from './TargetPlates';
 import { FLY_MS, curvedFly, easeOutCubic, flatFly, selectionFocus, selectionKey, sideRoom, phoneFree, type FlyGoal } from './flyTo';
-import { setWorldSheet, usePanel } from './panelStore';
+import { getPanel, setWorldSheet, usePanel } from './panelStore';
 import { closeOverview } from './overviewStore';
 import { NewWorld } from './NewWorld';
 import { MyWorlds } from './MyWorlds';
@@ -484,7 +484,7 @@ export function App() {
     t0: number;
     workerMs?: number;
     arrived?: number;
-    /** 这次重推是新加了一条干预 / 撤销了一条(推完在顶部提示"已从第 N 年重新推演""已撤销") */
+    /** 这次重推是新加了一条干预 / 撤销了一条(推完在顶部提示"…,已从 N 年起重新推演""已撤销") */
     added?: Intervention;
     removed?: Intervention;
     left?: number;
@@ -665,10 +665,15 @@ export function App() {
         const v = info.added;
         const named = applyNames(civ, getEdits().names);
         const idx = (civ.interventions ?? []).findIndex((x) => JSON.stringify(x) === JSON.stringify(v));
+        // 国家面板下的令:写面板标题上的名字(用户点的那个);那一年它叫别的名字,第二行补一句
+        const run = getPanel().run;
+        const shown = run && run.from === v.from ? run.shown : undefined;
+        const then = interventionActorThen(named, v);
         showToast({
           id: 'resim-done',
           kind: 'ok',
-          text: `已从 ${y} 年重新推演 · ${interventionText(named, v, idx)}`,
+          text: `${interventionDoneText(named, v, idx, shown)},已从 ${y} 年起重新推演`,
+          more: shown && then && then !== shown ? [`${v.from} 年时它叫${then}`] : undefined,
           action: {
             label: '撤销',
             onClick: () => {
@@ -2505,8 +2510,6 @@ export function App() {
           params={params}
           data={data}
           civ={civ}
-          style={style}
-          dataLayer={layer}
           generating={!!progress}
           resimBusy={!!resim}
           replay={{ on: replayOn, ready: !!replay }}
