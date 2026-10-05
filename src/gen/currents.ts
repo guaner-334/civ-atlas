@@ -21,6 +21,7 @@
 import { blurField, type Mesh } from './mesh';
 import { geometryOf } from './geometry';
 import { piecewise, smoothstep } from './util';
+import { round24 } from './civ/rand';
 
 /** 每世界单位多少公里(赤道一圈 4 万公里 = 地图宽 2048) */
 const KM = 40000 / 2048;
@@ -50,7 +51,9 @@ export interface Currents {
 
 /** 离岸 d、影响半径 R:贴岸 1,到 R 平滑降到 0 */
 function reach(d: number, R: number) {
-  return d >= R ? 0 : (1 - d / R) ** 2;
+  if (d >= R) return 0;
+  const t = 1 - d / R;
+  return t * t;
 }
 
 /** 环流圈的纬度带(度):副热带圈(南边一直到赤道,赤道上是向西的赤道流)、副极地圈(弱一些、转向相反) */
@@ -62,11 +65,16 @@ const WEST_BOUNDARY = 300;
 /** 流速多大算 1(流函数梯度,每世界单位) */
 const SPEED_REF = 0.02;
 
+/** 三角函数、exp 舍入到 24 位:各引擎最后一位的差别不会漏进世界里(见 civ/rand.ts 的 round24) */
+const fsin = (v: number) => round24(Math.sin(v));
+const fcos = (v: number) => round24(Math.cos(v));
+const fexp = (v: number) => round24(Math.exp(v));
+
 /** 北半球的环流强度(按纬度):副热带圈为正(顺时针),副极地圈为负(逆时针) */
 function gyre(a: number) {
-  if (a < GYRE_SUB[1]) return Math.sin((Math.PI * (a - GYRE_SUB[0])) / (GYRE_SUB[1] - GYRE_SUB[0]));
+  if (a < GYRE_SUB[1]) return fsin((Math.PI * (a - GYRE_SUB[0])) / (GYRE_SUB[1] - GYRE_SUB[0]));
   if (a >= GYRE_POLAR[0] && a < GYRE_POLAR[1])
-    return -POLAR_STRENGTH * Math.sin((Math.PI * (a - GYRE_POLAR[0])) / (GYRE_POLAR[1] - GYRE_POLAR[0]));
+    return -POLAR_STRENGTH * fsin((Math.PI * (a - GYRE_POLAR[0])) / (GYRE_POLAR[1] - GYRE_POLAR[0]));
   return 0;
 }
 
@@ -111,7 +119,7 @@ export function computeCurrents(mesh: Mesh, water: Uint8Array): Currents {
       const dE = east[i] * KM;
       const B = dW + dE;
       const shape =
-        B > 1e7 ? 1 : B > 0 ? (1 - Math.exp(-dW / WEST_BOUNDARY)) * (dE / B) * smoothstep(BASIN_MIN, BASIN_FULL, B) : 0;
+        B > 1e7 ? 1 : B > 0 ? (1 - fexp(-dW / WEST_BOUNDARY)) * (dE / B) * smoothstep(BASIN_MIN, BASIN_FULL, B) : 0;
       psi[i] = (lat >= 0 ? 1 : -1) * gyre(Math.abs(lat)) * shape;
     }
     if (water[i] !== 1) continue;
@@ -143,7 +151,7 @@ export function computeCurrents(mesh: Mesh, water: Uint8Array): Currents {
   const { x, y, width: W } = mesh;
   for (let i = 0; i < n; i++) {
     if (water[i] !== 1) continue;
-    const c = Math.cos((geo.latitude(i) * Math.PI) / 180);
+    const c = fcos((geo.latitude(i) * Math.PI) / 180);
     let sxx = 0;
     let sxy = 0;
     let syy = 0;

@@ -15,6 +15,7 @@ import { blurField, type Mesh } from './mesh';
 import { piecewise, subSeed, clamp, smoothstep } from './util';
 import { geometryOf } from './geometry';
 import type { Currents } from './currents';
+import { round24 } from './civ/rand';
 
 export interface ClimateParams {
   seed: number;
@@ -81,7 +82,7 @@ export function seaLevelTemp(lat: number) {
 }
 
 /** 洋流的冷暖顺风上岸:每走一个地块间距(世界单位)保留多少(内陆约 1500 公里淡到三分之一) */
-const HEAT_KEEP_PER_UNIT = Math.exp(-1 / (1500 / (40000 / 2048)));
+const HEAT_KEEP_PER_UNIT = round24(Math.exp(-1 / (1500 / (40000 / 2048))));
 /** 翻山时洋流的冷暖再减:每抬升 1000 米剩 exp(−1/1.5) */
 const HEAT_RISE = 1500;
 /** 贴岸的地方(不管风向)最多沾多少附近海面的冷暖;"附近"是几圈邻居 */
@@ -213,7 +214,7 @@ export function computeClimate(mesh: Mesh, elev: Float32Array, water: Uint8Array
   /** 空气里带着的洋流冷暖(°C);陆地上就是这里的气温偏差 */
   const heat = new Float32Array(n);
   const landHeat = new Float32Array(n);
-  const heatKeep = HEAT_KEEP_PER_UNIT ** mesh.spacing;
+  const heatKeep = round24(HEAT_KEEP_PER_UNIT ** mesh.spacing);
   const BASE = 0.01; // 平地每个 cell 降掉的水汽比例
   const ORO = 0.00018; // 每米抬升额外降水比例
   const RECYCLE = 0.7; // 陆地降水被植被 / 土壤再蒸发回空气的比例
@@ -257,7 +258,7 @@ export function computeClimate(mesh: Mesh, elev: Float32Array, water: Uint8Array
           q += (coastSst![i] - q) * coastW![i];
           // 寒流岸边空气稳定,不爱下雨;暖流岸边湿热,多下一点
           frac *= q < 0 ? Math.max(0.2, 1 + 0.2 * q) : 1 + 0.04 * Math.min(q, 5);
-          heat[i] = q * heatKeep * Math.exp(-rise / HEAT_RISE);
+          heat[i] = q * heatKeep * round24(Math.exp(-rise / HEAT_RISE));
           landHeat[i] = q;
         }
         const r = hm * frac;
