@@ -13,7 +13,7 @@ import { setStage } from '../src/ui/stageStore';
 import { _resetToasts, getToast } from '../src/ui/toastStore';
 import { forgetNotes, listNotes, putNote } from '../src/ai/library';
 import { setServerForTest } from '../src/account/server';
-import { _resetSessionForTest, fetchAuthOptions, getSession, login, sendCode } from '../src/account/session';
+import { _resetSessionForTest, fetchAuthOptions, getSession, login, refreshSession, sendCode } from '../src/account/session';
 import { _resetSyncForTest, getSyncView, inAccount, pullWorld, signOut, startSync, syncNow, worldSync } from '../src/account/sync';
 import { createShare, listShares, openShareCode, stopShare } from '../src/account/cloud';
 
@@ -43,8 +43,8 @@ const g = globalThis as { localStorage?: unknown };
 const BASE = 'http://fake-server.test';
 let fake: ReturnType<typeof createFakeAiServer>;
 let online = true;
-/** 请求到服务器之前调:模拟服务器回话前的工夫用户又做了什么;抛错 = 这一个请求断网 */
-let gate: ((req: Request) => void | Promise<void>) | null = null;
+/** 请求到服务器之前调:模拟服务器回话前的工夫用户又做了什么;抛错 = 这一个请求断网;给回一个 Response = 服务器这样回 */
+let gate: ((req: Request) => void | Response | Promise<void | Response>) | null = null;
 /** 服务器处理完、回话到网页之前调(模拟回话在路上的工夫用户又做了什么) */
 let late: ((req: Request) => void | Promise<void>) | null = null;
 let stop: (() => void) | null = null;
@@ -97,7 +97,8 @@ beforeEach(() => {
     vi.fn(async (u: string, init?: RequestInit) => {
       if (!online) throw new TypeError('Failed to fetch');
       const req = new Request(String(u), init);
-      if (gate) await gate(req);
+      const r = gate ? await gate(req) : undefined;
+      if (r instanceof Response) return r;
       const res = await fake.handle(req);
       if (late) await late(req);
       return res;
@@ -729,6 +730,131 @@ describe('云同步:载入、挤掉、放满了、老编号', () => {
     expect(titles()).toEqual(['旧世界', '苍澜界']);
     // 留着可以
     expect(await signOut(true)).toEqual({ ok: true });
+  });
+});
+
+describe('云同步:退出、换账号、别的标签页', () => {
+  const isWorld = (req: Request, id: string, method: string) => req.method === method && new URL(req.url).pathname === `/v1/worlds/${id}`;
+
+  it('退出选"删掉":等服务器回话的工夫新建的世界不会被后删掉', async () => {
+    const a = new FakeStorage();
+    device(a);
+    addWorld(7, '苍澜界');
+    await signIn();
+    gate = (req) => {
+      if (new URL(req.url).pathname !== '/v1/auth/logout') return;
+      gate = null;
+      // 退出窗已经关了(本地先忘了令牌),用户接着新建了一个
+      expect(getSession()).toBeNull();
+      addWorld(99, '北境编年');
+    };
+    expect(await signOut(false)).toEqual({ ok: true });
+    expect(titles()).toEqual(['北境编年']);
+  });
+
+  /** 两台设备都登录同一个账号;B 上新建一个(A 同步时最后才取它),回到 A */
+  async function twoDevices() {
+    const a = new FakeStorage();
+    const b = new FakeStorage();
+    device(a);
+    const id = addWorld(7, '苍澜界');
+    await signIn();
+    device(b);
+    await signIn();
+    const c = addWorld(99, '北境编年');
+    await syncNow();
+    device(a);
+    return { a, id, c };
+  }
+
+  it('退出选"删掉":同步途中已经看过的世界又改了(AI 刚写完一段):接着同步上再删,不丢', async () => {
+    const { id, c } = await twoDevices();
+    gate = (req) => {
+      if (!isWorld(req, c, 'GET')) return;
+      gate = null;
+      putNote(id, { key: 'k', kind: '史书', title: '大昌', text: '刚写完', createdAt: '2026-10-05T00:00:00Z', provider: 'mock', model: 'm' });
+    };
+    expect(await signOut(false)).toEqual({ ok: true });
+    expect(titles()).toEqual([]);
+    expect((fake.users.get('writer@example.com')!.worlds.get(id)!.notes as { text: string }[]).map((n) => n.text)).toEqual(['刚写完']);
+  });
+
+  it('退出选"删掉":同步途中已经看过的世界被别的标签页改了(这里没收到通知):没同步上,不删', async () => {
+    const { a, id, c } = await twoDevices();
+    gate = (req) => {
+      if (!isWorld(req, c, 'GET')) return;
+      gate = null;
+      const key = `wenming-ditu:world:${id}`;
+      a.map.set(key, JSON.stringify({ ...JSON.parse(a.map.get(key)!), title: '别的标签页改的' }));
+    };
+    const r = await signOut(false);
+    expect(r).toMatchObject({ ok: false });
+    expect(r.ok ? '' : r.message).toContain('还没同步上');
+    expect(titles()).toEqual(['别的标签页改的', '北境编年']);
+    expect(getSession()).not.toBeNull();
+    expect(await signOut(false)).toEqual({ ok: true });
+    expect((fake.users.get('writer@example.com')!.worlds.get(id)!.save as SaveFile).title).toBe('别的标签页改的');
+  });
+
+  it('一个账号存不上去的(那个账号自己的上限),换个账号照样存', async () => {
+    device(new FakeStorage());
+    const id = addWorld(7, '苍澜界');
+    gate = (req) => {
+      if (!isWorld(req, id, 'PUT')) return;
+      return new Response(JSON.stringify({ error: { code: 'bad-request', message: '账号里的世界太多了' } }), { status: 400, headers: { 'content-type': 'application/json' } });
+    };
+    const v = await signIn();
+    expect(v.failed.get(id)).toContain('太多');
+    await signOut(true);
+    gate = null;
+    const w = await signIn('other@example.com');
+    expect(w.failed.size).toBe(0);
+    expect(fake.users.get('other@example.com')!.worlds.get(id)).toBeDefined();
+  });
+
+  it('取回来的工夫用户新建了世界、放满了:新的那个先不放,不超过上限', async () => {
+    const a = new FakeStorage();
+    const b = new FakeStorage();
+    device(a);
+    const x = addWorld(7, '苍澜界');
+    await signIn();
+    device(b);
+    for (let i = 1; i < saveStore.MAX_WORLDS; i++) addWorld(1000 + i, `世界${i}`);
+    gate = (req) => {
+      if (!isWorld(req, x, 'GET')) return;
+      gate = null;
+      addWorld(99, '北境编年');
+    };
+    await signIn();
+    expect(saveStore.listWorlds()).toHaveLength(saveStore.MAX_WORLDS);
+    expect(titles()).not.toContain('苍澜界');
+    expect(titles()).toContain('北境编年');
+  });
+
+  it('别的标签页退出、换了账号:这里跟着变,同步也跟着停下或换过去', async () => {
+    const a = new FakeStorage();
+    device(a);
+    addWorld(7, '苍澜界');
+    await signIn();
+    const writer = a.map.get('civ-atlas:account')!;
+    // 拿一个 other 的令牌(不退出,两个令牌都有效)
+    await login('other@example.com', FAKE_CODE, FAKE_INVITE);
+    const other = a.map.get('civ-atlas:account')!;
+    a.map.set('civ-atlas:account', writer);
+    refreshSession();
+    expect(getSession()?.user.account).toBe('writer@example.com');
+    await syncNow();
+    // 另一个标签页退出了
+    a.map.delete('civ-atlas:account');
+    refreshSession();
+    expect(getSession()).toBeNull();
+    expect(getSyncView().phase).toBe('off');
+    // 另一个标签页登录了 other
+    a.map.set('civ-atlas:account', other);
+    refreshSession();
+    expect(getSession()?.user.account).toBe('other@example.com');
+    const v = await syncNow();
+    expect(v.phase).toBe('idle');
   });
 });
 

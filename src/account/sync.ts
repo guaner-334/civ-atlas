@@ -235,8 +235,9 @@ const LEGACY_WHY = '以前存的世界，浏览器存储满了，没能换成新
 const nowIso = () => new Date().toISOString();
 /** 写进浏览器的是同步带来的(不为它再排一次同步) */
 let applying = false;
-/** 存不上去的(太大、太多):内容没再变就不重试 */
+/** 存不上去的(太大、太多):内容没再变就不重试。跟着账号(换了账号从头试:可能是那个账号自己的上限) */
 const rejected = new Map<string, { sum: string; why: string }>();
+let rejectedFor: string | null = null;
 /** 正在看的世界在别的设备上改过,已经提示过的版本 */
 const offered = new Map<string, number>();
 /** 两边都改过、两份都留的世界名字(这一次同步里) */
@@ -349,6 +350,8 @@ async function pull(st: SyncState, id: string, expect?: string | null): Promise<
   }
   if (id in st.deletes) return false;
   if (expect !== undefined && (localWorld(id)?.sum ?? null) !== expect) return false;
+  // 取的工夫用户新建了世界、放满了:新的这个先不放(下次有地方再取)
+  if (!storedIds().includes(id) && storedCount() >= MAX_WORLDS) return false;
   const raw = remoteRaw(w);
   const notes = Array.isArray(w.notes) ? w.notes : null;
   if (!store(id, raw, notes)) return false;
@@ -583,6 +586,10 @@ async function cycle(full: boolean): Promise<void> {
     if (!s?.user.id) return;
   }
   const st = stateFor(s.user.id);
+  if (rejectedFor !== s.user.id) {
+    rejected.clear();
+    rejectedFor = s.user.id;
+  }
   active = st;
   try {
     await cycleWith(st, full);
@@ -844,14 +851,27 @@ export async function signOut(keep: boolean): Promise<{ ok: true } | { ok: false
     if (v.phase !== 'idle' || v.failed.size) {
       return { ok: false, message: v.failed.size ? `还有 ${v.failed.size} 个世界没同步上，现在删掉会丢：${v.message ?? [...v.failed.values()][0]}` : (v.message ?? '没能同步，稍后再试') };
     }
+    // 同步完以后又改了的(比如 AI 刚写完一段):没同步上,不删
+    const st = readState();
+    const left = storedIds().filter((id) => {
+      const l = localWorld(id);
+      return l && st?.worlds[id]?.sum !== l.sum;
+    }).length;
+    if (left) return { ok: false, message: `还有 ${left} 个世界刚改过、还没同步上，稍后再试` };
   }
-  await logout();
   if (!keep) {
-    removeAllWorlds();
-    forgetNotes();
+    // 先删再退出:等服务器回话的工夫退出窗已经关了,这期间新建、改的世界不能被后删掉
+    applying = true;
+    try {
+      removeAllWorlds();
+      forgetNotes();
+    } finally {
+      applying = false;
+    }
     writeState(null);
     rejected.clear();
   }
+  await logout();
   setView({ phase: 'off', busy: new Set(), failed: new Map(), message: undefined });
   return { ok: true };
 }
@@ -879,6 +899,8 @@ export function startSync(): () => void {
   const offLogin = onLogin(onLoggedIn);
   const offSession = onSessionChange(() => {
     if (!getSession() && view.phase !== 'off') setView({ phase: 'off', busy: new Set(), failed: new Map(), message: undefined });
+    // 别的标签页登录了:这里也开始同步
+    if (getSession() && view.phase === 'off') requestSync('full', 0);
   });
   let lastFocus = 0;
   const onFocus = () => {
@@ -923,6 +945,7 @@ export function _resetSyncForTest(): void {
   active = null;
   cycleToken = null;
   rejected.clear();
+  rejectedFor = null;
   offered.clear();
   uploading.clear();
   deletedWhileUp.clear();

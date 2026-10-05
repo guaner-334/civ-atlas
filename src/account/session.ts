@@ -5,6 +5,7 @@
  * - 登录令牌存在 localStorage 'civ-atlas:account'(浏览器不让存就只在内存里);退出登录才删。
  *   以前"我们的 AI"的令牌存在 AI 密钥里(ai/settings.ts),第一次读的时候挪过来
  * - 服务器回 401(令牌过期 / 作废):清掉令牌,算退出
+ * - 别的标签页登录、退出、换了账号:跟着变(localStorage 的 storage 事件)
  * - 邀请链接(网址里的 invite=):记下邀请码,登录窗里自动填上
  *
  *   GET  /v1/auth/options           → { accountKinds: ['email', 'phone'?], inviteOnly, codeTtlSec }(没有这个接口 = 都开放、不要邀请)
@@ -122,6 +123,28 @@ export function onSessionChange(f: () => void): () => void {
 export function useSession(): Session | null {
   useSyncExternalStore(onSessionChange, () => version, () => version);
   return load();
+}
+
+/** 别的标签页登录、退出、换了账号:按浏览器里存着的重读,变了就通知(还没读过的不用管,用到时自然读新的) */
+export function refreshSession(): void {
+  if (session === undefined) return;
+  const st = storage();
+  if (!st) return;
+  let s: Session | null;
+  try {
+    const raw = st.getItem(KEY);
+    s = raw ? sanitize(JSON.parse(raw)) : null;
+  } catch {
+    return;
+  }
+  if (JSON.stringify(s) === JSON.stringify(session)) return;
+  session = s;
+  emit();
+}
+if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+  window.addEventListener('storage', (e) => {
+    if (e.key === KEY || e.key === null) refreshSession();
+  });
 }
 
 /** 服务器说令牌不认了(401):清掉,算退出。只认这次请求用的那个令牌(退出后换了账号,旧账号的请求晚回来的 401 不算) */
