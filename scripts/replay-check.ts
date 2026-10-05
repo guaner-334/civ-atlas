@@ -273,6 +273,25 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
   await page.evaluate(() => localStorage.clear());
 }
 
+// 早年一个国家都没有:侧栏"国家"下说一句为什么、第一个国家哪年立国,不显示"全部 0 国";点"跳到 N 年"时间轴跳过去,列表里有了它
+{
+  await page.goto(`${dev.url}/?seed=7&style=fantasy&civYear=600`);
+  await page.waitForFunction(() => (window as any).__wfCiv?.ready, null, { timeout: 60000 });
+  await page.waitForTimeout(300);
+  const empty = await page.locator('.sidebar .sb-no-polity').innerText({ timeout: 3000 }).then((t) => t.replace(/\n/g, ' '), () => '');
+  const allLink = await page.locator('.sidebar [data-act=all-countries]').count();
+  // 刚打开时地图头几帧很忙,点击要等按钮"稳定",多给点时间
+  await page.locator('.sidebar [data-act=first-polity]').click({ timeout: 15000 }).catch(() => {});
+  await page.waitForTimeout(400);
+  const yearNow = await page.locator('.timebar .tb-year').innerText().catch(() => '');
+  const rowsNow = await page.locator('.sidebar .sb-home .sb-row.two').count();
+  const gone = (await page.locator('.sidebar .sb-no-polity').count()) === 0;
+  console.log(`早年没有国家:第 600 年「${empty}」,"全部 N 国"${allLink ? '还在' : '不显示'};点跳转 → ${yearNow},国家 ${rowsNow} 个,说明收起 ${gone}`);
+  const m = empty.match(/在 \d+ 年立国.*跳到 (\d+) 年/);
+  if (!m || allLink) errs.push(`第 600 年一个国家都没有时侧栏没有说明 / 还显示"全部 0 国"(「${empty}」)`);
+  else if (yearNow !== `第 ${m[1]} 年` || rowsNow < 1 || !gone) errs.push(`点"跳到 ${m[1]} 年"没跳到第一个国家立国(${yearNow},国家 ${rowsNow} 个)`);
+}
+
 // 键盘快捷键(电脑上):← → 走 10 年(Shift 100 年)、空格播放 / 暂停(用鼠标点过播放键以后按空格只算一下)、+ − 缩放、1–5 换图层、
 // / 跳进搜索框(在框里打数字不换图层)、? 打开一览(开着时空格不播放,Esc 收起)、Ctrl+S 打开存档菜单(拦下浏览器的"存储网页")、
 // 改名后 Ctrl+Z 撤销、Ctrl+Shift+Z 重做;Ctrl+\ 收起 / 展开左边的卡片(收起着按 / 先展开);按钮的提示框右边写着键;"更多"菜单里有"键盘快捷键"
@@ -1212,6 +1231,33 @@ for (const style of ['realistic', 'fantasy']) {
   console.log(`改版前的网址刷新:网址里的世界编号 ${back.w},存档的键 ${back.keys.join()},改名 ${backNames}`);
   if (!back.w || back.keys.length !== 1 || backNames !== '九嶷州,饕餮城')
     errs.push(`改版前的网址刷新没有回到原来的存档(w=${back.w},键 ${back.keys.join()},改名 ${backNames})`);
+  // "我的世界"里删除:点一下就删(不再问第二次),提示条上点"撤销"放回来
+  await page.goto(`${dev.url}/?style=fantasy&civ=polities`);
+  await page.locator('.mw [data-act=open-world]').first().waitFor({ timeout: 10000 }).catch(() => {});
+  const cardCount = () => page.locator('.mw [data-act=open-world]').count();
+  const cardsBefore = await cardCount();
+  await page.locator('.mw [data-act=world-menu]').first().click().catch(() => {});
+  await page.locator('[data-act=world-delete]').click({ timeout: 3000 }).catch(() => {});
+  await page.waitForTimeout(200);
+  const cardsGone = await cardCount();
+  const delNote = await toastText(page, 'save');
+  await page.locator('[data-act=world-undelete]').click({ timeout: 3000 }).catch(() => {});
+  await page.waitForTimeout(200);
+  const cardsBack = await cardCount();
+  const keptKeys = await page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('wenming-ditu:world:')).length);
+  console.log(`我的世界里删除:${cardsBefore} 个 → 删后 ${cardsGone} 个(提示「${delNote}」)→ 撤销后 ${cardsBack} 个,存档 ${keptKeys} 个`);
+  if (cardsBefore !== 1 || cardsGone !== 0 || !/已删除.*撤销/.test(delNote) || cardsBack !== 1 || keptKeys !== 1)
+    errs.push(`"我的世界"里点一下删除、再点撤销不对(${cardsBefore} → ${cardsGone} → ${cardsBack},存档 ${keptKeys} 个,提示「${delNote}」)`);
+  // 删的是最后一个:提示条还在(还能撤销)的时候停在"我的世界",提示收起了才新建
+  await page.locator('.mw [data-act=world-menu]').first().click().catch(() => {});
+  await page.locator('[data-act=world-delete]').click({ timeout: 3000 }).catch(() => {});
+  await page.waitForTimeout(1500);
+  const waitHome = (await page.locator('.mw').count()) > 0 && /撤销/.test(await toastText(page, 'save'));
+  const t0 = Date.now();
+  await page.waitForFunction(() => !document.querySelector('.mw'), null, { timeout: 20000 }).catch(() => null);
+  const newAfter = (await page.locator('.mw').count()) === 0 ? ((Date.now() - t0 + 1500) / 1000).toFixed(1) : null;
+  console.log(`删掉最后一个世界:提示条在的时候停在我的世界 ${waitHome},${newAfter ? `${newAfter} 秒后新建` : '没有新建'}`);
+  if (!waitHome || !newAfter) errs.push(`删掉最后一个世界:提示条在时应停在"我的世界"、收起后新建(停住 ${waitHome},新建 ${newAfter})`);
   await page.evaluate(() => localStorage.clear());
 }
 // 世界换成球面以前(生成器版本 4 及以前)的存档文件、分享链接:照常打开成同一个种子的球面世界,提示"来自旧版本",
