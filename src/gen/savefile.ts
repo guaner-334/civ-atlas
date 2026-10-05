@@ -108,14 +108,27 @@ export function cleanSignature(raw: unknown): string {
   return cs.length > SIGNATURE_MAX ? cs.slice(0, SIGNATURE_MAX).join('') : s;
 }
 
-/** 分享短链接的样子:http(s)://网站地址/s/<码> */
-const ORIGIN_URL = /^https?:\/\/[^\s"'<>\\]+\/s\/[A-Za-z0-9]{4,32}$/;
+/** 分享短链接的样子:http(s)://网站地址/s/<码>(网站可以在子目录里) */
+const ORIGIN_CHARS = /^https?:\/\/[^\s"'<>\\]+$/;
+const ORIGIN_PATH = /\/s\/[A-Za-z0-9]{4,32}$/;
+
+/** 是不是分享短链接:按网址解析,路径以 /s/<码> 结尾,不带账号密码、问号后的参数、# 后的部分,而且本来就是规范写法 */
+function isShareLink(url: string): boolean {
+  if (url.length > 300 || !ORIGIN_CHARS.test(url)) return false;
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return false;
+  }
+  return (u.protocol === 'https:' || u.protocol === 'http:') && !u.username && !u.password && !u.search && !u.hash && ORIGIN_PATH.test(u.pathname) && u.href === url;
+}
 
 /** 整理底稿出处:链接不像分享短链接的不要(界面上它是一个能点的链接) */
 export function cleanOrigin(raw: unknown): SaveOrigin | null {
   if (!isObj(raw)) return null;
   const url = raw.url;
-  if (typeof url !== 'string' || url.length > 300 || !ORIGIN_URL.test(url)) return null;
+  if (typeof url !== 'string' || !isShareLink(url)) return null;
   const o: SaveOrigin = { title: cleanTitle(raw.title), url };
   const by = cleanSignature(raw.by);
   if (by) o.by = by;

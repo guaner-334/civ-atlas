@@ -1115,7 +1115,7 @@ describe('底稿出处(origin)', () => {
   });
 
   it('格式不对的出处当没有:链接不是 http(s) 的分享短链接、不是对象;署名、世界名去掉控制字符、超长截断', () => {
-    for (const url of ['javascript:alert(1)//s/abcd', 'https://a.example/s/', 'https://a.example/x/abcd1234', 'ftp://a.example/s/abcd1234', 'https://a.example/s/abcd1234?x=1', 'https://a.ex ample/s/abcd1234'])
+    for (const url of ['javascript:alert(1)//s/abcd', 'https://a.example/s/', 'https://a.example/x/abcd1234', 'ftp://a.example/s/abcd1234', 'https://a.example/s/abcd1234?x=1', 'https://a.ex ample/s/abcd1234', 'https://a.example/?next=/s/Ab12', 'https://a.example/#/s/Ab12', 'https://a.example/x?/s/Ab12', 'https://u:p@a.example/s/Ab12', 'https://a.example/x/../s/Ab12', 'https://A.example/s/Ab12', 'https://a.example:443/s/Ab12'])
       expect(cleanOrigin({ title: 't', url }), url).toBeNull();
     expect(cleanOrigin('https://a.example/s/abcd1234')).toBeNull();
     expect(cleanOrigin({ title: 't' })).toBeNull();

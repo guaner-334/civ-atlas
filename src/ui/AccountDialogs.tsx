@@ -906,15 +906,20 @@ function ShareDialog({ phone, worldId, title, onClose }: { phone: boolean; world
       if (ok) onClose();
     });
   };
+  const name = title || '未命名世界';
+  /** 复制链接、发给别人:署名刚改了的先存好(发出去的链接打开就是新署名);没存成就不发,上面说为什么 */
   const copy = async () => {
-    if (!url) return;
+    if (!url || !(await saveBy())) return;
     const ok = await copyText(url);
     setCopied(ok);
     setManual(!ok);
     (window as unknown as { __wfShortShare?: { url: string; copied: boolean } }).__wfShortShare = { url, copied: ok };
   };
+  const sendTo = async () => {
+    if (!url || !(await saveBy())) return;
+    await navigator.share({ title: `「${name}」`, url }).catch(() => {});
+  };
   const canSend = phone && typeof navigator !== 'undefined' && typeof navigator.share === 'function';
-  const name = title || '未命名世界';
   const urlBox = (
     <div className={`url${live ? '' : ' off'}`} data-testid="share-url">
       <Icon name="link" size={15} />
@@ -978,7 +983,7 @@ function ShareDialog({ phone, worldId, title, onClose }: { phone: boolean; world
                   className="acct-btn full"
                   style={{ fontWeight: 500 }}
                   disabled={!live}
-                  onClick={() => void navigator.share({ title: `「${name}」`, url }).catch(() => {})}
+                  onClick={() => void sendTo()}
                 >
                   <Icon name="share" size={17} />
                   发给…
