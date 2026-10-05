@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createFakeAiServer, FAKE_CODE, FAKE_INVITE } from '../scripts/lib/fakeAiServer';
 import { DEFAULT_PARAMS } from '../src/gen/world';
 import { EMPTY_EDITS } from '../src/gen/edits';
-import { makeSave, type SaveFile } from '../src/gen/savefile';
+import { makeSave, worldKey, type SaveFile } from '../src/gen/savefile';
 import * as saveStore from '../src/ui/saveStore';
 import { clearEdits, setEdits } from '../src/ui/editsStore';
 import { setStage } from '../src/ui/stageStore';
@@ -14,7 +14,7 @@ import { _resetToasts, getToast } from '../src/ui/toastStore';
 import { forgetNotes, listNotes, putNote } from '../src/ai/library';
 import { setServerForTest } from '../src/account/server';
 import { _resetSessionForTest, fetchAuthOptions, getSession, login, sendCode } from '../src/account/session';
-import { _resetSyncForTest, getSyncView, inAccount, signOut, startSync, syncNow } from '../src/account/sync';
+import { _resetSyncForTest, getSyncView, inAccount, pullWorld, signOut, startSync, syncNow, worldSync } from '../src/account/sync';
 import { createShare, listShares, openShareCode, stopShare } from '../src/account/cloud';
 
 class FakeStorage {
@@ -587,6 +587,148 @@ describe('云同步:换账号、存储满了', () => {
     expect(inAccount(fresh)).toBe(false);
     await signOut(true);
     expect(inAccount(id)).toBe(false);
+  });
+});
+
+describe('云同步:载入、挤掉、放满了、老编号', () => {
+  const isWorld = (req: Request, id: string, method: string) => req.method === method && new URL(req.url).pathname === `/v1/worlds/${id}`;
+  const macrotask = () => new Promise<void>((r) => setTimeout(r, 0));
+
+  it('点「载入」后取的工夫退出、换了账号:不载入原来那个账号的,也不报错', async () => {
+    const a = new FakeStorage();
+    const b = new FakeStorage();
+    device(a);
+    const id = addWorld(7, '苍澜界');
+    await signIn();
+    device(b);
+    await signIn();
+    device(a);
+    tick();
+    saveStore.renameWorld(id, '新名字');
+    await syncNow();
+
+    device(b);
+    const w = saveStore.loadWorld(id)!;
+    setEdits(w.save.edits);
+    saveStore.attachWorld({ id, params: w.save.params, check: w.save.check, kind: 'created', title: w.save.title, saved: w.save.edits });
+    setStage('world');
+    await syncNow();
+    expect(getToast()).toMatchObject({ id: 'sync-reload' });
+    late = async (req) => {
+      if (!isWorld(req, id, 'GET')) return;
+      late = null;
+      await signOut(true);
+      await login('other@example.com', FAKE_CODE, FAKE_INVITE);
+      // 新账号登录排上的同步有机会先跑
+      await macrotask();
+      await macrotask();
+    };
+    expect(await pullWorld(id)).toBe(false);
+    await syncNow();
+    expect(getSession()?.user.account).toBe('other@example.com');
+    expect(saveStore.loadWorld(id)!.save.title).toBe('苍澜界');
+    expect(getToast()?.kind).not.toBe('error');
+    // 原来那个账号还是另一台设备改的样子
+    expect((fake.users.get('writer@example.com')!.worlds.get(id)!.save as SaveFile).title).toBe('新名字');
+  });
+
+  it('「载入」照常:换成账号里的那份', async () => {
+    const a = new FakeStorage();
+    const b = new FakeStorage();
+    device(a);
+    const id = addWorld(7, '苍澜界');
+    await signIn();
+    device(b);
+    await signIn();
+    device(a);
+    tick();
+    saveStore.renameWorld(id, '新名字');
+    await syncNow();
+    device(b);
+    const w = saveStore.loadWorld(id)!;
+    setEdits(w.save.edits);
+    saveStore.attachWorld({ id, params: w.save.params, check: w.save.check, kind: 'created', title: w.save.title, saved: w.save.edits });
+    setStage('world');
+    await syncNow();
+    expect(await pullWorld(id)).toBe(true);
+    expect(saveStore.loadWorld(id)!.save.title).toBe('新名字');
+    expect(worldSync(id)).toMatchObject({ state: 'synced' });
+  });
+
+  it('存上去的工夫这个世界为了腾地方被挤出浏览器:不当成删掉,账号里那份留着、有地方了取回来', async () => {
+    const a = new FakeStorage();
+    device(a);
+    addWorld(99, '北境编年');
+    await signIn();
+    tick();
+    const id = addWorld(7, '苍澜界');
+    gate = (req) => {
+      if (!isWorld(req, id, 'PUT')) return;
+      gate = null;
+      // 腾地方挤掉的(saveStore 自己删,不经过 deleteWorld)
+      for (const k of [...a.map.keys()]) if (k.endsWith(`:${id}`)) a.map.delete(k);
+    };
+    await syncNow();
+    expect(titles()).toEqual(['北境编年']);
+    await syncNow();
+    expect(fake.users.get('writer@example.com')!.worlds.get(id)!.deletedAt).toBeNull();
+    expect(titles()).toEqual(['北境编年', '苍澜界']);
+  });
+
+  it('两边都改过,「我的世界」满了:先不另存(不超过上限),写没同步上;腾出地方再两份都留', async () => {
+    const a = new FakeStorage();
+    const b = new FakeStorage();
+    device(a);
+    const id = addWorld(7, '苍澜界');
+    await signIn();
+    device(b);
+    await signIn();
+    const extra: string[] = [];
+    for (let i = 1; i < saveStore.MAX_WORLDS; i++) extra.push(addWorld(1000 + i, `世界${i}`));
+    await syncNow();
+
+    device(a);
+    tick();
+    saveStore.renameWorld(id, '那边的名字');
+    await syncNow();
+
+    device(b);
+    tick();
+    saveStore.renameWorld(id, '这边的名字');
+    const v = await syncNow();
+    expect(saveStore.listWorlds()).toHaveLength(saveStore.MAX_WORLDS);
+    expect(titles().filter((t) => t?.includes('另一台设备'))).toEqual([]);
+    expect(v.failed.get(id)).toContain('满了');
+    expect((fake.users.get('writer@example.com')!.worlds.get(id)!.save as SaveFile).title).toBe('那边的名字');
+
+    saveStore.deleteWorld(extra[0]);
+    await syncNow();
+    expect(saveStore.listWorlds()).toHaveLength(saveStore.MAX_WORLDS);
+    expect(titles()).toContain('这边的名字');
+    expect(titles()).toContain('那边的名字（另一台设备）');
+    expect(getSyncView().failed.size).toBe(0);
+  });
+
+  it('还用老编号存着的世界(浏览器存储满了没换成新编号):写没同步上,退出登录不让选"删掉"', async () => {
+    const a = new FakeStorage();
+    // 改版前按"种子 + 参数"存的世界;打开网页换新编号时浏览器写不下
+    const old = makeSave({ ...DEFAULT_PARAMS, seed: 5 }, EMPTY_EDITS, 'check5', '旧世界');
+    const oldId = worldKey(old.params);
+    a.map.set(`wenming-ditu:world:${oldId}`, JSON.stringify(old));
+    a.deny = (k) => k.startsWith('wenming-ditu:world:w');
+    device(a);
+    expect(titles()).toEqual(['旧世界']);
+    a.deny = null;
+    addWorld(7, '苍澜界');
+    await signIn();
+    expect(worldSync(oldId)).toMatchObject({ state: 'failed' });
+    const r = await signOut(false);
+    expect(r).toMatchObject({ ok: false });
+    expect(r.ok ? '' : r.message).toContain('以前存的世界');
+    expect(getSession()).not.toBeNull();
+    expect(titles()).toEqual(['旧世界', '苍澜界']);
+    // 留着可以
+    expect(await signOut(true)).toEqual({ ok: true });
   });
 });
 

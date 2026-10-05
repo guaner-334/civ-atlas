@@ -14,7 +14,7 @@
  * 存、读、列都在 saveStore.ts;打开一个世界(生成 + 套上修改)由 App 做。一个世界都不剩时 App 直接进新建。
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { MAX_WORLDS, deleteWorld, duplicateWorld, listWorlds, loadWorld, notify, persistent, renameWorld, storedIds, useSavesVersion, type StoredWorld } from './saveStore';
+import { MAX_WORLDS, deleteWorld, duplicateWorld, listWorlds, loadWorld, notify, persistent, renameWorld, storedCount, useSavesVersion, type StoredWorld } from './saveStore';
 import { closeTrash, openAccount, openLogin, useAccountPanelOpen, useTrashView } from './AccountDialogs';
 import { serverBase } from '../account/server';
 import { displayName, useSession } from '../account/session';
@@ -417,7 +417,7 @@ function TrashPage({ phone }: { phone: boolean }) {
   const restore = async (t: TrashEntry) => {
     if (busy) return;
     // 找回来要放进这台设备的「我的世界」:满了就先不找回(不然账号里回来了,这里却看不到)
-    if (storedIds().length >= MAX_WORLDS) {
+    if (storedCount() >= MAX_WORLDS) {
       setErr(`「我的世界」最多存 ${MAX_WORLDS} 个世界，先删掉几个再找回`);
       return;
     }

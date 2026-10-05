@@ -955,6 +955,30 @@ export function storedIds(): string[] {
   return out;
 }
 
+/** 能不能存进账号(老编号"种子 + 参数"的不能:服务器只认新编号) */
+export function syncable(id: string): boolean {
+  return ID_RE.test(id);
+}
+
+/**
+ * 还用老编号存着的世界(打开网页时换新编号,浏览器存储满了没换成的,留在原处;腾出地方、刷新页面会再换一次)。
+ * 它们存不进账号:退出登录选"从这台设备上删掉"前要先看一眼
+ */
+export function legacyIds(): string[] {
+  const out: string[] = [];
+  for (const k of store().keys()) {
+    if (!k.startsWith(PREFIX)) continue;
+    const id = k.slice(PREFIX.length);
+    if (!ID_RE.test(id) && readSave(id)) out.push(id);
+  }
+  return out;
+}
+
+/** 浏览器里存着几个世界(连同老编号的) */
+export function storedCount(): number {
+  return storedIds().length + legacyIds().length;
+}
+
 /** 一个世界的原样(读不出来的坏存档 = null) */
 export function rawWorld(id: string): RawWorld | null {
   const kv = store();

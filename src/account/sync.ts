@@ -15,7 +15,8 @@
  *     服务器上删了     → 本地没改过就跟着删;改过就存回去(改过的那份赢)
  *     服务器上有、本地没有 → 取回来("我的世界"满了就先不取);本地有、服务器上没有 → 存上去
  * - 用户删掉一个世界(saveStore 的 deleteWorld):带上次的版本号去删;断网、没登录时先记着,下次同步时删
- *   (为了腾地方删掉的旧世界不算,账号里的还在)
+ *   (为了腾地方删掉的旧世界不算,账号里的还在;正在存上去的工夫被挤掉的也不算)
+ * - 还用老编号存着的世界(浏览器存储满了没换成新编号)存不进账号:卡片上写没同步上,退出登录不让选"删掉"
  * - 正在看的那个世界不被别的设备的改动覆盖、删掉:提示一句,点"载入"再换(回到"我的世界"以后照常同步)
  * - 没同步上(断网、服务器出错)的,"我的世界"卡片上写"还没同步上",下次再试
  */
@@ -27,6 +28,7 @@ import {
   cleanSyncMeta,
   currentUnsaved,
   currentWorld,
+  legacyIds,
   listWorlds,
   newWorldId,
   putSyncedWorld,
@@ -34,8 +36,10 @@ import {
   removeAllWorlds,
   removeSyncedWorld,
   setDeleteHook,
+  storedCount,
   storedIds,
   subscribe as subscribeSaves,
+  syncable,
   type RawWorld,
 } from '../ui/saveStore';
 import { getStage } from '../ui/stageStore';
@@ -213,6 +217,7 @@ export interface WorldSync {
 /** 一个世界同步得怎么样(没登录 = null) */
 export function worldSync(id: string): WorldSync | null {
   if (view.phase === 'off') return null;
+  if (!syncable(id)) return { state: 'failed', message: LEGACY_WHY };
   const why = view.failed.get(id);
   if (why !== undefined) return { state: 'failed', message: why };
   if (view.busy.has(id)) return { state: 'busy' };
@@ -221,6 +226,8 @@ export function worldSync(id: string): WorldSync | null {
   if (k && l && k.sum === l.sum) return { state: 'synced', at: k.at };
   return { state: view.phase === 'offline' || view.phase === 'error' ? 'failed' : 'busy', message: view.message };
 }
+
+const LEGACY_WHY = '以前存的世界，浏览器存储满了，没能换成新的存法，存不进账号；删掉几个世界、刷新页面再试';
 
 // ---------------------------------------------------------------------------
 // 一次同步
@@ -274,6 +281,9 @@ function store(id: string, raw: RawWorld, notes: AiNote[] | null): boolean {
 }
 
 const thumbOf = (t: string | null) => (t && t.length <= 200_000 ? t : null);
+/** 正在存上去的世界;存的工夫用户删掉了的(只认用户删的,为了腾地方挤掉的不算) */
+const uploading = new Set<string>();
+const deletedWhileUp = new Set<string>();
 /** AI 写的东西最多存多少字(服务器的上限) */
 const NOTES_MAX = 1_000_000;
 
@@ -284,13 +294,21 @@ async function upload(st: SyncState, id: string, l: Local, baseRev: number, revi
   }
   const body: PutBody = { baseRev, save: JSON.parse(l.raw.save), meta: { ...l.raw.meta }, thumb: thumbOf(l.raw.thumb), notes: l.notes.length ? l.notes : null };
   if (revive) body.revive = true;
-  const r = await net(() => putCloud(id, body));
-  if (!storedIds().includes(id)) {
+  uploading.add(id);
+  deletedWhileUp.delete(id);
+  let r: { rev: number };
+  try {
+    r = await net(() => putCloud(id, body));
+  } finally {
+    uploading.delete(id);
+  }
+  if (deletedWhileUp.delete(id)) {
     // 存上去的工夫用户把它删了:按删掉算,下一轮告诉服务器
     st.deletes[id] = r.rev;
     delete st.worlds[id];
     return;
   }
+  // 存上去的工夫为了腾地方被挤出浏览器的也算存好了:账号里的那份留着,有地方了再取回来
   st.worlds[id] = { rev: r.rev, sum: l.sum, at: nowIso() };
 }
 
@@ -329,8 +347,8 @@ async function pull(st: SyncState, id: string, expect?: string | null): Promise<
     if (e instanceof ServerError && e.code === 'not-found') return false;
     throw e;
   }
+  if (id in st.deletes) return false;
   if (expect !== undefined && (localWorld(id)?.sum ?? null) !== expect) return false;
-  if (expect === null && id in st.deletes) return false;
   const raw = remoteRaw(w);
   const notes = Array.isArray(w.notes) ? w.notes : null;
   if (!store(id, raw, notes)) return false;
@@ -364,20 +382,31 @@ function offerReload(id: string, rev: number) {
   });
 }
 
-/** "载入":把正在看的这个世界换成账号里的那份(之后 App 重新打开它) */
+/**
+ * "载入":把正在看的这个世界换成账号里的那份(之后 App 重新打开它)。
+ * 和同步排队(不同时改同步记录);只替点"载入"时登着的那个账号做,等的工夫、取的工夫退出了、换了账号就不载入
+ */
 export async function pullWorld(id: string): Promise<boolean> {
-  const st = readState();
-  const s = getSession();
-  if (!st || !s || st.user !== s.user.id) return false;
+  const token = getSession()?.token;
+  if (!token) return false;
   clearToast('sync-reload');
-  try {
-    const ok = await pull(st, id);
-    writeState(st);
-    return ok;
-  } catch (e) {
-    showToast({ id: 'sync', kind: 'error', text: '没能载入', more: [e instanceof Error ? e.message : String(e)] });
-    return false;
-  }
+  return serial(async () => {
+    const s = getSession();
+    const st = readState();
+    if (!s || s.token !== token || !st || st.user !== s.user.id) return false;
+    cycleToken = token;
+    active = st;
+    try {
+      const ok = await pull(st, id);
+      writeState(st);
+      return ok;
+    } catch (e) {
+      if (!(e instanceof SessionChanged)) showToast({ id: 'sync', kind: 'error', text: '没能载入', more: [e instanceof Error ? e.message : String(e)] });
+      return false;
+    } finally {
+      active = null;
+    }
+  });
 }
 
 /** 两边都改过:服务器那份另存成新世界(名字加"(另一台设备)"),本地这份存上去 */
@@ -388,6 +417,11 @@ async function fork(st: SyncState, id: string, l: Local, remote: CloudWorld) {
   const no = rejected.get(id);
   if (no && no.sum === l.sum) {
     failedNow.set(id, no.why);
+    return;
+  }
+  if (storedCount() >= MAX_WORLDS) {
+    // 另一份放不下:先不覆盖服务器上的(两份都还在),等腾出地方
+    failedNow.set(id, `「我的世界」满了（最多 ${MAX_WORLDS} 个），两台设备上改的没法都留下：先删掉一个世界`);
     return;
   }
   const nid = newWorldId();
@@ -454,7 +488,7 @@ async function reconcile(st: SyncState, id: string, s: CloudEntry | null, depth 
     return;
   }
   if (!l) {
-    if (storedIds().length < MAX_WORLDS) await pull(st, id, null);
+    if (storedCount() < MAX_WORLDS) await pull(st, id, null);
     return;
   }
   if (k && k.rev === s.rev) {
@@ -681,25 +715,39 @@ export function requestSync(mode: 'full' | 'push' = 'full', delay = 0): void {
   }, delay);
 }
 
+/**
+ * 同一时间只做一件(一次同步,或者"载入"):前面那件做完再开始,做完接着把这期间排上的同步跑掉。
+ * 返回这一件的结果(不等后面接着跑的同步)
+ */
+async function serial<T>(job: () => Promise<T>): Promise<T> {
+  while (running) await running;
+  let release!: () => void;
+  running = new Promise<void>((r) => (release = r));
+  const result = Promise.resolve().then(job);
+  void (async () => {
+    await result.then(
+      () => {},
+      () => {},
+    );
+    for (let m = again; m; m = again) {
+      again = null;
+      await runOnce(m);
+    }
+    running = null;
+    release();
+    for (const f of [...afterRun]) f();
+  })();
+  return result;
+}
+
+/** 同步一次(正在做别的就排在后面);等它和接着跑的都做完 */
 async function kick(mode: 'full' | 'push') {
   if (running) {
     again = again === 'full' || mode === 'full' ? 'full' : 'push';
     return running;
   }
-  running = (async () => {
-    let m: 'full' | 'push' | null = mode;
-    while (m) {
-      again = null;
-      await runOnce(m);
-      m = again;
-    }
-  })();
-  try {
-    await running;
-  } finally {
-    running = null;
-    for (const f of [...afterRun]) f();
-  }
+  void serial(() => runOnce(mode));
+  return running;
 }
 
 /** 马上全看一遍,等它做完 */
@@ -750,6 +798,7 @@ export function inAccount(id: string): boolean {
 /** 用户删掉一个世界:记下来,告诉服务器(断网、没登录时等下次) */
 function onLocalDelete(id: string) {
   rejected.delete(id);
+  if (uploading.has(id)) deletedWhileUp.add(id);
   const st = active ?? readState();
   if (!st) return;
   const k = st.worlds[id];
@@ -782,6 +831,10 @@ function onLoggedIn() {
 
 /** 退出登录。keep = 这台设备上的世界留着(下次登录再同步);否则先全部同步好,再从这台设备上删掉 */
 export async function signOut(keep: boolean): Promise<{ ok: true } | { ok: false; message: string }> {
+  const old = keep ? 0 : legacyIds().length;
+  if (old) {
+    return { ok: false, message: `有 ${old} 个以前存的世界还存不进账号（浏览器存储满了，没能换成新的存法），现在删掉就没了。先把它们存成文件，或者选「留着」` };
+  }
   if (!keep && currentUnsaved()) {
     // 最新的改动只在这个页面里(浏览器存储满了,没写进去,也就没同步上):删了就没了
     return { ok: false, message: '正在看的这个世界最新的改动没能存进浏览器（存储满了），也就没同步上。先把它存成文件，或者选「留着」' };
@@ -871,6 +924,8 @@ export function _resetSyncForTest(): void {
   cycleToken = null;
   rejected.clear();
   offered.clear();
+  uploading.clear();
+  deletedWhileUp.clear();
   running = null;
   again = null;
   if (timer !== undefined) clearTimeout(timer);
