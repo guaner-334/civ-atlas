@@ -121,6 +121,8 @@ export function createWheelReader() {
       plain.set((kind = 'trackpad'));
     }
     if (kind === 'trackpad') return dx || dy ? { kind: 'pan', dx, dy } : null;
+    // Shift + 鼠标滚轮是横着滚:有的浏览器照样报在 deltaY 上,也不缩放
+    if (e.shiftKey) return null;
     return dy ? { kind: 'zoom', f: clampStep(Math.exp(-dy * WHEEL_RATE)) } : null;
   };
 }

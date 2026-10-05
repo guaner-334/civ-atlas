@@ -31,6 +31,13 @@ describe('鼠标滚轮', () => {
   });
   it('Shift + 滚轮(横向):不动地图', () => {
     expect(createWheelReader()(ev({ deltaX: 100, shiftKey: true }))).toBeNull();
+    // 有的浏览器按着 Shift 照样报在 deltaY 上
+    expect(createWheelReader()(ev({ deltaY: 100, shiftKey: true }))).toBeNull();
+    expect(createWheelReader()(ev({ deltaMode: 1, deltaY: 3, shiftKey: true }))).toBeNull();
+  });
+  it('一串滚轮中途按下 Shift:这几下不缩放,松开接着缩放', () => {
+    const out = run(createWheelReader(), [{ deltaY: -100 }, { deltaY: -100, shiftKey: true }, { deltaY: -100 }]);
+    expect(out.map((a) => a?.kind ?? null)).toEqual(['zoom', null, 'zoom']);
   });
   it('横向滚轮(按行滚、Windows 一格 100 像素、Mac 一格):不动地图,也不把这一串当成触控板', () => {
     for (const p of [{ deltaMode: 1, deltaX: 3 }, { deltaX: 100 }, { deltaX: -2 * MAC_TICK }]) {

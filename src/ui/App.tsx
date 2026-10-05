@@ -2257,7 +2257,7 @@ export function App() {
       const cx = g.clientX ?? mouseAt.current[0];
       const cy = g.clientY ?? mouseAt.current[1];
       touchRef.current();
-      if (getGlobeOn()) globeApi.current?.zoomBy(f, cx, cy);
+      if (getGlobeOn()) globeApi.current?.zoomBy(f, cx, cy, true);
       else zoomRef.current(cx - rect.left, cy - rect.top, f);
     };
     const end = () => {
