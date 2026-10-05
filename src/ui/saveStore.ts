@@ -245,13 +245,29 @@ function changed() {
 }
 // 别的标签页存了、删了世界(同步取回来的也算):这里跟着刷新"我的世界",云同步也看一眼
 if (typeof window !== 'undefined') {
-  window.addEventListener('storage', (e) => {
-    if (e.key === null || [PREFIX, THUMB, META, NOTES, LEGACY].some((p) => e.key!.startsWith(p))) {
-      // 别的标签页删了世界,可能腾出了地方
-      if (e.newValue === null) retryUnsaved();
-      changed();
+  window.addEventListener('storage', (e) => otherTabChanged(e.key, e.newValue));
+}
+
+/** 别的标签页改了浏览器存储(storage 事件;单测直接调):key = null 是整个清空 */
+export function otherTabChanged(key: string | null, newValue: string | null): void {
+  if (key !== null && ![PREFIX, THUMB, META, NOTES, LEGACY].some((p) => key.startsWith(p))) return;
+  const c = current;
+  // 整个清空:存过的当前世界也没了
+  const cleared = key === null && !!c && (c.kind === 'created' || (c.kind === 'draft' && !c.pristine)) && store().get(PREFIX + c.id) === null;
+  if (c && (key === PREFIX + c.id || cleared)) {
+    if ((newValue === null || cleared) && !c.gone) {
+      c.gone = true;
+      stopThumb();
+      showToast({ id: 'save', kind: 'warn', text: '这个世界在别的页面里删掉了', more: ['这里再改不会自动存下来；要留着就存成文件'], action: saveFileAction(), ttl: 0 });
+    } else if (newValue !== null) {
+      // 那边撤销了删除
+      c.gone = false;
     }
-  });
+  } else if (key !== null && newValue === null) {
+    // 别的标签页删了别的世界,可能腾出了地方
+    retryUnsaved();
+  }
+  changed();
 }
 
 /** 存档有变化时调 f(返回取消函数) */
@@ -732,6 +748,8 @@ interface Current {
   savedView?: SaveView;
   /** 最近一次没写进去(浏览器存储满了):最新的改动只在这个页面里 */
   unsaved?: boolean;
+  /** 别的标签页把它删了(删掉、退出登录时选了从这台设备上删掉):不再自动存,不然一改又存回去 */
+  gone?: boolean;
 }
 
 let current: Current | null = null;
@@ -809,7 +827,7 @@ function metaOf(c: Current, opened?: string): Meta {
 /** 存当前世界;返回写进去没有(没有当前世界、没改过不用存 = false) */
 function saveCurrent(force = false): boolean {
   const c = current;
-  if (!c) return false;
+  if (!c || c.gone) return false;
   const edits = getEdits();
   // 上次没写进去的(存储满了):修改没再变也再试一次
   if (!force && edits === c.saved && !c.unsaved) return false;

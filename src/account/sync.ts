@@ -312,6 +312,9 @@ let forks: { name: string; other: string }[] = [];
 /** 这一次同步里没同步上的 */
 let failedNow = new Map<string, string>();
 let busyNow = new Set<string>();
+/** 正在看的、账号里比这里新的世界(别的设备改过,还没「载入」):最近一次全看一遍时记下的 */
+let behind = new Set<string>();
+let behindNow = new Set<string>();
 
 /** 正在看的这个世界(不在"我的世界"那一页):别的设备的改动先不覆盖它 */
 /** 正在看的世界(不被别的设备的改动覆盖、删掉);因为它先放着没做的,回到"我的世界"时再全看一遍 */
@@ -392,6 +395,7 @@ async function upload(st: SyncState, id: string, l: Local, baseRev: number, revi
   }
   // 存上去的工夫为了腾地方被挤出浏览器的也算存好了:账号里的那份留着,有地方了再取回来
   st.worlds[id] = { rev: r.rev, sum: l.sum, at: nowIso() };
+  behind.delete(id);
 }
 
 /** 存上去;版本号对不上就按"全看一遍"的规矩合并 */
@@ -446,6 +450,7 @@ async function pull(st: SyncState, id: string, expect?: string | null): Promise<
   const l = localWorld(id);
   if (l) st.worlds[id] = { rev: w.rev, sum: l.sum, at: nowIso() };
   forgetOffer(id);
+  behind.delete(id);
   return true;
 }
 
@@ -611,7 +616,10 @@ async function reconcile(st: SyncState, id: string, s: CloudEntry | null, depth 
   }
   if (k && k.sum === l.sum) {
     // 只有服务器变了
-    if (pinned(id)) return offerReload(id, s.rev);
+    if (pinned(id)) {
+      behindNow.add(id);
+      return offerReload(id, s.rev);
+    }
     await pull(st, id, l.sum);
     return;
   }
@@ -741,6 +749,7 @@ async function cycleWith(st: SyncState, full: boolean): Promise<void> {
   }
 
   if (full) {
+    behindNow = new Set();
     const list = await net(() => listCloud());
     const server = new Map(list.map((e) => [e.id, e]));
     // 别的设备删了世界,可能腾出了地方:存不上去的再试一次
@@ -754,6 +763,7 @@ async function cycleWith(st: SyncState, full: boolean): Promise<void> {
       writeState(st);
       done(id);
     }
+    behind = behindNow;
   } else {
     for (const id of local.keys()) {
       // 按现在的样子(前面几个存上去的工夫,用户可能又改了、删了)
@@ -900,16 +910,12 @@ export async function syncNow(): Promise<SyncView> {
   return view;
 }
 
-/** 马上把改过的存上去(不看服务器那边),等它做完(分享前用:世界要先在账号里) */
-export async function pushNow(): Promise<SyncView> {
-  if (timer !== undefined && timerMode !== 'full') {
-    clearTimeout(timer);
-    timer = undefined;
-    timerMode = null;
-  }
-  if (running) return syncNow();
-  await kick('push');
-  return view;
+/**
+ * 正在看的这个世界在别的设备上改过、还没「载入」:账号里的比这里看到的新(看最近一次全看一遍;分享前先 syncNow)。
+ * 这时分享出去的会是那边的样子,不是眼前这个
+ */
+export function behindCloud(id: string): boolean {
+  return behind.has(id);
 }
 
 // ---------------------------------------------------------------------------
@@ -1118,6 +1124,8 @@ export function _resetSyncForTest(): void {
   cycleToken = null;
   rejected.clear();
   rejectedFor = null;
+  behind = new Set();
+  behindNow = new Set();
   roomMark = 0;
   lastAlive = new Set();
   offered.clear();

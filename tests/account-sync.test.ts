@@ -14,7 +14,7 @@ import { _resetToasts, getToast } from '../src/ui/toastStore';
 import { forgetNotes, listNotes, putNote } from '../src/ai/library';
 import { setServerForTest, setTimeoutForTest } from '../src/account/server';
 import { _resetSessionForTest, deleteAccount, fetchAuthOptions, getSession, login, logout, refreshSession, sendCode } from '../src/account/session';
-import { _resetSyncForTest, getSyncView, inAccount, pullWorld, signOut, startSync, syncNow, worldSync } from '../src/account/sync';
+import { _resetSyncForTest, behindCloud, getSyncView, inAccount, pullWorld, signOut, startSync, syncNow, worldSync } from '../src/account/sync';
 import { createShare, listShares, openShareCode, stopShare } from '../src/account/cloud';
 
 class FakeStorage {
@@ -1137,6 +1137,25 @@ describe('云同步:同一个网站开着几个标签页', () => {
     expect(a.map.get('civ-atlas:account')).toBe(theirs);
   });
 
+  it('登录等回话的工夫别的标签页登录又退出了:以后来的退出为准,这次的不算', async () => {
+    const a = new FakeStorage();
+    device(a);
+    const theirs = JSON.stringify({ token: 'tok-b', user: { id: 'u-b', account: 'b@example.com' } });
+    gate = (req) => {
+      if (new URL(req.url).pathname !== '/v1/auth/login') return;
+      gate = null;
+      // 别的标签页登录了 b(这里收到一次存储变化),又退出了(又一次)
+      a.map.set('civ-atlas:account', theirs);
+      refreshSession();
+      a.map.delete('civ-atlas:account');
+      refreshSession();
+    };
+    getSession();
+    await expect(login('writer@example.com', FAKE_CODE, FAKE_INVITE)).rejects.toMatchObject({ code: 'conflict' });
+    expect(getSession()).toBeNull();
+    expect(a.map.has('civ-atlas:account')).toBe(false);
+  });
+
   it('这里同步的工夫别的标签页删了一个世界:它记下的删除不被这里写回去的记录盖掉', async () => {
     const a = new FakeStorage();
     device(a);
@@ -1279,7 +1298,7 @@ describe('分享短链接', () => {
   });
 });
 
-describe('云同步:放满了、腾出地方、服务器不回话', () => {
+describe('云同步:放满了、服务器不回话、分享前、别的标签页删了', () => {
   const isWorld = (req: Request, id: string, method: string) => req.method === method && new URL(req.url).pathname === `/v1/worlds/${id}`;
   const full = () =>
     new Response(JSON.stringify({ error: { code: 'bad-request', message: '账号里最多存 1 个世界，删掉几个再同步' } }), {
@@ -1388,20 +1407,81 @@ describe('云同步:放满了、腾出地方、服务器不回话', () => {
     tick();
     const id = addWorld(99, '北境编年');
     setTimeoutForTest(50);
+    const answering = globalThis.fetch;
     try {
-      gate = (req) =>
-        new Promise<void>((_, reject) => {
-          req.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
-        });
+      // 连上了、一直不回话(直接看请求带的 signal:测试里另包一层 Request 的话,它跟着的那个可能被回收)
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(
+          (_u: string, init?: RequestInit) =>
+            new Promise<Response>((_, reject) => {
+              init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+            }),
+        ),
+      );
       const v = await syncNow();
       expect(v.phase).toBe('offline');
       expect(v.failed.has(id)).toBe(true);
       await expect(listShares()).rejects.toMatchObject({ code: 'network', message: expect.stringContaining('很久没有回话') });
-      gate = null;
+      vi.stubGlobal('fetch', answering);
       expect((await syncNow()).failed.size).toBe(0);
       expect(fake.users.get('writer@example.com')!.worlds.get(id)).toBeDefined();
     } finally {
       setTimeoutForTest(undefined);
     }
+  });
+
+  it('别的标签页把正在看的世界删了(退出时选了"删掉"):这里再改不存回去,存成文件照样能用', () => {
+    const a = new FakeStorage();
+    device(a);
+    const id = addWorld(7, '苍澜界');
+    const w = saveStore.loadWorld(id)!;
+    setEdits(w.save.edits);
+    saveStore.attachWorld({ id, params: w.save.params, check: w.save.check, kind: 'created', title: w.save.title, saved: w.save.edits });
+    setStage('world');
+    const unsub = saveStore.startAutoSave();
+    try {
+      // 别的标签页把世界全删了:这里收到一条条存储变化
+      for (const k of [...a.map.keys()]) {
+        if (!k.startsWith('wenming-ditu:')) continue;
+        a.map.delete(k);
+        saveStore.otherTabChanged(k, null);
+      }
+      expect(getToast()?.text).toContain('别的页面里删掉了');
+      tick();
+      setName('polity:c4567#0', '青渊');
+      saveStore.renameWorld(id, '新名字');
+      expect([...a.map.keys()].filter((k) => k.startsWith('wenming-ditu:'))).toEqual([]);
+      expect(saveStore.listWorlds()).toEqual([]);
+      expect(saveStore.currentSave()?.title).toBe('新名字');
+    } finally {
+      unsub();
+    }
+  });
+
+  it('正在看的世界在另一台设备上改过、还没「载入」:分享前同步一遍就知道账号里的比这里新;载入以后就不是了', async () => {
+    const a = new FakeStorage();
+    const b = new FakeStorage();
+    device(a);
+    const id = addWorld(7, '苍澜界');
+    await signIn();
+    device(b);
+    await signIn();
+    device(a);
+    tick();
+    saveStore.renameWorld(id, '那边的名字');
+    await syncNow();
+
+    device(b);
+    const w = saveStore.loadWorld(id)!;
+    setEdits(w.save.edits);
+    saveStore.attachWorld({ id, params: w.save.params, check: w.save.check, kind: 'created', title: w.save.title, saved: w.save.edits });
+    setStage('world');
+    await syncNow();
+    expect(behindCloud(id)).toBe(true);
+    expect(await pullWorld(id)).toBe(true);
+    expect(behindCloud(id)).toBe(false);
+    await syncNow();
+    expect(behindCloud(id)).toBe(false);
   });
 });

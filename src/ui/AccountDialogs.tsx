@@ -27,7 +27,7 @@ import { refreshOfficialAccount, useOfficialAccount } from '../ai/providers/offi
 import { useAiOn } from '../ai/client';
 import { ServerError } from '../account/server';
 import { deleteAccount, displayName, fetchAuthOptions, getSession, login, pendingInvite, sendCode, useSession, type AuthOptions } from '../account/session';
-import { accountDeleted, pushNow, signOut, useSyncView } from '../account/sync';
+import { accountDeleted, behindCloud, signOut, syncNow, useSyncView } from '../account/sync';
 import { createShare, listShares, listTrash, shortLink, stopShare, type ShareInfo, type TrashEntry } from '../account/cloud';
 import './account.css';
 
@@ -763,7 +763,6 @@ function DeleteDialog({ phone, onClose, onBack }: { phone: boolean; onClose: () 
 /** error 时带着 share = 链接还开着(停分享没成功),开关和链接照旧显示开着 */
 type ShareState = { phase: 'prep' } | { phase: 'on'; share: ShareInfo } | { phase: 'off' } | { phase: 'error'; message: string; share?: ShareInfo };
 
-/** 分享前把改过的存上去;这个世界没存上就不开分享(不然链接给出去的是账号里的旧样子) */
 /** 分享是替哪一次登录做的:等的工夫别的标签页退出、换了账号就停下(后面的请求会带上新账号的令牌,链接就开到新账号名下了) */
 class ShareAborted extends Error {}
 function sameLogin(token: string | undefined): void {
@@ -774,15 +773,20 @@ function sameLogin(token: string | undefined): void {
 const UNSAVED_WHY = '这个世界最新的改动没能存进浏览器（存储满了），也就没存进账号。先删掉几个世界腾出地方，再分享';
 const unsavedHere = (worldId: string) => currentWorld()?.id === worldId && currentUnsaved();
 
+/**
+ * 分享前同步一遍(全看一遍,改过的存上去):这个世界没存上就不开分享(不然链接给出去的是账号里的旧样子);
+ * 账号里的比这里新(别的设备改过、还没「载入」)也不开(不然给出去的不是眼前这个)
+ */
 async function pushForShare(worldId: string, token: string | undefined): Promise<void> {
   sameLogin(token);
   if (unsavedHere(worldId)) throw new Error(UNSAVED_WHY);
-  const v = await pushNow();
+  const v = await syncNow();
   sameLogin(token);
   if (v.phase === 'offline') throw new ServerError(0, 'network', v.message ?? '连不上服务器');
   const why = v.failed.get(worldId);
   if (why !== undefined) throw new Error(`这个世界最新的样子还没存进账号：${why}`);
   if (unsavedHere(worldId)) throw new Error(UNSAVED_WHY);
+  if (behindCloud(worldId)) throw new Error('这个世界在另一台设备上改过，账号里的比这里新：先点「载入」换成那边的样子，再分享');
 }
 
 function ShareDialog({ phone, worldId, title, onClose }: { phone: boolean; worldId: string; title: string; onClose: () => void }) {

@@ -55,6 +55,9 @@ function sanitize(v: unknown): Session | null {
 
 let session: Session | null | undefined;
 let version = 0;
+/** 登录换了几次(登录、退出、换账号,这里或别的标签页):等回话的工夫换过又换回来也算换过 */
+let swaps = 0;
+const tokenOf = (s: Session | null | undefined) => s?.token ?? null;
 const subs = new Set<() => void>();
 function emit() {
   version++;
@@ -75,6 +78,7 @@ function persist(s: Session | null): boolean {
 }
 
 function write(s: Session | null) {
+  if (tokenOf(s) !== tokenOf(session)) swaps++;
   session = s;
   persist(s);
   // 以前"我们的 AI"的令牌还留着的(当初挪过来时没写进去):登录、退出以后就作废了,不然下次打开又挪回来
@@ -143,6 +147,7 @@ export function refreshSession(): void {
     return;
   }
   if (JSON.stringify(s) === JSON.stringify(session)) return;
+  if (tokenOf(s) !== tokenOf(session)) swaps++;
   session = s;
   emit();
 }
@@ -259,15 +264,16 @@ export function onLogin(f: (s: Session) => void): () => void {
 
 export async function login(account: string, code: string, inviteCode?: string): Promise<LoginResult> {
   const before = load()?.token ?? null;
+  const seen = swaps;
   const r = await call<{ token?: string; user?: { id?: unknown; account?: unknown; name?: unknown }; credits?: number }>('/v1/auth/login', {
     method: 'POST',
     body: { account: account.trim(), code: code.trim(), invite: inviteCode?.trim() || undefined },
   });
   const s = sanitize({ token: r.token, user: { account: account.trim(), ...r.user } });
   if (!s) throw new ServerError(200, 'bad-response', '登录失败：服务器没给令牌');
-  // 等回话的工夫别的标签页登录了(或退出了):以那边为准,这次的令牌作废
+  // 等回话的工夫别的标签页登录了(或退出了,登录了又退出了):以那边为准,这次的令牌作废
   refreshSession();
-  if ((load()?.token ?? null) !== before) {
+  if (swaps !== seen || (load()?.token ?? null) !== before) {
     if (serverBase()) void call('/v1/auth/logout', { method: 'POST', token: s.token }).catch(() => {});
     throw new ServerError(409, 'conflict', '别的页面里已经换了登录，这里没有登录');
   }
