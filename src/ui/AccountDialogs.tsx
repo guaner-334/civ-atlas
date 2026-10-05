@@ -783,6 +783,8 @@ async function pushForShare(worldId: string, token: string | undefined): Promise
   const v = await syncNow();
   sameLogin(token);
   if (v.phase === 'offline') throw new ServerError(0, 'network', v.message ?? '连不上服务器');
+  // 没同步完(服务器出错之类):不知道账号里是不是眼前这个样子,先不开
+  if (v.phase !== 'idle') throw new Error(v.message ?? '没能和账号同步，稍后再试');
   const why = v.failed.get(worldId);
   if (why !== undefined) throw new Error(`这个世界最新的样子还没存进账号：${why}`);
   if (unsavedHere(worldId)) throw new Error(UNSAVED_WHY);
@@ -797,17 +799,21 @@ function ShareDialog({ phone, worldId, title, onClose }: { phone: boolean; world
   useEffect(() => {
     let live = true;
     const token = getSession()?.token;
+    // 每个请求发出去之前都看一眼:窗口还开着(关了就不再替用户打开分享)、还是同一次登录(请求带的是发出去那一刻登着的令牌)
+    const still = () => {
+      if (!live) throw new ShareAborted('关了');
+      sameLogin(token);
+    };
     void (async () => {
       // 世界要先在账号里:只是看看的(别人分享的)先存进"我的世界",再把改过的存上去
       if (!isStored(worldId)) keepWorld(worldId);
       await pushForShare(worldId, token);
-      // 每个请求发出去之前都看一眼还是不是同一次登录(请求带的是发出去那一刻登着的令牌)
-      sameLogin(token);
+      still();
       const list = await listShares();
-      sameLogin(token);
+      still();
       const share = list.find((x) => x.worldId === worldId) ?? (await createShare(worldId));
-      sameLogin(token);
-      if (live) setSt({ phase: 'on', share });
+      still();
+      setSt({ phase: 'on', share });
     })().catch((e) => {
       if (!live || e instanceof ShareAborted) return;
       const c = codeOf(e);

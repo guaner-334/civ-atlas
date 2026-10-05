@@ -3,7 +3,8 @@
  * 都用这一个账号。
  *
  * - 登录令牌存在 localStorage 'civ-atlas:account'(浏览器不让存就只在内存里);退出登录才删。
- *   以前"我们的 AI"的令牌存在 AI 密钥里(ai/settings.ts),第一次读的时候挪过来
+ *   以前单独为"我们的 AI"登录的令牌(存在 AI 密钥里,ai/settings.ts)不沿用、直接作废:网站账号还会把世界同步进账号,
+ *   要用户自己在登录窗里重新登录才算
  * - 服务器回 401(令牌过期 / 作废):清掉令牌,算退出
  * - 别的标签页登录、退出、换了账号:跟着变(localStorage 的 storage 事件)
  * - 邀请链接(网址里的 invite=):记下邀请码,登录窗里自动填上
@@ -81,7 +82,7 @@ function write(s: Session | null) {
   if (tokenOf(s) !== tokenOf(session)) swaps++;
   session = s;
   persist(s);
-  // 以前"我们的 AI"的令牌还留着的(当初挪过来时没写进去):登录、退出以后就作废了,不然下次打开又挪回来
+  // 以前单独为"我们的 AI"登录的令牌还留着的:不再用了
   if (getSecrets().official) setSecret('official', undefined);
   emit();
 }
@@ -95,14 +96,10 @@ function load(): Session | null {
   } catch {
     s = null;
   }
-  // 以前"我们的 AI"的令牌存在 AI 密钥里:挪过来(网站账号和 AI 用同一个令牌)。
+  // 以前单独为"我们的 AI"登录的令牌(存在 AI 密钥里)不挪过来当网站账号:登录网站账号就会把世界同步进账号,
+  // 这得用户自己在登录窗里登录才算,不能打开网页就悄悄开始同步。作废掉,AI 要用就重新登录。
   // 可能正在渲染,AI 设置那边的清除放到之后做(不在渲染中途通知别的组件)
-  const old = getSecrets().official;
-  if (old) {
-    if (!s) s = { token: old.token, user: { id: '', account: old.account ?? '' } };
-    // 写进去了才清掉原来那份(存储满了写不进去:原来那份留着,下次打开再挪,不然刷新一下登录就没了)
-    if (persist(s)) queueMicrotask(() => setSecret('official', undefined));
-  }
+  if (getSecrets().official) queueMicrotask(() => setSecret('official', undefined));
   session = s;
   return s;
 }

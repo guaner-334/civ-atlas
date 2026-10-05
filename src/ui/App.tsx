@@ -147,6 +147,7 @@ import {
   persistent,
   refreshThumb,
   renameWorld,
+  setReopenHandler,
   setThumbMaker,
   setWorldStats,
   startAutoSave,
@@ -1346,16 +1347,18 @@ export function App() {
   showHomeRef.current = showHome;
   const openStoredRef = useRef(openStored);
   openStoredRef.current = openStored;
-  // 云同步:登录了就开始(account/sync.ts);正在看的世界在别的设备上改过,点"载入"重新打开它;账号窗里点"最近删除"回到我的世界
+  // 云同步:登录了就开始(account/sync.ts);正在看的世界在别的设备上、别的页面里改过,点"载入"重新打开它;账号窗里点"最近删除"回到我的世界
   useEffect(() => {
     const stop = startSync();
     setReloadHandler((id) => openStoredRef.current(id));
+    setReopenHandler((id) => openStoredRef.current(id));
     setGoHome(() => {
       if (getStage().stage !== 'home') showHomeRef.current();
     });
     return () => {
       stop();
       setReloadHandler(null);
+      setReopenHandler(null);
       setGoHome(null);
     };
   }, []);

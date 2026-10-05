@@ -148,40 +148,27 @@ describe('网站账号', () => {
     expect(getSession()).not.toBeNull();
   });
 
-  it('以前为"我们的 AI"登录的令牌挪进网站账号', async () => {
+  it('以前单独为"我们的 AI"登录的令牌不当成网站账号(不悄悄开始同步世界),作废掉;别的 AI 密钥留着', async () => {
     const s = new FakeStorage();
     s.setItem('civ-atlas:ai-settings', JSON.stringify({ remember: true }));
     s.setItem('civ-atlas:ai-secrets', JSON.stringify({ deepseek: 'sk-keep-0123456789', official: { token: 'old-token', account: 'a@example.com' } }));
     const { resetAiSettingsForTest, getSecrets } = await import('../src/ai/settings');
     resetAiSettingsForTest();
     device(s);
-    expect(getSession()).toMatchObject({ token: 'old-token', user: { account: 'a@example.com' } });
+    addWorld(7, '苍澜界');
+    const calls: string[] = [];
+    gate = (req) => void calls.push(req.url);
+    expect(getSession()).toBeNull();
     await Promise.resolve();
     expect(getSecrets().official).toBeUndefined();
     expect(getSecrets().deepseek).toBe('sk-keep-0123456789');
-    expect(JSON.parse(s.getItem('civ-atlas:account')!).token).toBe('old-token');
-    resetAiSettingsForTest();
-  });
-  it('以前的令牌挪过来时写不进浏览器(存储满了):原来那份留着,刷新以后还是登录着', async () => {
-    const s = new FakeStorage();
-    s.setItem('civ-atlas:ai-settings', JSON.stringify({ remember: true }));
-    s.setItem('civ-atlas:ai-secrets', JSON.stringify({ official: { token: 'old-token', account: 'a@example.com' } }));
-    s.deny = (k) => k === 'civ-atlas:account';
-    const { resetAiSettingsForTest, getSecrets } = await import('../src/ai/settings');
-    resetAiSettingsForTest();
-    device(s);
-    expect(getSession()).toMatchObject({ token: 'old-token' });
-    await Promise.resolve();
-    expect(getSecrets().official).toMatchObject({ token: 'old-token' });
-    // 刷新:还是登录着
-    resetAiSettingsForTest();
-    _resetSessionForTest();
-    expect(getSession()).toMatchObject({ token: 'old-token' });
-    // 退出以后原来那份也作废(不然下次打开又登录上了)
-    await logout();
+    expect(s.getItem('civ-atlas:account')).toBeNull();
+    // 同步一遍、刷新:还是没登录,世界一个也没往账号里存
+    expect((await syncNow()).phase).toBe('off');
     resetAiSettingsForTest();
     _resetSessionForTest();
     expect(getSession()).toBeNull();
+    expect(calls.filter((u) => u.includes('/v1/worlds'))).toEqual([]);
     resetAiSettingsForTest();
   });
 });
@@ -514,6 +501,27 @@ describe('云同步:边改边同步、出错、换账号', () => {
     saveStore.renameWorld(id, '同一个名字');
     await syncNow();
     expect(titles()).toEqual(['同一个名字']);
+  });
+
+  it('两台设备先后改成同一个名字(只差存的时刻):不算两边都改过', async () => {
+    const a = new FakeStorage();
+    const b = new FakeStorage();
+    device(a);
+    const id = addWorld(7, '苍澜界');
+    await signIn();
+    device(b);
+    await signIn();
+
+    tick();
+    device(a);
+    saveStore.renameWorld(id, '同一个名字');
+    await syncNow();
+    tick();
+    device(b);
+    saveStore.renameWorld(id, '同一个名字');
+    await syncNow();
+    expect(titles()).toEqual(['同一个名字']);
+    expect(cloudTitles()).toEqual(['同一个名字']);
   });
 
   it('换个账号登录再换回来:没登录时删掉的世界,换回原来的账号照样跟着删', async () => {
@@ -1590,5 +1598,71 @@ describe('云同步:放满了、服务器不回话、分享前、别的标签页
     } finally {
       unsub();
     }
+  });
+  it('别的标签页把正在看的世界存成了别的样子(那边取回了另一台设备改的):这里的旧样子不再自动存、不盖掉那边的;点「载入」重新打开', () => {
+    const a = new FakeStorage();
+    device(a);
+    const id = addWorld(7, '苍澜界');
+    const w = saveStore.loadWorld(id)!;
+    setEdits(w.save.edits);
+    saveStore.attachWorld({ id, params: w.save.params, check: w.save.check, kind: 'created', title: w.save.title, saved: w.save.edits });
+    setStage('world');
+    const unsub = saveStore.startAutoSave();
+    const reopened: string[] = [];
+    saveStore.setReopenHandler((x) => reopened.push(x));
+    try {
+      const key = `wenming-ditu:world:${id}`;
+      const mine = a.map.get(key)!;
+      // 那边删了又撤销(放回来的就是这里存的那份):照样接着自动存
+      a.map.delete(key);
+      saveStore.otherTabChanged(key, null);
+      expect(getToast()?.text).toContain('别的页面里删掉了');
+      a.map.set(key, mine);
+      saveStore.otherTabChanged(key, mine);
+      expect(getToast()).toBeNull();
+      tick();
+      saveStore.renameWorld(id, '这边的名字');
+      expect(saveStore.loadWorld(id)?.save.title).toBe('这边的名字');
+
+      // 那边存成了别的样子
+      tick();
+      const theirs = JSON.stringify({ ...JSON.parse(a.map.get(key)!), title: '那边的名字', savedAt: new Date().toISOString() });
+      a.map.set(key, theirs);
+      saveStore.otherTabChanged(key, theirs);
+      expect(getToast()?.text).toContain('别的页面里改过');
+      tick();
+      setName('polity:c4567#0', '青渊');
+      saveStore.renameWorld(id, '又改了');
+      expect(a.map.get(key)).toBe(theirs);
+      getToast()!.action!.onClick();
+      expect(reopened).toEqual([id]);
+    } finally {
+      unsub();
+      saveStore.setReopenHandler(null);
+    }
+  });
+
+  it('切回网页时断网、那次同步没成,紧接着网连上了:马上再同步一遍(不等下一分钟)', async () => {
+    const win = new EventTarget();
+    const doc = Object.assign(new EventTarget(), { visibilityState: 'visible' });
+    vi.stubGlobal('window', win);
+    vi.stubGlobal('document', doc);
+    const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    const until = async (ok: () => boolean) => {
+      for (let i = 0; i < 100 && !ok(); i++) await wait(10);
+      return ok();
+    };
+    device(new FakeStorage());
+    const id = addWorld(7, '苍澜界');
+    await signIn();
+    await wait(30);
+    online = false;
+    win.dispatchEvent(new Event('focus'));
+    expect(await until(() => getSyncView().phase === 'offline')).toBe(true);
+    tick();
+    saveStore.renameWorld(id, '断网时改的');
+    online = true;
+    win.dispatchEvent(new Event('online'));
+    expect(await until(() => getSyncView().phase === 'idle' && cloudTitles()[0] === '断网时改的')).toBe(true);
   });
 });

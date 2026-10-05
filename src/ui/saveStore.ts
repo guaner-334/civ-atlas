@@ -248,6 +248,12 @@ if (typeof window !== 'undefined') {
   window.addEventListener('storage', (e) => otherTabChanged(e.key, e.newValue));
 }
 
+/** 别的页面里改过正在看的世界,点"载入"重新打开它(App 给) */
+let reopenHandler: ((id: string) => void) | null = null;
+export function setReopenHandler(f: ((id: string) => void) | null) {
+  reopenHandler = f;
+}
+
 /** 别的标签页改了浏览器存储(storage 事件;单测直接调):key = null 是整个清空 */
 export function otherTabChanged(key: string | null, newValue: string | null): void {
   if (key !== null && ![PREFIX, THUMB, META, NOTES, LEGACY].some((p) => key.startsWith(p))) return;
@@ -255,13 +261,41 @@ export function otherTabChanged(key: string | null, newValue: string | null): vo
   // 整个清空:存过的当前世界也没了
   const cleared = key === null && !!c && (c.kind === 'created' || (c.kind === 'draft' && !c.pristine)) && store().get(PREFIX + c.id) === null;
   if (c && (key === PREFIX + c.id || cleared)) {
-    if ((newValue === null || cleared) && !c.gone) {
-      c.gone = true;
-      stopThumb();
-      showToast({ id: 'save', kind: 'warn', text: '这个世界在别的页面里删掉了', more: ['这里再改不会自动存下来；要留着就存成文件'], action: saveFileAction(), ttl: 0 });
-    } else if (newValue !== null) {
-      // 那边撤销了删除
-      c.gone = false;
+    const now = cleared ? null : newValue;
+    if (now !== null && now === c.wrote) {
+      // 那边撤销了删除(放回来的就是这里存的那份):接着自动存
+      if (c.gone) clearToast('other-tab');
+      c.gone = undefined;
+    } else {
+      // 删了,或者存成了别的样子(那边也开着它改了、同步取回了另一台设备改过的):这里的还是旧的,不再自动存,不然一改就把那边的盖掉
+      const why = now === null ? 'deleted' : 'changed';
+      if (c.gone !== why) {
+        if (!c.gone) stopThumb();
+        c.gone = why;
+        const id = c.id;
+        if (why === 'deleted') {
+          showToast({ id: 'other-tab', kind: 'warn', text: '这个世界在别的页面里删掉了', more: ['这里再改不会自动存下来；要留着就存成文件'], action: saveFileAction(), ttl: 0 });
+        } else {
+          const reopen = reopenHandler;
+          showToast({
+            id: 'other-tab',
+            kind: 'warn',
+            text: '这个世界在别的页面里改过',
+            more: ['这里再改不会自动存下来；载入那边改过的样子'],
+            action: reopen
+              ? {
+                  label: '载入',
+                  act: 'other-tab-reload',
+                  onClick: () => {
+                    clearToast('other-tab');
+                    reopen(id);
+                  },
+                }
+              : saveFileAction(),
+            ttl: 0,
+          });
+        }
+      }
     }
   } else if (key !== null && newValue === null) {
     // 别的标签页删了别的世界,可能腾出了地方
@@ -554,7 +588,8 @@ function writeSave(id: string, save: SaveFile, meta?: Meta): boolean {
   const kv = store();
   const fresh = kv.get(PREFIX + id) === null;
   evicted = [];
-  let ok = put(PREFIX + id, JSON.stringify(save), id);
+  const text = JSON.stringify(save);
+  let ok = put(PREFIX + id, text, id);
   if (ok && meta && !writeMeta(id, meta)) {
     if (fresh) kv.remove(PREFIX + id);
     ok = false;
@@ -574,6 +609,7 @@ function writeSave(id: string, save: SaveFile, meta?: Meta): boolean {
     reportEvicted('count');
   }
   if (ok) {
+    if (current?.id === id) current.wrote = text;
     if (storageFull) {
       storageFull = false;
       clearToast('storage');
@@ -748,8 +784,13 @@ interface Current {
   savedView?: SaveView;
   /** 最近一次没写进去(浏览器存储满了):最新的改动只在这个页面里 */
   unsaved?: boolean;
-  /** 别的标签页把它删了(删掉、退出登录时选了从这台设备上删掉):不再自动存,不然一改又存回去 */
-  gone?: boolean;
+  /**
+   * 别的标签页把它删了(删掉、退出登录时选了从这台设备上删掉)、或者存成了别的样子(那边也开着它改了、同步取回了另一台设备改过的):
+   * 不再自动存,不然一改又存回去、把那边的盖掉
+   */
+  gone?: 'deleted' | 'changed';
+  /** 浏览器里存着的这个世界、这里知道的最新一份(这里写进去的、打开时存着的):别的标签页写的和它不一样 = 那边改过 */
+  wrote?: string | null;
 }
 
 let current: Current | null = null;
@@ -934,13 +975,21 @@ export function attachWorld(spec: AttachSpec) {
     // 刚从文件打开的(先存了、再生成):还没有缩略图,截一张
     if (store().get(THUMB + spec.id) === null) scheduleThumb(spec.id);
   }
+  current.wrote = store().get(PREFIX + spec.id);
   changed();
 }
 
 /** 回到我的世界、又点开下面一直开着的这个世界(不用重新打开):记一下"最近打开" */
 export function markOpened(id: string) {
   const c = current;
-  if (!c || c.id !== id || store().get(PREFIX + id) === null) return;
+  const text = store().get(PREFIX + id);
+  if (!c || c.id !== id || text === null) return;
+  // 别的页面里存过、但和这里开着的一样(App 比过,只差投影之类):以存着的为准,接着自动存
+  if (c.gone) {
+    c.gone = undefined;
+    c.wrote = text;
+    clearToast('other-tab');
+  }
   touchMeta(id, metaOf(c, new Date().toISOString()));
   changed();
 }

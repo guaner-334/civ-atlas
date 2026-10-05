@@ -197,13 +197,16 @@ function canon(v: unknown): string {
   );
 }
 
-/** 存档原文 → 排好序的样子(存档大,同一份只算一次) */
+/** 存档原文 → 排好序的样子(不算存的时刻;存档大,同一份只算一次) */
 const canonSaves = new Map<string, string>();
 function canonSave(text: string): string {
   let c = canonSaves.get(text);
   if (c === undefined) {
     try {
-      c = canon(JSON.parse(text));
+      const save: unknown = JSON.parse(text);
+      // 存的时刻不算内容:两台设备各自做了一样的改动(比如改成同一个名字),只差存的时刻,不算两边都改了
+      if (save && typeof save === 'object' && !Array.isArray(save)) delete (save as { savedAt?: unknown }).savedAt;
+      c = canon(save);
     } catch {
       c = text;
     }
@@ -1123,12 +1126,14 @@ export function startSync(): () => void {
     requestSync('full', 0);
   };
   const onVisible = () => document.visibilityState === 'visible' && onFocus();
+  // 网连上了:不管刚才是不是因为切回来同步过(那次可能正因为断网没成),马上再来一遍
+  const onOnline = () => requestSync('full', 0);
   const every = setInterval(() => {
     if (typeof document === 'undefined' || document.visibilityState !== 'hidden') requestSync('full', 0);
   }, 60_000);
   if (typeof window !== 'undefined') {
     window.addEventListener('focus', onFocus);
-    window.addEventListener('online', onFocus);
+    window.addEventListener('online', onOnline);
     document.addEventListener('visibilitychange', onVisible);
   }
   if (getSession()) {
@@ -1148,7 +1153,7 @@ export function startSync(): () => void {
     timer = undefined;
     if (typeof window !== 'undefined') {
       window.removeEventListener('focus', onFocus);
-      window.removeEventListener('online', onFocus);
+      window.removeEventListener('online', onOnline);
       document.removeEventListener('visibilitychange', onVisible);
     }
   };
