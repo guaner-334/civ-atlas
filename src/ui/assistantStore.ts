@@ -5,9 +5,10 @@
  *   sendAsk(ctx, text)       发一句话:按现在的世界跑一次助手(每一步、说到一半的话都实时更新到这一轮)
  *   stopAsk()                停下正在做的那一轮(已经做完的步骤留着)
  *   toggleItem(turn, i)      确认单上勾 / 不勾第 i 条
- *   applyProposal(turn, now) 执行勾着的几条:一次 setEdits(App 在后台重推,推完提示条"已按你说的改写"带撤销)。
+ *   applyProposal(turn, now) 执行勾着的几条:一次合进修改(App 在后台重推,推完提示条"已按你说的改写"带撤销)。
  *                            发出去之后世界没再改过、现在也没在重推、世界的阶段(新建 / 建好)没变才能执行
  *   undoProposal(turn)       撤销执行过的那一轮(只拿掉这一轮加的修改)
+ *   redoProposal(turn)       撤销过的那一轮再做一遍(⇧⌘Z;执行和撤销都记进修改的撤销记录,见 editsStore.ts、undo.ts)
  *   dismissProposal(turn)    不要这份确认单
  *   previewProposal(turn)    先在地图上看看:地图、左边卡片、时间轴换成试推演的历史(App 读 preview);再点一下回到现在
  *   pickName(turn, i)        起名的候选里挑一个改名
@@ -50,7 +51,7 @@ import {
 } from '../ai/prompts/names';
 import { HISTORY_STYLES, type HistoryLength, type HistoryScope, type HistoryStyle } from '../ai/prompts/history';
 import { getBook, startBook } from './bookStore';
-import { getEdits, setEdits, setName, subscribeEdits } from './editsStore';
+import { commitEdits, getEdits, revertEdits, setName, subscribeEdits } from './editsStore';
 import { currentWorld } from './saveStore';
 import { setCivTime, setSelection, type MapSelection } from './civView';
 import { requestFly } from './panelStore';
@@ -560,12 +561,13 @@ export function applyProposal(id: number, now: { busy?: boolean }): string | nul
   save();
   const undo = () => undoProposal(id);
   // 只改名:不用重推,当场说;有干预 / 改地形:App 推完再说(带撤销)
+  // 执行和撤销都记进修改的撤销记录(⌘Z / ⇧⌘Z 经 undo.ts 回到这里的 undoProposal / redoProposal)
   if (after.interventions === before.interventions && after.terrain === before.terrain) {
-    setEdits(after);
+    commitEdits(after, { id, kind: 'apply' });
     showToast({ id: 'resim-done', kind: 'ok', text: '已按你说的改名', action: { label: '撤销', act: 'rw-undo', onClick: undo } });
   } else {
     noteRewrite({ kind: 'apply', turn: id, before, after, edits: after, undo });
-    setEdits(after);
+    commitEdits(after, { id, kind: 'apply' });
   }
   return null;
 }
@@ -582,11 +584,31 @@ export function undoProposal(id: number) {
   save();
   if (next === now) return;
   if (next.interventions === now.interventions && next.terrain === now.terrain) {
-    setEdits(next);
+    commitEdits(next, { id, kind: 'undo' });
     showToast({ id: 'resim-done', kind: 'ok', text: '已撤销这次改写', ttl: 4000 });
   } else {
     noteRewrite({ kind: 'undo', turn: id, before: a.before, after: a.after, edits: next });
-    setEdits(next);
+    commitEdits(next, { id, kind: 'undo' });
+  }
+}
+
+/** 撤销过的这一轮再做一遍(⇧⌘Z;之后没再改过 = 正好回到执行后的样子,改过别的 = 只把这一轮的修改放回去) */
+export function redoProposal(id: number) {
+  const t = state.turns.find((x) => x.id === id);
+  const a = t?.applied;
+  if (!t || !a || !a.undone || t.lock !== state.lock) return;
+  const now = getEdits();
+  const next = revertEdits(now, a.before, a.after);
+  patch(id, { applied: { ...a, undone: false } });
+  save();
+  if (next === now) return;
+  const undo = () => undoProposal(id);
+  if (next.interventions === now.interventions && next.terrain === now.terrain) {
+    commitEdits(next, { id, kind: 'apply' });
+    showToast({ id: 'resim-done', kind: 'ok', text: '已按你说的改名', action: { label: '撤销', act: 'rw-undo', onClick: undo } });
+  } else {
+    noteRewrite({ kind: 'apply', turn: id, before: a.before, after: a.after, edits: next, undo });
+    commitEdits(next, { id, kind: 'apply' });
   }
 }
 

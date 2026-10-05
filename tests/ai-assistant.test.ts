@@ -15,6 +15,7 @@ import { bordersAt, nameAt } from '../src/ai/prompts/rewrite';
 import { ownersAt } from '../src/gen/civ/timeline';
 import { clearEdits, getEdits, setEdits } from '../src/ui/editsStore';
 import { takeRewriteNote } from '../src/ui/rewriteStore';
+import { redoLastEdit, undoLastEdit } from '../src/ui/undo';
 import { getCivTime, getSelection, resetCivTime, setSelection } from '../src/ui/civView';
 import { _resetBook, getBook, setBookContext } from '../src/ui/bookStore';
 import { _resetToasts, getToast } from '../src/ui/toastStore';
@@ -273,6 +274,35 @@ describe('助手面板', () => {
     expect(getEdits()).toBe(before);
     expect(takeRewriteNote(getEdits())).toMatchObject({ kind: 'undo', turn: id });
     expect(turn(id).applied).toMatchObject({ undone: true });
+  });
+
+  it('⌘Z / ⇧⌘Z:执行过的一轮也能撤销、再做一遍(对话里的"已执行 / 已撤销"跟着变,推完的提示和点撤销一样)', async () => {
+    setTrialRunner(runner);
+    const start = getEdits();
+    const id = await sendAsk(ctx(), `让${wardName}多撑一阵`);
+    expect(applyProposal(id, {})).toBeNull();
+    const after = getEdits();
+    takeRewriteNote(after);
+    const applied = () => turn(id).applied;
+    expect(undoLastEdit()).toBe(true);
+    expect(getEdits()).toBe(start);
+    expect(applied()).toMatchObject({ undone: true });
+    expect(takeRewriteNote(getEdits())).toMatchObject({ kind: 'undo', turn: id });
+    expect(redoLastEdit()).toBe(true);
+    expect(getEdits()).toEqual(after);
+    expect(applied()).toMatchObject({ undone: false });
+    const again = takeRewriteNote(getEdits())!;
+    expect(again).toMatchObject({ kind: 'apply', turn: id });
+    expect(typeof again.undo).toBe('function');
+    // 点了提示条上的"撤销"也记一步:⌘Z 把它退回去 = 又执行了,⇧⌘Z 再撤销
+    again.undo!();
+    expect(getEdits().interventions).toEqual([]);
+    expect(undoLastEdit()).toBe(true);
+    expect(getEdits()).toEqual(after);
+    expect(applied()).toMatchObject({ undone: false });
+    expect(redoLastEdit()).toBe(true);
+    expect(getEdits().interventions).toEqual([]);
+    expect(applied()).toMatchObject({ undone: true });
   });
 
   it('世界在这之后改过:不能执行、不能先看;不要的确认单不能再执行', async () => {

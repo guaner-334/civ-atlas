@@ -1,6 +1,6 @@
 import './theme.css';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import { createPortal } from 'react-dom';
+import { createPortal, flushSync } from 'react-dom';
 import { DEFAULT_PARAMS, type World, type WorldParams } from '../gen/world';
 import type { Raster } from '../gen/raster';
 import { renderRealistic } from '../render/realistic';
@@ -70,6 +70,8 @@ import {
   setCivShow,
   setSelection,
   startCivReplay,
+  stepYear,
+  togglePlayback,
   useChronicle,
   useCivHighlight,
   useChroniclePick,
@@ -92,7 +94,13 @@ import {
   type WorldEdits,
 } from '../gen/edits';
 import { sameTerrain } from '../gen/terrainEdits';
-import { clearEdits, getEdits, removeIntervention, setEdits, useEdits } from './editsStore';
+import { clearEditHistory, clearEdits, getEdits, removeIntervention, setEdits, undoTerrainOp, useEdits } from './editsStore';
+import { redoLastEdit, undoLastEdit } from './undo';
+import { useShortcuts } from './useShortcuts';
+import { ShortcutsHost, openShortcuts } from './ShortcutsDialog';
+import { TipLayer } from './Tips';
+import { openSaveMenu } from './SaveMenu';
+import { replayStart } from './timelineLayout';
 import {
   NEWER_WARNING,
   STALE_WARNING,
@@ -147,6 +155,7 @@ import { getPolityPick, interventionActorThen, interventionDoneText, setPickHove
 import { Inspector } from './Inspector';
 import { TargetLayer } from './TargetPlates';
 import { FLY_MS, curvedFly, easeOutCubic, flatFly, selectionFocus, selectionKey, sideRoom, phoneFree, type FlyGoal } from './flyTo';
+import { collapseSide, expandSide, getSide, setSideHold, useSide } from './sideStore';
 import { getPanel, setWorldSheet, usePanel } from './panelStore';
 import { closeOverview } from './overviewStore';
 import { NewWorld } from './NewWorld';
@@ -164,7 +173,7 @@ import { exitPreview, getAssistant, setTrialRunner, syncAssistantWorld, useAssis
 import { Globe, getGlobeOn, setGlobeOn, useGlobeOn, type GlobeApi } from './Globe';
 import { setupAi } from '../ai/setup';
 import { ToastBar, clearToast, showToast } from './Toast';
-import { FirstHint, HoverCard, MapBar, MapControls, PhoneButtons, hintSeen, markHintSeen } from './Corners';
+import { DRAFT_SEG, FirstHint, HoverCard, MapBar, MapControls, PhoneButtons, SEG_LAYERS, hintSeen, markHintSeen } from './Corners';
 import { Sidebar } from './Sidebar';
 import { PhoneSheet } from './PhoneSheet';
 import { useLayerThumbs } from './LayerPopover';
@@ -403,6 +412,9 @@ export function App() {
   const { stage, base: stageBase } = useStage();
   const draft = stage === 'draft';
   const home = stage === 'home';
+  // 宽屏左边的卡片收起了(sideStore.ts):新建世界那一步左边是新建世界的卡片,不算收起(sideRoom 照常让出它)
+  const sideUi = useSide();
+  setSideHold(stage !== 'world');
   /** 正在打开 / 已经打开的世界(生成完按它套上修改、交给自动存) */
   const targetRef = useRef<Target | null>(route.target);
   /** 新建中的名字(卡片上的输入框;打开没建完的世界时是它存的名字) */
@@ -1196,6 +1208,8 @@ export function App() {
     if ((clean ?? '') !== (cur.title ?? '')) renameWorld(t.id, clean ?? '');
     // 说存住了,要真的写进了浏览器(存储满了、删了旧的也写不下,或者浏览器不让存 = 只在这一页里)
     const stored = markCreated() && persistent();
+    // 新建时执行过的改地形从此不能再撤销:⌘Z 也不再往回退(助手那边按锁换了,旧的确认单不能执行)
+    clearEditHistory();
     targetRef.current = { ...t, kind: 'created', base: null, pristine: false, title: clean, from: undefined, save: undefined };
     setDraftTip(false);
     enterStage('world');
@@ -2346,6 +2360,77 @@ export function App() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
+  // 键盘快捷键(按键对照见 shortcuts.ts;光标在输入框里、弹窗开着时不管,见 useShortcuts.ts)。返回 false = 这一下不归快捷键管
+  useShortcuts((a) => {
+    if (home || !data) return false;
+    const end = civ?.endYear ?? 0;
+    // 有历史可放:建好的世界、长出了文明、不在回放世界形成
+    const history = !draft && !!civ && civ.viable && !replayOn;
+    // 宽屏、建好的世界:左边的卡片能收起(sideStore.ts);收起着要用卡片里的搜索框、存档时先展开
+    const foldable = !narrow && !!world && stage === 'world';
+    const sideHidden = () => foldable && getSide().collapsed && !getSide().peek;
+    const showSide = () => sideHidden() && flushSync(expandSide);
+    switch (a) {
+      case 'play':
+        if (!history) return false;
+        togglePlayback(end, replayStart(end));
+        return true;
+      case 'back':
+      case 'forward':
+      case 'back100':
+      case 'forward100':
+        if (!history) return false;
+        stepYear(end, (a === 'back' || a === 'back100' ? -1 : 1) * (a.endsWith('100') ? 100 : 10));
+        return true;
+      case 'zoomIn':
+      case 'zoomOut':
+        zoomButton(a === 'zoomIn' ? 1.5 : 1 / 1.5);
+        return true;
+      case 'layer1':
+      case 'layer2':
+      case 'layer3':
+      case 'layer4': {
+        const id = (draft ? DRAFT_SEG : SEG_LAYERS)[Number(a.slice(5)) - 1];
+        if (!id) return false;
+        applyLayer(id);
+        return true;
+      }
+      case 'search': {
+        showSide();
+        const box = [...document.querySelectorAll<HTMLInputElement>('input.search-input')].find(
+          (el) => !el.disabled && el.getClientRects().length > 0 && !el.closest('[inert]'),
+        );
+        if (!box) return false;
+        box.focus();
+        box.select();
+        return true;
+      }
+      case 'undo':
+      case 'redo':
+        // 改地形工具开着:它自己管(撤销一笔);新建世界时 ⌘Z 也是撤销一笔地形
+        if (getTerrainTool().on) return false;
+        if (draft) {
+          if (a === 'undo') undoTerrainOp();
+          return true;
+        }
+        if (a === 'undo') undoLastEdit();
+        else redoLastEdit();
+        return true;
+      case 'save':
+        if (draft) return false;
+        showSide();
+        return openSaveMenu();
+      case 'side':
+        // 和卡片上的收起按钮、收起后左上角的小按钮一样(卡片弹出来显示选中的东西时 = 收回去)
+        if (!foldable) return false;
+        if (sideHidden()) expandSide();
+        else collapseSide();
+        return true;
+      case 'help':
+        openShortcuts();
+        return true;
+    }
+  });
 
   /** 平面主图 ⇄ 地球仪:两边的中心经度接上(地球仪从主图当前的中心转起;切回主图时转到地球仪正对着的经度) */
   const toggleGlobe = () => {
@@ -2492,7 +2577,7 @@ export function App() {
   const screenStyle: CSSProperties = { clipPath: screenClip(view, sb, wrapW), display: globeOn ? 'none' : undefined };
   return (
     <div
-      className={`app${narrow ? ' phone' : ' has-side'}${chron.open ? ' chron-open' : ''}${panelOpen ? ' panel-open' : ''}${narrow && panelOpen && panelUi.sheet === 'full' ? ' sheet-full' : ''}${narrow && !selState.sel && panelUi.world === 'full' ? ' world-full' : ''}${narrow && panelUi.drag ? ' sheet-drag' : ''}${narrow && selState.sel && !panelOpen ? ' sheet-away' : ''}${picking ? ' picking' : ''}${globeOn ? ' globe-on' : ''}${data ? '' : ' booting'}${home ? ' home' : ''}${draft ? ' draft' : ''}${astOpen && !narrow && !home ? ' ast-open' : ''}${preview ? ' ast-preview' : ''}`}
+      className={`app${narrow ? ' phone' : ' has-side'}${chron.open ? ' chron-open' : ''}${panelOpen ? ' panel-open' : ''}${narrow && panelOpen && panelUi.sheet === 'full' ? ' sheet-full' : ''}${narrow && !selState.sel && panelUi.world === 'full' ? ' world-full' : ''}${narrow && panelUi.drag ? ' sheet-drag' : ''}${narrow && selState.sel && !panelOpen ? ' sheet-away' : ''}${!narrow && world && sideUi.collapsed && !sideUi.peek ? ' side-collapsed' : ''}${picking ? ' picking' : ''}${globeOn ? ' globe-on' : ''}${data ? '' : ' booting'}${home ? ' home' : ''}${draft ? ' draft' : ''}${astOpen && !narrow && !home ? ' ast-open' : ''}${preview ? ' ast-preview' : ''}`}
       data-theme={theme}
       data-layer={mapLayer}
       onDragOver={onDragOver}
@@ -2675,6 +2760,8 @@ export function App() {
       )}
       {realCiv && <HistoryBook civ={realCiv} />}
       <AiSettingsHost />
+      <ShortcutsHost />
+      <TipLayer />
       {dropping && (
         <div className="drop-hint">
           <div>松手打开存档(.json)</div>
