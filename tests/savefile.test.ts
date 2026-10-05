@@ -846,6 +846,8 @@ describe('旧版本的提示:照实说变了什么', () => {
     expect(versionNote(GENERATOR_VERSION + 1, false)).toBe(NEWER_NOTE);
     // 不是整数的版本号认不出:按整颗星球说,不当成哪一版
     expect(versionNote(7.5, false)).toBe(versionNote(0, false));
+    // 比现在大的也一样,不叫人刷新
+    expect(versionNote(GENERATOR_VERSION + 0.5, false)).toBe(versionNote(0, false));
   });
   it('版本不同、但世界应该一样时照样核对地形', () => {
     const save = makeSave({ ...DEFAULT_PARAMS, seed: 7 }, EMPTY_EDITS, 'aaaaaaaaaaaa');

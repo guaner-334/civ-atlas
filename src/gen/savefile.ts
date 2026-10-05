@@ -107,9 +107,9 @@ export const NEWER_NOTE = '来自更新的版本，刷新页面换到最新版�
  */
 export function versionNote(from: number, terrainEdited: boolean): string | null {
   if (from === GENERATOR_VERSION) return null;
-  if (from > GENERATOR_VERSION) return NEWER_NOTE;
-  // 不是整数的版本号(手改过、坏了的存档)认不出,按整颗星球重新生成说
+  // 不是整数的版本号(手改过、坏了的存档)认不出,不管比现在大还是小,都按整颗星球重新生成说
   if (!Number.isInteger(from)) return `来自旧版本：${CHANGE_TEXT.planet}`;
+  if (from > GENERATOR_VERSION) return NEWER_NOTE;
   let top = -1;
   for (let v = Math.max(1, from) + 1; v <= GENERATOR_VERSION; v++) {
     const c = GENERATOR_CHANGES[v];
