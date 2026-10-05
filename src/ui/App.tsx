@@ -153,7 +153,7 @@ import { NewWorld } from './NewWorld';
 import { MyWorlds } from './MyWorlds';
 import { useCoarse, useNarrow } from './device';
 import { isDoubleTap, pinchStep, type Pt, type Tap } from './gestures';
-import { createWheelReader, inGesturePinch, isPinchLike, pinchDelta, setGesturePinch, wheelSample } from './wheel';
+import { createPinchGuard, createWheelReader, inGesturePinch, setGesturePinch, wheelSample } from './wheel';
 import { pickLabelAt } from './mapPick';
 import { ownersAt } from '../gen/civ/timeline';
 import { interventionOutcome } from '../gen/civ/chronicle';
@@ -1685,7 +1685,7 @@ export function App() {
       if ((e.target as HTMLElement | null)?.closest?.('.inspector') || getGlobeOn()) return;
       e.preventDefault();
       // Safari 的捏合已经按 gesture 事件缩放了(见下面"浏览器自己的页面缩放")
-      if (e.ctrlKey && e.isTrusted && inGesturePinch()) return;
+      if (e.ctrlKey && inGesturePinch()) return;
       const a = read(wheelSample(e));
       if (!a) return;
       const rect = el.getBoundingClientRect();
@@ -1695,7 +1695,7 @@ export function App() {
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
   }, []);
-  /** 右下角的 + −:以看得见的地图中间为中心(宽屏让出左边的侧栏卡片);地球仪里交给地球仪自己的滚轮缩放 */
+  /** 右下角的 + −:以看得见的地图中间为中心(宽屏让出左边的侧栏卡片);地球仪里交给地球仪自己缩放 */
   const zoomButton = (f: number) => {
     touchRef.current();
     const el = stageRef.current;
@@ -1703,12 +1703,7 @@ export function App() {
     const rect = el.getBoundingClientRect();
     const cx = (sideRoom(rect.width) + rect.width) / 2;
     const cy = rect.height / 2;
-    if (getGlobeOn()) {
-      const g = el.querySelector('.globe');
-      // 当成一下捏合发过去:正好缩放 f 倍(不管前面是不是正在用触控板滑)
-      g?.dispatchEvent(new WheelEvent('wheel', { deltaY: pinchDelta(f), ctrlKey: true, clientX: rect.left + cx, clientY: rect.top + cy, bubbles: true, cancelable: true }));
-      return;
-    }
+    if (getGlobeOn()) return globeApi.current?.zoomBy(f, rect.left + cx, rect.top + cy);
     zoomAt(cx, cy, f);
   };
 
@@ -2262,16 +2257,16 @@ export function App() {
       const cx = g.clientX ?? mouseAt.current[0];
       const cy = g.clientY ?? mouseAt.current[1];
       touchRef.current();
-      if (getGlobeOn()) {
-        el.querySelector('.globe')?.dispatchEvent(new WheelEvent('wheel', { deltaY: pinchDelta(f), ctrlKey: true, clientX: cx, clientY: cy, bubbles: true, cancelable: true }));
-      } else zoomRef.current(cx - rect.left, cy - rect.top, f);
+      if (getGlobeOn()) globeApi.current?.zoomBy(f, cx, cy);
+      else zoomRef.current(cx - rect.left, cy - rect.top, f);
     };
     const end = () => {
       pinchAt = 0;
       setGesturePinch(false);
     };
+    const isPinch = createPinchGuard();
     const pageZoom = (e: WheelEvent) => {
-      if (isPinchLike(e)) e.preventDefault();
+      if (e.ctrlKey && isPinch(wheelSample(e))) e.preventDefault();
     };
     document.addEventListener('gesturestart', start, { passive: false });
     document.addEventListener('gesturechange', change, { passive: false });

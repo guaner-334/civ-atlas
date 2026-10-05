@@ -176,6 +176,8 @@ export interface GlobeApi {
   centerLon(): number;
   /** 回正:北在上、赤道居中、整个球(和双击一样;手指点两下时 App 调它) */
   reset(): void;
+  /** 以屏幕上 (cx, cy)(clientX / clientY)为中心缩放 f 倍(右下角的 + −、Safari 的触控板捏合) */
+  zoomBy(f: number, cx: number, cy: number): void;
   /** 世界坐标(主图坐标,和 App 的 worldToClient 一样)→ 屏幕坐标(clientX / clientY);在球的背面(或贴着边缘)= null */
   worldToClient(wx: number, wy: number): [number, number] | null;
   /** 经纬度(度)→ 屏幕坐标(clientX / clientY);在球的背面(或贴着边缘)= null */
@@ -1382,6 +1384,7 @@ export function Globe({ world, raster, civ, geo, style, layer, terrain, terrainK
     flyTo: (lon, lat) => flyTo(lon, lat),
     centerLon: () => s.view.lon / D,
     reset: () => reset(),
+    zoomBy: (f, cx, cy) => zoomBy(f, cx, cy),
     worldToClient,
     lonLatToClient: (lon, lat) => llToClient(lon * D, lat * D),
   };
@@ -1568,20 +1571,15 @@ export function Globe({ world, raster, civ, geo, style, layer, terrain, terrainK
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       e.stopPropagation();
-      // Safari 的捏合 App 按 gesture 事件转成了 Ctrl 滚轮发过来(isTrusted = false)
-      if (e.ctrlKey && e.isTrusted && inGesturePinch()) return;
+      // Safari 的捏合 App 按 gesture 事件交给 zoomBy 了
+      if (e.ctrlKey && inGesturePinch()) return;
       const a = read(wheelSample(e));
       if (!a) return;
+      if (a.kind === 'zoom') return zoomBy(a.f, e.clientX, e.clientY);
       s.fly = null;
       s.inertia = null;
-      if (a.kind === 'pan') {
-        s.view = dragView(s.view, frameOf(s.view, s.size.w, s.size.h).R, -a.dx, -a.dy);
-        hoverRef.current(null);
-      } else {
-        const r = el.getBoundingClientRect();
-        const k2 = Math.min(GLOBE_K_MAX, Math.max(GLOBE_K_MIN, s.view.k * a.f));
-        s.view = zoomAt(s.view, s.size.w, s.size.h, e.clientX - r.left, e.clientY - r.top, k2, s.shift);
-      }
+      s.view = dragView(s.view, frameOf(s.view, s.size.w, s.size.h).R, -a.dx, -a.dy);
+      hoverRef.current(null);
       invalidate();
     };
     el.addEventListener('wheel', onWheel, { passive: false });
@@ -1590,6 +1588,17 @@ export function Globe({ world, raster, civ, geo, style, layer, terrain, terrainK
   }, []);
   /** 回正:北在上、赤道居中、整个球 */
   const reset = () => flyTo(s.view.lon / D, 0, 1, 700);
+  /** 以屏幕上 (cx, cy)(clientX / clientY)为中心缩放 f 倍 */
+  const zoomBy = (f: number, cx: number, cy: number) => {
+    const el = rootRef.current;
+    if (!el || !(f > 0) || !Number.isFinite(f)) return;
+    const r = el.getBoundingClientRect();
+    s.fly = null;
+    s.inertia = null;
+    const k2 = Math.min(GLOBE_K_MAX, Math.max(GLOBE_K_MIN, s.view.k * f));
+    s.view = zoomAt(s.view, s.size.w, s.size.h, cx - r.left, cy - r.top, k2, s.shift);
+    invalidate();
+  };
 
   // ---- 导出当前视图(导出菜单里的"导出地球仪这一面",见 exportGlobeView) ----
   const exportView = async (): Promise<GlobeExport> => {

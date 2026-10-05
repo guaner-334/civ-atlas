@@ -2,7 +2,7 @@
  * 滚轮归类(src/ui/wheel.ts):鼠标滚轮缩放、触控板两指滑动平移、捏合跟着手指缩放
  */
 import { describe, expect, it } from 'vitest';
-import { GAP_MS, MAC_TICK, PINCH_RATE, WHEEL_RATE, createWheelReader, isPinchLike, mouseLike, pinchDelta, wheelTick, type WheelSample } from '../src/ui/wheel';
+import { GAP_MS, MAC_TICK, PINCH_RATE, WHEEL_RATE, createPinchGuard, createWheelReader, mouseLike, wheelTick, type WheelSample } from '../src/ui/wheel';
 
 const ev = (p: Partial<WheelSample>): WheelSample => ({ deltaMode: 0, deltaX: 0, deltaY: 0, ctrlKey: false, metaKey: false, altKey: false, shiftKey: false, t: 0, ...p });
 
@@ -79,7 +79,7 @@ describe('捏合和修饰键', () => {
   it('捏合不受前面那串触控板滑动影响', () => {
     const read = createWheelReader();
     run(read, [{ deltaY: 5 }, { deltaY: 8 }]);
-    expect(read(ev({ deltaY: pinchDelta(1.5), ctrlKey: true, t: 40 }))?.kind).toBe('zoom');
+    expect(read(ev({ deltaY: -100 * Math.log(1.5), ctrlKey: true, t: 40 }))).toEqual({ kind: 'zoom', f: 1.5 });
   });
   it('Ctrl + 鼠标滚轮:按鼠标的比例缩放', () => {
     expect(createWheelReader()(ev({ deltaY: -100, ctrlKey: true }))).toEqual({ kind: 'zoom', f: Math.exp(100 * WHEEL_RATE) });
@@ -96,12 +96,43 @@ describe('捏合和修饰键', () => {
     expect(a).toEqual({ kind: 'zoom', f: Math.exp(0.45) });
     expect(createWheelReader()(ev({ deltaY: -100000 }))).toEqual({ kind: 'zoom', f: 2 });
   });
-  it('isPinchLike:只认 Ctrl + 不像鼠标的数值', () => {
-    expect(isPinchLike(ev({ deltaY: 3.2, ctrlKey: true }))).toBe(true);
-    expect(isPinchLike(ev({ deltaY: 3.2 }))).toBe(false);
-    expect(isPinchLike(ev({ deltaY: 100, ctrlKey: true }))).toBe(false);
-    expect(isPinchLike(ev({ deltaY: MAC_TICK, ctrlKey: true }))).toBe(false);
-    expect(isPinchLike(ev({ deltaMode: 1, deltaY: 1, ctrlKey: true }))).toBe(false);
+  it('按着修饰键的一串按开头定:捏得快时中途一下是 ≥ 50 的整数,照样按捏合的比例', () => {
+    const out = run(createWheelReader(), [{ deltaY: -3.7 }, { deltaY: -60 }, { deltaY: -5 }].map((p) => ({ ...p, ctrlKey: true })));
+    expect(out).toEqual([
+      { kind: 'zoom', f: Math.exp(3.7 * PINCH_RATE) },
+      { kind: 'zoom', f: Math.exp(60 * PINCH_RATE) },
+      { kind: 'zoom', f: Math.exp(5 * PINCH_RATE) },
+    ]);
+  });
+  it('按着修饰键的一串鼠标滚轮:中途的小数值也按鼠标的比例(不突然快 6 倍多)', () => {
+    const out = run(createWheelReader(), [{ deltaY: -MAC_TICK }, { deltaY: -2.5 }].map((p) => ({ ...p, metaKey: true })));
+    expect(out[1]).toEqual({ kind: 'zoom', f: Math.exp(2.5 * WHEEL_RATE) });
+  });
+  it('停一会儿再按着 Ctrl 滚:重新判断', () => {
+    const read = createWheelReader();
+    expect(read(ev({ deltaY: -100, ctrlKey: true, t: 0 }))).toEqual({ kind: 'zoom', f: Math.exp(100 * WHEEL_RATE) });
+    expect(read(ev({ deltaY: -3, ctrlKey: true, t: GAP_MS + 1 }))).toEqual({ kind: 'zoom', f: Math.exp(3 * PINCH_RATE) });
+  });
+});
+
+describe('createPinchGuard(别处的捏合不让网页放大)', () => {
+  it('只认 Ctrl + 开头不像鼠标滚轮的一串', () => {
+    const g = createPinchGuard();
+    expect(g(ev({ deltaY: 3.2 }))).toBe(false);
+    expect(g(ev({ deltaY: 3.2, ctrlKey: true, t: 1000 }))).toBe(true);
+    expect(createPinchGuard()(ev({ deltaY: 100, ctrlKey: true }))).toBe(false);
+    expect(createPinchGuard()(ev({ deltaY: MAC_TICK, ctrlKey: true }))).toBe(false);
+    expect(createPinchGuard()(ev({ deltaMode: 1, deltaY: 1, ctrlKey: true }))).toBe(false);
+  });
+  it('捏合中途一下是 ≥ 50 的整数:整串照样拦下', () => {
+    const g = createPinchGuard();
+    const out = [-2.4, -60, -7.1].map((d, i) => g(ev({ deltaY: d, ctrlKey: true, t: i * 16 })));
+    expect(out).toEqual([true, true, true]);
+  });
+  it('Ctrl + 鼠标滚轮的一串:中途的小数值也不拦(浏览器照常缩放网页)', () => {
+    const g = createPinchGuard();
+    const out = [100, 2.5].map((d, i) => g(ev({ deltaY: d, ctrlKey: true, t: i * 16 })));
+    expect(out).toEqual([false, false]);
   });
 });
 

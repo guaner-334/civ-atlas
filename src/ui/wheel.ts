@@ -7,7 +7,7 @@
  *   按住 ⌘ / Ctrl / Option 再滑 → 缩放(Magic Mouse、被当成触控板的顺滑滚轮也能缩放)
  *
  * 浏览器不说是触控板还是鼠标,只能看数值猜。一串连着的滚动(相邻两下不超过 GAP_MS)按开头定下来,中途不改
- * (惯性滚动的数值越来越小,不能让它半路变成别的):
+ * (惯性滚动的数值越来越小,捏得快时一下又可能很大,不能让它半路变成别的;按着修饰键的一串也一样):
  *   - 按行 / 按页滚(deltaMode ≠ 0,Firefox 的鼠标)、一下 ≥ 50 像素、正好是 Mac 鼠标一格(4.000244140625 像素)
  *     或 Windows 一行(100 / 3 像素)的整数倍 → 鼠标
  *   - 带横向分量(没按 Shift)或者别的小数值 → 触控板
@@ -71,52 +71,79 @@ export function mouseLike(mode: number, dy: number): boolean {
 
 const clampStep = (f: number) => (Number.isFinite(f) ? Math.min(MAX_STEP, Math.max(1 / MAX_STEP, f)) : 1);
 
+/** 一串连着的滚动按开头定下来的种类:get 在隔了 GAP_MS 以上时先清掉(null = 还没定) */
+function streamLatch<K>() {
+  let kind: K | null = null;
+  let last = -Infinity;
+  return {
+    get(t: number): K | null {
+      if (t - last > GAP_MS) kind = null;
+      last = t;
+      return kind;
+    },
+    set(k: K) {
+      kind = k;
+    },
+  };
+}
+
 /**
  * 一个读滚轮的"读头"(地图、地球仪各用一个):每来一下滚轮交给它,返回这一下该缩放还是平移。
  * dx / dy 是内容该往反方向挪的像素(和网页滚动同向:两指往上推 = dy > 0 = 地图往上走);null = 什么都不做
  */
 export function createWheelReader() {
-  let kind: 'mouse' | 'trackpad' | null = null;
-  let last = -Infinity;
+  const plain = streamLatch<'mouse' | 'trackpad'>();
+  /** 按着修饰键的一串:鼠标滚轮(按老的比例)还是捏合 / 触控板(按跟手的比例) */
+  const mod = streamLatch<'wheel' | 'pinch'>();
   return (e: WheelSample): WheelAction | null => {
     const mode = e.deltaMode;
     const unit = mode === 1 ? LINE_PX : mode === 2 ? PAGE_PX : 1;
     const dx = e.deltaX * unit;
     const dy = e.deltaY * unit;
     if (!Number.isFinite(dx) || !Number.isFinite(dy)) return null;
-    if (e.t - last > GAP_MS) kind = null;
-    last = e.t;
-    // 捏合、按着修饰键:缩放。鼠标滚轮按老的比例,捏合 / 触控板按跟手的比例
+    // 捏合、按着修饰键:缩放
     if (e.ctrlKey || e.metaKey || e.altKey) {
+      let k = mod.get(e.t);
       if (!dy) return null;
-      return { kind: 'zoom', f: clampStep(Math.exp(-dy * (wheelTick(mode, dy) ? WHEEL_RATE : PINCH_RATE))) };
+      if (!k) mod.set((k = wheelTick(mode, dy) ? 'wheel' : 'pinch'));
+      return { kind: 'zoom', f: clampStep(Math.exp(-dy * (k === 'wheel' ? WHEEL_RATE : PINCH_RATE))) };
     }
+    let kind = plain.get(e.t);
     if (kind === null) {
       if (dx && !e.shiftKey) kind = 'trackpad';
       else if (dy) kind = mouseLike(mode, dy) ? 'mouse' : 'trackpad';
       else return null;
+      plain.set(kind);
     } else if (kind === 'mouse' && dx && !e.shiftKey && mode === 0) {
       // 开头一下很大、看着像鼠标,接着出现了横向分量:其实是触控板甩得快
-      kind = 'trackpad';
+      plain.set((kind = 'trackpad'));
     }
     if (kind === 'trackpad') return dx || dy ? { kind: 'pan', dx, dy } : null;
     return dy ? { kind: 'zoom', f: clampStep(Math.exp(-dy * WHEEL_RATE)) } : null;
   };
 }
 
-/** 捏合(按着 Ctrl 的一下,数值又不像鼠标滚轮):网页别的地方收到它也不让浏览器放大整个页面 */
-export function isPinchLike(e: Pick<WheelSample, 'deltaMode' | 'deltaY' | 'ctrlKey'>): boolean {
-  if (!e.ctrlKey) return false;
-  const mode = e.deltaMode;
-  return !wheelTick(mode, e.deltaY);
+/**
+ * 网页别的地方(侧栏、时间轴、按钮)收到的 Ctrl 滚轮是不是捏合:是就拦下,不让浏览器放大整个页面。
+ * 和上面一样按一串的开头定:开头不像鼠标滚轮的一串整串都算捏合
+ */
+export function createPinchGuard() {
+  const pinch = streamLatch<boolean>();
+  return (e: Pick<WheelSample, 'deltaMode' | 'deltaY' | 'ctrlKey' | 't'>): boolean => {
+    if (!e.ctrlKey) return false;
+    const mode = e.deltaMode;
+    let k = pinch.get(e.t);
+    if (k === null) {
+      if (!e.deltaY) return false;
+      pinch.set((k = !wheelTick(mode, e.deltaY)));
+    }
+    return k;
+  };
 }
-
-/** 捏合倍数 → 一下 Ctrl 滚轮的 deltaY(Safari 的捏合、右下角的 + − 转成滚轮交给地球仪用) */
-export const pinchDelta = (f: number) => -Math.log(f) / PINCH_RATE;
 
 /**
  * Safari 的触控板捏合不发 Ctrl 滚轮,发 gesturestart / gesturechange(App 接住转成缩放)。
- * 万一同时也发了 Ctrl 滚轮,捏合进行中真实的 Ctrl 滚轮不再算一遍
+ * 万一同时也发了 Ctrl 滚轮,捏合进行中的 Ctrl 滚轮不再算一遍
  */
 let gesturePinch = false;
 export const setGesturePinch = (on: boolean) => {
