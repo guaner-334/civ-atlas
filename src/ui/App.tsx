@@ -154,7 +154,7 @@ import { CIV_SHOW_OFF, drawCivOverlay } from '../render/civ/overlay';
 import { getPolityPick, interventionActorThen, interventionDoneText, setPickHover, setPolityPick, usePolityPick } from './Interventions';
 import { Inspector } from './Inspector';
 import { TargetLayer } from './TargetPlates';
-import { FLY_MS, curvedFly, easeOutCubic, flatFly, selectionFocus, selectionKey, sideRoom, phoneFree, type FlyGoal } from './flyTo';
+import { FLY_MS, curvedFly, easeOutCubic, flatFly, personKey, resolvePersonKey, selectionFocus, selectionKey, sideRoom, phoneFree, type FlyGoal } from './flyTo';
 import { collapseSide, expandSide, getSide, setSideHold, useSide } from './sideStore';
 import { getPanel, setWorldSheet, usePanel } from './panelStore';
 import { closeOverview } from './overviewStore';
@@ -632,6 +632,11 @@ export function App() {
         if (key) {
           const r = resolveKey(civ, key);
           if (r && r.kind === sel.kind) setSelection({ kind: sel.kind, id: r.id } as MapSelection);
+          else clearSelection();
+        } else if (sel.kind === 'person') {
+          // 人物:同一国、同名、同年生的还在就还选着他(重推后历史变了,多半找不到了)
+          const id = old.people?.[sel.id] ? resolvePersonKey(civ, personKey(old, sel.id)) : -1;
+          if (id >= 0) setSelection({ kind: 'person', id });
           else clearSelection();
         }
       }
@@ -1857,7 +1862,8 @@ export function App() {
     const year = civ ? Math.min(civ.endYear, Math.max(0, getCivTime().year ?? civ.endYear)) : 0;
     const focus = to === 'sel' && sel && civ ? selectionFocus(data.world, civ, sel, year) : null;
     if (to === 'sel' && (!focus || !sel)) return;
-    const goal: FlyGoal = { focus, kind: to === 'sel' && sel ? sel.kind : 'home' };
+    // 人物按他的国家飞(看全疆域)
+    const goal: FlyGoal = { focus, kind: to === 'sel' && sel ? (sel.kind === 'person' ? 'polity' : sel.kind) : 'home' };
     if (getGlobeOn()) {
       if (focus) globeApi.current?.flyTo(focus.lon, focus.lat);
       return;

@@ -34,7 +34,7 @@
  * 开关就是"投影"切换里的 globe(ui/projection.ts;"图层与投影"弹层的投影、地图右下角的"地球仪 / 平面地图"按钮都改它,网址 proj=globe,旧的 view=globe 也认);
  * 经纬网和平面投影共用一个开关;中心经度和 mapWrap.ts 的中心互通(打开时从当前中心转起,停下来就记下正对着的经度)。
  */
-import { useEffect, useLayoutEffect, useRef, useState, type MutableRefObject } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
 import type { World } from '../gen/world';
 import type { Raster } from '../gen/raster';
 import type { Civ } from '../gen/civ/types';
@@ -74,6 +74,7 @@ import { drawSettlementMarks, type SettlementMarkInfo } from '../render/civ/sett
 import { REF_MAP_CSS, drawPlacedLabels, placeMap, placedMarkBox, type LabelItem, type LabelMark, type LabelView, type Placement } from '../render/labels/draw';
 import { glyphBox } from '../render/labels/layout';
 import { getCivTime, setSelection, subscribeCivTime, useCivHighlight, useCivShow, useSelection } from './civView';
+import { mapTarget } from './flyTo';
 import {
   drawHighlight,
   drawSelectionLabels,
@@ -626,7 +627,9 @@ export function Globe({ world, raster, civ, geo, style, layer, terrain, terrainK
   // 经纬网:和平面投影共用一个开关(ui/projection.ts)
   const graticule = useGraticule();
   const [hiLoading, setHiLoading] = useState(false);
-  const { sel } = useSelection();
+  // 选中人物时地图上亮出他的国家
+  const picked = useSelection().sel;
+  const sel = useMemo(() => mapTarget(civ ?? null, picked), [civ, picked]);
   const hl = useCivHighlight();
   const show = useCivShow();
 

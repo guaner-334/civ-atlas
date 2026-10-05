@@ -41,6 +41,7 @@ import { drawPlacedLabels, placeMap, placedMarkBox, toCanvas, type LabelItem, ty
 import { ensureFonts, fontsReady, preloadFonts } from '../render/labels/fonts';
 import { drawHighlight, drawSelection, drawSelectionLabels } from '../render/civ/highlight';
 import { getCivHighlight, setCivHighlight, useCivHighlight, useCivShow, useCivTime, useSelection } from './civView';
+import { mapTarget } from './flyTo';
 import { setMapPlacement } from './mapPick';
 import { mapBoxOf, mirrorCanvas, placeOnScreen, visibleBox } from './mapWrap';
 import { nearX } from '../render/common';
@@ -163,7 +164,9 @@ export function CivLayer({ world, raster, civ, geo, style, year, view, mp = null
   const detailHl = useRef<HTMLCanvasElement>(null);
   const [detailOn, setDetailOn] = useState(false);
   const hl = useCivHighlight();
-  const { sel } = useSelection();
+  // 选中人物时地图上亮出他的国家
+  const picked = useSelection().sel;
+  const sel = useMemo(() => mapTarget(civ ?? null, picked), [civ, picked]);
   const mpRef = useRef(mp);
   mpRef.current = mp;
   const show = useCivShow();
