@@ -8,7 +8,7 @@ import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
 import { polityAlive } from '../src/gen/civ/growth';
 import { ownersAt } from '../src/gen/civ/timeline';
-import { buildChronicle, reignEntries } from '../src/gen/civ/chronicle';
+import { buildChronicle, chronicleDocument, reignEntries } from '../src/gen/civ/chronicle';
 import { faithAt, faithCounts, faithFromScratch, faithRoot, stateFaithAt, statesOfFaith } from '../src/gen/civ/religion';
 import { FOLK_ROW_NAME, faithEntries, faithHistory, faithRows, fullChronicle } from '../src/gen/civ/religionText';
 import { applyNames, cultureKey, faithKey } from '../src/gen/edits';
@@ -16,6 +16,7 @@ import { searchCiv } from '../src/ui/searchIndex';
 import { layerDef, layerOf } from '../src/ui/mapLayers';
 import { faithFocusOf, selectionOnMap } from '../src/ui/faithSelection';
 import { getCivShow, pickChronicleEntry, setCivShow } from '../src/ui/civView';
+import { sameInBoth } from '../src/ui/assistantStore';
 
 const worlds = new Map<number, World>();
 function world(seed: number): World {
@@ -268,6 +269,19 @@ describe('信仰 · 改名、搜索、图层、地图上的选中', () => {
     setCivShow({ polities: false, cultures: true, faiths: false });
     pickChronicleEntry(faithEv);
     expect(layer()).toBe('political');
+  });
+
+  it('导出的编年史给了全部纪事就带上宗教大事', () => {
+    const found = fullChronicle(civ).find((e) => e.kind === 'faith')!;
+    expect(chronicleDocument(civ, { format: 'txt', seed: 7, entries: fullChronicle(civ) })).toContain(found.text);
+    expect(chronicleDocument(civ, { format: 'txt', seed: 7 })).not.toContain(found.text);
+  });
+
+  it('试推演里改教名:两份历史里同一个教(创立年份、民族出现年份一样)才放行', () => {
+    expect(sameInBoth(civ, civ, faithKey(civ, great.id))).toBe(true);
+    expect(sameInBoth(civ, civ, faithKey(civ, folk.id))).toBe(true);
+    const moved: Civ = { ...civ, religion: { ...rel, faiths: rel.faiths.map((f) => (f.id === great.id ? { ...f, founded: f.founded! + 100 } : f)) } };
+    expect(sameInBoth(civ, moved, faithKey(civ, great.id))).toBe(false);
   });
 
   it('选中信仰:大教圈圣城,教派圈分出时的国都,民间信仰不圈;别的选中照旧', () => {

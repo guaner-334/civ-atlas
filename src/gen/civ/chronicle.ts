@@ -1781,6 +1781,8 @@ export interface ChronicleDocOptions {
   params?: string;
   /** 一节多少年;不给按 chronicleEraYears */
   eraYears?: number;
+  /** 全部纪事(不给 = buildChronicle 的史事;界面上导出时给史事 + 宗教大事,见 religionText.ts 的 fullChronicle) */
+  entries?: readonly ChronicleEntry[];
 }
 
 /** Markdown 里有特殊含义的几个符号前面加反斜杠(纪事是中文,一般用不到,防个万一) */
@@ -1794,7 +1796,7 @@ function mdEscape(s: string): string {
  */
 export function chronicleDocument(civ: Civ, opt: ChronicleDocOptions): string {
   const md = opt.format === 'md';
-  const all = buildChronicle(civ);
+  const all = opt.entries ?? buildChronicle(civ);
   const majors = filterChronicle(all, { major: true });
   const end = Math.floor(civ.endYear);
   const span = Math.max(1, Math.floor(opt.eraYears ?? chronicleEraYears(civ.endYear)));

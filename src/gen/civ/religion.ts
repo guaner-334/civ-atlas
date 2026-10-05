@@ -214,7 +214,8 @@ export function buildReligion(world: World, civ: Civ): Religion {
   const years: Year[] = [];
   for (let y = 0; y <= civ.endYear; y += STEP) years.push(y);
   if (years[years.length - 1] < civ.endYear) years.push(civ.endYear);
-  for (const y of years) {
+  for (let step = 0; step < years.length; step++) {
+    const y = years[step];
     for (; li < L.size && L.year[li] <= y; li++) {
       if (L.layer[li] === Layer.Culture) ownC[L.region[li]] = L.value[li];
       else ownP[L.region[li]] = L.value[li];
@@ -313,7 +314,7 @@ export function buildReligion(world: World, civ: Civ): Religion {
     }
 
     // 国教:国都改信了别的大教(而且信它的州更多),或者没有国教、某大教占到 ADOPT 以上
-    countFaiths(F, ownP, faith, isFolk, total, count, seenP, y + 1, order, faithOrder);
+    countFaiths(F, ownP, faith, isFolk, total, count, seenP, step + 1, order, faithOrder);
     for (const p of order) {
       const cap = S[capitalAt(civ.polities[p], y)];
       const capF = cap ? faith[cap.region] : -1;
