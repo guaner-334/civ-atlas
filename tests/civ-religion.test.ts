@@ -9,7 +9,7 @@ import { generateCiv, type Civ } from '../src/gen/civ';
 import { polityAlive } from '../src/gen/civ/growth';
 import { ownersAt } from '../src/gen/civ/timeline';
 import { buildChronicle, chronicleDocument, reignEntries } from '../src/gen/civ/chronicle';
-import { faithAt, faithCounts, faithFromScratch, faithRoot, stateFaithAt, statesOfFaith } from '../src/gen/civ/religion';
+import { GREAT_COLORS, faithAt, faithCounts, faithFromScratch, faithRoot, stateFaithAt, statesOfFaith } from '../src/gen/civ/religion';
 import { FOLK_ROW_NAME, faithEntries, faithHistory, faithRows, fullChronicle } from '../src/gen/civ/religionText';
 import { applyNames, cultureKey, faithKey } from '../src/gen/edits';
 import { searchCiv } from '../src/ui/searchIndex';
@@ -17,6 +17,7 @@ import { layerDef, layerOf } from '../src/ui/mapLayers';
 import { faithFocusOf, selectionOnMap } from '../src/ui/faithSelection';
 import { getCivShow, pickChronicleEntry, setCivShow } from '../src/ui/civView';
 import { sameInBoth } from '../src/ui/assistantStore';
+import { faithLegendRows } from '../src/render/export';
 
 const worlds = new Map<number, World>();
 function world(seed: number): World {
@@ -179,17 +180,54 @@ describe.each([7, 2024])('信仰 · seed=%i', (seed) => {
     }
   });
 
+  it('大教按创立先后取配色(中间分出的教派不占位)', () => {
+    const greats = civOf(seed).religion!.faiths.filter((f) => f.kind === 'great');
+    greats.forEach((g, i) => expect(g.color, g.name).toEqual(GREAT_COLORS[i % GREAT_COLORS.length]));
+  });
+
+  it('导出的图例(信仰图层):和侧栏信仰列表同样的几行、同样的颜色,右边小字是类型和州数', () => {
+    const civ = civOf(seed);
+    const rows = faithRows(civ, civ.endYear);
+    const legend = faithLegendRows(civ, civ.endYear);
+    expect(legend.map((r) => r.name)).toEqual(rows.map((r) => r.name));
+    expect(legend.map((r) => r.color)).toEqual(rows.map((r) => [...r.color]));
+    legend.forEach((r, i) => {
+      expect(r.note).toMatch(new RegExp(`(^|· )${rows[i].n} 州$`));
+      expect(r.note).not.toMatch(CLEAN);
+      const f = civ.religion!.faiths[rows[i].id];
+      if (f?.kind === 'great') expect(r.note.startsWith(`${f.form} · `)).toBe(true);
+      if (f?.kind === 'sect') expect(r.note.startsWith('教派 · ')).toBe(true);
+    });
+  });
+
   it('信众小柱图:每 250 年一份,最后一份是结束那年;和 faithCounts 一致', () => {
     const civ = civOf(seed);
     const h = faithHistory(civ);
     expect(h.years[0]).toBe(0);
-    expect(h.years[h.years.length - 1]).toBeGreaterThanOrEqual(civ.endYear);
+    expect(h.years[h.years.length - 1]).toBe(civ.endYear);
     const last = faithCounts(civ, civ.endYear).n;
     expect([...h.n[h.n.length - 1]]).toEqual([...last]);
   });
 });
 
 describe('信仰 · 结束年份不在整 5 年上', () => {
+  it('最后补的那一步不传教:比上一个整步多出来的变化只有民间信仰跟着民族换、没人住了、这一年创的教;没有"传入"', () => {
+    const civ = generateCiv(world(7), { endYear: 1873.5 });
+    const rel = civ.religion!;
+    const y = civ.endYear;
+    const a = faithAt(civ, y);
+    const b = faithAt(civ, 1870);
+    const founded = new Set(rel.events.filter((e) => e.kind === 'found' && e.year === y).map((e) => e.region));
+    for (let r = 0; r < civ.regions.count; r++) {
+      if (a[r] === b[r]) continue;
+      expect(a[r] < 0 || rel.faiths[a[r]].kind === 'folk' || founded.has(r), `州 ${r}`).toBe(true);
+    }
+    expect(rel.events.filter((e) => e.kind === 'enter' && e.year === y)).toEqual([]);
+    const h = faithHistory(civ);
+    expect(h.years[h.years.length - 1]).toBe(y);
+    expect(h.years[h.years.length - 2]).toBe(1750);
+  });
+
   it('最后补算一步:结束那年有人住的州都有信仰,民间信仰对得上那年的民族,亡了的国家国教也结束了', () => {
     const civ = generateCiv(world(7), { endYear: 1873.5 });
     const F = civ.religion!.faiths;

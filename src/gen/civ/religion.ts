@@ -280,7 +280,7 @@ export function buildReligion(world: World, civ: Civ): Religion {
           founded: y,
           holy: best,
           founder: { name: namer.surname(s.cell, 77) + given, born: y - age, died: y - age + 55 + Math.floor(keyed(seed, 6, s.cell) * 25) },
-          color: GREAT_COLORS[(k - C) % GREAT_COLORS.length],
+          color: GREAT_COLORS[faiths.filter((f) => f.kind === 'great').length % GREAT_COLORS.length],
         });
         set(y, s.region, k);
         events.push({ year: y, kind: 'found', faith: k, polity: ownP[s.region], region: s.region, settlement: best });
@@ -290,8 +290,9 @@ export function buildReligion(world: World, civ: Civ): Religion {
       // 这一年没有合适的城(都信了大教、离圣城太近):已经有两个大教就不创这一个,不到两个下一步再找
     }
 
-    // 传播:大教 / 教派向相邻的州传
-    spreadStep(seed, y, civ.regions, faith, next, ownP, stateOf, isFolk, rootArr);
+    // 传播:大教 / 教派向相邻的州传(结束年份补的那一步不满 STEP 年,不传,只跟上归属的变化)
+    if (y % STEP === 0) spreadStep(seed, y, civ.regions, faith, next, ownP, stateOf, isFolk, rootArr);
+    else next.set(faith);
     // 改信:第一次传进一国(那国里还没有别的州信这一教)记一件"传入"
     const F = faiths.length;
     if (inPolity.length < P * F) {

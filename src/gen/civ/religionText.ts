@@ -172,7 +172,7 @@ export const FAITH_SPARK_STEP = 250;
 const sparkCache = new WeakMap<object, { years: number[]; n: Int32Array[] }>();
 
 /**
- * 各信仰的历年州数(0 年起每 FAITH_SPARK_STEP 年一份,最后一份不超过结束年份):宗教卡片「信众」的小柱图。
+ * 各信仰的历年州数(0 年起每 FAITH_SPARK_STEP 年一份,最后一份是结束那年):宗教卡片「信众」的小柱图。
  * 按信仰日志缓存(改名不重算)
  */
 export function faithHistory(civ: Civ): { years: number[]; n: Int32Array[] } {
@@ -181,8 +181,9 @@ export function faithHistory(civ: Civ): { years: number[]; n: Int32Array[] } {
   const hit = sparkCache.get(rel.log);
   if (hit) return hit;
   const years: number[] = [];
-  for (let y = 0; y <= civ.endYear + FAITH_SPARK_STEP - 1; y += FAITH_SPARK_STEP) years.push(y);
-  const n = years.map((y) => faithCounts(civ, Math.min(y, civ.endYear)).n);
+  for (let y = 0; y < civ.endYear; y += FAITH_SPARK_STEP) years.push(y);
+  years.push(civ.endYear);
+  const n = years.map((y) => faithCounts(civ, y).n);
   const out = { years, n };
   sparkCache.set(rel.log, out);
   return out;
