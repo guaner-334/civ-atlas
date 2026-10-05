@@ -1,7 +1,8 @@
 /*
- * 我的世界(MyWorlds.tsx)、新建世界的卡片(NewWorld.tsx)、卡片里的改地形(TerrainTools.tsx 的 TerrainPanel)。
+ * 我的世界(MyWorlds.tsx)、新建世界的卡片(studio/Studio.tsx 借用这里的 .nw-* 零件)、卡片里的改地形(TerrainTools.tsx 的 TerrainPanel)。
  *
- *   我的世界   盖住整个页面的一页:浅灰底,右上新建世界 / 打开存档文件,下面缩略图网格(宽屏三列,手机两列),名字和时间在图下面
+ *   我的世界   盖住整个页面的一页:浅灰底,右上新建世界 / 打开存档文件,下面缩略图网格(宽屏三列,手机两列),名字和时间在图下面;
+ *             一个都没有时中间一颗自转的星球、一段话、「新建世界」大按钮
  *   新建世界   宽屏:和侧栏同一张卡片(位置、宽度见 desktop.css),底部一条白底放「创建世界」;
  *             手机:底部卡片(比世界卡片高,收起时只露标题那一行;改地形时只放改地形那一组)
  * 行、分组、小标题照侧栏的零件(sidebar.css 的 .sb-*);这里只写新加的。
@@ -267,6 +268,74 @@
 }
 .mw-ver {
   margin-left: auto;
+}
+
+/* ---- 一个都没有:中间一颗慢慢转的星球、一段话、「新建世界」大按钮 ---- */
+.mw-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 24px 0 40px;
+}
+.mw-globe {
+  flex: none;
+  margin-bottom: 22px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 40% 35%, #2a5a8c, #0e2440 70%);
+  box-shadow: 0 12px 32px rgba(0, 30, 80, 0.2);
+}
+.mw-globe canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+}
+.mw-globe.on canvas {
+  opacity: 1;
+}
+.mw-empty h2 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+}
+.mw-empty p {
+  margin: 10px 0 22px;
+  max-width: 30em;
+  font-size: 14.5px;
+  line-height: 1.6;
+  color: var(--ink-2);
+}
+/* 一句一段:放得下就接着排,窄了在句子之间换行(不从词中间断开) */
+.mw-empty p span {
+  display: inline-block;
+}
+.mw .mw-btn.big {
+  height: 44px;
+  padding: 0 22px;
+  border-radius: 10px;
+  font-size: 16px;
+  font-weight: 600;
+  gap: 8px;
+}
+.mw .mw-or {
+  margin-top: 14px;
+  padding: 4px;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font-size: 13.5px;
+}
+.mw .mw-or:hover {
+  text-decoration: underline;
+}
+@media (prefers-reduced-motion: reduce) {
+  .mw-globe canvas {
+    transition: none;
+  }
 }
 
 /* ---- 手机:两列,新建世界在右上(圆角药丸),打开存档文件在列表下面 ---- */
@@ -817,4 +886,7 @@
 }
 .nw-sheet .tp .sb-sec-head {
   font-size: 13.5px;
+}
+.mw-phone .mw-empty p {
+  font-size: 14px;
 }

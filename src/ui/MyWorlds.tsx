@@ -7,8 +7,9 @@
  *            右上"···"(电脑悬停时出现;手机长按卡片)= 改名、复制一份、存成文件、删除(点两下确认)。没建完的只有改名、删除
  *   底部     源代码、隐私政策、用户协议、版本号(手机上不放,在世界卡片的"更多"里)
  * 手机:两列卡片,新建世界在右上,打开存档文件在列表下面。
+ * 一个都没有(第一次来)时:中间一颗慢慢自转的星球、一段话说清能做什么、「新建世界」大按钮,下面"或者打开存档文件"。
  *
- * 存、读、列都在 saveStore.ts;打开一个世界(生成 + 套上修改)由 App 做。一个世界都不剩时 App 直接进新建。
+ * 存、读、列都在 saveStore.ts;打开一个世界(生成 + 套上修改)由 App 做。
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { deleteWorld, duplicateWorld, listWorlds, loadWorld, notify, persistent, renameWorld, useSavesVersion, type StoredWorld } from './saveStore';
@@ -18,6 +19,7 @@ import { Icon } from './icons';
 import { TitleInput, when } from './worldParts';
 import { PRIVACY_URL, SOURCE_URL, TERMS_URL } from './links';
 import { APP_VERSION } from './version';
+import { HomeGlobe } from './studio/HomeGlobe';
 import './worlds.css';
 
 export interface MyWorldsProps {
@@ -58,8 +60,11 @@ export function MyWorlds({ phone, onOpen, onNew, onOpenText }: MyWorldsProps) {
       notify({ kind: 'error', text: `打不开 ${f.name}`, more: ['读不了这个文件'] });
     }
   };
+  const empty = list.length === 0;
   const sub = keep
-    ? phone
+    ? empty
+      ? '建好的世界存在这个浏览器里；换电脑请用存档文件。'
+      : phone
       ? `${list.length} 个世界，自动存在这个浏览器里`
       : `${list.length} 个世界，改动自动存在这个浏览器里；换电脑请用存档文件。`
     : '浏览器不让网页存数据，关掉页面前请把世界存成文件。';
@@ -69,7 +74,7 @@ export function MyWorlds({ phone, onOpen, onNew, onOpenText }: MyWorldsProps) {
     <div className={`mw${phone ? ' mw-phone' : ''}`} role="main" aria-label="我的世界" onPointerDown={stop} onClick={stop} onDoubleClick={stop} onWheel={stop}>
       <input ref={fileRef} type="file" accept=".json,application/json" hidden onChange={onFile} data-testid="save-file-input" />
       <header className="mw-top">
-        {phone && (
+        {phone && !empty && (
           <div className="mw-bar">
             <button className="mw-btn blue round" data-act="new-world" onClick={onNew}>
               <Icon name="plus" size={16} />
@@ -81,7 +86,7 @@ export function MyWorlds({ phone, onOpen, onNew, onOpenText }: MyWorldsProps) {
           <h1>我的世界</h1>
           <p>{sub}</p>
         </div>
-        {!phone && (
+        {!phone && !empty && (
           <div className="mw-acts">
             <button className="mw-btn" data-act="open-file" onClick={pickFile}>
               <Icon name="file" size={16} />
@@ -94,21 +99,42 @@ export function MyWorlds({ phone, onOpen, onNew, onOpenText }: MyWorldsProps) {
           </div>
         )}
       </header>
-      <div className="mw-grid" role="list">
-        {list.map((w) => (
-          <WorldCard
-            key={w.id}
-            w={w}
-            phone={phone}
-            menuOpen={menu === w.id}
-            onMenu={(o) => setMenu(o ? w.id : null)}
-            renaming={renaming === w.id}
-            onRename={(o) => setRenaming(o ? w.id : null)}
-            onOpen={() => onOpen(w.id)}
-          />
-        ))}
-      </div>
-      {phone && (
+      {empty && (
+        <div className="mw-empty">
+          <HomeGlobe size={phone ? 150 : 188} />
+          <h2>还没有世界</h2>
+          <p>
+            <span>打造一颗独属于你的星球，</span>
+            <span>它有大陆、海洋、气候、洋流……</span>
+            <span>还有城市、文明、种族……</span>
+            <span>以及在你引导下推演出来的历史。</span>
+          </p>
+          <button className="mw-btn blue big" data-act="new-world" onClick={onNew}>
+            <Icon name="plus" size={18} />
+            新建世界
+          </button>
+          <button className="mw-or" data-act="open-file" onClick={pickFile}>
+            或者打开存档文件
+          </button>
+        </div>
+      )}
+      {!empty && (
+        <div className="mw-grid" role="list">
+          {list.map((w) => (
+            <WorldCard
+              key={w.id}
+              w={w}
+              phone={phone}
+              menuOpen={menu === w.id}
+              onMenu={(o) => setMenu(o ? w.id : null)}
+              renaming={renaming === w.id}
+              onRename={(o) => setRenaming(o ? w.id : null)}
+              onOpen={() => onOpen(w.id)}
+            />
+          ))}
+        </div>
+      )}
+      {phone && !empty && (
         <div className="mw-open-file sb-group">
           <button className="sb-row" data-act="open-file" onClick={pickFile}>
             <Icon name="file" size={18} className="sb-ico" />
