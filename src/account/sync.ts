@@ -73,6 +73,8 @@ const KEY = 'civ-atlas:sync';
 /** 换了账号时,原来那个账号的记录另外收在 STASH + 账号编号 */
 const STASH = 'civ-atlas:sync:';
 let memState: SyncState | null = null;
+/** memState 比浏览器里的新(上次没写进去:存不下、隐私模式) */
+let dirty = false;
 
 /** 浏览器里存着的记录(key 默认是现在这份;undefined = 浏览器存储用不了) */
 function storedState(key = KEY): SyncState | null | undefined {
@@ -109,8 +111,21 @@ function readState(): SyncState | null {
   if (v === undefined) return memState;
   if (!v) {
     // 写进去过、现在没了:别的标签页清掉了(退出时删了这台设备上的世界、注销了账号)
-    if (memState && bases.has(memState)) memState = null;
+    if (memState && bases.has(memState)) {
+      memState = null;
+      dirty = false;
+    }
     return memState;
+  }
+  if (dirty && memState && memState.user === v.user) {
+    // 上次没写进去:内存里这份新(刚记下的删除在这里),这边没动过的那几条照浏览器里现在的(别的标签页写的)
+    const base = bases.get(memState) ?? { user: v.user, worlds: {}, deletes: {} };
+    const merged = copyState(memState);
+    mergeInto(merged.worlds, base.worlds, v.worlds, sameKnown);
+    mergeInto(merged.deletes, base.deletes, v.deletes, (a, b) => a === b);
+    bases.set(merged, copyState(v));
+    memState = merged;
+    return merged;
   }
   bases.set(v, copyState(v));
   return v;
@@ -119,6 +134,7 @@ function readState(): SyncState | null {
 function writeState(st: SyncState | null) {
   if (!st) {
     memState = null;
+    dirty = false;
     try {
       if (typeof localStorage !== 'undefined') localStorage.removeItem(KEY);
     } catch {
@@ -136,7 +152,10 @@ function writeState(st: SyncState | null) {
   }
   if (base && now === null) {
     // 别的标签页把记录清掉了:不写回去
-    if (key === KEY) memState = null;
+    if (key === KEY) {
+      memState = null;
+      dirty = false;
+    }
     return;
   }
   if (base && now) {
@@ -148,8 +167,10 @@ function writeState(st: SyncState | null) {
     if (typeof localStorage === 'undefined') return;
     localStorage.setItem(key, JSON.stringify(st));
     bases.set(st, copyState(st));
+    if (key === KEY) dirty = false;
   } catch {
-    /* 存不下:只在内存里 */
+    // 存不下:只在内存里(之后读的时候以内存里这份为准)
+    if (key === KEY) dirty = true;
   }
 }
 
@@ -315,6 +336,11 @@ let busyNow = new Set<string>();
 /** 正在看的、账号里比这里新的世界(别的设备改过,还没「载入」):最近一次全看一遍时记下的 */
 let behind = new Set<string>();
 let behindNow = new Set<string>();
+/**
+ * 两边都改过、另存好了另一份,存本地这份时回话断了(不知道服务器收到没有):另存的那份留着(收到了的话服务器上原来那份已经被盖掉,
+ * 它是唯一的一份)。记下是为服务器上哪个版本另存的:下次再对还是那个版本,就用这一份,不再另存
+ */
+const forkedFor = new Map<string, { rev: number; nid: string }>();
 
 /** 正在看的这个世界(不在"我的世界"那一页):别的设备的改动先不覆盖它 */
 /** 正在看的世界(不被别的设备的改动覆盖、删掉);因为它先放着没做的,回到"我的世界"时再全看一遍 */
@@ -526,15 +552,17 @@ async function fork(st: SyncState, id: string, l: Local, remote: CloudWorld) {
     failedNow.set(id, no.why);
     return;
   }
-  if (storedCount() >= MAX_WORLDS) {
+  const prior = forkedFor.get(id);
+  const reuse = prior && prior.rev === remote.rev && localWorld(prior.nid) ? prior.nid : null;
+  if (!reuse && storedCount() >= MAX_WORLDS) {
     // 另一份放不下:先不覆盖服务器上的(两份都还在),等腾出地方
     failedNow.set(id, `「我的世界」满了（最多 ${MAX_WORLDS} 个），两台设备上改的没法都留下：先删掉一个世界`);
     return;
   }
-  const nid = newWorldId();
+  const nid = reuse ?? newWorldId();
   const forkRaw = remoteRaw(remote, save);
   const forkNotes = Array.isArray(remote.notes) ? remote.notes : null;
-  if (!store(nid, forkRaw, forkNotes)) {
+  if (!reuse && !store(nid, forkRaw, forkNotes)) {
     // 存不下另一份:先不覆盖服务器上的(两份都还在),等腾出地方
     failedNow.set(id, '浏览器存储满了，两台设备上改的没法都留下');
     return;
@@ -546,7 +574,14 @@ async function fork(st: SyncState, id: string, l: Local, remote: CloudWorld) {
   try {
     await upload(st, id, l, remote.rev);
   } catch (e) {
-    // 本地这份没存上去:刚另存的那份撤掉(服务器上还是那份),下次重来,不然每试一次多一份
+    const unsure = e instanceof SessionChanged || (e instanceof ServerError && (e.code === 'network' || e.status === 0 || e.status >= 500));
+    if (unsure) {
+      // 不知道服务器收到没有:另存的那份留着,下次用它
+      forkedFor.set(id, { rev: remote.rev, nid });
+      throw e;
+    }
+    // 服务器明确没收:刚另存的那份撤掉(服务器上还是那份),下次重来,不然每试一次多一份
+    forkedFor.delete(id);
     applying = true;
     try {
       removeSyncedWorld(nid);
@@ -566,6 +601,7 @@ async function fork(st: SyncState, id: string, l: Local, remote: CloudWorld) {
   }
   // 被挤出去了也照样存进账号(服务器上原来那份已经被本地这份盖掉,另存的这份是它唯一的去处),有地方了再取回来
   const n = localWorld(nid) ?? (dropped ? null : { raw: forkRaw, notes: forkNotes ?? [], sum: sumOf(forkRaw, forkNotes) });
+  forkedFor.delete(id);
   if (n) await push(st, nid, n, 0);
   const name = cleanTitle((JSON.parse(l.raw.save) as { title?: string }).title) || '未命名世界';
   forks.push({ name, other });
@@ -709,6 +745,7 @@ async function cycle(full: boolean): Promise<void> {
   const st = stateFor(s.user.id);
   if (rejectedFor !== s.user.id) {
     rejected.clear();
+    forkedFor.clear();
     rejectedFor = s.user.id;
     lastAlive = new Set();
   }
@@ -1120,6 +1157,8 @@ export function startSync(): () => void {
 /** 单测用:清掉内存里的状态 */
 export function _resetSyncForTest(): void {
   memState = null;
+  dirty = false;
+  forkedFor.clear();
   active = null;
   cycleToken = null;
   rejected.clear();

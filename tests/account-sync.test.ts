@@ -13,7 +13,7 @@ import { setStage } from '../src/ui/stageStore';
 import { _resetToasts, getToast } from '../src/ui/toastStore';
 import { forgetNotes, listNotes, putNote } from '../src/ai/library';
 import { setServerForTest, setTimeoutForTest } from '../src/account/server';
-import { _resetSessionForTest, deleteAccount, fetchAuthOptions, getSession, login, logout, refreshSession, sendCode } from '../src/account/session';
+import { _resetSessionForTest, currentAccount, deleteAccount, fetchAuthOptions, getSession, login, logout, refreshSession, sendCode } from '../src/account/session';
 import { _resetSyncForTest, behindCloud, getSyncView, inAccount, pullWorld, signOut, startSync, syncNow, worldSync } from '../src/account/sync';
 import { createShare, listShares, openShareCode, stopShare } from '../src/account/cloud';
 
@@ -68,6 +68,12 @@ function addWorld(seed: number, title: string): string {
   return id;
 }
 
+/** 账号里还在的世界的名字(排好序) */
+const cloudTitles = (email = 'writer@example.com') =>
+  [...fake.users.get(email)!.worlds.values()]
+    .filter((w) => w.deletedAt === null)
+    .map((w) => (w.save as SaveFile).title)
+    .sort();
 const titles = () =>
   saveStore
     .listWorlds()
@@ -393,7 +399,7 @@ describe('云同步:边改边同步、出错、换账号', () => {
     expect(titles()).toEqual(['北境编年']);
   });
 
-  it('两边都改过、另存好另一份后自己这份没存上(断网):另存的撤掉,不会每试一次多一份', async () => {
+  it('两边都改过、另存好另一份后自己这份没存上(断网,不知道服务器收到没有):另存的留着,不会每试一次多一份', async () => {
     const a = new FakeStorage();
     const b = new FakeStorage();
     device(a);
@@ -413,12 +419,42 @@ describe('云同步:边改边同步、出错、换账号', () => {
       if (req.method === 'PUT') throw new TypeError('Failed to fetch');
     };
     expect((await syncNow()).phase).toBe('offline');
-    expect(titles()).toEqual(['B 改的']);
+    expect(titles()).toEqual(['A 改的（另一台设备）', 'B 改的']);
     expect((await syncNow()).phase).toBe('offline');
-    expect(titles()).toEqual(['B 改的']);
+    expect(titles()).toEqual(['A 改的（另一台设备）', 'B 改的']);
     gate = null;
     await syncNow();
     expect(titles()).toEqual(['A 改的（另一台设备）', 'B 改的']);
+    expect(cloudTitles()).toEqual(['A 改的（另一台设备）', 'B 改的']);
+  });
+
+  it('两边都改过、本地这份存上去了但回话丢了:另存的那份留着,下次照样存进账号(那边改的不会丢)', async () => {
+    const a = new FakeStorage();
+    const b = new FakeStorage();
+    device(a);
+    const id = addWorld(7, '苍澜界');
+    await signIn();
+    device(b);
+    await signIn();
+    device(a);
+    tick();
+    saveStore.renameWorld(id, 'A 改的');
+    await syncNow();
+    device(b);
+    tick();
+    saveStore.renameWorld(id, 'B 改的');
+
+    late = (req) => {
+      if (!isWorld(req, id, 'PUT')) return;
+      late = null;
+      throw new TypeError('Failed to fetch');
+    };
+    expect((await syncNow()).phase).toBe('offline');
+    expect(titles()).toEqual(['A 改的（另一台设备）', 'B 改的']);
+    await syncNow();
+    expect(titles()).toEqual(['A 改的（另一台设备）', 'B 改的']);
+    expect(cloudTitles()).toEqual(['A 改的（另一台设备）', 'B 改的']);
+    expect(getSyncView().failed.size).toBe(0);
   });
 
   it('AI 写的东西太多、存不进账号:算没同步上,退出登录不让选"删掉";两边都改过时也不会每次多出一份', async () => {
@@ -1483,5 +1519,32 @@ describe('云同步:放满了、服务器不回话、分享前、别的标签页
     expect(behindCloud(id)).toBe(false);
     await syncNow();
     expect(behindCloud(id)).toBe(false);
+  });
+
+  it('同步记录写不进浏览器(存不下):内存里新记的删除不被浏览器里旧的那份盖掉,删掉的世界不会又取回来', async () => {
+    const a = new FakeStorage();
+    device(a);
+    const x = addWorld(7, '苍澜界');
+    addWorld(99, '北境编年');
+    await signIn();
+    a.deny = (k) => k === 'civ-atlas:sync';
+    saveStore.deleteWorld(x);
+    await syncNow();
+    expect(titles()).toEqual(['北境编年']);
+    expect(fake.users.get('writer@example.com')!.worlds.get(x)!.deletedAt).not.toBeNull();
+    a.deny = null;
+    await syncNow();
+    expect(titles()).toEqual(['北境编年']);
+  });
+
+  it('登录过、但这个网站没配服务器:界面按没登录算(分享用长链接),配回来接着用', async () => {
+    device(new FakeStorage());
+    await signIn();
+    expect(currentAccount()?.user.account).toBe('writer@example.com');
+    setServerForTest(null);
+    expect(currentAccount()).toBeNull();
+    expect(getSession()).not.toBeNull();
+    setServerForTest(BASE);
+    expect(currentAccount()?.user.account).toBe('writer@example.com');
   });
 });

@@ -128,10 +128,18 @@ export function onSessionChange(f: () => void): () => void {
   return () => void subs.delete(f);
 }
 
-/** React:登录状态变了就重渲染 */
+/**
+ * 界面上算不算登录着:登录过、而且这个网站配了服务器。没配服务器(构建时去掉了)的话,
+ * 浏览器里留着的登录先不用:入口按没登录显示(长链接分享、只存在浏览器里),不然点了都是"还没有开放"
+ */
+export function currentAccount(): Session | null {
+  return serverBase() ? load() : null;
+}
+
+/** React:登录状态变了就重渲染(没配服务器 = null,见 currentAccount) */
 export function useSession(): Session | null {
   useSyncExternalStore(onSessionChange, () => version, () => version);
-  return load();
+  return currentAccount();
 }
 
 /** 别的标签页登录、退出、换了账号:按浏览器里存着的重读,变了就通知(还没读过的不用管,用到时自然读新的) */
