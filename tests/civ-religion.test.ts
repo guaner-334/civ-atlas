@@ -15,6 +15,7 @@ import { applyNames, cultureKey, faithKey } from '../src/gen/edits';
 import { searchCiv } from '../src/ui/searchIndex';
 import { layerDef, layerOf } from '../src/ui/mapLayers';
 import { faithFocusOf, selectionOnMap } from '../src/ui/faithSelection';
+import { getCivShow, pickChronicleEntry, setCivShow } from '../src/ui/civView';
 
 const worlds = new Map<number, World>();
 function world(seed: number): World {
@@ -187,6 +188,24 @@ describe.each([7, 2024])('信仰 · seed=%i', (seed) => {
   });
 });
 
+describe('信仰 · 结束年份不在整 5 年上', () => {
+  it('最后补算一步:结束那年有人住的州都有信仰,民间信仰对得上那年的民族,亡了的国家国教也结束了', () => {
+    const civ = generateCiv(world(7), { endYear: 1873.5 });
+    const F = civ.religion!.faiths;
+    const y = civ.endYear;
+    const a = faithAt(civ, y);
+    const own = ownersAt(civ, y);
+    for (let r = 0; r < civ.regions.count; r++) {
+      expect(a[r] >= 0, `州 ${r}`).toBe(own.culture[r] >= 0);
+      if (a[r] >= 0 && F[a[r]].kind === 'folk') expect(F[a[r]].culture).toBe(own.culture[r]);
+    }
+    for (const s of civ.religion!.states) {
+      const end = civ.polities[s.polity].ended;
+      if (end !== undefined && end <= y) expect(s.until, civ.polities[s.polity].name).toBeDefined();
+    }
+  });
+});
+
 describe('信仰 · 同种子同一套', () => {
   it('同一个世界再推演一次,信仰、大事、国教、日志都一样', () => {
     const a = civOf(7).religion!;
@@ -234,6 +253,21 @@ describe('信仰 · 改名、搜索、图层、地图上的选中', () => {
     expect(layerOf('fantasy', 'biomes', { polities: true, cultures: false, faiths: true })).toBe('faith');
     expect(layerOf('fantasy', 'biomes', { polities: true, cultures: true, faiths: false })).not.toBe('faith');
     expect(layerDef('faith')).toMatchObject({ polities: true, cultures: false, faiths: true });
+  });
+
+  it('在信仰图层上点编年史:宗教大事留在信仰图层,别的事换到政区图层', () => {
+    const all = fullChronicle(civ);
+    const faithEv = all.find((e) => e.kind === 'faith')!;
+    const other = all.find((e) => e.kind !== 'faith')!;
+    const layer = () => layerOf('fantasy', 'biomes', getCivShow());
+    setCivShow({ polities: true, cultures: false, faiths: true });
+    pickChronicleEntry(faithEv);
+    expect(layer()).toBe('faith');
+    pickChronicleEntry(other);
+    expect(layer()).toBe('political');
+    setCivShow({ polities: false, cultures: true, faiths: false });
+    pickChronicleEntry(faithEv);
+    expect(layer()).toBe('political');
   });
 
   it('选中信仰:大教圈圣城,教派圈分出时的国都,民间信仰不圈;别的选中照旧', () => {

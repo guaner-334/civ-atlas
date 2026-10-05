@@ -210,7 +210,11 @@ export function buildReligion(world: World, civ: Civ): Religion {
   const seenP = new Int32Array(P);
   const order: number[] = [];
   const faithOrder: number[][] = Array.from({ length: P }, () => []);
-  for (let y = 0; y <= civ.endYear; y += STEP) {
+  // 每 STEP 年一步;结束年份不在整步上时最后补一步,让结束那年的信仰也对得上那年的民族、国家
+  const years: Year[] = [];
+  for (let y = 0; y <= civ.endYear; y += STEP) years.push(y);
+  if (years[years.length - 1] < civ.endYear) years.push(civ.endYear);
+  for (const y of years) {
     for (; li < L.size && L.year[li] <= y; li++) {
       if (L.layer[li] === Layer.Culture) ownC[L.region[li]] = L.value[li];
       else ownP[L.region[li]] = L.value[li];
@@ -245,7 +249,8 @@ export function buildReligion(world: World, civ: Civ): Religion {
       }
       if (best >= 0) {
         const s = S[best];
-        const cu = civ.cultures[s.culture];
+        // 创教的是城里现在住的民族(城被同化过的话,Settlement.culture 还是建城的那族)
+        const cu = civ.cultures[ownC[s.region]] ?? civ.cultures[s.culture];
         const namer = namers(cu.style);
         const k = faiths.length;
         const forms = FORM_BY_KIND[cu.kind] ?? ['多神'];
