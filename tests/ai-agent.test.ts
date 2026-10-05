@@ -11,7 +11,7 @@ import { applyNames, polityKey, regionKey, type WorldEdits } from '../src/gen/ed
 import { setActiveProvider, setMockResponder } from '../src/ai/client';
 import { AiError, type AiRequest } from '../src/ai/types';
 import { AGENT_MAX_ROUNDS, TOOL_RESULT_MAX, parseToolArgs, runAgent, type AgentEvent, type AgentTool, type AgentToolResult } from '../src/ai/agent/loop';
-import { compareTrial, fateText, trialText } from '../src/ai/agent/trial';
+import { compareTrial, fateText, matchPolities, trialText } from '../src/ai/agent/trial';
 import {
   ASSISTANT_FEATURE,
   ASSISTANT_SYSTEM,
@@ -143,6 +143,30 @@ describe('助手的循环', () => {
     expect(out.usage.inputTokens).toBeGreaterThan(0);
   });
 
+  it('模型给的调用编号重复或是空的:换成不重的,每条结果对得上各自那次调用', async () => {
+    const seen: AiRequest[] = [];
+    let n = 0;
+    setMockResponder((req) => {
+      seen.push(structuredClone(req));
+      if (n++ > 0) return '好了。';
+      return {
+        toolCalls: [
+          { id: 'c', name: 'echo', args: '{"x":1}' },
+          { id: 'c', name: 'echo', args: '{"x":2}' },
+          { id: '', name: 'echo', args: '{"x":3}' },
+        ],
+      };
+    });
+    const out = await runAgent({ feature: '测试', messages: [{ role: 'user', content: '查' }], tools: [echo] });
+    expect(out.text).toBe('好了。');
+    const m = seen[1].messages;
+    const ids = m[1].toolCalls!.map((c) => c.id);
+    expect(ids[0]).toBe('c');
+    expect(ids.every(Boolean)).toBe(true);
+    expect(new Set(ids).size).toBe(3);
+    expect(m.slice(2).map((x) => [x.toolCallId, x.content])).toEqual(ids.map((id, i) => [id, `收到 ${i + 1}`]));
+  });
+
   it('到了轮数上限:最后一轮不许再调工具,拿它说的话收尾', async () => {
     const seen = script({ text: '再查查。', calls: [['echo', { x: 2 }]] });
     const out = await runAgent({ feature: '测试', messages: [{ role: 'user', content: '查个没完' }], tools: [echo], maxRounds: 3 });
@@ -208,6 +232,26 @@ describe('试推演的对照', () => {
     const d = compareTrial(civ, civ, [p.id], 2500);
     expect(d.focus[0].who).toEqual({ id: p.id, name: nameAt(p, civ.endYear), then: nameAt(p, 2500) });
     expect(trialText(d)).toContain(`P${p.id} ${nameAt(p, civ.endYear)}(第 2500 年时叫${nameAt(p, 2500)})`);
+  });
+
+  it('试推演里新立的国家:不会占掉同一州里原有国家的序号、被认成那个国家;两边同一条立国修改立的对得上', () => {
+    // 一个后来才立的国家,在它国都那州早 30 年让人立国
+    const S = civ.settlements;
+    const q = civ.polities.find((p) => p.founded >= 1200)!;
+    const y = Math.floor(q.founded) - 30;
+    const after = generateCiv(world, { interventions: [{ kind: 'found', region: regionKey(civ, S[q.capital].region), from: y }] });
+    const made = after.annals.find((e) => e.kind === 'intervene' && e.war === 0)!.a;
+    expect(made).toBeGreaterThanOrEqual(0);
+    // 按稳定键,新立的国家正好落在原来那国的键上
+    expect(polityKey(after, made)).toBe(polityKey(civ, q.id));
+    const m = matchPolities(civ, after, y);
+    expect(m.has(made)).toBe(false);
+    for (const [a, b] of m) if (b === q.id) expect(Math.abs(after.polities[a].founded - q.founded)).toBeLessThanOrEqual(60);
+    // 这一州被抢先立了国,原来那国在试推演里没立起来:它的结局是"没有这个国家",不是新立那国的结局
+    expect(compareTrial(civ, after, [q.id], y).focus[0].after).toBeNull();
+    // 两边都有这条立国修改:立出来的国家对上
+    const same = matchPolities(after, after, y);
+    for (const p of after.polities) expect(same.get(p.id)).toBe(p.id);
   });
 
   it('保护一个原本被灭的国家:试推演里它活到最后,它被灭的那条大事不再发生', async () => {
@@ -313,6 +357,24 @@ describe('助手', () => {
     await expect(Promise.resolve().then(() => noSim.try_edits.run({ edits: [PROTECT] }))).rejects.toThrow('不能试推演');
     const r3 = await said(noSim.propose_edits.run({ edits: [PROTECT] }));
     expect(r3).not.toContain('试推演');
+  });
+
+  it('列确认单:同一批修改换了顺序不算试过(同一年的修改按先后执行,结果可能不同),顺带重新试推演', async () => {
+    let runs = 0;
+    const fast = async () => {
+      runs++;
+      return civ;
+    };
+    const state: { trials: AssistantTrial[]; proposal: AssistantProposal | null } = { trials: [], proposal: null };
+    const tools = Object.fromEntries(assistantTools(ctx({ simulate: fast }), state).map((t) => [t.def.name, t]));
+    await tools.try_edits.run({ edits: [PROTECT, ALLY] });
+    await tools.propose_edits.run({ edits: [PROTECT, ALLY] });
+    expect(runs).toBe(1);
+    expect(state.proposal!.trial).toBe(state.trials[0]);
+    const r = await said(tools.propose_edits.run({ edits: [ALLY, PROTECT] }));
+    expect(runs).toBe(2);
+    expect(state.proposal!.trial!.n).toBe(0);
+    expect(r).toContain('顺带试推演了一次');
   });
 
   it('试推演里同时改名:两边都套上新名字再比,没变的大事不会算成少一件、多一件', async () => {

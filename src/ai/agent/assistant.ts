@@ -328,12 +328,8 @@ function editsWord(civ: Civ, edits: unknown, omit = -1): string {
   return words.filter(Boolean).join('，再');
 }
 
-/** 两批修改是不是同一批(比能执行的那几条) */
-const changeSig = (cs: readonly RewriteChange[]) =>
-  cs
-    .map((c) => JSON.stringify(c))
-    .sort()
-    .join('\n');
+/** 两批修改是不是同一批(比能执行的那几条;顺序也要一样:同一年的两条修改按先后执行,换个顺序结果可能不同) */
+const changeSig = (cs: readonly RewriteChange[]) => cs.map((c) => JSON.stringify(c)).join('\n');
 
 /** 核对结果写成文字(交回 AI) */
 function itemsText(items: readonly RewriteItem[]): string {

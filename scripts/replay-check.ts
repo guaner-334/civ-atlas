@@ -2323,7 +2323,7 @@ for (const style of ['realistic', 'fantasy']) {
 }
 
 // 助手(不联网):右上「助手」开关右边的面板,地图那一块往左让;"更多"菜单里不再有改写。没设置 AI 时一行说明 + 五句按这个世界写的例子、
-// "发送"点不了、底部"设置 AI"。测试用假 AI(时间轴在 2000 年):说一句要改的 → 查、试推演、列确认单(附试推演的结果),做完的几步收成一行 →
+// 底部"设置 AI",照样能发(这一轮报"还没有设置 AI")。测试用假 AI(时间轴在 2000 年):说一句要改的 → 查、试推演、列确认单(附试推演的结果),做完的几步收成一行 →
 // "先在地图上看看":地图上方的提示条,"回到现在"收起 → "执行 N 条":后台重推,提示条"已按你说的改写"(带撤销)、侧栏顶上"干预了 N 处",
 // 确认单写"已执行" → 提示条上点撤销 → 重推回没有干预、确认单写"已撤销"。问一句 → 地图上选中它;再点「助手」收起、地图回原位。
 // 手机:右上第三个按钮打开拉到顶的卡片;"先在地图上看看"收起卡片,提示条上能直接执行
@@ -2350,8 +2350,15 @@ for (const style of ['realistic', 'fantasy']) {
   const hint = await rp.locator('.ast-hint').innerText().catch(() => '');
   const examples = (await rp.locator('.ast-example').allInnerTexts().catch(() => [] as string[])) as string[];
   const unset = await rp.locator('.ast-unset').first().innerText().catch(() => '');
+  // 没设置 AI 也能发:按回车,这一轮报"还没有设置 AI",旁边一个"设置 AI"
   await rp.fill('.ast-field textarea', '让最大的国家多撑三百年');
-  const sendOff = await rp.locator('[data-act=ast-send]').isDisabled().catch(() => false);
+  await rp.press('.ast-field textarea', 'Enter');
+  const sentErr = await rp
+    .waitForSelector('.ast-error', { timeout: 5000 })
+    .then((el) => el.innerText())
+    .catch(() => '');
+  // 清掉这一轮(对话按世界存着,后面再打开同一个世界要从空的开始)
+  await rp.click('[data-act=ast-new]').catch(() => null);
   await rp.click('.map-bar [data-act=assistant]');
   await rp.waitForTimeout(300);
   const closed = !(await rp.locator('.ast-panel').count());
@@ -2359,7 +2366,7 @@ for (const style of ['realistic', 'fantasy']) {
   console.log(
     `助手(没设置 AI):更多菜单里没有改写 ${rewriteGone};面板 ${shown ? '出来' : '没出来'}(按钮按下 ${pressed}),左边 ${Math.round(panelLeft)},` +
       `右上按钮右边 ${Math.round(barRight0)} → ${Math.round(barRight1)}、时间轴右边 ${Math.round(timeRight)};「${hint.slice(0, 20)}…」,例子 ${examples.join(' / ')};` +
-      `「${unset.replace(/\n/g, ' ')}」,发送点不了 ${sendOff};再点收起 ${closed}、右上按钮回到 ${Math.round(barRight2)}`,
+      `「${unset.replace(/\n/g, ' ')}」,按回车「${sentErr.replace(/\n/g, ' ')}」;再点收起 ${closed}、右上按钮回到 ${Math.round(barRight2)}`,
   );
   if (!rewriteGone) errs.push('助手:"更多"菜单里还有"用一句话改写世界"');
   if (!shown || pressed !== 'true') errs.push(`助手:点右上「助手」没有出来面板 / 按钮没按下(${shown}、${pressed})`);
@@ -2368,7 +2375,7 @@ for (const style of ['realistic', 'fantasy']) {
       errs.push(`助手:面板开着时右上按钮、时间轴没有挪到面板左边(面板左边 ${panelLeft},按钮 ${barRight0} → ${barRight1},时间轴 ${timeRight})`);
     if (!hint.includes('都会先列出来给你确认')) errs.push(`助手:空的时候没有说明(${hint})`);
     if (examples.length !== 5) errs.push(`助手:空的时候应该有五句例子(${examples.join(' / ')})`);
-    if (!unset.includes('设置 AI') || !sendOff) errs.push(`助手:没设置 AI 时应该提示、"发送"点不了(${unset};点不了 ${sendOff})`);
+    if (!unset.includes('设置 AI') || !sentErr.includes('设置 AI')) errs.push(`助手:没设置 AI 时应该提示,按回车这一轮报还没有设置 AI(${unset};${sentErr})`);
     if (!closed || Math.abs(barRight2 - barRight0) > 1) errs.push(`助手:再点「助手」没收起 / 右上按钮没回原位(${closed},${barRight0} → ${barRight2})`);
   }
 

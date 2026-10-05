@@ -2,13 +2,13 @@
  * 试推演的结果和现在比(助手用):按一批修改在后台把历史重推一遍以后,关注的国家结局变没变、
  * 别的国家里谁变化最大、第 from 年以后的大事多了哪些少了哪些。纯函数,不碰 DOM。
  *
- * 两份历史里的"同一个国家"按稳定键(gen/edits.ts 的 polityKey:立国时国都所在的州 + 那州第几个立国的)对上;
+ * 两份历史里的"同一个国家"和稳定键(gen/edits.ts 的 polityKey)一样按"立国时国都所在的州 + 那州第几个立国的"对上,
+ * 只是作者让立的国家不算进序号、按立国修改单独对(见 matchPolities);
  * from 年以后才立的国家,立国年份差太多的不算同一个。只在试推演里有的国家没有编号(id = −1),不能对它下命令。
  */
 import type { Civ } from '../../gen/civ/types';
 import { ownersAt } from '../../gen/civ/timeline';
 import { buildChronicle } from '../../gen/civ/chronicle';
-import { polityKey, resolveKey } from '../../gen/edits';
 import { nameAt } from '../prompts/rewrite';
 
 /** 一个国家:id = 现在这份历史里的编号(只在试推演里有 = −1) */
@@ -98,10 +98,70 @@ function aliveAtEnd(civ: Civ): number {
 /** 大事的对照键:年份 + 正文 */
 const eventKey = (e: TrialEvent) => `${Math.floor(e.year)}|${e.text}`;
 
+/** 作者让立的国家:国家编号 → 那条立国修改(写成文字,两份历史里同一条修改立的才是同一国) */
+function madeBy(civ: Civ): Map<number, string> {
+  const m = new Map<number, string>();
+  for (const e of civ.annals) {
+    if (e.kind !== 'intervene' || e.a < 0) continue;
+    const v = civ.interventions?.[e.war];
+    if (v?.kind === 'found') m.set(e.a, JSON.stringify([v.region, v.from, v.name ?? '']));
+  }
+  return m;
+}
+
 function notableEvents(civ: Civ, from: number): TrialEvent[] {
   return buildChronicle(civ)
     .filter((e) => e.year >= from && e.importance >= NOTABLE && e.kind !== 'intervene')
     .map((e) => ({ year: Math.floor(e.year), text: e.text }));
+}
+
+/** 国家的对照键 → 编号:国都所在州 + 这州里第几个立国的(按立国年份;作者让立的国家不算进序号) */
+function seatKeys(civ: Civ, made: ReadonlyMap<number, string>): Map<string, number> {
+  const S = civ.settlements;
+  const groups = new Map<number, number[]>();
+  for (const p of civ.polities) {
+    if (made.has(p.id)) continue;
+    const r = S[p.capital]?.region ?? -1;
+    const g = groups.get(r);
+    if (g) g.push(p.id);
+    else groups.set(r, [p.id]);
+  }
+  const out = new Map<string, number>();
+  for (const [r, g] of groups) {
+    g.sort((i, j) => civ.polities[i].founded - civ.polities[j].founded || i - j);
+    g.forEach((id, n) => out.set(`${r}#${n}`, id));
+  }
+  return out;
+}
+
+/**
+ * 两份历史里的同一国:试推演里的编号 → 现在的编号。
+ * 作者让立的国家按那条立国修改对上(新加的立国对不上,就是新出现的国家);
+ * 别的按"国都所在州 + 第几个立国"对上,序号不算作者让立的国家(不然新立的国家会占掉同一州里原有国家的序号,被认成那个国家);
+ * from 年以后立的,立国年份还要差 60 年以内
+ */
+export function matchPolities(before: Civ, after: Civ, from: number): Map<number, number> {
+  const toBefore = new Map<number, number>();
+  const made0 = madeBy(before);
+  const made1 = madeBy(after);
+  const bySig = new Map<string, number>();
+  for (const [id, sig] of made0) bySig.set(sig, id);
+  const taken = new Set<number>();
+  for (const [id, sig] of made1) {
+    const b = bySig.get(sig);
+    if (b === undefined || taken.has(b)) continue;
+    toBefore.set(id, b);
+    taken.add(b);
+  }
+  const keys0 = seatKeys(before, made0);
+  for (const [k, a] of seatKeys(after, made1)) {
+    const b = keys0.get(k);
+    if (b === undefined) continue;
+    const q = before.polities[b];
+    if (q.founded >= from && Math.abs(q.founded - after.polities[a].founded) > SAME_FOUNDING) continue;
+    toBefore.set(a, b);
+  }
+  return toBefore;
 }
 
 /**
@@ -112,17 +172,9 @@ export function compareTrial(before: Civ, after: Civ, focus: readonly number[], 
   const P0 = before.polities;
   const P1 = after.polities;
   // 试推演里的国家 → 现在的编号
-  const toBefore = new Map<number, number>();
+  const toBefore = matchPolities(before, after, from);
   const toAfter = new Map<number, number>();
-  for (const p of P1) {
-    const r = resolveKey(before, polityKey(after, p.id));
-    if (!r || r.kind !== 'polity') continue;
-    const q = P0[r.id];
-    if (q.founded >= from && Math.abs(q.founded - p.founded) > SAME_FOUNDING) continue;
-    if (toAfter.has(r.id)) continue;
-    toBefore.set(p.id, r.id);
-    toAfter.set(r.id, p.id);
-  }
+  for (const [a, b] of toBefore) toAfter.set(b, a);
   const size0 = sizer(before);
   const size1 = sizer(after);
   // 国名按 y 年的叫(关注的国家按 from 年;灭了它的国家按亡国那年),和材料、编年史里的叫法对得上

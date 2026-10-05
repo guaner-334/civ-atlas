@@ -137,8 +137,16 @@ export async function runAgent(req: AgentRequest): Promise<AgentOutcome> {
       msgs.push({ role: 'assistant', content: r.text });
       return { text: r.text.trim(), steps, messages: msgs, end: calls.length ? 'rounds' : 'done', rounds: round + 1, usage };
     }
-    msgs.push({ role: 'assistant', content: r.text, toolCalls: calls });
-    for (const c of calls) {
+    // 调用编号重复(或者空)就换成不重的:每条工具结果要对上各自那次调用
+    const used = new Set(msgs.flatMap((m) => m.toolCalls?.map((c) => c.id) ?? []));
+    const fixed = calls.map((c) => {
+      let id = c.id;
+      for (let k = 2; !id || used.has(id); k++) id = `${c.id || 'call'}_${k}`;
+      used.add(id);
+      return id === c.id ? c : { ...c, id };
+    });
+    msgs.push({ role: 'assistant', content: r.text, toolCalls: fixed });
+    for (const c of fixed) {
       if (req.signal?.aborted) throw aborted();
       const tool = byName.get(c.name);
       const args = parseToolArgs(c.args);
