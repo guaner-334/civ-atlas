@@ -1747,13 +1747,15 @@ for (const style of ['realistic', 'fantasy']) {
       await page.waitForFunction((s) => ((window as any).__wfResim?.seq ?? 0) > s, prev, { timeout: 20000 }).catch(() => null);
       await page.waitForTimeout(300);
       doneToast = await toastText(page, 'resim-done');
+      // 提示条 7 秒就收,后面要点它的"撤销":先记下时间轴、停下播放(放着的时候每一步都慢),再看面板和地图
+      tlAfter = await page.locator('.timebar .tb-year').innerText().catch(() => '');
+      playingAfter = (await page.locator('.timebar .tb-play.on').count()) > 0;
+      if (playingAfter) await page.click('.timebar .tb-play').catch(() => {});
       panelAfter = await page.locator('.inspector:not(.hidden)').count();
       infoAfter = await page.locator('.inspector .cp[data-tab=info]').isVisible().catch(() => false);
       // 选对象时地图缩回了整张图:推完飞回这个国家
-      await page.waitForTimeout(900);
+      await page.waitForFunction((k0) => (window as any).__wfView.k > k0 + 0.01, kPick, { timeout: 3000 }).catch(() => null);
       kAfter = await page.evaluate(() => (window as any).__wfView.k);
-      tlAfter = await page.locator('.timebar .tb-year').innerText().catch(() => '');
-      playingAfter = (await page.locator('.timebar .tb-play.on').count()) > 0;
       // 撤销
       const prev2 = await page.evaluate(() => (window as any).__wfResim?.seq ?? 0);
       await page.click('.toast[data-toast=resim-done] .toast-act').catch(() => {});
