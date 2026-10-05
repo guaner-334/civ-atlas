@@ -258,12 +258,19 @@ export function onLogin(f: (s: Session) => void): () => void {
 }
 
 export async function login(account: string, code: string, inviteCode?: string): Promise<LoginResult> {
+  const before = load()?.token ?? null;
   const r = await call<{ token?: string; user?: { id?: unknown; account?: unknown; name?: unknown }; credits?: number }>('/v1/auth/login', {
     method: 'POST',
     body: { account: account.trim(), code: code.trim(), invite: inviteCode?.trim() || undefined },
   });
   const s = sanitize({ token: r.token, user: { account: account.trim(), ...r.user } });
   if (!s) throw new ServerError(200, 'bad-response', '登录失败：服务器没给令牌');
+  // 等回话的工夫别的标签页登录了(或退出了):以那边为准,这次的令牌作废
+  refreshSession();
+  if ((load()?.token ?? null) !== before) {
+    if (serverBase()) void call('/v1/auth/logout', { method: 'POST', token: s.token }).catch(() => {});
+    throw new ServerError(409, 'conflict', '别的页面里已经换了登录，这里没有登录');
+  }
   invite = null;
   write(s);
   for (const f of loginSubs) f(s);

@@ -516,11 +516,17 @@ async function fork(st: SyncState, id: string, l: Local, remote: CloudWorld) {
     return;
   }
   const nid = newWorldId();
-  if (!store(nid, remoteRaw(remote, save), Array.isArray(remote.notes) ? remote.notes : null)) {
+  const forkRaw = remoteRaw(remote, save);
+  const forkNotes = Array.isArray(remote.notes) ? remote.notes : null;
+  if (!store(nid, forkRaw, forkNotes)) {
     // 存不下另一份:先不覆盖服务器上的(两份都还在),等腾出地方
     failedNow.set(id, '浏览器存储满了，两台设备上改的没法都留下');
     return;
   }
+  // 存本地这份的工夫,另存的那份可能被挤出浏览器(为别的世界腾地方),也可能被用户删掉:只有用户删的才算不要了
+  uploading.add(nid);
+  deletedWhileUp.delete(nid);
+  let dropped = false;
   try {
     await upload(st, id, l, remote.rev);
   } catch (e) {
@@ -538,8 +544,12 @@ async function fork(st: SyncState, id: string, l: Local, remote: CloudWorld) {
       return;
     }
     throw e;
+  } finally {
+    uploading.delete(nid);
+    dropped = deletedWhileUp.delete(nid);
   }
-  const n = localWorld(nid);
+  // 被挤出去了也照样存进账号(服务器上原来那份已经被本地这份盖掉,另存的这份是它唯一的去处),有地方了再取回来
+  const n = localWorld(nid) ?? (dropped ? null : { raw: forkRaw, notes: forkNotes ?? [], sum: sumOf(forkRaw, forkNotes) });
   if (n) await push(st, nid, n, 0);
   const name = cleanTitle((JSON.parse(l.raw.save) as { title?: string }).title) || '未命名世界';
   forks.push({ name, other });
@@ -608,11 +618,13 @@ async function reconcile(st: SyncState, id: string, s: CloudEntry | null, depth 
 }
 
 /** 换了账号:原来那个账号的同步记录另外收着(STASH + 账号编号;里面可能有还没告诉服务器的删除),换回来时接着用 */
-function stash(st: SyncState) {
+function stash(st: SyncState): boolean {
   try {
-    if (typeof localStorage !== 'undefined') localStorage.setItem(STASH + st.user, JSON.stringify(st));
+    if (typeof localStorage === 'undefined') return true;
+    localStorage.setItem(STASH + st.user, JSON.stringify(st));
+    return true;
   } catch {
-    /* 存不下:算了 */
+    return false;
   }
 }
 function unstash(user: string): SyncState | null {
@@ -631,7 +643,8 @@ function unstash(user: string): SyncState | null {
 function stateFor(user: string): SyncState {
   const st = readState();
   if (st && st.user === user) return st;
-  if (st) stash(st);
+  // 原来那个账号的记录收不起来(浏览器存储满了):先不换,不然它没告诉服务器的删除就丢了,换回去时删掉的世界又回来
+  if (st && !stash(st)) throw new Error('浏览器存储满了，没能收好原来那个账号的同步记录：先删掉几个世界再同步');
   const next: SyncState = unstash(user) ?? { user, worlds: {}, deletes: {} };
   writeState(next);
   return next;
@@ -889,17 +902,44 @@ export function inAccount(id: string): boolean {
   return !!s?.user.id && !!st && st.user === s.user.id && !!st.worlds[id];
 }
 
+/**
+ * 删除记在哪份同步记录上:现在登着的这个账号的(没登录 = 上次登录的那个,下次登录时删)。
+ * 别的标签页刚换了账号、这个账号还没开始同步:记在它另外收着的那份上(没有 = 这台设备上它还什么都没同步过,不用记)
+ */
+function stateForDelete(): { st: SyncState; save: () => void } | null {
+  const uid = getSession()?.user.id;
+  if (active && (!uid || active.user === uid)) {
+    const st = active;
+    return { st, save: () => writeState(st) };
+  }
+  const st = readState();
+  if (!st) return null;
+  if (!uid || st.user === uid) return { st, save: () => writeState(st) };
+  const key = STASH + uid;
+  const v = storedState(key);
+  if (!v || v.user !== uid) return null;
+  return {
+    st: v,
+    save: () => {
+      try {
+        localStorage.setItem(key, JSON.stringify(v));
+      } catch {
+        /* 存不下:算了 */
+      }
+    },
+  };
+}
+
 /** 用户删掉一个世界:记下来,告诉服务器(断网、没登录时等下次) */
 function onLocalDelete(id: string) {
   rejected.delete(id);
   if (uploading.has(id)) deletedWhileUp.add(id);
-  const st = active ?? readState();
-  if (!st) return;
-  const k = st.worlds[id];
-  if (k) {
-    st.deletes[id] = k.rev;
-    delete st.worlds[id];
-    writeState(st);
+  const t = stateForDelete();
+  const k = t?.st.worlds[id];
+  if (t && k) {
+    t.st.deletes[id] = k.rev;
+    delete t.st.worlds[id];
+    t.save();
   }
   if (view.failed.has(id)) {
     const failed = new Map(view.failed);
