@@ -97,8 +97,8 @@ export function cleanView(raw: unknown): SaveView | null {
 /** 署名最长几个字 */
 export const SIGNATURE_MAX = 20;
 
-/** 看不见、但组合表情和连写离不开的字符:零宽连接(👩‍💻)、零宽不连接、变体选择(❤️)、表情旗帜里的标签 */
-const JOINERS = /[\u200C\u200D\uFE00-\uFE0F\u{E0020}-\u{E007F}\u{E0100}-\u{E01EF}]/u;
+/** 看不见、但组合表情和连写离不开的字符:零宽连接(👩‍💻)、零宽不连接、各种变体选择(❤️、蒙古文的)、表情旗帜里的标签 */
+const JOINERS = /[\u200C\u200D\p{Variation_Selector}\u{E0020}-\u{E007F}]/u;
 const JOINERS_ALL = new RegExp(JOINERS.source, 'gu');
 /** 开头的这些字符和空白(前面没有字可以组合,没有用) */
 const LEADING = new RegExp(`^(?:${JOINERS.source}|\\s)+`, 'u');
@@ -118,7 +118,8 @@ export function cleanSignature(raw: unknown): string {
     .replace(LEADING, '');
   let t = '';
   let n = 0;
-  for (const g of graphemes(s)) {
+  // 只分前面够用的一段(超出总长的反正放不下)
+  for (const g of graphemes(s.slice(0, SIGNATURE_UNITS + 1))) {
     if (n >= SIGNATURE_MAX || t.length + g.length > SIGNATURE_UNITS) break;
     t += g;
     n++;
