@@ -109,12 +109,16 @@ function Thumb({ src }: { src: string | null }) {
   return src ? <img className="save-thumb" src={src} alt="" draggable={false} /> : <div className="save-thumb empty" />;
 }
 
-/** 分享链接的网址部分:种子、参数、图层……照当前网址,带上生成器版本;去掉只在这个浏览器里有意义的世界编号 */
+/**
+ * 分享链接的网址部分:种子、参数、图层……照当前网址,带上生成器版本;去掉只在这个浏览器里有意义的世界编号。
+ * 网址带的版本比这个页面新(页面是旧的,还没刷新)就照留,别人打开还知道是新版本的世界
+ */
 function shareBase(): string {
   const q = new URLSearchParams(location.search);
   q.delete('w');
   q.delete('new');
-  q.set(GEN_KEY, String(GENERATOR_VERSION));
+  const g = Number(q.get(GEN_KEY));
+  if (!(Number.isInteger(g) && g > GENERATOR_VERSION)) q.set(GEN_KEY, String(GENERATOR_VERSION));
   const s = q.toString();
   return location.origin + location.pathname + (s ? `?${s}` : '');
 }

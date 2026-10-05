@@ -1384,6 +1384,22 @@ for (const style of ['realistic', 'fantasy']) {
   if (!plain || plain.withData || linkGen !== String(GENERATOR_VERSION)) errs.push(`版本号:没改过的世界复制的链接没带 gen=${GENERATOR_VERSION}(${plain?.url})`);
   if (!oldNote.startsWith('已打开「种子 7」') || !oldNote.includes('来自旧版本：')) errs.push(`版本号:打开旧版本的普通链接,提示不对(${oldNote})`);
   if (sameNote) errs.push(`版本号:同版本的链接不该有提示(${sameNote})`);
+  // 网址带的版本比页面新(页面是旧的,还没刷新):提示刷新,地址栏、复制的链接都照留;带了认不出的版本号按认不出的旧版本说
+  await p.goto(`${dev.url}/?seed=7&gen=${GENERATOR_VERSION + 1}`);
+  await ready();
+  const newerNote = await toastText(p, 'save', 8000);
+  const newerBar = new URLSearchParams(await p.evaluate(() => location.search)).get('gen');
+  await p.click('.save-btn');
+  await p.click('[data-act=share-link]');
+  const newer = await p.waitForFunction(() => (window as any).__wfShare, null, { timeout: 10000 }).then((h) => h.jsonValue() as Promise<{ url: string }>, () => null);
+  const newerLink = newer ? new URL(newer.url).searchParams.get('gen') : null;
+  await p.goto(`${dev.url}/?seed=7&gen=7.5`);
+  await ready();
+  const oddNote = await toastText(p, 'save', 8000);
+  console.log(`版本号:更新版本的链接提示「${newerNote}」,地址栏 gen=${newerBar},复制的链接 gen=${newerLink};认不出的版本号提示「${oddNote}」`);
+  if (!newerNote.includes('来自更新的版本')) errs.push(`版本号:打开更新版本的链接,提示不对(${newerNote})`);
+  if (newerBar !== String(GENERATOR_VERSION + 1) || newerLink !== String(GENERATOR_VERSION + 1)) errs.push(`版本号:更新版本的 gen 没照留(地址栏 ${newerBar},链接 ${newerLink})`);
+  if (!oddNote.includes('来自旧版本：整颗星球')) errs.push(`版本号:认不出的版本号,提示不对(${oddNote})`);
   await ctx.close();
 }
 

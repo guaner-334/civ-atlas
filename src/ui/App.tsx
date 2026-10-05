@@ -223,9 +223,10 @@ function readUrl() {
   const lq = Number(q.get('lon'));
   const lon = q.get('lon') !== null && Number.isFinite(lq) ? wrapLon(lq) : null;
   const grat = q.get('grat') === '1';
-  // 生成器版本(gen=):这个网址是哪一版画出来的世界;和现在的不同,打开时说清变了什么。旧网址没有 = 不知道,不提示
+  // 生成器版本(gen=):这个网址是哪一版画出来的世界;和现在的不同,打开时说清变了什么。旧网址没有 = 不知道,不提示;
+  // 带了却认不出(不是整数之类)当成第 0 版:认不出的旧版本,照样提示,也不当成没带 gen 的老网址
   const gq = q.get(GEN_KEY);
-  const gen = gq !== null && /^\d{1,6}$/.test(gq) ? Number(gq) : null;
+  const gen = gq === null ? null : /^\d{1,6}$/.test(gq) ? Number(gq) : 0;
   return { params, style, layer, mapLayer, share, proj, lon, grat, gen };
 }
 
