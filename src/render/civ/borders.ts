@@ -586,9 +586,10 @@ export function bandLabels(
       ny[i] = dx / len;
     }
     const segs = m - 1;
-    // 东西相连:伸出主图左右边的线在另一边再判一份(平移 sh 个世界单位;不相连时只有 0)
+    // 东西相连:伸出主图左右边的线在另一边再判一份(平移 sh 个世界单位;不相连时只有 0)。
+    // 断头附近放宽到 WEAK_BAND 的,离左右边 WEAK_BAND 以内就要在另一边判
     const [lo, hi] = wrap ? xRange(p) : NO_RANGE;
-    for (const sh of wrapShifts(lo, hi, wrap, BAND)) {
+    for (const sh of wrapShifts(lo, hi, wrap, nearEnd ? WEAK_BAND : BAND)) {
       const ox = sh * scale;
       // 海岸断头:断头外面(过了端点、沿线的方向再往前)BAND 以内的像素保持原样。方向取最后几个点,抖动不影响
       const back = Math.min(segs, 4);
