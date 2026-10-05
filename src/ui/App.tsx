@@ -2515,8 +2515,10 @@ export function App() {
   const civReady = !!civ && civ.viable;
   /** 正在重推 / 按新地形重新生成 / 生成新世界:助手这时发不了话、确认单也不能执行 */
   const worldBusy = !!resim || terrainStatus.busy || !!progress;
-  // 助手:换了世界、世界建好了,对话跟着换;离开建好的世界(回我的世界、新建)不再看试推演
-  useEffect(() => syncAssistantWorld(draft ? 'history' : 'terrain'), [rawCiv, draft, data]);
+  // 助手:换了世界、世界建好了,对话跟着换;离开建好的世界(回我的世界、新建)不再看试推演。
+  // 打开另一个参数、地形、名字都一样的存档时历史原样复用,所以还要跟着世界的 id(存档一变 App 就重新渲染)
+  const worldId = currentWorld()?.id ?? null;
+  useEffect(() => syncAssistantWorld(draft ? 'history' : 'terrain'), [rawCiv, draft, data, worldId]);
   useEffect(() => {
     if (stage !== 'world') exitPreview();
   }, [stage]);

@@ -90,7 +90,7 @@ function BookChip() {
   const ast = useAssistant();
   useSavesVersion();
   if (!job || !(job.status === 'writing' || (job.status === 'done' && !job.seen))) return null;
-  if (astOpen && ast.turns.some((t) => t.steps.some((s) => s.book?.key === job.key))) return null;
+  if (astOpen && ast.turns.some((t) => t.steps.some((s) => s.book?.id === job.id))) return null;
   const name = bookTitleText(job.title, job.opts.scope, currentWorld()?.title);
   const writing = job.status === 'writing';
   const pct = Math.round(bookProgress(job) * 100);

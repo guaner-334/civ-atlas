@@ -305,6 +305,24 @@ describe('助手面板', () => {
     expect(applied()).toMatchObject({ undone: true });
   });
 
+  it('执行过以后点了新对话:提示条上的"撤销"、⌘Z / ⇧⌘Z 照样撤得了、再做得了', async () => {
+    setTrialRunner(runner);
+    const start = getEdits();
+    const id = await sendAsk(ctx(), `让${wardName}多撑一阵`);
+    expect(applyProposal(id, {})).toBeNull();
+    const after = getEdits();
+    const note = takeRewriteNote(after)!;
+    newConversation();
+    expect(getAssistant().turns).toEqual([]);
+    note.undo!();
+    expect(getEdits()).toBe(start);
+    expect(redoLastEdit()).toBe(false);
+    expect(undoLastEdit()).toBe(true);
+    expect(getEdits()).toEqual(after);
+    expect(redoLastEdit()).toBe(true);
+    expect(getEdits().interventions).toEqual([]);
+  });
+
   it('世界在这之后改过:不能执行、不能先看;不要的确认单不能再执行', async () => {
     setTrialRunner(runner);
     const id = await sendAsk(ctx(), '让它多撑一阵');

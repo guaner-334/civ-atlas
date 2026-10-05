@@ -7,7 +7,7 @@ import { DEFAULT_PARAMS, generateWorld } from '../src/gen/world';
 import { generateCiv } from '../src/gen/civ';
 import type { Civ } from '../src/gen/civ/types';
 import { ownersAt } from '../src/gen/civ/timeline';
-import { applyNames, polityKey, type WorldEdits } from '../src/gen/edits';
+import { applyNames, polityKey, regionKey, type WorldEdits } from '../src/gen/edits';
 import { setActiveProvider, setMockResponder } from '../src/ai/client';
 import { AiError, type AiRequest } from '../src/ai/types';
 import { AGENT_MAX_ROUNDS, TOOL_RESULT_MAX, parseToolArgs, runAgent, type AgentEvent, type AgentTool, type AgentToolResult } from '../src/ai/agent/loop';
@@ -24,7 +24,7 @@ import {
   type AssistantProposal,
   type AssistantTrial,
 } from '../src/ai/agent/assistant';
-import { REWRITE_OPS, REWRITE_SYSTEM, bordersAt, nameAt } from '../src/ai/prompts/rewrite';
+import { REWRITE_OPS, REWRITE_SYSTEM, bordersAt, nameAt, parseRewrite, plainIds } from '../src/ai/prompts/rewrite';
 
 const world = generateWorld({ ...DEFAULT_PARAMS, seed: 7 });
 const civ = generateCiv(world);
@@ -313,6 +313,57 @@ describe('助手', () => {
     await expect(Promise.resolve().then(() => noSim.try_edits.run({ edits: [PROTECT] }))).rejects.toThrow('不能试推演');
     const r3 = await said(noSim.propose_edits.run({ edits: [PROTECT] }));
     expect(r3).not.toContain('试推演');
+  });
+
+  it('试推演里同时改名:两边都套上新名字再比,没变的大事不会算成少一件、多一件', async () => {
+    // 改名的对象:生效年份以后编年史里出现最多的国家(不是被保护的那个)
+    const count = new Map<number, number>();
+    for (const e of civ.annals) if (e.year >= from && e.a >= 0 && e.a !== victim) count.set(e.a, (count.get(e.a) ?? 0) + 1);
+    const busy = [...count.entries()].sort((a, b) => b[1] - a[1] || a[0] - b[0])[0][0];
+    const state: { trials: AssistantTrial[]; proposal: AssistantProposal | null } = { trials: [], proposal: null };
+    const tools = Object.fromEntries(assistantTools(ctx(), state).map((t) => [t.def.name, t]));
+    await tools.try_edits.run({ edits: [PROTECT] });
+    await tools.try_edits.run({ edits: [PROTECT, { op: 'rename', target: `P${busy}`, name: '阿尔瑟', why: '…' }] });
+    const [a, b] = state.trials.map((t) => t.diff);
+    expect(b.addedCount).toBe(a.addedCount);
+    expect(b.removedCount).toBe(a.removedCount);
+  });
+
+  it('立国:能用经纬度指地方(挑离它最近、有人住的一州);结果里写明那一州在哪、多大、什么地貌', () => {
+    const rctx = { world, civ, year: 2000, edits: EMPTY };
+    const R = civ.regions;
+    // 种子 7 的 R702:大洋中间两块地的小岛(北纬 32° 一带)
+    const seat = R.seat[702];
+    const lon = (world.mesh.x[seat] / world.width) * 360 - 180;
+    const lat = 90 - (world.mesh.y[seat] / world.height) * 180;
+    const p = parseRewrite(JSON.stringify({ edits: [{ op: 'found', at: [lon + 0.1, lat - 0.1], from: 2500, why: '…' }] }), rctx);
+    expect(p.ok).toBe(true);
+    if (!p.ok) return;
+    const it = p.items[0];
+    expect(it.change).toMatchObject({ kind: 'intervention', v: { kind: 'found', region: regionKey(civ, 702), from: 2500 } });
+    expect(it.where).toMatch(/^R702 在 \(-43\.\d, 31\.\d\),小岛\(这块陆地 1 州\)上/);
+    // 北极点附近:一千五百公里内没人住,说明原因和最近有人住的州
+    const pole = parseRewrite(JSON.stringify({ edits: [{ op: 'found', at: [0, 89.9], from: 2500, why: '…' }] }), rctx);
+    if (!pole.ok) throw new Error('看不懂');
+    expect(pole.items[0].change).toBeNull();
+    expect(pole.items[0].problem).toMatch(/^\(0, 89\.9\) 一带没人住;最近有人住的州是 R\d+ /);
+  });
+
+  it('回给作者的话:编号换成名字,紧挨着写了名字的只去掉编号;英文种类名换成中文;认不出的编号留着', () => {
+    const rctx = { world, civ, year: from };
+    const v = nameAt(civ.polities[victim], from);
+    const city = civ.settlements[civ.polities[victim].capital].name;
+    expect(plainIds(`给 P${victim} 下一道 protect,国都 C${civ.polities[victim].capital} 就攻不下`, rctx)).toBe(`给${v}下一道保护,国都${city}就攻不下`);
+    expect(plainIds(`${v}(P${victim})撑到了最后;P${victim} ${v}也没分裂`, rctx)).toBe(`${v}撑到了最后;${v}也没分裂`);
+    expect(plainIds(`${v}（P${victim}、P${friend}）`, rctx)).toBe(v);
+    expect(plainIds('P99999 不在', rctx)).toBe('P99999 不在');
+    expect(plainIds('第 2400 年起', rctx)).toBe('第 2400 年起');
+    // 确认单上 AI 写的理由、做不到的话也换
+    const p = parseRewrite(JSON.stringify({ reply: `保护 P${victim}`, edits: [{ ...PROTECT, why: `让 P${victim} 撑住` }], cannot: [`没法让 P${victim} 打赢`] }), { ...rctx, edits: EMPTY });
+    if (!p.ok) throw new Error('看不懂');
+    expect(p.reply).toBe(`保护${v}`);
+    expect(p.items[0].why).toBe(`让${v}撑住`);
+    expect(p.cannot).toEqual([`没法让${v}打赢`]);
   });
 
   it('查资料:国家用编号或国名都能查,找不到的说找不到;编年史按年份和国家筛;某一年的格局', async () => {

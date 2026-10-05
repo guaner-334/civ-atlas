@@ -96,7 +96,8 @@ export function AssistantPanel({ phone, world, raster, civ, raw, lock, busy }: A
   }, [st.turns.length, last?.status, last?.steps.length, last?.names, !!last?.text]);
 
   const working = last?.status === 'working';
-  const can = !!text.trim() && !working && ai.ready && !busy;
+  // 没设置 AI 也能发:这一轮报"还没有设置 AI"、旁边一个"设置 AI"(按了回车总有回应)
+  const can = !!text.trim() && !working && !(ai.ready && busy);
   const send = () => {
     if (!can) return;
     const w = text.trim();

@@ -98,6 +98,13 @@ export interface AsProposal {
   trial?: TrialView;
 }
 
+/** 执行过的一轮:执行前后的修改;undone = 又撤销了 */
+export interface Applied {
+  before: WorldEdits;
+  after: WorldEdits;
+  undone?: boolean;
+}
+
 export interface AsTurn {
   id: number;
   ask: string;
@@ -116,7 +123,7 @@ export interface AsTurn {
   off?: number[];
   dismissed?: boolean;
   /** 执行过:执行前后的修改;undone = 又撤销了 */
-  applied?: { before: WorldEdits; after: WorldEdits; undone?: boolean };
+  applied?: Applied;
   names?: AsNames;
   error?: { code: AiErrorCode; message: string };
 }
@@ -203,15 +210,23 @@ export function syncAssistantWorld(lock?: RewriteLock) {
   }
   stopAsk();
   trialRaw.clear();
+  cleared.clear();
   const turns = w ? load(w) : [];
   seq = Math.max(seq, ...turns.map((t) => t.id));
   set({ world: w, lock, turns, preview: null });
 }
 
+/**
+ * 新对话清掉的轮里执行过的那些(轮的编号 → 执行前后的修改):提示条上的"撤销"、⌘Z / ⇧⌘Z 照样撤得了、再做得了。
+ * 只在这次打开网页里留着(修改的撤销记录也只记这次的),换世界清掉
+ */
+const cleared = new Map<number, { applied: Applied; lock?: RewriteLock }>();
+
 /** 新对话:清掉这个世界的对话 */
 export function newConversation() {
   stopAsk();
   trialRaw.clear();
+  for (const t of state.turns) if (t.applied) cleared.set(t.id, { applied: t.applied, lock: t.lock });
   set({ ...state, turns: [], preview: null });
   save();
 }
@@ -572,16 +587,31 @@ export function applyProposal(id: number, now: { busy?: boolean }): string | nul
   return null;
 }
 
+/** 执行过的这一轮:还在对话里的从对话里取、改了记进对话;新对话清掉了的从 cleared 取 */
+function appliedOf(id: number): { applied?: Applied; lock?: RewriteLock; set: (a: Applied) => void } | null {
+  const t = state.turns.find((x) => x.id === id);
+  if (t)
+    return {
+      applied: t.applied,
+      lock: t.lock,
+      set: (a) => {
+        patch(id, { applied: a });
+        save();
+      },
+    };
+  const c = cleared.get(id);
+  return c ? { ...c, set: (a) => void (c.applied = a) } : null;
+}
+
 /** 撤销执行过的这一轮 */
 export function undoProposal(id: number) {
-  const t = state.turns.find((x) => x.id === id);
-  const a = t?.applied;
+  const x = appliedOf(id);
+  const a = x?.applied;
   // 新建时执行的改地形:点了"创建世界"以后地形锁住,不能再撤销
-  if (!t || !a || a.undone || t.lock !== state.lock) return;
+  if (!x || !a || a.undone || x.lock !== state.lock) return;
   const now = getEdits();
   const next = unmergeRewrite(now, a.before, a.after);
-  patch(id, { applied: { ...a, undone: true } });
-  save();
+  x.set({ ...a, undone: true });
   if (next === now) return;
   if (next.interventions === now.interventions && next.terrain === now.terrain) {
     commitEdits(next, { id, kind: 'undo' });
@@ -594,13 +624,12 @@ export function undoProposal(id: number) {
 
 /** 撤销过的这一轮再做一遍(⇧⌘Z;之后没再改过 = 正好回到执行后的样子,改过别的 = 只把这一轮的修改放回去) */
 export function redoProposal(id: number) {
-  const t = state.turns.find((x) => x.id === id);
-  const a = t?.applied;
-  if (!t || !a || !a.undone || t.lock !== state.lock) return;
+  const x = appliedOf(id);
+  const a = x?.applied;
+  if (!x || !a || !a.undone || x.lock !== state.lock) return;
   const now = getEdits();
   const next = revertEdits(now, a.before, a.after);
-  patch(id, { applied: { ...a, undone: false } });
-  save();
+  x.set({ ...a, undone: false });
   if (next === now) return;
   const undo = () => undoProposal(id);
   if (next.interventions === now.interventions && next.terrain === now.terrain) {

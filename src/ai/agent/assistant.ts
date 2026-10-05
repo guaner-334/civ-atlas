@@ -18,7 +18,7 @@ import type { Civ } from '../../gen/civ/types';
 import { buildChronicle, entryInvolves, entryYearLabel, MAJOR, type ChronicleEntry } from '../../gen/civ/chronicle';
 import { capitalAt, polityAlive, polityRoots, polityTitleChain } from '../../gen/civ/growth';
 import { ownersAt } from '../../gen/civ/timeline';
-import { cleanIntervention, resolveKey, type Intervention, type WorldEdits } from '../../gen/edits';
+import { applyNames, cleanIntervention, resolveKey, type Intervention, type WorldEdits } from '../../gen/edits';
 import {
   REWRITE_OPS,
   bordersAt,
@@ -28,6 +28,7 @@ import {
   mergeRewrite,
   nameAt,
   parseRewrite,
+  plainIds,
   rewriteMaterial,
   type RewriteChange,
   type RewriteContext,
@@ -117,11 +118,13 @@ export const ASSISTANT_SYSTEM = [
   '3. 只做作者要的,不要额外加作者没提的事;能用历史命令做到的,不要动地形。地形修改不能试推演,直接列给作者,说明历史会整个重来。',
   '4. 命令只能定下条件(保护、结盟、宣战……),不能直接规定谁打赢、哪年发生什么,后果由推演展开。试了几次都做不到时照实说,列出最接近的一种。',
   '5. 说完一件事就停:列了确认单以后,用一两句话说结论(做到了什么、试推演的数字照实说),做不到的部分说一句。不要再问作者要不要执行。',
-  '6. 回给作者的话说名字,不说编号(P3、C12 这些只在工具里用);全部用中文,简短,不用 Markdown 标题和表格。',
+  '6. 回给作者的话说名字,不说编号(P3、C12、L0 这些只在工具里用),也不说 protect、found 这些英文种类名;全部用中文,简短,不用 Markdown 标题和表格。',
+  '   做不到的部分只说真做不到的;列进确认单的修改不要再说成做不到。',
   '',
   '## 编号',
-  '材料和工具结果里的 P3(国家)、C12(城)、R45(州)、E2(民族)、M7(山河湖海)是现在这份历史里的编号,修改里只能用这些编号。',
-  '作者说的名字对不上任何一个,就说找不到,不要编。试推演里新出现的国家没有编号,不能对它下命令。',
+  '材料和工具结果里的 P3(国家)、C12(城)、R45(州)、E2(民族)、M7(山河湖海)、L0(陆块)是现在这份历史里的编号,修改里只能用这些编号。',
+  '作者说的名字对不上任何一个,就说找不到,不要编。材料里没列出来的州不要编 R 编号:要在某一带立国(比如"北方的冰原")就用 at 给经纬度。试推演里新出现的国家没有编号,不能对它下命令。',
+  '试推演、确认单的结果里每条立国都写了那一州在哪、多大、什么地貌:和作者说的地方对不上(纬度不对、只是一座小岛、没人住)就换一处再试,实在没有就照实说。',
   '',
   '## 修改的写法(try_edits、propose_edits 的 edits,一条一个对象,op 是种类)',
   '',
@@ -334,7 +337,9 @@ const changeSig = (cs: readonly RewriteChange[]) =>
 
 /** 核对结果写成文字(交回 AI) */
 function itemsText(items: readonly RewriteItem[]): string {
-  return items.map((it) => `- ${it.text}${it.year !== undefined ? `(第 ${it.year} 年起)` : ''}${it.problem ? ` —— 不合格:${it.problem}` : ''}`).join('\n');
+  return items
+    .map((it) => `- ${it.text}${it.year !== undefined ? `(第 ${it.year} 年起)` : ''}${it.problem ? ` —— 不合格:${it.problem}` : ''}${it.where ? `\n  (${it.where})` : ''}`)
+    .join('\n');
 }
 
 /** 国家怎么亡的(给作者看,写名字):"第 2881 年被大澜王朝所灭""第 2450 年并入某国""第 2450 年瓦解" */
@@ -535,7 +540,9 @@ export function assistantTools(ctx: AssistantContext, state: { trials: Assistant
         if (r && r.kind === 'polity') focus.add(r.id);
       }
     }
-    return { n, items, edits, civ: after, diff: compareTrial(civ, after, [...focus], from) };
+    // 同一批里有改名:试推演的历史套了新名字,现在这份也套上再比(按名字写成的大事才对得上,不会把没变的大事算成少一件、多一件)
+    const base = changes.some((c) => c.kind === 'name') ? applyNames(civ, edits.names) : civ;
+    return { n, items, edits, civ: after, diff: compareTrial(base, after, [...focus], from) };
   };
 
   const country: AgentTool = {
@@ -770,6 +777,9 @@ export function assistantTools(ctx: AssistantContext, state: { trials: Assistant
 export async function runAssistant(ctx: AssistantContext, history: readonly AssistantTurn[], ask: string, opts: AssistantOptions = {}): Promise<AssistantResult> {
   const state: { trials: AssistantTrial[]; proposal: AssistantProposal | null } = { trials: [], proposal: null };
   const w = cleanWish(ask);
+  // 回给作者的话里漏出来的编号、英文种类名换成名字(边说边换,面板上不会闪过编号)
+  const plain = (t: string) => plainIds(t, ctx);
+  const onEvent = opts.onEvent;
   const out = await runAgent({
     feature: ASSISTANT_FEATURE,
     title: [...w].length > 24 ? `${[...w].slice(0, 24).join('')}…` : w,
@@ -779,9 +789,9 @@ export async function runAssistant(ctx: AssistantContext, history: readonly Assi
     temperature: 0.3,
     maxTokens: 2000,
     signal: opts.signal,
-    onEvent: opts.onEvent,
+    onEvent: onEvent && ((e) => onEvent(e.type === 'text' ? { ...e, text: plain(e.text) } : e)),
   });
-  return { text: out.text, steps: out.steps, proposal: state.proposal, trials: state.trials, end: out.end, usage: out.usage };
+  return { text: plain(out.text), steps: out.steps, proposal: state.proposal, trials: state.trials, end: out.end, usage: out.usage };
 }
 
 // ---------------------------------------------------------------------------
