@@ -46,7 +46,7 @@ import {
 } from './projection';
 import { LAYERS, renderLayer, type LayerId } from '../render/layers';
 import { Legend } from './Legend';
-import type { WorkerRequest, WorkerResponse } from '../worker';
+import type { TempoNote, WorkerRequest, WorkerResponse } from '../worker';
 import type { Civ } from '../gen/civ/types';
 import { CivLayer } from './CivLayer';
 import { CivTimeline } from './CivTimeline';
@@ -577,6 +577,8 @@ export function App() {
   // 线程一次只能算一个世界。连续改参数时,与其排队把每个中间世界都算完,
   // 不如直接终止还在忙的旧线程、另开一个(启动只要几十毫秒),只算最后一次。
   // 回放帧、重推文明这些短活不打断线程,排在后面(打断了,线程手上的世界就没了,得按参数重新生成,反而更慢)。
+  /** 线程回报的扩张节拍(改过地形的世界推文明要用):下次生成、重推时带回去,线程被重开过也不用多生成一遍原来的地形 */
+  const tempoNote = useRef<TempoNote | null>(null);
   const idleWorker = useCallback((abort: boolean) => {
     if (abort && workerRef.current && busyRef.current > 0) {
       workerRef.current.terminate();
@@ -591,6 +593,7 @@ export function App() {
         const m = e.data;
         if (workerRef.current !== w) return; // 已被换掉的线程
         if (m.type !== 'progress') busyRef.current = Math.max(0, busyRef.current - 1);
+        if (m.type !== 'progress' && m.type !== 'history' && m.tempo) tempoNote.current = m.tempo;
         if (m.type === 'trial') {
           // 试推演(助手):交给等着它的那一次;世界换了的话助手那边已经停下,结果没人要
           const t = trials.current.get(m.tid);
@@ -626,7 +629,7 @@ export function App() {
     (req: WorkerRequest) => {
       const w = idleWorker(req.type === 'generate');
       busyRef.current++;
-      w.postMessage(req);
+      w.postMessage(req.type === 'history' || !tempoNote.current ? req : { ...req, tempo: tempoNote.current });
     },
     [idleWorker],
   );
