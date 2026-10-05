@@ -442,14 +442,15 @@ export class StudioScene {
   }
 
   /** 换了一颗星球:在现在的视图上放一遍漂移(约 2.6 秒),放之前换成实景,放完换回 keep */
-  async rerollDrift(real: string, keep: string): Promise<void> {
+  async rerollDrift(real: string, keep: () => string): Promise<void> {
     const tok = ++this.tok;
     this.real = real;
     this.showStyle(real);
     const ok = await this.playDrift(2600, tok);
     if (tok !== this.tok) return;
     if (ok) this.hooks.caption(null);
-    if (keep !== real) void this.setStyle(keep);
+    const k = keep();
+    if (k !== real) void this.setStyle(k);
   }
 
   /** 正在放开场 / 漂移(跳过按钮、提示用) */

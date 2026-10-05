@@ -397,7 +397,7 @@ export function App() {
         ml = 'realistic';
         style = 'realistic';
         writeLayerUrl(ml);
-      }
+      } else draftLayerRef.current = now;
     }
     if (ml) {
       const d = layerDef(ml);
@@ -1084,10 +1084,9 @@ export function App() {
     if (next === 'draft' && was !== 'draft') {
       pausePlayback();
       const now = mapLayerRef.current;
-      if (now !== 'realistic') {
-        draftLayerRef.current ??= now;
-        applyLayer('realistic');
-      }
+      // 原来就是实景也记下:新建里换了别的样式、没建就离开,也换回实景
+      draftLayerRef.current ??= now;
+      if (now !== 'realistic') applyLayer('realistic');
     }
     if (next !== 'draft' && draftLayerRef.current) {
       applyLayer(draftLayerRef.current);

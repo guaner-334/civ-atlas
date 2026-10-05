@@ -36,7 +36,9 @@ import { APP_VERSION } from '../version';
 import { Icon } from '../icons';
 import { styleKey } from '../LayerPopover';
 import type { MapLayer } from '../mapLayers';
-import { getProjection, setProjection, type MapProjection } from '../projection';
+import { getProjection, lastFlatProjection, setProjection, type MapProjection } from '../projection';
+import type { ProjectionId } from '../../render/projection';
+import { getMapCenter } from '../mapWrap';
 import { landCenterLon, plateRotations, plateTexels, type PlanetProjection } from '../../render/planet';
 import { PlanetGL } from './planetGL';
 import { StudioScene, type SceneHooks, type StillPose } from './scene';
@@ -46,7 +48,7 @@ import { getCivFeed, subscribeCivFeed } from '../CivLayer';
 import { labelSurface } from '../../render/civ/labels';
 import type { LabelView } from '../../render/labels/draw';
 import { LEFT_W, RIGHT_W, appPose, driftYears, flatRect } from './layout';
-import { flatGeom, setStudioFlat } from './studioStore';
+import { flatGeom, getStudioFlat, setStudioFlat } from './studioStore';
 import '../worlds.css';
 import './studio.css';
 
@@ -125,6 +127,8 @@ export function Studio(p: StudioProps) {
   const tool = useTerrainTool();
   const reduce = useMemo(reducedMotion, []);
   const style: MapLayer = STYLE_IDS.includes(p.layer) ? p.layer : 'realistic';
+  const styleRef = useRef(style);
+  styleRef.current = style;
 
   const rootRef = useRef<HTMLDivElement>(null);
   const glRef = useRef<HTMLCanvasElement>(null);
@@ -194,16 +198,19 @@ export function Studio(p: StudioProps) {
   // ---- 进来时平常的地图换成等距圆柱(改地形、没有 WebGL 时露出来的是它;藏着的时候换图层也最省事);
   //      没创建就离开时换回原来的投影 ----
   const prevProj = useRef<MapProjection>('equirect');
+  /** 进来之前的平面投影(原来是地球仪时,从地球仪切回平面要回到的那个) */
+  const prevFlat = useRef<ProjectionId>('equirect');
   const created = useRef(false);
   useLayoutEffect(() => {
     prevProj.current = getProjection();
+    prevFlat.current = lastFlatProjection();
     if (prevProj.current !== 'equirect') setProjection('equirect');
     // 平常页面上开着的助手不跟进来(新建里从「让助手改」打开);离开时也收起
     closeAssistant();
     return () => {
       closeAssistant();
       setStudioFlat(null);
-      if (!created.current && prevProj.current !== 'equirect' && getProjection() === 'equirect') setProjection(prevProj.current);
+      if (!created.current && prevProj.current !== 'equirect' && getProjection() === 'equirect') setProjection(prevProj.current, prevFlat.current);
     };
   }, []);
 
@@ -391,11 +398,11 @@ export function Studio(p: StudioProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [glOk, p.ready, p.data]);
 
-  // 没有 WebGL:平常的地图一直铺在中间那块
+  // 没有 WebGL:平常的地图一直铺在中间那块(刚铺上时带上正中的经线:从放大着的地图进来,也放回 1 倍看整颗星球)
   useEffect(() => {
     if (glOk !== false || out) return;
     const box = { x: insets.l, y: 0, w: Math.max(1, vw - insets.l - insets.r), h: Math.max(1, vh - insets.b) };
-    setStudioFlat(flatRect(box, { phone: p.phone, intro: false }));
+    setStudioFlat(flatRect(box, { phone: p.phone, intro: false }), getStudioFlat() ? undefined : getMapCenter());
     setFlatShown(true);
   }, [glOk, insets, vw, vh, p.phone, out]);
 
@@ -465,8 +472,9 @@ export function Studio(p: StudioProps) {
     const pkey = worldKey({ ...p.params, seed: 0 });
     shown.current = { data: d, tag, seed: p.params.seed, pkey, terrain: edits.terrain.length };
     const latest = () => sc.gl.keepStyles((k) => k.startsWith(`${tagRef.current}:`));
+    // 每换一颗都重算陆地最多的那一面(手机建好时转过去、重放形成时对着它)
+    landLon.current = landCenterLon(px, PLATE_W, PLATE_H);
     if (!prev) {
-      landLon.current = landCenterLon(px, PLATE_W, PLATE_H);
       if (introRef.current) void runIntro(true);
       else {
         sc.showStyle(`${tag}:${style}`);
@@ -480,7 +488,11 @@ export function Studio(p: StudioProps) {
       // 换了一颗:在现在的视图上放一遍漂移
       setTip(false);
       latest();
-      void sc.rerollDrift(`${tag}:realistic`, `${tag}:${style}`);
+      // 放完换回样式时取那时选着的(漂移时也能点右边换样式)
+      void sc.rerollDrift(`${tag}:realistic`, () => {
+        const s = styleRef.current;
+        return upload(sc, tag, s) ? `${tag}:${s}` : `${tag}:realistic`;
+      });
       p.requestThumbs(STYLE_IDS);
       return;
     }
@@ -566,7 +578,7 @@ export function Studio(p: StudioProps) {
     setConfirm(false);
     const sc = glOk ? sceneRef.current : null;
     // 建好以后平常的地图用哪种投影:这里选的平面投影;选的是地球仪就回到进来之前的平面投影
-    const target: MapProjection = proj === 'globe' ? (prevProj.current === 'globe' ? 'equirect' : prevProj.current) : proj;
+    const target: MapProjection = proj === 'globe' ? prevFlat.current : proj;
     const flatLon = flatGeom()?.lon ?? 0;
     gone.current = true;
     setOut(1);
