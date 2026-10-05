@@ -20,6 +20,8 @@
  * - 投影和中央经线(ui/projection.ts、mapWrap.ts)跟着世界存:存档时按当时的设置写进 view;
  *   已经存着的世界换了投影 / 中心,App 调 viewChanged 重写一次。
  * - 删掉一个世界,AI 给它写的东西(ai/library.ts,按世界编号存)一起删。
+ * - 登录了网站账号的,世界还会同步进账号(account/sync.ts):这里给它原样读写一个世界(rawWorld / putSyncedWorld),
+ *   用户删掉一个世界时告诉它(setDeleteHook);为了腾地方删掉的旧世界不算删除(账号里的还在)。
  */
 import { useSyncExternalStore } from 'react';
 import type { WorldParams } from '../gen/world';
@@ -241,7 +243,8 @@ function changed() {
   version++;
   for (const f of subs) f();
 }
-function subscribe(f: () => void) {
+/** 存档有变化时调 f(返回取消函数) */
+export function subscribe(f: () => void) {
   subs.add(f);
   return () => void subs.delete(f);
 }
@@ -404,7 +407,10 @@ function readSave(id: string): SaveFile | null {
 
 function readMeta(id: string): Meta {
   const text = store().get(META + id);
-  if (!text) return {};
+  return text ? parseMeta(text) : {};
+}
+
+function parseMeta(text: string): Meta {
   try {
     const v = JSON.parse(text) as Record<string, unknown>;
     const m: Meta = {};
@@ -550,9 +556,17 @@ function writeSave(id: string, save: SaveFile, meta?: Meta): boolean {
   return ok;
 }
 
+/** 用户删掉了一个世界(云同步记下来,账号里跟着删) */
+let deleteHook: ((id: string) => void) | null = null;
+export function setDeleteHook(f: ((id: string) => void) | null) {
+  deleteHook = f;
+}
+
 /** 删掉一个存档(连同缩略图、AI 写的东西)。删的是正在看的世界:不再自动存它 */
 export function deleteWorld(id: string) {
+  const had = store().get(PREFIX + id) !== null;
   removeKeys(id);
+  if (had) deleteHook?.(id);
   if (current?.id === id) {
     current = null;
     stopThumb();
@@ -830,6 +844,7 @@ export function attachWorld(spec: AttachSpec) {
   } else if (prev && spec.kind === 'draft' && spec.pristine) {
     // 新建中又变回没动过(换了一颗星球,改过的地形作废):原来存的那份拿掉
     removeKeys(spec.id);
+    deleteHook?.(spec.id);
   } else if (prev) {
     touchMeta(spec.id, metaOf(current, new Date().toISOString()));
     // 刚从文件打开的(先存了、再生成):还没有缩略图,截一张
@@ -887,6 +902,103 @@ export function detachWorld() {
 /** 开始自动存(App 挂载时调一次;返回取消函数) */
 export function startAutoSave(): () => void {
   return subscribeEdits(() => saveCurrent());
+}
+
+// ---------------------------------------------------------------------------
+// 云同步(account/sync.ts)用:原样读写一个世界
+
+/** 跟着世界同步的本地信息(最近打开不同步:每台设备各记各的) */
+export interface SyncMeta {
+  draft?: boolean;
+  alive?: number;
+  base?: DraftBase;
+}
+
+/** 本地信息 → 同步的那几项(键的顺序固定,算指纹用) */
+export function syncMetaOf(m: Meta): SyncMeta {
+  const v: SyncMeta = {};
+  if (m.draft) v.draft = true;
+  if (m.alive !== undefined) v.alive = m.alive;
+  if (m.draft && m.base) v.base = m.base;
+  return v;
+}
+
+/** 服务器给的 meta(不认识的字段不要,坏的当没有) */
+export function cleanSyncMeta(v: unknown): SyncMeta {
+  if (!v || typeof v !== 'object') return {};
+  return syncMetaOf(parseMeta(JSON.stringify(v)));
+}
+
+export interface RawWorld {
+  /** 存档原文(JSON) */
+  save: string;
+  meta: SyncMeta;
+  thumb: string | null;
+}
+
+/** 浏览器里存着的世界编号(老编号"种子 + 参数"的不算:服务器只认新编号) */
+export function storedIds(): string[] {
+  const out: string[] = [];
+  for (const k of store().keys()) {
+    if (!k.startsWith(PREFIX)) continue;
+    const id = k.slice(PREFIX.length);
+    if (ID_RE.test(id)) out.push(id);
+  }
+  return out;
+}
+
+/** 一个世界的原样(读不出来的坏存档 = null) */
+export function rawWorld(id: string): RawWorld | null {
+  const kv = store();
+  const save = kv.get(PREFIX + id);
+  if (!save || !parseSave(save).ok) return null;
+  return { save, meta: syncMetaOf(readMeta(id)), thumb: kv.get(THUMB + id) };
+}
+
+/**
+ * 把同步下来的世界写进浏览器(不为它删别的世界:写不下 = false,原来的不动)。
+ * 正在看的就是它:先不再自动存它(App 重新打开)
+ */
+export function putSyncedWorld(id: string, w: RawWorld): boolean {
+  if (!ID_RE.test(id) || !parseSave(w.save).ok) return false;
+  const kv = store();
+  const old = kv.get(PREFIX + id);
+  const opened = readMeta(id).opened;
+  if (!kv.set(PREFIX + id, w.save)) return false;
+  const m: Meta = { ...w.meta };
+  if (opened) m.opened = opened;
+  if (!kv.set(META + id, JSON.stringify(m))) {
+    if (old === null) kv.remove(PREFIX + id);
+    else kv.set(PREFIX + id, old);
+    return false;
+  }
+  // 缩略图写不下就先不要(打开时再截一张)
+  if (!w.thumb || !kv.set(THUMB + id, w.thumb)) kv.remove(THUMB + id);
+  if (current?.id === id) {
+    current = null;
+    stopThumb();
+  }
+  changed();
+  return true;
+}
+
+/** 别的设备上删掉了:这里跟着删(不算这台设备上的删除) */
+export function removeSyncedWorld(id: string) {
+  removeKeys(id);
+  if (current?.id === id) {
+    current = null;
+    stopThumb();
+  }
+  changed();
+}
+
+/** 退出登录时选了"从这台设备上删掉":浏览器里的世界全删 */
+export function removeAllWorlds() {
+  const kv = store();
+  for (const k of kv.keys()) if ([PREFIX, THUMB, META, NOTES, LEGACY].some((p) => k.startsWith(p))) kv.remove(k);
+  current = null;
+  stopThumb();
+  changed();
 }
 
 /** 测试用:清空内存里的状态(不动浏览器存储) */

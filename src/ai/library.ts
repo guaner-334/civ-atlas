@@ -1,5 +1,5 @@
 /**
- * AI 写出来的东西(史书、释名……)按世界存在本地浏览器里(阶段 5)。只存本地,不上传。
+ * AI 写出来的东西(史书、释名……)按世界存在本地浏览器里(阶段 5)。登录了网站账号的,跟着世界同步进账号(account/sync.ts)。
  * 世界 = saveStore 的世界编号(每个世界一个);浏览器存储不可用(隐私模式)时只在内存里。
  * 只是看看的世界(打开的种子、分享链接)存进一条:这个世界跟着存进"我的世界",刷新以后还找得到。
  *
@@ -107,6 +107,30 @@ export function deleteNote(world: string, key: string): void {
     world,
     list.filter((n) => n.key !== key),
   );
+}
+
+/** 一个世界的笔记原样(同步用) */
+export function exportNotes(world: string): AiNote[] {
+  return read(world).slice();
+}
+
+/** 同步下来的笔记换上(null / 空 = 没有);不存这个世界(它已经在"我的世界"里了) */
+export function replaceNotes(world: string, list: AiNote[] | null): void {
+  const clean = (list ?? []).filter((x) => x && typeof x.key === 'string' && typeof x.text === 'string');
+  write(world, clean);
+}
+
+/** 世界删掉了:内存里的也忘掉(浏览器里的由 saveStore 删) */
+export function forgetNotes(world?: string): void {
+  if (world === undefined) mem.clear();
+  else mem.delete(world);
+  emit();
+}
+
+/** 笔记变了就调 f(返回取消函数) */
+export function subscribeNotes(f: () => void): () => void {
+  subs.add(f);
+  return () => void subs.delete(f);
 }
 
 /** React:某个世界的笔记变了就重渲染(返回一个递增的版本号) */

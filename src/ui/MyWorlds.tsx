@@ -2,16 +2,24 @@
  * 「我的世界」:浏览器里存着的世界,一个一张卡片(缩略图、名字、种子和现存几国、最近打开的时间),最近的在前。
  * 有存档的人进站先到这一页;世界卡片顶上"‹ 我的世界"回到这里。样子照常见的文稿列表(浅灰底、缩略图网格、名字和日期在图下面)。
  *
- *   右上     打开存档文件(也可以把 .json 拖进页面)、新建世界
+ *   右上     打开存档文件(也可以把 .json 拖进页面)、新建世界;有网站服务器时再加账号按钮(没登录是「登录」,登录了是名字;手机在左上)
  *   卡片     点一下打开;"没建完"的(还在新建)点开接着建
  *            右上"···"(电脑悬停时出现;手机长按卡片)= 改名、复制一份、存成文件、删除(点两下确认)。没建完的只有改名、删除
  *   底部     源代码、隐私政策、用户协议、版本号(手机上不放,在世界卡片的"更多"里)
  * 手机:两列卡片,新建世界在右上,打开存档文件在列表下面。
  *
+ * 登录了的:标题下那句话说世界存在账号里;卡片时间那个位置在没同步好时换成"正在同步""还没同步上"(同步好了不标);
+ * 账号窗里点「最近删除」,这一页换成最近删除(30 天内能找回,点一张卡片找回)。
+ *
  * 存、读、列都在 saveStore.ts;打开一个世界(生成 + 套上修改)由 App 做。一个世界都不剩时 App 直接进新建。
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { deleteWorld, duplicateWorld, listWorlds, loadWorld, notify, persistent, renameWorld, useSavesVersion, type StoredWorld } from './saveStore';
+import { closeTrash, openAccount, openLogin, useTrashView } from './AccountDialogs';
+import { serverBase } from '../account/server';
+import { displayName, useSession } from '../account/session';
+import { syncNow, useSyncView } from '../account/sync';
+import { listTrash, restoreTrash, type TrashEntry } from '../account/cloud';
 import { downloadSave } from './SaveMenu';
 import { copyNotes } from '../ai/library';
 import { Icon } from './icons';
@@ -58,19 +66,43 @@ export function MyWorlds({ phone, onOpen, onNew, onOpenText }: MyWorldsProps) {
       notify({ kind: 'error', text: `打不开 ${f.name}`, more: ['读不了这个文件'] });
     }
   };
-  const sub = keep
-    ? phone
-      ? `${list.length} 个世界，自动存在这个浏览器里`
-      : `${list.length} 个世界，改动自动存在这个浏览器里；换电脑请用存档文件。`
-    : '浏览器不让网页存数据，关掉页面前请把世界存成文件。';
+  const session = useSession();
+  const server = serverBase() !== null;
+  const sync = useSyncView();
+  const trash = useTrashView();
+  const n = list.length;
+  const sub = !keep
+    ? '浏览器不让网页存数据，关掉页面前请把世界存成文件。'
+    : session
+      ? phone
+        ? `${n} 个世界，存在你的账号里`
+        : `${n} 个世界，存在你的账号里。换电脑、换手机，登录同一个账号就能打开。`
+      : server
+        ? phone
+          ? `${n} 个世界，存在这个浏览器里`
+          : `${n} 个世界，存在这个浏览器里。登录以后，换电脑、换手机都能接着改。`
+        : phone
+          ? `${n} 个世界，自动存在这个浏览器里`
+          : `${n} 个世界，改动自动存在这个浏览器里；换电脑请用存档文件。`;
   const stop = (e: { stopPropagation(): void }) => e.stopPropagation();
+  const acctBtn = server && (
+    <button className="mw-acct" data-act={session ? 'account' : 'login'} onClick={() => (session ? openAccount() : openLogin())} title={session ? session.user.account : '登录网站账号'}>
+      <Icon name="personc" size={18} />
+      <span>{session ? displayName(session.user) : '登录'}</span>
+    </button>
+  );
+  /** 卡片时间那个位置:没同步好时换成同步状态 */
+  const syncOf = (id: string): 'sync' | 'off' | null =>
+    !session ? null : sync.failed.has(id) ? 'off' : sync.busy.has(id) ? 'sync' : null;
+  if (trash && session) return <TrashPage phone={phone} />;
 
   return (
     <div className={`mw${phone ? ' mw-phone' : ''}`} role="main" aria-label="我的世界" onPointerDown={stop} onClick={stop} onDoubleClick={stop} onWheel={stop}>
       <input ref={fileRef} type="file" accept=".json,application/json" hidden onChange={onFile} data-testid="save-file-input" />
       <header className="mw-top">
         {phone && (
-          <div className="mw-bar">
+          <div className={`mw-bar${server ? ' has-acct' : ''}`}>
+            {acctBtn}
             <button className="mw-btn blue round" data-act="new-world" onClick={onNew}>
               <Icon name="plus" size={16} />
               新建世界
@@ -91,6 +123,12 @@ export function MyWorlds({ phone, onOpen, onNew, onOpenText }: MyWorldsProps) {
               <Icon name="plus" size={16} />
               新建世界
             </button>
+            {acctBtn && (
+              <>
+                <span className="mw-sep" aria-hidden="true" />
+                {acctBtn}
+              </>
+            )}
           </div>
         )}
       </header>
@@ -105,6 +143,8 @@ export function MyWorlds({ phone, onOpen, onNew, onOpenText }: MyWorldsProps) {
             renaming={renaming === w.id}
             onRename={(o) => setRenaming(o ? w.id : null)}
             onOpen={() => onOpen(w.id)}
+            sync={syncOf(w.id)}
+            loggedIn={!!session}
           />
         ))}
       </div>
@@ -142,6 +182,16 @@ export function MyWorlds({ phone, onOpen, onNew, onOpenText }: MyWorldsProps) {
 /** 长按多久算长按(毫秒;手机上开卡片的菜单) */
 const LONG_PRESS = 480;
 
+/** 卡片时间那个位置的同步状态 */
+function SyncTime({ st }: { st: 'sync' | 'off' }) {
+  return (
+    <span className={`mw-time ${st}`} data-sync={st}>
+      <Icon name={st === 'sync' ? 'cloudup' : 'cloudoff'} size={14} />
+      {st === 'sync' ? '正在同步' : '还没同步上'}
+    </span>
+  );
+}
+
 function WorldCard({
   w,
   phone,
@@ -150,6 +200,8 @@ function WorldCard({
   renaming,
   onRename,
   onOpen,
+  sync,
+  loggedIn,
 }: {
   w: StoredWorld;
   phone: boolean;
@@ -158,6 +210,8 @@ function WorldCard({
   renaming: boolean;
   onRename: (on: boolean) => void;
   onOpen: () => void;
+  sync: 'sync' | 'off' | null;
+  loggedIn: boolean;
 }) {
   const root = useRef<HTMLDivElement>(null);
   const [arm, setArm] = useState(false);
@@ -250,13 +304,13 @@ function WorldCard({
           <span className="mw-meta">
             {!renaming && <b className="mw-name">{name}</b>}
             <span className="mw-line">{worldLine(w)}</span>
-            <span className="mw-time">{when(w.at)}</span>
+            {sync ? <SyncTime st={sync} /> : <span className="mw-time">{when(w.at)}</span>}
           </span>
         ) : (
           <span className="mw-meta">
             <span className="mw-row1">
               {!renaming && <b className="mw-name">{name}</b>}
-              <span className="mw-time">{when(w.at)}</span>
+              {sync ? <SyncTime st={sync} /> : <span className="mw-time">{when(w.at)}</span>}
             </span>
             <span className="mw-line">{worldLine(w)}</span>
           </span>
@@ -325,6 +379,8 @@ function WorldCard({
               if (!arm) return setArm(true);
               onMenu(false);
               deleteWorld(w.id);
+              // 登录了:账号里跟着删,进最近删除
+              if (loggedIn) notify({ kind: 'ok', text: `已删除「${name}」`, more: ['所有设备上都会删掉；30 天内能在账号的「最近删除」里找回'] });
             }}
           >
             <Icon name="trash" size={16} />
@@ -332,6 +388,93 @@ function WorldCard({
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+/** 还剩几天清除 */
+function purgeIn(iso: string): string {
+  const days = Math.ceil((Date.parse(iso) - Date.now()) / 86400e3);
+  return Number.isFinite(days) ? (days <= 1 ? '明天清除' : `${days} 天后清除`) : '';
+}
+
+/** 最近删除:照「我的世界」的卡片,点一张找回 */
+function TrashPage({ phone }: { phone: boolean }) {
+  const [list, setList] = useState<TrashEntry[] | null>(null);
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    listTrash()
+      .then((l) => live && setList(l))
+      .catch((e) => live && setErr(e instanceof Error ? e.message : String(e)));
+    return () => {
+      live = false;
+    };
+  }, []);
+  const restore = async (t: TrashEntry) => {
+    if (busy) return;
+    setBusy(t.id);
+    try {
+      await restoreTrash(t.id);
+      setList((l) => (l ?? []).filter((x) => x.id !== t.id));
+      notify({ kind: 'ok', text: `已找回「${t.title || '未命名世界'}」`, more: ['回到「我的世界」就能看到'] });
+      void syncNow();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+  const stop = (e: { stopPropagation(): void }) => e.stopPropagation();
+  const back = (
+    <button className={`mw-btn${phone ? ' round' : ''}`} data-act="trash-back" onClick={() => closeTrash()}>
+      <Icon name="back" size={16} />
+      我的世界
+    </button>
+  );
+  return (
+    <div className={`mw${phone ? ' mw-phone' : ''}`} role="main" aria-label="最近删除" onPointerDown={stop} onClick={stop} onDoubleClick={stop} onWheel={stop}>
+      <header className="mw-top">
+        {phone && <div className="mw-bar has-acct">{back}</div>}
+        <div className="mw-heading">
+          <h1>最近删除</h1>
+          <p>删掉的世界在这里留 30 天，点一下就能找回。</p>
+        </div>
+        {!phone && <div className="mw-acts">{back}</div>}
+      </header>
+      {list && list.length > 0 && (
+        <div className="mw-grid" role="list">
+          {list.map((t) => {
+            const alive = typeof t.meta?.alive === 'number' ? (t.meta.alive as number) : undefined;
+            const line = `种子 ${t.seed ?? '?'}${alive === undefined ? '' : alive ? `，现存 ${alive} 国` : '，没有文明'}`;
+            return (
+              <div className="mw-card" role="listitem" key={t.id} data-id={t.id}>
+                <button className="mw-open" data-act="restore-world" disabled={!!busy} onClick={() => void restore(t)} title="找回这个世界">
+                  <span className="mw-thumb" style={t.thumb ? { backgroundImage: `url(${t.thumb})` } : undefined} />
+                  {phone ? (
+                    <span className="mw-meta">
+                      <b className="mw-name">{t.title || '未命名世界'}</b>
+                      <span className="mw-line">{line}</span>
+                      <span className="mw-time">{busy === t.id ? '正在找回' : purgeIn(t.purgeAt)}</span>
+                    </span>
+                  ) : (
+                    <span className="mw-meta">
+                      <span className="mw-row1">
+                        <b className="mw-name">{t.title || '未命名世界'}</b>
+                        <span className="mw-time">{busy === t.id ? '正在找回' : purgeIn(t.purgeAt)}</span>
+                      </span>
+                      <span className="mw-line">{line}</span>
+                    </span>
+                  )}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {list && !list.length && <p className="mw-empty">最近删除里没有世界</p>}
+      {err && <p className="mw-empty">{err}</p>}
     </div>
   );
 }
