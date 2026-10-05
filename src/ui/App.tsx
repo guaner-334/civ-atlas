@@ -179,7 +179,7 @@ import {
   useTerrainTool,
   type TerrainStatus,
 } from './TerrainTools';
-import { tookDismissClick } from './dismissClick';
+import { dismissing, tookDismissClick } from './dismissClick';
 
 type Replay = { w: number; h: number; frames: Uint8ClampedArray[]; mya: number[]; idx: number };
 
@@ -1976,8 +1976,8 @@ export function App() {
       if (touches.current.size === 2) startPinch();
       return;
     }
-    // 改地形:画线的工具按下就开始画(不平移)
-    if (terrainDown(worldAt(e.clientX, e.clientY), e.button)) {
+    // 改地形:画线的工具按下就开始画(不平移);点地图收菜单的那一下不画
+    if (!dismissing(e.nativeEvent) && terrainDown(worldAt(e.clientX, e.clientY), e.button)) {
       moved.current = true;
       terrainStroke.current = touch;
       (e.target as HTMLElement).setPointerCapture(e.pointerId);
