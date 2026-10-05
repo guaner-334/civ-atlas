@@ -521,6 +521,16 @@
   color: var(--ink-3);
   margin-left: 12px;
 }
+/* 菜单项右边的快捷键(和 Mac 菜单一样:灰字、和菜单项一样大) */
+.pm-kbd {
+  margin-left: 12px;
+  font: inherit;
+  color: var(--ink-2);
+}
+.pm-item:hover:not(:disabled) .pm-kbd {
+  color: inherit;
+  opacity: 0.85;
+}
 .pm-item:not(:has(.icon)) {
   padding-left: 36px;
 }
