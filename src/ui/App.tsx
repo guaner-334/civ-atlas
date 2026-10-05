@@ -327,8 +327,8 @@ function firstRoute(init: ReturnType<typeof readUrl>): { stage: Stage; target: T
   if (stored) return { stage: stored.draft ? 'draft' : 'world', target: storedTarget(stored, 'restore') };
   if (q.get('new') === '1') return { stage: 'draft', target: draftTarget(init.params) };
   if (q.has('seed')) {
-    // 改版前自动存的世界:那时的网址只带种子、参数,刷新照旧回到它
-    const old = legacyWorld(init.params);
+    // 改版前自动存的世界:那时的网址只带种子、参数,刷新照旧回到它(带 gen= 的是改版后的网址,不是它)
+    const old = init.gen === null ? legacyWorld(init.params) : null;
     if (old) return { stage: old.draft ? 'draft' : 'world', target: storedTarget(old, 'restore') };
     return { stage: 'world', target: visitTarget(init.params, init.gen) };
   }
@@ -348,8 +348,9 @@ function writeWorldUrl(t: Target) {
   }
   q.delete('w');
   q.delete('new');
-  // 生成器版本:复制这个网址发给别人,以后版本更新了对方打开会说清变了什么
-  q.set(GEN_KEY, String(GENERATOR_VERSION));
+  // 生成器版本:复制这个网址发给别人,以后版本更新了对方打开会说清变了什么。
+  // 网址来自更新的版本(页面是旧的)就留着那个号:刷新还是旧页面照样提示,换到新页面就对上了
+  q.set(GEN_KEY, String(t.gen !== undefined && t.gen > GENERATOR_VERSION ? t.gen : GENERATOR_VERSION));
   // 存着的记录还是换参数之前的(新建中换了种子、参数,正在生成):先不指向它,存好了再换成 w=
   const w = isStored(t.id) ? loadWorld(t.id) : null;
   if (w && worldKey(w.save.params) === worldKey(t.params)) q.set('w', t.id);

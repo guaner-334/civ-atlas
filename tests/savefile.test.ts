@@ -214,11 +214,11 @@ describe('地形校验', () => {
     expect(worldCheck(generateWorld({ ...SMALL, seed: 7, mountains: 1.05 }))).not.toBe(a);
   });
 
-  it('checkWarning:同版本地形对不上才提示(版本不同 parseSave 已经提示过)', () => {
+  it('checkWarning:同版本地形对不上才提示(版本不同、世界变了的 parseSave 已经提示过)', () => {
     const s = makeSave({ ...DEFAULT_PARAMS, seed: 7 }, EMPTY_EDITS, 'aaaa');
     expect(checkWarning(s, 'aaaa')).toBeNull();
     expect(checkWarning(s, 'bbbb')).toBe(CHECK_WARNING);
-    expect(checkWarning({ ...s, generator: GENERATOR_VERSION - 1 }, 'bbbb')).toBeNull();
+    expect(checkWarning({ ...s, generator: 6 }, 'bbbb')).toBeNull();
     expect(checkWarning({ ...s, check: '' }, 'bbbb')).toBeNull();
   });
 });
@@ -844,6 +844,17 @@ describe('旧版本的提示:照实说变了什么', () => {
     // 第 4、5 版换了整颗星球,再往前的都算进去
     for (const v of [4, 3, 2, 1, 0, -3]) expect(versionNote(v, false)).toBe('来自旧版本：整颗星球重新生成了，地形和历史都和原来不同');
     expect(versionNote(GENERATOR_VERSION + 1, false)).toBe(NEWER_NOTE);
+    // 不是整数的版本号认不出:按整颗星球说,不当成哪一版
+    expect(versionNote(7.5, false)).toBe(versionNote(0, false));
+  });
+  it('版本不同、但世界应该一样时照样核对地形', () => {
+    const save = makeSave({ ...DEFAULT_PARAMS, seed: 7 }, EMPTY_EDITS, 'aaaaaaaaaaaa');
+    expect(checkWarning({ ...save, generator: 7 }, 'aaaaaaaaaaaa')).toBeNull();
+    expect(checkWarning({ ...save, generator: 7 }, 'bbbbbbbbbbbb')).toBe(CHECK_WARNING);
+    // 世界本来就变了(已经说过变了什么):不重复
+    expect(checkWarning({ ...save, generator: 6 }, 'bbbbbbbbbbbb')).toBeNull();
+    const edited = { ...save, generator: 7, edits: { ...save.edits, terrain: [{ kind: 'lake' as const, pts: [300, 400], r: 16, s: 1 }] } };
+    expect(checkWarning(edited, 'bbbbbbbbbbbb')).toBeNull();
   });
 });
 

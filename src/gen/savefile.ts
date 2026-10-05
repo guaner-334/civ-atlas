@@ -103,13 +103,15 @@ export const NEWER_NOTE = '来自更新的版本，刷新页面换到最新版�
 /**
  * 从第 from 版生成器到现在,同样的种子、参数(改没改过地形)生成出来的世界变了什么:跨过的几版里最大的那种改动。
  * 一样 = null(比如只动了改过地形的世界的那一版,这个世界没改地形);比现在新 = NEWER_NOTE;
- * 认不出的旧版本(没记版本号、表里没有的)按整颗星球重新生成说
+ * 认不出的旧版本(没记版本号、不是整数、表里没有的)按整颗星球重新生成说
  */
 export function versionNote(from: number, terrainEdited: boolean): string | null {
   if (from === GENERATOR_VERSION) return null;
   if (from > GENERATOR_VERSION) return NEWER_NOTE;
+  // 不是整数的版本号(手改过、坏了的存档)认不出,按整颗星球重新生成说
+  if (!Number.isInteger(from)) return `来自旧版本：${CHANGE_TEXT.planet}`;
   let top = -1;
-  for (let v = Math.max(1, Math.floor(from)) + 1; v <= GENERATOR_VERSION; v++) {
+  for (let v = Math.max(1, from) + 1; v <= GENERATOR_VERSION; v++) {
     const c = GENERATOR_CHANGES[v];
     const rank = c ? CHANGE_RANK.indexOf(c.change) : CHANGE_RANK.length - 1;
     if (c?.edited && !terrainEdited) continue;
@@ -318,11 +320,11 @@ export function parseSave(text: string): ParseResult {
 }
 
 /**
- * 按存档的参数生成完以后核对地形:生成器版本相同、地形哈希却对不上时给提示
- * (版本不同的 parseSave 已经提示过,这里不重复)。对得上 = null
+ * 按存档的参数生成完以后核对地形:生成器版本相同(或版本不同、但按 versionNote 世界应该一样)、地形哈希却对不上时给提示
+ * (版本不同、世界变了的,parseSave 已经说过变了什么,这里不重复)。对得上 = null
  */
 export function checkWarning(save: SaveFile, check: string): string | null {
-  if (save.generator !== GENERATOR_VERSION) return null;
+  if (save.generator !== GENERATOR_VERSION && versionNote(save.generator, (save.edits.terrain?.length ?? 0) > 0) !== null) return null;
   if (!save.check || save.check === check) return null;
   return CHECK_WARNING;
 }
