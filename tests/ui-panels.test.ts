@@ -8,7 +8,7 @@ import { generateCiv, type Civ } from '../src/gen/civ';
 import { ownersAt } from '../src/gen/civ/timeline';
 import { populationAt } from '../src/gen/civ/growth';
 import { rasterize, type Raster } from '../src/gen/raster';
-import { cityEntries, entriesUpTo, firstOwned, ownerSpans, placeFacts, popSeries, regionEntries, kmText, areaText } from '../src/ui/panelData';
+import { cityEntries, entriesUpTo, firstOwned, ownerSpans, placeFacts, popPeak, popSeries, regionEntries, kmText, areaText } from '../src/ui/panelData';
 import { interventionActorThen, interventionDoneText, interventionText, nameAt } from '../src/ui/Interventions';
 import { polityKey, regionKey } from '../src/gen/edits';
 import { polityAlive } from '../src/gen/civ/growth';
@@ -64,6 +64,27 @@ describe('面板统计', () => {
       if (x.year >= ruined.ended!) expect(x.pop).toBe(0);
     }
     expect(Math.max(...series.map((x) => x.pop))).toBeGreaterThan(0);
+  });
+
+  it('最盛人口:不比小柱图的任何一根少,也不比结束那年少(一直在长的城,最盛就是现在)', () => {
+    const { civ } = seed7();
+    let grew = 0;
+    for (const s of civ.settlements) {
+      const to = s.ended ?? civ.endYear;
+      const top = popPeak(s, s.founded, to);
+      expect(top.pop).toBe(populationAt(s, top.year));
+      expect(top.year).toBeGreaterThanOrEqual(s.founded);
+      expect(top.year).toBeLessThanOrEqual(to);
+      for (const x of popSeries(s, s.founded, to, 24)) expect(top.pop).toBeGreaterThanOrEqual(x.pop);
+      if (s.ended === undefined) {
+        const end = populationAt(s, civ.endYear);
+        expect(top.pop).toBeGreaterThanOrEqual(end - 1e-9);
+        // 取样会漏掉的那种:最后一根柱子比结束那年少
+        const last = popSeries(s, s.founded, to, 24).at(-1)!.pop;
+        if (end > last) grew++;
+      }
+    }
+    expect(grew).toBeGreaterThan(0);
   });
 
   it('相关事件:毁了的城有"毁城";按年份排好;到某年为止的只含那年以前的', () => {

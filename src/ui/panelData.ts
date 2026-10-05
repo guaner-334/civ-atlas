@@ -109,6 +109,31 @@ export function popSeries(s: Settlement, from: number, to: number, n: number): {
   return out;
 }
 
+/**
+ * 一段年份里人口最多的那一刻(城的"最盛"):小柱图只在每根柱子的中间取样,会漏掉真正的高点
+ * (比如一直在长的城,最后一根柱子取的是快到头时的人口,比结束那年少)。
+ * 人口在这几种年份之间是平滑变的:结束那年、毁城前一刻、每次被洗劫前一刻、每段做国都结束那年 —— 这几处逐个算,
+ * 中间再按 SAMPLES 等分细取,取最大的
+ */
+export function popPeak(s: Settlement, from: number, to: number): { year: number; pop: number } {
+  let best = { year: from, pop: 0 };
+  if (!(to > from)) return best;
+  const at = (y: number) => {
+    if (!(y >= from && y <= to)) return;
+    const pop = populationAt(s, y);
+    if (pop > best.pop) best = { year: y, pop };
+  };
+  const eps = 1 / 256;
+  const step = (to - from) / PEAK_SAMPLES;
+  for (let i = 0; i <= PEAK_SAMPLES; i++) at(from + i * step);
+  at(to - eps);
+  if (s.ended !== undefined) at(s.ended - eps);
+  for (const k of s.sacks ?? []) at(k.year - eps);
+  for (const sp of s.capitalSpans ?? []) if (sp.until !== undefined) at(sp.until);
+  return best;
+}
+const PEAK_SAMPLES = 400;
+
 // ---------------------------------------------------------------------------
 // 相关事件
 
