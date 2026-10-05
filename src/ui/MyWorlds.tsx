@@ -15,7 +15,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { deleteWorld, duplicateWorld, listWorlds, loadWorld, notify, persistent, renameWorld, useSavesVersion, type StoredWorld } from './saveStore';
-import { closeTrash, openAccount, openLogin, useTrashView } from './AccountDialogs';
+import { closeTrash, openAccount, openLogin, useAccountPanelOpen, useTrashView } from './AccountDialogs';
 import { serverBase } from '../account/server';
 import { displayName, useSession } from '../account/session';
 import { syncNow, useSyncView } from '../account/sync';
@@ -85,8 +85,9 @@ export function MyWorlds({ phone, onOpen, onNew, onOpenText }: MyWorldsProps) {
           ? `${n} 个世界，自动存在这个浏览器里`
           : `${n} 个世界，改动自动存在这个浏览器里；换电脑请用存档文件。`;
   const stop = (e: { stopPropagation(): void }) => e.stopPropagation();
+  const acctOpen = useAccountPanelOpen();
   const acctBtn = server && (
-    <button className="mw-acct" data-act={session ? 'account' : 'login'} onClick={() => (session ? openAccount() : openLogin())} title={session ? session.user.account : '登录网站账号'}>
+    <button className={`mw-acct${acctOpen ? ' on' : ''}`} data-act={session ? 'account' : 'login'} onClick={() => (session ? openAccount() : openLogin())} title={session ? session.user.account : '登录网站账号'}>
       <Icon name="personc" size={18} />
       <span>{session ? displayName(session.user) : '登录'}</span>
     </button>

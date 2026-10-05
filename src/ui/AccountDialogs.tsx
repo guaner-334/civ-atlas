@@ -70,6 +70,12 @@ export function closeAccountPanel(): void {
   emit();
 }
 
+/** React:开着的是登录窗 / 账号窗(「我的世界」右上那个按钮显示按下) */
+export function useAccountPanelOpen(): boolean {
+  const k = useUi().panel?.kind;
+  return k === 'login' || k === 'account';
+}
+
 /** 回到"我的世界"(App 登记) */
 let goHome: (() => void) | null = null;
 export function setGoHome(f: (() => void) | null): void {

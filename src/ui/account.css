@@ -692,6 +692,12 @@ button.acct-gr:hover {
 .mw .mw-acct:hover {
   filter: brightness(0.94);
 }
+/* 它弹出的登录窗、账号窗开着时(宽屏;手机上被底下升起的卡片挡着,不标) */
+.mw:not(.mw-phone) .mw-acct.on {
+  box-shadow:
+    0 0 0 3px var(--accent-soft),
+    inset 0 0 0 1px var(--accent);
+}
 .mw-sep {
   align-self: center;
   width: 1px;
