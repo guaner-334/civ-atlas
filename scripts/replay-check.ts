@@ -1400,6 +1400,11 @@ for (const style of ['realistic', 'fantasy']) {
   if (!newerNote.includes('来自更新的版本')) errs.push(`版本号:打开更新版本的链接,提示不对(${newerNote})`);
   if (newerBar !== String(GENERATOR_VERSION + 1) || newerLink !== String(GENERATOR_VERSION + 1)) errs.push(`版本号:更新版本的 gen 没照留(地址栏 ${newerBar},链接 ${newerLink})`);
   if (!oddNote.includes('来自旧版本：整颗星球')) errs.push(`版本号:认不出的版本号,提示不对(${oddNote})`);
+  // 新建中还没存的网址(new=1)不带版本号:打开这种网址是接着新建,用的总是现在的版本
+  await p.goto(`${dev.url}/?new=1&seed=7&gen=6`);
+  await ready();
+  const draftBar = new URLSearchParams(await p.evaluate(() => location.search));
+  if (draftBar.get('new') !== '1' || draftBar.has('gen')) errs.push(`版本号:新建中的网址不该带 gen(${draftBar})`);
   await ctx.close();
 }
 
