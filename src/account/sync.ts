@@ -97,7 +97,7 @@ function storedState(key = KEY): SyncState | null | undefined {
  */
 const bases = new WeakMap<SyncState, SyncState>();
 const copyState = (st: SyncState): SyncState => ({ user: st.user, worlds: { ...st.worlds }, deletes: { ...st.deletes } });
-const sameKnown = (a: Known | undefined, b: Known | undefined) => a === b || (!!a && !!b && a.rev === b.rev && a.sum === b.sum && a.at === b.at);
+const sameKnown = (a: Known | undefined, b: Known | undefined) => a === b || (!!a && !!b && a.rev === b.rev && a.sum === b.sum && a.core === b.core && a.at === b.at);
 
 /** 三方合:这边没动过的(ours 和 base 一样)换成浏览器里现在的(theirs) */
 function mergeInto<T>(ours: Record<string, T>, base: Record<string, T>, theirs: Record<string, T>, same: (a: T | undefined, b: T | undefined) => boolean) {
@@ -632,7 +632,9 @@ async function reconcile(st: SyncState, id: string, s: CloudEntry | null, depth 
   const l = localWorld(id);
   // 刚删掉、还没告诉服务器的:下一轮去删,这次不取回来
   if (!l && id in st.deletes) return;
-  const k = st.worlds[id];
+  let k = st.worlds[id];
+  // 以前记下的没有不算缩略图的指纹:这里和那时一样,就补上(之后只重画了缩略图也认得出没改过)
+  if (k && k.core === undefined && l && k.sum === l.sum) k = st.worlds[id] = { ...k, core: l.core };
   if (!s) {
     if (l) await push(st, id, l, 0, false, depth);
     else delete st.worlds[id];
@@ -688,10 +690,13 @@ async function reconcile(st: SyncState, id: string, s: CloudEntry | null, depth 
     throw e;
   }
   // 一样就不算两边都改过(缩略图不比,各留各的)
-  if (coreOf(remoteRaw(remote), Array.isArray(remote.notes) ? remote.notes : null) === l.core) {
+  const core = coreOf(remoteRaw(remote), Array.isArray(remote.notes) ? remote.notes : null);
+  if (core === l.core) {
     st.worlds[id] = { rev: remote.rev, sum: l.sum, core: l.core, at: nowIso() };
     return;
   }
+  // 那边只是重画了缩略图(内容和上次同步时一样):只有这边改了,接着那边的版本存上去
+  if (k?.core !== undefined && core === k.core) return push(st, id, l, remote.rev, false, depth);
   await fork(st, id, l, remote);
 }
 

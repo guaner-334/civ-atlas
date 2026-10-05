@@ -544,6 +544,51 @@ describe('云同步:边改边同步、出错、换账号', () => {
     expect(cloudTitles()).toEqual(['那边改的名字']);
   });
 
+  it('那边只是重画了缩略图、这边真改了:接着那边的版本存上去,不另存一份', async () => {
+    const a = new FakeStorage();
+    const b = new FakeStorage();
+    device(a);
+    const id = addWorld(7, '苍澜界');
+    a.setItem(`wenming-ditu:thumb:${id}`, 'data:image/jpeg;base64,AAAA');
+    await signIn();
+    device(b);
+    await signIn();
+    b.setItem(`wenming-ditu:thumb:${id}`, 'data:image/jpeg;base64,BBBB');
+    await syncNow();
+
+    tick();
+    device(a);
+    saveStore.renameWorld(id, '这边改的名字');
+    await syncNow();
+    expect(titles()).toEqual(['这边改的名字']);
+    expect(cloudTitles()).toEqual(['这边改的名字']);
+  });
+
+  it('以前记下的同步记录没有不算缩略图的指纹:同步一遍补上,之后只重画了缩略图也不算改过', async () => {
+    const a = new FakeStorage();
+    const b = new FakeStorage();
+    device(a);
+    const id = addWorld(7, '苍澜界');
+    a.setItem(`wenming-ditu:thumb:${id}`, 'data:image/jpeg;base64,AAAA');
+    await signIn();
+    // 改成以前的样子(没有 core)
+    const st = JSON.parse(a.getItem('civ-atlas:sync')!);
+    for (const w of Object.values(st.worlds) as { core?: string }[]) delete w.core;
+    a.setItem('civ-atlas:sync', JSON.stringify(st));
+    device(a);
+    await syncNow();
+    device(b);
+    await signIn();
+
+    tick();
+    saveStore.renameWorld(id, '那边改的名字');
+    await syncNow();
+    device(a);
+    a.setItem(`wenming-ditu:thumb:${id}`, 'data:image/jpeg;base64,BBBB');
+    await syncNow();
+    expect(titles()).toEqual(['那边改的名字']);
+  });
+
   it('两台设备做了同样的改动、只是缩略图画得不完全一样:不算两边都改过', async () => {
     const a = new FakeStorage();
     const b = new FakeStorage();
@@ -1769,5 +1814,40 @@ describe('云同步:放满了、服务器不回话、分享前、别的标签页
     expect(getSession()).not.toBeNull();
     locked = false;
     expect(titles()).toEqual(['苍澜界']);
+  });
+  it('退出选"删掉"、浏览器只删掉了一部分(存档删不掉、AI 写的东西删掉了):删掉的放回去,账号里的不会缺东西', async () => {
+    let locked = false;
+    const a = new (class extends FakeStorage {
+      removeItem(k: string) {
+        if (locked && k.startsWith('wenming-ditu:world:')) throw new Error('不让删');
+        super.removeItem(k);
+      }
+    })();
+    device(a);
+    const id = addWorld(7, '苍澜界');
+    putNote(id, { key: 'k', kind: '史书', title: '大昌', text: '大昌兴于碧溪谷。', createdAt: '2026-10-05T00:00:00Z', provider: 'mock', model: 'm' });
+    await signIn();
+    const keys = [...a.map.keys()].filter((k) => k.includes(id)).sort();
+    locked = true;
+    expect(await signOut(false)).toMatchObject({ ok: false });
+    expect([...a.map.keys()].filter((k) => k.includes(id)).sort()).toEqual(keys);
+    locked = false;
+    await syncNow();
+    expect(fake.users.get('writer@example.com')!.worlds.get(id)!.notes).toHaveLength(1);
+  });
+
+  it('退出选"删掉"、打开页面时浏览器存储没探测成功(只能读):照样直接删,删不干净就不退出', async () => {
+    const a = new (class extends FakeStorage {
+      setItem(k: string, v: string) {
+        if (k === 'wenming-ditu:probe') throw new Error('不让写');
+        super.setItem(k, v);
+      }
+    })();
+    const old = makeSave({ ...DEFAULT_PARAMS, seed: 5 }, EMPTY_EDITS, 'check5', '旧世界');
+    a.map.set('wenming-ditu:world:wold000001', JSON.stringify(old));
+    device(a);
+    await signIn();
+    expect(await signOut(false)).toEqual({ ok: true });
+    expect([...a.map.keys()].filter((k) => k.startsWith('wenming-ditu:world:'))).toEqual([]);
   });
 });
