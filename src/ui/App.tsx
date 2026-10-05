@@ -134,6 +134,7 @@ import {
   attachWorld,
   briefError,
   briefWarning,
+  currentUnsaved,
   currentWorld,
   deleteWorld,
   detachWorld,
@@ -1367,9 +1368,9 @@ export function App() {
     if (!d || !t || !cur || t.id !== d.id || cur.id !== d.id) return null;
     return draftSig(t.params, getEdits(), cur.title) === d.sig ? d.id : null;
   };
-  /** 回到"我的世界"(一个都没有就直接新建) */
+  /** 回到"我的世界"(一个都没有就直接新建;正在看的这个只在页面里、没能存进浏览器的,不新建盖掉它,回去还能「全部存成文件」) */
   const goHome = () => {
-    if (!listWorlds().length) return startDraft();
+    if (!listWorlds().length && !currentUnsaved()) return startDraft();
     showHome();
   };
   /** 回到"我的世界"那一页(看最近删除时一个世界都没有也回去) */
@@ -1428,10 +1429,10 @@ export function App() {
     if (isStored(t.id) && new URLSearchParams(location.search).get('w') !== t.id) writeWorldUrl(t);
   }, [v, home]);
   // 我的世界里一个都不剩了(删光了、别的页面里删掉了):直接新建。
-  // 刚删掉的是最后一个、提示条上还能"撤销"时先停在这儿,提示收起了(没点撤销)再新建
+  // 刚删掉的是最后一个、提示条上还能"撤销"时先停在这儿,提示收起了(没点撤销)再新建;刚才那个世界只在页面里(存不进浏览器)的也停在这儿
   const undeleting = useToastOpen('save', 'world-undelete');
   useEffect(() => {
-    if (home && !landing && !trashView && !undeleting && !listWorlds().length) startDraft();
+    if (home && !landing && !trashView && !undeleting && !listWorlds().length && !currentUnsaved()) startDraft();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [home, v, landing, trashView, undeleting]);
   // 把 .json 拖进页面 = 从文件打开

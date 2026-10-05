@@ -736,14 +736,19 @@ export function duplicateWorld(id: string): string | null {
   return nid;
 }
 
-/** 两份存档是不是同一个世界的同一个样子(参数、修改、名字都相同;投影、存档时间不算) */
+/** 两份存档是不是同一个世界的同一个样子(参数、修改、名字、底稿出处都相同;投影、存档时间不算) */
 export function sameSave(a: SaveFile, b: SaveFile): boolean {
-  return worldKey(a.params) === worldKey(b.params) && (a.title ?? '') === (b.title ?? '') && JSON.stringify(a.edits) === JSON.stringify(b.edits);
+  return worldKey(a.params) === worldKey(b.params) && (a.title ?? '') === (b.title ?? '') && JSON.stringify(a.edits) === JSON.stringify(b.edits) && sameOrigin(a.origin, b.origin);
+}
+
+function sameOrigin(a: SaveFile['origin'], b: SaveFile['origin']): boolean {
+  if (!a || !b) return !a && !b;
+  return (a.by ?? '') === (b.by ?? '') && a.title === b.title && a.url === b.url;
 }
 
 /**
  * 从文件打开:存进"我的世界"(算建好的),返回它的编号。
- * 已经有一个一模一样的(参数、修改、名字都相同,比如同一个文件打开了两次)就用那一个,不重复存
+ * 已经有一个一模一样的(参数、修改、名字、底稿出处都相同,比如同一个文件打开了两次)就用那一个,不重复存
  */
 export function importSave(save: SaveFile): string | null {
   for (const w of listWorlds()) {

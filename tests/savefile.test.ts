@@ -5,7 +5,8 @@
  * 存储不可用(隐私模式)时退回内存、配额满了删最旧的;这几种情况顶部提示条上说一句;读档提示的短说法。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { copyNotes, listNotes, putNote } from '../src/ai/library';
+import { copyNotes, getNote, listNotes, putNote } from '../src/ai/library';
+import { asHistoryNote } from '../src/ai/history';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { generateCiv } from '../src/gen/civ';
 import type { Civ } from '../src/gen/civ/types';
@@ -32,6 +33,7 @@ import {
   worldKey,
   cleanOrigin,
   cleanSignature,
+  type SaveFile,
   type SaveOrigin,
 } from '../src/gen/savefile';
 import { BUNDLE_FORMAT, bundleFileName, bundleText, importBundle, openBundleText, parseBundle } from '../src/ui/bundle';
@@ -1305,6 +1307,66 @@ describe('全部存成文件(bundle)', () => {
     freshBrowser();
     openBundleText(out.text);
     expect(saveStore.listWorlds().map((w) => w.save.title)).toEqual(['只在页面里']);
+  });
+
+  it('AI 写的东西各功能另记的(史书的书目、释名记的名字):跟着存进文件、跟着放回来,史书还认得出来', () => {
+    const a = saveStore.importSave(makeSave({ ...DEFAULT_PARAMS, seed: 7 }, EDITS, 'c7', '苍澜界'))!;
+    const book = { ...NOTE, book: { title: '世界通史', range: '第 0—3000 年', scope: { kind: 'world' }, style: 'classic', length: 'medium', fp: 'fp1', seed: 7, calls: 2 } };
+    const name = { ...NOTE, key: '释名:settlement:c1#0', kind: '释名', title: '饕餮城', name: '饕餮城', shown: '饕餮城', stamp: 's1' };
+    putNote(a, book);
+    putNote(a, name);
+    expect(asHistoryNote(getNote(a, book.key))).not.toBeNull();
+    const text = bundleText()!.text;
+    freshBrowser();
+    openBundleText(text);
+    const na = saveStore.listWorlds()[0];
+    expect(listNotes(na.id)).toEqual([book, name]);
+    expect(asHistoryNote(getNote(na.id, book.key))).not.toBeNull();
+    // 另记的太大的不要(正文照样放回来)
+    const huge = { ...NOTE, key: '史书:huge', book: { title: 'x'.repeat(30_000) } };
+    const r = parseBundle(JSON.stringify({ app: SAVE_APP, bundle: 1, worlds: [{ save: makeSave({ ...DEFAULT_PARAMS, seed: 8 }, EDITS, 'c8', '大'), notes: [huge] }] }));
+    expect(r && r.ok ? r.bundle.worlds[0].notes : null).toEqual([NOTE].map((n) => ({ ...n, key: '史书:huge' })));
+  });
+
+  it('参数、修改、名字都一样,底稿出处不一样:不算同一个,文件里的出处不丢', () => {
+    const save = makeSave({ ...DEFAULT_PARAMS, seed: 5 }, EDITS, 'c5', '同名');
+    const a = saveStore.importSave(save)!;
+    const withOrigin: SaveFile = { ...save, origin: ORIGIN };
+    const b = saveStore.importSave(withOrigin)!;
+    expect(b).not.toBe(a);
+    expect(saveStore.loadWorld(b)?.save.origin).toEqual(ORIGIN);
+    expect(saveStore.importSave({ ...withOrigin, origin: { ...ORIGIN } })).toBe(b);
+    const r = importBundle({ worlds: [{ save: { ...save, origin: { ...ORIGIN, by: '别人' } }, meta: {}, thumb: null, notes: [] }, { save: withOrigin, meta: {}, thumb: null, notes: [] }], bad: 0 });
+    expect(r).toMatchObject({ same: 1 });
+    expect(r.added).toHaveLength(1);
+    expect(saveStore.loadWorld(r.added[0])?.save.origin?.by).toBe('别人');
+  });
+
+  it('AI 写的东西上次没能写进浏览器(存储满了,只在页面里):腾出地方以后再放一次,这回写进去', () => {
+    threeWorlds();
+    const text = bundleText()!.text;
+    const s = new FakeStorage();
+    const put = s.setItem.bind(s);
+    let full = true;
+    s.setItem = (k: string, v: string) => {
+      if (full && k.startsWith('civ-atlas:ai-notes:')) {
+        const e = new Error('quota');
+        e.name = 'QuotaExceededError';
+        throw e;
+      }
+      put(k, v);
+    };
+    freshBrowser(s);
+    openBundleText(text);
+    expect(getToast()?.more?.some((m) => m.includes('AI 写的东西没能放回来'))).toBe(true);
+    const na = saveStore.listWorlds().find((w) => w.save.title === '苍澜界')!;
+    // 页面里有,浏览器里没有
+    expect(listNotes(na.id)).toEqual([NOTE]);
+    expect(s.getItem(`civ-atlas:ai-notes:${na.id}`)).toBeNull();
+    full = false;
+    openBundleText(text);
+    expect(getToast()).toMatchObject({ text: '这些世界都已经在「我的世界」里了', more: ['1 个原来就有的补上了缺的 AI 写的东西或缩略图'] });
+    expect(JSON.parse(s.getItem(`civ-atlas:ai-notes:${na.id}`)!)).toEqual([NOTE]);
   });
 
   it('没建完的和建好的分开算:同样的参数、名字,一个没建完一个建好的,不算同一个', () => {

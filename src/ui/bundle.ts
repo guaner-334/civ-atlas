@@ -18,7 +18,7 @@
  * 放满了(MAX_WORLDS)、浏览器存不下就停,不为它删别的世界。登录了的,放回来的世界照常同步进账号。
  */
 import { SAVE_APP, fileBaseName, parseSave, type SaveFile } from '../gen/savefile';
-import { exportNotes, replaceNotes, type AiNote } from '../ai/library';
+import { exportNotes, notesSaved, replaceNotes, type AiNote } from '../ai/library';
 import {
   MAX_WORLDS,
   cleanSyncMeta,
@@ -41,6 +41,8 @@ const MAX_BYTES = 64 * 1024 * 1024;
 /** 一个世界最多带几条 AI 写的东西、每条最长多少字 */
 const MAX_NOTES = 5000;
 const NOTE_MAX = 200_000;
+/** 一条 AI 写的东西除了正文以外另记的字段(史书的书目等),最多这么长 */
+const NOTE_EXTRA_MAX = 20_000;
 /** 缩略图最长多少字(网页自己截的 480×240 只有几十 KB) */
 const THUMB_MAX = 1_000_000;
 
@@ -97,10 +99,12 @@ function cleanNotes(v: unknown): AiNote[] {
   for (const x of v) {
     if (out.length >= MAX_NOTES) break;
     if (!isObj(x)) continue;
-    const { key, kind, title, text, createdAt, provider, model } = x;
+    const { key, kind, title, text, createdAt, provider, model, ...rest } = x;
     if (typeof key !== 'string' || !key || keys.has(key) || typeof kind !== 'string' || typeof text !== 'string' || text.length > NOTE_MAX) continue;
     keys.add(key);
     out.push({
+      // 各功能自己另记的(史书的书目、释名写的时候的名字……)原样带上,用的时候各功能自己再检查;太大的不要
+      ...(JSON.stringify(rest).length <= NOTE_EXTRA_MAX ? rest : {}),
       key: key.slice(0, 200),
       kind: kind.slice(0, 40),
       title: typeof title === 'string' ? title.slice(0, 200) : '',
@@ -167,9 +171,11 @@ function fillFrom(id: string, w: BundleWorld): { filled: boolean; notesOk: boole
   const have = exportNotes(id);
   const keys = new Set(have.map((n) => n.key));
   const more = w.notes.filter((n) => !keys.has(n.key));
-  if (more.length) {
+  // 上次没能写进浏览器(存储满了)、只在页面里的,这次再写一遍
+  const unsaved = !notesSaved(id);
+  if (more.length || unsaved) {
     notesOk = replaceNotes(id, [...have, ...more]);
-    filled = true;
+    if (more.length || notesOk) filled = true;
   }
   return { filled, notesOk };
 }
