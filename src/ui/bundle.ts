@@ -17,9 +17,9 @@
  * 一个文件放不下(MAX_LEN)的,先不带 AI 写的东西,还放不下再不带缩略图(存出来的文件总能放回来);都不带还放不下就不存。
  * 放回来:逐个放进「我的世界」(都是新编号;建好的先放,没建完的后放,好把底稿编号换成新的)。
  * 已经有一模一样的(参数、修改、名字、底稿出处、生成器版本、地形哈希都相同;没建完的和建好的分开算,没建完的还要底稿相同)不重复放,
- * 那边缺的投影、AI 写的东西、缩略图、现存几国、底稿补上,
+ * 那边缺的投影、AI 写的东西、缩略图、现存几国、底稿补上,文件里"最近打开"更晚的用文件里的,
  * 上次没能写进浏览器(存储满了)的 AI 写的东西再写一次;
- * 放满了(MAX_WORLDS)、浏览器存不下就停,不为它删别的世界。登录了的,放回来的世界照常同步进账号。
+ * 放满了(MAX_WORLDS)、浏览器存不下就停,不为它删别的世界;浏览器不让存(只在内存里)的说一声。登录了的,放回来的世界照常同步进账号。
  */
 import { SAVE_APP, fileBaseName, parseSave, type SaveFile } from '../gen/savefile';
 import { exportNotes, notesSaved, replaceNotes, type AiNote } from '../ai/library';
@@ -34,6 +34,7 @@ import {
   listWorlds,
   newWorldId,
   notify,
+  persistent,
   putSyncedWorld,
   sameSave,
   type SyncMeta,
@@ -211,9 +212,12 @@ export interface ImportResult {
   notesLost: boolean;
 }
 
-/** 已经有的同一个世界:文件里有、这边缺的投影、AI 写的东西(按条)、缩略图、现存几国、底稿补上;返回补了没有、AI 写的东西存进去没有 */
+/**
+ * 已经有的同一个世界:文件里有、这边缺的投影、AI 写的东西(按条)、缩略图、现存几国、底稿补上,文件里"最近打开"更晚的用文件里的;
+ * 返回补了没有(不算"最近打开")、AI 写的东西存进去没有
+ */
 function fillFrom(id: string, w: BundleWorld, base: DraftBase | undefined): { filled: boolean; notesOk: boolean } {
-  let filled = fillMissing(id, { view: w.save.view, thumb: w.thumb, alive: w.meta.alive, base });
+  let filled = fillMissing(id, { view: w.save.view, thumb: w.thumb, alive: w.meta.alive, base, opened: w.opened });
   let notesOk = true;
   const have = exportNotes(id);
   const keys = new Set(have.map((n) => n.key));
@@ -321,9 +325,12 @@ export function openBundleText(text: string, fileName?: string): boolean {
   if (res.left) more.push(`还有 ${res.left} 个没放进去：${res.why === 'full' ? `「我的世界」最多存 ${MAX_WORLDS} 个世界，先删掉几个再打开一次` : '浏览器存储已满，先删掉几个世界再打开一次'}`);
   if (bad) more.push(`${bad} 个世界读不出来，跳过了`);
   if (res.notesLost) more.push('有的 AI 写的东西没能放回来（浏览器存储已满）');
+  // 浏览器不让存(隐私模式之类):放回来的只在内存里,关掉页面就没了
+  const memOnly = res.added.length > 0 && !persistent();
+  if (memOnly) more.unshift('浏览器不让网页存数据：放回来的世界只留在这个页面里，关掉就没了，这个文件先别删');
   const lines = more.filter(Boolean);
   if (res.added.length) {
-    notify({ kind: res.left || bad || res.notesLost ? 'warn' : 'ok', text: `已放回 ${res.added.length} 个世界`, more: lines });
+    notify({ kind: res.left || bad || res.notesLost || memOnly ? 'warn' : 'ok', text: `已放回 ${res.added.length} 个世界`, more: lines });
   } else if (res.left) {
     notify({ kind: 'error', text: '没能放回来', more: lines });
   } else {

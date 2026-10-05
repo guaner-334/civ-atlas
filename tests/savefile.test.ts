@@ -1533,6 +1533,37 @@ describe('全部存成文件(bundle)', () => {
     expect(pick(saveStore.listWorlds())).toEqual(pick(before));
   });
 
+  it('原来就有的那份丢了"最近打开"(或比文件里的早):再放一次时用文件里的,卡片时间、排序回来,不算补上了', () => {
+    const a = saveStore.importSave(makeSave({ ...DEFAULT_PARAMS, seed: 7 }, EDITS, 'check7', '苍澜界'))!;
+    tick();
+    saveStore.importSave(makeSave({ ...DEFAULT_PARAMS, seed: 8 }, EDITS, 'check8', '赤水纪'));
+    tick();
+    openWorld(7, { id: a });
+    saveStore.detachWorld();
+    const before = saveStore.listWorlds();
+    expect(before[0].id).toBe(a);
+    const text = bundleText()!.text;
+    const kv = globalThis.localStorage as unknown as FakeStorage;
+    kv.setItem(`wenming-ditu:meta:${a}`, '{}');
+    expect(saveStore.listWorlds()[0].id).not.toBe(a);
+    expect(openBundleText(text)).toBe(true);
+    expect(getToast()).toMatchObject({ kind: 'ok', text: '这些世界都已经在「我的世界」里了' });
+    expect(getToast()?.more ?? []).toEqual([]);
+    const pick = (l: saveStore.StoredWorld[]) => l.map((w) => [w.id, w.at]);
+    expect(pick(saveStore.listWorlds())).toEqual(pick(before));
+  });
+
+  it('浏览器不让网页存数据(只在内存里):放回来了也说一声,文件先别删', () => {
+    threeWorlds();
+    const text = bundleText()!.text;
+    freshBrowser(throwing);
+    expect(saveStore.persistent()).toBe(false);
+    expect(openBundleText(text)).toBe(true);
+    const t = getToast();
+    expect(t).toMatchObject({ kind: 'warn', text: '已放回 3 个世界' });
+    expect(t?.more?.[0]).toContain('只留在这个页面里');
+  });
+
   it('没建完的和建好的分开算:同样的参数、名字,一个没建完一个建好的,不算同一个', () => {
     const save = makeSave({ ...DEFAULT_PARAMS, seed: 5 }, EMPTY_EDITS, 'c5', '同名');
     const r = importBundle({ worlds: [{ save, meta: { draft: true }, thumb: null, notes: [] }], bad: 0 });

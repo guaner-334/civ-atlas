@@ -1157,10 +1157,10 @@ export function putSyncedWorld(id: string, w: RawWorld, opened0?: string): boole
 }
 
 /**
- * 「全部存成文件」放回来时,已经有的同一个世界:存档里没记投影、缺缩略图、不知道现存几国、没建完的不知道底稿的,用文件里的补上
- * (存不下就算了,不为它删别的);返回补了没有
+ * 「全部存成文件」放回来时,已经有的同一个世界:存档里没记投影、缺缩略图、不知道现存几国、没建完的不知道底稿的,用文件里的补上;
+ * 文件里"最近打开"更晚的也用文件里的(存不下就算了,不为它删别的);返回补了没有("最近打开"不算)
  */
-export function fillMissing(id: string, w: { view?: SaveView; thumb: string | null; alive?: number; base?: DraftBase }): boolean {
+export function fillMissing(id: string, w: { view?: SaveView; thumb: string | null; alive?: number; base?: DraftBase; opened?: string }): boolean {
   const kv = store();
   const save = readSave(id);
   if (!save) return false;
@@ -1173,13 +1173,19 @@ export function fillMissing(id: string, w: { view?: SaveView; thumb: string | nu
   const next: Meta = { ...m };
   if (w.alive !== undefined && m.alive === undefined) next.alive = w.alive;
   if (w.base && m.draft && !m.base) next.base = w.base;
-  if ((next.alive !== m.alive || next.base !== m.base) && kv.set(META + id, JSON.stringify(next))) {
+  // 文件里的"最近打开"比这边卡片上的时间晚:用文件里的(卡片时间、排序跟着回来;不算"补上了")
+  const at = m.opened && m.opened > save.savedAt ? m.opened : save.savedAt;
+  if (w.opened && w.opened > at) next.opened = w.opened;
+  const more = next.alive !== m.alive || next.base !== m.base;
+  let moved = false;
+  if ((more || next.opened !== m.opened) && kv.set(META + id, JSON.stringify(next))) {
     // 正在看的这个也记上(下次自动存按页面里的写本地信息,不然又写没了)
     if (open && open.alive === undefined && next.alive !== undefined) open.alive = next.alive;
     if (open && open.kind === 'draft' && !open.base && next.base) open.base = next.base;
-    done = true;
+    if (more) done = true;
+    moved = next.opened !== m.opened;
   }
-  if (done) changed();
+  if (done || moved) changed();
   return done;
 }
 
