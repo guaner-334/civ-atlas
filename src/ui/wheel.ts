@@ -10,6 +10,7 @@
  * (惯性滚动的数值越来越小,捏得快时一下又可能很大,不能让它半路变成别的;按着修饰键的一串也一样):
  *   - 按行 / 按页滚(deltaMode ≠ 0,Firefox 的鼠标)、一下 ≥ 50 像素、正好是 Mac 鼠标一格(4.000244140625 像素)
  *     或 Windows 一行(100 / 3 像素)的整数倍 → 鼠标
+ *   - 只有横向、数值也是这样的一下(横向滚轮)→ 鼠标(不动地图)
  *   - 带横向分量(没按 Shift)或者别的小数值 → 触控板
  * 猜错的代价:顺滑滚动的鼠标(装了平滑滚动软件的)会被当成触控板,滚轮变成上下平移;按住 ⌘ 再滚就是缩放。
  *
@@ -110,11 +111,12 @@ export function createWheelReader() {
     }
     let kind = plain.get(e.t);
     if (kind === null) {
-      if (dx && !e.shiftKey) kind = 'trackpad';
+      if (mode !== 0 || (!dy && wheelTick(mode, dx))) kind = 'mouse';
+      else if (dx && !e.shiftKey) kind = 'trackpad';
       else if (dy) kind = mouseLike(mode, dy) ? 'mouse' : 'trackpad';
       else return null;
       plain.set(kind);
-    } else if (kind === 'mouse' && dx && !e.shiftKey && mode === 0) {
+    } else if (kind === 'mouse' && dx && !e.shiftKey && mode === 0 && !wheelTick(mode, dx)) {
       // 开头一下很大、看着像鼠标,接着出现了横向分量:其实是触控板甩得快
       plain.set((kind = 'trackpad'));
     }

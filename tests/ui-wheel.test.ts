@@ -32,6 +32,16 @@ describe('鼠标滚轮', () => {
   it('Shift + 滚轮(横向):不动地图', () => {
     expect(createWheelReader()(ev({ deltaX: 100, shiftKey: true }))).toBeNull();
   });
+  it('横向滚轮(按行滚、Windows 一格 100 像素、Mac 一格):不动地图,也不把这一串当成触控板', () => {
+    for (const p of [{ deltaMode: 1, deltaX: 3 }, { deltaX: 100 }, { deltaX: -2 * MAC_TICK }]) {
+      const read = createWheelReader();
+      expect(read(ev(p))).toBeNull();
+      expect(read(ev({ deltaY: -100, t: 16 }))?.kind).toBe('zoom');
+    }
+    const read = createWheelReader();
+    run(read, [{ deltaY: -100 }, { deltaX: 100 }]);
+    expect(read(ev({ deltaY: -MAC_TICK, t: 40 }))?.kind).toBe('zoom');
+  });
   it('一串滚轮里中途的小数值也照样缩放(按开头定)', () => {
     const out = run(createWheelReader(), [{ deltaY: -MAC_TICK }, { deltaY: -3 }, { deltaY: -12 }]);
     expect(out.every((a) => a?.kind === 'zoom')).toBe(true);
