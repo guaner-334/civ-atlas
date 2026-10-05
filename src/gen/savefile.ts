@@ -27,6 +27,9 @@
  * - view:看这个世界用的投影和中央经线(`{ "projection": "robinson", "center": 120 }`,可选)。
  *   投影名原样存(render/projection.ts 的 ProjectionId,或 "globe"),认不出的由界面当成等距圆柱;
  *   旧存档没有这个字段 = 等距圆柱、中央经线 0°
+ * - origin:底稿出处(可选)。打开别人的分享短链接、改了另存进自己的"我的世界"时记下:分享的人填的署名(可以没有)、
+ *   那时的世界名、分享链接(`{ "by": "明月", "title": "苍澜界", "url": "https://…/s/k7Qm2xPa" }`)。
+ *   跟着世界走(存成文件、同步、再分享都带着);别人再从这一份另存,记的是直接的来源,不往上追
  *
  * 纯计算,不碰 DOM(Node 里可测)。
  */
@@ -52,8 +55,20 @@ export interface SaveFile {
   title?: string;
   /** 看这个世界用的投影和中央经线;没有 = 等距圆柱、0° */
   view?: SaveView;
+  /** 底稿出处:从别人的分享链接另存来的 */
+  origin?: SaveOrigin;
   /** 存档时间(ISO 8601) */
   savedAt: string;
+}
+
+/** 底稿出处 */
+export interface SaveOrigin {
+  /** 分享的人填的署名;没填 = 没有 */
+  by?: string;
+  /** 另存那时的世界名(没起名 = 空) */
+  title: string;
+  /** 分享链接(网站地址/s/<码>) */
+  url: string;
 }
 
 /** 投影 + 中央经线(存进存档、分享链接) */
@@ -77,6 +92,34 @@ export function cleanView(raw: unknown): SaveView | null {
   const t = (c + 180) / 360;
   const lon = (t - Math.floor(t)) * 360 - 180;
   return { projection: p, center: Math.round(lon * 100) / 100 };
+}
+
+/** 署名最长几个字 */
+export const SIGNATURE_MAX = 20;
+
+/** 署名:去掉控制字符和看不见的字符(换行、制表这类算空白)、首尾空白,连续空白并成一个,超长截断;空 = 没署名 */
+export function cleanSignature(raw: unknown): string {
+  if (typeof raw !== 'string') return '';
+  const s = raw
+    .replace(/[\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}]/gu, (c) => (/\s/.test(c) ? ' ' : ''))
+    .replace(/\s+/g, ' ')
+    .trim();
+  const cs = [...s];
+  return cs.length > SIGNATURE_MAX ? cs.slice(0, SIGNATURE_MAX).join('') : s;
+}
+
+/** 分享短链接的样子:http(s)://网站地址/s/<码> */
+const ORIGIN_URL = /^https?:\/\/[^\s"'<>\\]+\/s\/[A-Za-z0-9]{4,32}$/;
+
+/** 整理底稿出处:链接不像分享短链接的不要(界面上它是一个能点的链接) */
+export function cleanOrigin(raw: unknown): SaveOrigin | null {
+  if (!isObj(raw)) return null;
+  const url = raw.url;
+  if (typeof url !== 'string' || url.length > 300 || !ORIGIN_URL.test(url)) return null;
+  const o: SaveOrigin = { title: cleanTitle(raw.title), url };
+  const by = cleanSignature(raw.by);
+  if (by) o.by = by;
+  return o;
 }
 
 /** 两份投影设置是不是一样(中央经线差不到 0.01° 算一样) */
@@ -175,8 +218,16 @@ export function cleanTitle(raw: unknown): string {
   return cs.length > TITLE_MAX ? cs.slice(0, TITLE_MAX).join('') : s;
 }
 
-/** 生成一份存档(params 按固定顺序复制;修改复制一份,之后改原来的不影响存档)。view = 当前的投影和中央经线 */
-export function makeSave(params: WorldParams, edits: WorldEdits, check: string, title?: string, savedAt = new Date().toISOString(), view?: SaveView | null): SaveFile {
+/** 生成一份存档(params 按固定顺序复制;修改复制一份,之后改原来的不影响存档)。view = 当前的投影和中央经线;origin = 底稿出处 */
+export function makeSave(
+  params: WorldParams,
+  edits: WorldEdits,
+  check: string,
+  title?: string,
+  savedAt = new Date().toISOString(),
+  view?: SaveView | null,
+  origin?: SaveOrigin | null,
+): SaveFile {
   const p = {} as WorldParams;
   for (const k of PARAM_KEYS) p[k] = params[k] ?? DEFAULT_PARAMS[k];
   const save: SaveFile = {
@@ -200,6 +251,8 @@ export function makeSave(params: WorldParams, edits: WorldEdits, check: string, 
   if (t) save.title = t;
   const v = view ? cleanView(view) : null;
   if (v) save.view = v;
+  const o = origin ? cleanOrigin(origin) : null;
+  if (o) save.origin = o;
   return save;
 }
 
@@ -329,6 +382,9 @@ export function parseSave(text: string): ParseResult {
   // 投影和中央经线:格式不对就当没存(按等距圆柱、0° 看),不影响打开
   const view = cleanView(raw.view);
   if (view) save.view = view;
+  // 底稿出处:格式不对就当没有
+  const origin = cleanOrigin(raw.origin);
+  if (origin) save.origin = origin;
   return { ok: true, save, warnings };
 }
 

@@ -30,6 +30,7 @@ import {
   CHECK_WARNING,
   SHARE_BROKEN,
   TITLE_MAX,
+  cleanOrigin,
   cleanTitle,
   editCount,
   makeSave,
@@ -37,6 +38,7 @@ import {
   sameView,
   worldKey,
   type SaveFile,
+  type SaveOrigin,
   type SaveView,
 } from '../gen/savefile';
 import { getEdits, subscribeEdits } from './editsStore';
@@ -321,6 +323,8 @@ export interface SaveNotice {
   more?: string[];
   /** 右侧的按钮 */
   action?: ToastAction;
+  /** 左边一个绿点(存好了一个文件这类) */
+  dot?: boolean;
   stamp: number;
 }
 
@@ -331,7 +335,7 @@ let notice: SaveNotice | null = null;
  */
 export function notify(n: Omit<SaveNotice, 'stamp'> | null) {
   notice = n ? { ...n, stamp: performance.now() } : null;
-  if (n) showToast({ id: 'save', kind: n.kind, text: n.text, more: n.more?.length ? n.more : undefined, action: n.action });
+  if (n) showToast({ id: 'save', kind: n.kind, text: n.text, more: n.more?.length ? n.more : undefined, action: n.action, dot: n.dot });
   else clearToast('save');
   changed();
 }
@@ -732,14 +736,18 @@ export function duplicateWorld(id: string): string | null {
   return nid;
 }
 
+/** 两份存档是不是同一个世界的同一个样子(参数、修改、名字都相同;投影、存档时间不算) */
+export function sameSave(a: SaveFile, b: SaveFile): boolean {
+  return worldKey(a.params) === worldKey(b.params) && (a.title ?? '') === (b.title ?? '') && JSON.stringify(a.edits) === JSON.stringify(b.edits);
+}
+
 /**
  * 从文件打开:存进"我的世界"(算建好的),返回它的编号。
  * 已经有一个一模一样的(参数、修改、名字都相同,比如同一个文件打开了两次)就用那一个,不重复存
  */
 export function importSave(save: SaveFile): string | null {
-  const same = (s: SaveFile) => worldKey(s.params) === worldKey(save.params) && (s.title ?? '') === (save.title ?? '') && JSON.stringify(s.edits) === JSON.stringify(save.edits);
   for (const w of listWorlds()) {
-    if (w.draft || !same(w.save)) continue;
+    if (w.draft || !sameSave(w.save, save)) continue;
     // 只差投影 / 中央经线:用文件里的(下次打开还是文件里的样子)
     if (!sameView(w.save.view, save.view)) {
       const next: SaveFile = { ...w.save, savedAt: new Date().toISOString() };
@@ -787,6 +795,8 @@ interface Current {
   gone?: 'deleted' | 'changed';
   /** 浏览器里存着的这个世界、这里知道的最新一份(这里写进去的、打开时存着的):别的标签页写的和它不一样 = 那边改过 */
   wrote?: string | null;
+  /** 底稿出处(从别人的分享短链接另存来的;存进存档) */
+  origin?: SaveOrigin;
 }
 
 let current: Current | null = null;
@@ -822,7 +832,7 @@ export function currentUnsaved(): boolean {
 /** 当前世界 → 存档(存成文件用) */
 export function currentSave(): SaveFile | null {
   if (!current) return null;
-  return makeSave(current.params, getEdits(), current.check, current.title, undefined, currentView());
+  return makeSave(current.params, getEdits(), current.check, current.title, undefined, currentView(), current.origin);
 }
 
 /** 过一会儿截一张缩略图(画布这时可能还没画好这个世界,截不到就再等等);force = 已经有了也重截 */
@@ -878,7 +888,7 @@ function saveCurrent(force = false): boolean {
   if (c.kind === 'visit') c.kind = 'created';
   const view = currentView();
   c.savedView = view;
-  const ok = writeSave(c.id, makeSave(c.params, edits, c.check, c.title, undefined, view), metaOf(c));
+  const ok = writeSave(c.id, makeSave(c.params, edits, c.check, c.title, undefined, view, c.origin), metaOf(c));
   c.unsaved = !ok;
   if (ok) scheduleThumb(c.id, redraw);
   changed();
@@ -929,6 +939,8 @@ export interface AttachSpec {
   pristine?: boolean;
   /** 新建中、以某个世界为底稿:原来那个世界 */
   base?: DraftBase | null;
+  /** 底稿出处(存着的世界、存档文件里带着的;打开别人的分享短链接时是那个链接)。新建中的没有 */
+  origin?: SaveOrigin | null;
 }
 
 /**
@@ -949,6 +961,7 @@ export function attachWorld(spec: AttachSpec) {
     base: spec.kind === 'draft' ? (spec.base ?? undefined) : undefined,
     saved: spec.saved,
     savedView: spec.view ?? prev?.view,
+    origin: spec.kind === 'draft' ? undefined : (cleanOrigin(spec.origin) ?? undefined),
   };
   const keep = spec.kind === 'created' || (spec.kind === 'draft' && !spec.pristine);
   const same =
@@ -956,6 +969,7 @@ export function attachWorld(spec: AttachSpec) {
     worldKey(prev.params) === worldKey(spec.params) &&
     prev.check === spec.check &&
     (prev.title ?? '') === (title ?? '') &&
+    JSON.stringify(prev.origin ?? null) === JSON.stringify(current.origin ?? null) &&
     getEdits() === spec.saved &&
     !!readMeta(spec.id).draft === (spec.kind === 'draft');
   if (keep && !same) {
