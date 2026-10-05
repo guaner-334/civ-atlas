@@ -1149,6 +1149,23 @@ for (const style of ['realistic', 'fantasy']) {
   console.log(`改版前的网址刷新:网址里的世界编号 ${back.w},存档的键 ${back.keys.join()},改名 ${backNames}`);
   if (!back.w || back.keys.length !== 1 || backNames !== '九嶷州,饕餮城')
     errs.push(`改版前的网址刷新没有回到原来的存档(w=${back.w},键 ${back.keys.join()},改名 ${backNames})`);
+  // "我的世界"里删除:点一下就删(不再问第二次),提示条上点"撤销"放回来
+  await page.goto(`${dev.url}/?style=fantasy&civ=polities`);
+  await page.locator('.mw [data-act=open-world]').first().waitFor({ timeout: 10000 }).catch(() => {});
+  const cardCount = () => page.locator('.mw [data-act=open-world]').count();
+  const cardsBefore = await cardCount();
+  await page.locator('.mw [data-act=world-menu]').first().click().catch(() => {});
+  await page.locator('[data-act=world-delete]').click({ timeout: 3000 }).catch(() => {});
+  await page.waitForTimeout(200);
+  const cardsGone = await cardCount();
+  const delNote = await toastText(page, 'save');
+  await page.locator('[data-act=world-undelete]').click({ timeout: 3000 }).catch(() => {});
+  await page.waitForTimeout(200);
+  const cardsBack = await cardCount();
+  const keptKeys = await page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('wenming-ditu:world:')).length);
+  console.log(`我的世界里删除:${cardsBefore} 个 → 删后 ${cardsGone} 个(提示「${delNote}」)→ 撤销后 ${cardsBack} 个,存档 ${keptKeys} 个`);
+  if (cardsBefore !== 1 || cardsGone !== 0 || !/已删除.*撤销/.test(delNote) || cardsBack !== 1 || keptKeys !== 1)
+    errs.push(`"我的世界"里点一下删除、再点撤销不对(${cardsBefore} → ${cardsGone} → ${cardsBack},存档 ${keptKeys} 个,提示「${delNote}」)`);
   await page.evaluate(() => localStorage.clear());
 }
 // 世界换成球面以前(生成器版本 4 及以前)的存档文件、分享链接:照常打开成同一个种子的球面世界,提示"来自旧版本",

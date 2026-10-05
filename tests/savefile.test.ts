@@ -494,6 +494,36 @@ describe('浏览器存储(saveStore)', () => {
     expect(saveStore.duplicateWorld('wnothere001')).toBeNull();
   });
 
+  it('删除后撤销:存档、缩略图、AI 写的东西原样放回,列表里回到原来的位置;存不下 = 说没放回去', () => {
+    const fake = new FakeStorage();
+    useStorage(fake);
+    const a = openWorld(7, { title: '苍澜界', edits: EDITS });
+    fake.setItem(`wenming-ditu:thumb:${a}`, 'data:image/jpeg;base64,AAAA');
+    putNote(a, NOTE);
+    tick();
+    const b = openWorld(8, { title: '赤霄纪' });
+    const order = saveStore.listWorlds().map((w) => w.id);
+    const before = new Map(fake.map);
+    const gone = saveStore.deleteWorld(a);
+    expect(saveStore.listWorlds().map((w) => w.id)).toEqual([b]);
+    expect([...fake.map.keys()].some((k) => k.endsWith(a))).toBe(false);
+    expect(saveStore.restoreWorld(gone)).toBe(true);
+    expect(saveStore.listWorlds().map((w) => w.id)).toEqual(order);
+    expect(new Map(fake.map)).toEqual(before);
+    expect(saveStore.loadWorld(a)).toMatchObject({ thumb: 'data:image/jpeg;base64,AAAA' });
+    expect(saveStore.loadWorld(a)?.save.edits).toEqual(EDITS);
+    expect(listNotes(a)).toEqual([NOTE]);
+
+    // 删了以后别的世界占满了存储:存档写不回去就不留半个(缩略图之类也不留)
+    const again = saveStore.deleteWorld(a);
+    let used = 0;
+    for (const [k, v] of fake.map) used += k.length + v.length;
+    fake.cap = used + 10;
+    expect(saveStore.restoreWorld(again)).toBe(false);
+    expect([...fake.map.keys()].some((k) => k.endsWith(a))).toBe(false);
+    expect(saveStore.listWorlds().map((w) => w.id)).toEqual([b]);
+  });
+
   it('复制 AI 写的东西:只在内存里的也带上;原来那份存在浏览器里、复制的存不下 = 说没存成', () => {
     // 隐私模式:都只在内存里,照样带上,不算失败
     useStorage(throwing);

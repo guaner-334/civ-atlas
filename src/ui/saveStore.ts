@@ -551,13 +551,44 @@ function writeSave(id: string, save: SaveFile, meta?: Meta): boolean {
 }
 
 /** 删掉一个存档(连同缩略图、AI 写的东西)。删的是正在看的世界:不再自动存它 */
-export function deleteWorld(id: string) {
+export function deleteWorld(id: string): DeletedWorld {
+  const kv = store();
+  const keys: [string, string][] = [];
+  for (const p of [PREFIX, THUMB, META, NOTES]) {
+    const v = kv.get(p + id);
+    if (v !== null) keys.push([p + id, v]);
+  }
   removeKeys(id);
   if (current?.id === id) {
     current = null;
     stopThumb();
   }
   changed();
+  return { id, keys };
+}
+
+/** 删掉的世界删之前的样子(撤销删除用):存档、缩略图、打开记录、AI 写的史书和名字由来,各自原来存的字符串 */
+export interface DeletedWorld {
+  id: string;
+  keys: [string, string][];
+}
+
+/**
+ * 撤销删除:把删之前的几样原样写回,"我的世界"里回到原来的位置(按最近打开 / 修改的时间排)。
+ * 存档本身写不下(浏览器存储满了)= false;缩略图之类写不下就算了
+ */
+export function restoreWorld(d: DeletedWorld): boolean {
+  const kv = store();
+  for (const [k, v] of d.keys) {
+    if (kv.set(k, v)) continue;
+    if (k.startsWith(PREFIX)) {
+      removeKeys(d.id);
+      changed();
+      return false;
+    }
+  }
+  changed();
+  return true;
 }
 
 /** 给存档起名(改名);当前世界还没存过的(打开的链接),顺手存下来 */
