@@ -48,6 +48,13 @@ const PATHS = {
     </>
   ),
   map: <path d="M4 6l5-2 6 2 5-2v14l-5 2-6-2-5 2zM9 4v14M15 6v14" />,
+  /** 侧栏开关:左边带一道竖线的方框(和常见的侧栏按钮一样) */
+  sidebar: (
+    <>
+      <rect x="3.5" y="5" width="17" height="14" rx="2.5" />
+      <path d="M9.5 5v14" />
+    </>
+  ),
   terrain: <path d="M3 19l6-10 4 6 3-4 5 8z" />,
   replay: (
     <>
@@ -159,11 +166,25 @@ const PATHS = {
       <path d="M14 8l4 4-4 4M18 12H9" />
     </>
   ),
-  check: <path d="M5.5 12.5l4 4 9-9" />,
   share: (
     <>
       <path d="M12 3.5v11M8 7.5l4-4 4 4" />
       <path d="M8 10.5H6.5v9.5h11v-9.5H16" />
+    </>
+  ),
+  bubble: <path d="M5 5h14a1.5 1.5 0 0 1 1.5 1.5v8.5a1.5 1.5 0 0 1-1.5 1.5h-8.5L6 20v-3.5H5a1.5 1.5 0 0 1-1.5-1.5V6.5A1.5 1.5 0 0 1 5 5z" />,
+  check: <path d="M5 12.5l4.5 4.5L19 7.5" />,
+  send: <path d="M12 19V5M6 11l6-6 6 6" />,
+  compose: (
+    <>
+      <path d="M12 5H6.5A1.5 1.5 0 0 0 5 6.5v11A1.5 1.5 0 0 0 6.5 19h11a1.5 1.5 0 0 0 1.5-1.5V12" />
+      <path d="M10 14l.6-3L18 3.6a1.4 1.4 0 0 1 2 2L12.6 13z" />
+    </>
+  ),
+  keyboard: (
+    <>
+      <rect x="3" y="6.5" width="18" height="11" rx="2" />
+      <path d="M7 10h.01M10.5 10h.01M14 10h.01M17 10h.01M8 14h8" />
     </>
   ),
 } satisfies Record<string, ReactNode>;

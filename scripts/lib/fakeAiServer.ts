@@ -10,6 +10,7 @@
  * POST /v1/dev/credits { credits } 直接改余额(测"积分不够")。
  * 邀请制(inviteOnly,开发服务器里开着):新邮箱要邀请码 K7QM-2XPA(大小写、横线不计较;假服务器里用不完)。
  * 世界、最近删除、分享都在内存里;最近删除不会过期。
+ * 带工具的请求(助手):最后一条不是工具结果时,回一个对第一个工具的调用(参数为空,done.tool_calls);是工具结果时正常回话。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
@@ -178,7 +179,12 @@ export function createFakeAiServer(opts: FakeAiOptions = {}) {
         return fail(402, 'quota', `积分不够了:这次要 ${cost} 积分,还剩 ${u.credits} 积分`, { balance: u.credits, need: cost });
       }
       const input = messages.reduce((s: number, m: any) => s + String(m?.content ?? '').length, 0);
-      const reply = b.json
+      // 带工具的请求(助手):还没交回过工具结果 = 调用第一个工具(参数为空);交回过 = 正常回话
+      const tool = Array.isArray(b.tools) && b.toolChoice !== 'none' && messages[messages.length - 1]?.role !== 'tool' ? b.tools[0]?.function?.name : undefined;
+      const toolCalls = typeof tool === 'string' && tool ? [{ id: 'call_fake_0', type: 'function', function: { name: tool, arguments: '{}' } }] : undefined;
+      const reply = toolCalls
+        ? ''
+        : b.json
         ? JSON.stringify({ fake: true, feature: b.feature })
         : b.feature === '连接测试'
           ? '你好'
@@ -202,6 +208,7 @@ export function createFakeAiServer(opts: FakeAiOptions = {}) {
             usage: { inputTokens: input, outputTokens: reply.length },
             charged: dup ? 0 : cost,
             balance: u.credits,
+            ...(toolCalls ? { tool_calls: toolCalls } : {}),
           });
           ctl.close();
         },

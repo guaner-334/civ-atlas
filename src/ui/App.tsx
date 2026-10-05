@@ -1,6 +1,6 @@
 import './theme.css';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import { createPortal } from 'react-dom';
+import { createPortal, flushSync } from 'react-dom';
 import { DEFAULT_PARAMS, type World, type WorldParams } from '../gen/world';
 import type { Raster } from '../gen/raster';
 import { renderRealistic } from '../render/realistic';
@@ -46,7 +46,7 @@ import {
 } from './projection';
 import { LAYERS, renderLayer, type LayerId } from '../render/layers';
 import { Legend } from './Legend';
-import type { WorkerRequest, WorkerResponse } from '../worker';
+import type { TempoNote, WorkerRequest, WorkerResponse } from '../worker';
 import type { Civ } from '../gen/civ/types';
 import { CivLayer } from './CivLayer';
 import { CivTimeline } from './CivTimeline';
@@ -76,6 +76,8 @@ import {
   setCivShow,
   setSelection,
   startCivReplay,
+  stepYear,
+  togglePlayback,
   useChronicle,
   useCivHighlight,
   useChroniclePick,
@@ -98,7 +100,13 @@ import {
   type WorldEdits,
 } from '../gen/edits';
 import { sameTerrain } from '../gen/terrainEdits';
-import { clearEdits, getEdits, removeIntervention, setEdits, useEdits } from './editsStore';
+import { clearEditHistory, clearEdits, getEdits, removeIntervention, setEditGate, setEdits, undoTerrainOp, useEdits } from './editsStore';
+import { redoLastEdit, undoLastEdit } from './undo';
+import { useShortcuts } from './useShortcuts';
+import { ShortcutsHost, openShortcuts } from './ShortcutsDialog';
+import { TipLayer } from './Tips';
+import { openSaveMenu } from './SaveMenu';
+import { replayStart } from './timelineLayout';
 import {
   NEWER_WARNING,
   STALE_WARNING,
@@ -153,6 +161,7 @@ import { getPolityPick, interventionActorThen, interventionDoneText, setPickHove
 import { Inspector } from './Inspector';
 import { TargetLayer } from './TargetPlates';
 import { FLY_MS, curvedFly, easeOutCubic, flatFly, selectionFocus, selectionKey, sideRoom, phoneFree, type FlyGoal } from './flyTo';
+import { collapseSide, expandSide, getSide, setSideHold, useSide } from './sideStore';
 import { getPanel, setWorldSheet, usePanel } from './panelStore';
 import { closeOverview } from './overviewStore';
 import { NewWorld } from './NewWorld';
@@ -163,11 +172,14 @@ import { createPinchGuard, createWheelReader, inGesturePinch, setGesturePinch, w
 import { pickLabelAt } from './mapPick';
 import { ownersAt } from '../gen/civ/timeline';
 import { interventionOutcome } from '../gen/civ/chronicle';
-import { syncRewriteWorld, takeRewriteNote, undoTurn, type RewriteNote } from './rewriteStore';
+import { takeRewriteNote, type RewriteNote } from './rewriteStore';
+import { AssistantPanel, PreviewBanner } from './Assistant';
+import { astRoom, useAstOpen } from './astPanel';
+import { PREVIEW_EDIT_BLOCK, exitPreview, getAssistant, sameInBoth, setTrialRunner, syncAssistantWorld, useAssistantPreview } from './assistantStore';
 import { Globe, getGlobeOn, setGlobeOn, useGlobeOn, type GlobeApi } from './Globe';
 import { setupAi } from '../ai/setup';
 import { ToastBar, clearToast, showToast } from './Toast';
-import { FirstHint, HoverCard, MapBar, MapControls, PhoneButtons, hintSeen, markHintSeen } from './Corners';
+import { DRAFT_SEG, FirstHint, HoverCard, MapBar, MapControls, PhoneButtons, SEG_LAYERS, hintSeen, markHintSeen } from './Corners';
 import { Sidebar } from './Sidebar';
 import { PhoneSheet } from './PhoneSheet';
 import { useLayerThumbs } from './LayerPopover';
@@ -415,6 +427,9 @@ export function App() {
   const { stage, base: stageBase } = useStage();
   const draft = stage === 'draft';
   const home = stage === 'home';
+  // 宽屏左边的卡片收起了(sideStore.ts):新建世界那一步左边是新建世界的卡片,不算收起(sideRoom 照常让出它)
+  const sideUi = useSide();
+  setSideHold(stage !== 'world');
   /** 正在打开 / 已经打开的世界(生成完按它套上修改、交给自动存) */
   const targetRef = useRef<Target | null>(route.target);
   /** 新建中的名字(卡片上的输入框;打开没建完的世界时是它存的名字) */
@@ -423,7 +438,14 @@ export function App() {
   // 生成出来的文明("原始 civ")+ 用户的改名(editsStore)= 界面用的 civ。改名只重算这一步,不发给后台线程
   const [rawCiv, setRawCiv] = useState<Civ | null>(null);
   const edits = useEdits();
-  const civ = useMemo(() => (rawCiv ? applyNames(rawCiv, edits.names) : null), [rawCiv, edits.names]);
+  /** 现在这个世界的历史(套上改名) */
+  const realCiv = useMemo(() => (rawCiv ? applyNames(rawCiv, edits.names) : null), [rawCiv, edits.names]);
+  // 助手的"先在地图上看看":地图、卡片、时间轴换成试推演的历史(州和宜居度和现在共用;作者的世界没动,rawCiv 还是原来的)
+  const astOpen = useAstOpen();
+  const preview = useAssistantPreview();
+  const previewRaw = preview?.raw ?? null;
+  const shownRaw = previewRaw ?? rawCiv;
+  const civ = useMemo(() => (previewRaw ? applyNames(previewRaw, preview!.names) : realCiv), [previewRaw, preview?.names, realCiv]);
   /** 右侧详情面板开着(右下角的地球仪 / 缩放按钮让开它) */
   const selState = useSelection();
   // 右侧面板开着(选目标、下了令正在推演时面板藏起来,右下按钮回到原位)
@@ -491,6 +513,9 @@ export function App() {
   const overlayCopyRef = useRef<HTMLCanvasElement>(null);
 
   const workerRef = useRef<Worker | null>(null);
+  /** 助手的试推演:发给线程、还没回音的(编号 → 等着的那一次) */
+  const trials = useRef(new Map<number, { resolve: (c: Civ) => void; reject: (e: Error) => void }>());
+  const trialSeq = useRef(0);
   /** 发给当前线程、还没回音的活(生成世界 / 回放帧 / 重推文明)有几件 */
   const busyRef = useRef(0);
   const reqId = useRef(0);
@@ -572,10 +597,15 @@ export function App() {
   // 线程一次只能算一个世界。连续改参数时,与其排队把每个中间世界都算完,
   // 不如直接终止还在忙的旧线程、另开一个(启动只要几十毫秒),只算最后一次。
   // 回放帧、重推文明这些短活不打断线程,排在后面(打断了,线程手上的世界就没了,得按参数重新生成,反而更慢)。
+  /** 线程回报的扩张节拍(改过地形的世界推文明要用):下次生成、重推时带回去,线程被重开过也不用多生成一遍原来的地形 */
+  const tempoNote = useRef<TempoNote | null>(null);
   const idleWorker = useCallback((abort: boolean) => {
     if (abort && workerRef.current && busyRef.current > 0) {
       workerRef.current.terminate();
       workerRef.current = null;
+      // 线程上排着的试推演(助手)一起作废
+      for (const t of trials.current.values()) t.reject(new Error('世界换了,试推演作废'));
+      trials.current.clear();
     }
     if (!workerRef.current) {
       const w = new Worker(new URL('../worker.ts', import.meta.url), { type: 'module' });
@@ -583,6 +613,14 @@ export function App() {
         const m = e.data;
         if (workerRef.current !== w) return; // 已被换掉的线程
         if (m.type !== 'progress') busyRef.current = Math.max(0, busyRef.current - 1);
+        if (m.type !== 'progress' && m.type !== 'history' && m.tempo) tempoNote.current = m.tempo;
+        if (m.type === 'trial') {
+          // 试推演(助手):交给等着它的那一次;世界换了的话助手那边已经停下,结果没人要
+          const t = trials.current.get(m.tid);
+          trials.current.delete(m.tid);
+          t?.resolve(m.civ);
+          return;
+        }
         if (m.id !== reqId.current) return; // 过时的请求(上一个世界的)
         if (m.type === 'progress') setProgress((s) => ({ stage: m.stage, pct: m.pct, regen: regenRef.current?.id === m.id, seed: s?.seed }));
         else if (m.type === 'done') {
@@ -611,11 +649,65 @@ export function App() {
     (req: WorkerRequest) => {
       const w = idleWorker(req.type === 'generate');
       busyRef.current++;
-      w.postMessage(req);
+      w.postMessage(req.type === 'history' || !tempoNote.current ? req : { ...req, tempo: tempoNote.current });
     },
     [idleWorker],
   );
+  // 助手的试推演:和重推一样交给线程(排在别的活后面),结果单独交回、不换上去;州和宜居度沿用现在这份
+  useEffect(() => {
+    setTrialRunner(
+      (interventions, signal) =>
+        new Promise<Civ>((resolve, reject) => {
+          const p = genParams.current;
+          if (!p || !rawRef.current) return reject(new Error('世界还没生成好'));
+          const tid = ++trialSeq.current;
+          const onAbort = () => {
+            trials.current.delete(tid);
+            reject(new Error('已停下'));
+          };
+          if (signal?.aborted) return onAbort();
+          signal?.addEventListener('abort', onAbort, { once: true });
+          trials.current.set(tid, {
+            resolve: (next) => {
+              signal?.removeEventListener('abort', onAbort);
+              const old = rawRef.current;
+              resolve(old && old.regions.count === next.regions.count ? { ...next, regions: old.regions, habitat: old.habitat } : next);
+            },
+            reject: (e) => {
+              signal?.removeEventListener('abort', onAbort);
+              reject(e);
+            },
+          });
+          send({ type: 'trial', id: reqId.current, tid, params: p, terrain: [...genTerrain.current], interventions: [...interventions] });
+        }),
+    );
+    return () => setTrialRunner(null);
+  }, [send]);
 
+  /** 历史换了一份(重推完、在地图上看试推演 / 回到现在):选中的东西、编年史的国家筛选按稳定键换成新历史里的编号(指不到就取消) */
+  const remapSelection = (old: Civ, civ: Civ) => {
+    const { sel } = getSelection();
+    if (sel) {
+      const key =
+        sel.kind === 'polity' && old.polities[sel.id]
+          ? polityKey(old, sel.id)
+          : sel.kind === 'settlement' && old.settlements[sel.id]
+            ? settlementKey(old, sel.id)
+            : sel.kind === 'place' && old.places[sel.id]
+              ? placeKeyOf(old, sel.id)
+              : null;
+      if (key) {
+        const r = resolveKey(civ, key);
+        if (r && r.kind === sel.kind) setSelection({ kind: sel.kind, id: r.id } as MapSelection);
+        else clearSelection();
+      }
+    }
+    const cp = getChronicle().polity;
+    if (cp !== null) {
+      const r = old.polities[cp] ? resolveKey(civ, polityKey(old, cp)) : null;
+      setChronicle({ polity: r && r.kind === 'polity' ? r.id : null });
+    }
+  };
   /**
    * 重推好的文明换上去(阶段 4 干预):州、宜居度沿用原来那一份(地理没变;时间轴、地图按它认"还是同一个世界"),
    * 选中的东西、编年史的国家筛选按稳定键换成新历史里的编号(指不到就取消),时间轴停在干预那一年
@@ -623,29 +715,7 @@ export function App() {
   const applyResim = (next: Civ, workerMs: number) => {
     const old = rawRef.current;
     const civ: Civ = old && old.regions.count === next.regions.count ? { ...next, regions: old.regions, habitat: old.habitat } : next;
-    if (old) {
-      const { sel } = getSelection();
-      if (sel) {
-        const key =
-          sel.kind === 'polity' && old.polities[sel.id]
-            ? polityKey(old, sel.id)
-            : sel.kind === 'settlement' && old.settlements[sel.id]
-              ? settlementKey(old, sel.id)
-              : sel.kind === 'place' && old.places[sel.id]
-                ? placeKeyOf(old, sel.id)
-                : null;
-        if (key) {
-          const r = resolveKey(civ, key);
-          if (r && r.kind === sel.kind) setSelection({ kind: sel.kind, id: r.id } as MapSelection);
-          else clearSelection();
-        }
-      }
-      const cp = getChronicle().polity;
-      if (cp !== null) {
-        const r = old.polities[cp] ? resolveKey(civ, polityKey(old, cp)) : null;
-        setChronicle({ polity: r && r.kind === 'polity' ? r.id : null });
-      }
-    }
+    if (old) remapSelection(old, civ);
     clearChroniclePick();
     setPolityPick(null);
     const info = resimInfo.current;
@@ -671,11 +741,11 @@ export function App() {
             kind: failed ? 'warn' : 'ok',
             text: `已按你说的改写 · 从 ${y} 年重新推演`,
             more: failed ? [`${failed} 条命令没生效,原因见概览的"我的干预"`] : undefined,
-            action: {
+            action: n.undo && {
               label: '撤销',
               act: 'rw-undo',
               onClick: () => {
-                undoTurn(n.turn);
+                n.undo?.();
                 clearToast('resim-done');
               },
             },
@@ -1189,8 +1259,8 @@ export function App() {
     if ((clean ?? '') !== (cur.title ?? '')) renameWorld(t.id, clean ?? '');
     // 说存住了,要真的写进了浏览器(存储满了、删了旧的也写不下,或者浏览器不让存 = 只在这一页里)
     const stored = markCreated() && persistent();
-    // 新建时 AI 提的改地形(执行过的也一样)从此不能再执行、撤销:对话清空
-    syncRewriteWorld('terrain');
+    // 新建时执行过的改地形从此不能再撤销:⌘Z 也不再往回退(助手那边按锁换了,旧的确认单不能执行)
+    clearEditHistory();
     targetRef.current = { ...t, kind: 'created', base: null, pristine: false, title: clean, from: undefined, save: undefined };
     setDraftTip(false);
     enterStage('world');
@@ -1770,7 +1840,7 @@ export function App() {
     const el = stageRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
-    const cx = (sideRoom(rect.width) + rect.width) / 2;
+    const cx = (sideRoom(rect.width) + rect.width - astRoom(rect.width)) / 2;
     const cy = rect.height / 2;
     if (getGlobeOn()) return globeApi.current?.zoomBy(f, rect.left + cx, rect.top + cy);
     zoomAt(cx, cy, f);
@@ -1818,13 +1888,14 @@ export function App() {
     const xs = pts.map((p) => p[0]);
     const ys = pts.map((p) => p[1]);
     const [bandT, bandB, midY] = jumpBand(H);
-    // 宽屏左边被侧栏卡片挡住的那一截不算看得见;转过去以后事发地落在卡片右边那一块的正中(按赤道上每度多少像素估)
+    // 宽屏左边被侧栏卡片、右边被助手面板挡住的那一截不算看得见;转过去以后事发地落在两边中间那一块的正中(按赤道上每度多少像素估)
     const L = sideRoom(W);
-    const inX = Math.min(...xs) >= L + 30 && Math.max(...xs) <= W - 30;
+    const R = astRoom(W);
+    const inX = Math.min(...xs) >= L + 30 && Math.max(...xs) <= W - R - 30;
     const inY = Math.min(...ys) >= bandT && Math.max(...ys) <= bandB;
     if (inX && inY) return;
     const pxPerDeg = v0.k * (box.w / m.W) * m.s * m.def.kx(0) * (Math.PI / 180);
-    const dLon = inX ? 0 : wrapLon(lonOfX(bx, g.W) - m.lon0 - (pxPerDeg > 0 ? L / 2 / pxPerDeg : 0));
+    const dLon = inX ? 0 : wrapLon(lonOfX(bx, g.W) - m.lon0 - (pxPerDeg > 0 ? (L - R) / 2 / pxPerDeg : 0));
     const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
     const toY = inY ? v0.y : Math.min(0, Math.max(H - H * v0.k, v0.y + midY - cy));
     if (Math.abs(dLon) < 0.5 && Math.abs(toY - v0.y) < 1) return;
@@ -1875,13 +1946,14 @@ export function App() {
     const y1 = sy(b[3]);
     // 上面留出提示条,下面留出时间轴(窄屏:底部卡片和时间轴胶囊上方)
     const [bandT, bandB, midY] = jumpBand(H);
-    // 宽屏左边被侧栏卡片挡住的那一截不算看得见,平移到卡片右边那一块的正中
+    // 宽屏左边被侧栏卡片、右边被助手面板挡住的那一截不算看得见,平移到两边中间那一块的正中
     const L = sideRoom(W);
-    if (x0 >= L + 30 && x1 <= W - 30 && y0 >= bandT && y1 <= bandB) return;
+    const R = astRoom(W);
+    if (x0 >= L + 30 && x1 <= W - R - 30 && y0 >= bandT && y1 <= bandB) return;
     const cx = (x0 + x1) / 2;
     const cy = (y0 + y1) / 2;
     // 左右不夹(每一帧再挪整数圈,画面是连着的);上下夹在两极以内
-    const to = { k: v0.k, x: v0.x + (L + W) / 2 - cx, y: Math.min(0, Math.max(H - H * v0.k, v0.y + midY - cy)) };
+    const to = { k: v0.k, x: v0.x + (L + W - R) / 2 - cx, y: Math.min(0, Math.max(H - H * v0.k, v0.y + midY - cy)) };
     if (Math.abs(to.x - v0.x) < 1 && Math.abs(to.y - v0.y) < 1) return;
     (window as unknown as { __wfPan: unknown }).__wfPan = { dx: to.x - v0.x, dy: to.y - v0.y, stamp: hlStamp };
     const t0 = performance.now();
@@ -1940,7 +2012,7 @@ export function App() {
   flyRef.current = flyNow;
   useEffect(() => () => stopFly(), []);
   // 按稳定键认"选中的是不是换了":重推历史后编号变了、还是同一个东西,不再飞
-  const selStable = rawCiv && selState.sel ? selectionKey(rawCiv, selState.sel) : '';
+  const selStable = shownRaw && selState.sel ? selectionKey(shownRaw, selState.sel) : '';
   useEffect(() => {
     if (!selStable) return;
     pausePlayback();
@@ -2360,6 +2432,77 @@ export function App() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
+  // 键盘快捷键(按键对照见 shortcuts.ts;光标在输入框里、弹窗开着时不管,见 useShortcuts.ts)。返回 false = 这一下不归快捷键管
+  useShortcuts((a) => {
+    if (home || !data) return false;
+    const end = civ?.endYear ?? 0;
+    // 有历史可放:建好的世界、长出了文明、不在回放世界形成
+    const history = !draft && !!civ && civ.viable && !replayOn;
+    // 宽屏、建好的世界:左边的卡片能收起(sideStore.ts);收起着要用卡片里的搜索框、存档时先展开
+    const foldable = !narrow && !!world && stage === 'world';
+    const sideHidden = () => foldable && getSide().collapsed && !getSide().peek;
+    const showSide = () => sideHidden() && flushSync(expandSide);
+    switch (a) {
+      case 'play':
+        if (!history) return false;
+        togglePlayback(end, replayStart(end));
+        return true;
+      case 'back':
+      case 'forward':
+      case 'back100':
+      case 'forward100':
+        if (!history) return false;
+        stepYear(end, (a === 'back' || a === 'back100' ? -1 : 1) * (a.endsWith('100') ? 100 : 10));
+        return true;
+      case 'zoomIn':
+      case 'zoomOut':
+        zoomButton(a === 'zoomIn' ? 1.5 : 1 / 1.5);
+        return true;
+      case 'layer1':
+      case 'layer2':
+      case 'layer3':
+      case 'layer4': {
+        const id = (draft ? DRAFT_SEG : SEG_LAYERS)[Number(a.slice(5)) - 1];
+        if (!id) return false;
+        applyLayer(id);
+        return true;
+      }
+      case 'search': {
+        showSide();
+        const box = [...document.querySelectorAll<HTMLInputElement>('input.search-input')].find(
+          (el) => !el.disabled && el.getClientRects().length > 0 && !el.closest('[inert]'),
+        );
+        if (!box) return false;
+        box.focus();
+        box.select();
+        return true;
+      }
+      case 'undo':
+      case 'redo':
+        // 改地形工具开着:它自己管(撤销一笔);新建世界时 ⌘Z 也是撤销一笔地形
+        if (getTerrainTool().on) return false;
+        if (draft) {
+          if (a === 'undo') undoTerrainOp();
+          return true;
+        }
+        if (a === 'undo') undoLastEdit();
+        else redoLastEdit();
+        return true;
+      case 'save':
+        if (draft) return false;
+        showSide();
+        return openSaveMenu();
+      case 'side':
+        // 和卡片上的收起按钮、收起后左上角的小按钮一样(卡片弹出来显示选中的东西时 = 收回去)
+        if (!foldable) return false;
+        if (sideHidden()) expandSide();
+        else collapseSide();
+        return true;
+      case 'help':
+        openShortcuts();
+        return true;
+    }
+  });
 
   /** 平面主图 ⇄ 地球仪:两边的中心经度接上(地球仪从主图当前的中心转起;切回主图时转到地球仪正对着的经度) */
   const toggleGlobe = () => {
@@ -2417,12 +2560,12 @@ export function App() {
         text: n.kind === 'apply' ? '已按你说的改写 · 按新地形重新生成' : '已撤销改写 · 按原来的地形重新生成',
         more,
         action:
-          n.kind === 'apply'
+          n.kind === 'apply' && n.undo
             ? {
                 label: '撤销',
                 act: 'rw-undo',
                 onClick: () => {
-                  undoTurn(n.turn);
+                  n.undo?.();
                   clearToast('terrain');
                 },
               }
@@ -2442,8 +2585,42 @@ export function App() {
   }, [noCivToast]);
 
   const civReady = !!civ && civ.viable;
-  /** 正在重推 / 按新地形重新生成 / 生成新世界:改写框里这时发不了话、提议也不能执行 */
-  const rewriteBusy = !!resim || terrainStatus.busy || !!progress;
+  /** 正在重推 / 按新地形重新生成 / 生成新世界:助手这时发不了话、确认单也不能执行 */
+  const worldBusy = !!resim || terrainStatus.busy || !!progress;
+  // 助手:换了世界、世界建好了,对话跟着换;离开建好的世界(回我的世界、新建)不再看试推演。
+  // 打开另一个参数、地形、名字都一样的存档时历史原样复用,所以还要跟着世界的 id(存档一变 App 就重新渲染)
+  const worldId = currentWorld()?.id ?? null;
+  useEffect(() => syncAssistantWorld(draft ? 'history' : 'terrain'), [rawCiv, draft, data, worldId]);
+  useEffect(() => {
+    if (stage !== 'world') exitPreview();
+  }, [stage]);
+  // 在地图上看试推演:面板里是试推演的历史,只许改两份历史里是同一个的国家、城(改名、下令用它的键)
+  useEffect(() => {
+    const real = rawCiv;
+    const sim = previewRaw;
+    if (!real || !sim) return;
+    setEditGate((keys) => (keys.every((k) => sameInBoth(real, sim, k)) ? null : PREVIEW_EDIT_BLOCK));
+    return () => setEditGate(null);
+  }, [rawCiv, previewRaw]);
+  // 在地图上看试推演 / 回到现在:选中的东西按稳定键换到另一份历史里;刚开始看时没选东西,选上关注的那个国家
+  const prevPreview = useRef<Civ | null>(null);
+  useLayoutEffect(() => {
+    const was = prevPreview.current;
+    prevPreview.current = previewRaw;
+    const real = rawRef.current;
+    const from = was ?? real;
+    const to = previewRaw ?? real;
+    if (was === previewRaw || !from || !to || from === to) return;
+    remapSelection(from, to);
+    if (!previewRaw || was || getSelection().sel || !real) return;
+    const p = getAssistant().preview;
+    const v = p ? getAssistant().turns.find((t) => t.id === p.turn)?.proposal?.trial : undefined;
+    const id = v && v.focus > 0 ? v.rows[0].id : -1;
+    if (id < 0 || !real.polities[id]) return;
+    const r = resolveKey(previewRaw, polityKey(real, id));
+    if (r && r.kind === 'polity') setSelection({ kind: 'polity', id: r.id });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewRaw]);
   // 详情面板只挂一份:挂进一个自己建的容器,窄屏把容器放在底部卡片的位置,宽屏放进侧栏(放哪儿由那边的空位 ref 决定)。
   // 窗口跨过窄屏断点(比如手机横过来)时面板不重新挂,正在干预的那几步、填了一半的年份和名字都留着
   const inspectorHost = useMemo(() => {
@@ -2479,16 +2656,13 @@ export function App() {
     replay: { on: replayOn, ready: !!replay },
     onReplay: startReplay,
     noCiv,
-    data,
-    civ,
-    rewriteBusy,
   };
   // 两层放大的地图框共用一个变换、按视窗裁;两层屏幕层按同一个视窗裁(见下面的 JSX)
   const wrapStyle: CSSProperties = { transform: `translate(${view.x}px, ${view.y}px) scale(${view.k})`, clipPath: wrapClip(view, sb, wrapW), display: globeOn ? 'none' : undefined };
   const screenStyle: CSSProperties = { clipPath: screenClip(view, sb, wrapW), display: globeOn ? 'none' : undefined };
   return (
     <div
-      className={`app${narrow ? ' phone' : ' has-side'}${chron.open ? ' chron-open' : ''}${panelOpen ? ' panel-open' : ''}${narrow && panelOpen && panelUi.sheet === 'full' ? ' sheet-full' : ''}${narrow && !selState.sel && panelUi.world === 'full' ? ' world-full' : ''}${narrow && panelUi.drag ? ' sheet-drag' : ''}${narrow && selState.sel && !panelOpen ? ' sheet-away' : ''}${picking ? ' picking' : ''}${globeOn ? ' globe-on' : ''}${data ? '' : ' booting'}${home ? ' home' : ''}${draft ? ' draft' : ''}`}
+      className={`app${narrow ? ' phone' : ' has-side'}${chron.open ? ' chron-open' : ''}${panelOpen ? ' panel-open' : ''}${narrow && panelOpen && panelUi.sheet === 'full' ? ' sheet-full' : ''}${narrow && !selState.sel && panelUi.world === 'full' ? ' world-full' : ''}${narrow && panelUi.drag ? ' sheet-drag' : ''}${narrow && selState.sel && !panelOpen ? ' sheet-away' : ''}${!narrow && world && sideUi.collapsed && !sideUi.peek ? ' side-collapsed' : ''}${picking ? ' picking' : ''}${globeOn ? ' globe-on' : ''}${data ? '' : ' booting'}${home ? ' home' : ''}${draft ? ' draft' : ''}${astOpen && !narrow && !home ? ' ast-open' : ''}${preview ? ' ast-preview' : ''}`}
       data-theme={theme}
       data-layer={mapLayer}
       onDragOver={onDragOver}
@@ -2536,7 +2710,7 @@ export function App() {
         <div className="canvas-wrap-upper" style={wrapStyle}>
           <div className="map-box-upper" style={{ width: box.w, height: box.h }}>
             {data && (
-              <CivLayer world={data.world} raster={data.raster} civ={civ} geo={rawCiv} style={style} view={view} mp={mp} labelsHost={labelsHost} detailHost={civDetailHost} />
+              <CivLayer world={data.world} raster={data.raster} civ={civ} geo={shownRaw} style={style} view={view} mp={mp} labelsHost={labelsHost} detailHost={civDetailHost} />
             )}
             <canvas ref={overlayRef} className={`overlay ${replayOn && replay ? 'show' : ''}`} />
             <canvas ref={overlayCopyRef} className={`overlay wrap-copy ${replayOn && replay ? 'show' : ''}`} />
@@ -2552,7 +2726,7 @@ export function App() {
             world={data.world}
             raster={data.raster}
             civ={civ}
-            geo={rawCiv}
+            geo={shownRaw}
             style={style}
             layer={layer}
             terrain={canvasRef.current}
@@ -2562,6 +2736,7 @@ export function App() {
             apiRef={globeApi}
             onHover={onGlobeHover}
             leftRoom={sideRoom(stageSize.w)}
+            rightRoom={astOpen ? astRoom(stageSize.w) : 0}
           />
         )}
       </main>
@@ -2608,13 +2783,12 @@ export function App() {
               <PhoneSheet
                 data={data}
                 civ={civ}
-                raw={rawCiv}
+                raw={shownRaw}
                 params={params}
                 generating={!!progress}
                 replay={{ on: replayOn, ready: !!replay }}
                 onReplay={startReplay}
                 onHome={goHome}
-                rewriteBusy={rewriteBusy}
                 exp={{ data, civ, style, layer }}
               />
             )
@@ -2635,13 +2809,12 @@ export function App() {
             <Sidebar
               data={data}
               civ={civ}
-              raw={rawCiv}
+              raw={shownRaw}
               params={params}
               generating={!!progress}
               replay={{ on: replayOn, ready: !!replay }}
               onReplay={startReplay}
               onHome={goHome}
-              rewriteBusy={rewriteBusy}
               inspectorSlot={inspectorSlot}
             />
           )}
@@ -2654,6 +2827,11 @@ export function App() {
           {draft && !stageBase && draftTip && data && !progress && !replayOn && !terrainTool.on && <div className="draft-tip">拖动地图看看这颗星球；不满意就点「换一颗」</div>}
         </>
       )}
+      {/* 助手面板(宽屏右边一张卡片,手机是拉到顶的底部卡片;窗口跨过窄屏断点时不重新挂,没发出去的话留着)、在地图上看试推演时的提示条 */}
+      {astOpen && !home && data && realCiv && rawCiv && (
+        <AssistantPanel phone={narrow} world={data.world} raster={data.raster} civ={realCiv} raw={rawCiv} lock={draft ? 'history' : 'terrain'} busy={worldBusy} />
+      )}
+      {world && <PreviewBanner busy={worldBusy} phone={narrow} />}
       {/* 顶部居中:提示条(同一时间只有一条) */}
       <ToastBar />
       {/* 右下(时间轴上方):地球 / 平面、放大、缩小。触屏不放 + −(用双指捏合);窄屏整个不放(地球在右上竖排的按钮里) */}
@@ -2664,7 +2842,7 @@ export function App() {
         <div className="bottom-tl">{data && world && <CivTimeline civ={civ} hidden={replayOn} dock="inline" />}</div>
       </div>
       {/* 详情面板:窄屏是从屏幕底升起的卡片(在这儿的空位里),宽屏在侧栏里(见上面的 inspectorHost) */}
-      {data && world && createPortal(<Inspector civ={civ} raw={rawCiv} raster={data.raster} world={data.world} />, inspectorHost)}
+      {data && world && createPortal(<Inspector civ={civ} raw={shownRaw} raster={data.raster} world={data.world} />, inspectorHost)}
       {narrow && world && <div className="inspector-slot" ref={inspectorSlot} />}
       {hover && world && <HoverCard info={hover.info} x={hover.x} y={hover.y} />}
       {/* 世界概览(点左上角的世界名打开):国家 / 编年史 / 我的干预 / 世界设定 */}
@@ -2680,9 +2858,11 @@ export function App() {
           onDraftFrom={draftFromCurrent}
         />
       )}
-      {civ && <HistoryBook civ={civ} />}
+      {realCiv && <HistoryBook civ={realCiv} />}
       <AiSettingsHost />
       <AccountHost phone={narrow} />
+      <ShortcutsHost />
+      <TipLayer />
       {dropping && (
         <div className="drop-hint">
           <div>松手打开存档(.json)</div>

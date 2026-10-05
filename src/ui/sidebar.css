@@ -27,11 +27,86 @@
 
 /* ---- 顶上:世界名、按钮、搜索框 ---- */
 .sb-head {
+  position: relative;
   flex: none;
   padding: 14px 14px 12px;
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+/* ---- 收起 / 展开(宽屏;sideStore.ts) ----
+   卡片右上角("‹ 我的世界"那一行的右边)一个侧栏图标,鼠标停上去在它左边提示"收起侧栏";
+   收起 = 卡片往左滑出去,左上角留一个毛玻璃小按钮(侧栏图标 + 世界名),点它滑回来 */
+.sidebar {
+  transition: transform 0.2s ease;
+}
+.sidebar.side-hidden {
+  transform: translateX(calc(-100% - 2 * var(--side-gap, 14px)));
+  visibility: hidden;
+  transition:
+    transform 0.2s ease,
+    visibility 0s linear 0.2s;
+}
+.sb-collapse {
+  position: absolute;
+  top: 9px;
+  right: 10px;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ink-2);
+}
+.sb-collapse:hover,
+.sb-collapse:focus-visible {
+  background: var(--hover-bg);
+  color: var(--ink);
+}
+.side-open {
+  position: absolute;
+  left: var(--side-gap, 14px);
+  top: var(--side-gap, 14px);
+  z-index: 5;
+  height: 36px;
+  max-width: 260px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 14px 0 10px;
+  border: 0;
+  color: var(--ink);
+  font: inherit;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  animation: wf-reveal 0.2s ease-out;
+}
+.side-open:hover {
+  background: var(--panel-solid);
+}
+.side-open .icon {
+  flex: none;
+}
+.side-open-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+@media (prefers-reduced-motion: reduce) {
+  .sidebar,
+  .sidebar.side-hidden,
+  .app.has-side .bottom-row {
+    transition: none;
+  }
+  .side-open {
+    animation: none;
+  }
 }
 .sb-world {
   display: flex;
@@ -134,34 +209,9 @@
   top: calc(100% + 12px);
 }
 
-.sb-more-wrap {
-  display: contents;
-}
-/* "用一句话改写世界"的框:浮在侧栏卡片右边、和卡片顶对齐;面板里"更多"的菜单也弹到卡片右边(.pm-side,
-   位置由 PopMenu 按按钮算好)。这时侧栏压在地图按钮上面 */
-.sidebar:has(.sb-rewrite),
+/* 面板里"更多"的菜单弹到卡片右边(.pm-side,位置由 PopMenu 按按钮算好)。这时侧栏压在地图按钮上面 */
 .sidebar:has(.pm-side) {
   z-index: 8;
-}
-.sb-rewrite {
-  position: absolute;
-  top: -14px;
-  left: calc(100% + 28px);
-}
-.sb-rewrite .rw-box {
-  position: static;
-  max-width: calc(100vw - var(--side-room) - 14px);
-  border: 0;
-  border-radius: 12px;
-  background: var(--panel);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  box-shadow: var(--shadow-float);
-  font-size: 13.5px;
-}
-.sb-rewrite .rw-unset .rw-link {
-  flex: none;
-  white-space: nowrap;
 }
 
 .sb-search {
@@ -418,6 +468,16 @@
   font-size: 11.5px;
   color: var(--ink-3);
   margin-left: 12px;
+}
+/* 菜单项右边的快捷键(和 Mac 菜单一样:灰字、和菜单项一样大) */
+.pm-kbd {
+  margin-left: 12px;
+  font: inherit;
+  color: var(--ink-2);
+}
+.pm-item:hover:not(:disabled) .pm-kbd {
+  color: inherit;
+  opacity: 0.85;
 }
 .pm-item:not(:has(.icon)) {
   padding-left: 36px;
