@@ -504,7 +504,7 @@ function bioSections(civ: Civ, info: ScopeInfo, want: number, lives = 1): Histor
       const to = Math.min(info.to, Y(q.ended ?? civ.endYear));
       const peak = stats[q.id]?.peak ?? 0;
       // 篇名用这一段结束时的国号(和卡片上一样;亡了的用亡国前的),不用极盛时的:后来改了国号的,篇名和地图对得上
-      out.push({ from, to, part: peak >= 70 ? 'annal' : 'house', polity: q.id, name: nameAt(civ, q, to) });
+      out.push({ from, to, part: peak >= 70 ? 'annal' : 'house', polity: q.id, name: nameAt(civ, q, Math.min(info.to, lastMoment(civ, q))) });
     }
   }
   // 列传:篇幅长时分几篇(一次写不下七八千字),按时间切开,各篇写各自那段的人

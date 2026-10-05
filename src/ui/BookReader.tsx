@@ -57,14 +57,14 @@ interface Chapter {
 export function parseChapter(line: string): Omit<Chapter, 'id'> {
   let rest = line.trim();
   let y = '';
-  const ym = /\s*[((]\s*(?:第\s*)?(\d+)\s*(?:年)?\s*[—–\-~至到]+\s*(?:第\s*)?(\d+)\s*年?\s*[))]\s*$/.exec(rest);
+  const ym = /\s*[(（]\s*(?:第\s*)?(\d+)\s*(?:年)?\s*[—–\-~至到]+\s*(?:第\s*)?(\d+)\s*年?\s*[)）]\s*$/.exec(rest);
   if (ym) {
     y = `${ym[1]}–${ym[2]}`;
     rest = rest.slice(0, ym.index).trim();
   }
-  const cm = /^(第[一二三四五六七八九十百零〇两\d]+[章卷篇回]|卷[一二三四五六七八九十百零〇\d]+)\s*[··::、.\s]?\s*(.*)$/.exec(rest);
+  const cm = /^(第[一二三四五六七八九十百零〇两\d]+[章卷篇回]|卷[一二三四五六七八九十百零〇\d]+)\s*[·・:：、.\s]?\s*(.*)$/.exec(rest);
   if (cm && cm[2]) return { n: cm[1], t: cm[2].trim(), y };
-  const pm = /^(本纪|世家|列传)\s*[··:]\s*(.+)$/.exec(rest);
+  const pm = /^(本纪|世家|列传)\s*[·・:：]\s*(.+)$/.exec(rest);
   if (pm) return { n: pm[1], t: pm[2].trim(), y };
   return { n: '', t: rest, y };
 }
@@ -73,7 +73,7 @@ export function parseChapter(line: string): Omit<Chapter, 'id'> {
 export function lifeName(line: string): string {
   const t = line
     .trim()
-    .replace(/\s*[((][^()()]*[))]\s*$/, '')
+    .replace(/\s*[(（][^()（）]*[)）]\s*$/, '')
     .replace(/^[一二三四五六七八九十百\d]+\s*[、.．]\s*/, '');
   if (t.startsWith('列传')) return '';
   const m = /^(.+?)\s*合?传$/.exec(t);
