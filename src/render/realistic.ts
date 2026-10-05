@@ -363,6 +363,30 @@ export function shoreT(r: Raster, ka: number, kb: number): number {
   return ea < 0 !== eb < 0 && ea !== eb ? Math.max(0.02, Math.min(0.98, ea / (ea - eb))) : 0.5;
 }
 
+/** 整张图的陆地范围(等距圆柱;只留一份,换了世界就重建) */
+let landPathCache: { raster: Raster; path: Path2D } | null = null;
+
+/**
+ * 整张图的陆地范围,坐标是像素层的像素(第 i 列像素中心在 x = i + 0.5)。列取 −2 … w:细节层画布按 180° 经线
+ * 分段画(ui/TerrainDetail.tsx),每一段用到的方格都在这里面
+ */
+function wholeLandPath(r: Raster): Path2D {
+  if (landPathCache?.raster === r) return landPathCache.path;
+  const path = new Path2D();
+  const S = r.scale;
+  addLandCells(path, r, {
+    rows: [-1, r.h - 1],
+    cols: () => [-2, r.w],
+    at: (wy, out) => {
+      out[0] = 0.5;
+      out[1] = 1;
+      out[2] = wy * S;
+    },
+  });
+  landPathCache = { raster: r, path };
+  return path;
+}
+
 /** 等距圆柱的细节层画布(画布 = 世界 × v.s + (v.ox, v.oy))上的方格范围 */
 function flatCells(r: Raster, v: { s: number; ox: number; oy: number }, cw: number, ch: number): CellMap {
   const S = r.scale;
@@ -437,11 +461,21 @@ export function drawRealisticShores(ctx: CanvasRenderingContext2D, r: Raster, v:
   else {
     const { water, land } = realisticShoreLayers(r);
     put(water);
-    const path = new Path2D();
     const cw = ctx.canvas.width;
     const ch = ctx.canvas.height;
-    addLandCells(path, r, pj ? projectedCells(r, pj, v, cw, ch) : flatCells(r, v, cw, ch));
-    ctx.clip(path);
+    const cells = pj ? projectedCells(r, pj, v, cw, ch) : flatCells(r, v, cw, ch);
+    const cols = pj ? null : cells.cols(0)!;
+    if (cols && (cols[1] - cols[0]) * (cells.rows[1] - cells.rows[0]) * 8 > r.w * r.h) {
+      // 等距圆柱、视口里的方格多(放大不到三倍左右):用整张图的那一份(缓存的)按视口变换裁剪,省得每次重画重算几十万个点
+      const m = ctx.getTransform();
+      ctx.transform(ps, 0, 0, ps, v.ox, v.oy);
+      ctx.clip(wholeLandPath(r));
+      ctx.setTransform(m);
+    } else {
+      const path = new Path2D();
+      addLandCells(path, r, cells);
+      ctx.clip(path);
+    }
     put(land);
   }
   ctx.restore();
