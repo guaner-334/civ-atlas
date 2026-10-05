@@ -11,6 +11,7 @@ import { asHistoryNote, historyFileName, historyMarkdown, historyNoteStatus, his
 import { currentWorld, useSavesVersion } from './saveStore';
 import { bookTitleText, bookUnit, closeBookReader, openBookReader, startBook, stopBook, useBook } from './bookStore';
 import { useDialogEscape } from './BookDialog';
+import { AiTag } from './aiTag';
 import './book.css';
 
 const fmt = (n: number) => n.toLocaleString('en-US');
@@ -200,7 +201,10 @@ function Reader({ civ }: { civ: Civ }) {
       <article className="bk-reader" data-theme="light" role="dialog" aria-modal="true" aria-label={name} onPointerDown={stopBubble} onWheel={stopBubble}>
         <header className="bk-r-head">
           <div className="bk-r-top">
-            <span className="bk-meta">{metaLine(style, length, range, scope.kind)}</span>
+            <span className="bk-meta">
+              <AiTag />
+              {metaLine(style, length, range, scope.kind)}
+            </span>
             <button className="bk-x" onClick={closeBookReader} title="关闭" aria-label="关闭">
               ✕
             </button>

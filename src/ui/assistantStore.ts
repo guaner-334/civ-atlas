@@ -766,7 +766,7 @@ export function pickName(id: number, i: number) {
   const t = state.turns.find((x) => x.id === id);
   const c = t?.names?.list[i];
   if (!t || !c || state.lock === 'history') return;
-  setName(c.key, c.value);
+  setName(c.key, c.value, 'ai');
   patch(id, { names: { ...t.names!, used: c.name } });
   save();
 }
