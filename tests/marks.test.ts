@@ -8,7 +8,9 @@ import { generateCiv, type Civ } from '../src/gen/civ';
 import { rasterize, type Raster } from '../src/gen/raster';
 import {
   EMPTY_EDITS,
+  INTERVENTION_YEAR_MAX,
   MARKS_MAX,
+  MARK_ID_MAX,
   MARK_NOTE_MAX,
   MARK_REGIONS_MAX,
   MARK_TITLE_DEFAULT,
@@ -100,6 +102,16 @@ describe('作者标记 · 数据清理', () => {
     expect(cleanMarks(null)).toEqual([]);
     expect(nextMarkId(out)).toBe(9);
     expect(nextMarkId(undefined)).toBe(1);
+  });
+
+  it(`编号到了 ${MARK_ID_MAX}:重号的、新建的用最小的没用过的编号`, () => {
+    const list = [base({ id: MARK_ID_MAX }), base({ id: MARK_ID_MAX, title: '重号' }), base({ id: 1, title: '一号' })];
+    expect(cleanMarks(list).map((m) => m.id)).toEqual([MARK_ID_MAX, 2, 1]);
+    expect(nextMarkId([base({ id: MARK_ID_MAX }), base({ id: 1 })])).toBe(2);
+    const raw = JSON.parse(saveText(makeSave({ ...DEFAULT_PARAMS, seed: 7 }, { ...EMPTY_EDITS, marks: list.slice(0, 1) }, 'abc')));
+    raw.edits.marks = list;
+    const r = parseSave(JSON.stringify(raw));
+    expect(r.ok && r.save.edits.marks!.map((m) => m.id)).toEqual([MARK_ID_MAX, 2, 1]);
   });
 
   it('哪年有:[从, 到] 两头都算,没有"到" = 一直都在;年份带小数按取整算', () => {
@@ -247,6 +259,8 @@ describe('作者标记 · 填写卡片', () => {
     expect(draftProblem(d({ toText: '2480' }))).toBe('"到"比"从"早了');
     expect(draftProblem(d({ at: null }))).toBe('在地图上点一下放图钉');
     expect(draftProblem(d({ scope: 'regions' }))).toBe('在地图上点几个州加进来');
+    expect(draftProblem(d({ fromText: '70000' }))).toBe(`年份最大填到 ${INTERVENTION_YEAR_MAX}`);
+    expect(draftProblem(d({ toText: '70000' }))).toBe(`年份最大填到 ${INTERVENTION_YEAR_MAX}`);
   });
 
   it('新建:选中"还没编号"的那个;完成 = 存进修改、选中新标记;空名字存成"新标记"', () => {
@@ -287,6 +301,27 @@ describe('作者标记 · 填写卡片', () => {
     setSelection({ kind: 'mark', id: 1 });
     expect(redoLastEdit()).toBe(true);
     expect(getSelection().sel).toEqual({ kind: 'mark', id: 1 });
+  });
+
+  it('正在编辑的标记被撤销没了:点取消,卡片也关掉', () => {
+    newMarkDraft({ at: [100, 200], year: 2512 });
+    expect(finishDraft()).toBe(1);
+    editMarkDraft(getEdits().marks![0]);
+    expect(undoLastEdit()).toBe(true);
+    expect(getSelection().sel).toEqual({ kind: 'mark', id: 1 });
+    cancelDraft();
+    expect(getSelection().sel).toBeNull();
+  });
+
+  it(`圈满 ${MARK_REGIONS_MAX} 个州:再点别的州不加,提示一句;点已选的照样去掉`, () => {
+    const keys = Array.from({ length: MARK_REGIONS_MAX }, (_, i) => `region:c${i + 1}`);
+    addMark({ title: '大片', color: 'blue', from: 1, regions: keys });
+    editMarkDraft(getEdits().marks![0]);
+    toggleDraftRegion('region:c99999');
+    expect(getMarkUi().draft!.regions.length).toBe(MARK_REGIONS_MAX);
+    expect(getToast()?.text).toBe(`一个标记最多圈 ${MARK_REGIONS_MAX} 个州`);
+    toggleDraftRegion('region:c1');
+    expect(getMarkUi().draft!.regions.length).toBe(MARK_REGIONS_MAX - 1);
   });
 
   it(`已经有 ${MARKS_MAX} 个:新建的存不了,卡片上说一句;编辑原有的照常`, () => {

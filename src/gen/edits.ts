@@ -803,6 +803,8 @@ export const MARK_NOTE_MAX = 2000;
 export const MARK_REGIONS_MAX = 500;
 /** 一个世界最多几个标记(读进来的多出来的丢掉;再多地图就卡了) */
 export const MARKS_MAX = 2000;
+/** 标记编号最大到几 */
+export const MARK_ID_MAX = 1e9;
 /** 名字是空的(新建时没起名)就叫这个 */
 export const MARK_TITLE_DEFAULT = '新标记';
 
@@ -816,7 +818,15 @@ export function markShownAt(m: Pick<AuthorMark, 'from' | 'to'>, year: number): b
 export function nextMarkId(marks: readonly AuthorMark[] | undefined): number {
   let n = 0;
   for (const m of marks ?? []) if (m.id > n) n = m.id;
-  return n + 1;
+  return freeMarkId(new Set((marks ?? []).map((m) => m.id)), n);
+}
+
+/** 新编号:现有最大的(max)+ 1;到了 MARK_ID_MAX 就用最小的没用过的。used = 已经用了的编号,新编号也加进去 */
+export function freeMarkId(used: Set<number>, max: number): number {
+  let id = max + 1;
+  if (id > MARK_ID_MAX) for (id = 1; used.has(id); id++);
+  used.add(id);
+  return id;
 }
 
 /** 名字:去掉控制字符、首尾空白、连着的空白并成一个,超长截断 */
@@ -848,7 +858,7 @@ export function cleanMark(x: unknown): AuthorMark | null {
   const o = x as Record<string, unknown>;
   const id = o.id;
   const from = yearOf(o.from);
-  if (typeof id !== 'number' || !Number.isInteger(id) || id < 1 || id > 1e9 || from === null) return null;
+  if (typeof id !== 'number' || !Number.isInteger(id) || id < 1 || id > MARK_ID_MAX || from === null) return null;
   const color = MARK_COLORS.includes(o.color as MarkColor) ? (o.color as MarkColor) : MARK_COLORS[0];
   const title = cleanMarkTitle(o.title) || MARK_TITLE_DEFAULT;
   const note = cleanMarkNote(o.note);
@@ -888,10 +898,13 @@ export function cleanMarks(list: readonly unknown[] | null | undefined): AuthorM
   const out: AuthorMark[] = [];
   let same = true;
   const ids = new Set<number>();
+  const used = new Set<number>();
   let max = 0;
   for (const x of list as unknown[]) {
     const m = cleanMark(x);
-    if (m && m.id > max) max = m.id;
+    if (!m) continue;
+    used.add(m.id);
+    if (m.id > max) max = m.id;
   }
   for (const x of list as unknown[]) {
     let m = out.length < MARKS_MAX ? cleanMark(x) : null;
@@ -899,7 +912,10 @@ export function cleanMarks(list: readonly unknown[] | null | undefined): AuthorM
       same = false;
       continue;
     }
-    if (ids.has(m.id)) m = { ...m, id: ++max };
+    if (ids.has(m.id)) {
+      m = { ...m, id: freeMarkId(used, max) };
+      max = Math.max(max, m.id);
+    }
     ids.add(m.id);
     if (m !== x) same = false;
     out.push(m);

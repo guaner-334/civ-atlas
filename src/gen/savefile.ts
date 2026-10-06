@@ -36,7 +36,7 @@
  * 纯计算,不碰 DOM(Node 里可测)。
  */
 import { DEFAULT_PARAMS, type World, type WorldParams } from './world';
-import { GENERATOR_CHANGES, GENERATOR_VERSION, MARKS_MAX, NAME_MAX, aiNameKeys, cleanMark, type AiNameMark, type AuthorMark, type GeneratorChange, type Intervention, type TerrainOp, type WorldEdits } from './edits';
+import { GENERATOR_CHANGES, GENERATOR_VERSION, MARKS_MAX, NAME_MAX, aiNameKeys, cleanMark, freeMarkId, type AiNameMark, type AuthorMark, type GeneratorChange, type Intervention, type TerrainOp, type WorldEdits } from './edits';
 import { TERRAIN_MAX_OPS, cleanTerrainOp } from './terrainEdits';
 
 export const SAVE_APP = '文明与地图';
@@ -431,8 +431,12 @@ export function parseSave(text: string): ParseResult {
       else marks.push(m);
     }
     let max = marks.reduce((a, m) => Math.max(a, m.id), 0);
+    const used = new Set(marks.map((m) => m.id));
     for (let i = 0; i < marks.length; i++) {
-      if (ids.has(marks[i].id)) marks[i] = { ...marks[i], id: ++max };
+      if (ids.has(marks[i].id)) {
+        marks[i] = { ...marks[i], id: freeMarkId(used, max) };
+        max = Math.max(max, marks[i].id);
+      }
       ids.add(marks[i].id);
     }
   } else if (E.marks !== undefined) droppedM++;

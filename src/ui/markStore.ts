@@ -7,9 +7,10 @@
  * - 几个州的标记:编辑时点地图上的州 = 加进来 / 再点一下去掉;一个点的标记:编辑时拖图钉挪位置
  */
 import { useSyncExternalStore } from 'react';
-import { MARKS_MAX, MARK_COLORS, type AuthorMark, type MarkColor } from '../gen/edits';
+import { INTERVENTION_YEAR_MAX, MARKS_MAX, MARK_COLORS, MARK_REGIONS_MAX, type AuthorMark, type MarkColor } from '../gen/edits';
 import { addMark, getEdits, subscribeEdits, updateMark } from './editsStore';
 import { clearSelection, getSelection, setSelection, subscribeSelection } from './civView';
+import { showToast } from './toastStore';
 
 /** 卡片上正在填的标记 */
 export interface MarkDraft {
@@ -125,10 +126,14 @@ export function patchDraft(p: Partial<MarkDraft>) {
   if (state.draft) set({ draft: { ...state.draft, ...p } });
 }
 
-/** 编辑几个州时点了一个州:没选的加进来,选了的去掉 */
+/** 编辑几个州时点了一个州:没选的加进来(满了 MARK_REGIONS_MAX 个就提示一句),选了的去掉 */
 export function toggleDraftRegion(key: string) {
   const d = state.draft;
   if (!d || d.scope !== 'regions') return;
+  if (!d.regions.includes(key) && d.regions.length >= MARK_REGIONS_MAX) {
+    showToast({ id: 'mk-regions', kind: 'warn', text: `一个标记最多圈 ${MARK_REGIONS_MAX} 个州`, ttl: 3000 });
+    return;
+  }
   const regions = d.regions.includes(key) ? d.regions.filter((k) => k !== key) : [...d.regions, key];
   set({ draft: { ...d, regions } });
 }
@@ -146,6 +151,7 @@ export function draftProblem(d: MarkDraft): string | null {
   const to = parseYear(d.toText);
   if (from === null || Number.isNaN(from)) return '填一下从哪年开始';
   if (Number.isNaN(to)) return '"到"要填年份,或者空着';
+  if (from > INTERVENTION_YEAR_MAX || (to !== null && to > INTERVENTION_YEAR_MAX)) return `年份最大填到 ${INTERVENTION_YEAR_MAX}`;
   if (to !== null && to < from) return '"到"比"从"早了';
   if (d.scope === 'regions' && !d.regions.length) return '在地图上点几个州加进来';
   if (d.scope === 'point' && !d.at) return '在地图上点一下放图钉';
@@ -180,12 +186,12 @@ export function finishDraft(): number {
   return id;
 }
 
-/** 「取消」:扔掉正在填的;新建的连卡片一起关掉,编辑的回到看的样子 */
+/** 「取消」:扔掉正在填的;新建的连卡片一起关掉,编辑的回到看的样子(那个标记已经没了 = 也关掉) */
 export function cancelDraft() {
   const d = state.draft;
   if (!d) return;
   set({ draft: null });
-  if (d.id === 0) clearSelection();
+  if (d.id === 0 || !getEdits().marks?.some((m) => m.id === d.id)) clearSelection();
 }
 
 export function setMarkDragging(on: boolean) {
