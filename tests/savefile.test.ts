@@ -1556,7 +1556,7 @@ describe('全部存成文件(bundle)', () => {
   it('浏览器不让网页存数据(只在内存里):放回来了也说一声,文件先别删', () => {
     threeWorlds();
     const text = bundleText()!.text;
-    freshBrowser(throwing);
+    freshBrowser(throwing as unknown as FakeStorage);
     expect(saveStore.persistent()).toBe(false);
     expect(openBundleText(text)).toBe(true);
     const t = getToast();
