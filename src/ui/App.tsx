@@ -2635,8 +2635,12 @@ export function App() {
     setPolityPick(null);
     stopPlacing();
   }, [terrainTool.on]);
-  // 作者标记:放标记时顶部一条提示(取消 = Esc);换了世界、回到我的世界、回放世界形成时放标记、正在填的一律作废
+  // 作者标记:放标记时顶部一条提示(取消 = Esc);换了世界、回到我的世界、回放世界形成时放标记、正在填的一律作废。
+  // 开始放标记时,"在地图上点一个国家"(干预选目标)收起,免得两件事抢同一下点击
   const markPlacing = useMarkUi().placing;
+  useEffect(() => {
+    if (markPlacing) setPolityPick(null);
+  }, [markPlacing]);
   useEffect(() => {
     if (markPlacing) showToast({ id: 'mk', kind: 'info', text: '点地图放标记', more: ['陆地、海上都可以'], action: { label: coarse ? '取消' : '取消 · Esc', act: 'mark-cancel', onClick: stopPlacing } });
     else clearToast('mk');

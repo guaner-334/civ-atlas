@@ -475,6 +475,10 @@ export function layoutMarks(items: readonly MarkItem[], f: MarkFrame, opts: { na
       } else if (!free[i].area) {
         const p = free[i];
         pins.push({ id: p.m.id, x: p.x, y: p.y, w: PIN_W_SMALL, hex: MARK_HEX[p.m.color], alpha: p.m.dim ? DIM_ALPHA : 1, label: null });
+      } else {
+        // 单独一个州的标记:只有铺色,名字牌的地方照样点得到(和合并的圆一样大)
+        const p = free[i];
+        hits.push({ kind: 'pill', ids: [p.m.id], box: [p.x - 14, p.y - 14, p.x + 14, p.y + 14] });
       }
     }
     // 选中的:大图钉 + 名字(缩小了也写它的名字,看得出选的是哪个)
@@ -483,9 +487,11 @@ export function layoutMarks(items: readonly MarkItem[], f: MarkFrame, opts: { na
     return { areas, pins, clusters, hits };
   }
 
-  // 放大了:每个都写名字。先放名字牌(几个州),再放图钉的名字:右边压着别的就换左边、下边
+  // 放大了:每个都写名字。先放名字牌(几个州;压着前面的名字牌就往下、往上错开),再放图钉的名字:右边压着别的就换左边、下边
   for (const a of anchors) {
     const pill = pillOf(a.m, a.x, a.y);
+    const step = pill.size * LINE + 8;
+    for (let k = 1; k <= 8 && taken.some((t) => overlap(pillBox(pill), t)); k++) pill.y = a.y + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * step;
     a.area!.pill = pill;
     const box = pillBox(pill);
     taken.push(box);

@@ -8,6 +8,7 @@ import { generateCiv, type Civ } from '../src/gen/civ';
 import { rasterize, type Raster } from '../src/gen/raster';
 import {
   EMPTY_EDITS,
+  MARKS_MAX,
   MARK_NOTE_MAX,
   MARK_REGIONS_MAX,
   MARK_TITLE_DEFAULT,
@@ -28,7 +29,7 @@ import { clearSelection, getSelection, setSelection } from '../src/ui/civView';
 import { cancelDraft, draftProblem, editMarkDraft, finishDraft, getMarkUi, newMarkDraft, patchDraft, resetMarkUi, toggleDraftRegion, togglePlacing, type MarkDraft } from '../src/ui/markStore';
 import { CLUSTER_PX, NAME_ZOOM, hitMark, layoutMarks, markAreaShape, type MarkFrame, type MarkItem } from '../src/render/marks';
 import { markEvents, markOwners, markPlaceText, markShapeOf, markSpot, regionsText, spotText } from '../src/ui/markInfo';
-import { searchCiv } from '../src/ui/searchIndex';
+import { searchCiv, searchMarks } from '../src/ui/searchIndex';
 import { markFocus } from '../src/ui/flyTo';
 
 const base = (over: Partial<AuthorMark> = {}): AuthorMark => ({ id: 1, title: '主角的故乡', color: 'red', from: 2490, at: [1852.4, 512], ...over });
@@ -147,6 +148,20 @@ describe('作者标记 · 存档和分享链接', () => {
     expect(r2.ok && r2.save.edits.marks).toBeUndefined();
   });
 
+  it(`读档:最多留 ${MARKS_MAX} 个标记,多出来的提示一句;列表清理也一样`, () => {
+    const save = makeSave(params, EMPTY_EDITS, 'abc');
+    const raw = JSON.parse(saveText(save));
+    const many = Array.from({ length: MARKS_MAX + 5 }, (_, i) => ({ id: i + 1, title: `标记${i + 1}`, color: 'red', from: 1, at: [i % 2000, 10] }));
+    raw.edits.marks = many;
+    const r = parseSave(JSON.stringify(raw));
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.save.edits.marks!.length).toBe(MARKS_MAX);
+    expect(r.save.edits.marks![MARKS_MAX - 1].id).toBe(MARKS_MAX);
+    expect(r.warnings).toContain(`作者标记最多 ${MARKS_MAX} 个,多出来的 5 个没有读进来`);
+    expect(cleanMarks(many).length).toBe(MARKS_MAX);
+  });
+
   it('分享链接带着标记,打开后一样', async () => {
     const save = makeSave(params, edits, 'abc', '九州', '2026-10-06T00:00:00.000Z');
     const r = await decodeShare(await encodeShare(save));
@@ -261,6 +276,26 @@ describe('作者标记 · 填写卡片', () => {
     expect(getEdits().marks!.length).toBe(1);
   });
 
+  it('选中的标记没了(撤销了新建):卡片关掉;正在填的新标记不受影响', () => {
+    newMarkDraft({ at: [100, 200], year: 2512 });
+    addMark({ title: '别的', color: 'blue', from: 1, at: [5, 5] });
+    expect(getSelection().sel).toEqual({ kind: 'mark', id: 0 });
+    expect(finishDraft()).toBe(2);
+    expect(getSelection().sel).toEqual({ kind: 'mark', id: 2 });
+    expect(undoLastEdit()).toBe(true);
+    expect(getSelection().sel).toBeNull();
+    setSelection({ kind: 'mark', id: 1 });
+    expect(redoLastEdit()).toBe(true);
+    expect(getSelection().sel).toEqual({ kind: 'mark', id: 1 });
+  });
+
+  it(`已经有 ${MARKS_MAX} 个:新建的存不了,卡片上说一句;编辑原有的照常`, () => {
+    commitEdits({ ...EMPTY_EDITS, marks: Array.from({ length: MARKS_MAX }, (_, i) => base({ id: i + 1 })) });
+    expect(addMark({ title: '多一个', color: 'blue', from: 1, at: [5, 5] })).toBe(-1);
+    expect(draftProblem(d({}))).toBe(`标记已经有 ${MARKS_MAX} 个了,删掉一些才能再加`);
+    expect(draftProblem(d({ id: 3 }))).toBeNull();
+  });
+
   it('选中别的东西:正在填的扔掉;放标记时选了别的 = 不放了', () => {
     newMarkDraft({ at: [1, 1], year: 3 });
     setSelection({ kind: 'polity', id: 0 });
@@ -306,6 +341,24 @@ describe('作者标记 · 地图上的摆放', () => {
     expect(hitMark(lay, lay.clusters[0].x, lay.clusters[0].y)!.ids.sort()).toEqual([1, 2]);
     expect(hitMark(lay, sel.x, sel.y - 10)!.ids).toEqual([4]);
     expect(hitMark(lay, 900, 100)).toBeNull();
+  });
+
+  it('几个州的标记:缩小了单独一个也点得到;放大了圈同一处的名字牌错开,各点各的', () => {
+    const sq = (x: number, y: number) => Float32Array.from([x - 20, y - 20, x + 20, y - 20, x + 20, y + 20, x - 20, y + 20]);
+    const area = (id: number, x: number, y: number): MarkItem => ({
+      id,
+      title: `州标记${id}`,
+      color: 'orange',
+      shape: { polys: [sq(x, y)], loops: [sq(x, y)], label: [x, y], box: [x - 20, y - 20, x + 20, y + 20] },
+    });
+    const far = layoutMarks([area(1, 500, 400)], frame(1));
+    expect(far.clusters.length).toBe(0);
+    expect(hitMark(far, 500, 400)!.ids).toEqual([1]);
+    const near = layoutMarks([area(1, 500, 400), area(2, 500, 400)], frame(NAME_ZOOM));
+    const [a, b] = near.areas.map((x) => x.pill!);
+    expect(a.y).not.toBe(b.y);
+    expect(hitMark(near, a.x, a.y)!.ids).toEqual([1]);
+    expect(hitMark(near, b.x, b.y)!.ids).toEqual([2]);
   });
 
   it('看不见的不摆;平面主图左右相连时挪到看得见的那一圈', () => {
@@ -425,5 +478,8 @@ describe.each([7, 2024])('作者标记 · 在这个世界里 · seed=%i', (seed)
     const byNote = searchCiv(civ, '顾青', civ.endYear, 20, marks);
     expect(byNote.some((h) => h.kind === 'mark' && h.id === 2 && h.sub === '标记，2460–2520 年')).toBe(true);
     expect(searchCiv(civ, '顾青', civ.endYear, 20).some((h) => h.kind === 'mark')).toBe(false);
+    // 还没有国家的世界:只搜标记
+    expect(searchMarks(' 顾青 ', marks).map((h) => h.id)).toEqual([2]);
+    expect(searchMarks('', marks)).toEqual([]);
   });
 });

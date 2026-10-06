@@ -36,7 +36,7 @@
  * 纯计算,不碰 DOM(Node 里可测)。
  */
 import { DEFAULT_PARAMS, type World, type WorldParams } from './world';
-import { GENERATOR_CHANGES, GENERATOR_VERSION, NAME_MAX, aiNameKeys, cleanMark, type AiNameMark, type AuthorMark, type GeneratorChange, type Intervention, type TerrainOp, type WorldEdits } from './edits';
+import { GENERATOR_CHANGES, GENERATOR_VERSION, MARKS_MAX, NAME_MAX, aiNameKeys, cleanMark, type AiNameMark, type AuthorMark, type GeneratorChange, type Intervention, type TerrainOp, type WorldEdits } from './edits';
 import { TERRAIN_MAX_OPS, cleanTerrainOp } from './terrainEdits';
 
 export const SAVE_APP = '文明与地图';
@@ -415,9 +415,10 @@ export function parseSave(text: string): ParseResult {
     }
   } else if (E.terrain !== undefined) droppedT++;
   if (droppedT) warnings.push(`有 ${droppedT} 处地形修改格式不对,已跳过`);
-  // 作者标记:逐个清理,认不出的跳过;编号重复的换一个新编号;旧存档没有 = 没有标记
+  // 作者标记:逐个清理,认不出的跳过;编号重复的换一个新编号;最多留 MARKS_MAX 个;旧存档没有 = 没有标记
   const marks: AuthorMark[] = [];
   let droppedM = 0;
+  let overM = 0;
   if (Array.isArray(E.marks)) {
     const ids = new Set<number>();
     for (const x of E.marks) {
@@ -426,7 +427,8 @@ export function parseSave(text: string): ParseResult {
         droppedM++;
         continue;
       }
-      marks.push(m);
+      if (marks.length >= MARKS_MAX) overM++;
+      else marks.push(m);
     }
     let max = marks.reduce((a, m) => Math.max(a, m.id), 0);
     for (let i = 0; i < marks.length; i++) {
@@ -435,6 +437,7 @@ export function parseSave(text: string): ParseResult {
     }
   } else if (E.marks !== undefined) droppedM++;
   if (droppedM) warnings.push(`有 ${droppedM} 个作者标记格式不对,已跳过`);
+  if (overM) warnings.push(`作者标记最多 ${MARKS_MAX} 个,多出来的 ${overM} 个没有读进来`);
   const note = versionNote(generator, terrain.length > 0);
   if (note) warnings.splice(noteAt, 0, note);
 

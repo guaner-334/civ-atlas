@@ -33,6 +33,7 @@ import { RegionPanel } from './RegionPanel';
 import { PersonPanel } from './PersonPanel';
 import { FaithPanel } from './FaithPanel';
 import { MarkPanel } from './MarkPanel';
+import { useMarkUi } from './markStore';
 import { setPanelTab, setSheet, setSheetDrag, usePanel } from './panelStore';
 import { ownersOf } from './panelData';
 import { phoneSheet, selectionKey } from './flyTo';
@@ -67,6 +68,7 @@ export function Inspector({ civ, raw, raster, world }: { civ: Civ | null; raw: C
   const t = useCivTime();
   const edits = useEdits();
   const pick = usePolityPick();
+  const markDraft = useMarkUi().draft;
   const { run, sheet } = usePanel();
   const narrow = useNarrow();
   const sheetDrag = useSheetDrag(narrow, sheet);
@@ -83,7 +85,7 @@ export function Inspector({ civ, raw, raster, world }: { civ: Civ | null; raw: C
   else if (sel.kind === 'region' && sel.id >= 0 && sel.id < civ.regions.count) body = <RegionPanel key={stable} {...common} id={sel.id} />;
   else if (sel.kind === 'person' && civ.people?.[sel.id]) body = <PersonPanel key={stable} {...common} id={sel.id} />;
   else if (sel.kind === 'faith' && civ.religion?.faiths[sel.id]) body = <FaithPanel key={stable} {...common} id={sel.id} />;
-  else if (sel.kind === 'mark') body = <MarkPanel key={stable} civ={civ} raster={raster} world={world} year={year} id={sel.id} />;
+  else if (sel.kind === 'mark' && (markDraft?.id === sel.id || edits.marks?.some((m) => m.id === sel.id))) body = <MarkPanel key={stable} civ={civ} raster={raster} world={world} year={year} id={sel.id} />;
   if (!body) return null;
   const stop = (e: { stopPropagation(): void }) => e.stopPropagation();
   // 在地图上选目标、下了令正在推演:先藏起来(面板里的状态留着,取消后回到干预页)

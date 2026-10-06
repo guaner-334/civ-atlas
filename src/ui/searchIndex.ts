@@ -158,23 +158,7 @@ export function searchCiv(civ: Civ, query: string, yearIn: number, limit = SEARC
       .map(strip);
   }
 
-  const out: Scored[] = [];
-  // 作者标记:名字;说明里有也算
-  for (const m of marks) {
-    const t = matchScore(m.title, q);
-    const s = t >= 0 ? t : m.note?.toLowerCase().includes(q) ? 2.5 : -1;
-    if (s < 0) continue;
-    out.push({
-      kind: 'mark',
-      id: m.id,
-      name: m.title,
-      sub: `标记，${m.to === undefined ? `${m.from} 年起` : `${m.from}–${m.to} 年`}`,
-      color: MARK_HEX[m.color],
-      select: { kind: 'mark', id: m.id },
-      score: s,
-      weight: -m.from,
-    });
-  }
+  const out: Scored[] = markHits(marks, q);
   // 国家:这一年的国号,或者用过的国号(右边写"曾称某某");国都对上了也算(右边写"国都 某城")
   for (const p of civ.polities) {
     const now = matchScore(polityNameAt(p, year), q);
@@ -290,6 +274,37 @@ export function searchCiv(civ: Civ, query: string, yearIn: number, limit = SEARC
       weight: -pl.rank * 1e6 + (pl.size ?? 0),
     });
   });
+  return ranked(out, limit);
+}
+
+/** 只找作者标记(还没有国家的世界也能放标记,搜索框只搜它们) */
+export function searchMarks(query: string, marks: readonly AuthorMark[], limit = SEARCH_LIMIT): SearchHit[] {
+  const q = query.trim().toLowerCase();
+  return q ? ranked(markHits(marks, q), limit) : [];
+}
+
+/** 作者标记:名字;说明里有也算 */
+function markHits(marks: readonly AuthorMark[], q: string): Scored[] {
+  const out: Scored[] = [];
+  for (const m of marks) {
+    const t = matchScore(m.title, q);
+    const s = t >= 0 ? t : m.note?.toLowerCase().includes(q) ? 2.5 : -1;
+    if (s < 0) continue;
+    out.push({
+      kind: 'mark',
+      id: m.id,
+      name: m.title,
+      sub: `标记，${m.to === undefined ? `${m.from} 年起` : `${m.from}–${m.to} 年`}`,
+      color: MARK_HEX[m.color],
+      select: { kind: 'mark', id: m.id },
+      score: s,
+      weight: -m.from,
+    });
+  }
+  return out;
+}
+
+function ranked(out: Scored[], limit: number): SearchHit[] {
   return out
     .sort((a, b) => a.score - b.score || KIND_ORDER[a.kind] - KIND_ORDER[b.kind] || b.weight - a.weight || a.id - b.id)
     .slice(0, limit)

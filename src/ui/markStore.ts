@@ -7,8 +7,8 @@
  * - 几个州的标记:编辑时点地图上的州 = 加进来 / 再点一下去掉;一个点的标记:编辑时拖图钉挪位置
  */
 import { useSyncExternalStore } from 'react';
-import { MARK_COLORS, type AuthorMark, type MarkColor } from '../gen/edits';
-import { addMark, getEdits, updateMark } from './editsStore';
+import { MARKS_MAX, MARK_COLORS, type AuthorMark, type MarkColor } from '../gen/edits';
+import { addMark, getEdits, subscribeEdits, updateMark } from './editsStore';
 import { clearSelection, getSelection, setSelection, subscribeSelection } from './civView';
 
 /** 卡片上正在填的标记 */
@@ -149,6 +149,7 @@ export function draftProblem(d: MarkDraft): string | null {
   if (to !== null && to < from) return '"到"比"从"早了';
   if (d.scope === 'regions' && !d.regions.length) return '在地图上点几个州加进来';
   if (d.scope === 'point' && !d.at) return '在地图上点一下放图钉';
+  if (d.id === 0 && (getEdits().marks?.length ?? 0) >= MARKS_MAX) return `标记已经有 ${MARKS_MAX} 个了,删掉一些才能再加`;
   return null;
 }
 
@@ -202,4 +203,10 @@ subscribeSelection(() => {
   if (state.placing && s) set({ placing: false });
   const d = state.draft;
   if (d && (!s || s.kind !== 'mark' || s.id !== d.id)) set({ draft: null });
+});
+
+// 选中的标记没了(撤销了新建、换了世界……):卡片关掉
+subscribeEdits((e) => {
+  const s = getSelection().sel;
+  if (s?.kind === 'mark' && s.id !== state.draft?.id && !e.marks?.some((m) => m.id === s.id)) clearSelection();
 });

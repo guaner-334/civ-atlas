@@ -9,7 +9,7 @@
  * 读档、换世界(setEdits / clearEdits)、创建世界(clearEditHistory)清空。地形修改不记:只在新建世界时能改,改地形工具有自己的"撤销一笔"。
  */
 import { useSyncExternalStore } from 'react';
-import { EMPTY_EDITS, cleanIntervention, cleanMark, markAiName, nextMarkId, type AuthorMark, type Intervention, type TerrainOp, type WorldEdits } from '../gen/edits';
+import { EMPTY_EDITS, MARKS_MAX, cleanIntervention, cleanMark, markAiName, nextMarkId, type AuthorMark, type Intervention, type TerrainOp, type WorldEdits } from '../gen/edits';
 import { TERRAIN_MAX_OPS, cleanTerrainOp } from '../gen/terrainEdits';
 import { showToast } from './toastStore';
 
@@ -297,8 +297,9 @@ function commitMarks(list: AuthorMark[]) {
   commitEdits(list.length ? { ...rest, marks: list } : rest);
 }
 
-/** 加一个标记(清理过的;编号按现有最大的 + 1 重新给)。返回新标记的编号;不合格 = −1 */
+/** 加一个标记(清理过的;编号按现有最大的 + 1 重新给)。返回新标记的编号;不合格、已经有 MARKS_MAX 个 = −1 */
 export function addMark(m: Omit<AuthorMark, 'id'>): number {
+  if ((state.marks?.length ?? 0) >= MARKS_MAX) return -1;
   const id = nextMarkId(state.marks);
   const c = cleanMark({ ...m, id });
   if (!c) return -1;
