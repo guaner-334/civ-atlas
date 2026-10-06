@@ -77,6 +77,11 @@ export function markPinTip(id: number): [number, number] | null {
   return p && shown ? [p.x + shown.view.left, p.y + shown.view.top] : null;
 }
 
+/** 冒烟检查用:window.__wfMarks = 最近画的那一帧(屏幕坐标);什么都没画 = 空 */
+function debugNone() {
+  (window as unknown as { __wfMarks?: unknown }).__wfMarks = { pins: [], areas: [], clusters: [], k: 0 };
+}
+
 /** 编辑中的标记画成的样子(还没存的那一份) */
 function draftAsMark(d: MarkDraft): AuthorMark | null {
   const from = Number(d.fromText);
@@ -139,6 +144,7 @@ export function MarkLayer({ civ, world, api, hidden }: { civ: Civ | null; world:
     const cv = cvRef.current;
     if (!active || !cv) {
       shown = null;
+      debugNone();
       if (cv) cv.getContext('2d')?.clearRect(0, 0, cv.width, cv.height);
       return;
     }
@@ -161,6 +167,7 @@ export function MarkLayer({ civ, world, api, hidden }: { civ: Civ | null; world:
       if (!v) {
         ctx.clearRect(0, 0, cv.width, cv.height);
         shown = null;
+        debugNone();
         return;
       }
       const W = Math.max(1, Math.round(v.w * dpr));
