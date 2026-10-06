@@ -14,6 +14,7 @@
  * | `settlement:c4567#1`        | 城:地块 4567 所在的州里第 1 座城(按建城先后;0 = 最早的,毁了又在故址重建的 +1)   |
  * | `place:mountains@c4567#0`   | 地理实体:种类(sea / mountains / river / lake / island / desert)+ 锚点地块 4567;同种类同锚点的第 0 个(几乎总是 0) |
  * | `culture:c4567#0`           | 民族:发源在地块 4567 所在的州(4567 = 发源州的治所地块),这州第 0 个发源的(几乎总是 0) |
+ * | `faith:c4567#0`             | 信仰:大教 = 圣城所在的州,教派 = 分出时那国国都所在的州,民间信仰 = 那个民族的发源州;这州第 0 个(按创立先后,民间信仰在前) |
  * | `dynasty:c4567#0/2`         | 朝代:国家 `polity:c4567#0` 的第 2 朝(Polity.dynasties 的下标,0 = 立国时那一朝)  |
  * | `region:c4567`              | 州:包含地块 4567 的那一州(4567 = 这州的治所地块)                              |
  *
@@ -37,6 +38,10 @@
  * applyNames 返回套上名字的新 Civ(原 Civ 不改;没有任何名字生效时直接返回原 Civ)。连带跟着变的(用户没单独改过的):
  * - 复国的国家("后昌")跟着故国的国号变("昌" 改成 "秦" → "后秦")
  * - 同族在故址上重建、沿用旧名的城,跟着旧城的名字变
+ *
+ * WorldEdits.aiNames(可选):哪些名字是从 AI 起名里挑的。稳定键 → { name: 挑的那个名字, was: 挑之前的名字(没改过 = 不写) }。
+ * 只是记一笔来源:names 里这个键还是这个名字 = "AI 写"(之后自己再改、恢复默认、撤销都不算了);
+ * 导出时选"换回原名"就用 was(没有 = 生成时的名字)。不影响生成和推演。
  *
  * ## 干预
  *
@@ -84,7 +89,8 @@
  * 折线的第一个点 x 在 [0, 2048) 里,之后每个点按离上一个点近的那边写(跨 180° 经线的一笔 x 可以超出 [0, 2048),是连着的一笔)。
  * 读进来的列表先过 terrainEdits.ts 的 cleanTerrainOps(种类不认识、坐标不是数的丢掉;x 按上面的规则规整,y、大小、强度夹回范围内)。
  *
- * GENERATOR_VERSION:生成算法有改动、同种子会得到不同世界时加一(存档读档时核对,不一致就提示"存档来自旧版本")。
+ * GENERATOR_VERSION:生成算法有改动、同种子会得到不同世界时加一(存档读档时核对,不一致就提示"来自旧版本"和变了什么;
+ * 每一版改了什么记在下面的 GENERATOR_CHANGES,提示照它说)。
  *   2:名字按位置取(gen/civ/naming.ts、places.ts;地形、历史不变,默认的名字换了一遍),稳定键改按地块定位(c 格式)。
  *   3:推演里的随机数按位置锚取(gen/civ/rand.ts:州 = 治所地块,国家 / 城 / 民族 = 它们的锚点地块,不按编号),
  *      超越函数舍入到 24 位(不同 CPU、浏览器逐位一致);民族的语感、配色按发源地位置先后挑;
@@ -100,11 +106,33 @@
  *   8:改过地形的世界,扩张节拍按没改地形时的同一颗星球定(civ/index.ts 的 planetTempo),不再因为节拍被拨动而让全世界的历史错开。
  *      没改地形的世界和 7 逐字节相同;改过地形的世界历史换了一遍。
  */
-import type { Civ, Place, Polity, Settlement } from './civ/types';
+import type { Civ, Culture, Faith, Place, Polity, Settlement } from './civ/types';
 import { polityRootAt } from './civ/growth';
 
-/** 生成器版本:生成算法有改动、同种子会得到不同世界时加一(存档读档时核对) */
+/** 生成器版本:生成算法有改动、同种子会得到不同世界时加一(存档读档时核对);加一时在 GENERATOR_CHANGES 里补一条 */
 export const GENERATOR_VERSION = 8;
+
+/**
+ * 一版生成器的改动有多大(从小到大):打开旧存档、旧链接时,按跨过的几版里最大的那一种说清变了什么(savefile.ts 的 versionNote)
+ *   names      地形、历史不变,默认的名字换了
+ *   chronicle  疆域、兴亡不变,编年史里添了内容
+ *   history    地形、气候不变,历史重新推演
+ *   climate    陆地和山不变,气候、河流、历史变了
+ *   terrain    地形有局部变化,历史重新推演
+ *   planet     整颗星球重新生成
+ */
+export type GeneratorChange = 'names' | 'chronicle' | 'history' | 'climate' | 'terrain' | 'planet';
+
+/** 每一版(加到这个号时)改了什么;edited = 只有改过地形的世界变了,没改地形的和上一版一样 */
+export const GENERATOR_CHANGES: Readonly<Record<number, { change: GeneratorChange; edited?: true }>> = {
+  2: { change: 'names' },
+  3: { change: 'terrain' },
+  4: { change: 'planet' },
+  5: { change: 'planet' },
+  6: { change: 'chronicle' },
+  7: { change: 'climate' },
+  8: { change: 'history', edited: true },
+};
 
 /** 干预的种类(见文件头的表) */
 export type InterventionKind = 'protect' | 'ally' | 'declare' | 'unity' | 'cede' | 'found' | 'move' | 'halt';
@@ -137,10 +165,18 @@ export interface TerrainOp {
 export interface WorldEdits {
   /** 改名:稳定键 → 新名字 */
   names: Record<string, string>;
+  /** 从 AI 起名里挑的名字(见文件头"改名");没有 = 一个也没有 */
+  aiNames?: Record<string, AiNameMark>;
   /** 干预(按下达的先后;见文件头"干预") */
   interventions: Intervention[];
   /** 地形修改(按先后;见文件头"地形修改") */
   terrain: TerrainOp[];
+}
+
+/** 一个从 AI 起名里挑的名字:挑的那个名字、挑之前的名字(没改过 = 不写) */
+export interface AiNameMark {
+  name: string;
+  was?: string;
 }
 
 export const EMPTY_EDITS: WorldEdits = Object.freeze({
@@ -149,7 +185,7 @@ export const EMPTY_EDITS: WorldEdits = Object.freeze({
   terrain: Object.freeze([]) as unknown as TerrainOp[],
 });
 
-export type KeyKind = 'polity' | 'settlement' | 'place' | 'culture' | 'dynasty' | 'region';
+export type KeyKind = 'polity' | 'settlement' | 'place' | 'culture' | 'dynasty' | 'region' | 'faith';
 
 export interface ResolvedKey {
   kind: KeyKind;
@@ -162,14 +198,15 @@ export interface ResolvedKey {
 // ---------------------------------------------------------------------------
 // 稳定键 ↔ 编号(每个 Civ 算一次)
 
-/** 国家 / 城 / 民族:按州编"第几个"的三类 */
-type CountedKind = 'polity' | 'settlement' | 'culture';
+/** 国家 / 城 / 民族 / 信仰:按州编"第几个"的几类 */
+type CountedKind = 'polity' | 'settlement' | 'culture' | 'faith';
 
 interface KeyIndex {
   polity: string[];
   settlement: string[];
   place: string[];
   culture: string[];
+  faith: string[];
   /** 地理实体的键 → 编号 */
   places: Map<string, number>;
   /** 按州定位的内部键(`polity:123#0`,123 = 州号)→ 编号 */
@@ -214,12 +251,13 @@ function keyIndex(civ: Civ): KeyIndex {
   const polity = build('polity', civ.polities, (p) => S[p.capital]?.region ?? -1, (a, b) => a.founded - b.founded);
   const settlement = build('settlement', S, (s) => s.region, (a, b) => a.founded - b.founded);
   const culture = build('culture', civ.cultures, (c) => c.hearth, (a, b) => a.born - b.born);
+  const faith = build('faith', civ.religion?.faiths ?? [], (f) => faithRegion(civ, f), (a, b) => (a.founded ?? -1) - (b.founded ?? -1));
   const placeAt = (p: Place, i: number) => `place:${p.kind}@${p.cell !== undefined ? `c${p.cell}` : `i${i}`}`;
   const pn = counted(civ.places, placeAt, () => 0);
   const place = civ.places.map((p, i) => `${placeAt(p, i)}#${pn[i]}`);
   const places = new Map<string, number>();
   place.forEach((k, id) => places.set(k, id));
-  ix = { polity, settlement, place, culture, places, byRegion };
+  ix = { polity, settlement, place, culture, faith, places, byRegion };
   indexCache.set(civ, ix);
   return ix;
 }
@@ -249,6 +287,17 @@ export function cultureKey(civ: Civ, id: number): string {
   return keyIndex(civ).culture[id];
 }
 
+export function faithKey(civ: Civ, id: number): string {
+  return keyIndex(civ).faith[id];
+}
+
+/** 信仰的位置锚:大教 = 圣城所在的州,教派 = 分出时那国国都所在的州,民间信仰 = 民族的发源州 */
+function faithRegion(civ: Civ, f: Faith): number {
+  if (f.kind === 'folk') return civ.cultures[f.culture ?? f.id]?.hearth ?? -1;
+  const s = f.kind === 'great' ? f.holy : f.seat;
+  return s !== undefined ? (civ.settlements[s]?.region ?? -1) : -1;
+}
+
 export function dynastyKey(civ: Civ, polity: number, index: number): string {
   return `dynasty:${polityKey(civ, polity).slice('polity:'.length)}/${index}`;
 }
@@ -267,7 +316,7 @@ function regionOfRef(ref: string, of: ArrayLike<number>): number {
 }
 
 const REGION_KEY = /^region:([rc]\d{1,7})$/;
-const COUNTED_KEY = /^(polity|settlement|culture):(r-?\d{1,7}|c\d{1,7})#(\d{1,5})$/;
+const COUNTED_KEY = /^(polity|settlement|culture|faith):(r-?\d{1,7}|c\d{1,7})#(\d{1,5})$/;
 
 /**
  * 州键 → 现在的州号:`region:c4567` 找包含地块 4567 的州(水上 = −1);旧格式 `region:r123` 就是 123(不查州数,推演时再核对)。
@@ -383,6 +432,46 @@ function bare(root: string): string {
 /** 名字最长几个字 */
 export const NAME_MAX = 16;
 
+/** 这个键现在的名字是不是从 AI 起名里挑的(之后自己改过、恢复过默认的不算) */
+export function isAiName(edits: WorldEdits, key: string): boolean {
+  const m = edits.aiNames?.[key];
+  return !!m && edits.names[key] === m.name;
+}
+
+/** 现在用着的 AI 起的名字有哪几个(稳定键) */
+export function aiNameKeys(edits: WorldEdits): string[] {
+  return Object.keys(edits.aiNames ?? {}).filter((k) => isAiName(edits, k));
+}
+
+/**
+ * 记下 key 的名字换成了 name 以后的 aiNames:从 AI 起名里挑的(ai = true)记一笔,挑之前的名字留着
+ * (上一个也是 AI 起的就沿用它的 was);别的改名(自己改、恢复默认)把这一笔去掉。一笔都不剩 = undefined
+ */
+export function markAiName(edits: WorldEdits, key: string, name: string | null, ai: boolean): Record<string, AiNameMark> | undefined {
+  const cur = edits.aiNames;
+  if (ai && name) {
+    const was = isAiName(edits, key) ? cur![key].was : edits.names[key];
+    return { ...cur, [key]: was === undefined ? { name } : { name, was } };
+  }
+  if (!cur || !(key in cur)) return cur;
+  const next = { ...cur };
+  delete next[key];
+  return Object.keys(next).length ? next : undefined;
+}
+
+/** 导出时"换回原名"用的改名表:AI 起的名字换回挑之前的(没改过 = 去掉,用生成时的名字) */
+export function namesWithoutAi(edits: WorldEdits): Record<string, string> {
+  const keys = aiNameKeys(edits);
+  if (!keys.length) return edits.names;
+  const out = { ...edits.names };
+  for (const k of keys) {
+    const was = edits.aiNames![k].was;
+    if (was === undefined) delete out[k];
+    else out[k] = was;
+  }
+  return out;
+}
+
 /** 国名词根末尾常被顺手打上的国号(打"索拉特王国"就当是"索拉特";长的在前) */
 const POLITY_SUFFIXES = ['共和国', '大汗国', '王朝', '皇朝', '帝国', '王国', '汗国', '城邦', '国', '部'];
 
@@ -439,6 +528,7 @@ export function applyNames(civ: Civ, names: Record<string, string>): Civ {
   const place = new Map<number, string>();
   const culture = new Map<number, string>();
   const region = new Map<number, string>();
+  const faith = new Map<number, string>();
   for (const key in names) {
     const name = names[key];
     if (typeof name !== 'string' || !name) continue;
@@ -449,13 +539,14 @@ export function applyNames(civ: Civ, names: Record<string, string>): Civ {
     else if (r.kind === 'place') place.set(r.id, name);
     else if (r.kind === 'culture') culture.set(r.id, name);
     else if (r.kind === 'region') region.set(r.id, name);
+    else if (r.kind === 'faith') faith.set(r.id, name);
     else {
       let m = dynasty.get(r.id);
       if (!m) dynasty.set(r.id, (m = new Map()));
       m.set(r.index!, name);
     }
   }
-  if (!polityRoot.size && !dynasty.size && !settlement.size && !place.size && !culture.size && !region.size) return civ;
+  if (!polityRoot.size && !dynasty.size && !settlement.size && !place.size && !culture.size && !region.size && !faith.size) return civ;
 
   let changed = false;
   // 州名:另起一份 regionNames(civ.regions 不动,见文件头)
@@ -542,10 +633,32 @@ export function applyNames(civ: Civ, names: Record<string, string>): Civ {
       changed = true;
     }
   }
+  // 信仰:民间信仰跟着改过名的民族变(族名 + 祖灵 / 旧神;用户单独改过的除外)
+  let religion = civ.religion;
+  if (religion && (faith.size || culture.size)) {
+    const F0 = religion.faiths;
+    const F = F0.map((f) => {
+      const name = faith.get(f.id) ?? (f.kind === 'folk' && culture.has(f.culture ?? f.id) ? folkRenamed(civ, f, cultures) : null);
+      return name && name !== f.name ? { ...f, name } : f;
+    });
+    if (F.some((f, i) => f !== F0[i])) {
+      religion = { ...religion, faiths: F };
+      changed = true;
+    }
+  }
   if (!changed) return civ;
   const out: Civ = { ...civ, cultures, places, settlements, polities };
   if (regionNames) out.regionNames = regionNames;
+  if (religion) out.religion = religion;
   return out;
+}
+
+/** 民族改了名以后它的民间信仰叫什么(原名 = 原族名 + 词尾;对不上就不跟着改) */
+function folkRenamed(civ: Civ, f: Faith, cultures: readonly Culture[]): string | null {
+  const id = f.culture ?? f.id;
+  const old = civ.cultures[id]?.name;
+  if (!old || !f.name.startsWith(old)) return null;
+  return cultures[id].name + f.name.slice(old.length);
 }
 
 // ---------------------------------------------------------------------------

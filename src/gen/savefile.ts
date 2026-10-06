@@ -19,6 +19,8 @@
  * - generator:生成器版本(edits.ts 的 GENERATOR_VERSION);和当前的不同 = 同样的参数可能生成不同的世界
  * - check:地形的短哈希(worldCheck);读档生成完再算一遍,对不上也说明地形变了。两种情况都照样打开,
  *   提示"改过的名字会尽量套上"(稳定键按州、地块定位,地形变化不大时大多还能对上)
+ * - edits.aiNames(可选):哪些名字是从 AI 起名里挑的(edits.ts 文件头"改名"),`{ "polity:c4567#0": { "name": "青渊", "was": "渊" } }`;
+ *   只存现在还用着的那几个,旧存档没有 = 一个也没有
  * - edits.interventions:干预(具体种类见 edits.ts 文件头"干预");这里当成不透明的数组原样存、原样读回
  * - edits.terrain:地形修改(edits.ts 文件头"地形修改");读档时逐处过 cleanTerrainOp,格式不对的跳过。
  *   旧存档没有这个字段 = 没改地形。check 是**改过地形以后**的地形哈希(读档时带着地形修改生成,再核对)
@@ -29,7 +31,7 @@
  * 纯计算,不碰 DOM(Node 里可测)。
  */
 import { DEFAULT_PARAMS, type World, type WorldParams } from './world';
-import { GENERATOR_VERSION, NAME_MAX, type Intervention, type TerrainOp, type WorldEdits } from './edits';
+import { GENERATOR_CHANGES, GENERATOR_VERSION, NAME_MAX, aiNameKeys, type AiNameMark, type GeneratorChange, type Intervention, type TerrainOp, type WorldEdits } from './edits';
 import { TERRAIN_MAX_OPS, cleanTerrainOp } from './terrainEdits';
 
 export const SAVE_APP = '文明与地图';
@@ -86,9 +88,41 @@ export function sameView(a: SaveView | null | undefined, b: SaveView | null | un
 
 export type ParseResult = { ok: true; save: SaveFile; warnings: string[] } | { ok: false; error: string };
 
-/** 版本不同 / 地形对不上时的提示 */
-export const STALE_WARNING = '这个存档来自旧版本,地形可能不同,改过的名字会尽量套上';
-export const NEWER_WARNING = '这个存档来自更新的版本,地形可能不同,改过的名字会尽量套上(刷新页面可以换到最新版)';
+/** 生成器每种改动对应的说法(versionNote 接在"来自旧版本："后面) */
+const CHANGE_TEXT: Record<GeneratorChange, string> = {
+  planet: '整颗星球重新生成了，地形和历史都和原来不同',
+  terrain: '地形有局部变化，历史重新推演了',
+  climate: '陆地和山没变，气候、河流和历史都重算了',
+  history: '地形和气候没变，历史重新推演了',
+  chronicle: '疆域和兴亡没变，编年史写得更细了',
+  names: '地形和历史没变，默认的地名换了',
+};
+const CHANGE_RANK: GeneratorChange[] = ['names', 'chronicle', 'history', 'climate', 'terrain', 'planet'];
+
+/** 来自更新的版本(页面是旧的):不知道新版改了什么,只说怎么换到最新版 */
+export const NEWER_NOTE = '来自更新的版本，刷新页面换到最新版再看';
+
+/**
+ * 从第 from 版生成器到现在,同样的种子、参数(改没改过地形)生成出来的世界变了什么:跨过的几版里最大的那种改动。
+ * 一样 = null(比如只动了改过地形的世界的那一版,这个世界没改地形);比现在新 = NEWER_NOTE;
+ * 认不出的旧版本(没记版本号、不是整数、表里没有的)按整颗星球重新生成说
+ */
+export function versionNote(from: number, terrainEdited: boolean): string | null {
+  if (from === GENERATOR_VERSION) return null;
+  // 不是整数的版本号(手改过、坏了的存档)认不出,不管比现在大还是小,都按整颗星球重新生成说
+  if (!Number.isInteger(from)) return `来自旧版本：${CHANGE_TEXT.planet}`;
+  if (from > GENERATOR_VERSION) return NEWER_NOTE;
+  let top = -1;
+  for (let v = Math.max(1, from) + 1; v <= GENERATOR_VERSION; v++) {
+    const c = GENERATOR_CHANGES[v];
+    const rank = c ? CHANGE_RANK.indexOf(c.change) : CHANGE_RANK.length - 1;
+    if (c?.edited && !terrainEdited) continue;
+    top = Math.max(top, rank);
+  }
+  return top < 0 ? null : `来自旧版本：${CHANGE_TEXT[CHANGE_RANK[top]]}`;
+}
+
+/** 生成器版本相同、地形却对不上时的提示 */
 export const CHECK_WARNING = '地形和存档时对不上(可能来自别的版本),改过的名字会尽量套上';
 
 /** 世界名最长几个字 */
@@ -159,6 +193,9 @@ export function makeSave(params: WorldParams, edits: WorldEdits, check: string, 
     check,
     savedAt,
   };
+  // AI 起的名字:只存现在还用着的
+  const ai = aiNameKeys(edits);
+  if (ai.length) save.edits.aiNames = Object.fromEntries(ai.map((k) => [k, { ...edits.aiNames![k] }]));
   const t = cleanTitle(title);
   if (t) save.title = t;
   const v = view ? cleanView(view) : null;
@@ -224,8 +261,8 @@ export function parseSave(text: string): ParseResult {
   if (bad.length) warnings.push(`存档里的${bad.join('、')}不对,已改成合理的值`);
 
   const generator = typeof raw.generator === 'number' && Number.isFinite(raw.generator) ? raw.generator : 0;
-  if (generator < GENERATOR_VERSION) warnings.push(STALE_WARNING);
-  else if (generator > GENERATOR_VERSION) warnings.push(NEWER_WARNING);
+  // 版本不同的提示排在参数之后、改名之前;变了什么要看改没改过地形,地形修改读完再算
+  const noteAt = warnings.length;
 
   // 修改:改名只收"字符串键 → 非空字符串";干预原样收(只跳过不是对象的)
   const E = isObj(raw.edits) ? raw.edits : {};
@@ -246,6 +283,14 @@ export function parseSave(text: string): ParseResult {
     }
   } else if (E.names !== undefined) dropped++;
   if (dropped) warnings.push(`有 ${dropped} 处改名格式不对,已跳过`);
+  // AI 起的名字的记号:只收和改名对得上的(格式不对的悄悄跳过,只是少了"AI 写"的标记)
+  const aiNames: Record<string, AiNameMark> = {};
+  if (isObj(E.aiNames)) {
+    for (const [k, v] of Object.entries(E.aiNames)) {
+      if (!isObj(v) || typeof v.name !== 'string' || names[k] !== v.name) continue;
+      aiNames[k] = typeof v.was === 'string' && v.was.trim() && [...v.was].length <= NAME_MAX ? { name: v.name, was: v.was } : { name: v.name };
+    }
+  }
   const interventions: Intervention[] = [];
   let droppedI = 0;
   if (Array.isArray(E.interventions)) {
@@ -266,6 +311,8 @@ export function parseSave(text: string): ParseResult {
     }
   } else if (E.terrain !== undefined) droppedT++;
   if (droppedT) warnings.push(`有 ${droppedT} 处地形修改格式不对,已跳过`);
+  const note = versionNote(generator, terrain.length > 0);
+  if (note) warnings.splice(noteAt, 0, note);
 
   const save: SaveFile = {
     app: SAVE_APP,
@@ -273,7 +320,7 @@ export function parseSave(text: string): ParseResult {
     generator,
     seed: params.seed,
     params,
-    edits: { names, interventions, terrain },
+    edits: Object.keys(aiNames).length ? { names, aiNames, interventions, terrain } : { names, interventions, terrain },
     check: typeof raw.check === 'string' ? raw.check.slice(0, 64) : '',
     savedAt: typeof raw.savedAt === 'string' && !Number.isNaN(Date.parse(raw.savedAt)) ? raw.savedAt : '',
   };
@@ -286,11 +333,11 @@ export function parseSave(text: string): ParseResult {
 }
 
 /**
- * 按存档的参数生成完以后核对地形:生成器版本相同、地形哈希却对不上时给提示
- * (版本不同的 parseSave 已经提示过,这里不重复)。对得上 = null
+ * 按存档的参数生成完以后核对地形:生成器版本相同(或版本不同、但按 versionNote 世界应该一样)、地形哈希却对不上时给提示
+ * (版本不同、世界变了的,parseSave 已经说过变了什么,这里不重复)。对得上 = null
  */
 export function checkWarning(save: SaveFile, check: string): string | null {
-  if (save.generator !== GENERATOR_VERSION) return null;
+  if (save.generator !== GENERATOR_VERSION && versionNote(save.generator, (save.edits.terrain?.length ?? 0) > 0) !== null) return null;
   if (!save.check || save.check === check) return null;
   return CHECK_WARNING;
 }
@@ -337,6 +384,9 @@ export function worldCheck(world: World): string {
 // - 压缩用浏览器自带的 CompressionStream('deflate-raw')(= zlib 的 raw deflate,Node 里 zlib.inflateRawSync 也能解),
 //   再转成 base64url(只有 A–Z a–z 0–9 - _,放进网址不用转义)
 // - 解开以后走和"从文件打开"同一个 parseSave:版本不同、参数超范围这些照样打开并提示
+
+/** 网址里生成器版本的键(?…&gen=8):带种子的网址、分享链接都写上,打开时和现在的版本比 */
+export const GEN_KEY = 'gen';
 
 /** # 后面的键:#share=… */
 export const SHARE_KEY = 'share';
@@ -513,6 +563,8 @@ export function editsLost(local: SaveFile, incoming: SaveFile): number {
   const I = incoming.edits as unknown as Record<string, unknown>;
   let n = 0;
   for (const [k, lv] of Object.entries(L)) {
+    // AI 起名的记号跟着改名走,丢没丢已经按改名算过了
+    if (k === 'aiNames') continue;
     const iv = I[k];
     if (Array.isArray(lv)) {
       const has = new Set(Array.isArray(iv) ? iv.map((x) => JSON.stringify(x)) : []);

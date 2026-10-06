@@ -53,6 +53,12 @@ import { CivTimeline } from './CivTimeline';
 import { EventPins, type WorldToClient } from './EventPins';
 import { HistoryBook } from './HistoryBook';
 import { AiSettingsHost } from './AiSettings';
+import { AccountHost, ShareGone, SharedHint, closeTrash, openLogin, setGoHome, useTrashView } from './AccountDialogs';
+import { serverBase } from '../account/server';
+import { getSession, takeInviteFromUrl } from '../account/session';
+import { setReloadHandler, startSync } from '../account/sync';
+import { SHARE_CODE_RE, openShareCode } from '../account/cloud';
+import { ServerError } from '../account/server';
 import { highlightBox, highlightMarks } from '../render/civ/highlight';
 import {
   clearChroniclePick,
@@ -83,6 +89,9 @@ import {
   EMPTY_EDITS,
   GENERATOR_VERSION,
   applyNames,
+  aiNameKeys,
+  faithKey,
+  namesWithoutAi,
   placeKeyOf,
   polityKey,
   resolveKey,
@@ -102,14 +111,14 @@ import { TipLayer } from './Tips';
 import { openSaveMenu } from './SaveMenu';
 import { replayStart } from './timelineLayout';
 import {
-  NEWER_WARNING,
-  STALE_WARNING,
   checkWarning,
   cleanTitle,
   decodeShare,
   editCount,
+  GEN_KEY,
   isShareHash,
   parseSave,
+  versionNote,
   worldCheck,
   worldKey,
   type ParseResult,
@@ -139,6 +148,7 @@ import {
   persistent,
   refreshThumb,
   renameWorld,
+  setReopenHandler,
   setThumbMaker,
   setWorldStats,
   startAutoSave,
@@ -154,10 +164,10 @@ import { CIV_SHOW_OFF, drawCivOverlay } from '../render/civ/overlay';
 import { getPolityPick, interventionActorThen, interventionDoneText, setPickHover, setPolityPick, usePolityPick } from './Interventions';
 import { Inspector } from './Inspector';
 import { TargetLayer } from './TargetPlates';
-import { FLY_MS, animProgress, curvedFly, easeOutCubic, flatFly, selectionFocus, selectionKey, sideRoom, phoneFree, type FlyGoal } from './flyTo';
+import { FLY_MS, animProgress, curvedFly, easeOutCubic, flatFly, personKey, resolvePersonKey, selectionFocus, selectionKey, sideRoom, phoneFree, type FlyGoal } from './flyTo';
 import { collapseSide, expandSide, getSide, setSideHold, useSide } from './sideStore';
 import { getPanel, setWorldSheet, usePanel } from './panelStore';
-import { closeOverview } from './overviewStore';
+import { closeOverview, getPeople, setPeople } from './overviewStore';
 import { STUDIO_STYLES, Studio } from './studio/Studio';
 import { setFlatGeomSource, useStudioFlat } from './studio/studioStore';
 import { MyWorlds } from './MyWorlds';
@@ -166,11 +176,14 @@ import { isDoubleTap, pinchStep, type Pt, type Tap } from './gestures';
 import { createPinchGuard, createWheelReader, inGesturePinch, setGesturePinch, wheelSample } from './wheel';
 import { pickLabelAt } from './mapPick';
 import { ownersAt } from '../gen/civ/timeline';
+import { faithAt } from '../gen/civ/religion';
 import { interventionOutcome } from '../gen/civ/chronicle';
 import { takeRewriteNote, type RewriteNote } from './rewriteStore';
 import { AssistantPanel, PreviewBanner } from './Assistant';
-import { astRoom, useAstOpen } from './astPanel';
-import { PREVIEW_EDIT_BLOCK, exitPreview, getAssistant, newConversation, sameInBoth, setTrialRunner, syncAssistantWorld, useAssistantPreview } from './assistantStore';
+import { astRoom, closeAssistant, useAstOpen } from './astPanel';
+import { PREVIEW_EDIT_BLOCK, exitPreview, getAssistant, newConversation, sameInBoth, setTrialRunner, stopAsk, syncAssistantWorld, useAssistantPreview } from './assistantStore';
+import { closeBookReader, closeHistoryBook, stopBook } from './bookStore';
+import { useAiOn } from '../ai/client';
 import { Globe, getGlobeOn, setGlobeOn, useGlobeOn, type GlobeApi } from './Globe';
 import { setupAi } from '../ai/setup';
 import { ToastBar, clearToast, showToast } from './Toast';
@@ -217,6 +230,8 @@ function readUrl() {
   }
   // 分享链接:# 后面是整份存档(gen/savefile.ts 的 encodeShare)
   const share = isShareHash(location.hash) ? location.hash : null;
+  // 分享短链接(网站/s/<码> 转过来的 ?s=<码>):存档在服务器上,打开时去取
+  const shortShare = q.get('s');
   // 投影、中央经线(改了就写进网址,刷新、复制网址都还在)
   // 地球仪以前写的是 view=globe,照样认
   const pq = q.get('proj') ?? (q.get('view') === 'globe' ? 'globe' : null);
@@ -224,18 +239,22 @@ function readUrl() {
   const lq = Number(q.get('lon'));
   const lon = q.get('lon') !== null && Number.isFinite(lq) ? wrapLon(lq) : null;
   const grat = q.get('grat') === '1';
-  return { params, style, layer, mapLayer, share, proj, lon, grat };
+  // 生成器版本(gen=):这个网址是哪一版画出来的世界;和现在的不同,打开时说清变了什么。旧网址没有 = 不知道,不提示;
+  // 带了却认不出(不是整数之类)当成第 0 版:认不出的旧版本,照样提示,也不当成没带 gen 的老网址
+  const gq = q.get(GEN_KEY);
+  const gen = gq === null ? null : /^\d{1,6}$/.test(gq) ? Number(gq) : 0;
+  return { params, style, layer, mapLayer, share, shortShare, proj, lon, grat, gen };
 }
 
 /**
- * 换了图层:写进网址(layer= 新的图层名;去掉旧的 style=,civ= 里的国家 / 民族开关交给图层管),刷新、复制网址都还在
+ * 换了图层:写进网址(layer= 新的图层名;去掉旧的 style=,civ= 里的国家 / 民族 / 信仰开关交给图层管),刷新、复制网址都还在
  */
 function writeLayerUrl(id: MapLayer) {
   const q = new URLSearchParams(location.search);
   q.delete('style');
   const civ = q.get('civ');
   if (civ !== null) {
-    const rest = civ.split(/[,+ ]/).filter((k) => k && !/^-?(polities|cultures)$/.test(k));
+    const rest = civ.split(/[,+ ]/).filter((k) => k && !/^-?(polities|cultures|faiths)$/.test(k));
     if (rest.length) q.set('civ', rest.join(','));
     else q.delete('civ');
   }
@@ -262,11 +281,15 @@ interface Target {
   /** 换成存档里的投影和中央经线(undefined = 不动;null = 等距圆柱、0°) */
   view?: SaveView | null;
   /** 从哪打开的(生成完的提示按它说) */
-  from?: 'file' | 'link' | 'stored' | 'restore';
+  from?: 'file' | 'link' | 'stored' | 'restore' | 'url';
+  /** 网址里带的生成器版本(from = 'url':打开带种子的网址) */
+  gen?: number;
   /** 打开的存档(核对版本、地形) */
   save?: SaveFile;
   /** 读档时的警告 */
   warnings?: string[];
+  /** 从分享短链接打开的:它的码(还没存进我的世界时留在网址里,刷新再取一次,看到分享的人最新的改动) */
+  shareCode?: string;
 }
 
 /** 随机一个种子(新建世界、"换一颗") */
@@ -302,12 +325,14 @@ function storedTarget(w: StoredWorld, from: 'stored' | 'restore'): Target {
 }
 
 /** 网址里带种子的(别人发的网址、截图脚本):直接看这个世界,先不存,改了才存 */
-function visitTarget(params: WorldParams): Target {
-  return { id: newWorldId(), kind: 'visit', params, edits: EMPTY_EDITS };
+function visitTarget(params: WorldParams, gen: number | null = null): Target {
+  const t: Target = { id: newWorldId(), kind: 'visit', params, edits: EMPTY_EDITS };
+  return gen === null ? t : { ...t, from: 'url', gen };
 }
 
 /**
  * 打开网页时去哪(只算一次):
+ *   分享短链接(s=)    → 先是一页空白,去服务器取存档;取到了打开那个世界,停了显示"这个分享已经停止了"
  *   分享链接(#)       → 那个世界(先按网址生成,解开以后套上修改)
  *   w=世界编号(存着)   → 这个世界(没建完的回到新建)
  *   new=1             → 新建(网址里的种子、参数)
@@ -316,16 +341,17 @@ function visitTarget(params: WorldParams): Target {
  */
 function firstRoute(init: ReturnType<typeof readUrl>): { stage: Stage; target: Target | null } {
   const q = new URLSearchParams(location.search);
+  if (init.shortShare !== null && !init.share) return { stage: 'home', target: null };
   if (init.share) return { stage: 'world', target: visitTarget(init.params) };
   const w = q.get('w');
   const stored = isWorldId(w) ? loadWorld(w) : null;
   if (stored) return { stage: stored.draft ? 'draft' : 'world', target: storedTarget(stored, 'restore') };
   if (q.get('new') === '1') return { stage: 'draft', target: draftTarget(init.params) };
   if (q.has('seed')) {
-    // 改版前自动存的世界:那时的网址只带种子、参数,刷新照旧回到它
-    const old = legacyWorld(init.params);
+    // 改版前自动存的世界:那时的网址只带种子、参数,刷新照旧回到它(带 gen= 的是改版后的网址,不是它)
+    const old = init.gen === null ? legacyWorld(init.params) : null;
     if (old) return { stage: old.draft ? 'draft' : 'world', target: storedTarget(old, 'restore') };
-    return { stage: 'world', target: visitTarget(init.params) };
+    return { stage: 'world', target: visitTarget(init.params, init.gen) };
   }
   return { stage: 'home', target: null };
 }
@@ -334,7 +360,7 @@ function firstRoute(init: ReturnType<typeof readUrl>): { stage: Stage; target: T
 const STUDIO_LAYERS: MapLayer[] = STUDIO_STYLES.map((x) => x.id);
 
 /** 新建时列不出来的图层(要有历史):进新建时换成"地形",建好以后换回来 */
-const HISTORY_LAYERS: MapLayer[] = ['political', 'cultures'];
+const HISTORY_LAYERS: MapLayer[] = ['political', 'cultures', 'faith'];
 
 /** 把世界写进网址:种子 + 参数(和默认值相同的省略,别人打开是同一颗星球);存着的加 w=编号,新建中还没存的加 new=1 */
 function writeWorldUrl(t: Target) {
@@ -345,10 +371,18 @@ function writeWorldUrl(t: Target) {
   }
   q.delete('w');
   q.delete('new');
+  q.delete('s');
+  // 分享短链接打开的、还没存进我的世界:码留在网址里(刷新再取一次)
+  if (t.shareCode && t.kind === 'visit' && !isStored(t.id)) q.set('s', t.shareCode);
   // 存着的记录还是换参数之前的(新建中换了种子、参数,正在生成):先不指向它,存好了再换成 w=
   const w = isStored(t.id) ? loadWorld(t.id) : null;
   if (w && worldKey(w.save.params) === worldKey(t.params)) q.set('w', t.id);
   else if (t.kind === 'draft') q.set('new', '1');
+  // 生成器版本:复制这个网址发给别人,以后版本更新了对方打开会说清变了什么。
+  // 网址来自更新的版本(页面是旧的)就留着那个号:刷新还是旧页面照样提示,换到新页面就对上了。
+  // 新建中还没存的(new=1)不带:打开这种网址是接着新建,用的总是现在的版本
+  if (q.has('new')) q.delete(GEN_KEY);
+  else q.set(GEN_KEY, String(t.gen !== undefined && t.gen > GENERATOR_VERSION ? t.gen : GENERATOR_VERSION));
   const next = `?${q}`;
   if (next !== location.search) history.replaceState(null, '', next);
 }
@@ -356,7 +390,7 @@ function writeWorldUrl(t: Target) {
 /** 回到"我的世界":网址里去掉这个世界(种子、参数、编号、年份……),留着图层、投影这些看法 */
 function writeHomeUrl() {
   const q = new URLSearchParams(location.search);
-  for (const k of [...Object.keys(DEFAULT_PARAMS), 'w', 'new', 'civYear', 'play', 'chron']) q.delete(k);
+  for (const k of [...Object.keys(DEFAULT_PARAMS), 'w', 'new', 's', GEN_KEY, 'civYear', 'play', 'chron']) q.delete(k);
   const rest = q.toString();
   history.replaceState(null, '', rest ? `?${rest}` : location.pathname);
 }
@@ -378,7 +412,7 @@ export function App() {
   const init = useMemo(readUrl, []);
   /** 打开网页时去哪:我的世界 / 新建 / 某个世界(见 firstRoute) */
   const route = useMemo(() => firstRoute(init), [init]);
-  /** 进新建时换掉的图层(政区、民族要有历史);建好 / 打开别的世界时换回来 */
+  /** 进新建时换掉的图层(政区、民族、信仰要有历史);建好 / 打开别的世界时换回来 */
   const draftLayerRef = useRef<MapLayer | null>(null);
   // 网址里的投影、中央经线、经纬网:第一次渲染之前放进 store(等距圆柱的视图在世界出来以后再转过去,见 pendingLon)
   const start = useState(() => {
@@ -386,7 +420,7 @@ export function App() {
     if (init.lon !== null) publishMapCenter(init.lon);
     setGraticule(init.grat);
     setStage(route.stage, route.target?.base ?? null);
-    // 网址里给的(或默认的)图层:国家 / 民族开不开跟着它;新建时只看地形
+    // 网址里给的(或默认的)图层:国家 / 民族 / 信仰开不开跟着它;新建时只看地形
     let ml = init.mapLayer;
     let { style, layer } = init;
     // 新建:网址里给的是新建时能看的样式就照它,否则用实景(政区、民族要有历史;建好以后换回来)
@@ -401,7 +435,7 @@ export function App() {
     }
     if (ml) {
       const d = layerDef(ml);
-      setCivShow({ polities: d.polities, cultures: d.cultures });
+      setCivShow({ polities: d.polities, cultures: d.cultures, faiths: d.faiths });
     }
     return { style, layer };
   })[0];
@@ -440,6 +474,8 @@ export function App() {
   const previewRaw = preview?.raw ?? null;
   const shownRaw = previewRaw ?? rawCiv;
   const civ = useMemo(() => (previewRaw ? applyNames(previewRaw, preview!.names) : realCiv), [previewRaw, preview?.names, realCiv]);
+  // 导出时"换回原名"用的:AI 起的名字换回原来的(没有 AI 起的名字、助手"先看看"时 = null,导出菜单不问)
+  const plainCiv = useMemo(() => (rawCiv && !previewRaw && aiNameKeys(edits).length ? applyNames(rawCiv, namesWithoutAi(edits)) : null), [rawCiv, previewRaw, edits]);
   /** 右侧详情面板开着(右下角的地球仪 / 缩放按钮让开它) */
   const selState = useSelection();
   // 右侧面板开着(选目标、下了令正在推演时面板藏起来,右下按钮回到原位)
@@ -460,7 +496,7 @@ export function App() {
     setPickHover(h?.info.pick ?? -1);
     setHoverState(h);
   };
-  // ---- 图层(政区 / 民族 / 地形 / 生态 / 高程 / 实景 / 板块 / 气温 / 降水)= 画风 + 数据图层 + 国家 / 民族开关 ----
+  // ---- 图层(政区 / 民族 / 信仰 / 地形 / 生态 / 高程 / 实景 / 板块 / 气温 / 降水)= 画风 + 数据图层 + 国家 / 民族 / 信仰开关 ----
   const civShow = useCivShow();
   const mapLayer = layerOf(style, layer, civShow);
   const mapLayerRef = useRef(mapLayer);
@@ -474,11 +510,16 @@ export function App() {
     const d = layerDef(id);
     setStyle(d.style);
     if (d.data) setLayer(d.data);
-    setCivShow({ polities: d.polities, cultures: d.cultures });
+    setCivShow({ polities: d.polities, cultures: d.cultures, faiths: d.faiths });
     writeLayerUrl(id);
   }, []);
   /** 第一次打开的操作提示(第一次拖动 / 缩放 / 点击之后不再出现) */
   const [hintOn, setHintOn] = useState(() => !hintSeen());
+  const trashView = useTrashView();
+  /** 分享短链接:正在取 / 停了 / 打不开(取到了 = null) */
+  const [landing, setLanding] = useState<'loading' | 'gone' | { error: string } | null>(route.stage === 'home' && init.shortShare !== null && !init.share ? 'loading' : null);
+  /** 打开别人分享的世界:地图下那条说明(这个世界的编号;点了"知道了"、改了存进我的世界以后不再显示) */
+  const [sharedFor, setSharedFor] = useState<string | null>(null);
   const touchRef = useRef(() => {});
   touchRef.current = () => {
     if (getStage().stage !== 'world') return;
@@ -671,7 +712,7 @@ export function App() {
     return () => setTrialRunner(null);
   }, [send]);
 
-  /** 历史换了一份(重推完、在地图上看试推演 / 回到现在):选中的东西、编年史的国家筛选按稳定键换成新历史里的编号(指不到就取消) */
+  /** 历史换了一份(重推完、在地图上看试推演 / 回到现在):选中的东西、编年史和人物页的国家筛选按稳定键换成新历史里的编号(指不到就取消) */
   const remapSelection = (old: Civ, civ: Civ) => {
     const { sel } = getSelection();
     if (sel) {
@@ -682,10 +723,17 @@ export function App() {
             ? settlementKey(old, sel.id)
             : sel.kind === 'place' && old.places[sel.id]
               ? placeKeyOf(old, sel.id)
-              : null;
+              : sel.kind === 'faith' && old.religion?.faiths[sel.id]
+                ? faithKey(old, sel.id)
+                : null;
       if (key) {
         const r = resolveKey(civ, key);
         if (r && r.kind === sel.kind) setSelection({ kind: sel.kind, id: r.id } as MapSelection);
+        else clearSelection();
+      } else if (sel.kind === 'person') {
+        // 人物:同一国、同名、同年生的还在就还选着他(重推后历史变了,多半找不到了)
+        const id = old.people?.[sel.id] ? resolvePersonKey(civ, personKey(old, sel.id)) : -1;
+        if (id >= 0) setSelection({ kind: 'person', id });
         else clearSelection();
       }
     }
@@ -693,6 +741,11 @@ export function App() {
     if (cp !== null) {
       const r = old.polities[cp] ? resolveKey(civ, polityKey(old, cp)) : null;
       setChronicle({ polity: r && r.kind === 'polity' ? r.id : null });
+    }
+    const pp = getPeople().polity;
+    if (pp !== null) {
+      const r = old.polities[pp] ? resolveKey(civ, polityKey(old, pp)) : null;
+      setPeople({ polity: r && r.kind === 'polity' ? r.id : null });
     }
   };
   /**
@@ -804,6 +857,7 @@ export function App() {
       setPolityPick(null);
       clearEdits();
       clearSelection();
+      if (getPeople().polity !== null) setPeople({ polity: null });
       // 正在进行 / 已算好的回放都属于旧世界,一起作废
       setReplay(null);
       setReplayOn(false);
@@ -820,7 +874,10 @@ export function App() {
       history.replaceState(null, '', location.pathname + location.search);
       decodeShare(init.share).then((r) => openShareRef.current(r));
     }
+    // 邀请链接(invite=):记下邀请码,弹出登录窗(已经登录了就算了)
+    if (takeInviteFromUrl() && serverBase() && !getSession()) openLogin();
     if (route.target) generate(route.target);
+    else if (landing === 'loading') openShortShare(init.shortShare ?? '');
     else writeHomeUrl();
     // 页面开着时又粘贴了一个只有 # 不同的分享链接(浏览器不刷新页面)
     const onHash = () => {
@@ -855,13 +912,14 @@ export function App() {
     regenNote.current = takeRewriteNote(getEdits());
     setTerrainStatus((s) => ({ ...s, busy: true }));
     setProgress({ stage: '准备', pct: 0, regen: true });
-    // 回放、选中、编年史的国家筛选都属于旧地形上的历史
+    // 回放、选中、编年史和人物页的国家筛选都属于旧地形上的历史
     setReplay(null);
     setReplayOn(false);
     clearSelection();
     setPolityPick(null);
     clearChroniclePick();
     if (getChronicle().polity !== null) setChronicle({ polity: null });
+    if (getPeople().polity !== null) setPeople({ polity: null });
     send({ type: 'generate', id, params: genParams.current, scale: 1, terrain: [...t], interventions: [...interventions] });
   }, [edits.terrain, data, send]);
 
@@ -947,6 +1005,17 @@ export function App() {
   useEffect(() => startAutoSave(), []);
   // AI(阶段 5):登记服务商、恢复设置、调用记录存本地
   useEffect(() => setupAi(), []);
+  // 「使用 AI 功能」关了:助手停下、回到现在、收起;正在写的史书停下(写到一半的不存),写史书的窗口、阅读页关上
+  const aiOn = useAiOn();
+  useEffect(() => {
+    if (aiOn) return;
+    stopAsk();
+    exitPreview();
+    closeAssistant();
+    stopBook();
+    closeHistoryBook();
+    closeBookReader();
+  }, [aiOn]);
   // 缩略图("我的世界"的卡片、存档菜单):手绘风的地形 480×240;建好的世界叠上结束那一年的国家色块(和正在看哪个图层、哪一年无关)。
   // 世界还在生成、按新地形重新生成、按新的干预重推历史时 = null,saveStore 过一会儿再来要
   useEffect(() => {
@@ -1014,9 +1083,18 @@ export function App() {
     attachWorld({ id: t.id, params: world.params, check, kind: t.kind, title: t.title, saved: t.saved ?? edits, view: t.view ?? undefined, pristine: t.pristine, base: t.base });
     if (t.kind !== 'draft') setWorldStats(aliveAtEnd(rc));
     const save = t.save;
+    // 带种子的网址(别人发的普通链接):是旧版本画的就说清现在变了什么
+    if (t.from === 'url') {
+      const note = t.gen !== undefined ? versionNote(t.gen, false) : null;
+      if (note) say({ kind: 'warn', text: `已打开「种子 ${world.params.seed}」`, more: [note] });
+      return;
+    }
     if (!save || !t.from) return;
     const more: string[] = [...(t.warnings ?? [])];
-    if ((t.from === 'stored' || t.from === 'restore') && save.generator !== GENERATOR_VERSION) more.push(save.generator < GENERATOR_VERSION ? STALE_WARNING : NEWER_WARNING);
+    if (t.from === 'stored' || t.from === 'restore') {
+      const note = versionNote(save.generator, (save.edits.terrain?.length ?? 0) > 0);
+      if (note) more.push(note);
+    }
     // 地形校验只在"生成时带的地形修改就是存档里的"时才核对
     const cw = sameT ? checkWarning(save, check) : null;
     if (cw) more.push(cw);
@@ -1028,7 +1106,11 @@ export function App() {
     if (t.kind === 'draft') return more.length ? say({ kind: 'warn', text: `已打开「${name}」`, more }) : undefined;
     let text: string;
     if (t.from === 'file') text = `已打开存档「${name}」${n ? `(改了 ${n} 处)` : ''}`;
-    else if (t.from === 'link') text = `已打开分享的世界「${name}」`;
+    // 分享的世界:地图下面那条说明已经讲了,没有要说的就不提示
+    else if (t.from === 'link') {
+      if (!more.length) return;
+      text = `已打开分享的世界「${name}」`;
+    }
     // 从我的世界点开的:看到的就是它,没有要说的就不提示
     else if (t.from === 'stored') return more.length ? say({ kind: 'warn', text: `已打开「${name}」`, more }) : undefined;
     else if (n) text = `已恢复上次的修改(${n} 处)`;
@@ -1072,6 +1154,7 @@ export function App() {
    */
   const enterStage = (next: Stage, base: DraftBase | null = null) => {
     const was = getStage().stage;
+    if (next !== 'home') closeTrash();
     if (next !== was) {
       clearSelection();
       setPolityPick(null);
@@ -1156,7 +1239,7 @@ export function App() {
     openTarget({ ...t, from: 'file', save: r.save, warnings: r.warnings });
   };
   /** 打开分享链接(解开以后):别人的世界,先不存;改了(或起了名)才存进"我的世界" */
-  const openShare = (r: ParseResult) => {
+  const openShare = (r: ParseResult, shareCode?: string) => {
     if (!r.ok) {
       const msg = briefError(r.error);
       // 世界还在生成:等生成完再说(生成时提示条上是进度)
@@ -1165,7 +1248,27 @@ export function App() {
       return;
     }
     const sv = r.save;
-    openTarget({ id: newWorldId(), kind: 'visit', params: sv.params, edits: sv.edits, saved: sv.edits, title: sv.title, view: sv.view ?? null, from: 'link', save: sv, warnings: r.warnings });
+    const id = newWorldId();
+    setSharedFor(id);
+    openTarget({ id, kind: 'visit', params: sv.params, edits: sv.edits, saved: sv.edits, title: sv.title, view: sv.view ?? null, from: 'link', save: sv, warnings: r.warnings, shareCode });
+  };
+  /** 分享短链接:去服务器取存档(不用登录);停了、打不开就显示那一页 */
+  const openShortShare = (code: string) => {
+    if (!serverBase() || !SHARE_CODE_RE.test(code)) return setLanding('gone');
+    showToast({ id: 'share', kind: 'progress', text: '正在打开分享的世界' });
+    openShareCode(code)
+      .then((r) => {
+        clearToast('share');
+        const p = parseSave(JSON.stringify(r.save));
+        if (!p.ok) return setLanding({ error: briefError(p.error) });
+        setLanding(null);
+        openShareRef.current(p, code);
+      })
+      .catch((e) => {
+        clearToast('share');
+        if (e instanceof ServerError && (e.code === 'share-gone' || e.code === 'not-found')) setLanding('gone');
+        else setLanding({ error: e instanceof ServerError && e.code === 'network' ? '连不上服务器，请检查网络后刷新再试。' : e instanceof Error ? e.message : String(e) });
+      });
   };
   const openShareRef = useRef(openShare);
   openShareRef.current = openShare;
@@ -1272,12 +1375,32 @@ export function App() {
     return draftSig(t.params, getEdits(), cur.title) === d.sig ? d.id : null;
   };
   /** 回到"我的世界"(一个都没有时是空的那一页) */
-  const goHome = () => {
+  const showHome = () => {
     pausePlayback();
     setReplayOn(false);
     enterStage('home');
     writeHomeUrl();
   };
+  const goHome = showHome;
+  const showHomeRef = useRef(showHome);
+  showHomeRef.current = showHome;
+  const openStoredRef = useRef(openStored);
+  openStoredRef.current = openStored;
+  // 云同步:登录了就开始(account/sync.ts);正在看的世界在别的设备上、别的页面里改过,点"载入"重新打开它;账号窗里点"最近删除"回到我的世界
+  useEffect(() => {
+    const stop = startSync();
+    setReloadHandler((id) => openStoredRef.current(id));
+    setReopenHandler((id) => openStoredRef.current(id));
+    setGoHome(() => {
+      if (getStage().stage !== 'home') showHomeRef.current();
+    });
+    return () => {
+      stop();
+      setReloadHandler(null);
+      setReopenHandler(null);
+      setGoHome(null);
+    };
+  }, []);
   /** 新建卡片左上的返回:底稿那个世界 / 我的世界;第一次来(没有别的世界)不显示 */
   const v = useSavesVersion();
   const draftBack = useMemo(() => {
@@ -1940,7 +2063,8 @@ export function App() {
     const year = civ ? Math.min(civ.endYear, Math.max(0, getCivTime().year ?? civ.endYear)) : 0;
     const focus = to === 'sel' && sel && civ ? selectionFocus(data.world, civ, sel, year) : null;
     if (to === 'sel' && (!focus || !sel)) return;
-    const goal: FlyGoal = { focus, kind: to === 'sel' && sel ? sel.kind : 'home' };
+    // 人物按他的国家飞(看全疆域)
+    const goal: FlyGoal = { focus, kind: to === 'sel' && sel ? (sel.kind === 'person' ? 'polity' : sel.kind) : 'home' };
     if (getGlobeOn()) {
       if (focus) globeApi.current?.flyTo(focus.lon, focus.lat);
       return;
@@ -2287,6 +2411,12 @@ export function App() {
     const c = cellAt(e.clientX, e.clientY);
     const r = civ && c >= 0 && c < civ.regions.of.length ? civ.regions.of[c] : -1;
     if (!civ || r < 0) return clearSelection();
+    // 信仰图层:点陆地 = 那里信的那个教(国名、城名照旧打开国家、城)
+    if (getCivShow().faiths && civ.religion) {
+      const y = Math.min(civ.endYear, Math.max(0, getCivTime().year ?? civ.endYear));
+      const f = faithAt(civ, y)[r];
+      if (f >= 0) return setSelection({ kind: 'faith', id: f }, side);
+    }
     if (getCivShow().polities && civ.polities.length) {
       const y = Math.min(civ.endYear, Math.max(0, getCivTime().year ?? civ.endYear));
       const po = ownersAt(civ, y).polity[r];
@@ -2419,7 +2549,8 @@ export function App() {
       case 'layer1':
       case 'layer2':
       case 'layer3':
-      case 'layer4': {
+      case 'layer4':
+      case 'layer5': {
         const id = (draft ? DRAFT_SEG : SEG_LAYERS)[Number(a.slice(5)) - 1];
         if (!id) return false;
         applyLayer(id);
@@ -2596,6 +2727,9 @@ export function App() {
   );
   /** 建好的世界(不是新建中、不在我的世界):时间轴、详情、概览、事件标签这些才有 */
   const world = stage === 'world';
+  const curWorld = currentWorld();
+  /** 打开别人分享的世界、还没改过:地图下那条说明代替第一次打开的操作提示 */
+  const sharedOn = world && !!data && !!sharedFor && curWorld?.id === sharedFor && curWorld.kind === 'visit' && !terrainTool.on;
   const layerProps = { layer: mapLayer, civ, onLayer: applyLayer, thumbs, requestThumbs, disabled: !data };
   /** 新建界面确认创建:建好了就让平常的地图从星球展开时正中的经线接着看(放回 1 倍) */
   const studioCreate = (title: string, lon: number): boolean => {
@@ -2745,7 +2879,22 @@ export function App() {
 
       {home ? (
         /* 我的世界:盖住整个页面(地图留在底下,回到刚才的世界不用重新生成) */
-        <MyWorlds phone={narrow} onOpen={openStored} onNew={startDraft} onOpenText={openText} />
+        landing ? (
+          <ShareGone
+            phone={narrow}
+            state={landing}
+            onHome={() => {
+              setLanding(null);
+              goHome();
+            }}
+            onNew={() => {
+              setLanding(null);
+              startDraft();
+            }}
+          />
+        ) : (
+          <MyWorlds phone={narrow} onOpen={openStored} onNew={startDraft} onOpenText={openText} />
+        )
       ) : narrow ? (
         <>
           {/* 手机:底部的世界卡片(没选东西时;选中了东西换成详情卡片)、右上竖排的毛玻璃按钮(图层、地球);数据图层的图例在左上。
@@ -2761,7 +2910,7 @@ export function App() {
                 replay={{ on: replayOn, ready: !!replay }}
                 onReplay={startReplay}
                 onHome={goHome}
-                exp={{ data, civ, style, layer }}
+                exp={{ data, civ, plain: plainCiv, style, layer }}
               />
           )}
           {!draft && <PhoneButtons layers={{ ...layerProps, draft }} globeOn={globeOn} onToggleGlobe={toggleGlobe} />}
@@ -2787,8 +2936,8 @@ export function App() {
               inspectorSlot={inspectorSlot}
             />
           )}
-          {!draft && <MapBar civ={civ} layers={layerProps} exp={{ data, civ, style, layer }} draft={draft} />}
-          {!draft && style === 'data' && (
+          {!draft && <MapBar civ={civ} layers={layerProps} exp={{ data, civ, plain: plainCiv, style, layer }} draft={draft} />}
+          {!draft && style === 'data' && !terrainTool.on && (
             <div className="corner-tl">
               <Legend layer={layer} />
             </div>
@@ -2798,7 +2947,7 @@ export function App() {
       {/* 新建世界:和平常页面分开的一套深色界面,盖在地图上面(创建以后展开成平常的地图、淡出) */}
       {studio}
       {/* 助手面板(宽屏右边一张卡片,手机是拉到顶的底部卡片;窗口跨过窄屏断点时不重新挂,没发出去的话留着)、在地图上看试推演时的提示条 */}
-      {astOpen && !home && !studioOn && data && realCiv && rawCiv && (
+      {astOpen && aiOn && !home && !studioOn && data && realCiv && rawCiv && (
         <AssistantPanel phone={narrow} world={data.world} raster={data.raster} civ={realCiv} raw={rawCiv} lock={draft ? 'history' : 'terrain'} busy={worldBusy} />
       )}
       {world && <PreviewBanner busy={worldBusy} phone={narrow} />}
@@ -2806,7 +2955,7 @@ export function App() {
       <ToastBar />
       {/* 右下(时间轴上方):地球 / 平面、放大、缩小。触屏不放 + −(用双指捏合);窄屏整个不放(地球在右上竖排的按钮里) */}
       <MapControls globeOn={globeOn} onToggleGlobe={toggleGlobe} onZoom={zoomButton} shifted={false} hidden={!data || narrow || home || draft} zoom={!coarse} />
-      <FirstHint show={hintOn && !!data && world && !terrainTool.on} touch={coarse} />
+      {sharedOn ? <SharedHint phone={narrow} onOk={() => setSharedFor(null)} /> : <FirstHint show={hintOn && !!data && world && !terrainTool.on} touch={coarse} />}
       {/* 底部:时间轴(宽屏是卡片右边那一块底下的胶囊;手机是浮在底部卡片上面的胶囊);新建时还没有历史,不放 */}
       <div className="bottom-row">
         <div className="bottom-tl">{data && world && <CivTimeline civ={civ} hidden={replayOn} dock="inline" />}</div>
@@ -2830,6 +2979,7 @@ export function App() {
       )}
       {realCiv && <HistoryBook civ={realCiv} />}
       <AiSettingsHost />
+      <AccountHost phone={narrow} />
       <ShortcutsHost />
       <TipLayer />
       {dropping && (

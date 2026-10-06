@@ -5,8 +5,10 @@
  *   顶部  颜色块、国名(可改,输入时预览国号变迁)、"国家，1045 年立国"、关闭
  *   按钮  干预历史(主操作;窄屏点了底部抽屉展开)/ 设为中心 / 改名 / 更多(在编年史中查看、让 AI 写国史、让 AI 讲名字由来;
  *         有主体民族时还有讲它的族名由来、给它起族名)
- *   概况  国都、疆域(历年州数的小柱图,和概览"国家"表同一份)、人口(境内城镇)、主体民族、邻国(可点),
- *         来历 / 结局 / 历任国都(有才写)
+ *   概况  国都、君主(这一年在位的那位,点了看他;共和国写"执政")、疆域(历年州数的小柱图,和概览"国家"表同一份)、
+ *         人口(境内城镇)、主体民族、国教(可点,"某年起";没有写"没有")、邻国(可点),来历 / 结局 / 历任国都(有才写)
+ *   历代君主  当前这位和前后各两位(新的在上;遇弑、被废这类结局写在名字后面),点一行看这个人;
+ *         "全部 N 位"打开概览的人物页、只看这国的君主
  *   朝代  改朝换代过才有:一朝一行(新的在上),当前那一朝标"当前";点一行 = 时间轴跳到它开始的那年
  *   大事  到当前年份为止最近 5 条(可点:跳到那一年,地图上闪出事发地);"全部 N 件"打开概览的编年史页、只看这国的"全部"
  *         (N 和那里"全部"的条数一样,连同历代君主继位)
@@ -23,9 +25,13 @@ import type { World } from '../gen/world';
 import { cultureLabel } from '../gen/civ/display';
 import { capitalAt, dynastyIndexAt, polityAlive, polityName, polityTitleChain, populationAt, populationLabel } from '../gen/civ/growth';
 import { ownersAt, type Owners } from '../gen/civ/timeline';
-import { buildChronicle, filterChronicle, polityChronicle } from '../gen/civ/chronicle';
+import { filterChronicle, polityChronicle } from '../gen/civ/chronicle';
+import { fullChronicle } from '../gen/civ/religionText';
+import { stateFaithAt } from '../gen/civ/religion';
 import { dynastyKey, polityKey } from '../gen/edits';
-import { setCivTime } from './civView';
+import { setCivTime, setSelection } from './civView';
+import { peopleIndex, rulerAt } from '../gen/civ/peopleInfo';
+import { isConsul, personName, rulerFateWord } from '../gen/civ/peopleText';
 import type { AiName } from './AiNamePanel';
 import { openHistoryBook } from './HistoryBook';
 import { NameEdit } from './NameEdit';
@@ -34,10 +40,11 @@ import { CommandPage } from './CommandPage';
 import { setPanelTab, setSheet, usePanel } from './panelStore';
 import { shownYearOf } from './flyTo';
 import { SPARK_N, polityHistory } from './WorldOverviewCountries';
-import { openOverview } from './overviewStore';
+import { openOverview, openPeople } from './overviewStore';
 import { Act, Acts, AiBox, AiSuggestLink, CenterAct, EventList, Link, MoreAct, PanelHead, Row, Spark, Stats, SubLine, rgb, useRevealAi } from './panelParts';
 import { AiMenuItem, MenuItem, MenuSep } from './PopMenu';
 import { Icon } from './icons';
+import { useAiOn } from '../ai/client';
 import './countryPanel.css';
 
 // ---------------------------------------------------------------------------
@@ -154,6 +161,7 @@ function CountryHead({ civ, raw, id, year, names, shared }: CountryPanelProps & 
 
 function InfoPage({ civ, raw, raster, world, id, year, p, shared }: CountryPanelProps & { p: Polity; shared: Shared }) {
   const { ai } = shared;
+  const aiOn = useAiOn();
   const shownYear = shownYearOf(p, year, civ.endYear);
   const alive = polityAlive(p, year);
   // 这一年的州数、人口(境内的城)、各民族的州数
@@ -180,9 +188,9 @@ function InfoPage({ civ, raw, raster, world, id, year, p, shared }: CountryPanel
   const hist = polityHistory(civ);
   const spark = hist.years.map((y, i) => ({ year: y, n: hist.spark[id * SPARK_N + i] }));
   const segs = useMemo(() => dynastySegments(civ, p), [civ, p]);
-  const related = useMemo(() => filterChronicle(buildChronicle(civ), { polity: id }), [civ, id]);
+  const related = useMemo(() => filterChronicle(fullChronicle(civ), { polity: id }), [civ, id]);
   // "全部 N 件":和编年史页只看这一国时的"全部"同一份(连同历代君主继位),点开就是这么多条
-  const allCount = useMemo(() => polityChronicle(civ, buildChronicle(civ), id).length, [civ, id]);
+  const allCount = useMemo(() => polityChronicle(civ, fullChronicle(civ), id).length, [civ, id]);
   const upTo = related.filter((e) => e.year <= year + 1e-6);
   const maxN = Math.max(1, hist.peak[id] ?? 0);
   const span = Math.max(1, (p.ended ?? civ.endYear) - p.founded);
@@ -197,10 +205,13 @@ function InfoPage({ civ, raw, raster, world, id, year, p, shared }: CountryPanel
     }
     return null;
   }, [civ, id]);
+  const stateFaith = stateFaithAt(civ.religion, id, shownYear);
   const other = (q: number, y: number) => (civ.polities[q] ? <Link to={{ kind: 'polity', id: q }}>{polityName(civ.polities[q], y)}</Link> : null);
   const capitals = p.capitals?.length ? p.capitals : [{ year: p.founded, settlement: p.capital }];
   const popText = pop > 0 ? populationLabel(pop) : '—';
   const cap = civ.settlements[capitalAt(p, shownYear)];
+  const ruler = rulerAt(civ, id, shownYear);
+  const consul = p.lineage === 'republic';
   return (
     <>
       <Acts>
@@ -215,7 +226,7 @@ function InfoPage({ civ, raw, raster, world, id, year, p, shared }: CountryPanel
           <MenuItem icon={<Icon name="scroll" size={16} />} act="chronicle" disabled={!allCount} onClick={() => openOverview('chronicle', { polity: id, major: false })}>
             在编年史中查看
           </MenuItem>
-          <MenuSep />
+          {aiOn && <MenuSep />}
           <AiMenuItem icon={<Icon name="book" size={16} />} act="book" onClick={() => openHistoryBook({ polity: id })}>
             让 AI 写国史
           </AiMenuItem>
@@ -237,6 +248,14 @@ function InfoPage({ civ, raw, raster, world, id, year, p, shared }: CountryPanel
       <div className="cp-body">
         <Stats items={[]}>
           <Row k="国都">{cap ? <Link to={{ kind: 'settlement', id: cap.id }}>{cap.name}</Link> : <span className="cp-none">无</span>}</Row>
+          {ruler && (
+            <Row k={consul ? '执政' : '君主'}>
+              <Link to={{ kind: 'person', id: ruler.id }}>{personName(civ, ruler)}</Link>
+              <em className="cp-num-note">
+                {Math.floor(ruler.from ?? ruler.born)} 年{consul ? '就任' : '即位'}
+              </em>
+            </Row>
+          )}
           <Row k="疆域" className="cp-terr">
             <Spark
               title={`历年州数(最多时 ${maxN} 州)`}
@@ -253,6 +272,18 @@ function InfoPage({ civ, raw, raster, world, id, year, p, shared }: CountryPanel
             {top ? cultureLabel(top) : '—'}
             {share !== null && <em className="cp-num-note">{share}%</em>}
           </Row>
+          {civ.religion && (
+            <Row k="国教">
+              {stateFaith && civ.religion.faiths[stateFaith.faith] ? (
+                <>
+                  <Link to={{ kind: 'faith', id: stateFaith.faith }}>{civ.religion.faiths[stateFaith.faith].name}</Link>
+                  <em className="cp-num-note">{Math.floor(stateFaith.from)} 年起</em>
+                </>
+              ) : (
+                <span className="cp-none">没有</span>
+              )}
+            </Row>
+          )}
           <Row k="邻国" className="cp-links">
             {near.length ? (
               near
@@ -297,6 +328,7 @@ function InfoPage({ civ, raw, raster, world, id, year, p, shared }: CountryPanel
             </Row>
           )}
         </Stats>
+        <RulerList civ={civ} id={id} year={shownYear} />
         {segs.length > 1 && (
           <section className="cp-sec cp-dyns">
             <div className="cp-sec-head">朝代</div>
@@ -324,6 +356,7 @@ function InfoPage({ civ, raw, raster, world, id, year, p, shared }: CountryPanel
           </section>
         )}
         <EventList
+          civ={civ}
           upTo={upTo}
           empty={year < p.founded ? '尚未立国' : '还没有'}
           more={
@@ -338,5 +371,46 @@ function InfoPage({ civ, raw, raster, world, id, year, p, shared }: CountryPanel
         <AiBox ai={folkAi.ai} aiRef={folkAi.aiRef} />
       </div>
     </>
+  );
+}
+
+/** 历代君主:当前这位(这一年在位的;没有 = 这一年之前最近的一位)和前后各两位,新的在上 */
+function RulerList({ civ, id, year }: { civ: Civ; id: number; year: number }) {
+  const rs = peopleIndex(civ).rulers[id] ?? [];
+  if (!rs.length) return null;
+  let k = 0;
+  for (let i = 0; i < rs.length; i++) if ((rs[i].from ?? Infinity) <= year) k = i;
+  const cur = rulerAt(civ, id, year);
+  const a = Math.max(0, Math.min(k - 2, rs.length - 5));
+  const near = rs.slice(a, a + 5).reverse();
+  const consul = isConsul(civ, rs[0]);
+  return (
+    <section className="cp-sec cp-dyns cp-rulers">
+      <div className="cp-sec-head cp-events-head">
+        <span>{consul ? '历任执政' : '历代君主'}</span>
+        <button className="ins-link cp-more" data-act="all-rulers" onClick={() => openPeople({ list: 'rulers', polity: id })}>
+          全部 {rs.length} 位
+        </button>
+      </div>
+      <div className="cp-group">
+        {near.map((r) => {
+          const on = r === cur;
+          const fate = r.fate && r.fate !== 'died' && r.fate !== 'retired' ? rulerFateWord(civ, r) : '';
+          return (
+            <button key={r.id} className={`cp-dyn-row${on ? ' on' : ''}`} data-person={r.id} onClick={() => setSelection({ kind: 'person', id: r.id })}>
+              <span className="cp-dyn-name">
+                {personName(civ, r)}
+                {on && <em className="cp-badge">当前</em>}
+                {fate && <em className="cp-num-note">{fate}</em>}
+              </span>
+              <span className="cp-dyn-span">
+                {Math.floor(r.from ?? r.born)}
+                {r.until !== undefined ? `–${Math.floor(r.until)}` : ' 年起'}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </section>
   );
 }

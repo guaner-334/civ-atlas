@@ -70,7 +70,7 @@ import {
   settlementRank,
 } from './growth';
 import { cultureLabel, regionLabel } from './display';
-import { ageAt, generalRef, rulerBare, rulerRef, rulerShort } from './peopleText';
+import { ageAt, generalRef, kinOf, rulerBare, rulerRef, rulerShort } from './peopleText';
 
 /** 重要度:3 最重要 */
 export type Importance = 1 | 2 | 3;
@@ -104,8 +104,11 @@ export const ASSIM_MINOR = 3;
 /** 一波迁徙迁入这么多州以上是大事 */
 export const MIGRATE_MAJOR = 5;
 
-/** 纪事的种类:史事的种类,加上按人物排出来的君主继位(reign,不是史事,见 reignEntries) */
-export type EntryKind = AnnalKind | 'reign';
+/**
+ * 纪事的种类:史事的种类,加上按人物排出来的君主继位(reign,不是史事,见 reignEntries)、
+ * 信仰的大事(faith,不是史事,见 religionText.ts 的 faithEntries)
+ */
+export type EntryKind = AnnalKind | 'reign' | 'faith';
 
 export interface ChronicleEntry {
   /** 这一条(第一条)史事在 civ.annals 里的下标;列表里唯一,当 key 用(君主继位 = civ.annals.length + 新君的 Person.id) */
@@ -117,7 +120,7 @@ export interface ChronicleEntry {
   end: Year;
   /** 纪事正文(不带年份) */
   text: string;
-  /** 一个字的标签(界面上的小印章):立 升 降 战 占 征 和 割 亡 迁 分 复 合 朝 徙 化 湮 掠 毁 建 衰 干 役 嗣 */
+  /** 一个字的标签(界面上的小印章):立 升 降 战 占 征 和 割 亡 迁 分 复 合 朝 徙 化 湮 掠 毁 建 衰 干 役 嗣;信仰:创 皈 传 派 圣 */
   tag: string;
   importance: Importance;
   /** 相关国家(按国家筛选、地图高亮用;先主后次,不含 −1) */
@@ -132,6 +135,8 @@ export interface ChronicleEntry {
   ongoing?: boolean;
   /** 正文里写到的人物(Person.id;没有 = 不给) */
   people?: number[];
+  /** 信仰的大事:哪种信仰(civ.religion.faiths 的下标;教派分立 = 新的教派) */
+  faith?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -1659,7 +1664,7 @@ function deathWord(p: Polity, tier: number): [string, string] {
  * 东方 "大昌太宗崩,在位 23 年;太子李昭即位,是为高宗"(王国"世子",年少的加",时年 9 岁");
  * 汗国、部落 "乌耐汗国咄苾可汗卒,在位 12 年;其弟阿史那继为可汗";
  * 西幻 "索拉特国王阿尔德里克二世驾崩,在位 31 年;其子阿尔德里克三世即位";共和国 "提布里亚执政官卡西乌斯任满,马库斯继任"。
- * 父子、兄弟按两人的年纪差说(差十四岁以上是子,四十岁以上是孙,不然是弟;新君年长的是兄)。
+ * 父子、兄弟按两人的年纪差说(peopleText.ts 的 kinOf:差十四岁以上是子,四十岁以上是孙,不然是弟;新君年长的是兄)。
  * 标签"嗣",重要度 1;id = civ.annals.length + 新君的 Person.id。没有人物 = 空数组。
  * 不在 buildChronicle 里(那里只有史事,AI 材料、地点的纪事都用它);要列继位的地方自己并进去(mergeChronicle)。按 civ 缓存
  */
@@ -1684,9 +1689,8 @@ export function reignEntries(civ: Civ): ChronicleEntry[] {
       if (p.lineage === 'republic') text = `${ref}任满,${x.name}继任`;
       else {
         const [died, killed] = deathWord(p, tier);
-        const gap = x.born - prev.born;
-        const son = gap >= 14 && gap < 40;
-        const kin = gap >= 40 ? '其孙' : gap < 0 ? '其兄' : !son ? '其弟' : p.eastern && p.lineage !== 'khanate' && tier >= 3 ? '太子' : p.eastern && p.lineage !== 'khanate' && tier === 2 ? '世子' : '其子';
+        const k = kinOf(prev, x);
+        const kin = k !== '子' ? `其${k}` : p.eastern && p.lineage !== 'khanate' && tier >= 3 ? '太子' : p.eastern && p.lineage !== 'khanate' && tier === 2 ? '世子' : '其子';
         const age = ageAt(x, y);
         const young = age < 15 ? `,时年 ${age} 岁` : '';
         let then: string;
@@ -1784,6 +1788,8 @@ export interface ChronicleDocOptions {
   params?: string;
   /** 一节多少年;不给按 chronicleEraYears */
   eraYears?: number;
+  /** 全部纪事(不给 = buildChronicle 的史事;界面上导出时给史事 + 宗教大事,见 religionText.ts 的 fullChronicle) */
+  entries?: readonly ChronicleEntry[];
 }
 
 /** Markdown 里有特殊含义的几个符号前面加反斜杠(纪事是中文,一般用不到,防个万一) */
@@ -1797,7 +1803,7 @@ function mdEscape(s: string): string {
  */
 export function chronicleDocument(civ: Civ, opt: ChronicleDocOptions): string {
   const md = opt.format === 'md';
-  const all = buildChronicle(civ);
+  const all = opt.entries ?? buildChronicle(civ);
   const majors = filterChronicle(all, { major: true });
   const end = Math.floor(civ.endYear);
   const span = Math.max(1, Math.floor(opt.eraYears ?? chronicleEraYears(civ.endYear)));

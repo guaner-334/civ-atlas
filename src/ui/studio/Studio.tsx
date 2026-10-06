@@ -27,9 +27,10 @@ import { useEdits } from '../editsStore';
 import { TerrainPanel, setTerrainTool, useTerrainTool } from '../TerrainTools';
 import { ParamSlider, SLIDERS, paramsSide } from '../WorldOverviewGenesis';
 import { openAiSettings } from '../AiSettings';
-import { MenuItem, MenuSep, PopMenu } from '../PopMenu';
+import { AiSettingsItem, MenuItem, MenuSep, PopMenu } from '../PopMenu';
 import { AssistantPanel } from '../Assistant';
 import { useAssistant } from '../assistantStore';
+import { useAiOn } from '../../ai/client';
 import { AST_W, closeAssistant, openAssistant, useAstOpen } from '../astPanel';
 import { PRIVACY_URL, SOURCE_URL, TERMS_URL } from '../links';
 import { APP_VERSION } from '../version';
@@ -177,7 +178,9 @@ export function Studio(p: StudioProps) {
   // ---- 助手(只改地形、回答问题;对话、确认单在 assistantStore) ----
   const astOpen = useAstOpen();
   const ast = useAssistant();
-  const astShown = astOpen && !!p.data && !!p.civ && !!p.raw;
+  // 「使用 AI 功能」关着:没有「让助手改」(左边那行、手机右上第三个按钮)
+  const aiOn = useAiOn();
+  const astShown = aiOn && astOpen && !!p.data && !!p.civ && !!p.raw;
   /** 列出来、还没执行的那一份(最新的) */
   const pending = useMemo(() => {
     for (let i = ast.turns.length - 1; i >= 0; i--) {
@@ -778,9 +781,7 @@ export function Studio(p: StudioProps) {
   const moreMenu = (
     <div className="nw-more-wrap">
       <PopMenu className="sb-pill sb-more" icon={<Icon name="more" size={17} />} title="更多" act="world-more" align="right">
-        <MenuItem icon={<Icon name="sparkle" size={16} />} act="ai-settings" onClick={() => openAiSettings()}>
-          AI 设置
-        </MenuItem>
+        <AiSettingsItem onClick={() => openAiSettings()} />
         <MenuSep />
         <MenuItem icon={<Icon name="info" size={16} />} href={SOURCE_URL} act="source">
           源代码
@@ -826,7 +827,7 @@ export function Studio(p: StudioProps) {
   const settings = tool.on ? (
     <>
       <TerrainPanel disabled={p.busy} />
-      {!p.phone && <div className="sb-group st-ask-group">{askRow(true)}</div>}
+      {!p.phone && aiOn && <div className="sb-group st-ask-group">{askRow(true)}</div>}
     </>
   ) : (
     <>
@@ -851,7 +852,7 @@ export function Studio(p: StudioProps) {
           </div>
           <div className="sb-group">
             {terrainRow}
-            {askRow(false)}
+            {aiOn && askRow(false)}
           </div>
         </section>
       )}
@@ -1009,16 +1010,18 @@ export function Studio(p: StudioProps) {
               <i style={{ width: Math.round(curProj.icon[0] * 0.8), height: Math.round(curProj.icon[1] * 0.8), borderRadius: curProj.icon[2] }} />
             </span>
           </button>
-          <button
-            className={`st-ph-btn${astShown ? ' on' : ''}`}
-            data-act="assistant"
-            aria-label="让助手改"
-            aria-pressed={astShown}
-            disabled={!canAsk}
-            onClick={() => (astShown ? closeAssistant() : askAssistant())}
-          >
-            <Icon name="bubble" size={22} />
-          </button>
+          {aiOn && (
+            <button
+              className={`st-ph-btn${astShown ? ' on' : ''}`}
+              data-act="assistant"
+              aria-label="让助手改"
+              aria-pressed={astShown}
+              disabled={!canAsk}
+              onClick={() => (astShown ? closeAssistant() : askAssistant())}
+            >
+              <Icon name="bubble" size={22} />
+            </button>
+          )}
         </div>
       )}
       {right}
