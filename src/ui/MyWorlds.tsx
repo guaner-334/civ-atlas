@@ -9,19 +9,23 @@
  * 手机:两列卡片,新建世界在右上,打开存档文件在列表下面。
  * 一个都没有(第一次来)时:中间一颗慢慢自转的星球、一段话说清能做什么、「新建世界」大按钮,下面"或者打开存档文件"。
  *
- * 登录了的:标题下那句话说世界存在账号里;卡片时间那个位置在没同步好时换成"正在同步""还没同步上"(同步好了不标);
+ * 标题下那句话:没登录的说清楚世界只存在这个浏览器里、清理浏览器数据会一起删掉;后面跟蓝字「全部存成文件」
+ * (所有世界存成一个文件,「打开存档文件」选它全部放回来,见 bundle.ts;一个世界都没有、也没有只在页面里的时不出现)。
+ * 登录了的:标题下那句话说世界存在账号里(不再提醒,「全部存成文件」照样在);卡片时间那个位置在没同步好时换成"正在同步""还没同步上"(同步好了不标);
  * 账号窗里点「最近删除」,这一页换成最近删除(30 天内能找回,点一张卡片找回)。
  *
- * 存、读、列都在 saveStore.ts;打开一个世界(生成 + 套上修改)由 App 做。
+ * 存、读、列都在 saveStore.ts;打开一个世界(生成 + 套上修改)由 App 做。一个都没有时也停在这一页
+ * (刚才那个世界存不进浏览器、只在页面里的,标题下有「全部存成文件」)。
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { MAX_WORLDS, deleteWorld, duplicateWorld, listWorlds, loadWorld, notify, persistent, renameWorld, restoreWorld, storedCount, syncable, useSavesVersion, type StoredWorld } from './saveStore';
+import { MAX_WORLDS, currentUnsaved, deleteWorld, duplicateWorld, listWorlds, loadWorld, notify, persistent, renameWorld, restoreWorld, storedCount, syncable, useSavesVersion, type StoredWorld } from './saveStore';
 import { closeTrash, openAccount, openLogin, useAccountPanelOpen, useTrashView } from './AccountDialogs';
 import { serverBase } from '../account/server';
 import { displayName, useSession } from '../account/session';
 import { inAccount, syncNow, useSyncView } from '../account/sync';
 import { listTrash, restoreTrash, type TrashEntry } from '../account/cloud';
 import { downloadSave } from './SaveMenu';
+import { downloadAll } from './bundle';
 import { copyNotes } from '../ai/library';
 import { Icon } from './icons';
 import { TitleInput, when } from './worldParts';
@@ -74,6 +78,7 @@ export function MyWorlds({ phone, onOpen, onNew, onOpenText }: MyWorldsProps) {
   const trash = useTrashView();
   const n = list.length;
   const empty = n === 0;
+  // 没登录:世界只在这个浏览器里,清理浏览器数据就没了 —— 直说,后面跟「全部存成文件」;登录了存在账号里,不再提醒
   const sub = !keep
     ? '浏览器不让网页存数据，关掉页面前请把世界存成文件。'
     : session
@@ -82,17 +87,22 @@ export function MyWorlds({ phone, onOpen, onNew, onOpenText }: MyWorldsProps) {
         : phone
           ? `${n} 个世界，存在你的账号里`
           : `${n} 个世界，存在你的账号里。换电脑、换手机，登录同一个账号就能打开。`
-      : server
-        ? empty
+      : empty
+        ? server
           ? '建好的世界存在这个浏览器里。登录以后，换电脑、换手机都能接着改。'
-          : phone
-            ? `${n} 个世界，存在这个浏览器里`
-            : `${n} 个世界，存在这个浏览器里。登录以后，换电脑、换手机都能接着改。`
-        : empty
-          ? '建好的世界存在这个浏览器里；换电脑请用存档文件。'
-          : phone
-            ? `${n} 个世界，自动存在这个浏览器里`
-            : `${n} 个世界，改动自动存在这个浏览器里；换电脑请用存档文件。`;
+          : '建好的世界存在这个浏览器里；换电脑请用存档文件。'
+        : phone
+          ? `${n} 个世界只存在这个浏览器里，清理浏览器数据会删掉。`
+          : server
+            ? `${n} 个世界，只存在这个浏览器里，清理浏览器数据会一起删掉。登录以后存进账号，换电脑、换手机都能接着改。`
+            : `${n} 个世界，只存在这个浏览器里，清理浏览器数据会把它们一起删掉。`;
+  // 正在看的世界存不进浏览器(存储满了)、一个都没存下时,也能把它存成文件
+  const saveAll = (n > 0 || currentUnsaved()) && (
+    <button className="mw-link" data-act="save-all" onClick={downloadAll}>
+      <Icon name="save" size={phone ? 13 : 14} />
+      全部存成文件
+    </button>
+  );
   const stop = (e: { stopPropagation(): void }) => e.stopPropagation();
   const acctOpen = useAccountPanelOpen();
   const acctBtn = server && (
@@ -124,7 +134,11 @@ export function MyWorlds({ phone, onOpen, onNew, onOpenText }: MyWorldsProps) {
         )}
         <div className="mw-heading">
           <h1>我的世界</h1>
-          <p>{sub}</p>
+          <p>
+            {sub}
+            {phone && saveAll && <br />}
+            {saveAll}
+          </p>
         </div>
         {/* 一个都没有时,打开存档、新建在中间的大按钮那里;右上只剩账号 */}
         {!phone && (!empty || acctBtn) && (
