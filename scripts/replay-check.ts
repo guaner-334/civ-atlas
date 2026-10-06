@@ -4203,7 +4203,7 @@ for (const style of ['realistic', 'fantasy']) {
   await gBrowser.close();
 }
 
-// 手机布局(390×844,触屏):底部是收起的世界卡片(搜索框 + 世界名一行),时间轴胶囊浮在它上面、一行;右上竖排图层、地球、助手三个按钮;
+// 手机布局(390×844,触屏):底部是收起的世界卡片(搜索框 + 世界名一行),时间轴胶囊浮在它上面、一行;右上竖排图层、标记、地球、助手四个按钮;
 // 右下没有 + −、操作提示是"双指缩放"、悬停卡片不出来;往上拖世界卡片 → 拉到顶(四个大按钮、整个世界,胶囊藏起来)→ 点拖动条收起;
 // 拉到顶后点"改地形" → 卡片收起;
 // 双指捏合 → 地图比例变了;点国家 → 详情卡片升到半屏(胶囊跟上去,国家落在胶囊上方)→ 往上拖拉到顶 → 干预 → 结盟 → 点名牌 → 已生效 → 撤销;
@@ -4429,8 +4429,8 @@ for (const style of ['realistic', 'fantasy']) {
     errs.push(`手机:时间轴胶囊不在世界卡片上面 / 不是一行(${JSON.stringify(row)})`);
   if (!track || !row || track.height < 32 || track.y < row.y || track.y + track.height > row.y + row.height) errs.push(`手机:时间轴轨道不在胶囊里 / 太矮(${JSON.stringify(track)})`);
   if (!/^种子 7，现存 \d+ 国$/.test(sub)) errs.push(`手机:世界名后面的副标不对(${sub})`);
-  if (btnActs !== 'layers,globe,assistant' || !btns || Math.abs(btns.x + btns.width - (VW - 12)) > 1 || btns.y > 20 || btns.height < 120)
-    errs.push(`手机:右上不是竖排的图层、地球、助手三个按钮(${btnActs} ${JSON.stringify(btns)})`);
+  if (btnActs !== 'layers,mark,globe,assistant' || !btns || Math.abs(btns.x + btns.width - (VW - 12)) > 1 || btns.y > 20 || btns.height < 160)
+    errs.push(`手机:右上不是竖排的图层、标记、地球、助手四个按钮(${btnActs} ${JSON.stringify(btns)})`);
   if (!wsFull || Math.abs(wsFull.y - 0.08 * VH) > 8 || tiles !== 4 || !capsuleHidden) errs.push(`手机:往上拖世界卡片没有拉到顶(${JSON.stringify(wsFull)},大按钮 ${tiles},胶囊藏起 ${capsuleHidden})`);
   if (!ws1 || Math.abs(ws1.y - (VH - PEEK)) > 2) errs.push(`手机:点拖动条没有收起世界卡片(${JSON.stringify(ws1)})`);
   if (!hint0.includes('双指缩放') || hint1 !== 0) errs.push(`手机:操作提示不对 / 捏合后没消失(${hint0})`);
