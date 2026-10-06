@@ -39,11 +39,36 @@ export function markRegionIds(civ: Civ, m: Pick<AuthorMark, 'regions'>): number[
   return out;
 }
 
-/** 一个点落在哪:城(离那一点不到一个半地块的城,挑最近的)、州、海(都没有 = 不给) */
+/** 一个点落在哪:城(离那一点不到一个半地块的城,挑最近的)、有名字的山 / 岛 / 荒漠(没挨着城时)、州、海(都没有 = 不给) */
 export interface MarkSpot {
   city?: number;
+  /** civ.places 里的号 */
+  place?: number;
   region?: number;
   sea?: string;
+}
+
+/** 一点到一条折线(x,y,x,y…,东西相连)最近的距离的平方 */
+function pathDist2(path: Float32Array, at: readonly [number, number], W: number): number {
+  // 每个点挪到离 at 最近的那一圈
+  const wrap = (x: number) => x - W * Math.round((x - at[0]) / W);
+  let best = Infinity;
+  for (let i = 0; i + 1 < path.length; i += 2) {
+    const ax = wrap(path[i]);
+    const ay = path[i + 1];
+    if (i + 3 >= path.length) {
+      best = Math.min(best, (ax - at[0]) ** 2 + (ay - at[1]) ** 2);
+      break;
+    }
+    const bx = wrap(path[i + 2]);
+    const by = path[i + 3];
+    const vx = bx - ax;
+    const vy = by - ay;
+    const l2 = vx * vx + vy * vy;
+    const t = l2 ? Math.max(0, Math.min(1, ((at[0] - ax) * vx + (at[1] - ay) * vy) / l2)) : 0;
+    best = Math.min(best, (ax + t * vx - at[0]) ** 2 + (ay + t * vy - at[1]) ** 2);
+  }
+  return best;
 }
 
 export function markSpot(civ: Civ, world: World, raster: Raster | null, at: readonly [number, number], year: number): MarkSpot {
@@ -62,8 +87,22 @@ export function markSpot(civ: Civ, world: World, raster: Raster | null, at: read
       out.city = s.id;
     }
   }
-  if (r >= 0) out.region = r;
-  else {
+  if (r >= 0) {
+    out.region = r;
+    // 没挨着城时:落在有名字的山(离山脊线三个地块以内)、岛、荒漠(离标注线不超过它的大小)上 = 那个名字
+    if (out.city === undefined) {
+      let best = 1;
+      civ.places.forEach((p, id) => {
+        const reach = p.kind === 'mountains' ? world.mesh.spacing * 3 : p.kind === 'island' || p.kind === 'desert' ? (p.size ?? 0) : 0;
+        if (!reach || !p.path.length) return;
+        const d = Math.sqrt(pathDist2(p.path, at, W)) / reach;
+        if (d < best) {
+          best = d;
+          out.place = id;
+        }
+      });
+    }
+  } else {
     // 海上:离得最近的那片海(标注弧上的点到这一点的距离,不超过这片海的大小)
     let sd = Infinity;
     for (const p of civ.places) {
@@ -88,10 +127,12 @@ export function regionsText(civ: Civ, ids: readonly number[]): string {
   return ids.length <= 3 ? `${names.join('、')} ${ids.length} 州` : `${names.slice(0, 3).join('、')}等 ${ids.length} 州`;
 }
 
-/** 一个点在哪,写成一句:"落烟渡，紫月洲" / "紫月洲" / "风暴海" / "海上" */
+/** 一个点在哪,写成一句:"落烟渡，紫月洲" / "观月山" / "紫月洲" / "风暴海" / "海上" */
 export function spotText(civ: Civ, s: MarkSpot): string {
   const parts: string[] = [];
+  const place = s.place !== undefined ? civ.places[s.place] : undefined;
   if (s.city !== undefined && civ.settlements[s.city]) parts.push(civ.settlements[s.city].name);
+  else if (place) return place.name;
   if (s.region !== undefined) parts.push(regionLabel(civ, s.region));
   if (!parts.length) parts.push(s.sea ?? '海上');
   return parts.join('，');

@@ -135,7 +135,8 @@
   border-radius: 50%;
   vertical-align: 1px;
 }
-.chron-row.mk-row {
+/* 比人物页的行(.chron-row.pp-row)多一档,不管样式表谁先加载 */
+.chron-row.pp-row.mk-row {
   grid-template-columns: 96px 150px 1fr;
 }
 .chron-row .mk-who {
@@ -146,7 +147,7 @@
   text-overflow: ellipsis;
 }
 @media (max-width: 760px) {
-  .chron-row.mk-row {
+  .chron-row.pp-row.mk-row {
     grid-template-columns: 44px 96px 1fr;
   }
 }

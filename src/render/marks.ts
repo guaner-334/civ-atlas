@@ -2,7 +2,7 @@
  * 作者标记的样子和摆放(数据格式见 gen/edits.ts 文件头"作者标记"):屏幕上的标记层(ui/MarkLayer.tsx)和导出的地图图片共用。
  *
  * - 一个点:水滴形图钉(24×32 像素,尖头就是那个点;选中 30×40),白边、白芯、淡投影;名字写在图钉右边
- *   (压着别的标记、出了屏幕换左边、下边),字是标记的颜色压暗一点(× 0.72),白色光晕
+ *   (压着别的标记、出了屏幕换左边、下边;压着地图上的城名、地名、城镇符号也尽量换),字是标记的颜色压暗一点(× 0.72),白色光晕
  * - 几个州:这几州铺一层标记色(不透明度 0.3,选中 0.42),外圈先描一道白边(4.5 像素)再描一道实线(2 像素),
  *   海岸那一侧也描;名字写在这几州中间的白底圆角小牌上(选中时小牌外面一圈同色细环)
  * - 缩小到城名还没出来时(相当于平面主图不到 NAME_ZOOM 倍):不写名字;屏幕上挨得近(CLUSTER_PX 以内)的合成一个带数字的圆
@@ -17,6 +17,8 @@ import type { Regions } from '../gen/civ/types';
 import type { MarkColor } from '../gen/edits';
 import { sphereMean } from './civ/lines';
 import { nearX } from './common';
+import { placedMarkBox, type Placement } from './labels/draw';
+import { glyphBox } from './labels/layout';
 
 /** 六种颜色(和时间轴大事的颜色同一套) */
 export const MARK_HEX: Record<MarkColor, string> = {
@@ -378,10 +380,26 @@ function projectPoly(f: MarkFrame, pts: Float32Array, shift: number): Float32Arr
 }
 
 /**
- * 摆好这一帧要画的标记:按缩放决定写不写名字、要不要合并;名字挑一边放(先右,压着别的标记就左、下);
- * 算出点得到的范围。items 按先后排,选中的放最后(画在最上面)
+ * 地图上已经排好的城名、地名、城镇符号占的地方(文字层画布像素的框):标记的名字尽量躲开。
+ * 每个字按笔画大致占的地方算(比整个字格小一圈,挨着一点不算压);
+ * 国名不算(字大、铺得开,躲它反而哪边都放不下);淡到看不清的字不算
  */
-export function layoutMarks(items: readonly MarkItem[], f: MarkFrame, opts: { names?: boolean; measure?: Measure } = {}): MarkLayout {
+export function placedTextBoxes(placed: Placement): number[][] {
+  const out: number[][] = placed.marks.map((m) => placedMarkBox(m));
+  for (const l of placed.labels) {
+    if (l.item.sizeWorld !== undefined || l.alpha < 0.3) continue;
+    for (const g of l.glyphs) out.push(glyphBox(g, l.px, -0.12 * l.px));
+  }
+  return out;
+}
+
+/**
+ * 摆好这一帧要画的标记:按缩放决定写不写名字、要不要合并;名字挑一边放(先右,压着别的标记就左、下);
+ * 算出点得到的范围。items 按先后排,选中的放最后(画在最上面)。
+ * avoid = 地图上的城名、地名、按钮面板占的地方(和画布同一套坐标):名字先找哪个都不压的一边,找不到再只躲开别的标记
+ */
+export function layoutMarks(items: readonly MarkItem[], f: MarkFrame, opts: { names?: boolean; measure?: Measure; avoid?: readonly number[][] } = {}): MarkLayout {
+  const avoid = opts.avoid ?? [];
   const names = opts.names ?? f.k >= NAME_ZOOM * 0.92;
   const measure = opts.measure ?? roughMeasure;
   const areas: PlacedArea[] = [];
@@ -429,6 +447,8 @@ export function layoutMarks(items: readonly MarkItem[], f: MarkFrame, opts: { na
     points.push({ m, x, y: p[1] });
   }
 
+  /** 已经占了的地方(名字牌、图钉、名字):后放的名字躲开它们 */
+  const taken: number[][] = [];
   if (!names) {
     // 缩小了:不写名字;挨得近的合成一个圆(选中的单独画,不合)
     const all = [...points.map((p) => ({ ...p, area: false })), ...anchors.map((a) => ({ m: a.m, x: a.x, y: a.y, area: true }))];
@@ -464,7 +484,6 @@ export function layoutMarks(items: readonly MarkItem[], f: MarkFrame, opts: { na
   }
 
   // 放大了:每个都写名字。先放名字牌(几个州),再放图钉的名字:右边压着别的就换左边、下边
-  const taken: number[][] = [];
   for (const a of anchors) {
     const pill = pillOf(a.m, a.x, a.y);
     a.area!.pill = pill;
@@ -509,7 +528,8 @@ export function layoutMarks(items: readonly MarkItem[], f: MarkFrame, opts: { na
         { side: 'b', x: p.x, y: p.y + 3, box: [p.x - tw / 2, p.y + 3, p.x + tw / 2, p.y + 3 + th] },
       ];
       const fits = (c: (typeof cand)[number]) => c.box[0] >= f.win[0] && c.box[2] <= f.win[1] && !taken.some((t) => overlap(c.box, t));
-      const pick = cand.find(fits) ?? cand[0];
+      const clear = (c: (typeof cand)[number]) => fits(c) && !avoid.some((t) => overlap(c.box, t));
+      const pick = cand.find(clear) ?? cand.find(fits) ?? cand[0];
       taken.push(pick.box);
       pin.label = { text: p.m.title, x: pick.x, y: pick.y, side: pick.side, size, w: tw, ink: markInk(hex) };
       hits.push({ kind: 'label', ids: [p.m.id], box: pick.box as [number, number, number, number] });

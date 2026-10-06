@@ -17,7 +17,7 @@
  *   颜色  六种;说明  随便写
  *   底部  取消 / 完成(填得不对时点不了,提示一句)
  */
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Civ } from '../gen/civ/types';
 import type { Raster } from '../gen/raster';
 import type { World } from '../gen/world';
@@ -140,12 +140,18 @@ function MarkView({ civ, raster, world, year, m }: MarkPanelProps & { m: AuthorM
   } else if (m.at) {
     const spot = markSpot(civ, world, raster, m.at, year);
     const city = spot.city !== undefined ? civ.settlements[spot.city] : undefined;
+    const place = spot.place !== undefined ? civ.places[spot.place] : undefined;
     const reg = spot.region;
     rows.push({
       k: '地方',
       node: city ? (
         <>
           <Link to={{ kind: 'settlement', id: city.id }}>{city.name}</Link>
+          {reg !== undefined && <em className="cp-num-note">{regionLabel(civ, reg)}</em>}
+        </>
+      ) : place ? (
+        <>
+          <Link to={{ kind: 'place', id: spot.place! }}>{place.name}</Link>
           {reg !== undefined && <em className="cp-num-note">{regionLabel(civ, reg)}</em>}
         </>
       ) : reg !== undefined ? (
@@ -207,12 +213,12 @@ function MarkView({ civ, raster, world, year, m }: MarkPanelProps & { m: AuthorM
 
 /** 当年归属:一国 = 国名;几国 = 国名 + "N 州" */
 function ownersNode(civ: Civ, own: { polity: number; n: number }[], year: number): ReactNode {
-  return own.map((o, i) => (
-    <span key={o.polity}>
-      {i > 0 && ' '}
+  // 国名、州数都直接放进那一格(格子是 flex,间距照别的卡片)
+  return own.map((o) => (
+    <Fragment key={o.polity}>
       <Link to={{ kind: 'polity', id: o.polity }}>{ownerName(civ, o.polity, year)}</Link>
       {own.length > 1 && <em className="cp-num-note">{o.n} 州</em>}
-    </span>
+    </Fragment>
   ));
 }
 

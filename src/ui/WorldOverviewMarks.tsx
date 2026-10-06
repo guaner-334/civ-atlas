@@ -3,7 +3,7 @@
  * 点一行打开标记卡片(收起概览,地图移过去)。
  *
  *   全部 / 这一年有的(时间轴当前那一年地图上有的)
- *   每个标记一行:年份(从–到 / 从…起)、颜色圆点和名字、"在哪。说明";按「从」排,新的在上
+ *   每个标记一行:年份(从–到 / 从…起)、颜色圆点和名字、"在哪。说明";按「从」排,新的在上(同一年的先加的在上)
  *   和编年史一样跟着时间轴:还没开始的淡显,"现在"线在第一个已经开始的上方(Chronicle.tsx 的 useNowLine)
  *   「加标记」= 收起概览、进入"点地图放标记";「复制全文」复制成纯文字
  */
@@ -51,7 +51,7 @@ export function MarksPage({ civ, data }: { civ: Civ | null; data: { world: World
   const all = useMemo((): MRow[] => {
     if (!civ || !data || !marks) return [];
     return [...marks]
-      .sort((a, b) => b.from - a.from || b.id - a.id)
+      .sort((a, b) => b.from - a.from || a.id - b.id)
       .map((m) => {
         const place = markPlaceText(civ, data.world, data.raster, m, Math.min(civ.endYear, Math.max(0, m.from)));
         const note = (m.note ?? '').replace(/\s*\n\s*/g, ' ').trim();

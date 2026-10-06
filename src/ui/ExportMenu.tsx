@@ -225,7 +225,7 @@ async function exportMap(m: MapInput, scale: ExportScale, format: ImageFormat): 
   detail.worker = t1 - t0;
   const t2 = performance.now();
   const n = await drawMapLabels(ctx, { ...m }, scale);
-  detail.markCount = m.marks?.length ? drawExportMarks(ctx, m, scale, m.marks) : 0;
+  detail.markCount = m.marks?.length ? drawExportMarks(ctx, m, scale, m.marks, n.placed) : 0;
   const t3 = performance.now();
   detail.labels = t3 - t2;
   detail.labelCount = n.labels;

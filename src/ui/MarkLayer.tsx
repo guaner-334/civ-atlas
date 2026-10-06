@@ -2,8 +2,9 @@
  * 地图上的作者标记(样子见 render/marks.ts,数据见 gen/edits.ts 文件头"作者标记"):铺满舞台的一张画布,不接鼠标(点得到下面的地图)。
  *
  * - 按时间轴当前那一年挑标记(markShownAt);选中的标记不在这一年里也画,变淡
- * - 每帧问 App 要"世界坐标 → 舞台坐标"的换算(平面主图、弯边投影、地球仪),视图、年份、标记、选中、鼠标(放标记、圈州时)
- *   有变化才重画;一千个标记以内一帧几毫秒
+ * - 每帧问 App 要"世界坐标 → 舞台坐标"的换算(平面主图、弯边投影、地球仪),视图、年份、标记、选中、鼠标(放标记、圈州时)、
+ *   地图文字的排版有变化才重画;一千个标记以内一帧几毫秒
+ * - 名字尽量不压地图上的城名、地名(平面主图、弯边投影时按文字层排好的位置躲),也尽量不写到按钮、面板下面
  * - 放标记(markStore 的 placing):鼠标在地图上时跟着一枚半透明图钉 + 十字
  * - 编辑几个州的标记:鼠标停着的州(还没选上的)描一圈虚线
  * - App 点地图、悬停时问 markHitAt:点到图钉、名字、名字牌 = 选中那个标记,点到合并的圆 = 在那里放大
@@ -32,6 +33,7 @@ import { useEdits } from './editsStore';
 import { getCivTime, subscribeCivTime, useSelection } from './civView';
 import { useMarkUi, type MarkDraft } from './markStore';
 import { markRegionIds, markShapeOf } from './markInfo';
+import { useAvoidBoxes } from './uiAvoid';
 import './marks.css';
 
 /** 这一帧的换算(舞台坐标)+ 舞台在屏幕上的位置 + 指纹(视图没变 = 指纹不变) */
@@ -48,6 +50,8 @@ export interface MarkApi {
   regionAt(cx: number, cy: number): number;
   /** 屏幕坐标在不在地图上 */
   onMap(cx: number, cy: number): boolean;
+  /** 地图上城名、地名占的地方(屏幕坐标;ver 变了 = 重新排过):标记的名字尽量躲开 */
+  textBoxes(): { ver: number; list: number[][] };
 }
 
 /** 最近画的那一帧(App 点地图、悬停时按它找点到的标记) */
@@ -65,6 +69,12 @@ export function markPinAt(cx: number, cy: number, id: number): boolean {
   const x = cx - shown.view.left;
   const y = cy - shown.view.top;
   return shown.layout.pins.some((p) => p.id === id && Math.abs(x - p.x) <= p.w / 2 + 4 && y >= p.y - (p.w * 4) / 3 - 4 && y <= p.y + 4);
+}
+
+/** 这个标记的图钉尖在屏幕上的位置(悬停小卡片放在它左上方);没画图钉 = null */
+export function markPinTip(id: number): [number, number] | null {
+  const p = shown?.layout.pins.find((q) => q.id === id);
+  return p && shown ? [p.x + shown.view.left, p.y + shown.view.top] : null;
 }
 
 /** 编辑中的标记画成的样子(还没存的那一份) */
@@ -91,9 +101,12 @@ export function MarkLayer({ civ, world, api, hidden }: { civ: Civ | null; world:
 
   // 每帧看一眼,有变化才重画
   const state = useRef({ ver: 0, sig: '', mouse: null as { x: number; y: number; map: boolean } | null });
-  const deps = { marks, draft, selId, placing: ui.placing, civ };
+  // 按钮、面板(名字尽量不写到它们下面)
+  const panels = useAvoidBoxes(cvRef);
+  const deps = { marks, draft, selId, placing: ui.placing, civ, panels };
   const depsRef = useRef(deps);
-  if (depsRef.current.marks !== marks || depsRef.current.draft !== draft || depsRef.current.selId !== selId || depsRef.current.placing !== ui.placing || depsRef.current.civ !== civ) state.current.ver++;
+  const was = depsRef.current;
+  if (was.marks !== marks || was.draft !== draft || was.selId !== selId || was.placing !== ui.placing || was.civ !== civ || was.panels !== panels) state.current.ver++;
   depsRef.current = deps;
   const shapeRef = useRef(shapeOf);
   shapeRef.current = shapeOf;
@@ -135,14 +148,15 @@ export function MarkLayer({ civ, world, api, hidden }: { civ: Civ | null; world:
     const frame = () => {
       raf = requestAnimationFrame(frame);
       const v = api.current?.frame();
+      const tb = api.current?.textBoxes();
       const s = state.current;
       const m = s.mouse;
-      const sig = v ? `${v.sig}|${s.ver}|${m ? `${m.x},${m.y},${m.map}` : ''}` : '';
+      const sig = v ? `${v.sig}|${s.ver}|${tb?.ver}|${m ? `${m.x},${m.y},${m.map}` : ''}` : '';
       if (sig === s.sig) return;
       s.sig = sig;
-      draw(v);
+      draw(v, tb?.list ?? []);
     };
-    const draw = (v: MarkView | null | undefined) => {
+    const draw = (v: MarkView | null | undefined, text: number[][]) => {
       const dpr = window.devicePixelRatio || 1;
       if (!v) {
         ctx.clearRect(0, 0, cv.width, cv.height);
@@ -162,7 +176,7 @@ export function MarkLayer({ civ, world, api, hidden }: { civ: Civ | null; world:
       ctx.clearRect(0, 0, W, H);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       measure ??= canvasMeasure(ctx);
-      const { marks, draft, selId, placing, civ } = depsRef.current;
+      const { marks, draft, selId, placing, civ, panels } = depsRef.current;
       if (!civ) return;
       const year = Math.floor(Math.min(civ.endYear, Math.max(0, getCivTime().year ?? civ.endYear)));
       const items: MarkItem[] = [];
@@ -192,7 +206,8 @@ export function MarkLayer({ civ, world, api, hidden }: { civ: Civ | null; world:
         ctx.rect(v.win[0], 0, v.win[1] - v.win[0], v.h);
         ctx.clip();
       }
-      const layout = layoutMarks(items, v, { measure });
+      const avoid = [...text, ...panels].map((b) => [b[0] - v.left, b[1] - v.top, b[2] - v.left, b[3] - v.top]);
+      const layout = layoutMarks(items, v, { measure, avoid });
       drawMarks(ctx, layout, dpr);
       const mouse = state.current.mouse;
       if (mouse?.map) {

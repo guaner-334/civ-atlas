@@ -250,8 +250,12 @@ export function FirstHint({ show, touch }: { show: boolean; touch?: boolean }) {
   return <div className="first-hint">{touch ? '拖动地图，双指缩放，点国家看它的历史' : '拖动地图，滚轮缩放，点一个国家看它的历史'}</div>;
 }
 
-/** 悬停小卡片:跟着鼠标,靠右 / 靠下时翻到另一边;放在鼠标下面会压住底部的时间轴时也翻到上面 */
-export function HoverCard({ info, x, y }: { info: HoverInfo; x: number; y: number }) {
+/**
+ * 悬停小卡片:跟着鼠标,靠右 / 靠下时翻到另一边;放在鼠标下面会压住底部的时间轴时也翻到上面。
+ * place(作者标记用):'above' = x、y 是图钉尖,卡片放在图钉左上方,不压住写在图钉右边的名字;
+ * 'left' = 放在鼠标左边(圈州时不挡住右边正在圈的地方)。放不下再照常放
+ */
+export function HoverCard({ info, x, y, place }: { info: HoverInfo; x: number; y: number; place?: 'above' | 'left' }) {
   const ref = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
   useLayoutEffect(() => {
@@ -263,18 +267,33 @@ export function HoverCard({ info, x, y }: { info: HoverInfo; x: number; y: numbe
   });
   const vw = typeof window === 'undefined' ? 1e4 : window.innerWidth;
   const vh = typeof window === 'undefined' ? 1e4 : window.innerHeight;
-  const left = x + 16 + size.w > vw - 8 ? x - 12 - size.w : x + 16;
+  if (place === 'above' && x - 14 - size.w >= 8 && y - 34 - size.h >= 8) {
+    return (
+      <div ref={ref} className="hover hover-card" style={{ left: x - 14 - size.w, top: y - 34 - size.h }} role="tooltip">
+        <HoverLines info={info} />
+      </div>
+    );
+  }
+  const left = place === 'left' && x - 14 - size.w >= 8 ? x - 14 - size.w : x + 16 + size.w > vw - 8 ? x - 12 - size.w : x + 16;
   let top = y + 14 + size.h > vh - 8 ? y - 10 - size.h : y + 14;
   const bar = ref.current?.closest('.app')?.querySelector('.bottom-row .timebar')?.getBoundingClientRect();
   if (bar && bar.height && top > y && y < bar.top && top + size.h > bar.top - 4 && left < bar.right && left + size.w > bar.left) top = y - 10 - size.h;
   return (
     <div ref={ref} className="hover hover-card" style={{ left, top }} role="tooltip">
+      <HoverLines info={info} />
+    </div>
+  );
+}
+
+function HoverLines({ info }: { info: HoverInfo }) {
+  return (
+    <>
       <div className="hc-line">
         {info.color && <i className="hc-sw" style={{ background: info.color }} />}
         <span className="hc-name">{info.name}</span>
         {info.sub && <span className="hc-sub">{info.sub}</span>}
       </div>
       {info.extra && <div className="hc-extra">{info.extra}</div>}
-    </div>
+    </>
   );
 }
