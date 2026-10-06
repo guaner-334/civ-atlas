@@ -145,6 +145,21 @@ describe('作者标记 · 存档和分享链接', () => {
     expect(r0.ok && 'marks' in r0.save.edits).toBe(false);
   });
 
+  it('和改过的旗一起:存档两样都留着,"改了几处"两样都算;撤销标记的修改不动旗', () => {
+    const flags = { 'polity:c12#0': 'b/plain/W/e=R/k=long' };
+    const both: WorldEdits = { ...edits, flags };
+    const r = parseSave(saveText(makeSave(params, both, 'abc')));
+    expect(r.ok && r.save.edits.marks).toEqual(marks);
+    expect(r.ok && r.save.edits.flags).toEqual(flags);
+    expect(editCount(both)).toBe(marks.length + 1);
+    commitEdits(both);
+    updateMark({ ...marks[0], title: '改过的名字' });
+    expect(undoLastEdit()).toBe(true);
+    expect(getEdits().marks).toEqual(marks);
+    expect(getEdits().flags).toEqual(flags);
+    expect(getToast()?.text).toBe('已撤销标记的修改');
+  });
+
   it('读档:格式不对的跳过并提示,编号重复的换一个;算进"改了几处"', () => {
     const save = makeSave(params, edits, 'abc');
     const raw = JSON.parse(saveText(save));
