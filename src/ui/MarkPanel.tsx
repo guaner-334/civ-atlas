@@ -22,7 +22,7 @@ import type { Civ } from '../gen/civ/types';
 import type { Raster } from '../gen/raster';
 import type { World } from '../gen/world';
 import { regionLabel } from '../gen/civ/display';
-import { MARK_COLORS, MARK_NOTE_MAX, MARK_TITLE_DEFAULT, MARK_TITLE_MAX, markShownAt, regionKey, type AuthorMark, type MarkColor } from '../gen/edits';
+import { MARKS_MAX, MARK_COLORS, MARK_NOTE_MAX, MARK_TITLE_DEFAULT, MARK_TITLE_MAX, markShownAt, regionKey, type AuthorMark, type MarkColor } from '../gen/edits';
 import { MARK_HEX } from '../render/marks';
 import { getEdits, removeMark, restoreMark, useEdits } from './editsStore';
 import { clearSelection, setSelection } from './civView';
@@ -113,13 +113,14 @@ function MarkView({ civ, raster, world, year, m }: MarkPanelProps & { m: AuthorM
         onClick: () => {
           const id = restoreMark(gone, at);
           if (id > 0) setSelection({ kind: 'mark', id });
+          else showToast({ id: 'mk-restore', kind: 'warn', text: `标记已经有 ${MARKS_MAX} 个了,放不回去`, ttl: 4000 });
         },
       },
     });
   };
 
-  // 年份:几年;当前那年不在里面时说一声
-  const span = m.to === undefined ? null : `${m.to - m.from} 年`;
+  // 年份:几年(两头相减,同一年 = 不足一年,和人物页的在位年数一样);当前那年不在里面时说一声
+  const span = m.to === undefined ? null : m.to > m.from ? `${m.to - m.from} 年` : '不足一年';
   const yearNote = live ? span : year < m.from ? `第 ${year} 年时还没有` : `第 ${year} 年时已经没了`;
   const rows: { k: string; node: ReactNode }[] = [
     {

@@ -297,6 +297,8 @@ export interface PlacedCluster {
   ids: number[];
   hex: string;
   w: number;
+  /** 合进来的都变淡了(选了别的标记)= DIM_ALPHA */
+  alpha: number;
 }
 
 /** 点得到的东西(画布坐标的矩形 [x0, y0, x1, y1]) */
@@ -470,7 +472,8 @@ export function layoutMarks(items: readonly MarkItem[], f: MarkFrame, opts: { na
         const hex = grp.every((k) => free[k].m.color === c0) ? MARK_HEX[c0] : CLUSTER_MIXED;
         const text = String(grp.length);
         const w = Math.max(28, measure(text, 13) * 0.62 + 16);
-        clusters.push({ x: X, y: Y, ids: grp.map((k) => free[k].m.id), hex, w });
+        const alpha = grp.every((k) => free[k].m.dim) ? DIM_ALPHA : 1;
+        clusters.push({ x: X, y: Y, ids: grp.map((k) => free[k].m.id), hex, w, alpha });
         hits.push({ kind: 'cluster', ids: grp.map((k) => free[k].m.id), box: [X - w / 2, Y - 14, X + w / 2, Y + 14] });
       } else if (!free[i].area) {
         const p = free[i];
@@ -729,6 +732,7 @@ function drawCluster(ctx: Ctx, c: PlacedCluster) {
   const r = new Path2D();
   roundRect(r, c.x - c.w / 2, c.y - h / 2, c.w, h, h / 2);
   ctx.save();
+  ctx.globalAlpha *= c.alpha;
   ctx.shadowColor = 'rgba(0,0,0,0.35)';
   ctx.shadowBlur = 3;
   ctx.shadowOffsetY = 1;
@@ -751,10 +755,11 @@ function drawCluster(ctx: Ctx, c: PlacedCluster) {
 /** 把摆好的标记画到画布上(画布坐标 = CSS 像素;dpr = 画布像素密度,图钉按它预先画好) */
 export function drawMarks(ctx: Ctx, layout: MarkLayout, dpr = 1) {
   for (const a of layout.areas) drawArea(ctx, a);
+  // 合并的圆先画:选中的图钉和名字画在它上面(和点的时候先认选中的一样)
+  for (const c of layout.clusters) drawCluster(ctx, c);
   for (const a of layout.areas) if (a.pill) drawPill(ctx, a.pill, a.selected, a.alpha);
   for (const p of layout.pins) drawPin(ctx, p.x, p.y, p.hex, p.w, p.alpha, dpr);
   for (const p of layout.pins) if (p.label) drawLabel(ctx, p.label, p.alpha);
-  for (const c of layout.clusters) drawCluster(ctx, c);
 }
 
 /** 放标记时跟着鼠标的半透明图钉 + 十字 */

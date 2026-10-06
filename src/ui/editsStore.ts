@@ -329,6 +329,7 @@ export function removeMark(id: number): AuthorMark | null {
 /** 把删掉的标记放回去(删除提示条上的"撤销"):编号已经被占了 = 换一个新编号;at = 放回列表里的位置。返回编号,放不回去 = −1 */
 export function restoreMark(m: AuthorMark, at: number): number {
   const list = state.marks ?? [];
+  if (list.length >= MARKS_MAX) return -1;
   const id = list.some((x) => x.id === m.id) ? nextMarkId(list) : m.id;
   const c = cleanMark({ ...m, id });
   if (!c) return -1;

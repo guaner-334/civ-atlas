@@ -29,7 +29,7 @@ import { redoLastEdit, undoLastEdit } from '../src/ui/undo';
 import { clearToast, getToast } from '../src/ui/toastStore';
 import { clearSelection, getSelection, setSelection } from '../src/ui/civView';
 import { cancelDraft, draftProblem, editMarkDraft, finishDraft, getMarkUi, newMarkDraft, patchDraft, resetMarkUi, toggleDraftRegion, togglePlacing, type MarkDraft } from '../src/ui/markStore';
-import { CLUSTER_PX, NAME_ZOOM, hitMark, layoutMarks, markAreaShape, type MarkFrame, type MarkItem } from '../src/render/marks';
+import { CLUSTER_PX, DIM_ALPHA, NAME_ZOOM, hitMark, layoutMarks, markAreaShape, type MarkFrame, type MarkItem } from '../src/render/marks';
 import { markEvents, markOwners, markPlaceText, markShapeOf, markSpot, regionsText, spotText } from '../src/ui/markInfo';
 import { searchCiv, searchMarks } from '../src/ui/searchIndex';
 import { markFocus } from '../src/ui/flyTo';
@@ -245,6 +245,10 @@ describe('作者标记 · 修改和撤销', () => {
     commitEdits({ ...getEdits(), marks: [...getEdits().marks!, { ...again, id: 2, title: '占位' }] });
     expect(restoreMark(again, 0)).toBe(4);
     expect(getEdits().marks!.map((m) => `${m.id}${m.title}`)).toEqual(['4乙', '1甲', '3丙', '2占位']);
+    // 删了以后又加满了:放不回去
+    commitEdits({ ...EMPTY_EDITS, marks: Array.from({ length: MARKS_MAX }, (_, i) => base({ id: i + 1 })) });
+    expect(restoreMark(again, 0)).toBe(-1);
+    expect(getEdits().marks!.length).toBe(MARKS_MAX);
   });
 });
 
@@ -368,6 +372,10 @@ describe('作者标记 · 地图上的摆放', () => {
     const lay = layoutMarks([pin(1, 100, 100), pin(2, 100 + CLUSTER_PX / 2, 100), pin(3, 600, 600), pin(4, 300, 300, { selected: true })], f);
     expect(lay.clusters.length).toBe(1);
     expect(lay.clusters[0].ids.sort()).toEqual([1, 2]);
+    expect(lay.clusters[0].alpha).toBe(1);
+    // 选了别的标记、合进来的都变淡了:圆也变淡
+    const dim = layoutMarks([pin(1, 100, 100, { dim: true }), pin(2, 100 + CLUSTER_PX / 2, 100, { dim: true })], f);
+    expect(dim.clusters[0].alpha).toBe(DIM_ALPHA);
     const solo = lay.pins.find((p) => p.id === 3)!;
     expect(solo.label).toBeNull();
     const sel = lay.pins.find((p) => p.id === 4)!;
