@@ -480,6 +480,14 @@ describe('作者标记 · 地图上的摆放', () => {
     expect(a.y).not.toBe(b.y);
     expect(hitMark(near, a.x, a.y)!.ids).toEqual([1]);
     expect(hitMark(near, b.x, b.y)!.ids).toEqual([2]);
+    // 州的中心贴着画面上边、右边:名字牌往里挪,整个在画面里;选中的也一样
+    for (const sel of [false, true]) {
+      const edge = layoutMarks([{ ...area(3, 995, 2), selected: sel }], frame(sel ? 1 : NAME_ZOOM));
+      const box = edge.hits.find((h) => h.kind === 'pill')!.box;
+      expect(edge.areas[0].pill).toBeTruthy();
+      expect(box[1]).toBeGreaterThanOrEqual(0);
+      expect(box[2]).toBeLessThanOrEqual(1000);
+    }
   });
 
   it('看不见的不摆;平面主图左右相连时挪到看得见的那一圈', () => {

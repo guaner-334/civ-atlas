@@ -496,9 +496,12 @@ export function layoutMarks(items: readonly MarkItem[], f: MarkFrame, opts: { na
 
   // 放大了:每个都写名字。先放名字牌(几个州;压着前面的名字牌就往下、往上错开),再放图钉的名字:右边压着别的就换左边、下边
   for (const a of anchors) {
-    const pill = pillOf(a.m, a.x, a.y);
+    const pill = keepIn(pillOf(a.m, a.x, a.y));
     const step = pill.size * LINE + 8;
-    for (let k = 1; k <= 8 && taken.some((t) => overlap(pillBox(pill), t)); k++) pill.y = a.y + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * step;
+    for (let k = 1; k <= 8 && taken.some((t) => overlap(pillBox(pill), t)); k++) {
+      pill.y = a.y + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * step;
+      keepIn(pill);
+    }
     a.area!.pill = pill;
     const box = pillBox(pill);
     taken.push(box);
@@ -516,11 +519,19 @@ export function layoutMarks(items: readonly MarkItem[], f: MarkFrame, opts: { na
     const size = m.selected ? LABEL_SIZE_SEL : LABEL_SIZE;
     return { text: m.title, x, y, size, w: measure(m.title, size) + 18, ink: markInk(MARK_HEX[m.color]) };
   }
+  /** 名字牌整个留在画面里(州的中心贴着画面边上时往里挪) */
+  function keepIn(p: ReturnType<typeof pillOf>) {
+    const b = pillBox(p);
+    const hh = (b[3] - b[1]) / 2;
+    p.y = Math.min(Math.max(p.y, hh), Math.max(hh, f.h - hh));
+    if (f.win[1] - f.win[0] >= p.w) p.x = Math.min(Math.max(p.x, f.win[0] + p.w / 2), f.win[1] - p.w / 2);
+    return p;
+  }
   function placeSelected(p: { m: MarkItem; x: number; y: number; area: boolean }, withName: boolean) {
     if (p.area) {
       const a = areas.find((q) => q.id === p.m.id);
       if (!a || !withName) return;
-      a.pill = pillOf(p.m, p.x, p.y);
+      a.pill = keepIn(pillOf(p.m, p.x, p.y));
       hits.push({ kind: 'pill', ids: [p.m.id], box: pillBox(a.pill) });
       return;
     }
