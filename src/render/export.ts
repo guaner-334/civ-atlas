@@ -8,7 +8,7 @@
  *      地图按世界宽(2048 CSS 像素)显示、2× 时像素密度 × 2:2× 和 1× 排出来一模一样,只是更清楚。
  *      排版、避让和屏幕上是同一套(render/labels/draw.ts 的 placeMap),文字之间不重叠、国名落在国土上。
  *
- * 图例(drawLegend):国家 / 民族列表 + 颜色(和世界概览的国家页一样按当年的州数排)、道路和城镇符号,和地图用同一套字体与配色。
+ * 图例(drawLegend):国家 / 民族列表 + 颜色(和世界概览的国家页一样按当年的州数排;信仰图层再列信仰)、道路和城镇符号,和地图用同一套字体与配色。
  *
  * 投影(和屏幕上一样):等距圆柱按当前中心左右转;弯边投影(罗宾森、摩尔威德……)按投影重画(和屏幕上停着时一样:
  * 面按行重投影,海岸、河、国界、道路逐点投影,符号正立,见 drawProjectedBase),外框换成投影轮廓、罗盘在轮廓外的左下角,
@@ -25,13 +25,16 @@ import { drawCivOverlay, type CivShow, type CivStyle } from './civ/overlay';
 import { civLabelChars, civLabelItems, civMapLayer, labelViewExtras } from './civ/labels';
 import { drawSettlementMarks, SYMBOL_BOX, SYMBOL_GROW, type SettlementKind } from './civ/settlements';
 import { drawWarfare, warsShown } from './civ/warfare';
-import { drawPlacedLabels, placeMap, type LabelMark, type LabelView, type PlacedMark } from './labels/draw';
+import { REF_MAP_CSS, drawPlacedLabels, placeMap, type LabelMark, type LabelView, type PlacedMark, type Placement } from './labels/draw';
 import { ensureFonts, familyFor, fontCss } from './labels/fonts';
 import { capitalAt, polityAlive, polityName } from '../gen/civ/growth';
 import { ownersAt } from '../gen/civ/timeline';
 import { KIND_INFO, cultureLabel } from '../gen/civ/display';
-import { drawGraticule, labelProjection, mapProj, outlineOnCanvas, pageColor, projector, reprojectImage, type MapProj, type ProjectionId } from './projection';
+import { faithRows } from '../gen/civ/religionText';
+import { drawGraticule, labelProjection, mapProj, outlineOnCanvas, pageColor, projectWorld, projector, reprojectImage, type MapProj, type ProjectionId } from './projection';
+import { NAME_ZOOM, canvasMeasure, drawMarks, layoutMarks, placedTextBoxes, type MarkFrame, type MarkItem } from './marks';
 import { drawTerrainProjected } from './detail';
+import { drawTrail, layoutTrail, type TrailInput } from './trail';
 import { compassSpot, drawProjFrame } from './fantasy';
 
 type Ctx2D = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
@@ -304,7 +307,7 @@ export function exportLabelView(p: ExportMapParams, S: ExportScale): LabelView {
  * 画地图文字(地名、国名、城名、城镇符号)。p.raster 用 1× 的那张就行(只查地面、拟合国名,和导出倍数无关)。
  * 先等字体加载好。返回画了几条文字、几个符号。
  */
-export async function drawMapLabels(ctx: CanvasRenderingContext2D, p: ExportMapParams, S: ExportScale): Promise<{ labels: number; marks: number }> {
+export async function drawMapLabels(ctx: CanvasRenderingContext2D, p: ExportMapParams, S: ExportScale): Promise<{ labels: number; marks: number; placed?: Placement }> {
   if (!civOk(p)) return { labels: 0, marks: 0 };
   const params = { world: p.world, raster: p.raster, civ: p.civ, style: p.style, year: p.year, show: p.show };
   // 地理名不随年份变(和屏幕上一样按结束年份取);国名、城名、城镇符号按当年
@@ -324,7 +327,63 @@ export async function drawMapLabels(ctx: CanvasRenderingContext2D, p: ExportMapP
   }
   drawSettlementMarks(ctx, placed.marks, p.style);
   drawPlacedLabels(ctx, placed.labels, lv);
-  return { labels: placed.labels.length, marks: placed.marks.length };
+  return { labels: placed.labels.length, marks: placed.marks.length, placed };
+}
+
+/**
+ * 作者标记、人物足迹在导出图上摆放用的坐标:世界坐标 ÷ f(f = √(图宽 / REF_MAP_CSS)),画的时候整体放大 S × f,
+ * 图钉、头像和字跟着地名一样按图片宽放大(地图按 REF_MAP_CSS 宽显示时就是屏幕上的大小)
+ */
+function exportMarkFrame(p: Pick<ExportMapParams, 'world' | 'center' | 'projection'>): { frame: MarkFrame; f: number } {
+  const W = p.world.width;
+  const H = p.world.height;
+  const f = Math.sqrt(W / REF_MAP_CSS);
+  const mp = exportProj(p);
+  const left = mp ? 0 : exportLeft(p);
+  const frame: MarkFrame = mp
+    ? {
+        pt: (wx, wy) => {
+          const [x, y] = projectWorld(mp, wx, wy);
+          return [x / f, y / f];
+        },
+        period: 0,
+        win: [0, W / f],
+        w: W / f,
+        h: H / f,
+        k: NAME_ZOOM,
+        cut: (0.4 * W) / f,
+      }
+    : { pt: (wx, wy) => [(wx - left) / f, wy / f], period: wrapOf(p.world) ? W / f : 0, win: [0, W / f], w: W / f, h: H / f, k: NAME_ZOOM, cut: 0 };
+  return { frame, f };
+}
+
+/**
+ * 作者标记(导出菜单里选了"带上"):和屏幕上同样的图钉、铺色、名字,都写名字、不合并;items = 这一年有的(几个州的形状算好)。
+ * placed = drawMapLabels 排好的地图文字:名字尽量不压城名、地名。返回画了几个
+ */
+export function drawExportMarks(ctx: CanvasRenderingContext2D, p: Pick<ExportMapParams, 'world' | 'center' | 'projection'>, S: ExportScale, items: readonly MarkItem[], placed?: Placement): number {
+  if (!items.length) return 0;
+  const { frame, f } = exportMarkFrame(p);
+  ctx.save();
+  ctx.scale(S * f, S * f);
+  // 文字层的画布像素 = 摆放坐标 × S × f
+  const avoid = placed ? placedTextBoxes(placed).map((b) => b.map((v) => v / (S * f))) : [];
+  const layout = layoutMarks(items, frame, { names: true, measure: canvasMeasure(ctx), avoid });
+  drawMarks(ctx, layout, S * f);
+  ctx.restore();
+  return layout.pins.length + layout.areas.length;
+}
+
+/** 正选着的作者人物的足迹(和屏幕上一样的线、圆点、年份、头像);年份尽量不压地图上的字。返回画了几个点 */
+export function drawExportTrail(ctx: CanvasRenderingContext2D, p: Pick<ExportMapParams, 'world' | 'center' | 'projection'>, S: ExportScale, trail: TrailInput, placed?: Placement): number {
+  const { frame, f } = exportMarkFrame(p);
+  ctx.save();
+  ctx.scale(S * f, S * f);
+  const avoid = placed ? placedTextBoxes(placed).map((b) => b.map((v) => v / (S * f))) : [];
+  const layout = layoutTrail(trail, frame, { measure: canvasMeasure(ctx), avoid });
+  drawTrail(ctx, layout);
+  ctx.restore();
+  return layout.dots.length;
 }
 
 // ---------------------------------------------------------------------------
@@ -365,6 +424,15 @@ export function legendRows(civ: Civ, year: Year): { polities: LegendRow[]; cultu
   return { polities, cultures, tribal };
 }
 
+/** 信仰图层的图例:和侧栏信仰列表同样的几行(大教按信众排,教派跟在本教后面,各族民间信仰合成一行) */
+export function faithLegendRows(civ: Civ, year: Year): LegendRow[] {
+  const F = civ.religion?.faiths ?? [];
+  return faithRows(civ, Math.floor(year)).map((r) => {
+    const form = r.id >= 0 && !r.sect ? F[r.id]?.form : undefined;
+    return { color: [r.color[0], r.color[1], r.color[2]], name: r.name, note: `${r.sect ? '教派 · ' : form ? `${form} · ` : ''}${r.n} 州` };
+  });
+}
+
 interface LegendLook {
   paper: string;
   edge: string;
@@ -398,8 +466,8 @@ const SYMBOL_ROWS: { kind: SettlementKind; name: string }[] = [
 ];
 
 /**
- * 图例图片:标题(第 N 年)、国家(色块 + 当年国号 + 州数、国都)、民族(色块 + 族名 + 类型、州数)、城镇符号、道路。
- * 地图上开着"民族"时色块是民族的,国家只画国界 —— 国家的色块就画成空心框。
+ * 图例图片:标题(第 N 年)、国家(色块 + 当年国号 + 州数、国都)、民族(色块 + 族名 + 类型、州数)或信仰(色块 + 名字 + 类型、州数)、城镇符号、道路。
+ * 地图上开着"民族"或"信仰"时色块是民族 / 信仰的,国家只画国界 —— 国家的色块就画成空心框。
  * 两个表都没开时两个都列。行多了分两栏。
  */
 export async function drawLegend(p: LegendParams, scale: ExportScale): Promise<HTMLCanvasElement> {
@@ -410,13 +478,16 @@ export async function drawLegend(p: LegendParams, scale: ExportScale): Promise<H
   const look = LEGEND_LOOK[style];
   const family = familyFor(style);
   const rows = legendRows(civ, y);
-  const wantPol = show.polities || !show.cultures;
-  const wantCul = show.cultures || !show.polities;
-  const outline = show.cultures;
+  // 信仰图层:地图铺的是信仰(国家只画国界),图例列国家(空心框)和信仰
+  const faithOn = show.faiths && !!civ.religion?.faiths.length;
+  const faiths = faithOn ? faithLegendRows(civ, y) : [];
+  const wantPol = show.polities || (!show.cultures && !faithOn);
+  const wantCul = !faithOn && (show.cultures || !show.polities);
+  const outline = show.cultures || faithOn;
   const withMarks = show.polities || show.routes;
   const withRoutes = show.routes;
 
-  const allText = [...rows.polities, ...rows.cultures].map((r) => r.name + r.note).join('') + '图例第年国家民族城镇道路大路小路航线部落地带种子州都';
+  const allText = [...rows.polities, ...rows.cultures, ...faiths].map((r) => r.name + r.note).join('') + '图例第年国家民族信仰教派城镇道路大路小路航线部落地带种子州都';
   await ensureFonts(style, allText, 15000);
 
   // ---- 版式(CSS 像素,最后 × S)----
@@ -424,10 +495,11 @@ export async function drawLegend(p: LegendParams, scale: ExportScale): Promise<H
   const COL = 300;
   const ROW = 26;
   const HEAD = 34;
-  type Block = { title: string; rows: LegendRow[]; kind: 'pol' | 'cul' };
+  type Block = { title: string; rows: LegendRow[]; kind: 'pol' | 'cul' | 'faith' };
   const blocks: Block[] = [];
   if (wantPol) blocks.push({ title: '国家', rows: rows.polities, kind: 'pol' });
   if (wantCul) blocks.push({ title: '民族', rows: rows.cultures, kind: 'cul' });
+  if (faithOn) blocks.push({ title: '信仰', rows: faiths, kind: 'faith' });
   const most = Math.max(1, ...blocks.map((b) => b.rows.length));
   const cols = most > 14 ? 2 : 1;
   const W = PAD * 2 + COL * cols + (cols - 1) * 24;
@@ -485,7 +557,7 @@ export async function drawLegend(p: LegendParams, scale: ExportScale): Promise<H
     text(b.title, PAD, cy + HEAD / 2 - 2, 17, look.ink, style === 'fantasy' ? 500 : 700);
     cy += HEAD;
     if (!b.rows.length) {
-      text(b.kind === 'pol' ? '这一年还没有国家' : '这一年还没有民族', PAD, cy + ROW / 2, 14, look.muted);
+      text(`这一年还没有${b.title}`, PAD, cy + ROW / 2, 14, look.muted);
       cy += ROW;
     }
     const per = Math.ceil(b.rows.length / cols);

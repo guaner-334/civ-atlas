@@ -14,7 +14,9 @@ const PROVIDER_NAME: Record<AiProviderKind | 'none', string> = {
   mock: '测试用假 AI',
 };
 
-const ROLE: Record<string, string> = { system: '系统提示', user: '发给 AI', assistant: 'AI(之前的回复)' };
+const ROLE: Record<string, string> = { system: '系统提示', user: '发给 AI', assistant: 'AI(之前的回复)', tool: '工具的结果(交回 AI)' };
+/** 模型要调用的工具,一行一个:"country {"country":"P3"}" */
+const callsText = (cs?: readonly { name: string; args: string }[]) => (cs ?? []).map((c) => `→ ${c.name} ${c.args}`).join('\n');
 
 const pad = (n: number) => String(n).padStart(2, '0');
 
@@ -62,8 +64,8 @@ export function AiCallLog() {
       <div className="ai-log-top">
         <span className="ai-log-sum">
           {calls.length ? `共 ${calls.length} 条` : '还没有记录'}
-          {tokens ? ` · 合计 ${n(tokens)} tokens` : ''}
-          {credits ? ` · 共扣 ${n(credits)} 积分` : ''}
+          {tokens ? `，合计 ${n(tokens)} tokens` : ''}
+          {credits ? `，共扣 ${n(credits)} 积分` : ''}
           <em>
             {persistent || !loaded ? `最多留最近 ${MAX_CALLS} 条` : '这个浏览器不让存,刷新就没了'}
           </em>
@@ -104,7 +106,8 @@ export function AiCallLog() {
 
 function Row({ c, open, onToggle }: { c: AiCallRecord; open: boolean; onToggle: () => void }) {
   const meta = [
-    `${PROVIDER_NAME[c.provider] ?? c.provider}${c.model ? ` · ${c.model}` : ''}`,
+    PROVIDER_NAME[c.provider] ?? c.provider,
+    c.model ? `模型 ${c.model}` : '',
     c.usage ? `${n(c.usage.inputTokens)} → ${n(c.usage.outputTokens)} tokens` : '',
     c.credits !== undefined ? `扣 ${c.credits} 积分` : '',
     c.ms ? secs(c.ms) : '',
@@ -119,7 +122,7 @@ function Row({ c, open, onToggle }: { c: AiCallRecord; open: boolean; onToggle: 
           <time dateTime={c.at}>{when(c.at)}</time>
         </span>
         <span className="ai-log-l2">
-          {meta.join(' · ')}
+          {meta.join('，')}
           {!c.ok && c.error && <em className="ai-log-err">{c.error.message}</em>}
         </span>
       </button>
@@ -129,12 +132,12 @@ function Row({ c, open, onToggle }: { c: AiCallRecord; open: boolean; onToggle: 
           {c.messages.map((m, i) => (
             <div key={i} className={`ai-msg ${m.role}`}>
               <span className="ai-msg-role">{ROLE[m.role] ?? m.role}</span>
-              <pre>{m.content}</pre>
+              <pre>{[m.content, callsText(m.toolCalls)].filter(Boolean).join('\n')}</pre>
             </div>
           ))}
           <h5>{c.ok ? '收到的全文' : '失败原因'}</h5>
           {c.ok ? (
-            <pre className="ai-reply">{c.text || '(空)'}</pre>
+            <pre className="ai-reply">{[c.text, callsText(c.toolCalls)].filter(Boolean).join('\n') || '(空)'}</pre>
           ) : (
             <p className="ai-log-fail">
               {c.error?.message ?? '未知错误'}

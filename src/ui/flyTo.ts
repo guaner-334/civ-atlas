@@ -9,16 +9,28 @@ import type { World } from '../gen/world';
 import type { Civ } from '../gen/civ/types';
 import { capitalAt } from '../gen/civ/growth';
 import { ownersAt, type Owners } from '../gen/civ/timeline';
-import { placeKeyOf, polityKey, regionKey, settlementKey } from '../gen/edits';
+import { faithKey, placeKeyOf, polityKey, regionKey, regionOfKey, settlementKey, type AuthorMark } from '../gen/edits';
+import { personKey, resolvePersonKey } from '../gen/characters';
 import { projectWorld, projectWorldNear, type MapProj } from '../render/projection';
 import { clampCurved, clampSphere, stageToWorld, type MapView, type StageBox } from './mapWrap';
 import type { MapSelection } from './civView';
 import { NARROW_MAX, safeInsets } from './device';
 import { ABOVE_SHEET, sheetGeometry } from './gestures';
+import { astRoom } from './astPanel';
+import { sideShown } from './sideStore';
 
 /** 飞行时长(毫秒) */
 export const FLY_MS = 600;
 export const easeOutCubic = (t: number) => 1 - (1 - t) ** 3;
+
+/**
+ * 动画走到哪了(0…1)。requestAnimationFrame 给的帧时刻可能比起步时记下的 performance.now() 还早
+ * (主线程刚忙过一阵,比如下令后重推历史):早于起点按 0 算。不夹的话缓动会往回外推,
+ * 缩放按比例插值的那一帧能放大到天文数字倍(地名排版跟着卡死)
+ */
+export function animProgress(now: number, t0: number, ms: number): number {
+  return Math.max(0, Math.min(1, (now - t0) / ms));
+}
 
 /** 看全疆域时上下留出的地方:右上的图层按钮 / 提示条、时间轴(宽屏左边让出侧栏卡片,见 sideRoom) */
 const TOP_ROOM = 64;
@@ -37,11 +49,26 @@ export interface Focus {
   lat: number;
 }
 
+/** 人物的稳定键(gen/characters.ts;这里转一下,别处照旧从这里引) */
+export { personKey, resolvePersonKey };
+
+/** 地图上按什么画、往哪飞:人物 = 他的国家;作者标记、作者的人物 = 不按历史里的东西画(它们自己画,见 MarkLayer.tsx、CharacterLayer.tsx);其余照旧 */
+export function mapTarget(civ: Civ | null, sel: MapSelection | null): Exclude<MapSelection, { kind: 'person' | 'mark' | 'character' }> | null {
+  if (!sel || sel.kind === 'mark' || sel.kind === 'character') return null;
+  if (sel.kind !== 'person') return sel;
+  const x = civ?.people?.[sel.id];
+  return x && civ!.polities[x.polity] ? { kind: 'polity', id: x.polity } : null;
+}
+
 /** 选中的东西的稳定键(重推历史后编号变了、还是同一个东西 = 同一个键) */
 export function selectionKey(civ: Civ, sel: MapSelection): string {
+  if (sel.kind === 'person') return personKey(civ, sel.id);
   if (sel.kind === 'polity') return civ.polities[sel.id] ? polityKey(civ, sel.id) : '';
   if (sel.kind === 'settlement') return civ.settlements[sel.id] ? settlementKey(civ, sel.id) : '';
   if (sel.kind === 'place') return civ.places[sel.id] ? placeKeyOf(civ, sel.id) : '';
+  if (sel.kind === 'faith') return civ.religion?.faiths[sel.id] ? faithKey(civ, sel.id) : '';
+  if (sel.kind === 'mark') return `mark:${sel.id}`;
+  if (sel.kind === 'character') return `character:${sel.id}`;
   return sel.id >= 0 && sel.id < civ.regions.count ? regionKey(civ, sel.id) : '';
 }
 
@@ -77,8 +104,10 @@ function cellsBox(world: World, cells: Iterable<number>, ref: number): [number, 
   return x0 <= x1 ? [x0, y0, x1, y1] : null;
 }
 
-/** 选中的东西在地图上的位置和范围;找不到 = null */
-export function selectionFocus(world: World, civ: Civ, sel: MapSelection, year: number): Focus | null {
+/** 选中的东西在地图上的位置和范围(人物 = 他的国家);找不到 = null */
+export function selectionFocus(world: World, civ: Civ, selIn: MapSelection, year: number): Focus | null {
+  const sel = mapTarget(civ, selIn);
+  if (!sel) return null;
   const { x, y } = world.mesh;
   const W = world.width;
   const H = world.height;
@@ -112,6 +141,8 @@ export function selectionFocus(world: World, civ: Civ, sel: MapSelection, year: 
     }
     return focusOf(W, H, [x0, y0, x1, y1], (x0 + x1) / 2, (y0 + y1) / 2);
   }
+  // 信仰遍布好几国:选中时地图不动(「设为中心」转到圣城)
+  if (sel.kind === 'faith') return null;
   const p = civ.polities[sel.id];
   if (!p) return null;
   const y0 = shownYearOf(p, year, civ.endYear);
@@ -127,6 +158,48 @@ export function selectionFocus(world: World, civ: Civ, sel: MapSelection, year: 
   const b = regs.length ? cellsBox(world, cells(), ref) : null;
   if (!b) return focusOf(W, H, null, ref, cap ? y[cap.cell] : H / 2);
   return focusOf(W, H, b, (b[0] + b[2]) / 2, (b[1] + b[3]) / 2);
+}
+
+/** 作者标记在地图上的位置和范围:一个点 = 那一点;几个州 = 这几州的外接框(州键对不上的不算);都没有 = null */
+export function markFocus(world: World, civ: Civ, m: Pick<AuthorMark, 'at' | 'regions'>): Focus | null {
+  const W = world.width;
+  const H = world.height;
+  if (m.at) return focusOf(W, H, null, m.at[0], m.at[1]);
+  const R = civ.regions;
+  const ids: number[] = [];
+  for (const k of m.regions ?? []) {
+    const r = regionOfKey(k, R.of);
+    if (r >= 0 && r < R.count) ids.push(r);
+  }
+  if (!ids.length) return null;
+  const ref = world.mesh.x[R.seat[ids[0]]];
+  function* cells() {
+    for (const r of ids) for (let k = R.cellStart[r]; k < R.cellStart[r + 1]; k++) yield R.cells[k];
+  }
+  const b = cellsBox(world, cells(), ref);
+  return b ? focusOf(W, H, b, (b[0] + b[2]) / 2, (b[1] + b[3]) / 2) : null;
+}
+
+/** 几个点(世界坐标)的位置和范围:一个点 = 那一点;几个点 = 外接框(x 按第一个点展开);没有 = null */
+export function pointsFocus(world: World, pts: readonly (readonly [number, number])[]): Focus | null {
+  if (!pts.length) return null;
+  const W = world.width;
+  const H = world.height;
+  if (pts.length === 1) return focusOf(W, H, null, pts[0][0], pts[0][1]);
+  const ref = pts[0][0];
+  let x0 = Infinity;
+  let y0 = Infinity;
+  let x1 = -Infinity;
+  let y1 = -Infinity;
+  for (const [px, py] of pts) {
+    const v = px - W * Math.round((px - ref) / W);
+    x0 = Math.min(x0, v);
+    x1 = Math.max(x1, v);
+    y0 = Math.min(y0, py);
+    y1 = Math.max(y1, py);
+  }
+  if (x1 - x0 < 1 && y1 - y0 < 1) return focusOf(W, H, null, x0, y0);
+  return focusOf(W, H, [x0, y0, x1, y1], (x0 + x1) / 2, (y0 + y1) / 2);
 }
 
 /** 飞到哪:选中的东西(按种类定缩放)或整张图 */
@@ -152,10 +225,11 @@ export function phoneFree(H: number, panel: boolean): [number, number] {
 
 /**
  * 宽屏左边浮着的侧栏卡片占掉的宽度:左边距 + 卡片 + 右边留空(和 desktop.css 的 --side-room 一致);
- * 窄屏没有侧栏 = 0。sw = 舞台宽(铺满窗口,和视口一样宽)
+ * 卡片收起了(sideStore.ts)只剩左边距;窄屏没有侧栏 = 0。sw = 舞台宽(铺满窗口,和视口一样宽)
  */
 export function sideRoom(sw: number): number {
   if (sw <= NARROW_MAX) return 0;
+  if (!sideShown()) return 14;
   return 14 + (sw >= 1100 ? 372 : 340) + 14;
 }
 
@@ -167,12 +241,12 @@ export function freeArea(b: StageBox, panel: boolean): [number, number, number, 
     const [top, bottom] = phoneFree(b.sh, panel);
     return [0, top, b.sw, Math.max(top + 80, bottom)];
   }
-  // 宽屏:地图铺满窗口,左边被侧栏卡片挡住的那一截不算
-  return [sideRoom(b.sw), TOP_ROOM, b.sw, Math.max(TOP_ROOM + 80, b.sh - BOTTOM_ROOM)];
+  // 宽屏:地图铺满窗口,左边被侧栏卡片、右边被助手面板(开着、窗口够宽时)挡住的那一截不算
+  return [sideRoom(b.sw), TOP_ROOM, b.sw - astRoom(b.sw), Math.max(TOP_ROOM + 80, b.sh - BOTTOM_ROOM)];
 }
 
 /**
- * 按种类定目标缩放:国家看全疆域(疆域占看得见的地方八成以内;1–3 倍,小国也留出周边);
+ * 按种类定目标缩放:国家看全疆域、作者的人物看全一生的足迹(占看得见的地方八成以内;1–3 倍,小的也留出周边);
  * 城至少 2 倍;州、地理实体(海、山、河……)缩放不变;已经放得更大的不缩小
  */
 function goalZoom(goal: FlyGoal, k0: number, fit: number): number {
@@ -180,6 +254,7 @@ function goalZoom(goal: FlyGoal, k0: number, fit: number): number {
     case 'home':
       return 1;
     case 'polity':
+    case 'character':
       return Math.min(3, Math.max(1, fit * 0.8));
     case 'settlement':
       return Math.max(k0, 2);
@@ -188,8 +263,8 @@ function goalZoom(goal: FlyGoal, k0: number, fit: number): number {
   }
 }
 
-/** 州、地理实体只平移:已经在看得见的地方(不在面板底下、不贴边)就不动 */
-const panOnly = (goal: FlyGoal) => goal.kind === 'region' || goal.kind === 'place';
+/** 州、地理实体、作者标记只平移:已经在看得见的地方(不在面板底下、不贴边)就不动 */
+const panOnly = (goal: FlyGoal) => goal.kind === 'region' || goal.kind === 'place' || goal.kind === 'mark';
 const inside = (x: number, y: number, [l, t, r, b]: [number, number, number, number]) => x >= l + 60 && x <= r - 60 && y >= t + 30 && y <= b - 30;
 
 /**

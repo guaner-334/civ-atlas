@@ -20,16 +20,17 @@
  * - 投影和中央经线(ui/projection.ts、mapWrap.ts)跟着世界存:存档时按当时的设置写进 view;
  *   已经存着的世界换了投影 / 中心,App 调 viewChanged 重写一次。
  * - 删掉一个世界,AI 给它写的东西(ai/library.ts,按世界编号存)一起删。
+ * - 登录了网站账号的,世界还会同步进账号(account/sync.ts):这里给它原样读写一个世界(rawWorld / putSyncedWorld),
+ *   用户删掉一个世界时告诉它(setDeleteHook);为了腾地方删掉的旧世界不算删除(账号里的还在)。
  */
 import { useSyncExternalStore } from 'react';
 import type { WorldParams } from '../gen/world';
 import type { WorldEdits } from '../gen/edits';
 import {
   CHECK_WARNING,
-  NEWER_WARNING,
   SHARE_BROKEN,
-  STALE_WARNING,
   TITLE_MAX,
+  cleanOrigin,
   cleanTitle,
   editCount,
   makeSave,
@@ -37,6 +38,7 @@ import {
   sameView,
   worldKey,
   type SaveFile,
+  type SaveOrigin,
   type SaveView,
 } from '../gen/savefile';
 import { getEdits, subscribeEdits } from './editsStore';
@@ -241,7 +243,69 @@ function changed() {
   version++;
   for (const f of subs) f();
 }
-function subscribe(f: () => void) {
+// 别的标签页存了、删了世界(同步取回来的也算):这里跟着刷新"我的世界",云同步也看一眼
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (e) => otherTabChanged(e.key, e.newValue));
+}
+
+/** 别的页面里改过正在看的世界,点"载入"重新打开它(App 给) */
+let reopenHandler: ((id: string) => void) | null = null;
+export function setReopenHandler(f: ((id: string) => void) | null) {
+  reopenHandler = f;
+}
+
+/** 别的标签页改了浏览器存储(storage 事件;单测直接调):key = null 是整个清空 */
+export function otherTabChanged(key: string | null, newValue: string | null): void {
+  if (key !== null && ![PREFIX, THUMB, META, NOTES, LEGACY].some((p) => key.startsWith(p))) return;
+  const c = current;
+  // 整个清空:存过的当前世界也没了
+  const cleared = key === null && !!c && (c.kind === 'created' || (c.kind === 'draft' && !c.pristine)) && store().get(PREFIX + c.id) === null;
+  if (c && (key === PREFIX + c.id || cleared)) {
+    const now = cleared ? null : newValue;
+    if (now !== null && now === c.wrote) {
+      // 那边撤销了删除(放回来的就是这里存的那份):接着自动存
+      if (c.gone) clearToast('other-tab');
+      c.gone = undefined;
+    } else {
+      // 删了,或者存成了别的样子(那边也开着它改了、同步取回了另一台设备改过的):这里的还是旧的,不再自动存,不然一改就把那边的盖掉
+      const why = now === null ? 'deleted' : 'changed';
+      if (c.gone !== why) {
+        if (!c.gone) stopThumb();
+        c.gone = why;
+        const id = c.id;
+        if (why === 'deleted') {
+          showToast({ id: 'other-tab', kind: 'warn', text: '这个世界在别的页面里删掉了', more: ['这里再改不会自动存下来；要留着就存成文件'], action: saveFileAction(), ttl: 0 });
+        } else {
+          const reopen = reopenHandler;
+          showToast({
+            id: 'other-tab',
+            kind: 'warn',
+            text: '这个世界在别的页面里改过',
+            more: ['这里再改不会自动存下来；载入那边改过的样子'],
+            action: reopen
+              ? {
+                  label: '载入',
+                  act: 'other-tab-reload',
+                  onClick: () => {
+                    clearToast('other-tab');
+                    reopen(id);
+                  },
+                }
+              : saveFileAction(),
+            ttl: 0,
+          });
+        }
+      }
+    }
+  } else if (key !== null && newValue === null) {
+    // 别的标签页删了别的世界,可能腾出了地方
+    retryUnsaved();
+  }
+  changed();
+}
+
+/** 存档有变化时调 f(返回取消函数) */
+export function subscribe(f: () => void) {
   subs.add(f);
   return () => void subs.delete(f);
 }
@@ -259,6 +323,8 @@ export interface SaveNotice {
   more?: string[];
   /** 右侧的按钮 */
   action?: ToastAction;
+  /** 左边一个绿点(存好了一个文件这类) */
+  dot?: boolean;
   stamp: number;
 }
 
@@ -269,7 +335,7 @@ let notice: SaveNotice | null = null;
  */
 export function notify(n: Omit<SaveNotice, 'stamp'> | null) {
   notice = n ? { ...n, stamp: performance.now() } : null;
-  if (n) showToast({ id: 'save', kind: n.kind, text: n.text, more: n.more?.length ? n.more : undefined, action: n.action });
+  if (n) showToast({ id: 'save', kind: n.kind, text: n.text, more: n.more?.length ? n.more : undefined, action: n.action, dot: n.dot });
   else clearToast('save');
   changed();
 }
@@ -282,8 +348,6 @@ export function useSaveNotice(): SaveNotice | null {
 // 读档提示的短说法:gen/savefile.ts 的原话是完整的句子,提示条上只留一行小字里的几个短句
 
 const BRIEF_WARNING: Record<string, string> = {
-  [STALE_WARNING]: '来自旧版本,地形可能不同',
-  [NEWER_WARNING]: '来自更新的版本,地形可能不同',
   [CHECK_WARNING]: '地形和存档时对不上',
 };
 /** 读档的警告(版本不同、地形对不上……)→ 短句;认不出的原样 */
@@ -404,7 +468,10 @@ function readSave(id: string): SaveFile | null {
 
 function readMeta(id: string): Meta {
   const text = store().get(META + id);
-  if (!text) return {};
+  return text ? parseMeta(text) : {};
+}
+
+function parseMeta(text: string): Meta {
   try {
     const v = JSON.parse(text) as Record<string, unknown>;
     const m: Meta = {};
@@ -521,7 +588,8 @@ function writeSave(id: string, save: SaveFile, meta?: Meta): boolean {
   const kv = store();
   const fresh = kv.get(PREFIX + id) === null;
   evicted = [];
-  let ok = put(PREFIX + id, JSON.stringify(save), id);
+  const text = JSON.stringify(save);
+  let ok = put(PREFIX + id, text, id);
   if (ok && meta && !writeMeta(id, meta)) {
     if (fresh) kv.remove(PREFIX + id);
     ok = false;
@@ -541,6 +609,7 @@ function writeSave(id: string, save: SaveFile, meta?: Meta): boolean {
     reportEvicted('count');
   }
   if (ok) {
+    if (current?.id === id) current.wrote = text;
     if (storageFull) {
       storageFull = false;
       clearToast('storage');
@@ -550,14 +619,63 @@ function writeSave(id: string, save: SaveFile, meta?: Meta): boolean {
   return ok;
 }
 
-/** 删掉一个存档(连同缩略图、AI 写的东西)。删的是正在看的世界:不再自动存它 */
-export function deleteWorld(id: string) {
+/** 用户删掉了一个世界(云同步记下来,账号里跟着删) */
+let deleteHook: ((id: string) => void) | null = null;
+export function setDeleteHook(f: ((id: string) => void) | null) {
+  deleteHook = f;
+}
+
+/**
+ * 删掉一个存档(连同缩略图、AI 写的东西)。删的是正在看的世界:不再自动存它。
+ * 返回撤销用的那份;存档本身已经不在了(别的页面里删掉了)= null,没有可撤销的
+ */
+export function deleteWorld(id: string): DeletedWorld | null {
+  const kv = store();
+  const keys: [string, string][] = [];
+  for (const p of [PREFIX, THUMB, META, NOTES]) {
+    const v = kv.get(p + id);
+    if (v !== null) keys.push([p + id, v]);
+  }
+  const had = keys.some(([k]) => k === PREFIX + id);
   removeKeys(id);
+  if (had) deleteHook?.(id);
   if (current?.id === id) {
     current = null;
     stopThumb();
   }
+  retryUnsaved();
   changed();
+  return had ? { id, keys } : null;
+}
+
+/** 删掉的世界删之前的样子(撤销删除用):存档、缩略图、打开记录、AI 写的史书和名字由来,各自原来存的字符串 */
+export interface DeletedWorld {
+  id: string;
+  keys: [string, string][];
+}
+
+/**
+ * 撤销删除:把删之前的几样原样写回,"我的世界"里回到原来的位置(按最近打开 / 修改的时间排)。
+ * 别的页面里还开着它、删了以后又自动存过的:以那边新存的为准,只补回现在没有的。
+ * 存档、打开记录(没建完的世界靠它记着还在建)、AI 写的东西有一样写不下(浏览器存储满了)
+ * = false,这次写回的都撤掉;缩略图写不下就算了(再打开会重画)
+ */
+export function restoreWorld(d: DeletedWorld): boolean {
+  const kv = store();
+  const wrote: string[] = [];
+  for (const p of [PREFIX, META, NOTES, THUMB]) {
+    const k = p + d.id;
+    const v = d.keys.find((e) => e[0] === k)?.[1];
+    if (v === undefined || kv.get(k) !== null) continue;
+    if (kv.set(k, v)) wrote.push(k);
+    else if (p !== THUMB) {
+      for (const w of wrote) kv.remove(w);
+      changed();
+      return false;
+    }
+  }
+  changed();
+  return true;
 }
 
 /** 给存档起名(改名);当前世界还没存过的(打开的链接),顺手存下来 */
@@ -618,14 +736,24 @@ export function duplicateWorld(id: string): string | null {
   return nid;
 }
 
+/** 两份存档是不是同一个世界的同一个样子(参数、修改、名字、底稿出处都相同;投影、存档时间不算) */
+export function sameSave(a: SaveFile, b: SaveFile): boolean {
+  return worldKey(a.params) === worldKey(b.params) && (a.title ?? '') === (b.title ?? '') && JSON.stringify(a.edits) === JSON.stringify(b.edits) && sameOrigin(a.origin, b.origin);
+}
+
+/** 两个底稿出处是不是一样(都没有也算) */
+export function sameOrigin(a: SaveFile['origin'], b: SaveFile['origin']): boolean {
+  if (!a || !b) return !a && !b;
+  return (a.by ?? '') === (b.by ?? '') && a.title === b.title && a.url === b.url;
+}
+
 /**
  * 从文件打开:存进"我的世界"(算建好的),返回它的编号。
- * 已经有一个一模一样的(参数、修改、名字都相同,比如同一个文件打开了两次)就用那一个,不重复存
+ * 已经有一个一模一样的(参数、修改、名字、底稿出处都相同,比如同一个文件打开了两次)就用那一个,不重复存
  */
 export function importSave(save: SaveFile): string | null {
-  const same = (s: SaveFile) => worldKey(s.params) === worldKey(save.params) && (s.title ?? '') === (save.title ?? '') && JSON.stringify(s.edits) === JSON.stringify(save.edits);
   for (const w of listWorlds()) {
-    if (w.draft || !same(w.save)) continue;
+    if (w.draft || !sameSave(w.save, save)) continue;
     // 只差投影 / 中央经线:用文件里的(下次打开还是文件里的样子)
     if (!sameView(w.save.view, save.view)) {
       const next: SaveFile = { ...w.save, savedAt: new Date().toISOString() };
@@ -664,6 +792,17 @@ interface Current {
   saved: WorldEdits | null;
   /** 最近一次存下的投影设置 */
   savedView?: SaveView;
+  /** 最近一次没写进去(浏览器存储满了):最新的改动只在这个页面里 */
+  unsaved?: boolean;
+  /**
+   * 别的标签页把它删了(删掉、退出登录时选了从这台设备上删掉)、或者存成了别的样子(那边也开着它改了、同步取回了另一台设备改过的):
+   * 不再自动存,不然一改又存回去、把那边的盖掉
+   */
+  gone?: 'deleted' | 'changed';
+  /** 浏览器里存着的这个世界、这里知道的最新一份(这里写进去的、打开时存着的):别的标签页写的和它不一样 = 那边改过 */
+  wrote?: string | null;
+  /** 底稿出处(从别人的分享短链接另存来的;存进存档) */
+  origin?: SaveOrigin;
 }
 
 let current: Current | null = null;
@@ -691,10 +830,15 @@ export function currentWorld(): CurrentWorld | null {
   return current;
 }
 
+/** 当前世界最近的改动没写进浏览器(存储满了,只在这个页面里;退出登录选"删掉"前要拦住) */
+export function currentUnsaved(): boolean {
+  return !!current?.unsaved;
+}
+
 /** 当前世界 → 存档(存成文件用) */
 export function currentSave(): SaveFile | null {
   if (!current) return null;
-  return makeSave(current.params, getEdits(), current.check, current.title, undefined, currentView());
+  return makeSave(current.params, getEdits(), current.check, current.title, undefined, currentView(), current.origin);
 }
 
 /** 过一会儿截一张缩略图(画布这时可能还没画好这个世界,截不到就再等等);force = 已经有了也重截 */
@@ -736,9 +880,10 @@ function metaOf(c: Current, opened?: string): Meta {
 /** 存当前世界;返回写进去没有(没有当前世界、没改过不用存 = false) */
 function saveCurrent(force = false): boolean {
   const c = current;
-  if (!c) return false;
+  if (!c || c.gone) return false;
   const edits = getEdits();
-  if (!force && edits === c.saved) return false;
+  // 上次没写进去的(存储满了):修改没再变也再试一次
+  if (!force && edits === c.saved && !c.unsaved) return false;
   // 干预变了:历史要重推,缩略图上结束那一年的国家跟着变,重截(App 等重推完才给图)
   const was = c.saved?.interventions;
   const redraw = !!was && edits.interventions !== was && JSON.stringify(edits.interventions) !== JSON.stringify(was);
@@ -749,10 +894,16 @@ function saveCurrent(force = false): boolean {
   if (c.kind === 'visit') c.kind = 'created';
   const view = currentView();
   c.savedView = view;
-  const ok = writeSave(c.id, makeSave(c.params, edits, c.check, c.title, undefined, view), metaOf(c));
+  const ok = writeSave(c.id, makeSave(c.params, edits, c.check, c.title, undefined, view, c.origin), metaOf(c));
+  c.unsaved = !ok;
   if (ok) scheduleThumb(c.id, redraw);
   changed();
   return ok;
+}
+
+/** 当前世界上次没写进浏览器(存储满了):删了别的世界、腾出地方以后再存一次(不然要等再改一处才存) */
+function retryUnsaved() {
+  if (current?.unsaved) saveCurrent(true);
 }
 
 /**
@@ -794,6 +945,8 @@ export interface AttachSpec {
   pristine?: boolean;
   /** 新建中、以某个世界为底稿:原来那个世界 */
   base?: DraftBase | null;
+  /** 底稿出处(存着的世界、存档文件里带着的;打开别人的分享短链接时是那个链接)。新建中的没有 */
+  origin?: SaveOrigin | null;
 }
 
 /**
@@ -814,6 +967,7 @@ export function attachWorld(spec: AttachSpec) {
     base: spec.kind === 'draft' ? (spec.base ?? undefined) : undefined,
     saved: spec.saved,
     savedView: spec.view ?? prev?.view,
+    origin: spec.kind === 'draft' ? undefined : (cleanOrigin(spec.origin) ?? undefined),
   };
   const keep = spec.kind === 'created' || (spec.kind === 'draft' && !spec.pristine);
   const same =
@@ -821,6 +975,7 @@ export function attachWorld(spec: AttachSpec) {
     worldKey(prev.params) === worldKey(spec.params) &&
     prev.check === spec.check &&
     (prev.title ?? '') === (title ?? '') &&
+    JSON.stringify(prev.origin ?? null) === JSON.stringify(current.origin ?? null) &&
     getEdits() === spec.saved &&
     !!readMeta(spec.id).draft === (spec.kind === 'draft');
   if (keep && !same) {
@@ -830,18 +985,27 @@ export function attachWorld(spec: AttachSpec) {
   } else if (prev && spec.kind === 'draft' && spec.pristine) {
     // 新建中又变回没动过(换了一颗星球,改过的地形作废):原来存的那份拿掉
     removeKeys(spec.id);
+    deleteHook?.(spec.id);
   } else if (prev) {
     touchMeta(spec.id, metaOf(current, new Date().toISOString()));
     // 刚从文件打开的(先存了、再生成):还没有缩略图,截一张
     if (store().get(THUMB + spec.id) === null) scheduleThumb(spec.id);
   }
+  current.wrote = store().get(PREFIX + spec.id);
   changed();
 }
 
 /** 回到我的世界、又点开下面一直开着的这个世界(不用重新打开):记一下"最近打开" */
 export function markOpened(id: string) {
   const c = current;
-  if (!c || c.id !== id || store().get(PREFIX + id) === null) return;
+  const text = store().get(PREFIX + id);
+  if (!c || c.id !== id || text === null) return;
+  // 别的页面里存过、但和这里开着的一样(App 比过,只差投影之类):以存着的为准,接着自动存
+  if (c.gone) {
+    c.gone = undefined;
+    c.wrote = text;
+    clearToast('other-tab');
+  }
   touchMeta(id, metaOf(c, new Date().toISOString()));
   changed();
 }
@@ -887,6 +1051,234 @@ export function detachWorld() {
 /** 开始自动存(App 挂载时调一次;返回取消函数) */
 export function startAutoSave(): () => void {
   return subscribeEdits(() => saveCurrent());
+}
+
+// ---------------------------------------------------------------------------
+// 云同步(account/sync.ts)用:原样读写一个世界
+
+/** 跟着世界同步的本地信息(最近打开不同步:每台设备各记各的) */
+export interface SyncMeta {
+  draft?: boolean;
+  alive?: number;
+  base?: DraftBase;
+}
+
+/** 本地信息 → 同步的那几项(键的顺序固定,算指纹用) */
+export function syncMetaOf(m: Meta): SyncMeta {
+  const v: SyncMeta = {};
+  if (m.draft) v.draft = true;
+  if (m.alive !== undefined) v.alive = m.alive;
+  if (m.draft && m.base) v.base = m.base;
+  return v;
+}
+
+/** 服务器给的 meta(不认识的字段不要,坏的当没有) */
+export function cleanSyncMeta(v: unknown): SyncMeta {
+  if (!v || typeof v !== 'object') return {};
+  return syncMetaOf(parseMeta(JSON.stringify(v)));
+}
+
+export interface RawWorld {
+  /** 存档原文(JSON) */
+  save: string;
+  meta: SyncMeta;
+  thumb: string | null;
+}
+
+/** 浏览器里存着的世界编号(老编号"种子 + 参数"的不算:服务器只认新编号) */
+export function storedIds(): string[] {
+  const out: string[] = [];
+  for (const k of store().keys()) {
+    if (!k.startsWith(PREFIX)) continue;
+    const id = k.slice(PREFIX.length);
+    if (ID_RE.test(id)) out.push(id);
+  }
+  return out;
+}
+
+/** 能不能存进账号(老编号"种子 + 参数"的不能:服务器只认新编号) */
+export function syncable(id: string): boolean {
+  return ID_RE.test(id);
+}
+
+/**
+ * 还用老编号存着的世界(打开网页时换新编号,浏览器存储满了没换成的,留在原处;腾出地方、刷新页面会再换一次)。
+ * 它们存不进账号:退出登录选"从这台设备上删掉"前要先看一眼
+ */
+export function legacyIds(): string[] {
+  const out: string[] = [];
+  for (const k of store().keys()) {
+    if (!k.startsWith(PREFIX)) continue;
+    const id = k.slice(PREFIX.length);
+    if (!ID_RE.test(id) && readSave(id)) out.push(id);
+  }
+  return out;
+}
+
+/** 浏览器里存着几个世界(连同老编号的) */
+export function storedCount(): number {
+  return storedIds().length + legacyIds().length;
+}
+
+/** 一个世界的原样(读不出来的坏存档 = null) */
+export function rawWorld(id: string): RawWorld | null {
+  const kv = store();
+  const save = kv.get(PREFIX + id);
+  if (!save || !parseSave(save).ok) return null;
+  return { save, meta: syncMetaOf(readMeta(id)), thumb: kv.get(THUMB + id) };
+}
+
+/**
+ * 把同步下来的世界写进浏览器(不为它删别的世界:写不下 = false,原来的不动)。
+ * opened:这边还没记"最近打开"时用它(「全部存成文件」放回来时带着)。
+ * 正在看的就是它:先不再自动存它(App 重新打开)
+ */
+export function putSyncedWorld(id: string, w: RawWorld, opened0?: string): boolean {
+  if (!ID_RE.test(id) || !parseSave(w.save).ok) return false;
+  const kv = store();
+  const old = kv.get(PREFIX + id);
+  const opened = readMeta(id).opened ?? opened0;
+  if (!kv.set(PREFIX + id, w.save)) return false;
+  const m: Meta = { ...w.meta };
+  if (opened) m.opened = opened;
+  if (!kv.set(META + id, JSON.stringify(m))) {
+    if (old === null) kv.remove(PREFIX + id);
+    else kv.set(PREFIX + id, old);
+    return false;
+  }
+  // 缩略图写不下就先不要(打开时再截一张)
+  if (!w.thumb || !kv.set(THUMB + id, w.thumb)) kv.remove(THUMB + id);
+  if (current?.id === id) {
+    current = null;
+    stopThumb();
+  }
+  changed();
+  return true;
+}
+
+/**
+ * 「全部存成文件」放回来时,已经有的同一个世界:存档里没记投影、缺缩略图、不知道现存几国、没建完的不知道底稿的,用文件里的补上;
+ * 文件里"最近打开"更晚的也用文件里的(存不下就算了,不为它删别的);返回补了没有("最近打开"不算)
+ */
+export function fillMissing(id: string, w: { view?: SaveView; thumb: string | null; alive?: number; base?: DraftBase; opened?: string }): boolean {
+  const kv = store();
+  const save = readSave(id);
+  if (!save) return false;
+  let done = false;
+  // 正在看的这个:投影按页面上的(下次自动存就写页面上的),不补
+  const open = current?.id === id ? current : null;
+  if (w.view && !save.view && !open && kv.set(PREFIX + id, JSON.stringify({ ...save, view: w.view }))) done = true;
+  if (w.thumb && !kv.get(THUMB + id) && kv.set(THUMB + id, w.thumb)) done = true;
+  const m = readMeta(id);
+  const next: Meta = { ...m };
+  if (w.alive !== undefined && m.alive === undefined) next.alive = w.alive;
+  if (w.base && m.draft && !m.base) next.base = w.base;
+  // 文件里的"最近打开"比这边卡片上的时间晚:用文件里的(卡片时间、排序跟着回来;不算"补上了")
+  const at = m.opened && m.opened > save.savedAt ? m.opened : save.savedAt;
+  if (w.opened && w.opened > at) next.opened = w.opened;
+  const more = next.alive !== m.alive || next.base !== m.base;
+  let moved = false;
+  if ((more || next.opened !== m.opened) && kv.set(META + id, JSON.stringify(next))) {
+    // 正在看的这个也记上(下次自动存按页面里的写本地信息,不然又写没了)
+    if (open && open.alive === undefined && next.alive !== undefined) open.alive = next.alive;
+    if (open && open.kind === 'draft' && !open.base && next.base) open.base = next.base;
+    if (more) done = true;
+    moved = next.opened !== m.opened;
+  }
+  if (done || moved) changed();
+  return done;
+}
+
+/** 别的设备上删掉了:这里跟着删(不算这台设备上的删除) */
+export function removeSyncedWorld(id: string) {
+  removeKeys(id);
+  if (current?.id === id) {
+    current = null;
+    stopThumb();
+  }
+  // 腾出了地方:当前世界没存进去的再存一次。放到这一步做完以后(同步这时不理睬"存了"的通知),存了就会再排一次同步把它传上去
+  queueMicrotask(retryUnsaved);
+  changed();
+}
+
+/**
+ * 退出登录时选了"从这台设备上删掉":浏览器里的世界全删;返回删干净了没有。
+ * 浏览器不让删、看不了还剩什么 = false:删掉了的几样原样放回去(不然剩下半个世界,下次同步会把缺了东西的那份存进账号),
+ * 正在看的世界接着用
+ */
+export function removeAllWorlds(): boolean {
+  const ours = (k: string) => [PREFIX, THUMB, META, NOTES, LEGACY].some((p) => k.startsWith(p));
+  if (!wipeBrowser(ours)) {
+    // 正在看的那份没能放回去:马上再存一次
+    if (current?.wrote != null && store().get(PREFIX + current.id) === null) saveCurrent(true);
+    changed();
+    return false;
+  }
+  for (const k of [...mem.keys()]) if (ours(k)) mem.delete(k);
+  current = null;
+  stopThumb();
+  changed();
+  return true;
+}
+
+/**
+ * 直接对浏览器存储删一遍、再看一遍还剩没剩。浏览器存储能不能用以这时直接看的为准(打开页面时探测不成功、
+ * 后来出错退回内存的,浏览器里都可能还存着);看不了 = false。这个页面存在内存里、浏览器里却还存着的 = false,不删
+ * (页面没看到它们,不知道同步过没有)。没删干净:删掉了的按删之前的样子放回去
+ */
+function wipeBrowser(ours: (k: string) => boolean): boolean {
+  let s: Storage | undefined;
+  try {
+    s = (globalThis as { localStorage?: Storage }).localStorage;
+  } catch {
+    return false;
+  }
+  // 没有浏览器存储(不在网页里):世界只在内存里
+  if (!s) return true;
+  const st = s;
+  // 这个页面存在内存里(打开时探测不成功、后来出错退回内存):浏览器里还存着的这个页面没列出来、也就没同步过,删了就没了
+  if (local === undefined) store();
+  const fallback = local === null;
+  const left = () => {
+    const out: string[] = [];
+    for (let i = 0; i < st.length; i++) {
+      const k = st.key(i);
+      if (k !== null && ours(k)) out.push(k);
+    }
+    return out;
+  };
+  const before = new Map<string, string>();
+  try {
+    for (const k of left()) {
+      const v = st.getItem(k);
+      if (v !== null) before.set(k, v);
+    }
+  } catch {
+    return false;
+  }
+  if (fallback && before.size) return false;
+  let ok = true;
+  for (const k of before.keys()) {
+    try {
+      st.removeItem(k);
+    } catch {
+      ok = false;
+    }
+  }
+  try {
+    if (ok && left().length) ok = false;
+  } catch {
+    ok = false;
+  }
+  if (ok) return true;
+  for (const [k, v] of before) {
+    try {
+      if (st.getItem(k) === null) st.setItem(k, v);
+    } catch {
+      /* 放不回去的:正在看的那份由上面再存一次 */
+    }
+  }
+  return false;
 }
 
 /** 测试用:清空内存里的状态(不动浏览器存储) */

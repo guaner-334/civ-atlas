@@ -5,13 +5,14 @@
  * - 当前用哪家 = setActiveProvider(...)(设置面板改);网址带 `ai=mock` 时一律用假 AI(冒烟测试、开发用)
  * - 每次调用(成功或失败)都交给"调用记录器"(setCallRecorder,启动时换成 callLog.ts 里存本地的那个);默认只在内存里留最近 50 条
  * - 失败一律抛 AiError(中文说明),功能里 catch 了直接给用户看
+ * - 「使用 AI 功能」总开关(AI 设置最上面,存在 settings.ts):关着时界面上所有 AI 入口都不显示(useAiOn),aiChat 也不调
  *
  * 类型见 types.ts。
  */
 import { useSyncExternalStore } from 'react';
 import { worldKey } from '../gen/savefile';
 import { currentWorld } from '../ui/saveStore';
-import { AiError, type AiCallOptions, type AiCallRecord, type AiProviderKind, type AiRequest, type AiResult } from './types';
+import { AiError, type AiCallOptions, type AiCallRecord, type AiProviderKind, type AiRequest, type AiResult, type AiToolCall } from './types';
 
 export interface AiProviderStatus {
   ready: boolean;
@@ -70,6 +71,29 @@ export function setActiveProvider(kind: AiProviderKind | null): void {
   if (kind === active) return;
   active = kind;
   emit();
+}
+
+// 总开关:settings.ts 读到设置、改了设置时同步过来(这个文件不读设置,免得互相引用)
+let aiOff = false;
+export function setAiOn(on: boolean): void {
+  if (aiOff === !on) return;
+  aiOff = !on;
+  emit();
+}
+/** 「使用 AI 功能」开着吗(默认开) */
+export function aiOn(): boolean {
+  return !aiOff;
+}
+/** React:总开关开着吗;关着时各处的 AI 入口(助手、写史书、名字由来、AI 起名……)都不显示 */
+export function useAiOn(): boolean {
+  return useSyncExternalStore(
+    (f) => {
+      subs.add(f);
+      return () => subs.delete(f);
+    },
+    aiOn,
+    aiOn,
+  );
 }
 
 /** 服务商的状态变了(比如填了密钥、积分变了)时,设置面板调一下,让界面刷新 */
@@ -167,9 +191,14 @@ export async function aiChat(req: AiRequest, opts: AiCallOptions = {}): Promise<
     at: new Date().toISOString(),
     feature: req.feature,
     title: req.title,
-    messages: req.messages.map((m) => ({ role: m.role, content: clip(m.content) })),
+    messages: req.messages.map((m) => ({ ...m, content: clip(m.content) })),
     world: worldOf(),
   };
+  if (aiOff) {
+    const err = new AiError('not-configured', 'AI 功能已关(AI 设置里可以打开)');
+    recorder({ ...base, provider: kind ?? 'none', model: '', ok: false, error: { code: err.code, message: err.message }, ms: 0 });
+    throw err;
+  }
   if (!p) {
     const err = new AiError('not-configured', getAiStatus().reason ?? '还没有设置 AI');
     recorder({ ...base, provider: kind ?? 'none', model: '', ok: false, error: { code: err.code, message: err.message }, ms: 0 });
@@ -193,7 +222,17 @@ export async function aiChat(req: AiRequest, opts: AiCallOptions = {}): Promise<
   try {
     const r = await p.chat(req, tracked);
     const res: AiResult = { ...r, provider: p.kind, ms: Math.round(now()) };
-    recorder({ ...base, provider: p.kind, model: r.model, ok: true, usage: r.usage, credits: r.credits, ms: res.ms, text: clip(r.text) });
+    recorder({
+      ...base,
+      provider: p.kind,
+      model: r.model,
+      ok: true,
+      usage: r.usage,
+      credits: r.credits,
+      ms: res.ms,
+      text: clip(r.text),
+      ...(r.toolCalls?.length ? { toolCalls: r.toolCalls.map((c) => ({ ...c, args: clip(c.args) })) } : {}),
+    });
     return res;
   } catch (e) {
     const err =
@@ -218,7 +257,9 @@ export async function aiChat(req: AiRequest, opts: AiCallOptions = {}): Promise<
 // ---------------------------------------------------------------------------
 // 测试用假 AI(不联网):网址带 ai=mock 时启用;单测里可以 setMockResponder 定制回复
 
-type MockResponder = (req: AiRequest) => string;
+/** 假 AI 的回复:一段文字,或者(给了 tools 时)要调用的工具 + 可选的一段文字 */
+type MockReply = string | { text?: string; toolCalls?: AiToolCall[] };
+type MockResponder = (req: AiRequest) => MockReply;
 const defaultMockResponder: MockResponder = (req) => {
   if (req.json) return JSON.stringify({ mock: true, feature: req.feature });
   const last = [...req.messages].reverse().find((m) => m.role === 'user')?.content ?? '';
@@ -235,13 +276,22 @@ function mockDelay(): number {
 export function setMockResponder(f: MockResponder | null): void {
   mockResponder = f ?? defaultMockResponder;
 }
+/** 各功能自己的假回复(助手要按世界走固定的步骤);setMockResponder 定制过的优先 */
+const featureMocks = new Map<string, MockResponder>();
+/** 给某个功能挂一个假回复;传 null 拿掉 */
+export function setFeatureMock(feature: string, f: MockResponder | null): void {
+  if (f) featureMocks.set(feature, f);
+  else featureMocks.delete(feature);
+}
 
 registerProvider({
   kind: 'mock',
   label: '测试用假 AI',
   status: () => ({ ready: true, model: 'mock' }),
   async chat(req, opts) {
-    const text = mockResponder(req);
+    const reply = (mockResponder === defaultMockResponder ? featureMocks.get(req.feature) : undefined)?.(req) ?? mockResponder(req);
+    const text = typeof reply === 'string' ? reply : (reply.text ?? '');
+    const toolCalls = typeof reply === 'string' ? undefined : reply.toolCalls?.length ? reply.toolCalls : undefined;
     // 模拟流式:切成几段,每段让出一次事件循环(网址带 mockms=N 时每段等 N 毫秒:冒烟、截图看"正在写"用)
     let full = '';
     const step = Math.max(8, Math.ceil(text.length / 6));
@@ -253,7 +303,13 @@ registerProvider({
       opts.onDelta?.(chunk, full);
       await new Promise((r) => setTimeout(r, wait));
     }
+    if (!text) {
+      // 只调用工具、不说话:同样让出一次事件循环、认取消
+      if (opts.signal?.aborted) throw new AiError('aborted', '已取消');
+      await new Promise((r) => setTimeout(r, wait));
+    }
     const input = req.messages.reduce((s, m) => s + m.content.length, 0);
-    return { text: full, model: 'mock', usage: { inputTokens: input, outputTokens: full.length } };
+    const out = full.length + (toolCalls?.reduce((s, c) => s + c.args.length, 0) ?? 0);
+    return { text: full, ...(toolCalls ? { toolCalls } : {}), model: 'mock', usage: { inputTokens: input, outputTokens: out } };
   },
 });

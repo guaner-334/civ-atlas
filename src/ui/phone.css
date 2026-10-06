@@ -270,24 +270,6 @@
 .psheet .pm-menu {
   max-width: calc(100vw - 24px);
 }
-/* 用一句话改写世界的框:屏幕上方,收起的世界卡片和时间轴上面 */
-.ps-rewrite .rw-box {
-  position: fixed;
-  z-index: 8;
-  left: calc(12px + var(--safe-l));
-  right: calc(12px + var(--safe-r));
-  top: calc(12px + var(--safe-t));
-  width: auto;
-  max-width: none;
-  max-height: calc(100% - 24px - var(--safe-t) - var(--peek-h) - var(--above-sheet));
-  border: 0;
-  border-radius: 14px;
-  background: var(--panel);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  box-shadow: var(--shadow-float);
-}
-
 /* ==== 详情卡片(位置、拖动在 countryPanel.css):实色底,分组和按钮是白底(和世界卡片一个样子) ==== */
 .app.phone .inspector.cpanel {
   --btn: var(--surface);
@@ -422,6 +404,9 @@
   border-top: 0.5px solid var(--line);
 }
 .pb-group > .lp + .pb-btn {
+  border-radius: 0;
+}
+.pb-group > .pb-btn:last-child {
   border-radius: 0 0 12px 12px;
 }
 .pb-group > .lp .pb-btn {
@@ -504,7 +489,7 @@
   height: 28px;
 }
 
-/* ==== 顶上:提示条(让开右上的按钮,最多两行)、数据图层的图例 ==== */
+/* ==== 顶上:提示条(让开右上的按钮,最多三行)、数据图层的图例 ==== */
 .app.phone .toast {
   left: calc(12px + var(--safe-l));
   right: calc(12px + 44px + 8px + var(--safe-r));
@@ -535,10 +520,12 @@
 .app.phone .toast-text:has(.toast-more) .toast-main {
   -webkit-line-clamp: 1;
 }
+/* 小字最多两行(窄屏一行放不下"自动存在这个浏览器里……"这样的说明,截成省略号就看不全了) */
 .app.phone .toast-more {
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
   overflow: hidden;
-  text-overflow: ellipsis;
 }
 .app.phone .toast-bar {
   width: 64px;

@@ -5,8 +5,8 @@
  *   颜色块 + 国名(宋体)+ 小字"相邻 / 本国";迁都时是本国城市的名牌。鼠标移到可选目标上(地图上或名牌上)名牌反色。
  *   点名牌或地图上的目标 = 下令(PolityPick.accept)。顶部提示条"选择与某国结盟的国家 · N 年起生效 · 取消 · Esc"。
  * - 下了令、正在推演:地图还压着(这期间不接受点击),只留本国和对象的名牌;顶部提示条"正在重新推演 X–3000 年"带进度。
- *   推完:收起面板、地图缩回整张图(App 从生效年份接着放,提示"…,已从 X 年起重新推演"带撤销)。
- * - 平时选中国家:国都画一个直径 24 的主色圆环,旁边写"竹影城 · 国都" —— 默认写在圆环下面,压着地图上的字(国名、城名、地名)
+ *   推完:面板留着、回到信息页;选对象时缩回了整张图的,地图飞回这个国家(App 从生效年份接着放,提示"…,已从 X 年起重新推演"带撤销)。
+ * - 平时选中国家(或这国的人物):国都画一个直径 24 的主色圆环,旁边写"竹影城（国都）" —— 默认写在圆环下面,压着地图上的字(国名、城名、地名)
  *   就换到上面 / 右边 / 左边……挑一处不压字的(地图停稳了再挑,拖动、飞行时跟着圆环走)。
  * - 名牌、圆环每帧按"世界坐标 → 屏幕坐标"重新摆(平移、缩放、左右无限拖动、弯边投影、地球仪都对;转到球背面的不显示);
  *   名牌互相压着时,小国的先让开或藏起来。
@@ -16,12 +16,13 @@ import type { Civ } from '../gen/civ/types';
 import type { World } from '../gen/world';
 import { capitalAt, polityAlive } from '../gen/civ/growth';
 import { ownersAt } from '../gen/civ/timeline';
-import { clearSelection, getSelection, useCivTime, useSelection } from './civView';
+import { getSelection, useCivTime, useSelection } from './civView';
 import { getPolityPick, nameAt, setPickHover, setPolityPick, usePickHover, usePolityPick } from './Interventions';
-import { endRun, getPanel, requestFly, usePanel } from './panelStore';
+import { endRun, getPanel, requestFly, setPanelTab, setSheet, usePanel } from './panelStore';
 import { clearToast, showToast } from './toastStore';
 import { isCoarse } from './device';
-import { sideRoom } from './flyTo';
+import { mapTarget, sideRoom } from './flyTo';
+import { astRoom } from './astPanel';
 import type { WorldToClient } from './EventPins';
 import type { LabelPick } from './mapPick';
 import './countryPanel.css';
@@ -143,7 +144,9 @@ export function TargetLayer({ civ, world, toClient, resim, generating, labelAt }
   const pick = usePolityPick();
   const { run } = usePanel();
   const hover = usePickHover();
-  const { sel } = useSelection();
+  const picked = useSelection().sel;
+  // 选中人物 = 他的国家(国都的圆环也画)
+  const sel = useMemo(() => mapTarget(civ, picked), [civ, picked]);
   const t = useCivTime();
   const ok = !!civ && civ.viable;
 
@@ -199,7 +202,7 @@ export function TargetLayer({ civ, world, toClient, resim, generating, labelAt }
   })();
   const marker = useMemo(() => {
     const s = civ?.settlements[capId];
-    return s ? { text: `${s.name} · 国都`, x: world.mesh.x[s.cell], y: world.mesh.y[s.cell] } : null;
+    return s ? { text: `${s.name}（国都）`, x: world.mesh.x[s.cell], y: world.mesh.y[s.cell] } : null;
   }, [civ, world, capId]);
 
   // ---- 每帧摆位置 ----
@@ -222,6 +225,8 @@ export function TargetLayer({ civ, world, toClient, resim, generating, labelAt }
       const vh = window.innerHeight;
       // 宽屏左边浮着侧栏卡片(压在名牌上面):名牌摆在卡片右边,对象在卡片底下的也挪出来,能看见、能点
       const left = sideRoom(vw);
+      // 右边开着助手面板(窗口够宽、地图让出来时):名牌留在面板左边
+      const right = vw - astRoom(vw);
       const placed: [number, number, number, number][] = [];
       const hov = hoverRef.current;
       // 鼠标下的那一个先摆(不会被别的挤走)
@@ -238,7 +243,7 @@ export function TargetLayer({ civ, world, toClient, resim, generating, labelAt }
         // 对象在屏幕里才摆;名牌整个留在屏幕里、侧栏卡片右边(贴边的往里挪)
         if (at && at[0] >= 0 && at[0] <= vw && at[1] >= 0 && at[1] <= vh) {
           for (const dy of [0, -1, 1, -2, 2]) {
-            const cx = Math.min(vw - w / 2 - 6, Math.max(left + w / 2 + 6, at[0]));
+            const cx = Math.min(right - w / 2 - 6, Math.max(left + w / 2 + 6, at[0]));
             const cy = Math.min(vh - h / 2 - 6, Math.max(h / 2 + 6, at[1] + dy * (h + 4)));
             const r: [number, number, number, number] = [cx - w / 2 - 2, cy - h / 2 - 2, cx + w / 2 + 2, cy + h / 2 + 2];
             if (placed.some((q) => r[0] < q[2] && r[2] > q[0] && r[1] < q[3] && r[3] > q[1])) continue;
@@ -325,7 +330,8 @@ export function TargetLayer({ civ, world, toClient, resim, generating, labelAt }
     };
   }, [resim, generating, endYear]);
 
-  // ---- 推完:面板收起、地图缩回整张图(App 已经从生效年份接着放);没推起来(比如和改地形撞上)也别卡住 ----
+  // ---- 推完:面板留着、回到信息页(手机上回到半高);选对象时地图缩回了整张图,飞回这个国家(App 已经从生效年份接着放)。
+  //      重推后这个国家没了(稳定键指不到),App 已经取消了选中,面板自然关掉;没推起来(比如和改地形撞上)也别卡住 ----
   const sawBusy = useRef(false);
   useEffect(() => {
     if (!run) {
@@ -339,8 +345,9 @@ export function TargetLayer({ civ, world, toClient, resim, generating, labelAt }
     if (sawBusy.current) {
       sawBusy.current = false;
       endRun();
-      clearSelection();
-      requestFly('home');
+      setPanelTab('info');
+      setSheet('half');
+      if (run.target?.kind === 'polity' && getSelection().sel) requestFly('sel');
       return;
     }
     const timer = window.setTimeout(() => {

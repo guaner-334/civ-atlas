@@ -34,7 +34,7 @@
  * 开关就是"投影"切换里的 globe(ui/projection.ts;"图层与投影"弹层的投影、地图右下角的"地球仪 / 平面地图"按钮都改它,网址 proj=globe,旧的 view=globe 也认);
  * 经纬网和平面投影共用一个开关;中心经度和 mapWrap.ts 的中心互通(打开时从当前中心转起,停下来就记下正对着的经度)。
  */
-import { useEffect, useLayoutEffect, useRef, useState, type MutableRefObject } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
 import type { World } from '../gen/world';
 import type { Raster } from '../gen/raster';
 import type { Civ } from '../gen/civ/types';
@@ -70,6 +70,7 @@ import { getCivFeed, subscribeCivFeed } from './CivLayer';
 import { getProjection, lastFlatProjection, setProjection, useGraticule, useProjection } from './projection';
 import { clearToast, showToast } from './toastStore';
 import { getMapCenter, publishMapCenter } from './mapWrap';
+import { animProgress } from './flyTo';
 import { drawSettlementMarks, type SettlementMarkInfo } from '../render/civ/settlements';
 import { REF_MAP_CSS, drawPlacedLabels, placeMap, placedMarkBox, type LabelItem, type LabelMark, type LabelView, type Placement } from '../render/labels/draw';
 import { glyphBox } from '../render/labels/layout';
@@ -117,6 +118,8 @@ import type { GlobeTexRequest, GlobeTexResponse } from '../globeWorker';
 import { fileBaseName } from '../gen/savefile';
 import { currentWorld } from './saveStore';
 import { createWheelReader, inGesturePinch, wheelSample } from './wheel';
+import { drawHolyDot, holyCities } from '../render/civ/faith';
+import { faithFocusOf, selectionOnMap } from './faithSelection';
 import './globe.css';
 
 const D = Math.PI / 180;
@@ -146,15 +149,21 @@ export interface GlobeExport {
   h: number;
 }
 
+/**
+ * 导出时在球上再画点东西(作者标记):ctx 已经按导出的像素密度放大好,用屏幕上的坐标画;
+ * pt = 世界坐标 → 这一面上的坐标(背面 = null),k = 相当于平面主图的几倍
+ */
+export type GlobeExtra = (ctx: CanvasRenderingContext2D, view: { pt(wx: number, wy: number): [number, number] | null; w: number; h: number; k: number; dpr: number }) => void;
+
 /** 开着的地球仪的导出函数(没开 = null) */
-let globeExporter: (() => Promise<GlobeExport>) | null = null;
+let globeExporter: ((extra?: GlobeExtra) => Promise<GlobeExport>) | null = null;
 
 /**
  * 导出菜单用:把地球仪现在看到的这一面画成 PNG(两倍像素密度,长边不超过 3000;不带选中的记号,文字按导出的密度重排)。
  * 地球仪没开 = null。下载、提示由调用方负责
  */
-export function exportGlobeView(): Promise<GlobeExport> | null {
-  return globeExporter ? globeExporter() : null;
+export function exportGlobeView(extra?: GlobeExtra): Promise<GlobeExport> | null {
+  return globeExporter ? globeExporter(extra) : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -185,6 +194,8 @@ export interface GlobeApi {
   worldToClient(wx: number, wy: number): [number, number] | null;
   /** 经纬度(度)→ 屏幕坐标(clientX / clientY);在球的背面(或贴着边缘)= null */
   lonLatToClient(lon: number, lat: number): [number, number] | null;
+  /** 视图的指纹(转了、缩放了、球挪了位置就变)和相当于平面主图的几倍(作者标记按它决定写不写名字);还没量好尺寸 = null */
+  viewSig(): { sig: string; k: number } | null;
 }
 
 export interface GlobeProps {
@@ -211,6 +222,8 @@ export interface GlobeProps {
   onHover: (p: [number, number] | null) => void;
   /** 左边被侧栏卡片挡住多宽(CSS 像素;没有 = 0):球心往右挪一半,落在剩下那一块的正中(宽度变了约 0.6 秒过渡) */
   leftRoom?: number;
+  /** 右边被助手面板挡住多宽(同上,球心往左挪一半) */
+  rightRoom?: number;
 }
 
 /** 调试 / 冒烟检查用 */
@@ -387,6 +400,8 @@ interface OverlayInput {
   war: CivDrawParams | null;
   /** 编年史高亮的描边、圆圈(不闪的时候 = null),alpha = 闪到多亮 */
   hl: { strokes: GlobeLineStroke[]; ring: { box: [number, number, number, number]; colors: [string, string, string] } | null; alpha: number } | null;
+  /** 信仰图层:圣城的小圆点(世界坐标、这个教的颜色) */
+  holy: { wx: number; wy: number; color: readonly number[] }[];
 }
 
 /** 排版要用的东西 */
@@ -524,6 +539,10 @@ function drawOverlay(ctx: CanvasRenderingContext2D, o: OverlayInput): GlobePlace
   drawSelectionLabels(ctx, pl.placed, lv, sel, style, at);
   drawSettlementMarks(ctx, pl.placed.marks, style);
   drawPlacedLabels(ctx, pl.placed.labels, lv, globeGlyphAlpha(lv));
+  for (const h of o.holy) {
+    const [x, y, d] = globeToCanvas(lv, h.wx, h.wy);
+    if (d > MARK_MIN_D) drawHolyDot(ctx, x, y, h.color, dpr);
+  }
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   // 点选用:CSS 像素
   for (const m of pl.placed.marks) {
@@ -581,11 +600,20 @@ function drawHighlightRing(ctx: CanvasRenderingContext2D, box: [number, number, 
 }
 
 /** 文明贴图、矢量线要用的参数(和主图文明层同一年、同样的开关;世界和文明对不上时 = null) */
-function civParamsOf(p: { world: World; raster: Raster; civ: Civ | null; geo?: Civ | null; style: CivDrawParams['style']; show: CivShow }): CivDrawParams | null {
+function civParamsOf(p: {
+  world: World;
+  raster: Raster;
+  civ: Civ | null;
+  geo?: Civ | null;
+  style: CivDrawParams['style'];
+  show: CivShow;
+  faithFocus?: number | null;
+}): CivDrawParams | null {
   const base = p.geo ?? p.civ;
   if (!p.civ || !base || base.habitat.suitability.length !== p.world.mesh.n || base.regions !== p.civ.regions) return null;
   const t = getCivTime();
-  return { world: p.world, raster: p.raster, civ: base, style: p.style, year: t.year ?? base.endYear, show: p.show, fast: t.playing || t.scrubbing };
+  const faithFocus = p.show.faiths ? (p.faithFocus ?? null) : null;
+  return { world: p.world, raster: p.raster, civ: base, style: p.style, year: t.year ?? base.endYear, show: p.show, fast: t.playing || t.scrubbing, faithFocus };
 }
 
 /**
@@ -618,7 +646,7 @@ const sameKey = (a: readonly unknown[] | null, b: readonly unknown[]) => !!a && 
 
 // ---------------------------------------------------------------------------
 
-export function Globe({ world, raster, civ, geo, style, layer, terrain, terrainKey, replay, startLon, apiRef, onHover, leftRoom = 0 }: GlobeProps) {
+export function Globe({ world, raster, civ, geo, style, layer, terrain, terrainKey, replay, startLon, apiRef, onHover, leftRoom = 0, rightRoom = 0 }: GlobeProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const glRef = useRef<HTMLCanvasElement>(null);
   const ovRef = useRef<HTMLCanvasElement>(null);
@@ -626,7 +654,10 @@ export function Globe({ world, raster, civ, geo, style, layer, terrain, terrainK
   // 经纬网:和平面投影共用一个开关(ui/projection.ts)
   const graticule = useGraticule();
   const [hiLoading, setHiLoading] = useState(false);
-  const { sel } = useSelection();
+  const { sel: picked } = useSelection();
+  // 选中人物:地图上亮出他的国家;选中一种信仰:圈它的城,信仰图层上别的信仰变淡(faithSelection.ts)
+  const sel = useMemo(() => selectionOnMap(civ, picked), [civ, picked]);
+  const faithFocus = faithFocusOf(picked);
   const hl = useCivHighlight();
   const show = useCivShow();
 
@@ -715,11 +746,13 @@ export function Globe({ world, raster, civ, geo, style, layer, terrain, terrainK
   }).current;
 
   // 最新的 props(帧回调里读)
-  const props = useRef({ world, raster, civ, geo, style, layer, terrain, terrainKey, replay, graticule, sel, show, leftRoom, hl });
-  props.current = { world, raster, civ, geo, style, layer, terrain, terrainKey, replay, graticule, sel, show, leftRoom, hl };
+  const props = useRef({ world, raster, civ, geo, style, layer, terrain, terrainKey, replay, graticule, sel, show, leftRoom, rightRoom, hl, faithFocus });
+  props.current = { world, raster, civ, geo, style, layer, terrain, terrainKey, replay, graticule, sel, show, leftRoom, rightRoom, hl, faithFocus };
 
   /** 左边被侧栏卡片挡住的宽度(画布太窄就不让) */
   const leftOf = () => (s.size.w > 2 * props.current.leftRoom ? props.current.leftRoom : 0);
+  /** 右边被助手面板挡住的宽度(App 只在窗口够宽、面板让位时给;剩下的地方太窄就不让) */
+  const rightOf = () => (s.size.w - leftOf() - props.current.rightRoom >= s.size.w / 3 ? props.current.rightRoom : 0);
   /** 这一帧的球(w、h 是什么像素单位,unit = 一个 CSS 像素是几个那种像素:球心挪的量跟着换算) */
   const frameOf = (view: GlobeView, w: number, h: number, unit = 1) => globeFrame(view, w, h, s.shift * unit);
 
@@ -779,7 +812,7 @@ export function Globe({ world, raster, civ, geo, style, layer, terrain, terrainK
     // 回放 / 拖时间轴时和主图共用同一年算好的那份(省一次计算,高纬度林块上的让位略有错位,动着看不出)
     const cp = civParamsOf(p);
     const globeInk = !!cp && !cp.fast && s.tex === 'globe';
-    const ck = cp ? [cp.world, cp.raster, cp.civ, cp.style, cp.year, cp.show, cp.fast, globeInk] : [p.world];
+    const ck = cp ? [cp.world, cp.raster, cp.civ, cp.style, cp.year, cp.show, cp.fast, globeInk, cp.faithFocus] : [p.world];
     if (!sameKey(s.civTex.key, ck)) {
       s.civTex.key = ck;
       const t0 = performance.now();
@@ -1049,6 +1082,13 @@ export function Globe({ world, raster, civ, geo, style, layer, terrain, terrainK
       placement: pl,
       shift: s.shift,
       glyphs,
+      holy:
+        cp && cp.show.faiths
+          ? holyCities(cp.civ, cp.year, cp.faithFocus).map((x) => {
+              const c = cp.civ.settlements[x.settlement].cell;
+              return { wx: p.world.mesh.x[c], wy: p.world.mesh.y[c], color: x.color };
+            })
+          : [],
     };
   };
 
@@ -1061,7 +1101,7 @@ export function Globe({ world, raster, civ, geo, style, layer, terrain, terrainK
     const t0 = performance.now();
     let more = false;
     if (s.fly) {
-      const t = Math.min(1, (now - s.fly.t0) / s.fly.dur);
+      const t = animProgress(now, s.fly.t0, s.fly.dur);
       const e = 1 - (1 - t) ** 3;
       s.view = clampView(lerpView(s.fly.from, s.fly.to, e));
       if (t < 1) more = true;
@@ -1078,9 +1118,9 @@ export function Globe({ world, raster, civ, geo, style, layer, terrain, terrainK
       else s.inertia = null;
     }
     const p = props.current;
-    // 宽屏:球心往右挪侧栏卡片宽的一半,落在卡片右边那一块的正中;卡片宽度变了(窗口拉宽拉窄)就挪过去,
-    // 和转到选中的国家同样的时长、缓动。窄屏不挪
-    const shiftTo = leftOf() / 2;
+    // 宽屏:球心往右挪侧栏卡片宽的一半(右边开着助手面板再往左挪它的一半),落在两边中间那一块的正中;
+    // 卡片宽度变了(窗口拉宽拉窄、开关面板)就挪过去,和转到选中的国家同样的时长、缓动。窄屏不挪
+    const shiftTo = (leftOf() - rightOf()) / 2;
     if (!s.frames) {
       // 打开地球仪时面板已经开着:直接在挪好的位置上画第一帧
       s.shift = shiftTo;
@@ -1306,7 +1346,7 @@ export function Globe({ world, raster, civ, geo, style, layer, terrain, terrainK
   }, []);
 
   // 贴图来源、开关变了:下一帧上传、重画
-  useEffect(invalidate, [terrain, terrainKey, replay, raster, graticule, style, civ, geo, sel, show, leftRoom, hl]);
+  useEffect(invalidate, [terrain, terrainKey, replay, raster, graticule, style, civ, geo, sel, show, leftRoom, rightRoom, hl, faithFocus]);
   useEffect(() => subscribeCivFeed(invalidate), []);
   // 时间轴一动:文明贴图、国界道路的矢量线换成那一年的
   useEffect(() => subscribeCivTime(invalidate), []);
@@ -1321,8 +1361,8 @@ export function Globe({ world, raster, civ, geo, style, layer, terrain, terrainK
     const { w, h } = s.size;
     const f = frameOf(s.view, w, h);
     const [x, y, d] = lonLatToScreen(s.view, f, lon, lat);
-    // 左边被侧栏卡片挡住的那一截不算看得见
-    if (d > 0.55 && x > 60 + leftOf() && x < w - 60 && y > 60 && y < h - 90) return;
+    // 左边被侧栏卡片、右边被助手面板挡住的那一截不算看得见
+    if (d > 0.55 && x > 60 + leftOf() && x < w - 60 - rightOf() && y > 60 && y < h - 90) return;
     s.inertia = null;
     s.fly = { from: s.view, to: clampView({ lon, lat: lat * 0.85, k: s.view.k }), t0: performance.now(), dur: 650 };
     invalidate();
@@ -1394,6 +1434,11 @@ export function Globe({ world, raster, civ, geo, style, layer, terrain, terrainK
     zoomBy: (f, cx, cy, live) => zoomBy(f, cx, cy, live),
     worldToClient,
     lonLatToClient: (lon, lat) => llToClient(lon * D, lat * D),
+    viewSig: () => {
+      if (!s.size.w) return null;
+      const f = frameOf(s.view, s.size.w, s.size.h);
+      return { sig: `${s.view.lon},${s.view.lat},${f.cx},${f.cy},${f.R}`, k: equivalentZoom(f.R, REF_MAP_CSS) };
+    },
   };
   useEffect(
     () => () => {
@@ -1619,7 +1664,7 @@ export function Globe({ world, raster, civ, geo, style, layer, terrain, terrainK
   };
 
   // ---- 导出当前视图(导出菜单里的"导出地球仪这一面",见 exportGlobeView) ----
-  const exportView = async (): Promise<GlobeExport> => {
+  const exportView = async (extra?: GlobeExtra): Promise<GlobeExport> => {
     const cvs = glRef.current;
     const p = props.current;
     if (!cvs) throw new Error('地球仪还没画出来');
@@ -1655,6 +1700,24 @@ export function Globe({ world, raster, civ, geo, style, layer, terrain, terrainK
       drawOverlay(ov.getContext('2d')!, { ...overlayInput(w, h, sc, false, [], false), selection: null, selWorld: null, lines: civLineStrokes(civParamsOf(p)) });
       octx.drawImage(ov, 0, 0);
       ov.width = ov.height = 0;
+      if (extra) {
+        const f = frameOf(s.view, w, h);
+        const wd = p.world;
+        octx.save();
+        octx.scale(sc, sc);
+        extra(octx, {
+          pt: (wx, wy) => {
+            const [lon, lat] = worldToLonLat(wx, wy, wd.width, wd.height);
+            const [x, y, d] = lonLatToScreen(s.view, f, lon, lat);
+            return d > EDGE_D ? [x, y] : null;
+          },
+          w,
+          h,
+          k: equivalentZoom(f.R, REF_MAP_CSS),
+          dpr: sc,
+        });
+        octx.restore();
+      }
       // 文件名在编码之前定下:编码要一会儿,这期间换了年份、打开了别的世界,名字照样对得上画出来的这一张
       const civ = p.civ;
       const year = civ ? Math.floor(Math.max(0, Math.min(civ.endYear, getCivTime().year ?? civ.endYear))) : 0;
@@ -1671,7 +1734,7 @@ export function Globe({ world, raster, civ, geo, style, layer, terrain, terrainK
   const exportRef = useRef(exportView);
   exportRef.current = exportView;
   useEffect(() => {
-    const f = () => exportRef.current();
+    const f = (extra?: GlobeExtra) => exportRef.current(extra);
     globeExporter = f;
     return () => {
       if (globeExporter === f) globeExporter = null;

@@ -612,6 +612,11 @@ button.primary:hover {
   font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
+/* "AI 起的名字:带上 / 换回原名"(世界里有 AI 起的名字时才有)、"作者标记:带上 / 不带"(有标记时才有) */
+.export-ainames,
+.export-marks {
+  margin-top: 6px;
+}
 .export-item {
   display: block;
   width: 100%;
@@ -1177,3 +1182,9 @@ body.terrain-pan .stage.terrain-on:active {
 }
 
 
+/* 登录了网站账号:同步状态前面一个小云朵 */
+.save-status .icon {
+  flex: none;
+  vertical-align: -2px;
+  margin-right: 4px;
+}

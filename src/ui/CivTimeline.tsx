@@ -17,16 +17,17 @@
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Civ } from '../gen/civ/types';
-import { buildChronicle, filterChronicle } from '../gen/civ/chronicle';
+import { filterChronicle } from '../gen/civ/chronicle';
+import { fullChronicle } from '../gen/civ/religionText';
 import {
   clearChroniclePick,
   getCivTime,
-  pausePlayback,
   resetCivTime,
   setCivShow,
   setCivTime,
   startAutoplay,
   takeAutoplay,
+  togglePlayback,
   useChronicle,
   useCivTime,
 } from './civView';
@@ -69,8 +70,8 @@ export function CivTimeline({ civ, hidden, dock = 'bottom' }: CivTimelineProps) 
     if (has && takeAutoplay()) startAutoplay(replayStart(end));
   }, [has, end]);
 
-  // 刻度用的纪事:和编年史面板列出的一致(buildChronicle 按 civ 缓存;只在换世界 / 换筛选时重算,播放时不变)
-  const all = useMemo(() => (has ? buildChronicle(civ) : []), [civ, has]);
+  // 刻度用的纪事:和编年史面板列出的一致(fullChronicle 按 civ 缓存;只在换世界 / 换筛选时重算,播放时不变)
+  const all = useMemo(() => (has ? fullChronicle(civ) : []), [civ, has]);
   const marks = useMemo(() => filterChronicle(all, { major: chron.major, polity: chron.polity }), [all, chron.major, chron.polity]);
 
   // 播放:每帧按真实流逝的时间推进年份
@@ -80,7 +81,7 @@ export function CivTimeline({ civ, hidden, dock = 'bottom' }: CivTimelineProps) 
       setCivTime({ year: null, playing: false, story: false });
       return;
     }
-    if (t.story) setCivShow({ cultures: true, polities: true });
+    if (t.story) setCivShow({ cultures: true, polities: true, faiths: false });
     const rate = t.story ? end / STORY_SECONDS : PLAY_RATE[t.speed] ?? PLAY_RATE[1];
     let last = performance.now();
     let raf = 0;
@@ -103,11 +104,8 @@ export function CivTimeline({ civ, hidden, dock = 'bottom' }: CivTimelineProps) 
 
   if (!has || hidden) return null;
 
-  const toggle = () => {
-    if (t.playing) pausePlayback();
-    // 放到头了(停在结束年份):从结束年份前 400 年重播
-    else setCivTime({ playing: true, story: false, scrubbing: false, year: year >= end ? replayStart(end) : year });
-  };
+  // 放到头了(停在结束年份):从结束年份前 400 年重播
+  const toggle = () => togglePlayback(end, replayStart(end));
   const n = Math.floor(year);
   const firstPolity = civ.polities.length ? Math.min(...civ.polities.map((p) => p.founded)) : Infinity;
   const story =
@@ -136,7 +134,14 @@ export function CivTimeline({ civ, hidden, dock = 'bottom' }: CivTimelineProps) 
         onDoubleClick={(e) => e.stopPropagation()}
         style={{ ['--p' as string]: p }}
       >
-        <button className={`tb-play${t.playing ? ' on' : ''}`} onClick={toggle} aria-label={t.playing ? '暂停' : '播放'} title={t.playing ? '暂停' : '播放'}>
+        <button
+          className={`tb-play${t.playing ? ' on' : ''}`}
+          onClick={toggle}
+          aria-label={t.playing ? '暂停' : '播放'}
+          data-tip={t.playing ? '暂停' : '播放'}
+          data-tip-key="play"
+          data-tip-side="above"
+        >
           <i aria-hidden="true" />
         </button>
         <span className="tb-year">第 {n} 年</span>

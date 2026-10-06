@@ -35,7 +35,7 @@ import type { Raster } from '../gen/raster';
 import type { Civ, Year } from '../gen/civ/types';
 import { drawCivOverlay, type CivDrawParams, type CivStyle, type CivViewport } from '../render/civ/overlay';
 import { civLabelChars, civLabelItems, civMapLayer, labelViewExtras, reserveCanvasBoxes, type CivMapLayer } from '../render/civ/labels';
-import { drawSettlementMarks } from '../render/civ/settlements';
+import { drawSettlementMarks, type CapitalFlags } from '../render/civ/settlements';
 import { drawWarfare, warsShown } from '../render/civ/warfare';
 import { drawPlacedLabels, placeMap, placedMarkBox, toCanvas, type LabelItem, type LabelView } from '../render/labels/draw';
 import { ensureFonts, fontsReady, preloadFonts } from '../render/labels/fonts';
@@ -48,6 +48,10 @@ import { labelProjection, projector, type MapProj } from '../render/projection';
 import { ProjLayer, useMapMoving } from './projection';
 import { useAvoidBoxes } from './uiAvoid';
 import { CivDetail } from './CivDetail';
+import { drawHolyDot, holyCities } from '../render/civ/faith';
+import { faithFocusOf, selectionOnMap } from './faithSelection';
+import { flagOf, type FlagView } from './flagStore';
+import { flagImage, useFlagImages } from './flagImages';
 
 /** 高亮闪烁:约两秒,亮 → 暗 → 亮 → 暗 → 亮,最后淡出 */
 const FLASH: Keyframe[] = [
@@ -122,6 +126,11 @@ export interface CivLayerProps {
   labelsHost?: HTMLElement | null;
   /** 放大后的文明细节层放在哪(屏幕层:地形细节层之上、这一层地图框之下;没有 = 不画细节层) */
   detailHost?: HTMLElement | null;
+  /**
+   * 各国历代的旗(手绘风国都城堡插旗用;改旗、预览时跟着换)。由 App 和 civ 同一轮算好传进来,
+   * 改名、重推时只画一遍(要是自己订阅 flagStore,会先按旧旗画一遍、旗到了再画一遍)
+   */
+  flags?: FlagView | null;
 }
 
 const VIEW_1: CivViewport = { k: 1, x: 0, y: 0 };
@@ -150,7 +159,7 @@ interface LabelsDebug {
   wars?: { lines: number; marks: number } | null;
 }
 
-export function CivLayer({ world, raster, civ, geo, style, year, view, mp = null, labelsHost = null, detailHost = null }: CivLayerProps) {
+export function CivLayer({ world, raster, civ, geo, style, year, view, mp = null, labelsHost = null, detailHost = null, flags = null }: CivLayerProps) {
   const ref = useRef<HTMLCanvasElement>(null);
   const textRef = useRef<HTMLCanvasElement>(null);
   const hlRef = useRef<HTMLCanvasElement>(null);
@@ -163,7 +172,10 @@ export function CivLayer({ world, raster, civ, geo, style, year, view, mp = null
   const detailHl = useRef<HTMLCanvasElement>(null);
   const [detailOn, setDetailOn] = useState(false);
   const hl = useCivHighlight();
-  const { sel } = useSelection();
+  const { sel: picked } = useSelection();
+  // 选中人物:地图上亮出他的国家;选中一种信仰:圈它的城,信仰图层上别的信仰变淡(selectionOnMap、faithFocus)
+  const sel = useMemo(() => selectionOnMap(civ, picked), [civ, picked]);
+  const faithFocus = faithFocusOf(picked);
   const mpRef = useRef(mp);
   mpRef.current = mp;
   const show = useCivShow();
@@ -177,8 +189,8 @@ export function CivLayer({ world, raster, civ, geo, style, year, view, mp = null
   const ok = !!civ && !!base && base.habitat.suitability.length === world.mesh.n && base.regions === civ.regions;
   // 底图(国土、国界、道路……)用原始 civ:改名不重画
   const params = useMemo<CivDrawParams | null>(
-    () => (ok && base ? { world, raster, civ: base, style, year: y ?? base.endYear, show, fast } : null),
-    [ok, world, raster, base, style, y, show, fast],
+    () => (ok && base ? { world, raster, civ: base, style, year: y ?? base.endYear, show, fast, faithFocus: show.faiths ? faithFocus : null } : null),
+    [ok, world, raster, base, style, y, show, fast, faithFocus],
   );
   // 国名、城名、城镇符号:同一年、同样的开关,换成套了改名的 civ
   const mapParams = useMemo<CivDrawParams | null>(() => (params && civ ? { ...params, civ } : null), [params, civ]);
@@ -421,6 +433,8 @@ export function CivLayer({ world, raster, civ, geo, style, year, view, mp = null
 
   // 地图上盖着的界面(四角的字、时间轴、面板 / 抽屉、提示条……):它们下面不放字和符号(和地球仪同一份清单,见 uiAvoid.ts)
   const avoid = useAvoidBoxes(textRef);
+  // 手绘风国都城堡插的国旗:旗的小图加载好了重画
+  const flagImages = useFlagImages();
 
   useLayoutEffect(() => {
     const cv = textRef.current;
@@ -487,8 +501,35 @@ export function CivLayer({ world, raster, civ, geo, style, year, view, mp = null
     // 战线、双剑压在国界上、城镇符号和字底下
     const war = wars && params ? drawWarfare(ctx, params, lv, mp ? projector(mp) : null) : null;
     drawSelectionLabels(ctx, placed, lv, sel, style, at);
-    drawSettlementMarks(ctx, placed.marks, style);
+    const capFlags: CapitalFlags | undefined =
+      style === 'fantasy' && flags && flags.civ === civ && params
+        ? {
+            minPx: 13 * dpr,
+            flag: (id) => {
+              const e = flagOf(flags, id, params.year);
+              const image = e && flagImage(e.spec);
+              return image ? { image, shape: e.spec.shape } : null;
+            },
+          }
+        : undefined;
+    drawSettlementMarks(ctx, placed.marks, style, capFlags);
     drawPlacedLabels(ctx, placed.labels, lv);
+    // 信仰图层:圣城符号右上方一个这个教颜色的小圆点(符号没排上时按城的位置;压在界面下面的不画)
+    if (params?.show.faiths && base) {
+      const cx = (W / 2 - lv.ox) / lv.scale;
+      for (const h of holyCities(base, params.year, params.faithFocus)) {
+        const pm = placed.marks.find((m) => m.mark.id === h.settlement);
+        let x: number;
+        let y: number;
+        if (pm) [x, y] = [pm.x, pm.y];
+        else {
+          const c = base.settlements[h.settlement].cell;
+          [x, y] = mp ? toCanvas(lv, world.mesh.x[c], world.mesh.y[c]) : [nearX(world.mesh.x[c], cx, lv.wrap ?? 0) * lv.scale + lv.ox, world.mesh.y[c] * lv.scale + lv.oy];
+          if (!Number.isFinite(x) || x < 0 || y < 0 || x > W || y > H || ui.some((r) => r[0] < x && r[2] > x && r[1] < y && r[3] > y)) continue;
+        }
+        drawHolyDot(ctx, x, y, h.color, dpr);
+      }
+    }
     setMapPlacement({ canvas: cv, placed, view: lv });
     const w = window as unknown as { __wfLabels?: LabelsDebug };
     const fontOk = fontsReady(fontStyle, text);
@@ -510,7 +551,7 @@ export function CivLayer({ world, raster, civ, geo, style, year, view, mp = null
       lon: mp?.lon0,
       fitted: !!fitMp,
     };
-  }, [geoItems, mapLayer, extras, fontsOk, fontStyle, style, text, view, tick, params, fast, sel, civ, world, mp, fitMp, avoid, labelsHost]);
+  }, [geoItems, mapLayer, extras, fontsOk, fontStyle, style, text, view, tick, params, fast, sel, civ, world, mp, fitMp, avoid, labelsHost, flags, flagImages]);
 
   return (
     <>

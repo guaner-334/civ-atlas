@@ -14,6 +14,7 @@
  * | `settlement:c4567#1`        | 城:地块 4567 所在的州里第 1 座城(按建城先后;0 = 最早的,毁了又在故址重建的 +1)   |
  * | `place:mountains@c4567#0`   | 地理实体:种类(sea / mountains / river / lake / island / desert)+ 锚点地块 4567;同种类同锚点的第 0 个(几乎总是 0) |
  * | `culture:c4567#0`           | 民族:发源在地块 4567 所在的州(4567 = 发源州的治所地块),这州第 0 个发源的(几乎总是 0) |
+ * | `faith:c4567#0`             | 信仰:大教 = 圣城所在的州,教派 = 分出时那国国都所在的州,民间信仰 = 那个民族的发源州;这州第 0 个(按创立先后,民间信仰在前) |
  * | `dynasty:c4567#0/2`         | 朝代:国家 `polity:c4567#0` 的第 2 朝(Polity.dynasties 的下标,0 = 立国时那一朝)  |
  * | `region:c4567`              | 州:包含地块 4567 的那一州(4567 = 这州的治所地块)                              |
  *
@@ -37,6 +38,16 @@
  * applyNames 返回套上名字的新 Civ(原 Civ 不改;没有任何名字生效时直接返回原 Civ)。连带跟着变的(用户没单独改过的):
  * - 复国的国家("后昌")跟着故国的国号变("昌" 改成 "秦" → "后秦")
  * - 同族在故址上重建、沿用旧名的城,跟着旧城的名字变
+ *
+ * WorldEdits.aiNames(可选):哪些名字是从 AI 起名里挑的。稳定键 → { name: 挑的那个名字, was: 挑之前的名字(没改过 = 不写) }。
+ * 只是记一笔来源:names 里这个键还是这个名字 = "AI 写"(之后自己再改、恢复默认、撤销都不算了);
+ * 导出时选"换回原名"就用 was(没有 = 生成时的名字)。不影响生成和推演。
+ *
+ * ## 改旗
+ *
+ * WorldEdits.flags(可选):作者改过的国旗。稳定键 → 一面旗的写法(civ/flags.ts 的 encodeFlag,如 `"b/plain/W/e=R/k=long"`)。
+ * 键是国家(`polity:c4567#0`,改的是第一朝)或朝代(`dynasty:c4567#0/2`,改的是第 2 朝);改的是"这一国从这一朝起"的旗,
+ * 之后换朝代照它往下配(见 civ/flags.ts)。旗是推演结束后贴上去的,不影响生成和推演。没有这一项 = 全部自动配。
  *
  * ## 干预
  *
@@ -65,7 +76,8 @@
  *
  * WorldEdits.terrain:作者动手改的地形("这里放一座火山"),按先后排。和干预不同,改地形要**从头重新生成世界**:
  * 修改在生成流程里对应的那一步套上(gen/terrainEdits.ts),侵蚀、河流、气候、群落照常跑,再重推文明 ——
- * 改过的地形和天然长出来的一样。州会重新划分、历史整个重来,改名和干预按稳定键(按地块定位)尽量套上 ——
+ * 改过的地形和天然长出来的一样。州会重新划分、历史整个重来(扩张节拍仍按没改地形时的同一颗星球,见 civ/index.ts 的 planetTempo:
+ * 远海、无人区里没人去的修改,历史和没改时一样),改名和干预按稳定键(按地块定位)尽量套上 ——
  * 指回同一块地方,套不上的不生效(先留着)。旧格式的键(`region:r123` 这类州号)仍按州号解析:州重新划分以后,
  * 它指到新划分里编号相同的那一州(多半不是原来那块地方),所以新写入的键一律是按地块的 c 格式。
  * 没有地形修改时生成结果和不改一模一样(逐字节)。
@@ -83,7 +95,33 @@
  * 折线的第一个点 x 在 [0, 2048) 里,之后每个点按离上一个点近的那边写(跨 180° 经线的一笔 x 可以超出 [0, 2048),是连着的一笔)。
  * 读进来的列表先过 terrainEdits.ts 的 cleanTerrainOps(种类不认识、坐标不是数的丢掉;x 按上面的规则规整,y、大小、强度夹回范围内)。
  *
- * GENERATOR_VERSION:生成算法有改动、同种子会得到不同世界时加一(存档读档时核对,不一致就提示"存档来自旧版本")。
+ * ## 作者标记
+ *
+ * WorldEdits.marks(可选,没有 = 一个也没有):作者钉在地图上的标记("主角的故乡""第三卷打仗的那几州")——
+ * 一个点或几个州,带名字、说明、颜色和年份。和改名一样只是记下来:不改变世界、不参与推演、和生成器版本无关。
+ * 时间轴走到 [from, to] 这些年里(两头都算)地图上才画它;to 不给 = 一直都在。
+ *
+ * | 字段     | 意思                                                                                      |
+ * |----------|-------------------------------------------------------------------------------------------|
+ * | id       | 编号:这个世界里不重复的正整数(新建的 = 现有最大的 + 1;选中、撤销按它认)                   |
+ * | title    | 名字(MARK_TITLE_MAX 个字以内)                                                            |
+ * | note     | 说明(可以分行,MARK_NOTE_MAX 个字以内;没有 = 不写)                                       |
+ * | color    | 颜色:MARK_COLORS 里的一种                                                                |
+ * | from, to | 年份(整数,夹到 [0, INTERVENTION_YEAR_MAX];to 早于 from 的当作没给)                      |
+ * | at       | 一个点:世界坐标 [x, y](和"地形修改"同一套坐标,x 规整到 [0, 2048));网格只由种子决定,改地形以后还是同一块地方,变成海了照样画 |
+ * | regions  | 几个州:州键 `region:c4567`(按地块定位,见"稳定键";那块地方变成水了,那一州就不画)           |
+ *
+ * at 和 regions 有且只有一个(都给了按 regions)。读进来的列表先过 cleanMarks(格式不对的丢掉,编号重复的换一个新编号,
+ * 最多留 MARKS_MAX 个,所有标记一共最多圈 MARK_REGIONS_TOTAL 个州)。
+ *
+ * ## 作者的人物
+ *
+ * WorldEdits.characters(可选,没有 = 一个也没有):作者放进这个世界的自己的人物 —— 名字、生卒、出生地、国家、身份、简介、
+ * 一生的几段经历(每段可以勾上推演里的事和人)、亲友。和作者标记一样只是记下来:不改变世界、不参与推演、和生成器版本无关。
+ * 字段、上限、怎么清理见 characters.ts。
+ *
+ * GENERATOR_VERSION:生成算法有改动、同种子会得到不同世界时加一(存档读档时核对,不一致就提示"来自旧版本"和变了什么;
+ * 每一版改了什么记在下面的 GENERATOR_CHANGES,提示照它说)。
  *   2:名字按位置取(gen/civ/naming.ts、places.ts;地形、历史不变,默认的名字换了一遍),稳定键改按地块定位(c 格式)。
  *   3:推演里的随机数按位置锚取(gen/civ/rand.ts:州 = 治所地块,国家 / 城 / 民族 = 它们的锚点地块,不按编号),
  *      超越函数舍入到 24 位(不同 CPU、浏览器逐位一致);民族的语感、配色按发源地位置先后挑;
@@ -95,12 +133,42 @@
  *      地形修改的坐标按经纬度解释(x = 经度、y = 纬度),跨 180° 经线的笔画 x 可以超出 [0, 2048)。
  *   6:历史里有了人物(历代君主、战争里的统帅,Civ.people)和战役(没打下来的仗,史事 battle);
  *      疆域、兴亡、改朝换代都和 5 一样,编年史的句子里多了人名和"某某之战"。
+ *   7:洋流(currents.ts):大陆两岸冷暖不同,气温、降水、群落、海冰跟着变;地形不变,历史换了一遍。
+ *   8:改过地形的世界,扩张节拍按没改地形时的同一颗星球定(civ/index.ts 的 planetTempo),不再因为节拍被拨动而让全世界的历史错开。
+ *      没改地形的世界和 7 逐字节相同;改过地形的世界历史换了一遍。
+ *   9:君主有了世系(谁是谁的父亲,civ/lineage.ts),补上没即位的宗室;疆域、兴亡、君主和将领都和 8 一样,
+ *      只是继位时年纪对不上的"其弟 / 其兄"改成了"其侄 / 叔父"这类(每个世界几十句)。
  */
-import type { Civ, Place, Polity, Settlement } from './civ/types';
+import type { Civ, Culture, Faith, Place, Polity, Settlement } from './civ/types';
+import type { AuthorCharacter } from './characters';
 import { polityRootAt } from './civ/growth';
+import { TERRAIN_H, TERRAIN_W } from './terrainEdits';
 
-/** 生成器版本:生成算法有改动、同种子会得到不同世界时加一(存档读档时核对) */
-export const GENERATOR_VERSION = 6;
+/** 生成器版本:生成算法有改动、同种子会得到不同世界时加一(存档读档时核对);加一时在 GENERATOR_CHANGES 里补一条 */
+export const GENERATOR_VERSION = 9;
+
+/**
+ * 一版生成器的改动有多大(从小到大):打开旧存档、旧链接时,按跨过的几版里最大的那一种说清变了什么(savefile.ts 的 versionNote)
+ *   names      地形、历史不变,默认的名字换了
+ *   chronicle  疆域、兴亡不变,编年史里添了内容
+ *   history    地形、气候不变,历史重新推演
+ *   climate    陆地和山不变,气候、河流、历史变了
+ *   terrain    地形有局部变化,历史重新推演
+ *   planet     整颗星球重新生成
+ */
+export type GeneratorChange = 'names' | 'chronicle' | 'history' | 'climate' | 'terrain' | 'planet';
+
+/** 每一版(加到这个号时)改了什么;edited = 只有改过地形的世界变了,没改地形的和上一版一样 */
+export const GENERATOR_CHANGES: Readonly<Record<number, { change: GeneratorChange; edited?: true }>> = {
+  2: { change: 'names' },
+  3: { change: 'terrain' },
+  4: { change: 'planet' },
+  5: { change: 'planet' },
+  6: { change: 'chronicle' },
+  7: { change: 'climate' },
+  8: { change: 'history', edited: true },
+  9: { change: 'chronicle' },
+};
 
 /** 干预的种类(见文件头的表) */
 export type InterventionKind = 'protect' | 'ally' | 'declare' | 'unity' | 'cede' | 'found' | 'move' | 'halt';
@@ -133,10 +201,44 @@ export interface TerrainOp {
 export interface WorldEdits {
   /** 改名:稳定键 → 新名字 */
   names: Record<string, string>;
+  /** 从 AI 起名里挑的名字(见文件头"改名");没有 = 一个也没有 */
+  aiNames?: Record<string, AiNameMark>;
   /** 干预(按下达的先后;见文件头"干预") */
   interventions: Intervention[];
   /** 地形修改(按先后;见文件头"地形修改") */
   terrain: TerrainOp[];
+  /** 作者标记(按添加的先后;见文件头"作者标记");没有 = 一个也没有 */
+  marks?: AuthorMark[];
+  /** 改过的国旗:稳定键 → 旗的写法(见文件头"改旗");没有 = 一面也没改 */
+  flags?: Record<string, string>;
+  /** 作者的人物(按新建的先后;见文件头"作者的人物"、characters.ts);没有 = 一个也没有 */
+  characters?: AuthorCharacter[];
+}
+
+/** 作者标记的颜色(界面上的六种:红、橙、绿、蓝、紫、青) */
+export const MARK_COLORS = ['red', 'orange', 'green', 'blue', 'purple', 'teal'] as const;
+export type MarkColor = (typeof MARK_COLORS)[number];
+
+/** 一个作者标记(字段见文件头"作者标记") */
+export interface AuthorMark {
+  id: number;
+  title: string;
+  note?: string;
+  color: MarkColor;
+  /** 从哪年起(含) */
+  from: number;
+  /** 到哪年止(含);没有 = 一直都在 */
+  to?: number;
+  /** 一个点:世界坐标 [x, y] */
+  at?: [number, number];
+  /** 几个州:州键 */
+  regions?: string[];
+}
+
+/** 一个从 AI 起名里挑的名字:挑的那个名字、挑之前的名字(没改过 = 不写) */
+export interface AiNameMark {
+  name: string;
+  was?: string;
 }
 
 export const EMPTY_EDITS: WorldEdits = Object.freeze({
@@ -145,7 +247,7 @@ export const EMPTY_EDITS: WorldEdits = Object.freeze({
   terrain: Object.freeze([]) as unknown as TerrainOp[],
 });
 
-export type KeyKind = 'polity' | 'settlement' | 'place' | 'culture' | 'dynasty' | 'region';
+export type KeyKind = 'polity' | 'settlement' | 'place' | 'culture' | 'dynasty' | 'region' | 'faith';
 
 export interface ResolvedKey {
   kind: KeyKind;
@@ -158,14 +260,15 @@ export interface ResolvedKey {
 // ---------------------------------------------------------------------------
 // 稳定键 ↔ 编号(每个 Civ 算一次)
 
-/** 国家 / 城 / 民族:按州编"第几个"的三类 */
-type CountedKind = 'polity' | 'settlement' | 'culture';
+/** 国家 / 城 / 民族 / 信仰:按州编"第几个"的几类 */
+type CountedKind = 'polity' | 'settlement' | 'culture' | 'faith';
 
 interface KeyIndex {
   polity: string[];
   settlement: string[];
   place: string[];
   culture: string[];
+  faith: string[];
   /** 地理实体的键 → 编号 */
   places: Map<string, number>;
   /** 按州定位的内部键(`polity:123#0`,123 = 州号)→ 编号 */
@@ -210,12 +313,13 @@ function keyIndex(civ: Civ): KeyIndex {
   const polity = build('polity', civ.polities, (p) => S[p.capital]?.region ?? -1, (a, b) => a.founded - b.founded);
   const settlement = build('settlement', S, (s) => s.region, (a, b) => a.founded - b.founded);
   const culture = build('culture', civ.cultures, (c) => c.hearth, (a, b) => a.born - b.born);
+  const faith = build('faith', civ.religion?.faiths ?? [], (f) => faithRegion(civ, f), (a, b) => (a.founded ?? -1) - (b.founded ?? -1));
   const placeAt = (p: Place, i: number) => `place:${p.kind}@${p.cell !== undefined ? `c${p.cell}` : `i${i}`}`;
   const pn = counted(civ.places, placeAt, () => 0);
   const place = civ.places.map((p, i) => `${placeAt(p, i)}#${pn[i]}`);
   const places = new Map<string, number>();
   place.forEach((k, id) => places.set(k, id));
-  ix = { polity, settlement, place, culture, places, byRegion };
+  ix = { polity, settlement, place, culture, faith, places, byRegion };
   indexCache.set(civ, ix);
   return ix;
 }
@@ -245,6 +349,17 @@ export function cultureKey(civ: Civ, id: number): string {
   return keyIndex(civ).culture[id];
 }
 
+export function faithKey(civ: Civ, id: number): string {
+  return keyIndex(civ).faith[id];
+}
+
+/** 信仰的位置锚:大教 = 圣城所在的州,教派 = 分出时那国国都所在的州,民间信仰 = 民族的发源州 */
+function faithRegion(civ: Civ, f: Faith): number {
+  if (f.kind === 'folk') return civ.cultures[f.culture ?? f.id]?.hearth ?? -1;
+  const s = f.kind === 'great' ? f.holy : f.seat;
+  return s !== undefined ? (civ.settlements[s]?.region ?? -1) : -1;
+}
+
 export function dynastyKey(civ: Civ, polity: number, index: number): string {
   return `dynasty:${polityKey(civ, polity).slice('polity:'.length)}/${index}`;
 }
@@ -263,7 +378,7 @@ function regionOfRef(ref: string, of: ArrayLike<number>): number {
 }
 
 const REGION_KEY = /^region:([rc]\d{1,7})$/;
-const COUNTED_KEY = /^(polity|settlement|culture):(r-?\d{1,7}|c\d{1,7})#(\d{1,5})$/;
+const COUNTED_KEY = /^(polity|settlement|culture|faith):(r-?\d{1,7}|c\d{1,7})#(\d{1,5})$/;
 
 /**
  * 州键 → 现在的州号:`region:c4567` 找包含地块 4567 的州(水上 = −1);旧格式 `region:r123` 就是 123(不查州数,推演时再核对)。
@@ -379,6 +494,46 @@ function bare(root: string): string {
 /** 名字最长几个字 */
 export const NAME_MAX = 16;
 
+/** 这个键现在的名字是不是从 AI 起名里挑的(之后自己改过、恢复过默认的不算) */
+export function isAiName(edits: WorldEdits, key: string): boolean {
+  const m = edits.aiNames?.[key];
+  return !!m && edits.names[key] === m.name;
+}
+
+/** 现在用着的 AI 起的名字有哪几个(稳定键) */
+export function aiNameKeys(edits: WorldEdits): string[] {
+  return Object.keys(edits.aiNames ?? {}).filter((k) => isAiName(edits, k));
+}
+
+/**
+ * 记下 key 的名字换成了 name 以后的 aiNames:从 AI 起名里挑的(ai = true)记一笔,挑之前的名字留着
+ * (上一个也是 AI 起的就沿用它的 was);别的改名(自己改、恢复默认)把这一笔去掉。一笔都不剩 = undefined
+ */
+export function markAiName(edits: WorldEdits, key: string, name: string | null, ai: boolean): Record<string, AiNameMark> | undefined {
+  const cur = edits.aiNames;
+  if (ai && name) {
+    const was = isAiName(edits, key) ? cur![key].was : edits.names[key];
+    return { ...cur, [key]: was === undefined ? { name } : { name, was } };
+  }
+  if (!cur || !(key in cur)) return cur;
+  const next = { ...cur };
+  delete next[key];
+  return Object.keys(next).length ? next : undefined;
+}
+
+/** 导出时"换回原名"用的改名表:AI 起的名字换回挑之前的(没改过 = 去掉,用生成时的名字) */
+export function namesWithoutAi(edits: WorldEdits): Record<string, string> {
+  const keys = aiNameKeys(edits);
+  if (!keys.length) return edits.names;
+  const out = { ...edits.names };
+  for (const k of keys) {
+    const was = edits.aiNames![k].was;
+    if (was === undefined) delete out[k];
+    else out[k] = was;
+  }
+  return out;
+}
+
 /** 国名词根末尾常被顺手打上的国号(打"索拉特王国"就当是"索拉特";长的在前) */
 const POLITY_SUFFIXES = ['共和国', '大汗国', '王朝', '皇朝', '帝国', '王国', '汗国', '城邦', '国', '部'];
 
@@ -435,6 +590,7 @@ export function applyNames(civ: Civ, names: Record<string, string>): Civ {
   const place = new Map<number, string>();
   const culture = new Map<number, string>();
   const region = new Map<number, string>();
+  const faith = new Map<number, string>();
   for (const key in names) {
     const name = names[key];
     if (typeof name !== 'string' || !name) continue;
@@ -445,13 +601,14 @@ export function applyNames(civ: Civ, names: Record<string, string>): Civ {
     else if (r.kind === 'place') place.set(r.id, name);
     else if (r.kind === 'culture') culture.set(r.id, name);
     else if (r.kind === 'region') region.set(r.id, name);
+    else if (r.kind === 'faith') faith.set(r.id, name);
     else {
       let m = dynasty.get(r.id);
       if (!m) dynasty.set(r.id, (m = new Map()));
       m.set(r.index!, name);
     }
   }
-  if (!polityRoot.size && !dynasty.size && !settlement.size && !place.size && !culture.size && !region.size) return civ;
+  if (!polityRoot.size && !dynasty.size && !settlement.size && !place.size && !culture.size && !region.size && !faith.size) return civ;
 
   let changed = false;
   // 州名:另起一份 regionNames(civ.regions 不动,见文件头)
@@ -538,10 +695,32 @@ export function applyNames(civ: Civ, names: Record<string, string>): Civ {
       changed = true;
     }
   }
+  // 信仰:民间信仰跟着改过名的民族变(族名 + 祖灵 / 旧神;用户单独改过的除外)
+  let religion = civ.religion;
+  if (religion && (faith.size || culture.size)) {
+    const F0 = religion.faiths;
+    const F = F0.map((f) => {
+      const name = faith.get(f.id) ?? (f.kind === 'folk' && culture.has(f.culture ?? f.id) ? folkRenamed(civ, f, cultures) : null);
+      return name && name !== f.name ? { ...f, name } : f;
+    });
+    if (F.some((f, i) => f !== F0[i])) {
+      religion = { ...religion, faiths: F };
+      changed = true;
+    }
+  }
   if (!changed) return civ;
   const out: Civ = { ...civ, cultures, places, settlements, polities };
   if (regionNames) out.regionNames = regionNames;
+  if (religion) out.religion = religion;
   return out;
+}
+
+/** 民族改了名以后它的民间信仰叫什么(原名 = 原族名 + 词尾;对不上就不跟着改) */
+function folkRenamed(civ: Civ, f: Faith, cultures: readonly Culture[]): string | null {
+  const id = f.culture ?? f.id;
+  const old = civ.cultures[id]?.name;
+  if (!old || !f.name.startsWith(old)) return null;
+  return cultures[id].name + f.name.slice(old.length);
 }
 
 // ---------------------------------------------------------------------------
@@ -553,10 +732,11 @@ export const INTERVENTION_YEAR_MAX = 65535;
 const INTERVENTION_KINDS: readonly InterventionKind[] = ['protect', 'ally', 'declare', 'unity', 'cede', 'found', 'move', 'halt'];
 
 /** 键的格式(新旧两种都认:`polity:c4567#0` / 旧的 `polity:r123#0`,见文件头"稳定键") */
-const isPolityKey = (k: unknown): k is string => typeof k === 'string' && /^polity:(r-?\d{1,7}|c\d{1,7})#\d{1,5}$/.test(k);
-const isRegionKey = (k: unknown): k is string => typeof k === 'string' && REGION_KEY.test(k);
-const isCityKey = (k: unknown): k is string => typeof k === 'string' && /^settlement:[rc]\d{1,7}#\d{1,5}$/.test(k);
-const yearOf = (y: unknown): number | null =>
+export const isPolityKey = (k: unknown): k is string => typeof k === 'string' && /^polity:(r-?\d{1,7}|c\d{1,7})#\d{1,5}$/.test(k);
+export const isRegionKey = (k: unknown): k is string => typeof k === 'string' && REGION_KEY.test(k);
+export const isCityKey = (k: unknown): k is string => typeof k === 'string' && /^settlement:[rc]\d{1,7}#\d{1,5}$/.test(k);
+/** 年份:取整、夹到 [0, INTERVENTION_YEAR_MAX];不是有限数 = null */
+export const yearOf = (y: unknown): number | null =>
   typeof y === 'number' && Number.isFinite(y) ? Math.min(INTERVENTION_YEAR_MAX, Math.max(0, Math.floor(y))) : null;
 
 /**
@@ -631,4 +811,153 @@ export function sameInterventions(a: readonly Intervention[], b: readonly Interv
 export function interventionKeys(v: Intervention): string[] {
   if (v.kind === 'found') return [];
   return v.kind === 'ally' || v.kind === 'declare' ? [v.a, v.b] : [v.a];
+}
+
+// ---------------------------------------------------------------------------
+// 作者标记
+
+/** 标记的名字最长几个字 */
+export const MARK_TITLE_MAX = 40;
+/** 标记的说明最长几个字 */
+export const MARK_NOTE_MAX = 2000;
+/** 一个标记最多圈几个州 */
+export const MARK_REGIONS_MAX = 500;
+/** 一个世界最多几个标记(读进来的多出来的丢掉;再多地图就卡了) */
+export const MARKS_MAX = 2000;
+/** 标记编号最大到几 */
+export const MARK_ID_MAX = 1e9;
+/** 一个世界里所有标记一共最多圈几个州(同一州圈几次算几次;再多画几个州的形状就太费了) */
+export const MARK_REGIONS_TOTAL = 10000;
+
+/** 这些标记一共圈了几个州(except = 不算这个编号的) */
+export function markRegionTotal(marks: readonly AuthorMark[] | undefined, except = 0): number {
+  let n = 0;
+  for (const m of marks ?? []) if (m.id !== except) n += m.regions?.length ?? 0;
+  return n;
+}
+/** 名字是空的(新建时没起名)就叫这个 */
+export const MARK_TITLE_DEFAULT = '新标记';
+
+/** 时间轴停在 year 这一年时地图上有没有这个标记(year 取整;[from, to] 两头都算) */
+export function markShownAt(m: Pick<AuthorMark, 'from' | 'to'>, year: number): boolean {
+  const y = Math.floor(year);
+  return y >= m.from && (m.to === undefined || y <= m.to);
+}
+
+/** 新标记的编号:现有最大的 + 1 */
+export function nextMarkId(marks: readonly AuthorMark[] | undefined): number {
+  let n = 0;
+  for (const m of marks ?? []) if (m.id > n) n = m.id;
+  return freeMarkId(new Set((marks ?? []).map((m) => m.id)), n);
+}
+
+/** 新编号:现有最大的(max)+ 1;到了 MARK_ID_MAX 就用最小的没用过的。used = 已经用了的编号,新编号也加进去 */
+export function freeMarkId(used: Set<number>, max: number): number {
+  let id = max + 1;
+  if (id > MARK_ID_MAX) for (id = 1; used.has(id); id++);
+  used.add(id);
+  return id;
+}
+
+/** 名字:去掉控制字符、首尾空白、连着的空白并成一个,超长截断 */
+export function cleanMarkTitle(raw: unknown): string {
+  if (typeof raw !== 'string') return '';
+  // eslint-disable-next-line no-control-regex
+  const s = raw.replace(/[\u0000-\u001f\u007f]/g, '').replace(/\s+/g, ' ').trim();
+  const cs = [...s];
+  return cs.length > MARK_TITLE_MAX ? cs.slice(0, MARK_TITLE_MAX).join('') : s;
+}
+
+/** 说明:去掉换行以外的控制字符、首尾空白,超长截断 */
+export function cleanMarkNote(raw: unknown): string {
+  if (typeof raw !== 'string') return '';
+  // eslint-disable-next-line no-control-regex
+  const s = raw.replace(/\r\n?/g, '\n').replace(/[\u0000-\u0009\u000b-\u001f\u007f]/g, '').trim();
+  const cs = [...s];
+  return cs.length > MARK_NOTE_MAX ? cs.slice(0, MARK_NOTE_MAX).join('').trimEnd() : s;
+}
+
+const round1 = (v: number) => Math.round(v * 10) / 10;
+
+/**
+ * 清理一个标记(规则见文件头"作者标记");不合格 = null(没有位置、年份不是数、编号不是正整数……);
+ * 名字是空的叫 MARK_TITLE_DEFAULT。本来就合格的原样返回(同一个对象)
+ */
+export function cleanMark(x: unknown): AuthorMark | null {
+  if (!x || typeof x !== 'object') return null;
+  const o = x as Record<string, unknown>;
+  const id = o.id;
+  const from = yearOf(o.from);
+  if (typeof id !== 'number' || !Number.isInteger(id) || id < 1 || id > MARK_ID_MAX || from === null) return null;
+  const color = MARK_COLORS.includes(o.color as MarkColor) ? (o.color as MarkColor) : MARK_COLORS[0];
+  const title = cleanMarkTitle(o.title) || MARK_TITLE_DEFAULT;
+  const note = cleanMarkNote(o.note);
+  const to0 = o.to === undefined ? null : yearOf(o.to);
+  const to = to0 !== null && to0 >= from ? to0 : null;
+  let regions: string[] | null = null;
+  let at: [number, number] | null = null;
+  if (Array.isArray(o.regions)) {
+    const seen = new Set<string>();
+    for (const k of o.regions) if (isRegionKey(k) && !seen.has(k) && seen.size < MARK_REGIONS_MAX) seen.add(k);
+    if (seen.size) regions = [...seen];
+  }
+  if (!regions && Array.isArray(o.at) && o.at.length === 2 && o.at.every((v) => typeof v === 'number' && Number.isFinite(v))) {
+    const [ax, ay] = o.at as number[];
+    at = [round1(ax - TERRAIN_W * Math.floor(ax / TERRAIN_W)) % TERRAIN_W, round1(Math.min(TERRAIN_H, Math.max(0, ay)))];
+  }
+  if (!regions && !at) return null;
+  const m: AuthorMark = { id, title, color, from };
+  if (note) m.note = note;
+  if (to !== null) m.to = to;
+  if (regions) m.regions = regions;
+  else m.at = at!;
+  // 本来就合格(字段一个不多一个不少、值都一样)的原样返回
+  const keys = Object.keys(o);
+  const w = m as unknown as Record<string, unknown>;
+  const same = (a: unknown, b: unknown) => a === b || (Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((v, i) => v === b[i]));
+  const clean = keys.length === Object.keys(m).length && keys.every((k) => same(o[k], w[k]));
+  return clean ? (x as AuthorMark) : m;
+}
+
+/** 两个标记是不是一模一样(各字段比,不管字段的先后) */
+export function sameMark(a: AuthorMark, b: AuthorMark): boolean {
+  const list = (x?: readonly unknown[], y?: readonly unknown[]) => x === y || (!!x && !!y && x.length === y.length && x.every((v, i) => v === y[i]));
+  return a.id === b.id && a.title === b.title && a.note === b.note && a.color === b.color && a.from === b.from && a.to === b.to && list(a.at, b.at) && list(a.regions, b.regions);
+}
+
+/**
+ * 清理一份标记列表(读档、撤销时用):不合格的丢掉;编号和前面重复的换成新编号(现有最大的 + 1)。
+ * 全都合格时返回原数组(同一个对象)
+ */
+export function cleanMarks(list: readonly unknown[] | null | undefined): AuthorMark[] {
+  if (!Array.isArray(list)) return [];
+  const out: AuthorMark[] = [];
+  let same = true;
+  const ids = new Set<number>();
+  const used = new Set<number>();
+  let max = 0;
+  for (const x of list as unknown[]) {
+    const m = cleanMark(x);
+    if (!m) continue;
+    used.add(m.id);
+    if (m.id > max) max = m.id;
+  }
+  let regions = 0;
+  for (const x of list as unknown[]) {
+    let m = out.length < MARKS_MAX ? cleanMark(x) : null;
+    if (m?.regions && regions + m.regions.length > MARK_REGIONS_TOTAL) m = null;
+    if (!m) {
+      same = false;
+      continue;
+    }
+    regions += m.regions?.length ?? 0;
+    if (ids.has(m.id)) {
+      m = { ...m, id: freeMarkId(used, max) };
+      max = Math.max(max, m.id);
+    }
+    ids.add(m.id);
+    if (m !== x) same = false;
+    out.push(m);
+  }
+  return same ? (list as AuthorMark[]) : out;
 }

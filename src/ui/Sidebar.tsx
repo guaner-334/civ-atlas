@@ -1,13 +1,16 @@
 /**
  * 左边的侧栏(宽屏):界面的主体都在这里,地图在它右边。样子照常见的地图应用。
  *
- *   顶上   "‹ 我的世界";世界名、"种子 7，现存 14 国";存档、更多(用一句话改写世界、写成史书、AI 设置、关于);下面一个搜索框
- *          "改写"的框(Rewrite.tsx)浮在侧栏右边、地图的左上角
+ *   顶上   "‹ 我的世界";世界名、"种子 7，现存 14 国";存档、更多(写成史书、AI 设置、关于);下面一个搜索框
+ *          (用一句话改世界、问问题在右上「助手」打开的助手面板里,见 Assistant.tsx)
  *   下面   三选一 ——
  *          搜索框里有字:搜索结果(点一条 = 选中它,地图飞过去)
  *          地图上选中了东西:它的详情(Inspector:国家 / 城 / 地理实体 / 州的面板)
- *          什么都没选:整个世界(WorldHome:国家按大小排、最近大事、我的干预、这颗星球)
- * 新建世界这一步左边是另一张卡片(NewWorld.tsx)。
+ *          什么都没选:整个世界(WorldHome:信仰(只在信仰图层)、国家按大小排、最近大事、我的干预、这颗星球;从别人的分享另存来的,
+ *          这颗星球最后一行是底稿出处,点了在新标签页打开那个分享链接)
+ * 收起:卡片右上角的侧栏图标 → 卡片往左滑走,左上角留一个小按钮(侧栏图标 + 世界名),点它滑回来;记在浏览器里(sideStore.ts)。
+ *       收起时选中了东西,卡片弹出来显示它,取消选中又收回去;收起时搜索框跟着卡片一起收起。
+ * 新建世界是另一套界面(studio/Studio.tsx),不用侧栏。
  *
  * 窄屏(手机)不用这个侧栏:同样的内容放进底部的世界卡片(PhoneSheet.tsx),这里的零件(搜索、世界名、"更多"菜单、整个世界)两边共用。
  */
@@ -17,22 +20,27 @@ import type { Raster } from '../gen/raster';
 import type { World, WorldParams } from '../gen/world';
 import { capitalAt, polityAlive, polityName } from '../gen/civ/growth';
 import { ownersAt, type Owners } from '../gen/civ/timeline';
-import { buildChronicle, filterChronicle } from '../gen/civ/chronicle';
-import { getCivTime, pickChronicleEntry, setSelection, subscribeCivTime, useSelection } from './civView';
+import { filterChronicle } from '../gen/civ/chronicle';
+import { faithRows, fullChronicle } from '../gen/civ/religionText';
+import { getCivTime, pickChronicleEntry, setSelection, subscribeCivTime, useCivShow, useSelection } from './civView';
 import { useEdits } from './editsStore';
 import { currentWorld, useSavesVersion } from './saveStore';
 import { SaveMenu } from './SaveMenu';
 import { openAiSettings } from './AiSettings';
 import { openHistoryBook } from './bookStore';
 import { openOverview } from './overviewStore';
-import { searchCiv, type SearchHit } from './searchIndex';
-import { countUpTo, evText } from './timelineLayout';
-import { RewriteBox } from './Rewrite';
+import { searchCiv, searchMarks, type SearchHit } from './searchIndex';
+import { countUpTo } from './timelineLayout';
 import { Icon } from './icons';
-import { AiMenuItem, MenuItem, MenuSep, PopMenu } from './PopMenu';
+import { AiMenuItem, AiSettingsItem, MenuItem, MenuSep, PopMenu } from './PopMenu';
 import { PRIVACY_URL, SOURCE_URL, TERMS_URL } from './links';
 import { APP_VERSION } from './version';
-import { rgb } from './panelParts';
+import { useCoarse } from './device';
+import { keyLabel } from './shortcuts';
+import { openShortcuts } from './ShortcutsDialog';
+import { EntryText, jumpTo, rgb } from './panelParts';
+import { collapseSide, expandSide, useSide } from './sideStore';
+import { PolityFlag } from './Flag';
 import './sidebar.css';
 
 export interface SidebarProps {
@@ -49,8 +57,6 @@ export interface SidebarProps {
   onReplay: () => void;
   /** 回到"我的世界" */
   onHome: () => void;
-  /** 正在重推 / 按新地形重新生成 / 生成新世界(改写框里这时不能发话、不能执行) */
-  rewriteBusy: boolean;
   /** 详情面板放进来的空位(面板只挂一份,由 App 挪到这里;见 App 的 inspectorHost) */
   inspectorSlot: (el: HTMLElement | null) => void;
 }
@@ -68,23 +74,51 @@ const stop = (e: { stopPropagation(): void }) => e.stopPropagation();
 export function Sidebar(p: SidebarProps) {
   const { sel } = useSelection();
   const s = useSearch(p.civ);
+  const side = useSide();
+  /** 收起了(弹出来显示选中的东西时不算):卡片滑到左边外面,换成左上角的小按钮 */
+  const hidden = side.collapsed && !side.peek;
   return (
-    <aside className="sidebar" aria-label="侧栏" onPointerDown={stop} onDoubleClick={stop} onClick={stop}>
-      <header className="sb-head">
-        <BackHome onClick={p.onHome} />
-        <WorldHead {...p} />
-        <SearchField s={s} civ={p.civ} />
-      </header>
-      <div className="sb-body">
-        {s.searching ? (
-          <SearchResults q={s.q} hits={s.hits} active={s.active} onActive={s.setActive} onPick={s.pick} />
-        ) : sel && p.civ && p.raw && p.data ? (
-          <div className="inspector-slot" ref={p.inspectorSlot} />
-        ) : (
-          <WorldHome {...p} />
-        )}
-      </div>
-    </aside>
+    <>
+      <aside
+        className={`sidebar${hidden ? ' side-hidden' : ''}`}
+        aria-label="侧栏"
+        aria-hidden={hidden || undefined}
+        ref={(el) => el?.toggleAttribute('inert', hidden)}
+        onPointerDown={stop}
+        onDoubleClick={stop}
+        onClick={stop}
+      >
+        <header className="sb-head">
+          <BackHome onClick={p.onHome} />
+          <button className="sb-collapse" data-act="side-collapse" aria-label="收起侧栏" data-tip="收起侧栏" data-tip-key="side" data-tip-side="left" onClick={collapseSide}>
+            <Icon name="sidebar" size={19} />
+          </button>
+          <WorldHead {...p} />
+          <SearchField s={s} />
+        </header>
+        <div className="sb-body">
+          {s.searching ? (
+            <SearchResults q={s.q} hits={s.hits} active={s.active} onActive={s.setActive} onPick={s.pick} />
+          ) : sel && p.civ && p.raw && p.data ? (
+            <div className="inspector-slot" ref={p.inspectorSlot} />
+          ) : (
+            <WorldHome {...p} />
+          )}
+        </div>
+      </aside>
+      {hidden && <SideOpen civ={p.civ} data={p.data} />}
+    </>
+  );
+}
+
+/** 卡片收起后左上角的小按钮:侧栏图标 + 世界名,点它卡片滑回来 */
+function SideOpen({ civ, data }: Pick<SidebarProps, 'civ' | 'data'>) {
+  const { title } = useWorldInfo(civ, data);
+  return (
+    <button className="side-open glass" data-act="side-expand" aria-label={`展开侧栏:${title}`} onPointerDown={stop} onDoubleClick={stop} onClick={expandSide}>
+      <Icon name="sidebar" size={19} />
+      <span className="side-open-name">{title}</span>
+    </button>
   );
 }
 
@@ -100,16 +134,22 @@ export interface SearchState {
   /** 点一条 / 回车:清空搜索框,选中它(地图飞过去) */
   pick: (h: SearchHit) => void;
   searching: boolean;
+  /** 搜索框能不能用:有国家的世界;没有国家的世界放了标记、人物也能搜(只搜它们) */
+  enabled: boolean;
 }
 
 export function useSearch(civ: Civ | null): SearchState {
   const { sel } = useSelection();
   const [q, setQ] = useState('');
   const [active, setActive] = useState(0);
-  const civOk = !!civ && civ.viable;
+  const { marks, characters } = useEdits();
+  const civOk = !!civ && (civ.viable || !!marks?.length || !!characters?.length);
   // 年份取开始搜索那一刻的(播放时不跟着每一年重算)
   const searchYear = useMemo(() => (civ ? (getCivTime().year ?? civ.endYear) : 0), [civ, q === '']); // eslint-disable-line react-hooks/exhaustive-deps
-  const hits = useMemo(() => (civOk && q.trim() ? searchCiv(civ!, q, searchYear) : []), [civOk, civ, q, searchYear]);
+  const hits = useMemo(
+    () => (!civOk || !q.trim() ? [] : civ!.viable ? searchCiv(civ!, q, searchYear, undefined, marks, characters) : searchMarks(q, marks ?? [], undefined, characters ?? [])),
+    [civOk, civ, q, searchYear, marks, characters],
+  );
   useEffect(() => setActive(0), [q]);
   // 选中了别的东西(地图上点的):搜索框清空,下面换成它的详情
   useEffect(() => {
@@ -119,10 +159,10 @@ export function useSearch(civ: Civ | null): SearchState {
     setQ('');
     setSelection(h.select);
   }, []);
-  return { q, setQ, hits, active, setActive, pick, searching: q.trim() !== '' };
+  return { q, setQ, hits, active, setActive, pick, searching: q.trim() !== '', enabled: civOk };
 }
 
-export function SearchField({ s, civ, onFocus }: { s: SearchState; civ: Civ | null; onFocus?: () => void }) {
+export function SearchField({ s, onFocus }: { s: SearchState; onFocus?: () => void }) {
   const { q, setQ, hits, active, setActive, pick } = s;
   return (
     <div className="sb-search">
@@ -131,10 +171,10 @@ export function SearchField({ s, civ, onFocus }: { s: SearchState; civ: Civ | nu
         className="search-input"
         data-act="search"
         value={q}
-        placeholder="搜索国家、城市、民族、山河"
+        placeholder="搜索国家、城市、人物、山河"
         spellCheck={false}
         autoComplete="off"
-        disabled={!civ || !civ.viable}
+        disabled={!s.enabled}
         aria-label="搜索"
         onFocus={onFocus}
         onChange={(e) => setQ(e.target.value)}
@@ -187,28 +227,21 @@ export function useWorldInfo(civ: Civ | null, data: SidebarProps['data']): { tit
   return { title: currentWorld()?.title || '未命名世界', sub };
 }
 
-/** "更多"菜单:用一句话改写世界、写成史书、AI 设置、源代码和两份协议;最底下一行版本号 */
+/** "更多"菜单:写成史书(「使用 AI 功能」关着时没有)、AI 设置、键盘快捷键(有鼠标时)、源代码和两份协议;最底下一行版本号 */
 export function WorldMoreMenu({
   civ,
-  data,
-  onRewrite,
   onBook,
   className = 'sb-pill sb-more',
 }: {
   civ: Civ | null;
-  data: SidebarProps['data'];
-  onRewrite: () => void;
   /** 点"写成史书"时先做的事(手机:世界卡片收起,写作进度在右上看得到) */
   onBook?: () => void;
   className?: string;
 }) {
-  // 改写不要求有文明:没长出文明的世界也能改地形
-  const canRewrite = !!civ && !!data;
+  // 键盘快捷键只在有鼠标的设备上列出(手机、平板没有键盘)
+  const coarse = useCoarse();
   return (
     <PopMenu className={className} icon={<Icon name="more" size={17} />} title="更多" act="world-more" align="right">
-      <AiMenuItem icon={<Icon name="rename" size={16} />} act="rewrite" disabled={!canRewrite} onClick={onRewrite} note="AI">
-        用一句话改写世界
-      </AiMenuItem>
       <AiMenuItem
         icon={<Icon name="book" size={16} />}
         act="book"
@@ -221,10 +254,13 @@ export function WorldMoreMenu({
       >
         把历史写成史书
       </AiMenuItem>
-      <MenuItem icon={<Icon name="sparkle" size={16} />} act="ai-settings" onClick={() => openAiSettings()}>
-        AI 设置
-      </MenuItem>
+      <AiSettingsItem onClick={() => openAiSettings()} />
       <MenuSep />
+      {!coarse && (
+        <MenuItem icon={<Icon name="keyboard" size={16} />} act="shortcuts" kbd={keyLabel('help')} onClick={openShortcuts}>
+          键盘快捷键
+        </MenuItem>
+      )}
       <MenuItem icon={<Icon name="info" size={16} />} href={SOURCE_URL} act="source">
         源代码
       </MenuItem>
@@ -243,11 +279,6 @@ export function WorldMoreMenu({
 
 function WorldHead(p: SidebarProps) {
   const { title, sub } = useWorldInfo(p.civ, p.data);
-  const [rewriting, setRewriting] = useState(false);
-  /** "更多"菜单:点它不关改写框 */
-  const more = useRef<HTMLDivElement>(null);
-  const closeRewrite = useCallback(() => setRewriting(false), []);
-  const canRewrite = !!p.civ && !!p.data;
   return (
     <div className="sb-world">
       <button className="sb-title" data-act="overview" onClick={() => openOverview()} title="世界概览:国家、编年史、干预、世界参数">
@@ -256,15 +287,8 @@ function WorldHead(p: SidebarProps) {
       </button>
       <div className="sb-acts">
         <SaveMenu ready={!!p.data && !p.generating} icon={<Icon name="save" size={15} />} />
-        <div className="sb-more-wrap" ref={more}>
-          <WorldMoreMenu civ={p.civ} data={p.data} onRewrite={() => setRewriting(true)} />
-        </div>
+        <WorldMoreMenu civ={p.civ} />
       </div>
-      {rewriting && canRewrite && (
-        <div className="sb-rewrite">
-          <RewriteBox civ={p.civ!} world={p.data!.world} busy={p.rewriteBusy} onClose={closeRewrite} anchor={more} lock="terrain" />
-        </div>
-      )}
     </div>
   );
 }
@@ -287,7 +311,11 @@ export function SearchResults({ q, hits, active, onActive, onPick }: { q: string
             onPointerEnter={() => onActive(i)}
             onClick={() => onPick(h)}
           >
-            <i className="sb-sw" style={{ background: h.color }} />
+            {h.kind === 'polity' ? (
+              <PolityFlag id={h.id} w={21} className="sb-flag" fallback={<i className="sb-sw" style={{ background: h.color }} />} />
+            ) : (
+              <i className="sb-sw" style={{ background: h.color }} />
+            )}
             <span className="sb-row-main">
               <b className="search-name">{h.name}</b>
             </span>
@@ -309,7 +337,7 @@ const RECENT_N = 3;
 
 let owners: Owners | undefined;
 
-/** 什么都没选时的整个世界:国家按大小排、最近大事、我的干预、这颗星球(宽屏侧栏、手机的世界卡片拉到顶时共用) */
+/** 什么都没选时的整个世界:信仰(信仰图层)、国家按大小排、最近大事、我的干预、这颗星球(宽屏侧栏、手机的世界卡片拉到顶时共用) */
 export function WorldHome(p: Pick<SidebarProps, 'civ' | 'data' | 'params' | 'generating' | 'replay' | 'onReplay'>) {
   const { civ } = p;
   const year = useYear(civ);
@@ -328,27 +356,92 @@ export function WorldHome(p: Pick<SidebarProps, 'civ' | 'data' | 'params' | 'gen
     alive.sort((a, b) => (n.get(b.id) ?? 0) - (n.get(a.id) ?? 0));
     return { list: alive.slice(0, TOP_N).map((x) => ({ p: x, n: n.get(x.id) ?? 0 })), alive: alive.length };
   }, [ok, civ, year]);
-  const entries = useMemo(() => (ok ? filterChronicle(buildChronicle(civ!), { major: true }) : []), [ok, civ]);
+  // 一个国家都没有的年份(多半是早年各族还是部落):说一句,给出之后第一个立国的
+  const next = useMemo(() => {
+    if (!ok || top.alive) return null;
+    let first: Civ['polities'][number] | null = null;
+    for (const x of civ!.polities) if (x.founded > year && (!first || x.founded < first.founded)) first = x;
+    return first;
+  }, [ok, civ, year, top.alive]);
+  const entries = useMemo(() => (ok ? filterChronicle(fullChronicle(civ!), { major: true }) : []), [ok, civ]);
+  // 信仰图层:「国家」上面一组「信仰」(大教按信众多少,教派缩进跟在后面,最后一行民间信仰;数字是这一年的州数)
+  const faithOn = useCivShow().faiths && ok && !!civ!.religion;
+  const faiths = useMemo(() => (faithOn ? faithRows(civ!, year) : []), [faithOn, civ, year]);
   const k = countUpTo(entries, year);
   const recent = entries.slice(Math.max(0, k - RECENT_N), k).reverse();
   const nIv = edits.interventions.length;
   const nTerrain = edits.terrain.length;
+  // 底稿出处:另存进"我的世界"以后才有(打开别人的分享、还只是看看时不显示;地图下的说明讲了是谁的)
+  useSavesVersion();
+  const cur = currentWorld();
+  const origin = cur && cur.kind !== 'visit' && cur.kind !== 'draft' ? cur.origin : undefined;
   return (
     <div className="sb-home">
+      {faiths.length > 0 && (
+        <section className="sb-sec">
+          <div className="sb-sec-head">
+            <span>信仰</span>
+          </div>
+          <div className="sb-group" data-testid="faiths">
+            {faiths.map((f) =>
+              f.id < 0 ? (
+                <div key="folk" className="sb-row two static">
+                  <i className="sb-sw" style={{ background: rgb(f.color) }} />
+                  <span className="sb-row-main">
+                    <b>{f.name}</b>
+                    <small>{f.sub}</small>
+                  </span>
+                  <span className="sb-row-side">{f.n} 州</span>
+                </div>
+              ) : (
+                <button key={f.id} className={`sb-row${f.sect ? ' sect' : ' two'}`} data-faith={f.id} onClick={() => setSelection({ kind: 'faith', id: f.id })}>
+                  <i className="sb-sw" style={{ background: rgb(f.color) }} />
+                  <span className="sb-row-main">
+                    <b>{f.name}</b>
+                    {!f.sect && <small>{f.sub}</small>}
+                  </span>
+                  <span className="sb-row-side">{f.n} 州</span>
+                </button>
+              ),
+            )}
+          </div>
+        </section>
+      )}
       {ok && (
         <section className="sb-sec">
           <div className="sb-sec-head">
             <span>国家</span>
-            <button className="sb-link" data-act="all-countries" onClick={() => openOverview('countries')}>
-              全部 {top.alive} 国
-            </button>
+            {top.alive > 0 && (
+              <button className="sb-link" data-act="all-countries" onClick={() => openOverview('countries')}>
+                全部 {top.alive} 国
+              </button>
+            )}
           </div>
           <div className="sb-group">
+            {!top.alive && (
+              <div className="sb-empty sb-no-polity">
+                {next ? (
+                  <>
+                    这一年还没有国家，各族还是部落。
+                    <br />
+                    第一个国家{polityName(next, next.founded)}在 {Math.floor(next.founded)} 年立国。
+                    <div className="sb-no-polity-act">
+                      {/* 立国在年中:往后取整到下一年,那一年列表里才有它(和别处"跳到 N 年"一样) */}
+                      <button className="sb-link" data-act="first-polity" onClick={() => jumpTo(Math.ceil(next.founded))}>
+                        跳到 {Math.ceil(next.founded)} 年
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  '这一年没有国家。'
+                )}
+              </div>
+            )}
             {top.list.map(({ p: x, n }) => {
               const cap = civ!.settlements[capitalAt(x, year)];
               return (
                 <button key={x.id} className="sb-row two" data-polity={x.id} onClick={() => setSelection({ kind: 'polity', id: x.id })}>
-                  <i className="sb-sw" style={{ background: rgb(x.color) }} />
+                  <PolityFlag id={x.id} year={year} w={21} className="sb-flag" fallback={<i className="sb-sw" style={{ background: rgb(x.color) }} />} />
                   <span className="sb-row-main">
                     <b>{polityName(x, year)}</b>
                     <small>
@@ -374,7 +467,9 @@ export function WorldHome(p: Pick<SidebarProps, 'civ' | 'data' | 'params' | 'gen
             {recent.map((e) => (
               <button key={e.id} className="sb-row ev" onClick={() => pickChronicleEntry(e)}>
                 <span className="sb-year">{Math.floor(e.year)}</span>
-                <span className="sb-ev-text">{evText(e)}</span>
+                <span className="sb-ev-text">
+                  <EntryText civ={civ!} e={e} />
+                </span>
               </button>
             ))}
           </div>
@@ -415,6 +510,18 @@ export function WorldHome(p: Pick<SidebarProps, 'civ' | 'data' | 'params' | 'gen
             </span>
             <Icon name="chevron" size={14} className="sb-chev" />
           </button>
+          {origin && (
+            <a className="sb-row" data-act="origin" href={origin.url} target="_blank" rel="noreferrer noopener" title="打开底稿的分享链接">
+              <Icon name="link" size={17} className="sb-ico" />
+              <span className="sb-row-main">
+                <b>底稿来自</b>
+              </span>
+              <span className="sb-row-side sb-origin">
+                {origin.by ? `${origin.by}的` : ''}「{origin.title || '未命名世界'}」
+              </span>
+              <Icon name="chevron" size={14} className="sb-chev" />
+            </a>
+          )}
         </div>
       </section>
     </div>

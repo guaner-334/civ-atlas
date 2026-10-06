@@ -17,6 +17,7 @@ import { computeSeaIce } from './seaice';
 import { mulberry32, subSeed, clamp, keyed, smoothstep } from './util';
 import { geometryOf, sphereSpacing } from './geometry';
 import type { TerrainOp } from './edits';
+import { computeCurrents, type Currents } from './currents';
 import { applyTerrainTectonics, carveLakes, cleanTerrainOps, volcanoPeaks } from './terrainEdits';
 
 /**
@@ -78,6 +79,8 @@ export interface World {
   precipitation: Float32Array;
   /** 海冰程度(每个地块 0–1):0 开阔水面,1 整片冰盖;陆地、湖泊为 0 */
   seaIce: Float32Array;
+  /** 洋流:水温偏差和表层流向(见 currents.ts) */
+  currents: Currents;
   biome: Uint8Array;
   /** 径流量(累计,单位 ≈ 地块 × 米/年) */
   flux: Float32Array;
@@ -88,6 +91,11 @@ export interface World {
   maxElevation: number;
   /** 作者放的火山(阶段 4 改地形):每座的峰顶地块,手绘风画火山符号;没有 = 空 */
   volcanoes: number[];
+  /**
+   * 生成时套上的地形修改(清理过,按先后);没改地形 = 不给。
+   * 推文明时看它:改过地形的世界,扩张节拍按没改地形时的同一颗星球定(gen/civ/index.ts 的 planetTempo)
+   */
+  terrain?: TerrainOp[];
 }
 
 export type Progress = (stage: string, pct: number) => void;
@@ -290,7 +298,8 @@ export function generateWorld(params: WorldParams, progress: Progress = () => {}
 
   // ---- 最终气候 ----
   progress('风与降水', 0.72);
-  const clim = computeClimate(mesh, elevation, water, climateP);
+  const currents = computeCurrents(mesh, water);
+  const clim = computeClimate(mesh, elevation, water, climateP, currents);
   const seaIce = computeSeaIce(mesh, elevation, water, clim.temperature, clim.windX, clim.windY, p.seed);
 
   // ---- 水系 ----
@@ -328,6 +337,7 @@ export function generateWorld(params: WorldParams, progress: Progress = () => {}
     temperature: clim.temperature,
     precipitation: clim.precipitation,
     seaIce,
+    currents,
     biome,
     flux,
     riverThreshold,
@@ -335,6 +345,7 @@ export function generateWorld(params: WorldParams, progress: Progress = () => {}
     history,
     maxElevation,
     volcanoes: ops.length ? volcanoPeaks(mesh, water, elevation, ops) : [],
+    ...(ops.length ? { terrain: ops.slice() } : {}),
   };
 }
 

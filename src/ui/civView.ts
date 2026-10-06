@@ -3,7 +3,7 @@
  * 放在这里而不是 App.tsx 里,这样以后加开关 / 时间轴时只改文明自己的文件。
  *
  * 网址参数(截图脚本用):
- *   civ=habitat,regions,sites,routes,cultures,polities,wars   直接打开对应显示;前面加减号是关掉,
+ *   civ=habitat,regions,sites,routes,cultures,polities,faiths,wars   直接打开对应显示;前面加减号是关掉,
  *                                               如 civ=-labels 关掉默认打开的地名、civ=-wars 关掉默认打开的战事
  *   civYear=1200                                时间轴停在第 1200 年(不给 = 结束年份);给了就不自动播放
  *   chron=1 / chron=all                         打开世界概览的编年史页(1 = 只看大事,all = 全部)
@@ -124,6 +124,21 @@ export function pausePlayback() {
   if (t.playing || t.story) time.set({ playing: false, story: false });
 }
 
+/** 播放 / 暂停(时间轴上的播放键、空格):停在结束年份(放到头了)时从 restart 那一年重播 */
+export function togglePlayback(end: number, restart: number) {
+  const t = time.get();
+  if (t.playing) return pausePlayback();
+  const year = Math.min(end, Math.max(0, t.year ?? end));
+  time.set({ playing: true, story: false, scrubbing: false, year: year >= end ? restart : year });
+}
+
+/** 往前 / 往后走 dy 年(时间轴上的方向键、← →;从显示的那一年算起),停下播放 */
+export function stepYear(end: number, dy: number) {
+  const t = time.get();
+  const cur = Math.floor(Math.min(end, Math.max(0, t.year ?? end)));
+  time.set({ year: Math.min(end, Math.max(0, cur + dy)), playing: false, story: false });
+}
+
 /**
  * 打开网页后第一次显示世界时,要不要自动播放(只问一次,之后都是 false):
  * 网址给了 civYear(看某一年)或 play=0 不播;play=1 一定播;无头浏览器(截图脚本、冒烟检查)里默认不播
@@ -175,6 +190,8 @@ export interface ChronicleView {
   major: boolean;
   /** 只看这个国家的事(null = 全部国家;编年史页顶上的国家下拉框、国家面板的"编年史"设它) */
   polity: number | null;
+  /** 打开后滚到这一年(人物卡片的"编年史":滚到他在位 / 领兵那段;滚过去就清掉) */
+  at?: number | null;
 }
 
 function chronFromUrl(): ChronicleView {
@@ -238,12 +255,12 @@ export function useCivHighlight(): CivHighlightState | null {
 const pick = store<{ entry: ChronicleEntry | null; stamp: number }>({ entry: null, stamp: 0 });
 
 /**
- * 点编年史的一条:时间轴跳到那一年并暂停,打开"国家"图层,地图上闪烁高亮事发地
+ * 点编年史的一条:时间轴跳到那一年并暂停,换到政区图层(宗教大事:正在信仰图层上就留在信仰图层),地图上闪烁高亮事发地
  * (事发地不在视野里时 App 把地图平移过去);编年史面板里这一条标成选中(战争自动展开,不在视野里就滚过去)。
  */
 export function pickChronicleEntry(e: ChronicleEntry) {
   setCivTime({ year: e.year, playing: false, scrubbing: false, story: false });
-  setCivShow({ polities: true });
+  setCivShow(e.kind === 'faith' && getCivShow().faiths ? { polities: true } : { polities: true, cultures: false, faiths: false });
   setCivHighlight({ regions: e.regions, polities: e.polities, year: e.year });
   pick.set({ entry: e, stamp: pick.get().stamp + 1 });
 }
@@ -262,13 +279,20 @@ export function useChroniclePick(): { entry: ChronicleEntry | null; stamp: numbe
 
 /**
  * 选中的东西(这个世界里的编号;改名不改编号,换世界时清掉):
- * 国家、城(含故城遗址)、地理实体(civ.places 的下标)、州(没点到别的东西时)
+ * 国家、城(含故城遗址)、地理实体(civ.places 的下标)、州(没点到别的东西时)、信仰(civ.religion.faiths 的下标)、
+ * 人物(civ.people 的下标;点编年史、卡片、人物页里的人名选中,地图上亮出、飞到他的国家,见 flyTo.ts 的 mapTarget)、
+ * 作者标记(AuthorMark.id,存在修改里、不在历史里,重推历史编号也不变;0 = 正在新建、还没存的那个,见 markStore.ts)、
+ * 作者的人物(AuthorCharacter.id,同样存在修改里;0 = 正在新建的,见 characterStore.ts)
  */
 export type MapSelection =
   | { kind: 'polity'; id: number }
   | { kind: 'settlement'; id: number }
   | { kind: 'place'; id: number }
-  | { kind: 'region'; id: number };
+  | { kind: 'region'; id: number }
+  | { kind: 'faith'; id: number }
+  | { kind: 'person'; id: number }
+  | { kind: 'mark'; id: number }
+  | { kind: 'character'; id: number };
 
 export interface SelectionState {
   sel: MapSelection | null;
@@ -294,6 +318,11 @@ export function clearSelection() {
 
 export function useSelection(): SelectionState {
   return selection.use();
+}
+
+/** 不经过 React 订阅选中的变化(sideStore.ts:侧栏收起时选中了东西,卡片弹出来) */
+export function subscribeSelection(f: () => void): () => void {
+  return selection.subscribe(f);
 }
 
 export function sameSelection(a: MapSelection | null, b: MapSelection | null): boolean {

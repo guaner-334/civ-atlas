@@ -96,3 +96,146 @@ export function generalRef(civ: Civ, x: Person, year: Year): string {
 export function ageAt(x: Person, year: Year): number {
   return Math.floor(year - x.born);
 }
+
+// ---------------------------------------------------------------------------
+// 人物卡片、人物页用的写法
+
+/** 人物页、人物卡片上的名字:东方有称号的 称号 + 名字("圣宗柳玄"),没有的写名字;西幻 "阿尔德里克三世";统帅 = 名字 */
+export function personName(civ: Civ, x: Person): string {
+  if (x.role !== 'ruler') return x.name;
+  const p = polityOfPerson(civ, x);
+  if (p?.eastern) return x.title ? `${x.title}${x.name}` : x.name;
+  return rulerShort(civ, x);
+}
+
+/** 君主在位的最后那一刻(还在位 = 结束年份;身份、国号都按它) */
+function lastReignYear(civ: Civ, x: Person): Year {
+  const end = x.until ?? civ.endYear;
+  return Math.max(x.from ?? 0, end - 1 / 512);
+}
+
+/**
+ * 君主的身份(卡片上名字下面那行的开头):国名 + 君号,按在位最后那年 ——
+ * 东方 "大景皇帝""昌王""昌公""昌部首领""乌耐汗国可汗";西幻 "索拉特国王""提布里亚执政官"
+ */
+export function rulerRole(civ: Civ, x: Person): string {
+  const p = polityOfPerson(civ, x);
+  if (!p) return '';
+  const at = lastReignYear(civ, x);
+  const tier = tierFor(p, x, at);
+  if (p.eastern) {
+    if (p.lineage === 'khanate') return tier <= 0 ? `${polityTitles(p, at)[0]}首领` : `${polityName(p, at)}可汗`;
+    if (tier <= 0) return `${polityTitles(p, at)[0]}首领`;
+    if (tier >= 3) return `${polityShortTitle(p, 3, at)}皇帝`;
+    return `${core(polityRootAt(p, at))}${EAST_RANK[tier]}`;
+  }
+  return `${polityRootAt(p, at)}${(WEST_RANK[p.lineage ?? 'realm'] ?? WEST_RANK.realm)[tier]}`;
+}
+
+/** 统帅的身份:"大景将领"(国名按第一次领兵那年的简称) */
+export function generalRole(civ: Civ, x: Person): string {
+  const p = polityOfPerson(civ, x);
+  if (!p) return '将领';
+  const y = x.commands?.[0]?.from ?? x.born;
+  return `${polityShortTitle(p, clampTier(polityTierAt(p, y)), y)}将领`;
+}
+
+/**
+ * 没即位的宗室的身份:"大景宗室"(国名按卒年的简称;死在他那一朝开国之前的(开国之君的父亲)按开国那年,
+ * 免得起兵代衍朝的太祖的父亲写成"大衍宗室")
+ */
+export function princeRole(civ: Civ, x: Person): string {
+  const p = polityOfPerson(civ, x);
+  if (!p) return '宗室';
+  const start = x.dynasty ? (p.dynasties?.[x.dynasty]?.year ?? p.founded) : p.founded;
+  const y = Math.max(start, Math.min(x.died ?? x.born, p.ended ?? civ.endYear) - 1 / 512);
+  return `${polityShortTitle(p, clampTier(polityTierAt(p, y)), y)}宗室`;
+}
+
+/** 一个人简短的身份:"大景将领""大景君主""大景宗室"(共和国:"某某执政";国名按他上台那年的简称)。作者的人物勾选推演里的人时用 */
+export function personRoleShort(civ: Civ, x: Person): string {
+  if (x.role === 'prince') return princeRole(civ, x);
+  if (x.role !== 'ruler') return generalRole(civ, x);
+  const p = polityOfPerson(civ, x);
+  if (!p) return '君主';
+  const y = x.from ?? x.born;
+  return `${polityShortTitle(p, tierFor(p, x, y), y)}${p.lineage === 'republic' ? '执政' : '君主'}`;
+}
+
+/** 共和国的执政官(写"执政""在任""任满",不写"君主""在位") */
+export function isConsul(civ: Civ, x: Person): boolean {
+  return x.role === 'ruler' && polityOfPerson(civ, x)?.lineage === 'republic';
+}
+
+/** 往上数几代的祖先(0 = 自己);没记父亲的到此为止 */
+function ancestors(civ: Civ, x: Person, max: number): Person[] {
+  const out = [x];
+  for (let p = x; out.length <= max && p.parent !== undefined; ) {
+    const f = civ.people?.[p.parent];
+    if (!f) break;
+    out.push(f);
+    p = f;
+  }
+  return out;
+}
+
+/**
+ * b 是 a 的什么人,按世系(Person.parent,lineage.ts)说:子、孙、父、兄、弟、侄、伯父、叔父、从兄、从弟……;
+ * 往上三代都找不到同一位祖先 = 空串(同一朝的宗室远支,或者根本不是一家)。
+ * 编年史的"其子 / 其侄"(kinOf(先君, 新君))、人物页的"继叔父某某即位"(kinOf(新君, 先君))、人物卡片前任继任后面的小字都用它
+ */
+export function kinOf(civ: Civ, a: Person, b: Person): string {
+  const up = 3;
+  const as = ancestors(civ, a, up);
+  const bs = ancestors(civ, b, up);
+  for (let n = 1; n <= up * 2; n++) {
+    for (let i = Math.max(0, n - up); i <= Math.min(up, n); i++) {
+      const j = n - i;
+      if (as[i] === undefined || bs[j] === undefined || as[i] !== bs[j]) continue;
+      // a 往上 i 代、b 往上 j 代是同一位
+      const elder = b.born < a.born;
+      if (i === 0) return ['', '子', '孙', '曾孙'][j];
+      if (j === 0) return ['', '父', '祖父', '曾祖父'][i];
+      if (i === 1 && j === 1) return elder ? '兄' : '弟';
+      if (i === 1 && j === 2) return '侄';
+      if (i === 1 && j === 3) return '侄孙';
+      if (i === 2 && j === 1) return b.born < as[1].born ? '伯父' : '叔父';
+      if (i === 2 && j === 2) return elder ? '从兄' : '从弟';
+      if (i === 2 && j === 3) return '从侄';
+      if (i === 3 && j === 1) return b.born < as[2].born ? '伯祖' : '叔祖';
+      if (i === 3 && j === 2) return b.born < as[1].born ? '从伯父' : '从叔父';
+      return elder ? '族兄' : '族弟';
+    }
+  }
+  return '';
+}
+
+/** 君主的结局(卡片、人物页):"驾崩""遇弑""被废""殉国"……;还在位 = 空串 */
+export function rulerFateWord(civ: Civ, x: Person): string {
+  const p = polityOfPerson(civ, x);
+  if (!p || !x.fate) return '';
+  const tier = tierFor(p, x, lastReignYear(civ, x));
+  switch (x.fate) {
+    case 'died':
+      if (!p.eastern) return tier >= 1 ? '驾崩' : '去世';
+      return p.lineage === 'khanate' || tier <= 0 ? '去世' : tier >= 3 ? '驾崩' : '薨';
+    case 'murdered':
+      return p.eastern ? '遇弑' : '遇刺身亡';
+    case 'deposed':
+      return '被废';
+    case 'overthrown':
+      return '死于兵乱';
+    case 'fell':
+      return '亡国殉国';
+    case 'surrendered':
+      return '亡国出降';
+    case 'fled':
+      return '亡国出奔';
+    case 'merged':
+      return '国并入他国';
+    case 'retired':
+      return '任满';
+    case 'battle':
+      return '战死';
+  }
+}
