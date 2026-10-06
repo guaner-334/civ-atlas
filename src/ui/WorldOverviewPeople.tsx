@@ -46,7 +46,8 @@ import './timeline.css';
 const F = Math.floor;
 
 interface PRow {
-  x: Person;
+  /** 推演里的人(「我的」那一档没有) */
+  x?: Person;
   /** 作者的人物(「我的」那一档;x 不用) */
   c?: AuthorCharacter;
   from: number;
@@ -88,7 +89,7 @@ function generalLine(civ: Civ, x: Person, withPolity: boolean): string {
   return parts.filter(Boolean).join('，');
 }
 
-function rowOf(civ: Civ, x: Person, line: string): PRow {
+function rowOf(civ: Civ, x: Person, line: string): PRow & { x: Person } {
   const s = personSpan(x);
   return { x, from: s.from, until: s.until, name: personName(civ, x), line };
 }
@@ -122,12 +123,12 @@ export function PeoplePage({ civ, data }: { civ: Civ | null; data: { world: Worl
   const view0 = usePeople();
   const chars = useEdits().characters;
   const year = useYear(civ);
-  // 还没挑过哪一档:有自己的人物先看「我的」
-  const view = { ...view0, list: view0.list ?? (chars?.length ? 'mine' : 'famous') };
+  const ok = !!civ && !!civ.people?.length;
+  // 还没挑过哪一档:有自己的人物先看「我的」;推演里没有人(比如太冷没人住的星球)只有「我的」
+  const view = { ...view0, list: !ok ? 'mine' : (view0.list ?? (chars?.length ? 'mine' : 'famous')) };
   const listRef = useRef<HTMLDivElement>(null);
   const nowRef = useRef<HTMLDivElement>(null);
   const [copied, setCopied] = useState(false);
-  const ok = !!civ && !!civ.people?.length;
   const polity = view.polity !== null && civ?.polities[view.polity] ? view.polity : null;
   const famous = useMemo(() => (ok ? famousPeople(civ!) : []), [ok, civ]);
   // 国家下拉框:有君主的国家,鼎盛时大的在前
@@ -140,11 +141,11 @@ export function PeoplePage({ civ, data }: { civ: Civ | null; data: { world: Worl
       .sort((a, b) => peak[b.id] - peak[a.id] || a.id - b.id)
       .map((p) => ({ id: p.id, name: polityName(p, Math.min(civ!.endYear, p.ended ?? civ!.endYear) - 1 / 512) }));
   }, [ok, civ]);
-  // 我的:按国家筛(他的国家),按生年排,新的在上
+  // 我的:按国家筛(他的国家),按生年排,新的在上;不靠推演里的人
   const mine = useMemo((): AuthorCharacter[] => {
-    if (!ok || !data || !chars?.length) return [];
+    if (!civ || !data || !chars?.length) return [];
     return chars.filter((c) => polity === null || characterPolity(civ!, data.world, data.raster, c) === polity).sort((a, b) => b.born - a.born || b.id - a.id);
-  }, [ok, civ, data, chars, polity]);
+  }, [civ, data, chars, polity]);
   const counts = useMemo(() => {
     if (!ok) return { famous: 0, rulers: 0, generals: 0 };
     const ix = peopleIndex(civ!);
@@ -156,13 +157,14 @@ export function PeoplePage({ civ, data }: { civ: Civ | null; data: { world: Worl
     };
   }, [ok, civ, famous, polity]);
   const groups = useMemo((): Group[] => {
-    if (!ok) return [];
-    const c = civ!;
-    const ps = c.people!;
+    if (!civ) return [];
     if (view.list === 'mine') {
-      const rows = data ? mine.map((ch): PRow => ({ x: ps[0], c: ch, from: ch.born, until: ch.died ?? null, name: ch.name, line: characterLine(c, data.world, data.raster, ch, year, chars ?? []) })) : [];
+      const rows = data ? mine.map((ch): PRow => ({ c: ch, from: ch.born, until: ch.died ?? null, name: ch.name, line: characterLine(civ, data.world, data.raster, ch, year, chars ?? []) })) : [];
       return [{ rows }];
     }
+    if (!ok) return [];
+    const c = civ;
+    const ps = c.people!;
     if (view.list === 'famous') {
       const rows = famous.filter((f) => polity === null || ps[f.id].polity === polity).map((f) => rowOf(c, ps[f.id], fameLine(c, ps[f.id], f)));
       return [{ rows }];
@@ -182,15 +184,19 @@ export function PeoplePage({ civ, data }: { civ: Civ | null; data: { world: Worl
   useNowLine({ listRef, nowRef, civ, jumpKey: groups, line: timeline });
 
   if (!civ) return <section className="chronicle people" />;
-  if (!ok) return <div className="ov-empty">这个世界还没有人物</div>;
+  if (!ok && !chars?.length) return <div className="ov-empty">这个世界还没有人物</div>;
 
   const focus = polity !== null ? civ.polities[polity] : undefined;
   const focusName = focus ? (choices.find((c) => c.id === polity)?.name ?? polityName(focus, civ.endYear)) : '';
   const LISTS: { id: PeopleList; name: string; n: number; title: string }[] = [
     { id: 'mine', name: '我的', n: mine.length, title: '自己放进这个世界的人物' },
-    { id: 'famous', name: '名人', n: counts.famous, title: '按推演里的事迹挑出来的名将、名君、开国之君' },
-    { id: 'rulers', name: focus?.lineage === 'republic' ? '执政' : '君主', n: counts.rulers, title: '历代君主,按朝代分组' },
-    { id: 'generals', name: '将领', n: counts.generals, title: '领过兵的将领,按第一次领兵的年份排' },
+    ...(ok
+      ? [
+          { id: 'famous' as const, name: '名人', n: counts.famous, title: '按推演里的事迹挑出来的名将、名君、开国之君' },
+          { id: 'rulers' as const, name: focus?.lineage === 'republic' ? '执政' : '君主', n: counts.rulers, title: '历代君主,按朝代分组' },
+          { id: 'generals' as const, name: '将领', n: counts.generals, title: '领过兵的将领,按第一次领兵的年份排' },
+        ]
+      : []),
   ];
   const listName = LISTS.find((l) => l.id === view.list)!.name;
   const end = civ.endYear;
@@ -240,6 +246,7 @@ export function PeoplePage({ civ, data }: { civ: Civ | null; data: { world: Worl
             </button>
           ))}
         </div>
+        {ok && (
         <label className={`chron-pick${focus ? ' on' : ''}`}>
           {focus && <PolityFlag id={focus.id} year={civ.endYear} w={21} className="chron-flag" fallback={<i style={{ background: `rgb(${focus.color.join(',')})` }} aria-hidden="true" />} />}
           <select aria-label="只看某一国" data-act="people-polity" value={polity ?? ''} onChange={(ev) => setPeople({ polity: ev.target.value === '' ? null : Number(ev.target.value) })}>
@@ -251,6 +258,7 @@ export function PeoplePage({ civ, data }: { civ: Civ | null; data: { world: Worl
             ))}
           </select>
         </label>
+        )}
         <span className="chron-acts">
           {view.list === 'mine' && !!chars?.length && (
             <button className="ov-btn ov-primary oc-new" data-act="character-new" onClick={newChar}>
@@ -299,16 +307,16 @@ export function PeoplePage({ civ, data }: { civ: Civ | null; data: { world: Worl
                   </div>
                 </div>
               ) : (
-              <div key={r.x.id} className="chron-item">
+              <div key={r.x!.id} className="chron-item">
                 <div
                   className="chron-row pp-row"
                   data-y={r.from}
                   data-e={r.until ?? end + 1}
                   data-top="1"
-                  data-person={r.x.id}
-                  data-ev={r.x.role === 'ruler' ? 'dynasty' : 'war'}
+                  data-person={r.x!.id}
+                  data-ev={r.x!.role === 'ruler' ? 'dynasty' : 'war'}
                   title="看这个人"
-                  onClick={() => selectPerson(r.x.id)}
+                  onClick={() => selectPerson(r.x!.id)}
                 >
                   <span className="chron-year">
                     {F(r.from)}

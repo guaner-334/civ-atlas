@@ -15,6 +15,7 @@ import {
   CHAR_YEAR_MAX,
   KIN_MAX,
   LIFE_MAX,
+  LINKS_MAX,
   cleanCharacter,
   type AuthorCharacter,
   type KinEntry,
@@ -23,7 +24,7 @@ import {
 } from '../gen/characters';
 import { addCharacter, getEdits, subscribeEdits, updateCharacter } from './editsStore';
 import { clearSelection, getSelection, setSelection, subscribeSelection } from './civView';
-import { clearToast } from './toastStore';
+import { clearToast, showToast } from './toastStore';
 
 /** 一段经历(小表上正在填的) */
 export interface LifeDraft {
@@ -277,12 +278,17 @@ export function patchLife(p: Partial<LifeDraft>) {
   if (d?.sub?.kind === 'life') set({ draft: { ...d, sub: { kind: 'life', d: { ...d.sub.d, ...p } } } });
 }
 
-/** 勾上 / 去掉一件事、一个人 */
+/** 勾上 / 去掉一件事、一个人(各最多 LINKS_MAX 个,满了再勾提示一句,不勾上:存的时候多出来的会丢掉) */
 export function toggleLifeLink(field: 'events' | 'people', key: string) {
   const d = state.draft;
   if (d?.sub?.kind !== 'life') return;
   const list = d.sub.d[field];
-  patchLife({ [field]: list.includes(key) ? list.filter((k) => k !== key) : [...list, key] });
+  if (list.includes(key)) return patchLife({ [field]: list.filter((k) => k !== key) });
+  if (list.length >= LINKS_MAX) {
+    showToast({ id: 'oc-links', kind: 'warn', text: `一段经历最多勾 ${LINKS_MAX} ${field === 'events' ? '件事' : '个人'}`, ttl: 3000 });
+    return;
+  }
+  patchLife({ [field]: [...list, key] });
 }
 
 /** 这段经历能不能加上;不能 = 原因 */

@@ -378,16 +378,19 @@ export function restoreMark(m: AuthorMark, at: number): number {
 
 // ---- 作者的人物 ----
 
+/** 这次打开以后删掉过的人物编号:新人物不用(放回去时还能用原编号,撤销、亲友都对得上) */
+const retiredCharacterIds = new Set<number>();
+
 /** 把人物换成 list(空 = 去掉这个字段),记一步 */
 function commitCharacters(list: AuthorCharacter[]) {
   const { characters: _, ...rest } = state;
   commitEdits(list.length ? { ...rest, characters: list } : rest);
 }
 
-/** 加一个人物(清理过的;编号按现有最大的 + 1 重新给)。返回新人物的编号;不合格、已经有 CHARACTERS_MAX 个 = −1 */
+/** 加一个人物(清理过的;编号按用过的最大的 + 1 重新给,见 nextCharacterId)。返回新人物的编号;不合格、已经有 CHARACTERS_MAX 个 = −1 */
 export function addCharacter(c: Omit<AuthorCharacter, 'id'>): number {
   if ((state.characters?.length ?? 0) >= CHARACTERS_MAX) return -1;
-  const id = nextCharacterId(state.characters);
+  const id = nextCharacterId(state.characters, retiredCharacterIds);
   const x = cleanCharacter({ ...c, id });
   if (!x) return -1;
   commitCharacters([...(state.characters ?? []), x]);
@@ -409,6 +412,7 @@ export function removeCharacter(id: number): AuthorCharacter | null {
   const list = state.characters ?? [];
   const c = list.find((x) => x.id === id);
   if (!c) return null;
+  retiredCharacterIds.add(c.id);
   commitCharacters(list.filter((x) => x !== c));
   return c;
 }
@@ -419,7 +423,7 @@ export function restoreCharacter(c: AuthorCharacter, at: number): number {
   const same = list.find((x) => x.id === c.id);
   if (same && sameCharacter(same, c)) return c.id;
   if (list.length >= CHARACTERS_MAX) return -1;
-  const id = same ? nextCharacterId(list) : c.id;
+  const id = same ? nextCharacterId(list, retiredCharacterIds) : c.id;
   const x = cleanCharacter({ ...c, id });
   if (!x) return -1;
   const next = list.slice();
@@ -430,5 +434,6 @@ export function restoreCharacter(c: AuthorCharacter, at: number): number {
 
 /** 换了新世界:修改一律作废 */
 export function clearEdits() {
+  retiredCharacterIds.clear();
   setEdits(EMPTY_EDITS);
 }

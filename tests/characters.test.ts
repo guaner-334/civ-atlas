@@ -12,6 +12,7 @@ import {
   CHAR_NAME_DEFAULT,
   KIN_MAX,
   LIFE_MAX,
+  LINKS_MAX,
   characterAge,
   cleanCharacter,
   cleanCharacters,
@@ -125,6 +126,8 @@ describe('作者的人物 · 数据清理', () => {
     expect(list[1].name).toBe('重号');
     expect(list[1].id).not.toBe(1);
     expect(count).toEqual({ dropped: 1, over: 2 });
+    // 换的新编号也不用别人亲友里记着的
+    expect(cleanCharacters([base({ kin: [{ rel: '父亲', char: 5 }] }), base({ name: '重号' })]).map((x) => x.id)).toEqual([1, 6]);
   });
 
   it('年龄:那一年减生年;出生前 = 还没出生,去世后 = 已故(享年);卒年不填 = 一直活着', () => {
@@ -223,6 +226,20 @@ describe('作者的人物 · 修改和撤销', () => {
     expect(getEdits().characters!.length).toBe(2);
   });
 
+  it('删掉的人物的编号不给新人物(放回去还用原编号);别人亲友里记着的编号也不给', () => {
+    add('甲');
+    const b = add('乙');
+    expect(add('丙', { kin: [{ rel: '好友', char: b }] })).toBe(3);
+    const gone = removeCharacter(3)!;
+    expect(add('丁')).toBe(4);
+    expect(restoreCharacter(gone, 2)).toBe(3);
+    expect(getEdits().characters!.map((c) => c.id)).toEqual([1, 2, 3, 4]);
+    // 读档来的:亲友里记着一个已经删掉的人物(编号 7),新人物不用 7
+    clearEdits();
+    commitEdits({ ...EMPTY_EDITS, characters: [base({ kin: [{ rel: '父亲', char: 7 }] })] });
+    expect(add('戊')).toBe(8);
+  });
+
   it('选中的人物被撤销没了:卡片关掉', () => {
     const id = add('甲');
     setSelection({ kind: 'character', id });
@@ -285,6 +302,23 @@ describe('作者的人物 · 填写卡片', () => {
     expect(c.kin).toEqual([{ rel: '', char: other }]);
     expect(getSelection().sel).toEqual({ kind: 'character', id });
     expect(getCharUi().draft).toBeNull();
+  });
+
+  it(`一段经历最多勾 ${LINKS_MAX} 件事:满了再勾提示一句、不勾上;去掉一件还能再勾`, () => {
+    newCharacterDraft({ birthplace: [10, 20], year: 2512 });
+    patchDraft({ bornText: '2490' });
+    startLife(-1, 2500);
+    const events = () => {
+      const sub = getCharUi().draft!.sub!;
+      return sub.kind === 'life' ? sub.d.events : [];
+    };
+    for (let i = 0; i < LINKS_MAX + 2; i++) toggleLifeLink('events', `event:2500|battle|region:c${i}#0`);
+    expect(events().length).toBe(LINKS_MAX);
+    expect(getToast()?.text).toBe(`一段经历最多勾 ${LINKS_MAX} 件事`);
+    toggleLifeLink('events', 'event:2500|battle|region:c0#0');
+    toggleLifeLink('events', 'event:2500|battle|region:c99#0');
+    expect(events().length).toBe(LINKS_MAX);
+    expect(events()).toContain('event:2500|battle|region:c99#0');
   });
 
   it('Esc:先停下挑地方,再关小表,再取消正在填的(新建的连卡片一起关掉)', () => {

@@ -253,11 +253,25 @@ export function sameCharacter(a: AuthorCharacter, b: AuthorCharacter): boolean {
   return a === b || JSON.stringify(a) === JSON.stringify(b);
 }
 
-/** 新人物的编号:现有最大的 + 1 */
-export function nextCharacterId(list: readonly AuthorCharacter[] | undefined): number {
+/**
+ * 用过的编号:现有人物的,和亲友里还记着的(删掉的人物别人亲友里留着他的编号,不能给新人物,
+ * 不然那条亲友就指到不相干的人身上了)。retired = 另外不能用的(这次打开以后删掉过的,放回去时还用原编号)
+ */
+function usedCharacterIds(list: readonly AuthorCharacter[] | undefined, retired?: Iterable<number>): Set<number> {
+  const used = new Set<number>(retired);
+  for (const c of list ?? []) {
+    used.add(c.id);
+    for (const k of c.kin ?? []) if (k.char !== undefined) used.add(k.char);
+  }
+  return used;
+}
+
+/** 新人物的编号:用过的最大的 + 1(见 usedCharacterIds) */
+export function nextCharacterId(list: readonly AuthorCharacter[] | undefined, retired?: Iterable<number>): number {
+  const used = usedCharacterIds(list, retired);
   let n = 0;
-  for (const c of list ?? []) if (c.id > n) n = c.id;
-  return freeMarkId(new Set((list ?? []).map((c) => c.id)), n);
+  for (const id of used) if (id > n) n = id;
+  return freeMarkId(used, n);
 }
 
 /**
@@ -269,13 +283,9 @@ export function cleanCharacters(list: readonly unknown[] | null | undefined, cou
   const out: AuthorCharacter[] = [];
   let same = true;
   const cleaned = (list as unknown[]).map((x) => cleanCharacter(x));
-  const used = new Set<number>();
+  const used = usedCharacterIds(cleaned.filter((c): c is AuthorCharacter => !!c));
   let max = 0;
-  for (const c of cleaned) {
-    if (!c) continue;
-    used.add(c.id);
-    if (c.id > max) max = c.id;
-  }
+  for (const id of used) if (id > max) max = id;
   const ids = new Set<number>();
   cleaned.forEach((c0, i) => {
     let c = c0;
