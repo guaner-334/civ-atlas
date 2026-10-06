@@ -13,6 +13,7 @@ import {
   MARK_ID_MAX,
   MARK_NOTE_MAX,
   MARK_REGIONS_MAX,
+  MARK_REGIONS_TOTAL,
   MARK_TITLE_DEFAULT,
   MARK_TITLE_MAX,
   cleanMark,
@@ -172,6 +173,22 @@ describe('作者标记 · 存档和分享链接', () => {
     expect(r.save.edits.marks![MARKS_MAX - 1].id).toBe(MARKS_MAX);
     expect(r.warnings).toContain(`作者标记最多 ${MARKS_MAX} 个,多出来的 5 个没有读进来`);
     expect(cleanMarks(many).length).toBe(MARKS_MAX);
+  });
+
+  it(`读档:所有标记一共最多圈 ${MARK_REGIONS_TOTAL} 个州,超出的那个标记不读,提示一句;列表清理也一样`, () => {
+    const save = makeSave(params, EMPTY_EDITS, 'abc');
+    const raw = JSON.parse(saveText(save));
+    const per = MARK_REGIONS_MAX;
+    const n = MARK_REGIONS_TOTAL / per;
+    const big = Array.from({ length: n + 1 }, (_, i) => ({ id: i + 1, title: `大片${i + 1}`, color: 'blue', from: 1, regions: Array.from({ length: per }, (_, j) => `region:c${i * per + j + 1}`) }));
+    // 最后再放一个点的标记:不圈州,照常读进来
+    raw.edits.marks = [...big, { id: n + 2, title: '一个点', color: 'red', from: 1, at: [5, 5] }];
+    const r = parseSave(JSON.stringify(raw));
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.save.edits.marks!.map((m) => m.id)).toEqual([...Array.from({ length: n }, (_, i) => i + 1), n + 2]);
+    expect(r.warnings).toContain(`作者标记一共最多圈 ${MARK_REGIONS_TOTAL} 个州,多出来的 1 个标记没有读进来`);
+    expect(cleanMarks(raw.edits.marks).map((m) => m.id)).toEqual([...Array.from({ length: n }, (_, i) => i + 1), n + 2]);
   });
 
   it('分享链接带着标记,打开后一样', async () => {
@@ -350,6 +367,25 @@ describe('作者标记 · 填写卡片', () => {
     expect(draftProblem(d({ id: 3 }))).toBeNull();
   });
 
+  it(`所有标记一共圈满 ${MARK_REGIONS_TOTAL} 个州:新的、改大的存不了,卡片上说一句;删了的放不回去`, () => {
+    const per = MARK_REGIONS_MAX;
+    const n = MARK_REGIONS_TOTAL / per;
+    const keys = (i: number, k = per) => Array.from({ length: k }, (_, j) => `region:c${i * per + j + 1}`);
+    commitEdits({ ...EMPTY_EDITS, marks: Array.from({ length: n }, (_, i) => ({ id: i + 1, title: `大片${i + 1}`, color: 'blue' as const, from: 1, regions: keys(i) })) });
+    expect(addMark({ title: '多一片', color: 'blue', from: 1, regions: ['region:c999999'] })).toBe(-1);
+    expect(addMark({ title: '一个点', color: 'red', from: 1, at: [5, 5] })).toBeGreaterThan(0);
+    expect(draftProblem(d({ scope: 'regions', regions: ['region:c999999'] }))).toBe(`所有标记一共最多圈 ${MARK_REGIONS_TOTAL} 个州`);
+    // 编辑原有的:换一批同样多的州照常,多一个不行
+    const first = getEdits().marks![0];
+    expect(draftProblem(d({ id: 1, scope: 'regions', regions: keys(n + 1) }))).toBeNull();
+    expect(updateMark({ ...first, regions: keys(n + 1) })).toBe(true);
+    expect(updateMark({ ...first, regions: [...keys(n + 1), 'region:c999999'] })).toBe(false);
+    // 删一片,再加一片占满,原来那片就放不回去了
+    const gone = removeMark(2)!;
+    expect(addMark({ title: '新的一片', color: 'blue', from: 1, regions: keys(n + 2) })).toBeGreaterThan(0);
+    expect(restoreMark(gone, 1)).toBe(-1);
+  });
+
   it('概览的「加标记」:已经在放就接着放;换了世界:选中的标记收起', () => {
     togglePlacing();
     startPlacing();
@@ -392,8 +428,9 @@ describe('作者标记 · 地图上的摆放', () => {
     expect(layoutMarks([pin(1, 500, 400)], f, { avoid }).pins[0].label!.side).toBe('l');
     const all = [[300, 300, 700, 500]];
     expect(layoutMarks([pin(1, 500, 400)], f, { avoid: all }).pins[0].label!.side).toBe('r');
-    // 出了右边界的放左边
+    // 出了右边界的放左边;贴着上边、左右都会出界的放到图钉下面
     expect(layoutMarks([pin(1, 990, 400)], f).pins[0].label!.side).toBe('l');
+    expect(layoutMarks([pin(1, 500, 8)], f).pins[0].label!.side).toBe('b');
   });
 
   it('缩小了不写名字,挨得近的合成一个圆;选中的单独画、写名字', () => {
@@ -498,6 +535,18 @@ describe.each([7, 2024])('作者标记 · 在这个世界里 · seed=%i', (seed)
       expect(spotText(civ, ss)).toMatch(/\S/);
       expect(spotText(civ, ss)).not.toMatch(/undefined/);
     }
+  });
+
+  it('同一处有毁掉的旧城和重建的新城:认这一年还在的那座', () => {
+    const { world, raster, civ } = caseOf(seed);
+    const s = civ.settlements.find((x) => x.founded >= 10 && x.founded < civ.endYear && (x.ended === undefined || x.ended > civ.endYear))!;
+    // 旧城:早十年建、早五年毁,排在前面、离得一样近
+    const old = { ...s, id: civ.settlements.length, founded: s.founded - 10, ended: s.founded - 5 };
+    const civ2: Civ = { ...civ, settlements: [old, ...civ.settlements] };
+    const at: [number, number] = [world.mesh.x[s.cell], world.mesh.y[s.cell]];
+    expect(markSpot(civ2, world, raster, at, civ.endYear).city).toBe(s.id);
+    // 旧城还在的那几年认旧城
+    expect(markSpot(civ2, world, raster, at, s.founded - 7).city).toBe(old.id);
   });
 
   it('落在有名字的山上、旁边没有城:写山名', () => {

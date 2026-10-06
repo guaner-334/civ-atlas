@@ -9,7 +9,7 @@
  * 读档、换世界(setEdits / clearEdits)、创建世界(clearEditHistory)清空。地形修改不记:只在新建世界时能改,改地形工具有自己的"撤销一笔"。
  */
 import { useSyncExternalStore } from 'react';
-import { EMPTY_EDITS, MARKS_MAX, cleanIntervention, cleanMark, sameMark, markAiName, nextMarkId, type AuthorMark, type Intervention, type TerrainOp, type WorldEdits } from '../gen/edits';
+import { EMPTY_EDITS, MARKS_MAX, MARK_REGIONS_TOTAL, cleanIntervention, cleanMark, markRegionTotal, sameMark, markAiName, nextMarkId, type AuthorMark, type Intervention, type TerrainOp, type WorldEdits } from '../gen/edits';
 import { TERRAIN_MAX_OPS, cleanTerrainOp } from '../gen/terrainEdits';
 import { showToast } from './toastStore';
 
@@ -297,22 +297,27 @@ function commitMarks(list: AuthorMark[]) {
   commitEdits(list.length ? { ...rest, marks: list } : rest);
 }
 
-/** 加一个标记(清理过的;编号按现有最大的 + 1 重新给)。返回新标记的编号;不合格、已经有 MARKS_MAX 个 = −1 */
+/** 加上(换上)这个标记后,所有标记圈的州加起来超过 MARK_REGIONS_TOTAL */
+function regionsOver(m: AuthorMark): boolean {
+  return !!m.regions && markRegionTotal(state.marks, m.id) + m.regions.length > MARK_REGIONS_TOTAL;
+}
+
+/** 加一个标记(清理过的;编号按现有最大的 + 1 重新给)。返回新标记的编号;不合格、已经有 MARKS_MAX 个、圈的州一共超过 MARK_REGIONS_TOTAL = −1 */
 export function addMark(m: Omit<AuthorMark, 'id'>): number {
   if ((state.marks?.length ?? 0) >= MARKS_MAX) return -1;
   const id = nextMarkId(state.marks);
   const c = cleanMark({ ...m, id });
-  if (!c) return -1;
+  if (!c || regionsOver(c)) return -1;
   commitMarks([...(state.marks ?? []), c]);
   return id;
 }
 
-/** 改一个标记(整个换成 m,编号不变;找不到、不合格、没变 = 不动)。返回改没改 */
+/** 改一个标记(整个换成 m,编号不变;找不到、不合格、没变、圈的州一共超过 MARK_REGIONS_TOTAL = 不动)。返回改没改 */
 export function updateMark(m: AuthorMark): boolean {
   const list = state.marks ?? [];
   const i = list.findIndex((x) => x.id === m.id);
   const c = cleanMark(m);
-  if (i < 0 || !c || sameMark(c, list[i])) return false;
+  if (i < 0 || !c || sameMark(c, list[i]) || regionsOver(c)) return false;
   commitMarks(list.map((x, j) => (j === i ? c : x)));
   return true;
 }
@@ -335,7 +340,7 @@ export function restoreMark(m: AuthorMark, at: number): number {
   if (list.length >= MARKS_MAX) return -1;
   const id = same ? nextMarkId(list) : m.id;
   const c = cleanMark({ ...m, id });
-  if (!c) return -1;
+  if (!c || regionsOver(c)) return -1;
   const next = list.slice();
   next.splice(Math.min(Math.max(0, at), next.length), 0, c);
   commitMarks(next);

@@ -540,7 +540,7 @@ export function layoutMarks(items: readonly MarkItem[], f: MarkFrame, opts: { na
         { side: 'l', x: p.x - w / 2 - 1, y: top, box: [p.x - w / 2 - 1 - tw, top, p.x - w / 2 - 1, top + th] },
         { side: 'b', x: p.x, y: p.y + 3, box: [p.x - tw / 2, p.y + 3, p.x + tw / 2, p.y + 3 + th] },
       ];
-      const fits = (c: (typeof cand)[number]) => c.box[0] >= f.win[0] && c.box[2] <= f.win[1] && !taken.some((t) => overlap(c.box, t));
+      const fits = (c: (typeof cand)[number]) => c.box[0] >= f.win[0] && c.box[2] <= f.win[1] && c.box[1] >= 0 && c.box[3] <= f.h && !taken.some((t) => overlap(c.box, t));
       const clear = (c: (typeof cand)[number]) => fits(c) && !avoid.some((t) => overlap(c.box, t));
       const pick = cand.find(clear) ?? cand.find(fits) ?? cand[0];
       taken.push(pick.box);

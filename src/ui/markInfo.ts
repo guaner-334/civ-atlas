@@ -77,13 +77,18 @@ export function markSpot(civ: Civ, world: World, raster: Raster | null, at: read
   const out: MarkSpot = {};
   const W = world.width;
   const near = (world.mesh.spacing * 1.5) ** 2;
+  // 旁边的城:这一年还在的优先(毁了又重建的,同一处有新旧两座,认新的),再按远近
   let bd = Infinity;
+  let bAlive = false;
   for (const s of civ.settlements) {
     if (s.founded > year) continue;
     const dx = Math.abs(world.mesh.x[s.cell] - at[0]);
     const d = Math.min(dx, W - dx) ** 2 + (world.mesh.y[s.cell] - at[1]) ** 2;
-    if (d < near && d < bd) {
+    if (d >= near) continue;
+    const alive = s.ended === undefined || s.ended > year;
+    if ((alive && !bAlive) || (alive === bAlive && d < bd)) {
       bd = d;
+      bAlive = alive;
       out.city = s.id;
     }
   }

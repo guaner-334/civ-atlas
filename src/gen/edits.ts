@@ -106,7 +106,7 @@
  * | regions  | 几个州:州键 `region:c4567`(按地块定位,见"稳定键";那块地方变成水了,那一州就不画)           |
  *
  * at 和 regions 有且只有一个(都给了按 regions)。读进来的列表先过 cleanMarks(格式不对的丢掉,编号重复的换一个新编号,
- * 最多留 MARKS_MAX 个)。
+ * 最多留 MARKS_MAX 个,所有标记一共最多圈 MARK_REGIONS_TOTAL 个州)。
  *
  * GENERATOR_VERSION:生成算法有改动、同种子会得到不同世界时加一(存档读档时核对,不一致就提示"来自旧版本"和变了什么;
  * 每一版改了什么记在下面的 GENERATOR_CHANGES,提示照它说)。
@@ -805,6 +805,15 @@ export const MARK_REGIONS_MAX = 500;
 export const MARKS_MAX = 2000;
 /** 标记编号最大到几 */
 export const MARK_ID_MAX = 1e9;
+/** 一个世界里所有标记一共最多圈几个州(同一州圈几次算几次;再多画几个州的形状就太费了) */
+export const MARK_REGIONS_TOTAL = 10000;
+
+/** 这些标记一共圈了几个州(except = 不算这个编号的) */
+export function markRegionTotal(marks: readonly AuthorMark[] | undefined, except = 0): number {
+  let n = 0;
+  for (const m of marks ?? []) if (m.id !== except) n += m.regions?.length ?? 0;
+  return n;
+}
 /** 名字是空的(新建时没起名)就叫这个 */
 export const MARK_TITLE_DEFAULT = '新标记';
 
@@ -912,12 +921,15 @@ export function cleanMarks(list: readonly unknown[] | null | undefined): AuthorM
     used.add(m.id);
     if (m.id > max) max = m.id;
   }
+  let regions = 0;
   for (const x of list as unknown[]) {
     let m = out.length < MARKS_MAX ? cleanMark(x) : null;
+    if (m?.regions && regions + m.regions.length > MARK_REGIONS_TOTAL) m = null;
     if (!m) {
       same = false;
       continue;
     }
+    regions += m.regions?.length ?? 0;
     if (ids.has(m.id)) {
       m = { ...m, id: freeMarkId(used, max) };
       max = Math.max(max, m.id);

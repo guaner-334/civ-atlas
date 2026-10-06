@@ -7,7 +7,7 @@
  * - 几个州的标记:编辑时点地图上的州 = 加进来 / 再点一下去掉;一个点的标记:编辑时拖图钉挪位置
  */
 import { useSyncExternalStore } from 'react';
-import { INTERVENTION_YEAR_MAX, MARKS_MAX, MARK_COLORS, MARK_REGIONS_MAX, type AuthorMark, type MarkColor } from '../gen/edits';
+import { INTERVENTION_YEAR_MAX, MARKS_MAX, MARK_COLORS, MARK_REGIONS_MAX, MARK_REGIONS_TOTAL, markRegionTotal, type AuthorMark, type MarkColor } from '../gen/edits';
 import { addMark, getEdits, subscribeEdits, updateMark } from './editsStore';
 import { clearSelection, getSelection, setSelection, subscribeSelection } from './civView';
 import { clearToast, showToast } from './toastStore';
@@ -161,6 +161,7 @@ export function draftProblem(d: MarkDraft): string | null {
   if (d.scope === 'regions' && !d.regions.length) return '在地图上点几个州加进来';
   if (d.scope === 'point' && !d.at) return '在地图上点一下放图钉';
   if (d.id === 0 && (getEdits().marks?.length ?? 0) >= MARKS_MAX) return `标记已经有 ${MARKS_MAX} 个了,删掉一些才能再加`;
+  if (d.scope === 'regions' && markRegionTotal(getEdits().marks, d.id) + d.regions.length > MARK_REGIONS_TOTAL) return `所有标记一共最多圈 ${MARK_REGIONS_TOTAL} 个州`;
   return null;
 }
 

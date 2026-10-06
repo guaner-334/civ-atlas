@@ -22,7 +22,7 @@ import type { Civ } from '../gen/civ/types';
 import type { Raster } from '../gen/raster';
 import type { World } from '../gen/world';
 import { regionLabel } from '../gen/civ/display';
-import { MARKS_MAX, MARK_COLORS, MARK_NOTE_MAX, MARK_TITLE_DEFAULT, MARK_TITLE_MAX, markShownAt, regionKey, type AuthorMark, type MarkColor } from '../gen/edits';
+import { MARKS_MAX, MARK_COLORS, MARK_NOTE_MAX, MARK_REGIONS_TOTAL, MARK_TITLE_DEFAULT, MARK_TITLE_MAX, markShownAt, regionKey, type AuthorMark, type MarkColor } from '../gen/edits';
 import { MARK_HEX } from '../render/marks';
 import { getEdits, removeMark, restoreMark, useEdits } from './editsStore';
 import { clearSelection, setSelection } from './civView';
@@ -114,7 +114,11 @@ function MarkView({ civ, raster, world, year, m }: MarkPanelProps & { m: AuthorM
           clearToast('mk');
           const id = restoreMark(gone, at);
           if (id > 0) setSelection({ kind: 'mark', id });
-          else showToast({ id: 'mk-restore', kind: 'warn', text: `标记已经有 ${MARKS_MAX} 个了,放不回去`, ttl: 4000 });
+          else {
+            const full = (getEdits().marks?.length ?? 0) >= MARKS_MAX;
+            const why = full ? `标记已经有 ${MARKS_MAX} 个了` : `所有标记一共最多圈 ${MARK_REGIONS_TOTAL} 个州`;
+            showToast({ id: 'mk-restore', kind: 'warn', text: `${why},放不回去`, ttl: 4000 });
+          }
         },
       },
     });
