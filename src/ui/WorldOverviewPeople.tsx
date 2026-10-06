@@ -1,6 +1,8 @@
 /**
  * 世界概览的"人物"页(在"编年史"后面):推演里的人物列成表,点一行打开人物卡片(收起概览,地图上亮出他的国家)。
  *
+ *   我的   作者自己的人物(gen/characters.ts),按生年排,新的在上;每人一行:生卒、头像和名字、"大景王朝书记官，22 岁"
+ *          (年龄跟着时间轴);右上「新建人物」。有自己的人物时先看这一档,一个都没有时先看「名人」
  *   名人   全世界的名将、名君、开国之君(gen/civ/peopleInfo.ts 按事迹打分挑的),按上台的年份排,新的在上;
  *          每人一行:年份、名字、一句为什么出名("大景王朝君主，在位时得五州，亲征萨尔斯坦帝国")
  *   君主   选了国家:按朝代分组(组名停在顶上),新的在上;一句"继父睿宗即位，时年 14 岁，在位 28 年，驾崩"。
@@ -11,6 +13,9 @@
  */
 import { useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Civ, Person } from '../gen/civ/types';
+import type { Raster } from '../gen/raster';
+import type { World } from '../gen/world';
+import type { AuthorCharacter } from '../gen/characters';
 import { polityName } from '../gen/civ/growth';
 import { cnNumber } from '../gen/civ/chronicle';
 import {
@@ -25,7 +30,13 @@ import {
   riseText,
 } from '../gen/civ/peopleInfo';
 import { generalRole, isConsul, personName, rulerFateWord } from '../gen/civ/peopleText';
-import { setPeople, usePeople, type PeopleList } from './overviewStore';
+import { closeOverview, setPeople, usePeople, type PeopleList } from './overviewStore';
+import { useEdits } from './editsStore';
+import { setSelection } from './civView';
+import { newCharacterDraft } from './characterStore';
+import { characterLine, characterPolity } from './characterInfo';
+import { CharAvatar } from './CharacterPanel';
+import { useYear } from './WorldOverviewMarks';
 import { useNowLine } from './Chronicle';
 import { polityHistory } from './WorldOverviewCountries';
 import { copyText, selectPerson } from './panelParts';
@@ -36,6 +47,8 @@ const F = Math.floor;
 
 interface PRow {
   x: Person;
+  /** 作者的人物(「我的」那一档;x 不用) */
+  c?: AuthorCharacter;
   from: number;
   until: number | null;
   name: string;
@@ -105,8 +118,12 @@ function rulerGroups(civ: Civ, polity: number, label: boolean): Group[] {
   return out;
 }
 
-export function PeoplePage({ civ }: { civ: Civ | null }) {
-  const view = usePeople();
+export function PeoplePage({ civ, data }: { civ: Civ | null; data: { world: World; raster: Raster } | null }) {
+  const view0 = usePeople();
+  const chars = useEdits().characters;
+  const year = useYear(civ);
+  // 还没挑过哪一档:有自己的人物先看「我的」
+  const view = { ...view0, list: view0.list ?? (chars?.length ? 'mine' : 'famous') };
   const listRef = useRef<HTMLDivElement>(null);
   const nowRef = useRef<HTMLDivElement>(null);
   const [copied, setCopied] = useState(false);
@@ -123,6 +140,11 @@ export function PeoplePage({ civ }: { civ: Civ | null }) {
       .sort((a, b) => peak[b.id] - peak[a.id] || a.id - b.id)
       .map((p) => ({ id: p.id, name: polityName(p, Math.min(civ!.endYear, p.ended ?? civ!.endYear) - 1 / 512) }));
   }, [ok, civ]);
+  // 我的:按国家筛(他的国家),按生年排,新的在上
+  const mine = useMemo((): AuthorCharacter[] => {
+    if (!ok || !data || !chars?.length) return [];
+    return chars.filter((c) => polity === null || characterPolity(civ!, data.world, data.raster, c) === polity).sort((a, b) => b.born - a.born || b.id - a.id);
+  }, [ok, civ, data, chars, polity]);
   const counts = useMemo(() => {
     if (!ok) return { famous: 0, rulers: 0, generals: 0 };
     const ix = peopleIndex(civ!);
@@ -137,6 +159,10 @@ export function PeoplePage({ civ }: { civ: Civ | null }) {
     if (!ok) return [];
     const c = civ!;
     const ps = c.people!;
+    if (view.list === 'mine') {
+      const rows = data ? mine.map((ch): PRow => ({ x: ps[0], c: ch, from: ch.born, until: ch.died ?? null, name: ch.name, line: characterLine(c, data.world, data.raster, ch, year, chars ?? []) })) : [];
+      return [{ rows }];
+    }
     if (view.list === 'famous') {
       const rows = famous.filter((f) => polity === null || ps[f.id].polity === polity).map((f) => rowOf(c, ps[f.id], fameLine(c, ps[f.id], f)));
       return [{ rows }];
@@ -150,7 +176,7 @@ export function PeoplePage({ civ }: { civ: Civ | null }) {
     }
     if (polity !== null) return rulerGroups(c, polity, false);
     return choices.flatMap((ch) => rulerGroups(c, ch.id, true));
-  }, [ok, civ, view.list, polity, famous, choices]);
+  }, [ok, civ, view.list, polity, famous, choices, mine, data, year, chars]);
   // 全部国家的君主不是一条时间线(一国一国列):只淡显,不画"现在"线
   const timeline = !(view.list === 'rulers' && polity === null);
   useNowLine({ listRef, nowRef, civ, jumpKey: groups, line: timeline });
@@ -161,6 +187,7 @@ export function PeoplePage({ civ }: { civ: Civ | null }) {
   const focus = polity !== null ? civ.polities[polity] : undefined;
   const focusName = focus ? (choices.find((c) => c.id === polity)?.name ?? polityName(focus, civ.endYear)) : '';
   const LISTS: { id: PeopleList; name: string; n: number; title: string }[] = [
+    { id: 'mine', name: '我的', n: mine.length, title: '自己放进这个世界的人物' },
     { id: 'famous', name: '名人', n: counts.famous, title: '按推演里的事迹挑出来的名将、名君、开国之君' },
     { id: 'rulers', name: focus?.lineage === 'republic' ? '执政' : '君主', n: counts.rulers, title: '历代君主,按朝代分组' },
     { id: 'generals', name: '将领', n: counts.generals, title: '领过兵的将领,按第一次领兵的年份排' },
@@ -184,7 +211,24 @@ export function PeoplePage({ civ }: { civ: Civ | null }) {
 
   const total = groups.reduce((n, g) => n + g.rows.length, 0);
   let empty: ReactNode = null;
-  if (!total) empty = view.list === 'famous' && focus ? `${focusName}没有名人,切到"君主"看看` : '没有符合的人物';
+  const newChar = () => {
+    closeOverview();
+    newCharacterDraft({ year });
+  };
+  if (!total)
+    empty =
+      view.list === 'mine' && !chars?.length ? (
+        <div className="oc-empty-mine">
+          <span>还没有自己的人物。写上名字、生卒和出生地，再加几段经历，地图上就能看到他一生走过的地方，年龄跟着时间轴算。</span>
+          <button className="ov-btn ov-primary" data-act="character-new-empty" onClick={newChar}>
+            新建人物
+          </button>
+        </div>
+      ) : view.list === 'famous' && focus ? (
+        `${focusName}没有名人,切到"君主"看看`
+      ) : (
+        '没有符合的人物'
+      );
 
   return (
     <section className="chronicle people">
@@ -208,6 +252,11 @@ export function PeoplePage({ civ }: { civ: Civ | null }) {
           </select>
         </label>
         <span className="chron-acts">
+          {view.list === 'mine' && !!chars?.length && (
+            <button className="ov-btn ov-primary oc-new" data-act="character-new" onClick={newChar}>
+              新建人物
+            </button>
+          )}
           <button className="ov-btn chron-copy" data-act="people-copy" onClick={() => void copy()} disabled={!total} title="把列出的人物复制成纯文本">
             {copied ? '已复制' : '复制全文'}
           </button>
@@ -222,7 +271,34 @@ export function PeoplePage({ civ }: { civ: Civ | null }) {
                 <span>{g.head.note}</span>
               </div>
             )}
-            {g.rows.map((r) => (
+            {g.rows.map((r) =>
+              r.c ? (
+                <div key={`c${r.c.id}`} className="chron-item">
+                  <div
+                    className="chron-row pp-row oc-row-mine"
+                    data-y={r.from}
+                    data-e={r.until !== null ? r.until + 1 : end + 1}
+                    data-top="1"
+                    data-character={r.c.id}
+                    data-ev="found"
+                    title="看这个人物"
+                    onClick={() => {
+                      closeOverview();
+                      setSelection({ kind: 'character', id: r.c!.id });
+                    }}
+                  >
+                    <span className="chron-year">
+                      {F(r.from)}
+                      <em>–{r.until !== null ? F(r.until) : ''}</em>
+                    </span>
+                    <b className="pp-who">
+                      <CharAvatar c={r.c} size={24} />
+                      {r.name}
+                    </b>
+                    <span className="chron-text">{r.line}</span>
+                  </div>
+                </div>
+              ) : (
               <div key={r.x.id} className="chron-item">
                 <div
                   className="chron-row pp-row"
@@ -242,7 +318,8 @@ export function PeoplePage({ civ }: { civ: Civ | null }) {
                   <span className="chron-text">{r.line}</span>
                 </div>
               </div>
-            ))}
+              ),
+            )}
           </div>
         ))}
         <div className="chron-now" ref={nowRef}>
