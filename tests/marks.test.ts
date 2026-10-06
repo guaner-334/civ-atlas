@@ -537,6 +537,13 @@ describe.each([7, 2024])('作者标记 · 在这个世界里 · seed=%i', (seed)
     const sh = markShapeOf(world, civ, ids)!;
     expect(sh.polys.length).toBeGreaterThan(0);
     expect(markShapeOf(world, civ, ids)).toBe(sh);
+    // 正在填的:只留最近一份,不进缓存(存好以后的照常缓存)
+    const part = ids.slice(0, 1);
+    const d1 = markShapeOf(world, civ, part, true);
+    expect(markShapeOf(world, civ, part, true)).toBe(d1);
+    const kept = markShapeOf(world, civ, part);
+    expect(kept).not.toBe(d1);
+    expect(markShapeOf(world, civ, part, true)).toBe(kept);
     const fresh = markAreaShape(world.mesh, civ.regions, ids)!;
     expect(fresh.label[0]).toBeGreaterThanOrEqual(fresh.box[0] - 1);
     expect(fresh.label[1]).toBeGreaterThanOrEqual(fresh.box[1] - 1);

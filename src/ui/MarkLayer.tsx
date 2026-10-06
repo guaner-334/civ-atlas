@@ -98,7 +98,7 @@ export function MarkLayer({ civ, world, api, hidden }: { civ: Civ | null; world:
   const cvRef = useRef<HTMLCanvasElement>(null);
   const marks = edits.marks;
   // 几个州的形状(同一份州划分、同一串州只算一次)
-  const shapeOf = (ids: number[]): AreaShape | null => (civ ? markShapeOf(world, civ, ids) : null);
+  const shapeOf = (ids: number[], draft = false): AreaShape | null => (civ ? markShapeOf(world, civ, ids, draft) : null);
   const selId = sel?.kind === 'mark' ? sel.id : null;
   const draft = ui.draft;
   const areaEdit = !!draft && draft.scope === 'regions';
@@ -187,12 +187,12 @@ export function MarkLayer({ civ, world, api, hidden }: { civ: Civ | null; world:
       if (!civ) return;
       const year = Math.floor(Math.min(civ.endYear, Math.max(0, getCivTime().year ?? civ.endYear)));
       const items: MarkItem[] = [];
-      const toItem = (mk: AuthorMark, selected: boolean, dim: boolean): MarkItem => ({
+      const toItem = (mk: AuthorMark, selected: boolean, dim: boolean, draft = false): MarkItem => ({
         id: mk.id,
         title: mk.title,
         color: mk.color,
         at: mk.at,
-        shape: mk.regions ? shapeRef.current(markRegionIds(civ, mk)) : undefined,
+        shape: mk.regions ? shapeRef.current(markRegionIds(civ, mk), draft) : undefined,
         selected,
         dim,
       });
@@ -205,7 +205,7 @@ export function MarkLayer({ civ, world, api, hidden }: { civ: Civ | null; world:
         if (!live && !on) continue;
         items.push(toItem(mk, on, focus !== null ? !on || !live : false));
       }
-      if (editing) items.push(toItem(editing, true, false));
+      if (editing) items.push(toItem(editing, true, false, true));
       ctx.save();
       // 平面主图:只画在视窗里(和地图一样按视窗裁)
       if (v.period) {

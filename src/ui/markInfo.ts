@@ -197,15 +197,24 @@ export function ownerName(civ: Civ, polity: number, year: number): string {
   return p ? polityName(p, year) : '无主';
 }
 
-/** 几个州的形状:按州划分存(同一份州划分、同一串州只算一次) */
+/**
+ * 几个州的形状:按州划分存(同一份州划分、同一串州只算一次)。
+ * draft = 正在填的那一份:一个个加州、去州时每次都不一样,只留最近的一份,不往缓存里堆
+ */
 const shapeCache = new WeakMap<object, Map<string, AreaShape | null>>();
+let draftShape: { regions: object; key: string; shape: AreaShape | null } | null = null;
 
-export function markShapeOf(world: World, civ: Civ, ids: readonly number[]): AreaShape | null {
+export function markShapeOf(world: World, civ: Civ, ids: readonly number[], draft = false): AreaShape | null {
   if (!ids.length) return null;
+  const key = ids.join(',');
   let m = shapeCache.get(civ.regions);
   if (!m) shapeCache.set(civ.regions, (m = new Map()));
-  const key = ids.join(',');
-  if (!m.has(key)) m.set(key, markAreaShape(world.mesh, civ.regions, ids));
+  if (m.has(key)) return m.get(key)!;
+  if (draft) {
+    if (draftShape?.regions !== civ.regions || draftShape.key !== key) draftShape = { regions: civ.regions, key, shape: markAreaShape(world.mesh, civ.regions, ids) };
+    return draftShape.shape;
+  }
+  m.set(key, markAreaShape(world.mesh, civ.regions, ids));
   return m.get(key)!;
 }
 

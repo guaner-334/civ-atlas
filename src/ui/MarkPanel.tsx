@@ -138,7 +138,7 @@ function MarkView({ civ, raster, world, year, m }: MarkPanelProps & { m: AuthorM
     const ids = markRegionIds(civ, m);
     rows.push({ k: '范围', node: regionsText(civ, ids) });
     const own = markOwners(civ, ids, year);
-    if (own.length) rows.push({ k: '当年归属', node: ownersNode(civ, own, year) });
+    if (own.length) rows.push({ k: '当年归属', node: ownersNode(civ, own, year, ids.length) });
   } else if (m.at) {
     const spot = markSpot(civ, world, raster, m.at, year);
     const city = spot.city !== undefined ? civ.settlements[spot.city] : undefined;
@@ -163,7 +163,7 @@ function MarkView({ civ, raster, world, year, m }: MarkPanelProps & { m: AuthorM
       ),
     });
     const own = reg !== undefined ? markOwners(civ, [reg], year) : [];
-    if (own.length) rows.push({ k: '当年归属', node: ownersNode(civ, own, year) });
+    if (own.length) rows.push({ k: '当年归属', node: ownersNode(civ, own, year, 1) });
   }
 
   return (
@@ -213,13 +213,14 @@ function MarkView({ civ, raster, world, year, m }: MarkPanelProps & { m: AuthorM
   );
 }
 
-/** 当年归属:一国 = 国名;几国 = 国名 + "N 州" */
-function ownersNode(civ: Civ, own: { polity: number; n: number }[], year: number): ReactNode {
+/** 当年归属:全归一国 = 国名;几国、或有的州无主 = 国名 + "N 州"(total = 一共几州) */
+function ownersNode(civ: Civ, own: { polity: number; n: number }[], year: number, total: number): ReactNode {
+  const counts = own.length > 1 || own.reduce((s, o) => s + o.n, 0) < total;
   // 国名、州数都直接放进那一格(格子是 flex,间距照别的卡片)
   return own.map((o) => (
     <Fragment key={o.polity}>
       <Link to={{ kind: 'polity', id: o.polity }}>{ownerName(civ, o.polity, year)}</Link>
-      {own.length > 1 && <em className="cp-num-note">{o.n} 州</em>}
+      {counts && <em className="cp-num-note">{o.n} 州</em>}
     </Fragment>
   ));
 }
