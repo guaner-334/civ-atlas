@@ -889,6 +889,12 @@ export function cleanMark(x: unknown): AuthorMark | null {
   return clean ? (x as AuthorMark) : m;
 }
 
+/** 两个标记是不是一模一样(各字段比,不管字段的先后) */
+export function sameMark(a: AuthorMark, b: AuthorMark): boolean {
+  const list = (x?: readonly unknown[], y?: readonly unknown[]) => x === y || (!!x && !!y && x.length === y.length && x.every((v, i) => v === y[i]));
+  return a.id === b.id && a.title === b.title && a.note === b.note && a.color === b.color && a.from === b.from && a.to === b.to && list(a.at, b.at) && list(a.regions, b.regions);
+}
+
 /**
  * 清理一份标记列表(读档、撤销时用):不合格的丢掉;编号和前面重复的换成新编号(现有最大的 + 1)。
  * 全都合格时返回原数组(同一个对象)

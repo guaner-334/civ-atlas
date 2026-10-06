@@ -41,7 +41,7 @@ import {
 } from './markInfo';
 import { markFocus } from './flyTo';
 import { requestMapCenter } from './mapWrap';
-import { showToast } from './toastStore';
+import { clearToast, showToast } from './toastStore';
 import { Act, Acts, EventList, Link, MoreAct, PanelHead, Row, Stats, SubLine, copyText, jumpTo } from './panelParts';
 import { MenuItem } from './PopMenu';
 import { Icon } from './icons';
@@ -111,6 +111,7 @@ function MarkView({ civ, raster, world, year, m }: MarkPanelProps & { m: AuthorM
         label: '撤销',
         act: 'mark-restore',
         onClick: () => {
+          clearToast('mk');
           const id = restoreMark(gone, at);
           if (id > 0) setSelection({ kind: 'mark', id });
           else showToast({ id: 'mk-restore', kind: 'warn', text: `标记已经有 ${MARKS_MAX} 个了,放不回去`, ttl: 4000 });

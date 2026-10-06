@@ -10,7 +10,7 @@ import { useSyncExternalStore } from 'react';
 import { INTERVENTION_YEAR_MAX, MARKS_MAX, MARK_COLORS, MARK_REGIONS_MAX, type AuthorMark, type MarkColor } from '../gen/edits';
 import { addMark, getEdits, subscribeEdits, updateMark } from './editsStore';
 import { clearSelection, getSelection, setSelection, subscribeSelection } from './civView';
-import { showToast } from './toastStore';
+import { clearToast, showToast } from './toastStore';
 
 /** 卡片上正在填的标记 */
 export interface MarkDraft {
@@ -70,8 +70,13 @@ export function subscribeMarkUi(f: () => void): () => void {
 /** 「标记」按钮:进入 / 退出"点地图放标记"(进入时收起打开着的卡片) */
 export function togglePlacing() {
   if (state.placing) return stopPlacing();
+  startPlacing();
+}
+
+/** 进入"点地图放标记"(已经在放了就不动) */
+export function startPlacing() {
   clearSelection();
-  set({ placing: true, draft: null });
+  if (!state.placing) set({ placing: true, draft: null });
 }
 
 export function stopPlacing() {
@@ -198,9 +203,11 @@ export function setMarkDragging(on: boolean) {
   if (state.dragging !== on) set({ dragging: on });
 }
 
-/** 换了世界:放标记、正在填的一律作废 */
+/** 换了世界、重新套上修改:放标记、正在填的一律作废,选中的标记、"已删除标记"的提示条也收起 */
 export function resetMarkUi() {
   if (state.placing || state.draft || state.dragging) set({ placing: false, draft: null, dragging: false });
+  if (getSelection().sel?.kind === 'mark') clearSelection();
+  clearToast('mk');
 }
 
 // 选中了别的东西(点了地图上的城、面板里的链接、搜索……):正在填的扔掉,卡片关掉也一样;放标记时选了别的 = 不放了

@@ -1092,6 +1092,8 @@ export function App() {
     const sameT = sameTerrain(t.edits.terrain, genTerrain.current);
     const edits = sameT ? upgradeLegacyKeys(t.edits, rc.regions.seat) : t.edits;
     restoredIv.current = edits.interventions;
+    // 同一张图换一份修改(打开同种子的另一份存档、分享链接)也算换了世界:正在填的标记、选中的标记作废
+    resetMarkUi();
     setEdits(edits);
     attachWorld({ id: t.id, params: world.params, check, kind: t.kind, title: t.title, saved: t.saved ?? edits, view: t.view ?? undefined, pristine: t.pristine, base: t.base, origin: t.origin });
     if (t.kind !== 'draft') setWorldStats(aliveAtEnd(rc));

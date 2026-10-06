@@ -9,7 +9,7 @@
  * 读档、换世界(setEdits / clearEdits)、创建世界(clearEditHistory)清空。地形修改不记:只在新建世界时能改,改地形工具有自己的"撤销一笔"。
  */
 import { useSyncExternalStore } from 'react';
-import { EMPTY_EDITS, MARKS_MAX, cleanIntervention, cleanMark, markAiName, nextMarkId, type AuthorMark, type Intervention, type TerrainOp, type WorldEdits } from '../gen/edits';
+import { EMPTY_EDITS, MARKS_MAX, cleanIntervention, cleanMark, sameMark, markAiName, nextMarkId, type AuthorMark, type Intervention, type TerrainOp, type WorldEdits } from '../gen/edits';
 import { TERRAIN_MAX_OPS, cleanTerrainOp } from '../gen/terrainEdits';
 import { showToast } from './toastStore';
 
@@ -312,7 +312,7 @@ export function updateMark(m: AuthorMark): boolean {
   const list = state.marks ?? [];
   const i = list.findIndex((x) => x.id === m.id);
   const c = cleanMark(m);
-  if (i < 0 || !c || JSON.stringify(c) === JSON.stringify(list[i])) return false;
+  if (i < 0 || !c || sameMark(c, list[i])) return false;
   commitMarks(list.map((x, j) => (j === i ? c : x)));
   return true;
 }
@@ -329,8 +329,11 @@ export function removeMark(id: number): AuthorMark | null {
 /** 把删掉的标记放回去(删除提示条上的"撤销"):编号已经被占了 = 换一个新编号;at = 放回列表里的位置。返回编号,放不回去 = −1 */
 export function restoreMark(m: AuthorMark, at: number): number {
   const list = state.marks ?? [];
+  // 已经放回来了(比如先按了 Ctrl+Z):不再放一份
+  const same = list.find((x) => x.id === m.id);
+  if (same && sameMark(same, m)) return m.id;
   if (list.length >= MARKS_MAX) return -1;
-  const id = list.some((x) => x.id === m.id) ? nextMarkId(list) : m.id;
+  const id = same ? nextMarkId(list) : m.id;
   const c = cleanMark({ ...m, id });
   if (!c) return -1;
   const next = list.slice();

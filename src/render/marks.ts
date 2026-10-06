@@ -451,6 +451,8 @@ export function layoutMarks(items: readonly MarkItem[], f: MarkFrame, opts: { na
 
   /** 已经占了的地方(名字牌、图钉、名字):后放的名字躲开它们 */
   const taken: number[][] = [];
+  /** 名字点得到的范围:最后才加进 hits(名字画在图钉上面,点的时候也先认名字) */
+  const labelHits: MarkHit[] = [];
   if (!names) {
     // 缩小了:不写名字;挨得近的合成一个圆(选中的单独画,不合)
     const all = [...points.map((p) => ({ ...p, area: false })), ...anchors.map((a) => ({ m: a.m, x: a.x, y: a.y, area: true }))];
@@ -484,9 +486,11 @@ export function layoutMarks(items: readonly MarkItem[], f: MarkFrame, opts: { na
         hits.push({ kind: 'pill', ids: [p.m.id], box: [p.x - 14, p.y - 14, p.x + 14, p.y + 14] });
       }
     }
-    // 选中的:大图钉 + 名字(缩小了也写它的名字,看得出选的是哪个)
+    // 选中的:大图钉 + 名字(缩小了也写它的名字,看得出选的是哪个;名字躲开合并的圆和小图钉)
+    for (const c of clusters) taken.push([c.x - c.w / 2, c.y - 14, c.x + c.w / 2, c.y + 14]);
+    for (const p of pins) taken.push([p.x - p.w / 2, p.y - (p.w * 4) / 3, p.x + p.w / 2, p.y]);
     for (const p of all.filter((a) => a.m.selected)) placeSelected(p, true);
-    pushPinHits();
+    finishHits();
     return { areas, pins, clusters, hits };
   }
 
@@ -505,7 +509,7 @@ export function layoutMarks(items: readonly MarkItem[], f: MarkFrame, opts: { na
     taken.push([p.x - w / 2, p.y - (w * 4) / 3, p.x + w / 2, p.y]);
   }
   for (const p of points) placePin(p, p.m.selected ? PIN_W_SEL : PIN_W, true);
-  pushPinHits();
+  finishHits();
   return { areas, pins, clusters, hits };
 
   function pillOf(m: MarkItem, x: number, y: number) {
@@ -541,15 +545,17 @@ export function layoutMarks(items: readonly MarkItem[], f: MarkFrame, opts: { na
       const pick = cand.find(clear) ?? cand.find(fits) ?? cand[0];
       taken.push(pick.box);
       pin.label = { text: p.m.title, x: pick.x, y: pick.y, side: pick.side, size, w: tw, ink: markInk(hex) };
-      hits.push({ kind: 'label', ids: [p.m.id], box: pick.box as [number, number, number, number] });
+      labelHits.push({ kind: 'label', ids: [p.m.id], box: pick.box as [number, number, number, number] });
     }
     pins.push(pin);
   }
-  function pushPinHits() {
+  /** 点得到的范围按画的先后排(合并的圆、名字牌 → 图钉 → 名字),hitMark 从后往前认 */
+  function finishHits() {
     for (const p of pins) {
       const h = (p.w * 4) / 3;
       hits.push({ kind: 'pin', ids: [p.id], box: [p.x - p.w / 2 - 2, p.y - h - 2, p.x + p.w / 2 + 2, p.y + 2] });
     }
+    hits.push(...labelHits);
   }
 }
 

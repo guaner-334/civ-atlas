@@ -28,7 +28,7 @@ import { addMark, clearEdits, commitEdits, getEdits, removeMark, restoreMark, re
 import { redoLastEdit, undoLastEdit } from '../src/ui/undo';
 import { clearToast, getToast } from '../src/ui/toastStore';
 import { clearSelection, getSelection, setSelection } from '../src/ui/civView';
-import { cancelDraft, draftProblem, editMarkDraft, finishDraft, getMarkUi, newMarkDraft, patchDraft, resetMarkUi, toggleDraftRegion, togglePlacing, type MarkDraft } from '../src/ui/markStore';
+import { cancelDraft, draftProblem, editMarkDraft, finishDraft, getMarkUi, newMarkDraft, patchDraft, resetMarkUi, startPlacing, toggleDraftRegion, togglePlacing, type MarkDraft } from '../src/ui/markStore';
 import { CLUSTER_PX, DIM_ALPHA, NAME_ZOOM, hitMark, layoutMarks, markAreaShape, type MarkFrame, type MarkItem } from '../src/render/marks';
 import { markEvents, markOwners, markPlaceText, markShapeOf, markSpot, regionsText, spotText } from '../src/ui/markInfo';
 import { searchCiv, searchMarks } from '../src/ui/searchIndex';
@@ -200,6 +200,15 @@ describe('作者标记 · 修改和撤销', () => {
     expect('marks' in getEdits()).toBe(false);
   });
 
+  it('编辑了没改(字段先后不同):不算修改,不记撤销', () => {
+    const id = add('甲', { at: [10.04, 20] });
+    const m = getEdits().marks!.find((x) => x.id === id)!;
+    const reordered = { at: m.at, from: m.from, color: m.color, title: m.title, id: m.id } as AuthorMark;
+    const before = getEdits();
+    expect(updateMark(reordered)).toBe(false);
+    expect(getEdits()).toBe(before);
+  });
+
   it('撤销 / 重做:新建、改、删各一步;提示条说"已撤销标记的修改"', () => {
     add('甲');
     add('乙');
@@ -245,6 +254,12 @@ describe('作者标记 · 修改和撤销', () => {
     commitEdits({ ...getEdits(), marks: [...getEdits().marks!, { ...again, id: 2, title: '占位' }] });
     expect(restoreMark(again, 0)).toBe(4);
     expect(getEdits().marks!.map((m) => `${m.id}${m.title}`)).toEqual(['4乙', '1甲', '3丙', '2占位']);
+    // 已经放回来了(先按了 Ctrl+Z)再点提示条上的"撤销":不再放一份
+    const third = removeMark(1)!;
+    expect(undoLastEdit()).toBe(true);
+    const n = getEdits().marks!.length;
+    expect(restoreMark(third, 0)).toBe(1);
+    expect(getEdits().marks!.length).toBe(n);
     // 删了以后又加满了:放不回去
     commitEdits({ ...EMPTY_EDITS, marks: Array.from({ length: MARKS_MAX }, (_, i) => base({ id: i + 1 })) });
     expect(restoreMark(again, 0)).toBe(-1);
@@ -335,6 +350,20 @@ describe('作者标记 · 填写卡片', () => {
     expect(draftProblem(d({ id: 3 }))).toBeNull();
   });
 
+  it('概览的「加标记」:已经在放就接着放;换了世界:选中的标记收起', () => {
+    togglePlacing();
+    startPlacing();
+    expect(getMarkUi().placing).toBe(true);
+    addMark({ title: '甲', color: 'blue', from: 1, at: [5, 5] });
+    setSelection({ kind: 'mark', id: 1 });
+    resetMarkUi();
+    expect(getMarkUi().placing).toBe(false);
+    expect(getSelection().sel).toBeNull();
+    newMarkDraft({ at: [1, 1], year: 3 });
+    resetMarkUi();
+    expect(getSelection().sel).toBeNull();
+  });
+
   it('选中别的东西:正在填的扔掉;放标记时选了别的 = 不放了', () => {
     newMarkDraft({ at: [1, 1], year: 3 });
     setSelection({ kind: 'polity', id: 0 });
@@ -384,6 +413,18 @@ describe('作者标记 · 地图上的摆放', () => {
     expect(hitMark(lay, lay.clusters[0].x, lay.clusters[0].y)!.ids.sort()).toEqual([1, 2]);
     expect(hitMark(lay, sel.x, sel.y - 10)!.ids).toEqual([4]);
     expect(hitMark(lay, 900, 100)).toBeNull();
+  });
+
+  it('缩小了选中的名字躲开小图钉;点得到的范围按画的先后排(名字在图钉后面)', () => {
+    const lay = layoutMarks([pin(5, 335, 285), pin(4, 300, 300, { selected: true })], frame(1));
+    const sel = lay.pins.find((p) => p.id === 4)!;
+    expect(sel.label!.side).not.toBe('r');
+    for (const k of [1, NAME_ZOOM]) {
+      const l = layoutMarks([pin(1, 500, 400), pin(2, 470, 400), pin(3, 520, 380), pin(4, 300, 300, { selected: true })], frame(k));
+      const lastPin = l.hits.map((h) => h.kind).lastIndexOf('pin');
+      const firstLabel = l.hits.findIndex((h) => h.kind === 'label');
+      expect(firstLabel < 0 || firstLabel > lastPin).toBe(true);
+    }
   });
 
   it('几个州的标记:缩小了单独一个也点得到;放大了圈同一处的名字牌错开,各点各的', () => {

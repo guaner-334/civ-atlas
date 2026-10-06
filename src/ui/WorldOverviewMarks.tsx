@@ -18,7 +18,7 @@ import { getCivTime, setSelection, subscribeCivTime } from './civView';
 import { closeOverview } from './overviewStore';
 import { useNowLine } from './Chronicle';
 import { markPlaceText, markYears } from './markInfo';
-import { togglePlacing } from './markStore';
+import { startPlacing } from './markStore';
 import { copyText } from './panelParts';
 import { useNarrow } from './device';
 import './timeline.css';
@@ -66,7 +66,7 @@ export function MarksPage({ civ, data }: { civ: Civ | null; data: { world: World
 
   const add = () => {
     closeOverview();
-    togglePlacing();
+    startPlacing();
   };
   const copy = async () => {
     const lines = [`标记 · 种子 ${civ.seed}${only ? ` · 第 ${year} 年有的` : ''}`, ''];
