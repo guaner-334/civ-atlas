@@ -2856,7 +2856,7 @@ export function App() {
         <div className="canvas-wrap-upper" style={wrapStyle}>
           <div className="map-box-upper" style={{ width: box.w, height: box.h }}>
             {data && (
-              <CivLayer world={data.world} raster={data.raster} civ={civ} geo={shownRaw} style={style} view={view} mp={mp} labelsHost={labelsHost} detailHost={civDetailHost} />
+              <CivLayer world={data.world} raster={data.raster} civ={civ} geo={shownRaw} style={style} view={view} mp={mp} labelsHost={labelsHost} detailHost={civDetailHost} flags={flagView} />
             )}
             <canvas ref={overlayRef} className={`overlay ${replayOn && replay ? 'show' : ''}`} />
             <canvas ref={overlayCopyRef} className={`overlay wrap-copy ${replayOn && replay ? 'show' : ''}`} />

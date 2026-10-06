@@ -50,7 +50,7 @@ import { useAvoidBoxes } from './uiAvoid';
 import { CivDetail } from './CivDetail';
 import { drawHolyDot, holyCities } from '../render/civ/faith';
 import { faithFocusOf, selectionOnMap } from './faithSelection';
-import { flagOf, useFlags } from './flagStore';
+import { flagOf, type FlagView } from './flagStore';
 import { flagImage, useFlagImages } from './flagImages';
 
 /** 高亮闪烁:约两秒,亮 → 暗 → 亮 → 暗 → 亮,最后淡出 */
@@ -126,6 +126,11 @@ export interface CivLayerProps {
   labelsHost?: HTMLElement | null;
   /** 放大后的文明细节层放在哪(屏幕层:地形细节层之上、这一层地图框之下;没有 = 不画细节层) */
   detailHost?: HTMLElement | null;
+  /**
+   * 各国历代的旗(手绘风国都城堡插旗用;改旗、预览时跟着换)。由 App 和 civ 同一轮算好传进来,
+   * 改名、重推时只画一遍(要是自己订阅 flagStore,会先按旧旗画一遍、旗到了再画一遍)
+   */
+  flags?: FlagView | null;
 }
 
 const VIEW_1: CivViewport = { k: 1, x: 0, y: 0 };
@@ -154,7 +159,7 @@ interface LabelsDebug {
   wars?: { lines: number; marks: number } | null;
 }
 
-export function CivLayer({ world, raster, civ, geo, style, year, view, mp = null, labelsHost = null, detailHost = null }: CivLayerProps) {
+export function CivLayer({ world, raster, civ, geo, style, year, view, mp = null, labelsHost = null, detailHost = null, flags = null }: CivLayerProps) {
   const ref = useRef<HTMLCanvasElement>(null);
   const textRef = useRef<HTMLCanvasElement>(null);
   const hlRef = useRef<HTMLCanvasElement>(null);
@@ -428,8 +433,7 @@ export function CivLayer({ world, raster, civ, geo, style, year, view, mp = null
 
   // 地图上盖着的界面(四角的字、时间轴、面板 / 抽屉、提示条……):它们下面不放字和符号(和地球仪同一份清单,见 uiAvoid.ts)
   const avoid = useAvoidBoxes(textRef);
-  // 手绘风国都城堡插的国旗(改旗、预览时跟着换;旗的小图加载好了重画)
-  const flags = useFlags();
+  // 手绘风国都城堡插的国旗:旗的小图加载好了重画
   const flagImages = useFlagImages();
 
   useLayoutEffect(() => {
