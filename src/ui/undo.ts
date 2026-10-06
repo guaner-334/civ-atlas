@@ -5,6 +5,7 @@
  *   (重做 = 又下了这条令,提示"…,已从 N 年起重新推演"带撤销)
  * - 助手执行过的一轮:交给助手那边撤销 / 再做一遍(对话里的"已执行 / 已撤销"跟着变;提示和点"撤销"一样)
  * - 只改了名字:当场换回去,提示"已撤销改名" / "已重做改名"
+ * - 作者标记(新建、改、删):当场换回去,提示"已撤销标记的修改" / "已重做标记的修改"
  */
 import { getEdits, replaceEdits, revertEdits, stepEdits, type EditStep } from './editsStore';
 import { redoProposal, undoProposal } from './assistantStore';
@@ -31,6 +32,7 @@ function run(s: EditStep, dir: 'undo' | 'redo') {
   if (next === now) return;
   replaceEdits(next);
   if (next.interventions === now.interventions && next.terrain === now.terrain) {
-    showToast({ id: 'resim-done', kind: 'ok', text: dir === 'undo' ? '已撤销改名' : '已重做改名', ttl: 4000 });
+    const what = next.marks !== now.marks && next.names === now.names ? '标记的修改' : '改名';
+    showToast({ id: 'resim-done', kind: 'ok', text: dir === 'undo' ? `已撤销${what}` : `已重做${what}`, ttl: 4000 });
   }
 }

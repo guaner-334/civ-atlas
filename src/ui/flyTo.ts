@@ -63,9 +63,9 @@ export function resolvePersonKey(civ: Civ, key: string): number {
   return -1;
 }
 
-/** 地图上按什么画、往哪飞:人物 = 他的国家;其余照旧 */
-export function mapTarget(civ: Civ | null, sel: MapSelection | null): Exclude<MapSelection, { kind: 'person' }> | null {
-  if (!sel) return null;
+/** 地图上按什么画、往哪飞:人物 = 他的国家;作者标记 = 不按历史里的东西画(它自己画,见 MarkLayer.tsx);其余照旧 */
+export function mapTarget(civ: Civ | null, sel: MapSelection | null): Exclude<MapSelection, { kind: 'person' | 'mark' }> | null {
+  if (!sel || sel.kind === 'mark') return null;
   if (sel.kind !== 'person') return sel;
   const x = civ?.people?.[sel.id];
   return x && civ!.polities[x.polity] ? { kind: 'polity', id: x.polity } : null;
@@ -78,6 +78,7 @@ export function selectionKey(civ: Civ, sel: MapSelection): string {
   if (sel.kind === 'settlement') return civ.settlements[sel.id] ? settlementKey(civ, sel.id) : '';
   if (sel.kind === 'place') return civ.places[sel.id] ? placeKeyOf(civ, sel.id) : '';
   if (sel.kind === 'faith') return civ.religion?.faiths[sel.id] ? faithKey(civ, sel.id) : '';
+  if (sel.kind === 'mark') return `mark:${sel.id}`;
   return sel.id >= 0 && sel.id < civ.regions.count ? regionKey(civ, sel.id) : '';
 }
 
