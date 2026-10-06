@@ -9,6 +9,8 @@ name: 发布网站
 # - DEPLOY_KNOWN_HOSTS:服务器的 SSH 主机指纹(known_hosts 的一行),只连这台机器
 # - DEPLOY_DEST:rsync 的目标,形如 user@host:
 # - DEPLOY_PORT:服务器的 SSH 端口(可不配,默认 22);不是 22 时 DEPLOY_KNOWN_HOSTS 那一行要写成 [host]:端口 的形式
+# 以上是 Secrets。另有一个 Variable(不是密钥,构建后本来就写在网页里):
+# - VITE_AI_SERVER:账号服务器地址。不配 = 构建出的网站没有登录、云同步、短链接(见 src/account/server.ts)
 on:
   push:
     branches: [main]
@@ -43,6 +45,8 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: 生产构建
+        env:
+          VITE_AI_SERVER: ${{ vars.VITE_AI_SERVER }}
         run: pnpm build
       - name: 准备 SSH
         env:
