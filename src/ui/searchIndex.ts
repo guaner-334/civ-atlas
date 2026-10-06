@@ -287,10 +287,10 @@ export function searchCiv(
   return ranked(out, limit);
 }
 
-/** 只找作者标记(还没有国家的世界也能放标记,搜索框只搜它们) */
-export function searchMarks(query: string, marks: readonly AuthorMark[], limit = SEARCH_LIMIT): SearchHit[] {
+/** 只找作者自己放的标记和人物(没有国家的世界也能放,搜索框只搜它们) */
+export function searchMarks(query: string, marks: readonly AuthorMark[], limit = SEARCH_LIMIT, chars: readonly AuthorCharacter[] = []): SearchHit[] {
   const q = query.trim().toLowerCase();
-  return q ? ranked(markHits(marks, q), limit) : [];
+  return q ? ranked([...characterHits(chars, q), ...markHits(marks, q)], limit) : [];
 }
 
 /** 作者标记:名字;说明里有也算 */

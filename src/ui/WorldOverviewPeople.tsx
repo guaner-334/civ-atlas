@@ -184,7 +184,6 @@ export function PeoplePage({ civ, data }: { civ: Civ | null; data: { world: Worl
   useNowLine({ listRef, nowRef, civ, jumpKey: groups, line: timeline });
 
   if (!civ) return <section className="chronicle people" />;
-  if (!ok && !chars?.length) return <div className="ov-empty">这个世界还没有人物</div>;
 
   const focus = polity !== null ? civ.polities[polity] : undefined;
   const focusName = focus ? (choices.find((c) => c.id === polity)?.name ?? polityName(focus, civ.endYear)) : '';

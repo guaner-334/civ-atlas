@@ -3,7 +3,7 @@
  *
  * - 地方:城键 → 那座城(地图上画在城的位置),州键 → 那一州(画在州的中间),一个点 → 世界坐标(写成"落烟渡，紫月洲"这样的一句)
  * - 国家:写了就是那一国;没写 = 出生地在生年归属的国家
- * - 推演里的事:编年史里折叠的战争拆成一件一件,加上历代换君主;每件事一个稳定键(年份 + 种类 + 事发的州 / 城 / 国),重推以后按它找回
+ * - 推演里的事:编年史里折叠的战争拆成一件一件,加上历代换君主;每件事一个稳定键(年份 + 种类 + 事发的州 / 城 / 国 + 牵涉的国家),重推以后按它找回
  * - 反过来:推演人物、城、州的卡片上列出和它有关的作者人物
  */
 import type { Civ, Person } from '../gen/civ/types';
@@ -222,7 +222,9 @@ export function eventIndex(civ: Civ): EventIndex {
   const keyOf = new Map<ChronicleEntry, string>();
   const seen = new Map<string, number>();
   for (const e of list) {
-    const base = `event:${F(e.year)}|${e.kind}|${anchorOf(civ, e)}`;
+    // 年份 + 种类 + 落在哪 + 牵涉的国家(最多 4 个):同一年同一处同一类的事也分得开,别的事多了少了不会让它换号
+    const who = e.polities.slice(0, 4).map((p) => (civ.polities[p] ? polityKey(civ, p) : '?')).join(',') || '-';
+    const base = `event:${F(e.year)}|${e.kind}|${anchorOf(civ, e)}|${who}`;
     const n = seen.get(base) ?? 0;
     seen.set(base, n + 1);
     const k = `${base}#${n}`;

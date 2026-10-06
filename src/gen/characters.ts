@@ -19,7 +19,7 @@
  *   城 = 城键 `settlement:c4567#1`;州 = 州键 `region:c4567`;任意一点 = 世界坐标 [x, y](x 规整到 [0, 2048))。
  *
  * 一段经历(LifeEntry):year 年份、text 写了什么(LIFE_TEXT_MAX 个字以内)、where 在哪(可以不填)、
- * events 勾上的推演里的事(事的稳定键 `event:2506|battle|region:c4567#0`,界面上按它找回那件事)、
+ * events 勾上的推演里的事(事的稳定键 `event:2506|battle|region:c4567|polity:c12#0,polity:c88#0#0`,界面上按它找回那件事)、
  * people 勾上的推演里的人(人物的稳定键,见 personKey)。各最多 LINKS_MAX 个。
  * 作者干预以后重推,找不到的那一件 / 那个人界面上照样列着,写明"重推以后这件事没有了";作者写的字不动。
  *
@@ -94,34 +94,50 @@ export interface AuthorCharacter {
 // 推演里的人的稳定键
 
 /**
- * 人物的稳定键:国家的稳定键 + 身份 + 名字 + 生年(重推历史后同一国、同名、同年生的还是他;推演变了、指不到就算了)
+ * 人物的稳定键:国家的稳定键 + 身份 + 名字 + 生年(重推历史后同一国、同名、同年生的还是他;推演变了、指不到就算了)。
+ * 同一国、同身份、同名、同年生的不止一个(西幻的君主会重名):第二个起后面加 #1、#2……(按人物编号的先后)
  */
 export function personKey(civ: Civ, id: number): string {
-  const x = civ.people?.[id];
-  if (!x || !civ.polities[x.polity]) return '';
-  return `person:${polityKey(civ, x.polity)}|${x.role}|${x.name}|${Math.round(x.born)}`;
+  return personKeys(civ)[id] ?? '';
 }
 
-const personIndexCache = new WeakMap<object, Map<string, number>>();
+const personKeyCache = new WeakMap<object, { keys: string[]; byKey: Map<string, number> }>();
+
+/** 每个人的稳定键(下标 = 人物编号;国家没了的 = '')。按人物列表存 */
+function personIndex(civ: Civ): { keys: string[]; byKey: Map<string, number> } {
+  const list = civ.people ?? [];
+  let ix = personKeyCache.get(list);
+  if (ix && ix.keys.length === list.length) return ix;
+  const keys: string[] = [];
+  const byKey = new Map<string, number>();
+  const seen = new Map<string, number>();
+  for (const x of list) {
+    if (!civ.polities[x.polity]) {
+      keys[x.id] = '';
+      continue;
+    }
+    const base = `person:${polityKey(civ, x.polity)}|${x.role}|${x.name}|${Math.round(x.born)}`;
+    const n = seen.get(base) ?? 0;
+    seen.set(base, n + 1);
+    const k = n ? `${base}#${n}` : base;
+    keys[x.id] = k;
+    byKey.set(k, x.id);
+  }
+  ix = { keys, byKey };
+  personKeyCache.set(list, ix);
+  return ix;
+}
+
+const personKeys = (civ: Civ) => personIndex(civ).keys;
 
 /** 按人物的稳定键在(重推过的)历史里找回这个人;找不到 = −1 */
 export function resolvePersonKey(civ: Civ, key: string): number {
-  const list = civ.people;
-  if (!list?.length) return -1;
-  let m = personIndexCache.get(list);
-  if (!m || m.size === 0) {
-    m = new Map();
-    for (const x of list) {
-      const k = personKey(civ, x.id);
-      if (k && !m.has(k)) m.set(k, x.id);
-    }
-    personIndexCache.set(list, m);
-  }
-  return m.get(key) ?? -1;
+  if (!civ.people?.length) return -1;
+  return personIndex(civ).byKey.get(key) ?? -1;
 }
 
-const PERSON_KEY = /^person:polity:(r-?\d{1,7}|c\d{1,7})#\d{1,5}\|(ruler|general)\|[^|\n]{1,32}\|-?\d{1,6}$/;
-const EVENT_KEY = /^event:\d{1,5}\|[a-z]{1,16}\|[^|\n]{1,48}#\d{1,4}$/;
+const PERSON_KEY = /^person:polity:(r-?\d{1,7}|c\d{1,7})#\d{1,5}\|(ruler|general)\|[^|\n]{1,32}\|-?\d{1,6}(#\d{1,4})?$/;
+const EVENT_KEY = /^event:\d{1,5}\|[a-z]{1,16}\|[^|\n]{1,48}\|[^|\n]{1,100}#\d{1,4}$/;
 export const isPersonKey = (k: unknown): k is string => typeof k === 'string' && PERSON_KEY.test(k);
 export const isEventKey = (k: unknown): k is string => typeof k === 'string' && EVENT_KEY.test(k);
 

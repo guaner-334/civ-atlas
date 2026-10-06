@@ -61,7 +61,7 @@ import {
 } from '../src/ui/characterInfo';
 import { layoutTrail, type TrailInput } from '../src/render/trail';
 import type { MarkFrame } from '../src/render/marks';
-import { searchCiv } from '../src/ui/searchIndex';
+import { searchCiv, searchMarks } from '../src/ui/searchIndex';
 
 const base = (over: Partial<AuthorCharacter> = {}): AuthorCharacter => ({ id: 1, name: '林小满', color: 'red', born: 2490, ...over });
 
@@ -84,7 +84,7 @@ describe('作者的人物 · 数据清理', () => {
       polity: 'polity:c818#0',
       role: '商人',
       note: '第一段\n第二段',
-      life: [{ year: 2506, text: '随军西征', where: 'region:c282', events: ['event:2506|battle|region:c282#0'], people: ['person:polity:c818#0|general|楚尧|2443'] }],
+      life: [{ year: 2506, text: '随军西征', where: 'region:c282', events: ['event:2506|battle|region:c282|polity:c818#0,polity:c90#0#0'], people: ['person:polity:c818#0|general|楚尧|2443'] }],
       kin: [{ rel: '好友', char: 1 }],
     });
     expect(cleanCharacter(a)).toBe(a);
@@ -108,11 +108,11 @@ describe('作者的人物 · 数据清理', () => {
     const c = cleanCharacter({
       ...base(),
       birthplace: 'x',
-      life: [{ year: 2500, text: '甲', where: [-10, 500], events: ['bad', 'event:2500|war|-#0'], people: ['nobody'] }, { text: '没年份' }],
+      life: [{ year: 2500, text: '甲', where: [-10, 500], events: ['bad', 'event:2500|war|-|-#0', 'event:2500|war|-#0'], people: ['nobody'] }, { text: '没年份' }],
       kin: [{ rel: '自己', char: 1 }, { rel: '空的' }, { rel: '父亲', char: 3 }, { rel: '上司', person: 'person:polity:c1#0|general|楚尧|2443' }],
     })!;
     expect(c.birthplace).toBeUndefined();
-    expect(c.life).toEqual([{ year: 2500, text: '甲', where: [2038, 500], events: ['event:2500|war|-#0'] }]);
+    expect(c.life).toEqual([{ year: 2500, text: '甲', where: [2038, 500], events: ['event:2500|war|-|-#0'] }]);
     expect(c.kin!.map((k) => k.rel)).toEqual(['父亲', '上司']);
   });
 
@@ -288,7 +288,7 @@ describe('作者的人物 · 填写卡片', () => {
     const sub = () => getCharUi().draft!.sub!;
     expect(sub().kind === 'life' && lifeProblem(getCharUi().draft!, sub().d as never)).toBe('写一句经历');
     patchLife({ yearText: '2506', text: '随军西征' });
-    toggleLifeLink('events', 'event:2506|battle|region:c5#0');
+    toggleLifeLink('events', 'event:2506|battle|region:c5|polity:c1#0#0');
     toggleLifeLink('people', 'person:polity:c1#0|general|楚尧|2443');
     toggleLifeLink('people', 'person:polity:c1#0|general|楚尧|2443');
     finishLife();
@@ -298,7 +298,7 @@ describe('作者的人物 · 填写卡片', () => {
     const id = finishDraft();
     const c = getEdits().characters!.find((x) => x.id === id)!;
     expect(c.name).toBe(CHAR_NAME_DEFAULT);
-    expect(c.life).toEqual([{ year: 2506, text: '随军西征', where: 'region:c5', events: ['event:2506|battle|region:c5#0'] }]);
+    expect(c.life).toEqual([{ year: 2506, text: '随军西征', where: 'region:c5', events: ['event:2506|battle|region:c5|polity:c1#0#0'] }]);
     expect(c.kin).toEqual([{ rel: '', char: other }]);
     expect(getSelection().sel).toEqual({ kind: 'character', id });
     expect(getCharUi().draft).toBeNull();
@@ -312,13 +312,13 @@ describe('作者的人物 · 填写卡片', () => {
       const sub = getCharUi().draft!.sub!;
       return sub.kind === 'life' ? sub.d.events : [];
     };
-    for (let i = 0; i < LINKS_MAX + 2; i++) toggleLifeLink('events', `event:2500|battle|region:c${i}#0`);
+    for (let i = 0; i < LINKS_MAX + 2; i++) toggleLifeLink('events', `event:2500|battle|region:c${i}|-#0`);
     expect(events().length).toBe(LINKS_MAX);
     expect(getToast()?.text).toBe(`一段经历最多勾 ${LINKS_MAX} 件事`);
-    toggleLifeLink('events', 'event:2500|battle|region:c0#0');
-    toggleLifeLink('events', 'event:2500|battle|region:c99#0');
+    toggleLifeLink('events', 'event:2500|battle|region:c0|-#0');
+    toggleLifeLink('events', 'event:2500|battle|region:c99|-#0');
     expect(events().length).toBe(LINKS_MAX);
-    expect(events()).toContain('event:2500|battle|region:c99#0');
+    expect(events()).toContain('event:2500|battle|region:c99|-#0');
   });
 
   it('Esc:先停下挑地方,再关小表,再取消正在填的(新建的连卡片一起关掉)', () => {
@@ -410,6 +410,14 @@ describe.each([7, 2024])('作者的人物 · 在这个世界里 · seed=%i', (se
     const k = personKey(civ, x.id);
     expect(resolvePersonKey(civ, k)).toBe(x.id);
     expect(resolvePersonKey(civ, k.replace(/\|\d+$/, '|1'))).toBe(-1);
+    // 同一国、同身份、同名、同年生的两个人:第二个的键后面加 #1,各自找得回,存得进经历
+    const twin = { ...x, id: civ.people!.length };
+    const civ2: Civ = { ...civ, people: [...civ.people!, twin] };
+    const k2 = personKey(civ2, twin.id);
+    expect(k2).toBe(`${k}#1`);
+    expect(resolvePersonKey(civ2, k)).toBe(x.id);
+    expect(resolvePersonKey(civ2, k2)).toBe(twin.id);
+    expect(cleanCharacter({ ...base(), life: [{ year: 2500, text: '甲', people: [k, k2] }] })!.life![0].people).toEqual([k, k2]);
   });
 
   it('推演里的事的稳定键:每件事一个、不重复,找得回同一件', () => {
@@ -417,7 +425,7 @@ describe.each([7, 2024])('作者的人物 · 在这个世界里 · seed=%i', (se
     const idx = eventIndex(civ);
     expect(new Set(idx.keys).size).toBe(idx.keys.length);
     for (let i = 0; i < idx.list.length; i += 37) expect(eventOfKey(civ, idx.keys[i])).toBe(idx.list[i]);
-    expect(eventOfKey(civ, 'event:1|war|-#99')).toBeNull();
+    expect(eventOfKey(civ, 'event:1|war|-|-#99')).toBeNull();
   });
 
   it('地方:城键 = 那座城、州键 = 那一州的中间、一个点 = 那里;找不到的写明', () => {
@@ -495,6 +503,8 @@ describe.each([7, 2024])('作者的人物 · 在这个世界里 · seed=%i', (se
     const hits = searchCiv(civ, '林小满', y, 20, [], chars);
     expect(hits[0].kind).toBe('character');
     expect(searchCiv(civ, '出征', y, 20, [], chars).some((h) => h.kind === 'character')).toBe(true);
+    // 没有国家的世界只搜作者自己放的:人物也在里面
+    expect(searchMarks('林小满', [], undefined, chars).map((h) => h.kind)).toEqual(['character']);
   });
 
   it('身边的事只取当前那年前后:最多 n 条,按先后', () => {
