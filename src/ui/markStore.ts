@@ -196,10 +196,10 @@ export function resetMarkUi() {
   if (state.placing || state.draft || state.dragging) set({ placing: false, draft: null, dragging: false });
 }
 
-// 选中了别的东西(点了地图上的城、面板里的链接、搜索……):正在填的扔掉;卡片关掉也一样
+// 选中了别的东西(点了地图上的城、面板里的链接、搜索……):正在填的扔掉,卡片关掉也一样;放标记时选了别的 = 不放了
 subscribeSelection(() => {
-  const d = state.draft;
-  if (!d) return;
   const s = getSelection().sel;
-  if (!s || s.kind !== 'mark' || s.id !== d.id) set({ draft: null });
+  if (state.placing && s) set({ placing: false });
+  const d = state.draft;
+  if (d && (!s || s.kind !== 'mark' || s.id !== d.id)) set({ draft: null });
 });

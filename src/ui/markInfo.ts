@@ -9,10 +9,10 @@ import type { ChronicleEntry } from '../gen/civ/chronicle';
 import { fullChronicle } from '../gen/civ/religionText';
 import { regionLabel } from '../gen/civ/display';
 import { polityName } from '../gen/civ/growth';
-import { regionOfKey, type AuthorMark } from '../gen/edits';
+import { markShownAt, regionOfKey, type AuthorMark } from '../gen/edits';
 import { ownersOf } from './panelData';
 import type { HoverInfo } from './hoverInfo';
-import { MARK_HEX } from '../render/marks';
+import { MARK_HEX, markAreaShape, type AreaShape, type MarkItem } from '../render/marks';
 
 /** "2506–2515 年" / "2498 年起" */
 export function markYears(m: Pick<AuthorMark, 'from' | 'to'>): string {
@@ -154,4 +154,26 @@ export function markHover(m: AuthorMark): HoverInfo {
 export function ownerName(civ: Civ, polity: number, year: number): string {
   const p = civ.polities[polity];
   return p ? polityName(p, year) : '无主';
+}
+
+/** 几个州的形状:按州划分存(同一份州划分、同一串州只算一次) */
+const shapeCache = new WeakMap<object, Map<string, AreaShape | null>>();
+
+export function markShapeOf(world: World, civ: Civ, ids: readonly number[]): AreaShape | null {
+  if (!ids.length) return null;
+  let m = shapeCache.get(civ.regions);
+  if (!m) shapeCache.set(civ.regions, (m = new Map()));
+  const key = ids.join(',');
+  if (!m.has(key)) m.set(key, markAreaShape(world.mesh, civ.regions, ids));
+  return m.get(key)!;
+}
+
+/** 这一年地图上有的标记,换成要画的样子(导出图片用;不分选中) */
+export function markItemsAt(civ: Civ, world: World, marks: readonly AuthorMark[] | undefined, year: number): MarkItem[] {
+  const out: MarkItem[] = [];
+  for (const m of marks ?? []) {
+    if (!markShownAt(m, year)) continue;
+    out.push({ id: m.id, title: m.title, color: m.color, at: m.at, shape: m.regions ? markShapeOf(world, civ, markRegionIds(civ, m)) : undefined });
+  }
+  return out;
 }

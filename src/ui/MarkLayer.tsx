@@ -8,10 +8,10 @@
  * - 编辑几个州的标记:鼠标停着的州(还没选上的)描一圈虚线
  * - App 点地图、悬停时问 markHitAt:点到图钉、名字、名字牌 = 选中那个标记,点到合并的圆 = 在那里放大
  */
-import { useEffect, useMemo, useRef, type MutableRefObject } from 'react';
+import { useEffect, useRef, type MutableRefObject } from 'react';
 import type { Civ } from '../gen/civ/types';
 import type { World } from '../gen/world';
-import { markShownAt, type AuthorMark } from '../gen/edits';
+import { markShownAt, regionKey, type AuthorMark } from '../gen/edits';
 import {
   MARK_HEX,
   canvasMeasure,
@@ -20,7 +20,6 @@ import {
   drawMarks,
   hitMark,
   layoutMarks,
-  markAreaShape,
   projectLoops,
   type AreaShape,
   type MarkFrame,
@@ -32,8 +31,8 @@ import {
 import { useEdits } from './editsStore';
 import { getCivTime, subscribeCivTime, useSelection } from './civView';
 import { useMarkUi, type MarkDraft } from './markStore';
-import { markRegionIds } from './markInfo';
-import { regionKey } from '../gen/edits';
+import { markRegionIds, markShapeOf } from './markInfo';
+import './marks.css';
 
 /** 这一帧的换算(舞台坐标)+ 舞台在屏幕上的位置 + 指纹(视图没变 = 指纹不变) */
 export interface MarkView extends MarkFrame {
@@ -83,15 +82,8 @@ export function MarkLayer({ civ, world, api, hidden }: { civ: Civ | null; world:
   const { sel } = useSelection();
   const cvRef = useRef<HTMLCanvasElement>(null);
   const marks = edits.marks;
-  const regions = civ?.regions;
-  // 几个州的形状:按州号存(同一份州划分只算一次)
-  const shapes = useMemo(() => new Map<string, AreaShape | null>(), [regions, world]);
-  const shapeOf = (ids: number[]): AreaShape | null => {
-    if (!regions || !ids.length) return null;
-    const key = ids.join(',');
-    if (!shapes.has(key)) shapes.set(key, markAreaShape(world.mesh, regions, ids));
-    return shapes.get(key)!;
-  };
+  // 几个州的形状(同一份州划分、同一串州只算一次)
+  const shapeOf = (ids: number[]): AreaShape | null => (civ ? markShapeOf(world, civ, ids) : null);
   const selId = sel?.kind === 'mark' ? sel.id : null;
   const draft = ui.draft;
   const areaEdit = !!draft && draft.scope === 'regions';

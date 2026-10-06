@@ -25,13 +25,14 @@ import { drawCivOverlay, type CivShow, type CivStyle } from './civ/overlay';
 import { civLabelChars, civLabelItems, civMapLayer, labelViewExtras } from './civ/labels';
 import { drawSettlementMarks, SYMBOL_BOX, SYMBOL_GROW, type SettlementKind } from './civ/settlements';
 import { drawWarfare, warsShown } from './civ/warfare';
-import { drawPlacedLabels, placeMap, type LabelMark, type LabelView, type PlacedMark } from './labels/draw';
+import { REF_MAP_CSS, drawPlacedLabels, placeMap, type LabelMark, type LabelView, type PlacedMark } from './labels/draw';
 import { ensureFonts, familyFor, fontCss } from './labels/fonts';
 import { capitalAt, polityAlive, polityName } from '../gen/civ/growth';
 import { ownersAt } from '../gen/civ/timeline';
 import { KIND_INFO, cultureLabel } from '../gen/civ/display';
 import { faithRows } from '../gen/civ/religionText';
-import { drawGraticule, labelProjection, mapProj, outlineOnCanvas, pageColor, projector, reprojectImage, type MapProj, type ProjectionId } from './projection';
+import { drawGraticule, labelProjection, mapProj, outlineOnCanvas, pageColor, projectWorld, projector, reprojectImage, type MapProj, type ProjectionId } from './projection';
+import { NAME_ZOOM, canvasMeasure, drawMarks, layoutMarks, type MarkFrame, type MarkItem } from './marks';
 import { drawTerrainProjected } from './detail';
 import { compassSpot, drawProjFrame } from './fantasy';
 
@@ -326,6 +327,40 @@ export async function drawMapLabels(ctx: CanvasRenderingContext2D, p: ExportMapP
   drawSettlementMarks(ctx, placed.marks, p.style);
   drawPlacedLabels(ctx, placed.labels, lv);
   return { labels: placed.labels.length, marks: placed.marks.length };
+}
+
+/**
+ * 作者标记(导出菜单里选了"带上"):和屏幕上同样的图钉、铺色、名字,都写名字、不合并;items = 这一年有的(几个州的形状算好)。
+ * 图钉和字跟着地名一样按图片宽放大(地图按 REF_MAP_CSS 宽显示时就是屏幕上的大小)。返回画了几个
+ */
+export function drawExportMarks(ctx: CanvasRenderingContext2D, p: Pick<ExportMapParams, 'world' | 'center' | 'projection'>, S: ExportScale, items: readonly MarkItem[]): number {
+  if (!items.length) return 0;
+  const W = p.world.width;
+  const H = p.world.height;
+  // 换算:世界坐标 → 摆放用的坐标(÷ f),画的时候整体放大 S × f
+  const f = Math.sqrt(W / REF_MAP_CSS);
+  const mp = exportProj(p);
+  const left = mp ? 0 : exportLeft(p);
+  const frame: MarkFrame = mp
+    ? {
+        pt: (wx, wy) => {
+          const [x, y] = projectWorld(mp, wx, wy);
+          return [x / f, y / f];
+        },
+        period: 0,
+        win: [0, W / f],
+        w: W / f,
+        h: H / f,
+        k: NAME_ZOOM,
+        cut: (0.4 * W) / f,
+      }
+    : { pt: (wx, wy) => [(wx - left) / f, wy / f], period: wrapOf(p.world) ? W / f : 0, win: [0, W / f], w: W / f, h: H / f, k: NAME_ZOOM, cut: 0 };
+  ctx.save();
+  ctx.scale(S * f, S * f);
+  const layout = layoutMarks(items, frame, { names: true, measure: canvasMeasure(ctx) });
+  drawMarks(ctx, layout, S * f);
+  ctx.restore();
+  return layout.pins.length + layout.areas.length;
 }
 
 // ---------------------------------------------------------------------------

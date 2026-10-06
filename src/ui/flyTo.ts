@@ -9,7 +9,7 @@ import type { World } from '../gen/world';
 import type { Civ } from '../gen/civ/types';
 import { capitalAt } from '../gen/civ/growth';
 import { ownersAt, type Owners } from '../gen/civ/timeline';
-import { faithKey, placeKeyOf, polityKey, regionKey, settlementKey } from '../gen/edits';
+import { faithKey, placeKeyOf, polityKey, regionKey, regionOfKey, settlementKey, type AuthorMark } from '../gen/edits';
 import { projectWorld, projectWorldNear, type MapProj } from '../render/projection';
 import { clampCurved, clampSphere, stageToWorld, type MapView, type StageBox } from './mapWrap';
 import type { MapSelection } from './civView';
@@ -170,6 +170,26 @@ export function selectionFocus(world: World, civ: Civ, selIn: MapSelection, year
   return focusOf(W, H, b, (b[0] + b[2]) / 2, (b[1] + b[3]) / 2);
 }
 
+/** 作者标记在地图上的位置和范围:一个点 = 那一点;几个州 = 这几州的外接框(州键对不上的不算);都没有 = null */
+export function markFocus(world: World, civ: Civ, m: Pick<AuthorMark, 'at' | 'regions'>): Focus | null {
+  const W = world.width;
+  const H = world.height;
+  if (m.at) return focusOf(W, H, null, m.at[0], m.at[1]);
+  const R = civ.regions;
+  const ids: number[] = [];
+  for (const k of m.regions ?? []) {
+    const r = regionOfKey(k, R.of);
+    if (r >= 0 && r < R.count) ids.push(r);
+  }
+  if (!ids.length) return null;
+  const ref = world.mesh.x[R.seat[ids[0]]];
+  function* cells() {
+    for (const r of ids) for (let k = R.cellStart[r]; k < R.cellStart[r + 1]; k++) yield R.cells[k];
+  }
+  const b = cellsBox(world, cells(), ref);
+  return b ? focusOf(W, H, b, (b[0] + b[2]) / 2, (b[1] + b[3]) / 2) : null;
+}
+
 /** 飞到哪:选中的东西(按种类定缩放)或整张图 */
 export interface FlyGoal {
   focus: Focus | null;
@@ -230,8 +250,8 @@ function goalZoom(goal: FlyGoal, k0: number, fit: number): number {
   }
 }
 
-/** 州、地理实体只平移:已经在看得见的地方(不在面板底下、不贴边)就不动 */
-const panOnly = (goal: FlyGoal) => goal.kind === 'region' || goal.kind === 'place';
+/** 州、地理实体、作者标记只平移:已经在看得见的地方(不在面板底下、不贴边)就不动 */
+const panOnly = (goal: FlyGoal) => goal.kind === 'region' || goal.kind === 'place' || goal.kind === 'mark';
 const inside = (x: number, y: number, [l, t, r, b]: [number, number, number, number]) => x >= l + 60 && x <= r - 60 && y >= t + 30 && y <= b - 30;
 
 /**
