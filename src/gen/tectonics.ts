@@ -506,6 +506,12 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
   });
   const closed = new Uint8Array(n);
   const elen = geo.edgeLengths();
+  // 噪声让生长代价忽高忽低:板块沿"低谷"蔓延,边界弯弯曲曲而不是圆弧(每个地块的代价系数只和位置有关,先算好)
+  const growW = new Float64Array(n);
+  for (let j = 0; j < n; j++) {
+    const nv = 0.5 + 0.5 * rough.at(j, fr);
+    growW[j] = 0.12 + 2.4 * nv * nv;
+  }
   while (heap.size) {
     const i = heap.pop();
     if (closed[i]) continue;
@@ -514,10 +520,7 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
     for (let k = adjStart[i]; k < adjStart[i + 1]; k++) {
       const j = adj[k];
       if (closed[j]) continue;
-      // 噪声让生长代价忽高忽低:板块沿"低谷"蔓延,边界弯弯曲曲而不是圆弧
-      const nv = 0.5 + 0.5 * rough.at(j, fr);
-      const w = 0.12 + 2.4 * nv * nv;
-      const c = cost[i] + (elen[k] * w) / rate[pk];
+      const c = cost[i] + (elen[k] * growW[j]) / rate[pk];
       if (c < cost[j]) {
         cost[j] = c;
         plate0[j] = pk;
