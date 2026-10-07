@@ -12,7 +12,7 @@
  *   (海边的沙漠),暖流岸边湿热
  */
 import { blurField, type Mesh } from './mesh';
-import { piecewise, subSeed, clamp, smoothstep } from './util';
+import { piecewise, subSeed, clamp, smoothstep, orderByKey } from './util';
 import { geometryOf } from './geometry';
 import type { Currents } from './currents';
 import { round24 } from './civ/rand';
@@ -165,9 +165,7 @@ export function computeClimate(mesh: Mesh, elev: Float32Array, water: Uint8Array
   // 计算顺序:每个 cell 等它的上风邻居都算完再算(拓扑排序)。
   // 风向在风带交界处随纬度转弯,"位置在风向上的投影"就不再是处处一致的先后顺序,
   // 所以投影只用来在万一遇到环路时挑一个先算的。
-  const byKey = new Int32Array(n);
-  for (let i = 0; i < n; i++) byKey[i] = i;
-  byKey.sort((a, b) => key[a] - key[b]);
+  const byKey = orderByKey(key);
   const order = new Int32Array(n);
   const queued = new Uint8Array(n);
   let head = 0;

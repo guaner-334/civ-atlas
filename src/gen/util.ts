@@ -176,6 +176,32 @@ export function piecewise(table: number[], x: number): number {
   return table[table.length - 1];
 }
 
+/**
+ * 0..n−1 按 key 从小到大排的顺序,key 相同的按编号从小到大 —— 和 `下标数组.sort((a, b) => key[a] - key[b])`(稳定排序)
+ * 结果一样,但快得多:每项编成"key 的排序码 × 2^21 + 编号"(53 位以内,双精度里是精确整数),用 Float64Array 自带的数值排序。
+ * key 不能有 NaN;+0 和 −0 算相同(和那个比较函数一样)。超过 2^21 项时照旧用比较函数排
+ */
+export function orderByKey(key: Float32Array): Int32Array {
+  const n = key.length;
+  const order = new Int32Array(n);
+  if (n > ORDER_SPAN) {
+    for (let i = 0; i < n; i++) order[i] = i;
+    return order.sort((a, b) => key[a] - key[b]);
+  }
+  const bits = new Uint32Array(key.buffer, key.byteOffset, n);
+  const code = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    const b = bits[i] === 0x80000000 ? 0 : bits[i]; // −0 当 +0
+    // 32 位浮点的位 → 保序的无符号整数:负数各位取反,正数最高位置 1
+    const u = b & 0x80000000 ? ~b >>> 0 : (b | 0x80000000) >>> 0;
+    code[i] = u * ORDER_SPAN + i;
+  }
+  code.sort();
+  for (let q = 0; q < n; q++) order[q] = code[q] % ORDER_SPAN;
+  return order;
+}
+const ORDER_SPAN = 2 ** 21;
+
 /** 二叉最小堆(id + 优先级),容量自动增长。Dijkstra / Priority-Flood 用。 */
 export class MinHeap {
   ids: Int32Array;
