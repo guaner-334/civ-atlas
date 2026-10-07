@@ -11,6 +11,7 @@
  */
 import type { World } from './gen/world';
 import { rasterize, type Raster } from './gen/raster';
+import { rasterizeWithHelpers } from './gullyPool';
 import type { Civ, Year } from './gen/civ/types';
 import type { CivShow, CivStyle } from './render/civ/overlay';
 import type { LayerId } from './render/layers';
@@ -70,8 +71,8 @@ self.onmessage = async (e: MessageEvent<ExportRequest>) => {
       post({ ok: true, job: 'heightmap', png, info, ms: { raster: t1 - t0, encode: performance.now() - t1 } }, [png.buffer]);
       return;
     }
-    // 沟和山脊只有写实风打光用得着
-    const raster = m.raster ?? rasterize(m.world, m.scale, m.style === 'realistic');
+    // 沟和山脊只有写实风打光用得着(分给帮手线程算)
+    const raster = m.raster ?? (m.style === 'realistic' ? await rasterizeWithHelpers(m.world, m.scale) : rasterize(m.world, m.scale, false));
     const t1 = performance.now();
     const cv = new OffscreenCanvas(raster.w, raster.h);
     const ctx = cv.getContext('2d');
