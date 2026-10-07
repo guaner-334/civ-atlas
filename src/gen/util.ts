@@ -356,22 +356,3 @@ export function tileableFbm(seed: number, size: number, cells: number, octaves: 
   for (let i = 0; i < out.length; i++) out[i] = (out[i] - mean) * inv;
   return out;
 }
-
-/** 在可平铺贴图上双线性采样(坐标以贴图像素为单位,可为任意实数,自动环绕)。size 必须是 2 的幂。 */
-export function sampleTile(tile: Float32Array, size: number, u: number, v: number): number {
-  const m = size - 1;
-  const ui = Math.floor(u);
-  const vi = Math.floor(v);
-  const tx = u - ui;
-  const ty = v - vi;
-  const x0 = ui & m;
-  const x1 = (ui + 1) & m;
-  const r0 = (vi & m) * size;
-  const r1 = ((vi + 1) & m) * size;
-  const a = tile[r0 + x0];
-  const b = tile[r0 + x1];
-  const c = tile[r1 + x0];
-  const d = tile[r1 + x1];
-  const top = a + (b - a) * tx;
-  return top + (c + (d - c) * tx - top) * ty;
-}
