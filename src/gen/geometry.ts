@@ -97,6 +97,8 @@ export interface Geometry {
   dist(i: number, j: number): number;
   /** 距离的平方(同上,不开方) */
   dist2(i: number, j: number): number;
+  /** 每条邻接边的长度,和 mesh.adj 一一对应:第 k 项 = dist(i, adj[k])(i 是这条边的起点;按网格只算一次,查表和现算逐位相同) */
+  edgeLengths(): Float64Array;
   /** 地块 i 到世界坐标点 (px, py) 的距离 */
   distTo(i: number, px: number, py: number): number;
   /** 两个世界坐标点的距离 */
@@ -1011,6 +1013,15 @@ class SphereGeometry implements Geometry {
     const dy = p[a + 1] - p[b + 1];
     const dz = p[a + 2] - p[b + 2];
     return this.R * this.R * (dx * dx + dy * dy + dz * dz);
+  }
+  private edges: Float64Array | null = null;
+  edgeLengths(): Float64Array {
+    if (this.edges) return this.edges;
+    // dist(i, j) 和 dist(j, i) 逐位相同(差取反、平方一样),哪头当起点都行
+    const { n, adjStart, adj } = this.mesh;
+    const out = new Float64Array(adj.length);
+    for (let i = 0; i < n; i++) for (let k = adjStart[i]; k < adjStart[i + 1]; k++) out[k] = this.dist(i, adj[k]);
+    return (this.edges = out);
   }
   distTo(i: number, px: number, py: number): number {
     const q = this.ptA.set(px, py);

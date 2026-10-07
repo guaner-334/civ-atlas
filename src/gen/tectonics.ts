@@ -101,7 +101,7 @@ export function distanceField(
   stats?: DistanceFieldStats,
 ) {
   const { n, adjStart, adj } = mesh;
-  const geo = geometryOf(mesh);
+  const elen = geometryOf(mesh).edgeLengths();
   const dist = new Float64Array(n).fill(Infinity);
   const str = new Float32Array(n);
   const src = new Int32Array(n).fill(-1);
@@ -125,7 +125,7 @@ export function distanceField(
     }
     for (let k = adjStart[i]; k < adjStart[i + 1]; k++) {
       const j = adj[k];
-      const nd = d + geo.dist(j, i);
+      const nd = d + elen[k];
       if (nd < dist[j]) {
         dist[j] = nd;
         str[j] = str[i];
@@ -505,6 +505,7 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
     heap.push(s, 0);
   });
   const closed = new Uint8Array(n);
+  const elen = geo.edgeLengths();
   while (heap.size) {
     const i = heap.pop();
     if (closed[i]) continue;
@@ -516,7 +517,7 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
       // 噪声让生长代价忽高忽低:板块沿"低谷"蔓延,边界弯弯曲曲而不是圆弧
       const nv = 0.5 + 0.5 * rough.at(j, fr);
       const w = 0.12 + 2.4 * nv * nv;
-      const c = cost[i] + (geo.dist(j, i) * w) / rate[pk];
+      const c = cost[i] + (elen[k] * w) / rate[pk];
       if (c < cost[j]) {
         cost[j] = c;
         plate0[j] = pk;
