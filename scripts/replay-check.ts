@@ -467,7 +467,8 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
   if (!(k1 > k0 * 1.3 && Math.abs(k2 - k0) < 0.01)) errs.push(`快捷键:+ − 没有缩放(${k0} → ${k1} → ${k2})`);
   if (l2 !== '民族' || l1 !== '政区') errs.push(`快捷键:1 2 没有换图层(${l2}、${l1})`);
   if (!searchFocused || typed !== '2' || lTyped !== '政区') errs.push(`快捷键:/ 没有跳进搜索框,或在框里打字换了图层(${searchFocused}、「${typed}」、${lTyped})`);
-  if (!['时间', '地图', '世界', '播放 / 暂停', '撤销 / 重做', 'Ctrl+S'].every((w) => help.includes(w)) || playUnderHelp || !helpClosed)
+  // 修饰键苹果电脑上写成 ⌘(⌘S、⌘\),别的系统写成 Ctrl+(见 src/ui/shortcuts.ts 的 keyLabel)
+  if (!['时间', '地图', '世界', '播放 / 暂停', '撤销 / 重做'].every((w) => help.includes(w)) || !/Ctrl\+S|⌘S/.test(help) || playUnderHelp || !helpClosed)
     errs.push(`快捷键:? 一览不对,或开着时空格还在播放 / Esc 收不起(${help.slice(0, 60)};${playUnderHelp};${helpClosed})`);
   if (!saveMenu || savePrevented !== true) errs.push(`快捷键:Ctrl+S 没有打开存档菜单 / 没拦下浏览器的存网页(${saveMenu}、${savePrevented})`);
   if (!/民族\s*2/.test(tip)) errs.push(`快捷键:"民族"按钮的提示框没写键(${tip})`);
@@ -475,7 +476,7 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
   if (!city) errs.push('快捷键:没找到能点的城');
   else if (named.join() !== 'true,false,true,true' || undo !== '已撤销改名' || redo !== '已重做改名')
     errs.push(`快捷键:改名后 Ctrl+Z / Ctrl+Shift+Z 不对(${named.join('/')};${undo};${redo})`);
-  if (!/收起侧栏\s*Ctrl\+\\/.test(tipSide)) errs.push(`快捷键:收起按钮的提示框没写键(${tipSide})`);
+  if (!/收起侧栏\s*(Ctrl\+|⌘)\\/.test(tipSide)) errs.push(`快捷键:收起按钮的提示框没写键(${tipSide})`);
   if (!fold1 || fold2) errs.push(`快捷键:Ctrl+\\ 没有收起 / 展开左边的卡片(${fold1}、${fold2})`);
   if (fold3 || !searchAfterFold) errs.push(`快捷键:卡片收起着按 / ,应先展开再跳进搜索框(${fold3}、${searchAfterFold})`);
   await page.evaluate(() => localStorage.clear());
