@@ -218,6 +218,7 @@ import {
   terrainDown,
   terrainMove,
   terrainUp,
+  terrainCancel,
   useTerrainTool,
   type TerrainStatus,
 } from './TerrainTools';
@@ -616,6 +617,7 @@ export function App() {
   const regenNote = useRef<RewriteNote | null>(null);
   /** 地图上现在这个世界带着的地形修改(覆盖层据此标出还在生成的那几处) */
   const [shownTerrain, setShownTerrain] = useState<readonly TerrainOp[]>(EMPTY_EDITS.terrain);
+  const [shownSketch, setShownSketch] = useState<SketchEdit | undefined>(undefined);
   const [terrainStatus, setTerrainStatus] = useState<TerrainStatus>({ busy: false });
   const terrainTool = useTerrainTool();
   // 手机:改地形、回放世界形成都要看地图 —— 拉到顶的世界卡片先收起来(两样都是从卡片里的"地形"那一组点开的)
@@ -876,6 +878,7 @@ export function App() {
       regenRef.current = null;
       setTerrainStatus({ busy: false });
       setShownTerrain(terrain);
+      setShownSketch(t.edits.sketch);
       setTerrainTool({ on: false });
       send({ type: 'generate', id, params: p, scale: 1, terrain: [...terrain], sketch: t.edits.sketch });
       // 换世界:改名、干预、选中都属于旧世界,一起作废(先停掉旧世界的自动存,清空不算"改回默认";新世界先按"没有干预"生成)
@@ -1008,6 +1011,7 @@ export function App() {
     rg.arrived = performance.now() - rg.t0;
     lastReady.current = { world, civ: rc };
     setShownTerrain(rg.terrain);
+    setShownSketch(rg.sketch);
     const e = getEdits();
     if (sameTerrain(e.terrain, rg.terrain) && sameSketch(e.sketch, rg.sketch)) updateCheck(worldCheck(world));
     const lostNames = Object.keys(e.names).filter((k) => !resolveKey(rc, k)).length;
@@ -1327,16 +1331,17 @@ export function App() {
     const attached = cur?.id === t.id;
     return { title: attached ? cur.title : t.title, pristine: attached ? cur.pristine : t.pristine, edits: attached ? getEdits() : t.edits };
   };
-  /** 新建中换种子:另一颗星球,改过的地形作废、草图留着;没起名、参数也是默认的、没画草图 = 又算没动过(不存) */
+  /** 新建中换种子:另一颗星球,草图留着(连同放的火山湖河);没画草图时放的那几处作废;没起名、参数也是默认的、没画草图 = 又算没动过(不存) */
   const draftSeed = (seed: number) => {
     const t = draftNow();
     if (!t || t.base) return;
     const st = draftState(t);
-    // 换一颗:改过的地形不带过去(草图带过去,照它长出新的山河),助手的对话(说的是原来那颗)也清掉
+    // 换一颗:草图带过去,照它长出新的山河;陆地海洋是照草图长的,放的火山湖河也还对得上,一起带过去。
+    // 没画草图 = 整颗星球都换了,放的那几处是照原来的地形放的,不带过去。助手的对话(说的是原来那颗)也清掉
     newConversation();
     const sketch = st.edits.sketch;
     const plain = !st.title && !sketch && worldKey({ ...t.params, seed: 0 }) === worldKey({ ...DEFAULT_PARAMS, seed: 0 });
-    const edits = sketch ? { ...EMPTY_EDITS, sketch } : EMPTY_EDITS;
+    const edits = sketch ? { ...EMPTY_EDITS, sketch, terrain: st.edits.terrain } : EMPTY_EDITS;
     generate({ ...t, params: { ...t.params, seed }, edits, saved: undefined, title: st.title, pristine: st.pristine || plain, view: undefined, from: undefined, save: undefined });
   };
   /** 新建中调参数:改过的地形留着(按新参数重新生成) */
@@ -2301,9 +2306,12 @@ export function App() {
     stopFly();
     if (getGlobeOn()) return; // 地球仪自己管拖动
     const touch = e.pointerType === 'touch';
-    // 第二根手指:开始捏合(改地形正在画线时不管)
+    // 第二根手指:开始捏合(编辑地形刚按下第一根手指就跟上第二根 = 想捏合,那一笔不算;已经画了一阵的不管)
     if (touch && touches.current.size >= 2) {
-      if (terrainStroke.current) return;
+      if (terrainStroke.current) {
+        if (!terrainCancel()) return;
+        terrainStroke.current = false;
+      }
       if (touches.current.size === 2) startPinch();
       return;
     }
@@ -3165,7 +3173,7 @@ export function App() {
             )}
             <canvas ref={overlayRef} className={`overlay ${replayOn && replay ? 'show' : ''}`} />
             <canvas ref={overlayCopyRef} className={`overlay wrap-copy ${replayOn && replay ? 'show' : ''}`} />
-            {data && !curved && <TerrainOverlay width={data.world.width} height={data.world.height} shown={shownTerrain} wrap={wrapW} />}
+            {data && !curved && <TerrainOverlay width={data.world.width} height={data.world.height} shown={shownTerrain} shownSketch={shownSketch} wrap={wrapW} />}
           </div>
         </div>
         {/* 文字层(CivLayer 放进来);回放世界形成时藏起来(回放画面盖住文明层,字也不露出来) */}

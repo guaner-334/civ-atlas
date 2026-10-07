@@ -81,7 +81,7 @@ describe('涂到格子上', () => {
       ],
     })!;
     expect(g.grid).toHaveLength(SKETCH_W * SKETCH_H);
-    expect(g.coast).toBe(1);
+    expect(g.coast).toBe(0.6);
     expect(at(g, 560, 400)).toBe(SKETCH_LAND);
     expect(at(g, 560, 425)).toBe(SKETCH_LAND);
     expect(at(g, 560, 445)).toBe(SKETCH_NONE);
@@ -157,14 +157,16 @@ describe('新的几支笔', () => {
     expect([100, 200, 300, 400, 500, 600].map((x) => at(g, x, 300))).toEqual([SKETCH_HILLS, SKETCH_PLATEAU, SKETCH_SHELF, SKETCH_ISLES, SKETCH_MOUNTAIN, SKETCH_MOUNTAIN + 2]);
   });
 
-  it('清理:高低只留给山地、只留 0 和 2;填满至少要三个点;海岸线夹到 [0, 1]、1 不存', () => {
+  it('清理:高低只留给山地、只留 0 和 2;填满至少要三个点;海岸线夹到 [0, 1]、默认的适中不存', () => {
     expect(cleanSketchStroke({ kind: 'land', r: 8, pts: [1, 1], h: 2 })).toEqual({ kind: 'land', r: 8, pts: [1, 1] });
     expect(cleanSketchStroke({ kind: 'mountain', r: 8, pts: [1, 1], h: 1 })).toEqual({ kind: 'mountain', r: 8, pts: [1, 1] });
     expect(cleanSketchStroke({ kind: 'mountain', r: 8, pts: [1, 1], h: 2 })?.h).toBe(2);
     expect(cleanSketchStroke({ kind: 'land', r: 8, pts: [1, 1, 5, 5], fill: 1 })?.fill).toBeUndefined();
     expect(cleanSketchStroke({ kind: 'land', r: 8, pts: [1, 1, 5, 5, 9, 1], fill: 1 })?.fill).toBe(1);
     const st = [{ kind: 'land', r: 8, pts: [1, 1] }];
-    expect(cleanSketch({ rest: 'auto', coast: 1, strokes: st })?.coast).toBeUndefined();
+    expect(cleanSketch({ rest: 'auto', coast: 0.6, strokes: st })?.coast).toBeUndefined();
+    expect(cleanSketch({ rest: 'auto', coast: 1, strokes: st })?.coast).toBe(1);
+    expect(cleanSketch({ rest: 'auto', strokes: st })?.coast).toBeUndefined();
     expect(cleanSketch({ rest: 'auto', coast: -3, strokes: st })?.coast).toBe(0);
     expect(cleanSketch({ rest: 'auto', coast: 0.6123, strokes: st })?.coast).toBe(0.61);
     expect(sketchGrid({ rest: 'auto', coast: 0.3, strokes: [{ kind: 'land', r: 8, pts: [1, 300] }] })?.coast).toBe(0.3);

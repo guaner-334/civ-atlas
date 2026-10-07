@@ -37,7 +37,7 @@ export const SKETCH_MOUNTAIN = 7;
 /** 一张草图涂成的样子(生成用):格子图 SKETCH_W × SKETCH_H 格(逐行从北往南、每行从西往东)+ 海岸线参数 */
 export interface Sketch {
   grid: Uint8Array;
-  /** 海岸线:0 贴着画 – 1 自然(SketchEdit.coast) */
+  /** 海岸线:0 贴着画 – 1 曲折(SketchEdit.coast) */
   coast: number;
 }
 
@@ -59,7 +59,7 @@ export interface SketchStroke {
 export interface SketchEdit {
   /** 没涂的地方:'auto' = 照旧由程序定,'sea' = 都是海 */
   rest: 'auto' | 'sea';
-  /** 海岸线:0 = 贴着画的走,1 = 自然曲折(不给 = 1) */
+  /** 海岸线:0 = 贴着画的走,1 = 曲折,像真实的海岸(不给 = SKETCH_COAST 适中) */
   coast?: number;
   /** 笔画,按先后 */
   strokes: SketchStroke[];
@@ -70,6 +70,8 @@ export const SKETCH_MAX_STROKES = 600;
 export const SKETCH_MAX_PTS = 2000;
 /** 笔的半径范围(世界坐标) */
 export const SKETCH_R: readonly [number, number] = [2, 160];
+/** 海岸线的默认值(适中) */
+export const SKETCH_COAST = 0.6;
 
 const KINDS: readonly SketchKind[] = ['land', 'hills', 'mountain', 'plateau', 'shelf', 'sea', 'isles', 'erase'];
 const VALUE: Record<SketchKind, number> = {
@@ -88,9 +90,9 @@ function valueOf(s: SketchStroke): number {
   return s.kind === 'mountain' ? SKETCH_MOUNTAIN + (s.h ?? 1) : VALUE[s.kind];
 }
 
-/** 草图的海岸线参数(0 贴着画 – 1 自然) */
+/** 草图的海岸线参数(0 贴着画 – 1 曲折) */
 export function sketchCoast(edit: SketchEdit | null | undefined): number {
-  return edit?.coast ?? 1;
+  return edit?.coast ?? SKETCH_COAST;
 }
 
 // ---------------------------------------------------------------------------
@@ -136,7 +138,7 @@ export function cleanSketchStroke(x: unknown): SketchStroke | null {
 
 /**
  * 清理一份草图:不是对象的 = null;笔画逐笔过 cleanSketchStroke(不合格的丢掉,最多 SKETCH_MAX_STROKES 笔);
- * rest 不认识的当 'auto';coast 夹到 [0, 1] 保留两位小数(1 是默认,不存)。
+ * rest 不认识的当 'auto';coast 夹到 [0, 1] 保留两位小数(SKETCH_COAST 是默认,不存)。
  * 一笔也没有、没涂的又交给程序 = null(和没画一样)。本来就合格的原样返回
  */
 export function cleanSketch(x: unknown): SketchEdit | null {
@@ -144,11 +146,11 @@ export function cleanSketch(x: unknown): SketchEdit | null {
   const o = x as Record<string, unknown>;
   const rest = o.rest === 'sea' ? 'sea' : 'auto';
   const c0 = num(o.coast);
-  const coast = c0 === null ? 1 : Math.round(clamp(c0, 0, 1) * 100) / 100;
+  const coast = c0 === null ? SKETCH_COAST : Math.round(clamp(c0, 0, 1) * 100) / 100;
   const list = Array.isArray(o.strokes) ? (o.strokes as unknown[]) : [];
   const strokes: SketchStroke[] = [];
   let same = rest === o.rest && list === o.strokes && list.length <= SKETCH_MAX_STROKES;
-  same = same && (coast === 1 ? !('coast' in o) : coast === o.coast) && Object.keys(o).length === (coast === 1 ? 2 : 3);
+  same = same && (coast === SKETCH_COAST ? !('coast' in o) : coast === o.coast) && Object.keys(o).length === (coast === SKETCH_COAST ? 2 : 3);
   for (const s of list) {
     if (strokes.length >= SKETCH_MAX_STROKES) break;
     const v = cleanSketchStroke(s);
@@ -157,7 +159,7 @@ export function cleanSketch(x: unknown): SketchEdit | null {
   }
   if (!strokes.length && rest === 'auto') return null;
   if (same) return x as SketchEdit;
-  return coast === 1 ? { rest, strokes } : { rest, coast, strokes };
+  return coast === SKETCH_COAST ? { rest, strokes } : { rest, coast, strokes };
 }
 
 /** 两份草图是不是一样(逐笔逐字段比;都没有也算一样) */

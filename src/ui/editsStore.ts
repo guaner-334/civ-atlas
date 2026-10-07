@@ -321,7 +321,7 @@ export function clearTerrain() {
   put({ ...state, terrain: EMPTY_EDITS.terrain });
 }
 
-// ---- 草图(新建世界时「画大陆和海」;格式见 gen/edits.ts 文件头"地形草图") ----
+// ---- 草图(新建世界时「编辑地形」涂的;格式见 gen/edits.ts 文件头"地形草图") ----
 
 /** 把草图换成 next(清理过;一笔没有、没涂的又交给程序 = 去掉这个字段)。App 看到草图变了就在后台照新的草图重新生成 */
 export function putSketch(next: SketchEdit | null) {
@@ -331,12 +331,13 @@ export function putSketch(next: SketchEdit | null) {
   put(c ? { ...rest, sketch: c } : rest);
 }
 
-/** 草图:加一笔(清理过的;不合格的、已满 SKETCH_MAX_STROKES 笔的不加)。返回是否加上了 */
-export function addSketchStroke(stroke: SketchStroke): boolean {
+/** 草图:加一笔(清理过的;不合格的、已满 SKETCH_MAX_STROKES 笔的不加)。还没有草图时新开一张,海岸线用 coast(不给 = 默认)。返回是否加上了 */
+export function addSketchStroke(stroke: SketchStroke, coast?: number): boolean {
   const c = cleanSketchStroke(stroke);
   const now = state.sketch;
   if (!c || (now?.strokes.length ?? 0) >= SKETCH_MAX_STROKES) return false;
-  putSketch({ ...(now ?? { rest: 'auto' }), strokes: [...(now?.strokes ?? []), c] });
+  const base: SketchEdit = now ?? (coast === undefined ? { rest: 'auto', strokes: [] } : { rest: 'auto', coast, strokes: [] });
+  putSketch({ ...base, strokes: [...base.strokes, c] });
   return true;
 }
 
@@ -359,7 +360,7 @@ export function setSketchRest(rest: SketchEdit['rest']) {
   putSketch({ ...(now ?? { strokes: [] }), rest });
 }
 
-/** 草图:海岸线贴着画(0)还是自然(1) */
+/** 草图:海岸线贴着画(0)、适中(SKETCH_COAST)还是曲折(1) */
 export function setSketchCoast(coast: number) {
   const now = state.sketch;
   if (sketchCoast(now) === coast) return;
