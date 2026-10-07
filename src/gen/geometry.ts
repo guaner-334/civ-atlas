@@ -469,21 +469,56 @@ function sphereDelaunay(xyz: Float32Array): { triangles: Uint32Array; adjStart: 
   }
   // 邻接(CSR):平面邻居 + 凸包上的点多一个邻居 p0
   const onHull = new Uint8Array(n - 1);
-  for (let h = 0; h < hull.length; h++) onHull[hull[h]] = 1;
+  const hullIndex = new Int32Array(n - 1).fill(-1);
+  for (let h = 0; h < hull.length; h++) {
+    onHull[hull[h]] = 1;
+    hullIndex[hull[h]] = h;
+  }
   const adjStart = new Int32Array(n + 1);
-  const tmp: number[] = [];
+  // 闭合球面三角网的邻接总数是 6n − 12,先按这么多开,不够再加倍
+  let adj = new Int32Array(6 * n);
+  let len = 0;
+  const push = (j: number) => {
+    if (len === adj.length) {
+      const a = new Int32Array(2 * adj.length);
+      a.set(adj);
+      adj = a;
+    }
+    adj[len++] = j;
+  };
+  // 平面上点 li 的邻居:和 del.neighbors(li) 同样的先后(绕着这个点沿半边走一圈;凸包上的点最后补上凸包上的下一个点),
+  // 直接走省掉生成器的开销。所有点共线的退化情况照旧用 del.neighbors
+  const { inedges, halfedges, triangles: dt } = del;
+  const collinear = (del as unknown as { collinear?: unknown }).collinear;
   for (let i = 0; i < n; i++) {
-    adjStart[i] = tmp.length;
+    adjStart[i] = len;
     if (i === p0) {
-      for (let h = 0; h < hull.length; h++) tmp.push(back[hull[h]]);
+      for (let h = 0; h < hull.length; h++) push(back[hull[h]]);
       continue;
     }
     const li = local[i];
-    for (const j of del.neighbors(li)) tmp.push(back[j]);
-    if (onHull[li]) tmp.push(p0);
+    if (collinear) {
+      for (const j of del.neighbors(li)) push(back[j]);
+    } else if (inedges[li] !== -1) {
+      const e0 = inedges[li];
+      let e = e0;
+      do {
+        const q = dt[e];
+        push(back[q]);
+        e = e % 3 === 2 ? e - 2 : e + 1;
+        if (dt[e] !== li) break;
+        e = halfedges[e];
+        if (e === -1) {
+          const h = hull[(hullIndex[li] + 1) % hull.length];
+          if (h !== q) push(back[h]);
+          break;
+        }
+      } while (e !== e0);
+    }
+    if (onHull[li]) push(p0);
   }
-  adjStart[n] = tmp.length;
-  return { triangles, adjStart, adj: Int32Array.from(tmp) };
+  adjStart[n] = len;
+  return { triangles, adjStart, adj: adj.slice(0, len) };
 }
 
 /**
