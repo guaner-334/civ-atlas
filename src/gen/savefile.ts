@@ -315,7 +315,10 @@ export function makeSave(
   const ai = aiNameKeys(edits);
   if (ai.length) save.edits.aiNames = Object.fromEntries(ai.map((k) => [k, { ...edits.aiNames![k] }]));
   // 草图:画了才写
-  if (edits.sketch) save.edits.sketch = { rest: edits.sketch.rest, strokes: edits.sketch.strokes.map((x) => ({ ...x, pts: x.pts.slice() })) };
+  if (edits.sketch) {
+    const { rest, coast, strokes } = edits.sketch;
+    save.edits.sketch = { rest, ...(coast !== undefined ? { coast } : {}), strokes: strokes.map((x) => ({ ...x, pts: x.pts.slice() })) };
+  }
   // 作者标记:有才写
   if (edits.marks?.length) save.edits.marks = edits.marks.map(copyMark);
   if (edits.flags && Object.keys(edits.flags).length) save.edits.flags = { ...edits.flags };

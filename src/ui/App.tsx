@@ -2196,6 +2196,8 @@ export function App() {
   const pinch = useRef<{ a: Pt; b: Pt; raf: number } | null>(null);
   /** 改地形正用手指画线(这时第二根手指不捏合) */
   const terrainStroke = useRef(false);
+  /** 正在画的那一笔是哪根手指 / 哪个指针按下的:别的手指的移动、松开不算进这一笔 */
+  const terrainPointer = useRef<number | null>(null);
   /** 这一下手指按下的位置、时刻(松手时判断是不是"点一下");中途多了一根手指就不算 */
   const tapStart = useRef<(Tap & { id: number; multi: boolean }) | null>(null);
   /** 上一下"点一下"(和这一下够近就是双击) */
@@ -2311,6 +2313,7 @@ export function App() {
       if (terrainStroke.current) {
         if (!terrainCancel()) return;
         terrainStroke.current = false;
+        terrainPointer.current = null;
       }
       if (touches.current.size === 2) startPinch();
       return;
@@ -2319,6 +2322,7 @@ export function App() {
     if (!dismissing(e.nativeEvent) && terrainDown(worldAt(e.clientX, e.clientY), e.button)) {
       moved.current = true;
       terrainStroke.current = touch;
+      terrainPointer.current = e.pointerId;
       (e.target as HTMLElement).setPointerCapture(e.pointerId);
       return;
     }
@@ -2551,7 +2555,7 @@ export function App() {
       return;
     }
     const rect = el.getBoundingClientRect();
-    terrainMove(worldAt(e.clientX, e.clientY));
+    if (terrainPointer.current === null || e.pointerId === terrainPointer.current) terrainMove(worldAt(e.clientX, e.clientY));
     let label: ReturnType<typeof pickLabelAt> = null;
     let mh: ReturnType<typeof markHoverAt> = null;
     if (drag.current) {
@@ -2597,6 +2601,9 @@ export function App() {
     }
     // 捏合以后剩下的那根手指:别的手指松开时不结束它的拖动
     if (e.pointerType === 'touch' && drag.current?.touch && touches.current.size > 0) return;
+    // 正在画的那一笔:只认按下它的那根手指松开
+    if (terrainPointer.current !== null && e.pointerId !== terrainPointer.current) return;
+    terrainPointer.current = null;
     terrainUp();
     terrainStroke.current = false;
     drag.current = null;

@@ -29,7 +29,14 @@ export function getEdits(): WorldEdits {
 export function setEdits(next: WorldEdits) {
   past = [];
   future = [];
+  era++;
   put(next);
+}
+
+/** 整个换掉过几次(换了世界、读档):记着"这一笔是什么时候加的"的地方据此作废旧记录 */
+let era = 0;
+export function editsEra(): number {
+  return era;
 }
 
 function put(next: WorldEdits) {

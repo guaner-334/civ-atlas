@@ -315,6 +315,14 @@ describe('存档', () => {
     expect(makeSave(SMALL, EMPTY_EDITS, 'x').edits.sketch).toBeUndefined();
   });
 
+  it('选了海岸线(贴着画 / 曲折)也存进去,读回来一样', () => {
+    for (const coast of [0, 1]) {
+      const save = makeSave(SMALL, { ...EMPTY_EDITS, sketch: { ...edit, coast } }, 'x');
+      const back = parseSave(saveText(save));
+      expect(back.ok && back.save.edits.sketch).toEqual({ ...edit, coast });
+    }
+  });
+
   it('格式不对的笔画跳过并提示', () => {
     const save = makeSave(SMALL, { ...EMPTY_EDITS, sketch: edit }, 'x');
     const raw = JSON.parse(saveText(save));

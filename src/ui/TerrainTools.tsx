@@ -18,7 +18,7 @@ import type { TerrainKind, TerrainOp } from '../gen/edits';
 import { SKETCH_COAST, SKETCH_MAX_PTS, SKETCH_R, sketchCoast, type SketchEdit, type SketchKind, type SketchStroke } from '../gen/sketch';
 import { TERRAIN_MAX_PTS, TERRAIN_PRESETS as PRESETS, isPointKind, sameTerrain } from '../gen/terrainEdits';
 import { Icon, type IconName } from './icons';
-import { addSketchStroke, addTerrainOp, clearSketch, clearTerrain, getEdits, setSketchCoast, setSketchRest, undoSketchStroke, undoTerrainOp, useEdits } from './editsStore';
+import { addSketchStroke, addTerrainOp, clearSketch, clearTerrain, editsEra, getEdits, setSketchCoast, setSketchRest, undoSketchStroke, undoTerrainOp, useEdits } from './editsStore';
 
 // ---------------------------------------------------------------------------
 // 工具状态
@@ -227,7 +227,16 @@ let order: ('s' | 'o')[] = [];
 let redo: Item[] = [];
 let redoAt: { terrain: readonly TerrainOp[]; sketch: SketchEdit | undefined } | null = null;
 
+/** 上面几样记录是哪一次整个换掉修改之后记的(换了世界、读档 = 旧记录作废) */
+let orderEra = -1;
+
 function trimOrder() {
+  if (orderEra !== editsEra()) {
+    orderEra = editsEra();
+    order = [];
+    redo = [];
+    redoAt = null;
+  }
   const e = getEdits();
   let ns = e.sketch?.strokes.length ?? 0;
   let no = e.terrain.length;
@@ -239,11 +248,13 @@ function trimOrder() {
   order = keep.reverse();
 }
 function addStroke(st: SketchStroke) {
+  trimOrder();
   if (!addSketchStroke(st, tool.coast)) return;
   order.push('s');
   redo = [];
 }
 function addOp(op: TerrainOp) {
+  trimOrder();
   if (!addTerrainOp(op)) return;
   order.push('o');
   redo = [];
@@ -272,6 +283,7 @@ export function undoTerrain() {
 }
 /** 重做刚撤掉的那一笔(撤完以后又改了别的 = 不能重做) */
 export function redoTerrain() {
+  trimOrder();
   const e = getEdits();
   if (!canRedo(e.terrain, e.sketch)) return;
   const it = redo.pop()!;

@@ -3,7 +3,8 @@
  * 撤销 / 重做按先后把草图的笔和放的一处混在一起算;全部清除;海岸线的选择在画第一笔前也记着;画了几笔的说法
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { clearEdits, getEdits, putSketch, addTerrainOp } from '../src/ui/editsStore';
+import { clearEdits, getEdits, putSketch, addTerrainOp, setEdits } from '../src/ui/editsStore';
+import { EMPTY_EDITS } from '../src/gen/edits';
 import {
   clearAllTerrain,
   redoTerrain,
@@ -146,6 +147,31 @@ describe('编辑地形:撤销 / 重做 / 全部清除', () => {
     expect(getEdits().terrain).toHaveLength(1);
     undoTerrain();
     expect(getEdits().terrain).toHaveLength(0);
+  });
+
+  it('换了世界(整个换掉修改):上一个世界记的先后作废,撤销按"先撤草图,再撤放的"', () => {
+    drag([
+      [400, 400],
+      [460, 400],
+    ]);
+    setTerrainTool({ tool: 'volcano' });
+    terrainClick([500, 500]);
+    setTerrainTool({ tool: 'land' });
+    // 读档:新世界先放了一处、后画了一笔(记录里没有它们的先后)
+    setEdits({ ...EMPTY_EDITS, sketch: { rest: 'auto', strokes: [{ kind: 'land', r: 20, pts: [100, 100] }] }, terrain: [{ kind: 'lake', pts: [200, 200], r: 16, s: 1 }] });
+    undoTerrain();
+    expect(getEdits().sketch).toBeUndefined();
+    expect(getEdits().terrain).toHaveLength(1);
+    // 上一个世界撤掉的也不能重做到这里
+    setEdits({ ...EMPTY_EDITS });
+    drag([
+      [400, 400],
+      [460, 400],
+    ]);
+    undoTerrain();
+    setEdits({ ...EMPTY_EDITS });
+    redoTerrain();
+    expect(getEdits().sketch).toBeUndefined();
   });
 
   it('全部清除:草图、放的、"都是海"一起清掉', () => {
