@@ -1,6 +1,7 @@
 /// <reference lib="webworker" />
 /**
  * 后台线程:生成世界 + 文明骨架 + 铺像素 + 回放帧 + 带着干预重推文明,不卡界面。
+ * 铺像素里最慢的沟和山脊分给几个帮手线程(gullyWorker.ts;核多的电脑最多 3 个),和推文明同时算。
  * 主线程要生成新世界时如果本线程还在忙,会直接 terminate() 再开一个新的;
  * 回放帧、重推文明这些短活不打断,排在后面(消息按先后处理)。每个线程只需要把手头的活按顺序干完。
  *
@@ -9,7 +10,8 @@
  * 试推演(助手)和重推一样算,只是结果单独交回,主线程不换上它。
  */
 import { generateWorld, type World, type WorldParams } from './gen/world';
-import { rasterize, type Raster } from './gen/raster';
+import { finishGully, gullyHeights, rasterizeDeferred, type GullyJob, type Raster } from './gen/raster';
+import type { GullyRequest, GullyResponse } from './gullyWorker';
 import { buildHistoryFrames, type HistoryFrames } from './gen/history';
 import { generateCiv, civTransferables, planetTempo, type Civ } from './gen/civ';
 import type { Intervention, TerrainOp } from './gen/edits';
@@ -94,20 +96,88 @@ function worldOf(params: WorldParams, terrain?: TerrainOp[], sketch?: SketchEdit
   return last.world;
 }
 
+// ---------------------------------------------------------------------------
+// 帮手线程(gullyWorker.ts):整张主图的沟和山脊分给它们算,本线程同时推文明。
+// 开线程时就起好(生成世界要一秒多,第一次用时早就绪了);起不来(浏览器不支持线程里再开线程)、出了错 = 本线程自己算
+
+const HELPERS = Math.max(0, Math.min(3, (self.navigator?.hardwareConcurrency || 2) - 2));
+let helpers: Worker[] = [];
+let helperSeq = 0;
+const helperWait = new Map<number, (out: Float32Array | null) => void>();
+try {
+  for (let i = 0; i < HELPERS; i++) {
+    const hw = new Worker(new URL('./gullyWorker.ts', import.meta.url), { type: 'module' });
+    hw.onmessage = (e: MessageEvent<GullyResponse>) => {
+      helperWait.get(e.data.id)?.(e.data.out);
+      helperWait.delete(e.data.id);
+    };
+    hw.onerror = () => {
+      // 这个帮手坏了:以后不用它,等着它的那一段作废(本线程自己算)
+      helpers = helpers.filter((x) => x !== hw);
+      for (const f of helperWait.values()) f(null);
+      helperWait.clear();
+    };
+    helpers.push(hw);
+  }
+} catch {
+  helpers = [];
+}
+
+/** 沟和山脊分段交给帮手线程;没有帮手 = null。任何一段出错,整个结果是 null(本线程重算) */
+function gullyInHelpers(job: GullyJob): Promise<Float32Array | null> | null {
+  const hs = helpers.slice();
+  if (!hs.length || job.n < 1000) return null;
+  const parts = hs.map((hw, i) => {
+    const a = Math.floor((job.n * i) / hs.length);
+    const b = Math.floor((job.n * (i + 1)) / hs.length);
+    const id = ++helperSeq;
+    const part = { seed: job.seed, w: job.w, h: job.h, R: job.R, scale: job.scale, idx: job.idx.slice(a, b), ge: job.ge.slice(a, b), gn: job.gn.slice(a, b), amp: job.amp.slice(a, b) };
+    return new Promise<Float32Array | null>((resolve) => {
+      helperWait.set(id, resolve);
+      const req: GullyRequest = { id, job: part };
+      hw.postMessage(req, [part.idx.buffer, part.ge.buffer, part.gn.buffer, part.amp.buffer]);
+    });
+  });
+  return Promise.all(parts).then((outs) => {
+    if (outs.some((o) => !o)) return null;
+    const all = new Float32Array(job.n);
+    let at = 0;
+    for (const o of outs) {
+      all.set(o!, at);
+      at += o!.length;
+    }
+    return all;
+  });
+}
+
+/** 消息按先后一件件处理(生成要等帮手线程,等的时候后面来的消息排着,不插进来) */
+let queue: Promise<void> = Promise.resolve();
 self.onmessage = (e: MessageEvent<WorkerRequest>) => {
   const m = e.data;
+  queue = queue.then(() => handle(m)).catch((err) => {
+    // 和以前同步处理时一样,出错报到线程的 error 事件上
+    setTimeout(() => {
+      throw err;
+    });
+  });
+};
+
+async function handle(m: WorkerRequest): Promise<void> {
   if (m.type !== 'history') takeTempo(m.params, m.sketch, m.tempo);
   if (m.type === 'generate') {
     const t0 = performance.now();
     const world = generateWorld(m.params, (stage, pct) => post({ type: 'progress', id: m.id, stage, pct }), m.terrain, sketchGrid(m.sketch));
     last = { key: keyOf(m.params, m.terrain, m.sketch), world };
+    // 先铺像素(山坡上的沟和山脊交给帮手线程),同时推文明
+    post({ type: 'progress', id: m.id, stage: '铺展地图', pct: 0.93 });
+    const { raster, job } = rasterizeDeferred(world, m.scale);
+    const pending = gullyInHelpers(job);
     // 文明骨架(宜居度、州……)只读 World,之后的文明步骤都在 gen/civ/index.ts 里接
-    post({ type: 'progress', id: m.id, stage: '文明', pct: 0.93 });
+    post({ type: 'progress', id: m.id, stage: '文明', pct: 0.95 });
     const civ = generateCiv(world, { interventions: m.interventions?.length ? m.interventions : undefined, tempo: tempoOf(m.params, m.terrain, m.sketch) });
     if (!m.terrain?.length) rememberTempo(m.params, m.sketch, civ.spreadYears ?? null);
-    post({ type: 'progress', id: m.id, stage: '铺展地图', pct: 0.95 });
-    const raster = rasterize(world, m.scale);
-    const transfer = [raster.elev, raster.temp, raster.precip, raster.water, raster.biome, raster.cell, raster.ice, raster.iceConc, raster.iceTone].map((a) => a.buffer);
+    finishGully(raster, job, (pending && (await pending)) || gullyHeights(job, 0, job.n));
+    const transfer = [raster.elev, raster.temp, raster.precip, raster.water, raster.biome, raster.cell, raster.ice, raster.iceConc, raster.iceTone, raster.gully!].map((a) => a.buffer);
     transfer.push(...civTransferables(civ));
     // 回放快照体积大且主线程用不上,不随世界一起发送
     const { history: _history, ...rest } = world;
@@ -124,4 +194,4 @@ self.onmessage = (e: MessageEvent<WorkerRequest>) => {
     if (m.type === 'resim') post({ type: 'civ', id: m.id, seq: m.seq, civ, ms, tempo }, civTransferables(civ));
     else post({ type: 'trial', id: m.id, tid: m.tid, civ, ms, tempo }, civTransferables(civ));
   }
-};
+}
