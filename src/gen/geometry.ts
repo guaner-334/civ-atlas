@@ -266,40 +266,83 @@ function sideOnMap(fx: number, fy: number): 'n' | 's' | 'e' | 'w' | null {
 
 /**
  * 球面泊松圆盘(Bridson):任意两点弦长 ≥ r(单位球上),候选点在切平面里取再投回球面。
- * 邻居查找用 3D 网格(格子边长 = r,查周围 27 格),格子很稀疏(只有球壳附近有点),存成定长哈希桶
+ *
+ * 邻居查找:每次从活动点 p 出发试 K 个候选点,候选点离 p 不到 2r,能和它冲突(离它不到 r)的点都离 p 不到 3r。
+ * 所以每轮先把 p 周围 3r 以内的点拷出来(near 列表,这一轮新放下的点也加进去),这一轮的候选点只和它们比 ——
+ * 和"每个候选点都去查网格"比出来的结果一样,只是省了大量查格子。
+ * 网格是 3D 粗格子(边长略大于 3r,查周围 27 格),格子很稀疏(只有球壳附近有点),存成定长哈希桶
  * (桶里串成链表,撞桶只是多比几个点的距离,不影响结果)。
  */
-function poissonSphere(r: number, rng: Rng): number[] {
+function poissonSphere(r: number, rng: Rng): Float64Array {
   const r2 = r * r;
   const expect = (4 * Math.PI * 0.66) / r2;
+  // 拷出来的范围比 3r 稍大一点、格子再大一点:浮点舍入不会漏掉边上的点(多拷几个只是多比几次)
+  const reach2 = (3.01 * r) ** 2;
+  const G = 3.02 * r;
   let TB = 1;
-  while (TB < expect * 4) TB <<= 1;
+  while (TB < expect) TB <<= 1;
   const bucket = (a: number, b: number, c: number) => (Math.imul(a, 73856093) ^ Math.imul(b, 19349663) ^ Math.imul(c, 83492791)) & (TB - 1);
   const head = new Int32Array(TB).fill(-1);
-  const xs: number[] = [];
-  const next: number[] = [];
+  let cap = Math.ceil(expect * 1.2) + 64;
+  let xs = new Float64Array(3 * cap);
+  let next = new Int32Array(cap);
+  let count = 0;
   const put = (x: number, y: number, z: number) => {
-    const id = xs.length / 3;
-    xs.push(x, y, z);
-    const k = bucket(Math.floor((x + 1) / r), Math.floor((y + 1) / r), Math.floor((z + 1) / r));
-    next.push(head[k]);
+    if (count === cap) {
+      cap *= 2;
+      const nx = new Float64Array(3 * cap);
+      nx.set(xs);
+      xs = nx;
+      const nn = new Int32Array(cap);
+      nn.set(next);
+      next = nn;
+    }
+    const id = count++;
+    xs[3 * id] = x;
+    xs[3 * id + 1] = y;
+    xs[3 * id + 2] = z;
+    const k = bucket(Math.floor((x + 1) / G), Math.floor((y + 1) / G), Math.floor((z + 1) / G));
+    next[id] = head[k];
     head[k] = id;
     return id;
   };
-  const far = (x: number, y: number, z: number) => {
-    const gx = Math.floor((x + 1) / r);
-    const gy = Math.floor((y + 1) / r);
-    const gz = Math.floor((z + 1) / r);
+  // 当前活动点附近的点(坐标交错存)
+  let near = new Float64Array(3 * 128);
+  let nearLen = 0;
+  const addNear = (x: number, y: number, z: number) => {
+    if (3 * nearLen === near.length) {
+      const nn = new Float64Array(2 * near.length);
+      nn.set(near);
+      near = nn;
+    }
+    near[3 * nearLen] = x;
+    near[3 * nearLen + 1] = y;
+    near[3 * nearLen + 2] = z;
+    nearLen++;
+  };
+  const gather = (px: number, py: number, pz: number) => {
+    nearLen = 0;
+    const gx = Math.floor((px + 1) / G);
+    const gy = Math.floor((py + 1) / G);
+    const gz = Math.floor((pz + 1) / G);
     for (let a = gx - 1; a <= gx + 1; a++)
       for (let b = gy - 1; b <= gy + 1; b++)
         for (let c = gz - 1; c <= gz + 1; c++) {
           for (let id = head[bucket(a, b, c)]; id >= 0; id = next[id]) {
-            const dx = xs[3 * id] - x;
-            const dy = xs[3 * id + 1] - y;
-            const dz = xs[3 * id + 2] - z;
-            if (dx * dx + dy * dy + dz * dz < r2) return false;
+            const x = xs[3 * id];
+            const y = xs[3 * id + 1];
+            const z = xs[3 * id + 2];
+            if ((x - px) ** 2 + (y - py) ** 2 + (z - pz) ** 2 <= reach2) addNear(x, y, z);
           }
         }
+  };
+  const far = (x: number, y: number, z: number) => {
+    for (let k = 0; k < nearLen; k++) {
+      const dx = near[3 * k] - x;
+      const dy = near[3 * k + 1] - y;
+      const dz = near[3 * k + 2] - z;
+      if (dx * dx + dy * dy + dz * dz < r2) return false;
+    }
     return true;
   };
   // 第一个点随机放(不放在极点上:极点处"东"没有定义)
@@ -330,6 +373,7 @@ function poissonSphere(r: number, rng: Rng): number[] {
     const vx = py * uz - pz * uy;
     const vy = pz * ux - px * uz;
     const vz = px * uy - py * ux;
+    gather(px, py, pz);
     let placed = false;
     for (let k = 0; k < K; k++) {
       const a = rng() * TAU;
@@ -345,6 +389,7 @@ function poissonSphere(r: number, rng: Rng): number[] {
       z /= ul;
       if (!far(x, y, z)) continue;
       active.push(put(x, y, z));
+      addNear(x, y, z);
       placed = true;
     }
     if (!placed) {
@@ -352,7 +397,7 @@ function poissonSphere(r: number, rng: Rng): number[] {
       active.pop();
     }
   }
-  return xs;
+  return xs.subarray(0, 3 * count);
 }
 
 /**
