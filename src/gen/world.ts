@@ -150,20 +150,22 @@ export function generateWorld(params: WorldParams, progress: Progress = () => {}
     return w;
   };
   /** 侵蚀高度里"最高峰"取哪个值(换算成米时它对应 peak) */
+  const refVals = new Float32Array(n);
   const refOf = (hh: Float32Array) => {
-    let vals: number[] = [];
+    let m = 0;
     // "最高峰"取样跳过改过的地块:一座大火山不会把全世界的山都压矮(改过的地块太多时照旧全取)。
     // 改过的地块里原来是陆地的,当作排在最低处照样算进名次(skip 块):取第几名和不改地形时一样,
     // 远处的山的海拔和不改时逐位相同(不然少了几块,"第 99.7% 那一名"挪一位,全世界的海拔都跟着差千分之一,别处的州、民族就会变)
     let skip = touchedLand;
-    for (let i = 0; i < n; i++) if (land[i] && !touched?.[i]) vals.push(hh[i]);
-    if (touched && vals.length < 200) {
-      vals = [];
+    for (let i = 0; i < n; i++) if (land[i] && !touched?.[i]) refVals[m++] = hh[i];
+    if (touched && m < 200) {
+      m = 0;
       skip = 0;
-      for (let i = 0; i < n; i++) if (land[i]) vals.push(hh[i]);
+      for (let i = 0; i < n; i++) if (land[i]) refVals[m++] = hh[i];
     }
-    vals.sort((a, b) => a - b);
-    return vals[Math.max(0, Math.min(vals.length - 1, Math.floor((vals.length + skip) * 0.997) - skip))] || 1;
+    // 取第几小的值:hh 本来就是 32 位数,存进 Float32Array 原样不变,用类型化数组自带的数值排序(比带比较函数的快得多)
+    const vals = refVals.subarray(0, m).sort();
+    return vals[Math.max(0, Math.min(m - 1, Math.floor((m + skip) * 0.997) - skip))] || 1;
   };
   /**
    * 侵蚀高度 → 米。pk = 这一刻的"最高峰"(回放时从矮到高长);高原底座(base,米)按同样的进度一起长高
