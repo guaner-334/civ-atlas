@@ -221,3 +221,28 @@ describe('存档', () => {
     expect(bad.ok && bad.warnings).toContain('草图格式不对,已跳过');
   });
 });
+
+describe('当前世界的草图(editsStore)', () => {
+  it('加一笔、撤销一笔、没涂的地方、全部清除;撤销改名时草图留着', async () => {
+    const { addSketchStroke, clearEdits, clearSketch, commitEdits, getEdits, revertEdits, setSketchRest, undoSketchStroke } = await import('../src/ui/editsStore');
+    clearEdits();
+    expect(addSketchStroke({ kind: 'land', r: 32, pts: [100, 200] })).toBe(true);
+    expect(addSketchStroke({ kind: 'lava' as 'land', r: 32, pts: [100, 200] })).toBe(false);
+    expect(getEdits().sketch).toEqual({ rest: 'auto', strokes: [{ kind: 'land', r: 32, pts: [100, 200] }] });
+    setSketchRest('sea');
+    expect(getEdits().sketch?.rest).toBe('sea');
+    undoSketchStroke();
+    // 一笔不剩但选了"都是海":草图还在(整颗星球是海)
+    expect(getEdits().sketch).toEqual({ rest: 'sea', strokes: [] });
+    setSketchRest('auto');
+    expect(getEdits().sketch).toBeUndefined();
+    addSketchStroke({ kind: 'mountain', r: 16, pts: [5, 5] });
+    const before = getEdits();
+    commitEdits({ ...before, names: { 'region:c1': '九州' } });
+    const after = getEdits();
+    expect(revertEdits(after, after, before).sketch).toBe(before.sketch);
+    clearSketch();
+    expect(getEdits().sketch).toBeUndefined();
+    clearEdits();
+  });
+});
