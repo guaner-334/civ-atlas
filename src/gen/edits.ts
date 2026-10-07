@@ -95,6 +95,19 @@
  * 折线的第一个点 x 在 [0, 2048) 里,之后每个点按离上一个点近的那边写(跨 180° 经线的一笔 x 可以超出 [0, 2048),是连着的一笔)。
  * 读进来的列表先过 terrainEdits.ts 的 cleanTerrainOps(种类不认识、坐标不是数的丢掉;x 按上面的规则规整,y、大小、强度夹回范围内)。
  *
+ * ## 地形草图
+ *
+ * WorldEdits.sketch(可选,没有 = 没画):新建世界时「画大陆和海」画的草图 —— 程序照着它在板块上长出大陆、山脉(sketch.ts、
+ * tectonics.ts 的 4b 步),是"星球"的一部分:和地形修改一样从头重新生成,但扩张节拍按照草图长出来的这颗星球标定
+ * (地形修改再套在它上面时,planetTempo 也照草图生成)。没有草图时生成结果和不画一模一样(逐字节)。
+ *
+ * | 字段      | 意思                                                                                         |
+ * |-----------|----------------------------------------------------------------------------------------------|
+ * | rest      | 没涂的地方:`auto` = 照旧由程序定,`sea` = 都是海                                              |
+ * | strokes   | 笔画,按先后:{ kind, r, pts } —— kind 是 `land` 陆地 / `mountain` 山地 / `sea` 海 / `erase` 擦掉(涂回没涂),r 是笔的半径,pts 是经过的点(和"地形修改"的折线同一套世界坐标和规则;一个点 = 点了一下) |
+ *
+ * 读进来的先过 sketch.ts 的 cleanSketch(笔画格式不对的丢掉,最多 SKETCH_MAX_STROKES 笔;一笔也没有、没涂的又交给程序 = 没画)。
+ *
  * ## 作者标记
  *
  * WorldEdits.marks(可选,没有 = 一个也没有):作者钉在地图上的标记("主角的故乡""第三卷打仗的那几州")——
@@ -143,6 +156,7 @@ import type { Civ, Culture, Faith, Place, Polity, Settlement } from './civ/types
 import type { AuthorCharacter } from './characters';
 import { polityRootAt } from './civ/growth';
 import { TERRAIN_H, TERRAIN_W } from './terrainEdits';
+import type { SketchEdit } from './sketch';
 
 /** 生成器版本:生成算法有改动、同种子会得到不同世界时加一(存档读档时核对);加一时在 GENERATOR_CHANGES 里补一条 */
 export const GENERATOR_VERSION = 9;
@@ -207,6 +221,8 @@ export interface WorldEdits {
   interventions: Intervention[];
   /** 地形修改(按先后;见文件头"地形修改") */
   terrain: TerrainOp[];
+  /** 地形草图(见文件头"地形草图");没有 = 没画 */
+  sketch?: SketchEdit;
   /** 作者标记(按添加的先后;见文件头"作者标记");没有 = 一个也没有 */
   marks?: AuthorMark[];
   /** 改过的国旗:稳定键 → 旗的写法(见文件头"改旗");没有 = 一面也没改 */

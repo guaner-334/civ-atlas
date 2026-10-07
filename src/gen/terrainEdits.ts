@@ -74,12 +74,12 @@ export const isPointKind = (k: TerrainKind) => k === 'volcano' || k === 'lake';
 
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 /** 经度(世界 x)取整、取模到 [0, TERRAIN_W) */
-const wrapLon = (x: number) => {
+export const wrapLon = (x: number) => {
   const v = Math.round(x - TERRAIN_W * Math.floor(x / TERRAIN_W));
   return v >= TERRAIN_W ? v - TERRAIN_W : v;
 };
 /** 经度(世界 x)取整,挪到离 ref 最近的那一圈(差不超过半圈) */
-const nearLon = (x: number, ref: number) => Math.round(x - TERRAIN_W * Math.round((x - ref) / TERRAIN_W));
+export const nearLon = (x: number, ref: number) => Math.round(x - TERRAIN_W * Math.round((x - ref) / TERRAIN_W));
 
 /**
  * 清理一处地形修改:种类不认识、坐标 / 大小 / 强度不是有限数、点不够的 = null;

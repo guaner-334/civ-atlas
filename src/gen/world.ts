@@ -6,7 +6,9 @@
  *
  * 作者改过地形(阶段 4,terrain = WorldEdits.terrain)时,修改在对应的那一步套上(gen/terrainEdits.ts):
  * 火山、山脉、抬起 / 沉下在侵蚀之前改抬升场和海陆,湖在"随机洼地"那一步挖;之后照常侵蚀、排水、算气候。
- * 没有地形修改时结果逐字节不变。
+ * 作者画过草图(新建世界时「画大陆和海」,sketch = gen/sketch.ts 的 sketchGrid 涂成的格子图)时,在板块定海陆那一步照草图改
+ * (tectonics.ts 的 4b 步),山地格加抬升;地形修改再套在草图长出来的星球上。
+ * 没有地形修改、没有草图时结果逐字节不变。
  */
 import { buildMesh, type Mesh } from './mesh';
 import { buildTectonics, type Tectonics } from './tectonics';
@@ -19,6 +21,7 @@ import { geometryOf, sphereSpacing } from './geometry';
 import type { TerrainOp } from './edits';
 import { computeCurrents, type Currents } from './currents';
 import { applyTerrainTectonics, carveLakes, cleanTerrainOps, volcanoPeaks } from './terrainEdits';
+import { sketchUsed, type Sketch } from './sketch';
 
 /**
  * 生成参数(滑条上的那些数)。世界是一整颗星球:东西无缝、有南北极,主图是等距圆柱投影
@@ -96,12 +99,14 @@ export interface World {
    * 推文明时看它:改过地形的世界,扩张节拍按没改地形时的同一颗星球定(gen/civ/index.ts 的 planetTempo)
    */
   terrain?: TerrainOp[];
+  /** 生成时照着的草图格子图(gen/sketch.ts 的 sketchGrid);没画 = 不给。草图算星球的一部分:planetTempo 也照它生成 */
+  sketch?: Sketch;
 }
 
 export type Progress = (stage: string, pct: number) => void;
 
-/** terrain:作者的地形修改(WorldEdits.terrain,按先后;不给 / 空 = 不改) */
-export function generateWorld(params: WorldParams, progress: Progress = () => {}, terrain?: readonly TerrainOp[]): World {
+/** terrain:作者的地形修改(WorldEdits.terrain,按先后;不给 / 空 = 不改);sketch:草图涂成的格子图(不给 / null = 没画) */
+export function generateWorld(params: WorldParams, progress: Progress = () => {}, terrain?: readonly TerrainOp[], sketch?: Sketch | null): World {
   const p = { ...DEFAULT_PARAMS, ...params };
   const ops = cleanTerrainOps(terrain ?? []);
   const W = MAP_W;
@@ -119,7 +124,8 @@ export function generateWorld(params: WorldParams, progress: Progress = () => {}
   const geo = geometryOf(mesh);
 
   progress('板块漂移', 0.12);
-  const tect = buildTectonics(mesh, p);
+  const sk = sketchUsed(sketch) ? sketch : null;
+  const tect = buildTectonics(mesh, p, sk);
   // 改地形:火山、山脉、抬起 / 沉下 —— 侵蚀之前改抬升场和海陆(touched = 改过的地块)
   const land0 = ops.length ? tect.land.slice() : null;
   const touched = ops.length ? applyTerrainTectonics(mesh, tect, ops, p.seed) : null;
@@ -346,6 +352,7 @@ export function generateWorld(params: WorldParams, progress: Progress = () => {}
     maxElevation,
     volcanoes: ops.length ? volcanoPeaks(mesh, water, elevation, ops) : [],
     ...(ops.length ? { terrain: ops.slice() } : {}),
+    ...(sk ? { sketch: sk } : {}),
   };
 }
 
