@@ -308,7 +308,6 @@ export function sphereCover(mesh: Mesh, g: SphereGrid): SphereCover {
   const TAU = 2 * Math.PI;
   const toY = (z: number) => ((Math.PI / 2 - Math.asin(z < -1 ? -1 : z > 1 ? 1 : z)) / Math.PI) * h - 0.5;
   const toX = (l: number) => ((l + Math.PI) / TAU) * w - 0.5;
-  const lon = [0, 0, 0];
   const ext = [0, 0];
   for (let t = 0; t < nt; t++) {
     const a = triangles[3 * t];
@@ -360,18 +359,33 @@ export function sphereCover(mesh: Mesh, g: SphereGrid): SphereCover {
     let x0 = 0;
     let x1 = w - 1;
     if (!north && !south && Math.max(Math.abs(az), Math.abs(bz), Math.abs(cz)) < 0.999) {
-      lon[0] = Math.atan2(ay, ax);
-      lon[1] = Math.atan2(by, bx);
-      lon[2] = Math.atan2(cy, cx);
-      lon.sort((u, v) => u - v);
-      const g1 = lon[1] - lon[0];
-      const g2 = lon[2] - lon[1];
-      const g3 = lon[0] + TAU - lon[2];
+      // 三个顶点的经度从小到大(冒泡,相等的不换位置:和稳定排序一样)
+      let l0 = Math.atan2(ay, ax);
+      let l1 = Math.atan2(by, bx);
+      let l2 = Math.atan2(cy, cx);
+      if (l0 > l1) {
+        const t = l0;
+        l0 = l1;
+        l1 = t;
+      }
+      if (l1 > l2) {
+        const t = l1;
+        l1 = l2;
+        l2 = t;
+      }
+      if (l0 > l1) {
+        const t = l0;
+        l0 = l1;
+        l1 = t;
+      }
+      const g1 = l1 - l0;
+      const g2 = l2 - l1;
+      const g3 = l0 + TAU - l2;
       const gmax = Math.max(g1, g2, g3);
       // 最大的空隙要明显超过半圈才靠得住(否则三角形紧贴极点,经度范围说不清,整圈都扫)
       if (gmax > Math.PI * 1.1) {
-        const lo = g3 === gmax ? lon[0] : g1 === gmax ? lon[1] : lon[2];
-        const hi = g3 === gmax ? lon[2] : g1 === gmax ? lon[0] + TAU : lon[1] + TAU;
+        const lo = g3 === gmax ? l0 : g1 === gmax ? l1 : l2;
+        const hi = g3 === gmax ? l2 : g1 === gmax ? l0 + TAU : l1 + TAU;
         const xa = Math.ceil(toX(lo)) - 1;
         const xb = Math.floor(toX(hi)) + 1;
         if (xb - xa < w) {
