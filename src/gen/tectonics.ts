@@ -742,9 +742,8 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
   const hot = new Float32Array(n); // 热点隆起 0..1(海底深度用)
   for (const s of hotspots) {
     const R = 3 * s.r;
-    for (let i = 0; i < n; i++) {
+    for (const i of geo.cellsNearPoint(s.x, s.y, R)) {
       const d = geo.nearTo(i, s.x, s.y, R);
-      if (d < 0) continue;
       const g = band(d, s.r);
       if (s.a > 0) L[i] += s.a * g;
       hot[i] = Math.max(hot[i], g * (0.5 + 0.5 * clamp(s.a, 0, 1)));

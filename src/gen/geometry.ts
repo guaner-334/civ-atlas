@@ -107,6 +107,10 @@ export interface Geometry {
   near2(i: number, c: number, R: number): number;
   /** 以世界坐标点 (px, py) 为中心的粗筛(同上),在范围内返回距离(开过方),否则 −1 */
   nearTo(i: number, px: number, py: number, R: number): number;
+  /** near2(i, c, R) ≥ 0 的全部地块 i,按编号从小到大(按位置分桶找,不用逐个扫全部地块) */
+  cellsNear(c: number, R: number): Int32Array;
+  /** nearTo(i, px, py, R) ≥ 0 的全部地块 i,按编号从小到大(同上) */
+  cellsNearPoint(px: number, py: number, R: number): Int32Array;
 
   // ---- 方向与位移(当地切平面,分量 = 东、南) ----
 
@@ -924,7 +928,7 @@ class SphereGeometry implements Geometry {
   private readonly ptB: PointVec;
   private readonly ptN: PointVec;
   private readonly ptF: PointVec;
-  private finder: ((q: Float64Array, hint: number) => number) | null = null;
+  private finder: ReturnType<typeof sphereFinder> | null = null;
   private readonly qTmp = new Float64Array(3);
 
   constructor(readonly mesh: Mesh) {
@@ -1047,6 +1051,17 @@ class SphereGeometry implements Geometry {
   nearTo(i: number, px: number, py: number, R: number): number {
     const d = this.distTo(i, px, py);
     return d <= R ? d : -1;
+  }
+  cellsNear(c: number, R: number): Int32Array {
+    this.finder ??= sphereFinder(this.mesh, this.p);
+    const p = this.p;
+    return this.finder.within(p[3 * c], p[3 * c + 1], p[3 * c + 2], Math.abs(R) / this.R, (i) => this.near2(i, c, R) >= 0);
+  }
+  cellsNearPoint(px: number, py: number, R: number): Int32Array {
+    this.finder ??= sphereFinder(this.mesh, this.p);
+    // 和 nearTo 里一样换成单位向量
+    const q = this.ptA.set(px, py);
+    return this.finder.within(q[0], q[1], q[2], Math.abs(R) / this.R, (i) => this.nearTo(i, px, py, R) >= 0);
   }
 
   // ---- 方向与位移 ----
@@ -1288,7 +1303,7 @@ class SphereGeometry implements Geometry {
 
   nearest(px: number, py: number, hint: number): number {
     this.finder ??= sphereFinder(this.mesh, this.p);
-    return this.finder(this.ptF.set(px, py), hint);
+    return this.finder.find(this.ptF.set(px, py), hint);
   }
   /** 球面上直接找真正最近的那块(从上一次找到的地块附近开始) */
   locator(): (px: number, py: number) => number {
@@ -1351,7 +1366,7 @@ class SphereGeometry implements Geometry {
     q[0] = sx / l;
     q[1] = sy / l;
     q[2] = sz / l;
-    return new SphereChart(this, this.finder(q, cells[0]));
+    return new SphereChart(this, this.finder.find(q, cells[0]));
   }
   mapChart(px: number, py: number): Chart {
     return new SphereMapChart(this.W, this.H, this.mesh.x, this.mesh.y, px, py);
@@ -1438,8 +1453,11 @@ class SphereGeometry implements Geometry {
 }
 
 /**
- * 球面上按位置找最近的地块:3D 哈希网格分桶(格子边长 = 2 个地块间距),先在所在的格子(没有就周围 27 格)里找一个近的,
- * 再沿 Delaunay 邻居贪心走到真正最近的那个(按弦长;Delaunay 上贪心一定能走到最近点)
+ * 球面上按位置找地块:3D 哈希网格分桶(格子边长 = 2 个地块间距)。
+ *   - find:最近的地块。先在所在的格子(没有就周围 27 格)里找一个近的,
+ *     再沿 Delaunay 邻居贪心走到真正最近的那个(按弦长;Delaunay 上贪心一定能走到最近点)
+ *   - within:单位向量 q 周围弦长 rad 以内的地块里 keep 说要的,按编号从小到大(只查包住这个范围的那些格子;
+ *     范围大到格子比地块还多时直接逐个问)
  */
 function sphereFinder(mesh: Mesh, p: Float32Array) {
   const { n, adjStart, adj } = mesh;
@@ -1456,7 +1474,7 @@ function sphereFinder(mesh: Mesh, p: Float32Array) {
     head[k] = i;
   }
   const d2 = (i: number, q: Float64Array) => (p[3 * i] - q[0]) ** 2 + (p[3 * i + 1] - q[1]) ** 2 + (p[3 * i + 2] - q[2]) ** 2;
-  return (q: Float64Array, hint: number) => {
+  const find = (q: Float64Array, hint: number) => {
     const gx = cellOf(q[0]);
     const gy = cellOf(q[1]);
     const gz = cellOf(q[2]);
@@ -1490,4 +1508,36 @@ function sphereFinder(mesh: Mesh, p: Float32Array) {
       c = nx;
     }
   };
+  const seen = new Uint32Array(n);
+  let stamp = 0;
+  const within = (qx: number, qy: number, qz: number, rad: number, keep: (i: number) => boolean): Int32Array => {
+    const out: number[] = [];
+    // 格子范围放宽一点:浮点舍入不会漏掉正好在边上的地块(多查几个只是多问几次 keep)
+    const e = rad * 1.0001 + 1e-9;
+    const a0 = cellOf(qx - e);
+    const a1 = cellOf(qx + e);
+    const b0 = cellOf(qy - e);
+    const b1 = cellOf(qy + e);
+    const c0 = cellOf(qz - e);
+    const c1 = cellOf(qz + e);
+    if (!((a1 - a0 + 1) * (b1 - b0 + 1) * (c1 - c0 + 1) < n)) {
+      for (let i = 0; i < n; i++) if (keep(i)) out.push(i);
+      return Int32Array.from(out);
+    }
+    // 不同格子可能落进同一个桶:同一次查询里每个地块只问一次
+    if (++stamp === 0xffffffff) {
+      seen.fill(0);
+      stamp = 1;
+    }
+    for (let a = a0; a <= a1; a++)
+      for (let b = b0; b <= b1; b++)
+        for (let c = c0; c <= c1; c++)
+          for (let i = head[key(a, b, c)]; i >= 0; i = next[i]) {
+            if (seen[i] === stamp) continue;
+            seen[i] = stamp;
+            if (keep(i)) out.push(i);
+          }
+    return Int32Array.from(out).sort();
+  };
+  return { find, within };
 }

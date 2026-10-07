@@ -229,10 +229,12 @@ export function generateWorld(params: WorldParams, progress: Progress = () => {}
     if (base[r] > lim) base[r] = lim;
   }
   // 回放帧补上同样的峡谷(每帧的底座长到了那一刻的比例 histGrow)
+  const cut: number[] = [];
+  for (let i = 0; i < n; i++) if (base[i] !== plateau[i]) cut.push(i);
   for (let f = 0; f < history.length; f++) {
     const fr = history[f];
     const g = histGrow[f];
-    for (let i = 0; i < n; i++) if (base[i] !== plateau[i]) fr[i] += (base[i] - plateau[i]) * g;
+    for (const i of cut) fr[i] += (base[i] - plateau[i]) * g;
   }
   const elevation = toMeters(h, peak, base);
   history.push(elevation.slice());
@@ -259,12 +261,11 @@ export function generateWorld(params: WorldParams, progress: Progress = () => {}
   for (const c of dents) {
     const r = spacing * (1.6 + keyed(dentBase, c, 1) * 2.8);
     const depth = 40 + keyed(dentBase, c, 2) * 160;
-    // 只在附近 cell 上挖(简单包围盒扫描)
+    // 只在附近 cell 上挖
     const r3 = r * 3;
-    for (let i = 0; i < n; i++) {
-      const d2 = geo.near2(i, c, r3);
-      if (d2 < 0 || !land[i]) continue;
-      elevation[i] -= depth * Math.exp(-d2 / (r * r));
+    for (const i of geo.cellsNear(c, r3)) {
+      if (!land[i]) continue;
+      elevation[i] -= depth * Math.exp(-geo.near2(i, c, r3) / (r * r));
     }
   }
   // 改地形:作者挖的湖(碗形洼地,下面排水时灌满)
