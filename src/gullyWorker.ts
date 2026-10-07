@@ -15,6 +15,9 @@ export interface GullyResponse {
   out: Float32Array;
 }
 
+// 加载好了:告诉生成线程(它第一次生成前在等)
+self.postMessage({ ready: true });
+
 self.onmessage = (e: MessageEvent<GullyRequest>) => {
   const { id, job } = e.data;
   const out = gullyHeights(job, 0, job.idx.length);

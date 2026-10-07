@@ -1,6 +1,6 @@
 /**
  * 放大后的细节(写实风):山坡上的沟和山脊(gen/gully.ts)、放大后按屏幕现算的一块(gen/rasterWindow.ts)、小溪(gen/creeks.ts)。
- *   - 沟和山脊只管写实风的明暗:分段算和一次算完一样;海拔、水陆不变
+ *   - 沟和山脊只管写实风的明暗:分段算和一次算完一样;海拔、水陆不变;起伏是连着的(跨过噪声格子的边不断开)
  *   - 现算的块:相邻两块接得上(多铺一圈裁掉以后,和一次铺一大块逐像素一样)、跨 180° 经线和挪一整圈一样、水陆和整张图大体一致、没有 NaN
  *   - 小溪:都比成河门槛小、不走河上的地块,同一个世界结果一样
  */
@@ -9,6 +9,7 @@ import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { gullyHeights, rasterize, rasterizeDeferred, type Raster } from '../src/gen/raster';
 import { WINDOW_PAD, rasterizeWindow, zoomSource, type ZoomSource } from '../src/gen/rasterWindow';
 import { CREEK_FRAC, creeksOf } from '../src/gen/creeks';
+import { Gullies } from '../src/gen/gully';
 import { macroGrids, realisticWindowPixels, type MacroGrids } from '../src/render/realistic';
 
 let world: World;
@@ -41,7 +42,7 @@ function landSpot(S: number): [number, number] {
 }
 
 describe('沟和山脊(整张主图)', () => {
-  it('分几段算和一次算完一样;只叠在陆地上,海拔、水陆不变', () => {
+  it('分几段算和一次算完一样;只叠在陆地上,海拔、水陆不变(不要沟壑时也一样)', () => {
     const { raster, job } = rasterizeDeferred(world, 1);
     // 中间一段:一次算完 vs 拆成两段
     const lo = Math.floor(job.n * 0.4);
@@ -53,9 +54,14 @@ describe('沟和山脊(整张主图)', () => {
     let diff = 0;
     for (let i = 0; i < all.length; i++) if ((i < parts[0].length ? parts[0][i] : parts[1][i - parts[0].length]) !== all[i]) diff++;
     expect(diff).toBe(0);
-    // 铺像素先不算沟壑:海拔、水陆和算完的一样(沟壑只管明暗)
+    // 铺像素先不算沟壑、或者干脆不要沟壑(导出高度图那样):海拔、水陆和算完的一样(沟壑只管明暗)
+    const plain = rasterize(world, 1, false);
+    expect(plain.gully).toBeUndefined();
     let changed = 0;
-    for (let k = 0; k < whole.elev.length; k++) if (raster.elev[k] !== whole.elev[k] || raster.water[k] !== whole.water[k]) changed++;
+    for (let k = 0; k < whole.elev.length; k++) {
+      if (raster.elev[k] !== whole.elev[k] || raster.water[k] !== whole.water[k]) changed++;
+      if (plain.elev[k] !== whole.elev[k] || plain.water[k] !== whole.water[k]) changed++;
+    }
     expect(changed).toBe(0);
     const g = whole.gully!;
     let bad = 0;
@@ -75,6 +81,33 @@ describe('沟和山脊(整张主图)', () => {
     // 山地上看得出来
     expect(onLand).toBeGreaterThan(1000);
     expect(strong).toBeGreaterThan(100);
+  });
+
+  it('起伏是连着的:跨过噪声格子的边不突然跳', () => {
+    const gl = new Gullies(12345);
+    const R = 2048 / (2 * Math.PI);
+    // 球面上斜着走的一条线(t = 走了多少世界单位),坡度固定,放大 4 倍时的细度(叠 4 层)
+    const f = (t: number) => {
+      const lon = t / R;
+      const lat = 0.3 + (t * 0.37) / R;
+      const cl = Math.cos(lat);
+      const sl = Math.sin(lat);
+      const cL = Math.cos(lon);
+      const sL = Math.sin(lon);
+      return gl.height(cl * cL * R, cl * sL * R, sl * R, -sL, cL, -sl * cL, -sl * sL, cl, 10, 5, 100, 4);
+    };
+    // 先粗走找最陡的几步,再把每一步切成 1000 小步:连着的话小步也跟着小;断开的话总有一小步和整步差不多大
+    const step = 0.005;
+    const steps: { t: number; d: number }[] = [];
+    for (let i = 1; i < 20000; i++) steps.push({ t: i * step, d: Math.abs(f(i * step) - f((i - 1) * step)) });
+    steps.sort((a, b) => b.d - a.d);
+    let worst = 0;
+    for (const { t, d } of steps.slice(0, 8)) {
+      let m = 0;
+      for (let q = 0; q < 1000; q++) m = Math.max(m, Math.abs(f(t - step + ((q + 1) * step) / 1000) - f(t - step + (q * step) / 1000)));
+      worst = Math.max(worst, m / d);
+    }
+    expect(worst).toBeLessThan(0.02);
   });
 });
 

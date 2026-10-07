@@ -1073,6 +1073,23 @@ if (!(cached.renderMs < 20)) errs.push(`切回画过的画风仍在重画(render
   if (!allIn || !z.tiles || !(z.tiles.want > 0)) errs.push(`放大现算:写实风放大到 4 倍停下来以后,看得见的块没有都算好(${JSON.stringify(z.tiles)})`);
   if (z.dom < (z.tiles?.want ?? 1) || z.faded) errs.push(`放大现算:块没有都放上去 / 没淡入完(页面上 ${z.dom} 块,没淡入完 ${z.faded} 块)`);
   if (z.lit < z.checked) errs.push(`放大现算:放上去的块是空白的(抽查 ${z.checked} 块,有画面 ${z.lit} 块)`);
+  // 同一档往旁边拖几屏再停下:挪出视口的块撤掉,页面上的块不越攒越多(不超过看得见的块数)
+  for (let i = 0; i < 3; i++) {
+    await zp.evaluate(() => {
+      const v = (window as any).__wfView;
+      (window as any).__wfSetView({ k: v.k, x: v.x - 700, y: v.y });
+    });
+    await zp.waitForTimeout(300);
+  }
+  const panIn = await zp
+    .waitForFunction(() => {
+      const t = (window as any).__wfDetail?.tiles;
+      return t && t.want > 0 && t.shown >= t.want && t.busy === 0 && t.queued === 0;
+    }, null, { timeout: 60000 })
+    .then(() => true, () => false);
+  await zp.waitForTimeout(600);
+  const pan = await zp.evaluate(() => ({ dom: document.querySelectorAll('.detail-tiles canvas.tile').length, tiles: (window as any).__wfDetail?.tiles }));
+  if (!panIn || !pan.tiles || pan.dom > pan.tiles.want) errs.push(`放大现算:拖远以后页面上的块比看得见的多(页面上 ${pan.dom} 块,${JSON.stringify(pan.tiles)})`);
   await pickLayer(zp, 'terrain');
   await zp.waitForFunction(() => (window as any).__wf?.style === 'fantasy', null, { timeout: 30000 }).catch(() => {});
   await zp.waitForTimeout(400);

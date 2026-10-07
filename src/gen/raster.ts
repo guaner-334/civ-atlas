@@ -562,10 +562,13 @@ function tri3(tile: Float32Array, size: number, f: number, o: number): number {
   return s;
 }
 
-/** 铺像素(流程见文件头)。沟和山脊(只管写实风的明暗)当场算好,存进 gully */
-export function rasterize(world: World, scale = 1): Raster {
-  const { raster, job } = rasterizeDeferred(world, scale);
-  finishGully(raster, job, gullyHeights(job, 0, job.n));
+/**
+ * 铺像素(流程见文件头)。沟和山脊(只管写实风的明暗)当场算好,存进 gully;
+ * gully = false:不算(高度图、手绘风、数据图层用不着,省下和整张图一样大的几个数组和逐像素的噪声)
+ */
+export function rasterize(world: World, scale = 1, gully = true): Raster {
+  const { raster, job } = rasterizeRaw(world, scale, gully);
+  if (job) finishGully(raster, job, gullyHeights(job, 0, job.n));
   return raster;
 }
 
@@ -574,6 +577,12 @@ export function rasterize(world: World, scale = 1): Raster {
  * 后台线程可以把它分给几个线程,和推文明同时算(gullyHeights 分段算,finishGully 叠回去);结果和 rasterize 一样
  */
 export function rasterizeDeferred(world: World, scale = 1): { raster: Raster; job: GullyJob } {
+  const { raster, job } = rasterizeRaw(world, scale, true);
+  return { raster, job: trimJob(job!) };
+}
+
+/** 铺像素;gully = true 时把要算沟壑的像素记进 job(没截短) */
+function rasterizeRaw(world: World, scale: number, gully: boolean): { raster: Raster; job: GullyJob | null } {
   const b = rasterBase(world, scale);
   const { w, h, N } = b;
   const carve = b.scratch.fill(0);
@@ -597,10 +606,10 @@ export function rasterizeDeferred(world: World, scale = 1): { raster: Raster; jo
     wrap: true,
   };
   const R = world.width / (2 * Math.PI);
-  const job = newGullyJob(subSeed(world.params.seed, 'gully'), w, h, R, scale);
+  const job = gully ? newGullyJob(subSeed(world.params.seed, 'gully'), w, h, R, scale) : null;
   shadeSphere(out, b.tri, b.wa, b.wb, b.planes, b.elev, carve, calm, dTile, jTile, b.g, R, job);
   seaIcePixels(world, out);
-  return { raster: out, job: trimJob(job) };
+  return { raster: out, job };
 }
 
 /** 铺像素的前半段(整张主图和放大现算都要用):插值源、球面三角形覆盖、柔化后的海拔、最近地块 */
@@ -663,29 +672,29 @@ export interface GullyJob extends GullyInput {
   floor: Uint8Array;
 }
 
-/** 记像素用的大数组(和主图一样大)留着下次用:每次重新分配几十 MB 也要时间 */
+/** 记像素用的大数组(和 1 倍主图一样大)留着下次用:每次重新分配几十 MB 也要时间。导出用的大图不留(用完就放掉) */
 let jobBuf: GullyJob | null = null;
 
 function newGullyJob(seed: number, w: number, h: number, R: number, scale: number): GullyJob {
   const N = w * h;
-  if (!jobBuf || jobBuf.idx.length !== N) {
-    jobBuf = {
-      seed,
-      w,
-      h,
-      R,
-      scale,
-      n: 0,
-      idx: new Int32Array(N),
-      ge: new Float32Array(N),
-      gn: new Float32Array(N),
-      amp: new Float32Array(N),
-      base: new Float32Array(N),
-      cut: new Float32Array(N),
-      floor: new Uint8Array(N),
-    };
-  }
-  return { ...jobBuf, seed, w, h, R, scale, n: 0 };
+  if (jobBuf && jobBuf.idx.length === N) return { ...jobBuf, seed, w, h, R, scale, n: 0 };
+  const job: GullyJob = {
+    seed,
+    w,
+    h,
+    R,
+    scale,
+    n: 0,
+    idx: new Int32Array(N),
+    ge: new Float32Array(N),
+    gn: new Float32Array(N),
+    amp: new Float32Array(N),
+    base: new Float32Array(N),
+    cut: new Float32Array(N),
+    floor: new Uint8Array(N),
+  };
+  if (scale === 1) jobBuf = job;
+  return { ...job };
 }
 
 /** 按实际个数截短(交给后台线程时只拷用到的那一段) */

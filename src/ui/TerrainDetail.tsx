@@ -62,9 +62,12 @@ const SLIDE_ERR = 8;
 const TILE_MIN_S = 2;
 const TILE_MAX_S = 16;
 
-/** 一档缩放的块:一个容器(按这一档的比例缩放)+ 放上去的块(键 = 档/展开的列/行) */
+/** 一档缩放的块:一个容器(按这一档的比例缩放)+ 放上去的块(键 = 展开的列/行;只留看得见的) */
 interface TileLevel {
+  /** 档的编号(S 和河的缩放倍数 k) */
+  id: string;
   S: number;
+  k: number;
   div: HTMLDivElement;
   shown: Map<string, HTMLCanvasElement>;
 }
@@ -99,9 +102,9 @@ export function TerrainDetail({
 }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const tilesRef = useRef<HTMLDivElement>(null);
-  const levels = useRef<Map<number, TileLevel>>(new Map());
+  const levels = useRef<Map<string, TileLevel>>(new Map());
   /** 现在这一档、看得见的块(列已展开)、它们放在哪个世界上 */
-  const tileView = useRef<{ S: number; want: { tx: number; ty: number }[]; world: World } | null>(null);
+  const tileView = useRef<{ id: string; want: { tx: number; ty: number }[]; world: World } | null>(null);
   const drawn = useRef<Drawn | null>(null);
   const timer = useRef(0);
   const moving = useMapMoving();
@@ -150,7 +153,7 @@ export function TerrainDetail({
     const showTile = (lv: TileLevel, tx: number, ty: number, nx: number, fade: boolean) => {
       const dk = `${tx}/${ty}`;
       if (lv.shown.has(dk)) return true;
-      const src = tileCanvas(tileKey(lv.S, ((tx % nx) + nx) % nx, ty));
+      const src = tileCanvas(tileKey(lv.S, lv.k, ((tx % nx) + nx) % nx, ty));
       if (!src) return false;
       const c = document.createElement('canvas');
       c.width = c.height = TILE;
@@ -177,15 +180,19 @@ export function TerrainDetail({
         clearTiles();
         return;
       }
+      // 河按这一档一个像素 = 一个屏幕像素时的缩放倍数画(取到 2 的 1/8 次方一档:同一档的块缓存着,不随 k 细调;
+      // 地图框变宽变窄换一档,旧的块不接着用)
+      const kl = 2 ** (Math.round(Math.log2((S * world.width) / vis.bw) * 8) / 8);
       if (tl.style.display === 'none') tl.style.display = '';
       const ls = levels.current;
-      let lv = ls.get(S);
+      const id = `${S}/${kl}`;
+      let lv = ls.get(id);
       if (!lv) {
         const div = document.createElement('div');
         div.className = 'tile-level';
         tl.appendChild(div);
-        lv = { S, div, shown: new Map() };
-        ls.set(S, lv);
+        lv = { id, S, k: kl, div, shown: new Map() };
+        ls.set(id, lv);
       }
       // 这一档在最上面
       if (tl.lastChild !== lv.div) tl.appendChild(lv.div);
@@ -210,41 +217,53 @@ export function TerrainDetail({
       for (let ty = ty0; ty <= ty1; ty++)
         for (let tx = tx0; tx <= tx1; tx++) want.push({ tx, ty, d: Math.hypot((tx + 0.5) * TILE - cx, (ty + 0.5) * TILE - cy) });
       want.sort((a, b) => a.d - b.d);
+      // 挪出视口的块撤掉(拖远了不越攒越多;挪回来从缓存里拿)
+      const keep = new Set(want.map((t) => `${t.tx}/${t.ty}`));
+      for (const [dk, c] of lv.shown)
+        if (!keep.has(dk)) {
+          c.remove();
+          c.width = c.height = 0;
+          lv.shown.delete(dk);
+        }
       let missing = 0;
       for (const t of want) if (!showTile(lv, t.tx, t.ty, nx, false)) missing++;
-      tileView.current = { S, want, world };
-      if (!missing) dropOtherLevels(S);
+      tileView.current = { id, want, world };
+      if (!missing) dropOtherLevels(id);
       if (exact && missing) {
         const level = lv;
-        // 河按这一档一个像素 = 一个屏幕像素时的缩放倍数画(同一档的块缓存着,不随 k 细调)
-        const kl = (S * world.width) / vis.bw;
         wantTiles(
           want.map((t) => ({ S, tx: ((t.tx % nx) + nx) % nx, ty: t.ty, k: kl })),
-          () => {
+          (key) => {
+            if (key === null) {
+              // 后台线程停掉了:撤掉块,画布按拉大整张图重画(连小溪)
+              drawn.current = null;
+              setTick((n) => n + 1);
+              return;
+            }
             const tv = tileView.current;
-            if (!tv || tv.S !== level.S || levels.current.get(level.S) !== level) return;
+            if (!tv || tv.id !== level.id || levels.current.get(level.id) !== level) return;
             let left = 0;
             for (const t of tv.want) if (!showTile(level, t.tx, t.ty, nx, true)) left++;
-            if (!left) dropOtherLevels(level.S);
+            if (!left) dropOtherLevels(level.id);
             reportTiles();
           },
         );
       }
       reportTiles();
     };
-    /** 只留第 S 档(等最后一块淡入完再撤,免得闪一下) */
-    const dropOtherLevels = (S: number) => {
+    /** 只留这一档(等最后一块淡入完再撤,免得闪一下) */
+    const dropOtherLevels = (id: string) => {
       for (const [s, l] of levels.current) {
-        if (s === S) continue;
+        if (s === id) continue;
         levels.current.delete(s);
         window.setTimeout(() => l.div.remove(), 400);
       }
     };
     const reportTiles = () => {
       const tv = tileView.current;
-      const lv = tv && levels.current.get(tv.S);
+      const lv = tv && levels.current.get(tv.id);
       const g = window as unknown as { __wfDetail?: Record<string, unknown> };
-      if (g.__wfDetail) g.__wfDetail.tiles = tv && lv ? { S: tv.S, want: tv.want.length, shown: lv.shown.size, ...tileStats() } : null;
+      if (g.__wfDetail) g.__wfDetail.tiles = tv && lv ? { S: lv.S, want: tv.want.length, shown: lv.shown.size, ...tileStats() } : null;
     };
 
     /**

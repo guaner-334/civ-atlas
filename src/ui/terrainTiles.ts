@@ -3,7 +3,9 @@
  *   - 地图停下来以后,细节层(TerrainDetail.tsx)说要哪几块(按离视口中心的远近排好);空着的线程依次领走,
  *     一个线程一次只领一块 —— 又挪了地方,还没领的就换成新的那一批,不白算看不见的
  *   - 算好的块留着(最多 MAX_TILES 块,最久没看的先扔),来回拖、缩放回来不重算;换了世界全部作废
+ *   - 后台线程出错(没加载上、出了没接住的错)或者不能画图:整组停掉,细节层照旧拉大整张图
  * 块的编号:S 倍主图(S 像素 / 世界单位,2 的幂)上第 (tx, ty) 块,每块 TILE × TILE 像素;tx 按一整圈取模。
+ * 河按 k 倍缩放的样子画进块里,k 也是编号的一部分(地图框变宽变窄时 k 跟着变,旧的块不能接着用)。
  */
 import type { World } from '../gen/world';
 import type { Raster } from '../gen/raster';
@@ -14,8 +16,8 @@ export const TILE = 256;
 /** 最多留多少块(一块 256 KB 像素,约 50 MB) */
 const MAX_TILES = 200;
 
-export function tileKey(S: number, tx: number, ty: number): string {
-  return `${S}/${tx}/${ty}`;
+export function tileKey(S: number, k: number, tx: number, ty: number): string {
+  return `${S}/${k}/${tx}/${ty}`;
 }
 
 interface Slot {
@@ -34,7 +36,8 @@ let curRaster: Raster | null = null;
 const cache = new Map<string, HTMLCanvasElement>();
 /** 还没领走的块(按先后) */
 let queue: { key: string; S: number; tx: number; ty: number; k: number }[] = [];
-let onReady: ((key: string) => void) | null = null;
+/** 算好一块调一次(块的编号);null = 后台线程停掉了,以后不再现算 */
+let onReady: ((key: string | null) => void) | null = null;
 /** 每块算了多久(毫秒,最近 20 块;给冒烟检查和调参看) */
 const recent: number[] = [];
 
@@ -50,9 +53,7 @@ function ensurePool(): Slot[] | null {
       const w = new Worker(new URL('../tileWorker.ts', import.meta.url), { type: 'module' });
       const slot: Slot = { w, busy: null };
       w.onmessage = (e: MessageEvent<TileResponse>) => done(slot, e.data);
-      w.onerror = () => {
-        slot.busy = null;
-      };
+      w.onerror = stop;
       return slot;
     });
   } catch {
@@ -98,17 +99,21 @@ export function tileCanvas(key: string): HTMLCanvasElement | null {
 
 /**
  * 要这几块(按先后;已经算好、正在算的跳过)。之前还没领走的那一批作废。
- * k:河按几倍缩放的样子画(见 TileRequest);ready:每算好一块调一次(块的编号)
+ * k:河按几倍缩放的样子画(见 TileRequest);ready:每算好一块调一次(块的编号),后台线程停掉了调一次 null
  */
-export function wantTiles(list: { S: number; tx: number; ty: number; k: number }[], ready: (key: string) => void): void {
+export function wantTiles(list: { S: number; tx: number; ty: number; k: number }[], ready: (key: string | null) => void): void {
   onReady = ready;
   const pool = ensurePool();
-  if (!pool) return;
+  if (!pool) {
+    // 刚停掉(出错的消息比这一次要块来得早):照样告诉细节层
+    if (failed) ready(null);
+    return;
+  }
   const busy = new Set(pool.map((s) => s.busy));
   queue = [];
   const seen = new Set<string>();
   for (const t of list) {
-    const key = tileKey(t.S, t.tx, t.ty);
+    const key = tileKey(t.S, t.k, t.tx, t.ty);
     if (seen.has(key) || cache.has(key) || busy.has(key)) continue;
     seen.add(key);
     queue.push({ key, ...t });
@@ -125,16 +130,20 @@ function dispatch(s: Slot) {
   s.w.postMessage(m);
 }
 
+/** 后台线程出错或者不能画图:整组停掉,不再现算(细节层照旧拉大整张图) */
+function stop() {
+  if (failed) return;
+  failed = true;
+  for (const x of slots ?? []) x.w.terminate();
+  slots = null;
+  queue = [];
+  cache.clear();
+  onReady?.(null);
+}
+
 function done(s: Slot, r: TileResponse) {
   if (s.busy === r.key) s.busy = null;
-  if (r.fatal) {
-    // 这个浏览器的后台线程不能画图:不再现算(细节层照旧拉大整张图)
-    failed = true;
-    for (const x of slots ?? []) x.w.terminate();
-    slots = null;
-    queue = [];
-    return;
-  }
+  if (r.fatal) return stop();
   if (r.wid === wid && r.bitmap) {
     const cv = document.createElement('canvas');
     cv.width = cv.height = TILE;

@@ -41,15 +41,29 @@ function hash3(seed: number, x: number, y: number, z: number): number {
   return h >>> 0;
 }
 
-/** 一层冲刷噪声。相邻像素多半落在同一格:记住上一次的格子和 27 个抖动点 */
+/** 每个方向看前后各两格(核的半径 √3 格,前后一格不够:跨过格子边时会突然多出、少掉几个点,起伏断开) */
+const NB = 5;
+/** 查询点在本格里的位置 f(0..1)时,往前 / 往后第几格(0..4 = −2..+2)整格离它最近的距离平方(只看这一个方向) */
+function gapsOf(f: number, out: Float64Array): void {
+  out[0] = (f + 1) * (f + 1);
+  out[1] = f * f;
+  out[2] = 0;
+  out[3] = (1 - f) * (1 - f);
+  out[4] = (2 - f) * (2 - f);
+}
+
+/** 一层冲刷噪声。相邻像素多半落在同一格:记住上一次的格子和周围 5 × 5 × 5 格的抖动点 */
 class Layer {
   private cx = NaN;
   private cy = NaN;
   private cz = NaN;
-  /** 27 个抖动点相对本格原点的位置 */
-  private readonly jx = new Float64Array(27);
-  private readonly jy = new Float64Array(27);
-  private readonly jz = new Float64Array(27);
+  /** 周围各格抖动点相对本格原点的位置 */
+  private readonly jx = new Float64Array(NB * NB * NB);
+  private readonly jy = new Float64Array(NB * NB * NB);
+  private readonly jz = new Float64Array(NB * NB * NB);
+  private readonly gx = new Float64Array(NB);
+  private readonly gy = new Float64Array(NB);
+  private readonly gz = new Float64Array(NB);
   constructor(private readonly seed: number) {}
 
   /**
@@ -66,9 +80,9 @@ class Layer {
       this.cy = iy;
       this.cz = iz;
       let q = 0;
-      for (let i = -1; i <= 1; i++)
-        for (let j = -1; j <= 1; j++)
-          for (let k = -1; k <= 1; k++, q++) {
+      for (let i = -2; i <= 2; i++)
+        for (let j = -2; j <= 2; j++)
+          for (let k = -2; k <= 2; k++, q++) {
             const hh = hash3(this.seed, ix + i, iy + j, iz + k);
             jx[q] = i + (hh & 1023) / 1024;
             jy[q] = j + ((hh >>> 10) & 1023) / 1024;
@@ -78,26 +92,41 @@ class Layer {
     const fx = px - ix;
     const fy = py - iy;
     const fz = pz - iz;
+    // 每个方向第几格整格离查询点最近多远(平方);整格都在核外面的跳过
+    const { gx, gy, gz } = this;
+    gapsOf(fx, gx);
+    gapsOf(fy, gy);
+    gapsOf(fz, gz);
     let wt = 0;
     let h = 0;
     let g = 0;
-    for (let q = 0; q < 27; q++) {
-      const vx = fx - jx[q];
-      const vy = fy - jy[q];
-      const vz = fz - jz[q];
-      const d2 = vx * vx + vy * vy + vz * vz;
-      if (d2 >= 3) continue;
-      const t = 1 - d2 / 3;
-      const w = t * t * t;
-      wt += w;
-      // 条纹的相位 = 到抖动点的位移在"横着坡"方向上的投影(一格一个周期)
-      let m = vx * dx + vy * dy + vz * dz;
-      m -= Math.floor(m);
-      const f = m * LUT_N;
-      const i0 = f | 0;
-      const a = f - i0;
-      h += (COS[i0] + (COS[i0 + 1] - COS[i0]) * a) * w;
-      g -= (SIN[i0] + (SIN[i0 + 1] - SIN[i0]) * a) * w;
+    for (let i = 0; i < NB; i++) {
+      const ax = gx[i];
+      if (ax >= 3) continue;
+      for (let j = 0; j < NB; j++) {
+        const axy = ax + gy[j];
+        if (axy >= 3) continue;
+        for (let k = 0; k < NB; k++) {
+          if (axy + gz[k] >= 3) continue;
+          const q = (i * NB + j) * NB + k;
+          const vx = fx - jx[q];
+          const vy = fy - jy[q];
+          const vz = fz - jz[q];
+          const d2 = vx * vx + vy * vy + vz * vz;
+          if (d2 >= 3) continue;
+          const t = 1 - d2 / 3;
+          const w = t * t * t;
+          wt += w;
+          // 条纹的相位 = 到抖动点的位移在"横着坡"方向上的投影(一格一个周期)
+          let m = vx * dx + vy * dy + vz * dz;
+          m -= Math.floor(m);
+          const f = m * LUT_N;
+          const i0 = f | 0;
+          const a = f - i0;
+          h += (COS[i0] + (COS[i0 + 1] - COS[i0]) * a) * w;
+          g -= (SIN[i0] + (SIN[i0 + 1] - SIN[i0]) * a) * w;
+        }
+      }
     }
     const inv = wt > 0 ? 1 / wt : 0;
     out[0] = h * inv;

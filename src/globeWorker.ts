@@ -30,7 +30,8 @@ self.onmessage = (e: MessageEvent<GlobeTexRequest>) => {
   try {
     if (typeof OffscreenCanvas === 'undefined') throw new Error('这个浏览器不支持后台画图');
     const t0 = performance.now();
-    const raster = rasterize(m.world, m.scale);
+    // 沟和山脊只有写实风打光用得着
+    const raster = rasterize(m.world, m.scale, m.style === 'realistic');
     let bitmap: ImageBitmap;
     let slope: { w: number; h: number; data: Uint8Array } | undefined;
     if (m.style === 'realistic') {
