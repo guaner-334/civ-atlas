@@ -20,7 +20,7 @@ import { mulberry32, subSeed, clamp, keyed, smoothstep } from './util';
 import { geometryOf, sphereSpacing } from './geometry';
 import type { TerrainOp } from './edits';
 import { computeCurrents, type Currents } from './currents';
-import { applyTerrainTectonics, carveLakes, cleanTerrainOps, volcanoPeaks } from './terrainEdits';
+import { applyTerrainTectonics, carveLakes, carveRivers, cleanTerrainOps, volcanoPeaks } from './terrainEdits';
 import { sketchUsed, type Sketch } from './sketch';
 
 /**
@@ -267,6 +267,10 @@ export function generateWorld(params: WorldParams, progress: Progress = () => {}
   }
   // 改地形:作者挖的湖(碗形洼地,下面排水时灌满)
   const userLake = ops.length ? carveLakes(mesh, land, elevation, ops, p.seed) : null;
+  // 改地形:作者画的河(沿线挖河谷,这一路一定画成河)
+  const water0r = new Uint8Array(n);
+  for (let i = 0; i < n; i++) water0r[i] = land[i] ? 0 : 1;
+  const userRiver = ops.length ? carveRivers(mesh, water0r, elevation, ops) : null;
   const pool = drainage(mesh, land, elevation, 0);
   const water = new Uint8Array(n);
   const waterLevel = new Float32Array(n);
@@ -319,7 +323,7 @@ export function generateWorld(params: WorldParams, progress: Progress = () => {}
   }
   const flux = accumulate(route, land, runoff, new Float32Array(n));
   const riverThreshold = 14 * (n / 36000);
-  const rivers = traceRivers(mesh, land, water, route.receiver, flux, riverThreshold);
+  const rivers = traceRivers(mesh, land, water, route.receiver, flux, riverThreshold, userRiver);
 
   // ---- 生物群落 ----
   progress('生物群落', 0.9);
@@ -364,12 +368,13 @@ function traceRivers(
   receiver: Int32Array,
   flux: Float32Array,
   thr: number,
+  forced: Uint8Array | null = null,
 ): River[] {
   const { n, x, y } = mesh;
   const geo = geometryOf(mesh);
   const m: number[] = [0, 0];
   const isRiver = new Uint8Array(n);
-  for (let i = 0; i < n; i++) if (water[i] === 0 && flux[i] >= thr) isRiver[i] = 1;
+  for (let i = 0; i < n; i++) if (water[i] === 0 && (flux[i] >= thr || forced?.[i])) isRiver[i] = 1;
   const hasRiverDonor = new Uint8Array(n);
   const lakeInlet = new Int32Array(n).fill(-1);
   for (let i = 0; i < n; i++) {

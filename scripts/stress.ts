@@ -63,6 +63,13 @@ const SKETCH_MIX: SketchEdit = {
     { kind: 'land', r: 4, pts: [1000, 512] },
     { kind: 'sea', r: 30, pts: [2000, 440, 2100, 460] },
     { kind: 'erase', r: 50, pts: [1024, 0] },
+    { kind: 'isles', r: 160, pts: [600, 600, 900, 650] },
+    { kind: 'shelf', r: 90, pts: [700, 300] },
+    { kind: 'hills', r: 2, pts: [1900, 420] },
+    { kind: 'plateau', r: 160, pts: [1950, 460, 2200, 480] },
+    { kind: 'mountain', r: 30, pts: [2000, 470, 2050, 480], h: 2 },
+    { kind: 'sea', r: 10, pts: [1950, 420, 2100, 420, 2100, 520, 1950, 520], fill: 1 },
+    { kind: 'land', r: 2, pts: [0, 1024, 2048, 1024, 1024, 0], fill: 1 },
   ],
 };
 
@@ -70,7 +77,8 @@ const cases = [
   {}, { landFraction: 0.12 }, { landFraction: 0.6 }, { plates: 5 }, { plates: 30 }, { plates: 60 },
   { cells: 80000 }, { cells: 12000 }, { temperature: -12 }, { temperature: 12 }, { rainfall: 0.4 }, { mountains: 2 }, { mountains: 0.2 },
   { terrain: MIX }, { terrain: rows('sink') }, { terrain: rows('raise') },
-  { sketch: { rest: 'sea', strokes: [] } }, { sketch: fill('mountain') }, { sketch: fill('land', 'sea') }, { sketch: SKETCH_MIX, terrain: MIX },
+  { sketch: { rest: 'sea', strokes: [] } }, { sketch: fill('mountain') }, { sketch: fill('land', 'sea') }, { sketch: fill('isles', 'sea') }, { sketch: fill('plateau') },
+  { sketch: { ...SKETCH_MIX, coast: 0 }, terrain: MIX }, { sketch: SKETCH_MIX, terrain: [...MIX, { kind: 'river', pts: [1950, 420, 2150, 470, 2300, 500], r: 9, s: 1 }] },
 ] as ({ terrain?: TerrainOp[]; sketch?: SketchEdit } & Partial<typeof DEFAULT_PARAMS>)[];
 /** 打印用:改地形的只写"改地形 · 几处",草图只写"草图 · 几笔" */
 const caseName = (c: (typeof cases)[number]) =>

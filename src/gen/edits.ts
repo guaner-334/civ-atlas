@@ -89,6 +89,7 @@
  * | `lake`    | 湖         | 一个点 [x, y]      | 湖的半径         | 深浅;点在海里不生效              |
  * | `raise`   | 抬起陆地   | 折线(画笔走过的路) | 画笔半径         | 抬起的新陆地的高低                |
  * | `sink`    | 沉成海     | 折线(画笔走过的路) | 画笔半径         | 沉下去的海的深浅                  |
+ * | `river`   | 河         | 折线(从源头画到河口,反着画也行) | 河谷半宽 | 河谷的深浅;这一路一定画成河,流到海、湖或别的河为止 |
  *
  * 世界坐标 = 主图(等距圆柱)原图的像素坐标(宽 2048、高 1024,左上角为原点;和精细度无关),取整存:
  * x 是经度(0 = 180°W,1024 = 0°,2048 = 180°E,绕一圈回到原处),y 是纬度(0 = 北极,512 = 赤道,1024 = 南极)。
@@ -199,7 +200,7 @@ export type Intervention =
   | { kind: 'halt'; a: string; from: number; until?: number };
 
 /** 地形修改的种类(见文件头"地形修改"的表) */
-export type TerrainKind = 'volcano' | 'range' | 'lake' | 'raise' | 'sink';
+export type TerrainKind = 'volcano' | 'range' | 'lake' | 'raise' | 'sink' | 'river';
 
 /** 一处地形修改(字段见文件头"地形修改"的表;坐标、大小都是世界坐标) */
 export interface TerrainOp {

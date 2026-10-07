@@ -36,7 +36,7 @@ export function paramsSide(p: WorldParams): string {
   return `陆地 ${Math.round(p.landFraction * 100)}%，${p.plates} 个板块`;
 }
 
-const KIND_NAME: Record<TerrainKind, string> = { volcano: '火山', range: '山脉', lake: '湖', raise: '抬起陆地', sink: '沉成海' };
+const KIND_NAME: Record<TerrainKind, string> = { volcano: '火山', range: '山脉', lake: '湖', raise: '抬起陆地', sink: '沉成海', river: '河' };
 
 /** 改过的地形:"2 处：火山 1、山脉 1";没改 = "没有" */
 export function terrainBrief(ops: readonly { kind: TerrainKind }[]): string {

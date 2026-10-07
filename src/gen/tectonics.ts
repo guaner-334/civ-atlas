@@ -30,7 +30,7 @@ import { blurField, type Mesh } from './mesh';
 import { MinHeap, smoothstep, subSeed, mulberry32, clamp, hypot2, keyed } from './util';
 import { geometryOf } from './geometry';
 import { round24 } from './civ/rand';
-import { SKETCH_LAND, SKETCH_MOUNTAIN, SKETCH_NONE, sketchAt, type Sketch } from './sketch';
+import { SKETCH_HILLS, SKETCH_ISLES, SKETCH_LAND, SKETCH_MOUNTAIN, SKETCH_NONE, SKETCH_PLATEAU, SKETCH_SHELF, sketchAt, sketchUsed, type Sketch } from './sketch';
 
 export interface TectonicParams {
   seed: number;
@@ -448,13 +448,26 @@ const SIDE_SLAB = 2; // 俯冲下去的那块:海沟
 const SIDE_UPPER = 3; // 大陆撞大陆,上盘:山脉 + 背后的高原
 const SIDE_LOWER = 4; // 大陆撞大陆,下盘:山脉
 
-/** 草图的海岸:先把草图扭一扭(域扭曲,半岛、海湾;小岛还是小岛,只是变了形),扭动的幅度和尺度(世界单位) */
+/**
+ * 草图的海岸:先把草图扭一扭(域扭曲,半岛、海湾;小岛还是小岛,只是变了形),扭动的幅度和尺度(世界单位)。
+ * 幅度按海岸线参数(0 贴着画 – 1 自然)在 SK_WARP_MIN 和 SK_WARP 之间取
+ */
 const SK_WARP = 42;
+const SK_WARP_MIN = 5;
 const SK_WARP_SCALE = 130;
-/** 再加细碎的海岸噪声:能把海岸推出去多远(世界单位,× 各处的破碎程度) */
+/** 再加细碎的海岸噪声:能把海岸推出去多远(世界单位,× 各处的破碎程度);同样按海岸线参数在 SK_FINE_MIN 和 SK_FINE 之间取 */
 const SK_FINE = 34;
-/** 草图上涂的山地:抬升(× 山的高低参数) */
+const SK_FINE_MIN = 6;
+/** 草图上涂的山地:抬升(× 山的高低参数);低 / 中 / 高三档各乘 SK_MTN_H */
 const SK_MTN_U = 1.25;
+const SK_MTN_H = [0.6, 1, 1.55];
+/** 草图上涂的丘陵:抬升 */
+const SK_HILLS_U = 0.2;
+/** 草图上涂的高原:底座(米) */
+const SK_PLATEAU_M = 2400;
+/** 群岛笔:岛屿噪声的尺度(世界单位)和冒出水面的门槛(越高岛越少) */
+const SK_ISLES_SCALE = 20;
+const SK_ISLES_T = 0.25;
 
 /**
  * sketch:作者的草图(sketch.ts)。没有 / 全是 0 = 和不给一样(结果逐字节不变)
@@ -743,17 +756,28 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
   // 涂过的地块照草图定海陆:离草图边界远的定死,边界附近由同一套海岸噪声决定往哪边弯(海岸不是笔刷的圆边);
   // 地壳底色跟着草图(涂成陆地的深处像大陆内部,涂成海的像大洋)。没涂的地块照旧
   let skMtn: Float32Array | null = null;
-  if (sketch && sketch.some((v) => v !== SKETCH_NONE)) {
+  let skHills: Float32Array | null = null;
+  let skPlat: Float32Array | null = null;
+  let sk: Uint8Array | null = null;
+  if (sketchUsed(sketch)) {
     // 每个地块在扭过的位置上取草图的值
-    const sk = new Uint8Array(n);
+    sk = new Uint8Array(n);
+    const cp = clamp(sketch.coast, 0, 1);
+    const warp = SK_WARP_MIN + (SK_WARP - SK_WARP_MIN) * cp;
+    const fine = SK_FINE_MIN + (SK_FINE - SK_FINE_MIN) * cp;
     const wx = geo.fbm(subSeed(p.seed, 'sketch-warp'), 3);
     const wy = geo.fbm(subSeed(p.seed, 'sketch-warp') ^ 0x2f17, 3);
     for (let i = 0; i < n; i++) {
-      geo.moveCell(q, i, SK_WARP * wx.atScale(i, SK_WARP_SCALE), SK_WARP * wy.atScale(i, SK_WARP_SCALE));
-      sk[i] = sketchAt(sketch, q[0], q[1], W, mesh.height);
+      geo.moveCell(q, i, warp * wx.atScale(i, SK_WARP_SCALE), warp * wy.atScale(i, SK_WARP_SCALE));
+      sk[i] = sketchAt(sketch.grid, q[0], q[1], W, mesh.height);
     }
+    // 群岛:涂过的那片按岛屿噪声冒出一个个小岛
+    const isleN = sk.includes(SKETCH_ISLES) ? geo.fbm(subSeed(p.seed, 'sketch-isles'), 3) : null;
     const want = new Uint8Array(n);
-    for (let i = 0; i < n; i++) want[i] = sk[i] === SKETCH_NONE ? land[i] : sk[i] >= SKETCH_LAND ? 1 : 0;
+    for (let i = 0; i < n; i++) {
+      const v = sk[i];
+      want[i] = v === SKETCH_NONE ? land[i] : v === SKETCH_ISLES ? (isleN!.atScale(i, SK_ISLES_SCALE) > SK_ISLES_T ? 1 : 0) : v >= SKETCH_LAND ? 1 : 0;
+    }
     const edge: number[] = [];
     for (let i = 0; i < n; i++) {
       for (let k = adjStart[i]; k < adjStart[i + 1]; k++) {
@@ -766,17 +790,25 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
     }
     const ed = edge.length ? distanceField(mesh, edge, () => 0).dist : new Float32Array(n).fill(Infinity);
     const mtn = new Float32Array(n);
+    const hil = new Float32Array(n);
+    const pla = new Float32Array(n);
     for (let i = 0; i < n; i++) {
       const v = sk[i];
       if (v === SKETCH_NONE) continue;
       const sd = want[i] ? ed[i] : -ed[i];
       const rug = 0.25 + 1.35 * smoothstep(-0.35, 0.45, rugN.at(i, fc, 0.8, 2.1, -6.3));
-      land[i] = v === SKETCH_MOUNTAIN || sd + SK_FINE * rug * coastF.at(i, fc, 7) > 0 ? 1 : 0;
+      // 群岛那片的海岸就是岛屿噪声本身,不再加细碎噪声(否则一个个小岛会被推得连成一片)
+      if (v === SKETCH_ISLES) land[i] = want[i];
+      else land[i] = v >= SKETCH_MOUNTAIN || sd + fine * rug * coastF.at(i, fc, 7) > 0 ? 1 : 0;
       if (Number.isFinite(sd)) B[i] = ftanh(sd / ramp);
       else B[i] = want[i] ? 1 : -1;
-      if (v === SKETCH_MOUNTAIN) mtn[i] = 1;
+      if (v >= SKETCH_MOUNTAIN) mtn[i] = SK_MTN_H[v - SKETCH_MOUNTAIN];
+      else if (v === SKETCH_HILLS) hil[i] = 1;
+      else if (v === SKETCH_PLATEAU) pla[i] = 1;
     }
     if (mtn.some((v) => v > 0)) skMtn = blurField(mesh, mtn, 2);
+    if (hil.some((v) => v > 0)) skHills = blurField(mesh, hil, 2);
+    if (pla.some((v) => v > 0)) skPlat = blurField(mesh, pla, 3);
   }
 
   // ---- 5. 海底深度 ----
@@ -807,6 +839,8 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
     const s = sideOf(i);
     if (s === SIDE_ARC) d = Math.max(d, -1600 - 2200 * (1 - conv.str[i] * band(conv.dist[i] - 11, 9)));
     d += 2600 * hot[i];
+    // 草图上涂的浅海:像大陆架那样浅
+    if (sk && sk[i] === SKETCH_SHELF) d = Math.max(d, -(40 + 110 * (0.5 + 0.5 * shelfN.at(i, fs, 3.1, 2.2, -0.9))));
     oceanDepth[i] = Math.min(-20, d);
   }
   // 平滑海底,去掉距离场的折线痕迹;海沟在平滑之后再挖(窄而深)
@@ -854,6 +888,8 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
     U *= 1 - 0.75 * div.str[i] * band(div.dist[i], 20) * contF;
     // 草图上涂的山地:一片山,里面是山脊噪声(高低起伏、有走向),交给侵蚀刻出山谷
     if (skMtn && skRidge && skMtn[i] > 0) U += mf * SK_MTN_U * skMtn[i] * (0.35 + 0.9 * skRidge.at(i, fs, 3.2, 5.1, -2.7));
+    // 草图上涂的丘陵:一片低矮的起伏
+    if (skHills && skHills[i] > 0) U += SK_HILLS_U * skHills[i] * (0.6 + 0.4 * hills.at(i, fs, 4.1, -2, 6));
     uplift[i] = U;
     // 高原底座(米):碰撞带、强俯冲带上盘背后一大片平坦的高地(青藏、安第斯高原),沿走向时有时无;
     // 大陆内部零星的台地(非洲、巴西那样几百到一千多米的高原)。离海近处收掉,海岸不会是悬崖
@@ -865,6 +901,8 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
       pb = (s === SIDE_UPPER ? 3400 : 2600) * mf * smoothstep(0.25, 0.8, cs) * inBand * along;
     }
     pb += 1400 * smoothstep(-0.2, 0.3, shield.at(i, fs, 1.2)) * smoothstep(0.1, 0.5, B[i]);
+    // 草图上涂的高原:一整片平坦的高地
+    if (skPlat && skPlat[i] > 0) pb = Math.max(pb, SK_PLATEAU_M * skPlat[i] * (0.85 + 0.15 * plat.at(i, fs, 2.6, 3, -5)));
     plateau[i] = pb * smoothstep(3, 30, dSea[i]);
   }
 

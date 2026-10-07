@@ -11,7 +11,7 @@
 import { useSyncExternalStore } from 'react';
 import { EMPTY_EDITS, MARKS_MAX, MARK_REGIONS_TOTAL, cleanIntervention, cleanMark, markRegionTotal, sameMark, markAiName, nextMarkId, type AuthorMark, type Intervention, type TerrainOp, type WorldEdits } from '../gen/edits';
 import { TERRAIN_MAX_OPS, cleanTerrainOp } from '../gen/terrainEdits';
-import { SKETCH_MAX_STROKES, cleanSketch, cleanSketchStroke, type SketchEdit, type SketchStroke } from '../gen/sketch';
+import { SKETCH_MAX_STROKES, cleanSketch, cleanSketchStroke, sketchCoast, type SketchEdit, type SketchStroke } from '../gen/sketch';
 import { CHARACTERS_MAX, cleanCharacter, nextCharacterId, sameCharacter, type AuthorCharacter } from '../gen/characters';
 import { showToast } from './toastStore';
 
@@ -324,7 +324,7 @@ export function clearTerrain() {
 // ---- 草图(新建世界时「画大陆和海」;格式见 gen/edits.ts 文件头"地形草图") ----
 
 /** 把草图换成 next(清理过;一笔没有、没涂的又交给程序 = 去掉这个字段)。App 看到草图变了就在后台照新的草图重新生成 */
-function putSketch(next: SketchEdit | null) {
+export function putSketch(next: SketchEdit | null) {
   const c = next ? cleanSketch(next) : null;
   const { sketch: _, ...rest } = state;
   void _;
@@ -336,7 +336,7 @@ export function addSketchStroke(stroke: SketchStroke): boolean {
   const c = cleanSketchStroke(stroke);
   const now = state.sketch;
   if (!c || (now?.strokes.length ?? 0) >= SKETCH_MAX_STROKES) return false;
-  putSketch({ rest: now?.rest ?? 'auto', strokes: [...(now?.strokes ?? []), c] });
+  putSketch({ ...(now ?? { rest: 'auto' }), strokes: [...(now?.strokes ?? []), c] });
   return true;
 }
 
@@ -344,7 +344,7 @@ export function addSketchStroke(stroke: SketchStroke): boolean {
 export function undoSketchStroke() {
   const now = state.sketch;
   if (!now?.strokes.length) return;
-  putSketch({ rest: now.rest, strokes: now.strokes.slice(0, -1) });
+  putSketch({ ...now, strokes: now.strokes.slice(0, -1) });
 }
 
 /** 草图:全部清除(连同"没涂的地方都是海",回到程序原本的星球) */
@@ -356,7 +356,14 @@ export function clearSketch() {
 export function setSketchRest(rest: SketchEdit['rest']) {
   const now = state.sketch;
   if ((now?.rest ?? 'auto') === rest) return;
-  putSketch({ rest, strokes: now?.strokes ?? [] });
+  putSketch({ ...(now ?? { strokes: [] }), rest });
+}
+
+/** 草图:海岸线贴着画(0)还是自然(1) */
+export function setSketchCoast(coast: number) {
+  const now = state.sketch;
+  if (sketchCoast(now) === coast) return;
+  putSketch({ ...(now ?? { rest: 'auto', strokes: [] }), coast });
 }
 
 // ---- 作者标记 ----

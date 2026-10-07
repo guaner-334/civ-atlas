@@ -7,9 +7,13 @@ import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { generateCiv, planetTempo } from '../src/gen/civ';
 import {
   SKETCH_H,
+  SKETCH_HILLS,
+  SKETCH_ISLES,
   SKETCH_LAND,
   SKETCH_MAX_STROKES,
   SKETCH_MOUNTAIN,
+  SKETCH_PLATEAU,
+  SKETCH_SHELF,
   SKETCH_NONE,
   SKETCH_SEA,
   SKETCH_W,
@@ -17,6 +21,7 @@ import {
   cleanSketchStroke,
   sameSketch,
   sketchGrid,
+  type Sketch,
   type SketchEdit,
   type SketchStroke,
 } from '../src/gen/sketch';
@@ -24,7 +29,8 @@ import { editCount, makeSave, parseSave, saveText, worldCheck } from '../src/gen
 import { EMPTY_EDITS } from '../src/gen/edits';
 
 const SMALL = { ...DEFAULT_PARAMS, cells: 12000, seed: 7 };
-const at = (g: Uint8Array, x: number, y: number) => g[Math.floor(y / 4) * SKETCH_W + (((Math.floor(x / 4) % SKETCH_W) + SKETCH_W) % SKETCH_W)];
+const at = (s: Sketch, x: number, y: number) => s.grid[Math.floor(y / CELL) * SKETCH_W + (((Math.floor(x / CELL) % SKETCH_W) + SKETCH_W) % SKETCH_W)];
+const CELL = 2048 / SKETCH_W;
 
 describe('笔画的清理', () => {
   it('合格的原样返回;种类不认识、坐标不是数、没有点的丢掉', () => {
@@ -41,7 +47,7 @@ describe('笔画的清理', () => {
     const v = cleanSketchStroke({ kind: 'sea', r: 999, pts: [2050.4, -20, 2040, 2000] })!;
     // 第一个点取模到 [0, 2048),第二个点挪到离它最近的那一圈(跨 180° 经线的一笔是连着的)
     expect(v.pts).toEqual([2, 0, -8, 1024]);
-    expect(v.r).toBe(128);
+    expect(v.r).toBe(160);
   });
 
   it('一笔也没有、没涂的又交给程序 = 没画;选了"都是海"就算一笔没有也留着', () => {
@@ -74,11 +80,12 @@ describe('涂到格子上', () => {
         { kind: 'erase', r: 16, pts: [420, 400] },
       ],
     })!;
-    expect(g).toHaveLength(SKETCH_W * SKETCH_H);
+    expect(g.grid).toHaveLength(SKETCH_W * SKETCH_H);
+    expect(g.coast).toBe(1);
     expect(at(g, 560, 400)).toBe(SKETCH_LAND);
     expect(at(g, 560, 425)).toBe(SKETCH_LAND);
     expect(at(g, 560, 445)).toBe(SKETCH_NONE);
-    expect(at(g, 500, 400)).toBe(SKETCH_MOUNTAIN);
+    expect(at(g, 500, 400)).toBe(SKETCH_MOUNTAIN + 1);
     expect(at(g, 420, 400)).toBe(SKETCH_NONE);
   });
 
@@ -120,6 +127,49 @@ function findSpot(w: World, want: 0 | 1, r: number): [number, number] {
     }
   throw new Error('没找到');
 }
+
+describe('新的几支笔', () => {
+  it('圈起来填满:首尾连起来,圈里整片涂上;没封口的只涂笔走过的地方', () => {
+    const ring = [400, 300, 600, 300, 600, 500, 400, 500, 400, 310];
+    const filled = sketchGrid({ rest: 'auto', strokes: [{ kind: 'land', r: 8, pts: ring, fill: 1 }] })!;
+    expect(at(filled, 500, 400)).toBe(SKETCH_LAND);
+    expect(at(filled, 700, 400)).toBe(SKETCH_NONE);
+    const line = sketchGrid({ rest: 'auto', strokes: [{ kind: 'land', r: 8, pts: ring }] })!;
+    expect(at(line, 500, 400)).toBe(SKETCH_NONE);
+    // 陆地里圈一片海 = 内海
+    const lake = sketchGrid({ rest: 'auto', strokes: [{ kind: 'land', r: 8, pts: ring, fill: 1 }, { kind: 'sea', r: 4, pts: [460, 360, 540, 360, 540, 440, 460, 440], fill: 1 }] })!;
+    expect(at(lake, 500, 400)).toBe(SKETCH_SEA);
+    expect(at(lake, 420, 320)).toBe(SKETCH_LAND);
+  });
+
+  it('各种笔涂成各自的格子值;山地按高低分三档', () => {
+    const g = sketchGrid({
+      rest: 'auto',
+      strokes: [
+        { kind: 'hills', r: 8, pts: [100, 300] },
+        { kind: 'plateau', r: 8, pts: [200, 300] },
+        { kind: 'shelf', r: 8, pts: [300, 300] },
+        { kind: 'isles', r: 8, pts: [400, 300] },
+        { kind: 'mountain', r: 8, pts: [500, 300], h: 0 },
+        { kind: 'mountain', r: 8, pts: [600, 300], h: 2 },
+      ],
+    })!;
+    expect([100, 200, 300, 400, 500, 600].map((x) => at(g, x, 300))).toEqual([SKETCH_HILLS, SKETCH_PLATEAU, SKETCH_SHELF, SKETCH_ISLES, SKETCH_MOUNTAIN, SKETCH_MOUNTAIN + 2]);
+  });
+
+  it('清理:高低只留给山地、只留 0 和 2;填满至少要三个点;海岸线夹到 [0, 1]、1 不存', () => {
+    expect(cleanSketchStroke({ kind: 'land', r: 8, pts: [1, 1], h: 2 })).toEqual({ kind: 'land', r: 8, pts: [1, 1] });
+    expect(cleanSketchStroke({ kind: 'mountain', r: 8, pts: [1, 1], h: 1 })).toEqual({ kind: 'mountain', r: 8, pts: [1, 1] });
+    expect(cleanSketchStroke({ kind: 'mountain', r: 8, pts: [1, 1], h: 2 })?.h).toBe(2);
+    expect(cleanSketchStroke({ kind: 'land', r: 8, pts: [1, 1, 5, 5], fill: 1 })?.fill).toBeUndefined();
+    expect(cleanSketchStroke({ kind: 'land', r: 8, pts: [1, 1, 5, 5, 9, 1], fill: 1 })?.fill).toBe(1);
+    const st = [{ kind: 'land', r: 8, pts: [1, 1] }];
+    expect(cleanSketch({ rest: 'auto', coast: 1, strokes: st })?.coast).toBeUndefined();
+    expect(cleanSketch({ rest: 'auto', coast: -3, strokes: st })?.coast).toBe(0);
+    expect(cleanSketch({ rest: 'auto', coast: 0.6123, strokes: st })?.coast).toBe(0.61);
+    expect(sketchGrid({ rest: 'auto', coast: 0.3, strokes: [{ kind: 'land', r: 8, pts: [1, 300] }] })?.coast).toBe(0.3);
+  });
+});
 
 describe('照草图生成', () => {
   const base = generateWorld(SMALL);
@@ -166,6 +216,61 @@ describe('照草图生成', () => {
     const hill = generateWorld(SMALL, undefined, undefined, sketchGrid({ rest: 'auto', strokes: [land, { kind: 'mountain', r: 20, pts: [sx - 40, sy, sx + 40, sy] }] }));
     const top = (w: World) => Math.max(...near(w, sx, sy, 30).map((i) => w.elevation[i]));
     expect(top(hill)).toBeGreaterThan(top(flat) + 500);
+  });
+
+  it('海岸线"贴着画"比"自然"更贴着涂的轮廓', () => {
+    const [sx, sy] = [1000, 500];
+    const strokes: SketchStroke[] = [{ kind: 'land', r: 90, pts: [sx - 40, sy, sx + 40, sy] }];
+    const miss = (coast: number) => {
+      const w = generateWorld(SMALL, undefined, undefined, sketchGrid({ rest: 'sea', coast, strokes }));
+      const g = sketchGrid({ rest: 'sea', strokes })!;
+      let bad = 0;
+      for (let i = 0; i < w.mesh.n; i++) if ((w.water[i] === 0) !== (at(g, w.mesh.x[i], w.mesh.y[i]) >= SKETCH_LAND)) bad++;
+      return bad;
+    };
+    expect(miss(0)).toBeLessThan(miss(1));
+  });
+
+  it('群岛那片冒出好几个分开的小岛', () => {
+    const [sx, sy] = [1000, 500];
+    const w = generateWorld(SMALL, undefined, undefined, sketchGrid({ rest: 'sea', strokes: [{ kind: 'isles', r: 120, pts: [sx, sy] }] }));
+    const cells = near(w, sx, sy, 100);
+    const share = landShare(w, cells);
+    expect(share).toBeGreaterThan(0.05);
+    expect(share).toBeLessThan(0.6);
+    // 数一数连成片的块数
+    const inSet = new Set(cells.filter((i) => w.water[i] === 0));
+    const seen = new Set<number>();
+    let islands = 0;
+    for (const s0 of inSet) {
+      if (seen.has(s0)) continue;
+      islands++;
+      const st = [s0];
+      seen.add(s0);
+      while (st.length) {
+        const i = st.pop()!;
+        for (let k = w.mesh.adjStart[i]; k < w.mesh.adjStart[i + 1]; k++) {
+          const j = w.mesh.adj[k];
+          if (inSet.has(j) && !seen.has(j)) (seen.add(j), st.push(j));
+        }
+      }
+    }
+    expect(islands).toBeGreaterThanOrEqual(4);
+  });
+
+  it('浅海比深海浅;丘陵、高原比平地高', () => {
+    const [sx, sy] = [1000, 500];
+    const sea = generateWorld(SMALL, undefined, undefined, sketchGrid({ rest: 'sea', strokes: [{ kind: 'sea', r: 60, pts: [sx, sy] }] }));
+    const shelf = generateWorld(SMALL, undefined, undefined, sketchGrid({ rest: 'sea', strokes: [{ kind: 'shelf', r: 60, pts: [sx, sy] }] }));
+    const mean = (w: World, cells: number[]) => cells.reduce((a, i) => a + w.elevation[i], 0) / cells.length;
+    const mid = near(sea, sx, sy, 30);
+    expect(mean(shelf, mid)).toBeGreaterThan(mean(sea, mid) + 1000);
+    const land = (k: 'land' | 'hills' | 'plateau') =>
+      generateWorld(SMALL, undefined, undefined, sketchGrid({ rest: 'sea', strokes: [{ kind: 'land', r: 100, pts: [sx, sy] }, ...(k === 'land' ? [] : [{ kind: k, r: 60, pts: [sx, sy] } as SketchStroke])] }));
+    const flat = land('land');
+    const c = near(flat, sx, sy, 30);
+    expect(mean(land('hills'), c)).toBeGreaterThan(mean(flat, c) + 50);
+    expect(mean(land('plateau'), c)).toBeGreaterThan(mean(flat, c) + 800);
   });
 
   it('"都是海":只长画的陆地', () => {
