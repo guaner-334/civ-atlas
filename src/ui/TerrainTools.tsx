@@ -13,7 +13,7 @@
  *   返回 true = 这一下归编辑地形管。按住空格拖动是平移。
  * - 覆盖层(TerrainOverlay)用 SVG,坐标就是世界坐标(viewBox = 地图原图大小),随地图一起缩放平移。
  */
-import { useEffect, useId, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { useEffect, useId, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react';
 import type { TerrainKind, TerrainOp } from '../gen/edits';
 import { SKETCH_COAST, SKETCH_MAX_PTS, SKETCH_R, sketchCoast, type SketchEdit, type SketchKind, type SketchStroke } from '../gen/sketch';
 import { TERRAIN_MAX_PTS, TERRAIN_PRESETS as PRESETS, isPointKind, sameTerrain } from '../gen/terrainEdits';
@@ -661,11 +661,46 @@ function StrokeMark({ s, pending, pat }: { s: SketchStroke; pending: boolean; pa
 
 const sameStroke = (a: SketchStroke, b: SketchStroke) =>
   a === b || (a.kind === b.kind && a.r === b.r && a.h === b.h && a.fill === b.fill && a.pts.length === b.pts.length && a.pts.every((v, i) => v === b.pts[i]));
+const NO_STROKES: readonly SketchStroke[] = [];
+const disp = (pts: readonly number[], wrap: number) => (wrap ? displayPts(pts, wrap) : (pts as number[]));
+
+/**
+ * 草图那一层:按先后叠;遇到擦掉的一笔,把之前叠好的整个用它挖掉(左右各挪一圈也挖,跨 180° 经线的照样擦得掉)。
+ * erasing = 正在用擦掉涂的那一笔(跟着一起挖,淡淡描出擦到哪儿)
+ */
+function sketchLayer(strokes: readonly SketchStroke[], sameS: number, erasing: SketchStroke | null, uid: string, width: number, height: number, wrap: number) {
+  const pat = `${uid}-isles`;
+  const masks: ReactNode[] = [];
+  let body: ReactNode[] = [];
+  const list = strokes.map((s, i) => ({ s, pending: i >= sameS, draft: false }));
+  if (erasing) list.push({ s: erasing, pending: true, draft: true });
+  list.forEach(({ s, pending, draft }, i) => {
+    if (s.kind !== 'erase') return void body.push(<StrokeMark key={i} s={{ ...s, pts: disp(s.pts, wrap) }} pending={pending} pat={pat} />);
+    const id = `${uid}-e${i}`;
+    const d = s.fill ? `${pathOf(disp(s.pts, wrap))}Z` : pathOf(disp(s.pts, wrap));
+    masks.push(
+      <mask key={id} id={id} maskUnits="userSpaceOnUse" x={-width} y={-height} width={width * 4} height={height * 3}>
+        <rect x={-width} y={-height} width={width * 4} height={height * 3} fill="#fff" />
+        {[0, ...(wrap ? [-wrap, wrap] : [])].map((dx) => (
+          <path key={dx} d={d} transform={dx ? `translate(${dx} 0)` : undefined} fill={s.fill ? '#000' : 'none'} stroke={s.fill ? 'none' : '#000'} strokeWidth={s.fill ? undefined : s.r * 2} />
+        ))}
+      </mask>,
+    );
+    body = [
+      <g key={id} mask={`url(#${id})`}>
+        {body}
+      </g>,
+    ];
+    if (draft) body.push(<path key={`${id}-d`} className="sk-erasing" d={d} strokeWidth={s.r * 2} />);
+  });
+  return { masks, body };
+}
 
 /**
  * 地图上的覆盖层:开着编辑地形时画出草图(各支笔各自的颜色,半透明;擦掉的地方把之前涂的挖掉)、放的火山湖河、
  * 正在画的那一笔(圈起来填满:虚线圈 + 连回起点的点线)、跟着鼠标的大小圈;"在地图上显示草图"关掉时只留正在画的和光标圈。
- * shown / shownSketch = 地图上现在这个世界是带着哪些地形修改、哪份草图生成的(之后加的、还在重新生成的那几笔闪着)
+ * shown / shownSketch = 地图上现在这个世界是带着哪些地形修改、哪份草图生成的(之后加的、还在重新生成的那几笔闪着)。
+ * 画好的草图和放的几处只在它们变了时重排(拖动时只动正在画的那一笔和光标)
  */
 export function TerrainOverlay({
   width,
@@ -684,45 +719,26 @@ export function TerrainOverlay({
   const t = useTerrainTool();
   const edits = useEdits();
   const dr = useDraft();
-  if (!t.on) return null;
   const ops = edits.terrain;
-  const strokes = edits.sketch?.strokes ?? [];
-  const shownStrokes = shownSketch?.strokes ?? [];
-  // 从第几处 / 第几笔开始地图上还没有(按先后比;撤销的不算)
-  let same = 0;
-  while (same < ops.length && same < shown.length && sameTerrain([ops[same]], [shown[same]])) same++;
-  let sameS = 0;
-  while (sameS < strokes.length && sameS < shownStrokes.length && sameStroke(strokes[sameS], shownStrokes[sameS])) sameS++;
+  const strokes = edits.sketch?.strokes ?? NO_STROKES;
+  const shownStrokes = shownSketch?.strokes ?? NO_STROKES;
+  const erasePts = t.on && dr.draft && t.tool === 'erase' && t.method === 'paint' ? dr.draft : null;
+  const layer = useMemo(() => {
+    if (!t.on || (!t.show && !erasePts)) return { masks: [], body: [] };
+    // 从第几笔开始地图上还没有(按先后比;撤销的不算)
+    let sameS = 0;
+    while (sameS < strokes.length && sameS < shownStrokes.length && sameStroke(strokes[sameS], shownStrokes[sameS])) sameS++;
+    return sketchLayer(t.show ? strokes : NO_STROKES, sameS, erasePts && { kind: 'erase', r: t.r, pts: erasePts }, uid, width, height, wrap);
+  }, [t.on, t.show, t.r, strokes, shownStrokes, erasePts, uid, width, height, wrap]);
+  const opMarks = useMemo(() => {
+    if (!t.on || !t.show) return null;
+    let same = 0;
+    while (same < ops.length && same < shown.length && sameTerrain([ops[same]], [shown[same]])) same++;
+    return ops.map((op, i) => <OpMark key={i} op={{ ...op, pts: disp(op.pts, wrap) }} pending={i >= same} />);
+  }, [t.on, t.show, ops, shown, wrap]);
+  if (!t.on) return null;
   const r = radiusOf(t);
   const pat = `${uid}-isles`;
-  const disp = (pts: readonly number[]) => (wrap ? displayPts(pts, wrap) : (pts as number[]));
-
-  // 草图按先后叠;遇到擦掉的一笔,把之前叠好的整个用它挖掉(左右各挪一圈也挖,跨 180° 经线的照样擦得掉)
-  const masks: ReactNode[] = [];
-  let acc: ReactNode[] = [];
-  const list: { s: SketchStroke; pending: boolean; draft?: boolean }[] = t.show ? strokes.map((s, i) => ({ s, pending: i >= sameS })) : [];
-  const draftStroke = dr.draft && !isPlaceTool(t.tool) ? dr.draft : null;
-  if (draftStroke && t.tool === 'erase' && t.method === 'paint') list.push({ s: { kind: 'erase', r: t.r, pts: draftStroke }, pending: true, draft: true });
-  list.forEach(({ s, pending, draft }, i) => {
-    if (s.kind !== 'erase') return void acc.push(<StrokeMark key={i} s={{ ...s, pts: disp(s.pts) }} pending={pending} pat={pat} />);
-    const id = `${uid}-e${i}`;
-    const d = s.fill ? `${pathOf(disp(s.pts))}Z` : pathOf(disp(s.pts));
-    masks.push(
-      <mask key={id} id={id} maskUnits="userSpaceOnUse" x={-width} y={-height} width={width * 4} height={height * 3}>
-        <rect x={-width} y={-height} width={width * 4} height={height * 3} fill="#fff" />
-        {[0, ...(wrap ? [-wrap, wrap] : [])].map((dx) => (
-          <path key={dx} d={d} transform={dx ? `translate(${dx} 0)` : undefined} fill={s.fill ? '#000' : 'none'} stroke={s.fill ? 'none' : '#000'} strokeWidth={s.fill ? undefined : s.r * 2} />
-        ))}
-      </mask>,
-    );
-    acc = [
-      <g key={id} mask={`url(#${id})`}>
-        {acc}
-      </g>,
-    ];
-    // 正在擦的那一笔:淡淡描出擦到哪儿
-    if (draft) acc.push(<path key={`${id}-d`} className="sk-erasing" d={d} strokeWidth={s.r * 2} />);
-  });
 
   let draftMark: ReactNode = null;
   if (dr.draft) {
@@ -736,7 +752,7 @@ export function TerrainOverlay({
           {n >= 4 && <path className="sk-lasso-close" d={`M${pts[n - 2]} ${pts[n - 1]}L${pts[0]} ${pts[1]}`} vectorEffect="non-scaling-stroke" />}
         </g>
       );
-    } else if (draftStroke && t.tool !== 'erase') {
+    } else if (!isPlaceTool(t.tool) && t.tool !== 'erase') {
       const s: SketchStroke = { kind: t.tool as SketchKind, r: t.r, pts };
       draftMark = <StrokeMark s={s} pending pat={pat} />;
     }
@@ -751,11 +767,11 @@ export function TerrainOverlay({
           <circle cx="13" cy="15" r="3.8" />
           <circle cx="3" cy="17" r="1.8" />
         </pattern>
-        {masks}
+        {layer.masks}
       </defs>
       <g id={uid}>
-        {acc}
-        {t.show && ops.map((op, i) => <OpMark key={i} op={{ ...op, pts: disp(op.pts) }} pending={i >= same} />)}
+        {layer.body}
+        {opMarks}
         {draftMark}
         {dr.cursor && !dr.draft && (
           <g className="tt-cursor">
