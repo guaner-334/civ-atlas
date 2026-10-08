@@ -11,7 +11,7 @@
 import { useSyncExternalStore } from 'react';
 import { EMPTY_EDITS, MARKS_MAX, MARK_REGIONS_TOTAL, cleanIntervention, cleanMark, markRegionTotal, sameMark, markAiName, nextMarkId, type AuthorMark, type Intervention, type TerrainOp, type WorldEdits } from '../gen/edits';
 import { TERRAIN_MAX_OPS, cleanTerrainOp } from '../gen/terrainEdits';
-import { SKETCH_MAX_STROKES, cleanSketch, cleanSketchStroke, sketchCoast, type SketchEdit, type SketchStroke } from '../gen/sketch';
+import { SKETCH_MAX_STROKES, cleanSketch, cleanSketchImage, cleanSketchStroke, encodeLayer, sketchCoast, type SketchEdit, type SketchImage, type SketchStroke } from '../gen/sketch';
 import { CHARACTERS_MAX, cleanCharacter, nextCharacterId, sameCharacter, type AuthorCharacter } from '../gen/characters';
 import { showToast } from './toastStore';
 
@@ -348,9 +348,42 @@ export function addSketchStroke(stroke: SketchStroke, coast?: number): boolean {
   return true;
 }
 
-/** 草图:撤销最后一笔 */
+/** 导入图片时换掉的上一张(撤销这次导入时放回去);只记在内存里 */
+const replacedImage = new WeakMap<SketchImage, SketchImage>();
+
+/**
+ * 草图:导入一张图(认出来的格子图,LAYER_W × LAYER_H),铺在已有的笔画上面、之后的笔画底下;已经导入过的换掉(撤销时放回去)。
+ * 还没有草图时新开一张,海岸线用 coast(不给 = 默认)。一格也没盖到的不导入;返回是否导入了
+ */
+export function setSketchImage(name: string, layer: Uint8Array, coast?: number): boolean {
+  const now = state.sketch;
+  const base: SketchEdit = now ?? (coast === undefined ? { rest: 'auto', strokes: [] } : { rest: 'auto', coast, strokes: [] });
+  const image = cleanSketchImage({ name, cells: encodeLayer(layer), at: base.strokes.length }, base.strokes.length);
+  if (!image) return false;
+  if (now?.image) replacedImage.set(image, now.image);
+  putSketch({ ...base, image });
+  return true;
+}
+
+/** 草图:去掉导入的图片(笔画留着) */
+export function removeSketchImage() {
+  const now = state.sketch;
+  if (!now?.image) return;
+  const { image: _, ...rest } = now;
+  void _;
+  putSketch(rest);
+}
+
+/** 草图:撤销最后一步 —— 最后一笔;最后一步是导入图片的,撤掉这次导入(换掉的上一张放回去) */
 export function undoSketchStroke() {
   const now = state.sketch;
+  if (now?.image && (now.image.at ?? 0) >= now.strokes.length) {
+    const prev = replacedImage.get(now.image);
+    const { image: _, ...rest } = now;
+    void _;
+    putSketch(prev ? { ...rest, image: prev } : rest);
+    return;
+  }
   if (!now?.strokes.length) return;
   putSketch({ ...now, strokes: now.strokes.slice(0, -1) });
 }
