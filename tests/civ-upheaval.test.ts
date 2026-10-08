@@ -8,7 +8,8 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
-import { mergeUpheavals, upheavalSteps, type UpheavalStep } from '../src/gen/civ/upheaval';
+import { mergeUpheavals, previewUpheaval, previewVictims, upheavalBase, upheavalSteps, type UpheavalStep } from '../src/gen/civ/upheaval';
+import { DEFAULT_CIV_PARAMS } from '../src/gen/civ';
 import { buildChronicle } from '../src/gen/civ/chronicle';
 import { ownersAt } from '../src/gen/civ/timeline';
 import { capitalAt } from '../src/gen/civ/growth';
@@ -216,6 +217,26 @@ describe('地形大事 · 推演', () => {
     expect(both).toHaveLength(1);
     expect(both[0].items).toEqual([0, 1]);
     expect(both[0].ops.map((o) => o.kind)).toEqual(['volcano', 'raise']);
+  }, 300_000);
+
+  it('预览("会怎么样"):放好还没发生时算出来的州和城,和真让它发生以后一样', () => {
+    // 已经有第 1600 年的海水漫进来,再预览第 1800 年的火山:那一年的地形、州是套上第一件以后的
+    const civ = civOf([FLOOD]);
+    const prior = steps([FLOOD]);
+    const both = steps([FLOOD, VOLCANO]);
+    const { world: w0, regions: r0 } = upheavalBase(world(), prior, VOLCANO.year, DEFAULT_CIV_PARAMS.regionArea);
+    expect(w0).toBe(prior[0].world);
+    expect(r0.count).toBe(civ.regions.count);
+    expect(Array.from(r0.of)).toEqual(Array.from(civ.regions.of));
+    const pv = previewUpheaval(w0, r0, both[1].world, VOLCANO.ops, DEFAULT_CIV_PARAMS.regionArea);
+    const real = civOf([FLOOD, VOLCANO]);
+    const f = real.upheavals![1];
+    expect([pv.region, pv.drowned, pv.shrunk, pv.grown, pv.added, pv.sunk, pv.risen]).toEqual([f.region, f.drowned, f.shrunk, f.grown, f.added, f.sunk, f.risen]);
+    expect(pv.risenCells.length).toBe(pv.risen);
+    const victims = previewVictims(civ, world(), both[1].world.water, VOLCANO.year, VOLCANO.ops);
+    const sunk = real.annals.filter((e) => e.kind === 'sunk' && e.war === 1);
+    expect(victims.map((v) => [v.id, v.drowned])).toEqual(sunk.map((e) => [e.settlement, e.b === 1]));
+    expect(victims[0].capital).toBe(true);
   }, 300_000);
 
   it('确定性:同样的大事两次推演逐字节相同', () => {

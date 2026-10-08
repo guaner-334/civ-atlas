@@ -20,7 +20,10 @@
 import { generateWorld, type World, type WorldParams } from '../world';
 import type { Sketch } from '../sketch';
 import type { TerrainOp, Upheaval } from '../edits';
-import { Layer, type Polity, type Regions, type Settlement, type UpheavalFact, type Year } from './types';
+import { Layer, type Civ, type Polity, type Regions, type Settlement, type UpheavalFact, type Year } from './types';
+import { computeHabitat } from './habitat';
+import { buildRegions, reshapeRegions } from './regions';
+import { ownersAt } from './timeline';
 import { Ev, type CivSim } from './sim';
 import { endPolity, moveCapital, polityModelOf } from './polities';
 import { bestCapital, warModelOf } from './wars';
@@ -249,7 +252,7 @@ export function upheavalVictims(
   polities: readonly Polity[],
   owner: ArrayLike<number>,
   t: Year,
-  w1: World,
+  w1: Pick<World, 'mesh' | 'water' | 'width'>,
   ops: readonly TerrainOp[],
 ): UpheavalVictim[] {
   const { x, y } = w1.mesh;
@@ -267,6 +270,56 @@ export function upheavalVictims(
   }
   out.sort((a, b) => Number(b.capital) - Number(a.capital) || b.pop - a.pop || a.id - b.id);
   return out.map(({ id, drowned, capital }) => ({ id, drowned, capital }));
+}
+
+// ---------------------------------------------------------------------------
+// 预览("会怎么样"):放好、涂好还没让它发生时,先照新地形真生成一遍,和那一年的地形、州比
+
+/**
+ * 第 year 年(大事前)的地形和州:从原来的世界起,year 和更早的地形大事一件件套上(和推演里同一套州,编号沿用)。
+ * 同一年已经有的大事算在"之前"里(再加的一件和它合成一件,预览只看再加的这几笔改了什么)
+ */
+export function upheavalBase(world: World, steps: readonly UpheavalStep[], year: Year, regionArea: number): { world: World; regions: Regions } {
+  let w = world;
+  let r = buildRegions(w, computeHabitat(w), { regionArea });
+  for (const s of steps) {
+    if (s.year > year) break;
+    w = s.world;
+    r = reshapeRegions(w, computeHabitat(w), r, { regionArea });
+  }
+  return { world: w, regions: r };
+}
+
+/** 预览:地块、州怎么变(upheavalImpact),外加变成水 / 变成陆地的地块(地图上标出来) */
+export interface UpheavalPreview extends UpheavalImpact {
+  sunkCells: number[];
+  risenCells: number[];
+}
+
+/** w0、r0 = 那一年的地形和州(upheavalBase);w1 = 再套上这几笔(ops)生成的世界 */
+export function previewUpheaval(w0: World, r0: Regions, w1: World, ops: readonly TerrainOp[], regionArea: number): UpheavalPreview {
+  const r1 = reshapeRegions(w1, computeHabitat(w1), r0, { regionArea });
+  const impact = upheavalImpact(w0, r0, w1, r1, ops);
+  const sunkCells: number[] = [];
+  const risenCells: number[] = [];
+  for (let c = 0; c < w0.mesh.n; c++) {
+    const a = w0.water[c] === 0;
+    const b = w1.water[c] === 0;
+    if (a && !b) sunkCells.push(c);
+    else if (!a && b) risenCells.push(c);
+  }
+  return { ...impact, sunkCells, risenCells };
+}
+
+/**
+ * 预览里会没了的城(按这份历史:那一年还在的城;同一年已经发生过的大事里没了的不算)。water1 = 再套上这几笔以后的海陆
+ * (只用它的 water;地块网格和 civ 的世界一样)。国都在前
+ */
+export function previewVictims(civ: Civ, world: Pick<World, 'mesh' | 'width'>, water1: ArrayLike<number>, year: Year, ops: readonly TerrainOp[]): UpheavalVictim[] {
+  const own = ownersAt(civ, year - 1 / 256);
+  const gone = new Set(civ.annals.filter((e) => e.kind === 'sunk' && e.year === year).map((e) => e.settlement));
+  const alive = civ.settlements.filter((s) => !gone.has(s.id));
+  return upheavalVictims(alive, civ.polities, own.polity, year, { mesh: world.mesh, width: world.width, water: water1 as World['water'] }, ops);
 }
 
 /** 预约第 k 件大事(fromCiv 的 first 回调里调用:同一刻里先于别的一切事件) */
