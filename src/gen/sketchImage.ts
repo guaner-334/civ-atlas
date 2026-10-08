@@ -42,7 +42,7 @@ const COLORFUL = 8;
 /** 「点一下海」的范围:走一步颜色(Lab 距离)最多差多少;默认值和滑条两头 */
 export const WAND_RANGE = 4;
 export const WAND_RANGE_MIN = 1;
-export const WAND_RANGE_MAX = 12;
+export const WAND_RANGE_MAX = 10;
 /** 认完以后,比这小的一块陆地(格数,按 PICTURE_W 宽的图算)当作海:多半是海里的字、涂出来的笔道 */
 const MIN_LAND_PIECE = 12;
 
@@ -382,8 +382,8 @@ export function autoSeaLevel(pic: Picture, dark?: boolean): number {
 /** 放法:铺满整张(拉伸到整颗星球),或保持比例(x、y = 图中心在格子图上的位置,0–1;scale = 大小,1 = 正好放得下;不是有限数的当 0.5、1) */
 export type Placement = { fit: 'fill' } | { fit: 'keep'; x: number; y: number; scale: number };
 
-/** 保持比例时大小的范围 */
-export const PLACE_SCALE: readonly [number, number] = [0.2, 3];
+/** 保持比例时大小的范围(1 = 正好放得下,只能缩小) */
+export const PLACE_SCALE: readonly [number, number] = [0.2, 1];
 
 /** 图铺在格子图上的哪一块(格子坐标,左上角 x、y 和宽、高;可以超出格子图,超出的部分切掉) */
 export function placeRect(w: number, h: number, p: Placement): { x: number; y: number; w: number; h: number } {
@@ -471,10 +471,14 @@ export type ImportWarning = 'colorful' | 'specks' | 'sea' | 'land' | null;
 const WARN_SHARE = 0.02;
 const WARN_SPECKS = 150;
 
-export function importWarning(s: LayerStats, mode: 'wand' | 'level', colorful: boolean): ImportWarning {
+/** 认出来哪里不对:碎成很多小块 / 几乎全是海 / 几乎全是陆地;看着像样 = null(没盖到格子也是 null) */
+export function layerTrouble(s: LayerStats): 'specks' | 'sea' | 'land' | null {
   if (!s.covered) return null;
-  const share = s.land < WARN_SHARE ? 'sea' : s.land > 1 - WARN_SHARE ? 'land' : null;
-  const specks = s.specks > WARN_SPECKS;
-  if (mode === 'level' && colorful && (share || specks)) return 'colorful';
-  return specks ? 'specks' : share;
+  if (s.specks > WARN_SPECKS) return 'specks';
+  return s.land < WARN_SHARE ? 'sea' : s.land > 1 - WARN_SHARE ? 'land' : null;
+}
+
+export function importWarning(s: LayerStats, mode: 'wand' | 'level', colorful: boolean): ImportWarning {
+  const t = layerTrouble(s);
+  return t && mode === 'level' && colorful ? 'colorful' : t;
 }

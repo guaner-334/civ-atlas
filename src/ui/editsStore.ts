@@ -348,24 +348,52 @@ export function addSketchStroke(stroke: SketchStroke, coast?: number): boolean {
   return true;
 }
 
+/** 草图:撤销最后一笔 */
+export function undoSketchStroke() {
+  const now = state.sketch;
+  if (!now?.strokes.length) return;
+  putSketch({ ...now, strokes: now.strokes.slice(0, -1) });
+}
+
 /** 导入图片时换掉的上一张(撤销这次导入时放回去);只记在内存里 */
 const replacedImage = new WeakMap<SketchImage, SketchImage>();
+
+/** 把导入的图片换成 image(已经有的记下来,撤销时放回去)。还没有草图时新开一张,海岸线用 coast */
+function placeSketchImage(image: SketchImage, coast?: number) {
+  const now = state.sketch;
+  const base: SketchEdit = now ?? (coast === undefined ? { rest: 'auto', strokes: [] } : { rest: 'auto', coast, strokes: [] });
+  if (now?.image && now.image !== image) replacedImage.set(image, now.image);
+  putSketch({ ...base, image });
+}
 
 /**
  * 草图:导入一张图(认出来的格子图,LAYER_W × LAYER_H),铺在已有的笔画上面、之后的笔画底下;已经导入过的换掉(撤销时放回去)。
  * 还没有草图时新开一张,海岸线用 coast(不给 = 默认)。一格也没盖到的不导入;返回是否导入了
  */
 export function setSketchImage(name: string, layer: Uint8Array, coast?: number): boolean {
-  const now = state.sketch;
-  const base: SketchEdit = now ?? (coast === undefined ? { rest: 'auto', strokes: [] } : { rest: 'auto', coast, strokes: [] });
-  const image = cleanSketchImage({ name, cells: encodeLayer(layer), at: base.strokes.length }, base.strokes.length);
+  const n = state.sketch?.strokes.length ?? 0;
+  const image = cleanSketchImage({ name, cells: encodeLayer(layer), at: n }, n);
   if (!image) return false;
-  if (now?.image) replacedImage.set(image, now.image);
-  putSketch({ ...base, image });
+  placeSketchImage(image, coast);
   return true;
 }
 
-/** 草图:去掉导入的图片(笔画留着) */
+/** 草图:重做刚撤掉的那次导入(撤掉以后没改过别的) */
+export function redoSketchImage(image: SketchImage, coast?: number) {
+  placeSketchImage(image, coast);
+}
+
+/** 草图:撤销导入图片(换掉的上一张放回去;没有就是去掉) */
+export function undoSketchImage() {
+  const now = state.sketch;
+  if (!now?.image) return;
+  const prev = replacedImage.get(now.image);
+  const { image: _, ...rest } = now;
+  void _;
+  putSketch(prev ? { ...rest, image: prev } : rest);
+}
+
+/** 草图:去掉导入的图片(笔画留着;换掉过的也不放回去) */
 export function removeSketchImage() {
   const now = state.sketch;
   if (!now?.image) return;
@@ -374,18 +402,11 @@ export function removeSketchImage() {
   putSketch(rest);
 }
 
-/** 草图:撤销最后一步 —— 最后一笔;最后一步是导入图片的,撤掉这次导入(换掉的上一张放回去) */
-export function undoSketchStroke() {
-  const now = state.sketch;
-  if (now?.image && (now.image.at ?? 0) >= now.strokes.length) {
-    const prev = replacedImage.get(now.image);
-    const { image: _, ...rest } = now;
-    void _;
-    putSketch(prev ? { ...rest, image: prev } : rest);
-    return;
-  }
-  if (!now?.strokes.length) return;
-  putSketch({ ...now, strokes: now.strokes.slice(0, -1) });
+/** 现在导入的图片能撤销几次(这一张 + 它换掉的、换掉的又换掉的……);没导入 = 0 */
+export function sketchImageSteps(): number {
+  let n = 0;
+  for (let im = state.sketch?.image; im; im = replacedImage.get(im)) n++;
+  return n;
 }
 
 /** 草图:全部清除(连同"没涂的地方都是海",回到程序原本的星球) */

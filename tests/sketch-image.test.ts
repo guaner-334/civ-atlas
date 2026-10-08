@@ -115,7 +115,7 @@ describe('点一下海', () => {
     const p = preparePicture(picture(200, 100, (x) => (x < 100 ? [60, 110, 200] : [200, 120, 160])));
     expect(landShareOf(seaFromClicks(p, [[0.1, 0.5]], 4))).toBeGreaterThan(0.45);
     // 糊过一下以后交界处一步一步变,范围最大时走得过去
-    expect(landShareOf(seaFromClicks(p, [[0.1, 0.5]], 12))).toBeLessThan(landShareOf(seaFromClicks(p, [[0.1, 0.5]], 4)));
+    expect(landShareOf(seaFromClicks(p, [[0.1, 0.5]], 10))).toBeLessThan(landShareOf(seaFromClicks(p, [[0.1, 0.5]], 4)));
   });
 
   it('海里的小黑点(写的字、笔道)不算陆地;透明的地方当白纸', () => {
@@ -312,30 +312,36 @@ describe('照导入的图生成', () => {
 });
 
 describe('当前世界的草图(editsStore):导入图片', () => {
-  it('导入、接着画、撤销按先后;再导入换掉的撤销时放回去;去掉只去图片', async () => {
-    const { addSketchStroke, clearEdits, getEdits, removeSketchImage, setSketchImage, undoSketchStroke } = await import('../src/ui/editsStore');
+  it('导入、再导入换掉的撤销时放回去;能撤几次;去掉只去图片;一格也没盖到的不导入', async () => {
+    const { addSketchStroke, clearEdits, getEdits, redoSketchImage, removeSketchImage, setSketchImage, sketchImageSteps, undoSketchImage, undoSketchStroke } = await import(
+      '../src/ui/editsStore'
+    );
     clearEdits();
     const a = layerWith(SKETCH_SEA, [100, 50, 300, 150, SKETCH_LAND]);
     const b = layerWith(SKETCH_SEA, [10, 10, 60, 60, SKETCH_LAND]);
     expect(setSketchImage('空的.png', layerWith(SKETCH_NONE))).toBe(false);
     expect(getEdits().sketch).toBeUndefined();
+    expect(sketchImageSteps()).toBe(0);
     expect(setSketchImage('a.png', a)).toBe(true);
     expect(getEdits().sketch).toEqual({ rest: 'auto', strokes: [], image: { name: 'a.png', cells: encodeLayer(a) } });
     addSketchStroke({ kind: 'mountain', r: 16, pts: [5, 5] });
     expect(setSketchImage('b.png', b)).toBe(true);
-    expect(getEdits().sketch?.image).toEqual({ name: 'b.png', cells: encodeLayer(b), at: 1 });
-    addSketchStroke({ kind: 'hills', r: 16, pts: [9, 9] });
-    undoSketchStroke(); // 撤掉丘陵
-    expect(getEdits().sketch?.strokes).toHaveLength(1);
-    undoSketchStroke(); // 撤掉 b,a 放回去
+    const imgB = getEdits().sketch!.image!;
+    expect(imgB).toEqual({ name: 'b.png', cells: encodeLayer(b), at: 1 });
+    expect(sketchImageSteps()).toBe(2);
+    undoSketchImage(); // 撤掉 b,a 放回去
     expect(getEdits().sketch?.image?.name).toBe('a.png');
     expect(getEdits().sketch?.strokes).toHaveLength(1);
-    undoSketchStroke(); // 撤掉山地
-    expect(getEdits().sketch?.strokes).toHaveLength(0);
-    expect(getEdits().sketch?.image?.name).toBe('a.png');
+    redoSketchImage(imgB); // 重做:b 又换上,撤销时 a 照样放回去
+    expect(getEdits().sketch?.image).toBe(imgB);
+    expect(sketchImageSteps()).toBe(2);
+    undoSketchImage();
+    undoSketchStroke(); // 撤笔画不动图片
+    expect(getEdits().sketch).toEqual({ rest: 'auto', strokes: [], image: { name: 'a.png', cells: encodeLayer(a) } });
     addSketchStroke({ kind: 'land', r: 16, pts: [7, 7] });
     removeSketchImage();
     expect(getEdits().sketch).toEqual({ rest: 'auto', strokes: [{ kind: 'land', r: 16, pts: [7, 7] }] });
+    expect(sketchImageSteps()).toBe(0);
     undoSketchStroke();
     expect(getEdits().sketch).toBeUndefined();
     clearEdits();
