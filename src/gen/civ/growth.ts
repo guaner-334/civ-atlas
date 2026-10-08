@@ -112,18 +112,31 @@ export function ruinRank(s: Settlement): number {
   return s.ended === undefined ? -1 : settlementRank(populationAt(s, s.ended - 1 / 256));
 }
 
+/** 地形大事里沉入海中的城(史事 sunk,b = 1;同一份史事只数一次) */
+const drownedMemo = new WeakMap<readonly unknown[], Set<number>>();
+function drownedCities(civ: Civ): Set<number> {
+  let d = drownedMemo.get(civ.annals);
+  if (!d) {
+    d = new Set();
+    if (civ.upheavals?.length) for (const e of civ.annals) if (e.kind === 'sunk' && e.b === 1) d.add(e.settlement);
+    drownedMemo.set(civ.annals, d);
+  }
+  return d;
+}
+
 /**
  * 某一年地图上的遗址:毁了、到这一年还没在故址上重建起新城的城(按编号)。
- * 同一处先后毁过几次的只算最近那一座
+ * 同一处先后毁过几次的只算最近那一座;沉入海中的(地形大事)没有遗址
  */
 export function ruinSites(civ: Civ, year: Year): Settlement[] {
   const S = civ.settlements;
   /** 旧城 → 在它故址上重建的新城 */
   const next = new Map<number, Settlement>();
   for (const s of S) if (s.rebuilds !== undefined) next.set(s.rebuilds, s);
+  const drowned = drownedCities(civ);
   const out: Settlement[] = [];
   for (const s of S) {
-    if (s.ended === undefined || !(s.ended <= year)) continue;
+    if (s.ended === undefined || !(s.ended <= year) || drowned.has(s.id)) continue;
     const n = next.get(s.id);
     if (n && n.founded <= year) continue;
     out.push(s);

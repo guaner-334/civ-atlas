@@ -690,6 +690,7 @@ export function emptyRegions(n: number): Regions {
  *   - 新冒出来的陆地:离原有的州近的(一个种子半径以内,沿新陆地走)并进最近的州;远的(海里新长的岛、大片新陆地)
  *     按建州时同样的规则撒种子,编号接在后面;新州太小的(和建州时同一个门槛)并进共享边界最长的邻州,孤岛上的不并
  *   - 治所还在本州的陆地上就不动,否则换成区内最宜居的地块
+ *   - 稳定键用的 keyOf、keySeat 记着每块地、每州最早的样子(types.ts 的 Regions)
  * 之后按新地形重算各州的面积、人口上限、群落、海拔、陆块和邻接(和 buildRegions 最后一步同一套)。
  */
 export function reshapeRegions(world: World, habitat: Habitat, prev: Regions, p: RegionParams): Regions {
@@ -794,5 +795,12 @@ export function reshapeRegions(world: World, habitat: Habitat, prev: Regions, p:
   const lmOf = landmassOf(world, cellArea);
   const river = new Float32Array(n);
   for (let i = 0; i < n; i++) if (water[i] === 0) river[i] = riverSize(flux[i], riverThreshold);
-  return finishRegions(world, habitat, of, Int32Array.from(seat), lmOf, cellArea, len, river, step);
+  // 稳定键:地块按最早属于的州、州按最早的治所(大事以后沉了的地方、换了的治所照样指回同一州)
+  const prevOf = prev.keyOf ?? prev.of;
+  const prevSeat = prev.keySeat ?? prev.seat;
+  const keyOf = new Int32Array(n);
+  for (let i = 0; i < n; i++) keyOf[i] = prevOf[i] >= 0 ? prevOf[i] : of[i];
+  const keySeat = Int32Array.from(seat);
+  for (let r = 0; r < prev.count; r++) keySeat[r] = prevSeat[r];
+  return { ...finishRegions(world, habitat, of, Int32Array.from(seat), lmOf, cellArea, len, river, step), keyOf, keySeat };
 }

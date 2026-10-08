@@ -290,11 +290,18 @@ export function upheavalBase(world: World, steps: readonly UpheavalStep[], year:
   return { world: w, regions: r };
 }
 
-/** 预览:地块、州怎么变(upheavalImpact),外加变成水 / 变成陆地的地块(地图上标出来) */
+/** 预览:地块、州怎么变(upheavalImpact),外加变成水 / 变成陆地的地块(地图上标出来)、火山的山体压到的州 */
 export interface UpheavalPreview extends UpheavalImpact {
   sunkCells: number[];
   risenCells: number[];
+  /** 火山喷发:山体压到的州(陆地明显抬高了的州,按编号;没有火山 = 空) */
+  cone: number[];
 }
+
+/** 山体:抬高超过最高处这么多的地块算(和地图上山体的圈差不多大) */
+const CONE_FRAC = 0.12;
+/** 最高处抬得不到这么多(米)= 山体压不到什么(火山放在本来就很高的山上) */
+const CONE_MIN = 40;
 
 /** w0、r0 = 那一年的地形和州(upheavalBase);w1 = 再套上这几笔(ops)生成的世界 */
 export function previewUpheaval(w0: World, r0: Regions, w1: World, ops: readonly TerrainOp[], regionArea: number): UpheavalPreview {
@@ -308,7 +315,20 @@ export function previewUpheaval(w0: World, r0: Regions, w1: World, ops: readonly
     if (a && !b) sunkCells.push(c);
     else if (!a && b) risenCells.push(c);
   }
-  return { ...impact, sunkCells, risenCells };
+  const cone: number[] = [];
+  if (ops.some((o) => o.kind === 'volcano')) {
+    let top = 0;
+    for (let c = 0; c < w0.mesh.n; c++) if (w0.water[c] === 0 && w1.water[c] === 0) top = Math.max(top, w1.elevation[c] - w0.elevation[c]);
+    if (top >= CONE_MIN) {
+      const hit = new Set<number>();
+      for (let c = 0; c < w0.mesh.n; c++) {
+        const r = r0.of[c];
+        if (r >= 0 && w0.water[c] === 0 && w1.water[c] === 0 && w1.elevation[c] - w0.elevation[c] > top * CONE_FRAC) hit.add(r);
+      }
+      cone.push(...[...hit].sort((x, y) => x - y));
+    }
+  }
+  return { ...impact, sunkCells, risenCells, cone };
 }
 
 /**

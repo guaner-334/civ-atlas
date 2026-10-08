@@ -170,7 +170,7 @@
  *   9:君主有了世系(谁是谁的父亲,civ/lineage.ts),补上没即位的宗室;疆域、兴亡、君主和将领都和 8 一样,
  *      只是继位时年纪对不上的"其弟 / 其兄"改成了"其侄 / 叔父"这类(每个世界几十句)。
  */
-import type { Civ, Culture, Faith, Place, Polity, Settlement } from './civ/types';
+import type { Civ, Culture, Faith, Place, Polity, Regions, Settlement } from './civ/types';
 import type { AuthorCharacter } from './characters';
 import { polityRootAt } from './civ/growth';
 import { TERRAIN_H, TERRAIN_W } from './terrainEdits';
@@ -342,7 +342,7 @@ function keyIndex(civ: Civ): KeyIndex {
   let ix = indexCache.get(civ);
   if (ix) return ix;
   const S = civ.settlements;
-  const seat = civ.regions.seat;
+  const seat = keySeats(civ.regions);
   /** 州 → 键里的位置锚:治所地块(`c4567`);没有这州(不该发生)按州号 */
   const at = (r: number) => (r >= 0 && r < seat.length ? `c${seat[r]}` : `r${r}`);
   const byRegion = new Map<string, number>();
@@ -410,9 +410,16 @@ export function dynastyKey(civ: Civ, polity: number, index: number): string {
 
 /** 州的键:`region:c{治所地块}`(改地形、州重新划分以后,指"现在包含这块地的那一州") */
 export function regionKey(civ: Civ, region: number): string {
-  const seat = civ.regions.seat;
+  const seat = keySeats(civ.regions);
   return region >= 0 && region < seat.length ? `region:c${seat[region]}` : `region:r${region}`;
 }
+
+/**
+ * 稳定键按哪份"地块 → 州"、"州 → 治所"定位:平常就是州的划分本身;地形大事以后用每块地、每州最早的样子
+ * (Regions.keyOf / keySeat:沉进海里的地方、换过的治所照样指回同一州,大事前后各段的键一样)
+ */
+export const keyCells = (r: Pick<Regions, 'of' | 'keyOf'>): ArrayLike<number> => r.keyOf ?? r.of;
+export const keySeats = (r: Pick<Regions, 'seat' | 'keySeat'>): ArrayLike<number> => r.keySeat ?? r.seat;
 
 /** 州的位置锚:`r123`(旧格式,州号)/ `c4567`(地块)→ 现在的州号;地块在水上、超出范围 = −1(州号不查州数) */
 function regionOfRef(ref: string, of: ArrayLike<number>): number {
@@ -450,7 +457,7 @@ export function resolveKey(civ: Civ, key: string): ResolvedKey | null {
   if (typeof key !== 'string') return null;
   const ix = keyIndex(civ);
   if (key.startsWith('region:')) {
-    const id = regionOfKey(key, civ.regions.of);
+    const id = regionOfKey(key, keyCells(civ.regions));
     return id >= 0 && id < civ.regions.count ? { kind: 'region', id } : null;
   }
   if (key.startsWith('place:')) {
@@ -465,7 +472,7 @@ export function resolveKey(civ: Civ, key: string): ResolvedKey | null {
     if (!p || p.kind !== 'polity' || !Number.isInteger(index) || index < 0 || !civ.polities[p.id].dynasties?.[index]) return null;
     return { kind: 'dynasty', id: p.id, index };
   }
-  const k = keyByRegion(key, civ.regions.of);
+  const k = keyByRegion(key, keyCells(civ.regions));
   const id = k === null ? undefined : ix.byRegion.get(k);
   return id !== undefined ? { kind: key.slice(0, key.indexOf(':')) as CountedKind, id } : null;
 }

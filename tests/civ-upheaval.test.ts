@@ -14,7 +14,7 @@ import { buildChronicle } from '../src/gen/civ/chronicle';
 import { ownersAt } from '../src/gen/civ/timeline';
 import { capitalAt } from '../src/gen/civ/growth';
 import { UPHEAVALS_MAX, UPHEAVAL_OPS_MAX, UPHEAVAL_YEARS, cleanUpheavals, sameUpheavals } from '../src/gen/terrainEdits';
-import { EMPTY_EDITS, type Upheaval } from '../src/gen/edits';
+import { EMPTY_EDITS, polityKey, regionKey, resolveKey, settlementKey, type Upheaval } from '../src/gen/edits';
 import { editCount, makeSave, parseSave, saveText } from '../src/gen/savefile';
 
 const PARAMS = { ...DEFAULT_PARAMS, seed: 7 };
@@ -191,7 +191,7 @@ describe('地形大事 · 推演', () => {
     const e = buildChronicle(b).find((x) => x.kind === 'upheaval')!;
     expect(e.tag).toBe('变');
     expect(e.importance).toBe(3);
-    expect(e.text).toMatch(/^海水漫入.+州沉入海中,国都.+城没于水,迁都.+$/);
+    expect(e.text).toMatch(/^海水漫入.+州沉入海中,[^国]+等.+城没于水,迁都.+$/);
     expect(e.children!.filter((c) => c.kind === 'sunk')).toHaveLength(sunk.length);
     expect(buildChronicle(b).some((x) => x.kind === 'sunk')).toBe(false);
   }, 300_000);
@@ -217,6 +217,24 @@ describe('地形大事 · 推演', () => {
     expect(both).toHaveLength(1);
     expect(both[0].items).toEqual([0, 1]);
     expect(both[0].ops.map((o) => o.kind)).toEqual(['volcano', 'raise']);
+  }, 300_000);
+
+  it('稳定键:大事前就有的国家、城、州,键和没有大事时一样,国都沉了的国家照样找得到;大事前后各段的州指同一个', () => {
+    const b = civOf([FLOOD]);
+    const plain0 = base();
+    const Y = FLOOD.year;
+    const f = b.upheavals![0];
+    for (const p of plain0.polities.filter((x) => x.founded < Y)) expect(polityKey(b, p.id)).toBe(polityKey(plain0, p.id));
+    for (const s of plain0.settlements.filter((x) => x.founded < Y)) expect(settlementKey(b, s.id)).toBe(settlementKey(plain0, s.id));
+    for (let r = 0; r < plain0.regions.count; r++) expect(regionKey(b, r)).toBe(regionKey(plain0, r));
+    // 国都沉了的那一国、整州沉没的州:按键都找得回来
+    expect(resolveKey(b, polityKey(b, f.polity))).toEqual({ kind: 'polity', id: f.polity });
+    for (const r of f.drowned) expect(resolveKey(b, regionKey(b, r))).toEqual({ kind: 'region', id: r });
+    for (const p of b.polities) expect(resolveKey(b, polityKey(b, p.id))).toEqual({ kind: 'polity', id: p.id });
+    for (const s of b.settlements) expect(resolveKey(b, settlementKey(b, s.id))).toEqual({ kind: 'settlement', id: s.id });
+    // 大事前那一段的州(Civ.eras)和大事后一样认键
+    const era = { ...b, regions: { ...b.eras![0].regions, keyOf: b.regions.keyOf, keySeat: b.regions.keySeat } };
+    expect(polityKey(era, f.polity)).toBe(polityKey(b, f.polity));
   }, 300_000);
 
   it('预览("会怎么样"):放好还没发生时算出来的州和城,和真让它发生以后一样', () => {

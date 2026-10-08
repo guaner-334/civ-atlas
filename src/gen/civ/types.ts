@@ -57,6 +57,13 @@ export interface Regions {
   adjBorder: Float32Array;
   /** 州名(按占据它的民族的语感起名;没人住的州为空串,界面上显示"第 N 州") */
   name?: string[];
+  /**
+   * 地形大事以后(regions.ts 的 reshapeRegions)才有:稳定键(gen/edits.ts 文件头"稳定键")按它定位,大事前后指同一个州。
+   * keyOf:地块 → 州,这块地最早属于的那一州(后来沉进海里的也算);keySeat:州 → 治所地块,这州最早时的治所。
+   * 没有 = 和 of、seat 一样
+   */
+  keyOf?: Int32Array;
+  keySeat?: Int32Array;
 }
 
 /** 地区邻接边的类型 */

@@ -960,7 +960,7 @@ function upheavalTail(e: Annal, head: Annal): boolean {
 }
 
 /**
- * 地形大事:"海水漫入大霄,六州沉入海中,国都揽霞城等十城没于水,迁都长风城" / "兹拉季纳王国境内火山喷发,国都别尔格勒被毁,
+ * 地形大事:"海水漫入大霄,六州沉入海中,揽霞城等十城没于水,迁都长风城" / "兹拉季纳王国境内火山喷发,国都别尔格勒被毁,
  * 迁都奥斯托斯克" / "萨尔斯坦帝国与库那汗国之间的海峡隆起成陆"。ids = upheaval 那一条和紧跟着的后果(upheavalTail)
  */
 function upheavalEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
@@ -994,7 +994,8 @@ function upheavalEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
     if (!list.length) return '';
     const first = list[0];
     const p = polityOf(civ, first.a);
-    const cap = !!p && capitalBefore(p, y) === first.settlement && p.founded < y;
+    // 只没了国都一座城时点明是国都("国都别尔格勒被毁");好几座城时只举头一座("揽霞城等十城没于水",后面有迁都)
+    const cap = list.length === 1 && !!p && capitalBefore(p, y) === first.settlement && p.founded < y;
     const name = `${cap ? (first.a === P ? '国都' : `${pn(civ, first.a, y)}国都`) : ''}${cityName(civ, first.settlement) || '一城'}`;
     return list.length > 1 ? `,${name}等${cnNumber(list.length)}城${word}` : `,${name}${word}`;
   };
