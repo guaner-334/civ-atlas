@@ -19,6 +19,8 @@ import { editCount, makeSave, parseSave, saveText } from '../src/gen/savefile';
 import { fullChronicle } from '../src/gen/civ/religionText';
 import { civAtEra, withHistory } from '../src/ui/eras';
 import { makeFlagView } from '../src/ui/flagStore';
+import { computeHabitat } from '../src/gen/civ/habitat';
+import { reshapeRegions } from '../src/gen/civ/regions';
 
 const PARAMS = { ...DEFAULT_PARAMS, seed: 7 };
 /** 种子 7 上的三件大事:大霄国都一带海水漫进来、兹拉季纳国都一带火山喷发、两国之间的海峡隆起 */
@@ -338,6 +340,24 @@ describe('地形大事 · 推演', () => {
     const sunk = real.annals.filter((e) => e.kind === 'sunk' && e.war === 1);
     expect(victims.map((v) => [v.id, v.drowned])).toEqual(sunk.map((e) => [e.settlement, e.b === 1]));
     expect(victims[0].capital).toBe(true);
+  }, 300_000);
+
+  it('预览同一年的第二件:州和两件合成一件真发生以后一样(只算再加的这几笔改了什么)', () => {
+    // 第 1600 年已经有海水漫进来,同一年再在同一处抬升:真发生时两件合成一件,从那一年以前的州一次划到底
+    const UP: Upheaval = { year: FLOOD.year, ops: [{ kind: 'raise', pts: [1856, 574, 1936, 584], r: 44, s: 1.6 }] };
+    const { world: w0, regions: r0 } = upheavalBase(world(), steps([FLOOD]), FLOOD.year, DEFAULT_CIV_PARAMS.regionArea);
+    expect(w0).toBe(steps([FLOOD])[0].world);
+    expect(r0.count).toBe(base().regions.count);
+    const w1 = steps([FLOOD, UP])[0].world;
+    const pv = previewUpheaval(w0, r0, w1, UP.ops, DEFAULT_CIV_PARAMS.regionArea);
+    const real = civOf([FLOOD, UP]);
+    const r1 = reshapeRegions(w1, computeHabitat(w1), r0, { regionArea: DEFAULT_CIV_PARAMS.regionArea });
+    expect(r1.count).toBe(real.regions.count);
+    expect(Array.from(r1.of)).toEqual(Array.from(real.regions.of));
+    expect(pv.added).toEqual(real.upheavals![0].added);
+    // 同一年前一件淹掉的州又抬了起来:不算这一件淹的
+    expect(pv.drowned).toEqual([]);
+    expect(pv.risen).toBeGreaterThan(0);
   }, 300_000);
 
   it('确定性:同样的大事两次推演逐字节相同', () => {

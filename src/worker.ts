@@ -192,7 +192,7 @@ function remember(key: string, r: Regions): Regions {
   if (regionsMemo.size > REGION_KEEP) regionsMemo.delete(regionsMemo.keys().next().value!);
   return r;
 }
-/** 第 year 年的地形和州(同一年已有的大事算在内),和那时的全部地形修改 */
+/** 第 year 年的地形和州(upheavalBase:同一年已有的大事地形算在内、州不算),和那时的全部地形修改 */
 function baseAt(params: WorldParams, terrain: TerrainOp[] | undefined, sketch: SketchEdit | undefined, steps: Step[], year: number): { world: World; regions: Regions; ops: TerrainOp[] } {
   const k0 = keyOf(params, terrain, sketch);
   let w = worldOf(params, terrain, sketch);
@@ -201,11 +201,12 @@ function baseAt(params: WorldParams, terrain: TerrainOp[] | undefined, sketch: S
   let chain = k0;
   for (const s of steps) {
     if (s.year > year) break;
-    const prev = r;
     w = s.world;
+    ops = s.all;
+    if (s.year === year) break;
+    const prev = r;
     chain = `${chain}>${s.key}`;
     r = regionsMemo.get(chain) ?? remember(chain, reshapeRegions(w, computeHabitat(w), prev, { regionArea: REGION_AREA }));
-    ops = s.all;
   }
   return { world: w, regions: r, ops };
 }

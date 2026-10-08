@@ -127,6 +127,8 @@ export function upheavalImpact(w0: World, r0: Regions, w1: World, r1: Regions, o
   const R0 = r0.count;
   const hit = new Float64Array(R0);
   const lost = new Uint8Array(R0);
+  /** 大事前还有陆地的州(预览同一年的第二件时 r0 是那一年以前的州,有的已经被同一年的前一件淹没了) */
+  const had = new Uint8Array(R0);
   const gain = new Uint8Array(r1.count);
   const rose = new Uint8Array(n);
   let sunk = 0;
@@ -134,6 +136,7 @@ export function upheavalImpact(w0: World, r0: Regions, w1: World, r1: Regions, o
   for (let c = 0; c < n; c++) {
     const a = w0.water[c] === 0;
     const b = w1.water[c] === 0;
+    if (a && r0.of[c] >= 0) had[r0.of[c]] = 1;
     if (a && !b) {
       sunk++;
       const r = r0.of[c];
@@ -157,7 +160,7 @@ export function upheavalImpact(w0: World, r0: Regions, w1: World, r1: Regions, o
   const grown: number[] = [];
   const added: number[] = [];
   for (let r = 0; r < R0; r++) {
-    if (cells(r0, r) > 0 && cells(r1, r) === 0) drowned.push(r);
+    if (cells(r0, r) > 0 && had[r] && cells(r1, r) === 0) drowned.push(r);
     else if (lost[r]) shrunk.push(r);
     if (gain[r] && cells(r1, r) > 0) grown.push(r);
   }
@@ -276,8 +279,9 @@ export function upheavalVictims(
 // 预览("会怎么样"):放好、涂好还没让它发生时,先照新地形真生成一遍,和那一年的地形、州比
 
 /**
- * 第 year 年(大事前)的地形和州:从原来的世界起,year 和更早的地形大事一件件套上(和推演里同一套州,编号沿用)。
- * 同一年已经有的大事算在"之前"里(再加的一件和它合成一件,预览只看再加的这几笔改了什么)
+ * 第 year 年(大事前)的地形和州:从原来的世界起,更早的地形大事一件件套上(和推演里同一套州,编号沿用)。
+ * 同一年已经有的大事:地形算在"之前"里(预览只看再加的这几笔改了什么);州停在那一年以前
+ * (再加的一件和它合成一件,推演里从那一年以前的州一次划到底,预览也一样)
  */
 export function upheavalBase(world: World, steps: readonly UpheavalStep[], year: Year, regionArea: number): { world: World; regions: Regions } {
   let w = world;
@@ -285,7 +289,7 @@ export function upheavalBase(world: World, steps: readonly UpheavalStep[], year:
   for (const s of steps) {
     if (s.year > year) break;
     w = s.world;
-    r = reshapeRegions(w, computeHabitat(w), r, { regionArea });
+    if (s.year < year) r = reshapeRegions(w, computeHabitat(w), r, { regionArea });
   }
   return { world: w, regions: r };
 }
@@ -303,7 +307,7 @@ const CONE_FRAC = 0.12;
 /** 最高处抬得不到这么多(米)= 山体压不到什么(火山放在本来就很高的山上) */
 const CONE_MIN = 40;
 
-/** w0、r0 = 那一年的地形和州(upheavalBase);w1 = 再套上这几笔(ops)生成的世界 */
+/** w0、r0 = 那一年的地形和州(upheavalBase;同一年已经有大事时 r0 是那以前的州);w1 = 再套上这几笔(ops)生成的世界 */
 export function previewUpheaval(w0: World, r0: Regions, w1: World, ops: readonly TerrainOp[], regionArea: number): UpheavalPreview {
   const r1 = reshapeRegions(w1, computeHabitat(w1), r0, { regionArea });
   const impact = upheavalImpact(w0, r0, w1, r1, ops);
