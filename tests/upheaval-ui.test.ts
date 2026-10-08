@@ -25,7 +25,7 @@ import {
 } from '../src/ui/upheavalStore';
 import { bandOutline, cellShapes } from '../src/ui/upheavalShapes';
 import { composeRaster, diffRaster, type RasterPatch } from '../src/gen/rasterPatch';
-import { baseRegions, civAtEra, dropComposed, eraData, eraIndex, eraReady, patchKey, reuseRegions, type EraMaps } from '../src/ui/eras';
+import { baseRegions, civAtEra, dropComposed, eraData, eraIndex, eraReady, eraShown, patchKey, reuseRegions, type EraMaps } from '../src/ui/eras';
 import type { Raster } from '../src/gen/raster';
 import type { World } from '../src/gen/world';
 import type { Civ } from '../src/gen/civ/types';
@@ -301,8 +301,11 @@ describe('地形大事 · 地图跟着时间轴换段', () => {
     expect(eraData(base, maps, patches, 0)).toBe(base);
     expect(eraData(base, maps, patches, 2)).toBe(base);
     expect(eraReady(maps, patches, 2)).toBe(false);
-    // 第一件没改主图(没有补丁),第二件的还没到
+    expect(eraShown(maps, patches, 2)).toBe(0);
+    // 第一件没改主图(没有补丁),第二件的还没到:地图上先画第 1 段(历史也按第 1 段)
     patches.set(patchKey('k0', 'k1'), null);
+    expect(eraShown(maps, patches, 2)).toBe(1);
+    expect(eraShown(null, patches, 2)).toBe(0);
     const d1 = eraData(base, maps, patches, 2);
     expect(d1.world).toBe(maps.worlds[0]);
     expect(d1.raster).toBe(base.raster);
@@ -315,6 +318,7 @@ describe('地形大事 · 地图跟着时间轴换段', () => {
     expect(d2.world).toBe(maps.worlds[1]);
     expect(Array.from(d2.raster.water)).toEqual(Array.from(c.water));
     expect(eraData(base, maps, patches, 2)).toBe(d2);
+    expect(eraShown(maps, patches, 2)).toBe(2);
     expect(eraReady(maps, patches, 2)).toBe(true);
     expect(eraReady(null, patches, 2)).toBe(true);
   });

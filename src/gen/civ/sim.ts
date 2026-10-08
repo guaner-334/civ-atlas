@@ -268,6 +268,11 @@ export class CivSim {
   readonly R: number;
   /** 当前时间(年) */
   now: Year = 0;
+  /**
+   * 预约的事件最早在这一刻(默认不限)。地形大事接着推时 = 大事那一刻:按新地形重算出来的、本该更早发生的事(新海路上的到达……)
+   * 一律从大事那一刻起,排在大事后面(gen/civ/index.ts)
+   */
+  floor: Year = -Infinity;
   /** 各层的当前归属(按 Layer 下标);只读,改归属一律走 setOwner */
   readonly owners: [Int16Array, Int16Array];
   /** 各州的版本号:归属(任何一层)每变一次 +1 */
@@ -351,12 +356,12 @@ export class CivSim {
   }
 
   /**
-   * 预约一个事件。t 早于现在就按现在算;取整到 1/256 年;超出 65536 年或不是有限数就不预约。
+   * 预约一个事件。t 早于现在(或 floor)就按现在(floor)算;取整到 1/256 年;超出 65536 年或不是有限数就不预约。
    * 要核对版本号的类型,记下州 a 此刻的版本号。
    */
   schedule(t: number, kind: number, a: number, b: number): void {
     if (!(t < Infinity)) return; // Infinity / NaN
-    const tick = Math.round(Math.max(t, this.now) * TICKS_PER_YEAR);
+    const tick = Math.round(Math.max(t, this.now, this.floor) * TICKS_PER_YEAR);
     if (tick >= MAX_TICK) return;
     if (this.seq >= SEQ_SPAN) throw new Error('CivSim:事件太多(超过 2^28 个)');
     let id: number;

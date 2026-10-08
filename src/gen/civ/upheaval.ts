@@ -383,8 +383,8 @@ export function installUpheaval(sim: CivSim, k: number, step: UpheavalStep, impa
       sim.record('sunk', { a: own(s.region), b: v.drowned ? 1 : 0, region: s.region, settlement: s.id, war: k });
       if (!v.drowned) scheduleRebuild(sim, s.id);
     }
-    // 早先毁了的城:城址这回沉入海中,遗址也没了
-    const ruins = S.filter((s) => s.ended !== undefined && s.ended < t && before.water[s.cell] === 0 && step.world.water[s.cell] === 1).map((s) => s.id);
+    // 早先毁了的城:城址这回成了海、湖,遗址也没了
+    const ruins = S.filter((s) => s.ended !== undefined && s.ended < t && before.water[s.cell] === 0 && step.world.water[s.cell] !== 0).map((s) => s.id);
     if (ruins.length) fact.ruins = ruins;
     const alive = (p: number) => pm.polities[p].ended === undefined;
     /** 亡了的国家打着的仗:后果都记完再议和(编年史把紧跟大事的沉城、迁都、亡国并成一条,中间不能插进议和) */
@@ -398,7 +398,7 @@ export function installUpheaval(sim: CivSim, k: number, step: UpheavalStep, impa
       const sid = bestCapital(pm, owner, p, t, true, skip);
       if (sid < 0) return false;
       moveCapital(pm, p, sid, t);
-      sim.record('capital', { a: p, region: S[sid].region, settlement: sid });
+      sim.record('capital', { a: p, b: -2, region: S[sid].region, settlement: sid });
       return true;
     };
     const capRegion = (p: number) => S[capitalAt(pm.polities[p], t)].region;

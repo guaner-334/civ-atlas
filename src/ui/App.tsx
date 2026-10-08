@@ -108,7 +108,7 @@ import {
 } from '../gen/edits';
 import { sameTerrain, sameUpheavals } from '../gen/terrainEdits';
 import type { RasterPatch } from '../gen/rasterPatch';
-import { baseRegions, civAtEra, dropComposed, eraData, eraIndex, eraMapsOf, eraReady, patchKey, reuseRegions, useEraIndex, type EraMaps } from './eras';
+import { baseRegions, civAtEra, dropComposed, eraData, eraIndex, eraMapsOf, eraReady, eraShown, patchKey, reuseRegions, useEraIndex, withHistory, type EraMaps } from './eras';
 import { sameSketch, type SketchEdit } from '../gen/sketch';
 import { clearEditHistory, clearEdits, getEdits, removeIntervention, removeUpheaval, setEditGate, setEdits, undoTerrainOp, useEdits } from './editsStore';
 import { redoLastEdit, undoLastEdit } from './undo';
@@ -512,21 +512,41 @@ export function App() {
   const preview = useAssistantPreview();
   const previewRaw = preview?.raw ?? null;
   /** 时间轴现在在第几段(地形大事以后,地图、州、地名、道路跟着换;eras.ts) */
-  const eraK = useEraIndex(previewRaw ?? rawCiv);
+  const eraWant = useEraIndex(previewRaw ?? rawCiv);
+  /** 地图上实际画的那一段:那一段的主图还在后台铺时,先画前面铺好了的那一段(历史、世界、主图三样对得上) */
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- patchVer:后台交来新的补丁时重算
+  const eraK = useMemo(() => eraShown(eraMaps, eraPatches.current, eraWant), [eraMaps, patchVer, eraWant]);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- patchVer:后台交来新的补丁时重拼
   const data = useMemo(() => (baseData ? eraData(baseData, eraMaps, eraPatches.current, eraK) : null), [baseData, eraMaps, patchVer, eraK]);
-  /** 现在这个世界的历史(时间轴那一段的州、地名、道路,套上改名) */
-  const realCiv = useMemo(() => (rawCiv ? applyNames(civAtEra(rawCiv, eraK), edits.names) : null), [rawCiv, eraK, edits.names]);
+  /** 整段历史(最后一段的州、地名,套上改名):编年史这类按它算(见 Civ.history) */
+  const realFull = useMemo(() => (rawCiv ? applyNames(rawCiv, edits.names) : null), [rawCiv, edits.names]);
+  const previewFull = useMemo(() => (previewRaw ? applyNames(previewRaw, preview!.names) : null), [previewRaw, preview?.names]);
+  /** 地图上那一段的历史:那一段的州、地名、道路,套上改名;更早一段时挂上整段历史 */
+  const eraView = (raw: Civ, full: Civ, names: Record<string, string>) => {
+    const e = civAtEra(raw, eraK);
+    return e === raw ? full : withHistory(applyNames(e, names), full);
+  };
+  /** 现在这个世界的历史(时间轴那一段的) */
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- eraView 只用到 eraK
+  const realCiv = useMemo(() => (rawCiv && realFull ? eraView(rawCiv, realFull, edits.names) : null), [rawCiv, realFull, eraK, edits.names]);
   const shownRaw = useMemo(() => {
     const r = previewRaw ?? rawCiv;
     return r ? civAtEra(r, eraK) : null;
   }, [previewRaw, rawCiv, eraK]);
-  const civ = useMemo(() => (previewRaw ? applyNames(civAtEra(previewRaw, eraK), preview!.names) : realCiv), [previewRaw, eraK, preview?.names, realCiv]);
-  // 国旗(flagStore.ts):所有国家历代的旗,套上作者改过的和「换一面」「自己改」正在预览的那一面;历史和世界对不上(正在重新生成)时先不算
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- eraView 只用到 eraK
+  const civ = useMemo(() => (previewRaw && previewFull ? eraView(previewRaw, previewFull, preview!.names) : realCiv), [previewRaw, previewFull, eraK, preview?.names, realCiv]);
+  // 国旗(flagStore.ts):所有国家历代的旗,套上作者改过的和「换一面」「自己改」正在预览的那一面;历史和世界对不上(正在重新生成)时先不算。
+  // 有地形大事的按第一件以前的地形配(拖时间轴跨过大事旗不跟着变,那以前的旗和没有大事时一样)
   const flagPreview = useFlagPreview();
+  const flagGeo = useMemo(() => {
+    const r = previewRaw ?? rawCiv;
+    if (!r?.eras?.length || !baseData) return undefined;
+    return { world: baseData.world, civ: applyNames(civAtEra(r, 0), previewRaw ? preview!.names : edits.names) };
+  }, [previewRaw, rawCiv, baseData, preview?.names, edits.names]);
   const flagView = useMemo(
-    () => (data && civ && civ.viable && civ.habitat.suitability.length === data.world.mesh.n ? makeFlagView(data.world, civ, edits.flags, flagPreview) : null),
-    [data, civ, edits.flags, flagPreview],
+    () =>
+      data && civ && civ.viable && civ.habitat.suitability.length === data.world.mesh.n ? makeFlagView(data.world, civ, edits.flags, flagPreview, flagGeo) : null,
+    [data, civ, edits.flags, flagPreview, flagGeo],
   );
   useLayoutEffect(() => setFlagView(flagView), [flagView]);
   // 导出时"换回原名"用的:AI 起的名字换回原来的(没有 AI 起的名字、助手"先看看"时 = null,导出菜单不问)
@@ -733,12 +753,15 @@ export function App() {
         }
         if (m.id !== reqId.current) return; // 过时的请求(上一个世界的)
         if (m.type === 'eraPatch') {
-          // 一段的主图补丁:记下,地图那一段换上(eras.ts);最多留 PATCH_KEEP 块,先丢最早的
+          // 一段的主图补丁:记下,地图那一段换上(eras.ts);最多留 PATCH_KEEP 块,先丢最早的(现在这份历史要用的不丢;
+          // 丢了的以后又要用,下一次推演时线程看 have 里没有会重新铺)
           const map = eraPatches.current;
           const k = patchKey(m.prev, m.key);
           map.delete(k);
           map.set(k, m.patch);
-          while (map.size > PATCH_KEEP) map.delete(map.keys().next().value!);
+          const cur = eraMapsRef.current;
+          const keep = new Set(cur ? cur.keys.map((key, i) => patchKey(i ? cur.keys[i - 1] : cur.baseKey, key)) : []);
+          for (const old of [...map.keys()]) if (map.size > PATCH_KEEP && !keep.has(old)) map.delete(old);
           setPatchVer((v) => v + 1);
           return;
         }

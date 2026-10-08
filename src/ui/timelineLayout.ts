@@ -241,14 +241,19 @@ export function layoutDiamonds(entries: readonly ChronicleEntry[], end: number, 
   return { marks, orders, shifts };
 }
 
-/** 指针在刻度行的 x 处:先认"令""变"标记,再认最近的菱形;radius = 离多远以内算指到了(像素) */
+/**
+ * 指针在刻度行的 x 处:先认"令""变"标记(哪个近认哪个;一样近 = 同一年,"变"画在上面,认"变"),再认最近的菱形;
+ * radius = 离多远以内算指到了(像素)
+ */
 export function hitDiamonds(layout: DiamondLayout, x: number, radius = 6): Diamond | null {
   const near = (list: Diamond[]) => {
     let best: Diamond | null = null;
     for (const d of list) if (Math.abs(d.x - x) <= radius && (!best || Math.abs(d.x - x) < Math.abs(best.x - x))) best = d;
     return best;
   };
-  return near(layout.orders) ?? near(layout.shifts) ?? near(layout.marks);
+  const o = near(layout.orders);
+  const s = near(layout.shifts);
+  return (o && s ? (Math.abs(o.x - x) < Math.abs(s.x - x) ? o : s) : (s ?? o)) ?? near(layout.marks);
 }
 
 // ---------------------------------------------------------------------------

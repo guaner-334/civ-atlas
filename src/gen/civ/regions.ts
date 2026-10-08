@@ -802,5 +802,17 @@ export function reshapeRegions(world: World, habitat: Habitat, prev: Regions, p:
   for (let i = 0; i < n; i++) keyOf[i] = prevOf[i] >= 0 ? prevOf[i] : of[i];
   const keySeat = Int32Array.from(seat);
   for (let r = 0; r < prev.count; r++) keySeat[r] = prevSeat[r];
+  // 新州的键要指回它自己:治所那块地早先属于别的州(沉下去又抬起来的地方)时,换一块从没属于过别的州的;
+  // 都属于过,就挑一块不是别的州治所键的地块,改指这个新州
+  const used = new Set(keySeat.subarray(0, prev.count));
+  for (let r = prev.count; r < seat.length; r++) {
+    if (keyOf[keySeat[r]] === r) continue;
+    let pick = -1;
+    for (let i = 0; i < n && pick < 0; i++) if (of[i] === r && keyOf[i] === r) pick = i;
+    for (let i = 0; i < n && pick < 0; i++) if (of[i] === r && !used.has(i)) pick = i;
+    if (pick < 0) continue;
+    keySeat[r] = pick;
+    keyOf[pick] = r;
+  }
   return { ...finishRegions(world, habitat, of, Int32Array.from(seat), lmOf, cellArea, len, river, step), keyOf, keySeat };
 }

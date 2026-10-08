@@ -5,6 +5,7 @@
  * - 第几段(eraIndex):时间轴那一年已经发生了几件大事(大事那一年的年初发生,那一年就算"以后")。
  *   useEraIndex 只在段变了的时候让组件重画(播放时每帧都变的年份不惊动 App)。
  * - 历史(civAtEra):Civ.eras 存着每件大事以前那一段的宜居度、州、地名、道路;最后一段就是 Civ 本身。
+ *   编年史这类按整段历史算的用最后一段(Civ.history,withHistory 挂上),国旗按第一件大事以前的地形配(拖时间轴旗不跟着变)。
  *   各段共用同一份国家、城、人物、史事;州名、稳定键按最后一段的(大事前后一样,见 gen/edits.ts 的 keyCells)。
  *   同一份历史的同一段只拼一次(地图上的缓存认对象,来回拖时间轴不用重画)。
  * - 世界和主图(EraMaps):后台线程交来每段的世界(不带网格,接上原来的)和主图补丁(gen/rasterPatch.ts:只有变了的那一块),
@@ -60,6 +61,17 @@ export function civAtEra(civ: Civ, k: number): Civ {
     routes: e.routes,
   };
   list[k] = out;
+  return out;
+}
+
+/** 地图上画的是更早一段时,挂上整段历史那一份(编年史、时间轴按它算;见 Civ.history)。同样的两份只拼一次 */
+const histOf = new WeakMap<Civ, WeakMap<Civ, Civ>>();
+export function withHistory(shown: Civ, full: Civ): Civ {
+  if (shown === full) return shown;
+  let m = histOf.get(full);
+  if (!m) histOf.set(full, (m = new WeakMap()));
+  let out = m.get(shown);
+  if (!out) m.set(shown, (out = { ...shown, history: full }));
   return out;
 }
 
@@ -123,6 +135,15 @@ function chainOf(maps: EraMaps, patches: ReadonlyMap<string, RasterPatch | null>
     prev = key;
   }
   return { list, sig: sig.join('|'), n };
+}
+
+/**
+ * 地图上实际画第几段:想看第 k 段,那一段的主图补丁还没到就先画前面铺好了的那一段(历史、世界、主图三样对得上;
+ * 没有各段的世界 = 原来那一段)
+ */
+export function eraShown(maps: EraMaps | null, patches: ReadonlyMap<string, RasterPatch | null>, k: number): number {
+  if (!maps || k <= 0) return 0;
+  return chainOf(maps, patches, Math.min(k, maps.worlds.length)).n;
 }
 
 /** 第 k 段的主图补丁都到了没有(没有大事、k = 0 = 到了) */

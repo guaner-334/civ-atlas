@@ -147,9 +147,12 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
     const fact: UpheavalFact = { year: u.year, kinds: kindsOf(u.ops), items: u.items.slice(), ...rest, polity: -1, drownedBy: [], ...(joined ? { joined } : {}) };
     facts.push(fact);
     const half = partialCiv(fin.sim, fin.model!, fin.pm!, h1, r1, world.params.seed, iv);
-    // 从大事那一刻接着推:按新地形重算出来的、本该更早发生的事(新海路上的到达……)一律从这一刻起
-    half.endYear = u.year;
-    const s1 = CivSim.fromCiv(u.world, half, half.interventions ?? [], (s) => scheduleUpheaval(s, k, u.year));
+    // 从前一刻接着推:大事那一刻的事件照常补上(同一年下的干预、民族诞生……),排在大事后面;
+    // 按新地形重算出来的、本该更早发生的事(新海路上的到达……)一律从大事那一刻起(CivSim.floor)
+    const s1 = CivSim.fromCiv(u.world, half, half.interventions ?? [], (s) => {
+      s.floor = u.year;
+      scheduleUpheaval(s, k, u.year);
+    });
     installUpheaval(s1, k, u, impact, fact, fin.world);
     s1.run(k + 1 < ups.length ? ups[k + 1].year - 1 / 256 : p.endYear);
     const m1 = cultureModelOf(s1)!;
@@ -237,7 +240,7 @@ function pinNames(pins: NamePins, world: World, branch: CivSim, from: number, to
   return { cultures: bm.cultures, culture: res.culture, settlements: bpm.settlements, polities: bpm.polities };
 }
 
-/** 推到一半的历史(地形大事前一刻)拼成 CivSim.fromCiv 要的 Civ(州、宜居度按给的);归属数组按州数补齐 */
+/** 推到一半的历史(地形大事前一刻)拼成 CivSim.fromCiv 要的 Civ(州、宜居度按给的);归属数组、检查点按州数补齐(新州 = 没人) */
 function partialCiv(sim: CivSim, model: CultureModel, pm: PolityModel, habitat: Habitat, regions: Regions, seed: number, iv: InterventionModel | null): Civ {
   const res = sim.result();
   const pad = (a: Int16Array) => {
@@ -259,7 +262,7 @@ function partialCiv(sim: CivSim, model: CultureModel, pm: PolityModel, habitat: 
     culture: pad(res.culture),
     polity: pad(res.polity),
     log: res.log,
-    checkpoints: res.checkpoints,
+    checkpoints: res.checkpoints.map((c) => (c.culture.length >= regions.count ? c : { year: c.year, culture: pad(c.culture), polity: pad(c.polity) })),
     annals: res.annals,
     viable: true,
     spreadYears: model.spreadYears,

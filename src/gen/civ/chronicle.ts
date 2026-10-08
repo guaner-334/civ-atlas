@@ -953,10 +953,10 @@ function sunkText(civ: Civ, e: Annal, who = false): string {
   return `${head}${city}${e.b === 1 ? '没于水' : '毁于火山'}`;
 }
 
-/** 这条史事是地形大事那一刻的后果(紧跟在 upheaval 后面、同一刻的 sunk / 迁都 / 亡于天灾):编年史并进大事那一条 */
+/** 这条史事是地形大事那一刻的后果(紧跟在 upheaval 后面、同一刻的 sunk / 因天灾迁都 / 亡于天灾):编年史并进大事那一条 */
 function upheavalTail(e: Annal, head: Annal): boolean {
   if (e.year !== head.year) return false;
-  return e.kind === 'sunk' || (e.kind === 'capital' && e.war < 0) || (e.kind === 'fall' && e.b === -2);
+  return e.kind === 'sunk' || (e.kind === 'capital' && e.b === -2) || (e.kind === 'fall' && e.b === -2);
 }
 
 /**

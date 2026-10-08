@@ -213,8 +213,6 @@ function baseAt(params: WorldParams, terrain: TerrainOp[] | undefined, sketch: S
 // ---------------------------------------------------------------------------
 // 各段的主图补丁(后台慢慢铺)
 
-/** 已经交过的补丁("上一段>这一段";换了世界清空) */
-const sentPatches = new Set<string>();
 /** 最近铺好的两张整图(下一段要和它比) */
 const rasters = new Map<string, Raster>();
 async function rasterOfWorld(key: string, world: () => World): Promise<Raster> {
@@ -228,7 +226,7 @@ async function rasterOfWorld(key: string, world: () => World): Promise<Raster> {
   return raster;
 }
 
-/** 推完文明:没交过的各段补丁排进后台(之前排着、现在用不上的作废) */
+/** 推完文明:主线程手里没有的各段补丁排进后台(之前排着、现在用不上的作废) */
 function queuePatches(id: number, m: CivInput, steps: Step[]) {
   bg.length = 0;
   const have = new Set(m.have ?? []);
@@ -240,13 +238,12 @@ function queuePatches(id: number, m: CivInput, steps: Step[]) {
     const wa = prevWorld;
     prevKey = s.key;
     prevWorld = () => s.world;
-    if (have.has(pair) || sentPatches.has(pair)) continue;
+    // 主线程手里有没有以它说的为准(它会丢掉用不着的旧补丁,丢了的再要就重新铺)
+    if (have.has(pair)) continue;
     bg.push(async () => {
-      if (sentPatches.has(pair)) return;
       const ra = await rasterOfWorld(a, wa);
       const rb = await rasterOfWorld(s.key, () => s.world);
       const patch = diffRaster(ra, rb);
-      sentPatches.add(pair);
       post({ type: 'eraPatch', id, key: s.key, prev: a, patch }, patch ? patchTransferables(patch) : []);
     });
   }
@@ -293,9 +290,8 @@ async function pump() {
 async function handle(m: WorkerRequest): Promise<void> {
   if (m.type !== 'history' && m.type !== 'upPreview') takeTempo(m.params, m.sketch, m.tempo);
   if (m.type === 'generate') {
-    // 换了世界:后台排着的、记着的补丁和整图都作废
+    // 换了世界:后台排着的补丁和记着的整图都作废
     bg.length = 0;
-    sentPatches.clear();
     rasters.clear();
     await pool.up;
     const t0 = performance.now();

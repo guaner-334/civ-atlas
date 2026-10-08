@@ -139,6 +139,9 @@ describe('刻度排布', () => {
     expect(L.marks.flatMap((d) => d.items).map((e) => e.kind)).toEqual(['found']);
     expect(hitDiamonds(L, 160.2, 0.1)?.lead.kind).toBe('intervene');
     expect(hitDiamonds(L, 160, 0.1)?.lead.kind).toBe('upheaval');
+    // 同一年的"令"和"变"叠在一处:"变"画在上面,认"变"
+    const same = layoutDiamonds([entry(1600, 'intervene'), entry(1600, 'upheaval')], 3000, 300);
+    expect(hitDiamonds(same, 160)?.lead.kind).toBe('upheaval');
   });
 });
 

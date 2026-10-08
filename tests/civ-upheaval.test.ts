@@ -16,6 +16,9 @@ import { capitalAt, ruinSites } from '../src/gen/civ/growth';
 import { UPHEAVALS_MAX, UPHEAVAL_OPS_MAX, UPHEAVAL_YEARS, cleanUpheavals, sameUpheavals } from '../src/gen/terrainEdits';
 import { EMPTY_EDITS, polityKey, regionKey, resolveKey, settlementKey, type Upheaval } from '../src/gen/edits';
 import { editCount, makeSave, parseSave, saveText } from '../src/gen/savefile';
+import { fullChronicle } from '../src/gen/civ/religionText';
+import { civAtEra, withHistory } from '../src/ui/eras';
+import { makeFlagView } from '../src/ui/flagStore';
 
 const PARAMS = { ...DEFAULT_PARAMS, seed: 7 };
 /** 种子 7 上的三件大事:大霄国都一带海水漫进来、兹拉季纳国都一带火山喷发、两国之间的海峡隆起 */
@@ -230,6 +233,15 @@ describe('地形大事 · 推演', () => {
     expect(ruinSites(r, R.year).map((s) => s.id)).not.toContain(id);
   }, 300_000);
 
+  it('大事同一年下的干预照常生效,排在大事后面', () => {
+    const p = base().polities.findIndex((x) => x.name.startsWith('兹拉季纳'));
+    const iv = [{ kind: 'protect' as const, a: polityKey(base(), p), from: VOLCANO.year }];
+    const c = generateCiv(world(), { interventions: iv, upheavals: steps([VOLCANO]) });
+    const k = c.annals.findIndex((e) => e.kind === 'intervene' && e.war === 0);
+    expect(k).toBeGreaterThan(c.annals.findIndex((e) => e.kind === 'upheaval'));
+    expect(c.annals[k].year).toBe(VOLCANO.year);
+  }, 300_000);
+
   it('火山喷发:山下的国都被毁、迁都;隆起的陆地连起两块陆地;同一年的两件合成一件', () => {
     const v = civOf([VOLCANO]);
     const ev = buildChronicle(v).find((x) => x.kind === 'upheaval')!;
@@ -269,6 +281,43 @@ describe('地形大事 · 推演', () => {
     // 大事前那一段的州(Civ.eras)和大事后一样认键
     const era = { ...b, regions: { ...b.eras![0].regions, keyOf: b.regions.keyOf, keySeat: b.regions.keySeat } };
     expect(polityKey(era, f.polity)).toBe(polityKey(b, f.polity));
+  }, 300_000);
+
+  it('沉下去又抬起来的地方:新划出来的州按键找得回自己', () => {
+    const UP: Upheaval = { year: 1800, ops: [{ kind: 'raise', pts: [1856, 574, 1936, 584], r: 44, s: 1.6 }] };
+    const b = civOf([FLOOD, UP]);
+    expect(b.upheavals![1].added.length).toBeGreaterThan(0);
+    for (let r = 0; r < b.regions.count; r++) expect(resolveKey(b, regionKey(b, r))).toEqual({ kind: 'region', id: r });
+  }, 300_000);
+
+  it('海里抬出新州:不在整百年的大事到下一个检查点之间,新州没人住(检查点按州数补齐)', () => {
+    const Y = 2050;
+    const ISLAND: Upheaval = {
+      year: Y,
+      ops: [
+        { kind: 'raise', pts: [1820, 473, 1860, 473], r: 44, s: 1.6 },
+        { kind: 'raise', pts: [1840, 453, 1840, 493], r: 44, s: 1.6 },
+      ],
+    };
+    const b = civOf([ISLAND]);
+    const f = b.upheavals![0];
+    expect(f.added.length).toBeGreaterThan(0);
+    for (const c of b.checkpoints) expect(c.polity.length).toBe(b.regions.count);
+    const own = ownersAt(b, Y + 0.5);
+    for (const r of f.added) expect(own.polity[r]).toBe(-1);
+  }, 300_000);
+
+  it('地图在大事以前那一段时:编年史按整段历史算,国旗按大事以前的地形配(拖时间轴跨过大事都不变)', () => {
+    const b = civOf([FLOOD]);
+    const e0 = withHistory(civAtEra(b, 0), b);
+    expect(e0.regions.count).toBe(b.eras![0].regions.count);
+    expect(fullChronicle(e0)).toBe(fullChronicle(b));
+    const w0 = world();
+    const w1 = steps([FLOOD])[0].world;
+    const geo = { world: w0, civ: civAtEra(b, 0) };
+    const before = makeFlagView(w0, e0, undefined, null, geo).book;
+    const after = makeFlagView(w1, b, undefined, null, geo).book;
+    expect(JSON.stringify(after)).toBe(JSON.stringify(before));
   }, 300_000);
 
   it('预览("会怎么样"):放好还没发生时算出来的州和城,和真让它发生以后一样', () => {
