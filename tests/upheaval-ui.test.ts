@@ -1,6 +1,6 @@
 /**
  * 地形大事的界面部分:修改和撤销(ui/editsStore.ts、undo.ts)、卡片和地图上的笔(ui/upheavalStore.ts)、
- * 地图上那一层的形状(ui/upheavalShapes.ts)、主图补丁(gen/rasterPatch.ts)、地图跟着时间轴换段(ui/eras.ts)
+ * 地图上那一层的形状(ui/upheavalShapes.ts)、主图补丁(gen/rasterPatch.ts)、地图跟着时间轴换段(ui/eras.ts:各段的历史、世界、主图)
  */
 import { beforeEach, describe, expect, it } from 'vitest';
 import { addUpheaval, clearEdits, getEdits, removeUpheaval } from '../src/ui/editsStore';
@@ -24,9 +24,10 @@ import {
   upheavalName,
 } from '../src/ui/upheavalStore';
 import { bandOutline, cellShapes } from '../src/ui/upheavalShapes';
-import { composeRaster, diffRaster } from '../src/gen/rasterPatch';
-import { baseRegions, civAtEra, eraIndex, reuseRegions } from '../src/ui/eras';
+import { composeRaster, diffRaster, type RasterPatch } from '../src/gen/rasterPatch';
+import { baseRegions, civAtEra, dropComposed, eraData, eraIndex, eraReady, patchKey, reuseRegions, type EraMaps } from '../src/ui/eras';
 import type { Raster } from '../src/gen/raster';
+import type { World } from '../src/gen/world';
 import type { Civ } from '../src/gen/civ/types';
 
 const SINK = { kind: 'sink' as const, pts: [100, 100, 140, 110], r: 20, s: 1.1 };
@@ -249,11 +250,12 @@ describe('地形大事 · 地图跟着时间轴换段', () => {
   const civOf = (eraCounts: number[], last: number, years: number[]): Civ =>
     ({
       endYear: 3000,
+      habitat: { last: true },
       regions: R(last),
       places: { last: true },
       routes: [],
       upheavals: years.map((year) => ({ year })),
-      eras: eraCounts.map((c) => ({ regions: R(c), places: { era: c }, routes: [] })),
+      eras: eraCounts.map((c) => ({ habitat: { era: c }, regions: R(c), places: { era: c }, routes: [] })),
     }) as unknown as Civ;
 
   it('第几段:大事那一年就算"以后";没有大事 = 0;不给年份 = 结束年份', () => {
@@ -265,10 +267,11 @@ describe('地形大事 · 地图跟着时间轴换段', () => {
     expect(eraIndex({ endYear: 3000 } as Civ, 1700)).toBe(0);
   });
 
-  it('各段的历史:州、地名、道路换成那一段的,同一段只拼一次;最后一段 = 原样', () => {
+  it('各段的历史:宜居度、州、地名、道路换成那一段的,同一段只拼一次;最后一段 = 原样', () => {
     const civ = civOf([10, 10], 11, [1600, 2000]);
     const e0 = civAtEra(civ, 0);
     expect(e0.places).toBe(civ.eras![0].places);
+    expect(e0.habitat).toBe(civ.eras![0].habitat);
     expect(civAtEra(civ, 0)).toBe(e0);
     expect(civAtEra(civ, 2)).toBe(civ);
     expect(baseRegions(civ)).toBe(civ.eras![0].regions);
@@ -279,11 +282,40 @@ describe('地形大事 · 地图跟着时间轴换段', () => {
     const same = reuseRegions(old, civOf([10], 11, [1600]), true);
     expect(same.regions).toBe(old.regions);
     expect(same.eras![0].regions).toBe(old.eras![0].regions);
+    expect(same.eras![0].habitat).toBe(old.eras![0].habitat);
     const changed = reuseRegions(old, civOf([10, 11], 12, [1600, 1800]), false);
     expect(changed.eras![0].regions).toBe(old.eras![0].regions);
+    expect(changed.eras![0].habitat).toBe(old.eras![0].habitat);
     expect(changed.regions).not.toBe(old.regions);
-    // 大事都撤销了:州就是原来的那一份
+    // 大事都撤销了:州和宜居度就是原来的那一份
     const none = reuseRegions(old, { ...civOf([], 10, []), upheavals: undefined, eras: undefined } as unknown as Civ, false);
     expect(none.regions).toBe(old.eras![0].regions);
+    expect(none.habitat).toBe(old.eras![0].habitat);
+  });
+
+  it('各段的世界跟着主图:补丁还没到的段先用前一段的世界和主图;都到了 = 那一段的,同样的补丁拼出同一个对象', () => {
+    dropComposed();
+    const base = { world: { id: 0 } as unknown as World, raster: raster(8, 4) };
+    const maps: EraMaps = { baseKey: 'k0', keys: ['k1', 'k2'], worlds: [{ id: 1 }, { id: 2 }] as unknown as World[] };
+    const patches = new Map<string, RasterPatch | null>();
+    expect(eraData(base, maps, patches, 0)).toBe(base);
+    expect(eraData(base, maps, patches, 2)).toBe(base);
+    expect(eraReady(maps, patches, 2)).toBe(false);
+    // 第一件没改主图(没有补丁),第二件的还没到
+    patches.set(patchKey('k0', 'k1'), null);
+    const d1 = eraData(base, maps, patches, 2);
+    expect(d1.world).toBe(maps.worlds[0]);
+    expect(d1.raster).toBe(base.raster);
+    expect(eraReady(maps, patches, 1)).toBe(true);
+    expect(eraReady(maps, patches, 2)).toBe(false);
+    const c = { ...base.raster, water: base.raster.water.slice() };
+    c.water[3] = 1;
+    patches.set(patchKey('k1', 'k2'), diffRaster(base.raster, c));
+    const d2 = eraData(base, maps, patches, 2);
+    expect(d2.world).toBe(maps.worlds[1]);
+    expect(Array.from(d2.raster.water)).toEqual(Array.from(c.water));
+    expect(eraData(base, maps, patches, 2)).toBe(d2);
+    expect(eraReady(maps, patches, 2)).toBe(true);
+    expect(eraReady(null, patches, 2)).toBe(true);
   });
 });

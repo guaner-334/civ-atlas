@@ -182,7 +182,7 @@ function eraWorlds(steps: Step[]): EraWorld[] | undefined {
   });
 }
 
-/** 州的划分(按世界的键记着):原来的世界照常划,大事以后的沿用上一段的(reshapeRegions) */
+/** 州的划分(按一路过来的几段世界的键记着:大事以后的沿用上一段的(reshapeRegions),同样的地形分几步走到的划分不一样) */
 const REGION_KEEP = 8;
 const regionsMemo = new Map<string, Regions>();
 const REGION_AREA = DEFAULT_CIV_PARAMS.regionArea;
@@ -198,11 +198,13 @@ function baseAt(params: WorldParams, terrain: TerrainOp[] | undefined, sketch: S
   let w = worldOf(params, terrain, sketch);
   let r = regionsMemo.get(k0) ?? remember(k0, buildRegions(w, computeHabitat(w), { regionArea: REGION_AREA }));
   let ops: TerrainOp[] = [...(terrain ?? [])];
+  let chain = k0;
   for (const s of steps) {
     if (s.year > year) break;
     const prev = r;
     w = s.world;
-    r = regionsMemo.get(s.key) ?? remember(s.key, reshapeRegions(w, computeHabitat(w), prev, { regionArea: REGION_AREA }));
+    chain = `${chain}>${s.key}`;
+    r = regionsMemo.get(chain) ?? remember(chain, reshapeRegions(w, computeHabitat(w), prev, { regionArea: REGION_AREA }));
     ops = s.all;
   }
   return { world: w, regions: r, ops };

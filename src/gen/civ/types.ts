@@ -385,7 +385,7 @@ export interface Civ {
    */
   upheavals?: UpheavalFact[];
   /**
-   * 地形大事以前的各段(和 upheavals 一一对应):第 i 段到 upheavals[i].year 为止(不含),那段时间的州、地名、道路。
+   * 地形大事以前的各段(和 upheavals 一一对应):第 i 段到 upheavals[i].year 为止(不含),那段时间的宜居度、州、地名、道路。
    * 州的编号各段一样(后面的段只多出新冒出来的州);归属数组(culture、polity、检查点、日志)按最后一段的州数。没有地形大事 = 不给
    */
   eras?: CivEra[];
@@ -394,6 +394,7 @@ export interface Civ {
 /** 地形大事以前的一段:到 until 年为止(不含) */
 export interface CivEra {
   until: Year;
+  habitat: Habitat;
   regions: Regions;
   places: Place[];
   routes: Route[];
@@ -423,6 +424,8 @@ export interface UpheavalFact {
   /** 隆起的新陆地连起了大事前分开的两块陆地:两边挨着新陆地的州、当时各自的国家;没有 = 不给 */
   joined?: [number, number];
   joinedBy?: [number, number];
+  /** 早先毁了的城(遗址)、城址这回沉入海中的(城的编号;没有 = 不给) */
+  ruins?: number[];
 }
 
 /** 信仰的种类:民间信仰(每个民族自带)、大教、从大教分出的教派 */

@@ -108,7 +108,7 @@ import {
 } from '../gen/edits';
 import { sameTerrain, sameUpheavals } from '../gen/terrainEdits';
 import type { RasterPatch } from '../gen/rasterPatch';
-import { civAtEra, dropComposed, eraData, eraMapsOf, patchKey, reuseRegions, useEraIndex, type EraMaps } from './eras';
+import { baseRegions, civAtEra, dropComposed, eraData, eraIndex, eraMapsOf, eraReady, patchKey, reuseRegions, useEraIndex, type EraMaps } from './eras';
 import { sameSketch, type SketchEdit } from '../gen/sketch';
 import { clearEditHistory, clearEdits, getEdits, removeIntervention, removeUpheaval, setEditGate, setEdits, undoTerrainOp, useEdits } from './editsStore';
 import { redoLastEdit, undoLastEdit } from './undo';
@@ -822,7 +822,10 @@ export function App() {
     return () => setUpRunner(null);
   }, [send]);
 
-  /** 历史换了一份(重推完、在地图上看试推演 / 回到现在):选中的东西、编年史和人物页的国家筛选按稳定键换成新历史里的编号(指不到就取消) */
+  /**
+   * 历史换了一份(重推完、在地图上看试推演 / 回到现在):选中的东西、编年史和人物页的国家筛选按稳定键换成新历史里的编号(指不到就取消)。
+   * 选中的地方(山海河湖)在下面跟着地图上的地名表换
+   */
   const remapSelection = (old: Civ, civ: Civ) => {
     const { sel } = getSelection();
     if (sel) {
@@ -831,11 +834,9 @@ export function App() {
           ? polityKey(old, sel.id)
           : sel.kind === 'settlement' && old.settlements[sel.id]
             ? settlementKey(old, sel.id)
-            : sel.kind === 'place' && old.places[sel.id]
-              ? placeKeyOf(old, sel.id)
-              : sel.kind === 'faith' && old.religion?.faiths[sel.id]
-                ? faithKey(old, sel.id)
-                : null;
+            : sel.kind === 'faith' && old.religion?.faiths[sel.id]
+              ? faithKey(old, sel.id)
+              : null;
       if (key) {
         const r = resolveKey(civ, key);
         if (r && r.kind === sel.kind) setSelection({ kind: sel.kind, id: r.id } as MapSelection);
@@ -859,6 +860,21 @@ export function App() {
       setPeople({ polity: r && r.kind === 'polity' ? r.id : null, dynasty: null, focus: null });
     }
   };
+  // 地图上的地名表换了一份(重推完、看试推演、时间轴跨过地形大事):选中的地方按稳定键换成这一份里的编号;
+  // 锚点挪了的(海扩大了……)找同种类同名的那一处(大事前后同一处地方沿用地名),都没有就取消。换了世界的不管
+  const shownRef = useRef<Civ | null>(null);
+  useLayoutEffect(() => {
+    const was = shownRef.current;
+    shownRef.current = shownRaw;
+    if (!was || !shownRaw || was.places === shownRaw.places || baseRegions(was) !== baseRegions(shownRaw)) return;
+    const { sel } = getSelection();
+    const p = sel?.kind === 'place' ? was.places[sel.id] : undefined;
+    if (!sel || !p) return;
+    const r = resolveKey(shownRaw, placeKeyOf(was, sel.id));
+    const id = r && r.kind === 'place' ? r.id : shownRaw.places.findIndex((q) => q.kind === p.kind && q.name === p.name);
+    if (id < 0) clearSelection();
+    else if (id !== sel.id) setSelection({ kind: 'place', id });
+  }, [shownRaw]);
   /**
    * 重推好的文明换上去(阶段 4 干预):州、宜居度沿用原来那一份(地理没变;时间轴、地图按它认"还是同一个世界"),
    * 选中的东西、编年史的国家筛选按稳定键换成新历史里的编号(指不到就取消),时间轴停在干预那一年
@@ -1179,13 +1195,17 @@ export function App() {
     closeBookReader();
   }, [aiOn]);
   // 缩略图("我的世界"的卡片、存档菜单):手绘风的地形 480×240;建好的世界叠上结束那一年的国家色块(和正在看哪个图层、哪一年无关)。
-  // 世界还在生成、按新地形重新生成、按新的干预重推历史时 = null,saveStore 过一会儿再来要
+  // 地形是结束那一年的(地形大事以后的那一段)。世界还在生成、按新地形重新生成、按新的干预重推历史、那一段的主图还没铺好时 = null,
+  // saveStore 过一会儿再来要
   useEffect(() => {
     setThumbMaker((id) => {
-      const d = dataRef.current;
       const t = targetRef.current;
-      if (!d || fresh.current || regenRef.current || resimRef.current || !t || t.id !== id) return null;
-      const base = baseCanvas('fantasy');
+      const b = baseRef.current;
+      if (!dataRef.current || !b || fresh.current || regenRef.current || resimRef.current || !t || t.id !== id) return null;
+      const kEnd = eraIndex(rawRef.current, null);
+      if (!eraReady(eraMapsRef.current, eraPatches.current, kEnd)) return null;
+      const d = eraData(b, eraMapsRef.current, eraPatches.current, kEnd);
+      const base = baseCanvas('fantasy', d);
       if (!base) return null;
       const cv = document.createElement('canvas');
       cv.width = THUMB_W;
@@ -1709,9 +1729,12 @@ export function App() {
     (window as unknown as { __wf: unknown }).__wf = { ready: true, renderMs, style, layer };
   }, [data, style, layer, mp, projMoving]);
 
-  /** 某画风的整张底图(等距圆柱,和 raster 一样大):缓存里有就直接给,没有就画一张放进缓存(图层缩略图用;之后切过去也不用再画) */
-  const baseCanvas = useCallback((key: string): HTMLCanvasElement | null => {
-    const d = dataRef.current;
+  /**
+   * 某画风的整张底图(等距圆柱,和 raster 一样大):缓存里有就直接给,没有就画一张放进缓存(图层缩略图用;之后切过去也不用再画)。
+   * 默认画地图上这一段的;d = 别的段的世界和主图(存档缩略图画结束那一年的)
+   */
+  const baseCanvas = useCallback((key: string, d0?: { world: World; raster: Raster }): HTMLCanvasElement | null => {
+    const d = d0 ?? dataRef.current;
     if (!d) return null;
     const maps = mapsOf(d);
     let c = maps.get(key);

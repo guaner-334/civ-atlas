@@ -26,7 +26,7 @@ import { buildRegions, reshapeRegions } from './regions';
 import { ownersAt } from './timeline';
 import { Ev, type CivSim } from './sim';
 import { endPolity, moveCapital, polityModelOf } from './polities';
-import { bestCapital, warModelOf } from './wars';
+import { bestCapital, warModelOf, type War } from './wars';
 import { capitalAt, populationAt } from './growth';
 import { scheduleRebuild } from './cities';
 
@@ -349,9 +349,9 @@ export function scheduleUpheaval(sim: CivSim, k: number, year: number): void {
 
 /**
  * 登记第 k 件大事的处理(fromCiv 之后调用)。impact = upheavalImpact 比出来的;fact = 这件大事的经过,
- * 那一刻填上当时的国家(Civ.upheavals[k])
+ * 那一刻填上当时的国家(Civ.upheavals[k]);before = 大事以前的地形(只用它的 water)
  */
-export function installUpheaval(sim: CivSim, k: number, step: UpheavalStep, impact: UpheavalImpact, fact: UpheavalFact): void {
+export function installUpheaval(sim: CivSim, k: number, step: UpheavalStep, impact: UpheavalImpact, fact: UpheavalFact, before: Pick<World, 'water'>): void {
   const pm = polityModelOf(sim);
   const wm = warModelOf(sim);
   const owner = sim.owners[Layer.Polity];
@@ -383,11 +383,16 @@ export function installUpheaval(sim: CivSim, k: number, step: UpheavalStep, impa
       sim.record('sunk', { a: own(s.region), b: v.drowned ? 1 : 0, region: s.region, settlement: s.id, war: k });
       if (!v.drowned) scheduleRebuild(sim, s.id);
     }
+    // 早先毁了的城:城址这回沉入海中,遗址也没了
+    const ruins = S.filter((s) => s.ended !== undefined && s.ended < t && before.water[s.cell] === 0 && step.world.water[s.cell] === 1).map((s) => s.id);
+    if (ruins.length) fact.ruins = ruins;
     const alive = (p: number) => pm.polities[p].ended === undefined;
+    /** 亡了的国家打着的仗:后果都记完再议和(编年史把紧跟大事的沉城、迁都、亡国并成一条,中间不能插进议和) */
+    const ending: War[] = [];
     const fallen = (o: number, r: number) => {
       endPolity(pm, o, t);
       sim.record('fall', { a: o, b: -2, region: r });
-      if (wm) for (const w of wm.active.filter((v) => v.a === o || v.b === o)) wm.makePeace!(w, t);
+      if (wm) for (const w of wm.active) if ((w.a === o || w.b === o) && !ending.includes(w)) ending.push(w);
     };
     const relocate = (p: number, skip: number) => {
       const sid = bestCapital(pm, owner, p, t, true, skip);
@@ -418,5 +423,6 @@ export function installUpheaval(sim: CivSim, k: number, step: UpheavalStep, impa
       for (const r of lands) sim.setOwner(Layer.Polity, r, -1, Ev.Upheaval);
       fallen(p, lands.length ? lands[lands.length - 1] : cap.region);
     }
+    for (const w of ending) wm!.makePeace!(w, t);
   });
 }

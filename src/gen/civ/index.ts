@@ -138,7 +138,7 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
     const eraPlaces = findPlaces(fin.world, before, { cultures: b.cultures, culture: b.culture });
     if (k) keepPlaceNames(fin.world, eras[k - 1].places, eraPlaces);
     const eraRoutes = buildRoutes(fin.world, fin.habitat, before, { cities: b.settlements.length ? routeCities(b.settlements, b.polities, p.endYear) : undefined });
-    eras.push({ until: u.year, regions: before, places: eraPlaces, routes: eraRoutes });
+    eras.push({ until: u.year, habitat: fin.habitat, regions: before, places: eraPlaces, routes: eraRoutes });
     // 新地形:州沿用编号,只改变了的地方;比出这件大事改了什么
     const h1 = computeHabitat(u.world);
     const r1 = reshapeRegions(u.world, h1, before, { regionArea: p.regionArea });
@@ -150,7 +150,7 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
     // 从大事那一刻接着推:按新地形重算出来的、本该更早发生的事(新海路上的到达……)一律从这一刻起
     half.endYear = u.year;
     const s1 = CivSim.fromCiv(u.world, half, half.interventions ?? [], (s) => scheduleUpheaval(s, k, u.year));
-    installUpheaval(s1, k, u, impact, fact);
+    installUpheaval(s1, k, u, impact, fact, fin.world);
     s1.run(k + 1 < ups.length ? ups[k + 1].year - 1 / 256 : p.endYear);
     const m1 = cultureModelOf(s1)!;
     const pm1 = polityModelOf(s1)!;

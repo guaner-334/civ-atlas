@@ -47,7 +47,7 @@
  */
 import { DEFAULT_PARAMS, type World, type WorldParams } from './world';
 import { GENERATOR_CHANGES, GENERATOR_VERSION, MARKS_MAX, MARK_REGIONS_TOTAL, NAME_MAX, aiNameKeys, cleanMark, freeMarkId, type AiNameMark, type AuthorMark, type GeneratorChange, type Intervention, type TerrainOp, type Upheaval, type WorldEdits } from './edits';
-import { TERRAIN_MAX_OPS, UPHEAVALS_MAX, cleanTerrainOp, cleanUpheaval } from './terrainEdits';
+import { TERRAIN_MAX_OPS, UPHEAVALS_MAX, UPHEAVAL_KINDS, UPHEAVAL_OPS_MAX, cleanTerrainOp, cleanUpheaval } from './terrainEdits';
 import { SKETCH_MAX_STROKES, cleanSketch, cleanSketchStroke, type SketchEdit } from './sketch';
 import { decodeFlag } from './civ/flags';
 import { CHARACTERS_MAX, cleanCharacters, type AuthorCharacter } from './characters';
@@ -482,20 +482,34 @@ export function parseSave(text: string): ParseResult {
       if ((E.sketch as Record<string, unknown>).image !== undefined && !sketch?.image) warnings.push('草图里导入的图片格式不对,已跳过');
     }
   }
-  // 地形大事:逐件清理,认不出的跳过;最多 UPHEAVALS_MAX 件;旧存档没有 = 没有
+  // 地形大事:逐件清理,认不出的跳过;最多 UPHEAVALS_MAX 件、每件 UPHEAVAL_OPS_MAX 笔;旧存档没有 = 没有
   const upheavals: Upheaval[] = [];
   let droppedU = 0;
   let overU = 0;
+  let droppedUOps = 0;
+  let overUOps = 0;
   if (Array.isArray(E.upheavals)) {
     for (const x of E.upheavals) {
       const v = cleanUpheaval(x);
       if (!v) droppedU++;
       else if (upheavals.length >= UPHEAVALS_MAX) overU++;
-      else upheavals.push(v);
+      else {
+        upheavals.push(v);
+        // 读进来了、但丢了几笔的:格式不对的、超过笔数上限的
+        const raw = (x as { ops: unknown[] }).ops;
+        const bad = raw.filter((o) => {
+          const c = cleanTerrainOp(o);
+          return !c || !UPHEAVAL_KINDS.includes(c.kind);
+        }).length;
+        droppedUOps += bad;
+        overUOps += raw.length - bad - v.ops.length;
+      }
     }
   } else if (E.upheavals !== undefined) droppedU++;
   if (droppedU) warnings.push(`有 ${droppedU} 件地形大事格式不对,已跳过`);
   if (overU) warnings.push(`地形大事最多 ${UPHEAVALS_MAX} 件,多出来的 ${overU} 件没有读进来`);
+  if (droppedUOps) warnings.push(`地形大事里有 ${droppedUOps} 笔格式不对,已跳过`);
+  if (overUOps) warnings.push(`地形大事每件最多 ${UPHEAVAL_OPS_MAX} 笔,多出来的 ${overUOps} 笔没有读进来`);
   // 作者标记:逐个清理,认不出的跳过;编号重复的换一个新编号;最多留 MARKS_MAX 个、一共圈 MARK_REGIONS_TOTAL 个州;旧存档没有 = 没有标记
   const marks: AuthorMark[] = [];
   let droppedM = 0;

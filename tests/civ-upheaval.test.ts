@@ -2,7 +2,7 @@
  * 地形大事(gen/civ/upheaval.ts;格式见 gen/edits.ts 文件头"地形大事"):选一年让火山喷发、地震抬升、海水漫进来。
  * - 格式:清理(年份取整夹回范围、只认三种修改、件数和笔数有上限)、同一年的合成一件、存档往返
  * - 大事那一年以前:日志、史事、名字、人物、信仰、地名、道路和没有大事时一致;没有大事 = 逐字节不变
- * - 后果:沉了的州没人住、城没于水(不再重建)、国都迁走;火山毁城;隆起的陆地连起两块陆地;编年史并成一条
+ * - 后果:沉了的州没人住、城没于水(不再重建)、国都迁走;火山毁城;隆起的陆地连起两块陆地;编年史并成一条;沉了的遗址不再画
  * - 确定性:同样的大事两次推演逐字节相同
  */
 import { describe, expect, it } from 'vitest';
@@ -12,7 +12,7 @@ import { mergeUpheavals, previewUpheaval, previewVictims, upheavalBase, upheaval
 import { DEFAULT_CIV_PARAMS } from '../src/gen/civ';
 import { buildChronicle } from '../src/gen/civ/chronicle';
 import { ownersAt } from '../src/gen/civ/timeline';
-import { capitalAt } from '../src/gen/civ/growth';
+import { capitalAt, ruinSites } from '../src/gen/civ/growth';
 import { UPHEAVALS_MAX, UPHEAVAL_OPS_MAX, UPHEAVAL_YEARS, cleanUpheavals, sameUpheavals } from '../src/gen/terrainEdits';
 import { EMPTY_EDITS, polityKey, regionKey, resolveKey, settlementKey, type Upheaval } from '../src/gen/edits';
 import { editCount, makeSave, parseSave, saveText } from '../src/gen/savefile';
@@ -124,6 +124,11 @@ describe('地形大事 · 格式', () => {
     const r = parseSave(JSON.stringify(raw));
     expect(r.ok && r.save.edits.upheavals).toEqual([FLOOD, BRIDGE]);
     expect(r.ok && r.warnings.some((w) => w.includes('2 件地形大事'))).toBe(true);
+    // 读进来了、但丢了几笔的也提示
+    raw.edits.upheavals = [{ year: 1700, ops: [{ kind: 'paint' }, ...Array.from({ length: UPHEAVAL_OPS_MAX + 2 }, () => FLOOD.ops[0])] }];
+    const s = parseSave(JSON.stringify(raw));
+    expect(s.ok && s.save.edits.upheavals![0].ops).toHaveLength(UPHEAVAL_OPS_MAX);
+    expect(s.ok && s.warnings).toEqual(expect.arrayContaining([expect.stringContaining('1 笔格式不对'), expect.stringContaining('多出来的 2 笔')]));
   });
 });
 
@@ -194,6 +199,35 @@ describe('地形大事 · 推演', () => {
     expect(e.text).toMatch(/^海水漫入.+州沉入海中,[^国]+等.+城没于水,迁都.+$/);
     expect(e.children!.filter((c) => c.kind === 'sunk')).toHaveLength(sunk.length);
     expect(buildChronicle(b).some((x) => x.kind === 'sunk')).toBe(false);
+  }, 300_000);
+
+  it('后果都并进大事那一条:亡了的国家打着的仗,议和记在后果之后;早先的遗址城址沉了,从那年起不再画', () => {
+    // 第 2730 年:维利科拉国(正和萨兰提亚帝国打仗)五州全沉,萨兰提亚帝国的国都德鲁索纳也沉了(州还在,迁都)
+    const Y = 2730;
+    const seats = [
+      [289, 432],
+      [268, 435],
+      [311, 424],
+      [322, 391],
+      [302, 406],
+    ];
+    const W: Upheaval = { year: Y, ops: [...seats.map((pts) => ({ kind: 'sink' as const, pts, r: 68, s: 1.1 })), { kind: 'sink', pts: [152, 225], r: 12, s: 1.1 }] };
+    const b = civOf([W]);
+    const at = b.annals.filter((e) => e.year === Y).map((e) => e.kind);
+    expect(at).toContain('fall');
+    expect(at.lastIndexOf('capital')).toBeGreaterThan(at.indexOf('fall'));
+    expect(at.indexOf('peace')).toBeGreaterThan(at.lastIndexOf('capital'));
+    const ch = buildChronicle(b).filter((x) => b.annals[x.id]?.year === Y);
+    expect(ch.map((x) => x.kind)).toEqual(['upheaval']);
+    expect(ch[0].text).toMatch(/亡,.+迁都/);
+    // 揽霄关第 2111 年毁于战火、没有重建;第 2200 年城址沉入海中
+    const R: Upheaval = { year: 2200, ops: [{ kind: 'sink', pts: [1772, 437], r: 30, s: 1.1 }] };
+    const r = civOf([R]);
+    const id = r.settlements.findIndex((s) => s.name === '揽霄关');
+    expect(r.settlements[id].ended).toBeLessThan(R.year);
+    expect(r.upheavals![0].ruins).toEqual([id]);
+    expect(ruinSites(r, R.year - 1).map((s) => s.id)).toContain(id);
+    expect(ruinSites(r, R.year).map((s) => s.id)).not.toContain(id);
   }, 300_000);
 
   it('火山喷发:山下的国都被毁、迁都;隆起的陆地连起两块陆地;同一年的两件合成一件', () => {
