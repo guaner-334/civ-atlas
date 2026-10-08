@@ -358,7 +358,10 @@ function keyIndex(civ: Civ): KeyIndex {
   const settlement = build('settlement', S, (s) => s.region, (a, b) => a.founded - b.founded);
   const culture = build('culture', civ.cultures, (c) => c.hearth, (a, b) => a.born - b.born);
   const faith = build('faith', civ.religion?.faiths ?? [], (f) => faithRegion(civ, f), (a, b) => (a.founded ?? -1) - (b.founded ?? -1));
-  const placeAt = (p: Place, i: number) => `place:${p.kind}@${p.cell !== undefined ? `c${p.cell}` : `i${i}`}`;
+  const placeAt = (p: Place, i: number) => {
+    const c = p.keyCell ?? p.cell;
+    return `place:${p.kind}@${c !== undefined ? `c${c}` : `i${i}`}`;
+  };
   const pn = counted(civ.places, placeAt, () => 0);
   const place = civ.places.map((p, i) => `${placeAt(p, i)}#${pn[i]}`);
   const places = new Map<string, number>();
@@ -381,7 +384,8 @@ export function settlementKey(civ: Civ, id: number): string {
  * 或者没有锚点地块的,要用 placeKeyOf(civ, 下标) 才能分清;这里按"第 0 个"算
  */
 export function placeKey(place: Place): string {
-  return `place:${place.kind}@${place.cell !== undefined ? `c${place.cell}` : 'i0'}#0`;
+  const c = place.keyCell ?? place.cell;
+  return `place:${place.kind}@${c !== undefined ? `c${c}` : 'i0'}#0`;
 }
 
 /** 地理实体的键(按 civ.places 的下标;能分清同种类同锚点的几个) */

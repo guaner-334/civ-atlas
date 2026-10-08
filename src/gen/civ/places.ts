@@ -1053,7 +1053,7 @@ function axisPath(ctx: Ctx, dist: Float32Array, a: number, ax: Axis, r: number, 
 /**
  * 地形大事之后重新找出来的地名(next),沿用大事之前同一处地方的名字(prev):同一类、锚点离得够近的算同一处
  * (海、湖、岛、荒漠按大小,山、河按标注路径挨得多近),从最近的一对起配;配上的照用原名(连同语感、拉丁原形),
- * 新冒出来的(新岛、新海湾)保留新起的名字,和原有的重名就在后面找一个没用过的。就地改 next。
+ * 新冒出来的(新岛、新海湾)保留新起的名字,和原有的重名就在后面找一个没用过的。配上的稳定键沿用原来那一处的(Place.keyCell)。就地改 next。
  */
 export function keepPlaceNames(world: World, prev: readonly Place[], next: Place[]): void {
   const geo = geometryOf(world.mesh);
@@ -1093,6 +1093,8 @@ export function keepPlaceNames(world: World, prev: readonly Place[], next: Place
     q.culture = p.culture;
     if (p.latin !== undefined) q.latin = p.latin;
     else delete q.latin;
+    const kc = p.keyCell ?? p.cell;
+    if (kc !== undefined) q.keyCell = kc;
   }
   const taken = new Set(next.filter((_, j) => usedN.has(j)).map((q) => q.name));
   next.forEach((q, j) => {

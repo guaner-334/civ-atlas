@@ -204,6 +204,11 @@ export interface Place {
   size?: number;
   /** 锚点地块(以后悬停、按民族换语感用) */
   cell?: number;
+  /**
+   * 地形大事以后还是同一处的(keepPlaceNames 认出来的):稳定键按第一件大事以前那一处的锚点地块算,
+   * 锚点跟着地形挪了也是同一个键(改的名在大事前后都认得)。没有这一项 = 按 cell
+   */
+  keyCell?: number;
   /** 西幻风地名的拉丁原形(如 "Aldor Mountains");湖、岛、荒漠借用的是别的名字的原形,仅供参考 */
   latin?: string;
   /**

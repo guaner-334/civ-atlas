@@ -178,6 +178,8 @@ function moveList<T>(now: readonly T[], from: readonly T[], to: readonly T[]): T
   const drop = without(from, to);
   const add = without(to, from);
   if (!drop.length && !add.length) return now as T[];
+  // 之后没再改过这一项(现在和 from 一模一样):正好换成 to(一模一样的有几条时,也不会认错撤销的是哪一条)
+  if (now.length === from.length && now.every((x, i) => x === from[i] || key(x) === key(from[i]))) return to.slice();
   const out = without(now, drop);
   // 一模一样的可以有几条(同一处放了两次):按条数比,现在已经和 to 里一样多的不再放
   const count = (list: readonly T[]) => {

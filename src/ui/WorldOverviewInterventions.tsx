@@ -82,9 +82,9 @@ function lineDist(pts: readonly number[], px: number, py: number, W: number): nu
 /**
  * 一件地形大事的一句话:"海水漫进来:揽霞城一带,10 座城沉没" / "地震抬升:库那汗国和萨尔斯坦帝国之间"。
  * 哪一带 = 笔下那一年还在的最大的城(笔下没有城 = 离第一笔最近的城);连起了两块陆地 = 两边的国家。
- * 后果按这份历史(Civ.upheavals 里合进这一件的那一条:沉没 / 被毁的城;同一年的几件合成了一条的,每座城算给笔离它最近的那一件)
+ * 后果按这份历史(Civ.upheavals 里合进这一件的那一条:沉没 / 被毁的城、连起的陆地;同一年的几件合成了一条的,每座城、连起的两边算给笔离它最近的那一件)
  */
-function upheavalText(civ: Civ | null, world: World | null, ups: readonly Upheaval[], i: number): { text: string; k: number } {
+export function upheavalText(civ: Civ | null, world: World | null, ups: readonly Upheaval[], i: number): { text: string; k: number } {
   const u = ups[i];
   const name = upheavalName(u);
   const k = civ?.upheavals?.findIndex((f) => f.items.includes(i)) ?? -1;
@@ -94,9 +94,19 @@ function upheavalText(civ: Civ | null, world: World | null, ups: readonly Upheav
   const t = y - 1 / 256;
   const { x, y: my } = world.mesh;
   const W = world.width;
+  // 同一年的几件合成了一条:后果算给笔离它最近的那一件
+  const near = (v: Upheaval, s: number) => Math.min(...v.ops.map((o) => lineDist(o.pts, x[s], my[s], W) / o.r));
+  const mine = (...cells: number[]) => {
+    if (F.items.length < 2) return true;
+    const score = (v: Upheaval | undefined) => (v ? cells.reduce((a, c) => a + near(v, c), 0) : Infinity);
+    let best = F.items[0];
+    for (const j of F.items) if (score(ups[j]) < score(ups[best])) best = j;
+    return best === i;
+  };
   let where = '';
   const onlyRaise = u.ops.every((o) => o.kind === 'raise');
-  if (onlyRaise && F.joined && F.joinedBy) {
+  const seats = F.joined?.map((r) => civ.regions.seat[r]).filter((c) => c !== undefined) ?? [];
+  if (onlyRaise && F.joined && F.joinedBy && mine(...seats)) {
     const side = (j: number) => {
       const p = F.joinedBy![j];
       return p >= 0 && civ.polities[p] ? polityName(civ.polities[p], t) : (civ.regions.name?.[F.joined![j]] ?? '荒野');
@@ -117,13 +127,7 @@ function upheavalText(civ: Civ | null, world: World | null, ups: readonly Upheav
     }
     if (city) where = `${city.name}一带`;
   }
-  const near = (v: Upheaval, s: number) => Math.min(...v.ops.map((o) => lineDist(o.pts, x[s], my[s], W) / o.r));
-  const mine = (cell: number) => {
-    let best = F.items[0];
-    for (const j of F.items) if (ups[j] && ups[best] && near(ups[j], cell) < near(ups[best], cell)) best = j;
-    return best === i;
-  };
-  const sunk = civ.annals.filter((e) => e.kind === 'sunk' && e.war === k && (F.items.length < 2 || mine(civ.settlements[e.settlement].cell)));
+  const sunk = civ.annals.filter((e) => e.kind === 'sunk' && e.war === k && mine(civ.settlements[e.settlement].cell));
   const drowned = sunk.filter((e) => e.b === 1).length;
   const burnt = sunk.length - drowned;
   const what = [drowned ? `${drowned} 座城沉没` : '', burnt ? `${burnt} 座城被毁` : ''].filter(Boolean).join('、');

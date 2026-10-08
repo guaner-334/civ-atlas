@@ -14,12 +14,13 @@ import { buildChronicle } from '../src/gen/civ/chronicle';
 import { ownersAt } from '../src/gen/civ/timeline';
 import { capitalAt, ruinSites } from '../src/gen/civ/growth';
 import { UPHEAVALS_MAX, UPHEAVAL_OPS_MAX, UPHEAVAL_YEARS, cleanUpheavals, sameUpheavals } from '../src/gen/terrainEdits';
-import { EMPTY_EDITS, polityKey, regionKey, resolveKey, settlementKey, type Upheaval } from '../src/gen/edits';
+import { EMPTY_EDITS, applyNames, placeKeyOf, polityKey, regionKey, resolveKey, settlementKey, type Upheaval } from '../src/gen/edits';
 import { editCount, makeSave, parseSave, saveText } from '../src/gen/savefile';
 import { fullChronicle } from '../src/gen/civ/religionText';
 import { faithAt } from '../src/gen/civ/religion';
 import { civAtEra, withHistory } from '../src/ui/eras';
 import { makeFlagView } from '../src/ui/flagStore';
+import { upheavalText } from '../src/ui/WorldOverviewInterventions';
 import { computeHabitat } from '../src/gen/civ/habitat';
 import { reshapeRegions } from '../src/gen/civ/regions';
 
@@ -286,6 +287,27 @@ describe('地形大事 · 推演', () => {
     expect(polityKey(era, f.polity)).toBe(polityKey(b, f.polity));
   }, 300_000);
 
+  it('山海河湖:大事前后还是同一处的,锚点挪了键也一样,改的名在两段都认得', () => {
+    const b = civOf([FLOOD]);
+    const e0 = civAtEra(b, 0);
+    let moved = 0;
+    const names: Record<string, string> = {};
+    b.places.forEach((p, j) => {
+      const i = e0.places.findIndex((q) => q.kind === p.kind && q.name === p.name);
+      if (i < 0) return;
+      if (e0.places[i].cell !== p.cell) moved++;
+      expect(placeKeyOf(b, j)).toBe(placeKeyOf(e0, i));
+      names[placeKeyOf(b, j)] = `改名${j}`;
+    });
+    expect(moved).toBeGreaterThan(0);
+    const after = applyNames(b, names).places;
+    const before = applyNames(e0, names).places;
+    b.places.forEach((p, j) => {
+      const i = e0.places.findIndex((q) => q.kind === p.kind && q.name === p.name);
+      if (i >= 0) expect(before[i].name).toBe(after[j].name);
+    });
+  }, 300_000);
+
   it('沉下去又抬起来的地方:新划出来的州按键找得回自己', () => {
     const UP: Upheaval = { year: 1800, ops: [{ kind: 'raise', pts: [1856, 574, 1936, 584], r: 44, s: 1.6 }] };
     const b = civOf([FLOOD, UP]);
@@ -370,6 +392,20 @@ describe('地形大事 · 推演', () => {
     // 同一年前一件淹掉的州又抬了起来:不算这一件淹的
     expect(pv.drowned).toEqual([]);
     expect(pv.risen).toBeGreaterThan(0);
+  }, 300_000);
+
+  it('「我的干预」里同一年的几件:"连起两块陆地"只算给连起来的那一处的那一件', () => {
+    // 同一年在两处抬升:合成一条以后连起的是第二件那一带的两块陆地,第一件那一行不说"之间"
+    const ISLE: Upheaval = { year: BRIDGE.year, ops: [{ kind: 'raise', pts: [1820, 473, 1860, 473], r: 44, s: 1.6 }] };
+    const list = [BRIDGE, ISLE];
+    const b = civOf(list);
+    const F = b.upheavals![0];
+    expect(F.items).toEqual([0, 1]);
+    const [sa, sb] = F.joined!.map((r) => b.regions.seat[r]);
+    const w = steps(list)[0].world;
+    for (const c of [sa, sb]) expect(Math.abs(w.mesh.x[c] - 1840)).toBeLessThan(80);
+    expect(upheavalText(b, w, list, 1).text).toContain('之间');
+    expect(upheavalText(b, w, list, 0).text).not.toContain('之间');
   }, 300_000);
 
   it('确定性:同样的大事两次推演逐字节相同', () => {

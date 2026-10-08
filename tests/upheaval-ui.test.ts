@@ -85,6 +85,14 @@ describe('地形大事 · 修改和撤销', () => {
     removeUpheaval(1);
     expect(undoLastEdit()).toBe(true);
     expect(getEdits().upheavals).toEqual([U, U]);
+    // 同一年先后放了 A、B、A(笔按先后套,顺序要紧):撤销最后一件,留下的是前面的 A、B
+    clearEdits();
+    const B = { year: 1800, ops: [SINK] };
+    addUpheaval(U);
+    addUpheaval(B);
+    addUpheaval(U);
+    expect(undoLastEdit()).toBe(true);
+    expect(getEdits().upheavals).toEqual([U, B]);
   });
 });
 
