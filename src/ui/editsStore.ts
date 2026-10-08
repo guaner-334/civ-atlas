@@ -179,11 +179,19 @@ function moveList<T>(now: readonly T[], from: readonly T[], to: readonly T[]): T
   const add = without(to, from);
   if (!drop.length && !add.length) return now as T[];
   const out = without(now, drop);
-  const have = new Set(out.map(key));
+  // 一模一样的可以有几条(同一处放了两次):按条数比,现在已经和 to 里一样多的不再放
+  const count = (list: readonly T[]) => {
+    const m = new Map<string, number>();
+    for (const x of list) m.set(key(x), (m.get(key(x)) ?? 0) + 1);
+    return m;
+  };
+  const have = count(out);
+  const want = count(to);
   for (const x of add) {
-    if (have.has(key(x))) continue;
+    const k = key(x);
+    if ((have.get(k) ?? 0) >= (want.get(k) ?? 0)) continue;
     out.splice(Math.min(out.length, to.indexOf(x)), 0, x);
-    have.add(key(x));
+    have.set(k, (have.get(k) ?? 0) + 1);
   }
   return out.length === now.length && out.every((x, i) => x === now[i]) ? (now as T[]) : out;
 }

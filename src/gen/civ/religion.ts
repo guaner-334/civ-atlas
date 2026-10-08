@@ -576,7 +576,7 @@ export function faithAt(civ: Civ, year: Year, out?: Int16Array): Int16Array {
   const cp = lo > 0 ? cps[lo - 1] : null;
   let i = 0;
   if (cp) {
-    out.set(cp.faith);
+    out.set(cp.faith.length > R ? cp.faith.subarray(0, R) : cp.faith); // 地形大事以前那一段州少(同 ownersAt)
     i = faithLogAfter(rel.log, cp.year);
   } else out.fill(-1);
   const { log } = rel;

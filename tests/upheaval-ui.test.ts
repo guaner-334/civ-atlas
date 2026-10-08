@@ -73,6 +73,19 @@ describe('地形大事 · 修改和撤销', () => {
     expect(redoLastEdit()).toBe(true);
     expect(getEdits().upheavals).toEqual([{ year: 1600, ops: [SINK] }]);
   });
+
+  it('撤销 / 重做:一模一样的两件各算各的', () => {
+    const U = { year: 1800, ops: [VOLC] };
+    addUpheaval(U);
+    addUpheaval(U);
+    expect(undoLastEdit()).toBe(true);
+    expect(getEdits().upheavals).toEqual([U]);
+    expect(redoLastEdit()).toBe(true);
+    expect(getEdits().upheavals).toEqual([U, U]);
+    removeUpheaval(1);
+    expect(undoLastEdit()).toBe(true);
+    expect(getEdits().upheavals).toEqual([U, U]);
+  });
 });
 
 describe('地形大事 · 卡片和地图上的笔', () => {

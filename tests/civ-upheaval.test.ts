@@ -17,6 +17,7 @@ import { UPHEAVALS_MAX, UPHEAVAL_OPS_MAX, UPHEAVAL_YEARS, cleanUpheavals, sameUp
 import { EMPTY_EDITS, polityKey, regionKey, resolveKey, settlementKey, type Upheaval } from '../src/gen/edits';
 import { editCount, makeSave, parseSave, saveText } from '../src/gen/savefile';
 import { fullChronicle } from '../src/gen/civ/religionText';
+import { faithAt } from '../src/gen/civ/religion';
 import { civAtEra, withHistory } from '../src/ui/eras';
 import { makeFlagView } from '../src/ui/flagStore';
 import { computeHabitat } from '../src/gen/civ/habitat';
@@ -307,6 +308,17 @@ describe('地形大事 · 推演', () => {
     for (const c of b.checkpoints) expect(c.polity.length).toBe(b.regions.count);
     const own = ownersAt(b, Y + 0.5);
     for (const r of f.added) expect(own.polity[r]).toBe(-1);
+    // 时间轴在大事以前:那一段的州少,归属、信仰照样查得出来(和整段历史的前面那些州一样)
+    const e0 = civAtEra(b, 0);
+    expect(e0.regions.count).toBeLessThan(b.regions.count);
+    const R0 = e0.regions.count;
+    for (const y of [1000, 2000]) {
+      const a = ownersAt(e0, y);
+      const full = ownersAt(b, y);
+      expect(Array.from(a.polity)).toEqual(Array.from(full.polity.subarray(0, R0)));
+      expect(Array.from(a.culture)).toEqual(Array.from(full.culture.subarray(0, R0)));
+      expect(Array.from(faithAt(e0, y))).toEqual(Array.from(faithAt(b, y).subarray(0, R0)));
+    }
   }, 300_000);
 
   it('地图在大事以前那一段时:编年史按整段历史算,国旗按大事以前的地形配(拖时间轴跨过大事都不变)', () => {
