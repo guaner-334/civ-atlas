@@ -201,9 +201,9 @@ export function cleanSketchStroke(x: unknown): SketchStroke | null {
 
 /**
  * 清理导入的图片:格子读不出来(decodeLayer)、或者一格也没盖到的 = null;文件名去掉控制字符、首尾空白,
- * 最多 SKETCH_IMAGE_NAME_MAX 个字;at 取整夹到 [0, 笔画数](0 是默认,不存)。本来就合格的原样返回
+ * 最多 SKETCH_IMAGE_NAME_MAX 个字;at 取整夹到 [0, 笔画数](0 是默认,不存;给了 at 参数就用它,不看图片里写的)。本来就合格的原样返回
  */
-export function cleanSketchImage(x: unknown, strokes: number): SketchImage | null {
+export function cleanSketchImage(x: unknown, strokes: number, at?: number): SketchImage | null {
   if (!x || typeof x !== 'object') return null;
   const o = x as Record<string, unknown>;
   if (typeof o.cells !== 'string') return null;
@@ -212,9 +212,9 @@ export function cleanSketchImage(x: unknown, strokes: number): SketchImage | nul
   // eslint-disable-next-line no-control-regex
   const name0 = typeof o.name === 'string' ? o.name.replace(/[\u0000-\u001f\u007f]/g, '').trim() : '';
   const name = [...name0].slice(0, SKETCH_IMAGE_NAME_MAX).join('');
-  const a0 = num(o.at);
-  const at = a0 === null ? 0 : Math.round(clamp(a0, 0, strokes));
-  const out: SketchImage = at ? { name, cells: o.cells, at } : { name, cells: o.cells };
+  const a0 = at ?? num(o.at);
+  const at1 = a0 === null ? 0 : Math.round(clamp(a0, 0, strokes));
+  const out: SketchImage = at1 ? { name, cells: o.cells, at: at1 } : { name, cells: o.cells };
   const same = name === o.name && out.at === o.at && Object.keys(o).length === Object.keys(out).length;
   return same ? (x as SketchImage) : out;
 }
@@ -234,13 +234,20 @@ export function cleanSketch(x: unknown): SketchEdit | null {
   const strokes: SketchStroke[] = [];
   let same = rest === o.rest && list === o.strokes && list.length <= SKETCH_MAX_STROKES;
   same = same && (coast === SKETCH_COAST ? !('coast' in o) : coast === o.coast);
-  for (const s of list) {
+  // 导入的图铺在原来第几笔之后;丢掉了不合格的笔画时,换成它前面留下来的笔数(先后不变)
+  const img = o.image && typeof o.image === 'object' ? (o.image as Record<string, unknown>) : null;
+  const a0 = img ? num(img.at) : null;
+  const at0 = a0 === null ? 0 : Math.round(clamp(a0, 0, list.length));
+  let at = -1;
+  for (let i = 0; i < list.length; i++) {
+    if (i === at0) at = strokes.length;
     if (strokes.length >= SKETCH_MAX_STROKES) break;
-    const v = cleanSketchStroke(s);
+    const v = cleanSketchStroke(list[i]);
     if (v) strokes.push(v);
-    if (v !== s) same = false;
+    if (v !== list[i]) same = false;
   }
-  const image = o.image === undefined ? null : cleanSketchImage(o.image, strokes.length);
+  if (at < 0) at = strokes.length;
+  const image = o.image === undefined ? null : cleanSketchImage(o.image, strokes.length, at);
   same = same && (image ? image === o.image : !('image' in o));
   same = same && Object.keys(o).length === 2 + (coast === SKETCH_COAST ? 0 : 1) + (image ? 1 : 0);
   if (!strokes.length && !image && rest === 'auto') return null;

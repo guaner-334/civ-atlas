@@ -116,21 +116,29 @@ export function pickImage() {
 /** 拖进来的是不是图片 */
 export const isImageFile = (f: File) => f.type.startsWith('image/');
 
+/** 第几次读图:读完发现已经不是最新的一次(又选了一张,或者取消了)就扔掉 */
+let loading = 0;
+
 /** 读这张图、准备好认,打开导入面板(已经开着的换成这张);读不出来出一条提示 */
 export async function startImport(file: File) {
-  let bmp: ImageBitmap;
-  try {
-    bmp = await createImageBitmap(file);
-  } catch {
-    showToast({ id: 'import', kind: 'error', text: '没能读出这张图', more: [`${file.name} 不是能打开的图片`] });
-    return;
-  }
-  const { width: w, height: h } = bmp;
-  if (w > MAX_SIDE || h > MAX_SIDE) {
-    bmp.close();
-    showToast({ id: 'import', kind: 'error', text: '这张图太大了', more: [`换一张宽、高都不超过 ${MAX_SIDE} 像素的图`] });
-    return;
-  }
+  const req = ++loading;
+  const url = URL.createObjectURL(file);
+  const fail = (text: string, more: string) => {
+    URL.revokeObjectURL(url);
+    showToast({ id: 'import', kind: 'error', text, more: [more] });
+  };
+  // 先只读出图有多大(浏览器到画的时候才整张解码),太大的不解码
+  const img = new Image();
+  const ok = await new Promise<boolean>((done) => {
+    img.onload = () => done(true);
+    img.onerror = () => done(false);
+    img.src = url;
+  });
+  if (req !== loading) return URL.revokeObjectURL(url);
+  const w = img.naturalWidth;
+  const h = img.naturalHeight;
+  if (!ok || !w || !h) return fail('没能读出这张图', `${file.name} 不是能打开的图片`);
+  if (w > MAX_SIDE || h > MAX_SIDE) return fail('这张图太大了', `换一张宽、高都不超过 ${MAX_SIDE} 像素的图`);
   const k = Math.min(1, DECODE_SIDE / Math.max(w, h));
   const cw = Math.max(1, Math.round(w * k));
   const ch = Math.max(1, Math.round(h * k));
@@ -138,14 +146,18 @@ export async function startImport(file: File) {
   cv.width = cw;
   cv.height = ch;
   const ctx = cv.getContext('2d', { willReadFrequently: true });
-  if (!ctx) return;
-  ctx.drawImage(bmp, 0, 0, cw, ch);
-  bmp.close();
-  const pic = preparePicture(ctx.getImageData(0, 0, cw, ch));
+  let pic: Picture;
+  try {
+    if (!ctx) throw new Error('no canvas');
+    ctx.drawImage(img, 0, 0, cw, ch);
+    pic = preparePicture(ctx.getImageData(0, 0, cw, ch));
+  } catch {
+    return fail('没能读出这张图', `${file.name} 不是能打开的图片`);
+  }
   if (imp) URL.revokeObjectURL(imp.url);
   setImp({
     name: file.name,
-    url: URL.createObjectURL(file),
+    url,
     w,
     h,
     pic,
@@ -166,6 +178,7 @@ export async function startImport(file: File) {
 /** 取消导入(收起面板,图片不留) */
 export function cancelImport() {
   drag = null;
+  loading++;
   if (!imp) return;
   URL.revokeObjectURL(imp.url);
   setImp(null);
@@ -233,10 +246,10 @@ function worldRect(s: ImportState, width = TERRAIN_W) {
   return { x: r.x * k, y: r.y * k, w: r.w * k, h: r.h * k };
 }
 
-/** 世界坐标落在图上的哪儿(图上的比例 0–1;不在图上 = null) */
+/** 世界坐标落在图上的哪儿(图上的比例 0–1;不在图上 = null)。图左右超出地图的部分绕到另一边,点在那儿也算 */
 function onPicture(s: ImportState, w: readonly [number, number]): [number, number] | null {
   const r = worldRect(s);
-  const fx = (w[0] - r.x) / r.w;
+  const fx = ((((w[0] - r.x) % TERRAIN_W) + TERRAIN_W) % TERRAIN_W) / r.w;
   const fy = (w[1] - r.y) / r.h;
   return fx >= 0 && fx < 1 && fy >= 0 && fy < 1 ? [fx, fy] : null;
 }
@@ -274,7 +287,8 @@ export function importMove(w: [number, number] | null): boolean {
   const dy = w[1] - drag.y0;
   if (!drag.moved && dx * dx + dy * dy < 16) return true;
   drag.moved = true;
-  patch({ x: clamp(drag.cx + dx / TERRAIN_W, 0, 1), y: clamp(drag.cy + dy / TERRAIN_H, 0, 1) });
+  // 左右可以一直拖(星球东西相连),上下到地图边为止
+  patch({ x: (((drag.cx + dx / TERRAIN_W) % 1) + 1) % 1, y: clamp(drag.cy + dy / TERRAIN_H, 0, 1) });
   return true;
 }
 
@@ -649,26 +663,32 @@ function ImportPreview({ s, width, height, scale, rest }: { s: ImportState; widt
   const r = recognize(s);
   const heights = s.mode === 'level' && heightsOn(s);
   const tint = useMemo(() => tintUrl(r.values, s.pic.w, s.pic.h, heights ? PREVIEW_HEIGHTS : PREVIEW_PLAIN), [r.values, s.pic, heights]);
-  const coast = useMemo(() => coastPath(r.values, s.pic.w, s.pic.h), [r.values, s.pic]);
   const box = worldRect(s, width);
   const px = (v: number) => v / scale;
   const keep = s.fit === 'keep';
   const shown = s.view === 'result' && r.ready;
-  // 没盖到的地方:左、右(整个高度)、上、下(图那几列)
-  const x0 = clamp(box.x, 0, width);
-  const x1 = clamp(box.x + box.w, 0, width);
+  // 认不准时不描海岸线(碎的时候线特别多,也不用算)
+  const coastOn = shown && !r.warn;
+  const coast = useMemo(() => (coastOn ? coastPath(r.values, s.pic.w, s.pic.h) : ''), [coastOn, r.values, s.pic]);
+  // 没盖到的地方:图左右两边(整个高度)、图上下(图那几列)。图左右超出地图的部分绕到另一边,地图上图占的几段按这个算
   const y0 = clamp(box.y, 0, height);
   const y1 = clamp(box.y + box.h, 0, height);
-  const dims = keep
-    ? [
-        [0, 0, x0, height],
-        [x1, 0, width - x1, height],
-        [x0, 0, x1 - x0, y0],
-        [x0, y1, x1 - x0, height - y1],
-      ].filter(([, , w, h]) => w > 0 && h > 0)
-    : [];
+  const spans = [-width, 0, width]
+    .map((dx) => [clamp(box.x + dx, 0, width), clamp(box.x + box.w + dx, 0, width)])
+    .filter(([a, b]) => b > a)
+    .sort((p, q) => p[0] - q[0]);
+  const dims: number[][] = [];
+  if (keep) {
+    let at = 0;
+    for (const [a, b] of spans) {
+      dims.push([at, 0, a - at, height], [a, 0, b - a, y0], [a, y1, b - a, height - y1]);
+      at = b;
+    }
+    dims.push([at, 0, width - at, height]);
+  }
+  const shade = dims.filter(([, , w, h]) => w > 0 && h > 0);
   const tag = rest === 'sea' ? '都是海' : '交给程序';
-  const tags = dims.filter(([, , w, h]) => w * scale >= 64 && h * scale >= 24);
+  const tags = shade.filter(([, , w, h]) => w * scale >= 64 && h * scale >= 24);
   const corners = [
     [box.x, box.y],
     [box.x + box.w, box.y],
@@ -678,14 +698,14 @@ function ImportPreview({ s, width, height, scale, rest }: { s: ImportState; widt
   const sq = px(9);
   return (
     <g className="imp-layer">
-      {dims.map(([x, y, w, h], i) => (
+      {shade.map(([x, y, w, h], i) => (
         <rect key={i} className="imp-dim" x={x} y={y} width={w} height={h} />
       ))}
       <image href={s.url} x={box.x} y={box.y} width={box.w} height={box.h} preserveAspectRatio="none" />
       {shown && (
         <>
           <image href={tint} x={box.x} y={box.y} width={box.w} height={box.h} preserveAspectRatio="none" />
-          {!r.warn && (
+          {coastOn && (
             <g transform={`translate(${box.x} ${box.y}) scale(${box.w / s.pic.w} ${box.h / s.pic.h})`}>
               <path className={`imp-coast${s.mode === 'level' ? ' thin' : ''}`} d={coast} vectorEffect="non-scaling-stroke" />
             </g>
@@ -719,6 +739,18 @@ function ImportPreview({ s, width, height, scale, rest }: { s: ImportState; widt
         ))}
     </g>
   );
+}
+
+/** 导入的那一层盖住了哪些格子(海也算):盖住的不透明黑、没盖住的透明,PNG 的 data 网址。草图层拿它当遮罩,把这一层前面的笔挖掉 */
+let lastCover: { cells: string; url: string } | null = null;
+export function coverMaskUrl(cells: string): string {
+  if (lastCover?.cells === cells) return lastCover.url;
+  const layer = decodeLayer(cells);
+  const black: Record<number, RGBA> = {};
+  for (let v = SKETCH_SEA; v <= SKETCH_MOUNTAIN + 2; v++) black[v] = [0, 0, 0, 1];
+  const url = layer ? tintUrl(layer, LAYER_W, LAYER_H, black) : '';
+  lastCover = { cells, url };
+  return url;
 }
 
 /** 用了以后,草图里导入的那一层在地图上的样子:陆地淡淡涂绿(丘陵、山地、浅海照笔的颜色)、海岸描一道浅绿的线。pending = 地图上还没照它生成好 */

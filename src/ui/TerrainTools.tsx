@@ -44,6 +44,7 @@ import {
   ImportPanel,
   LayerMark,
   cancelImport,
+  coverMaskUrl,
   importCancel,
   importCaption,
   importClick,
@@ -776,7 +777,27 @@ function sketchLayer(
   if (image) list.splice(Math.min(image.img.at ?? 0, list.length), 0, image);
   if (erasing) list.push({ s: erasing, pending: true, draft: true });
   list.forEach((e, i) => {
-    if ('img' in e) return void body.push(<LayerMark key={i} image={e.img} width={width} height={height} pending={e.pending} />);
+    if ('img' in e) {
+      // 导入的图盖住的格子(海也算)生成时盖掉了前面的笔:前面画好的整个用它挖掉,再画这一层
+      const url = body.length ? coverMaskUrl(e.img.cells) : '';
+      if (url) {
+        const id = `${uid}-i${i}`;
+        masks.push(
+          <mask key={id} id={id} maskUnits="userSpaceOnUse" x={-width} y={-height} width={width * 4} height={height * 3}>
+            <rect x={-width} y={-height} width={width * 4} height={height * 3} fill="#fff" />
+            {[0, ...(wrap ? [-wrap, wrap] : [])].map((dx) => (
+              <image key={dx} href={url} x={dx} y={0} width={width} height={height} preserveAspectRatio="none" />
+            ))}
+          </mask>,
+        );
+        body = [
+          <g key={id} mask={`url(#${id})`}>
+            {body}
+          </g>,
+        ];
+      }
+      return void body.push(<LayerMark key={i} image={e.img} width={width} height={height} pending={e.pending} />);
+    }
     const { s, pending, draft } = e;
     if (s.kind !== 'erase') return void body.push(<StrokeMark key={i} s={{ ...s, pts: disp(s.pts, wrap) }} pending={pending} pat={pat} />);
     const id = `${uid}-e${i}`;

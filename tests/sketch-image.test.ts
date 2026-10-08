@@ -182,13 +182,19 @@ describe('放到格子图上', () => {
     expect(l.includes(SKETCH_NONE)).toBe(false);
   });
 
-  it('保持比例:正方形的图放中间盖一半;缩小、挪到边上切掉一半', () => {
+  it('保持比例:正方形的图放中间盖一半;缩小;挪到左右边上绕到另一边接上,挪到上下边切掉一半', () => {
     const v = new Uint8Array(100).fill(SKETCH_LAND);
     const covered = (p: Parameters<typeof placeOnLayer>[3]) => layerStats(placeOnLayer(v, 10, 10, p)).covered;
     expect(placeRect(10, 10, { fit: 'keep', x: 0.5, y: 0.5, scale: 1 })).toEqual({ x: LAYER_W / 4, y: 0, w: LAYER_H, h: LAYER_H });
     expect(covered({ fit: 'keep', x: 0.5, y: 0.5, scale: 1 })).toBeCloseTo(0.5, 5);
     expect(covered({ fit: 'keep', x: 0.5, y: 0.5, scale: 0.5 })).toBeCloseTo(0.125, 5);
-    expect(covered({ fit: 'keep', x: 0, y: 0.5, scale: 1 })).toBeCloseTo(0.25, 5);
+    expect(covered({ fit: 'keep', x: 0.5, y: 0, scale: 0.5 })).toBeCloseTo(0.0625, 5);
+    const lr = Uint8Array.from({ length: 100 }, (_, i) => (i % 10 < 5 ? SKETCH_SEA : SKETCH_LAND)); // 左半海、右半陆地
+    const edge = placeOnLayer(lr, 10, 10, { fit: 'keep', x: 0, y: 0.5, scale: 1 });
+    expect(layerStats(edge).covered).toBeCloseTo(0.5, 5);
+    expect(edge[100 * LAYER_W + LAYER_W - 1]).toBe(SKETCH_SEA); // 图的左半绕到了格子图最右边
+    expect(edge[100 * LAYER_W]).toBe(SKETCH_LAND);
+    expect(edge[100 * LAYER_W + LAYER_W / 2]).toBe(SKETCH_NONE);
     const l = placeOnLayer(v, 10, 10, { fit: 'keep', x: 0.5, y: 0.5, scale: 1 });
     expect(l[100 * LAYER_W + 10]).toBe(SKETCH_NONE);
     expect(l[100 * LAYER_W + 256]).toBe(SKETCH_LAND);
@@ -241,6 +247,11 @@ describe('认出来的格子图怎么存', () => {
     const stroke = { kind: 'land' as const, r: 8, pts: [10, 10] };
     expect(cleanSketch({ ...edit, strokes: [stroke], image: { name: 'x', cells, at: 5 } })!.image!.at).toBe(1);
     expect(cleanSketch({ ...edit, image: { name: 'x', cells, at: 0 } })!.image).toEqual({ name: 'x', cells });
+    // 图前面那笔不合格被丢掉:图还在后面那笔前面(at 按留下来的笔数算)
+    const kept = cleanSketch({ ...edit, strokes: [{ kind: 'land', r: 8, pts: [] }, stroke], image: { name: 'x', cells, at: 1 } })!;
+    expect(kept.strokes).toEqual([stroke]);
+    expect(kept.image!.at).toBeUndefined();
+    expect(cleanSketch({ ...edit, strokes: [stroke, { kind: 'nope', r: 8, pts: [1, 1] }, stroke], image: { name: 'x', cells, at: 3 } })!.image!.at).toBe(2);
     expect(cleanSketch({ ...edit, image: { cells } })!.image!.name).toBe('');
   });
 

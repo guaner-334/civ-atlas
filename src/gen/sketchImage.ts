@@ -385,7 +385,7 @@ export type Placement = { fit: 'fill' } | { fit: 'keep'; x: number; y: number; s
 /** 保持比例时大小的范围(1 = 正好放得下,只能缩小) */
 export const PLACE_SCALE: readonly [number, number] = [0.2, 1];
 
-/** 图铺在格子图上的哪一块(格子坐标,左上角 x、y 和宽、高;可以超出格子图,超出的部分切掉) */
+/** 图铺在格子图上的哪一块(格子坐标,左上角 x、y 和宽、高;可以超出格子图:左右超出的绕到另一边接上(星球东西相连),上下超出的切掉) */
 export function placeRect(w: number, h: number, p: Placement): { x: number; y: number; w: number; h: number } {
   if (p.fit === 'fill') return { x: 0, y: 0, w: LAYER_W, h: LAYER_H };
   const fin = (v: number, d: number) => (Number.isFinite(v) ? v : d);
@@ -395,7 +395,10 @@ export function placeRect(w: number, h: number, p: Placement): { x: number; y: n
   return { x: fin(p.x, 0.5) * LAYER_W - dw / 2, y: fin(p.y, 0.5) * LAYER_H - dh / 2, w: dw, h: dh };
 }
 
-/** 认出来的(w × h 格的草图值)按放法铺到 LAYER_W × LAYER_H 的格子图上:每一格取它中心落在图上那一格的值,没盖到的是 SKETCH_NONE */
+/**
+ * 认出来的(w × h 格的草图值)按放法铺到 LAYER_W × LAYER_H 的格子图上:每一格取它中心落在图上那一格的值,没盖到的是 SKETCH_NONE。
+ * 左右超出格子图的绕到另一边(图最宽和格子图一样宽,不会自己盖住自己)
+ */
 export function placeOnLayer(values: Uint8Array, w: number, h: number, p: Placement): Uint8Array {
   const out = new Uint8Array(LAYER_W * LAYER_H);
   const r = placeRect(w, h, p);
@@ -403,7 +406,8 @@ export function placeOnLayer(values: Uint8Array, w: number, h: number, p: Placem
     const sy = Math.floor(((ly + 0.5 - r.y) / r.h) * h);
     if (sy < 0 || sy >= h) continue;
     for (let lx = 0; lx < LAYER_W; lx++) {
-      const sx = Math.floor(((lx + 0.5 - r.x) / r.w) * w);
+      const dx = (((lx + 0.5 - r.x) % LAYER_W) + LAYER_W) % LAYER_W;
+      const sx = Math.floor((dx / r.w) * w);
       if (sx < 0 || sx >= w) continue;
       out[ly * LAYER_W + lx] = values[sy * w + sx];
     }
