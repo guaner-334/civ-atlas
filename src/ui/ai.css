@@ -670,3 +670,9 @@
   padding: 0 12px;
   font-weight: 500;
 }
+
+/* Custom service selectors, fields and actions share one control size. */
+.ai-detail[data-detail="custom"] .ai-input,
+.ai-detail[data-detail="custom"] .ai-mini,
+.ai-detail[data-detail="custom"] .ai-test-btn { height: 36px; box-sizing: border-box; }
+.ai-detail[data-detail="custom"] .ai-mini { flex: none; white-space: nowrap; }

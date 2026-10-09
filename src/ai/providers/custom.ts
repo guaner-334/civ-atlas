@@ -1,6 +1,6 @@
 import type { AiProvider } from '../client';
 import { AiError } from '../types';
-import { getAiSettings, getSecrets } from '../settings';
+import { getCustomProvider, getCustomSecret } from '../settings';
 import { compatChat } from './compat';
 
 /** Accept an OpenAI-compatible base URL or the complete chat endpoint. */
@@ -18,22 +18,29 @@ export function customEndpoint(value: string): string {
 
 export const customProvider: AiProvider = {
   kind: 'custom',
-  get label() { return getAiSettings().custom.name; },
+  get label() { return getCustomProvider()?.name ?? '自定义服务'; },
   status() {
-    const s = getAiSettings().custom;
+    const s = getCustomProvider();
+    if (!s) return { ready: false, model: '', reason: '请先添加自定义服务商' };
     try { customEndpoint(s.baseUrl); }
     catch (e) { return { ready: false, model: s.model, reason: (e as Error).message }; }
     if (!s.model) return { ready: false, model: '', reason: '请填写模型名称' };
-    if (!getSecrets().custom) return { ready: false, model: s.model, reason: '请填写自定义服务的 API 密钥' };
+    if (!getCustomSecret(s.id)) return { ready: false, model: s.model, reason: '请填写自定义服务的 API 密钥' };
     return { ready: true, model: s.model };
   },
   async chat(req, opts) {
-    const s = getAiSettings().custom, key = getSecrets().custom;
+    const s = getCustomProvider();
+    if (!s) throw new AiError('not-configured', '请先添加自定义服务商');
+    const key = getCustomSecret(s.id);
     const url = customEndpoint(s.baseUrl);
     if (!s.model || !key) throw new AiError('not-configured', '请先填写自定义服务的模型名称和 API 密钥');
     try { return await compatChat({ name: s.name, url, key, model: s.model }, req, opts); }
     catch (e) {
-      if (e instanceof AiError && e.code === 'network') throw new AiError(e.code, e.message + '；请确认接口允许浏览器跨域访问，HTTPS 页面应使用 HTTPS 接口');
+      if (e instanceof AiError) {
+        // The service may be removed or its key replaced while this request is pending.
+        const message = e.message.split(key).join('***');
+        throw new AiError(e.code, message + (e.code === 'network' ? '；请确认接口允许浏览器跨域访问，HTTPS 页面应使用 HTTPS 接口' : ''));
+      }
       throw e;
     }
   },

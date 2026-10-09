@@ -16,7 +16,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import { aiChat, getActiveProvider, setAiSettingsOpener, useAiOn, useAiStatus } from '../ai/client';
 import { AiError, type AiProviderKind } from '../ai/types';
-import { chooseProvider, cleanKey, getAiSettings, getSecrets, setAiEnabled, setSecret, updateAiSettings, useAiSettingsVersion } from '../ai/settings';
+import { addCustomProvider, getCustomProvider, getCustomSecret, removeCustomProvider, setCustomSecret, updateCustomProvider, chooseProvider, cleanKey, getAiSettings, getSecrets, setAiEnabled, setSecret, updateAiSettings, useAiSettingsVersion } from '../ai/settings';
 import { DEEPSEEK_MODELS } from '../ai/providers/deepseek';
 import { BAILIAN_MODELS, BAILIAN_REGIONS } from '../ai/providers/bailian';
 import { officialServer, refreshOfficialAccount, useOfficialAccount } from '../ai/providers/official';
@@ -167,7 +167,7 @@ function SettingsTab() {
     }
     if (k === 'deepseek') return sec.deepseek ? { text: '已填密钥', cls: 'ok' } : { text: '未填密钥' };
     if (k === 'bailian') return sec.bailian ? { text: '已填密钥', cls: 'ok' } : { text: '未填密钥' };
-    if (k === 'custom') return sec.custom && s.custom.baseUrl && s.custom.model ? { text: '已配置', cls: 'ok' } : { text: '待配置' };
+    if (k === 'custom') return getCustomProvider()?.model && getCustomProvider()?.baseUrl && getCustomSecret(s.customProviderId ?? '') ? { text: '已配置', cls: 'ok' } : { text: '待配置' };
     return { text: forced ? '网址带 ai=mock,强制使用' : '不联网', cls: forced ? 'ok' : undefined };
   };
 
@@ -202,16 +202,7 @@ function SettingsTab() {
 
       {forced && <p className="ai-note warn">网址带 ai=mock,只能用测试用假 AI</p>}
 
-      {active === 'custom' && (
-        <div className="ai-detail" data-detail="custom">
-          <div className="ai-row"><label className="ai-label" htmlFor="ai-custom-name">服务商名称</label><input id="ai-custom-name" className="ai-input" value={s.custom.name} maxLength={120} onChange={(e) => updateAiSettings({ custom: { name: e.target.value } })} /></div>
-          <div className="ai-row"><label className="ai-label" htmlFor="ai-custom-url">接口地址</label><input id="ai-custom-url" className="ai-input" type="url" autoComplete="off" spellCheck={false} placeholder="https://api.example.com/v1" value={s.custom.baseUrl} maxLength={2048} onChange={(e) => updateAiSettings({ custom: { baseUrl: e.target.value } })} /></div>
-          <p className="ai-note sub">填写 Base URL 或完整的 /chat/completions 地址；接口需要允许浏览器跨域访问。</p>
-          <KeyField slot="custom" />
-          <div className="ai-row"><label className="ai-label" htmlFor="ai-custom-model">模型名称</label><input id="ai-custom-model" className="ai-input" autoComplete="off" spellCheck={false} placeholder="填写服务商提供的模型名称" value={s.custom.model} maxLength={120} onChange={(e) => updateAiSettings({ custom: { model: e.target.value } })} /></div>
-          <TestRow disabled={!sec.custom || !s.custom.baseUrl || !s.custom.model} sig={`custom|${s.custom.baseUrl}|${s.custom.model}|${sec.custom?.length ?? 0}`} />
-        </div>
-      )}
+      {active === 'custom' && <CustomSettings key={s.customProviderId ?? 'empty'} />}
 
       {active === 'deepseek' && (
         <div className="ai-detail" data-detail="deepseek">
@@ -273,8 +264,55 @@ function SettingsTab() {
   );
 }
 
-function KeyField({ slot, where }: { slot: 'deepseek' | 'bailian' | 'custom'; where?: React.ReactNode }) {
-  const saved = getSecrets()[slot] ?? '';
+function CustomSettings() {
+  const revision = useAiSettingsVersion(), s = getAiSettings(), p = getCustomProvider();
+  const [modelName, setModelName] = useState('');
+  const addModel = () => {
+    const name = modelName.trim();
+    if (!p || !name) return;
+    updateCustomProvider(p.id, { models: [...p.models, name], model: name });
+    setModelName('');
+  };
+  return <div className="ai-detail" data-detail="custom">
+    <div className="ai-row">
+      <label className="ai-label" htmlFor="ai-custom-provider">服务商</label>
+      {p && <select id="ai-custom-provider" className="ai-input ai-select" value={p.id} onChange={e => updateAiSettings({ customProviderId: e.target.value })}>
+        {s.customProviders.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+      </select>}
+      <button className="ai-mini" data-act="custom-provider-add" onClick={() => addCustomProvider()}>新增服务商</button>
+      {p && <button className="ai-mini" data-act="custom-provider-delete" onClick={() => {
+        if (confirm(`删除服务商「${p.name}」及其模型和保存的密钥？`)) removeCustomProvider(p.id);
+      }}>删除服务商</button>}
+    </div>
+    {p ? <>
+      <div className="ai-row"><label className="ai-label" htmlFor="ai-custom-name">服务商名称</label><input id="ai-custom-name" className="ai-input" value={p.name} maxLength={120} onChange={e => updateCustomProvider(p.id, { name: e.target.value })} /></div>
+      <div className="ai-row"><label className="ai-label" htmlFor="ai-custom-url">接口地址</label><input id="ai-custom-url" className="ai-input" type="url" autoComplete="off" spellCheck={false} placeholder="https://api.example.com/v1" value={p.baseUrl} maxLength={2048} onChange={e => updateCustomProvider(p.id, { baseUrl: e.target.value })} /></div>
+      <p className="ai-note sub">填写 Base URL 或完整的 /chat/completions 地址；接口需要允许浏览器跨域访问。各服务商独立保存密钥和模型。</p>
+      <KeyField slot="custom" providerId={p.id} />
+      <div className="ai-row">
+        <label className="ai-label" htmlFor="ai-custom-model">当前模型</label>
+        <select id="ai-custom-model" className="ai-input ai-select" value={p.model} disabled={!p.models.length} onChange={e => updateCustomProvider(p.id, { model: e.target.value })}>
+          {!p.models.length && <option value="">请先添加模型</option>}
+          {p.models.map(m => <option key={m} value={m}>{m}</option>)}
+        </select>
+        <button className="ai-mini" data-act="custom-model-delete" disabled={!p.model} onClick={() => updateCustomProvider(p.id, { models: p.models.filter(m => m !== p.model) })}>删除模型</button>
+      </div>
+      <div className="ai-row">
+        <label className="ai-label" htmlFor="ai-custom-model-name">添加模型</label>
+        <input id="ai-custom-model-name" className="ai-input" autoComplete="off" spellCheck={false} placeholder="填写服务商提供的模型名称" value={modelName} maxLength={120} onChange={e => setModelName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addModel(); } }} />
+        <button className="ai-mini" data-act="custom-model-add" disabled={!modelName.trim()} onClick={addModel}>添加模型</button>
+      </div>
+      <TestRow key={revision} disabled={!getCustomSecret(p.id) || !p.baseUrl || !p.model} sig={`${p.id}|${revision}`} />
+    </> : <p className="ai-note">新增服务商后，填写接口、密钥并添加模型。可以保存多个服务商，随时切换。</p>}
+  </div>;
+}
+
+function KeyField({ slot, where, providerId }: { slot: 'deepseek' | 'bailian' | 'custom'; where?: React.ReactNode; providerId?: string }) {
+  const saved = slot === 'custom' ? getCustomSecret(providerId ?? '') : getSecrets()[slot] ?? '';
+  const save = (key: string) => {
+    if (slot === 'custom') setCustomSecret(providerId ?? '', key);
+    else setSecret(slot, key || undefined);
+  };
   const [v, setV] = useState(saved);
   const [show, setShow] = useState(false);
   // 别处改了(比如清除)时跟上
@@ -297,7 +335,7 @@ function KeyField({ slot, where }: { slot: 'deepseek' | 'bailian' | 'custom'; wh
           value={v}
           onChange={(e) => {
             setV(e.target.value);
-            setSecret(slot, cleanKey(e.target.value) || undefined);
+            save(cleanKey(e.target.value));
           }}
         />
         <button className="ai-mini" onClick={() => setShow((x) => !x)} title={show ? '把密钥遮住' : '显示密钥'}>
@@ -308,7 +346,7 @@ function KeyField({ slot, where }: { slot: 'deepseek' | 'bailian' | 'custom'; wh
             className="ai-mini"
             onClick={() => {
               setV('');
-              setSecret(slot, undefined);
+              save('');
             }}
             title="从这个浏览器里删掉这个密钥"
           >

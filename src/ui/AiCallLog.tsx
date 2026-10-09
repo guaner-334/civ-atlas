@@ -107,7 +107,7 @@ export function AiCallLog() {
 
 function Row({ c, open, onToggle }: { c: AiCallRecord; open: boolean; onToggle: () => void }) {
   const meta = [
-    PROVIDER_NAME[c.provider] ?? c.provider,
+    c.providerLabel ?? PROVIDER_NAME[c.provider] ?? c.provider,
     c.model ? `模型 ${c.model}` : '',
     c.usage ? `${n(c.usage.inputTokens)} → ${n(c.usage.outputTokens)} tokens` : '',
     c.credits !== undefined ? `扣 ${c.credits} 积分` : '',

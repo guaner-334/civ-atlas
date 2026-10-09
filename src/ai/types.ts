@@ -110,6 +110,8 @@ export interface AiCallRecord {
   title?: string;
   /** 用的哪家;'none' = 还没选任何一家(这次调用直接失败) */
   provider: AiProviderKind | 'none';
+  /** Custom service name captured when the request started. */
+  providerLabel?: string;
   model: string;
   ok: boolean;
   /** 失败时的错误码和中文说明 */

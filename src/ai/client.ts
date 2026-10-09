@@ -193,6 +193,7 @@ export async function aiChat(req: AiRequest, opts: AiCallOptions = {}): Promise<
     title: req.title,
     messages: req.messages.map((m) => ({ ...m, content: clip(m.content) })),
     world: worldOf(),
+    ...(p?.kind === 'custom' ? { providerLabel: p.label } : {}),
   };
   if (aiOff) {
     const err = new AiError('not-configured', 'AI 功能已关(AI 设置里可以打开)');
