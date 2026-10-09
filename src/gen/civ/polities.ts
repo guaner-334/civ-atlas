@@ -1067,7 +1067,8 @@ export function resumePolities(sim: CivSim, world: World, civ: Civ, iv?: Interve
   // - 阶段 4 干预"不许扩张"已经到期的:到期那一刻这国从当时的国土(州号升序)往外预约
   // - 门槛比上一位低的新君即位的那一刻(Ev.Reign;在位表由立国、改朝换代的年份算出来,见 rulers.ts)
   // - 迁都的下一刻(Ev.Respread;迁都记在 Polity.capitals)
-  // 后两种在引擎里排在同一刻别的事件前面(sim.ts 的 earlyOrder),所以这里在同一刻的日志之前重放
+  // 后两种在引擎里排在同一刻别的事件前面、只在地形大事后面(sim.ts 的 earlyOrder),所以这里在同一刻的日志之前重放,
+  // 同一刻有地形大事的,在大事改归属的那几条日志之后
   if (iv) iv.pm = m;
   const ends: { t: number; key?: string; pid: number; prev?: LeaningEffect }[] = iv ? iv.haltEndsUpTo(now).map((e) => ({ t: e.t, key: e.key, pid: -1 })) : [];
   for (const p of m.polities) {
@@ -1102,7 +1103,7 @@ export function resumePolities(sim: CivSim, world: World, civ: Civ, iv?: Interve
     const r = log.region[i];
     const v = log.value[i];
     const y = log.year[i];
-    if (ei < ends.length) retrigger(i - 1, y);
+    if (ei < ends.length) retrigger(i - 1, log.cause[i] === Ev.Upheaval ? y - 1 / 512 : y);
     if (log.layer[i] === Layer.Culture) {
       cu[r] = v;
       if (v < 0 || po[r] >= 0) continue;
