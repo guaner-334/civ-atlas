@@ -10,6 +10,7 @@
  *
  * **城市兴衰**(阶段 3,cities.ts):洗劫后人口大减、之后慢慢恢复(Settlement.sacks);迁都 / 亡国后旧都的国都加成慢慢退掉
  * (Settlement.capitalSpans);被毁(Settlement.ended)后为 0。都按年份段现算,见 populationAt。
+ * 地形大事以后城址变了的(Settlement.reshaped),上限从大事那一刻起换值(capacityAt):低了当即降,高了 RESHAPE_RAMP 年里渐渐涨上去。
  *
  * **城市分级**(按当年人口):村 < 8 千 ≤ 镇 < 2.5 万 ≤ 城 < 8 万 ≤ 大城。国都另画(不看人口)。
  *
@@ -44,6 +45,40 @@ export const CAPITAL_RAMP = 200;
 export const CAPITAL_DECLINE = 150;
 /** 洗劫后人口慢慢恢复:折损按 e^(−年数 ÷ SACK_RECOVER) 淡去(约 70 年恢复一大半,两百年后几乎看不出) */
 export const SACK_RECOVER = 70;
+/** 地形大事以后城址的人口上限变高了(长出新地、成了港口):这么多年里渐渐涨上去(变低了是当即的:水漫进来、火山压过来是一下子的事) */
+export const RESHAPE_RAMP = 60;
+
+/**
+ * 某年的人口上限(千人;不算国都加成、洗劫):建城时的 capacity,地形大事以后按 Settlement.reshaped 换值 ——
+ * 比那一刻低的从那一刻起就是新值,比那一刻高的在 RESHAPE_RAMP 年里线性涨上去。大事以前和没有大事时一样
+ */
+export function capacityAt(s: Settlement, year: Year): number {
+  const L = s.reshaped;
+  let cap = s.capacity;
+  if (!L) return cap;
+  for (let i = 0; i < L.length; i++) {
+    const e = L[i];
+    if (!(year >= e.year)) break;
+    const until = i + 1 < L.length && L[i + 1].year <= year ? L[i + 1].year : year;
+    cap = rampTo(cap, e.capacity, until - e.year);
+  }
+  return cap;
+}
+
+/** 上限从 from 换成 to 过了 dt 年:低了当即是 to,高了线性涨 */
+function rampTo(from: number, to: number, dt: number): number {
+  return to <= from ? to : from + (to - from) * Math.min(1, dt / RESHAPE_RAMP);
+}
+
+/** 某年是不是港口:建城时的 port,地形大事以后按 Settlement.reshaped 换(那一刻起) */
+export function portAt(s: Settlement, year: Year): boolean {
+  let port = s.port;
+  for (const e of s.reshaped ?? []) {
+    if (!(year >= e.year)) break;
+    port = e.port;
+  }
+  return port;
+}
 
 /**
  * 国都加成此刻加到了几成(0..1):按做国都的年份段(Settlement.capitalSpans)分段现算 ——
@@ -73,7 +108,7 @@ export function capitalLevel(s: Settlement, year: Year): number {
  */
 export const populationAt: PopulationAt = (s: Settlement, year: Year): number => {
   if (!(year >= s.founded) || (s.ended !== undefined && year >= s.ended)) return 0;
-  let cap = s.capacity;
+  let cap = capacityAt(s, year);
   if (s.capitalFrom !== undefined && year > s.capitalFrom) cap *= 1 + CAPITAL_BOOST * capitalLevel(s, year);
   const sacks = s.sacks;
   if (sacks) {
@@ -85,9 +120,43 @@ export const populationAt: PopulationAt = (s: Settlement, year: Year): number =>
   return cap / (1 + GROWTH_A * fexp(-s.growth * (year - s.founded)));
 };
 
-/** 不算国都加成时,人口越过 level(千人)的年份;上限不够 = Infinity */
+/** 不算国都加成、洗劫时,人口越过 level(千人)的年份;上限不够 = Infinity */
 export function yearReaching(s: Settlement, level: number): Year {
-  const ratio = s.capacity / level - 1;
+  const first = reachWith(s, s.capacity, level);
+  const L = s.reshaped;
+  if (!L?.length || first < L[0].year) return first;
+  // 地形大事以后(capacityAt):每一段里上限只在段首降一次、之后只涨不降,人口跟着只增不减,段内二分
+  let c = s.capacity;
+  for (let i = 0; i < L.length; i++) {
+    const a = L[i].year;
+    const b = i + 1 < L.length ? L[i + 1].year : Infinity;
+    const to = L[i].capacity;
+    const from = c;
+    const pop = (y: number) => rampTo(from, to, y - a) / (1 + GROWTH_A * fexp(-s.growth * (y - s.founded)));
+    if (pop(a) >= level) return a;
+    // 涨完以后(上限 = to)按公式算得出的那一年一定够了;这一段结束前还够不上的看下一段
+    let hi = Math.max(reachWith(s, to, level), to <= from ? a : a + RESHAPE_RAMP);
+    if (!(hi < b)) {
+      if (!(b < Infinity && pop(b) >= level)) {
+        c = rampTo(from, to, b - a);
+        continue;
+      }
+      hi = b;
+    }
+    let lo = a;
+    for (let k = 0; k < 32; k++) {
+      const m = (lo + hi) / 2;
+      if (pop(m) >= level) hi = m;
+      else lo = m;
+    }
+    return hi;
+  }
+  return Infinity;
+}
+
+/** 上限一直是 cap 时,人口越过 level 的年份(S 形曲线反过来解);上限不够 = Infinity */
+function reachWith(s: Settlement, cap: number, level: number): Year {
+  const ratio = cap / level - 1;
   if (!(ratio > 0)) return Infinity;
   return s.founded + Math.max(0, flog(GROWTH_A / ratio) / s.growth);
 }

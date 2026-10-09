@@ -639,9 +639,14 @@ export function installCultures(sim: CivSim, m: CultureModel, births = true): vo
     if (own[r] >= 0) return; // 先到先得
     sim.setOwner(Layer.Culture, r, c, Ev.CultureArrive);
   });
-  sim.on(Ev.CultureBorn, (r, c) => {
+  sim.on(Ev.CultureBorn, (r, c, t) => {
     // fixBirths 保证了发源州此时还空着;万一被占(比如阶段 4 改过历史),这个民族就没能兴起
     if (own[r] >= 0) return;
+    // 发源州在更早的地形大事里沉入了海中(一块陆地也不剩,不可居了):没能兴起,记作那一刻就没了(不算在世的民族)
+    if (!habitable[r]) {
+      m.cultures[c].ended = t;
+      return;
+    }
     sim.setOwner(Layer.Culture, r, c, Ev.CultureBorn);
   });
   if (births) for (const cu of m.cultures) sim.schedule(cu.born, Ev.CultureBorn, cu.hearth, cu.id);

@@ -9,7 +9,10 @@
  *
  * 大事那一刻的后果:
  *   - 记一条史事 upheaval(a = 第几件大事,region = 受灾最重的州),经过(哪些州沉了、连起了哪两块陆地……)记进 Civ.upheavals
- *   - 城:城址变成了水(沉入海中)、在火山脚下(山体半径的一半以内)的,城没了(史事 sunk)。沉入海的不再重建,毁于火山的过些年可能重建
+ *   - 城:城址变成了水(沉入海中)、在火山脚下(山体半径的一半以内)的,城没了(史事 sunk)。沉入海的不再重建(后来又抬成陆地也不),
+ *     毁于火山的过些年可能重建
+ *   - 还在的城:港口、人口上限照新地形换值(reshapeCities;接着推之前就换好,立国的年份按新的上限算)
+ *   - 还没诞生的民族,发源州一块陆地也不剩了:没能兴起(cultures.ts 的民族诞生)
  *   - 一块陆地也不剩的州:国家、民族都撤出(变化日志原因 Ev.Upheaval)。那是国都所在州的,先迁都(和战争里国都失守一样挑);
  *     国家一州也不剩 = 亡于天灾(史事 fall,b = −2),它打着的仗全部结束
  *   - 国都没了、州还在的:能迁就迁都;一座城也不剩的国家同样亡于天灾,余下的州成了无主之地
@@ -20,15 +23,16 @@
 import { generateWorld, type World, type WorldParams } from '../world';
 import type { Sketch } from '../sketch';
 import type { TerrainOp, Upheaval } from '../edits';
-import { Layer, type Civ, type Polity, type Regions, type Settlement, type UpheavalFact, type Year } from './types';
+import { Layer, type Civ, type Habitat, type Polity, type Regions, type Settlement, type UpheavalFact, type Year } from './types';
 import { computeHabitat } from './habitat';
 import { buildRegions, reshapeRegions } from './regions';
 import { ownersAt } from './timeline';
 import { Ev, type CivSim } from './sim';
-import { endPolity, moveCapital, polityModelOf } from './polities';
+import { endPolity, findPorts, moveCapital, polityModelOf, siteFactor } from './polities';
 import { bestCapital, warModelOf, type War } from './wars';
 import { capitalAt, populationAt } from './growth';
 import { scheduleRebuild } from './cities';
+import { cultureTerrain, type CultureTerrain } from './cultures';
 
 /** 推演里的一件地形大事(同一年的已合成一件):年份、这件的地形修改、合进来的是作者列表里的哪几件、改后的世界 */
 export interface UpheavalStep {
@@ -246,6 +250,13 @@ export interface UpheavalVictim {
 /** 火山毁城的范围:山体底半径的这么多倍以内 */
 const BLAST = 0.5;
 
+/** 城址在这件大事里没了:变成了水(true)、离某座火山(vol)不到山体半径一半(false);都不是 = null */
+function struck(cell: number, w1: Pick<World, 'mesh' | 'water' | 'width'>, vol: readonly TerrainOp[]): boolean | null {
+  if (w1.water[cell] !== 0) return true;
+  const { x, y } = w1.mesh;
+  return vol.some((o) => wrapDist(x[cell], y[cell], o.pts[0], o.pts[1], w1.width) < o.r * BLAST) ? false : null;
+}
+
 /**
  * 大事那一刻(t)会没了的城:城址变成了水的、离某座火山不到山体半径一半的。owner = 那一刻各州的国家。
  * 国都在前,再按那时的人口从多到少(一样多按编号)
@@ -258,21 +269,59 @@ export function upheavalVictims(
   w1: Pick<World, 'mesh' | 'water' | 'width'>,
   ops: readonly TerrainOp[],
 ): UpheavalVictim[] {
-  const { x, y } = w1.mesh;
   const vol = ops.filter((o) => o.kind === 'volcano');
   const out: (UpheavalVictim & { pop: number })[] = [];
   for (const s of settlements) {
     // 大事那一刻还在的城(同一刻里大事最先:这一年刚建的还没建,这一年被毁的还在)
     if (!(s.founded < t) || (s.ended !== undefined && s.ended < t)) continue;
-    const drowned = w1.water[s.cell] !== 0;
-    const burnt = !drowned && vol.some((o) => wrapDist(x[s.cell], y[s.cell], o.pts[0], o.pts[1], w1.width) < o.r * BLAST);
-    if (!drowned && !burnt) continue;
+    const drowned = struck(s.cell, w1, vol);
+    if (drowned === null) continue;
     const p = s.region >= 0 && s.region < owner.length ? owner[s.region] : -1;
     const capital = p >= 0 && p < polities.length && capitalAt(polities[p], t) === s.id;
     out.push({ id: s.id, drowned, capital, pop: populationAt(s, t) });
   }
   out.sort((a, b) => Number(b.capital) - Number(a.capital) || b.pop - a.pop || a.id - b.id);
   return out.map(({ id, drowned, capital }) => ({ id, drowned, capital }));
+}
+
+/** 城址的人口上限变得不到这么多(比例)、港口也没变的,不算变了 */
+const RESHAPE_MIN = 0.02;
+
+/**
+ * 大事那一刻(t)还在、过了这一刻也还在的城:城址照新地形换值(Settlement.reshaped 添一段,从 t 起;t 以前的人口一点不变)——
+ *   - 港口照新地形重新认(polities.ts 的 findPorts:海水漫到城边可能成了港口,抬升把港口围成了内陆就不是了)
+ *   - 人口上限按城址那一州的人口上限、港口、大河前后之比缩放(siteFactor;建城时的基准、随机部分不变)
+ * 港口没变、上限变得不到 RESHAPE_MIN 的不动(地形没变的州前后之比正好是 1;远处气候、河流的一点点变化不算)。
+ * 这一刻会没了的城(upheavalVictims)、早先毁了的城不管。
+ * T0 = 大事以前的州地形(cultureTerrain);w1、h1、r1 = 大事以后的世界、宜居度、州(r1 沿用 T0 的州编号)。
+ * 返回新的城镇表:变了的城换成新对象,不改传进来的
+ */
+export function reshapeCities(
+  settlements: readonly Settlement[],
+  T0: CultureTerrain,
+  w1: World,
+  h1: Habitat,
+  r1: Regions,
+  t: Year,
+  ops: readonly TerrainOp[],
+): Settlement[] {
+  const T1 = cultureTerrain(w1, h1, r1);
+  const port1 = findPorts(w1, T1);
+  const vol = ops.filter((o) => o.kind === 'volcano');
+  return settlements.map((s) => {
+    if (s.ended !== undefined || !(s.founded < t) || struck(s.cell, w1, vol) !== null) return s;
+    const r = s.region;
+    const last = s.reshaped?.[s.reshaped.length - 1];
+    const port0 = last ? last.port : s.port;
+    const port = port1[r] === 1;
+    const f0 = siteFactor(T0, port0, r);
+    const f1 = siteFactor(T1, port, r);
+    if (!(f0 > 0)) return s;
+    const k = f1 / f0;
+    if (port === port0 && Math.abs(k - 1) < RESHAPE_MIN) return s;
+    const capacity = (last ? last.capacity : s.capacity) * k;
+    return { ...s, reshaped: [...(s.reshaped ?? []), { year: t, capacity, port }] };
+  });
 }
 
 // ---------------------------------------------------------------------------

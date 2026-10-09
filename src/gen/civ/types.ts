@@ -89,7 +89,10 @@ export interface Culture {
   born: Year;
   expansionism: number;
   color: [number, number, number];
-  /** 阶段 3 同化与迁徙(assimilation.ts):最后一州也改换了民族的年份(民族消亡)。还在 = 不给 */
+  /**
+   * 阶段 3 同化与迁徙(assimilation.ts):最后一州也改换了民族的年份(民族消亡)。还在 = 不给。
+   * 发源州在更早的地形大事里沉了、没能兴起的 = 诞生那一年(born,一州也没有过)
+   */
   ended?: Year;
   /**
    * 阶段 3 同化与迁徙:成规模的迁徙(按年份排好),每一波一条:年份、方位(迁出地 → 迁入地,屏幕上 y 向下 = 向南)。
@@ -131,6 +134,12 @@ export interface Settlement {
    * 同族重建沿用旧名;换了民族的另起新名。不是重建的 = 不给
    */
   rebuilds?: number;
+  /**
+   * 地形大事以后城址变了(upheaval.ts 的 reshapeCities;按先后):从 year 那一刻起人口上限换成 capacity、是不是港口换成 port
+   * (海水漫到城边成了港口、抬升把港口围成了内陆、州沉掉一块或长出新地)。capacity、port 本身是建城时的;没遇上 = 不给。
+   * 按年份取值见 growth.ts 的 capacityAt / portAt
+   */
+  reshaped?: { year: Year; capacity: number; port: boolean }[];
 }
 
 /** 国家 */

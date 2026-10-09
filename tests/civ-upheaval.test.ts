@@ -2,7 +2,8 @@
  * 地形大事(gen/civ/upheaval.ts;格式见 gen/edits.ts 文件头"地形大事"):选一年让火山喷发、地震抬升、海水漫进来。
  * - 格式:清理(年份取整夹回范围、只认三种修改、件数和笔数有上限)、同一年的合成一件、存档往返
  * - 大事那一年以前:日志、史事、名字、人物、信仰、地名、道路和没有大事时一致;没有大事 = 逐字节不变
- * - 后果:沉了的州没人住、城没于水(不再重建)、国都迁走;火山毁城;隆起的陆地连起两块陆地;编年史并成一条;沉了的遗址不再画
+ * - 后果:沉了的州没人住、城没于水(不再重建,后来又抬成陆地也不)、国都迁走;火山毁城;隆起的陆地连起两块陆地;编年史并成一条;
+ *   沉了的遗址不再画;还在的城港口、人口上限照新地形换值(大事以前的人口不变);发源州沉了的民族没能兴起
  * - 确定性:同样的大事两次推演逐字节相同
  */
 import { describe, expect, it } from 'vitest';
@@ -12,7 +13,9 @@ import { mergeUpheavals, previewUpheaval, previewVictims, upheavalBase, upheaval
 import { DEFAULT_CIV_PARAMS } from '../src/gen/civ';
 import { buildChronicle } from '../src/gen/civ/chronicle';
 import { ownersAt } from '../src/gen/civ/timeline';
-import { capitalAt, ruinSites } from '../src/gen/civ/growth';
+import { RESHAPE_RAMP, capacityAt, capitalAt, populationAt, portAt, ruinSites, yearReaching } from '../src/gen/civ/growth';
+import type { Settlement } from '../src/gen/civ/types';
+import { routeCities } from '../src/gen/civ/polities';
 import { UPHEAVALS_MAX, UPHEAVAL_OPS_MAX, UPHEAVAL_YEARS, cleanUpheavals, sameUpheavals } from '../src/gen/terrainEdits';
 import { EMPTY_EDITS, applyNames, placeKeyOf, polityKey, regionKey, resolveKey, settlementKey, type Upheaval } from '../src/gen/edits';
 import { editCount, makeSave, parseSave, saveText } from '../src/gen/savefile';
@@ -235,6 +238,100 @@ describe('地形大事 · 推演', () => {
     expect(r.upheavals![0].ruins).toEqual([id]);
     expect(ruinSites(r, R.year - 1).map((s) => s.id)).toContain(id);
     expect(ruinSites(r, R.year).map((s) => s.id)).not.toContain(id);
+  }, 300_000);
+
+  it('还在的城:港口、人口上限照新地形换值(从大事那一刻起),大事以前的人口一点不变', () => {
+    const a = base();
+    const b = civOf([FLOOD]);
+    const Y = FLOOD.year;
+    const moved = b.settlements.filter((s) => s.reshaped);
+    expect(moved.length).toBeGreaterThan(0);
+    // 港口有变的:海水漫到城边成了港口、港口外的海湾没了
+    expect(moved.some((s) => s.reshaped!.some((e) => e.port !== s.port))).toBe(true);
+    // 远处(离海水漫进来的地方一千多里)的城不动
+    const W = world();
+    const far = (s: Settlement) => Math.min(Math.abs(W.mesh.x[s.cell] - 1896), W.width - Math.abs(W.mesh.x[s.cell] - 1896)) > 600;
+    expect(b.settlements.filter((s) => s.founded < Y && far(s)).some((s) => s.reshaped)).toBe(false);
+    for (const s of moved) {
+      expect(s.reshaped!.map((e) => e.year)).toEqual([Y]);
+      const e = s.reshaped![0];
+      expect(portAt(s, Y - 1 / 256)).toBe(s.port);
+      expect(portAt(s, Y)).toBe(e.port);
+      // 低了当即降,高了几十年里渐渐涨上去
+      expect(capacityAt(s, Y - 1)).toBe(s.capacity);
+      if (e.capacity < s.capacity) expect(capacityAt(s, Y)).toBe(e.capacity);
+      else {
+        expect(capacityAt(s, Y)).toBe(s.capacity);
+        expect(capacityAt(s, Y + RESHAPE_RAMP / 2)).toBeCloseTo((s.capacity + e.capacity) / 2, 9);
+        expect(capacityAt(s, Y + RESHAPE_RAMP)).toBe(e.capacity);
+      }
+    }
+    // 大事以前的人口曲线和没有大事时逐位相同
+    for (const s of b.settlements.filter((x) => x.founded < Y)) {
+      for (const y of [s.founded, Y - 300, Y - 1, Y - 1 / 256]) expect(populationAt(s, y)).toBe(populationAt(a.settlements[s.id], y));
+    }
+    // 最后一段的道路、航线按新的港口算
+    const rc = new Map(routeCities(b.settlements, b.polities, b.endYear).map((c) => [c.cell, c]));
+    for (const s of moved) if (rc.has(s.cell) && b.settlements.filter((x) => x.cell === s.cell).length === 1) expect(rc.get(s.cell)!.port).toBe(portAt(s, Infinity));
+  }, 300_000);
+
+  it('人口越过某个数的年份:城址变过的按换值以后的上限算(和人口曲线对得上)', () => {
+    const s: Settlement = { id: 0, cell: 0, region: 0, culture: 0, name: '', founded: 100, capacity: 30, growth: 0.0022, port: false };
+    const cross = (x: Settlement, level: number) => {
+      const t = yearReaching(x, level);
+      if (t < Infinity && t > x.founded) {
+        expect(populationAt(x, t - 0.01)).toBeLessThan(level);
+        expect(populationAt(x, t + 0.01)).toBeGreaterThanOrEqual(level);
+      }
+      return t;
+    };
+    // 没变过的和原来的公式一样
+    const t0 = cross(s, 20);
+    expect(t0).toBeCloseTo(100 + Math.log(40 / (30 / 20 - 1)) / 0.0022, 3);
+    // 第 1000 年上限降到 15:到不了 20 了,到 10 晚了;那以前就够了的照旧
+    const down = { ...s, reshaped: [{ year: 1000, capacity: 15, port: false }] };
+    expect(t0).toBeGreaterThan(1000);
+    expect(cross(down, 20)).toBe(Infinity);
+    expect(cross(down, 10)).toBeGreaterThan(cross(s, 10));
+    expect(cross(s, 3)).toBeLessThan(1000);
+    expect(cross(down, 3)).toBe(cross(s, 3));
+    // 上限涨到 90:涨的那几十年里、涨完以后都对得上;第二件大事又降回 40
+    const up = { ...s, reshaped: [{ year: 900, capacity: 90, port: true }] };
+    for (const level of [28, 32, 50, 80, 89]) expect(cross(up, level)).toBeGreaterThan(900);
+    const twice = { ...s, reshaped: [{ year: 900, capacity: 90, port: true }, { year: 930, capacity: 40, port: false }] };
+    for (const level of [32, 38, 45]) cross(twice, level);
+    expect(cross(twice, 45)).toBe(Infinity);
+  });
+
+  it('城没于水以后,后来的大事又把那里抬成陆地:不重建', () => {
+    const a = civOf([FLOOD]);
+    const f = a.upheavals![0];
+    // 城址沉了、州还在的城(州还在才有人能回来重建)
+    const s = a.annals
+      .filter((e) => e.kind === 'sunk' && e.b === 1)
+      .map((e) => a.settlements[e.settlement])
+      .find((x) => !f.drowned.includes(x.region))!;
+    expect(s).toBeDefined();
+    const W = world();
+    const UP: Upheaval = { year: FLOOD.year + 20, ops: [{ kind: 'raise', pts: [W.mesh.x[s.cell], W.mesh.y[s.cell]], r: 10, s: 1.2 }] };
+    expect(steps([FLOOD, UP])[1].world.water[s.cell]).toBe(0);
+    const b = civOf([FLOOD, UP]);
+    for (const e of b.annals.filter((x) => x.kind === 'sunk' && x.b === 1)) expect(b.settlements.some((x) => x.rebuilds === e.settlement)).toBe(false);
+  }, 300_000);
+
+  it('还没诞生的民族,发源州在更早的大事里沉了:没能兴起(一州也没有过,不算在世的民族)', () => {
+    const a = base();
+    const cu = [...a.cultures].sort((x, y) => y.born - x.born || x.id - y.id)[0];
+    expect(cu.born).toBeGreaterThan(100);
+    const W = world();
+    const seat = a.regions.seat[cu.hearth];
+    const SINK: Upheaval = { year: cu.born - 60, ops: [{ kind: 'sink', pts: [W.mesh.x[seat], W.mesh.y[seat]], r: 45, s: 1.2 }] };
+    const b = civOf([SINK]);
+    expect(b.upheavals![0].drowned).toContain(cu.hearth);
+    expect(b.cultures[cu.id].ended).toBe(cu.born);
+    for (let i = 0; i < b.log.size; i++) if (b.log.layer[i] === 0) expect(b.log.value[i]).not.toBe(cu.id);
+    // 别的民族照常诞生
+    for (const c of b.cultures) if (c.id !== cu.id) expect(c.ended === undefined || c.ended > c.born).toBe(true);
   }, 300_000);
 
   it('大事同一年下的干预照常生效,排在大事后面', () => {
