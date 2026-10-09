@@ -5,7 +5,9 @@
  * - relationsAt(某一年的关系)和推演里的模型一致
  * - fromCiv 接着推:在刚称臣、刚结盟、援盟的仗打到一半时切开,和一口气推完逐字节一样
  * - 确定性:同一个种子推两次,邦交史事一样
- * - 作者下令(阶段 4 干预):盟国、宗藩之间下令开战,先断盟约 / 宗藩之分再宣战,干预算生效;下令结了盟的不讨伐自立的藩属
+ * - 作者下令(阶段 4 干预):盟国、宗藩、同一宗主的藩属之间下令开战,先断盟约 / 宗藩之分(攻方自立)再宣战,干预算生效;
+ *   下令结了盟的不讨伐自立的藩属
+ * - 纳土归附:合并记 cause = vassal,编年史写"纳土归附"
  * - 编年史:援盟的仗,盟国的名字里含着守方的名字,照样写"伐某国"
  * - polityTies(国家面板):relationsAt 那一套,盟国再加上作者下令的结盟(约期内、两国都在)
  */
@@ -201,34 +203,55 @@ describe('邦交和作者下令', () => {
   };
 
   it('盟国、宗藩之间下令开战:先断盟约 / 宗藩之分,再宣战;干预算生效,关系不自相矛盾', () => {
-    const p = small(7);
-    const w = world(p);
-    const civ = civOf(p);
+    type Try = { w: World; civ: Civ; a: number; b: number; from: number };
+    const at = (seed: number) => ({ w: world(small(seed)), civ: civOf(small(seed)) });
     // 每种情形挑几对当时还结着的,下令开战;两国不接壤的打不成,换下一对
-    const tries = (kind: 'alliance' | 'submit') =>
-      civ.annals
+    const tries = (kind: 'alliance' | 'submit'): Try[] => {
+      const { w, civ } = at(7);
+      return civ.annals
         .filter((e) => e.kind === kind)
-        .map((e) => ({ a: e.a, b: e.b, from: Math.ceil(e.year) + 1 }))
+        .map((e) => ({ w, civ, a: e.a, b: e.b, from: Math.ceil(e.year) + 1 }))
         .filter((x) => {
           const r = relationsAt(civ, x.from);
           return kind === 'alliance' ? r.pacts.some((q) => (q.a === x.a && q.b === x.b) || (q.a === x.b && q.b === x.a)) : r.liege.get(x.a)?.liege === x.b;
         })
         .slice(0, 4);
+    };
+    // 同一个宗主的两个藩属(种子 2024 小世界有;称臣那一年之后,和别的藩属配对)
+    const coVassals = (): Try[] => {
+      const { w, civ } = at(2024);
+      return civ.annals
+        .filter((e) => e.kind === 'submit')
+        .flatMap((e) => {
+          const from = Math.ceil(e.year) + 1;
+          const r = relationsAt(civ, from);
+          const L = r.liege.get(e.a)?.liege;
+          return [...r.liege].filter(([v, x]) => v !== e.a && x.liege === L).flatMap(([v]) => [
+            { w, civ, a: e.a, b: v, from },
+            { w, civ, a: v, b: e.a, from },
+          ]);
+        })
+        .slice(0, 8);
+    };
     const cases = [
       { what: '打盟国', list: tries('alliance'), cut: 'unally', cause: 'betray' },
       { what: '藩属打宗主', list: tries('submit'), cut: 'defect', cause: undefined },
-      { what: '宗主打藩属', list: tries('submit').map((x) => ({ a: x.b, b: x.a, from: x.from })), cut: 'defect', cause: 'betray' },
+      { what: '宗主打藩属', list: tries('submit').map((x) => ({ ...x, a: x.b, b: x.a })), cut: 'defect', cause: 'betray' },
+      { what: '同宗藩属互攻', list: coVassals(), cut: 'defect', cause: undefined },
     ] as const;
     for (const c of cases) {
       let done = false;
       for (const x of c.list) {
+        const { w, civ } = x;
         const v: Intervention = { kind: 'declare', a: polityKey(civ, x.a), b: polityKey(civ, x.b), from: x.from };
         const res = generateCiv(w, { interventions: [v] });
         const [cut, war] = after(res, x.from);
-        if (war?.kind !== 'war') continue;
+        if (war?.kind !== 'war' || war.a !== x.a || war.b !== x.b) continue;
         const tag = `${c.what} ${x.a}→${x.b} 第 ${x.from} 年`;
         expect(cut.kind, tag).toBe(c.cut);
         expect(cut.cause, tag).toBe(c.cause);
+        // 同宗藩属互攻:攻方先向宗主自立
+        if (c.what === '同宗藩属互攻') expect([cut.a, cut.b], tag).toEqual([x.a, relationsAt(civ, x.from).liege.get(x.a)!.liege]);
         expect([war.a, war.b], tag).toEqual([x.a, x.b]);
         expect(interventionOutcome(res, 0).ok, tag).toBe(true);
         checkRelations(res, tag);
@@ -239,6 +262,18 @@ describe('邦交和作者下令', () => {
       expect(done, `${c.what}:要有一对打得成`).toBe(true);
     }
   }, 300_000);
+
+  it('纳土归附:合并记 cause = vassal,并之前是宗主和藩属;编年史写"纳土归附"', () => {
+    const civ = civOf(small(7));
+    const absorbs = civ.annals.map((e, i) => [e, i] as const).filter(([e]) => e.kind === 'merge' && e.cause === 'vassal');
+    expect(absorbs.length, '种子 7 小世界有一次纳土归附').toBeGreaterThan(0);
+    expect(diplomacyStats(civ).absorbs).toBe(absorbs.length);
+    const chron = buildChronicle(civ);
+    for (const [e, i] of absorbs) {
+      expect(relationsAt(civ, e.year - 1 / 256).liege.get(e.b)?.liege, `第 ${i} 条`).toBe(e.a);
+      expect(chron.find((x) => x.id === i)?.text, `第 ${i} 条`).toContain('纳土归附');
+    }
+  }, 120_000);
 
   it('下令结了盟的宗主不讨伐自立的藩属', () => {
     const p = small(2024);

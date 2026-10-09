@@ -316,7 +316,8 @@ describe('分与合', () => {
       const merges = list.filter((e) => e.kind === 'merge');
       expect(merges.length).toBe(civ.annals.filter((e) => e.kind === 'merge').length);
       for (const e of merges) {
-        expect(e.text).toMatch(/^.+并入.+$/);
+        // 藩属纳土归附宗主(邦交)写"纳土归附"
+        expect(e.text).toMatch(civ.annals[e.id].cause === 'vassal' ? /^.+纳土归附.+$/ : /^.+并入.+$/);
         expect(e.importance).toBe(great(e.polities[1]) ? MAJOR : 2);
       }
       // 被并掉的国家不另记灭亡

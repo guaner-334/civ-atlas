@@ -182,7 +182,7 @@ export interface WarModel {
   declare?: (x: number, y: number, t: Year, ally?: number, cause?: AnnalCause) => War;
   /** 邦交(diplomacy.ts 挂上):x 向 y 宣战(不是援盟)之后,y 的盟国援盟 / 坐视不救,y 的宗主来救 */
   onDeclare?: (w: War, x: number, y: number, t: Year) => void;
-  /** 邦交(diplomacy.ts 挂上):第 i 仗之后守方奉表称臣、攻方受降罢兵(已经议和 = true) */
+  /** 邦交(diplomacy.ts 挂上):第 i 仗之后守方奉表称臣、攻方受降罢兵(已经议和 = true;capitalFell = 这一仗攻方打下了守方的国都) */
   sue?: (w: War, i: number, t: Year, pow: Float64Array, capitalFell: boolean) => boolean;
   /** 议和(installWars 填;干预的结盟用:结盟那一刻正在交战的两国当即议和) */
   makePeace?: (w: War, t: Year) => void;
@@ -615,9 +615,11 @@ export function installWars(sim: CivSim, pm: PolityModel, wm: WarModel = newMode
     if (!w || w.end !== undefined) return;
     const pow = powers(t, [w.a, w.b]);
     let capitalFell = false;
+    /** 丢了国都的是守方(攻方打下的) */
+    let defCapital = false;
     const [r, def] = pickTarget(w, i, w.a, w.b, t, false);
     if (r >= 0 && warRand(wm, w, i, U_ATTACK) < chance(w.a, w.b, r, def, t, pow)) {
-      capitalFell = take(w, w.a, w.b, r, t, true);
+      capitalFell = defCapital = take(w, w.a, w.b, r, t, true);
     } else {
       // 没打下来:记一条战役(不改归属;编年史写成"某某之战")
       if (r >= 0) sim.record('battle', { a: w.a, b: w.b, region: r, settlement: pm.cityOf[r], war: w.id, via: DEFENSE.indexOf(def) });
@@ -632,7 +634,7 @@ export function installWars(sim: CivSim, pm: PolityModel, wm: WarModel = newMode
     }
     if (w.end !== undefined) return; // 有一方亡国,已经议和
     // 邦交:守方打得很惨时可能奉表称臣、攻方受降罢兵(diplomacy.ts;成了就已经议和)
-    if (wm.sue?.(w, i, t, pow, capitalFell)) return;
+    if (wm.sue?.(w, i, t, pow, defCapital)) return;
     // 议和?
     const last = w.takes.length ? w.takes[w.takes.length - 1].year : w.start;
     let peace = t - w.start >= lengthOf(wm, w) || t - last >= STALL;

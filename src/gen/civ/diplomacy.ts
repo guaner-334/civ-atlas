@@ -8,7 +8,7 @@
  *   ① 藩属:看要不要自立(不再称臣纳贡)。宗主虚弱(在打仗、刚丢了国都 / 迁都、刚改朝换代、刚分裂、接连丢州)、
  *        藩属的国力追上来了、两国已不接壤(鞭长莫及)、异族,自立的机会都更大。藩属不另外结盟、不收别国称臣。
  *        自立以后宗主多半发兵讨伐(PUNISH;史事 war 的 cause = punish)。
- *   ② 宗主:称臣久了的同族小藩属(接壤、两边都没在打仗),有机会纳土归附(记 merge,编年史写"纳土归附")。
+ *   ② 宗主:称臣久了的同族小藩属(接壤、两边都没在打仗),有机会纳土归附(记 merge,cause = vassal;编年史写"纳土归附")。
  *   ③ 盟约:共御的强邻已经亡了、或已不比盟国强,盟约渐废(unally,cause = lapse)。
  *   ④ 畏强邻(接壤、国力是自己 THREAT 倍以上的邻国;正在交兵的也算):
  *        小国、弱国先看要不要遣使称臣(国力差 SUBMIT_RATIO 倍以上,强邻越好战越可能);
@@ -30,7 +30,7 @@
  * 阶段 4 干预:作者下令的结盟(iv.allied)不在这里,不会背盟、不会渐废,下令结了盟的两国也不讨伐;不许扩张的国家不收别国称臣、不援盟、不讨伐;
  *   不许灭的国家照样可以称臣(称臣不灭国),但不会被纳土归附(和合并一样)。
  *   作者下令盟国、宗藩之间开战:宣战前盟约、宗藩之分就此断了(DiplomacyModel.sever;盟国记 unally,cause = betray;
- *   藩属打宗主记 defect,宗主打藩属记 defect,cause = betray)。
+ *   藩属打宗主记 defect,宗主打藩属记 defect,cause = betray;同一个宗主的两个藩属,攻方先自立,记 defect)。
  *
  * **不存内存状态**:结着的盟 = 史事 alliance 减去 unally;藩属 = submit 减去 defect;盟约断过的年份 = unally;
  *   看邦交的时刻由"国家 + 第几次"算出来(resumeDiplomacy)。
@@ -178,7 +178,8 @@ export class DiplomacyModel {
   note?: (kind: Annal['kind'], f: Partial<Omit<Annal, 'year' | 'kind'>>) => void;
   /**
    * x 向 y 宣战、记 war 之前(installDiplomacy 挂上;wars.ts 的 declare 调,war = 这场战争的编号):
-   * 两国结着盟、有宗藩之分的,就此断了。自然开战都先避开了这些(背盟先记了 unally),只有作者下令的宣战会走到这里
+   * 两国结着盟、有宗藩之分的,就此断了;同是一国的藩属的,攻方先自立。
+   * 自然开战都先避开了这些(背盟先记了 unally),只有作者下令的宣战会走到这里
    */
   sever?: (x: number, y: number, t: Year, war: number) => void;
 
@@ -408,7 +409,7 @@ export function installDiplomacy(sim: CivSim, pm: PolityModel, dm: DiplomacyMode
     for (const r of mine) sim.setOwner(Layer.Polity, r, L, Ev.Merge);
     endPolity(pm, v, t);
     pol?.merged.add(v);
-    sim.record('merge', { a: L, b: v });
+    sim.record('merge', { a: L, b: v, cause: 'vassal' });
     return true;
   };
 
@@ -509,6 +510,8 @@ export function installDiplomacy(sim: CivSim, pm: PolityModel, dm: DiplomacyMode
     // 藩属打宗主 = 自立;宗主打藩属 = 宗藩反目(defect 的 cause = betray),藩属也不再称臣
     else if (dm.liegeOf(x) === y) record('defect', { a: x, b: y, region: capRegion(x, t), settlement: capitalAt(pm.polities[x], t) });
     else if (dm.liegeOf(y) === x) record('defect', { a: y, b: x, region: capRegion(y, t), settlement: capitalAt(pm.polities[y], t), cause: 'betray' });
+    // 同一个宗主的两个藩属:攻方先自立(不再向宗主称臣),再打
+    else if (dm.liegeOf(x) >= 0 && dm.liegeOf(x) === dm.liegeOf(y)) record('defect', { a: x, b: dm.liegeOf(x), region: capRegion(x, t), settlement: capitalAt(pm.polities[x], t) });
   };
 
   /** x 向 y 宣战(不是援盟)之后:y 的盟国援盟 / 坐视不救,y 的宗主发兵来救 */
@@ -530,8 +533,10 @@ export function installDiplomacy(sim: CivSim, pm: PolityModel, dm: DiplomacyMode
     const b = w.b;
     if (!alive(a) || !alive(b) || pow[a] < SUE_RATIO * pow[b]) return false;
     if (dm.liegeOf(a) >= 0 || dm.liegeOf(b) >= 0 || dm.vassalsOf(b).length || halted(a, t)) return false;
-    let held = 0;
-    for (const e of w.takes) if (e.by === a && owner[e.region] === a) held++;
+    // 这场战争里攻方占下、此刻还在手里的州(同一州反复易手只算一次)
+    const won = new Set<number>();
+    for (const e of w.takes) if (e.by === a && owner[e.region] === a) won.add(e.region);
+    const held = won.size;
     if (pm.size[b] <= SUE_LEFT || (!capitalFell && held < Math.max(SUE_MIN, SUE_FRAC * (pm.size[b] + held)))) return false;
     const B = pm.polities[b];
     const kin = B.culture === pm.polities[a].culture;
@@ -651,16 +656,6 @@ export function diplomacyStats(civ: Civ): DiplomacyStats {
   const A = civ.annals;
   const n = (f: (e: Annal) => boolean) => A.filter(f).length;
   const rel = relationsAt(civ, civ.endYear);
-  const submits = new Map<number, Year>();
-  let absorbs = 0;
-  for (const e of A) {
-    if (e.kind === 'submit') submits.set(e.a, e.year);
-    else if (e.kind === 'defect') submits.delete(e.a);
-    else if (e.kind === 'merge' && submits.has(e.b)) {
-      const r = relationsAt(civ, e.year - 1 / 256);
-      if (r.liege.get(e.b)?.liege === e.a) absorbs++;
-    }
-  }
   return {
     pacts: n((e) => e.kind === 'alliance'),
     lapses: n((e) => e.kind === 'unally' && e.cause === 'lapse'),
@@ -672,7 +667,7 @@ export function diplomacyStats(civ: Civ): DiplomacyStats {
     punishments: n((e) => e.kind === 'war' && e.cause === 'punish'),
     allyJoins: n((e) => e.kind === 'war' && e.cause === 'ally'),
     rescues: n((e) => e.kind === 'war' && e.cause === 'rescue'),
-    absorbs,
+    absorbs: n((e) => e.kind === 'merge' && e.cause === 'vassal'),
     vassalsAtEnd: rel.liege.size,
     pactsAtEnd: rel.pacts.length,
   };

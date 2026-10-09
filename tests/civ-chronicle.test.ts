@@ -5,7 +5,7 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld } from '../src/gen/world';
 import { generateCiv } from '../src/gen/civ';
-import type { Annal, AnnalKind, Civ, Culture, Polity, Settlement } from '../src/gen/civ/types';
+import { Layer, type Annal, type AnnalKind, type Civ, type Culture, type Polity, type Settlement } from '../src/gen/civ/types';
 import { polityTierAt } from '../src/gen/civ/growth';
 import {
   BIG_WAR,
@@ -762,8 +762,19 @@ describe('编年史 · 邦交:结盟、称臣、背盟,开战写由头,议和写
       // 共御的昌国亡了,索拉特与艾莱斯之盟遂废
       annal(1310, 'unally', { a: 2, b: 3, cause: 'lapse' }),
     ];
+    // 归属的变化日志(收复故土要看开战时这州还在不在守方手里):瑞州 1243 年归渭
+    c.checkpoints = [];
+    c.log = { size: 1, year: Float32Array.of(1243), region: Int32Array.of(1), layer: Uint8Array.of(Layer.Polity), value: Int16Array.of(1), cause: Uint8Array.of(0) };
     return c;
   }
+
+  it('收复故土:当年被夺去、开战时已不在守方手里的州不点名(写"欲复故土")', () => {
+    const c = dipCiv();
+    // 瑞州 1280 年又从渭手里分出去了(不是攻占,史事里没有 conquer)
+    c.log = { size: 2, year: Float32Array.of(1243, 1280), region: Int32Array.of(1, 1), layer: Uint8Array.of(Layer.Polity, Layer.Polity), value: Int16Array.of(1, 2), cause: Uint8Array.of(0, 0) };
+    const w = buildChronicle(c).find((e) => e.kind === 'war' && e.year === 1300);
+    expect(w?.text).toBe('昌国欲复故土,伐大渭,无功而还');
+  });
 
   it('结盟写共御谁;盟约断了写为什么(称臣、坐视不救、背盟、共御的强邻亡了);称臣、自立各一条', () => {
     const list = buildChronicle(dipCiv());
@@ -839,7 +850,8 @@ describe('编年史 · 真实世界(立国、升格)', () => {
       for (const e of list.filter((x) => x.kind === 'split')) {
         expect(e.text).toMatch(e.tag === '复' ? /^故.+(宗室|王室之后|旧臣).+据.+起兵,脱.+复国,号.+,都于.+$/ : /^.+(守将|领主).+叛.+自立,号.+,都于.+$/);
       }
-      for (const e of list.filter((x) => x.kind === 'merge')) expect(e.text).toMatch(/^.+并入.+$/);
+      // 藩属纳土归附宗主(邦交)写"纳土归附",别的写"并入"
+      for (const e of list.filter((x) => x.kind === 'merge')) expect(e.text).toMatch(civ.annals[e.id].cause === 'vassal' ? /^.+纳土归附.+$/ : /^.+并入.+$/);
     });
   }
 });

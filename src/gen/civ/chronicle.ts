@@ -70,6 +70,7 @@ import {
   settlementRank,
 } from './growth';
 import { cultureLabel, regionLabel } from './display';
+import { ownersAt } from './timeline';
 import { ageAt, generalRef, kinOf, rulerBare, rulerRef, rulerShort } from './peopleText';
 
 /** 重要度:3 最重要 */
@@ -749,9 +750,12 @@ function interveneStory(civ: Civ, e: Annal, id: number): IvStory {
     }
     case 'declare': {
       if (!B) return fail(`${A}欲伐他国,然其国不存`, '对方在新历史里没有(或那一年还没立国)');
-      // 盟国、宗藩之间:宣战前先记了盟约 / 宗藩之分断了(unally / defect),战争记在它后面
+      // 盟国、宗藩、同一宗主的藩属之间:宣战前先记了盟约断了(unally)/ 一方不再称臣(defect),战争记在它后面
       const cut = next();
-      const tie = !!cut && (cut.kind === 'unally' || cut.kind === 'defect') && ((cut.a === e.a && cut.b === e.b) || (cut.a === e.b && cut.b === e.a));
+      const tie =
+        !!cut &&
+        ((cut.kind === 'unally' && ((cut.a === e.a && cut.b === e.b) || (cut.a === e.b && cut.b === e.a))) ||
+          (cut.kind === 'defect' && (cut.a === e.a || cut.a === e.b)));
       const n = tie ? next(2) : cut;
       if (n && n.kind === 'war' && n.a === e.a && n.b === e.b) return done(`${A}向${B}宣战`);
       if (dead(e.a)) return fail(`欲令${A}伐${B},然${A}已亡`, `那一年${A}已亡`);
@@ -890,21 +894,22 @@ function warReason(civ: Civ, e: Annal, id: number): string {
 
 /**
  * 收复故土的战争想夺回哪几州:开战前(第 id 条史事之前)最近一次易手是"守方从攻方手里拿去"的州
- * (攻占、议和割让都记成 conquer),按人口上限从大到小
+ * (攻占、议和割让都记成 conquer),开战那一年还在守方手里(后来分裂、被并、划走的不算),按人口上限从大到小
  */
-function claimsOf(civ: Civ, atk: number, def: number, id: number): number[] {
+function claimsOf(civ: Civ, atk: number, def: number, id: number, year: Year): number[] {
   const last = new Map<number, Annal>();
   const A = civ.annals;
   for (let i = 0; i < id && i < A.length; i++) if (A[i].kind === 'conquer' && A[i].region >= 0) last.set(A[i].region, A[i]);
+  const own = ownersAt(civ, year).polity;
   const out: number[] = [];
-  for (const [r, e] of last) if (e.a === def && e.b === atk) out.push(r);
+  for (const [r, e] of last) if (e.a === def && e.b === atk && own[r] === def) out.push(r);
   const cap = civ.regions.capacity;
   return out.sort((a, b) => cap[b] - cap[a] || a - b);
 }
 
 /** 收复故土:"欲夺回瑞州" / "欲复瑞州等故地";从史事里找不到是哪几州的写"欲复故土" */
 function claimText(civ: Civ, e: Annal, id: number): string {
-  const rs = claimsOf(civ, e.a, e.b, id);
+  const rs = claimsOf(civ, e.a, e.b, id, e.year);
   const r = rs.length ? regionName(civ, rs[0]) : '';
   if (!r) return '欲复故土';
   return rs.length === 1 ? `欲夺回${r}` : `欲复${r}等故地`;
@@ -1005,7 +1010,8 @@ function simpleEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
     }
     case 'merge': {
       // 并掉的是大国才是大事
-      const t = e.b >= 0 ? `${pn(civ, e.b, y)}并入${pn(civ, e.a, y)}` : `${pn(civ, e.a, y)}并吞邻邦`;
+      // 藩属纳土归附宗主(diplomacy.ts)
+      const t = e.b < 0 ? `${pn(civ, e.a, y)}并吞邻邦` : e.cause === 'vassal' ? `${pn(civ, e.b, y)}纳土归附${pn(civ, e.a, y)}` : `${pn(civ, e.b, y)}并入${pn(civ, e.a, y)}`;
       return base(e, id, t, isGreat(polityOf(civ, e.b)) ? 3 : 2, [e.a, e.b], []);
     }
     case 'dynasty': {

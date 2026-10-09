@@ -326,7 +326,7 @@ export interface Annal {
   war: number;
   /** 战役(battle)才有:攻方从哪种边打过去(AdjKind:平地、跨河、翻山、海峡、航线) */
   via?: AdjKind;
-  /** 宣战(war)为什么打、盟约(unally)怎么断的(见 AnnalCause);自立(defect)的 betray = 宗主先动的兵 */
+  /** 宣战(war)为什么打、盟约(unally)怎么断的(见 AnnalCause);自立(defect)的 betray = 宗主先动的兵;合并(merge)的 vassal = 藩属纳土归附 */
   cause?: AnnalCause;
   /** 结盟(alliance)才有:共御的强邻(−1 = 没有) */
   foe?: number;

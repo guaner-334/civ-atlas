@@ -124,7 +124,7 @@ const EXPECTED: Record<number, Record<string, string>> = {
     'world.water': '9dafa02952ec',
     'world.waterLevel': '1376ef2bd877',
     'world.width': '2fd8ac4eb585',
-    'civ.annals': 'af996093cabd',
+    'civ.annals': 'd6f18cfb77cc',
     'civ.checkpoints': '2ba14aa4d25b',
     'civ.culture': '154fc97177d9',
     'civ.cultures': 'fa55a9473a9f',
