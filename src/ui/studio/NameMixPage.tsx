@@ -7,8 +7,9 @@
  *   快捷按钮        照自动(回到一开始:还是自动起名,份数按自动的比例折好)、全中式、全音译、中西各半
  *
  * 切到「自己配」但没动份数:不算改动,还是自动;点了加减或快捷按钮才按份数起名。只换名字,历史不变。
+ * 连着点加减:份数马上变,停手一会儿(SETTLE_MS)才一起重新起名 —— 每点一下都重推一遍整段历史,点几下就要等好几遍。
  */
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Civ } from '../../gen/civ/types';
 import { MIX_SHARE_MAX, type NameMix } from '../../gen/names/mix';
 import { setNameMix, useEdits } from '../editsStore';
@@ -28,13 +29,34 @@ export interface NameMixPageProps {
   phone: boolean;
 }
 
+/** 连着点加减时,停手多久才重新起名(毫秒) */
+const SETTLE_MS = 400;
+
 export function NameMixPage(p: NameMixPageProps) {
   const edits = useEdits();
   const mix = edits.nameMix;
   const [customSeg, setCustomSeg] = useState(!!mix);
-  const custom = customSeg || !!mix;
-  // 自己配时一行行显示的份数:配过就是配的,还没动就是照自动折好的
-  const shares: NameMix = mix ?? autoMix(p.civ);
+  // 点了加减、还没交给生成的份数(停手 SETTLE_MS 后交;离开这一页时马上交)
+  const [draft, setDraft] = useState<NameMix | null>(null);
+  const pending = useRef<{ mix: NameMix; timer: ReturnType<typeof setTimeout> } | null>(null);
+  const commit = (next: NameMix | undefined) => {
+    if (pending.current) clearTimeout(pending.current.timer);
+    pending.current = null;
+    setDraft(null);
+    setNameMix(next);
+  };
+  useEffect(
+    () => () => {
+      const left = pending.current;
+      if (!left) return;
+      clearTimeout(left.timer);
+      setNameMix(left.mix);
+    },
+    [],
+  );
+  const custom = customSeg || !!mix || !!draft;
+  // 自己配时一行行显示的份数:正在点的、配过的,还没动就是照自动折好的
+  const shares: NameMix = draft ?? mix ?? autoMix(p.civ);
   const total = MIX_STYLES.reduce((a, s) => a + (shares[s.id] ?? 0), 0);
   const used = MIX_STYLES.filter((s) => (shares[s.id] ?? 0) > 0).length;
   const areas = p.civ ? styleAreas(p.civ) : null;
@@ -46,11 +68,13 @@ export function NameMixPage(p: NameMixPageProps) {
     const next: Record<string, number> = { ...shares, [id]: n };
     if (!n) delete next[id];
     if (!Object.keys(next).length) return;
-    setNameMix(next);
+    if (pending.current) clearTimeout(pending.current.timer);
+    pending.current = { mix: next, timer: setTimeout(() => commit(next), SETTLE_MS) };
+    setDraft(next);
   };
   const pickSeg = (on: boolean) => {
     setCustomSeg(on);
-    if (!on) setNameMix(undefined);
+    if (!on) commit(undefined);
   };
 
   const bar = MIX_STYLES.filter((s) => (actual[s.id] ?? 0) > 0);
@@ -133,7 +157,7 @@ export function NameMixPage(p: NameMixPageProps) {
           自己配
         </button>
       </div>
-      <div className={`nm-card${p.busy ? ' busy' : ''}`}>
+      <div className={`nm-card${p.busy || draft ? ' busy' : ''}`}>
         <div className="nm-head">
           <span>这颗星球上</span>
           {areas && areas.peoples > 0 && (
@@ -157,11 +181,11 @@ export function NameMixPage(p: NameMixPageProps) {
       </div>
       {custom && (
         <div className="nm-chips">
-          <button data-act="mix-preset-auto" disabled={!p.ready} onClick={() => setNameMix(undefined)}>
+          <button data-act="mix-preset-auto" disabled={!p.ready} onClick={() => commit(undefined)}>
             照自动
           </button>
           {MIX_PRESETS.map((x) => (
-            <button key={x.id} data-act={`mix-preset-${x.id}`} disabled={!p.ready} onClick={() => setNameMix(x.mix)}>
+            <button key={x.id} data-act={`mix-preset-${x.id}`} disabled={!p.ready} onClick={() => commit(x.mix)}>
               {x.name}
             </button>
           ))}
