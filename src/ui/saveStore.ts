@@ -619,11 +619,12 @@ function writeSave(id: string, save: SaveFile, meta?: Meta, first?: SaveFile | n
   const text = JSON.stringify(save);
   const orig = !fresh ? originalToKeep(id, save.generator) : first && first.generator < save.generator ? JSON.stringify(first) : null;
   let ok = put(PREFIX + id, text, id);
-  if (ok) keepOriginal(id, orig);
   if (ok && meta && !writeMeta(id, meta)) {
     if (fresh) kv.remove(PREFIX + id);
     ok = false;
   }
+  // 存档和本地信息都写成了才留原样(留它占的地方不挤掉别的世界、不挡着本地信息)
+  if (ok) keepOriginal(id, orig);
   reportEvicted('quota');
   // 新存一个世界:超过上限就删最旧的
   if (ok && fresh) {
@@ -786,6 +787,8 @@ export function sameOrigin(a: SaveFile['origin'], b: SaveFile['origin']): boolea
 export function importSave(save: SaveFile): string | null {
   for (const w of listWorlds()) {
     if (w.draft || !sameSave(w.save, save)) continue;
+    // 存着的已经是更新的版本、还没留原样:文件这份就是它原来的样子(看原样)
+    if (save.generator < w.save.generator && originalOf(w.id) === null) keepOriginal(w.id, JSON.stringify(save));
     // 只差投影 / 中央经线:用文件里的(下次打开还是文件里的样子)
     if (!sameView(w.save.view, save.view)) {
       const next: SaveFile = { ...w.save, savedAt: new Date().toISOString() };
@@ -1338,14 +1341,15 @@ export function _resetForTest() {
 
 /**
  * 旧版本建的世界原来的样子(看原样用):留过底的是留的那份;没留过、存着的还是旧版本存的,就是存着的这份;
- * 都不是 = null(新版建的、读不出来的)
+ * 都不是 = null(新版建的、读不出来的)。给的是存档原文(存档格式、各项都是当时写的,旧网站按它自己的读法读),
+ * 只把生成器版本换成读出来的(老存档没写版本的)
  */
 export function originalOf(id: string): SaveFile | null {
   const kv = store();
   for (const text of [kv.get(ORIG + id), kv.get(PREFIX + id)]) {
     if (text === null) continue;
     const r = parseSave(text);
-    if (r.ok && r.save.generator < GENERATOR_VERSION) return r.save;
+    if (r.ok && r.save.generator < GENERATOR_VERSION) return { ...(JSON.parse(text.replace(/^\uFEFF/, '')) as SaveFile), generator: r.save.generator };
   }
   return null;
 }

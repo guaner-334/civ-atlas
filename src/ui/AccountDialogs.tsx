@@ -1106,14 +1106,17 @@ export function ShareGone({ phone, state, onHome, onNew }: { phone: boolean; sta
   );
 }
 
-/** 地图下的说明。short = 从分享短链接打开的(另存时写明底稿出处);by = 分享的人填的署名。旧网站上换成旧网站的说法 */
-export function SharedHint({ phone, short, by, onOk }: { phone: boolean; short: boolean; by: string; onOk: () => void }) {
+/**
+ * 地图下的说明。short = 从分享短链接打开的(另存时写明底稿出处);by = 分享的人填的署名。
+ * own = 最新版交过来的自己的世界(只在旧网站上出这条说明):换成旧网站的说法
+ */
+export function SharedHint({ phone, short, by, own, onOk }: { phone: boolean; short: boolean; by: string; own?: boolean; onOk: () => void }) {
   const stop = (e: { stopPropagation(): void }) => e.stopPropagation();
   return (
     <div className="shared-hint" role="status" data-testid="shared-hint" onPointerDown={stop} onClick={stop} onDoubleClick={stop}>
       <Icon name="info" size={18} />
       <span>
-        {OLD_SITE !== null
+        {own && OLD_SITE !== null
           ? phone
             ? '你看到的是这个世界原来的样子。改了会另存到旧版的「我的世界」，最新版里的不受影响。'
             : '你看到的是这个世界原来的样子。改了名字或历史会另存一份到旧版的「我的世界」，最新版里的不受影响。'
