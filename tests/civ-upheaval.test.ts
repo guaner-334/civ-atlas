@@ -25,9 +25,9 @@ import { computeHabitat } from '../src/gen/civ/habitat';
 import { reshapeRegions } from '../src/gen/civ/regions';
 
 const PARAMS = { ...DEFAULT_PARAMS, seed: 7 };
-/** 种子 7 上的三件大事:大霄国都一带海水漫进来、兹拉季纳国都一带火山喷发、两国之间的海峡隆起 */
+/** 种子 7 上的三件大事:大霄国都一带海水漫进来、兹拉季纳国都一带火山喷发、萨尔斯坦和对岸之间的海峡隆起 */
 const FLOOD: Upheaval = { year: 1600, ops: [{ kind: 'sink', pts: [1856, 574, 1936, 584], r: 40, s: 1.1 }] };
-const VOLCANO: Upheaval = { year: 1800, ops: [{ kind: 'volcano', pts: [1155, 733], r: 36, s: 1.1 }] };
+const VOLCANO: Upheaval = { year: 1800, ops: [{ kind: 'volcano', pts: [1278, 768], r: 36, s: 1.1 }] };
 const BRIDGE: Upheaval = { year: 2000, ops: [{ kind: 'raise', pts: [1566, 632, 1604, 670], r: 18, s: 1.1 }] };
 
 let w0: World | null = null;
@@ -209,16 +209,13 @@ describe('地形大事 · 推演', () => {
   }, 300_000);
 
   it('后果都并进大事那一条:亡了的国家打着的仗,议和记在后果之后;早先的遗址城址沉了,从那年起不再画', () => {
-    // 第 2308 年:维尔米尔国(正和萨兰提亚共和国打仗)五州全沉,萨兰提亚共和国的国都德鲁索纳也沉了(州还在,迁都)
-    const Y = 2308;
+    // 第 2473 年:维尔米尔国(正和萨兰提亚共和国打仗)两州全沉,萨兰提亚共和国的国都德鲁索纳也沉了(州还在,迁都)
+    const Y = 2473;
     const seats = [
       [1801, 244],
-      [1773, 271],
       [1800, 266],
-      [1773, 246],
-      [1788, 231],
     ];
-    const W: Upheaval = { year: Y, ops: [...seats.map((pts) => ({ kind: 'sink' as const, pts, r: 68, s: 1.1 })), { kind: 'sink', pts: [152, 225], r: 12, s: 1.1 }] };
+    const W: Upheaval = { year: Y, ops: [...seats.map((pts) => ({ kind: 'sink' as const, pts, r: 24, s: 1.1 })), { kind: 'sink', pts: [152, 225], r: 12, s: 1.1 }] };
     const b = civOf([W]);
     const at = b.annals.filter((e) => e.year === Y).map((e) => e.kind);
     expect(at).toContain('fall');
@@ -227,10 +224,10 @@ describe('地形大事 · 推演', () => {
     const ch = buildChronicle(b).filter((x) => b.annals[x.id]?.year === Y);
     expect(ch.map((x) => x.kind)).toEqual(['upheaval']);
     expect(ch[0].text).toMatch(/亡,.+迁都/);
-    // 留鹤关第 2374 年毁于战火、没有重建;第 2450 年城址沉入海中
-    const R: Upheaval = { year: 2450, ops: [{ kind: 'sink', pts: [1765, 463], r: 30, s: 1.1 }] };
+    // 提里艾尔第 2705 年毁于战火、没有重建;第 2800 年城址沉入海中
+    const R: Upheaval = { year: 2800, ops: [{ kind: 'sink', pts: [804, 621], r: 30, s: 1.1 }] };
     const r = civOf([R]);
-    const id = r.settlements.findIndex((s) => s.name === '留鹤关');
+    const id = r.settlements.findIndex((s) => s.name === '提里艾尔');
     expect(r.settlements[id].ended).toBeLessThan(R.year);
     expect(r.upheavals![0].ruins).toEqual([id]);
     expect(ruinSites(r, R.year - 1).map((s) => s.id)).toContain(id);

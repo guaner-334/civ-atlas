@@ -218,8 +218,9 @@ describe('邦交和作者下令', () => {
     type Try = { w: World; civ: Civ; a: number; b: number; from: number };
     const at = (seed: number) => ({ w: world(small(seed)), civ: civOf(small(seed)) });
     // 每种情形挑几对当时还结着的,下令开战;两国不接壤的打不成,换下一对
+    // (种子 2024 小世界;种子 7 小世界只结过一次盟,下令也打不成)
     const tries = (kind: 'alliance' | 'submit'): Try[] => {
-      const { w, civ } = at(7);
+      const { w, civ } = at(2024);
       return civ.annals
         .filter((e) => e.kind === kind)
         .map((e) => ({ w, civ, a: e.a, b: e.b, from: Math.ceil(e.year) + 1 }))
@@ -229,9 +230,9 @@ describe('邦交和作者下令', () => {
         })
         .slice(0, 4);
     };
-    // 同一个宗主的两个藩属(种子 9 小世界有;称臣那一年之后,和别的藩属配对)
+    // 同一个宗主的两个藩属(种子 5 小世界有;称臣那一年之后,和别的藩属配对)
     const coVassals = (): Try[] => {
-      const { w, civ } = at(9);
+      const { w, civ } = at(5);
       return civ.annals
         .filter((e) => e.kind === 'submit')
         .flatMap((e) => {
@@ -276,13 +277,13 @@ describe('邦交和作者下令', () => {
   }, 300_000);
 
   it('纳土归附:藩属并入宗主(邦交里的、内政里的合并都算)记 cause = vassal;编年史写"纳土归附"', () => {
-    const civ = civOf(small(7));
+    const civ = civOf(small(9));
     // 记 cause = vassal 的,正是并之前是宗主和藩属的那些
     for (const e of civ.annals.filter((x) => x.kind === 'merge')) {
       expect(e.cause === 'vassal', `第 ${e.year} 年 ${e.b} 并入 ${e.a}`).toBe(relationsAt(civ, e.year - 1 / 256).liege.get(e.b)?.liege === e.a);
     }
     const absorbs = civ.annals.map((e, i) => [e, i] as const).filter(([e]) => e.kind === 'merge' && e.cause === 'vassal');
-    expect(absorbs.length, '种子 7 小世界有一次纳土归附').toBeGreaterThan(0);
+    expect(absorbs.length, '种子 9 小世界有纳土归附').toBeGreaterThan(0);
     expect(diplomacyStats(civ).absorbs).toBe(absorbs.length);
     const chron = buildChronicle(civ);
     for (const [e, i] of absorbs) {
@@ -292,7 +293,8 @@ describe('邦交和作者下令', () => {
   }, 120_000);
 
   it('下令结了盟的宗主不讨伐自立的藩属', () => {
-    const p = small(7);
+    // 讨伐少见:20 个种子(1–19、2024)的小世界里只有种子 1、17 有
+    const p = small(1);
     const w = world(p);
     const civ = civOf(p);
     const war = civ.annals.find((e) => e.kind === 'war' && e.cause === 'punish');

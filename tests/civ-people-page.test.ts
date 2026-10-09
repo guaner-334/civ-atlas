@@ -171,19 +171,19 @@ describe('人物页 · 几处写法', () => {
     expect(kinOf(civ, 辛, 壬)).toBe('从伯父');
   });
 
-  it('seed=2024:黑股成宗(陶翼)是名人,继兄即位;搜"成宗"第一个就是他', () => {
+  it('seed=2024:大澜神宗(云云沧)是名人,继祖父即位;搜"神宗"第一个就是他', () => {
     const civ = civOf(2024);
-    const x = civ.people!.find((p) => p.name === '陶翼' && p.role === 'ruler');
+    const x = civ.people!.find((p) => p.name === '云云沧' && p.role === 'ruler');
     expect(x).toBeTruthy();
-    expect(personName(civ, x!)).toBe('成宗陶翼');
-    expect(rulerRole(civ, x!)).toBe('黑股皇帝');
-    expect(riseText(civ, x!)).toMatch(/^继兄/);
+    expect(personName(civ, x!)).toBe('神宗云云沧');
+    expect(rulerRole(civ, x!)).toBe('大澜皇帝');
+    expect(riseText(civ, x!)).toMatch(/^继祖父/);
     expect(famousPeople(civ).some((f) => f.id === x!.id)).toBe(true);
-    const hits = searchCiv(civ, '成宗', 2600);
-    expect(hits[0]).toMatchObject({ kind: 'person', id: x!.id, name: '成宗陶翼', sub: '黑股皇帝，2588–2625' });
-    // 编年史里写他即位的那条:"黑股顺宗崩……其弟陶翼即位,是为成宗" —— 前一位连国名一起切、他切名字
+    const hits = searchCiv(civ, '神宗', 2600);
+    expect(hits[0]).toMatchObject({ kind: 'person', id: x!.id, name: '神宗云云沧', sub: '大澜皇帝，2739–2771' });
+    // 编年史里写他即位的那条:"大澜高宗崩……其孙云云沧即位,是为神宗" —— 前一位连国名一起切、他切名字
     const e = reignEntries(civ).find((r) => r.people?.[1] === x!.id)!;
     const ms = personMentions(civ, e.text, e.people, -1, e.year).filter((m) => m.person !== undefined);
-    expect(ms.map((m) => m.text)).toEqual(['黑股顺宗', '陶翼']);
+    expect(ms.map((m) => m.text)).toEqual(['大澜高宗', '云云沧']);
   });
 });

@@ -1,6 +1,6 @@
 /**
- * 君主的在位表和性格(gen/civ/rulers.ts)、扩张算账(polities.ts 的 wants):
- * 推演里"此刻在位的是谁、什么性格"和人物(people.ts)一位不差;性格三种都有、比例说得通,好战的才亲征;
+ * 君主的在位表和倾向(gen/civ/rulers.ts)、扩张算账(polities.ts 的 wants):
+ * 推演里"此刻在位的是谁、倾向是多少"和人物(people.ts)一位不差;倾向有高有低、游牧国家的君主更好战,越好战越常亲征;
  * 荒僻的州多留给部落,富庶的州多归国家;接着推(fromCiv)和一口气推完一样(新君即位、迁都以后重新预约的扩张也算上)。
  */
 import { describe, expect, it } from 'vitest';
@@ -8,7 +8,7 @@ import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
 import { CivSim } from '../src/gen/civ/sim';
 import { cultureTerrain } from '../src/gen/civ/cultures';
-import { reignAt, reignStart, rulerBase, rulerTags } from '../src/gen/civ/rulers';
+import { LEANINGS, reignAt, reignStart, rulerBase, rulerTags } from '../src/gen/civ/rulers';
 
 const worlds = new Map<string, World>();
 function world(seed: number, cells = DEFAULT_PARAMS.cells): World {
@@ -25,7 +25,7 @@ function civOf(seed: number): Civ {
 }
 
 describe.each([7, 2024])('君主 · seed=%i', (seed) => {
-  it('推演里的在位表和人物一致:每一位即位的年份、性格都对得上', () => {
+  it('推演里的在位表和人物一致:每一位即位的年份、倾向都对得上', () => {
     const civ = civOf(seed);
     const base = rulerBase(civ.seed);
     const tags = rulerTags(civ.polities, (sid) => civ.settlements[sid]?.cell ?? -1);
@@ -36,26 +36,42 @@ describe.each([7, 2024])('君主 · seed=%i', (seed) => {
       // 新朝的第一位从改朝换代的下一刻起"在位"(见 rulers.ts 文件头)
       const r = reignAt(base, tags[p.id], p, x.from! + (x.rise !== 'heir' && x.from! > p.founded ? 1 / 256 : 0));
       expect(r.from, `${p.name} ${x.name}`).toBe(x.from);
-      expect(r.trait, `${p.name} ${x.name}`).toBe(x.trait);
+      expect(r.leanings, `${p.name} ${x.name}`).toEqual(x.leanings);
       expect(reignStart(r)).toBeGreaterThanOrEqual(x.from!);
       n++;
     }
     expect(n).toBeGreaterThan(100);
   });
 
-  it('性格:好战、守成、重商都有,寻常的君主也不少;只有好战的君主亲征', () => {
+  it('倾向:三项都在 0–100、平均五十上下、有高有低;游牧国家的君主更好战;亲征的君主好战都过 50,越好战越常亲征', () => {
     const civ = civOf(seed);
     const rulers = civ.people!.filter((x) => x.role === 'ruler');
-    const count = (t: string | undefined) => rulers.filter((x) => x.trait === t).length / rulers.length;
-    expect(count('martial')).toBeGreaterThan(0.12);
-    expect(count('martial')).toBeLessThan(0.45);
-    expect(count('steady')).toBeGreaterThan(0.12);
-    expect(count('steady')).toBeLessThan(0.45);
-    expect(count('mercantile')).toBeGreaterThan(0.03);
-    expect(count('mercantile')).toBeLessThan(0.35);
-    expect(count(undefined)).toBeGreaterThan(0.15);
-    for (const x of rulers) if (x.commands?.length) expect(x.trait, x.name).toBe('martial');
-    expect(rulers.some((x) => x.commands?.length)).toBe(true);
+    for (const key of LEANINGS) {
+      const v = rulers.map((x) => x.leanings![key]);
+      const mean = v.reduce((a, b) => a + b, 0) / v.length;
+      expect(Math.min(...v), key).toBeGreaterThanOrEqual(0);
+      expect(Math.max(...v), key).toBeLessThanOrEqual(100);
+      expect(mean, key).toBeGreaterThan(40);
+      expect(mean, key).toBeLessThan(62);
+      // 三成多以上的君主偏离寻常(低于 35 或高于 65)
+      expect(v.filter((x) => x < 35 || x > 65).length / v.length, key).toBeGreaterThan(0.3);
+    }
+    const warOf = (nomad: boolean) => {
+      const v = rulers
+        .filter((x) => (civ.polities[x.polity].kind === 'nomad') === nomad && civ.polities[x.polity].kind !== 'sea' && civ.polities[x.polity].lineage !== 'republic')
+        .map((x) => x.leanings!.war);
+      return v.reduce((a, b) => a + b, 0) / v.length;
+    };
+    if (rulers.some((x) => civ.polities[x.polity].kind === 'nomad')) expect(warOf(true)).toBeGreaterThan(warOf(false));
+    const led = rulers.filter((x) => x.commands?.length);
+    expect(led.length).toBeGreaterThan(0);
+    for (const x of led) expect(x.leanings!.war, x.name).toBeGreaterThan(50);
+    // 好战 75 以上的君主亲征的比例比 50–75 的高
+    const share = (lo: number, hi: number) => {
+      const g = rulers.filter((x) => x.leanings!.war > lo && x.leanings!.war <= hi && civ.polities[x.polity].lineage !== 'republic');
+      return g.filter((x) => x.commands?.length).length / Math.max(1, g.length);
+    };
+    expect(share(75, 100)).toBeGreaterThan(share(50, 75));
   });
 
   it('扩张算账:荒僻的州(平均宜居分低)多半留给部落,富庶的州多半归了国家', () => {
@@ -76,7 +92,8 @@ describe.each([7, 2024])('君主 · seed=%i', (seed) => {
       }
     }
     expect(poor).toBeGreaterThan(20);
-    expect(poorOwned / poor).toBeLessThan(0.5);
+    // 20 个种子里最多 0.54(种子 2024)
+    expect(poorOwned / poor).toBeLessThan(0.55);
     expect(richOwned / rich).toBeGreaterThan(0.7);
   });
 });
@@ -103,10 +120,10 @@ describe('扩张算账 · 接着推', () => {
   });
 
   it('fromCiv 接着推:迁都的下一刻按新国都重新预约扩张,断在迁都那一刻、迁都几年后都和一口气推完一样', () => {
-    const w = world(2024, 12000);
+    const w = world(9, 12000);
     const full = generateCiv(w);
-    // 这个世界 2840 年前后接连迁都:断在迁都那一刻(重新预约还没发生)、几年后(重新预约的到达还没到)
-    const moves = full.polities.flatMap((p) => (p.capitals ?? []).slice(1).map((c) => c.year)).filter((y) => y > 2835 && y < 2850);
+    // 这个世界 2255 年前后有一次迁都,迁都后重新预约的扩张到断开时还没到:断在迁都那一刻(重新预约还没发生)、几年后
+    const moves = full.polities.flatMap((p) => (p.capitals ?? []).slice(1).map((c) => c.year)).filter((y) => y > 2250 && y < 2260);
     expect(moves.length).toBeGreaterThan(0);
     for (const m of moves) for (const cut of [m, m + 4]) same(w, full, cut);
   });

@@ -2,7 +2,9 @@
  * 文明推演引擎(民族扩张;战争、分裂、合并等也在这上面加事件):
  *
  * - **事件堆**:按时间排序(复用 util.ts 的 MinHeap)。每个事件是 {时间, 类型, 对象 a, 对象 b, 版本号}。
- *   时间精度 1/256 年;"时间 + 编号"拼成一个整数当优先级,同一时刻的事件按编号(预约先后)处理,保证确定性。
+ *   时间精度 1/256 年;"时间 + 同一刻里的次序"拼成一个整数当优先级,保证确定性:同一时刻先处理别的事件(按预约先后),
+ *   再处理民族、国家的到达(按"民族先、国家后,再按州号、民族 / 国家号"排,和预约先后无关 —— 接着推时这些到达是
+ *   按日志重新预约的,预约先后和一口气推完时不一样,同一刻撞上了也要按同样的次序处理,见 arrivalOrder)。
  * - **州的版本号**:州的归属(任何一层)一变就 +1。事件预约时记下州 a 的版本号,弹出时对不上就是过期了,
  *   直接丢掉 —— 不用去堆里找、删事件。哪些类型要核对版本号,见 EVENT_INFO。
  * - **唯一改归属的入口** setOwner(层, 州, 新值, 原因):写变化日志、版本号 +1、通知这一层的监听者
@@ -192,10 +194,24 @@ export const CHECKPOINT_EVERY = 100;
 
 /** 事件时间精度:1/256 年(约一天半) */
 const TICKS_PER_YEAR = 256;
-/** 优先级 = 时刻 × SEQ_SPAN + 编号;两者都是整数,拼起来不超过 2^52,Float64 里精确 */
+/**
+ * 优先级 = 时刻 × TICK_SPAN + 同一刻里的次序:别的事件 = 编号(预约先后,< SEQ_SPAN);
+ * 民族、国家到达 = SEQ_SPAN + arrivalOrder(排在别的事件后面)。都是整数,拼起来不超过 2^53 − 1,Float64 里精确
+ */
 const SEQ_SPAN = 2 ** 28;
+const TICK_SPAN = 2 ** 29;
 /** 能预约的最远时刻:65536 年(Float32 的变化日志在这个范围内也能精确存下 1/256 年) */
 const MAX_TICK = 2 ** 24;
+
+/**
+ * 民族、国家到达在同一刻里的次序(0 起,< SEQ_SPAN):民族先、国家后,再按州号、民族 / 国家号。
+ * 不是到达、或州号 / 编号超出能编的范围(极大的世界),返回 −1(按预约先后)
+ */
+function arrivalOrder(kind: number, a: number, b: number): number {
+  if (kind !== Ev.CultureArrive && kind !== Ev.PolityArrive) return -1;
+  if (!(a >= 0 && a < 2 ** 15 && b >= 0 && b < 2 ** 12)) return -1;
+  return (kind === Ev.PolityArrive ? 2 ** 27 : 0) + a * 2 ** 12 + b;
+}
 
 /** 把时间取整到引擎的精度(1/256 年)。引擎里所有事件时间、日志年份都是这样的值 */
 export function quantize(t: number): number {
@@ -298,7 +314,7 @@ export class CivSim {
   private checkpoints: Checkpoint[] = [];
   private nextCheckpoint = CHECKPOINT_EVERY;
 
-  // 事件:结构数组 + 空槽回收;堆里放槽号,优先级 = 时刻 × SEQ_SPAN + 编号
+  // 事件:结构数组 + 空槽回收;堆里放槽号,优先级 = 时刻 × TICK_SPAN + 同一刻里的次序(见 SEQ_SPAN)
   private heap = new MinHeap(1024);
   private evT = new Float64Array(1024);
   private evKind = new Uint8Array(1024);
@@ -391,7 +407,8 @@ export class CivSim {
     this.evA[id] = a;
     this.evB[id] = b;
     this.evVer[id] = this.watch[kind] && a >= 0 && a < this.R ? this.version[a] : -1;
-    this.heap.push(id, tick * SEQ_SPAN + this.seq++);
+    const order = arrivalOrder(kind, a, b);
+    this.heap.push(id, tick * TICK_SPAN + (order >= 0 ? SEQ_SPAN + order : this.seq++));
   }
 
   /** 待处理的事件数(含已过期、还没弹出的) */
@@ -433,7 +450,7 @@ export class CivSim {
   /** 推演到 untilYear(含这一年的事件);途中每过一个整百年存一个检查点 */
   run(untilYear: Year): void {
     const untilTick = Math.floor(untilYear * TICKS_PER_YEAR + 1e-9);
-    const limit = (untilTick + 1) * SEQ_SPAN;
+    const limit = (untilTick + 1) * TICK_SPAN;
     const heap = this.heap;
     while (heap.size && heap.pri[0] < limit) {
       const id = heap.pop();

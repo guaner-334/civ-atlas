@@ -6,13 +6,13 @@
  *   - 每一朝的第一位:立国之君 / 叛离自立的守将(分裂)/ 故国王室之后(复国;东方沿用故国末代的姓)/
  *     篡位的权臣(新朝的根据地就是国都)/ 起兵代之的新朝开国之君
  *   - 之后同一家里继位:即位的年纪、在位多少年按"国家的位置锚 + 第几位"随机取,一生不超过 MAX_AGE 岁;
- *     共和国的执政官任期短、任满卸任。这几样和性格(好战 / 守成 / 重商,Person.trait)在 rulers.ts,推演里用同一份
+ *     共和国的执政官任期短、任满卸任。这几样和倾向(扩张 / 好战 / 重商,各 0–100,Person.leanings)在 rulers.ts,推演里用同一份
  *     (扩张算账、议和看当时在位的是谁),这里排出来的君主和推演里的一位不差
  *   - 一朝结束(改朝换代、亡国、并入他国)时在位的那一位是末代:被废、死于兵乱、殉国、出降、出奔、归附
  *   - 称号(Person.title)去世以后才定,还在位的没有:东方按去世那年的国号档位 —— 帝国(王朝)用庙号(开国之君太祖,
  *     这一朝中途才称帝的第一位世祖;太宗、世宗……,末代"哀帝""末帝""废帝""少帝"),王国、国用谥号 + 王 / 公(按在位时开疆还是失地挑字),部落首领、可汗没有称号;
  *     西幻:同一国里同名的国王按先后编序数("阿尔德里克三世"),帝国里开疆最多的一位称"大帝";共和国执政官、汗不编序数
- * **统帅**(按战争先后):开战时两边各有一位 —— 性格好战的君主有时亲征,否则派一位将领(本国在世、正闲着的将领先用,没有就新起一位);
+ * **统帅**(按战争先后):开战时两边各有一位 —— 好战的君主有时亲征(好战越高越常亲征),否则派一位将领(本国在世、正闲着的将领先用,没有就新起一位);
  *   每一仗输的一方统帅有机会战死,下一仗换人;将领到年纪卸甲、去世也换人。君主亲征不会战死。
  * **世系**(lineage.ts):按年纪给继位的君主连上父亲(子、孙、兄弟、侄、叔伯……),对不上的地方补一位没即位的宗室。
  *
@@ -26,7 +26,7 @@ import { keyed4, subSeed } from './rand';
 import { personNamers } from './naming';
 import { capitalAt, polityTierAt } from './growth';
 import { buildLineage } from './lineage';
-import { K_RULER, MAX_AGE, U_AGE, reignStep, rulerBase, rulerTags } from './rulers';
+import { K_RULER, MAX_AGE, U_AGE, leaningEffect, reignStep, rulerBase, rulerTags } from './rulers';
 
 // ---- 调参 ----
 // 即位的年纪、在位年数、执政官任期、一生最多多少岁在 rulers.ts(推演里也要知道谁在位)
@@ -37,7 +37,7 @@ const AFTERLIFE = 15;
 /** 亡国之君:殉国、出降的机会(其余出奔) */
 const FELL = 0.35;
 const SURRENDER = 0.4;
-/** 好战的君主(性格见 rulers.ts)每场仗亲征的机会;亲征的年纪 */
+/** 好战到顶的君主每场仗亲征的机会(再乘倾向折算的倍数,好战 50 以下不亲征,见 rulers.ts);亲征的年纪 */
 const LEAD = 0.5;
 const LEAD_AGE: [number, number] = [18, 58];
 /** 将领:领兵的年纪、寿命、卸甲的年纪 */
@@ -52,7 +52,7 @@ const REUSE = 0.55;
 /** 帝国里开疆这么多州以上的君主,开疆最多的一位称"大帝" */
 const GREAT_GAINS = 12;
 
-// 随机数用途(1、2、14 是年纪、在位年数、性格,在 rulers.ts)
+// 随机数用途(1、2、14–19 是年纪、在位年数、倾向,在 rulers.ts)
 const U_MURDER = 3;
 const U_FATE = 4;
 const U_AFTER = 5;
@@ -172,7 +172,7 @@ export function buildPeople(civ: PeopleInput): Person[] {
   const { polities, settlements, cultures, endYear } = civ;
   if (!polities.length) return [];
   const base = rulerBase(civ.seed);
-  // 位置锚和推演里一样(rulers.ts):推演按它定"哪一位在位、什么性格"
+  // 位置锚和推演里一样(rulers.ts):推演按它定"哪一位在位、倾向是多少"
   const tag = rulerTags(polities, (sid) => settlements[sid]?.cell ?? -1);
   const facts = factsOf(civ);
   const namerOf = personNamers(civ.seed);
@@ -218,12 +218,11 @@ export function buildPeople(civ: PeopleInput): Person[] {
       for (let j = 0; ; j++) {
         const k = list.length;
         const from = t;
-        // 即位的年纪、在位年数、性格:和推演里的在位表同一份(rulers.ts)
+        // 即位的年纪、在位年数、倾向:和推演里的在位表同一份(rulers.ts)
         const step = reignStep(base, tag[p.id], k, j, from, p.lineage, p.kind);
         const born = q(from - step.age);
         const natural = step.natural;
-        const person: Person = { id: -1, role: 'ruler', polity: p.id, name: '', born, from, dynasty: i, rise: j === 0 ? rise : 'heir' };
-        if (step.trait) person.trait = step.trait;
+        const person: Person = { id: -1, role: 'ruler', polity: p.id, name: '', born, from, dynasty: i, rise: j === 0 ? rise : 'heir', leanings: step.leanings };
         // 名字
         person.name = rulerName(namer, tag[p.id], k, j, surname, usedGiven, pool, R, republic, heirOf && pools[fallen!.id], list[list.length - 1]?.name);
         list.push(person);
@@ -296,12 +295,12 @@ export function buildPeople(civ: PeopleInput): Person[] {
         (p.commands ??= []).push(cmd);
         return cmd;
       };
-      // 好战的君主亲征
+      // 好战的君主亲征(越好战越常亲征)
       const ruler = rulerAt(rulers[pid], t);
       if (ruler) {
         const age = t - ruler.born;
         const free = (busyRuler.get(ruler) ?? -Infinity) <= t;
-        if (free && P.lineage !== 'republic' && ruler.trait === 'martial' && age >= LEAD_AGE[0] && age <= LEAD_AGE[1] && wr(x * 2 + s, U_LEAD) < LEAD) {
+        if (free && P.lineage !== 'republic' && age >= LEAD_AGE[0] && age <= LEAD_AGE[1] && wr(x * 2 + s, U_LEAD) < LEAD * leaningEffect(ruler.leanings!).lead) {
           cur[s] = { p: ruler, careerEnd: ruler.until ?? Infinity, cmd: command(ruler), general: false };
           busyRuler.set(ruler, Infinity);
           return;

@@ -1,7 +1,7 @@
 /**
  * 地图上的藩属(render/civ/vassals.ts):
  * - 藩属的颜色往宗主那边靠 VASSAL_TINT,别的国家不变
- * - 真实世界(默认参数 seed 7,最后一年有藩属):铺国土的颜色换成靠过的那一套;
+ * - 真实世界(默认参数 seed 2024,最后一年有藩属、和宗主接壤):铺国土的颜色换成靠过的那一套;
  *   宗主和藩属之间的国界单独分出来(平面主图、地球仪画细点线),其余国界不变
  */
 import { describe, expect, it } from 'vitest';
@@ -35,7 +35,7 @@ describe('真实世界', () => {
   let cached: { w: World; r: Raster; civ: Civ } | null = null;
   const setup = () => {
     if (!cached) {
-      const w = generateWorld({ ...DEFAULT_PARAMS, seed: 7 });
+      const w = generateWorld({ ...DEFAULT_PARAMS, seed: 2024 });
       cached = { w, r: rasterize(w, 1), civ: generateCiv(w) };
     }
     return cached;

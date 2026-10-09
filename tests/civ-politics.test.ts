@@ -70,7 +70,8 @@ function sizesAt(civ: Civ, y: number): Map<number, number> {
 describe('分与合', () => {
   it('fromCiv 接着推:在分裂、合并、复国、主动迁都那一刻切开,和一口气推完逐字节一致', () => {
     const seen = { split: 0, merge: 0, restore: 0, capital: 0 };
-    for (const seed of [7, 2024]) {
+    // 种子 7、2024 的小世界没有复国:加上有复国的种子 3
+    for (const seed of [7, 2024, 3]) {
       const w = world({ ...small, seed });
       const whole = civOf({ ...small, seed });
       const cuts = new Set<number>([1200]);
@@ -93,7 +94,7 @@ describe('分与合', () => {
         expect(politicsModelOf(sim)).toBeDefined();
       }
     }
-    // 两个小世界里分裂、合并、复国、主动迁都都切到过
+    // 三个小世界里分裂、合并、复国、主动迁都都切到过
     expect(seen.split).toBeGreaterThanOrEqual(2);
     expect(seen.merge).toBeGreaterThanOrEqual(1);
     expect(seen.restore).toBeGreaterThanOrEqual(1);
@@ -294,14 +295,14 @@ describe('分与合', () => {
 
   it('编年史:分裂、复国、合并各有一条(分出来长成大国的、并掉大国的是大事),措辞对得上', () => {
     let majorSplit = false;
-    for (const seed of [7, 2024, 1, 99]) {
+    for (const seed of [7, 2024, 3, 99]) {
       const civ = civOf({ ...DEFAULT_PARAMS, seed });
       // 大国:到过第 GREAT_TIER 档
       const great = (id: number) => Math.max(0, ...(civ.polities[id]?.titles ?? []).map((t) => t.tier)) >= GREAT_TIER;
       const list = buildChronicle(civ);
       const splits = list.filter((e) => e.kind === 'split');
       expect(splits.length).toBe(civ.annals.filter((e) => e.kind === 'split').length);
-      // 分出来的国家日后长成大国的(不常见,20 个种子里约四分之一到四成的世界有:四个世界里至少有一个,见循环后)
+      // 分出来的国家日后长成大国的(不常见,20 个种子(1–19、2024)里只有 2、3、6 三个世界有:四个世界里至少有一个,见循环后)
       if (splits.some((e) => e.importance === MAJOR)) majorSplit = true;
       for (const e of splits) {
         const p = civ.polities[e.polities[0]];

@@ -43,7 +43,7 @@ import { SETTLEMENT_RANKS, capitalAt, populationAt, tierOf, yearReaching } from 
 import { namePolities, nameSettlements, type RestoreDirection } from './naming';
 import type { RouteCity } from './routes';
 import type { InterventionModel } from './interventions';
-import { reignAt, reignBook, reignStart, rulerBase, traitEffect, type Reign } from './rulers';
+import { reignAt, reignBook, reignStart, rulerBase, type LeaningEffect, type Reign } from './rulers';
 
 // ---- 调参(以截图效果为准) ----
 /** 州有人定居后,过这么多年建城(随机) */
@@ -82,7 +82,7 @@ const BIOME_EXP = 0.6;
  *   值 = 州的平均宜居分 × 民族类型的偏好(游牧看重草原荒漠、海洋看重沿海……)× 港口 PORT_VALUE / 大河 RIVER_VALUE
  *   代价 = e^(离国都的路程 / WORTH_REACH) × 异族 WORTH_FOREIGN × (1 − ENCLAVE × 四邻里已是本国的比例)
  *          × 不是山地民族时上高山 (1 + 高出 HIGH_COST 米的部分 / HIGH_SCALE)
- *   值 ≥ WORTH × 代价 × 君主性格的门槛(rulers.ts 的 TRAIT_EFFECT)才去。荒漠、苔原、高山、离国都太远的州不划算,留给部落
+ *   值 ≥ WORTH × 代价 × 君主倾向折算的门槛倍数(rulers.ts 的 leaningEffect)才去。荒漠、苔原、高山、离国都太远的州不划算,留给部落
  *   (20 个种子:有人住的地方没有国家的从一成多到近三成,荒地归国家的从七成多到四成不到,富庶的州仍有八成多归国家)
  */
 const WORTH = 8;
@@ -367,9 +367,9 @@ export function rulerOf(m: PolityModel, pid: number, t: Year): Reign {
 
 /**
  * 扩张算账:国家 p 在 t 这一刻值不值得去州 b(见 WORTH)。dist = 离国都的路程表,cb = 州 b 的民族,owner = 此刻各州的国家。
- * 由当时在位的君主定:好战的不太计较,守成的只要富庶、离国都近的地方,重商的看重沿海、大河、港口
+ * 由当时在位的君主定:扩张高的不太计较,扩张低的只要富庶、离国都近的地方,重商高的看重沿海、大河、港口
  */
-function wants(m: PolityModel, owner: Int16Array, p: Polity, b: number, dist: Float32Array, cb: number, t: Year): boolean {
+function wants(m: PolityModel, owner: Int16Array, p: Polity, b: number, dist: Float32Array, cb: number, e: LeaningEffect): boolean {
   const T = m.terrain;
   const reg = T.regions;
   const d = dist[b];
@@ -412,24 +412,26 @@ function wants(m: PolityModel, owner: Int16Array, p: Polity, b: number, dist: Fl
   let cost = fexp(d / WORTH_REACH) * (cb === p.culture ? 1 : WORTH_FOREIGN) * (1 - (ENCLAVE * mine) / Math.max(1, n));
   // 高山难治(山地民族不算)
   if (p.kind !== 'highland') cost *= 1 + Math.max(0, reg.elevation[b] - HIGH_COST) / HIGH_SCALE;
-  const e = traitEffect(rulerOf(m, p.id, t).trait);
   const coast = T.coastal[b] === 1 || T.river[b] === 1 || m.port[b] === 1;
   return value >= WORTH * cost * (coast ? e.coast : e.worth);
 }
 
-/** 国家 p 经邻接边 k 进州 b 要几年(现在预约);不值得去(扩张算账)或走不了 = Infinity */
-function reachYears(m: PolityModel, sim: CivSim, p: Polity, k: number, b: number): number {
+/**
+ * 国家 p 经邻接边 k 进州 b 要几年(现在预约);不值得去(扩张算账)或走不了 = Infinity。
+ * prev = 新君即位时上一位的倍数:上一位就肯去的州那时已经预约过,不重复预约(只补新君才肯去的)
+ */
+function reachYears(m: PolityModel, sim: CivSim, p: Polity, k: number, b: number, prev?: LeaningEffect): number {
   const dist = distFor(m, p.id, sim.now);
   const cb = sim.owners[Layer.Culture][b];
-  if (!wants(m, sim.owners[Layer.Polity], p, b, dist, cb, sim.now)) return Infinity;
+  const owner = sim.owners[Layer.Polity];
+  if (!wants(m, owner, p, b, dist, cb, rulerOf(m, p.id, sim.now).eff)) return Infinity;
+  if (prev && wants(m, owner, p, b, dist, cb, prev)) return Infinity;
   return stepYearsWith(m, p, k, b, dist, cb);
 }
 
 /** 新君即位以后,原来不值得去的地方会不会有一些值得去了(门槛放低了) */
 function widens(prev: Reign, cur: Reign): boolean {
-  const a = traitEffect(prev.trait);
-  const b = traitEffect(cur.trait);
-  return b.worth < a.worth || b.coast < a.coast;
+  return cur.eff.worth < prev.eff.worth || cur.eff.coast < prev.eff.coast;
 }
 
 /** 预约国家 pid 的下一次君主交接:在位表里第 k 位开始"在位"的那一刻(rulers.ts 的 reignStart) */
@@ -764,7 +766,7 @@ export function installPolities(sim: CivSim, m: PolityModel): void {
     if (!first) sim.record('rank', { a: pid, region: r, settlement: capitalAt(m.polities[pid], t) });
   });
 
-  // 新君即位(rulers.ts):门槛比上一位低的(比如好战的接了守成的),从现有国土往外重新看一遍边上的部落地带;预约下一位
+  // 新君即位(rulers.ts):门槛比上一位低的(比如扩张高的接了扩张低的),从现有国土往外重新看一遍边上的部落地带;预约下一位
   sim.on(Ev.Reign, (k, pid, t) => {
     const p = m.polities[pid];
     if (!p || p.ended !== undefined) return;
@@ -772,7 +774,7 @@ export function installPolities(sim: CivSim, m: PolityModel): void {
     // 改朝换代以后在位表重排了:旧君原来预约的交接对不上,丢掉(新朝的另有预约,见 dynastyReign)
     if (!list[k] || reignStart(list[k]) !== t) return;
     scheduleReign(sim, m, pid, k + 1, t);
-    if (k > 0 && widens(list[k - 1], list[k])) respread(sim, m, pid);
+    if (k > 0 && widens(list[k - 1], list[k])) respread(sim, m, pid, list[k - 1].eff);
   });
 
   // 迁都的下一刻(见 moveCapital):按新国都的路程从现有国土往外重新预约
@@ -784,7 +786,7 @@ export function installPolities(sim: CivSim, m: PolityModel): void {
 }
 
 /** 国家 pid 刚拿下州 r:给 r 的邻州里有人住、还没有国家的预约"国家到达" */
-function spreadFrom(sim: CivSim, m: PolityModel, r: number, pid: number, t: number) {
+function spreadFrom(sim: CivSim, m: PolityModel, r: number, pid: number, t: number, prev?: LeaningEffect) {
   const reg = m.terrain.regions;
   const culture = sim.owners[Layer.Culture];
   const polity = sim.owners[Layer.Polity];
@@ -792,17 +794,18 @@ function spreadFrom(sim: CivSim, m: PolityModel, r: number, pid: number, t: numb
   for (let k = reg.adjStart[r]; k < reg.adjStart[r + 1]; k++) {
     const j = reg.adj[k];
     if (culture[j] < 0 || polity[j] >= 0) continue;
-    const dt = reachYears(m, sim, p, k, j);
+    const dt = reachYears(m, sim, p, k, j, prev);
     if (dt < Infinity) sim.schedule(t + dt, Ev.PolityArrive, j, pid);
   }
 }
 
 /**
  * 国家 pid 从现有国土(州号升序)往外重新预约扩张:和每拿下一州时预约的一样(阶段 4 干预"不许扩张"到期、
- * 门槛更低的新君即位、迁都的下一刻调用;resumePolities 按日志重放时在同一刻做同样的事)
+ * 门槛更低的新君即位、迁都的下一刻调用;resumePolities 按日志重放时在同一刻做同样的事)。
+ * prev(新君即位时)= 上一位君主的倍数:上一位就肯去的州不重复预约
  */
-export function respread(sim: CivSim, m: PolityModel, pid: number): void {
-  for (const r of m.lands[pid].slice()) spreadFrom(sim, m, r, pid, sim.now);
+export function respread(sim: CivSim, m: PolityModel, pid: number, prev?: LeaningEffect): void {
+  for (const r of m.lands[pid].slice()) spreadFrom(sim, m, r, pid, sim.now, prev);
 }
 
 /**
@@ -1048,13 +1051,15 @@ export function resumePolities(sim: CivSim, world: World, civ: Civ, iv?: Interve
   const po = new Int16Array(R).fill(-1);
   const pend: { t: number; j: number; pid: number }[] = [];
   /** 第 i 条日志引起的一次预约:国家 pid 经边 k 进州 j(路程、民族都按当时的) */
-  const add = (i: number, pid: number, k: number, j: number, y: number) => {
+  const add = (i: number, pid: number, k: number, j: number, y: number, prev?: LeaningEffect) => {
     // 预约之后目标州的归属(任何一层)又变过:引擎里那次到达已经过期(版本号对不上)——
     // 归了国家(以后也不会变回无主),或者阶段 3 同化 / 迁徙改换了民族
     if (lastLog[j] > i || polity[j] >= 0) return;
     // 扩张算账:当时在位的君主、当时的四邻(po 是那一刻的归属),和推演时一样
     const dist = distAt(pid, y);
-    if (!wants(m, po, m.polities[pid], j, dist, cu[j], y)) return;
+    if (!wants(m, po, m.polities[pid], j, dist, cu[j], rulerOf(m, pid, y).eff)) return;
+    // 新君即位时重新预约的:上一位就肯去的不重复预约(见 reachYears)
+    if (prev && wants(m, po, m.polities[pid], j, dist, cu[j], prev)) return;
     const dt = stepYearsWith(m, m.polities[pid], k, j, dist, cu[j]);
     if (dt < Infinity && quantize(y + dt) > now) pend.push({ t: y + dt, j, pid });
   };
@@ -1063,14 +1068,14 @@ export function resumePolities(sim: CivSim, world: World, civ: Civ, iv?: Interve
   // - 门槛比上一位低的新君即位的那一刻(Ev.Reign;在位表由立国、改朝换代的年份算出来,见 rulers.ts)
   // - 迁都的下一刻(Ev.Respread;迁都记在 Polity.capitals)
   if (iv) iv.pm = m;
-  const ends: { t: number; key?: string; pid: number }[] = iv ? iv.haltEndsUpTo(now).map((e) => ({ t: e.t, key: e.key, pid: -1 })) : [];
+  const ends: { t: number; key?: string; pid: number; prev?: LeaningEffect }[] = iv ? iv.haltEndsUpTo(now).map((e) => ({ t: e.t, key: e.key, pid: -1 })) : [];
   for (const p of m.polities) {
     const until = Math.min(p.ended ?? Infinity, now);
     const list = reignBook(m.rbase, m.rtag[p.id], p, until);
     for (let k = 1; k < list.length; k++) {
       const t = reignStart(list[k]);
       if (t > until) break;
-      if (widens(list[k - 1], list[k])) ends.push({ t, pid: p.id });
+      if (widens(list[k - 1], list[k])) ends.push({ t, pid: p.id, prev: list[k - 1].eff });
     }
     const caps = p.capitals!;
     for (let i = 1; i < caps.length; i++) if (caps[i].year + 1 / 256 <= until) ends.push({ t: caps[i].year + 1 / 256, pid: p.id });
@@ -1087,7 +1092,7 @@ export function resumePolities(sim: CivSim, world: World, civ: Civ, iv?: Interve
         if (po[r] !== pid) continue;
         for (let k = reg.adjStart[r]; k < reg.adjStart[r + 1]; k++) {
           const j = reg.adj[k];
-          if (cu[j] >= 0 && po[j] < 0) add(i, pid, k, j, e.t);
+          if (cu[j] >= 0 && po[j] < 0) add(i, pid, k, j, e.t, e.prev);
         }
       }
     }
