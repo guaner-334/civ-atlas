@@ -787,16 +787,17 @@ export function sameOrigin(a: SaveFile['origin'], b: SaveFile['origin']): boolea
 export function importSave(save: SaveFile): string | null {
   for (const w of listWorlds()) {
     if (w.draft || !sameSave(w.save, save)) continue;
-    // 存着的已经是更新的版本、还没留原样:文件这份就是它原来的样子(看原样)
-    if (save.generator < w.save.generator && originalOf(w.id) === null) keepOriginal(w.id, JSON.stringify(save));
     // 只差投影 / 中央经线:用文件里的(下次打开还是文件里的样子)
+    let ok = true;
     if (!sameView(w.save.view, save.view)) {
       const next: SaveFile = { ...w.save, savedAt: new Date().toISOString() };
       if (save.view) next.view = save.view;
       else delete next.view;
-      writeSave(w.id, next);
+      ok = writeSave(w.id, next);
       changed();
     }
+    // 存着的已经是更新的版本、还没留原样:文件这份就是它原来的样子(看原样);存档写成了以后再留
+    if (ok && save.generator < w.save.generator && originalOf(w.id) === null) keepOriginal(w.id, JSON.stringify(save));
     return w.id;
   }
   const id = newWorldId();
