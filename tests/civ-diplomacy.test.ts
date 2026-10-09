@@ -54,6 +54,9 @@ function checkRelations(civ: Civ, tag: string) {
     return l !== undefined && alive(l, y) && alive(p, y) ? l : -1;
   };
   const allied = (a: number, b: number, y: number) => pacts.has(pair(a, b)) && alive(a, y) && alive(b, y);
+  /** 还没议和的战争:战争编号 → 双方 */
+  const active = new Map<number, [number, number]>();
+  const fightingNow = (a: number, b: number) => [...active.values()].some(([x, y]) => (x === a && y === b) || (x === b && y === a));
   let submits = 0;
   let alliances = 0;
   let wars = 0;
@@ -71,6 +74,9 @@ function checkRelations(civ: Civ, tag: string) {
         expect(liegeOf(e.a, y), `${at}:已经是藩属`).toBe(-1);
         expect(liegeOf(e.b, y), `${at}:宗主自己是藩属`).toBe(-1);
         expect([...liege.keys()].some((v) => liegeOf(v, y) === e.a), `${at}:称臣的国家有藩属`).toBe(false);
+        // 称臣时不在和宗主、宗主的藩属交兵(称了臣就同是一国的藩属)
+        expect(fightingNow(e.a, e.b), `${at}:还在和宗主交兵`).toBe(false);
+        expect([...liege.keys()].some((v) => liegeOf(v, y) === e.b && fightingNow(e.a, v)), `${at}:还在和宗主的藩属交兵`).toBe(false);
         liege.set(e.a, e.b);
         break;
       case 'defect':
@@ -94,8 +100,12 @@ function checkRelations(civ: Civ, tag: string) {
         if (e.cause === 'betray') betrayed.add(`${e.a}>${e.b}@${y}`);
         pacts.delete(pair(e.a, e.b));
         break;
+      case 'peace':
+        active.delete(e.war);
+        break;
       case 'war':
         wars++;
+        active.set(e.war, [e.a, e.b]);
         // 盟国之间不打仗(除非刚背盟);宗主和藩属、同一宗主的藩属之间不打仗(讨伐自立的藩属除外)
         if (allied(e.a, e.b, y)) throw new Error(`${at}:盟国之间开战`);
         if (e.cause === 'betray') expect(betrayed.has(`${e.a}>${e.b}@${y}`), `${at}:背盟来攻,先记背盟`).toBe(true);
@@ -263,8 +273,12 @@ describe('邦交和作者下令', () => {
     }
   }, 300_000);
 
-  it('纳土归附:合并记 cause = vassal,并之前是宗主和藩属;编年史写"纳土归附"', () => {
+  it('纳土归附:藩属并入宗主(邦交里的、内政里的合并都算)记 cause = vassal;编年史写"纳土归附"', () => {
     const civ = civOf(small(7));
+    // 记 cause = vassal 的,正是并之前是宗主和藩属的那些
+    for (const e of civ.annals.filter((x) => x.kind === 'merge')) {
+      expect(e.cause === 'vassal', `第 ${e.year} 年 ${e.b} 并入 ${e.a}`).toBe(relationsAt(civ, e.year - 1 / 256).liege.get(e.b)?.liege === e.a);
+    }
     const absorbs = civ.annals.map((e, i) => [e, i] as const).filter(([e]) => e.kind === 'merge' && e.cause === 'vassal');
     expect(absorbs.length, '种子 7 小世界有一次纳土归附').toBeGreaterThan(0);
     expect(diplomacyStats(civ).absorbs).toBe(absorbs.length);

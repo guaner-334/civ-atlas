@@ -11,7 +11,7 @@
  *   ② 宗主:称臣久了的同族小藩属(接壤、两边都没在打仗),有机会纳土归附(记 merge,cause = vassal;编年史写"纳土归附")。
  *   ③ 盟约:共御的强邻已经亡了、或已不比盟国强,盟约渐废(unally,cause = lapse)。
  *   ④ 畏强邻(接壤、国力是自己 THREAT 倍以上的邻国;正在交兵的也算):
- *        小国、弱国先看要不要遣使称臣(国力差 SUBMIT_RATIO 倍以上,强邻越好战越可能);
+ *        小国、弱国先看要不要遣使称臣(国力差 SUBMIT_RATIO 倍以上,强邻越好战越可能;正和强邻的藩属交兵的不称臣);
  *        不称臣就找也受它威胁的国家结盟(和强邻接壤、没在和自己打、各自盟国不到 MAX_PACTS 个),正同在和它交兵的最容易结成。
  *
  *   战争里(wars.ts 调这里挂上的回调):
@@ -19,7 +19,7 @@
  *     不来就是坐视不救,盟约就此断了(unally,cause = abandon);守方的宗主(和攻方接壤)有 RESCUE 的机会发兵来救。
  *     援盟、救藩参战的不再连锁。
  *   - 每一仗之后(WarModel.sue):守方打得很惨(丢了国都,或丢了 SUE_FRAC 以上国土)、攻方国力是它 SUE_RATIO 倍以上,
- *     守方可能奉表称臣、攻方受降罢兵:当即议和(占了的州照旧归攻方),紧跟着记 submit。异族、攻方另有战事、离攻方国都远,攻方更肯受降。
+ *     守方可能奉表称臣、攻方受降罢兵:当即议和(占了的州照旧归攻方),紧跟着记 submit(守方正和攻方的藩属交兵时不受降)。异族、攻方另有战事、离攻方国都远,攻方更肯受降。
  *   - 看邻国(wars.ts):不打盟国、自己的宗主 / 藩属、同一个宗主的藩属;结盟满 BETRAY_AGE 年、共御的强邻已不足为患的盟国,
  *     可以背盟去打(赔率 × BETRAY_ODDS;先记 unally,cause = betray,再记 war)。
  *
@@ -348,6 +348,8 @@ export function installDiplomacy(sim: CivSim, pm: PolityModel, dm: DiplomacyMode
   };
   /** 和作者下令的结盟一起算:两国此刻不会互相宣战 */
   const friendly = (p: number, q: number, t: number) => dm.friendly(p, q) || !!wm.iv?.allied(p, q, t);
+  /** p 正在和 L 的某个藩属交兵(这时不向 L 称臣:称了臣就和那个藩属同是 L 的藩属,不该还在打) */
+  const fightsBloc = (p: number, L: number) => dm.vassalsOf(L).some((z) => fighting(p, z));
   /** 手上的仗打满了(和看邻国时一样:帝国级的大国也最多同时打 MAX_WARS 场) */
   const busy = (p: number) => warsOf(p).length >= MAX_WARS;
 
@@ -446,7 +448,7 @@ export function installDiplomacy(sim: CivSim, pm: PolityModel, dm: DiplomacyMode
   };
 
   const trySubmit = (p: number, q: number, ratio: number, k: number, t: number): boolean => {
-    if (ratio < SUBMIT_RATIO || pm.size[p] > SUBMIT_MAX || fighting(p, q) || dm.vassalsOf(p).length) return false;
+    if (ratio < SUBMIT_RATIO || pm.size[p] > SUBMIT_MAX || fighting(p, q) || dm.vassalsOf(p).length || fightsBloc(p, q)) return false;
     const d = dm.defected.get(p);
     if (d && d.liege === q && t - d.year < RESUBMIT_REST) return false;
     // 有够分量的盟国撑腰就不称臣
@@ -532,7 +534,7 @@ export function installDiplomacy(sim: CivSim, pm: PolityModel, dm: DiplomacyMode
     const a = w.a;
     const b = w.b;
     if (!alive(a) || !alive(b) || pow[a] < SUE_RATIO * pow[b]) return false;
-    if (dm.liegeOf(a) >= 0 || dm.liegeOf(b) >= 0 || dm.vassalsOf(b).length || halted(a, t)) return false;
+    if (dm.liegeOf(a) >= 0 || dm.liegeOf(b) >= 0 || dm.vassalsOf(b).length || halted(a, t) || fightsBloc(b, a)) return false;
     // 这场战争里攻方占下、此刻还在手里的州(同一州反复易手只算一次)
     const won = new Set<number>();
     for (const e of w.takes) if (e.by === a && owner[e.region] === a) won.add(e.region);

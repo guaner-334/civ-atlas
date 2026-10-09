@@ -18,6 +18,7 @@
  *      同一国分裂后 SPLIT_REST 年内不再分裂:大国不会一夜碎成十几块。
  *   ② 合并:不超过 MERGE_SMALL 州、立国满 MERGE_AGE 年的小国,接壤的同族大国(州数是它 MERGE_RATIO 倍以上)
  *      有一定机会和平并入;双方都不在打仗。被并掉的国家 ended = 那一年(不另记灭亡)。
+ *      藩属只会并入自己的宗主,史事 merge 记 cause = vassal(和邦交里的纳土归附一样,编年史写"纳土归附")。
  *   ③ 主动迁都:国都离国土重心太远(各州离国都的平均距离是离"国土中部人口多的那座城"的 ECC_RATIO 倍以上),
  *      或国都已经成了前线(挨着正在交战的敌国),就迁到国土中部人口多的城。迁都后 CAPMOVE_REST 年内不再主动迁。
  *
@@ -469,10 +470,12 @@ function hook(sim: CivSim, pol: PoliticsModel): void {
     if (A < 0 || atWar(A)) return false;
     const odds = MERGE_ODDS * Math.sqrt(pm.size[A] / (MERGE_RATIO * nB));
     if (keyed(pol.base, pm.ptag[bid], k, U_MERGE) >= odds / (1 + odds)) return false;
+    // 藩属并入自己的宗主:和邦交里的纳土归附一样记 cause = vassal(编年史写"纳土归附")
+    const vassal = wm.dm?.liegeOf(bid) === A;
     for (const r of mine) sim.setOwner(Layer.Polity, r, A, Ev.Merge);
     endPolity(pm, bid, t);
     pol.merged.add(bid);
-    sim.record('merge', { a: A, b: bid });
+    sim.record('merge', vassal ? { a: A, b: bid, cause: 'vassal' } : { a: A, b: bid });
     return true;
   };
 

@@ -133,7 +133,7 @@ function historyPrint(world: World, civ: Civ): string {
 describe('起名不碰推演', () => {
   it('没有改地形时,除名字外的世界、历史钉住指纹;同种子两次连名字都一样', () => {
     // 期望值是 GENERATOR_VERSION 10(球面世界 + 人物、战役 + 洋流 + 君主世系 + 邦交,加上推演后贴上去的信仰)算的。推演、地形有意改了的话更新它,并把 GENERATOR_VERSION 加一
-    const expected: Record<number, string> = { 7: 'df6e019b75af74ba', 2024: '684663463f006fe0' };
+    const expected: Record<number, string> = { 7: 'fd994c79f24dba8d', 2024: '97887f04f015cb41' };
     for (const seed of [7, 2024]) {
       const P = { ...DEFAULT_PARAMS, cells: 12000, seed };
       const w = generateWorld(P);
