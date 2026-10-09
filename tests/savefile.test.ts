@@ -745,12 +745,13 @@ describe('浏览器存储(saveStore)', () => {
     expect(saveStore.listWorlds()[0].id).toBe(a);
   });
 
-  it('以前按"种子 + 参数"存的世界:换成新编号,缩略图、AI 写的东西跟过去,当作建好的', () => {
+  it('以前按"种子 + 参数"存的世界:换成新编号,缩略图、AI 写的东西、旧版本的原样跟过去,当作建好的', () => {
     const fake = new FakeStorage();
     const old = worldKey({ ...DEFAULT_PARAMS, seed: 7 });
     fake.setItem(`wenming-ditu:world:${old}`, saveText(makeSave({ ...DEFAULT_PARAMS, seed: 7 }, EDITS, 'check7', '九州大陆')));
     fake.setItem(`wenming-ditu:thumb:${old}`, 'data:image/jpeg;base64,BBBB');
     fake.setItem(`civ-atlas:ai-notes:${old}`, '{"n":2}');
+    fake.setItem(`wenming-ditu:orig:${old}`, '{"原样":1}');
     useStorage(fake);
     const list = saveStore.listWorlds();
     expect(list.length).toBe(1);
@@ -759,8 +760,10 @@ describe('浏览器存储(saveStore)', () => {
     expect(w).toMatchObject({ draft: false, thumb: 'data:image/jpeg;base64,BBBB' });
     expect(w.save.title).toBe('九州大陆');
     expect(fake.getItem(`civ-atlas:ai-notes:${w.id}`)).toBe('{"n":2}');
+    expect(fake.getItem(`wenming-ditu:orig:${w.id}`)).toBe('{"原样":1}');
     expect(fake.getItem(`wenming-ditu:world:${old}`)).toBeNull();
     expect(fake.getItem(`wenming-ditu:thumb:${old}`)).toBeNull();
+    expect(fake.getItem(`wenming-ditu:orig:${old}`)).toBeNull();
     // 改版前的网址(只带种子、参数)刷新还找得回它;别的种子、参数不算
     expect(saveStore.legacyWorld({ ...DEFAULT_PARAMS, seed: 7 })?.id).toBe(w.id);
     expect(saveStore.legacyWorld({ ...DEFAULT_PARAMS, seed: 7, plates: 15 })).toBeNull();

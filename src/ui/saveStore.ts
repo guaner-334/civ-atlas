@@ -211,14 +211,17 @@ function migrateLegacy(kv: KV) {
       if (kv.get(PREFIX + c) === null) id = c;
     }
     if (!id || !kv.set(PREFIX + id, text)) continue;
-    const moved = [THUMB, NOTES, ORIG].every((p) => {
+    const moved = [THUMB, NOTES].every((p) => {
       const v = kv.get(p + old);
       return v === null || kv.set(p + id, v);
     });
     if (!moved) {
-      for (const p of [PREFIX, THUMB, NOTES, ORIG]) kv.remove(p + id);
+      for (const p of [PREFIX, THUMB, NOTES]) kv.remove(p + id);
       continue;
     }
+    // 旧版本的原样跟过去;写不下就不带,不挡着换新编号
+    const orig = kv.get(ORIG + old);
+    if (orig !== null) kv.set(ORIG + id, orig);
     for (const p of [PREFIX, THUMB, NOTES, META, ORIG]) kv.remove(p + old);
     kv.set(LEGACY + old, id);
   }
