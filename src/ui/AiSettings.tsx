@@ -143,6 +143,7 @@ const CHOICES: Choice[] = [
   { kind: 'official', name: '我们的 AI', desc: '登录后按次扣积分' },
   { kind: 'deepseek', name: 'DeepSeek', desc: '用自己的 API 密钥,由 DeepSeek 计费' },
   { kind: 'bailian', name: '阿里云百炼', desc: '用自己的 API 密钥,由阿里云计费' },
+  { kind: 'custom', name: '自定义服务', desc: '自选接口地址、API 密钥和模型（OpenAI 兼容）' },
   { kind: 'mock', name: '测试用假 AI', desc: '回一段假话,检查界面用' },
 ];
 
@@ -166,6 +167,7 @@ function SettingsTab() {
     }
     if (k === 'deepseek') return sec.deepseek ? { text: '已填密钥', cls: 'ok' } : { text: '未填密钥' };
     if (k === 'bailian') return sec.bailian ? { text: '已填密钥', cls: 'ok' } : { text: '未填密钥' };
+    if (k === 'custom') return sec.custom && s.custom.baseUrl && s.custom.model ? { text: '已配置', cls: 'ok' } : { text: '待配置' };
     return { text: forced ? '网址带 ai=mock,强制使用' : '不联网', cls: forced ? 'ok' : undefined };
   };
 
@@ -199,6 +201,17 @@ function SettingsTab() {
       </div>
 
       {forced && <p className="ai-note warn">网址带 ai=mock,只能用测试用假 AI</p>}
+
+      {active === 'custom' && (
+        <div className="ai-detail" data-detail="custom">
+          <div className="ai-row"><label className="ai-label" htmlFor="ai-custom-name">服务商名称</label><input id="ai-custom-name" className="ai-input" value={s.custom.name} maxLength={120} onChange={(e) => updateAiSettings({ custom: { name: e.target.value } })} /></div>
+          <div className="ai-row"><label className="ai-label" htmlFor="ai-custom-url">接口地址</label><input id="ai-custom-url" className="ai-input" type="url" autoComplete="off" spellCheck={false} placeholder="https://api.example.com/v1" value={s.custom.baseUrl} maxLength={2048} onChange={(e) => updateAiSettings({ custom: { baseUrl: e.target.value } })} /></div>
+          <p className="ai-note sub">填写 Base URL 或完整的 /chat/completions 地址；接口需要允许浏览器跨域访问。</p>
+          <KeyField slot="custom" />
+          <div className="ai-row"><label className="ai-label" htmlFor="ai-custom-model">模型名称</label><input id="ai-custom-model" className="ai-input" autoComplete="off" spellCheck={false} placeholder="填写服务商提供的模型名称" value={s.custom.model} maxLength={120} onChange={(e) => updateAiSettings({ custom: { model: e.target.value } })} /></div>
+          <TestRow disabled={!sec.custom || !s.custom.baseUrl || !s.custom.model} sig={`custom|${s.custom.baseUrl}|${s.custom.model}|${sec.custom?.length ?? 0}`} />
+        </div>
+      )}
 
       {active === 'deepseek' && (
         <div className="ai-detail" data-detail="deepseek">
@@ -260,7 +273,7 @@ function SettingsTab() {
   );
 }
 
-function KeyField({ slot, where }: { slot: 'deepseek' | 'bailian'; where: React.ReactNode }) {
+function KeyField({ slot, where }: { slot: 'deepseek' | 'bailian' | 'custom'; where?: React.ReactNode }) {
   const saved = getSecrets()[slot] ?? '';
   const [v, setV] = useState(saved);
   const [show, setShow] = useState(false);
@@ -303,7 +316,7 @@ function KeyField({ slot, where }: { slot: 'deepseek' | 'bailian'; where: React.
           </button>
         )}
       </div>
-      <p className="ai-note sub">没有密钥?到 {where} 创建</p>
+      {where && <p className="ai-note sub">没有密钥?到 {where} 创建</p>}
     </>
   );
 }

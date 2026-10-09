@@ -24,12 +24,14 @@ export interface AiSettings {
   remember: boolean;
   deepseek: { model: string; thinking: boolean };
   bailian: { model: string; region: BailianRegion; thinking: boolean };
+  custom: { name: string; baseUrl: string; model: string };
 }
 
 /** 存密钥的格子:两家的 API 密钥 + 我们的 AI 的登录令牌 */
 export interface AiSecrets {
   deepseek?: string;
   bailian?: string;
+  custom?: string;
   official?: { token: string; account?: string };
 }
 
@@ -39,11 +41,12 @@ export const DEFAULT_AI_SETTINGS: AiSettings = {
   remember: true,
   deepseek: { model: 'deepseek-flash', thinking: false },
   bailian: { model: 'qwen-plus', region: 'cn', thinking: false },
+  custom: { name: '自定义服务', baseUrl: '', model: '' },
 };
 
 const SETTINGS_KEY = 'civ-atlas:ai-settings';
 const SECRETS_KEY = 'civ-atlas:ai-secrets';
-const KINDS: AiProviderKind[] = ['official', 'deepseek', 'bailian', 'mock'];
+const KINDS: AiProviderKind[] = ['official', 'deepseek', 'bailian', 'custom', 'mock'];
 
 function storage(): Storage | null {
   try {
@@ -82,6 +85,7 @@ export function sanitizeSettings(v: unknown): AiSettings {
   const o = (v && typeof v === 'object' ? v : {}) as Record<string, any>;
   const ds = (o.deepseek && typeof o.deepseek === 'object' ? o.deepseek : {}) as Record<string, unknown>;
   const bl = (o.bailian && typeof o.bailian === 'object' ? o.bailian : {}) as Record<string, unknown>;
+  const custom = (o.custom && typeof o.custom === 'object' ? o.custom : {}) as Record<string, unknown>;
   return {
     enabled: bool(o.enabled, d.enabled),
     provider: KINDS.includes(o.provider) ? o.provider : null,
@@ -92,6 +96,11 @@ export function sanitizeSettings(v: unknown): AiSettings {
       region: bl.region === 'intl' ? 'intl' : 'cn',
       thinking: bool(bl.thinking, d.bailian.thinking),
     },
+    custom: {
+      name: str(custom.name, d.custom.name),
+      baseUrl: typeof custom.baseUrl === 'string' ? custom.baseUrl.trim().slice(0, 2048) : '',
+      model: str(custom.model, ''),
+    },
   };
 }
 
@@ -100,6 +109,7 @@ function sanitizeSecrets(v: unknown): AiSecrets {
   const out: AiSecrets = {};
   if (typeof o.deepseek === 'string' && o.deepseek) out.deepseek = o.deepseek;
   if (typeof o.bailian === 'string' && o.bailian) out.bailian = o.bailian;
+  if (typeof o.custom === 'string' && o.custom) out.custom = o.custom;
   if (o.official && typeof o.official.token === 'string' && o.official.token) {
     out.official = { token: o.official.token, account: typeof o.official.account === 'string' ? o.official.account : undefined };
   }
@@ -128,9 +138,10 @@ export function getAiSettings(): AiSettings {
   return settings!;
 }
 
-export function updateAiSettings(patch: Partial<Omit<AiSettings, 'deepseek' | 'bailian'>> & {
+export function updateAiSettings(patch: Partial<Omit<AiSettings, 'deepseek' | 'bailian' | 'custom'>> & {
   deepseek?: Partial<AiSettings['deepseek']>;
   bailian?: Partial<AiSettings['bailian']>;
+  custom?: Partial<AiSettings['custom']>;
 }): void {
   const cur = getAiSettings();
   settings = sanitizeSettings({
@@ -138,6 +149,7 @@ export function updateAiSettings(patch: Partial<Omit<AiSettings, 'deepseek' | 'b
     ...patch,
     deepseek: { ...cur.deepseek, ...patch.deepseek },
     bailian: { ...cur.bailian, ...patch.bailian },
+    custom: { ...cur.custom, ...patch.custom },
   });
   writeJson(SETTINGS_KEY, settings);
   setAiOn(settings.enabled);
@@ -145,7 +157,7 @@ export function updateAiSettings(patch: Partial<Omit<AiSettings, 'deepseek' | 'b
   emit();
 }
 
-const hasAny = (s: AiSecrets) => !!(s.deepseek || s.bailian || s.official);
+const hasAny = (s: AiSecrets) => !!(s.deepseek || s.bailian || s.custom || s.official);
 
 export function getSecrets(): Readonly<AiSecrets> {
   load();
@@ -200,8 +212,8 @@ export function resetAiSettingsForTest(): void {
 export function scrubSecrets(text: string): string {
   let out = text;
   const s = secrets ?? {};
-  for (const k of [s.deepseek, s.bailian, s.official?.token]) {
-    if (k && k.length >= 6) out = out.split(k).join('***');
+  for (const k of [s.deepseek, s.bailian, s.custom, s.official?.token]) {
+    if (k && (k === s.custom || k.length >= 6)) out = out.split(k).join('***');
   }
   return out.replace(/\bsk-[A-Za-z0-9_-]{6,}/g, 'sk-***');
 }

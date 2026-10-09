@@ -4,7 +4,8 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { SseParser, readSse } from '../src/ai/sse';
 import { aiChat, getAiStatus } from '../src/ai/client';
-import { chooseProvider, setSecret, updateAiSettings } from '../src/ai/settings';
+import { chooseProvider, setSecret, updateAiSettings, getAiSettings, getSecrets, sanitizeSettings, scrubSecrets, resetAiSettingsForTest } from '../src/ai/settings';
+import { customEndpoint, customProvider } from '../src/ai/providers/custom';
 import { setupAi } from '../src/ai/setup';
 import { getCallLog } from '../src/ai/callLog';
 import { compatBody, compatChat } from '../src/ai/providers/compat';
@@ -23,6 +24,54 @@ import { createFakeAiServer, FAKE_CODE } from '../scripts/lib/fakeAiServer';
 import { getSession } from '../src/account/session';
 
 const KEY = 'sk-test-secret-0123456789';
+
+describe('自定义 OpenAI 兼容服务商', () => {
+  it('接受 Base URL 或完整端点，拒绝凭据和非 HTTP 地址', () => {
+    expect(customEndpoint('https://provider.test/v1/')).toBe('https://provider.test/v1/chat/completions');
+    expect(customEndpoint('http://localhost:1234/v1/chat/completions')).toBe('http://localhost:1234/v1/chat/completions');
+    for (const url of ['file:///tmp/api', 'javascript:alert(1)', 'https://user:password@provider.test/v1', 'https://provider.test/v1?key=secret', 'https://provider.test/v1#key']) expect(() => customEndpoint(url)).toThrow(AiError);
+    expect(sanitizeSettings({ provider: 'custom', custom: { baseUrl: 'https://provider.test/v1', model: 'model-name' } }).custom.model).toBe('model-name');
+  });
+  it('通过统一 AI 入口发送模型、工具和流式结果，密钥只放请求头', async () => {
+    updateAiSettings({ custom: { name: '测试服务', baseUrl: 'https://provider.test/v1', model: 'custom-model' } });
+    setSecret('custom', KEY); chooseProvider('custom');
+    const calls = fakeFetch(() => sseResponse(sseBody([
+      { model: 'custom-model', choices: [{ delta: { content: '你好', tool_calls: [{ index: 0, id: 'tool_1', function: { name: 'lookup', arguments: '{"year":100}' } }] }, finish_reason: 'tool_calls' }] },
+      { usage: { prompt_tokens: 10, completion_tokens: 4 }, choices: [] },
+    ])));
+    const result = await aiChat({ ...REQ, json: true, tools: [{ name: 'lookup', description: '查询历史', parameters: { type: 'object' } }] });
+    expect(result.provider).toBe('custom'); expect(result.text).toBe('你好'); expect(result.toolCalls?.[0].name).toBe('lookup');
+    expect(result.usage).toEqual({ inputTokens: 10, outputTokens: 4 });
+    expect(getAiStatus().label).toBe('测试服务');
+    expect(calls[0].url).toBe('https://provider.test/v1/chat/completions');
+    expect(calls[0].headers.authorization).toBe('Bearer ' + KEY);
+    expect(calls[0].body.model).toBe('custom-model'); expect(calls[0].body.response_format).toEqual({ type: 'json_object' });
+    expect(JSON.stringify(calls[0].body)).not.toContain(KEY);
+    expect(JSON.stringify(await getCallLog())).not.toContain(KEY);
+  });
+  it('服务商报错中回显的自定义密钥会被遮掉，未配置时不联网', async () => {
+    updateAiSettings({ custom: { baseUrl: 'https://provider.test/v1', model: 'custom-model' } });
+    setSecret('custom', KEY); chooseProvider('custom');
+    fakeFetch(() => errResponse(401, { message: 'Invalid key ' + KEY }));
+    await expect(aiChat(REQ)).rejects.toMatchObject({ code: 'auth' });
+    expect(JSON.stringify(await getCallLog())).not.toContain(KEY);
+    expect(scrubSecrets(KEY)).toBe('***');
+    setSecret('custom', undefined); expect(customProvider.status().ready).toBe(false);
+    const calls = fakeFetch(() => { throw Error('must not fetch'); });
+    await expect(customProvider.chat(REQ, {})).rejects.toMatchObject({ code: 'not-configured' });
+    expect(calls).toHaveLength(0);
+  });
+  it('按记住密钥开关恢复或移除配置，不将密钥存进普通设置', () => {
+    const stored = new Map<string, string>();
+    vi.stubGlobal('localStorage', { getItem: (key: string) => stored.get(key) ?? null, setItem: (key: string, value: string) => stored.set(key, value), removeItem: (key: string) => stored.delete(key) });
+    resetAiSettingsForTest();
+    updateAiSettings({ remember: true, custom: { baseUrl: 'https://provider.test/v1', model: 'restored-model' } }); setSecret('custom', KEY); chooseProvider('custom');
+    expect(stored.get('civ-atlas:ai-settings')).not.toContain(KEY);
+    resetAiSettingsForTest(); expect(getAiSettings().provider).toBe('custom'); expect(getSecrets().custom).toBe(KEY);
+    updateAiSettings({ remember: false }); expect(stored.has('civ-atlas:ai-secrets')).toBe(false);
+    resetAiSettingsForTest(); expect(getSecrets().custom).toBeUndefined();
+  });
+});
 
 /** 把字符串按给定的字节块切开,做成一个流(模拟网络上任意位置断开) */
 function byteStream(text: string, cut = 7): ReadableStream<Uint8Array> {
@@ -331,9 +380,9 @@ describe('我们的 AI(开发假服务器,假 fetch 直连,不开端口)', () =>
   it('没选 AI 时的说明:我们的 AI 开放了才提它', () => {
     chooseProvider(null);
     setOfficialServerForTest(null);
-    expect(getAiStatus().reason).toBe('还没有设置 AI:可以填上自己的 DeepSeek / 阿里云百炼密钥');
+    expect(getAiStatus().reason).toBe('还没有设置 AI:可以填上自己的 DeepSeek / 阿里云百炼密钥，或配置自定义服务');
     setOfficialServerForTest('http://fake-ai.test');
-    expect(getAiStatus().reason).toBe('还没有设置 AI:可以用我们提供的 AI(消耗积分),或填上自己的 DeepSeek / 阿里云百炼密钥');
+    expect(getAiStatus().reason).toBe('还没有设置 AI:可以用我们提供的 AI(消耗积分),或填上自己的 DeepSeek / 阿里云百炼密钥，或配置自定义服务');
     setOfficialServerForTest(undefined);
   });
 

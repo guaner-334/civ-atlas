@@ -115,7 +115,7 @@ export function getAiStatus(): AiStatus {
 
 /** 没选 AI 时的说明:我们的 AI 开放了才提它 */
 function unsetReason(): string {
-  const own = '填上自己的 DeepSeek / 阿里云百炼密钥';
+  const own = '填上自己的 DeepSeek / 阿里云百炼密钥，或配置自定义服务';
   return providers.get('official')?.offered?.() ? `还没有设置 AI:可以用我们提供的 AI(消耗积分),或${own}` : `还没有设置 AI:可以${own}`;
 }
 
