@@ -137,5 +137,9 @@ jobs:
             echo "$url 拿到的不是刚传上去的旧版页面" >&2
             exit 1
           fi
-          curl -fsS --retry 3 --max-time 60 -o /dev/null "$url${js#./}"
-          echo "$url 能打开(主程序 ${js#./assets/})" >> "$GITHUB_STEP_SUMMARY"
+          type=$(curl -fsS --retry 3 --max-time 60 -o /dev/null -w '%{content_type}' "$url${js#./}")
+          if [[ "$type" != *javascript* ]]; then
+            echo "主程序的类型是「$type」,浏览器不会运行它" >&2
+            exit 1
+          fi
+          echo "$url 能打开(主程序 ${js#./assets/},$type)" >> "$GITHUB_STEP_SUMMARY"
