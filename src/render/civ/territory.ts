@@ -11,6 +11,7 @@
  *   离界线不远的像素再按平滑后的界线判在哪一侧(borders.ts 的 bandLabels):色块的边和画出来的国界严丝合缝。
  *   海、湖的像素不上色,海岸线和地形图严丝合缝。
  * - 两层都打开时只铺民族色块,国家只画国界(见 overlay.ts)。
+ * - 国土里藩属的颜色往宗主那边靠(vassals.ts),看得出是宗主的势力范围。
  * - 信仰图层:把信仰换进民族那一层(faith.ts 的 faithCiv),画法和民族色块一样,只是浓一点(手绘 PAINT_FAITH_*);
  *   选中一种信仰时别的信仰变淡(faithColors)。
  * - 回放 / 拖时间轴时(fast)用半分辨率,静止时用全分辨率;刚归属的州用几十年渐入,看起来像颜料慢慢洇开。
@@ -31,6 +32,7 @@ import { coastBlocks, KEEP, landCover, nearestCellPixel, nearestSide, type Detai
 import { reprojectImage } from '../projection';
 import type { CivDrawParams, CivStyle } from './overlay';
 import { faithBase, faithCiv, faithColors } from './faith';
+import { vassalColors, vassalTies } from './vassals';
 
 /** 刚被占的州用多少年渐入 */
 export const FADE_YEARS = 30;
@@ -864,7 +866,8 @@ export function washFields(p0: CivDrawParams, f: number): WashFields | null {
     label: new Int16Array(0),
     dist: new Float32Array(0),
   });
-  const colors = fp ? faithColors(p0.civ, p0.faithFocus) : look.colors;
+  // 国土:藩属往宗主的颜色靠(vassals.ts)
+  const colors = fp ? faithColors(p0.civ, p0.faithFocus) : layer === Layer.Polity ? vassalColors(look.colors, vassalTies(civ, p.year)) : look.colors;
   const out: WashFields = { key, layer, f, label, W, H, edge, owner, fade, fading, colors, lines, polity: layer === Layer.Polity, pix: c.pix, faith: !!fp };
   c.fields.set(f, out);
   return out;

@@ -6,7 +6,8 @@
  *   按钮  干预历史(主操作;窄屏点了底部抽屉展开)/ 设为中心 / 改名 / 更多(在编年史中查看、让 AI 写国史、让 AI 讲名字由来;
  *         有主体民族时还有讲它的族名由来、给它起族名)
  *   概况  国都、君主(这一年在位的那位,点了看他;共和国写"执政")、疆域(历年州数的小柱图,和概览"国家"表同一份)、
- *         人口(境内城镇)、主体民族、国教(可点,"某年起";没有写"没有")、邻国(可点),来历 / 结局 / 历任国都(有才写)
+ *         人口(境内城镇)、主体民族、国教(可点,"某年起";没有写"没有")、
+ *         宗主("某年起称臣")/ 藩属 / 盟国(可点,名字后面是哪年称臣、结盟;有才写)、邻国(可点),来历 / 结局 / 历任国都(有才写)
  *   历代君主  当前这位和前后各两位(新的在上;遇弑、被废这类结局写在名字后面),点一行看这个人;
  *         "全部 N 位"打开概览的人物页、只看这国的君主;"世系图"(不是共和国才有)打开这国的世系图,停在时间轴那一年的那一朝
  *   朝代  改朝换代过才有:一朝一行(新的在上),当前那一朝标"当前";点一行 = 时间轴跳到它开始的那年
@@ -36,6 +37,7 @@ import type { AiName } from './AiNamePanel';
 import { openHistoryBook } from './HistoryBook';
 import { NameEdit } from './NameEdit';
 import { neighborsAt } from './Interventions';
+import { relationsAt } from '../gen/civ/diplomacy';
 import { CommandPage } from './CommandPage';
 import { setPanelTab, setSheet, usePanel } from './panelStore';
 import { shownYearOf } from './flyTo';
@@ -211,6 +213,13 @@ function InfoPage({ civ, raw, raster, world, id, year, p, shared }: CountryPanel
   const mainFolk = folks.length && folks[0][1] * 2 >= n ? folks[0][0] : null;
   const folkAi = useRevealAi({ civ, raw, raster, target: mainFolk !== null ? { kind: 'culture', id: mainFolk } : null, lazy: true, what: '族名' });
   const near = useMemo(() => [...neighborsAt(civ, id, shownYear).near], [civ, id, shownYear]);
+  // 邦交:宗主、藩属(哪年称臣)、盟国(哪年结盟、共御谁)
+  const ties = useMemo(() => {
+    const r = relationsAt(civ, shownYear);
+    const vassals = [...r.liege].filter(([, x]) => x.liege === id).map(([v, x]) => ({ id: v, since: x.since }));
+    const allies = r.pacts.filter((x) => x.a === id || x.b === id).map((x) => ({ id: x.a === id ? x.b : x.a, since: x.since, foe: x.foe }));
+    return { liege: r.liege.get(id), vassals, allies };
+  }, [civ, id, shownYear]);
   // 疆域小柱图:和概览"国家"表里的同一份(0 年到结束年份均匀取样的州数),按这国最多时的州数定高
   const hist = polityHistory(civ);
   const spark = hist.years.map((y, i) => ({ year: y, n: hist.spark[id * SPARK_N + i] }));
@@ -311,6 +320,32 @@ function InfoPage({ civ, raw, raster, world, id, year, p, shared }: CountryPanel
               ) : (
                 <span className="cp-none">没有</span>
               )}
+            </Row>
+          )}
+          {ties.liege && (
+            <Row k="宗主">
+              {other(ties.liege.liege, shownYear)}
+              <em className="cp-num-note">{Math.floor(ties.liege.since)} 年起称臣</em>
+            </Row>
+          )}
+          {ties.vassals.length > 0 && (
+            <Row k="藩属" className="cp-links">
+              {ties.vassals.map((v) => (
+                <span key={v.id} title={`${Math.floor(v.since)} 年起称臣`}>
+                  {other(v.id, shownYear)}
+                  <em>{Math.floor(v.since)}</em>
+                </span>
+              ))}
+            </Row>
+          )}
+          {ties.allies.length > 0 && (
+            <Row k="盟国" className="cp-links">
+              {ties.allies.map((v) => (
+                <span key={v.id} title={`${Math.floor(v.since)} 年结盟${civ.polities[v.foe] ? `，共御${polityName(civ.polities[v.foe], shownYear)}` : ''}`}>
+                  {other(v.id, shownYear)}
+                  <em>{Math.floor(v.since)}</em>
+                </span>
+              ))}
             </Row>
           )}
           <Row k="邻国" className="cp-links">
