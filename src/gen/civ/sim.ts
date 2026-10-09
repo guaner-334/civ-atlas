@@ -35,7 +35,7 @@ import { resumeInterventions, scheduleInterventions } from './interventions';
 import type { Intervention } from '../edits';
 
 // ---------------------------------------------------------------------------
-// 事件类型编号表(变化日志的 cause 用同一套编号;阶段 3 从 7 往下接着编:战争 7–9,分合 10–14,王朝更替 15–19,
+// 事件类型编号表(变化日志的 cause 用同一套编号;阶段 3 从 7 往下接着编:战争 7–9,分合 10–14,王朝更替 15–19(新君即位 16),
 // 民族同化与迁徙 20–24,城市兴衰 25–29;阶段 4 干预 30–35;邦交 40–44)
 
 export const enum Ev {
@@ -91,6 +91,11 @@ export const enum Ev {
    * 改朝换代不改归属(同一个国家编号),新朝定都根据地时迁都
    */
   DynastyCheck = 15,
+  /**
+   * 新君即位(polities.ts;在位表见 rulers.ts):a = 本国第几位君主,b = 国家。门槛比上一位低的(扩张算账),
+   * 从现有国土往外重新看一遍边上的部落地带;再预约下一位。改朝换代后在位表重排,对不上的丢掉
+   */
+  Reign = 16,
   /**
    * 看民族(阶段 3 同化与迁徙,assimilation.ts;编号 20–24):a = 立国后第几次看(按年份段编号),b = 国家。
    * 国家隔几十年看一眼治下的各州:异族州被统治久了、离核心近、四周同族多,就改换成统治民族(同化);
@@ -166,6 +171,7 @@ export const EVENT_INFO: EventInfo[] = [
   { id: Ev.RestoreCheck, name: '看复国', watch: false },
   { id: Ev.TribalCheck, name: '看部落地带', watch: false },
   { id: Ev.DynastyCheck, name: '看王朝', watch: false },
+  { id: Ev.Reign, name: '新君即位', watch: false },
   { id: Ev.CultureCheck, name: '看民族', watch: false },
   { id: Ev.Assimilate, name: '同化', watch: false },
   { id: Ev.Migrate, name: '迁徙', watch: false },

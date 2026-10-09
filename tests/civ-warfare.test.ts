@@ -124,7 +124,8 @@ describe('某一年的战事', () => {
   });
 
   it('仗打完以后双剑慢慢淡去,AFTER 年后不再画', () => {
-    const w = warSpans(civ).find((s) => s.end !== Infinity && s.fights.length && s.end + AFTER <= civ.endYear);
+    // 头一仗在议和之前(打下一州当即罢兵的,议和前一刻还没有双剑)
+    const w = warSpans(civ).find((s) => s.end !== Infinity && s.fights.length && s.fights[0].year < s.end - 0.01 && s.end + AFTER <= civ.endYear);
     expect(w).toBeTruthy();
     const alphaOf = (y: number) => Math.max(0, ...warScene(civ, y).marks.filter((m) => m.war === w!.id).map((m) => m.alpha));
     expect(warScene(civ, w!.end).live.includes(w!)).toBe(false);

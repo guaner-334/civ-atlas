@@ -175,7 +175,8 @@ describe('分与合', () => {
           const B = P[e.b];
           const tag = `seed ${seed} 第 ${e.year} 年 ${B.name} 并入 ${A.name}`;
           expect(B.ended, tag).toBe(e.year);
-          expect(A.culture, tag).toBe(B.culture);
+          // 内政里的合并只并同族;藩属纳土归附(邦交)异族也有
+          if (e.cause !== 'vassal') expect(A.culture, tag).toBe(B.culture);
           expect(polityAlive(A, e.year)).toBe(true);
           let n = 0;
           for (let r = 0; r < reg.count; r++) {
@@ -203,6 +204,8 @@ describe('分与合', () => {
       for (const e of civ.annals) {
         if (e.kind !== 'war') continue;
         const Q = civ.polities[e.b];
+        // 援盟、救藩不算:是它先动的手(打了别国的盟国 / 藩属)
+        if (e.cause === 'ally' || e.cause === 'rescue') continue;
         if (Q.parent !== undefined) expect(e.year - Q.founded, `seed ${seed} 战争 ${e.war}`).toBeGreaterThanOrEqual(NEWBORN);
       }
       const restored = civ.polities.filter((p) => p.restores !== undefined).map((p) => p.restores!);

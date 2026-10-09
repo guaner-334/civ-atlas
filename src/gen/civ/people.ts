@@ -6,12 +6,13 @@
  *   - 每一朝的第一位:立国之君 / 叛离自立的守将(分裂)/ 故国王室之后(复国;东方沿用故国末代的姓)/
  *     篡位的权臣(新朝的根据地就是国都)/ 起兵代之的新朝开国之君
  *   - 之后同一家里继位:即位的年纪、在位多少年按"国家的位置锚 + 第几位"随机取,一生不超过 MAX_AGE 岁;
- *     共和国的执政官任期短、任满卸任
+ *     共和国的执政官任期短、任满卸任。这几样和性格(好战 / 守成 / 重商,Person.trait)在 rulers.ts,推演里用同一份
+ *     (扩张算账、议和看当时在位的是谁),这里排出来的君主和推演里的一位不差
  *   - 一朝结束(改朝换代、亡国、并入他国)时在位的那一位是末代:被废、死于兵乱、殉国、出降、出奔、归附
  *   - 称号(Person.title)去世以后才定,还在位的没有:东方按去世那年的国号档位 —— 帝国(王朝)用庙号(开国之君太祖,
  *     这一朝中途才称帝的第一位世祖;太宗、世宗……,末代"哀帝""末帝""废帝""少帝"),王国、国用谥号 + 王 / 公(按在位时开疆还是失地挑字),部落首领、可汗没有称号;
  *     西幻:同一国里同名的国王按先后编序数("阿尔德里克三世"),帝国里开疆最多的一位称"大帝";共和国执政官、汗不编序数
- * **统帅**(按战争先后):开战时两边各有一位 —— 好战的君主有时亲征,否则派一位将领(本国在世、正闲着的将领先用,没有就新起一位);
+ * **统帅**(按战争先后):开战时两边各有一位 —— 性格好战的君主有时亲征,否则派一位将领(本国在世、正闲着的将领先用,没有就新起一位);
  *   每一仗输的一方统帅有机会战死,下一仗换人;将领到年纪卸甲、去世也换人。君主亲征不会战死。
  * **世系**(lineage.ts):按年纪给继位的君主连上父亲(子、孙、兄弟、侄、叔伯……),对不上的地方补一位没即位的宗室。
  *
@@ -21,25 +22,14 @@
  * (称号、编号可能变:日后多了一位同名的国王,前面那位就要编"一世")。名字按民族的语感取(naming.ts 的 personNamers)。纯计算,不碰 DOM。
  */
 import type { Annal, Civ, Person, PersonCommand, PersonFate, Polity, RulerRise, Year } from './types';
-import { anchorTag, keyed4, subSeed } from './rand';
-import { anchorsOf, personNamers } from './naming';
+import { keyed4, subSeed } from './rand';
+import { personNamers } from './naming';
 import { capitalAt, polityTierAt } from './growth';
 import { buildLineage } from './lineage';
+import { K_RULER, MAX_AGE, U_AGE, reignStep, rulerBase, rulerTags } from './rulers';
 
 // ---- 调参 ----
-/** 开国之君、新朝之君即位的年纪(随机) */
-const FOUNDER_AGE: [number, number] = [28, 50];
-/** 继位的年纪:HEIR_AGE[0] + 跨度 × u^HEIR_EXP(偏年轻,偶有幼主) */
-const HEIR_AGE: [number, number] = [10, 40];
-const HEIR_EXP = 1.3;
-/** 在位年数:1 + REIGN_MAX × u^REIGN_EXP(中位数十几年,偶有四五十年) */
-const REIGN_MAX = 50;
-const REIGN_EXP = 1.3;
-/** 共和国执政官:就任的年纪、任期 */
-const CONSUL_AGE: [number, number] = [40, 62];
-const TERM: [number, number] = [4, 20];
-/** 一生最多这么多岁 */
-const MAX_AGE = 88;
+// 即位的年纪、在位年数、执政官任期、一生最多多少岁在 rulers.ts(推演里也要知道谁在位)
 /** 在位时遇弑的机会 */
 const MURDER = 0.07;
 /** 被废、出降、出奔、归附、卸任以后最多再活这么多年 */
@@ -47,8 +37,7 @@ const AFTERLIFE = 15;
 /** 亡国之君:殉国、出降的机会(其余出奔) */
 const FELL = 0.35;
 const SURRENDER = 0.4;
-/** 好战的君主(有时亲征)的比例;好战的君主每场仗亲征的机会;亲征的年纪 */
-const MARTIAL = 0.35;
+/** 好战的君主(性格见 rulers.ts)每场仗亲征的机会;亲征的年纪 */
 const LEAD = 0.5;
 const LEAD_AGE: [number, number] = [18, 58];
 /** 将领:领兵的年纪、寿命、卸甲的年纪 */
@@ -63,13 +52,10 @@ const REUSE = 0.55;
 /** 帝国里开疆这么多州以上的君主,开疆最多的一位称"大帝" */
 const GREAT_GAINS = 12;
 
-// 随机数用途
-const U_AGE = 1;
-const U_REIGN = 2;
+// 随机数用途(1、2、14 是年纪、在位年数、性格,在 rulers.ts)
 const U_MURDER = 3;
 const U_FATE = 4;
 const U_AFTER = 5;
-const U_MARTIAL = 6;
 const U_REUSE = 7;
 const U_PICK = 8;
 const U_TITLE = 9;
@@ -77,8 +63,7 @@ const U_LIFE = 10;
 const U_RETIRE = 11;
 const U_LEAD = 12;
 const U_FALL = 13;
-/** keyed4 最后一位:君主 / 将领 / 战争 */
-const K_RULER = 0;
+/** keyed4 最后一位:君主(K_RULER = 0,在 rulers.ts)/ 将领 / 战争 */
 const K_GENERAL = 1;
 
 const TICK = 256;
@@ -186,9 +171,9 @@ const ENDED: ReadonlySet<PersonFate> = new Set(['deposed', 'overthrown', 'fell',
 export function buildPeople(civ: PeopleInput): Person[] {
   const { polities, settlements, cultures, endYear } = civ;
   if (!polities.length) return [];
-  const base = subSeed(civ.seed, 'civ-people');
-  const at = anchorsOf(polities, (p) => settlements[p.capital]?.cell ?? -1);
-  const tag = polities.map((_, i) => anchorTag(Math.max(0, at[i].cell), at[i].n));
+  const base = rulerBase(civ.seed);
+  // 位置锚和推演里一样(rulers.ts):推演按它定"哪一位在位、什么性格"
+  const tag = rulerTags(polities, (sid) => settlements[sid]?.cell ?? -1);
   const facts = factsOf(civ);
   const namerOf = personNamers(civ.seed);
   const styleOf = (p: Polity) => cultures[p.culture]?.style || 'kingdom';
@@ -232,20 +217,13 @@ export function buildPeople(civ: PeopleInput): Person[] {
       let t = segStart;
       for (let j = 0; ; j++) {
         const k = list.length;
-        let A: number;
-        let L: number;
-        if (republic) {
-          A = lerp(CONSUL_AGE, R(k, U_AGE));
-          L = lerp(TERM, R(k, U_REIGN));
-        } else {
-          A = j === 0 ? lerp(FOUNDER_AGE, R(k, U_AGE)) : HEIR_AGE[0] + (HEIR_AGE[1] - HEIR_AGE[0]) * Math.pow(R(k, U_AGE), HEIR_EXP);
-          L = 1 + REIGN_MAX * Math.pow(R(k, U_REIGN), REIGN_EXP);
-        }
-        if (A + L > MAX_AGE) L = Math.max(1, MAX_AGE - A);
         const from = t;
-        const born = q(from - A);
-        const natural = q(from + L);
+        // 即位的年纪、在位年数、性格:和推演里的在位表同一份(rulers.ts)
+        const step = reignStep(base, tag[p.id], k, j, from, p.lineage, p.kind);
+        const born = q(from - step.age);
+        const natural = step.natural;
         const person: Person = { id: -1, role: 'ruler', polity: p.id, name: '', born, from, dynasty: i, rise: j === 0 ? rise : 'heir' };
+        if (step.trait) person.trait = step.trait;
         // 名字
         person.name = rulerName(namer, tag[p.id], k, j, surname, usedGiven, pool, R, republic, heirOf && pools[fallen!.id], list[list.length - 1]?.name);
         list.push(person);
@@ -321,10 +299,9 @@ export function buildPeople(civ: PeopleInput): Person[] {
       // 好战的君主亲征
       const ruler = rulerAt(rulers[pid], t);
       if (ruler) {
-        const k = rulers[pid].indexOf(ruler);
         const age = t - ruler.born;
         const free = (busyRuler.get(ruler) ?? -Infinity) <= t;
-        if (free && P.lineage !== 'republic' && keyed4(base, tag[pid], k, U_MARTIAL, K_RULER) < MARTIAL && age >= LEAD_AGE[0] && age <= LEAD_AGE[1] && wr(x * 2 + s, U_LEAD) < LEAD) {
+        if (free && P.lineage !== 'republic' && ruler.trait === 'martial' && age >= LEAD_AGE[0] && age <= LEAD_AGE[1] && wr(x * 2 + s, U_LEAD) < LEAD) {
           cur[s] = { p: ruler, careerEnd: ruler.until ?? Infinity, cmd: command(ruler), general: false };
           busyRuler.set(ruler, Infinity);
           return;

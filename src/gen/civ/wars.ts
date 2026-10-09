@@ -26,6 +26,7 @@
  *     一州不剩就灭亡(Polity.ended),它的所有战争随之结束。
  *   议和:打满这场战争的年限(厌战,LENGTH 里随机)、连着 STALL 年没打下一州(僵持)、
  *     攻方达成战争目标(拿下 GOAL 里随机的几州)、拿下国都、或守方丢了过半国土 → 议和,占领的州归攻方;
+ *     年限、目标看攻方此刻在位的君主(rulers.ts):好战的打得更久、想多拿几州,守成的早早罢兵;
  *     议和时两国各自被切出去、挨着对方的飞地割给对方(划清边界;割让的州数记在史事 peace 的 region 列)。
  *     攻方国力是守方 CRUSH 倍以上时是灭国之战:拿下国都、对方丢了过半国土、达成战争目标都不停,直到厌战、僵持或对方亡国。
  *
@@ -51,7 +52,8 @@ import type { World } from '../world';
 import { AdjKind, Layer, type AnnalCause, type Civ, type Polity, type Year } from './types';
 import { fexp, flog, fpow, keyed, keyed4, subSeed } from './rand';
 import { Ev, quantize, type CivSim } from './sim';
-import { canCross, coreOf, endPolity, moveCapital, polityModelOf, type PolityModel } from './polities';
+import { canCross, coreOf, endPolity, moveCapital, polityModelOf, rulerOf, type PolityModel } from './polities';
+import { traitEffect } from './rulers';
 import { capitalAt, populationAt } from './growth';
 import type { InterventionModel } from './interventions';
 import type { DiplomacyModel } from './diplomacy';
@@ -60,8 +62,8 @@ import type { DiplomacyModel } from './diplomacy';
 /** 立国后多少年开始看邻国;之后每隔多少年看一次(每段里 20%–80% 处随机一个时刻) */
 const CHECK_FIRST = 40;
 const CHECK_EVERY = 40;
-/** 宣战赔率的底数;边境胜算(胜率 ÷ 败率)的指数;对异族 */
-const WAR_ODDS = 0.2;
+/** 宣战赔率的底数(国家之间常隔着部落、接壤的不多,底数取得高些);边境胜算(胜率 ÷ 败率)的指数;对异族 */
+const WAR_ODDS = 0.3;
 const LOCAL_EXP = 0.65;
 const FOREIGN = 1.6;
 /** 边界不到这么多段(州与州相邻的对数)时,赔率按比例打折 */
@@ -637,13 +639,15 @@ export function installWars(sim: CivSim, pm: PolityModel, wm: WarModel = newMode
     if (wm.sue?.(w, i, t, pow, defCapital)) return;
     // 议和?
     const last = w.takes.length ? w.takes[w.takes.length - 1].year : w.start;
-    let peace = t - w.start >= lengthOf(wm, w) || t - last >= STALL;
+    // 攻方此刻在位的君主:好战的不轻易罢兵、想多拿几州,守成的打不了多久就想议和(rulers.ts)
+    const eff = traitEffect(rulerOf(pm, w.a, t).trait);
+    let peace = t - w.start >= lengthOf(wm, w) * eff.war || t - last >= STALL;
     if (!peace) {
       let held = 0;
       for (const e of w.takes) if (e.by === w.a && owner[e.region] === w.a) held++;
       // 灭国之战:拿下国都、对方丢了过半国土都不停,战争目标翻倍
       if (pow[w.a] >= CRUSH * pow[w.b]) peace = held >= CRUSH_GOAL * goalOf(wm, w);
-      else peace = capitalFell || held >= pm.size[w.b] || held >= goalOf(wm, w);
+      else peace = capitalFell || held >= pm.size[w.b] || held >= Math.max(1, goalOf(wm, w) + eff.goal);
     }
     if (peace) makePeace(w, t);
     else sim.schedule(t + gapOf(wm, w, i + 1), Ev.Campaign, i + 1, id);

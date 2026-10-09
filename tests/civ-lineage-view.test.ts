@@ -96,12 +96,12 @@ describe.each([7, 2024])('世系图 · seed=%i', (seed) => {
 });
 
 describe('世系图 · seed=7 的大景', () => {
-  it('景朝:标题、结尾、圣宗的父亲是没即位的柳曜玄;开国之君的父亲也是景的宗室', () => {
+  it('景朝:标题、结尾、昭王的父亲是没即位的柳曜玄;开国之君的父亲也是景的宗室', () => {
     const civ = civOf(7);
     const rows = dynastyRows(civ, 0);
     expect(rows.map((r) => r.name)).toEqual(['云羽', '霄', '辰', '衍', '景', '渊']);
     const i = rows.findIndex((r) => r.name === '景');
-    expect(dynastyNote(civ, rows, i)).toBe('2377–2794 年，27 位君主；太祖柳渺玄起兵代衍朝开国');
+    expect(dynastyNote(civ, rows, i)).toBe('2377–2794 年，27 位君主；德王柳渺玄起兵代衍朝开国');
     expect(dynastyEnd(civ, rows, i)).toBe('2794 年，渊朝起兵代之');
     expect(dynastyEnd(civ, rows, rows.length - 1)).toBe('');
     expect(dynastyNote(civ, rows, 0)).toMatch(/；.+立国$/);
@@ -110,8 +110,8 @@ describe('世系图 · seed=7 的大景', () => {
     const f = fatherOf(civ, sz) as Person;
     expect(f).toMatchObject({ role: 'prince', name: '柳曜玄' });
     expect(kidsOf(civ, f).map((k) => k.name)).toEqual(['柳尧霄', '柳玄']);
-    expect(lineageText(civ, 0)).toContain('\n          11 圣宗柳玄 2485–2519 年在位\n');
-    // 太祖的父亲死在景朝开国之前,也算景的宗室(不写成"大衍宗室")
+    expect(lineageText(civ, 0)).toContain('\n          11 昭王柳玄 2485–2519 年在位\n');
+    // 开国之君的父亲死在景朝开国之前,也算景的宗室(不写成"大衍宗室")
     const root = layoutDynasty(civ, rows[i])[0].nodes[0].p;
     expect(root).toMatchObject({ role: 'prince', name: '柳昀琅' });
     expect(root.died!).toBeLessThan(rows[i].from);

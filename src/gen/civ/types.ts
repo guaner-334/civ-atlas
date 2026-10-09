@@ -559,6 +559,8 @@ export interface Person {
   dynasty?: number;
   /** 君主:怎么即位的 */
   rise?: RulerRise;
+  /** 君主的性格(好战 / 守成 / 重商,见 rulers.ts;推演里扩张、议和看它);寻常的君主不给 */
+  trait?: RulerTrait;
   /**
    * 君主的称号(去世以后才有;还在位 = 空串):东方 = 庙号("太祖""世宗")或谥号 + 爵("穆公""庄王",亡国之君"哀帝");
    * 西幻 = 同名君主的序数("三世")或"大帝"。称呼的写法见 peopleText.ts
@@ -592,6 +594,9 @@ export interface PersonCommand {
  * - 统帅:died 寿终、battle 战死
  */
 export type PersonFate = 'died' | 'murdered' | 'deposed' | 'overthrown' | 'fell' | 'surrendered' | 'fled' | 'merged' | 'retired' | 'battle';
+
+/** 君主的性格:martial 好战、steady 守成、mercantile 重商(rulers.ts) */
+export type RulerTrait = 'martial' | 'steady' | 'mercantile';
 
 /** 君主怎么即位的:found 立国、rebel 叛离自立(分裂)、restore 复国(故国王室之后)、usurp 权臣篡位、rise 起兵代之(改朝换代)、heir 继位 */
 export type RulerRise = 'found' | 'rebel' | 'restore' | 'usurp' | 'rise' | 'heir';

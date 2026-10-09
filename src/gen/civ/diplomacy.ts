@@ -8,7 +8,7 @@
  *   ① 藩属:看要不要自立(不再称臣纳贡)。宗主虚弱(在打仗、刚丢了国都 / 迁都、刚改朝换代、刚分裂、接连丢州)、
  *        藩属的国力追上来了、两国已不接壤(鞭长莫及)、异族,自立的机会都更大。藩属不另外结盟、不收别国称臣。
  *        自立以后宗主多半发兵讨伐(PUNISH;史事 war 的 cause = punish)。
- *   ② 宗主:称臣久了的同族小藩属(接壤、两边都没在打仗),有机会纳土归附(记 merge,cause = vassal;编年史写"纳土归附")。
+ *   ② 宗主:称臣久了的小藩属(接壤、两边都没在打仗;异族的机会小些),有机会纳土归附(记 merge,cause = vassal;编年史写"纳土归附")。
  *   ③ 盟约:共御的强邻已经亡了、或已不比盟国强,盟约渐废(unally,cause = lapse)。
  *   ④ 畏强邻(接壤、国力是自己 THREAT 倍以上的邻国;正在交兵的也算):
  *        小国、弱国先看要不要遣使称臣(国力差 SUBMIT_RATIO 倍以上,强邻越好战越可能;正和强邻的藩属交兵的不称臣);
@@ -18,7 +18,8 @@
  *   - 宣战时(WarModel.onDeclare):守方的盟国(和攻方接壤、没在和攻方打、手上的仗没打满)有 PACT_JOIN 的机会援盟参战,
  *     不来就是坐视不救,盟约就此断了(unally,cause = abandon);守方的宗主(和攻方接壤)有 RESCUE 的机会发兵来救。
  *     援盟、救藩参战的不再连锁。
- *   - 每一仗之后(WarModel.sue):守方打得很惨(丢了国都,或丢了 SUE_FRAC 以上国土)、攻方国力是它 SUE_RATIO 倍以上,
+ *   - 每一仗之后(WarModel.sue):守方打得很惨(丢了国都,或丢了 SUE_FRAC 以上国土)、攻方国力是它 SUE_RATIO 倍以上
+ *     (守方在位的君主守成的更肯称臣、好战的宁可打下去,rulers.ts),
  *     守方可能奉表称臣、攻方受降罢兵:当即议和(占了的州照旧归攻方),紧跟着记 submit(守方正和攻方的藩属交兵时不受降)。异族、攻方另有战事、离攻方国都远,攻方更肯受降。
  *   - 看邻国(wars.ts):不打盟国、自己的宗主 / 藩属、同一个宗主的藩属;结盟满 BETRAY_AGE 年、共御的强邻已不足为患的盟国,
  *     可以背盟去打(赔率 × BETRAY_ODDS;先记 unally,cause = betray,再记 war)。
@@ -42,7 +43,8 @@ import { resolveKey } from '../edits';
 import { Layer, type Annal, type Civ, type Year } from './types';
 import { fpow, keyed, keyed4, subSeed } from './rand';
 import { Ev, quantize, type CivSim } from './sim';
-import { canCross, endPolity, polityModelOf, type PolityModel } from './polities';
+import { canCross, endPolity, polityModelOf, rulerOf, type PolityModel } from './polities';
+import { traitEffect } from './rulers';
 import { polityBorders, warModelOf, type War, type WarModel } from './wars';
 import { capitalAt, polityAlive, populationAt } from './growth';
 import { politicsModelOf } from './politics';
@@ -546,7 +548,9 @@ export function installDiplomacy(sim: CivSim, pm: PolityModel, dm: DiplomacyMode
     if (kin && pow[a] >= SUE_CRUSH * pow[b]) accept *= SUE_UNIFY;
     if (warsOf(a).length > 1) accept *= 1.4;
     if (pm.capDist[a][capRegion(b, t)] > SUE_FAR) accept *= 1.4;
-    if (keyed4(dm.base, pm.ptag[a], pm.ptag[b], Math.round(w.start * 256) * 64 + (i & 63), U_SUE) >= SUE_OFFER * Math.min(0.9, accept)) return false;
+    // 守方此刻在位的君主:守成的更肯奉表称臣,好战的宁可打下去(rulers.ts)
+    const offer = SUE_OFFER * traitEffect(rulerOf(pm, b, t).trait).sue;
+    if (keyed4(dm.base, pm.ptag[a], pm.ptag[b], Math.round(w.start * 256) * 64 + (i & 63), U_SUE) >= offer * Math.min(0.9, accept)) return false;
     wm.makePeace!(w, t);
     if (!alive(b)) return true;
     swear(b, a, t, w.id);
