@@ -1,6 +1,6 @@
 /**
  * 君主的在位表和倾向(gen/civ/rulers.ts)、扩张算账(polities.ts 的 wants):
- * 推演里"此刻在位的是谁、倾向是多少"和人物(people.ts)一位不差;倾向有高有低、游牧国家的君主更好战,越好战越常亲征;
+ * 推演里"此刻在位的是谁、倾向是多少"和人物(people.ts)一位不差;倾向有高有低、游牧国家的君主更好战,越好战越常亲征、越容易开战;
  * 荒僻的州多留给部落,富庶的州多归国家;接着推(fromCiv)和一口气推完一样(新君即位、迁都以后重新预约的扩张也算上)。
  */
 import { describe, expect, it } from 'vitest';
@@ -8,7 +8,7 @@ import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
 import { CivSim } from '../src/gen/civ/sim';
 import { cultureTerrain } from '../src/gen/civ/cultures';
-import { LEANINGS, reignAt, reignStart, rulerBase, rulerTags } from '../src/gen/civ/rulers';
+import { LEANINGS, leaningEffect, reignAt, reignStart, rulerBase, rulerTags } from '../src/gen/civ/rulers';
 
 const worlds = new Map<string, World>();
 function world(seed: number, cells = DEFAULT_PARAMS.cells): World {
@@ -43,7 +43,7 @@ describe.each([7, 2024])('君主 · seed=%i', (seed) => {
     expect(n).toBeGreaterThan(100);
   });
 
-  it('倾向:三项都在 0–100、平均五十上下、有高有低;游牧国家的君主更好战;亲征的君主好战都过 50,越好战越常亲征', () => {
+  it('倾向:各项都在 0–100、平均五十上下、有高有低;游牧国家的君主更好战;亲征的君主好战都过 50,越好战越常亲征', () => {
     const civ = civOf(seed);
     const rulers = civ.people!.filter((x) => x.role === 'ruler');
     for (const key of LEANINGS) {
@@ -72,6 +72,21 @@ describe.each([7, 2024])('君主 · seed=%i', (seed) => {
       return g.filter((x) => x.commands?.length).length / Math.max(1, g.length);
     };
     expect(share(75, 100)).toBeGreaterThan(share(50, 75));
+  });
+
+  it('倾向怎么折算:开拓越高扩张门槛越低;越好战越容易开战、仗打得越久、越不肯称臣;发展还不影响推演', () => {
+    const at = (l: Partial<Record<(typeof LEANINGS)[number], number>>) => leaningEffect({ expand: 50, war: 50, develop: 50, trade: 50, ...l });
+    const mid = at({});
+    expect(mid).toEqual({ worth: 1, coast: 1, declare: 1, war: 1, goal: 0, sue: 1, lead: 0 });
+    expect(at({ expand: 90 }).worth).toBeLessThan(1);
+    expect(at({ expand: 10 }).worth).toBeGreaterThan(1);
+    expect(at({ war: 90 }).declare).toBeGreaterThan(1);
+    expect(at({ war: 10 }).declare).toBeLessThan(1);
+    expect(at({ war: 90 }).war).toBeGreaterThan(at({ war: 10 }).war);
+    expect(at({ war: 90 }).sue).toBeLessThan(at({ war: 10 }).sue);
+    expect(at({ trade: 90 }).coast).toBeLessThan(at({ trade: 90 }).worth);
+    expect(at({ develop: 0 })).toEqual(mid);
+    expect(at({ develop: 100 })).toEqual(mid);
   });
 
   it('扩张算账:荒僻的州(平均宜居分低)多半留给部落,富庶的州多半归了国家', () => {

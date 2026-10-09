@@ -3040,11 +3040,20 @@ for (const style of ['realistic', 'fantasy']) {
     }, v0);
     await page.waitForTimeout(900);
   }
-  // 4. 城面板"迁都到这里":替所属国下迁都令(和国家干预页同一套)→ 面板收起、推演 → "…迁都…,已从 N 年起重新推演"带撤销 → 撤销
+  // 4. 城面板"迁都到这里":替所属国下迁都令(和国家干预页同一套)→ 面板收起、推演 → "…迁都…,已从 N 年起重新推演"带撤销 → 撤销。
+  //    上一步撤销后时间轴从那一年往后放,第 1 步那座城到时候不一定还标在地图上,不在就从看得见的城里另挑一座能迁都的
   let moveToast = '';
   let moveHidden = false;
   let moveUndo = '';
-  if (moveCity >= 0 && (await clickPick('mark', moveCity)) && (await page.locator('.inspector [data-act=move-here]').isEnabled().catch(() => false))) {
+  const canMove = async (id: number): Promise<boolean> =>
+    (await clickPick('mark', id)) &&
+    (await page.locator('.inspector .cp[data-settlement]').count()) > 0 &&
+    (await page.locator('.inspector [data-act=move-here]').isEnabled().catch(() => false));
+  let movable = moveCity >= 0 && (await canMove(moveCity));
+  if (moveCity >= 0 && !movable)
+    for (const m of (await picks()).filter((q) => q.kind === 'mark' && q.id !== moveCity && free(q.x, q.y)).slice(0, 12))
+      if ((movable = await canMove(m.id))) break;
+  if (movable) {
     const prev = await page.evaluate(() => (window as any).__wfResim?.seq ?? 0);
     await page.click('.inspector [data-act=move-here]');
     await page.waitForTimeout(100);

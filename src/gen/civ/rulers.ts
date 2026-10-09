@@ -11,12 +11,13 @@
  *   这样同一时刻里改朝换代和别的事谁先谁后,算出来的都一样(fromCiv 按日志重放时也能算出同样的结果)。
  *   同一朝里的交接没有这个问题(交接的年份是算出来的,不是事件)。
  * **倾向**(RulerLeanings;每位君主都有,各 0–100,50 是寻常,越高越容易做对应的事):
- *   - expand 扩张:越高越不计较划不划算,偏远、贫瘠的地方也去占;越低越只要富庶、离国都近的地方
- *   - war 好战:越高仗打得越久、想多拿几州,打输了越不肯称臣,越常亲征(50 以下不亲征);越低越早想议和
- *   - trade 重商:越高越看重沿海、大河、港口,内陆的地方越不想要
- *   扩张、好战都低就是守成之君。每项按"国家的位置锚 + 第几位"随机取(两个均匀数取平均,多数在 30–70),
- *   游牧国家的君主好战、扩张偏高,海洋国家、城邦共和的执政官重商偏高(LEANING_BIAS)。
- *   以后加一项倾向:LEANINGS 里加一个名字、LEANING_BIAS 里加偏移、leaningEffect 里写它管什么。
+ *   - expand 开拓:越高越不计较划不划算,偏远、贫瘠的地方也去开垦;越低越只要富庶、离国都近的地方
+ *   - war 好战:越高越容易开战,仗打得越久、想多拿几州,打输了越不肯称臣,越常亲征(50 以下不亲征);越低越早想议和
+ *   - develop 发展:越高越重视领地内的建设(推演里还没有建设,先留着,不影响推演)
+ *   - trade 重商:越高越看重沿海、大河、港口,内陆的地方越不想要(重视贸易的一面等有了商路再加)
+ *   开拓、好战都低就是守成之君。每项按"国家的位置锚 + 第几位"随机取(两个均匀数取平均,多数在 30–70),
+ *   游牧国家的君主好战、开拓偏高,海洋国家、城邦共和的执政官重商偏高(LEANING_BIAS)。
+ *   以后加一项倾向:LEANINGS 里加一个名字、LEANING_USE 里给一对新的随机数编号、LEANING_BIAS 里加偏移、leaningEffect 里写它管什么。
  *   倾向只是一个人的事:同一家里父子可以完全不同。
  *
  * 随机数:keyed4(subSeed(seed, 'civ-people'), 国家的位置锚, 第几位, 用途, 0),和 people.ts 同一套(位置锚 = 立国时国都的地块
@@ -43,27 +44,29 @@ const TERM: [number, number] = [4, 20];
 export const MAX_AGE = 88;
 
 /** 倾向的名字(RulerLeanings 的键;人物页按这个顺序写) */
-export const LEANINGS = ['expand', 'war', 'trade'] as const;
+export const LEANINGS = ['expand', 'war', 'develop', 'trade'] as const;
 export type LeaningKey = (typeof LEANINGS)[number];
 
 /** 各类国家的君主倾向偏移(加在 0–100 的随机数上,再夹到 0–100) */
 const LEANING_BIAS: Record<'default' | 'nomad' | 'sea' | 'republic', RulerLeanings> = {
-  default: { expand: 0, war: 0, trade: 0 },
-  nomad: { expand: 10, war: 15, trade: -10 },
-  sea: { expand: 0, war: -5, trade: 20 },
-  republic: { expand: -5, war: -15, trade: 15 },
+  default: { expand: 0, war: 0, develop: 0, trade: 0 },
+  nomad: { expand: 10, war: 15, develop: -10, trade: -10 },
+  sea: { expand: 0, war: -5, develop: 0, trade: 20 },
+  republic: { expand: -5, war: -15, develop: 5, trade: 15 },
 };
 
 /**
  * 倾向怎么折算成推演里的倍数(x = (倾向 - 50) / 50,-1 到 1;50 = 寻常,倍数 1):
- * - 扩张算账的门槛 × e^(-EXPAND_WORTH·x扩张):扩张 100 → × 0.55,0 → × 1.8
+ * - 扩张算账的门槛 × e^(-EXPAND_WORTH·x开拓):开拓 100 → × 0.55,0 → × 1.8
  * - 重商:沿海、大河、港口的州门槛再 × e^(-TRADE_COAST·x重商),内陆的 × e^(TRADE_INLAND·x重商)
- * - 好战:一场仗最多打多少年 × e^(WAR_LENGTH·x好战);想拿的州数 + round(WAR_GOAL·x好战);
+ * - 好战:宣战的赔率 × e^(WAR_DECLARE·x好战);一场仗最多打多少年 × e^(WAR_LENGTH·x好战);想拿的州数 + round(WAR_GOAL·x好战);
  *   打得很惨时奉表称臣的机会 × e^(-WAR_SUE·x好战);亲征的机会 × (好战 - 50) / LEAD_SPAN(夹到 0–1)
+ * - 发展:还不影响推演
  */
 const EXPAND_WORTH = 0.6;
 const TRADE_COAST = 0.5;
 const TRADE_INLAND = 0.3;
+const WAR_DECLARE = 0.5;
 const WAR_LENGTH = 0.35;
 const WAR_GOAL = 1.5;
 const WAR_SUE = 0.5;
@@ -72,6 +75,7 @@ const LEAD_SPAN = 40;
 /**
  * 倾向对推演的影响:
  * - worth / coast:扩张算账的门槛倍数(内陆 / 沿海、大河、港口的州),越小越不计较划不划算(polities.ts 的 wants)
+ * - declare:宣战赔率的倍数(wars.ts 的看邻国)
  * - war:一场仗最多打多少年(厌战)的倍数;goal:这场仗想拿下几州多几州(wars.ts 的议和)
  * - sue:打得很惨时奉表称臣的机会倍数(diplomacy.ts)
  * - lead:亲征的机会倍数(people.ts;0 = 不亲征)
@@ -79,6 +83,7 @@ const LEAD_SPAN = 40;
 export interface LeaningEffect {
   worth: number;
   coast: number;
+  declare: number;
   war: number;
   goal: number;
   sue: number;
@@ -92,6 +97,7 @@ export function leaningEffect(l: RulerLeanings): LeaningEffect {
   return {
     worth: fexp(-EXPAND_WORTH * e + TRADE_INLAND * c),
     coast: fexp(-EXPAND_WORTH * e - TRADE_COAST * c),
+    declare: fexp(WAR_DECLARE * w),
     war: fexp(WAR_LENGTH * w),
     goal: Math.round(WAR_GOAL * w),
     sue: fexp(-WAR_SUE * w),
@@ -102,8 +108,8 @@ export function leaningEffect(l: RulerLeanings): LeaningEffect {
 // 随机数用途(和 people.ts 共用一套编号:1、2 是年纪、在位年数)
 export const U_AGE = 1;
 export const U_REIGN = 2;
-/** 倾向:每项两个均匀数(14、15 扩张,16、17 好战,18、19 重商) */
-const U_LEANING = 14;
+/** 倾向:每项两个均匀数,从这个编号起(14、15 开拓,16、17 好战,18、19 重商,20、21 发展;后加的往后排,已有的不变) */
+const LEANING_USE: Record<LeaningKey, number> = { expand: 14, war: 16, trade: 18, develop: 20 };
 /** keyed4 最后一位:君主 */
 export const K_RULER = 0;
 
@@ -154,8 +160,8 @@ export function reignStep(
   if (A + L > MAX_AGE) L = Math.max(1, MAX_AGE - A);
   const bias = LEANING_BIAS[republic ? 'republic' : kind === 'nomad' ? 'nomad' : kind === 'sea' ? 'sea' : 'default'];
   const leanings = {} as RulerLeanings;
-  LEANINGS.forEach((key, i) => {
-    const u = (R(U_LEANING + 2 * i) + R(U_LEANING + 2 * i + 1)) / 2;
+  LEANINGS.forEach((key) => {
+    const u = (R(LEANING_USE[key]) + R(LEANING_USE[key] + 1)) / 2;
     leanings[key] = Math.min(100, Math.max(0, Math.round(100 * u + bias[key])));
   });
   return { age: A, natural: q(from + L), leanings };

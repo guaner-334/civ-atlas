@@ -171,7 +171,8 @@ describe('邦交:称臣纳贡、结盟、背盟', () => {
   }, 60_000);
 
   it('fromCiv 接着推:在刚称臣、刚结盟、援盟的仗打到一半、藩属刚自立时切开,和一口气推完逐字节一样', () => {
-    for (const seed of [7, 2024]) {
+    // 种子 5 小世界有称臣、结盟、背盟、援盟的仗,种子 2024 小世界有称臣、结盟、藩属自立、背盟
+    for (const seed of [5, 2024]) {
       const p = { ...DEFAULT_PARAMS, cells: 12000, seed };
       const w = world(p);
       const whole = civOf(p);
@@ -218,7 +219,7 @@ describe('邦交和作者下令', () => {
     type Try = { w: World; civ: Civ; a: number; b: number; from: number };
     const at = (seed: number) => ({ w: world(small(seed)), civ: civOf(small(seed)) });
     // 每种情形挑几对当时还结着的,下令开战;两国不接壤的打不成,换下一对
-    // (种子 2024 小世界;种子 7 小世界只结过一次盟,下令也打不成)
+    // (种子 2024 小世界)
     const tries = (kind: 'alliance' | 'submit'): Try[] => {
       const { w, civ } = at(2024);
       return civ.annals

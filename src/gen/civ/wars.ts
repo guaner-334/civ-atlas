@@ -7,6 +7,7 @@
  *   看邻国(Ev.WarCheck)每个国家立国 CHECK_FIRST 年后,每 CHECK_EVERY 年看一眼(每段里随机一个时刻)。
  *     自己没在打仗(帝国级的大国可以两线作战)、上次议和过了 REST 年,就在接壤的邻国里挑一个最"值得打"的:
  *       赔率 = WAR_ODDS × 扩张性 × 边境胜算^LOCAL_EXP × 异族 FOREIGN × 收复失地 × 小国 PREY_ODDS × 边界长短
+ *       挑好了打谁,开不开战再乘此刻在位君主的好战倍数(rulers.ts:越好战越容易开战)
  *       边境胜算 = 对方边境上各州的胜率(和打仗时一样按局部国力算)的平均,换成"胜率 ÷ 败率":
  *       强国的边远处照样可能打不过近处的小国 —— 被夺去的州过些年又被夺回来,前线有来有回
  *     同一对国家议和后 TRUCE 年内不再开战;对方已经同时在打 MAX_WARS 场仗的不去凑;
@@ -591,7 +592,10 @@ export function installWars(sim: CivSim, pm: PolityModel, wm: WarModel = newMode
         traitor = betray;
       }
     }
-    if (target < 0 || keyed(wm.base, pm.ptag[p], k, U_DECLARE) >= odds / (1 + odds)) return;
+    if (target < 0) return;
+    // 越好战的君主越容易开战
+    odds *= rulerOf(pm, p, t).eff.declare;
+    if (keyed(wm.base, pm.ptag[p], k, U_DECLARE) >= odds / (1 + odds)) return;
     if (traitor) {
       // 背盟:先记盟约断了(war 列 = 紧跟着的这场战争),再宣战
       dm!.note!('unally', { a: p, b: target, war: wm.wars.length, cause: 'betray' });

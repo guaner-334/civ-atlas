@@ -597,11 +597,13 @@ export type PersonFate = 'died' | 'murdered' | 'deposed' | 'overthrown' | 'fell'
 
 /**
  * 君主的倾向(rulers.ts):各 0–100,50 是寻常,越高越容易做对应的事 ——
- * expand 扩张(偏远、贫瘠的地方也去占)、war 好战(仗打得久、不肯称臣、亲征)、trade 重商(看重沿海、大河、港口)
+ * expand 开拓(偏远、贫瘠的地方也去开垦)、war 好战(容易开战、仗打得久、不肯称臣、亲征)、
+ * develop 发展(重视领地内的建设;还不影响推演)、trade 重商(看重沿海、大河、港口)
  */
 export interface RulerLeanings {
   expand: number;
   war: number;
+  develop: number;
   trade: number;
 }
 

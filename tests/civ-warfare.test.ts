@@ -81,6 +81,8 @@ describe('战争按史事整理', () => {
   });
 
   it('议和时割让的州不算打过一仗', () => {
+    // 种子 7 的小世界里没有割地议和的,换种子 2024
+    const civ = generateCiv(generateWorld({ ...DEFAULT_PARAMS, seed: 2024, cells: 12000 }));
     const A = civ.annals;
     let ceded = 0;
     for (let i = 0; i < A.length; i++) {
@@ -97,7 +99,7 @@ describe('战争按史事整理', () => {
       }
     }
     expect(ceded).toBeGreaterThan(0);
-  });
+  }, 60_000);
 });
 
 describe('某一年的战事', () => {

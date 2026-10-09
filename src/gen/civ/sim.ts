@@ -2,9 +2,10 @@
  * 文明推演引擎(民族扩张;战争、分裂、合并等也在这上面加事件):
  *
  * - **事件堆**:按时间排序(复用 util.ts 的 MinHeap)。每个事件是 {时间, 类型, 对象 a, 对象 b, 版本号}。
- *   时间精度 1/256 年;"时间 + 同一刻里的次序"拼成一个整数当优先级,保证确定性:同一时刻先处理别的事件(按预约先后),
- *   再处理民族、国家的到达(按"民族先、国家后,再按州号、民族 / 国家号"排,和预约先后无关 —— 接着推时这些到达是
- *   按日志重新预约的,预约先后和一口气推完时不一样,同一刻撞上了也要按同样的次序处理,见 arrivalOrder)。
+ *   时间精度 1/256 年;"时间 + 同一刻里的次序"拼成一个整数当优先级,保证确定性:同一时刻最先处理新君即位、
+ *   迁都后重看边地(按国家号,见 earlyOrder),再处理别的事件(按预约先后),最后处理民族、国家的到达
+ *   (按"民族先、国家后,再按州号、民族 / 国家号"排,见 arrivalOrder)。头尾这两类和预约先后无关 —— 接着推时它们是
+ *   按日志重新预约 / 重放的,预约先后和一口气推完时不一样,同一刻撞上了也要按同样的次序处理。
  * - **州的版本号**:州的归属(任何一层)一变就 +1。事件预约时记下州 a 的版本号,弹出时对不上就是过期了,
  *   直接丢掉 —— 不用去堆里找、删事件。哪些类型要核对版本号,见 EVENT_INFO。
  * - **唯一改归属的入口** setOwner(层, 州, 新值, 原因):写变化日志、版本号 +1、通知这一层的监听者
@@ -195,9 +196,11 @@ export const CHECKPOINT_EVERY = 100;
 /** 事件时间精度:1/256 年(约一天半) */
 const TICKS_PER_YEAR = 256;
 /**
- * 优先级 = 时刻 × TICK_SPAN + 同一刻里的次序:别的事件 = 编号(预约先后,< SEQ_SPAN);
- * 民族、国家到达 = SEQ_SPAN + arrivalOrder(排在别的事件后面)。都是整数,拼起来不超过 2^53 − 1,Float64 里精确
+ * 优先级 = 时刻 × TICK_SPAN + 同一刻里的次序:新君即位、迁都后重看边地 = earlyOrder(< EARLY_SPAN,排在最前);
+ * 别的事件 = EARLY_SPAN + 编号(预约先后,< SEQ_SPAN);民族、国家到达 = SEQ_SPAN + arrivalOrder(排在最后)。
+ * 都是整数,拼起来不超过 2^53 − 1,Float64 里精确
  */
+const EARLY_SPAN = 2 ** 13;
 const SEQ_SPAN = 2 ** 28;
 const TICK_SPAN = 2 ** 29;
 /** 能预约的最远时刻:65536 年(Float32 的变化日志在这个范围内也能精确存下 1/256 年) */
@@ -211,6 +214,17 @@ function arrivalOrder(kind: number, a: number, b: number): number {
   if (kind !== Ev.CultureArrive && kind !== Ev.PolityArrive) return -1;
   if (!(a >= 0 && a < 2 ** 15 && b >= 0 && b < 2 ** 12)) return -1;
   return (kind === Ev.PolityArrive ? 2 ** 27 : 0) + a * 2 ** 12 + b;
+}
+
+/**
+ * 新君即位、迁都后重看边地在同一刻里的次序(0 起,< EARLY_SPAN):按国家号,同一国先即位后重看。
+ * 它们只从现有国土往外预约扩张、不改归属,排在同一刻别的事件前面 —— 接着推时 resumePolities 也是在同一刻的日志之前重放。
+ * 不是这两类、或国家号超出能编的范围,返回 −1(按预约先后)
+ */
+function earlyOrder(kind: number, b: number): number {
+  if (kind !== Ev.Reign && kind !== Ev.Respread) return -1;
+  if (!(b >= 0 && b < EARLY_SPAN / 2)) return -1;
+  return b * 2 + (kind === Ev.Respread ? 1 : 0);
 }
 
 /** 把时间取整到引擎的精度(1/256 年)。引擎里所有事件时间、日志年份都是这样的值 */
@@ -395,7 +409,7 @@ export class CivSim {
     if (!(t < Infinity)) return; // Infinity / NaN
     const tick = Math.round(Math.max(t, this.now, this.floor) * TICKS_PER_YEAR);
     if (tick >= MAX_TICK) return;
-    if (this.seq >= SEQ_SPAN) throw new Error('CivSim:事件太多(超过 2^28 个)');
+    if (EARLY_SPAN + this.seq >= SEQ_SPAN) throw new Error('CivSim:事件太多(超过 2^28 个)');
     let id: number;
     if (this.free.length) id = this.free.pop()!;
     else {
@@ -407,8 +421,9 @@ export class CivSim {
     this.evA[id] = a;
     this.evB[id] = b;
     this.evVer[id] = this.watch[kind] && a >= 0 && a < this.R ? this.version[a] : -1;
+    const early = earlyOrder(kind, b);
     const order = arrivalOrder(kind, a, b);
-    this.heap.push(id, tick * TICK_SPAN + (order >= 0 ? SEQ_SPAN + order : this.seq++));
+    this.heap.push(id, tick * TICK_SPAN + (early >= 0 ? early : order >= 0 ? SEQ_SPAN + order : EARLY_SPAN + this.seq++));
   }
 
   /** 待处理的事件数(含已过期、还没弹出的) */
