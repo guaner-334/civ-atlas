@@ -158,10 +158,18 @@ describe('按份数起名(seed 7、2024)', () => {
       for (const [mix, want] of cases) expect(Math.abs(easternShare(generateCiv(worldOf(seed), { names: mix })) - want)).toBeLessThanOrEqual(6);
   });
 
-  it('配了份数的语感,民族够分时都有活着的民族用上', () => {
-    const civ = generateCiv(worldOf(7), { names: { central: 1, xianxia: 1, frontier: 1, mythic: 1 } });
-    const a = areas(civ);
-    expect(new Set(civ.cultures.filter((_, i) => a[i] > 0).map((c) => c.style))).toEqual(new Set(['central', 'xianxia', 'frontier', 'mythic']));
+  it('配了份数的语感,民族够分时都有活着的民族用上(份数不匀、有的只配一两份也一样)', () => {
+    const cases: [number, NameMix][] = [
+      [7, { central: 1, xianxia: 1, frontier: 1, mythic: 1 }],
+      [5, { hellenic: 4, frontier: 5, slavic: 3, central: 2, kingdom: 3, desert: 2 }],
+      [2, { elven: 5, imperial: 5, central: 2, desert: 6, kingdom: 5, frontier: 2, hellenic: 4 }],
+    ];
+    for (const [seed, mix] of cases) {
+      const civ = generateCiv(worldOf(seed), { names: mix });
+      const a = areas(civ);
+      expect(a.filter((x) => x > 0).length).toBeGreaterThanOrEqual(Object.keys(mix).length);
+      expect(new Set(civ.cultures.filter((_, i) => a[i] > 0).map((c) => c.style))).toEqual(new Set(Object.keys(mix)));
+    }
   });
 
   it('尽量少换(默认大小的 seed 7):照自动配好份数、把沙海调成 0 份,别的民族大多照旧', () => {

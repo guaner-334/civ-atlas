@@ -126,6 +126,8 @@ function autoStyles(
 const W_SHARE = 0.6;
 const W_FAMILY = 1;
 const W_MISSING = 4;
+/** 活着的民族够分(不比配了份数的语感少)时,每种都得有活着的民族用上:差一种扣这么多(比别的加起来都大,等于硬条件) */
+const W_COVER = 1000;
 /** 和自动时挑的一样,加多少分:份数凑得差不多时,尽量只换必须换的民族(只把沙海调成 0 份,别的民族照旧) */
 const W_KEEP = 4;
 /** 挪一挪 / 换一换最多试几轮(民族十来个,通常三五轮就停) */
@@ -133,7 +135,8 @@ const MIX_ROUNDS = 60;
 
 /**
  * 按份数配语感:只在有份的几种里挑;每种语感占的地方(推演结束时各民族住的州数)尽量接近份数的比例,
- * 同时照顾对口(和自动一样的类型、气温、群落 + 随机)、相邻的民族错开、配了份数的语感都有民族用上。
+ * 同时照顾对口(和自动一样的类型、气温、群落 + 随机)、相邻的民族错开;活着的民族够分时,配了份数的语感每种都有民族用上
+ * (只配一两份的也是:哪怕一个民族占的地方比份数多,也比配了却一个都没有好)。
  * 先按住的地方从大到小一个个挑,再反复试"把一个民族换成别的语感 / 两个民族对换",总分变好就换,直到换不动。
  * 份数是全世界一起凑的,改地形后远处民族的语感可能跟着变(自动时不会)。
  * 已经消亡的民族不占地方,只看对口和相邻(它们的名字出现在历史里)。
@@ -169,6 +172,7 @@ function assignByMix(
   const living = area.filter((a) => a > 0).length;
   /** 配了份数、应当有民族用上的语感有几种(活着的民族不够分时,只要求用满) */
   const want = Math.min(k, living);
+  const wMissing = living >= k ? W_COVER : W_MISSING;
   const pct = total > 0 ? 100 / total : 0;
   const pick = new Array<number>(n).fill(-1);
 
@@ -191,7 +195,7 @@ function assignByMix(
       if (eastern[j]) east += filled[j];
     }
     s += W_FAMILY * 2 * Math.abs(east - eastTarget) * pct;
-    s += W_MISSING * Math.max(0, want - seen.filter(Boolean).length);
+    s += wMissing * Math.max(0, want - seen.filter(Boolean).length);
     return s;
   };
 

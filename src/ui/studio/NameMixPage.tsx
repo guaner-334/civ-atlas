@@ -8,8 +8,9 @@
  *
  * 切到「自己配」但没动份数:不算改动,还是自动;点了加减或快捷按钮才按份数起名。只换名字,历史不变。
  * 连着点加减:份数马上变,停手一会儿(SETTLE_MS)才一起重新起名 —— 每点一下都重推一遍整段历史,点几下就要等好几遍。
+ * 离开这一页、点「创建世界」时马上交上。
  */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type MutableRefObject } from 'react';
 import type { Civ } from '../../gen/civ/types';
 import { MIX_SHARE_MAX, type NameMix } from '../../gen/names/mix';
 import { setNameMix, useEdits } from '../editsStore';
@@ -27,6 +28,8 @@ export interface NameMixPageProps {
   /** 世界还没生成好(换了种子、改了地形正在生成):先不能改份数 */
   ready: boolean;
   phone: boolean;
+  /** 这一页把"马上交出还没交的份数"放在这里:点「创建世界」时先交上,确认框和创建都按最新的份数 */
+  flush?: MutableRefObject<(() => void) | null>;
 }
 
 /** 连着点加减时,停手多久才重新起名(毫秒) */
@@ -54,6 +57,16 @@ export function NameMixPage(p: NameMixPageProps) {
     },
     [],
   );
+  useEffect(() => {
+    const ref = p.flush;
+    if (!ref) return;
+    ref.current = () => {
+      if (pending.current) commit(pending.current.mix);
+    };
+    return () => {
+      ref.current = null;
+    };
+  });
   const custom = customSeg || !!mix || !!draft;
   // 自己配时一行行显示的份数:正在点的、配过的,还没动就是照自动折好的
   const shares: NameMix = draft ?? mix ?? autoMix(p.civ);

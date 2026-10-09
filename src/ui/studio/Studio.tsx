@@ -169,6 +169,8 @@ export function Studio(p: StudioProps) {
   const [sheetFull, setSheetFull] = useState(false);
   /** 左边换成「地名风格」页(手机上卡片里换页) */
   const [namesPage, setNamesPage] = useState(false);
+  /** 地名风格页还没交的份数(见 NameMixPage 的 flush) */
+  const mixFlush = useRef<(() => void) | null>(null);
   const [drawer, setDrawer] = useState<'style' | 'proj' | null>(null);
   const [sheetH, setSheetH] = useState(0);
   const [vw, setVw] = useState(() => (typeof innerWidth === 'number' ? innerWidth : 1280));
@@ -575,6 +577,7 @@ export function Studio(p: StudioProps) {
   };
   const askCreate = () => {
     commitName();
+    mixFlush.current?.();
     setDrawer(null);
     setConfirm(true);
   };
@@ -848,7 +851,7 @@ export function Studio(p: StudioProps) {
     </button>
   );
   const mixShown = namesPage && !tool.on && !peek;
-  const mixPage = mixShown && <NameMixPage backLabel={heading} onBack={() => setNamesPage(false)} civ={p.raw} busy={p.busy} ready={p.ready} phone={p.phone} />;
+  const mixPage = mixShown && <NameMixPage backLabel={heading} onBack={() => setNamesPage(false)} civ={p.raw} busy={p.busy} ready={p.ready} phone={p.phone} flush={mixFlush} />;
   const settings = tool.on ? (
     <TerrainPanel disabled={p.busy} phone={p.phone} />
   ) : (
