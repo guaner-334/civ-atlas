@@ -498,15 +498,17 @@ export function installWars(sim: CivSim, pm: PolityModel, wm: WarModel = newMode
 
   const declare = (x: number, y: number, t: number, ally = -1, cause?: AnnalCause): War => {
     const w: War = { id: wm.wars.length, a: x, b: y, start: t, takes: [] };
+    // 邦交:作者下令盟国、宗藩之间开战,盟约、宗藩之分先断了(diplomacy.ts)
+    wm.dm?.sever?.(x, y, t, w.id);
     wm.wars.push(w);
     wm.active.push(w);
     sim.record('war', { a: x, b: y, war: w.id, ...(ally >= 0 ? { settlement: ally } : {}), ...(cause ? { cause } : {}) });
     sim.schedule(t + gapOf(wm, w, 0), Ev.Campaign, 0, w.id);
-    // 阶段 4 干预的结盟:y 被宣战,它的盟国(和 x 接壤、没和 x 结盟、没在和 x 打)有 ALLY_JOIN 的机会援盟
+    // 阶段 4 干预的结盟:y 被宣战,它的盟国(和 x 接壤、没和 x 结盟、和 x 没有宗藩之分、没在和 x 打)有 ALLY_JOIN 的机会援盟
     const iv = wm.iv;
     if (iv && ally < 0) {
       for (const z of iv.alliesOf(y, t)) {
-        if (z === x || pm.polities[z].ended !== undefined || iv.allied(z, x, t) || iv.halted(z, t)) continue;
+        if (z === x || pm.polities[z].ended !== undefined || iv.allied(z, x, t) || wm.dm?.friendly(z, x) || iv.halted(z, t)) continue;
         if (wm.active.some((v) => (v.a === z && v.b === x) || (v.a === x && v.b === z)) || !borders(z, x)) continue;
         if (keyed4(iv.base, pm.ptag[z], pm.ptag[x], Math.round(t * 256), U_ALLY) >= ALLY_JOIN) continue;
         declare(z, x, t, y, 'ally');

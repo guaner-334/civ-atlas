@@ -27,8 +27,10 @@
  *   盟约:unally(lapse / abandon / betray / vassal),或任一方亡国 / 被并。一国称臣时,它的盟约随之作废(unally,cause = vassal)。
  *   藩属:defect(自立),或宗主 / 藩属亡国、被并(藩属纳土归附也是被并)。
  *
- * 阶段 4 干预:作者下令的结盟(iv.allied)不在这里,不会背盟、不会渐废;不许扩张的国家不收别国称臣、不援盟、不讨伐;
+ * 阶段 4 干预:作者下令的结盟(iv.allied)不在这里,不会背盟、不会渐废,下令结了盟的两国也不讨伐;不许扩张的国家不收别国称臣、不援盟、不讨伐;
  *   不许灭的国家照样可以称臣(称臣不灭国),但不会被纳土归附(和合并一样)。
+ *   作者下令盟国、宗藩之间开战:宣战前盟约、宗藩之分就此断了(DiplomacyModel.sever;盟国记 unally,cause = betray;
+ *   藩属打宗主记 defect,宗主打藩属记 defect,cause = betray)。
  *
  * **不存内存状态**:结着的盟 = 史事 alliance 减去 unally;藩属 = submit 减去 defect;盟约断过的年份 = unally;
  *   看邦交的时刻由"国家 + 第几次"算出来(resumeDiplomacy)。
@@ -36,6 +38,7 @@
  * 随机数:keyed(subSeed(seed, 'civ-diplomacy'), 国家…, 第几次, 用途);国家一律用位置锚(PolityModel.ptag)。纯计算,不碰 DOM。
  */
 import type { World } from '../world';
+import { resolveKey } from '../edits';
 import { Layer, type Annal, type Civ, type Year } from './types';
 import { fpow, keyed, keyed4, subSeed } from './rand';
 import { Ev, quantize, type CivSim } from './sim';
@@ -173,6 +176,11 @@ export class DiplomacyModel {
   readonly betrayOdds = BETRAY_ODDS;
   /** 记一条邦交的史事并更新模型(installDiplomacy 挂上;wars.ts 背盟时用) */
   note?: (kind: Annal['kind'], f: Partial<Omit<Annal, 'year' | 'kind'>>) => void;
+  /**
+   * x 向 y 宣战、记 war 之前(installDiplomacy 挂上;wars.ts 的 declare 调,war = 这场战争的编号):
+   * 两国结着盟、有宗藩之分的,就此断了。自然开战都先避开了这些(背盟先记了 unally),只有作者下令的宣战会走到这里
+   */
+  sever?: (x: number, y: number, t: Year, war: number) => void;
 
   constructor(pm: PolityModel) {
     this.pm = pm;
@@ -378,8 +386,8 @@ export function installDiplomacy(sim: CivSim, pm: PolityModel, dm: DiplomacyMode
     if (pm.polities[v].culture !== pm.polities[L].culture) odds *= DEFECT_FOREIGN;
     if (keyed(dm.base, pm.ptag[v], k, U_DEFECT) >= odds / (1 + odds)) return false;
     record('defect', { a: v, b: L, region: capRegion(v, t), settlement: capitalAt(pm.polities[v], t) });
-    // 宗主发兵讨伐:接壤、没在和它打、手上的仗没打满、没被下令不许扩张
-    if (!halted(L, t) && !fighting(L, v) && !busy(L) && borders(L, v) && keyed4(dm.base, pm.ptag[L], pm.ptag[v], k, U_PUNISH) < PUNISH) {
+    // 宗主发兵讨伐:接壤、没在和它打、没被下令和它结盟、手上的仗没打满、没被下令不许扩张
+    if (!halted(L, t) && !fighting(L, v) && !friendly(L, v, t) && !busy(L) && borders(L, v) && keyed4(dm.base, pm.ptag[L], pm.ptag[v], k, U_PUNISH) < PUNISH) {
       wm.declare!(L, v, t, -1, 'punish');
     }
     return true;
@@ -496,6 +504,13 @@ export function installDiplomacy(sim: CivSim, pm: PolityModel, dm: DiplomacyMode
   });
 
   // ---- 战争里 ----
+  dm.sever = (x: number, y: number, t: number, war: number) => {
+    if (dm.pactOf(x, y)) record('unally', { a: x, b: y, war, cause: 'betray' });
+    // 藩属打宗主 = 自立;宗主打藩属 = 宗藩反目(defect 的 cause = betray),藩属也不再称臣
+    else if (dm.liegeOf(x) === y) record('defect', { a: x, b: y, region: capRegion(x, t), settlement: capitalAt(pm.polities[x], t) });
+    else if (dm.liegeOf(y) === x) record('defect', { a: y, b: x, region: capRegion(y, t), settlement: capitalAt(pm.polities[y], t), cause: 'betray' });
+  };
+
   /** x 向 y 宣战(不是援盟)之后:y 的盟国援盟 / 坐视不救,y 的宗主发兵来救 */
   wm.onDeclare = (w: War, x: number, y: number, t: number) => {
     for (const z of dm.alliesOf(y)) {
@@ -580,6 +595,35 @@ export function relationsAt(civ: Civ, year: Year): Relations {
   };
   for (const [v, x] of liege) if (!alive(v) || !alive(x.liege)) liege.delete(v);
   return { liege, pacts: pacts.filter((x) => alive(x.a) && alive(x.b)) };
+}
+
+/** 一国某一年的邦交(国家面板用) */
+export interface PolityTies {
+  /** 宗主、称臣的年份(不是藩属 = undefined) */
+  liege?: { liege: number; since: Year };
+  /** 藩属、称臣的年份 */
+  vassals: { id: number; since: Year }[];
+  /** 盟国、结盟的年份、共御的强邻(−1 = 没有;作者下令的结盟没有) */
+  allies: { id: number; since: Year; foe: number }[];
+}
+
+/** 国家 id 在 year 那一刻的邦交:relationsAt 那一套,盟国再加上作者下令的结盟(那一年在约期内、两国都在) */
+export function polityTies(civ: Civ, id: number, year: Year): PolityTies {
+  const r = relationsAt(civ, year);
+  const vassals = [...r.liege].filter(([, x]) => x.liege === id).map(([v, x]) => ({ id: v, since: x.since }));
+  const allies = r.pacts.filter((x) => x.a === id || x.b === id).map((x) => ({ id: x.a === id ? x.b : x.a, since: x.since, foe: x.foe }));
+  const P = civ.polities[id];
+  for (const v of civ.interventions ?? []) {
+    if (v.kind !== 'ally' || year < v.from || (v.until !== undefined && year >= v.until)) continue;
+    const a = resolveKey(civ, v.a);
+    const b = resolveKey(civ, v.b);
+    if (a?.kind !== 'polity' || b?.kind !== 'polity' || (a.id !== id && b.id !== id)) continue;
+    const o = a.id === id ? b.id : a.id;
+    const O = civ.polities[o];
+    if (o === id || !P || !O || !polityAlive(P, year) || !polityAlive(O, year) || allies.some((x) => x.id === o)) continue;
+    allies.push({ id: o, since: Math.max(v.from, O.founded, P.founded), foe: -1 });
+  }
+  return { liege: r.liege.get(id), vassals, allies };
 }
 
 // ---------------------------------------------------------------------------

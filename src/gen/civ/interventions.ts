@@ -37,7 +37,7 @@
  *                   有 until 的:until 那一刻(Ev.HaltEnd,比同一刻的一切事件都早)从现有国土重新预约扩张(polities.ts 的 respread)
  *
  * 每条干预在 from 那一刻记一条史事 intervene(字段见 types.ts 的 AnnalKind;A 的键指不到就不记),编年史写"【干预】……"。
- * 紧跟着记它引起的事:宣战的 war、结盟 / 不许扩张引起的 peace、立国的 found、迁都的 capital、原主国迁都的 capital / 亡国的 fall。
+ * 紧跟着记它引起的事:宣战的 war(盟国、宗藩之间开战,war 前面先记盟约 / 宗藩之分断了的 unally / defect,见 diplomacy.ts)、结盟 / 不许扩张引起的 peace、立国的 found、迁都的 capital、原主国迁都的 capital / 亡国的 fall。
  *
  * **不存内存状态**:Civ + 干预列表就能接着推(CivSim.fromCiv(world, civ, 干预列表)):规则本来就只看列表和当时的归属,
  *   还没到 from / until 的事件由 scheduleInterventions 按"比现在晚"补上;已经过去的"不许扩张到期"那一刻预约的扩张,

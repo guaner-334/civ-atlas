@@ -37,7 +37,7 @@ import type { AiName } from './AiNamePanel';
 import { openHistoryBook } from './HistoryBook';
 import { NameEdit } from './NameEdit';
 import { neighborsAt } from './Interventions';
-import { relationsAt } from '../gen/civ/diplomacy';
+import { polityTies } from '../gen/civ/diplomacy';
 import { CommandPage } from './CommandPage';
 import { setPanelTab, setSheet, usePanel } from './panelStore';
 import { shownYearOf } from './flyTo';
@@ -213,13 +213,8 @@ function InfoPage({ civ, raw, raster, world, id, year, p, shared }: CountryPanel
   const mainFolk = folks.length && folks[0][1] * 2 >= n ? folks[0][0] : null;
   const folkAi = useRevealAi({ civ, raw, raster, target: mainFolk !== null ? { kind: 'culture', id: mainFolk } : null, lazy: true, what: '族名' });
   const near = useMemo(() => [...neighborsAt(civ, id, shownYear).near], [civ, id, shownYear]);
-  // 邦交:宗主、藩属(哪年称臣)、盟国(哪年结盟、共御谁)
-  const ties = useMemo(() => {
-    const r = relationsAt(civ, shownYear);
-    const vassals = [...r.liege].filter(([, x]) => x.liege === id).map(([v, x]) => ({ id: v, since: x.since }));
-    const allies = r.pacts.filter((x) => x.a === id || x.b === id).map((x) => ({ id: x.a === id ? x.b : x.a, since: x.since, foe: x.foe }));
-    return { liege: r.liege.get(id), vassals, allies };
-  }, [civ, id, shownYear]);
+  // 邦交:宗主、藩属(哪年称臣)、盟国(哪年结盟、共御谁;作者下令的结盟也算)
+  const ties = useMemo(() => polityTies(civ, id, shownYear), [civ, id, shownYear]);
   // 疆域小柱图:和概览"国家"表里的同一份(0 年到结束年份均匀取样的州数),按这国最多时的州数定高
   const hist = polityHistory(civ);
   const spark = hist.years.map((y, i) => ({ year: y, n: hist.spark[id * SPARK_N + i] }));

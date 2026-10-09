@@ -5,14 +5,19 @@
  * - relationsAt(某一年的关系)和推演里的模型一致
  * - fromCiv 接着推:在刚称臣、刚结盟、援盟的仗打到一半时切开,和一口气推完逐字节一样
  * - 确定性:同一个种子推两次,邦交史事一样
+ * - 作者下令(阶段 4 干预):盟国、宗藩之间下令开战,先断盟约 / 宗藩之分再宣战,干预算生效;下令结了盟的不讨伐自立的藩属
+ * - 编年史:援盟的仗,盟国的名字里含着守方的名字,照样写"伐某国"
+ * - polityTies(国家面板):relationsAt 那一套,盟国再加上作者下令的结盟(约期内、两国都在)
  */
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld, type World, type WorldParams } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
 import type { Annal } from '../src/gen/civ/types';
 import { CivSim } from '../src/gen/civ/sim';
-import { polityAlive } from '../src/gen/civ/growth';
-import { diplomacyModelOf, diplomacyStats, relationsAt } from '../src/gen/civ/diplomacy';
+import { polityAlive, polityName } from '../src/gen/civ/growth';
+import { diplomacyModelOf, diplomacyStats, polityTies, relationsAt } from '../src/gen/civ/diplomacy';
+import { buildChronicle, interventionOutcome, type ChronicleEntry } from '../src/gen/civ/chronicle';
+import { polityKey, type Intervention } from '../src/gen/edits';
 
 const worlds = new Map<string, World>();
 function world(p: WorldParams): World {
@@ -185,4 +190,105 @@ describe('邦交:称臣纳贡、结盟、背盟', () => {
       }
     }
   }, 300_000);
+});
+
+describe('邦交和作者下令', () => {
+  const small = (seed: number) => ({ ...DEFAULT_PARAMS, cells: 12000, seed });
+  /** 干预那一条后面紧跟着的几条史事 */
+  const after = (civ: Civ, from: number) => {
+    const k = civ.annals.findIndex((e) => e.kind === 'intervene' && e.year >= from);
+    return civ.annals.slice(k + 1, k + 3);
+  };
+
+  it('盟国、宗藩之间下令开战:先断盟约 / 宗藩之分,再宣战;干预算生效,关系不自相矛盾', () => {
+    const p = small(7);
+    const w = world(p);
+    const civ = civOf(p);
+    // 每种情形挑几对当时还结着的,下令开战;两国不接壤的打不成,换下一对
+    const tries = (kind: 'alliance' | 'submit') =>
+      civ.annals
+        .filter((e) => e.kind === kind)
+        .map((e) => ({ a: e.a, b: e.b, from: Math.ceil(e.year) + 1 }))
+        .filter((x) => {
+          const r = relationsAt(civ, x.from);
+          return kind === 'alliance' ? r.pacts.some((q) => (q.a === x.a && q.b === x.b) || (q.a === x.b && q.b === x.a)) : r.liege.get(x.a)?.liege === x.b;
+        })
+        .slice(0, 4);
+    const cases = [
+      { what: '打盟国', list: tries('alliance'), cut: 'unally', cause: 'betray' },
+      { what: '藩属打宗主', list: tries('submit'), cut: 'defect', cause: undefined },
+      { what: '宗主打藩属', list: tries('submit').map((x) => ({ a: x.b, b: x.a, from: x.from })), cut: 'defect', cause: 'betray' },
+    ] as const;
+    for (const c of cases) {
+      let done = false;
+      for (const x of c.list) {
+        const v: Intervention = { kind: 'declare', a: polityKey(civ, x.a), b: polityKey(civ, x.b), from: x.from };
+        const res = generateCiv(w, { interventions: [v] });
+        const [cut, war] = after(res, x.from);
+        if (war?.kind !== 'war') continue;
+        const tag = `${c.what} ${x.a}→${x.b} 第 ${x.from} 年`;
+        expect(cut.kind, tag).toBe(c.cut);
+        expect(cut.cause, tag).toBe(c.cause);
+        expect([war.a, war.b], tag).toEqual([x.a, x.b]);
+        expect(interventionOutcome(res, 0).ok, tag).toBe(true);
+        checkRelations(res, tag);
+        if (c.what === '宗主打藩属') expect(buildChronicle(res).find((e) => e.id === res.annals.indexOf(cut))?.text, tag).toContain('反目');
+        done = true;
+        break;
+      }
+      expect(done, `${c.what}:要有一对打得成`).toBe(true);
+    }
+  }, 300_000);
+
+  it('下令结了盟的宗主不讨伐自立的藩属', () => {
+    const p = small(2024);
+    const w = world(p);
+    const civ = civOf(p);
+    const war = civ.annals.find((e) => e.kind === 'war' && e.cause === 'punish');
+    expect(war, '要有一场讨伐').toBeDefined();
+    const from = Math.floor(war!.year);
+    const v: Intervention = { kind: 'ally', a: polityKey(civ, war!.a), b: polityKey(civ, war!.b), from };
+    const res = generateCiv(w, { interventions: [v] });
+    // 自立照旧,只是不再发兵
+    expect(res.annals.some((e) => e.kind === 'defect' && e.a === war!.b && e.b === war!.a && e.year === war!.year)).toBe(true);
+    expect(res.annals.some((e) => e.kind === 'war' && e.year >= from && ((e.a === war!.a && e.b === war!.b) || (e.a === war!.b && e.b === war!.a)))).toBe(false);
+  }, 120_000);
+
+  it('polityTies:盟国里有作者下令的结盟(约期内),没有共御的强邻;自然结成的照旧', () => {
+    const civ = civOf(small(7));
+    const y = 2000;
+    const live = civ.polities.filter((q) => polityAlive(q, y - 1) && polityAlive(q, y + 60)).map((q) => q.id);
+    const r = relationsAt(civ, y);
+    const natural = (a: number, b: number) => r.pacts.some((q) => (q.a === a && q.b === b) || (q.a === b && q.b === a));
+    const [x, z] = live.flatMap((a) => live.filter((b) => b > a && !natural(a, b)).map((b) => [a, b]))[0];
+    const iv: Civ = { ...civ, interventions: [{ kind: 'ally', a: polityKey(civ, x), b: polityKey(civ, z), from: y, until: y + 50 }] };
+    const at = (t: number) => polityTies(iv, x, t).allies.find((q) => q.id === z);
+    expect(at(y - 1)).toBeUndefined();
+    expect(at(y + 1)).toEqual({ id: z, since: y, foe: -1 });
+    expect(polityTies(iv, z, y + 1).allies.some((q) => q.id === x)).toBe(true);
+    expect(at(y + 50)).toBeUndefined();
+    // 别的照 relationsAt
+    for (const p of live) {
+      const t = polityTies(civ, p, y);
+      expect(t.allies.map((q) => q.id).sort((a, b) => a - b)).toEqual(r.pacts.filter((q) => q.a === p || q.b === p).map((q) => (q.a === p ? q.b : q.a)).sort((a, b) => a - b));
+      expect(t.liege).toEqual(r.liege.get(p));
+    }
+  }, 120_000);
+
+  it('编年史:援盟的仗,盟国的名字里含着守方的名字,照样写"伐某国"', () => {
+    const civ = civOf(small(7));
+    const i = civ.annals.findIndex((e) => e.kind === 'war' && (e.cause === 'ally' || e.cause === 'rescue') && e.settlement >= 0 && !civ.polities[e.settlement].eastern);
+    expect(i, '要有一场援盟 / 救藩的仗').toBeGreaterThanOrEqual(0);
+    const e = civ.annals[i];
+    const B = polityName(civ.polities[e.b], e.year);
+    const renamed: Civ = { ...civ, polities: civ.polities.map((q) => (q.id === e.settlement ? { ...q, name: `东${B}` } : q)) };
+    const all: ChronicleEntry[] = buildChronicle(renamed).flatMap((x) => [x, ...(x.children ?? [])]);
+    // 战争那一条和点开后宣战那一条
+    const xs = all.filter((c) => c.id === i && c.kind === 'war');
+    expect(xs.length).toBeGreaterThanOrEqual(2);
+    for (const x of xs) {
+      expect(x.text).toContain(`东${B}`);
+      expect(x.text.includes(`伐${B}`) || x.text.includes(`征${B}`), x.text).toBe(true);
+    }
+  }, 120_000);
 });

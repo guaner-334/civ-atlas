@@ -56,7 +56,7 @@
  *
  * buildChronicle 按 civ 缓存(同一个 civ 只算一次)。
  */
-import type { Annal, AnnalKind, Civ, Culture, MigrationDir, Person, Polity, Year } from './types';
+import type { Annal, AnnalCause, AnnalKind, Civ, Culture, MigrationDir, Person, Polity, Year } from './types';
 import {
   TIER_REGIONS,
   dynastyIndexAt,
@@ -749,7 +749,10 @@ function interveneStory(civ: Civ, e: Annal, id: number): IvStory {
     }
     case 'declare': {
       if (!B) return fail(`${A}欲伐他国,然其国不存`, '对方在新历史里没有(或那一年还没立国)');
-      const n = next();
+      // 盟国、宗藩之间:宣战前先记了盟约 / 宗藩之分断了(unally / defect),战争记在它后面
+      const cut = next();
+      const tie = !!cut && (cut.kind === 'unally' || cut.kind === 'defect') && ((cut.a === e.a && cut.b === e.b) || (cut.a === e.b && cut.b === e.a));
+      const n = tie ? next(2) : cut;
       if (n && n.kind === 'war' && n.a === e.a && n.b === e.b) return done(`${A}向${B}宣战`);
       if (dead(e.a)) return fail(`欲令${A}伐${B},然${A}已亡`, `那一年${A}已亡`);
       if (dead(e.b)) return fail(`${A}欲伐${B},然${B}已亡`, `那一年${B}已亡`);
@@ -910,6 +913,9 @@ function claimText(civ: Civ, e: Annal, id: number): string {
 /** 宣战的动词:讨伐自立的藩属写"讨",别的写"伐" */
 const warVerb = (e: Annal) => (e.cause === 'punish' ? '讨' : '伐');
 
+/** 由头里点了守方的名("以昌国绝贡,"、"乘昌国与索拉特交兵,"、"欲并昌国,"、"与昌国争边,"),后面写"伐之" */
+const NAMES_FOE: ReadonlySet<AnnalCause> = new Set<AnnalCause>(['punish', 'chaos', 'prey', 'expand']);
+
 function declareEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
   const { civ, ix } = ctx;
   const y = e.year;
@@ -921,8 +927,7 @@ function declareEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
   const v = warVerb(e);
   const ca = commander(ix, e.war, 0, id);
   const cd = commander(ix, e.war, 1, id);
-  // 由头里已经点了对方的名("乘昌国与索拉特交兵,"),后面写"伐之"
-  const to = pact.includes(B) ? '之' : B;
+  const to = e.cause && NAMES_FOE.has(e.cause) ? '之' : B;
   let t: string;
   if (ca?.role === 'ruler') t = `${rulerRef(civ, ca, y)}${pact}亲征${to}`;
   else if (ca) t = `${A}${pact}以${ca.name}为将,起兵${v}${to}`;
@@ -1152,8 +1157,9 @@ function diplomacyEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
       return base(e, id, t, P && polityTierAt(P, y) >= GREAT_TIER ? 3 : 2, [e.a, e.b], [e.region]);
     }
     case 'defect': {
-      const why = troubleOf(civ, e.b, id);
-      const t = why ? `${A}乘${B}${why},绝其朝贡,不复称臣` : `${A}绝${B}之贡,不复称臣`;
+      // 作者下令宗主向藩属开战:宗藩反目
+      const why = e.cause === 'betray' ? '' : troubleOf(civ, e.b, id);
+      const t = e.cause === 'betray' ? `${B}与藩属${A}反目,${A}不复称臣` : why ? `${A}乘${B}${why},绝其朝贡,不复称臣` : `${A}绝${B}之贡,不复称臣`;
       const P = polityOf(civ, e.a);
       return base(e, id, t, P && polityTierAt(P, y) >= GREAT_TIER ? 3 : 2, [e.a, e.b], [e.region]);
     }
