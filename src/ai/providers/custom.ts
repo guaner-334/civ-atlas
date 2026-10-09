@@ -2,6 +2,7 @@ import type { AiProvider } from '../client';
 import { AiError } from '../types';
 import { getCustomProvider, getCustomSecret } from '../settings';
 import { compatChat } from './compat';
+import { sanitizeTuning, reasoningExtra } from '../tuning';
 
 /** Accept an OpenAI-compatible base URL or the complete chat endpoint. */
 export function customEndpoint(value: string): string {
@@ -34,7 +35,11 @@ export const customProvider: AiProvider = {
     const key = getCustomSecret(s.id);
     const url = customEndpoint(s.baseUrl);
     if (!s.model || !key) throw new AiError('not-configured', '请先填写自定义服务的模型名称和 API 密钥');
-    try { return await compatChat({ name: s.name, url, key, model: s.model }, req, opts); }
+    const tuning = sanitizeTuning(s.modelTuning?.[s.model]);
+    try { return await compatChat({ name: s.name, url, key, model: s.model,
+      extra: reasoningExtra(tuning), contextLength: tuning.contextLength,
+      completionTokens: tuning.reasoningFormat === 'openai',
+    }, req, opts); }
     catch (e) {
       if (e instanceof AiError) {
         // The service may be removed or its key replaced while this request is pending.

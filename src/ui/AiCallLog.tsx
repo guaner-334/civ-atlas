@@ -136,6 +136,7 @@ function Row({ c, open, onToggle }: { c: AiCallRecord; open: boolean; onToggle: 
               <pre>{[m.content, callsText(m.toolCalls)].filter(Boolean).join('\n')}</pre>
             </div>
           ))}
+          {c.reasoning && <details className="ai-reasoning"><summary>思考过程</summary><pre>{c.reasoning}</pre></details>}
           <h5>{c.ok ? '收到的全文' : '失败原因'}</h5>
           {c.ok ? (
             <pre className="ai-reply">{[c.text, callsText(c.toolCalls)].filter(Boolean).join('\n') || '(空)'}</pre>

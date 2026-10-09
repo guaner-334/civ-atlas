@@ -644,7 +644,7 @@ describe('工具调用(助手用,假 fetch)', () => {
   /** 一个工具调用拆成好几段送来(两个调用交错) */
   const toolChunk = (calls: unknown[], finish?: string) => ({ id: 'x', model: 'deepseek-flash', choices: [{ index: 0, delta: { tool_calls: calls }, ...(finish ? { finish_reason: finish } : {}) }] });
 
-  it('DeepSeek:请求里带 tools、tool_choice,交回的消息按 OpenAI 写法;分段送来的调用拼回完整;深度思考开着也关掉', async () => {
+  it('DeepSeek:请求里带 tools、tool_choice,交回的消息按 OpenAI 写法;分段送来的调用拼回完整;保留思考开关', async () => {
     setSecret('deepseek', KEY);
     chooseProvider('deepseek');
     updateAiSettings({ deepseek: { thinking: true } });
@@ -668,7 +668,7 @@ describe('工具调用(助手用,假 fetch)', () => {
       { id: 'call_2', name: 'situation', args: '{"year":2850}' },
     ]);
     const body = calls[0].body;
-    expect(body.thinking).toEqual({ type: 'disabled' });
+    expect(body.thinking).toEqual({ type: 'enabled' });
     expect(body.tool_choice).toBe('auto');
     expect(body.tools).toEqual(TOOLS!.map((t) => ({ type: 'function', function: t })));
     expect(body.messages[2]).toEqual({
@@ -687,7 +687,7 @@ describe('工具调用(助手用,假 fetch)', () => {
     updateAiSettings({ deepseek: { thinking: false } });
   });
 
-  it('百炼:带工具时不开深度思考;只回工具调用、没有正文不算出错', async () => {
+  it('百炼:带工具时保留深度思考;只回工具调用、没有正文不算出错', async () => {
     setSecret('bailian', KEY);
     chooseProvider('bailian');
     updateAiSettings({ bailian: { thinking: true } });
@@ -700,7 +700,7 @@ describe('工具调用(助手用,假 fetch)', () => {
       ),
     );
     const r = await aiChat({ ...ROUND2, toolChoice: 'none' });
-    expect(calls[0].body.enable_thinking).toBe(false);
+    expect(calls[0].body.enable_thinking).toBe(true);
     expect(calls[0].body.tool_choice).toBe('none');
     expect(r.text).toBe('我先查一下。');
     expect(r.toolCalls).toEqual([{ id: 'call_q', name: 'country', args: '{"country":"P3"}' }]);

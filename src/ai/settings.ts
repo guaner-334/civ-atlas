@@ -12,6 +12,7 @@
 import { useSyncExternalStore } from 'react';
 import { notifyAiChanged, setActiveProvider, setAiOn } from './client';
 import type { AiProviderKind } from './types';
+import { sanitizeTuning, type AiTuning } from './tuning';
 
 export type BailianRegion = 'cn' | 'intl';
 
@@ -21,6 +22,8 @@ export interface CustomAiConfig {
   baseUrl: string;
   models: string[];
   model: string;
+  /** Independent runtime options for each model. */
+  modelTuning?: Record<string, AiTuning>;
 }
 
 export interface AiSettings {
@@ -30,8 +33,8 @@ export interface AiSettings {
   provider: AiProviderKind | null;
   /** 在这个浏览器里记住密钥和登录 */
   remember: boolean;
-  deepseek: { model: string; thinking: boolean };
-  bailian: { model: string; region: BailianRegion; thinking: boolean };
+  deepseek: { model: string; thinking: boolean; tuning?: AiTuning };
+  bailian: { model: string; region: BailianRegion; thinking: boolean; tuning?: AiTuning };
   customProviders: CustomAiConfig[];
   customProviderId: string | null;
 }
@@ -109,6 +112,7 @@ export function sanitizeSettings(v: unknown): AiSettings {
       id: item.id, name: str(item.name, '自定义服务'),
       baseUrl: typeof item.baseUrl === 'string' ? item.baseUrl.trim().slice(0, 2048) : '',
       models, model: models.includes(item.model) ? item.model : models[0] ?? '',
+      ...(item.modelTuning && typeof item.modelTuning === 'object' ? { modelTuning: Object.fromEntries(models.filter(m => Object.hasOwn(item.modelTuning, m)).map(m => [m, sanitizeTuning(item.modelTuning[m])])) } : {}),
     });
   }
   const customProviderId = ids.has(o.customProviderId) ? o.customProviderId : customProviders[0]?.id ?? null;
@@ -116,11 +120,12 @@ export function sanitizeSettings(v: unknown): AiSettings {
     enabled: bool(o.enabled, d.enabled),
     provider: KINDS.includes(o.provider) ? o.provider : null,
     remember: bool(o.remember, d.remember),
-    deepseek: { model: str(ds.model, d.deepseek.model), thinking: bool(ds.thinking, d.deepseek.thinking) },
+    deepseek: { model: str(ds.model, d.deepseek.model), thinking: bool(ds.thinking, d.deepseek.thinking), ...(ds.tuning ? { tuning: sanitizeTuning(ds.tuning) } : {}) },
     bailian: {
       model: str(bl.model, d.bailian.model),
       region: bl.region === 'intl' ? 'intl' : 'cn',
       thinking: bool(bl.thinking, d.bailian.thinking),
+      ...(bl.tuning ? { tuning: sanitizeTuning(bl.tuning) } : {}),
     },
     customProviders, customProviderId,
   };

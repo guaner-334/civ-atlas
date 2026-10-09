@@ -121,6 +121,7 @@ export interface AsTurn {
   steps: AsStep[];
   /** 回给作者的话(做的时候是这一轮模型正在说的) */
   text: string;
+  reasoning?: { round: number; text: string }[];
   proposal?: AsProposal;
   /** 没勾的几条(下标) */
   off?: number[];
@@ -353,6 +354,7 @@ export async function sendAsk(ctx: AskContext, text: string): Promise<number> {
       onProposal: (p) => (got = p),
       onEvent: (e) => {
         if (e.type === 'round') live(() => ({ text: '' }));
+        else if (e.type === 'reasoning') live(t => ({ reasoning: [...(t.reasoning ?? []).filter(r => r.round !== e.round), { round: e.round, text: e.text }] }));
         else if (e.type === 'text') live(() => ({ text: e.text }));
         else if (e.type === 'step') live((t) => ({ steps: [...t.steps, stepOf(e.step)] }));
         else if (e.type === 'step-done') {

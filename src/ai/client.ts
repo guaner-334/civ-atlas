@@ -213,8 +213,17 @@ export async function aiChat(req: AiRequest, opts: AiCallOptions = {}): Promise<
   }
   // 记下已经收到的部分:停止 / 中途断线时也写进记录(这部分服务商照样计费,用户能看到写到了哪)
   let partial = '';
+  let partialReasoning = '';
   const tracked: AiCallOptions = {
     ...opts,
+    onRequestMessages: (messages) => {
+      base.messages = messages.map(m => ({ ...m, content: clip(m.content), ...(m.reasoning ? { reasoning: clip(m.reasoning) } : {}) }));
+      opts.onRequestMessages?.(messages);
+    },
+    onReasoningDelta: (chunk, full) => {
+      partialReasoning = full;
+      opts.onReasoningDelta?.(chunk, full);
+    },
     onDelta: (chunk, full) => {
       partial = full;
       opts.onDelta?.(chunk, full);
@@ -232,6 +241,7 @@ export async function aiChat(req: AiRequest, opts: AiCallOptions = {}): Promise<
       credits: r.credits,
       ms: res.ms,
       text: clip(r.text),
+      ...(r.reasoning ? { reasoning: clip(r.reasoning) } : {}),
       ...(r.toolCalls?.length ? { toolCalls: r.toolCalls.map((c) => ({ ...c, args: clip(c.args) })) } : {}),
     });
     return res;
@@ -250,6 +260,7 @@ export async function aiChat(req: AiRequest, opts: AiCallOptions = {}): Promise<
       error: { code: err.code, message: err.message },
       ms: Math.round(now()),
       ...(partial ? { text: clip(partial) } : {}),
+      ...(partialReasoning ? { reasoning: clip(partialReasoning) } : {}),
     });
     throw err;
   }

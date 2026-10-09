@@ -25,6 +25,7 @@ import { Icon } from './icons';
 import { mockSelectable } from '../ai/setup';
 import { useCallLog } from '../ai/callLog';
 import { AiCallLog } from './AiCallLog';
+import { sanitizeTuning, type AiTuning, type ReasoningFormat, type ReasoningEffort } from '../ai/tuning';
 import { PRIVACY_URL } from './links';
 import './ai.css';
 
@@ -208,8 +209,8 @@ function SettingsTab() {
         <div className="ai-detail" data-detail="deepseek">
           <KeyField slot="deepseek" where={<a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noreferrer">DeepSeek 开放平台</a>} />
           <ModelField value={s.deepseek.model} presets={DEEPSEEK_MODELS} placeholder="比如 deepseek-v4-pro" onChange={(model) => updateAiSettings({ deepseek: { model } })} />
-          <Thinking value={s.deepseek.thinking} onChange={(thinking) => updateAiSettings({ deepseek: { thinking } })} />
-          <TestRow disabled={!sec.deepseek} sig={`deepseek|${s.deepseek.model}|${s.deepseek.thinking}|${sec.deepseek?.length ?? 0}`} />
+          <TuningFields id="deepseek" value={{ ...sanitizeTuning(s.deepseek.tuning), reasoningFormat: 'deepseek', ...(!s.deepseek.tuning && !s.deepseek.thinking ? { reasoningEffort: 'none' } : {}) }} onChange={tuning => updateAiSettings({ deepseek: { tuning, thinking: tuning.reasoningEffort !== 'none' } })} />
+          <TestRow disabled={!sec.deepseek} sig={`deepseek|${s.deepseek.model}|${s.deepseek.thinking}|${JSON.stringify(s.deepseek.tuning)}|${sec.deepseek?.length ?? 0}`} />
         </div>
       )}
       {active === 'bailian' && (
@@ -227,8 +228,8 @@ function SettingsTab() {
           <p className="ai-note sub">选创建密钥时的地域</p>
           <KeyField slot="bailian" where={<a href="https://bailian.console.aliyun.com/" target="_blank" rel="noreferrer">百炼控制台</a>} />
           <ModelField value={s.bailian.model} presets={BAILIAN_MODELS} placeholder="比如 qwen-max-latest" onChange={(model) => updateAiSettings({ bailian: { model } })} />
-          <Thinking value={s.bailian.thinking} onChange={(thinking) => updateAiSettings({ bailian: { thinking } })} />
-          <TestRow disabled={!sec.bailian} sig={`bailian|${s.bailian.region}|${s.bailian.model}|${s.bailian.thinking}|${sec.bailian?.length ?? 0}`} />
+          <TuningFields id="bailian" value={{ ...sanitizeTuning(s.bailian.tuning), reasoningFormat: 'qwen', ...(!s.bailian.tuning && !s.bailian.thinking ? { reasoningEffort: 'none' } : {}) }} onChange={tuning => updateAiSettings({ bailian: { tuning, thinking: tuning.reasoningEffort !== 'none' } })} />
+          <TestRow disabled={!sec.bailian} sig={`bailian|${s.bailian.region}|${s.bailian.model}|${s.bailian.thinking}|${JSON.stringify(s.bailian.tuning)}|${sec.bailian?.length ?? 0}`} />
         </div>
       )}
       {active === 'official' && (
@@ -302,6 +303,7 @@ function CustomSettings() {
         <input id="ai-custom-model-name" className="ai-input" autoComplete="off" spellCheck={false} placeholder="填写服务商提供的模型名称" value={modelName} maxLength={120} onChange={e => setModelName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addModel(); } }} />
         <button className="ai-mini" data-act="custom-model-add" disabled={!modelName.trim()} onClick={addModel}>添加模型</button>
       </div>
+      {p.model && <TuningFields id="custom" custom value={sanitizeTuning(p.modelTuning?.[p.model])} onChange={tuning => updateCustomProvider(p.id, { modelTuning: { ...p.modelTuning, [p.model]: tuning } })} />}
       <TestRow key={revision} disabled={!getCustomSecret(p.id) || !p.baseUrl || !p.model} sig={`${p.id}|${revision}`} />
     </> : <p className="ai-note">新增服务商后，填写接口、密钥并添加模型。可以保存多个服务商，随时切换。</p>}
   </div>;
@@ -414,15 +416,37 @@ function ModelField({
   );
 }
 
-function Thinking({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <label className="ai-check" title="先想再写,可能更周全,但慢很多、也更贵">
-      <input type="checkbox" checked={value} onChange={(e) => onChange(e.target.checked)} />
-      <span>
-        深度思考<em>更慢、更贵,一般不用开</em>
-      </span>
-    </label>
-  );
+function TuningFields({ id, value, custom, onChange }: { id: string; value: AiTuning; custom?: boolean; onChange: (value: AiTuning) => void }) {
+  const levels: { id: ReasoningEffort; label: string }[] = [
+    { id: 'default', label: '模型默认' }, { id: 'none', label: '关闭' }, { id: 'low', label: '低' },
+    { id: 'medium', label: '中' }, { id: 'high', label: '高' }, { id: 'max', label: '最高' },
+  ];
+  const [length, setLength] = useState(String(value.contextLength || ''));
+  useEffect(() => setLength(String(value.contextLength || '')), [value.contextLength]);
+  return <>
+    {custom && <div className="ai-row">
+      <label className="ai-label" htmlFor={`ai-${id}-reasoning-format`}>思考接口</label>
+      <select id={`ai-${id}-reasoning-format`} className="ai-input ai-select" value={value.reasoningFormat} onChange={e => onChange({ ...value, reasoningFormat: e.target.value as ReasoningFormat, reasoningEffort: 'default' })}>
+        <option value="none">不指定 · 使用模型默认</option><option value="openai">OpenAI 兼容</option><option value="deepseek">DeepSeek</option><option value="qwen">Qwen / 百炼</option>
+      </select>
+    </div>}
+    <div className="ai-row">
+      <label className="ai-label" htmlFor={`ai-${id}-reasoning-effort`}>思考强度</label>
+      <select id={`ai-${id}-reasoning-effort`} className="ai-input ai-select" disabled={value.reasoningFormat === 'none'} value={value.reasoningEffort} onChange={e => onChange({ ...value, reasoningEffort: e.target.value as ReasoningEffort })}>
+        {levels.filter(l => value.reasoningFormat !== 'deepseek' || l.id !== 'medium').map(l => <option key={l.id} value={l.id}>{l.label}</option>)}
+      </select>
+    </div>
+    <div className="ai-row">
+      <label className="ai-label" htmlFor={`ai-${id}-context-length`}>上下文长度</label>
+      <input id={`ai-${id}-context-length`} className="ai-input" type="number" min={1024} max={2000000} step={1} placeholder="模型默认" value={length} onChange={e => setLength(e.target.value)} onBlur={() => {
+        const n = length === '' ? 0 : Number(length);
+        if (n !== 0 && (!Number.isInteger(n) || n < 1024 || n > 2000000)) { setLength(String(value.contextLength || '')); return; }
+        onChange({ ...value, contextLength: n });
+      }} />
+      <span className="ai-note">Token</span>
+    </div>
+    <p className="ai-note sub">上下文按估算 Token 控制，保留当前问题与工具结果，超限时裁掉较早对话。不能超过模型本身的上限。思考强度以模型支持为准；仅显示服务商实际返回的思考内容。{value.reasoningFormat === 'qwen' ? '强度对应思考预算：低 1024、中 4096、高 8192、最高 16384 Token。' : ''}{custom ? '设置随当前模型独立保存。' : ''}</p>
+  </>;
 }
 
 const dur = (ms: number) => (ms < 1000 ? `${Math.round(ms)} 毫秒` : `${(ms / 1000).toFixed(1)} 秒`);
