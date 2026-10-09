@@ -3,7 +3,7 @@
  *
  * - **事件堆**:按时间排序(复用 util.ts 的 MinHeap)。每个事件是 {时间, 类型, 对象 a, 对象 b, 版本号}。
  *   时间精度 1/256 年;"时间 + 同一刻里的次序"拼成一个整数当优先级,保证确定性:同一时刻最先处理地形大事,
- *   再处理新君即位、迁都后重看边地(按国家号,见 earlyOrder),再处理别的事件(按预约先后),最后处理民族、国家的到达
+ *   再处理看王朝、新君即位、迁都后重看边地(按国家号,见 earlyOrder),再处理别的事件(按预约先后),最后处理民族、国家的到达
  *   (按"民族先、国家后,再按州号、民族 / 国家号"排,见 arrivalOrder)。头尾这两类和预约先后无关 —— 接着推时它们是
  *   按日志重新预约 / 重放的,预约先后和一口气推完时不一样,同一刻撞上了也要按同样的次序处理。
  * - **州的版本号**:州的归属(任何一层)一变就 +1。事件预约时记下州 a 的版本号,弹出时对不上就是过期了,
@@ -196,11 +196,11 @@ export const CHECKPOINT_EVERY = 100;
 /** 事件时间精度:1/256 年(约一天半) */
 const TICKS_PER_YEAR = 256;
 /**
- * 优先级 = 时刻 × TICK_SPAN + 同一刻里的次序:地形大事、新君即位、迁都后重看边地 = earlyOrder(< EARLY_SPAN,排在最前);
+ * 优先级 = 时刻 × TICK_SPAN + 同一刻里的次序:地形大事、看王朝、新君即位、迁都后重看边地 = earlyOrder(< EARLY_SPAN,排在最前);
  * 别的事件 = EARLY_SPAN + 编号(预约先后,< SEQ_SPAN);民族、国家到达 = SEQ_SPAN + arrivalOrder(排在最后)。
  * 都是整数,拼起来不超过 2^53 − 1,Float64 里精确
  */
-const EARLY_SPAN = 2 ** 13;
+const EARLY_SPAN = 2 ** 14;
 const SEQ_SPAN = 2 ** 28;
 const TICK_SPAN = 2 ** 29;
 /** 能预约的最远时刻:65536 年(Float32 的变化日志在这个范围内也能精确存下 1/256 年) */
@@ -219,15 +219,18 @@ function arrivalOrder(kind: number, a: number, b: number): number {
 /**
  * 排在同一刻最前面的事件的次序(0 起,< EARLY_SPAN):
  * - 地形大事 = 0:同一刻的别的事都按大事以后的地形和归属算(一次推演里只有一件,见 index.ts)
- * - 新君即位、迁都后重看边地:按国家号,同一国先即位后重看。它们只从现有国土往外预约扩张、不改归属,
- *   排在别的事件前面 —— 接着推时 resumePolities 也是在同一刻的日志(大事改的归属除外)之前重放
+ * - 看王朝、新君即位、迁都后重看边地:按国家号,同一国依次是看王朝、即位、重看。
+ *   看王朝在前:同一刻改朝换代了,旧朝原定这一刻即位的那位就不即位了(在位表重排,Ev.Reign 对不上就丢掉);
+ *   即位、重看只从现有国土往外预约扩张、不改归属,排在别的事件前面 —— 接着推时 resumePolities 也是在同一刻的日志
+ *   (大事改的归属除外)之前重放
  * 不是这几类、或国家号超出能编的范围,返回 −1(按预约先后)
  */
+const EARLY_KINDS: Partial<Record<number, number>> = { [Ev.DynastyCheck]: 0, [Ev.Reign]: 1, [Ev.Respread]: 2 };
 function earlyOrder(kind: number, b: number): number {
   if (kind === Ev.Upheaval) return 0;
-  if (kind !== Ev.Reign && kind !== Ev.Respread) return -1;
-  if (!(b >= 0 && b < EARLY_SPAN / 2 - 1)) return -1;
-  return 1 + b * 2 + (kind === Ev.Respread ? 1 : 0);
+  const i = EARLY_KINDS[kind];
+  if (i === undefined || !(b >= 0 && b < (EARLY_SPAN - 1) / 3 - 1)) return -1;
+  return 1 + b * 3 + i;
 }
 
 /** 把时间取整到引擎的精度(1/256 年)。引擎里所有事件时间、日志年份都是这样的值 */
