@@ -226,7 +226,8 @@ export function buildPeople(civ: PeopleInput): Person[] {
         // 名字
         person.name = rulerName(namer, tag[p.id], k, j, surname, usedGiven, pool, R, republic, heirOf && pools[fallen!.id], list[list.length - 1]?.name);
         list.push(person);
-        if (natural < segEnd) {
+        // 国家还在、恰好在推到的最后一刻交接的也交接:推演里那一刻已经是下一位在位(rulers.ts 的 reignBook)
+        if (natural < segEnd || (last && p.ended === undefined && natural === segEnd)) {
           // 这一朝里正常交接:驾崩(偶尔遇弑);执政官任满卸任
           person.until = natural;
           if (republic) {

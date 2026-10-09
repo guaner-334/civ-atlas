@@ -123,7 +123,7 @@ describe('扩张算账 · 接着推', () => {
     expect(JSON.stringify(r.annals), `断在第 ${cut} 年`).toBe(JSON.stringify(full.annals));
   };
 
-  it('fromCiv 接着推:在改朝换代、新君即位的那一刻断开,和一口气推完一样', () => {
+  it('fromCiv 接着推:在改朝换代、新君即位的那一刻断开,和一口气推完一样;断在即位那一刻,人物表里也是新君在位', () => {
     const w = world(7, 12000);
     const full = generateCiv(w);
     // 断在一次改朝换代的那一刻、和一位君主即位的那一刻(这两刻的预约最容易漏)
@@ -132,6 +132,10 @@ describe('扩张算账 · 接着推', () => {
     const cuts = [dyn?.year, heir?.from].filter((x): x is number => x !== undefined);
     expect(cuts.length).toBe(2);
     for (const cut of cuts) same(w, full, cut);
+    // 断在新君即位的那一刻:推演里那一刻已经是新君在位,人物表里也是他在位(前一位到这一刻为止)
+    const head = generateCiv(w, { endYear: heir!.from! });
+    const now = head.people!.filter((x) => x.role === 'ruler' && x.polity === heir!.polity && x.until === undefined);
+    expect(now.map((x) => [x.name, x.from])).toEqual([[heir!.name, heir!.from]]);
   });
 
   it('fromCiv 接着推:迁都的下一刻按新国都重新预约扩张,断在迁都那一刻、迁都几年后都和一口气推完一样', () => {
