@@ -182,7 +182,7 @@ import type { AuthorCharacter } from './characters';
 import { polityRootAt } from './civ/growth';
 import { TERRAIN_H, TERRAIN_W } from './terrainEdits';
 import type { SketchEdit } from './sketch';
-import type { NameMix } from './names';
+import type { NameMix } from './names/mix';
 
 /** 生成器版本:生成算法有改动、同种子会得到不同世界时加一(存档读档时核对);加一时在 GENERATOR_CHANGES 里补一条 */
 export const GENERATOR_VERSION = 9;

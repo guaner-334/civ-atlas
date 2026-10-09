@@ -10,7 +10,7 @@
  */
 import { useState } from 'react';
 import type { Civ } from '../../gen/civ/types';
-import { MIX_SHARE_MAX, type NameMix } from '../../gen/names';
+import { MIX_SHARE_MAX, type NameMix } from '../../gen/names/mix';
 import { setNameMix, useEdits } from '../editsStore';
 import { Icon } from '../icons';
 import { MIX_PRESETS, MIX_STYLES, autoMix, easternPct, pctText, styleAreas, type MixStyle } from '../nameMix';

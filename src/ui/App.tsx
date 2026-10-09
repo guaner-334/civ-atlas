@@ -107,7 +107,7 @@ import {
   type WorldEdits,
 } from '../gen/edits';
 import { sameTerrain, sameUpheavals } from '../gen/terrainEdits';
-import { sameMix, type NameMix } from '../gen/names';
+import { sameMix, type NameMix } from '../gen/names/mix';
 import type { RasterPatch } from '../gen/rasterPatch';
 import { baseRegions, civAtEra, dropComposed, eraData, eraIndex, eraMapsOf, eraReady, eraShown, patchKey, reuseRegions, useEraIndex, withHistory, type EraMaps } from './eras';
 import { sameSketch, type SketchEdit } from '../gen/sketch';

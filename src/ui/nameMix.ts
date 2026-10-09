@@ -4,7 +4,7 @@
  * 份数怎么变成各民族的语感见 gen/civ/naming.ts 的 assignStyles。
  */
 import type { Civ } from '../gen/civ/types';
-import { MIX_SHARE_MAX, NAME_STYLES, cleanMix, type NameMix } from '../gen/names';
+import { MIX_SHARE_MAX, NAME_STYLE_META, cleanMix, type NameMix } from '../gen/names/mix';
 
 export interface MixStyle {
   id: string;
@@ -32,8 +32,8 @@ const LOOK: Record<string, [color: string, examples: string]> = {
   elven: ['#3FB98A', '希尔瓦兰'],
 };
 
-/** 界面上的顺序:中式在前(条上中式在左、音译在右),各自按 NAME_STYLES 的顺序 */
-export const MIX_STYLES: MixStyle[] = [...NAME_STYLES.filter((s) => s.family === 'eastern'), ...NAME_STYLES.filter((s) => s.family === 'western')].map((s) => ({
+/** 界面上的顺序:中式在前(条上中式在左、音译在右),各自按 NAME_STYLE_META 的顺序 */
+export const MIX_STYLES: MixStyle[] = [...NAME_STYLE_META.filter((s) => s.family === 'eastern'), ...NAME_STYLE_META.filter((s) => s.family === 'western')].map((s) => ({
   id: s.id,
   label: s.label.replace('(', '（').replace(')', '）'),
   family: s.family,

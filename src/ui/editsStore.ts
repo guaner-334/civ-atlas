@@ -14,7 +14,7 @@ import { TERRAIN_MAX_OPS, UPHEAVALS_MAX, cleanTerrainOp, cleanUpheaval } from '.
 import { SKETCH_MAX_STROKES, cleanSketch, cleanSketchImage, cleanSketchStroke, encodeLayer, sketchCoast, type SketchEdit, type SketchImage, type SketchStroke } from '../gen/sketch';
 import { CHARACTERS_MAX, cleanCharacter, nextCharacterId, sameCharacter, type AuthorCharacter } from '../gen/characters';
 import { showToast } from './toastStore';
-import { cleanMix, sameMix, type NameMix } from '../gen/names';
+import { cleanMix, sameMix, type NameMix } from '../gen/names/mix';
 
 let state: WorldEdits = EMPTY_EDITS;
 const subs = new Set<() => void>();

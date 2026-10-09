@@ -6,10 +6,10 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { generateCiv } from '../src/gen/civ';
 import type { Civ } from '../src/gen/civ/types';
-import { MIX_SHARE_MAX, NAME_STYLES, cleanMix, mixStyles, pickStyle, sameMix, type NameMix } from '../src/gen/names';
+import { MIX_SHARE_MAX, NAME_STYLES, NAME_STYLE_META, cleanMix, mixStyles, pickStyle, sameMix, type NameMix } from '../src/gen/names';
 import { worldNameStyle } from '../src/gen/civ/places';
 import { worldStyleId } from '../src/ai/prompts/names';
-import { editsLost, makeSave, parseSave, saveText } from '../src/gen/savefile';
+import { editCount, editsLost, makeSave, parseSave, saveText } from '../src/gen/savefile';
 import type { Upheaval, WorldEdits } from '../src/gen/edits';
 import { upheavalSteps } from '../src/gen/civ/upheaval';
 import { reuseRegions } from '../src/ui/eras';
@@ -55,6 +55,10 @@ const history = (c: Civ) =>
   });
 
 describe('清理、按份数抽', () => {
+  it('不带词库的语感清单(界面、存档用)和起名器的一一对应、顺序一致', () => {
+    expect(NAME_STYLE_META.map((s) => [s.id, s.label, s.family])).toEqual(NAME_STYLES.map((s) => [s.id, s.label, s.family]));
+  });
+
   it('cleanMix:认不出的语感、不是正数的去掉,取整、最多 MIX_SHARE_MAX 份;一份都没有 = 自动', () => {
     expect(cleanMix({ xianxia: 2.6, central: 0, desert: -1, nope: 3, imperial: 99 })).toEqual({ imperial: MIX_SHARE_MAX, xianxia: 3 });
     expect(cleanMix({})).toBeUndefined();
@@ -195,6 +199,19 @@ describe('地形大事', () => {
     expect(civ.cultures.map((c) => c.autoStyle)).toEqual(auto.cultures.map((c) => c.style));
     expect(civ.eras?.length).toBeGreaterThan(0);
   });
+
+  it('大事改变了大片地方(早早沉下一大片):份数照真正的结局凑,不照没有大事的那份', () => {
+    const params = { ...DEFAULT_PARAMS, seed: 7 };
+    const sink: Upheaval = { year: 800, ops: [{ kind: 'sink', pts: [600, 300, 1400, 500, 1000, 800], r: 160, s: 1.2 }] };
+    const world = generateWorld(params);
+    const upheavals = upheavalSteps(params, [], null, [sink]);
+    const auto = generateCiv(world, { upheavals });
+    const civ = generateCiv(world, { upheavals, names: { central: 3, imperial: 7 } });
+    expect(history(civ)).toBe(history(auto));
+    // 照没有大事的那份结局凑时,这里只有 19%
+    expect(Math.abs(easternShare(civ) - 30)).toBeLessThanOrEqual(5);
+    expect(civ.eras?.[0].places.length).toBeGreaterThan(0);
+  });
 });
 
 describe('存档', () => {
@@ -221,6 +238,12 @@ describe('存档', () => {
     back = parseSave(JSON.stringify(save));
     expect(back.ok && back.save.edits.nameMix).toBeUndefined();
     expect(back.ok && back.warnings.some((w) => w.includes('地名风格认不出来'))).toBe(true);
+  });
+
+  it('改了几处:配了地名风格算一处,自动不算', () => {
+    expect(editCount(base)).toBe(0);
+    expect(editCount({ ...base, nameMix: { xianxia: 6, central: 4 } })).toBe(1);
+    expect(editCount({ ...base, names: { 'state:0': '大靖' }, nameMix: { xianxia: 1 } })).toBe(2);
   });
 
   it('打开别人的链接会丢掉的改动:配比不同只算一处', () => {

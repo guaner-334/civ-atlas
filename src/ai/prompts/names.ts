@@ -17,7 +17,7 @@ import type { Civ, Place, Polity } from '../../gen/civ/types';
 import type { Raster } from '../../gen/raster';
 import { BIOMES } from '../../gen/biomes';
 import { mulberry32, subSeed } from '../../gen/util';
-import { pickStyle, type NameMix } from '../../gen/names';
+import { pickStyle, type NameMix } from '../../gen/names/mix';
 import { KIND_INFO, cultureLabel, regionLabel, regionNamed } from '../../gen/civ/display';
 import {
   SETTLEMENT_RANKS,

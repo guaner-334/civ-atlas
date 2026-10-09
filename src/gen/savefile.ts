@@ -48,7 +48,7 @@
  * 纯计算,不碰 DOM(Node 里可测)。
  */
 import { DEFAULT_PARAMS, type World, type WorldParams } from './world';
-import { cleanMix, sameMix } from './names';
+import { cleanMix, sameMix } from './names/mix';
 import { GENERATOR_CHANGES, GENERATOR_VERSION, MARKS_MAX, MARK_REGIONS_TOTAL, NAME_MAX, aiNameKeys, cleanMark, freeMarkId, type AiNameMark, type AuthorMark, type GeneratorChange, type Intervention, type TerrainOp, type Upheaval, type WorldEdits } from './edits';
 import { TERRAIN_MAX_OPS, UPHEAVALS_MAX, UPHEAVAL_KINDS, UPHEAVAL_OPS_MAX, cleanTerrainOp, cleanUpheaval } from './terrainEdits';
 import { SKETCH_MAX_STROKES, cleanSketch, cleanSketchStroke, type SketchEdit } from './sketch';
@@ -269,7 +269,7 @@ export function worldKey(params: WorldParams): string {
   return PARAM_KEYS.map((k) => `${k}=${params[k] ?? DEFAULT_PARAMS[k]}`).join('&');
 }
 
-/** 改了几处:改名条数 + 干预条数 + 地形修改处数 + 草图(画了算一处)+ 地形大事件数 + 作者标记个数 + 改过的旗面数 + 作者的人物个数 */
+/** 改了几处:改名条数 + 干预条数 + 地形修改处数 + 草图(画了算一处)+ 地形大事件数 + 作者标记个数 + 改过的旗面数 + 作者的人物个数 + 地名风格(配了算一处)*/
 export function editCount(edits: WorldEdits): number {
   return (
     Object.keys(edits.names).length +
@@ -279,7 +279,8 @@ export function editCount(edits: WorldEdits): number {
     (edits.upheavals?.length ?? 0) +
     (edits.marks?.length ?? 0) +
     Object.keys(edits.flags ?? {}).length +
-    (edits.characters?.length ?? 0)
+    (edits.characters?.length ?? 0) +
+    (edits.nameMix ? 1 : 0)
   );
 }
 
