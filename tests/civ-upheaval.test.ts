@@ -9,13 +9,14 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
-import { mergeUpheavals, previewUpheaval, previewVictims, upheavalBase, upheavalSteps, type UpheavalStep } from '../src/gen/civ/upheaval';
+import { mergeUpheavals, previewUpheaval, previewVictims, reshapeCities, upheavalBase, upheavalSteps, type UpheavalStep } from '../src/gen/civ/upheaval';
 import { DEFAULT_CIV_PARAMS } from '../src/gen/civ';
 import { buildChronicle } from '../src/gen/civ/chronicle';
 import { ownersAt } from '../src/gen/civ/timeline';
 import { RESHAPE_RAMP, capacityAt, capitalAt, populationAt, portAt, ruinSites, yearReaching } from '../src/gen/civ/growth';
 import type { Settlement } from '../src/gen/civ/types';
-import { routeCities } from '../src/gen/civ/polities';
+import { findPorts, routeCities } from '../src/gen/civ/polities';
+import { cultureTerrain } from '../src/gen/civ/cultures';
 import { UPHEAVALS_MAX, UPHEAVAL_OPS_MAX, UPHEAVAL_YEARS, cleanUpheavals, sameUpheavals } from '../src/gen/terrainEdits';
 import { EMPTY_EDITS, applyNames, placeKeyOf, polityKey, regionKey, resolveKey, settlementKey, type Upheaval } from '../src/gen/edits';
 import { editCount, makeSave, parseSave, saveText } from '../src/gen/savefile';
@@ -302,6 +303,29 @@ describe('地形大事 · 推演', () => {
     for (const level of [32, 38, 45]) cross(twice, level);
     expect(cross(twice, 45)).toBe(Infinity);
   });
+
+  it('州的人口上限变成 0、后来又长回来:城的上限照比例涨回去;同一处城址先后几座城,航线的港口看最后一座', () => {
+    const W = world();
+    const c = base();
+    const T = cultureTerrain(W, c.habitat, c.regions);
+    const ports = findPorts(W, T);
+    let r = 0;
+    while (!(c.regions.capacity[r] > 0 && W.water[c.regions.seat[r]] === 0)) r++;
+    const s: Settlement = { id: 0, cell: c.regions.seat[r], region: r, culture: 0, name: '', founded: 0, capacity: 30, growth: 0.002, port: ports[r] === 1 };
+    const zero = { ...c.regions, capacity: c.regions.capacity.map((v, i) => (i === r ? 0 : v)) };
+    const [a] = reshapeCities([s], T, W, c.habitat, zero, 100, []);
+    expect(a.reshaped).toHaveLength(1);
+    expect(capacityAt(a, 100)).toBeLessThan(1e-3);
+    const [b] = reshapeCities([a], cultureTerrain(W, c.habitat, zero), W, c.habitat, c.regions, 200, []);
+    expect(b.reshaped).toHaveLength(2);
+    expect(portAt(b, 200)).toBe(s.port);
+    expect(b.reshaped![1].capacity).toBeCloseTo(30, 6);
+    // 港口城在大事以前就毁了,大事以后在原址重建的不是港口:航线按重建的那座
+    const old: Settlement = { ...s, port: true, ended: 500 };
+    const again: Settlement = { ...s, id: 1, port: false, founded: 600, rebuilds: 0 };
+    const [rc] = routeCities([old, again], [], 1000);
+    expect(rc.port).toBe(false);
+  }, 120_000);
 
   it('城没于水以后,后来的大事又把那里抬成陆地:不重建', () => {
     const a = civOf([FLOOD]);

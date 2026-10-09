@@ -1123,7 +1123,8 @@ export function routeCities(settlements: Settlement[], polities: Polity[], endYe
       if (capitalFrom.has(x.id)) majorFrom = Math.min(majorFrom, capitalFrom.get(x.id)!);
     }
     if (!(founded < Infinity)) continue;
-    const c: RouteCity = { cell: s.cell, major: majorFrom < Infinity, majorFrom: majorFrom < Infinity ? majorFrom : undefined, port: g.some(port), founded };
+    // 港口看这处城址的最后一座城:先前的城可能在地形大事以前就毁了,记着的还是那时的港口
+    const c: RouteCity = { cell: s.cell, major: majorFrom < Infinity, majorFrom: majorFrom < Infinity ? majorFrom : undefined, port: port(g[g.length - 1]), founded };
     const ended = g[g.length - 1].ended;
     if (ended !== undefined) c.ended = ended;
     out.push(c);

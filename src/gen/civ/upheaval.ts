@@ -286,6 +286,11 @@ export function upheavalVictims(
 
 /** 城址的人口上限变得不到这么多(比例)、港口也没变的,不算变了 */
 const RESHAPE_MIN = 0.02;
+/**
+ * 城址系数(siteFactor)的下限:州的人口上限变成 0 的按它算 —— 前后之比照样一段接一段连得上,
+ * 后来的大事又在那一州长出地来,城的上限照样按比例涨回去
+ */
+const SITE_MIN = 1e-6;
 
 /**
  * 大事那一刻(t)还在、过了这一刻也还在的城:城址照新地形换值(Settlement.reshaped 添一段,从 t 起;t 以前的人口一点不变)——
@@ -314,8 +319,8 @@ export function reshapeCities(
     const last = s.reshaped?.[s.reshaped.length - 1];
     const port0 = last ? last.port : s.port;
     const port = port1[r] === 1;
-    const f0 = siteFactor(T0, port0, r);
-    const f1 = siteFactor(T1, port, r);
+    const f0 = Math.max(SITE_MIN, siteFactor(T0, port0, r));
+    const f1 = Math.max(SITE_MIN, siteFactor(T1, port, r));
     if (!(f0 > 0)) return s;
     const k = f1 / f0;
     if (port === port0 && Math.abs(k - 1) < RESHAPE_MIN) return s;
