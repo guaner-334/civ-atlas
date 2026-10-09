@@ -6,8 +6,9 @@
  * 最新版里打开旧版本建的世界,能到那一版的旧网站里看原样:存档放进链接的 # 后面(和分享链接一样),开一个新页面。
  * 旧网站里打开了更新的版本存的世界,反过来交给最新版。交过去的网址带 own=1:是自己的世界,不是别人分享来的。
  */
-import { GENERATOR_VERSION } from '../gen/edits';
-import { encodeShare, type SaveFile } from '../gen/savefile';
+import { EMPTY_EDITS, GENERATOR_VERSION } from '../gen/edits';
+import { NEWER_NOTE, encodeShare, makeSave, type SaveFile } from '../gen/savefile';
+import type { WorldParams } from '../gen/world';
 
 /** 从这一版起,每次升级都把上一版网站留着(更早的版本没有旧网站) */
 export const FIRST_OLD_SITE = 9;
@@ -36,6 +37,19 @@ export function untilText(v: unknown): string {
 export const OLD_SITE: number | null = oldSiteVersion(env.VITE_OLD_SITE);
 /** 旧网站用到哪天(新版上线那天,「10 月 11 日」);不知道 = '' */
 export const OLD_UNTIL: string = untilText(env.VITE_OLD_UNTIL);
+
+/** 旧网站里打开了更新的版本存的世界:刷新还是旧网站,不说"刷新页面",说旧版里看到的不一样(提示条上带「到最新版打开」) */
+export const OLD_NEWER_NOTE = '来自更新的版本：旧版里看到的和最新版不一样';
+
+/** 读档提示里的一句话,旧网站上换成旧网站的说法;最新版原样 */
+export function oldSiteNote(w: string, site = OLD_SITE): string {
+  return site !== null && w === NEWER_NOTE ? OLD_NEWER_NOTE : w;
+}
+
+/** 只带种子、参数的旧网址(没有修改):当成第 gen 版存的一份没改过的存档(交给别的版本打开用;地形校验留空 = 不核对) */
+export function plainSave(params: WorldParams, gen: number): SaveFile {
+  return { ...makeSave(params, EMPTY_EDITS, ''), generator: gen };
+}
 
 /** 现在这一页的网址(没有页面时当作网站首页,单测用) */
 function here(): string {

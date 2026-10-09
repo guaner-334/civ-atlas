@@ -2,7 +2,9 @@
  * 旧版网站(ui/oldSite.ts):哪一版的世界到哪个旧网站看原样、旧网站怎么回最新版、构建时带的版本号和日期怎么读
  */
 import { describe, expect, it } from 'vitest';
-import { FIRST_OLD_SITE, latestUrl, oldSiteFor, oldSiteVersion, untilText } from '../src/ui/oldSite';
+import { DEFAULT_PARAMS } from '../src/gen/world';
+import { NEWER_NOTE, decodeShare, encodeShare, versionNote } from '../src/gen/savefile';
+import { FIRST_OLD_SITE, OLD_NEWER_NOTE, latestUrl, oldSiteFor, oldSiteNote, oldSiteVersion, plainSave, untilText } from '../src/ui/oldSite';
 
 describe('旧版网站', () => {
   it('第几版的世界到哪个旧网站看原样:第 9 版起、比现在旧的才有;旧网站自己不再往下指', () => {
@@ -35,5 +37,21 @@ describe('旧版网站', () => {
     expect(untilText('2026-10-11')).toBe('10 月 11 日');
     expect(untilText('2027-01-05')).toBe('1 月 5 日');
     for (const v of [undefined, '', '2026-13-01', '2026-10-00', '10-11', '2026/10/11', 20261011]) expect(untilText(v)).toBe('');
+  });
+
+  it('旧网站上"来自更新的版本"不说刷新页面;别的句子、最新版上原样', () => {
+    expect(oldSiteNote(NEWER_NOTE, 9)).toBe(OLD_NEWER_NOTE);
+    expect(oldSiteNote(NEWER_NOTE, null)).toBe(NEWER_NOTE);
+    const old = versionNote(1, false)!;
+    expect(oldSiteNote(old, 9)).toBe(old);
+  });
+
+  it('只带种子的旧网址当成那一版没改过的存档:分享链接解开还是那一版、那组参数,不核对地形', async () => {
+    const params = { ...DEFAULT_PARAMS, seed: 7, plates: 12 };
+    const save = plainSave(params, 9);
+    expect(save).toMatchObject({ generator: 9, seed: 7, params, check: '', edits: { names: {}, interventions: [], terrain: [] } });
+    expect(save.title).toBeUndefined();
+    const r = await decodeShare(await encodeShare(save));
+    expect(r.ok && r.save).toMatchObject({ generator: 9, seed: 7, params, check: '' });
   });
 });
