@@ -67,17 +67,18 @@ describe('选中国家:国土描边连着走,没有连错的一段', () => {
       worlds.push({ seed, world, civ: generateCiv(world) });
     }
   });
-  /** 第 3000 年还在的每个国家的描边 */
-  const outlines = (world: World, civ: Civ) => {
-    const own = ownersAt(civ, 3000);
+  /** 这一年还在的每个国家的描边 */
+  const outlines = (world: World, civ: Civ, year: number) => {
+    const own = ownersAt(civ, year);
     const ids = new Set<number>();
     for (let r = 0; r < own.polity.length; r++) if (own.polity[r] >= 0) ids.add(own.polity[r]);
-    return [...ids].map((id) => selectionLines(world, civ, { kind: 'polity', id }, 3000)).filter((o) => o?.kind === 'outline');
+    return [...ids].map((id) => selectionLines(world, civ, { kind: 'polity', id }, year)).filter((o) => o?.kind === 'outline');
   };
 
   it('每条描边相邻两点都挨着(含跨 180° 经线、飞地和岛上的国土);环首尾对上', () => {
+    // 看几个年份:哪一年有国家跨着 180° 经线随历史而定
     for (const { seed, world, civ } of worlds) {
-      const list = outlines(world, civ);
+      const list = [1800, 2400, 3000].flatMap((y) => outlines(world, civ, y));
       expect(list.length, `seed ${seed}`).toBeGreaterThan(3);
       let seam = 0;
       for (const o of list) {
@@ -106,7 +107,7 @@ describe('选中国家:国土描边连着走,没有连错的一段', () => {
 
   it('投影到各种平面地图上(中央经线 0°、180°)也是连着的', () => {
     for (const { world, civ } of worlds) {
-      const list = outlines(world, civ);
+      const list = outlines(world, civ, 3000);
       for (const id of PROJECTION_IDS) {
         for (const lon0 of [0, 180]) {
           const pj = projector(mapProj(id, lon0, world.width, world.height));

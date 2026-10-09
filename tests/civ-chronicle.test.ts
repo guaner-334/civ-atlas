@@ -51,7 +51,10 @@ function settlement(id: number, name: string, region: number): Settlement {
 let seq = 0;
 function annal(year: number, kind: AnnalKind, f: Partial<Omit<Annal, 'year' | 'kind'>> = {}): Annal {
   seq++;
-  return { year, kind, a: f.a ?? -1, b: f.b ?? -1, region: f.region ?? -1, settlement: f.settlement ?? -1, war: f.war ?? -1 };
+  const x: Annal = { year, kind, a: f.a ?? -1, b: f.b ?? -1, region: f.region ?? -1, settlement: f.settlement ?? -1, war: f.war ?? -1 };
+  if (f.cause) x.cause = f.cause;
+  if (f.foe !== undefined) x.foe = f.foe;
+  return x;
 }
 
 function fakeCiv(): Civ {
@@ -230,7 +233,7 @@ describe('编年史', () => {
     expect(w0.children!.map((c) => c.kind)).toEqual(['war', 'conquer', 'conquer', 'conquer', 'conquer', 'peace']);
     expect(w0.children![1].text).toBe('大渭攻取瑞州,瑞城陷落');
     expect(w0.children![3].text).toBe('昌国夺回柳州');
-    expect(w0.children![5].text).toBe('大渭与昌国议和,得瑞州、白州');
+    expect(w0.children![5].text).toBe('大渭与昌国议和:昌国割瑞州、白州两州予大渭');
     expect(w0.polities).toEqual([1, 0]);
     expect(w0.regions.sort()).toEqual([1, 3, 4]);
     // 攻下国都、灭国(昌只到过第 1 档、只易手两州:小国被灭,不算大事)
@@ -405,7 +408,7 @@ describe('编年史', () => {
       '大渭伐昌国,得金州,昌国亡',
     ]);
     // 子条目:"国都某城陷落"后面紧跟"某国迁都某城"
-    expect(wars[0].children!.map((k) => k.text)).toEqual(['大渭起兵伐昌国', '大渭攻取汾州,国都汾城陷落', '昌国迁都青阳', '大渭与昌国议和,得汾州']);
+    expect(wars[0].children!.map((k) => k.text)).toEqual(['大渭起兵伐昌国', '大渭攻取汾州,国都汾城陷落', '昌国迁都青阳', '大渭与昌国议和:昌国割汾州予大渭']);
     expect(wars[1].children!.filter((k) => k.kind === 'capital').map((k) => k.text)).toEqual(['昌国迁都瑞城', '昌国迁都金陵']);
     for (const w of wars) for (const k of w.children!) clean(k);
     // 每一条被迫迁都都在它那场战争的子条目里
@@ -512,7 +515,7 @@ describe('编年史', () => {
       '大渭起兵伐昌国',
       '大渭攻取瑞州,瑞城陷落',
       '议定疆界,柳州、白州划归大渭,云州划归昌国',
-      '大渭与昌国议和,得瑞州等三州;昌国得云州',
+      '大渭与昌国议和:昌国割瑞州、柳州、白州三州予大渭;大渭割云州予昌国',
     ]);
     const cede = w0.children![2];
     expect(cede.tag).toBe('割');
@@ -719,6 +722,98 @@ describe('编年史', () => {
   });
 });
 
+describe('编年史 · 邦交:结盟、称臣、背盟,开战写由头,议和写清称臣和割地', () => {
+  // 昌 0(昌国)、渭 1(大渭)、索拉特 2(索拉特汗国)、艾莱斯 3(艾莱斯王国)、青 5(青部)
+  function dipCiv(): Civ {
+    const c = fakeCiv();
+    seq = 0;
+    c.annals = [
+      annal(1206, 'alliance', { a: 2, b: 3, region: 8, settlement: 5, foe: 0 }),
+      annal(1210, 'alliance', { a: 0, b: 3, region: 0, settlement: 0, foe: 1 }),
+      annal(1212, 'alliance', { a: 5, b: 2, region: 9, settlement: 4, foe: 1 }),
+      annal(1215, 'submit', { a: 5, b: 1, region: 9, settlement: 4 }),
+      annal(1215, 'unally', { a: 5, b: 2, cause: 'vassal' }),
+      // 渭欲并昌;昌的盟国艾莱斯坐视不救;昌丢了瑞州,奉表称臣
+      annal(1240.25, 'war', { a: 1, b: 0, war: 0, cause: 'prey' }),
+      annal(1240.25, 'unally', { a: 3, b: 0, war: 0, cause: 'abandon' }),
+      annal(1243, 'conquer', { a: 1, b: 0, region: 1, settlement: 1, war: 0 }),
+      annal(1244, 'peace', { a: 1, b: 0, war: 0 }),
+      annal(1244, 'submit', { a: 0, b: 1, region: 0, settlement: 0, war: 0 }),
+      // 索拉特与渭争边;昌乘机绝贡;渭讨之
+      annal(1258, 'war', { a: 2, b: 1, war: 1, cause: 'expand' }),
+      annal(1260, 'defect', { a: 0, b: 1, region: 0, settlement: 0 }),
+      annal(1262, 'peace', { a: 2, b: 1, war: 1 }),
+      annal(1263, 'war', { a: 1, b: 0, war: 2, cause: 'punish' }),
+      annal(1265, 'peace', { a: 1, b: 0, war: 2 }),
+      // 渭与艾莱斯结盟,后来背盟来攻;索拉特应艾莱斯之约伐渭;渭救其藩属青部
+      annal(1270, 'alliance', { a: 1, b: 3, region: 5, settlement: 2, foe: 2 }),
+      annal(1290, 'unally', { a: 1, b: 3, war: 3, cause: 'betray' }),
+      annal(1290, 'war', { a: 1, b: 3, war: 3, cause: 'betray' }),
+      annal(1291, 'peace', { a: 1, b: 3, war: 3 }),
+      annal(1293, 'war', { a: 2, b: 5, war: 4, cause: 'prey' }),
+      annal(1293, 'war', { a: 1, b: 2, war: 5, settlement: 5, cause: 'rescue' }),
+      annal(1294, 'war', { a: 3, b: 1, war: 6, settlement: 2, cause: 'ally' }),
+      annal(1295, 'peace', { a: 2, b: 5, war: 4 }),
+      annal(1295, 'peace', { a: 1, b: 2, war: 5 }),
+      annal(1295, 'peace', { a: 3, b: 1, war: 6 }),
+      // 昌欲夺回瑞州
+      annal(1300, 'war', { a: 0, b: 1, war: 7, cause: 'claim' }),
+      annal(1301, 'peace', { a: 0, b: 1, war: 7 }),
+      // 共御的昌国亡了,索拉特与艾莱斯之盟遂废
+      annal(1310, 'unally', { a: 2, b: 3, cause: 'lapse' }),
+    ];
+    return c;
+  }
+
+  it('结盟写共御谁;盟约断了写为什么(称臣、坐视不救、背盟、共御的强邻亡了);称臣、自立各一条', () => {
+    const list = buildChronicle(dipCiv());
+    const top = list.filter((e) => e.kind !== 'war').map((e) => [e.tag, e.text]);
+    expect(top).toEqual([
+      ['盟', '索拉特汗国与艾莱斯王国结盟,共御昌国'],
+      ['盟', '昌国与艾莱斯王国结盟,共御大渭'],
+      ['盟', '青部与索拉特汗国结盟,共御大渭'],
+      ['臣', '青部畏大渭之强,遣使称臣,岁岁纳贡'],
+      ['绝', '青部既称臣于大渭,与索拉特汗国之盟遂废'],
+      // 自立时宗主正和别国交兵:写"乘…交兵"
+      ['叛', '昌国乘大渭与索拉特汗国交兵,绝其朝贡,不复称臣'],
+      ['盟', '大渭与艾莱斯王国结盟,共御索拉特汗国'],
+      ['绝', '昌国既亡,索拉特汗国与艾莱斯王国之盟遂废'],
+    ]);
+    // 小国之间的结盟、小国称臣不是大事
+    expect(filterChronicle(list, { major: true }).filter((e) => e.tag === '盟' || e.tag === '臣')).toHaveLength(0);
+    for (const e of list) clean(e);
+  });
+
+  it('战争标题写由头;坐视不救、战败称臣折进那场战争,议和写清谁称臣、谁割哪几州予谁', () => {
+    const wars = buildChronicle(dipCiv()).filter((e) => e.kind === 'war');
+    expect(wars.map((w) => w.text)).toEqual([
+      '大渭欲并昌国,举兵伐之,得瑞州,昌国称臣',
+      '索拉特汗国与大渭争边,起兵伐之,无功而还',
+      '大渭以昌国绝贡,兴兵讨之,无功而还',
+      '大渭背盟伐艾莱斯王国,无功而还',
+      '索拉特汗国欲并青部,举兵伐之,无功而还',
+      '大渭救其藩属青部,伐索拉特汗国,无功而还',
+      '艾莱斯王国应索拉特汗国之约伐大渭,无功而还',
+      // 收复故土:最近一次是对方从自己手里拿走的州
+      '昌国欲夺回瑞州,伐大渭,无功而还',
+    ]);
+    expect(wars[0].children!.map((k) => k.text)).toEqual([
+      '大渭欲并昌国,起兵伐之',
+      '艾莱斯王国坐视不救,与昌国之盟遂绝',
+      '大渭攻取瑞州,瑞城陷落',
+      '大渭与昌国议和:昌国奉表称臣,岁岁纳贡;昌国割瑞州予大渭',
+    ]);
+    expect(wars[0].children![1].tag).toBe('绝');
+    // 讨伐自立的藩属用"讨";背盟写在宣战那一条,背盟那条史事不另列
+    expect(wars[2].children![0].text).toBe('大渭以昌国绝贡,起兵讨之');
+    expect(wars[3].children!.map((k) => k.text)).toEqual(['大渭背盟,起兵伐艾莱斯王国', '大渭与艾莱斯王国议和,疆界如故']);
+    // 援盟、救藩:点明援的是谁
+    expect(wars[5].polities).toContain(5);
+    expect(wars[6].children![0].text).toBe('艾莱斯王国应索拉特汗国之约,起兵伐大渭');
+    for (const w of wars) for (const k of w.children!) clean(k);
+  });
+});
+
 describe('编年史 · 真实世界(立国、升格)', () => {
   for (const seed of [7, 2024]) {
     it(`seed ${seed}:每条史事一条纪事,措辞干净,国名用当年的国号`, () => {
@@ -796,7 +891,8 @@ describe('编年史 · 真实世界(默认参数):被迫迁都折进战争,"大�
         const movers = new Set(w.children!.filter((k) => k.kind === 'capital').map((k) => k.polities[0]));
         const fallen = new Set(w.children!.filter((k) => k.kind === 'fall').map((k) => k.polities[0]));
         if ([...movers].some((p) => !fallen.has(p))) expect(w.text).toMatch(/国都.+陷落|连迁.都/);
-        expect(w.text).not.toMatch(/失国都|失.*失/);
+        // 人名里可能带"失"(失苾可汗),先去掉"某某亲征""遣某某伐"
+        expect(w.text.replace(/[^,;]+亲征|遣[^,;]+?[伐讨]/g, '')).not.toMatch(/失国都|失.*失/);
         clean(w);
       }
       // 议和割让:peace 的 region = 紧挨在前面的几条攻占,都合在一条"议定疆界"的子条目里,不写"攻取"

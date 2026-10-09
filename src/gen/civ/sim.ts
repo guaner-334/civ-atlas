@@ -30,12 +30,13 @@ import { resumePolitics } from './politics';
 import { resumeDynasty } from './dynasty';
 import { resumeAssimilation } from './assimilation';
 import { resumeCities } from './cities';
+import { resumeDiplomacy } from './diplomacy';
 import { resumeInterventions, scheduleInterventions } from './interventions';
 import type { Intervention } from '../edits';
 
 // ---------------------------------------------------------------------------
 // 事件类型编号表(变化日志的 cause 用同一套编号;阶段 3 从 7 往下接着编:战争 7–9,分合 10–14,王朝更替 15–19,
-// 民族同化与迁徙 20–24,城市兴衰 25–29;阶段 4 干预 30–35)
+// 民族同化与迁徙 20–24,城市兴衰 25–29;阶段 4 干预 30–35;邦交 40–44)
 
 export const enum Ev {
   /** 没有原因(初始状态) */
@@ -133,6 +134,11 @@ export const enum Ev {
    * 淹掉的州国家和民族撤出(变化日志原因也记这个),国都没了的迁都、亡国
    */
   Upheaval = 33,
+  /**
+   * 看邦交(diplomacy.ts;编号 40–44):a = 立国后第几次看(按年份段编号),b = 国家。
+   * 国家隔几十年看一眼:藩属要不要自立、宗主收不收藩属的国土、盟约废不废、畏不畏强邻(称臣 / 结盟)
+   */
+  DiplomacyCheck = 40,
 }
 
 export interface EventInfo {
@@ -170,6 +176,7 @@ export const EVENT_INFO: EventInfo[] = [
   { id: Ev.Cede, name: '划州', watch: false },
   { id: Ev.HaltEnd, name: '解除禁扩', watch: false },
   { id: Ev.Upheaval, name: '地形大事', watch: false },
+  { id: Ev.DiplomacyCheck, name: '看邦交', watch: false },
 ];
 
 /** 检查点间隔(年) */
@@ -327,7 +334,7 @@ export class CivSim {
     const cps = civ.checkpoints;
     sim.nextCheckpoint = cps.length ? cps[cps.length - 1].year + CHECKPOINT_EVERY : CHECKPOINT_EVERY;
     // 各层重建自己的事件(和 generateCiv 里 install 的顺序一样:先民族,再城镇和国家,再战争,再分合,再王朝,再同化与迁徙,
-    // 再城市兴衰 —— 它要挂在战争模型上(攻城)、要国家模型的迁都回调,放最后)
+    // 再城市兴衰 —— 它要挂在战争模型上(攻城)、要国家模型的迁都回调;再邦交 —— 要挂在战争模型上)
     if (civ.viable && civ.cultures.length) {
       // 地形大事(first)、干预的事件最先预约(和 generateCiv 一样:同一刻里先于别的一切事件)
       first?.(sim);
@@ -339,6 +346,7 @@ export class CivSim {
       resumeDynasty(sim, world, civ);
       resumeAssimilation(sim, world, civ);
       resumeCities(sim, world, civ);
+      resumeDiplomacy(sim, world, civ);
       if (iv) resumeInterventions(sim, iv);
     }
     return sim;
@@ -409,6 +417,8 @@ export class CivSim {
       war: f.war ?? -1,
     };
     if (f.via !== undefined) e.via = f.via;
+    if (f.cause !== undefined) e.cause = f.cause;
+    if (f.foe !== undefined) e.foe = f.foe;
     this.annals.push(e);
   }
 

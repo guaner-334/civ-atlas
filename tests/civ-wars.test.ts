@@ -252,7 +252,8 @@ describe('战争与攻占', () => {
       expect(st.wars, `seed ${seed}`).toBeGreaterThanOrEqual(8);
       // 阶段 3 分合以后国家多了(分出来、复国的),仗也多了:3000 年里约 45–65 场
       expect(st.wars, `seed ${seed}`).toBeLessThanOrEqual(90);
-      expect(st.falls, `seed ${seed}`).toBeGreaterThanOrEqual(2);
+      // 有了称臣纳贡,打不过的常常称臣而不是被灭:20 个种子平均亡国 7.0 → 4.8 次,最少的世界只有 1 次(以前也有只亡 1 国的世界)
+      expect(st.falls, `seed ${seed}`).toBeGreaterThanOrEqual(1);
       expect(st.capitalMoves, `seed ${seed}`).toBeGreaterThan(0);
       expect(st.conquests, `seed ${seed}`).toBeGreaterThan(30);
       expect(st.alive, `seed ${seed}`).toBeGreaterThanOrEqual(8);

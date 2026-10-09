@@ -461,6 +461,7 @@ function hook(sim: CivSim, pol: PoliticsModel): void {
         const O = pm.polities[o];
         if (O.culture !== B.culture || O.ended !== undefined || pm.size[o] < MERGE_RATIO * nB) continue;
         if (wm.iv?.halted(o, t)) continue; // 阶段 4 干预"不许扩张":不并别国
+        if (wm.dm && wm.dm.liegeOf(bid) >= 0 && wm.dm.liegeOf(bid) !== o) continue; // 邦交:藩属只会并入自己的宗主
         if (!canCross(O, reg.adjKind[e])) continue;
         if (A < 0 || pm.size[o] > pm.size[A] || (pm.size[o] === pm.size[A] && o < A)) A = o;
       }

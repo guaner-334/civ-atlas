@@ -210,6 +210,22 @@ function regionList(civ: Civ, rs: readonly number[]): string {
   return `${regionName(civ, sorted[0])}等${cnNumber(sorted.length)}州`;
 }
 
+/**
+ * 议和割让的州,一一写出:"瑞州"、"瑞州、汾州两州"、"瑞州、汾州、雪西三州";多于 CEDE_NAMES 州的写前几州:
+ * "瑞州、汾州、雪西、乌绝原、梅川等十二州"(按人口上限从大到小)
+ */
+const CEDE_NAMES = 5;
+function regionNames(civ: Civ, rs: readonly number[]): string {
+  const ok = rs.filter((r) => r >= 0 && r < civ.regions.count);
+  if (!ok.length) return '';
+  const cap = civ.regions.capacity;
+  const sorted = [...ok].sort((a, b) => cap[b] - cap[a] || a - b);
+  if (sorted.length === 1) return regionName(civ, sorted[0]);
+  const n = sorted.length;
+  const names = sorted.slice(0, CEDE_NAMES).map((r) => regionName(civ, r));
+  return n <= CEDE_NAMES ? `${names.join('、')}${n === 2 ? '两' : cnNumber(n)}州` : `${names.join('、')}等${cnNumber(n)}州`;
+}
+
 function cultureOf(civ: Civ, id: number): Culture | null {
   return id >= 0 && id < civ.cultures.length ? civ.cultures[id] : null;
 }
@@ -468,6 +484,10 @@ const TAG: Record<AnnalKind, string> = {
   battle: '役',
   upheaval: '变',
   sunk: '没',
+  alliance: '盟',
+  unally: '盟',
+  submit: '臣',
+  defect: '叛',
 };
 
 function base(
@@ -800,20 +820,113 @@ export function interventionOutcome(civ: Civ, i: number): { annal: number; ok: b
  * 宣战:"大渭起兵伐昌国"(援盟:"索拉特应大昌之约,起兵伐某国");有人物的写双方统帅:
  * "大渭以李牧为将,起兵伐昌国;昌国遣王翦拒之" / "大渭太宗亲征昌国;昌庄王亲自领兵拒之"
  */
+/**
+ * 战争那一条的开头(写开战的由头):"大渭欲复故土,伐昌国""大渭乘昌国与索拉特交兵,伐之""大渭欲并昌国,举兵伐之"
+ * "大渭与昌国争边,起兵伐之""大渭背盟伐昌国""大渭兴兵讨昌国"(讨伐自立的藩属)"大渭应大昌之约伐昌国""大渭救其藩属瑞国,伐昌国";
+ * 有统帅的写"遣李牧伐之""遣李牧讨昌国"。没记由头的(干预的强制宣战)写"大渭伐昌国"
+ */
+function warHead(civ: Civ, e: Annal, id: number, general: string): string {
+  const y = e.year;
+  const A = pn(civ, e.a, y);
+  const B = pn(civ, e.b, y);
+  const ally = e.settlement >= 0 ? pn(civ, e.settlement, y) : '';
+  const go = (who: string) => (general ? `遣${general}伐${who}` : `伐${who}`);
+  switch (e.cause) {
+    case 'claim':
+      return `${A}${claimText(civ, e, id)},${go(B)}`;
+    case 'chaos': {
+      const why = troubleOf(civ, e.b, id, e.a);
+      return `${A}乘${B}${why || '之乱'},${go('之')}`;
+    }
+    case 'prey':
+      return `${A}欲并${B},${general ? `遣${general}伐之` : '举兵伐之'}`;
+    case 'expand':
+      return `${A}与${B}争边,${general ? `遣${general}伐之` : '起兵伐之'}`;
+    case 'betray':
+      return general ? `${A}背盟,遣${general}伐${B}` : `${A}背盟伐${B}`;
+    case 'punish':
+      return `${A}以${B}绝贡,${general ? `遣${general}讨之` : '兴兵讨之'}`;
+    case 'rescue':
+      return ally ? `${A}救其藩属${ally},${go(B)}` : `${A}${go(B)}`;
+    default:
+      if (ally) return general ? `${A}应${ally}之约,遣${general}伐${B}` : `${A}应${ally}之约伐${B}`;
+      return general ? `${A}遣${general}伐${B}` : `${A}伐${B}`;
+  }
+}
+
+/**
+ * 宣战的由头(史事 war 的 cause),写在"起兵伐某国"前面:"欲复故土,""乘昌国与索拉特交兵,""欲并昌国,""与昌国争边,"
+ * "背盟,""应大昌之约,""救其藩属昌国,";讨伐自立的藩属不写由头,动词换成"讨"(见 warVerb)。干预的强制宣战、没记由头的 = 空串
+ */
+function warReason(civ: Civ, e: Annal, id: number): string {
+  const y = e.year;
+  const B = pn(civ, e.b, y);
+  const ally = e.settlement >= 0 ? pn(civ, e.settlement, y) : '';
+  switch (e.cause) {
+    case 'claim':
+      return `${claimText(civ, e, id)},`;
+    case 'punish':
+      return `以${pn(civ, e.b, e.year)}绝贡,`;
+    case 'chaos': {
+      const why = troubleOf(civ, e.b, id, e.a);
+      return why ? `乘${B}${why},` : `乘${B}之乱,`;
+    }
+    case 'prey':
+      return `欲并${B},`;
+    case 'expand':
+      return `与${B}争边,`;
+    case 'betray':
+      return '背盟,';
+    case 'rescue':
+      return ally ? `救其藩属${ally},` : '';
+    default:
+      // 援盟(自然结成的盟约、阶段 4 干预的结盟):settlement 列是盟国,不是城
+      return ally ? `应${ally}之约,` : '';
+  }
+}
+
+/**
+ * 收复故土的战争想夺回哪几州:开战前(第 id 条史事之前)最近一次易手是"守方从攻方手里拿去"的州
+ * (攻占、议和割让都记成 conquer),按人口上限从大到小
+ */
+function claimsOf(civ: Civ, atk: number, def: number, id: number): number[] {
+  const last = new Map<number, Annal>();
+  const A = civ.annals;
+  for (let i = 0; i < id && i < A.length; i++) if (A[i].kind === 'conquer' && A[i].region >= 0) last.set(A[i].region, A[i]);
+  const out: number[] = [];
+  for (const [r, e] of last) if (e.a === def && e.b === atk) out.push(r);
+  const cap = civ.regions.capacity;
+  return out.sort((a, b) => cap[b] - cap[a] || a - b);
+}
+
+/** 收复故土:"欲夺回瑞州" / "欲复瑞州等故地";从史事里找不到是哪几州的写"欲复故土" */
+function claimText(civ: Civ, e: Annal, id: number): string {
+  const rs = claimsOf(civ, e.a, e.b, id);
+  const r = rs.length ? regionName(civ, rs[0]) : '';
+  if (!r) return '欲复故土';
+  return rs.length === 1 ? `欲夺回${r}` : `欲复${r}等故地`;
+}
+
+/** 宣战的动词:讨伐自立的藩属写"讨",别的写"伐" */
+const warVerb = (e: Annal) => (e.cause === 'punish' ? '讨' : '伐');
+
 function declareEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
   const { civ, ix } = ctx;
   const y = e.year;
   const A = pn(civ, e.a, y);
   const B = pn(civ, e.b, y);
-  // 援盟(阶段 4 干预的结盟):settlement 列是盟国,不是城
+  // 援盟、救藩:settlement 列是援的那一国,不是城
   const ally = e.settlement >= 0 ? e.settlement : -1;
-  const pact = ally >= 0 ? `应${pn(civ, ally, y)}之约,` : '';
+  const pact = warReason(civ, e, id);
+  const v = warVerb(e);
   const ca = commander(ix, e.war, 0, id);
   const cd = commander(ix, e.war, 1, id);
+  // 由头里已经点了对方的名("乘昌国与索拉特交兵,"),后面写"伐之"
+  const to = pact.includes(B) ? '之' : B;
   let t: string;
-  if (ca?.role === 'ruler') t = `${rulerRef(civ, ca, y)}${pact}亲征${B}`;
-  else if (ca) t = `${A}${pact}以${ca.name}为将,起兵伐${B}`;
-  else t = `${A}${pact}起兵伐${B}`;
+  if (ca?.role === 'ruler') t = `${rulerRef(civ, ca, y)}${pact}亲征${to}`;
+  else if (ca) t = `${A}${pact}以${ca.name}为将,起兵${v}${to}`;
+  else t = `${A}${pact}起兵${v}${to}`;
   if (cd?.role === 'ruler') t += `;${rulerRef(civ, cd, y)}亲自领兵拒之`;
   else if (cd) t += `;${B}遣${cd.name}拒之`;
   const x = base(e, id, t, 2, ally >= 0 ? [e.a, e.b, ally] : [e.a, e.b], []);
@@ -930,6 +1043,11 @@ function simpleEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
       return upheavalEntry(ctx, [id]);
     case 'sunk':
       return base(e, id, sunkText(civ, e, true), 2, [e.a], [e.region]);
+    case 'alliance':
+    case 'unally':
+    case 'submit':
+    case 'defect':
+      return diplomacyEntry(ctx, e, id);
     case 'intervene': {
       const story = interveneStory(civ, e, id);
       const x = base(e, id, story.text, 3, [e.a, e.b], [e.region]);
@@ -940,6 +1058,107 @@ function simpleEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
     }
     default:
       return base(e, id, `${pn(civ, e.a, y)}有事`, 1, [e.a], []);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 邦交(diplomacy.ts):结盟、盟约断了、称臣、藩属自立
+
+/** 第 id 条史事之前,a、b 最近一次结盟的那一条(没有 = undefined) */
+function pactBefore(civ: Civ, a: number, b: number, id: number): Annal | undefined {
+  for (let i = Math.min(id, civ.annals.length) - 1; i >= 0; i--) {
+    const e = civ.annals[i];
+    if (e.kind === 'alliance' && ((e.a === a && e.b === b) || (e.a === b && e.b === a))) return e;
+  }
+  return undefined;
+}
+
+/** 第 id 条史事之前,p 最近一次称臣的那一条(没有 = undefined) */
+function submitBefore(civ: Civ, p: number, id: number): Annal | undefined {
+  for (let i = Math.min(id, civ.annals.length) - 1; i >= 0; i--) {
+    const e = civ.annals[i];
+    if (e.kind === 'submit' && e.a === p) return e;
+  }
+  return undefined;
+}
+
+/** 两国中较弱的一方当年的国号档位(邦交大事看两国是不是都有分量) */
+function minTier(civ: Civ, a: number, b: number, y: Year): number {
+  const A = polityOf(civ, a);
+  const B = polityOf(civ, b);
+  return A && B ? Math.min(polityTierAt(A, y), polityTierAt(B, y)) : -1;
+}
+
+/** 某国此刻(第 id 条史事之前)的乱象:"与索拉特交兵" / "易代之乱" / "新失国都";没有 = 空串 */
+function troubleOf(civ: Civ, p: number, id: number, except = -1): string {
+  const A = civ.annals;
+  const y = id < A.length ? A[id].year : civ.endYear;
+  const open = new Map<number, number>();
+  for (let i = 0; i < id && i < A.length; i++) {
+    const e = A[i];
+    if (e.kind === 'war' && (e.a === p || e.b === p)) open.set(e.war, e.a === p ? e.b : e.a);
+    else if (e.kind === 'peace') open.delete(e.war);
+  }
+  const foes = [...open.values()].filter((q) => q !== except);
+  if (foes.length) return `与${pn(civ, foes[foes.length - 1], y)}交兵`;
+  const P = polityOf(civ, p);
+  const d = P?.dynasties;
+  if (d && d.length > 1 && d.some((x, i) => i > 0 && x.year <= y && y - x.year < 30)) return '易代之乱';
+  const c = P?.capitals;
+  if (c && c.some((x, i) => i > 0 && x.year <= y && y - x.year < 30)) return '新迁国都';
+  return '';
+}
+
+/**
+ * 结盟 "大渭与昌国结盟,共御索拉特";盟约渐废 "索拉特既亡,大渭与昌国之盟遂废" / "大渭与昌国之盟渐废";
+ * 坐视不救 "索拉特伐昌国,大渭坐视不救,两国之盟遂绝";背盟 "大渭背弃与昌国之盟"(折进那场战争,标题写"背盟伐");
+ * 一方称臣 "昌国既称臣于大渭,与索拉特之盟遂废";
+ * 畏强邻称臣 "昌国畏大渭之强,遣使称臣,岁岁纳贡"(战败称臣折进那场战争的议和);
+ * 藩属自立 "昌国乘大渭与索拉特交兵,绝其朝贡,不复称臣"。
+ * 称臣、自立的一方当时在第 2 档(王国)以上是大事;结盟要两国都在第 3 档(帝国)以上才算大事(结盟常有,大多后来渐废)
+ */
+function diplomacyEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
+  const { civ } = ctx;
+  const y = e.year;
+  const A = pn(civ, e.a, y);
+  const B = pn(civ, e.b, y);
+  switch (e.kind) {
+    case 'alliance': {
+      const f = e.foe ?? -1;
+      const F = polityOf(civ, f);
+      const t = F ? `${A}与${B}结盟,共御${pn(civ, f, y)}` : `${A}与${B}结盟`;
+      return { ...base(e, id, t, minTier(civ, e.a, e.b, y) >= TITAN_TIER ? 3 : 2, [e.a, e.b, f], []), settlement: -1 };
+    }
+    case 'unally': {
+      if (e.cause === 'abandon') {
+        const w = civ.annals.find((x) => x.kind === 'war' && x.war === e.war);
+        const head = w ? `${pn(civ, w.a, y)}伐${B},` : `${B}遭兵,`;
+        return base(e, id, `${head}${A}坐视不救,两国之盟遂绝`, 2, [e.a, e.b], [], '绝');
+      }
+      if (e.cause === 'betray') return base(e, id, `${A}背弃与${B}之盟`, 2, [e.a, e.b], [], '背');
+      if (e.cause === 'vassal') {
+        const s = submitBefore(civ, e.a, id + 1);
+        return base(e, id, s ? `${A}既称臣于${pn(civ, s.b, y)},与${B}之盟遂废` : `${A}与${B}之盟遂废`, 1, [e.a, e.b], [], '绝');
+      }
+      const f = pactBefore(civ, e.a, e.b, id)?.foe ?? -1;
+      const F = polityOf(civ, f);
+      const gone = !!F && F.ended !== undefined && F.ended <= y;
+      const t = gone ? `${pn(civ, f, F!.ended! - 1 / 512)}既亡,${A}与${B}之盟遂废` : F ? `${pn(civ, f, y)}既衰,${A}与${B}之盟渐废` : `${A}与${B}之盟渐废`;
+      return base(e, id, t, 1, [e.a, e.b], [], '绝');
+    }
+    case 'submit': {
+      const t = `${A}畏${B}之强,遣使称臣,岁岁纳贡`;
+      const P = polityOf(civ, e.a);
+      return base(e, id, t, P && polityTierAt(P, y) >= GREAT_TIER ? 3 : 2, [e.a, e.b], [e.region]);
+    }
+    case 'defect': {
+      const why = troubleOf(civ, e.b, id);
+      const t = why ? `${A}乘${B}${why},绝其朝贡,不复称臣` : `${A}绝${B}之贡,不复称臣`;
+      const P = polityOf(civ, e.a);
+      return base(e, id, t, P && polityTierAt(P, y) >= GREAT_TIER ? 3 : 2, [e.a, e.b], [e.region]);
+    }
+    default:
+      return base(e, id, `${A}有事`, 1, [e.a], []);
   }
 }
 
@@ -1061,6 +1280,8 @@ function warEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
     m.push(e);
   }
   const peace = [...list].reverse().find((e) => e.kind === 'peace');
+  // 战败称臣(邦交):紧跟在议和后面,写进议和那一条和标题
+  const sworn = list.find((e) => e.kind === 'submit');
   const lastYear = list[list.length - 1].year;
   const over = !!peace || falls.some((f) => f.a === atk || f.a === def);
   const end = over ? (peace ? peace.year : lastYear) : Math.max(lastYear, civ.endYear);
@@ -1074,6 +1295,8 @@ function warEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
       held.push(i);
       continue;
     }
+    // 称臣写进议和那一条,背盟写进宣战那一条("背盟,起兵伐某国"),不另列
+    if (e.kind === 'submit' || (e.kind === 'unally' && e.cause === 'betray')) continue;
     order.push(i);
     if (e.kind === 'conquer' && held.length) {
       order.push(...held.filter((j) => A[j].region === e.region));
@@ -1172,6 +1395,10 @@ function warEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
       if (lost) t += `,守将${lost.name}战死`;
       return withPeople(base(e, i, t, e.b >= 0 ? 2 : 1, [e.a, e.b], [e.region]), fresh, lost);
     }
+    if (e.kind === 'unally') {
+      // 坐视不救:"索拉特坐视不救,与昌国之盟遂绝";背盟写在宣战那一条和标题里
+      return base(e, i, `${pn(civ, e.a, e.year)}坐视不救,与${pn(civ, e.b, e.year)}之盟遂绝`, 2, [e.a, e.b], [], '绝');
+    }
     if (e.kind === 'peace') {
       const y = e.year;
       const fallen = falls.find((f) => f.year <= y && (f.a === atk || f.a === def));
@@ -1186,13 +1413,15 @@ function warEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
       if (fallen) t = `${pn(civ, fallen.a, fallen.year)}既亡,兵戈遂息`;
       else if (gone >= 0) t = `${pn(civ, gone, y)}既亡,兵戈遂息`;
       else {
+        // 议和条款:"大渭与昌国议和:昌国奉表称臣,岁岁纳贡;昌国割瑞州、汾州、雪西三州予大渭"
         t = `${pn(civ, e.a, y)}与${pn(civ, e.b, y)}议和`;
-        const ga = gainA.length ? `${e.a === atk ? '' : pn(civ, atk, y)}得${regionList(civ, gainA)}` : '';
-        const gd = gainD.length ? `${pn(civ, def, y)}得${regionList(civ, gainD)}` : '';
-        if (ga || gd) t += `,${[ga, gd].filter(Boolean).join(';')}`;
-        else t += ',疆界如故';
+        const terms: string[] = [];
+        if (sworn) terms.push(`${pn(civ, sworn.a, y)}奉表称臣,岁岁纳贡`);
+        if (gainA.length) terms.push(`${pn(civ, def, y)}割${regionNames(civ, gainA)}予${pn(civ, atk, y)}`);
+        if (gainD.length) terms.push(`${pn(civ, atk, y)}割${regionNames(civ, gainD)}予${pn(civ, def, y)}`);
+        t += terms.length ? `:${terms.join(';')}` : ',疆界如故';
       }
-      return base(e, i, t, 2, [e.a, e.b], [...gainA, ...gainD]);
+      return base(e, i, t, 2, sworn && sworn.a !== e.a && sworn.a !== e.b ? [e.a, e.b, sworn.a] : [e.a, e.b], [...gainA, ...gainD]);
     }
     if (e.kind === 'capital') {
       // 被迫迁都:紧跟在"国都某城陷落"那一条攻占后面,只说迁到哪
@@ -1261,6 +1490,7 @@ function warEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
     }
   }
   for (const f of falls) parts.push(`${pn(civ, f.a, f.year)}亡`);
+  if (sworn) parts.push(`${pn(civ, sworn.a, sworn.year)}称臣`);
   // 攻守方国都没打下来:"围汾城不克"(写在得失后面;别的什么都没有:"围汾城不克而还")
   const D0 = polityOf(civ, def);
   const siege = D0
@@ -1284,18 +1514,13 @@ function warEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
   }
   if (!over) parts.push('战事未休');
   else if (!parts.length) parts.push('无功而还');
-  // 援盟(阶段 4 干预的结盟):"索拉特应大昌之约伐某国"
+  // 援盟、救藩(邦交;阶段 4 干预的结盟):settlement 列是援的那一国
   const ally = decl.kind === 'war' && decl.settlement >= 0 ? decl.settlement : -1;
   // 有人物的写开战时攻方的统帅:"大渭遣李牧伐昌国,…";君主亲征:"大渭伐昌国,太宗亲征,…"
   // (君主写在国名后面会把"大事"里国名后的来历隔开,所以放到逗号后面)
   const lead = decl.kind === 'war' ? commander(ix, decl.war, 0, ids[list.indexOf(decl)]) : null;
-  const pact = ally >= 0 ? `应${pn(civ, ally, start)}之约` : '';
-  let text: string;
-  if (lead?.role === 'general') text = `${pn(civ, atk, start)}${pact ? `${pact},` : ''}遣${lead.name}伐${pn(civ, def, start)},${parts.join(',')}`;
-  else {
-    if (lead) parts.unshift(`${rulerBare(civ, lead, start)}亲征`);
-    text = `${pn(civ, atk, start)}${pact}伐${pn(civ, def, start)},${parts.join(',')}`;
-  }
+  if (lead && lead.role !== 'general') parts.unshift(`${rulerBare(civ, lead, start)}亲征`);
+  const text = `${warHead(civ, decl, ids[list.indexOf(decl)], lead?.role === 'general' ? lead.name : '')},${parts.join(',')}`;
   // 改变格局的战争是大事:灭了大国(或吞并一个像样的国家)、易手很多州、攻下做了很久的国都、两个帝国交兵且有得失
   const A0 = polityOf(civ, atk);
   const gains = gainA.length + gainD.length;
@@ -1308,8 +1533,10 @@ function warEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
   });
   // 毁了大城 / 国都的战争也是大事(毁城那一条单列,但"大事"里由战争说)
   const razedMajor = list.some((e) => e.kind === 'ruin' && ruinImportance(civ, e) >= MAJOR);
-  const major = conquest || gains >= BIG_WAR || oldCapital || titans || razedMajor;
-  const importance: Importance = major ? 3 : gains > 0 || moves.size > 0 || falls.length > 0 ? 2 : 1;
+  // 大国(到过第 2 档)战败称臣也是大事
+  const bowed = !!sworn && isGreat(polityOf(civ, sworn.a));
+  const major = conquest || gains >= BIG_WAR || oldCapital || titans || razedMajor || bowed;
+  const importance: Importance = major ? 3 : gains > 0 || moves.size > 0 || falls.length > 0 || !!sworn ? 2 : 1;
   const polities = [atk, def];
   for (const e of list) polities.push(e.a, e.b);
   if (ally >= 0) polities.push(ally);
@@ -1694,6 +1921,7 @@ export function buildChronicle(civ: Civ): ChronicleEntry[] {
       continue;
     }
     // 被迫迁都(capital 带战争编号)、洗劫、毁城(阶段 3 城市兴衰)也折进那场战争
+    // 邦交:战败称臣(submit 带战争编号)、背盟来攻、坐视不救(unally 带战争编号)也折进那场战争
     const inWar =
       e.war >= 0 &&
       (e.kind === 'war' ||
@@ -1703,7 +1931,9 @@ export function buildChronicle(civ: Civ): ChronicleEntry[] {
         e.kind === 'fall' ||
         e.kind === 'capital' ||
         e.kind === 'sack' ||
-        e.kind === 'ruin');
+        e.kind === 'ruin' ||
+        e.kind === 'submit' ||
+        e.kind === 'unally');
     if (inWar) {
       let g = wars.get(e.war);
       if (!g) wars.set(e.war, (g = []));
