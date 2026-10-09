@@ -645,7 +645,7 @@ export function installWars(sim: CivSim, pm: PolityModel, wm: WarModel = newMode
     if (!peace) {
       let held = 0;
       for (const e of w.takes) if (e.by === w.a && owner[e.region] === w.a) held++;
-      // 灭国之战:拿下国都、对方丢了过半国土都不停,战争目标翻倍
+      // 灭国之战:拿下国都、对方丢了过半国土都不停(不设目标,见 CRUSH_GOAL;君主的性格只管打多久,算在上面的年限里)
       if (pow[w.a] >= CRUSH * pow[w.b]) peace = held >= CRUSH_GOAL * goalOf(wm, w);
       else peace = capitalFell || held >= pm.size[w.b] || held >= Math.max(1, goalOf(wm, w) + eff.goal);
     }

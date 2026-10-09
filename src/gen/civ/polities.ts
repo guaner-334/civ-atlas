@@ -19,7 +19,8 @@
  *   - 离国都越远越慢(× e^(离国都的路程 / REACH)):国家不会无限铺开,边远处留下有人住、没有国家的"部落地带"
  *   - 阶段 3 有了战争(wars.ts):国家会丢州、迁都、灭亡。"国家到达"触发时要求这个国家和国都连成一片的国土
  *     还挨着那一州(丢了出发的那一州、或者只剩被切出去的飞地挨着,就不去了:不长出飞地);灭亡的国家撤掉国都间距标记;
- *     迁都后"离国都的路程"按新国都算(迁都那一刻之后预约的才按新的)
+ *     迁都后"离国都的路程"按新国都算(迁都那一刻之后预约的才按新的);迁都的下一刻从现有国土往外重新预约一遍
+ *     (Ev.Respread:扩张算账按新国都的路程重算,原来嫌远的边地可能值得去了)
  *   - 阶段 4 干预"不许扩张"(interventions.ts,挂在 PolityModel.iv 上):"国家到达"触发时这国在禁令里就不去;
  *     禁令到期那一刻从现有国土重新预约(respread;fromCiv 接着推时 resumePolities 按日志把那一刻的预约也补上)
  *
@@ -681,6 +682,7 @@ export function polityModelOf(sim: CivSim): PolityModel | undefined {
 /** 登记城镇、国家的事件处理和监听(民族的 installCultures 之后调用) */
 export function installPolities(sim: CivSim, m: PolityModel): void {
   models.set(sim, m);
+  simOf.set(m, sim);
   const T = m.terrain;
   const reg = T.regions;
   const culture = sim.owners[Layer.Culture];
@@ -772,6 +774,13 @@ export function installPolities(sim: CivSim, m: PolityModel): void {
     scheduleReign(sim, m, pid, k + 1, t);
     if (k > 0 && widens(list[k - 1], list[k])) respread(sim, m, pid);
   });
+
+  // 迁都的下一刻(见 moveCapital):按新国都的路程从现有国土往外重新预约
+  sim.on(Ev.Respread, (_a, pid) => {
+    const p = m.polities[pid];
+    if (!p || p.ended !== undefined) return;
+    respread(sim, m, pid);
+  });
 }
 
 /** 国家 pid 刚拿下州 r:给 r 的邻州里有人住、还没有国家的预约"国家到达" */
@@ -790,7 +799,7 @@ function spreadFrom(sim: CivSim, m: PolityModel, r: number, pid: number, t: numb
 
 /**
  * 国家 pid 从现有国土(州号升序)往外重新预约扩张:和每拿下一州时预约的一样(阶段 4 干预"不许扩张"到期、
- * 门槛更低的新君即位时调用;resumePolities 按日志重放时在同一刻做同样的事)
+ * 门槛更低的新君即位、迁都的下一刻调用;resumePolities 按日志重放时在同一刻做同样的事)
  */
 export function respread(sim: CivSim, m: PolityModel, pid: number): void {
   for (const r of m.lands[pid].slice()) spreadFrom(sim, m, r, pid, sim.now);
@@ -841,6 +850,9 @@ function capitalClose(s: Settlement, pid: number, t: Year) {
 /** 国家 → 国都失去国都之位时的回调(阶段 3 城市兴衰:cities.ts 预约"看旧都"。只在推演里挂,不存进 Civ) */
 const capitalLost = new WeakMap<PolityModel, (sid: number, pid: number, t: Year) => void>();
 
+/** 推演模型 → 它挂着的推演引擎(installPolities 登记;迁都时预约 Ev.Respread 用) */
+const simOf = new WeakMap<PolityModel, CivSim>();
+
 /** 挂上"国都失去国都之位"的回调(cities.ts 用) */
 export function onCapitalLost(m: PolityModel, fn: (sid: number, pid: number, t: Year) => void): void {
   capitalLost.set(m, fn);
@@ -848,7 +860,8 @@ export function onCapitalLost(m: PolityModel, fn: (sid: number, pid: number, t: 
 
 /**
  * 迁都(战争里国都失守时由 wars.ts 调用,主动迁都由 politics.ts 调用):国都变迁表加一条、国都间距标记挪到新国都、新国都开始享受国都的人口加成(已经当过国都的照旧)、
- * 以后的扩张按新国都算路程。只改模型,史事由调用方记。旧都的国都加成慢慢退掉(Settlement.capitalSpans)
+ * 以后的扩张按新国都算路程(下一刻从现有国土往外重新预约一遍,Ev.Respread)。只改模型,史事由调用方记。
+ * 旧都的国都加成慢慢退掉(Settlement.capitalSpans)
  */
 export function moveCapital(m: PolityModel, pid: number, sid: number, t: Year): void {
   const p = m.polities[pid];
@@ -867,6 +880,8 @@ export function moveCapital(m: PolityModel, pid: number, sid: number, t: Year): 
   m.capDistPrev[pid] = m.capDist[pid];
   m.capDist[pid] = capitalDistance(m.terrain, s.region, p.kind === 'sea');
   m.capMoved[pid] = t;
+  // 迁都那一刻的预约还按旧国都算(见 distFor),下一刻起按新的
+  simOf.get(m)?.schedule(t + 1 / 256, Ev.Respread, 0, pid);
 }
 
 /** 国家灭亡 / 被并掉(wars.ts、politics.ts 调用):记下年份,撤掉(最后一个)国都周围的"国都间距"标记(以后那里又能立新国) */
@@ -927,7 +942,7 @@ export function addPolity(m: PolityModel, sid: number, cu: number, t: Year, extr
  * 照原样重算一遍(离国都的路程按当时的国都),还没到期、目标州还没归国家的补进引擎 ——
  * 包括从后来在战争里丢掉的州出发的那些(触发时再按接壤与否判断,和一口气推完时一样)。
  * 阶段 4 干预"不许扩张"到期的那一刻(已经过去的,iv 给出)也照样重放:那一刻这国从当时的国土往外预约了一遍(见 respread),
- * 到期事件在同一刻里最先处理,所以排在那一刻的所有日志前面。
+ * 到期事件在同一刻里最先处理,所以排在那一刻的所有日志前面。门槛更低的新君即位、迁都的下一刻也一样重放。
  */
 export function resumePolities(sim: CivSim, world: World, civ: Civ, iv?: InterventionModel | null): void {
   const T = cultureTerrain(world, civ.habitat, civ.regions);
@@ -1046,6 +1061,7 @@ export function resumePolities(sim: CivSim, world: World, civ: Civ, iv?: Interve
   // 从现有国土往外重新预约(respread)的时刻,按先后:
   // - 阶段 4 干预"不许扩张"已经到期的:到期那一刻这国从当时的国土(州号升序)往外预约
   // - 门槛比上一位低的新君即位的那一刻(Ev.Reign;在位表由立国、改朝换代的年份算出来,见 rulers.ts)
+  // - 迁都的下一刻(Ev.Respread;迁都记在 Polity.capitals)
   if (iv) iv.pm = m;
   const ends: { t: number; key?: string; pid: number }[] = iv ? iv.haltEndsUpTo(now).map((e) => ({ t: e.t, key: e.key, pid: -1 })) : [];
   for (const p of m.polities) {
@@ -1056,6 +1072,8 @@ export function resumePolities(sim: CivSim, world: World, civ: Civ, iv?: Interve
       if (t > until) break;
       if (widens(list[k - 1], list[k])) ends.push({ t, pid: p.id });
     }
+    const caps = p.capitals!;
+    for (let i = 1; i < caps.length; i++) if (caps[i].year + 1 / 256 <= until) ends.push({ t: caps[i].year + 1 / 256, pid: p.id });
   }
   ends.sort((a, b) => a.t - b.t);
   let ei = 0;
@@ -1105,9 +1123,10 @@ export function resumePolities(sim: CivSim, world: World, civ: Civ, iv?: Interve
   }
   if (ei < ends.length) retrigger(log.size - 1, Infinity);
   for (const e of pend) sim.schedule(e.t, Ev.PolityArrive, e.j, e.pid);
-  // 在世的国家:下一次君主交接(此刻刚改朝换代的,新朝第一位下一刻即位)
+  // 在世的国家:下一次君主交接(此刻刚改朝换代的,新朝第一位下一刻即位);此刻刚迁都的,下一刻重新预约扩张
   for (const p of m.polities) {
     if (p.ended !== undefined) continue;
+    for (const c of p.capitals!) if (c.year + 1 / 256 > now) sim.schedule(c.year + 1 / 256, Ev.Respread, 0, p.id);
     const list = reignBook(m.rbase, m.rtag[p.id], p, now);
     const last = list.length - 1;
     if (reignStart(list[last]) > now) sim.schedule(reignStart(list[last]), Ev.Reign, last, p.id);

@@ -1,7 +1,7 @@
 /**
  * 君主的在位表和性格(gen/civ/rulers.ts)、扩张算账(polities.ts 的 wants):
  * 推演里"此刻在位的是谁、什么性格"和人物(people.ts)一位不差;性格三种都有、比例说得通,好战的才亲征;
- * 荒僻的州多留给部落,富庶的州多归国家;接着推(fromCiv)和一口气推完一样。
+ * 荒僻的州多留给部落,富庶的州多归国家;接着推(fromCiv)和一口气推完一样(新君即位、迁都以后重新预约的扩张也算上)。
  */
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
@@ -81,22 +81,33 @@ describe.each([7, 2024])('君主 · seed=%i', (seed) => {
   });
 });
 
-describe('君主 · 接着推', () => {
-  it('fromCiv 接着推:在改朝换代、新君即位的年份前后断开,和一口气推完一样', () => {
+describe('扩张算账 · 接着推', () => {
+  const same = (w: World, full: Civ, cut: number) => {
+    const head = generateCiv(w, { endYear: cut });
+    const sim = CivSim.fromCiv(w, head);
+    sim.run(full.endYear);
+    const r = sim.result();
+    expect(Array.from(r.polity), `断在第 ${cut} 年`).toEqual(Array.from(full.polity));
+    expect(JSON.stringify(r.annals), `断在第 ${cut} 年`).toBe(JSON.stringify(full.annals));
+  };
+
+  it('fromCiv 接着推:在改朝换代、新君即位的那一刻断开,和一口气推完一样', () => {
     const w = world(7, 12000);
     const full = generateCiv(w);
     // 断在一次改朝换代的那一刻、和一位君主即位的那一刻(这两刻的预约最容易漏)
     const dyn = full.annals.find((e) => e.kind === 'dynasty');
     const heir = full.people!.find((x) => x.role === 'ruler' && x.rise === 'heir' && x.from! > 1200 && x.from! < 2500);
     const cuts = [dyn?.year, heir?.from].filter((x): x is number => x !== undefined);
-    expect(cuts.length).toBeGreaterThan(0);
-    for (const cut of cuts) {
-      const head = generateCiv(w, { endYear: cut });
-      const sim = CivSim.fromCiv(w, head);
-      sim.run(full.endYear);
-      const r = sim.result();
-      expect(Array.from(r.polity), `断在第 ${cut} 年`).toEqual(Array.from(full.polity));
-      expect(JSON.stringify(r.annals), `断在第 ${cut} 年`).toBe(JSON.stringify(full.annals));
-    }
+    expect(cuts.length).toBe(2);
+    for (const cut of cuts) same(w, full, cut);
+  });
+
+  it('fromCiv 接着推:迁都的下一刻按新国都重新预约扩张,断在迁都那一刻、迁都几年后都和一口气推完一样', () => {
+    const w = world(2024, 12000);
+    const full = generateCiv(w);
+    // 这个世界 2840 年前后接连迁都:断在迁都那一刻(重新预约还没发生)、几年后(重新预约的到达还没到)
+    const moves = full.polities.flatMap((p) => (p.capitals ?? []).slice(1).map((c) => c.year)).filter((y) => y > 2835 && y < 2850);
+    expect(moves.length).toBeGreaterThan(0);
+    for (const m of moves) for (const cut of [m, m + 4]) same(w, full, cut);
   });
 });
