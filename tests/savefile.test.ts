@@ -957,24 +957,40 @@ describe('浏览器存储(saveStore)', () => {
     const synced = saveStore.newWorldId();
     const text9 = oldText(9, GENERATOR_VERSION - 2);
     fake.setItem(`wenming-ditu:world:${synced}`, text9);
-    const newer = (names: Record<string, string>) => JSON.stringify(makeSave({ ...DEFAULT_PARAMS, seed: 9 }, { ...EDITS, names }, 'check9', '苍澜界'));
+    const newer = (names: Record<string, string>) => JSON.stringify(makeSave({ ...DEFAULT_PARAMS, seed: 9 }, { ...EDITS, names }, 'check9', '苍澜界', '2026-10-09T08:00:00.000Z'));
     expect(saveStore.putSyncedWorld(synced, { save: newer(EDITS.names), meta: {}, thumb: null })).toBe(true);
     expect(orig(synced)).toBe(text9);
-    // 同步带来的写不进去:什么都不动,也不留
+    // 同步带来的存得下、原样留不下(存储快满了):照样存上,不留
     const full = saveStore.newWorldId();
     const text10 = oldText(10, GENERATOR_VERSION - 1);
     fake.setItem(`wenming-ditu:world:${full}`, text10);
-    const used = [...fake.map].reduce((n, [k, v]) => n + k.length + v.length, 0);
-    fake.cap = used + `wenming-ditu:orig:${full}`.length + text10.length;
-    const longer = newer({ ...EDITS.names, ...Object.fromEntries([...'甲乙丙丁戊己庚辛'].map((c, i) => [`settlement:r${i + 200}#0`, `${c}城`])) });
-    expect(saveStore.putSyncedWorld(full, { save: longer, meta: {}, thumb: null })).toBe(false);
-    expect(fake.getItem(`wenming-ditu:world:${full}`)).toBe(text10);
+    const used = () => [...fake.map].reduce((n, [k, v]) => n + k.length + v.length, 0);
+    fake.cap = used() + 200;
+    expect(saveStore.putSyncedWorld(full, { save: newer(EDITS.names), meta: {}, thumb: null })).toBe(true);
+    expect(fake.getItem(`wenming-ditu:world:${full}`)).toBe(newer(EDITS.names));
     expect(orig(full)).toBeNull();
     fake.cap = Infinity;
 
     // 退出登录选了从这台设备上删掉:一起删
     expect(saveStore.removeAllWorlds()).toBe(true);
     expect([...fake.map.keys()].some((k) => k.startsWith('wenming-ditu:orig:'))).toBe(false);
+
+    // 自动存时存储快满了:新版的存档照样存上,不为留底删别的世界;留不下就不留,之后接着自动存
+    const tight = new FakeStorage();
+    useStorage(tight);
+    const other = openWorld(8, { title: '赤霄纪' });
+    tick();
+    const id2 = saveStore.newWorldId();
+    tight.setItem(`wenming-ditu:world:${id2}`, text);
+    openWorld(7, { id: id2 });
+    tight.cap = [...tight.map].reduce((n, [k, v]) => n + k.length + v.length, 0) + 200;
+    setName('settlement:r1#0', '饕餮城');
+    expect(saveStore.loadWorld(id2)?.save).toMatchObject({ generator: GENERATOR_VERSION, edits: { names: { 'settlement:r1#0': '饕餮城' } } });
+    expect(tight.getItem(`wenming-ditu:orig:${id2}`)).toBeNull();
+    expect(saveStore.loadWorld(other)).not.toBeNull();
+    setName('settlement:r1#0', '梼杌城');
+    expect(saveStore.loadWorld(id2)?.save.edits.names['settlement:r1#0']).toBe('梼杌城');
+    expect(saveStore.storageIsFull()).toBe(false);
   });
 });
 

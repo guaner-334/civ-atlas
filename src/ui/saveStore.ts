@@ -20,8 +20,9 @@
  * - 投影和中央经线(ui/projection.ts、mapWrap.ts)跟着世界存:存档时按当时的设置写进 view;
  *   已经存着的世界换了投影 / 中心,App 调 viewChanged 重写一次。
  * - 删掉一个世界,AI 给它写的东西(ai/library.ts,按世界编号存)一起删。
- * - 旧版本生成器存的世界,第一次按新版重存之前,把浏览器里原来那份原样另存一份(keepOriginal;同一个世界只留最早那份,
- *   以后不覆盖):重存会把存档里的生成器版本换成新的,留着这份才知道它原来是哪一版、长什么样。删除、撤销、复制跟着世界走。
+ * - 旧版本生成器存的世界,第一次按新版重存时,把浏览器里原来那份原样另存一份(keepOriginal;同一个世界只留最早那份,
+ *   以后不覆盖):重存会把存档里的生成器版本换成新的,留着这份才知道它原来是哪一版、长什么样。删除、撤销、复制跟着世界走;
+ *   存储满了留不下就不留,不为它删别的世界,也不挡着新的存进去。
  * - 登录了网站账号的,世界还会同步进账号(account/sync.ts):这里给它原样读写一个世界(rawWorld / putSyncedWorld),
  *   用户删掉一个世界时告诉它(setDeleteHook);为了腾地方删掉的旧世界不算删除(账号里的还在)。
  */
@@ -584,19 +585,21 @@ function touchMeta(id: string, m: Meta): boolean {
 }
 
 /**
- * 一个世界要存成第 next 版生成器的存档之前:浏览器里原来那份是更旧的版本存的,就把它原样(存档原文,一个字不改)另存一份。
- * 同一个世界只留最早那份,已经留过的不再留(以后再升级也不覆盖);读不出来的坏存档不留。
- * evict = 写不下时删最旧的世界腾地方(和存档、缩略图一样);false = 不为它删别的世界。写不下就算了,不拦着这次存。
- * 返回这一次留了没有
+ * 一个世界要存成第 next 版生成器的存档:浏览器里原来那份是更旧的版本存的、还没留过,返回它的原文(存档原文,一个字不改),
+ * 新的存进去以后由 keepOriginal 另存;不用留 = null。同一个世界只留最早那份(以后再升级也不覆盖);读不出来的坏存档不留
  */
-function keepOriginal(id: string, next: number, evict: boolean): boolean {
+function originalToKeep(id: string, next: number): string | null {
   const kv = store();
-  if (kv.get(ORIG + id) !== null) return false;
+  if (kv.get(ORIG + id) !== null) return null;
   const text = kv.get(PREFIX + id);
-  if (text === null) return false;
+  if (text === null) return null;
   const r = parseSave(text);
-  if (!r.ok || !(r.save.generator < next)) return false;
-  return evict ? put(ORIG + id, text, id) : kv.set(ORIG + id, text);
+  return r.ok && r.save.generator < next ? text : null;
+}
+
+/** 新的存进去了:把原来那份原样留着。写不下就算了:不为它删别的世界,也不拦着这次存 */
+function keepOriginal(id: string, text: string | null) {
+  if (text !== null) store().set(ORIG + id, text);
 }
 
 /**
@@ -609,8 +612,9 @@ function writeSave(id: string, save: SaveFile, meta?: Meta): boolean {
   const fresh = kv.get(PREFIX + id) === null;
   evicted = [];
   const text = JSON.stringify(save);
-  if (!fresh) keepOriginal(id, save.generator, true);
+  const orig = fresh ? null : originalToKeep(id, save.generator);
   let ok = put(PREFIX + id, text, id);
+  if (ok) keepOriginal(id, orig);
   if (ok && meta && !writeMeta(id, meta)) {
     if (fresh) kv.remove(PREFIX + id);
     ok = false;
@@ -678,8 +682,8 @@ export interface DeletedWorld {
 /**
  * 撤销删除:把删之前的几样原样写回,"我的世界"里回到原来的位置(按最近打开 / 修改的时间排)。
  * 别的页面里还开着它、删了以后又自动存过的:以那边新存的为准,只补回现在没有的。
- * 存档、打开记录(没建完的世界靠它记着还在建)、AI 写的东西、旧版本的原样有一样写不下(浏览器存储满了)
- * = false,这次写回的都撤掉;缩略图写不下就算了(再打开会重画)
+ * 存档、打开记录(没建完的世界靠它记着还在建)、AI 写的东西有一样写不下(浏览器存储满了)
+ * = false,这次写回的都撤掉;缩略图(再打开会重画)、旧版本的原样写不下就算了,不为它们挡着世界放回来
  */
 export function restoreWorld(d: DeletedWorld): boolean {
   const kv = store();
@@ -689,7 +693,7 @@ export function restoreWorld(d: DeletedWorld): boolean {
     const v = d.keys.find((e) => e[0] === k)?.[1];
     if (v === undefined || kv.get(k) !== null) continue;
     if (kv.set(k, v)) wrote.push(k);
-    else if (p !== THUMB) {
+    else if (p !== THUMB && p !== ORIG) {
       for (const w of wrote) kv.remove(w);
       changed();
       return false;
@@ -744,12 +748,14 @@ export function duplicateWorld(id: string): string | null {
   shield = id;
   try {
     if (!writeSave(nid, save, { draft: w.draft, alive: w.alive })) return null;
-    // 缩略图、原样写不下(删了旧的也不行)就先不要(缩略图打开它时再截一张;原样原件那里还有);删了旧的照样提示
-    const orig = store().get(ORIG + id);
-    evicted = [];
-    if (w.thumb) put(THUMB + nid, w.thumb, nid);
-    if (orig !== null) put(ORIG + nid, orig, nid);
-    reportEvicted('quota');
+    // 缩略图写不下(删了旧的也不行)就先不要,打开它时再截一张;删了旧的照样提示
+    if (w.thumb) {
+      evicted = [];
+      put(THUMB + nid, w.thumb, nid);
+      reportEvicted('quota');
+    }
+    // 原样写不下就不带(不为它删别的世界;原件那里还有)
+    keepOriginal(nid, store().get(ORIG + id));
   } finally {
     shield = null;
   }
@@ -1161,20 +1167,17 @@ export function putSyncedWorld(id: string, w: RawWorld, opened0?: string): boole
   const kv = store();
   const old = kv.get(PREFIX + id);
   const opened = readMeta(id).opened ?? opened0;
-  // 另一台设备在新版里重存过的旧世界:这里原来那份原样留着(没写成就拿掉,什么都不动)
-  const kept = old !== null && keepOriginal(id, r.save.generator, false);
-  if (!kv.set(PREFIX + id, w.save)) {
-    if (kept) kv.remove(ORIG + id);
-    return false;
-  }
+  // 另一台设备在新版里重存过的旧世界:写成了以后,这里原来那份原样留着
+  const orig = old === null ? null : originalToKeep(id, r.save.generator);
+  if (!kv.set(PREFIX + id, w.save)) return false;
   const m: Meta = { ...w.meta };
   if (opened) m.opened = opened;
   if (!kv.set(META + id, JSON.stringify(m))) {
     if (old === null) kv.remove(PREFIX + id);
     else kv.set(PREFIX + id, old);
-    if (kept) kv.remove(ORIG + id);
     return false;
   }
+  keepOriginal(id, orig);
   // 缩略图写不下就先不要(打开时再截一张)
   if (!w.thumb || !kv.set(THUMB + id, w.thumb)) kv.remove(THUMB + id);
   if (current?.id === id) {
