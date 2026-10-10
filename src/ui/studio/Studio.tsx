@@ -604,7 +604,7 @@ export function Studio(p: StudioProps) {
   };
   /** 「照这样长出星球」 */
   const growPlanet = () => {
-    if (!applyImport()) return;
+    if (!p.ready || !applyImport()) return;
     setSourceView({ show: 'grown' });
     setStep(2);
   };
@@ -963,7 +963,7 @@ export function Studio(p: StudioProps) {
         1,
         '认出海陆',
         importing ? (
-          <ImportPanel phone={p.phone} onUse={growPlanet} />
+          <ImportPanel phone={p.phone} onUse={growPlanet} wait={!p.ready} />
         ) : (
           <div className="tp imp imp-step">
             <button className="imp-use" data-act="import-repick" onClick={pickImage}>

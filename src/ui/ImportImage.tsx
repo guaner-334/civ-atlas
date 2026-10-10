@@ -448,7 +448,8 @@ function warnText(w: Exclude<ImportWarning, null>, mode: ImportMode, stats: Laye
  * 认不准的提醒,放法(保持比例时还有大小),认出来陆地、海各多少,最下面「照这样长出星球」。
  * 图片那一行、地图上看原图还是认出来的在这一页别处(Studio 的图片卡、地图上方的切换条)。手机上点了几处那一行连着写陆地占多少,不另起一行
  */
-export function ImportPanel({ phone, onUse }: { phone: boolean; onUse: () => void }) {
+/** wait:星球还没生成好(刚进来那一颗还在算),先不能「照这样长出星球」—— 这时改的地形会被算完的那颗盖掉 */
+export function ImportPanel({ phone, onUse, wait = false }: { phone: boolean; onUse: () => void; wait?: boolean }) {
   const s = useImport();
   if (!s) return null;
   const r = recognize(s);
@@ -582,7 +583,7 @@ export function ImportPanel({ phone, onUse }: { phone: boolean; onUse: () => voi
         {s.fit === 'keep' && <Slider label="大小" act="import-scale" min={PLACE_SCALE[0]} max={PLACE_SCALE[1]} step={0.01} value={s.scale} onChange={(v) => patch({ scale: v })} />}
       </div>
       {result}
-      <button className="imp-use" data-act="import-use" disabled={!r.ready || !!r.warn} onClick={onUse}>
+      <button className="imp-use" data-act="import-use" disabled={!r.ready || !!r.warn || wait} onClick={onUse}>
         照这样长出星球
       </button>
     </div>

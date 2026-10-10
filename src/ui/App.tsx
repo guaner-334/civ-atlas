@@ -1108,7 +1108,8 @@ export function App() {
     if (takeInviteFromUrl() && serverBase() && !getSession()) openLogin();
     if (route.target) generate(route.target);
     else if (landing === 'loading') openShortShare(init.shortShare ?? '');
-    else writeHomeUrl();
+    // 刷新回来的照图新建(new=image)留着,弹窗点了「开始」或「取消」才换掉,再刷新还能回到弹窗
+    else if (!route.dialog) writeHomeUrl();
     // 页面开着时又粘贴了一个只有 # 不同的分享链接(浏览器不刷新页面)
     const onHash = () => {
       const h = location.hash;
