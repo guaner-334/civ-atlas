@@ -216,14 +216,12 @@ export function deedsShort(civ: Civ, x: Person): string {
   return out.join('，');
 }
 
-/** 一句为什么有名(人物页一行):经手的事各一句短的;没经手大事的写"任丞相 N 年" */
+/** 一句为什么有名(人物页一行):经手的事各一句短的;没经手大事的写"在朝 N 年" */
 export function deedLine(civ: Civ, x: Person): string {
   const short = deedsShort(civ, x);
   if (short) return short;
-  const top = topPost(x);
-  if (!top) return '';
-  const n = F(x.until ?? civ.endYear) - F(top.from);
-  return n >= 1 ? `任${top.title} ${n} 年` : `任${top.title}`;
+  const n = F(x.until ?? civ.endYear) - F(x.from ?? x.born);
+  return n >= 1 ? `在朝 ${n} 年` : '';
 }
 
 /** 生平(名臣、将领;别的身份 = '') */
