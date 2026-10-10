@@ -1115,6 +1115,8 @@ export function App() {
   );
 
   useEffect(() => {
+    // 邀请链接(invite=):记下邀请码,从网址里去掉(在记第一步之前去掉,按后退时不会再带回来)
+    const invited = takeInviteFromUrl();
     // 浏览器的后退、前进:这一页记成第一步,之后每换一个画面记一步(nav.ts)
     const stopNav = startNav(navInfo(route.stage, route.target), {
       route: (to, from, dir) => navRef.current.route(to, from, dir),
@@ -1138,8 +1140,8 @@ export function App() {
         if (sameScreen(getNav(), at)) openShareRef.current(r, undefined, own);
       });
     }
-    // 邀请链接(invite=):记下邀请码,弹出登录窗(已经登录了就算了)
-    if (takeInviteFromUrl() && serverBase() && !getSession()) openLogin();
+    // 邀请链接:弹出登录窗(已经登录了就算了)
+    if (invited && serverBase() && !getSession()) openLogin();
     if (route.target) generate(route.target);
     else if (landing === 'loading') openShortShare(init.shortShare ?? '');
     else writeHomeUrl();
@@ -1791,8 +1793,10 @@ export function App() {
     const live = cw?.id === t.id;
     const title = (live ? cw.title : t.title) || undefined;
     const stored = isStored(t.id);
-    // 没存着的、最近的修改没写进浏览器的(存储满了):记下现在的样子(修改、名字用手上的),回来时照这个打开;存好了的不用记
-    if (t.kind !== 'draft' && (!stored || (live && currentUnsaved()))) navTargets.current.set(t.id, { ...t, ...(live ? { edits: getEdits(), title } : {}), view: undefined, warnings: undefined });
+    // 没存着的、最近的修改没写进浏览器的(存储满了):记下现在的样子(修改、名字用手上的),回来时照这个打开;存好了的不用记。
+    // 新建中的只记没写进去的(没动过的按网址里的种子新建就是原样)
+    const unsaved = live && currentUnsaved();
+    if ((t.kind !== 'draft' && !stored) || unsaved) navTargets.current.set(t.id, { ...t, ...(live ? { edits: getEdits(), title } : {}), ...(unsaved && t.kind === 'draft' ? { pristine: false } : {}), view: undefined, warnings: undefined });
     else navTargets.current.delete(t.id);
     return { title, stored };
   };
@@ -1808,7 +1812,8 @@ export function App() {
   /**
    * 按后退 / 前进到了 to 这一步:
    *   我的世界  回我的世界
-   *   新建      还是这次新建(同一个编号):种子、参数换回那一步的(那一步的网址里记着);存着、没建完的:打开它(同样换回);
+   *   新建      还是这次新建(同一个编号):种子、参数换回那一步的(那一步的网址里记着);存着、没建完的:打开它(同样换回;
+   *             这一页里记着的、存储满了没写进去的,照这一页里的样子打开);
    *             已经建成了世界的:后退时跳过(前面没有这个网站的一步了就回我的世界),前进时打开那个世界;
    *             存过、没建完就删掉了的(以它为底稿新建、什么都没动就返回的那一份):后退时同样跳过;没存过的:按网址里的种子新建
    *   世界      这一页里看过、没存着的(或最近的修改没写进浏览器,存储满了):照这一页里的样子打开;存着的:打开它;
@@ -1842,13 +1847,21 @@ export function App() {
       }
       const w = to.id ? loadWorld(to.id) : null;
       if (w && !w.draft) return back ? skip() : openStored(w.id);
+      const once = to.stored || (!!to.id && q.get('w') === to.id);
+      const mem = to.id ? navTargets.current.get(to.id) : undefined;
+      // 这一页里记着的(最近的修改没写进浏览器,存储满了)比存着的新;同样换回那一步的种子、参数
+      if (mem?.kind === 'draft' && (w || !once)) {
+        openTarget(mem);
+        if (worldKey(want) !== worldKey(mem.params) && !mem.base) draftSeed(seed, want);
+        return;
+      }
       if (w) {
         openStored(w.id);
         if (worldKey(want) !== worldKey(w.save.params) && !w.base) draftSeed(seed, want);
         return;
       }
       // 存过(离开时记着,或那一步的网址里有 w=编号)、现在不在了:跳过
-      if (to.stored || (!!to.id && q.get('w') === to.id)) return skip();
+      if (once) return skip();
       return openTarget({ ...draftTarget({ ...url.params, seed }), id: to.id ?? newWorldId() });
     }
     const w = to.id ? loadWorld(to.id) : null;
