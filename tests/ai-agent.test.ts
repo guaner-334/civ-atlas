@@ -7,7 +7,7 @@ import { DEFAULT_PARAMS, generateWorld } from '../src/gen/world';
 import { generateCiv } from '../src/gen/civ';
 import type { Civ } from '../src/gen/civ/types';
 import { ownersAt } from '../src/gen/civ/timeline';
-import { applyNames, polityKey, regionKey, type WorldEdits } from '../src/gen/edits';
+import { applyNames, polityKey, regionKey, settlementKey, type WorldEdits } from '../src/gen/edits';
 import { setActiveProvider, setMockResponder } from '../src/ai/client';
 import { AiError, type AiRequest } from '../src/ai/types';
 import { AGENT_MAX_ROUNDS, FINAL_NUDGE, TOOL_RESULT_MAX, looksUnfinished, parseToolArgs, runAgent, type AgentEvent, type AgentTool, type AgentToolResult } from '../src/ai/agent/loop';
@@ -708,6 +708,17 @@ describe('助手', () => {
     const r3 = await runAssistant(ctx({ lock: 'history' }), [], '在这块大陆上拉一道山脉');
     expect(range).toHaveLength(2);
     expect(r3.text).toBe('确认单列了这一条，山脉会和大陆连在一起。');
+  });
+
+  it('"作者"换成"你":作者自己说到"作者"、名字里带"作者"的不换', async () => {
+    script('需作者点击执行。');
+    expect((await runAssistant(ctx(), [], `让${vName}撑到最后`)).text).toBe('需你点击执行。');
+    script('改名叫作者城以后，需作者点击执行。');
+    expect((await runAssistant(ctx(), [], '把国都改名叫作者城')).text).toBe('改名叫作者城以后，需作者点击执行。');
+    const cap = civ.polities[victim].capital;
+    const named = applyNames(civ, { [settlementKey(civ, cap)]: '作者城' });
+    script('作者城是它的国都，需作者点击执行。');
+    expect((await runAssistant(ctx({ civ: named }), [], `${vName}的国都在哪`)).text).toBe('作者城是它的国都，需你点击执行。');
   });
 
   it('说没说列确认单', () => {

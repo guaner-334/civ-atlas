@@ -934,8 +934,17 @@ export async function runAssistant(ctx: AssistantContext, history: readonly Assi
   };
   const w = cleanWish(ask);
   // 回给作者的话里漏出来的编号、英文种类名换成名字(边说边换,面板上不会闪过编号);
-  // 提示词里管说话的人叫"作者",模型常常照抄("需作者点击执行"),回给人看的一律换成"你"
-  const plain = (t: string) => plainIds(t, ctx).replace(/作者/g, '你');
+  // 提示词里管说话的人叫"作者",模型常常照抄("需作者点击执行"),回给人看的换成"你"。
+  // 作者自己说到"作者"(改名叫"作者城"、问书的作者)就不换;名字里带"作者"的城、国家、山河照原样
+  const kept = w.includes('作者')
+    ? null
+    : [...ctx.civ.settlements.map((x) => x.name), ...ctx.civ.places.map((x) => x.name), ...ctx.civ.polities.flatMap((p) => polityTitleChain(p).split(' → '))].filter((n) =>
+        n.includes('作者'),
+      );
+  const keep = kept?.length ? new RegExp(`(${kept.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})`) : null;
+  /** 名字以外的"作者"换成"你"(split 带括号:奇数位是名字本身) */
+  const you = (t: string) => (!kept ? t : keep ? t.split(keep).map((x, i) => (i % 2 ? x : x.replace(/作者/g, '你'))).join('') : t.replace(/作者/g, '你'));
+  const plain = (t: string) => you(plainIds(t, ctx));
   const onEvent = opts.onEvent;
   const out = await runAgent({
     feature: ASSISTANT_FEATURE,
