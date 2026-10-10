@@ -59,6 +59,11 @@ export interface Raster {
    */
   gully?: Float32Array;
   /**
+   * 离河多近 × 255(刻河谷时的噪声抑制系数 calm:河面上 1,往外到谷壁外一点收到 0;见 carveValleys)。
+   * 写实风据此把谷底压暗、干旱地方的河两岸画绿。没有 = 当作附近没河
+   */
+  bank?: Uint8Array;
+  /**
    * 放大后现算的一块(gen/rasterWindow.ts):这一块左上角在 W × H 的主图(scale 倍)里的像素位置。
    * 没有 = 整张主图。画风据此按真实的纬度、整张图上的位置算晕渲和纹理(和整张图接得上)
    */
@@ -235,6 +240,13 @@ export function carveValleys(
       }
     }
   }
+}
+
+/** 刻河谷的 calm(0..1)存成一个字节(Raster.bank) */
+export function bankBytes(calm: Float32Array): Uint8Array {
+  const out = new Uint8Array(calm.length);
+  for (let k = 0; k < calm.length; k++) out[k] = calm[k] * 255 + 0.5;
+  return out;
 }
 
 /** 东西相连的主图上,一样东西画在哪几份:本身、往左挪一整圈、往右挪一整圈(× 图宽) */
@@ -608,6 +620,7 @@ function rasterizeRaw(world: World, scale: number, gully: boolean): { raster: Ra
   const R = world.width / (2 * Math.PI);
   const job = gully ? newGullyJob(subSeed(world.params.seed, 'gully'), w, h, R, scale) : null;
   shadeSphere(out, b.tri, b.wa, b.wb, b.planes, b.elev, carve, calm, dTile, jTile, b.g, R, job);
+  out.bank = bankBytes(calm);
   seaIcePixels(world, out);
   return { raster: out, job };
 }

@@ -7,7 +7,7 @@
  */
 import type { World } from '../gen/world';
 import type { Raster } from '../gen/raster';
-import { BIOMES, classifyBiome } from '../gen/biomes';
+import { BIOMES, Biome, classifyBiome } from '../gen/biomes';
 import {
   bakedView,
   boxBlur,
@@ -21,8 +21,7 @@ import {
   riverLod,
   rasterRowCos,
   rowCos,
-  valueNoiseP,
-  wrapCells,
+  hash2,
   wrapOf,
   type RGB,
   type RiverStyle,
@@ -626,8 +625,14 @@ function paintRealistic(ctx: CanvasRenderingContext2D, r: Raster, cap?: GlobeCap
   const fy = win ? grids!.h / win.H : 1;
   const wx0 = win ? win.x0 : 0;
   const wy0 = win ? win.y0 : 0;
-  // 东西相连:纹理噪声的格数取整,左右两边的格点对上
-  const n6 = wrapCells(W0, 6);
+  // 地面纹理、群落交界打散:按世界坐标取(整张图、放大现算的块接得上),细的几层放大后才叠
+  const pxW = 1 / r.scale;
+  const Ww = (win ? win.W : w) / r.scale;
+  const wxOf = (px: number) => (wx0 + px + 0.5) / r.scale;
+  const bank = r.bank;
+  const geo = new RowNoise(GEO_OCT, 101, w, wxOf, Ww, pxW);
+  const fine = new RowNoise(FINE_OCT, 201, w, wxOf, Ww, pxW, 1, TEX_BIG_PX);
+  const streak = new RowNoise(STREAK_OCT, 301, w, wxOf, Ww, pxW, STREAK_SX, TEX_BIG_PX);
   // 雪线的抖动:平滑噪声(高纬度大片地方气温都在雪线附近,值噪声会露出一格一格)
   const snowN = win ? cylinderNoise(11, W0, 5, Float64Array.from({ length: w }, (_, px) => (wx0 + px + 0.5) * fx)) : cylinderNoise(11, w, 5);
 
@@ -639,6 +644,10 @@ function paintRealistic(ctx: CanvasRenderingContext2D, r: Raster, cap?: GlobeCap
     const gxk = 1 / Math.max(rasterRowCos(r, py), 0.01);
     // 纹理按整张图的行取
     const ty = win ? (wy0 + py + 0.5) * fy - 0.5 : py;
+    const wy = (wy0 + py + 0.5) / r.scale;
+    geo.row(wy);
+    fine.row(wy);
+    streak.row(wy);
     for (let px = 0; px < w; px++) {
       const k = py * w + px;
       const e = elev[k];
@@ -687,18 +696,34 @@ function paintRealistic(ctx: CanvasRenderingContext2D, r: Raster, cap?: GlobeCap
         c = temp[k] < -6 ? SEA_ICE : LAKE;
         s = 1;
       } else {
-        // 1. 生物群落底色:按 温度 × 降水 查连续调色板,群落之间自然渐变
-        paletteColor(lut, temp[k], precip[k], col);
-        // 同一群落内的明暗变化:降水多更深
-        const vn = win ? valueNoiseP((((wx0 + px + 0.5) * fx - 0.5) * n6) / W0, ty / 6, 3, n6) : valueNoiseP((px * n6) / w, py / 6, 3, n6);
-        const v = 1.03 - Math.min(0.12, precip[k] / 25000) + 0.05 * (vn - 0.5);
+        const kr = px < w - 1 ? k + 1 : k - w + 1;
+        const kl = px > 0 ? k - 1 : k + w - 1;
+        const kd = py < h - 1 ? k + w : k;
+        const ku = py > 0 ? k - w : k;
+        const pk = precip[k];
+        // 地面纹理(约 −1 ~ 1):大片的岩性(压出边界)+ 细层
+        const fn = fine.at(px);
+        const dry = smoothstep(RIP_P1, RIP_P0, pk);
+        const tx = TEX_GEO * Math.tanh(GEO_SHARP * (geo.at(px) + GEO_ROUGH * fn)) + TEX_FINE * fn + TEX_STREAK * dry * streak.at(px);
+        // 离河多近:谷底压暗;干旱地方的河岸那一窄条按湿润的颜色画(像沙漠里的尼罗河)
+        const bk = bank ? bank[k] / 255 : 0;
+        const rip = smoothstep(RIP_B0 + RIP_JAG * fn, RIP_B1, bk) * dry;
+        // 1. 生物群落底色:按 温度 × 降水 查连续调色板,群落之间自然渐变;交界按纹理打散成一片片(亮处当作干一点)
+        let pp = pk * Math.exp(-ECO_P * tx);
+        if (rip > 0 && pp < RIP_WET) pp *= Math.pow(RIP_WET / pp, rip);
+        // 2. 在这一格的色带上挑深浅:纹理(干旱地方对比更强),再加上凹处(谷)亮、凸处(脊)暗
+        const cav = (relief[kl] + relief[kr] + relief[ku] + relief[kd]) * 0.25 - relief[k];
+        const tb = 0.5 + (TEX_AMP_WET + (TEX_AMP_DRY - TEX_AMP_WET) * dry) * tx + TEX_CAV * Math.max(-1, Math.min(1, cav / (CAV_REF * pxW))) + ALLU_LIGHT * smoothstep(ALLU_B0, ALLU_B1, bk);
+        paletteColor(lut, temp[k] + ECO_T * tx, pp, tb, col);
+        // 降水多更深;谷底压暗
+        const v = (1.03 - Math.min(0.12, pk / 25000)) * (1 - VALLEY_DARK * smoothstep(VALLEY_E0, VALLEY_E1, level[k] - relief[k]));
         let cr = col[0] * v;
         let cg = col[1] * v;
         let cb = col[2] * v;
         // 高山 / 陡坡:裸岩。坡度直接按海拔梯度算(和光照方向无关),
         // 不再用"明暗偏离平地多少"来估计 —— 那样背光面一律被当成陡坡,暗面会发灰
-        const gx = (relief[px < w - 1 ? k + 1 : k - w + 1] - relief[px > 0 ? k - 1 : k + w - 1]) * gxk;
-        const gy = relief[py < h - 1 ? k + w : k] - relief[py > 0 ? k - w : k];
+        const gx = (relief[kr] - relief[kl]) * gxk;
+        const gy = relief[kd] - relief[ku];
         const steep = Math.sqrt(gx * gx + gy * gy) * slopeZ;
         const rock = Math.min(0.85, smoothstep(1600, 3600, e) * 0.75 + smoothstep(0.9, 2.2, steep) * 0.45);
         cr += (ROCK[0] - cr) * rock;
@@ -790,9 +815,46 @@ const DETAIL_E1 = 1400;
 const SEA_RELIEF = 0.45;
 
 // ---------------------------------------------------------------------------
-// 群落连续调色板:温度 × 降水(对数)二维查找表
+// 群落连续调色板:温度 × 降水(对数)二维查找表,每格是一条暗 → 亮的色带(RK 档)
 // 从 BIOMES[].real 出发,按 classifyBiome 的阈值铺满 Whittaker 图,再做高斯模糊,
-// 这样群落交界处是连续渐变;群落内部仍是 BIOMES 表里的颜色,和数据图层的分区对得上。
+// 这样群落交界处是连续渐变;每条色带的中间那档仍是 BIOMES 表里的颜色,和数据图层的分区对得上。
+
+/**
+ * 同一种群落里从暗到亮的七档颜色:取自 NASA「蓝色弹珠」(Blue Marble)卫星合成图(公有领域)上真实地区的陆地像素 ——
+ * 每种群落挑几块典型地区(热带荒漠:撒哈拉、阿拉伯、澳洲中部;热带雨林:亚马孙、刚果、婆罗洲……),去掉雪,
+ * 按亮度排序,七个分位数段各取中位色。卫星图整体偏暗,只用它的"形状":每档除以中间那档,再乘到群落颜色上 ——
+ * 群落的平均色不变,暗处偏什么色(荒漠的暗处是红褐的岩石、亮处是浅色的沙)照卫星图
+ */
+const SAT_RAMPS: Partial<Record<Biome, string[]>> = {
+  [Biome.HotDesert]: ['#7c5134', '#9f7e59', '#b39067', '#bb986c', '#c09e72', '#c5a577', '#cbad81'],
+  [Biome.Savanna]: ['#3f3f1e', '#564a2b', '#615031', '#695637', '#745e3e', '#856c49', '#a0825a'],
+  [Biome.TropicalDryForest]: ['#2c3313', '#353a1a', '#3c3e1e', '#424222', '#474526', '#50492b', '#605133'],
+  [Biome.Rainforest]: ['#142208', '#16250a', '#18270a', '#19280c', '#1a2a0c', '#1c2c0d', '#1f2f10'],
+  [Biome.TemperateDesert]: ['#664d31', '#745b3e', '#816a4b', '#8d785c', '#97846a', '#a49373', '#ab9b7b'],
+  [Biome.Steppe]: ['#4d4326', '#56482b', '#5b4c2e', '#624f31', '#6b5436', '#785b3c', '#876544'],
+  [Biome.TemperateForest]: ['#1c230b', '#21270f', '#252b12', '#293015', '#2f3518', '#373b1d', '#464526'],
+  [Biome.TemperateRainforest]: ['#0d1405', '#111909', '#151e0d', '#1a2513', '#222e1b', '#323a27', '#55584d'],
+  [Biome.Taiga]: ['#161a09', '#1c1e0d', '#202311', '#262818', '#2e3021', '#3b3e30', '#515348'],
+  [Biome.Tundra]: ['#272312', '#332f19', '#3c3520', '#413b24', '#494129', '#616058', '#7f7d7a'],
+  [Biome.ColdDesert]: ['#735e3d', '#7e6746', '#856e4d', '#8b7554', '#917b5b', '#978363', '#a08e71'],
+};
+/** 色带档数(中间那档 = 群落颜色) */
+const RK = 7;
+/** 每档和中间那档的比值最多偏多少(卫星图很暗的地方比值会很极端) */
+const RAMP_LO = 0.45;
+const RAMP_HI = 1.7;
+
+/** 群落 b 的色带(RK 档 RGB) */
+function biomeRamp(b: Biome): RGB[] {
+  const base = BIOMES[b].real;
+  const sat = SAT_RAMPS[b];
+  if (!sat) return Array.from({ length: RK }, () => base);
+  const mid = hexRGB(sat[(RK - 1) >> 1]);
+  return sat.map((c) => {
+    const q = hexRGB(c);
+    return [0, 1, 2].map((i) => base[i] * Math.min(RAMP_HI, Math.max(RAMP_LO, q[i] / Math.max(1, mid[i])))) as RGB;
+  });
+}
 
 const PT0 = -16; // °C
 const PT1 = 34;
@@ -802,52 +864,228 @@ const PP1 = Math.log(6000);
 const PNP = 47; // 每格 ln 0.1(约 10%)
 let paletteCache: Float32Array | null = null;
 
+/** 查找表:第 (j, i) 格(降水、温度)第 q 档的颜色在 ((j × PNT + i) × RK + q) × 3 */
 function biomePalette(): Float32Array {
   if (paletteCache) return paletteCache;
   const n = PNT * PNP;
-  const ch = [new Float32Array(n), new Float32Array(n), new Float32Array(n)];
+  const ramps = BIOMES.map((_, b) => biomeRamp(b));
+  const ch = Array.from({ length: RK * 3 }, () => new Float32Array(n));
   for (let j = 0; j < PNP; j++) {
     const p = Math.exp(PP0 + (j / (PNP - 1)) * (PP1 - PP0));
     for (let i = 0; i < PNT; i++) {
       const t = PT0 + (i / (PNT - 1)) * (PT1 - PT0);
       // 冰原的白色交给积雪层(按像素温度),表里按苔原 / 寒漠处理,免得白色被模糊进苔原带
-      const c = BIOMES[classifyBiome(Math.max(t, -8.9), p, 0)].real;
-      for (let q = 0; q < 3; q++) ch[q][j * PNT + i] = c[q];
+      const r = ramps[classifyBiome(Math.max(t, -8.9), p, 0)];
+      for (let q = 0; q < RK; q++) for (let c = 0; c < 3; c++) ch[q * 3 + c][j * PNT + i] = r[q][c];
     }
   }
   // 三次盒式模糊 ≈ 高斯(σ ≈ 3 格:温度 ±3°C、降水 ±30% 的过渡带)
   for (const a of ch) for (let it = 0; it < 3; it++) boxBlur(a, PNT, PNP, 2);
-  const lut = new Float32Array(n * 3);
-  for (let i = 0; i < n; i++) {
-    lut[i * 3] = ch[0][i];
-    lut[i * 3 + 1] = ch[1][i];
-    lut[i * 3 + 2] = ch[2][i];
-  }
+  const lut = new Float32Array(n * RK * 3);
+  for (let i = 0; i < n; i++) for (let q = 0; q < RK; q++) for (let c = 0; c < 3; c++) lut[(i * RK + q) * 3 + c] = ch[q * 3 + c][i];
   paletteCache = lut;
   return lut;
 }
 
-/** 双线性查表,结果写进 out */
-function paletteColor(lut: Float32Array, t: number, p: number, out: RGB) {
+/** 双线性查表,色带上取第 b(0 暗 ~ 1 亮,0.5 = 群落颜色)处,结果写进 out */
+function paletteColor(lut: Float32Array, t: number, p: number, b: number, out: RGB) {
   let fx = ((t - PT0) / (PT1 - PT0)) * (PNT - 1);
   let fy = ((Math.log(p) - PP0) / (PP1 - PP0)) * (PNP - 1);
+  let fb = b * (RK - 1);
   // !(x > 0) 同时挡住 NaN / -Infinity
   fx = !(fx > 0) ? 0 : fx > PNT - 1.0001 ? PNT - 1.0001 : fx;
   fy = !(fy > 0) ? 0 : fy > PNP - 1.0001 ? PNP - 1.0001 : fy;
+  fb = !(fb > 0) ? 0 : fb > RK - 1.0001 ? RK - 1.0001 : fb;
   const ix = fx | 0;
   const iy = fy | 0;
+  const ib = fb | 0;
   const ax = fx - ix;
   const ay = fy - iy;
-  const i00 = (iy * PNT + ix) * 3;
-  const i01 = i00 + PNT * 3;
+  const ab = fb - ib;
+  const i00 = ((iy * PNT + ix) * RK + ib) * 3;
+  const i10 = i00 + RK * 3;
+  const i01 = i00 + PNT * RK * 3;
+  const i11 = i01 + RK * 3;
   const w00 = (1 - ax) * (1 - ay);
   const w10 = ax * (1 - ay);
   const w01 = (1 - ax) * ay;
   const w11 = ax * ay;
-  out[0] = lut[i00] * w00 + lut[i00 + 3] * w10 + lut[i01] * w01 + lut[i01 + 3] * w11;
-  out[1] = lut[i00 + 1] * w00 + lut[i00 + 4] * w10 + lut[i01 + 1] * w01 + lut[i01 + 4] * w11;
-  out[2] = lut[i00 + 2] * w00 + lut[i00 + 5] * w10 + lut[i01 + 2] * w01 + lut[i01 + 5] * w11;
+  for (let c = 0; c < 3; c++) {
+    const lo = lut[i00 + c] * w00 + lut[i10 + c] * w10 + lut[i01 + c] * w01 + lut[i11 + c] * w11;
+    const hi = lut[i00 + 3 + c] * w00 + lut[i10 + 3 + c] * w10 + lut[i01 + 3 + c] * w01 + lut[i11 + 3 + c] * w11;
+    out[c] = lo + (hi - lo) * ab;
+  }
 }
+
+// ---------------------------------------------------------------------------
+// 地面纹理:同一种群落里的深浅斑驳(像卫星照片,而不是一片喷枪色)。
+// 位置按世界坐标(世界单位;整张图和放大现算的一块取同一个点得同一个值),东西方向按整圈取整,左右无缝。
+// 一层层波长减半往细里叠;一层的波长不到 TEX_MIN_PX 个像素就渐渐不叠(再细就是噪点)—— 放大后细的几层才出来
+
+/**
+ * 大尺度的"岩性"那几层(波长按世界单位,1 ≈ 赤道上 20 公里;幅度):大片大片的深浅,再按 S 形曲线压出边界 ——
+ * 像石漠和沙海、不同岩层那样一块一块,而不是一片均匀的渐变
+ */
+const GEO_OCT: [number, number][] = [
+  [48, 1],
+  [24, 0.6],
+  [12, 0.35],
+];
+/** 往细里的几层(放大后更细的才出来) */
+const FINE_OCT: [number, number][] = [
+  [6, 1],
+  [3, 0.75],
+  [1.5, 0.55],
+  [0.75, 0.42],
+  [0.375, 0.32],
+  [0.19, 0.25],
+];
+/** 顺着东西方向拉长的条纹(像风吹出来的沙垄,只在干旱地方):波长、东西拉长几倍 */
+const STREAK_OCT: [number, number][] = [
+  [3, 1],
+  [1.5, 0.7],
+  [0.75, 0.5],
+];
+const STREAK_SX = 4;
+/** 波长在这么多个像素以下的一层渐渐不叠 */
+const TEX_MIN_PX = 0.9;
+const TEX_FULL_PX = 1.8;
+/**
+ * 细层在屏幕上超过这么多个像素的波长就按比例减弱:放大以后细层变成一团团的"棉絮",
+ * 减弱后看上去始终是细颗粒,大的深浅交给大尺度那几层
+ */
+const TEX_BIG_PX = 8;
+
+/**
+ * 按世界坐标取的值噪声(几层叠起来,约 −1 ~ 1),一行一行往下取(铺像素是逐行的):格点值按行缓存,换格子时才算哈希,
+ * 每个像素只查表、插值。一圈(东西)取整成整数格,左右无缝;波长不到 TEX_MIN_PX 个像素的层不叠。
+ * 幅度按整组的总量归一(不管叠了几层):放大后多出来的细层只添细节,粗层的深浅不变
+ */
+class RowNoise {
+  private layers: {
+    lam: number;
+    amp: number;
+    seed: number;
+    period: number;
+    off: number;
+    /** 每列在第几格(相对 x0)、格内位置(已平滑) */
+    ix: Int32Array;
+    ux: Float32Array;
+    x0: number;
+    /** 当前格子上下两条格线上的值 */
+    A: Float32Array;
+    C: Float32Array;
+    yi: number;
+    uy: number;
+  }[] = [];
+
+  /**
+   * wx(px) = 第 px 列像素中心的世界 x;Ww = 一圈多宽(世界单位);pxW = 一个像素多少世界单位;
+   * sx = 东西方向拉长几倍;big > 0:波长超过 big 个像素的层按比例减弱(见 TEX_BIG_PX)
+   */
+  constructor(oct: [number, number][], seed0: number, w: number, wx: (px: number) => number, Ww: number, pxW: number, sx = 1, big = 0) {
+    const norm = Math.sqrt(oct.reduce((t, [, a]) => t + a * a, 0));
+    oct.forEach(([lam, a], q) => {
+      const lp = lam / pxW;
+      const amp = ((2 * a) / norm) * smoothstep(TEX_MIN_PX, TEX_FULL_PX, lp) * (big > 0 && lp > big ? big / lp : 1);
+      if (!(amp > 0)) return;
+      const period = Math.max(1, Math.round(Ww / (lam * sx)));
+      const fx = Float64Array.from({ length: w }, (_, px) => (wx(px) / Ww) * period);
+      let x0 = Infinity;
+      for (const f of fx) x0 = Math.min(x0, Math.floor(f));
+      const ix = new Int32Array(w);
+      const ux = new Float32Array(w);
+      let n = 0;
+      for (let px = 0; px < w; px++) {
+        const xi = Math.floor(fx[px]);
+        const t = fx[px] - xi;
+        ix[px] = xi - x0;
+        ux[px] = t * t * (3 - 2 * t);
+        n = Math.max(n, xi - x0 + 2);
+      }
+      this.layers.push({ lam, amp, seed: seed0 + q, period, off: 0.37 * q, ix, ux, x0, A: new Float32Array(n), C: new Float32Array(n), yi: NaN, uy: 0 });
+    });
+  }
+
+  /** 换到世界 y = wy 那一行 */
+  row(wy: number): void {
+    for (const L of this.layers) {
+      const fy = wy / L.lam + L.off;
+      const yi = Math.floor(fy);
+      const t = fy - yi;
+      L.uy = t * t * (3 - 2 * t);
+      if (yi === L.yi) continue;
+      if (yi === L.yi + 1) {
+        const a = L.A;
+        L.A = L.C;
+        L.C = a;
+        this.line(L, yi + 1, L.C);
+      } else {
+        this.line(L, yi, L.A);
+        this.line(L, yi + 1, L.C);
+      }
+      L.yi = yi;
+    }
+  }
+
+  private line(L: RowNoise['layers'][number], yi: number, out: Float32Array): void {
+    for (let i = 0; i < out.length; i++) {
+      let x = (L.x0 + i) % L.period;
+      if (x < 0) x += L.period;
+      out[i] = hash2(x, yi, L.seed) - 0.5;
+    }
+  }
+
+  /** 这一行第 px 列 */
+  at(px: number): number {
+    let v = 0;
+    for (const L of this.layers) {
+      const i = L.ix[px];
+      const u = L.ux[px];
+      const a = L.A[i] + (L.A[i + 1] - L.A[i]) * u;
+      const c = L.C[i] + (L.C[i + 1] - L.C[i]) * u;
+      v += L.amp * (a + (c - a) * L.uy);
+    }
+    return v;
+  }
+}
+
+/** 地面纹理在色带上挪多少(0.5 ± 这么多 × 纹理):湿润地方、干旱地方 */
+const TEX_AMP_WET = 0.2;
+const TEX_AMP_DRY = 0.36;
+/** 纹理里大尺度那几层、细层、条纹(只在干旱地方)各占多少;大尺度压出边界的 S 形曲线有多陡 */
+const TEX_GEO = 0.7;
+const TEX_FINE = 0.3;
+const TEX_STREAK = 0.25;
+const GEO_SHARP = 4;
+/** 压边界之前往大尺度里掺多少细层(边界弯弯曲曲,不是光滑的曲线) */
+const GEO_ROUGH = 0.35;
+/**
+ * 山谷(凹处)发亮、山脊发暗:按 4 邻域平均比这里高多少米,高 CAV_REF × 像素宽(世界单位)米时挪满 TEX_CAV
+ * (像素越细,同样的地形相邻像素的高差越小)
+ */
+const TEX_CAV = 0.14;
+const CAV_REF = 30;
+/** 群落交界按纹理打散:亮的地方当作干一点、暖一点(温度 + 几度,降水 × e^−几) */
+const ECO_T = 1;
+const ECO_P = 0.15;
+/** 谷底压暗:比周围大范围的平均海拔低这么多米时压满 VALLEY_DARK(大的河谷、盆地底) */
+const VALLEY_DARK = 0.12;
+const VALLEY_E0 = 80;
+const VALLEY_E1 = 700;
+/** 河边:离河多近(见 Raster.bank)在这一段里冲积地发亮;更近的那一窄条(RIP_B0 ~ 1)干旱地方变绿 */
+const ALLU_B0 = 0.35;
+const ALLU_B1 = 0.85;
+const ALLU_LIGHT = 0.08;
+const RIP_B0 = 0.78;
+const RIP_B1 = 0.97;
+/** 河岸绿带的边按纹理忽宽忽窄 */
+const RIP_JAG = 0.1;
+/** 干旱地方河两岸变绿:降水这么少(毫米)以下全绿、这么多以上不变 */
+const RIP_P0 = 300;
+const RIP_P1 = 1000;
+/** 河岸按"降水有这么多"的颜色画 */
+const RIP_WET = 1100;
 
 // ---------------------------------------------------------------------------
 

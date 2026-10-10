@@ -11,7 +11,7 @@ import type { Raster } from './raster';
 
 /** 补丁里有的字段(cell 只由网格定,各段一样,不存) */
 const F32 = ['elev', 'temp', 'precip', 'ice', 'gully'] as const;
-const U8 = ['water', 'biome', 'iceConc', 'iceTone'] as const;
+const U8 = ['water', 'biome', 'iceConc', 'iceTone', 'bank'] as const;
 type F32Key = (typeof F32)[number];
 type U8Key = (typeof U8)[number];
 
@@ -55,6 +55,7 @@ export function diffRaster(a: Raster, b: Raster): RasterPatch | null {
   for (const k of U8) {
     const p = a[k];
     const q = b[k];
+    if (!p || !q) continue;
     for (let i = 0; i < p.length; i++) if (p[i] !== q[i]) mark(i);
   }
   if (y1 < 0) return null;
@@ -78,7 +79,10 @@ export function diffRaster(a: Raster, b: Raster): RasterPatch | null {
     const q = b[k];
     if (q) f32[k] = cut(q, W, x0, y0, w, h, new Float32Array(w * h));
   }
-  for (const k of U8) u8[k] = cut(b[k], W, x0, y0, w, h, new Uint8Array(w * h));
+  for (const k of U8) {
+    const q = b[k];
+    if (q) u8[k] = cut(q, W, x0, y0, w, h, new Uint8Array(w * h));
+  }
   return { W, H, x0, y0, w, h, f32, u8 };
 }
 
@@ -112,7 +116,9 @@ export function applyPatch(r: Raster, p: RasterPatch): void {
   }
   for (const k of U8) {
     const s = p.u8[k];
-    if (s) paste(r[k], r.w, p, s);
+    if (!s) continue;
+    if (!r[k]) r[k] = new Uint8Array(r.w * r.h);
+    paste(r[k]!, r.w, p, s);
   }
 }
 
@@ -130,6 +136,7 @@ export function composeRaster(base: Raster, patches: readonly RasterPatch[]): Ra
     iceConc: base.iceConc.slice(),
     iceTone: base.iceTone.slice(),
     gully: base.gully?.slice(),
+    bank: base.bank?.slice(),
   };
   for (const p of patches) applyPatch(out, p);
   return out;

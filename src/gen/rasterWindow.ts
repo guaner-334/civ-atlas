@@ -13,7 +13,7 @@
  */
 import type { World } from './world';
 import type { Raster } from './raster';
-import { carveValleys, noiseTiles, rasterBase, sampleSpline, shadeSphere, valleyLines, type SphereGrid, type ValleyLines } from './raster';
+import { bankBytes, carveValleys, noiseTiles, rasterBase, sampleSpline, shadeSphere, valleyLines, type SphereGrid, type ValleyLines } from './raster';
 import { Gullies } from './gully';
 import { creeksOf } from './creeks';
 import { subSeed } from './util';
@@ -147,6 +147,7 @@ export function rasterizeWindow(src: ZoomSource, S: number, x0: number, y0: numb
   };
   const zoom = { gullies: src.gullies, base: src.base, w: src.bw, h: src.bh, x0, y0, S: W / src.bw };
   shadeSphere(out, tri, wa, wb, src.planes, base, carve, calm, src.dTile, src.jTile, g, src.R, null, zoom);
+  out.bank = bankBytes(calm);
   windowIce(src, out, fx, fy);
   return out;
 }
