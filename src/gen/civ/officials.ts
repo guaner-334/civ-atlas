@@ -360,6 +360,18 @@ export function buildOfficials(input: OfficialsInput, ctx: OfficialsCtx, general
   }
 
   resolveHomes(input, homeAsks);
+  // 号不和先前的人撞(同一座城出的人多,"揽霞子"不出第二位):换一个后半,都用过了就不起号
+  const arts = new Set<string>();
+  for (const { x } of homeAsks) {
+    const city = x.home !== undefined ? settlements[x.home]?.name : undefined;
+    if (!x.art || !city) continue;
+    const tails = [x.art, ...(ART_TAIL[ctx.styleOf(polities[x.polity])] ?? []).filter((t) => t !== x.art)];
+    const tail = tails.find((t) => !arts.has(artName(city, t)));
+    if (tail) {
+      x.art = tail;
+      arts.add(artName(city, tail));
+    } else delete x.art;
+  }
   return { ministers, fixups };
 }
 
