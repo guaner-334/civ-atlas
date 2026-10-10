@@ -137,8 +137,8 @@ function landVectors(world: World): { cells: Int32Array; v: Float64Array } {
   return c;
 }
 
-/** 离 [经度, 纬度] 最近的陆地:哪一块地块、多远(公里);落在陆地上 = 0;整颗星球没有陆地 = null */
-export function nearestLand(world: World, p: readonly [number, number]): { cell: number; km: number } | null {
+/** 离 [经度, 纬度] 最近的陆地:哪一块地块、多远(公里);落在陆地上 = 0(落在湖里也是 0,lake = true);整颗星球没有陆地 = null */
+export function nearestLand(world: World, p: readonly [number, number]): { cell: number; km: number; lake?: boolean } | null {
   const { cells, v } = landVectors(world);
   if (!cells.length) return null;
   const x = Math.cos(p[1] * RAD) * Math.cos(p[0] * RAD);
@@ -154,8 +154,28 @@ export function nearestLand(world: World, p: readonly [number, number]): { cell:
     }
   }
   const c = nearestCell(world, p);
-  if (c >= 0 && world.water[c] !== 1) return { cell: c, km: 0 };
+  if (c >= 0 && world.water[c] !== 1) return { cell: c, km: 0, ...(world.water[c] === 2 ? { lake: true } : {}) };
   return { cell: cells[best], km: R_KM * Math.acos(Math.max(-1, Math.min(1, bd))) };
+}
+
+/** 湖里的一块地 → 湖岸上的一州(顺着湖面往外找;找不到 = −1) */
+function shoreRegion(world: World, of: ArrayLike<number>, count: number, cell: number): number {
+  const m = world.mesh;
+  const seen = new Set([cell]);
+  const queue = [cell];
+  for (let h = 0; h < queue.length && h < 20000; h++) {
+    const i = queue[h];
+    if (of[i] >= 0 && of[i] < count) return of[i];
+    if (world.water[i] !== 2 && i !== cell) continue;
+    for (let k = m.adjStart[i]; k < m.adjStart[i + 1]; k++) {
+      const j = m.adj[k];
+      if (!seen.has(j)) {
+        seen.add(j);
+        queue.push(j);
+      }
+    }
+  }
+  return -1;
 }
 
 /** 离 [经度, 纬度] 最近的地块(没有 = −1) */
@@ -237,11 +257,23 @@ const OPEN_SEA_KM = 700;
  * 在海上加岛时给 AI 当落点的依据(材料里只有陆块的中心和范围,看不出海岸线在哪)
  */
 function openSeas(world: World, civ: Civ, listed: ReadonlySet<number>): string[] {
-  const { cells, v } = landVectors(world);
-  if (!cells.length) return [];
   const reg = civ.regions;
+  return seaSpots(world).map(({ p, km, cell }) => {
+    const r = reg.of[cell];
+    // 陆块表里没列的(小岛)就叫"一座岛"
+    const land = r >= 0 && r < reg.count && listed.has(reg.landmass[r]) ? `L${reg.landmass[r]}` : '一座岛';
+    return `${ll(p)} 一带:离最近的陆地(${land})约 ${kmText(km)},在它${dirWord(cellLL(world, cell), p)}`;
+  });
+}
+
+/** 开阔的海面挑出来的几处(按世界缓存:每问一句都要列,地块多时整颗星球扫一遍要一两百毫秒) */
+const seaCache = new WeakMap<World, { p: [number, number]; km: number; cell: number }[]>();
+function seaSpots(world: World): { p: [number, number]; km: number; cell: number }[] {
+  const hit = seaCache.get(world);
+  if (hit) return hit;
+  const { cells, v } = landVectors(world);
   const pts: { p: [number, number]; km: number; cell: number }[] = [];
-  for (let lat = -60; lat <= 60; lat += 6) {
+  for (let lat = -60; lat <= 60 && cells.length; lat += 6) {
     const step = 6 / Math.max(0.5, Math.cos(lat * RAD));
     for (let lon = -180; lon < 180; lon += step) {
       const x = Math.cos(lat * RAD) * Math.cos(lon * RAD);
@@ -266,12 +298,8 @@ function openSeas(world: World, civ: Civ, listed: ReadonlySet<number>): string[]
     if (picked.length >= OPEN_SEAS) break;
     if (picked.every((o) => distKm(o.p, q.p) >= 3000)) picked.push(q);
   }
-  return picked.map(({ p, km, cell }) => {
-    const r = reg.of[cell];
-    // 陆块表里没列的(小岛)就叫"一座岛"
-    const land = r >= 0 && r < reg.count && listed.has(reg.landmass[r]) ? `L${reg.landmass[r]}` : '一座岛';
-    return `${ll(p)} 一带:离最近的陆地(${land})约 ${kmText(km)},在它${dirWord(cellLL(world, cell), p)}`;
-  });
+  seaCache.set(world, picked);
+  return picked;
 }
 
 /** 陆块的叫法(L0 = 最大的,按面积从大到小编号) */
@@ -1298,15 +1326,17 @@ class Checker {
       const n = Math.max(1, Math.min(400, Math.ceil(distKm(a, pts[i + 1]) / 100)));
       for (let j = 1; j <= n; j++) samples.push([a[0] + ((lon - a[0]) * j) / n, a[1] + ((pts[i + 1][1] - a[1]) * j) / n]);
     }
-    let near: { cell: number; km: number } | null = null;
+    let near: { cell: number; km: number; lake?: boolean } | null = null;
     for (const p of samples) {
       const h = nearestLand(world, p);
-      if (h && (!near || h.km < near.km)) near = h;
-      if (near?.km === 0) break;
+      // 落在湖里的点也是 0 公里:接着找,有一点落在干地上就按陆地说
+      if (h && (!near || h.km < near.km || (h.km === 0 && near.lake && !h.lake))) near = h;
+      if (near?.km === 0 && !near.lake) break;
     }
     if (!near) return '整颗星球没有陆地,抬出来的是一座单独的岛';
     const reg = civ.regions;
-    const rg = reg.of[near.cell];
+    // 湖面不属于哪一州:顺着湖面找到湖岸,按湖岸那一州所在的陆块说
+    const rg = near.lake ? shoreRegion(world, reg.of, reg.count, near.cell) : reg.of[near.cell];
     let land = '陆地';
     if (rg >= 0 && rg < reg.count) {
       const id = reg.landmass[rg];
@@ -1316,6 +1346,7 @@ class Checker {
     }
     const radius = k * r * KM_PER_UNIT;
     const what = kind === 'volcano' ? '火山' : kind === 'range' ? '这道山脉' : '这一笔';
+    if (near.km === 0 && near.lake) return `${what}${pts.length > 1 ? '经过' : '落在'}陆地上的湖里(${land} 上的湖),不在海上`;
     if (near.km === 0) return `${what}${pts.length > 1 ? '经过' : '落在'}陆地上(${land}),抬出来的地方和这块陆地连在一起`;
     const gap = near.km - radius;
     if (gap < 300)

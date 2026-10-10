@@ -29,7 +29,7 @@ import {
   type AssistantProposal,
   type AssistantTrial,
 } from '../src/ai/agent/assistant';
-import { REWRITE_OPS, REWRITE_SYSTEM, bordersAt, nameAt, parseRewrite, plainIds } from '../src/ai/prompts/rewrite';
+import { REWRITE_OPS, REWRITE_SYSTEM, bordersAt, nameAt, nearestLand, parseRewrite, plainIds } from '../src/ai/prompts/rewrite';
 
 const world = generateWorld({ ...DEFAULT_PARAMS, seed: 7 });
 const civ = generateCiv(world);
@@ -661,6 +661,29 @@ describe('助手', () => {
     const again = script({ calls: [['propose_edits', { edits: [PROTECT] }]] }, '确认单已经列好了。');
     expect((await runAssistant(ctx(), [], `让${vName}撑到最后`)).text).toBe('确认单已经列好了。');
     expect(again).toHaveLength(2);
+  });
+
+  it('列的确认单要挪了落点再列,它说重新列了却没再调:补一句再问一轮;挪好了就不补', async () => {
+    const ll = (i: number): [number, number] => [(world.mesh.x[i] / world.width) * 360 - 180, 90 - (world.mesh.y[i] / world.height) * 180];
+    const onLand = ll(civ.settlements[civ.polities[victim].capital].cell);
+    let farSea: [number, number] | null = null;
+    for (let i = 0; i < world.mesh.n && !farSea; i += 7) {
+      if (world.water[i] !== 1) continue;
+      const p = ll(i);
+      if (Math.abs(p[1]) < 60 && nearestLand(world, p)!.km > 1500) farSea = p;
+    }
+    const seen = script(
+      { calls: [['propose_edits', { edits: [{ op: 'volcano', at: onLand, why: '…' }] }]] },
+      '落点贴着大陆，我把它挪到开阔的海面，重新列出确认单。',
+      { calls: [['propose_edits', { edits: [{ op: 'volcano', at: farSea, why: '…' }] }]] },
+      '我打算在开阔的海面上放一座火山。',
+    );
+    const r = await runAssistant(ctx({ lock: 'history' }), [], '在海上放一座火山');
+    expect(seen).toHaveLength(4);
+    expect(seen[2].messages.at(-1)!.content).toMatch(/^你说要重新列确认单,但没有再调用 propose_edits/);
+    expect(seen[2].tools!.map((t) => t.name)).toEqual(['propose_edits']);
+    expect(r.proposal!.items[0].where).toMatch(/^火山在海上/);
+    expect(r.text).toBe('我打算在开阔的海面上放一座火山。');
   });
 
   it('说没说列确认单', () => {

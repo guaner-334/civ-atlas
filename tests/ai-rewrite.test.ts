@@ -491,6 +491,24 @@ describe('改写 · 核对 AI 的回复', () => {
     const seat = civ.regions.seat[702];
     const isle = toLonLat(world.mesh.x[seat], world.mesh.y[seat]);
     expect(one({ op: 'range', path: [[isle[0] - 25, isle[1]], [isle[0] + 25, isle[1]]] }).where).toMatch(/^这道山脉经过陆地上/);
+    // 落在湖里:说在湖里、不在海上(不说会连成一片);一笔从湖里画到干地上,按陆地说
+    const lake = [...world.water.keys()].find((i) => world.water[i] === 2 && world.water[world.mesh.adj[world.mesh.adjStart[i]]] === 2)!;
+    expect(lake).toBeGreaterThanOrEqual(0);
+    const inLake = toLonLat(world.mesh.x[lake], world.mesh.y[lake]);
+    expect(nearestLand(world, inLake)).toMatchObject({ km: 0, lake: true });
+    expect(one({ op: 'volcano', at: inLake }).where).toMatch(/^火山落在陆地上的湖里\(L\d+ .+ 上的湖\),不在海上$/);
+    const dry = toLonLat(world.mesh.x[cap], world.mesh.y[cap]);
+    expect(one({ op: 'range', path: [inLake, dry] }).where).toMatch(/^这道山脉经过陆地上\(.+\),抬出来的地方和这块陆地连在一起$/);
+  });
+
+  it('开阔的海面按世界缓存:同一个世界再列一次不重新扫', () => {
+    const t0 = performance.now();
+    const a = rewriteMaterial(world, civ, Y, EMPTY, ['海上加岛'], 'history').text;
+    const first = performance.now() - t0;
+    const t1 = performance.now();
+    const b = rewriteMaterial(world, civ, Y, EMPTY, ['海上加岛'], 'history').text;
+    expect(b).toBe(a);
+    expect(performance.now() - t1).toBeLessThan(Math.max(first, 50));
   });
 
   it('材料:能改地形时列出开阔的海面(离陆地都在 700 公里以上、彼此隔开);建好的世界不列;只有作者提了才说改不了', () => {

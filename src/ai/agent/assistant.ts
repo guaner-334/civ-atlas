@@ -65,6 +65,14 @@ const LIST_NUDGE = {
   tools: ['propose_edits'],
 };
 
+/** 列过的确认单要改了再列(落点贴着陆地),它说要重新列却没再调 propose_edits 时补的一句 */
+const RELIST_NUDGE = {
+  say:
+    '你说要重新列确认单,但没有再调用 propose_edits,作者看到的还是上一张(落点贴着陆地的那张)。要换就现在调用 propose_edits;' +
+    '不换就直接用一两句话回答,不要说重新列了。',
+  tools: ['propose_edits'],
+};
+
 export interface AssistantContext {
   world: World;
   /** 套上了改名的这份历史(界面上看到的名字) */
@@ -547,10 +555,22 @@ export interface AssistantOptions {
   onProposal?: (p: AssistantProposal) => void;
 }
 
+/** 这次对话的试推演和确认单 */
+export interface AssistantState {
+  trials: AssistantTrial[];
+  proposal: AssistantProposal | null;
+  onProposal?: (p: AssistantProposal) => void;
+  /** 列的确认单要它改了再列(加岛的落点贴着陆地) */
+  relist?: boolean;
+}
+
+/** 有地形修改的落点贴着现有的陆地(抬出来会连成一片) */
+const attached = (items: readonly RewriteItem[]) => items.some((it) => it.change?.kind === 'terrain' && it.where?.includes('连在一起'));
+
 /** 给 AI 的工具(带着这次对话的试推演和确认单) */
 export function assistantTools(
   ctx: AssistantContext,
-  state: { trials: AssistantTrial[]; proposal: AssistantProposal | null; onProposal?: (p: AssistantProposal) => void },
+  state: AssistantState,
 ): AgentTool[] {
   const { civ } = ctx;
   const rctx: RewriteContext = { world: ctx.world, civ, year: ctx.year, edits: ctx.edits, lock: ctx.lock };
@@ -842,6 +862,7 @@ export function assistantTools(
       }
       const replaced = !!state.proposal;
       state.proposal = { items: p.items, cannot: p.cannot, ...(t ? { trial: t } : {}) };
+      state.relist = attached(p.items);
       state.onProposal?.(state.proposal);
       const out = [
         `${replaced ? '已换掉上一张,' : ''}列给作者 ${p.items.length} 条${ok.length < p.items.length ? `(其中 ${p.items.length - ok.length} 条不合格,作者执行不了)` : ''}:`,
@@ -863,7 +884,7 @@ function closing(items: readonly RewriteItem[], cannot: boolean, d?: TrialDiff):
   const out: string[] = [];
   const bad = items.filter((it) => !it.change).length;
   // 加岛的落点贴着陆地:先挪了再列(作者执行了才看得到地形,那时已经连成一片)
-  if (items.some((it) => it.change?.kind === 'terrain' && it.where?.includes('连在一起')))
+  if (attached(items))
     out.push('有地形修改的落点贴着现有的陆地(见上面括号里的核对),抬出来会连成一片。作者要的是海上单独的岛,就挪到开阔的海面上,再用 propose_edits 列一次;作者要的就是连着的,照常回答。');
   const v = d ? trialView(d) : null;
   if (v) {
@@ -899,7 +920,7 @@ function closing(items: readonly RewriteItem[], cannot: boolean, d?: TrialDiff):
 
 /** 助手的一次对话:问 → 查 / 试 → 列确认单 → 回话 */
 export async function runAssistant(ctx: AssistantContext, history: readonly AssistantTurn[], ask: string, opts: AssistantOptions = {}): Promise<AssistantResult> {
-  const state: { trials: AssistantTrial[]; proposal: AssistantProposal | null; onProposal?: (p: AssistantProposal) => void } = {
+  const state: AssistantState = {
     trials: [],
     proposal: null,
     onProposal: opts.onProposal,
@@ -919,7 +940,12 @@ export async function runAssistant(ctx: AssistantContext, history: readonly Assi
     maxTokens: 2000,
     signal: opts.signal,
     onEvent: onEvent && ((e) => onEvent(e.type === 'text' ? { ...e, text: plain(e.text) } : e)),
-    followUp: (text, steps) => (saysListed(text) && !steps.some((s) => s.tool === 'propose_edits' && s.state === 'ok') ? LIST_NUDGE : null),
+    followUp: (text, steps) => {
+      if (!saysListed(text)) return null;
+      if (!steps.some((s) => s.tool === 'propose_edits' && s.state === 'ok')) return LIST_NUDGE;
+      // 列过一张,结果让它挪了落点再列:说要重新列却没再调
+      return state.relist ? RELIST_NUDGE : null;
+    },
   });
   // 收尾的话像没说完("让我再查……:"):补一句,作者知道可以让它接着来
   const text = looksUnfinished(out.text) ? `${out.text}\n\n${UNFINISHED_NOTE}` : out.text;
