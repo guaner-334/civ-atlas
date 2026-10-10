@@ -5,7 +5,7 @@
  *   右上     打开存档文件(也可以把 .json 拖进页面)、新建世界;有网站服务器时再加账号按钮(没登录是「登录」,登录了是名字;手机在左上)
  *   卡片     点一下打开;"没建完"的(还在新建)点开接着建
  *            右上"···"(电脑悬停时出现;手机长按卡片)= 改名、复制一份、存成文件、删除(点两下确认)。没建完的只有改名、删除
- *   底部     源代码、隐私政策、用户协议、版本号(手机上不放,在世界卡片的"更多"里)
+ *   底部     源代码、隐私政策、用户协议、联系我们(配了交流群才有,见 ContactLink.tsx)、版本号(手机上不放,在世界卡片的"更多"里)
  * 手机:两列卡片,新建世界在右上,打开存档文件在列表下面。
  * 一个都没有(第一次来)时:中间一颗慢慢自转的星球、一段话说清能做什么、「新建世界」大按钮,下面"或者打开存档文件",
  * 最下面一行小字说不用登录、做出来的世界归自己(和用户协议「你创作的东西归你」同一个说法)。
@@ -31,6 +31,7 @@ import { copyNotes } from '../ai/library';
 import { Icon } from './icons';
 import { TitleInput, when } from './worldParts';
 import { PRIVACY_URL, SOURCE_URL, TERMS_URL } from './links';
+import { ContactLink } from './ContactLink';
 import { APP_VERSION } from './version';
 import { HomeGlobe } from './studio/HomeGlobe';
 import { OldSiteBadge } from './Corners';
@@ -234,6 +235,7 @@ export function MyWorlds({ phone, onOpen, onNew, onOpenText }: MyWorldsProps) {
           <a href={TERMS_URL} target="_blank" rel="noreferrer" data-link="terms">
             用户协议
           </a>
+          <ContactLink />
           <span className="mw-ver" data-version>
             版本 {APP_VERSION}
           </span>

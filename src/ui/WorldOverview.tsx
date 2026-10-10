@@ -27,6 +27,8 @@ import { useEdits } from './editsStore';
 import { currentWorld, renameWorld, useSavesVersion } from './saveStore';
 import { closeOverview, setOverviewTab, useOverview, type OverviewTab } from './overviewStore';
 import { PRIVACY_URL, SOURCE_URL, TERMS_URL } from './links';
+import { ContactLink } from './ContactLink';
+import { useNarrow } from './device';
 import { Icon } from './icons';
 import { APP_VERSION } from './version';
 import { TitleInput } from './worldParts';
@@ -120,8 +122,11 @@ const ABOUT = [
   { id: 'terms', name: '用户协议', href: TERMS_URL },
 ];
 
-/** 底部一行小字:源代码、隐私政策、用户协议(新标签页打开),最右边是版本号 */
+/**
+ * 底部一行小字:源代码、隐私政策、用户协议(新标签页打开)、联系我们(配了交流群才有;手机上在「更多」菜单里),最右边是版本号
+ */
 function AboutLinks() {
+  const narrow = useNarrow();
   return (
     <footer className="ov-about">
       {ABOUT.map((l) => (
@@ -129,6 +134,7 @@ function AboutLinks() {
           {l.name}
         </a>
       ))}
+      {!narrow && <ContactLink />}
       <span className="ov-ver" data-version>
         版本 {APP_VERSION}
       </span>

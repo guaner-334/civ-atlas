@@ -72,7 +72,7 @@ export function qrPath(cells: boolean[][]): ContactQr {
 /** 按加群链接画二维码(纠错 M 级,QQ 和手机相机都扫得出) */
 export async function makeQr(text: string): Promise<ContactQr | null> {
   try {
-    const { encode } = await import('uqr');
+    const { encode } = await import('./qrcode');
     return qrPath(encode(text, { ecc: 'M', border: 0 }).data);
   } catch {
     return null;
