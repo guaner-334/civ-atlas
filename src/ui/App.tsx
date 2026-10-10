@@ -142,6 +142,7 @@ import {
   briefError,
   briefWarning,
   currentOriginal,
+  currentUnsaved,
   currentWorld,
   deleteWorld,
   detachWorld,
@@ -188,7 +189,7 @@ import { regionLabel } from '../gen/civ/display';
 import { NAME_ZOOM } from '../render/marks';
 import { collapseSide, expandSide, getSide, setSideHold, useSide } from './sideStore';
 import { getPanel, setSheet, setWorldSheet, usePanel } from './panelStore';
-import { closeOverview, getPeople, setPeople } from './overviewStore';
+import { closeOverview, getPeople, setPeople, useOverview } from './overviewStore';
 import { STUDIO_STYLES, Studio } from './studio/Studio';
 import { setFlatGeomSource, useStudioFlat } from './studio/studioStore';
 import { MyWorlds } from './MyWorlds';
@@ -203,7 +204,9 @@ import { takeRewriteNote, type RewriteNote } from './rewriteStore';
 import { AssistantPanel, PreviewBanner } from './Assistant';
 import { astRoom, closeAssistant, useAstOpen } from './astPanel';
 import { PREVIEW_EDIT_BLOCK, exitPreview, getAssistant, newConversation, sameInBoth, setTrialRunner, stopAsk, syncAssistantWorld, useAssistantPreview } from './assistantStore';
-import { closeBookReader, closeHistoryBook, stopBook } from './bookStore';
+import { closeBookReader, closeHistoryBook, stopBook, useBookReader } from './bookStore';
+import { getNav, isNavState, navAdopt, navBack, navLayer, navReplace, navSettled, navTitle, navTo, navUrl, startNav, type NavHooks, type NavInfo, type NavState } from './nav';
+import { applyLayer as applyNavLayer, layerNow } from './navView';
 import { useAiOn } from '../ai/client';
 import { Globe, getGlobeOn, setGlobeOn, useGlobeOn, type GlobeApi } from './Globe';
 import { setupAi } from '../ai/setup';
@@ -291,7 +294,7 @@ function writeLayerUrl(id: MapLayer) {
   if (id === 'political' && !q.has('civ')) q.delete('layer');
   else q.set('layer', id);
   const next = `?${q}`;
-  if (next !== location.search) history.replaceState(null, '', next);
+  if (next !== location.search) navUrl(next);
 }
 
 /** 一个要打开的世界:生成(或直接用正在看的这一个)→ 套上修改 → 交给 saveStore 自动存 */
@@ -386,18 +389,25 @@ function visitTarget(params: WorldParams, gen: number | null = null): Target {
  * 打开网页时去哪(只算一次):
  *   分享短链接(s=)    → 先是一页空白,去服务器取存档;取到了打开那个世界,停了显示"这个分享已经停止了"
  *   分享链接(#)       → 那个世界(先按网址生成,解开以后套上修改)
- *   w=世界编号(存着)   → 这个世界(没建完的回到新建)
+ *   w=世界编号(存着)   → 这个世界(没建完的回到新建);
+ *                        这一步记的就是这个世界(刷新、按后退 / 前进从别的网址回来),现在不在了(在别的页面里删掉了)
+ *                        → 我的世界,提示删掉了(gone = 世界名;网址里有 w= 就是存过)
  *   new=1             → 新建(网址里的种子、参数)
  *   带种子的网址       → 直接看这个世界(改版前存过的就回到那个存档)
  *   都没有             → 我的世界(第一次来是空的那一页:一颗地球、一句话、「新建世界」;点了才生成星球)
  */
-function firstRoute(init: ReturnType<typeof readUrl>): { stage: Stage; target: Target | null } {
+function firstRoute(init: ReturnType<typeof readUrl>): { stage: Stage; target: Target | null; gone?: string } {
   const q = new URLSearchParams(location.search);
   if (init.shortShare !== null && !init.share) return { stage: 'home', target: null };
   if (init.share) return { stage: 'world', target: visitTarget(init.params) };
   const w = q.get('w');
   const stored = isWorldId(w) ? loadWorld(w) : null;
   if (stored) return { stage: stored.draft ? 'draft' : 'world', target: storedTarget(stored, 'restore') };
+  const was: unknown = history.state;
+  if (isWorldId(w) && isNavState(was) && was.page !== 'home' && was.id === w) return { stage: 'home', target: null, gone: was.title ?? '' };
+  // 这一步记的世界存着,网址是存下之前的那一版(开着卡片时改了第一笔才存下,退回来的这一步网址里还没有 w=):打开存着的
+  const mine = !isWorldId(w) && isNavState(was) && was.page === 'world' && was.id ? loadWorld(was.id) : null;
+  if (mine && !mine.draft) return { stage: 'world', target: storedTarget(mine, 'restore') };
   if (q.get('new') === '1') return { stage: 'draft', target: draftTarget(init.params) };
   if (q.has('seed')) {
     // 改版前自动存的世界:那时的网址只带种子、参数,刷新照旧回到它(带 gen= 的是改版后的网址,不是它)
@@ -406,6 +416,35 @@ function firstRoute(init: ReturnType<typeof readUrl>): { stage: Stage; target: T
     return { stage: 'world', target: visitTarget(init.params, init.gen) };
   }
   return { stage: 'home', target: null };
+}
+
+/** 浏览器后退记的这一步是哪个画面(nav.ts):我的世界 / 新建(哪颗星球)/ 某个世界 */
+function navInfo(stage: Stage, t: Target | null | undefined): NavInfo {
+  if (stage === 'home' || !t) return { page: 'home' };
+  return stage === 'draft' ? { page: 'draft', id: t.id, seed: t.params.seed, title: t.title } : { page: 'world', id: t.id, title: t.title };
+}
+
+/** 网址里的看法(画风、图层、投影、中央经线、经纬网):不算一步,按后退 / 前进时照现在的(nav.ts 的 url) */
+const VIEW_KEYS = ['style', 'layer', 'civ', 'proj', 'view', 'lon', 'grat'];
+function keepView(from: string, to: string): string {
+  const a = new URL(from);
+  const b = new URL(to);
+  for (const k of VIEW_KEYS) {
+    const v = a.searchParams.get(k);
+    if (v === null) b.searchParams.delete(k);
+    else b.searchParams.set(k, v);
+  }
+  return b.href;
+}
+
+/** 还在 b 那个画面(同一个画面里开卡片多记的几步也算);去解开 / 取回分享的世界,拿到时看一眼 */
+function sameScreen(a: NavState | null, b: NavState | null): boolean {
+  return !!a && !!b && a.bare === b.bare && a.page === b.page && a.id === b.id;
+}
+
+/** 按后退 / 前进要回的世界已经删掉了(停在我的世界) */
+function goneToast(title: string | undefined) {
+  showToast({ id: 'nav-gone', kind: 'warn', text: `回不到「${title || '未命名世界'}」`, more: ['这个世界已经删掉了'] });
 }
 
 /** 新建时能看的样式(不用历史的那几种) */
@@ -437,7 +476,7 @@ function writeWorldUrl(t: Target) {
   if (q.has('new')) q.delete(GEN_KEY);
   else q.set(GEN_KEY, String(t.gen !== undefined && t.gen > GENERATOR_VERSION ? t.gen : GENERATOR_VERSION));
   const next = `?${q}`;
-  if (next !== location.search) history.replaceState(null, '', next);
+  if (next !== location.search) navUrl(next);
 }
 
 /** 回到"我的世界":网址里去掉这个世界(种子、参数、编号、年份……),留着图层、投影这些看法 */
@@ -445,7 +484,7 @@ function writeHomeUrl() {
   const q = new URLSearchParams(location.search);
   for (const k of [...Object.keys(DEFAULT_PARAMS), 'w', 'new', 's', GEN_KEY, 'civYear', 'play', 'chron']) q.delete(k);
   const rest = q.toString();
-  history.replaceState(null, '', rest ? `?${rest}` : location.pathname);
+  navUrl(rest ? `?${rest}` : location.pathname);
 }
 
 /** 创建完要不要从第 0 年起放一遍历史(网址给了 play=0、无头浏览器里不放;play=1 一定放) */
@@ -1076,6 +1115,16 @@ export function App() {
   );
 
   useEffect(() => {
+    // 邀请链接(invite=):记下邀请码,从网址里去掉(在记第一步之前去掉,按后退时不会再带回来)
+    const invited = takeInviteFromUrl();
+    // 浏览器的后退、前进:这一页记成第一步,之后每换一个画面记一步(nav.ts)
+    const stopNav = startNav(navInfo(route.stage, route.target), {
+      route: (to, from, dir) => navRef.current.route(to, from, dir),
+      describe: () => navRef.current.describe(),
+      settled: () => navRef.current.settled(),
+      apply: (l) => navRef.current.apply(l),
+      url: keepView,
+    });
     // 分享链接:先把 # 那段从地址栏去掉(刷新不会重复导入),解开以后走读档流程;
     // 链接里的种子、参数和网址上的一样,所以照常先按网址生成,不用等
     if (init.share) {
@@ -1084,23 +1133,38 @@ export function App() {
       const own = q.get(OWN_KEY) === '1';
       q.delete(OWN_KEY);
       const rest = `${q}`;
-      history.replaceState(null, '', location.pathname + (rest ? `?${rest}` : ''));
-      decodeShare(init.share).then((r) => openShareRef.current(r, undefined, own));
+      navUrl(location.pathname + (rest ? `?${rest}` : ''));
+      const at = getNav();
+      // 解开之前按了后退 / 前进(到了别的画面):不打开
+      decodeShare(init.share).then((r) => {
+        if (sameScreen(getNav(), at)) openShareRef.current(r, undefined, own);
+      });
     }
-    // 邀请链接(invite=):记下邀请码,弹出登录窗(已经登录了就算了)
-    if (takeInviteFromUrl() && serverBase() && !getSession()) openLogin();
+    // 邀请链接:弹出登录窗(已经登录了就算了)
+    if (invited && serverBase() && !getSession()) openLogin();
     if (route.target) generate(route.target);
     else if (landing === 'loading') openShortShare(init.shortShare ?? '');
     else writeHomeUrl();
+    if (route.gone !== undefined) goneToast(route.gone);
     // 页面开着时又粘贴了一个只有 # 不同的分享链接(浏览器不刷新页面)
     const onHash = () => {
       const h = location.hash;
-      if (!isShareHash(h)) return;
-      history.replaceState(null, '', location.pathname + location.search);
-      decodeShare(h).then((r) => openShareRef.current(r));
+      if (!isShareHash(h)) {
+        // 地址栏里自己加了别的 #:浏览器记了一步、这个网站没记过,也记成一步(不然收起卡片退回去时会落到它上面)
+        if (!isNavState(history.state)) navAdopt(navInfo(getStage().stage, targetRef.current));
+        return;
+      }
+      // 浏览器为这个 # 记了一步:当成新的一步(打开分享的世界时换成它)
+      navAdopt(navInfo(getStage().stage, targetRef.current));
+      navUrl(location.pathname + location.search);
+      const at = getNav();
+      decodeShare(h).then((r) => {
+        if (sameScreen(getNav(), at)) openShareRef.current(r);
+      });
     };
     window.addEventListener('hashchange', onHash);
     return () => {
+      stopNav();
       window.removeEventListener('hashchange', onHash);
       workerRef.current?.terminate();
       workerRef.current = null;
@@ -1399,7 +1463,7 @@ export function App() {
       if (Math.abs(lon) >= 0.005) q.set('lon', String(lon));
       else q.delete('lon');
       const next = `?${q}`;
-      if (next !== location.search) history.replaceState(null, '', next);
+      if (next !== location.search) navUrl(next);
       viewChanged();
     }, 450);
     return () => clearTimeout(t);
@@ -1441,7 +1505,10 @@ export function App() {
    * 打开一个世界:要的就是正在看的这一张图(参数、地形都一样,比如从我的世界打开同一个种子的另一份、以它为底稿新建)就不重新生成,
    * 直接换上它的修改;正在生成的就是它:等生成完;否则按它的参数生成
    */
-  const openTarget = (t: Target) => {
+  const openTarget = (t: Target, step: 'push' | 'replace' = 'push') => {
+    const info = navInfo(t.kind === 'draft' ? 'draft' : 'world', t);
+    if (step === 'push') navTo(info);
+    else navReplace(info);
     setWorldSheet('peek');
     enterStage(t.kind === 'draft' ? 'draft' : 'world', t.kind === 'draft' ? (t.base ?? null) : null);
     if (t.kind === 'draft') setDraftTitle(t.title ?? '');
@@ -1467,6 +1534,7 @@ export function App() {
   const openStored = (id: string) => {
     const w = loadWorld(id);
     if (!w) return notify({ kind: 'error', text: '打不开这个存档', more: ['可能已在别的页面里删掉了'] });
+    navTo({ page: w.draft ? 'draft' : 'world', id, seed: w.draft ? w.save.params.seed : undefined, title: w.save.title });
     // 下面一直开着的就是它、存的和开着的一样(没在别的页面里改过):不用重新打开
     const cur = currentWorld();
     const same =
@@ -1518,14 +1586,17 @@ export function App() {
     const by = short ? cleanSignature(short.by) : '';
     setSharedFor(own && OLD_SITE === null ? null : { id, short: !!short, by, own });
     const origin: SaveOrigin | null = short ? { ...(by ? { by } : {}), title: sv.title ?? '', url: shortLink(short.code) } : null;
-    openTarget({ id, kind: 'visit', params: sv.params, edits: sv.edits, saved: sv.edits, title: sv.title, view: sv.view ?? null, from: 'link', save: sv, warnings: r.warnings, shareCode: short?.code, origin });
+    // 打开网页时、地址栏里贴的分享链接:浏览器已经记了这一步,换成这个世界
+    openTarget({ id, kind: 'visit', params: sv.params, edits: sv.edits, saved: sv.edits, title: sv.title, view: sv.view ?? null, from: 'link', save: sv, warnings: r.warnings, shareCode: short?.code, origin }, 'replace');
   };
   /** 分享短链接:去服务器取存档(不用登录);停了、打不开就显示那一页 */
-  const openShortShare = (code: string) => {
+  const openShortShare = (code: string, still?: () => boolean) => {
     if (!serverBase() || !SHARE_CODE_RE.test(code)) return setLanding('gone');
     showToast({ id: 'share', kind: 'progress', text: '正在打开分享的世界' });
     openShareCode(code)
       .then((r) => {
+        // 按后退 / 前进取的:取回来之前又换到了别的画面,不打开(提示条那边换画面时已经收掉了)
+        if (still && !still()) return;
         clearToast('share');
         const p = parseSave(JSON.stringify(r.save));
         if (!p.ok) return setLanding({ error: briefError(p.error) });
@@ -1533,6 +1604,7 @@ export function App() {
         openShareRef.current(p, { code, by: r.by });
       })
       .catch((e) => {
+        if (still && !still()) return;
         clearToast('share');
         if (e instanceof ServerError && (e.code === 'share-gone' || e.code === 'not-found')) setLanding('gone');
         else setLanding({ error: e instanceof ServerError && e.code === 'network' ? '连不上服务器，请检查网络后刷新再试。' : e instanceof Error ? e.message : String(e) });
@@ -1554,20 +1626,24 @@ export function App() {
     return { title: attached ? cur.title : t.title, pristine: attached ? cur.pristine : t.pristine, edits: attached ? getEdits() : t.edits };
   };
   /** 新建中换种子:另一颗星球,草图留着(连同放的火山湖河);没画草图时放的那几处作废;没起名、参数也是默认的、没画草图 = 又算没动过(不存) */
-  const draftSeed = (seed: number) => {
+  const draftSeed = (seed: number, params?: WorldParams) => {
     const t = draftNow();
     if (!t || t.base) return;
     const st = draftState(t);
+    // 按后退 / 前进换回的那颗:参数也换回那一步的(params)
+    const base = params ?? t.params;
     // 换一颗:草图带过去,照它长出新的山河;陆地海洋是照草图长的,放的火山湖河也还对得上,一起带过去。
     // 没画草图 = 整颗星球都换了,放的那几处是照原来的地形放的,不带过去。助手的对话(说的是原来那颗)也清掉
     newConversation();
     const sketch = st.edits.sketch;
-    const plain = !st.title && !sketch && !st.edits.nameMix && worldKey({ ...t.params, seed: 0 }) === worldKey({ ...DEFAULT_PARAMS, seed: 0 });
+    const plain = !st.title && !sketch && !st.edits.nameMix && worldKey({ ...base, seed: 0 }) === worldKey({ ...DEFAULT_PARAMS, seed: 0 });
     // 地名风格和参数一样是这一类星球的设定,换一颗照旧
     const nameMix = st.edits.nameMix;
     const kept: WorldEdits = sketch ? { ...EMPTY_EDITS, sketch, terrain: st.edits.terrain } : EMPTY_EDITS;
     const edits = nameMix ? { ...kept, nameMix } : kept;
-    generate({ ...t, params: { ...t.params, seed }, edits, saved: undefined, title: st.title, pristine: st.pristine || plain, view: undefined, from: undefined, save: undefined });
+    // 换一颗:记一步(按后退换回刚才那颗)
+    navTo({ page: 'draft', id: t.id, seed, title: st.title });
+    generate({ ...t, params: { ...base, seed }, edits, saved: undefined, title: st.title, pristine: st.pristine || plain, view: undefined, from: undefined, save: undefined });
   };
   /** 新建中调参数:改过的地形留着(按新参数重新生成) */
   const draftParams = (p: WorldParams) => {
@@ -1598,6 +1674,8 @@ export function App() {
     // 新建时执行过的改地形从此不能再撤销:⌘Z 也不再往回退(助手那边按锁换了,旧的确认单不能执行)
     clearEditHistory();
     targetRef.current = { ...t, kind: 'created', base: null, pristine: false, title: clean, from: undefined, save: undefined };
+    // 这一步换成建好的世界;前面换过的几颗星球(同一个编号)按后退时跳过(见 routeNav)
+    navReplace({ page: 'world', id: t.id, title: clean });
     enterStage('world');
     // 建好的世界看政区
     draftLayerRef.current = null;
@@ -1650,6 +1728,7 @@ export function App() {
   };
   /** 回到"我的世界"(一个都没有时是空的那一页) */
   const showHome = () => {
+    navTo({ page: 'home' });
     pausePlayback();
     setReplayOn(false);
     enterStage('home');
@@ -1675,8 +1754,13 @@ export function App() {
       setGoHome(null);
     };
   }, []);
-  /** 新建卡片左上的返回:底稿那个世界 / 我的世界;第一次来(没有别的世界)不显示 */
   const v = useSavesVersion();
+  // 正在看的世界改了名:浏览器记的这一步也换成新名字
+  useEffect(() => {
+    const cw = currentWorld();
+    if (cw) navTitle(cw.id, cw.title || undefined);
+  }, [v]);
+  /** 新建卡片左上的返回:底稿那个世界 / 我的世界;第一次来(没有别的世界)不显示 */
   const draftBack = useMemo(() => {
     if (!draft) return null;
     if (stageBase) {
@@ -1686,15 +1770,125 @@ export function App() {
           const b = backRef.current;
           const left = derivedUntouched();
           if (left) deleteWorld(left);
+          // 前一步就是那个世界:退回去(和浏览器的后退一样,不多记一步)
+          if (navBack({ page: 'world', id: stageBase.id })) return;
           if (isStored(stageBase.id)) openStored(stageBase.id);
           else if (b && b.id === stageBase.id) openTarget(b);
           else goHome();
         },
       };
     }
-    return { label: '我的世界', onClick: goHome };
+    return { label: '我的世界', onClick: () => navBack({ page: 'home' }) || goHome() };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft, stageBase, v]);
+  // ---- 浏览器的后退、前进(nav.ts):换到记着的那一步 ----
+  /** 离开时还没存着的世界(只是看看的、别人分享的):退回来时照原样打开(只记在这一页里,刷新就没了) */
+  const navTargets = useRef(new Map<string, Target>());
+  /** 要离开这个画面了:名字、存没存着;没存着的世界记下它 */
+  const describeNav = () => {
+    const t = targetRef.current;
+    // 在我的世界:targetRef 还是上一个世界(可能已经删了),不算
+    if (!t || getStage().stage === 'home') return {};
+    const cw = currentWorld();
+    const live = cw?.id === t.id;
+    const title = (live ? cw.title : t.title) || undefined;
+    const stored = isStored(t.id);
+    // 没存着的、最近的修改没写进浏览器的(存储满了):记下现在的样子(修改、名字用手上的),回来时照这个打开;存好了的不用记。
+    // 新建中的只记没写进去的(没动过的按网址里的种子新建就是原样)
+    const unsaved = live && currentUnsaved();
+    if ((t.kind !== 'draft' && !stored) || unsaved) navTargets.current.set(t.id, { ...t, ...(live ? { edits: getEdits(), title } : {}), ...(unsaved && t.kind === 'draft' ? { pristine: false } : {}), view: undefined, warnings: undefined });
+    else navTargets.current.delete(t.id);
+    return { title, stored };
+  };
+  /** 现在这个世界生成好、历史推完了(干预、地形大事都推进去了):它的编号;还没好 = null */
+  const settledId = (): string | null => {
+    const t = targetRef.current;
+    const cw = currentWorld();
+    if (getStage().stage !== 'world' || !t || !cw || cw.id !== t.id || !rawRef.current || fresh.current || regenRef.current) return null;
+    if (!sameInterventions(getEdits().interventions, civEdits.current) || !sameUpheavals(getEdits().upheavals, civUps.current)) return null;
+    const ri = resimInfo.current;
+    return ri && ri.arrived === undefined ? null : t.id;
+  };
+  /**
+   * 按后退 / 前进到了 to 这一步:
+   *   我的世界  回我的世界
+   *   新建      还是这次新建(同一个编号):种子、参数换回那一步的(那一步的网址里记着);存着、没建完的:打开它(同样换回;
+   *             这一页里记着的、存储满了没写进去的,照这一页里的样子打开);
+   *             已经建成了世界的:后退时跳过(前面没有这个网站的一步了就回我的世界),前进时打开那个世界;
+   *             存过、没建完就删掉了的(以它为底稿新建、什么都没动就返回的那一份):后退时同样跳过;没存过的:按网址里的种子新建
+   *   世界      这一页里看过、没存着的(或最近的修改没写进浏览器,存储满了):照这一页里的样子打开;存着的:打开它;
+   *             存过、现在不在了:回我的世界,提示删掉了;
+   *             别的(网址里带种子的、分享短链接):按网址打开
+   * 从"以它为底稿新建"离开、什么都没动:那一份删掉(和左上的返回一样)
+   */
+  const routeNav = (to: NavState, from: NavState, dir: -1 | 1): void | 'skip' => {
+    if (from.page === 'draft') {
+      const left = derivedUntouched();
+      if (left && !(to.page === 'draft' && to.id === left)) deleteWorld(left);
+    }
+    // 分享链接打不开的那一页、正在取的分享、写史书的窗口(选的是那个世界的国家)、读着的史书:换了画面就不留
+    // (到了世界、那一步记着史书的,世界好了再打开)
+    setLanding(null);
+    clearToast('share');
+    closeHistoryBook();
+    closeBookReader();
+    if (to.page === 'home') return showHome();
+    const back = dir < 0;
+    const skip = (): void | 'skip' => (back && to.prev ? 'skip' : showHome());
+    const url = readUrl();
+    const q = new URLSearchParams(location.search);
+    if (to.page === 'draft') {
+      const seed = to.seed ?? url.params.seed;
+      const want = { ...url.params, seed };
+      const d = draftNow();
+      if (d && d.id === to.id) {
+        if (worldKey(want) !== worldKey(d.params) && !d.base) draftSeed(seed, want);
+        return;
+      }
+      const w = to.id ? loadWorld(to.id) : null;
+      if (w && !w.draft) return back ? skip() : openStored(w.id);
+      const once = to.stored || (!!to.id && q.get('w') === to.id);
+      const mem = to.id ? navTargets.current.get(to.id) : undefined;
+      // 这一页里记着的(最近的修改没写进浏览器,存储满了)比存着的新;同样换回那一步的种子、参数
+      if (mem?.kind === 'draft' && (w || !once)) {
+        openTarget(mem);
+        if (worldKey(want) !== worldKey(mem.params) && !mem.base) draftSeed(seed, want);
+        return;
+      }
+      if (w) {
+        openStored(w.id);
+        if (worldKey(want) !== worldKey(w.save.params) && !w.base) draftSeed(seed, want);
+        return;
+      }
+      // 存过(离开时记着,或那一步的网址里有 w=编号)、现在不在了:跳过
+      if (once) return skip();
+      return openTarget({ ...draftTarget({ ...url.params, seed }), id: to.id ?? newWorldId() });
+    }
+    const w = to.id ? loadWorld(to.id) : null;
+    const once = to.stored || isWorldId(q.get('w'));
+    const mem = to.id ? navTargets.current.get(to.id) : undefined;
+    // 这一页里记着的(没存着的、最近的修改没写进浏览器的)比存着的新;存过、现在不在了的是删掉了
+    if (mem && (w || !once)) return openTarget(mem);
+    if (w) return openStored(w.id);
+    if (once) {
+      showHome();
+      goneToast(to.title);
+      return;
+    }
+    const code = q.get('s');
+    if (code) {
+      // 刷新过(手上没有这个世界):和打开分享短链接时一样,先到"正在打开"那一页,停了、打不开也显示在那一页
+      pausePlayback();
+      setReplayOn(false);
+      enterStage('home');
+      setLanding('loading');
+      return openShortShare(code, () => sameScreen(getNav(), to));
+    }
+    if (q.has('seed')) return openTarget({ ...visitTarget(url.params, url.gen), id: to.id ?? newWorldId() });
+    return showHome();
+  };
+  const navRef = useRef<NavHooks>(null as unknown as NavHooks);
+  navRef.current = { route: routeNav, describe: describeNav, settled: settledId, apply: (l) => (shownRaw ? applyNavLayer(shownRaw, l) : {}) };
   // 只是看看的世界改了第一笔、新建中的动了第一下,就存下了:网址换成 w=编号,刷新还回到它
   useEffect(() => {
     const t = targetRef.current;
@@ -2192,6 +2386,17 @@ export function App() {
 
   // ---- 编年史点一条:事发地不在视野里,就把地图平移过去(不改缩放,约 0.4 秒滑过去) ----
   const chron = useChronicle();
+  // 世界里开着的(选中、概览、史书)变了:画好以后报给 nav.ts(多打开一张算一步);世界好了再打开退回来的那一步记着的
+  const ovNow = useOverview();
+  const readerNow = useBookReader();
+  useEffect(() => {
+    if (stage !== 'world' || !shownRaw) return;
+    const l = layerNow(shownRaw);
+    if (l) navLayer(l);
+  }, [stage, shownRaw, selState.sel, ovNow.open, ovNow.tab, chron.polity, readerNow.open, readerNow.key]);
+  useEffect(() => {
+    navSettled(navRef.current.settled());
+  }, [stage, rawCiv, resim, edits, shownRaw]);
   const hl = useCivHighlight();
   const picking = usePolityPick();
   const viewRef = useRef(view);
