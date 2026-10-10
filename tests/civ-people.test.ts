@@ -135,6 +135,20 @@ describe.each([7, 2024])('人物 · seed=%i', (seed) => {
     }
   });
 
+  it('将领不重名:不和本国的君主同名,前后 300 年里没有同名的君主、将领(几百年后再出一位同名的,读起来像同一个人死了两次)', () => {
+    const civ = civOf(seed);
+    const P = civ.people!;
+    const gens = P.filter((x) => x.role === 'general');
+    expect(gens.length).toBeGreaterThan(10);
+    gens.forEach((g, i) => {
+      const prev = [...P.filter((x) => x.role === 'ruler'), ...gens.slice(0, i)].filter((x) => x.name === g.name);
+      for (const x of prev) {
+        expect(x.role === 'ruler' && x.polity === g.polity, `${g.name}:和本国君主同名`).toBe(false);
+        expect(Math.abs(x.born - g.born), `${g.name}:生年相差`).toBeGreaterThanOrEqual(300);
+      }
+    });
+  });
+
   it('战役:没打下来的那一仗记在战争里,双方是这场战争的两边', () => {
     const civ = civOf(seed);
     const A = civ.annals;

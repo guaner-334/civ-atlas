@@ -13,6 +13,8 @@
  *     西幻:同一国里同名的国王按先后编序数("阿尔德里克三世"),帝国里开疆最多的一位称"大帝";共和国执政官、汗不编序数
  * **统帅**(按战争先后):开战时两边各有一位 —— 好战的君主有时亲征,否则派一位将领(本国在世、正闲着的将领先用,没有就新起一位);
  *   每一仗输的一方统帅有机会战死,下一仗换人;将领到年纪卸甲、去世也换人。君主亲征不会战死。
+ *   新起的将领尽量和整个世界的君主、先前的将领都不重名;名字少的语感至少和本国君主、前后几百年的同名人物错开
+ *   (同一国几百年后再出一位同名的将领,读起来像同一个人死了两次)。
  * **世系**(lineage.ts):按年纪给继位的君主连上父亲(子、孙、兄弟、侄、叔伯……),对不上的地方补一位没即位的宗室。
  *
  * 随机数一律 keyed4(subSeed(seed, 'civ-people'), 国家的位置锚, 第几位, 用途, 种类):国家的位置锚 = 立国时国都的地块
@@ -62,6 +64,12 @@ const FALL_DEFEND = 0.08;
 const REUSE = 0.55;
 /** 帝国里开疆这么多州以上的君主,开疆最多的一位称"大帝" */
 const GREAT_GAINS = 12;
+/**
+ * 将领起名:先试 NAME_TRIES 次,找一个整个世界的君主、将领都没用过的名字;西幻有的语感名字不多(几百个),
+ * 用满了就再试一轮,只求和本国的君主、前后 NAME_GAP 年里出生的同名君主、将领都不撞
+ */
+const NAME_TRIES = 40;
+const NAME_GAP = 300;
 
 // 随机数用途
 const U_AGE = 1;
@@ -291,6 +299,14 @@ export function buildPeople(civ: PeopleInput): Person[] {
 
   // ---- 统帅 ----
   const generals: Person[] = [];
+  /** 用过的名字 → 用过的人的生年(君主、将领;同一个名字读起来像同一个人) */
+  const usedBy = new Map<string, number[]>();
+  const use = (name: string, born: number) => {
+    const ys = usedBy.get(name);
+    if (ys) ys.push(born);
+    else usedBy.set(name, [born]);
+  };
+  for (const list of rulers) for (const r of list) use(r.name, r.born);
   const genOf: { p: Person; careerEnd: number; busy: number }[][] = polities.map(() => []);
   const busyRuler = new Map<Person, number>();
   const wars = warsOf(civ);
@@ -340,9 +356,14 @@ export function buildPeople(civ: PeopleInput): Person[] {
         const life = q(born + lerp(GENERAL_LIFE, Math.pow(G(U_LIFE), 0.8)));
         const careerEnd = Math.min(life, q(born + lerp(RETIRE, G(U_RETIRE))));
         const namer = namerOf(styleOf(P));
-        let name = '';
+        const nameAt = (a: number) => namer.surname(tag[pid], 1, gi, a) + namer.given(tag[pid], 1, gi, a);
         const royal = new Set(rulers[pid].map((r) => r.name));
-        for (let a = 0; a < 12 && (!name || royal.has(name)); a++) name = namer.surname(tag[pid], 1, gi, a) + namer.given(tag[pid], 1, gi, a);
+        const near = (x: string) => royal.has(x) || !!usedBy.get(x)?.some((y) => Math.abs(y - born) < NAME_GAP);
+        let name = '';
+        for (let a = 0; a < NAME_TRIES && !name; a++) if (!usedBy.has(nameAt(a))) name = nameAt(a);
+        for (let a = 0; a < NAME_TRIES && !name; a++) if (!near(nameAt(a))) name = nameAt(a);
+        name ||= nameAt(0);
+        use(name, born);
         const person: Person = { id: -1, role: 'general', polity: pid, name, born };
         if (life <= endYear) {
           person.died = life;
