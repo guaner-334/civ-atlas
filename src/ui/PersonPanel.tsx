@@ -3,23 +3,27 @@
  * 地图上亮出他的国家(civView.ts 的 MapSelection、flyTo.ts 的 mapTarget);点人名不挪时间轴,按"即位那年 / 出征那年"才跳。
  *
  *   顶部  国家颜色块、称呼("圣宗柳玄""阿尔德里克三世""楚尧")、"大景皇帝，2485–2519 年在位" / "大景将领，2478–2509 年领兵"
- *         / "大景宗室，2428–2467"(没即位的宗室:世系图里补上的父辈)
- *   按钮  即位那年 / 出征那年(主操作:时间轴跳过去;宗室换成「世系图」)、编年史(这国的编年史,滚到他在台上那段)、
- *         复制生平(纯文字,写设定用)、更多(加一个和他有关的作者人物:亲友里先填上他)
+ *         / "大景丞相，2501–2537 年在朝" / "大景宗室，2428–2467"(没即位的宗室:世系图里补上的父辈)
+ *   按钮  即位那年 / 出征那年 / 入仕那年(主操作:时间轴跳过去;宗室换成「世系图」)、编年史(这国的编年史,滚到他在台上那段)、
+ *         复制生平(纯文字,写设定用;带上「生平」那一段)、更多(加一个和他有关的作者人物:亲友里先填上他)
  *   概况  君主:事迹(名人才有)、国家、生卒、在位、前任、继任(后面的小字是亲属,和编年史的"其子 / 其侄"同一个算法:按世系)、
- *         父亲、子嗣(世系图里有的人,没即位的写"未即位")、结局、亲征、将领(在位时本国领兵的);
+ *         父亲、子嗣(世系图里有的人,没即位的写"未即位")、结局、亲征、将领(在位时本国领兵的)、名臣(在位时在朝的);
  *         右上「世系图」打开这国的世系图,停在他那一朝、圈出他。共和国写"在任""执政",没有父亲、子嗣、世系图
- *         将领:事迹、国家、生卒、领兵(伐谁 / 抗谁)、效力(那几年在位的君主)、对手(同一场仗对面的统帅)、结局
+ *         将领:事迹、国家、字号、籍贯、生卒、官职、历任、领兵(伐谁 / 抗谁)、效力(那几年在位的君主)、对手(同一场仗对面的统帅)、结局
+ *         名臣:事迹(经手的事)、国家、字号、籍贯、生卒、官职(做到最高的那个官和任期)、历任(之前的官和年份)、效力、结局
  *         宗室:国家、生卒、父亲、子嗣
+ *         (字号:西幻、汗国这类名字没有姓的不起字号,这一行不出)
+ *   生平  将领、名臣的一段生平(officialText.ts 的 personBio);写到的君主是蓝字
  *   作者的人物  亲友里有他、经历里勾了他的作者人物(characterInfo.ts 的 charactersOfPerson),没有就不显示
- *   在位时 / 领兵时  他在台上那几年本国的事(将领 = 他经手的那几仗),新的在上;点一条跳到那一年
+ *   在位时 / 领兵时 / 在朝时  他在台上那几年本国的事(将领 = 他经手的那几仗),新的在上;点一条跳到那一年
  */
 import { Fragment, useMemo, useState, type ReactNode } from 'react';
 import type { Civ, Person } from '../gen/civ/types';
 import { polityName } from '../gen/civ/growth';
 import { buildChronicle, filterChronicle, reignEntries, type ChronicleEntry } from '../gen/civ/chronicle';
 import { commandFoes, peopleIndex, personFame, personSpan, rulerNeighbors, type Foe } from '../gen/civ/peopleInfo';
-import { ageAt, generalRole, isConsul, kinOf, personName, princeRole, rulerFateWord, rulerRole } from '../gen/civ/peopleText';
+import { ageAt, generalRole, isConsul, kinOf, ministerRole, personName, princeRole, rulerFateWord, rulerRole } from '../gen/civ/peopleText';
+import { deedsShort, ministerFate, personArt, personBio } from '../gen/civ/officialText';
 import { fatherOf, hasLineage, kidsOf } from '../gen/civ/lineageInfo';
 import { personKey } from '../gen/characters';
 import { openLineage, openOverview } from './overviewStore';
@@ -29,7 +33,7 @@ import { charactersOfPerson } from './characterInfo';
 import { CharacterRefs } from './CharacterPanel';
 import { MenuItem } from './PopMenu';
 import { Icon } from './icons';
-import { Act, Acts, EventList, Link, MoreAct, PanelHead, Row, Stats, SubLine, copyText, jumpTo, rgb, type DetailProps } from './panelParts';
+import { Act, Acts, EntryText, EventList, Link, MoreAct, PanelHead, Row, Stats, SubLine, copyText, jumpTo, rgb, type DetailProps } from './panelParts';
 
 const F = Math.floor;
 
@@ -117,10 +121,12 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
   const chars = useEdits().characters;
   const lines = useMemo(() => (x && p ? personLines(civ, x) : []), [civ, x, p]);
   const events = useMemo(() => (x && p ? personEvents(civ, x) : []), [civ, x, p]);
+  const bio = useMemo(() => (x && p ? personBio(civ, x) : ''), [civ, x, p]);
   const refs = useMemo(() => charactersOfPerson(civ, chars, id), [civ, chars, id]);
   if (!x || !p) return null;
   const ruler = x.role === 'ruler';
   const prince = x.role === 'prince';
+  const minister = x.role === 'minister';
   const consul = isConsul(civ, x);
   const span = personSpan(x);
   const end = span.until ?? civ.endYear;
@@ -130,13 +136,18 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
       ? span.until === null
         ? `${rulerRole(civ, x)}，${F(span.from)} 年${consul ? '就任' : '即位'}`
         : `${rulerRole(civ, x)}，${F(span.from)}–${F(span.until)} 年${consul ? '在任' : '在位'}`
-      : `${generalRole(civ, x)}，${F(span.from)}–${F(end)} 年领兵`;
+      : minister
+        ? span.until === null
+          ? `${ministerRole(civ, x)}，${F(span.from)} 年起在朝`
+          : `${ministerRole(civ, x)}，${F(span.from)}–${F(span.until)} 年在朝`
+        : `${generalRole(civ, x)}，${F(span.from)}–${F(end)} 年领兵`;
   const name = personName(civ, x);
-  const head = ruler ? (consul ? '在任时' : '在位时') : '领兵时';
+  const head = ruler ? (consul ? '在任时' : '在位时') : minister ? '在朝时' : '领兵时';
   const lineage = () => openLineage(x.polity, { dynasty: x.dynasty ?? 0, focus: x.id });
 
   const copy = async () => {
     const out = [name, sub, ...lines.map((l) => `${l.k}：${l.text}`)];
+    if (bio) out.push('', `生平：${bio}`);
     if (events.length) out.push('', `${head}：`, ...events.map((e) => `${F(e.year)} ${e.text.replace(/^【干预】/, '')}`));
     const text = out.join('\n');
     (window as unknown as { __wfPersonText: string }).__wfPersonText = text;
@@ -160,7 +171,7 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
           </Act>
         ) : (
           <Act icon="history" primary act="person-year" onClick={() => jumpTo(span.from)} title={`时间轴跳到 ${F(span.from)} 年`}>
-            {ruler ? (consul ? '就任那年' : '即位那年') : '出征那年'}
+            {ruler ? (consul ? '就任那年' : '即位那年') : minister ? '入仕那年' : '出征那年'}
           </Act>
         )}
         <Act icon="scroll" act="person-chronicle" onClick={() => openOverview('chronicle', { polity: x.polity, major: false, at: end })}>
@@ -193,6 +204,14 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
             </Row>
           ))}
         </Stats>
+        {bio && (
+          <section className="cp-sec">
+            <div className="cp-sec-head">生平</div>
+            <div className="oc-note" data-bio>
+              <EntryText civ={civ} e={{ text: bio, people: bioPeople(civ, x), year: span.from }} self={id} />
+            </div>
+          </section>
+        )}
         <CharacterRefs refs={refs} />
         {!prince && (
         <EventList
@@ -219,11 +238,13 @@ function personLines(civ: Civ, x: Person): Line[] {
   const p = civ.polities[x.polity];
   const out: Line[] = [];
   const fame = personFame(civ, x);
-  if (fame?.deeds) out.push({ k: '事迹', node: fame.deeds, text: fame.deeds });
+  const deeds = x.role === 'minister' ? deedsShort(civ, x) : (fame?.deeds ?? '');
+  if (deeds) out.push({ k: '事迹', node: deeds, text: deeds });
   const span = personSpan(x);
   // 宗室(可能生在立国之前):按卒年那会儿的国名
   const pn = polityName(p, x.role === 'prince' ? Math.max(p.founded, Math.min(x.died ?? x.born, p.ended ?? civ.endYear) - 1 / 512) : span.from);
   out.push({ k: '国家', node: <Link to={{ kind: 'polity', id: p.id }}>{pn}</Link>, text: pn });
+  if (x.role === 'minister' || x.role === 'general') styleLines(civ, x, out);
   if (x.died !== undefined) {
     // 享年按实际活了多久算(和编年史的"时年"一样),不是两个年份相减
     const age = ageAt(x, x.died);
@@ -241,10 +262,84 @@ function personLines(civ: Civ, x: Person): Line[] {
     kinLines(civ, x, out);
     return out;
   }
+  if (x.role === 'minister') {
+    postLines(x, x.until ?? null, out);
+    ministerLines(civ, x, out);
+    return out;
+  }
   const foes = commandFoes(civ, x);
   if (x.role === 'ruler') rulerLines(civ, x, out, foes);
-  else generalLines(civ, x, out, foes);
+  else {
+    const cs = x.commands ?? [];
+    if (cs.length) postLines(x, cs[cs.length - 1].until, out);
+    generalLines(civ, x, out, foes);
+  }
   return out;
+}
+
+/** 字号、籍贯(名臣、将领;没有字号的语感不出「字号」这一行) */
+function styleLines(civ: Civ, x: Person, out: Line[]) {
+  const art = personArt(civ, x);
+  const style = [x.courtesy ? `字${x.courtesy}` : '', art ? `号${art}` : ''].filter(Boolean).join('，');
+  if (style) out.push({ k: '字号', node: style, text: style });
+  const home = x.home !== undefined ? civ.settlements[x.home] : undefined;
+  if (home?.name) out.push({ k: '籍贯', node: <Link to={{ kind: 'settlement', id: home.id }}>{home.name}</Link>, text: home.name });
+}
+
+/** 官职(做到最高的那个官 + 任期)、历任(之前的官 + 那年);until = 去职 / 最后一次卸任(还在任 = null) */
+function postLines(x: Person, until: number | null, out: Line[]) {
+  const ps = x.posts ?? [];
+  const top = ps[ps.length - 1];
+  if (!top) return;
+  const years = until !== null ? `${F(top.from)}–${F(until)} 年` : `${F(top.from)} 年起`;
+  out.push({
+    k: '官职',
+    node: (
+      <>
+        {top.title}
+        <em className="cp-num-note">{years}</em>
+      </>
+    ),
+    text: `${top.title}(${years})`,
+  });
+  const before = ps.slice(0, -1);
+  if (before.length)
+    out.push({
+      k: '历任',
+      node: before.map((post, i) => (
+        <Fragment key={i}>
+          {i > 0 && '、'}
+          {post.title}
+          <em className="cp-num-note">{F(post.from)}</em>
+        </Fragment>
+      )),
+      text: before.map((post) => `${post.title}(${F(post.from)})`).join('、'),
+    });
+}
+
+/** 名臣:效力(在朝那几年在位的本国君主)、结局 */
+function ministerLines(civ: Civ, x: Person, out: Line[]) {
+  const from = x.from ?? x.born;
+  const until = x.until ?? civ.endYear;
+  const served = peopleIndex(civ).rulers[x.polity].filter((r) => (r.from ?? Infinity) < until && (r.until ?? Infinity) > from);
+  if (served.length) out.push({ k: '效力', ...peopleLine(civ, served) });
+  const fate = ministerFate(civ, x);
+  if (fate) out.push({ k: '结局', node: fate, text: fate });
+}
+
+/** 生平里写到的人:经手的事里的君主,迎立的那件还有遇弑的先君 */
+function bioPeople(civ: Civ, x: Person): number[] {
+  const out: number[] = [];
+  for (const d of x.deeds ?? []) {
+    const r = d.person !== undefined ? civ.people?.[d.person] : undefined;
+    if (!r) continue;
+    out.push(r.id);
+    if (d.kind === 'enthrone') {
+      const prev = rulerNeighbors(civ, r).prev;
+      if (prev) out.push(prev.id);
+    }
+  }
+  return [...new Set(out)];
 }
 
 /** 父亲、子嗣(世系图里有的人;没即位的小字"未即位") */
@@ -297,6 +392,9 @@ function rulerLines(civ: Civ, x: Person, out: Line[], foes: Foe[]) {
   const until = x.until ?? civ.endYear;
   const gens = peopleIndex(civ).generals[x.polity].filter((g) => (g.commands ?? []).some((c) => c.until > from && c.from < until));
   if (gens.length) out.push({ k: '将领', ...peopleLine(civ, gens) });
+  // 在位时在朝的名臣
+  const mins = peopleIndex(civ).ministers[x.polity].filter((m) => m.from! < until && (m.until ?? Infinity) > from);
+  if (mins.length) out.push({ k: '名臣', ...peopleLine(civ, mins) });
 }
 
 function generalLines(civ: Civ, x: Person, out: Line[], foes: Foe[]) {
@@ -335,11 +433,11 @@ function personRow(k: string, civ: Civ, y: Person, note: string): Line {
   };
 }
 
-/** 在位时 / 领兵时的事(按先后) */
+/** 在位时 / 在朝时 / 领兵时的事(按先后) */
 function personEvents(civ: Civ, x: Person): ChronicleEntry[] {
   const all = polityEntries(civ, x.polity);
   const eps = 1e-6;
-  if (x.role === 'ruler') {
+  if (x.role === 'ruler' || x.role === 'minister') {
     const from = x.from ?? x.born;
     const until = x.until ?? civ.endYear;
     return all.filter((e) => e.year >= from - eps && e.year <= until + eps);

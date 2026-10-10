@@ -188,7 +188,17 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
   const places: Place[] = findPlaces(fin.world, fin.regions, { cultures, culture, names: mix }); // ⑤ places.ts(山海湖岛是地理,不看 viable)
   // 地形大事以后:同一处地方沿用大事以前的地名
   if (eras.length) keepPlaceNames(fin.world, eras[eras.length - 1].places, places);
-  const people = buildPeople({ seed: world.params.seed, endYear: p.endYear, polities, settlements, cultures, annals }); // ⑥ people.ts
+  const people = buildPeople({
+    seed: world.params.seed,
+    endYear: p.endYear,
+    polities,
+    settlements,
+    cultures,
+    annals,
+    log,
+    regionCount: fin.regions.count,
+    ...(facts.length ? { upheavals: facts } : {}),
+  }); // ⑥ people.ts(君主、统帅、宗室、名臣)
 
   const civ: Civ = {
     seed: world.params.seed,

@@ -7,7 +7,7 @@
  *   (汗国:汗 / 大汗;部落:酋长 / 首领)。
  * - 君主(不带国名,国名前文已经写了):rulerBare 带君号 —— 东方 "太宗""庄王""咄苾可汗""皇帝李昭",西幻 "国王阿尔德里克三世";
  *   rulerShort 不带君号 —— 东方 "太宗""李昭",西幻 "阿尔德里克三世"。
- * - 统帅:"大渭将李牧"(国名用当年的简称)。
+ * - 统帅:"大渭将李牧"(国名用当年的简称)。名臣:"大景丞相"(ministerRole)。
  * 国名一律按年份现查(growth.ts),作者改了国名,称呼跟着变。
  */
 import type { Civ, Person, Polity, Year } from './types';
@@ -132,6 +132,16 @@ export function rulerRole(civ: Civ, x: Person): string {
   return `${polityRootAt(p, at)}${(WEST_RANK[p.lineage ?? 'realm'] ?? WEST_RANK.realm)[tier]}`;
 }
 
+/** 名臣的身份:"大景丞相""兹拉季纳首相"(国名按做到最高那个官那年的简称) */
+export function ministerRole(civ: Civ, x: Person): string {
+  const ps = x.posts ?? [];
+  const top = ps[ps.length - 1];
+  const p = polityOfPerson(civ, x);
+  if (!p) return top?.title ?? '大臣';
+  const y = top?.from ?? x.from ?? x.born;
+  return `${polityShortTitle(p, clampTier(polityTierAt(p, y)), y)}${top?.title ?? '大臣'}`;
+}
+
 /** 统帅的身份:"大景将领"(国名按第一次领兵那年的简称) */
 export function generalRole(civ: Civ, x: Person): string {
   const p = polityOfPerson(civ, x);
@@ -152,9 +162,10 @@ export function princeRole(civ: Civ, x: Person): string {
   return `${polityShortTitle(p, clampTier(polityTierAt(p, y)), y)}宗室`;
 }
 
-/** 一个人简短的身份:"大景将领""大景君主""大景宗室"(共和国:"某某执政";国名按他上台那年的简称)。作者的人物勾选推演里的人时用 */
+/** 一个人简短的身份:"大景将领""大景君主""大景宗室""大景丞相"(共和国:"某某执政";国名按他上台那年的简称)。作者的人物勾选推演里的人时用 */
 export function personRoleShort(civ: Civ, x: Person): string {
   if (x.role === 'prince') return princeRole(civ, x);
+  if (x.role === 'minister') return ministerRole(civ, x);
   if (x.role !== 'ruler') return generalRole(civ, x);
   const p = polityOfPerson(civ, x);
   if (!p) return '君主';

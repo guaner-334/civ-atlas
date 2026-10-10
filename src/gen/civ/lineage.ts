@@ -49,6 +49,7 @@ export interface LineageNamer {
 export function buildLineage(
   polities: readonly Polity[],
   rulers: readonly Person[][],
+  /** 别的人物(将领、名臣):补出来的宗室不和本国的这些人重名 */
   generals: readonly Person[],
   opts: { tag: readonly number[]; namerOf: (p: Polity) => LineageNamer; surnameOf: (ruler: Person) => string },
 ): { princes: Person[]; parentOf: Map<Person, Person> } {
