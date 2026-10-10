@@ -1559,6 +1559,11 @@ export function App() {
   openShareRef.current = openShare;
   /** 新建世界(我的世界右上、第一次来、分享停了的那一页):先弹窗选怎么生成、定基础参数 */
   const startDraft = () => setNewDlg({});
+  /** 弹窗里点了「取消」:什么都不留下(刷新回来的照图新建,网址里的 new=image 也去掉,再刷新不再弹) */
+  const cancelDialog = () => {
+    setNewDlg(null);
+    writeHomeUrl();
+  };
   /**
    * 弹窗里点了「开始」:存下没建完的世界、进新建界面。照手绘图的把读好的图交过去,进去直接是第 1 步「认出海陆」
    * (照手绘图的新建界面一进来就打开改地形工具,认图在它上面)
@@ -3656,7 +3661,7 @@ export function App() {
       <AccountHost phone={narrow} />
       <ShortcutsHost />
       <TipLayer />
-      {newDlg && home && <NewWorldDialog phone={narrow} init={newDlg.init} randomSeed={randomSeedValue} onCancel={() => setNewDlg(null)} onStart={startFromDialog} />}
+      {newDlg && home && <NewWorldDialog phone={narrow} init={newDlg.init} randomSeed={randomSeedValue} onCancel={cancelDialog} onStart={startFromDialog} />}
       {dropping && (
         <div className="drop-hint">
           <div>{dropping === 'image' ? '松手导入这张图' : '松手打开存档(.json)'}</div>

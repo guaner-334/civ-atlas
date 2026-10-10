@@ -19,8 +19,9 @@ import type { MapLayer } from '../mapLayers';
 export function ImageCard({ phone }: { phone: boolean }) {
   const now = useImport();
   const kept = useSource();
+  const saved = useEdits().sketch?.image?.name;
   const s = now ?? kept;
-  const name = s?.name ?? useEdits().sketch?.image?.name ?? '';
+  const name = s?.name ?? saved ?? '';
   const box = phone ? [48, 32] : [60, 40];
   const tw = s ? Math.round(Math.min(box[0], (box[1] * s.w) / s.h)) : box[0];
   const th = s ? Math.round((tw * s.h) / s.w) : box[1];

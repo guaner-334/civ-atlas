@@ -103,6 +103,8 @@ export function NewWorldDialog(p: NewWorldDialogProps) {
   const given = useRef(false);
   useEffect(
     () => () => {
+      // 还在读的图读完时窗口已经关了:算作过时的,读好就扔掉
+      loading.current++;
       if (!given.current && held.current) URL.revokeObjectURL(held.current.url);
     },
     [],
