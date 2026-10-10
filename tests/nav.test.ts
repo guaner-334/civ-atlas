@@ -145,7 +145,7 @@ describe('后退:三个画面之间', () => {
     expect(h.list.length).toBe(4);
   });
 
-  it('按后退 / 前进离开一个世界也让 App 记下它(没存着的世界再回来时照原样打开);同一个世界里换卡片不算离开', () => {
+  it('按后退 / 前进离开一个世界也让 App 记下它(没存着的世界再回来时照原样打开);同一个世界里换卡片、从我的世界离开不算', () => {
     const a = app();
     startNav({ page: 'home' }, a.hooks);
     navTo({ page: 'world', id: 'A' });
@@ -157,6 +157,13 @@ describe('后退:三个画面之间', () => {
     navLayer(polity('p1'));
     h.back();
     expect(a.left.n).toBe(2);
+    h.back();
+    expect(at()).toMatchObject({ page: 'home' });
+    expect(a.left.n).toBe(3);
+    // 从我的世界离开:没有世界可记(手上那个世界可能已经删了)
+    h.forward();
+    expect(at()).toMatchObject({ page: 'world', id: 'A' });
+    expect(a.left.n).toBe(3);
   });
 
   it('还是同一个画面:不多记一步;只换网址不动这一步记的东西', () => {

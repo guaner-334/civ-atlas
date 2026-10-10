@@ -307,7 +307,7 @@ function onPop(e: PopStateEvent) {
   const same = s.page === 'world' && from.page === 'world' && s.id === from.id;
   if (!same) {
     // 要离开的这个画面:让 App 记下没存着的世界(再前进回来时照原样打开);浏览器已经换到了 to 这一步,离开的那一步记的东西不改
-    hooks.describe();
+    if (from.page !== 'home') hooks.describe();
     routing = true;
     let r: void | 'skip';
     try {

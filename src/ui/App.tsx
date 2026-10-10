@@ -204,7 +204,7 @@ import { AssistantPanel, PreviewBanner } from './Assistant';
 import { astRoom, closeAssistant, useAstOpen } from './astPanel';
 import { PREVIEW_EDIT_BLOCK, exitPreview, getAssistant, newConversation, sameInBoth, setTrialRunner, stopAsk, syncAssistantWorld, useAssistantPreview } from './assistantStore';
 import { closeBookReader, closeHistoryBook, stopBook, useBookReader } from './bookStore';
-import { isNavState, navAdopt, navBack, navLayer, navReplace, navSettled, navTo, navUrl, startNav, type NavHooks, type NavInfo, type NavState } from './nav';
+import { getNav, isNavState, navAdopt, navBack, navLayer, navReplace, navSettled, navTo, navUrl, startNav, type NavHooks, type NavInfo, type NavState } from './nav';
 import { applyLayer as applyNavLayer, layerNow } from './navView';
 import { useAiOn } from '../ai/client';
 import { Globe, getGlobeOn, setGlobeOn, useGlobeOn, type GlobeApi } from './Globe';
@@ -430,6 +430,11 @@ function keepView(from: string, to: string): string {
     else b.searchParams.set(k, v);
   }
   return b.href;
+}
+
+/** 还是 to 这一步(按后退 / 前进去取分享短链接,取回来时看一眼) */
+function sameStep(a: NavState | null, b: NavState): boolean {
+  return !!a && a.idx === b.idx && a.page === b.page && a.id === b.id;
 }
 
 /** 按后退 / 前进要回的世界已经删掉了(停在我的世界) */
@@ -1567,12 +1572,14 @@ export function App() {
     openTarget({ id, kind: 'visit', params: sv.params, edits: sv.edits, saved: sv.edits, title: sv.title, view: sv.view ?? null, from: 'link', save: sv, warnings: r.warnings, shareCode: short?.code, origin }, 'replace');
   };
   /** 分享短链接:去服务器取存档(不用登录);停了、打不开就显示那一页 */
-  const openShortShare = (code: string) => {
+  const openShortShare = (code: string, still?: () => boolean) => {
     if (!serverBase() || !SHARE_CODE_RE.test(code)) return setLanding('gone');
     showToast({ id: 'share', kind: 'progress', text: '正在打开分享的世界' });
     openShareCode(code)
       .then((r) => {
         clearToast('share');
+        // 按后退 / 前进取的:取回来之前又换到了别的一步,不打开
+        if (still && !still()) return;
         const p = parseSave(JSON.stringify(r.save));
         if (!p.ok) return setLanding({ error: briefError(p.error) });
         setLanding(null);
@@ -1580,6 +1587,7 @@ export function App() {
       })
       .catch((e) => {
         clearToast('share');
+        if (still && !still()) return;
         if (e instanceof ServerError && (e.code === 'share-gone' || e.code === 'not-found')) setLanding('gone');
         else setLanding({ error: e instanceof ServerError && e.code === 'network' ? '连不上服务器，请检查网络后刷新再试。' : e instanceof Error ? e.message : String(e) });
       });
@@ -1756,7 +1764,8 @@ export function App() {
   /** 要离开这个画面了:名字、存没存着;没存着的世界记下它 */
   const describeNav = () => {
     const t = targetRef.current;
-    if (!t) return {};
+    // 在我的世界:targetRef 还是上一个世界(可能已经删了),不算
+    if (!t || getStage().stage === 'home') return {};
     const cw = currentWorld();
     const title = (cw?.id === t.id ? cw.title : t.title) || undefined;
     const stored = isStored(t.id);
@@ -1807,7 +1816,8 @@ export function App() {
         if (worldKey(want) !== worldKey(w.save.params) && !w.base) draftSeed(seed, want);
         return;
       }
-      if (to.stored) return skip();
+      // 存过(离开时记着,或那一步的网址里有 w=编号)、现在不在了:跳过
+      if (to.stored || (!!to.id && q.get('w') === to.id)) return skip();
       return openTarget({ ...draftTarget({ ...url.params, seed }), id: to.id ?? newWorldId() });
     }
     const w = to.id ? loadWorld(to.id) : null;
@@ -1820,7 +1830,7 @@ export function App() {
       return;
     }
     const code = q.get('s');
-    if (code) return openShortShare(code);
+    if (code) return openShortShare(code, () => sameStep(getNav(), to));
     if (q.has('seed')) return openTarget({ ...visitTarget(url.params, url.gen), id: to.id ?? newWorldId() });
     return showHome();
   };

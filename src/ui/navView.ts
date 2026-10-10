@@ -3,7 +3,7 @@
  *
  *   layerNow(civ)          现在开着的:选中的东西(带稳定键)、世界概览哪一页(编年史只看哪一国)、史书读哪一部;
  *                          正在新建、还没存的作者标记 / 人物(编号 0)= null(这时不算变了,存好了才算一张卡片)
- *   applyLayer(civ, l)     打开 l 记着的(稳定键在这份历史里找不到的卡片就不开),没记着的收起;返回实际开着的
+ *   applyLayer(civ, l)     打开 l 记着的(稳定键在这份历史里找不到的卡片、删掉了的史书就不开),没记着的收起;返回实际开着的
  *
  * civ 用地图上那一份(时间轴那一段、试推演时是试推演的),和选中的编号对得上。
  */
@@ -13,6 +13,9 @@ import { clearSelection, getChronicle, getSelection, setSelection, type MapSelec
 import { OVERVIEW_TABS, closeOverview, getOverview, openOverview, type OverviewTab } from './overviewStore';
 import { closeBookReader, getBook, openBookReader } from './bookStore';
 import { getEdits } from './editsStore';
+import { currentWorld } from './saveStore';
+import { getNote } from '../ai/library';
+import { asHistoryNote } from '../ai/history';
 import { resolvePersonKey, selectionKey } from './flyTo';
 import type { NavLayer, NavSel } from './nav';
 
@@ -55,7 +58,14 @@ export function applyLayer(civ: Civ, l: NavLayer): NavLayer {
     const p = l.ov?.polity ? resolveKey(civ, l.ov.polity) : null;
     openOverview(tab, tab === 'chronicle' ? { polity: p && p.kind === 'polity' ? p.id : null } : {});
   } else closeOverview();
-  if (l.book !== undefined) openBookReader(l.book || null);
+  if (l.book !== undefined && bookThere(l.book)) openBookReader(l.book || null);
   else closeBookReader();
   return layerNow(civ) ?? {};
+}
+
+/** 记着的那部史书还在('' = 正在写的那部:还在写 / 刚写完) */
+function bookThere(key: string): boolean {
+  if (!key) return !!getBook().job;
+  const w = currentWorld();
+  return !!w && !!asHistoryNote(getNote(w.id, key));
 }
