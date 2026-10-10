@@ -337,6 +337,31 @@ describe('后退:世界里的卡片、概览(每打开一样算一步)', () => {
     expect(at().idx).toBe(3);
   });
 
+  it('按后退 / 前进、× 退回没开卡片那一步:图层这类看法照现在的网址,不变回那一步的', () => {
+    const a = app();
+    a.hooks.url = (from, to) => {
+      const layer = new URLSearchParams(from.split('?')[1] ?? '').get('layer');
+      const q = new URLSearchParams(to.split('?')[1] ?? '');
+      if (layer === null) q.delete('layer');
+      else q.set('layer', layer);
+      return `/?${q}`;
+    };
+    h.list[0].url = '/?w=A';
+    startNav({ page: 'world', id: 'A' }, a.hooks);
+    a.settle('A');
+    navLayer(polity('p1'));
+    navUrl('/?w=A&layer=terrain');
+    navLayer({});
+    h.flush();
+    expect(at().idx).toBe(0);
+    expect(h.list[0].url).toBe('/?w=A&layer=terrain');
+    h.forward();
+    expect(h.list[1].url).toBe('/?w=A&layer=terrain');
+    navUrl('/?w=A&layer=cultures');
+    h.back();
+    expect(h.list[0].url).toBe('/?w=A&layer=cultures');
+  });
+
   it('不在世界里时:卡片不记', () => {
     startNav({ page: 'draft', id: 'D', seed: 1 }, app().hooks);
     navLayer(polity('p1'));

@@ -419,6 +419,19 @@ function navInfo(stage: Stage, t: Target | null | undefined): NavInfo {
   return stage === 'draft' ? { page: 'draft', id: t.id, seed: t.params.seed, title: t.title } : { page: 'world', id: t.id, title: t.title };
 }
 
+/** 网址里的看法(画风、图层、投影、中央经线、经纬网):不算一步,按后退 / 前进时照现在的(nav.ts 的 url) */
+const VIEW_KEYS = ['style', 'layer', 'civ', 'proj', 'view', 'lon', 'grat'];
+function keepView(from: string, to: string): string {
+  const a = new URL(from);
+  const b = new URL(to);
+  for (const k of VIEW_KEYS) {
+    const v = a.searchParams.get(k);
+    if (v === null) b.searchParams.delete(k);
+    else b.searchParams.set(k, v);
+  }
+  return b.href;
+}
+
 /** 按后退 / 前进要回的世界已经删掉了(停在我的世界) */
 function goneToast(title: string | undefined) {
   showToast({ id: 'nav-gone', kind: 'warn', text: `回不到「${title || '未命名世界'}」`, more: ['这个世界已经删掉了'] });
@@ -1098,6 +1111,7 @@ export function App() {
       describe: () => navRef.current.describe(),
       settled: () => navRef.current.settled(),
       apply: (l) => navRef.current.apply(l),
+      url: keepView,
     });
     // 分享链接:先把 # 那段从地址栏去掉(刷新不会重复导入),解开以后走读档流程;
     // 链接里的种子、参数和网址上的一样,所以照常先按网址生成,不用等

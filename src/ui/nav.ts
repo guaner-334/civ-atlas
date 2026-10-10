@@ -3,7 +3,7 @@
  *
  *   算一步   我的世界、新建世界(换一次种子算一步)、某个世界;
  *            世界里每打开一张卡片(国家、城、人物、山河、州、信仰、标记)、世界概览、史书也算一步
- *   不算     拖地图、缩放、拖时间轴、换图层、换投影、概览里换页(照旧只改网址,见 navUrl)
+ *   不算     拖地图、缩放、拖时间轴、换图层、换投影、概览里换页(照旧只改网址,见 navUrl;按后退 / 前进时图层、投影照现在的,见 NavHooks.url)
  *
  * 每一步在 history.state 里记着这是哪个画面(NavState);网址照旧由各处写,navUrl 只换网址、不动这一步记的东西。
  * 一个世界里的几步:第一步(什么都没开)的序号是 bare;卡片的 ×、Esc 收起全部 = 退回 bare 那一步(后面的几步留着,前进还能回去);
@@ -71,6 +71,11 @@ export interface NavHooks {
   settled(): string | null;
   /** 打开这一步记着的卡片、概览、史书;返回实际打开了的(卡片指的东西不在了就少一样) */
   apply(layer: NavLayer): NavLayer;
+  /**
+   * 按后退 / 前进换到 to 这一步的网址时:返回要用的网址(from = 换之前的)。
+   * 不算一步的看法(图层、投影……)照换之前的,不跟着那一步的网址变回去
+   */
+  url?(from: string, to: string): string;
 }
 
 const W = () => globalThis as unknown as Window;
@@ -87,6 +92,8 @@ let pending: { id: string; layer: NavLayer } | null = null;
 let silent = 0;
 /** 自己调 history.go 的途中卡片又变了:到了再算 */
 let deferred: NavLayer | null = null;
+/** 现在的网址(按后退 / 前进时,浏览器换网址之前的那个) */
+let here = '';
 
 export function isNavState(s: unknown): s is NavState {
   return !!s && typeof s === 'object' && (s as NavState).wf === 1 && Number.isInteger((s as NavState).idx);
@@ -134,6 +141,7 @@ export function startNav(first: NavInfo, h: NavHooks): () => void {
   deferred = null;
   const was = W().history.state;
   replace(isNavState(was) ? pageOf(first, was.idx, was.prev) : pageOf(first, 0, false));
+  here = W().location.href;
   W().addEventListener('popstate', onPop);
   return () => {
     W().removeEventListener('popstate', onPop);
@@ -151,6 +159,7 @@ export function getNav(): NavState | null {
 export function navUrl(url: string) {
   const h = W().history;
   h.replaceState(h.state, '', url);
+  here = W().location.href;
 }
 
 const sameInfo = (s: NavState, info: NavInfo) =>
@@ -185,6 +194,7 @@ export function navAdopt(info: NavInfo) {
   if (!cur) return;
   const s = pageOf(info, cur.idx + 1, true);
   W().history.replaceState(s, '', W().location.href);
+  here = W().location.href;
   remember(s);
 }
 
@@ -273,6 +283,13 @@ function onPop(e: PopStateEvent) {
   // 不是这个网站记的(地址栏里只改了 #):交给 hashchange
   if (!isNavState(s) || !hooks || !cur) return;
   entries.set(s.idx, s);
+  // 图层、投影这些看法不算一步:照换之前的
+  const now = W().location.href;
+  if (hooks.url && here && here !== now) {
+    const u = hooks.url(here, now);
+    if (u !== now) W().history.replaceState(s, '', u);
+  }
+  here = W().location.href;
   if (silent) {
     silent--;
     cur = s;
@@ -320,4 +337,5 @@ export function _resetNav() {
   pending = null;
   silent = 0;
   deferred = null;
+  here = '';
 }
