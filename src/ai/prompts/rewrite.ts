@@ -268,7 +268,7 @@ function openSeas(world: World, civ: Civ, listed: ReadonlySet<number>): string[]
 
 /** 开阔的海面挑出来的几处(按世界缓存:每问一句都要列,地块多时整颗星球扫一遍要一两百毫秒) */
 const seaCache = new WeakMap<World, { p: [number, number]; km: number; cell: number }[]>();
-function seaSpots(world: World): { p: [number, number]; km: number; cell: number }[] {
+export function seaSpots(world: World): { p: [number, number]; km: number; cell: number }[] {
   const hit = seaCache.get(world);
   if (hit) return hit;
   const { cells, v } = landVectors(world);

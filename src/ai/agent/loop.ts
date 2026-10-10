@@ -8,7 +8,7 @@
  * - 最后一轮 toolChoice = 'none':不许再调工具,只能回话(防止来回调个没完);之前调过工具的,先补一句 FINAL_NUDGE 让它直接下结论
  *   (光关掉工具,模型常常照样写一句"让我再查……:"就停了)
  * - 模型回完话,调用方可以看一眼(followUp):话里说要做的事其实没做(比如"现在列出确认单"却没调列单的工具),
- *   就补一句话再问一轮,这一轮可以只给几样工具。一次对话最多补一次;剩下的轮数不够做完再说完就不补
+ *   就补一句话再问一轮,这一轮可以只给几样工具。同一种补话一次对话最多补一次(不同的毛病各补各的);剩下的轮数不够做完再说完就不补
  * - 停下(signal)= 抛 AiError('aborted');已经做完的步骤在 onEvent 里已经报过了
  */
 import { aiChat } from '../client';
@@ -74,6 +74,8 @@ export interface AgentRequest {
 
 /** 回完话以后补的一轮 */
 export interface AgentFollowUp {
+  /** 哪一种补话(同一种只补一次;不给 = 都算同一种) */
+  key?: string;
   say: string;
   /** 下一轮只给这几样工具(不给 = 全部) */
   tools?: string[];
@@ -132,8 +134,8 @@ export async function runAgent(req: AgentRequest): Promise<AgentOutcome> {
   const usage: AiUsage = { inputTokens: 0, outputTokens: 0 };
   const emit = (e: AgentEvent) => req.onEvent?.(e);
   const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
-  /** 补过一轮了 */
-  let followed = false;
+  /** 补过的几种 */
+  const followed = new Set<string>();
   /** 这一轮只给的几样工具(补的那一轮) */
   let only: Set<string> | null = null;
 
@@ -161,10 +163,10 @@ export async function runAgent(req: AgentRequest): Promise<AgentOutcome> {
     }
     const calls = r.toolCalls ?? [];
     // 说完了,但调用方看出话里说要做的事没做:补一句再问一轮(要留够两轮:做那件事,再说完)
-    if (!calls.length && !followed && round + 2 < max && req.followUp) {
+    if (!calls.length && round + 2 < max && req.followUp) {
       const f = req.followUp(r.text, steps);
-      if (f) {
-        followed = true;
+      if (f && !followed.has(f.key ?? '')) {
+        followed.add(f.key ?? '');
         msgs.push({ role: 'assistant', content: r.text }, { role: 'user', content: f.say });
         if (f.tools?.length) only = new Set(f.tools);
         continue;

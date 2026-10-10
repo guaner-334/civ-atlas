@@ -59,14 +59,21 @@ export function saysListed(text: string): boolean {
 
 /** 说要列确认单却没调 propose_edits 时补的一句(下一轮只给 propose_edits) */
 const LIST_NUDGE = {
+  key: 'list',
   say:
     '你刚才说要列确认单,但没有调用 propose_edits,作者那边看不到确认单。要列就现在调用 propose_edits;' +
     '不打算列,就直接用一两句话回答,不要再提确认单。',
   tools: ['propose_edits'],
 };
 
+/** 话里说要挪了落点、重新列("挪到开阔的海面，重新列出确认单");只说"列了确认单"的不算(连着陆地的山脉本来就该连着) */
+export function saysRelisted(text: string): boolean {
+  return saysListed(text) && /重新|再次|再列|改列|挪/.test(text);
+}
+
 /** 列过的确认单要改了再列(落点贴着陆地),它说要重新列却没再调 propose_edits 时补的一句 */
 const RELIST_NUDGE = {
+  key: 'relist',
   say:
     '你说要重新列确认单,但没有再调用 propose_edits,作者看到的还是上一张(落点贴着陆地的那张)。要换就现在调用 propose_edits;' +
     '不换就直接用一两句话回答,不要说重新列了。',
@@ -943,8 +950,8 @@ export async function runAssistant(ctx: AssistantContext, history: readonly Assi
     followUp: (text, steps) => {
       if (!saysListed(text)) return null;
       if (!steps.some((s) => s.tool === 'propose_edits' && s.state === 'ok')) return LIST_NUDGE;
-      // 列过一张,结果让它挪了落点再列:说要重新列却没再调
-      return state.relist ? RELIST_NUDGE : null;
+      // 列过一张,结果让它挪了落点再列:它说了要挪、要重新列却没再调(作者要的就是连着的,照常回答,不补)
+      return state.relist && saysRelisted(text) ? RELIST_NUDGE : null;
     },
   });
   // 收尾的话像没说完("让我再查……:"):补一句,作者知道可以让它接着来

@@ -37,6 +37,7 @@ import {
   parseRewrite,
   rewriteMaterial,
   rewriteRequest,
+  seaSpots,
   toLonLat,
   toWorld,
   unmergeRewrite,
@@ -502,13 +503,10 @@ describe('改写 · 核对 AI 的回复', () => {
   });
 
   it('开阔的海面按世界缓存:同一个世界再列一次不重新扫', () => {
-    const t0 = performance.now();
     const a = rewriteMaterial(world, civ, Y, EMPTY, ['海上加岛'], 'history').text;
-    const first = performance.now() - t0;
-    const t1 = performance.now();
-    const b = rewriteMaterial(world, civ, Y, EMPTY, ['海上加岛'], 'history').text;
-    expect(b).toBe(a);
-    expect(performance.now() - t1).toBeLessThan(Math.max(first, 50));
+    const spots = seaSpots(world);
+    expect(rewriteMaterial(world, civ, Y, EMPTY, ['海上加岛'], 'history').text).toBe(a);
+    expect(seaSpots(world)).toBe(spots);
   });
 
   it('材料:能改地形时列出开阔的海面(离陆地都在 700 公里以上、彼此隔开);建好的世界不列;只有作者提了才说改不了', () => {

@@ -220,6 +220,12 @@ describe('助手的循环', () => {
     out = await runAgent({ feature: '测试', messages: [{ role: 'user', content: '…' }], tools: [echo], maxRounds: 2, followUp: follow });
     expect(seen).toHaveLength(1);
     expect(out.end).toBe('done');
+    // 不同的毛病各补一次
+    const keyed = (text: string) => (text.includes('列出') ? { key: 'a', say: '补 a' } : text.includes('挪') ? { key: 'b', say: '补 b' } : null);
+    seen = script('现在列出：', '我挪一下。', '我再挪一下。');
+    out = await runAgent({ feature: '测试', messages: [{ role: 'user', content: '…' }], tools: [echo], followUp: keyed });
+    expect(seen.map((r) => r.messages.at(-1)!.content)).toEqual(['…', '补 a', '补 b']);
+    expect(out.text).toBe('我再挪一下。');
   });
 
   it('收尾的话像没说完:以冒号结尾,或者最后一段是"让我再查……"这类', () => {
@@ -684,6 +690,24 @@ describe('助手', () => {
     expect(seen[2].tools!.map((t) => t.name)).toEqual(['propose_edits']);
     expect(r.proposal!.items[0].where).toMatch(/^火山在海上/);
     expect(r.text).toBe('我打算在开阔的海面上放一座火山。');
+    // 先说列了却没列、补了一轮列出来的贴着陆地、又说挪了重新列却没再调:两样各补一次
+    const twice = script(
+      '现在为你列出确认单：',
+      { calls: [['propose_edits', { edits: [{ op: 'volcano', at: onLand, why: '…' }] }]] },
+      '落点贴着大陆，我挪到开阔的海面，重新列出确认单。',
+      { calls: [['propose_edits', { edits: [{ op: 'volcano', at: farSea, why: '…' }] }]] },
+      '我打算在开阔的海面上放一座火山。',
+    );
+    const r2 = await runAssistant(ctx({ lock: 'history' }), [], '在海上放一座火山');
+    expect(twice).toHaveLength(5);
+    expect(twice[1].messages.at(-1)!.content).toMatch(/^你刚才说要列确认单/);
+    expect(twice[3].messages.at(-1)!.content).toMatch(/^你说要重新列确认单/);
+    expect(r2.proposal!.items[0].where).toMatch(/^火山在海上/);
+    // 山脉就是要拉在大陆上(连着):只说列了的不补
+    const range = script({ calls: [['propose_edits', { edits: [{ op: 'range', path: [onLand, [onLand[0] + 3, onLand[1]]], why: '…' }] }]] }, '确认单列了这一条，山脉会和大陆连在一起。');
+    const r3 = await runAssistant(ctx({ lock: 'history' }), [], '在这块大陆上拉一道山脉');
+    expect(range).toHaveLength(2);
+    expect(r3.text).toBe('确认单列了这一条，山脉会和大陆连在一起。');
   });
 
   it('说没说列确认单', () => {
