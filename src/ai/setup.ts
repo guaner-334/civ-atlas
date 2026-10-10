@@ -1,5 +1,5 @@
 /**
- * 启动时把 AI 接入层接上(App 里调一次):登记三家服务商、恢复上次选的那家、调用记录改存本地、查一下我们 AI 的积分余额。
+ * 启动时把 AI 接入层接上(App 里调一次):登记内置和自定义服务商、恢复上次选的那家、调用记录改存本地、查一下我们 AI 的积分余额。
  */
 import { registerProvider, setActiveProvider } from './client';
 import { initCallLog } from './callLog';
@@ -8,6 +8,8 @@ import { getSession } from '../account/session';
 import { deepseekProvider } from './providers/deepseek';
 import { bailianProvider } from './providers/bailian';
 import { officialProvider, officialServer, refreshOfficialAccount } from './providers/official';
+
+import { openaiProvider, anthropicProvider } from './providers/custom';
 
 let done = false;
 
@@ -23,6 +25,8 @@ export function setupAi(): void {
   registerProvider(officialProvider);
   registerProvider(deepseekProvider);
   registerProvider(bailianProvider);
+  registerProvider(openaiProvider);
+  registerProvider(anthropicProvider);
   const saved = getAiSettings().provider;
   setActiveProvider(saved === 'mock' && !mockSelectable() ? null : saved);
   void initCallLog();

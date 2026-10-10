@@ -11,6 +11,8 @@ const PROVIDER_NAME: Record<AiProviderKind | 'none', string> = {
   official: '我们的 AI',
   deepseek: 'DeepSeek',
   bailian: '阿里云百炼',
+  openai: '自定义 OpenAI',
+  anthropic: '自定义 Anthropic',
   mock: '测试用假 AI',
 };
 

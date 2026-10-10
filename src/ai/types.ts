@@ -9,7 +9,7 @@
  */
 
 /** official = 我们提供的 AI(积分);deepseek = DeepSeek 官网 API;bailian = 阿里云百炼;mock = 测试用的假 AI(不联网,冒烟 / 单测用) */
-export type AiProviderKind = 'official' | 'deepseek' | 'bailian' | 'mock';
+export type AiProviderKind = 'official' | 'deepseek' | 'bailian' | 'openai' | 'anthropic' | 'mock';
 
 export interface AiMessage {
   /** tool = 工具执行的结果(回给模型看) */
