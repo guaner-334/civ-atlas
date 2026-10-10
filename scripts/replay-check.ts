@@ -1,7 +1,7 @@
 /**
  * 冒烟检查:npx tsx scripts/replay-check.ts
  * 界面骨架(左边侧栏 + 地图、右上图层按钮、图层与投影弹层、世界概览浮层、侧栏里的详情面板)、回放、悬停、点选改名、
- * 存档读档分享、导出、干预、改地形、AI、键盘快捷键、人物(人物卡片、历代君主、编年史里的人名、人物页、世系图、搜人名)、作者标记、作者的人物、信仰图层与宗教卡片、东西相连、多种投影、地球仪、宽屏侧栏收起;手机布局(390×844 触屏:底部的世界 / 详情卡片、时间轴胶囊、双指捏合)。
+ * 存档读档分享、导出、干预、改地形、AI、键盘快捷键、人物(人物卡片、历代君主、编年史里的人名、人物页、世系图、搜人名)、作者标记、作者的人物、信仰图层与宗教卡片、东西相连、多种投影、地球仪、宽屏侧栏收起、浏览器的后退和前进;手机布局(390×844 触屏:底部的世界 / 详情卡片、时间轴胶囊、双指捏合)。
  * 宽屏:存档在侧栏顶上,成书、AI 设置在侧栏右上的"更多"里,导出在地图右上;创建时定下的种子、参数、地形在世界概览的"世界设定"页(只能看)
  * (点侧栏顶上的世界名打开);某一点的完整读数用 window.__wfProbe(悬停卡片只露一两行)。
  */
@@ -4976,6 +4976,119 @@ for (const style of ['realistic', 'fantasy']) {
   if (!s5.shown || s5.pill !== null || s5.tlLeft !== SIDE_ROOM) errs.push(`侧栏收起:点左上角的小按钮没展开(${JSON.stringify(s5)})`);
   if (!nw || Math.abs(nw.x) > 1) errs.push(`侧栏收起:收起着进新建世界,左边的设定不见了(${JSON.stringify(nw)})`);
   if (!nwC || nwC.x + nwC.width > 1 || !nwPill || !nwE || Math.abs(nwE.x) > 1) errs.push(`侧栏收起:新建界面里收起 / 展开不对(${JSON.stringify(nwC)},${nwPill},${JSON.stringify(nwE)})`);
+  await ctx.close();
+}
+
+// 浏览器的后退、前进:我的世界 → 世界 → 国家卡片 → 卡片里点人名,后退一张张退回来(不换画面)、再后退回我的世界,前进再走回去;
+// 卡片的 Esc = 退回没开卡片的那一步;新建里换一颗,后退换回刚才那颗;创建世界后后退跳过新建那几步;
+// 后退到一个在别的页面里删掉的世界:停在我的世界,提示删掉了
+{
+  const ctx = await browser.newContext({ viewport: { width: 1400, height: 820 } });
+  const bp = await ctx.newPage();
+  bp.on('pageerror', (e) => errs.push(`后退:${e.message}`));
+  const ready = (q: Page) => q.waitForFunction(() => (window as any).__wf?.ready, null, { timeout: 60000 });
+  for (const [seed, title] of [[2024, '群星之海'], [7, '落日洋']] as const) {
+    await bp.goto(`${dev.url}/?new=1&seed=${seed}&play=0`);
+    await studioReady(bp);
+    await bp.fill('input[placeholder="给这个世界起个名字"]', title);
+    await bp.keyboard.press('Enter');
+    await createNow(bp);
+    await ready(bp);
+  }
+  // 换一个标签页从头开始(前面的几步不算)
+  await bp.close();
+  const p = await ctx.newPage();
+  p.on('pageerror', (e) => errs.push(`后退:${e.message}`));
+  const at = async () => {
+    await p.waitForTimeout(700);
+    return p.evaluate(() => {
+      const h = history.state as { idx?: number; layer?: { sel?: { kind: string } } } | null;
+      const where = document.querySelector('.studio') ? '新建' : document.querySelector('.mw') ? '我的世界' : '世界';
+      const card = (document.querySelector('.cp-title') as HTMLElement | null)?.innerText.split('\n')[0] ?? '';
+      return { where, idx: h?.idx ?? -1, sel: h?.layer?.sel?.kind ?? '', card, seed: new URLSearchParams(location.search).get('seed') };
+    });
+  };
+  const steps: string[] = [];
+  const step = async (what: string, ok: (s: Awaited<ReturnType<typeof at>>) => boolean) => {
+    const s = await at();
+    steps.push(`${what}:${s.where}${s.card ? `「${s.card}」` : ''}`);
+    if (!ok(s)) errs.push(`后退:${what}不对(${JSON.stringify(s)})`);
+    return s;
+  };
+  await p.goto(`${dev.url}/?play=0`);
+  await p.locator('.mw-card').first().waitFor({ timeout: 15000 });
+  await p.locator('.mw-card', { hasText: '落日洋' }).locator('[data-act=open-world]').click();
+  await ready(p);
+  await step('打开世界', (s) => s.where === '世界' && !s.sel);
+  await p.click('.sidebar [data-polity] >> nth=0');
+  const c1 = await step('国家卡片', (s) => s.sel === 'polity' && !!s.card);
+  const person = p.locator('[data-person]').first();
+  const hasPerson = (await person.count()) > 0;
+  if (hasPerson) {
+    await person.click();
+    await step('点人名', (s) => s.sel === 'person' && s.card !== c1.card);
+    await p.goBack();
+    await step('后退', (s) => s.sel === 'polity' && s.card === c1.card);
+  }
+  await p.goBack();
+  await step('后退', (s) => s.where === '世界' && !s.sel && !s.card);
+  await p.goBack();
+  await step('后退', (s) => s.where === '我的世界');
+  await p.goForward();
+  await ready(p);
+  await step('前进', (s) => s.where === '世界' && !s.sel);
+  await p.goForward();
+  await step('前进', (s) => s.sel === 'polity' && s.card === c1.card);
+  await p.keyboard.press('Escape');
+  const esc = await step('Esc', (s) => s.where === '世界' && !s.sel && !s.card);
+  if (esc.idx !== c1.idx - 1) errs.push(`后退:卡片的 Esc 应退回没开卡片的那一步(第 ${esc.idx} 步,应是第 ${c1.idx - 1} 步)`);
+  // 新建:换一颗,后退换回刚才那颗;创建以后后退跳过新建那几步
+  await p.click('[data-act=home] >> nth=0');
+  await step('左上回我的世界', (s) => s.where === '我的世界');
+  await p.click('[data-act=new-world] >> nth=0');
+  await studioReady(p);
+  const d1 = await step('新建', (s) => s.where === '新建');
+  // 等网址里的种子换好(新建界面一直开着,换的只是星球)
+  const seedIs = (want: string | null, same: boolean) =>
+    p
+      .waitForFunction(([w, eq]) => (new URLSearchParams(location.search).get('seed') === w) === eq, [want, same] as const, { timeout: 30000 })
+      .catch(() => {});
+  await p.click('.studio [data-act=new-seed]');
+  await seedIs(d1.seed, false);
+  const d2 = await step('换一颗', (s) => s.where === '新建' && s.seed !== d1.seed);
+  await p.goBack();
+  await seedIs(d1.seed, true);
+  await step('后退', (s) => s.where === '新建' && s.seed === d1.seed);
+  await p.goForward();
+  await seedIs(d2.seed, true);
+  await step('前进', (s) => s.where === '新建' && s.seed === d2.seed);
+  await studioReady(p);
+  await p.fill('input[placeholder="给这个世界起个名字"]', '北境');
+  await p.keyboard.press('Enter');
+  await createNow(p);
+  await ready(p);
+  await step('创建', (s) => s.where === '世界');
+  await p.goBack();
+  await step('后退', (s) => s.where === '我的世界');
+  // 别的页面里删掉了
+  // 等这个世界生成好(__wf 还是上一个世界的)
+  await p.evaluate(() => ((window as any).__wf = null));
+  await p.locator('.mw-card', { hasText: '群星之海' }).locator('[data-act=open-world]').click();
+  await ready(p);
+  await step('打开另一个世界', (s) => s.where === '世界');
+  await p.click('[data-act=home] >> nth=0');
+  await step('左上回我的世界', (s) => s.where === '我的世界');
+  const other = await ctx.newPage();
+  await other.goto(`${dev.url}/?play=0`);
+  await other.locator('.mw-card', { hasText: '群星之海' }).locator('[data-act=world-menu]').click();
+  await other.locator('[data-act=world-delete]').click();
+  await other.waitForTimeout(300);
+  await other.close();
+  await p.goBack();
+  await step('后退到删掉的世界', (s) => s.where === '我的世界');
+  const gone = await toastText(p, 'nav-gone');
+  if (!/回不到「群星之海」.*已经删掉了/.test(gone)) errs.push(`后退到删掉的世界:没有提示(「${gone}」)`);
+  console.log(`后退:${steps.join(' → ')};删掉的世界提示「${gone}」${hasPerson ? '' : '(卡片里没有人名,没试点人名)'}`);
   await ctx.close();
 }
 

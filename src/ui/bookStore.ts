@@ -7,6 +7,7 @@
  *   stopBook()                    停下正在写的(写到一半的不存)
  *   openBookReader(key | null)    阅读:已写好的那部(笔记的键)/ null = 正在写(或刚写完)的那部
  *   useBook()                     React:整个状态(窗口、阅读、正在写的那部、上次选的文体篇幅)
+ *   useBookReader()               React:只看阅读那一块
  *
  * 写、存、比对历史指纹都在 ai/history.ts;这里只管"哪一部在写、写到哪、写完了没"。
  * 界面:BookDialog.tsx(选项窗口)、BookReader.tsx(阅读)、Corners.tsx 的 BookChip(右上的进度)。
@@ -102,6 +103,18 @@ export function useBook(): BookState {
     },
     getBook,
     getBook,
+  );
+}
+
+/** React:只看阅读开没开、读哪一部(写作进度变了不跟着重新渲染;浏览器的后退记不记一步看它,见 nav.ts) */
+export function useBookReader(): BookState['reader'] {
+  return useSyncExternalStore(
+    (f) => {
+      subs.add(f);
+      return () => subs.delete(f);
+    },
+    () => state.reader,
+    () => state.reader,
   );
 }
 
