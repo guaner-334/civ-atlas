@@ -66,17 +66,24 @@ export function ministerRole(civ: Civ, x: Person): string {
   return `${shortName(p, top?.from ?? x.from ?? x.born)}${top?.title ?? '大臣'}`;
 }
 
-/** 史事里本国得、失了几州(议和:紧挨在 peace 前面的割让) */
+/** 议和时这场战争里本国净得、失了几州(和编年史"议和,得某州等五州"同一个算法:每一州最早的原主、最后是谁打下来的) */
 function peaceSwing(civ: Civ, idx: number, polity: number): { got: number; lost: number } {
   const e = civ.annals[idx];
+  if (!e) return { got: 0, lost: 0 };
+  const firstOwner = new Map<number, number>();
+  const lastBy = new Map<number, number>();
+  for (let j = 0; j < idx; j++) {
+    const c = civ.annals[j];
+    if (c.kind !== 'conquer' || c.war !== e.war || c.region < 0) continue;
+    if (!firstOwner.has(c.region)) firstOwner.set(c.region, c.b);
+    lastBy.set(c.region, c.a);
+  }
   let got = 0;
   let lost = 0;
-  if (!e || !(e.region > 0)) return { got, lost };
-  for (let j = Math.max(0, idx - e.region); j < idx; j++) {
-    const c = civ.annals[j];
-    if (c.kind !== 'conquer' || c.war !== e.war) continue;
-    if (c.a === polity) got++;
-    else if (c.b === polity) lost++;
+  for (const [r, by] of lastBy) {
+    const was = firstOwner.get(r);
+    if (by === polity && was !== polity) got++;
+    else if (was === polity && by !== polity) lost++;
   }
   return { got, lost };
 }
@@ -186,26 +193,36 @@ function deedShort(civ: Civ, x: Person, d: PersonDeed, east: boolean): string {
   }
 }
 
-/** 卡片的"事迹":经手的事各一句短的(按先后,最多三件);没有 = '' */
+/** 卡片的"事迹":经手的事各一句短的(按先后);辅政、拥立了几位的并成一句("辅幼主景宗、道宗");没有 = '' */
 export function deedsShort(civ: Civ, x: Person): string {
   const p = civ.polities[x.polity];
   if (!p || !x.deeds?.length) return '';
   const east = !!p.eastern && p.lineage !== 'khanate';
-  return x.deeds.map((d) => deedShort(civ, x, d, east)).join('，');
+  const out: string[] = [];
+  const merged = new Map<PersonDeed['kind'], number>();
+  for (const d of x.deeds) {
+    const k = merged.get(d.kind);
+    const who = d.person !== undefined ? civ.people?.[d.person] : undefined;
+    if (k !== undefined && who && (d.kind === 'regent' || d.kind === 'enthrone')) {
+      out[k] += '、' + (east ? who.title || who.name : personName(civ, who));
+      continue;
+    }
+    // 迎立的就是辅政的那位幼主:"迎立昭公，辅政"
+    const t = d.kind === 'regent' && x.deeds.some((e) => e.kind === 'enthrone' && e.person === d.person) ? (east ? '辅政' : '摄政') : deedShort(civ, x, d, east);
+    if (out.includes(t)) continue;
+    merged.set(d.kind, out.length);
+    out.push(t);
+  }
+  return out.join('，');
 }
 
-/** 一句为什么有名(人物页一行、名人的"事迹"):最要紧的两件事;没经手大事的写"居相位 N 年" */
+/** 一句为什么有名(人物页一行):经手的事各一句短的;没经手大事的写"任丞相 N 年" */
 export function deedLine(civ: Civ, x: Person): string {
-  const p = civ.polities[x.polity];
-  if (!p) return '';
-  const east = !!p.eastern && p.lineage !== 'khanate';
-  const order: PersonDeed['kind'][] = ['found', 'rank', 'enthrone', 'regent', 'peace', 'capital', 'relief', 'war', 'defend'];
-  const ds = [...(x.deeds ?? [])].sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind) || a.year - b.year).slice(0, 2);
-  if (ds.length) return ds.map((d) => deedText(civ, x, d, east)).join('；');
+  const short = deedsShort(civ, x);
+  if (short) return short;
   const top = topPost(x);
-  const until = x.until ?? civ.endYear;
   if (!top) return '';
-  const n = F(until) - F(top.from);
+  const n = F(x.until ?? civ.endYear) - F(top.from);
   return n >= 1 ? `任${top.title} ${n} 年` : `任${top.title}`;
 }
 
@@ -324,8 +341,8 @@ function generalBio(civ: Civ, x: Person): string {
   if (foes.length) out[out.length - 1] += east ? `，${foes.map((f) => `${f.verb}${polityName(civ.polities[f.polity], f.from)}`).join('、')}` : `，${foes.map((f) => `${f.verb === '伐' ? '出征' : '抵御'}${polityName(civ.polities[f.polity], f.from)}`).join('、')}`;
   const { took, held } = generalTally(civ, x);
   const deeds = [took ? `攻取${cnNumber(took)}州` : '', held ? `击退来攻${cnNumber(held)}次` : ''].filter(Boolean).join('，');
-  if (deeds) out.push(took + held >= 3 ? (east ? `前后${deeds}` : `先后${deeds}`) : deeds);
   for (let k = 1; k < posts.length; k++) out.push(east ? `${F(posts[k].from)} 年升${posts[k].title}` : `${F(posts[k].from)} 年升任${posts[k].title}`);
+  if (deeds) out.push(took + held >= 3 ? (east ? `前后${deeds}` : `先后${deeds}`) : deeds);
   const last = cs[cs.length - 1].until;
   const age = x.died !== undefined ? ageAt(x, x.died) : 0;
   if (x.fate === 'battle' && x.died !== undefined) out.push(east ? `${F(x.died)} 年战死，时年 ${age} 岁` : `${F(x.died)} 年阵亡，时年 ${age} 岁`);

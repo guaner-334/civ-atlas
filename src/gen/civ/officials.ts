@@ -57,6 +57,8 @@ const YIELD = 0.4;
 const HOME_CAPITAL = 0.2;
 /** 有号的机会:大臣 / 将领 */
 const ART: [number, number] = [0.4, 0.12];
+/** 没经手大事的大臣做到次一级就止的机会 */
+const CAPPED = 0.45;
 
 // 随机数用途
 const U_COUNT = 0;
@@ -72,6 +74,7 @@ const U_ART = 9;
 const U_ART2 = 10;
 const U_DEPT = 11;
 const U_POSTS = 12;
+const U_CAP = 13;
 /** keyed4 最后一位:大臣 / 将领 */
 const K_MINISTER = 0;
 const K_GENERAL = 1;
@@ -494,11 +497,12 @@ function civilPosts(p: Polity, sys: System, d: Draft, until: Year, tops: [Year, 
     const rank = Math.min(lad.length - 2, Math.max(0, steps - below + k));
     out.push({ title: lad[Math.max(0, rank)] ?? lad[0], from: y });
   }
-  // 最高那级:已经有人在任就写次一级
+  // 最高那级:已经有人在任就写次一级;没经手开国、辅政、劝进、拥立这类大事的,有一些做到次一级就止(尚书、掌玺大臣……),不是人人拜相
   const tier = clampTier(polityTierAt(p, topAt));
-  const busy = tops.some(([a, b]) => a < until && b > topAt);
-  let title = busy ? (TOP_ALT[sys][tier] ?? top[top.length - 2]) : top[top.length - 1];
-  if (!busy) tops.push([topAt, until]);
+  const capped = !major && top.length >= 2 && r(U_CAP) < CAPPED;
+  const busy = !capped && tops.some(([a, b]) => a < until && b > topAt);
+  let title = capped ? top[top.length - 2] : busy ? (TOP_ALT[sys][tier] ?? top[top.length - 2]) : top[top.length - 1];
+  if (!busy && !capped) tops.push([topAt, until]);
   if (!title) title = top[top.length - 1];
   out.push({ title, from: topAt });
   // 东方帝国级的尚书按经手的事挑哪一部
@@ -519,16 +523,21 @@ function generalPosts(p: Polity, g: Person, annals: readonly Annal[], r: (use: n
   let wins = 0;
   for (const c of g.commands ?? []) {
     const lad = MILITARY[sys][clampTier(polityTierAt(p, c.from))];
-    let k = 0;
-    while (k + 1 < lad.length && wins >= PROMOTE[k + 1]) k++;
-    const title = lad[k].replace('*', wing);
-    if (!out.length || out[out.length - 1].title !== title) out.push({ title, from: c.from });
-    // 这一任打赢了几仗:攻方攻下的州、守方守住的仗
+    const rise = (from: Year) => {
+      let k = 0;
+      while (k + 1 < lad.length && wins >= PROMOTE[k + 1]) k++;
+      const title = lad[k].replace('*', wing);
+      if (!out.length || out[out.length - 1].title !== title) out.push({ title, from });
+    };
+    rise(c.from);
+    // 打赢一仗(攻方攻下一州、守方守住)记一功,功够了当年就升
     for (let i = c.first; i <= c.last; i++) {
       const a = annals[i];
       if (!a || a.war !== c.war) continue;
-      if (a.kind === 'conquer' && a.a === g.polity) wins++;
-      else if (a.kind === 'battle' && a.b === g.polity) wins++;
+      if ((a.kind === 'conquer' && a.a === g.polity) || (a.kind === 'battle' && a.b === g.polity)) {
+        wins++;
+        rise(a.year);
+      }
     }
   }
   return out;
