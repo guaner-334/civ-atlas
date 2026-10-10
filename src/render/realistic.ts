@@ -704,19 +704,22 @@ function paintRealistic(ctx: CanvasRenderingContext2D, r: Raster, cap?: GlobeCap
         // 地面纹理(约 −1 ~ 1):大片的岩性(压出边界)+ 细层
         const fn = fine.at(px);
         const dry = smoothstep(RIP_P1, RIP_P0, pk);
-        const tx = TEX_GEO * Math.tanh(GEO_SHARP * (geo.at(px) + GEO_ROUGH * fn)) + TEX_FINE * fn + TEX_STREAK * dry * streak.at(px);
+        const tx = TEX_GEO * softClip(GEO_SHARP * (geo.at(px) + GEO_ROUGH * fn)) + TEX_FINE * fn + (dry > 0 ? TEX_STREAK * dry * streak.at(px) : 0);
         // 离河多近:谷底压暗;干旱地方的河岸那一窄条按湿润的颜色画(像沙漠里的尼罗河)
         const bk = bank ? bank[k] / 255 : 0;
-        const rip = smoothstep(RIP_B0 + RIP_JAG * fn, RIP_B1, bk) * dry;
+        // 离河远的(大多数地方)bk = 0,下面几项都是 0,跳过不算
+        const rip = bk > 0 && dry > 0 ? smoothstep(RIP_B0 + RIP_JAG * fn, RIP_B1, bk) * dry : 0;
         // 1. 生物群落底色:按 温度 × 降水 查连续调色板,群落之间自然渐变;交界按纹理打散成一片片(亮处当作干一点)
-        let pp = pk * Math.exp(-ECO_P * tx);
+        const ex = -ECO_P * tx;
+        let pp = pk * (1 + ex * (1 + ex * (0.5 + ex / 6))); // e^ex(|ex| 不到 0.3,展开到三次就够)
         if (rip > 0 && pp < RIP_WET) pp *= Math.pow(RIP_WET / pp, rip);
         // 2. 在这一格的色带上挑深浅:纹理(干旱地方对比更强),再加上凹处(谷)亮、凸处(脊)暗
         const cav = (relief[kl] + relief[kr] + relief[ku] + relief[kd]) * 0.25 - relief[k];
-        const tb = 0.5 + (TEX_AMP_WET + (TEX_AMP_DRY - TEX_AMP_WET) * dry) * tx + TEX_CAV * Math.max(-1, Math.min(1, cav / (CAV_REF * pxW))) + ALLU_LIGHT * smoothstep(ALLU_B0, ALLU_B1, bk);
+        const tb = 0.5 + (TEX_AMP_WET + (TEX_AMP_DRY - TEX_AMP_WET) * dry) * tx + TEX_CAV * Math.max(-1, Math.min(1, cav / (CAV_REF * pxW))) + (bk > ALLU_B0 ? ALLU_LIGHT * smoothstep(ALLU_B0, ALLU_B1, bk) : 0);
         paletteColor(lut, temp[k] + ECO_T * tx, pp, tb, col);
         // 降水多更深;谷底压暗
-        const v = (1.03 - Math.min(0.12, pk / 25000)) * (1 - VALLEY_DARK * smoothstep(VALLEY_E0, VALLEY_E1, level[k] - relief[k]));
+        const low = level[k] - relief[k];
+        const v = (1.03 - Math.min(0.12, pk / 25000)) * (low > VALLEY_E0 ? 1 - VALLEY_DARK * smoothstep(VALLEY_E0, VALLEY_E1, low) : 1);
         let cr = col[0] * v;
         let cg = col[1] * v;
         let cb = col[2] * v;
@@ -1048,6 +1051,14 @@ class RowNoise {
     }
     return v;
   }
+}
+
+/** 像 tanh 的 S 形(−1 ~ 1;有理式,比 Math.tanh 快,哪个平台算出来都一样) */
+function softClip(x: number): number {
+  if (x >= 3) return 1;
+  if (x <= -3) return -1;
+  const x2 = x * x;
+  return (x * (27 + x2)) / (27 + 9 * x2);
 }
 
 /** 地面纹理在色带上挪多少(0.5 ± 这么多 × 纹理):湿润地方、干旱地方 */
