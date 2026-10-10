@@ -1,20 +1,20 @@
 /**
  * 人物页的整理(纯计算,不碰 DOM):人物卡片、世界概览的人物页、国家卡片的历代君主、搜索共用。
  *
- * - peopleIndex     每国的历代君主(按即位先后)、每国的将领(按第一次领兵先后)、每场战争的宣战史事
- * - personSpan      一个人"在台上"的年份:君主 = 在位;将领 = 第一次领兵到最后一次卸任
+ * - peopleIndex     每国的历代君主(按即位先后)、每国的将领(按第一次领兵先后)、名臣(按入仕先后)、每场战争的宣战史事
+ * - personSpan      一个人"在台上"的年份:君主 = 在位;将领 = 第一次领兵到最后一次卸任;名臣 = 在朝
  * - commandFoes     领兵打的是哪国:攻方"伐"、守方"抗"
  * - riseText        君主怎么上台的一句:"继兄明宗即位""起兵代大衍，开国""叛萨兰提亚帝国自立"
  * - personFame      谁算名人、为什么(famousPeople = 全世界的名人,新的在前)。只看推演里真发生的事,打分够 FAME_MIN 算:
  *     君主:开创的朝代称过帝 +6(开国 / 起兵建立新朝);复国 +4;叛离自立、篡位 +3;在位时本国攻下 4 州以上 +州数;
  *           亲征 +1;称大帝、殉国 +3
  *     将领:攻下 3 州以上 +2×州数;击退来攻 3 次以上 +2×次数;战死 +3
- *   名人的"事迹"(卡片概况第一行)只写为什么出名;人物页的一行(fameLine)前面加国名和身份、伐谁抗谁。
+ *   名人的"事迹"(卡片概况第一行)只写为什么出名;人物页的一行(fameLine)前面加国名和身份、伐谁抗谁。名臣不算名人(有自己的一档)。
  */
 import type { Annal, Civ, Person, PersonCommand, Year } from './types';
 import { polityName, polityShortTitle, polityTierAt } from './growth';
 import { cnNumber } from './chronicle';
-import { isConsul, kinOf, rulerRef, rulerShort } from './peopleText';
+import { isConsul, kinOf, personName, rulerRef, rulerShort } from './peopleText';
 
 /** 够这么多分算名人 */
 export const FAME_MIN = 6;
@@ -24,6 +24,8 @@ export interface PeopleIndex {
   rulers: Person[][];
   /** 每国的将领(按第一次领兵先后) */
   generals: Person[][];
+  /** 每国的名臣(按入仕先后) */
+  ministers: Person[][];
   /** 战争编号 → 宣战那条史事 */
   wars: Map<number, Annal>;
   /** 每国在战争里攻下州的年份(按先后) */
@@ -38,19 +40,22 @@ export function peopleIndex(civ: Civ): PeopleIndex {
   const hit = indexCache.get(key);
   if (hit && hit.rulers.length === civ.polities.length) return hit;
   const n = civ.polities.length;
-  const ix: PeopleIndex = { rulers: [], generals: [], wars: new Map(), gains: [] };
+  const ix: PeopleIndex = { rulers: [], generals: [], ministers: [], wars: new Map(), gains: [] };
   for (let i = 0; i < n; i++) {
     ix.rulers.push([]);
     ix.generals.push([]);
+    ix.ministers.push([]);
     ix.gains.push([]);
   }
   for (const x of civ.people ?? []) {
     if (x.polity < 0 || x.polity >= n) continue;
     if (x.role === 'ruler') ix.rulers[x.polity].push(x);
+    else if (x.role === 'minister') ix.ministers[x.polity].push(x);
     else if (x.commands?.length) ix.generals[x.polity].push(x);
   }
   for (const rs of ix.rulers) rs.sort((a, b) => (a.from ?? 0) - (b.from ?? 0) || a.id - b.id);
   for (const gs of ix.generals) gs.sort((a, b) => a.commands![0].from - b.commands![0].from || a.id - b.id);
+  for (const ms of ix.ministers) ms.sort((a, b) => a.from! - b.from! || a.id - b.id);
   for (const e of civ.annals) {
     if (e.kind === 'war' && e.war >= 0 && !ix.wars.has(e.war)) ix.wars.set(e.war, e);
     if (e.kind === 'conquer' && e.war >= 0 && e.a >= 0 && e.a < n) ix.gains[e.a].push(e.year);
@@ -59,9 +64,9 @@ export function peopleIndex(civ: Civ): PeopleIndex {
   return ix;
 }
 
-/** 一个人在台上的年份:君主 = 即位到失位(还在位 = null);将领 = 第一次领兵到最后一次卸任 */
+/** 一个人在台上的年份:君主 = 即位到失位(还在位 = null);将领 = 第一次领兵到最后一次卸任;名臣 = 入仕到去职(还在朝 = null) */
 export function personSpan(x: Person): { from: Year; until: Year | null } {
-  if (x.role === 'ruler') return { from: x.from ?? x.born, until: x.until ?? null };
+  if (x.role === 'ruler' || x.role === 'minister') return { from: x.from ?? x.born, until: x.until ?? null };
   const cs = x.commands ?? [];
   if (!cs.length) return { from: x.born, until: x.died ?? null };
   return { from: cs[0].from, until: cs[cs.length - 1].until };
@@ -211,7 +216,7 @@ function fameMap(civ: Civ): Map<number, Fame> {
   const out = new Map<number, Fame>();
   const ix = peopleIndex(civ);
   for (const x of civ.people ?? []) {
-    if (x.polity < 0 || !civ.polities[x.polity] || x.role === 'prince') continue;
+    if (x.polity < 0 || !civ.polities[x.polity] || x.role === 'prince' || x.role === 'minister') continue;
     const deeds: string[] = [];
     let score = 0;
     if (x.role === 'ruler') {
@@ -316,7 +321,7 @@ export interface Mention {
 /**
  * 纪事正文里写到的人名切出来(界面上变成能点的蓝字):ids = 这一条写到的人物(ChronicleEntry.people),
  * skip = 不切的那个人(人物卡片里他自己),year = 这一条的年份(给了就连国名带称号一起切:"大景明宗")。
- * 每个人只切第一次出现;东方君主按名字、称号找("大景圣宗崩……其孙柳珩琅即位"),西幻按名字 + 序数找("阿尔德里克三世");
+ * 每个人只切第一次出现;东方君主按名字、称号、称号 + 名字找("大景圣宗崩……其孙柳珩琅即位""宣宗柳珩琅遇弑"),西幻按名字 + 序数找("阿尔德里克三世");
  * 先出现的先切,同一处长的先切
  */
 export function personMentions(civ: Civ, text: string, ids: readonly number[] | undefined, skip = -1, year?: Year): Mention[] {
@@ -324,7 +329,7 @@ export function personMentions(civ: Civ, text: string, ids: readonly number[] | 
   for (const id of ids ?? []) {
     const x = civ.people?.[id];
     if (!x || id === skip) continue;
-    const forms = new Set<string>([rulerShort(civ, x), x.name]);
+    const forms = new Set<string>([personName(civ, x), rulerShort(civ, x), x.name]);
     if (x.role === 'ruler' && x.title) {
       forms.add(x.title);
       if (year !== undefined && civ.polities[x.polity]?.eastern) forms.add(rulerRef(civ, x, year));

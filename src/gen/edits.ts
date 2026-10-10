@@ -176,8 +176,9 @@
  *      没改地形的世界和 7 逐字节相同;改过地形的世界历史换了一遍。
  *   9:君主有了世系(谁是谁的父亲,civ/lineage.ts),补上没即位的宗室;疆域、兴亡、君主和将领都和 8 一样,
  *      只是继位时年纪对不上的"其弟 / 其兄"改成了"其侄 / 叔父"这类(每个世界几十句)。
- *  10:将领不再重名(civ/people.ts):和整个世界的君主、先前的将领尽量不撞,至少和本国君主、前后几百年的同名人物错开;
- *      地形、历史不变,撞了名的将领换了名字。
+ *  10:每一朝有了几位名臣(civ/officials.ts:文臣,有字号、籍贯、官职、生平),将领也有了字号、籍贯、官职、生平;
+ *      将领不再重名:和此前的君主、先前的将领名臣尽量不撞,至少和本国君主、前后几百年的同名人物错开;
+ *      疆域、兴亡、君主都和 9 一样,编年史里议和、幼主即位、遇弑迎立、称王称帝几类写上了经手的名臣,撞了名的将领换了名字。
  */
 import type { Civ, Culture, Faith, Place, Polity, Regions, Settlement } from './civ/types';
 import type { AuthorCharacter } from './characters';
@@ -210,7 +211,7 @@ export const GENERATOR_CHANGES: Readonly<Record<number, { change: GeneratorChang
   7: { change: 'climate' },
   8: { change: 'history', edited: true },
   9: { change: 'chronicle' },
-  10: { change: 'names' },
+  10: { change: 'chronicle' },
 };
 
 /** 干预的种类(见文件头的表) */

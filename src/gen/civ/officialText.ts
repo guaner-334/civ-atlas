@@ -2,25 +2,21 @@
  * 名臣、将领的字号、官职、生平怎么写(纯计算,不碰 DOM;数据见 officials.ts)。国名、城名、君主的称呼一律现查,作者改了名跟着变。
  *
  * - personArt      号:籍贯城名 + 后半("揽霞居士");没有号 = ''
- * - personByname   西幻的别称:"索伦纳的阿尔德里克"(没有字号的语感用籍贯区分同名的人);东方 = ''
  * - postAt / topPost  某一年的官职 / 做过最高的官
- * - ministerRole   "大景丞相"(国名按做到最高那个官那年的简称)
+ * - ministerRole   "大景丞相"(国名按做到最高那个官那年的简称;在 peopleText.ts,这里转出)
  * - deedLine       一句为什么有名(人物页一行、名人的"事迹")
+ * - ministerFate   卡片上"结局"一行
  * - personBio      一段生平(名臣、将领):籍贯字号、一级级的官、经手的事、结局。东方写得文一些("拜丞相""卒于任上"),西幻、共和国平实些
  */
 import type { Civ, Person, PersonDeed, PersonPost, Polity, Year } from './types';
 import { polityName, polityShortTitle, polityTierAt } from './growth';
 import { cnNumber } from './chronicle';
-import { ageAt, personName } from './peopleText';
+import { ageAt, ministerRole, personName } from './peopleText';
 import { commandFoes, generalTally } from './peopleInfo';
 import { artName } from './officials';
 
 const F = Math.floor;
 const clampTier = (t: number) => Math.max(0, Math.min(3, t));
-
-function polityOfPerson(civ: Civ, x: Person): Polity | undefined {
-  return civ.polities[x.polity];
-}
 
 function cityOf(civ: Civ, id: number | undefined): string {
   return id !== undefined && id >= 0 && id < civ.settlements.length ? civ.settlements[id].name || '' : '';
@@ -37,14 +33,6 @@ export function personArt(civ: Civ, x: Person): string {
   return x.art && city ? artName(city, x.art) : '';
 }
 
-/** 西幻的别称:"索伦纳的阿尔德里克"(名臣、将领;东方、没有籍贯的 = '') */
-export function personByname(civ: Civ, x: Person): string {
-  const p = polityOfPerson(civ, x);
-  const city = cityOf(civ, x.home);
-  if (!p || p.eastern || !city || (x.role !== 'minister' && x.role !== 'general')) return '';
-  return `${city}的${x.name}`;
-}
-
 /** 某一年的官职(还没入仕 = undefined) */
 export function postAt(x: Person, year: Year): PersonPost | undefined {
   let out: PersonPost | undefined;
@@ -58,13 +46,7 @@ export function topPost(x: Person): PersonPost | undefined {
   return ps[ps.length - 1];
 }
 
-/** "大景丞相""兹拉季纳首相"(国名按做到最高那个官那年) */
-export function ministerRole(civ: Civ, x: Person): string {
-  const p = polityOfPerson(civ, x);
-  const top = topPost(x);
-  if (!p) return top?.title ?? '大臣';
-  return `${shortName(p, top?.from ?? x.from ?? x.born)}${top?.title ?? '大臣'}`;
-}
+export { ministerRole };
 
 /** 议和时这场战争里本国净得、失了几州(和编年史"议和,得某州等五州"同一个算法:每一州最早的原主、最后是谁打下来的) */
 function peaceSwing(civ: Civ, idx: number, polity: number): { got: number; lost: number } {
@@ -281,6 +263,40 @@ function ministerEnd(civ: Civ, x: Person, east: boolean): string {
     }
     default:
       return after(east ? `${F(until)} 年去职` : `${F(until)} 年离任`);
+  }
+}
+
+/** 卡片上的"结局"一行:"致仕，2551 年卒""2537 年卒于任上""殉国""降萨尔斯坦帝国";还在朝 = '' */
+export function ministerFate(civ: Civ, x: Person): string {
+  const p = civ.polities[x.polity];
+  const until = x.until;
+  if (!p || until === undefined) return '';
+  const east = !!p.eastern && p.lineage !== 'khanate';
+  const later = x.died !== undefined && x.died > until + 1 ? (east ? `，${F(x.died)} 年卒` : `，${F(x.died)} 年去世`) : '';
+  const fallen = p.ended !== undefined && until === p.ended;
+  switch (x.fate) {
+    case 'died':
+      return east ? `${F(until)} 年卒于任上` : `${F(until)} 年在任上去世`;
+    case 'retired':
+      return (east ? '致仕' : '卸任') + later;
+    case 'deposed':
+      return (east ? '新君即位，罢官' : '新君即位后被免职') + later;
+    case 'fell':
+      return '殉国';
+    case 'surrendered': {
+      const c = fallen ? civ.annals.find((a) => a.kind === 'fall' && a.a === p.id)?.b : undefined;
+      const to = c !== undefined && c >= 0 && civ.polities[c] ? polityName(civ.polities[c], until) : '';
+      return (to ? (east ? `降${to}` : `归降${to}`) : east ? '归顺新朝' : '效忠新王室') + later;
+    }
+    case 'fled':
+      return (east ? '归隐不仕' : '从此隐居') + later;
+    case 'merged': {
+      const m = civ.annals.find((a) => a.kind === 'merge' && a.b === p.id)?.a;
+      const to = m !== undefined && m >= 0 && civ.polities[m] ? polityName(civ.polities[m], until) : '';
+      return (to ? `随国并入${to}` : '随国归附') + later;
+    }
+    default:
+      return (east ? '去职' : '离任') + later;
   }
 }
 

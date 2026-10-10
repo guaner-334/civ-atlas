@@ -58,7 +58,7 @@ function fingerprint(seed: number): Record<string, string> {
 }
 
 /**
- * 期望值是 GENERATOR_VERSION 10 算的(civ.religion 是后加的字段,加它时别的字段一个没变;9 只改了 civ.people:君主的父亲和没即位的宗室;10 也只改了 civ.people:撞名的将领换了名字)。经纬度换算、沿大圆走、球面三角形面积这些三角函数都舍入到 24 位,
+ * 期望值是 GENERATOR_VERSION 10 算的(civ.religion 是后加的字段,加它时别的字段一个没变;9 只改了 civ.people:君主的父亲和没即位的宗室;10 也只改了 civ.people:多了名臣,将领有了字号、籍贯、官职,撞名的将领换了名字)。经纬度换算、沿大圆走、球面三角形面积这些三角函数都舍入到 24 位,
  * 推演里的超越函数也一样,所以各 CPU、各浏览器逐位一致
  */
 const EXPECTED: Record<number, Record<string, string>> = {
@@ -90,7 +90,7 @@ const EXPECTED: Record<number, Record<string, string>> = {
     'civ.endYear': 'c1d83dcab0a1',
     'civ.habitat': '0770b4ec6d1f',
     'civ.log': 'e059de3dfa59',
-    'civ.people': 'b95733a22b76',
+    'civ.people': '0f22ff5bf67a',
     'civ.places': '018f21a6463c',
     'civ.polities': '2bba2c2cb6d5',
     'civ.polity': 'd506de907789',
@@ -131,7 +131,7 @@ const EXPECTED: Record<number, Record<string, string>> = {
     'civ.endYear': 'c1d83dcab0a1',
     'civ.habitat': 'a791d67c4be9',
     'civ.log': '1227cd94780e',
-    'civ.people': '774bb120e6b4',
+    'civ.people': '44667fd09c4a',
     'civ.places': 'b0c4068af015',
     'civ.polities': 'd028bf30a173',
     'civ.polity': '62c35f67f5cf',

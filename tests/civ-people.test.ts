@@ -216,11 +216,12 @@ describe.each([7, 2024])('人物 · seed=%i', (seed) => {
       expect(e.importance).toBe(1);
       expect(e.polities).toHaveLength(1);
       expect(ids.has(e.id)).toBe(false);
-      expect(e.text).toMatch(/(即位|继为|继任)/);
+      // 先君遇弑、名臣迎立的:"…;丞相某某迎立其兄某某,是为某宗"
+      expect(e.text).toMatch(/(即位|继为|继任|迎立|拥立)/);
       // 新君比先君年长:不会是弟、子、孙、侄
       const x = P[e.id - civ.annals.length];
       const prev = rulersOf(civ, x.polity).find((r) => r.until === x.from)!;
-      if (civ.polities[x.polity].lineage !== 'republic' && x.born < prev.born) expect(e.text).not.toMatch(/;(其(弟|子|孙|侄)|太子|世子)/);
+      if (civ.polities[x.polity].lineage !== 'republic' && x.born < prev.born) expect(e.text).not.toMatch(/(;|迎立|拥立)(其(弟|子|孙|侄)|太子|世子)/);
       expect(e.text).not.toMatch(/undefined|NaN/);
     }
     // 并进去之后照样按年份排好
@@ -302,6 +303,8 @@ describe.each([7, 2024])('世系 · seed=%i', (seed) => {
     const reigns = reignEntries(civ);
     let n = 0;
     let none = 0;
+    // 亲属紧跟在分号后面,名臣迎立的在"迎立 / 拥立"后面
+    const after = (s: string) => new RegExp(`;([^;,]*(迎立|拥立))?(${s})`);
     for (const e of reigns) {
       const x = P[e.id - civ.annals.length];
       if (civ.polities[x.polity].lineage === 'republic') continue;
@@ -309,9 +312,9 @@ describe.each([7, 2024])('世系 · seed=%i', (seed) => {
       const k = kinOf(civ, prev, x);
       if (!k) {
         none++;
-        expect(e.text).toContain(`;宗室`);
-      } else if (k === '子') expect(e.text).toMatch(/;(太子|世子|其子)/);
-      else expect(e.text).toContain(`;其${k}`);
+        expect(e.text).toMatch(after('宗室'));
+      } else if (k === '子') expect(e.text).toMatch(after('太子|世子|其子'));
+      else expect(e.text).toMatch(after(`其${k}`));
       n++;
     }
     expect(n).toBeGreaterThan(100);

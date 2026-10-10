@@ -1,15 +1,21 @@
 /**
  * 名臣(gen/civ/officials.ts)和名臣、将领的字号、籍贯、官职、生平(officialText.ts):
  * 有大臣的国家都排得出名臣;年纪、在朝的年份说得通;官职一级级往上;经手的事在他在朝那几年;籍贯是那时本国的城;
- * 号不重;生平写得干净;作者干预某一年,之前已经去职的名臣、将领不变。
+ * 号不重;生平写得干净;作者干预某一年,之前已经去职的名臣、将领不变;
+ * 编年史里经手议和、辅政、迎立、劝进的名臣写进那一条;人物页、搜索、稳定键认得名臣。
  */
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
 import type { Person } from '../src/gen/civ/types';
 import { polityTierAt } from '../src/gen/civ/growth';
-import { deedLine, deedsShort, ministerRole, personArt, personBio } from '../src/gen/civ/officialText';
+import { deedLine, deedsShort, ministerFate, ministerRole, personArt, personBio } from '../src/gen/civ/officialText';
+import { buildChronicle, reignEntries, type ChronicleEntry } from '../src/gen/civ/chronicle';
+import { famousPeople, peopleIndex, personSpan } from '../src/gen/civ/peopleInfo';
+import { personRoleShort } from '../src/gen/civ/peopleText';
 import { polityKey } from '../src/gen/edits';
+import { isPersonKey, personKey, resolvePersonKey } from '../src/gen/characters';
+import { searchCiv } from '../src/ui/searchIndex';
 
 const worlds = new Map<number, World>();
 function world(seed: number): World {
@@ -154,6 +160,54 @@ describe.each([7, 2024])('名臣 · seed=%i', (seed) => {
     // 君主、宗室没有生平这一段
     const r = civ.people!.find((x) => x.role === 'ruler')!;
     expect(personBio(civ, r)).toBe('');
+  });
+
+  it('编年史:名臣经手的议和、辅政、迎立写进那一条(带官职),人名在这一条的人物里', () => {
+    const civ = civOf(seed);
+    const all: ChronicleEntry[] = [...buildChronicle(civ).flatMap((e) => [e, ...(e.children ?? [])]), ...reignEntries(civ)];
+    const counts = { peace: 0, regent: 0, enthrone: 0 };
+    for (const x of ministersOf(civ)) {
+      for (const d of x.deeds ?? []) {
+        let e: ChronicleEntry | undefined;
+        if (d.kind === 'peace') e = all.find((c) => c.kind === 'peace' && c.id === d.annal && /议和/.test(c.text));
+        else if (d.kind === 'regent' || d.kind === 'enthrone') e = all.find((c) => c.kind === 'reign' && c.people?.[1] === d.person);
+        else continue;
+        if (!e) continue;
+        counts[d.kind]++;
+        expect(e.people, `${x.name} ${d.kind}`).toContain(x.id);
+        expect(e.text, `${x.name} ${d.kind}`).toContain(x.name);
+        // 官职按那一年
+        const title = [...(x.posts ?? [])].reverse().find((p) => p.from <= d.year + EPS)!.title;
+        expect(e.text, `${x.name} ${d.kind}`).toContain(title + x.name);
+      }
+    }
+    expect(counts.peace).toBeGreaterThan(3);
+    expect(counts.regent + counts.enthrone).toBeGreaterThan(10);
+  });
+
+  it('人物页、搜索、稳定键:名臣一档按入仕先后;不算名人;搜名字找得到;重推后按稳定键找回', () => {
+    const civ = civOf(seed);
+    const ix = peopleIndex(civ);
+    const ms = ministersOf(civ);
+    expect(ix.ministers.flat().length).toBe(ms.length);
+    for (const list of ix.ministers) for (let i = 1; i < list.length; i++) expect(list[i].from!).toBeGreaterThanOrEqual(list[i - 1].from!);
+    expect(famousPeople(civ).some((f) => civ.people![f.id].role === 'minister')).toBe(false);
+    for (const x of ms) {
+      const span = personSpan(x);
+      expect(span.from).toBe(x.from);
+      expect(span.until).toBe(x.until ?? null);
+      expect(personRoleShort(civ, x)).toBe(ministerRole(civ, x));
+      expect(ministerFate(civ, x) === '', x.name).toBe(x.until === undefined);
+      expect(ministerFate(civ, x)).not.toMatch(/undefined|NaN/);
+    }
+    const x = ms[Math.floor(ms.length / 2)];
+    const hit = searchCiv(civ, x.name, x.from!).find((h) => h.kind === 'person' && h.id === x.id);
+    expect(hit, x.name).toBeDefined();
+    expect(hit!.sub.startsWith(ministerRole(civ, x))).toBe(true);
+    const key = personKey(civ, x.id);
+    expect(key).toContain('|minister|');
+    expect(isPersonKey(key)).toBe(true);
+    expect(resolvePersonKey(generateCiv(world(seed)), key)).toBe(x.id);
   });
 });
 
