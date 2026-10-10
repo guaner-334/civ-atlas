@@ -332,6 +332,11 @@ button.ast-row.link:hover {
   opacity: 0.6;
 }
 
+/* 写史书时钉在标题下面的那一行 */
+.ast-pin {
+  margin: 0 14px 10px;
+}
+
 /* 写史书的进度条 */
 .ast-bar {
   display: block;
@@ -559,6 +564,9 @@ button.ast-row.link:hover {
 }
 .ast-panel.phone .ast-head {
   padding: 8px 16px;
+}
+.ast-panel.phone .ast-pin {
+  margin: 0 16px 10px;
 }
 .ast-panel.phone .ast-log {
   gap: 9px;
