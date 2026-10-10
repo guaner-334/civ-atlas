@@ -322,39 +322,26 @@ describe('照导入的图生成', () => {
   });
 });
 
-describe('当前世界的草图(editsStore):导入图片', () => {
-  it('导入、再导入换掉的撤销时放回去;能撤几次;去掉只去图片;一格也没盖到的不导入', async () => {
-    const { addSketchStroke, clearEdits, getEdits, redoSketchImage, removeSketchImage, setSketchImage, sketchImageSteps, undoSketchImage, undoSketchStroke } = await import(
-      '../src/ui/editsStore'
-    );
+describe('当前世界的草图(editsStore):照手绘图生成', () => {
+  it('图是底子:铺在所有笔画底下、没盖到的地方都是海;换一张时笔画留着;只清笔画时图留着;一格也没盖到的不用', async () => {
+    const { addSketchStroke, clearEdits, clearSketchStrokes, getEdits, setSketchBase, undoSketchStroke } = await import('../src/ui/editsStore');
     clearEdits();
     const a = layerWith(SKETCH_SEA, [100, 50, 300, 150, SKETCH_LAND]);
     const b = layerWith(SKETCH_SEA, [10, 10, 60, 60, SKETCH_LAND]);
-    expect(setSketchImage('空的.png', layerWith(SKETCH_NONE))).toBe(false);
+    expect(setSketchBase('空的.png', layerWith(SKETCH_NONE))).toBe(false);
     expect(getEdits().sketch).toBeUndefined();
-    expect(sketchImageSteps()).toBe(0);
-    expect(setSketchImage('a.png', a)).toBe(true);
-    expect(getEdits().sketch).toEqual({ rest: 'auto', strokes: [], image: { name: 'a.png', cells: encodeLayer(a) } });
+    expect(setSketchBase('a.png', a)).toBe(true);
+    expect(getEdits().sketch).toEqual({ rest: 'sea', strokes: [], image: { name: 'a.png', cells: encodeLayer(a) } });
     addSketchStroke({ kind: 'mountain', r: 16, pts: [5, 5] });
-    expect(setSketchImage('b.png', b)).toBe(true);
-    const imgB = getEdits().sketch!.image!;
-    expect(imgB).toEqual({ name: 'b.png', cells: encodeLayer(b), at: 1 });
-    expect(sketchImageSteps()).toBe(2);
-    undoSketchImage(); // 撤掉 b,a 放回去
-    expect(getEdits().sketch?.image?.name).toBe('a.png');
-    expect(getEdits().sketch?.strokes).toHaveLength(1);
-    redoSketchImage(imgB); // 重做:b 又换上,撤销时 a 照样放回去
-    expect(getEdits().sketch?.image).toBe(imgB);
-    expect(sketchImageSteps()).toBe(2);
-    undoSketchImage();
+    expect(setSketchBase('b.png', b)).toBe(true);
+    // 换一张:还在所有笔画底下(不带 at),笔画留着
+    expect(getEdits().sketch).toEqual({ rest: 'sea', strokes: [{ kind: 'mountain', r: 16, pts: [5, 5] }], image: { name: 'b.png', cells: encodeLayer(b) } });
     undoSketchStroke(); // 撤笔画不动图片
-    expect(getEdits().sketch).toEqual({ rest: 'auto', strokes: [], image: { name: 'a.png', cells: encodeLayer(a) } });
+    expect(getEdits().sketch).toEqual({ rest: 'sea', strokes: [], image: { name: 'b.png', cells: encodeLayer(b) } });
     addSketchStroke({ kind: 'land', r: 16, pts: [7, 7] });
-    removeSketchImage();
-    expect(getEdits().sketch).toEqual({ rest: 'auto', strokes: [{ kind: 'land', r: 16, pts: [7, 7] }] });
-    expect(sketchImageSteps()).toBe(0);
-    undoSketchStroke();
-    expect(getEdits().sketch).toBeUndefined();
+    addSketchStroke({ kind: 'hills', r: 16, pts: [9, 9] });
+    clearSketchStrokes();
+    expect(getEdits().sketch).toEqual({ rest: 'sea', strokes: [], image: { name: 'b.png', cells: encodeLayer(b) } });
     clearEdits();
   });
 });

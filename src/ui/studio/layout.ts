@@ -38,22 +38,34 @@ export function projExtent(id: PlanetProjection): { w: number; h: number } {
 
 export interface FitOpts {
   phone: boolean;
-  /** 开场:地图占满整个窗口,不让出底下的字幕 */
-  intro: boolean;
+  /** 照手绘图那一页:地图上方留出切换条,电脑上下方再留出一句提示 */
+  bar?: boolean;
 }
 
+/** 照手绘图那一页上下留多少、左右至少留多少(电脑:切换条在上、提示在下;手机:切换条在上,下面紧挨着底部卡片) */
+const BAR_DESK = { top: 152, bottom: 158, pad: 40 };
+const BAR_PHONE = { top: 102, bottom: 17, pad: 12 };
+
 /**
- * 星球在这块地方里的姿势:地球仪按短边的 0.38(手机 0.42)当半径;平面地图四周留边、底下让出字幕,
- * 电脑上平面图往上挪一点(和地球仪的视觉中心对齐)
+ * 星球在这块地方里的姿势:地球仪按短边的 0.38(手机 0.42)当半径;平面地图四周留边、底下让出提示,
+ * 电脑上平面图往上挪一点(和地球仪的视觉中心对齐)。照手绘图那一页:平面图铺满上下留完以后的那一条,地球仪的直径差不多是那一条的高
  */
 export function fitPose(id: PlanetProjection, b: Box, o: FitOpts): Pose {
   const cx = b.x + b.w / 2;
+  if (o.bar) {
+    const m = o.phone ? BAR_PHONE : BAR_DESK;
+    const h = Math.max(1, b.h - m.top - m.bottom);
+    const cy = b.y + m.top + h / 2;
+    if (id === 'globe') return { k: Math.max(1, Math.min(b.w - 2 * m.pad, h) * 0.49), cx, cy: cy + (o.phone ? 0 : 11) };
+    const e = projExtent(id);
+    return { k: Math.max(1, Math.min((b.w - 2 * m.pad) / e.w, h / e.h)), cx, cy };
+  }
   if (id === 'globe') return { k: Math.min(b.w, b.h) * (o.phone ? 0.42 : 0.38), cx, cy: b.y + b.h / 2 - 6 };
   const e = projExtent(id);
   const pad = o.phone ? 14 : 44;
   const bottom = o.phone ? 60 : 90;
   const k = Math.max(1, Math.min((b.w - 2 * pad) / e.w, (b.h - pad - bottom) / e.h));
-  return { k, cx, cy: b.y + b.h / 2 + (o.phone || o.intro ? 0 : -18) };
+  return { k, cx, cy: b.y + b.h / 2 + (o.phone ? 0 : -18) };
 }
 
 /** 摊平改地形时平面地图的位置:等距圆柱铺在 fitPose 的地方(正好 2:1,平常的地图放进去正好铺满、不用裁) */
@@ -86,12 +98,4 @@ export function lerpPose(a: Pose, b: Pose, t: number): Pose {
 /** 动画的缓动:三次方先快后慢再缓(两头都平) */
 export function easeInOut(t: number): number {
   return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-}
-
-/** 漂移字幕上的年代:t = 0 约 1.8 亿年前,1 = 今天 */
-export function driftYears(t: number): string {
-  const my = 180 * (1 - t);
-  if (t >= 0.995) return '今天';
-  if (my >= 100) return `约 ${(my / 100).toFixed(1)} 亿年前`;
-  return `约 ${Math.max(1, Math.round(my / 10)) * 1000} 万年前`;
 }

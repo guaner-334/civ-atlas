@@ -1,22 +1,17 @@
 /**
- * 新建世界里那颗星球的 WebGL 部分(WebGL 1,手机上也有):网格、两组投影位置、样式贴图、板块漂移的帧缓冲。
+ * 新建世界里那颗星球的 WebGL 部分(WebGL 1,手机上也有):网格、两组投影位置、样式贴图。
  * 算法和着色器在 render/planet.ts;这里只管显卡上的东西,画哪一帧由调用的人给(PlanetFrame)。
  *
  *   样式贴图   按键存(世界编号 + 画风键);同一时间最多留几张,旧世界的随时扔掉
- *   板块漂移   每帧先把"t 时刻的实景"画进一张 1024×512 的等距圆柱贴图,再当成样式贴图铺到网格上
  *   标记层     助手要改的地方(白圈 + 编号),一张透明贴图盖在最上面
  *
  * 显卡不支持、着色器编不过 → create 返回 null(新建界面退回平面地图);画的过程中显卡丢了(context lost)→ onLost。
  */
 import {
-  DRIFT_VS,
   PLANET_FS,
   PLANET_NX,
   PLANET_NY,
   PLANET_VS,
-  PLATE_MAX,
-  driftLoop,
-  driftShader,
   planetLayout,
   planetMesh,
   type PlanetLayout,
@@ -45,16 +40,8 @@ export interface PlanetFrame {
   a: string;
   b: string;
   mix: number;
-  /** 板块漂移到哪(0 最早,1 今天);null = 不放漂移 */
-  drift: number | null;
-  /** 漂移用哪张实景贴图(键) */
-  real: string;
   markA: number;
 }
-
-/** 漂移那张贴图的大小(等距圆柱) */
-const DRIFT_W = 1024;
-const DRIFT_H = 512;
 
 function compile(gl: WebGLRenderingContext, vs: string, fs: string): WebGLProgram | null {
   const mk = (type: number, src: string) => {
@@ -109,12 +96,6 @@ export class PlanetGL {
   private tex = new Map<string, WebGLTexture>();
   private blank: WebGLTexture;
   private mark: WebGLTexture | null = null;
-  private plates: WebGLTexture | null = null;
-  private rot = new Float32Array(PLATE_MAX * 4);
-  private plateCount = 0;
-  private drift: { prog: WebGLProgram; u: Uniforms; n: number; fbo: WebGLFramebuffer; tex: WebGLTexture; buf: WebGLBuffer } | null = null;
-  private driftFailed = false;
-  private maxFrag: number;
   private lost = false;
   onLost: (() => void) | null = null;
   private cssW = 1;
@@ -144,7 +125,6 @@ export class PlanetGL {
     this.prog = prog;
     const maxTex = gl.getParameter(gl.MAX_TEXTURE_SIZE) as number;
     this.texW = small || maxTex < 4096 ? 1024 : 2048;
-    this.maxFrag = gl.getParameter(gl.MAX_FRAGMENT_UNIFORM_VECTORS) as number;
     this.u = uniforms(gl, prog, ['u_s', 'u_m', 'u_k', 'u_tilt', 'u_c', 'u_view', 'u_a', 'u_b', 'u_mark', 'u_mix', 'u_lon', 'u_markA']);
     this.mesh = planetMesh(PLANET_NX, PLANET_NY);
     gl.useProgram(prog);
@@ -251,59 +231,6 @@ export class PlanetGL {
     }
   }
 
-  /** 板块:每个像素的板块编号、陆地、大陆板块(plateTexels 的结果)+ 每块的转轴 */
-  setPlates(px: Uint8Array, w: number, h: number, rot: Float32Array, count: number): void {
-    if (this.isLost) return;
-    if (this.plates) this.gl.deleteTexture(this.plates);
-    this.plates = this.makeTexture(null, { w, h, px, nearest: true });
-    this.rot = rot;
-    this.plateCount = Math.min(count, PLATE_MAX);
-  }
-
-  /** 能不能放板块漂移(有板块数据、这台设备的着色器编得过) */
-  canDrift(): boolean {
-    return !!this.plates && this.plateCount > 0 && !!this.ensureDrift();
-  }
-
-  private ensureDrift() {
-    if (this.driftFailed) return null;
-    const n = driftLoop(this.plateCount, this.maxFrag);
-    if (!n) return null;
-    if (this.drift && this.drift.n >= n) return this.drift;
-    const gl = this.gl;
-    if (this.drift) {
-      gl.deleteProgram(this.drift.prog);
-      gl.deleteFramebuffer(this.drift.fbo);
-      gl.deleteTexture(this.drift.tex);
-      gl.deleteBuffer(this.drift.buf);
-      this.drift = null;
-    }
-    const prog = compile(gl, DRIFT_VS, driftShader(n));
-    if (!prog) {
-      this.driftFailed = true;
-      return null;
-    }
-    const tex = this.makeTexture(null, { w: DRIFT_W, h: DRIFT_H, mip: false });
-    const fbo = gl.createFramebuffer();
-    const buf = gl.createBuffer();
-    if (!fbo || !buf) {
-      this.driftFailed = true;
-      return null;
-    }
-    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
-    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
-    const ok = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    if (!ok) {
-      this.driftFailed = true;
-      return null;
-    }
-    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
-    this.drift = { prog, u: uniforms(gl, prog, ['u_real', 'u_plates', 'u_rot', 'u_t', 'u_count']), n, fbo, tex, buf };
-    return this.drift;
-  }
-
   /** 标记层(等距圆柱、和世界一样比例的透明画布);null = 去掉 */
   setMark(src: HTMLCanvasElement | null): void {
     if (this.isLost) return;
@@ -335,73 +262,12 @@ export class PlanetGL {
     this.pair = key;
   }
 
-  /** 漂移那一遍:t 时刻的实景画进帧缓冲,返回那张贴图;放不了 = null */
-  private renderDrift(t: number, realKey: string): WebGLTexture | null {
-    const real = this.tex.get(realKey);
-    const d = real && this.plates ? this.ensureDrift() : null;
-    if (!d || !real || !this.plates) return null;
-    const gl = this.gl;
-    gl.bindFramebuffer(gl.FRAMEBUFFER, d.fbo);
-    gl.viewport(0, 0, DRIFT_W, DRIFT_H);
-    gl.disable(gl.DEPTH_TEST);
-    gl.useProgram(d.prog);
-    gl.bindBuffer(gl.ARRAY_BUFFER, d.buf);
-    const loc = gl.getAttribLocation(d.prog, 'a_xy');
-    // 网格那套程序也用了 0~2 号属性:这里只开 a_xy 那一个
-    for (let i = 0; i < 3; i++) if (i !== loc) gl.disableVertexAttribArray(i);
-    gl.enableVertexAttribArray(loc);
-    gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
-    gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, real);
-    // 漂移里每块板块的取样位置在板块边上是断开的,mipmap 会按断开处选到最糊的一层:这一遍不用 mipmap
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-    gl.uniform1i(d.u.u_real, 0);
-    gl.activeTexture(gl.TEXTURE1);
-    gl.bindTexture(gl.TEXTURE_2D, this.plates);
-    gl.uniform1i(d.u.u_plates, 1);
-    gl.uniform4fv(d.u.u_rot, this.rot.subarray(0, d.n * 4));
-    gl.uniform1f(d.u.u_t, t);
-    gl.uniform1i(d.u.u_count, this.plateCount);
-    gl.drawArrays(gl.TRIANGLES, 0, 3);
-    gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, real);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    // 回到网格那套程序的属性
-    gl.useProgram(this.prog);
-    this.rebind();
-    return d.tex;
-  }
-
-  private rebind() {
-    const gl = this.gl;
-    const bind = (b: WebGLBuffer | null, name: string) => {
-      const loc = gl.getAttribLocation(this.prog, name);
-      if (loc < 0) return;
-      gl.bindBuffer(gl.ARRAY_BUFFER, b);
-      gl.enableVertexAttribArray(loc);
-      gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
-    };
-    bind(this.llBuffer, 'a_ll');
-    bind(this.bufA, 'a_pa');
-    bind(this.bufB, 'a_pb');
-  }
-
   /** 画一帧;贴图还没准备好就只清空 */
   draw(f: PlanetFrame): void {
     if (this.isLost) return;
     const gl = this.gl;
-    let ta = this.tex.get(f.a) ?? null;
+    const ta = this.tex.get(f.a) ?? null;
     const tb = this.tex.get(f.b) ?? ta;
-    let mix = f.mix;
-    if (f.drift !== null && f.drift < 1) {
-      const d = this.renderDrift(f.drift, f.real);
-      if (d) {
-        ta = d;
-        mix = 1;
-      }
-    }
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.viewport(0, 0, this.canvas.width, this.canvas.height);
     gl.clearColor(0, 0, 0, 0);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
@@ -418,7 +284,7 @@ export class PlanetGL {
     gl.uniform1f(u.u_tilt, f.tilt);
     gl.uniform2f(u.u_c, f.cx * dpr, f.cy * dpr);
     gl.uniform2f(u.u_view, this.canvas.width, this.canvas.height);
-    gl.uniform1f(u.u_mix, mix);
+    gl.uniform1f(u.u_mix, f.mix);
     gl.uniform1f(u.u_lon, f.lon);
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, ta);

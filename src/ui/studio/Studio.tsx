@@ -1,21 +1,27 @@
 /**
- * 新建世界(和平常的地图页面分开的一套深色界面):
+ * 新建世界(和平常的地图页面分开的一套深色界面)。两种,在「新建世界」弹窗里选(NewWorldDialog.tsx),进来以后不能换成另一种:
  *
- *   中间     这颗星球(StudioScene + PlanetGL):进来先放开场 —— 平面实景上板块漂移 → 卷成地球仪 → 自转;
- *            拖动转动。改地形时摊成平面,换成平常的平面地图和改地形覆盖层(App 按 studioStore 的 flat 摆地图)
+ * 随机生成(mode = 'random')
+ *   中间     这颗星球(StudioScene + PlanetGL):进来就是地球仪、自转;拖动转动。改地形时摊成平面,换成平常的平面地图和改地形覆盖层
+ *            (App 按 studioStore 的 flat 摆地图)
  *   左边     设定(电脑贴着窗口左边、能收起;手机是底部卡片,平时只露种子和「创建世界」):
- *            种子 + 换一颗、世界参数、重看星球形成;地形(改地形工具、让助手改);名字(世界名、地名风格);底部「创建世界」。
+ *            种子 + 换一颗、世界参数;地形(改地形工具、让助手改);名字(世界名、地名风格);底部「创建世界」。
  *            点「地名风格」左边换成配比例的那一页(NameMixPage.tsx),左上返回;手机上卡片里换页、拉到最高
  *   右边     样式(不用历史的 7 种,带缩略图)和投影(地球仪 + 5 种平面);手机上是右上两个按钮,点开是列表
- *   助手     「让助手改」打开:电脑上换掉右边的样式和投影,手机上是盖住设定卡片的底部卡片(上面留出星球)。
+ *
+ * 照手绘图生成(mode = 'image')
+ *   左边     图片那一行(换一张)和三步:认出海陆 → 用笔修改 → 参数和名字(零件在 SketchSteps.tsx)。做到哪步展开哪步,
+ *            做过的打勾、组头写着结果;第 1 步「照这样长出星球」以后才能点开后两步。手机上是占大半屏的底部卡片
+ *   中间     平时是平面地图(比随机生成摊平的大:没有右边的面板;上方留出切换条,电脑上下方一句提示),
+ *            切换条:原图 / 认出来的 / 长出来的、叠上原图、样式,平面 / 地球仪。地球仪和随机生成的一样能拖动转
+ *
+ *   助手     「让助手改」打开:电脑上贴着右边,手机上是盖住设定卡片的底部卡片(上面留出星球)。
  *            新建时助手只改地形、回答问题;列出来还没执行的改地形在星球上用白色虚线圈出来、编号和清单对上,
  *            星球先转过去正对着那一块。执行后和手动改地形一样重新生成、星球淡入新样子(不放提示条)
- *   底下     开场时的年代、进度、跳过;放完以后一句提示
- *   确认框   点「创建世界」先列出建好以后不能改的四样(种子、世界参数、地形、地名风格);确认后两边面板滑出、星球展开成平常的地图、淡出
+ *   确认框   点「创建世界」先列出建好以后不能改的四样(种子 / 照的图、世界参数、地形、地名风格);确认后面板滑出、星球展开成平常的地图、淡出
  *
- * 开场、换一颗的漂移只是演示(按这颗星球自己的板块往回转再放回),不改生成的世界。
- * 没有 WebGL(或显卡丢了):不放开场,中间一直是平常的平面地图;样式照样能换。
- * 系统设了"减少动态效果":直接是地球仪、不自转,换样式和投影只做很短的过渡。
+ * 没有 WebGL(或显卡丢了):中间一直是平常的平面地图;样式照样能换。
+ * 系统设了"减少动态效果":地球仪不自转,换样式和投影只做很短的过渡。
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { World, WorldParams } from '../../gen/world';
@@ -25,8 +31,34 @@ import type { Raster } from '../../gen/raster';
 import { TITLE_MAX, worldKey } from '../../gen/savefile';
 import type { DraftBase } from '../stageStore';
 import { getEdits, useEdits } from '../editsStore';
-import { TerrainCaption, TerrainPanel, setTerrainTool, terrainSide, useTerrainTool } from '../TerrainTools';
-import { useImportOn } from '../ImportImage';
+import {
+  TerrainCaption,
+  TerrainPanel,
+  applyImport,
+  getTerrainTool,
+  setTerrainTool,
+  terrainCount,
+  terrainSide,
+  useTerrainHint,
+  useTerrainKeys,
+  useTerrainTool,
+} from '../TerrainTools';
+import {
+  ImportPanel,
+  cancelImport,
+  dropSource,
+  importCaption,
+  importOn,
+  importProgress,
+  importSummary,
+  layerSummary,
+  pickImage,
+  resumeImport,
+  setSourceView,
+  useImport,
+  useSource,
+  useSourceView,
+} from '../ImportImage';
 import { ParamSlider, SLIDERS, paramsSide } from '../WorldOverviewGenesis';
 import { openAiSettings } from '../AiSettings';
 import { AiSettingsItem, MenuItem, MenuSep, PopMenu } from '../PopMenu';
@@ -43,17 +75,18 @@ import type { MapLayer } from '../mapLayers';
 import { getProjection, lastFlatProjection, setProjection, type MapProjection } from '../projection';
 import type { ProjectionId } from '../../render/projection';
 import { getMapCenter } from '../mapWrap';
-import { landCenterLon, plateRotations, plateTexels, type PlanetProjection } from '../../render/planet';
+import { landCenterLon, plateTexels, type PlanetProjection } from '../../render/planet';
 import { PlanetGL } from './planetGL';
 import { StudioScene, type SceneHooks, type StillPose } from './scene';
 import { NameMixPage } from './NameMixPage';
+import { ImageCard, StepGroup, StepParams, ViewBar, paramsBrief } from './SketchSteps';
 import { mixSummary } from '../nameMix';
 import { drawPlanetLabels } from './planetLabels';
 import { drawPlanetMarks, marksCenter, type PlanetMark } from './planetMarks';
 import { getCivFeed, subscribeCivFeed } from '../CivLayer';
 import { labelSurface } from '../../render/civ/labels';
 import type { LabelView } from '../../render/labels/draw';
-import { LEFT_W, RIGHT_W, appPose, driftYears, flatRect } from './layout';
+import { LEFT_W, RIGHT_W, appPose, flatRect } from './layout';
 import { flatGeom, getStudioFlat, setStudioFlat } from './studioStore';
 import '../worlds.css';
 import './studio.css';
@@ -82,13 +115,19 @@ const PROJS: { id: PlanetProjection; name: string; hint: string; icon: [number, 
 
 /** 手机上助手的底部卡片占屏幕多高(和 studio.css 的 .st-phone > .ast-panel 一致) */
 const AST_SHEET = 0.58;
+/** 手机上照手绘图那一页的底部卡片占屏幕多高(和 studio.css 的 .sk-sheet 一致;拉到最高时盖住地图,地图不跟着挪) */
+const SK_SHEET = 0.642;
+/** 照手绘图那一页:电脑上地图下边到那句提示有多远 */
+const CAP_GAP = 34;
 
-/** 漂移贴图、板块贴图的大小 */
+/** 板块贴图的大小(找陆地最多的那一面用) */
 const PLATE_W = 1024;
 const PLATE_H = 512;
 
 export interface StudioProps {
   phone: boolean;
+  /** 怎么生成:随机 / 照手绘图(新建时定下,两种不能互换) */
+  mode: 'random' | 'image';
   params: WorldParams;
   /** 名字(打开没建完的世界时是它存的名字;以别的世界为底稿时先填好"原名(二)") */
   title: string;
@@ -96,6 +135,7 @@ export interface StudioProps {
   /** 左上返回(我的世界 / 底稿那个世界) */
   back: { label: string; onClick: () => void } | null;
   onSeed: (seed: number) => void;
+  /** 换一个随机种子(随机生成的「换一颗」;照手绘图的「山河、地名换一种」:海陆照图,不变) */
   onRandomSeed: () => void;
   onParams: (p: WorldParams) => void;
   onTitle: (title: string) => void;
@@ -131,7 +171,15 @@ const reducedMotion = () => typeof matchMedia === 'function' && matchMedia('(pre
 export function Studio(p: StudioProps) {
   const edits = useEdits();
   const tool = useTerrainTool();
-  const importing = useImportOn();
+  const imp = useImport();
+  const importing = !!imp;
+  const src = useSource();
+  const sv = useSourceView();
+  const terrainHint = useTerrainHint();
+  useTerrainKeys();
+  const image = p.mode === 'image';
+  /** 照手绘图:已经照图长出了星球(草图里有那张图) */
+  const applied = !!edits.sketch?.image;
   const reduce = useMemo(reducedMotion, []);
   const style: MapLayer = STYLE_IDS.includes(p.layer) ? p.layer : 'realistic';
   const styleRef = useRef(style);
@@ -140,10 +188,7 @@ export function Studio(p: StudioProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const glRef = useRef<HTMLCanvasElement>(null);
   const glowRef = useRef<HTMLDivElement>(null);
-  const capRef = useRef<HTMLDivElement>(null);
   const tipRef = useRef<HTMLDivElement>(null);
-  const yrRef = useRef<HTMLSpanElement>(null);
-  const barRef = useRef<HTMLElement>(null);
   const sheetRef = useRef<HTMLElement>(null);
   const sceneRef = useRef<StudioScene | null>(null);
   const labRef = useRef<HTMLCanvasElement>(null);
@@ -151,12 +196,6 @@ export function Studio(p: StudioProps) {
   pRef.current = p;
   /** 显卡:null = 还没试,false = 没有 / 丢了(退回平面地图) */
   const [glOk, setGlOk] = useState<boolean | null>(null);
-  /** 开场中:两边面板(手机:底部卡片、右上按钮)先不出来 */
-  const [intro, setIntro] = useState(!p.base);
-  const introRef = useRef(intro);
-  introRef.current = intro;
-  const [capOn, setCapOn] = useState(false);
-  const capOnRef = useRef(false);
   const [tip, setTip] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [proj, setProj] = useState<PlanetProjection>('globe');
@@ -176,6 +215,17 @@ export function Studio(p: StudioProps) {
   const [sheetH, setSheetH] = useState(0);
   const [vw, setVw] = useState(() => (typeof innerWidth === 'number' ? innerWidth : 1280));
   const [vh, setVh] = useState(() => (typeof innerHeight === 'number' ? innerHeight : 800));
+
+  // ---- 照手绘图:哪一步开着(null = 都收着)、开过哪几步(组头打勾)、地图是平面还是地球仪、样式列表开着没有 ----
+  const [step, setStep] = useState<1 | 2 | 3 | null>(() => (!image ? null : getEdits().sketch?.image && !importOn() ? 2 : 1));
+  const [seen, setSeen] = useState(0);
+  useEffect(() => {
+    if (step) setSeen((s) => s | (1 << step));
+  }, [step]);
+  const [imgFlat, setImgFlat] = useState(true);
+  const [styOpen, setStyOpen] = useState(false);
+  /** 地图摊成平面:改地形的时候;照手绘图的平时也是(切到地球仪才卷起来) */
+  const wantFlat = tool.on || (image && imgFlat);
 
   // ---- 设定(和原来的新建卡片一样) ----
   const [paramsOpen, setParamsOpen] = useState(false);
@@ -220,11 +270,16 @@ export function Studio(p: StudioProps) {
     if (prevProj.current !== 'equirect') setProjection('equirect');
     // 平常页面上开着的助手不跟进来(新建里从「让助手改」打开);离开时也收起
     closeAssistant();
+    // 照手绘图:进来就是摊平的地图和认图(或第 2 步的笔)
+    if (image) setTerrainTool({ on: true });
     return () => {
       closeAssistant();
       setStudioFlat(null);
+      // 正在认的、留着的那张图只属于这一次新建
+      dropSource();
       if (!created.current && prevProj.current !== 'equirect' && getProjection() === 'equirect') setProjection(prevProj.current, prevFlat.current);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ---- 星球上的地名:停住时排一次,一动就藏起来 ----
@@ -270,13 +325,12 @@ export function Studio(p: StudioProps) {
   // ---- 星球 ----
   const hooks = useRef<SceneHooks>({
     frame: () => {},
-    caption: () => {},
     flat: () => {},
     touched: () => {},
     still: () => {},
   });
   hooks.current = {
-    frame: ({ cx, cy, r, m, hh }) => {
+    frame: ({ cx, r, m, cy }) => {
       const g = glowRef.current;
       if (g) {
         const R = r * 1.2;
@@ -284,23 +338,7 @@ export function Studio(p: StudioProps) {
         g.style.width = g.style.height = `${R * 2}px`;
         g.style.transform = `translate(${cx - R}px, ${cy - R}px)`;
       }
-      if (!p.phone) {
-        if (capRef.current) capRef.current.style.left = `${cx}px`;
-        if (tipRef.current) tipRef.current.style.left = `${cx}px`;
-      } else if (capRef.current) {
-        // 手机开场:字幕紧挨在平面地图下面(地图只占屏幕中间一条);别的时候在底部卡片上面(CSS)
-        capRef.current.style.top = introRef.current ? `${Math.round(cy + hh + 14)}px` : '';
-      }
-    },
-    caption: (t) => {
-      const on = t !== null;
-      if (on !== capOnRef.current) {
-        capOnRef.current = on;
-        setCapOn(on);
-      }
-      if (t === null) return;
-      if (yrRef.current) yrRef.current.textContent = driftYears(t);
-      if (barRef.current) barRef.current.style.width = `${t * 100}%`;
+      if (!p.phone && tipRef.current) tipRef.current.style.left = `${cx}px`;
     },
     flat: (rect, lon) => {
       setStudioFlat(rect, lon);
@@ -309,6 +347,7 @@ export function Studio(p: StudioProps) {
     touched: () => {
       setTip(false);
       setDrawer(null);
+      setStyOpen(false);
     },
     still: (pose) => {
       stillRef.current = pose;
@@ -323,14 +362,12 @@ export function Studio(p: StudioProps) {
     const gl = PlanetGL.create(cv, { small: p.phone });
     if (!gl) {
       setGlOk(false);
-      setIntro(false);
       return;
     }
     const sc = new StudioScene(
       gl,
       {
         frame: (i) => hooks.current.frame(i),
-        caption: (t) => hooks.current.caption(t),
         flat: (r, l) => hooks.current.flat(r, l),
         touched: () => hooks.current.touched(),
         still: (pose) => hooks.current.still(pose),
@@ -353,7 +390,6 @@ export function Studio(p: StudioProps) {
       sc.dispose();
       sceneRef.current = null;
       setGlOk(false);
-      setIntro(false);
     };
     sc.start();
     setGlOk(true);
@@ -391,21 +427,24 @@ export function Studio(p: StudioProps) {
     return () => ro.disconnect();
   }, [p.phone, glOk]);
 
-  // 两边让出多少;开场时占满窗口。面板滑进滑出时星球跟着挪(第一次直接摆好)
+  // 两边让出多少;面板滑进滑出时星球跟着挪(第一次直接摆好)
   const laidOut = useRef(false);
-  // 助手开着:电脑上右边换成助手面板(更宽);手机上助手的底部卡片占屏幕的 58%(星球摆在它上面)
-  const insets = useMemo(
-    () => (p.phone ? { l: 0, r: 0, b: astShown ? Math.round(vh * AST_SHEET) : sheetH } : { l: collapsed ? 0 : LEFT_W, r: astShown ? AST_W : RIGHT_W, b: 0 }),
-    [p.phone, collapsed, sheetH, astShown, vh],
-  );
+  // 助手开着:电脑上右边是助手面板(随机生成的换掉样式和投影);手机上助手的底部卡片占屏幕的 58%(星球摆在它上面)。
+  // 照手绘图的没有右边的面板;手机上底部卡片的高是定的(拉到最高时盖住地图)
+  const insets = useMemo(() => {
+    if (p.phone) return { l: 0, r: 0, b: astShown ? Math.round(vh * AST_SHEET) : image ? Math.round(vh * SK_SHEET) : sheetH };
+    return { l: collapsed ? 0 : LEFT_W, r: astShown ? AST_W : image ? 0 : RIGHT_W, b: 0 };
+  }, [p.phone, collapsed, sheetH, astShown, vh, image]);
   useLayoutEffect(() => {
     const sc = sceneRef.current;
     if (!sc) return;
-    sc.setLayout({ ...insets, intro: intro || out > 0, phone: p.phone }, laidOut.current);
+    sc.setLayout({ ...insets, bar: image, phone: p.phone }, laidOut.current);
     laidOut.current = true;
-  }, [insets, intro, out, p.phone, glOk]);
+  }, [insets, image, p.phone, glOk]);
+  /** 中间那一块(两边面板、底部卡片让完以后) */
+  const box = { x: insets.l, y: 0, w: Math.max(1, vw - insets.l - insets.r), h: Math.max(1, vh - insets.b) };
 
-  // 没有 WebGL:右边样式的缩略图照样要做(有星球时开场放完才做)
+  // 没有 WebGL:右边样式的缩略图照样要做
   useEffect(() => {
     if (glOk === false && p.ready) p.requestThumbs(STYLE_IDS);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -414,16 +453,15 @@ export function Studio(p: StudioProps) {
   // 没有 WebGL:平常的地图一直铺在中间那块(刚铺上时带上正中的经线:从放大着的地图进来,也放回 1 倍看整颗星球)
   useEffect(() => {
     if (glOk !== false || out) return;
-    const box = { x: insets.l, y: 0, w: Math.max(1, vw - insets.l - insets.r), h: Math.max(1, vh - insets.b) };
-    setStudioFlat(flatRect(box, { phone: p.phone, intro: false }), getStudioFlat() ? undefined : getMapCenter());
+    setStudioFlat(flatRect(box, { phone: p.phone, bar: image }), getStudioFlat() ? undefined : getMapCenter());
     setFlatShown(true);
-  }, [glOk, insets, vw, vh, p.phone, out]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [glOk, insets, vw, vh, p.phone, out, image]);
 
-  // ---- 世界:贴图、板块;第一颗放开场,换了种子放漂移,别的(参数、地形)淡过去 ----
+  // ---- 世界:贴图;第一颗直接是地球仪,换了一颗、调了参数、改了地形都淡过去 ----
   const tagRef = useRef(0);
-  const shown = useRef<{ data: object; tag: number; seed: number; pkey: string; terrain: number } | null>(null);
+  const shown = useRef<{ data: object; tag: number; seed: number; pkey: string } | null>(null);
   const landLon = useRef(0);
-  const introSeq = useRef(0);
   /** 把某样式的整张图放上显卡(App 缓存里有就直接拿;没有就画一张,要等一会儿) */
   const upload = (sc: StudioScene, tag: number, id: MapLayer): boolean => {
     const key = `${tag}:${id}`;
@@ -433,41 +471,17 @@ export function Studio(p: StudioProps) {
     sc.gl.setStyle(key, c);
     return true;
   };
-  const curKey = () => `${shown.current?.tag ?? 0}:${style}`;
-  const realKey = () => `${shown.current?.tag ?? 0}:realistic`;
 
-  /** 开场放完(或跳过):两边面板滑进来、开始自转、换回选的样式、缩略图开始做 */
+  /** 第一颗星球出来:开始自转(摊平着的等卷回来再转)、缩略图开始做 */
   const settle = () => {
     const sc = sceneRef.current;
-    setIntro(false);
     setProj('globe');
-    if (!p.base) setTip(true);
+    if (!image && !p.base) setTip(true);
     if (sc) {
       sc.spin = true;
       sc.setFlatBack('globe');
-      if (style !== 'realistic' && shown.current && upload(sc, shown.current.tag, style)) void sc.setStyle(curKey());
     }
     p.requestThumbs(STYLE_IDS);
-  };
-  const runIntro = async (fromStart: boolean) => {
-    const sc = sceneRef.current;
-    if (!sc) return;
-    const my = ++introSeq.current;
-    setIntro(true);
-    setTip(false);
-    setDrawer(null);
-    const ok = await sc.playIntro({ fromStart, real: realKey(), lon: landLon.current });
-    if (my !== introSeq.current || gone.current) return;
-    if (ok) settle();
-  };
-  const skip = () => {
-    const sc = sceneRef.current;
-    if (!sc) return;
-    if (introRef.current) {
-      introSeq.current++;
-      settle();
-    }
-    void sc.skip();
   };
 
   useEffect(() => {
@@ -481,47 +495,32 @@ export function Studio(p: StudioProps) {
     if (style !== 'realistic') upload(sc, tag, style);
     const t = d.world.tect;
     const px = plateTexels(d.raster.cell, d.raster.w, d.raster.h, t.plate, d.world.water, t.plateContinental, PLATE_W, PLATE_H);
-    sc.gl.setPlates(px, PLATE_W, PLATE_H, plateRotations(t.plateOmega, t.plateCount), t.plateCount);
     const pkey = worldKey({ ...p.params, seed: 0 });
-    shown.current = { data: d, tag, seed: p.params.seed, pkey, terrain: edits.terrain.length };
+    shown.current = { data: d, tag, seed: p.params.seed, pkey };
     const latest = () => sc.gl.keepStyles((k) => k.startsWith(`${tagRef.current}:`));
-    // 每换一颗都重算陆地最多的那一面(手机建好时转过去、重放形成时对着它)
+    // 每换一颗都重算陆地最多的那一面(手机建好时转过去)
     landLon.current = landCenterLon(px, PLATE_W, PLATE_H);
     if (!prev) {
-      if (introRef.current) void runIntro(true);
-      else {
-        sc.showStyle(`${tag}:${style}`);
+      sc.showStyle(`${tag}:${style}`);
+      if (!sc.flatOn) {
         sc.showProj('globe');
         sc.lon = landLon.current;
-        settle();
       }
+      settle();
       return;
     }
-    if (prev.seed !== p.params.seed) {
-      // 换了一颗:在现在的视图上放一遍漂移
-      setTip(false);
-      latest();
-      // 放完换回样式时取那时选着的(漂移时也能点右边换样式)
-      void sc.rerollDrift(`${tag}:realistic`, () => {
-        const s = styleRef.current;
-        return upload(sc, tag, s) ? `${tag}:${s}` : `${tag}:realistic`;
-      });
-      p.requestThumbs(STYLE_IDS);
-      return;
-    }
-    // 同一个种子:调了参数(淡得快)/ 改了地形(慢慢淡入新样子)
-    void sc.setStyle(`${tag}:${style}`, prev.pkey !== pkey ? 450 : 1100).then(latest);
+    // 换了一颗、改了地形慢慢淡入新样子;同一颗调了参数淡得快
+    void sc.setStyle(`${tag}:${style}`, prev.seed === p.params.seed && prev.pkey !== pkey ? 450 : 1100).then(latest);
     p.requestThumbs(STYLE_IDS);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [glOk, p.data, p.ready]);
 
-  // 换样式:淡过去(开场、漂移时先不换,放完再换)
+  // 换样式:淡过去
   useEffect(() => {
     const sc = sceneRef.current;
     const sh = shown.current;
     if (!sc || !sh || gone.current) return;
     if (!upload(sc, sh.tag, style)) return;
-    if (introRef.current || sc.drifting) return;
     void sc.setStyle(`${sh.tag}:${style}`);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [style]);
@@ -539,13 +538,15 @@ export function Studio(p: StudioProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [marks, astShown]);
 
-  // 改地形:摊成平面,换成平常的地图;改完从平常的地图现在的样子变回去(助手先收起,右边是样式和投影)
+  // 改地形(照手绘图的平时也是):摊成平面,换成平常的地图;改完从平常的地图现在的样子变回去
+  useEffect(() => {
+    if (tool.on) closeAssistant();
+  }, [tool.on]);
   const flatAsked = useRef(false);
   useEffect(() => {
     const sc = sceneRef.current;
-    if (tool.on) closeAssistant();
     if (!sc || gone.current) return;
-    if (tool.on) {
+    if (wantFlat) {
       flatAsked.current = true;
       setTip(false);
       setDrawer(null);
@@ -553,10 +554,71 @@ export function Studio(p: StudioProps) {
     } else if (flatAsked.current) {
       flatAsked.current = false;
       void sc.exitFlat(flatGeom());
-      // 画了草图:卷回地球仪时提示一句"换一颗"会照同一张草图长
-      if (getEdits().sketch) setTip(true);
+      // 随机生成画了草图:卷回地球仪时提示一句"换一颗"会照同一张草图长
+      if (!image && getEdits().sketch) setTip(true);
     }
-  }, [tool.on, glOk]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wantFlat, glOk]);
+
+  // ---- 照手绘图的三步 ----
+  // 开始认一张图(进来时、「换一张」、把图拖到地图上):回到第 1 步,地图摊平
+  useEffect(() => {
+    if (!image || !importing) return;
+    setStep(1);
+    setImgFlat(true);
+    setStyOpen(false);
+    if (!getTerrainTool().on) setTerrainTool({ on: true });
+  }, [importing, image]);
+  // 第 2 步的笔收起了(按了 Esc、切到地球仪、打开助手):这一步也收起
+  useEffect(() => {
+    if (image && !tool.on && step === 2) setStep(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tool.on]);
+  /** 点组头:开着的收起(第 1 步还没长出星球时收不起),收着的展开(后两步要先长出星球) */
+  const toggleStep = (n: 1 | 2 | 3) => {
+    setStyOpen(false);
+    if (step === n) {
+      if (n === 1) {
+        if (!applied) return;
+        cancelImport();
+      }
+      if (n !== 3) setTerrainTool({ on: false });
+      setStep(null);
+      return;
+    }
+    if (n === 1) {
+      // 接着上次的认法认;那张图已经不在了(刷新过)就重新选一张
+      if (!importOn() && !resumeImport()) return pickImage();
+      setImgFlat(true);
+      setTerrainTool({ on: true });
+      setStep(1);
+      return;
+    }
+    if (!applied) return;
+    cancelImport();
+    setSourceView({ show: 'grown' });
+    if (n === 2) {
+      setImgFlat(true);
+      setTerrainTool({ on: true });
+    } else setTerrainTool({ on: false });
+    setStep(n);
+  };
+  /** 「照这样长出星球」 */
+  const growPlanet = () => {
+    if (!p.ready || !applyImport()) return;
+    setSourceView({ show: 'grown' });
+    setStep(2);
+  };
+  /** 切换条上的平面 / 地球仪 */
+  const setImageFlat = (f: boolean) => {
+    setStyOpen(false);
+    if (f) return setImgFlat(true);
+    if (importOn() || !applied) return;
+    // 卷成地球仪:笔收起,看长出来的
+    if (tool.on) setTerrainTool({ on: false });
+    setSourceView({ show: 'grown' });
+    setImgFlat(false);
+  };
 
   const pickStyle = (id: MapLayer) => {
     setDrawer(null);
@@ -580,6 +642,7 @@ export function Studio(p: StudioProps) {
     commitName();
     mixFlush.current?.();
     setDrawer(null);
+    setStyOpen(false);
     setConfirm(true);
   };
   /** 「地名风格」页:手机上卡片拉到最高 */
@@ -591,10 +654,15 @@ export function Studio(p: StudioProps) {
   /** 「让助手改」:改地形工具开着就先收起(星球卷回来,圈画在星球上) */
   const askAssistant = () => {
     setDrawer(null);
+    setStyOpen(false);
     setTip(false);
     setSheetFull(false);
     if (p.phone) setNamesPage(false);
     if (tool.on) setTerrainTool({ on: false });
+    if (image) {
+      setSourceView({ show: 'grown' });
+      setImgFlat(false);
+    }
     openAssistant();
   };
   const doCreate = async () => {
@@ -602,14 +670,20 @@ export function Studio(p: StudioProps) {
     const sc = glOk ? sceneRef.current : null;
     // 建好以后平常的地图用哪种投影:这里选的平面投影;选的是地球仪就回到进来之前的平面投影
     const target: MapProjection = proj === 'globe' ? prevFlat.current : proj;
-    const flatLon = flatGeom()?.lon ?? 0;
+    const g = flatGeom();
+    const flatLon = g?.lon ?? 0;
     gone.current = true;
     setOut(1);
     setTip(false);
+    setStyOpen(false);
     closeAssistant();
+    cancelImport();
     if (tool.on) setTerrainTool({ on: false });
+    setSourceView({ show: 'grown' });
     setStudioFlat(null);
     setFlatShown(false);
+    // 摊平着建:从平面地图现在正中的经线接着展开
+    if (sc?.flatOn && g) sc.lon = (g.lon * Math.PI) / 180;
     // 手机竖屏建好以后只看得到八十来个经度:展开的同时转到陆地最多的那一面(不然可能正对着一片海)
     let to = sc?.lon ?? 0;
     if (sc && p.phone && vh > vw) {
@@ -630,6 +704,7 @@ export function Studio(p: StudioProps) {
         void sc.setProj(proj);
         if (proj === 'globe') sc.spin = true;
       }
+      if (image) setImgFlat(false);
       return;
     }
     created.current = true;
@@ -656,12 +731,15 @@ export function Studio(p: StudioProps) {
     if (n > 0 && n !== p.params.seed) p.onSeed(n);
     else setSeedText(String(p.params.seed));
   };
-  const intro0 = base ? `设定都带过来了，改完存成一个新世界，${base.title}本身不变。` : '先定下这颗星球的样子。创建以后，再推演它三千年的历史。';
+  const intro0 = base
+    ? `设定都带过来了，改完存成一个新世界，${base.title}本身不变。`
+    : image
+      ? '海和陆地照你的图长，山、河、气候由程序补上。'
+      : '按种子随机生成。先定下这颗星球的样子，创建以后再推演它三千年的历史。';
   const isDefault = SLIDERS.every((s) => p.params[s.key] === DEFAULT_PARAMS[s.key]);
-  const canAsk = p.ready && !intro && !capOn && !!p.civ && !!p.raw;
+  const canAsk = p.ready && !!p.civ && !!p.raw;
   const ico = p.phone ? 18 : 17;
-  const peek = p.phone && !sheetFull && !tool.on;
-  const busyIntro = intro || capOn;
+  const peek = !image && p.phone && !sheetFull && !tool.on;
 
   const seedRow = base ? (
     <div className="sb-row nw-seed locked" data-act="seed-locked">
@@ -699,7 +777,6 @@ export function Studio(p: StudioProps) {
         <button
           className="nw-btn tint"
           data-act="new-seed"
-          disabled={busyIntro}
           onClick={() => {
             setTip(false);
             p.onRandomSeed();
@@ -747,17 +824,8 @@ export function Studio(p: StudioProps) {
       )}
     </>
   );
-  const replayRow = glOk && (
-    <button className="sb-row" data-act="replay" disabled={!p.ready || p.busy || busyIntro} onClick={() => void runIntro(false)}>
-      <Icon name="replay" size={ico} className="sb-ico" />
-      <span className="sb-row-main">
-        <b>重看星球形成</b>
-      </span>
-      <Icon name="chevron" size={14} className="sb-chev" />
-    </button>
-  );
   const terrainRow = (
-    <button className="sb-row terrain-toggle" data-act="terrain" disabled={!p.ready || busyIntro} onClick={() => setTerrainTool({ on: true })} title="涂大陆、山和海，放火山、湖和河">
+    <button className="sb-row terrain-toggle" data-act="terrain" disabled={!p.ready} onClick={() => setTerrainTool({ on: true })} title="涂大陆、山和海，放火山、湖和河">
       <Icon name="sketch" size={ico} className="sb-ico" />
       <span className="sb-row-main">
         <b>编辑地形</b>
@@ -776,7 +844,7 @@ export function Studio(p: StudioProps) {
       <Icon name="chevron" size={14} className="sb-chev" />
     </button>
   );
-  const noCivHint = p.noCiv && <div className="nw-note warn">这颗星球长不出文明，换一颗或调大陆地比例</div>;
+  const noCivHint = p.noCiv && <div className="nw-note warn">{image ? '这颗星球长不出文明，多画些陆地试试' : '这颗星球长不出文明，换一颗或调大陆地比例'}</div>;
   const baseRows = base && (
     <>
       <div className="sb-row static" data-act="base-names">
@@ -795,6 +863,14 @@ export function Studio(p: StudioProps) {
       </div>
       <div className="nw-group-hint">地形改了以后，有的地方会变成海、历史也会不同；对不上的改名和干预先留着不生效，创建后会列出来。</div>
     </>
+  );
+  const carriedSec = carried && (
+    <section className="sb-sec">
+      <div className="sb-sec-head">
+        <span>跟过去的修改</span>
+      </div>
+      <div className="sb-group">{baseRows}</div>
+    </section>
   );
   const moreMenu = (
     <div className="nw-more-wrap">
@@ -817,7 +893,7 @@ export function Studio(p: StudioProps) {
       </PopMenu>
     </div>
   );
-  const heading = base ? `以${base.title}为底稿新建` : '新建世界';
+  const heading = base ? `以${base.title}为底稿新建` : image ? '照手绘图新建' : '新建世界';
   const backLink = p.back && (
     <button className="nw-back" data-act="back" onClick={p.back.onClick}>
       <Icon name="back" size={18} />
@@ -848,12 +924,72 @@ export function Studio(p: StudioProps) {
     </button>
   );
   const createBtn = (
-    <button className="nw-create" data-act="create-world" disabled={p.busy || !p.ready || busyIntro || out > 0 || importing} onClick={askCreate}>
+    <button className="nw-create" data-act="create-world" disabled={p.busy || !p.ready || out > 0 || importing || (image && !applied)} onClick={askCreate}>
       {base ? '创建新世界' : '创建世界'}
     </button>
   );
   const mixShown = namesPage && !tool.on && !peek;
   const mixPage = mixShown && <NameMixPage backLabel={heading} onBack={() => setNamesPage(false)} civ={p.raw} busy={p.busy} ready={p.ready} phone={p.phone} flush={mixFlush} />;
+
+  // ---- 照手绘图:图片那一行和三步 ----
+  const nameNow = name.trim();
+  const strokes = terrainCount(edits);
+  const done = (n: 1 | 2 | 3) => (n === 1 ? applied : (seen & (1 << n)) !== 0);
+  const stepSummary = (n: 1 | 2 | 3): string => {
+    if (n === 1) {
+      if (step === 1) return imp && !p.phone ? importProgress(imp) : '';
+      if (src) return importSummary(src);
+      return edits.sketch?.image ? layerSummary(edits.sketch.image.cells) : '';
+    }
+    if (n === 2) return !applied ? '认好海陆以后' : strokes ? `画了 ${strokes} 笔` : '还没画';
+    return step === 3 ? '' : nameNow || paramsBrief(p.params);
+  };
+  const stepGroup = (n: 1 | 2 | 3, title: string, body: React.ReactNode) => (
+    <StepGroup key={n} n={n} title={title} summary={stepSummary(n)} open={step === n} done={done(n)} locked={n > 1 && !applied} onToggle={() => toggleStep(n)}>
+      {body}
+    </StepGroup>
+  );
+  const rerollRow = (
+    <button className="sb-row" data-act="new-seed" disabled={!!base || !p.ready} onClick={p.onRandomSeed} title="海陆照图不变，山、河、地名换一种长法">
+      <Icon name="dice" size={ico} className="sb-ico" />
+      <span className="sb-row-main">
+        <b>山河、地名换一种</b>
+      </span>
+      <span className="sb-row-side">海陆不变</span>
+    </button>
+  );
+  const imageSteps = image && (
+    <>
+      <ImageCard phone={p.phone} />
+      {stepGroup(
+        1,
+        '认出海陆',
+        importing ? (
+          <ImportPanel phone={p.phone} onUse={growPlanet} wait={!p.ready} />
+        ) : (
+          <div className="tp imp imp-step">
+            <button className="imp-use" data-act="import-repick" onClick={pickImage}>
+              选一张图
+            </button>
+          </div>
+        ),
+      )}
+      {stepGroup(2, '用笔修改', <TerrainPanel disabled={p.busy} phone={p.phone} mode="image" extra={aiOn && askRow} />)}
+      {stepGroup(
+        3,
+        '参数和名字',
+        <>
+          <StepParams params={p.params} onParams={p.onParams} disabled={p.busy} />
+          {rerollRow}
+          <div className="sk-name">{nameField}</div>
+          {mixRow}
+        </>,
+      )}
+      {noCivHint}
+      {carriedSec}
+    </>
+  );
+
   const settings = tool.on ? (
     <TerrainPanel disabled={p.busy} phone={p.phone} />
   ) : (
@@ -867,7 +1003,6 @@ export function Studio(p: StudioProps) {
         <div className="sb-group">
           {seedRow}
           {!peek && paramsRow}
-          {!peek && replayRow}
         </div>
         {!peek && noCivHint}
       </section>
@@ -883,14 +1018,7 @@ export function Studio(p: StudioProps) {
           </div>
         </section>
       )}
-      {!peek && carried && (
-        <section className="sb-sec">
-          <div className="sb-sec-head">
-            <span>跟过去的修改</span>
-          </div>
-          <div className="sb-group">{baseRows}</div>
-        </section>
-      )}
+      {!peek && carriedSec}
       {!peek && (
         <section className="sb-sec">
           <div className="sb-sec-head">
@@ -903,60 +1031,87 @@ export function Studio(p: StudioProps) {
     </>
   );
 
-  const left = p.phone ? (
-    <section ref={sheetRef} className={`st-sheet nw-sheet nw-card${peek ? ' peek' : ''}${tool.on ? ' tools' : ''}`} aria-label="新建世界" onPointerDown={stop} onClick={stop} onWheel={stop}>
-      <button
-        className="st-grip"
-        data-act="new-sheet"
-        aria-label={sheetFull ? '收起' : '展开'}
-        aria-expanded={sheetFull}
-        onClick={() => {
-          if (sheetFull) setNamesPage(false);
-          setSheetFull(!sheetFull);
-        }}
-      >
-        <i aria-hidden="true" />
-      </button>
-      <div className={`st-in nw-body${mixShown ? ' nm-page' : ''}`}>
-        {mixPage || (
-          <>
-            {!tool.on && backLink}
-            {!tool.on && (
+  const grip = (
+    <button
+      className="st-grip"
+      data-act="new-sheet"
+      aria-label={sheetFull ? '收起' : '展开'}
+      aria-expanded={sheetFull}
+      onClick={() => {
+        if (sheetFull) setNamesPage(false);
+        setSheetFull(!sheetFull);
+      }}
+    >
+      <i aria-hidden="true" />
+    </button>
+  );
+  let left: React.ReactNode;
+  if (p.phone && image) {
+    left = (
+      <section ref={sheetRef} className="st-sheet nw-sheet nw-card sk-sheet" aria-label={heading} onPointerDown={stop} onClick={stop} onWheel={stop}>
+        {grip}
+        {!mixShown && (
+          <div className="sk-phd">
+            {p.back && (
+              <button className="sk-bk" data-act="back" aria-label={`返回${p.back.label}`} onClick={p.back.onClick}>
+                <Icon name="back" size={20} />
+              </button>
+            )}
+            <div className="nw-title">{heading}</div>
+            {moreMenu}
+          </div>
+        )}
+        <div className={`st-in nw-body${mixShown ? ' nm-page' : ' sk-in'}`}>{mixPage || imageSteps}</div>
+        <footer className="st-foot">{createBtn}</footer>
+      </section>
+    );
+  } else if (p.phone) {
+    left = (
+      <section ref={sheetRef} className={`st-sheet nw-sheet nw-card${peek ? ' peek' : ''}${tool.on ? ' tools' : ''}`} aria-label="新建世界" onPointerDown={stop} onClick={stop} onWheel={stop}>
+        {grip}
+        <div className={`st-in nw-body${mixShown ? ' nm-page' : ''}`}>
+          {mixPage || (
+            <>
+              {!tool.on && backLink}
+              {!tool.on && (
+                <div className="nw-title-row">
+                  <div className="nw-title">{heading}</div>
+                  {moreMenu}
+                </div>
+              )}
+              {!peek && !tool.on && <div className="nw-intro">{intro0}</div>}
+              {settings}
+            </>
+          )}
+        </div>
+        {!tool.on && <footer className="st-foot">{createBtn}</footer>}
+      </section>
+    );
+  } else {
+    left = (
+      <aside className="st-left nw-card" aria-label={heading} onPointerDown={stop} onDoubleClick={stop} onClick={stop}>
+        <div className={`st-in nw-body${mixShown ? ' nm-page' : image ? ' sk-in' : ''}`}>
+          {mixPage || (
+            <>
+              <div className="st-top">
+                {backLink ?? <span />}
+                <button className="sb-collapse" data-act="side-collapse" aria-label="收起侧栏" data-tip="收起侧栏" onClick={() => setCollapsed(true)}>
+                  <Icon name="sidebar" size={19} />
+                </button>
+              </div>
               <div className="nw-title-row">
                 <div className="nw-title">{heading}</div>
                 {moreMenu}
               </div>
-            )}
-            {!peek && !tool.on && <div className="nw-intro">{intro0}</div>}
-            {settings}
-          </>
-        )}
-      </div>
-      {!tool.on && <footer className="st-foot">{createBtn}</footer>}
-    </section>
-  ) : (
-    <aside className="st-left nw-card" aria-label="新建世界" onPointerDown={stop} onDoubleClick={stop} onClick={stop}>
-      <div className={`st-in nw-body${mixShown ? ' nm-page' : ''}`}>
-        {mixPage || (
-          <>
-            <div className="st-top">
-              {backLink ?? <span />}
-              <button className="sb-collapse" data-act="side-collapse" aria-label="收起侧栏" data-tip="收起侧栏" onClick={() => setCollapsed(true)}>
-                <Icon name="sidebar" size={19} />
-              </button>
-            </div>
-            <div className="nw-title-row">
-              <div className="nw-title">{heading}</div>
-              {moreMenu}
-            </div>
-            {!tool.on && <div className="nw-intro">{intro0}</div>}
-            {settings}
-          </>
-        )}
-      </div>
-      <footer className="st-foot">{createBtn}</footer>
-    </aside>
-  );
+              {(image || !tool.on) && <div className="nw-intro">{intro0}</div>}
+              {image ? imageSteps : settings}
+            </>
+          )}
+        </div>
+        <footer className="st-foot">{createBtn}</footer>
+      </aside>
+    );
+  }
 
   const thumb = (id: MapLayer) => p.thumbs[id];
   const styleRows = STUDIO_STYLES.map((s) => (
@@ -989,7 +1144,7 @@ export function Studio(p: StudioProps) {
     </button>
   ));
   const curProj = PROJS.find((x) => x.id === shownProj) ?? PROJS[0];
-  const right = (
+  const right = !image && (
     <aside className="st-right" aria-label="样式和投影" onPointerDown={stop} onClick={stop} onWheel={stop}>
       {(!p.phone || drawer === 'style') && (
         <>
@@ -1016,10 +1171,42 @@ export function Studio(p: StudioProps) {
     </aside>
   );
 
+  // 照手绘图:地图上方的切换条、电脑上地图下边的一句提示
+  const flatNow = wantFlat || glOk === false;
+  const viewBar = image && (
+    <ViewBar
+      phone={p.phone}
+      importing={importing}
+      grown={applied}
+      flat={flatNow}
+      onFlat={(f) => (glOk === false ? undefined : setImageFlat(f))}
+      style={style}
+      styles={STUDIO_STYLES}
+      thumbs={p.thumbs}
+      onStyle={pickStyle}
+      styleOpen={styOpen}
+      onStyleOpen={setStyOpen}
+      left={p.phone ? undefined : box.x + box.w / 2}
+    />
+  );
+  let capText: string | null = null;
+  if (image && !p.phone && !out) {
+    if (importing) capText = importCaption(imp);
+    else if (step === 2 && tool.on) capText = terrainHint;
+    else if (!flatNow) capText = '拖动转动这颗星球；点「平面」回去接着改';
+    else if (sv.show === 'grown' && src) capText = '拖「叠上原图」对照长出来的和你画的';
+  }
+  const fr = flatRect(box, { phone: p.phone, bar: true });
+  const imageCap = capText && (
+    <div className="st-cap st-tip sk-cap" style={{ left: box.x + box.w / 2, top: fr.y + fr.h + CAP_GAP, bottom: 'auto' }}>
+      {capText}
+    </div>
+  );
+
   const cls = [
     'studio',
     p.phone ? 'st-phone' : 'st-desk',
-    intro ? 'intro' : '',
+    image ? 'st-image' : '',
     collapsed && !p.phone ? 'collapsed' : '',
     flatShown ? 'flat' : '',
     out ? 'out' : '',
@@ -1030,14 +1217,21 @@ export function Studio(p: StudioProps) {
   ]
     .filter(Boolean)
     .join(' ');
-  const nameNow = name.trim();
   return (
     <div ref={rootRef} className={cls} data-theme="dark" style={p.phone ? ({ '--sheet-h': `${sheetH}px` } as React.CSSProperties) : undefined}>
       <div ref={glowRef} className="st-glow" aria-hidden="true" />
       <canvas ref={glRef} className="st-gl" aria-label="这颗星球" />
-      <canvas ref={labRef} className={`st-labels${labOn && !intro && !capOn && !tool.on && !out && glOk ? ' on' : ''}`} aria-hidden="true" />
-      <canvas ref={markRef} className={`st-labels st-marks${markOn && astShown && !intro && !capOn && !tool.on && !out && glOk ? ' on' : ''}`} data-marks={markOn && astShown ? marks.length : 0} aria-hidden="true" />
-      {drawer && <div className="st-dismiss" onPointerDown={() => setDrawer(null)} />}
+      <canvas ref={labRef} className={`st-labels${labOn && !tool.on && !out && glOk ? ' on' : ''}`} aria-hidden="true" />
+      <canvas ref={markRef} className={`st-labels st-marks${markOn && astShown && !tool.on && !out && glOk ? ' on' : ''}`} data-marks={markOn && astShown ? marks.length : 0} aria-hidden="true" />
+      {(drawer || styOpen) && (
+        <div
+          className="st-dismiss"
+          onPointerDown={() => {
+            setDrawer(null);
+            setStyOpen(false);
+          }}
+        />
+      )}
       {left}
       {!p.phone && (
         <button className="side-open glass st-pill" data-act="side-expand" aria-label={`展开侧栏:${heading}`} onPointerDown={stop} onClick={() => setCollapsed(false)}>
@@ -1045,7 +1239,7 @@ export function Studio(p: StudioProps) {
           <span className="side-open-name">{heading}</span>
         </button>
       )}
-      {p.phone && (
+      {p.phone && !image && (
         <div className="st-ph-btns" onPointerDown={stop} onClick={stop}>
           <button className={`st-ph-btn${drawer === 'style' ? ' on' : ''}`} data-act="studio-style" aria-label="样式" aria-expanded={drawer === 'style'} onClick={() => setDrawer((d) => (d === 'style' ? null : 'style'))}>
             <span className="st-thumb" style={thumb(style) ? { backgroundImage: `url(${thumb(style)})` } : undefined} />
@@ -1070,23 +1264,15 @@ export function Studio(p: StudioProps) {
         </div>
       )}
       {right}
+      {viewBar}
       {astShown && <AssistantPanel phone={p.phone} world={p.data!.world} raster={p.data!.raster} civ={p.civ!} raw={p.raw!} lock="history" busy={p.worldBusy} />}
-      <div ref={capRef} className={`st-cap${capOn ? '' : ' off'}`} aria-hidden={!capOn}>
-        <b>板块漂移</b>
-        <span className="st-yr" ref={yrRef}>
-          {driftYears(0)}
-        </span>
-        <span className="st-bar">
-          <i ref={barRef} />
-        </span>
-        <button className="st-skip" data-act="skip-intro" tabIndex={capOn ? 0 : -1} onClick={skip}>
-          跳过
-        </button>
-      </div>
-      <div ref={tipRef} className={`st-cap st-tip${tip && !capOn && !tool.on && !out && !(p.phone && (drawer || sheetFull)) ? '' : ' off'}`}>
-        {edits.sketch ? '拖动看看这颗星球；「换一颗」会照同一张草图长出新的山河' : '拖动看看这颗星球；不满意就点「换一颗」'}
-      </div>
-      {tool.on && <TerrainCaption phone={p.phone} />}
+      {!image && (
+        <div ref={tipRef} className={`st-cap st-tip${tip && !tool.on && !out && !(p.phone && (drawer || sheetFull)) ? '' : ' off'}`}>
+          {edits.sketch ? '拖动看看这颗星球；「换一颗」会照同一张草图长出新的山河' : '拖动看看这颗星球；不满意就点「换一颗」'}
+        </div>
+      )}
+      {imageCap}
+      {tool.on && (!image || (p.phone && !importing)) && <TerrainCaption phone={p.phone} />}
       {confirm && (
         <div className="st-scrim" onPointerDown={stop} onClick={() => setConfirm(false)}>
           <div className="st-dlg" role="alertdialog" aria-modal="true" aria-labelledby="st-dlg-title" onClick={stop}>
@@ -1096,15 +1282,27 @@ export function Studio(p: StudioProps) {
             <h2 id="st-dlg-title">{nameNow ? `创建「${nameNow}」？` : '创建这个世界？'}</h2>
             <p>创建以后，这颗星球的样子就定下来了，下面四样不能再改：</p>
             <div className="sb-group">
-              <div className="sb-row static">
-                <Icon name="lock" size={16} className="sb-ico" />
-                <span className="sb-row-main">
-                  <b>种子</b>
-                </span>
-                <span className="sb-row-side" data-confirm="seed">
-                  {p.params.seed}
-                </span>
-              </div>
+              {image ? (
+                <div className="sb-row static">
+                  <Icon name="lock" size={16} className="sb-ico" />
+                  <span className="sb-row-main">
+                    <b>图片</b>
+                  </span>
+                  <span className="sb-row-side" data-confirm="image">
+                    {edits.sketch?.image?.name}
+                  </span>
+                </div>
+              ) : (
+                <div className="sb-row static">
+                  <Icon name="lock" size={16} className="sb-ico" />
+                  <span className="sb-row-main">
+                    <b>种子</b>
+                  </span>
+                  <span className="sb-row-side" data-confirm="seed">
+                    {p.params.seed}
+                  </span>
+                </div>
+              )}
               <div className="sb-row static">
                 <Icon name="lock" size={16} className="sb-ico" />
                 <span className="sb-row-main">

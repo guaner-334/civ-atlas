@@ -7,9 +7,6 @@
  *     换投影 = 两组位置之间插值
  *   - 地球仪 = 把等距圆柱平面按半径 1/m 往后卷:m = 0 是平面,m = 1 正好卷成单位球。卷的过程中经纬度不变,
  *     贴图照样按经纬度取色,所以"平面 → 地球仪"是一张纸弯成球,不是两张图淡入淡出
- *   - 板块漂移(开场动画):每块板块绕自己的欧拉极往回转一段角度(最多 DRIFT_MAX),再放回今天的位置。
- *     片元着色器对每个点试每块板块:"这块板块转回去以后,它原来在哪"—— 查到的位置正好属于这块板块就取那里的颜色;
- *     几块都落到这一点时陆地盖住海、大陆盖住洋壳。只是演示,不改生成的世界
  *
  * 坐标和平常的地图一致(见 globe.ts 文件头):经度 −π…π,世界 x = 0 是 180° 经线;纬度 = π/2 − y / 高 × π;
  * 三维单位向量 p = (cos 纬 cos 经, cos 纬 sin 经, sin 纬)。
@@ -23,10 +20,6 @@ export type PlanetProjection = ProjectionId | 'globe';
 /** 网格:经度方向格数、纬度方向格数(顶点数 (NX+1)(NY+1) < 65536,用 16 位下标) */
 export const PLANET_NX = 180;
 export const PLANET_NY = 90;
-/** 板块往回转的最大角度(弧度,约 30°);转得最快的板块转这么多,其余按速度比例 */
-export const DRIFT_MAX = 0.55;
-/** 着色器里最多试多少块板块(世界参数里板块数最多 60) */
-export const PLATE_MAX = 64;
 
 export interface PlanetMesh {
   /** 每个顶点的(相对经度, 纬度),弧度 */
@@ -99,30 +92,6 @@ export function planetLayout(mesh: PlanetMesh, id: PlanetProjection): PlanetLayo
     if (y > y1) y1 = y;
   }
   return { pos, w: x1 - x0, h: y1 - y0 };
-}
-
-/**
- * 板块漂移用的转轴表:每块板块一个 vec4(单位转轴 x, y, z, 最大转角)。
- * omega 是 tectonics 的角速度向量(每块 3 个数,方向 = 欧拉极,长度 = 转速);转得最快的转 DRIFT_MAX,其余按比例。
- */
-export function plateRotations(omega: ArrayLike<number>, count: number): Float32Array {
-  const n = Math.min(count, PLATE_MAX);
-  const out = new Float32Array(PLATE_MAX * 4);
-  let max = 0;
-  for (let k = 0; k < n; k++) max = Math.max(max, Math.hypot(omega[3 * k], omega[3 * k + 1], omega[3 * k + 2]));
-  if (!(max > 0)) return out;
-  for (let k = 0; k < n; k++) {
-    const x = omega[3 * k];
-    const y = omega[3 * k + 1];
-    const z = omega[3 * k + 2];
-    const w = Math.hypot(x, y, z);
-    if (!(w > 0)) {
-      out.set([0, 0, 1, 0], k * 4);
-      continue;
-    }
-    out.set([x / w, y / w, z / w, (w / max) * DRIFT_MAX], k * 4);
-  }
-  return out;
 }
 
 /**
@@ -208,7 +177,6 @@ void main() {
 /**
  * 片元:按经纬度取两张样式贴图混合(u_mix = 1 全是 u_a);叠上标记层(助手要改的地方,不受光照)。
  * 经度不取模:贴图横向是 REPEAT,网格上经度连续,接缝处不会因为取模算错 mipmap 层而出一道细线。
- * 板块漂移时 u_a 换成漂移那一遍画出来的贴图(driftShader),这里不用管。
  */
 export const PLANET_FS = `
 #ifdef GL_FRAGMENT_PRECISION_HIGH
@@ -232,69 +200,8 @@ void main() {
   gl_FragColor = vec4(o, 1.0);
 }`;
 
-/** 漂移那一遍:铺满一张等距圆柱贴图的三角形 */
-export const DRIFT_VS = `
-attribute vec2 a_xy;
-varying vec2 v_uv;
-void main() {
-  v_uv = a_xy * 0.5 + 0.5;
-  gl_Position = vec4(a_xy, 0.0, 1.0);
-}`;
-
 /**
- * 漂移那一遍的片元:这个像素(今天的经纬度)在 t 时刻(u_t:0 = 最早,1 = 今天)是哪块板块的哪里。
- * 每块板块:把这一点绕它的转轴转 θ(1 − t),查板块贴图,正好是这块板块就算一个候选;陆地优先、大陆板块优先。
- * 没有候选(板块之间裂开的地方)= 深海色。
- * 贴图的第 0 行是北边(和画布一样从上往下),画到帧缓冲里 v_uv.y = 0 那一行也要是北,所以纬度 = (0.5 − y)π。
- * n = 循环几块(GLSL ES 1.0 的循环次数要是常数):按板块数取 16 的倍数,手机上统一变量不够时少编一些。
- */
-export function driftShader(n: number): string {
-  return `
-#ifdef GL_FRAGMENT_PRECISION_HIGH
-precision highp float;
-#else
-precision mediump float;
-#endif
-uniform sampler2D u_real, u_plates;
-uniform vec4 u_rot[${n}];
-uniform float u_t;
-uniform int u_count;
-varying vec2 v_uv;
-const float PI = 3.14159265;
-void main() {
-  float lon = v_uv.x * 2.0 * PI - PI;
-  float lat = (0.5 - v_uv.y) * PI;
-  vec3 p = vec3(cos(lat) * cos(lon), cos(lat) * sin(lon), sin(lat));
-  float best = -1.0;
-  vec3 col = vec3(0.10, 0.27, 0.46);
-  for (int k = 0; k < ${n}; k++) {
-    if (k >= u_count) break;
-    vec4 r = u_rot[k];
-    float th = r.w * (1.0 - u_t);
-    float cs = cos(th), sn = sin(th);
-    vec3 q = p * cs + cross(r.xyz, p) * sn + r.xyz * dot(r.xyz, p) * (1.0 - cs);
-    vec2 uv = vec2((atan(q.y, q.x) + PI) / (2.0 * PI), (0.5 * PI - asin(clamp(q.z, -1.0, 1.0))) / PI);
-    vec4 pl = texture2D(u_plates, uv);
-    if (abs(pl.r * 255.0 - float(k)) < 0.5) {
-      float score = pl.g * 2.0 + pl.b;
-      if (score > best) {
-        best = score;
-        col = texture2D(u_real, uv).rgb;
-      }
-    }
-  }
-  gl_FragColor = vec4(col, 1.0);
-}`;
-}
-
-/** 漂移着色器循环几块:板块数往上取 16 的倍数(最多 PLATE_MAX);统一变量放不下(手机上可能只有 64 个)就返回 0 = 不放漂移 */
-export function driftLoop(count: number, maxUniforms: number): number {
-  const n = Math.min(PLATE_MAX, Math.max(16, Math.ceil(count / 16) * 16));
-  return n + 8 <= maxUniforms ? n : 0;
-}
-
-/**
- * 陆地最集中的那条经线(弧度,−π … π):开场把它摆在正中,卷成地球仪时正对着人的是大陆而不是一片海。
+ * 陆地最集中的那条经线(弧度,−π … π):进新建时把它摆在正中,正对着人的是大陆而不是一片海;手机上建好时也转到这里。
  * px 是 plateTexels 的结果(G 通道 = 陆地);只看纬度 ±60° 以内、按 cos 纬度加权,前后各约 40° 平滑以后取最大
  * (平滑时离得越近权重越大:一块比 80° 窄的大陆取到它正中,而不是它西边的边)。
  */
