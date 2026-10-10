@@ -514,8 +514,10 @@ describe('助手面板', () => {
     expect(getToast()).toBeNull();
 
     round = 0;
-    setMockResponder(() => (round++ === 0 ? { toolCalls: [{ id: 'c0', name: 'show', args: JSON.stringify({ target: `P${pick.id}`, year: Math.floor(pick.ended!) }) }] } : '在这里。'));
+    setMockResponder(() => (round++ === 0 ? { toolCalls: [{ id: 'c0', name: 'show', args: JSON.stringify({ target: `P${pick.id}`, year: Math.ceil(pick.ended!) }) }] } : '在这里。'));
     await sendAsk(ctx(), `${pickName0}在哪`);
-    expect(getCivTime().year).toBe(Math.floor(pick.ended!) - 1);
+    const y = Math.ceil(pick.ended!) - 1;
+    expect(getCivTime().year).toBe(y);
+    expect(y < pick.ended! && y >= pick.founded).toBe(true);
   });
 });

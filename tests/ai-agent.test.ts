@@ -575,6 +575,20 @@ describe('助手', () => {
     expect(r).toContain(`打起来了 —— 第 ${y}`);
     // 没打起来的写法
     expect(trialText({ ...d, declared: [{ text: '甲向乙宣战(第 100 年)' }] })).toContain('- 甲向乙宣战(第 100 年):试推演里没打起来');
+    // 那一年两国已经在交战:宣战打不成,不把那场旧仗、或同一年后来的仗认成它的结果
+    const busy = civ.annals.find((w, k) => {
+      if (w.kind !== 'war' || w.year < 1000) return false;
+      const y1 = Math.floor(w.year) + 1;
+      const peace = civ.annals.find((q, j) => j > k && q.kind === 'peace' && q.war === w.war);
+      if (!peace || peace.year < y1 + 1) return false;
+      return [w.a, w.b].every((id) => civ.polities[id].ended === undefined || civ.polities[id].ended! > y1 + 1) && bordersAt(civ, ownersAt(civ, y1).polity, w.a).has(w.b);
+    })!;
+    const y1 = Math.floor(busy.year) + 1;
+    const s2 = { trials: [] as AssistantTrial[], proposal: null };
+    const t2 = Object.fromEntries(assistantTools(ctx(), s2).map((t) => [t.def.name, t]));
+    const r2 = await said(t2.try_edits.run({ edits: [{ op: 'declare', country: `P${busy.a}`, other: `P${busy.b}`, from: y1, why: '…' }] }));
+    expect(s2.trials[0].diff.declared).toEqual([{ text: `${nameAt(civ.polities[busy.a], y1)}向${nameAt(civ.polities[busy.b], y1)}宣战(第 ${y1} 年)` }]);
+    expect(r2).toContain('试推演里没打起来');
   });
 
   it('列完确认单:交代 AI 回答要和确认单对得上(主角的结果、副作用、不合格的),作者还没执行', async () => {

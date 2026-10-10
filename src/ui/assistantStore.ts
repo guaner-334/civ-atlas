@@ -457,11 +457,11 @@ function uiTools(ctx: AskContext, turn: number, ui: { book: AsStep['book'] | nul
       setSelection(t as MapSelection);
       requestFly('sel');
       let y = typeof a.year === 'number' && Number.isFinite(a.year) ? Math.max(0, Math.min(end, Math.floor(a.year))) : null;
-      // 国家还没立、已经亡了的年份,地图上没有它:拨到它在的年份里(立国次年到亡国前一年)
+      // 国家还没立、已经亡了的年份,地图上没有它:拨到它在的年份里(和 polityAlive 一样:立国那一刻起、亡国那一刻前)
       const p = t.kind === 'polity' ? civ.polities[t.id] : undefined;
       if (y !== null && p) {
-        const lo = Math.floor(p.founded) + 1;
-        const hi = p.ended !== undefined ? Math.floor(p.ended) - 1 : end;
+        const lo = Math.ceil(p.founded);
+        const hi = p.ended !== undefined ? Math.ceil(p.ended) - 1 : end;
         if (hi >= lo) y = Math.max(lo, Math.min(hi, y));
       }
       if (y !== null) setCivTime({ year: y, playing: false, scrubbing: false, story: false });
