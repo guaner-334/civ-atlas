@@ -487,6 +487,10 @@ describe('改写 · 核对 AI 的回复', () => {
     expect(one({ op: 'raise', path: [farP!, [farP![0] + 1, farP![1]]] }).where).toMatch(/^这一笔在海上/);
     // 沉成海、挖湖不写
     expect(one({ op: 'sink', path: [farP!] }).where).toBeUndefined();
+    // 长长一笔从海上穿过一座小岛(种子 7 的 R702,只有一州):沿线取点够密,认得出经过了陆地
+    const seat = civ.regions.seat[702];
+    const isle = toLonLat(world.mesh.x[seat], world.mesh.y[seat]);
+    expect(one({ op: 'range', path: [[isle[0] - 25, isle[1]], [isle[0] + 25, isle[1]]] }).where).toMatch(/^这道山脉经过陆地上/);
   });
 
   it('材料:能改地形时列出开阔的海面(离陆地都在 700 公里以上、彼此隔开);建好的世界不列;只有作者提了才说改不了', () => {
@@ -507,12 +511,15 @@ describe('改写 · 核对 AI 的回复', () => {
     expect(built).toContain('只有作者明确要改地形时,才在 cannot 里说');
   });
 
-  it('截止年份超过历史的最后一年:截到最后一年,给 AI 的补充里写明、要它告诉作者', () => {
+  it('截止年份到了或超过历史的最后一年:改成一直有效(最后一年那一刻也要管);超过的给 AI 的补充里写明、要它告诉作者', () => {
     const last = Math.floor(civ.endYear);
     const x = one({ op: 'protect', country: `P${big}`, from: Y, until: last + 300 });
-    expect(x.change).toMatchObject({ kind: 'intervention', v: { kind: 'protect', from: Y, until: last } });
-    expect(x.text).toMatch(new RegExp(`至第 ${last} 年`));
-    expect(x.where).toBe(`历史只推演到第 ${last} 年,给的第 ${last + 300} 年超出了,截到第 ${last} 年;回答里要告诉作者历史只到第 ${last} 年`);
+    expect(x.change).toEqual({ kind: 'intervention', v: { kind: 'protect', a: polityKey(civ, big), from: Y } });
+    expect(x.text).not.toContain('至第');
+    expect(x.where).toBe(`历史只推演到第 ${last} 年,给的第 ${last + 300} 年超出了,改成一直有效(管到历史的最后);回答里要告诉作者历史只到第 ${last} 年`);
+    const y = one({ op: 'halt', country: `P${big}`, from: Y, until: last });
+    expect(y.change).toEqual({ kind: 'intervention', v: { kind: 'halt', a: polityKey(civ, big), from: Y } });
+    expect(y.where).toBeUndefined();
     expect(one({ op: 'protect', country: `P${big}`, from: Y, until: Y + 100 }).where).toBeUndefined();
     expect(REWRITE_SYSTEM).toContain('until 最晚是历史的最后一年');
   });

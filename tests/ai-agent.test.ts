@@ -528,6 +528,9 @@ describe('助手', () => {
     expect(s).not.toContain('这一年正在打的仗');
     expect(s).toContain('这一年没有正在打的仗。');
     expect(s).toMatch(/\n之前最近的一场:第 \d+/);
+    // 之前最近的一场按结束年份挑
+    const prev = wars.filter((e) => Math.floor(e.end) < quiet).sort((a, b) => b.end - a.end)[0];
+    expect(s.split('\n').find((l) => l.startsWith('之前最近的一场'))).toContain(prev.text);
     const war = wars.find((e) => busy(Math.floor(e.year)))!;
     expect(await said(tools.situation.run({ year: Math.floor(war.year) }))).toContain('这一年正在打的仗:');
 
@@ -598,6 +601,7 @@ describe('助手', () => {
     const rctx = { world, civ, year: Y };
     expect(plainIds(`${other}(P${p.id})后来亡了`, rctx)).toBe(`${other}后来亡了`);
     expect(plainIds(`我用 chronicle 和 situation 查了`, rctx)).toBe('我用编年史和格局查了');
+    expect(plainIds(`先用 country 查,再用 show 打开`, rctx)).toBe('先用国家资料查,再用地图打开');
   });
 
   it('提示词:改写的提示词带的修改写法和助手的是同一份;前几轮带上执行没执行', () => {

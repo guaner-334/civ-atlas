@@ -721,7 +721,8 @@ export function assistantTools(
       if (wars.length) out.push(`这一年正在打的仗:`, ...wars.slice(0, 12).map((e) => `- ${entryLine(e)}`));
       else {
         // 没有仗就明说(不然 AI 容易猜"很可能在打仗"),再给前后最近的一场
-        const prev = allWars.filter((e) => Math.floor(e.end) < Y).at(-1);
+        // 编年史按开战年份排:之前最近的一场按结束年份挑(早开打的长仗可能比后开打的短仗结束得晚)
+        const prev = allWars.filter((e) => Math.floor(e.end) < Y).reduce<ChronicleEntry | undefined>((m, e) => (!m || e.end > m.end ? e : m), undefined);
         const next = allWars.find((e) => Math.floor(e.year) > Y);
         out.push(
           '这一年没有正在打的仗。',

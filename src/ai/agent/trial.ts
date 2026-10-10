@@ -271,7 +271,7 @@ export function compareTrial(before: Civ, after: Civ, focus: readonly number[], 
 }
 
 /**
- * 宣战命令打起来没有(写进 d.declared):那一年开打、两国都在里面的那场仗。
+ * 宣战命令打起来没有(写进 d.declared):这条命令那一年 a 攻 b 开的那场仗。
  * 没打出结果的仗重要度不到 NOTABLE,不在"多出来的大事"里,这里补到最前面(不然看起来像命令没起作用)
  */
 export function noteDeclares(d: TrialDiff, before: Civ, after: Civ, declares: readonly { a: string; b: string; from: number }[]): void {
@@ -290,7 +290,13 @@ export function noteDeclares(d: TrialDiff, before: Civ, after: Civ, declares: re
     const text = `${name(v.a)}向${name(v.b)}宣战(第 ${v.from} 年)`;
     const a = idOf(after, v.a);
     const b = idOf(after, v.b);
-    const e = a >= 0 && b >= 0 ? ch.find((x) => x.kind === 'war' && Math.floor(x.year) === v.from && x.polities.includes(a) && x.polities.includes(b)) : undefined;
+    if (a < 0 || b < 0) return { text };
+    // 这条宣战记的"干预"之后、同一年 a 攻 b 的那一条开战史事(编年史里别的仗也可能同时牵涉两国,不按国家找)
+    const iv = after.annals.findIndex(
+      (x) => x.kind === 'intervene' && x.a === a && x.b === b && Math.floor(x.year) === v.from && after.interventions?.[x.war]?.kind === 'declare',
+    );
+    const wi = after.annals.findIndex((x, k) => k > iv && x.kind === 'war' && x.a === a && x.b === b && Math.floor(x.year) === v.from);
+    const e = wi >= 0 ? ch.find((x) => x.id === wi || x.children?.some((c) => c.id === wi)) : undefined;
     if (!e) return { text };
     const war = { year: Math.floor(e.year), end: Math.floor(e.end), text: e.text };
     const k = eventKey(war);

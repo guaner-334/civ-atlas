@@ -863,8 +863,10 @@ const OP_WORDS: Record<string, string> = {
   sink: '沉成海',
   try_edits: '试推演',
   propose_edits: '确认单',
+  country: '国家资料',
   chronicle: '编年史',
   situation: '格局',
+  show: '地图',
   write_book: '写史书',
   suggest_names: '起名',
 };
@@ -1055,12 +1057,13 @@ class Checker {
     };
     let v: Intervention;
     let text: string;
-    // 截止年份最晚是历史的最后一年(之后没有历史可管):截了的写进给 AI 的补充,让它照实告诉作者
+    // 截止年份到了历史的最后一年就是一直有效:命令到截止那一刻为止(不含),最后一年那一刻的事件照样要管。
+    // 超出最后一年的写进给 AI 的补充,让它照实告诉作者
     const last = Math.floor(civ.endYear);
-    const untilOk = untilRaw !== null && untilRaw > from ? Math.min(untilRaw, last) : undefined;
+    const untilOk = untilRaw !== null && untilRaw > from && untilRaw < last ? untilRaw : undefined;
     const cutNote =
-      untilRaw !== null && untilOk !== undefined && untilRaw > untilOk && (kind === 'protect' || kind === 'halt' || kind === 'ally')
-        ? `历史只推演到第 ${last} 年,给的第 ${untilRaw} 年超出了,截到第 ${last} 年;回答里要告诉作者历史只到第 ${last} 年`
+      untilRaw !== null && untilRaw > last && untilRaw > from && (kind === 'protect' || kind === 'halt' || kind === 'ally')
+        ? `历史只推演到第 ${last} 年,给的第 ${untilRaw} 年超出了,改成一直有效(管到历史的最后);回答里要告诉作者历史只到第 ${last} 年`
         : undefined;
     let where = [movedNote, cutNote].filter(Boolean).join(';') || undefined;
     const untilText = untilOk !== undefined ? `(至第 ${untilOk} 年)` : '';
@@ -1267,15 +1270,14 @@ class Checker {
     const k = kind === 'volcano' ? 0.72 : kind === 'raise' ? 0.8 : kind === 'range' ? 0.65 : 0;
     if (!k) return undefined;
     const { world, civ } = this.ctx;
-    // 沿线取点(一共最多四十来个):跨 180° 经线的一段走近的那边
+    // 沿线每 100 公里取一个点(窄的岛、海峡也漏不掉;一笔最长也就几百个点):跨 180° 经线的一段走近的那边
     const samples: [number, number][] = [pts[0]];
-    const each = Math.max(1, Math.floor(40 / pts.length));
     for (let i = 0; i + 1 < pts.length; i++) {
       const a = pts[i];
       let lon = pts[i + 1][0];
       while (lon - a[0] > 180) lon -= 360;
       while (a[0] - lon > 180) lon += 360;
-      const n = Math.max(1, Math.min(each, Math.ceil(distKm(a, pts[i + 1]) / 100)));
+      const n = Math.max(1, Math.min(400, Math.ceil(distKm(a, pts[i + 1]) / 100)));
       for (let j = 1; j <= n; j++) samples.push([a[0] + ((lon - a[0]) * j) / n, a[1] + ((pts[i + 1][1] - a[1]) * j) / n]);
     }
     let near: { cell: number; km: number } | null = null;
