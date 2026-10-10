@@ -1,0 +1,99 @@
+name: 更新联系方式
+
+# 网站上「联系我们」的群名、群号、加群链接不在代码里,在网站根目录的 contact.json(格式见 src/ui/contact.ts)。
+# 换群:在 Actions 页面手动跑这个,填新的群号和加群链接(群名可不填)。只传这一个文件,不重新构建、不发布网页,
+# 打开网站(或刷新)就是新的;正式网站、测试网站(/beta/)读的是同一份。群号和链接都不填 = 不显示「联系我们」。
+# 发布用的密钥和「发布网站」一样(见 deploy.yml 开头)。
+on:
+  workflow_dispatch:
+    inputs:
+      qq:
+        description: 群号(5–12 位数字)。和链接都不填 = 不显示「联系我们」
+        required: false
+        type: string
+      url:
+        description: 加群链接(https 开头;QQ 群分享出来的整段文字直接贴进来也行,会从里面找链接)
+        required: false
+        type: string
+      name:
+        description: 群名(可不填,显示「QQ 交流群」)
+        required: false
+        type: string
+
+concurrency:
+  group: contact
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  upload:
+    name: 上传 contact.json
+    if: github.repository == 'guaner-334/civ-atlas'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: site
+      url: https://atlas.gerdor.top
+    steps:
+      - name: 写 contact.json
+        env:
+          QQ: ${{ inputs.qq }}
+          URL: ${{ inputs.url }}
+          NAME: ${{ inputs.name }}
+        run: |
+          QQ=$(printf '%s' "$QQ" | tr -d '[:space:]')
+          URL=$(printf '%s' "$URL" | grep -oE 'https://[A-Za-z0-9._~:/?#@!$&*+,;=%-]+' | head -n 1 || true)
+          NAME=$(printf '%s' "$NAME" | sed -E 's/^[[:space:]]+|[[:space:]]+$//g')
+          mkdir -p out
+          if [ -z "$QQ" ] && [ -z "$URL" ]; then
+            echo '{}' > out/contact.json
+          else
+            [[ "$QQ" =~ ^[0-9]{5,12}$ ]] || { echo "群号要是 5–12 位数字,填的是:$QQ" >&2; exit 1; }
+            [ -n "$URL" ] || { echo "没找到 https:// 开头的加群链接" >&2; exit 1; }
+            # 和网页一样用 URL 解析一遍(src/ui/contact.ts 的 parseContact),网页认不出的链接不传,免得「联系我们」消失
+            node -e 'if (new URL(process.argv[1]).protocol !== "https:") process.exit(1)' "$URL" 2>/dev/null || { echo "加群链接不是有效的网址:$URL" >&2; exit 1; }
+            jq -n --arg name "$NAME" --arg qq "$QQ" --arg url "$URL" \
+              '{name: $name, qq: $qq, url: $url} | with_entries(select(.value != ""))' > out/contact.json
+          fi
+          cat out/contact.json
+          { echo '要传的 contact.json:'; echo '```json'; cat out/contact.json; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - name: 准备 SSH
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          DEPLOY_DEST: ${{ secrets.DEPLOY_DEST }}
+        run: |
+          if [ -z "$DEPLOY_SSH_KEY" ] || [ -z "$DEPLOY_KNOWN_HOSTS" ] || [ -z "$DEPLOY_DEST" ]; then
+            echo "没配发布用的密钥(见 deploy.yml 开头),不上传" >&2
+            exit 1
+          fi
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+      # 只传这一个文件到网站根目录;「发布网站」只增不删,不会把它冲掉
+      - name: 上传
+        env:
+          DEPLOY_DEST: ${{ secrets.DEPLOY_DEST }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+        run: |
+          export RSYNC_RSH="ssh -p ${DEPLOY_PORT:-22} -i $HOME/.ssh/deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20 -o ServerAliveInterval=10"
+          retry() { local n; for n in 1 2 3 4; do "$@" && return 0; echo "第 $n 次失败,10 秒后重试" >&2; sleep 10; done; return 1; }
+          retry rsync -ltz --chmod=F644 out/contact.json "$DEPLOY_DEST"
+      # 按网页读的方式(不带参数)读回来,对得上才算换好了
+      - name: 核对网站上读到的
+        run: |
+          want=$(jq -cS . out/contact.json)
+          for n in 1 2 3 4 5 6; do
+            got=$(curl -fsS -H 'Cache-Control: no-cache' https://atlas.gerdor.top/contact.json | jq -cS . 2>/dev/null || true)
+            if [ "$got" = "$want" ]; then
+              echo "已换好:https://atlas.gerdor.top/contact.json" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            echo "第 $n 次读到的是:${got:-(读不到)},10 秒后再读" >&2
+            sleep 10
+          done
+          echo "网站上读到的和刚传的不一样(可能被缓存了)" >&2
+          exit 1

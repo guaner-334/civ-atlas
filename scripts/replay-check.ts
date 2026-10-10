@@ -5108,6 +5108,95 @@ for (const style of ['realistic', 'fantasy']) {
   );
 }
 
+// 联系我们:网站根目录的 contact.json(src/ui/contact.ts)。开发服务里没有这个文件 → 哪里都没有「联系我们」;
+// 有了以后:首页底部有,新标签页打开加群链接;鼠标移上去出小卡片(二维码、群名、群号),点「复制」群号进剪贴板、按钮换成「已复制」,
+// 鼠标移开收起;世界概览底部、世界里的「更多」菜单也有;手机上概览底部不放,「更多」里有;格式不对的 contact.json 当没配
+{
+  const CONTACT = { name: '测试交流群', qq: '925687934', url: 'https://qm.qq.com/q/xXrrfGrKso' };
+  const cctx = await browser.newContext({ viewport: { width: 1400, height: 820 } });
+  await cctx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: dev.url });
+  const cp = await cctx.newPage();
+  await cp.goto(`${dev.url}/`);
+  await cp.locator('.mw-foot').waitFor({ timeout: 30000 });
+  await cp.waitForTimeout(800);
+  const none = await cp.locator('[data-link=contact]').count();
+  let body = JSON.stringify(CONTACT);
+  await cctx.route('**/contact.json', (r) => r.fulfill({ contentType: 'application/json', body }));
+  await cp.reload();
+  const link = cp.locator('.mw-foot [data-link=contact]');
+  const shown = await link.waitFor({ timeout: 10000 }).then(
+    () => true,
+    () => false,
+  );
+  const attrs = shown ? await link.evaluate((a) => [a.textContent, a.getAttribute('href'), a.getAttribute('target')]) : null;
+  let pop: { name: string; qq: string; qr: number } | null = null;
+  let copied = '';
+  let btn = '';
+  let gone = -1;
+  if (shown) {
+    await link.hover();
+    const pp = cp.locator('[data-testid=contact-pop]');
+    await pp.locator('svg path').waitFor({ timeout: 10000 }).catch(() => {});
+    pop = await pp
+      .evaluate((el) => ({
+        name: el.querySelector('.contact-name')?.textContent ?? '',
+        qq: el.querySelector('[data-contact-qq]')?.textContent ?? '',
+        qr: el.querySelector('svg path')?.getAttribute('d')?.length ?? 0,
+      }))
+      .catch(() => null);
+    await cp.click('[data-act=contact-copy]');
+    btn = await cp.locator('[data-act=contact-copy]').innerText().catch(() => '');
+    copied = await cp.evaluate(() => navigator.clipboard.readText()).catch(() => '');
+    await cp.mouse.move(700, 200);
+    await cp.waitForTimeout(500);
+    gone = await pp.count();
+  }
+  // 世界里:概览底部、「更多」菜单
+  await cp.goto(`${dev.url}/?seed=7`);
+  await cp.waitForFunction(() => (window as any).__wf?.ready, null, { timeout: 60000 });
+  await openOverview(cp);
+  const ovLink = await cp.locator('.ov-about [data-link=contact]').getAttribute('href', { timeout: 5000 }).catch(() => null);
+  await closeOverview(cp);
+  await cp.click('[data-act=world-more]');
+  const menuLink = await cp.locator('.pm-menu [data-link=contact]').getAttribute('href', { timeout: 5000 }).catch(() => null);
+  await cp.keyboard.press('Escape');
+  // 格式不对:当没配
+  body = JSON.stringify({ qq: '群号', url: 'javascript:alert(1)' });
+  await cp.goto(`${dev.url}/`);
+  await cp.locator('.mw-foot').waitFor({ timeout: 30000 });
+  await cp.waitForTimeout(800);
+  const bad = await cp.locator('[data-link=contact]').count();
+  // 手机:概览底部没有,「更多」里有
+  body = JSON.stringify(CONTACT);
+  const mc = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+  await mc.route('**/contact.json', (r) => r.fulfill({ contentType: 'application/json', body }));
+  const mp = await mc.newPage();
+  await mp.goto(`${dev.url}/?seed=7`);
+  await mp.waitForFunction(() => (window as any).__wf?.ready, null, { timeout: 60000 });
+  await mp.tap('[data-act=world-sheet]');
+  await mp.waitForTimeout(600);
+  await mp.tap('[data-act=world-more]');
+  const phoneMenu = await mp.locator('.pm-menu [data-link=contact]').getAttribute('href', { timeout: 5000 }).catch(() => null);
+  await mp.keyboard.press('Escape');
+  await mp.tap('[data-act=overview]');
+  await mp.locator('.ov-root:not([hidden]) .ov-about').waitFor({ timeout: 5000 }).catch(() => {});
+  const phoneOv = await mp.locator('.ov-about [data-link=contact]').count();
+  await mc.close();
+  await cctx.close();
+  console.log(
+    `联系我们:没配 ${none} 个;配了 首页 ${JSON.stringify(attrs)},小卡片 ${JSON.stringify(pop)},复制「${btn}」剪贴板「${copied}」,移开后 ${gone};` +
+      `概览 ${ovLink},更多菜单 ${menuLink};格式不对 ${bad} 个;手机 更多 ${phoneMenu}、概览 ${phoneOv} 个`,
+  );
+  if (none) errs.push(`联系我们:没有 contact.json 也出现了(${none} 个)`);
+  if (!attrs || attrs[0] !== '联系我们' || attrs[1] !== CONTACT.url || attrs[2] !== '_blank') errs.push(`联系我们:首页底部没有,或网址不对、不是新标签页打开(${JSON.stringify(attrs)})`);
+  if (!pop || pop.name !== CONTACT.name || pop.qq !== CONTACT.qq || pop.qr < 100) errs.push(`联系我们:鼠标移上去的小卡片不对(${JSON.stringify(pop)})`);
+  if (copied !== CONTACT.qq || !btn.includes('已复制')) errs.push(`联系我们:点「复制」没把群号放进剪贴板(剪贴板「${copied}」,按钮「${btn}」)`);
+  if (gone !== 0) errs.push('联系我们:鼠标移开后小卡片没收起');
+  if (ovLink !== CONTACT.url || menuLink !== CONTACT.url) errs.push(`联系我们:概览底部、「更多」菜单里没有(${ovLink},${menuLink})`);
+  if (bad) errs.push('联系我们:contact.json 格式不对也出现了');
+  if (phoneMenu !== CONTACT.url || phoneOv) errs.push(`联系我们(手机):「更多」里应该有、概览底部不放(${phoneMenu},概览 ${phoneOv} 个)`);
+}
+
 console.log('errors:', errs);
 await browser.close();
 await dev.close();

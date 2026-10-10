@@ -18,7 +18,8 @@ function buildCommit(): string {
 
 /**
  * 打包出来的每个 JS 文件开头的署名:作品名、版本、版权、许可证、源代码地址(`/*!` 开头的注释压缩时会保留)。
- * 主程序另带代码提交号,对得上是哪一版;后台计算的几个文件不带,不然每次发布它们的文件名都会变,浏览器得重新下载没改过的代码
+ * 主程序另带代码提交号,对得上是哪一版;后台计算的几个文件、用到时才下载的小文件(二维码)不带,
+ * 不然每次发布它们的文件名都会变,浏览器得重新下载没改过的代码
  */
 function banner(commit = ''): string {
   return `/*! 文明与地图 v${pkg.version}${commit ? ` (${commit})` : ''} | Copyright (C) 2026 guaner-334 | ${pkg.license} | ${SOURCE_URL} */`;
@@ -46,7 +47,7 @@ export default defineConfig({
       },
     },
   ],
-  build: { rollupOptions: { output: { banner: () => banner(buildCommit()) } } },
+  build: { rollupOptions: { output: { banner: (chunk) => banner(chunk.isEntry ? buildCommit() : '') } } },
   worker: { format: 'es', rollupOptions: { output: { banner: () => banner() } } },
   server: { port: 5188, strictPort: true },
   // 只跑 tests/ 下的单测;本地工具目录(.claude/)里的不算

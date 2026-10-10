@@ -35,6 +35,7 @@ import { useAssistant } from '../assistantStore';
 import { useAiOn } from '../../ai/client';
 import { AST_W, closeAssistant, openAssistant, useAstOpen } from '../astPanel';
 import { PRIVACY_URL, SOURCE_URL, TERMS_URL } from '../links';
+import { ContactMenuItem } from '../ContactLink';
 import { APP_VERSION } from '../version';
 import { Icon } from '../icons';
 import { styleKey } from '../LayerPopover';
@@ -809,6 +810,7 @@ export function Studio(p: StudioProps) {
         <MenuItem href={TERMS_URL} act="terms">
           用户协议
         </MenuItem>
+        <ContactMenuItem />
         <div className="pm-foot" data-version>
           版本 {APP_VERSION}
         </div>
