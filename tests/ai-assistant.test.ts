@@ -504,11 +504,18 @@ describe('助手面板', () => {
     expect(targetOf(civ, null)).toBeNull();
   });
 
-  it('时间轴:打开时给了年份就拨过去', async () => {
+  it('时间轴:打开时给了年份就拨过去,步骤下面写明拨到了哪年;国家亡了以后的年份拨到它还在的最后一年', async () => {
+    const alive = civ.polities.find((p) => p.ended === undefined)!;
     let round = 0;
-    setMockResponder(() => (round++ === 0 ? { toolCalls: [{ id: 'c0', name: 'show', args: JSON.stringify({ target: `P${pick.id}`, year: 99999 }) }] } : '在这里。'));
-    await sendAsk(ctx(), `${pickName0}在哪`);
+    setMockResponder(() => (round++ === 0 ? { toolCalls: [{ id: 'c0', name: 'show', args: JSON.stringify({ target: `P${alive.id}`, year: 99999 }) }] } : '在这里。'));
+    const id = await sendAsk(ctx(), '它在哪');
     expect(getCivTime().year).toBe(END);
+    expect(turn(id).steps[0].summary).toBe(`在地图上打开了${nameAt(alive, END)}，时间轴拨到第 ${END} 年`);
     expect(getToast()).toBeNull();
+
+    round = 0;
+    setMockResponder(() => (round++ === 0 ? { toolCalls: [{ id: 'c0', name: 'show', args: JSON.stringify({ target: `P${pick.id}`, year: Math.floor(pick.ended!) }) }] } : '在这里。'));
+    await sendAsk(ctx(), `${pickName0}在哪`);
+    expect(getCivTime().year).toBe(Math.floor(pick.ended!) - 1);
   });
 });

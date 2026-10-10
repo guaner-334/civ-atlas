@@ -118,6 +118,46 @@ const cellLL = (world: World, cell: number): [number, number] => toLonLat(world.
 /** 公里数取个整:100 以下到十,以上到五十 */
 const kmText = (km: number) => `${km < 100 ? Math.max(10, Math.round(km / 10) * 10) : Math.round(km / 50) * 50} 公里`;
 
+/** 陆地(湖也算)地块的单位向量(找最近的陆地用;按世界缓存) */
+const landCache = new WeakMap<World, { cells: Int32Array; v: Float64Array }>();
+function landVectors(world: World): { cells: Int32Array; v: Float64Array } {
+  let c = landCache.get(world);
+  if (c) return c;
+  const m = world.mesh;
+  const cells: number[] = [];
+  for (let i = 0; i < m.n; i++) if (world.water[i] !== 1) cells.push(i);
+  const v = new Float64Array(cells.length * 3);
+  cells.forEach((i, k) => {
+    const [lon, lat] = cellLL(world, i);
+    v[3 * k] = Math.cos(lat * RAD) * Math.cos(lon * RAD);
+    v[3 * k + 1] = Math.cos(lat * RAD) * Math.sin(lon * RAD);
+    v[3 * k + 2] = Math.sin(lat * RAD);
+  });
+  landCache.set(world, (c = { cells: Int32Array.from(cells), v }));
+  return c;
+}
+
+/** 离 [经度, 纬度] 最近的陆地:哪一块地块、多远(公里);落在陆地上 = 0;整颗星球没有陆地 = null */
+export function nearestLand(world: World, p: readonly [number, number]): { cell: number; km: number } | null {
+  const { cells, v } = landVectors(world);
+  if (!cells.length) return null;
+  const x = Math.cos(p[1] * RAD) * Math.cos(p[0] * RAD);
+  const y = Math.cos(p[1] * RAD) * Math.sin(p[0] * RAD);
+  const z = Math.sin(p[1] * RAD);
+  let best = 0;
+  let bd = -2;
+  for (let k = 0; k < cells.length; k++) {
+    const d = v[3 * k] * x + v[3 * k + 1] * y + v[3 * k + 2] * z;
+    if (d > bd) {
+      bd = d;
+      best = k;
+    }
+  }
+  const c = nearestCell(world, p);
+  if (c >= 0 && world.water[c] !== 1) return { cell: c, km: 0 };
+  return { cell: cells[best], km: R_KM * Math.acos(Math.max(-1, Math.min(1, bd))) };
+}
+
 /** 离 [经度, 纬度] 最近的地块(没有 = −1) */
 function nearestCell(world: World, p: readonly [number, number]): number {
   const m = world.mesh;
@@ -187,6 +227,53 @@ export function endText(civ: Civ, p: Polity): string {
   return `第 ${y} 年瓦解`;
 }
 
+/** 开阔的海面列几处 */
+const OPEN_SEAS = 6;
+/** 离陆地多远才算开阔的海面(公里) */
+const OPEN_SEA_KM = 700;
+
+/**
+ * 开阔的海面(离陆地最远的几处,彼此隔开):"(150, 10) 一带:离最近的陆地(L5)约 1200 公里,在它东南"。
+ * 在海上加岛时给 AI 当落点的依据(材料里只有陆块的中心和范围,看不出海岸线在哪)
+ */
+function openSeas(world: World, civ: Civ, listed: ReadonlySet<number>): string[] {
+  const { cells, v } = landVectors(world);
+  if (!cells.length) return [];
+  const reg = civ.regions;
+  const pts: { p: [number, number]; km: number; cell: number }[] = [];
+  for (let lat = -60; lat <= 60; lat += 6) {
+    const step = 6 / Math.max(0.5, Math.cos(lat * RAD));
+    for (let lon = -180; lon < 180; lon += step) {
+      const x = Math.cos(lat * RAD) * Math.cos(lon * RAD);
+      const y = Math.cos(lat * RAD) * Math.sin(lon * RAD);
+      const z = Math.sin(lat * RAD);
+      let bd = -2;
+      let best = 0;
+      for (let k = 0; k < cells.length; k++) {
+        const d = v[3 * k] * x + v[3 * k + 1] * y + v[3 * k + 2] * z;
+        if (d > bd) {
+          bd = d;
+          best = k;
+        }
+      }
+      const km = R_KM * Math.acos(Math.max(-1, Math.min(1, bd)));
+      if (km >= OPEN_SEA_KM) pts.push({ p: [Math.round(lon), lat], km, cell: cells[best] });
+    }
+  }
+  pts.sort((a, b) => b.km - a.km || a.p[0] - b.p[0] || a.p[1] - b.p[1]);
+  const picked: typeof pts = [];
+  for (const q of pts) {
+    if (picked.length >= OPEN_SEAS) break;
+    if (picked.every((o) => distKm(o.p, q.p) >= 3000)) picked.push(q);
+  }
+  return picked.map(({ p, km, cell }) => {
+    const r = reg.of[cell];
+    // 陆块表里没列的(小岛)就叫"一座岛"
+    const land = r >= 0 && r < reg.count && listed.has(reg.landmass[r]) ? `L${reg.landmass[r]}` : '一座岛';
+    return `${ll(p)} 一带:离最近的陆地(${land})约 ${kmText(km)},在它${dirWord(cellLL(world, cell), p)}`;
+  });
+}
+
 /** 陆块的叫法(L0 = 最大的,按面积从大到小编号) */
 function landName(id: number, regions: number, polar: boolean): string {
   const base = regions <= 2 ? '小岛' : id === 0 ? '最大的大陆' : regions <= 15 ? '大岛' : `第${cnNumber(id + 1)}大陆`;
@@ -220,8 +307,16 @@ export function rewriteMaterial(world: World, civ: Civ, year: number, edits: Wor
       (civ.viable ? `,作者没说年份的命令从第 ${defaultFrom(civ, Y)} 年起。` : '。') +
       '位置写成(经度, 纬度):经度 −180~180,东经为正;纬度 −90~90,北纬为正。赤道一圈约 4 万公里,纬度 1° 约 111 公里。',
   );
-  if (lock === 'terrain') out.push('这个世界已经建好,地形定下来了:不能再改地形(火山、山脉、湖、抬起陆地、沉成海都不行),只能下历史命令、改名。作者要改地形时,在 cannot 里说"世界建好以后地形不能再改,想换地形请在世界设定里以它为底稿新建"。');
-  else if (lock === 'history') out.push('这个世界还在新建:现在只能改地形,不能下历史命令、不能改名(历史在作者点"创建世界"以后才定下来)。作者要改历史或名字时,在 cannot 里说"创建世界以后再改历史和名字"。');
+  if (lock === 'terrain')
+    out.push(
+      '这个世界已经建好,地形定下来了:不能再改地形(火山、山脉、湖、抬起陆地、沉成海都不行),只能下历史命令、改名。' +
+        '只有作者明确要改地形时,才在 cannot 里说"世界建好以后地形不能再改,想换地形请在世界设定里以它为底稿新建";作者没提就不写。',
+    );
+  else if (lock === 'history')
+    out.push(
+      '这个世界还在新建:现在只能改地形,不能下历史命令、不能改名(历史在作者点"创建世界"以后才定下来)。' +
+        '只有作者明确要改历史或名字时,才在 cannot 里说"创建世界以后再改历史和名字";作者没提就不写。',
+    );
   if (!civ.viable) out.push('这颗星球太冷或陆地太少,没有长出文明:没有国家、城和民族,只能改地形。');
 
   // ---- 陆块 ----
@@ -257,10 +352,12 @@ export function rewriteMaterial(world: World, civ: Civ, year: number, edits: Wor
     if (own.polity[r] >= 0) L.polities.add(own.polity[r]);
   }
   const landList = [...lands.entries()].sort((a, b) => b[1].area - a[1].area || a[0] - b[0]);
+  const listedLands = new Set<number>();
   if (landList.length) {
     out.push('', '## 陆块(按面积;小岛不列)');
     for (const [id, L] of landList.slice(0, 12)) {
       if (L.n < 2 && id > 2) continue;
+      listedLands.add(id);
       const cLon = Math.atan2(L.v[1], L.v[0]) / RAD;
       const cLat = Math.atan2(L.v[2], Math.hypot(L.v[0], L.v[1])) / RAD;
       let lo = Infinity;
@@ -284,6 +381,12 @@ export function rewriteMaterial(world: World, civ: Civ, year: number, edits: Wor
           (civ.viable ? ` · 第 ${Y} 年上面的国家:${pol.length ? pol.slice(0, 16).map((p) => `P${p}`).join('、') + (pol.length > 16 ? ' 等' : '') : '无'}` : ''),
       );
     }
+  }
+
+  // ---- 开阔的海面(能改地形时才列:在海上加岛的落点) ----
+  if (lock !== 'terrain') {
+    const seas = openSeas(world, civ, listedLands);
+    if (seas.length) out.push('', `## 开阔的海面(离陆地最远的几处,在海上加岛可以放这一带)`, ...seas);
   }
 
   // ---- 国家 ----
@@ -503,6 +606,14 @@ export const REWRITE_OPS = [
   '所以"让某地更干旱"可以在它的上风一侧拉一道山脉挡住水汽;"更湿润"可以在它的上风一侧沉出一片海湾。用这种办法时在 why 里说清楚。',
 ].join('\n');
 
+/** 几种常见说法怎么改:改写和助手的提示词共用 */
+export const REWRITE_TIPS = [
+  '- "让它多撑 N 年":从原本亡国前约 30 年起 protect,until = 原本亡国那年 + N。超过历史的最后一年就写最后一年,并告诉作者历史只推演到那一年、最多撑到那一年。',
+  '- "国土别变大""别扩张":和 protect 同一年起加 halt,until 也一样;不要从立国起禁,那会把之前的整段历史也改掉。',
+  '- 在海上加岛:小岛用 volcano;大岛用 raise 画一段(两三个点连成一条,或几个点围一圈)。落点要在开阔的海面上,离现有的陆地比新岛的半径远几百公里,不然会和那块陆地连成一片;' +
+    '核对结果里会写落点离最近的陆地多远,太近就挪。',
+].join('\n');
+
 export const REWRITE_SYSTEM = [
   '你是「文明与地图」里帮作者改世界的助手。这是一颗虚构的星球:地形由板块、侵蚀、气候生成,历史从第 0 年按规则推演到最后一年。',
   '作者用一句话说想怎么改(历史、名字或地形),你把它翻成下面这些"修改",列给作者确认,作者点了执行才生效。',
@@ -514,13 +625,16 @@ export const REWRITE_SYSTEM = [
   '## 规则',
   '1. 国家、城、州、民族、山河只能用材料里的编号(P3、C12、R45、E2、M7);作者说的名字对不上任何一个,写进 cannot,不要编。',
   '2. from 是整数年份,要在那个国家存在的年份里(立国次年到亡国前一年;写成立国那年的会挪到次年),而且早于历史的最后一年。作者没说年份,就用材料开头写的默认年份;那一年这国还没立或已亡,挑一个合理的年份,在 why 里说。',
-  '   例:"让它多撑三百年" → 从原本亡国前约 30 年起 protect,until = 原本亡国那年 + 300。',
+  '   until 最晚是历史的最后一年。',
   '3. 只做作者要的,不要额外加作者没提的事;一句话可以拆成几条修改。能用历史命令做到的,不要动地形。',
   '   同一次不要既改地形又下历史命令:地形一改历史整个重来,材料里的国家、城、年份就对不上了。作者两样都要时,这次只改地形,在 cannot 里说"地形改好后再说历史那部分"。',
   '4. 每条修改带 why:一句话(25 字以内)说为什么这样改,给作者看。',
   '5. 做不到、或只能做到一部分的,写进 cannot,一条一句话,说明原因;有替代做法就一并说。',
   '6. 作者是在提问或闲聊、不是要改时,edits 留空,在 reply 里回答。',
-  '7. reply 用一两句话说打算怎么改。全部用中文。',
+  '7. reply 用一两句话说打算怎么改(作者还没执行,不要说"已经改了")。全部用中文。',
+  '',
+  '## 常见说法',
+  REWRITE_TIPS,
   '',
   '## 回复格式:只回一个 JSON 对象,不要别的文字',
   '{"reply":"…","edits":[' +
@@ -749,6 +863,10 @@ const OP_WORDS: Record<string, string> = {
   sink: '沉成海',
   try_edits: '试推演',
   propose_edits: '确认单',
+  chronicle: '编年史',
+  situation: '格局',
+  write_book: '写史书',
+  suggest_names: '起名',
 };
 
 /**
@@ -761,6 +879,11 @@ export function plainIds(text: string, ctx: Pick<RewriteContext, 'world' | 'civ'
   const { world, civ } = ctx;
   const Y = Math.floor(Math.min(civ.endYear, Math.max(0, Number.isFinite(ctx.year) ? ctx.year : civ.endYear)));
   const reg = civ.regions;
+  /** 国家的各种叫法(各个国号、词根):编号前后紧挨着其中任何一个,都算已经写了名字(那一年的国号和时间轴上的不一样时不叠写) */
+  const aliases = (id: number): string[] => {
+    const p = civ.polities[id];
+    return p ? [...polityTitleChain(p).split(' → '), ...polityRoots(p), p.name].filter((n) => [...n].length >= 2) : [];
+  };
   const nameOf = (tag: string, id: number): string => {
     if (tag === 'P') return civ.polities[id] ? nameAt(civ.polities[id], Y) : '';
     if (tag === 'C') return civ.settlements[id]?.name ?? '';
@@ -788,9 +911,10 @@ export function plainIds(text: string, ctx: Pick<RewriteContext, 'world' | 'civ'
         if (!name) return m;
         const before = all.slice(0, off).replace(/[\s:：]+$/, '');
         const after = all.slice(off + m.length).replace(/^[\s:：]+/, '');
-        return before.endsWith(name) || after.startsWith(name) ? '' : name;
+        const names = tag === 'P' ? [name, ...aliases(Number(num))] : [name];
+        return names.some((n) => before.endsWith(n) || after.startsWith(n)) ? '' : name;
       })
-      .replace(/\b(protect|unity|halt|ally|declare|move|cede|found|rename|volcano|lake|range|raise|sink|try_edits|propose_edits)\b/gi, (w) => OP_WORDS[w.toLowerCase()] ?? w)
+      .replace(new RegExp(String.raw`\b(${Object.keys(OP_WORDS).join('|')})\b`, 'gi'), (w) => OP_WORDS[w.toLowerCase()] ?? w)
       // 去掉编号以后留下的空格:汉字、标点和汉字之间的不要,连着几个的并成一个
       .replace(/([\u3000-\u9fff\uff00-\uffef,;:!?)])[ \t]+(?=[\u3400-\u9fff\uff00-\uffef(])/g, '$1')
       .replace(/[ \t]{2,}/g, ' ')
@@ -931,8 +1055,14 @@ class Checker {
     };
     let v: Intervention;
     let text: string;
-    let where = movedNote;
-    const untilOk = untilRaw !== null && untilRaw > from ? Math.min(untilRaw, 65535) : undefined;
+    // 截止年份最晚是历史的最后一年(之后没有历史可管):截了的写进给 AI 的补充,让它照实告诉作者
+    const last = Math.floor(civ.endYear);
+    const untilOk = untilRaw !== null && untilRaw > from ? Math.min(untilRaw, last) : undefined;
+    const cutNote =
+      untilRaw !== null && untilOk !== undefined && untilRaw > untilOk && (kind === 'protect' || kind === 'halt' || kind === 'ally')
+        ? `历史只推演到第 ${last} 年,给的第 ${untilRaw} 年超出了,截到第 ${last} 年;回答里要告诉作者历史只到第 ${last} 年`
+        : undefined;
+    let where = [movedNote, cutNote].filter(Boolean).join(';') || undefined;
     const untilText = untilOk !== undefined ? `(至第 ${untilOk} 年)` : '';
     // 挪到次年以后截止年份不在开始之后(原本给的是一年期的命令):不能当成没给截止、变成一直有效
     if (movedNote && untilRaw !== null && untilRaw > asked && untilRaw <= from && (kind === 'protect' || kind === 'halt' || kind === 'ally'))
@@ -1125,7 +1255,55 @@ class Checker {
     if (!op) return fail(text, '位置不对');
     this.terrainLeft--;
     this.batchTerrain.push(op);
-    return { change: { kind: 'terrain', op }, text };
+    const where = this.landing(kind, pts, r);
+    return { change: { kind: 'terrain', op }, text, ...(where ? { where } : {}) };
+  }
+
+  /**
+   * 抬出陆地的几种(火山、山脉、抬起陆地)落点离现有的陆地多远(给 AI 核对:作者要的是"海上的岛",落点却贴着大陆,抬出来就并进海岸了)。
+   * 新陆地的半径按地形修改的算法估:火山 0.72 r、抬起陆地 0.8 r、山脉 0.65 r(r = 那一档的半径)
+   */
+  private landing(kind: TerrainKind, pts: readonly [number, number][], r: number): string | undefined {
+    const k = kind === 'volcano' ? 0.72 : kind === 'raise' ? 0.8 : kind === 'range' ? 0.65 : 0;
+    if (!k) return undefined;
+    const { world, civ } = this.ctx;
+    // 沿线取点(一共最多四十来个):跨 180° 经线的一段走近的那边
+    const samples: [number, number][] = [pts[0]];
+    const each = Math.max(1, Math.floor(40 / pts.length));
+    for (let i = 0; i + 1 < pts.length; i++) {
+      const a = pts[i];
+      let lon = pts[i + 1][0];
+      while (lon - a[0] > 180) lon -= 360;
+      while (a[0] - lon > 180) lon += 360;
+      const n = Math.max(1, Math.min(each, Math.ceil(distKm(a, pts[i + 1]) / 100)));
+      for (let j = 1; j <= n; j++) samples.push([a[0] + ((lon - a[0]) * j) / n, a[1] + ((pts[i + 1][1] - a[1]) * j) / n]);
+    }
+    let near: { cell: number; km: number } | null = null;
+    for (const p of samples) {
+      const h = nearestLand(world, p);
+      if (h && (!near || h.km < near.km)) near = h;
+      if (near?.km === 0) break;
+    }
+    if (!near) return '整颗星球没有陆地,抬出来的是一座单独的岛';
+    const reg = civ.regions;
+    const rg = reg.of[near.cell];
+    let land = '陆地';
+    if (rg >= 0 && rg < reg.count) {
+      const id = reg.landmass[rg];
+      let n = 0;
+      for (let q = 0; q < reg.count; q++) if (reg.landmass[q] === id) n++;
+      land = `L${id} ${landName(id, n, Math.abs(cellLL(world, near.cell)[1]) >= 60)}`;
+    }
+    const radius = k * r * KM_PER_UNIT;
+    const what = kind === 'volcano' ? '火山' : kind === 'range' ? '这道山脉' : '这一笔';
+    if (near.km === 0) return `${what}${pts.length > 1 ? '经过' : '落在'}陆地上(${land}),抬出来的地方和这块陆地连在一起`;
+    const gap = near.km - radius;
+    if (gap < 300)
+      return (
+        `${what}离最近的陆地(${land})只有约 ${kmText(near.km)},抬出来的陆地半径约 ${kmText(radius)},会和那块陆地连在一起;` +
+        `作者要的是海上单独的岛,就往开阔的海面挪,离那块陆地至少 ${kmText(radius + 300)}`
+      );
+    return `${what}在海上,离最近的陆地(${land})约 ${kmText(near.km)},抬出来是一座单独的岛(半径约 ${kmText(radius)})`;
   }
 
   private anchors: { name: string; p: [number, number] }[] | null = null;

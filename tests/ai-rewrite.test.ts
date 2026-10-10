@@ -33,6 +33,7 @@ import {
   mergeRewrite,
   mockRewrite,
   nameAt,
+  nearestLand,
   parseRewrite,
   rewriteMaterial,
   rewriteRequest,
@@ -465,6 +466,55 @@ describe('改写 · 核对 AI 的回复', () => {
     expect(one({ op: 'volcano', at: [0, 0] }, ctx({ ...EMPTY, terrain: full })).problem).toMatch(/已经满了/);
     const almost = parseRewrite(json([{ op: 'volcano', at: [0, 0] }, { op: 'volcano', at: [5, 0] }]), ctx({ ...EMPTY, terrain: full.slice(1) }));
     expect(almost.ok && almost.items.map((x) => !!x.change)).toEqual([true, false]);
+  });
+
+  it('抬出陆地的落点:给 AI 的补充里写离最近的陆地多远;落在陆地上、或近得会连成一片的说清楚', () => {
+    const cap = civ.settlements[capital].cell;
+    expect(one({ op: 'volcano', at: toLonLat(world.mesh.x[cap], world.mesh.y[cap]) }).where).toMatch(/^火山落在陆地上\(L\d+ .+\),抬出来的地方和这块陆地连在一起$/);
+    // 海上的点按离陆地的远近挑:近的(两三百公里)、远的(一千五百公里以上)
+    let nearP: [number, number] | null = null;
+    let farP: [number, number] | null = null;
+    for (let i = 0; i < world.mesh.n && (!nearP || !farP); i += 7) {
+      if (world.water[i] !== 1) continue;
+      const p = toLonLat(world.mesh.x[i], world.mesh.y[i]);
+      if (Math.abs(p[1]) > 60) continue;
+      const km = nearestLand(world, p)!.km;
+      if (!nearP && km > 150 && km < 300) nearP = p;
+      if (!farP && km > 1500) farP = p;
+    }
+    expect(one({ op: 'volcano', at: nearP! }).where).toMatch(/^火山离最近的陆地\(.+\)只有约 \d+ 公里,抬出来的陆地半径约 \d+ 公里,会和那块陆地连在一起;.+往开阔的海面挪/);
+    expect(one({ op: 'volcano', at: farP! }).where).toMatch(/^火山在海上,离最近的陆地\(.+\)约 \d+ 公里,抬出来是一座单独的岛\(半径约 \d+ 公里\)$/);
+    expect(one({ op: 'raise', path: [farP!, [farP![0] + 1, farP![1]]] }).where).toMatch(/^这一笔在海上/);
+    // 沉成海、挖湖不写
+    expect(one({ op: 'sink', path: [farP!] }).where).toBeUndefined();
+  });
+
+  it('材料:能改地形时列出开阔的海面(离陆地都在 700 公里以上、彼此隔开);建好的世界不列;只有作者提了才说改不了', () => {
+    const open = rewriteMaterial(world, civ, Y, EMPTY, ['东边海上加一个大岛'], 'history').text;
+    const lines = open.split('\n');
+    const at = lines.indexOf('## 开阔的海面(离陆地最远的几处,在海上加岛可以放这一带)');
+    expect(at).toBeGreaterThan(0);
+    const seas = lines.slice(at + 1).filter((l, i, a) => a.slice(0, i + 1).every((x) => x.startsWith('(')));
+    expect(seas.length).toBeGreaterThanOrEqual(3);
+    for (const l of seas) {
+      const m = /^\((-?[\d.]+), (-?[\d.]+)\) 一带:离最近的陆地\((L\d+|一座岛)\)约 \d+ 公里,在它[东南西北]+$/.exec(l);
+      expect(m, l).toBeTruthy();
+      expect(nearestLand(world, [Number(m![1]), Number(m![2])])!.km).toBeGreaterThan(650);
+    }
+    expect(open).toContain('只有作者明确要改历史或名字时,才在 cannot 里说');
+    const built = rewriteMaterial(world, civ, Y, EMPTY, ['x'], 'terrain').text;
+    expect(built).not.toContain('## 开阔的海面');
+    expect(built).toContain('只有作者明确要改地形时,才在 cannot 里说');
+  });
+
+  it('截止年份超过历史的最后一年:截到最后一年,给 AI 的补充里写明、要它告诉作者', () => {
+    const last = Math.floor(civ.endYear);
+    const x = one({ op: 'protect', country: `P${big}`, from: Y, until: last + 300 });
+    expect(x.change).toMatchObject({ kind: 'intervention', v: { kind: 'protect', from: Y, until: last } });
+    expect(x.text).toMatch(new RegExp(`至第 ${last} 年`));
+    expect(x.where).toBe(`历史只推演到第 ${last} 年,给的第 ${last + 300} 年超出了,截到第 ${last} 年;回答里要告诉作者历史只到第 ${last} 年`);
+    expect(one({ op: 'protect', country: `P${big}`, from: Y, until: Y + 100 }).where).toBeUndefined();
+    expect(REWRITE_SYSTEM).toContain('until 最晚是历史的最后一年');
   });
 
   it('一次最多 12 条,多的不收并写进"做不到";没有文明的世界只能改地形', () => {

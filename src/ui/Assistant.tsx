@@ -5,7 +5,8 @@
  *   空的时候    一段说明 + 五句按这个世界写的例子(点一下填进输入框);没设置 AI 时多一行"设置 AI"
  *   一轮对话    作者的话 → 助手做的每一步(做完打勾、正在做转圈、没做成灰叉;做完收成一行,点开看)→ 回的话
  *              (说到的国家、城是蓝字,点了在地图上打开)→ 做不到的 → 确认单(要改的几条,能勾掉;试推演的结果和现在比)
- *              → 执行 / 先在地图上看看 / 不要;问答下面列说到的大事(点了时间轴跳过去);写史书一行进度;起名列候选
+ *              → 执行 / 先在地图上看看 / 不要;问答下面列说到的大事(点了时间轴跳过去);写史书一行;起名列候选
+ *   写史书时    写书那一行(带进度条)钉在顶上,对话怎么滚都在;写完读过就收起
  *   底下        输入框(回车发送,Shift + 回车换行);助手在做时右下是停止;世界正在重推时上面一行"世界正在重推,好了再说"
  * 先在地图上看看:地图、左边卡片、时间轴换成试推演的历史(App 换),地图上方一条提示(PreviewBanner),能直接执行或回到现在。
  * 宽屏面板在右边、和左边的世界卡片对称(窗口够宽时地图往左让,见 astPanel.ts);手机往下拉或点 ✕ 收起,对话留着。
@@ -19,7 +20,7 @@ import { capitalAt, polityAlive, polityAllTitles, polityName } from '../gen/civ/
 import { openAiSettings, useAiStatus } from '../ai/client';
 import { stepsSummary, type TrialRow, type TrialView } from '../ai/agent/assistant';
 import { WISH_MAX, type RewriteLock } from '../ai/prompts/rewrite';
-import { bookProgress, bookUnit, openBookReader, useBook } from './bookStore';
+import { bookHow, bookProgress, bookUnit, openBookReader, useBook, type BookJob } from './bookStore';
 import { getCivTime, pickChronicleEntry, setSelection, useSelection, type MapSelection } from './civView';
 import { useEdits } from './editsStore';
 import { requestFly } from './panelStore';
@@ -163,6 +164,7 @@ export function AssistantPanel({ phone, world, raster, civ, raw, lock, busy }: A
             <Icon name="close" size={15} />
           </button>
         </header>
+        <PinnedBook turns={st.turns} />
       </div>
       <div className="ast-log" ref={log}>
         {!st.turns.length && (
@@ -350,30 +352,48 @@ function StepRow({ s }: { s: AsStep }) {
   );
 }
 
-/** 写史书:写的时候转圈 + 进度条,写好打勾;"打开"读它 */
+/** 对话里写史书那一步:写的时候转圈,写好打勾;"打开"读它(进度条在顶上钉着的那一行,见 PinnedBook) */
 function BookRow({ s }: { s: AsStep }) {
   const { job } = useBook();
   const b = s.book!;
-  const j = job && job.id === b.id ? job : null;
+  return <BookLine job={job && job.id === b.id ? job : null} title={b.title} bookKey={b.key} how={s.summary ?? ''} />;
+}
+
+/**
+ * 助手开着时,写书那一行钉在标题下面(对话怎么滚都看得到):有书在写、或写完还没读时才有,点「打开」读过就收起。
+ * 不管书是不是助手开写的都钉(这时右上的进度不显示,见 Corners.tsx 的 BookChip);写失败的不钉,照旧是提示条
+ */
+function PinnedBook({ turns }: { turns: readonly AsTurn[] }) {
+  const { job } = useBook();
+  if (!job || !(job.status === 'writing' || (job.status === 'done' && !job.seen))) return null;
+  const step = turns.flatMap((t) => t.steps).find((s) => s.book?.id === job.id);
+  return (
+    <div className="ast-grp ast-pin" data-act="ast-book-pin">
+      <BookLine job={job} title={job.title} bookKey={job.key} how={step?.summary ?? bookHow(job)} bar />
+    </div>
+  );
+}
+
+/** 写史书的一行:转圈 / 打勾、书名、写法和写到哪了;bar = 带进度条 */
+function BookLine({ job: j, title, bookKey, how, bar }: { job: BookJob | null; title: string; bookKey: string; how: string; bar?: boolean }) {
   const writing = j?.status === 'writing';
   const failed = j?.status === 'error' || j?.status === 'stopped';
   const pct = j ? Math.round(bookProgress(j) * 100) : 100;
-  const how = s.summary ?? '';
   const now = writing ? `正在写第 ${Math.min(j!.calls, j!.call + 1)} ${bookUnit(j!.opts.style)}` : failed ? '没写完' : '写好了，在「成书」里';
   return (
     <div className="ast-row" data-tool="write_book">
       <StepIcon state={writing ? 'run' : failed ? 'error' : 'ok'} />
       <span className="tx">
-        <b>写史书：《{b.title}》</b>
+        <b>写史书：《{title}》</b>
         <small>{how ? `${how}；${now}` : now}</small>
-        {writing && (
+        {bar && writing && (
           <span className="ast-bar" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
             <i style={{ width: `${pct}%` }} />
           </span>
         )}
       </span>
       {!failed && (
-        <button className="ast-link end" data-act="ast-book-open" onClick={() => openBookReader(writing ? null : b.key)}>
+        <button className="ast-link end" data-act="ast-book-open" onClick={() => openBookReader(writing ? null : bookKey)}>
           打开
         </button>
       )}

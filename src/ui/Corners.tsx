@@ -25,7 +25,6 @@ import { openOverview } from './overviewStore';
 import { layerDef, type MapLayer } from './mapLayers';
 import { toggleAssistant, useAstOpen } from './astPanel';
 import { togglePlacing } from './markStore';
-import { useAssistant } from './assistantStore';
 import { useAiOn } from '../ai/client';
 import { OLD_SITE, OLD_UNTIL, latestUrl } from './oldSite';
 import './book.css';
@@ -88,16 +87,15 @@ function AssistantButton({ disabled }: { disabled: boolean }) {
 /**
  * 右上的写作进度:"正在撰写《某某通史》"+ 80px 细进度条;分几次写的(长篇一章一次)写"正在写《某某通史》第 2 章(共 5 章)",
  * 手机上只有进度条和左边的"2/5 章"。写完"《某某通史》已完成 · 打开",点开读过就收起。
- * 助手开着、这本书是助手写的:进度在助手里那一行,这里不再重复
+ * 助手开着时不显示:进度钉在助手面板顶上(窄窗口、手机上这里会被面板盖住)
  */
 function BookChip() {
   const { job } = useBook();
   const astOpen = useAstOpen();
-  const ast = useAssistant();
   const on = useAiOn();
   useSavesVersion();
   if (!on || !job || !(job.status === 'writing' || (job.status === 'done' && !job.seen))) return null;
-  if (astOpen && ast.turns.some((t) => t.steps.some((s) => s.book?.id === job.id))) return null;
+  if (astOpen) return null;
   const name = bookTitleText(job.title, job.opts.scope, currentWorld()?.title);
   const writing = job.status === 'writing';
   const pct = Math.round(bookProgress(job) * 100);
