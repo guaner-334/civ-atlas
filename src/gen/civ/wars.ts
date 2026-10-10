@@ -7,6 +7,7 @@
  *   看邻国(Ev.WarCheck)每个国家立国 CHECK_FIRST 年后,每 CHECK_EVERY 年看一眼(每段里随机一个时刻)。
  *     自己没在打仗(帝国级的大国可以两线作战)、上次议和过了 REST 年,就在接壤的邻国里挑一个最"值得打"的:
  *       赔率 = WAR_ODDS × 扩张性 × 边境胜算^LOCAL_EXP × 异族 FOREIGN × 收复失地 × 小国 PREY_ODDS × 边界长短
+ *       挑好了打谁,开不开战再乘此刻在位君主的好战倍数(rulers.ts:越好战越容易开战)
  *       边境胜算 = 对方边境上各州的胜率(和打仗时一样按局部国力算)的平均,换成"胜率 ÷ 败率":
  *       强国的边远处照样可能打不过近处的小国 —— 被夺去的州过些年又被夺回来,前线有来有回
  *     同一对国家议和后 TRUCE 年内不再开战;对方已经同时在打 MAX_WARS 场仗的不去凑;
@@ -26,6 +27,7 @@
  *     一州不剩就灭亡(Polity.ended),它的所有战争随之结束。
  *   议和:打满这场战争的年限(厌战,LENGTH 里随机)、连着 STALL 年没打下一州(僵持)、
  *     攻方达成战争目标(拿下 GOAL 里随机的几州)、拿下国都、或守方丢了过半国土 → 议和,占领的州归攻方;
+ *     年限、目标看攻方此刻在位的君主(rulers.ts):越好战打得越久、想多拿几州,好战低的早早罢兵;
  *     议和时两国各自被切出去、挨着对方的飞地割给对方(划清边界;割让的州数记在史事 peace 的 region 列)。
  *     攻方国力是守方 CRUSH 倍以上时是灭国之战:拿下国都、对方丢了过半国土、达成战争目标都不停,直到厌战、僵持或对方亡国。
  *
@@ -51,7 +53,7 @@ import type { World } from '../world';
 import { AdjKind, Layer, type AnnalCause, type Civ, type Polity, type Year } from './types';
 import { fexp, flog, fpow, keyed, keyed4, subSeed } from './rand';
 import { Ev, quantize, type CivSim } from './sim';
-import { canCross, coreOf, endPolity, moveCapital, polityModelOf, type PolityModel } from './polities';
+import { canCross, coreOf, endPolity, moveCapital, polityModelOf, rulerOf, type PolityModel } from './polities';
 import { capitalAt, populationAt } from './growth';
 import type { InterventionModel } from './interventions';
 import type { DiplomacyModel } from './diplomacy';
@@ -60,8 +62,8 @@ import type { DiplomacyModel } from './diplomacy';
 /** 立国后多少年开始看邻国;之后每隔多少年看一次(每段里 20%–80% 处随机一个时刻) */
 const CHECK_FIRST = 40;
 const CHECK_EVERY = 40;
-/** 宣战赔率的底数;边境胜算(胜率 ÷ 败率)的指数;对异族 */
-const WAR_ODDS = 0.2;
+/** 宣战赔率的底数(国家之间常隔着部落、接壤的不多,底数取得高些);边境胜算(胜率 ÷ 败率)的指数;对异族 */
+const WAR_ODDS = 0.3;
 const LOCAL_EXP = 0.65;
 const FOREIGN = 1.6;
 /** 边界不到这么多段(州与州相邻的对数)时,赔率按比例打折 */
@@ -590,7 +592,10 @@ export function installWars(sim: CivSim, pm: PolityModel, wm: WarModel = newMode
         traitor = betray;
       }
     }
-    if (target < 0 || keyed(wm.base, pm.ptag[p], k, U_DECLARE) >= odds / (1 + odds)) return;
+    if (target < 0) return;
+    // 越好战的君主越容易开战
+    odds *= rulerOf(pm, p, t).eff.declare;
+    if (keyed(wm.base, pm.ptag[p], k, U_DECLARE) >= odds / (1 + odds)) return;
     if (traitor) {
       // 背盟:先记盟约断了(war 列 = 紧跟着的这场战争),再宣战
       dm!.note!('unally', { a: p, b: target, war: wm.wars.length, cause: 'betray' });
@@ -637,13 +642,15 @@ export function installWars(sim: CivSim, pm: PolityModel, wm: WarModel = newMode
     if (wm.sue?.(w, i, t, pow, defCapital)) return;
     // 议和?
     const last = w.takes.length ? w.takes[w.takes.length - 1].year : w.start;
-    let peace = t - w.start >= lengthOf(wm, w) || t - last >= STALL;
+    // 攻方此刻在位的君主:越好战越不轻易罢兵、想多拿几州,好战低的打不了多久就想议和(rulers.ts)
+    const eff = rulerOf(pm, w.a, t).eff;
+    let peace = t - w.start >= lengthOf(wm, w) * eff.war || t - last >= STALL;
     if (!peace) {
       let held = 0;
       for (const e of w.takes) if (e.by === w.a && owner[e.region] === w.a) held++;
-      // 灭国之战:拿下国都、对方丢了过半国土都不停,战争目标翻倍
+      // 灭国之战:拿下国都、对方丢了过半国土都不停(不设目标,见 CRUSH_GOAL;君主的倾向只管打多久,算在上面的年限里)
       if (pow[w.a] >= CRUSH * pow[w.b]) peace = held >= CRUSH_GOAL * goalOf(wm, w);
-      else peace = capitalFell || held >= pm.size[w.b] || held >= goalOf(wm, w);
+      else peace = capitalFell || held >= pm.size[w.b] || held >= Math.max(1, goalOf(wm, w) + eff.goal);
     }
     if (peace) makePeace(w, t);
     else sim.schedule(t + gapOf(wm, w, i + 1), Ev.Campaign, i + 1, id);

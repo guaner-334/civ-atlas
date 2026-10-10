@@ -210,6 +210,8 @@ describe('同化与迁徙', () => {
     // 下限再放宽到 5%、同化 30 州以上;迁徙按两个世界合计算。
     // GENERATOR_VERSION 10(称臣纳贡:打不过的常常称臣,少被吞并)以后 seed 7 改换过民族的州 4.6%、同化 35 州;
     // 20 个种子平均 12.9% → 12.7%,最少的就是 seed 7。下限放宽到 4%
+    // GENERATOR_VERSION 11(君主有了倾向,荒僻之地多留给部落)以后 20 个种子平均每个世界迁徙 3.0 波(0~12),
+    // seed 7、2024 合计 1 波:迁徙按两个世界合计至少 1 波算
     let migrations = 0;
     for (const seed of [7, 2024]) {
       const civ = civOf({ ...DEFAULT_PARAMS, seed });
@@ -227,8 +229,8 @@ describe('同化与迁徙', () => {
       // 消亡的民族:图例上还在民族表里,有消亡年份
       for (const cu of civ.cultures) if (cu.ended !== undefined) expect(cu.ended).toBeLessThanOrEqual(civ.endYear);
     }
-    // 两个世界合计至少 3 波迁徙
-    expect(migrations).toBeGreaterThanOrEqual(3);
+    // 两个世界合计至少 1 波迁徙
+    expect(migrations).toBeGreaterThanOrEqual(1);
   }, 60_000);
 
   it('大帝国核心区同化明显、边远处保留异族:被同化的州离国都(州图跳数)比结束时留下的异族州近', () => {

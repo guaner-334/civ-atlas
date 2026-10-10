@@ -126,6 +126,34 @@ describe('推演引擎(合成的小例子)', () => {
     expect(Array.from(res.log.year)).toEqual([5, 10, 10]);
   });
 
+  it('同一时刻:地形大事最先,再是看王朝、新君即位、迁都后重看边地(按国家号),别的事件按预约先后,民族、国家到达最后(民族先,再按州号),和预约先后无关', () => {
+    const sim = new CivSim(3);
+    const seen: string[] = [];
+    for (const [kind, name] of [
+      [Ev.Reign, '即位'],
+      [Ev.Respread, '重看'],
+      [Ev.Upheaval, '大事'],
+      [Ev.DynastyCheck, '看王朝'],
+      [Ev.WarCheck, '看邻国'],
+      [Ev.Campaign, '战役'],
+      [Ev.CultureArrive, '民族到达'],
+      [Ev.PolityArrive, '国家到达'],
+    ] as const)
+      sim.on(kind, (a, b) => seen.push(`${name} ${a}/${b}`));
+    sim.schedule(10, Ev.PolityArrive, 2, 1);
+    sim.schedule(10, Ev.PolityArrive, 0, 1);
+    sim.schedule(10, Ev.WarCheck, 0, 4);
+    sim.schedule(10, Ev.CultureArrive, 1, 0);
+    sim.schedule(10, Ev.Respread, 0, 3);
+    sim.schedule(10, Ev.Campaign, 0, 7);
+    sim.schedule(10, Ev.Reign, 5, 3);
+    sim.schedule(10, Ev.Reign, 2, 1);
+    sim.schedule(10, Ev.Upheaval, 0, 0);
+    sim.schedule(10, Ev.DynastyCheck, 4, 3);
+    sim.run(20);
+    expect(seen).toEqual(['大事 0/0', '即位 2/1', '看王朝 4/3', '即位 5/3', '重看 0/3', '看邻国 0/4', '战役 0/7', '民族到达 1/0', '国家到达 0/1', '国家到达 2/1']);
+  });
+
   it('检查点存"那一年及以前的变化全部生效后"的状态;run 只推到给定年份', () => {
     const sim = new CivSim(2);
     // 自定义一个不核对版本号的事件类型(阶段 3 的"攻占"之类):州 0 先归 7,250 年后改归 9

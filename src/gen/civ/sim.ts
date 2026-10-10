@@ -2,7 +2,10 @@
  * 文明推演引擎(民族扩张;战争、分裂、合并等也在这上面加事件):
  *
  * - **事件堆**:按时间排序(复用 util.ts 的 MinHeap)。每个事件是 {时间, 类型, 对象 a, 对象 b, 版本号}。
- *   时间精度 1/256 年;"时间 + 编号"拼成一个整数当优先级,同一时刻的事件按编号(预约先后)处理,保证确定性。
+ *   时间精度 1/256 年;"时间 + 同一刻里的次序"拼成一个整数当优先级,保证确定性:同一时刻最先处理地形大事,
+ *   再处理看王朝、新君即位、迁都后重看边地(按国家号,见 earlyOrder),再处理别的事件(按预约先后),最后处理民族、国家的到达
+ *   (按"民族先、国家后,再按州号、民族 / 国家号"排,见 arrivalOrder)。头尾这两类和预约先后无关 —— 接着推时它们是
+ *   按日志重新预约 / 重放的,预约先后和一口气推完时不一样,同一刻撞上了也要按同样的次序处理。
  * - **州的版本号**:州的归属(任何一层)一变就 +1。事件预约时记下州 a 的版本号,弹出时对不上就是过期了,
  *   直接丢掉 —— 不用去堆里找、删事件。哪些类型要核对版本号,见 EVENT_INFO。
  * - **唯一改归属的入口** setOwner(层, 州, 新值, 原因):写变化日志、版本号 +1、通知这一层的监听者
@@ -35,7 +38,7 @@ import { resumeInterventions, scheduleInterventions } from './interventions';
 import type { Intervention } from '../edits';
 
 // ---------------------------------------------------------------------------
-// 事件类型编号表(变化日志的 cause 用同一套编号;阶段 3 从 7 往下接着编:战争 7–9,分合 10–14,王朝更替 15–19,
+// 事件类型编号表(变化日志的 cause 用同一套编号;阶段 3 从 7 往下接着编:战争 7–9,分合 10–14,王朝更替 15–19(新君即位 16),
 // 民族同化与迁徙 20–24,城市兴衰 25–29;阶段 4 干预 30–35;邦交 40–44)
 
 export const enum Ev {
@@ -91,6 +94,13 @@ export const enum Ev {
    * 改朝换代不改归属(同一个国家编号),新朝定都根据地时迁都
    */
   DynastyCheck = 15,
+  /**
+   * 新君即位(polities.ts;在位表见 rulers.ts):a = 本国第几位君主,b = 国家。门槛比上一位低的(扩张算账),
+   * 从现有国土往外重新看一遍边上的部落地带;再预约下一位。改朝换代后在位表重排,对不上的丢掉
+   */
+  Reign = 16,
+  /** 迁都的下一刻(polities.ts 的 moveCapital):b = 国家。按新国都的路程从现有国土往外重新预约扩张 */
+  Respread = 17,
   /**
    * 看民族(阶段 3 同化与迁徙,assimilation.ts;编号 20–24):a = 立国后第几次看(按年份段编号),b = 国家。
    * 国家隔几十年看一眼治下的各州:异族州被统治久了、离核心近、四周同族多,就改换成统治民族(同化);
@@ -166,6 +176,7 @@ export const EVENT_INFO: EventInfo[] = [
   { id: Ev.RestoreCheck, name: '看复国', watch: false },
   { id: Ev.TribalCheck, name: '看部落地带', watch: false },
   { id: Ev.DynastyCheck, name: '看王朝', watch: false },
+  { id: Ev.Reign, name: '新君即位', watch: false },
   { id: Ev.CultureCheck, name: '看民族', watch: false },
   { id: Ev.Assimilate, name: '同化', watch: false },
   { id: Ev.Migrate, name: '迁徙', watch: false },
@@ -184,10 +195,43 @@ export const CHECKPOINT_EVERY = 100;
 
 /** 事件时间精度:1/256 年(约一天半) */
 const TICKS_PER_YEAR = 256;
-/** 优先级 = 时刻 × SEQ_SPAN + 编号;两者都是整数,拼起来不超过 2^52,Float64 里精确 */
+/**
+ * 优先级 = 时刻 × TICK_SPAN + 同一刻里的次序:地形大事、看王朝、新君即位、迁都后重看边地 = earlyOrder(< EARLY_SPAN,排在最前);
+ * 别的事件 = EARLY_SPAN + 编号(预约先后,< SEQ_SPAN);民族、国家到达 = SEQ_SPAN + arrivalOrder(排在最后)。
+ * 都是整数,拼起来不超过 2^53 − 1,Float64 里精确
+ */
+const EARLY_SPAN = 2 ** 14;
 const SEQ_SPAN = 2 ** 28;
+const TICK_SPAN = 2 ** 29;
 /** 能预约的最远时刻:65536 年(Float32 的变化日志在这个范围内也能精确存下 1/256 年) */
 const MAX_TICK = 2 ** 24;
+
+/**
+ * 民族、国家到达在同一刻里的次序(0 起,< SEQ_SPAN):民族先、国家后,再按州号、民族 / 国家号。
+ * 不是到达、或州号 / 编号超出能编的范围(极大的世界),返回 −1(按预约先后)
+ */
+function arrivalOrder(kind: number, a: number, b: number): number {
+  if (kind !== Ev.CultureArrive && kind !== Ev.PolityArrive) return -1;
+  if (!(a >= 0 && a < 2 ** 15 && b >= 0 && b < 2 ** 12)) return -1;
+  return (kind === Ev.PolityArrive ? 2 ** 27 : 0) + a * 2 ** 12 + b;
+}
+
+/**
+ * 排在同一刻最前面的事件的次序(0 起,< EARLY_SPAN):
+ * - 地形大事 = 0:同一刻的别的事都按大事以后的地形和归属算(一次推演里只有一件,见 index.ts)
+ * - 看王朝、新君即位、迁都后重看边地:按国家号,同一国依次是看王朝、即位、重看。
+ *   看王朝在前:同一刻改朝换代了,旧朝原定这一刻即位的那位就不即位了(在位表重排,Ev.Reign 对不上就丢掉);
+ *   即位、重看只从现有国土往外预约扩张、不改归属,排在别的事件前面 —— 接着推时 resumePolities 也是在同一刻的日志
+ *   (大事改的归属除外)之前重放
+ * 不是这几类、或国家号超出能编的范围,返回 −1(按预约先后)
+ */
+const EARLY_KINDS: Partial<Record<number, number>> = { [Ev.DynastyCheck]: 0, [Ev.Reign]: 1, [Ev.Respread]: 2 };
+function earlyOrder(kind: number, b: number): number {
+  if (kind === Ev.Upheaval) return 0;
+  const i = EARLY_KINDS[kind];
+  if (i === undefined || !(b >= 0 && b < (EARLY_SPAN - 1) / 3 - 1)) return -1;
+  return 1 + b * 3 + i;
+}
 
 /** 把时间取整到引擎的精度(1/256 年)。引擎里所有事件时间、日志年份都是这样的值 */
 export function quantize(t: number): number {
@@ -290,7 +334,7 @@ export class CivSim {
   private checkpoints: Checkpoint[] = [];
   private nextCheckpoint = CHECKPOINT_EVERY;
 
-  // 事件:结构数组 + 空槽回收;堆里放槽号,优先级 = 时刻 × SEQ_SPAN + 编号
+  // 事件:结构数组 + 空槽回收;堆里放槽号,优先级 = 时刻 × TICK_SPAN + 同一刻里的次序(见 SEQ_SPAN)
   private heap = new MinHeap(1024);
   private evT = new Float64Array(1024);
   private evKind = new Uint8Array(1024);
@@ -336,7 +380,7 @@ export class CivSim {
     // 各层重建自己的事件(和 generateCiv 里 install 的顺序一样:先民族,再城镇和国家,再战争,再分合,再王朝,再同化与迁徙,
     // 再城市兴衰 —— 它要挂在战争模型上(攻城)、要国家模型的迁都回调;再邦交 —— 要挂在战争模型上)
     if (civ.viable && civ.cultures.length) {
-      // 地形大事(first)、干预的事件最先预约(和 generateCiv 一样:同一刻里先于别的一切事件)
+      // 地形大事(first)、干预的事件最先预约(和 generateCiv 一样:同一刻里地形大事最先,干预只排在新君即位、迁都后重看边地后面)
       first?.(sim);
       const iv = scheduleInterventions(sim, civ.seed, interventions, true);
       resumeCultures(sim, world, civ);
@@ -371,7 +415,7 @@ export class CivSim {
     if (!(t < Infinity)) return; // Infinity / NaN
     const tick = Math.round(Math.max(t, this.now, this.floor) * TICKS_PER_YEAR);
     if (tick >= MAX_TICK) return;
-    if (this.seq >= SEQ_SPAN) throw new Error('CivSim:事件太多(超过 2^28 个)');
+    if (EARLY_SPAN + this.seq >= SEQ_SPAN) throw new Error('CivSim:事件太多(超过 2^28 个)');
     let id: number;
     if (this.free.length) id = this.free.pop()!;
     else {
@@ -383,7 +427,9 @@ export class CivSim {
     this.evA[id] = a;
     this.evB[id] = b;
     this.evVer[id] = this.watch[kind] && a >= 0 && a < this.R ? this.version[a] : -1;
-    this.heap.push(id, tick * SEQ_SPAN + this.seq++);
+    const early = earlyOrder(kind, b);
+    const order = arrivalOrder(kind, a, b);
+    this.heap.push(id, tick * TICK_SPAN + (early >= 0 ? early : order >= 0 ? SEQ_SPAN + order : EARLY_SPAN + this.seq++));
   }
 
   /** 待处理的事件数(含已过期、还没弹出的) */
@@ -425,7 +471,7 @@ export class CivSim {
   /** 推演到 untilYear(含这一年的事件);途中每过一个整百年存一个检查点 */
   run(untilYear: Year): void {
     const untilTick = Math.floor(untilYear * TICKS_PER_YEAR + 1e-9);
-    const limit = (untilTick + 1) * SEQ_SPAN;
+    const limit = (untilTick + 1) * TICK_SPAN;
     const heap = this.heap;
     while (heap.size && heap.pri[0] < limit) {
       const id = heap.pop();

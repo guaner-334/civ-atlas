@@ -11,15 +11,16 @@
  *         右上「世系图」打开这国的世系图,停在他那一朝、圈出他。共和国写"在任""执政",没有父亲、子嗣、世系图
  *         将领:事迹、国家、生卒、领兵(伐谁 / 抗谁)、效力(那几年在位的君主)、对手(同一场仗对面的统帅)、结局
  *         宗室:国家、生卒、父亲、子嗣
+ *   倾向  君主、执政官才有:开拓、好战、发展、重商一项一行(名字、灰色细条、0–100 的数值),下面一句说明
  *   作者的人物  亲友里有他、经历里勾了他的作者人物(characterInfo.ts 的 charactersOfPerson),没有就不显示
  *   在位时 / 领兵时  他在台上那几年本国的事(将领 = 他经手的那几仗),新的在上;点一条跳到那一年
  */
 import { Fragment, useMemo, useState, type ReactNode } from 'react';
-import type { Civ, Person } from '../gen/civ/types';
+import type { Civ, Person, RulerLeanings } from '../gen/civ/types';
 import { polityName } from '../gen/civ/growth';
 import { buildChronicle, filterChronicle, reignEntries, type ChronicleEntry } from '../gen/civ/chronicle';
 import { commandFoes, peopleIndex, personFame, personSpan, rulerNeighbors, type Foe } from '../gen/civ/peopleInfo';
-import { ageAt, generalRole, isConsul, kinOf, personName, princeRole, rulerFateWord, rulerRole } from '../gen/civ/peopleText';
+import { LEANING_KEYS, LEANING_TEXT, ageAt, generalRole, isConsul, kinOf, leaningsText, personName, princeRole, rulerFateWord, rulerRole } from '../gen/civ/peopleText';
 import { fatherOf, hasLineage, kidsOf } from '../gen/civ/lineageInfo';
 import { personKey } from '../gen/characters';
 import { openLineage, openOverview } from './overviewStore';
@@ -137,6 +138,7 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
 
   const copy = async () => {
     const out = [name, sub, ...lines.map((l) => `${l.k}：${l.text}`)];
+    if (ruler && x.leanings) out.push(`倾向：${leaningsText(x.leanings)}`);
     if (events.length) out.push('', `${head}：`, ...events.map((e) => `${F(e.year)} ${e.text.replace(/^【干预】/, '')}`));
     const text = out.join('\n');
     (window as unknown as { __wfPersonText: string }).__wfPersonText = text;
@@ -193,6 +195,7 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
             </Row>
           ))}
         </Stats>
+        {ruler && x.leanings && <Leanings l={x.leanings} />}
         <CharacterRefs refs={refs} />
         {!prince && (
         <EventList
@@ -211,6 +214,29 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
         )}
       </div>
     </div>
+  );
+}
+
+/** 君主的倾向:一项一行(名字、细条、数值),下面一句说明 */
+function Leanings({ l }: { l: RulerLeanings }) {
+  return (
+    <section className="cp-sec" data-sec="leanings">
+      <div className="cp-sec-head">倾向</div>
+      <div className="cp-group">
+        {LEANING_KEYS.map((k) => (
+          <div key={k} className="pp-lean" data-leaning={k}>
+            <div className="pp-lean-top">
+              <span className="pp-lean-k">{LEANING_TEXT[k].name}</span>
+              <span className="pp-lean-bar" aria-hidden="true">
+                <i style={{ width: `${l[k]}%` }} />
+              </span>
+              <span className="pp-lean-num">{l[k]}</span>
+            </div>
+            <div className="pp-lean-note">{LEANING_TEXT[k].note}</div>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 

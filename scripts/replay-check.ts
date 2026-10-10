@@ -483,15 +483,16 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
 }
 
 // 人物:国家卡片的「君主」行和「历代君主」(当前那位标"当前"、点了打开他);人物卡片(名人第一行「事迹」、前任 / 继任、将领可点;
+// 君主有「倾向」一组四行,复制生平里也有一行,将领、宗室没有;
 // 「出征那年」跳时间轴;「编年史」打开这国的编年史;「复制生平」);编年史里的人名是蓝字,点了收起概览、打开这个人,不跳年份;
-// 世界概览的「人物」页(名人 / 君主 / 将领,「全部 N 位」进来停在这国的君主);搜"圣宗"第一个是这个人
+// 世界概览的「人物」页(名人 / 君主 / 将领,「全部 N 位」进来停在这国的君主);搜名字第一个是这个人
 {
   await page.goto(`${dev.url}/?seed=7&civYear=2512`);
   await page.waitForFunction(() => (window as any).__wfLabels?.polities > 0, null, { timeout: 60000 });
   await page.waitForTimeout(300);
   const year = async () => Number((await page.locator('.timebar .tb-year').innerText()).replace(/[^\d]/g, ''));
   const text = (sel: string) => page.locator(sel).first().innerText().then((t) => t.replace(/\s+/g, ' ')).catch(() => '');
-  await page.evaluate(() => (window as any).__wfSelect('polity', 0));
+  await page.evaluate(() => (window as any).__wfSelect('polity', 9));
   await page.waitForTimeout(600);
   const stats = await text('.inspector .cp-stats');
   const rulers = await page.locator('.inspector .cp-rulers .cp-dyn-row').count();
@@ -501,13 +502,16 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
   await page.waitForTimeout(400);
   const card1 = await text('.inspector .cp.pp');
   const deed = await text('.inspector .cp.pp .cp-stats');
+  const leans = await text('.inspector .cp.pp [data-sec=leanings]');
+  const leanRows = await page.locator('.inspector .cp.pp [data-sec=leanings] .pp-lean').count();
   await page.click('.inspector .cp.pp [data-act=person-copy]');
   await page.waitForTimeout(200);
   const copied = (await page.evaluate(() => (window as any).__wfPersonText as string)) ?? '';
   // 将领一行的名字 → 将领的卡片;出征那年
-  await page.locator('.inspector .cp.pp .cp-stats .ins-link', { hasText: '楚尧' }).first().click();
+  await page.locator('.inspector .cp.pp .cp-stats .ins-link', { hasText: '莱尼斯' }).first().click();
   await page.waitForTimeout(400);
   const card2 = await text('.inspector .cp.pp');
+  const genLeans = await page.locator('.inspector .cp.pp [data-sec=leanings]').count();
   await page.click('.inspector [data-act=person-year]');
   await page.waitForTimeout(300);
   const y1 = await year();
@@ -533,7 +537,7 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
   await page.locator('.chronicle.people .pp-row').first().click();
   await page.waitForTimeout(500);
   const card4 = await text('.inspector .cp.pp');
-  await page.evaluate(() => (window as any).__wfSelect('polity', 0));
+  await page.evaluate(() => (window as any).__wfSelect('polity', 9));
   await page.waitForTimeout(400);
   await page.click('.inspector [data-act=all-rulers]');
   await page.waitForTimeout(500);
@@ -551,12 +555,13 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
   await page.locator('.lg-node.lg-prince').first().click().catch(() => {});
   await page.waitForTimeout(500);
   const princeCard = await text('.inspector .cp.pp');
+  const princeLeans = await page.locator('.inspector .cp.pp [data-sec=leanings]').count();
   await page.click('.inspector [data-act=person-lineage]').catch(() => {});
   await page.waitForTimeout(600);
   const lgFocus = await page.locator(`.lg-node.focus[data-person="${princeId}"]`).count();
   await closeOverview();
   // 搜索
-  await page.fill('.sidebar .search-input', '圣宗');
+  await page.fill('.sidebar .search-input', '菲诺尔五世');
   await page.waitForTimeout(300);
   const hit = await text('.search-row');
   const hitKind = await page.locator('.search-row').first().getAttribute('data-kind');
@@ -564,23 +569,30 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
   await page.waitForTimeout(400);
   const card5 = await text('.inspector .cp.pp .pp-title');
   console.log(
-    `人物:国家卡片「${stats.slice(0, 40)}…」,历代君主 ${rulers} 行、当前「${cur}」、「${all}」;卡片「${card1.slice(0, 50)}…」,复制 ${copied.length} 字;` +
+    `人物:国家卡片「${stats.slice(0, 40)}…」,历代君主 ${rulers} 行、当前「${cur}」、「${all}」;卡片「${card1.slice(0, 50)}…」,倾向 ${leanRows} 行「${leans.slice(0, 30)}…」,复制 ${copied.length} 字;` +
       `将领卡片「${card2.slice(0, 30)}…」、出征那年 → ${y1};编年史开 ${chronOpen}、蓝字 ${names} 个,点「${pickName}」→ 收起 ${closed}、卡片 ${card3Id}/${pickId}、年份 ${y1} → ${y2};` +
       `人物页名人 ${famousOn}/${famous} 行「${famousFirst.slice(0, 30)}」→ 卡片「${card4.slice(0, 20)}」;全部 N 位 → 君主 ${rulersOn}、只看 ${polityPick}、${groups} 组 ${rows} 行;` +
-      `世系图「${lgHead.slice(0, 40)}」${lgNodes} 人、当前「${lgOn}」,宗室卡片「${princeCard.slice(0, 30)}」→ 圈出 ${lgFocus};搜"圣宗"「${hit}」(${hitKind})→「${card5}」`,
+      `世系图「${lgHead.slice(0, 40)}」${lgNodes} 人、当前「${lgOn}」,宗室卡片「${princeCard.slice(0, 30)}」→ 圈出 ${lgFocus};搜"菲诺尔五世"「${hit}」(${hitKind})→「${card5}」`,
   );
-  if (!/君主\s*圣宗柳玄\s*2485 年即位/.test(stats)) errs.push(`人物:国家卡片没有「君主」行(${stats.slice(0, 80)})`);
-  if (rulers !== 5 || !/圣宗柳玄\s*当前/.test(cur) || !/全部 \d+ 位/.test(all)) errs.push(`人物:国家卡片的历代君主不对(${rulers} 行;${cur};${all})`);
-  if (!/圣宗柳玄/.test(card1) || !/大景皇帝，2485–2519 年在位/.test(card1) || !/事迹\s*在位时得五州/.test(deed) || !/前任\s*明宗柳尧霄\s*兄/.test(deed))
+  if (!/君主\s*菲诺尔五世\s*2501 年即位/.test(stats)) errs.push(`人物:国家卡片没有「君主」行(${stats.slice(0, 80)})`);
+  if (rulers !== 5 || !/菲诺尔五世\s*当前/.test(cur) || !/全部 \d+ 位/.test(all)) errs.push(`人物:国家卡片的历代君主不对(${rulers} 行;${cur};${all})`);
+  if (!/菲诺尔五世/.test(card1) || !/尼梅亚皇帝，2501–2552 年在位/.test(card1) || !/事迹\s*在位时得七州/.test(deed) || !/前任\s*米莱恩二世\s*兄/.test(deed))
     errs.push(`人物:君主卡片不对(${card1.slice(0, 120)})`);
-  if (!copied.startsWith('圣宗柳玄\n大景皇帝') || !copied.includes('在位时：')) errs.push(`人物:复制生平不对(${copied.slice(0, 60)})`);
-  if (!/楚尧\s*大景将领，2478–2509 年领兵/.test(card2) || y1 !== 2478) errs.push(`人物:将领卡片 / 出征那年不对(${card2.slice(0, 60)};${y1})`);
+  if (!copied.startsWith('菲诺尔五世\n尼梅亚皇帝') || !copied.includes('在位时：')) errs.push(`人物:复制生平不对(${copied.slice(0, 60)})`);
+  if (
+    leanRows !== 4 ||
+    !/^倾向 开拓\s*\d+ 更愿意开垦偏远贫瘠的土地 好战\s*\d+ 更容易发动战争且更难停止 发展\s*\d+ 更重视领地内的建设 重商\s*\d+ 偏向沿海/.test(leans) ||
+    !/\n倾向：开拓 \d+，好战 \d+，发展 \d+，重商 \d+\n/.test(copied)
+  )
+    errs.push(`人物:君主卡片的倾向不对(${leanRows} 行;${leans.slice(0, 80)};复制里 ${/倾向：.*/.exec(copied)?.[0]})`);
+  if (genLeans || princeLeans) errs.push(`人物:将领 / 宗室的卡片上不该有倾向(${genLeans};${princeLeans})`);
+  if (!/莱尼斯\s*尼梅亚将领，2521–2540 年领兵/.test(card2) || y1 !== 2521) errs.push(`人物:将领卡片 / 出征那年不对(${card2.slice(0, 60)};${y1})`);
   if (!chronOpen || names < 3 || !closed || pickId < 0 || card3Id !== pickId || y2 !== y1) errs.push(`人物:编年史里的人名点不开,或点了跳了年份(${chronOpen};${names};${closed};${card3Id}/${pickId};${y1} → ${y2})`);
   if (!famousOn || famous < 20 || !card4) errs.push(`人物:人物页的名人不对,或点一行没打开卡片(${famousOn};${famous};${card4.slice(0, 30)})`);
-  if (!rulersOn || polityPick !== '0' || groups < 1 || rows !== 102) errs.push(`人物:「全部 N 位」没有打开这国的君主(${rulersOn};${polityPick};${groups};${rows})`);
-  if (!lgHead.startsWith('景 2377–2794 年，27 位君主') || lgNodes < 27 || !/明宗柳尧霄.*当前/.test(lgOn)) errs.push(`人物:世系图不对(${lgHead};${lgNodes};${lgOn})`);
-  if (!/大景宗室，\d+–\d+/.test(princeCard) || !princeCard.includes('子嗣') || lgFocus !== 1) errs.push(`人物:宗室卡片 / 从卡片回到世系图不对(${princeCard.slice(0, 60)};${lgFocus})`);
-  if (!/^圣宗柳玄 大景皇帝，2485–2519$/.test(hit) || hitKind !== 'person' || card5 !== '圣宗柳玄') errs.push(`人物:搜"圣宗"不对(${hit};${hitKind};${card5})`);
+  if (!rulersOn || polityPick !== '9' || groups < 1 || rows !== 52) errs.push(`人物:「全部 N 位」没有打开这国的君主(${rulersOn};${polityPick};${groups};${rows})`);
+  if (!lgHead.startsWith('米拉斯 2479–2836 年，21 位君主') || lgNodes < 21 || !/菲诺尔五世.*当前/.test(lgOn)) errs.push(`人物:世系图不对(${lgHead};${lgNodes};${lgOn})`);
+  if (!/尼梅亚宗室，\d+–\d+/.test(princeCard) || !princeCard.includes('子嗣') || lgFocus !== 1) errs.push(`人物:宗室卡片 / 从卡片回到世系图不对(${princeCard.slice(0, 60)};${lgFocus})`);
+  if (!/^菲诺尔五世 尼梅亚皇帝，2501–2552$/.test(hit) || hitKind !== 'person' || card5 !== '菲诺尔五世') errs.push(`人物:搜"菲诺尔五世"不对(${hit};${hitKind};${card5})`);
   await page.fill('.sidebar .search-input', '');
   await page.keyboard.press('Escape');
   await page.evaluate(() => localStorage.clear());
@@ -3040,11 +3052,20 @@ for (const style of ['realistic', 'fantasy']) {
     }, v0);
     await page.waitForTimeout(900);
   }
-  // 4. 城面板"迁都到这里":替所属国下迁都令(和国家干预页同一套)→ 面板收起、推演 → "…迁都…,已从 N 年起重新推演"带撤销 → 撤销
+  // 4. 城面板"迁都到这里":替所属国下迁都令(和国家干预页同一套)→ 面板收起、推演 → "…迁都…,已从 N 年起重新推演"带撤销 → 撤销。
+  //    上一步撤销后时间轴从那一年往后放,第 1 步那座城到时候不一定还标在地图上,不在就从看得见的城里另挑一座能迁都的
   let moveToast = '';
   let moveHidden = false;
   let moveUndo = '';
-  if (moveCity >= 0 && (await clickPick('mark', moveCity)) && (await page.locator('.inspector [data-act=move-here]').isEnabled().catch(() => false))) {
+  const canMove = async (id: number): Promise<boolean> =>
+    (await clickPick('mark', id)) &&
+    (await page.locator('.inspector .cp[data-settlement]').count()) > 0 &&
+    (await page.locator('.inspector [data-act=move-here]').isEnabled().catch(() => false));
+  let movable = moveCity >= 0 && (await canMove(moveCity));
+  if (moveCity >= 0 && !movable)
+    for (const m of (await picks()).filter((q) => q.kind === 'mark' && q.id !== moveCity && free(q.x, q.y)).slice(0, 12))
+      if ((movable = await canMove(m.id))) break;
+  if (movable) {
     const prev = await page.evaluate(() => (window as any).__wfResim?.seq ?? 0);
     await page.click('.inspector [data-act=move-here]');
     await page.waitForTimeout(100);

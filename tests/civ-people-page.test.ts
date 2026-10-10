@@ -171,19 +171,19 @@ describe('人物页 · 几处写法', () => {
     expect(kinOf(civ, 辛, 壬)).toBe('从伯父');
   });
 
-  it('seed=7:大景圣宗(柳玄)是名人,继兄即位;搜"圣宗"第一个就是他', () => {
-    const civ = civOf(7);
-    const x = civ.people!.find((p) => p.name === '柳玄' && p.role === 'ruler');
+  it('seed=2024:辰武王(晏璃曦)是名人,继祖父即位;搜"武王"第一个就是他', () => {
+    const civ = civOf(2024);
+    const x = civ.people!.find((p) => p.name === '晏璃曦' && p.role === 'ruler');
     expect(x).toBeTruthy();
-    expect(personName(civ, x!)).toBe('圣宗柳玄');
-    expect(rulerRole(civ, x!)).toBe('大景皇帝');
-    expect(riseText(civ, x!)).toMatch(/^继兄/);
+    expect(personName(civ, x!)).toBe('武王晏璃曦');
+    expect(rulerRole(civ, x!)).toBe('辰王');
+    expect(riseText(civ, x!)).toMatch(/^继祖父/);
     expect(famousPeople(civ).some((f) => f.id === x!.id)).toBe(true);
-    const hits = searchCiv(civ, '圣宗', 2512);
-    expect(hits[0]).toMatchObject({ kind: 'person', id: x!.id, name: '圣宗柳玄', sub: '大景皇帝，2485–2519' });
-    // 编年史里写他即位的那条:"大景明宗崩……其弟柳玄即位,是为圣宗" —— 前一位连国名一起切、他切名字
+    const hits = searchCiv(civ, '武王', 2600);
+    expect(hits[0]).toMatchObject({ kind: 'person', id: x!.id, name: '武王晏璃曦', sub: '辰王，2079–2130' });
+    // 编年史里写他即位的那条:"辰文王薨……其孙晏璃曦即位,是为武王" —— 前一位连国名一起切、他切名字
     const e = reignEntries(civ).find((r) => r.people?.[1] === x!.id)!;
     const ms = personMentions(civ, e.text, e.people, -1, e.year).filter((m) => m.person !== undefined);
-    expect(ms.map((m) => m.text)).toEqual(['大景明宗', '柳玄']);
+    expect(ms.map((m) => m.text)).toEqual(['辰文王', '晏璃曦']);
   });
 });

@@ -46,7 +46,7 @@ import { clearEdits } from '../src/ui/editsStore';
 const world = generateWorld({ ...DEFAULT_PARAMS, seed: 7 });
 const civ = generateCiv(world);
 const EMPTY: WorldEdits = { names: {}, interventions: [], terrain: [] };
-const Y = 2000;
+const Y = 2250;
 const ctx = (edits: WorldEdits = EMPTY, year = Y, c: Civ = civ, w: World = world): RewriteContext => ({ world: w, civ: c, year, edits });
 const json = (edits: unknown[], extra: Record<string, unknown> = {}) => JSON.stringify({ reply: '好的', edits, ...extra });
 /** 只有一条修改的回复 → 那一条 */

@@ -135,13 +135,14 @@ function checkRelations(civ: Civ, tag: string) {
 
 describe('邦交:称臣纳贡、结盟、背盟', () => {
   it('默认参数 seed 7 / 2024:有结盟、有称臣;关系一条条重放都不自相矛盾', () => {
+    let pacts = 0;
     for (const seed of [7, 2024]) {
       const civ = civOf({ ...DEFAULT_PARAMS, seed });
       const s = diplomacyStats(civ);
       const tag = `seed ${seed}`;
-      // 20 个种子(1–20)里结盟 3–20 次、称臣 2–11 次,每个世界都有;有一半左右的世界有背盟
-      expect(s.pacts, tag).toBeGreaterThanOrEqual(3);
-      expect(s.submits, tag).toBeGreaterThanOrEqual(2);
+      // 20 个种子(1–19、2024)里结盟 0–14 次、称臣 1–12 次:每个世界都有称臣;国家之间常隔着部落,有两个世界一次结盟都没有
+      pacts += s.pacts;
+      expect(s.submits, tag).toBeGreaterThanOrEqual(1);
       expect(s.submits, tag).toBeLessThanOrEqual(15);
       expect(s.pacts, tag).toBeLessThanOrEqual(25);
       // 断了的盟不多于结过的盟;自立的不多于称过臣的
@@ -151,6 +152,7 @@ describe('邦交:称臣纳贡、结盟、背盟', () => {
       const n = checkRelations(civ, tag);
       expect(n.submits, tag).toBe(s.submits);
     }
+    expect(pacts, '两个世界里有结盟').toBeGreaterThanOrEqual(3);
   }, 120_000);
 
   it('推演结束时的模型和 relationsAt(结束那一年)一致', () => {
@@ -169,7 +171,8 @@ describe('邦交:称臣纳贡、结盟、背盟', () => {
   }, 60_000);
 
   it('fromCiv 接着推:在刚称臣、刚结盟、援盟的仗打到一半、藩属刚自立时切开,和一口气推完逐字节一样', () => {
-    for (const seed of [7, 2024]) {
+    // 种子 5 小世界有称臣、结盟、背盟、援盟的仗,种子 2024 小世界有称臣、结盟、藩属自立、背盟
+    for (const seed of [5, 2024]) {
       const p = { ...DEFAULT_PARAMS, cells: 12000, seed };
       const w = world(p);
       const whole = civOf(p);
@@ -216,8 +219,9 @@ describe('邦交和作者下令', () => {
     type Try = { w: World; civ: Civ; a: number; b: number; from: number };
     const at = (seed: number) => ({ w: world(small(seed)), civ: civOf(small(seed)) });
     // 每种情形挑几对当时还结着的,下令开战;两国不接壤的打不成,换下一对
+    // (种子 2024 小世界)
     const tries = (kind: 'alliance' | 'submit'): Try[] => {
-      const { w, civ } = at(7);
+      const { w, civ } = at(2024);
       return civ.annals
         .filter((e) => e.kind === kind)
         .map((e) => ({ w, civ, a: e.a, b: e.b, from: Math.ceil(e.year) + 1 }))
@@ -227,9 +231,9 @@ describe('邦交和作者下令', () => {
         })
         .slice(0, 4);
     };
-    // 同一个宗主的两个藩属(种子 2024 小世界有;称臣那一年之后,和别的藩属配对)
+    // 同一个宗主的两个藩属(种子 5 小世界有;称臣那一年之后,和别的藩属配对)
     const coVassals = (): Try[] => {
-      const { w, civ } = at(2024);
+      const { w, civ } = at(5);
       return civ.annals
         .filter((e) => e.kind === 'submit')
         .flatMap((e) => {
@@ -274,13 +278,13 @@ describe('邦交和作者下令', () => {
   }, 300_000);
 
   it('纳土归附:藩属并入宗主(邦交里的、内政里的合并都算)记 cause = vassal;编年史写"纳土归附"', () => {
-    const civ = civOf(small(7));
+    const civ = civOf(small(9));
     // 记 cause = vassal 的,正是并之前是宗主和藩属的那些
     for (const e of civ.annals.filter((x) => x.kind === 'merge')) {
       expect(e.cause === 'vassal', `第 ${e.year} 年 ${e.b} 并入 ${e.a}`).toBe(relationsAt(civ, e.year - 1 / 256).liege.get(e.b)?.liege === e.a);
     }
     const absorbs = civ.annals.map((e, i) => [e, i] as const).filter(([e]) => e.kind === 'merge' && e.cause === 'vassal');
-    expect(absorbs.length, '种子 7 小世界有一次纳土归附').toBeGreaterThan(0);
+    expect(absorbs.length, '种子 9 小世界有纳土归附').toBeGreaterThan(0);
     expect(diplomacyStats(civ).absorbs).toBe(absorbs.length);
     const chron = buildChronicle(civ);
     for (const [e, i] of absorbs) {
@@ -290,7 +294,8 @@ describe('邦交和作者下令', () => {
   }, 120_000);
 
   it('下令结了盟的宗主不讨伐自立的藩属', () => {
-    const p = small(2024);
+    // 讨伐少见:20 个种子(1–19、2024)的小世界里只有种子 1、17 有
+    const p = small(1);
     const w = world(p);
     const civ = civOf(p);
     const war = civ.annals.find((e) => e.kind === 'war' && e.cause === 'punish');
