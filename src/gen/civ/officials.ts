@@ -476,10 +476,11 @@ function endOf(
 function civilPosts(p: Polity, sys: System, d: Draft, until: Year, tops: [Year, Year][], r: (use: number) => number): PersonPost[] {
   const T = Math.max(1, until - d.enter);
   const first = d.anchors[0];
-  // 升到最高那级:佐命的开国后不久;辅政、劝进、拥立那一刻;别的在朝过半前后
+  // 升到最高那级:佐命的开国时;辅政、劝进、拥立那一刻;别的在朝过半前后
   let topAt = d.enter + T * (0.45 + 0.25 * r(U_POSTS));
-  if (first && (first.kind === 'found' || first.kind === 'regent' || first.kind === 'rank' || first.kind === 'enthrone')) topAt = first.year;
-  else if (first) topAt = Math.min(topAt, first.year);
+  // 辅政、劝进、拥立的时候已经是最高那级
+  const major = d.anchors.find((a) => a.kind === 'found' || a.kind === 'regent' || a.kind === 'rank' || a.kind === 'enthrone');
+  if (major) topAt = Math.min(topAt, major.year);
   topAt = q(Math.max(d.enter, Math.min(topAt, until)));
   const ladderAt = (y: Year) => CIVIL[sys][clampTier(polityTierAt(p, y))] ?? CIVIL[sys][1] ?? [];
   const top = ladderAt(topAt);

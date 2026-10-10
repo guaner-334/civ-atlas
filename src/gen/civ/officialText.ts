@@ -155,6 +155,45 @@ function deedText(civ: Civ, x: Person, d: PersonDeed, east: boolean): string {
   }
 }
 
+/** 一件事的短说法(卡片"事迹"一行):"佐太祖开国""辅幼主宣宗""迎立睿宗""出使萨尔斯坦帝国" */
+function deedShort(civ: Civ, x: Person, d: PersonDeed, east: boolean): string {
+  const p = civ.polities[x.polity];
+  const who = d.person !== undefined ? civ.people?.[d.person] : undefined;
+  const short = who ? (east ? who.title || who.name : personName(civ, who)) : '';
+  const foe = foeOf(civ, d.annal, x.polity);
+  const foeName = foe ? polityName(foe, d.year) : '';
+  switch (d.kind) {
+    case 'found':
+      return east ? `佐${short}开国` : `随${short}建国`;
+    case 'regent':
+      return east ? `辅幼主${short}` : `为${short}摄政`;
+    case 'enthrone':
+      return east ? `迎立${short}` : `拥立${short}`;
+    case 'rank':
+      return p.lineage === 'republic' ? '力主改行帝制' : clampTier(polityTierAt(p, d.year)) >= 3 ? '劝进称帝' : '劝进称王';
+    case 'capital': {
+      const e = d.annal !== undefined ? civ.annals[d.annal] : undefined;
+      return `${e && e.war >= 0 ? '护驾迁都' : '力主迁都'}${e ? cityOf(civ, e.settlement) : ''}`;
+    }
+    case 'relief':
+      return '主持赈灾';
+    case 'peace':
+      return `出使${foeName}`;
+    case 'war':
+      return east ? `力主伐${foeName}` : `力主对${foeName}开战`;
+    case 'defend':
+      return east ? `督运粮草拒${foeName}` : `筹措军需抗${foeName}`;
+  }
+}
+
+/** 卡片的"事迹":经手的事各一句短的(按先后,最多三件);没有 = '' */
+export function deedsShort(civ: Civ, x: Person): string {
+  const p = civ.polities[x.polity];
+  if (!p || !x.deeds?.length) return '';
+  const east = !!p.eastern && p.lineage !== 'khanate';
+  return x.deeds.map((d) => deedShort(civ, x, d, east)).join('，');
+}
+
 /** 一句为什么有名(人物页一行、名人的"事迹"):最要紧的两件事;没经手大事的写"居相位 N 年" */
 export function deedLine(civ: Civ, x: Person): string {
   const p = civ.polities[x.polity];
