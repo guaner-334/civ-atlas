@@ -934,6 +934,9 @@ class Checker {
     let where = movedNote;
     const untilOk = untilRaw !== null && untilRaw > from ? Math.min(untilRaw, 65535) : undefined;
     const untilText = untilOk !== undefined ? `(至第 ${untilOk} 年)` : '';
+    // 挪到次年以后截止年份不在开始之后(原本给的是一年期的命令):不能当成没给截止、变成一直有效
+    if (movedNote && untilRaw !== null && untilRaw > asked && untilRaw <= from && (kind === 'protect' || kind === 'halt' || kind === 'ally'))
+      return fail(label, `命令最早从第 ${from} 年起,到第 ${untilRaw} 年为止一年也管不到`);
     if (kind === 'found') {
       const R = regionOf();
       if (typeof R === 'string') return fail('立国', R);

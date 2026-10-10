@@ -324,6 +324,11 @@ describe('改写 · 核对 AI 的回复', () => {
       kind: 'intervention',
       v: { kind: 'ally', a: polityKey(civ, old.id), b: a, from: y + 1 },
     });
+    // 原本是一年期的(截止 = 立国次年):挪过以后管不到一年,不合格,不能变成一直有效
+    const short = one({ op: 'protect', country: `P${p.id}`, from: y, until: y + 1 });
+    expect(short.change).toBeNull();
+    expect(short.problem).toBe(`命令最早从第 ${y + 1} 年起,到第 ${y + 1} 年为止一年也管不到`);
+    expect(one({ op: 'protect', country: `P${p.id}`, from: y, until: y + 2 }).change).toEqual({ kind: 'intervention', v: { kind: 'protect', a, from: y + 1, until: y + 2 } });
     // 正好在年初立国(年份是整数):那一刻命令也比立国早,同样挪到次年
     const whole = { ...civ, polities: civ.polities.map((q) => (q.id === p.id ? { ...q, founded: y } : q)) };
     expect(one({ op: 'protect', country: `P${p.id}`, from: y }, ctx(EMPTY, Y, whole)).year).toBe(y + 1);
