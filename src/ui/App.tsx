@@ -432,9 +432,9 @@ function keepView(from: string, to: string): string {
   return b.href;
 }
 
-/** 还是 to 这一步(按后退 / 前进去取分享短链接,取回来时看一眼) */
-function sameStep(a: NavState | null, b: NavState): boolean {
-  return !!a && a.idx === b.idx && a.page === b.page && a.id === b.id;
+/** 还在 b 那个画面(同一个画面里开卡片多记的几步也算);去解开 / 取回分享的世界,拿到时看一眼 */
+function sameScreen(a: NavState | null, b: NavState | null): boolean {
+  return !!a && !!b && a.bare === b.bare && a.page === b.page && a.id === b.id;
 }
 
 /** 按后退 / 前进要回的世界已经删掉了(停在我的世界) */
@@ -1127,7 +1127,11 @@ export function App() {
       q.delete(OWN_KEY);
       const rest = `${q}`;
       navUrl(location.pathname + (rest ? `?${rest}` : ''));
-      decodeShare(init.share).then((r) => openShareRef.current(r, undefined, own));
+      const at = getNav();
+      // 解开之前按了后退 / 前进(到了别的画面):不打开
+      decodeShare(init.share).then((r) => {
+        if (sameScreen(getNav(), at)) openShareRef.current(r, undefined, own);
+      });
     }
     // 邀请链接(invite=):记下邀请码,弹出登录窗(已经登录了就算了)
     if (takeInviteFromUrl() && serverBase() && !getSession()) openLogin();
@@ -1142,7 +1146,10 @@ export function App() {
       // 浏览器为这个 # 记了一步:当成新的一步(打开分享的世界时换成它)
       navAdopt(navInfo(getStage().stage, targetRef.current));
       navUrl(location.pathname + location.search);
-      decodeShare(h).then((r) => openShareRef.current(r));
+      const at = getNav();
+      decodeShare(h).then((r) => {
+        if (sameScreen(getNav(), at)) openShareRef.current(r);
+      });
     };
     window.addEventListener('hashchange', onHash);
     return () => {
@@ -1577,17 +1584,17 @@ export function App() {
     showToast({ id: 'share', kind: 'progress', text: '正在打开分享的世界' });
     openShareCode(code)
       .then((r) => {
-        clearToast('share');
-        // 按后退 / 前进取的:取回来之前又换到了别的一步,不打开
+        // 按后退 / 前进取的:取回来之前又换到了别的画面,不打开(提示条那边换画面时已经收掉了)
         if (still && !still()) return;
+        clearToast('share');
         const p = parseSave(JSON.stringify(r.save));
         if (!p.ok) return setLanding({ error: briefError(p.error) });
         setLanding(null);
         openShareRef.current(p, { code, by: r.by });
       })
       .catch((e) => {
-        clearToast('share');
         if (still && !still()) return;
+        clearToast('share');
         if (e instanceof ServerError && (e.code === 'share-gone' || e.code === 'not-found')) setLanding('gone');
         else setLanding({ error: e instanceof ServerError && e.code === 'network' ? '连不上服务器，请检查网络后刷新再试。' : e instanceof Error ? e.message : String(e) });
       });
@@ -1796,6 +1803,9 @@ export function App() {
       const left = derivedUntouched();
       if (left && !(to.page === 'draft' && to.id === left)) deleteWorld(left);
     }
+    // 分享链接打不开的那一页、正在取的分享:换了画面就不留
+    setLanding(null);
+    clearToast('share');
     if (to.page === 'home') return showHome();
     const back = dir < 0;
     const skip = (): void | 'skip' => (back && to.prev ? 'skip' : showHome());
@@ -1830,7 +1840,14 @@ export function App() {
       return;
     }
     const code = q.get('s');
-    if (code) return openShortShare(code, () => sameStep(getNav(), to));
+    if (code) {
+      // 刷新过(手上没有这个世界):和打开分享短链接时一样,先到"正在打开"那一页,停了、打不开也显示在那一页
+      pausePlayback();
+      setReplayOn(false);
+      enterStage('home');
+      setLanding('loading');
+      return openShortShare(code, () => sameScreen(getNav(), to));
+    }
     if (q.has('seed')) return openTarget({ ...visitTarget(url.params, url.gen), id: to.id ?? newWorldId() });
     return showHome();
   };
