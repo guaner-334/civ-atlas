@@ -52,6 +52,8 @@ jobs:
           else
             [[ "$QQ" =~ ^[0-9]{5,12}$ ]] || { echo "群号要是 5–12 位数字,填的是:$QQ" >&2; exit 1; }
             [ -n "$URL" ] || { echo "没找到 https:// 开头的加群链接" >&2; exit 1; }
+            # 和网页一样用 URL 解析一遍(src/ui/contact.ts 的 parseContact),网页认不出的链接不传,免得「联系我们」消失
+            node -e 'if (new URL(process.argv[1]).protocol !== "https:") process.exit(1)' "$URL" 2>/dev/null || { echo "加群链接不是有效的网址:$URL" >&2; exit 1; }
             jq -n --arg name "$NAME" --arg qq "$QQ" --arg url "$URL" \
               '{name: $name, qq: $qq, url: $url} | with_entries(select(.value != ""))' > out/contact.json
           fi
