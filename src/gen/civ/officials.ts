@@ -2,8 +2,8 @@
  * 名臣(文臣),和将领的官职、字号、籍贯。推演结束、排好君主和统帅以后调用(people.ts),
  * 和统帅一样按已经推出来的历史"贴"上去 —— 一样都不改,纯计算,不碰 DOM。
  *
- * **名臣**:每一朝几位(按这一朝的年数;王国、帝国多些,部落没有)。先挑这一朝里真发生的事,每件找一位当时在朝的大臣经手,
- * 没有就新起一位(一位最多经手 DEEDS_MAX 件):
+ * **名臣**:按年份往后走,只看到当时为止的事(后来的历史变了,先前的大臣不变)。这一朝里真发生的事,每件找一位当时在朝、
+ * 手上的事没满(一位最多经手 DEEDS_MAX 件)的大臣经手;没人在朝就当年起用一位,有人但都满了,要紧的事(PRIO_NEW)才另起一位:
  *   found     佐命:一朝的第一位上台时(立国、起兵代之、叛离自立、复国、篡位)
  *   regent    辅政:幼主(不满 YOUNG 岁)即位,辅政到他 ADULT 岁
  *   rank      劝进:国号升格(称王、称帝)
@@ -13,7 +13,8 @@
  *   peace     议和:出使议和(得失的州记在史事里)
  *   war       主战:本国宣战时力主讨伐
  *   defend    守御:本国被攻时督运粮草、主持守御
- * 挑剩的名额放进这一朝还没人在朝的年份(在朝几十年、没经手大事的守成之臣)。
+ * 没人在朝的空当长了(GAP:王国、帝国 30–50 年,小国长些)补一位(在朝几十年、没经手大事的守成之臣);部落没有大臣。
+ * 每位都在起他的那一年入仕,所以作者干预某一年以后,那年以前入仕的大臣一个不多、一个不少。
  * **官职**:入仕到去职一级级升(官名按当时的国号档位,东方、西幻、汗国、共和国各一套,见 CIVIL);
  *   同一时间最高的那个官(丞相、首相……)只有一位,后来的写次一级(TOP_ALT)。
  * **结局**:卒于任上(died)/ 致仕(retired)/ 新君即位时罢官(deposed);一朝终了时还在朝的:
@@ -23,31 +24,36 @@
  *   其余语感没有字号。
  * **籍贯**:入仕(第一次领兵)那年本国的一座城,国都的机会大些。
  *
- * 随机数 keyed4(subSeed(seed, 'civ-officials'), 国家的位置锚, 第几朝, 第几位 × 16 + 用途, 种类);
- * 将领按"国家的位置锚 + 本国第几位将领"。名字和别的人物不重名(people.ts 的 NameBook)。
+ * 随机数 keyed4(subSeed(seed, 'civ-officials'), 国家的位置锚, 第几朝, 键 × 16 + 用途, 种类),键按起这位大臣的那一年和缘由(不按第几位);
+ * 将领按"国家的位置锚 + 本国第几位将领"。名字和将领一起按出道先后起,不和此前的人物重名(people.ts 的 NameBook)。
  */
 import { Layer, type Annal, type ChangeLog, type Person, type PersonDeed, type PersonFate, type PersonPost, type Polity, type Settlement, type UpheavalFact, type Year } from './types';
 import { keyed4, subSeed } from './rand';
 import { capitalAt, polityTierAt } from './growth';
 
 // ---- 调参 ----
-/** 一朝几位:年数 ÷ PER_YEARS(王国、帝国 / 国),至少 1 位,最多 MAX */
-const PER_YEARS: [number, number] = [70, 110];
-const MAX: [number, number] = [8, 5];
 /** 一位最多经手几件事 */
 const DEEDS_MAX = 3;
 /** 幼主:即位不满这么多岁;辅政到他这么多岁 */
 const YOUNG = 12;
 const ADULT = 18;
-/** 入仕的年纪、经手大事时的年纪、致仕的年纪、寿命 */
+/** 入仕的年纪、因一件事起用的年纪、致仕的年纪、寿命 */
 const ENTER_AGE: [number, number] = [20, 30];
-const PEAK_AGE: [number, number] = [36, 58];
+const CALL_AGE: [number, number] = [28, 50];
 const RETIRE_AGE: [number, number] = [62, 76];
 const LIFE: [number, number] = [58, 86];
 /** 佐命之臣:开国时的年纪 */
 const FOUND_AGE: [number, number] = [26, 44];
-/** 挑剩的名额:这一朝里没人在朝的空当至少这么多年才放一位 */
-const GAP_MIN = 24;
+/** 一朝里没人在朝这么些年就补一位(王国、帝国 / 国):在朝几十年、没经手大事的守成之臣 */
+const GAP: [number, number][] = [
+  [30, 50],
+  [50, 90],
+];
+/** 已经有人在朝、可他们经手的事满了:这么要紧的事(越小越要紧)才另起一位 */
+const PRIO_NEW = 1;
+/** 寻常的事(打仗、运粮、一般的议和、国都失守):没人在朝时只有 MINOR_NEW 的机会起一位 */
+const PRIO_MINOR = 4;
+const MINOR_NEW = 0.5;
 /** 新君即位后一年内去职的,罢官的机会 */
 const DISMISS = 0.4;
 /** 一朝终了时还在朝:殉国、降的机会(其余归隐) */
@@ -61,9 +67,9 @@ const ART: [number, number] = [0.4, 0.12];
 const CAPPED = 0.45;
 
 // 随机数用途
-const U_COUNT = 0;
+const U_GAP = 0;
+const U_MINOR = 14;
 const U_AGE = 1;
-const U_ENTER = 2;
 const U_LIFE = 3;
 const U_RETIRE = 4;
 const U_FATE = 5;
@@ -75,9 +81,12 @@ const U_ART2 = 10;
 const U_DEPT = 11;
 const U_POSTS = 12;
 const U_CAP = 13;
-/** keyed4 最后一位:大臣 / 将领 */
+/** keyed4 最后一位:大臣 / 将领 / 空当多长 */
 const K_MINISTER = 0;
 const K_GENERAL = 1;
+const K_GAP = 2;
+/** 大臣的随机数按起他的那一年(× SLOT_Q 取整)和缘由(经手的事 / 补空当 / 一朝终了),不按第几位 */
+const SLOT_Q = 8;
 
 const TICK = 256;
 const q = (x: number) => Math.round(x * TICK) / TICK;
@@ -205,20 +214,28 @@ export interface OfficialsCtx {
   styleOf: (p: Polity) => string;
   /** 带不带姓、起名 */
   namerOf: (p: Polity) => { surnamed: boolean; surname(...k: number[]): string; given(...k: number[]): string };
-  /** 起一个不和别人重名的名字(people.ts 的 NameBook) */
-  pickName: (nameAt: (a: number) => string, born: Year, polity: number) => string;
+}
+
+export interface Officials {
+  /** 名臣(按国家、朝代、入仕先后);名字还空着 */
+  ministers: Person[];
+  /** deed.person 先记成 Person,等 people.ts 排好编号再换 */
+  fixups: [PersonDeed, Person][];
+  /** 名臣第 a 次试的名字(people.ts 和将领一起按出道先后起名,见 NameBook) */
+  nameAt: Map<Person, (a: number) => string>;
+  /** 名字定了以后调:名臣、将领的字(字和名里的字不重) */
+  finish: () => void;
 }
 
 /** 一件可以经手的事 */
 interface Anchor {
   kind: PersonDeed['kind'];
   year: Year;
-  /** 越小越先挑 */
+  /** 越小越要紧 */
   prio: number;
   deed: PersonDeed;
   /** 记在 deed.person 上的人(排好编号后换成编号) */
   who?: Person;
-  taken?: boolean;
 }
 
 /** 正在排的一位大臣 */
@@ -227,21 +244,23 @@ interface Draft {
   enter: Year;
   leave: Year;
   life: Year;
-  /** 第几位(这一朝里) */
+  /** 随机数的键(起他的那一年、缘由) */
   slot: number;
   anchors: Anchor[];
 }
 
-
 /**
- * 排出所有名臣(role = minister,按国家、朝代、入仕先后),顺带给将领填上籍贯、字号、官职。
- * fix:deed.person 先记成 Person,等 people.ts 排好编号再换(返回的 fixups)
+ * 排出所有名臣(role = minister),顺带给将领填上籍贯、号、官职。
+ * 按年份往后走,只看到当时为止的事:一件事来了,找一位当时在朝、手上的事没满的大臣经手,没有就新起一位;
+ * 没人在朝的空当长了补一位。起谁都在那一年入仕,所以后来的历史变了(作者干预某一年),先前入仕的大臣还是那几位。
  */
-export function buildOfficials(input: OfficialsInput, ctx: OfficialsCtx, generals: readonly Person[]): { ministers: Person[]; fixups: [PersonDeed, Person][] } {
+export function buildOfficials(input: OfficialsInput, ctx: OfficialsCtx, generals: readonly Person[]): Officials {
   const { polities, settlements, annals, endYear } = input;
   const base = subSeed(input.seed, 'civ-officials');
   const fixups: [PersonDeed, Person][] = [];
   const ministers: Person[] = [];
+  const nameAt = new Map<Person, (a: number) => string>();
+  const later: (() => void)[] = [];
   const homeAsks: { x: Person; year: Year; u: number }[] = [];
   /** 每国最高的官谁在任:[起, 止] */
   const tops: [Year, Year][][] = polities.map(() => []);
@@ -251,76 +270,63 @@ export function buildOfficials(input: OfficialsInput, ctx: OfficialsCtx, general
     const segs = p.dynasties?.length ? p.dynasties : [{ year: p.founded, name: p.name, seat: p.capital }];
     const end = p.ended ?? endYear;
     const rs = ctx.rulers[p.id] ?? [];
+    const namer = ctx.namerOf(p);
+    const style = ctx.styleOf(p);
     for (let i = 0; i < segs.length; i++) {
       const s = i === 0 ? p.founded : segs[i].year;
       const last = i + 1 >= segs.length;
       const e = last ? end : segs[i + 1].year;
-      const len = e - s;
-      if (len <= 0) continue;
-      // 这一朝最高的档位:部落没有大臣(共和国从城邦起就有)
-      const tierMax = maxTier(p, s, e);
-      if (sys !== 'republic' && tierMax < 1) continue;
-      const big = tierMax >= 2 ? 0 : 1;
+      if (e - s <= 0) continue;
       const R = (slot: number, use: number) => keyed4(base, ctx.tag[p.id], i, slot * 16 + use, K_MINISTER);
-      const n = Math.max(1, Math.min(MAX[big], Math.round(len / PER_YEARS[big] + R(0, U_COUNT) - 0.5)));
+      // 部落没有大臣(共和国从城邦起就有)
+      const staffed = (y: Year) => sys === 'republic' || polityTierAt(p, y) >= 1;
       const anchors = anchorsOf(input, p, i, s, e, rs, sys);
       const drafts: Draft[] = [];
-      const make = (Y: Year, kind: PersonDeed['kind'] | 'end' | null): Draft | null => {
-        const slot = drafts.length;
-        const r = (use: number) => R(slot + 1, use);
-        let born: number;
-        let enter: number;
-        if (kind === 'found') {
-          born = Y - lerp(FOUND_AGE, r(U_AGE));
-          enter = Y;
-        } else {
-          born = Y - lerp(PEAK_AGE, r(U_AGE));
-          enter = Math.max(s, born + lerp(ENTER_AGE, r(U_ENTER)));
-        }
-        // 一朝终了时在朝的那一位:在朝到那一刻
-        const life = Math.max(born + lerp(LIFE, Math.pow(r(U_LIFE), 0.8)), Y + 2, kind === 'end' ? e + 1 : 0);
-        const retire = Math.max(born + lerp(RETIRE_AGE, r(U_RETIRE)), Y + 1, kind === 'end' ? e : 0);
-        let leave = Math.min(life, retire);
-        if (leave > e) leave = e;
-        if (!(leave > enter) || enter > Y + 1e-9 || leave < Y) return null;
+      /** why:0 为一件事起用 / 1 补空当;都在 Y 这一年入仕 */
+      const make = (Y: Year, why: 0 | 1, kind?: PersonDeed['kind']): Draft | null => {
+        const slot = Math.round(Y * SLOT_Q) * 2 + why;
+        const r = (use: number) => R(slot, use);
+        const born = Y - lerp(kind === 'found' ? FOUND_AGE : why === 1 ? ENTER_AGE : CALL_AGE, r(U_AGE));
+        const enter = Y;
+        const life = Math.max(born + lerp(LIFE, Math.pow(r(U_LIFE), 0.8)), Y + 2);
+        const retire = Math.max(born + lerp(RETIRE_AGE, r(U_RETIRE)), Y + 1);
+        const leave = Math.min(life, retire, e);
+        if (!(leave > enter)) return null;
         const x: Person = { id: -1, role: 'minister', polity: p.id, name: '', born: q(born), dynasty: i };
         const d: Draft = { x, enter: q(enter), leave: q(leave), life: q(life), slot, anchors: [] };
         drafts.push(d);
         return d;
       };
-      const active = (Y: Year) => drafts.find((d) => d.enter <= Y && d.leave >= Y && d.anchors.length < DEEDS_MAX);
-      // 先按事找人
-      for (const a of anchors) {
-        let d = active(a.year);
-        if (!d && drafts.length < n) d = make(a.year, a.kind) ?? undefined;
+      // 往后走:下一件事、下一个该补人的空当,哪个先到先办
+      let cover = s;
+      let k = 0;
+      while (true) {
+        const a = anchors[k];
+        const gapAt = q(cover + lerp(GAP[polityTierAt(p, cover) >= 2 ? 0 : 1], keyed4(base, ctx.tag[p.id], i, Math.round(cover * SLOT_Q) * 16 + U_GAP, K_GAP)));
+        if (gapAt < e && (!a || gapAt < a.year)) {
+          const d = staffed(gapAt) ? make(gapAt, 1) : null;
+          cover = d ? Math.max(cover, d.leave) : gapAt;
+          continue;
+        }
+        if (!a) break;
+        k++;
+        if (!staffed(a.year)) continue;
+        const on = drafts.filter((x) => x.enter <= a.year && x.leave >= a.year);
+        // 没人在朝:要紧的事起一位;寻常的事(打仗、运粮、一般的议和)一半的机会起一位,不然这件事没有名臣经手
+        const fresh = on.length ? a.prio <= PRIO_NEW : a.prio < PRIO_MINOR || keyed4(base, ctx.tag[p.id], i, Math.round(a.year * SLOT_Q) * 16 + U_MINOR, K_GAP) < MINOR_NEW;
+        const d = on.find((x) => x.anchors.length < DEEDS_MAX) ?? (fresh ? make(a.year, 0, a.kind) : null);
         if (!d) continue;
         d.anchors.push(a);
-        a.taken = true;
+        cover = Math.max(cover, d.leave);
       }
-      // 一朝终了(改朝换代、亡国、并入他国)时总有一位在朝(殉国、降、归隐);名额满了也加这一位
-      if (!(last && p.ended === undefined) && !drafts.some((d) => d.leave >= e)) {
-        const d = make(e - 1 / TICK, 'end');
-        if (d) for (const a of anchors) if (!a.taken && d.anchors.length < DEEDS_MAX && a.year >= d.enter && a.year <= d.leave) ((a.taken = true), d.anchors.push(a));
-      }
-      // 挑剩的名额放进没人在朝的空当
-      while (drafts.length < n) {
-        const gap = widestGap(drafts, s, e);
-        if (!gap || gap[1] - gap[0] < GAP_MIN) break;
-        const mid = (gap[0] + gap[1]) / 2;
-        const d = make(mid, null);
-        if (!d) break;
-        for (const a of anchors) if (!a.taken && d.anchors.length < DEEDS_MAX && a.year >= d.enter && a.year <= d.leave) ((a.taken = true), d.anchors.push(a));
-      }
-      // 在朝时还有没人经手的事,顺手记上
-      for (const d of drafts)
-        for (const a of anchors) if (!a.taken && d.anchors.length < DEEDS_MAX && a.year >= d.enter && a.year <= d.leave) ((a.taken = true), d.anchors.push(a));
       drafts.sort((a, b) => a.enter - b.enter || a.slot - b.slot);
       for (const d of drafts) {
-        const r = (use: number) => R(d.slot + 1, use);
+        const r = (use: number) => R(d.slot, use);
         const x = d.x;
-        d.anchors.sort((a, b) => a.year - b.year);
         x.deeds = d.anchors.map((a) => {
           if (a.who) fixups.push([a.deed, a.who]);
+          // 辅政到他去职为止
+          if (a.deed.until !== undefined) a.deed.until = Math.min(a.deed.until, d.leave);
           return a.deed;
         });
         x.from = d.enter;
@@ -330,12 +336,8 @@ export function buildOfficials(input: OfficialsInput, ctx: OfficialsCtx, general
         if (ended.fate) x.fate = ended.fate;
         if (ended.died !== undefined) x.died = ended.died;
         x.posts = civilPosts(p, sys, d, ended.until ?? endYear, tops[p.id], r);
-        // 名字
-        const namer = ctx.namerOf(p);
-        const key = (a: number) => [ctx.tag[p.id], 3, i * 64 + d.slot, a];
-        x.name = ctx.pickName((a) => namer.surname(...key(a)) + namer.given(...key(a)), x.born, p.id);
-        const style = ctx.styleOf(p);
-        if (namer.surnamed) x.courtesy = courtesyName(style, x.name, r);
+        nameAt.set(x, (a) => namer.surname(ctx.tag[p.id], 3, i, d.slot, a) + namer.given(ctx.tag[p.id], 3, i, d.slot, a));
+        if (namer.surnamed) later.push(() => (x.courtesy = courtesyName(style, x.name, r)));
         const tail = artTail(style, r, ART[0]);
         if (tail) x.art = tail;
         homeAsks.push({ x, year: d.enter, u: r(U_HOME) });
@@ -344,7 +346,7 @@ export function buildOfficials(input: OfficialsInput, ctx: OfficialsCtx, general
     }
   }
 
-  // ---- 将领:籍贯、字号、官职 ----
+  // ---- 将领:籍贯、号、官职 ----
   const seen = polities.map(() => 0);
   for (const g of generals) {
     const p = polities[g.polity];
@@ -352,7 +354,7 @@ export function buildOfficials(input: OfficialsInput, ctx: OfficialsCtx, general
     const gi = seen[p.id]++;
     const r = (use: number) => keyed4(base, ctx.tag[p.id], gi, use, K_GENERAL);
     const style = ctx.styleOf(p);
-    if (ctx.namerOf(p).surnamed) g.courtesy = courtesyName(style, g.name, r);
+    if (ctx.namerOf(p).surnamed) later.push(() => (g.courtesy = courtesyName(style, g.name, r)));
     const tail = artTail(style, r, ART[1]);
     if (tail) g.art = tail;
     g.posts = generalPosts(p, g, annals, r);
@@ -372,17 +374,10 @@ export function buildOfficials(input: OfficialsInput, ctx: OfficialsCtx, general
       arts.add(artName(city, tail));
     } else delete x.art;
   }
-  return { ministers, fixups };
+  return { ministers, fixups, nameAt, finish: () => later.forEach((f) => f()) };
 }
 
-/** 这一朝最高的档位 */
-function maxTier(p: Polity, s: Year, e: Year): number {
-  let t = polityTierAt(p, s);
-  for (const x of p.titles ?? []) if (x.year >= s && x.year < e) t = Math.max(t, x.tier);
-  return t;
-}
-
-/** 这一朝里能经手的事(按先挑的在前) */
+/** 这一朝里能经手的事(按年份) */
 function anchorsOf(input: OfficialsInput, p: Polity, dyn: number, s: Year, e: Year, rs: readonly Person[], sys: System): Anchor[] {
   const { annals } = input;
   const out: Anchor[] = [];
@@ -427,7 +422,7 @@ function anchorsOf(input: OfficialsInput, p: Polity, dyn: number, s: Year, e: Ye
   (input.upheavals ?? []).forEach((u, k) => {
     if (inSeg(u.year) && (u.polity === p.id || u.drownedBy.includes(p.id))) out.push({ kind: 'relief', year: u.year, prio: 2, deed: { kind: 'relief', year: u.year, upheaval: k } });
   });
-  return out.sort((a, b) => a.prio - b.prio || a.year - b.year);
+  return out.sort((a, b) => a.year - b.year || a.prio - b.prio);
 }
 
 function polityOf(input: OfficialsInput, id: number): Polity | undefined {
@@ -441,18 +436,6 @@ function rulerAt(list: readonly Person[], t: Year): Person | undefined {
     if (r.from! <= t) return r.until === undefined || t < r.until ? r : undefined;
   }
   return undefined;
-}
-
-/** 这一朝里没人在朝的最长一段 */
-function widestGap(drafts: readonly Draft[], s: Year, e: Year): [Year, Year] | null {
-  const spans = drafts.map((d) => [d.enter, d.leave] as [Year, Year]).sort((a, b) => a[0] - b[0]);
-  let best: [Year, Year] | null = null;
-  let t = s;
-  for (const [a, b] of [...spans, [e, e] as [Year, Year]]) {
-    if (a > t && (!best || a - t > best[1] - best[0])) best = [t, a];
-    t = Math.max(t, b);
-  }
-  return best;
 }
 
 /** 结局:去职那年、怎么去职的、卒年 */
@@ -501,8 +484,9 @@ function civilPosts(p: Polity, sys: System, d: Draft, until: Year, tops: [Year, 
   const top = ladderAt(topAt);
   const steps = Math.max(0, top.length - 1);
   const out: PersonPost[] = [];
-  // 入仕到 topAt 之间排低几级(在朝短的少排几级;佐命之臣开国时直接拜最高的官)
-  const below = first?.kind === 'found' ? 0 : Math.min(steps, Math.max(1, Math.round((topAt - d.enter) / 9)));
+  // 入仕到 topAt 之间排低几级(在朝短的少排几级;佐命之臣开国时、为辅政拥立这类大事起用的当年直接拜最高的官)
+  if (first?.kind === 'found' || topAt - d.enter < 2) topAt = d.enter;
+  const below = topAt === d.enter ? 0 : Math.min(steps, Math.max(1, Math.round((topAt - d.enter) / 9)));
   for (let k = 0; k < below; k++) {
     const y = q(d.enter + ((topAt - d.enter) * k) / below);
     const lad = ladderAt(y);

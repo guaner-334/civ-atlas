@@ -300,7 +300,9 @@ function ministerBio(civ: Civ, x: Person): string {
   posts.forEach((post, k) => {
     if (post === foundTop) return;
     let t: string;
-    if (k === 0) t = republic ? `当选${post.title}` : east ? `入仕，授${post.title}` : `入宫任${post.title}`;
+    // 为一件大事起用、当年就是最高的官
+    const called = k === 0 && posts.length === 1 && deeds.some((d) => d.year - post.from < 2);
+    if (k === 0) t = republic ? `当选${post.title}` : called ? (east ? `受命入朝，任${post.title}` : `应召入宫任${post.title}`) : east ? `入仕，授${post.title}` : `入宫任${post.title}`;
     else if (k === posts.length - 1) t = republic ? `当选${post.title}` : east ? (/相|丞相|宰相/.test(post.title) ? `拜${post.title}` : `升${post.title}`) : `升任${post.title}`;
     else t = republic ? `当选${post.title}` : east ? `迁${post.title}` : `改任${post.title}`;
     items.push({ year: post.from, text: t });

@@ -135,17 +135,18 @@ describe.each([7, 2024])('人物 · seed=%i', (seed) => {
     }
   });
 
-  it('将领不重名:不和本国的君主同名,前后 300 年里没有同名的君主、将领(几百年后再出一位同名的,读起来像同一个人死了两次)', () => {
+  it('将领、名臣不重名:按出道先后,不和出道以前即位的本国君主同名,和出道以前的君主、先出道的将领名臣前后 300 年不同名(几百年后再出一位同名的,读起来像同一个人死了两次)', () => {
     const civ = civOf(seed);
     const P = civ.people!;
-    const gens = P.filter((x) => x.role === 'general');
-    expect(gens.length).toBeGreaterThan(10);
-    gens.forEach((g, i) => {
-      const prev = [...P.filter((x) => x.role === 'ruler'), ...gens.slice(0, i)].filter((x) => x.name === g.name);
-      for (const x of prev) {
-        expect(x.role === 'ruler' && x.polity === g.polity, `${g.name}:和本国君主同名`).toBe(false);
-        expect(Math.abs(x.born - g.born), `${g.name}:生年相差`).toBeGreaterThanOrEqual(300);
-      }
+    const start = (x: Person) => (x.role === 'general' ? x.commands![0].from : x.from!);
+    const named = P.filter((x) => x.role === 'general' || x.role === 'minister').sort((a, b) => start(a) - start(b));
+    expect(named.filter((x) => x.role === 'general').length).toBeGreaterThan(10);
+    expect(named.filter((x) => x.role === 'minister').length).toBeGreaterThan(10);
+    const rulers = P.filter((x) => x.role === 'ruler');
+    named.forEach((g, i) => {
+      expect(rulers.some((r) => r.polity === g.polity && r.from! <= start(g) && r.name === g.name), `${g.name}:和本国君主同名`).toBe(false);
+      const prev = [...rulers.filter((r) => r.from! <= start(g)), ...named.slice(0, i)].filter((x) => x.name === g.name);
+      for (const x of prev) expect(Math.abs(x.born - g.born), `${g.name}:生年相差`).toBeGreaterThanOrEqual(300);
     });
   });
 
