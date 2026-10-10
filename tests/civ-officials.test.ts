@@ -8,7 +8,8 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
 import type { Person } from '../src/gen/civ/types';
-import { polityTierAt } from '../src/gen/civ/growth';
+import { polityTierAt, polityTitles } from '../src/gen/civ/growth';
+import { postLadder } from '../src/gen/civ/officials';
 import { deedLine, deedsShort, ministerFate, ministerRole, personArt, personBio } from '../src/gen/civ/officialText';
 import { buildChronicle, reignEntries, type ChronicleEntry } from '../src/gen/civ/chronicle';
 import { famousPeople, peopleIndex, personSpan } from '../src/gen/civ/peopleInfo';
@@ -31,6 +32,23 @@ function civOf(seed: number): Civ {
 }
 const ministersOf = (civ: Civ) => (civ.people ?? []).filter((x) => x.role === 'minister');
 const EPS = 1e-6;
+
+/** 官职都在那一年本国的那套官里;将领在那套官里的位置只升不降(国号升格换了一套官也一样) */
+function checkLadders(civ: Civ): void {
+  for (const x of civ.people ?? []) {
+    if (x.role !== 'minister' && x.role !== 'general') continue;
+    const p = civ.polities[x.polity];
+    let grade = 0;
+    for (const post of x.posts ?? []) {
+      const lad = postLadder(p, x.role, post.from);
+      const k = lad.indexOf(post.title.replace(/^.部尚书$/, '尚书').replace(/^[前后左右]将军$/, '*将军'));
+      expect(k, `${x.name}:${Math.floor(post.from)} 年的${post.title}`).toBeGreaterThanOrEqual(0);
+      if (x.role !== 'general' || lad.length < 2) continue;
+      expect(k / (lad.length - 1), `${x.name}:${Math.floor(post.from)} 年的${post.title}`).toBeGreaterThanOrEqual(grade - EPS);
+      grade = k / (lad.length - 1);
+    }
+  }
+}
 
 describe.each([7, 2024])('名臣 · seed=%i', (seed) => {
   it('王国、帝国(和共和国)都排得出名臣;部落时期没有', () => {
@@ -83,6 +101,7 @@ describe.each([7, 2024])('名臣 · seed=%i', (seed) => {
       for (const post of ps) expect(post.title, x.name).toMatch(/^\S+$/);
       expect(ministerRole(civ, x), x.name).toMatch(/^\S+$/);
     }
+    checkLadders(civ);
   });
 
   it('经手的事:在他在朝那几年,一位最多三件;拥立、辅政、佐命、劝进的是本国的君主;辅政到他去职为止', () => {
@@ -208,6 +227,23 @@ describe.each([7, 2024])('名臣 · seed=%i', (seed) => {
     expect(key).toContain('|minister|');
     expect(isPersonKey(key)).toBe(true);
     expect(resolvePersonKey(generateCiv(world(seed)), key)).toBe(x.id);
+  });
+});
+
+// 这几个种子里有汗国第 1 → 2 档(国号不变)、共和国换执政、刚入仕就赶上国号升格的
+describe.each([4, 6, 13])('名臣 · 少见的情形 · seed=%i', (seed) => {
+  it('劝进只记国号真变了的那次;共和国的大臣不写"新君即位"罢官;官职都在那一年的那套官里,将领只升不降', () => {
+    const civ = civOf(seed);
+    for (const x of ministersOf(civ)) {
+      const p = civ.polities[x.polity];
+      for (const d of x.deeds ?? []) {
+        if (d.kind !== 'rank') continue;
+        const t = polityTitles(p, d.year);
+        expect(t[Math.max(0, polityTierAt(p, d.year - 0.01))], `${x.name}:${Math.floor(d.year)} 年劝进`).not.toBe(t[polityTierAt(p, d.year)]);
+      }
+      if (p.lineage === 'republic') expect(x.fate, x.name).not.toBe('deposed');
+    }
+    checkLadders(civ);
   });
 });
 

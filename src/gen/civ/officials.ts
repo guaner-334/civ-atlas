@@ -6,7 +6,7 @@
  * 手上的事没满(一位最多经手 DEEDS_MAX 件)的大臣经手;没人在朝就当年起用一位,有人但都满了,要紧的事(PRIO_NEW)才另起一位:
  *   found     佐命:一朝的第一位上台时(立国、起兵代之、叛离自立、复国、篡位)
  *   regent    辅政:幼主(不满 YOUNG 岁)即位,辅政到他 ADULT 岁
- *   rank      劝进:国号升格(称王、称帝)
+ *   rank      劝进:国号升格、国号跟着变(称王、称帝、称大汗)
  *   enthrone  拥立:先君遇弑,迎立新君
  *   capital   迁都:主动迁都(力主迁都)、国都失守以后迁都(护驾)
  *   relief    赈灾:地形大事里本国受灾
@@ -29,7 +29,7 @@
  */
 import { Layer, type Annal, type ChangeLog, type Person, type PersonDeed, type PersonFate, type PersonPost, type Polity, type Settlement, type UpheavalFact, type Year } from './types';
 import { keyed4, subSeed } from './rand';
-import { capitalAt, polityTierAt } from './growth';
+import { capitalAt, polityTierAt, polityTitles } from './growth';
 
 // ---- 调参 ----
 /** 一位最多经手几件事 */
@@ -401,10 +401,11 @@ function anchorsOf(input: OfficialsInput, p: Polity, dyn: number, s: Year, e: Ye
   annals.forEach((a, idx) => {
     if (!inSeg(a.year)) return;
     if (a.kind === 'rank' && a.a === p.id) {
-      // 升格才算(降格不算)
+      // 升格、国号跟着变了才算(汗国第 1、2 档都叫"汗国",那次不算)
       const before = polityTierAt(p, a.year - 1 / (2 * TICK));
       const after = polityTierAt(p, a.year);
-      if (after > before && after >= (sys === 'republic' ? 3 : 2)) out.push({ kind: 'rank', year: a.year, prio: 1, deed: { kind: 'rank', year: a.year, annal: idx }, who: rulerAt(mine, a.year) });
+      const titles = polityTitles(p, a.year);
+      if (after > before && after >= (sys === 'republic' ? 3 : 2) && titles[Math.max(0, before)] !== titles[after]) out.push({ kind: 'rank', year: a.year, prio: 1, deed: { kind: 'rank', year: a.year, annal: idx }, who: rulerAt(mine, a.year) });
     } else if (a.kind === 'capital' && a.a === p.id) {
       if (a.b === -2) return; // 天灾迁都算进赈灾
       out.push({ kind: 'capital', year: a.year, prio: a.war < 0 ? 2 : 4, deed: { kind: 'capital', year: a.year, annal: idx } });
@@ -454,7 +455,8 @@ function endOf(
   if (d.leave < e) {
     // 一朝里去职:卒于任上 / 新君即位后不久罢官 / 致仕
     if (died !== undefined && d.leave >= d.life) return { until: d.leave, fate: 'died', died };
-    const fresh = rs.some((x) => x.rise === 'heir' && x.from !== undefined && x.from <= d.leave && x.from > d.leave - 1);
+    // 共和国的执政是选出来的,换人不算"新君即位"
+    const fresh = p.lineage !== 'republic' && rs.some((x) => x.rise === 'heir' && x.from !== undefined && x.from <= d.leave && x.from > d.leave - 1);
     const fate: PersonFate = fresh && r(U_FATE) < DISMISS ? 'deposed' : 'retired';
     return { until: d.leave, fate, died };
   }
@@ -480,12 +482,13 @@ function civilPosts(p: Polity, sys: System, d: Draft, until: Year, tops: [Year, 
   const major = d.anchors.find((a) => a.kind === 'found' || a.kind === 'regent' || a.kind === 'rank' || a.kind === 'enthrone');
   if (major) topAt = Math.min(topAt, major.year);
   topAt = q(Math.max(d.enter, Math.min(topAt, until)));
+  // 佐命之臣开国时、为辅政拥立这类大事起用的(和在朝很短的)入仕当年直接拜最高的官
+  if (first?.kind === 'found' || topAt - d.enter < 2) topAt = d.enter;
   const ladderAt = (y: Year) => CIVIL[sys][clampTier(polityTierAt(p, y))] ?? CIVIL[sys][1] ?? [];
   const top = ladderAt(topAt);
   const steps = Math.max(0, top.length - 1);
   const out: PersonPost[] = [];
-  // 入仕到 topAt 之间排低几级(在朝短的少排几级;佐命之臣开国时、为辅政拥立这类大事起用的当年直接拜最高的官)
-  if (first?.kind === 'found' || topAt - d.enter < 2) topAt = d.enter;
+  // 入仕到 topAt 之间排低几级(在朝短的少排几级)
   const below = topAt === d.enter ? 0 : Math.min(steps, Math.max(1, Math.round((topAt - d.enter) / 9)));
   for (let k = 0; k < below; k++) {
     const y = q(d.enter + ((topAt - d.enter) * k) / below);
@@ -511,20 +514,36 @@ function civilPosts(p: Polity, sys: System, d: Draft, until: Year, tops: [Year, 
   return out.filter((x, k) => k === 0 || x.title !== out[k - 1].title);
 }
 
-/** 将领的官职:每次领兵时按此前打赢的仗数定级 */
+/** 某国某一年的那套官(从低到高;文官带上最高的官已经有人时写的那个,尚书不分部、将军不分前后左右写成"*将军") */
+export function postLadder(p: Polity, role: 'minister' | 'general', year: Year): readonly string[] {
+  const sys = systemOf(p);
+  const tier = clampTier(polityTierAt(p, year));
+  if (role === 'general') return MILITARY[sys][tier];
+  const lad = CIVIL[sys][tier] ?? CIVIL[sys][1] ?? [];
+  const alt = TOP_ALT[sys][tier];
+  return alt && !lad.includes(alt) ? [...lad.slice(0, -1), alt, lad[lad.length - 1]] : lad;
+}
+
+/**
+ * 将领的官职:每次领兵时按此前打赢的仗数定级,用那一年本国档位的那套官。
+ * 国号升格换了一套官时,照已经做到的位置(在那套官里的比例)落到新的那套上,只升不降
+ */
 function generalPosts(p: Polity, g: Person, annals: readonly Annal[], r: (use: number) => number): PersonPost[] {
   const sys = systemOf(p);
   const wing = pickOf(WINGS, r(U_DEPT));
   const out: PersonPost[] = [];
   let wins = 0;
+  let grade = 0;
+  const rise = (from: Year) => {
+    const lad = MILITARY[sys][clampTier(polityTierAt(p, from))];
+    const n = lad.length - 1;
+    let k = n > 0 ? Math.min(n, Math.ceil(grade * n - 1e-9)) : 0;
+    while (k + 1 < lad.length && wins >= PROMOTE[k + 1]) k++;
+    if (n > 0) grade = Math.max(grade, k / n);
+    const title = lad[k].replace('*', wing);
+    if (!out.length || out[out.length - 1].title !== title) out.push({ title, from });
+  };
   for (const c of g.commands ?? []) {
-    const lad = MILITARY[sys][clampTier(polityTierAt(p, c.from))];
-    const rise = (from: Year) => {
-      let k = 0;
-      while (k + 1 < lad.length && wins >= PROMOTE[k + 1]) k++;
-      const title = lad[k].replace('*', wing);
-      if (!out.length || out[out.length - 1].title !== title) out.push({ title, from });
-    };
     rise(c.from);
     // 打赢一仗(攻方攻下一州、守方守住)记一功,功够了当年就升
     for (let i = c.first; i <= c.last; i++) {

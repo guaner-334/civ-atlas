@@ -118,6 +118,7 @@ function deedText(civ: Civ, x: Person, d: PersonDeed, east: boolean): string {
     case 'rank': {
       const tier = clampTier(polityTierAt(p, d.year));
       if (p.lineage === 'republic') return '力主改行帝制';
+      if (p.lineage === 'khanate') return tier >= 3 ? `力主${whoName}称大汗` : `力主${whoName}称汗`;
       if (east) return tier >= 3 ? `率群臣劝进，${whoName}称帝` : `劝${whoName}称王`;
       return tier >= 3 ? `力主${whoName}加冕称帝` : `力主${whoName}称王`;
     }
@@ -159,7 +160,9 @@ function deedShort(civ: Civ, x: Person, d: PersonDeed, east: boolean): string {
     case 'enthrone':
       return east ? `迎立${short}` : `拥立${short}`;
     case 'rank':
-      return p.lineage === 'republic' ? '力主改行帝制' : clampTier(polityTierAt(p, d.year)) >= 3 ? '劝进称帝' : '劝进称王';
+      if (p.lineage === 'republic') return '力主改行帝制';
+      if (p.lineage === 'khanate') return clampTier(polityTierAt(p, d.year)) >= 3 ? '力主称大汗' : '力主称汗';
+      return clampTier(polityTierAt(p, d.year)) >= 3 ? '劝进称帝' : '劝进称王';
     case 'capital': {
       const e = d.annal !== undefined ? civ.annals[d.annal] : undefined;
       return `${e && e.war >= 0 ? '护驾迁都' : '力主迁都'}${e ? cityOf(civ, e.settlement) : ''}`;

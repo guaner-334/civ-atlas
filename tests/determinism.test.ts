@@ -90,7 +90,7 @@ const EXPECTED: Record<number, Record<string, string>> = {
     'civ.endYear': 'c1d83dcab0a1',
     'civ.habitat': '0770b4ec6d1f',
     'civ.log': 'e059de3dfa59',
-    'civ.people': '0f22ff5bf67a',
+    'civ.people': 'ee8c115a3427',
     'civ.places': '018f21a6463c',
     'civ.polities': '2bba2c2cb6d5',
     'civ.polity': 'd506de907789',
