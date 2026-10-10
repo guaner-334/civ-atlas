@@ -72,8 +72,9 @@ export interface NavHooks {
   /** 打开这一步记着的卡片、概览、史书;返回实际打开了的(卡片指的东西不在了就少一样) */
   apply(layer: NavLayer): NavLayer;
   /**
-   * 按后退 / 前进换到 to 这一步的网址时:返回要用的网址(from = 换之前的)。
-   * 不算一步的看法(图层、投影……)照换之前的,不跟着那一步的网址变回去
+   * 按后退 / 前进换到另一个画面时:返回要用的网址(from = 换之前的,to = 那一步的)。
+   * 不算一步的看法(图层、投影……)照换之前的,不跟着那一步的网址变回去。
+   * 同一个世界里的几步(开 / 收卡片)不问:网址整个照换之前的(看法、存下以后的 w= 都是现在的)
    */
   url?(from: string, to: string): string;
 }
@@ -192,6 +193,8 @@ export function navReplace(info: NavInfo) {
 /** 浏览器自己记了一步(地址栏里贴了只有 # 不同的分享链接):记成新的一步 */
 export function navAdopt(info: NavInfo) {
   if (!cur) return;
+  // 要离开的这个画面:和按后退离开一样,让 App 记下没存着的世界(退回来时照原样打开)
+  if (hooks && cur.page !== 'home') hooks.describe();
   const s = pageOf(info, cur.idx + 1, true);
   W().history.replaceState(s, '', W().location.href);
   here = W().location.href;
@@ -292,10 +295,11 @@ function onPop(e: PopStateEvent) {
   // 不是这个网站记的(地址栏里只改了 #):交给 hashchange
   if (!isNavState(s) || !hooks || !cur) return;
   entries.set(s.idx, s);
-  // 图层、投影这些看法不算一步:照换之前的
+  // 图层、投影这些看法不算一步:照换之前的;同一个世界里的几步(收起卡片也是)网址整个照换之前的
   const now = W().location.href;
-  if (hooks.url && here && here !== now) {
-    const u = hooks.url(here, now);
+  const sameWorld = s.page === 'world' && cur.page === 'world' && s.id === cur.id;
+  if (here && here !== now) {
+    const u = sameWorld ? here : hooks.url ? hooks.url(here, now) : now;
     if (u !== now) W().history.replaceState(s, '', u);
   }
   here = W().location.href;

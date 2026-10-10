@@ -142,6 +142,7 @@ import {
   briefError,
   briefWarning,
   currentOriginal,
+  currentUnsaved,
   currentWorld,
   deleteWorld,
   detachWorld,
@@ -404,6 +405,9 @@ function firstRoute(init: ReturnType<typeof readUrl>): { stage: Stage; target: T
   if (stored) return { stage: stored.draft ? 'draft' : 'world', target: storedTarget(stored, 'restore') };
   const was: unknown = history.state;
   if (isWorldId(w) && isNavState(was) && was.page !== 'home' && was.id === w) return { stage: 'home', target: null, gone: was.title ?? '' };
+  // 这一步记的世界存着,网址是存下之前的那一版(开着卡片时改了第一笔才存下,退回来的这一步网址里还没有 w=):打开存着的
+  const mine = !isWorldId(w) && isNavState(was) && was.page === 'world' && was.id ? loadWorld(was.id) : null;
+  if (mine && !mine.draft) return { stage: 'world', target: storedTarget(mine, 'restore') };
   if (q.get('new') === '1') return { stage: 'draft', target: draftTarget(init.params) };
   if (q.has('seed')) {
     // 改版前自动存的世界:那时的网址只带种子、参数,刷新照旧回到它(带 gen= 的是改版后的网址,不是它)
@@ -1780,9 +1784,12 @@ export function App() {
     // 在我的世界:targetRef 还是上一个世界(可能已经删了),不算
     if (!t || getStage().stage === 'home') return {};
     const cw = currentWorld();
-    const title = (cw?.id === t.id ? cw.title : t.title) || undefined;
+    const live = cw?.id === t.id;
+    const title = (live ? cw.title : t.title) || undefined;
     const stored = isStored(t.id);
-    if (!stored && t.kind !== 'draft') navTargets.current.set(t.id, { ...t, view: undefined, warnings: undefined });
+    // 没存着的、最近的修改没写进浏览器的(存储满了):记下现在的样子(修改、名字用手上的),回来时照这个打开;存好了的不用记
+    if (t.kind !== 'draft' && (!stored || (live && currentUnsaved()))) navTargets.current.set(t.id, { ...t, ...(live ? { edits: getEdits(), title } : {}), view: undefined, warnings: undefined });
+    else navTargets.current.delete(t.id);
     return { title, stored };
   };
   /** 现在这个世界生成好、历史推完了(干预、地形大事都推进去了):它的编号;还没好 = null */
@@ -1800,7 +1807,8 @@ export function App() {
    *   新建      还是这次新建(同一个编号):种子、参数换回那一步的(那一步的网址里记着);存着、没建完的:打开它(同样换回);
    *             已经建成了世界的:后退时跳过(前面没有这个网站的一步了就回我的世界),前进时打开那个世界;
    *             存过、没建完就删掉了的(以它为底稿新建、什么都没动就返回的那一份):后退时同样跳过;没存过的:按网址里的种子新建
-   *   世界      存着的:打开它;这一页里看过、没存的:照原样打开;存过、现在不在了:回我的世界,提示删掉了;
+   *   世界      这一页里看过、没存着的(或最近的修改没写进浏览器,存储满了):照这一页里的样子打开;存着的:打开它;
+   *             存过、现在不在了:回我的世界,提示删掉了;
    *             别的(网址里带种子的、分享短链接):按网址打开
    * 从"以它为底稿新建"离开、什么都没动:那一份删掉(和左上的返回一样)
    */
@@ -1809,9 +1817,10 @@ export function App() {
       const left = derivedUntouched();
       if (left && !(to.page === 'draft' && to.id === left)) deleteWorld(left);
     }
-    // 分享链接打不开的那一页、正在取的分享:换了画面就不留
+    // 分享链接打不开的那一页、正在取的分享、写史书的窗口(选的是那个世界的国家):换了画面就不留
     setLanding(null);
     clearToast('share');
+    closeHistoryBook();
     if (to.page === 'home') return showHome();
     const back = dir < 0;
     const skip = (): void | 'skip' => (back && to.prev ? 'skip' : showHome());
@@ -1837,10 +1846,12 @@ export function App() {
       return openTarget({ ...draftTarget({ ...url.params, seed }), id: to.id ?? newWorldId() });
     }
     const w = to.id ? loadWorld(to.id) : null;
-    if (w) return openStored(w.id);
+    const once = to.stored || isWorldId(q.get('w'));
     const mem = to.id ? navTargets.current.get(to.id) : undefined;
-    if (mem) return openTarget(mem);
-    if (to.stored || isWorldId(q.get('w'))) {
+    // 这一页里记着的(没存着的、最近的修改没写进浏览器的)比存着的新;存过、现在不在了的是删掉了
+    if (mem && (w || !once)) return openTarget(mem);
+    if (w) return openStored(w.id);
+    if (once) {
       showHome();
       goneToast(to.title);
       return;

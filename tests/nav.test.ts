@@ -3,7 +3,7 @@
  * 浏览器的 history.go 是过一会儿才到的(popstate),假的也一样:flush() 才到。
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { _resetNav, getNav, navBack, navLayer, navReplace, navSettled, navTitle, navTo, navUrl, startNav, type NavHooks, type NavLayer, type NavState } from '../src/ui/nav';
+import { _resetNav, getNav, navAdopt, navBack, navLayer, navReplace, navSettled, navTitle, navTo, navUrl, startNav, type NavHooks, type NavLayer, type NavState } from '../src/ui/nav';
 
 class FakeHistory {
   list: { state: unknown; url: string }[] = [{ state: null, url: '/' }];
@@ -151,6 +151,17 @@ describe('后退:三个画面之间', () => {
     h.forward();
     expect(at()).toMatchObject({ page: 'world', id: 'A' });
     expect(a.left.n).toBe(3);
+  });
+
+  it('地址栏里贴了只有 # 不同的分享链接(浏览器自己记了一步):也让 App 记下要离开的世界', () => {
+    const a = app();
+    startNav({ page: 'home' }, a.hooks);
+    navTo({ page: 'world', id: 'A' });
+    expect(a.left.n).toBe(0);
+    h.pushState(h.state, '', '/#share=x');
+    navAdopt({ page: 'world', id: 'A' });
+    expect(a.left.n).toBe(1);
+    expect(at()).toMatchObject({ idx: 2, page: 'world', id: 'A', bare: 2 });
   });
 
   it('正在看的世界改了名:这一步记的名字跟着改(别的世界、我的世界不动)', () => {
@@ -348,7 +359,7 @@ describe('后退:世界里的卡片、概览(每打开一样算一步)', () => {
     expect(at().idx).toBe(3);
   });
 
-  it('按后退 / 前进、× 退回没开卡片那一步:图层这类看法照现在的网址,不变回那一步的', () => {
+  it('同一个世界里按后退 / 前进、× 退回没开卡片那一步:网址照现在的(图层这类看法、存下以后的 w=);换画面时只有看法照现在的', () => {
     const a = app();
     a.hooks.url = (from, to) => {
       const layer = new URLSearchParams(from.split('?')[1] ?? '').get('layer');
@@ -357,10 +368,11 @@ describe('后退:世界里的卡片、概览(每打开一样算一步)', () => {
       else q.set('layer', layer);
       return `/?${q}`;
     };
-    h.list[0].url = '/?w=A';
+    h.list[0].url = '/?seed=1';
     startNav({ page: 'world', id: 'A' }, a.hooks);
     a.settle('A');
     navLayer(polity('p1'));
+    // 开着卡片时改了第一笔:存下了,网址换成 w=
     navUrl('/?w=A&layer=terrain');
     navLayer({});
     h.flush();
@@ -371,6 +383,12 @@ describe('后退:世界里的卡片、概览(每打开一样算一步)', () => {
     navUrl('/?w=A&layer=cultures');
     h.back();
     expect(h.list[0].url).toBe('/?w=A&layer=cultures');
+    // 换画面:那一步的网址,看法照现在的
+    navTo({ page: 'home' });
+    navUrl('/?layer=political');
+    h.back();
+    expect(at()).toMatchObject({ idx: 0, page: 'world', id: 'A' });
+    expect(h.list[0].url).toBe('/?w=A&layer=political');
   });
 
   it('不在世界里时:卡片不记', () => {
