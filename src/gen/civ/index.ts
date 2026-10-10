@@ -33,7 +33,7 @@ import { installCities } from './cities';
 import { warModelOf } from './wars';
 import { installInterventions, scheduleInterventions } from './interventions';
 import { buildPeople } from './people';
-import { installUpheaval, scheduleUpheaval, upheavalImpact } from './upheaval';
+import { installUpheaval, reshapeCities, scheduleUpheaval, upheavalImpact } from './upheaval';
 import type { CultureModel } from './cultures';
 import type { PolityModel } from './polities';
 import type { InterventionModel } from './interventions';
@@ -160,6 +160,10 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
     const fact: UpheavalFact = { year: u.year, kinds: kindsOf(u.ops), items: u.items.slice(), ...rest, polity: -1, drownedBy: [], ...(joined ? { joined } : {}) };
     facts.push(fact);
     const half = partialCiv(fin.sim, fin.model!, fin.pm!, h1, r1, world.params.seed, iv);
+    // 还在的城:港口、人口上限照新地形换值(从大事那一刻起;接着推时立国的年份按新的上限算)
+    half.settlements = reshapeCities(half.settlements, fin.pm!.terrain, u.world, h1, r1, u.year, u.ops);
+    // 早先几件大事的经过(接着推时认得出哪些城址沉过海,cities.ts 的 resumeCities)
+    half.upheavals = facts.slice(0, k);
     // 从前一刻接着推:大事那一刻的事件照常补上(同一年下的干预、民族诞生……),排在大事后面;
     // 按新地形重算出来的、本该更早发生的事(新海路上的到达……)一律从大事那一刻起(CivSim.floor)
     const s1 = CivSim.fromCiv(u.world, half, half.interventions ?? [], (s) => {

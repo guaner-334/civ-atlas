@@ -14,7 +14,7 @@
 import { useMemo, useState } from 'react';
 import type { Civ, Settlement } from '../gen/civ/types';
 import { cultureLabel, regionLabel } from '../gen/civ/display';
-import { SETTLEMENT_RANKS, capitalAt, polityAlive, populationAt, populationLabel, settlementRank } from '../gen/civ/growth';
+import { SETTLEMENT_RANKS, capitalAt, polityAlive, populationAt, populationLabel, portAt, settlementRank } from '../gen/civ/growth';
 import { ownersAt } from '../gen/civ/timeline';
 import { polityKey, settlementKey, type Intervention } from '../gen/edits';
 import { setSelection } from './civView';
@@ -178,7 +178,7 @@ export function CityPanel({ civ, raw, raster, world, id, year, names }: DetailPr
           <Row k="所在">
             <span>
               <Link to={{ kind: 'region', id: s.region }}>{regionLabel(civ, s.region)}</Link>
-              {s.port && '，港口'}
+              {portAt(s, year) && '，港口'}
             </span>
           </Row>
           {cu && (

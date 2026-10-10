@@ -34,7 +34,7 @@ import { fexp, fpow, keyed, keyed4, subSeed } from './rand';
 import { Ev, quantize, type CivSim } from './sim';
 import { foundCity, onCapitalLost, polityModelOf, type PolityModel } from './polities';
 import { warModelOf, type War, type WarModel } from './wars';
-import { SETTLEMENT_RANKS, populationAt, ruinRank, ruinSites, settlementRank } from './growth';
+import { SETTLEMENT_RANKS, capacityAt, populationAt, ruinRank, ruinSites, settlementRank } from './growth';
 
 // ---- 调参(以统计数和截图为准,见 scripts/gen-stats.ts) ----
 /** 攻下一州时城被洗劫、被毁的基础机会 */
@@ -188,7 +188,7 @@ export function installCities(sim: CivSim, pm: PolityModel, wm: WarModel, cm: Ci
     const next = () => {
       if (k + 1 < rebuildTries(cm, s)) sim.schedule(rebuildTime(cm, s, k + 1), Ev.CityRebuild, k + 1, sid);
     };
-    const site = Math.min(1.5, Math.max(0.5, Math.sqrt(s.capacity / SITE_REF)));
+    const site = Math.min(1.5, Math.max(0.5, Math.sqrt(capacityAt(s, s.ended) / SITE_REF)));
     if (culture[r] < 0 || t - wm.since[r] < REBUILD_SETTLE || keyed(base, pm.stag[sid], k, U_REBUILD) >= REBUILD_P * site) {
       next();
       return;
@@ -245,9 +245,13 @@ export function resumeCities(sim: CivSim, world: World, civ: Civ): void {
   const now = sim.now;
   const rebuilt = new Set<number>();
   for (const s of pm.settlements) if (s.rebuilds !== undefined) rebuilt.add(s.rebuilds);
+  // 城址沉入过海里的(地形大事,upheaval.ts:城没于水 = 史事 sunk、b = 1;早先的遗址城址沉了 = UpheavalFact.ruins)
+  const drowned = new Set<number>();
+  for (const e of civ.annals) if (e.kind === 'sunk' && e.b === 1) drowned.add(e.settlement);
+  for (const f of civ.upheavals ?? []) for (const id of f.ruins ?? []) drowned.add(id);
   for (const s of pm.settlements) {
-    // 毁了、还没重建(州里也没有别的城):下一次看重建。城址已经沉入海中的(地形大事,upheaval.ts)不再重建
-    if (s.ended !== undefined && !rebuilt.has(s.id) && pm.cityOf[s.region] < 0 && world.water[s.cell] === 0) {
+    // 毁了、还没重建(州里也没有别的城):下一次看重建。城址沉入过海里的不再重建(后来的大事又把那里抬成陆地也不)
+    if (s.ended !== undefined && !rebuilt.has(s.id) && pm.cityOf[s.region] < 0 && world.water[s.cell] === 0 && !drowned.has(s.id)) {
       const n = rebuildTries(cm, s);
       let k = 0;
       while (k < n && quantize(rebuildTime(cm, s, k)) <= now) k++;
