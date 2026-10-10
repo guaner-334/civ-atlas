@@ -66,6 +66,8 @@ let h: FakeHistory;
 function app(opts: { skip?: (to: NavState) => boolean } = {}) {
   const log: string[] = [];
   const applied: NavLayer[] = [];
+  /** 离开画面时问过几次名字(App 这时记下没存着的世界) */
+  const left = { n: 0 };
   /** 换了画面、世界还在生成 */
   let loading = false;
   const hooks: NavHooks = {
@@ -76,7 +78,10 @@ function app(opts: { skip?: (to: NavState) => boolean } = {}) {
       navTo({ page: to.page, id: to.id, seed: to.seed });
       loading = true;
     },
-    describe: () => ({ title: '落日洋', stored: true }),
+    describe: () => {
+      left.n++;
+      return { title: '落日洋', stored: true };
+    },
     settled: () => (loading || getNav()?.page !== 'world' ? null : getNav()!.id!),
     apply(l) {
       applied.push(l);
@@ -87,6 +92,7 @@ function app(opts: { skip?: (to: NavState) => boolean } = {}) {
     hooks,
     log,
     applied,
+    left,
     /** 世界生成好了 */
     settle(id: string) {
       loading = false;
@@ -137,6 +143,20 @@ describe('后退:三个画面之间', () => {
     expect(a.log.at(-1)).toBe('前进:world A');
     // 按后退换画面时不多记一步
     expect(h.list.length).toBe(4);
+  });
+
+  it('按后退 / 前进离开一个世界也让 App 记下它(没存着的世界再回来时照原样打开);同一个世界里换卡片不算离开', () => {
+    const a = app();
+    startNav({ page: 'home' }, a.hooks);
+    navTo({ page: 'world', id: 'A' });
+    navTo({ page: 'world', id: 'B' });
+    expect(a.left.n).toBe(1);
+    h.back();
+    expect(a.left.n).toBe(2);
+    a.settle('A');
+    navLayer(polity('p1'));
+    h.back();
+    expect(a.left.n).toBe(2);
   });
 
   it('还是同一个画面:不多记一步;只换网址不动这一步记的东西', () => {

@@ -1586,22 +1586,24 @@ export function App() {
     return { title: attached ? cur.title : t.title, pristine: attached ? cur.pristine : t.pristine, edits: attached ? getEdits() : t.edits };
   };
   /** 新建中换种子:另一颗星球,草图留着(连同放的火山湖河);没画草图时放的那几处作废;没起名、参数也是默认的、没画草图 = 又算没动过(不存) */
-  const draftSeed = (seed: number) => {
+  const draftSeed = (seed: number, params?: WorldParams) => {
     const t = draftNow();
     if (!t || t.base) return;
     const st = draftState(t);
+    // 按后退 / 前进换回的那颗:参数也换回那一步的(params)
+    const base = params ?? t.params;
     // 换一颗:草图带过去,照它长出新的山河;陆地海洋是照草图长的,放的火山湖河也还对得上,一起带过去。
     // 没画草图 = 整颗星球都换了,放的那几处是照原来的地形放的,不带过去。助手的对话(说的是原来那颗)也清掉
     newConversation();
     const sketch = st.edits.sketch;
-    const plain = !st.title && !sketch && !st.edits.nameMix && worldKey({ ...t.params, seed: 0 }) === worldKey({ ...DEFAULT_PARAMS, seed: 0 });
+    const plain = !st.title && !sketch && !st.edits.nameMix && worldKey({ ...base, seed: 0 }) === worldKey({ ...DEFAULT_PARAMS, seed: 0 });
     // 地名风格和参数一样是这一类星球的设定,换一颗照旧
     const nameMix = st.edits.nameMix;
     const kept: WorldEdits = sketch ? { ...EMPTY_EDITS, sketch, terrain: st.edits.terrain } : EMPTY_EDITS;
     const edits = nameMix ? { ...kept, nameMix } : kept;
     // 换一颗:记一步(按后退换回刚才那颗)
     navTo({ page: 'draft', id: t.id, seed, title: st.title });
-    generate({ ...t, params: { ...t.params, seed }, edits, saved: undefined, title: st.title, pristine: st.pristine || plain, view: undefined, from: undefined, save: undefined });
+    generate({ ...t, params: { ...base, seed }, edits, saved: undefined, title: st.title, pristine: st.pristine || plain, view: undefined, from: undefined, save: undefined });
   };
   /** 新建中调参数:改过的地形留着(按新参数重新生成) */
   const draftParams = (p: WorldParams) => {
@@ -1759,7 +1761,7 @@ export function App() {
   /**
    * 按后退 / 前进到了 to 这一步:
    *   我的世界  回我的世界
-   *   新建      还是这次新建(同一个编号):种子换回那一步的;存着、没建完的:打开它(种子换回那一步的);
+   *   新建      还是这次新建(同一个编号):种子、参数换回那一步的(那一步的网址里记着);存着、没建完的:打开它(同样换回);
    *             已经建成了世界的:后退时跳过(前面没有这个网站的一步了就回我的世界),前进时打开那个世界;
    *             存过、没建完就删掉了的(以它为底稿新建、什么都没动就返回的那一份):后退时同样跳过;没存过的:按网址里的种子新建
    *   世界      存着的:打开它;这一页里看过、没存的:照原样打开;存过、现在不在了:回我的世界,提示删掉了;
@@ -1778,16 +1780,17 @@ export function App() {
     const q = new URLSearchParams(location.search);
     if (to.page === 'draft') {
       const seed = to.seed ?? url.params.seed;
+      const want = { ...url.params, seed };
       const d = draftNow();
       if (d && d.id === to.id) {
-        if (seed !== d.params.seed && !d.base) draftSeed(seed);
+        if (worldKey(want) !== worldKey(d.params) && !d.base) draftSeed(seed, want);
         return;
       }
       const w = to.id ? loadWorld(to.id) : null;
       if (w && !w.draft) return back ? skip() : openStored(w.id);
       if (w) {
         openStored(w.id);
-        if (seed !== w.save.params.seed && !w.base) draftSeed(seed);
+        if (worldKey(want) !== worldKey(w.save.params) && !w.base) draftSeed(seed, want);
         return;
       }
       if (to.stored) return skip();

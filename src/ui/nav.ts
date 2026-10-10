@@ -65,7 +65,7 @@ export interface NavHooks {
    * 返回 'skip' = 那一步已经不在了(新建的那颗星球已经建成了世界),接着往同一个方向走
    */
   route(to: NavState, from: NavState, dir: -1 | 1): void | 'skip';
-  /** 要离开现在这个画面了:它的名字、存没存着 */
+  /** 要离开现在这个画面了(换画面、按后退 / 前进):它的名字、存没存着;没存着的世界 App 自己记下 */
   describe(): { title?: string; stored?: boolean };
   /** 现在这个世界生成好、历史推完了:它的编号(还没好 = null) */
   settled(): string | null;
@@ -289,6 +289,8 @@ function onPop(e: PopStateEvent) {
   // 同一个世界里只是卡片不同:不用换画面
   const same = s.page === 'world' && from.page === 'world' && s.id === from.id;
   if (!same) {
+    // 要离开的这个画面:让 App 记下没存着的世界(再前进回来时照原样打开);浏览器已经换到了 to 这一步,离开的那一步记的东西不改
+    hooks.describe();
     routing = true;
     let r: void | 'skip';
     try {
