@@ -275,6 +275,10 @@ describe('城市成长 + 国家', () => {
           'rebuild',
           'decline',
           'battle',
+          'alliance',
+          'unally',
+          'submit',
+          'defect',
         ]).toContain(e.kind);
       }
     }

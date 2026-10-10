@@ -14,6 +14,7 @@
  * 画法:
  *   写实 —— 两国之间:浅色描边 + 深色细实线;国家和部落地带之间:同样的描边 + 虚线
  *   手绘 —— 墨色虚线,每一笔粗细不一;国家和部落地带之间是点划线(和道路的虚线区分开)。沿界的水彩晕染在 territory.ts
+ *   宗主和藩属之间(两种画风都是):换成一道细点线 —— 还是两个国家,但同属一个势力范围(见 vassals.ts)
  *
  * 主图东西相连:边中点、重心按球面算;链、界线的 x 展开成连续的(见 lines.ts),
  * 接成长线时后一条挪到前一条的那一份上;色块按界线重新判归属、画线时,伸出主图左右边的部分在另一边再算 / 画一份。
@@ -23,6 +24,7 @@ import type { Raster } from '../../gen/raster';
 import type { Civ } from '../../gen/civ/types';
 import { Layer } from '../../gen/civ/types';
 import { logIndexAfter, ownersAt, type Owners } from '../../gen/civ/timeline';
+import { tiedPair, vassalTies } from './vassals';
 import { nearX, valueNoise, wrapShifts } from '../common';
 import { addToPath, chaikin, cullLines, meshWrap, sphereMean, xRange } from './lines';
 import type { CivDrawParams } from './overlay';
@@ -793,8 +795,10 @@ export function drawBorders(ctx: CanvasRenderingContext2D, p: CivDrawParams): vo
   // 线宽、虚线长短(细节层按屏幕重画时 × pen,见 overlay.ts)
   const P = S * (p.pen ?? 1);
   const wrap = meshWrap(p.world.mesh);
-  // 两国之间 / 国家和部落地带之间
-  const inner = lines.filter((l) => l.left >= 0 && l.right >= 0);
+  // 两国之间 / 宗主和藩属之间 / 国家和部落地带之间
+  const ties = vassalTies(p.civ, p.year);
+  const inner = lines.filter((l) => l.left >= 0 && l.right >= 0 && !tiedPair(ties, l.left, l.right));
+  const bloc = ties.key ? lines.filter((l) => l.left >= 0 && l.right >= 0 && tiedPair(ties, l.left, l.right)) : [];
   const outer = lines.filter((l) => l.left < 0 || l.right < 0);
   const path = (ls: SidedLine[]) => {
     const pa = new Path2D();
@@ -818,6 +822,18 @@ export function drawBorders(ctx: CanvasRenderingContext2D, p: CivDrawParams): vo
       ctx.lineWidth = widths[i] * P;
       ctx.stroke(pa);
     });
+    // 宗主和藩属之间:细点线
+    if (bloc.length) {
+      const bp = path(bloc);
+      ctx.strokeStyle = 'rgba(246,236,210,0.5)';
+      ctx.lineWidth = 3 * P;
+      ctx.stroke(bp);
+      ctx.setLineDash([0.01, 2.6 * P]);
+      ctx.strokeStyle = 'rgba(58,32,20,0.85)';
+      ctx.lineWidth = 1.7 * P;
+      ctx.stroke(bp);
+      ctx.setLineDash([]);
+    }
     // 国家和部落地带之间:点划线(旧地图上的"界"),和道路的虚线区分开
     ctx.strokeStyle = 'rgba(246,236,210,0.45)';
     ctx.lineWidth = 3 * P;
@@ -834,6 +850,11 @@ export function drawBorders(ctx: CanvasRenderingContext2D, p: CivDrawParams): vo
     ctx.strokeStyle = 'rgba(62,28,40,0.95)';
     ctx.lineWidth = 1.7 * P;
     ctx.stroke(path(inner));
+    if (bloc.length) {
+      ctx.setLineDash([0.01, 2.6 * P]);
+      ctx.lineWidth = 1.8 * P;
+      ctx.stroke(path(bloc));
+    }
     ctx.setLineDash([3.6 * P, 2.4 * P]);
     ctx.strokeStyle = 'rgba(62,28,40,0.85)';
     ctx.lineWidth = 1.4 * P;

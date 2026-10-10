@@ -2,7 +2,7 @@
  * 悬停小卡片的内容(界面骨架):只提示,不承担功能。
  *
  *   鼠标在城镇符号 / 城名、国名、地名上:这个东西的名字 + 一句("国都，约 3.2 万人""山脉")
- *   否则按时间轴当前这一年:有国家 → 国名 + 州数(民族图层:族名 + 所属国家;信仰图层:教名 + 所属国家);
+ *   否则按时间轴当前这一年:有国家 → 国名 + 州数,是藩属的多一行"某国的藩属"(民族图层:族名 + 所属国家;信仰图层:教名 + 所属国家);
  *   没有国家 → 有人住写族名 + "部落地带",没人住写州名 / 群落
  *   数据图层多一行数值(海拔、气温、降水、板块、群落)
  *   在地图上选干预目标时(国家面板):对象的名字 + "点击选择 / 不可选 / 本国";下了令正在推演时不显示
@@ -22,6 +22,7 @@ import { describeCiv } from './civDescribe';
 import { formatLon, lonOfX } from './mapWrap';
 import { VERDICT_TEXT, getPolityPick, pickVerdict, type PolityPick } from './Interventions';
 import { getPanel } from './panelStore';
+import { vassalTies } from '../render/civ/vassals';
 
 export interface HoverInfo {
   /** 颜色块(国家 / 民族的颜色) */
@@ -46,6 +47,14 @@ const PLACE_KIND: Record<Place['kind'], string> = {
 };
 
 const rgb = (c: readonly number[]) => `rgb(${c.join(',')})`;
+
+/** 国家的悬停卡片:国名 + 州数,是藩属的多一行"某国的藩属" */
+function polityInfo(civ: Civ, po: Civ['polities'][number], year: number, own: Owners): HoverInfo {
+  const info: HoverInfo = { color: rgb(po.color), name: polityName(po, year), sub: `${regionCounts(civ, year, own)[po.id]} 州` };
+  const L = civ.polities[vassalTies(civ, year).liege.get(po.id) ?? -1];
+  if (L) info.extra = `${polityName(L, year)}的藩属`;
+  return info;
+}
 
 let owners: Owners | undefined;
 /** 各国这一年有几个州(同一个 civ、同一年只数一次) */
@@ -108,7 +117,7 @@ export function hoverInfo(p: {
     } else if (label.kind === 'polity' && civ.polities[label.id] && civ.cultures.length) {
       const po = civ.polities[label.id];
       owners = ownersAt(civ, year, owners);
-      info = { color: rgb(po.color), name: polityName(po, year), sub: `${regionCounts(civ, year, owners)[po.id]} 州` };
+      info = polityInfo(civ, po, year, owners);
     } else if (label.kind === 'place' && civ.places[label.id]) {
       const pl = civ.places[label.id];
       const n = pl.defaultName ?? pl.name;
@@ -125,7 +134,7 @@ export function hoverInfo(p: {
       const fa = def.faiths && civ.religion ? civ.religion.faiths[faithsAt(civ, year)[r]] : undefined;
       if (fa) info = { color: rgb(fa.color), name: fa.name, sub: po ? polityName(po, year) : '部落地带' };
       else if (def.cultures && !def.polities && cu) info = { color: rgb(cu.color), name: cultureLabel(cu), sub: po ? polityName(po, year) : '部落地带' };
-      else if (po) info = { color: rgb(po.color), name: polityName(po, year), sub: `${regionCounts(civ, year, owners)[po.id]} 州` };
+      else if (po) info = polityInfo(civ, po, year, owners);
       else if (cu) info = { color: rgb(cu.color), name: cultureLabel(cu), sub: '部落地带' };
     }
     if (!info && r >= 0 && (regionNamed(civ, r) || civ.regionNames?.[r])) info = { name: regionLabel(civ, r) };

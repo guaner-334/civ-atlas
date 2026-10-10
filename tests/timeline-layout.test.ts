@@ -60,6 +60,8 @@ describe('事件类型', () => {
     expect(evType(entry(1, 'assimilate'))).toBe('assim');
     expect(evType(entry(1, 'migrate'))).toBe('assim');
     expect(evType(entry(1, 'intervene'))).toBe('order');
+    expect(['submit', 'alliance', 'unally'].map((k) => evType({ kind: k as ChronicleEntry['kind'] }))).toEqual(Array(3).fill('empire'));
+    expect(evType(entry(1, 'defect'))).toBe('found');
     expect(evType({ kind: 'plague' as ChronicleEntry['kind'] })).toBe('dynasty');
   });
 
@@ -70,6 +72,7 @@ describe('事件类型', () => {
     expect(evLabel(entry(1, 'rank', { tag: '升', text: '沁国升格为大沁' }))).toBe('升格');
     expect(evLabel(entry(1, 'intervene', { tag: '干' }))).toBe('干预');
     expect(evLabel(entry(1, 'found', { tag: '?' }))).toBe('纪事');
+    expect(['臣', '盟', '绝', '背', '叛'].map((tag) => evLabel(entry(1, 'submit', { tag })))).toEqual(['称臣', '结盟', '盟绝', '背盟', '绝贡']);
     expect(evText(entry(1, 'intervene', { text: '【干预】大昌与索拉特结盟' }))).toBe('大昌与索拉特结盟');
   });
 

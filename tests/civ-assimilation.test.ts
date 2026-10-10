@@ -202,18 +202,20 @@ describe('同化与迁徙', () => {
     }
   });
 
-  it('默认参数 seed 7 / 2024:5%~三成的有人州改换过民族;同化、迁徙都有;民族有减少但留下大多数;大国治下的统治民族占比上升', () => {
+  it('默认参数 seed 7 / 2024:4%~三成的有人州改换过民族;同化、迁徙都有;民族有减少但留下大多数;大国治下的统治民族占比上升', () => {
     // GENERATOR_VERSION 4(地形像一颗星球:高原多、岛多)以后同化少了一些:改换过民族的州 7.6%~14.7%(以前 15%~22%),
     // seed 7 只有 1 波迁徙(以前 6~8 波)。下限按新世界放宽。
     // GENERATOR_VERSION 7(洋流改了气候,历史重排)以后 seed 7 改换过民族的州 5.4%、同化 41 州、没有迁徙。
     // 20 个种子前后比:改换过民族的州平均 14.1% → 12.6%,以前也有只有 5.5%、同化 52 州、没有迁徙的世界。
-    // 下限再放宽到 5%、同化 30 州以上;迁徙按两个世界合计算
+    // 下限再放宽到 5%、同化 30 州以上;迁徙按两个世界合计算。
+    // GENERATOR_VERSION 10(称臣纳贡:打不过的常常称臣,少被吞并)以后 seed 7 改换过民族的州 4.6%、同化 35 州;
+    // 20 个种子平均 12.9% → 12.7%,最少的就是 seed 7。下限放宽到 4%
     let migrations = 0;
     for (const seed of [7, 2024]) {
       const civ = civOf({ ...DEFAULT_PARAMS, seed });
       const s = assimStats(civ);
       const tag = `seed ${seed}`;
-      expect(s.changedShare, tag).toBeGreaterThanOrEqual(0.05);
+      expect(s.changedShare, tag).toBeGreaterThanOrEqual(0.04);
       expect(s.changedShare, tag).toBeLessThanOrEqual(0.3);
       expect(s.assimilated, tag).toBeGreaterThan(30);
       migrations += s.migrations;
