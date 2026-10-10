@@ -269,6 +269,15 @@ function withLayer(s: NavState, layer: NavLayer): NavState {
   return emptyLayer(layer) ? rest : { ...rest, layer };
 }
 
+/** 正在看的世界改了名:这一步记的名字跟着改(退回来、刷新时发现删掉了,提示里是现在的名字) */
+export function navTitle(id: string, title: string | undefined) {
+  if (!cur || cur.page === 'home' || cur.id !== id || (cur.title ?? '') === (title ?? '')) return;
+  const s: NavState = { ...cur };
+  if (title) s.title = title;
+  else delete s.title;
+  replace(s);
+}
+
 /** 这个世界生成好、历史推完了:打开这一步记着的卡片 */
 export function navSettled(id: string | null) {
   if (!pending || !hooks || id === null || pending.id !== id) return;

@@ -3,20 +3,7 @@
  * 浏览器的 history.go 是过一会儿才到的(popstate),假的也一样:flush() 才到。
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import {
-  _resetNav,
-  getNav,
-  navBack,
-  navLayer,
-  navReplace,
-  navSettled,
-  navTo,
-  navUrl,
-  startNav,
-  type NavHooks,
-  type NavLayer,
-  type NavState,
-} from '../src/ui/nav';
+import { _resetNav, getNav, navBack, navLayer, navReplace, navSettled, navTitle, navTo, navUrl, startNav, type NavHooks, type NavLayer, type NavState } from '../src/ui/nav';
 
 class FakeHistory {
   list: { state: unknown; url: string }[] = [{ state: null, url: '/' }];
@@ -164,6 +151,23 @@ describe('后退:三个画面之间', () => {
     h.forward();
     expect(at()).toMatchObject({ page: 'world', id: 'A' });
     expect(a.left.n).toBe(3);
+  });
+
+  it('正在看的世界改了名:这一步记的名字跟着改(别的世界、我的世界不动)', () => {
+    const a = app();
+    startNav({ page: 'home' }, a.hooks);
+    navTo({ page: 'world', id: 'A', title: '落日洋' });
+    navTitle('A', '北境');
+    expect(h.list[h.i].state).toMatchObject({ page: 'world', id: 'A', title: '北境' });
+    navTitle('B', '别的');
+    expect(at().title).toBe('北境');
+    navTitle('A', undefined);
+    expect(at().title).toBeUndefined();
+    expect(h.list.length).toBe(2);
+    navTo({ page: 'home' });
+    navTitle('A', '北境');
+    expect(at()).toMatchObject({ page: 'home' });
+    expect(at().title).toBeUndefined();
   });
 
   it('还是同一个画面:不多记一步;只换网址不动这一步记的东西', () => {

@@ -204,7 +204,7 @@ import { AssistantPanel, PreviewBanner } from './Assistant';
 import { astRoom, closeAssistant, useAstOpen } from './astPanel';
 import { PREVIEW_EDIT_BLOCK, exitPreview, getAssistant, newConversation, sameInBoth, setTrialRunner, stopAsk, syncAssistantWorld, useAssistantPreview } from './assistantStore';
 import { closeBookReader, closeHistoryBook, stopBook, useBookReader } from './bookStore';
-import { getNav, isNavState, navAdopt, navBack, navLayer, navReplace, navSettled, navTo, navUrl, startNav, type NavHooks, type NavInfo, type NavState } from './nav';
+import { getNav, isNavState, navAdopt, navBack, navLayer, navReplace, navSettled, navTitle, navTo, navUrl, startNav, type NavHooks, type NavInfo, type NavState } from './nav';
 import { applyLayer as applyNavLayer, layerNow } from './navView';
 import { useAiOn } from '../ai/client';
 import { Globe, getGlobeOn, setGlobeOn, useGlobeOn, type GlobeApi } from './Globe';
@@ -389,7 +389,8 @@ function visitTarget(params: WorldParams, gen: number | null = null): Target {
  *   分享短链接(s=)    → 先是一页空白,去服务器取存档;取到了打开那个世界,停了显示"这个分享已经停止了"
  *   分享链接(#)       → 那个世界(先按网址生成,解开以后套上修改)
  *   w=世界编号(存着)   → 这个世界(没建完的回到新建);
- *                        按后退 / 前进回到这一步、离开时存着的世界现在不在了(在别的页面里删掉了)→ 我的世界,提示删掉了(gone = 世界名)
+ *                        这一步记的就是这个世界(刷新、按后退 / 前进从别的网址回来),现在不在了(在别的页面里删掉了)
+ *                        → 我的世界,提示删掉了(gone = 世界名;网址里有 w= 就是存过)
  *   new=1             → 新建(网址里的种子、参数)
  *   带种子的网址       → 直接看这个世界(改版前存过的就回到那个存档)
  *   都没有             → 我的世界(第一次来是空的那一页:一颗地球、一句话、「新建世界」;点了才生成星球)
@@ -402,7 +403,7 @@ function firstRoute(init: ReturnType<typeof readUrl>): { stage: Stage; target: T
   const stored = isWorldId(w) ? loadWorld(w) : null;
   if (stored) return { stage: stored.draft ? 'draft' : 'world', target: storedTarget(stored, 'restore') };
   const was: unknown = history.state;
-  if (isWorldId(w) && isNavState(was) && was.page === 'world' && was.stored && was.id === w) return { stage: 'home', target: null, gone: was.title ?? '' };
+  if (isWorldId(w) && isNavState(was) && was.page !== 'home' && was.id === w) return { stage: 'home', target: null, gone: was.title ?? '' };
   if (q.get('new') === '1') return { stage: 'draft', target: draftTarget(init.params) };
   if (q.has('seed')) {
     // 改版前自动存的世界:那时的网址只带种子、参数,刷新照旧回到它(带 gen= 的是改版后的网址,不是它)
@@ -1743,8 +1744,13 @@ export function App() {
       setGoHome(null);
     };
   }, []);
-  /** 新建卡片左上的返回:底稿那个世界 / 我的世界;第一次来(没有别的世界)不显示 */
   const v = useSavesVersion();
+  // 正在看的世界改了名:浏览器记的这一步也换成新名字
+  useEffect(() => {
+    const cw = currentWorld();
+    if (cw) navTitle(cw.id, cw.title || undefined);
+  }, [v]);
+  /** 新建卡片左上的返回:底稿那个世界 / 我的世界;第一次来(没有别的世界)不显示 */
   const draftBack = useMemo(() => {
     if (!draft) return null;
     if (stageBase) {
