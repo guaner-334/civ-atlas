@@ -164,7 +164,7 @@ export function AssistantPanel({ phone, world, raster, civ, raw, lock, busy }: A
             <Icon name="close" size={15} />
           </button>
         </header>
-        <PinnedBook turns={st.turns} />
+        <PinnedBook />
       </div>
       <div className="ast-log" ref={log}>
         {!st.turns.length && (
@@ -356,20 +356,20 @@ function StepRow({ s }: { s: AsStep }) {
 function BookRow({ s }: { s: AsStep }) {
   const { job } = useBook();
   const b = s.book!;
-  return <BookLine job={job && job.id === b.id ? job : null} title={b.title} bookKey={b.key} how={s.summary ?? ''} />;
+  // 编号只在这次打开网页里不重(刷新以后从头数):键也对上才算同一部
+  return <BookLine job={job && job.id === b.id && job.key === b.key ? job : null} title={b.title} bookKey={b.key} how={s.summary ?? ''} />;
 }
 
 /**
  * 助手开着时,写书那一行钉在标题下面(对话怎么滚都看得到):有书在写、或写完还没读时才有,点「打开」读过就收起。
  * 不管书是不是助手开写的都钉(这时右上的进度不显示,见 Corners.tsx 的 BookChip);写失败的不钉,照旧是提示条
  */
-function PinnedBook({ turns }: { turns: readonly AsTurn[] }) {
+function PinnedBook() {
   const { job } = useBook();
   if (!job || !(job.status === 'writing' || (job.status === 'done' && !job.seen))) return null;
-  const step = turns.flatMap((t) => t.steps).find((s) => s.book?.id === job.id);
   return (
     <div className="ast-grp ast-pin" data-act="ast-book-pin">
-      <BookLine job={job} title={job.title} bookKey={job.key} how={step?.summary ?? bookHow(job)} bar />
+      <BookLine job={job} title={job.title} bookKey={job.key} how={bookHow(job)} bar />
     </div>
   );
 }

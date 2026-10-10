@@ -247,6 +247,9 @@ export function endText(civ: Civ, p: Polity): string {
   return `第 ${y} 年瓦解`;
 }
 
+/** 核对落点时一笔最多取几个点 */
+const LANDING_SAMPLES = 120;
+
 /** 开阔的海面列几处 */
 const OPEN_SEAS = 6;
 /** 离陆地多远才算开阔的海面(公里) */
@@ -1316,14 +1319,18 @@ class Checker {
     const k = kind === 'volcano' ? 0.72 : kind === 'raise' ? 0.8 : kind === 'range' ? 0.65 : 0;
     if (!k) return undefined;
     const { world, civ } = this.ctx;
-    // 沿线每 100 公里取一个点(窄的岛、海峡也漏不掉;一笔最长也就几百个点):跨 180° 经线的一段走近的那边
+    // 沿线每 100 公里取一个点(窄的岛、海峡也漏不掉);整笔最多取 LANDING_SAMPLES 个点,再长就放宽间距
+    // (每个点都要把整颗星球的陆地扫一遍,地块多、一笔又长又折时会卡住界面)。跨 180° 经线的一段走近的那边
+    let total = 0;
+    for (let i = 0; i + 1 < pts.length; i++) total += distKm(pts[i], pts[i + 1]);
+    const spacing = Math.max(100, total / LANDING_SAMPLES);
     const samples: [number, number][] = [pts[0]];
     for (let i = 0; i + 1 < pts.length; i++) {
       const a = pts[i];
       let lon = pts[i + 1][0];
       while (lon - a[0] > 180) lon -= 360;
       while (a[0] - lon > 180) lon += 360;
-      const n = Math.max(1, Math.min(400, Math.ceil(distKm(a, pts[i + 1]) / 100)));
+      const n = Math.max(1, Math.ceil(distKm(a, pts[i + 1]) / spacing));
       for (let j = 1; j <= n; j++) samples.push([a[0] + ((lon - a[0]) * j) / n, a[1] + ((pts[i + 1][1] - a[1]) * j) / n]);
     }
     let near: { cell: number; km: number; lake?: boolean } | null = null;

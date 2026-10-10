@@ -486,6 +486,9 @@ describe('改写 · 核对 AI 的回复', () => {
     expect(one({ op: 'volcano', at: nearP! }).where).toMatch(/^火山离最近的陆地\(.+\)只有约 \d+ 公里,抬出来的陆地半径约 \d+ 公里,会和那块陆地连在一起;.+往开阔的海面挪/);
     expect(one({ op: 'volcano', at: farP! }).where).toMatch(/^火山在海上,离最近的陆地\(.+\)约 \d+ 公里,抬出来是一座单独的岛\(半径约 \d+ 公里\)$/);
     expect(one({ op: 'raise', path: [farP!, [farP![0] + 1, farP![1]]] }).where).toMatch(/^这一笔在海上/);
+    // 又长又折的一笔(20 个点、来回几万公里):取点有上限,照样说得出在海上
+    const zig = Array.from({ length: 20 }, (_, i): [number, number] => [farP![0] + (i % 2 ? 1 : -1), farP![1]]);
+    expect(one({ op: 'raise', path: zig }).where).toMatch(/^这一笔在海上/);
     // 沉成海、挖湖不写
     expect(one({ op: 'sink', path: [farP!] }).where).toBeUndefined();
     // 长长一笔从海上穿过一座小岛(种子 7 的 R702,只有一州):沿线取点够密,认得出经过了陆地
