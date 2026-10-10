@@ -518,8 +518,8 @@ export interface Religion {
  */
 export interface Person {
   id: number;
-  /** ruler 君主、general 将领、prince 没即位的宗室(世系里补出来的,见 lineage.ts) */
-  role: 'ruler' | 'general' | 'prince';
+  /** ruler 君主、general 将领、prince 没即位的宗室(世系里补出来的,见 lineage.ts)、minister 名臣(文臣,见 officials.ts) */
+  role: 'ruler' | 'general' | 'prince' | 'minister';
   /** 哪国的人 */
   polity: number;
   /** 本名:东方中式 = 姓 + 名("李昭");东方边塞、山海和西幻 = 名("咄苾""阿尔德里克") */
@@ -529,11 +529,11 @@ export interface Person {
   died?: Year;
   /** 结局(君主:怎么失去君位的;统帅:寿终还是战死)。还在位 / 还在世 = 不给 */
   fate?: PersonFate;
-  /** 君主:即位的年份 */
+  /** 君主:即位的年份;名臣:入仕的年份 */
   from?: Year;
-  /** 君主:失去君位(去世、被废、亡国)的年份;到结束年份还在位 = 不给 */
+  /** 君主:失去君位(去世、被废、亡国)的年份;名臣:去职的年份;到结束年份还在位 / 在朝 = 不给 */
   until?: Year;
-  /** 君主:第几朝(Polity.dynasties 的下标;没改朝换代过 = 0) */
+  /** 君主、名臣:第几朝(Polity.dynasties 的下标;没改朝换代过 = 0) */
   dynasty?: number;
   /** 君主:怎么即位的 */
   rise?: RulerRise;
@@ -546,6 +546,36 @@ export interface Person {
   commands?: PersonCommand[];
   /** 父亲(Person.id;君主和宗室才有;一朝的第一位、共和国执政官、将领没有) */
   parent?: number;
+  /** 字(名臣、将领;东方带姓的语感才有,见 officials.ts) */
+  courtesy?: string;
+  /** 号的后半("居士""山人";前半是籍贯的城名,officialText.ts 的 personArt 现拼:作者改了城名跟着变)。一部分名臣、将领有 */
+  art?: string;
+  /** 籍贯:生在哪座城(Settlement id;名臣、将领) */
+  home?: number;
+  /** 官职(名臣、将领;按先后,一直任到下一个的 from) */
+  posts?: PersonPost[];
+  /** 名臣经手的事(按先后,见 officials.ts) */
+  deeds?: PersonDeed[];
+}
+
+/** 一任官职:官名、哪一年起 */
+export interface PersonPost {
+  title: string;
+  from: Year;
+}
+
+/**
+ * 名臣经手的一件事(officials.ts):kind 见那里的文件头;
+ * annal = 史事下标(劝进、迁都、议和);person = 相关的君主(佐命的开国之君、辅政的幼主、劝进时在位的、拥立的新君);
+ * until = 辅政到哪一年;upheaval = 第几件地形大事(赈灾)
+ */
+export interface PersonDeed {
+  kind: 'found' | 'regent' | 'rank' | 'enthrone' | 'capital' | 'relief' | 'peace' | 'war' | 'defend';
+  year: Year;
+  annal?: number;
+  person?: number;
+  until?: Year;
+  upheaval?: number;
 }
 
 /** 一次领兵:哪场战争、哪一方、任期 */

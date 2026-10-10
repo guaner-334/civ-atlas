@@ -43,7 +43,7 @@ describe.each([7, 2024])('人物 · seed=%i', (seed) => {
       expect(x.polity).toBeGreaterThanOrEqual(0);
       expect(x.polity).toBeLessThan(civ.polities.length);
     });
-    const rank = { ruler: 0, general: 1, prince: 2 };
+    const rank = { ruler: 0, general: 1, prince: 2, minister: 3 };
     for (let i = 1; i < P.length; i++) expect(rank[P[i].role]).toBeGreaterThanOrEqual(rank[P[i - 1].role]);
   });
 

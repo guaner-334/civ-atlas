@@ -27,6 +27,7 @@ import { anchorTag, keyed4, subSeed } from './rand';
 import { anchorsOf, personNamers } from './naming';
 import { capitalAt, polityTierAt } from './growth';
 import { buildLineage } from './lineage';
+import { buildOfficials } from './officials';
 
 // ---- 调参 ----
 /** 开国之君、新朝之君即位的年纪(随机) */
@@ -64,10 +65,7 @@ const FALL_DEFEND = 0.08;
 const REUSE = 0.55;
 /** 帝国里开疆这么多州以上的君主,开疆最多的一位称"大帝" */
 const GREAT_GAINS = 12;
-/**
- * 将领起名:先试 NAME_TRIES 次,找一个整个世界的君主、将领都没用过的名字;西幻有的语感名字不多(几百个),
- * 用满了就再试一轮,只求和本国的君主、前后 NAME_GAP 年里出生的同名君主、将领都不撞
- */
+/** 将领、名臣起名最多试几次、不和前后几年里的同名人物撞(见 NameBook) */
 const NAME_TRIES = 40;
 const NAME_GAP = 300;
 
@@ -94,7 +92,11 @@ const q = (x: number) => Math.round(x * TICK) / TICK;
 const lerp = (r: [number, number], u: number) => r[0] + (r[1] - r[0]) * u;
 
 /** 要用到的 Civ 字段(index.ts 在拼 Civ 之前调用) */
-export type PeopleInput = Pick<Civ, 'seed' | 'endYear' | 'polities' | 'settlements' | 'cultures' | 'annals'>;
+export type PeopleInput = Pick<Civ, 'seed' | 'endYear' | 'polities' | 'settlements' | 'cultures' | 'annals'> &
+  Partial<Pick<Civ, 'log' | 'upheavals'>> & {
+    /** 州数(名臣的籍贯、筑城要按日志知道某一年哪个州归谁;没有日志 = 不排名臣) */
+    regionCount?: number;
+  };
 
 /** 一国的史事索引:怎么结束的、每一次改朝换代、战争里的得失 */
 interface PolityFacts {
@@ -299,14 +301,7 @@ export function buildPeople(civ: PeopleInput): Person[] {
 
   // ---- 统帅 ----
   const generals: Person[] = [];
-  /** 用过的名字 → 用过的人的生年(君主、将领;同一个名字读起来像同一个人) */
-  const usedBy = new Map<string, number[]>();
-  const use = (name: string, born: number) => {
-    const ys = usedBy.get(name);
-    if (ys) ys.push(born);
-    else usedBy.set(name, [born]);
-  };
-  for (const list of rulers) for (const r of list) use(r.name, r.born);
+  const book = new NameBook(rulers);
   const genOf: { p: Person; careerEnd: number; busy: number }[][] = polities.map(() => []);
   const busyRuler = new Map<Person, number>();
   const wars = warsOf(civ);
@@ -356,14 +351,7 @@ export function buildPeople(civ: PeopleInput): Person[] {
         const life = q(born + lerp(GENERAL_LIFE, Math.pow(G(U_LIFE), 0.8)));
         const careerEnd = Math.min(life, q(born + lerp(RETIRE, G(U_RETIRE))));
         const namer = namerOf(styleOf(P));
-        const nameAt = (a: number) => namer.surname(tag[pid], 1, gi, a) + namer.given(tag[pid], 1, gi, a);
-        const royal = new Set(rulers[pid].map((r) => r.name));
-        const near = (x: string) => royal.has(x) || !!usedBy.get(x)?.some((y) => Math.abs(y - born) < NAME_GAP);
-        let name = '';
-        for (let a = 0; a < NAME_TRIES && !name; a++) if (!usedBy.has(nameAt(a))) name = nameAt(a);
-        for (let a = 0; a < NAME_TRIES && !name; a++) if (!near(nameAt(a))) name = nameAt(a);
-        name ||= nameAt(0);
-        use(name, born);
+        const name = book.pick((a) => namer.surname(tag[pid], 1, gi, a) + namer.given(tag[pid], 1, gi, a), born, pid);
         const person: Person = { id: -1, role: 'general', polity: pid, name, born };
         if (life <= endYear) {
           person.died = life;
@@ -410,10 +398,50 @@ export function buildPeople(civ: PeopleInput): Person[] {
 
   // ---- 世系:谁是谁的父亲,补上没即位的宗室(排在最后,君主、将领的编号不变)----
   const { princes, parentOf } = buildLineage(polities, rulers, generals, { tag, namerOf: (p) => namerOf(styleOf(p)), surnameOf: (r) => splitSurname(r.name) });
-  const out = [...rulers.flat(), ...generals, ...princes];
+
+  // ---- 名臣(排在宗室后面,君主、将领、宗室的编号不变),顺带给将领填籍贯、字号、官职(officials.ts)----
+  for (const x of princes) book.use(x.name, x.born);
+  const { ministers, fixups } = civ.log
+    ? buildOfficials(
+        { seed: civ.seed, endYear, polities, settlements, annals: civ.annals, upheavals: civ.upheavals, log: civ.log, regionCount: civ.regionCount ?? 0 },
+        { tag, rulers, styleOf, namerOf: (p) => namerOf(styleOf(p)), pickName: (nameAt, born, polity) => book.pick(nameAt, born, polity) },
+        generals,
+      )
+    : { ministers: [], fixups: [] };
+  const out = [...rulers.flat(), ...generals, ...princes, ...ministers];
   out.forEach((p, i) => (p.id = i));
   for (const [x, f] of parentOf) x.parent = f.id;
+  for (const [d, x] of fixups) d.person = x.id;
   return out;
+}
+
+/**
+ * 起名不重名(将领、名臣):先试 NAME_TRIES 次,找一个整个世界的君主、将领、名臣都没用过的名字;
+ * 西幻有的语感名字不多(几百个),用满了就再试一轮,只求和本国的君主、前后 NAME_GAP 年里出生的同名人物都不撞
+ */
+class NameBook {
+  /** 用过的名字 → 用过的人的生年 */
+  private readonly used = new Map<string, number[]>();
+  /** 每国君主的名字 */
+  private readonly royal: Set<string>[];
+  constructor(rulers: readonly Person[][]) {
+    this.royal = rulers.map((list) => new Set(list.map((r) => r.name)));
+    for (const list of rulers) for (const r of list) this.use(r.name, r.born);
+  }
+  use(name: string, born: number): void {
+    const ys = this.used.get(name);
+    if (ys) ys.push(born);
+    else this.used.set(name, [born]);
+  }
+  pick(nameAt: (a: number) => string, born: number, polity: number): string {
+    const near = (x: string) => !!this.royal[polity]?.has(x) || !!this.used.get(x)?.some((y) => Math.abs(y - born) < NAME_GAP);
+    let name = '';
+    for (let a = 0; a < NAME_TRIES && !name; a++) if (!this.used.has(nameAt(a))) name = nameAt(a);
+    for (let a = 0; a < NAME_TRIES && !name; a++) if (!near(nameAt(a))) name = nameAt(a);
+    name ||= nameAt(0);
+    this.use(name, born);
+    return name;
+  }
 }
 
 /** 某一刻在位的君主(即位那一刻起算;到结束年份还在位的 until 不给) */
