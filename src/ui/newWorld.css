@@ -1,0 +1,571 @@
+/*
+ * 「新建世界」的两步弹窗(NewWorldDialog.tsx),浮在「我的世界」上、和它一套颜色(theme.css 的变量)。
+ *
+ *   电脑   居中的窗口(宽 660、圆角 14),下面一层半透明黑;圆角、阴影、按钮照新建界面的确认框和账号窗口
+ *   手机   从底部升起、几乎占满屏的卡片:顶上一排(取消 / 上一步、标题、第几步),中间能滚,底部一个大按钮
+ * 第 1 步两张带图的卡片,选中的描一圈主色、右上角打勾;第 2 步一组组参数(白底分组表格,照侧栏的 .sb-group),
+ * 滑条用编辑地形的 .tp-range(worlds.css)。提示条(z-index 30)盖在它上面:读不出图时看得到。
+ */
+.nd-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 29;
+  display: flex;
+  overflow-y: auto;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.32);
+  overscroll-behavior: contain;
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.45;
+  cursor: default;
+  animation: nd-in 0.2s ease-out;
+}
+@keyframes nd-in {
+  from {
+    opacity: 0;
+  }
+}
+.nd-scrim button,
+.nd-scrim input {
+  font: inherit;
+  color: inherit;
+}
+.nd-sheet {
+  position: relative;
+  margin: auto;
+  width: 660px;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 22px 24px 20px;
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow:
+    0 0 0 0.5px rgba(0, 0, 0, 0.14),
+    0 24px 70px rgba(0, 0, 0, 0.28);
+  animation: nd-pop 0.2s ease-out;
+}
+@keyframes nd-pop {
+  from {
+    transform: scale(0.97);
+  }
+}
+.nd-hd {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.nd-hd h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 650;
+}
+.nd-step {
+  font-size: 12.5px;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+.nd-sub {
+  margin: 6px 0 18px;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--ink-2);
+}
+
+/* ---- 第 1 步:两张带图的卡片 ---- */
+.nd-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+.nd-scrim .nd-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  padding: 0 0 14px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--panel-solid);
+  box-shadow: inset 0 0 0 1px var(--line);
+  overflow: hidden;
+  text-align: left;
+  cursor: pointer;
+}
+.nd-scrim .nd-card.on {
+  box-shadow: 0 0 0 2.5px var(--accent);
+}
+.nd-card:focus-visible {
+  outline: 0;
+}
+.nd-card:focus-visible:not(.on) {
+  box-shadow:
+    inset 0 0 0 1px var(--line),
+    0 0 0 3px var(--accent-soft);
+}
+.nd-pic {
+  position: relative;
+  height: 168px;
+  overflow: hidden;
+  background: #070910;
+}
+.nd-pic img {
+  position: absolute;
+  display: block;
+}
+/* 随机生成:一颗星球放在正中;照手绘图:一张手画的地图铺满 */
+.nd-pic.random img {
+  left: 50%;
+  top: 50%;
+  width: 250px;
+  height: 250px;
+  margin: -125px 0 0 -125px;
+}
+.nd-pic.image img {
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.nd-check,
+.nd-ring {
+  position: absolute;
+  right: 10px;
+  top: 10px;
+  width: 24px;
+  height: 24px;
+  box-sizing: border-box;
+  border-radius: 50%;
+}
+.nd-check {
+  display: grid;
+  place-items: center;
+  background: var(--accent);
+  color: #fff;
+  box-shadow: 0 0 0 2px #fff;
+}
+.nd-check .icon {
+  stroke-width: 2.4;
+}
+.nd-ring {
+  border: 1.5px solid rgba(255, 255, 255, 0.8);
+}
+.nd-card b {
+  margin: 12px 14px 4px;
+  font-size: 16px;
+  font-weight: 600;
+}
+.nd-d {
+  padding: 0 14px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--ink-2);
+}
+
+/* ---- 第 2 步:参数 ---- */
+.nd-lab {
+  display: flex;
+  justify-content: space-between;
+  margin: 14px 4px 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+.nd-lab small {
+  font-size: 12.5px;
+  font-weight: 400;
+  color: var(--ink-3);
+}
+.nd-sheet > .nd-lab:first-of-type,
+.nd-pbody > .nd-lab:first-child {
+  margin-top: 0;
+}
+.nd-grp {
+  border-radius: 10px;
+  background: var(--panel-solid);
+  overflow: hidden;
+}
+.nd-pr {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 44px;
+  box-sizing: border-box;
+  padding: 6px 14px;
+  border-bottom: 0.5px solid var(--line);
+  font-size: 14px;
+}
+.nd-pr:last-child {
+  border-bottom: 0;
+}
+.nd-n {
+  flex: none;
+  width: 74px;
+}
+.nd-v {
+  flex: none;
+  width: 92px;
+  text-align: right;
+  font-size: 13.5px;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.nd-v em {
+  margin-left: 4px;
+  font-style: normal;
+  color: var(--ink-3);
+}
+/* 滑条:和系统的一样,浅灰轨道、白色圆钮(20px) */
+.nd-pr .tp-range input::-webkit-slider-runnable-track {
+  background: linear-gradient(to right, var(--accent) var(--fill), rgba(120, 120, 128, 0.26) var(--fill));
+}
+.nd-pr .tp-range input::-moz-range-track {
+  background: rgba(120, 120, 128, 0.26);
+}
+.nd-pr .tp-range input {
+  height: 22px;
+}
+.nd-pr .tp-range input::-webkit-slider-thumb {
+  width: 20px;
+  height: 20px;
+  margin-top: -8px;
+  box-shadow:
+    0 0 0 0.5px rgba(0, 0, 0, 0.12),
+    0 1px 3px rgba(0, 0, 0, 0.3);
+}
+.nd-pr .tp-range input::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  box-shadow:
+    0 0 0 0.5px rgba(0, 0, 0, 0.12),
+    0 1px 3px rgba(0, 0, 0, 0.3);
+}
+.nd-fld {
+  flex: none;
+  width: 120px;
+  height: 32px;
+  box-sizing: border-box;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--surface);
+  box-shadow: inset 0 0 0 0.5px var(--line-strong);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+.nd-fld:focus {
+  outline: 0;
+  box-shadow:
+    inset 0 0 0 1px var(--accent),
+    0 0 0 3px var(--accent-soft);
+}
+.nd-seed-tip {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+.nd-seed-tip.bad {
+  color: #ff3b30;
+}
+.nd-scrim .nd-sbtn {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--btn);
+  color: var(--link);
+  font-size: 13.5px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.nd-sbtn:hover,
+.nd-btn.b2:hover:not(:disabled) {
+  background: var(--hover-bg);
+}
+.nd-info {
+  display: flex;
+  gap: 9px;
+  margin-top: 16px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+.nd-info .icon {
+  flex: none;
+  margin-top: 2px;
+  color: var(--accent);
+}
+/* 照手绘图:选图的地方(虚线框)/ 选好的那张 */
+.nd-drop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 176px;
+  box-sizing: border-box;
+  padding: 0 16px;
+  border: 1.5px dashed var(--line-strong);
+  border-radius: 12px;
+  background: var(--panel-solid);
+  text-align: center;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease;
+}
+.nd-drop.over {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.nd-drop > .icon {
+  color: var(--ink-3);
+  stroke-width: 1.6;
+}
+.nd-drop b {
+  font-size: 15px;
+  font-weight: 600;
+}
+.nd-scrim .nd-pick {
+  height: 30px;
+  color: var(--link);
+}
+.nd-fine {
+  max-width: 420px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+.nd-picked {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px;
+  border-radius: 12px;
+  background: var(--panel-solid);
+}
+.nd-picked img {
+  flex: none;
+  display: block;
+  width: 216px;
+  height: 108px;
+  border-radius: 6px;
+  object-fit: fill;
+  box-shadow: 0 0 0 0.5px var(--line-strong);
+}
+.nd-picked-tx {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+}
+.nd-picked-tx b {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 15px;
+  font-weight: 600;
+}
+.nd-picked-tx span {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+.nd-scrim .nd-link {
+  margin-top: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--link);
+  font-size: 13.5px;
+  font-weight: 500;
+}
+.nd-link:hover {
+  text-decoration: underline;
+}
+
+/* ---- 底下的按钮:左边取消,右边上一步、下一步 / 开始 ---- */
+.nd-ft {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 20px;
+}
+.nd-sp {
+  flex: 1;
+}
+.nd-scrim .nd-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 34px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.nd-btn.b2 {
+  background: var(--btn);
+}
+.nd-scrim .nd-btn.b1 {
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+.nd-btn.b1:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+.nd-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.nd-btn:focus-visible {
+  outline: 0;
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+/* ---- 手机:从底部升起、几乎占满屏的卡片 ---- */
+.nd-scrim:has(.nd-psheet) {
+  padding: 0;
+}
+.nd-psheet {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  top: calc(54px + env(safe-area-inset-top, 0px));
+  display: flex;
+  flex-direction: column;
+  border-radius: 14px 14px 0 0;
+  background: var(--surface);
+  box-shadow: 0 -8px 40px rgba(0, 0, 0, 0.25);
+  animation: nd-up 0.28s cubic-bezier(0.3, 0.7, 0.2, 1);
+}
+@keyframes nd-up {
+  from {
+    transform: translateY(100%);
+  }
+}
+.nd-pnav {
+  flex: none;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  height: 52px;
+  padding: 0 16px;
+  border-bottom: 0.5px solid var(--line);
+}
+.nd-pnav b {
+  font-size: 16.5px;
+  font-weight: 600;
+}
+.nd-scrim .nd-pl {
+  justify-self: start;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--link);
+  font-size: 16px;
+}
+.nd-pl .icon {
+  stroke-width: 2.2;
+}
+.nd-scrim .nd-pl.r {
+  justify-self: end;
+}
+.nd-pr-r {
+  justify-self: end;
+  font-size: 13px;
+  color: var(--ink-3);
+}
+.nd-pbody {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 14px 16px 16px;
+}
+.nd-pbody .nd-sub {
+  margin: 0 2px 14px;
+  font-size: 14px;
+}
+.nd-pbody .nd-cards {
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+.nd-pbody .nd-card {
+  padding-bottom: 12px;
+}
+.nd-pbody .nd-pic {
+  height: 128px;
+}
+.nd-pbody .nd-pic.random img {
+  width: 230px;
+  height: 230px;
+  margin: -115px 0 0 -115px;
+}
+.nd-pbody .nd-card b {
+  margin: 10px 14px 3px;
+}
+.nd-pbody .nd-lab {
+  margin-top: 12px;
+}
+.nd-pbody .nd-pr {
+  gap: 10px;
+  padding: 6px 12px;
+}
+.nd-pbody .nd-n {
+  width: 64px;
+}
+.nd-pbody .nd-v {
+  width: 52px;
+}
+.nd-pbody .nd-fld {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+}
+.nd-pbody .nd-info {
+  margin-top: 14px;
+}
+.nd-pbody .nd-picked img {
+  width: 132px;
+  height: 66px;
+}
+.nd-pfoot {
+  flex: none;
+  padding: 10px 16px calc(30px + env(safe-area-inset-bottom, 0px));
+  border-top: 0.5px solid var(--line);
+}
+.nd-scrim .nd-pfoot .nd-btn {
+  width: 100%;
+  height: 48px;
+  border-radius: 12px;
+  font-size: 16.5px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nd-scrim,
+  .nd-sheet,
+  .nd-psheet {
+    animation: none;
+  }
+}

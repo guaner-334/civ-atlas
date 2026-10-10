@@ -1,19 +1,16 @@
 /**
- * 新建界面里星球的动画和摆放(不碰 React):换样式淡入淡出、换投影变形、开场(板块漂移 → 卷成地球仪)、
- * 换一颗时的漂移、摊平改地形、创建后展开成平常页面的地图、自转和拖动。
+ * 新建界面里星球的动画和摆放(不碰 React):换样式淡入淡出、换投影变形、摊平改地形、创建后展开成平常页面的地图、自转和拖动。
  *
- * 每帧按状态算出 PlanetFrame 交给 PlanetGL 画。界面(面板、字幕、光晕)由 Studio.tsx 管,这里通过 hooks 告诉它
- * 星球在哪、漂移到哪了、平面地图该放在哪。异步的几段动画(开场、换一颗)各拿一个序号,后开始的作废先开始的。
+ * 每帧按状态算出 PlanetFrame 交给 PlanetGL 画。界面(面板、提示、光晕)由 Studio.tsx 管,这里通过 hooks 告诉它
+ * 星球在哪、平面地图该放在哪。异步的几段动画(摊平、创建后展开)各拿一个序号,后开始的作废先开始的。
  */
 import type { PlanetProjection } from '../../render/planet';
 import { PlanetGL, type PlanetFrame } from './planetGL';
 import { TILT, easeInOut, fitPose, flatRect, lerpPose, projExtent, type Box, type Pose } from './layout';
 
 export interface SceneHooks {
-  /** 画完一帧:星球的中心、卷起来时的半径、卷了多少、图的半高(光晕、字幕跟着它) */
+  /** 画完一帧:星球的中心、卷起来时的半径、卷了多少、图的半高(光晕、提示跟着它) */
   frame(info: { cx: number; cy: number; r: number; m: number; hh: number }): void;
-  /** 漂移进度(字幕);null = 没在漂移 */
-  caption(t: number | null): void;
   /** 平面模式:平常的地图该铺在哪(视口坐标),lon = 让它正中是哪条经线(度,只在刚摊平时给);null = 收起平面地图 */
   flat(rect: Box | null, lon?: number): void;
   /** 用户按住拖了星球(收起提示、手机上收起样式列表) */
@@ -54,7 +51,7 @@ interface Tween {
   done: () => void;
 }
 
-type Num = 'mix' | 's' | 'drift' | 'boxT' | 'markA' | 'lon' | 'tilt';
+type Num = 'mix' | 's' | 'boxT' | 'markA' | 'lon' | 'tilt';
 
 /** 自转:约 1 分钟一圈(弧度 / 毫秒) */
 const SPIN = 0.00011;
@@ -78,8 +75,6 @@ export class StudioScene {
   a = '';
   b = '';
   mix = 1;
-  /** 漂移用的实景贴图键 */
-  real = '';
   // 投影:A → B 变形到 s;poseA / poseB 不为空时用它的位置(平常的地图那边接过来、送过去)
   projA: PlanetProjection = 'equirect';
   projB: PlanetProjection = 'equirect';
@@ -90,10 +85,9 @@ export class StudioScene {
   /** 用户上下拖出来的俯仰(加在 TILT 上) */
   tilt = 0;
   spin = false;
-  drift: number | null = null;
   markA = 0;
-  /** 开场:地图占满窗口(两边面板还没出来) */
-  intro = false;
+  /** 照手绘图那一页:地图上方留出切换条、下方留出一句提示(见 layout.ts 的 fitPose) */
+  bar = false;
   /** 两边、底下让出多少(面板、手机的底部卡片) */
   private insets = { l: 0, r: 0, b: 0 };
   private vw = 1;
@@ -108,7 +102,7 @@ export class StudioScene {
   private tweens = new Map<Num, Tween>();
   private raf = 0;
   private last = 0;
-  /** 开场 / 换一颗 / 摊平这几段动画的序号 */
+  /** 摊平 / 展开这几段动画的序号 */
   private tok = 0;
   private drag: { x: number; y: number; lon: number; tilt: number; id: number } | null = null;
   /** 上次告诉界面的停住的样子(没变就不再说) */
@@ -156,13 +150,11 @@ export class StudioScene {
   }
 
   private get(k: Num): number {
-    if (k === 'drift') return this.drift ?? 1;
     if (k === 'boxT') return this.boxT;
     return this[k];
   }
   private put(k: Num, v: number) {
-    if (k === 'drift') this.drift = v;
-    else if (k === 'boxT') this.boxT = v;
+    if (k === 'boxT') this.boxT = v;
     else this[k] = v;
   }
 
@@ -177,10 +169,6 @@ export class StudioScene {
     }
   }
 
-  private wait(ms: number): Promise<void> {
-    return new Promise((r) => setTimeout(r, this.reduce ? 0 : ms));
-  }
-
   // ---- 摆放 ----
 
   /** 窗口大小变了 */
@@ -191,17 +179,16 @@ export class StudioScene {
     this.relayout(false);
   }
 
-  /** 两边面板、底部卡片让出多少;intro = 开场占满窗口。animate = 星球跟着面板滑过去(约 0.36 秒) */
-  setLayout(o: { l: number; r: number; b: number; intro: boolean; phone: boolean }, animate: boolean): void {
-    const same = o.l === this.insets.l && o.r === this.insets.r && o.b === this.insets.b && o.intro === this.intro && o.phone === this.phone;
+  /** 两边面板、底部卡片让出多少;bar = 照手绘图那一页。animate = 星球跟着面板滑过去(约 0.36 秒) */
+  setLayout(o: { l: number; r: number; b: number; bar: boolean; phone: boolean }, animate: boolean): void {
+    const same = o.l === this.insets.l && o.r === this.insets.r && o.b === this.insets.b && o.bar === this.bar && o.phone === this.phone;
     this.insets = { l: o.l, r: o.r, b: o.b };
-    this.intro = o.intro;
+    this.bar = o.bar;
     this.phone = o.phone;
     if (!same) this.relayout(animate);
   }
 
   private targetBox(): Box {
-    if (this.intro) return { x: 0, y: 0, w: this.vw, h: this.vh };
     const { l, r, b } = this.insets;
     return { x: l, y: 0, w: Math.max(1, this.vw - l - r), h: Math.max(1, this.vh - b) };
   }
@@ -230,7 +217,7 @@ export class StudioScene {
   }
 
   private fitOpts() {
-    return { phone: this.phone, intro: this.intro };
+    return { phone: this.phone, bar: this.bar };
   }
 
   /** 平面模式时平常的地图铺在哪(等距圆柱在现在这块地方里的位置) */
@@ -260,7 +247,6 @@ export class StudioScene {
     this.last = now;
     this.step(now);
     if (this.spin && !this.reduce && !this.drag && this.projB === 'globe' && this.s >= 1) this.lon -= dt * SPIN;
-    if (this.drift !== null) this.hooks.caption(this.drift);
     this.reportStill();
     if (this.flatOn) return;
     this.draw();
@@ -271,7 +257,6 @@ export class StudioScene {
     const moving =
       this.flatOn ||
       !!this.drag ||
-      this.drift !== null ||
       this.s < 1 ||
       (this.spin && !this.reduce && this.projB === 'globe') ||
       this.tweens.has('s') ||
@@ -296,7 +281,7 @@ export class StudioScene {
 
   /** 转到正对着某处(经度、纬度,弧度;只在停着的地球仪上转),约 0.9 秒;转过去以后不再自转 */
   face(lon: number, lat: number): Promise<void> {
-    if (this.projB !== 'globe' || this.s < 1 || this.flatOn || this.drift !== null || this.drag) return Promise.resolve();
+    if (this.projB !== 'globe' || this.s < 1 || this.flatOn || this.drag) return Promise.resolve();
     this.spin = false;
     const d = lon - this.lon;
     const to = this.lon + d - 2 * Math.PI * Math.round(d / (2 * Math.PI));
@@ -320,8 +305,6 @@ export class StudioScene {
       a: this.a,
       b: this.b || this.a,
       mix: this.mix,
-      drift: this.drift,
-      real: this.real,
       markA: this.markA,
     };
     this.gl.draw(f);
@@ -381,83 +364,6 @@ export class StudioScene {
     this.s = 1;
   }
 
-  // ---- 开场、漂移 ----
-
-  /** 放一遍板块漂移(从约 1.8 亿年前到今天);放不了(没有板块、显卡不支持)直接返回 false */
-  async playDrift(dur: number, tok: number): Promise<boolean> {
-    if (!this.gl.canDrift() || this.reduce) return false;
-    this.drift = 0;
-    await this.tween('drift', 1, dur, linear);
-    if (tok !== this.tok) return false;
-    this.drift = null;
-    this.hooks.caption(1);
-    return true;
-  }
-
-  /**
-   * 开场:平面实景放板块漂移 → 停一下 → 卷成地球仪 → onSettled(两边面板滑进来、开始自转)。
-   * fromStart = 刚进新建(直接从平面开始);否则(重看星球形成)先从现在的样子变回平面。
-   * real = 实景贴图键;lon = 正中摆哪条经线。返回 false = 中途被跳过 / 作废
-   */
-  async playIntro(o: { fromStart: boolean; real: string; lon: number; onFlat?: () => void }): Promise<boolean> {
-    const tok = ++this.tok;
-    this.spin = false;
-    this.real = o.real;
-    if (this.reduce) {
-      this.showStyle(o.real);
-      this.lon = o.lon;
-      this.tilt = 0;
-      this.showProj('globe');
-      return true;
-    }
-    if (o.fromStart) {
-      this.showStyle(o.real);
-      this.showProj('equirect');
-      this.lon = o.lon;
-      this.tilt = 0;
-    } else {
-      void this.setStyle(o.real, 300);
-      if (this.projB !== 'equirect') await this.setProj('equirect', 800);
-      if (tok !== this.tok) return false;
-    }
-    o.onFlat?.();
-    const drifted = await this.playDrift(4800, tok);
-    if (tok !== this.tok) return false;
-    if (drifted) await this.wait(700);
-    if (tok !== this.tok) return false;
-    this.hooks.caption(null);
-    await this.setProj('globe', 1900);
-    return tok === this.tok;
-  }
-
-  /** 跳过开场:漂移停下,直接卷成地球仪 */
-  async skip(): Promise<void> {
-    const tok = ++this.tok;
-    this.tweens.get('drift')?.done();
-    this.tweens.delete('drift');
-    this.drift = null;
-    this.hooks.caption(null);
-    if (this.projB !== 'globe' || this.s < 1) await this.setProj('globe', 700);
-    if (tok !== this.tok) return;
-  }
-
-  /** 换了一颗星球:在现在的视图上放一遍漂移(约 2.6 秒),放之前换成实景,放完换回 keep */
-  async rerollDrift(real: string, keep: () => string): Promise<void> {
-    const tok = ++this.tok;
-    this.real = real;
-    this.showStyle(real);
-    const ok = await this.playDrift(2600, tok);
-    if (tok !== this.tok) return;
-    if (ok) this.hooks.caption(null);
-    const k = keep();
-    if (k !== real) void this.setStyle(k);
-  }
-
-  /** 正在放开场 / 漂移(跳过按钮、提示用) */
-  get drifting(): boolean {
-    return this.drift !== null;
-  }
-
   // ---- 摊平(改地形)----
 
   /** 摊成等距圆柱,摊好以后让平常的地图铺在那里(hooks.flat) */
@@ -495,7 +401,7 @@ export class StudioScene {
     });
   }
 
-  /** 没摊平、但已经在等距圆柱上(比如开场时刚好停在平面):记住改完要回哪 */
+  /** 没摊平、但已经在等距圆柱上:记住改完要回哪 */
   setFlatBack(p: PlanetProjection): void {
     this.flatBack = p;
   }
@@ -507,8 +413,6 @@ export class StudioScene {
     ++this.tok;
     this.spin = false;
     this.drag = null;
-    this.drift = null;
-    this.hooks.caption(null);
     if (this.flatOn) {
       this.flatOn = false;
       this.showProj('equirect');

@@ -230,7 +230,8 @@ import {
   useTerrainTool,
   type TerrainStatus,
 } from './TerrainTools';
-import { isImageFile, startImport, useImportOn } from './ImportImage';
+import { SourceLayer, beginImport, isImageFile, startImport, useImportOn, useSourceView } from './ImportImage';
+import { NewWorldDialog, type NewWorldMode, type NewWorldStart } from './NewWorldDialog';
 import { closeUpheaval, getUpUi, setUpRunner, takeUpPreview, undoUpOp, upCancel, upClick, upDown, upMove, upUp, upheavalName, useUpUi } from './upheavalStore';
 import { UpheavalHint, UpheavalOverlay } from './UpheavalPanel';
 import { dismissing, tookDismissClick } from './dismissClick';
@@ -321,6 +322,13 @@ interface Target {
   shareCode?: string;
   /** 底稿出处(存档里带着的;打开别人的分享短链接时是那个链接,改了另存时写进去) */
   origin?: SaveOrigin | null;
+  /** 新建时选的照手绘图生成(还没照图长出星球时靠它认;存下以后看草图里有没有那张图) */
+  mode?: 'image';
+}
+
+/** 新建中的世界是哪一种:照手绘图(选的就是它,或者草图里有照着长的图;旧的没建完的世界也这样认)/ 随机 */
+function draftModeOf(t: Target | null): NewWorldMode {
+  return t && (t.mode === 'image' || !!t.edits.sketch?.image) ? 'image' : 'random';
 }
 
 /** 随机一个种子(新建世界、"换一颗") */
@@ -388,10 +396,11 @@ function visitTarget(params: WorldParams, gen: number | null = null): Target {
  *   分享链接(#)       → 那个世界(先按网址生成,解开以后套上修改)
  *   w=世界编号(存着)   → 这个世界(没建完的回到新建)
  *   new=1             → 新建(网址里的种子、参数)
+ *   new=image         → 我的世界 + 新建弹窗停在照手绘图选图那一步(照图新建还没长出星球时刷新)
  *   带种子的网址       → 直接看这个世界(改版前存过的就回到那个存档)
  *   都没有             → 我的世界(第一次来是空的那一页:一颗地球、一句话、「新建世界」;点了才生成星球)
  */
-function firstRoute(init: ReturnType<typeof readUrl>): { stage: Stage; target: Target | null } {
+function firstRoute(init: ReturnType<typeof readUrl>): { stage: Stage; target: Target | null; dialog?: { mode: NewWorldMode; params: WorldParams; step: 1 | 2 } } {
   const q = new URLSearchParams(location.search);
   if (init.shortShare !== null && !init.share) return { stage: 'home', target: null };
   if (init.share) return { stage: 'world', target: visitTarget(init.params) };
@@ -399,6 +408,8 @@ function firstRoute(init: ReturnType<typeof readUrl>): { stage: Stage; target: T
   const stored = isWorldId(w) ? loadWorld(w) : null;
   if (stored) return { stage: stored.draft ? 'draft' : 'world', target: storedTarget(stored, 'restore') };
   if (q.get('new') === '1') return { stage: 'draft', target: draftTarget(init.params) };
+  // 照手绘图新建、还没照图长出星球(图不存,刷新就没了):回到我的世界,弹窗停在照手绘图的第 2 步(参数照网址)重新选图
+  if (q.get('new') === 'image') return { stage: 'home', target: null, dialog: { mode: 'image', params: init.params, step: 2 } };
   if (q.has('seed')) {
     // 改版前自动存的世界:那时的网址只带种子、参数,刷新照旧回到它(带 gen= 的是改版后的网址,不是它)
     const old = init.gen === null ? legacyWorld(init.params) : null;
@@ -414,7 +425,10 @@ const STUDIO_LAYERS: MapLayer[] = STUDIO_STYLES.map((x) => x.id);
 /** 新建时列不出来的图层(要有历史):进新建时换成"地形",建好以后换回来 */
 const HISTORY_LAYERS: MapLayer[] = ['political', 'cultures', 'faith'];
 
-/** 把世界写进网址:种子 + 参数(和默认值相同的省略,别人打开是同一颗星球);存着的加 w=编号,新建中还没存的加 new=1 */
+/**
+ * 把世界写进网址:种子 + 参数(和默认值相同的省略,别人打开是同一颗星球);存着的加 w=编号,新建中还没存的加 new=1
+ * (照手绘图新建、还没照图长出星球的加 new=image)
+ */
 function writeWorldUrl(t: Target) {
   const q = new URLSearchParams(location.search);
   for (const k of Object.keys(DEFAULT_PARAMS) as (keyof WorldParams)[]) {
@@ -430,7 +444,7 @@ function writeWorldUrl(t: Target) {
   // 存着的记录还是换参数之前的(新建中换了种子、参数,正在生成):先不指向它,存好了再换成 w=
   const w = isStored(t.id) ? loadWorld(t.id) : null;
   if (w && worldKey(w.save.params) === worldKey(t.params)) q.set('w', t.id);
-  else if (t.kind === 'draft') q.set('new', '1');
+  else if (t.kind === 'draft') q.set('new', draftModeOf(t) === 'image' && !t.edits.sketch?.image ? 'image' : '1');
   // 生成器版本:复制这个网址发给别人,以后版本更新了对方打开会说清变了什么。
   // 网址来自更新的版本(页面是旧的)就留着那个号:刷新还是旧页面照样提示,换到新页面就对上了。
   // 新建中还没存的(new=1)不带:打开这种网址是接着新建,用的总是现在的版本
@@ -525,6 +539,8 @@ export function App() {
   const targetRef = useRef<Target | null>(route.target);
   /** 新建中的名字(卡片上的输入框;打开没建完的世界时是它存的名字) */
   const [draftTitle, setDraftTitle] = useState(route.target?.kind === 'draft' ? (route.target.title ?? '') : '');
+  /** 「新建世界」弹窗:开着没有、从哪一步开始(刷新了照手绘图还没长出星球的新建:停在它选图那一步) */
+  const [newDlg, setNewDlg] = useState<{ init?: { mode: NewWorldMode; params: WorldParams; step: 1 | 2 } } | null>(route.dialog ? { init: route.dialog } : null);
   /** 生成出来的世界和主图(地形大事以前的;地图上画的是 data:时间轴那一段的) */
   const [baseData, setData] = useState<{ world: World; raster: Raster } | null>(null);
   /** 地形大事以后各段的世界(后台线程交来的;没有大事 = null)、各段主图的补丁(后台慢慢铺好交来;eras.ts) */
@@ -716,6 +732,7 @@ export function App() {
   const terrainTool = useTerrainTool();
   // 导入图片时地图上只看图(地名先藏起来)
   const importing = useImportOn();
+  const sourceView = useSourceView();
   // 手机:改地形、回放世界形成都要看地图 —— 拉到顶的世界卡片先收起来(两样都是从卡片里的"地形"那一组点开的)
   useEffect(() => {
     if (terrainTool.on || replayOn) setWorldSheet('peek');
@@ -1540,8 +1557,18 @@ export function App() {
   };
   const openShareRef = useRef(openShare);
   openShareRef.current = openShare;
-  /** 新建世界(我的世界右上、第一次来):随机一颗星球 */
-  const startDraft = () => openTarget(draftTarget({ ...DEFAULT_PARAMS, seed: randomSeedValue() }));
+  /** 新建世界(我的世界右上、第一次来、分享停了的那一页):先弹窗选怎么生成、定基础参数 */
+  const startDraft = () => setNewDlg({});
+  /**
+   * 弹窗里点了「开始」:存下没建完的世界、进新建界面。照手绘图的把读好的图交过去,进去直接是第 1 步「认出海陆」
+   * (照手绘图的新建界面一进来就打开改地形工具,认图在它上面)
+   */
+  const startFromDialog = (s: NewWorldStart) => {
+    setNewDlg(null);
+    if (s.mode === 'random') return openTarget(draftTarget(s.params));
+    openTarget({ ...draftTarget(s.params), mode: 'image' });
+    if (s.picture) beginImport(s.picture);
+  };
   /** 新建中的世界(在看的就是它)*/
   const draftNow = (): Target | null => {
     const t = targetRef.current;
@@ -1702,14 +1729,17 @@ export function App() {
     if (home || !t || !cur || cur.id !== t.id) return;
     if (isStored(t.id) && new URLSearchParams(location.search).get('w') !== t.id) writeWorldUrl(t);
   }, [v, home]);
-  // 把 .json 拖进页面 = 从文件打开;编辑地形时拖进来的图片 = 导入成草图
+  // 把 .json 拖进页面 = 从文件打开;照手绘图新建时拖进来的图片 = 换成这张重新认(随机生成的新建不收图片,松手时说一句)
   const [dropping, setDropping] = useState<false | 'save' | 'image'>(false);
   const hasFiles = (e: React.DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes('Files');
+  /** 新建中拖进来图片:照手绘图的收下,随机生成的不收 */
+  const imageDrop = (): 'image' | false | null => (getStage().stage !== 'draft' ? null : draftModeOf(targetRef.current) === 'image' ? 'image' : false);
   const onDragOver = (e: React.DragEvent) => {
     if (!hasFiles(e)) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = 'copy';
-    const kind = getTerrainTool().on && e.dataTransfer.items?.[0]?.type.startsWith('image/') ? 'image' : 'save';
+    const img = imageDrop();
+    const kind = img !== null && e.dataTransfer.items?.[0]?.type.startsWith('image/') ? img : 'save';
     if (dropping !== kind) setDropping(kind);
   };
   const onDragLeave = (e: React.DragEvent) => {
@@ -1721,7 +1751,11 @@ export function App() {
     setDropping(false);
     const f = e.dataTransfer.files[0];
     if (!f) return;
-    if (getTerrainTool().on && isImageFile(f)) return void startImport(f);
+    const img = imageDrop();
+    if (img !== null && isImageFile(f)) {
+      if (img) return void startImport(f);
+      return void notify({ kind: 'warn', text: '随机生成的世界不能导入图片，想照图生成就新建一个' });
+    }
     f.text().then(
       (t) => openText(t, f.name),
       () => notify({ kind: 'error', text: `打不开 ${f.name}`, more: ['读不了这个文件'] }),
@@ -3360,6 +3394,7 @@ export function App() {
   const studio = (draft || studioOut > 0) && (
     <Studio
       phone={narrow}
+      mode={draftModeOf(targetRef.current)}
       params={params}
       title={draftTitle}
       base={stageBase}
@@ -3458,13 +3493,15 @@ export function App() {
             )}
             <canvas ref={overlayRef} className={`overlay ${replayOn && replay ? 'show' : ''}`} />
             <canvas ref={overlayCopyRef} className={`overlay wrap-copy ${replayOn && replay ? 'show' : ''}`} />
+            {/* 照手绘图新建:原图 / 认出来的 / 叠上原图(在改地形覆盖层底下,笔画在它上面) */}
+            {data && !curved && draft && <SourceLayer width={data.world.width} height={data.world.height} wrap={wrapW} />}
             {data && !curved && (
               <TerrainOverlay width={data.world.width} height={data.world.height} shown={shownTerrain} shownSketch={shownSketch} wrap={wrapW} scale={(box.w / data.world.width) * view.k} />
             )}
           </div>
         </div>
-        {/* 文字层(CivLayer 放进来);回放世界形成时、导入图片时藏起来(回放画面盖住文明层,字也不露出来;导入时只看图) */}
-        <div className="screen-layer" ref={setLabelsHost} style={(replayOn && replay) || importing ? { ...screenStyle, display: 'none' } : screenStyle} />
+        {/* 文字层(CivLayer 放进来);回放世界形成时、认图时、照手绘图新建看原图或认出来的时藏起来(回放画面盖住文明层,字也不露出来;认图时只看图) */}
+        <div className="screen-layer" ref={setLabelsHost} style={(replayOn && replay) || importing || (draft && sourceView.show !== 'grown') ? { ...screenStyle, display: 'none' } : screenStyle} />
         {/* 地形大事:涂的地方、会变的地块、会没了的城盖在地名上面(和地图一起缩放) */}
         {data && !curved && upOn && (
           <div className="canvas-wrap-upper" style={wrapStyle}>
@@ -3619,6 +3656,7 @@ export function App() {
       <AccountHost phone={narrow} />
       <ShortcutsHost />
       <TipLayer />
+      {newDlg && home && <NewWorldDialog phone={narrow} init={newDlg.init} randomSeed={randomSeedValue} onCancel={() => setNewDlg(null)} onStart={startFromDialog} />}
       {dropping && (
         <div className="drop-hint">
           <div>{dropping === 'image' ? '松手导入这张图' : '松手打开存档(.json)'}</div>

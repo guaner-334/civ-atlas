@@ -3,8 +3,9 @@
  *
  *   .app.studio-on   整页是太空底(深色渐变 + 一层淡淡的星星);平常的地图藏起来,
  *                    摊平改地形 / 没有 WebGL 时(.studio-flat)地图铺在中间那一块(位置由 App 按 studioStore 写在舞台上)
- *   .studio          盖在地图上面的一层:星球画布、光晕、左边设定、右边样式和投影、底下字幕、确认框
- *                    开场(.intro)两边面板先滑出去;收起(.collapsed)左边滑出去、左上角留小按钮;创建后(.out)两边都滑出去
+ *   .studio          盖在地图上面的一层:星球画布、光晕、左边设定、右边样式和投影、底下一句提示、确认框
+ *                    收起(.collapsed)左边滑出去、左上角留小按钮;创建后(.out)两边都滑出去
+ *   .st-image        照手绘图新建:左边按三步排,没有右边的面板;地图上方一条切换条(.sk-vbar),手机上底部卡片占大半屏(.sk-sheet)
  * 行、分组、小标题、输入框照侧栏的零件(sidebar.css 的 .sb-*、worlds.css 的 .nw-*),颜色全用 theme.css 的深色变量。
  */
 .app.studio-on {
@@ -120,7 +121,6 @@
   border-right: 0.5px solid var(--line);
   transition: transform 0.36s cubic-bezier(0.3, 0.7, 0.2, 1);
 }
-.studio.intro .st-left,
 .studio.collapsed .st-left,
 .studio.out .st-left {
   transform: translateX(calc(-100% - 2px));
@@ -231,7 +231,6 @@
 }
 /* 收起以后左上角的小按钮(和平常页面收起侧栏同一个样子,sidebar.css 的 .side-open) */
 .studio:not(.collapsed) .st-pill,
-.studio.intro .st-pill,
 .studio.out .st-pill {
   display: none;
 }
@@ -425,7 +424,6 @@
   border-left: 0.5px solid var(--line);
   transition: transform 0.36s cubic-bezier(0.3, 0.7, 0.2, 1);
 }
-.studio.intro .st-right,
 .studio.out .st-right {
   transform: translateX(calc(100% + 2px));
 }
@@ -500,7 +498,7 @@
   color: var(--ink-2);
 }
 
-/* ---- 底下的字幕:开场时"板块漂移 约 1.8 亿年前 ━━ 跳过",之后一句提示 ---- */
+/* ---- 底下的一句提示(拖动看看这颗星球……) ---- */
 .st-cap {
   position: absolute;
   left: 50%;
@@ -524,38 +522,6 @@
 }
 .st-cap.off {
   opacity: 0;
-}
-.st-cap b {
-  font-weight: 600;
-}
-.st-yr {
-  min-width: 7.5em;
-  color: var(--ink-2);
-  font-variant-numeric: tabular-nums;
-}
-.st-bar {
-  width: 150px;
-  height: 4px;
-  border-radius: 2px;
-  background: rgba(255, 255, 255, 0.16);
-  overflow: hidden;
-}
-.st-bar i {
-  display: block;
-  width: 0;
-  height: 100%;
-  background: var(--accent);
-}
-.st-skip {
-  height: 28px;
-  padding: 0 12px;
-  border: 0;
-  border-radius: 14px;
-  background: var(--btn);
-  font-size: 13px;
-}
-.st-skip:hover {
-  background: var(--hover-bg);
 }
 .st-cap.st-tip {
   padding: 0 16px;
@@ -667,7 +633,6 @@
   box-shadow: 0 -8px 28px rgba(0, 0, 0, 0.35);
   transition: transform 0.36s cubic-bezier(0.3, 0.7, 0.2, 1);
 }
-.studio.intro .st-sheet,
 .studio.out .st-sheet {
   transform: translateY(105%);
 }
@@ -725,7 +690,6 @@
   gap: 8px;
   transition: opacity 0.3s ease;
 }
-.studio.intro .st-ph-btns,
 .studio.out .st-ph-btns {
   opacity: 0;
   pointer-events: none;
@@ -815,15 +779,6 @@
   padding-left: 12px;
   font-size: 13px;
 }
-.st-phone.intro .st-cap {
-  bottom: auto;
-}
-.st-phone .st-bar {
-  width: 64px;
-}
-.st-phone .st-yr {
-  min-width: 6.5em;
-}
 .st-phone .st-cap.st-tip {
   width: max-content;
   white-space: normal;
@@ -857,7 +812,6 @@
     transform: translateX(100%);
   }
 }
-.studio.intro > .ast-panel,
 .studio.out > .ast-panel {
   transform: translateX(calc(100% + 2px));
 }
@@ -883,7 +837,6 @@
     transform: translateY(100%);
   }
 }
-.st-phone.intro > .ast-panel,
 .st-phone.out > .ast-panel {
   transform: translateY(100%);
 }
@@ -924,4 +877,348 @@
 .st-labels.on {
   opacity: 1;
   transition: opacity 0.3s ease;
+}
+
+/* ---- 照手绘图新建(.st-image):左边图片那一行和三步(SketchSteps.tsx)、地图上方的切换条、电脑上地图下边的提示 ---- */
+/* 组和组之间比随机生成那页的分区挨得近 */
+.st-in.sk-in > .sb-group,
+.st-in.sk-in > .nw-note,
+.st-in.sk-in > .sb-sec {
+  margin-top: -6px;
+}
+.sk-image .sk-noimg {
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 4px;
+  background: var(--btn);
+  color: var(--ink-3);
+}
+/* 一步一组的组头:圆圈序号(做到这步是蓝的、做过的打勾)+ 名字 + 右边一句现在怎样 + 箭头 */
+.studio .sk-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 0;
+  background: transparent;
+  font-size: 15px;
+  text-align: left;
+}
+.studio .sk-head:hover:not(:disabled) {
+  background: var(--hover-bg);
+}
+.sk-head:disabled {
+  cursor: default;
+}
+.sk-head b {
+  flex: none;
+  font-weight: 600;
+}
+.sk-no {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(118, 118, 128, 0.36);
+  color: var(--ink-2);
+  font-size: 12.5px;
+  font-weight: 700;
+}
+.sk-no.on {
+  background: var(--accent);
+  color: #fff;
+}
+.sk-no.ok {
+  background: rgba(48, 209, 88, 0.2);
+  color: #4fcf83;
+}
+.sk-no .icon {
+  stroke-width: 2.6;
+}
+.sk-s {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.sk-head .sb-chev {
+  flex: none;
+  margin-right: -4px;
+  color: var(--ink-3);
+}
+.sk-group.dimmed .sk-head b,
+.sk-group.dimmed .sk-s {
+  color: var(--ink-3);
+}
+/* 展开的那一步:组头下面一道线,里面一段一段用线隔开(认图、笔都是编辑地形面板那一套) */
+.sk-body {
+  display: flex;
+  flex-direction: column;
+  border-top: 0.5px solid var(--line);
+}
+.studio .sk-body > .tp {
+  gap: 0;
+}
+.studio .sk-body > .tp > * + * {
+  border-top: 0.5px solid var(--line);
+}
+.studio .sk-body > .tp > .imp-use {
+  margin: 2px 12px 12px;
+  border-top: 0;
+}
+.studio .sk-body > .tp > .tp-opts + .imp-use {
+  margin-top: 0;
+}
+.studio .sk-body > .tp > .imp-use:only-child {
+  margin-top: 12px;
+}
+/* 第 3 步:参数一行一条(名字、滑条、数),换一种、名字、地名风格 */
+.sk-params.tp-opts {
+  gap: 12px;
+}
+.sk-pr {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.sk-pr > b {
+  flex: none;
+  width: 58px;
+  font-weight: 400;
+}
+.sk-pr > em {
+  flex: none;
+  width: 50px;
+  text-align: right;
+  font-style: normal;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.sk-body > .sk-params + .sb-row {
+  border-top: 0.5px solid var(--line);
+}
+.sk-name {
+  padding: 10px 12px 0;
+  border-top: 0.5px solid var(--line);
+}
+.studio .sk-name .nw-name {
+  display: block;
+  box-sizing: border-box;
+}
+
+/* 地图上方的切换条(深色毛玻璃,和底下的提示同一个底):看什么、叠上原图、样式,平面 / 地球仪 */
+.sk-vbar {
+  position: absolute;
+  left: 50%;
+  top: 98px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px;
+  border-radius: 12px;
+  background: rgba(30, 30, 32, 0.86);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  box-shadow:
+    0 0 0 0.5px rgba(255, 255, 255, 0.14),
+    0 4px 16px rgba(0, 0, 0, 0.35);
+  font-size: 13px;
+  white-space: nowrap;
+  transition: opacity 0.3s ease;
+}
+.studio.out .sk-vbar {
+  opacity: 0;
+}
+/* 提示条放到切换条上面,不压着它 */
+.app.has-side:has(.studio.st-image) .toast {
+  top: 24px;
+}
+.sk-vbar .tp-seg {
+  flex: none;
+  background: rgba(118, 118, 128, 0.24);
+}
+.studio .sk-vbar .tp-seg button {
+  flex: none;
+  height: 28px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  font-size: 13px;
+}
+.studio .sk-vbar .tp-seg button.on {
+  background: rgba(255, 255, 255, 0.18);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.14);
+  font-weight: 600;
+}
+.studio .sk-vbar .tp-seg button:disabled {
+  color: var(--ink-3);
+  cursor: default;
+}
+.sk-vbar-sep {
+  flex: none;
+  width: 0.5px;
+  height: 22px;
+  background: rgba(255, 255, 255, 0.2);
+}
+.sk-ov {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 6px;
+  color: var(--ink-2);
+}
+.sk-ov .tp-range {
+  flex: none;
+  width: 110px;
+}
+.sk-ov .tp-range input::-webkit-slider-runnable-track {
+  background: linear-gradient(to right, var(--accent) var(--fill), rgba(255, 255, 255, 0.18) var(--fill));
+}
+.sk-ov .tp-range input::-webkit-slider-thumb {
+  width: 16px;
+  height: 16px;
+  margin-top: -6px;
+}
+.sk-ov .tp-range input::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+}
+.sk-ov > em {
+  width: 32px;
+  font-style: normal;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.sk-sty-wrap {
+  position: relative;
+  display: flex;
+}
+.studio .sk-sty {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 8px 0 4px;
+  border: 0;
+  border-radius: 7px;
+  background: rgba(118, 118, 128, 0.24);
+}
+.studio .sk-sty.on,
+.studio .sk-sty:hover {
+  background: rgba(118, 118, 128, 0.36);
+}
+.sk-sty i {
+  width: 30px;
+  height: 20px;
+  border-radius: 4px;
+  background: var(--btn) center / cover no-repeat;
+  box-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.2);
+}
+.sk-sty .icon {
+  color: var(--ink-2);
+}
+/* 样式列表:从按钮下面弹出来 */
+.sk-pop.sb-group {
+  position: absolute;
+  top: calc(100% + 10px);
+  left: 50%;
+  z-index: 2;
+  width: 168px;
+  transform: translateX(-50%);
+  padding: 4px;
+  border-radius: 12px;
+  background: var(--panel-solid);
+  box-shadow:
+    0 0 0 0.5px var(--line),
+    0 12px 32px rgba(0, 0, 0, 0.45);
+}
+.studio .sk-pop .st-opt {
+  min-height: 40px;
+  padding: 5px 8px;
+  border-radius: 8px;
+}
+.sk-pop .st-thumb {
+  width: 40px;
+  height: 27px;
+}
+/* 电脑上地图下边的一句(位置由 Studio.tsx 按地图算) */
+.studio .sk-cap {
+  height: auto;
+  min-height: 40px;
+  pointer-events: none;
+}
+
+/* 手机:切换条在地图上方,底部卡片占屏幕下面 64%(和 Studio.tsx 的 SK_SHEET 一致),拉到最高时盖住地图 */
+.st-phone .sk-vbar {
+  top: calc(54px + env(safe-area-inset-top, 0px));
+  gap: 6px;
+  padding: 4px;
+  font-size: 12.5px;
+}
+.studio.st-phone .sk-vbar .tp-seg button {
+  padding: 0 9px;
+  font-size: 12.5px;
+}
+.st-phone .sk-sty {
+  padding-right: 6px;
+}
+.st-sheet.sk-sheet {
+  top: 35.8%;
+  max-height: none;
+  z-index: 3;
+  transition:
+    top 0.3s cubic-bezier(0.3, 0.7, 0.2, 1),
+    transform 0.36s cubic-bezier(0.3, 0.7, 0.2, 1);
+}
+.studio.sheet-full .st-sheet.sk-sheet {
+  top: calc(12px + env(safe-area-inset-top, 0px));
+}
+/* 三步常常比卡片长:「创建世界」上面隔一条线,滚动的内容从线下面过 */
+.st-sheet.sk-sheet .st-foot {
+  padding-top: 14px;
+  border-top: 0.5px solid var(--line);
+}
+.sk-phd {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: -3px;
+  padding: 0 16px;
+}
+.sk-phd .nw-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 18px;
+  font-weight: 700;
+}
+.studio .sk-bk {
+  display: flex;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--link);
+}
+.sk-bk .icon {
+  stroke-width: 2.3;
+}
+.st-sheet .st-in.sk-in {
+  gap: 8px;
+  padding-top: 10px;
+}
+.st-sheet .st-in.sk-in > * {
+  margin-top: 0;
 }

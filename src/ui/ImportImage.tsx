@@ -1,16 +1,18 @@
 /**
- * 编辑地形里的「导入图片」:选一张图(「整张草图」第一行,或者把图片拖到地图上),在这台设备上认出哪是海、哪是陆地
- * (gen/sketchImage.ts),看着地图上的预览调好,点「用这张图」变成草图的底子。图片不上传,用了以后也只记下认出来的格子。
+ * 照手绘图生成(新建世界选了「照手绘图生成」才有):选一张图(新建弹窗里选好带进来,或者「换一张」、把图片拖到地图上),
+ * 在这台设备上认出哪是海、哪是陆地(gen/sketchImage.ts),看着地图上的预览调好,点「照这样长出星球」变成草图的底子
+ * (铺在所有笔画底下,没盖到的地方都是海)。图片不上传,存档里只记下认出来的格子。
  *
- * - 导入时左边编辑地形的面板整块换成 ImportPanel(取消 = 回到原来的样子);地图上画 ImportLayer(在 TerrainOverlay 里):
+ * - 认的时候(第 1 步「认出海陆」)左边是 ImportPanel;地图上画 ImportLayer(在 TerrainOverlay 里):
  *   图铺在它放的地方,认出来的涂上颜色、海岸描一道白线,点过的地方标 1 2 3;保持比例时画出图的范围,没盖到的地方压暗。
  * - 认法:点一下海(在地图上点图里的海;撤销一下 / 重新点)/ 按深浅(海平面、亮暗反过来;灰度图还能「高低也照图」)。
- *   放法:铺满整张 / 保持比例(拖动图片挪位置,「大小」缩放)。地图上看认出来的还是原图。
- * - 认得不像样(importWarning)出一条橙色提醒,「用这张图」变灰。
+ *   放法:铺满整张 / 保持比例(拖动图片挪位置,「大小」缩放)。地图上看认出来的还是原图(地图上方的切换条)。
+ * - 认得不像样(importWarning)出一条橙色提醒,「照这样长出星球」变灰。
  * - 地图事件由 TerrainTools 转过来:importDown / importMove / importUp / importClick(世界坐标)。
- * - 用了以后草图里那一层在地图上的样子(陆地淡淡涂绿、海岸描线)是 LayerMark,也画在 TerrainOverlay 里。
+ * - 长出星球以后这张图和当时的认法留着(source,只在这一页里,刷新就没了):回第 1 步接着认、地图上看原图 / 认出来的、
+ *   「叠上原图」对照(SourceLayer,和 TerrainOverlay 叠在一起)。用了以后草图里那一层在地图上的样子(陆地淡淡涂绿、海岸描线)是 LayerMark。
  */
-import { useMemo, useSyncExternalStore } from 'react';
+import { useId, useMemo, useSyncExternalStore } from 'react';
 import { LAYER_H, LAYER_W, SKETCH_HILLS, SKETCH_LAND, SKETCH_MOUNTAIN, SKETCH_PLATEAU, SKETCH_SEA, SKETCH_SHELF, decodeLayer, type SketchImage } from '../gen/sketch';
 import {
   WAND_RANGE,
@@ -33,6 +35,7 @@ import {
 } from '../gen/sketchImage';
 import { TERRAIN_H, TERRAIN_W } from '../gen/terrainEdits';
 import { clamp } from '../gen/util';
+import { useEdits } from './editsStore';
 import { Icon } from './icons';
 import { showToast } from './toastStore';
 import { Seg, Slider } from './tpControls';
@@ -88,6 +91,70 @@ export function useImport(): ImportState | null {
 export const importOn = () => !!imp;
 export const useImportOn = () => !!useImport();
 
+/** 照着长出星球的那张图和当时的认法(回第 1 步接着认;地图上看原图、叠上原图用);还没长 = null */
+let source: ImportState | null = null;
+const srcSubs = new Set<() => void>();
+function setSource(next: ImportState | null) {
+  if (source && source.url !== next?.url && source.url !== imp?.url) URL.revokeObjectURL(source.url);
+  source = next;
+  srcSubs.forEach((f) => f());
+}
+export function useSource(): ImportState | null {
+  return useSyncExternalStore(
+    (f) => (srcSubs.add(f), () => srcSubs.delete(f)),
+    () => source,
+    () => source,
+  );
+}
+export const hasSource = () => !!source;
+
+/** 「照这样长出星球」以后:这张图和认法留着,收起认的面板 */
+export function keepImport() {
+  if (!imp) return;
+  drag = null;
+  const s = imp;
+  setSource(s);
+  setImp(null);
+}
+
+/** 回到第 1 步:接着上次的认法认(没有留着的图 = false) */
+export function resumeImport(): boolean {
+  if (!source) return false;
+  setImp(source);
+  return true;
+}
+
+/** 离开新建(或开了另一个):正在认的、留着的图都不要了 */
+export function dropSource() {
+  cancelImport();
+  setSource(null);
+  setSourceView({ show: 'grown', overlay: 0 });
+}
+
+/** 地图上看什么(不在认的时候):原图 / 认出来的 / 长出来的(星球本身);长出来的上面叠原图多少(0–1) */
+export type SourceShow = 'original' | 'result' | 'grown';
+interface SourceView {
+  show: SourceShow;
+  overlay: number;
+}
+let srcView: SourceView = { show: 'grown', overlay: 0 };
+const viewSubs = new Set<() => void>();
+export function setSourceView(p: Partial<SourceView>) {
+  const next = { ...srcView, ...p };
+  if (next.show === srcView.show && next.overlay === srcView.overlay) return;
+  srcView = next;
+  viewSubs.forEach((f) => f());
+}
+export function useSourceView(): SourceView {
+  return useSyncExternalStore(
+    (f) => (viewSubs.add(f), () => viewSubs.delete(f)),
+    () => srcView,
+    () => srcView,
+  );
+}
+/** 认的时候换看法(原图 / 认出来的) */
+export const setImportView = (view: ImportState['view']) => patch({ view });
+
 /** 最多点几处 */
 const MAX_CLICKS = 60;
 /** 原图宽或高超过这么多就不认了(太大的图解码很占内存) */
@@ -95,7 +162,7 @@ const MAX_SIDE = 8000;
 /** 认之前先把图缩到长边不超过这么多(找线还用得上细节,又不至于太慢) */
 const DECODE_SIDE = 2560;
 
-/** 选一张图(点「导入图片」「换一张」时) */
+/** 选一张图(点「换一张」时) */
 export function pickImage() {
   // 选文件框放进页面里再点(不在页面里的,有的浏览器选好了也不发 change);选好了拿掉,取消了留到下次再拿掉
   document.querySelector('input.imp-pick')?.remove();
@@ -119,13 +186,22 @@ export const isImageFile = (f: File) => f.type.startsWith('image/');
 /** 第几次读图:读完发现已经不是最新的一次(又选了一张,或者取消了)就扔掉 */
 let loading = 0;
 
-/** 读这张图、准备好认,打开导入面板(已经开着的换成这张);读不出来出一条提示 */
-export async function startImport(file: File) {
-  const req = ++loading;
+/** 读好的一张图:文件名、本机的 blob 网址、原图多大、缩小后准备好认的像素 */
+export interface LoadedImage {
+  name: string;
+  url: string;
+  w: number;
+  h: number;
+  pic: Picture;
+}
+
+/** 读一张图、准备好认;读不出来、太大出一条提示,返回 null(新建弹窗选图、「换一张」都走这里) */
+export async function loadImage(file: File): Promise<LoadedImage | null> {
   const url = URL.createObjectURL(file);
   const fail = (text: string, more: string) => {
     URL.revokeObjectURL(url);
     showToast({ id: 'import', kind: 'error', text, more: [more] });
+    return null;
   };
   // 先只读出图有多大(浏览器到画的时候才整张解码),太大的不解码
   const img = new Image();
@@ -134,7 +210,6 @@ export async function startImport(file: File) {
     img.onerror = () => done(false);
     img.src = url;
   });
-  if (req !== loading) return URL.revokeObjectURL(url);
   const w = img.naturalWidth;
   const h = img.naturalHeight;
   if (!ok || !w || !h) return fail('没能读出这张图', `${file.name} 不是能打开的图片`);
@@ -146,25 +221,26 @@ export async function startImport(file: File) {
   cv.width = cw;
   cv.height = ch;
   const ctx = cv.getContext('2d', { willReadFrequently: true });
-  let pic: Picture;
   try {
     if (!ctx) throw new Error('no canvas');
     ctx.drawImage(img, 0, 0, cw, ch);
-    pic = preparePicture(ctx.getImageData(0, 0, cw, ch));
+    return { name: file.name, url, w, h, pic: preparePicture(ctx.getImageData(0, 0, cw, ch)) };
   } catch {
     return fail('没能读出这张图', `${file.name} 不是能打开的图片`);
   }
-  if (imp) URL.revokeObjectURL(imp.url);
+}
+
+/** 开始认这张图(已经在认的换成这张;留着的那张不动,长出星球时才换掉) */
+export function beginImport(l: LoadedImage) {
+  loading++;
+  drag = null;
+  if (imp && imp.url !== source?.url && imp.url !== l.url) URL.revokeObjectURL(imp.url);
   setImp({
-    name: file.name,
-    url,
-    w,
-    h,
-    pic,
+    ...l,
     mode: 'wand',
     clicks: [],
     range: WAND_RANGE,
-    sea: autoSeaLevel(pic),
+    sea: autoSeaLevel(l.pic),
     dark: false,
     heights: true,
     fit: 'fill',
@@ -175,12 +251,21 @@ export async function startImport(file: File) {
   });
 }
 
-/** 取消导入(收起面板,图片不留) */
+/** 读这张图、开始认(「换一张」、把图片拖到地图上) */
+export async function startImport(file: File) {
+  const req = ++loading;
+  const l = await loadImage(file);
+  if (!l) return;
+  if (req !== loading) return URL.revokeObjectURL(l.url);
+  beginImport(l);
+}
+
+/** 不认了(收起认的面板;没长过星球的图不留,留着的那张照旧留着) */
 export function cancelImport() {
   drag = null;
   loading++;
   if (!imp) return;
-  URL.revokeObjectURL(imp.url);
+  if (imp.url !== source?.url) URL.revokeObjectURL(imp.url);
   setImp(null);
 }
 
@@ -312,9 +397,30 @@ export function importCancel() {
 /** 地图下边的一句提示(不用提示 = null) */
 export function importCaption(s: ImportState | null): string | null {
   if (!s) return null;
-  const pick = s.mode === 'wand' && !s.clicks.length;
-  if (s.fit === 'keep') return pick ? '点一下图里的海；拖动图片挪位置' : '拖动图片挪位置';
-  return pick ? '点一下图里的海' : null;
+  if (s.fit === 'keep') return s.mode === 'wand' ? '点一下图里的海；拖动图片挪位置' : '拖动图片挪位置';
+  return s.mode === 'wand' ? '点一下图里的海；被陆地围住的内海、湖再各点一下' : null;
+}
+
+/** 第 1 步收起时组头右边写的:怎么认的、认出来陆地多少("点一下海，陆地 20%") */
+export function importSummary(s: ImportState): string {
+  const r = recognize(s);
+  return `${s.mode === 'wand' ? '点一下海' : '按深浅'}，陆地 ${pct(r.stats.land)}`;
+}
+
+/** 第 1 步收起时组头右边写的,那张图已经不在了(刷新过、打开没建完的):照着长的那一层陆地多少("陆地 20%") */
+let lastLand: { cells: string; text: string } | null = null;
+export function layerSummary(cells: string): string {
+  if (lastLand?.cells === cells) return lastLand.text;
+  const layer = decodeLayer(cells);
+  const text = layer ? `陆地 ${pct(layerStats(layer).land)}` : '';
+  lastLand = { cells, text };
+  return text;
+}
+
+/** 第 1 步展开时组头右边写的:点了几处(按深浅的不写) */
+export function importProgress(s: ImportState): string {
+  if (s.mode !== 'wand') return '';
+  return s.clicks.length ? `点了 ${s.clicks.length} 处` : '还没点';
 }
 
 // ---------------------------------------------------------------------------
@@ -338,23 +444,21 @@ function warnText(w: Exclude<ImportWarning, null>, mode: ImportMode, stats: Laye
 }
 
 /**
- * 导入面板(编辑地形的面板导入时整块换成它):图片那一行(换一张)、怎么认、放法 / 地图上、认出来多少,最下面「用这张图」和一句不上传。
- * 手机上同一套,点了几处那一行连着写陆地占多少,不另起一行
+ * 第 1 步「认出海陆」展开的样子:怎么认(点一下海 / 按深浅)、范围或海平面、点了几处(撤销一下 / 重新点)、高低也照图、
+ * 认不准的提醒,放法(保持比例时还有大小),认出来陆地、海各多少,最下面「照这样长出星球」。
+ * 图片那一行、地图上看原图还是认出来的在这一页别处(Studio 的图片卡、地图上方的切换条)。手机上点了几处那一行连着写陆地占多少,不另起一行
  */
 export function ImportPanel({ phone, onUse }: { phone: boolean; onUse: () => void }) {
   const s = useImport();
   if (!s) return null;
   const r = recognize(s);
-  const box = phone ? [48, 32] : [64, 40];
-  const tw = Math.round(Math.min(box[0], (box[1] * s.w) / s.h));
-  const th = Math.round((tw * s.h) / s.w);
   const land = r.stats.land;
   const hasHeights = s.mode === 'level' && !s.pic.colorful;
   const hint =
     s.mode === 'wand'
       ? phone
         ? '点一下图里的海；被陆地围住的内海、湖，再各点一下。'
-        : '在地图上点一下图里的海。颜色相近、连成一片的都算海；被陆地围住的内海、湖，再各点一下。'
+        : '在图上点一下海。颜色相近、连成一片的都算海；被陆地围住的内海、湖，再各点一下。'
       : `${s.dark ? '暗的是陆地、亮的是海' : '亮的是陆地、暗的是海'}；拖「海平面」定多高以下算海。`;
   const n = s.clicks.length;
   const result =
@@ -397,128 +501,90 @@ export function ImportPanel({ phone, onUse }: { phone: boolean; onUse: () => voi
     ) : null;
 
   return (
-    <div className="tp imp" role="region" aria-label="导入图片">
-      <section className="sb-sec">
-        <div className="sb-sec-head">
-          <span>导入图片</span>
-          <button className="sb-link tp-done" data-act="import-cancel" onClick={cancelImport}>
-            取消
-          </button>
-        </div>
-        <div className="sb-group">
-          <div className="imp-file">
-            <img src={s.url} width={tw} height={th} alt="" />
-            <span className="imp-file-tx">
-              <b>{s.name}</b>
-              <span>
-                {s.w} × {s.h}
-                {s.pic.colorful ? '' : '，灰度'}
-              </span>
-            </span>
-            <button className="sb-link" data-act="import-repick" onClick={pickImage}>
-              换一张
-            </button>
-          </div>
-        </div>
-      </section>
-      <div className="sb-group">
-        <div className="tp-opts">
-          <Seg
-            label="怎么认"
-            act="import-mode"
-            items={[
-              { v: 'wand' as const, name: '点一下海' },
-              { v: 'level' as const, name: '按深浅' },
-            ]}
-            value={s.mode}
-            onPick={(v) => patch({ mode: v })}
-          />
-          <div className="imp-hint">{hint}</div>
-          {s.mode === 'wand' ? (
-            <Slider label="范围" act="import-range" min={WAND_RANGE_MIN} max={WAND_RANGE_MAX} step={0.5} value={s.range} onChange={(v) => patch({ range: v })} />
-          ) : (
-            <>
-              <Slider label="海平面" act="import-sea" min={1} max={254} value={s.sea} onChange={(v) => patch({ sea: v })} />
-              <Seg
-                label="深浅"
-                act="import-dark"
-                items={[
-                  { v: 0, name: '亮的是陆地' },
-                  { v: 1, name: '暗的是陆地' },
-                ]}
-                value={s.dark ? 1 : 0}
-                onPick={(v) => patch({ dark: v === 1, sea: autoSeaLevel(s.pic, v === 1) })}
-              />
-            </>
-          )}
-        </div>
-        {s.mode === 'wand' && (
-          <div className="tp-count">
-            <b className="tp-n">{n ? (phone && r.ready ? `点了 ${n} 处，陆地 ${pct(land)}` : `点了 ${n} 处`) : '还没点'}</b>
-            <button className="sb-link" data-act="import-undo" disabled={!n} onClick={importUndoClick}>
-              撤销一下
-            </button>
-            <button className="sb-link" data-act="import-reset" disabled={!n} onClick={() => patch({ clicks: [] })}>
-              重新点
-            </button>
-          </div>
-        )}
-        {hasHeights && (
-          <button className="sb-row tp-show imp-heights" role="switch" aria-checked={s.heights} data-act="import-heights" onClick={() => patch({ heights: !s.heights })}>
-            <span className="sb-row-main">
-              <b>高低也照图</b>
-              <small>{s.dark ? '越暗越高' : '越亮越高'}，长成丘陵、山地；关掉就只分海陆，山由程序定</small>
-            </span>
-            <span className={`ai-switch${s.heights ? ' on' : ''}`} aria-hidden="true" />
-          </button>
-        )}
-        {r.warn && (
-          <div className="imp-warn" role="status">
-            <Icon name="warn" size={16} />
-            <span>
-              {warnText(r.warn, s.mode, r.stats)}
-              {r.warn === 'colorful' && (
-                <>
-                  <br />
-                  <button className="sb-link" data-act="import-use-wand" onClick={() => patch({ mode: 'wand' })}>
-                    改用点一下海
-                  </button>
-                </>
-              )}
-            </span>
-          </div>
+    <div className="tp imp imp-step" role="region" aria-label="认出海陆">
+      <div className="tp-opts">
+        <Seg
+          label="怎么认"
+          act="import-mode"
+          items={[
+            { v: 'wand' as const, name: '点一下海' },
+            { v: 'level' as const, name: '按深浅' },
+          ]}
+          value={s.mode}
+          onPick={(v) => patch({ mode: v })}
+        />
+        <div className="imp-hint">{hint}</div>
+        {s.mode === 'wand' ? (
+          <Slider label="范围" act="import-range" min={WAND_RANGE_MIN} max={WAND_RANGE_MAX} step={0.5} value={s.range} onChange={(v) => patch({ range: v })} />
+        ) : (
+          <>
+            <Slider label="海平面" act="import-sea" min={1} max={254} value={s.sea} onChange={(v) => patch({ sea: v })} />
+            <Seg
+              label="深浅"
+              act="import-dark"
+              items={[
+                { v: 0, name: '亮的是陆地' },
+                { v: 1, name: '暗的是陆地' },
+              ]}
+              value={s.dark ? 1 : 0}
+              onPick={(v) => patch({ dark: v === 1, sea: autoSeaLevel(s.pic, v === 1) })}
+            />
+          </>
         )}
       </div>
-      <div className="sb-group">
-        <div className="tp-opts">
-          <Seg
-            label="放法"
-            act="import-fit"
-            items={[
-              { v: 'fill' as const, name: '铺满整张' },
-              { v: 'keep' as const, name: '保持比例' },
-            ]}
-            value={s.fit}
-            onPick={(v) => patch({ fit: v })}
-          />
-          {s.fit === 'keep' && <Slider label="大小" act="import-scale" min={PLACE_SCALE[0]} max={PLACE_SCALE[1]} step={0.01} value={s.scale} onChange={(v) => patch({ scale: v })} />}
-          <Seg
-            label="地图上"
-            act="import-view"
-            items={[
-              { v: 'result' as const, name: '认出来的' },
-              { v: 'original' as const, name: '原图' },
-            ]}
-            value={s.view}
-            onPick={(v) => patch({ view: v })}
-          />
+      {s.mode === 'wand' && (
+        <div className="tp-count">
+          <b className="tp-n">{n ? (phone && r.ready ? `点了 ${n} 处，陆地 ${pct(land)}` : `点了 ${n} 处`) : '还没点'}</b>
+          <button className="sb-link" data-act="import-undo" disabled={!n} onClick={importUndoClick}>
+            撤销一下
+          </button>
+          <button className="sb-link" data-act="import-reset" disabled={!n} onClick={() => patch({ clicks: [] })}>
+            重新点
+          </button>
         </div>
-        {result}
+      )}
+      {hasHeights && (
+        <button className="sb-row tp-show imp-heights" role="switch" aria-checked={s.heights} data-act="import-heights" onClick={() => patch({ heights: !s.heights })}>
+          <span className="sb-row-main">
+            <b>高低也照图</b>
+            <small>{s.dark ? '越暗越高' : '越亮越高'}，长成丘陵、山地；关掉就只分海陆，山由程序定</small>
+          </span>
+          <span className={`ai-switch${s.heights ? ' on' : ''}`} aria-hidden="true" />
+        </button>
+      )}
+      {r.warn && (
+        <div className="imp-warn" role="status">
+          <Icon name="warn" size={16} />
+          <span>
+            {warnText(r.warn, s.mode, r.stats)}
+            {r.warn === 'colorful' && (
+              <>
+                <br />
+                <button className="sb-link" data-act="import-use-wand" onClick={() => patch({ mode: 'wand' })}>
+                  改用点一下海
+                </button>
+              </>
+            )}
+          </span>
+        </div>
+      )}
+      <div className="tp-opts imp-fit">
+        <Seg
+          label="放法"
+          act="import-fit"
+          items={[
+            { v: 'fill' as const, name: '铺满整张' },
+            { v: 'keep' as const, name: '保持比例' },
+          ]}
+          value={s.fit}
+          onPick={(v) => patch({ fit: v })}
+        />
+        {s.fit === 'keep' && <Slider label="大小" act="import-scale" min={PLACE_SCALE[0]} max={PLACE_SCALE[1]} step={0.01} value={s.scale} onChange={(v) => patch({ scale: v })} />}
       </div>
+      {result}
       <button className="imp-use" data-act="import-use" disabled={!r.ready || !!r.warn} onClick={onUse}>
-        用这张图
+        照这样长出星球
       </button>
-      <div className="tp-fine">{phone ? '图片只在这台手机上认，不上传，也不存原图。' : '图片只在这台电脑上认，不会上传。用了以后只记下认出来的海陆和高低，不存原图。'}</div>
     </div>
   );
 }
@@ -651,15 +717,15 @@ function coastPath(values: Uint8Array, w: number, h: number): string {
 
 /**
  * 导入时地图上的预览(TerrainOverlay 里,世界坐标):图铺在它放的地方;「认出来的」时涂色、描海岸线(认得不像样时不描);点过的地方标序号;
- * 保持比例时画出图的范围(虚线框、四角小方块),没盖到的地方压暗并写上照什么走。
- * scale = 屏幕上一个世界单位多少像素(序号、小方块、字按屏幕大小画);rest = 没涂的地方交给程序还是都是海
+ * 保持比例时画出图的范围(虚线框、四角小方块),没盖到的地方压暗并写上"都是海"。
+ * scale = 屏幕上一个世界单位多少像素(序号、小方块、字按屏幕大小画)
  */
-export function ImportLayer({ width, height, scale, rest }: { width: number; height: number; scale: number; rest: 'auto' | 'sea' }) {
+export function ImportLayer({ width, height, scale }: { width: number; height: number; scale: number }) {
   const s = useImport();
-  return s ? <ImportPreview s={s} width={width} height={height} scale={scale > 0 ? scale : 1} rest={rest} /> : null;
+  return s ? <ImportPreview s={s} width={width} height={height} scale={scale > 0 ? scale : 1} /> : null;
 }
 
-function ImportPreview({ s, width, height, scale, rest }: { s: ImportState; width: number; height: number; scale: number; rest: 'auto' | 'sea' }) {
+function ImportPreview({ s, width, height, scale }: { s: ImportState; width: number; height: number; scale: number }) {
   const r = recognize(s);
   const heights = s.mode === 'level' && heightsOn(s);
   const tint = useMemo(() => tintUrl(r.values, s.pic.w, s.pic.h, heights ? PREVIEW_HEIGHTS : PREVIEW_PLAIN), [r.values, s.pic, heights]);
@@ -687,7 +753,7 @@ function ImportPreview({ s, width, height, scale, rest }: { s: ImportState; widt
     dims.push([at, 0, width - at, height]);
   }
   const shade = dims.filter(([, , w, h]) => w > 0 && h > 0);
-  const tag = rest === 'sea' ? '都是海' : '交给程序';
+  const tag = '都是海';
   const tags = shade.filter(([, , w, h]) => w * scale >= 64 && h * scale >= 24);
   const corners = [
     [box.x, box.y],
@@ -766,5 +832,44 @@ export function LayerMark({ image, width, height, pending }: { image: SketchImag
         <path className="sk-image-coast" d={coast} vectorEffect="non-scaling-stroke" />
       </g>
     </g>
+  );
+}
+
+/** 长出星球以后地图上看「认出来的」:海涂蓝、陆地涂绿(高低也照图的,丘陵、山地、高原照笔的颜色) */
+const RESULT_COLORS: Record<number, RGBA> = { ...LAYER_COLORS, ...PREVIEW_HEIGHTS, ...PREVIEW_PLAIN };
+
+/**
+ * 照手绘图那一页、不在认的时候地图上叠的(和 TerrainOverlay 一样的世界坐标,叠在它底下,草图的笔画在它上面):
+ * 原图 = 图铺在它放的地方;认出来的 = 图(还留着的话)+ 认出来的海陆涂色、海岸描白线;长出来的 = 按「叠上原图」的不透明度盖一层原图。
+ * wrap = 世界东西一整圈的宽度(左右各接一份,跨 180° 经线拖动时两边都看得到)
+ */
+export function SourceLayer({ width, height, wrap = 0 }: { width: number; height: number; wrap?: number }) {
+  const uid = useId().replace(/[^a-zA-Z0-9_-]/g, '');
+  const v = useSourceView();
+  const src = useSource();
+  const importing = useImportOn();
+  const cells = useEdits().sketch?.image?.cells;
+  const result = v.show === 'result';
+  const layer = useMemo(() => (result && cells ? decodeLayer(cells) : null), [result, cells]);
+  const tint = useMemo(() => (layer ? tintUrl(layer, LAYER_W, LAYER_H, RESULT_COLORS) : ''), [layer]);
+  const coast = useMemo(() => (layer ? coastPath(layer, LAYER_W, LAYER_H) : ''), [layer]);
+  const pic = v.show === 'original' || result ? 1 : v.overlay;
+  if (importing || (result ? !layer : !src || pic <= 0)) return null;
+  const box = src && worldRect(src, width);
+  return (
+    <svg className="terrain-overlay src-layer" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" aria-hidden="true">
+      <g id={uid} className="terrain-marks">
+        {box && <image href={src.url} x={box.x} y={box.y} width={box.w} height={box.h} preserveAspectRatio="none" opacity={pic} />}
+        {layer && (
+          <>
+            <image href={tint} x={0} y={0} width={width} height={height} preserveAspectRatio="none" />
+            <g transform={`scale(${width / LAYER_W} ${height / LAYER_H})`}>
+              <path className="imp-coast" d={coast} vectorEffect="non-scaling-stroke" />
+            </g>
+          </>
+        )}
+      </g>
+      {!!wrap && [-wrap, wrap, 2 * wrap].map((dx) => <use key={dx} href={`#${uid}`} x={dx} />)}
+    </svg>
   );
 }
