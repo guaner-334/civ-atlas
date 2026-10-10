@@ -1,5 +1,5 @@
 /**
- * 旧版网站(ui/oldSite.ts):哪一版的世界到哪个旧网站看原样、旧网站怎么回最新版、构建时带的版本号和日期怎么读
+ * 旧版网站(ui/oldSite.ts):哪一版的世界到哪个旧网站看原样、旧网站和测试网站怎么回正式网站、构建时带的版本号和日期怎么读
  */
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS } from '../src/gen/world';
@@ -22,12 +22,22 @@ describe('旧版网站', () => {
     expect(oldSiteFor(9, 'https://example.org/atlas/index.html?seed=1', null, 10)?.href).toBe('https://example.org/atlas/v9/');
     // 这一页就是旧网站:没有更旧的可指
     expect(oldSiteFor(9, 'https://atlas.gerdor.top/v10/', 10, 11)).toBeNull();
+    // 测试网站在正式网站下面一层:旧网站往上找,不是 beta/v9/
+    expect(oldSiteFor(9, 'https://atlas.gerdor.top/beta/?seed=7&w=wabc1234567', null, 10, true)?.href).toBe('https://atlas.gerdor.top/v9/');
+    expect(oldSiteFor(9, 'https://atlas.gerdor.top/beta/index.html', null, 10, true)?.href).toBe('https://atlas.gerdor.top/v9/');
+    expect(oldSiteFor(10, 'https://atlas.gerdor.top/beta/', null, 10, true)).toBeNull();
   });
 
   it('旧网站回最新版:上一层目录;最新版自己就是这一页所在的目录', () => {
     expect(latestUrl('https://atlas.gerdor.top/v9/?seed=7#share=abc', 9).href).toBe('https://atlas.gerdor.top/');
     expect(latestUrl('https://atlas.gerdor.top/v9/index.html', 9).href).toBe('https://atlas.gerdor.top/');
     expect(latestUrl('https://atlas.gerdor.top/?seed=7', null).href).toBe('https://atlas.gerdor.top/');
+  });
+
+  it('测试网站回正式网站:上一层目录', () => {
+    expect(latestUrl('https://atlas.gerdor.top/beta/?seed=7#share=abc', null, true).href).toBe('https://atlas.gerdor.top/');
+    expect(latestUrl('https://atlas.gerdor.top/beta/index.html', null, true).href).toBe('https://atlas.gerdor.top/');
+    expect(latestUrl('https://atlas.gerdor.top/?seed=7', null, false).href).toBe('https://atlas.gerdor.top/');
   });
 
   it('构建时带的版本号、新版上线那天:格式不对就当没给', () => {

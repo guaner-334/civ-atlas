@@ -209,7 +209,7 @@ import { Globe, getGlobeOn, setGlobeOn, useGlobeOn, type GlobeApi } from './Glob
 import { setupAi } from '../ai/setup';
 import { ToastBar, clearToast, showToast } from './Toast';
 import { DRAFT_SEG, FirstHint, HoverCard, MapBar, MapControls, OldSiteBadge, PhoneButtons, SEG_LAYERS, hintSeen, markHintSeen } from './Corners';
-import { OLD_SITE, OWN_KEY, oldSiteFor, oldSiteNote, openInLatest, openOriginal, plainSave } from './oldSite';
+import { BETA_SITE, OLD_SITE, OWN_KEY, oldSiteFor, oldSiteNote, openInLatest, openOriginal, plainSave } from './oldSite';
 import type { ToastAction } from './toastStore';
 import { Sidebar } from './Sidebar';
 import { PhoneSheet } from './PhoneSheet';
@@ -3531,7 +3531,7 @@ export function App() {
         )
       ) : narrow ? (
         <>
-          {/* 手机:底部的世界卡片(没选东西时;选中了东西换成详情卡片)、右上竖排的毛玻璃按钮(图层、地球);数据图层的图例、旧网站的「旧版」标记在左上。
+          {/* 手机:底部的世界卡片(没选东西时;选中了东西换成详情卡片)、右上竖排的毛玻璃按钮(图层、地球);数据图层的图例、旧网站的「旧版」(测试网站的「测试版」)标记在左上。
               界面都在卡片和毛玻璃按钮上,地图上不再压字、不用渐变遮罩;最近大事在世界卡片拉到顶时的列表里。
               新建时这些都不放(新建界面自己一套) */}
           {!draft && !selState.sel && !upOn && (
@@ -3548,7 +3548,7 @@ export function App() {
               />
           )}
           {!draft && <PhoneButtons layers={{ ...layerProps, draft }} globeOn={globeOn} onToggleGlobe={toggleGlobe} marking={markable ? markPlacing : undefined} />}
-          {!draft && (OLD_SITE !== null || style === 'data') && (
+          {!draft && (OLD_SITE !== null || BETA_SITE || style === 'data') && (
             <div className="corner-tl">
               <OldSiteBadge />
               {style === 'data' && <Legend layer={layer} />}
@@ -3557,7 +3557,7 @@ export function App() {
         </>
       ) : (
         <>
-          {/* 宽屏:左边侧栏(世界 / 选中的东西的详情、搜索、存档);右上图层、导出、编年史;数据图层的图例、旧网站的「旧版」标记在地图左上。新建时都不放(新建界面自己一套) */}
+          {/* 宽屏:左边侧栏(世界 / 选中的东西的详情、搜索、存档);右上图层、导出、编年史;数据图层的图例、旧网站的「旧版」(测试网站的「测试版」)标记在地图左上。新建时都不放(新建界面自己一套) */}
           {!draft && (
             <Sidebar
               data={data}
@@ -3572,7 +3572,7 @@ export function App() {
             />
           )}
           {!draft && <MapBar civ={civ} layers={layerProps} exp={{ data, civ, plain: plainCiv, style, layer }} draft={draft} />}
-          {!draft && (OLD_SITE !== null || (style === 'data' && !terrainTool.on)) && (
+          {!draft && (OLD_SITE !== null || BETA_SITE || (style === 'data' && !terrainTool.on)) && (
             <div className="corner-tl">
               <OldSiteBadge />
               {style === 'data' && !terrainTool.on && <Legend layer={layer} />}
