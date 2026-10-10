@@ -1147,7 +1147,11 @@ export function App() {
     // 页面开着时又粘贴了一个只有 # 不同的分享链接(浏览器不刷新页面)
     const onHash = () => {
       const h = location.hash;
-      if (!isShareHash(h)) return;
+      if (!isShareHash(h)) {
+        // 地址栏里自己加了别的 #:浏览器记了一步、这个网站没记过,也记成一步(不然收起卡片退回去时会落到它上面)
+        if (!isNavState(history.state)) navAdopt(navInfo(getStage().stage, targetRef.current));
+        return;
+      }
       // 浏览器为这个 # 记了一步:当成新的一步(打开分享的世界时换成它)
       navAdopt(navInfo(getStage().stage, targetRef.current));
       navUrl(location.pathname + location.search);
@@ -1817,10 +1821,12 @@ export function App() {
       const left = derivedUntouched();
       if (left && !(to.page === 'draft' && to.id === left)) deleteWorld(left);
     }
-    // 分享链接打不开的那一页、正在取的分享、写史书的窗口(选的是那个世界的国家):换了画面就不留
+    // 分享链接打不开的那一页、正在取的分享、写史书的窗口(选的是那个世界的国家)、读着的史书:换了画面就不留
+    // (到了世界、那一步记着史书的,世界好了再打开)
     setLanding(null);
     clearToast('share');
     closeHistoryBook();
+    closeBookReader();
     if (to.page === 'home') return showHome();
     const back = dir < 0;
     const skip = (): void | 'skip' => (back && to.prev ? 'skip' : showHome());
