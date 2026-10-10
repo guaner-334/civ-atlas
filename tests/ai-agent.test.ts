@@ -21,6 +21,7 @@ import {
   TRIAL_SAME_MAX,
   UNFINISHED_NOTE,
   assistantMessages,
+  saysListed,
   assistantTools,
   polityOf,
   runAssistant,
@@ -198,6 +199,27 @@ describe('助手的循环', () => {
     expect(out.end).toBe('done');
     expect(seen[0].toolChoice).toBe('none');
     expect(seen[0].messages.some((m) => m.content === FINAL_NUDGE)).toBe(false);
+  });
+
+  it('回完话以后调用方看出没做完:补一句再问一轮(可以只给几样工具);一次对话只补一次,剩下的轮数不够就不补', async () => {
+    const follow = (text: string) => (text.includes('列出') ? { say: '你说要列,但没有调用工具。', tools: ['echo'] } : null);
+    let seen = script('现在列出：', { calls: [['echo', { x: 1 }]] }, '现在列出：');
+    let out = await runAgent({ feature: '测试', messages: [{ role: 'user', content: '…' }], tools: [echo, boom], followUp: follow });
+    expect(seen).toHaveLength(3);
+    expect(seen[1].tools!.map((t) => t.name)).toEqual(['echo']);
+    expect(seen[1].messages.slice(-2)).toEqual([
+      { role: 'assistant', content: '现在列出：' },
+      { role: 'user', content: '你说要列,但没有调用工具。' },
+    ]);
+    // 补的那一轮做完,下一轮工具全给;第二次再这么说不再补
+    expect(seen[2].tools!.map((t) => t.name)).toEqual(['echo', 'boom']);
+    expect(out.text).toBe('现在列出：');
+    expect(out.steps).toHaveLength(1);
+    // 只剩两轮(补了以后做不完再说完):不补
+    seen = script('现在列出：');
+    out = await runAgent({ feature: '测试', messages: [{ role: 'user', content: '…' }], tools: [echo], maxRounds: 2, followUp: follow });
+    expect(seen).toHaveLength(1);
+    expect(out.end).toBe('done');
   });
 
   it('收尾的话像没说完:以冒号结尾,或者最后一段是"让我再查……"这类', () => {
@@ -598,13 +620,54 @@ describe('助手', () => {
     expect(r).toContain('作者在确认单下面看到的试推演结果:');
     const row = state.proposal!.trial!.diff.focus[0];
     expect(r).toContain(`- ${row.who.name}:${civ.polities[victim].ended !== undefined ? `${Math.floor(civ.polities[victim].ended!)} 年亡 → ` : ''}`);
-    expect(r).toMatch(/现在用两三句话告诉作者:① 作者问的那个国家会怎样/);
+    expect(r).toMatch(/现在用两三句话回答,要说到这几样:作者问的那个国家会怎样/);
     expect(r).toContain('有 1 条不合格,作者执行不了');
     expect(r).toContain('作者还没执行');
+    expect(r).toContain('直接称作者为"你",不要分条编号');
+    // 不给编号(模型会照抄进回答)
+    expect(r).not.toMatch(/[①②③④]/);
+    // 主角撑到了历史的最后一年:说实际多撑了几年
+    const b = row.before?.end;
+    if (b !== undefined && row.after && row.after.end === undefined)
+      expect(r).toContain(`${row.who.name}原本第 ${b} 年亡,试推演里撑到了历史的最后一年(第 ${Math.floor(civ.endYear)} 年),多撑了 ${Math.floor(civ.endYear) - b} 年`);
+    else throw new Error('剧本里的国家应该撑到最后');
     // 没有试推演(地形):只说打算怎么改
     const propose = assistantTools(ctx({ lock: 'history' }), { trials: [], proposal: null }).find((x) => x.def.name === 'propose_edits')!;
     const t = await said(propose.run({ edits: [{ op: 'volcano', at: [0, 0] }] }));
-    expect(t).toMatch(/现在用两三句话告诉作者:① 打算怎么改。作者还没执行/);
+    expect(t).toMatch(/现在用两三句话回答,要说到这几样:打算怎么改。直接称作者为"你"/);
+    expect(t).not.toContain('多撑了');
+  });
+
+  it('还在新建(只能改地形):不给试推演', () => {
+    const names = (c: AssistantContext) => assistantTools(c, { trials: [], proposal: null }).map((t) => t.def.name);
+    expect(names(ctx({ lock: 'history' }))).toEqual(['country', 'chronicle', 'situation', 'propose_edits']);
+    expect(names(ctx())).toContain('try_edits');
+  });
+
+  it('话里说列了确认单却没调列单的工具:补一句再问一轮,只给列单的工具;回给人看的话里"作者"换成"你"', async () => {
+    const seen = script(
+      '地形修改不能试推演，所以直接列给作者确认。\n\npropose_edits 列出这一条。',
+      { calls: [['propose_edits', { edits: [PROTECT] }]] },
+      '我打算保护它，需作者在确认单上点击执行。',
+    );
+    const r = await runAssistant(ctx(), [], `让${vName}撑到最后`);
+    expect(seen).toHaveLength(3);
+    expect(seen[1].tools!.map((t) => t.name)).toEqual(['propose_edits']);
+    expect(seen[1].messages.at(-1)!.content).toMatch(/^你刚才说要列确认单,但没有调用 propose_edits/);
+    expect(seen[2].tools!.length).toBeGreaterThan(1);
+    expect(r.proposal).not.toBeNull();
+    expect(r.text).toBe('我打算保护它，需你在确认单上点击执行。');
+    // 列过了:不补
+    const again = script({ calls: [['propose_edits', { edits: [PROTECT] }]] }, '确认单已经列好了。');
+    expect((await runAssistant(ctx(), [], `让${vName}撑到最后`)).text).toBe('确认单已经列好了。');
+    expect(again).toHaveLength(2);
+  });
+
+  it('说没说列确认单', () => {
+    for (const t of ['现在为您列出确认单：', '确认单列出这一条，why 写明：…', '用 propose_edits 列出这一条', '我把它列到确认单上了。'])
+      expect(saysListed(t), t).toBe(true);
+    for (const t of ['', '做不到，所以没有列确认单。', '这件事用命令做不到，不列确认单了。', '第 2000 年最强的是萨尔斯坦帝国。', '确认单要你点了执行才生效。'])
+      expect(saysListed(t), t).toBe(false);
   });
 
   it('回给作者的话:编号前后紧挨着这个国家别的国号也不叠写;工具名换成中文', () => {
@@ -616,6 +679,9 @@ describe('助手', () => {
     expect(plainIds(`${other}(P${p.id})后来亡了`, rctx)).toBe(`${other}后来亡了`);
     expect(plainIds(`我用 chronicle 和 situation 查了`, rctx)).toBe('我用编年史和格局查了');
     expect(plainIds(`先用 country 查,再用 show 打开`, rctx)).toBe('先用国家资料查,再用地图打开');
+    // 前文已经用别的国号叫过它:沿用前文的,同一段里不出现两个名字
+    expect(plainIds(`${other}正和邻国交战。当时 P${p.id} 最强`, rctx)).toBe(`${other}正和邻国交战。当时${other}最强`);
+    expect(plainIds(`当时 P${p.id} 最强`, rctx)).toBe(`当时${nameAt(p, Y)}最强`);
   });
 
   it('提示词:改写的提示词带的修改写法和助手的是同一份;前几轮带上执行没执行', () => {

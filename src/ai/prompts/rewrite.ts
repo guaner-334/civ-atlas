@@ -608,7 +608,8 @@ export const REWRITE_OPS = [
 
 /** 几种常见说法怎么改:改写和助手的提示词共用 */
 export const REWRITE_TIPS = [
-  '- "让它多撑 N 年":从原本亡国前约 30 年起 protect,until = 原本亡国那年 + N。超过历史的最后一年就写最后一年,并告诉作者历史只推演到那一年、最多撑到那一年。',
+  '- "让它多撑 N 年":从原本亡国前约 30 年起 protect,until = 原本亡国那年 + N。超过历史的最后一年就写最后一年,并告诉作者历史只推演到那一年、实际多撑了几年。',
+  '- "让它撑下去""别让它亡":常见的有三种办法:protect 保护它;halt 禁止要吞它的那国扩张;ally 和强邻结盟。作者不让用其中一种,就试另外几种。',
   '- "国土别变大""别扩张":和 protect 同一年起加 halt,until 也一样;不要从立国起禁,那会把之前的整段历史也改掉。',
   '- 在海上加岛:小岛用 volcano;大岛用 raise 画一段(两三个点连成一条,或几个点围一圈)。落点要在开阔的海面上,离现有的陆地比新岛的半径远几百公里,不然会和那块陆地连成一片;' +
     '核对结果里会写落点离最近的陆地多远,太近就挪。',
@@ -902,6 +903,21 @@ export function plainIds(text: string, ctx: Pick<RewriteContext, 'world' | 'civ'
     }
     return n ? landName(id, n, Math.abs(lat / n) >= 60) : '';
   };
+  /** 前文里最后出现的这个国家的国号(各个国号里挑位置最靠后的;没出现过 = 不给) */
+  const usedTitle = (id: number, before: string): string | undefined => {
+    const p = civ.polities[id];
+    if (!p) return undefined;
+    let best: string | undefined;
+    let at = -1;
+    for (const t of polityTitleChain(p).split(' → ')) {
+      const i = before.lastIndexOf(t);
+      if ([...t].length >= 2 && i > at) {
+        best = t;
+        at = i;
+      }
+    }
+    return best;
+  };
   const ID = String.raw`[PCREML]\d{1,5}`;
   return (
     text
@@ -914,7 +930,9 @@ export function plainIds(text: string, ctx: Pick<RewriteContext, 'world' | 'civ'
         const before = all.slice(0, off).replace(/[\s:：]+$/, '');
         const after = all.slice(off + m.length).replace(/^[\s:：]+/, '');
         const names = tag === 'P' ? [name, ...aliases(Number(num))] : [name];
-        return names.some((n) => before.endsWith(n) || after.startsWith(n)) ? '' : name;
+        if (names.some((n) => before.endsWith(n) || after.startsWith(n))) return '';
+        // 前文已经用某个国号叫过它(问的是哪一年,那年的国号和时间轴上的不一样):沿用前文的,同一段话里不出现两个名字
+        return tag === 'P' ? (usedTitle(Number(num), before) ?? name) : name;
       })
       .replace(new RegExp(String.raw`\b(${Object.keys(OP_WORDS).join('|')})\b`, 'gi'), (w) => OP_WORDS[w.toLowerCase()] ?? w)
       // 去掉编号以后留下的空格:汉字、标点和汉字之间的不要,连着几个的并成一个

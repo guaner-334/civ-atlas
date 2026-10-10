@@ -51,6 +51,20 @@ export const UNFINISHED_NOTE = '（助手没想完就停下了。可以说「继
 /** 带上前面几轮 */
 const HISTORY_TURNS = 6;
 
+/** 话里说列了 / 要列确认单("现在为您列出确认单：""propose_edits 列出这一条");说了不列的("没有列确认单")不算 */
+export function saysListed(text: string): boolean {
+  if (!/propose_edits|确认单/.test(text)) return false;
+  return /propose_edits|列/.test(text) && !/(不|没有?|无法|不能|不必|不用)(再|必要)?列/.test(text);
+}
+
+/** 说要列确认单却没调 propose_edits 时补的一句(下一轮只给 propose_edits) */
+const LIST_NUDGE = {
+  say:
+    '你刚才说要列确认单,但没有调用 propose_edits,作者那边看不到确认单。要列就现在调用 propose_edits;' +
+    '不打算列,就直接用一两句话回答,不要再提确认单。',
+  tools: ['propose_edits'],
+};
+
 export interface AssistantContext {
   world: World;
   /** 套上了改名的这份历史(界面上看到的名字) */
@@ -122,10 +136,13 @@ export const ASSISTANT_SYSTEM = [
   '   试推演不会动作者的世界;只有作者在确认单上点了执行才生效。',
   '3. 只做作者要的,不要额外加作者没提的事;能用历史命令做到的,不要动地形。地形修改不能试推演,直接列给作者,说明历史会整个重来。',
   '4. 命令只能定下条件(保护、结盟、宣战……),不能直接规定谁打赢、哪年发生什么,后果由推演展开。试了几次都做不到时照实说,列出最接近的一种。',
-  '5. 说完一件事就停:列了确认单以后,用两三句话说结论,照试推演的数字说:① 作者关心的国家结果怎样;② 别的国家里变化最大的一两个(副作用,比如谁变小了、谁没亡、谁亡得更早);' +
-    '③ 确认单上不合格的条目执行不了,要说出来,不要说成可行;做不到的部分说一句。确认单要作者点了执行才生效:说"会""打算",不要说"已经改了""已放置"。不要再问作者要不要执行。',
+  '   说做不到的理由,只写查到的资料、试推演和核对里真出现过的结果;没试过的办法不要说试过,也不要说"所有办法都试过",可以说还有哪几种没试。' +
+    '作者说了不要用的办法,不要再列进确认单。',
+  '5. 说完一件事就停:列了确认单以后,用两三句话说结论,照试推演的数字说:作者关心的国家结果怎样;别的国家里变化最大的一两个(副作用,比如谁变小了、谁没亡、谁亡得更早);' +
+    '确认单上不合格的条目执行不了,要说出来,不要说成可行;做不到的部分说一句。确认单要作者点了执行才生效:说"会""打算",不要说"已经改了""已放置"。不要再问作者要不要执行。',
+  '   要列确认单就调用 propose_edits,不要只在话里写"列出确认单"。',
   '6. 回给作者的话说名字,不说编号(P3、C12、L0 这些只在工具里用),也不说 protect、found 这些英文种类名和 country、chronicle、situation 这些工具名;全部用中文,简短,不用 Markdown 标题和表格。',
-  '   做不到的部分只说真做不到的;列进确认单的修改不要再说成做不到。',
+  '   直接称作者为"你",不要说"作者"。做不到的部分只说真做不到的;列进确认单的修改不要再说成做不到。',
   '',
   '## 编号',
   '材料和工具结果里的 P3(国家)、C12(城)、R45(州)、E2(民族)、M7(山河湖海)、L0(陆块)是现在这份历史里的编号,修改里只能用这些编号。',
@@ -837,7 +854,8 @@ export function assistantTools(
     },
   };
 
-  return [country, chronicle, situation, tryEdits, propose];
+  // 还在新建:只能改地形,地形不能试推演(给了试推演,模型会先绕一圈再忘了列单)
+  return [country, chronicle, situation, ...(ctx.lock === 'history' ? [] : [tryEdits]), propose];
 }
 
 /** 列完确认单以后交代 AI 怎么收尾:回答要和作者看到的确认单对得上(说主角的结果,也说副作用和执行不了的) */
@@ -855,15 +873,26 @@ function closing(items: readonly RewriteItem[], cannot: boolean, d?: TrialDiff):
       `- 别的国家:${v.others}`,
     );
     for (const x of d!.declared ?? []) out.push(`- ${x.text}:${x.war ? `打起来了(${x.war.text})` : '试推演里没打起来'}`);
+    // 撑到了历史的最后一年:作者要"多撑 300 年"而历史只剩几十年时,得说实际多撑了几年(截止写成最后一年时代码看不出超了)
+    for (const c of d!.focus) {
+      const b = c.before?.end;
+      if (b === undefined || !c.after || c.after.end !== undefined) continue;
+      out.push(
+        `- ${c.who.name}原本第 ${b} 年亡,试推演里撑到了历史的最后一年(第 ${d!.endYear} 年),多撑了 ${d!.endYear - b} 年。` +
+          `作者要多撑的年数比这多时,要说历史只推演到第 ${d!.endYear} 年、实际多撑了 ${d!.endYear - b} 年。`,
+      );
+    }
   }
   const say = [
     v ? '作者问的那个国家会怎样(和上面的结果一致,不要说和它对不上的话)' : '打算怎么改',
     ...(v && v.others !== '别的国家和大事没有变化' ? ['别的国家最大的一两处变化(上面"别的国家"那一行)'] : []),
     ...(bad ? [`有 ${bad} 条不合格,作者执行不了:说是哪条、为什么`] : []),
-    ...(cannot ? ['做不到的部分'] : []),
+    ...(cannot ? ['做不到的部分(理由只写查到的、试出来的,没试过的不要说试过)'] : []),
   ];
+  // 不给编号(给了"①②"模型会照抄进回答)
   out.push(
-    `现在用两三句话告诉作者:${say.map((x, i) => `${'①②③④'[i]} ${x}`).join(';')}。作者还没执行,说"会""打算",不要说"已经改了""已放置"。`,
+    `现在用两三句话回答,要说到这几样:${say.join(';')}。直接称作者为"你",不要分条编号。` +
+      '作者还没执行,说"会""打算",不要说"已经改了""已放置"。',
   );
   return out;
 }
@@ -876,8 +905,9 @@ export async function runAssistant(ctx: AssistantContext, history: readonly Assi
     onProposal: opts.onProposal,
   };
   const w = cleanWish(ask);
-  // 回给作者的话里漏出来的编号、英文种类名换成名字(边说边换,面板上不会闪过编号)
-  const plain = (t: string) => plainIds(t, ctx);
+  // 回给作者的话里漏出来的编号、英文种类名换成名字(边说边换,面板上不会闪过编号);
+  // 提示词里管说话的人叫"作者",模型常常照抄("需作者点击执行"),回给人看的一律换成"你"
+  const plain = (t: string) => plainIds(t, ctx).replace(/作者/g, '你');
   const onEvent = opts.onEvent;
   const out = await runAgent({
     feature: ASSISTANT_FEATURE,
@@ -889,6 +919,7 @@ export async function runAssistant(ctx: AssistantContext, history: readonly Assi
     maxTokens: 2000,
     signal: opts.signal,
     onEvent: onEvent && ((e) => onEvent(e.type === 'text' ? { ...e, text: plain(e.text) } : e)),
+    followUp: (text, steps) => (saysListed(text) && !steps.some((s) => s.tool === 'propose_edits' && s.state === 'ok') ? LIST_NUDGE : null),
   });
   // 收尾的话像没说完("让我再查……:"):补一句,作者知道可以让它接着来
   const text = looksUnfinished(out.text) ? `${out.text}\n\n${UNFINISHED_NOTE}` : out.text;
