@@ -107,3 +107,89 @@ function meander(pts: number[], chain: number[], width: number): River {
   }
   return { pts: Float32Array.from(p), cells: Int32Array.from(c) };
 }
+
+/**
+ * 细沟的门槛:上游至少这么多个地块(按默认精细度 36000 个地块折算)。
+ * 和溪流不同,按集水面积而不是流量算 —— 沙漠里雨少、流量小,可旱沟(干河床)照样有
+ */
+export const WASH_AREA = 2;
+
+/** 细沟接到河上时,从最后一个地块往河上那个地块走多远就停 */
+const WASH_REACH = 0.75;
+
+const washCache = new WeakMap<World, River[]>();
+
+/**
+ * 细沟(只在写实风里画进地面,不画成蓝线;世界数据不变):上游集水面积够 WASH_AREA 的地块顺着排水方向串成线,
+ * 碰到河、湖、海或别的细沟就停。每个点的第三个数是上游有多少个地块(按 36000 个地块折算)。
+ */
+export function washesOf(world: World): River[] {
+  let c = washCache.get(world);
+  if (!c) washCache.set(world, (c = traceWashes(world)));
+  return c;
+}
+
+function traceWashes(world: World): River[] {
+  const { mesh, water } = world;
+  const land = world.tect.land;
+  const { n, x, y } = mesh;
+  const { receiver, order, orderLen } = drainage(mesh, land, world.elevation, 1e-3);
+  const geo = geometryOf(mesh);
+  // 上游地块数:从高往低(排水顺序倒过来)一路加下去
+  const area = new Float32Array(n);
+  const k = 36000 / n;
+  for (let i = 0; i < n; i++) if (land[i] && water[i] === 0) area[i] = k;
+  for (let q = orderLen - 1; q >= 0; q--) {
+    const i = order[q];
+    if (!land[i] || water[i] !== 0) continue;
+    const r = receiver[i];
+    if (r >= 0 && water[r] === 0) area[r] += area[i];
+  }
+  const onRiver = new Uint8Array(n);
+  for (const r of world.rivers) for (const c of r.cells) onRiver[c] = 1;
+  const isWash = new Uint8Array(n);
+  for (let i = 0; i < n; i++) if (land[i] && water[i] === 0 && !onRiver[i] && area[i] >= WASH_AREA) isWash[i] = 1;
+  const hasDonor = new Uint8Array(n);
+  for (let i = 0; i < n; i++) if (isWash[i] && receiver[i] >= 0) hasDonor[receiver[i]] = 1;
+  const sources: number[] = [];
+  for (let i = 0; i < n; i++) if (isWash[i] && !hasDonor[i]) sources.push(i);
+  sources.sort((a, b) => area[b] - area[a] || a - b);
+
+  const visited = new Uint8Array(n);
+  const out: River[] = [];
+  const m = [0, 0];
+  const pts: number[] = [];
+  const chain: number[] = [];
+  for (const s of sources) {
+    pts.length = 0;
+    chain.length = 0;
+    let i = s;
+    visited[i] = 1;
+    pts.push(x[i], y[i], area[i]);
+    chain.push(i);
+    for (;;) {
+      const r = receiver[i];
+      if (r < 0) break;
+      if (water[r] !== 0 || !land[r]) {
+        geo.mid(i, r, m);
+        pts.push(m[0], m[1], area[i]);
+        chain.push(r);
+        break;
+      }
+      // 接到河上:停在快到河的地方(画出来的河是平滑过的,不一定正好过那个地块的中心,接满了会戳到河对岸去)
+      if (onRiver[r]) {
+        pts.push(x[i] + WASH_REACH * (x[r] - x[i]), y[i] + WASH_REACH * (y[r] - y[i]), area[i]);
+        chain.push(r);
+        break;
+      }
+      pts.push(x[r], y[r], area[r]);
+      chain.push(r);
+      if (visited[r]) break;
+      visited[r] = 1;
+      i = r;
+    }
+    // 只有一段的(源头一步就到河 / 海)画出来是一小截浮着的短线,不要
+    if (pts.length >= 9) out.push(meander(pts, chain, world.width));
+  }
+  return out;
+}

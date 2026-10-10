@@ -11,7 +11,7 @@ import type { Raster } from './raster';
 
 /** 补丁里有的字段(cell 只由网格定,各段一样,不存) */
 const F32 = ['elev', 'temp', 'precip', 'ice', 'gully'] as const;
-const U8 = ['water', 'biome', 'iceConc', 'iceTone', 'bank'] as const;
+const U8 = ['water', 'biome', 'iceConc', 'iceTone', 'bank', 'vein'] as const;
 type F32Key = (typeof F32)[number];
 type U8Key = (typeof U8)[number];
 
@@ -137,6 +137,7 @@ export function composeRaster(base: Raster, patches: readonly RasterPatch[]): Ra
     iceTone: base.iceTone.slice(),
     gully: base.gully?.slice(),
     bank: base.bank?.slice(),
+    vein: base.vein?.slice(),
   };
   for (const p of patches) applyPatch(out, p);
   return out;

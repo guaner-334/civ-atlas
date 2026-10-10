@@ -13,9 +13,9 @@
  */
 import type { World } from './world';
 import type { Raster } from './raster';
-import { bankBytes, carveValleys, noiseTiles, rasterBase, sampleSpline, shadeSphere, valleyLines, type SphereGrid, type ValleyLines } from './raster';
+import { bankBytes, carveValleys, noiseTiles, rasterBase, sampleSpline, shadeSphere, stampVeins, valleyLines, veinLines, type SphereGrid, type ValleyLines } from './raster';
 import { Gullies } from './gully';
-import { creeksOf } from './creeks';
+import { creeksOf, washesOf } from './creeks';
 import { subSeed } from './util';
 
 /** 放大现算要用的东西(每个世界准备一次,之后每一块都用它) */
@@ -42,6 +42,8 @@ export interface ZoomSource {
   /** 河和小溪的河道(刻河谷用) */
   lines: ValleyLines;
   threshold: number;
+  /** 细沟(见 stampVeins) */
+  veins: ValleyLines;
   gullies: Gullies;
   dTile: Float32Array;
   jTile: Float32Array;
@@ -72,6 +74,7 @@ export function zoomSource(world: World, whole: Pick<Raster, 'w' | 'h' | 'scale'
     bh: b.h,
     lines: valleyLines([...world.rivers, ...creeksOf(world)], world.riverThreshold, world.width),
     threshold: world.riverThreshold,
+    veins: veinLines(washesOf(world), world.width),
     gullies: new Gullies(subSeed(world.params.seed, 'gully')),
     dTile,
     jTile,
@@ -148,6 +151,8 @@ export function rasterizeWindow(src: ZoomSource, S: number, x0: number, y0: numb
   const zoom = { gullies: src.gullies, base: src.base, w: src.bw, h: src.bh, x0, y0, S: W / src.bw };
   shadeSphere(out, tri, wa, wb, src.planes, base, carve, calm, src.dTile, src.jTile, g, src.R, null, zoom);
   out.bank = bankBytes(calm);
+  out.vein = new Uint8Array(N);
+  stampVeins(src.veins, S, w, h, out.vein, x0, y0, W);
   windowIce(src, out, fx, fy);
   return out;
 }

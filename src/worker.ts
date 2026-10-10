@@ -317,7 +317,7 @@ async function handle(m: WorkerRequest): Promise<void> {
       return c;
     });
     finishGully(raster, job, heights);
-    const transfer = [raster.elev, raster.temp, raster.precip, raster.water, raster.biome, raster.cell, raster.ice, raster.iceConc, raster.iceTone, raster.gully!, raster.bank!].map((a) => a.buffer);
+    const transfer = [raster.elev, raster.temp, raster.precip, raster.water, raster.biome, raster.cell, raster.ice, raster.iceConc, raster.iceTone, raster.gully!, raster.bank!, raster.vein!].map((a) => a.buffer);
     transfer.push(...civTransferables(civ));
     // 回放快照体积大且主线程用不上,不随世界一起发送
     const { history: _history, ...rest } = world;

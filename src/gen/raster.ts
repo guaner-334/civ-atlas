@@ -27,6 +27,7 @@ export { gullyHeights } from './gully';
 import { smoothstep, subSeed, tileableFbm } from './util';
 // 河谷要正好落在画出来的河下面,所以直接用画河的同一套几何(纯计算,不碰页面,worker / Node 都能跑)
 import { riverGeometry } from '../render/common';
+import { washesOf } from './creeks';
 
 export interface Raster {
   w: number;
@@ -63,6 +64,11 @@ export interface Raster {
    * 写实风据此把谷底压暗、干旱地方的河两岸画绿。没有 = 当作附近没河
    */
   bank?: Uint8Array;
+  /**
+   * 细沟 × 255(见 gen/creeks.ts washesOf、stampVeins):集水面积越大越重,离沟中线越远越淡。
+   * 写实风据此把地面上的一条条旱沟、小谷压暗,干旱地方再带一点绿(叶脉一样的水系)。没有 = 不画
+   */
+  vein?: Uint8Array;
   /**
    * 放大后现算的一块(gen/rasterWindow.ts):这一块左上角在 W × H 的主图(scale 倍)里的像素位置。
    * 没有 = 整张主图。画风据此按真实的纬度、整张图上的位置算晕渲和纹理(和整张图接得上)
@@ -247,6 +253,82 @@ export function bankBytes(calm: Float32Array): Uint8Array {
   const out = new Uint8Array(calm.length);
   for (let k = 0; k < calm.length; k++) out[k] = calm[k] * 255 + 0.5;
   return out;
+}
+
+/** 细沟的强弱:上游地块数(按 36000 个地块折算)从 VEIN_A0 到 VEIN_A1 由 0 长到 1(按对数) */
+const VEIN_A0 = 1.5;
+const VEIN_A1 = 10;
+/** 细沟中线到边多宽(世界单位,随强弱 0.6 ~ 1 倍);最窄不小于 VEIN_MIN_PX 个像素 */
+const VEIN_HALF = 0.8;
+const VEIN_MIN_PX = 0.9;
+/** 沟两侧谷地:半径是沟的几倍、最浓多少 */
+const VEIN_HALO = 2.5;
+const VEIN_HALO_V = 0.35;
+
+/** 细沟的几何(和河同一套平滑;每点的 f = 上游地块数,m = 源头收细) */
+export function veinLines(washes: { pts: Float32Array }[], width: number): ValleyLines {
+  return riverGeometry(washes, 0, RIVER_STYLE, 1, RIVER_POWER, width);
+}
+
+/**
+ * 把细沟画进 out(0..255,取各段最大值)。画布的位置、东西相连的做法同 carveValleys
+ */
+export function stampVeins(lines: ValleyLines, scale: number, w: number, h: number, out: Uint8Array, ox = 0, oy = 0, period = w) {
+  const l0 = Math.log(VEIN_A0);
+  const l1 = Math.log(VEIN_A1);
+  for (const d of lines) {
+    for (let i = 0; i < d.x.length - 1; i++) {
+      const a = 0.5 * (d.f[i] + d.f[i + 1]);
+      const st = smoothstep(l0, l1, Math.log(Math.max(a, 1e-3))) * 0.5 * (d.m[i] + d.m[i + 1]);
+      if (st < 0.02) continue;
+      const r = Math.max(VEIN_MIN_PX, VEIN_HALF * scale * (0.5 + 0.5 * st));
+      const R = VEIN_HALO * r;
+      const ax = d.x[i] * scale - ox;
+      const bx = d.x[i + 1] * scale - ox;
+      const ay = d.y[i] * scale - oy;
+      const by = d.y[i + 1] * scale - oy;
+      if (Math.min(ay, by) - R > h || Math.max(ay, by) + R < 0) continue;
+      for (const s of WRAP_SHIFTS) {
+        const sh = s * period;
+        if (Math.min(ax, bx) + sh - R > w || Math.max(ax, bx) + sh + R < 0) continue;
+        veinSegment(out, w, h, ax + sh, ay, bx + sh, by, r, R, st * 255);
+      }
+    }
+  }
+}
+
+/** 沟中线(半径 r 内)按 (1 − (d/r)²)² 收;外面一圈(半径 R)是淡淡的谷地,按 VEIN_HALO_V × (1 − (d/R)²)² 收 */
+function veinSegment(out: Uint8Array, w: number, h: number, ax: number, ay: number, bx: number, by: number, r: number, R: number, v: number) {
+  const x0 = Math.max(0, Math.floor(Math.min(ax, bx) - R - 0.5));
+  const x1 = Math.min(w - 1, Math.ceil(Math.max(ax, bx) + R));
+  const y0 = Math.max(0, Math.floor(Math.min(ay, by) - R - 0.5));
+  const y1 = Math.min(h - 1, Math.ceil(Math.max(ay, by) + R));
+  const dx = bx - ax;
+  const dy = by - ay;
+  const L2 = dx * dx + dy * dy;
+  const r2 = r * r;
+  const R2 = R * R;
+  for (let py = y0; py <= y1; py++) {
+    const qy = py + 0.5 - ay;
+    for (let px = x0; px <= x1; px++) {
+      const qx = px + 0.5 - ax;
+      let s = L2 > 0 ? (qx * dx + qy * dy) / L2 : 0;
+      s = s < 0 ? 0 : s > 1 ? 1 : s;
+      const ex = qx - s * dx;
+      const ey = qy - s * dy;
+      const d2 = ex * ex + ey * ey;
+      if (d2 >= R2) continue;
+      const qh = 1 - d2 / R2;
+      let val = VEIN_HALO_V * qh * qh;
+      if (d2 < r2) {
+        const q = 1 - d2 / r2;
+        if (q * q > val) val = q * q;
+      }
+      val *= v;
+      const k = py * w + px;
+      if (val > out[k]) out[k] = val;
+    }
+  }
 }
 
 /** 东西相连的主图上,一样东西画在哪几份:本身、往左挪一整圈、往右挪一整圈(× 图宽) */
@@ -621,6 +703,8 @@ function rasterizeRaw(world: World, scale: number, gully: boolean): { raster: Ra
   const job = gully ? newGullyJob(subSeed(world.params.seed, 'gully'), w, h, R, scale) : null;
   shadeSphere(out, b.tri, b.wa, b.wb, b.planes, b.elev, carve, calm, dTile, jTile, b.g, R, job);
   out.bank = bankBytes(calm);
+  out.vein = new Uint8Array(N);
+  stampVeins(veinLines(washesOf(world), world.width), scale, w, h, out.vein);
   seaIcePixels(world, out);
   return { raster: out, job };
 }

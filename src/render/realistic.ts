@@ -630,6 +630,7 @@ function paintRealistic(ctx: CanvasRenderingContext2D, r: Raster, cap?: GlobeCap
   const Ww = (win ? win.W : w) / r.scale;
   const wxOf = (px: number) => (wx0 + px + 0.5) / r.scale;
   const bank = r.bank;
+  const vein = r.vein;
   const geo = new RowNoise(GEO_OCT, 101, w, wxOf, Ww, pxW);
   const fine = new RowNoise(FINE_OCT, 201, w, wxOf, Ww, pxW, 1, TEX_BIG_PX);
   const streak = new RowNoise(STREAK_OCT, 301, w, wxOf, Ww, pxW, STREAK_SX, TEX_BIG_PX);
@@ -704,7 +705,8 @@ function paintRealistic(ctx: CanvasRenderingContext2D, r: Raster, cap?: GlobeCap
         // 地面纹理(约 −1 ~ 1):大片的岩性(压出边界)+ 细层
         const fn = fine.at(px);
         const dry = smoothstep(RIP_P1, RIP_P0, pk);
-        const tx = TEX_GEO * softClip(GEO_SHARP * (geo.at(px) + GEO_ROUGH * fn)) + TEX_FINE * fn + (dry > 0 ? TEX_STREAK * dry * streak.at(px) : 0);
+        // 干旱地方岩石裸露,斑块边界更硬、更碎(像石漠里一块块的露头);有植被的地方软一些
+        const tx = TEX_GEO * softClip((GEO_SHARP + GEO_SHARP_DRY * dry) * (geo.at(px) + (GEO_ROUGH + GEO_ROUGH_DRY * dry) * fn)) + TEX_FINE * fn + (dry > 0 ? TEX_STREAK * dry * streak.at(px) : 0);
         // 离河多近:谷底压暗;干旱地方的河岸那一窄条按湿润的颜色画(像沙漠里的尼罗河)
         const bk = bank ? bank[k] / 255 : 0;
         // 离河远的(大多数地方)bk = 0,下面几项都是 0,跳过不算
@@ -712,14 +714,18 @@ function paintRealistic(ctx: CanvasRenderingContext2D, r: Raster, cap?: GlobeCap
         // 1. 生物群落底色:按 温度 × 降水 查连续调色板,群落之间自然渐变;交界按纹理打散成一片片(亮处当作干一点)
         const ex = -ECO_P * tx;
         let pp = pk * (1 + ex * (1 + ex * (0.5 + ex / 6))); // e^ex(|ex| 不到 0.3,展开到三次就够)
+        // 细沟:干旱地方沟里湿一点(带点绿)
+        const vn = vein && vein[k] > 0 ? (vein[k] / 255) * (1 - smoothstep(VEIN_E0, VEIN_E1, level[k])) : 0;
+        const vc = vn > 0 ? smoothstep(VEIN_C0 + RIP_JAG * fn, VEIN_C1, vn) : 0;
+        if (vc > 0 && dry > 0) pp *= 1 + (VEIN_WET - 1) * vc * dry;
         if (rip > 0 && pp < RIP_WET) pp *= Math.pow(RIP_WET / pp, rip);
         // 2. 在这一格的色带上挑深浅:纹理(干旱地方对比更强),再加上凹处(谷)亮、凸处(脊)暗
         const cav = (relief[kl] + relief[kr] + relief[ku] + relief[kd]) * 0.25 - relief[k];
-        const tb = 0.5 + (TEX_AMP_WET + (TEX_AMP_DRY - TEX_AMP_WET) * dry) * tx + TEX_CAV * Math.max(-1, Math.min(1, cav / (CAV_REF * pxW))) + (bk > ALLU_B0 ? ALLU_LIGHT * smoothstep(ALLU_B0, ALLU_B1, bk) : 0);
+        const tb = 0.5 + (TEX_AMP_WET + (TEX_AMP_DRY - TEX_AMP_WET) * dry) * tx + TEX_CAV * Math.max(-1, Math.min(1, cav / (CAV_REF * pxW))) + (bk > ALLU_B0 ? ALLU_LIGHT * smoothstep(ALLU_B0, ALLU_B1, bk) : 0) + (vn > 0 ? VEIN_LIGHT * smoothstep(0.02, 0.3, vn) * (1 - vc) : 0);
         paletteColor(lut, temp[k] + ECO_T * tx, pp, tb, col);
         // 降水多更深;谷底压暗
         const low = level[k] - relief[k];
-        const v = (1.03 - Math.min(0.12, pk / 25000)) * (low > VALLEY_E0 ? 1 - VALLEY_DARK * smoothstep(VALLEY_E0, VALLEY_E1, low) : 1);
+        const v = (1.03 - Math.min(0.12, pk / 25000)) * (low > VALLEY_E0 ? 1 - VALLEY_DARK * smoothstep(VALLEY_E0, VALLEY_E1, low) : 1) * (1 - VEIN_DARK * vc);
         let cr = col[0] * v;
         let cg = col[1] * v;
         let cb = col[2] * v;
@@ -1069,8 +1075,11 @@ const TEX_GEO = 0.7;
 const TEX_FINE = 0.3;
 const TEX_STREAK = 0.25;
 const GEO_SHARP = 4;
-/** 压边界之前往大尺度里掺多少细层(边界弯弯曲曲,不是光滑的曲线) */
+/** 干旱地方 S 形再陡多少(岩石露头的边更硬) */
+const GEO_SHARP_DRY = 4;
+/** 压边界之前往大尺度里掺多少细层(边界弯弯曲曲,不是光滑的曲线);干旱地方再多掺多少(边更碎) */
 const GEO_ROUGH = 0.35;
+const GEO_ROUGH_DRY = 0.15;
 /**
  * 山谷(凹处)发亮、山脊发暗:按 4 邻域平均比这里高多少米,高 CAV_REF × 像素宽(世界单位)米时挪满 TEX_CAV
  * (像素越细,同样的地形相邻像素的高差越小)
@@ -1097,6 +1106,16 @@ const RIP_P0 = 300;
 const RIP_P1 = 1000;
 /** 河岸按"降水有这么多"的颜色画 */
 const RIP_WET = 1100;
+/** 细沟(见 Raster.vein):沟心在 VEIN_C0 ~ VEIN_C1 之间长满(边按纹理忽宽忽窄),压暗多少;干旱地方沟心的降水按几倍算(带点绿) */
+const VEIN_C0 = 0.3;
+const VEIN_C1 = 0.85;
+const VEIN_DARK = 0.1;
+/** 山地里(大范围平均海拔从 VEIN_E0 到 VEIN_E1 米)细沟渐渐不画:山上的沟壑交给晕渲 */
+const VEIN_E0 = 700;
+const VEIN_E1 = 1500;
+const VEIN_WET = 2.6;
+/** 沟两侧的谷地(冲下来的细土)在色带上亮多少 */
+const VEIN_LIGHT = 0.07;
 
 // ---------------------------------------------------------------------------
 
