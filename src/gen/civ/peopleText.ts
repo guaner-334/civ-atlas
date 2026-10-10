@@ -9,8 +9,9 @@
  *   rulerShort 不带君号 —— 东方 "太宗""李昭",西幻 "阿尔德里克三世"。
  * - 统帅:"大渭将李牧"(国名用当年的简称)。
  * 国名一律按年份现查(growth.ts),作者改了国名,称呼跟着变。
+ * - 君主的倾向:名字和一句说明(LEANING_TEXT),复制生平的一行(leaningsText)
  */
-import type { Civ, Person, Polity, Year } from './types';
+import type { Civ, Person, Polity, RulerLeanings, Year } from './types';
 import { polityName, polityRootAt, polityShortTitle, polityTierAt, polityTitles } from './growth';
 
 /** 西幻的君号(按国号一系、档位) */
@@ -238,4 +239,21 @@ export function rulerFateWord(civ: Civ, x: Person): string {
     case 'battle':
       return '战死';
   }
+}
+
+/**
+ * 君主倾向的名字和说明,按人物卡片上的先后(键同 RulerLeanings;各项在推演里管什么见 rulers.ts)。
+ * 发展、重商重视贸易的一面推演里还没有用上,说明照样写
+ */
+export const LEANING_TEXT: Record<keyof RulerLeanings, { name: string; note: string }> = {
+  expand: { name: '开拓', note: '更愿意开垦偏远贫瘠的土地' },
+  war: { name: '好战', note: '更容易发动战争且更难停止' },
+  develop: { name: '发展', note: '更重视领地内的建设' },
+  trade: { name: '重商', note: '偏向沿海、大河和港口，重视贸易' },
+};
+export const LEANING_KEYS = Object.keys(LEANING_TEXT) as (keyof RulerLeanings)[];
+
+/** "开拓 47，好战 69，发展 63，重商 64"(复制生平) */
+export function leaningsText(l: RulerLeanings): string {
+  return LEANING_KEYS.map((k) => `${LEANING_TEXT[k].name} ${l[k]}`).join('，');
 }

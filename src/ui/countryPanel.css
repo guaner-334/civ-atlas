@@ -168,6 +168,49 @@
 .pp-name:hover {
   text-decoration: underline;
 }
+/* 人物卡片的"倾向"一组:一项一行,名字、灰色细条(不用蓝色:蓝色是能点)、数值,下面一句说明 */
+.pp-lean {
+  padding: 9px 12px 10px;
+  font-size: 14px;
+  line-height: 1.45;
+}
+.pp-lean + .pp-lean {
+  border-top: 0.5px solid var(--line);
+}
+.pp-lean-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.pp-lean-k {
+  flex: 1;
+  color: var(--ink);
+}
+.pp-lean-bar {
+  width: 96px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--line);
+  overflow: hidden;
+}
+.pp-lean-bar > i {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--ink-2);
+}
+.pp-lean-num {
+  width: 22px;
+  text-align: right;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.pp-lean-note {
+  margin-top: 1px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--ink-2);
+}
 .nm-pen::after {
   content: '✎';
   margin-left: 6px;
@@ -1383,6 +1426,20 @@
   }
   .inspector.sheet .cp-btn {
     padding: 10px 0;
+  }
+  /* 人物卡片的"倾向"一组:手机上字、条都大一号,手指底下好认 */
+  .inspector.sheet .pp-lean {
+    padding: 10px 12px 11px;
+    font-size: 15px;
+  }
+  .inspector.sheet .pp-lean-bar {
+    width: 104px;
+  }
+  .inspector.sheet .pp-lean-num {
+    width: 24px;
+  }
+  .inspector.sheet .pp-lean-note {
+    font-size: 13px;
   }
   /* 小字的输入框放到 16px:iOS 不会在点进去时自动放大页面(国名的大输入框、年份本来就够大) */
   .inspector.sheet .ins-edit:not(.big) input,

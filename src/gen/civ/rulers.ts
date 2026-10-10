@@ -43,7 +43,7 @@ const TERM: [number, number] = [4, 20];
 /** 一生最多这么多岁 */
 export const MAX_AGE = 88;
 
-/** 倾向的名字(RulerLeanings 的键;人物页按这个顺序写) */
+/** 倾向的名字(RulerLeanings 的键;人物卡片上的名字和说明在 peopleText.ts 的 LEANING_TEXT) */
 export const LEANINGS = ['expand', 'war', 'develop', 'trade'] as const;
 export type LeaningKey = (typeof LEANINGS)[number];
 
