@@ -17,6 +17,8 @@ import { createPortal } from 'react-dom';
 import { aiChat, getActiveProvider, setAiSettingsOpener, useAiOn, useAiStatus } from '../ai/client';
 import { AiError, type AiProviderKind } from '../ai/types';
 import { chooseProvider, cleanKey, getAiSettings, getSecrets, setAiEnabled, setSecret, updateAiSettings, useAiSettingsVersion } from '../ai/settings';
+import { CUSTOM_NAMES, fetchCustomModels } from '../ai/providers/custom';
+import type { CustomProviderKind } from '../ai/settings';
 import { DEEPSEEK_MODELS } from '../ai/providers/deepseek';
 import { BAILIAN_MODELS, BAILIAN_REGIONS } from '../ai/providers/bailian';
 import { officialServer, refreshOfficialAccount, useOfficialAccount } from '../ai/providers/official';
@@ -143,6 +145,8 @@ const CHOICES: Choice[] = [
   { kind: 'official', name: '我们的 AI', desc: '登录后按次扣积分' },
   { kind: 'deepseek', name: 'DeepSeek', desc: '用自己的 API 密钥,由 DeepSeek 计费' },
   { kind: 'bailian', name: '阿里云百炼', desc: '用自己的 API 密钥,由阿里云计费' },
+  { kind: 'openai', name: '自定义 OpenAI 兼容 API', desc: '填写自己的接口地址、API 密钥和模型' },
+  { kind: 'anthropic', name: '自定义 Anthropic 兼容 API', desc: '使用 Anthropic Messages 兼容接口' },
   { kind: 'mock', name: '测试用假 AI', desc: '回一段假话,检查界面用' },
 ];
 
@@ -165,6 +169,7 @@ function SettingsTab() {
       return { text: `余额 ${acct.credits} 积分`, cls: acct.credits > 0 ? 'ok' : 'warn' };
     }
     if (k === 'deepseek') return sec.deepseek ? { text: '已填密钥', cls: 'ok' } : { text: '未填密钥' };
+    if (k === 'openai' || k === 'anthropic') return sec[k] ? { text: '已填密钥', cls: 'ok' } : { text: '未填密钥' };
     if (k === 'bailian') return sec.bailian ? { text: '已填密钥', cls: 'ok' } : { text: '未填密钥' };
     return { text: forced ? '网址带 ai=mock,强制使用' : '不联网', cls: forced ? 'ok' : undefined };
   };
@@ -227,6 +232,7 @@ function SettingsTab() {
           <TestRow disabled={!sec.bailian} sig={`bailian|${s.bailian.region}|${s.bailian.model}|${s.bailian.thinking}|${sec.bailian?.length ?? 0}`} />
         </div>
       )}
+      {(active === 'openai' || active === 'anthropic') && <CustomProviderFields key={active} kind={active} />}
       {active === 'official' && (
         <div className="ai-detail" data-detail="official">
           {!server ? (
@@ -260,7 +266,7 @@ function SettingsTab() {
   );
 }
 
-function KeyField({ slot, where }: { slot: 'deepseek' | 'bailian'; where: React.ReactNode }) {
+function KeyField({ slot, where }: { slot: 'deepseek' | 'bailian' | CustomProviderKind; where?: React.ReactNode }) {
   const saved = getSecrets()[slot] ?? '';
   const [v, setV] = useState(saved);
   const [show, setShow] = useState(false);
@@ -303,8 +309,63 @@ function KeyField({ slot, where }: { slot: 'deepseek' | 'bailian'; where: React.
           </button>
         )}
       </div>
-      <p className="ai-note sub">没有密钥?到 {where} 创建</p>
+      {where && <p className="ai-note sub">没有密钥?到 {where} 创建</p>}
     </>
+  );
+}
+
+/** 两个自定义协议共用三项配置，切换协议时独立保存。 */
+function CustomProviderFields({ kind }: { kind: CustomProviderKind }) {
+  const s = getAiSettings()[kind];
+  const key = getSecrets()[kind] ?? '';
+  const [models, setModels] = useState<string[]>([]);
+  const [state, setState] = useState<{ busy?: boolean; error?: string; count?: number }>({});
+  const controller = useRef<AbortController | null>(null);
+  useEffect(() => {
+    controller.current?.abort();
+    setModels([]);
+    setState({});
+    return () => controller.current?.abort();
+  }, [kind, s.baseUrl, key]);
+  const fetchModels = async () => {
+    controller.current?.abort();
+    const ctl = (controller.current = new AbortController());
+    setState({ busy: true });
+    try {
+      const list = await fetchCustomModels(kind, s.baseUrl, key, ctl.signal);
+      if (ctl.signal.aborted) return;
+      setModels(list);
+      setState({ count: list.length });
+      if (!getAiSettings()[kind].model) updateAiSettings({ [kind]: { model: list[0] } });
+    } catch (e) {
+      if (!ctl.signal.aborted) setState({ error: e instanceof Error ? e.message : '获取模型失败' });
+    }
+  };
+  const listId = `ai-models-${kind}`;
+  return (
+    <div className="ai-detail" data-detail={kind}>
+      <div className="ai-row">
+        <label className="ai-label" htmlFor={`ai-base-${kind}`}>baseUrl</label>
+        <input id={`ai-base-${kind}`} className="ai-input" type="url" autoComplete="off" spellCheck={false}
+          placeholder={kind === 'openai' ? 'https://api.example.com/v1' : 'https://api.anthropic.com/v1'}
+          value={s.baseUrl} onChange={(e) => updateAiSettings({ [kind]: { baseUrl: e.target.value } })} />
+      </div>
+      <KeyField slot={kind} />
+      <div className="ai-row">
+        <label className="ai-label" htmlFor={`ai-model-${kind}`}>模型</label>
+        <input id={`ai-model-${kind}`} className="ai-input ai-model" list={listId} autoComplete="off" spellCheck={false}
+          placeholder="手填模型名，或获取后选择" value={s.model}
+          onChange={(e) => updateAiSettings({ [kind]: { model: e.target.value } })} />
+        <datalist id={listId}>{models.map((m) => <option key={m} value={m} />)}</datalist>
+        <button className="ai-mini" data-act="ai-fetch-models" disabled={!s.baseUrl || !key || state.busy} onClick={() => void fetchModels()}>
+          {state.busy ? '获取中……' : '获取模型'}
+        </button>
+      </div>
+      {state.error && <p className="ai-note sub err" role="alert">{state.error}</p>}
+      {state.count !== undefined && <p className="ai-note sub" role="status">已获取 {state.count} 个模型，可在模型栏选择或手填。</p>}
+      <p className="ai-note sub">填写 {CUSTOM_NAMES[kind]} 的基础地址（可带 /v1），接口需支持浏览器跨域请求。</p>
+      <TestRow disabled={!s.baseUrl || !key || !s.model} sig={`${kind}|${s.baseUrl}|${s.model}|${key}`} />
+    </div>
   );
 }
 
