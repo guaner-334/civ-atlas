@@ -32,7 +32,7 @@ import { Icon } from './icons';
 import { TitleInput, when } from './worldParts';
 import { PRIVACY_URL, SOURCE_URL, TERMS_URL } from './links';
 import { ContactLink } from './ContactLink';
-import { APP_VERSION } from './version';
+import { VersionText } from './BetaNews';
 import { HomeGlobe } from './studio/HomeGlobe';
 import { OldSiteBadge } from './Corners';
 import { BETA_SITE, OLD_SITE } from './oldSite';
@@ -240,9 +240,7 @@ export function MyWorlds({ phone, onOpen, onNew, onOpenText }: MyWorldsProps) {
             用户协议
           </a>
           <ContactLink />
-          <span className="mw-ver" data-version>
-            版本 {APP_VERSION}
-          </span>
+          <VersionText className="mw-ver" />
         </footer>
       )}
     </div>

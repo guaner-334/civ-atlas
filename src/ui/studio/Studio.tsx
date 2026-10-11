@@ -68,7 +68,7 @@ import { useAiOn } from '../../ai/client';
 import { AST_W, closeAssistant, openAssistant, useAstOpen } from '../astPanel';
 import { PRIVACY_URL, SOURCE_URL, TERMS_URL } from '../links';
 import { ContactMenuItem } from '../ContactLink';
-import { APP_VERSION } from '../version';
+import { VersionMenuFoot } from '../BetaNews';
 import { Icon } from '../icons';
 import { styleKey } from '../LayerPopover';
 import type { MapLayer } from '../mapLayers';
@@ -887,9 +887,7 @@ export function Studio(p: StudioProps) {
           用户协议
         </MenuItem>
         <ContactMenuItem />
-        <div className="pm-foot" data-version>
-          版本 {APP_VERSION}
-        </div>
+        <VersionMenuFoot />
       </PopMenu>
     </div>
   );

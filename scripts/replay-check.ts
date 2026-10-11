@@ -5415,6 +5415,110 @@ for (const style of ['realistic', 'fantasy']) {
   if (phoneMenu !== CONTACT.url || phoneOv) errs.push(`联系我们(手机):「更多」里应该有、概览底部不放(${phoneMenu},概览 ${phoneOv} 个)`);
 }
 
+// 测试版新功能:正式网站读测试网站的 beta/whats-new.json(src/ui/betaNews.ts),列出自己的清单里没有的几条。
+// 开发服务里没有这个文件 → 版本号和以前一样;有了以后:首页右下角版本号后面小蓝点,鼠标移上去上面出小卡片(新功能、预计日期、测试地址),
+// 移开收起;世界里「更多」菜单最底下一行移上去,卡片出在菜单右边;手机上点那一行,菜单换成卡片;两边一样时不出
+{
+  const { WHATS_NEW } = await import('../src/ui/whatsNew');
+  const { beijingDay, dayText, nextSync } = await import('../src/ui/betaNews');
+  const wantWhen = `预计 ${dayText(nextSync('2026-10-12', beijingDay()))}（周日）更新到正式版`;
+  const fresh = [
+    { pr: 9002, title: '新功能乙', text: '测试网站先有的第二个功能' },
+    { pr: 9001, title: '新功能甲', text: '测试网站先有的第一个功能' },
+  ];
+  let body = JSON.stringify({ built: '2026-10-12', news: [...fresh, ...WHATS_NEW] });
+  const nctx = await browser.newContext({ viewport: { width: 1400, height: 820 } });
+  const np = await nctx.newPage();
+  np.on('pageerror', (e) => errs.push(`测试版新功能:${e.message}`));
+  await np.goto(`${dev.url}/`);
+  await np.locator('.mw-foot').waitFor({ timeout: 30000 });
+  await np.waitForTimeout(800);
+  const plain = await np.locator('.mw-foot [data-version]').innerText().catch(() => '');
+  const noneNews = await np.locator('[data-act=beta-news]').count();
+  await nctx.route('**/beta/whats-new.json', (r) => r.fulfill({ contentType: 'application/json', body }));
+  await np.reload();
+  const ver = np.locator('.mw-foot [data-act=beta-news]');
+  const shown = await ver.waitFor({ timeout: 10000 }).then(
+    () => true,
+    () => false,
+  );
+  let card: { titles: string[]; when: string; href: string | null; above: boolean; inView: boolean } | null = null;
+  let gone = -1;
+  if (shown) {
+    await ver.hover();
+    const pp = np.locator('[data-testid=beta-news]');
+    await pp.waitFor({ timeout: 5000 }).catch(() => {});
+    card = await pp
+      .evaluate((el, vb) => {
+        const r = el.getBoundingClientRect();
+        return {
+          titles: [...el.querySelectorAll('.news-list b')].map((b) => b.textContent ?? ''),
+          when: el.querySelector('.news-when')?.textContent ?? '',
+          href: el.querySelector('a[data-link=beta-news]')?.getAttribute('href') ?? null,
+          above: r.bottom <= vb + 1,
+          inView: r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight,
+        };
+      }, (await ver.boundingBox())!.y)
+      .catch(() => null);
+    await np.mouse.move(700, 200);
+    await np.waitForTimeout(500);
+    gone = await pp.count();
+  }
+  // 世界里「更多」菜单:最底下一行移上去,卡片在菜单右边
+  await np.goto(`${dev.url}/?seed=7`);
+  await np.waitForFunction(() => (window as any).__wf?.ready, null, { timeout: 60000 });
+  await np.click('[data-act=world-more]');
+  const row = np.locator('.pm-menu [data-act=beta-news]');
+  const menuVer = await row.locator('[data-version]').innerText({ timeout: 5000 }).catch(() => '');
+  await row.hover().catch(() => {});
+  const side = await np
+    .locator('[data-testid=beta-news]')
+    .evaluate((el) => {
+      const m = document.querySelector('.pm-menu')!.getBoundingClientRect();
+      return el.getBoundingClientRect().left >= m.right;
+    }, null, { timeout: 5000 })
+    .catch(() => null);
+  await np.keyboard.press('Escape');
+  // 两边一样:不出
+  body = JSON.stringify({ built: '2026-10-12', news: WHATS_NEW });
+  await np.goto(`${dev.url}/`);
+  await np.locator('.mw-foot').waitFor({ timeout: 30000 });
+  await np.waitForTimeout(800);
+  const same = await np.locator('[data-act=beta-news]').count();
+  // 手机:点「更多」最底下一行,菜单换成卡片
+  body = JSON.stringify({ built: '2026-10-12', news: [...fresh, ...WHATS_NEW] });
+  const mc = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+  await mc.route('**/beta/whats-new.json', (r) => r.fulfill({ contentType: 'application/json', body }));
+  const mp = await mc.newPage();
+  await mp.goto(`${dev.url}/?seed=7`);
+  await mp.waitForFunction(() => (window as any).__wf?.ready, null, { timeout: 60000 });
+  await mp.tap('[data-act=world-sheet]');
+  await mp.waitForTimeout(600);
+  await mp.tap('[data-act=world-more]');
+  await mp.tap('.pm-menu [data-act=beta-news]').catch(() => {});
+  const phone = await mp
+    .locator('.pm-menu.pm-panel [data-testid=beta-news]')
+    .evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      return { n: el.querySelectorAll('.news-list li').length, inView: r.left >= 0 && r.right <= innerWidth };
+    }, null, { timeout: 5000 })
+    .catch(() => null);
+  await mc.close();
+  await nctx.close();
+  console.log(
+    `测试版新功能:没有清单 ${noneNews} 个(版本号「${plain}」);有了 首页 ${shown},小卡片 ${JSON.stringify(card)},移开后 ${gone};` +
+      `更多菜单「${menuVer}」、卡片在右边 ${side};两边一样 ${same} 个;手机 ${JSON.stringify(phone)}`,
+  );
+  if (noneNews || !plain.startsWith('版本 ')) errs.push(`测试版新功能:没有测试网站的清单也出现了(${noneNews} 个,版本号「${plain}」)`);
+  if (!shown) errs.push('测试版新功能:测试网站有多出来的功能,首页右下角的版本号上没有');
+  if (!card || card.titles.join() !== fresh.map((f) => f.title).join() || card.when !== wantWhen || !card.href?.endsWith('/beta/') || !card.above || !card.inView)
+    errs.push(`测试版新功能:鼠标移到版本号上的小卡片不对(${JSON.stringify(card)})`);
+  if (gone !== 0) errs.push('测试版新功能:鼠标移开后小卡片没收起');
+  if (!menuVer.startsWith('版本 ') || side !== true) errs.push(`测试版新功能:「更多」菜单最底下一行不对(「${menuVer}」,卡片在右边 ${side})`);
+  if (same) errs.push('测试版新功能:两边清单一样也出现了');
+  if (!phone || phone.n !== fresh.length || !phone.inView) errs.push(`测试版新功能(手机):点「更多」最底下一行没换成卡片(${JSON.stringify(phone)})`);
+}
+
 console.log('errors:', errs);
 await browser.close();
 await dev.close();

@@ -1,11 +1,21 @@
 /**
  * 点按钮弹出的小菜单(侧栏顶上的"更多"、面板里的"更多"):按钮 + 一列菜单项。
  * 点菜单项、点外面、按 Esc 收起。样式在 sidebar.css(.pm-*)。
+ *
+ * 菜单里的一项可以把整个菜单换成一张卡片(usePopMenuPanel;手机上点「测试版新功能」),收起菜单时换回来。
+ * 菜单项挂在别处的小卡片(鼠标移上去在菜单旁边出的)带 data-pm-inside:在它上面点不算点外面。
  */
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { useAiOn, useAiStatus } from '../ai/client';
 import { noteDismiss } from './dismissClick';
 import { Icon } from './icons';
+
+const PanelCtx = createContext<((card: ReactNode) => void) | null>(null);
+
+/** 在菜单里:把整个菜单换成一张卡片(收起菜单时换回来);不在菜单里 = null */
+export function usePopMenuPanel(): ((card: ReactNode) => void) | null {
+  return useContext(PanelCtx);
+}
 
 export function PopMenu({
   label,
@@ -38,6 +48,10 @@ export function PopMenu({
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const [at, setAt] = useState<CSSProperties | undefined>(undefined);
+  const [panel, setPanel] = useState<ReactNode>(null);
+  useEffect(() => {
+    if (!open) setPanel(null);
+  }, [open]);
   useLayoutEffect(() => {
     const card = side && open ? root.current?.closest('.sidebar') : null;
     if (!card || !root.current) return setAt(undefined);
@@ -46,7 +60,7 @@ export function PopMenu({
   useEffect(() => {
     if (!open) return;
     const onDown = (e: PointerEvent) => {
-      if (root.current?.contains(e.target as Node)) return;
+      if (root.current?.contains(e.target as Node) || (e.target as Element).closest?.('[data-pm-inside]')) return;
       setOpen(false);
       noteDismiss(e);
     };
@@ -84,14 +98,14 @@ export function PopMenu({
       </button>
       {open && (
         <div
-          className={`pm-menu pm-${align}${at ? ' pm-side' : ''}`}
+          className={`pm-menu pm-${align}${at ? ' pm-side' : ''}${panel ? ' pm-panel' : ''}`}
           style={at}
           role="menu"
           onClick={(e) => {
             if ((e.target as HTMLElement).closest('.pm-item:not(:disabled)')) setOpen(false);
           }}
         >
-          {children}
+          <PanelCtx.Provider value={setPanel}>{panel ?? children}</PanelCtx.Provider>
         </div>
       )}
     </div>

@@ -30,7 +30,7 @@ import { PRIVACY_URL, SOURCE_URL, TERMS_URL } from './links';
 import { ContactLink } from './ContactLink';
 import { useNarrow } from './device';
 import { Icon } from './icons';
-import { APP_VERSION } from './version';
+import { VersionText } from './BetaNews';
 import { TitleInput } from './worldParts';
 import './overview.css';
 
@@ -135,9 +135,7 @@ function AboutLinks() {
         </a>
       ))}
       {!narrow && <ContactLink />}
-      <span className="ov-ver" data-version>
-        版本 {APP_VERSION}
-      </span>
+      <VersionText className="ov-ver" />
     </footer>
   );
 }

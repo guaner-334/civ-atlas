@@ -1,0 +1,158 @@
+/* 版本号上的「测试版新功能」(BetaNews.tsx):小卡片的毛玻璃底、圆角、阴影和「联系我们」的小卡片、「更多」菜单一样 */
+
+/* 版本号后面的小蓝点:测试版有正式版还没有的功能 */
+.ver-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+/* 底部一行小字里的版本号(我的世界 .mw-ver、世界概览 .ov-ver):去掉按钮的样子,还是一行灰字 */
+.ver-news {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--ink-3);
+  cursor: default;
+}
+.ver-news:hover,
+.ver-news.on {
+  color: var(--ink-2);
+}
+.ver-news:hover > span,
+.ver-news.on > span {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* 「更多」菜单最底下一行:和 .pm-foot 一样的灰色小字,右边「测试版新功能 ›」;鼠标移上去整行浅灰底 */
+.pm-foot.pm-news {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  padding: 4px 9px 4px 36px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  font: inherit;
+  font-size: 11.5px;
+  line-height: 16px;
+  text-align: left;
+  color: var(--ink-3);
+  cursor: default;
+  user-select: none;
+}
+.pm-foot.pm-news:hover,
+.pm-foot.pm-news.on {
+  background: var(--hover-bg);
+}
+.pm-news-more {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--ink-2);
+}
+
+/* 菜单换成卡片(手机上点了那一行):菜单本身就是毛玻璃底,只把宽度、圆角换成卡片的 */
+.pm-menu.pm-panel {
+  width: min(340px, calc(100vw - 32px));
+  padding: 0;
+  border-radius: var(--r-panel);
+}
+
+.news-pop {
+  position: fixed;
+  z-index: 300;
+  width: min(340px, calc(100vw - 16px));
+  border-radius: var(--r-panel);
+  background: var(--panel);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: var(--shadow-float);
+  animation: news-in 0.12s ease-out;
+}
+@keyframes news-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .news-pop {
+    animation: none;
+  }
+}
+.news-pop,
+.news-in-menu {
+  padding: 14px 16px 12px;
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.45;
+  text-align: left;
+}
+.news-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+.news-when {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+.news-list {
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.news-list li {
+  margin-top: 8px;
+}
+.news-list b {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+}
+.news-list p {
+  margin: 1px 0 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+.news-more {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+.news-foot {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 0.5px solid var(--line);
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+.news-foot a {
+  color: var(--link);
+  font-weight: 500;
+  text-decoration: none;
+}
+.news-foot a:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.news-hint {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--ink-3);
+}

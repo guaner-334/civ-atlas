@@ -36,7 +36,7 @@ import { Icon } from './icons';
 import { AiMenuItem, AiSettingsItem, MenuItem, MenuSep, PopMenu } from './PopMenu';
 import { PRIVACY_URL, SOURCE_URL, TERMS_URL } from './links';
 import { ContactMenuItem } from './ContactLink';
-import { APP_VERSION } from './version';
+import { VersionMenuFoot } from './BetaNews';
 import { useCoarse } from './device';
 import { keyLabel } from './shortcuts';
 import { openShortcuts } from './ShortcutsDialog';
@@ -274,9 +274,7 @@ export function WorldMoreMenu({
         用户协议
       </MenuItem>
       <ContactMenuItem />
-      <div className="pm-foot" data-version>
-        版本 {APP_VERSION}
-      </div>
+      <VersionMenuFoot />
     </PopMenu>
   );
 }
