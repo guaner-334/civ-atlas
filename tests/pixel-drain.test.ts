@@ -222,4 +222,18 @@ describe('细沟跟着主图走', () => {
     expect(Array.from(c.veinLines!.off)).toEqual(Array.from(b.veinLines.off));
     expect(whole.veinLines).toBe(lines);
   });
+
+  it('像素一个没变、只有细沟的线变了:补丁只带线;线也一样 = 没有补丁', () => {
+    const lines = whole.veinLines!;
+    expect(diffRaster(whole, { ...whole })).toBeNull();
+    const moved = { off: lines.off, x: lines.x.slice(), y: lines.y, a: lines.a };
+    moved.x[0] += 0.25;
+    const p = diffRaster(whole, { ...whole, veinLines: moved })!;
+    expect(p).not.toBeNull();
+    expect(p.w * p.h).toBe(0);
+    expect(p.veins!.x).not.toBe(moved.x);
+    const c = composeRaster(whole, [p]);
+    expect(c.veinLines!.x[0]).toBe(moved.x[0]);
+    expect(Array.from(c.elev)).toEqual(Array.from(whole.elev));
+  });
 });

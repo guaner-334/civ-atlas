@@ -197,7 +197,7 @@ async function exportMap(m: MapInput, scale: ExportScale, format: ImageFormat): 
     job: 'map',
     world: m.world,
     raster: scale === 1 ? m.raster : undefined,
-    veins: scale === 1 ? undefined : m.raster.veinLines,
+    veins: scale !== 1 && m.style === 'realistic' ? m.raster.veinLines : undefined,
     scale,
     civ: m.civ,
     style: m.style,

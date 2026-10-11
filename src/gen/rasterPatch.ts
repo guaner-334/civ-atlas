@@ -35,7 +35,7 @@ export interface RasterPatch {
   veins?: DrainLines;
 }
 
-/** b 比 a 变了的那一块(两张主图一样大);一个像素也没变 = null */
+/** b 比 a 变了的那一块(两张主图一样大);一个像素也没变、细沟的线也一样 = null */
 export function diffRaster(a: Raster, b: Raster): RasterPatch | null {
   const W = b.w;
   const H = b.h;
@@ -62,7 +62,12 @@ export function diffRaster(a: Raster, b: Raster): RasterPatch | null {
     if (!p || !q) continue;
     for (let i = 0; i < p.length; i++) if (p[i] !== q[i]) mark(i);
   }
-  if (y1 < 0) return null;
+  if (y1 < 0) {
+    // 像素一个也没变,细沟的线却变了(放大、导出时照线画,看得出来):只带线,框是空的
+    const v = b.veinLines;
+    if (!v || sameLines(a.veinLines, v)) return null;
+    return { W, H, x0: 0, y0: 0, w: 0, h: 0, f32: {}, u8: {}, veins: copyLines(v) };
+  }
   // 列:找最长的一段没变的(东西相连,绕一圈),框 = 剩下的那一段
   let best = 0;
   let bestEnd = 0;
@@ -88,7 +93,22 @@ export function diffRaster(a: Raster, b: Raster): RasterPatch | null {
     if (q) u8[k] = cut(q, W, x0, y0, w, h, new Uint8Array(w * h));
   }
   const v = b.veinLines;
-  return { W, H, x0, y0, w, h, f32, u8, ...(v ? { veins: { off: v.off.slice(), x: v.x.slice(), y: v.y.slice(), a: v.a.slice() } } : {}) };
+  return { W, H, x0, y0, w, h, f32, u8, ...(v ? { veins: copyLines(v) } : {}) };
+}
+
+function copyLines(v: DrainLines): DrainLines {
+  return { off: v.off.slice(), x: v.x.slice(), y: v.y.slice(), a: v.a.slice() };
+}
+
+/** 两份细沟的线一样(点数、坐标、集水面积一位不差) */
+function sameLines(p: DrainLines | undefined, q: DrainLines): boolean {
+  if (!p) return false;
+  const eq = (u: ArrayLike<number>, v: ArrayLike<number>) => {
+    if (u.length !== v.length) return false;
+    for (let i = 0; i < u.length; i++) if (u[i] !== v[i]) return false;
+    return true;
+  };
+  return eq(p.off, q.off) && eq(p.x, q.x) && eq(p.y, q.y) && eq(p.a, q.a);
 }
 
 function cut<T extends Float32Array | Uint8Array>(src: T, W: number, x0: number, y0: number, w: number, h: number, out: T): T {
