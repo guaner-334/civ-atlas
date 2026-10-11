@@ -9,6 +9,7 @@
 import type { Civ } from '../../gen/civ/types';
 import { ownersAt } from '../../gen/civ/timeline';
 import { buildChronicle } from '../../gen/civ/chronicle';
+import { resolveKey } from '../../gen/edits';
 import { nameAt } from '../prompts/rewrite';
 
 /** 一个国家:id = 现在这份历史里的编号(只在试推演里有 = −1) */
@@ -46,6 +47,14 @@ export interface TrialEvent {
   text: string;
 }
 
+/** 一条宣战命令在试推演里打起来没有 */
+export interface TrialDeclare {
+  /** "萨兰提亚共和国向赤牙王朝宣战(第 2393 年)" */
+  text: string;
+  /** 打起来的那场仗;没打起来 = 不给 */
+  war?: TrialEvent & { end: number };
+}
+
 export interface TrialDiff {
   /** 修改从哪一年起生效(这一年以前两份历史一样) */
   from: number;
@@ -61,6 +70,8 @@ export interface TrialDiff {
   removed: TrialEvent[];
   addedCount: number;
   removedCount: number;
+  /** 宣战命令的结果(这批修改里有宣战才有;见 assistant.ts) */
+  declared?: TrialDeclare[];
 }
 
 /** 别的国家最多列几个 */
@@ -259,6 +270,46 @@ export function compareTrial(before: Civ, after: Civ, focus: readonly number[], 
   };
 }
 
+/**
+ * 宣战命令打起来没有(写进 d.declared):这条命令那一年 a 攻 b 开的那场仗。
+ * 没打出结果的仗重要度不到 NOTABLE,不在"多出来的大事"里,这里补到最前面(不然看起来像命令没起作用)
+ */
+export function noteDeclares(d: TrialDiff, before: Civ, after: Civ, declares: readonly { a: string; b: string; from: number }[]): void {
+  if (!declares.length) return;
+  const had = new Set(buildChronicle(before).map((e) => eventKey({ year: Math.floor(e.year), text: e.text })));
+  const ch = buildChronicle(after);
+  const idOf = (civ: Civ, key: string) => {
+    const r = resolveKey(civ, key);
+    return r && r.kind === 'polity' ? r.id : -1;
+  };
+  d.declared = declares.map((v) => {
+    const name = (key: string) => {
+      const id = idOf(before, key);
+      return id >= 0 ? nameAt(before.polities[id], v.from) : '?';
+    };
+    const text = `${name(v.a)}向${name(v.b)}宣战(第 ${v.from} 年)`;
+    const a = idOf(after, v.a);
+    const b = idOf(after, v.b);
+    if (a < 0 || b < 0) return { text };
+    // 打得成时,推演紧接着这条宣战记的"干预"记一条 a 攻 b 的开战史事;下一条不是它 = 没打成
+    // (编年史里别的仗也可能同时牵涉两国,不按国家去找)
+    const iv = after.annals.findIndex(
+      (x) => x.kind === 'intervene' && x.a === a && x.b === b && Math.floor(x.year) === v.from && after.interventions?.[x.war]?.kind === 'declare',
+    );
+    const next = iv >= 0 ? after.annals[iv + 1] : undefined;
+    const wi = next && next.kind === 'war' && next.a === a && next.b === b ? iv + 1 : -1;
+    const e = wi >= 0 ? ch.find((x) => x.id === wi || x.children?.some((c) => c.id === wi)) : undefined;
+    if (!e) return { text };
+    const war = { year: Math.floor(e.year), end: Math.floor(e.end), text: e.text };
+    const k = eventKey(war);
+    if (!had.has(k) && !d.added.some((x) => eventKey(x) === k)) {
+      d.added = [{ year: war.year, text: war.text }, ...d.added].slice(0, EVENTS_MAX);
+      if (e.importance < NOTABLE) d.addedCount++;
+    }
+    return { text, war };
+  });
+}
+
 // ---------------------------------------------------------------------------
 // 写成文字
 
@@ -278,6 +329,15 @@ export function fateText(f: Fate | null, endYear: number): string {
 export function trialText(d: TrialDiff): string {
   const out: string[] = [];
   const line = (c: FateChange) => `- ${whoText(c.who, d.from)}:现在 ${fateText(c.before, d.endYear)} → 试推演 ${fateText(c.after, d.endYear)}`;
+  if (d.declared?.length)
+    out.push(
+      '宣战的结果:',
+      ...d.declared.map((x) =>
+        x.war
+          ? `- ${x.text}:打起来了 —— 第 ${x.war.year}${x.war.end > x.war.year ? `—${x.war.end}` : ''} 年 ${x.war.text}`
+          : `- ${x.text}:试推演里没打起来(那一年两国可能已经在交战,或者推演到那一年已经不接壤)`,
+      ),
+    );
   if (d.focus.length) out.push('关注的国家:', ...d.focus.map(line));
   if (d.others.length) out.push('其他变化最大的国家:', ...d.others.map(line));
   out.push(`到第 ${d.endYear} 年在世的国家:现在 ${d.alive[0]} 个 → 试推演 ${d.alive[1]} 个`);
@@ -289,7 +349,7 @@ export function trialText(d: TrialDiff): string {
 }
 
 /** 两个结局一样(亡国年份、怎么亡、被谁、最后几州) */
-const sameFate = (a: Fate | null, b: Fate | null): boolean =>
+export const sameFate = (a: Fate | null, b: Fate | null): boolean =>
   a === b || (!!a && !!b && a.end === b.end && a.way === b.way && a.by?.id === b.by?.id && a.by?.name === b.by?.name && a.size === b.size);
 
 /** 试推演和现在看不出差别:关注的国家结局都没变、别的国家没有变化大的、在世的国家数一样、大事一条没变 */

@@ -50,8 +50,8 @@ import {
   takenNames,
   type NameTarget,
 } from '../ai/prompts/names';
-import { HISTORY_STYLES, type HistoryLength, type HistoryScope, type HistoryStyle } from '../ai/prompts/history';
-import { getBook, startBook } from './bookStore';
+import type { HistoryLength, HistoryScope, HistoryStyle } from '../ai/prompts/history';
+import { bookHow, getBook, startBook } from './bookStore';
 import { commitEdits, getEdits, revertEdits, setName, subscribeEdits } from './editsStore';
 import { currentWorld } from './saveStore';
 import { setCivTime, setSelection, type MapSelection } from './civView';
@@ -424,12 +424,6 @@ function targetName(civ: Civ, t: NameTarget, year: number): string {
   return nameInfo(civ, t)?.shown ?? '';
 }
 
-/** 篇幅的说法:"约一万字" */
-function charsWords(n: number): string {
-  const W: Record<number, string> = { 3000: '约三千字', 10000: '约一万字', 30000: '约三万字' };
-  return W[n] ?? `约 ${n} 字`;
-}
-
 /** 起名语感的短说法:"帝国(拉丁风)" → "拉丁风" */
 const styleShort = (label: string) => /[((]([^))]+)[))]/.exec(label)?.[1] ?? label;
 
@@ -441,10 +435,15 @@ function uiTools(ctx: AskContext, turn: number, ui: { book: AsStep['book'] | nul
   const show: AgentTool = {
     def: {
       name: 'show',
-      description: '在地图上打开一个国家、城或山河湖海:选中它,地图飞过去,作者旁边就能看到它的详情。回答问题时说到主角就打开它(一次对话一两次就够)。year 给了就把时间轴拨到那一年。',
+      description:
+        '在地图上打开一个国家、城或山河湖海:选中它,地图飞过去,作者旁边就能看到它的详情。回答问题时说到主角就打开它(一次对话一两次就够)。' +
+        'year 给了就把时间轴拨到那一年:只在作者问的是某一年的格局时给;问一个国家的来龙去脉、为什么亡的,不给 year(时间轴留在作者现在看的年份)。',
       parameters: {
         type: 'object',
-        properties: { target: { type: 'string', description: '编号:P3(国家)、C12(城)、M7(山河湖海)、R45(州)' }, year: { type: 'integer' } },
+        properties: {
+          target: { type: 'string', description: '编号:P3(国家)、C12(城)、M7(山河湖海)、R45(州)' },
+          year: { type: 'integer', description: '只在作者问某一年的格局时给' },
+        },
         required: ['target'],
       },
     },
@@ -457,10 +456,20 @@ function uiTools(ctx: AskContext, turn: number, ui: { book: AsStep['book'] | nul
       if (!t || t.kind === 'culture') throw new Error(`找不到「${String(a.target ?? '')}」,或者它不能在地图上打开;用 P / C / M / R 编号`);
       setSelection(t as MapSelection);
       requestFly('sel');
-      const y = typeof a.year === 'number' && Number.isFinite(a.year) ? Math.max(0, Math.min(end, Math.floor(a.year))) : null;
+      let y = typeof a.year === 'number' && Number.isFinite(a.year) ? Math.max(0, Math.min(end, Math.floor(a.year))) : null;
+      // 国家还没立、已经亡了的年份,地图上没有它:拨到它在的年份里(和 polityAlive 一样:立国那一刻起、亡国那一刻前)
+      const p = t.kind === 'polity' ? civ.polities[t.id] : undefined;
+      if (y !== null && p) {
+        const lo = Math.ceil(p.founded);
+        const hi = p.ended !== undefined ? Math.ceil(p.ended) - 1 : end;
+        if (hi >= lo) y = Math.max(lo, Math.min(hi, y));
+      }
       if (y !== null) setCivTime({ year: y, playing: false, scrubbing: false, story: false });
       const n = targetName(civ, t, y ?? year);
-      return { result: `已在地图上打开 ${n}${y !== null ? `,时间轴拨到第 ${y} 年` : ''}。`, summary: `在地图上打开了${n}` };
+      return {
+        result: `已在地图上打开 ${n}${y !== null ? `,时间轴拨到第 ${y} 年` : ''}。`,
+        summary: `在地图上打开了${n}${y !== null && y !== year ? `，时间轴拨到第 ${y} 年` : ''}`,
+      };
     },
   };
 
@@ -503,7 +512,7 @@ function uiTools(ctx: AskContext, turn: number, ui: { book: AsStep['book'] | nul
       if (!startBook({ scope, style, length })) throw new Error('没能开始写:还没有设置 AI,或者这段历史里没有史事');
       const j = getBook().job!;
       ui.book = { id: j.id, key: j.key, title: j.title };
-      const how = `${HISTORY_STYLES[style].label}，${charsWords(j.chars)}${j.calls > 1 ? `，分 ${j.calls} 章` : ''}`;
+      const how = bookHow(j);
       return { result: `开始写《${j.title}》(${how})。写好会放进「成书」,作者不用等;现在用一句话告诉作者。`, summary: how };
     },
   };
