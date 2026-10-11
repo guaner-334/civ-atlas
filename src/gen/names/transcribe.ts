@@ -195,7 +195,27 @@ function syllabify(toks: Tok[]): Syl[] {
   return syl;
 }
 
-export function transcribe(latin: string, opts: TranscribeOptions = {}): string {
+/**
+ * 音译过的记下结果:按选项对象分开记(各语感的选项是固定的一份),记满了整个清掉。
+ * 推几万年的世界要起几万个人名,同一串拉丁字母会音译很多次
+ */
+const MEMO_MAX = 1 << 16;
+const memo = new WeakMap<TranscribeOptions, Map<string, string>>();
+const NO_OPTS: TranscribeOptions = {};
+
+export function transcribe(latin: string, opts: TranscribeOptions = NO_OPTS): string {
+  let seen = memo.get(opts);
+  if (!seen) memo.set(opts, (seen = new Map()));
+  let out = seen.get(latin);
+  if (out === undefined) {
+    if (seen.size >= MEMO_MAX) seen.clear();
+    out = transcribeRaw(latin, opts);
+    seen.set(latin, out);
+  }
+  return out;
+}
+
+function transcribeRaw(latin: string, opts: TranscribeOptions): string {
   const over = opts.table ?? {};
   const look = (key: string) => over[key] ?? BASE.get(key);
   const syl = syllabify(tokenize(latin, !!opts.jAsY));

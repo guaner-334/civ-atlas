@@ -31,6 +31,7 @@ import { IMAGE_FORMATS, drawExportMarks, drawExportTrail, drawLegend, drawMapBas
 import { canvasMeasure, drawMarks, layoutMarks, type MarkItem } from '../render/marks';
 import { drawTrail, layoutTrail, type TrailInput } from '../render/trail';
 import { getEdits, useEdits } from './editsStore';
+import { cleanEndYear } from '../gen/edits';
 import { markItemsAt } from './markInfo';
 import { characterTrail } from './characterInfo';
 import type { ExportRequest, ExportResponse } from '../exportWorker';
@@ -75,8 +76,8 @@ function styleName(style: CivStyle, layer: LayerId): string {
   return LAYERS.find((l) => l.id === layer)?.name ?? '数据图层';
 }
 
-/** 和默认值不同的世界参数,写进编年史 / 高度图说明(同一种子 + 参数 = 同一个世界) */
-function paramsText(p: WorldParams): string | undefined {
+/** 和默认值不同的世界参数(和推演年数),写进编年史 / 高度图说明(同一种子 + 参数 = 同一个世界) */
+function paramsText(p: WorldParams, endYear?: number): string | undefined {
   const d = DEFAULT_PARAMS;
   const out: string[] = [];
   if (p.landFraction !== d.landFraction) out.push(`陆地比例 ${Math.round(p.landFraction * 100)}%`);
@@ -85,6 +86,8 @@ function paramsText(p: WorldParams): string | undefined {
   if (p.temperature !== d.temperature) out.push(`气温 ${p.temperature > 0 ? '+' : ''}${p.temperature}°C`);
   if (p.rainfall !== d.rainfall) out.push(`降水 ${p.rainfall.toFixed(2)}×`);
   if (p.cells !== d.cells) out.push(`精细度 ${Math.round(p.cells / 1000)}k 地块`);
+  const years = cleanEndYear(endYear);
+  if (years) out.push(`推演到 ${years} 年`);
   return out.length ? out.join('、') : undefined;
 }
 
@@ -302,7 +305,7 @@ export function ExportMenu({ data, civ: shown, plain, style, layer, icon }: Expo
     const y = civ ? Math.max(0, Math.min(civ.endYear, t.year ?? civ.endYear)) : 0;
     const yi = Math.floor(y);
     const show = { ...getCivShow() };
-    const params = paramsText(world.params);
+    const params = paramsText(world.params, getEdits().endYear);
     const markItems = withMarks && civ && ok ? markItemsAt(civ, world, marks, yi) : [];
     // 正选着的作者人物(填写中的不算)
     const sel = getSelection().sel;

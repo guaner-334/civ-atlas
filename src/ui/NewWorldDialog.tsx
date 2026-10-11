@@ -5,6 +5,7 @@
  *            选好以后进新建界面,两种不能互换
  *   第 2 步  基础参数(就是新建界面「世界参数」那几样,默认值不变)。随机的有种子(随机给一个,能换);
  *            照图的先选一张图(拖进来或「选一张图」),不列陆地比例(海陆照图定),种子随机给,进去以后在「山河、地名换一种」里换。
+ *            最后一组「历史」:开关「推演超过 3000 年」(默认关),组下面一直写着那段说明;开了多一条「推演到」(刚打开 10000 年)。
  *            底下一句说进去以后这些都还能改
  *
  * 点「开始」才交给 App(存下没建完的世界、进新建界面;照图的把读好的图交过去,进去直接是第 1 步「认出海陆」)。
@@ -13,9 +14,10 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { DEFAULT_PARAMS, type WorldParams } from '../gen/world';
-import { SLIDERS } from './WorldOverviewGenesis';
+import { SLIDERS, YEARS_NOTE, YEARS_ON, YEARS_SLIDER, YEARS_SWITCH, type SliderLike } from './WorldOverviewGenesis';
 import { isImageFile, loadImage, type LoadedImage } from './ImportImage';
 import { Icon } from './icons';
+import './ai.css';
 import './newWorld.css';
 
 export type NewWorldMode = 'random' | 'image';
@@ -25,12 +27,21 @@ export interface NewWorldStart {
   params: WorldParams;
   /** 照手绘图:读好的那张图(交给 App 以后由它管,不再收回) */
   picture: LoadedImage | null;
+  /** 推演到第几年(没开「推演超过 3000 年」= 不给) */
+  endYear?: number;
+}
+
+/** 从哪一步开始(刷新了照手绘图还没选好图的新建:回到它的第 2 步,参数、推演年数照网址) */
+export interface NewWorldInit {
+  mode: NewWorldMode;
+  params: WorldParams;
+  step: 1 | 2;
+  endYear?: number;
 }
 
 export interface NewWorldDialogProps {
   phone: boolean;
-  /** 从哪一步开始(刷新了照手绘图还没选好图的新建:回到它的第 2 步,参数照网址) */
-  init?: { mode: NewWorldMode; params: WorldParams; step: 1 | 2 };
+  init?: NewWorldInit;
   /** 随机一个种子 */
   randomSeed: () => number;
   onCancel: () => void;
@@ -59,8 +70,8 @@ function groups(mode: NewWorldMode): { name: string; note?: string; keys: (keyof
 
 const stop = (e: { stopPropagation(): void }) => e.stopPropagation();
 
-function ParamRow({ k, value, onChange, phone }: { k: keyof WorldParams; value: number; onChange: (v: number) => void; phone: boolean }) {
-  const s = SLIDERS.find((x) => x.key === k)!;
+function ParamRow({ s, value, onChange, phone }: { s: SliderLike; value: number; onChange: (v: number) => void; phone: boolean }) {
+  const k = s.key;
   const fill = ((value - s.min) / (s.max - s.min)) * 100;
   // 精细度只写多少千个地块("36k"),电脑上后面再写大概要多久
   const shown = k === 'cells' ? `${Math.round(value / 1000)}k` : s.fmt(value);
@@ -96,6 +107,8 @@ export function NewWorldDialog(p: NewWorldDialogProps) {
   const [seedText, setSeedText] = useState(String(params.seed));
   const [seedBad, setSeedBad] = useState(false);
   const [picture, setPicture] = useState<LoadedImage | null>(null);
+  /** 推演到第几年(开关关着 = undefined,就是 3000 年) */
+  const [years, setYears] = useState<number | undefined>(p.init?.endYear);
   const [over, setOver] = useState(false);
   const loading = useRef(0);
   /** 还没交出去的那张图(关掉弹窗、换一张时扔掉) */
@@ -141,7 +154,7 @@ export function NewWorldDialog(p: NewWorldDialogProps) {
     const final = mode === 'random' && n > 0 ? { ...params, seed: n } : params;
     given.current = true;
     if (mode !== 'image' && held.current) URL.revokeObjectURL(held.current.url);
-    p.onStart({ mode, params: final, picture: mode === 'image' ? picture : null });
+    p.onStart({ mode, params: final, picture: mode === 'image' ? picture : null, ...(years ? { endYear: years } : {}) });
   };
   const next = (m: NewWorldMode = mode) => {
     setMode(m);
@@ -290,11 +303,25 @@ export function NewWorldDialog(p: NewWorldDialogProps) {
           </div>
           <div className="nd-grp">
             {g.keys.map((k) => (
-              <ParamRow key={k} k={k} value={params[k]} phone={p.phone} onChange={(v) => setParams((q) => ({ ...q, [k]: v }))} />
+              <ParamRow key={k} s={SLIDERS.find((x) => x.key === k)!} value={params[k]} phone={p.phone} onChange={(v) => setParams((q) => ({ ...q, [k]: v }))} />
             ))}
           </div>
         </div>
       ))}
+      <div className="nd-sec">
+        <div className="nd-lab">
+          历史
+          <small>年数越多，打开越慢</small>
+        </div>
+        <div className="nd-grp">
+          <label className="nd-pr">
+            <span className="nd-n wide">{YEARS_SWITCH}</span>
+            <button className={`ai-switch${years ? ' on' : ''}`} role="switch" aria-checked={!!years} data-act="dlg-years" onClick={() => setYears(years ? undefined : YEARS_ON)} />
+          </label>
+          {years && <ParamRow s={YEARS_SLIDER} value={years} phone={p.phone} onChange={setYears} />}
+        </div>
+        <p className="nd-foot">{YEARS_NOTE}</p>
+      </div>
       {(mode === 'random' || picture) && (
         <div className="nd-info">
           <Icon name="info" size={17} />

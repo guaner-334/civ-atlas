@@ -163,11 +163,18 @@ function pickUnused(pool: readonly string[], used: ReadonlySet<string>, u: numbe
 }
 
 const CN = '零一二三四五六七八九';
-/** 序数:1 → 一,12 → 十二,23 → 二十三(君主的"几世",不会超过两位数) */
+/** 序数:1 → 一,12 → 十二,23 → 二十三,100 → 一百,105 → 一百零五,112 → 一百一十二(君主的"几世";推得很久的世界会过百) */
 function ordinal(n: number): string {
   if (n < 10) return CN[n];
-  const t = Math.floor(n / 10);
-  return `${t === 1 ? '' : CN[t]}十${n % 10 ? CN[n % 10] : ''}`;
+  if (n < 100) {
+    const t = Math.floor(n / 10);
+    return `${t === 1 ? '' : CN[t]}十${n % 10 ? CN[n % 10] : ''}`;
+  }
+  if (n >= 1000) return String(n);
+  const r = n % 100;
+  const head = `${CN[Math.floor(n / 100)]}百`;
+  if (!r) return head;
+  return r < 10 ? `${head}零${CN[r]}` : `${head}${CN[Math.floor(r / 10)]}十${r % 10 ? CN[r % 10] : ''}`;
 }
 
 const ENDED: ReadonlySet<PersonFate> = new Set(['deposed', 'overthrown', 'fell', 'surrendered', 'fled', 'merged']);

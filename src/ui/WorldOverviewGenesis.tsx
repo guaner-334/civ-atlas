@@ -1,18 +1,19 @@
 /**
- * 世界概览的"世界设定"页:这个世界创建时定下的根 —— 种子、六项世界参数、改过的地形、地名风格,都只能看,不能再改
- * (一改三千年的历史就要整个重来)。想换个样子:"以它为底稿新建…"(回到新建这一步,设定照原样带过去,存成另一个世界)。
+ * 世界概览的"世界设定"页:这个世界创建时定下的根 —— 种子、六项世界参数、改过的地形、地名风格、推演年数,都只能看,不能再改
+ * (一改几千年的历史就要整个重来)。想换个样子:"以它为底稿新建…"(回到新建这一步,设定照原样带过去,存成另一个世界)。
  * 右栏还有"回放世界形成"。
  *
- * 世界参数的滑条(SLIDERS、ParamSlider)在这里定义,新建世界(studio/Studio.tsx)用。
+ * 世界参数的滑条(SLIDERS、ParamSlider)、推演年数的开关和滑条(YearsRows)在这里定义,新建世界(studio/Studio.tsx)用。
  */
 import { useEffect, useState } from 'react';
 import type { WorldParams } from '../gen/world';
-import type { TerrainKind } from '../gen/edits';
-import { useEdits } from './editsStore';
+import { END_YEAR_DEFAULT, END_YEAR_MAX, END_YEAR_STEP, cleanEndYear, endYearOf, type TerrainKind } from '../gen/edits';
+import { setEndYear, useEdits } from './editsStore';
 import { currentWorld, useSavesVersion } from './saveStore';
 import { Icon } from './icons';
 import { genSeconds } from './genSpeed';
 import { mixSummary } from './nameMix';
+import './ai.css';
 
 interface Slider {
   key: keyof WorldParams;
@@ -47,6 +48,34 @@ export const SLIDERS: Slider[] = [
   },
 ];
 
+/** 不是世界参数的滑条(推演年数):键只用来标记 */
+export type SliderLike = Omit<Slider, 'key'> & { key: string };
+
+/** 推演到第几年(开了「推演超过 3000 年」才有):3000–60000,一格 1000 年 */
+export const YEARS_SLIDER: SliderLike = {
+  key: 'endYear',
+  name: '推演到',
+  min: END_YEAR_DEFAULT,
+  max: END_YEAR_MAX,
+  step: END_YEAR_STEP,
+  fmt: (v) => `${v} 年`,
+  hint: '历史推到第几年;年数越多,打开世界、改历史都越慢',
+};
+/** 推演年数的开关 */
+export const YEARS_SWITCH = `推演超过 ${END_YEAR_DEFAULT} 年`;
+/** 打开开关时滑条先停在哪 */
+export const YEARS_ON = 10000;
+/** 开关下面一直显示的那段说明 */
+export const YEARS_NOTE =
+  '近现代、现代、未来整体还在开发中，帝国的衰退和科技的发展也在设计当中，历史推演超过3000年后会陷入低价值的循环，如果你理解并且接受这种情况可以选择开启该选项最高推演至6万年。';
+/**
+ * "三千年的历史":3000 年的世界照旧,推得更久的写真实年数("60000 年的历史")。
+ * gap:接在汉字后面(不是标点后面)时数字前空一格("推演它 60000 年")
+ */
+export function yearsSpan(end: number, gap = false): string {
+  return end === END_YEAR_DEFAULT ? '三千年' : `${gap ? ' ' : ''}${end} 年`;
+}
+
 /** 世界参数的一行简写(卡片里"世界参数"那一行右边) */
 export function paramsSide(p: WorldParams): string {
   return `陆地 ${Math.round(p.landFraction * 100)}%，${p.plates} 个板块`;
@@ -69,7 +98,7 @@ export function terrainBrief(ops: readonly { kind: TerrainKind }[], sketch?: { r
 }
 
 /** 一项世界参数的滑条:拖动时只改数字,松手(或键盘改完)才算数 */
-export function ParamSlider({ s, value, onCommit, disabled }: { s: Slider; value: number; onCommit: (v: number) => void; disabled?: boolean }) {
+export function ParamSlider({ s, value, onCommit, disabled }: { s: SliderLike; value: number; onCommit: (v: number) => void; disabled?: boolean }) {
   const [v, setV] = useState(value);
   useEffect(() => setV(value), [value]);
   const pct = ((v - s.min) / (s.max - s.min)) * 100;
@@ -96,6 +125,28 @@ export function ParamSlider({ s, value, onCommit, disabled }: { s: Slider; value
   );
 }
 
+/**
+ * 新建界面「世界参数」里最后三样:开关「推演超过 3000 年」(默认关),下面一直写着那段说明;
+ * 开了才有「推演到」滑条(刚打开在 YEARS_ON 年,松手才算数)。改的是当前世界的修改(editsStore 的 setEndYear)
+ */
+export function YearsRows({ disabled }: { disabled?: boolean }) {
+  const raw = useEdits().endYear;
+  const on = raw !== undefined;
+  const end = cleanEndYear(raw) ?? END_YEAR_DEFAULT;
+  return (
+    <>
+      <button className="sb-row nw-years" role="switch" aria-checked={on} data-act="years-switch" disabled={disabled} onClick={() => setEndYear(on ? undefined : YEARS_ON)}>
+        <span className="sb-row-main">
+          <b>{YEARS_SWITCH}</b>
+        </span>
+        <span className={`ai-switch${on ? ' on' : ''}`} aria-hidden="true" />
+      </button>
+      <p className="nw-years-note">{YEARS_NOTE}</p>
+      {on && <ParamSlider s={YEARS_SLIDER} value={end} disabled={disabled} onCommit={setEndYear} />}
+    </>
+  );
+}
+
 export interface SettingsProps {
   params: WorldParams;
   /** 回放世界形成:能不能点、正在放 */
@@ -112,6 +163,7 @@ export function SettingsPage(p: SettingsProps) {
   const edits = useEdits();
   const title = currentWorld()?.title;
   const { params } = p;
+  const end = endYearOf(edits);
   return (
     <div className="ov-settings">
       <section className="ov-sec">
@@ -141,12 +193,16 @@ export function SettingsPage(p: SettingsProps) {
             <span>地名风格</span>
             <b>{mixSummary(edits.nameMix)}</b>
           </div>
+          <div className="ov-kv-row" data-param="end-year">
+            <span>推演年数</span>
+            <b>{end} 年</b>
+          </div>
         </div>
       </section>
       <section className="ov-sec">
         <h3>想换个样子</h3>
         <p className="ov-txt">
-          种子、参数和地形一变，三千年的历史就要整个重来。想试试别的样子，可以以{title || '它'}为底稿另建一个世界：设定全部带过去，改过的名字和干预也跟过去，
+          种子、参数和地形一变，{yearsSpan(end)}的历史就要整个重来。想试试别的样子，可以以{title || '它'}为底稿另建一个世界：设定全部带过去，改过的名字和干预也跟过去，
           {title || '原来的世界'}本身不变。
         </p>
         <button className="ov-btn ov-primary ov-ico-btn" data-act="draft-from" disabled={p.generating} onClick={p.onDraftFrom}>
@@ -154,7 +210,7 @@ export function SettingsPage(p: SettingsProps) {
           以它为底稿新建…
         </button>
         <h3 className="ov-gap">这颗星球是怎么来的</h3>
-        <p className="ov-txt dim">从板块漂移到流水侵蚀，几秒钟看完这颗星球长成现在的样子，接着放三千年的历史。</p>
+        <p className="ov-txt dim">从板块漂移到流水侵蚀，几秒钟看完这颗星球长成现在的样子，接着放{yearsSpan(end, true)}的历史。</p>
         <button className="ov-btn ov-ico-btn replay" data-act="replay" disabled={p.generating || p.replay.on} onClick={p.onReplay}>
           <Icon name="replay" size={16} />
           {p.replay.on ? (p.replay.ready ? '正在回放' : '正在准备回放') : '回放世界形成'}

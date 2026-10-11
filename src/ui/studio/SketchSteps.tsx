@@ -3,16 +3,18 @@
  *
  *   ImageCard   左边最上面那张图:缩略图、文件名、多大、彩色还是灰度,右边「换一张」(重新认,第 2 步画的笔留着)
  *   StepGroup   一步一组:组头 = 圆圈序号(做到这步是蓝的,做过的打勾)+ 名字 + 右边一句现在怎样 + 箭头;展开的在组头下面接着放
- *   StepParams  第 3 步的世界参数(没有陆地比例 —— 海陆照图定):拖动时只改数字,松手才重新生成
+ *   StepParams  第 3 步的世界参数(没有陆地比例 —— 海陆照图定):拖动时只改数字,松手才重新生成;
+ *               最后是开关「推演超过 3000 年」、那段说明,开了多一条「推演到」
  *   ViewBar     地图上方的切换条:原图 / 认出来的 / 长出来的;长出来的时候有「叠上原图」和样式;平面 / 地球仪
  *
  * 状态(哪一步开着、看的是什么)在 Studio;认图的状态、留着的图在 ImportImage.tsx。
  */
 import { useEffect, useState, type ReactNode } from 'react';
 import type { WorldParams } from '../../gen/world';
-import { useEdits } from '../editsStore';
+import { setEndYear, useEdits } from '../editsStore';
 import { pickImage, setImportView, setSourceView, useImport, useSource, useSourceView, type SourceShow } from '../ImportImage';
-import { SLIDERS } from '../WorldOverviewGenesis';
+import { SLIDERS, YEARS_NOTE, YEARS_ON, YEARS_SLIDER, YEARS_SWITCH, type SliderLike } from '../WorldOverviewGenesis';
+import { END_YEAR_DEFAULT, cleanEndYear } from '../../gen/edits';
 import { Icon } from '../icons';
 import type { MapLayer } from '../mapLayers';
 
@@ -86,8 +88,8 @@ export function StepGroup({
 /** 第 3 步列哪几样参数(陆地比例不列:海陆照图定) */
 const STEP_KEYS: (keyof WorldParams)[] = ['plates', 'mountains', 'temperature', 'rainfall', 'cells'];
 
-function StepSlider({ k, value, onCommit, disabled }: { k: keyof WorldParams; value: number; onCommit: (v: number) => void; disabled: boolean }) {
-  const s = SLIDERS.find((x) => x.key === k)!;
+function StepSlider({ s, value, onCommit, disabled }: { s: SliderLike; value: number; onCommit: (v: number) => void; disabled: boolean }) {
+  const k = s.key;
   const [v, setV] = useState(value);
   useEffect(() => setV(value), [value]);
   const fill = ((v - s.min) / (s.max - s.min)) * 100;
@@ -117,12 +119,28 @@ function StepSlider({ k, value, onCommit, disabled }: { k: keyof WorldParams; va
 }
 
 export function StepParams({ params, onParams, disabled }: { params: WorldParams; onParams: (p: WorldParams) => void; disabled: boolean }) {
+  const raw = useEdits().endYear;
+  const on = raw !== undefined;
   return (
-    <div className="tp-opts sk-params">
-      {STEP_KEYS.map((k) => (
-        <StepSlider key={k} k={k} value={params[k]} disabled={disabled} onCommit={(v) => onParams({ ...params, [k]: v })} />
-      ))}
-    </div>
+    <>
+      <div className="tp-opts sk-params">
+        {STEP_KEYS.map((k) => (
+          <StepSlider key={k} s={SLIDERS.find((x) => x.key === k)!} value={params[k]} disabled={disabled} onCommit={(v) => onParams({ ...params, [k]: v })} />
+        ))}
+      </div>
+      <button className="sb-row nw-years" role="switch" aria-checked={on} data-act="years-switch" disabled={disabled} onClick={() => setEndYear(on ? undefined : YEARS_ON)}>
+        <span className="sb-row-main">
+          <b>{YEARS_SWITCH}</b>
+        </span>
+        <span className={`ai-switch${on ? ' on' : ''}`} aria-hidden="true" />
+      </button>
+      <p className="nw-years-note">{YEARS_NOTE}</p>
+      {on && (
+        <div className="tp-opts sk-params">
+          <StepSlider s={YEARS_SLIDER} value={cleanEndYear(raw) ?? END_YEAR_DEFAULT} disabled={disabled} onCommit={setEndYear} />
+        </div>
+      )}
+    </>
   );
 }
 

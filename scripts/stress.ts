@@ -8,6 +8,7 @@
  * 草图:一片陆地也没画的"都是海"(整颗星球是海)、满图涂成山地、跨 180° 经线和两极的大杂烩(再叠上地形修改)。
  * 地形大事:半路整颗星球沉入海中、整片抬成陆地、五件最大最强的火山(有同一年的、第 1 年和第 2999 年的),
  * 各段的州和那时的地形对得上,大事以后的城、国家、信仰、编年史照样合法。
+ * 推演年数:推到最久(60000 年,有一组再叠一件地形大事),史事、国都、人口、信仰照样合法,名字里不冒数字。
  */
 import { generateWorld, DEFAULT_PARAMS } from '../src/gen/world';
 import { rasterize } from '../src/gen/raster';
@@ -29,7 +30,7 @@ import { Layer } from '../src/gen/civ/types';
 import { faithAt, faithFromScratch } from '../src/gen/civ/religion';
 import { civLabelItems, civMapLayer, labelViewExtras } from '../src/render/civ/labels';
 import { placeMap } from '../src/render/labels/draw';
-import type { TerrainOp, Upheaval } from '../src/gen/edits';
+import { END_YEAR_MAX, type TerrainOp, type Upheaval } from '../src/gen/edits';
 import { upheavalSteps } from '../src/gen/civ/upheaval';
 import { buildChronicle } from '../src/gen/civ/chronicle';
 import { sketchGrid, type SketchEdit, type SketchKind } from '../src/gen/sketch';
@@ -391,4 +392,42 @@ for (const [name, list] of UPHEAVAL_CASES) {
       cn ? `NaN! ${cn}` : '',
     );
   }
+}
+
+// ---- 推演年数:推到最久(60000 年;再叠一件第 2999 年的地形大事):史事有序、国都在本国、人口不是 NaN、名字里不冒数字和 undefined ----
+for (const [seed, ups] of [
+  [7, []],
+  [99, [{ year: 2999, ops: [{ kind: 'volcano', pts: [900, 400], r: 160, s: 2 }] }]],
+] as [number, Upheaval[]][]) {
+  const params = { ...DEFAULT_PARAMS, seed };
+  const w = generateWorld(params);
+  const steps = upheavalSteps(params, [], null, ups);
+  const t0 = performance.now();
+  const civ = generateCiv(w, { endYear: END_YEAR_MAX, ...(steps.length ? { upheavals: steps } : {}) });
+  const ms = performance.now() - t0;
+  let cn = 0;
+  const bad = (s: string | undefined) => !!s && /\d|undefined|NaN/.test(s);
+  for (let i = 1; i < civ.annals.length; i++) if (civ.annals[i].year < civ.annals[i - 1].year) cn++;
+  for (const st of civ.settlements) if (!Number.isFinite(populationAt(st, civ.endYear)) || !st.name || bad(st.name)) cn++;
+  for (const po of civ.polities) {
+    if (bad(po.name) || (po.dynasties ?? []).some((d) => bad(d.name))) cn++;
+    if (po.ended === undefined) {
+      if (civ.polity[civ.settlements[capitalAt(po, civ.endYear)].region] !== po.id) cn++;
+    } else if (civ.polity.includes(po.id)) cn++;
+  }
+  for (const x of civ.people ?? []) if (bad(x.name) || bad(x.title)) cn++;
+  if (civ.religion) {
+    const a = faithAt(civ, civ.endYear * 0.55);
+    const b = faithFromScratch(civ, civ.endYear * 0.55);
+    for (let q = 0; q < civ.regions.count; q++) if (a[q] !== b[q]) cn++;
+  }
+  const ch = buildChronicle(civ);
+  for (const e of ch) if (!e.text || /undefined|NaN/.test(e.text)) cn++;
+  if (civ.endYear !== END_YEAR_MAX) cn++;
+  if (cn) process.exitCode = 1;
+  console.log(
+    `{"推演年数":${END_YEAR_MAX}}`, 'seed', seed, ups.length ? '带一件地形大事' : '',
+    `文明 ${Math.round(ms)}ms 国家 ${civ.polities.length}(在世 ${civ.polities.filter((p) => p.ended === undefined).length})城镇 ${civ.settlements.length} 人物 ${civ.people?.length ?? 0} 纪事 ${ch.length}`,
+    cn ? `NaN! ${cn}` : '',
+  );
 }

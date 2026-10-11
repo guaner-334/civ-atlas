@@ -151,6 +151,12 @@
  * 一生的几段经历(每段可以勾上推演里的事和人)、亲友。和作者标记一样只是记下来:不改变世界、不参与推演、和生成器版本无关。
  * 字段、上限、怎么清理见 characters.ts。
  *
+ * ## 推演年数
+ *
+ * WorldEdits.endYear(可选,没有 = END_YEAR_DEFAULT 即 3000 年):历史推到第几年,END_YEAR_DEFAULT–END_YEAR_MAX、整千年。
+ * 推得更久的世界照样从第 0 年推起,前 3000 年和推 3000 年的世界几乎一样;扩张节拍、民族诞生、大宗教创立都按前 3000 年排,
+ * 之后只是各国接着兴亡更替。新建世界时定,创建以后不再改(和地名风格一样)。3000 年的不写。
+ *
  * ## 地名风格
  *
  * WorldEdits.nameMix(可选,没有 = 自动):整个世界的地名风格,每种语感占几份(gen/names 的 NameMix,如 { xianxia: 6, central: 4 })。
@@ -278,6 +284,25 @@ export interface WorldEdits {
   characters?: AuthorCharacter[];
   /** 整个世界的地名风格:语感 → 份数(见文件头"地名风格");没有 = 自动 */
   nameMix?: NameMix;
+  /** 历史推到第几年(见文件头"推演年数");没有 = 3000 */
+  endYear?: number;
+}
+
+/** 推演年数:默认、最多、一格(见文件头"推演年数") */
+export const END_YEAR_DEFAULT = 3000;
+export const END_YEAR_MAX = 60000;
+export const END_YEAR_STEP = 1000;
+
+/** 推演年数清理:不是数字 = undefined;夹在 END_YEAR_DEFAULT–END_YEAR_MAX,取整到 END_YEAR_STEP;等于默认 = undefined(不写) */
+export function cleanEndYear(v: unknown): number | undefined {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return undefined;
+  const y = Math.min(END_YEAR_MAX, Math.max(END_YEAR_DEFAULT, Math.round(v / END_YEAR_STEP) * END_YEAR_STEP));
+  return y === END_YEAR_DEFAULT ? undefined : y;
+}
+
+/** 这个世界推到第几年(没写 = 默认) */
+export function endYearOf(edits: Pick<WorldEdits, 'endYear'>): number {
+  return cleanEndYear(edits.endYear) ?? END_YEAR_DEFAULT;
 }
 
 /** 作者标记的颜色(界面上的六种:红、橙、绿、蓝、紫、青) */

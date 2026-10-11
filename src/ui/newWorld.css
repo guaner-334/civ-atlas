@@ -219,6 +219,17 @@
   font-style: normal;
   color: var(--ink-3);
 }
+/* 「历史」一组:开关那一行名字占满;组下面一直写着那段说明(像系统设置里开关下面的灰字) */
+.nd-grp .nd-n.wide {
+  flex: 1;
+  width: auto;
+}
+.nd-foot {
+  margin: 7px 4px 0;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--ink-2);
+}
 /* 滑条:和系统的一样,浅灰轨道、白色圆钮(20px) */
 .nd-pr .tp-range input::-webkit-slider-runnable-track {
   background: linear-gradient(to right, var(--accent) var(--fill), rgba(120, 120, 128, 0.26) var(--fill));
@@ -536,7 +547,8 @@
   width: 64px;
 }
 .nd-pbody .nd-v {
-  width: 52px;
+  /* 放得下「推演到」的"10000 年" */
+  width: 66px;
 }
 .nd-pbody .nd-fld {
   flex: 1;

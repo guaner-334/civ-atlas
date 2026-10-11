@@ -88,9 +88,11 @@ import {
 } from './civView';
 import {
   EMPTY_EDITS,
+  END_YEAR_DEFAULT,
   GENERATOR_VERSION,
   applyNames,
   aiNameKeys,
+  cleanEndYear,
   faithKey,
   keySeats,
   namesWithoutAi,
@@ -234,7 +236,7 @@ import {
   type TerrainStatus,
 } from './TerrainTools';
 import { SourceLayer, beginImport, isImageFile, startImport, useImportOn, useSourceView } from './ImportImage';
-import { NewWorldDialog, type NewWorldMode, type NewWorldStart } from './NewWorldDialog';
+import { NewWorldDialog, type NewWorldInit, type NewWorldMode, type NewWorldStart } from './NewWorldDialog';
 import { closeUpheaval, getUpUi, setUpRunner, takeUpPreview, undoUpOp, upCancel, upClick, upDown, upMove, upUp, upheavalName, useUpUi } from './upheavalStore';
 import { UpheavalHint, UpheavalOverlay } from './UpheavalPanel';
 import { dismissing, tookDismissClick } from './dismissClick';
@@ -276,7 +278,10 @@ function readUrl() {
   // 带了却认不出(不是整数之类)当成第 0 版:认不出的旧版本,照样提示,也不当成没带 gen 的老网址
   const gq = q.get(GEN_KEY);
   const gen = gq === null ? null : /^\d{1,6}$/.test(gq) ? Number(gq) : 0;
-  return { params, style, layer, mapLayer, share, shortShare, proj, lon, grat, gen };
+  // 推演年数(years=):新建中、还没存下的世界(new=)刷新、后退回来还记得弹窗里开的年数
+  const yq = q.get('years');
+  const years = yq === null ? undefined : cleanEndYear(Number(yq));
+  return { params, style, layer, mapLayer, share, shortShare, proj, lon, grat, gen, years };
 }
 
 /**
@@ -344,6 +349,12 @@ function draftSig(params: WorldParams, edits: WorldEdits, title?: string): strin
   return JSON.stringify([worldKey(params), edits, title ?? '']);
 }
 
+/** 新建时只定了推演年数的修改(3000 = 什么都没有) */
+function yearsEdits(endYear: number | undefined): WorldEdits {
+  const y = cleanEndYear(endYear);
+  return y ? { ...EMPTY_EDITS, endYear: y } : EMPTY_EDITS;
+}
+
 /** 一个新建中的世界(还没动过) */
 function draftTarget(params: WorldParams, base: DraftBase | null = null, edits: WorldEdits = EMPTY_EDITS, title?: string): Target {
   return { id: newWorldId(), kind: 'draft', params, edits, pristine: true, base, title };
@@ -405,7 +416,7 @@ function visitTarget(params: WorldParams, gen: number | null = null): Target {
  *   带种子的网址       → 直接看这个世界(改版前存过的就回到那个存档)
  *   都没有             → 我的世界(第一次来是空的那一页:一颗地球、一句话、「新建世界」;点了才生成星球)
  */
-function firstRoute(init: ReturnType<typeof readUrl>): { stage: Stage; target: Target | null; gone?: string; dialog?: { mode: NewWorldMode; params: WorldParams; step: 1 | 2 } } {
+function firstRoute(init: ReturnType<typeof readUrl>): { stage: Stage; target: Target | null; gone?: string; dialog?: NewWorldInit } {
   const q = new URLSearchParams(location.search);
   if (init.shortShare !== null && !init.share) return { stage: 'home', target: null };
   if (init.share) return { stage: 'world', target: visitTarget(init.params) };
@@ -417,9 +428,9 @@ function firstRoute(init: ReturnType<typeof readUrl>): { stage: Stage; target: T
   // 这一步记的世界存着,网址是存下之前的那一版(开着卡片时改了第一笔才存下,退回来的这一步网址里还没有 w=):打开存着的
   const mine = !isWorldId(w) && isNavState(was) && was.page === 'world' && was.id ? loadWorld(was.id) : null;
   if (mine && !mine.draft) return { stage: 'world', target: storedTarget(mine, 'restore') };
-  if (q.get('new') === '1') return { stage: 'draft', target: draftTarget(init.params) };
+  if (q.get('new') === '1') return { stage: 'draft', target: draftTarget(init.params, null, yearsEdits(init.years)) };
   // 照手绘图新建、还没照图长出星球(图不存,刷新就没了):回到我的世界,弹窗停在照手绘图的第 2 步(参数照网址)重新选图
-  if (q.get('new') === 'image') return { stage: 'home', target: null, dialog: { mode: 'image', params: init.params, step: 2 } };
+  if (q.get('new') === 'image') return { stage: 'home', target: null, dialog: { mode: 'image', params: init.params, step: 2, endYear: init.years } };
   if (q.has('seed')) {
     // 改版前自动存的世界:那时的网址只带种子、参数,刷新照旧回到它(带 gen= 的是改版后的网址,不是它)
     const old = init.gen === null ? legacyWorld(init.params) : null;
@@ -484,6 +495,10 @@ function writeWorldUrl(t: Target) {
   const w = isStored(t.id) ? loadWorld(t.id) : null;
   if (w && worldKey(w.save.params) === worldKey(t.params)) q.set('w', t.id);
   else if (t.kind === 'draft') q.set('new', draftModeOf(t) === 'image' && !t.edits.sketch?.image ? 'image' : '1');
+  // 还没存下的新建:弹窗里开的推演年数也写上(存下以后在存档里)
+  const years = q.has('new') ? cleanEndYear(t.edits.endYear) : undefined;
+  if (years) q.set('years', String(years));
+  else q.delete('years');
   // 生成器版本:复制这个网址发给别人,以后版本更新了对方打开会说清变了什么。
   // 网址来自更新的版本(页面是旧的)就留着那个号:刷新还是旧页面照样提示,换到新页面就对上了。
   // 新建中还没存的(new=1)不带:打开这种网址是接着新建,用的总是现在的版本
@@ -496,7 +511,7 @@ function writeWorldUrl(t: Target) {
 /** 回到"我的世界":网址里去掉这个世界(种子、参数、编号、年份……),留着图层、投影这些看法 */
 function writeHomeUrl() {
   const q = new URLSearchParams(location.search);
-  for (const k of [...Object.keys(DEFAULT_PARAMS), 'w', 'new', 's', GEN_KEY, 'civYear', 'play', 'chron']) q.delete(k);
+  for (const k of [...Object.keys(DEFAULT_PARAMS), 'w', 'new', 'years', 's', GEN_KEY, 'civYear', 'play', 'chron']) q.delete(k);
   const rest = q.toString();
   navUrl(rest ? `?${rest}` : location.pathname);
 }
@@ -518,6 +533,13 @@ const MAP_KEEP = 2;
 const upsOpt = (u: readonly Upheaval[] | undefined) => (u?.length ? { upheavals: [...u] } : {});
 /** 推文明时带的地名风格(自动 = 不带) */
 const namesOpt = (names: NameMix | undefined) => (names ? { names } : {});
+/** 推文明时带的推演年数(3000 = 不带) */
+const yearsOpt = (endYear: number | undefined) => (endYear ? { endYear } : {});
+/**
+ * 这一步要推到第几年(3000 = undefined):新建界面里只看星球,一律先推 3000 年(换种子、调参数不用等);
+ * 创建以后再按世界自己的推演年数接着推(见下面重推的那段)
+ */
+const yearsFor = (draft: boolean, edits: Pick<WorldEdits, 'endYear'>) => (draft ? undefined : cleanEndYear(edits.endYear));
 
 /** 结束那一年现存几国(我的世界的卡片上写;没长出文明 = 0) */
 function aliveAtEnd(civ: Civ): number {
@@ -579,7 +601,7 @@ export function App() {
   /** 新建中的名字(卡片上的输入框;打开没建完的世界时是它存的名字) */
   const [draftTitle, setDraftTitle] = useState(route.target?.kind === 'draft' ? (route.target.title ?? '') : '');
   /** 「新建世界」弹窗:开着没有、从哪一步开始(刷新了照手绘图还没长出星球的新建:停在它选图那一步) */
-  const [newDlg, setNewDlg] = useState<{ init?: { mode: NewWorldMode; params: WorldParams; step: 1 | 2 } } | null>(route.dialog ? { init: route.dialog } : null);
+  const [newDlg, setNewDlg] = useState<{ init?: NewWorldInit } | null>(route.dialog ? { init: route.dialog } : null);
   /** 生成出来的世界和主图(地形大事以前的;地图上画的是 data:时间轴那一段的) */
   const [baseData, setData] = useState<{ world: World; raster: Raster } | null>(null);
   /** 地形大事以后各段的世界(后台线程交来的;没有大事 = null)、各段主图的补丁(后台慢慢铺好交来;eras.ts) */
@@ -720,6 +742,10 @@ export function App() {
   const genUps = useRef<readonly Upheaval[] | undefined>(undefined);
   /** 最近一次请求的文明是按哪种地名风格起名的(自动 = undefined) */
   const civNames = useRef<NameMix | undefined>(undefined);
+  /** 最近一次请求的文明推到第几年(3000 = undefined) */
+  const civYears = useRef<number | undefined>(undefined);
+  /** 刚创建的世界要接着往后推:推完再从第 0 年放一遍历史(true = 要放) */
+  const storyAfterYears = useRef<boolean | null>(null);
   const rawUps = useRef<readonly Upheaval[] | undefined>(undefined);
   /** 读档 / 自动恢复套上的地形大事(按它重推完不提示) */
   const restoredUps = useRef<readonly Upheaval[] | undefined | null>(null);
@@ -744,8 +770,11 @@ export function App() {
     quiet?: boolean;
     /** 这次重推是一次 AI 改写 / 撤销改写(推完说"已按你说的改写",带撤销) */
     note?: RewriteNote;
+    /** 这次只换了推演年数(刚创建的世界接着往后推) */
+    years?: boolean;
   } | null>(null);
-  const [resim, setResim] = useState<{ year: number } | null>(null);
+  /** 正在重推:从哪一年起变、推到哪一年(进度提示条上写) */
+  const [resim, setResim] = useState<{ year: number; end?: number } | null>(null);
   /** 正在按新的干预重推历史(缩略图等推完再截) */
   const resimRef = useRef(false);
   resimRef.current = !!resim;
@@ -915,7 +944,7 @@ export function App() {
               reject(e);
             },
           });
-          send({ type: 'trial', id: reqId.current, tid, params: p, terrain: [...genTerrain.current], sketch: genSketch.current, interventions: [...interventions], ...upsOpt(ups), ...namesOpt(civNames.current) });
+          send({ type: 'trial', id: reqId.current, tid, params: p, terrain: [...genTerrain.current], sketch: genSketch.current, interventions: [...interventions], ...upsOpt(ups), ...namesOpt(civNames.current), ...yearsOpt(civYears.current) });
         }),
     );
     return () => setTrialRunner(null);
@@ -1081,6 +1110,12 @@ export function App() {
     }
     setRawCiv(civ);
     setResim(null);
+    // 刚创建的世界接着往后推完了:缩略图按推完的样子重截,该放历史的从第 0 年放一遍
+    if (info?.years) {
+      refreshThumb();
+      if (storyAfterYears.current) startCivReplay();
+      storyAfterYears.current = null;
+    }
   };
   const applyResimRef = useRef(applyResim);
   applyResimRef.current = applyResim;
@@ -1110,7 +1145,10 @@ export function App() {
       closeUpheaval();
       // 地名风格也直接带着(只管起名,和改名、干预不同:生成完不用再重推一遍)
       civNames.current = t.edits.nameMix;
-      send({ type: 'generate', id, params: p, scale: 1, terrain: [...terrain], sketch: t.edits.sketch, ...namesOpt(t.edits.nameMix) });
+      // 推演年数同样直接带着(新建中的世界先推 3000 年)
+      civYears.current = yearsFor(t.kind === 'draft', t.edits);
+      storyAfterYears.current = null;
+      send({ type: 'generate', id, params: p, scale: 1, terrain: [...terrain], sketch: t.edits.sketch, ...namesOpt(t.edits.nameMix), ...yearsOpt(civYears.current) });
       // 换世界:改名、干预、选中都属于旧世界,一起作废(先停掉旧世界的自动存,清空不算"改回默认";新世界先按"没有干预、没有地形大事"生成)
       detachWorld();
       civEdits.current = EMPTY_EDITS.interventions;
@@ -1205,6 +1243,7 @@ export function App() {
     civEdits.current = interventions;
     civUps.current = genUps.current = ups;
     civNames.current = getEdits().nameMix;
+    civYears.current = yearsFor(getStage().stage === 'draft', getEdits());
     resimSeq.current++;
     resimInfo.current = null;
     setResim(null);
@@ -1220,7 +1259,7 @@ export function App() {
     clearChroniclePick();
     if (getChronicle().polity !== null) setChronicle({ polity: null });
     if (getPeople().polity !== null) setPeople({ polity: null });
-    send({ type: 'generate', id, params: genParams.current, scale: 1, terrain: [...t], sketch: sk, interventions: [...interventions], ...upsOpt(ups), ...namesOpt(civNames.current) });
+    send({ type: 'generate', id, params: genParams.current, scale: 1, terrain: [...t], sketch: sk, interventions: [...interventions], ...upsOpt(ups), ...namesOpt(civNames.current), ...yearsOpt(civYears.current) });
   }, [edits.terrain, edits.sketch, baseData, send]);
 
   // ---- 干预(阶段 4)、地形大事:干预列表或地形大事一变,就在后台带着新的重推文明(地形不动;变了的那一年以前和原来一样) ----
@@ -1230,7 +1269,10 @@ export function App() {
     const names = edits.nameMix;
     // 地名风格:生成新世界时已经带着(修改先清空、生成完再套上,这期间不算变了);新建时换了风格,只重推、重新起名
     const sameNames = fresh.current || sameMix(names, civNames.current);
-    if (!baseData || !genParams.current || (sameInterventions(list, civEdits.current) && sameUpheavals(ups, civUps.current) && sameNames)) return;
+    // 推演年数:新建中的世界一律先推 3000 年(不因为调了年数重推);创建以后按世界自己的年数,和推好的不一样就接着推
+    const endYear = draft ? civYears.current : cleanEndYear(edits.endYear);
+    const sameYears = fresh.current || endYear === civYears.current;
+    if (!baseData || !genParams.current || (sameInterventions(list, civEdits.current) && sameUpheavals(ups, civUps.current) && sameNames && sameYears)) return;
     if (!sameTerrain(getEdits().terrain, genTerrain.current) || !sameSketch(getEdits().sketch, genSketch.current)) return; // 等改地形那次生成一起推
     // 从哪一年起变:新加的 / 删掉的干预、地形大事里最早的那一年(重推完时间轴停在这里)
     const before = civEdits.current;
@@ -1242,12 +1284,17 @@ export function App() {
     const [ua, ub] = [ks(upNow), ks(upBefore)];
     const upChanged = [...upNow.filter((_, i) => !ub.includes(ua[i])), ...upBefore.filter((_, i) => !ua.includes(ub[i]))];
     const years = [...(changed.length || upChanged.length ? changed : list).map((v) => Math.floor(v.from)), ...upChanged.map((u) => u.year)].filter((y) => Number.isFinite(y));
-    const year = years.length ? Math.max(0, Math.min(...years)) : 0;
-    // 只换了地名风格:历史不变,不提示、不跳时间
+    // 只换了推演年数:从原来和现在的结束年份里早的那一年起变(之前的历史不变)
+    const oldEnd = civYears.current ?? END_YEAR_DEFAULT;
+    const newEnd = endYear ?? END_YEAR_DEFAULT;
+    const yearsOnly = !sameYears && !changed.length && !upChanged.length && sameInterventions(list, before) && sameUpheavals(ups, civUps.current);
+    const year = yearsOnly ? Math.min(oldEnd, newEnd) : years.length ? Math.max(0, Math.min(...years)) : 0;
+    // 只换了地名风格(或推演年数):历史不变,不提示、不跳时间
     const namesOnly = !changed.length && !upChanged.length && sameInterventions(list, before) && sameUpheavals(ups, civUps.current);
     civEdits.current = list;
     civUps.current = ups;
     if (!fresh.current) civNames.current = names;
+    if (!fresh.current) civYears.current = endYear;
     const seq = ++resimSeq.current;
     // 只多了一条 = 新下的干预 / 新加的大事;只少了一条 = 撤销(读档、自动恢复套上的不算,不提示)
     const quiet = namesOnly || (list === restoredIv.current && ups === restoredUps.current);
@@ -1257,8 +1304,8 @@ export function App() {
     const upAdded = !quiet && one && upNow.length === upBefore.length + 1 ? upChanged[0] : undefined;
     const upRemoved = !quiet && one && upNow.length === upBefore.length - 1 ? upChanged[0] : undefined;
     const note = takeRewriteNote(getEdits()) ?? undefined;
-    resimInfo.current = { seq, year, t0: performance.now(), added, removed, upAdded, upRemoved, left: list.length + upNow.length, quiet, note };
-    setResim({ year });
+    resimInfo.current = { seq, year, t0: performance.now(), added, removed, upAdded, upRemoved, left: list.length + upNow.length, quiet, note, years: yearsOnly };
+    setResim({ year, end: newEnd });
     send({
       type: 'resim',
       id: reqId.current,
@@ -1269,9 +1316,10 @@ export function App() {
       interventions: list,
       ...upsOpt(ups),
       ...namesOpt(civNames.current),
+      ...yearsOpt(civYears.current),
       have: [...eraPatches.current.keys()],
     });
-  }, [edits.interventions, edits.upheavals, edits.nameMix, baseData, send]);
+  }, [edits.interventions, edits.upheavals, edits.nameMix, edits.endYear, draft, baseData, send]);
   // 重推的文明画到地图上以后,记下"从下命令到地图更新"用了多久(冒烟检查用)
   useEffect(() => {
     const info = resimInfo.current;
@@ -1643,8 +1691,9 @@ export function App() {
    */
   const startFromDialog = (s: NewWorldStart) => {
     setNewDlg(null);
-    if (s.mode === 'random') return openTarget(draftTarget(s.params));
-    openTarget({ ...draftTarget(s.params), mode: 'image' });
+    const d = draftTarget(s.params, null, yearsEdits(s.endYear));
+    if (s.mode === 'random') return openTarget(d);
+    openTarget({ ...d, mode: 'image' });
     if (s.picture) beginImport(s.picture);
   };
   /** 新建中的世界(在看的就是它)*/
@@ -1669,11 +1718,11 @@ export function App() {
     // 没画草图 = 整颗星球都换了,放的那几处是照原来的地形放的,不带过去。助手的对话(说的是原来那颗)也清掉
     newConversation();
     const sketch = st.edits.sketch;
-    const plain = !st.title && !sketch && !st.edits.nameMix && worldKey({ ...base, seed: 0 }) === worldKey({ ...DEFAULT_PARAMS, seed: 0 });
-    // 地名风格和参数一样是这一类星球的设定,换一颗照旧
-    const nameMix = st.edits.nameMix;
+    const plain = !st.title && !sketch && !st.edits.nameMix && !st.edits.endYear && worldKey({ ...base, seed: 0 }) === worldKey({ ...DEFAULT_PARAMS, seed: 0 });
+    // 地名风格、推演年数和参数一样是这一类星球的设定,换一颗照旧
+    const { nameMix, endYear } = st.edits;
     const kept: WorldEdits = sketch ? { ...EMPTY_EDITS, sketch, terrain: st.edits.terrain } : EMPTY_EDITS;
-    const edits = nameMix ? { ...kept, nameMix } : kept;
+    const edits = { ...kept, ...(nameMix ? { nameMix } : {}), ...(endYear ? { endYear } : {}) };
     // 换一颗:记一步(按后退换回刚才那颗)
     navTo({ page: 'draft', id: t.id, seed, title: st.title });
     generate({ ...t, params: { ...base, seed }, edits, saved: undefined, title: st.title, pristine: st.pristine || plain, view: undefined, from: undefined, save: undefined });
@@ -1728,9 +1777,12 @@ export function App() {
       ttl: 7000,
     });
     // 历史从第 0 年起放一遍(这次打开网页不再另外自动播放);不放(play=0、无头浏览器)时,
-    // 新建时放过"这颗星球的形成"、时间停在第 0 年的,回到结束那一年
+    // 新建时放过"这颗星球的形成"、时间停在第 0 年的,回到结束那一年。
+    // 推得比 3000 年久的世界:新建时只推了 3000 年,创建以后接着往后推(重推那段),推完再放
     takeAutoplay();
-    if (storyOk()) startCivReplay();
+    const later = cleanEndYear(getEdits().endYear) !== civYears.current;
+    if (later) storyAfterYears.current = storyOk();
+    if (storyOk() && !later) startCivReplay();
     else if (getCivTime().year === 0) resetCivTime();
     return true;
   };
@@ -1903,10 +1955,10 @@ export function App() {
       // 照手绘图新建、还没照图长出星球(图不存,离开就没了):和刷新时一样,回我的世界,弹窗停在照手绘图选图那一步
       if (q.get('new') === 'image') {
         showHome();
-        setNewDlg({ init: { mode: 'image', params: url.params, step: 2 } });
+        setNewDlg({ init: { mode: 'image', params: url.params, step: 2, endYear: url.years } });
         return;
       }
-      return openTarget({ ...draftTarget({ ...url.params, seed }), id: to.id ?? newWorldId() });
+      return openTarget({ ...draftTarget({ ...url.params, seed }, null, yearsEdits(url.years)), id: to.id ?? newWorldId() });
     }
     const w = to.id ? loadWorld(to.id) : null;
     const once = to.stored || isWorldId(q.get('w'));

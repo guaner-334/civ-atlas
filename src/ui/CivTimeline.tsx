@@ -5,7 +5,8 @@
  *
  * - 打开网页、第一个世界显示出来时,从第 2600 年(结束年份前 400 年)起按 1× 自动播放;放到结束年份停下,
  *   再点播放从第 2600 年重播(网址给了 civYear、play=0,或在无头浏览器里不自动播放,见 civView.ts)。
- * - 1× = 每秒 20 年,4× = 每秒 80 年;"回放世界形成"放完地质接着放文明时(story),从第 0 年用 15 秒放完一遍,
+ * - 1× = 每秒 20 年,4× = 每秒 80 年;推得比 3000 年久的世界,速度和"结束年份前 400 年"都按年数放大(60000 年 = 20 倍,
+ *   timelineLayout.ts 的 timeScale)。"回放世界形成"放完地质接着放文明时(story),从第 0 年用 15 秒放完一遍,
  *   这时自动打开"民族"和"国家",顶部显示"人类登场 / 列国并起"的说明。
  * - 干预重推完,App 调 playFrom(生效年份) 从那一年接着放;选中国家等看详情时暂停(civView.ts 的 setSelection)。
  * - 年份存在 civView.ts 里,地图(CivLayer)、图层弹层的民族图例和悬停信息(civDescribe)都读它。
@@ -34,7 +35,7 @@ import {
 import { TimelineMarks } from './TimelineMarks';
 import { baseRegions } from './eras';
 import { useNarrow } from './device';
-import { PLAY_RATE, STORY_SECONDS, replayStart } from './timelineLayout';
+import { STORY_SECONDS, playRate, replayStart } from './timelineLayout';
 import './timeline.css';
 
 export interface CivTimelineProps {
@@ -84,7 +85,7 @@ export function CivTimeline({ civ, hidden, dock = 'bottom' }: CivTimelineProps) 
       return;
     }
     if (t.story) setCivShow({ cultures: true, polities: true, faiths: false });
-    const rate = t.story ? end / STORY_SECONDS : PLAY_RATE[t.speed] ?? PLAY_RATE[1];
+    const rate = t.story ? end / STORY_SECONDS : playRate(t.speed, end);
     let last = performance.now();
     let raf = 0;
     const step = (now: number) => {

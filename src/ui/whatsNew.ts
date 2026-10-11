@@ -16,6 +16,7 @@ export interface NewsItem {
 }
 
 export const WHATS_NEW: NewsItem[] = [
+  { pr: 88, title: '推演更久', text: '新建世界时可以打开「推演超过 3000 年」，最多推到 6 万年' },
   { pr: 76, title: '名臣名将', text: '每个朝代有几位名臣，将领有了字号、籍贯和生平' },
   { pr: 75, title: '浏览器后退', text: '按浏览器的后退、前进，能回到上一个画面' },
   { pr: 74, title: '助手', text: '说的和确认单对得上了，写史书时随时看得到进度' },

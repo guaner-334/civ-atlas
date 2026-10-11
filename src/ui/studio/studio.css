@@ -1005,8 +1005,14 @@
   color: var(--ink);
   font-variant-numeric: tabular-nums;
 }
-.sk-body > .sk-params + .sb-row {
+.sk-body > .sk-params + .sb-row,
+.sk-body > .nw-years-note + .sb-row,
+.sk-body > .nw-years-note + .sk-params {
   border-top: 0.5px solid var(--line);
+}
+/* 推演到:数字写"10000 年",比别的宽 */
+.sk-pr[data-param='endYear'] > em {
+  width: 64px;
 }
 .sk-name {
   padding: 10px 12px 0;
