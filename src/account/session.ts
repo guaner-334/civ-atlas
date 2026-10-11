@@ -219,7 +219,8 @@ export function takeInviteFromUrl(): string | null {
   if (v === null) return null;
   q.delete('invite');
   const rest = q.toString();
-  history.replaceState(null, '', (rest ? `?${rest}` : location.pathname) + location.hash);
+  // 浏览器后退记的这一步(history.state,见 ui/nav.ts)留着,只换网址
+  history.replaceState(history.state, '', (rest ? `?${rest}` : location.pathname) + location.hash);
   const code = v.trim().slice(0, 40);
   if (code) invite = code;
   return code || null;
