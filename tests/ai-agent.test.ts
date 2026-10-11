@@ -7,11 +7,13 @@ import { DEFAULT_PARAMS, generateWorld } from '../src/gen/world';
 import { generateCiv } from '../src/gen/civ';
 import type { Civ } from '../src/gen/civ/types';
 import { ownersAt } from '../src/gen/civ/timeline';
-import { applyNames, polityKey, regionKey, type WorldEdits } from '../src/gen/edits';
+import { applyNames, polityKey, regionKey, settlementKey, type WorldEdits } from '../src/gen/edits';
 import { setActiveProvider, setMockResponder } from '../src/ai/client';
 import { AiError, type AiRequest } from '../src/ai/types';
 import { AGENT_MAX_ROUNDS, FINAL_NUDGE, TOOL_RESULT_MAX, looksUnfinished, parseToolArgs, runAgent, type AgentEvent, type AgentTool, type AgentToolResult } from '../src/ai/agent/loop';
 import { compareTrial, fateText, matchPolities, trialText } from '../src/ai/agent/trial';
+import { buildChronicle } from '../src/gen/civ/chronicle';
+import { polityTitleChain } from '../src/gen/civ/growth';
 import {
   ASSISTANT_FEATURE,
   ASSISTANT_SYSTEM,
@@ -19,6 +21,7 @@ import {
   TRIAL_SAME_MAX,
   UNFINISHED_NOTE,
   assistantMessages,
+  saysListed,
   assistantTools,
   polityOf,
   runAssistant,
@@ -26,7 +29,7 @@ import {
   type AssistantProposal,
   type AssistantTrial,
 } from '../src/ai/agent/assistant';
-import { REWRITE_OPS, REWRITE_SYSTEM, bordersAt, nameAt, parseRewrite, plainIds } from '../src/ai/prompts/rewrite';
+import { REWRITE_OPS, REWRITE_SYSTEM, bordersAt, nameAt, nearestLand, parseRewrite, plainIds } from '../src/ai/prompts/rewrite';
 
 const world = generateWorld({ ...DEFAULT_PARAMS, seed: 7 });
 const civ = generateCiv(world);
@@ -196,6 +199,33 @@ describe('助手的循环', () => {
     expect(out.end).toBe('done');
     expect(seen[0].toolChoice).toBe('none');
     expect(seen[0].messages.some((m) => m.content === FINAL_NUDGE)).toBe(false);
+  });
+
+  it('回完话以后调用方看出没做完:补一句再问一轮(可以只给几样工具);一次对话只补一次,剩下的轮数不够就不补', async () => {
+    const follow = (text: string) => (text.includes('列出') ? { say: '你说要列,但没有调用工具。', tools: ['echo'] } : null);
+    let seen = script('现在列出：', { calls: [['echo', { x: 1 }]] }, '现在列出：');
+    let out = await runAgent({ feature: '测试', messages: [{ role: 'user', content: '…' }], tools: [echo, boom], followUp: follow });
+    expect(seen).toHaveLength(3);
+    expect(seen[1].tools!.map((t) => t.name)).toEqual(['echo']);
+    expect(seen[1].messages.slice(-2)).toEqual([
+      { role: 'assistant', content: '现在列出：' },
+      { role: 'user', content: '你说要列,但没有调用工具。' },
+    ]);
+    // 补的那一轮做完,下一轮工具全给;第二次再这么说不再补
+    expect(seen[2].tools!.map((t) => t.name)).toEqual(['echo', 'boom']);
+    expect(out.text).toBe('现在列出：');
+    expect(out.steps).toHaveLength(1);
+    // 只剩两轮(补了以后做不完再说完):不补
+    seen = script('现在列出：');
+    out = await runAgent({ feature: '测试', messages: [{ role: 'user', content: '…' }], tools: [echo], maxRounds: 2, followUp: follow });
+    expect(seen).toHaveLength(1);
+    expect(out.end).toBe('done');
+    // 不同的毛病各补一次
+    const keyed = (text: string) => (text.includes('列出') ? { key: 'a', say: '补 a' } : text.includes('挪') ? { key: 'b', say: '补 b' } : null);
+    seen = script('现在列出：', '我挪一下。', '我再挪一下。');
+    out = await runAgent({ feature: '测试', messages: [{ role: 'user', content: '…' }], tools: [echo], followUp: keyed });
+    expect(seen.map((r) => r.messages.at(-1)!.content)).toEqual(['…', '补 a', '补 b']);
+    expect(out.text).toBe('我再挪一下。');
   });
 
   it('收尾的话像没说完:以冒号结尾,或者最后一段是"让我再查……"这类', () => {
@@ -514,6 +544,202 @@ describe('助手', () => {
       const now = nameAt(q, civ.endYear);
       if (q.ended === undefined && now !== then && sum.includes(then)) expect(sum).toContain(`${then}（后来的${now}）`);
     }
+  });
+
+  it('查资料:某一年没有仗就明说,并给前后最近的一场;编年史可以只查一年', async () => {
+    const tools = Object.fromEntries(assistantTools(ctx(), { trials: [], proposal: null }).map((t) => [t.def.name, t]));
+    const wars = buildChronicle(civ).filter((e) => e.kind === 'war');
+    const busy = (y: number) => wars.some((e) => Math.floor(e.year) <= y && Math.floor(e.end) >= y);
+    const quiet = [...Array(Math.floor(civ.endYear)).keys()].find((y) => y > Math.floor(wars[0].end) && !busy(y))!;
+    expect(quiet).toBeDefined();
+    const s = await said(tools.situation.run({ year: quiet }));
+    expect(s).not.toContain('这一年正在打的仗');
+    expect(s).toContain('这一年没有正在打的仗。');
+    expect(s).toMatch(/\n之前最近的一场:第 \d+/);
+    // 之前最近的一场按结束年份挑
+    const prev = wars.filter((e) => Math.floor(e.end) < quiet).sort((a, b) => b.end - a.end)[0];
+    expect(s.split('\n').find((l) => l.startsWith('之前最近的一场'))).toContain(prev.text);
+    const war = wars.find((e) => busy(Math.floor(e.year)))!;
+    expect(await said(tools.situation.run({ year: Math.floor(war.year) }))).toContain('这一年正在打的仗:');
+
+    const y = Math.floor(fall.year);
+    const one = await said(tools.chronicle.run({ year: y, all: true }));
+    expect(one.split('\n')[0]).toMatch(new RegExp(`^第 ${y} 年的史事:共 \\d+ 条`));
+    for (const line of one.split('\n').slice(1)) {
+      const [, a, b] = /第 (\d+)(?:—(\d+))? 年/.exec(line)!;
+      expect(Number(a)).toBeLessThanOrEqual(y);
+      expect(Number(b ?? a)).toBeGreaterThanOrEqual(y);
+    }
+    expect(tools.chronicle.label!({ year: y })).toBe(`查编年史：第 ${y} 年`);
+  });
+
+  it('宣战:试推演里打起来的那场仗写明;没打出结果的小仗也补进"多出来的大事",不会看起来像命令没起作用', async () => {
+    // 找一对那一年接壤、又不在交战的国家
+    const wars = buildChronicle(civ).filter((e) => e.kind === 'war');
+    let pair: [number, number, number] | null = null;
+    for (let y = 1000; y < civ.endYear - 100 && !pair; y += 137) {
+      const own = ownersAt(civ, y).polity;
+      for (const p of civ.polities) {
+        if (p.founded >= y - 1 || (p.ended !== undefined && p.ended <= y + 1)) continue;
+        const q = [...bordersAt(civ, own, p.id)].find((b) => !wars.some((e) => Math.floor(e.year) <= y && Math.floor(e.end) >= y && e.polities.includes(p.id) && e.polities.includes(b)));
+        if (q !== undefined) {
+          pair = [p.id, q, y];
+          break;
+        }
+      }
+    }
+    const [a, b, y] = pair!;
+    const state = { trials: [] as AssistantTrial[], proposal: null };
+    const tools = Object.fromEntries(assistantTools(ctx(), state).map((t) => [t.def.name, t]));
+    const r = await said(tools.try_edits.run({ edits: [{ op: 'declare', country: `P${a}`, other: `P${b}`, from: y, why: '…' }] }));
+    const d = state.trials[0].diff;
+    expect(d.declared).toHaveLength(1);
+    const war = d.declared![0].war!;
+    expect(war).toMatchObject({ year: y });
+    expect(d.declared![0].text).toBe(`${nameAt(civ.polities[a], y)}向${nameAt(civ.polities[b], y)}宣战(第 ${y} 年)`);
+    expect(d.added.map((e) => e.text)).toContain(war.text);
+    expect(d.addedCount).toBeGreaterThan(0);
+    expect(r).toContain('宣战的结果:');
+    expect(r).toContain(`打起来了 —— 第 ${y}`);
+    // 没打起来的写法
+    expect(trialText({ ...d, declared: [{ text: '甲向乙宣战(第 100 年)' }] })).toContain('- 甲向乙宣战(第 100 年):试推演里没打起来');
+    // 那一年两国已经在交战:宣战打不成,不把那场旧仗、或同一年后来的仗认成它的结果
+    const busy = civ.annals.find((w, k) => {
+      if (w.kind !== 'war' || w.year < 1000) return false;
+      const y1 = Math.floor(w.year) + 1;
+      const peace = civ.annals.find((q, j) => j > k && q.kind === 'peace' && q.war === w.war);
+      if (!peace || peace.year < y1 + 1) return false;
+      return [w.a, w.b].every((id) => civ.polities[id].ended === undefined || civ.polities[id].ended! > y1 + 1) && bordersAt(civ, ownersAt(civ, y1).polity, w.a).has(w.b);
+    })!;
+    const y1 = Math.floor(busy.year) + 1;
+    const s2 = { trials: [] as AssistantTrial[], proposal: null };
+    const t2 = Object.fromEntries(assistantTools(ctx(), s2).map((t) => [t.def.name, t]));
+    const r2 = await said(t2.try_edits.run({ edits: [{ op: 'declare', country: `P${busy.a}`, other: `P${busy.b}`, from: y1, why: '…' }] }));
+    expect(s2.trials[0].diff.declared).toEqual([{ text: `${nameAt(civ.polities[busy.a], y1)}向${nameAt(civ.polities[busy.b], y1)}宣战(第 ${y1} 年)` }]);
+    expect(r2).toContain('试推演里没打起来');
+  });
+
+  it('列完确认单:交代 AI 回答要和确认单对得上(主角的结果、副作用、不合格的),作者还没执行', async () => {
+    const state = { trials: [] as AssistantTrial[], proposal: null as AssistantProposal | null };
+    const tools = Object.fromEntries(assistantTools(ctx(), state).map((t) => [t.def.name, t]));
+    const r = await said(tools.propose_edits.run({ edits: [PROTECT, { op: 'protect', country: '不存在的国', from }] }));
+    expect(r).toContain('作者在确认单下面看到的试推演结果:');
+    const row = state.proposal!.trial!.diff.focus[0];
+    expect(r).toContain(`- ${row.who.name}:${civ.polities[victim].ended !== undefined ? `${Math.floor(civ.polities[victim].ended!)} 年亡 → ` : ''}`);
+    expect(r).toMatch(/现在用两三句话回答,要说到这几样:作者问的那个国家会怎样/);
+    expect(r).toContain('有 1 条不合格,作者执行不了');
+    expect(r).toContain('作者还没执行');
+    expect(r).toContain('直接称作者为"你",不要分条编号');
+    // 不给编号(模型会照抄进回答)
+    expect(r).not.toMatch(/[①②③④]/);
+    // 主角撑到了历史的最后一年:说实际多撑了几年
+    const b = row.before?.end;
+    if (b !== undefined && row.after && row.after.end === undefined)
+      expect(r).toContain(`${row.who.name}原本第 ${b} 年亡,试推演里撑到了历史的最后一年(第 ${Math.floor(civ.endYear)} 年),多撑了 ${Math.floor(civ.endYear) - b} 年`);
+    else throw new Error('剧本里的国家应该撑到最后');
+    // 没有试推演(地形):只说打算怎么改
+    const propose = assistantTools(ctx({ lock: 'history' }), { trials: [], proposal: null }).find((x) => x.def.name === 'propose_edits')!;
+    const t = await said(propose.run({ edits: [{ op: 'volcano', at: [0, 0] }] }));
+    expect(t).toMatch(/现在用两三句话回答,要说到这几样:打算怎么改。直接称作者为"你"/);
+    expect(t).not.toContain('多撑了');
+  });
+
+  it('还在新建(只能改地形):不给试推演', () => {
+    const names = (c: AssistantContext) => assistantTools(c, { trials: [], proposal: null }).map((t) => t.def.name);
+    expect(names(ctx({ lock: 'history' }))).toEqual(['country', 'chronicle', 'situation', 'propose_edits']);
+    expect(names(ctx())).toContain('try_edits');
+  });
+
+  it('话里说列了确认单却没调列单的工具:补一句再问一轮,只给列单的工具;回给人看的话里"作者"换成"你"', async () => {
+    const seen = script(
+      '地形修改不能试推演，所以直接列给作者确认。\n\npropose_edits 列出这一条。',
+      { calls: [['propose_edits', { edits: [PROTECT] }]] },
+      '我打算保护它，需作者在确认单上点击执行。',
+    );
+    const r = await runAssistant(ctx(), [], `让${vName}撑到最后`);
+    expect(seen).toHaveLength(3);
+    expect(seen[1].tools!.map((t) => t.name)).toEqual(['propose_edits']);
+    expect(seen[1].messages.at(-1)!.content).toMatch(/^你刚才说要列确认单,但没有调用 propose_edits/);
+    expect(seen[2].tools!.length).toBeGreaterThan(1);
+    expect(r.proposal).not.toBeNull();
+    expect(r.text).toBe('我打算保护它，需你在确认单上点击执行。');
+    // 列过了:不补
+    const again = script({ calls: [['propose_edits', { edits: [PROTECT] }]] }, '确认单已经列好了。');
+    expect((await runAssistant(ctx(), [], `让${vName}撑到最后`)).text).toBe('确认单已经列好了。');
+    expect(again).toHaveLength(2);
+  });
+
+  it('列的确认单要挪了落点再列,它说重新列了却没再调:补一句再问一轮;挪好了就不补', async () => {
+    const ll = (i: number): [number, number] => [(world.mesh.x[i] / world.width) * 360 - 180, 90 - (world.mesh.y[i] / world.height) * 180];
+    const onLand = ll(civ.settlements[civ.polities[victim].capital].cell);
+    let farSea: [number, number] | null = null;
+    for (let i = 0; i < world.mesh.n && !farSea; i += 7) {
+      if (world.water[i] !== 1) continue;
+      const p = ll(i);
+      if (Math.abs(p[1]) < 60 && nearestLand(world, p)!.km > 1500) farSea = p;
+    }
+    const seen = script(
+      { calls: [['propose_edits', { edits: [{ op: 'volcano', at: onLand, why: '…' }] }]] },
+      '落点贴着大陆，我把它挪到开阔的海面，重新列出确认单。',
+      { calls: [['propose_edits', { edits: [{ op: 'volcano', at: farSea, why: '…' }] }]] },
+      '我打算在开阔的海面上放一座火山。',
+    );
+    const r = await runAssistant(ctx({ lock: 'history' }), [], '在海上放一座火山');
+    expect(seen).toHaveLength(4);
+    expect(seen[2].messages.at(-1)!.content).toMatch(/^你说要重新列确认单,但没有再调用 propose_edits/);
+    expect(seen[2].tools!.map((t) => t.name)).toEqual(['propose_edits']);
+    expect(r.proposal!.items[0].where).toMatch(/^火山在海上/);
+    expect(r.text).toBe('我打算在开阔的海面上放一座火山。');
+    // 先说列了却没列、补了一轮列出来的贴着陆地、又说挪了重新列却没再调:两样各补一次
+    const twice = script(
+      '现在为你列出确认单：',
+      { calls: [['propose_edits', { edits: [{ op: 'volcano', at: onLand, why: '…' }] }]] },
+      '落点贴着大陆，我挪到开阔的海面，重新列出确认单。',
+      { calls: [['propose_edits', { edits: [{ op: 'volcano', at: farSea, why: '…' }] }]] },
+      '我打算在开阔的海面上放一座火山。',
+    );
+    const r2 = await runAssistant(ctx({ lock: 'history' }), [], '在海上放一座火山');
+    expect(twice).toHaveLength(5);
+    expect(twice[1].messages.at(-1)!.content).toMatch(/^你刚才说要列确认单/);
+    expect(twice[3].messages.at(-1)!.content).toMatch(/^你说要重新列确认单/);
+    expect(r2.proposal!.items[0].where).toMatch(/^火山在海上/);
+    // 山脉就是要拉在大陆上(连着):只说列了的不补
+    const range = script({ calls: [['propose_edits', { edits: [{ op: 'range', path: [onLand, [onLand[0] + 3, onLand[1]]], why: '…' }] }]] }, '确认单列了这一条，山脉会和大陆连在一起。');
+    const r3 = await runAssistant(ctx({ lock: 'history' }), [], '在这块大陆上拉一道山脉');
+    expect(range).toHaveLength(2);
+    expect(r3.text).toBe('确认单列了这一条，山脉会和大陆连在一起。');
+  });
+
+  it('"作者"换成"你":作者自己说到"作者"、名字里带"作者"的不换', async () => {
+    script('需作者点击执行。');
+    expect((await runAssistant(ctx(), [], `让${vName}撑到最后`)).text).toBe('需你点击执行。');
+    script('改名叫作者城以后，需作者点击执行。');
+    expect((await runAssistant(ctx(), [], '把国都改名叫作者城')).text).toBe('改名叫作者城以后，需作者点击执行。');
+    const cap = civ.polities[victim].capital;
+    const named = applyNames(civ, { [settlementKey(civ, cap)]: '作者城' });
+    script('作者城是它的国都，需作者点击执行。');
+    expect((await runAssistant(ctx({ civ: named }), [], `${vName}的国都在哪`)).text).toBe('作者城是它的国都，需你点击执行。');
+  });
+
+  it('说没说列确认单', () => {
+    for (const t of ['现在为您列出确认单：', '确认单列出这一条，why 写明：…', '用 propose_edits 列出这一条', '我把它列到确认单上了。'])
+      expect(saysListed(t), t).toBe(true);
+    for (const t of ['', '做不到，所以没有列确认单。', '这件事用命令做不到，不列确认单了。', '第 2000 年最强的是萨尔斯坦帝国。', '确认单要你点了执行才生效。'])
+      expect(saysListed(t), t).toBe(false);
+  });
+
+  it('回给作者的话:编号前后紧挨着这个国家别的国号也不叠写;工具名换成中文', () => {
+    const p = civ.polities.find((q) => polityTitleChain(q).includes('→'))!;
+    const titles = polityTitleChain(p).split(' → ');
+    const Y = Math.floor(p.founded) + 1;
+    const other = titles.find((t) => t !== nameAt(p, Y))!;
+    const rctx = { world, civ, year: Y };
+    expect(plainIds(`${other}(P${p.id})后来亡了`, rctx)).toBe(`${other}后来亡了`);
+    expect(plainIds(`我用 chronicle 和 situation 查了`, rctx)).toBe('我用编年史和格局查了');
+    expect(plainIds(`先用 country 查,再用 show 打开`, rctx)).toBe('先用国家资料查,再用地图打开');
+    // 前文已经用别的国号叫过它:沿用前文的,同一段里不出现两个名字
+    expect(plainIds(`${other}正和邻国交战。当时 P${p.id} 最强`, rctx)).toBe(`${other}正和邻国交战。当时${other}最强`);
+    expect(plainIds(`当时 P${p.id} 最强`, rctx)).toBe(`当时${nameAt(p, Y)}最强`);
   });
 
   it('提示词:改写的提示词带的修改写法和助手的是同一份;前几轮带上执行没执行', () => {

@@ -156,6 +156,12 @@ export function bookUnit(style: HistoryStyle): string {
   return style === 'biography' ? '篇' : (HISTORY_STYLES[style].unit ?? '章');
 }
 
+/** 一部书的写法:"纪传体，约一万字""编年体，约三万字，分 5 章" */
+export function bookHow(j: Pick<BookJob, 'opts' | 'chars' | 'calls'>): string {
+  const W: Record<number, string> = { 3000: '约三千字', 10000: '约一万字', 30000: '约三万字' };
+  return `${HISTORY_STYLES[j.opts.style].label}，${W[j.chars] ?? `约 ${j.chars} 字`}${j.calls > 1 ? `，分 ${j.calls} 章` : ''}`;
+}
+
 /**
  * 写到哪了(0–1):按字数和第几章估,写完 = 1。
  * AI 还没回第一个字(开头几秒在读材料)= 0:右上的进度条画成来回滑动的一小段(states.css),不停在最左
