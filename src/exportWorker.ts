@@ -17,6 +17,7 @@ import type { CivShow, CivStyle } from './render/civ/overlay';
 import type { LayerId } from './render/layers';
 import { heightmapPng, type HeightmapBits, type HeightmapInfo } from './gen/heightmap';
 import { drawMapBase, type ExportScale } from './render/export';
+import type { DrainLines } from './gen/pixelDrain';
 import type { ProjectionId } from './render/projection';
 
 export type ExportRequest =
@@ -25,6 +26,8 @@ export type ExportRequest =
       world: World;
       /** 1× 时直接用主线程的那张;不给 = 按 scale 重新铺 */
       raster?: Raster;
+      /** 重新铺时照屏幕上那张主图的细沟画(和屏幕上一样;不给 = 现算) */
+      veins?: DrainLines;
       scale: ExportScale;
       civ: Civ | null;
       style: CivStyle;
@@ -72,7 +75,7 @@ self.onmessage = async (e: MessageEvent<ExportRequest>) => {
       return;
     }
     // 沟和山脊只有写实风打光用得着(分给帮手线程算)
-    const raster = m.raster ?? (m.style === 'realistic' ? await rasterizeWithHelpers(m.world, m.scale) : rasterize(m.world, m.scale, false));
+    const raster = m.raster ?? (m.style === 'realistic' ? await rasterizeWithHelpers(m.world, m.scale, m.veins) : rasterize(m.world, m.scale, false));
     const t1 = performance.now();
     const cv = new OffscreenCanvas(raster.w, raster.h);
     const ctx = cv.getContext('2d');

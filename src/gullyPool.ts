@@ -1,27 +1,33 @@
 /// <reference lib="webworker" />
 /**
- * 整张主图山坡上的沟和山脊(gen/gully.ts 的 gullyHeights)分给几个帮手线程(gullyWorker.ts)同时算:
+ * 整张主图山坡上的沟和山脊(gen/gully.ts 的 gullyHeights)分给几个帮手线程(gullyWorker.ts)同时算,
+ * 细沟(gen/pixelDrain.ts 的 veinsOf)整件交给第一个帮手:
  * 生成世界、导出大图、地球仪贴图的后台线程里用(核多的电脑最多 3 个帮手)。
  * 线程里再开的线程,加载脚本、收消息都要本线程空下来才走得动:开始重活之前先等它们说"好了"(最多等 HELPER_WAIT 毫秒),
  * 发完活先让一下;不然本线程一口气算几秒,帮手要等本线程算完才开始。
  * 起不来(浏览器不支持线程里再开线程)、出了错 = 那一段本线程自己算(结果一样)。
  */
 import { gullyHeights } from './gen/gully';
-import { finishGully, rasterizeDeferred, type GullyJob, type Raster } from './gen/raster';
+import { finishGully, finishVeins, rasterizeDeferred, streamsOf, type GullyJob, type Raster } from './gen/raster';
+import { veinsOf, type DrainLines, type Streams, type VeinJob } from './gen/pixelDrain';
 import type { World } from './gen/world';
 import type { GullyRequest, GullyResponse } from './gullyWorker';
 
 /** 开始重活之前最多等帮手加载多久(毫秒) */
 const HELPER_WAIT = 400;
+/** 细沟大约顶多少沟壑(整张图的沟壑算 1):分活时第一个帮手的沟壑按这个少分 */
+const VEIN_COST = 0.4;
 /** 帮手几个:留出主线程和本线程 */
 const HELPERS = Math.max(0, Math.min(3, (self.navigator?.hardwareConcurrency || 2) - 2));
 
 export class GullyPool {
   private helpers: Worker[] = [];
   private seq = 0;
-  private readonly wait = new Map<number, (out: Float32Array | null) => void>();
+  private readonly wait = new Map<number, (out: GullyResponse | null) => void>();
   /** 帮手都加载好了(或者等够了) */
   readonly up: Promise<void>;
+  /** 交给第一个帮手先算着的河、溪浅谷(细沟用) */
+  private beds: { key: number; streams: Streams; hw: Worker } | null = null;
 
   constructor() {
     const ups: Promise<void>[] = [];
@@ -32,7 +38,7 @@ export class GullyPool {
         ups.push(new Promise<void>((r) => (up = r)));
         hw.onmessage = (e: MessageEvent<GullyResponse | { ready: true }>) => {
           if ('ready' in e.data) return up();
-          this.wait.get(e.data.id)?.(e.data.out);
+          this.wait.get(e.data.id)?.(e.data);
           this.wait.delete(e.data.id);
         };
         hw.onerror = () => {
@@ -50,26 +56,43 @@ export class GullyPool {
     this.up = Promise.race([Promise.all(ups).then(() => {}), new Promise<void>((r) => setTimeout(r, HELPER_WAIT))]);
   }
 
-  /** 算 job 的沟壑:分段交给帮手,本线程同时做 during(推文明)。返回各像素的起伏(和一次算完一样)和 during 的结果 */
-  async run<T>(job: GullyJob, during: () => T): Promise<{ heights: Float32Array; result: T }> {
-    const r = await this.go(job, during);
-    return { heights: r.heights, result: r.result as T };
+  /**
+   * 细沟要的河、溪浅谷只和世界有关:铺主图之前先交给第一个帮手算着(本线程铺像素的时候帮手正闲着),
+   * 之后 finish 发细沟时就用它
+   */
+  prepare(world: World, scale = 1): void {
+    const hw = this.helpers[0];
+    this.beds = null;
+    // 细沟按 1 倍算(整数倍的大图缩回 1 倍),别的倍数现算
+    if (!hw || !(scale === 1 || (scale >= 2 && Number.isInteger(scale)))) return;
+    const streams = streamsOf(world);
+    const id = ++this.seq;
+    const req: GullyRequest = { id, beds: { streams, w: Math.round(world.width), h: Math.round(world.height), scale: 1 } };
+    hw.postMessage(req);
+    this.beds = { key: id, streams, hw };
   }
 
-  /** 算 job 的沟壑:分段交给帮手,本线程自己也领一段 */
-  async heights(job: GullyJob): Promise<Float32Array> {
-    return (await this.go(job, null)).heights;
-  }
-
-  private async go<T>(job: GullyJob, during: (() => T) | null): Promise<{ heights: Float32Array; result: T | undefined }> {
+  /**
+   * 铺好的主图(rasterizeDeferred 的结果)把沟壑、细沟算完叠回去:沟壑分段交给帮手,细沟交给第一个帮手;
+   * 本线程同时做 during(推文明;没有 = 本线程也领一段沟壑)。返回 during 的结果。结果和 rasterize 一样
+   */
+  finish<T>(d: Deferred, during: () => T): Promise<T>;
+  finish(d: Deferred): Promise<undefined>;
+  async finish<T>(d: Deferred, during?: () => T): Promise<T | undefined> {
+    const { job, veins: vj, raster } = d;
     const hs = this.helpers.slice();
     const n = job.n;
     if (!hs.length || n < 1000) {
       const result = during?.();
-      return { heights: gullyHeights(job, 0, n), result };
+      finishGully(raster, job, gullyHeights(job, 0, n));
+      finishVeins(raster, veinsOf(vj));
+      return result;
     }
+    // 细沟先发(第一个帮手先算它,再算它那段沟壑;它那段少分一些,各线程差不多同时算完)
+    const vp = this.sendVeins(hs[0], vj);
     const k = hs.length + (during ? 0 : 1);
-    const cut = (i: number) => Math.floor((n * i) / k);
+    const first = Math.max(0, (1 + VEIN_COST) / k - VEIN_COST);
+    const cut = (i: number) => (i <= 0 ? 0 : i >= k ? n : Math.floor(n * (first + ((1 - first) * (i - 1)) / (k - 1))));
     const parts = hs.map((hw, i) => this.send(hw, job, cut(i), cut(i + 1)));
     // 让一下,发给帮手的消息才送得出去
     await new Promise((r) => setTimeout(r, 0));
@@ -79,7 +102,9 @@ export class GullyPool {
     const heights = new Float32Array(n);
     outs.forEach((o, i) => heights.set(o ?? gullyHeights(job, cut(i), cut(i + 1)), cut(i)));
     if (mine) heights.set(mine, cut(k - 1));
-    return { heights, result };
+    finishGully(raster, job, heights);
+    finishVeins(raster, (await vp) ?? veinsOf(vj));
+    return result;
   }
 
   /** 不用了:关掉帮手 */
@@ -92,21 +117,41 @@ export class GullyPool {
     const id = ++this.seq;
     const part = { seed: job.seed, w: job.w, h: job.h, R: job.R, scale: job.scale, idx: job.idx.slice(a, b), ge: job.ge.slice(a, b), gn: job.gn.slice(a, b), amp: job.amp.slice(a, b) };
     return new Promise<Float32Array | null>((resolve) => {
-      this.wait.set(id, resolve);
+      this.wait.set(id, (r) => resolve(r && 'out' in r ? r.out : null));
       const req: GullyRequest = { id, job: part };
       hw.postMessage(req, [part.idx.buffer, part.ge.buffer, part.gn.buffer, part.amp.buffer]);
     });
   }
+
+  /** 细沟交给 hw(海拔、水陆、河岸拷一份过去,主图自己的不动;它先算着这个世界的河、溪浅谷时只带编号) */
+  private sendVeins(hw: Worker, vj: VeinJob): Promise<{ lines: DrainLines; vein: Uint8Array } | null> {
+    const id = ++this.seq;
+    const pre = this.beds && this.beds.hw === hw && this.beds.streams === vj.streams ? this.beds.key : undefined;
+    this.beds = null;
+    const copy: VeinJob = { ...vj, elev: vj.elev.slice(), water: vj.water.slice(), bank: vj.bank.slice(), streams: pre === undefined ? vj.streams : undefined };
+    return new Promise((resolve) => {
+      this.wait.set(id, (r) => resolve(r && 'veins' in r ? r.veins : null));
+      const req: GullyRequest = { id, veins: copy, bedsKey: pre };
+      hw.postMessage(req, [copy.elev.buffer, copy.water.buffer, copy.bank.buffer]);
+    });
+  }
 }
 
-/** 铺像素(和 gen/raster.ts 的 rasterize 结果一样),沟和山脊分给临时开的几个帮手算:导出大图、地球仪贴图用 */
-export async function rasterizeWithHelpers(world: World, scale: number): Promise<Raster> {
+/** rasterizeDeferred 的结果:铺好的主图、还没算的沟壑和细沟 */
+type Deferred = ReturnType<typeof rasterizeDeferred>;
+
+/**
+ * 铺像素(和 gen/raster.ts 的 rasterize 结果一样),沟和山脊、细沟分给临时开的几个帮手算:导出大图、地球仪贴图用。
+ * lines:屏幕上那张主图的细沟(给了就照它画,和屏幕上一样)
+ */
+export async function rasterizeWithHelpers(world: World, scale: number, lines?: DrainLines): Promise<Raster> {
   const pool = new GullyPool();
   try {
     await pool.up;
-    const { raster, job } = rasterizeDeferred(world, scale);
-    finishGully(raster, job, await pool.heights(job));
-    return raster;
+    if (!lines) pool.prepare(world, scale);
+    const d = rasterizeDeferred(world, scale, lines);
+    await pool.finish(d);
+    return d.raster;
   } finally {
     pool.close();
   }
