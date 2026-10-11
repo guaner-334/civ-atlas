@@ -55,6 +55,8 @@ interface CivInput {
   upheavals?: Upheaval[];
   /** 整个世界的地名风格(gen/edits.ts 的 WorldEdits.nameMix;不给 = 自动) */
   names?: NameMix;
+  /** 历史推到第几年(gen/edits.ts 的 WorldEdits.endYear;不给 = 3000) */
+  endYear?: number;
   tempo?: TempoNote;
   /** 主线程已经有了的主图补丁("上一段的键>这一段的键");没给的才在后台铺 */
   have?: string[];
@@ -173,6 +175,9 @@ function stepsOf(params: WorldParams, terrain: readonly TerrainOp[] | undefined,
 
 /** 推文明时带的地名风格(自动 = 不带) */
 const namesOpt = (names: NameMix | undefined) => (names ? { names } : {});
+
+/** 推文明时带的推演年数(3000 = 不带) */
+const yearsOpt = (endYear: number | undefined) => (endYear ? { endYear } : {});
 
 /** 推文明时带的地形大事(没有 = 不带,和不加这一项逐字节一样) */
 const upOpt = (steps: Step[]) => (steps.length ? { upheavals: steps } : {});
@@ -317,7 +322,7 @@ async function handle(m: WorkerRequest): Promise<void> {
     const civ = await pool.finish(d, () => {
       // 文明骨架(宜居度、州……)只读 World,之后的文明步骤都在 gen/civ/index.ts 里接
       post({ type: 'progress', id: m.id, stage: '文明', pct: 0.95 });
-      const c = generateCiv(world, { interventions: m.interventions?.length ? m.interventions : undefined, tempo: tempoOf(m.params, m.terrain, m.sketch), ...upOpt(steps), ...namesOpt(m.names) });
+      const c = generateCiv(world, { interventions: m.interventions?.length ? m.interventions : undefined, tempo: tempoOf(m.params, m.terrain, m.sketch), ...upOpt(steps), ...namesOpt(m.names), ...yearsOpt(m.endYear) });
       if (!m.terrain?.length) rememberTempo(m.params, m.sketch, c.spreadYears ?? null);
       return c;
     });
@@ -337,7 +342,7 @@ async function handle(m: WorkerRequest): Promise<void> {
     const t0 = performance.now();
     const world = worldOf(m.params, m.terrain, m.sketch);
     const steps = stepsOf(m.params, m.terrain, m.sketch, m.upheavals);
-    const civ = generateCiv(world, { interventions: m.interventions, tempo: tempoOf(m.params, m.terrain, m.sketch), ...upOpt(steps), ...namesOpt(m.names) });
+    const civ = generateCiv(world, { interventions: m.interventions, tempo: tempoOf(m.params, m.terrain, m.sketch), ...upOpt(steps), ...namesOpt(m.names), ...yearsOpt(m.endYear) });
     const ms = performance.now() - t0;
     const tempo = noteOf(m.params, m.sketch);
     if (m.type === 'resim') {

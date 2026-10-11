@@ -355,6 +355,10 @@ export function nameCultures(seed: number, cultures: Culture[], owner: Int16Arra
 /** 复国的国名前缀(阶段 3 分合):东方语感 "后昌""南昌";西幻语感 "新索拉特""北索拉特"。依次挑第一个没被占的 */
 const RESTORE_PREFIX_EAST = ['后', '北', '南', '东', '西', '新'];
 const RESTORE_PREFIX_WEST = ['新', '北', '南', '东', '西', '后'];
+/** 这一年以后立的朝代,国号字用完了可以借旧国号加前缀(见 dynastyNamer;推 3000 年的世界用不到) */
+const LATE_YEAR = 3000;
+/** 这以后的朝代另起名字最多试几次(3000 年以内试 12 次) */
+const LATE_TRIES = 80;
 
 /** 复国的国家在故国的哪个方向另立(新国都离故都远时):'东' | '西' | '南' | '北';就在故地 = null */
 export type RestoreDirection = (p: Polity, fallen: Polity) => string | null;
@@ -551,6 +555,27 @@ function dynastyNamer(seed: number, { settlements, regionNames }: DynastyPlaces,
       if (!name) {
         const next = namer(style).keyed('state', cell, n, i);
         for (let t = 0; t < 12 && !name; t++) {
+          const g = next();
+          const root = stripGeneric(g.zh, g.generic);
+          if (free(root, taken, takenBare) && [...root].length <= 3) name = root;
+        }
+      }
+      // 推过 3000 年的世界:国号字和另起的名字都用完了,借以前的国号、前面加"后""北""南"……(像后唐、北宋、南宋),
+      // 再不行多试几次另起的名字;只给 3000 年以后的朝代用,推 3000 年的世界起名和原来逐字一样
+      if (!name && pool && ds[i].year >= LATE_YEAR) {
+        const cs = [...pool];
+        const k0 = Math.floor(rand(i, 1) * cs.length);
+        for (const pre of RESTORE_PREFIX_EAST) {
+          for (let j = 0; j < cs.length && !name; j++) {
+            const c = pre + cs[(k0 + j) % cs.length];
+            if (free(c, taken, takenBare)) name = c;
+          }
+          if (name) break;
+        }
+      }
+      if (!name && ds[i].year >= LATE_YEAR) {
+        const next = namer(style).keyed('state', cell, n, i);
+        for (let t = 0; t < LATE_TRIES && !name; t++) {
           const g = next();
           const root = stripGeneric(g.zh, g.generic);
           if (free(root, taken, takenBare) && [...root].length <= 3) name = root;

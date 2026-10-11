@@ -38,6 +38,8 @@
  *   没有人物时不写这个字段。读档时逐个过 cleanCharacter,格式不对的跳过
  * - edits.nameMix(可选):整个世界的地名风格,每种语感占几份(edits.ts 文件头"地名风格"),`{ "xianxia": 6, "central": 4 }`;自动时不写。
  *   读档时过 cleanMix:认不出的语感(比如以后的新语感)、不是正数的份数去掉,提示一句;一份都不剩就按自动
+ * - edits.endYear(可选):历史推到第几年(edits.ts 文件头"推演年数"),`12000`;3000 年时不写。
+ *   读档时过 cleanEndYear:夹在 3000–60000、取整到千年;不是数字的按 3000,提示一句
  * - view:看这个世界用的投影和中央经线(`{ "projection": "robinson", "center": 120 }`,可选)。
  *   投影名原样存(render/projection.ts 的 ProjectionId,或 "globe"),认不出的由界面当成等距圆柱;
  *   旧存档没有这个字段 = 等距圆柱、中央经线 0°
@@ -49,7 +51,7 @@
  */
 import { DEFAULT_PARAMS, type World, type WorldParams } from './world';
 import { cleanMix, sameMix } from './names/mix';
-import { GENERATOR_CHANGES, GENERATOR_VERSION, MARKS_MAX, MARK_REGIONS_TOTAL, NAME_MAX, aiNameKeys, cleanMark, freeMarkId, type AiNameMark, type AuthorMark, type GeneratorChange, type Intervention, type TerrainOp, type Upheaval, type WorldEdits } from './edits';
+import { GENERATOR_CHANGES, GENERATOR_VERSION, MARKS_MAX, MARK_REGIONS_TOTAL, NAME_MAX, aiNameKeys, cleanEndYear, cleanMark, freeMarkId, type AiNameMark, type AuthorMark, type GeneratorChange, type Intervention, type TerrainOp, type Upheaval, type WorldEdits } from './edits';
 import { TERRAIN_MAX_OPS, UPHEAVALS_MAX, UPHEAVAL_KINDS, UPHEAVAL_OPS_MAX, cleanTerrainOp, cleanUpheaval } from './terrainEdits';
 import { SKETCH_MAX_STROKES, cleanSketch, cleanSketchStroke, type SketchEdit } from './sketch';
 import { decodeFlag } from './civ/flags';
@@ -283,7 +285,8 @@ export function editCount(edits: WorldEdits): number {
     (edits.marks?.length ?? 0) +
     Object.keys(edits.flags ?? {}).length +
     (edits.characters?.length ?? 0) +
-    (edits.nameMix ? 1 : 0)
+    (edits.nameMix ? 1 : 0) +
+    (cleanEndYear(edits.endYear) ? 1 : 0)
   );
 }
 
@@ -343,6 +346,8 @@ export function makeSave(
   if (edits.characters?.length) save.edits.characters = edits.characters.map((c) => JSON.parse(JSON.stringify(c)) as AuthorCharacter);
   const mix = cleanMix(edits.nameMix);
   if (mix) save.edits.nameMix = { ...mix };
+  const endYear = cleanEndYear(edits.endYear);
+  if (endYear) save.edits.endYear = endYear;
   const t = cleanTitle(title);
   if (t) save.title = t;
   const v = view ? cleanView(view) : null;
@@ -564,6 +569,9 @@ export function parseSave(text: string): ParseResult {
   const rawMix = isObj(E.nameMix) ? E.nameMix : null;
   if (E.nameMix !== undefined && (!rawMix || Object.keys(rawMix).some((k) => nameMix?.[k] !== rawMix[k])))
     warnings.push(nameMix ? '地名风格里有认不出来的语感或份数,已去掉' : '地名风格认不出来,按自动起名');
+  // 推演年数:夹在 3000–60000、取整到千年;认不出的按 3000 年
+  const endYear = cleanEndYear(E.endYear);
+  if (E.endYear !== undefined && (typeof E.endYear !== 'number' || !Number.isFinite(E.endYear))) warnings.push('推演年数认不出来,按 3000 年推演');
   const note = versionNote(generator, terrain.length > 0 || !!sketch);
   if (note) warnings.splice(noteAt, 0, note);
 
@@ -584,6 +592,7 @@ export function parseSave(text: string): ParseResult {
       ...(Object.keys(flags).length ? { flags } : {}),
       ...(characters.length ? { characters } : {}),
       ...(nameMix ? { nameMix } : {}),
+      ...(endYear ? { endYear } : {}),
     },
     check: typeof raw.check === 'string' ? raw.check.slice(0, 64) : '',
     savedAt: typeof raw.savedAt === 'string' && !Number.isNaN(Date.parse(raw.savedAt)) ? raw.savedAt : '',

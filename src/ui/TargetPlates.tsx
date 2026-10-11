@@ -4,7 +4,7 @@
  * - 选目标(干预页点了结盟 / 宣战 / 迁都,州的"划给…"):地图压暗(半透明层,不改渲染),只有可选的对象浮出名牌 ——
  *   颜色块 + 国名(宋体)+ 小字"相邻 / 本国";迁都时是本国城市的名牌。鼠标移到可选目标上(地图上或名牌上)名牌反色。
  *   点名牌或地图上的目标 = 下令(PolityPick.accept)。顶部提示条"选择与某国结盟的国家 · N 年起生效 · 取消 · Esc"。
- * - 下了令、正在推演:地图还压着(这期间不接受点击),只留本国和对象的名牌;顶部提示条"正在重新推演 X–3000 年"带进度。
+ * - 下了令、正在推演:地图还压着(这期间不接受点击),只留本国和对象的名牌;顶部提示条"正在重新推演 X–3000 年"(推到这个世界的结束年份)带进度。
  *   推完:面板留着、回到信息页;选对象时缩回了整张图的,地图飞回这个国家(App 从生效年份接着放,提示"…,已从 X 年起重新推演"带撤销)。
  * - 平时选中国家(或这国的人物):国都画一个直径 24 的主色圆环,旁边写"竹影城（国都）" —— 默认写在圆环下面,压着地图上的字(国名、城名、地名)
  *   就换到上面 / 右边 / 左边……挑一处不压字的(地图停稳了再挑,拖动、飞行时跟着圆环走)。
@@ -35,7 +35,8 @@ export interface TargetLayerProps {
   /** App 的"世界坐标 → 屏幕坐标"(平面地图 / 地球仪;算不出、在球背面 = null) */
   toClient: MutableRefObject<WorldToClient | null>;
   /** 正在后台重推历史(干预列表变了):从哪一年起 */
-  resim: { year: number } | null;
+  /** 正在重推:从哪一年起变、推到哪一年(不给 = 这份历史的结束年份) */
+  resim: { year: number; end?: number } | null;
   /** 正在生成世界(它的进度条优先) */
   generating: boolean;
   /** 屏幕上这一点压着地图上的哪个字 / 城镇符号(平面地图:文字层;地球仪:球上的文字);国都旁的字躲开它们 */
@@ -101,6 +102,8 @@ function polityAnchors(civ: Civ, world: World, year: number): Map<number, { x: n
 
 /** 推演一次大约多久(上一次量到的;第一次按 0.8 秒估) */
 let expectedMs = 800;
+/** 上一次重推推了多少年(重推都从第 0 年推到最后一年,用时大致和年数成正比:换了推演年数按比例估) */
+let expectedYears = 3000;
 
 /**
  * 国都旁那行字的位置(字的中心相对圆环中心,屏幕像素):下、上、右、左、再往下 / 往上、四角。
@@ -308,15 +311,16 @@ export function TargetLayer({ civ, world, toClient, resim, generating, labelAt }
 
   // ---- 顶部提示条:正在重新推演 X–3000 年(带进度;量不到真实进度,按上一次用的时间估,推完前停在九成多) ----
   const [busySince, setBusySince] = useState<number | null>(null);
-  const endYear = civ?.endYear ?? 3000;
+  const endYear = resim?.end ?? civ?.endYear ?? 3000;
   useEffect(() => {
     if (!resim) return;
     const t0 = performance.now();
+    const expect = expectedMs * (endYear / expectedYears);
     setBusySince(t0);
     let timer = 0;
     const show = () => {
       if (!generating) {
-        const f = Math.min(0.94, (performance.now() - t0) / expectedMs);
+        const f = Math.min(0.94, (performance.now() - t0) / expect);
         showToast({ id: 'resim', kind: 'progress', text: `正在重新推演 ${Math.max(0, Math.floor(resim.year))}–${Math.floor(endYear)} 年`, progress: f });
       }
       timer = window.setTimeout(show, 60);
@@ -324,7 +328,8 @@ export function TargetLayer({ civ, world, toClient, resim, generating, labelAt }
     show();
     return () => {
       clearTimeout(timer);
-      expectedMs = Math.max(300, Math.min(4000, performance.now() - t0));
+      expectedMs = Math.max(300, Math.min(4000 * (endYear / 3000), performance.now() - t0));
+      expectedYears = endYear;
       clearToast('resim');
       setBusySince(null);
     };

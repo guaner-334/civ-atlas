@@ -117,7 +117,28 @@ const BLOCKED_LATIN_SUBSTR = decode(
     'dHQgZGFtbiBoZWxsIGtpbGwgZGVhZCBraWtlIHNwaWMgdHdhdCB3YW5rIGJpdGNoIGJhc3RhcmQgcmV0YXJk',
 ).split(' ');
 
-export function zhBlocked(zh: string): boolean {
+/**
+ * 查过的名字记下结果(纯函数,同一个名字结果不变)。推几万年的世界要起几万个人名,不重名的候选一遍遍查,
+ * 同一个名字会查很多次;记满了整个清掉重记
+ */
+const MEMO_MAX = 1 << 16;
+function memo(f: (s: string) => boolean): (s: string) => boolean {
+  const seen = new Map<string, boolean>();
+  return (s) => {
+    let v = seen.get(s);
+    if (v === undefined) {
+      if (seen.size >= MEMO_MAX) seen.clear();
+      v = f(s);
+      seen.set(s, v);
+    }
+    return v;
+  };
+}
+
+export const zhBlocked: (zh: string) => boolean = memo(zhBlockedRaw);
+export const latinBlocked: (latin: string) => boolean = memo(latinBlockedRaw);
+
+function zhBlockedRaw(zh: string): boolean {
   for (const ch of zh) if (BLOCKED_CHARS.has(ch)) return true;
   if (BLOCKED_EXACT.has(zh)) return true;
   for (const s of BLOCKED_SUBSTR) if (zh.includes(s)) return true;
@@ -128,7 +149,7 @@ export function zhBlocked(zh: string): boolean {
   return false;
 }
 
-export function latinBlocked(latin: string): boolean {
+function latinBlockedRaw(latin: string): boolean {
   const w = latin.toLowerCase().replace(/[^a-z ]/g, '');
   for (const part of w.split(' ')) if (BLOCKED_LATIN_EXACT.has(part)) return true;
   const joined = w.replace(/ /g, '');
