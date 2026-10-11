@@ -104,14 +104,21 @@ function foesLine(civ: Civ, foes: readonly Foe[]): { node: ReactNode; text: stri
   };
 }
 
-/** 本国的纪事(战争拆成一件一件)+ 历代继位,按先后 */
+/** 本国的纪事(战争拆成一件一件)+ 历代继位,按先后。亡国、毁城既折进战争里、又单列一条,拆开后只留一条 */
 function polityEntries(civ: Civ, polity: number): ChronicleEntry[] {
   const out: ChronicleEntry[] = [];
+  const seen = new Set<string>();
+  const add = (e: ChronicleEntry) => {
+    const k = `${e.kind}:${e.id}`;
+    if (seen.has(k)) return;
+    seen.add(k);
+    out.push(e);
+  };
   for (const e of filterChronicle(buildChronicle(civ), { polity })) {
-    if (e.children?.length) out.push(...e.children);
-    else out.push(e);
+    if (e.children?.length) e.children.forEach(add);
+    else add(e);
   }
-  out.push(...filterChronicle(reignEntries(civ), { polity }));
+  filterChronicle(reignEntries(civ), { polity }).forEach(add);
   return out.sort((a, b) => a.year - b.year || a.id - b.id);
 }
 
