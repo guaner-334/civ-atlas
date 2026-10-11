@@ -96,26 +96,30 @@ describe.each([7, 2024])('世系图 · seed=%i', (seed) => {
 });
 
 describe('世系图 · seed=7 的大景', () => {
-  it('景朝:标题、结尾、圣宗的父亲是没即位的柳曜玄;开国之君的父亲也是景的宗室', () => {
+  it('景朝:标题、结尾、宣王的父亲是没即位的柳尘泠;篡位的开国之君是树根;霄朝开国之君的父亲也是霄的宗室', () => {
     const civ = civOf(7);
     const rows = dynastyRows(civ, 0);
     expect(rows.map((r) => r.name)).toEqual(['云羽', '霄', '辰', '衍', '景', '渊']);
     const i = rows.findIndex((r) => r.name === '景');
-    expect(dynastyNote(civ, rows, i)).toBe('2377–2794 年，27 位君主；太祖柳渺玄起兵代衍朝开国');
+    expect(dynastyNote(civ, rows, i)).toBe('2408–2794 年，26 位君主；平王柳泠清篡位');
     expect(dynastyEnd(civ, rows, i)).toBe('2794 年，渊朝起兵代之');
+    expect(dynastyEnd(civ, rows, i - 1)).toBe('2408 年，平王篡位');
     expect(dynastyEnd(civ, rows, rows.length - 1)).toBe('');
     expect(dynastyNote(civ, rows, 0)).toMatch(/；.+立国$/);
     expect(dynastyRowAt(rows, 2512)).toBe(i);
-    const sz = civ.people!.find((x) => x.name === '柳玄' && x.role === 'ruler')!;
-    const f = fatherOf(civ, sz) as Person;
-    expect(f).toMatchObject({ role: 'prince', name: '柳曜玄' });
-    expect(kidsOf(civ, f).map((k) => k.name)).toEqual(['柳尧霄', '柳玄']);
-    expect(lineageText(civ, 0)).toContain('\n          11 圣宗柳玄 2485–2519 年在位\n');
-    // 太祖的父亲死在景朝开国之前,也算景的宗室(不写成"大衍宗室")
-    const root = layoutDynasty(civ, rows[i])[0].nodes[0].p;
-    expect(root).toMatchObject({ role: 'prince', name: '柳昀琅' });
-    expect(root.died!).toBeLessThan(rows[i].from);
-    expect(princeRole(civ, root)).toBe('大景宗室');
+    const xw = civ.people!.find((x) => x.name === '柳珩琅' && x.role === 'ruler')!;
+    const f = fatherOf(civ, xw) as Person;
+    expect(f).toMatchObject({ role: 'prince', name: '柳尘泠' });
+    expect(kidsOf(civ, f).map((k) => k.name)).toEqual(['柳清瑶', '柳珩琅']);
+    expect(lineageText(civ, 0)).toContain('\n        8 宣王柳珩琅 2482–2489 年在位\n');
     expect(princeRole(civ, f)).toBe('大景宗室');
+    // 篡位的权臣没有连上父亲:这一朝的树从他起
+    expect(layoutDynasty(civ, rows[i])[0].nodes[0].p).toMatchObject({ role: 'ruler', name: '柳泠清' });
+    // 霄朝开国之君的父亲死在霄朝开国之前,也算霄的宗室(不写成"大云羽宗室")
+    const h = rows.findIndex((r) => r.name === '霄');
+    const root = layoutDynasty(civ, rows[h])[0].nodes[0].p;
+    expect(root).toMatchObject({ role: 'prince', name: '云冥' });
+    expect(root.died!).toBeLessThan(rows[h].from);
+    expect(princeRole(civ, root)).toBe('大霄宗室');
   });
 });

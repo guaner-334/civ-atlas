@@ -35,7 +35,7 @@ import type { World } from '../world';
 import { Layer, type Civ, type Polity, type Year } from './types';
 import { fexp, fpow, keyed, subSeed } from './rand';
 import { Ev, quantize, type CivSim } from './sim';
-import { moveCapital, polityModelOf, type PolityModel } from './polities';
+import { dynastyReign, moveCapital, polityModelOf, type PolityModel } from './polities';
 import { CAPITAL_GRACE, warModelOf, type WarModel } from './wars';
 import { politicsModelOf } from './politics';
 import { TIER_REGIONS, capitalAt, populationAt } from './growth';
@@ -258,6 +258,8 @@ function hook(sim: CivSim, dm: DynastyModel): void {
     }
     if (!P.dynasties) P.dynasties = [{ year: P.founded, name: '', seat: P.capital }];
     P.dynasties.push({ year: t, name: '', seat });
+    // 君主的在位表跟着重排(rulers.ts):新朝第一位下一刻起在位
+    dynastyReign(sim, pm, p, t);
     sim.record('dynasty', { a: p, region: r, settlement: sid });
   });
 }

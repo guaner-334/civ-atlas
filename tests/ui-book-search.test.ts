@@ -81,7 +81,8 @@ describe('成书:后台写作', () => {
   it('国史:国家面板进来默认那一国;史料不够时自动缩短(比所选篇幅少)', async () => {
     setActiveProvider('mock');
     setBookContext(civ, 'w-book-2');
-    const p = civ.polities.find((x) => x.ended !== undefined && x.ended - x.founded < 200)!;
+    // 亡了的国家里享国最短的那个(史料少)
+    const p = civ.polities.filter((x) => x.ended !== undefined).sort((a, b) => a.ended! - a.founded - (b.ended! - b.founded) || a.id - b.id)[0];
     openHistoryBook({ polity: p.id });
     expect(getBook().dialog.polity).toBe(p.id);
     const pr = buildHistoryPrompts(civ, { scope: { kind: 'polity', polity: p.id }, style: 'plain', length: 'k30' });

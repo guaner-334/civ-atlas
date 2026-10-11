@@ -9,7 +9,7 @@
  */
 import type { World } from '../gen/world';
 import type { Raster } from '../gen/raster';
-import type { TileRequest, TileResponse } from '../tileWorker';
+import type { TileRequest, TileResponse, WholeRaster } from '../tileWorker';
 
 /** 一块多少像素(边长) */
 export const TILE = 256;
@@ -80,7 +80,8 @@ export function tilesWorld(world: World, raster: Raster): void {
   if (!pool) return;
   // 回放用的历史快照用不着,不拷过去
   const lite = { ...world, history: [] } as World;
-  const whole = { w: raster.w, h: raster.h, scale: raster.scale, elev: raster.elev, water: raster.water, ice: raster.ice, iceConc: raster.iceConc, iceTone: raster.iceTone };
+  // 细沟的线随主图带过去(各线程不用再各算一遍)
+  const whole: WholeRaster = { w: raster.w, h: raster.h, scale: raster.scale, elev: raster.elev, water: raster.water, ice: raster.ice, iceConc: raster.iceConc, iceTone: raster.iceTone, bank: raster.bank, veinLines: raster.veinLines };
   for (const s of pool) {
     const m: TileRequest = { type: 'world', wid, world: lite, whole };
     s.w.postMessage(m);

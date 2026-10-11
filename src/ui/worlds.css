@@ -292,7 +292,8 @@
   color: inherit;
   text-decoration: none;
 }
-.mw-foot a:hover {
+.mw-foot a:hover,
+.mw-foot a.on {
   color: var(--ink-2);
   text-decoration: underline;
 }

@@ -41,6 +41,8 @@ export interface RouteCity {
   founded: Year;
   /** 成为大城(国都)的年份:大路的 built = 两端里较晚的那个。不给 = founded */
   majorFrom?: Year;
+  /** 成为港口的年份(地形大事以后才成了港口的):航线的 built = 两端里较晚的那个。不给 = founded */
+  portFrom?: Year;
   /**
    * 阶段 3 城市兴衰:城被毁的年份(还在 = 不给)。只通往它的路从这一年起荒废(Route.abandoned);
    * 路过它、还连着别的城的路照常用(它的邻城之间另算一条"绕行"连线,见 buildRoutes)
@@ -527,6 +529,8 @@ export function buildRoutes(world: World, habitat: Habitat, regions: Regions, op
   const builtOf = (a: number, b: number) => Math.max(cities[a].founded, cities[b].founded);
   const majorOf = (c: number) => Math.max(cities[c].founded, cities[c].majorFrom ?? cities[c].founded);
   const builtMajor = (a: number, b: number) => Math.max(majorOf(a), majorOf(b));
+  const portOf = (c: number) => Math.max(cities[c].founded, cities[c].portFrom ?? cities[c].founded);
+  const builtSea = (a: number, b: number) => Math.max(portOf(a), portOf(b));
   /** 连线结束的年份:两端有一座被毁的那一年(都还在 = Infinity) */
   const endOf = (a: number, b: number) => Math.min(cities[a].ended ?? Infinity, cities[b].ended ?? Infinity);
   /** 一组城的连线:邻城图 → Urquhart */
@@ -576,10 +580,10 @@ export function buildRoutes(world: World, habitat: Habitat, regions: Regions, op
   const seaPieces: Piece[] = [];
   if (ports.length >= 2) {
     const links = linksOf(ports, seaCost, SEA_MAX_STEPS * step);
-    links.sort((p, q) => builtOf(p.a, p.b) - builtOf(q.a, q.b) || p.w - q.w || p.a - q.a || p.b - q.b);
+    links.sort((p, q) => builtSea(p.a, p.b) - builtSea(q.a, q.b) || p.w - q.w || p.a - q.a || p.b - q.b);
     for (const e of links) {
       const end = endOf(e.a, e.b);
-      if (!(builtOf(e.a, e.b) < end)) continue;
+      if (!(builtSea(e.a, e.b) < end)) continue;
       const ca = cities[e.a].cell;
       const cb = cities[e.b].cell;
       if (comp[ca] === comp[cb]) {
@@ -594,7 +598,7 @@ export function buildRoutes(world: World, habitat: Habitat, regions: Regions, op
       const path = findSea(ca, cb);
       if (!path) continue;
       const before = pieces.length;
-      lay(path, 'sea', builtOf(e.a, e.b), end);
+      lay(path, 'sea', builtSea(e.a, e.b), end);
       seaPieces.push(...pieces.splice(before));
     }
   }

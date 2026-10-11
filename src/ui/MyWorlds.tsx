@@ -5,7 +5,7 @@
  *   右上     打开存档文件(也可以把 .json 拖进页面)、新建世界;有网站服务器时再加账号按钮(没登录是「登录」,登录了是名字;手机在左上)
  *   卡片     点一下打开;"没建完"的(还在新建)点开接着建
  *            右上"···"(电脑悬停时出现;手机长按卡片)= 改名、复制一份、存成文件、删除(点两下确认)。没建完的只有改名、删除
- *   底部     源代码、隐私政策、用户协议、版本号(手机上不放,在世界卡片的"更多"里)
+ *   底部     源代码、隐私政策、用户协议、联系我们(配了交流群才有,见 ContactLink.tsx)、版本号(手机上不放,在世界卡片的"更多"里)
  * 手机:两列卡片,新建世界在右上,打开存档文件在列表下面。
  * 一个都没有(第一次来)时:中间一颗慢慢自转的星球、一段话说清能做什么、「新建世界」大按钮,下面"或者打开存档文件",
  * 最下面一行小字说不用登录、做出来的世界归自己(和用户协议「你创作的东西归你」同一个说法)。
@@ -31,10 +31,11 @@ import { copyNotes } from '../ai/library';
 import { Icon } from './icons';
 import { TitleInput, when } from './worldParts';
 import { PRIVACY_URL, SOURCE_URL, TERMS_URL } from './links';
+import { ContactLink } from './ContactLink';
 import { APP_VERSION } from './version';
 import { HomeGlobe } from './studio/HomeGlobe';
 import { OldSiteBadge } from './Corners';
-import { OLD_SITE } from './oldSite';
+import { BETA_SITE, OLD_SITE } from './oldSite';
 import './worlds.css';
 
 export interface MyWorldsProps {
@@ -82,7 +83,7 @@ export function MyWorlds({ phone, onOpen, onNew, onOpenText }: MyWorldsProps) {
   const n = list.length;
   const empty = n === 0;
   // 没登录:世界只在这个浏览器里,清理浏览器数据就没了 —— 直说,后面跟「全部存成文件」;登录了存在账号里,不再提醒。
-  // 旧网站(oldSite.ts):这里的世界和最新版的各存各的,说清楚(顶上还有「旧版」标记)
+  // 旧网站、测试网站(oldSite.ts):这里的世界和最新版 / 正式版的各存各的,说清楚(顶上还有「旧版」「测试版」标记)
   const sub = !keep
     ? '浏览器不让网页存数据，关掉页面前请把世界存成文件。'
     : session
@@ -92,16 +93,20 @@ export function MyWorlds({ phone, onOpen, onNew, onOpenText }: MyWorldsProps) {
           ? `${n} 个世界，存在你的账号里`
           : `${n} 个世界，存在你的账号里。换电脑、换手机，登录同一个账号就能打开。`
       : empty
-        ? server
-          ? '建好的世界存在这个浏览器里。登录以后，换电脑、换手机都能接着改。'
-          : '建好的世界存在这个浏览器里；换电脑请用存档文件。'
+        ? BETA_SITE
+          ? '测试版的世界和正式版的分开放。正式版的世界存成文件，就能拿到这里打开。'
+          : server
+            ? '建好的世界存在这个浏览器里。登录以后，换电脑、换手机都能接着改。'
+            : '建好的世界存在这个浏览器里；换电脑请用存档文件。'
         : OLD_SITE !== null
           ? `${n} 个世界，存在旧版里，和最新版的分开放。`
-          : phone
-            ? `${n} 个世界只存在这个浏览器里，清理浏览器数据会删掉。`
-            : server
-              ? `${n} 个世界，只存在这个浏览器里，清理浏览器数据会一起删掉。登录以后存进账号，换电脑、换手机都能接着改。`
-              : `${n} 个世界，只存在这个浏览器里，清理浏览器数据会把它们一起删掉。`;
+          : BETA_SITE
+            ? `${n} 个世界，存在测试版里，和正式版的分开放。`
+            : phone
+              ? `${n} 个世界只存在这个浏览器里，清理浏览器数据会删掉。`
+              : server
+                ? `${n} 个世界，只存在这个浏览器里，清理浏览器数据会一起删掉。登录以后存进账号，换电脑、换手机都能接着改。`
+                : `${n} 个世界，只存在这个浏览器里，清理浏览器数据会把它们一起删掉。`;
   // 正在看的世界存不进浏览器(存储满了)、一个都没存下时,也能把它存成文件
   const saveAll = (n > 0 || currentUnsaved()) && (
     <button className="mw-link" data-act="save-all" onClick={downloadAll}>
@@ -234,6 +239,7 @@ export function MyWorlds({ phone, onOpen, onNew, onOpenText }: MyWorldsProps) {
           <a href={TERMS_URL} target="_blank" rel="noreferrer" data-link="terms">
             用户协议
           </a>
+          <ContactLink />
           <span className="mw-ver" data-version>
             版本 {APP_VERSION}
           </span>

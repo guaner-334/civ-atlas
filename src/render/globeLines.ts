@@ -17,6 +17,7 @@
 import type { Polyline } from './civ/lines';
 import type { SidedLine } from './civ/borders';
 import { inkPen } from './civ/borders';
+import { tiedPair, type VassalTies } from './civ/vassals';
 import type { CivStyle } from './civ/overlay';
 import { strokeFront, warLook, WAR_SIZE } from './civ/warfare';
 import { globeBasis, type GlobeFrame, type GlobeView } from './globe';
@@ -398,6 +399,8 @@ const INK_PENS = [1.45, 2.05, 2.75];
 export interface GlobeBorderSets {
   /** 两国之间 */
   inner: GlobeLineSet;
+  /** 宗主和藩属之间(细点线,见 civ/vassals.ts) */
+  bloc: GlobeLineSet;
   /** 国家和部落地带之间 */
   outer: GlobeLineSet;
   /** 手绘风:两国之间按位置分成三档粗细(每档一组) */
@@ -446,20 +449,25 @@ export function splitPens(lines: readonly Polyline[], pens: number, period = INK
   return out;
 }
 
-const borderCache = new WeakMap<readonly SidedLine[], { fantasy: boolean; W: number; sets: GlobeBorderSets }>();
+const borderCache = new WeakMap<readonly SidedLine[], { fantasy: boolean; W: number; ties: string; sets: GlobeBorderSets }>();
 
-/** 国界线(borders.ts 的 borderLines,某一年某一层)→ 线组 */
-export function globeBorderSets(lines: readonly SidedLine[], W: number, H: number, fantasy: boolean): GlobeBorderSets {
+/**
+ * 国界线(borders.ts 的 borderLines,某一年某一层)→ 线组。
+ * ties:这一年的宗藩(civ/vassals.ts;国界没变、宗藩变了也要重分)
+ */
+export function globeBorderSets(lines: readonly SidedLine[], W: number, H: number, fantasy: boolean, ties: VassalTies): GlobeBorderSets {
   const hit = borderCache.get(lines);
-  if (hit && hit.fantasy === fantasy && hit.W === W) return hit.sets;
-  const inner = lines.filter((l) => l.left >= 0 && l.right >= 0);
+  if (hit && hit.fantasy === fantasy && hit.W === W && hit.ties === ties.key) return hit.sets;
+  const inner = lines.filter((l) => l.left >= 0 && l.right >= 0 && !tiedPair(ties, l.left, l.right));
+  const bloc = ties.key ? lines.filter((l) => l.left >= 0 && l.right >= 0 && tiedPair(ties, l.left, l.right)) : [];
   const outer = lines.filter((l) => l.left < 0 || l.right < 0);
   const sets: GlobeBorderSets = {
     inner: buildLineSet(inner, W, H),
+    bloc: buildLineSet(bloc, W, H),
     outer: buildLineSet(outer, W, H),
     pens: fantasy ? splitPens(inner, INK_PENS.length).map((ls) => buildLineSet(ls, W, H)) : null,
   };
-  borderCache.set(lines, { fantasy, W, sets });
+  borderCache.set(lines, { fantasy, W, ties: ties.key, sets });
   return sets;
 }
 
@@ -487,14 +495,18 @@ export function borderStrokes(b: GlobeBorderSets, style: CivStyle): GlobeLineStr
       // 墨线下面先垫一道淡淡的纸色
       { sets: [b.inner], color: 'rgba(246,236,210,0.6)', width: 3.8 },
       ...b.pens.map((s, i) => ({ sets: [s], color: 'rgba(58,32,20,0.9)', width: INK_PENS[i], dash: [INK_DASH, INK_GAP] })),
+      // 宗主和藩属之间:细点线
+      { sets: [b.bloc], color: 'rgba(246,236,210,0.5)', width: 3 },
+      { sets: [b.bloc], color: 'rgba(58,32,20,0.85)', width: 1.7, dash: [0.01, 2.6] },
       // 国家和部落地带之间:点划线
       { sets: [b.outer], color: 'rgba(246,236,210,0.45)', width: 3 },
       { sets: [b.outer], color: 'rgba(58,32,20,0.78)', width: 1.35, dash: [4.2, 1.9, 0.01, 1.9] },
     ];
   }
   return [
-    { sets: [b.inner, b.outer], color: 'rgba(255,252,244,0.6)', width: 4 },
+    { sets: [b.inner, b.bloc, b.outer], color: 'rgba(255,252,244,0.6)', width: 4 },
     { sets: [b.inner], color: 'rgba(62,28,40,0.95)', width: 1.7 },
+    { sets: [b.bloc], color: 'rgba(62,28,40,0.95)', width: 1.8, dash: [0.01, 2.6] },
     { sets: [b.outer], color: 'rgba(62,28,40,0.85)', width: 1.4, dash: [3.6, 2.4] },
   ];
 }
