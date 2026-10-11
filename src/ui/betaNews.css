@@ -72,6 +72,7 @@
   position: fixed;
   z-index: 300;
   width: min(340px, calc(100vw - 16px));
+  max-height: calc(100vh - 16px);
   border-radius: var(--r-panel);
   background: var(--panel);
   backdrop-filter: var(--glass-blur);
@@ -90,8 +91,14 @@
     animation: none;
   }
 }
+.news-in-menu {
+  max-height: min(520px, 70dvh);
+}
 .news-pop,
 .news-in-menu {
+  /* 内容太长、窗口太矮时卡片里面滚,不出窗口 */
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 14px 16px 12px;
   color: var(--ink);
   font-family: var(--font-sans);

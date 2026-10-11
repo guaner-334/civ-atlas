@@ -3,7 +3,7 @@
  * 点菜单项、点外面、按 Esc 收起。样式在 sidebar.css(.pm-*)。
  *
  * 菜单里的一项可以把整个菜单换成一张卡片(usePopMenuPanel;手机上点「测试版新功能」),收起菜单时换回来。
- * 菜单项挂在别处的小卡片(鼠标移上去在菜单旁边出的)带 data-pm-inside:在它上面点不算点外面。
+ * 菜单项挂在别处的小卡片(鼠标移上去在菜单旁边出的)带 data-pm-inside:在它上面点不算点外面,在它里面滚不算滚侧栏。
  */
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { useAiOn, useAiStatus } from '../ai/client';
@@ -71,7 +71,9 @@ export function PopMenu({
     };
     // 弹到侧栏右边的菜单不跟着侧栏滚动:侧栏一滚就收起
     const onScroll = (e: Event) => {
-      if (at && !(e.target instanceof Node && root.current?.contains(e.target))) setOpen(false);
+      if (!at || (e.target instanceof Node && root.current?.contains(e.target))) return;
+      if (e.target instanceof Element && e.target.closest('[data-pm-inside]')) return;
+      setOpen(false);
     };
     document.addEventListener('pointerdown', onDown, true);
     window.addEventListener('keydown', onKey, true);

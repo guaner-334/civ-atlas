@@ -5351,6 +5351,7 @@ for (const style of ['realistic', 'fantasy']) {
   let copied = '';
   let btn = '';
   let gone = -1;
+  let keys: { toLink: string; backVer: string; out: string; left: number } | null = null;
   if (shown) {
     await link.hover();
     const pp = cp.locator('[data-testid=contact-pop]');
@@ -5417,7 +5418,8 @@ for (const style of ['realistic', 'fantasy']) {
 
 // 测试版新功能:正式网站读测试网站的 beta/whats-new.json(src/ui/betaNews.ts),列出自己的清单里没有的几条。
 // 开发服务里没有这个文件 → 版本号和以前一样;有了以后:首页右下角版本号后面小蓝点,鼠标移上去上面出小卡片(新功能、预计日期、测试地址),
-// 移开收起;世界里「更多」菜单最底下一行移上去,卡片出在菜单右边;手机上点那一行,菜单换成卡片;两边一样时不出
+// 移开收起;键盘 Tab 进出卡片里的链接;世界概览里开着卡片按后退,卡片跟着收起;
+// 世界里「更多」菜单最底下一行移上去,卡片出在菜单右边;手机上点那一行,菜单换成卡片;两边一样时不出
 {
   const { WHATS_NEW } = await import('../src/ui/whatsNew');
   const { beijingDay, dayText, nextSync } = await import('../src/ui/betaNews');
@@ -5444,6 +5446,7 @@ for (const style of ['realistic', 'fantasy']) {
   );
   let card: { titles: string[]; when: string; href: string | null; above: boolean; inView: boolean } | null = null;
   let gone = -1;
+  let keys: { toLink: string; backVer: string; out: string; left: number } | null = null;
   if (shown) {
     await ver.hover();
     const pp = np.locator('[data-testid=beta-news]');
@@ -5463,6 +5466,21 @@ for (const style of ['realistic', 'fantasy']) {
     await np.mouse.move(700, 200);
     await np.waitForTimeout(500);
     gone = await pp.count();
+    // 键盘:版本号上按 Tab 进卡片里的链接,Shift+Tab 回到版本号,再按两下 Tab 出了卡片就收起
+    const focused = () =>
+      np.evaluate(() => {
+        const a = document.activeElement;
+        return a ? `${a.tagName.toLowerCase()}:${a.getAttribute('data-link') ?? a.getAttribute('data-act') ?? ''}` : '';
+      });
+    await ver.focus();
+    await np.keyboard.press('Tab');
+    const toLink = await focused();
+    await np.keyboard.press('Shift+Tab');
+    const backVer = await focused();
+    await np.keyboard.press('Tab');
+    await np.keyboard.press('Tab');
+    await np.waitForTimeout(500);
+    keys = { toLink, backVer, out: await focused(), left: await pp.count() };
   }
   // 世界里「更多」菜单:最底下一行移上去,卡片在菜单右边
   await np.goto(`${dev.url}/?seed=7`);
@@ -5479,6 +5497,20 @@ for (const style of ['realistic', 'fantasy']) {
     }, null, { timeout: 5000 })
     .catch(() => null);
   await np.keyboard.press('Escape');
+  // 世界概览底下的版本号:卡片开着时按浏览器后退(概览关了),卡片跟着收起
+  await np.click('[data-act=overview]');
+  const ovVer = np.locator('.ov-root:not([hidden]) [data-act=beta-news]');
+  await ovVer.hover({ timeout: 10000 }).catch(() => {});
+  const ovOpen = await np
+    .locator('[data-testid=beta-news]')
+    .waitFor({ timeout: 5000 })
+    .then(
+      () => true,
+      () => false,
+    );
+  await np.goBack();
+  await np.waitForTimeout(500);
+  const ovBack = { open: ovOpen, ovHidden: !(await np.locator('.ov-root:not([hidden])').count()), left: await np.locator('[data-testid=beta-news]').count() };
   // 两边一样:不出
   body = JSON.stringify({ built: '2026-10-12', news: WHATS_NEW });
   await np.goto(`${dev.url}/`);
@@ -5507,13 +5539,16 @@ for (const style of ['realistic', 'fantasy']) {
   await nctx.close();
   console.log(
     `测试版新功能:没有清单 ${noneNews} 个(版本号「${plain}」);有了 首页 ${shown},小卡片 ${JSON.stringify(card)},移开后 ${gone};` +
-      `更多菜单「${menuVer}」、卡片在右边 ${side};两边一样 ${same} 个;手机 ${JSON.stringify(phone)}`,
+      `键盘 ${JSON.stringify(keys)};更多菜单「${menuVer}」、卡片在右边 ${side};概览后退 ${JSON.stringify(ovBack)};两边一样 ${same} 个;手机 ${JSON.stringify(phone)}`,
   );
   if (noneNews || !plain.startsWith('版本 ')) errs.push(`测试版新功能:没有测试网站的清单也出现了(${noneNews} 个,版本号「${plain}」)`);
   if (!shown) errs.push('测试版新功能:测试网站有多出来的功能,首页右下角的版本号上没有');
   if (!card || card.titles.join() !== fresh.map((f) => f.title).join() || card.when !== wantWhen || !card.href?.endsWith('/beta/') || !card.above || !card.inView)
     errs.push(`测试版新功能:鼠标移到版本号上的小卡片不对(${JSON.stringify(card)})`);
   if (gone !== 0) errs.push('测试版新功能:鼠标移开后小卡片没收起');
+  if (!keys || keys.toLink !== 'a:beta-news' || keys.backVer !== 'button:beta-news' || keys.out.endsWith(':beta-news') || keys.left !== 0)
+    errs.push(`测试版新功能:键盘 Tab 进出小卡片不对(${JSON.stringify(keys)})`);
+  if (!ovBack.open || !ovBack.ovHidden || ovBack.left !== 0) errs.push(`测试版新功能:世界概览里开着小卡片按后退,卡片没跟着收起(${JSON.stringify(ovBack)})`);
   if (!menuVer.startsWith('版本 ') || side !== true) errs.push(`测试版新功能:「更多」菜单最底下一行不对(「${menuVer}」,卡片在右边 ${side})`);
   if (same) errs.push('测试版新功能:两边清单一样也出现了');
   if (!phone || phone.n !== fresh.length || !phone.inView) errs.push(`测试版新功能(手机):点「更多」最底下一行没换成卡片(${JSON.stringify(phone)})`);
