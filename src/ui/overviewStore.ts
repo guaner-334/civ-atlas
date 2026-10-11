@@ -94,7 +94,7 @@ export function setOverviewTab(tab: OverviewTab) {
 
 // ---- 人物页的筛选:我的(作者的人物)/ 名人 / 君主 / 将领,只看哪一国 ----
 
-export type PeopleList = 'mine' | 'famous' | 'rulers' | 'generals';
+export type PeopleList = 'mine' | 'famous' | 'rulers' | 'generals' | 'ministers';
 
 export interface PeopleView {
   /** 看哪一档;null = 还没挑过:有作者自己的人物先看「我的」,没有先看「名人」 */

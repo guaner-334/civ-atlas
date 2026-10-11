@@ -9,6 +9,8 @@
  *          全部国家:先按国家(鼎盛时大的在前)、再按朝代分组;这时不是一条时间线,不画"现在"线。
  *          只看一国、不是共和国时右上多「列表 | 世系图」:世系图一朝一棵家谱树(PeopleLineage.tsx)
  *   将领   按第一次领兵的年份排,新的在上;一句"伐萨尔斯坦帝国，攻取三州"(全部国家时前面加"大景将领")
+ *   名臣   按入仕的年份排,新的在上;一句"大景丞相，出使萨尔斯坦帝国，辅幼主宣宗"(没经手大事的写"在朝 21 年";
+ *          只看一国时不带国名:"丞相，…")。「名人」不收名臣
  * 国家下拉框只看这一国(国家卡片的"全部 N 位"进来 = 这国的君主);"复制全文"复制成纯文字(世系图 = 缩进的家谱)。
  * 和编年史一样跟着时间轴:还没上台的淡显,"现在"线在第一位已经上台的上方(Chronicle.tsx 的 useNowLine)。
  */
@@ -30,7 +32,8 @@ import {
   personSpan,
   riseText,
 } from '../gen/civ/peopleInfo';
-import { generalRole, isConsul, personName, rulerFateWord } from '../gen/civ/peopleText';
+import { generalRole, isConsul, ministerRole, personName, rulerFateWord } from '../gen/civ/peopleText';
+import { deedLine } from '../gen/civ/officialText';
 import { hasLineage, lineageText } from '../gen/civ/lineageInfo';
 import { closeOverview, setPeople, usePeople, type PeopleList } from './overviewStore';
 import { useEdits } from './editsStore';
@@ -92,6 +95,13 @@ function generalLine(civ: Civ, x: Person, withPolity: boolean): string {
   return parts.filter(Boolean).join('，');
 }
 
+/** 名臣一行:身份(做到最高的官)、经手的事 */
+function ministerLine(civ: Civ, x: Person, withPolity: boolean): string {
+  const ps = x.posts ?? [];
+  const role = withPolity ? ministerRole(civ, x) : (ps[ps.length - 1]?.title ?? '');
+  return [role, deedLine(civ, x)].filter(Boolean).join('，');
+}
+
 function rowOf(civ: Civ, x: Person, line: string): PRow & { x: Person } {
   const s = personSpan(x);
   return { x, from: s.from, until: s.until, name: personName(civ, x), line };
@@ -150,13 +160,14 @@ export function PeoplePage({ civ, data }: { civ: Civ | null; data: { world: Worl
     return chars.filter((c) => polity === null || characterPolity(civ!, data.world, data.raster, c) === polity).sort((a, b) => b.born - a.born || b.id - a.id);
   }, [civ, data, chars, polity]);
   const counts = useMemo(() => {
-    if (!ok) return { famous: 0, rulers: 0, generals: 0 };
+    if (!ok) return { famous: 0, rulers: 0, generals: 0, ministers: 0 };
     const ix = peopleIndex(civ!);
     const sum = (ls: Person[][]) => (polity !== null ? (ls[polity]?.length ?? 0) : ls.reduce((n, l) => n + l.length, 0));
     return {
       famous: polity !== null ? famous.filter((f) => civ!.people![f.id].polity === polity).length : famous.length,
       rulers: sum(ix.rulers),
       generals: sum(ix.generals),
+      ministers: sum(ix.ministers),
     };
   }, [ok, civ, famous, polity]);
   const groups = useMemo((): Group[] => {
@@ -176,6 +187,13 @@ export function PeoplePage({ civ, data }: { civ: Civ | null; data: { world: Worl
       const ix = peopleIndex(c);
       const list = polity !== null ? ix.generals[polity] : ix.generals.flat();
       const rows = list.map((x) => rowOf(c, x, generalLine(c, x, polity === null)));
+      rows.sort((a, b) => b.from - a.from || b.x.id - a.x.id);
+      return [{ rows }];
+    }
+    if (view.list === 'ministers') {
+      const ix = peopleIndex(c);
+      const list = polity !== null ? ix.ministers[polity] : ix.ministers.flat();
+      const rows = list.map((x) => rowOf(c, x, ministerLine(c, x, polity === null)));
       rows.sort((a, b) => b.from - a.from || b.x.id - a.x.id);
       return [{ rows }];
     }
@@ -200,6 +218,7 @@ export function PeoplePage({ civ, data }: { civ: Civ | null; data: { world: Worl
           { id: 'famous' as const, name: '名人', n: counts.famous, title: '按推演里的事迹挑出来的名将、名君、开国之君' },
           { id: 'rulers' as const, name: focus?.lineage === 'republic' ? '执政' : '君主', n: counts.rulers, title: '历代君主,按朝代分组' },
           { id: 'generals' as const, name: '将领', n: counts.generals, title: '领过兵的将领,按第一次领兵的年份排' },
+          { id: 'ministers' as const, name: '名臣', n: counts.ministers, title: '各国的名臣,按入仕的年份排' },
         ]
       : []),
   ];
@@ -335,7 +354,7 @@ export function PeoplePage({ civ, data }: { civ: Civ | null; data: { world: Worl
                   data-e={r.until ?? end + 1}
                   data-top="1"
                   data-person={r.x!.id}
-                  data-ev={r.x!.role === 'ruler' ? 'dynasty' : 'war'}
+                  data-ev={r.x!.role === 'general' ? 'war' : 'dynasty'}
                   title="看这个人"
                   onClick={() => selectPerson(r.x!.id)}
                 >

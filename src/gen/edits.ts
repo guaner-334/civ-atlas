@@ -181,6 +181,9 @@
  *  11:君主有了倾向(开拓、好战、发展、重商,各 0–100,civ/rulers.ts),国家扩张前先算划不划算:荒漠、苔原、高山、离国都太远的地方多留给部落;
  *      倾向也管开战、议和、称臣和亲征。有地形大事的世界:大事以后还在的城,港口、人口上限照新地形换值;沉过海的城不再重建;
  *      发源州沉了的民族不再兴起。地形不变,历史重新推演。
+ *  12:每一朝有了几位名臣(civ/officials.ts:文臣,有字号、籍贯、官职、生平),将领也有了字号、籍贯、官职、生平;
+ *      将领不再重名:和此前的君主、先前的将领名臣尽量不撞,至少和本国君主、前后几百年的同名人物错开;
+ *      疆域、兴亡、君主都和 11 一样,编年史里议和、幼主即位、遇弑迎立、称王称帝几类写上了经手的名臣,撞了名的将领换了名字。
  */
 import type { Civ, Culture, Faith, Place, Polity, Regions, Settlement } from './civ/types';
 import type { AuthorCharacter } from './characters';
@@ -190,7 +193,7 @@ import type { SketchEdit } from './sketch';
 import type { NameMix } from './names/mix';
 
 /** 生成器版本:生成算法有改动、同种子会得到不同世界时加一(存档读档时核对);加一时在 GENERATOR_CHANGES 里补一条 */
-export const GENERATOR_VERSION = 11;
+export const GENERATOR_VERSION = 12;
 
 /**
  * 一版生成器的改动有多大(从小到大):打开旧存档、旧链接时,按跨过的几版里最大的那一种说清变了什么(savefile.ts 的 versionNote)
@@ -215,6 +218,7 @@ export const GENERATOR_CHANGES: Readonly<Record<number, { change: GeneratorChang
   9: { change: 'chronicle' },
   10: { change: 'history' },
   11: { change: 'history' },
+  12: { change: 'chronicle' },
 };
 
 /** 干预的种类(见文件头的表) */
