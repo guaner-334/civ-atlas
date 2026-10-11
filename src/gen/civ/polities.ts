@@ -945,7 +945,8 @@ export function addPolity(m: PolityModel, sid: number, cu: number, t: Year, extr
  * 照原样重算一遍(离国都的路程按当时的国都),还没到期、目标州还没归国家的补进引擎 ——
  * 包括从后来在战争里丢掉的州出发的那些(触发时再按接壤与否判断,和一口气推完时一样)。
  * 阶段 4 干预"不许扩张"到期的那一刻(已经过去的,iv 给出)也照样重放:那一刻这国从当时的国土往外预约了一遍(见 respread),
- * 到期事件在同一刻里最先处理,所以排在那一刻的所有日志前面。门槛更低的新君即位、迁都的下一刻也一样重放。
+ * 到期事件在同一刻里排在别的事件前面(只在地形大事、看王朝、即位、重看边地后面,其中只有地形大事改归属),
+ * 所以排在那一刻的日志(大事改的除外)前面。门槛更低的新君即位、迁都的下一刻也一样重放。
  */
 export function resumePolities(sim: CivSim, world: World, civ: Civ, iv?: InterventionModel | null): void {
   const T = cultureTerrain(world, civ.habitat, civ.regions);

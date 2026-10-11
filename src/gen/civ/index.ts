@@ -113,7 +113,7 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
   const tempo = viable && world.terrain?.length ? (p.tempo === undefined ? planetTempo(world.params, p, world.sketch) : (p.tempo ?? undefined)) : undefined;
   const model = viable ? planCultures(world, habitat, regions, { cultures: p.cultures, pace: p.pace, birthSpan, tempo }) : null;
   const pm = model ? planPolities(world, model, { polities: p.polities, pace: p.pace }) : null;
-  // 阶段 4 干预(interventions.ts):事件最先预约(同一刻里先于别的一切事件,干预之前的历史一字不差)
+  // 阶段 4 干预(interventions.ts):事件最先预约(同一刻里只排在地形大事和看王朝、新君即位、迁都后重看边地后面,干预之前的历史一字不差)
   const iv = pm ? scheduleInterventions(sim, world.params.seed, p.interventions) : null;
   if (model) installCultures(sim, model);
   if (pm) installPolities(sim, pm);
