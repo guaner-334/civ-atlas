@@ -255,6 +255,7 @@ export function searchCiv(
   // 信仰:大教、教派、各族的民间信仰
   let fn: Int32Array | null = null;
   for (const f of civ.religion?.faiths ?? []) {
+    if (f.kind === 'folk' && civ.cultures[f.culture ?? f.id]?.unborn) continue; // 没能兴起的民族的民间信仰
     const m = matchScore(f.name, q);
     if (m < 0) continue;
     fn ??= faithCounts(civ, year, undefined, owners).n;

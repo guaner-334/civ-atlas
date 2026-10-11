@@ -395,6 +395,11 @@ describe('地形大事 · 推演', () => {
     expect(rp.founded).toBeLessThan(500);
     expect(seaFrom(rp)).toBe(650);
     expect(routeCities([{ ...inlandTown, port: true }, rebuiltPort], [], 1000)[0].portFrom).toBeUndefined();
+    // 早就长成镇、地形大事把上限降到村子大小的:长成镇那年修的路照样在(不因为结束时不是镇就一条都不修)
+    const shrunk: Settlement = { ...grown, port: false, reshaped: [{ year: 700, capacity: 5, port: false }] };
+    const [sc] = routeCities([shrunk], [], 1000);
+    expect(sc).toBeDefined();
+    expect(sc.founded).toBe(gc.founded);
     // 两座港口城之间的航线:有一座 700 年才成港口的,航线从 700 年起
     const pc = routeCities(c.settlements, c.polities, 3000).filter((x) => x.port && x.ended === undefined);
     const lm = (x: { cell: number }) => c.regions.landmass[c.regions.of[x.cell]];
@@ -447,6 +452,10 @@ describe('地形大事 · 推演', () => {
     // 搜索里找不到它(史书材料里也不列,同一个标记)
     expect(searchCiv(a, cu.name, a.endYear).some((h) => h.kind === 'culture' && h.id === cu.id)).toBe(true);
     expect(searchCiv(b, cu.name, b.endYear).some((h) => h.kind === 'culture' && h.id === cu.id)).toBe(false);
+    // 它的民间信仰也搜不到
+    const folk = b.religion!.faiths.find((f) => f.kind === 'folk' && (f.culture ?? f.id) === cu.id)!;
+    expect(searchCiv(a, folk.name, a.endYear).some((h) => h.kind === 'faith' && h.id === folk.id)).toBe(true);
+    expect(searchCiv(b, folk.name, b.endYear).some((h) => h.kind === 'faith' && h.id === folk.id)).toBe(false);
     // 别的民族照常诞生
     for (const c of b.cultures) if (c.id !== cu.id) expect(!c.unborn && (c.ended === undefined || c.ended > c.born)).toBe(true);
   }, 300_000);

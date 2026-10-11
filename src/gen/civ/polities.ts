@@ -1110,14 +1110,21 @@ export function routeCities(settlements: Settlement[], polities: Polity[], endYe
   const port = (s: Settlement) => portAt(s, Infinity);
   /**
    * 够格修路的年份(国都、港口 = 建城那年;其余 = 长成镇那年;被毁前没长成镇 / 到结束年份还不是镇 = Infinity)。
-   * 地形大事以后才成了港口的:成港口那年和长成镇那年里早的那个(海岸是那时才有的,海路不早于它)
+   * 地形大事以后才成了港口的:成港口那年和长成镇那年里早的那个(航线另记,见下面的 portFrom);
+   * 地形大事降了上限、到结束时已经不是镇的:照长成镇那年
    */
   const from = (s: Settlement): Year => {
     const harbor = portSince(s);
     if (capitalFrom.has(s.id) || harbor === s.founded) return s.founded;
     let y: Year;
-    if (s.ended === undefined) y = populationAt(s, endYear) >= town ? Math.max(s.founded, yearReaching(s, town)) : Infinity;
-    else {
+    if (s.ended === undefined) {
+      if (populationAt(s, endYear) >= town) y = Math.max(s.founded, yearReaching(s, town));
+      else if (s.reshaped) {
+        // 地形大事降了上限、到结束时已经不是镇的:长成镇那年修起来的路照样在(路只随城被毁荒废)
+        y = Math.max(s.founded, yearReaching(s, town));
+        if (!(y <= endYear)) y = Infinity;
+      } else y = Infinity;
+    } else {
       y = Math.max(s.founded, yearReaching(s, town));
       if (!(y < s.ended)) y = Infinity;
     }
