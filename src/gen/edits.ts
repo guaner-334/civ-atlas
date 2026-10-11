@@ -178,6 +178,7 @@
  *      只是继位时年纪对不上的"其弟 / 其兄"改成了"其侄 / 叔父"这类(每个世界几十句)。
  *  10:国家之间有了邦交(civ/diplomacy.ts):畏强邻称臣纳贡、战败奉表称臣、结盟共御强敌、盟国援战或坐视不救、背盟、
  *      藩属乘乱绝贡自立、宗主讨伐或兼并藩属;开战记下由头,议和写清称臣和割了哪几州。地形不变,历史重新推演。
+ *      有地形大事的世界还有:大事以后还在的城,港口、人口上限照新地形换值;沉过海的城不再重建;发源州沉了的民族不再兴起。
  */
 import type { Civ, Culture, Faith, Place, Polity, Regions, Settlement } from './civ/types';
 import type { AuthorCharacter } from './characters';
