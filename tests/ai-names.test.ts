@@ -166,6 +166,30 @@ describe('释名 / 起名的材料(seed 7)', () => {
     const renamedP = applyNames(raw, { [nameInfo(raw, pt)!.key]: '秦' });
     expect(nameStamp(renamedP, pt)).toBe(nameStamp(raw, pt));
   });
+
+  it('地形大事改过港口的城:材料按最后一段地形写、写明哪年变的;stamp 跟着变', () => {
+    const t: NameTarget = { kind: 'settlement', id: westCity.id };
+    const year = westCity.founded + 300;
+    const flipped = {
+      ...raw,
+      settlements: raw.settlements.map((s) =>
+        s.id === westCity.id ? { ...s, reshaped: [{ year, capacity: s.capacity, port: !s.port }] } : s,
+      ),
+    };
+    const geo = nameMaterial(flipped, t, raster)!.geography.join('\n');
+    expect(geo).toContain('地形大事以后');
+    expect(geo).toContain(westCity.port ? '不再是港口' : '成了港口');
+    expect(nameStamp(flipped, t)).not.toBe(nameStamp(raw, t));
+    // 只改了人口上限、港口没变的:材料里港口那句和原来一样,stamp 照样变(人口最盛可能变了)
+    const shrunk = {
+      ...raw,
+      settlements: raw.settlements.map((s) =>
+        s.id === westCity.id ? { ...s, reshaped: [{ year, capacity: s.capacity / 2, port: s.port }] } : s,
+      ),
+    };
+    expect(nameMaterial(shrunk, t, raster)!.geography).toEqual(nameMaterial(raw, t, raster)!.geography);
+    expect(nameStamp(shrunk, t)).not.toBe(nameStamp(raw, t));
+  });
 });
 
 describe('起名 JSON 的解析与兜底', () => {
