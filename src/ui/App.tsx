@@ -1693,6 +1693,8 @@ export function App() {
     t.title = clean;
     setDraftTitle(clean ?? '');
     if (currentWorld()?.id === t.id) renameWorld(t.id, clean ?? '');
+    // 星球还在生成:同样算动过(生成好了照这个名字存下;这时按后退离开,回来名字也还在)
+    else t.pristine = false;
   };
   /** 创建世界:从此种子、参数、地形锁住;一直存着。从第 0 年起放一遍历史。建成了 = true */
   const createWorld = (title: string): boolean => {
@@ -1827,9 +1829,10 @@ export function App() {
     const title = (live ? cw.title : t.title) || undefined;
     const stored = isStored(t.id);
     // 没存着的、最近的修改没写进浏览器的(存储满了):记下现在的样子(修改、名字用手上的),回来时照这个打开;存好了的不用记。
-    // 新建中的只记没写进去的(没动过的按网址里的种子新建就是原样)
+    // 新建中的只记动过、没写进去的(还在生成就起了名的也算;没动过的按网址里的种子新建就是原样)
     const unsaved = live && currentUnsaved();
-    if ((t.kind !== 'draft' && !stored) || unsaved) navTargets.current.set(t.id, { ...t, ...(live ? { edits: getEdits(), title } : {}), ...(unsaved && t.kind === 'draft' ? { pristine: false } : {}), view: undefined, warnings: undefined });
+    const touched = live ? !cw.pristine : !t.pristine;
+    if ((!stored && (t.kind !== 'draft' || touched)) || unsaved) navTargets.current.set(t.id, { ...t, ...(live ? { edits: getEdits(), title } : {}), ...(unsaved && t.kind === 'draft' ? { pristine: false } : {}), view: undefined, warnings: undefined });
     else navTargets.current.delete(t.id);
     return { title, stored };
   };
@@ -1849,6 +1852,7 @@ export function App() {
    *             这一页里记着的、存储满了没写进去的,照这一页里的样子打开);
    *             已经建成了世界的:后退时跳过(前面没有这个网站的一步了就回我的世界),前进时打开那个世界;
    *             存过、没建完就删掉了的(以它为底稿新建、什么都没动就返回的那一份):后退时同样跳过;没存过的:按网址里的种子新建
+   *             (照手绘图、还没照图长出星球的:图没留下,回我的世界、弹窗停在选图那一步)
    *   世界      这一页里看过、没存着的(或最近的修改没写进浏览器,存储满了):照这一页里的样子打开;存着的:打开它;
    *             存过、现在不在了:回我的世界,提示删掉了;
    *             别的(网址里带种子的、分享短链接):按网址打开
@@ -1859,9 +1863,10 @@ export function App() {
       const left = derivedUntouched();
       if (left && !(to.page === 'draft' && to.id === left)) deleteWorld(left);
     }
-    // 分享链接打不开的那一页、正在取的分享、写史书的窗口(选的是那个世界的国家)、读着的史书:换了画面就不留
+    // 分享链接打不开的那一页、正在取的分享、「新建世界」弹窗、写史书的窗口(选的是那个世界的国家)、读着的史书:换了画面就不留
     // (到了世界、那一步记着史书的,世界好了再打开)
     setLanding(null);
+    setNewDlg(null);
     clearToast('share');
     closeHistoryBook();
     closeBookReader();
@@ -1895,6 +1900,12 @@ export function App() {
       }
       // 存过(离开时记着,或那一步的网址里有 w=编号)、现在不在了:跳过
       if (once) return skip();
+      // 照手绘图新建、还没照图长出星球(图不存,离开就没了):和刷新时一样,回我的世界,弹窗停在照手绘图选图那一步
+      if (q.get('new') === 'image') {
+        showHome();
+        setNewDlg({ init: { mode: 'image', params: url.params, step: 2 } });
+        return;
+      }
       return openTarget({ ...draftTarget({ ...url.params, seed }), id: to.id ?? newWorldId() });
     }
     const w = to.id ? loadWorld(to.id) : null;

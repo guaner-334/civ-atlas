@@ -5150,6 +5150,7 @@ for (const style of ['realistic', 'fantasy']) {
   await p.click('[data-act=home] >> nth=0');
   await step('左上回我的世界', (s) => s.where === '我的世界');
   await p.click('[data-act=new-world] >> nth=0');
+  await dialogStart(p);
   await studioReady(p);
   const d1 = await step('新建', (s) => s.where === '新建');
   // 等网址里的种子换好(新建界面一直开着,换的只是星球)
