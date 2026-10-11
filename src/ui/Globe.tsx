@@ -968,7 +968,8 @@ export function Globe({ world, raster, civ, geo, style, layer, terrain, terrainK
       done();
       fail.add(key);
     };
-    const req: GlobeTexRequest = { world: p.world, style: p.style, layer: p.layer, scale };
+    // 细沟只有写实风用得着(别的画风不带,省得拷一份)
+    const req: GlobeTexRequest = { world: p.world, style: p.style, layer: p.layer, scale, veins: p.style === 'realistic' ? p.raster.veinLines : undefined };
     wk.postMessage(req);
   };
   /** 放大到 1.5 倍以上、主图那张不够清楚时,后台线程按两倍像素重铺一张 */
