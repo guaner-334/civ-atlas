@@ -6,12 +6,14 @@
  * 框按"看得出来的差别"划(TOL:海拔 1 米、气温 0.05 度、降水 0.005 毫米、沟 0.5 米、冰 0.01;水陆、群落、冰的样子一变就算),
  * 框里的像素整块照抄(一位不差);框外的差别小到看不出来,沿用上一段。
  * 主图东西相连:框的列可以跨过右边接回左边(x0 + w 超过主图宽的部分取模)。
+ * 细沟的线(Raster.veinLines,放大现算时照它画)不大,补丁里整份带上。
  */
 import type { Raster } from './raster';
+import type { DrainLines } from './pixelDrain';
 
 /** 补丁里有的字段(cell 只由网格定,各段一样,不存) */
 const F32 = ['elev', 'temp', 'precip', 'ice', 'gully'] as const;
-const U8 = ['water', 'biome', 'iceConc', 'iceTone'] as const;
+const U8 = ['water', 'biome', 'iceConc', 'iceTone', 'bank', 'vein'] as const;
 type F32Key = (typeof F32)[number];
 type U8Key = (typeof U8)[number];
 
@@ -29,9 +31,11 @@ export interface RasterPatch {
   h: number;
   f32: Partial<Record<F32Key, Float32Array>>;
   u8: Partial<Record<U8Key, Uint8Array>>;
+  /** 这一段整张图的细沟(拷的一份) */
+  veins?: DrainLines;
 }
 
-/** b 比 a 变了的那一块(两张主图一样大);一个像素也没变 = null */
+/** b 比 a 变了的那一块(两张主图一样大);一个像素也没变、细沟的线也一样 = null */
 export function diffRaster(a: Raster, b: Raster): RasterPatch | null {
   const W = b.w;
   const H = b.h;
@@ -55,9 +59,15 @@ export function diffRaster(a: Raster, b: Raster): RasterPatch | null {
   for (const k of U8) {
     const p = a[k];
     const q = b[k];
+    if (!p || !q) continue;
     for (let i = 0; i < p.length; i++) if (p[i] !== q[i]) mark(i);
   }
-  if (y1 < 0) return null;
+  if (y1 < 0) {
+    // 像素一个也没变,细沟的线却变了(放大、导出时照线画,看得出来):只带线,框是空的
+    const v = b.veinLines;
+    if (!v || sameLines(a.veinLines, v)) return null;
+    return { W, H, x0: 0, y0: 0, w: 0, h: 0, f32: {}, u8: {}, veins: copyLines(v) };
+  }
   // 列:找最长的一段没变的(东西相连,绕一圈),框 = 剩下的那一段
   let best = 0;
   let bestEnd = 0;
@@ -78,8 +88,27 @@ export function diffRaster(a: Raster, b: Raster): RasterPatch | null {
     const q = b[k];
     if (q) f32[k] = cut(q, W, x0, y0, w, h, new Float32Array(w * h));
   }
-  for (const k of U8) u8[k] = cut(b[k], W, x0, y0, w, h, new Uint8Array(w * h));
-  return { W, H, x0, y0, w, h, f32, u8 };
+  for (const k of U8) {
+    const q = b[k];
+    if (q) u8[k] = cut(q, W, x0, y0, w, h, new Uint8Array(w * h));
+  }
+  const v = b.veinLines;
+  return { W, H, x0, y0, w, h, f32, u8, ...(v ? { veins: copyLines(v) } : {}) };
+}
+
+function copyLines(v: DrainLines): DrainLines {
+  return { off: v.off.slice(), x: v.x.slice(), y: v.y.slice(), a: v.a.slice() };
+}
+
+/** 两份细沟的线一样(点数、坐标、集水面积一位不差) */
+function sameLines(p: DrainLines | undefined, q: DrainLines): boolean {
+  if (!p) return false;
+  const eq = (u: ArrayLike<number>, v: ArrayLike<number>) => {
+    if (u.length !== v.length) return false;
+    for (let i = 0; i < u.length; i++) if (u[i] !== v[i]) return false;
+    return true;
+  };
+  return eq(p.off, q.off) && eq(p.x, q.x) && eq(p.y, q.y) && eq(p.a, q.a);
 }
 
 function cut<T extends Float32Array | Uint8Array>(src: T, W: number, x0: number, y0: number, w: number, h: number, out: T): T {
@@ -112,8 +141,11 @@ export function applyPatch(r: Raster, p: RasterPatch): void {
   }
   for (const k of U8) {
     const s = p.u8[k];
-    if (s) paste(r[k], r.w, p, s);
+    if (!s) continue;
+    if (!r[k]) r[k] = new Uint8Array(r.w * r.h);
+    paste(r[k]!, r.w, p, s);
   }
+  if (p.veins) r.veinLines = p.veins;
 }
 
 /** 原来的主图复制一份,按先后贴上补丁(原图不动;cell 共用) */
@@ -130,17 +162,25 @@ export function composeRaster(base: Raster, patches: readonly RasterPatch[]): Ra
     iceConc: base.iceConc.slice(),
     iceTone: base.iceTone.slice(),
     gully: base.gully?.slice(),
+    bank: base.bank?.slice(),
+    vein: base.vein?.slice(),
   };
   for (const p of patches) applyPatch(out, p);
   return out;
 }
 
+/** 补丁里的数组 */
+function arrays(p: RasterPatch): (Float32Array | Uint8Array | Int32Array)[] {
+  const v = p.veins;
+  return [...Object.values(p.f32), ...Object.values(p.u8), ...(v ? [v.off, v.x, v.y, v.a] : [])] as (Float32Array | Uint8Array | Int32Array)[];
+}
+
 /** 补丁里的数组(交给主线程时转移,不复制) */
 export function patchTransferables(p: RasterPatch): ArrayBuffer[] {
-  return [...Object.values(p.f32), ...Object.values(p.u8)].map((a) => a!.buffer as ArrayBuffer);
+  return arrays(p).map((a) => a.buffer as ArrayBuffer);
 }
 
 /** 补丁占多少字节 */
 export function patchBytes(p: RasterPatch): number {
-  return [...Object.values(p.f32), ...Object.values(p.u8)].reduce((s, a) => s + a!.byteLength, 0);
+  return arrays(p).reduce((s, a) => s + a.byteLength, 0);
 }

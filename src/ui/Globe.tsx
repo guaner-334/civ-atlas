@@ -88,6 +88,7 @@ import {
 } from '../render/civ/highlight';
 import { drawCivFill, type CivDrawParams, type CivShow } from '../render/civ/overlay';
 import { borderLines } from '../render/civ/borders';
+import { vassalTies } from '../render/civ/vassals';
 import { routeLines } from '../render/civ/routes';
 import { labelSurface } from '../render/civ/labels';
 import { Layer } from '../gen/civ/types';
@@ -632,7 +633,7 @@ function civLineStrokes(cp: CivDrawParams | null): GlobeLineStroke[] {
   const { world, civ, style } = cp;
   const out: GlobeLineStroke[] = [];
   if (cp.show.polities && civ.polities.length) {
-    const sets = globeBorderSets(borderLines(cp, Layer.Polity), world.width, world.height, style === 'fantasy');
+    const sets = globeBorderSets(borderLines(cp, Layer.Polity), world.width, world.height, style === 'fantasy', vassalTies(civ, cp.year));
     out.push(...borderStrokes(sets, style));
     // 战事的战线压在国界上(短齿、双剑在 drawOverlay 里按画布像素画)
     if (warsShown(cp)) out.push(...warStrokes(globeWarSet(warFront(cp), world.width, world.height), style));
@@ -967,7 +968,8 @@ export function Globe({ world, raster, civ, geo, style, layer, terrain, terrainK
       done();
       fail.add(key);
     };
-    const req: GlobeTexRequest = { world: p.world, style: p.style, layer: p.layer, scale };
+    // 细沟只有写实风用得着(别的画风不带,省得拷一份)
+    const req: GlobeTexRequest = { world: p.world, style: p.style, layer: p.layer, scale, veins: p.style === 'realistic' ? p.raster.veinLines : undefined };
     wk.postMessage(req);
   };
   /** 放大到 1.5 倍以上、主图那张不够清楚时,后台线程按两倍像素重铺一张 */

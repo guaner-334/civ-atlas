@@ -1,0 +1,120 @@
+name: 发布测试网站
+
+# 新改动先发到测试网站 https://atlas.gerdor.top/beta/ 试一阵,再用「发布正式网站」(deploy.yml)发到 https://atlas.gerdor.top。
+#
+# 什么时候跑:
+# - main 上有代码改动(PR 合并进来)就构建并发布;只改文档(*.md)的不发
+# - 需要时可以在 Actions 页面手动跑一次(比如重发当前的 main)
+#
+# 构建前把浏览器存储的名字(localStorage 的键、IndexedDB 的库名)都换成带 beta 的(wenming-ditu: → wenming-ditu-beta: 这样):
+# 测试网站和正式网站在同一个网址下面,共用存储的话,测试版会把正式网站存的世界按新格式重存,正式网站就读不全了。
+# 构建时带上 VITE_BETA_SITE=1:页面左上角写明是测试版、带回正式网站的链接(src/ui/oldSite.ts);页面多一行不让搜索引擎收录。
+# 不带 VITE_AI_SERVER:测试网站没有登录和云同步,不会把测试版的存档传进账号。
+# 发布用的密钥和正式网站一样(见 deploy.yml 开头);只往 beta/ 子目录传文件,不删任何东西,正式网站的发布也不会删它。
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**/*.md'
+  workflow_dispatch:
+
+# 测试网站自己排队:连着合并几次时,排着的那份被更新的顶掉,最后发的总是最新的 main。
+# 只往 beta/ 传,和正式网站、旧版网站的发布不会互相覆盖,不用和它们排同一个队
+concurrency:
+  group: deploy-beta
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: 构建并发布测试网站
+    # 别人 fork 的仓库里不跑(也没有这些密钥)
+    if: github.repository == 'guaner-334/civ-atlas'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: site
+      url: https://atlas.gerdor.top/beta/
+    steps:
+      - uses: actions/checkout@v4
+      - name: 换成测试网站自己的浏览器存储
+        run: |
+          files=$(grep -rlE "wenming-ditu:|civ-atlas:|'civ-atlas-ai'" src || true)
+          if [ -z "$files" ]; then
+            echo "没找到浏览器存储的名字,存储的写法可能改过,先看一眼代码" >&2
+            exit 1
+          fi
+          sed -i -E "s/wenming-ditu:/wenming-ditu-beta:/g; s/civ-atlas:/civ-atlas-beta:/g; s/'civ-atlas-ai'/'civ-atlas-beta-ai'/g" $files
+          git diff --stat
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: 生产构建
+        env:
+          VITE_AI_SERVER: ''
+          VITE_BETA_SITE: '1'
+        run: pnpm build
+      - name: 确认没有和正式网站共用的存储名,加上不收录、补结尾斜杠
+        run: |
+          if grep -rlE "wenming-ditu:|civ-atlas:|[\"'\`]civ-atlas-ai[\"'\`]" dist; then
+            echo "构建结果里还有和正式网站共用的存储名(见上面的文件)" >&2
+            exit 1
+          fi
+          sed -i 's#<meta charset="UTF-8" />#&\n    <meta name="robots" content="noindex" />#' dist/index.html
+          grep -q 'name="robots" content="noindex"' dist/index.html
+          # 有人手敲 /beta(少了结尾的斜杠)时,有的服务器配置直接给出页面、不跳到 /beta/,页面里的相对路径就指错了地方:先补上斜杠再加载
+          sed -i "s#<meta charset=\"UTF-8\" />#&\n    <script>if (location.pathname.endsWith('/beta')) location.replace(location.pathname + '/' + location.search + location.hash);</script>#" dist/index.html
+          grep -qF "endsWith('/beta')" dist/index.html
+      - name: 准备 SSH
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          DEPLOY_DEST: ${{ secrets.DEPLOY_DEST }}
+        run: |
+          if [ -z "$DEPLOY_SSH_KEY" ] || [ -z "$DEPLOY_KNOWN_HOSTS" ] || [ -z "$DEPLOY_DEST" ]; then
+            echo "没配发布用的密钥(见 deploy.yml 开头),不发布" >&2
+            exit 1
+          fi
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+      # 和正式网站一样:先传带哈希的文件,最后才换页面本身;握手超时就重试
+      - name: 上传
+        env:
+          DEPLOY_DEST: ${{ secrets.DEPLOY_DEST }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+        run: |
+          export RSYNC_RSH="ssh -p ${DEPLOY_PORT:-22} -i $HOME/.ssh/deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20 -o ServerAliveInterval=10"
+          retry() { local n; for n in 1 2 3 4; do "$@" && return 0; echo "第 $n 次失败,10 秒后重试" >&2; sleep 10; done; return 1; }
+          # DEPLOY_DEST 形如 user@host:(网站目录)或 user@host:/某个目录
+          dest="${DEPLOY_DEST%/}"
+          case "$dest" in
+            *:) dest="${dest}beta/" ;;
+            *) dest="$dest/beta/" ;;
+          esac
+          retry rsync -rltz --chmod=D755,F644 --exclude='/*.html' dist/ "$dest"
+          retry rsync -ltz --chmod=F644 dist/*.html "$dest"
+          echo "已发布 ${GITHUB_SHA::7} → https://atlas.gerdor.top/beta/" >> "$GITHUB_STEP_SUMMARY"
+      # 打开看看:页面和它引用的主程序都拿得到(网站在别处有拦截时这一步可能失败,不影响已经传上去的文件)
+      - name: 检查网址能打开
+        continue-on-error: true
+        run: |
+          url="https://atlas.gerdor.top/beta/"
+          js=$(grep -oE '\./assets/index-[A-Za-z0-9_-]+\.js' dist/index.html | head -n1)
+          html=$(curl -fsSL --retry 3 --max-time 30 "$url")
+          if [ -z "$js" ] || ! printf '%s' "$html" | grep -qF "$js"; then
+            echo "$url 拿到的不是刚传上去的测试版页面" >&2
+            exit 1
+          fi
+          type=$(curl -fsS --retry 3 --max-time 60 -o /dev/null -w '%{content_type}' "$url${js#./}")
+          if [[ "$type" != *javascript* ]]; then
+            echo "主程序的类型是「$type」,浏览器不会运行它" >&2
+            exit 1
+          fi
+          echo "$url 能打开(主程序 ${js#./assets/},$type)" >> "$GITHUB_STEP_SUMMARY"

@@ -16,7 +16,7 @@
  * "会怎么样"预览(upPreview):照"那一年的地形 + 这几笔"生成一遍,和那一年的地形、州逐地块比(previewUpheaval)。
  */
 import { generateWorld, type World, type WorldParams } from './gen/world';
-import { finishGully, rasterizeDeferred, type Raster } from './gen/raster';
+import { rasterizeDeferred, type Raster } from './gen/raster';
 import { GullyPool } from './gullyPool';
 import { buildHistoryFrames, type HistoryFrames } from './gen/history';
 import { DEFAULT_CIV_PARAMS, generateCiv, civTransferables, planetTempo, type Civ, type Regions } from './gen/civ';
@@ -226,8 +226,11 @@ async function rasterOfWorld(key: string, world: () => World): Promise<Raster> {
   const r = rasters.get(key);
   if (r) return r;
   await pool.up;
-  const { raster, job } = rasterizeDeferred(world(), 1);
-  finishGully(raster, job, await pool.heights(job));
+  const w = world();
+  pool.prepare(w);
+  const d = rasterizeDeferred(w, 1);
+  await pool.finish(d);
+  const raster = d.raster;
   rasters.set(key, raster);
   while (rasters.size > 2) rasters.delete(rasters.keys().next().value!);
   return raster;
@@ -306,18 +309,20 @@ async function handle(m: WorkerRequest): Promise<void> {
     last = { key: keyOf(m.params, m.terrain, m.sketch), world };
     const steps = stepsOf(m.params, m.terrain, m.sketch, m.upheavals, (k, n) => post({ type: 'progress', id: m.id, stage: '地形大事', pct: 0.9 + (0.03 * k) / n }));
     const genMs = performance.now() - t0;
-    // 先铺像素(山坡上的沟和山脊交给帮手线程),同时推文明
+    // 先铺像素(山坡上的沟和山脊、细沟交给帮手线程),同时推文明
     post({ type: 'progress', id: m.id, stage: '铺展地图', pct: 0.93 });
-    const { raster, job } = rasterizeDeferred(world, m.scale);
-    const { heights, result: civ } = await pool.run(job, () => {
+    pool.prepare(world, m.scale);
+    const d = rasterizeDeferred(world, m.scale);
+    const raster = d.raster;
+    const civ = await pool.finish(d, () => {
       // 文明骨架(宜居度、州……)只读 World,之后的文明步骤都在 gen/civ/index.ts 里接
       post({ type: 'progress', id: m.id, stage: '文明', pct: 0.95 });
       const c = generateCiv(world, { interventions: m.interventions?.length ? m.interventions : undefined, tempo: tempoOf(m.params, m.terrain, m.sketch), ...upOpt(steps), ...namesOpt(m.names) });
       if (!m.terrain?.length) rememberTempo(m.params, m.sketch, c.spreadYears ?? null);
       return c;
     });
-    finishGully(raster, job, heights);
-    const transfer = [raster.elev, raster.temp, raster.precip, raster.water, raster.biome, raster.cell, raster.ice, raster.iceConc, raster.iceTone, raster.gully!].map((a) => a.buffer);
+    const vl = raster.veinLines!;
+    const transfer = [raster.elev, raster.temp, raster.precip, raster.water, raster.biome, raster.cell, raster.ice, raster.iceConc, raster.iceTone, raster.gully!, raster.bank!, raster.vein!, vl.off, vl.x, vl.y, vl.a].map((a) => a.buffer);
     transfer.push(...civTransferables(civ));
     // 回放快照体积大且主线程用不上,不随世界一起发送
     const { history: _history, ...rest } = world;

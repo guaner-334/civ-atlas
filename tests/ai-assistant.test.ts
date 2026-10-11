@@ -212,7 +212,7 @@ describe('助手面板', () => {
     expect(t.text).toMatch(/^【测试用假 AI】/);
     expect(t.steps.map((s) => s.label)).toEqual([`查国家：${pickName0}`, `在地图上打开${pickName0}`]);
     expect(t.steps.every((s) => s.state === 'ok')).toBe(true);
-    expect(t.steps[0].summary).toMatch(new RegExp(`^第 ${Math.floor(pick.founded)} 年立国；`));
+    expect(t.steps[0].summary).toMatch(new RegExp(`^第 ${Math.floor(pick.founded)} 年${pick.parent !== undefined ? '自立' : '立国'}；`));
     expect(t.steps[1].summary).toBe(`在地图上打开了${pickName0}`);
     expect(t.proposal).toBeUndefined();
     // 真的选中了它

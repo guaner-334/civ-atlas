@@ -212,7 +212,8 @@
   color: inherit;
   text-decoration: none;
 }
-.ov-about a:hover {
+.ov-about a:hover,
+.ov-about a.on {
   color: var(--link);
   text-decoration: underline;
   text-underline-offset: 2px;

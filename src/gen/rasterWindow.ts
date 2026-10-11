@@ -13,9 +13,9 @@
  */
 import type { World } from './world';
 import type { Raster } from './raster';
-import { carveValleys, noiseTiles, rasterBase, sampleSpline, shadeSphere, valleyLines, type SphereGrid, type ValleyLines } from './raster';
+import { bankBytes, carveValleys, noiseTiles, rasterBase, sampleSpline, shadeSphere, stampVeins, streamsOf, valleyLines, veinLinesOf, type SphereGrid, type ValleyLines } from './raster';
+import type { DrainLines } from './pixelDrain';
 import { Gullies } from './gully';
-import { creeksOf } from './creeks';
 import { subSeed } from './util';
 
 /** 放大现算要用的东西(每个世界准备一次,之后每一块都用它) */
@@ -42,6 +42,8 @@ export interface ZoomSource {
   /** 河和小溪的河道(刻河谷用) */
   lines: ValleyLines;
   threshold: number;
+  /** 细沟(整张主图逐像素汇流串出来的,见 stampVeins) */
+  veins: DrainLines;
   gullies: Gullies;
   dTile: Float32Array;
   jTile: Float32Array;
@@ -51,13 +53,14 @@ export interface ZoomSource {
   iceTone: Uint8Array;
 }
 
-/** 准备放大现算:whole = 这个世界的整张主图(1 倍;只取海冰) */
-export function zoomSource(world: World, whole: Pick<Raster, 'w' | 'h' | 'scale' | 'ice' | 'iceConc' | 'iceTone'>): ZoomSource {
+/** 准备放大现算:whole = 这个世界的整张主图(1 倍;只取海冰和细沟,细沟的线没带来就现算) */
+export function zoomSource(world: World, whole: Pick<Raster, 'w' | 'h' | 'scale' | 'elev' | 'water' | 'ice' | 'iceConc' | 'iceTone' | 'bank' | 'veinLines'>): ZoomSource {
   const b = rasterBase(world, 1);
   if (whole.w !== b.w || whole.h !== b.h) throw new Error('整张主图要是 1 倍的');
   const mesh = world.mesh;
   const { nrm, box } = triangleBounds(mesh.xyz!, mesh.triangles);
   const { dTile, jTile } = noiseTiles(world.params.seed);
+  const streams = streamsOf(world);
   return {
     seed: world.params.seed,
     width: world.width,
@@ -70,8 +73,9 @@ export function zoomSource(world: World, whole: Pick<Raster, 'w' | 'h' | 'scale'
     base: b.elev,
     bw: b.w,
     bh: b.h,
-    lines: valleyLines([...world.rivers, ...creeksOf(world)], world.riverThreshold, world.width),
+    lines: valleyLines(streams.rivers, world.riverThreshold, world.width),
     threshold: world.riverThreshold,
+    veins: whole.veinLines ?? veinLinesOf(whole, streams),
     gullies: new Gullies(subSeed(world.params.seed, 'gully')),
     dTile,
     jTile,
@@ -147,6 +151,9 @@ export function rasterizeWindow(src: ZoomSource, S: number, x0: number, y0: numb
   };
   const zoom = { gullies: src.gullies, base: src.base, w: src.bw, h: src.bh, x0, y0, S: W / src.bw };
   shadeSphere(out, tri, wa, wb, src.planes, base, carve, calm, src.dTile, src.jTile, g, src.R, null, zoom);
+  out.bank = bankBytes(calm);
+  out.vein = new Uint8Array(N);
+  stampVeins(src.veins, S, w, h, out.vein, x0, y0, W);
   windowIce(src, out, fx, fy);
   return out;
 }

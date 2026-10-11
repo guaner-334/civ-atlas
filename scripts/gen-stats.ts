@@ -1,7 +1,7 @@
 /**
  * 打印一个世界的统计数字:npx tsx scripts/gen-stats.ts [种子] [cells=…]
  * 地形(耗时、陆地、湖、河、海拔 / 降水分位数、群落、陆块大小(长尾)、海冰按纬度、河流去向、两极)
- * + 文明(国家、战争、分合、王朝更替、同化与迁徙、城市兴衰)。
+ * + 文明(国家、战争、分合、邦交、王朝更替、同化与迁徙、城市兴衰)。
  *
  * 极地大陆的比例:npx tsx scripts/gen-stats.ts polar=40 [from=1] [cells=…]
  *   从种子 from 起连续 40 个世界(只生成地形),每个一行:两极的极圈(纬度 66° 以上)里陆地占多少、其中属于大陆(≥ 球面 1% 的陆块)的占多少;
@@ -18,6 +18,7 @@ import { cityStats } from '../src/gen/civ/cities';
 import { buildChronicle, filterChronicle } from '../src/gen/civ/chronicle';
 import { polityName } from '../src/gen/civ/growth';
 import { assimStats } from '../src/gen/civ/assimilation';
+import { diplomacyStats } from '../src/gen/civ/diplomacy';
 const args = process.argv.slice(2);
 const opt = (k: string) => args.find((a) => a.startsWith(`${k}=`))?.slice(k.length + 1);
 
@@ -130,6 +131,12 @@ console.log(
 console.log(
   `战争 ${s.wars} 场 · 攻占 ${s.conquests} 次 · 灭亡 ${s.falls} 国 · 迁都 ${s.capitalMoves} 次 · 结束时在世 ${s.alive} 国\n` +
     `部落地带占有人州 ${(s.tribalShare * 100).toFixed(1)}% · 50 年内易手 3 次以上的州 ${s.flippy} 个 · 飞地州 ${s.exclaves} 个(${(s.exclaveShare * 100).toFixed(1)}%)`,
+);
+const dp = diplomacyStats(civ);
+console.log(
+  `邦交:结盟 ${dp.pacts} 次(渐废 ${dp.lapses} · 坐视不救 ${dp.abandons} · 背盟 ${dp.betrayals})· 援盟参战 ${dp.allyJoins} 次 · ` +
+    `称臣 ${dp.submits} 次(战败称臣 ${dp.warSubmits})· 藩属自立 ${dp.defects} 次(宗主讨伐 ${dp.punishments})· 救藩 ${dp.rescues} 次 · ` +
+    `纳土归附 ${dp.absorbs} 次 · 结束时藩属 ${dp.vassalsAtEnd} 个、盟约 ${dp.pactsAtEnd} 个`,
 );
 // 王朝更替:东方改朝换代(换国号)、西幻王室更迭(国名不变)分开数;每国几朝;已经结束的朝代平均立了多少年
 const perPolity = [...ds.perPolity]

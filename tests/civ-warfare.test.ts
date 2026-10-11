@@ -81,6 +81,8 @@ describe('战争按史事整理', () => {
   });
 
   it('议和时割让的州不算打过一仗', () => {
+    // 种子 7 的小世界里没有割地议和的,换种子 2024
+    const civ = generateCiv(generateWorld({ ...DEFAULT_PARAMS, seed: 2024, cells: 12000 }));
     const A = civ.annals;
     let ceded = 0;
     for (let i = 0; i < A.length; i++) {
@@ -97,7 +99,7 @@ describe('战争按史事整理', () => {
       }
     }
     expect(ceded).toBeGreaterThan(0);
-  });
+  }, 60_000);
 });
 
 describe('某一年的战事', () => {
@@ -124,7 +126,8 @@ describe('某一年的战事', () => {
   });
 
   it('仗打完以后双剑慢慢淡去,AFTER 年后不再画', () => {
-    const w = warSpans(civ).find((s) => s.end !== Infinity && s.fights.length && s.end + AFTER <= civ.endYear);
+    // 头一仗在议和之前(打下一州当即罢兵的,议和前一刻还没有双剑)
+    const w = warSpans(civ).find((s) => s.end !== Infinity && s.fights.length && s.fights[0].year < s.end - 0.01 && s.end + AFTER <= civ.endYear);
     expect(w).toBeTruthy();
     const alphaOf = (y: number) => Math.max(0, ...warScene(civ, y).marks.filter((m) => m.war === w!.id).map((m) => m.alpha));
     expect(warScene(civ, w!.end).live.includes(w!)).toBe(false);

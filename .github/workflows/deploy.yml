@@ -1,10 +1,15 @@
-name: 发布网站
+name: 发布正式网站
 
-# 什么时候跑:
-# - main 上有代码改动(PR 合并进来)就构建并发布到 https://atlas.gerdor.top;只改文档(*.md)的不发
-# - 需要时可以在 Actions 页面手动跑一次(比如重发当前的 main)
+# 把在测试网站上试过的版本发到正式网站 https://atlas.gerdor.top。
+# 新改动合并进 main 以后先自动发到测试网站 https://atlas.gerdor.top/beta/(deploy-beta.yml),试一阵再到这里发。
 #
-# 要在仓库 Settings → Environments → site 里配好(只允许 main 用):
+# 在 Actions 页面手动跑:
+# - 提交号不填 = 测试网站现在的版本(「发布测试网站」最近一次发布成功的提交)
+# - 填的话要是 main 上的完整 40 位提交号,并且已经在测试网站上(就是测试网站现在的版本,或者比它早)
+# 生成器升级以后(同一个种子的世界变样),上一版的旧网站 /v<上一版>/(deploy-old-site.yml)要先发好:
+# 正式网站里「看原样」会指过去。这里会检查它能不能打开,打不开就不发。
+#
+# 要在仓库 Settings → Environments → site 里配好(只允许 main 用;测试网站、旧版网站的发布也用它):
 # - DEPLOY_SSH_KEY:发布专用的 SSH 私钥。服务器上这把钥匙只能往网站目录传文件,不能登录、不能执行别的命令
 # - DEPLOY_KNOWN_HOSTS:服务器的 SSH 主机指纹(known_hosts 的一行),只连这台机器
 # - DEPLOY_DEST:rsync 的目标,形如 user@host:
@@ -12,19 +17,24 @@ name: 发布网站
 # 以上是 Secrets。另有一个 Variable(不是密钥,构建后本来就写在网页里):
 # - VITE_AI_SERVER:账号服务器地址。不配 = 构建出的网站没有登录、云同步、短链接(见 src/account/server.ts)
 on:
-  push:
-    branches: [main]
-    paths-ignore:
-      - '**/*.md'
   workflow_dispatch:
+    inputs:
+      commit:
+        description: '要发的提交(main 上的完整 40 位提交号;不填 = 测试网站现在的版本)'
+        required: false
+        type: string
 
-# 同一时间只发一份;后合并的排队等前一份传完,不打断正在传的
+run-name: 发布正式网站 ${{ inputs.commit || '(测试网站现在的版本)' }}
+
+# 同一时间只发一份;后跑的排队等前一份传完,不打断正在传的(旧版网站的发布也排这个队)
 concurrency:
   group: deploy-site
   cancel-in-progress: false
 
 permissions:
   contents: read
+  # 查「发布测试网站」发到了哪个提交
+  actions: read
 
 jobs:
   deploy:
@@ -37,7 +47,66 @@ jobs:
       name: site
       url: https://atlas.gerdor.top
     steps:
+      - name: 查测试网站现在的版本,定要发的提交
+        id: pick
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMIT: ${{ inputs.commit }}
+        run: |
+          beta=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/deploy-beta.yml/runs?branch=main&status=success&per_page=1" --jq '.workflow_runs[0].head_sha // empty')
+          if ! [[ "$beta" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "「发布测试网站」还没有成功发布过,先发测试网站" >&2
+            exit 1
+          fi
+          if [ -z "$COMMIT" ]; then COMMIT=$beta; fi
+          if ! [[ "$COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "要填完整的 40 位提交号" >&2
+            exit 1
+          fi
+          echo "beta=$beta" >> "$GITHUB_OUTPUT"
+          echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.pick.outputs.commit }}
+          fetch-depth: 0
+      - name: 确认是 main 上、已经在测试网站上的提交
+        id: check
+        env:
+          COMMIT: ${{ steps.pick.outputs.commit }}
+          BETA: ${{ steps.pick.outputs.beta }}
+        run: |
+          if ! git merge-base --is-ancestor "$COMMIT" origin/main; then
+            echo "$COMMIT 不是 main 上的提交" >&2
+            exit 1
+          fi
+          # 测试网站现在的版本,或者比它早的提交(它的改动测试网站上都有)
+          if ! git merge-base --is-ancestor "$COMMIT" "$BETA"; then
+            echo "$COMMIT 还没发到测试网站(测试网站现在是 ${BETA::7}),先在测试网站上试过再发" >&2
+            exit 1
+          fi
+          ver=$(sed -nE 's/^export const GENERATOR_VERSION = ([0-9]+);.*/\1/p' src/gen/edits.ts)
+          if ! [[ "$ver" =~ ^[0-9]+$ ]]; then
+            echo "src/gen/edits.ts 里没找到 GENERATOR_VERSION" >&2
+            exit 1
+          fi
+          echo "要发 ${COMMIT::7}(生成器第 $ver 版;测试网站现在是 ${BETA::7})" >> "$GITHUB_STEP_SUMMARY"
+          # 从第 FIRST_OLD_SITE 版起才留旧网站;上一版比它早就不用查
+          first=$(sed -nE 's/^export const FIRST_OLD_SITE = ([0-9]+);.*/\1/p' src/ui/oldSite.ts)
+          if [[ "$first" =~ ^[0-9]+$ ]] && [ $((ver - 1)) -ge "$first" ]; then
+            echo "prev=$((ver - 1))" >> "$GITHUB_OUTPUT"
+          fi
+      # 上一版建的世界在正式网站上点「看原样」会到 /v<上一版>/:那里要先有旧版网站
+      - name: 确认上一版的旧网站能打开
+        if: steps.check.outputs.prev != ''
+        env:
+          PREV: ${{ steps.check.outputs.prev }}
+        run: |
+          url="https://atlas.gerdor.top/v$PREV/"
+          if ! curl -fsSL --retry 3 --max-time 30 "$url" | grep -qE '\./assets/index-[A-Za-z0-9_-]+\.js'; then
+            echo "$url 打不开:生成器升级了,先跑「发布旧版网站」把第 $PREV 版留下来再发(网站其实能打开的话,重跑这个流程)" >&2
+            exit 1
+          fi
+          echo "上一版的旧网站 $url 能打开" >> "$GITHUB_STEP_SUMMARY"
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
@@ -68,9 +137,22 @@ jobs:
         env:
           DEPLOY_DEST: ${{ secrets.DEPLOY_DEST }}
           DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+          COMMIT: ${{ steps.pick.outputs.commit }}
         run: |
           export RSYNC_RSH="ssh -p ${DEPLOY_PORT:-22} -i $HOME/.ssh/deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20 -o ServerAliveInterval=10"
           retry() { local n; for n in 1 2 3 4; do "$@" && return 0; echo "第 $n 次失败,10 秒后重试" >&2; sleep 10; done; return 1; }
           retry rsync -rltz --chmod=D755,F644 --exclude='/*.html' dist/ "$DEPLOY_DEST"
           retry rsync -ltz --chmod=F644 dist/*.html "$DEPLOY_DEST"
-          echo "已发布 ${GITHUB_SHA::7} → https://atlas.gerdor.top" >> "$GITHUB_STEP_SUMMARY"
+          echo "已发布 ${COMMIT::7} → https://atlas.gerdor.top" >> "$GITHUB_STEP_SUMMARY"
+      # 打开看看:页面和它引用的主程序都拿得到(网站在别处有拦截时这一步可能失败,不影响已经传上去的文件)
+      - name: 检查网址能打开
+        continue-on-error: true
+        run: |
+          url="https://atlas.gerdor.top/"
+          js=$(grep -oE '\./assets/index-[A-Za-z0-9_-]+\.js' dist/index.html | head -n1)
+          html=$(curl -fsSL --retry 3 --max-time 30 "$url")
+          if [ -z "$js" ] || ! printf '%s' "$html" | grep -qF "$js"; then
+            echo "$url 拿到的不是刚传上去的页面" >&2
+            exit 1
+          fi
+          echo "$url 能打开(主程序 ${js#./assets/})" >> "$GITHUB_STEP_SUMMARY"

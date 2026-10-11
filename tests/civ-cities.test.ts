@@ -218,12 +218,13 @@ describe('城市兴衰 · 推演', () => {
     }
   });
 
-  it('默认参数 seed 7 / 2024:毁城 5–45 座、多数是村镇;一场战争最多毁 3 座;有重建也有留下的遗址;有洗劫、有旧都渐衰', () => {
+  it('默认参数 seed 7 / 2024:毁城 2–45 座、多数是村镇;一场战争最多毁 3 座;有重建也有留下的遗址;有洗劫、有旧都渐衰', () => {
     for (const seed of [7, 2024]) {
       const civ = civOf({ ...DEFAULT_PARAMS, seed });
       const c = cityStats(civ);
       const tag = `seed ${seed}`;
-      expect(c.ruins, tag).toBeGreaterThanOrEqual(5);
+      // 20 个种子里毁城 2–15 座(荒僻之地留给部落以后仗少了;seed 7 最少,2 座)
+      expect(c.ruins, tag).toBeGreaterThanOrEqual(2);
       expect(c.ruins, tag).toBeLessThanOrEqual(45);
       expect(c.ruinsByRank[0] + c.ruinsByRank[1], tag).toBeGreaterThan(c.ruins / 2);
       expect(c.maxRuinsPerWar, tag).toBeLessThanOrEqual(3);
