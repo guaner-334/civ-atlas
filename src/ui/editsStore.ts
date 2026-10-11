@@ -6,10 +6,10 @@
  * 读档时 App 先按存档的参数生成,再 setEdits(存档里的修改)。
  *
  * 撤销 / 重做(⌘Z / ⇧⌘Z,见 undo.ts):改名、改旗、干预、地形大事、作者标记、作者的人物、AI 改写每次都记一步(改之前、改之后两份),只记这次打开网页以后、这个世界上的;
- * 读档、换世界(setEdits / clearEdits)、创建世界(clearEditHistory)清空。地形修改、草图、地名风格不记:只在新建世界时能改,工具有自己的"撤销一笔"。
+ * 读档、换世界(setEdits / clearEdits)、创建世界(clearEditHistory)清空。地形修改、草图、地名风格、推演年数不记:只在新建世界时能改,工具有自己的"撤销一笔"。
  */
 import { useSyncExternalStore } from 'react';
-import { EMPTY_EDITS, MARKS_MAX, MARK_REGIONS_TOTAL, cleanIntervention, cleanMark, markRegionTotal, sameMark, markAiName, nextMarkId, type AuthorMark, type Intervention, type TerrainOp, type Upheaval, type WorldEdits } from '../gen/edits';
+import { EMPTY_EDITS, END_YEAR_DEFAULT, MARKS_MAX, cleanEndYear, MARK_REGIONS_TOTAL, cleanIntervention, cleanMark, markRegionTotal, sameMark, markAiName, nextMarkId, type AuthorMark, type Intervention, type TerrainOp, type Upheaval, type WorldEdits } from '../gen/edits';
 import { TERRAIN_MAX_OPS, UPHEAVALS_MAX, cleanTerrainOp, cleanUpheaval } from '../gen/terrainEdits';
 import { SKETCH_MAX_STROKES, cleanSketch, cleanSketchImage, cleanSketchStroke, encodeLayer, sketchCoast, type SketchEdit, type SketchStroke } from '../gen/sketch';
 import { CHARACTERS_MAX, cleanCharacter, nextCharacterId, sameCharacter, type AuthorCharacter } from '../gen/characters';
@@ -122,9 +122,10 @@ export function revertEdits(now: WorldEdits, from: WorldEdits, to: WorldEdits): 
   if (names === now.names && aiNames === now.aiNames && interventions === now.interventions && terrain === now.terrain && sameUps && marks === now.marks && flags === now.flags && characters === now.characters)
     return now;
   const out: WorldEdits = { names, interventions, terrain };
-  // 草图、地名风格不记撤销步(见文件头),照现在的留着
+  // 草图、地名风格、推演年数不记撤销步(见文件头),照现在的留着
   if (now.sketch) out.sketch = now.sketch;
   if (now.nameMix) out.nameMix = now.nameMix;
+  if (now.endYear) out.endYear = now.endYear;
   if (upheavals.length) out.upheavals = sameUps ? now.upheavals : upheavals;
   if (aiNames && Object.keys(aiNames).length) out.aiNames = aiNames;
   if (marks?.length) out.marks = marks;
@@ -359,6 +360,18 @@ export function setNameMix(mix: NameMix | undefined) {
   const { nameMix: _old, ...rest } = state;
   void _old;
   put(next ? { ...rest, nameMix: next } : rest);
+}
+
+/**
+ * 推演年数(新建世界时定,不记撤销步):推到第几年;undefined = 开关关着,去掉这一项。
+ * 开着拖到 3000 年记成 3000(开关还开着;推演、存档都和没开一样,存档里不写)
+ */
+export function setEndYear(year: number | undefined) {
+  const next = year === undefined || !Number.isFinite(year) ? undefined : (cleanEndYear(year) ?? END_YEAR_DEFAULT);
+  if (next === state.endYear) return;
+  const { endYear: _old, ...rest } = state;
+  void _old;
+  put(next ? { ...rest, endYear: next } : rest);
 }
 
 /** 地形修改:撤销最后一处 */

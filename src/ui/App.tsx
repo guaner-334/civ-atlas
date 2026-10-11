@@ -236,7 +236,7 @@ import {
   type TerrainStatus,
 } from './TerrainTools';
 import { SourceLayer, beginImport, isImageFile, startImport, useImportOn, useSourceView } from './ImportImage';
-import { NewWorldDialog, type NewWorldMode, type NewWorldStart } from './NewWorldDialog';
+import { NewWorldDialog, type NewWorldInit, type NewWorldMode, type NewWorldStart } from './NewWorldDialog';
 import { closeUpheaval, getUpUi, setUpRunner, takeUpPreview, undoUpOp, upCancel, upClick, upDown, upMove, upUp, upheavalName, useUpUi } from './upheavalStore';
 import { UpheavalHint, UpheavalOverlay } from './UpheavalPanel';
 import { dismissing, tookDismissClick } from './dismissClick';
@@ -278,7 +278,10 @@ function readUrl() {
   // 带了却认不出(不是整数之类)当成第 0 版:认不出的旧版本,照样提示,也不当成没带 gen 的老网址
   const gq = q.get(GEN_KEY);
   const gen = gq === null ? null : /^\d{1,6}$/.test(gq) ? Number(gq) : 0;
-  return { params, style, layer, mapLayer, share, shortShare, proj, lon, grat, gen };
+  // 推演年数(years=):新建中、还没存下的世界(new=)刷新、后退回来还记得弹窗里开的年数
+  const yq = q.get('years');
+  const years = yq === null ? undefined : cleanEndYear(Number(yq));
+  return { params, style, layer, mapLayer, share, shortShare, proj, lon, grat, gen, years };
 }
 
 /**
@@ -346,6 +349,12 @@ function draftSig(params: WorldParams, edits: WorldEdits, title?: string): strin
   return JSON.stringify([worldKey(params), edits, title ?? '']);
 }
 
+/** 新建时只定了推演年数的修改(3000 = 什么都没有) */
+function yearsEdits(endYear: number | undefined): WorldEdits {
+  const y = cleanEndYear(endYear);
+  return y ? { ...EMPTY_EDITS, endYear: y } : EMPTY_EDITS;
+}
+
 /** 一个新建中的世界(还没动过) */
 function draftTarget(params: WorldParams, base: DraftBase | null = null, edits: WorldEdits = EMPTY_EDITS, title?: string): Target {
   return { id: newWorldId(), kind: 'draft', params, edits, pristine: true, base, title };
@@ -407,7 +416,7 @@ function visitTarget(params: WorldParams, gen: number | null = null): Target {
  *   带种子的网址       → 直接看这个世界(改版前存过的就回到那个存档)
  *   都没有             → 我的世界(第一次来是空的那一页:一颗地球、一句话、「新建世界」;点了才生成星球)
  */
-function firstRoute(init: ReturnType<typeof readUrl>): { stage: Stage; target: Target | null; gone?: string; dialog?: { mode: NewWorldMode; params: WorldParams; step: 1 | 2 } } {
+function firstRoute(init: ReturnType<typeof readUrl>): { stage: Stage; target: Target | null; gone?: string; dialog?: NewWorldInit } {
   const q = new URLSearchParams(location.search);
   if (init.shortShare !== null && !init.share) return { stage: 'home', target: null };
   if (init.share) return { stage: 'world', target: visitTarget(init.params) };
@@ -419,9 +428,9 @@ function firstRoute(init: ReturnType<typeof readUrl>): { stage: Stage; target: T
   // 这一步记的世界存着,网址是存下之前的那一版(开着卡片时改了第一笔才存下,退回来的这一步网址里还没有 w=):打开存着的
   const mine = !isWorldId(w) && isNavState(was) && was.page === 'world' && was.id ? loadWorld(was.id) : null;
   if (mine && !mine.draft) return { stage: 'world', target: storedTarget(mine, 'restore') };
-  if (q.get('new') === '1') return { stage: 'draft', target: draftTarget(init.params) };
+  if (q.get('new') === '1') return { stage: 'draft', target: draftTarget(init.params, null, yearsEdits(init.years)) };
   // 照手绘图新建、还没照图长出星球(图不存,刷新就没了):回到我的世界,弹窗停在照手绘图的第 2 步(参数照网址)重新选图
-  if (q.get('new') === 'image') return { stage: 'home', target: null, dialog: { mode: 'image', params: init.params, step: 2 } };
+  if (q.get('new') === 'image') return { stage: 'home', target: null, dialog: { mode: 'image', params: init.params, step: 2, endYear: init.years } };
   if (q.has('seed')) {
     // 改版前自动存的世界:那时的网址只带种子、参数,刷新照旧回到它(带 gen= 的是改版后的网址,不是它)
     const old = init.gen === null ? legacyWorld(init.params) : null;
@@ -486,6 +495,10 @@ function writeWorldUrl(t: Target) {
   const w = isStored(t.id) ? loadWorld(t.id) : null;
   if (w && worldKey(w.save.params) === worldKey(t.params)) q.set('w', t.id);
   else if (t.kind === 'draft') q.set('new', draftModeOf(t) === 'image' && !t.edits.sketch?.image ? 'image' : '1');
+  // 还没存下的新建:弹窗里开的推演年数也写上(存下以后在存档里)
+  const years = q.has('new') ? cleanEndYear(t.edits.endYear) : undefined;
+  if (years) q.set('years', String(years));
+  else q.delete('years');
   // 生成器版本:复制这个网址发给别人,以后版本更新了对方打开会说清变了什么。
   // 网址来自更新的版本(页面是旧的)就留着那个号:刷新还是旧页面照样提示,换到新页面就对上了。
   // 新建中还没存的(new=1)不带:打开这种网址是接着新建,用的总是现在的版本
@@ -498,7 +511,7 @@ function writeWorldUrl(t: Target) {
 /** 回到"我的世界":网址里去掉这个世界(种子、参数、编号、年份……),留着图层、投影这些看法 */
 function writeHomeUrl() {
   const q = new URLSearchParams(location.search);
-  for (const k of [...Object.keys(DEFAULT_PARAMS), 'w', 'new', 's', GEN_KEY, 'civYear', 'play', 'chron']) q.delete(k);
+  for (const k of [...Object.keys(DEFAULT_PARAMS), 'w', 'new', 'years', 's', GEN_KEY, 'civYear', 'play', 'chron']) q.delete(k);
   const rest = q.toString();
   navUrl(rest ? `?${rest}` : location.pathname);
 }
@@ -588,7 +601,7 @@ export function App() {
   /** 新建中的名字(卡片上的输入框;打开没建完的世界时是它存的名字) */
   const [draftTitle, setDraftTitle] = useState(route.target?.kind === 'draft' ? (route.target.title ?? '') : '');
   /** 「新建世界」弹窗:开着没有、从哪一步开始(刷新了照手绘图还没长出星球的新建:停在它选图那一步) */
-  const [newDlg, setNewDlg] = useState<{ init?: { mode: NewWorldMode; params: WorldParams; step: 1 | 2 } } | null>(route.dialog ? { init: route.dialog } : null);
+  const [newDlg, setNewDlg] = useState<{ init?: NewWorldInit } | null>(route.dialog ? { init: route.dialog } : null);
   /** 生成出来的世界和主图(地形大事以前的;地图上画的是 data:时间轴那一段的) */
   const [baseData, setData] = useState<{ world: World; raster: Raster } | null>(null);
   /** 地形大事以后各段的世界(后台线程交来的;没有大事 = null)、各段主图的补丁(后台慢慢铺好交来;eras.ts) */
@@ -1678,8 +1691,9 @@ export function App() {
    */
   const startFromDialog = (s: NewWorldStart) => {
     setNewDlg(null);
-    if (s.mode === 'random') return openTarget(draftTarget(s.params));
-    openTarget({ ...draftTarget(s.params), mode: 'image' });
+    const d = draftTarget(s.params, null, yearsEdits(s.endYear));
+    if (s.mode === 'random') return openTarget(d);
+    openTarget({ ...d, mode: 'image' });
     if (s.picture) beginImport(s.picture);
   };
   /** 新建中的世界(在看的就是它)*/
@@ -1704,11 +1718,11 @@ export function App() {
     // 没画草图 = 整颗星球都换了,放的那几处是照原来的地形放的,不带过去。助手的对话(说的是原来那颗)也清掉
     newConversation();
     const sketch = st.edits.sketch;
-    const plain = !st.title && !sketch && !st.edits.nameMix && worldKey({ ...base, seed: 0 }) === worldKey({ ...DEFAULT_PARAMS, seed: 0 });
-    // 地名风格和参数一样是这一类星球的设定,换一颗照旧
-    const nameMix = st.edits.nameMix;
+    const plain = !st.title && !sketch && !st.edits.nameMix && !st.edits.endYear && worldKey({ ...base, seed: 0 }) === worldKey({ ...DEFAULT_PARAMS, seed: 0 });
+    // 地名风格、推演年数和参数一样是这一类星球的设定,换一颗照旧
+    const { nameMix, endYear } = st.edits;
     const kept: WorldEdits = sketch ? { ...EMPTY_EDITS, sketch, terrain: st.edits.terrain } : EMPTY_EDITS;
-    const edits = nameMix ? { ...kept, nameMix } : kept;
+    const edits = { ...kept, ...(nameMix ? { nameMix } : {}), ...(endYear ? { endYear } : {}) };
     // 换一颗:记一步(按后退换回刚才那颗)
     navTo({ page: 'draft', id: t.id, seed, title: st.title });
     generate({ ...t, params: { ...base, seed }, edits, saved: undefined, title: st.title, pristine: st.pristine || plain, view: undefined, from: undefined, save: undefined });
@@ -1941,10 +1955,10 @@ export function App() {
       // 照手绘图新建、还没照图长出星球(图不存,离开就没了):和刷新时一样,回我的世界,弹窗停在照手绘图选图那一步
       if (q.get('new') === 'image') {
         showHome();
-        setNewDlg({ init: { mode: 'image', params: url.params, step: 2 } });
+        setNewDlg({ init: { mode: 'image', params: url.params, step: 2, endYear: url.years } });
         return;
       }
-      return openTarget({ ...draftTarget({ ...url.params, seed }), id: to.id ?? newWorldId() });
+      return openTarget({ ...draftTarget({ ...url.params, seed }, null, yearsEdits(url.years)), id: to.id ?? newWorldId() });
     }
     const w = to.id ? loadWorld(to.id) : null;
     const once = to.stored || isWorldId(q.get('w'));

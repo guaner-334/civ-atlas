@@ -29,6 +29,7 @@ import { DEFAULT_PARAMS } from '../../gen/world';
 import type { Civ } from '../../gen/civ/types';
 import type { Raster } from '../../gen/raster';
 import { TITLE_MAX, worldKey } from '../../gen/savefile';
+import { END_YEAR_DEFAULT, cleanEndYear } from '../../gen/edits';
 import type { DraftBase } from '../stageStore';
 import { getEdits, useEdits } from '../editsStore';
 import {
@@ -59,7 +60,7 @@ import {
   useSource,
   useSourceView,
 } from '../ImportImage';
-import { ParamSlider, SLIDERS, paramsSide } from '../WorldOverviewGenesis';
+import { ParamSlider, SLIDERS, YearsRows, paramsSide, yearsSpan } from '../WorldOverviewGenesis';
 import { openAiSettings } from '../AiSettings';
 import { AiSettingsItem, MenuItem, MenuSep, PopMenu } from '../PopMenu';
 import { AssistantPanel } from '../Assistant';
@@ -170,6 +171,9 @@ const reducedMotion = () => typeof matchMedia === 'function' && matchMedia('(pre
 
 export function Studio(p: StudioProps) {
   const edits = useEdits();
+  /** 推演年数:开了「推演超过 3000 年」= years */
+  const years = cleanEndYear(edits.endYear);
+  const endYear = years ?? END_YEAR_DEFAULT;
   const tool = useTerrainTool();
   const imp = useImport();
   const importing = !!imp;
@@ -735,7 +739,7 @@ export function Studio(p: StudioProps) {
     ? `设定都带过来了，改完存成一个新世界，${base.title}本身不变。`
     : image
       ? '海和陆地照你的图长，山、河、气候由程序补上。'
-      : '按种子随机生成。先定下这颗星球的样子，创建以后再推演它三千年的历史。';
+      : `按种子随机生成。先定下这颗星球的样子，创建以后再推演它${yearsSpan(endYear, true)}的历史。`;
   const isDefault = SLIDERS.every((s) => p.params[s.key] === DEFAULT_PARAMS[s.key]);
   const canAsk = p.ready && !!p.civ && !!p.raw;
   const ico = p.phone ? 18 : 17;
@@ -820,6 +824,7 @@ export function Studio(p: StudioProps) {
           {SLIDERS.map((s) => (
             <ParamSlider key={s.key} s={s} value={p.params[s.key]} onCommit={(v) => p.onParams({ ...p.params, [s.key]: v })} />
           ))}
+          <YearsRows />
         </div>
       )}
     </>
@@ -1278,7 +1283,7 @@ export function Studio(p: StudioProps) {
               <Icon name="lock" size={22} />
             </div>
             <h2 id="st-dlg-title">{nameNow ? `创建「${nameNow}」？` : '创建这个世界？'}</h2>
-            <p>创建以后，这颗星球的样子就定下来了，下面四样不能再改：</p>
+            <p>创建以后，这颗星球的样子就定下来了，下面{years ? '五' : '四'}样不能再改：</p>
             <div className="sb-group">
               {image ? (
                 <div className="sb-row static">
@@ -1308,6 +1313,17 @@ export function Studio(p: StudioProps) {
                 </span>
                 <span className="sb-row-side">{paramsSide(p.params)}</span>
               </div>
+              {years && (
+                <div className="sb-row static">
+                  <Icon name="lock" size={16} className="sb-ico" />
+                  <span className="sb-row-main">
+                    <b>推演年数</b>
+                  </span>
+                  <span className="sb-row-side" data-confirm="end-year">
+                    {endYear} 年
+                  </span>
+                </div>
+              )}
               <div className="sb-row static">
                 <Icon name="lock" size={16} className="sb-ico" />
                 <span className="sb-row-main">

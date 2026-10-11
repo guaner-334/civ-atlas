@@ -11,12 +11,15 @@
  *   卡片上的类型名按一字标签细分("攻占""迁都"……)。
  * - 刻度:每条纪事一个小菱形(战争画在开战那年);挨得太近(DIAMOND_GAP 像素以内)合并成一个,
  *   颜色取其中分量最重的那一件,悬停列出每一件。干预单独一种"令"标记、地形大事一种"变"标记,不和菱形合并。
+ * - 刻度尺(rulerOf):3000 年的世界每 100 年一小格、1000 年写字;推得更久的放大大格(2000 / 5000 / 10000 年),字不超过七个。
+ * - 播放:推得比 3000 年久的世界,播放速度、自动播放放的那一段、方向键一次走的年数跟着年数放大(放完整段的时间不变)。
  */
 import type { ChronicleEntry } from '../gen/civ/chronicle';
 import type { Civ } from '../gen/civ/types';
 import type { World } from '../gen/world';
 import { capitalAt } from '../gen/civ/growth';
 import { nearX, wrapOf } from '../render/common';
+import { END_YEAR_DEFAULT } from '../gen/edits';
 
 // ---------------------------------------------------------------------------
 // 事件类型
@@ -158,16 +161,46 @@ function heavier(a: ChronicleEntry, b: ChronicleEntry): ChronicleEntry {
 // ---------------------------------------------------------------------------
 // 播放
 
-/** 1× / 4× 每秒走多少年 */
+/** 1× / 4× 每秒走多少年(3000 年的世界;推得更久的乘 timeScale) */
 export const PLAY_RATE: Readonly<Record<1 | 4, number>> = { 1: 20, 4: 80 };
 /** "回放世界形成"接着放文明:从第 0 年放到结束年份用几秒 */
 export const STORY_SECONDS = 15;
-/** 自动播放、放完再点播放:从结束年份往前这么多年放起(3000 年的世界 = 第 2600 年) */
+/** 自动播放、放完再点播放:从结束年份往前这么多年放起(3000 年的世界 = 第 2600 年;推得更久的乘 timeScale) */
 export const REPLAY_SPAN = 400;
+
+/** 推得比 3000 年久的世界,时间上放大几倍(60000 年 = 20 倍;3000 年及以下 = 1) */
+export function timeScale(end: number): number {
+  return Math.max(1, end / END_YEAR_DEFAULT);
+}
+
+/** 这个世界 1× / 4× 每秒走多少年:1× 放完整段总是两分半左右 */
+export function playRate(speed: 1 | 4, end: number): number {
+  return (PLAY_RATE[speed] ?? PLAY_RATE[1]) * timeScale(end);
+}
 
 /** 自动播放 / 重播从哪一年起 */
 export function replayStart(end: number): number {
-  return Math.max(0, Math.floor(end - REPLAY_SPAN));
+  return Math.max(0, Math.floor(end - REPLAY_SPAN * timeScale(end)));
+}
+
+/** 写字的大格可选几年一格(从小到大挑第一个让字不超过七个的) */
+const RULER_STEPS = [1000, 2000, 5000, 10000, 20000];
+
+/**
+ * 时间轴的刻度尺:major 年一个写字的大格,major / 2 一个中格,major / 10 一个小格;
+ * labels = 写字的年份(0、每个大格,最后一定写结束年份;最后一个大格离结束太近就不写它,免得字挤在一起)。
+ * 3000 年的世界 = 每 100 年一小格、500 年一中格、1000 年写字(和原来一样)
+ */
+export function rulerOf(end: number): { major: number; minor: number; mid: number; labels: number[] } {
+  const major = RULER_STEPS.find((m) => end / m <= 6) ?? RULER_STEPS[RULER_STEPS.length - 1];
+  const labels: number[] = [];
+  for (let y = 0; y <= end; y += major) labels.push(y);
+  if (end % major !== 0) {
+    const last = labels[labels.length - 1];
+    if (last > 0 && end - last <= major / 2) labels.pop();
+    labels.push(end);
+  }
+  return { major, minor: major / 10, mid: major / 2, labels };
 }
 
 /** 年份在 (y0, y1] 里的条目(entries 按年份排好) */

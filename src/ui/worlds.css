@@ -690,6 +690,23 @@
     0 0 0 3px var(--accent-soft),
     0 0.5px 2px rgba(0, 0, 0, 0.35);
 }
+/* 推演年数:开关一行,下面一直写着那段说明(像系统设置里开关下面的灰字);开了接着「推演到」滑条 */
+.nw-years {
+  width: 100%;
+  min-height: 44px;
+  border-bottom: 0;
+  font-size: 14px;
+}
+.nw-years-note {
+  margin: -2px 0 0;
+  padding: 0 12px 10px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--ink-2);
+}
+.nw-years-note + .param-slider {
+  border-top: 0.5px solid var(--line);
+}
 /* 长不出文明 */
 .nw-note {
   padding: 2px 4px 0;

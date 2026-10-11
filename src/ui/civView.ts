@@ -84,7 +84,7 @@ export interface CivTime {
   scrubbing: boolean;
   /** 这次播放是接着"回放世界形成"放的(从第 0 年放完一遍,不看 1× / 4×) */
   story: boolean;
-  /** 播放速度:1× = 每秒 20 年,4× = 每秒 80 年(timelineLayout.ts 的 PLAY_RATE) */
+  /** 播放速度:1× = 每秒 20 年,4× = 每秒 80 年(timelineLayout.ts 的 PLAY_RATE;推得更久的世界按年数放大) */
   speed: PlaySpeed;
 }
 

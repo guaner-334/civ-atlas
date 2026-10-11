@@ -6,6 +6,8 @@ import { DEFAULT_PARAMS, generateWorld } from '../src/gen/world';
 import { generateCiv } from '../src/gen/civ';
 import { END_YEAR_DEFAULT, END_YEAR_MAX, cleanEndYear, endYearOf, type WorldEdits } from '../src/gen/edits';
 import { editCount, editsLost, makeSave, parseSave, saveText } from '../src/gen/savefile';
+import { clearEdits, getEdits, revertEdits, setEdits, setEndYear } from '../src/ui/editsStore';
+import { playRate, replayStart, rulerOf } from '../src/ui/timelineLayout';
 
 describe('清理', () => {
   it('夹在 3000–60000、取整到千年;3000 = 不写', () => {
@@ -75,6 +77,58 @@ describe('推得更久', () => {
     for (const x of long.people ?? []) {
       expect(bad(x.name)).toBe(false);
       expect(bad(x.title)).toBe(false);
+    }
+  });
+});
+
+describe('新建界面里的开关', () => {
+  it('开了记年数,拖到 3000 年还开着(存档里不写),关了去掉', () => {
+    clearEdits();
+    setEndYear(10000);
+    expect(getEdits().endYear).toBe(10000);
+    setEndYear(3000);
+    expect(getEdits().endYear).toBe(3000);
+    expect(makeSave(DEFAULT_PARAMS, getEdits(), 'abc').edits.endYear).toBeUndefined();
+    setEndYear(70000);
+    expect(getEdits().endYear).toBe(END_YEAR_MAX);
+    setEndYear(undefined);
+    expect('endYear' in getEdits()).toBe(false);
+    clearEdits();
+  });
+
+  it('撤销别的修改时推演年数照现在的留着', () => {
+    const from: WorldEdits = { names: { a: '甲' }, interventions: [], terrain: [] };
+    const to: WorldEdits = { names: {}, interventions: [], terrain: [] };
+    setEdits({ ...from, endYear: 20000 });
+    expect(revertEdits(getEdits(), from, to).endYear).toBe(20000);
+    clearEdits();
+  });
+});
+
+describe('时间轴', () => {
+  it('3000 年的世界刻度、速度、自动播放和原来一样', () => {
+    const r = rulerOf(3000);
+    expect([r.minor, r.mid, r.major]).toEqual([100, 500, 1000]);
+    expect(r.labels).toEqual([0, 1000, 2000, 3000]);
+    expect([playRate(1, 3000), playRate(4, 3000)]).toEqual([20, 80]);
+    expect(replayStart(3000)).toBe(2600);
+  });
+
+  it('60000 年:每 1000 年一小格、5000 年一中格、10000 年写字;1× 放完还是两分半', () => {
+    const r = rulerOf(60000);
+    expect([r.minor, r.mid, r.major]).toEqual([1000, 5000, 10000]);
+    expect(r.labels).toEqual([0, 10000, 20000, 30000, 40000, 50000, 60000]);
+    expect(60000 / playRate(1, 60000)).toBe(150);
+    expect(replayStart(60000)).toBe(52000);
+  });
+
+  it('每种年数写的字不超过七个,最后一个总是结束年份,字和字不挤', () => {
+    for (let end = 3000; end <= END_YEAR_MAX; end += 1000) {
+      const { labels, major } = rulerOf(end);
+      expect(labels.length, `${end}`).toBeLessThanOrEqual(7);
+      expect(labels[0]).toBe(0);
+      expect(labels[labels.length - 1]).toBe(end);
+      for (let i = 1; i < labels.length; i++) expect(labels[i] - labels[i - 1], `${end}`).toBeGreaterThan(major / 2);
     }
   });
 });

@@ -23,6 +23,8 @@ import { WISH_MAX, type RewriteLock } from '../ai/prompts/rewrite';
 import { bookHow, bookProgress, bookUnit, openBookReader, useBook, type BookJob } from './bookStore';
 import { getCivTime, pickChronicleEntry, setSelection, useSelection, type MapSelection } from './civView';
 import { useEdits } from './editsStore';
+import { endYearOf } from '../gen/edits';
+import { yearsSpan } from './WorldOverviewGenesis';
 import { requestFly } from './panelStore';
 import { useSavesVersion } from './saveStore';
 import { closeAssistant } from './astPanel';
@@ -474,7 +476,7 @@ function Proposal({ t, latest, phone, busy, previewing }: { t: AsTurn; latest: b
   const [msg, setMsg] = useState<string | null>(null);
   const [more, setMore] = useState(false);
   const st = useAssistant();
-  useEdits();
+  const edits = useEdits();
   const p = t.proposal!;
   const off = new Set(t.off ?? []);
   const n = pickedChanges(t).length;
@@ -538,8 +540,8 @@ function Proposal({ t, latest, phone, busy, previewing }: { t: AsTurn; latest: b
       {terrain && !frozen && t.lock !== 'history' && (
         <div className="ast-note">
           {mixed
-            ? '同时有改地形和历史命令：地形一改，三千年历史整个重来，这些命令多半对不上。建议先只执行改地形，再接着说历史那部分'
-            : '含改地形：整个世界会按新地形重新生成，三千年历史整个重来（命令和改名尽量保留）'}
+            ? `同时有改地形和历史命令：地形一改，${yearsSpan(endYearOf(edits))}历史整个重来，这些命令多半对不上。建议先只执行改地形，再接着说历史那部分`
+            : `含改地形：整个世界会按新地形重新生成，${yearsSpan(endYearOf(edits))}历史整个重来（命令和改名尽量保留）`}
         </div>
       )}
       {p.trial && <TrialResult v={p.trial} phone={phone} partial={off.size > 0 ? [n, okCount] : null} more={more} onMore={() => setMore((m) => !m)} />}

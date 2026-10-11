@@ -1,5 +1,5 @@
 /**
- * 时间轴的轨道:1px 基线、每 100 年一格刻度(500、1000 年加长)、0 / 1000 / 2000 / 3000 年的字、
+ * 时间轴的轨道:1px 基线、每 100 年一格刻度(500、1000 年加长)、0 / 1000 / 2000 / 3000 年的字(推得更久的世界放大格子,见 timelineLayout.ts 的 rulerOf)、
  * 事件菱形(颜色按事件类型)、干预的红线加"令"字、地形大事的红线加"变"字、进度和播放头(按父元素的 CSS 变量 --p 画)。
  * 怎么排、太密怎么合并见 timelineLayout.ts。
  *
@@ -14,7 +14,7 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import type { ChronicleEntry } from '../gen/civ/chronicle';
 import { pickChronicleEntry, setCivTime, stepYear } from './civView';
-import { evLabel, evText, evType, evYears, hitDiamonds, layoutDiamonds, type Diamond } from './timelineLayout';
+import { evLabel, evText, evType, evYears, hitDiamonds, layoutDiamonds, rulerOf, timeScale, type Diamond } from './timelineLayout';
 
 /** 提示最多列几件 */
 const TIP_ROWS = 5;
@@ -131,7 +131,8 @@ export const TimelineMarks = memo(function TimelineMarks({ entries, end, dock, y
     }
   };
   const onKey = (e: React.KeyboardEvent) => {
-    const step = e.shiftKey ? 100 : 10;
+    // 一次走 10 年(按住 Shift 100 年);推得更久的世界按比例放大
+    const step = Math.round((e.shiftKey ? 100 : 10) * timeScale(end));
     if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') stepYear(end, -step);
     else if (e.key === 'ArrowRight' || e.key === 'ArrowUp') stepYear(end, step);
     else if (e.key === 'Home' || e.key === 'End') setCivTime({ year: e.key === 'Home' ? 0 : end, playing: false, story: false });
@@ -143,14 +144,13 @@ export const TimelineMarks = memo(function TimelineMarks({ entries, end, dock, y
   const hot = tip?.lead;
   const static_ = useMemo(() => {
     const ticks: ReactElement[] = [];
+    const { major, minor, mid, labels } = rulerOf(end);
     if (end > 0) {
-      for (let y = 0; y <= end; y += 100) {
-        const cls = y % 1000 === 0 ? ' k' : y % 500 === 0 ? ' h' : '';
+      for (let y = 0; y <= end; y += minor) {
+        const cls = y % major === 0 ? ' k' : y % mid === 0 ? ' h' : '';
         ticks.push(<i key={y} className={`tb-tick${cls}`} style={{ left: `${(y / end) * 100}%` }} />);
       }
     }
-    const labels = [0, 1000, 2000, 3000].filter((y) => y <= end);
-    if (end % 1000 !== 0) labels.push(end);
     return (
       <>
         <i className="tb-base" />
