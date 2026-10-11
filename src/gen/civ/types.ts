@@ -83,6 +83,8 @@ export interface Culture {
   name: string;
   /** 地名语感 id(地名生成器 src/gen/names/ 的语感) */
   style: string;
+  /** 按份数配地名风格(CivParams.names)时:自动时会挑的语感(界面上「照自动」按它折份数);自动时不写 */
+  autoStyle?: string;
   kind: CultureKind;
   /** 发源地区 */
   hearth: number;
@@ -253,6 +255,10 @@ export interface Place {
  * | upheaval  | 地形大事(upheaval.ts):这一刻地形变了(经过见 Civ.upheavals 里的那一件) | **第几件大事**(Civ.upheavals 的下标) | −1 | 受灾最重的州 | −1 | −1 |
  * | sunk      | 城在地形大事里没了(它的 ended = 这一年;沉入海的不再重建) | 当时的国家(−1 = 部落地带) | 1 = 城址沉入海中,0 = 毁于火山 | 州 | 那座城 | **第几件大事**(借用这一列) |
  * | battle    | 战役:攻方这一仗没打下来(守方守住了;打下来的记 conquer) | 攻方(守方反攻失败时是原守方) | 守方 | 攻打的州 | 州里的城(有城 = 攻城,没有 = 野战;−1) | 战争编号 |
+ * | alliance  | 结盟(邦交,diplomacy.ts) | 提出结盟的一方 | 另一方 | A 的国都所在州 | A 的国都 | −1 |
+ * | unally    | 盟约断了 | 断盟的一方(渐废:那时看邦交的一方)| 另一方 | −1 | −1 | 战争编号(背盟:紧跟着记的那场 war;坐视不救:盟国被打的那场)/ −1 |
+ * | submit    | 称臣纳贡 | 藩属 | 宗主 | 藩属的国都所在州 | 藩属的国都 | 战争编号(战败称臣:紧跟在那场战争的 peace 后面)/ −1(畏强邻遣使称臣) |
+ * | defect    | 藩属自立(不再称臣纳贡) | 藩属 | 原宗主 | 藩属的国都所在州 | 藩属的国都 | −1 |
  *
  * 洗劫、毁城和那一次攻占同一刻,记在那条 conquer **前面**(conquer、被迫迁都、灭亡照旧紧挨着,编年史里排回攻占后面)。
  * 议和割让的州也各记一条 conquer(a = 得到的一方,b = 割出的一方),连着记在那条 peace 前面,条数记在 peace 的 region 列。
@@ -274,6 +280,12 @@ export interface Place {
  *   攻方从哪种边打过去记在 Annal.via。不改归属,只是让编年史写得出"某某之战"。
  * upheaval 之后紧跟着(同一刻)记这件大事的后果:sunk(没了的城,国都在前)、迁都(capital,war = −1)、亡国(fall,b = −2),
  * 编年史并进 upheaval 那一条。
+ * 邦交(diplomacy.ts):
+ *   alliance 的 Annal.foe = 共御的强邻;unally 的 Annal.cause = 怎么断的:lapse 强邻已衰 / 已亡,盟约渐废;abandon 盟国被打时坐视不救;
+ *   betray 背盟来攻(紧跟着记 war,cause 也是 betray);vassal 一方称臣,它的盟约随之作废(紧跟在 submit 后面)。
+ *   war 的 Annal.cause = 为什么打(见 WarCause);援盟、救藩的 settlement 列 = 援的是哪国。
+ *   宗主收藩属的国土记 merge(编年史写"纳土归附");藩属、盟约在任一方亡国 / 被并时随之了结,不另记。
+ *   某一年谁是谁的藩属、谁和谁结着盟,按这几条推(diplomacy.ts 的 relationsAt)。
  * 阶段 3 以后再有新种类(瘟疫……)在末尾往下加。
  */
 export type AnnalKind =
@@ -297,7 +309,19 @@ export type AnnalKind =
   | 'intervene'
   | 'battle'
   | 'upheaval'
-  | 'sunk';
+  | 'sunk'
+  | 'alliance'
+  | 'unally'
+  | 'submit'
+  | 'defect';
+
+/**
+ * 战争的起因(史事 war 的 cause;阶段 4 干预的强制宣战不给)和盟约怎么断的(unally 的 cause):
+ *   expand 争边地(没有别的由头)/ claim 收复故土(对方手里有原属本国的州)/ chaos 乘对方之乱(对方正和别国交兵、刚丢了国都、刚改朝换代)/
+ *   prey 吞并小国 / betray 背盟来攻 / punish 讨伐自立的藩属 / ally 应盟国之约 / rescue 宗主救藩属;
+ *   lapse 盟约渐废 / abandon 坐视不救 / vassal 一方称臣
+ */
+export type AnnalCause = 'expand' | 'claim' | 'chaos' | 'prey' | 'betray' | 'punish' | 'ally' | 'rescue' | 'lapse' | 'abandon' | 'vassal';
 
 /**
  * 一条史事(阶段 3):推演里各事件处理函数用 CivSim.record 往 Civ.annals 里记,编年史(界面上的事件列表)只读它。
@@ -313,6 +337,10 @@ export interface Annal {
   war: number;
   /** 战役(battle)才有:攻方从哪种边打过去(AdjKind:平地、跨河、翻山、海峡、航线) */
   via?: AdjKind;
+  /** 宣战(war)为什么打、盟约(unally)怎么断的(见 AnnalCause);自立(defect)的 betray = 宗主先动的兵;合并(merge)的 vassal = 藩属纳土归附 */
+  cause?: AnnalCause;
+  /** 结盟(alliance)才有:共御的强邻(−1 = 没有) */
+  foe?: number;
 }
 
 /** 变化日志里的"哪一层" */
@@ -362,6 +390,8 @@ export interface Civ {
    * 这时只有宜居度和州(地理),民族 / 城镇 / 国家 / 道路都是空的。
    */
   viable: boolean;
+  /** 整个世界的地名风格(CivParams.names,清理过的:语感 → 份数);自动 = 不写 */
+  names?: import('../names').NameMix;
   /**
    * 民族扩张的时间标定:走一个"标准路程"(平地、普通地形、扩张性 1)要多少年。
    * 按世界自动标定(默认到第 3000 年约九成可居州有人住;改过地形的世界按没改地形时的同一颗星球标定,见 index.ts 的 planetTempo),
@@ -602,6 +632,11 @@ export interface CivParams {
    * (第 k 件 = 原来的地形套上前 k 件大事的修改)。不给 / 空 = 没有。年份不在 (0, endYear) 里的不算
    */
   upheavals?: readonly import('./upheaval').UpheavalStep[];
+  /**
+   * 整个世界的地名风格(gen/names 的 NameMix):每种语感占几份,各民族只在有份的几种里挑、占的地方尽量合比例。
+   * 不给 / 一份都没有 = 自动:每个民族按发源地从全部语感里挑(和没有这一项逐字节一样)。只管起名,不改历史
+   */
+  names?: import('../names').NameMix;
 }
 
 /**
@@ -611,7 +646,7 @@ export interface CivParams {
  */
 export interface NamePins {
   /** 民族(推演前就定了,整份钉住):族名、语感、配色 */
-  cultures?: { name: string; style: string; color: [number, number, number] }[];
+  cultures?: { name: string; style: string; autoStyle?: string; color: [number, number, number] }[];
   /** 州名(下标 = 州;没有 = 不钉) */
   regionNames: (string | undefined)[];
   /** 国家:国名词根、配色、东方语感;dynasties = 各朝的朝名(下标 = Polity.dynasties 的下标;没有 = 不钉) */

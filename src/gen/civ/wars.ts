@@ -48,12 +48,13 @@
  * 和处理顺序、战争编号都无关。国家、州一律用位置锚(PolityModel.ptag、治所地块;见 rand.ts),不用编号。纯计算,不碰 DOM。
  */
 import type { World } from '../world';
-import { AdjKind, Layer, type Civ, type Polity, type Year } from './types';
+import { AdjKind, Layer, type AnnalCause, type Civ, type Polity, type Year } from './types';
 import { fexp, flog, fpow, keyed, keyed4, subSeed } from './rand';
 import { Ev, quantize, type CivSim } from './sim';
 import { canCross, coreOf, endPolity, moveCapital, polityModelOf, type PolityModel } from './polities';
 import { capitalAt, populationAt } from './growth';
 import type { InterventionModel } from './interventions';
+import type { DiplomacyModel } from './diplomacy';
 
 // ---- 调参(以截图和统计数为准,见 scripts/gen-stats.ts) ----
 /** 立国后多少年开始看邻国;之后每隔多少年看一次(每段里 20%–80% 处随机一个时刻) */
@@ -117,6 +118,8 @@ const ALLY_JOIN = 0.8;
 const PROTECT_KEEP = 3;
 /** 阶段 4 不许灭:守方国力 × 这么多(天命所归,守得格外牢:国土会缩,但不至于一路缩到只剩国都) */
 const PROTECT_DEF = 1.6;
+/** 开战的由头"乘乱":对方正和别国交兵,或这么多年内丢了国都 / 迁都、改朝换代 */
+const CHAOS_YEARS = 20;
 
 // 随机数用途编号
 const U_CHECK_T = 1;
@@ -170,11 +173,17 @@ export interface WarModel {
   onAssault?: (w: War, x: number, y: number, r: number, sid: number, t: number, capital: boolean) => void;
   /** 阶段 4 干预(interventions.ts 挂上;没有干预 = 不给):不许灭、结盟在这里查 */
   iv?: InterventionModel;
+  /** 邦交(diplomacy.ts 挂上):结着的盟、宗藩之分在这里查 */
+  dm?: DiplomacyModel;
   /**
-   * x 向 y 宣战(installWars 填;看邻国、干预的强制宣战、援盟共用):记 war、预约第一仗;y 的盟国可能援盟。
-   * ally = 援的是哪个盟国(援盟宣战时给,不再连锁)
+   * x 向 y 宣战(installWars 填;看邻国、干预的强制宣战、援盟、救藩、讨伐叛藩共用):记 war、预约第一仗;y 的盟国可能援盟。
+   * ally = 援的是哪国(援盟、救藩宣战时给,不再连锁);cause = 为什么打(史事 war 的 cause;干预的强制宣战不给)
    */
-  declare?: (x: number, y: number, t: Year, ally?: number) => War;
+  declare?: (x: number, y: number, t: Year, ally?: number, cause?: AnnalCause) => War;
+  /** 邦交(diplomacy.ts 挂上):x 向 y 宣战(不是援盟)之后,y 的盟国援盟 / 坐视不救,y 的宗主来救 */
+  onDeclare?: (w: War, x: number, y: number, t: Year) => void;
+  /** 邦交(diplomacy.ts 挂上):第 i 仗之后守方奉表称臣、攻方受降罢兵(已经议和 = true;capitalFell = 这一仗攻方打下了守方的国都) */
+  sue?: (w: War, i: number, t: Year, pow: Float64Array, capitalFell: boolean) => boolean;
   /** 议和(installWars 填;干预的结盟用:结盟那一刻正在交战的两国当即议和) */
   makePeace?: (w: War, t: Year) => void;
 }
@@ -487,22 +496,26 @@ export function installWars(sim: CivSim, pm: PolityModel, wm: WarModel = newMode
   /** x、y 的国土接壤(x 能走过去的边) */
   const borders = (x: number, y: number): boolean => polityBorders(pm, owner, x, y);
 
-  const declare = (x: number, y: number, t: number, ally = -1): War => {
+  const declare = (x: number, y: number, t: number, ally = -1, cause?: AnnalCause): War => {
     const w: War = { id: wm.wars.length, a: x, b: y, start: t, takes: [] };
+    // 邦交:作者下令盟国、宗藩之间开战,盟约、宗藩之分先断了(diplomacy.ts)
+    wm.dm?.sever?.(x, y, t, w.id);
     wm.wars.push(w);
     wm.active.push(w);
-    sim.record('war', ally >= 0 ? { a: x, b: y, war: w.id, settlement: ally } : { a: x, b: y, war: w.id });
+    sim.record('war', { a: x, b: y, war: w.id, ...(ally >= 0 ? { settlement: ally } : {}), ...(cause ? { cause } : {}) });
     sim.schedule(t + gapOf(wm, w, 0), Ev.Campaign, 0, w.id);
-    // 阶段 4 干预的结盟:y 被宣战,它的盟国(和 x 接壤、没和 x 结盟、没在和 x 打)有 ALLY_JOIN 的机会援盟
+    // 阶段 4 干预的结盟:y 被宣战,它的盟国(和 x 接壤、没和 x 结盟、和 x 没有宗藩之分、没在和 x 打)有 ALLY_JOIN 的机会援盟
     const iv = wm.iv;
     if (iv && ally < 0) {
       for (const z of iv.alliesOf(y, t)) {
-        if (z === x || pm.polities[z].ended !== undefined || iv.allied(z, x, t) || iv.halted(z, t)) continue;
+        if (z === x || pm.polities[z].ended !== undefined || iv.allied(z, x, t) || wm.dm?.friendly(z, x) || iv.halted(z, t)) continue;
         if (wm.active.some((v) => (v.a === z && v.b === x) || (v.a === x && v.b === z)) || !borders(z, x)) continue;
         if (keyed4(iv.base, pm.ptag[z], pm.ptag[x], Math.round(t * 256), U_ALLY) >= ALLY_JOIN) continue;
-        declare(z, x, t, y);
+        declare(z, x, t, y, 'ally');
       }
     }
+    // 邦交:y 的盟国援盟 / 坐视不救,y 的宗主来救(diplomacy.ts)
+    if (ally < 0) wm.onDeclare?.(w, x, y, t);
     return w;
   };
   wm.declare = declare;
@@ -539,8 +552,10 @@ export function installWars(sim: CivSim, pm: PolityModel, wm: WarModel = newMode
     }
     if (!border.size) return;
     const pow = powers(t, [p, ...border.keys()]);
+    const dm = wm.dm;
     let target = -1;
     let odds = 0;
+    let traitor = false;
     for (const [q, n] of [...border].sort((u, v) => u[0] - v[0])) {
       const Q = pm.polities[q];
       if (Q.ended !== undefined || t - (wm.truce.get(pairKey(p, q)) ?? -Infinity) < TRUCE) continue;
@@ -550,6 +565,15 @@ export function installWars(sim: CivSim, pm: PolityModel, wm: WarModel = newMode
       if (qw.length >= MAX_WARS || qw.some((v) => v.a === p || v.b === p)) continue;
       // 阶段 4 干预:不打盟国;不许灭的国家只剩几州时没什么可打的
       if (wm.iv && (wm.iv.allied(p, q, t) || (pm.size[q] <= PROTECT_KEEP && wm.iv.protects(q, t)))) continue;
+      // 邦交:不打宗主、藩属、同一个宗主的藩属;盟国只在结盟够久、共御的强邻已不足为患时才可能背盟去打
+      let betray = false;
+      if (dm) {
+        const x = dm.pactOf(p, q);
+        if (x) {
+          if (!dm.betrayable(x, p, t, (f) => (f === p ? pow[p] : powers(t, [f])[f]))) continue;
+          betray = true;
+        } else if (dm.vassalTie(p, q)) continue;
+      }
       // 边境上的胜算(和打仗时一样按局部国力算,远征打折):强国的边远处打得过,就会有弱国来收复失地
       let sum = 0;
       for (const [y, def] of front.get(q)!) sum += chance(p, q, y, def, t, pow);
@@ -559,23 +583,43 @@ export function installWars(sim: CivSim, pm: PolityModel, wm: WarModel = newMode
       o *= 1 + REVANCHE * Math.min(4, claims(q));
       // 小国(一场仗就能吞下)格外招人
       if (pm.size[q] <= PREY) o *= PREY_ODDS;
+      if (betray) o *= dm!.betrayOdds;
       if (o > odds) {
         odds = o;
         target = q;
+        traitor = betray;
       }
     }
     if (target < 0 || keyed(wm.base, pm.ptag[p], k, U_DECLARE) >= odds / (1 + odds)) return;
-    declare(p, target, t);
+    if (traitor) {
+      // 背盟:先记盟约断了(war 列 = 紧跟着的这场战争),再宣战
+      dm!.note!('unally', { a: p, b: target, war: wm.wars.length, cause: 'betray' });
+      declare(p, target, t, -1, 'betray');
+      return;
+    }
+    declare(p, target, t, -1, causeOf(p, target, t, claims(target)));
   });
+
+  /** p 向 q 开战的由头:收复故土 > 乘乱(q 正和别国交兵、刚丢了国都 / 迁都、刚改朝换代)> 吞并小国 > 争边地 */
+  const causeOf = (p: number, q: number, t: number, claimed: number): AnnalCause => {
+    if (claimed > 0) return 'claim';
+    const Q = pm.polities[q];
+    const d = Q.dynasties;
+    if (warsOf(q).some((v) => v.a !== p && v.b !== p) || t - pm.capMoved[q] < CHAOS_YEARS || (d && d.length > 1 && t - d[d.length - 1].year < CHAOS_YEARS)) return 'chaos';
+    if (pm.size[q] <= PREY) return 'prey';
+    return 'expand';
+  };
 
   sim.on(Ev.Campaign, (i, id, t) => {
     const w = wm.wars[id];
     if (!w || w.end !== undefined) return;
     const pow = powers(t, [w.a, w.b]);
     let capitalFell = false;
+    /** 丢了国都的是守方(攻方打下的) */
+    let defCapital = false;
     const [r, def] = pickTarget(w, i, w.a, w.b, t, false);
     if (r >= 0 && warRand(wm, w, i, U_ATTACK) < chance(w.a, w.b, r, def, t, pow)) {
-      capitalFell = take(w, w.a, w.b, r, t, true);
+      capitalFell = defCapital = take(w, w.a, w.b, r, t, true);
     } else {
       // 没打下来:记一条战役(不改归属;编年史写成"某某之战")
       if (r >= 0) sim.record('battle', { a: w.a, b: w.b, region: r, settlement: pm.cityOf[r], war: w.id, via: DEFENSE.indexOf(def) });
@@ -589,6 +633,8 @@ export function installWars(sim: CivSim, pm: PolityModel, wm: WarModel = newMode
       }
     }
     if (w.end !== undefined) return; // 有一方亡国,已经议和
+    // 邦交:守方打得很惨时可能奉表称臣、攻方受降罢兵(diplomacy.ts;成了就已经议和)
+    if (wm.sue?.(w, i, t, pow, defCapital)) return;
     // 议和?
     const last = w.takes.length ? w.takes[w.takes.length - 1].year : w.start;
     let peace = t - w.start >= lengthOf(wm, w) || t - last >= STALL;

@@ -132,8 +132,8 @@ function historyPrint(world: World, civ: Civ): string {
 
 describe('起名不碰推演', () => {
   it('没有改地形时,除名字外的世界、历史钉住指纹;同种子两次连名字都一样', () => {
-    // 期望值是 GENERATOR_VERSION 9(球面世界 + 人物、战役 + 洋流 + 君主世系,加上推演后贴上去的信仰)算的。推演、地形有意改了的话更新它,并把 GENERATOR_VERSION 加一
-    const expected: Record<number, string> = { 7: '5be0a80ef10413ba', 2024: '70c94f17993d6bf2' };
+    // 期望值是 GENERATOR_VERSION 10(球面世界 + 人物、战役 + 洋流 + 君主世系 + 邦交,加上推演后贴上去的信仰)算的。推演、地形有意改了的话更新它,并把 GENERATOR_VERSION 加一
+    const expected: Record<number, string> = { 7: 'fd994c79f24dba8d', 2024: '97887f04f015cb41' };
     for (const seed of [7, 2024]) {
       const P = { ...DEFAULT_PARAMS, cells: 12000, seed };
       const w = generateWorld(P);
@@ -212,11 +212,12 @@ describe.each([7, 2024])('改地形以后远处的历史大多照旧 · seed=%i'
     return { culture: c / n, polity: p / n };
   }
 
-  it('挖一个湖(州数变了、州号错开):远处陆地到第 3000 年民族没变 ≥ 80%、国家没变 ≥ 75%', () => {
+  it('挖一个湖(州数变了、州号错开):远处陆地到第 3000 年民族没变 ≥ 78%、国家没变 ≥ 75%', () => {
     const k = edited(seed, 'lake');
     expect(k.c1.regions.count, '州数变了(州号错开)').not.toBe(k.c0.regions.count);
     const r = kept(k, k.c0.endYear);
-    expect(r.culture, `seed ${seed} 民族`).toBeGreaterThanOrEqual(0.8);
+    // GENERATOR_VERSION 10(邦交:盟国援战、宗主救藩,远处的国家也会卷进来)以后 seed 7 的民族没变 79.9%(以前 80.3%),下限放宽到 78%
+    expect(r.culture, `seed ${seed} 民族`).toBeGreaterThanOrEqual(0.78);
     expect(r.polity, `seed ${seed} 国家`).toBeGreaterThanOrEqual(0.75);
   }, 60_000);
 

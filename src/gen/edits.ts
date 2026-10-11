@@ -151,6 +151,13 @@
  * 一生的几段经历(每段可以勾上推演里的事和人)、亲友。和作者标记一样只是记下来:不改变世界、不参与推演、和生成器版本无关。
  * 字段、上限、怎么清理见 characters.ts。
  *
+ * ## 地名风格
+ *
+ * WorldEdits.nameMix(可选,没有 = 自动):整个世界的地名风格,每种语感占几份(gen/names 的 NameMix,如 { xianxia: 6, central: 4 })。
+ * 各民族只在有份的几种里挑语感,每种占的地方尽量合比例(gen/civ/naming.ts 的 assignStyles)。只管起名 —— 推演在起名之前,
+ * 历史和自动时逐字节一样,只是国名、城名、人名、山河这些名字换了;改名按位置记,照样套得上。
+ * 新建世界时配,创建以后不再改(和地形一样)。自动 / 一份都没有的不写。
+ *
  * GENERATOR_VERSION:生成算法有改动、同种子会得到不同世界时加一(存档读档时核对,不一致就提示"来自旧版本"和变了什么;
  * 每一版改了什么记在下面的 GENERATOR_CHANGES,提示照它说)。
  *   2:名字按位置取(gen/civ/naming.ts、places.ts;地形、历史不变,默认的名字换了一遍),稳定键改按地块定位(c 格式)。
@@ -169,15 +176,18 @@
  *      没改地形的世界和 7 逐字节相同;改过地形的世界历史换了一遍。
  *   9:君主有了世系(谁是谁的父亲,civ/lineage.ts),补上没即位的宗室;疆域、兴亡、君主和将领都和 8 一样,
  *      只是继位时年纪对不上的"其弟 / 其兄"改成了"其侄 / 叔父"这类(每个世界几十句)。
+ *  10:国家之间有了邦交(civ/diplomacy.ts):畏强邻称臣纳贡、战败奉表称臣、结盟共御强敌、盟国援战或坐视不救、背盟、
+ *      藩属乘乱绝贡自立、宗主讨伐或兼并藩属;开战记下由头,议和写清称臣和割了哪几州。地形不变,历史重新推演。
  */
 import type { Civ, Culture, Faith, Place, Polity, Regions, Settlement } from './civ/types';
 import type { AuthorCharacter } from './characters';
 import { polityRootAt } from './civ/growth';
 import { TERRAIN_H, TERRAIN_W } from './terrainEdits';
 import type { SketchEdit } from './sketch';
+import type { NameMix } from './names/mix';
 
 /** 生成器版本:生成算法有改动、同种子会得到不同世界时加一(存档读档时核对);加一时在 GENERATOR_CHANGES 里补一条 */
-export const GENERATOR_VERSION = 9;
+export const GENERATOR_VERSION = 10;
 
 /**
  * 一版生成器的改动有多大(从小到大):打开旧存档、旧链接时,按跨过的几版里最大的那一种说清变了什么(savefile.ts 的 versionNote)
@@ -200,6 +210,7 @@ export const GENERATOR_CHANGES: Readonly<Record<number, { change: GeneratorChang
   7: { change: 'climate' },
   8: { change: 'history', edited: true },
   9: { change: 'chronicle' },
+  10: { change: 'history' },
 };
 
 /** 干预的种类(见文件头的表) */
@@ -257,6 +268,8 @@ export interface WorldEdits {
   flags?: Record<string, string>;
   /** 作者的人物(按新建的先后;见文件头"作者的人物"、characters.ts);没有 = 一个也没有 */
   characters?: AuthorCharacter[];
+  /** 整个世界的地名风格:语感 → 份数(见文件头"地名风格");没有 = 自动 */
+  nameMix?: NameMix;
 }
 
 /** 作者标记的颜色(界面上的六种:红、橙、绿、蓝、紫、青) */

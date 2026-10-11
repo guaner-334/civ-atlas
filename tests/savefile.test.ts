@@ -157,18 +157,19 @@ describe('存档文件 · 坏文件、别的 JSON、别的版本', () => {
   });
 
   it('只动了改过地形的世界的那一版:没改地形的世界不按它说,改过的按它说', () => {
-    // 7 → 现在:第 8 版只动了改过地形的世界(历史重新推演),第 9 版人人都有(编年史的字)
+    // 7 → 8:第 8 版只动了改过地形的世界(历史重新推演),第 9 版人人都有(编年史的字);第 10 版人人的历史都重新推演
     const plain = parseSave(JSON.stringify({ ...good(), generator: 7 }));
-    expect(plain.ok && plain.warnings).toEqual(['来自旧版本：疆域和兴亡没变，编年史写得更细了']);
+    expect(plain.ok && plain.warnings).toEqual(['来自旧版本：地形和气候没变，历史重新推演了']);
+    expect(versionNote(7, false)).toBe(versionNote(9, false));
     const g = good();
     g.generator = 7;
     (g.edits as Record<string, unknown>).terrain = [{ kind: 'volcano', pts: [812, 403], r: 28, s: 1.05 }];
     const edited = parseSave(JSON.stringify(g));
     expect(edited.ok && edited.warnings).toEqual(['来自旧版本：地形和气候没变，历史重新推演了']);
-    // 地形修改全是坏的(读进来一处都没有)= 按没改地形生成,也就没变
+    // 地形修改全是坏的(读进来一处都没有)= 按没改地形生成
     (g.edits as Record<string, unknown>).terrain = [{ kind: 'meteor', pts: [1, 2] }];
     const bad = parseSave(JSON.stringify(g));
-    expect(bad.ok && bad.warnings).toEqual(['来自旧版本：疆域和兴亡没变，编年史写得更细了', '有 1 处地形修改格式不对,已跳过']);
+    expect(bad.ok && bad.warnings).toEqual(['来自旧版本：地形和气候没变，历史重新推演了', '有 1 处地形修改格式不对,已跳过']);
   });
 
   it('版本提示排在参数提示之后、改名提示之前', () => {
@@ -251,9 +252,18 @@ describe('州改名 · region:c4567', () => {
   it('applyNames:州名换了,原 Civ 和 civ.regions 不动(画国土的缓存按它存),编年史跟着变', () => {
     const civ = civOf7();
     const before = JSON.stringify(civ.regions.name);
-    // 编年史里出现过的一个州
-    const text0 = chronicleText(buildChronicle(civ), '编年史');
-    let r = civ.regions.name?.findIndex((n, i) => n && text0.includes(n) && civ.regions.name!.indexOf(n) === i) ?? -1;
+    // 编年史里写到过的一个州(按条目记的州找:州名可能碰巧也是别的名字的一部分,比如和某个王朝同名)
+    const list0 = buildChronicle(civ);
+    const text0 = chronicleText(list0, '编年史');
+    const named = (x: number) => !!civ.regions.name?.[x] && civ.regions.name.indexOf(civ.regions.name[x]) === x;
+    let r = -1;
+    for (const e of list0) {
+      const hit = e.regions.find((x) => named(x) && e.text.includes(civ.regions.name![x]));
+      if (hit !== undefined) {
+        r = hit;
+        break;
+      }
+    }
     if (r < 0) r = 0;
     const old = regionLabel(civ, r);
     const c2 = applyNames(civ, { [regionKey(civ, r)]: '九嶷州' });
@@ -340,7 +350,7 @@ function useStorage(s: unknown) {
 }
 
 /** 模拟 App 打开一个世界:换世界(先 detach 再清空),生成完套上修改(存着的就套存着的),再 attach */
-function openWorld(seed: number, o: { id?: string; kind?: saveStore.WorldKind; title?: string; pristine?: boolean; edits?: WorldEdits; origin?: SaveOrigin } = {}) {
+function openWorld(seed: number, o: { id?: string; kind?: saveStore.WorldKind; title?: string; pristine?: boolean; edits?: WorldEdits; origin?: SaveOrigin; original?: SaveFile } = {}) {
   const p = { ...DEFAULT_PARAMS, seed };
   saveStore.detachWorld();
   clearEdits();
@@ -358,6 +368,7 @@ function openWorld(seed: number, o: { id?: string; kind?: saveStore.WorldKind; t
     view: stored?.save.view,
     pristine: o.pristine,
     origin: o.origin ?? stored?.save.origin,
+    original: o.original,
   });
   return id;
 }
@@ -995,6 +1006,49 @@ describe('浏览器存储(saveStore)', () => {
     expect(saveStore.loadWorld(id2)?.save.edits.names['settlement:r1#0']).toBe('梼杌城');
     expect(saveStore.storageIsFull()).toBe(false);
   });
+
+  it('看原样:找得到旧版本的世界原来那一份;打开旧版本的链接以后改了才存的,第一次存时也留着', () => {
+    const fake = new FakeStorage();
+    useStorage(fake);
+    const oldSave = (seed: number, generator: number) => ({ ...makeSave({ ...DEFAULT_PARAMS, seed }, EDITS, `check${seed}`, '苍澜界', '2026-10-01T08:00:00.000Z'), generator });
+    // 存着、还没按新版重存:就是存着的这份
+    const id = saveStore.newWorldId();
+    fake.setItem(`wenming-ditu:world:${id}`, JSON.stringify(oldSave(7, GENERATOR_VERSION - 1)));
+    openWorld(7, { id });
+    expect(saveStore.originalOf(id)?.generator).toBe(GENERATOR_VERSION - 1);
+    expect(saveStore.currentOriginal()?.generator).toBe(GENERATOR_VERSION - 1);
+    // 按新版重存以后:是留的那份
+    setName('settlement:r1#0', '饕餮城');
+    expect(saveStore.loadWorld(id)?.save.generator).toBe(GENERATOR_VERSION);
+    expect(saveStore.originalOf(id)).toMatchObject({ generator: GENERATOR_VERSION - 1, edits: { names: EDITS.names } });
+    // 交出去的是留的原文(存档格式、各项都是当时写的),不是按现在的读法重新拼的
+    expect(saveStore.originalOf(id)).toEqual(JSON.parse(fake.getItem(`wenming-ditu:orig:${id}`)!));
+    // 新版建的世界:没有
+    const now = openWorld(8);
+    setName('settlement:r1#0', '梼杌城');
+    expect(saveStore.originalOf(now)).toBeNull();
+    expect(saveStore.currentOriginal()).toBeNull();
+
+    // 打开旧版本的分享链接(还没存):原来那份跟着当前世界;改了存进来时原样留着,以后照样找得到
+    const link = openWorld(9, { kind: 'visit', original: oldSave(9, GENERATOR_VERSION - 1) });
+    expect(fake.getItem(`wenming-ditu:world:${link}`)).toBeNull();
+    expect(saveStore.currentOriginal()?.seed).toBe(9);
+    setName('settlement:r1#0', '穷奇城');
+    expect(saveStore.loadWorld(link)?.save.generator).toBe(GENERATOR_VERSION);
+    expect(saveStore.originalOf(link)).toMatchObject({ seed: 9, generator: GENERATOR_VERSION - 1 });
+    // 带的那份不比现在旧(新版的链接):不留
+    const fresh = openWorld(10, { kind: 'visit', original: { ...oldSave(10, GENERATOR_VERSION) } });
+    expect(saveStore.currentOriginal()).toBeNull();
+    setName('settlement:r1#0', '混沌城');
+    expect(fake.getItem(`wenming-ditu:orig:${fresh}`)).toBeNull();
+
+    // 从文件打开、和存着的一样(存着的已经是新版的、没留过原样):用存着的那个,文件这份留作原样
+    const same = saveStore.newWorldId();
+    fake.setItem(`wenming-ditu:world:${same}`, JSON.stringify(makeSave({ ...DEFAULT_PARAMS, seed: 11 }, EDITS, 'check11', '苍澜界', '2026-10-09T08:00:00.000Z')));
+    const file = parseSave(JSON.stringify(oldSave(11, GENERATOR_VERSION - 1)));
+    expect(file.ok && saveStore.importSave(file.save)).toBe(same);
+    expect(saveStore.originalOf(same)?.generator).toBe(GENERATOR_VERSION - 1);
+  });
 });
 
 describe('旧版本的提示:照实说变了什么', () => {
@@ -1004,11 +1058,12 @@ describe('旧版本的提示:照实说变了什么', () => {
   it('按跨过的几版里最大的那种改动说', () => {
     expect(versionNote(GENERATOR_VERSION, false)).toBeNull();
     expect(versionNote(GENERATOR_VERSION, true)).toBeNull();
-    // 第 9 版:君主的世系,只改了编年史的字
-    expect(versionNote(8, false)).toBe('来自旧版本：疆域和兴亡没变，编年史写得更细了');
-    expect(versionNote(8, true)).toBe('来自旧版本：疆域和兴亡没变，编年史写得更细了');
-    // 第 8 版只动了改过地形的世界
-    expect(versionNote(7, false)).toBe('来自旧版本：疆域和兴亡没变，编年史写得更细了');
+    // 第 10 版:邦交,历史重新推演
+    expect(versionNote(9, false)).toBe('来自旧版本：地形和气候没变，历史重新推演了');
+    expect(versionNote(9, true)).toBe('来自旧版本：地形和气候没变，历史重新推演了');
+    // 第 9 版只改了编年史的字、第 8 版只动了改过地形的世界:都比第 10 版小
+    expect(versionNote(8, false)).toBe(versionNote(9, false));
+    expect(versionNote(7, false)).toBe(versionNote(9, false));
     expect(versionNote(7, true)).toBe('来自旧版本：地形和气候没变，历史重新推演了');
     // 第 6、7 版:人物和战役 < 洋流(气候、河流、历史)
     expect(versionNote(6, false)).toBe('来自旧版本：陆地和山没变，气候、河流和历史都重算了');
@@ -1021,15 +1076,12 @@ describe('旧版本的提示:照实说变了什么', () => {
     // 比现在大的也一样,不叫人刷新
     expect(versionNote(GENERATOR_VERSION + 0.5, false)).toBe(versionNote(0, false));
   });
-  it('版本不同、但世界应该一样时照样核对地形', () => {
+  it('同一版、或世界本来就变了时:地形对不上只在同一版时提示', () => {
     const save = makeSave({ ...DEFAULT_PARAMS, seed: 7 }, EMPTY_EDITS, 'aaaaaaaaaaaa');
-    // 8 → 现在只改了编年史的字;7 → 现在,没改地形的世界也只是这样(第 8 版只动改过地形的)
-    for (const generator of [8, 7]) {
-      expect(checkWarning({ ...save, generator }, 'aaaaaaaaaaaa')).toBeNull();
-      expect(checkWarning({ ...save, generator }, 'bbbbbbbbbbbb')).toBe(CHECK_WARNING);
-    }
-    // 世界本来就变了(已经说过变了什么):不重复
-    expect(checkWarning({ ...save, generator: 6 }, 'bbbbbbbbbbbb')).toBeNull();
+    expect(checkWarning(save, 'aaaaaaaaaaaa')).toBeNull();
+    expect(checkWarning(save, 'bbbbbbbbbbbb')).toBe(CHECK_WARNING);
+    // 世界本来就变了(第 10 版历史重新推演;已经说过变了什么):不重复
+    for (const generator of [9, 8, 7, 6]) expect(checkWarning({ ...save, generator }, 'bbbbbbbbbbbb')).toBeNull();
     const edited = { ...save, generator: 7, edits: { ...save.edits, terrain: [{ kind: 'lake' as const, pts: [300, 400], r: 16, s: 1 }] } };
     expect(checkWarning(edited, 'bbbbbbbbbbbb')).toBeNull();
   });

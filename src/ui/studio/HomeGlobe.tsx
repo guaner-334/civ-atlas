@@ -40,8 +40,6 @@ export function HomeGlobe({ size }: { size: number }) {
       a: 'home',
       b: 'home',
       mix: 1,
-      drift: null,
-      real: 'home',
       markA: 0,
     });
     const step = (now: number) => {
