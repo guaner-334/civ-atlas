@@ -28,6 +28,7 @@ import { makeFlagView } from '../src/ui/flagStore';
 import { upheavalText } from '../src/ui/WorldOverviewInterventions';
 import { computeHabitat } from '../src/gen/civ/habitat';
 import { reshapeRegions } from '../src/gen/civ/regions';
+import { buildRoutes } from '../src/gen/civ/routes';
 
 const PARAMS = { ...DEFAULT_PARAMS, seed: 7 };
 /** 种子 7 上的三件大事:大霄国都一带海水漫进来、兹拉季纳国都一带火山喷发、两国之间的海峡隆起 */
@@ -375,7 +376,34 @@ describe('地形大事 · 推演', () => {
     const [rc] = routeCities([late], [], 1000);
     expect(rc.port).toBe(true);
     expect(rc.founded).toBe(700);
-    expect(routeCities([{ ...late, reshaped: undefined, port: true }], [], 1000)[0].founded).toBe(0);
+    expect(rc.portFrom).toBe(700);
+    const always = routeCities([{ ...late, reshaped: undefined, port: true }], [], 1000)[0];
+    expect(always.founded).toBe(0);
+    expect(always.portFrom).toBeUndefined();
+    // 早就长成镇、700 年才成港口的:陆路照长成镇那年,航线另记成港口那年
+    const grown: Settlement = { ...late, capacity: 3000, growth: 0.02, reshaped: [{ year: 700, capacity: 3000, port: true }] };
+    const [gc] = routeCities([grown], [], 1000);
+    expect(gc.founded).toBeLessThan(700);
+    expect(gc.portFrom).toBe(700);
+    // 两座港口城之间的航线:有一座 700 年才成港口的,航线从 700 年起
+    const pc = routeCities(c.settlements, c.polities, 3000).filter((x) => x.port && x.ended === undefined);
+    const lm = (x: { cell: number }) => c.regions.landmass[c.regions.of[x.cell]];
+    let checked = false;
+    for (let i = 0; i < pc.length && !checked; i++) {
+      const j = pc.findIndex((y, k) => k > i && lm(y) !== lm(pc[i]));
+      if (j < 0) continue;
+      const A = { cell: pc[i].cell, major: false, port: true, founded: 0 };
+      const B = { cell: pc[j].cell, major: false, port: true, founded: 0 };
+      const seaOf = (cities: (typeof A & { portFrom?: number })[]) => buildRoutes(W, c.habitat, c.regions, { cities }).filter((x) => x.kind === 'sea');
+      const before = seaOf([A, B]);
+      if (!before.length) continue;
+      expect(before.every((x) => x.built === 0)).toBe(true);
+      const after = seaOf([A, { ...B, portFrom: 700 }]);
+      expect(after.length).toBeGreaterThan(0);
+      expect(after.every((x) => x.built === 700)).toBe(true);
+      checked = true;
+    }
+    expect(checked).toBe(true);
   }, 120_000);
 
   it('城没于水以后,后来的大事又把那里抬成陆地:不重建', () => {

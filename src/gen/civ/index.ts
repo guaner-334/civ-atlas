@@ -141,6 +141,7 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
     const eraHabitat = fin.habitat;
     // 名字、配色、这一段的地名和道路:照"没有这件大事、照原样推到底"的那份历史(大事之前和它一模一样,见 NamePins)
     const same = partialCiv(fin.sim, fin.model!, fin.pm!, eraHabitat, before, world.params.seed, iv);
+    same.upheavals = facts.slice(); // 早先几件大事的经过:分支里也认得出沉过海的城址(见下面 half.upheavals)
     const branch = CivSim.fromCiv(eraWorld, same, same.interventions ?? []);
     branch.run(p.endYear);
     // 起名只读这一段的分支,不影响之后的推演。配了地名风格时份数按真正的结局凑(areas = 推演结束时的民族归属):
