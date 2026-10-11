@@ -30,6 +30,7 @@ import { installPolitics } from './politics';
 import { installDynasty } from './dynasty';
 import { installAssimilation } from './assimilation';
 import { installCities } from './cities';
+import { installDiplomacy } from './diplomacy';
 import { warModelOf } from './wars';
 import { installInterventions, scheduleInterventions } from './interventions';
 import { buildPeople } from './people';
@@ -121,6 +122,7 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
   if (pm) installDynasty(sim, pm); // 阶段 3 王朝更替(dynasty.ts):改朝换代、王室更迭,新朝定都根据地
   if (pm) installAssimilation(sim, pm, world); // 阶段 3 同化与迁徙(assimilation.ts):同化、随征服而来的移民、避兵外迁、民族消亡
   if (pm) installCities(sim, pm, warModelOf(sim)!); // 阶段 3 城市兴衰(cities.ts):洗劫、毁城、重建、旧都衰落
+  if (pm) installDiplomacy(sim, pm); // 邦交(diplomacy.ts):称臣纳贡、结盟、背盟、援盟、讨伐叛藩
   if (iv) installInterventions(sim, iv); // 阶段 4 干预:不许灭、结盟、宣战、禁止分裂(各机制在决策点查 WarModel.iv)
   progress('民族推演', 0.85);
   // 地形大事:推到第一件的前一刻,之后每件套上新地形接着推(upheaval.ts)
