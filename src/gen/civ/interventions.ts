@@ -5,7 +5,8 @@
  *
  * 做法:**带着干预从第 0 年整段重推**(推演确定、便宜:文明部分一两百毫秒)。
  *   - 干预年份之前和不干预时逐字节一致:规则只在"年份 ≥ from"时生效;每条干预在 from 那一刻有一个事件(Ev.Intervene),
- *     在所有别的事件之前预约(scheduleInterventions:同一刻里最先处理),别的事件之间的先后不变;
+ *     在所有别的事件之前预约(scheduleInterventions:同一刻里只排在地形大事和看王朝、新君即位、迁都后重看边地后面,
+ *     见 sim.ts 的 earlyOrder),别的事件之间的先后不变;
  *     随机数照旧 keyed(和处理顺序无关),干预前的随机数一个都不变。
  *   - 干预年份之后按新规则展开,受波及的地方才变。
  *
@@ -34,7 +35,7 @@
  *   迁都   move      from 那一刻迁都到这座城(polities.ts 的 moveCapital;城要在 a 的国土里、没被毁,否则不迁)
  *   不许扩张 halt    polities.ts 的"国家到达"不去(不进无主的州);wars.ts 看邻国时不宣战、不援盟;politics.ts 不合并别国;
  *                   from 那一刻它挑起的(它是攻方的)战争当即议和。被打时照常防守、反攻夺回自己的州(守方的反攻本来就只打丢掉的州)。
- *                   有 until 的:until 那一刻(Ev.HaltEnd,比同一刻的一切事件都早)从现有国土重新预约扩张(polities.ts 的 respread)
+ *                   有 until 的:until 那一刻(Ev.HaltEnd,同一刻里比干预事件还早)从现有国土重新预约扩张(polities.ts 的 respread)
  *
  * 每条干预在 from 那一刻记一条史事 intervene(字段见 types.ts 的 AnnalKind;A 的键指不到就不记),编年史写"【干预】……"。
  * 紧跟着记它引起的事:宣战的 war(盟国、宗藩之间开战,war 前面先记盟约 / 宗藩之分断了的 unally / defect,见 diplomacy.ts)、结盟 / 不许扩张引起的 peace、立国的 found、迁都的 capital、原主国迁都的 capital / 亡国的 fall。
@@ -236,7 +237,8 @@ export function interventionModelOf(sim: CivSim): InterventionModel | undefined 
 }
 
 /**
- * 预约各条干预的事件(在所有别的事件之前调用:同一刻里干预最先处理;"不许扩张到期"又比干预事件更早)。
+ * 预约各条干预的事件(在所有别的事件之前调用:同一刻里只有地形大事和看王朝、新君即位、迁都后重看边地排在干预前面;
+ * "不许扩张到期"又比干预事件更早)。
  * generateCiv 里全部预约;fromCiv 接着推(resume)时只预约比现在晚的(已经到了的在切开之前就处理过了)。
  * 没有(合格的)干预 = null,什么都不做
  */

@@ -88,6 +88,9 @@ function fallenPolity(civ: Civ) {
   throw new Error('找不到亡于战争的国家');
 }
 
+/** 要用到亡于战争的国家的测试跑这两个种子(种子 2024 的历史里没有国家亡于战争) */
+const FALL_SEEDS = [7, 3];
+
 /** y 年前后两国接壤(按攻方能走的边) */
 function bordering(civ: Civ, a: number, b: number, y: number): boolean {
   const own = ownersAt(civ, y).polity;
@@ -180,7 +183,7 @@ describe('干预 · 数据格式', () => {
 
 describe('干预 · 推演', () => {
   it('没有干预时和原来一样;干预年份之前的日志、史事、国家表、城镇表和不干预时逐字节一致', () => {
-    for (const seed of [7, 2024]) {
+    for (const seed of FALL_SEEDS) {
       const w = world(seed);
       const civ = base(seed);
       expect(generateCiv(w, { interventions: [] }).interventions).toBeUndefined();
@@ -215,8 +218,8 @@ describe('干预 · 推演', () => {
     }
   }, 120_000);
 
-  it('不许灭:原本亡于战争的国家(seed 7、2024 各一个)加上后到第 3000 年仍在;编年史里记一条干预', () => {
-    for (const seed of [7, 2024]) {
+  it('不许灭:原本亡于战争的国家(seed 7、3 各一个)加上后到第 3000 年仍在;编年史里记一条干预', () => {
+    for (const seed of FALL_SEEDS) {
       const civ = base(seed);
       const { p, from } = fallenPolity(civ);
       const key = polityKey(civ, p.id);
@@ -236,7 +239,7 @@ describe('干预 · 推演', () => {
   }, 120_000);
 
   it('保护到某一年:那之前不亡;之后照常(亡也亡在截止年份以后);编年史写"自此不亡,至第 N 年"', () => {
-    for (const seed of [7, 2024]) {
+    for (const seed of FALL_SEEDS) {
       const civ = base(seed);
       const { p, from } = fallenPolity(civ);
       const key = polityKey(civ, p.id);
@@ -393,7 +396,7 @@ describe('干预 · 推演', () => {
   }, 120_000);
 
   it('确定性:同样的干预两次推演逐字节相同;fromCiv 接着推(切在干预之前 / 之后)和一口气推完一致', () => {
-    for (const seed of [7, 2024]) {
+    for (const seed of FALL_SEEDS) {
       const w = world(seed);
       const civ = base(seed);
       const { p, from } = fallenPolity(civ);
