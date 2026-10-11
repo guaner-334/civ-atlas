@@ -113,7 +113,7 @@ export function popSeries(s: Settlement, from: number, to: number, n: number): {
 /**
  * 一段年份里人口最多的那一刻(城的"最盛"):小柱图只在每根柱子的中间取样,会漏掉真正的高点
  * (比如一直在长的城,最后一根柱子取的是快到头时的人口,比结束那年少)。
- * 人口在这几种年份之间是平滑变的:结束那年、毁城前一刻、每次被洗劫前一刻、每段做国都结束那年 —— 这几处逐个算,
+ * 人口在这几种年份之间是平滑变的:结束那年、毁城前一刻、每次被洗劫前一刻、每段做国都结束那年、地形大事降了上限的前一刻 —— 这几处逐个算,
  * 中间按 PEAK_SAMPLES 等分细取;等分点里比两边都高的(还在长的城失去国都后,人口会在两处之间先升后降),
  * 再在它两边的格子里用黄金分割细找,取最大的
  */
@@ -136,6 +136,8 @@ export function popPeak(s: Settlement, from: number, to: number): { year: number
   if (s.ended !== undefined) at(s.ended - eps);
   for (const k of s.sacks ?? []) at(k.year - eps);
   for (const sp of s.capitalSpans ?? []) if (sp.until !== undefined) at(sp.until);
+  // 地形大事把人口上限降下来的那一刻,人口当即跌一截:高点可能就在那之前
+  for (const e of s.reshaped ?? []) at(e.year - eps);
   return best;
 }
 /** [a, b] 里只有一个高点时把它找出来(f 自己记下最大的);40 步后区间缩到原来的十亿分之几 */

@@ -10,6 +10,7 @@
 import type { World } from './gen/world';
 import { rasterize } from './gen/raster';
 import { rasterizeWithHelpers } from './gullyPool';
+import type { DrainLines } from './gen/pixelDrain';
 import type { LayerId } from './render/layers';
 import { renderLayer } from './render/layers';
 import { realisticGlobeMaps } from './render/realistic';
@@ -20,6 +21,8 @@ export interface GlobeTexRequest {
   style: 'realistic' | 'fantasy' | 'data';
   layer: LayerId;
   scale: number;
+  /** 屏幕上那张主图的细沟(照它画,和屏幕上一样;不给 = 现算) */
+  veins?: DrainLines;
 }
 
 export type GlobeTexResponse =
@@ -32,7 +35,7 @@ self.onmessage = async (e: MessageEvent<GlobeTexRequest>) => {
     if (typeof OffscreenCanvas === 'undefined') throw new Error('这个浏览器不支持后台画图');
     const t0 = performance.now();
     // 沟和山脊只有写实风打光用得着(分给帮手线程算)
-    const raster = m.style === 'realistic' ? await rasterizeWithHelpers(m.world, m.scale) : rasterize(m.world, m.scale, false);
+    const raster = m.style === 'realistic' ? await rasterizeWithHelpers(m.world, m.scale, m.veins) : rasterize(m.world, m.scale, false);
     let bitmap: ImageBitmap;
     let slope: { w: number; h: number; data: Uint8Array } | undefined;
     if (m.style === 'realistic') {

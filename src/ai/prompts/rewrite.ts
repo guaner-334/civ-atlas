@@ -375,6 +375,7 @@ export function rewriteMaterial(world: World, civ: Civ, year: number, edits: Wor
     for (let r = 0; r < reg.count; r++) if (own.culture[r] >= 0) n.set(own.culture[r], (n.get(own.culture[r]) ?? 0) + 1);
     out.push('', '## 民族');
     for (const cu of civ.cultures) {
+      if (cu.unborn) continue; // 没能兴起的(发源州在地形大事里沉了)
       const h = reg.seat[cu.hearth];
       out.push(
         `E${cu.id} ${cu.name}族 · ${KIND_INFO[cu.kind]?.name ?? ''} · 发源 ${h !== undefined ? ll(cellLL(world, h)) : ''} · 第 ${Math.floor(cu.born)} 年出现 · ` +

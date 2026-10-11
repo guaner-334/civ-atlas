@@ -1,22 +1,12 @@
 /**
- * 新建界面的星球(纯计算的部分):网格和各种投影下的位置、板块漂移的转轴表和板块贴图、开场正对着的经线、
+ * 新建界面的星球(纯计算的部分):网格和各种投影下的位置、板块贴图、进来时正对着的经线、
  * 星球在两边面板之间怎么摆、摊平改地形时平面地图的位置、建好以后平常页面的地图在哪;
  * 助手列出的改地形在星球上圈出来时的中心;地球仪的地名按给定的球心、半径摆
  */
 import { describe, expect, it } from 'vitest';
-import {
-  DRIFT_MAX,
-  PLATE_MAX,
-  driftLoop,
-  landCenterLon,
-  planetLayout,
-  planetMesh,
-  plateRotations,
-  plateTexels,
-  wrapPi,
-} from '../src/render/planet';
+import { landCenterLon, planetLayout, planetMesh, plateTexels, wrapPi } from '../src/render/planet';
 import { PROJECTION_IDS, PROJECTIONS } from '../src/render/projection';
-import { appPose, driftYears, easeInOut, fitPose, flatRect, lerpPose, projExtent } from '../src/ui/studio/layout';
+import { appPose, easeInOut, fitPose, flatRect, lerpPose, projExtent } from '../src/ui/studio/layout';
 import { marksCenter } from '../src/ui/studio/planetMarks';
 import { globeLabelView, globeToCanvas } from '../src/render/globeLabels';
 import type { World } from '../src/gen/world';
@@ -56,17 +46,7 @@ describe('星球网格和投影', () => {
   });
 });
 
-describe('板块漂移', () => {
-  it('转轴表:转得最快的转 DRIFT_MAX、其余按比例,转轴是单位向量;没有角速度的不转', () => {
-    const omega = [0, 0, 2, 1, 0, 0, 0, 0, 0];
-    const r = plateRotations(omega, 3);
-    expect(r.length).toBe(PLATE_MAX * 4);
-    expect([...r.slice(0, 4)]).toEqual([0, 0, 1, expect.closeTo(DRIFT_MAX, 6)]);
-    expect([...r.slice(4, 8)]).toEqual([1, 0, 0, expect.closeTo(DRIFT_MAX / 2, 6)]);
-    expect(r[11]).toBe(0);
-    expect([...plateRotations([0, 0, 0], 1)].every((v) => v === 0)).toBe(true);
-  });
-
+describe('板块贴图、正对着陆地', () => {
   it('板块贴图:R = 板块号,G = 陆地,B = 大陆板块;按目标大小隔行隔列取样', () => {
     // 2 × 1 的栅格:左边地块 0(板块 3、陆地、大陆板块),右边地块 1(板块 5、海、洋壳)
     const px = plateTexels(new Int32Array([0, 1]), 2, 1, [3, 5], [0, 1], [0, 0, 0, 1, 0, 0], 4, 2);
@@ -75,15 +55,7 @@ describe('板块漂移', () => {
     expect([...px.slice(16, 20)]).toEqual([3, 255, 255, 255]);
   });
 
-  it('漂移着色器循环的块数:往上取 16 的倍数;统一变量不够就不放漂移', () => {
-    expect(driftLoop(30, 1024)).toBe(32);
-    expect(driftLoop(5, 1024)).toBe(16);
-    expect(driftLoop(60, 1024)).toBe(64);
-    expect(driftLoop(30, 40)).toBe(32);
-    expect(driftLoop(60, 64)).toBe(0);
-  });
-
-  it('开场正对着陆地最集中的经线', () => {
+  it('进来时正对着陆地最集中的经线', () => {
     const w = 360;
     const h = 180;
     const px = new Uint8Array(w * h * 4);
@@ -103,20 +75,20 @@ describe('板块漂移', () => {
 describe('星球怎么摆', () => {
   const box = { x: 340, y: 0, w: 1032, h: 900 };
   it('地球仪:半径 = 短边 × 0.38(手机 0.42),在这块地方正中', () => {
-    const p = fitPose('globe', box, { phone: false, intro: false });
+    const p = fitPose('globe', box, { phone: false });
     expect(p.k).toBeCloseTo(900 * 0.38);
     expect(p.cx).toBe(340 + 516);
-    expect(fitPose('globe', { x: 0, y: 0, w: 390, h: 500 }, { phone: true, intro: false }).k).toBeCloseTo(390 * 0.42);
+    expect(fitPose('globe', { x: 0, y: 0, w: 390, h: 500 }, { phone: true }).k).toBeCloseTo(390 * 0.42);
   });
 
   it('平面地图放得下(四周留边),摊平时的平面地图正好 2:1、整像素', () => {
     for (const id of PROJECTION_IDS) {
-      const p = fitPose(id, box, { phone: false, intro: false });
+      const p = fitPose(id, box, { phone: false });
       const e = projExtent(id);
       expect(e.w * p.k).toBeLessThanOrEqual(box.w - 2 * 44 + 1e-6);
       expect(e.h * p.k).toBeLessThanOrEqual(box.h - 44 - 90 + 1e-6);
     }
-    const r = flatRect(box, { phone: false, intro: false });
+    const r = flatRect(box, { phone: false });
     expect(r.w).toBe(r.h * 2);
     expect(Number.isInteger(r.x) && Number.isInteger(r.y)).toBe(true);
     expect(Math.abs(r.x + r.w / 2 - (box.x + box.w / 2))).toBeLessThanOrEqual(1);
@@ -130,7 +102,19 @@ describe('星球怎么摆', () => {
     expect(rb.k * projExtent('robinson').w).toBeLessThan(1800);
   });
 
-  it('补间:两头对上;缓动两头平、中间过 0.5;漂移字幕的年代', () => {
+  it('照手绘图那一页:平面图铺在切换条和提示中间、两边至少留 40;手机上紧挨着底部卡片', () => {
+    const r = flatRect({ x: 340, y: 0, w: 1260, h: 900 }, { phone: false, bar: true });
+    expect(r).toEqual({ x: 380, y: 152, w: 1180, h: 590 });
+    const g = fitPose('globe', { x: 340, y: 0, w: 1260, h: 900 }, { phone: false, bar: true });
+    expect(g.k * 2).toBeLessThanOrEqual(590);
+    expect(g.cx).toBe(970);
+    const ph = flatRect({ x: 0, y: 0, w: 390, h: 302 }, { phone: true, bar: true });
+    expect(ph.y).toBe(102);
+    expect(ph.y + ph.h).toBeLessThanOrEqual(302 - 17);
+    expect(ph.w).toBeLessThanOrEqual(390 - 24);
+  });
+
+  it('补间:两头对上;缓动两头平、中间过 0.5', () => {
     const a = { k: 1, cx: 0, cy: 0 };
     const b = { k: 3, cx: 10, cy: -10 };
     expect(lerpPose(a, b, 0)).toEqual(a);
@@ -139,9 +123,6 @@ describe('星球怎么摆', () => {
     expect(easeInOut(1)).toBe(1);
     expect(easeInOut(0.5)).toBeCloseTo(0.5);
     expect(easeInOut(0.25) + easeInOut(0.75)).toBeCloseTo(1);
-    expect(driftYears(0)).toBe('约 1.8 亿年前');
-    expect(driftYears(0.5)).toBe('约 9000 万年前');
-    expect(driftYears(1)).toBe('今天');
   });
 });
 

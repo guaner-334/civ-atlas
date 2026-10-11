@@ -27,6 +27,7 @@ import {
   polityTitles,
   populationAt,
   populationLabel,
+  portAt,
   settlementRank,
 } from '../../gen/civ/growth';
 import { ownersAt, type Owners } from '../../gen/civ/timeline';
@@ -333,7 +334,9 @@ export function nameStamp(civ: Civ, t: NameTarget): string {
       if (!s) return '';
       const spans = (s.capitalSpans ?? []).map((x) => `${r1(x.from)}-${x.until === undefined ? '' : r1(x.until)}`).join(',');
       const sacks = (s.sacks ?? []).map((x) => r1(x.year)).join(',');
-      return `S|${s.cell}|${r1(s.founded)}|${s.ended === undefined ? '' : r1(s.ended)}|${spans}|${sacks}|${s.rebuilds === undefined ? '' : cellOfCity(s.rebuilds)}|${s.port ? 1 : 0}`;
+      // 地形大事以后城址变过的(港口、人口上限)接在后面;没变过的和原来一样
+      const reshaped = (s.reshaped ?? []).map((e) => `${r1(e.year)}:${e.port ? 1 : 0}:${Math.round(e.capacity)}`).join(',');
+      return `S|${s.cell}|${r1(s.founded)}|${s.ended === undefined ? '' : r1(s.ended)}|${spans}|${sacks}|${s.rebuilds === undefined ? '' : cellOfCity(s.rebuilds)}|${s.port ? 1 : 0}${reshaped ? `|${reshaped}` : ''}`;
     }
     case 'place': {
       const p = civ.places[t.id];
@@ -671,7 +674,7 @@ function citiesAlong(civ: Civ, g: Geo, p: Place, limit: number): string {
   if (!g.centers) return '';
   const near: { name: string; d: number; founded: number }[] = [];
   for (const s of civ.settlements) {
-    if (p.kind === 'sea' && !s.port) continue;
+    if (p.kind === 'sea' && !portAt(s, Infinity)) continue; // 地名是最后一段地形的:港口也按最后一段
     const pos = posOf(g, s.cell);
     if (!pos) continue;
     const d = pathDist(p.path, pos[0], pos[1]);
@@ -824,9 +827,18 @@ export function nameMaterial(civ: Civ, t: NameTarget, raster?: Raster | null): N
   } else if (t.kind === 'settlement') {
     const s = S[t.id];
     people = peopleText(civ, s.culture, '建城的民族:');
-    const coastal = s.port || civ.habitat.coastDist[s.cell] === 1;
+    // 地理按最后一段地形写;地形大事改过港口的,写明建城时怎样、哪年变的
+    const port = portAt(s, Infinity);
+    const coastal = port || civ.habitat.coastDist[s.cell] === 1;
     geography.push(siteText(g, s.cell, { coastal }));
-    if (s.port) geography.push('是港口');
+    let turned = s.founded;
+    let was = s.port;
+    for (const e of s.reshaped ?? []) {
+      if (e.port !== was) turned = e.year;
+      was = e.port;
+    }
+    if (port !== s.port) geography.push(port ? `${yearText(turned)}地形大事以后成了港口` : `建城时是港口,${yearText(turned)}地形大事以后不再是港口`);
+    else if (port) geography.push('是港口');
     const old = s.rebuilds !== undefined ? S[s.rebuilds] : undefined;
     history.push(`${yearText(s.founded)}建城${old ? `,在${old.name}故址上重建` : ''}`);
     // 人口最盛

@@ -592,10 +592,10 @@ export function riverGeometry(
   const peak = (c: number[]) => vf[next[c[c.length - 1]] >= 0 ? c[c.length - 2] : c[c.length - 1]];
   chains.sort((a, b) => peak(b) - peak(a));
 
-  // 节点 → 平滑后的位置。每个节点只在一条链里是"中间点",支流终点来这里查
+  // 节点 → 平滑后的位置、弯过之后挪了多少。每个节点只在一条链里是"中间点",支流终点来这里查
   const smoothed = new Map<number, [number, number]>();
+  const moved = new Map<number, [number, number]>();
   const out: DenseRiver[] = [];
-  const SUB = 4;
 
   for (const c of chains) {
     const m = c.length;
@@ -651,6 +651,8 @@ export function riverGeometry(
     const M = xs.length;
 
     const d: DenseRiver = { x: [], y: [], w: [], f: [], m: [] };
+    // 每个顶点在加密后的第几个点(弯过之后支流来查汇合点挪到了哪)
+    const at = new Int32Array(M);
     for (let i = 0; i < M - 1; i++) {
       const i0 = Math.max(0, i - 1);
       const i3 = Math.min(M - 1, i + 2);
@@ -662,8 +664,10 @@ export function riverGeometry(
       const p1y = ys[i];
       const p2x = xs[i + 1];
       const p2y = ys[i + 1];
-      for (let s = i === 0 ? 0 : 1; s <= SUB; s++) {
-        const t = s / SUB;
+      // 每段按长度加密(约 MEANDER_STEP 一个点):最细一层的弯要画得出来
+      const sub = Math.max(2, Math.ceil(Math.sqrt((p2x - p1x) ** 2 + (p2y - p1y) ** 2) / MEANDER_STEP));
+      for (let s = i === 0 ? 0 : 1; s <= sub; s++) {
+        const t = s / sub;
         const t2 = t * t;
         const t3 = t2 * t;
         d.x.push(
@@ -688,10 +692,137 @@ export function riverGeometry(
         d.f.push(fl);
         d.m.push(mul);
       }
+      at[i + 1] = d.x.length - 1;
+    }
+    // 弯一弯:平滑的样条只有地块那么大的弯,真实的河各种尺度都有弯。
+    // 汇入别的河的一段最后贴到干流弯过之后的位置;入海、出湖的一头不弯(河口、湖口不挪)
+    const off = joinPos ? moved.get(last) : undefined;
+    meander(d.x, d.y, hashXY(vx[last], vy[last], vx[c[m - 2]], vy[c[m - 2]]), fromLake, off);
+    for (let i = 1; i < m - 1; i++) {
+      const j = at[i + first];
+      moved.set(c[i], [d.x[j] - xs[i + first], d.y[j] - ys[i + first]]);
     }
     out.push(d);
   }
   return out;
+}
+
+/** 加密后相邻两点大约隔多远(世界单位;一个默认精细度的地块约 7.6) */
+const MEANDER_STEP = 0.25;
+/** 河道的弯:每层 [起伏的间隔(世界单位), 弯出去多远(× 间隔)],从粗到细(间隔不取整倍数,弯得不规则) */
+const MEANDER_OCT: readonly [number, number][] = [
+  [8, 0.2],
+  [3.7, 0.17],
+  [1.75, 0.13],
+  [0.85, 0.09],
+];
+/** 河口、汇合点、湖口往回这么长(世界单位)之内弯得越来越少,到端点不弯 */
+const MEANDER_END = 2.5;
+/** 汇入别的河的一段:最后这么长之内渐渐挪到干流弯过之后的汇合点 */
+const MEANDER_JOIN = 4;
+/** 弯出去最多是这里拐弯半径的几成(急弯里侧不打结) */
+const MEANDER_BEND = 0.5;
+
+/**
+ * 加密后的河道(x, y 原地改)沿法向弯一弯:几层一维噪声按"离下游端多远"取值(同一条河不管带不带小溪、
+ * 在哪一级放大都弯得一样),下游端(河口 / 汇合点)和出湖的一端收到不弯;off = 汇合点在干流上挪了多少
+ * (最后 MEANDER_JOIN 之内渐渐挪过去)。纯计算,同一条河同一个结果
+ */
+function meander(x: number[], y: number[], seed: number, fromLake: boolean, off?: [number, number]) {
+  const n = x.length;
+  if (n < 3) return;
+  // 离下游端多远
+  const S = new Float64Array(n);
+  for (let i = n - 2; i >= 0; i--) {
+    const ex = x[i + 1] - x[i];
+    const ey = y[i + 1] - y[i];
+    S[i] = S[i + 1] + Math.sqrt(ex * ex + ey * ey);
+  }
+  const total = S[0];
+  const dx = new Float64Array(n);
+  const dy = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    const a = i > 0 ? i - 1 : 0;
+    const b = i < n - 1 ? i + 1 : n - 1;
+    let tx = x[b] - x[a];
+    let ty = y[b] - y[a];
+    const tl = Math.sqrt(tx * tx + ty * ty);
+    if (tl === 0) continue;
+    tx /= tl;
+    ty /= tl;
+    let v = 0;
+    for (let o = 0; o < MEANDER_OCT.length; o++) {
+      const [L, A] = MEANDER_OCT[o];
+      v += A * L * noise1(seed + o * 0x632be5ab, S[i] / L);
+    }
+    // 端点附近收住
+    v *= smooth01(S[i] / MEANDER_END);
+    if (fromLake) v *= smooth01((total - S[i]) / MEANDER_END);
+    // 急弯:不超过拐弯半径的几成(拐角 = 前后两段方向差)
+    if (i > 0 && i < n - 1) {
+      const ux = x[i] - x[i - 1];
+      const uy = y[i] - y[i - 1];
+      const wx = x[i + 1] - x[i];
+      const wy = y[i + 1] - y[i];
+      const lu = Math.sqrt(ux * ux + uy * uy);
+      const lw = Math.sqrt(wx * wx + wy * wy);
+      const cross = Math.abs(ux * wy - uy * wx);
+      if (lu > 0 && lw > 0 && cross > 0) {
+        const R = (0.5 * (lu + lw) * lu * lw) / cross;
+        const lim = MEANDER_BEND * R;
+        if (v > lim) v = lim;
+        else if (v < -lim) v = -lim;
+      }
+    }
+    dx[i] = -ty * v;
+    dy[i] = tx * v;
+  }
+  for (let i = 0; i < n; i++) {
+    let ox = dx[i];
+    let oy = dy[i];
+    if (off) {
+      const b = 1 - smooth01(S[i] / MEANDER_JOIN);
+      ox += b * off[0];
+      oy += b * off[1];
+    }
+    x[i] += ox;
+    y[i] += oy;
+  }
+}
+
+/** 0..1 之间平滑过渡(x ≤ 0 → 0,x ≥ 1 → 1) */
+function smooth01(x: number): number {
+  if (x <= 0) return 0;
+  if (x >= 1) return 1;
+  return x * x * (3 - 2 * x);
+}
+
+/** 一维梯度噪声,约 −1..1(整数格上为 0,格点的斜率按 seed 和格号定) */
+function noise1(seed: number, t: number): number {
+  const i = Math.floor(t);
+  const f = t - i;
+  const a = grad1(seed, i) * f;
+  const b = grad1(seed, i + 1) * (f - 1);
+  const u = f * f * f * (f * (f * 6 - 15) + 10);
+  return 2 * (a + (b - a) * u);
+}
+
+function grad1(seed: number, i: number): number {
+  let h = Math.imul(seed ^ Math.imul(i | 0, 0x9e3779b1), 0x85ebca6b);
+  h ^= h >>> 13;
+  h = Math.imul(h, 0xc2b2ae35);
+  h ^= h >>> 16;
+  return (h >>> 0) / 2147483648 - 1;
+}
+
+/** 两个点(河的下游两个顶点)→ 一个整数种子:同一条河每次一样 */
+function hashXY(ax: number, ay: number, bx: number, by: number): number {
+  let h = 0x811c9dc5;
+  for (const v of [ax, ay, bx, by]) {
+    h = Math.imul(h ^ Math.round(v * 64), 0x01000193);
+    h ^= h >>> 15;
+  }
+  return h | 0;
 }
 
 /**
@@ -708,7 +839,7 @@ function strokeRivers(g: Ctx2D, lines: DenseRiver[], v: VecView, style: RiverSty
   const buckets = new Map<number, Path2D>();
   const pj = v.proj;
   if (pj) {
-    // 弯边投影:加密后的点逐个投影(相邻两点约 1/4 个地块,不用再加密);线宽按画布像素(和等距圆柱同缩放时一样)
+    // 弯边投影:加密后的点逐个投影(已经很密,不用再加密);线宽按画布像素(和等距圆柱同缩放时一样)
     const half = pj.W / 2;
     for (const d of lines) {
       const n = d.x.length;
@@ -726,14 +857,15 @@ function strokeRivers(g: Ctx2D, lines: DenseRiver[], v: VecView, style: RiverSty
           X[i] = (half + pj.K(d.y[i]) * (rel[i] + sh)) * s + ox;
           Y[i] = pj.Y(d.y[i]) * s + oy;
         }
-        for (let i = 0; i < n - 1; i++) {
-          const f = 0.5 * (d.f[i] + d.f[i + 1]);
+        for (let i = 0, j = 1; i < n - 1; i = j, j = i + 1) {
+          while (j < n - 1 && (X[j] - X[i]) ** 2 + (Y[j] - Y[i]) ** 2 < SEG_PX * SEG_PX) j++;
+          const f = 0.5 * (d.f[i] + d.f[j]);
           if (f < minFlux) continue;
           const x0 = X[i];
           const y0 = Y[i];
-          const x1 = X[i + 1];
-          const y1 = Y[i + 1];
-          const wv = (widthOf(f) * 0.5 * (d.m[i] + d.m[i + 1]) * lodTaper(style, f) + extra) * s;
+          const x1 = X[j];
+          const y1 = Y[j];
+          const wv = (widthOf(f) * 0.5 * (d.m[i] + d.m[j]) * lodTaper(style, f) + extra) * s;
           if (Math.max(x0, x1) < -wv || Math.max(y0, y1) < -wv || Math.min(x0, x1) > W + wv || Math.min(y0, y1) > H + wv) continue;
           const b = Math.max(1, Math.round(wv / STEP));
           let path = buckets.get(b);
@@ -751,17 +883,21 @@ function strokeRivers(g: Ctx2D, lines: DenseRiver[], v: VecView, style: RiverSty
     }
     return;
   }
+  // 河道加密得很细(放大后弯要画得出来):画布上不到 SEG_PX 的几小段并成一段
+  const min2 = (SEG_PX / s) ** 2;
   for (const d of lines) {
-    for (let i = 0; i < d.x.length - 1; i++) {
-      const f = 0.5 * (d.f[i] + d.f[i + 1]);
+    const n = d.x.length;
+    for (let i = 0, j = 1; i < n - 1; i = j, j = i + 1) {
+      while (j < n - 1 && (d.x[j] - d.x[i]) ** 2 + (d.y[j] - d.y[i]) ** 2 < min2) j++;
+      const f = 0.5 * (d.f[i] + d.f[j]);
       if (f < minFlux) continue;
       // 东西相连:伸出主图左右边的河段在另一边再画一份(平面只有平移 0)
-      for (const sh of wrap ? wrapShifts(Math.min(d.x[i], d.x[i + 1]), Math.max(d.x[i], d.x[i + 1]), wrap, 4) : NO_SHIFT) {
+      for (const sh of wrap ? wrapShifts(Math.min(d.x[i], d.x[j]), Math.max(d.x[i], d.x[j]), wrap, 4) : NO_SHIFT) {
         const x0 = (d.x[i] + sh) * s + ox;
         const y0 = d.y[i] * s + oy;
-        const x1 = (d.x[i + 1] + sh) * s + ox;
-        const y1 = d.y[i + 1] * s + oy;
-        const wv = (widthOf(f) * 0.5 * (d.m[i] + d.m[i + 1]) * lodTaper(style, f) + extra) * s;
+        const x1 = (d.x[j] + sh) * s + ox;
+        const y1 = d.y[j] * s + oy;
+        const wv = (widthOf(f) * 0.5 * (d.m[i] + d.m[j]) * lodTaper(style, f) + extra) * s;
         if (Math.max(x0, x1) < -wv || Math.max(y0, y1) < -wv || Math.min(x0, x1) > W + wv || Math.min(y0, y1) > H + wv) continue;
         const b = Math.max(1, Math.round(wv / STEP));
         let path = buckets.get(b);
@@ -778,6 +914,9 @@ function strokeRivers(g: Ctx2D, lines: DenseRiver[], v: VecView, style: RiverSty
     g.stroke(path);
   }
 }
+
+/** 画河时一段至少多长(画布像素):更短的几段并成一段 */
+const SEG_PX = 1.5;
 
 /** 河网几何按"这组河 + 画法参数"缓存:细节层每次重画不用重新平滑、加密 */
 const geomCache = new WeakMap<object, { key: string; lines: DenseRiver[] }>();

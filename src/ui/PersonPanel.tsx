@@ -13,16 +13,17 @@
  *         名臣:事迹(经手的事)、国家、字号、籍贯、生卒、官职(做到最高的那个官和任期)、历任(之前的官和年份)、效力、结局
  *         宗室:国家、生卒、父亲、子嗣
  *         (字号:西幻、汗国这类名字没有姓的不起字号,这一行不出)
+ *   倾向  君主、执政官才有:开拓、好战、发展、重商一项一行(名字、灰色细条、0–100 的数值),下面一句说明
  *   生平  将领、名臣的一段生平(officialText.ts 的 personBio);写到的君主是蓝字
  *   作者的人物  亲友里有他、经历里勾了他的作者人物(characterInfo.ts 的 charactersOfPerson),没有就不显示
  *   在位时 / 领兵时 / 在朝时  他在台上那几年本国的事(将领 = 他经手的那几仗),新的在上;点一条跳到那一年
  */
 import { Fragment, useMemo, useState, type ReactNode } from 'react';
-import type { Civ, Person } from '../gen/civ/types';
+import type { Civ, Person, RulerLeanings } from '../gen/civ/types';
 import { polityName } from '../gen/civ/growth';
 import { buildChronicle, filterChronicle, reignEntries, type ChronicleEntry } from '../gen/civ/chronicle';
 import { commandFoes, peopleIndex, personFame, personSpan, rulerNeighbors, type Foe } from '../gen/civ/peopleInfo';
-import { ageAt, generalRole, isConsul, kinOf, ministerRole, personName, princeRole, rulerFateWord, rulerRole } from '../gen/civ/peopleText';
+import { LEANING_KEYS, LEANING_TEXT, ageAt, generalRole, isConsul, kinOf, leaningsText, ministerRole, personName, princeRole, rulerFateWord, rulerRole } from '../gen/civ/peopleText';
 import { deedsShort, ministerFate, personArt, personBio } from '../gen/civ/officialText';
 import { fatherOf, hasLineage, kidsOf } from '../gen/civ/lineageInfo';
 import { personKey } from '../gen/characters';
@@ -147,6 +148,7 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
 
   const copy = async () => {
     const out = [name, sub, ...lines.map((l) => `${l.k}：${l.text}`)];
+    if (ruler && x.leanings) out.push(`倾向：${leaningsText(x.leanings)}`);
     if (bio) out.push('', `生平：${bio}`);
     if (events.length) out.push('', `${head}：`, ...events.map((e) => `${F(e.year)} ${e.text.replace(/^【干预】/, '')}`));
     const text = out.join('\n');
@@ -204,6 +206,7 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
             </Row>
           ))}
         </Stats>
+        {ruler && x.leanings && <Leanings l={x.leanings} />}
         {bio && (
           <section className="cp-sec">
             <div className="cp-sec-head">生平</div>
@@ -230,6 +233,29 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
         )}
       </div>
     </div>
+  );
+}
+
+/** 君主的倾向:一项一行(名字、细条、数值),下面一句说明 */
+function Leanings({ l }: { l: RulerLeanings }) {
+  return (
+    <section className="cp-sec" data-sec="leanings">
+      <div className="cp-sec-head">倾向</div>
+      <div className="cp-group">
+        {LEANING_KEYS.map((k) => (
+          <div key={k} className="pp-lean" data-leaning={k}>
+            <div className="pp-lean-top">
+              <span className="pp-lean-k">{LEANING_TEXT[k].name}</span>
+              <span className="pp-lean-bar" aria-hidden="true">
+                <i style={{ width: `${l[k]}%` }} />
+              </span>
+              <span className="pp-lean-num">{l[k]}</span>
+            </div>
+            <div className="pp-lean-note">{LEANING_TEXT[k].note}</div>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 
