@@ -1072,7 +1072,7 @@ function culturesFor(civ: Civ, info: ScopeInfo): number[] {
     return [...ids].filter((c) => civ.cultures[c]);
   }
   return civ.cultures
-    .filter((cu) => Y(cu.born) <= info.to && (cu.ended === undefined || Y(cu.ended) >= info.from))
+    .filter((cu) => !cu.unborn && Y(cu.born) <= info.to && (cu.ended === undefined || Y(cu.ended) >= info.from))
     .sort((a, b) => a.born - b.born || a.id - b.id)
     .map((cu) => cu.id);
 }
@@ -1084,7 +1084,7 @@ function overviewText(civ: Civ, info: ScopeInfo): string {
   const peopled = civ.regions.count;
   const lines = [
     `- 纪年:第一批定居者到来那年算第 0 年;推演到第 ${Y(civ.endYear)} 年为止。本书写第 ${info.from}—${info.to} 年`,
-    `- 全世界约${cnNumber(peopled)}个州(州是地图上的地区单位,大小约相当于一个郡);先后兴起过${cnNumber(civ.cultures.length)}个民族、${cnNumber(civ.polities.length)}个国家,其中${cnNumber(great)}个成为大国(极盛时二十五州以上)`,
+    `- 全世界约${cnNumber(peopled)}个州(州是地图上的地区单位,大小约相当于一个郡);先后兴起过${cnNumber(civ.cultures.filter((cu) => !cu.unborn).length)}个民族、${cnNumber(civ.polities.length)}个国家,其中${cnNumber(great)}个成为大国(极盛时二十五州以上)`,
     '- 国号随国土大小升格:部 / 城邦(一州)→ 国(五州以上)→ 王国、大某(二十五州以上)→ 帝国、某某王朝(七十州以上);东方式国家约三百年一易代、换国号,西幻式国家国名不变、王室更迭',
   ];
   const eastern = civ.polities.some((p) => p.eastern);

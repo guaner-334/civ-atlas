@@ -39,7 +39,7 @@ import { anchorTag, fexp, fpow, keyed, subSeed } from './rand';
 import { quantize, Ev, type CivSim } from './sim';
 import { KIND_INFO } from './display';
 import { cultureNeighbors, cultureTerrain, type CultureModel, type CultureTerrain } from './cultures';
-import { SETTLEMENT_RANKS, capitalAt, populationAt, tierOf, yearReaching } from './growth';
+import { SETTLEMENT_RANKS, capitalAt, populationAt, portAt, portSince, tierOf, yearReaching } from './growth';
 import { namePolities, nameSettlements, type RestoreDirection } from './naming';
 import type { RouteCity } from './routes';
 import type { InterventionModel } from './interventions';
@@ -223,6 +223,17 @@ function cityCapacity(m: PolityModel, r: number): number {
   return cap * (0.8 + 0.45 * keyed(m.base, T.regions.seat[r], 2));
 }
 
+/**
+ * 州 r 的城址里随地形变的那几样相乘:州的人口上限 ^ CAP_EXP × 港口 × 大河(城的人口上限大体和它成正比,见 cityCapacity)。
+ * 地形大事以后老城的上限按它前后之比缩放(upheaval.ts 的 reshapeCities;建城时的基准、随机部分不变)
+ */
+export function siteFactor(T: CultureTerrain, port: boolean, r: number): number {
+  let f = fpow(T.regions.capacity[r], CAP_EXP);
+  if (port) f *= PORT_CAP;
+  if (T.riverSeat[r]) f *= RIVER_CAP;
+  return f;
+}
+
 function cityGrowth(m: PolityModel, r: number): number {
   return GROWTH * (0.75 + 0.5 * keyed(m.base, m.terrain.regions.seat[r], 3));
 }
@@ -232,17 +243,20 @@ function foundDelay(m: PolityModel, r: number): number {
   return FOUND_DELAY[0] + (FOUND_DELAY[1] - FOUND_DELAY[0]) * keyed(m.base, m.terrain.regions.seat[r], 1);
 }
 
-/** 这座城人口越过立国门槛的年份(建城不满 MIN_AGE 年的往后推);够不着 = Infinity */
+/**
+ * 这座城建城满 MIN_AGE 年以后、人口够立国门槛的第一年;够不着 = Infinity。
+ * 建城不满 MIN_AGE 年就越过了门槛的,往后推到满 MIN_AGE 年 —— 那时人口还得够(地形大事降了上限、人口跌回门槛以下的不算)
+ */
 export function foundingYear(s: Settlement): Year {
-  const t = yearReaching(s, FOUND_POP);
-  return t < Infinity ? Math.max(t, s.founded + MIN_AGE) : Infinity;
+  return yearReaching(s, FOUND_POP, s.founded + MIN_AGE);
 }
 
 /**
  * 港口:治所挨着能通航的海,而且是天然良港(只挨着一块海)或河口;
  * 每块陆地在它挨着的每片海上至少一个港口(挑人口上限最大的);一片海凑不够两个港口就一个都不设(航线要两头)。
+ * 只看宜居的州(新城只建在那里);also 里标了的州不宜居也看(地形大事以后城还在、州变得不宜居的,港口照样按海岸认)
  */
-function findPorts(world: World, T: CultureTerrain): Uint8Array {
+export function findPorts(world: World, T: CultureTerrain, also?: Uint8Array): Uint8Array {
   const { mesh, water, flux, riverThreshold } = world;
   const { n, adjStart, adj } = mesh;
   const reg = T.regions;
@@ -275,7 +289,7 @@ function findPorts(world: World, T: CultureTerrain): Uint8Array {
   const seaOf = new Int32Array(R).fill(-1);
   const good = new Uint8Array(R);
   for (let r = 0; r < R; r++) {
-    if (!T.habitable[r]) continue;
+    if (!T.habitable[r] && !also?.[r]) continue;
     const s = reg.seat[r];
     let nSea = 0;
     for (let k = adjStart[s]; k < adjStart[s + 1]; k++) {
@@ -1290,12 +1304,28 @@ export function routeCities(settlements: Settlement[], polities: Polity[], endYe
     if (g) g.push(s);
     else atCell.set(s.cell, [s]);
   }
-  /** 够格修路的年份(国都、港口 = 建城那年;其余 = 长成镇那年;被毁前没长成镇 / 到结束年份还不是镇 = Infinity) */
+  /** 港口:按这份历史的最后一段地形(地形大事以后城址变了的,见 Settlement.reshaped) */
+  const port = (s: Settlement) => portAt(s, Infinity);
+  /**
+   * 够格修路的年份(国都、港口 = 建城那年;其余 = 长成镇那年;被毁前没长成镇 / 到结束年份还不是镇 = Infinity)。
+   * 地形大事以后才成了港口的:成港口那年和长成镇那年里早的那个(航线另记,见下面的 portFrom);
+   * 地形大事降了上限、到结束时已经不是镇的:降之前是镇的照长成镇那年
+   */
   const from = (s: Settlement): Year => {
-    if (capitalFrom.has(s.id) || s.port) return s.founded;
-    if (s.ended === undefined) return populationAt(s, endYear) >= town ? Math.max(s.founded, yearReaching(s, town)) : Infinity;
-    const y = Math.max(s.founded, yearReaching(s, town));
-    return y < s.ended ? y : Infinity;
+    const harbor = portSince(s);
+    if (capitalFrom.has(s.id) || harbor === s.founded) return s.founded;
+    let y: Year;
+    if (s.ended === undefined) {
+      if (populationAt(s, endYear) >= town) y = Math.max(s.founded, yearReaching(s, town));
+      else if (s.reshaped?.some((e) => e.year <= endYear && populationAt(s, e.year - 1 / 256) >= town)) {
+        // 地形大事降了上限、到结束时已经不是镇的:降之前确实是镇(算上洗劫)的,长成镇那年修起来的路照样在(路只随城被毁荒废)
+        y = Math.max(s.founded, yearReaching(s, town));
+      } else y = Infinity;
+    } else {
+      y = Math.max(s.founded, yearReaching(s, town));
+      if (!(y < s.ended)) y = Infinity;
+    }
+    return Math.min(y, harbor);
   };
   const out: RouteCity[] = [];
   for (const s of settlements) {
@@ -1308,7 +1338,18 @@ export function routeCities(settlements: Settlement[], polities: Polity[], endYe
       if (capitalFrom.has(x.id)) majorFrom = Math.min(majorFrom, capitalFrom.get(x.id)!);
     }
     if (!(founded < Infinity)) continue;
-    const c: RouteCity = { cell: s.cell, major: majorFrom < Infinity, majorFrom: majorFrom < Infinity ? majorFrom : undefined, port: g.some((x) => x.port), founded };
+    // 港口看这处城址的最后一座城:先前的城可能在地形大事以前就毁了,记着的还是那时的港口
+    const last = g[g.length - 1];
+    const c: RouteCity = { cell: s.cell, major: majorFrom < Infinity, majorFrom: majorFrom < Infinity ? majorFrom : undefined, port: port(last), founded };
+    // 航线从这处城址一直是港口的那年起(陆路照上面的 founded):从最后一座城往前,前一座到最后也是港口的接着往前算
+    // (中间毁了又重建不算断)。地形大事以后才成了港口的、原址重建时才成港口的,航线不早于那年
+    let harbor = portSince(last);
+    for (let i = g.length - 2; i >= 0 && harbor === g[i + 1].founded; i--) {
+      const h = portSince(g[i]);
+      if (!(h < Infinity)) break;
+      harbor = h;
+    }
+    if (harbor < Infinity && harbor > founded) c.portFrom = harbor;
     const ended = g[g.length - 1].ended;
     if (ended !== undefined) c.ended = ended;
     out.push(c);
