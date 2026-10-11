@@ -400,6 +400,13 @@ describe('地形大事 · 推演', () => {
     const [sc] = routeCities([shrunk], [], 1000);
     expect(sc).toBeDefined();
     expect(sc.founded).toBe(gc.founded);
+    // 快长成镇时被洗劫、人口还没缓过来就碰上地形大事降了上限:从来没当过镇,不修路
+    const townish: Settlement = { ...shrunk, capacity: 100, reshaped: undefined };
+    const tY = routeCities([townish], [], 1000)[0].founded;
+    expect(tY).toBeGreaterThan(10);
+    const sacked: Settlement = { ...townish, sacks: [{ year: tY - 1, loss: 0.95 }], reshaped: [{ year: tY + 5, capacity: 5, port: false }] };
+    expect(routeCities([{ ...sacked, sacks: undefined }], [], 1000)[0].founded).toBe(tY);
+    expect(routeCities([sacked], [], 1000)).toHaveLength(0);
     // 两座港口城之间的航线:有一座 700 年才成港口的,航线从 700 年起
     const pc = routeCities(c.settlements, c.polities, 3000).filter((x) => x.port && x.ended === undefined);
     const lm = (x: { cell: number }) => c.regions.landmass[c.regions.of[x.cell]];
