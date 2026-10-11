@@ -38,6 +38,12 @@ export const OLD_SITE: number | null = oldSiteVersion(env.VITE_OLD_SITE);
 /** 旧网站用到哪天(新版上线那天,「10 月 11 日」);不知道 = '' */
 export const OLD_UNTIL: string = untilText(env.VITE_OLD_UNTIL);
 
+/**
+ * 测试网站:新改动先发到正式网站下面的 beta/ 试一阵,再发到正式网站(.github/workflows/deploy-beta.yml)。
+ * 那份构建带 VITE_BETA_SITE=1:页面上写明是测试版、能回正式版;浏览器存储和正式网站分开(存储的名字带 beta)
+ */
+export const BETA_SITE: boolean = env.VITE_BETA_SITE === '1';
+
 /** 旧网站里打开了更新的版本存的世界:刷新还是旧网站,不说"刷新页面",说旧版里看到的不一样(提示条上带「到最新版打开」) */
 export const OLD_NEWER_NOTE = '来自更新的版本：旧版里看到的和最新版不一样';
 
@@ -57,17 +63,17 @@ function here(): string {
 }
 
 /**
- * 第 gen 版建的世界在哪个旧网站看原样:最新版网站下面的 v<gen>/。
+ * 第 gen 版建的世界在哪个旧网站看原样:正式网站下面的 v<gen>/(测试网站在正式网站下面一层,往上找)。
  * 没有那一版的旧网站(太旧、就是现在这一版、比现在还新、版本号认不出)、这一页自己就是旧网站 = null
  */
-export function oldSiteFor(gen: number, page = here(), site = OLD_SITE, current = GENERATOR_VERSION): URL | null {
+export function oldSiteFor(gen: number, page = here(), site = OLD_SITE, current = GENERATOR_VERSION, beta = BETA_SITE): URL | null {
   if (site !== null || !Number.isInteger(gen) || gen < FIRST_OLD_SITE || gen >= current) return null;
-  return new URL(`v${gen}/`, new URL('./', page));
+  return new URL(`v${gen}/`, new URL(beta ? '../' : './', page));
 }
 
-/** 旧网站回最新版的网址(旧网站在最新版下面一层);不是旧网站 = 这一页所在的目录 */
-export function latestUrl(page = here(), site = OLD_SITE): URL {
-  return new URL(site === null ? './' : '../', page);
+/** 旧网站、测试网站回正式网站的网址(它们都在正式网站下面一层);正式网站自己 = 这一页所在的目录 */
+export function latestUrl(page = here(), site = OLD_SITE, beta = BETA_SITE): URL {
+  return new URL(site === null && !beta ? './' : '../', page);
 }
 
 /**
