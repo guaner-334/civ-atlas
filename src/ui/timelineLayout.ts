@@ -5,8 +5,9 @@
  * RecentEvents.tsx、EventPins.tsx。
  *
  * - 事件类型:史事种类(types.ts 的 AnnalKind)归成五类 + 宗教 + 干预,颜色用 CSS 变量(timeline.css 的 [data-ev=…]):
- *   战争(打仗、战役、攻占、议和、洗劫、毁城、灭亡)/ 改朝(改朝换代、君主继位、迁都、旧都衰落)/ 立国(立国、分裂自立、复国、重建)/
- *   称帝(升格、称帝、降格、合并)/ 同化(同化、迁徙、民族消亡)/ 宗教(创教、立国教、传入、教派分立、圣城易主)/ 干预(主色)。
+ *   战争(打仗、战役、攻占、议和、洗劫、毁城、灭亡)/ 改朝(改朝换代、君主继位、迁都、旧都衰落)/
+ *   立国(立国、分裂自立、复国、重建、藩属绝贡自立)/ 称帝(升格、称帝、降格、合并、称臣、结盟、盟约断了)/
+ *   同化(同化、迁徙、民族消亡)/ 宗教(创教、立国教、传入、教派分立、圣城易主)/ 干预(主色)。
  *   卡片上的类型名按一字标签细分("攻占""迁都"……)。
  * - 刻度:每条纪事一个小菱形(战争画在开战那年);挨得太近(DIAMOND_GAP 像素以内)合并成一个,
  *   颜色取其中分量最重的那一件,悬停列出每一件。干预单独一种"令"标记、地形大事一种"变"标记,不和菱形合并。
@@ -40,6 +41,10 @@ const KIND_TYPE: Readonly<Record<string, EvType>> = {
   rebuild: 'found',
   rank: 'empire',
   merge: 'empire',
+  submit: 'empire',
+  alliance: 'empire',
+  unally: 'empire',
+  defect: 'found',
   assimilate: 'assim',
   migrate: 'assim',
   vanish: 'assim',
@@ -84,6 +89,11 @@ const TAG_LABEL: Readonly<Record<string, string>> = {
   传: '传入',
   派: '教派',
   圣: '圣城',
+  臣: '称臣',
+  盟: '结盟',
+  绝: '盟绝',
+  背: '背盟',
+  叛: '绝贡',
 };
 
 /** 卡片 / 最近事件 / 提示里的类型名:"战争""改朝""称帝"…… */
@@ -129,6 +139,10 @@ const KIND_WEIGHT: Readonly<Record<string, number>> = {
   faith: 2,
   intervene: 9,
   upheaval: 9,
+  submit: 4,
+  defect: 4,
+  alliance: 2,
+  unally: 1,
 };
 
 /** 一条纪事的分量(先看重要度,再看种类) */
