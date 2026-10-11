@@ -227,6 +227,13 @@ describe.each([7, 2024])('名臣 · seed=%i', (seed) => {
     expect(key).toContain('|minister|');
     expect(isPersonKey(key)).toBe(true);
     expect(resolvePersonKey(generateCiv(world(seed)), key)).toBe(x.id);
+    // 旧存档里记着将领原来的名字(后来按不重名的规则改了名):同一国、同年生的将领只有一位时还找得回
+    const gens = (civ.people ?? []).filter((y) => y.role === 'general');
+    const g = gens.find((y) => gens.filter((z) => z.polity === y.polity && Math.round(z.born) === Math.round(y.born)).length === 1);
+    expect(g).toBeDefined();
+    const old = personKey(civ, g!.id).replace(`|general|${g!.name}|`, '|general|旧名|');
+    expect(resolvePersonKey(civ, old)).toBe(g!.id);
+    expect(resolvePersonKey(civ, old.replace('|general|', '|minister|'))).toBe(-1);
   });
 });
 

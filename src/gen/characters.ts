@@ -133,7 +133,16 @@ const personKeys = (civ: Civ) => personIndex(civ).keys;
 /** 按人物的稳定键在(重推过的)历史里找回这个人;找不到 = −1 */
 export function resolvePersonKey(civ: Civ, key: string): number {
   if (!civ.people?.length) return -1;
-  return personIndex(civ).byKey.get(key) ?? -1;
+  const ix = personIndex(civ);
+  const hit = ix.byKey.get(key);
+  if (hit !== undefined) return hit;
+  // 将领后来按不重名的规则改过名(旧存档里记的是原来的名字):同一国、同年生的将领只有一位,就是他
+  const m = /^(person:.+\|general)\|[^|]+\|(-?\d+)(?:#\d+)?$/.exec(key);
+  if (!m) return -1;
+  const head = m[1] + '|';
+  const tail = '|' + m[2];
+  const found = ix.keys.flatMap((k, id) => (k.startsWith(head) && (k.endsWith(tail) || k.includes(tail + '#')) ? [id] : []));
+  return found.length === 1 ? found[0] : -1;
 }
 
 const PERSON_KEY = /^person:polity:(r-?\d{1,7}|c\d{1,7})#\d{1,5}\|(ruler|general|prince|minister)\|[^|\n]{1,32}\|-?\d{1,6}(#\d{1,4})?$/;

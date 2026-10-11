@@ -98,10 +98,11 @@ function deedText(civ: Civ, x: Person, d: PersonDeed, east: boolean): string {
       const rise = who?.rise;
       const top = postAt(x, d.year)?.title ?? '';
       if (east) {
-        const act = rise === 'rebel' ? '随' + whoName + '自立' : rise === 'restore' ? '随' + whoName + '复国' : rise === 'rise' ? '从' + whoName + '起兵开国' : '佐' + whoName + '开国';
+        const act =
+          rise === 'rebel' ? '随' + whoName + '自立' : rise === 'restore' ? '随' + whoName + '复国' : rise === 'rise' ? '从' + whoName + '起兵开国' : rise === 'usurp' ? '佐' + whoName + '代立' : '佐' + whoName + '开国';
         return top ? `${act}，以佐命之功拜${top}` : act;
       }
-      const act = rise === 'rebel' ? `追随${whoName}自立` : rise === 'restore' ? `追随${whoName}复国` : `追随${whoName}建国`;
+      const act = rise === 'rebel' ? `追随${whoName}自立` : rise === 'restore' ? `追随${whoName}复国` : rise === 'usurp' ? `拥戴${whoName}取代旧王室` : `追随${whoName}建国`;
       return top ? `${act}，任${top}` : act;
     }
     case 'regent': {
@@ -117,7 +118,7 @@ function deedText(civ: Civ, x: Person, d: PersonDeed, east: boolean): string {
     }
     case 'rank': {
       const tier = clampTier(polityTierAt(p, d.year));
-      if (p.lineage === 'republic') return '力主改行帝制';
+      if (p.lineage === 'republic') return '力主改称帝国';
       if (p.lineage === 'khanate') return tier >= 3 ? `力主${whoName}称大汗` : `力主${whoName}称汗`;
       if (east) return tier >= 3 ? `率群臣劝进，${whoName}称帝` : `劝${whoName}称王`;
       return tier >= 3 ? `力主${whoName}加冕称帝` : `力主${whoName}称王`;
@@ -154,13 +155,14 @@ function deedShort(civ: Civ, x: Person, d: PersonDeed, east: boolean): string {
   const foeName = foe ? polityName(foe, d.year) : '';
   switch (d.kind) {
     case 'found':
+      if (who?.rise === 'usurp') return east ? `佐${short}代立` : `拥${short}夺位`;
       return east ? `佐${short}开国` : `随${short}建国`;
     case 'regent':
       return east ? `辅幼主${short}` : `为${short}摄政`;
     case 'enthrone':
       return east ? `迎立${short}` : `拥立${short}`;
     case 'rank':
-      if (p.lineage === 'republic') return '力主改行帝制';
+      if (p.lineage === 'republic') return '力主改称帝国';
       if (p.lineage === 'khanate') return clampTier(polityTierAt(p, d.year)) >= 3 ? '力主称大汗' : '力主称汗';
       return clampTier(polityTierAt(p, d.year)) >= 3 ? '劝进称帝' : '劝进称王';
     case 'capital': {
@@ -250,6 +252,7 @@ function ministerEnd(civ: Civ, x: Person, east: boolean): string {
     case 'deposed':
       return after(east ? `${F(until)} 年新君即位，罢${top}` : `${F(until)} 年新君即位后被免去${top}之职`);
     case 'fell':
+      if (!fallen) return east ? `${F(until)} 年改朝换代，殉节` : `${F(until)} 年王朝更替，以身殉主`;
       return east ? `${F(until)} 年${oldName}亡，殉国` : `${F(until)} 年${oldName}覆灭，随之殉国`;
     case 'surrendered': {
       if (fallen && conqueror !== undefined && conqueror >= 0) {
@@ -285,7 +288,7 @@ export function ministerFate(civ: Civ, x: Person): string {
     case 'deposed':
       return (east ? '新君即位，罢官' : '新君即位后被免职') + later;
     case 'fell':
-      return '殉国';
+      return fallen ? '殉国' : east ? '改朝换代时殉节' : '王朝更替时殉主';
     case 'surrendered': {
       const c = fallen ? civ.annals.find((a) => a.kind === 'fall' && a.a === p.id)?.b : undefined;
       const to = c !== undefined && c >= 0 && civ.polities[c] ? polityName(civ.polities[c], until) : '';
