@@ -6,14 +6,15 @@
  * 读档时 App 先按存档的参数生成,再 setEdits(存档里的修改)。
  *
  * 撤销 / 重做(⌘Z / ⇧⌘Z,见 undo.ts):改名、改旗、干预、地形大事、作者标记、作者的人物、AI 改写每次都记一步(改之前、改之后两份),只记这次打开网页以后、这个世界上的;
- * 读档、换世界(setEdits / clearEdits)、创建世界(clearEditHistory)清空。地形修改、草图不记:只在新建世界时能改,工具有自己的"撤销一笔"。
+ * 读档、换世界(setEdits / clearEdits)、创建世界(clearEditHistory)清空。地形修改、草图、地名风格不记:只在新建世界时能改,工具有自己的"撤销一笔"。
  */
 import { useSyncExternalStore } from 'react';
 import { EMPTY_EDITS, MARKS_MAX, MARK_REGIONS_TOTAL, cleanIntervention, cleanMark, markRegionTotal, sameMark, markAiName, nextMarkId, type AuthorMark, type Intervention, type TerrainOp, type Upheaval, type WorldEdits } from '../gen/edits';
 import { TERRAIN_MAX_OPS, UPHEAVALS_MAX, cleanTerrainOp, cleanUpheaval } from '../gen/terrainEdits';
-import { SKETCH_MAX_STROKES, cleanSketch, cleanSketchImage, cleanSketchStroke, encodeLayer, sketchCoast, type SketchEdit, type SketchImage, type SketchStroke } from '../gen/sketch';
+import { SKETCH_MAX_STROKES, cleanSketch, cleanSketchImage, cleanSketchStroke, encodeLayer, sketchCoast, type SketchEdit, type SketchStroke } from '../gen/sketch';
 import { CHARACTERS_MAX, cleanCharacter, nextCharacterId, sameCharacter, type AuthorCharacter } from '../gen/characters';
 import { showToast } from './toastStore';
+import { cleanMix, sameMix, type NameMix } from '../gen/names/mix';
 
 let state: WorldEdits = EMPTY_EDITS;
 const subs = new Set<() => void>();
@@ -121,8 +122,9 @@ export function revertEdits(now: WorldEdits, from: WorldEdits, to: WorldEdits): 
   if (names === now.names && aiNames === now.aiNames && interventions === now.interventions && terrain === now.terrain && sameUps && marks === now.marks && flags === now.flags && characters === now.characters)
     return now;
   const out: WorldEdits = { names, interventions, terrain };
-  // 草图不记撤销步(见文件头),照现在的留着
+  // 草图、地名风格不记撤销步(见文件头),照现在的留着
   if (now.sketch) out.sketch = now.sketch;
+  if (now.nameMix) out.nameMix = now.nameMix;
   if (upheavals.length) out.upheavals = sameUps ? now.upheavals : upheavals;
   if (aiNames && Object.keys(aiNames).length) out.aiNames = aiNames;
   if (marks?.length) out.marks = marks;
@@ -350,6 +352,15 @@ export function addTerrainOp(op: TerrainOp): boolean {
   return true;
 }
 
+/** 地名风格(新建世界时配,不记撤销步):每种语感几份;undefined / 一份都没有 = 自动,去掉这一项 */
+export function setNameMix(mix: NameMix | undefined) {
+  const next = cleanMix(mix);
+  if (sameMix(next, state.nameMix)) return;
+  const { nameMix: _old, ...rest } = state;
+  void _old;
+  put(next ? { ...rest, nameMix: next } : rest);
+}
+
 /** 地形修改:撤销最后一处 */
 export function undoTerrainOp() {
   if (!state.terrain.length) return;
@@ -389,58 +400,23 @@ export function undoSketchStroke() {
   putSketch({ ...now, strokes: now.strokes.slice(0, -1) });
 }
 
-/** 导入图片时换掉的上一张(撤销这次导入时放回去);只记在内存里 */
-const replacedImage = new WeakMap<SketchImage, SketchImage>();
-
-/** 把导入的图片换成 image(已经有的记下来,撤销时放回去)。还没有草图时新开一张,海岸线用 coast */
-function placeSketchImage(image: SketchImage, coast?: number) {
-  const now = state.sketch;
-  const base: SketchEdit = now ?? (coast === undefined ? { rest: 'auto', strokes: [] } : { rest: 'auto', coast, strokes: [] });
-  if (now?.image && now.image !== image) replacedImage.set(image, now.image);
-  putSketch({ ...base, image });
-}
-
 /**
- * 草图:导入一张图(认出来的格子图,LAYER_W × LAYER_H),铺在已有的笔画上面、之后的笔画底下;已经导入过的换掉(撤销时放回去)。
- * 还没有草图时新开一张,海岸线用 coast(不给 = 默认)。一格也没盖到的不导入;返回是否导入了
+ * 草图:照手绘图生成时,导入的图认出来的格子图(LAYER_W × LAYER_H)是整颗星球的底子 —— 铺在所有笔画底下,没盖到的地方都是海;
+ * 已经有的换掉(「换一张」),笔画留着。还没有草图时新开一张,海岸线用 coast(不给 = 默认)。一格也没盖到的不导入;返回是否导入了
  */
-export function setSketchImage(name: string, layer: Uint8Array, coast?: number): boolean {
-  const n = state.sketch?.strokes.length ?? 0;
-  const image = cleanSketchImage({ name, cells: encodeLayer(layer), at: n }, n);
+export function setSketchBase(name: string, layer: Uint8Array, coast?: number): boolean {
+  const now = state.sketch;
+  const image = cleanSketchImage({ name, cells: encodeLayer(layer) }, now?.strokes.length ?? 0);
   if (!image) return false;
-  placeSketchImage(image, coast);
+  const base: SketchEdit = now ?? (coast === undefined ? { rest: 'sea', strokes: [] } : { rest: 'sea', coast, strokes: [] });
+  putSketch({ ...base, rest: 'sea', image });
   return true;
 }
 
-/** 草图:重做刚撤掉的那次导入(撤掉以后没改过别的) */
-export function redoSketchImage(image: SketchImage, coast?: number) {
-  placeSketchImage(image, coast);
-}
-
-/** 草图:撤销导入图片(换掉的上一张放回去;没有就是去掉) */
-export function undoSketchImage() {
+/** 草图:清掉所有笔画(导入的图、海岸线、没涂的地方留着) */
+export function clearSketchStrokes() {
   const now = state.sketch;
-  if (!now?.image) return;
-  const prev = replacedImage.get(now.image);
-  const { image: _, ...rest } = now;
-  void _;
-  putSketch(prev ? { ...rest, image: prev } : rest);
-}
-
-/** 草图:去掉导入的图片(笔画留着;换掉过的也不放回去) */
-export function removeSketchImage() {
-  const now = state.sketch;
-  if (!now?.image) return;
-  const { image: _, ...rest } = now;
-  void _;
-  putSketch(rest);
-}
-
-/** 现在导入的图片能撤销几次(这一张 + 它换掉的、换掉的又换掉的……);没导入 = 0 */
-export function sketchImageSteps(): number {
-  let n = 0;
-  for (let im = state.sketch?.image; im; im = replacedImage.get(im)) n++;
-  return n;
+  if (now?.strokes.length) putSketch({ ...now, strokes: [] });
 }
 
 /** 草图:全部清除(连同"没涂的地方都是海",回到程序原本的星球) */

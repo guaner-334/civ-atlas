@@ -85,18 +85,19 @@ const projOn = async (p: Page = page) => {
   return v;
 };
 /**
- * 新建界面(网址 new=1、我的世界里点「新建世界」)准备好:世界生成出来了,开场(板块漂移 → 卷成地球仪)在放就点「跳过」,
- * 等两边面板(手机:底部卡片)滑进来
+ * 新建界面(网址 new=1、我的世界里点「新建世界」再在弹窗里点「开始」)准备好:世界生成出来了,两边面板(手机:底部卡片)在
  */
 const studioReady = async (p: Page = page) => {
   await p.locator('.studio').waitFor({ timeout: 30000 });
   await p.waitForFunction(() => (window as any).__wf?.ready, null, { timeout: 60000 });
-  await p
-    .waitForFunction(() => !document.querySelector('.studio.intro') || document.querySelector('.st-cap:not(.off) [data-act=skip-intro]'), null, { timeout: 20000 })
-    .catch(() => {});
-  if (await p.locator('.studio.intro').count()) await p.click('.st-cap:not(.off) [data-act=skip-intro]').catch(() => {});
-  await p.locator('.studio:not(.intro)').waitFor({ timeout: 15000 });
   await p.waitForTimeout(450);
+};
+/** 「新建世界」弹窗:第 1 步(默认随机生成)点「下一步」,第 2 步点「开始」;tap = 手机上点 */
+const dialogStart = async (p: Page, tap = false) => {
+  const hit = (sel: string) => (tap ? p.tap(sel) : p.click(sel));
+  await p.locator('.nd-scrim').waitFor({ timeout: 5000 });
+  await hit('.nd-scrim [data-act=dlg-next]');
+  await hit('.nd-scrim [data-act=dlg-start]');
 };
 /**
  * 进入编辑地形:只有新建世界时能改(网址 new=1);点左边(手机:拉开底部卡片)的"编辑地形",卡片里换成编辑地形的工具(.tp),
@@ -1120,13 +1121,13 @@ if (!(cached.renderMs < 20)) errs.push(`切回画过的画风仍在重画(render
   await zp.close();
 }
 
-// 回放中点概览"世界设定"页的"以它为底稿新建…":概览收起,换成新建界面(左边设定:种子锁着,地形、参数带过去;不放开场);
+// 回放中点概览"世界设定"页的"以它为底稿新建…":概览收起,换成新建界面(不弹新建窗口;左边设定:种子锁着,地形、参数带过去);
 // 带着东西、起好了名,一开始就存成没建完的(网址 w=编号,刷新不丢);什么都没动就点返回,这一份删掉
 await replayClick();
 await page.waitForTimeout(1000);
 await openOverview(page, 'genesis');
 await page.click('.ov [data-act=draft-from]');
-const fromCard = await page.locator('.studio:not(.intro) .st-left').waitFor({ timeout: 5000 }).then(() => true, () => false);
+const fromCard = (await page.locator('.studio .st-left').waitFor({ timeout: 5000 }).then(() => true, () => false)) && !(await page.locator('.nd-scrim').count());
 const fromClosed = !(await page.locator('.ov-root:not([hidden])').count());
 const fromSeed = (await page.locator('.st-left [data-act=seed-locked]').innerText().catch(() => '')).replace(/\n/g, ' ');
 const fromUrl = page.url();
@@ -1137,52 +1138,50 @@ await page.click('.st-left [data-act=back]').catch(() => {});
 await page.locator('.studio').waitFor({ state: 'detached', timeout: 10000 }).catch(() => {});
 const fromLeft = !!fromId && (await page.evaluate((k) => localStorage.getItem(k) !== null, fromKey));
 console.log(`以它为底稿新建:卡片 ${fromCard}、概览收起 ${fromClosed}、种子「${fromSeed}」、网址 ${fromUrl.split('?')[1]}、存下了 ${fromStored};没动就返回后还在 ${fromLeft}`);
-if (!fromCard || !fromClosed) errs.push('点"以它为底稿新建"后没有换成新建界面(或放了开场) / 概览没收起');
+if (!fromCard || !fromClosed) errs.push('点"以它为底稿新建"后没有换成新建界面(或弹了新建窗口) / 概览没收起');
 if (!/种子.*7/.test(fromSeed)) errs.push(`以它为底稿新建:种子应锁着、还是 7(${fromSeed})`);
 if (!fromStored) errs.push(`以它为底稿新建:应一开始就存成没建完的、网址带 w=编号(${fromUrl})`);
 if (fromLeft) errs.push('以它为底稿新建后什么都没动就返回,没建完的那一份没有删掉');
 
-// 新建界面:开场放板块漂移(字幕上有年代、进度、跳过;两边面板先不出来),跳过 → 卷成地球仪、面板滑进来;
-// 「重看星球形成」= 再放一遍开场(放的时候「换一颗」「创建世界」点不了);「换一颗」:种子、网址换了,生成时顶部提示条上有进度,
-// 新星球上放一遍漂移,放完各个按钮恢复
+// 新建界面:进来就是地球仪(不放板块漂移,左边没有「重看星球形成」),左边一句说是按种子随机生成;
+// 「换一颗」:种子、网址换了,生成时顶部提示条上有进度;随机生成的新建拖进图片不导入(提示条说一句)
 await page.goto(`${dev.url}/?new=1&seed=7&style=realistic`);
-await page.waitForFunction(() => (window as any).__wf?.ready, null, { timeout: 60000 });
+await studioReady();
 {
-  const capOn = await page
-    .waitForFunction(() => /亿年前|万年前/.test(document.querySelector('.st-cap:not(.off) .st-yr')?.textContent ?? ''), null, { timeout: 20000 })
-    .then(() => true, () => false);
-  const introPanels = await page.locator('.studio.intro').count();
-  await studioReady();
   const theme = await page.locator('.app').getAttribute('data-theme');
   const styles = await page.locator('.st-right [data-style]').count();
   const projs = await page.locator('.st-right [data-proj]').count();
-  await page.click('.studio [data-act=replay]');
-  await page.waitForTimeout(400);
-  const replaying = (await page.locator('.studio.intro').count()) === 1;
-  const lockedSeed = await page.locator('.studio [data-act=new-seed]').isDisabled();
-  await studioReady();
+  const replayRow = await page.locator('.studio [data-act=replay]').count();
+  const intro = await page.locator('.st-left .nw-intro').innerText().catch(() => '');
   await markWf();
   await page.click('.studio [data-act=new-seed]');
   // 生成新世界时顶部提示条上有进度
   const genToast = await page.locator('.toast[data-toast=progress]').innerText({ timeout: 5000 }).catch(() => '');
   await waitRedraw();
   const seed2 = await page.locator('.nw-seed-input').inputValue();
-  await page.waitForFunction(() => !document.querySelector('.studio [data-act=replay]')?.hasAttribute('disabled'), null, { timeout: 15000 }).catch(() => {});
-  const replayOk = !(await page.locator('.studio [data-act=replay]').isDisabled());
+  const imgNote = await page
+    .evaluate(() => {
+      const dt = new DataTransfer();
+      dt.items.add(new File([new Uint8Array([137, 80, 78, 71])], 'a.png', { type: 'image/png' }));
+      const el = document.querySelector('.app')!;
+      for (const type of ['dragenter', 'dragover', 'drop']) el.dispatchEvent(new DragEvent(type, { dataTransfer: dt, bubbles: true, cancelable: true }));
+    })
+    .then(() => page.locator('.toast').filter({ hasText: '不能导入图片' }).innerText({ timeout: 3000 }))
+    .then((t) => t.replace(/\n/g, ' '), () => '');
   console.log(
-    `新建界面:开场字幕 ${capOn}、面板藏着 ${introPanels === 1};跳过后主题 ${theme}、样式 ${styles} 种、投影 ${projs} 种;重看星球形成 → 开场 ${replaying}、换一颗点不了 ${lockedSeed};` +
-      `换一颗:种子 7 → ${seed2},生成时提示条「${genToast.replace(/\n/g, ' ')}」,之后重看按钮可点 ${replayOk}`,
+    `新建界面:主题 ${theme}、样式 ${styles} 种、投影 ${projs} 种、重看星球形成 ${replayRow} 个、「${intro}」;` +
+      `换一颗:种子 7 → ${seed2},生成时提示条「${genToast.replace(/\n/g, ' ')}」;拖进图片 →「${imgNote}」`,
   );
-  if (!capOn || introPanels !== 1) errs.push('新建界面:开场没有放板块漂移的字幕,或两边面板没藏起来');
   if (theme !== 'dark' || styles !== 7 || projs !== 6) errs.push(`新建界面:不是深色(${theme}),或右边样式 / 投影不全(${styles} / ${projs})`);
-  if (!replaying || !lockedSeed) errs.push('新建界面:「重看星球形成」没有重放开场,或放的时候还能换一颗');
+  if (replayRow || !intro.includes('按种子随机生成')) errs.push(`新建界面:左边还有「重看星球形成」,或开头那句没说按种子随机生成(${intro})`);
   if (!genToast) errs.push('生成新世界时顶部提示条上没有进度');
   if (seed2 === '7' || !new RegExp(`[?&]seed=${seed2}(&|$)`).test(page.url())) errs.push(`点"换一颗"后种子 / 网址没变(${seed2},${page.url()})`);
-  if (!replayOk) errs.push('新建界面:换一颗以后「重看星球形成」一直点不了');
+  if (!imgNote || (await page.locator('.imp-step').count())) errs.push(`随机生成的新建:拖进图片应不导入、提示条说一句(${imgNote})`);
 }
 
-// 第一次来(什么都没存):先到「我的世界」,中间一颗星球、一段话、「新建世界」;点了进新建界面;
-// 「创建世界」先弹确认框(列出种子、世界参数、地形三样不能再改),「再改改」关掉、「确认创建」才建好,回到平常的世界页面(浅色、政区)
+// 第一次来(什么都没存):先到「我的世界」,中间一颗星球、一段话、「新建世界」;点了先弹窗(第 1 步两种、默认随机生成,
+// 第 2 步种子和参数、说进去还能改;Esc 关掉什么都不留下),「开始」才进新建界面;
+// 「创建世界」先弹确认框(列出种子、世界参数、地形、地名风格四样不能再改),「再改改」关掉、「确认创建」才建好,回到平常的世界页面(浅色、政区)
 {
   const fctx = await browser.newContext({ viewport: { width: 1400, height: 820 } });
   const fp = await fctx.newPage();
@@ -1192,6 +1191,15 @@ await page.waitForFunction(() => (window as any).__wf?.ready, null, { timeout: 6
   const emptyText = (await fp.locator('.mw-empty').innerText().catch(() => '')).replace(/\n/g, '');
   const globe = await fp.locator('.mw-empty .mw-globe canvas').count();
   await fp.click('.mw-empty [data-act=new-world]');
+  const dlg1 = (await fp.locator('.nd-sheet').innerText({ timeout: 5000 }).catch(() => '')).replace(/\n/g, ' ');
+  const dlgOn = await fp.locator('.nd-card.on').getAttribute('data-mode').catch(() => null);
+  await fp.keyboard.press('Escape');
+  const dlgGone = !(await fp.locator('.nd-scrim').count()) && !(await fp.locator('.studio').count()) && !/[?&]new=/.test(fp.url());
+  await fp.click('.mw-empty [data-act=new-world]');
+  await fp.click('.nd-scrim [data-act=dlg-next]');
+  const dlg2 = (await fp.locator('.nd-sheet').innerText().catch(() => '')).replace(/\n/g, ' ');
+  const dlgParams = await fp.locator('.nd-sheet [data-param]').count();
+  await fp.click('.nd-scrim [data-act=dlg-start]');
   await studioReady(fp);
   const draftUrl = fp.url();
   await fp.click('.studio [data-act=create-world]');
@@ -1206,16 +1214,90 @@ await page.waitForFunction(() => (window as any).__wf?.ready, null, { timeout: 6
   const theme = await fp.locator('.app').getAttribute('data-theme');
   const layer = await fp.locator('.app').getAttribute('data-layer');
   console.log(
-    `第一次来:我的世界空的 ${empty}、星球 ${globe}、「${emptyText.slice(0, 40)}…」;新建 → ${draftUrl.split('?')[1]};确认框「${dlg.slice(0, 60)}…」种子 ${dlgSeed};` +
+    `第一次来:我的世界空的 ${empty}、星球 ${globe}、「${emptyText.slice(0, 40)}…」;新建弹窗「${dlg1.slice(0, 50)}…」默认 ${dlgOn}、Esc 关掉 ${dlgGone};` +
+      `第 2 步「${dlg2.slice(0, 40)}…」参数 ${dlgParams} 项;开始 → ${draftUrl.split('?')[1]};` +
+      `确认框「${dlg.slice(0, 60)}…」种子 ${dlgSeed};` +
       `再改改 → 关掉 ${closed}、还在新建 ${stillDraft};确认创建 → ${worldUrl.split('?')[1]}、${theme}、${layer}`,
   );
   if (!empty || !globe || !emptyText.includes('还没有世界') || !emptyText.includes('打造一颗独属于你的星球')) errs.push(`第一次来:我的世界空着时不是"星球 + 一段话 + 新建世界"(${emptyText})`);
   if (!emptyText.includes('无需登录') || !emptyText.includes('不主张任何权利')) errs.push(`第一次来:「或者打开存档文件」下面没有"无需登录……归你"那行小字(${emptyText})`);
-  if (!/[?&]new=1/.test(draftUrl)) errs.push(`第一次来:点「新建世界」没进新建(${draftUrl})`);
-  if (!['不能再改', '种子', '世界参数', '地形'].every((w) => dlg.includes(w)) || !new RegExp(`[?&]seed=${dlgSeed}(&|$)`).test(draftUrl)) errs.push(`新建界面:确认框没列出不能再改的三样(${dlg},种子 ${dlgSeed})`);
+  if (!/[?&]new=1/.test(draftUrl)) errs.push(`第一次来:新建弹窗里点「开始」没进新建(${draftUrl})`);
+  if (!dlg1.includes('随机生成') || !dlg1.includes('照手绘图生成') || dlgOn !== 'random' || !dlgGone) errs.push(`新建弹窗:第 1 步没有两种(默认随机生成),或 Esc 没关掉(${dlg1},${dlgOn},${dlgGone})`);
+  if (!dlg2.includes('种子') || !dlg2.includes('都还能改') || dlgParams !== 6) errs.push(`新建弹窗:第 2 步没有种子、六项参数和"进去以后还能改"(${dlg2},${dlgParams})`);
+  if (!['不能再改', '种子', '世界参数', '地形', '地名风格'].every((w) => dlg.includes(w)) || !new RegExp(`[?&]seed=${dlgSeed}(&|$)`).test(draftUrl)) errs.push(`新建界面:确认框没列出不能再改的四样(${dlg},种子 ${dlgSeed})`);
   if (!closed || !stillDraft) errs.push('新建界面:确认框点「再改改」没有关掉、回到新建');
   if (!/[?&]w=w/.test(worldUrl) || theme !== 'light' || layer !== 'political') errs.push(`新建界面:确认创建后没回到平常的世界页面(${worldUrl},${theme},${layer})`);
   await fctx.close();
+}
+
+// 照手绘图新建:弹窗里选「照手绘图生成」→ 第 2 步没有陆地比例,没选图时「开始」是灰的 → 选一张图 → 开始;
+// 新建界面是照图的那一页(左边图片一行和三步,没有右边的样式投影、没有种子和「换一颗」),进来就是第 1 步认图、后两步灰着、创建不了;
+// 在图上点一下海 →「照这样长出星球」→ 第 1 步打勾写着认出来多少、第 2 步(笔)展开、切换条上「长出来的」能点;
+// 确认框里「种子」那行换成「图片」
+{
+  const { PNG } = await import('pngjs');
+  const fs = await import('node:fs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  // 一张 240×120 的图:蓝色的海当中一块绿色的椭圆陆地
+  const png = new PNG({ width: 240, height: 120 });
+  for (let y = 0; y < 120; y++)
+    for (let x = 0; x < 240; x++) {
+      const i = (y * 240 + x) * 4;
+      const land = ((x - 120) / 70) ** 2 + ((y - 60) / 32) ** 2 < 1;
+      png.data[i] = land ? 110 : 50;
+      png.data[i + 1] = land ? 190 : 110;
+      png.data[i + 2] = land ? 90 : 210;
+      png.data[i + 3] = 255;
+    }
+  const ictx = await browser.newContext({ viewport: { width: 1600, height: 900 } });
+  const ip = await ictx.newPage();
+  ip.on('pageerror', (e) => errs.push(`照手绘图新建:${e.message}`));
+  await ip.goto(`${dev.url}/?play=0`);
+  await ip.locator('.mw-empty').waitFor({ timeout: 15000 });
+  await ip.click('.mw-empty [data-act=new-world]');
+  await ip.click('.nd-card[data-mode=image]');
+  await ip.click('.nd-scrim [data-act=dlg-next]');
+  const noLand = !(await ip.locator('.nd-sheet [data-param=landFraction]').count()) && (await ip.locator('.nd-sheet [data-param=plates]').count()) === 1;
+  const startOff = await ip.locator('.nd-scrim [data-act=dlg-start]').isDisabled();
+  await ip.setInputFiles('.nd-sheet input[type=file]', { name: '照图测试.png', mimeType: 'image/png', buffer: PNG.sync.write(png) });
+  const picked = (await ip.locator('.nd-picked').innerText({ timeout: 5000 }).catch(() => '')).replace(/\n/g, ' ');
+  await ip.click('.nd-scrim [data-act=dlg-start]');
+  await studioReady(ip);
+  const heading = await ip.locator('.st-left .nw-title').innerText().catch(() => '');
+  const noRight = !(await ip.locator('.st-right').count()) && !(await ip.locator('.st-left .nw-seed').count());
+  const step1 = await ip.locator('.sk-group[data-step="1"] .sk-body .imp-step').count();
+  const locked = await ip.locator('.sk-group[data-step="2"] .sk-head').isDisabled();
+  const createOff = await ip.locator('.studio [data-act=create-world]').isDisabled();
+  await ip.locator('.app.studio-flat').waitFor({ timeout: 10000 }).catch(() => {});
+  await ip.waitForTimeout(500);
+  const st = await ip.locator('main.stage').boundingBox();
+  if (st) await ip.mouse.click(st.x + st.width * 0.05, st.y + st.height * 0.1);
+  await ip.waitForTimeout(300);
+  const clicks = await ip.locator('.sk-group[data-step="1"] .tp-n').innerText().catch(() => '');
+  await ip.evaluate(() => ((window as any).__wf.mark = 1));
+  await ip.click('.studio [data-act=import-use]').catch(() => {});
+  await ip.waitForFunction(() => !(window as any).__wf?.mark, null, { timeout: 30000 }).catch(() => {});
+  const step1Done = await ip.locator('.sk-group[data-step="1"] .sk-no.ok').count();
+  const sum1 = await ip.locator('.sk-group[data-step="1"] .sk-s').innerText().catch(() => '');
+  const step2Open = await ip.locator('.sk-group[data-step="2"] .sk-body .tp-step').count();
+  const grownOk = !(await ip.locator('.sk-vbar [data-v=grown]').isDisabled().catch(() => true));
+  await ip.waitForFunction(() => !document.querySelector('.studio [data-act=create-world]')?.hasAttribute('disabled'), null, { timeout: 30000 }).catch(() => {});
+  await ip.click('.studio [data-act=create-world]').catch(() => {});
+  const dlgImage = await ip.locator('.st-dlg [data-confirm=image]').innerText({ timeout: 3000 }).catch(() => '');
+  const dlgSeed = await ip.locator('.st-dlg [data-confirm=seed]').count();
+  await ip.click('.st-dlg [data-act=confirm-back]').catch(() => {});
+  console.log(
+    `照手绘图新建:弹窗第 2 步没有陆地比例 ${noLand}、没选图时开始是灰的 ${startOff}、选好「${picked}」;进来「${heading}」、没有右边和种子 ${noRight}、` +
+      `第 1 步认图 ${step1}、后两步灰着 ${locked}、创建不了 ${createOff};点一下海 →「${clicks}」;长出星球 → 第 1 步打勾 ${step1Done}「${sum1}」、` +
+      `第 2 步展开 ${step2Open}、长出来的能点 ${grownOk};确认框图片「${dlgImage}」、种子那行 ${dlgSeed}`,
+  );
+  if (!noLand || !startOff || !picked.includes('照图测试.png')) errs.push(`照手绘图新建:弹窗第 2 步应没有陆地比例、没选图时「开始」是灰的、选好图写着文件名(${noLand},${startOff},${picked})`);
+  if (heading !== '照手绘图新建' || !noRight || !step1 || !locked || !createOff) errs.push(`照手绘图新建:进来应是照图那一页的第 1 步(${heading},${noRight},${step1},${locked},${createOff})`);
+  if (!clicks.includes('点了 1 处')) errs.push(`照手绘图新建:在图上点一下海没记上(${clicks})`);
+  if (!step1Done || !/陆地 \d+%/.test(sum1) || !step2Open || !grownOk) errs.push(`照手绘图新建:「照这样长出星球」以后第 1 步应打勾、第 2 步展开(${step1Done},${sum1},${step2Open},${grownOk})`);
+  if (dlgImage !== '照图测试.png' || dlgSeed) errs.push(`照手绘图新建:确认框里应是「图片」那一行(${dlgImage},${dlgSeed})`);
+  await ictx.close();
 }
 
 // 手机新建:第一眼星球整个在底部卡片上面(不是只露一角);创建以后正中看到的是陆地(展开的同时转到陆地最多的那一面)
@@ -2189,6 +2271,65 @@ for (const style of ['realistic', 'fantasy']) {
   await ready();
   const draftBar = new URLSearchParams(await p.evaluate(() => location.search));
   if (draftBar.get('new') !== '1' || draftBar.has('gen')) errs.push(`版本号:新建中的网址不该带 gen(${draftBar})`);
+  await ctx.close();
+}
+
+// 看原样:有旧网站的那一版(FIRST_OLD_SITE 起、比现在旧)建的世界,打开时提示条上有「看原样」,存档菜单里也有一行;
+// 点了开一个新页面到 /v<那一版>/,带 own=1 和整份存档(# 后面)。没有旧网站的更早版本、现在这一版建的都没有
+{
+  const { FIRST_OLD_SITE } = await import('../src/ui/oldSite');
+  const ctx = await browser.newContext({ viewport: { width: 1400, height: 820 } });
+  const p = await ctx.newPage();
+  p.on('pageerror', (e) => errs.push(`看原样:${e.message}`));
+  /** 浏览器里存一个第 gen 版建的「青岚纪」,从网址打开它:提示条、存档菜单里各有没有「看原样」 */
+  const openGen = async (gen: number) => {
+    const id = `wsee${gen}x0001`;
+    const save = {
+      app: '文明与地图',
+      format: 1,
+      generator: gen,
+      seed: 7,
+      params: { seed: 7, cells: 12000, landFraction: 0.3, plates: 30, mountains: 1, temperature: 0, rainfall: 1 },
+      edits: { names: {}, interventions: [], terrain: [] },
+      title: '青岚纪',
+      savedAt: '2026-10-08T12:00:00.000Z',
+    };
+    await p.goto(`${dev.url}/`);
+    await p.evaluate(([k, v]) => (localStorage.clear(), localStorage.setItem(k, v)), [`wenming-ditu:world:${id}`, JSON.stringify(save)]);
+    await p.goto(`${dev.url}/?w=${id}`);
+    await p.waitForFunction(() => (window as any).__wf?.ready, null, { timeout: 60000 });
+    const note = await toastText(p, 'save', 8000);
+    const inToast = await p.locator('.toast [data-act=see-original]').count();
+    await p.click('.save-btn');
+    const inMenu = await p.locator('.save-menu [data-act=see-original]').count();
+    await p.click('.save-btn');
+    return { note, inToast, inMenu };
+  };
+  const gens = [...new Set([GENERATOR_VERSION - 1, FIRST_OLD_SITE - 1, GENERATOR_VERSION])];
+  for (const gen of gens) {
+    const has = gen >= FIRST_OLD_SITE && gen < GENERATOR_VERSION;
+    const r = await openGen(gen);
+    let popup = '';
+    if (has && r.inToast) {
+      // 旧网站在开发服务器上没有:给一页空白顶上,只看新页面去了哪个网址
+      await ctx.route(/\/v\d+\/(\?|$)/, (route) => route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>旧版</title>' }));
+      const pop = ctx.waitForEvent('page', { timeout: 10000 });
+      await p.click('.toast [data-act=see-original]');
+      const np = await pop.catch(() => null);
+      if (np) {
+        await np.waitForURL(/\/v\d+\//, { timeout: 10000, waitUntil: 'commit' }).catch(() => {});
+        popup = np.url();
+        await np.close();
+      }
+      await ctx.unroute(/\/v\d+\/(\?|$)/);
+    }
+    console.log(`看原样:第 ${gen} 版的世界,提示「${r.note}」,提示条上的按钮 ${r.inToast},存档菜单里 ${r.inMenu}${popup ? `,新页面 ${popup.slice(0, 80)}…` : ''}`);
+    if (has !== (r.inToast === 1) || has !== (r.inMenu === 1)) errs.push(`看原样:第 ${gen} 版的世界${has ? '应该' : '不该'}有「看原样」(提示条 ${r.inToast},存档菜单 ${r.inMenu})`);
+    if (has) {
+      const u = popup ? new URL(popup) : null;
+      if (!u || !u.pathname.endsWith(`/v${gen}/`) || u.searchParams.get('own') !== '1' || !u.hash.startsWith('#share=')) errs.push(`看原样:新页面的网址不对(${popup})`);
+    }
+  }
   await ctx.close();
 }
 
@@ -4796,6 +4937,7 @@ for (const style of ['realistic', 'fantasy']) {
   const homeBox = await box('.mw');
   const homeCards = await mp.locator('.mw [data-act=open-world]').count();
   await mp.tap('.mw [data-act=new-world] >> nth=0').catch(() => {});
+  await dialogStart(mp, true).catch(() => {});
   await studioReady(mp).catch(() => {});
   const nwBox = await box('.st-sheet');
   await mp.tap('.st-sheet [data-act=new-sheet]').catch(() => {});
@@ -5068,6 +5210,95 @@ for (const style of ['realistic', 'fantasy']) {
     `链接:宽屏 ${desk.map((l) => `${l.text}→${l.href}`).join(' · ')};AI 设置「${aiPriv?.[2]}」→ ${aiPriv?.[0]};开发服务 ${devPages.join('、')};` +
       `手机 ${phone.map((l) => `${l.text}@${l.box}${l.hit ? '' : '(被挡)'}`).join(' · ')};构建 ${built.join('、')}`,
   );
+}
+
+// 联系我们:网站根目录的 contact.json(src/ui/contact.ts)。开发服务里没有这个文件 → 哪里都没有「联系我们」;
+// 有了以后:首页底部有,新标签页打开加群链接;鼠标移上去出小卡片(二维码、群名、群号),点「复制」群号进剪贴板、按钮换成「已复制」,
+// 鼠标移开收起;世界概览底部、世界里的「更多」菜单也有;手机上概览底部不放,「更多」里有;格式不对的 contact.json 当没配
+{
+  const CONTACT = { name: '测试交流群', qq: '925687934', url: 'https://qm.qq.com/q/xXrrfGrKso' };
+  const cctx = await browser.newContext({ viewport: { width: 1400, height: 820 } });
+  await cctx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: dev.url });
+  const cp = await cctx.newPage();
+  await cp.goto(`${dev.url}/`);
+  await cp.locator('.mw-foot').waitFor({ timeout: 30000 });
+  await cp.waitForTimeout(800);
+  const none = await cp.locator('[data-link=contact]').count();
+  let body = JSON.stringify(CONTACT);
+  await cctx.route('**/contact.json', (r) => r.fulfill({ contentType: 'application/json', body }));
+  await cp.reload();
+  const link = cp.locator('.mw-foot [data-link=contact]');
+  const shown = await link.waitFor({ timeout: 10000 }).then(
+    () => true,
+    () => false,
+  );
+  const attrs = shown ? await link.evaluate((a) => [a.textContent, a.getAttribute('href'), a.getAttribute('target')]) : null;
+  let pop: { name: string; qq: string; qr: number } | null = null;
+  let copied = '';
+  let btn = '';
+  let gone = -1;
+  if (shown) {
+    await link.hover();
+    const pp = cp.locator('[data-testid=contact-pop]');
+    await pp.locator('svg path').waitFor({ timeout: 10000 }).catch(() => {});
+    pop = await pp
+      .evaluate((el) => ({
+        name: el.querySelector('.contact-name')?.textContent ?? '',
+        qq: el.querySelector('[data-contact-qq]')?.textContent ?? '',
+        qr: el.querySelector('svg path')?.getAttribute('d')?.length ?? 0,
+      }))
+      .catch(() => null);
+    await cp.click('[data-act=contact-copy]');
+    btn = await cp.locator('[data-act=contact-copy]').innerText().catch(() => '');
+    copied = await cp.evaluate(() => navigator.clipboard.readText()).catch(() => '');
+    await cp.mouse.move(700, 200);
+    await cp.waitForTimeout(500);
+    gone = await pp.count();
+  }
+  // 世界里:概览底部、「更多」菜单
+  await cp.goto(`${dev.url}/?seed=7`);
+  await cp.waitForFunction(() => (window as any).__wf?.ready, null, { timeout: 60000 });
+  await openOverview(cp);
+  const ovLink = await cp.locator('.ov-about [data-link=contact]').getAttribute('href', { timeout: 5000 }).catch(() => null);
+  await closeOverview(cp);
+  await cp.click('[data-act=world-more]');
+  const menuLink = await cp.locator('.pm-menu [data-link=contact]').getAttribute('href', { timeout: 5000 }).catch(() => null);
+  await cp.keyboard.press('Escape');
+  // 格式不对:当没配
+  body = JSON.stringify({ qq: '群号', url: 'javascript:alert(1)' });
+  await cp.goto(`${dev.url}/`);
+  await cp.locator('.mw-foot').waitFor({ timeout: 30000 });
+  await cp.waitForTimeout(800);
+  const bad = await cp.locator('[data-link=contact]').count();
+  // 手机:概览底部没有,「更多」里有
+  body = JSON.stringify(CONTACT);
+  const mc = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+  await mc.route('**/contact.json', (r) => r.fulfill({ contentType: 'application/json', body }));
+  const mp = await mc.newPage();
+  await mp.goto(`${dev.url}/?seed=7`);
+  await mp.waitForFunction(() => (window as any).__wf?.ready, null, { timeout: 60000 });
+  await mp.tap('[data-act=world-sheet]');
+  await mp.waitForTimeout(600);
+  await mp.tap('[data-act=world-more]');
+  const phoneMenu = await mp.locator('.pm-menu [data-link=contact]').getAttribute('href', { timeout: 5000 }).catch(() => null);
+  await mp.keyboard.press('Escape');
+  await mp.tap('[data-act=overview]');
+  await mp.locator('.ov-root:not([hidden]) .ov-about').waitFor({ timeout: 5000 }).catch(() => {});
+  const phoneOv = await mp.locator('.ov-about [data-link=contact]').count();
+  await mc.close();
+  await cctx.close();
+  console.log(
+    `联系我们:没配 ${none} 个;配了 首页 ${JSON.stringify(attrs)},小卡片 ${JSON.stringify(pop)},复制「${btn}」剪贴板「${copied}」,移开后 ${gone};` +
+      `概览 ${ovLink},更多菜单 ${menuLink};格式不对 ${bad} 个;手机 更多 ${phoneMenu}、概览 ${phoneOv} 个`,
+  );
+  if (none) errs.push(`联系我们:没有 contact.json 也出现了(${none} 个)`);
+  if (!attrs || attrs[0] !== '联系我们' || attrs[1] !== CONTACT.url || attrs[2] !== '_blank') errs.push(`联系我们:首页底部没有,或网址不对、不是新标签页打开(${JSON.stringify(attrs)})`);
+  if (!pop || pop.name !== CONTACT.name || pop.qq !== CONTACT.qq || pop.qr < 100) errs.push(`联系我们:鼠标移上去的小卡片不对(${JSON.stringify(pop)})`);
+  if (copied !== CONTACT.qq || !btn.includes('已复制')) errs.push(`联系我们:点「复制」没把群号放进剪贴板(剪贴板「${copied}」,按钮「${btn}」)`);
+  if (gone !== 0) errs.push('联系我们:鼠标移开后小卡片没收起');
+  if (ovLink !== CONTACT.url || menuLink !== CONTACT.url) errs.push(`联系我们:概览底部、「更多」菜单里没有(${ovLink},${menuLink})`);
+  if (bad) errs.push('联系我们:contact.json 格式不对也出现了');
+  if (phoneMenu !== CONTACT.url || phoneOv) errs.push(`联系我们(手机):「更多」里应该有、概览底部不放(${phoneMenu},概览 ${phoneOv} 个)`);
 }
 
 console.log('errors:', errs);
