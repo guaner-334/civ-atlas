@@ -26,7 +26,11 @@ import { Gullies, gullyHeights, type GullyInput } from './gully';
 export { gullyHeights } from './gully';
 import { smoothstep, subSeed, tileableFbm } from './util';
 // 河谷要正好落在画出来的河下面,所以直接用画河的同一套几何(纯计算,不碰页面,worker / Node 都能跑)
-import { riverGeometry } from '../render/common';
+import { bankBytes, carveValleys, valleyLines } from './valleys';
+export { bankBytes, carveValleys, valleyLines, type ValleyLines } from './valleys';
+import { veinsOf, type DrainLines, type Streams, type VeinJob } from './pixelDrain';
+import { creeksOf } from './creeks';
+export { stampVeins, veinLinesOf, veinsOf, type VeinJob } from './pixelDrain';
 
 export interface Raster {
   w: number;
@@ -58,6 +62,21 @@ export interface Raster {
    * 手绘风、数据图层、查询看到的还是 elev。没有 = 不叠
    */
   gully?: Float32Array;
+  /**
+   * 离河多近 × 255(刻河谷时的噪声抑制系数 calm:河面上 1,往外到谷壁外一点收到 0;见 carveValleys)。
+   * 写实风据此把谷底压暗、干旱地方的河两岸画绿。没有 = 当作附近没河
+   */
+  bank?: Uint8Array;
+  /**
+   * 细沟 × 255(见 gen/pixelDrain.ts、stampVeins):逐像素汇流,集水面积越大越重,离沟中线越远越淡。
+   * 写实风据此把地面上的一条条旱沟、小谷压暗,干旱地方再带一点绿(叶脉一样的水系)。没有 = 不画
+   */
+  vein?: Uint8Array;
+  /**
+   * 细沟的线(世界单位,在 1 倍的整张主图上算的;见 veinLinesOf):放大现算的块、导出的大图都按这一份画,
+   * 和屏幕上的整张图一样,也不用各算一遍。没有 = 用到时现算
+   */
+  veinLines?: DrainLines;
   /**
    * 放大后现算的一块(gen/rasterWindow.ts):这一块左上角在 W × H 的主图(scale 倍)里的像素位置。
    * 没有 = 整张主图。画风据此按真实的纬度、整张图上的位置算晕渲和纹理(和整张图接得上)
@@ -175,112 +194,6 @@ export function noiseTiles(seed: number) {
   for (let i = 0; i < jTile.length; i++) jTile[i] *= JITTER_STD;
   tileCache = { seed, dTile, jTile };
   return tileCache;
-}
-
-/** 写实风画河的参数(src/render/realistic.ts):河谷宽度跟着画出来的河宽走 */
-const RIVER_STYLE = { color: '', minW: 0.5, maxW: 7.5, fluxRef: 1000 };
-const RIVER_FLARE = 1.7;
-const RIVER_POWER = 0.65;
-
-/** 刻河谷用的河道几何(世界单位;河道的 x 已展开成连续的,可能出左右边) */
-export type ValleyLines = ReturnType<typeof riverGeometry>;
-
-/**
- * 河道中心线和河宽:用画河的同一套几何(riverGeometry:平滑 + 样条、支流接到干流上),这样谷底正好在画出来的河下面。
- * rivers 可以带上比成河门槛更小的溪流(threshold 仍是成河门槛:溪流的谷浅一些)
- */
-export function valleyLines(rivers: { pts: Float32Array }[], threshold: number, width: number): ValleyLines {
-  return riverGeometry(rivers, threshold, RIVER_STYLE, RIVER_FLARE, RIVER_POWER, width);
-}
-
-/**
- * 沿每条河刻出河谷:写入下切深度 carve(米)和噪声抑制系数 calm(0..1),都取各河段的最大值。
- * 画布是 w × h 像素(scale 像素 / 世界单位),左上角在 scale 倍主图的 (ox, oy) 像素;period = scale 倍主图的宽
- * (东西相连:出边的那段在另一边再刻一份)。整张主图 ox = oy = 0、period = w;放大现算的一块见 gen/rasterWindow.ts。
- * 流量不到成河门槛的溪流(threshold)谷更浅、更窄
- */
-export function carveValleys(
-  lines: ValleyLines,
-  threshold: number,
-  scale: number,
-  w: number,
-  h: number,
-  carve: Float32Array,
-  calm: Float32Array,
-  ox = 0,
-  oy = 0,
-  period = w,
-) {
-  const span = RIVER_STYLE.maxW - RIVER_STYLE.minW;
-  for (const d of lines) {
-    for (let i = 0; i < d.x.length - 1; i++) {
-      const rw = 0.5 * (d.w[i] + d.w[i + 1]); // 河宽(世界单位)
-      const t = Math.min(1, Math.max(0, (rw - RIVER_STYLE.minW) / span)); // 河的大小 0..1
-      const fl = 0.5 * (d.f[i] + d.f[i + 1]);
-      // 溪流:按流量收(成河门槛的 1/5 时约一半)
-      const cf = fl < threshold ? Math.sqrt(Math.max(0, fl) / threshold) : 1;
-      const flat = 0.5 * rw * scale; // 谷底 ≈ 河面半宽
-      const wall = flat + (2.5 + 1.5 * t) * scale * (cf < 1 ? 0.5 + 0.5 * cf : 1); // 谷壁在河岸外 2.5–4 像素内收住
-      const reach = wall + 2 * scale; // 噪声抑制再往外延一点
-      const depth = cf < 1 ? (30 + 50 * t) * cf : 30 + 50 * t;
-      const ax = d.x[i] * scale - ox;
-      const bx = d.x[i + 1] * scale - ox;
-      const ay = d.y[i] * scale - oy;
-      const by = d.y[i + 1] * scale - oy;
-      if (Math.min(ay, by) - reach > h || Math.max(ay, by) + reach < 0) continue;
-      for (const s of WRAP_SHIFTS) {
-        const sh = s * period;
-        if (Math.min(ax, bx) + sh - reach > w || Math.max(ax, bx) + sh + reach < 0) continue;
-        valleySegment(carve, calm, w, h, ax + sh, ay, bx + sh, by, depth, flat, wall, reach);
-      }
-    }
-  }
-}
-
-/** 东西相连的主图上,一样东西画在哪几份:本身、往左挪一整圈、往右挪一整圈(× 图宽) */
-const WRAP_SHIFTS = [0, -1, 1];
-
-/** 一小段直线河道:在它周围 reach 像素内写入河谷剖面(谷底平、谷壁平滑收起)。 */
-function valleySegment(
-  carve: Float32Array,
-  calm: Float32Array,
-  w: number,
-  h: number,
-  ax: number,
-  ay: number,
-  bx: number,
-  by: number,
-  depth: number,
-  flat: number,
-  wall: number,
-  reach: number,
-) {
-  const x0 = Math.max(0, Math.floor(Math.min(ax, bx) - reach - 0.5));
-  const x1 = Math.min(w - 1, Math.ceil(Math.max(ax, bx) + reach));
-  const y0 = Math.max(0, Math.floor(Math.min(ay, by) - reach - 0.5));
-  const y1 = Math.min(h - 1, Math.ceil(Math.max(ay, by) + reach));
-  const dx = bx - ax;
-  const dy = by - ay;
-  const L2 = dx * dx + dy * dy;
-  const R2 = reach * reach;
-  for (let py = y0; py <= y1; py++) {
-    const qy = py + 0.5 - ay;
-    for (let px = x0; px <= x1; px++) {
-      const qx = px + 0.5 - ax;
-      let s = L2 > 0 ? (qx * dx + qy * dy) / L2 : 0;
-      s = s < 0 ? 0 : s > 1 ? 1 : s;
-      const ex = qx - s * dx;
-      const ey = qy - s * dy;
-      const d2 = ex * ex + ey * ey;
-      if (d2 >= R2) continue;
-      const dist = Math.sqrt(d2);
-      const k = py * w + px;
-      const cv = depth * (1 - smoothstep(flat, wall, dist));
-      if (cv > carve[k]) carve[k] = cv;
-      const q = 1 - smoothstep(flat, reach, dist);
-      if (q > calm[k]) calm[k] = q;
-    }
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -563,26 +476,43 @@ function tri3(tile: Float32Array, size: number, f: number, o: number): number {
 }
 
 /**
- * 铺像素(流程见文件头)。沟和山脊(只管写实风的明暗)当场算好,存进 gully;
- * gully = false:不算(高度图、手绘风、数据图层用不着,省下和整张图一样大的几个数组和逐像素的噪声)
+ * 铺像素(流程见文件头)。沟和山脊、细沟(只管写实风的明暗、颜色)当场算好,存进 gully、vein;
+ * gully = false:不算(高度图、手绘风、数据图层用不着,省下和整张图一样大的几个数组和逐像素的噪声)。
+ * lines:细沟的线已经有了(放大导出时用屏幕上那张 1 倍主图的)就照它画,不重算
  */
-export function rasterize(world: World, scale = 1, gully = true): Raster {
-  const { raster, job } = rasterizeRaw(world, scale, gully);
+export function rasterize(world: World, scale = 1, gully = true, lines?: DrainLines): Raster {
+  const { raster, job, veins } = rasterizeRaw(world, scale, gully, lines);
   if (job) finishGully(raster, job, gullyHeights(job, 0, job.n));
+  if (veins) finishVeins(raster, veinsOf(veins));
   return raster;
 }
 
 /**
- * 铺像素,但沟和山脊先不算:返回要算的像素(job)。沟壑是铺像素里最慢的一步(全是陆地上的逐像素噪声),
- * 后台线程可以把它分给几个线程,和推文明同时算(gullyHeights 分段算,finishGully 叠回去);结果和 rasterize 一样
+ * 铺像素,但沟和山脊、细沟先不算:返回要算的像素(job)和细沟要的几样(veins)。这两样是铺像素里最慢的
+ * (沟壑全是陆地上的逐像素噪声,细沟要逐像素汇流),后台线程可以分给几个线程,和推文明同时算
+ * (gullyHeights 分段算、finishGully 叠回去;veinsOf 算、finishVeins 存进去);结果和 rasterize 一样
  */
-export function rasterizeDeferred(world: World, scale = 1): { raster: Raster; job: GullyJob } {
-  const { raster, job } = rasterizeRaw(world, scale, true);
-  return { raster, job: trimJob(job!) };
+export function rasterizeDeferred(world: World, scale = 1, lines?: DrainLines): { raster: Raster; job: GullyJob; veins: VeinJob } {
+  const { raster, job, veins } = rasterizeRaw(world, scale, true, lines);
+  return { raster, job: trimJob(job!), veins: veins! };
 }
 
-/** 铺像素;gully = true 时把要算沟壑的像素记进 job(没截短) */
-function rasterizeRaw(world: World, scale: number, gully: boolean): { raster: Raster; job: GullyJob | null } {
+/** 细沟要流进的河和小溪(放大后画的、刻谷的同一组;每个世界记一份) */
+export function streamsOf(world: World): Streams {
+  let s = streamCache.get(world);
+  if (!s) streamCache.set(world, (s = { rivers: [...world.rivers, ...creeksOf(world)], threshold: world.riverThreshold, width: world.width }));
+  return s;
+}
+const streamCache = new WeakMap<World, Streams>();
+
+/** 细沟存进主图 */
+export function finishVeins(r: Raster, v: { lines: DrainLines; vein: Uint8Array }): void {
+  r.veinLines = v.lines;
+  r.vein = v.vein;
+}
+
+/** 铺像素;gully = true 时把要算沟壑的像素记进 job(没截短)、细沟要的几样记进 veins */
+function rasterizeRaw(world: World, scale: number, gully: boolean, lines?: DrainLines): { raster: Raster; job: GullyJob | null; veins: VeinJob | null } {
   const b = rasterBase(world, scale);
   const { w, h, N } = b;
   const carve = b.scratch.fill(0);
@@ -608,8 +538,11 @@ function rasterizeRaw(world: World, scale: number, gully: boolean): { raster: Ra
   const R = world.width / (2 * Math.PI);
   const job = gully ? newGullyJob(subSeed(world.params.seed, 'gully'), w, h, R, scale) : null;
   shadeSphere(out, b.tri, b.wa, b.wb, b.planes, b.elev, carve, calm, dTile, jTile, b.g, R, job);
+  out.bank = bankBytes(calm);
   seaIcePixels(world, out);
-  return { raster: out, job };
+  // 细沟只有写实风用(和沟壑一样,gully = false 时不算)
+  const veins: VeinJob | null = gully ? { w, h, scale, elev: out.elev, water: out.water, bank: out.bank, streams: lines ? undefined : streamsOf(world), lines } : null;
+  return { raster: out, job, veins };
 }
 
 /** 铺像素的前半段(整张主图和放大现算都要用):插值源、球面三角形覆盖、柔化后的海拔、最近地块 */
@@ -798,6 +731,13 @@ function blurSphere(src: Float32Array, w: number, h: number, r: number, tmp: Flo
   }
 }
 
+/** 山里的河谷切得更深:下切深度 × (1 + 当地起伏(米)/ 这个数) */
+const VALLEY_RELIEF = 120;
+/** 谷壁上的沟朝河拐多少:坡向 = 原来的坡 + 这个数 × 谷壁的坡 */
+const VALLEY_PULL = 2;
+/** 离河多近(Raster.bank 的 0..1)往里,地面的起伏、沟壑才压平 */
+const VALLEY_FLOOR = 0.65;
+
 /** 沟和山脊(gen/gully.ts)的强弱:幅度 = 系数 × (当地起伏 × 平地留多少 ~ 1(坡越陡越强)+ 破碎海岸另加) */
 const GULLY_K = 1.1;
 /** 平地上沟壑留多少(相对陡坡) */
@@ -910,7 +850,8 @@ export function shadeSphere(
       let ee = e;
       let eg = e;
       if (!isLake) {
-        const q = 1 - 0.85 * calm[k];
+        // 谷底(和谷壁最下面一点)平,谷壁上照样有沟(顺着谷壁流进河里)
+        const q = 1 - 0.85 * smoothstep(VALLEY_FLOOR, 1, calm[k]);
         let eb = e;
         let rug = 0;
         if (cw > 0.01) {
@@ -935,13 +876,21 @@ export function shadeSphere(
         ee = eb + amp * q * dd;
         const cv = carve[k];
         if (cw === 0 && ee < 2) ee = 2;
-        if (cv > 0 && ee > 0) ee = Math.max(ee - cv * (1 + amp / 250), Math.min(ee, 1));
+        if (cv > 0 && ee > 0) ee = Math.max(ee - cv * (1 + amp / VALLEY_RELIEF), Math.min(ee, 1));
         eg = ee;
         // 沟和山脊:坡向取柔化海拔的坡(东西向按纬度修正,列下标取模)。
         // 整张图只算陆地(只管打光,海上看不出来);放大现算的一块连近岸的浅海也算(沟壑会把海岸切碎)
         if ((job || gl) && (amp > 15 || cw > 0.01) && (zoom ? eb > -120 : ee >= 0)) {
-          const ge = (base[px < w - 1 ? k + 1 : k - w + 1] - base[px > 0 ? k - 1 : k + w - 1]) * 0.5 * scale * stretch;
-          const gn = (base[k + up] - base[k + dn]) * (up && dn ? 0.5 : 1) * scale;
+          const ke = px < w - 1 ? k + 1 : k - w + 1;
+          const kw = px > 0 ? k - 1 : k + w - 1;
+          let ge = (base[ke] - base[kw]) * 0.5 * scale * stretch;
+          let gn = (base[k + up] - base[k + dn]) * (up && dn ? 0.5 : 1) * scale;
+          // 河谷的谷壁:坡向朝河(两边的沟顺着谷壁流进河里)
+          if (cv > 0 || carve[ke] > 0 || carve[kw] > 0) {
+            const kc = VALLEY_PULL * (1 + amp / VALLEY_RELIEF);
+            ge -= (carve[ke] - carve[kw]) * 0.5 * scale * stretch * kc;
+            gn -= (carve[k + up] - carve[k + dn]) * (up && dn ? 0.5 : 1) * scale * kc;
+          }
           const st = smoothstep(GULLY_S0, GULLY_S1, Math.sqrt(ge * ge + gn * gn));
           const a = GULLY_K * q * (amp * (GULLY_FLAT + (1 - GULLY_FLAT) * st) + (rug > 0 ? GULLY_FJORD * rug * smoothstep(0.01, 0.5, cw) : 0));
           if (a > GULLY_MIN) {
@@ -954,12 +903,12 @@ export function shadeSphere(
               job.gn[n] = gn;
               job.amp[n] = a;
               job.base[n] = gb;
-              job.cut[n] = cv > 0 ? cv * (1 + amp / 250) : 0;
+              job.cut[n] = cv > 0 ? cv * (1 + amp / VALLEY_RELIEF) : 0;
               job.floor[n] = cw === 0 ? 1 : 0;
             } else if (gl) {
               eg = gb + gl.height(X, Y, Z, -sL, cL, -sl * cL, -sl * sL, cl, ge, gn, a, scale);
               if (cw === 0 && eg < 2) eg = 2;
-              if (cv > 0 && eg > 0) eg = Math.max(eg - cv * (1 + amp / 250), Math.min(eg, 1));
+              if (cv > 0 && eg > 0) eg = Math.max(eg - cv * (1 + amp / VALLEY_RELIEF), Math.min(eg, 1));
             }
           }
         }

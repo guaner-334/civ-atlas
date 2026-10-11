@@ -10,7 +10,7 @@ import { WINDOW_PAD, rasterizeWindow, zoomSource, type ZoomSource } from './gen/
 import { drawRealisticRivers, macroGrids, realisticWindowPixels, type MacroGrids } from './render/realistic';
 
 /** 整张主图里放大现算要用的几样(1 倍) */
-export type WholeRaster = Pick<Raster, 'w' | 'h' | 'scale' | 'elev' | 'water' | 'ice' | 'iceConc' | 'iceTone'>;
+export type WholeRaster = Pick<Raster, 'w' | 'h' | 'scale' | 'elev' | 'water' | 'ice' | 'iceConc' | 'iceTone' | 'bank' | 'veinLines'>;
 
 export type TileRequest =
   /** 换了世界(wid = 第几个世界) */
