@@ -15,7 +15,7 @@ import { buildChronicle } from '../src/gen/civ/chronicle';
 import { ownersAt } from '../src/gen/civ/timeline';
 import { RESHAPE_RAMP, capacityAt, capitalAt, populationAt, portAt, ruinSites, yearReaching } from '../src/gen/civ/growth';
 import type { Settlement } from '../src/gen/civ/types';
-import { findPorts, routeCities } from '../src/gen/civ/polities';
+import { findPorts, foundingYear, routeCities } from '../src/gen/civ/polities';
 import { cultureTerrain } from '../src/gen/civ/cultures';
 import { UPHEAVALS_MAX, UPHEAVAL_OPS_MAX, UPHEAVAL_YEARS, cleanUpheavals, sameUpheavals } from '../src/gen/terrainEdits';
 import { EMPTY_EDITS, applyNames, placeKeyOf, polityKey, regionKey, resolveKey, settlementKey, type Upheaval } from '../src/gen/edits';
@@ -302,6 +302,24 @@ describe('地形大事 · 推演', () => {
     const twice = { ...s, reshaped: [{ year: 900, capacity: 90, port: true }, { year: 930, capacity: 40, port: false }] };
     for (const level of [32, 38, 45]) cross(twice, level);
     expect(cross(twice, 45)).toBe(Infinity);
+    // 只看某年起:没变过的 = 越过的那年和那一年取晚的;上限降下来、人口跌回去以后,早先越过的不算
+    expect(yearReaching(s, 20, 3000)).toBe(3000);
+    expect(yearReaching(s, 20, 0)).toBe(t0);
+    const fast = { ...s, growth: 0.02 };
+    const early = yearReaching(fast, 20);
+    expect(early).toBeLessThan(450);
+    const sunk = { ...fast, reshaped: [{ year: 450, capacity: 15, port: false }] };
+    expect(yearReaching(sunk, 20)).toBe(early);
+    expect(yearReaching(sunk, 20, 460)).toBe(Infinity);
+    const back = { ...fast, reshaped: [{ year: 450, capacity: 15, port: false }, { year: 700, capacity: 60, port: true }] };
+    const again = yearReaching(back, 20, 460);
+    expect(again).toBeGreaterThan(700);
+    expect(populationAt(back, again - 0.01)).toBeLessThan(20);
+    expect(populationAt(back, again + 0.01)).toBeGreaterThanOrEqual(20);
+    // 立国:建城满 400 年那时人口得够(第 100 年建城,第 300 多年越过门槛,第 450 年上限降到 15:到第 500 年人口不够,不立国)
+    expect(foundingYear(fast)).toBe(500);
+    expect(foundingYear(sunk)).toBe(Infinity);
+    expect(foundingYear(back)).toBe(again);
   });
 
   it('州的人口上限变成 0、后来又长回来:城的上限照比例涨回去;同一处城址先后几座城,航线的港口看最后一座', () => {

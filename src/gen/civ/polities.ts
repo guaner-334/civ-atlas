@@ -213,10 +213,12 @@ function foundDelay(m: PolityModel, r: number): number {
   return FOUND_DELAY[0] + (FOUND_DELAY[1] - FOUND_DELAY[0]) * keyed(m.base, m.terrain.regions.seat[r], 1);
 }
 
-/** 这座城人口越过立国门槛的年份(建城不满 MIN_AGE 年的往后推);够不着 = Infinity */
+/**
+ * 这座城建城满 MIN_AGE 年以后、人口够立国门槛的第一年;够不着 = Infinity。
+ * 建城不满 MIN_AGE 年就越过了门槛的,往后推到满 MIN_AGE 年 —— 那时人口还得够(地形大事降了上限、人口跌回门槛以下的不算)
+ */
 export function foundingYear(s: Settlement): Year {
-  const t = yearReaching(s, FOUND_POP);
-  return t < Infinity ? Math.max(t, s.founded + MIN_AGE) : Infinity;
+  return yearReaching(s, FOUND_POP, s.founded + MIN_AGE);
 }
 
 /**

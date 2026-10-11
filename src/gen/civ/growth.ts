@@ -120,11 +120,14 @@ export const populationAt: PopulationAt = (s: Settlement, year: Year): number =>
   return cap / (1 + GROWTH_A * fexp(-s.growth * (year - s.founded)));
 };
 
-/** 不算国都加成、洗劫时,人口越过 level(千人)的年份;上限不够 = Infinity */
-export function yearReaching(s: Settlement, level: number): Year {
+/**
+ * 不算国都加成、洗劫时,人口越过 level(千人)的年份;上限不够 = Infinity。
+ * since:只看这一年起(含)人口够不够 —— 地形大事把上限降下来以后人口会跌回 level 以下,早先越过的不算数
+ */
+export function yearReaching(s: Settlement, level: number, since = -Infinity): Year {
   const first = reachWith(s, s.capacity, level);
   const L = s.reshaped;
-  if (!L?.length || first < L[0].year) return first;
+  if (!L?.length || Math.max(first, since) < L[0].year) return first < Infinity ? Math.max(first, since) : Infinity;
   // 地形大事以后(capacityAt):每一段里上限只在段首降一次、之后只涨不降,人口跟着只增不减,段内二分
   let c = s.capacity;
   for (let i = 0; i < L.length; i++) {
@@ -132,18 +135,18 @@ export function yearReaching(s: Settlement, level: number): Year {
     const b = i + 1 < L.length ? L[i + 1].year : Infinity;
     const to = L[i].capacity;
     const from = c;
+    c = rampTo(from, to, b - a);
+    if (!(since < b)) continue;
     const pop = (y: number) => rampTo(from, to, y - a) / (1 + GROWTH_A * fexp(-s.growth * (y - s.founded)));
-    if (pop(a) >= level) return a;
+    const start = Math.max(a, since);
+    if (pop(start) >= level) return start;
     // 涨完以后(上限 = to)按公式算得出的那一年一定够了;这一段结束前还够不上的看下一段
     let hi = Math.max(reachWith(s, to, level), to <= from ? a : a + RESHAPE_RAMP);
     if (!(hi < b)) {
-      if (!(b < Infinity && pop(b) >= level)) {
-        c = rampTo(from, to, b - a);
-        continue;
-      }
+      if (!(b < Infinity && pop(b) >= level)) continue;
       hi = b;
     }
-    let lo = a;
+    let lo = start;
     for (let k = 0; k < 32; k++) {
       const m = (lo + hi) / 2;
       if (pop(m) >= level) hi = m;
