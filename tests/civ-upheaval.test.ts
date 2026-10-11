@@ -357,6 +357,27 @@ describe('地形大事 · 推演', () => {
     expect(rc.port).toBe(false);
   }, 120_000);
 
+  it('港口城的州变得不宜居、海岸没变:还是港口;大事以后才成港口的,海路从成港口那年算起', () => {
+    const W = world();
+    const c = base();
+    const T = cultureTerrain(W, c.habitat, c.regions);
+    const ports = findPorts(W, T);
+    let r = 0;
+    while (!(ports[r] === 1 && c.regions.capacity[r] > 0)) r++;
+    const s: Settlement = { id: 0, cell: c.regions.seat[r], region: r, culture: 0, name: '', founded: 0, capacity: 30, growth: 0.002, port: true };
+    const suitability = Float32Array.from(c.habitat.suitability);
+    suitability[s.cell] = 0;
+    expect(cultureTerrain(W, { ...c.habitat, suitability }, c.regions).habitable[r]).toBe(0);
+    const [a] = reshapeCities([s], T, W, { ...c.habitat, suitability }, c.regions, 100, []);
+    expect(portAt(a, Infinity)).toBe(true);
+    // 一直没长成镇的小城,第 700 年地形大事以后成了港口:够格修路从 700 年起(不是建城那年)
+    const late: Settlement = { ...s, port: false, capacity: 5, reshaped: [{ year: 700, capacity: 5, port: true }] };
+    const [rc] = routeCities([late], [], 1000);
+    expect(rc.port).toBe(true);
+    expect(rc.founded).toBe(700);
+    expect(routeCities([{ ...late, reshaped: undefined, port: true }], [], 1000)[0].founded).toBe(0);
+  }, 120_000);
+
   it('城没于水以后,后来的大事又把那里抬成陆地:不重建', () => {
     const a = civOf([FLOOD]);
     const f = a.upheavals![0];

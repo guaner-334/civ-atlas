@@ -38,7 +38,7 @@ import { anchorTag, fexp, fpow, keyed, subSeed } from './rand';
 import { quantize, Ev, type CivSim } from './sim';
 import { KIND_INFO } from './display';
 import { cultureNeighbors, cultureTerrain, type CultureModel, type CultureTerrain } from './cultures';
-import { SETTLEMENT_RANKS, capitalAt, populationAt, portAt, tierOf, yearReaching } from './growth';
+import { SETTLEMENT_RANKS, capitalAt, populationAt, portAt, portSince, tierOf, yearReaching } from './growth';
 import { namePolities, nameSettlements, type RestoreDirection } from './naming';
 import type { RouteCity } from './routes';
 import type { InterventionModel } from './interventions';
@@ -224,8 +224,9 @@ export function foundingYear(s: Settlement): Year {
 /**
  * 港口:治所挨着能通航的海,而且是天然良港(只挨着一块海)或河口;
  * 每块陆地在它挨着的每片海上至少一个港口(挑人口上限最大的);一片海凑不够两个港口就一个都不设(航线要两头)。
+ * 只看宜居的州(新城只建在那里);also 里标了的州不宜居也看(地形大事以后城还在、州变得不宜居的,港口照样按海岸认)
  */
-export function findPorts(world: World, T: CultureTerrain): Uint8Array {
+export function findPorts(world: World, T: CultureTerrain, also?: Uint8Array): Uint8Array {
   const { mesh, water, flux, riverThreshold } = world;
   const { n, adjStart, adj } = mesh;
   const reg = T.regions;
@@ -258,7 +259,7 @@ export function findPorts(world: World, T: CultureTerrain): Uint8Array {
   const seaOf = new Int32Array(R).fill(-1);
   const good = new Uint8Array(R);
   for (let r = 0; r < R; r++) {
-    if (!T.habitable[r]) continue;
+    if (!T.habitable[r] && !also?.[r]) continue;
     const s = reg.seat[r];
     let nSea = 0;
     for (let k = adjStart[s]; k < adjStart[s + 1]; k++) {
@@ -1107,12 +1108,20 @@ export function routeCities(settlements: Settlement[], polities: Polity[], endYe
   }
   /** 港口:按这份历史的最后一段地形(地形大事以后城址变了的,见 Settlement.reshaped) */
   const port = (s: Settlement) => portAt(s, Infinity);
-  /** 够格修路的年份(国都、港口 = 建城那年;其余 = 长成镇那年;被毁前没长成镇 / 到结束年份还不是镇 = Infinity) */
+  /**
+   * 够格修路的年份(国都、港口 = 建城那年;其余 = 长成镇那年;被毁前没长成镇 / 到结束年份还不是镇 = Infinity)。
+   * 地形大事以后才成了港口的:成港口那年和长成镇那年里早的那个(海岸是那时才有的,海路不早于它)
+   */
   const from = (s: Settlement): Year => {
-    if (capitalFrom.has(s.id) || port(s)) return s.founded;
-    if (s.ended === undefined) return populationAt(s, endYear) >= town ? Math.max(s.founded, yearReaching(s, town)) : Infinity;
-    const y = Math.max(s.founded, yearReaching(s, town));
-    return y < s.ended ? y : Infinity;
+    const harbor = portSince(s);
+    if (capitalFrom.has(s.id) || harbor === s.founded) return s.founded;
+    let y: Year;
+    if (s.ended === undefined) y = populationAt(s, endYear) >= town ? Math.max(s.founded, yearReaching(s, town)) : Infinity;
+    else {
+      y = Math.max(s.founded, yearReaching(s, town));
+      if (!(y < s.ended)) y = Infinity;
+    }
+    return Math.min(y, harbor);
   };
   const out: RouteCity[] = [];
   for (const s of settlements) {

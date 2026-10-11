@@ -294,7 +294,8 @@ const SITE_MIN = 1e-6;
 
 /**
  * 大事那一刻(t)还在、过了这一刻也还在的城:城址照新地形换值(Settlement.reshaped 添一段,从 t 起;t 以前的人口一点不变)——
- *   - 港口照新地形重新认(polities.ts 的 findPorts:海水漫到城边可能成了港口,抬升把港口围成了内陆就不是了)
+ *   - 港口照新地形重新认(polities.ts 的 findPorts:海水漫到城边可能成了港口,抬升把港口围成了内陆就不是了;
+ *     州变得不宜居、海岸没变的照样是港口)
  *   - 人口上限按城址那一州的人口上限、港口、大河前后之比缩放(siteFactor;建城时的基准、随机部分不变)
  * 港口没变、上限变得不到 RESHAPE_MIN 的不动(地形没变的州前后之比正好是 1;远处气候、河流的一点点变化不算)。
  * 这一刻会没了的城(upheavalVictims)、早先毁了的城不管。
@@ -311,10 +312,16 @@ export function reshapeCities(
   ops: readonly TerrainOp[],
 ): Settlement[] {
   const T1 = cultureTerrain(w1, h1, r1);
-  const port1 = findPorts(w1, T1);
   const vol = ops.filter((o) => o.kind === 'volcano');
-  return settlements.map((s) => {
-    if (s.ended !== undefined || !(s.founded < t) || struck(s.cell, w1, vol) !== null) return s;
+  const kept = settlements.map((s) => s.ended === undefined && s.founded < t && struck(s.cell, w1, vol) === null);
+  // 港口照新的海岸认:城还在的州变得不宜居了也照样认(findPorts 平常只给宜居的州挑港口)
+  const alive = new Uint8Array(r1.count);
+  settlements.forEach((s, i) => {
+    if (kept[i] && s.region >= 0 && s.region < r1.count) alive[s.region] = 1;
+  });
+  const port1 = findPorts(w1, T1, alive);
+  return settlements.map((s, i) => {
+    if (!kept[i]) return s;
     const r = s.region;
     const last = s.reshaped?.[s.reshaped.length - 1];
     const port0 = last ? last.port : s.port;

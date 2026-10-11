@@ -80,6 +80,16 @@ export function portAt(s: Settlement, year: Year): boolean {
   return port;
 }
 
+/** 最后一段地形里是港口的:从哪年起一直是港口(建城时就是 = 建城那年;地形大事以后才成的 = 那一年);最后不是港口 = Infinity */
+export function portSince(s: Settlement): Year {
+  let since = s.port ? s.founded : Infinity;
+  for (const e of s.reshaped ?? []) {
+    if (!e.port) since = Infinity;
+    else if (!(since < Infinity)) since = e.year;
+  }
+  return since;
+}
+
 /**
  * 国都加成此刻加到了几成(0..1):按做国都的年份段(Settlement.capitalSpans)分段现算 ——
  * 做国都时每年 +1/CAPITAL_RAMP、不做了每年 −1/CAPITAL_DECLINE(再次立都从剩下的那几成接着加)
