@@ -1137,9 +1137,15 @@ export function routeCities(settlements: Settlement[], polities: Polity[], endYe
     // 港口看这处城址的最后一座城:先前的城可能在地形大事以前就毁了,记着的还是那时的港口
     const last = g[g.length - 1];
     const c: RouteCity = { cell: s.cell, major: majorFrom < Infinity, majorFrom: majorFrom < Infinity ? majorFrom : undefined, port: port(last), founded };
-    // 地形大事以后才成了港口的:航线从成港口那年起(陆路照上面的 founded)
-    const harbor = portSince(last);
-    if (harbor < Infinity && harbor !== last.founded) c.portFrom = harbor;
+    // 航线从这处城址一直是港口的那年起(陆路照上面的 founded):从最后一座城往前,前一座到最后也是港口的接着往前算
+    // (中间毁了又重建不算断)。地形大事以后才成了港口的、原址重建时才成港口的,航线不早于那年
+    let harbor = portSince(last);
+    for (let i = g.length - 2; i >= 0 && harbor === g[i + 1].founded; i--) {
+      const h = portSince(g[i]);
+      if (!(h < Infinity)) break;
+      harbor = h;
+    }
+    if (harbor < Infinity && harbor > founded) c.portFrom = harbor;
     const ended = g[g.length - 1].ended;
     if (ended !== undefined) c.ended = ended;
     out.push(c);

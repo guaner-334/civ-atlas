@@ -235,6 +235,7 @@ export function searchCiv(
   }
   // 民族:"某某" 和 "某某族" 都算
   for (const cu of civ.cultures) {
+    if (cu.unborn) continue; // 没能兴起的(发源州在地形大事里沉了)
     const label = cultureLabel(cu);
     const m = best([cu.name, label], q);
     if (m < 0) continue;

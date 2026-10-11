@@ -647,6 +647,7 @@ export function installCultures(sim: CivSim, m: CultureModel, births = true): vo
     // 还有陆地、只是变得不宜居的(比如火山压过来)照常兴起,和大事里没沉的州不撤出一样
     if (reg.cellStart[r + 1] === reg.cellStart[r]) {
       m.cultures[c].ended = t;
+      m.cultures[c].unborn = true;
       return;
     }
     sim.setOwner(Layer.Culture, r, c, Ev.CultureBorn);

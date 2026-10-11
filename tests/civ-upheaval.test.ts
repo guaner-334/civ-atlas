@@ -29,6 +29,7 @@ import { upheavalText } from '../src/ui/WorldOverviewInterventions';
 import { computeHabitat } from '../src/gen/civ/habitat';
 import { reshapeRegions } from '../src/gen/civ/regions';
 import { buildRoutes } from '../src/gen/civ/routes';
+import { searchCiv } from '../src/ui/searchIndex';
 
 const PARAMS = { ...DEFAULT_PARAMS, seed: 7 };
 /** 种子 7 上的三件大事:大霄国都一带海水漫进来、兹拉季纳国都一带火山喷发、两国之间的海峡隆起 */
@@ -375,8 +376,10 @@ describe('地形大事 · 推演', () => {
     const late: Settlement = { ...s, port: false, capacity: 5, reshaped: [{ year: 700, capacity: 5, port: true }] };
     const [rc] = routeCities([late], [], 1000);
     expect(rc.port).toBe(true);
+    /** 航线够格的年份(routes.ts:成港口那年和 founded 里晚的那个) */
+    const seaFrom = (x: { founded: number; portFrom?: number }) => Math.max(x.founded, x.portFrom ?? x.founded);
     expect(rc.founded).toBe(700);
-    expect(rc.portFrom).toBe(700);
+    expect(seaFrom(rc)).toBe(700);
     const always = routeCities([{ ...late, reshaped: undefined, port: true }], [], 1000)[0];
     expect(always.founded).toBe(0);
     expect(always.portFrom).toBeUndefined();
@@ -384,7 +387,14 @@ describe('地形大事 · 推演', () => {
     const grown: Settlement = { ...late, capacity: 3000, growth: 0.02, reshaped: [{ year: 700, capacity: 3000, port: true }] };
     const [gc] = routeCities([grown], [], 1000);
     expect(gc.founded).toBeLessThan(700);
-    expect(gc.portFrom).toBe(700);
+    expect(seaFrom(gc)).toBe(700);
+    // 内陆的镇毁了,地形大事以后原址重建成了港口:陆路照老城,航线从重建那年起;一直是港口的城址不另记
+    const inlandTown: Settlement = { ...grown, reshaped: undefined, port: false, ended: 500 };
+    const rebuiltPort: Settlement = { ...inlandTown, id: 1, port: true, founded: 650, ended: undefined, rebuilds: 0 };
+    const [rp] = routeCities([inlandTown, rebuiltPort], [], 1000);
+    expect(rp.founded).toBeLessThan(500);
+    expect(seaFrom(rp)).toBe(650);
+    expect(routeCities([{ ...inlandTown, port: true }, rebuiltPort], [], 1000)[0].portFrom).toBeUndefined();
     // 两座港口城之间的航线:有一座 700 年才成港口的,航线从 700 年起
     const pc = routeCities(c.settlements, c.polities, 3000).filter((x) => x.port && x.ended === undefined);
     const lm = (x: { cell: number }) => c.regions.landmass[c.regions.of[x.cell]];
@@ -432,9 +442,13 @@ describe('地形大事 · 推演', () => {
     const b = civOf([SINK]);
     expect(b.upheavals![0].drowned).toContain(cu.hearth);
     expect(b.cultures[cu.id].ended).toBe(cu.born);
+    expect(b.cultures[cu.id].unborn).toBe(true);
     for (let i = 0; i < b.log.size; i++) if (b.log.layer[i] === 0) expect(b.log.value[i]).not.toBe(cu.id);
+    // 搜索里找不到它(史书材料里也不列,同一个标记)
+    expect(searchCiv(a, cu.name, a.endYear).some((h) => h.kind === 'culture' && h.id === cu.id)).toBe(true);
+    expect(searchCiv(b, cu.name, b.endYear).some((h) => h.kind === 'culture' && h.id === cu.id)).toBe(false);
     // 别的民族照常诞生
-    for (const c of b.cultures) if (c.id !== cu.id) expect(c.ended === undefined || c.ended > c.born).toBe(true);
+    for (const c of b.cultures) if (c.id !== cu.id) expect(!c.unborn && (c.ended === undefined || c.ended > c.born)).toBe(true);
   }, 300_000);
 
   it('大事同一年下的干预照常生效,排在大事后面', () => {
