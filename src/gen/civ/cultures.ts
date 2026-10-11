@@ -643,8 +643,9 @@ export function installCultures(sim: CivSim, m: CultureModel, births = true): vo
   sim.on(Ev.CultureBorn, (r, c, t) => {
     // fixBirths 保证了发源州此时还空着;万一被占(比如阶段 4 改过历史),这个民族就没能兴起
     if (own[r] >= 0) return;
-    // 发源州在更早的地形大事里沉入了海中(一块陆地也不剩,不可居了):没能兴起,记作那一刻就没了(不算在世的民族)
-    if (!habitable[r]) {
+    // 发源州在更早的地形大事里沉入了海中(一块陆地也不剩):没能兴起,记作那一刻就没了(不算在世的民族)。
+    // 还有陆地、只是变得不宜居的(比如火山压过来)照常兴起,和大事里没沉的州不撤出一样
+    if (reg.cellStart[r + 1] === reg.cellStart[r]) {
       m.cultures[c].ended = t;
       return;
     }

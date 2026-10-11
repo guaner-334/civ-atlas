@@ -23,6 +23,7 @@ import { editCount, makeSave, parseSave, saveText } from '../src/gen/savefile';
 import { fullChronicle } from '../src/gen/civ/religionText';
 import { faithAt } from '../src/gen/civ/religion';
 import { civAtEra, withHistory } from '../src/ui/eras';
+import { popPeak } from '../src/ui/panelData';
 import { makeFlagView } from '../src/ui/flagStore';
 import { upheavalText } from '../src/ui/WorldOverviewInterventions';
 import { computeHabitat } from '../src/gen/civ/habitat';
@@ -320,6 +321,17 @@ describe('地形大事 · 推演', () => {
     expect(foundingYear(fast)).toBe(500);
     expect(foundingYear(sunk)).toBe(Infinity);
     expect(foundingYear(back)).toBe(again);
+    // 城的"最盛":上限涨上去一年就又降下来、那时人口本在往下走(旧都衰落),高点就在降之前那一刻
+    const spike: Settlement = {
+      ...fast,
+      capitalFrom: 100,
+      capitalSpans: [{ from: 100, until: 850, polity: 0 }],
+      reshaped: [{ year: 900, capacity: 900, port: true }, { year: 901, capacity: 10, port: false }],
+    };
+    const peak = popPeak(spike, 100, 3000);
+    expect(peak.year).toBeGreaterThan(900);
+    expect(peak.year).toBeLessThan(901);
+    expect(peak.pop).toBeGreaterThanOrEqual(populationAt(spike, 901 - 1 / 256));
   });
 
   it('州的人口上限变成 0、后来又长回来:城的上限照比例涨回去;同一处城址先后几座城,航线的港口看最后一座', () => {
