@@ -278,7 +278,12 @@ async function renderLongRun(my: number, src: FilmSource, look: LongLook, lookKe
   const r = result;
   encodeTimer = window.setTimeout(() => {
     void encode(r).then((blobs) => {
-      if (result !== r || !blobs || my !== gen) return;
+      if (result !== r || my !== gen) return;
+      // 浏览器压不出来(图太大、内存不够):和画不出来一样提示,不然「保存」一直灰着
+      if (!blobs) {
+        showToast({ id: 'long', kind: 'error', text: '长图没画出来', more: ['可以换个选项再试一次'] });
+        return;
+      }
       r.blobs = blobs;
       setLong({ ver: getLong().ver + 1 });
     });

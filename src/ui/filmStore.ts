@@ -50,6 +50,8 @@ export interface FilmUi {
   cards: boolean;
   /** 标题:null = 用世界名 */
   title: string | null;
+  /** 上面的标题、拖出来的年份是哪个世界的(换了世界再打开回到默认) */
+  world: string | null;
   run: FilmRun | null;
   /** 手机:底部卡片多高(像素;地图上的预览按它让位置) */
   sheetH: number;
@@ -66,6 +68,7 @@ const INIT: FilmUi = {
   captions: true,
   cards: true,
   title: null,
+  world: null,
   run: null,
   sheetH: 0,
 };
@@ -100,7 +103,9 @@ export function openFilm(mode: FilmMode, phone: boolean) {
   if (mode === 'long') openLong(sel?.kind === 'polity' ? sel.id : null);
   clearSelection();
   if (mode === 'video' && getGlobeOn()) setGlobeOn(false);
-  state = { ...state, mode, phone, shape: phone ? 'port' : 'land', run: null };
+  const world = currentWorld()?.id ?? null;
+  const fresh = world !== state.world ? { world, title: null, rangeKind: 'polities' as const, range: null } : {};
+  state = { ...state, ...fresh, mode, phone, shape: phone ? 'port' : 'land', run: null };
   emit();
   // 时间轴移到选的那一段里
   const src = getFilmSource();
