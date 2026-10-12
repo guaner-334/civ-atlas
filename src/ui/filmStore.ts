@@ -243,6 +243,8 @@ export async function runFilm(src: FilmSource, setup: FilmSetup): Promise<FilmDo
   liveCanvas = cv;
   const t0 = performance.now();
   const frames = r.clock.frames;
+  // 取消了:时间轴回到开始导出前停的那一年
+  const before = getCivTime().year;
   setFilm({ run: { f: 0, frames, year: setup.range.from, t0 } });
   let last = 0;
   let lock: { release(): Promise<void> } | null = null;
@@ -271,7 +273,10 @@ export async function runFilm(src: FilmSource, setup: FilmSetup): Promise<FilmDo
     const base = fileBaseName({ title: setup.title || currentWorld()?.title, seed: src.at(setup.range.to).world.params.seed });
     return { blob, name: filmFileName(base, setup.range, setup.shape), w, h, ms: performance.now() - t0 };
   } catch (e) {
-    if (e instanceof FilmCancelled) return null;
+    if (e instanceof FilmCancelled) {
+      setCivTime({ year: before, playing: false, story: false });
+      return null;
+    }
     throw e;
   } finally {
     r.dispose();

@@ -186,6 +186,20 @@ let encodeTimer = 0;
 
 const measureCtx = () => Object.assign(document.createElement('canvas'), { width: 1, height: 1 }).getContext('2d')!;
 
+/** 等浏览器把画面画出来一次(拍地图很费时,不等的话"正在画第几张"可能一直显示不出来) */
+function nextPaint(): Promise<void> {
+  return new Promise((resolve) => {
+    let done = false;
+    const go = () => {
+      if (done) return;
+      done = true;
+      setTimeout(resolve, 0);
+    };
+    requestAnimationFrame(go);
+    setTimeout(go, 100);
+  });
+}
+
 /**
  * 按现在的选项画长图:先拍没拍过的地图(预览上写画到第几张),再拼起来、压成 JPEG。
  * 选项又变了,前一次没画完的不画了(拍好了的地图留着下次用)。lookKey = 地图画法的指纹(换了就全部重拍)
@@ -204,8 +218,8 @@ export async function renderLong(src: FilmSource, look: LongLook, lookKey: strin
   for (let i = 0; i < todo.length; i++) {
     if (my !== gen) return;
     setLong({ busy: { done: i, total: todo.length } });
-    // 让出一下,预览上的字先换过来
-    await new Promise((r) => setTimeout(r, 0));
+    // 让出一下,等屏幕画过一帧(预览上的字先换过来);页面在后台时不等画面,最多等 0.1 秒
+    await nextPaint();
     if (my !== gen) return;
     const cv = await shoot(src, look, todo[i]);
     if (lookKey === mapCacheLook) mapCache.set(mapKey(todo[i]), cv);

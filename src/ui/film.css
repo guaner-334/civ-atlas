@@ -420,3 +420,7 @@
   top: 13.5px;
   height: 22px;
 }
+/* 手机上导出视频时时间轴右边不放速度按钮:轨道右边留出把手底下"3000"那几个字的地方 */
+.app.phone .tb-track.film {
+  margin-right: 12px;
+}
