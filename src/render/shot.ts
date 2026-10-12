@@ -5,7 +5,7 @@
  *        三层叠好再缩放到输出大小;地名、国名、城镇符号、战线、作者标记按输出大小重新排(地图按 输出宽 / dpr 个 CSS 像素宽显示)。
  *   一块(region):和地图放大以后同一套画法 —— 地形按这一块、这个缩放倍数重画(render/detail.ts),文明底图逐格重新上色
  *        (render/civ/detail.ts),文字按屏幕上的规矩排;范围、缩放倍数取自屏幕上的框,框里看到的就是拍出来的样子,
- *        只是像素多(字、符号、线按 输出宽 / 框的宽 放大)。
+ *        只是像素多(字、符号、线按 输出宽 / 框的宽 放大)。经纬网开着时也画(和整张地图一样盖在文明底图上)。
  *
  * 地形只画一次(new 的时候),每一帧(draw)只重画文明底图和文字:回放导出一千多帧,地形不变。
  * 地形大事以后世界换了(另一段的 world / raster),另开一个。
@@ -27,7 +27,7 @@ import { drawHolyDot, holyCities } from './civ/faith';
 import { drawPlacedLabels, placeMap, toCanvas, type LabelItem, type LabelView, type Placement } from './labels/draw';
 import { ensureFonts } from './labels/fonts';
 import { canvasMeasure, drawMarks, layoutMarks, placedTextBoxes, type MarkFrame, type MarkItem } from './marks';
-import { labelProjection, projector, reprojectImage, type MapProj, type ProjectionId } from './projection';
+import { drawGraticule, labelProjection, projector, reprojectImage, type MapProj, type ProjectionId } from './projection';
 import { nearX, wrapOf } from './common';
 
 type AnyCanvas = HTMLCanvasElement | OffscreenCanvas;
@@ -143,6 +143,11 @@ export class MapShot {
     const ctx = ctx2d(t);
     const v = this.regionView();
     const view = { s: v.s, ox: v.ox, oy: v.oy, k: Math.max(1, v.k) };
+    if (this.scene.graticule) {
+      const d = makeCanvas(this.w, this.h);
+      drawGraticule(ctx2d(d), v.mp, world.width, world.height, view, style, 0, v.dpr);
+      this.decor = d;
+    }
     if (v.mp) {
       ctx.fillStyle = style === 'fantasy' ? '#efe2c2' : '#12161c';
       ctx.fillRect(0, 0, this.w, this.h);
@@ -204,7 +209,7 @@ export class MapShot {
     const ok = this.ok;
     const t0 = performance.now();
     if (ok) this.drawCiv(ctx, year, opt.sel);
-    if (this.area.kind === 'whole' && this.decor) {
+    if (this.decor) {
       ctx.save();
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = 'high';

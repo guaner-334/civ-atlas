@@ -30,6 +30,7 @@ import {
 } from '../src/ui/filmPlan';
 import { wrapText } from '../src/render/film';
 import { setFilmSource, whenFilmReady, type FilmSource } from '../src/ui/filmSource';
+import { regionKeep } from '../src/ui/filmRun';
 
 let nextId = 1;
 function entry(kind: ChronicleEntry['kind'], year: number, text: string, more: Partial<ChronicleEntry> = {}): ChronicleEntry {
@@ -157,7 +158,8 @@ describe('文字', () => {
 });
 
 describe('真实世界(seed 7)', () => {
-  const civ = generateCiv(generateWorld({ ...DEFAULT_PARAMS, seed: 7 }));
+  const world = generateWorld({ ...DEFAULT_PARAMS, seed: 7 });
+  const civ = generateCiv(world);
   const majors = filterChronicle(fullChronicle(civ), { major: true });
   const range = filmRanges(civ).polities;
 
@@ -176,6 +178,31 @@ describe('真实世界(seed 7)', () => {
     // 全文里国名后面会补上来历"(第 N 年立国)",开头那一句没有
     const bare = (s: string) => s.replace(/\([^)]*\)/g, '');
     for (const e of majors.filter((m) => m.kind === 'war' && m.head)) expect(bare(e.text).startsWith(bare(e.head!))).toBe(true);
+  });
+
+  it('拍框里一块:州有一块地在框里就算,治所在不在框里都一样', () => {
+    const { of, seat } = civ.regions;
+    const { x, y } = world.mesh;
+    // 东西两边是接着的
+    const dx = (a: number, b: number) => Math.min(Math.abs(a - b), world.width - Math.abs(a - b));
+    // 框只框住某个州离治所最远的那块地附近,治所在框外
+    let c0 = -1;
+    let d0 = 0;
+    for (let c = 0; c < of.length; c++) {
+      if (of[c] < 0) continue;
+      const d = Math.hypot(dx(x[c], x[seat[of[c]]]), y[c] - y[seat[of[c]]]);
+      if (d > d0) [c0, d0] = [c, d];
+    }
+    const h = d0 / 4;
+    const box = { x0: x[c0] - h, y0: y[c0] - h, x1: x[c0] + h, y1: y[c0] + h, k: 1, mapCss: 1, mp: null };
+    const keep = regionKeep(civ, world, box);
+    const i = of[c0];
+    expect(keep(entry('fall', 1000, '框里', { polities: [], regions: [i] }))).toBe(true);
+    const far = [...seat.keys()].find((j) => {
+      for (let c = 0; c < of.length; c++) if (of[c] === j && dx(x[c], x[c0]) < 4 * h && Math.abs(y[c] - y[c0]) < 4 * h) return false;
+      return true;
+    })!;
+    expect(keep(entry('fall', 1000, '框外', { polities: [], regions: [far] }))).toBe(false);
   });
 });
 

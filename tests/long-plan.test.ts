@@ -95,6 +95,21 @@ describe('一国', () => {
     expect(d.lead).toMatch(new RegExp(`第 ${f.to} 年亡，享国 \\d+ 年。$`));
     expect(d.sections.at(-1)!.title).toMatch(new RegExp(`${f.to - (Math.floor(civ.polities[f.id].ended!) === f.to ? 0 : 0)} 年$`));
   });
+
+  it('正好在某节第一年亡的国家:最后一节是亡国那年,亡国那条列在里面;上一节不再放一张和最上面一样的图', () => {
+    const span = chronicleEraYears(civ.endYear);
+    const p0 = civ.polities.find((p) => p.ended !== undefined && Math.floor(p.ended / span) * span > Math.floor(p.founded))!;
+    const y = Math.floor(p0.ended! / span) * span;
+    const p = { ...p0, ended: y };
+    const c = { ...civ, polities: civ.polities.map((q) => (q.id === p.id ? p : q)) };
+    const fall = { ...all.find((e) => e.kind === 'fall')!, id: -1, year: y, end: y, text: '测试国亡', importance: 3 as const, polities: [p.id], children: undefined };
+    const d = longDoc(c, [...all.filter((e) => e.year < y), fall], majors, { ...opt, scope: 'one', polity: p.id, title: 'x' });
+    expect(d.lead).toMatch(new RegExp(`第 ${y} 年亡`));
+    expect(d.sections.at(-1)!.title).toBe(`第 ${y} 年`);
+    expect(d.sections.at(-1)!.rows.map((r) => r.text)).toContain('测试国亡');
+    expect(d.sections.at(-2)!.title).toMatch(new RegExp(`${y - 1} 年$`));
+    expect(d.sections.at(-2)!.map).toBeNull();
+  });
 });
 
 describe('排版、切页', () => {

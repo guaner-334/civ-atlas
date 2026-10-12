@@ -272,7 +272,7 @@ export async function runFilm(src0: FilmSource, setup: FilmSetup): Promise<FilmD
   cancelled = false;
   const t0 = performance.now();
   const frames = filmClock(setup.range, setup.seconds, setup.cards).frames;
-  // 取消了:时间轴回到开始导出前停的那一年(已经换到别的世界了就不动)
+  // 取消了、出错了:时间轴回到开始导出前停的那一年(已经换到别的世界了就不动)
   const before = getCivTime().year;
   const restore = () => {
     if (getFilmSource()?.full === src0.full) setCivTime({ year: before, playing: false, story: false });
@@ -317,10 +317,8 @@ export async function runFilm(src0: FilmSource, setup: FilmSetup): Promise<FilmD
     const base = fileBaseName({ title: setup.title || currentWorld()?.title, seed: src.at(setup.range.to).world.params.seed });
     return { blob, name: filmFileName(base, setup.range, setup.shape), w, h, ms: performance.now() - t0 };
   } catch (e) {
-    if (e instanceof FilmCancelled) {
-      restore();
-      return null;
-    }
+    restore();
+    if (e instanceof FilmCancelled) return null;
     throw e;
   } finally {
     r.dispose();

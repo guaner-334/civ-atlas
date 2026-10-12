@@ -3,7 +3,7 @@
  * 再由 render/film.ts 写上年份、字幕、片头片尾。导出和面板里的预览用同一个 FilmRenderer,预览和成片一模一样。
  *
  * - 地形大事把历史分成几段:放到下一段时换一个 MapShot(那一段的地形只画一次)。
- * - 拍框里一块时,字幕只写框里看得到的国家的大事:事发的州在框里,或者事情牵涉的国家那一年在框里有地。
+ * - 拍框里一块时,字幕只写框里看得到的国家的大事:事发的州在框里(有一块地在框里就算),或者事情牵涉的国家那一年在框里有地。
  */
 import type { ChronicleEntry } from '../gen/civ/chronicle';
 import type { Civ } from '../gen/civ/types';
@@ -71,9 +71,11 @@ export function regionKeep(geo: Civ, world: World, r: FilmRegion): (e: Chronicle
   const W = world.width;
   const fwd = r.mp ? labelProjection(r.mp).fwd : null;
   let any = false;
-  for (let i = 0; i < R; i++) {
-    const c = geo.regions.seat[i];
-    if (c < 0) continue;
+  // 一个州有一块地在框里就算(框小、挨着边时治所常在框外)
+  const of = geo.regions.of;
+  for (let c = 0; c < of.length; c++) {
+    const i = of[c];
+    if (i < 0 || i >= R || inside[i]) continue;
     let x = world.mesh.x[c];
     let y = world.mesh.y[c];
     if (fwd) [x, y] = fwd(x, y);
@@ -81,8 +83,10 @@ export function regionKeep(geo: Civ, world: World, r: FilmRegion): (e: Chronicle
       while (x < r.x0) x += W;
       while (x - W >= r.x0) x -= W;
     }
-    if (x >= r.x0 && x <= r.x1 && y >= r.y0 && y <= r.y1) inside[i] = 1;
-    any ||= !!inside[i];
+    if (x >= r.x0 && x <= r.x1 && y >= r.y0 && y <= r.y1) {
+      inside[i] = 1;
+      any = true;
+    }
   }
   if (!any) return () => false;
   const cache = new Map<number, Set<number>>();
