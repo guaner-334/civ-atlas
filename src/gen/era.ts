@@ -33,6 +33,8 @@ export interface Era {
 export interface EraEvent {
   tag: string;
   text: string;
+  /** 那一条在编年史里的编号("种类:下标"),改名以后用它认出是哪一条、换成现在的正文;没有 = 一直用记下的正文 */
+  key?: string;
 }
 
 /** 名字最多几个字 */
@@ -72,7 +74,10 @@ export function cleanEra(raw: unknown): Era | undefined {
       // eslint-disable-next-line no-control-regex
       const text = ev.text.replace(/[\u0000-\u001f\u007f]/g, '').trim();
       const tag = [...ev.tag.trim()].slice(0, 2).join('');
-      if (text) era.event = { tag, text: [...text].slice(0, EVENT_TEXT_MAX).join('') };
+      if (text) {
+        era.event = { tag, text: [...text].slice(0, EVENT_TEXT_MAX).join('') };
+        if (typeof ev.key === 'string' && /^[a-z]{1,16}:\d{1,9}$/.test(ev.key)) era.event.key = ev.key;
+      }
     }
   }
   return era;

@@ -56,8 +56,8 @@ const nameWidth = (civ: Civ, p: Person, box: Box) => textWidth(personName(civ, p
 const badgeWidth = () => textWidth('当前', 11) + 15;
 
 const yearSpan = (a: number, b: number | undefined, era: Era | undefined) => `${yearShort(a, era)}–${b !== undefined ? yearShort(b, era) : ''}`;
-/** 一朝的起止,窄处:"2377–2794 年""2377 年起";纪年 "前 820–前 811 年""前 820 年起" */
-const dynSpan = (r: DynastyRow, era: Era | undefined) => (r.to !== undefined ? `${yearShort(r.from, era)}–${yearShort(r.to, era)} 年` : `${yearShortAt(r.from, era)}起`);
+/** 一朝的起止,窄处:"2377–2794 年""2377 年起";纪年 "前 820–前 811 年""前 3–元年""前 820 年起" */
+const dynSpan = (r: DynastyRow, era: Era | undefined) => (r.to !== undefined ? `${yearShort(r.from, era)}–${yearShortAt(r.to, era)}` : `${yearShortAt(r.from, era)}起`);
 
 function inRow(row: DynastyRow, year: number) {
   return row.from <= year && (row.to === undefined || year < row.to);

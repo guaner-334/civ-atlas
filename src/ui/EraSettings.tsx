@@ -22,15 +22,19 @@ import { useYear } from './WorldOverviewMarks';
 import { Icon } from './icons';
 import { EntryText } from './panelParts';
 
-/** 当元年的那件事现在的正文(改了名的跟着换):同一年、同一个标签的那一条;认不出来就用选的时候记下的 */
+/** 编年史里一条的编号:"种类:下标"(列表里唯一) */
+const entryKey = (e: ChronicleEntry) => `${e.kind}:${e.id}`;
+
+/**
+ * 当元年的那件事现在的正文(改了名的跟着换):编号、年份、标签都对得上的那一条;
+ * 认不出来(重新推演以后那件事没了、换了一件)就用选的时候记下的
+ */
 export function eraEventText(civ: Civ | null, era: Era): string {
   const ev = era.event;
   if (!ev) return '';
-  if (!civ) return ev.text;
-  const same = fullChronicle(civ).filter((e) => Math.floor(e.year) === era.epoch && e.tag === ev.tag);
-  const exact = same.find((e) => evText(e) === ev.text);
-  if (exact) return ev.text;
-  return same.length === 1 ? evText(same[0]) : ev.text;
+  if (!civ || !ev.key) return ev.text;
+  const e = fullChronicle(civ).find((x) => entryKey(x) === ev.key && Math.floor(x.year) === era.epoch && x.tag === ev.tag);
+  return e ? evText(e) : ev.text;
 }
 
 /** 名字输入框里的字不合格的原因(合格 = null) */
@@ -267,7 +271,7 @@ function EraEventPicker({ civ, era, anchor, onClose }: { civ: Civ | null; era: E
   }, [anchor, onClose]);
 
   const choose = (e: ChronicleEntry) => {
-    setEra({ name: era.name, epoch: Math.floor(e.year), by: 'event', event: { tag: e.tag, text: evText(e) } });
+    setEra({ name: era.name, epoch: Math.floor(e.year), by: 'event', event: { tag: e.tag, text: evText(e), key: entryKey(e) } });
     onClose();
   };
 
@@ -296,7 +300,7 @@ function EraEventPicker({ civ, era, anchor, onClose }: { civ: Civ | null; era: E
           const a = Math.floor(e.year);
           const b = Math.floor(e.end);
           return (
-            <button key={`${e.kind}:${e.id}`} className={`chron-row imp${e.importance}`} role="option" aria-selected={false} data-ev={evType(e)} onClick={() => choose(e)}>
+            <button key={entryKey(e)} className={`chron-row imp${e.importance}`} role="option" aria-selected={false} data-ev={evType(e)} onClick={() => choose(e)}>
               <span className="chron-year">
                 {yearShort(a, era)}
                 {e.children && b > a && <em>–{yearShort(b, era)}</em>}

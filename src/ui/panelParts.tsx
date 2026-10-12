@@ -420,7 +420,8 @@ export function Foot({ children, cols = 2 }: { children: ReactNode; cols?: 2 | 3
 // ---------------------------------------------------------------------------
 // 生效年份
 
-const digits = (s: string) => s.replace(/[^\d]/g, '').slice(0, 5);
+/** 输入框里只留数字:第几年最多 5 位;纪年的年数最多 6 位(第 0 年定得很晚时,后面的年份能写到十几万) */
+const digits = (s: string, era?: Era) => s.replace(/[^\d]/g, '').slice(0, era ? 6 : 5);
 
 export interface YearInput {
   /** 输入框里的字(设了纪年 = 纪年的年数) */
@@ -459,10 +460,11 @@ export function useYearInput(initial: number, lo: number, hi: number, onChange?:
   const clampY = (v: number) => Math.min(hi, Math.max(lo, Math.round(v)));
   const [st, setSt] = useState(() => ({ era, ...shownYear(clampY(initial), era) }));
   const typed = st.text.trim() === '' ? NaN : Number(st.text);
-  // 纪年没有 0 年
-  const want = !Number.isFinite(typed) ? NaN : era ? (typed < 1 ? NaN : worldYear(st.pre, typed, era)) : typed;
+  // 框里的字按填的时候的纪年算(纪年刚在别处改了,字还是旧的写法);纪年没有 0 年
+  const was = st.era;
+  const want = !Number.isFinite(typed) ? NaN : was ? (typed < 1 ? NaN : worldYear(st.pre, typed, was)) : typed;
   const valid = Number.isFinite(want) && want >= lo && want <= hi;
-  const y = valid ? Math.floor(want) : clampY(Number.isFinite(want) ? want : era ? worldYear(st.pre, 1, era) : lo);
+  const y = valid ? Math.floor(want) : clampY(Number.isFinite(want) ? want : was ? worldYear(st.pre, 1, was) : lo);
   // 纪年在别处改了:按刚才的年份重写输入框
   if (st.era !== era) setSt({ era, ...shownYear(y, era) });
   const put = (text: string, pre: boolean) => {
@@ -508,7 +510,7 @@ export function YearStepper({ yi, then }: { yi: YearInput; then?: string }) {
             value={text}
             inputMode="numeric"
             aria-label="生效年份"
-            onChange={(e) => setText(digits(e.target.value))}
+            onChange={(e) => setText(digits(e.target.value, era))}
             onBlur={tidy}
             onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
             style={{ width: `${Math.max(2, text.length) + 0.6}ch` }}
@@ -583,7 +585,7 @@ export function EraYearInput({
         id={id}
         value={era && cur ? cur.text : value}
         inputMode="numeric"
-        onChange={(e) => (era && cur ? put(digits(e.target.value), cur.pre) : onChange(digits(e.target.value)))}
+        onChange={(e) => (era && cur ? put(digits(e.target.value, era), cur.pre) : onChange(digits(e.target.value)))}
       />
       年
     </label>

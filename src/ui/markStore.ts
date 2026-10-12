@@ -148,7 +148,7 @@ export function toggleDraftRegion(key: string) {
 export function parseYear(text: string, era = getEdits().era): number | null {
   const t = text.trim();
   if (!t) return null;
-  return (era ? /^-?\d{1,6}$/ : /^\d{1,5}$/).test(t) ? Number(t) : NaN;
+  return (era ? /^-?\d{1,7}$/ : /^\d{1,5}$/).test(t) ? Number(t) : NaN;
 }
 
 /** 填的东西能不能存;不能 = 原因(卡片上提示一句,「完成」点不了) */

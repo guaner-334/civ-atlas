@@ -256,7 +256,7 @@ export function UpheavalPanel({ civ, world, phone }: { civ: Civ; world: World; p
         data-act="up-year"
         onFocus={() => setTyping(true)}
         onChange={(e) => {
-          const s = era ? e.target.value.replace(/[^\d]/g, '').slice(0, 5) : digits(e.target.value);
+          const s = era ? e.target.value.replace(/[^\d]/g, '').slice(0, 6) : digits(e.target.value);
           setText(s);
           const v = typedYear(s, pre);
           if (s && v >= lo && v <= hi) goYear(v);

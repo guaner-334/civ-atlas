@@ -156,6 +156,9 @@ describe('标记卡片的年份(设了纪年)', () => {
     expect(draftProblem(d({}))).toBeNull();
     expect(draftProblem(d({ fromText: 'x' }))).toBe('公元没有 0 年');
     expect(draftProblem(d({ fromText: '-1' }))).toBe('年份最早填到公元前 2500 年');
+    // 纪年的年数能写到 6 位,换成第几年可能是 7 位:照样说范围,不说"没填"
+    expect(draftProblem(d({ fromText: '-900000' }))).toBe('年份最早填到公元前 2500 年');
+    expect(draftProblem(d({ toText: '1099998' }))).toBe(`年份最晚填到${yearFull(INTERVENTION_YEAR_MAX, AD)}`);
     expect(draftProblem(d({ toText: String(INTERVENTION_YEAR_MAX + 1) }))).toBe(`年份最晚填到${yearFull(INTERVENTION_YEAR_MAX, AD)}`);
     setEdits(EMPTY_EDITS);
     expect(draftProblem(d({ fromText: 'x' }))).toBe('填一下从哪年开始');
@@ -184,6 +187,13 @@ describe('整理', () => {
     expect(e?.event?.tag).toBe('创立');
     expect([...(e?.event?.text ?? '')].length).toBe(200);
     expect(e?.event?.text.startsWith('ab')).toBe(true);
+    // 那一条在编年史里的编号:合格的留着(改名以后认得出),别的丢掉
+    const ev = (key: unknown) => cleanEra({ ...LIXI, event: { ...LIXI.event, key } })?.event?.key;
+    expect(ev('found:12')).toBe('found:12');
+    expect(ev('faith:3')).toBe('faith:3');
+    expect(ev('found:-1')).toBeUndefined();
+    expect(ev('<b>:1')).toBeUndefined();
+    expect(ev(12)).toBeUndefined();
     expect(sameEra(AD, { ...AD })).toBe(true);
     expect(sameEra(AD, undefined)).toBe(false);
     expect(ERA_DEFAULT).toEqual({ name: '公元', epoch: 2500 });

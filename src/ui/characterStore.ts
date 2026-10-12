@@ -108,7 +108,7 @@ const yearText = (y: number | undefined) => (y === undefined ? '' : String(Math.
 export function parseYear(text: string, era = getEdits().era): number | null {
   const t = text.trim();
   if (!t) return null;
-  return (era ? /^-?\d{1,6}$/ : /^\d{1,5}$/).test(t) ? Number(t) : NaN;
+  return (era ? /^-?\d{1,7}$/ : /^\d{1,5}$/).test(t) ? Number(t) : NaN;
 }
 
 // ---- 新建 / 编辑 ----
