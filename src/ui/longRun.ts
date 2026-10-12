@@ -166,8 +166,8 @@ async function flagImg(doc: LongDoc): Promise<HTMLImageElement | null> {
 
 export interface LongResult {
   lay: LongLayout;
-  /** 一整张 */
-  canvas: HTMLCanvasElement;
+  /** 一整张(切成几张时不画,省一大块内存 = null) */
+  canvas: HTMLCanvasElement | null;
   /** 切成 3:4 时每一页在长图上的 [起, 止);一整张 = null */
   pages: [number, number][] | null;
   /** 切开的每一页 */
@@ -207,6 +207,12 @@ function nextPaint(): Promise<void> {
  */
 export async function renderLong(src: FilmSource, look: LongLook, lookKey: string): Promise<void> {
   const my = ++gen;
+  // 选项变了:上一次的图先不能存(新的画好、压好以前,存下来的会是旧选项的那一张)
+  window.clearTimeout(encodeTimer);
+  if (result?.blobs) {
+    result.blobs = null;
+    setLong({ ver: getLong().ver + 1 });
+  }
   try {
     await renderLongRun(my, src, look, lookKey);
   } catch (e) {
@@ -221,7 +227,7 @@ export async function renderLong(src: FilmSource, look: LongLook, lookKey: strin
 
 function freeResult() {
   if (result) {
-    result.canvas.width = result.canvas.height = 0;
+    if (result.canvas) result.canvas.width = result.canvas.height = 0;
     for (const c of result.pageCanvases) c.width = c.height = 0;
   }
   result = null;
@@ -251,10 +257,13 @@ async function renderLongRun(my: number, src: FilmSource, look: LongLook, lookKe
   const flag = await flagImg(doc);
   if (my !== gen) return;
   const maps = lay.maps.map((m) => mapCache.get(mapKey(m)) ?? null);
-  const canvas = Object.assign(document.createElement('canvas'), { width: LONG_W, height: lay.h });
-  drawLong(canvas.getContext('2d')!, lay, look.font, maps, flag);
   const split = getLong().split;
   const pages = split ? longPages(lay) : null;
+  let canvas: HTMLCanvasElement | null = null;
+  if (!pages) {
+    canvas = Object.assign(document.createElement('canvas'), { width: LONG_W, height: lay.h });
+    drawLong(canvas.getContext('2d')!, lay, look.font, maps, flag);
+  }
   const pageCanvases = (pages ?? []).map(([a, b], i) => {
     const c = Object.assign(document.createElement('canvas'), { width: LONG_W, height: PAGE_H });
     drawLong(c.getContext('2d')!, lay, look.font, maps, flag, a, b, i ? PAGE_PAD : 0);
@@ -269,7 +278,7 @@ async function renderLongRun(my: number, src: FilmSource, look: LongLook, lookKe
   const r = result;
   encodeTimer = window.setTimeout(() => {
     void encode(r).then((blobs) => {
-      if (result !== r || !blobs) return;
+      if (result !== r || !blobs || my !== gen) return;
       r.blobs = blobs;
       setLong({ ver: getLong().ver + 1 });
     });
@@ -279,7 +288,7 @@ async function renderLongRun(my: number, src: FilmSource, look: LongLook, lookKe
 const toJpeg = (c: HTMLCanvasElement) => new Promise<Blob | null>((ok) => c.toBlob(ok, 'image/jpeg', 0.9));
 
 async function encode(r: LongResult): Promise<Blob[] | null> {
-  const list = r.pages ? r.pageCanvases : [r.canvas];
+  const list = r.canvas ? [r.canvas] : r.pageCanvases;
   const out: Blob[] = [];
   for (const c of list) {
     const b = await toJpeg(c);

@@ -7,13 +7,14 @@ import { FILM_BITRATE, FILM_FPS } from './filmPlan';
 
 let support: Promise<boolean> | null = null;
 
-/** 这个浏览器能不能导视频(1080p H.264);结果记住,只查一次 */
+/** 这个浏览器能不能导视频(横屏、竖屏的 1080p H.264 都要能编:有的编码器宽、高的上限不一样);结果记住,只查一次 */
 export function filmSupported(): Promise<boolean> {
   support ??= (async () => {
     try {
       if (typeof window === 'undefined' || !window.isSecureContext || typeof VideoEncoder === 'undefined') return false;
       const { canEncodeVideo } = await import('mediabunny');
-      return await canEncodeVideo('avc', { width: 1920, height: 1080, bitrate: FILM_BITRATE, frameRate: FILM_FPS });
+      const cfg = { bitrate: FILM_BITRATE, frameRate: FILM_FPS };
+      return (await canEncodeVideo('avc', { width: 1920, height: 1080, ...cfg })) && (await canEncodeVideo('avc', { width: 1080, height: 1920, ...cfg }));
     } catch {
       return false;
     }

@@ -110,7 +110,7 @@ export function LongStage({ phone, style, layer }: LongStageProps) {
     if (!host) return;
     host.replaceChildren();
     if (!res) return;
-    if (!res.pages) {
+    if (res.canvas) {
       res.canvas.className = 'long-img';
       host.appendChild(res.canvas);
     } else {
@@ -151,7 +151,7 @@ export function LongStage({ phone, style, layer }: LongStageProps) {
     const ctx = cv.getContext('2d')!;
     ctx.scale(dpr, dpr);
     ctx.imageSmoothingQuality = 'high';
-    if (!res.pages) ctx.drawImage(res.canvas, 0, 0, miniW, stripH);
+    if (res.canvas) ctx.drawImage(res.canvas, 0, 0, miniW, stripH);
     else
       res.pageCanvases.forEach((c, i) => {
         const y = i * (pageMiniH + miniGap);
