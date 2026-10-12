@@ -13,10 +13,12 @@ import { keyCells, markShownAt, regionOfKey, type AuthorMark } from '../gen/edit
 import { ownersOf } from './panelData';
 import type { HoverInfo } from './hoverInfo';
 import { MARK_HEX, markAreaShape, type AreaShape, type MarkItem } from '../render/marks';
+import { yearAt, yearSpanAt, type Era } from '../gen/era';
+import { currentEra } from './editsStore';
 
-/** "2506–2515 年" / "2498 年起" */
-export function markYears(m: Pick<AuthorMark, 'from' | 'to'>): string {
-  return m.to === undefined ? `${m.from} 年起` : `${m.from}–${m.to} 年`;
+/** "2506–2515 年" / "2498 年起";设了纪年 "公元前 820–前 811 年" / "公元前 820 年起"(不给 era = 当前世界的纪年) */
+export function markYears(m: Pick<AuthorMark, 'from' | 'to'>, era: Era | undefined = currentEra()): string {
+  return m.to === undefined ? `${yearAt(m.from, era)}起` : yearSpanAt(m.from, m.to, era);
 }
 
 /** 世界坐标 → 地块(地图外 = −1) */

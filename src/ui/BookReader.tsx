@@ -11,6 +11,8 @@ import { asHistoryNote, historyFileName, historyMarkdown, historyNoteStatus, his
 import { currentWorld, useSavesVersion } from './saveStore';
 import { bookTitleText, bookUnit, closeBookReader, openBookReader, startBook, stopBook, useBook } from './bookStore';
 import { useDialogEscape } from './BookDialog';
+import { useEra } from './editsStore';
+import { eraText, yearFull, yearSpan, yearSpanAt, type Era } from '../gen/era';
 import { AiTag } from './aiTag';
 import './book.css';
 
@@ -54,20 +56,20 @@ interface Chapter {
   who?: string[];
 }
 
-/** "## 卷一 诸部初立(第 0—1045 年)" / "## 本纪·大澜王朝" / "## 列传" → 卷次、章名、年份 */
-export function parseChapter(line: string): Omit<Chapter, 'id'> {
+/** "## 卷一 诸部初立(第 0—1045 年)" / "## 本纪·大澜王朝" / "## 列传" → 卷次、章名、年份(设了纪年按纪年短写:"前 2500–前 1455") */
+export function parseChapter(line: string, era?: Era | null): Omit<Chapter, 'id'> {
   let rest = line.trim();
   let y = '';
   const ym = /\s*[(（]\s*(?:第\s*)?(\d+)\s*(?:年)?\s*[—–\-~至到]+\s*(?:第\s*)?(\d+)\s*年?\s*[)）]\s*$/.exec(rest);
   if (ym) {
-    y = `${ym[1]}–${ym[2]}`;
+    y = era ? yearSpan(Number(ym[1]), Number(ym[2]), era) : `${ym[1]}–${ym[2]}`;
     rest = rest.slice(0, ym.index).trim();
   }
   const cm = /^(第[一二三四五六七八九十百零〇两\d]+[章卷篇回]|卷[一二三四五六七八九十百零〇\d]+)\s*[·・:：、.\s]?\s*(.*)$/.exec(rest);
-  if (cm && cm[2]) return { n: cm[1], t: cm[2].trim(), y };
+  if (cm && cm[2]) return { n: cm[1], t: eraText(cm[2].trim(), era), y };
   const pm = /^(本纪|世家|列传)\s*[·・:：]\s*(.+)$/.exec(rest);
-  if (pm) return { n: pm[1], t: pm[2].trim(), y };
-  return { n: '', t: rest, y };
+  if (pm) return { n: pm[1], t: eraText(pm[2].trim(), era), y };
+  return { n: '', t: eraText(rest, era), y };
 }
 
 /** "司空弈传" / "一、顾珏传" / "司空弈、顾珏合传(第 1200—1260 年)" → 传主的名字;不像传名的 → 空 */
@@ -86,7 +88,8 @@ function inline(s: string): ReactNode {
   return parts.map((p, i) => (p.startsWith('**') && p.endsWith('**') && p.length > 4 ? <b key={i}>{p.slice(2, -2)}</b> : p));
 }
 
-export function layout(text: string, bookTitle: string): { blocks: ReactNode[]; chapters: Chapter[] } {
+/** 排版;正文里的"第 N 年"按纪年写(era) */
+export function layout(text: string, bookTitle: string, era?: Era | null): { blocks: ReactNode[]; chapters: Chapter[] } {
   const blocks: ReactNode[] = [];
   const chapters: Chapter[] = [];
   const lives = (c: Chapter | undefined) => !!c && (c.n === '列传' || (!c.n && c.t === '列传'));
@@ -100,7 +103,7 @@ export function layout(text: string, bookTitle: string): { blocks: ReactNode[]; 
       const norm = (x: string) => x.replace(/[《》\s]/g, '');
       if (h[1].length === 1 && (!blocks.length || norm(body) === norm(bookTitle))) return;
       if (h[1].length <= 2) {
-        const c = { id: `bk-ch-${chapters.length}`, ...parseChapter(body) };
+        const c = { id: `bk-ch-${chapters.length}`, ...parseChapter(body, era) };
         chapters.push(c);
         blocks.push(
           <h3 key={i} id={c.id} className="bk-ch">
@@ -113,26 +116,26 @@ export function layout(text: string, bookTitle: string): { blocks: ReactNode[]; 
         const c = chapters[chapters.length - 1];
         const who = lives(c) ? lifeName(body) : '';
         if (who && !c.who?.includes(who)) c.who = [...(c.who ?? []), who];
-        blocks.push(<h4 key={i}>{inline(body)}</h4>);
+        blocks.push(<h4 key={i}>{inline(eraText(body, era))}</h4>);
       }
       return;
     }
     if (/^(-{3,}|\*{3,}|_{3,})$/.test(line)) return void blocks.push(<hr key={i} />);
     const q = /^>\s?(.*)$/.exec(line);
-    if (q) return void blocks.push(<p key={i} className="bk-quote">{inline(q[1])}</p>);
+    if (q) return void blocks.push(<p key={i} className="bk-quote">{inline(eraText(q[1], era))}</p>);
     const li = /^[-*·]\s+(.*)$/.exec(line);
-    if (li) return void blocks.push(<p key={i} className="bk-li">{inline(li[1])}</p>);
-    blocks.push(<p key={i}>{inline(line)}</p>);
+    if (li) return void blocks.push(<p key={i} className="bk-li">{inline(eraText(li[1], era))}</p>);
+    blocks.push(<p key={i}>{inline(eraText(line, era))}</p>);
   });
   return { blocks, chapters };
 }
 
 // ---------------------------------------------------------------------------
 
-/** 元信息:"纪传体，中篇，截至 3000 年"(一国的写起止年份) */
-function metaLine(style: HistoryStyle, length: HistoryLength, range: string, scopeKind: string): string {
+/** 元信息:"纪传体，中篇，截至 3000 年"(一国的写起止年份;设了纪年:"截至公元 501 年""公元前 820–前 11 年") */
+function metaLine(style: HistoryStyle, length: HistoryLength, range: string, scopeKind: string, era: Era | undefined): string {
   const m = /(\d+)\D+(\d+)/.exec(range);
-  const when = m ? (scopeKind === 'world' ? `截至 ${m[2]} 年` : `${m[1]}–${m[2]} 年`) : range;
+  const when = !m ? eraText(range, era) : era ? (scopeKind === 'world' ? `截至${yearFull(Number(m[2]), era)}` : yearSpanAt(Number(m[1]), Number(m[2]), era)) : scopeKind === 'world' ? `截至 ${m[2]} 年` : `${m[1]}–${m[2]} 年`;
   return [historyStyleLabel(style), `${HISTORY_LENGTHS[length].label}篇`, when].filter(Boolean).join('，');
 }
 
@@ -148,6 +151,7 @@ function Reader({ civ }: { civ: Civ }) {
   useSavesVersion();
   useNotesVersion();
   const world = currentWorld();
+  const era = useEra();
   const job = st.job;
   const key = st.reader.key;
   const note: HistoryNote | null = key && world ? asHistoryNote(getNote(world.id, key)) : null;
@@ -164,8 +168,8 @@ function Reader({ civ }: { civ: Civ }) {
   const text = note ? note.text : (live?.text ?? '');
   const title = note ? note.book.title : (live?.title ?? '');
   const scope = note ? note.book.scope : (live?.opts.scope ?? { kind: 'world' });
-  const name = bookTitleText(title, scope, world?.title);
-  const { blocks, chapters } = useMemo(() => layout(text, name), [text, name]);
+  const name = bookTitleText(title, scope, world?.title, era);
+  const { blocks, chapters } = useMemo(() => layout(text, name, era), [text, name, era]);
   const writing = !!live && live.status === 'writing';
 
   // 写的时候跟着往下滚(读者往上翻了就不跟)
@@ -203,7 +207,7 @@ function Reader({ civ }: { civ: Civ }) {
           <div className="bk-r-top">
             <span className="bk-meta">
               <AiTag />
-              {metaLine(style, length, range, scope.kind)}
+              {metaLine(style, length, range, scope.kind, era)}
             </span>
             <button className="bk-x" onClick={closeBookReader} title="关闭" aria-label="关闭">
               ✕
@@ -226,14 +230,14 @@ function Reader({ civ }: { civ: Civ }) {
                     <button
                       className="bk-tool"
                       onClick={async () => {
-                        await copyText(`${name}\n\n${note.text.trim()}\n`);
+                        await copyText(`${name}\n\n${eraText(note.text.trim(), era)}\n`);
                         setCopied(true);
                         setTimeout(() => setCopied(false), 1600);
                       }}
                     >
                       {copied ? '已复制' : '复制'}
                     </button>
-                    <button className="bk-tool" onClick={() => download(historyMarkdown(note, name.slice(1, -1)), historyFileName(note, name.slice(1, -1)))}>
+                    <button className="bk-tool" onClick={() => download(eraText(historyMarkdown(note, name.slice(1, -1)), era), historyFileName(note, name.slice(1, -1)))}>
                       导出
                     </button>
                   </>

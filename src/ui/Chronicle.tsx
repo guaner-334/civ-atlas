@@ -16,7 +16,9 @@
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import type { Civ } from '../gen/civ/types';
-import { chronicleText, filterChronicle, polityChronicle, yearText, type ChronicleEntry } from '../gen/civ/chronicle';
+import { chronicleText, filterChronicle, polityChronicle, type ChronicleEntry } from '../gen/civ/chronicle';
+import { yearFull, yearShort } from '../gen/era';
+import { useEra } from './editsStore';
 import { fullChronicle } from '../gen/civ/religionText';
 import { polityName } from '../gen/civ/growth';
 import { getCivTime, pickChronicleEntry, setChronicle, subscribeCivTime, useChronicle, useChroniclePick, type CivTime } from './civView';
@@ -44,6 +46,7 @@ const ST = ['past', 'live', 'future'] as const;
 export function Chronicle({ civ }: { civ: Civ | null }) {
   const view = useChronicle();
   const aiOn = useAiOn();
+  const era = useEra();
   const all = useMemo(() => (civ ? fullChronicle(civ) : []), [civ]);
   // 按国家筛过的"全部"和"大事"(两个按钮上各写条数),当前列出的是其中之一;只看一国时"全部"里并进这一国的君主继位
   const mine = useMemo(() => {
@@ -121,7 +124,7 @@ export function Chronicle({ civ }: { civ: Civ | null }) {
 
   const copy = async () => {
     const title = `编年史 · 种子 ${civ.seed}${focus ? ` · 只看${focusName}` : ''}${view.major ? ' · 大事' : ''}`;
-    const text = chronicleText(list, title);
+    const text = chronicleText(list, title, era);
     (window as unknown as { __wfChronicleText: string }).__wfChronicleText = text;
     try {
       await navigator.clipboard.writeText(text);
@@ -161,8 +164,8 @@ export function Chronicle({ civ }: { civ: Civ | null }) {
         title="时间轴跳到这一年,地图上闪出事发地"
       >
         <span className="chron-year">
-          {a}
-          {top && b > a && <em>–{b}</em>}
+          {yearShort(a, era)}
+          {top && b > a && <em>–{yearShort(b, era)}</em>}
         </span>
         <b className="tb-ev chron-type">{evLabel(e)}</b>
         <span className="chron-text">
@@ -185,7 +188,7 @@ export function Chronicle({ civ }: { civ: Civ | null }) {
   };
 
   return (
-    <section className="chronicle">
+    <section className={`chronicle${era ? ' era' : ''}`}>
       <div className="chron-filters">
         <div className="seg">
           <button className={view.major ? 'on' : ''} onClick={() => setChronicle({ major: true })} title={`大国立国、称王称帝、改变格局的战争、分裂、复国、合并……`}>
@@ -280,6 +283,7 @@ export interface NowLineOpts {
  * 这一步不经过 React(订阅时间轴,直接改行的 data-st 属性和 scrollTop),几千条也不会每帧重排
  */
 export function useNowLine({ listRef, nowRef, civ, jumpKey, deps = [], at = null, onAt, line: withLine = true }: NowLineOpts) {
+  const era = useEra();
   /** 列表换了之后第一次同步:滚到当前年份 */
   const scrolledFor = useRef<unknown>(null);
   useLayoutEffect(() => {
@@ -334,7 +338,7 @@ export function useNowLine({ listRef, nowRef, civ, jumpKey, deps = [], at = null
       line.style.top = `${pos}px`;
       if (Math.floor(y) !== shownYear) {
         shownYear = Math.floor(y);
-        line.firstElementChild!.textContent = yearText(y);
+        line.firstElementChild!.textContent = yearFull(y, era);
       }
       const h = box.clientHeight;
       const follow = t.playing || t.scrubbing;
@@ -354,5 +358,5 @@ export function useNowLine({ listRef, nowRef, civ, jumpKey, deps = [], at = null
     }
     return subscribeCivTime((t) => sync(t, false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [civ, jumpKey, at, withLine, ...deps]);
+  }, [civ, jumpKey, at, withLine, era, ...deps]);
 }

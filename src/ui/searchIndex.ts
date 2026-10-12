@@ -21,6 +21,7 @@ import type { AuthorMark } from '../gen/edits';
 import type { AuthorCharacter } from '../gen/characters';
 import { MARK_HEX } from '../render/marks';
 import type { MapSelection } from './civView';
+import { yearAt, yearShortAt, yearSpan, yearSpanAt, type Era } from '../gen/era';
 
 export interface SearchHit {
   kind: 'character' | 'mark' | 'polity' | 'settlement' | 'person' | 'culture' | 'faith' | 'place';
@@ -141,6 +142,7 @@ export function searchCiv(
   limit = SEARCH_LIMIT,
   marks: readonly AuthorMark[] = [],
   chars: readonly AuthorCharacter[] = [],
+  era?: Era,
 ): SearchHit[] {
   const year = Math.floor(Math.min(civ.endYear, Math.max(0, yearIn)));
   const { owners, regions, names } = prepared(civ, year);
@@ -151,7 +153,7 @@ export function searchCiv(
       kind: 'polity',
       id: p.id,
       name: polityNameAt(p, year),
-      sub: sub ?? (alive ? `${regions[p.id]} 州` : year < p.founded ? `${Math.floor(p.founded)} 年立国` : '已亡'),
+      sub: sub ?? (alive ? `${regions[p.id]} 州` : year < p.founded ? `${yearAt(p.founded, era)}立国` : '已亡'),
       color: rgb(p.color),
       select: { kind: 'polity', id: p.id },
       score,
@@ -168,7 +170,7 @@ export function searchCiv(
       .map(strip);
   }
 
-  const out: Scored[] = [...characterHits(chars, q), ...markHits(marks, q)];
+  const out: Scored[] = [...characterHits(chars, q, era), ...markHits(marks, q, era)];
   // 国家:这一年的国号,或者用过的国号(右边写"曾称某某");国都对上了也算(右边写"国都 某城")
   for (const p of civ.polities) {
     const now = matchScore(polityNameAt(p, year), q);
@@ -189,7 +191,7 @@ export function searchCiv(
     const ruined = s.ended !== undefined && s.ended <= year;
     const isCap = !!op && built && !ruined && capitalAt(op, year) === s.id;
     const sub = !built
-      ? `城，${Math.floor(s.founded)} 年建`
+      ? `城，${yearAt(s.founded, era)}建`
       : ruined
         ? '城，已成废墟'
         : isCap
@@ -221,7 +223,7 @@ export function searchCiv(
     const m = best(forms, q);
     if (m < 0) continue;
     const span = personSpan(x);
-    const years = span.until !== null ? `${Math.floor(span.from)}–${Math.floor(span.until)}` : `${Math.floor(span.from)} 年起`;
+    const years = span.until !== null ? yearSpan(span.from, span.until, era) : `${yearShortAt(span.from, era)}起`;
     out.push({
       kind: 'person',
       id: x.id,
@@ -264,7 +266,7 @@ export function searchCiv(
       kind: 'faith',
       id: f.id,
       name: f.name,
-      sub: f.kind === 'folk' ? '民间信仰' : `${f.kind === 'sect' ? '教派' : '宗教'}${later ? `，${Math.floor(f.founded ?? 0)} 年${f.kind === 'sect' ? '分出' : '创立'}` : ''}`,
+      sub: f.kind === 'folk' ? '民间信仰' : `${f.kind === 'sect' ? '教派' : '宗教'}${later ? `，${yearAt(f.founded ?? 0, era)}${f.kind === 'sect' ? '分出' : '创立'}` : ''}`,
       color: rgb(f.color),
       select: { kind: 'faith', id: f.id },
       score: m,
@@ -290,13 +292,13 @@ export function searchCiv(
 }
 
 /** 只找作者自己放的标记和人物(没有国家的世界也能放,搜索框只搜它们) */
-export function searchMarks(query: string, marks: readonly AuthorMark[], limit = SEARCH_LIMIT, chars: readonly AuthorCharacter[] = []): SearchHit[] {
+export function searchMarks(query: string, marks: readonly AuthorMark[], limit = SEARCH_LIMIT, chars: readonly AuthorCharacter[] = [], era?: Era): SearchHit[] {
   const q = query.trim().toLowerCase();
-  return q ? ranked([...characterHits(chars, q), ...markHits(marks, q)], limit) : [];
+  return q ? ranked([...characterHits(chars, q, era), ...markHits(marks, q, era)], limit) : [];
 }
 
 /** 作者标记:名字;说明里有也算 */
-function markHits(marks: readonly AuthorMark[], q: string): Scored[] {
+function markHits(marks: readonly AuthorMark[], q: string, era: Era | undefined): Scored[] {
   const out: Scored[] = [];
   for (const m of marks) {
     const t = matchScore(m.title, q);
@@ -306,7 +308,7 @@ function markHits(marks: readonly AuthorMark[], q: string): Scored[] {
       kind: 'mark',
       id: m.id,
       name: m.title,
-      sub: `标记，${m.to === undefined ? `${m.from} 年起` : `${m.from}–${m.to} 年`}`,
+      sub: `标记，${m.to === undefined ? `${yearAt(m.from, era)}起` : yearSpanAt(m.from, m.to, era)}`,
       color: MARK_HEX[m.color],
       select: { kind: 'mark', id: m.id },
       score: s,
@@ -317,7 +319,7 @@ function markHits(marks: readonly AuthorMark[], q: string): Scored[] {
 }
 
 /** 作者的人物:名字;身份、简介、经历、亲友的关系里有也算 */
-function characterHits(chars: readonly AuthorCharacter[], q: string): Scored[] {
+function characterHits(chars: readonly AuthorCharacter[], q: string, era: Era | undefined): Scored[] {
   const out: Scored[] = [];
   if (!q) return out;
   for (const c of chars) {
@@ -329,7 +331,7 @@ function characterHits(chars: readonly AuthorCharacter[], q: string): Scored[] {
       kind: 'character',
       id: c.id,
       name: c.name,
-      sub: `我的人物，${c.died === undefined ? `${c.born} 年生` : `${c.born}–${c.died} 年`}`,
+      sub: `我的人物，${c.died === undefined ? `${yearAt(c.born, era)}生` : yearSpanAt(c.born, c.died, era)}`,
       color: MARK_HEX[c.color],
       select: { kind: 'character', id: c.id },
       score: s,

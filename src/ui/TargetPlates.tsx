@@ -26,6 +26,8 @@ import { astRoom } from './astPanel';
 import type { WorldToClient } from './EventPins';
 import type { LabelPick } from './mapPick';
 import './countryPanel.css';
+import { spaced, yearSpanAt } from '../gen/era';
+import { currentEra } from './editsStore';
 
 const rgb = (c: readonly number[]) => `rgb(${c.join(',')})`;
 
@@ -321,7 +323,7 @@ export function TargetLayer({ civ, world, toClient, resim, generating, labelAt }
     const show = () => {
       if (!generating) {
         const f = Math.min(0.94, (performance.now() - t0) / expect);
-        showToast({ id: 'resim', kind: 'progress', text: `正在重新推演 ${Math.max(0, Math.floor(resim.year))}–${Math.floor(endYear)} 年`, progress: f });
+        showToast({ id: 'resim', kind: 'progress', text: `正在重新推演${spaced(yearSpanAt(Math.max(0, Math.floor(resim.year)), Math.floor(endYear), currentEra()))}`, progress: f });
       }
       timer = window.setTimeout(show, 60);
     };

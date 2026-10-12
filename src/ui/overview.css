@@ -961,6 +961,242 @@ button.ov-iv-text:hover {
 .ov-ico-btn .icon {
   flex: none;
 }
+/* ---- 世界设定页的「纪年」一组(EraSettings.tsx):两项单选、名字、元年怎么定;右栏最上面,窄屏单独一节 ---- */
+.era-sec + h3 {
+  margin-top: 28px;
+}
+.era-kv {
+  margin-bottom: 8px;
+  overflow: hidden;
+}
+.era-kv .ov-kv-row {
+  gap: 12px;
+}
+.era-kv .ov-kv-row > span:first-child {
+  flex: 1;
+  white-space: nowrap;
+}
+button.ov-kv-row {
+  width: 100%;
+  border: 0;
+  border-bottom: 0.5px solid var(--line);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 14.5px;
+  text-align: left;
+  cursor: pointer;
+}
+button.ov-kv-row:last-child {
+  border-bottom: 0;
+}
+button.ov-kv-row:hover {
+  background: var(--hover-bg);
+}
+.era-opt {
+  min-height: 56px;
+}
+.era-ck {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  color: var(--accent);
+}
+.era-t {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.era-t i {
+  font-style: normal;
+}
+.era-t small {
+  font-size: 12px;
+  color: var(--ink-2);
+}
+.era-in {
+  width: 128px;
+  height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--btn);
+  color: var(--ink);
+  font: inherit;
+  font-size: 14.5px;
+  text-align: right;
+}
+.era-in:focus {
+  outline: 0;
+  box-shadow:
+    inset 0 0 0 1px var(--accent),
+    0 0 0 3px var(--accent-soft);
+}
+.era-in.bad {
+  box-shadow: inset 0 0 0 1px var(--err);
+}
+.era-num {
+  width: 74px;
+  font-variant-numeric: tabular-nums;
+}
+/* 和左边的字对半分,放不下时按内容撑开(窄屏) */
+.ov-kv-row .era-y {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.era-sel {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 30px;
+  padding: 0 8px 0 10px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--btn);
+  color: var(--ink);
+  font: inherit;
+  font-size: 14.5px;
+  white-space: nowrap;
+}
+.era-sel:hover {
+  background: var(--hover-bg);
+}
+.era-sel .icon {
+  color: var(--ink-2);
+}
+.ov-kv-row .era-unit {
+  flex: none;
+}
+.era-kv .seg button {
+  font-size: 13px;
+}
+.era-ev {
+  min-height: 60px;
+}
+.era-ev .era-t i {
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.era-ev .era-t i em {
+  margin-right: 8px;
+  font-style: normal;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+.era-ev .era-t i.era-pick-hint {
+  color: var(--accent);
+}
+.era-ev > .icon {
+  flex: none;
+  color: var(--ink-3);
+}
+.era-note {
+  margin-top: 2px;
+}
+.era-note b {
+  font-weight: 600;
+}
+.era-note.bad {
+  color: var(--err);
+}
+/* 选一件事当元年:贴在「元年那件事」下面的弹层(放在概览浮层里) */
+.era-pick {
+  position: absolute;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 12px;
+  background: var(--panel-solid);
+  box-shadow:
+    var(--shadow-float),
+    0 0 0 0.5px var(--line);
+}
+.era-pick-head {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 14px 10px;
+  border-bottom: 0.5px solid var(--line);
+}
+.era-pick-head b {
+  font-size: 14px;
+  font-weight: 600;
+}
+.era-pick-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.era-search {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border-radius: 8px;
+  background: var(--btn);
+  color: var(--ink-2);
+}
+.era-search input {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+  outline: 0;
+}
+.era-search input::placeholder {
+  color: var(--ink-2);
+}
+.era-pick-list {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 6px 6px;
+}
+.era-pick-list .chron-row {
+  width: 100%;
+  padding-left: 8px;
+  padding-right: 8px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+}
+.era-pick-list .chron-row:hover,
+.era-pick-list .chron-row:focus-visible {
+  background: rgba(128, 128, 128, 0.1);
+  outline: 0;
+}
+.era-pick-go {
+  display: none;
+  margin-left: auto;
+  padding-left: 12px;
+  color: var(--accent);
+  font-size: 13px;
+  white-space: nowrap;
+}
+.era-pick-list .chron-row:hover .era-pick-go,
+.era-pick-list .chron-row:focus-visible .era-pick-go {
+  display: inline;
+}
+
 /* 头部世界名旁边的"改名" */
 .ov-name-row {
   display: flex;
@@ -1073,6 +1309,13 @@ button.ov-iv-text:hover {
   .chron-row {
     grid-template-columns: 44px 34px 1fr auto;
     gap: 8px;
+  }
+  /* 设了纪年:年份一列放得下"前 1083" */
+  .chronicle.era .chron-row:not(.pp-row) {
+    grid-template-columns: 54px 34px 1fr auto;
+  }
+  .chronicle.era .chron-row.pp-row:not(.mk-row) {
+    grid-template-columns: 54px 84px 1fr;
   }
   .chron-kids {
     margin-left: 20px;

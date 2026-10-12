@@ -22,7 +22,8 @@ import { stepsSummary, type TrialRow, type TrialView } from '../ai/agent/assista
 import { WISH_MAX, type RewriteLock } from '../ai/prompts/rewrite';
 import { bookHow, bookProgress, bookUnit, openBookReader, useBook, type BookJob } from './bookStore';
 import { getCivTime, pickChronicleEntry, setSelection, useSelection, type MapSelection } from './civView';
-import { useEdits } from './editsStore';
+import { currentEra, useEdits, useEra } from './editsStore';
+import { eraText, yearAt, yearFull, yearShort, type Era } from '../gen/era';
 import { endYearOf } from '../gen/edits';
 import { yearsSpan } from './WorldOverviewGenesis';
 import { requestFly } from './panelStore';
@@ -107,7 +108,8 @@ export function AssistantPanel({ phone, world, raster, civ, raw, lock, busy }: A
     setText('');
     void sendAsk({ world, raster, civ, raw, year: getCivTime().year ?? civ.endYear, lock }, w);
   };
-  const examples = useMemo(() => exampleAsks(civ, lock), [civ, lock]);
+  const era = useEra();
+  const examples = useMemo(() => exampleAsks(civ, lock, era), [civ, lock, era]);
   const links = useMemo(() => linkDict(civ), [civ]);
   const stop = (e: { stopPropagation(): void }) => e.stopPropagation();
   const model = ai.ready ? (ai.model && ai.model !== 'mock' ? `${ai.label} ${ai.model}` : ai.label) : '还没设置 AI';
@@ -274,6 +276,7 @@ interface TurnProps {
 
 function Turn({ t, latest, phone, busy, civ, links, previewing }: TurnProps) {
   const done = t.status === 'done';
+  const era = useEra();
   return (
     <div className="ast-turn" data-turn={t.id}>
       <div className="ast-me">{t.ask}</div>
@@ -283,7 +286,7 @@ function Turn({ t, latest, phone, busy, civ, links, previewing }: TurnProps) {
       {t.proposal?.cannot.map((c, i) => (
         <div key={i} className="ast-cant">
           <b>做不到</b>
-          {c}
+          {eraText(c, era)}
         </div>
       ))}
       {t.names && <Names t={t} />}
@@ -296,6 +299,7 @@ function Turn({ t, latest, phone, busy, civ, links, previewing }: TurnProps) {
 /** 每一步:做的时候一步一行;做完收成一行(只有一步、写史书的那一步照样单列),点开看全部 */
 function Steps({ t }: { t: AsTurn }) {
   const [open, setOpen] = useState(false);
+  const era = useEra();
   const steps = t.steps;
   const err = t.status === 'error' && t.error;
   if (!steps.length && !err) return null;
@@ -308,7 +312,7 @@ function Steps({ t }: { t: AsTurn }) {
         <button className="ast-row link" data-act="ast-steps" onClick={() => setOpen(true)}>
           <StepIcon state="ok" />
           <span className="tx">
-            <b>{stepsSummary(rest)}</b>
+            <b>{eraText(stepsSummary(rest), era)}</b>
           </span>
           <span className="end">
             <Icon name="chevron" size={14} />
@@ -343,12 +347,13 @@ function StepIcon({ state }: { state: AsStep['state'] }) {
 }
 
 function StepRow({ s }: { s: AsStep }) {
+  const era = useEra();
   return (
     <div className="ast-row" data-tool={s.tool}>
       <StepIcon state={s.state} />
       <span className="tx">
-        <b>{s.label}</b>
-        {(s.summary || s.state === 'run') && <small>{s.summary ?? (s.tool === 'try_edits' ? '正在推演' : '正在做')}</small>}
+        <b>{eraText(s.label, era)}</b>
+        {(s.summary || s.state === 'run') && <small>{s.summary !== undefined ? eraText(s.summary, era) : s.tool === 'try_edits' ? '正在推演' : '正在做'}</small>}
       </span>
     </div>
   );
@@ -378,6 +383,7 @@ function PinnedBook() {
 
 /** 写史书的一行:转圈 / 打勾、书名、写法和写到哪了;bar = 带进度条 */
 function BookLine({ job: j, title, bookKey, how, bar }: { job: BookJob | null; title: string; bookKey: string; how: string; bar?: boolean }) {
+  const era = useEra();
   const writing = j?.status === 'writing';
   const failed = j?.status === 'error' || j?.status === 'stopped';
   const pct = j ? Math.round(bookProgress(j) * 100) : 100;
@@ -386,7 +392,7 @@ function BookLine({ job: j, title, bookKey, how, bar }: { job: BookJob | null; t
     <div className="ast-row" data-tool="write_book">
       <StepIcon state={writing ? 'run' : failed ? 'error' : 'ok'} />
       <span className="tx">
-        <b>写史书：《{title}》</b>
+        <b>写史书：《{eraText(title, era)}》</b>
         <small>{how ? `${how}；${now}` : now}</small>
         {bar && writing && (
           <span className="ast-bar" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
@@ -415,6 +421,8 @@ const wide = (t: string) =>
 /** 助手说的话:一段一行;给了 links = 说到的国家、城是蓝字,点了在地图上打开(手机先收起面板;已经打开着的那个不标) */
 function Say({ text, links, phone }: { text: string; links: LinkDict | null; phone: boolean }) {
   const cur = useSelection().sel;
+  // 助手说的年份是"第 N 年"(见提示词):按纪年显示
+  const era = useEra();
   const open = (sel: MapSelection) => {
     setSelection(sel);
     requestFly('sel');
@@ -424,7 +432,7 @@ function Say({ text, links, phone }: { text: string; links: LinkDict | null; pho
     <>
       {text
         .split(/\n+/)
-        .map((p) => p.trim())
+        .map((p) => eraText(p.trim(), era))
         .filter(Boolean)
         .map((p, i) => (
           <p key={i} className="ast-say">
@@ -439,7 +447,7 @@ function Say({ text, links, phone }: { text: string; links: LinkDict | null; pho
 function Names({ t }: { t: AsTurn }) {
   const n = t.names!;
   // "正在用"看现在的名字(⌘Z 撤销了改名,又是"就用这个")
-  const { names } = useEdits();
+  const { names, era } = useEdits();
   return (
     <div className="ast-grp ast-names">
       {n.list.map((c, i) => (
@@ -449,7 +457,7 @@ function Names({ t }: { t: AsTurn }) {
               {c.name}
               {c.latin && <em>{c.latin}</em>}
             </b>
-            {c.meaning && <small>{c.meaning}</small>}
+            {c.meaning && <small>{eraText(c.meaning, era)}</small>}
           </span>
           {(names[c.key] ?? null) === c.value ? (
             <span className="end">正在用</span>
@@ -467,8 +475,8 @@ function Names({ t }: { t: AsTurn }) {
 // ---------------------------------------------------------------------------
 // 确认单
 
-function itemYear(x: { year?: number; op: string }): string {
-  if (x.year !== undefined) return String(x.year);
+function itemYear(x: { year?: number; op: string }, era: Era | undefined): string {
+  if (x.year !== undefined) return yearShort(x.year, era);
   return TERRAIN_OPS.includes(x.op) ? '地形' : x.op === 'rename' ? '改名' : '—';
 }
 
@@ -526,9 +534,9 @@ function Proposal({ t, latest, phone, busy, previewing }: { t: AsTurn; latest: b
                     {on && <Icon name="check" size={12} />}
                   </button>
                   {/* 新建时改地形的几条:编号和星球上圈出来的对上 */}
-                  {numbered && x.change?.kind === 'terrain' ? <span className="ast-no">{i + 1}</span> : <span className="yr">{itemYear(x)}</span>}
+                  {numbered && x.change?.kind === 'terrain' ? <span className="ast-no">{i + 1}</span> : <span className="yr">{itemYear(x, edits.era)}</span>}
                   <span className="tx">
-                    <b>{wide(x.text)}</b>
+                    <b>{wide(eraText(x.text, edits.era))}</b>
                     {(x.problem || x.why) && <small>{x.problem ? `不能执行：${x.problem}` : x.why}</small>}
                   </span>
                 </div>
@@ -598,33 +606,40 @@ function Proposal({ t, latest, phone, busy, previewing }: { t: AsTurn; latest: b
   );
 }
 
+/** 试推演结果里打头的年份("2881 年亡""2450 年某国从它那里自立",几条用";"隔开):按纪年写 */
+function leadYear(s: string, era: Era | undefined): string {
+  return era ? s.replace(/(^|;)(\d+) 年/g, (_, a: string, y: string) => a + yearAt(Number(y), era)) : s;
+}
+
 /** 一行结果:国名(小字)+ 现在 → 试推演 */
 function ResultRow({ r }: { r: TrialRow }) {
+  const era = useEra();
   return (
     <div className="ast-row">
       <span className="tx">
         <b>{r.name}</b>
-        {r.note && <small>{r.note}</small>}
+        {r.note && <small>{leadYear(r.note, era)}</small>}
       </span>
       <span className="end">
         {r.was && (
           <>
-            <span className="was">{r.was}</span>
+            <span className="was">{leadYear(r.was, era)}</span>
             <span className="arrow">→</span>
           </>
         )}
-        {r.now}
+        {leadYear(r.now, era)}
       </span>
     </div>
   );
 }
 
 function TrialResult({ v, phone, partial, more, onMore }: { v: TrialView; phone: boolean; partial: [number, number] | null; more: boolean; onMore: () => void }) {
+  const era = useEra();
   const ev = v.addedCount || v.removedCount ? `少了 ${v.removedCount} 件，多了 ${v.addedCount} 件` : '没有变化';
   const evRow = (
     <div className="ast-row">
       <span className="tx">
-        <b>第 {v.from} 年以后的大事</b>
+        <b>{yearFull(v.from, era)}以后的大事</b>
       </span>
       <span className="end">{ev}</span>
     </div>
@@ -682,6 +697,7 @@ function TrialResult({ v, phone, partial, more, onMore }: { v: TrialView; phone:
 
 /** 变了哪些大事:试推演里多出来的、不再发生的 */
 function EventDiff({ v }: { v: TrialView }) {
+  const era = useEra();
   const part = (title: string, list: TrialView['added'], count: number) =>
     count > 0 && (
       <>
@@ -694,9 +710,9 @@ function EventDiff({ v }: { v: TrialView }) {
         <div className="ast-grp">
           {list.map((e, i) => (
             <div key={i} className="ast-row">
-              <span className="yr">{e.year}</span>
+              <span className="yr">{yearShort(e.year, era)}</span>
               <span className="tx">
-                <b>{wide(e.text)}</b>
+                <b>{wide(eraText(e.text, era))}</b>
               </span>
             </div>
           ))}
@@ -743,6 +759,7 @@ function linkify(text: string, d: LinkDict, open: (sel: MapSelection) => void, s
 /** 问答下面:话里说到的年份对上编年史(同一年有几条,挑说到的国家参与的、重要的);最多 5 条,点了时间轴跳过去 */
 function Events({ text, civ, links }: { text: string; civ: Civ; links: LinkDict }) {
   const list = useMemo(() => mentionedEvents(text, civ, links), [text, civ, links]);
+  const era = useEra();
   if (!list.length) return null;
   return (
     <>
@@ -752,9 +769,9 @@ function Events({ text, civ, links }: { text: string; civ: Civ; links: LinkDict 
       <div className="ast-grp ast-events">
         {list.map((e, i) => (
           <button key={i} className="ast-row link" data-act="ast-event" onClick={() => pickChronicleEntry(e)}>
-            <span className="yr">{Math.floor(e.year)}</span>
+            <span className="yr">{yearShort(e.year, era)}</span>
             <span className="tx">
-              <b>{wide(e.text)}</b>
+              <b>{wide(eraText(e.text, era))}</b>
             </span>
           </button>
         ))}
@@ -788,7 +805,7 @@ function mentionedEvents(text: string, civ: Civ, links: LinkDict): ChronicleEntr
 // 例子
 
 /** 空的时候的五句例子(用这个世界里的名字):撑下去、为什么、写国史、起名、某一年的天下 */
-export function exampleAsks(civ: Civ, lock?: RewriteLock): string[] {
+export function exampleAsks(civ: Civ, lock?: RewriteLock, era: Era | undefined = currentEra()): string[] {
   const range = civ.places.find((p) => p.kind === 'mountains');
   // 还在新建:改地形的例子 + 一句提问(助手这时不改世界参数)
   if (lock === 'history')
@@ -805,7 +822,7 @@ export function exampleAsks(civ: Civ, lock?: RewriteLock): string[] {
   // 最近被灭的、撑过百年的国家:撑到最后一年
   const conquered = new Set(civ.annals.filter((e) => e.kind === 'fall').map((e) => e.a));
   const fallen = P.filter((p) => p.ended !== undefined && p.ended - p.founded >= 100 && p.ended < end && conquered.has(p.id)).sort((a, b) => b.ended! - a.ended! || a.id - b.id)[0];
-  if (fallen) out.push(`让${name(fallen, Math.floor(fallen.ended!) - 1)}撑到第 ${end} 年`);
+  if (fallen) out.push(`让${name(fallen, Math.floor(fallen.ended!) - 1)}撑到${yearFull(end, era)}`);
   if (alive[0]) out.push(`${name(alive[0])}为什么能变成最大的国家？`);
   const book = alive[Math.min(4, alive.length - 1)];
   if (book) out.push(`给${name(book)}写一部一万字的国史`);
@@ -814,7 +831,7 @@ export function exampleAsks(civ: Civ, lock?: RewriteLock): string[] {
     const c = civ.settlements[capitalAt(city, end)];
     if (c) out.push(`${name(city)}的国都${c.name}换个更有气势的名字`);
   }
-  out.push(`第 ${Math.max(100, Math.round((end * 2) / 300) * 100)} 年的天下是什么样？`);
+  out.push(`${yearFull(Math.max(100, Math.round((end * 2) / 300) * 100), era)}的天下是什么样？`);
   return out.slice(0, 5);
 }
 

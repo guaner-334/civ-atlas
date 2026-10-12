@@ -1455,3 +1455,26 @@
   align-items: baseline;
   gap: 14px;
 }
+
+/* 设了纪年:大事的年份一列放得下"前 1083";生效年份前面的"公元前 ⌄" */
+.cp-ev-year.era {
+  width: 4.4em;
+  white-space: nowrap;
+}
+.cp-year .era-pre {
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 26px;
+  padding: 0 6px 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--btn);
+  color: var(--ink);
+  font: 500 13px var(--font-sans);
+  cursor: pointer;
+}
+.cp-year .era-pre svg {
+  color: var(--ink-2);
+}

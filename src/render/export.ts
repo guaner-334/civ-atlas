@@ -31,6 +31,7 @@ import { capitalAt, polityAlive, polityName } from '../gen/civ/growth';
 import { ownersAt } from '../gen/civ/timeline';
 import { KIND_INFO, cultureLabel } from '../gen/civ/display';
 import { faithRows } from '../gen/civ/religionText';
+import { yearFull, type Era } from '../gen/era';
 import { drawGraticule, labelProjection, mapProj, outlineOnCanvas, pageColor, projectWorld, projector, reprojectImage, type MapProj, type ProjectionId } from './projection';
 import { NAME_ZOOM, canvasMeasure, drawMarks, layoutMarks, placedTextBoxes, type MarkFrame, type MarkItem } from './marks';
 import { drawTerrainProjected } from './detail';
@@ -453,6 +454,8 @@ export interface LegendParams {
   year: Year;
   show: CivShow;
   seed: number;
+  /** 年份照这个纪年写(不给 = "第 N 年") */
+  era?: Era;
 }
 
 /** 图例里的城镇符号:国都 → 村,再加故城遗址 */
@@ -487,7 +490,7 @@ export async function drawLegend(p: LegendParams, scale: ExportScale): Promise<H
   const withMarks = show.polities || show.routes;
   const withRoutes = show.routes;
 
-  const allText = [...rows.polities, ...rows.cultures, ...faiths].map((r) => r.name + r.note).join('') + '图例第年国家民族信仰教派城镇道路大路小路航线部落地带种子州都';
+  const allText = [...rows.polities, ...rows.cultures, ...faiths].map((r) => r.name + r.note).join('') + '图例第年国家民族信仰教派城镇道路大路小路航线部落地带种子州都' + yearFull(y, p.era);
   await ensureFonts(style, allText, 15000);
 
   // ---- 版式(CSS 像素,最后 × S)----
@@ -539,7 +542,7 @@ export async function drawLegend(p: LegendParams, scale: ExportScale): Promise<H
   };
 
   let cy = PAD + 18;
-  text(`第 ${y} 年`, PAD, cy, 26, look.ink, style === 'realistic' || style === 'data' ? 700 : 500);
+  text(yearFull(y, p.era), PAD, cy, 26, look.ink, style === 'realistic' || style === 'data' ? 700 : 500);
   text(`图例 · 种子 ${p.seed}`, W - PAD, cy + 3, 14, look.muted, 500, 'right');
   cy += 40;
 

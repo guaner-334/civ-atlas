@@ -12,6 +12,8 @@ import { ownersAt, type Owners } from '../gen/civ/timeline';
 import { setCivTime, setSelection } from './civView';
 import { closeOverview } from './overviewStore';
 import { PolityFlag } from './Flag';
+import { useEra } from './editsStore';
+import { yearAt, yearFull, yearShort, yearSpan } from '../gen/era';
 
 /** 疆域小图取几个年份 */
 export const SPARK_N = 13;
@@ -148,11 +150,12 @@ function locate(p: Polity, y: number) {
 
 export function CountriesPage({ civ, year }: { civ: Civ | null; year: number }) {
   const [all, setAll] = useState(false);
+  const era = useEra();
   const rows = useMemo(() => (civ ? countryRows(civ, year) : null), [civ, year]);
   const hist = useMemo(() => (civ && civ.viable && civ.polities.length ? polityHistory(civ) : null), [civ]);
   if (!civ) return <div className="ov-empty">正在生成世界</div>;
   if (!rows || !hist || (!rows.alive.length && !rows.dead.length))
-    return <div className="ov-empty">{civ.viable ? `第 ${year} 年还没有国家` : '这颗星球上还没有文明'}</div>;
+    return <div className="ov-empty">{civ.viable ? `${yearFull(year, era)}还没有国家` : '这颗星球上还没有文明'}</div>;
   const dead = all ? rows.dead : rows.dead.slice(0, DEAD_SHOWN);
   const more = rows.dead.length - dead.length;
   const end = Math.floor(civ.endYear);
@@ -163,7 +166,7 @@ export function CountriesPage({ civ, year }: { civ: Civ | null; year: number }) 
         <span>名称</span>
         <span>存续</span>
         <span className="num">州</span>
-        <span className="ov-c-spark">疆域 0–{end} 年</span>
+        <span className="ov-c-spark">疆域 {era ? yearSpan(0, end, era) : `0–${end} 年`}</span>
         <span className="ov-c-cap">国都</span>
         <span className="ov-c-cu">主体民族</span>
       </div>
@@ -176,10 +179,10 @@ export function CountriesPage({ civ, year }: { civ: Civ | null; year: number }) 
             <PolityFlag id={p.id} year={year} w={21} className="ov-flag" fallback={<i className="ov-sw" style={{ background: color }} />} />
             <span className="ov-name">{r.name}</span>
             <span className="ov-years">
-              {Math.floor(p.founded)}–{r.alive ? '' : Math.ceil(p.ended!)}
+              {yearShort(p.founded, era)}–{r.alive ? '' : yearShort(Math.ceil(p.ended!), era)}
             </span>
             <span className="num ov-regions">{r.alive ? r.regions : '已亡'}</span>
-            <span className="ov-c-spark ov-spark" title={hist.years.map((yy, i) => `${yy} 年 ${hist.spark[b + i]} 州`).join('\n')}>
+            <span className="ov-c-spark ov-spark" title={hist.years.map((yy, i) => `${yearAt(yy, era)} ${hist.spark[b + i]} 州`).join('\n')}>
               {hist.years.map((yy, i) => {
                 const n = hist.spark[b + i];
                 return <i key={yy} style={{ height: Math.max(1, Math.round((n / hist.max) * 20)), background: color, opacity: n ? 1 : 0.2 }} />;

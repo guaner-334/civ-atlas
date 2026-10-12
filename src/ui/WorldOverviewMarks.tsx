@@ -18,6 +18,7 @@ import { getCivTime, setSelection, subscribeCivTime } from './civView';
 import { closeOverview } from './overviewStore';
 import { useNowLine } from './Chronicle';
 import { markPlaceText, markYears } from './markInfo';
+import { yearFull, yearShort } from '../gen/era';
 import { startPlacing } from './markStore';
 import { copyText } from './panelParts';
 import { useNarrow } from './device';
@@ -41,6 +42,7 @@ interface MRow {
 
 export function MarksPage({ civ, data }: { civ: Civ | null; data: { world: World; raster: Raster } | null }) {
   const edits = useEdits();
+  const era = edits.era;
   const year = useYear(civ);
   const narrow = useNarrow();
   const listRef = useRef<HTMLDivElement>(null);
@@ -69,8 +71,8 @@ export function MarksPage({ civ, data }: { civ: Civ | null; data: { world: World
     startPlacing();
   };
   const copy = async () => {
-    const lines = [`标记 · 种子 ${civ.seed}${only ? ` · 第 ${year} 年有的` : ''}`, ''];
-    for (const r of rows) lines.push(`${markYears(r.m)} ${r.m.title}${r.line ? ` ${r.line}` : ''}`);
+    const lines = [`标记 · 种子 ${civ.seed}${only ? ` · ${yearFull(year, era)}有的` : ''}`, ''];
+    for (const r of rows) lines.push(`${markYears(r.m, era)} ${r.m.title}${r.line ? ` ${r.line}` : ''}`);
     const text = lines.join('\n').trim();
     (window as unknown as { __wfMarksText: string }).__wfMarksText = text;
     await copyText(text);
@@ -83,7 +85,7 @@ export function MarksPage({ civ, data }: { civ: Civ | null; data: { world: World
   };
 
   return (
-    <section className="chronicle marks">
+    <section className={`chronicle marks${era ? ' era' : ''}`}>
       <div className="chron-filters">
         <div className="seg">
           <button className={only ? '' : 'on'} data-list="all" onClick={() => setOnly(false)}>
@@ -107,8 +109,8 @@ export function MarksPage({ civ, data }: { civ: Civ | null; data: { world: World
           <div key={r.m.id} className="chron-item">
             <div className="chron-row pp-row mk-row" data-y={r.m.from} data-e={r.m.to === undefined ? 1e9 : r.m.to + 1} data-top="1" data-mark={r.m.id} title="看这个标记" onClick={() => open(r.m.id)}>
               <span className="chron-year">
-                {r.m.from}
-                <em>{r.m.to === undefined ? '起' : `–${r.m.to}`}</em>
+                {yearShort(r.m.from, era)}
+                <em>{r.m.to === undefined ? '起' : `–${yearShort(r.m.to, era)}`}</em>
               </span>
               <b className="mk-who">
                 <i className="mk-dot" style={{ background: MARK_HEX[r.m.color] }} aria-hidden="true" />
@@ -124,7 +126,7 @@ export function MarksPage({ civ, data }: { civ: Civ | null; data: { world: World
         {!all.length && (
           <div className="ov-empty">{narrow ? '还没有标记，点地图右上角的图钉，或者在城、州卡片的「更多」里加。' : '还没有标记，点地图右下角的「标记」，或者在城、州卡片的「更多」里加。'}</div>
         )}
-        {all.length > 0 && !rows.length && <div className="ov-empty">第 {year} 年地图上没有标记</div>}
+        {all.length > 0 && !rows.length && <div className="ov-empty">{yearFull(year, era)}地图上没有标记</div>}
       </div>
     </section>
   );

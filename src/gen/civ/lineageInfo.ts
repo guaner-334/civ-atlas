@@ -11,6 +11,7 @@ import type { Civ, Person, Year } from './types';
 import { polityName } from './growth';
 import { peopleIndex, riseText } from './peopleInfo';
 import { personName, rulerShort } from './peopleText';
+import { yearAt, yearShort, yearSpanAt, type Era } from '../era';
 
 interface LineageIndex {
   /** 人物编号 → 子嗣(按出生先后) */
@@ -101,9 +102,9 @@ export function reignOrder(row: DynastyRow, x: Person): number {
  * 树的标题后半句:"2377–2794 年，27 位君主；太祖柳渺玄起兵代衍朝开国"(开国那句:起兵代某朝开国 / 立国 / 篡位 /
  * 叛某国自立 / 复某国之国 / 起兵建立新朝;继位来的不写)
  */
-export function dynastyNote(civ: Civ, rows: readonly DynastyRow[], i: number): string {
+export function dynastyNote(civ: Civ, rows: readonly DynastyRow[], i: number, era?: Era): string {
   const row = rows[i];
-  const span = `${Math.floor(row.from)}${row.to !== undefined ? `–${Math.floor(row.to)} 年` : ' 年起'}`;
+  const span = row.to !== undefined ? yearSpanAt(row.from, row.to, era) : `${yearAt(row.from, era)}起`;
   const first = row.rulers[0];
   const p = civ.polities[first.polity];
   let rise = '';
@@ -113,11 +114,11 @@ export function dynastyNote(civ: Civ, rows: readonly DynastyRow[], i: number): s
 }
 
 /** 最后一位下面那句这一朝怎么结束:"2794 年，渊朝起兵代之""2884 年，提贝亚国亡";还在 = 空串 */
-export function dynastyEnd(civ: Civ, rows: readonly DynastyRow[], i: number): string {
+export function dynastyEnd(civ: Civ, rows: readonly DynastyRow[], i: number, era?: Era): string {
   const row = rows[i];
   if (!row || row.to === undefined) return '';
   const p = civ.polities[row.rulers[0].polity];
-  const y = `${Math.floor(row.to)} 年`;
+  const y = yearAt(row.to, era);
   const next = rows[i + 1];
   if (!next) return `${y}，${polityName(p, row.to - 1 / 512)}亡`;
   const nu = next.rulers[0];
@@ -206,25 +207,29 @@ export function layoutDynasty(civ: Civ, row: DynastyRow): LineageTree[] {
  * 一国的家谱写成缩进的文字(人物页世系图的"复制全文"):一朝一段,标题行、一人一行(下一代多缩两格)、结尾那句。
  * "  3 懿宗柳离琅 2394–2421 年在位" / "  柳曜玄 未即位 2428–2467"
  */
-export function lineageText(civ: Civ, polity: number): string {
+export function lineageText(civ: Civ, polity: number, era?: Era): string {
   const rows = dynastyRows(civ, polity);
   const out: string[] = [];
   rows.forEach((row, i) => {
-    out.push(`${row.name}(${dynastyNote(civ, rows, i)})`);
+    out.push(`${row.name}(${dynastyNote(civ, rows, i, era)})`);
     for (const t of layoutDynasty(civ, row)) {
       if (t.distant) out.push('宗室远支');
       const inTree = new Set(t.nodes.map((n) => n.p));
       const walk = (x: Person, depth: number) => {
         const pad = '  '.repeat(depth);
         const k = reignOrder(row, x);
-        if (k) out.push(`${pad}${k} ${personName(civ, x)} ${Math.floor(x.from ?? x.born)}–${x.until !== undefined ? Math.floor(x.until) : ''} 年在位`);
-        else out.push(`${pad}${personName(civ, x)} 未即位 ${Math.floor(x.born)}–${x.died !== undefined ? Math.floor(x.died) : ''}`);
+        const from = x.from ?? x.born;
+        if (k)
+          out.push(
+            `${pad}${k} ${personName(civ, x)} ${!era ? `${Math.floor(from)}–${x.until !== undefined ? Math.floor(x.until) : ''} 年` : x.until !== undefined ? yearSpanAt(from, x.until, era) : `${yearAt(from, era)}起`}在位`,
+          );
+        else out.push(`${pad}${personName(civ, x)} 未即位 ${yearShort(x.born, era)}–${x.died !== undefined ? yearShort(x.died, era) : ''}`);
         for (const c of kidsOf(civ, x)) if (inTree.has(c)) walk(c, depth + 1);
       };
       const root = t.nodes.find((n) => n.depth === 0);
       if (root) walk(root.p, 0);
     }
-    const end = dynastyEnd(civ, rows, i);
+    const end = dynastyEnd(civ, rows, i, era);
     if (end) out.push(end);
     out.push('');
   });

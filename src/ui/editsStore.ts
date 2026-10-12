@@ -7,6 +7,7 @@
  *
  * 撤销 / 重做(⌘Z / ⇧⌘Z,见 undo.ts):改名、改旗、干预、地形大事、作者标记、作者的人物、AI 改写每次都记一步(改之前、改之后两份),只记这次打开网页以后、这个世界上的;
  * 读档、换世界(setEdits / clearEdits)、创建世界(clearEditHistory)清空。地形修改、草图、地名风格、推演年数不记:只在新建世界时能改,工具有自己的"撤销一笔"。
+ * 纪年也不记:只换年份的写法,在世界设定里随时改回来。
  */
 import { useSyncExternalStore } from 'react';
 import { EMPTY_EDITS, END_YEAR_DEFAULT, MARKS_MAX, cleanEndYear, MARK_REGIONS_TOTAL, cleanIntervention, cleanMark, markRegionTotal, sameMark, markAiName, nextMarkId, type AuthorMark, type Intervention, type TerrainOp, type Upheaval, type WorldEdits } from '../gen/edits';
@@ -15,6 +16,7 @@ import { SKETCH_MAX_STROKES, cleanSketch, cleanSketchImage, cleanSketchStroke, e
 import { CHARACTERS_MAX, cleanCharacter, nextCharacterId, sameCharacter, type AuthorCharacter } from '../gen/characters';
 import { showToast } from './toastStore';
 import { cleanMix, sameMix, type NameMix } from '../gen/names/mix';
+import { cleanEra, sameEra, type Era } from '../gen/era';
 
 let state: WorldEdits = EMPTY_EDITS;
 const subs = new Set<() => void>();
@@ -122,10 +124,11 @@ export function revertEdits(now: WorldEdits, from: WorldEdits, to: WorldEdits): 
   if (names === now.names && aiNames === now.aiNames && interventions === now.interventions && terrain === now.terrain && sameUps && marks === now.marks && flags === now.flags && characters === now.characters)
     return now;
   const out: WorldEdits = { names, interventions, terrain };
-  // 草图、地名风格、推演年数不记撤销步(见文件头),照现在的留着
+  // 草图、地名风格、推演年数、纪年不记撤销步(见文件头),照现在的留着
   if (now.sketch) out.sketch = now.sketch;
   if (now.nameMix) out.nameMix = now.nameMix;
   if (now.endYear) out.endYear = now.endYear;
+  if (now.era) out.era = now.era;
   if (upheavals.length) out.upheavals = sameUps ? now.upheavals : upheavals;
   if (aiNames && Object.keys(aiNames).length) out.aiNames = aiNames;
   if (marks?.length) out.marks = marks;
@@ -372,6 +375,35 @@ export function setEndYear(year: number | undefined) {
   const { endYear: _old, ...rest } = state;
   void _old;
   put(next ? { ...rest, endYear: next } : rest);
+}
+
+/** 纪年(随时能改,不记撤销步):undefined = 按第几年写,去掉这一项。不合格的(名字空、太长,元年超范围)不改 */
+export function setEra(era: Era | undefined) {
+  const next = era === undefined ? undefined : cleanEra(era);
+  if (era !== undefined && !next) return;
+  if (sameEra(next, state.era)) return;
+  const { era: _old, ...rest } = state;
+  void _old;
+  put(next ? { ...rest, era: next } : rest);
+}
+
+const getEra = () => state.era;
+
+/** 当前世界的纪年(没设 = undefined:按第几年写);只在纪年变了时重新渲染 */
+export function useEra(): Era | undefined {
+  return useSyncExternalStore(
+    (f) => {
+      subs.add(f);
+      return () => subs.delete(f);
+    },
+    getEra,
+    getEra,
+  );
+}
+
+/** 不经过 React 订阅时读纪年 */
+export function currentEra(): Era | undefined {
+  return state.era;
 }
 
 /** 地形修改:撤销最后一处 */

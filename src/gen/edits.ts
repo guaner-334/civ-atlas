@@ -164,6 +164,13 @@
  * 历史和自动时逐字节一样,只是国名、城名、人名、山河这些名字换了;改名按位置记,照样套得上。
  * 新建世界时配,创建以后不再改(和地形一样)。自动 / 一份都没有的不写。
  *
+ * ## 纪年
+ *
+ * WorldEdits.era(可选,没有 = 按"第几年"写):年份的写法 —— 名字(默认「公元」)和元年是第几年,
+ * 按年份定的("第 0 年是公元前 2500 年")或按一件事定的(那件事那一年就是元年;记下那件事,只用来在世界设定里显示)。
+ * 和改名一样只是记下来:不改变世界、不参与推演、和生成器版本无关;年份(干预、标记、网址)照旧按第几年存。
+ * 随时能改,改了不记撤销步。字段、写法见 era.ts。
+ *
  * GENERATOR_VERSION:生成算法有改动、同种子会得到不同世界时加一(存档读档时核对,不一致就提示"来自旧版本"和变了什么;
  * 每一版改了什么记在下面的 GENERATOR_CHANGES,提示照它说)。
  *   2:名字按位置取(gen/civ/naming.ts、places.ts;地形、历史不变,默认的名字换了一遍),稳定键改按地块定位(c 格式)。
@@ -197,6 +204,7 @@ import { polityRootAt } from './civ/growth';
 import { TERRAIN_H, TERRAIN_W } from './terrainEdits';
 import type { SketchEdit } from './sketch';
 import type { NameMix } from './names/mix';
+import type { Era } from './era';
 
 /** 生成器版本:生成算法有改动、同种子会得到不同世界时加一(存档读档时核对);加一时在 GENERATOR_CHANGES 里补一条 */
 export const GENERATOR_VERSION = 12;
@@ -286,6 +294,8 @@ export interface WorldEdits {
   nameMix?: NameMix;
   /** 历史推到第几年(见文件头"推演年数");没有 = 3000 */
   endYear?: number;
+  /** 纪年(见文件头"纪年"、era.ts);没有 = 按"第几年"写 */
+  era?: Era;
 }
 
 /** 推演年数:默认、最多、一格(见文件头"推演年数") */

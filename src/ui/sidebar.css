@@ -410,6 +410,11 @@ a.sb-row {
   color: var(--ink-2);
   font-variant-numeric: tabular-nums;
 }
+/* 纪年:放得下"前 1083" */
+.sb-year.era {
+  width: 4.4em;
+  white-space: nowrap;
+}
 .sb-ev-text {
   flex: 1;
   min-width: 0;
