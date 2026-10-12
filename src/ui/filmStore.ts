@@ -10,7 +10,7 @@ import { fullChronicle } from '../gen/civ/religionText';
 import { fileBaseName } from '../gen/savefile';
 import type { CivStyle } from '../render/civ/overlay';
 import type { LayerId } from '../render/layers';
-import { clearSelection, getCivShow, getCivTime, setCivTime } from './civView';
+import { clearSelection, getCivShow, getCivTime, getSelection, setCivTime } from './civView';
 import { getEdits } from './editsStore';
 import { markItemsAt } from './markInfo';
 import { getMapCenter, xOfLon } from './mapWrap';
@@ -19,6 +19,7 @@ import { wrapOf } from '../render/common';
 import { currentWorld } from './saveStore';
 import { getGlobeOn, setGlobeOn } from './Globe';
 import { showToast } from './toastStore';
+import { openLong } from './longStore';
 import { getFilmSource, getFilmViewport, type FilmSource } from './filmSource';
 import { FilmRenderer, type FilmRegion, type FilmSetup } from './filmRun';
 import { FilmCancelled, encodeFilm } from './filmEncode';
@@ -90,9 +91,11 @@ export function useFilm(): FilmUi {
   );
 }
 
-/** 打开视频 / 长图面板:停下播放;地球仪开着时先切回平面地图(视频按平面地图拍) */
+/** 打开视频 / 长图面板:停下播放;地球仪开着时先切回平面地图(视频按平面地图拍)。长图:地图上选中了一国,范围默认是那一国 */
 export function openFilm(mode: FilmMode, phone: boolean) {
   setCivTime({ playing: false, story: false });
+  const sel = getSelection().sel;
+  if (mode === 'long') openLong(sel?.kind === 'polity' ? sel.id : null);
   clearSelection();
   if (mode === 'video' && getGlobeOn()) setGlobeOn(false);
   state = { ...state, mode, phone, shape: phone ? 'port' : 'land', run: null };

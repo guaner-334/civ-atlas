@@ -42,7 +42,7 @@ interface SegProps<T extends string | number> {
   act: string;
 }
 
-function Seg<T extends string | number>({ value, items, onPick, act }: SegProps<T>) {
+export function Seg<T extends string | number>({ value, items, onPick, act }: SegProps<T>) {
   return (
     <div className="film-seg" role="group">
       {items.map(([v, label]) => (

@@ -1,0 +1,484 @@
+/*
+ * 竖版长图:预览(宽屏在压暗的地图中间,右边一条全貌;手机整屏)、正在画的蒙层、选哪一国的菜单 / 列表、下载前问一句。
+ * 面板本身用回放视频的那一套(film.css);颜色用主题变量(theme.css)。
+ */
+
+/* ---- 宽屏:压暗的地图上一张长图 ---- */
+/* 盖住右上的按钮条、右下的按钮、时间轴(都压暗);左边面板在它上面 */
+.long-stage {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  font-family: var(--font-sans);
+}
+.long-pv {
+  position: absolute;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.35);
+}
+.long-pv::-webkit-scrollbar {
+  display: none;
+}
+.long-img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+/* 切成 3:4:一页一页分开排,中间露一道缝,每页右上角写第几张 */
+.long-pv.pages {
+  background: none;
+  box-shadow: none;
+  border-radius: 0;
+}
+.long-pv.pages .long-doc {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.long-page {
+  position: relative;
+  overflow: hidden;
+  border-radius: 6px;
+  background: #fff;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.3);
+}
+.long-no {
+  position: absolute;
+  right: 10px;
+  top: 10px;
+  padding: 3px 9px;
+  border-radius: 10px;
+  background: rgba(28, 28, 30, 0.72);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.45;
+  font-variant-numeric: tabular-nums;
+}
+.long-sbar {
+  position: absolute;
+  width: 5px;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.32);
+  pointer-events: none;
+}
+/* 右边一条:整张的缩略,框出现在看到哪 */
+.long-strip {
+  position: absolute;
+  overflow: hidden;
+  border-radius: 4px;
+  background: #fff;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  cursor: pointer;
+  touch-action: none;
+}
+.long-strip.pages {
+  overflow: visible;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+.long-strip.off {
+  opacity: 0.45;
+}
+.long-strip canvas {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: block;
+}
+.long-vp {
+  position: absolute;
+  left: 0;
+  right: 0;
+  box-sizing: border-box;
+  border: 2px solid var(--accent);
+  border-radius: 3px;
+  background: rgba(0, 122, 255, 0.1);
+  pointer-events: none;
+}
+.long-mini {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-radius: 2px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+}
+.long-mini.on {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.long-meta {
+  position: absolute;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.92);
+  text-align: center;
+  white-space: nowrap;
+}
+/* 正在画:预览蒙一层白,中间一个小胶囊写画到第几张 */
+.long-veil {
+  position: absolute;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.62);
+}
+.long-pv.empty {
+  background: #fff;
+}
+.long-busy {
+  position: absolute;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 16px;
+  border-radius: 18px;
+  background: var(--panel);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.16);
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.45;
+  white-space: nowrap;
+}
+.long-busy::before {
+  content: '';
+  flex: none;
+  width: 12px;
+  height: 12px;
+  box-sizing: border-box;
+  border: 2px solid var(--accent-soft);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+/* ---- 面板里:哪一国、下载前问一句 ---- */
+.long-pick,
+.long-prow {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  font-size: 14px !important;
+  cursor: pointer;
+}
+.long-pick {
+  height: 32px;
+  box-sizing: border-box;
+  border-radius: 8px;
+  border: 0.5px solid var(--line-strong);
+  background: var(--surface);
+}
+.long-pick .nm,
+.long-prow .nm {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+.long-pick::after {
+  content: '';
+  flex: none;
+  width: 6px;
+  height: 6px;
+  margin: 0 2px 3px 4px;
+  border-right: 1.6px solid var(--ink-2);
+  border-bottom: 1.6px solid var(--ink-2);
+  transform: rotate(45deg);
+}
+.long-flag {
+  width: 20px;
+  height: 14px;
+}
+.long-catch {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+}
+.long-menu {
+  position: fixed;
+  z-index: 41;
+  width: 268px;
+  box-sizing: border-box;
+  padding: 5px;
+  overflow-y: auto;
+  border-radius: 10px;
+  background: var(--panel);
+  backdrop-filter: blur(20px) saturate(1.6);
+  -webkit-backdrop-filter: blur(20px) saturate(1.6);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.22);
+  border: 0.5px solid var(--line);
+  font-size: 14px;
+}
+.long-ph {
+  padding: 6px 9px 3px 32px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+.long-pr {
+  position: relative;
+  width: 100%;
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 9px 4px 32px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--ink);
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+.long-pr .nm {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.long-pr small {
+  font-size: 12px;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+.long-menu .long-pr.on::before {
+  content: '';
+  position: absolute;
+  left: 13px;
+  top: 50%;
+  width: 5px;
+  height: 10px;
+  margin-top: -7px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(45deg);
+}
+.long-menu .long-pr:hover {
+  background: var(--accent);
+  color: #fff;
+}
+.long-menu .long-pr:hover small {
+  color: rgba(255, 255, 255, 0.85);
+}
+.long-sep {
+  height: 0.5px;
+  margin: 4px 8px;
+  background: var(--line);
+}
+.long-ask {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 10px;
+  background: var(--btn);
+}
+.long-ask b {
+  font-size: 15px;
+  font-weight: 600;
+}
+.long-row2 {
+  display: flex;
+  gap: 10px;
+}
+.long-row2 > .film-btn {
+  flex: 1;
+}
+
+/* ---- 手机:整屏预览,顶上一条,底下一张小卡片 ---- */
+.long-stage.phone {
+  background: #e5e5ea;
+}
+.long-stage.phone .long-pv {
+  left: 40px;
+  right: 40px;
+  top: calc(68px + var(--safe-t, 0px));
+  bottom: calc(var(--long-sheet-h, 150px) + 12px);
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
+}
+.long-stage.phone .long-pv.pages {
+  box-shadow: none;
+}
+.long-stage.phone .long-pv.pages .long-doc {
+  gap: 12px;
+}
+.long-stage.phone .long-veil {
+  left: 40px;
+  right: 40px;
+  top: calc(68px + var(--safe-t, 0px));
+  bottom: calc(var(--long-sheet-h, 150px) + 12px);
+  border-radius: 6px;
+}
+.long-stage.phone .long-busy {
+  left: 50%;
+  top: 45%;
+}
+.long-nav {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  z-index: 6;
+  height: calc(52px + var(--safe-t, 0px));
+  box-sizing: border-box;
+  padding: var(--safe-t, 0px) 16px 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--panel-solid);
+  border-bottom: 0.5px solid var(--line-strong);
+  color: var(--ink);
+  font-family: var(--font-sans);
+}
+.long-nav b {
+  font-size: 17px;
+  font-weight: 700;
+}
+.long-nav .film-link {
+  font-size: 16px !important;
+}
+.long-nav .film-link.s {
+  font-weight: 600;
+}
+.long-nav .film-link:disabled {
+  color: var(--ink-3) !important;
+  cursor: default;
+}
+.long-sheet {
+  box-shadow: 0 -2px 16px rgba(0, 0, 0, 0.12);
+  padding-bottom: calc(16px + var(--safe-b, 0px));
+}
+.long-sheet .film-lbl > b {
+  width: 34px;
+}
+.long-prow {
+  height: 34px;
+  border: 0;
+  border-radius: 9px;
+  background: var(--field);
+}
+.long-prow::after {
+  content: '';
+  flex: none;
+  width: 7px;
+  height: 7px;
+  margin-right: 3px;
+  border-right: 1.6px solid var(--ink-3);
+  border-top: 1.6px solid var(--ink-3);
+  transform: rotate(45deg);
+}
+.long-shade {
+  position: absolute;
+  inset: 0;
+  z-index: 7;
+  background: rgba(0, 0, 0, 0.32);
+}
+.long-list {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  top: calc(150px + var(--safe-t, 0px));
+  z-index: 8;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel-solid);
+  border-radius: 16px 16px 0 0;
+  box-shadow: 0 -2px 16px rgba(0, 0, 0, 0.18);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  animation: long-up 0.25s ease-out;
+}
+@keyframes long-up {
+  from {
+    transform: translateY(40%);
+    opacity: 0.4;
+  }
+}
+.long-list-hd {
+  position: relative;
+  flex: none;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.long-list-hd b {
+  font-size: 17px;
+  font-weight: 700;
+}
+.long-list-hd .film-link {
+  position: absolute;
+  left: 16px;
+  font-size: 16px !important;
+}
+.long-list-body {
+  flex: 1;
+  overflow-y: auto;
+  padding-bottom: calc(16px + var(--safe-b, 0px));
+}
+.long-list .long-ph {
+  padding: 10px 32px 6px;
+  font-size: 13px;
+}
+.long-pg-grp {
+  margin: 0 16px;
+  border-radius: 10px;
+  background: var(--surface);
+  overflow: hidden;
+}
+.long-list .long-pr {
+  height: 44px;
+  gap: 10px;
+  padding: 0 14px;
+  border-top: 0.5px solid var(--line);
+  border-radius: 0;
+  font-size: 15px;
+}
+.long-list .long-pr:first-child {
+  border-top: 0;
+}
+.long-list .long-pr small {
+  font-size: 13px;
+}
+.long-list .long-pr i {
+  flex: none;
+  width: 14px;
+}
+.long-list .long-pr.on i::after {
+  content: '';
+  display: block;
+  width: 6px;
+  height: 12px;
+  margin-left: 4px;
+  border-right: 2px solid var(--accent);
+  border-bottom: 2px solid var(--accent);
+  transform: rotate(45deg) translateY(-2px);
+}
+
+/* 长图开着时:时间轴留在压暗的地图底下(宽屏);手机上整屏是预览,时间轴收起来 */
+.app.film-on.film-long .bottom-row {
+  z-index: 3;
+}
+.app.phone.film-on.film-long .bottom-row {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+.long-sheet .film-lbl .film-seg {
+  flex: 1;
+}

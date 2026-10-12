@@ -26,6 +26,9 @@ export function setFlagView(v: FlagView | null) {
   for (const f of viewSubs) f();
 }
 
+/** 现在这个世界的旗(还没有历史 = null;不跟着重画时用) */
+export const getFlags = (): FlagView | null => view;
+
 /** 现在这个世界的旗(还没有历史 = null) */
 export function useFlags(): FlagView | null {
   return useSyncExternalStore(

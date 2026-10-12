@@ -97,31 +97,31 @@ function line(ctx: Ctx, s: string, x: number, top: number, size: number, lh: num
   ctx.fillText(s, x, top + (size * lh) / 2);
 }
 
-/** 按宽度断成几行(中文按字断);超过 max 行,最后一行末尾写省略号 */
+/** 按宽度断成几行(中文按字断,数字、外文词不拆开;标点不放行首);超过 max 行,最后一行末尾写省略号 */
 export function wrapText(measure: (s: string) => number, text: string, width: number, max: number): string[] {
-  const chars = Array.from(text);
+  const toks = text.match(/[0-9A-Za-z.%]+|\s+|[^]/gu) ?? [];
   const lines: string[] = [];
-  let cur = '';
-  for (let i = 0; i < chars.length; i++) {
-    const next = cur + chars[i];
-    if (cur && measure(next) > width) {
+  let cur: string[] = [];
+  const str = (a: readonly string[]) => a.join('');
+  for (const tk of toks) {
+    if (cur.length && measure(str(cur) + tk) > width) {
       if (lines.length === max - 1) {
-        let t = cur;
+        let t = str(cur);
         while (t && measure(`${t}…`) > width) t = t.slice(0, -1);
         lines.push(`${t}…`);
         return lines;
       }
-      // 标点不放行首
-      if (/^[，。、；：）」』！？]/.test(chars[i]) && cur.length > 1) {
-        lines.push(cur.slice(0, -1));
-        cur = cur.slice(-1) + chars[i];
+      if (/^[，。、；：）」』！？]/.test(tk) && cur.length > 1) {
+        const last = cur.pop()!;
+        lines.push(str(cur).trimEnd());
+        cur = [last, tk];
       } else {
-        lines.push(cur);
-        cur = chars[i];
+        lines.push(str(cur).trimEnd());
+        cur = /^\s+$/.test(tk) ? [] : [tk];
       }
-    } else cur = next;
+    } else cur.push(tk);
   }
-  if (cur) lines.push(cur);
+  if (cur.length) lines.push(str(cur));
   return lines;
 }
 

@@ -245,6 +245,8 @@ import { setFilmSource, setFilmViewport } from './filmSource';
 import { getFilm, useFilm } from './filmStore';
 import { FilmPanel } from './FilmPanel';
 import { FilmStage } from './FilmStage';
+import { LongPanel } from './LongPanel';
+import { LongStage } from './LongStage';
 import { noteGenSpeed } from './genSpeed';
 
 type Replay = { w: number; h: number; frames: Uint8ClampedArray[]; mya: number[]; idx: number };
@@ -3753,7 +3755,7 @@ export function App() {
   const screenStyle: CSSProperties = { clipPath: screenClip(view, sb, wrapW), display: globeOn ? 'none' : undefined };
   return (
     <div
-      className={`app${narrow ? ' phone' : ' has-side'}${chron.open ? ' chron-open' : ''}${panelOpen ? ' panel-open' : ''}${narrow && panelOpen && panelUi.sheet === 'full' ? ' sheet-full' : ''}${narrow && !selState.sel && !upOn && !filmOn && panelUi.world === 'full' ? ' world-full' : ''}${narrow && panelUi.drag ? ' sheet-drag' : ''}${narrow && selState.sel && !panelOpen ? ' sheet-away' : ''}${!narrow && world && sideUi.collapsed && !sideUi.peek ? ' side-collapsed' : ''}${picking ? ' picking' : ''}${globeOn ? ' globe-on' : ''}${data ? '' : ' booting'}${home ? ' home' : ''}${draft ? ' draft' : ''}${studioOn ? ' studio-on' : ''}${fr ? ' studio-flat' : ''}${astOpen && !narrow && !home && !draft ? ' ast-open' : ''}${preview ? ' ast-preview' : ''}${filmOn ? ' film-on' : ''}`}
+      className={`app${narrow ? ' phone' : ' has-side'}${chron.open ? ' chron-open' : ''}${panelOpen ? ' panel-open' : ''}${narrow && panelOpen && panelUi.sheet === 'full' ? ' sheet-full' : ''}${narrow && !selState.sel && !upOn && !filmOn && panelUi.world === 'full' ? ' world-full' : ''}${narrow && panelUi.drag ? ' sheet-drag' : ''}${narrow && selState.sel && !panelOpen ? ' sheet-away' : ''}${!narrow && world && sideUi.collapsed && !sideUi.peek ? ' side-collapsed' : ''}${picking ? ' picking' : ''}${globeOn ? ' globe-on' : ''}${data ? '' : ' booting'}${home ? ' home' : ''}${draft ? ' draft' : ''}${studioOn ? ' studio-on' : ''}${fr ? ' studio-flat' : ''}${astOpen && !narrow && !home && !draft ? ' ast-open' : ''}${preview ? ' ast-preview' : ''}${filmOn ? ' film-on' : ''}${filmOn && filmUi.mode === 'long' ? ' film-long' : ''}`}
       data-theme={theme}
       data-layer={mapLayer}
       onDragOver={onDragOver}
@@ -3861,6 +3863,8 @@ export function App() {
       </main>
       {/* 导出回放视频:地图压暗、中间的预览,或者地图上的框(FilmStage.tsx) */}
       {filmOn && filmUi.mode === 'video' && <FilmStage phone={narrow} style={style} layer={layer} />}
+      {/* 竖版长图:地图压暗、中间的长图预览和右边一条全貌(手机整屏是预览;LongStage.tsx) */}
+      {filmOn && filmUi.mode === 'long' && <LongStage phone={narrow} style={style} layer={layer} />}
       {/* 选干预目标 / 推演中:压暗地图、浮出名牌;选中国家:国都的圆环(TargetPlates.tsx) */}
       {data && world && <TargetLayer civ={civ} world={data.world} toClient={globeOn ? globeToClient : worldToClient} resim={resim} generating={!!progress} labelAt={labelAt} />}
 
@@ -3898,7 +3902,7 @@ export function App() {
               界面都在卡片和毛玻璃按钮上,地图上不再压字、不用渐变遮罩;最近大事在世界卡片拉到顶时的列表里。
               新建时这些都不放(新建界面自己一套) */}
           {filmOn ? (
-            <FilmPanel phone style={style} layer={layer} />
+            filmUi.mode === 'long' ? <LongPanel phone style={style} /> : <FilmPanel phone style={style} layer={layer} />
           ) : !draft && !selState.sel && !upOn && (
               <PhoneSheet
                 data={data}
@@ -3924,7 +3928,7 @@ export function App() {
         <>
           {/* 宽屏:左边侧栏(世界 / 选中的东西的详情、搜索、存档);右上图层、导出、编年史;数据图层的图例、旧网站的「旧版」(测试网站的「测试版」)标记在地图左上。新建时都不放(新建界面自己一套) */}
           {filmOn ? (
-            <FilmPanel phone={false} style={style} layer={layer} />
+            filmUi.mode === 'long' ? <LongPanel phone={false} style={style} /> : <FilmPanel phone={false} style={style} layer={layer} />
           ) : !draft && (
             <Sidebar
               data={data}

@@ -19,7 +19,7 @@ import { renderLayer } from './layers';
 import type { CivDrawParams, CivShow, CivStyle } from './civ/overlay';
 import { drawMapCiv, drawMapDecor, drawMapLabels, drawMapTerrain, drawExportMarks, type ExportMapParams } from './export';
 import { DETAIL_K, drawTerrainDetail, drawTerrainProjected } from './detail';
-import { detailCache, drawCivDetail, type DetailCache } from './civ/detail';
+import { detailCache, drawCivDetail, drawSelectionDetail, type DetailCache } from './civ/detail';
 import { civLabelChars, civLabelItems, civMapLayer, labelViewExtras } from './civ/labels';
 import { drawSettlementMarks } from './civ/settlements';
 import { drawWarfare, warsShown } from './civ/warfare';
@@ -82,6 +82,9 @@ export class MapShot {
   /** 文明底图的草稿(整张地图:主图大小;一块:输出大小) */
   private civC: AnyCanvas | null = null;
   private cache: DetailCache | null = null;
+  /** 一块:选中一国的描边(竖版长图的一国版) */
+  private selC: AnyCanvas | null = null;
+  private selCache: DetailCache | null = null;
   /** 地理名(不随年份变,只算一次) */
   private geoItems: LabelItem[] | null = null;
   private fontsOk = false;
@@ -190,7 +193,7 @@ export class MapShot {
    * 画 year 那一年(先清空画布 ctx 的 [0, w] × [0, h])。
    * fast:国名每隔几年才重新拟合、小城不写名字(和屏幕上回放时一样;视频每一帧都换年份,国名不会一直抖)
    */
-  async draw(ctx: CanvasRenderingContext2D, year: Year, opt: { fast?: boolean } = {}): Promise<ShotTiming> {
+  async draw(ctx: CanvasRenderingContext2D, year: Year, opt: { fast?: boolean; sel?: number } = {}): Promise<ShotTiming> {
     const timing: ShotTiming = { civ: 0, labels: 0 };
     const terrain = this.terrainCanvas();
     ctx.save();
@@ -200,7 +203,7 @@ export class MapShot {
     ctx.restore();
     const ok = this.ok;
     const t0 = performance.now();
-    if (ok) this.drawCiv(ctx, year);
+    if (ok) this.drawCiv(ctx, year, opt.sel);
     if (this.area.kind === 'whole' && this.decor) {
       ctx.save();
       ctx.imageSmoothingEnabled = true;
@@ -220,7 +223,7 @@ export class MapShot {
   }
 
   /** 文明底图(国土、国界、道路) */
-  private drawCiv(ctx: CanvasRenderingContext2D, year: Year) {
+  private drawCiv(ctx: CanvasRenderingContext2D, year: Year, sel?: number) {
     const { world, raster, style, show } = this.scene;
     const geo = this.scene.geo ?? this.scene.civ;
     if (this.area.kind === 'whole') {
@@ -241,8 +244,15 @@ export class MapShot {
     const params: CivDrawParams = { world, raster, civ: geo, style, year, show };
     // 一个工作格 ≈ 一个 CSS 像素(和屏幕上停着时一样细)
     const step = Math.max(1, Math.round(v.dpr));
-    drawCivDetail(ctx2d(c), params, { cw: this.w, ch: this.h, s: v.s, ox: v.ox, oy: v.oy, k: Math.max(1, v.k), mp: v.mp, dpr: v.dpr }, step, this.cache);
+    const view = { cw: this.w, ch: this.h, s: v.s, ox: v.ox, oy: v.oy, k: Math.max(1, v.k), mp: v.mp, dpr: v.dpr };
+    drawCivDetail(ctx2d(c), params, view, step, this.cache);
     ctx.drawImage(c, 0, 0);
+    if (sel === undefined) return;
+    // 选中一国:罩染 + 描边,和地图上选中一国一样;线总用红色(手绘画风选中时的颜色),长图里写"红线以内"
+    const sc = (this.selC ??= makeCanvas(this.w, this.h));
+    this.selCache ??= detailCache();
+    drawSelectionDetail(ctx2d(sc), world, raster, geo, { kind: 'polity', id: sel }, year, 'fantasy', view, step, this.selCache);
+    ctx.drawImage(sc, 0, 0);
   }
 
   /** 整张地图的文字、作者标记(和"地图图片"导出同一套,只是按输出大小排) */
@@ -325,10 +335,10 @@ export class MapShot {
 
   /** 放掉画布(显存) */
   dispose() {
-    for (const c of [this.terrain, this.decor, this.civC]) if (c) c.width = c.height = 0;
-    if (this.cache?.scratch) this.cache.scratch.canvas.width = this.cache.scratch.canvas.height = 0;
-    this.terrain = this.decor = this.civC = null;
-    this.cache = null;
+    for (const c of [this.terrain, this.decor, this.civC, this.selC]) if (c) c.width = c.height = 0;
+    for (const k of [this.cache, this.selCache]) if (k?.scratch) k.scratch.canvas.width = k.scratch.canvas.height = 0;
+    this.terrain = this.decor = this.civC = this.selC = null;
+    this.cache = this.selCache = null;
   }
 }
 
