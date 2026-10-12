@@ -129,6 +129,22 @@ export function filmRangeOf(civ: Pick<Civ, 'polities' | 'endYear'>): FilmRange {
 /** 拖时间轴把手:选一段年份 */
 export function setFilmRange(r: FilmRange, end: number) {
   setFilm({ rangeKind: 'custom', range: clampRange(r, end) });
+  keepYearInRange();
+}
+
+/** 面板上的"有国家以后 / 全部历史" */
+export function setFilmRangeKind(kind: 'polities' | 'all') {
+  setFilm({ rangeKind: kind, range: null });
+  keepYearInRange();
+}
+
+/** 时间轴停的那一年不在选的那一段里:挪到最近的一头(框里的地图和面板上的年份对得上,播放也从这一段里接着放) */
+function keepYearInRange() {
+  const src = getFilmSource();
+  if (!src) return;
+  const r = filmRangeOf(src.full);
+  const y = getCivTime().year ?? src.full.endYear;
+  if (y < r.from || y > r.to) setCivTime({ year: Math.min(r.to, Math.max(r.from, y)) });
 }
 
 /** 标题:没改过 = 世界名 */

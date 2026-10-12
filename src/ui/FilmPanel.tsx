@@ -11,7 +11,7 @@ import type { CivStyle } from '../render/civ/overlay';
 import type { LayerId } from '../render/layers';
 import { useFilmSource } from './filmSource';
 import { filmSupported } from './filmEncode';
-import { closeFilm, cancelFilm, deliverFilm, etaText, filmRangeOf, filmSetup, filmTitleOf, getFilm, holeRegion, runFilm, setFilm, useFilm } from './filmStore';
+import { closeFilm, cancelFilm, deliverFilm, etaText, filmRangeOf, filmSetup, filmTitleOf, getFilm, holeRegion, runFilm, setFilm, setFilmRangeKind, useFilm } from './filmStore';
 import { FILM_BITRATE, filmClock, filmMegabytes, rangeText, rateText, type FilmSeconds } from './filmPlan';
 import { showToast } from './toastStore';
 import './film.css';
@@ -225,7 +225,7 @@ export function FilmPanel({ phone, style, layer }: FilmPanelProps) {
             ['all', '全部历史'],
           ]}
           act="film-range"
-          onPick={(v) => !busy && setFilm({ rangeKind: v, range: null })}
+          onPick={(v) => !busy && setFilmRangeKind(v)}
         />
         <div className="film-hint">也可以拖底下时间轴两头的把手</div>
       </div>

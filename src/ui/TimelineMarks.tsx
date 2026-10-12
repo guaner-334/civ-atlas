@@ -13,7 +13,7 @@
  */
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import type { ChronicleEntry } from '../gen/civ/chronicle';
-import { pickChronicleEntry, setCivTime, stepYear } from './civView';
+import { getCivTime, pickChronicleEntry, setCivTime, stepYear } from './civView';
 import { evLabel, evText, evType, evYears, hitDiamonds, layoutDiamonds, rulerOf, timeScale, type Diamond } from './timelineLayout';
 
 /** 提示最多列几件 */
@@ -183,12 +183,19 @@ export const TimelineMarks = memo(function TimelineMarks({ entries, end, dock, y
     }
   };
   const onKey = (e: React.KeyboardEvent) => {
-    // 一次走 10 年(按住 Shift 100 年);推得更久的世界按比例放大
-    if (range) return;
+    // 一次走 10 年(按住 Shift 100 年);推得更久的世界按比例放大。导出视频时只在选的那一段里走,导出中不动
+    if (range?.locked) return;
     const step = Math.round((e.shiftKey ? 100 : 10) * timeScale(end));
-    if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') stepYear(end, -step);
-    else if (e.key === 'ArrowRight' || e.key === 'ArrowUp') stepYear(end, step);
-    else if (e.key === 'Home' || e.key === 'End') setCivTime({ year: e.key === 'Home' ? 0 : end, playing: false, story: false });
+    const lo = range ? range.from : 0;
+    const hi = range ? range.to : end;
+    const go = (dy: number) => {
+      if (!range) return stepYear(end, dy);
+      const cur = Math.floor(Math.min(hi, Math.max(lo, getCivTime().year ?? hi)));
+      setCivTime({ year: Math.min(hi, Math.max(lo, cur + dy)), playing: false, story: false });
+    };
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') go(-step);
+    else if (e.key === 'ArrowRight' || e.key === 'ArrowUp') go(step);
+    else if (e.key === 'Home' || e.key === 'End') setCivTime({ year: e.key === 'Home' ? lo : hi, playing: false, story: false });
     else return;
     e.preventDefault();
   };
@@ -264,8 +271,8 @@ export const TimelineMarks = memo(function TimelineMarks({ entries, end, dock, y
       role="slider"
       tabIndex={0}
       aria-label="年份"
-      aria-valuemin={0}
-      aria-valuemax={end}
+      aria-valuemin={range ? range.from : 0}
+      aria-valuemax={range ? range.to : end}
       aria-valuenow={year}
       aria-valuetext={`第 ${year} 年`}
       onPointerDown={onDown}

@@ -3700,11 +3700,12 @@ export function App() {
   const world = stage === 'world';
   const filmOn = !!filmUi.mode && !!data && world && !draft && !home;
   const curWorld = currentWorld();
-  // 离开这个世界(回首页、去新建、浏览器前进后退换了一个世界):导出面板关掉,正在导出的视频取消
+  // 离开这个世界(回首页、去新建、浏览器前进后退换了一个世界),或者助手"先看看"的历史进来、退出(预览条上的"回到现在"):
+  // 导出面板关掉,正在导出的视频取消(不然会接着拍已经不在屏幕上的那一份历史)
   const filmWorld = world && !draft && !home ? (curWorld?.id ?? '') : null;
   useEffect(() => {
     if (getFilm().mode) closeFilm();
-  }, [filmWorld]);
+  }, [filmWorld, previewRaw]);
   /** 打开别人分享的世界、还没改过:地图下那条说明代替第一次打开的操作提示 */
   const sharedOn = world && !!data && !!sharedFor && curWorld?.id === sharedFor.id && curWorld.kind === 'visit' && !terrainTool.on;
   const layerProps = { layer: mapLayer, civ, onLayer: applyLayer, thumbs, requestThumbs, disabled: !data };
