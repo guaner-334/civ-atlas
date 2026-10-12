@@ -24,7 +24,8 @@ import type { World } from '../gen/world';
 import { regionLabel } from '../gen/civ/display';
 import { MARKS_MAX, MARK_COLORS, MARK_NOTE_MAX, MARK_REGIONS_TOTAL, MARK_TITLE_DEFAULT, MARK_TITLE_MAX, markShownAt, regionKey, type AuthorMark, type MarkColor } from '../gen/edits';
 import { MARK_HEX } from '../render/marks';
-import { getEdits, removeMark, restoreMark, useEdits } from './editsStore';
+import { getEdits, removeMark, restoreMark, useEdits, useEra } from './editsStore';
+import { spaced, yearAt, yearFull } from '../gen/era';
 import { clearSelection, setSelection } from './civView';
 import { cancelDraft, draftProblem, editMarkDraft, finishDraft, patchDraft, useMarkUi, type MarkDraft } from './markStore';
 import {
@@ -42,7 +43,7 @@ import {
 import { markFocus } from './flyTo';
 import { requestMapCenter } from './mapWrap';
 import { clearToast, showToast } from './toastStore';
-import { Act, Acts, EventList, Link, MoreAct, PanelHead, Row, Stats, SubLine, copyText, jumpTo } from './panelParts';
+import { Act, Acts, EraYearInput, EventList, Link, MoreAct, PanelHead, Row, Stats, SubLine, copyText, jumpTo } from './panelParts';
 import { MenuItem } from './PopMenu';
 import { Icon } from './icons';
 
@@ -86,6 +87,7 @@ export function MarkPanel(props: MarkPanelProps) {
 
 function MarkView({ civ, raster, world, year, m }: MarkPanelProps & { m: AuthorMark }) {
   const [copied, setCopied] = useState(false);
+  const era = useEra();
   const regs = useMemo(() => markAllRegions(civ, world, raster, m), [civ, world, raster, m]);
   const events = useMemo(() => markEvents(civ, regs, m), [civ, regs, m]);
   const focus = useMemo(() => markFocus(world, civ, m), [world, civ, m]);
@@ -126,13 +128,13 @@ function MarkView({ civ, raster, world, year, m }: MarkPanelProps & { m: AuthorM
 
   // 年份:几年(两头相减,同一年 = 不足一年,和人物页的在位年数一样);当前那年不在里面时说一声
   const span = m.to === undefined ? null : m.to > m.from ? `${m.to - m.from} 年` : '不足一年';
-  const yearNote = live ? span : year < m.from ? `第 ${year} 年时还没有` : `第 ${year} 年时已经没了`;
+  const yearNote = live ? span : year < m.from ? `${yearFull(year, era)}时还没有` : `${yearFull(year, era)}时已经没了`;
   const rows: { k: string; node: ReactNode }[] = [
     {
       k: '年份',
       node: (
         <>
-          {markYears(m)}
+          {markYears(m, era)}
           {yearNote && <em className="cp-num-note">{yearNote}</em>}
         </>
       ),
@@ -176,10 +178,10 @@ function MarkView({ civ, raster, world, year, m }: MarkPanelProps & { m: AuthorM
         <div className="ins-name-row big">
           <span className="ins-name mk-title">{m.title}</span>
         </div>
-        <SubLine parts={[`作者标记，${markYears(m)}`]} />
+        <SubLine parts={[`作者标记，${markYears(m, era)}`]} />
       </PanelHead>
       <Acts>
-        <Act icon="history" primary act="mark-year" onClick={() => jumpTo(m.from)} title={`时间轴跳到 ${m.from} 年`}>
+        <Act icon="history" primary act="mark-year" onClick={() => jumpTo(m.from)} title={`时间轴跳到${spaced(yearAt(m.from, era))}`}>
           开始那年
         </Act>
         <Act icon="rename" act="mark-edit" onClick={() => editMarkDraft(m)}>
@@ -234,6 +236,7 @@ function ownersNode(civ: Civ, own: { polity: number; n: number }[], year: number
 
 function MarkEdit({ civ, raster, world, year, draft: d }: MarkPanelProps & { draft: MarkDraft }) {
   const problem = draftProblem(d);
+  const era = useEra();
   const titleRef = useRef<HTMLInputElement>(null);
   // 新建的:光标放在名字框里
   useEffect(() => {
@@ -279,25 +282,21 @@ function MarkEdit({ civ, raster, world, year, draft: d }: MarkPanelProps & { dra
     if (!problem) finishDraft();
   };
   const ids = d.scope === 'regions' ? markRegionIds(civ, { regions: d.regions }) : [];
-  const digits = (s: string) => s.replace(/[^\d]/g, '').slice(0, 5);
   const yearRow = (k: string, key: 'fromText' | 'toText', placeholder?: string) => (
     <div className="cp-from-row">
       <span className="mk-k">{k}</span>
-      <label className="cp-year">
-        <input
-          value={d[key]}
-          inputMode="numeric"
-          aria-label={k === '从' ? '从哪年' : '到哪年'}
-          placeholder={placeholder}
-          className={d[key] ? undefined : 'empty'}
-          data-mk={key === 'fromText' ? 'from' : 'to'}
-          onChange={(e) => patchDraft({ [key]: digits(e.target.value) })}
-          onKeyDown={(e) => e.key === 'Enter' && done()}
-        />
-        年
-      </label>
+      <EraYearInput
+        value={d[key]}
+        near={key === 'toText' && Number.isFinite(Number(d.fromText)) && d.fromText.trim() ? Number(d.fromText) : year}
+        onChange={(t) => patchDraft({ [key]: t })}
+        aria-label={k === '从' ? '从哪年' : '到哪年'}
+        placeholder={placeholder}
+        className={d[key] ? undefined : 'empty'}
+        data-mk={key === 'fromText' ? 'from' : 'to'}
+        onKeyDown={(e) => e.key === 'Enter' && done()}
+      />
       <button className="cp-step" data-act={key === 'fromText' ? 'mark-from-now' : 'mark-to-now'} onClick={() => patchDraft({ [key]: String(year) })}>
-        用第 {year} 年
+        用{yearFull(year, era)}
       </button>
     </div>
   );

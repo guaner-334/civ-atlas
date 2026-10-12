@@ -19,6 +19,7 @@ import { BIOMES } from '../gen/biomes';
 import { KIND_INFO, cultureLabel, regionLabel, regionNamed } from '../gen/civ/display';
 import { SETTLEMENT_RANKS, capitalAt, polityAlive, polityName, populationAt, populationLabel, settlementRank } from '../gen/civ/growth';
 import { ownersAt } from '../gen/civ/timeline';
+import { spaced, yearAt, yearSpanAt } from '../gen/era';
 import { faithAt } from '../gen/civ/religion';
 import { cleanName, cultureKey, polityKey, regionKey, type Intervention } from '../gen/edits';
 import { addIntervention, editBlock, interventionKeys, useEdits } from './editsStore';
@@ -146,7 +147,7 @@ export function RegionPanel(props: DetailProps) {
 function RegionInfo({ civ, raw, raster, world, id, year, names, ai, aiRef }: DetailProps & Pick<ReturnType<typeof useRevealAi>, 'ai' | 'aiRef'>) {
   const edits = useEdits();
   const chars = edits.characters;
-  const refs = useMemo(() => charactersAt(civ, world, raster, chars, { region: id }), [civ, world, raster, chars, id]);
+  const refs = useMemo(() => charactersAt(civ, world, raster, chars, { region: id }, edits.era), [civ, world, raster, chars, id, edits.era]);
   const own = ownersOf(civ, year);
   const cid = own.culture[id];
   const cu = civ.cultures[cid];
@@ -252,7 +253,7 @@ function RegionOrder({ civ, id, year, page, back }: { civ: Civ; id: number; year
   const [name, setName] = useState('');
   const [forever, setForever] = useState(false);
   const yi = useYearInput(year, 0, Math.max(0, civ.endYear - 1), () => setMsg(null));
-  const { y, valid } = yi;
+  const { y, valid, era } = yi;
   // 离开这一页(返回、选了别的东西):在地图上选到一半的收起
   useEffect(
     () => () => {
@@ -282,9 +283,9 @@ function RegionOrder({ civ, id, year, page, back }: { civ: Civ; id: number; year
         ? `,这里是${nameAt(O, y)}的国都,它会迁都`
         : '';
   const why = !valid
-    ? `生效年份要在 0–${Math.max(0, civ.endYear - 1)} 年之间`
+    ? `生效年份要在${spaced(yearSpanAt(0, Math.max(0, civ.endYear - 1), era))}之间`
     : !at.peopled
-      ? `${y} 年这州无人居住`
+      ? `${yearAt(y, era)}这州无人居住`
       : page === 'cede' && !others.length && !(forever && O)
         ? '该年没有别的国家'
         : null;
@@ -298,8 +299,8 @@ function RegionOrder({ civ, id, year, page, back }: { civ: Civ; id: number; year
   /** 划给国家 q:合格就下干预,不合格返回原因 */
   const cedeTo = (q: number): string | null => {
     const Q = civ.polities[q];
-    if (!Q || !polityAlive(Q, y) || !(at.size.get(q)! > 0)) return `${y} 年${Q ? nameAt(Q, y) : '这个国家'}不在`;
-    if (q === at.owner && !forever) return `${y} 年${R}本来就属${nameAt(Q, y)}`;
+    if (!Q || !polityAlive(Q, y) || !(at.size.get(q)! > 0)) return `${yearAt(y, era)}${Q ? nameAt(Q, y) : '这个国家'}不在`;
+    if (q === at.owner && !forever) return `${yearAt(y, era)}${R}本来就属${nameAt(Q, y)}`;
     return add(forever ? { kind: 'cede', a: polityKey(civ, q), region: key, from: y, permanent: true } : { kind: 'cede', a: polityKey(civ, q), region: key, from: y });
   };
   const found = () => {
@@ -312,7 +313,7 @@ function RegionOrder({ civ, id, year, page, back }: { civ: Civ; id: number; year
     jumpTo(y);
     setPolityPick({
       prompt: `选择${R}要划给的国家`,
-      sub: `${y} 年起生效`,
+      sub: `${yearAt(y, era)}起生效`,
       source,
       accept: cedeTo,
       eligible: new Set(others.concat(forever && at.owner >= 0 ? [at.owner] : [])),
@@ -321,7 +322,7 @@ function RegionOrder({ civ, id, year, page, back }: { civ: Civ; id: number; year
     });
   };
   const mine = regionOrders(civ, id, edits.interventions);
-  const holder = O ? `这州 ${y} 年属${nameAt(O, y)}` : `这州 ${y} 年无主`;
+  const holder = O ? `这州${spaced(yearAt(y, era))}属${nameAt(O, y)}` : `这州${spaced(yearAt(y, era))}无主`;
   return (
     <>
       <div className="cp-body">

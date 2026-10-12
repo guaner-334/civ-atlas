@@ -12,6 +12,7 @@
  * - 刻度:每条纪事一个小菱形(战争画在开战那年);挨得太近(DIAMOND_GAP 像素以内)合并成一个,
  *   颜色取其中分量最重的那一件,悬停列出每一件。干预单独一种"令"标记、地形大事一种"变"标记,不和菱形合并。
  * - 刻度尺(rulerOf):3000 年的世界每 100 年一小格、1000 年写字;推得更久的放大大格(2000 / 5000 / 10000 年),字不超过七个。
+ *   设了纪年的刻度对准元年:字写在元年和它前后整千年(整大格)的地方("前2000""元年""1000"),两头写起止,离两头太近的不写。
  * - 播放:推得比 3000 年久的世界,播放速度、自动播放放的那一段、方向键一次走的年数跟着年数放大(放完整段的时间不变)。
  */
 import type { ChronicleEntry } from '../gen/civ/chronicle';
@@ -20,6 +21,7 @@ import type { World } from '../gen/world';
 import { capitalAt } from '../gen/civ/growth';
 import { nearX, wrapOf } from '../render/common';
 import { END_YEAR_DEFAULT } from '../gen/edits';
+import { yearShort, yearSpanAt, yearAt, type Era } from '../gen/era';
 
 // ---------------------------------------------------------------------------
 // 事件类型
@@ -112,12 +114,12 @@ export function evText(e: Pick<ChronicleEntry, 'text'>): string {
   return e.text.replace(/^【干预】/, '');
 }
 
-/** 年份:"2629 年";跨年的 "2940–2957 年";打到最后还没打完的 "2987 年起" */
-export function evYears(e: Pick<ChronicleEntry, 'year' | 'end' | 'ongoing'>): string {
+/** 年份:"2629 年";跨年的 "2940–2957 年";打到最后还没打完的 "2987 年起"(纪年:"公元前 850 年""公元前 820–前 811 年") */
+export function evYears(e: Pick<ChronicleEntry, 'year' | 'end' | 'ongoing'>, era?: Era | null): string {
   const a = Math.floor(e.year);
-  if (e.ongoing) return `${a} 年起`;
+  if (e.ongoing) return `${yearAt(a, era)}起`;
   const b = Math.floor(e.end);
-  return b > a ? `${a}–${b} 年` : `${a} 年`;
+  return b > a ? yearSpanAt(a, b, era) : yearAt(a, era);
 }
 
 /** 种类的分量:同一处挤了几件事时画哪一件的颜色。不认识的种类算中等 */
@@ -187,20 +189,40 @@ export function replayStart(end: number): number {
 const RULER_STEPS = [1000, 2000, 5000, 10000, 20000];
 
 /**
- * 时间轴的刻度尺:major 年一个写字的大格,major / 2 一个中格,major / 10 一个小格;
+ * 时间轴的刻度尺:major 年一个写字的大格,major / 2 一个中格,major / 10 一个小格,从 origin 那年数起(没设纪年 = 第 0 年);
  * labels = 写字的年份(0、每个大格,最后一定写结束年份;最后一个大格离结束太近就不写它,免得字挤在一起)。
- * 3000 年的世界 = 每 100 年一小格、500 年一中格、1000 年写字(和原来一样)
+ * 3000 年的世界 = 每 100 年一小格、500 年一中格、1000 年写字(和原来一样)。
+ * 设了纪年:格子对准元年,字写在元年、元年以前整大格("前2000")、以后整大格("1000",公元 1000 年)和两头;
+ * 离两头不到半个大格的不写
  */
-export function rulerOf(end: number): { major: number; minor: number; mid: number; labels: number[] } {
+export function rulerOf(end: number, era?: Era | null): { major: number; minor: number; mid: number; origin: number; labels: number[] } {
   const major = RULER_STEPS.find((m) => end / m <= 6) ?? RULER_STEPS[RULER_STEPS.length - 1];
   const labels: number[] = [];
+  if (era) {
+    const E = era.epoch;
+    // 两头的字("前2500""501")比中间的长:离两头不到半个大格的不写,免得叠在一起
+    const near = major / 2;
+    const ok = (y: number) => y >= near && end - y >= near;
+    const inner: number[] = [];
+    // 元年以前:前 1000、前 2000……;元年;以后:公元 1000、2000 年……(没有 0 年,公元 1000 年 = 元年后 999 年)
+    for (let y = E - major; y > 0; y -= major) if (y < end && ok(y)) inner.push(y);
+    if (E > 0 && E < end && ok(E)) inner.push(E);
+    for (let y = E - 1 + major; y < end; y += major) if (y > 0 && ok(y)) inner.push(y);
+    labels.push(0, ...inner.sort((a, b) => a - b), end);
+    return { major, minor: major / 10, mid: major / 2, origin: E, labels };
+  }
   for (let y = 0; y <= end; y += major) labels.push(y);
   if (end % major !== 0) {
     const last = labels[labels.length - 1];
     if (last > 0 && end - last <= major / 2) labels.pop();
     labels.push(end);
   }
-  return { major, minor: major / 10, mid: major / 2, labels };
+  return { major, minor: major / 10, mid: major / 2, origin: 0, labels };
+}
+
+/** 刻度上的字:"1000";纪年 "前2000""元年""501"(不空格,刻度上字小) */
+export function rulerLabel(y: number, era?: Era | null): string {
+  return yearShort(y, era).replace(' ', '');
 }
 
 /** 年份在 (y0, y1] 里的条目(entries 按年份排好) */

@@ -17,6 +17,7 @@ import { removeIntervention, removeUpheaval, useEdits } from './editsStore';
 import { pickChronicleEntry, setCivTime, setSelection, type MapSelection } from './civView';
 import { closeOverview } from './overviewStore';
 import { upheavalName } from './upheavalStore';
+import { eraText, yearShortAt } from '../gen/era';
 
 /**
  * editsStore 里的干预(可能夹着认不出的)→ 每一条在这份历史的 Civ.interventions 里是第几条
@@ -136,13 +137,14 @@ export function upheavalText(civ: Civ | null, world: World | null, ups: readonly
 
 export function InterventionsPage({ civ, world, busy }: { civ: Civ | null; world: World | null; busy: boolean }) {
   const edits = useEdits();
+  const era = edits.era;
   const list = edits.interventions;
   const ups = edits.upheavals ?? [];
   const upRows = ups.map((u, i) => {
     const { text, k } = upheavalText(busy ? null : civ, world, ups, i);
     return (
       <div key={`u${i}`} className="ov-iv up">
-        <span className="ov-iv-year">{u.year} 年</span>
+        <span className="ov-iv-year">{yearShortAt(u.year, era)}</span>
         <button
           className="ov-iv-text"
           onClick={() => {
@@ -195,7 +197,7 @@ export function InterventionsPage({ civ, world, busy }: { civ: Civ | null; world
         const target = same ? targetOf(civ, v, idx) : null;
         return (
           <div key={i} className={`ov-iv${why ? ' off' : ''}`}>
-            <span className="ov-iv-year">{v.from} 年起</span>
+            <span className="ov-iv-year">{yearShortAt(v.from, era)}起</span>
             <button
               className="ov-iv-text"
               onClick={() => {
@@ -205,8 +207,8 @@ export function InterventionsPage({ civ, world, busy }: { civ: Civ | null; world
               }}
               title="时间轴跳到这一年,在地图上选中它"
             >
-              {interventionText(civ, v, idx)}
-              {why && <em>未生效:{why}</em>}
+              {eraText(interventionText(civ, v, idx), era)}
+              {why && <em>未生效:{eraText(why, era)}</em>}
             </button>
             {undo}
           </div>

@@ -21,6 +21,8 @@ import { setSelection } from './civView';
 import { NameEdit } from './NameEdit';
 import { entriesUpTo, ownersOf } from './panelData';
 import { Act, Acts, CenterAct, EventList, Link, MoreAct, PanelHead, Row, Spark, Stats, SubLine, jumpTo, rgb, type DetailProps } from './panelParts';
+import { useEra } from './editsStore';
+import { spaced, yearAt, yearShortAt } from '../gen/era';
 import { MenuItem } from './PopMenu';
 import { Icon } from './icons';
 
@@ -37,6 +39,7 @@ function holyNote(civ: Civ, city: number, year: number): string {
 export function FaithPanel({ civ, raw, world, id, year, names }: DetailProps) {
   const rel = civ.religion!;
   const f = rel.faiths[id];
+  const era = useEra();
   const [renaming, setRenaming] = useState(false);
   const [allEvents, setAllEvents] = useState(false);
   const folk = f.kind === 'folk';
@@ -76,11 +79,11 @@ export function FaithPanel({ civ, raw, world, id, year, names }: DetailProps) {
         />
         <SubLine
           className="ins-status"
-          parts={folk ? ['民间信仰'] : f.kind === 'sect' ? ['教派', `${founded} 年${born ? '' : '才'}分出`] : ['宗教', `${founded} 年${born ? '' : '才'}创立`]}
+          parts={folk ? ['民间信仰'] : f.kind === 'sect' ? ['教派', `${yearAt(founded, era)}${born ? '' : '才'}分出`] : ['宗教', `${yearAt(founded, era)}${born ? '' : '才'}创立`]}
         />
       </PanelHead>
       <Acts>
-        <Act icon="history" primary act="founded-year" title={folk ? '跳到这个民族出现的那年' : `跳到 ${firstYear} 年`} onClick={() => jumpTo(firstYear)}>
+        <Act icon="history" primary act="founded-year" title={folk ? '跳到这个民族出现的那年' : `跳到${spaced(yearAt(firstYear, era))}`} onClick={() => jumpTo(firstYear)}>
           创立那年
         </Act>
         <CenterAct world={world} civ={civ} sel={{ kind: 'faith', id }} year={year} />
@@ -124,7 +127,7 @@ export function FaithPanel({ civ, raw, world, id, year, names }: DetailProps) {
           {folk && <Row k="民族">{cu ? cultureLabel(cu) : '—'}</Row>}
           {f.kind === 'great' && (
             <Row k="创立">
-              {founded} 年，{f.founder?.name ?? ''}
+              {yearAt(founded, era)}，{f.founder?.name ?? ''}
               {holy ? (
                 <>
                   创于<Link to={{ kind: 'settlement', id: holy.id }}>{holy.name}</Link>
@@ -142,7 +145,7 @@ export function FaithPanel({ civ, raw, world, id, year, names }: DetailProps) {
           )}
           {parent && (
             <Row k="来历">
-              从{faithLink(parent)}分出，{founded} 年{f.polity !== undefined && civ.polities[f.polity] ? <>，{pol(f.polity, f.founded ?? 0)}</> : null}
+              从{faithLink(parent)}分出，{yearAt(founded, era)}{f.polity !== undefined && civ.polities[f.polity] ? <>，{pol(f.polity, f.founded ?? 0)}</> : null}
             </Row>
           )}
           <Row k="信众" className="cp-terr">
@@ -173,7 +176,7 @@ export function FaithPanel({ civ, raw, world, id, year, names }: DetailProps) {
               {sects.map((x) => (
                 <span key={x.id} className="cp-now">
                   {faithLink(x)}
-                  <em>{Math.floor(x.founded ?? 0)} 年</em>
+                  <em>{yearShortAt(x.founded ?? 0, era)}</em>
                 </span>
               ))}
             </Row>

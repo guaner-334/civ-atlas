@@ -23,6 +23,7 @@ import { capitalAt, dynastyIndexAt, polityAlive, polityName, polityRootAt, polit
 import { ownersAt, type Owners } from '../../gen/civ/timeline';
 import { cnNumber } from '../../gen/civ/chronicle';
 import { KM_PER_UNIT } from '../../gen/civ/geo';
+import { eraNote } from '../../gen/era';
 import {
   cleanIntervention,
   cleanName,
@@ -338,6 +339,7 @@ export function rewriteMaterial(world: World, civ: Civ, year: number, edits: Wor
       (civ.viable ? `,作者没说年份的命令从第 ${defaultFrom(civ, Y)} 年起。` : '。') +
       '位置写成(经度, 纬度):经度 −180~180,东经为正;纬度 −90~90,北纬为正。赤道一圈约 4 万公里,纬度 1° 约 111 公里。',
   );
+  if (edits.era) out.push(eraNote(edits.era, civ.endYear));
   if (lock === 'terrain')
     out.push(
       '这个世界已经建好,地形定下来了:不能再改地形(火山、山脉、湖、抬起陆地、沉成海都不行),只能下历史命令、改名。' +

@@ -20,6 +20,8 @@ import { polityName } from '../gen/civ/growth';
 import { Icon } from './icons';
 import { pausePlayback, setCivTime, useCivTime } from './civView';
 import { addUpheaval, useEdits } from './editsStore';
+import { EraPre } from './panelParts';
+import { eraYear, worldYear, yearFull } from '../gen/era';
 import { UP_KINDS, UP_SIZE, clearUpOps, closeUpheaval, requestUpPreview, setUpKind, setUpSize, undoUpOp, upKind, upYear, useUpDraft, useUpPreview, useUpUi, type UpKind } from './upheavalStore';
 import { bandOutline, cellShapes } from './upheavalShapes';
 import './upheaval.css';
@@ -194,13 +196,32 @@ export function UpheavalPanel({ civ, world, phone }: { civ: Civ; world: World; p
   const [rlo, rhi] = UP_SIZE[ui.kind];
   // 打开时停下播放(卡片上的年份 = 时间轴停的那一年)
   useEffect(() => pausePlayback(), []);
-  // 年份输入框:时间轴动了跟着换;正在输的时候不打断
-  const [text, setText] = useState(String(year));
+  // 年份输入框:时间轴动了跟着换;正在输的时候不打断。设了纪年:框里是纪年的年数,前面的小按钮管"前"不"前"
+  const era = edits.era;
+  const shown = (y: number) => (era ? eraYear(y, era) : { pre: false, n: y });
+  const [text, setText] = useState(String(shown(year).n));
+  const [pre, setPre] = useState(shown(year).pre);
   const [typing, setTyping] = useState(false);
   useEffect(() => {
-    if (!typing) setText(String(year));
-  }, [year, typing]);
-  const goYear = (y: number) => setCivTime({ year: Math.min(hi, Math.max(lo, Math.round(y))), playing: false, story: false });
+    if (typing) return;
+    const v = era ? eraYear(year, era) : { pre: false, n: year };
+    setText(String(v.n));
+    setPre(v.pre);
+  }, [year, typing, era]);
+  const clampY = (y: number) => Math.min(hi, Math.max(lo, Math.round(y)));
+  const goYear = (y: number) => setCivTime({ year: clampY(y), playing: false, story: false });
+  /** 框里的字 → 第几年(纪年没有 0 年;填不成数 = NaN) */
+  const typedYear = (s: string, p: boolean) => (!s ? NaN : era ? (Number(s) >= 1 ? worldYear(p, Number(s), era) : NaN) : Number(s));
+  const flipPre = () => {
+    const v = typedYear(text, !pre);
+    const to = clampY(Number.isFinite(v) ? v : year);
+    if (to === year) setPre(shown(year).pre);
+    else {
+      setPre(!pre);
+      goYear(to);
+    }
+  };
+  const yearId = useId();
   // 预览:这几笔、那一年的地形一变就让后台算一遍(已有 / 正在算的不再发)
   const sig = previewSig(ui.ops, edits.upheavals, year);
   useEffect(() => {
@@ -225,22 +246,25 @@ export function UpheavalPanel({ civ, world, phone }: { civ: Civ; world: World; p
     </button>
   );
   const yearBox = (
-    <label className="cp-year">
+    <label className="cp-year" htmlFor={yearId}>
+      {era && <EraPre era={era} pre={pre} onFlip={flipPre} />}
       <input
+        id={yearId}
         value={text}
         inputMode="numeric"
         aria-label="哪一年"
         data-act="up-year"
         onFocus={() => setTyping(true)}
         onChange={(e) => {
-          const s = digits(e.target.value);
+          const s = era ? e.target.value.replace(/[^\d]/g, '').slice(0, 5) : digits(e.target.value);
           setText(s);
-          const v = Number(s);
+          const v = typedYear(s, pre);
           if (s && v >= lo && v <= hi) goYear(v);
         }}
         onBlur={() => {
           setTyping(false);
-          setText(String(year));
+          setText(String(shown(year).n));
+          setPre(shown(year).pre);
         }}
         onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
         style={{ width: `${Math.max(2, text.length) + 0.6}ch` }}
@@ -364,7 +388,7 @@ export function UpheavalPanel({ civ, world, phone }: { civ: Civ; world: World; p
             <span className="ins-name">地形大事</span>
           </div>
           <div className="cp-sub">
-            <span>{phone ? '这一年以前的历史一字不差' : `这颗星球，第 ${year} 年`}</span>
+            <span>{phone ? '这一年以前的历史一字不差' : `这颗星球，${yearFull(year, era)}`}</span>
           </div>
         </div>
         <button className="cp-x ins-close" onClick={closeUpheaval} title="关闭(Esc)" aria-label="关闭">

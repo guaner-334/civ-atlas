@@ -6,7 +6,7 @@
  * - 在地图上选目标(PolityPick):干预页 / 州的"划给…"发起;地图压暗、可选的对象浮出名牌(TargetPlates.tsx),
  *   单击地图或名牌 = accept(编号);悬停卡片写"点击选择 / 不可选 / 本国"(hoverInfo.ts)。
  * - 州的干预(州面板 RegionPanel.tsx 的"在这里立国""划给…")用这里的 regionOrders / MineList 列出这一州的干预(可撤销)。
- * - 所有干预的列表在概览的"我的干预"页(WorldOverviewInterventions.tsx,用这里的 interventionText);
+ * - 所有干预的列表在概览的"我的干预"页(WorldOverviewInterventions.tsx,用这里的 interventionText;年份写成"第 N 年",显示时按纪年换写法:gen/era.ts 的 eraText);
  *   推完一条干预顶部的提示用 interventionDoneText(写用户点的那个国名,那一年名字不一样再补一行)。
  * - 下了 / 删了干预,editsStore 里的干预列表一变,App 就在后台从第 0 年重推文明(见 App.tsx)。
  *
@@ -18,7 +18,8 @@ import { polityAlive, polityName } from '../gen/civ/growth';
 import { regionLabel } from '../gen/civ/display';
 import { ownersAt, type Owners } from '../gen/civ/timeline';
 import { cleanIntervention, keyCells, polityKey, regionKey, regionOfKey, resolveKey, type Intervention } from '../gen/edits';
-import { removeIntervention } from './editsStore';
+import { removeIntervention, useEra } from './editsStore';
+import { eraText, yearShort } from '../gen/era';
 
 // ---------------------------------------------------------------------------
 // 在地图上选目标
@@ -280,13 +281,14 @@ export function regionOrders(civ: Civ, region: number, list: readonly unknown[])
 
 /** 已经下了的几条(可撤销;i = editsStore 里的下标,c = 这份历史里的下标) */
 export function MineList({ civ, mine }: { civ: Civ; mine: { v: Intervention; i: number; c: number }[] }) {
+  const era = useEra();
   if (!mine.length) return null;
   return (
     <div className="iv-mine">
       {mine.map(({ v, i, c }) => (
         <div key={i} className="iv-item">
-          <span className="ins-years">{v.from}</span>
-          <span className="iv-item-text">{interventionText(civ, v, c)}</span>
+          <span className="ins-years">{yearShort(v.from, era)}</span>
+          <span className="iv-item-text">{eraText(interventionText(civ, v, c), era)}</span>
           <button className="iv-del" data-act="iv-del" onClick={() => removeIntervention(i)} title="撤销这条干预(之后的历史重新推演)">
             撤销
           </button>

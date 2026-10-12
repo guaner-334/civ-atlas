@@ -39,7 +39,8 @@ import {
   type NameTarget,
   type Suggestion,
 } from '../ai/prompts/names';
-import { setName } from './editsStore';
+import { setName, useEra } from './editsStore';
+import { eraText } from '../gen/era';
 import { currentWorld } from './saveStore';
 import { AiTag } from './aiTag';
 
@@ -172,6 +173,8 @@ export interface AiName {
 export function useAiName({ civ, raw, raster, target, compact, lazy, what }: AiNameProps): AiName {
   useNotesVersion();
   const on = useAiOn();
+  // 释名里写的是"第 N 年":按纪年显示、复制
+  const era = useEra();
   const info = target ? nameInfo(civ, target) : null;
   const key = info?.key ?? '';
   const [st, setSt] = useState<State>(() => fresh(key));
@@ -265,7 +268,7 @@ export function useAiName({ civ, raw, raster, target, compact, lazy, what }: AiN
 
   const copy = () => {
     if (!note) return;
-    navigator.clipboard?.writeText(note.text).then(
+    navigator.clipboard?.writeText(eraText(note.text, era)).then(
       () => {
         patch(key, { copied: true });
         setTimeout(() => patch(key, { copied: false }), 1500);
@@ -328,7 +331,7 @@ export function useAiName({ civ, raw, raster, target, compact, lazy, what }: AiN
         </div>
         {s.writing ? (
           <p className="ain-text">
-            {s.live || <span className="ain-wait-text">生成中…</span>}
+            {eraText(s.live, era) || <span className="ain-wait-text">生成中…</span>}
             {s.live && <span className="ain-caret" />}
           </p>
         ) : note ? (
@@ -337,7 +340,7 @@ export function useAiName({ civ, raw, raster, target, compact, lazy, what }: AiN
             onClick={() => !s.expanded && patch(key, { expanded: true })}
             title={s.expanded ? undefined : '点一下看全文'}
           >
-            {cleanExplanation(note.text)}
+            {eraText(cleanExplanation(note.text), era)}
           </p>
         ) : null}
         {s.explainErr && <ErrLine err={s.explainErr} retry={explain} />}
@@ -420,7 +423,7 @@ export function useAiName({ civ, raw, raster, target, compact, lazy, what }: AiN
                   <span className="ain-cand-name">{c.name}</span>
                   {c.latin && <span className="ain-latin">{c.latin}</span>}
                   {now && <span className="ain-cand-now">现在的名字</span>}
-                  {c.meaning && <span className="ain-cand-mean">{c.meaning}</span>}
+                  {c.meaning && <span className="ain-cand-mean">{eraText(c.meaning, era)}</span>}
                 </button>
                 {on && (
                   <div className="ain-confirm">

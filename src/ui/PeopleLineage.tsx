@@ -17,8 +17,9 @@ import { dynastyEnd, dynastyNote, dynastyRowAt, dynastyRows, layoutDynasty, reig
 import { setPeople } from './overviewStore';
 import { selectPerson } from './panelParts';
 import { useNarrow } from './device';
+import { useEra } from './editsStore';
+import { yearShort, yearShortAt, yearSpanAt, type Era } from '../gen/era';
 
-const F = Math.floor;
 
 /** 方框大小、间距(电脑 / 手机);FONT = 名字的字号(估名字多宽用) */
 const BOX = { wide: { W: 136, H: 44, GAP: 18, STEP: 68, FONT: 13.5 }, narrow: { W: 128, H: 42, GAP: 12, STEP: 64, FONT: 13 } };
@@ -54,7 +55,9 @@ const nameWidth = (civ: Civ, p: Person, box: Box) => textWidth(personName(civ, p
 /** 「当前」小标签连同前面的空隙占多宽(字 11 号,左右内边距各 5,空隙 5) */
 const badgeWidth = () => textWidth('当前', 11) + 15;
 
-const yearSpan = (a: number, b: number | undefined) => `${F(a)}–${b !== undefined ? F(b) : ''}`;
+const yearSpan = (a: number, b: number | undefined, era: Era | undefined) => `${yearShort(a, era)}–${b !== undefined ? yearShort(b, era) : ''}`;
+/** 一朝的起止,窄处:"2377–2794 年""2377 年起";纪年 "前 820–前 811 年""前 820 年起" */
+const dynSpan = (r: DynastyRow, era: Era | undefined) => (r.to !== undefined ? `${yearShort(r.from, era)}–${yearShort(r.to, era)} 年` : `${yearShortAt(r.from, era)}起`);
 
 function inRow(row: DynastyRow, year: number) {
   return row.from <= year && (row.to === undefined || year < row.to);
@@ -63,6 +66,7 @@ function inRow(row: DynastyRow, year: number) {
 /** 一棵树:方框绝对定位,连线画在底下的 svg 里;tail = 最后一位下面那句话(这一棵里有最后一位才给) */
 function Tree({ civ, row, tree, box, year, cur, focus, tail }: { civ: Civ; row: DynastyRow; tree: LineageTree; box: Box; year: number; cur: Person | null; focus: number | null; tail: string }) {
   const { W, H, GAP, STEP } = box;
+  const era = useEra();
   const unit = W + GAP;
   const xs = tree.nodes.map((n) => n.x);
   const minX = Math.min(...xs);
@@ -98,7 +102,7 @@ function Tree({ civ, row, tree, box, year, cur, focus, tail }: { civ: Civ; row: 
         const on = k > 0 && p === cur;
         const cls = `lg-node${k ? '' : ' lg-prince'}${on ? ' on' : ''}${future(p) ? ' fut' : ''}${p.id === focus ? ' focus' : ''}`;
         const name = personName(civ, p);
-        const span = k ? yearSpan(p.from ?? p.born, p.until) : yearSpan(p.born, p.died);
+        const span = k ? yearSpan(p.from ?? p.born, p.until, era) : yearSpan(p.born, p.died, era);
         // 名字加「当前」放不下:「当前」挪到年份后面
         const low = on && CHROME + nameWidth(civ, p, box) + badgeWidth() > W;
         return (
@@ -107,7 +111,7 @@ function Tree({ civ, row, tree, box, year, cur, focus, tail }: { civ: Civ; row: 
             className={cls}
             style={{ left: cx(x) - W / 2, top: top(depth), width: W, height: H }}
             data-person={p.id}
-            title={`${name}，${k ? `${span} 年在位` : `未即位，${span}`}`}
+            title={`${name}，${k ? (era && p.until !== undefined ? `${yearSpanAt(p.from ?? p.born, p.until, era)}在位` : `${span} 年在位`) : `未即位，${span}`}`}
             onClick={() => selectPerson(p.id)}
           >
             {k > 0 && <span className="lg-n">{k}</span>}
@@ -135,6 +139,7 @@ function Tree({ civ, row, tree, box, year, cur, focus, tail }: { civ: Civ; row: 
 
 export function PeopleLineage({ civ, polity, dynasty, focus, year }: { civ: Civ; polity: number; dynasty: number | null; focus: number | null; year: number }) {
   const narrow = useNarrow();
+  const era = useEra();
   const box0 = narrow ? BOX.narrow : BOX.wide;
   const rows = useMemo(() => dynastyRows(civ, polity), [civ, polity]);
   const byYear = dynastyRowAt(rows, year);
@@ -147,7 +152,7 @@ export function PeopleLineage({ civ, polity, dynasty, focus, year }: { civ: Civ;
     const longest = Math.max(0, ...trees.flatMap((t) => t.nodes.map((n) => nameWidth(civ, n.p, box0))));
     return { ...box0, W: Math.min(W_MAX, Math.max(box0.W, Math.ceil(CHROME + longest))) };
   }, [civ, trees, box0]);
-  const tail = useMemo(() => dynastyEnd(civ, rows, ri), [civ, rows, ri]);
+  const tail = useMemo(() => dynastyEnd(civ, rows, ri, era), [civ, rows, ri, era]);
   // 最后一位在哪一棵(结尾那句写在他下面)
   const lastTree = useMemo(() => {
     const lastRuler = row?.rulers[row.rulers.length - 1];
@@ -194,8 +199,7 @@ export function PeopleLineage({ civ, polity, dynasty, focus, year }: { civ: Civ;
             {inRow(r, year) && <em className="cp-badge">当前</em>}
           </b>
           <span>
-            {F(r.from)}
-            {r.to !== undefined ? `–${F(r.to)}` : ' 年起'}，{r.rulers.length} 位
+            {r.to !== undefined ? `${yearShort(r.from, era)}–${yearShort(r.to, era)}` : `${yearShortAt(r.from, era)}起`}，{r.rulers.length} 位
           </span>
         </button>
       ))}
@@ -210,10 +214,7 @@ export function PeopleLineage({ civ, polity, dynasty, focus, year }: { civ: Civ;
             {inRow(r, year) && <em className="cp-badge">当前</em>}
           </b>
           <small>{r.rulers.length} 位</small>
-          <span>
-            {F(r.from)}
-            {r.to !== undefined ? `–${F(r.to)}` : ''} 年{r.to === undefined ? '起' : ''}
-          </span>
+          <span>{dynSpan(r, era)}</span>
         </button>
       ))}
       <div className="lg-legend">
@@ -235,7 +236,7 @@ export function PeopleLineage({ civ, polity, dynasty, focus, year }: { civ: Civ;
       <div className="lg-main">
         <div className="lg-head">
           <b>{row.name}</b>
-          <span>{narrow ? dynastyNote(civ, rows, ri).split('；')[0] : dynastyNote(civ, rows, ri)}</span>
+          <span>{narrow ? dynastyNote(civ, rows, ri, era).split('；')[0] : dynastyNote(civ, rows, ri, era)}</span>
         </div>
         <div className="lg-scroll" ref={scrollRef}>
           {trees.map((t, i) => (

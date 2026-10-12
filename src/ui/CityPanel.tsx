@@ -22,7 +22,8 @@ import { newMarkDraft } from './markStore';
 import { newCharacterDraft } from './characterStore';
 import { charactersAt, whereOfCity } from './characterInfo';
 import { CharacterRefs } from './CharacterPanel';
-import { addIntervention, editBlock, interventionKeys, useEdits } from './editsStore';
+import { addIntervention, editBlock, interventionKeys, useEdits, useEra } from './editsStore';
+import { spaced, yearAt, yearShort } from '../gen/era';
 import { NameEdit } from './NameEdit';
 import { nameAt } from './Interventions';
 import { endRun, startRun } from './panelStore';
@@ -62,8 +63,8 @@ export function CityPanel({ civ, raw, raster, world, id, year, names }: DetailPr
   const [renaming, setRenaming] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const { ai, aiRef } = useRevealAi({ civ, raw, raster, target: { kind: 'settlement', id }, lazy: true });
-  const chars = useEdits().characters;
-  const refs = useMemo(() => charactersAt(civ, world, raster, chars, { city: id }), [civ, world, raster, chars, id]);
+  const { characters: chars, era } = useEdits();
+  const refs = useMemo(() => charactersAt(civ, world, raster, chars, { city: id }, era), [civ, world, raster, chars, id, era]);
   const built = year >= s.founded;
   const ruined = s.ended !== undefined && year >= s.ended;
   const stands = built && !ruined;
@@ -138,13 +139,13 @@ export function CityPanel({ civ, raw, raster, world, id, year, names }: DetailPr
           className="ins-status"
           parts={[
             ruined ? '故城' : '城',
-            `${Math.floor(s.founded)} 年${built ? '' : '才'}建城`,
-            ruined ? `毁于 ${Math.floor(s.ended!)} 年` : owner ? <>属 {polityLink(owner.id, year)}</> : stands ? '部落地带' : null,
+            `${yearAt(s.founded, era)}${built ? '' : '才'}建城`,
+            ruined ? `毁于${spaced(yearAt(s.ended!, era))}` : owner ? <>属 {polityLink(owner.id, year)}</> : stands ? '部落地带' : null,
           ]}
         />
       </PanelHead>
       <Acts>
-        <Act icon="flag" primary act="move-here" disabled={!!moveWhy} title={moveWhy ?? `${nameAt(moveOwner!, y)}迁都到这里,${y} 年起生效`} onClick={move}>
+        <Act icon="flag" primary act="move-here" disabled={!!moveWhy} title={moveWhy ?? `${nameAt(moveOwner!, y)}迁都到这里,${yearAt(y, era)}起生效`} onClick={move}>
           迁都到这里
         </Act>
         <CenterAct world={world} civ={civ} sel={{ kind: 'settlement', id }} year={year} />
@@ -197,7 +198,7 @@ export function CityPanel({ civ, raw, raster, world, id, year, names }: DetailPr
                   <span key={i} className={`${now ? 'cp-now' : ''}${c.from > year ? ' cp-later' : ''}`}>
                     {P ? polityLink(P.id, Math.max(c.from, Math.min(year, Math.min(end ?? Infinity, P.ended ?? Infinity, civ.endYear + 1) - 1 / 512))) : '国都'}
                     <em>
-                      {Math.floor(c.from)}–{end === undefined ? '今' : Math.floor(end)}
+                      {yearShort(c.from, era)}–{end === undefined ? '今' : yearShort(end, era)}
                     </em>
                   </span>
                 );
@@ -213,7 +214,7 @@ export function CityPanel({ civ, raw, raster, world, id, year, names }: DetailPr
               )}
               {rebuiltAs && (
                 <span className={rebuiltAs.founded > year ? 'cp-later' : ''}>
-                  {Math.floor(rebuiltAs.founded)} 年重建为 <Link to={{ kind: 'settlement', id: rebuiltAs.id }}>{rebuiltAs.name}</Link>
+                  {yearAt(rebuiltAs.founded, era)}重建为 <Link to={{ kind: 'settlement', id: rebuiltAs.id }}>{rebuiltAs.name}</Link>
                 </span>
               )}
             </Row>
@@ -239,21 +240,22 @@ interface Mark {
 
 /** 兴衰:历年人口的小柱图 + 洗劫 / 毁城 / 重建 / 旧都衰落的记号;点一根柱子或一个记号跳到那年 */
 function Trend({ civ, s, year, from, to, spans }: { civ: Civ; s: Settlement; year: number; from: number; to: number; spans: readonly OwnerSpan[] }) {
+  const era = useEra();
   const series = useMemo(() => popSeries(s, from, to, BARS), [s, from, to]);
   const marks = useMemo(() => {
     const out: Mark[] = [];
     const by = (q: number, y: number) => (civ.polities[q] ? nameAt(civ.polities[q], y) : '');
-    if (s.rebuilds !== undefined && civ.settlements[s.rebuilds]) out.push({ year: s.founded, glyph: '建', ev: 'found', title: `${Math.floor(s.founded)} 年在${civ.settlements[s.rebuilds].name}故址上重建` });
+    if (s.rebuilds !== undefined && civ.settlements[s.rebuilds]) out.push({ year: s.founded, glyph: '建', ev: 'found', title: `${yearAt(s.founded, era)}在${civ.settlements[s.rebuilds].name}故址上重建` });
     let ruinBy = -1;
     for (const a of civ.annals) {
       if (a.settlement !== s.id) continue;
       if (a.kind === 'sack') {
         const loss = s.sacks?.find((k) => k.year === a.year)?.loss;
-        out.push({ year: a.year, glyph: '掠', ev: 'war', title: `${Math.floor(a.year)} 年遭${by(a.a, a.year)}洗劫${loss !== undefined ? `,人口折损约 ${Math.round(loss * 100)}%` : ''}` });
+        out.push({ year: a.year, glyph: '掠', ev: 'war', title: `${yearAt(a.year, era)}遭${by(a.a, a.year)}洗劫${loss !== undefined ? `,人口折损约 ${Math.round(loss * 100)}%` : ''}` });
       } else if (a.kind === 'ruin') ruinBy = a.a;
-      else if (a.kind === 'decline') out.push({ year: a.year, glyph: '衰', ev: 'dynasty', title: `${Math.floor(a.year)} 年${by(a.a, a.year)}迁都,旧都渐衰` });
+      else if (a.kind === 'decline') out.push({ year: a.year, glyph: '衰', ev: 'dynasty', title: `${yearAt(a.year, era)}${by(a.a, a.year)}迁都,旧都渐衰` });
     }
-    if (s.ended !== undefined) out.push({ year: s.ended, glyph: '毁', ev: 'war', title: `${Math.floor(s.ended)} 年${ruinBy >= 0 ? `被${by(ruinBy, s.ended)}攻破,毁于兵火` : '毁弃'}` });
+    if (s.ended !== undefined) out.push({ year: s.ended, glyph: '毁', ev: 'war', title: `${yearAt(s.ended, era)}${ruinBy >= 0 ? `被${by(ruinBy, s.ended)}攻破,毁于兵火` : '毁弃'}` });
     out.sort((a, b) => a.year - b.year);
     // 挨得太近的只留先来的(毁城一定留)
     const kept: Mark[] = [];
@@ -267,7 +269,7 @@ function Trend({ civ, s, year, from, to, spans }: { civ: Civ; s: Settlement; yea
       kept.push(m);
     }
     return kept;
-  }, [civ, s, from, to]);
+  }, [civ, s, from, to, era]);
   // 最盛:按年份逐处算准(小柱图只在柱子中间取样,会比现在的人口还少);正看着的这一年也算进去
   const top = useMemo(() => popPeak(s, from, to), [s, from, to]);
   const now = year >= from && year <= to ? populationAt(s, year) : 0;
@@ -281,7 +283,7 @@ function Trend({ civ, s, year, from, to, spans }: { civ: Civ; s: Settlement; yea
       <div className="cp-sec-head cp-trend-head">
         <span>兴衰</span>
         <span className="cp-count">
-          最盛 {popShort(peak)}，{Math.round(peakYear)} 年
+          最盛 {popShort(peak)}，{yearAt(Math.round(peakYear), era)}
         </span>
       </div>
       {marks.length > 0 && (
@@ -308,14 +310,14 @@ function Trend({ civ, s, year, from, to, spans }: { civ: Civ; s: Settlement; yea
             h: Math.max(1, Math.round((x.pop / peak) * BAR_H)),
             background: P ? rgb(P.color) : 'var(--line-strong)',
             opacity: x.pop > 0 ? (x.year <= year ? 1 : 0.35) : 0.2,
-            title: `${Math.round(x.year)} 年 · ${x.pop > 0 ? populationLabel(x.pop) : '无人'}`,
+            title: `${yearAt(Math.round(x.year), era)} · ${x.pop > 0 ? populationLabel(x.pop) : '无人'}`,
             onClick: () => jumpTo(Math.round(x.year)),
           };
         })}
       />
       <div className="cp-dyn-years">
-        <span>{Math.floor(from)}</span>
-        <span>{Math.floor(to)}</span>
+        <span>{yearShort(from, era)}</span>
+        <span>{yearShort(to, era)}</span>
       </div>
     </div>
   );

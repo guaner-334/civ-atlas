@@ -5,6 +5,7 @@ import { KIND_INFO, cultureLabel, regionLabel, regionNamed } from '../gen/civ/di
 import { SETTLEMENT_RANKS, capitalAt, polityAlive, polityName, populationAt, populationLabel, ruinSites, settlementRank } from '../gen/civ/growth';
 import { MinHeap } from '../gen/util';
 import { getCivTime } from './civView';
+import { yearFull, type Era } from '../gen/era';
 
 /**
  * 宜居分(0..~40)换成 0–100 的分数给人看。用平方根拉开低端:
@@ -74,7 +75,7 @@ export function nearestSettlement(civ: Civ, r: number, year: number): number {
  *   "XX族 · 游牧民族"(这一年这里有人住时)
  *   "州名 · 第 N 州 · 宜居度 X(评语)"(州名在有人住以后才有;用户起的州名一直有)
  */
-export function describeCiv(civ: Civ | null, cell: number): string[] {
+export function describeCiv(civ: Civ | null, cell: number, era?: Era): string[] {
   if (!civ || cell < 0 || cell >= civ.regions.of.length) return [];
   const r = civ.regions.of[cell];
   if (r < 0) return [];
@@ -99,7 +100,7 @@ export function describeCiv(civ: Civ | null, cell: number): string[] {
     }
     // 阶段 3 城市兴衰:这一州的城被毁了、还没重建
     for (const s of ruinSites(civ, year)) {
-      if (s.region === r) lines.push(`故城遗址 · ${s.name}(第 ${Math.floor(s.ended!)} 年毁于兵火)`);
+      if (s.region === r) lines.push(`故城遗址 · ${s.name}(${yearFull(s.ended!, era)}毁于兵火)`);
     }
     if (cu) {
       lines.push(`${cultureLabel(cu)} · ${KIND_INFO[cu.kind].name}民族`);

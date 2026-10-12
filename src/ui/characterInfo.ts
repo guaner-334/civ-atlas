@@ -23,6 +23,8 @@ import type { TrailInput } from '../render/trail';
 import { evText } from './timelineLayout';
 import { markSpot, spotText } from './markInfo';
 import type { HoverInfo } from './hoverInfo';
+import { yearAt, yearShort, yearSpanAt, type Era } from '../gen/era';
+import { currentEra } from './editsStore';
 
 const F = Math.floor;
 
@@ -145,9 +147,9 @@ export function birthPolity(civ: Civ, world: World, raster: Raster | null, c: Pi
   return pl.region !== undefined ? regionOwner(civ, pl.region, c.born) : -1;
 }
 
-/** "2490–2561 年" / "2490 年生" */
-export function lifeYears(c: Pick<AuthorCharacter, 'born' | 'died'>): string {
-  return c.died === undefined ? `${c.born} 年生` : `${c.born}–${c.died} 年`;
+/** "2490–2561 年" / "2490 年生";设了纪年 "公元前 10–公元 61 年" / "公元前 10 年生"(不给 era = 当前世界的纪年;下面几个写年份的一样) */
+export function lifeYears(c: Pick<AuthorCharacter, 'born' | 'died'>, era: Era | undefined = currentEra()): string {
+  return c.died === undefined ? `${yearAt(c.born, era)}生` : yearSpanAt(c.born, c.died, era);
 }
 
 /** 那一年的样子:"22 岁" / "还没出生" / "已故" */
@@ -167,7 +169,7 @@ const NOTE_HEAD_MAX = 16;
  * 人物页一行:"大景王朝书记官、说书人，22 岁" / "…，2520 年出生" / "…，2506 年卒，享年 44 岁"。
  * 没写身份时,别的人物把他列成亲友的,写"林小满的女儿";也没有就用简介的头一句(短的才用)
  */
-export function characterLine(civ: Civ, world: World, raster: Raster | null, c: AuthorCharacter, year: number, chars: readonly AuthorCharacter[]): string {
+export function characterLine(civ: Civ, world: World, raster: Raster | null, c: AuthorCharacter, year: number, chars: readonly AuthorCharacter[], era: Era | undefined = currentEra()): string {
   const p = characterPolity(civ, world, raster, c);
   const pn = p >= 0 ? polityName(civ.polities[p], clampYear(civ, Math.max(c.born, Math.min(year, c.died ?? year)))) : '';
   let role = c.role ?? '';
@@ -184,7 +186,7 @@ export function characterLine(civ: Civ, world: World, raster: Raster | null, c: 
     who = [pn, role].filter(Boolean).join('，');
   }
   const a = characterAge(c, year);
-  const tail = a.state === 'unborn' ? `${c.born} 年出生` : a.state === 'dead' ? `${c.died} 年卒，享年 ${a.age} 岁` : `${a.age} 岁`;
+  const tail = a.state === 'unborn' ? `${yearAt(c.born, era)}出生` : a.state === 'dead' ? `${yearAt(c.died!, era)}卒，享年 ${a.age} 岁` : `${a.age} 岁`;
   return who ? `${who}，${tail}` : tail;
 }
 
@@ -394,10 +396,10 @@ function joinParts(parts: string[], lifeCount: number, max = 2): string {
 }
 
 /** 经历写成一句:"2506 年随楚尧西征" */
-const lifeLine = (e: { year: number; text: string }) => `${e.year} 年${e.text || '（没写经历）'}`;
+const lifeLine = (e: { year: number; text: string }, era: Era | undefined) => `${yearAt(e.year, era)}${e.text || '（没写经历）'}`;
 
 /** 推演里的人(人物编号)的卡片:亲友里有他、经历里勾了他的作者人物("上司是他，2506 年随他西征") */
-export function charactersOfPerson(civ: Civ, chars: readonly AuthorCharacter[] | undefined, id: number): CharRef[] {
+export function charactersOfPerson(civ: Civ, chars: readonly AuthorCharacter[] | undefined, id: number, era: Era | undefined = currentEra()): CharRef[] {
   const key = personKey(civ, id);
   const x = civ.people?.[id];
   if (!key || !x || !chars?.length) return [];
@@ -409,7 +411,7 @@ export function charactersOfPerson(civ: Civ, chars: readonly AuthorCharacter[] |
     const kin = c.kin?.find((k) => k.person === key);
     const lives = lifeInOrder(c).filter(({ e }) => e.people?.includes(key));
     if (!kin && !lives.length) continue;
-    const shown = lives.map(({ e }) => him(lifeLine(e)));
+    const shown = lives.map(({ e }) => him(lifeLine(e, era)));
     const text = kin ? [kin.rel ? `${kin.rel}是他` : '亲友里有他', joinParts(shown, shown.length, 1)].filter(Boolean).join('，') : joinParts(shown, shown.length);
     out.push({ c, text });
   }
@@ -431,6 +433,7 @@ export function charactersAt(
   raster: Raster | null,
   chars: readonly AuthorCharacter[] | undefined,
   at: { city: number } | { region: number },
+  era: Era | undefined = currentEra(),
 ): CharRef[] {
   if (!chars?.length) return [];
   const test = 'city' in at ? (p: CharPlace) => p.city === at.city : (p: CharPlace) => p.region === at.region;
@@ -440,8 +443,8 @@ export function charactersAt(
     const lives = lifeInOrder(c).filter(({ e }) => !(born && e.year === c.born && sameWhere(e.where, c.birthplace)) && placeHits(civ, world, raster, e.where, e.year, test));
     if (!born && !lives.length) continue;
     // 卒年那一段写的是去世,就写"在这里去世";别的照经历原话
-    const parts = lives.map(({ e }) => (e.year === c.died && DIED_WORDS.test(e.text) ? `${c.died} 年在这里去世` : lifeLine(e)));
-    if (born) parts.unshift(`${c.born} 年生在这里`);
+    const parts = lives.map(({ e }) => (e.year === c.died && DIED_WORDS.test(e.text) ? `${yearAt(c.died, era)}在这里去世` : lifeLine(e, era)));
+    if (born) parts.unshift(`${yearAt(c.born, era)}生在这里`);
     out.push({ c, text: joinParts(parts, lives.length) });
   }
   return byBorn(out);
@@ -451,8 +454,8 @@ export function charactersAt(
 // 复制、悬停
 
 /** 复制生平:名字、生卒、简介、概况、一生 */
-export function characterCopyText(civ: Civ, world: World, raster: Raster | null, c: AuthorCharacter, chars: readonly AuthorCharacter[]): string {
-  const out = [c.name, `作者的人物，${lifeYears(c)}`];
+export function characterCopyText(civ: Civ, world: World, raster: Raster | null, c: AuthorCharacter, chars: readonly AuthorCharacter[], era: Era | undefined = currentEra()): string {
+  const out = [c.name, `作者的人物，${lifeYears(c, era)}`];
   if (c.note) out.push('', c.note, '');
   if (c.role) out.push(`身份：${c.role}`);
   const p = characterPolity(civ, world, raster, c);
@@ -471,7 +474,7 @@ export function characterCopyText(civ: Civ, world: World, raster: Raster | null,
       const where = e.where ? placeOf(civ, world, raster, e.where, e.year).name : '';
       const age = e.year - c.born;
       const note = [age > 0 ? `${age} 岁` : '', where].filter(Boolean).join('，');
-      out.push(`${e.year} ${e.text || '（没写经历）'}${note ? `（${note}）` : ''}`);
+      out.push(`${yearShort(e.year, era)} ${e.text || '（没写经历）'}${note ? `（${note}）` : ''}`);
     }
   }
   return out.join('\n');
@@ -520,7 +523,7 @@ export type TrailMode = { kind: 'view' } | { kind: 'edit' } | { kind: 'life'; en
  * 一生的足迹:去过的地方按经历的先后连起来;同一处只画一个点,年份写在一起(州的话后面写上州名);没写地方、找不到的地方跳过。
  * mode 见 TrailMode;index = 正在改的那一段经历(新加的 = −1),画的时候用 entry 代替它
  */
-export function characterTrail(civ: Civ, world: World, raster: Raster | null, c: AuthorCharacter, year: number, mode: TrailMode): TrailInput {
+export function characterTrail(civ: Civ, world: World, raster: Raster | null, c: AuthorCharacter, year: number, mode: TrailMode, era: Era | undefined = currentEra()): TrailInput {
   const life = (c.life ?? []).slice();
   let pending = -1;
   if (mode.kind === 'life') {
@@ -561,7 +564,7 @@ export function characterTrail(civ: Civ, world: World, raster: Raster | null, c:
     avatar: [...c.name][0] ?? '',
     stops: places.map((p) => ({
       at: p.pl.at!,
-      label: `${p.years.join('、')}${p.pl.kind === 'region' ? ` ${p.pl.name}` : ''}`,
+      label: `${p.years.map((y) => yearShort(y, era)).join('、')}${p.pl.kind === 'region' ? ` ${p.pl.name}` : ''}`,
       future: view ? p.first > Y : !p.done && p.pending,
     })),
     segs,

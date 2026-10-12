@@ -76,10 +76,11 @@ export function CharacterLayer({ civ, world, raster, api, hidden }: { civ: Civ |
 
   const state = useRef({ ver: 0, sig: '', mouse: null as { x: number; y: number; map: boolean } | null });
   const panels = useAvoidBoxes(cvRef);
-  const deps = { char, draft, picking: ui.picking, civ, panels, raster };
+  const era = edits.era;
+  const deps = { char, draft, picking: ui.picking, civ, panels, raster, era };
   const depsRef = useRef(deps);
   const was = depsRef.current;
-  if (was.char !== char || was.draft !== draft || was.picking !== ui.picking || was.civ !== civ || was.panels !== panels || was.raster !== raster) state.current.ver++;
+  if (was.char !== char || was.draft !== draft || was.picking !== ui.picking || was.civ !== civ || was.panels !== panels || was.raster !== raster || was.era !== era) state.current.ver++;
   depsRef.current = deps;
 
   useEffect(() => subscribeCivTime(() => void state.current.ver++), []);
@@ -149,12 +150,12 @@ export function CharacterLayer({ civ, world, raster, api, hidden }: { civ: Civ |
       ctx.clearRect(0, 0, W, H);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       measure ??= canvasMeasure(ctx);
-      const { char, draft, picking, civ, panels, raster } = depsRef.current;
+      const { char, draft, picking, civ, panels, raster, era } = depsRef.current;
       if (!civ) return;
       const year = Math.floor(Math.min(civ.endYear, Math.max(0, getCivTime().year ?? civ.endYear)));
       const c = draft ? draftAsCharacter(draft, year) : char;
       if (!c) return;
-      const input = characterTrail(civ, world, raster, c, year, draft ? draftMode(draft) : { kind: 'view' });
+      const input = characterTrail(civ, world, raster, c, year, draft ? draftMode(draft) : { kind: 'view' }, era);
       ctx.save();
       if (v.period) {
         ctx.beginPath();

@@ -40,6 +40,9 @@
  *   读档时过 cleanMix:认不出的语感(比如以后的新语感)、不是正数的份数去掉,提示一句;一份都不剩就按自动
  * - edits.endYear(可选):历史推到第几年(edits.ts 文件头"推演年数"),`12000`;3000 年时不写。
  *   读档时过 cleanEndYear:夹在 3000–60000、取整到千年;不是数字的按 3000,提示一句
+ * - edits.era(可选):纪年(edits.ts 文件头"纪年"、era.ts),`{ "name": "公元", "epoch": 2500 }`;按一件事定的
+ *   `{ "name": "利希历", "epoch": 1610, "by": "event", "event": { "tag": "创", "text": "利希昂于菲内拉斯创立利希教" } }`;
+ *   按第几年写时不写。读档时过 cleanEra:名字、元年不合格的按第几年写,提示一句
  * - view:看这个世界用的投影和中央经线(`{ "projection": "robinson", "center": 120 }`,可选)。
  *   投影名原样存(render/projection.ts 的 ProjectionId,或 "globe"),认不出的由界面当成等距圆柱;
  *   旧存档没有这个字段 = 等距圆柱、中央经线 0°
@@ -56,6 +59,7 @@ import { TERRAIN_MAX_OPS, UPHEAVALS_MAX, UPHEAVAL_KINDS, UPHEAVAL_OPS_MAX, clean
 import { SKETCH_MAX_STROKES, cleanSketch, cleanSketchStroke, type SketchEdit } from './sketch';
 import { decodeFlag } from './civ/flags';
 import { CHARACTERS_MAX, cleanCharacters, type AuthorCharacter } from './characters';
+import { cleanEra, sameEra } from './era';
 
 export const SAVE_APP = '文明与地图';
 /**
@@ -274,7 +278,7 @@ export function worldKey(params: WorldParams): string {
   return PARAM_KEYS.map((k) => `${k}=${params[k] ?? DEFAULT_PARAMS[k]}`).join('&');
 }
 
-/** 改了几处:改名条数 + 干预条数 + 地形修改处数 + 草图(画了算一处)+ 地形大事件数 + 作者标记个数 + 改过的旗面数 + 作者的人物个数 + 地名风格(配了算一处)*/
+/** 改了几处:改名条数 + 干预条数 + 地形修改处数 + 草图(画了算一处)+ 地形大事件数 + 作者标记个数 + 改过的旗面数 + 作者的人物个数 + 地名风格、推演年数、纪年(各算一处)*/
 export function editCount(edits: WorldEdits): number {
   return (
     Object.keys(edits.names).length +
@@ -286,7 +290,8 @@ export function editCount(edits: WorldEdits): number {
     Object.keys(edits.flags ?? {}).length +
     (edits.characters?.length ?? 0) +
     (edits.nameMix ? 1 : 0) +
-    (cleanEndYear(edits.endYear) ? 1 : 0)
+    (cleanEndYear(edits.endYear) ? 1 : 0) +
+    (cleanEra(edits.era) ? 1 : 0)
   );
 }
 
@@ -348,6 +353,8 @@ export function makeSave(
   if (mix) save.edits.nameMix = { ...mix };
   const endYear = cleanEndYear(edits.endYear);
   if (endYear) save.edits.endYear = endYear;
+  const era = cleanEra(edits.era);
+  if (era) save.edits.era = era;
   const t = cleanTitle(title);
   if (t) save.title = t;
   const v = view ? cleanView(view) : null;
@@ -572,6 +579,9 @@ export function parseSave(text: string): ParseResult {
   // 推演年数:夹在 3000–60000、取整到千年;认不出的按 3000 年
   const endYear = cleanEndYear(E.endYear);
   if (E.endYear !== undefined && (typeof E.endYear !== 'number' || !Number.isFinite(E.endYear))) warnings.push('推演年数认不出来,按 3000 年推演');
+  // 纪年:名字、元年不合格的按第几年写
+  const era = cleanEra(E.era);
+  if (E.era !== undefined && !era) warnings.push('纪年认不出来,年份按第几年写');
   const note = versionNote(generator, terrain.length > 0 || !!sketch);
   if (note) warnings.splice(noteAt, 0, note);
 
@@ -593,6 +603,7 @@ export function parseSave(text: string): ParseResult {
       ...(characters.length ? { characters } : {}),
       ...(nameMix ? { nameMix } : {}),
       ...(endYear ? { endYear } : {}),
+      ...(era ? { era } : {}),
     },
     check: typeof raw.check === 'string' ? raw.check.slice(0, 64) : '',
     savedAt: typeof raw.savedAt === 'string' && !Number.isNaN(Date.parse(raw.savedAt)) ? raw.savedAt : '',
@@ -845,9 +856,13 @@ export function editsLost(local: SaveFile, incoming: SaveFile): number {
     // AI 起名的记号跟着改名走,丢没丢已经按改名算过了
     if (k === 'aiNames') continue;
     const iv = I[k];
-    // 地名风格整个算一处
+    // 地名风格、纪年整个算一处
     if (k === 'nameMix') {
       if (!sameMix(lv, iv)) n++;
+      continue;
+    }
+    if (k === 'era') {
+      if (!sameEra(cleanEra(lv), cleanEra(iv))) n++;
       continue;
     }
     if (Array.isArray(lv)) {

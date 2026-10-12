@@ -15,6 +15,8 @@ import { HABITAT_RAMP } from '../render/civ/debug';
 import { KIND_INFO, cultureLabel } from '../gen/civ/display';
 import { ownersAt, type Owners } from '../gen/civ/timeline';
 import { faithRows } from '../gen/civ/religionText';
+import { yearFull } from '../gen/era';
+import { useEra } from './editsStore';
 import { getCivTime, setCivShow, subscribeCivTime, useCivShow } from './civView';
 
 const TOGGLES: { key: Exclude<keyof CivShow, 'polities' | 'cultures' | 'faiths'>; name: string; hint: string }[] = [
@@ -119,6 +121,7 @@ const subscribeYear = (f: () => void) => subscribeCivTime(() => f());
  */
 export function CultureLegend({ civ }: { civ: Civ | null }) {
   const end = civ?.endYear ?? 0;
+  const era = useEra();
   const y = useSyncExternalStore(subscribeYear, () => Math.floor(Math.min(end, Math.max(0, getCivTime().year ?? end))));
   const rows = useMemo(() => {
     if (!civ || !civ.cultures.length) return null;
@@ -133,17 +136,17 @@ export function CultureLegend({ civ }: { civ: Civ | null }) {
   }, [civ, y]);
   if (!civ) return null;
   return (
-    <div className="lp-cultures" aria-label={`第 ${y} 年的民族`}>
+    <div className="lp-cultures" aria-label={`${yearFull(y, era)}的民族`}>
       {rows && rows.length ? (
         rows.map(({ cu, n }) => (
-          <span key={cu.id} className="lp-cu" title={`${KIND_INFO[cu.kind].name}民族 · 第 ${cu.born} 年出现 · ${n} 州`}>
+          <span key={cu.id} className="lp-cu" title={`${KIND_INFO[cu.kind].name}民族 · ${yearFull(cu.born, era)}出现 · ${n} 州`}>
             <i style={{ background: `rgb(${cu.color.join(',')})` }} />
             <b>{cultureLabel(cu)}</b>
             <em>{n}</em>
           </span>
         ))
       ) : (
-        <span className="lp-none">第 {y} 年还没有民族</span>
+        <span className="lp-none">{yearFull(y, era)}还没有民族</span>
       )}
     </div>
   );
@@ -152,11 +155,12 @@ export function CultureLegend({ civ }: { civ: Civ | null }) {
 /** 信仰图例:跟着时间轴走 —— 这一年的大教(按信众多少)、跟在后面的教派,最后一行民间信仰:色块 + 教名 + 州数 */
 export function FaithLegend({ civ }: { civ: Civ | null }) {
   const end = civ?.endYear ?? 0;
+  const era = useEra();
   const y = useSyncExternalStore(subscribeYear, () => Math.floor(Math.min(end, Math.max(0, getCivTime().year ?? end))));
-  const rows = useMemo(() => (civ ? faithRows(civ, y) : []), [civ, y]);
+  const rows = useMemo(() => (civ ? faithRows(civ, y, era) : []), [civ, y, era]);
   if (!civ) return null;
   return (
-    <div className="lp-cultures" aria-label={`第 ${y} 年的信仰`}>
+    <div className="lp-cultures" aria-label={`${yearFull(y, era)}的信仰`}>
       {rows.length ? (
         rows.map((r) => (
           <span key={r.id} className="lp-cu" title={`${r.sub} · ${r.n} 州`}>
@@ -166,7 +170,7 @@ export function FaithLegend({ civ }: { civ: Civ | null }) {
           </span>
         ))
       ) : (
-        <span className="lp-none">第 {y} 年还没有人住</span>
+        <span className="lp-none">{yearFull(y, era)}还没有人住</span>
       )}
     </div>
   );

@@ -9,6 +9,7 @@
 import { useSyncExternalStore } from 'react';
 import { INTERVENTION_YEAR_MAX, MARKS_MAX, MARK_COLORS, MARK_REGIONS_MAX, MARK_REGIONS_TOTAL, markRegionTotal, type AuthorMark, type MarkColor } from '../gen/edits';
 import { addMark, getEdits, subscribeEdits, updateMark } from './editsStore';
+import { noYearZero, yearTooEarly, yearTooLate } from '../gen/era';
 import { clearSelection, getSelection, setSelection, subscribeSelection } from './civView';
 import { clearToast, showToast } from './toastStore';
 
@@ -143,20 +144,23 @@ export function toggleDraftRegion(key: string) {
   set({ draft: { ...d, regions } });
 }
 
-/** 年份输入框里的字 → 年份(空 = null;不是数 = NaN) */
-export function parseYear(text: string): number | null {
+/** 年份输入框里的字 → 年份(空 = null;不是数 = NaN;设了纪年时填到第 0 年以前的是负数) */
+export function parseYear(text: string, era = getEdits().era): number | null {
   const t = text.trim();
   if (!t) return null;
-  return /^\d{1,5}$/.test(t) ? Number(t) : NaN;
+  return (era ? /^-?\d{1,6}$/ : /^\d{1,5}$/).test(t) ? Number(t) : NaN;
 }
 
 /** 填的东西能不能存;不能 = 原因(卡片上提示一句,「完成」点不了) */
 export function draftProblem(d: MarkDraft): string | null {
   const from = parseYear(d.fromText);
   const to = parseYear(d.toText);
+  const era = getEdits().era;
+  if (era && (d.fromText === 'x' || d.toText === 'x')) return noYearZero(era);
   if (from === null || Number.isNaN(from)) return '填一下从哪年开始';
   if (Number.isNaN(to)) return '"到"要填年份,或者空着';
-  if (from > INTERVENTION_YEAR_MAX || (to !== null && to > INTERVENTION_YEAR_MAX)) return `年份最大填到 ${INTERVENTION_YEAR_MAX}`;
+  if (from < 0 || (to !== null && to < 0)) return yearTooEarly(era);
+  if (from > INTERVENTION_YEAR_MAX || (to !== null && to > INTERVENTION_YEAR_MAX)) return yearTooLate(INTERVENTION_YEAR_MAX, era);
   if (to !== null && to < from) return '"到"比"从"早了';
   if (d.scope === 'regions' && !d.regions.length) return '在地图上点几个州加进来';
   if (d.scope === 'point' && !d.at) return '在地图上点一下放图钉';

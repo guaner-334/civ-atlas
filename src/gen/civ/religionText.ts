@@ -11,6 +11,7 @@ import { ownersAt, type Owners } from './timeline';
 import { rulerRef } from './peopleText';
 import { buildChronicle, mergeChronicle, type ChronicleEntry, type Importance } from './chronicle';
 import { faithCounts, faithRoot, FOLK_COLOR } from './religion';
+import { yearAt, type Era } from '../era';
 
 /** 类型的说明(宗教卡片「类型」一行的小字) */
 export const FORM_NOTE: Record<FaithForm, string> = {
@@ -137,9 +138,9 @@ export const FOLK_ROW_SUB = '各族自己的祖灵、旧神';
 
 /**
  * 某一年的信仰列表:大教按(自己 + 教派)的州数排,教派(按州数)跟在本教后面,最后一行民间信仰;
- * 一个州都没有的不列(大教自己没有、教派还有的照列)
+ * 一个州都没有的不列(大教自己没有、教派还有的照列)。era = 纪年(小字里的年份照它写)
  */
-export function faithRows(civ: Civ, year: Year): FaithRow[] {
+export function faithRows(civ: Civ, year: Year, era?: Era): FaithRow[] {
   const rel = civ.religion;
   if (!rel) return [];
   const { n, folk } = faithCounts(civ, year);
@@ -149,17 +150,17 @@ export function faithRows(civ: Civ, year: Year): FaithRow[] {
   const greats = rel.faiths.filter((f) => f.kind === 'great' && born(f) && total(f.id) > 0).sort((a, b) => total(b.id) - total(a.id) || a.id - b.id);
   const rows: FaithRow[] = [];
   for (const g of greats) {
-    rows.push({ id: g.id, name: g.name, color: g.color, sub: greatSub(civ, g), n: n[g.id], sect: false });
-    for (const s of sectsOf(g.id)) rows.push({ id: s.id, name: s.name, color: s.color, sub: `${Math.floor(s.founded ?? 0)} 年从${g.name}分出`, n: n[s.id], sect: true });
+    rows.push({ id: g.id, name: g.name, color: g.color, sub: greatSub(civ, g, era), n: n[g.id], sect: false });
+    for (const s of sectsOf(g.id)) rows.push({ id: s.id, name: s.name, color: s.color, sub: `${yearAt(s.founded ?? 0, era)}从${g.name}分出`, n: n[s.id], sect: true });
   }
   if (folk > 0) rows.push({ id: -1, name: FOLK_ROW_NAME, color: FOLK_COLOR, sub: FOLK_ROW_SUB, n: folk, sect: false });
   return rows;
 }
 
-/** 大教的一行小字:"哲理，1140 年创于揽霞城" */
-export function greatSub(civ: Civ, g: Faith): string {
+/** 大教的一行小字:"哲理，1140 年创于揽霞城"(纪年:"哲理，公元前 1360 年创于揽霞城") */
+export function greatSub(civ: Civ, g: Faith, era?: Era): string {
   const city = g.holy !== undefined ? cityName(civ, g.holy) : '';
-  return `${g.form ?? ''}，${Math.floor(g.founded ?? 0)} 年${city ? `创于${city}` : '创立'}`;
+  return `${g.form ?? ''}，${yearAt(g.founded ?? 0, era)}${city ? `创于${city}` : '创立'}`;
 }
 
 /** 这件宗教大事属于哪个大教(卡片按本教列大事:大教连同它的教派) */

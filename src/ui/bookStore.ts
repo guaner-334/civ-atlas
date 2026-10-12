@@ -31,6 +31,8 @@ import {
 } from '../ai/prompts/history';
 import { clearToast, showToast } from './toastStore';
 import { currentWorld } from './saveStore';
+import { currentEra } from './editsStore';
+import { eraText, type Era } from '../gen/era';
 
 export interface BookJob {
   /** 每开始写一部加一 */
@@ -159,9 +161,10 @@ let abort: AbortController | null = null;
 const TOAST = 'book';
 
 /** 书名加书名号;世界起了名字时,通史写成"某某通史" */
-export function bookTitleText(title: string, scope: { kind: string }, worldTitle?: string | null): string {
+export function bookTitleText(title: string, scope: { kind: string }, worldTitle?: string | null, era: Era | undefined = currentEra()): string {
   const t = scope.kind === 'world' && worldTitle && title === '世界通史' ? `${worldTitle}通史` : title;
-  return `《${t}》`;
+  // 一段时代的书名写着"第 1200—1500 年史":按纪年写
+  return `《${eraText(t, era)}》`;
 }
 
 /** 分几次写时一次写的叫什么:纪传体一篇、编年体一卷,其余一章 */

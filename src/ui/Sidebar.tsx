@@ -24,6 +24,7 @@ import { filterChronicle } from '../gen/civ/chronicle';
 import { faithRows, fullChronicle } from '../gen/civ/religionText';
 import { getCivTime, pickChronicleEntry, setSelection, subscribeCivTime, useCivShow, useSelection } from './civView';
 import { useEdits } from './editsStore';
+import { eraLabel, spaced, yearAt, yearShort } from '../gen/era';
 import { openUpheaval, useUpUi } from './upheavalStore';
 import { currentWorld, useSavesVersion } from './saveStore';
 import { SaveMenu } from './SaveMenu';
@@ -145,13 +146,13 @@ export function useSearch(civ: Civ | null): SearchState {
   const { sel } = useSelection();
   const [q, setQ] = useState('');
   const [active, setActive] = useState(0);
-  const { marks, characters } = useEdits();
+  const { marks, characters, era } = useEdits();
   const civOk = !!civ && (civ.viable || !!marks?.length || !!characters?.length);
   // 年份取开始搜索那一刻的(播放时不跟着每一年重算)
   const searchYear = useMemo(() => (civ ? (getCivTime().year ?? civ.endYear) : 0), [civ, q === '']); // eslint-disable-line react-hooks/exhaustive-deps
   const hits = useMemo(
-    () => (!civOk || !q.trim() ? [] : civ!.viable ? searchCiv(civ!, q, searchYear, undefined, marks, characters) : searchMarks(q, marks ?? [], undefined, characters ?? [])),
-    [civOk, civ, q, searchYear, marks, characters],
+    () => (!civOk || !q.trim() ? [] : civ!.viable ? searchCiv(civ!, q, searchYear, undefined, marks, characters, era) : searchMarks(q, marks ?? [], undefined, characters ?? [], era)),
+    [civOk, civ, q, searchYear, marks, characters, era],
   );
   useEffect(() => setActive(0), [q]);
   // 选中了别的东西(地图上点的):搜索框清空,下面换成它的详情
@@ -344,6 +345,7 @@ export function WorldHome(p: Pick<SidebarProps, 'civ' | 'data' | 'params' | 'gen
   const { civ } = p;
   const year = useYear(civ);
   const edits = useEdits();
+  const era = edits.era;
   const ok = !!civ && civ.viable;
   // 现存的国家按当年的州数排
   const top = useMemo(() => {
@@ -368,7 +370,7 @@ export function WorldHome(p: Pick<SidebarProps, 'civ' | 'data' | 'params' | 'gen
   const entries = useMemo(() => (ok ? filterChronicle(fullChronicle(civ!), { major: true }) : []), [ok, civ]);
   // 信仰图层:「国家」上面一组「信仰」(大教按信众多少,教派缩进跟在后面,最后一行民间信仰;数字是这一年的州数)
   const faithOn = useCivShow().faiths && ok && !!civ!.religion;
-  const faiths = useMemo(() => (faithOn ? faithRows(civ!, year) : []), [faithOn, civ, year]);
+  const faiths = useMemo(() => (faithOn ? faithRows(civ!, year, era) : []), [faithOn, civ, year, era]);
   const k = countUpTo(entries, year);
   const recent = entries.slice(Math.max(0, k - RECENT_N), k).reverse();
   // 我的干预:干预和地形大事一起数(概览"我的干预"页列在一起)
@@ -428,11 +430,11 @@ export function WorldHome(p: Pick<SidebarProps, 'civ' | 'data' | 'params' | 'gen
                   <>
                     这一年还没有国家，各族还是部落。
                     <br />
-                    第一个国家{polityName(next, next.founded)}在 {Math.floor(next.founded)} 年立国。
+                    第一个国家{polityName(next, next.founded)}在{spaced(yearAt(next.founded, era))}立国。
                     <div className="sb-no-polity-act">
                       {/* 立国在年中:往后取整到下一年,那一年列表里才有它(和别处"跳到 N 年"一样) */}
                       <button className="sb-link" data-act="first-polity" onClick={() => jumpTo(Math.ceil(next.founded))}>
-                        跳到 {Math.ceil(next.founded)} 年
+                        跳到{spaced(yearAt(Math.ceil(next.founded), era))}
                       </button>
                     </div>
                   </>
@@ -449,7 +451,7 @@ export function WorldHome(p: Pick<SidebarProps, 'civ' | 'data' | 'params' | 'gen
                   <span className="sb-row-main">
                     <b>{polityName(x, year)}</b>
                     <small>
-                      {Math.floor(x.founded)} 年立国{cap ? `，都${cap.name}` : ''}
+                      {yearAt(x.founded, era)}立国{cap ? `，都${cap.name}` : ''}
                     </small>
                   </span>
                   <span className="sb-row-side">{n} 州</span>
@@ -470,7 +472,7 @@ export function WorldHome(p: Pick<SidebarProps, 'civ' | 'data' | 'params' | 'gen
           <div className="sb-group">
             {recent.map((e) => (
               <button key={e.id} className="sb-row ev" onClick={() => pickChronicleEntry(e)}>
-                <span className="sb-year">{Math.floor(e.year)}</span>
+                <span className={`sb-year${era ? ' era' : ''}`}>{yearShort(e.year, era)}</span>
                 <span className="sb-ev-text">
                   <EntryText civ={civ!} e={e} />
                 </span>
@@ -513,7 +515,7 @@ export function WorldHome(p: Pick<SidebarProps, 'civ' | 'data' | 'params' | 'gen
               <Icon name="chevron" size={14} className="sb-chev" />
             </button>
           )}
-          <button className="sb-row" data-act="genesis" onClick={() => openOverview('genesis')} title="创建时定下的种子、参数、地形">
+          <button className="sb-row" data-act="genesis" onClick={() => openOverview('genesis')} title="创建时定下的种子、参数、地形，还有纪年">
             <Icon name="lock" size={17} className="sb-ico" />
             <span className="sb-row-main">
               <b>世界设定</b>
@@ -521,6 +523,7 @@ export function WorldHome(p: Pick<SidebarProps, 'civ' | 'data' | 'params' | 'gen
             <span className="sb-row-side">
               种子 {p.params.seed}
               {nTerrain ? `，地形改过 ${nTerrain} 处` : ''}
+              {era ? `，${eraLabel(era)}` : ''}
             </span>
             <Icon name="chevron" size={14} className="sb-chev" />
           </button>

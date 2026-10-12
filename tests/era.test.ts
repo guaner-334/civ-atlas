@@ -1,0 +1,277 @@
+/**
+ * 纪年:年份的全写 / 短写 / 起止、和第几年互换、没有 0 年;整理(cleanEra);一段字里"第 N 年"换成纪年的写法;
+ * 时间轴刻度对准元年;作者填年份不合格时的提示;存档、分享链接带着纪年往返,认不出的按第几年写;
+ * 改纪年不记撤销步。没设纪年时每一处写法都和原来一样。
+ */
+import { describe, expect, it } from 'vitest';
+import {
+  ERA_DEFAULT,
+  cleanEra,
+  eraLabel,
+  eraNote,
+  eraText,
+  eraYear,
+  eraZero,
+  epochOfZero,
+  noYearZero,
+  sameEra,
+  spaced,
+  worldYear,
+  yearAt,
+  yearFull,
+  yearShort,
+  yearShortAt,
+  yearSpan,
+  yearSpanAt,
+  yearTooEarly,
+  yearTooLate,
+  type Era,
+} from '../src/gen/era';
+import { evYears, rulerLabel, rulerOf } from '../src/ui/timelineLayout';
+import { EMPTY_EDITS, type WorldEdits } from '../src/gen/edits';
+import { DEFAULT_PARAMS } from '../src/gen/world';
+import { decodeShare, editCount, editsLost, encodeShare, makeSave, parseSave, saveText } from '../src/gen/savefile';
+import { getEdits, revertEdits, setEdits, setEra } from '../src/ui/editsStore';
+import { parseChapter } from '../src/ui/BookReader';
+import { draftProblem, type MarkDraft } from '../src/ui/markStore';
+import { INTERVENTION_YEAR_MAX } from '../src/gen/edits';
+
+const AD: Era = { name: '公元', epoch: 2500 };
+const LIXI: Era = { name: '利希历', epoch: 1610, by: 'event', event: { tag: '创', text: '利希昂于菲内拉斯创立利希教' } };
+
+describe('写法', () => {
+  it('第 0 年是公元前 2500 年:第 2499 年公元前 1 年,第 2500 年公元元年,第 3000 年公元 501 年', () => {
+    expect(yearFull(0, AD)).toBe('公元前 2500 年');
+    expect(yearFull(2499, AD)).toBe('公元前 1 年');
+    expect(yearFull(2500, AD)).toBe('公元元年');
+    expect(yearFull(2501, AD)).toBe('公元 2 年');
+    expect(yearFull(3000, AD)).toBe('公元 501 年');
+    expect(yearFull(1650.7, AD)).toBe('公元前 850 年');
+  });
+
+  it('短写:前 850 / 元年 / 501;刻度上不空格', () => {
+    expect(yearShort(1650, AD)).toBe('前 850');
+    expect(yearShort(2500, AD)).toBe('元年');
+    expect(yearShort(3000, AD)).toBe('501');
+    expect(yearShortAt(1650, AD)).toBe('前 850 年');
+    expect(yearShortAt(2500, AD)).toBe('元年');
+    expect(rulerLabel(500, AD)).toBe('前2000');
+    expect(rulerLabel(2500, AD)).toBe('元年');
+  });
+
+  it('起止:同在元年以前 / 以后的省掉后一个名字,跨过元年或碰到元年的两头写全', () => {
+    expect(yearSpan(1680, 1689, AD)).toBe('前 820–前 811');
+    expect(yearSpanAt(1680, 1689, AD)).toBe('公元前 820–前 811 年');
+    expect(yearSpanAt(2524, 2719, AD)).toBe('公元 25–220 年');
+    expect(yearSpanAt(2497, 2504, AD)).toBe('公元前 3 年–公元 5 年');
+    expect(yearSpanAt(2500, 2510, AD)).toBe('公元元年–公元 11 年');
+    expect(yearSpanAt(1680, 1689, AD, '—')).toBe('公元前 820—前 811 年');
+  });
+
+  it('没设纪年:和原来一字不差', () => {
+    expect(yearFull(1650.4)).toBe('第 1650 年');
+    expect(yearAt(1601)).toBe('1601 年');
+    expect(yearShort(1650)).toBe('1650');
+    expect(yearShortAt(1360)).toBe('1360 年');
+    expect(yearSpan(820, 811)).toBe('820–811');
+    expect(yearSpanAt(820, 911)).toBe('820–911 年');
+    expect(spaced(yearAt(1650))).toBe(' 1650 年');
+    expect(spaced(yearAt(1650, AD))).toBe('公元前 850 年');
+    expect(evYears({ year: 2629, end: 2629, ongoing: false })).toBe('2629 年');
+    expect(evYears({ year: 2940, end: 2957, ongoing: false })).toBe('2940–2957 年');
+    expect(evYears({ year: 2987, end: 3000, ongoing: true })).toBe('2987 年起');
+    expect(eraText('第 1200 年,昌国立国')).toBe('第 1200 年,昌国立国');
+    expect(rulerLabel(1000)).toBe('1000');
+  });
+
+  it('事件卡片的年份按纪年写', () => {
+    expect(evYears({ year: 1650, end: 1650, ongoing: false }, AD)).toBe('公元前 850 年');
+    expect(evYears({ year: 1680, end: 1689, ongoing: false }, AD)).toBe('公元前 820–前 811 年');
+    expect(evYears({ year: 2987, end: 3000, ongoing: true }, AD)).toBe('公元 488 年起');
+  });
+
+  it('别的名字:元年以前一律名字后面加「前」;侧栏写「公元纪年」/ 名字', () => {
+    expect(yearFull(1609, LIXI)).toBe('利希历前 1 年');
+    expect(yearFull(1610, LIXI)).toBe('利希历元年');
+    expect(yearFull(1650, LIXI)).toBe('利希历 41 年');
+    expect(eraLabel(AD)).toBe('公元纪年');
+    expect(eraLabel(LIXI)).toBe('利希历');
+  });
+
+  it('和第几年互换;第 0 年那一格', () => {
+    for (const y of [0, 1, 1650, 2499, 2500, 2501, 3000]) {
+      const { pre, n } = eraYear(y, AD);
+      expect(n).toBeGreaterThanOrEqual(1);
+      expect(worldYear(pre, n, AD)).toBe(y);
+    }
+    expect(eraZero(AD)).toEqual({ pre: true, n: 2500 });
+    // 第 0 年是公元 100 年:元年在第 0 年以前
+    const late: Era = { name: '公元', epoch: epochOfZero(false, 100) };
+    expect(late.epoch).toBe(-99);
+    expect(eraZero(late)).toEqual({ pre: false, n: 100 });
+    expect(yearFull(0, late)).toBe('公元 100 年');
+    // 第 0 年是公元元年
+    expect(yearFull(0, { name: '公元', epoch: epochOfZero(false, 1) })).toBe('公元元年');
+  });
+});
+
+describe('一段字里的年份', () => {
+  it('"第 N 年""第 A—B 年"换成纪年;年数、州、章不换', () => {
+    expect(eraText('第 1650 年,昌国立国', AD)).toBe('公元前 850 年,昌国立国');
+    expect(eraText('第 1680—1689 年 昌渭之战', AD)).toBe('公元前 820—前 811 年 昌渭之战');
+    expect(eraText('保护有鹰王朝(至第 2600 年)', AD)).toBe('保护有鹰王朝(至公元 101 年)');
+    expect(eraText('享国 312 年,第 3 州,第一章', AD)).toBe('享国 312 年,第 3 州,第一章');
+    expect(eraText('第1650年', AD)).toBe('公元前 850 年');
+  });
+
+  it('史书的卷名:年份按纪年短写', () => {
+    expect(parseChapter('卷一 诸部初立(第 0—1045 年)', AD)).toEqual({ n: '卷一', t: '诸部初立', y: '前 2500–前 1455' });
+    expect(parseChapter('卷一 诸部初立(第 0—1045 年)')).toEqual({ n: '卷一', t: '诸部初立', y: '0–1045' });
+  });
+
+  it('给 AI 的说明:元年、两头、怎么换算', () => {
+    const t = eraNote(AD, 3000);
+    expect(t).toContain('第 2500 年是公元元年');
+    expect(t).toContain('第 0 年是公元前 2500 年');
+    expect(t).toContain('第 3000 年是公元 501 年');
+    expect(t).toContain('"第 N 年"');
+  });
+});
+
+describe('作者填年份的提示', () => {
+  it('没有 0 年、太早、太晚', () => {
+    expect(noYearZero(AD)).toBe('公元没有 0 年');
+    expect(yearTooEarly(AD)).toBe('年份最早填到公元前 2500 年');
+    expect(yearTooEarly()).toBe('年份最早填到 0 年');
+    expect(yearTooLate(3000, AD)).toBe('年份最晚填到公元 501 年');
+    expect(yearTooLate(3000)).toBe('年份最大填到 3000');
+  });
+});
+
+describe('标记卡片的年份(设了纪年)', () => {
+  const d = (over: Partial<MarkDraft>): MarkDraft => ({ id: 0, title: '', note: '', color: 'red', fromText: '2490', toText: '', scope: 'point', at: [1, 2], regions: [], ...over });
+
+  it('填了 0 年、早于第 0 年、晚于能存的最后一年:按纪年提示;没设纪年照旧', () => {
+    setEdits({ ...EMPTY_EDITS, era: AD });
+    expect(draftProblem(d({}))).toBeNull();
+    expect(draftProblem(d({ fromText: 'x' }))).toBe('公元没有 0 年');
+    expect(draftProblem(d({ fromText: '-1' }))).toBe('年份最早填到公元前 2500 年');
+    expect(draftProblem(d({ toText: String(INTERVENTION_YEAR_MAX + 1) }))).toBe(`年份最晚填到${yearFull(INTERVENTION_YEAR_MAX, AD)}`);
+    setEdits(EMPTY_EDITS);
+    expect(draftProblem(d({ fromText: 'x' }))).toBe('填一下从哪年开始');
+    expect(draftProblem(d({ fromText: '-1' }))).toBe('填一下从哪年开始');
+  });
+});
+
+describe('整理', () => {
+  it('名字 1–4 个字、去掉空白;元年是范围里的整数;按一件事的记下那件事', () => {
+    expect(cleanEra(AD)).toEqual(AD);
+    expect(cleanEra(LIXI)).toEqual(LIXI);
+    expect(cleanEra({ name: ' 利 希历 ', epoch: 3 })).toEqual({ name: '利希历', epoch: 3 });
+    expect(cleanEra({ name: '', epoch: 3 })).toBeUndefined();
+    expect(cleanEra({ name: '五个字的历', epoch: 3 })).toBeUndefined();
+    expect(cleanEra({ name: '公元', epoch: 1.5 })).toBeUndefined();
+    expect(cleanEra({ name: '公元', epoch: 100000 })).toBeUndefined();
+    expect(cleanEra({ name: '公元', epoch: -99998 })).toEqual({ name: '公元', epoch: -99998 });
+    expect(cleanEra({ name: '公元', epoch: -99999 })).toBeUndefined();
+    expect(cleanEra({ name: '公元', epoch: '2500' })).toBeUndefined();
+    expect(cleanEra(null)).toBeUndefined();
+    expect(cleanEra([AD])).toBeUndefined();
+    // 按一件事、还没选:只记 by
+    expect(cleanEra({ name: '公元', epoch: 2500, by: 'event' })).toEqual({ name: '公元', epoch: 2500, by: 'event' });
+    // 那件事的正文去掉控制字符,截到 200 字;标签最多两个字
+    const e = cleanEra({ name: '公元', epoch: 2500, by: 'event', event: { tag: '创立', text: `a\u0000b${'字'.repeat(300)}` } });
+    expect(e?.event?.tag).toBe('创立');
+    expect([...(e?.event?.text ?? '')].length).toBe(200);
+    expect(e?.event?.text.startsWith('ab')).toBe(true);
+    expect(sameEra(AD, { ...AD })).toBe(true);
+    expect(sameEra(AD, undefined)).toBe(false);
+    expect(ERA_DEFAULT).toEqual({ name: '公元', epoch: 2500 });
+  });
+});
+
+describe('时间轴刻度', () => {
+  it('没设纪年和原来一样', () => {
+    expect(rulerOf(3000)).toEqual({ major: 1000, minor: 100, mid: 500, origin: 0, labels: [0, 1000, 2000, 3000] });
+  });
+
+  it('对准元年:前 2000、前 1000、元年、公元 1000 年不够远就不写;两头写起止', () => {
+    const r = rulerOf(3000, AD);
+    expect(r.origin).toBe(2500);
+    expect(r.labels).toEqual([0, 500, 1500, 2500, 3000]);
+    expect(r.labels.map((y) => rulerLabel(y, AD))).toEqual(['前2500', '前2000', '前1000', '元年', '501']);
+    // 公元 1000 年 = 第 3499 年
+    expect(rulerOf(6000, AD).labels).toContain(3499);
+  });
+
+  it('离两头太近的不写', () => {
+    // 元年在第 100 年:离第 0 年不到半个大格
+    const r = rulerOf(3000, { name: '公元', epoch: 100 });
+    expect(r.labels).not.toContain(100);
+    expect(r.labels[0]).toBe(0);
+    expect(r.labels[r.labels.length - 1]).toBe(3000);
+  });
+
+  it('推到 60000 年:字不超过七八个;元年离开头不到半个大格,不写', () => {
+    const r = rulerOf(60000, AD);
+    expect(r.labels).not.toContain(2500);
+    expect(r.labels).toContain(12499);
+    expect(r.major).toBe(10000);
+    expect(r.labels.length).toBeLessThanOrEqual(8);
+    expect(new Set(r.labels).size).toBe(r.labels.length);
+    expect([...r.labels].sort((a, b) => a - b)).toEqual(r.labels);
+  });
+});
+
+describe('存档', () => {
+  const edits = (era?: Era): WorldEdits => ({ ...EMPTY_EDITS, ...(era ? { era } : {}) });
+
+  it('存档、分享链接带着纪年往返;按第几年写时不写这一项', async () => {
+    const save = makeSave({ ...DEFAULT_PARAMS, seed: 7 }, edits(LIXI), 'c');
+    expect(save.edits.era).toEqual(LIXI);
+    const r = parseSave(saveText(save));
+    expect(r.ok && r.save.edits.era).toEqual(LIXI);
+    expect(r.ok && r.warnings).toEqual([]);
+    const d = await decodeShare(await encodeShare(save));
+    expect(d.ok && d.save.edits.era).toEqual(LIXI);
+
+    const plain = makeSave({ ...DEFAULT_PARAMS, seed: 7 }, edits(), 'c');
+    expect('era' in plain.edits).toBe(false);
+    const p = parseSave(saveText(plain));
+    expect(p.ok && 'era' in p.save.edits).toBe(false);
+  });
+
+  it('认不出的纪年按第几年写,提示一句', () => {
+    const save = JSON.parse(saveText(makeSave({ ...DEFAULT_PARAMS, seed: 7 }, edits(), 'c'))) as { edits: Record<string, unknown> };
+    save.edits.era = { name: '', epoch: 'x' };
+    const r = parseSave(JSON.stringify(save));
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.save.edits.era).toBeUndefined();
+    expect(r.warnings).toContain('纪年认不出来,年份按第几年写');
+  });
+
+  it('纪年算一处修改;两份存档纪年不同算丢一处', () => {
+    expect(editCount(edits(AD))).toBe(editCount(edits()) + 1);
+    const a = makeSave({ ...DEFAULT_PARAMS, seed: 7 }, edits(AD), 'c');
+    const b = makeSave({ ...DEFAULT_PARAMS, seed: 7 }, edits(LIXI), 'c');
+    expect(editsLost(a, b)).toBe(1);
+    expect(editsLost(a, makeSave({ ...DEFAULT_PARAMS, seed: 7 }, edits({ ...AD }), 'c'))).toBe(0);
+  });
+
+  it('改纪年不记撤销步:撤销别的修改时纪年照现在的留着;不合格的不改', () => {
+    setEdits(EMPTY_EDITS);
+    setEra(AD);
+    expect(getEdits().era).toEqual(AD);
+    const before = getEdits();
+    const after = { ...before, names: { 'polity:c1#0': '昌' } };
+    setEdits(after);
+    setEra(LIXI);
+    expect(revertEdits(getEdits(), after, before).era).toEqual(LIXI);
+    setEra({ name: '', epoch: 1 });
+    expect(getEdits().era).toEqual(LIXI);
+    setEra(undefined);
+    expect('era' in getEdits()).toBe(false);
+    setEdits(EMPTY_EDITS);
+  });
+});

@@ -1,7 +1,7 @@
 /**
  * 世界概览(点世界名、侧栏里的"全部 N 国""编年史""世界参数"打开):全屏浮层。
  *
- *   头部  世界名;一行"种子 7，当前 2679 年，未干预";一行汇总(现存几国、历来几国、民族、城镇、州,跟着时间轴的当前年份);
+ *   头部  世界名;一行"种子 7，当前 2679 年，未干预"(设了纪年:"当前公元前 850 年");一行汇总(现存几国、历来几国、民族、城镇、州,跟着时间轴的当前年份);
  *         关闭。存档、导出、AI 设置、写成史书不放这里:宽屏在侧栏和地图右上,手机在底部世界卡片的按钮和「···」里
  *   页签  国家(WorldOverviewCountries.tsx)/ 编年史(Chronicle.tsx)/ 人物(WorldOverviewPeople.tsx:名人、君主、将领)/
  *         标记(WorldOverviewMarks.tsx:作者在地图上放的标记)/
@@ -23,7 +23,8 @@ import { CountriesPage } from './WorldOverviewCountries';
 import { InterventionsPage } from './WorldOverviewInterventions';
 import { SettingsPage } from './WorldOverviewGenesis';
 import { getCivTime, subscribeCivTime } from './civView';
-import { useEdits } from './editsStore';
+import { useEdits, useEra } from './editsStore';
+import { spaced, yearAt } from '../gen/era';
 import { currentWorld, renameWorld, useSavesVersion } from './saveStore';
 import { closeOverview, setOverviewTab, useOverview, type OverviewTab } from './overviewStore';
 import { PRIVACY_URL, SOURCE_URL, TERMS_URL } from './links';
@@ -78,7 +79,7 @@ export function WorldOverview(p: WorldOverviewProps) {
       if (e.key !== 'Escape' || e.defaultPrevented) return;
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
-      if (document.querySelector('.ov .save-menu, .ov .export-menu, .ai-dialog-bg')) return;
+      if (document.querySelector('.ov .save-menu, .ov .export-menu, .ov .era-pick, .ai-dialog-bg')) return;
       e.stopPropagation();
       closeOverview();
     };
@@ -162,6 +163,7 @@ function OverviewPage(p: WorldOverviewProps & { tab: OverviewTab }) {
       return (
         <SettingsPage
           params={p.params}
+          civ={p.civ}
           generating={p.generating || !p.data}
           replay={p.replay}
           onReplay={() => {
@@ -181,6 +183,7 @@ function OverviewPage(p: WorldOverviewProps & { tab: OverviewTab }) {
 function OverviewSummary({ civ, seed }: { civ: Civ | null; seed: number | null }) {
   useSavesVersion();
   const edits = useEdits();
+  const era = useEra();
   const year = useYear(civ);
   const cur = currentWorld();
   const title = cur?.title;
@@ -201,7 +204,7 @@ function OverviewSummary({ civ, seed }: { civ: Civ | null; seed: number | null }
     for (const s of civ.settlements) if (populationAt(s, year) > 0) towns++;
     return { alive, founded, cultures, towns, regions: civ.regions.count };
   }, [civ, year]);
-  const sub = [seed !== null ? `种子 ${seed}` : '正在生成', civ ? `当前 ${year} 年` : null, n ? `干预了 ${n} 处` : '未干预'].filter(Boolean).join('，');
+  const sub = [seed !== null ? `种子 ${seed}` : '正在生成', civ ? `当前${spaced(yearAt(year, era))}` : null, n ? `干预了 ${n} 处` : '未干预'].filter(Boolean).join('，');
   return (
     <div className="ov-summary">
       <div className="ov-title">
