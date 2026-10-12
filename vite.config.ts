@@ -59,7 +59,15 @@ export default defineConfig({
       },
     },
   ],
-  build: { rollupOptions: { output: { banner: (chunk) => banner(chunk.isEntry ? buildCommit() : '') } } },
+  build: {
+    rollupOptions: {
+      output: {
+        banner: (chunk) => banner(chunk.isEntry ? buildCommit() : ''),
+        // 导出视频时才下载的 MP4 封装库单独一个文件、用自己的名字(它的入口也叫 index,不然和主程序同名)
+        manualChunks: { mediabunny: ['mediabunny'] },
+      },
+    },
+  },
   worker: { format: 'es', rollupOptions: { output: { banner: () => banner() } } },
   server: { port: 5188, strictPort: true },
   // 只跑 tests/ 下的单测;本地工具目录(.claude/)里的不算
