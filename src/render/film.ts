@@ -201,18 +201,17 @@ function drawLand(ctx: Ctx, look: FilmLook, f: number, year: number, alpha: numb
   // 年份按最宽的那一年留宽度(数字变的时候卡片不忽宽忽窄)
   const widest = `第 ${String(look.clock.to).replace(/\d/g, '0')} 年`;
   let w = Math.max(ctx.measureText(yearText).width, ctx.measureText(widest).width);
-  if (look.title) {
-    ctx.font = font(look, 28);
-    w = Math.max(w, ctx.measureText(look.title).width);
-  }
+  ctx.font = font(look, 28);
+  const title = look.title ? fitLine(ctx, look.title, TITLE_MAX_LAND) : '';
+  if (title) w = Math.max(w, ctx.measureText(title).width);
   const h = 18 + (look.title ? 28 * 1.3 : 0) + 64 * 1.15 + 20;
   card(ctx, 48, 40, w + 60, h, 22, CARD, { y: 4, blur: 20, a: 0.18 });
   ctx.textAlign = 'left';
   let y = 40 + 18;
-  if (look.title) {
+  if (title) {
     ctx.fillStyle = INK2;
     ctx.font = font(look, 28);
-    line(ctx, look.title, 78, y, 28, 1.3);
+    line(ctx, title, 78, y, 28, 1.3);
     y += 28 * 1.3;
   }
   ctx.fillStyle = INK;
@@ -258,7 +257,7 @@ function drawPort(ctx: Ctx, look: FilmLook, f: number, year: number, outro: numb
   if (look.title) {
     ctx.fillStyle = INK2;
     ctx.font = font(look, 34);
-    line(ctx, look.title, 64, y, 34, 1.3);
+    line(ctx, fitLine(ctx, look.title, TITLE_MAX_PORT), 64, y, 34, 1.3);
     y += 34 * 1.3;
   }
   ctx.fillStyle = INK;
@@ -297,6 +296,15 @@ function drawPort(ctx: Ctx, look: FilmLook, f: number, year: number, outro: numb
   ctx.restore();
 }
 
+/** 左上角(横屏)、上一栏(竖屏)的标题最宽多少(竖屏右边留给平台的按钮) */
+const TITLE_MAX_LAND = 1000;
+const TITLE_MAX_PORT = 1080 - 64 - 170;
+
+/** 一行放不下就截断,末尾加"…"(用 ctx 现在的字体量) */
+function fitLine(ctx: Ctx, text: string, maxW: number): string {
+  return wrapText((t) => ctx.measureText(t).width, text, maxW, 1)[0] ?? '';
+}
+
 /** 片头 / 片尾的卡片(正中) */
 function drawTitleCard(ctx: Ctx, look: FilmLook, which: 'intro' | 'outro', W: number, H: number) {
   const land = look.shape === 'land';
@@ -311,6 +319,16 @@ function drawTitleCard(ctx: Ctx, look: FilmLook, which: 'intro' | 'outro', W: nu
     rows.push({ text: OUTRO_MADE, size: S.span, weight: 400, color: INK2, top: look.title ? S.spanTop : 0 });
     rows.push({ text: OUTRO_URL, size: S.url, weight: 600, color: INK, top: S.urlTop });
     rows.push({ text: OUTRO_NOTE, size: S.note, weight: 400, color: INK3, top: S.noteTop });
+  }
+  // 标题太长(最多 40 个字):字号缩小到放得下,再小就截断加"…",卡片不超出画面
+  const maxW = land ? 1920 - 2 * 120 - 2 * S.padX : 1080 - 2 * 60 - 2 * S.padX;
+  for (const r of rows) {
+    ctx.font = font(look, r.size, r.weight);
+    const tw = ctx.measureText(r.text).width;
+    if (tw <= maxW) continue;
+    r.size = Math.max(Math.floor((r.size * maxW) / tw), Math.round(S.b * 0.45));
+    ctx.font = font(look, r.size, r.weight);
+    r.text = fitLine(ctx, r.text, maxW);
   }
   const lh = (r: { size: number; weight: number }) => (r.weight === 700 && r.size >= 60 ? r.size * 1.2 : r.size * 1.3);
   let w = 0;

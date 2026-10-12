@@ -662,14 +662,17 @@ export function App() {
   // 导出回放视频 / 竖版长图:左边面板(手机:底部卡片)换成导出的选项
   const filmUi = useFilm();
   // 回放导出(视频、竖版长图)按年份取那一段的世界、主图、历史(filmSource.ts);和地图上一样,那一段的主图还没铺好先用前一段
+  // (预览这样凑合;导出等 ready 了再拍)
   useLayoutEffect(() => {
     const raw = previewRaw ?? rawCiv;
     const full = previewFull ?? realFull;
     if (!baseData || !raw || !full) return setFilmSource(null);
     const names = previewRaw ? preview!.names : edits.names;
     const civs = new Map<number, Civ>();
+    const lastK = eraIndex(raw, full.endYear);
     setFilmSource({
       full,
+      ready: lastK === 0 || (!!eraMaps && eraReady(eraMaps, eraPatches.current, lastK)),
       at(year) {
         const k = eraShown(eraMaps, eraPatches.current, eraIndex(raw, year));
         const { world, raster } = eraData(baseData, eraMaps, eraPatches.current, k);

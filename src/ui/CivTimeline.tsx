@@ -81,7 +81,7 @@ export function CivTimeline({ civ, hidden, dock = 'bottom' }: CivTimelineProps) 
   const all = useMemo(() => (has ? fullChronicle(civ) : []), [civ, has]);
   const marks = useMemo(() => filterChronicle(all, { major: chron.major, polity: chron.polity }), [all, chron.major, chron.polity]);
 
-  // 播放:每帧按真实流逝的时间推进年份
+  // 播放:每帧按真实流逝的时间推进年份(导出视频的时长、片头片尾、年份变了,关掉面板,都按新的速度和终点接着放)
   useEffect(() => {
     if (!t.playing) return;
     if (!has) {
@@ -110,7 +110,7 @@ export function CivTimeline({ civ, hidden, dock = 'bottom' }: CivTimelineProps) 
     };
     raf = requestAnimationFrame(step);
     return () => cancelAnimationFrame(raf);
-  }, [t.playing, t.story, t.speed, has, end, civ]);
+  }, [t.playing, t.story, t.speed, has, end, civ, film.mode, film.seconds, film.cards, film.rangeKind, film.range]);
 
   if (!has || hidden) return null;
 

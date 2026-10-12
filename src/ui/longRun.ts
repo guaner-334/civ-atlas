@@ -202,7 +202,8 @@ function nextPaint(): Promise<void> {
 
 /**
  * 按现在的选项画长图:先拍没拍过的地图(预览上写画到第几张),再拼起来、压成 JPEG。
- * 选项又变了,前一次没画完的不画了(拍好了的地图留着下次用)。lookKey = 地图画法的指纹(换了就全部重拍)
+ * 选项又变了,前一次没画完的不画了(拍好了的地图留着下次用)。lookKey = 地图画法的指纹(换了就全部重拍;
+ * 里面有 FilmSource 是哪一份,各段的主图铺好时换了一份,也全部重拍)
  */
 export async function renderLong(src: FilmSource, look: LongLook, lookKey: string): Promise<void> {
   const my = ++gen;
@@ -215,6 +216,8 @@ export async function renderLong(src: FilmSource, look: LongLook, lookKey: strin
   const lay = layoutLong(doc, canvasMeasureFont(measureCtx(), look.font));
   const todo = lay.maps.filter((m, i) => !mapCache.has(mapKey(m)) && lay.maps.findIndex((x) => mapKey(x) === mapKey(m)) === i);
   if (todo.length) setLong({ busy: { done: 0, total: todo.length } });
+  // 有地形大事的世界:各段的主图还在后台铺,先不拍(铺好时换一份新的 FilmSource,预览那边会再叫一次)
+  if (!src.ready) return;
   for (let i = 0; i < todo.length; i++) {
     if (my !== gen) return;
     setLong({ busy: { done: i, total: todo.length } });

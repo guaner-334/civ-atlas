@@ -20,10 +20,10 @@ import { currentWorld } from './saveStore';
 import { getGlobeOn, setGlobeOn } from './Globe';
 import { showToast } from './toastStore';
 import { openLong } from './longStore';
-import { getFilmSource, getFilmViewport, type FilmSource } from './filmSource';
+import { getFilmSource, getFilmViewport, whenFilmReady, type FilmSource } from './filmSource';
 import { FilmRenderer, type FilmRegion, type FilmSetup } from './filmRun';
 import { FilmCancelled, encodeFilm } from './filmEncode';
-import { clampRange, filmFileName, filmRanges, filmSize, frameYear, type FilmArea, type FilmRange, type FilmSeconds, type FilmShape } from './filmPlan';
+import { clampRange, filmClock, filmFileName, filmRanges, filmSize, frameYear, type FilmArea, type FilmRange, type FilmSeconds, type FilmShape } from './filmPlan';
 
 export type FilmMode = 'video' | 'long';
 
@@ -93,6 +93,8 @@ export function useFilm(): FilmUi {
 
 /** 打开视频 / 长图面板:停下播放;地球仪开着时先切回平面地图(视频按平面地图拍)。长图:地图上选中了一国,范围默认是那一国 */
 export function openFilm(mode: FilmMode, phone: boolean) {
+  // 正在导出视频:不换面板(要换先取消)
+  if (state.run) return;
   setCivTime({ playing: false, story: false });
   const sel = getSelection().sel;
   if (mode === 'long') openLong(sel?.kind === 'polity' ? sel.id : null);
@@ -211,6 +213,21 @@ export function cancelFilm() {
   cancelled = true;
 }
 
+/** 等各段的主图铺好;中途点了取消就不等了(交回 null) */
+function readyOrCancelled(): Promise<FilmSource | null> {
+  return new Promise((resolve) => {
+    const t = window.setInterval(() => {
+      if (!cancelled) return;
+      window.clearInterval(t);
+      resolve(null);
+    }, 100);
+    void whenFilmReady().then((s) => {
+      window.clearInterval(t);
+      resolve(s);
+    });
+  });
+}
+
 /** "还要约 20 秒""还要约 3 分钟" */
 export function etaText(ms: number): string {
   const s = Math.max(1, Math.round(ms / 1000));
@@ -233,19 +250,26 @@ export interface FilmDone {
 }
 
 /** 导出视频:一帧一帧画、编码;做好了给文件(下载 / 分享由调用方做)。取消了给 null */
-export async function runFilm(src: FilmSource, setup: FilmSetup): Promise<FilmDone | null> {
+export async function runFilm(src0: FilmSource, setup: FilmSetup): Promise<FilmDone | null> {
   if (state.run) return null;
   cancelled = false;
+  const t0 = performance.now();
+  const frames = filmClock(setup.range, setup.seconds, setup.cards).frames;
+  // 取消了:时间轴回到开始导出前停的那一年
+  const before = getCivTime().year;
+  setFilm({ run: { f: 0, frames, year: setup.range.from, t0 } });
+  // 有地形大事的世界:各段的主图还在后台铺的话先等它铺好(不然前面几秒会用旧的地形)
+  const src = src0.ready ? src0 : await readyOrCancelled();
+  if (!src || cancelled) {
+    setFilm({ run: null });
+    if (cancelled) setCivTime({ year: before, playing: false, story: false });
+    return null;
+  }
   const r = new FilmRenderer(src, setup, filmMajors(src.full));
   const { w, h } = filmSize(setup.shape);
   const cv = Object.assign(document.createElement('canvas'), { width: w, height: h });
   const ctx = cv.getContext('2d', { willReadFrequently: false })!;
   liveCanvas = cv;
-  const t0 = performance.now();
-  const frames = r.clock.frames;
-  // 取消了:时间轴回到开始导出前停的那一年
-  const before = getCivTime().year;
-  setFilm({ run: { f: 0, frames, year: setup.range.from, t0 } });
   let last = 0;
   let lock: { release(): Promise<void> } | null = null;
   try {

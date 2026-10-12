@@ -27,6 +27,11 @@ export interface FilmSource {
   full: Civ;
   /** 第 year 年那一段 */
   at(year: number): FilmScene;
+  /**
+   * 各段的主图都铺好了(没有地形大事的世界一直是 true)。还没铺好时 at() 先用前面那一段,
+   * 预览可以这样凑合,导出的视频、长图要等它变成 true(铺好时 App 会换一份新的 FilmSource)
+   */
+  ready: boolean;
 }
 
 let source: FilmSource | null = null;
@@ -39,6 +44,19 @@ export function setFilmSource(s: FilmSource | null) {
 }
 
 export const getFilmSource = () => source;
+
+/** 等到各段的主图都铺好,交回那时的 FilmSource(没有世界了 = null) */
+export function whenFilmReady(): Promise<FilmSource | null> {
+  if (!source || source.ready) return Promise.resolve(source);
+  return new Promise((resolve) => {
+    const f = () => {
+      if (source && !source.ready) return;
+      subs.delete(f);
+      resolve(source);
+    };
+    subs.add(f);
+  });
+}
 
 export function useFilmSource(): FilmSource | null {
   return useSyncExternalStore(

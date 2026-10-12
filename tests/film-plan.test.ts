@@ -29,6 +29,7 @@ import {
   yearFrame,
 } from '../src/ui/filmPlan';
 import { wrapText } from '../src/render/film';
+import { setFilmSource, whenFilmReady, type FilmSource } from '../src/ui/filmSource';
 
 let nextId = 1;
 function entry(kind: ChronicleEntry['kind'], year: number, text: string, more: Partial<ChronicleEntry> = {}): ChronicleEntry {
@@ -163,5 +164,25 @@ describe('真实世界(seed 7)', () => {
     // 全文里国名后面会补上来历"(第 N 年立国)",开头那一句没有
     const bare = (s: string) => s.replace(/\([^)]*\)/g, '');
     for (const e of majors.filter((m) => m.kind === 'war' && m.head)) expect(bare(e.text).startsWith(bare(e.head!))).toBe(true);
+  });
+});
+
+describe('有地形大事的世界:等各段的主图铺好再导出', () => {
+  it('还没铺好时一直等,换上铺好的那一份才往下走;已经铺好的不用等', async () => {
+    const a = { full: null, at: () => null, ready: false } as unknown as FilmSource;
+    const b = { ...a, ready: true } as FilmSource;
+    setFilmSource(a);
+    let got: FilmSource | null | 'pending' = 'pending';
+    const p = whenFilmReady().then((s) => (got = s));
+    await new Promise((r) => setTimeout(r, 10));
+    expect(got).toBe('pending');
+    setFilmSource({ ...a } as FilmSource);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(got).toBe('pending');
+    setFilmSource(b);
+    await p;
+    expect(got).toBe(b);
+    expect(await whenFilmReady()).toBe(b);
+    setFilmSource(null);
   });
 });
