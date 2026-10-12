@@ -43,12 +43,13 @@ interface Room {
 }
 
 /** 量一下界面:左边面板、右上按钮条、底下的时间轴(手机:底部卡片)之间还剩多大 */
-function measure(phone: boolean): Room {
+function measure(phone: boolean, sheetH: number): Room {
   const W = window.innerWidth;
   const H = window.innerHeight;
   const bottom = document.querySelector('.bottom-row')?.getBoundingClientRect();
   if (phone) {
-    const tl = bottom && bottom.height > 0 ? bottom.top : H - 330;
+    // 时间轴浮在卡片上面 10 像素(film.css);卡片变高时时间轴是滑上去的,按卡片算它最后停在哪
+    const tl = bottom && bottom.height > 0 ? (sheetH > 0 ? H - sheetH - 10 - bottom.height : bottom.top) : H - 330;
     const B = tl - 14;
     const top = B - 84 >= 420 ? 84 : 56;
     return { cx: W / 2, top, maxW: W - 24, maxH: Math.max(120, B - top), pill: -1 };
@@ -95,7 +96,7 @@ export function FilmStage({ phone, style, layer }: FilmStageProps) {
 
   // 量界面(窗口大小变了、手机底部卡片变高变矮了再量)
   useLayoutEffect(() => {
-    const m = () => setRoom(measure(phone));
+    const m = () => setRoom(measure(phone, s.sheetH));
     m();
     window.addEventListener('resize', m);
     const ro = new ResizeObserver(m);
@@ -104,7 +105,7 @@ export function FilmStage({ phone, style, layer }: FilmStageProps) {
       window.removeEventListener('resize', m);
       ro.disconnect();
     };
-  }, [phone, s.mode, !!run]);
+  }, [phone, s.mode, !!run, s.sheetH]);
 
   const box = room ? frameBox(room, s.shape, s.area, phone) : null;
   const mr = filmMapRect(s.shape, s.area);
@@ -139,23 +140,25 @@ export function FilmStage({ phone, style, layer }: FilmStageProps) {
   }, [src, s.mode, s.shape, s.area, s.rangeKind, s.range, s.seconds, s.captions, s.cards, s.title, style, layer, show, proj, grat, center, marks, whole ? '' : vkey, box?.w]);
   useEffect(() => () => renderer?.dispose(), [renderer]);
 
-  // 整张地图:预览按年份重画(一帧要 0.1 秒多;拖时间轴时只画最新的那一年)
+  // 整张地图:预览按年份重画(一帧要 0.1 秒多;拖时间轴时只画最新的那一年,选项改了用新的画法)
   const want = useRef<number | null>(null);
   const busy = useRef(false);
+  const latest = useRef(renderer);
+  latest.current = renderer;
   useEffect(() => {
     if (!renderer || run || !whole) return;
     want.current = year;
     if (busy.current) return;
     busy.current = true;
-    let live = true;
     void (async () => {
       try {
-        while (live && want.current !== null) {
+        while (want.current !== null) {
           const y = want.current;
           want.current = null;
+          const r = latest.current;
           const ctx = pvRef.current?.getContext('2d');
-          if (!ctx) break;
-          await renderer.draw(ctx, renderer.frameOf(y), y);
+          if (!r || !ctx) break;
+          await r.draw(ctx, r.frameOf(y), y);
         }
       } catch (e) {
         console.error('预览画不出来', e);
@@ -163,9 +166,6 @@ export function FilmStage({ phone, style, layer }: FilmStageProps) {
         busy.current = false;
       }
     })();
-    return () => {
-      live = false;
-    };
   }, [renderer, year, run, whole]);
 
   // 框里这一块:框里盖一层字(地图透出来)

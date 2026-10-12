@@ -400,6 +400,10 @@
   visibility: visible;
   pointer-events: auto;
 }
+/* 手机:右上角的按钮收起来了,提示条占满一行 */
+.app.phone.film-on .toast {
+  right: calc(12px + var(--safe-r));
+}
 /* 手机的时间轴:把手窄一点,框矮一点;起止年份写在把手底下(刻度字不写) */
 .app.phone .tb-range {
   top: 16.5px;

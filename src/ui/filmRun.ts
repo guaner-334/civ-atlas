@@ -114,6 +114,8 @@ export class FilmRenderer {
   private shot: MapShot | null = null;
   private shotK = -1;
   private readonly map: HTMLCanvasElement;
+  /** 放掉了(预览换了一个新的):还没画完的那一帧不画了 */
+  private dead = false;
 
   constructor(src: FilmSource, setup: FilmSetup, majors: readonly ChronicleEntry[]) {
     this.src = src;
@@ -171,18 +173,28 @@ export class FilmRenderer {
       };
       const r = this.mapRect;
       const area: ShotArea = s.area === 'region' && s.region ? { kind: 'region', ...s.region } : { kind: 'whole', dpr: 1 };
-      this.shot = new MapShot(scene, area, r.w, r.h);
+      const shot = new MapShot(scene, area, r.w, r.h);
+      this.shot = shot;
       this.shotK = sc.k;
-      await this.shot.prepare();
+      await shot.prepare();
+      return { shot, civ: sc.civ, world: sc.world };
     }
     return { shot: this.shot, civ: sc.civ, world: sc.world };
   }
 
   /** 画第 f 帧到 ctx(大小 = 成片) */
   async draw(ctx: CanvasRenderingContext2D, f: number, year: number): Promise<void> {
+    if (this.dead) return;
     const { shot } = await this.shotAt(year);
+    if (this.dead) return;
     const mctx = this.map.getContext('2d')!;
-    await shot.draw(mctx, year, { fast: true });
+    try {
+      await shot.draw(mctx, year, { fast: true });
+    } catch (e) {
+      if (this.dead) return;
+      throw e;
+    }
+    if (this.dead) return;
     // 横屏整张地图上下两条边:和地图纸边同色(取地图最上面一行)
     if (this.look.band === undefined && this.setup.shape === 'land' && this.setup.area === 'whole') this.look.band = edgeColor(mctx, this.map.width);
     drawFilmFrame(ctx, this.look, f, this.map);
@@ -194,6 +206,7 @@ export class FilmRenderer {
   }
 
   dispose() {
+    this.dead = true;
     this.shot?.dispose();
     this.shot = null;
     this.map.width = this.map.height = 0;

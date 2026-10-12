@@ -50,6 +50,8 @@ export interface FilmUi {
   /** 标题:null = 用世界名 */
   title: string | null;
   run: FilmRun | null;
+  /** 手机:底部卡片多高(像素;地图上的预览按它让位置) */
+  sheetH: number;
 }
 
 const INIT: FilmUi = {
@@ -64,6 +66,7 @@ const INIT: FilmUi = {
   cards: true,
   title: null,
   run: null,
+  sheetH: 0,
 };
 
 let state: FilmUi = INIT;
@@ -278,7 +281,7 @@ export async function runFilm(src: FilmSource, setup: FilmSetup): Promise<FilmDo
 /** 做好的文件:手机上能分享的走分享菜单("存到相册"),别的直接下载 */
 export function deliverFilm(d: FilmDone, phone: boolean, kind: 'video' | 'image') {
   const mb = d.blob.size / 1e6;
-  const size = `${d.w}×${d.h}，${mb >= 10 ? Math.round(mb) : mb.toFixed(1)} MB，${tookText(d.ms)}`;
+  const size = `${d.w}×${d.h}，${mb >= 5 ? Math.round(mb) : mb.toFixed(1)} MB，${tookText(d.ms)}`;
   const file = typeof File !== 'undefined' ? new File([d.blob], d.name, { type: d.blob.type }) : null;
   const nav = navigator as Navigator & { canShare?: (d: ShareData) => boolean };
   const share = phone && !!file && !!nav.canShare?.({ files: [file] });

@@ -11,7 +11,7 @@ import type { CivStyle } from '../render/civ/overlay';
 import type { LayerId } from '../render/layers';
 import { useFilmSource } from './filmSource';
 import { filmSupported } from './filmEncode';
-import { closeFilm, cancelFilm, deliverFilm, etaText, filmRangeOf, filmSetup, filmTitleOf, holeRegion, runFilm, setFilm, useFilm } from './filmStore';
+import { closeFilm, cancelFilm, deliverFilm, etaText, filmRangeOf, filmSetup, filmTitleOf, getFilm, holeRegion, runFilm, setFilm, useFilm } from './filmStore';
 import { FILM_BITRATE, filmClock, filmMegabytes, rangeText, rateText, type FilmSeconds } from './filmPlan';
 import { showToast } from './toastStore';
 import './film.css';
@@ -98,13 +98,18 @@ export function FilmPanel({ phone, style, layer }: FilmPanelProps) {
   const run = s.run;
   const busy = !!run;
   const title = filmTitleOf();
-  // 手机:卡片多高,时间轴就浮在它上面多高(film.css 的 --film-sheet-h)
+  // 手机:卡片多高,时间轴就浮在它上面多高(film.css 的 --film-sheet-h)。导出时卡片变矮,时间轴和预览不跟着动
   const sheetRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const el = sheetRef.current;
     const app = el?.closest('.app') as HTMLElement | null;
     if (!el || !app) return;
-    const set = () => app.style.setProperty('--film-sheet-h', `${el.offsetHeight}px`);
+    const set = () => {
+      if (getFilm().run) return;
+      const h = el.offsetHeight;
+      app.style.setProperty('--film-sheet-h', `${h}px`);
+      if (getFilm().sheetH !== h) setFilm({ sheetH: h });
+    };
     set();
     const ro = new ResizeObserver(set);
     ro.observe(el);
