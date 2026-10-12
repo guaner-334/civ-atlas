@@ -176,7 +176,7 @@ export function filmSetup(src: FilmSource, look: { style: CivStyle; layer: Layer
   const s = state;
   const sc = src.at(src.full.endYear);
   const world = sc.world;
-  const marks = getEdits().marks;
+  const { marks, era } = getEdits();
   return {
     shape: s.shape,
     area: s.area,
@@ -194,6 +194,7 @@ export function filmSetup(src: FilmSource, look: { style: CivStyle; layer: Layer
     marks: marks?.length ? (civ, w, y) => markItemsAt(civ, w, marks, y) : undefined,
     region: s.area === 'region' ? region : undefined,
     font: uiFont(),
+    era,
   };
 }
 
@@ -320,7 +321,7 @@ export async function runFilm(src0: FilmSource, setup: FilmSetup): Promise<FilmD
       cancelled: () => cancelled,
     });
     const base = fileBaseName({ title: setup.title || currentWorld()?.title, seed: src.at(setup.range.to).world.params.seed });
-    return { blob, name: filmFileName(base, setup.range, setup.shape), w, h, ms: performance.now() - t0 };
+    return { blob, name: filmFileName(base, setup.range, setup.shape, setup.era), w, h, ms: performance.now() - t0 };
   } catch (e) {
     restore();
     if (e instanceof FilmCancelled) return null;

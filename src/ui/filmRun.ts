@@ -8,6 +8,7 @@
 import type { ChronicleEntry } from '../gen/civ/chronicle';
 import type { Civ } from '../gen/civ/types';
 import type { World } from '../gen/world';
+import type { Era } from '../gen/era';
 import { ownersAt } from '../gen/civ/timeline';
 import { MapShot, type ShotArea, type ShotScene } from '../render/shot';
 import { drawFilmFrame, filmMapRect, type FilmLook } from '../render/film';
@@ -60,6 +61,8 @@ export interface FilmSetup {
   region?: FilmRegion;
   /** 界面字体 */
   font: string;
+  /** 纪年(没设 = 按第几年写) */
+  era?: Era;
 }
 
 const canvas = (w: number, h: number) => Object.assign(document.createElement('canvas'), { width: w, height: h });
@@ -141,18 +144,19 @@ export class FilmRenderer {
         return f(e);
       };
     }
-    const events = filmEvents(majors, setup.range, keep);
+    const events = filmEvents(majors, setup.range, keep, setup.era);
     this.look = {
       shape: setup.shape,
       area: setup.area,
       clock,
       title: setup.title.trim(),
-      range: rangeText(setup.range),
+      range: rangeText(setup.range, setup.era),
       captions: setup.captions,
       cards: setup.cards,
-      slots: setup.captions && setup.shape === 'land' ? captionSlots(events, clock) : [],
+      slots: setup.captions && setup.shape === 'land' ? captionSlots(events, clock, setup.era) : [],
       events,
       font: setup.font,
+      era: setup.era,
     };
     const r = filmMapRect(setup.shape, setup.area);
     this.map = canvas(r.w, r.h);

@@ -20,6 +20,7 @@ import type { FilmSetup } from './filmRun';
 import { filmMajors } from './filmStore';
 import { flagOf, getFlags } from './flagStore';
 import { currentWorld } from './saveStore';
+import { getEdits } from './editsStore';
 import { getLong, setLong } from './longStore';
 import { defaultPolity, longDoc, longFileName, polityLastYear, type LongDoc, type LongMap } from './longPlan';
 import { polityNameAt } from './searchIndex';
@@ -75,6 +76,7 @@ export function longDocOf(src: FilmSource): LongDoc {
     title: longTitleOf(full, seed).trim() || longDefaultTitle(full, seed),
     worldTitle: currentWorld()?.title?.trim() ?? '',
     seed,
+    era: getEdits().era,
   });
 }
 

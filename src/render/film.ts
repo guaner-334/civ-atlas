@@ -21,6 +21,7 @@ import {
   type FilmEvent,
   type FilmShape,
 } from '../ui/filmPlan';
+import { yearFull, type Era } from '../gen/era';
 
 type Ctx = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
 
@@ -54,6 +55,8 @@ export interface FilmLook {
   font: string;
   /** 横屏整张地图上下两条边的颜色(不给 = 取地图最上面一行的颜色) */
   band?: string;
+  /** 纪年(没设 = 按第几年写) */
+  era?: Era;
 }
 
 export interface Rect {
@@ -197,11 +200,12 @@ function drawLand(ctx: Ctx, look: FilmLook, f: number, year: number, alpha: numb
   if (alpha <= 0) return;
   ctx.save();
   ctx.globalAlpha = alpha;
-  const yearText = `第 ${year} 年`;
+  const yearText = yearFull(year, look.era);
   ctx.font = font(look, 64, 700);
-  // 年份按最宽的那一年留宽度(数字变的时候卡片不忽宽忽窄)
-  const widest = `第 ${String(look.clock.to).replace(/\d/g, '0')} 年`;
-  let w = Math.max(ctx.measureText(yearText).width, ctx.measureText(widest).width);
+  // 年份按最宽的那一年留宽度(数字变的时候卡片不忽宽忽窄;纪年时元年前后写法不同,两头都量)
+  const zeros = (y: number) => yearFull(y, look.era).replace(/\d/g, '0');
+  const widest = Math.max(ctx.measureText(zeros(look.clock.from)).width, ctx.measureText(zeros(look.clock.to)).width);
+  let w = Math.max(ctx.measureText(yearText).width, widest);
   ctx.font = font(look, 28);
   const title = look.title ? fitLine(ctx, look.title, TITLE_MAX_LAND) : '';
   if (title) w = Math.max(w, ctx.measureText(title).width);
@@ -263,11 +267,11 @@ function drawPort(ctx: Ctx, look: FilmLook, f: number, year: number, outro: numb
   }
   ctx.fillStyle = INK;
   ctx.font = font(look, 88, 700);
-  line(ctx, `第 ${year} 年`, 64, y, 88, 1.15);
+  line(ctx, yearFull(year, look.era), 64, y, 88, 1.15);
   // 片头时下一栏还空着;片尾时跟着卡片淡入淡出
   const intro = look.cards && f < look.clock.intro;
   if (look.captions && !intro && outro < 1) {
-    const rows = recentRows(look.events, look.clock, f, filmRowCount(look.area));
+    const rows = recentRows(look.events, look.clock, f, filmRowCount(look.area), look.era);
     const size = whole ? 38 : 30;
     const first = whole ? 44 : 34;
     const emW = whole ? 250 : 236;
@@ -287,6 +291,9 @@ function drawPort(ctx: Ctx, look: FilmLook, f: number, year: number, outro: numb
       ctx.font = font(look, fs);
       const lines = wrapText((t) => ctx.measureText(t).width, row.text, textW, i === 0 ? 2 : 1);
       ctx.font = font(look, fs, 600);
+      // 年份放不下这一栏(设了纪年的起止:"前 1601—前 1500")就把字缩小,正文一栏不让
+      const lw = ctx.measureText(row.label).width;
+      if (lw > emW) ctx.font = font(look, Math.max(fs * 0.6, Math.floor((fs * emW) / lw)), 600);
       line(ctx, row.label, left, top, fs, 1.38);
       ctx.font = font(look, fs);
       lines.forEach((t, k) => line(ctx, t, textX, top + k * lh, fs, 1.38));
