@@ -242,7 +242,7 @@ import { UpheavalHint, UpheavalOverlay } from './UpheavalPanel';
 import { dismissing, tookDismissClick } from './dismissClick';
 import { makeFlagView, setFlagView, useFlagPreview } from './flagStore';
 import { setFilmSource, setFilmViewport } from './filmSource';
-import { getFilm, useFilm } from './filmStore';
+import { closeFilm, getFilm, useFilm } from './filmStore';
 import { FilmPanel } from './FilmPanel';
 import { FilmStage } from './FilmStage';
 import { LongPanel } from './LongPanel';
@@ -3700,6 +3700,11 @@ export function App() {
   const world = stage === 'world';
   const filmOn = !!filmUi.mode && !!data && world && !draft && !home;
   const curWorld = currentWorld();
+  // 离开这个世界(回首页、去新建、浏览器前进后退换了一个世界):导出面板关掉,正在导出的视频取消
+  const filmWorld = world && !draft && !home ? (curWorld?.id ?? '') : null;
+  useEffect(() => {
+    if (getFilm().mode) closeFilm();
+  }, [filmWorld]);
   /** 打开别人分享的世界、还没改过:地图下那条说明代替第一次打开的操作提示 */
   const sharedOn = world && !!data && !!sharedFor && curWorld?.id === sharedFor.id && curWorld.kind === 'visit' && !terrainTool.on;
   const layerProps = { layer: mapLayer, civ, onLayer: applyLayer, thumbs, requestThumbs, disabled: !data };

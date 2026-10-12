@@ -99,7 +99,8 @@ function line(ctx: Ctx, s: string, x: number, top: number, size: number, lh: num
 
 /** 按宽度断成几行(中文按字断,数字、外文词不拆开;标点不放行首);超过 max 行,最后一行末尾写省略号 */
 export function wrapText(measure: (s: string) => number, text: string, width: number, max: number): string[] {
-  const toks = text.match(/[0-9A-Za-z.%]+|\s+|[^]/gu) ?? [];
+  // 字母、数字连着的一截不拆开;一截比一行还宽(很长的外文名、网址)就按字拆
+  const toks = (text.match(/[0-9A-Za-z.%]+|\s+|[^]/gu) ?? []).flatMap((t) => (t.length > 1 && measure(t) > width ? Array.from(t) : [t]));
   const lines: string[] = [];
   let cur: string[] = [];
   const str = (a: readonly string[]) => a.join('');

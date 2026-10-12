@@ -142,6 +142,18 @@ describe('文字', () => {
     expect(lines.some((l) => /\b36$|^5\b/.test(l))).toBe(false);
     expect(wrapText(measure, '一二三四五六七八九十', 40, 2)[1].endsWith('…')).toBe(true);
   });
+
+  it('折行:一截外文比一行还宽(很长的名字、网址)就按字拆,每行都放得下', () => {
+    const measure = (s: string) => Array.from(s).length * 10;
+    const long = 'Abcdefghijklmnopqrstuvwxyz0123456789';
+    const lines = wrapText(measure, `九州${long}`, 60, Infinity);
+    expect(lines.join('')).toBe(`九州${long}`);
+    for (const l of lines) expect(measure(l)).toBeLessThanOrEqual(60);
+    const one = wrapText(measure, long, 60, 1);
+    expect(one).toHaveLength(1);
+    expect(one[0].endsWith('…')).toBe(true);
+    expect(measure(one[0])).toBeLessThanOrEqual(60);
+  });
 });
 
 describe('真实世界(seed 7)', () => {

@@ -14,7 +14,7 @@ import { PolityFlag } from './Flag';
 import { Seg } from './FilmPanel';
 import { useFilmSource } from './filmSource';
 import { closeFilm } from './filmStore';
-import { longPolities, polityLastYear } from './longPlan';
+import { longPolities, polityLastYear, type LongScope } from './longPlan';
 import { canShareLong, downloadLong, longDefaultTitle, longFiles, longPolity, longResult, longSizeText, shareLong } from './longRun';
 import { getLong, setLong, setLongScope, useLong } from './longStore';
 import './film.css';
@@ -121,7 +121,10 @@ export function LongPanel({ phone, style }: LongPanelProps) {
   const seed = src ? src.at(src.full.endYear).world.params.seed : 0;
   const files = s.busy ? null : longFiles();
   const ready = !!files;
-  const pol = full && s.scope === 'one' ? longPolity(full) : null;
+  // 还没有国家的世界:只能做整个世界
+  const noPol = !!full && !full.polities.length;
+  const scope: LongScope = noPol ? 'world' : s.scope;
+  const pol = full && scope === 'one' ? longPolity(full) : null;
   const title = s.title ?? (full ? longDefaultTitle(full, seed) : '');
   const era = full ? chronicleEraYears(full.endYear) : 500;
   const pickRef = useRef<HTMLDivElement>(null);
@@ -158,9 +161,9 @@ export function LongPanel({ phone, style }: LongPanelProps) {
   const phoneFine = useMemo(() => {
     const r = longResult();
     const dims = !r ? '' : r.pages ? `${r.pages.length} 张，每张 1080×1440` : `1080×${r.lay.h}`;
-    return `每 ${era} 年一节，每节一张疆域图和${s.scope === 'one' ? '这一国的' : ''}大事。${dims}`;
+    return `每 ${era} 年一节，每节一张疆域图和${scope === 'one' ? '这一国的' : ''}大事。${dims}`;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [era, s.scope, s.ver]);
+  }, [era, scope, s.ver]);
 
   if (phone) {
     const many = files && files.length > 1;
@@ -195,9 +198,9 @@ export function LongPanel({ phone, style }: LongPanelProps) {
             <>
               <div className="film-lbl">
                 <b>范围</b>
-                <Seg value={s.scope} items={SCOPES} act="long-scope" onPick={(v) => setLongScope(v)} />
+                <Seg value={scope} items={SCOPES} act="long-scope" off={noPol ? ['one'] : undefined} onPick={(v) => setLongScope(v)} />
               </div>
-              {s.scope === 'one' && full && (
+              {scope === 'one' && full && (
                 <div className="film-lbl">
                   <b>国家</b>
                   <PickRow full={full} id={pol} phone onOpen={() => setLong({ picker: true })} />
@@ -244,9 +247,9 @@ export function LongPanel({ phone, style }: LongPanelProps) {
       <div className="film-grp">
         <div className="film-lbl">
           <b>范围</b>
-          <Seg value={s.scope} items={SCOPES} act="long-scope" onPick={(v) => setLongScope(v)} />
+          <Seg value={scope} items={SCOPES} act="long-scope" off={noPol ? ['one'] : undefined} onPick={(v) => setLongScope(v)} />
         </div>
-        {s.scope === 'one' && full && (
+        {scope === 'one' && full && (
           <div className="film-lbl" ref={pickRef}>
             <b>哪一国</b>
             <PickRow full={full} id={pol} phone={false} onOpen={() => setLong({ picker: !s.picker })} />

@@ -40,13 +40,15 @@ interface SegProps<T extends string | number> {
   items: readonly (readonly [T, string])[];
   onPick: (v: T) => void;
   act: string;
+  /** 这时候选不了的几项(灰掉) */
+  off?: readonly T[];
 }
 
-export function Seg<T extends string | number>({ value, items, onPick, act }: SegProps<T>) {
+export function Seg<T extends string | number>({ value, items, onPick, act, off }: SegProps<T>) {
   return (
     <div className="film-seg" role="group">
       {items.map(([v, label]) => (
-        <button key={String(v)} className={v === value ? 'on' : ''} aria-pressed={v === value} data-act={`${act}-${v}`} onClick={() => onPick(v)}>
+        <button key={String(v)} className={v === value ? 'on' : ''} aria-pressed={v === value} data-act={`${act}-${v}`} disabled={off?.includes(v)} onClick={() => onPick(v)}>
           {label}
         </button>
       ))}

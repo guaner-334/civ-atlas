@@ -111,9 +111,10 @@ export function openFilm(mode: FilmMode, phone: boolean) {
   }
 }
 
+/** 关掉面板;正在导出就取消(run 留到那一次真停下来才清,在这之前不能再开一次) */
 export function closeFilm() {
   if (state.run) cancelFilm();
-  state = { ...state, mode: null, run: null };
+  state = { ...state, mode: null };
   emit();
 }
 
@@ -255,14 +256,17 @@ export async function runFilm(src0: FilmSource, setup: FilmSetup): Promise<FilmD
   cancelled = false;
   const t0 = performance.now();
   const frames = filmClock(setup.range, setup.seconds, setup.cards).frames;
-  // 取消了:时间轴回到开始导出前停的那一年
+  // 取消了:时间轴回到开始导出前停的那一年(已经换到别的世界了就不动)
   const before = getCivTime().year;
+  const restore = () => {
+    if (getFilmSource()?.full === src0.full) setCivTime({ year: before, playing: false, story: false });
+  };
   setFilm({ run: { f: 0, frames, year: setup.range.from, t0 } });
   // 有地形大事的世界:各段的主图还在后台铺的话先等它铺好(不然前面几秒会用旧的地形)
   const src = src0.ready ? src0 : await readyOrCancelled();
   if (!src || cancelled) {
     setFilm({ run: null });
-    if (cancelled) setCivTime({ year: before, playing: false, story: false });
+    if (cancelled) restore();
     return null;
   }
   const r = new FilmRenderer(src, setup, filmMajors(src.full));
@@ -286,7 +290,7 @@ export async function runFilm(src0: FilmSource, setup: FilmSetup): Promise<FilmD
         await r.draw(ctx, f, y);
         // 面板、时间轴、框里的地图跟着走(太勤了屏幕上的地图重画不过来:约 0.3 秒一次)
         const now = performance.now();
-        if (now - last > 300 || f === frames - 1) {
+        if (!cancelled && (now - last > 300 || f === frames - 1)) {
           last = now;
           setFilm({ run: { f, frames, year: Math.floor(y), t0 } });
           setCivTime({ year: Math.floor(y), playing: false, story: false });
@@ -298,7 +302,7 @@ export async function runFilm(src0: FilmSource, setup: FilmSetup): Promise<FilmD
     return { blob, name: filmFileName(base, setup.range, setup.shape), w, h, ms: performance.now() - t0 };
   } catch (e) {
     if (e instanceof FilmCancelled) {
-      setCivTime({ year: before, playing: false, story: false });
+      restore();
       return null;
     }
     throw e;

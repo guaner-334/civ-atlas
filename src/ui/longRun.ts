@@ -207,6 +207,27 @@ function nextPaint(): Promise<void> {
  */
 export async function renderLong(src: FilmSource, look: LongLook, lookKey: string): Promise<void> {
   const my = ++gen;
+  try {
+    await renderLongRun(my, src, look, lookKey);
+  } catch (e) {
+    // 画不出来(图太大、内存不够):去掉"正在画"的蒙层和旧的图(选项已经不是那一份了),说一声
+    if (my !== gen) return;
+    freeResult();
+    setLong({ busy: null, ver: getLong().ver + 1 });
+    showToast({ id: 'long', kind: 'error', text: '长图没画出来', more: ['可以换个选项再试一次'] });
+    throw e;
+  }
+}
+
+function freeResult() {
+  if (result) {
+    result.canvas.width = result.canvas.height = 0;
+    for (const c of result.pageCanvases) c.width = c.height = 0;
+  }
+  result = null;
+}
+
+async function renderLongRun(my: number, src: FilmSource, look: LongLook, lookKey: string): Promise<void> {
   if (lookKey !== mapCacheLook) {
     for (const c of mapCache.values()) c.width = c.height = 0;
     mapCache.clear();
@@ -239,10 +260,7 @@ export async function renderLong(src: FilmSource, look: LongLook, lookKey: strin
     drawLong(c.getContext('2d')!, lay, look.font, maps, flag, a, b, i ? PAGE_PAD : 0);
     return c;
   });
-  if (result) {
-    result.canvas.width = result.canvas.height = 0;
-    for (const c of result.pageCanvases) c.width = c.height = 0;
-  }
+  freeResult();
   const base = fileBaseName({ title: doc.title, seed: src.at(src.full.endYear).world.params.seed });
   result = { lay, canvas, pages, pageCanvases, blobs: null, base };
   setLong({ busy: null, ver: getLong().ver + 1 });
@@ -275,11 +293,7 @@ async function encode(r: LongResult): Promise<Blob[] | null> {
 export function disposeLong() {
   gen++;
   window.clearTimeout(encodeTimer);
-  if (result) {
-    result.canvas.width = result.canvas.height = 0;
-    for (const c of result.pageCanvases) c.width = c.height = 0;
-  }
-  result = null;
+  freeResult();
   for (const c of mapCache.values()) c.width = c.height = 0;
   mapCache.clear();
   mapCacheLook = '';

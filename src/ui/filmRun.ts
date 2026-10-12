@@ -127,8 +127,15 @@ export class FilmRenderer {
     this.clock = clock;
     let keep: ((e: ChronicleEntry) => boolean) | undefined;
     if (setup.area === 'region' && setup.region) {
-      const sc = src.at(setup.range.to);
-      keep = regionKeep(sc.geo, sc.world, setup.region);
+      // 有地形大事的世界各段的州不一样:每件事按它那一年所在那一段的州和地形看在不在框里
+      const region = setup.region;
+      const byK = new Map<number, (e: ChronicleEntry) => boolean>();
+      keep = (e) => {
+        const sc = src.at(e.year);
+        let f = byK.get(sc.k);
+        if (!f) byK.set(sc.k, (f = regionKeep(sc.geo, sc.world, region)));
+        return f(e);
+      };
     }
     const events = filmEvents(majors, setup.range, keep);
     this.look = {
