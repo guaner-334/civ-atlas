@@ -20,6 +20,7 @@ import {
   filmClock,
   filmEvents,
   filmFileName,
+  filmMegabytes,
   filmRanges,
   frameYear,
   lengthText,
@@ -29,6 +30,10 @@ import {
   yearFrame,
 } from '../src/ui/filmPlan';
 import { wrapText } from '../src/render/film';
+import type { Era } from '../src/gen/era';
+
+/** 公元,第 0 年是公元前 1500 年(第 1500 年 = 公元元年) */
+const ERA: Era = { name: '公元', epoch: 1500 };
 import { setFilmSource, whenFilmReady, type FilmSource } from '../src/ui/filmSource';
 import { regionKeep } from '../src/ui/filmRun';
 
@@ -122,6 +127,17 @@ describe('字幕', () => {
     expect(done[0].text).toBe('丙伐丁，得某州');
     expect(recentRows(ev, c, yearFrame(c, 1600), 1)).toHaveLength(1);
   });
+
+  it('设了纪年:字幕、竖屏一栏的年份和正文里的"第 N 年"都照纪年写', () => {
+    const a = entry('found', 1200, '甲建国(第 1100 年迁来)');
+    const w = entry('war', 1500, '丙伐丁,得某州', { end: 1530, head: '丙伐丁' });
+    const ev = filmEvents([a, w], { from: 1000, to: 2000 }, undefined, ERA);
+    expect(ev[0].text).toBe('甲建国（公元前 400 年迁来）');
+    const slots = captionSlots(ev, c, ERA);
+    expect(slots.map((s) => s.label)).toEqual(['公元前 300 年', '公元元年起']);
+    expect(recentRows(ev, c, yearFrame(c, 1510), 5, ERA).map((r) => r.label)).toEqual(['元年 起', '前 300']);
+    expect(recentRows(ev, c, yearFrame(c, 1600), 5, ERA)[0].label).toBe('元年—31');
+  });
 });
 
 describe('文字', () => {
@@ -133,6 +149,15 @@ describe('文字', () => {
     expect(rangeText({ from: 899, to: 3000 })).toBe('第 899 年到第 3000 年');
     expect(filmFileName('文明与地图-九州大陆', { from: 899, to: 3000 }, 'land')).toBe('文明与地图-九州大陆-第899—3000年.mp4');
     expect(filmFileName('文明与地图-九州大陆', { from: 899, to: 3000 }, 'port')).toBe('文明与地图-九州大陆-第899—3000年-竖屏.mp4');
+    expect(rangeText({ from: 899, to: 3000 }, ERA)).toBe('公元前 601 年到公元 1501 年');
+    expect(filmFileName('文明与地图-九州大陆', { from: 899, to: 3000 }, 'land', ERA)).toBe('文明与地图-九州大陆-公元前601年—公元1501年.mp4');
+  });
+
+  it('估的文件大小照实测(30 秒约 9 MB、1 分钟约 15 MB)', () => {
+    expect(filmMegabytes(5_000_000, 30)).toBeGreaterThan(7);
+    expect(filmMegabytes(5_000_000, 30)).toBeLessThan(11);
+    expect(filmMegabytes(5_000_000, 60)).toBeGreaterThan(13);
+    expect(filmMegabytes(5_000_000, 60)).toBeLessThan(19);
   });
 
   it('折行:中文按字断,数字不拆开,标点不放行首', () => {

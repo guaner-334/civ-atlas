@@ -13,6 +13,8 @@ import { useFilmSource } from './filmSource';
 import { filmSupported } from './filmEncode';
 import { closeFilm, cancelFilm, deliverFilm, etaText, filmRangeOf, filmSetup, filmTitleOf, getFilm, holeRegion, runFilm, setFilm, setFilmRangeKind, useFilm } from './filmStore';
 import { FILM_BITRATE, filmClock, filmMegabytes, rangeText, rateText, type FilmSeconds } from './filmPlan';
+import { useEra } from './editsStore';
+import { yearFull } from '../gen/era';
 import { showToast } from './toastStore';
 import './film.css';
 
@@ -83,10 +85,10 @@ function shapeHint(shape: 'land' | 'port', area: 'whole' | 'region'): string {
   return `1080×1920，适合抖音、小红书、视频号。上面写年份，${area === 'whole' ? '中间一条是整个世界，下面是最近五条大事' : '中间正方形是框住的那块地图，下面是最近三条大事'}`;
 }
 
-/** "约 40 MB" */
+/** "约 15 MB" */
 function sizeText(seconds: number): string {
   const mb = filmMegabytes(FILM_BITRATE, seconds);
-  return `约 ${mb >= 15 ? Math.round(mb / 10) * 10 : Math.max(1, Math.round(mb))} MB`;
+  return `约 ${mb >= 15 ? Math.round(mb / 5) * 5 : Math.max(1, Math.round(mb))} MB`;
 }
 
 export function FilmPanel({ phone, style, layer }: FilmPanelProps) {
@@ -100,6 +102,7 @@ export function FilmPanel({ phone, style, layer }: FilmPanelProps) {
   const run = s.run;
   const busy = !!run;
   const title = filmTitleOf();
+  const era = useEra();
   // 手机:卡片多高,时间轴就浮在它上面多高(film.css 的 --film-sheet-h)。导出时卡片变矮,时间轴和预览不跟着动
   const sheetRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
@@ -136,7 +139,7 @@ export function FilmPanel({ phone, style, layer }: FilmPanelProps) {
 
   const pct = run ? Math.min(100, Math.floor(((run.f + 1) / run.frames) * 100)) : 0;
   const eta = run && run.f > 10 ? etaText(((performance.now() - run.t0) / (run.f + 1)) * (run.frames - run.f - 1)) : '';
-  const progressLine = run ? `正在画第 ${run.year} 年${eta ? `，${eta}` : ''}` : '';
+  const progressLine = run ? `正在画${yearFull(run.year, era)}${eta ? `，${eta}` : ''}` : '';
   const warn = ok === false && (
     <div className="film-warn">
       <b>这个浏览器导不了视频</b>
@@ -216,7 +219,7 @@ export function FilmPanel({ phone, style, layer }: FilmPanelProps) {
       <div className={`film-grp${busy ? ' off' : ''}`}>
         <div className="film-lbl">
           <b>年份</b>
-          <span className="val">{rangeText(range)}</span>
+          <span className="val">{rangeText(range, era)}</span>
         </div>
         <Seg
           value={s.rangeKind === 'custom' ? null : s.rangeKind}

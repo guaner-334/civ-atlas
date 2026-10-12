@@ -8,11 +8,13 @@
  *   结尾 —— 标题、种子、网址、"模拟生成的架空世界"
  *
  * 一国版:地图裁到这一国、描红边;大事只列和这一国有关的(不列每一次君主继位)。
+ * 设了纪年(gen/era.ts)的世界,年份和大事正文里的"第 N 年"都照纪年写。
  * 排版、画法在 render/longImage.ts,地图由 longRun.ts 按这里给的年份拍。同一个世界、同样的选项永远得到同样的内容。
  */
 import type { Civ, Polity } from '../gen/civ/types';
 import { chronicleEraYears, filterChronicle, type ChronicleEntry } from '../gen/civ/chronicle';
 import { ownersAt } from '../gen/civ/timeline';
+import { eraText, yearFull, yearShort, yearSpanAt, type Era } from '../gen/era';
 import { cnPunct } from './filmPlan';
 import { polityNameAt, polityUsedNames } from './searchIndex';
 import { entryWeight, evType, type EvType } from './timelineLayout';
@@ -32,6 +34,8 @@ export interface LongOptions {
   /** 世界名(一国版结尾写;没起名 = '') */
   worldTitle: string;
   seed: number;
+  /** 纪年(没设 = 按第几年写) */
+  era?: Era;
 }
 
 /** 一张地图:拍哪一年;一国版裁到这一国、描红边 */
@@ -133,14 +137,19 @@ export function defaultPolity(civ: Civ, selected: number | null): number | null 
 }
 
 /** 大事的年份:"1199";打了几年的 "2478—2514" */
-function rowLabel(e: ChronicleEntry): string {
+function rowLabel(e: ChronicleEntry, era?: Era): string {
   const a = Math.floor(e.year);
   const b = Math.floor(e.end);
-  return b > a ? `${a}—${b}` : `${a}`;
+  return b > a ? `${yearShort(a, era)}—${yearShort(b, era)}` : yearShort(a, era);
 }
 
-function rowOf(e: ChronicleEntry): LongRow {
-  return { label: rowLabel(e), type: evType(e), text: cnPunct(e.text), weight: entryWeight(e) };
+function rowOf(e: ChronicleEntry, era?: Era): LongRow {
+  return { label: rowLabel(e, era), type: evType(e), text: cnPunct(eraText(e.text, era)), weight: entryWeight(e) };
+}
+
+/** 节标题的起止:"第 500—999 年";纪年 "公元前 2000—前 1501 年" */
+function spanTitle(a: number, b: number, era?: Era): string {
+  return era ? yearSpanAt(a, b, era, '—') : `第 ${a}—${b} 年`;
 }
 
 /** 一国版列的大事:和这一国有关、不算小事(重要度 2 起),不列每一次君主继位 */
@@ -171,15 +180,16 @@ function worldDoc(civ: Civ, majors: readonly ChronicleEntry[], opt: LongOptions)
   const founded = civ.polities.map((p) => p.founded).filter((y) => y <= civ.endYear);
   const first = founded.length ? Math.floor(Math.min(...founded)) : Infinity;
   const aliveEnd = regionCounts(civ, civ.endYear).size;
+  const Y = (y: number) => yearFull(y, opt.era);
   const lead = founded.length
-    ? `从第 0 年人类登场，到第 ${end} 年。先后立国 ${founded.length} 个，到第 ${end} 年还有 ${aliveEnd} 国。`
-    : `从第 0 年人类登场，到第 ${end} 年。这期间还没有国家兴起。`;
+    ? `从${Y(0)}人类登场，到${Y(end)}。先后立国 ${founded.length} 个，到${Y(end)}还有 ${aliveEnd} 国。`
+    : `从${Y(0)}人类登场，到${Y(end)}。这期间还没有国家兴起。`;
   const cap = (y: number) => {
     const top = ranked(regionCounts(civ, yearEnd(y, civ.endYear)));
     const name = (id: number) => polityNameAt(civ.polities[id], yearEnd(y, civ.endYear));
-    if (!top.length) return `第 ${y} 年：没有国家`;
-    if (top.length === 1) return `第 ${y} 年：只有${name(top[0][0])}（${top[0][1]} 州）`;
-    return `第 ${y} 年：${top.length} 国并立，${name(top[0][0])}最大（${top[0][1]} 州）`;
+    if (!top.length) return `${Y(y)}：没有国家`;
+    if (top.length === 1) return `${Y(y)}：只有${name(top[0][0])}（${top[0][1]} 州）`;
+    return `${Y(y)}：${top.length} 国并立，${name(top[0][0])}最大（${top[0][1]} 州）`;
   };
   const sections: LongSection[] = [];
   for (let i = 0; i <= lastEra && Number.isFinite(first); i++) {
@@ -187,12 +197,12 @@ function worldDoc(civ: Civ, majors: readonly ChronicleEntry[], opt: LongOptions)
     const b = i === lastEra ? end : (i + 1) * span - 1;
     if (b < first) continue;
     const last = i === lastEra;
-    const rows = opt.events ? majors.filter((e) => eraOf(e.year) === i).map(rowOf) : [];
+    const rows = opt.events ? majors.filter((e) => eraOf(e.year) === i).map((e) => rowOf(e, opt.era)) : [];
     if (opt.events && !sections.length && first > 0) rows.unshift({ label: '', type: null, text: '此前各民族从发源地向外扩散，还没有国家', note: true, weight: Infinity });
     sections.push({
-      title: `第 ${a}—${b} 年`,
+      title: spanTitle(a, b, opt.era),
       map: !last && opt.maps === 'each' ? { year: yearEnd(b, civ.endYear) } : null,
-      cap: last ? `这一节末的疆域，就是最上面那张第 ${end} 年的地图` : cap(b),
+      cap: last ? `这一节末的疆域，就是最上面那张${Y(end)}的地图` : cap(b),
       rows,
     });
   }
@@ -202,7 +212,7 @@ function worldDoc(civ: Civ, majors: readonly ChronicleEntry[], opt: LongOptions)
     lead,
     lead2: null,
     head: { year: civ.endYear },
-    headCap: `第 ${end} 年`,
+    headCap: Y(end),
     sections,
     foot: { bold: opt.title, rest: `，种子 ${opt.seed}。${FOOT_REST}`, line2: FOOT_LINE2 },
   };
@@ -222,7 +232,8 @@ function polityDoc(civ: Civ, all: readonly ChronicleEntry[], p: Polity, opt: Lon
   const entries = polityEntries(all, p.id).filter((e) => Math.floor(e.year) <= E);
   // 开头一句:立国那一条 + 到最后有多少州(已亡:哪年亡、享国几年)
   const found = entries.find((e) => e.kind === 'found' && e.polities[0] === p.id);
-  let lead = `第 ${f} 年${found ? cnPunct(found.text) : '立国'}。`;
+  const Y = (y: number) => yearFull(y, opt.era);
+  let lead = `${Y(f)}${found ? cnPunct(eraText(found.text, opt.era)) : '立国'}。`;
   if (p.ended === undefined || p.ended > civ.endYear) {
     const top = ranked(regionCounts(civ, civ.endYear));
     const k = top.findIndex(([id]) => id === p.id);
@@ -235,17 +246,17 @@ function polityDoc(civ: Civ, all: readonly ChronicleEntry[], p: Polity, opt: Lon
           : k > 1
             ? `，在 ${top.length} 国里排第 ${k + 1}`
             : '';
-    lead += `到第 ${end} 年有 ${n} 州${rank}。`;
+    lead += `到${Y(end)}有 ${n} 州${rank}。`;
   } else {
     const e = Math.floor(p.ended);
-    lead += `第 ${e} 年亡，享国 ${Math.max(1, e - f)} 年。`;
+    lead += `${Y(e)}亡，享国 ${Math.max(1, e - f)} 年。`;
   }
   const used = polityUsedNames(p);
   const cap = (y: number) => {
     const top = ranked(regionCounts(civ, yearEnd(y, civ.endYear)));
     const k = top.findIndex(([id]) => id === p.id);
     const n = k >= 0 ? top[k][1] : 0;
-    return `第 ${y} 年：${n} 州${k === 0 && top.length > 1 ? '，世界第一大国' : ''}`;
+    return `${Y(y)}：${n} 州${k === 0 && top.length > 1 ? '，世界第一大国' : ''}`;
   };
   const sections: LongSection[] = [];
   for (let i = eraOf(f); i <= eraOf(E); i++) {
@@ -253,10 +264,10 @@ function polityDoc(civ: Civ, all: readonly ChronicleEntry[], p: Polity, opt: Lon
     const b = Math.min(i === lastEra ? end : (i + 1) * span - 1, E);
     const last = i === eraOf(E);
     sections.push({
-      title: a < b ? `第 ${a}—${b} 年` : `第 ${a} 年`,
+      title: a < b ? spanTitle(a, b, opt.era) : Y(a),
       map: !last && b < L && opt.maps === 'each' ? { year: yearEnd(b, lastY), polity: p.id } : null,
-      cap: last ? `这一节末的疆域，就是最上面那张第 ${L} 年的地图` : cap(b),
-      rows: opt.events ? entries.filter((e) => eraOf(e.year) === i).map(rowOf) : [],
+      cap: last ? `这一节末的疆域，就是最上面那张${Y(L)}的地图` : cap(b),
+      rows: opt.events ? entries.filter((e) => eraOf(e.year) === i).map((e) => rowOf(e, opt.era)) : [],
     });
   }
   const world = opt.worldTitle.trim();
@@ -266,7 +277,7 @@ function polityDoc(civ: Civ, all: readonly ChronicleEntry[], p: Polity, opt: Lon
     lead,
     lead2: used.length > 1 ? `国号：${used.join(' → ')}` : null,
     head: { year: lastY, polity: p.id },
-    headCap: `第 ${L} 年，红线以内是${name}`,
+    headCap: `${Y(L)}，红线以内是${name}`,
     sections,
     foot: { bold: opt.title, rest: `，${world ? `${world}，` : ''}种子 ${opt.seed}。${FOOT_REST}`, line2: FOOT_LINE2 },
   };

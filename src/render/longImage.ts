@@ -107,6 +107,9 @@ function layoutOnce(doc: LongDoc, measure: Measure): LongLayout {
   const maps: LongMap[] = [];
   const cuts: number[] = [];
   let y = PAD_T;
+  // 年份一栏宽 204(圆点 + "2478—2514");设了纪年的年份长("前 2478—前 2400"),按最宽的那个放宽
+  let col = 204;
+  for (const sec of doc.sections) for (const row of sec.rows) if (row.label) col = Math.max(col, Math.ceil(13 + 14 + measure(row.label, 27, 400) + 8));
   /** 一段字(折行),从 top 往下排;返回排完的底 */
   const para = (text: string, x: number, top: number, width: number, size: number, lh: number, weight: number, color: string, spacing = 0) => {
     const lines = wrapText((s) => measure(s, size, weight) + spacing * Array.from(s).length, text, width, Infinity);
@@ -152,7 +155,7 @@ function layoutOnce(doc: LongDoc, measure: Measure): LongLayout {
       // 年份一栏:小圆点 + 年份(27 号字,行高 46)
       if (row.type) ops.push({ t: 'dot', x: PAD_X + 6.5, y: top + 16.5 + 6.5, r: 6.5, color: EV_COLOR[row.type] });
       if (row.label) ops.push({ t: 'text', x: PAD_X + 13 + 14, y: top + 23, s: row.label, size: 27, weight: 400, color: INK2 });
-      const bottom = para(row.text, PAD_X + 204 + 22, top, CW - 204 - 22, 31, 1.48, 400, row.note ? INK2 : INK);
+      const bottom = para(row.text, PAD_X + col + 22, top, CW - col - 22, 31, 1.48, 400, row.note ? INK2 : INK);
       y = Math.max(bottom, top + 46) + 21;
     }
   }

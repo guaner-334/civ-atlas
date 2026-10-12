@@ -19,6 +19,7 @@ import { getFilmViewport, useFilmSource } from './filmSource';
 import { FilmRenderer } from './filmRun';
 import { filmLiveCanvas, filmMajors, filmRangeOf, filmSetup, holeRegion, setFilmHole, useFilm } from './filmStore';
 import { filmSize } from './filmPlan';
+import { yearFull } from '../gen/era';
 
 export interface FilmStageProps {
   phone: boolean;
@@ -85,7 +86,7 @@ export function FilmStage({ phone, style, layer }: FilmStageProps) {
   const proj = useProjection();
   const grat = useGraticule();
   const center = useMapCenter();
-  const marks = useEdits().marks;
+  const { marks, era } = useEdits();
   const [room, setRoom] = useState<Room | null>(null);
   const [vkey, setVkey] = useState('');
   const pvRef = useRef<HTMLCanvasElement>(null);
@@ -137,7 +138,7 @@ export function FilmStage({ phone, style, layer }: FilmStageProps) {
     const region = whole ? undefined : holeRegion();
     return new FilmRenderer(src, filmSetup(src, { style, layer }, region), filmMajors(src.full));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [src, s.mode, s.shape, s.area, s.rangeKind, s.range, s.seconds, s.captions, s.cards, s.title, style, layer, show, proj, grat, center, marks, whole ? '' : vkey, box?.w]);
+  }, [src, s.mode, s.shape, s.area, s.rangeKind, s.range, s.seconds, s.captions, s.cards, s.title, style, layer, show, proj, grat, center, marks, era, whole ? '' : vkey, box?.w]);
   useEffect(() => () => renderer?.dispose(), [renderer]);
 
   // 整张地图:预览按年份重画(一帧要 0.1 秒多;拖时间轴时只画最新的那一年,选项改了用新的画法)
@@ -200,7 +201,7 @@ export function FilmStage({ phone, style, layer }: FilmStageProps) {
   const cw = whole ? film.w : Math.round(box.w * dpr);
   const ch = whole ? film.h : Math.round(box.h * dpr);
   const label = run
-    ? `正在导出　第 ${run.year} 年`
+    ? `正在导出　${yearFull(run.year, era)}`
     : `${s.shape === 'land' ? '横屏' : '竖屏'}　${film.w}×${film.h}${whole ? '　整张地图' : ''}`;
   const pill = run
     ? '正在导出，先别关掉这个网页'

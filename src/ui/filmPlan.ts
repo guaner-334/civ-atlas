@@ -8,9 +8,11 @@
  *   同时来好几条挑分量重的(和时间轴上同一处挤了几件事时一样的分量),挤不下的不放。
  *   多年的战争出字幕时还没打完,写"第 2562 年起"和开头一句(由头和出兵),不写得失。
  * - 竖屏下面那一栏:放到的那一年为止最近的几条大事,新的在上;战争打完以前写"2562 起"和开头一句,打完了写"2478—2514"和全文。
+ * - 设了纪年(gen/era.ts)的世界,年份、字幕正文里的"第 N 年"都照纪年写("公元前 850 年""前 850 起")。
  */
 import type { ChronicleEntry } from '../gen/civ/chronicle';
 import type { Civ } from '../gen/civ/types';
+import { eraText, yearFull, yearShort, type Era } from '../gen/era';
 import { entryWeight, evType, playRate, type EvType } from './timelineLayout';
 
 export type FilmShape = 'land' | 'port';
@@ -135,13 +137,13 @@ export interface FilmEvent {
  * 这一段年份里的大事(编年史"大事",开始的年份在范围里),按年份排;keep 给了只留它说留的
  * (拍框里一块时:只写框里看得到的国家的)
  */
-export function filmEvents(majors: readonly ChronicleEntry[], range: FilmRange, keep?: (e: ChronicleEntry) => boolean): FilmEvent[] {
+export function filmEvents(majors: readonly ChronicleEntry[], range: FilmRange, keep?: (e: ChronicleEntry) => boolean, era?: Era | null): FilmEvent[] {
   const out: FilmEvent[] = [];
   for (const e of majors) {
     const year = Math.floor(e.year);
     if (year < range.from || year > range.to) continue;
     if (keep && !keep(e)) continue;
-    const text = cnPunct(e.text);
+    const text = cnPunct(eraText(e.text, era));
     out.push({
       id: e.id,
       type: evType(e),
@@ -149,7 +151,7 @@ export function filmEvents(majors: readonly ChronicleEntry[], range: FilmRange, 
       end: Math.max(year, Math.floor(e.end)),
       ongoing: !!e.ongoing,
       text,
-      head: e.head ? cnPunct(e.head) : text,
+      head: e.head ? cnPunct(eraText(e.head, era)) : text,
       weight: entryWeight(e),
     });
   }
@@ -172,7 +174,7 @@ export interface CaptionSlot {
 }
 
 /** 横屏字幕:每条大事排一个 2 秒的位置,撞了往后挪,挪不下的不放。按出现的先后排 */
-export function captionSlots(events: readonly FilmEvent[], c: FilmClock): CaptionSlot[] {
+export function captionSlots(events: readonly FilmEvent[], c: FilmClock, era?: Era | null): CaptionSlot[] {
   const hold = CAPTION_HOLD * FILM_FPS;
   const shift = Math.round(CAPTION_SHIFT * FILM_FPS);
   const lo = c.intro;
@@ -202,7 +204,7 @@ export function captionSlots(events: readonly FilmEvent[], c: FilmClock): Captio
       ev,
       f0: Math.max(lo, f0),
       f1: f0 + hold,
-      label: over ? `第 ${ev.year} 年` : `第 ${ev.year} 年起`,
+      label: over ? yearFull(ev.year, era) : `${yearFull(ev.year, era)}起`,
       text: over ? ev.text : ev.head,
     });
   }
@@ -229,7 +231,7 @@ export interface RecentRow {
 }
 
 /** 竖屏下面那一栏:放到第 f 帧时最近的 n 条大事,新的在上 */
-export function recentRows(events: readonly FilmEvent[], c: FilmClock, f: number, n: number): RecentRow[] {
+export function recentRows(events: readonly FilmEvent[], c: FilmClock, f: number, n: number, era?: Era | null): RecentRow[] {
   const year = frameYear(c, f);
   const rows: RecentRow[] = [];
   for (let i = events.length - 1; i >= 0 && rows.length < n; i--) {
@@ -237,7 +239,8 @@ export function recentRows(events: readonly FilmEvent[], c: FilmClock, f: number
     const at = yearFrame(c, ev.year);
     if (at > f) continue;
     const over = eventOver(ev, year);
-    const label = ev.end > ev.year && over ? `${ev.year}—${ev.end}` : over ? `${ev.year}` : `${ev.year} 起`;
+    const a = yearShort(ev.year, era);
+    const label = ev.end > ev.year && over ? `${a}—${yearShort(ev.end, era)}` : over ? a : `${a} 起`;
     rows.push({ ev, label, text: over ? ev.text : ev.head, age: f - at });
   }
   return rows;
@@ -246,22 +249,29 @@ export function recentRows(events: readonly FilmEvent[], c: FilmClock, f: number
 // ---------------------------------------------------------------------------
 // 文字
 
-/** 片头那一行:"第 899 年到第 3000 年" */
-export function rangeText(r: FilmRange): string {
-  return `第 ${r.from} 年到第 ${r.to} 年`;
+/** 片头那一行:"第 899 年到第 3000 年";纪年 "公元前 1601 年到公元 501 年" */
+export function rangeText(r: FilmRange, era?: Era | null): string {
+  return `${yearFull(r.from, era)}到${yearFull(r.to, era)}`;
 }
 
-/** 文件名:"文明与地图-九州大陆-第899—3000年.mp4";竖屏加"-竖屏"。base = 存档文件名的前半截(savefile.ts 的 fileBaseName) */
-export function filmFileName(base: string, r: FilmRange, shape: FilmShape): string {
-  return `${base}-第${r.from}—${r.to}年${shape === 'port' ? '-竖屏' : ''}.mp4`;
+/**
+ * 文件名:"文明与地图-九州大陆-第899—3000年.mp4";纪年 "…-公元前1601年—公元501年.mp4";竖屏加"-竖屏"。
+ * base = 存档文件名的前半截(savefile.ts 的 fileBaseName)
+ */
+export function filmFileName(base: string, r: FilmRange, shape: FilmShape, era?: Era | null): string {
+  const years = era ? `${yearFull(r.from, era)}—${yearFull(r.to, era)}`.replace(/ /g, '') : `第${r.from}—${r.to}年`;
+  return `${base}-${years}${shape === 'port' ? '-竖屏' : ''}.mp4`;
 }
 
-/** 估计的文件大小(MB):码率 × 时长 */
+/** 编出来的平均码率约是设定的几成(地图大多数时候只有几处在变,编码器用不满;实测 30 秒 9 MB、1 分钟 15 MB) */
+const FILM_FILL = 0.45;
+
+/** 估计的文件大小(MB):码率 × 时长 × 用满的比例 */
 export function filmMegabytes(bitrate: number, seconds: number): number {
-  return (bitrate * seconds) / 8 / 1e6;
+  return (bitrate * seconds * FILM_FILL) / 8 / 1e6;
 }
 
-/** 成片的码率:1080p 30 帧,地图细节多,给 5 Mbps(1 分钟约 40 MB) */
+/** 成片的码率(上限):1080p 30 帧,地图细节多,给 5 Mbps */
 export const FILM_BITRATE = 5_000_000;
 
 /** 文字按逗号分成几截(太长时从后往前去掉几截) */

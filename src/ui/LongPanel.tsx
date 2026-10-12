@@ -15,6 +15,8 @@ import { Seg } from './FilmPanel';
 import { useFilmSource } from './filmSource';
 import { closeFilm } from './filmStore';
 import { longPolities, polityLastYear, type LongScope } from './longPlan';
+import { useEra } from './editsStore';
+import { yearShort } from '../gen/era';
 import { canShareLong, downloadLong, longDefaultTitle, longFiles, longPolity, longResult, longSizeText, shareLong } from './longRun';
 import { getLong, setLong, setLongScope, useLong } from './longStore';
 import './film.css';
@@ -73,6 +75,7 @@ function sizeLine(): string {
 /** 选哪一国:宽屏的菜单 / 手机的列表 */
 function PolityList({ full, cur, phone, onPick }: { full: Civ; cur: number | null; phone: boolean; onPick: (id: number) => void }) {
   const { alive, fallen } = polsOf(full);
+  const era = useEra();
   const row = (id: number, name: string, small: string) => (
     <button key={id} className={`long-pr${id === cur ? ' on' : ''}`} data-act={`long-pol-${id}`} onClick={() => onPick(id)}>
       <span className="nm">{name}</span>
@@ -96,7 +99,7 @@ function PolityList({ full, cur, phone, onPick }: { full: Civ; cur: number | nul
       {alive.length > 0 && fallen.length > 0 && !phone && <div className="long-sep" />}
       {group(
         '已亡',
-        fallen.map((p) => row(p.id, p.name, `${p.from}—${p.to}`)),
+        fallen.map((p) => row(p.id, p.name, `${yearShort(p.from, era)}—${yearShort(p.to, era)}`)),
       )}
     </>
   );

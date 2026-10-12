@@ -67,7 +67,7 @@ export function LongStage({ phone, style, layer }: LongStageProps) {
   const proj = useProjection();
   const grat = useGraticule();
   const center = useMapCenter();
-  const marks = useEdits().marks;
+  const { marks, era } = useEdits();
   const flags = useFlags();
   const pvRef = useRef<HTMLDivElement>(null);
   const stripRef = useRef<HTMLCanvasElement>(null);
@@ -89,7 +89,7 @@ export function LongStage({ phone, style, layer }: LongStageProps) {
       font: setup.font,
     };
     void renderLong(src, look, lookKey(src, look, marks, flags)).catch((e) => console.error('长图画不出来', e));
-  }, [src, style, layer, show, proj, grat, center, marks, flags, s.scope, s.polity, s.maps, s.events, s.split, s.title]);
+  }, [src, style, layer, show, proj, grat, center, marks, era, flags, s.scope, s.polity, s.maps, s.events, s.split, s.title]);
   // 关掉面板:画好的图放掉
   useEffect(() => () => disposeLong(), []);
 

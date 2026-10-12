@@ -14,7 +14,7 @@
  */
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import type { ChronicleEntry } from '../gen/civ/chronicle';
-import { eraText, yearFull, type Era } from '../gen/era';
+import { eraText, yearFull, yearShort, type Era } from '../gen/era';
 import { getCivTime, pickChronicleEntry, setCivTime, stepYear } from './civView';
 import { evLabel, evText, evType, evYears, hitDiamonds, layoutDiamonds, rulerLabel, rulerOf, timeScale, type Diamond } from './timelineLayout';
 
@@ -303,10 +303,10 @@ export const TimelineMarks = memo(function TimelineMarks({ entries, end, dock, y
           {range.labels && (
             <>
               <span className="tb-range-lab" style={{ left: (range.from / end) * width }}>
-                {range.from}
+                {yearShort(range.from, era)}
               </span>
               <span className="tb-range-lab" style={{ left: (range.to / end) * width }}>
-                {range.to}
+                {yearShort(range.to, era)}
               </span>
             </>
           )}

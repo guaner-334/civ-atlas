@@ -8,7 +8,7 @@ import { chronicleEraYears, filterChronicle } from '../src/gen/civ/chronicle';
 import { fullChronicle } from '../src/gen/civ/religionText';
 import { generateCiv } from '../src/gen/civ';
 import { DEFAULT_PARAMS, generateWorld } from '../src/gen/world';
-import { defaultPolity, longDoc, longFileName, longPolities, polityEntries, regionCounts, type LongOptions } from '../src/ui/longPlan';
+import { defaultPolity, longDoc, longFileName, longPolities, polityEntries, regionCounts, type LongDoc, type LongOptions } from '../src/ui/longPlan';
 import { LONG_W, PAGE_H, PAGE_PAD, layoutLong, longPages } from '../src/render/longImage';
 
 const civ = generateCiv(generateWorld({ ...DEFAULT_PARAMS, seed: 7 }));
@@ -58,6 +58,21 @@ describe('整个世界', () => {
 
   it('同样的选项永远得到同样的内容', () => {
     expect(JSON.stringify(longDoc(civ, all, majors, opt))).toBe(JSON.stringify(doc));
+  });
+
+  it('设了纪年:年份和大事正文都照纪年写,不剩"第 N 年"', () => {
+    const era = { name: '公元', epoch: 2500 };
+    const texts = (d: LongDoc) => [d.lead, d.lead2 ?? '', d.headCap, ...d.sections.flatMap((s) => [s.title, s.cap, ...s.rows.flatMap((r) => [r.label, r.text])])];
+    const d = longDoc(civ, all, majors, { ...opt, era });
+    expect(d.lead).toMatch(/^从公元前 2500 年人类登场，到公元 \d+ 年。/);
+    expect(d.headCap).toBe(`公元 ${Math.floor(civ.endYear) - 2500 + 1} 年`);
+    expect(d.sections.at(-1)!.title).toBe('公元元年—公元 501 年');
+    for (const t of texts(d)) expect(t).not.toMatch(/第 \d+ 年/);
+    expect(d.sections[0].rows.some((r) => r.label.startsWith('前 '))).toBe(true);
+    const p = longPolities(civ).fallen[0];
+    const d1 = longDoc(civ, all, majors, { ...opt, era, scope: 'one', polity: p.id, title: p.name });
+    expect(d1.lead).toMatch(/^公元前 \d+ 年/);
+    for (const t of texts(d1)) expect(t).not.toMatch(/第 \d+ 年/);
   });
 });
 
