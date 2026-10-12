@@ -1,5 +1,5 @@
 /**
- * 底部时间轴:播放 / 暂停、"第 N 年"、1× / 4×、时间轴(刻度 + 事件菱形 + 干预"令" + 播放头)。
+ * 底部时间轴:播放 / 暂停、"第 N 年"(设了纪年:"公元前 850 年")、1× / 4×、时间轴(刻度 + 事件菱形 + 干预"令" + 播放头)。
  * 窄屏(手机)整条排成一行,1× / 4× 并成一个按钮(点一下换另一档)。
  * 编年史在世界概览里(国家面板"相关事件 · 全部 ›"也能到),时间轴上不另放按钮。
  *
@@ -35,6 +35,8 @@ import {
 import { TimelineMarks } from './TimelineMarks';
 import { baseRegions } from './eras';
 import { useNarrow } from './device';
+import { useEra } from './editsStore';
+import { yearFull, type Era } from '../gen/era';
 import { STORY_SECONDS, playRate, replayStart } from './timelineLayout';
 import { filmRangeOf, getFilm, setFilmRange, useFilm } from './filmStore';
 import { filmClock, lengthText } from './filmPlan';
@@ -54,6 +56,7 @@ export function CivTimeline({ civ, hidden, dock = 'bottom' }: CivTimelineProps) 
   // 导出回放视频时:时间轴上选一段(两头的把手),播放按成片的速度放这一段,右边写片长
   const film = useFilm();
   const chron = useChronicle();
+  const era = useEra();
   const has = !!civ && civ.viable && civ.cultures.length > 0;
   const end = civ?.endYear ?? 0;
   const year = Math.min(end, Math.max(0, t.year ?? end));
@@ -136,7 +139,7 @@ export function CivTimeline({ civ, hidden, dock = 'bottom' }: CivTimelineProps) 
       {t.story && t.playing && (
         <div className={`civ-top${dock === 'top' ? ' dock-top' : ''}`}>
           <div className="caption">
-            <div className="big">第 {n} 年</div>
+            <div className="big">{yearFull(n, era)}</div>
             <div className="small">{story}</div>
             <div className="track">
               <div style={{ width: `${p * 100}%`, transition: 'none' }} />
@@ -163,7 +166,17 @@ export function CivTimeline({ civ, hidden, dock = 'bottom' }: CivTimelineProps) 
         >
           <i aria-hidden="true" />
         </button>
-        <span className="tb-year">第 {n} 年</span>
+        {era ? (
+          // 纪年的字长短不一("公元元年""公元前 2500 年"):按最长的那个占位,播放时滑条不跟着伸缩
+          <span className="tb-year tb-year-era">
+            <span>{yearFull(n, era)}</span>
+            <span className="tb-year-ghost" aria-hidden="true">
+              {longestYear(end, era)}
+            </span>
+          </span>
+        ) : (
+          <span className="tb-year">{yearFull(n)}</span>
+        )}
         {span ? (
           !narrow && (
             <span className="tb-film-len">
@@ -188,12 +201,21 @@ export function CivTimeline({ civ, hidden, dock = 'bottom' }: CivTimelineProps) 
           end={end}
           dock={dock}
           year={n}
+          era={era}
           small={narrow}
           range={span ? { from: span.from, to: span.to, onRange: (from, to) => setFilmRange({ from, to }, end), labels: narrow, locked } : undefined}
         />
       </div>
     </>
   );
+}
+
+/** 这个世界里最长的那个年份(第 0 年、结束那年两头里字多的那个;汉字按一个字宽、数字按半个算) */
+function longestYear(end: number, era: Era): string {
+  const w = (s: string) => [...s].reduce((a, c) => a + (/[\x00-\x7f]/.test(c) ? 0.6 : 1), 0);
+  const a = yearFull(0, era);
+  const b = yearFull(end, era);
+  return w(b) > w(a) ? b : a;
 }
 
 /**

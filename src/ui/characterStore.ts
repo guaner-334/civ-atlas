@@ -23,6 +23,7 @@ import {
   type Where,
 } from '../gen/characters';
 import { addCharacter, getEdits, subscribeEdits, updateCharacter } from './editsStore';
+import { noYearZero, yearTooEarly, yearTooLate } from '../gen/era';
 import { clearSelection, getSelection, setSelection, subscribeSelection } from './civView';
 import { clearToast, showToast } from './toastStore';
 
@@ -103,11 +104,11 @@ export function subscribeCharUi(f: () => void): () => void {
 /** 年份 → 输入框里的字 */
 const yearText = (y: number | undefined) => (y === undefined ? '' : String(Math.floor(y)));
 
-/** 年份输入框里的字 → 年份(空 = null;不是数 = NaN) */
-export function parseYear(text: string): number | null {
+/** 年份输入框里的字 → 年份(空 = null;不是数 = NaN;设了纪年时填到第 0 年以前的是负数) */
+export function parseYear(text: string, era = getEdits().era): number | null {
   const t = text.trim();
   if (!t) return null;
-  return /^\d{1,5}$/.test(t) ? Number(t) : NaN;
+  return (era ? /^-?\d{1,7}$/ : /^\d{1,5}$/).test(t) ? Number(t) : NaN;
 }
 
 // ---- 新建 / 编辑 ----
@@ -169,9 +170,12 @@ export function patchDraft(p: Partial<Omit<CharDraft, 'sub'>>) {
 export function draftProblem(d: CharDraft): string | null {
   const born = parseYear(d.bornText);
   const died = parseYear(d.diedText);
+  const era = getEdits().era;
+  if (era && (d.bornText === 'x' || d.diedText === 'x')) return noYearZero(era);
   if (born === null || Number.isNaN(born)) return '填一下生年';
   if (Number.isNaN(died)) return '卒年要填年份，或者空着';
-  if (born > CHAR_YEAR_MAX || (died !== null && died > CHAR_YEAR_MAX)) return `年份最大填到 ${CHAR_YEAR_MAX}`;
+  if (born < 0 || (died !== null && died < 0)) return yearTooEarly(era);
+  if (born > CHAR_YEAR_MAX || (died !== null && died > CHAR_YEAR_MAX)) return yearTooLate(CHAR_YEAR_MAX, era);
   if (died !== null && died < born) return '卒年比生年早了';
   if (d.id === 0 && (getEdits().characters?.length ?? 0) >= CHARACTERS_MAX) return `作者的人物已经有 ${CHARACTERS_MAX} 个了，删掉一些才能再加`;
   return null;
@@ -294,8 +298,11 @@ export function toggleLifeLink(field: 'events' | 'people', key: string) {
 /** 这段经历能不能加上;不能 = 原因 */
 export function lifeProblem(d: CharDraft, l: LifeDraft): string | null {
   const y = parseYear(l.yearText);
+  const era = getEdits().era;
+  if (era && l.yearText === 'x') return noYearZero(era);
   if (y === null || Number.isNaN(y)) return '填一下年份';
-  if (y > CHAR_YEAR_MAX) return `年份最大填到 ${CHAR_YEAR_MAX}`;
+  if (y < 0) return yearTooEarly(era);
+  if (y > CHAR_YEAR_MAX) return yearTooLate(CHAR_YEAR_MAX, era);
   if (!l.text.trim()) return '写一句经历';
   if (l.index < 0 && d.life.length >= LIFE_MAX) return `一个人最多写 ${LIFE_MAX} 段经历`;
   return null;

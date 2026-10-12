@@ -150,4 +150,8 @@
   .chron-row.pp-row.mk-row {
     grid-template-columns: 44px 96px 1fr;
   }
+  /* 设了纪年:年份一列放得下"前 1083" */
+  .chronicle.era .chron-row.pp-row.mk-row {
+    grid-template-columns: 54px 96px 1fr;
+  }
 }

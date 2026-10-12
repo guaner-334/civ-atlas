@@ -22,6 +22,7 @@ import { describeCiv } from './civDescribe';
 import { formatLon, lonOfX } from './mapWrap';
 import { VERDICT_TEXT, getPolityPick, pickVerdict, type PolityPick } from './Interventions';
 import { getPanel } from './panelStore';
+import { currentEra } from './editsStore';
 import { vassalTies } from '../render/civ/vassals';
 
 export interface HoverInfo {
@@ -211,5 +212,5 @@ export function probeLines(world: World, r: Raster, civ: Civ | null, px: number,
   lines.push(r.water[k] === 1 ? `水深 ${(-e).toLocaleString()} 米` : `海拔 ${e.toLocaleString()} 米`);
   lines.push(`年均温 ${r.temp[k].toFixed(1)}°C · 年降水 ${Math.round(r.precip[k])} mm`);
   lines.push(`纬度 ${latS} · 经度 ${formatLon(lonOfX((px + 0.5) / r.scale, world.width))} · ${world.tect.plateContinental[plate] ? '大陆' : '大洋'}板块 #${plate + 1}`);
-  return [...lines, ...describeCiv(civ, c)];
+  return [...lines, ...describeCiv(civ, c, currentEra())];
 }

@@ -17,6 +17,7 @@ import { cityStands, defaultYear, nameAt, neighborsAt, polityOrders, setPolityPi
 import { endRun, setPanelTab, startRun } from './panelStore';
 import { setCivTime } from './civView';
 import { YearStepper, useYearInput } from './panelParts';
+import { spaced, yearAt, yearSpanAt } from '../gen/era';
 
 let owners: Owners | undefined;
 
@@ -40,7 +41,7 @@ export function CommandPage({ civ, id, year }: { civ: Civ; id: number; year: num
   const hi = Math.max(lo, Math.min(civ.endYear - 1, p.ended !== undefined ? Math.ceil(p.ended) - 1 : civ.endYear - 1));
   const [msg, setMsg] = useState<string | null>(null);
   const yi = useYearInput(defaultYear(p, year), lo, hi, () => setMsg(null));
-  const { y, valid } = yi;
+  const { y, valid, era } = yi;
 
   const alive = polityAlive(p, y);
   const { size, near } = useMemo(() => neighborsAt(civ, id, y), [civ, id, y]);
@@ -63,8 +64,8 @@ export function CommandPage({ civ, id, year }: { civ: Civ; id: number; year: num
 
   /** 这一条命令为什么用不了(能用 = null) */
   const why = (k: Cmd): string | null => {
-    if (!valid) return `生效年份要在 ${lo}–${hi} 年之间`;
-    if (!alive) return y < p.founded ? `${y} 年还没立国` : `${y} 年已亡`;
+    if (!valid) return `生效年份要在${spaced(yearSpanAt(lo, hi, era))}之间`;
+    if (!alive) return y < p.founded ? `${yearAt(y, era)}还没立国` : `${yearAt(y, era)}已亡`;
     if ((k === 'protect' || k === 'unity' || k === 'halt') && has(k)) return '已经下过这条命令';
     if (k === 'ally' && !others.length) return '该年没有别的国家';
     if (k === 'declare' && !near.size) return '该年没有相邻的国家';
@@ -91,7 +92,7 @@ export function CommandPage({ civ, id, year }: { civ: Civ; id: number; year: num
       setMsg(order({ kind: k, a: key, from: y }, null));
       return;
     }
-    const base = { sub: `${y} 年起生效`, source: `polity:${id}`, self: id, near, year: y };
+    const base = { sub: `${yearAt(y, era)}起生效`, source: `polity:${id}`, self: id, near, year: y };
     let pk: PolityPick;
     if (k === 'move') {
       const ok = new Set(cities);
@@ -104,7 +105,7 @@ export function CommandPage({ civ, id, year }: { civ: Civ; id: number; year: num
           const s = civ.settlements[sid];
           if (!s) return '这里没有城,点一座城';
           if (capitalAt(p, y) === sid) return `${s.name}本来就是国都`;
-          if (!ok.has(sid)) return `${y} 年${s.name}不在${name}的国土里`;
+          if (!ok.has(sid)) return `${yearAt(y, era)}${s.name}不在${name}的国土里`;
           return order({ kind: 'move', a: key, city: settlementKey(civ, sid), from: y }, { kind: 'settlement', id: sid });
         },
       };
@@ -117,7 +118,7 @@ export function CommandPage({ civ, id, year }: { civ: Civ; id: number; year: num
         accept: (q) => {
           if (q === id) return '要选另一个国家';
           const Q = civ.polities[q];
-          if (!Q || !polityAlive(Q, y) || !(size.get(q)! > 0)) return `${y} 年${Q ? nameAt(Q, y) : '这个国家'}不在`;
+          if (!Q || !polityAlive(Q, y) || !(size.get(q)! > 0)) return `${yearAt(y, era)}${Q ? nameAt(Q, y) : '这个国家'}不在`;
           if (k === 'declare' && !near.has(q)) return '两国不接壤,无法宣战';
           return order({ kind: k, a: key, b: polityKey(civ, q), from: y }, { kind: 'polity', id: q });
         },
@@ -131,7 +132,7 @@ export function CommandPage({ civ, id, year }: { civ: Civ; id: number; year: num
   return (
     <>
       <div className="cp-body">
-        <YearStepper yi={yi} then={valid && alive && name !== shown ? `${y} 年时它叫${name}。` : undefined} />
+        <YearStepper yi={yi} then={valid && alive && name !== shown ? `${yearAt(y, era)}时它叫${name}。` : undefined} />
         <div className="cp-cmds">
           {CMDS.map((c) => {
             const off = why(c.k);

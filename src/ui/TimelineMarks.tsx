@@ -1,5 +1,6 @@
 /**
- * 时间轴的轨道:1px 基线、每 100 年一格刻度(500、1000 年加长)、0 / 1000 / 2000 / 3000 年的字(推得更久的世界放大格子,见 timelineLayout.ts 的 rulerOf)、
+ * 时间轴的轨道:1px 基线、每 100 年一格刻度(500、1000 年加长)、0 / 1000 / 2000 / 3000 年的字(推得更久的世界放大格子;
+ * 设了纪年对准元年写"前2000""元年",见 timelineLayout.ts 的 rulerOf)、
  * 事件菱形(颜色按事件类型)、干预的红线加"令"字、地形大事的红线加"变"字、进度和播放头(按父元素的 CSS 变量 --p 画)。
  * 怎么排、太密怎么合并见 timelineLayout.ts。
  *
@@ -13,8 +14,9 @@
  */
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import type { ChronicleEntry } from '../gen/civ/chronicle';
+import { eraText, yearFull, type Era } from '../gen/era';
 import { getCivTime, pickChronicleEntry, setCivTime, stepYear } from './civView';
-import { evLabel, evText, evType, evYears, hitDiamonds, layoutDiamonds, rulerOf, timeScale, type Diamond } from './timelineLayout';
+import { evLabel, evText, evType, evYears, hitDiamonds, layoutDiamonds, rulerLabel, rulerOf, timeScale, type Diamond } from './timelineLayout';
 
 /** 提示最多列几件 */
 const TIP_ROWS = 5;
@@ -48,6 +50,8 @@ export interface TimelineMarksProps {
   dock: 'top' | 'bottom' | 'inline';
   /** 当前年份(取整;读屏用) */
   year: number;
+  /** 纪年(没设 = 按第几年写) */
+  era?: Era;
   /** 导出回放视频时选的一段 */
   range?: TimelineRange;
   /** 手机上的小号(把手窄一点) */
@@ -56,7 +60,7 @@ export interface TimelineMarksProps {
 
 type Tip = Diamond & { pinned?: boolean };
 
-export const TimelineMarks = memo(function TimelineMarks({ entries, end, dock, year, range, small }: TimelineMarksProps) {
+export const TimelineMarks = memo(function TimelineMarks({ entries, end, dock, year, era, range, small }: TimelineMarksProps) {
   const ref = useRef<HTMLDivElement>(null);
   const tipRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
@@ -204,10 +208,13 @@ export const TimelineMarks = memo(function TimelineMarks({ entries, end, dock, y
   const hot = tip?.lead;
   const static_ = useMemo(() => {
     const ticks: ReactElement[] = [];
-    const { major, minor, mid, labels } = rulerOf(end);
+    const { major, minor, mid, origin, labels } = rulerOf(end, era);
     if (end > 0) {
-      for (let y = 0; y <= end; y += minor) {
-        const cls = y % major === 0 ? ' k' : y % mid === 0 ? ' h' : '';
+      // 格子从 origin(元年;没设纪年 = 第 0 年)数起
+      const first = origin - Math.floor(origin / minor) * minor;
+      for (let y = first; y <= end; y += minor) {
+        const d = y - origin;
+        const cls = d % major === 0 ? ' k' : d % mid === 0 ? ' h' : '';
         ticks.push(<i key={y} className={`tb-tick${cls}`} style={{ left: `${(y / end) * 100}%` }} />);
       }
     }
@@ -217,12 +224,12 @@ export const TimelineMarks = memo(function TimelineMarks({ entries, end, dock, y
         {ticks}
         {labels.map((y, i) => (
           <span key={y} className={`tb-label${i === 0 ? ' first' : y === end ? ' last' : ''}`} style={{ left: `${(y / Math.max(1, end)) * 100}%` }}>
-            {y}
+            {rulerLabel(y, era)}
           </span>
         ))}
       </>
     );
-  }, [end]);
+  }, [end, era]);
   const marks = useMemo(
     () => (
       <>
@@ -274,7 +281,7 @@ export const TimelineMarks = memo(function TimelineMarks({ entries, end, dock, y
       aria-valuemin={range ? range.from : 0}
       aria-valuemax={range ? range.to : end}
       aria-valuenow={year}
-      aria-valuetext={`第 ${year} 年`}
+      aria-valuetext={yearFull(year, era)}
       onPointerDown={onDown}
       onPointerMove={onMove}
       onPointerUp={onUp}
@@ -317,9 +324,9 @@ export const TimelineMarks = memo(function TimelineMarks({ entries, end, dock, y
           onClick={() => pickChronicleEntry(tip.lead)}
         >
           <b>
-            {evYears(tip.lead)} · {evLabel(tip.lead)}
+            {evYears(tip.lead, era)} · {evLabel(tip.lead)}
           </b>
-          <small>{evText(tip.lead)}</small>
+          <small>{eraText(evText(tip.lead), era)}</small>
         </div>
       ) : tip && (
         <div
@@ -341,8 +348,8 @@ export const TimelineMarks = memo(function TimelineMarks({ entries, end, dock, y
               }}
             >
               <b className="tb-ev">{evLabel(e)}</b>
-              <span className="tb-tip-year">{evYears(e)}</span>
-              <span className="tb-tip-text">{evText(e)}</span>
+              <span className="tb-tip-year">{evYears(e, era)}</span>
+              <span className="tb-tip-text">{eraText(evText(e), era)}</span>
             </div>
           ))}
           {more > 0 && <div className="tb-tip-more">这里还有 {more} 件,打开编年史看全部</div>}

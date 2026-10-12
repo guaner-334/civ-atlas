@@ -30,6 +30,8 @@ import { filterChronicle, polityChronicle } from '../gen/civ/chronicle';
 import { fullChronicle } from '../gen/civ/religionText';
 import { stateFaithAt } from '../gen/civ/religion';
 import { dynastyKey, polityKey } from '../gen/edits';
+import { spaced, yearAt, yearShort, yearShortAt, yearSpan, yearSpanAt } from '../gen/era';
+import { useEra } from './editsStore';
 import { setCivTime, setSelection } from './civView';
 import { peopleIndex, rulerAt } from '../gen/civ/peopleInfo';
 import { isConsul, personName, rulerFateWord } from '../gen/civ/peopleText';
@@ -111,6 +113,7 @@ interface Shared {
 /** 顶部:颜色块、国名(可改)、"国家，1045 年立国"、关闭 */
 function CountryHead({ civ, raw, id, year, names, shared }: CountryPanelProps & { shared: Shared }) {
   const p = civ.polities[id];
+  const era = useEra();
   const alive = polityAlive(p, year);
   const shownYear = shownYearOf(p, year, civ.endYear);
   const d = p.dynasties;
@@ -181,7 +184,7 @@ function CountryHead({ civ, raw, id, year, names, shared }: CountryPanelProps & 
       <SubLine
         parts={[
           '国家',
-          p.ended !== undefined && year >= p.ended ? `${Math.floor(p.founded)}–${Math.floor(p.ended)} 年` : `${Math.floor(p.founded)} 年${alive ? '' : '才'}立国`,
+          p.ended !== undefined && year >= p.ended ? yearSpanAt(p.founded, p.ended, era) : `${yearAt(p.founded, era)}${alive ? '' : '才'}立国`,
         ]}
       />
     </PanelHead>
@@ -189,6 +192,7 @@ function CountryHead({ civ, raw, id, year, names, shared }: CountryPanelProps & 
 }
 
 function InfoPage({ civ, raw, raster, world, id, year, p, shared }: CountryPanelProps & { p: Polity; shared: Shared }) {
+  const era = useEra();
   const { ai } = shared;
   const aiOn = useAiOn();
   const shownYear = shownYearOf(p, year, civ.endYear);
@@ -285,7 +289,8 @@ function InfoPage({ civ, raw, raster, world, id, year, p, shared }: CountryPanel
             <Row k={consul ? '执政' : '君主'}>
               <Link to={{ kind: 'person', id: ruler.id }}>{personName(civ, ruler)}</Link>
               <em className="cp-num-note">
-                {Math.floor(ruler.from ?? ruler.born)} 年{consul ? '就任' : '即位'}
+                {yearAt(ruler.from ?? ruler.born, era)}
+                {consul ? '就任' : '即位'}
               </em>
             </Row>
           )}
@@ -310,7 +315,7 @@ function InfoPage({ civ, raw, raster, world, id, year, p, shared }: CountryPanel
               {stateFaith && civ.religion.faiths[stateFaith.faith] ? (
                 <>
                   <Link to={{ kind: 'faith', id: stateFaith.faith }}>{civ.religion.faiths[stateFaith.faith].name}</Link>
-                  <em className="cp-num-note">{Math.floor(stateFaith.from)} 年起</em>
+                  <em className="cp-num-note">{yearAt(stateFaith.from, era)}起</em>
                 </>
               ) : (
                 <span className="cp-none">没有</span>
@@ -320,15 +325,15 @@ function InfoPage({ civ, raw, raster, world, id, year, p, shared }: CountryPanel
           {ties.liege && (
             <Row k="宗主">
               {other(ties.liege.liege, shownYear)}
-              <em className="cp-num-note">{Math.floor(ties.liege.since)} 年起称臣</em>
+              <em className="cp-num-note">{yearAt(ties.liege.since, era)}起称臣</em>
             </Row>
           )}
           {ties.vassals.length > 0 && (
             <Row k="藩属" className="cp-links">
               {ties.vassals.map((v) => (
-                <span key={v.id} title={`${Math.floor(v.since)} 年起称臣`}>
+                <span key={v.id} title={`${yearAt(v.since, era)}起称臣`}>
                   {other(v.id, shownYear)}
-                  <em>{Math.floor(v.since)}</em>
+                  <em>{yearShort(v.since, era)}</em>
                 </span>
               ))}
             </Row>
@@ -336,9 +341,9 @@ function InfoPage({ civ, raw, raster, world, id, year, p, shared }: CountryPanel
           {ties.allies.length > 0 && (
             <Row k="盟国" className="cp-links">
               {ties.allies.map((v) => (
-                <span key={v.id} title={`${Math.floor(v.since)} 年结盟${civ.polities[v.foe] ? `，共御${polityName(civ.polities[v.foe], shownYear)}` : ''}`}>
+                <span key={v.id} title={`${yearAt(v.since, era)}结盟${civ.polities[v.foe] ? `，共御${polityName(civ.polities[v.foe], shownYear)}` : ''}`}>
                   {other(v.id, shownYear)}
-                  <em>{Math.floor(v.since)}</em>
+                  <em>{yearShort(v.since, era)}</em>
                 </span>
               ))}
             </Row>
@@ -368,7 +373,8 @@ function InfoPage({ civ, raw, raster, world, id, year, p, shared }: CountryPanel
           ) : null}
           {p.ended !== undefined && (
             <Row k="结局">
-              {Math.floor(p.ended)} 年{end?.how === 'fall' && end.by >= 0 ? <>亡于{other(end.by, p.ended)}</> : end?.how === 'merge' ? <>并入{other(end.by, p.ended)}</> : '亡'}
+              {yearAt(p.ended, era)}
+              {end?.how === 'fall' && end.by >= 0 ? <>亡于{other(end.by, p.ended)}</> : end?.how === 'merge' ? <>并入{other(end.by, p.ended)}</> : '亡'}
             </Row>
           )}
           {capitals.length > 1 && (
@@ -380,7 +386,7 @@ function InfoPage({ civ, raw, raster, world, id, year, p, shared }: CountryPanel
                 return (
                   <span key={i} className={now ? 'cp-now' : ''}>
                     <Link to={{ kind: 'settlement', id: s.id }}>{s.name}</Link>
-                    <em>{Math.floor(c.year)}</em>
+                    <em>{yearShort(c.year, era)}</em>
                   </span>
                 );
               })}
@@ -397,7 +403,7 @@ function InfoPage({ civ, raw, raster, world, id, year, p, shared }: CountryPanel
                   <button
                     key={i}
                     className={`cp-dyn-row${i === cur ? ' on' : ''}`}
-                    title={`跳到 ${Math.ceil(s.from)} 年`}
+                    title={`跳到${spaced(yearAt(Math.ceil(s.from), era))}`}
                     onClick={() => setCivTime({ year: Math.ceil(s.from), playing: false, story: false })}
                   >
                     <span className="cp-dyn-name">
@@ -406,8 +412,7 @@ function InfoPage({ civ, raw, raster, world, id, year, p, shared }: CountryPanel
                       {i === cur && <em className="cp-badge">当前</em>}
                     </span>
                     <span className="cp-dyn-span">
-                      {Math.floor(s.from)}
-                      {i === segs.length - 1 && p.ended === undefined ? ' 年起' : `–${Math.floor(s.to)}`}
+                      {i === segs.length - 1 && p.ended === undefined ? `${yearShortAt(s.from, era)}起` : yearSpan(s.from, s.to, era)}
                     </span>
                   </button>
                 ))
@@ -436,6 +441,7 @@ function InfoPage({ civ, raw, raster, world, id, year, p, shared }: CountryPanel
 
 /** 历代君主:当前这位(这一年在位的;没有 = 这一年之前最近的一位)和前后各两位,新的在上 */
 function RulerList({ civ, id, year }: { civ: Civ; id: number; year: number }) {
+  const era = useEra();
   const rs = peopleIndex(civ).rulers[id] ?? [];
   if (!rs.length) return null;
   let k = 0;
@@ -470,10 +476,7 @@ function RulerList({ civ, id, year }: { civ: Civ; id: number; year: number }) {
                 {on && <em className="cp-badge">当前</em>}
                 {fate && <em className="cp-num-note">{fate}</em>}
               </span>
-              <span className="cp-dyn-span">
-                {Math.floor(r.from ?? r.born)}
-                {r.until !== undefined ? `–${Math.floor(r.until)}` : ' 年起'}
-              </span>
+              <span className="cp-dyn-span">{r.until !== undefined ? yearSpan(r.from ?? r.born, r.until, era) : `${yearShortAt(r.from ?? r.born, era)}起`}</span>
             </button>
           );
         })}

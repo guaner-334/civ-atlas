@@ -114,6 +114,7 @@ import type { RasterPatch } from '../gen/rasterPatch';
 import { baseRegions, civAtEra, dropComposed, eraData, eraIndex, eraMapsOf, eraReady, eraShown, patchKey, reuseRegions, useEraIndex, withHistory, type EraMaps } from './eras';
 import { sameSketch, type SketchEdit } from '../gen/sketch';
 import { clearEditHistory, clearEdits, getEdits, removeIntervention, removeUpheaval, setEditGate, setEdits, undoTerrainOp, useEdits } from './editsStore';
+import { eraText, spaced, yearAt } from '../gen/era';
 import { redoLastEdit, undoLastEdit } from './undo';
 import { useShortcuts } from './useShortcuts';
 import { ShortcutsHost, openShortcuts } from './ShortcutsDialog';
@@ -1067,6 +1068,9 @@ export function App() {
       if (!info.quiet) playFrom(Math.min(civ.endYear, Math.max(0, info.year)));
       // 已生效(停 7 秒,带撤销)/ 已撤销(停 4 秒)
       const y = Math.max(0, Math.floor(info.year));
+      // 年份照作者的纪年写:"从 1650 年起" / "从公元前 850 年起"
+      const era = getEdits().era;
+      const at = (n: number) => yearAt(n, era);
       if (info.note) {
         const n = info.note;
         if (n.kind === 'apply') {
@@ -1081,7 +1085,7 @@ export function App() {
           showToast({
             id: 'resim-done',
             kind: failed ? 'warn' : 'ok',
-            text: `已按你说的改写 · 从 ${y} 年重新推演`,
+            text: `已按你说的改写 · 从${spaced(at(y))}重新推演`,
             more: failed ? [`${failed} 条命令没生效,原因见概览的"我的干预"`] : undefined,
             action: n.undo && {
               label: '撤销',
@@ -1094,7 +1098,7 @@ export function App() {
             ttl: 7000,
           });
         } else {
-          showToast({ id: 'resim-done', kind: 'ok', text: info.left ? `已撤销改写,从 ${y} 年起重新推演` : `已撤销改写,${y} 年之后恢复原历史`, ttl: 4000 });
+          showToast({ id: 'resim-done', kind: 'ok', text: info.left ? `已撤销改写,从${spaced(at(y))}起重新推演` : `已撤销改写,${at(y)}之后恢复原历史`, ttl: 4000 });
         }
       } else if (info.added) {
         const v = info.added;
@@ -1107,8 +1111,8 @@ export function App() {
         showToast({
           id: 'resim-done',
           kind: 'ok',
-          text: `${interventionDoneText(named, v, idx, shown)},已从 ${y} 年起重新推演`,
-          more: shown && then && then !== shown ? [`${v.from} 年时它叫${then}`] : undefined,
+          text: `${eraText(interventionDoneText(named, v, idx, shown), era)},已从${spaced(at(y))}起重新推演`,
+          more: shown && then && then !== shown ? [`${at(v.from)}时它叫${then}`] : undefined,
           action: {
             label: '撤销',
             onClick: () => {
@@ -1124,7 +1128,7 @@ export function App() {
         showToast({
           id: 'resim-done',
           kind: 'ok',
-          text: `${u.year} 年${upheavalName(u)} · 从这一年起重新推演`,
+          text: `${at(u.year)}${upheavalName(u)} · 从这一年起重新推演`,
           action: {
             label: '撤销',
             onClick: () => {
@@ -1136,7 +1140,7 @@ export function App() {
           ttl: 7000,
         });
       } else if (info.removed || info.upRemoved) {
-        showToast({ id: 'resim-done', kind: 'ok', text: info.left ? `已撤销,从 ${y} 年起重新推演` : `已撤销,${y} 年之后恢复原历史`, ttl: 4000 });
+        showToast({ id: 'resim-done', kind: 'ok', text: info.left ? `已撤销,从${spaced(at(y))}起重新推演` : `已撤销,${at(y)}之后恢复原历史`, ttl: 4000 });
       }
     }
     setRawCiv(civ);
@@ -1749,11 +1753,12 @@ export function App() {
     // 没画草图 = 整颗星球都换了,放的那几处是照原来的地形放的,不带过去。助手的对话(说的是原来那颗)也清掉
     newConversation();
     const sketch = st.edits.sketch;
-    const plain = !st.title && !sketch && !st.edits.nameMix && !st.edits.endYear && worldKey({ ...base, seed: 0 }) === worldKey({ ...DEFAULT_PARAMS, seed: 0 });
-    // 地名风格、推演年数和参数一样是这一类星球的设定,换一颗照旧
-    const { nameMix, endYear } = st.edits;
+    const plain = !st.title && !sketch && !st.edits.nameMix && !st.edits.endYear && !st.edits.era && worldKey({ ...base, seed: 0 }) === worldKey({ ...DEFAULT_PARAMS, seed: 0 });
+    // 地名风格、推演年数和参数一样是这一类星球的设定,换一颗照旧;纪年(年份的写法)也照旧,
+    // 按一件事定的换成按年份(那件事是原来那颗星球上的)
+    const { nameMix, endYear, era } = st.edits;
     const kept: WorldEdits = sketch ? { ...EMPTY_EDITS, sketch, terrain: st.edits.terrain } : EMPTY_EDITS;
-    const edits = { ...kept, ...(nameMix ? { nameMix } : {}), ...(endYear ? { endYear } : {}) };
+    const edits = { ...kept, ...(nameMix ? { nameMix } : {}), ...(endYear ? { endYear } : {}), ...(era ? { era: { name: era.name, epoch: era.epoch } } : {}) };
     // 换一颗:记一步(按后退换回刚才那颗)
     navTo({ page: 'draft', id: t.id, seed, title: st.title });
     generate({ ...t, params: { ...base, seed }, edits, saved: undefined, title: st.title, pristine: st.pristine || plain, view: undefined, from: undefined, save: undefined });

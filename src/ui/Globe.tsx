@@ -121,6 +121,8 @@ import { currentWorld } from './saveStore';
 import { createWheelReader, inGesturePinch, wheelSample } from './wheel';
 import { drawHolyDot, holyCities } from '../render/civ/faith';
 import { faithFocusOf, selectionOnMap } from './faithSelection';
+import { yearFull } from '../gen/era';
+import { currentEra } from './editsStore';
 import './globe.css';
 
 const D = Math.PI / 180;
@@ -1724,7 +1726,7 @@ export function Globe({ world, raster, civ, geo, style, layer, terrain, terrainK
       const civ = p.civ;
       const year = civ ? Math.floor(Math.max(0, Math.min(civ.endYear, getCivTime().year ?? civ.endYear))) : 0;
       const styleName = p.style === 'realistic' ? '写实' : p.style === 'fantasy' ? '手绘' : '数据图层';
-      const name = `${fileBaseName({ title: currentWorld()?.title, seed: p.world.params.seed })}-第${year}年-地球仪-${styleName}.png`;
+      const name = `${fileBaseName({ title: currentWorld()?.title, seed: p.world.params.seed })}-${yearFull(year, currentEra()).replace(/ /g, '')}-地球仪-${styleName}.png`;
       const blob = await new Promise<Blob>((res, rej) => out.toBlob((b) => (b ? res(b) : rej(new Error('图片太大,浏览器编码不了'))), 'image/png'));
       out.width = out.height = 0;
       (window as unknown as { __wfGlobeExport: unknown }).__wfGlobeExport = { name, w: W, h: H, bytes: blob.size };

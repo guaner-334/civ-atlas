@@ -32,6 +32,7 @@ import { canvasMeasure, drawMarks, layoutMarks, type MarkItem } from '../render/
 import { drawTrail, layoutTrail, type TrailInput } from '../render/trail';
 import { getEdits, useEdits } from './editsStore';
 import { cleanEndYear } from '../gen/edits';
+import { yearFull } from '../gen/era';
 import { markItemsAt } from './markInfo';
 import { characterTrail } from './characterInfo';
 import type { ExportRequest, ExportResponse } from '../exportWorker';
@@ -264,7 +265,8 @@ export function ExportMenu({ data, civ: shown, plain, style, layer, icon }: Expo
   const [scale, setScale] = useState<ExportScale>(1);
   const [usePlain, setUsePlain] = useState(false);
   const [withMarks, setWithMarks] = useState(true);
-  const marks = useEdits().marks;
+  const edits = useEdits();
+  const marks = edits.marks;
   const civ = usePlain && plain ? plain : shown;
   const busy = useExportStatus()?.kind === 'busy';
   const time = useCivTime();
@@ -309,6 +311,9 @@ export function ExportMenu({ data, civ: shown, plain, style, layer, icon }: Expo
     const yi = Math.floor(y);
     const show = { ...getCivShow() };
     const params = paramsText(world.params, getEdits().endYear);
+    // 文件名、图例、编年史里的年份照作者的纪年写(文件名里不带空格:"第1650年""公元前850年")
+    const era = getEdits().era;
+    const fileYear = yearFull(yi, era).replace(/ /g, '');
     const markItems = withMarks && civ && ok ? markItemsAt(civ, world, marks, yi) : [];
     // 正选着的作者人物(填写中的不算)
     const sel = getSelection().sel;
@@ -347,7 +352,7 @@ export function ExportMenu({ data, civ: shown, plain, style, layer, icon }: Expo
         setStatus({ kind: 'ok', text: `已导出 ${r.name}`, more: `${r.w}×${r.h}，${gmb}，用时 ${((performance.now() - t0) / 1000).toFixed(1)} 秒` });
       } else if (job === 'map' || job === 'mapjpg') {
         const format: ImageFormat = job === 'map' ? 'png' : 'jpeg';
-        const name = `${base}-第${yi}年-${styleName(style, layer)}${x2}.${IMAGE_FORMATS[format].ext}`;
+        const name = `${base}-${fileYear}-${styleName(style, layer)}${x2}.${IMAGE_FORMATS[format].ext}`;
         // 球面世界:按当前视图的中心展开(左右边 = 中心 ± 180°);投影、经纬网和屏幕上一样
         const center = wrapOf(world) ? xOfLon(getMapCenter(), world.width) : undefined;
         const projection = flatProjection(getProjection());
@@ -384,15 +389,15 @@ export function ExportMenu({ data, civ: shown, plain, style, layer, icon }: Expo
       } else if (job === 'md' || job === 'txt') {
         if (!civ) throw new Error('文明还没推演完');
         const name = `${base}-编年史.${job === 'md' ? 'md' : 'txt'}`;
-        const text = chronicleDocument(civ, { format: job, seed: seedN, params, entries: fullChronicle(civ) });
+        const text = chronicleDocument(civ, { format: job, seed: seedN, params, entries: fullChronicle(civ), era });
         const blob = new Blob([text], { type: job === 'md' ? 'text/markdown;charset=utf-8' : 'text/plain;charset=utf-8' });
         download(blob, name);
         dbg = { job, name, bytes: blob.size, ms: performance.now() - t0 };
         setStatus({ kind: 'ok', text: `已导出 ${name}` });
       } else {
         if (!ok || !civ) throw new Error('文明还没推演完');
-        const name = `${base}-第${yi}年-图例${x2}.png`;
-        const cv = await drawLegend({ civ, style, year: y, show, seed: seedN }, scale);
+        const name = `${base}-${fileYear}-图例${x2}.png`;
+        const cv = await drawLegend({ civ, style, year: y, show, seed: seedN, era }, scale);
         const blob = await toBlob(cv);
         download(blob, name);
         dbg = { job, name, bytes: blob.size, w: cv.width, h: cv.height, ms: performance.now() - t0 };
@@ -407,9 +412,9 @@ export function ExportMenu({ data, civ: shown, plain, style, layer, icon }: Expo
 
   const items: { job: Job; title: string; sub: string; need?: boolean }[] = [
     ...(globeOn ? [{ job: 'globe' as const, title: '导出地球仪这一面', sub: '现在看到的样子，PNG' }] : []),
-    { job: 'map', title: '地图图片(PNG)', sub: `整张地图，${styleName(style, layer)}，第 ${year} 年，${W}×${H}`, need: true },
+    { job: 'map', title: '地图图片(PNG)', sub: `整张地图，${styleName(style, layer)}，${yearFull(year, edits.era)}，${W}×${H}`, need: true },
     { job: 'mapjpg', title: '地图图片(JPEG)', sub: `同上,文件小好几倍(质量 ${Math.round(IMAGE_FORMATS.jpeg.quality! * 100)}%)`, need: true },
-    { job: 'legend', title: '图例(PNG)', sub: `第 ${year} 年的国家 / 民族 + 颜色、城镇符号、道路`, need: true },
+    { job: 'legend', title: '图例(PNG)', sub: `${yearFull(year, edits.era)}的国家 / 民族 + 颜色、城镇符号、道路`, need: true },
     { job: 'height16', title: '高度图(16 位 PNG)', sub: `游戏引擎、World Machine 用，${W}×${H}` },
     { job: 'height8', title: '高度图(8 位 PNG)', sub: `Azgaar 导入用，海平面 = 灰度 ${AZGAAR_SEA_GRAY}(Azgaar 的 20)` },
     { job: 'md', title: '编年史(Markdown)', sub: '按时代分节,大事在前、全部附后', need: true },

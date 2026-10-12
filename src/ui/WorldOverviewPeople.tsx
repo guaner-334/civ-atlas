@@ -43,6 +43,7 @@ import { characterLine, characterPolity } from './characterInfo';
 import { CharAvatar } from './CharacterPanel';
 import { useYear } from './WorldOverviewMarks';
 import { useNowLine } from './Chronicle';
+import { yearAt, yearShort, yearSpanAt, type Era } from '../gen/era';
 import { polityHistory } from './WorldOverviewCountries';
 import { copyText, selectPerson } from './panelParts';
 import { PolityFlag } from './Flag';
@@ -108,7 +109,7 @@ function rowOf(civ: Civ, x: Person, line: string): PRow & { x: Person } {
 }
 
 /** 一国的君主按朝代分组(新的朝代在上,组里新的在上);label = 组名前面加国名(全部国家时) */
-function rulerGroups(civ: Civ, polity: number, label: boolean): Group[] {
+function rulerGroups(civ: Civ, polity: number, label: boolean, era: Era | undefined): Group[] {
   const p = civ.polities[polity];
   const rs = peopleIndex(civ).rulers[polity] ?? [];
   const byDyn = new Map<number, Person[]>();
@@ -126,7 +127,7 @@ function rulerGroups(civ: Civ, polity: number, label: boolean): Group[] {
     const dyn = multi ? ds[d]?.name || polityName(p, from) : '';
     const pname = polityName(p, Math.min(civ.endYear, p.ended ?? civ.endYear) - 1 / 512);
     const name = label ? pname : dyn || pname;
-    const note = `${label && dyn ? `${dyn}，` : ''}${F(from)}${to !== undefined ? `–${F(to)} 年` : ' 年起'}，${list.length} 位`;
+    const note = `${label && dyn ? `${dyn}，` : ''}${to !== undefined ? yearSpanAt(from, to, era) : `${yearAt(from, era)}起`}，${list.length} 位`;
     out.push({ head: { name, note }, rows: [...list].reverse().map((x) => rowOf(civ, x, rulerLine(civ, x))) });
   }
   return out;
@@ -134,7 +135,7 @@ function rulerGroups(civ: Civ, polity: number, label: boolean): Group[] {
 
 export function PeoplePage({ civ, data }: { civ: Civ | null; data: { world: World; raster: Raster } | null }) {
   const view0 = usePeople();
-  const chars = useEdits().characters;
+  const { characters: chars, era } = useEdits();
   const year = useYear(civ);
   const ok = !!civ && !!civ.people?.length;
   // 还没挑过哪一档:有自己的人物先看「我的」;推演里没有人(比如太冷没人住的星球)只有「我的」
@@ -173,7 +174,7 @@ export function PeoplePage({ civ, data }: { civ: Civ | null; data: { world: Worl
   const groups = useMemo((): Group[] => {
     if (!civ) return [];
     if (view.list === 'mine') {
-      const rows = data ? mine.map((ch): PRow => ({ c: ch, from: ch.born, until: ch.died ?? null, name: ch.name, line: characterLine(civ, data.world, data.raster, ch, year, chars ?? []) })) : [];
+      const rows = data ? mine.map((ch): PRow => ({ c: ch, from: ch.born, until: ch.died ?? null, name: ch.name, line: characterLine(civ, data.world, data.raster, ch, year, chars ?? [], era) })) : [];
       return [{ rows }];
     }
     if (!ok) return [];
@@ -197,9 +198,9 @@ export function PeoplePage({ civ, data }: { civ: Civ | null; data: { world: Worl
       rows.sort((a, b) => b.from - a.from || b.x.id - a.x.id);
       return [{ rows }];
     }
-    if (polity !== null) return rulerGroups(c, polity, false);
-    return choices.flatMap((ch) => rulerGroups(c, ch.id, true));
-  }, [ok, civ, view.list, polity, famous, choices, mine, data, year, chars]);
+    if (polity !== null) return rulerGroups(c, polity, false, era);
+    return choices.flatMap((ch) => rulerGroups(c, ch.id, true, era));
+  }, [ok, civ, view.list, polity, famous, choices, mine, data, year, chars, era]);
   // 世系图:「君主」、只看一国、不是共和国
   const canTree = ok && view.list === 'rulers' && polity !== null && hasLineage(civ!, polity);
   const tree = canTree && view.tree;
@@ -227,10 +228,10 @@ export function PeoplePage({ civ, data }: { civ: Civ | null; data: { world: Worl
 
   const copy = async () => {
     const lines = [`人物 · ${listName}${tree ? ' · 世系图' : ''} · 种子 ${civ.seed}${focus ? ` · 只看${focusName}` : ''}`, ''];
-    if (tree) lines.push(lineageText(civ, polity!));
+    if (tree) lines.push(lineageText(civ, polity!, era));
     for (const g of tree ? [] : groups) {
       if (g.head) lines.push(`${g.head.name}(${g.head.note})`);
-      for (const r of g.rows) lines.push(`${F(r.from)}–${r.until !== null ? F(r.until) : ''} ${r.name} ${r.line}`);
+      for (const r of g.rows) lines.push(`${yearShort(r.from, era)}–${r.until !== null ? yearShort(r.until, era) : ''} ${r.name} ${r.line}`);
       if (g.head) lines.push('');
     }
     const text = lines.join('\n').trim();
@@ -262,7 +263,7 @@ export function PeoplePage({ civ, data }: { civ: Civ | null; data: { world: Worl
       );
 
   return (
-    <section className="chronicle people">
+    <section className={`chronicle people${era ? ' era' : ''}`}>
       <div className="chron-filters">
         <div className="seg">
           {LISTS.map((l) => (
@@ -336,8 +337,8 @@ export function PeoplePage({ civ, data }: { civ: Civ | null; data: { world: Worl
                     }}
                   >
                     <span className="chron-year">
-                      {F(r.from)}
-                      <em>–{r.until !== null ? F(r.until) : ''}</em>
+                      {yearShort(r.from, era)}
+                      <em>–{r.until !== null ? yearShort(r.until, era) : ''}</em>
                     </span>
                     <b className="pp-who">
                       <CharAvatar c={r.c} size={24} />
@@ -359,8 +360,8 @@ export function PeoplePage({ civ, data }: { civ: Civ | null; data: { world: Worl
                   onClick={() => selectPerson(r.x!.id)}
                 >
                   <span className="chron-year">
-                    {F(r.from)}
-                    <em>–{r.until !== null ? F(r.until) : ''}</em>
+                    {yearShort(r.from, era)}
+                    <em>–{r.until !== null ? yearShort(r.until, era) : ''}</em>
                   </span>
                   <b className="pp-who">{r.name}</b>
                   <span className="chron-text">{r.line}</span>

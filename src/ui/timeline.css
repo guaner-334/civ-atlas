@@ -186,6 +186,16 @@
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+/* 纪年:字和最长的那个年份叠在一格里,占位按最长的算 */
+.tb-year-era {
+  display: inline-grid;
+}
+.tb-year-era > span {
+  grid-area: 1 / 1;
+}
+.tb-year-ghost {
+  visibility: hidden;
+}
 .tb-speed {
   flex: none;
   display: flex;

@@ -33,6 +33,8 @@ import {
   type LivePin,
   type PinBox,
 } from './timelineLayout';
+import { eraText } from '../gen/era';
+import { useEra } from './editsStore';
 import './timeline.css';
 
 /** 世界坐标 → 屏幕坐标(clientX / clientY);算不出 = null */
@@ -55,6 +57,7 @@ const BOTTOM_RESERVE = 84;
 const pinKey = (p: LivePin) => `${p.e.id}:${p.start}`;
 
 export function EventPins({ civ, world, toClient, hidden }: EventPinsProps) {
+  const era = useEra();
   const chron = useChronicle();
   const pick = useChroniclePick();
   const [setRoot, compat] = useThemeCompat();
@@ -207,9 +210,9 @@ export function EventPins({ civ, world, toClient, hidden }: EventPinsProps) {
             <div className="ev-card">
               <span className="ev-head">
                 <b className="tb-ev">{evLabel(p.e)}</b>
-                {evYears(p.e)}
+                {evYears(p.e, era)}
               </span>
-              <span className="ev-text">{evText(p.e)}</span>
+              <span className="ev-text">{eraText(evText(p.e), era)}</span>
             </div>
           </div>
         );

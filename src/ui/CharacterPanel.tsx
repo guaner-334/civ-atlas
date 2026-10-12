@@ -41,7 +41,8 @@ import {
   type AuthorCharacter,
 } from '../gen/characters';
 import { MARK_HEX } from '../render/marks';
-import { getEdits, removeCharacter, restoreCharacter, useEdits } from './editsStore';
+import { getEdits, removeCharacter, restoreCharacter, useEdits, useEra } from './editsStore';
+import { eraText, spaced, yearAt, yearFull, yearShort } from '../gen/era';
 import { clearSelection, pickChronicleEntry, setSelection, type MapSelection } from './civView';
 import {
   cancelDraft,
@@ -95,7 +96,7 @@ import { requestMapCenter } from './mapWrap';
 import { openOverview } from './overviewStore';
 import { clearToast, showToast } from './toastStore';
 import { evLabel, evText, evType } from './timelineLayout';
-import { Act, Acts, EntryText, Link, MoreAct, PanelHead, Row, Stats, SubLine, copyText, jumpTo } from './panelParts';
+import { Act, Acts, EntryText, EraYearInput, Link, MoreAct, PanelHead, Row, Stats, SubLine, copyText, jumpTo } from './panelParts';
 import { MenuItem } from './PopMenu';
 import { Icon } from './icons';
 import './characters.css';
@@ -171,6 +172,7 @@ function PlaceLink({ pl, span }: { pl: CharPlace; span?: boolean }) {
 
 function CharView({ civ, raster, world, year, c, chars }: CharacterPanelProps & { c: AuthorCharacter; chars: readonly AuthorCharacter[] }) {
   const [copied, setCopied] = useState(false);
+  const era = useEra();
   const polity = useMemo(() => characterPolity(civ, world, raster, c), [civ, world, raster, c]);
   const around = useMemo(() => aroundEvents(civ, world, raster, c), [civ, world, raster, c]);
   const kin = useMemo(() => kinList(civ, c, chars), [civ, c, chars]);
@@ -183,7 +185,7 @@ function CharView({ civ, raster, world, year, c, chars }: CharacterPanelProps & 
   const age = characterAge(c, year);
 
   const copy = async () => {
-    const text = characterCopyText(civ, world, raster, c, chars);
+    const text = characterCopyText(civ, world, raster, c, chars, era);
     (window as unknown as { __wfCharText: string }).__wfCharText = text;
     await copyText(text);
     setCopied(true);
@@ -218,7 +220,7 @@ function CharView({ civ, raster, world, year, c, chars }: CharacterPanelProps & 
     node:
       age.state === 'unborn' ? (
         <>
-          还没出生<em className="cp-num-note">{c.born} 年生</em>
+          还没出生<em className="cp-num-note">{yearAt(c.born, era)}生</em>
         </>
       ) : age.state === 'dead' ? (
         <>
@@ -226,7 +228,7 @@ function CharView({ civ, raster, world, year, c, chars }: CharacterPanelProps & 
         </>
       ) : (
         <>
-          {age.age} 岁<em className="cp-num-note">第 {year} 年</em>
+          {age.age} 岁<em className="cp-num-note">{yearFull(year, era)}</em>
         </>
       ),
   });
@@ -279,7 +281,7 @@ function CharView({ civ, raster, world, year, c, chars }: CharacterPanelProps & 
   const life = lifeInOrder(c);
   const nowLine = (key: string) => (
     <div className="oc-now" key={key} data-oc="now">
-      <span>第 {year} 年</span>
+      <span>{yearFull(year, era)}</span>
     </div>
   );
   const lifeRows: ReactNode[] = [];
@@ -295,7 +297,7 @@ function CharView({ civ, raster, world, year, c, chars }: CharacterPanelProps & 
     const evs = (e.events ?? []).map((k) => ({ k, entry: eventOfKey(civ, k) }));
     lifeRows.push(
       <button key={i} className="cp-ev" style={{ '--c': MARK_HEX[c.color] } as CSSProperties} data-st={fut ? 'future' : 'past'} data-life={i} onClick={() => jumpTo(e.year)}>
-        <span className="cp-ev-year">{e.year}</span>
+        <span className={`cp-ev-year${era ? ' era' : ''}`}>{yearShort(e.year, era)}</span>
         <span className="cp-ev-text">
           {e.text || '（没写经历）'}
           {(pl || a !== 0) && (
@@ -346,7 +348,7 @@ function CharView({ civ, raster, world, year, c, chars }: CharacterPanelProps & 
     }
     aroundRows.push(
       <button key={`${e.kind}:${e.id}`} className="cp-ev" data-ev={evType(e)} data-st={fut ? 'future' : 'past'} title={evLabel(e)} onClick={() => pickChronicleEntry(e)}>
-        <span className="cp-ev-year">{F(e.year)}</span>
+        <span className={`cp-ev-year${era ? ' era' : ''}`}>{yearShort(e.year, era)}</span>
         <span className="cp-ev-text">
           <EntryText civ={civ} e={e} />
         </span>
@@ -360,10 +362,10 @@ function CharView({ civ, raster, world, year, c, chars }: CharacterPanelProps & 
         <div className="ins-name-row big">
           <span className="ins-name pp-title oc-name">{c.name}</span>
         </div>
-        <SubLine parts={[`作者的人物，${lifeYears(c)}`]} />
+        <SubLine parts={[`作者的人物，${lifeYears(c, era)}`]} />
       </PanelHead>
       <Acts>
-        <Act icon="history" primary act="character-year" onClick={() => jumpTo(c.born)} title={`时间轴跳到 ${c.born} 年`}>
+        <Act icon="history" primary act="character-year" onClick={() => jumpTo(c.born)} title={`时间轴跳到${spaced(yearAt(c.born, era))}`}>
           出生那年
         </Act>
         <Act icon="rename" act="character-edit" onClick={() => editCharacterDraft(c)}>
@@ -448,7 +450,6 @@ export function CharacterRefs({ refs }: { refs: readonly CharRef[] }) {
 // ---------------------------------------------------------------------------
 // 填的时候
 
-const digits = (s: string) => s.replace(/[^\d]/g, '').slice(0, 5);
 
 /** 挑地方的那一格:已经有 = 名字 + 小字 +「去掉」「换一处」;正在挑 =「取消」;没有 = 一句提示 */
 function PickRow({ name, note, picking, onPick, onClear, act }: { name: string | null; note?: string; picking: boolean; onPick: () => void; onClear: () => void; act: string }) {
@@ -489,6 +490,7 @@ function placeNote(civ: Civ, pl: CharPlace, year: number): string {
 
 function CharEdit({ civ, raster, world, year, draft: d, picking }: CharacterPanelProps & { draft: CharDraft; picking: boolean }) {
   const problem = draftProblem(d);
+  const era = useEra();
   const nameRef = useRef<HTMLInputElement>(null);
   const chars = useEdits().characters ?? [];
   // 新建的:光标放在名字框里
@@ -504,21 +506,18 @@ function CharEdit({ civ, raster, world, year, draft: d, picking }: CharacterPane
   const yearRow = (k: string, key: 'bornText' | 'diedText', placeholder?: string) => (
     <div className="cp-from-row">
       <span className="mk-k">{k}</span>
-      <label className="cp-year">
-        <input
-          value={d[key]}
-          inputMode="numeric"
-          aria-label={k === '生' ? '生年' : '卒年'}
-          placeholder={placeholder}
-          className={d[key] ? undefined : 'empty'}
-          data-oc={key === 'bornText' ? 'born' : 'died'}
-          onChange={(e) => patchDraft({ [key]: digits(e.target.value) })}
-          onKeyDown={(e) => e.key === 'Enter' && done()}
-        />
-        年
-      </label>
+      <EraYearInput
+        value={d[key]}
+        near={key === 'diedText' ? bornYear : year}
+        onChange={(t) => patchDraft({ [key]: t })}
+        aria-label={k === '生' ? '生年' : '卒年'}
+        placeholder={placeholder}
+        className={d[key] ? undefined : 'empty'}
+        data-oc={key === 'bornText' ? 'born' : 'died'}
+        onKeyDown={(e) => e.key === 'Enter' && done()}
+      />
       <button className="cp-step" data-act={key === 'bornText' ? 'character-born-now' : 'character-died-now'} onClick={() => patchDraft({ [key]: String(year) })}>
-        用第 {year} 年
+        用{yearFull(year, era)}
       </button>
     </div>
   );
@@ -612,10 +611,10 @@ function CharEdit({ civ, raster, world, year, draft: d, picking }: CharacterPane
         <section className="cp-sec" data-oc="life-list">
           <div className="cp-sec-head">一生</div>
           {life.length > 0 && (
-            <div className="oc-rows">
+            <div className={`oc-rows${era ? ' era' : ''}`}>
               {life.map(({ e, i }) => (
                 <button key={i} className="oc-row" data-life={i} onClick={() => startLife(i, year)}>
-                  <span className="y">{e.year}</span>
+                  <span className="y">{yearShort(e.year, era)}</span>
                   <span className="t">{e.text}</span>
                   <span className="w">{e.where ? placeOf(civ, world, raster, e.where, e.year).name : ''}</span>
                 </button>
@@ -682,6 +681,7 @@ function SubHead({ d, sub }: { d: CharDraft; sub: string }) {
 
 function LifeCard({ civ, raster, world, year, draft: d, l, picking }: CharacterPanelProps & { draft: CharDraft; l: LifeDraft; picking: boolean }) {
   const problem = lifeProblem(d, l);
+  const era = useEra();
   const textRef = useRef<HTMLInputElement>(null);
   const c = useMemo(() => draftAsCharacter(d, year), [d, year]);
   const y = parseYear(l.yearText);
@@ -704,20 +704,17 @@ function LifeCard({ civ, raster, world, year, draft: d, l, picking }: CharacterP
           <div className="cp-sec-head">年份</div>
           <div className="cp-from mk-yrs">
             <div className="cp-from-row">
-              <label className="cp-year">
-                <input
-                  value={l.yearText}
-                  inputMode="numeric"
-                  aria-label="哪一年"
-                  data-oc="life-year"
-                  onChange={(e) => patchLife({ yearText: digits(e.target.value) })}
-                  onKeyDown={(e) => e.key === 'Enter' && textRef.current?.focus()}
-                />
-                年
-              </label>
+              <EraYearInput
+                value={l.yearText}
+                near={year}
+                onChange={(t) => patchLife({ yearText: t })}
+                aria-label="哪一年"
+                data-oc="life-year"
+                onKeyDown={(e) => e.key === 'Enter' && textRef.current?.focus()}
+              />
               {ageNote && <span className="oc-age">{ageNote}</span>}
               <button className="cp-step" data-act="character-life-now" onClick={() => patchLife({ yearText: String(year) })}>
-                用第 {year} 年
+                用{yearFull(year, era)}
               </button>
             </div>
             {yearProblem && <div className="cp-note mk-warn">{yearProblem}</div>}
@@ -745,14 +742,14 @@ function LifeCard({ civ, raster, world, year, draft: d, l, picking }: CharacterP
         <section className="cp-sec" data-oc="life-events">
           <div className="cp-sec-head">推演里的事</div>
           {events.list.length > 0 ? (
-            <div className="oc-checks">
+            <div className={`oc-checks${era ? ' era' : ''}`}>
               {events.list.map((v) => {
                 const on = l.events.includes(v.key);
                 return (
                   <button key={v.key} className="oc-check" role="checkbox" aria-checked={on} data-event={v.key} onClick={() => toggleLifeLink('events', v.key)}>
                     <span className={`oc-box${on ? ' on' : ''}`}>{on && <Icon name="check" size={13} />}</span>
-                    <span className="y">{v.entry ? F(v.entry.year) : ''}</span>
-                    <span className={v.entry ? undefined : 'oc-gone'}>{v.entry ? evText(v.entry) : '重推以后这件事没有了'}</span>
+                    <span className="y">{v.entry ? yearShort(v.entry.year, era) : ''}</span>
+                    <span className={v.entry ? undefined : 'oc-gone'}>{v.entry ? eraText(evText(v.entry), era) : '重推以后这件事没有了'}</span>
                   </button>
                 );
               })}

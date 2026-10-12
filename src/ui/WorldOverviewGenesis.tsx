@@ -1,18 +1,21 @@
 /**
  * 世界概览的"世界设定"页:这个世界创建时定下的根 —— 种子、六项世界参数、改过的地形、地名风格、推演年数,都只能看,不能再改
  * (一改几千年的历史就要整个重来)。想换个样子:"以它为底稿新建…"(回到新建这一步,设定照原样带过去,存成另一个世界)。
- * 右栏还有"回放世界形成"。
+ * 右栏最上面是随时能改的「纪年」(EraSettings.tsx;窄屏单独一节放在最上面),下面还有"回放世界形成"。
  *
  * 世界参数的滑条(SLIDERS、ParamSlider)、推演年数的开关和滑条(YearsRows)在这里定义,新建世界(studio/Studio.tsx)用。
  */
 import { useEffect, useState } from 'react';
 import type { WorldParams } from '../gen/world';
+import type { Civ } from '../gen/civ/types';
 import { END_YEAR_DEFAULT, END_YEAR_MAX, END_YEAR_STEP, cleanEndYear, endYearOf, type TerrainKind } from '../gen/edits';
 import { setEndYear, useEdits } from './editsStore';
 import { currentWorld, useSavesVersion } from './saveStore';
 import { Icon } from './icons';
 import { genSeconds } from './genSpeed';
 import { mixSummary } from './nameMix';
+import { EraSection } from './EraSettings';
+import { useNarrow } from './device';
 import './ai.css';
 
 interface Slider {
@@ -149,6 +152,7 @@ export function YearsRows({ disabled }: { disabled?: boolean }) {
 
 export interface SettingsProps {
   params: WorldParams;
+  civ: Civ | null;
   /** 回放世界形成:能不能点、正在放 */
   replay: { on: boolean; ready: boolean };
   /** 世界还在生成 */
@@ -164,8 +168,11 @@ export function SettingsPage(p: SettingsProps) {
   const title = currentWorld()?.title;
   const { params } = p;
   const end = endYearOf(edits);
+  const narrow = useNarrow();
+  const era = <EraSection civ={p.civ} end={end} />;
   return (
     <div className="ov-settings">
+      {narrow && <section className="ov-sec">{era}</section>}
       <section className="ov-sec">
         <h3>
           创建时定下的
@@ -200,6 +207,7 @@ export function SettingsPage(p: SettingsProps) {
         </div>
       </section>
       <section className="ov-sec">
+        {!narrow && era}
         <h3>想换个样子</h3>
         <p className="ov-txt">
           种子、参数和地形一变，{yearsSpan(end)}的历史就要整个重来。想试试别的样子，可以以{title || '它'}为底稿另建一个世界：设定全部带过去，改过的名字和干预也跟过去，

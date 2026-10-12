@@ -15,7 +15,7 @@
  *   YearStepper  生效年份:−100 −10 [年份] +10,下面一句"该年之前的历史不变,之后重新推演。"
  *   useRevealAi  名字由来 / AI 起名:内容在面板最下面,点了滚过去让它露出来
  */
-import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { useEffect, useId, useRef, useState, type InputHTMLAttributes, type ReactNode, type RefObject } from 'react';
 import type { Civ } from '../gen/civ/types';
 import type { Raster } from '../gen/raster';
 import type { World } from '../gen/world';
@@ -32,6 +32,8 @@ import { closeOverview } from './overviewStore';
 import { Icon, type IconName } from './icons';
 import { MenuItem, PopMenu } from './PopMenu';
 import { useAiOn } from '../ai/client';
+import { useEra } from './editsStore';
+import { eraText, eraYear, worldYear, yearShort, yearSpan, type Era } from '../gen/era';
 import './countryPanel.css';
 
 /** 四种面板共同的参数 */
@@ -232,6 +234,7 @@ export interface Seg {
 
 /** 分段色条(朝代、历任归属):上面一行小字标题,下面两头的年份 */
 export function SegBar({ label, segs, years, className }: { label: string; segs: Seg[]; years: [number, number]; className?: string }) {
+  const era = useEra();
   return (
     <div className={`cp-dyn${className ? ` ${className}` : ''}`}>
       <span className="cp-sec-head">{label}</span>
@@ -250,8 +253,8 @@ export function SegBar({ label, segs, years, className }: { label: string; segs:
         ))}
       </div>
       <div className="cp-dyn-years">
-        <span>{Math.floor(years[0])}</span>
-        <span>{Math.floor(years[1])}</span>
+        <span>{yearShort(years[0], era)}</span>
+        <span>{yearShort(years[1], era)}</span>
       </div>
     </div>
   );
@@ -262,6 +265,7 @@ const OWNER_BAR_W = 300;
 
 /** 历任归属(城、州):每段一个国家的颜色,当年那一段实色;无主的一段留空。spans 空 = 不显示 */
 export function OwnerBar({ civ, spans, year, label = '历任归属' }: { civ: Civ; spans: readonly OwnerSpan[]; year: number; label?: string }) {
+  const era = useEra();
   if (!spans.length) return null;
   const from = spans[0].from;
   const to = spans[spans.length - 1].to;
@@ -269,7 +273,7 @@ export function OwnerBar({ civ, spans, year, label = '历任归属' }: { civ: Ci
   const segs: Seg[] = spans.map((s, i) => {
     const frac = (s.to - s.from) / total;
     const P = civ.polities[s.polity];
-    const years = `${Math.floor(s.from)}–${Math.floor(s.to)}`;
+    const years = yearSpan(s.from, s.to, era);
     if (!P) return { name: '', frac, background: 'var(--btn)', on: false, title: `无主 · ${years}`, blank: true };
     const on = year >= s.from && (year < s.to || (i === spans.length - 1 && year >= to));
     const name = nameAt(P, Math.max(s.from, Math.min(year, s.to - 1 / 512)));
@@ -327,16 +331,20 @@ export function selectPerson(id: number) {
 
 /**
  * 纪事正文:写到的人名变成蓝字,点了看这个人(不触发整行的点击:整行还是跳到那一年);self = 不变蓝的那个人(他自己的卡片里)。
- * 一行本身是按钮,蓝字不能再是按钮:用 span + 点击
+ * 一行本身是按钮,蓝字不能再是按钮:用 span + 点击。still = 只变蓝、不能单独点(点了算点整行)
  */
-export function EntryText({ civ, e, self = -1 }: { civ?: Civ; e: Pick<ChronicleEntry, 'text' | 'people' | 'year'>; self?: number }) {
-  const text = evText(e);
+export function EntryText({ civ, e, self = -1, still }: { civ?: Civ; e: Pick<ChronicleEntry, 'text' | 'people' | 'year'>; self?: number; still?: boolean }) {
+  const text = eraText(evText(e), useEra());
   if (!civ || !e.people?.length) return <>{text}</>;
   return (
     <>
       {personMentions(civ, text, e.people, self, e.year).map((m, i) =>
         m.person === undefined ? (
           m.text
+        ) : still ? (
+          <span key={i} className="pp-name">
+            {m.text}
+          </span>
         ) : (
           <span
             key={i}
@@ -378,6 +386,7 @@ export function EventList({
   limit?: number;
   self?: number;
 }) {
+  const era = useEra();
   if (!upTo.length && empty === undefined) return null;
   const recent = upTo.slice(-limit).reverse();
   return (
@@ -389,7 +398,7 @@ export function EventList({
       <div className="cp-group">
         {recent.map((e: ChronicleEntry) => (
           <button key={`${e.kind}:${e.id}`} className="cp-ev" data-ev={evType(e)} title={evLabel(e)} onClick={() => pickChronicleEntry(e)}>
-            <span className="cp-ev-year">{Math.floor(e.year)}</span>
+            <span className={`cp-ev-year${era ? ' era' : ''}`}>{yearShort(e.year, era)}</span>
             <span className="cp-ev-text">
               <EntryText civ={civ} e={e} self={self} />
             </span>
@@ -411,15 +420,23 @@ export function Foot({ children, cols = 2 }: { children: ReactNode; cols?: 2 | 3
 // ---------------------------------------------------------------------------
 // 生效年份
 
-const digits = (s: string) => s.replace(/[^\d]/g, '').slice(0, 5);
+/** 输入框里只留数字:第几年最多 5 位;纪年的年数最多 6 位(第 0 年定得很晚时,后面的年份能写到十几万) */
+const digits = (s: string, era?: Era) => s.replace(/[^\d]/g, '').slice(0, era ? 6 : 5);
 
 export interface YearInput {
+  /** 输入框里的字(设了纪年 = 纪年的年数) */
   text: string;
+  /** 设了纪年:输入框前面那个小按钮是不是"名字前" */
+  pre: boolean;
+  /** 设了纪年 = 那个纪年 */
+  era?: Era;
   /** 改输入框(算"改过":清掉上一次的提示) */
   setText: (s: string) => void;
-  /** 只换输入框里的字(失焦时整理成合格的年份) */
-  setRaw: (s: string) => void;
-  /** 生效年份(输入不合格时 = 夹到范围里的值) */
+  /** 点输入框前面的"公元前 ⌄":前 / 后换一下,数字不动 */
+  flipPre: () => void;
+  /** 失焦时整理成合格的年份 */
+  tidy: () => void;
+  /** 生效年份,第几年(输入不合格时 = 夹到范围里的值) */
   y: number;
   valid: boolean;
   lo: number;
@@ -427,23 +444,55 @@ export interface YearInput {
   nudge: (d: number) => void;
 }
 
-/** 生效年份的输入状态:初值 = 夹到 [lo, hi] 里的 initial;onChange = 改过(清掉上一次的提示) */
+/** 第 y 年在输入框里怎么写:设了纪年写纪年的年数和"前"不"前" */
+function shownYear(y: number, era: Era | undefined): { text: string; pre: boolean } {
+  if (!era) return { text: String(y), pre: false };
+  const { pre, n } = eraYear(y, era);
+  return { text: String(n), pre };
+}
+
+/**
+ * 生效年份的输入状态:初值 = 夹到 [lo, hi] 里的 initial;onChange = 改过(清掉上一次的提示)。
+ * 设了纪年时填的是纪年的年数(前面的小按钮管"前"不"前"),−100 / −10 / +10 走过元年时小按钮跟着变
+ */
 export function useYearInput(initial: number, lo: number, hi: number, onChange?: () => void): YearInput {
+  const era = useEra();
   const clampY = (v: number) => Math.min(hi, Math.max(lo, Math.round(v)));
-  const [text, setRaw] = useState(() => String(clampY(initial)));
-  const typed = text.trim() === '' ? NaN : Number(text);
-  const valid = Number.isFinite(typed) && typed >= lo && typed <= hi;
-  const y = valid ? Math.floor(typed) : clampY(Number.isFinite(typed) ? typed : lo);
-  const setText = (s: string) => {
-    setRaw(s);
+  const [st, setSt] = useState(() => ({ era, ...shownYear(clampY(initial), era) }));
+  const typed = st.text.trim() === '' ? NaN : Number(st.text);
+  // 框里的字按填的时候的纪年算(纪年刚在别处改了,字还是旧的写法);纪年没有 0 年
+  const was = st.era;
+  const want = !Number.isFinite(typed) ? NaN : was ? (typed < 1 ? NaN : worldYear(st.pre, typed, was)) : typed;
+  const valid = Number.isFinite(want) && want >= lo && want <= hi;
+  const y = valid ? Math.floor(want) : clampY(Number.isFinite(want) ? want : was ? worldYear(st.pre, 1, was) : lo);
+  // 纪年在别处改了:按刚才的年份重写输入框
+  if (st.era !== era) setSt({ era, ...shownYear(y, era) });
+  const put = (text: string, pre: boolean) => {
+    setSt({ era, text, pre });
     onChange?.();
   };
-  return { text, setText, setRaw, y, valid, lo, hi, nudge: (d: number) => setText(String(clampY(y + d))) };
+  return {
+    text: st.text,
+    pre: st.pre,
+    era,
+    setText: (s) => put(s, st.pre),
+    flipPre: () => put(st.text, !st.pre),
+    tidy: () => setSt({ era, ...shownYear(y, era) }),
+    y,
+    valid,
+    lo,
+    hi,
+    nudge: (d) => {
+      const v = shownYear(clampY(y + d), era);
+      put(v.text, v.pre);
+    },
+  };
 }
 
 /** 生效年份:−100 −10 [年份] +10,下面一句说明;then = 第二行(那一年它叫什么,和现在不一样时才给) */
 export function YearStepper({ yi, then }: { yi: YearInput; then?: string }) {
-  const { text, setText, setRaw, y, lo, hi, nudge } = yi;
+  const { text, pre, era, setText, flipPre, tidy, y, lo, hi, nudge } = yi;
+  const id = useId();
   return (
     <div className="cp-from">
       <span className="cp-k">生效年份</span>
@@ -454,13 +503,15 @@ export function YearStepper({ yi, then }: { yi: YearInput; then?: string }) {
         <button className="cp-step" onClick={() => nudge(-10)} disabled={y <= lo}>
           −10
         </button>
-        <label className="cp-year">
+        <label className="cp-year" htmlFor={id}>
+          {era && <EraPre era={era} pre={pre} onFlip={flipPre} />}
           <input
+            id={id}
             value={text}
             inputMode="numeric"
             aria-label="生效年份"
-            onChange={(e) => setText(digits(e.target.value))}
-            onBlur={() => setRaw(String(y))}
+            onChange={(e) => setText(digits(e.target.value, era))}
+            onBlur={tidy}
             onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
             style={{ width: `${Math.max(2, text.length) + 0.6}ch` }}
           />
@@ -480,6 +531,64 @@ export function YearStepper({ yi, then }: { yi: YearInput; then?: string }) {
         )}
       </span>
     </div>
+  );
+}
+
+/** 年份输入框前面的「公元前 ⌄」(设了纪年才有):点了"前"和"后"换一下,数字不动 */
+export function EraPre({ era, pre, onFlip }: { era: Era; pre: boolean; onFlip: () => void }) {
+  return (
+    <button className="era-pre" type="button" data-act="year-pre" title={`换成${pre ? era.name : `${era.name}前`}`} onClick={onFlip}>
+      {era.name}
+      {pre ? '前' : ''}
+      <Icon name="down" size={12} />
+    </button>
+  );
+}
+
+/** 输入框里的字 → 第几年的字:空 = '';纪年没有的 0 年 = 'x'(存不了) */
+function worldText(text: string, pre: boolean, era: Era): string {
+  if (!text) return '';
+  const n = Number(text);
+  return n < 1 ? 'x' : String(worldYear(pre, n, era));
+}
+
+/**
+ * 填年份的一格(人物的生卒、经历,标记的起止):value / onChange 是第几年的字('' = 空着;可能是负数 —— 纪年填到了第 0 年以前)。
+ * 没设纪年时就是一个只能填数字的框;设了纪年,框里填纪年的年数,前面一个「公元前 ⌄」。near = 空着时"前"不"前"按哪一年算
+ */
+export function EraYearInput({
+  value,
+  onChange,
+  near,
+  ...rest
+}: { value: string; onChange: (text: string) => void; near: number } & Omit<InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange' | 'id'>) {
+  const era = useEra();
+  const id = useId();
+  const [st, setSt] = useState<{ v: string; era?: Era; text: string; pre: boolean } | null>(null);
+  let cur = st;
+  // 第一次、值在别处变了(「用公元前 850 年」)、纪年换了:照值重写框里的字
+  if (era && (!cur || cur.v !== value || cur.era !== era)) {
+    const w = /^-?\d+$/.test(value.trim()) ? Number(value) : null;
+    const { pre, n } = eraYear(w ?? near, era);
+    cur = { v: value, era, text: w === null ? (value.trim() ? (cur?.text ?? '') : '') : String(n), pre: w === null && cur ? cur.pre : pre };
+  }
+  const put = (text: string, pre: boolean) => {
+    const v = worldText(text, pre, era!);
+    setSt({ v, era, text, pre });
+    onChange(v);
+  };
+  return (
+    <label className="cp-year" htmlFor={id}>
+      {era && cur && <EraPre era={era} pre={cur.pre} onFlip={() => put(cur!.text, !cur!.pre)} />}
+      <input
+        {...rest}
+        id={id}
+        value={era && cur ? cur.text : value}
+        inputMode="numeric"
+        onChange={(e) => (era && cur ? put(digits(e.target.value, era), cur.pre) : onChange(digits(e.target.value)))}
+      />
+      年
+    </label>
   );
 }
 

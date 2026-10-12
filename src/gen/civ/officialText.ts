@@ -7,6 +7,8 @@
  * - deedLine       一句为什么有名(人物页一行、名人的"事迹")
  * - ministerFate   卡片上"结局"一行
  * - personBio      一段生平(名臣、将领):籍贯字号、一级级的官、经手的事、结局。东方写得文一些("拜丞相""卒于任上"),西幻、共和国平实些
+ *
+ * 写年份的(personBio、ministerFate)多一个参数 era:年份照这个纪年写("公元前 850 年卒");不给 = "850 年卒"
  */
 import type { Civ, Person, PersonDeed, PersonPost, Polity, Year } from './types';
 import { polityName, polityShortTitle, polityTierAt } from './growth';
@@ -14,6 +16,7 @@ import { cnNumber } from './chronicle';
 import { ageAt, ministerRole, personName } from './peopleText';
 import { commandFoes, generalTally } from './peopleInfo';
 import { artName } from './officials';
+import { yearAt, type Era } from '../era';
 
 const F = Math.floor;
 const clampTier = (t: number) => Math.max(0, Math.min(3, t));
@@ -212,9 +215,9 @@ export function deedLine(civ: Civ, x: Person): string {
 }
 
 /** 生平(名臣、将领;别的身份 = '') */
-export function personBio(civ: Civ, x: Person): string {
-  if (x.role === 'minister') return ministerBio(civ, x);
-  if (x.role === 'general') return generalBio(civ, x);
+export function personBio(civ: Civ, x: Person, era?: Era): string {
+  if (x.role === 'minister') return ministerBio(civ, x, era);
+  if (x.role === 'general') return generalBio(civ, x, era);
   return '';
 }
 
@@ -231,11 +234,11 @@ function opening(civ: Civ, x: Person, east: boolean): string {
 }
 
 /** 结局(名臣) */
-function ministerEnd(civ: Civ, x: Person, east: boolean): string {
+function ministerEnd(civ: Civ, x: Person, east: boolean, era?: Era): string {
   const p = civ.polities[x.polity];
   const until = x.until;
   const age = x.died !== undefined ? ageAt(x, x.died) : 0;
-  const died = x.died !== undefined ? (east ? `${F(x.died)} 年卒，享年 ${age} 岁` : `${F(x.died)} 年去世，享年 ${age} 岁`) : '';
+  const died = x.died !== undefined ? (east ? `${yearAt(x.died, era)}卒，享年 ${age} 岁` : `${yearAt(x.died, era)}去世，享年 ${age} 岁`) : '';
   if (until === undefined) return east ? '至今在朝' : '至今在任';
   const top = topPost(x)?.title ?? '';
   // 一朝终了:亡国 / 并入 / 改朝换代
@@ -246,43 +249,43 @@ function ministerEnd(civ: Civ, x: Person, east: boolean): string {
   const after = (s: string) => (died && x.died! > until + 1 ? `${s}，${died}` : s);
   switch (x.fate) {
     case 'died':
-      return east ? `${F(until)} 年卒于任上，享年 ${age} 岁` : `${F(until)} 年在任上去世，享年 ${age} 岁`;
+      return east ? `${yearAt(until, era)}卒于任上，享年 ${age} 岁` : `${yearAt(until, era)}在任上去世，享年 ${age} 岁`;
     case 'retired':
-      return after(east ? `${F(until)} 年致仕` : `${F(until)} 年卸任`);
+      return after(east ? `${yearAt(until, era)}致仕` : `${yearAt(until, era)}卸任`);
     case 'deposed':
-      return after(east ? `${F(until)} 年新君即位，罢${top}` : `${F(until)} 年新君即位后被免去${top}之职`);
+      return after(east ? `${yearAt(until, era)}新君即位，罢${top}` : `${yearAt(until, era)}新君即位后被免去${top}之职`);
     case 'fell':
-      if (!fallen) return east ? `${F(until)} 年改朝换代，殉节` : `${F(until)} 年王朝更替，以身殉主`;
-      return east ? `${F(until)} 年${oldName}亡，殉国` : `${F(until)} 年${oldName}覆灭，随之殉国`;
+      if (!fallen) return east ? `${yearAt(until, era)}改朝换代，殉节` : `${yearAt(until, era)}王朝更替，以身殉主`;
+      return east ? `${yearAt(until, era)}${oldName}亡，殉国` : `${yearAt(until, era)}${oldName}覆灭，随之殉国`;
     case 'surrendered': {
       if (fallen && conqueror !== undefined && conqueror >= 0) {
         const c = polityName(civ.polities[conqueror], until);
-        return after(east ? `${F(until)} 年${oldName}亡，降${c}` : `${F(until)} 年${oldName}覆灭，归降${c}`);
+        return after(east ? `${yearAt(until, era)}${oldName}亡，降${c}` : `${yearAt(until, era)}${oldName}覆灭，归降${c}`);
       }
-      return after(east ? `${F(until)} 年改朝换代，归顺新朝` : `${F(until)} 年王朝更替，效忠新王室`);
+      return after(east ? `${yearAt(until, era)}改朝换代，归顺新朝` : `${yearAt(until, era)}王朝更替，效忠新王室`);
     }
     case 'fled':
-      return after(east ? `${F(until)} 年${fallen ? oldName + '亡' : '改朝换代'}，归隐不仕` : `${F(until)} 年${fallen ? oldName + '覆灭' : '王朝更替'}，从此隐居`);
+      return after(east ? `${yearAt(until, era)}${fallen ? oldName + '亡' : '改朝换代'}，归隐不仕` : `${yearAt(until, era)}${fallen ? oldName + '覆灭' : '王朝更替'}，从此隐居`);
     case 'merged': {
       const m = merger !== undefined && merger >= 0 ? polityName(civ.polities[merger], until) : '';
-      return after(east ? `${F(until)} 年${oldName}并入${m}，随之归附` : `${F(until)} 年${oldName}并入${m}`);
+      return after(east ? `${yearAt(until, era)}${oldName}并入${m}，随之归附` : `${yearAt(until, era)}${oldName}并入${m}`);
     }
     default:
-      return after(east ? `${F(until)} 年去职` : `${F(until)} 年离任`);
+      return after(east ? `${yearAt(until, era)}去职` : `${yearAt(until, era)}离任`);
   }
 }
 
 /** 卡片上的"结局"一行:"致仕，2551 年卒""2537 年卒于任上""殉国""降萨尔斯坦帝国";还在朝 = '' */
-export function ministerFate(civ: Civ, x: Person): string {
+export function ministerFate(civ: Civ, x: Person, era?: Era): string {
   const p = civ.polities[x.polity];
   const until = x.until;
   if (!p || until === undefined) return '';
   const east = !!p.eastern && p.lineage !== 'khanate';
-  const later = x.died !== undefined && x.died > until + 1 ? (east ? `，${F(x.died)} 年卒` : `，${F(x.died)} 年去世`) : '';
+  const later = x.died !== undefined && x.died > until + 1 ? (east ? `，${yearAt(x.died, era)}卒` : `，${yearAt(x.died, era)}去世`) : '';
   const fallen = p.ended !== undefined && until === p.ended;
   switch (x.fate) {
     case 'died':
-      return east ? `${F(until)} 年卒于任上` : `${F(until)} 年在任上去世`;
+      return east ? `${yearAt(until, era)}卒于任上` : `${yearAt(until, era)}在任上去世`;
     case 'retired':
       return (east ? '致仕' : '卸任') + later;
     case 'deposed':
@@ -307,7 +310,7 @@ export function ministerFate(civ: Civ, x: Person): string {
 }
 
 /** 名臣的生平 */
-function ministerBio(civ: Civ, x: Person): string {
+function ministerBio(civ: Civ, x: Person, era?: Era): string {
   const p = civ.polities[x.polity];
   if (!p) return '';
   const east = !!p.eastern && p.lineage !== 'khanate';
@@ -337,19 +340,19 @@ function ministerBio(civ: Civ, x: Person): string {
     const y = F(items[i].year);
     const same: string[] = [];
     while (i < items.length && F(items[i].year) === y) same.push(items[i++].text);
-    sentences.push(`${y} 年${same.join('，')}`);
+    sentences.push(`${yearAt(y, era)}${same.join('，')}`);
   }
   if (!deeds.length) {
     const top = topPost(x);
     const until = x.until ?? civ.endYear;
     if (top && until - top.from >= 10) sentences.push(east ? `居${top.title}之位 ${F(until) - F(top.from)} 年，${shortName(p, top.from)}中无大事` : `任${top.title} ${F(until) - F(top.from)} 年，国中太平`);
   }
-  sentences.push(ministerEnd(civ, x, east));
+  sentences.push(ministerEnd(civ, x, east, era));
   return opening(civ, x, east) + sentences.join('。') + '。';
 }
 
 /** 将领的生平:从军、伐谁抗谁、攻下几州守住几次、一路升到什么官、结局 */
-function generalBio(civ: Civ, x: Person): string {
+function generalBio(civ: Civ, x: Person, era?: Era): string {
   const p = civ.polities[x.polity];
   if (!p) return '';
   const east = !!p.eastern && p.lineage !== 'khanate';
@@ -358,16 +361,16 @@ function generalBio(civ: Civ, x: Person): string {
   if (!cs.length) return opening(civ, x, east);
   const out: string[] = [];
   const first = posts[0];
-  out.push(east ? `${F(cs[0].from)} 年以${first?.title ?? '将'}领兵` : `${F(cs[0].from)} 年以${first?.title ?? '将领'}身份领兵`);
+  out.push(east ? `${yearAt(cs[0].from, era)}以${first?.title ?? '将'}领兵` : `${yearAt(cs[0].from, era)}以${first?.title ?? '将领'}身份领兵`);
   const foes = commandFoes(civ, x);
   if (foes.length) out[out.length - 1] += east ? `，${foes.map((f) => `${f.verb}${polityName(civ.polities[f.polity], f.from)}`).join('、')}` : `，${foes.map((f) => `${f.verb === '伐' ? '出征' : '抵御'}${polityName(civ.polities[f.polity], f.from)}`).join('、')}`;
   const { took, held } = generalTally(civ, x);
   const deeds = [took ? `攻取${cnNumber(took)}州` : '', held ? `击退来攻${cnNumber(held)}次` : ''].filter(Boolean).join('，');
-  for (let k = 1; k < posts.length; k++) out.push(east ? `${F(posts[k].from)} 年升${posts[k].title}` : `${F(posts[k].from)} 年升任${posts[k].title}`);
+  for (let k = 1; k < posts.length; k++) out.push(east ? `${yearAt(posts[k].from, era)}升${posts[k].title}` : `${yearAt(posts[k].from, era)}升任${posts[k].title}`);
   if (deeds) out.push(took + held >= 3 ? (east ? `前后${deeds}` : `先后${deeds}`) : deeds);
   const last = cs[cs.length - 1].until;
   const age = x.died !== undefined ? ageAt(x, x.died) : 0;
-  if (x.fate === 'battle' && x.died !== undefined) out.push(east ? `${F(x.died)} 年战死，时年 ${age} 岁` : `${F(x.died)} 年阵亡，时年 ${age} 岁`);
-  else if (x.died !== undefined) out.push(x.died - last >= 1 ? (east ? `后卸甲归乡，${F(x.died)} 年卒，享年 ${age} 岁` : `后解甲归乡，${F(x.died)} 年去世，享年 ${age} 岁`) : east ? `${F(x.died)} 年卒于军中` : `${F(x.died)} 年死于军中`);
+  if (x.fate === 'battle' && x.died !== undefined) out.push(east ? `${yearAt(x.died, era)}战死，时年 ${age} 岁` : `${yearAt(x.died, era)}阵亡，时年 ${age} 岁`);
+  else if (x.died !== undefined) out.push(x.died - last >= 1 ? (east ? `后卸甲归乡，${yearAt(x.died, era)}卒，享年 ${age} 岁` : `后解甲归乡，${yearAt(x.died, era)}去世，享年 ${age} 岁`) : east ? `${yearAt(x.died, era)}卒于军中` : `${yearAt(x.died, era)}死于军中`);
   return opening(civ, x, east) + out.join('。') + '。';
 }

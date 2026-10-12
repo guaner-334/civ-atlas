@@ -405,3 +405,11 @@
   line-height: 1.6;
   color: var(--ink-2);
 }
+
+/* 设了纪年:年份一列放得下"前 1083" */
+.cpanel .oc-rows.era .oc-row {
+  grid-template-columns: 4.4em 1fr auto;
+}
+.cpanel .oc-checks.era .oc-check:not(.who) {
+  grid-template-columns: 22px 4.4em 1fr;
+}
