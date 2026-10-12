@@ -15,7 +15,7 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import type { ChronicleEntry } from '../gen/civ/chronicle';
 import { eraText, yearFull, type Era } from '../gen/era';
-import { pickChronicleEntry, setCivTime, stepYear } from './civView';
+import { getCivTime, pickChronicleEntry, setCivTime, stepYear } from './civView';
 import { evLabel, evText, evType, evYears, hitDiamonds, layoutDiamonds, rulerLabel, rulerOf, timeScale, type Diamond } from './timelineLayout';
 
 /** 提示最多列几件 */
@@ -24,6 +24,23 @@ const TIP_ROWS = 5;
 const MARK_ROW = 22;
 /** 按下后移动超过这么多(像素)算拖动 */
 const DRAG_SLOP = 3;
+
+/** 导出回放视频时:时间轴上选的一段(两头的把手拖着改) */
+export interface TimelineRange {
+  from: number;
+  to: number;
+  onRange: (from: number, to: number) => void;
+  /** 把手底下写起止年份(手机上:刻度字不写,只写这两个) */
+  labels?: boolean;
+  /** 正在导出:不能拖 */
+  locked?: boolean;
+}
+
+/** 选的那一段的框比两头的年份各宽出这么多(把手的宽度) */
+const RANGE_PAD = 11;
+const RANGE_PAD_SMALL = 8;
+/** 拖把手时一段至少这么多年 */
+const RANGE_MIN = 10;
 
 export interface TimelineMarksProps {
   /** 要画的纪事(按年份排好;已经按"大事"和国家筛过) */
@@ -35,17 +52,24 @@ export interface TimelineMarksProps {
   year: number;
   /** 纪年(没设 = 按第几年写) */
   era?: Era;
+  /** 导出回放视频时选的一段 */
+  range?: TimelineRange;
+  /** 手机上的小号(把手窄一点) */
+  small?: boolean;
 }
 
 type Tip = Diamond & { pinned?: boolean };
 
-export const TimelineMarks = memo(function TimelineMarks({ entries, end, dock, year, era }: TimelineMarksProps) {
+export const TimelineMarks = memo(function TimelineMarks({ entries, end, dock, year, era, range, small }: TimelineMarksProps) {
   const ref = useRef<HTMLDivElement>(null);
   const tipRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
   const [tip, setTip] = useState<Tip | null>(null);
   const hideTimer = useRef(0);
-  const press = useRef<{ x: number; id: number; hit: Diamond | null; drag: boolean; touch: boolean } | null>(null);
+  const press = useRef<{ x: number; id: number; hit: Diamond | null; drag: boolean; touch: boolean; handle?: 'from' | 'to' } | null>(null);
+  const rangeRef = useRef(range);
+  rangeRef.current = range;
+  const pad = small ? RANGE_PAD_SMALL : RANGE_PAD;
 
   useLayoutEffect(() => {
     const el = ref.current;
@@ -88,26 +112,54 @@ export const TimelineMarks = memo(function TimelineMarks({ entries, end, dock, y
   };
   const localX = (cx: number) => cx - ref.current!.getBoundingClientRect().left;
   const yearAt = (cx: number) => Math.round(Math.min(1, Math.max(0, localX(cx) / Math.max(1, width))) * end);
-  const scrub = (cx: number) => setCivTime({ year: yearAt(cx), playing: false, story: false, scrubbing: true });
+  // 导出回放视频时只在选的那一段里拖
+  const clampYear = (y: number) => (range ? Math.min(range.to, Math.max(range.from, y)) : y);
+  const scrub = (cx: number) => setCivTime({ year: clampYear(yearAt(cx)), playing: false, story: false, scrubbing: true });
+  /** 按在哪个把手上(框两头各 pad 宽,左右各多认几像素) */
+  const handleAt = (lx: number): 'from' | 'to' | undefined => {
+    if (!range || range.locked || !width) return undefined;
+    const xf = (range.from / end) * width - pad / 2;
+    const xt = (range.to / end) * width + pad / 2;
+    const df = Math.abs(lx - xf);
+    const dt = Math.abs(lx - xt);
+    const near = pad / 2 + 6;
+    if (df <= near && (df <= dt || dt > near)) return 'from';
+    if (dt <= near) return 'to';
+    return undefined;
+  };
+  const dragHandle = (h: 'from' | 'to', cx: number) => {
+    const r = rangeRef.current;
+    if (!r) return;
+    const y = yearAt(cx);
+    const min = Math.min(RANGE_MIN, Math.max(1, Math.floor(end / 10)));
+    if (h === 'from') r.onRange(Math.max(0, Math.min(y, r.to - min)), r.to);
+    else r.onRange(r.from, Math.min(end, Math.max(y, r.from + min)));
+  };
   const inTip = (e: React.SyntheticEvent) => !!tipRef.current?.contains(e.target as Node);
 
   const onDown = (e: React.PointerEvent) => {
-    if (e.button !== 0 || inTip(e)) return;
+    if (e.button !== 0 || inTip(e) || range?.locked) return;
     const r = ref.current!.getBoundingClientRect();
-    const hit = e.clientY - r.top < MARK_ROW ? hitDiamonds(layout, e.clientX - r.left) : null;
-    press.current = { x: e.clientX, id: e.pointerId, hit, drag: false, touch: e.pointerType === 'touch' };
+    const handle = handleAt(e.clientX - r.left);
+    const hit = !handle && !range && e.clientY - r.top < MARK_ROW ? hitDiamonds(layout, e.clientX - r.left) : null;
+    press.current = { x: e.clientX, id: e.pointerId, hit, drag: false, touch: e.pointerType === 'touch', handle };
     // 拖出轨道也接着认(合成的指针事件没有真的指针,捕获会报错,不要紧)
     try {
       ref.current!.setPointerCapture(e.pointerId);
     } catch {
       /* 没有这个指针 */
     }
-    if (!hit) scrub(e.clientX);
+    if (handle) setTip(null);
+    else if (!hit) scrub(e.clientX);
   };
   const onMove = (e: React.PointerEvent) => {
     const pr = press.current;
     if (pr && pr.id === e.pointerId) {
       if (!pr.drag && Math.abs(e.clientX - pr.x) > DRAG_SLOP) pr.drag = true;
+      if (pr.handle) {
+        if (pr.drag) dragHandle(pr.handle, e.clientX);
+        return;
+      }
       if (pr.drag || !pr.hit) {
         setTip(null);
         scrub(e.clientX);
@@ -115,7 +167,7 @@ export const TimelineMarks = memo(function TimelineMarks({ entries, end, dock, y
       return;
     }
     if (inTip(e)) return keep();
-    if (e.pointerType === 'touch') return;
+    if (e.pointerType === 'touch' || range) return;
     const h = hitDiamonds(layout, localX(e.clientX));
     if (h) {
       keep();
@@ -135,11 +187,19 @@ export const TimelineMarks = memo(function TimelineMarks({ entries, end, dock, y
     }
   };
   const onKey = (e: React.KeyboardEvent) => {
-    // 一次走 10 年(按住 Shift 100 年);推得更久的世界按比例放大
+    // 一次走 10 年(按住 Shift 100 年);推得更久的世界按比例放大。导出视频时只在选的那一段里走,导出中不动
+    if (range?.locked) return;
     const step = Math.round((e.shiftKey ? 100 : 10) * timeScale(end));
-    if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') stepYear(end, -step);
-    else if (e.key === 'ArrowRight' || e.key === 'ArrowUp') stepYear(end, step);
-    else if (e.key === 'Home' || e.key === 'End') setCivTime({ year: e.key === 'Home' ? 0 : end, playing: false, story: false });
+    const lo = range ? range.from : 0;
+    const hi = range ? range.to : end;
+    const go = (dy: number) => {
+      if (!range) return stepYear(end, dy);
+      const cur = Math.floor(Math.min(hi, Math.max(lo, getCivTime().year ?? hi)));
+      setCivTime({ year: Math.min(hi, Math.max(lo, cur + dy)), playing: false, story: false });
+    };
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') go(-step);
+    else if (e.key === 'ArrowRight' || e.key === 'ArrowUp') go(step);
+    else if (e.key === 'Home' || e.key === 'End') setCivTime({ year: e.key === 'Home' ? lo : hi, playing: false, story: false });
     else return;
     e.preventDefault();
   };
@@ -176,7 +236,7 @@ export const TimelineMarks = memo(function TimelineMarks({ entries, end, dock, y
         {layout.marks.map((d) => (
           <i
             key={`m${d.lead.id}`}
-            className={`tb-mark${d.items.length > 1 ? ' many' : ''}${hot === d.lead ? ' on' : ''}`}
+            className={`tb-mark${d.items.length > 1 ? ' many' : ''}${hot === d.lead ? ' on' : ''}${range && (d.lead.year < range.from || d.lead.year > range.to + 1) ? ' out' : ''}`}
             data-ev={evType(d.lead)}
             data-year={Math.floor(d.lead.year)}
             data-n={d.items.length}
@@ -207,19 +267,19 @@ export const TimelineMarks = memo(function TimelineMarks({ entries, end, dock, y
         ))}
       </>
     ),
-    [layout, hot, width],
+    [layout, hot, width, range?.from, range?.to],
   );
 
   const more = tip ? tip.items.length - TIP_ROWS : 0;
   return (
     <div
       ref={ref}
-      className={`tb-track${tip ? ' hot' : ''}`}
+      className={`tb-track${tip ? ' hot' : ''}${range ? ' film' : ''}${range?.locked ? ' locked' : ''}`}
       role="slider"
       tabIndex={0}
       aria-label="年份"
-      aria-valuemin={0}
-      aria-valuemax={end}
+      aria-valuemin={range ? range.from : 0}
+      aria-valuemax={range ? range.to : end}
       aria-valuenow={year}
       aria-valuetext={yearFull(year, era)}
       onPointerDown={onDown}
@@ -232,7 +292,27 @@ export const TimelineMarks = memo(function TimelineMarks({ entries, end, dock, y
       {static_}
       <i className="tb-prog" />
       {marks}
-      <i className="tb-head" />
+      {range && width > 0 && (
+        <>
+          <i
+            className="tb-range"
+            style={{ left: (range.from / end) * width - pad, width: ((range.to - range.from) / end) * width + 2 * pad }}
+            data-from={range.from}
+            data-to={range.to}
+          />
+          {range.labels && (
+            <>
+              <span className="tb-range-lab" style={{ left: (range.from / end) * width }}>
+                {range.from}
+              </span>
+              <span className="tb-range-lab" style={{ left: (range.to / end) * width }}>
+                {range.to}
+              </span>
+            </>
+          )}
+        </>
+      )}
+      <i className={range ? 'tb-ph' : 'tb-head'} />
       {tip && tip.items.length === 1 && tip.lead.kind === 'upheaval' ? (
         <div
           ref={tipRef}

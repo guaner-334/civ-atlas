@@ -242,6 +242,12 @@ import { closeUpheaval, getUpUi, setUpRunner, takeUpPreview, undoUpOp, upCancel,
 import { UpheavalHint, UpheavalOverlay } from './UpheavalPanel';
 import { dismissing, tookDismissClick } from './dismissClick';
 import { makeFlagView, setFlagView, useFlagPreview } from './flagStore';
+import { setFilmSource, setFilmViewport } from './filmSource';
+import { closeFilm, getFilm, useFilm } from './filmStore';
+import { FilmPanel } from './FilmPanel';
+import { FilmStage } from './FilmStage';
+import { LongPanel } from './LongPanel';
+import { LongStage } from './LongStage';
 import { noteGenSpeed } from './genSpeed';
 
 type Replay = { w: number; h: number; frames: Uint8ClampedArray[]; mya: number[]; idx: number };
@@ -654,6 +660,31 @@ export function App() {
     [data, civ, edits.flags, flagPreview, flagGeo],
   );
   useLayoutEffect(() => setFlagView(flagView), [flagView]);
+  // 导出回放视频 / 竖版长图:左边面板(手机:底部卡片)换成导出的选项
+  const filmUi = useFilm();
+  // 回放导出(视频、竖版长图)按年份取那一段的世界、主图、历史(filmSource.ts);和地图上一样,那一段的主图还没铺好先用前一段
+  // (预览这样凑合;导出等 ready 了再拍)
+  useLayoutEffect(() => {
+    const raw = previewRaw ?? rawCiv;
+    const full = previewFull ?? realFull;
+    if (!baseData || !raw || !full) return setFilmSource(null);
+    const names = previewRaw ? preview!.names : edits.names;
+    const civs = new Map<number, Civ>();
+    const lastK = eraIndex(raw, full.endYear);
+    setFilmSource({
+      full,
+      ready: lastK === 0 || (!!eraMaps && eraReady(eraMaps, eraPatches.current, lastK)),
+      at(year) {
+        const k = eraShown(eraMaps, eraPatches.current, eraIndex(raw, year));
+        const { world, raster } = eraData(baseData, eraMaps, eraPatches.current, k);
+        const geo = civAtEra(raw, k);
+        let civ = civs.get(k);
+        if (!civ) civs.set(k, (civ = geo === raw ? full : withHistory(applyNames(geo, names), full)));
+        return { k, world, raster, civ, geo };
+      },
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- patchVer:后台交来新的补丁时换一份(各段的主图跟着补上)
+  }, [baseData, eraMaps, patchVer, previewRaw, rawCiv, previewFull, realFull, edits.names, preview?.names]);
   // 导出时"换回原名"用的:AI 起的名字换回原来的(没有 AI 起的名字、助手"先看看"时 = null,导出菜单不问)
   const plainCiv = useMemo(
     () => (rawCiv && !previewRaw && aiNameKeys(edits).length ? applyNames(civAtEra(rawCiv, eraK), namesWithoutAi(edits)) : null),
@@ -2371,7 +2402,28 @@ export function App() {
       if (m) return unprojectWorld(m, x, y);
       return [x - g.W * Math.floor(x / g.W), y];
     };
-    return () => handleMapCenterRequests(null);
+    // 导出回放视频(框里一块):屏幕上的框 → 地图平面上的范围
+    setFilmViewport(() => {
+      const el = stageRef.current;
+      const g = geo.current;
+      if (!el || !g.bw) return null;
+      const r = el.getBoundingClientRect();
+      const b = { sw: r.width, sh: r.height, bw: g.bw, bh: g.bh };
+      const v = viewRef.current;
+      const m = mpRef.current;
+      return {
+        k: v.k,
+        mapCss: g.bw,
+        mp: m,
+        worldW: g.W,
+        plane: (cx: number, cy: number) => stageToWorld(cx - r.left, cy - r.top, v, b, g.W, g.H),
+        key: `${v.k.toFixed(4)},${Math.round(v.x)},${Math.round(v.y)},${m?.key ?? ''},${g.bw},${r.width}x${r.height}`,
+      };
+    });
+    return () => {
+      handleMapCenterRequests(null);
+      setFilmViewport(null);
+    };
   }, []);
   // 弯边投影里拖动改中心:一帧最多改一次(每次改都要整图重铺)
   const centerFrame = useRef<{ raf: number; lon: number | null }>({ raf: 0, lon: null });
@@ -3216,6 +3268,8 @@ export function App() {
     // 点地图收起菜单的那一下只收起菜单(dismissClick.ts)
     if (tookDismissClick()) return;
     if ((getGlobeOn() ? globeApi.current?.dragged() : moved.current) || replayOn) return;
+    // 导出回放视频时:地图只用来挪、缩放(框住要拍的地方),点了不选东西
+    if (getFilm().mode) return;
     // 改地形:单击放火山 / 挖湖,不看详情(双击的第二下不再放)
     if (getTerrainTool().on) {
       if (e.detail < 2) terrainClick(worldAt(e.clientX, e.clientY));
@@ -3649,7 +3703,14 @@ export function App() {
   );
   /** 建好的世界(不是新建中、不在我的世界):时间轴、详情、概览、事件标签这些才有 */
   const world = stage === 'world';
+  const filmOn = !!filmUi.mode && !!data && world && !draft && !home;
   const curWorld = currentWorld();
+  // 离开这个世界(回首页、去新建、浏览器前进后退换了一个世界),或者助手"先看看"的历史进来、退出(预览条上的"回到现在"):
+  // 导出面板关掉,正在导出的视频取消(不然会接着拍已经不在屏幕上的那一份历史)
+  const filmWorld = world && !draft && !home ? (curWorld?.id ?? '') : null;
+  useEffect(() => {
+    if (getFilm().mode) closeFilm();
+  }, [filmWorld, previewRaw]);
   /** 打开别人分享的世界、还没改过:地图下那条说明代替第一次打开的操作提示 */
   const sharedOn = world && !!data && !!sharedFor && curWorld?.id === sharedFor.id && curWorld.kind === 'visit' && !terrainTool.on;
   const layerProps = { layer: mapLayer, civ, onLayer: applyLayer, thumbs, requestThumbs, disabled: !data };
@@ -3708,7 +3769,7 @@ export function App() {
   const screenStyle: CSSProperties = { clipPath: screenClip(view, sb, wrapW), display: globeOn ? 'none' : undefined };
   return (
     <div
-      className={`app${narrow ? ' phone' : ' has-side'}${chron.open ? ' chron-open' : ''}${panelOpen ? ' panel-open' : ''}${narrow && panelOpen && panelUi.sheet === 'full' ? ' sheet-full' : ''}${narrow && !selState.sel && !upOn && panelUi.world === 'full' ? ' world-full' : ''}${narrow && panelUi.drag ? ' sheet-drag' : ''}${narrow && selState.sel && !panelOpen ? ' sheet-away' : ''}${!narrow && world && sideUi.collapsed && !sideUi.peek ? ' side-collapsed' : ''}${picking ? ' picking' : ''}${globeOn ? ' globe-on' : ''}${data ? '' : ' booting'}${home ? ' home' : ''}${draft ? ' draft' : ''}${studioOn ? ' studio-on' : ''}${fr ? ' studio-flat' : ''}${astOpen && !narrow && !home && !draft ? ' ast-open' : ''}${preview ? ' ast-preview' : ''}`}
+      className={`app${narrow ? ' phone' : ' has-side'}${chron.open ? ' chron-open' : ''}${panelOpen ? ' panel-open' : ''}${narrow && panelOpen && panelUi.sheet === 'full' ? ' sheet-full' : ''}${narrow && !selState.sel && !upOn && !filmOn && panelUi.world === 'full' ? ' world-full' : ''}${narrow && panelUi.drag ? ' sheet-drag' : ''}${narrow && selState.sel && !panelOpen ? ' sheet-away' : ''}${!narrow && world && sideUi.collapsed && !sideUi.peek ? ' side-collapsed' : ''}${picking ? ' picking' : ''}${globeOn ? ' globe-on' : ''}${data ? '' : ' booting'}${home ? ' home' : ''}${draft ? ' draft' : ''}${studioOn ? ' studio-on' : ''}${fr ? ' studio-flat' : ''}${astOpen && !narrow && !home && !draft ? ' ast-open' : ''}${preview ? ' ast-preview' : ''}${filmOn ? ' film-on' : ''}${filmOn && filmUi.mode === 'long' ? ' film-long' : ''}`}
       data-theme={theme}
       data-layer={mapLayer}
       onDragOver={onDragOver}
@@ -3790,7 +3851,7 @@ export function App() {
           </div>
         )}
         {/* 地图上钉在事发地的事件标签 */}
-        {data && world && <EventPins civ={civ} world={data.world} toClient={globeOn ? globeToClient : worldToClient} hidden={replayOn} />}
+        {data && world && <EventPins civ={civ} world={data.world} toClient={globeOn ? globeToClient : worldToClient} hidden={replayOn || filmOn} />}
         {data && globeOn && (
           <Globe
             world={data.world}
@@ -3814,6 +3875,10 @@ export function App() {
         {/* 作者的人物一生的足迹(选中一个人物时;地球仪上也画):在标记上面 */}
         {data && world && <CharacterLayer civ={civ} world={data.world} raster={data.raster} api={markApi} hidden={replayOn || draft || home} />}
       </main>
+      {/* 导出回放视频:地图压暗、中间的预览,或者地图上的框(FilmStage.tsx) */}
+      {filmOn && filmUi.mode === 'video' && <FilmStage phone={narrow} style={style} layer={layer} />}
+      {/* 竖版长图:地图压暗、中间的长图预览和右边一条全貌(手机整屏是预览;LongStage.tsx) */}
+      {filmOn && filmUi.mode === 'long' && <LongStage phone={narrow} style={style} layer={layer} />}
       {/* 选干预目标 / 推演中:压暗地图、浮出名牌;选中国家:国都的圆环(TargetPlates.tsx) */}
       {data && world && <TargetLayer civ={civ} world={data.world} toClient={globeOn ? globeToClient : worldToClient} resim={resim} generating={!!progress} labelAt={labelAt} />}
 
@@ -3850,7 +3915,9 @@ export function App() {
           {/* 手机:底部的世界卡片(没选东西时;选中了东西换成详情卡片)、右上竖排的毛玻璃按钮(图层、地球);数据图层的图例、旧网站的「旧版」(测试网站的「测试版」)标记在左上。
               界面都在卡片和毛玻璃按钮上,地图上不再压字、不用渐变遮罩;最近大事在世界卡片拉到顶时的列表里。
               新建时这些都不放(新建界面自己一套) */}
-          {!draft && !selState.sel && !upOn && (
+          {filmOn ? (
+            filmUi.mode === 'long' ? <LongPanel phone style={style} /> : <FilmPanel phone style={style} layer={layer} />
+          ) : !draft && !selState.sel && !upOn && (
               <PhoneSheet
                 data={data}
                 civ={civ}
@@ -3863,7 +3930,7 @@ export function App() {
                 exp={{ data, civ, plain: plainCiv, style, layer }}
               />
           )}
-          {!draft && <PhoneButtons layers={{ ...layerProps, draft }} globeOn={globeOn} onToggleGlobe={toggleGlobe} marking={markable ? markPlacing : undefined} />}
+          {!draft && !filmOn && <PhoneButtons layers={{ ...layerProps, draft }} globeOn={globeOn} onToggleGlobe={toggleGlobe} marking={markable ? markPlacing : undefined} />}
           {!draft && (OLD_SITE !== null || BETA_SITE || style === 'data') && (
             <div className="corner-tl">
               <OldSiteBadge />
@@ -3874,7 +3941,9 @@ export function App() {
       ) : (
         <>
           {/* 宽屏:左边侧栏(世界 / 选中的东西的详情、搜索、存档);右上图层、导出、编年史;数据图层的图例、旧网站的「旧版」(测试网站的「测试版」)标记在地图左上。新建时都不放(新建界面自己一套) */}
-          {!draft && (
+          {filmOn ? (
+            filmUi.mode === 'long' ? <LongPanel phone={false} style={style} /> : <FilmPanel phone={false} style={style} layer={layer} />
+          ) : !draft && (
             <Sidebar
               data={data}
               civ={civ}

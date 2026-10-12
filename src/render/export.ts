@@ -11,7 +11,7 @@
  * 图例(drawLegend):国家 / 民族列表 + 颜色(和世界概览的国家页一样按当年的州数排;信仰图层再列信仰)、道路和城镇符号,和地图用同一套字体与配色。
  *
  * 投影(和屏幕上一样):等距圆柱按当前中心左右转;弯边投影(罗宾森、摩尔威德……)按投影重画(和屏幕上停着时一样:
- * 面按行重投影,海岸、河、国界、道路逐点投影,符号正立,见 drawProjectedBase),外框换成投影轮廓、罗盘在轮廓外的左下角,
+ * 面按行重投影,海岸、河、国界、道路逐点投影,符号正立,见 drawMapTerrain),外框换成投影轮廓、罗盘在轮廓外的左下角,
  * 文字按投影排。经纬网开着时也画上。
  */
 import type { World } from '../gen/world';
@@ -110,77 +110,95 @@ export function exportReserved(style: CivStyle, worldH: number, left = 0): [numb
 
 /** 地形 + 文明底图 + 外框罗盘,画在和 raster 一样大的画布上(后台线程和主线程都能用) */
 export function drawMapBase(ctx: Ctx2D, p: ExportMapParams, makeCanvas: (w: number, h: number) => OffscreenCanvas | HTMLCanvasElement): void {
+  drawMapTerrain(ctx, p, makeCanvas);
+  drawMapCiv(ctx, p, makeCanvas);
+  drawMapDecor(ctx, p);
+}
+
+/**
+ * 底图的第一层:地形(当前画风;等距圆柱按中心左右转好;弯边投影:轮廓外铺底色,面按行重投影,海岸、河逐点投影,符号正立)。
+ * 和下面两层分开画,回放导出时地形只画一次、每一帧只重画文明底图
+ */
+export function drawMapTerrain(ctx: Ctx2D, p: ExportMapParams, makeCanvas: (w: number, h: number) => OffscreenCanvas | HTMLCanvasElement): void {
   const { world, raster, style } = p;
   const c2d = ctx as CanvasRenderingContext2D;
   const mp = exportProj(p);
   if (mp) {
-    drawProjectedBase(c2d, p, mp, makeCanvas);
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = pageColor(style);
+    ctx.fillRect(0, 0, raster.w, raster.h);
+    if (style === 'fantasy' || style === 'realistic') drawTerrainProjected(c2d, world, raster, style, mp, { s: raster.scale, ox: 0, oy: 0, k: 1 });
+    else {
+      const src = makeCanvas(raster.w, raster.h);
+      renderLayer(src.getContext('2d') as CanvasRenderingContext2D, world, raster, p.layer);
+      reprojectImage(c2d, src, raster.w, raster.h, mp, { s: raster.scale, ox: 0, oy: 0 });
+      src.width = src.height = 0;
+    }
+    ctx.restore();
     return;
   }
   if (style === 'realistic') renderRealistic(c2d, world, raster);
   else if (style === 'fantasy') renderFantasy(c2d, world, raster);
   else renderLayer(c2d, world, raster, p.layer);
-  if (civOk(p)) {
-    // 文明底图先画在单独一张透明画布上(drawCivOverlay 会清空整张画布),再贴上去 —— 和屏幕上两张画布叠起来一样
-    const cv = makeCanvas(raster.w, raster.h);
-    const octx = cv.getContext('2d') as CanvasRenderingContext2D;
-    drawCivOverlay(octx, { world, raster, civ: p.civ, style, year: p.year, show: p.show });
-    ctx.drawImage(cv, 0, 0);
-    cv.width = cv.height = 0;
+  rotateToCenter(ctx, p, makeCanvas);
+}
+
+/**
+ * 底图的第二层:文明底图(国土 / 民族色块、国界、道路;p.year 那一年),叠在地形上。
+ * 先画在单独一张透明画布上(drawCivOverlay 会清空整张画布),再贴上去 —— 和屏幕上两张画布叠起来一样;
+ * 等距圆柱按中心左右转(和地形转得一样),弯边投影按投影画。世界和文明对不上时不画
+ */
+export function drawMapCiv(ctx: Ctx2D, p: ExportMapParams, makeCanvas: (w: number, h: number) => OffscreenCanvas | HTMLCanvasElement): void {
+  if (!civOk(p)) return;
+  const { world, raster, style } = p;
+  const mp = exportProj(p);
+  const cv = makeCanvas(raster.w, raster.h);
+  const octx = cv.getContext('2d') as CanvasRenderingContext2D;
+  drawCivOverlay(octx, { world, raster, civ: p.civ, style, year: p.year, show: p.show, proj: mp ? projector(mp) : undefined });
+  if (!mp) rotateToCenter(octx, p, makeCanvas);
+  ctx.drawImage(cv, 0, 0);
+  cv.width = cv.height = 0;
+}
+
+/**
+ * 底图的第三层:经纬网(开着时)、纸边做旧、外框和罗盘,画在最上面。都是普通的叠加(不读底下的像素),
+ * 也能单独画在一张透明画布上再叠上去,结果一样
+ */
+export function drawMapDecor(ctx: Ctx2D, p: ExportMapParams): void {
+  const { world, raster, style } = p;
+  const mp = exportProj(p);
+  const v = bakedView(raster.scale);
+  if (mp) {
+    if (p.graticule) drawGraticule(ctx, mp, world.width, world.height, v, style, 0, raster.scale);
+    if (style === 'fantasy') {
+      drawPaperVignette(ctx, world.width, world.height, v);
+      drawProjFrame(ctx, mp, v);
+    } else drawNeatProjFrame(ctx, mp, raster.scale, style);
+    return;
   }
-  // 按当前视图的中心把整张图左右转一下(左右边 = 中心 ± 180°),外框、罗盘、纸边做旧画在转好的图上
   const left = exportLeft(p);
-  if (left) {
-    const sp = Math.round(left * (raster.w / world.width));
-    const tmp = makeCanvas(raster.w, raster.h);
-    const tctx = tmp.getContext('2d') as CanvasRenderingContext2D;
-    tctx.drawImage(ctx.canvas, 0, 0);
-    ctx.clearRect(0, 0, raster.w, raster.h);
-    ctx.drawImage(tmp, -sp, 0);
-    ctx.drawImage(tmp, raster.w - sp, 0);
-    tmp.width = tmp.height = 0;
-  }
   if (p.graticule) drawGraticule(ctx, null, world.width, world.height, { s: raster.scale, ox: -left * raster.scale, oy: 0 }, style, 0, raster.scale);
   if (style === 'fantasy') {
-    const v = bakedView(raster.scale);
     drawPaperVignette(ctx, world.width, world.height, v);
     drawFrame(ctx, world.width, world.height, v);
   }
   if (style !== 'fantasy') drawNeatFrame(ctx, raster.w, raster.h, raster.scale, style);
 }
 
-/**
- * 弯边投影的底图(和屏幕上停着时一样按投影重画;中央经线在投影里转,不用先左右转):
- * 外轮廓外面铺底色 → 地形(手绘 / 写实:面按行重投影,海岸、河逐点投影,符号正立;数据图层:整图重投影)
- * → 文明底图(色块重投影,国界、道路逐点投影)→ 经纬网、纸边做旧、外框罗盘
- */
-function drawProjectedBase(ctx: CanvasRenderingContext2D, p: ExportMapParams, mp: MapProj, makeCanvas: (w: number, h: number) => OffscreenCanvas | HTMLCanvasElement): void {
-  const { world, raster, style } = p;
-  ctx.save();
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.fillStyle = pageColor(style);
-  ctx.fillRect(0, 0, raster.w, raster.h);
-  if (style === 'fantasy' || style === 'realistic') drawTerrainProjected(ctx, world, raster, style, mp, { s: raster.scale, ox: 0, oy: 0, k: 1 });
-  else {
-    const src = makeCanvas(raster.w, raster.h);
-    renderLayer(src.getContext('2d') as CanvasRenderingContext2D, world, raster, p.layer);
-    reprojectImage(ctx, src, raster.w, raster.h, mp, { s: raster.scale, ox: 0, oy: 0 });
-    src.width = src.height = 0;
-  }
-  ctx.restore();
-  if (civOk(p)) {
-    const cv = makeCanvas(raster.w, raster.h);
-    const octx = cv.getContext('2d') as CanvasRenderingContext2D;
-    drawCivOverlay(octx, { world, raster, civ: p.civ, style, year: p.year, show: p.show, proj: projector(mp) });
-    ctx.drawImage(cv, 0, 0);
-    cv.width = cv.height = 0;
-  }
-  const v = bakedView(raster.scale);
-  if (p.graticule) drawGraticule(ctx, mp, world.width, world.height, v, style, 0, raster.scale);
-  if (style === 'fantasy') {
-    drawPaperVignette(ctx, world.width, world.height, v);
-    drawProjFrame(ctx, mp, v);
-  } else drawNeatProjFrame(ctx, mp, raster.scale, style);
+/** 按当前视图的中心把整张图左右转一下(左右边 = 中心 ± 180°);没给中心不动 */
+function rotateToCenter(ctx: Ctx2D, p: ExportMapParams, makeCanvas: (w: number, h: number) => OffscreenCanvas | HTMLCanvasElement): void {
+  const { world, raster } = p;
+  const left = exportLeft(p);
+  if (!left) return;
+  const sp = Math.round(left * (raster.w / world.width));
+  const tmp = makeCanvas(raster.w, raster.h);
+  const tctx = tmp.getContext('2d') as CanvasRenderingContext2D;
+  tctx.drawImage(ctx.canvas, 0, 0);
+  ctx.clearRect(0, 0, raster.w, raster.h);
+  ctx.drawImage(tmp, -sp, 0);
+  ctx.drawImage(tmp, raster.w - sp, 0);
+  tmp.width = tmp.height = 0;
 }
 
 /** 写实风 / 数据图层在弯边投影下的外框:沿外轮廓一道深色粗线 + 一道浅色细线,罗盘在轮廓外的左下角 */
@@ -276,15 +294,27 @@ function drawNeatCompass(ctx: Ctx2D, cx: number, cy: number, S: number, ink: str
 // ---------------------------------------------------------------------------
 // 2. 地图文字(主线程)
 
-/** 导出时文字层的视口:整张图、缩放 1 倍;地图按世界宽显示,像素密度 = 导出倍数 */
-export function exportLabelView(p: ExportMapParams, S: ExportScale): LabelView {
+/**
+ * 文字按多大的画布排:s = 画布像素 / 世界单位,dpr = 画布像素 / CSS 像素(字和符号放大几倍)。
+ * 地图按 世界宽 × s / dpr 个 CSS 像素宽显示(字号跟着它按平方根变大,见 labels/draw.ts 的 labelPx)。
+ * 导出地图图片:s = dpr = 导出倍数(地图按世界宽显示);回放导出的视频、长图按输出的大小另给
+ */
+export interface MapTextScale {
+  s: number;
+  dpr: number;
+}
+
+/** 导出时文字层的视口:整张图、缩放 1 倍;不给 px = 地图按世界宽显示,像素密度 = 导出倍数 */
+export function exportLabelView(p: ExportMapParams, S: ExportScale, px: MapTextScale = { s: S, dpr: S }): LabelView {
   const W = p.world.width;
   const H = p.world.height;
   const mp = exportProj(p);
+  const { s, dpr } = px;
+  const mapCss = (W * s) / dpr;
   if (mp) {
     // 弯边投影:文字按投影排,不出外轮廓(罗盘在轮廓外面)
     const extras = labelViewExtras({ world: p.world, raster: p.raster, civ: p.civ!, style: p.style, year: p.year, show: p.show }, 0);
-    return { ...extras, reserved: [], wrap: 0, frameLeft: 0, proj: labelProjection(mp), scale: S, ox: 0, oy: 0, dpr: S, k: 1, mapCss: W, canvasW: W * S, canvasH: H * S };
+    return { ...extras, reserved: [], wrap: 0, frameLeft: 0, proj: labelProjection(mp), scale: s, ox: 0, oy: 0, dpr, k: 1, mapCss, canvasW: W * s, canvasH: H * s };
   }
   // 球面世界:图片左边是 left(展开的世界坐标),外框 = 图片边
   const left = exportLeft(p);
@@ -293,14 +323,14 @@ export function exportLabelView(p: ExportMapParams, S: ExportScale): LabelView {
     ...extras,
     reserved: [...(extras.reserved ?? []), ...exportReserved(p.style, H, left)],
     frameLeft: left,
-    scale: S,
-    ox: -left * S,
+    scale: s,
+    ox: -left * s,
     oy: 0,
-    dpr: S,
+    dpr,
     k: 1,
-    mapCss: W,
-    canvasW: W * S,
-    canvasH: H * S,
+    mapCss,
+    canvasW: W * s,
+    canvasH: H * s,
   };
 }
 
@@ -308,18 +338,23 @@ export function exportLabelView(p: ExportMapParams, S: ExportScale): LabelView {
  * 画地图文字(地名、国名、城名、城镇符号)。p.raster 用 1× 的那张就行(只查地面、拟合国名,和导出倍数无关)。
  * 先等字体加载好。返回画了几条文字、几个符号。
  */
-export async function drawMapLabels(ctx: CanvasRenderingContext2D, p: ExportMapParams, S: ExportScale): Promise<{ labels: number; marks: number; placed?: Placement }> {
+export async function drawMapLabels(
+  ctx: CanvasRenderingContext2D,
+  p: ExportMapParams,
+  S: ExportScale,
+  opt: { px?: MapTextScale; fast?: boolean } = {},
+): Promise<{ labels: number; marks: number; placed?: Placement }> {
   if (!civOk(p)) return { labels: 0, marks: 0 };
   const params = { world: p.world, raster: p.raster, civ: p.civ, style: p.style, year: p.year, show: p.show };
   // 地理名不随年份变(和屏幕上一样按结束年份取);国名、城名、城镇符号按当年
   const geo = civLabelItems({ ...params, year: p.civ.endYear });
   // 弯边投影:国名按投影后的国土拟合
-  const layer = civMapLayer(params, { proj: exportProj(p) });
+  const layer = civMapLayer(params, { proj: exportProj(p), fast: opt.fast });
   const items = geo.concat(layer.items);
   const wars = warsShown(params);
   if (!items.length && !layer.marks.length && !wars) return { labels: 0, marks: 0 };
   await ensureFonts(p.style, civLabelChars(p.civ), 15000);
-  const lv = exportLabelView(p, S);
+  const lv = exportLabelView(p, S, opt.px);
   const placed = placeMap(items, layer.marks, lv);
   // 战事的战线、双剑:压在国界上、城镇符号和字底下(和屏幕上一样)
   if (wars) {
@@ -332,13 +367,14 @@ export async function drawMapLabels(ctx: CanvasRenderingContext2D, p: ExportMapP
 }
 
 /**
- * 作者标记、人物足迹在导出图上摆放用的坐标:世界坐标 ÷ f(f = √(图宽 / REF_MAP_CSS)),画的时候整体放大 S × f,
- * 图钉、头像和字跟着地名一样按图片宽放大(地图按 REF_MAP_CSS 宽显示时就是屏幕上的大小)
+ * 作者标记、人物足迹在导出图上摆放用的坐标:世界坐标 × s / m(s = 画布像素 / 世界单位),画的时候整体放大 m 倍
+ * (m = √(地图显示宽 / REF_MAP_CSS) × dpr):图钉、头像和字跟着地名一样按地图宽放大(地图按 REF_MAP_CSS 宽显示时就是屏幕上的大小)
  */
-function exportMarkFrame(p: Pick<ExportMapParams, 'world' | 'center' | 'projection'>): { frame: MarkFrame; f: number } {
+function exportMarkFrame(p: Pick<ExportMapParams, 'world' | 'center' | 'projection'>, px: MapTextScale): { frame: MarkFrame; m: number } {
   const W = p.world.width;
   const H = p.world.height;
-  const f = Math.sqrt(W / REF_MAP_CSS);
+  const m = Math.sqrt((W * px.s) / px.dpr / REF_MAP_CSS) * px.dpr;
+  const f = m / px.s;
   const mp = exportProj(p);
   const left = mp ? 0 : exportLeft(p);
   const frame: MarkFrame = mp
@@ -355,32 +391,39 @@ function exportMarkFrame(p: Pick<ExportMapParams, 'world' | 'center' | 'projecti
         cut: (0.4 * W) / f,
       }
     : { pt: (wx, wy) => [(wx - left) / f, wy / f], period: wrapOf(p.world) ? W / f : 0, win: [0, W / f], w: W / f, h: H / f, k: NAME_ZOOM, cut: 0 };
-  return { frame, f };
+  return { frame, m };
 }
 
 /**
  * 作者标记(导出菜单里选了"带上"):和屏幕上同样的图钉、铺色、名字,都写名字、不合并;items = 这一年有的(几个州的形状算好)。
- * placed = drawMapLabels 排好的地图文字:名字尽量不压城名、地名。返回画了几个
+ * placed = drawMapLabels 排好的地图文字:名字尽量不压城名、地名。px 同 exportLabelView。返回画了几个
  */
-export function drawExportMarks(ctx: CanvasRenderingContext2D, p: Pick<ExportMapParams, 'world' | 'center' | 'projection'>, S: ExportScale, items: readonly MarkItem[], placed?: Placement): number {
+export function drawExportMarks(
+  ctx: CanvasRenderingContext2D,
+  p: Pick<ExportMapParams, 'world' | 'center' | 'projection'>,
+  S: ExportScale,
+  items: readonly MarkItem[],
+  placed?: Placement,
+  px: MapTextScale = { s: S, dpr: S },
+): number {
   if (!items.length) return 0;
-  const { frame, f } = exportMarkFrame(p);
+  const { frame, m } = exportMarkFrame(p, px);
   ctx.save();
-  ctx.scale(S * f, S * f);
-  // 文字层的画布像素 = 摆放坐标 × S × f
-  const avoid = placed ? placedTextBoxes(placed).map((b) => b.map((v) => v / (S * f))) : [];
+  ctx.scale(m, m);
+  // 文字层的画布像素 = 摆放坐标 × m
+  const avoid = placed ? placedTextBoxes(placed).map((b) => b.map((v) => v / m)) : [];
   const layout = layoutMarks(items, frame, { names: true, measure: canvasMeasure(ctx), avoid });
-  drawMarks(ctx, layout, S * f);
+  drawMarks(ctx, layout, m);
   ctx.restore();
   return layout.pins.length + layout.areas.length;
 }
 
 /** 正选着的作者人物的足迹(和屏幕上一样的线、圆点、年份、头像);年份尽量不压地图上的字。返回画了几个点 */
 export function drawExportTrail(ctx: CanvasRenderingContext2D, p: Pick<ExportMapParams, 'world' | 'center' | 'projection'>, S: ExportScale, trail: TrailInput, placed?: Placement): number {
-  const { frame, f } = exportMarkFrame(p);
+  const { frame, m } = exportMarkFrame(p, { s: S, dpr: S });
   ctx.save();
-  ctx.scale(S * f, S * f);
-  const avoid = placed ? placedTextBoxes(placed).map((b) => b.map((v) => v / (S * f))) : [];
+  ctx.scale(m, m);
+  const avoid = placed ? placedTextBoxes(placed).map((b) => b.map((v) => v / m)) : [];
   const layout = layoutTrail(trail, frame, { measure: canvasMeasure(ctx), avoid });
   drawTrail(ctx, layout);
   ctx.restore();

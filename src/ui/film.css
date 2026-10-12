@@ -1,0 +1,430 @@
+/*
+ * 回放导出:左边面板(宽屏,替换侧栏)、底部卡片(手机)、地图上的预览 / 框、时间轴上选的一段。
+ * 数值照侧栏(sidebar.css)和界面上现有的分段按钮、开关;颜色用主题变量(theme.css)。
+ */
+
+/* ---- 宽屏:左边面板(位置、大小和侧栏一样) ---- */
+.film-side {
+  position: absolute;
+  left: var(--side-gap, 14px);
+  top: var(--side-gap, 14px);
+  bottom: var(--side-gap, 14px);
+  width: var(--side-w, 372px);
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px 14px 16px;
+  overflow-y: auto;
+  box-sizing: border-box;
+  background: var(--panel-solid);
+  border-radius: 14px;
+  box-shadow: var(--shadow-panel);
+  border: 0.5px solid var(--line-strong);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.45;
+  cursor: default;
+}
+.film-side button,
+.film-sheet button,
+.film-side input {
+  font: inherit;
+  color: inherit;
+}
+.film-back {
+  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--link) !important;
+  font-size: 14px;
+  cursor: pointer;
+}
+.film-back::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  margin: 0 4px 0 3px;
+  border-left: 1.8px solid currentColor;
+  border-bottom: 1.8px solid currentColor;
+  transform: rotate(45deg);
+}
+.film-ttl {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: -4px;
+}
+.film-ttl b {
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+.film-ttl span {
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+.film-grp {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 11px 12px;
+  border-radius: 10px;
+  background: var(--btn);
+}
+.film-grp.off {
+  opacity: 0.45;
+  pointer-events: none;
+}
+.film-lbl {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13.5px;
+}
+.film-lbl > b {
+  flex: none;
+  width: 58px;
+  font-weight: 500;
+}
+.film-lbl > .sp {
+  flex: 1;
+}
+.film-lbl .val {
+  font-size: 13.5px;
+  font-variant-numeric: tabular-nums;
+}
+.film-seg {
+  flex: 1;
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 9px;
+  background: var(--field);
+}
+.film-seg > button {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  font-size: 13px !important;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.film-seg > button.on {
+  background: var(--surface);
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.14),
+    0 0 0 0.5px rgba(0, 0, 0, 0.04);
+  font-weight: 600;
+}
+.film-seg > button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.film-hint {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+.film-sw {
+  flex: none;
+  position: relative;
+  width: 40px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  background: rgba(120, 120, 128, 0.32);
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+.film-sw.on {
+  background: #34c759;
+}
+.film-sw::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  transition: left 0.2s;
+}
+.film-sw.on::after {
+  left: 18px;
+}
+.film-field {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  box-sizing: border-box;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 0.5px solid var(--line-strong);
+  background: var(--surface);
+  font-size: 14px !important;
+  outline: none;
+}
+.film-field:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.film-line {
+  height: 0.5px;
+  margin: 0 -12px;
+  background: var(--line);
+}
+.film-btn {
+  height: 40px;
+  border: 0;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px !important;
+  font-weight: 600 !important;
+  cursor: pointer;
+}
+.film-btn.primary {
+  background: var(--accent);
+  color: #fff !important;
+}
+.film-btn.primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+.film-btn.plain {
+  background: var(--btn);
+}
+.film-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.film-fine {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+.film-fine.center {
+  text-align: center;
+}
+.film-foot {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.film-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--line);
+  overflow: hidden;
+}
+.film-bar s {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--accent);
+  transition: width 0.3s linear;
+}
+.film-warn {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 11px 12px;
+  border-radius: 10px;
+  background: rgba(185, 124, 12, 0.12);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.film-warn b {
+  color: var(--warn);
+  font-weight: 600;
+  font-size: 14px;
+}
+
+/* ---- 手机:底部一张小卡片 ---- */
+.film-sheet {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 12px 16px calc(18px + var(--safe-b, 0px));
+  background: var(--panel-solid);
+  border-radius: 16px 16px 0 0;
+  box-shadow: 0 -2px 16px rgba(0, 0, 0, 0.18);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.45;
+}
+.film-sheet-hd {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.film-sheet-hd b {
+  font-size: 17px;
+  font-weight: 700;
+}
+.film-sheet-hd .val {
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+.film-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--link) !important;
+  font-size: 15px !important;
+  cursor: pointer;
+}
+.film-sheet .film-seg {
+  flex: none;
+}
+.film-sheet .film-seg > button {
+  height: 30px;
+  font-size: 13.5px !important;
+}
+.film-sheet .film-btn.plain {
+  margin-top: 4px;
+}
+.film-two {
+  display: flex;
+  gap: 16px;
+}
+.film-two > div {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 14px;
+}
+
+/* ---- 地图上:压暗、预览 / 框、画面大小、提示条 ---- */
+.film-stage {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  overflow: hidden;
+  font-family: var(--font-sans);
+}
+/* 整张地图:地图整个压暗,盖住右下角的按钮(这时不用动地图) */
+.film-stage.whole {
+  z-index: 4;
+  pointer-events: auto;
+}
+.film-dim {
+  position: absolute;
+  inset: 0;
+  background: rgba(18, 18, 22, 0.5);
+}
+.film-frame {
+  position: absolute;
+  outline: 2px solid rgba(255, 255, 255, 0.95);
+}
+.film-frame canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+/* 框里一块:框外压暗(浅一点,看得清要挪到哪儿) */
+.film-dim.part {
+  inset: auto;
+  background: rgba(18, 18, 22, 0.46);
+}
+.film-frame.pv {
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.35);
+}
+.film-hole {
+  position: absolute;
+}
+/* 导出时不显示「拖动地图」那条操作提示(位置让给导出的提示条) */
+.app.film-on .first-hint {
+  display: none;
+}
+.film-size {
+  position: absolute;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: rgba(28, 28, 30, 0.72);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: nowrap;
+}
+.film-pill {
+  position: absolute;
+  transform: translateX(-50%);
+  padding: 8px 16px;
+  border-radius: 18px;
+  background: var(--panel);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.14);
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.45;
+  white-space: nowrap;
+}
+
+/* ---- 导出时,界面别的部分 ---- */
+.app.film-on .bottom-row {
+  z-index: 6;
+}
+/* 侧栏收起了也让出面板的位置 */
+.app.has-side.film-on {
+  --side-room: calc(var(--side-w) + 2 * var(--side-gap));
+}
+/* 手机:时间轴浮在底部卡片上面 */
+.app.phone.film-on .bottom-row {
+  bottom: calc(var(--film-sheet-h, 266px) + 10px);
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+/* 手机:右上角的按钮收起来了,提示条占满一行 */
+.app.phone.film-on .toast {
+  right: calc(12px + var(--safe-r));
+}
+/* 手机的时间轴:把手窄一点,框矮一点;起止年份写在把手底下(刻度字不写) */
+.app.phone .tb-range {
+  top: 16.5px;
+  height: 16px;
+  border-width: 2px 8px;
+}
+.app.phone .tb-range::before {
+  left: -5px;
+}
+.app.phone .tb-range::after {
+  right: -5px;
+}
+.app.phone .tb-ph {
+  top: 13.5px;
+  height: 22px;
+}
+/* 手机上导出视频时时间轴右边不放速度按钮:轨道右边留出把手底下"3000"那几个字的地方 */
+.app.phone .tb-track.film {
+  margin-right: 12px;
+}
