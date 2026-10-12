@@ -45,6 +45,8 @@ import { exportGlobeView, useGlobeOn } from './Globe';
 import { noteDismiss } from './dismissClick';
 import { fileBaseName } from '../gen/savefile';
 import { currentWorld } from './saveStore';
+import { openFilm } from './filmStore';
+import { useNarrow } from './device';
 
 type Job = 'map' | 'mapjpg' | 'height16' | 'height8' | 'md' | 'txt' | 'legend' | 'globe';
 
@@ -267,6 +269,7 @@ export function ExportMenu({ data, civ: shown, plain, style, layer, icon }: Expo
   const busy = useExportStatus()?.kind === 'busy';
   const time = useCivTime();
   const globeOn = useGlobeOn();
+  const narrow = useNarrow();
   const rootRef = useRef<HTMLDivElement>(null);
 
   // 点菜单外面就收起(在捕获阶段听:地图上的按钮条拦了冒泡,点旁边的按钮照样收起)
@@ -434,6 +437,34 @@ export function ExportMenu({ data, civ: shown, plain, style, layer, icon }: Expo
       </button>
       {open && (
         <div className="export-menu" role="menu">
+          {/* 回放导出:点了左边面板(手机:底部卡片)换成导出的选项 */}
+          <button
+            className="export-item go"
+            role="menuitem"
+            data-job="film"
+            disabled={busy || !ok}
+            onClick={() => {
+              setOpen(false);
+              openFilm('video', narrow);
+            }}
+          >
+            <b>回放视频(MP4)</b>
+            <span>把时间轴放一遍，存成横屏或竖屏的视频</span>
+          </button>
+          <button
+            className="export-item go"
+            role="menuitem"
+            data-job="long"
+            disabled={busy || !ok}
+            onClick={() => {
+              setOpen(false);
+              openFilm('long', narrow);
+            }}
+          >
+            <b>竖版长图</b>
+            <span>疆域变迁和大事年表，拼成一张长图</span>
+          </button>
+          <div className="export-hr" />
           <div className="export-scale">
             <span>清晰度</span>
             <div className="seg">

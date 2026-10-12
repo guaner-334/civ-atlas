@@ -36,6 +36,8 @@ import { TimelineMarks } from './TimelineMarks';
 import { baseRegions } from './eras';
 import { useNarrow } from './device';
 import { STORY_SECONDS, playRate, replayStart } from './timelineLayout';
+import { filmRangeOf, getFilm, setFilmRange, useFilm } from './filmStore';
+import { filmClock, lengthText } from './filmPlan';
 import './timeline.css';
 
 export interface CivTimelineProps {
@@ -49,6 +51,8 @@ export interface CivTimelineProps {
 export function CivTimeline({ civ, hidden, dock = 'bottom' }: CivTimelineProps) {
   const t = useCivTime();
   const narrow = useNarrow();
+  // 导出回放视频时:时间轴上选一段(两头的把手),播放按成片的速度放这一段,右边写片长
+  const film = useFilm();
   const chron = useChronicle();
   const has = !!civ && civ.viable && civ.cultures.length > 0;
   const end = civ?.endYear ?? 0;
@@ -85,7 +89,10 @@ export function CivTimeline({ civ, hidden, dock = 'bottom' }: CivTimelineProps) 
       return;
     }
     if (t.story) setCivShow({ cultures: true, polities: true, faiths: false });
-    const rate = t.story ? end / STORY_SECONDS : playRate(t.speed, end);
+    const fm = getFilm();
+    const span = fm.mode === 'video' && civ ? filmRangeOf(civ) : null;
+    const rate = t.story ? end / STORY_SECONDS : span ? filmClock(span, fm.seconds, fm.cards).rate : playRate(t.speed, end);
+    const stop = span ? span.to : end;
     let last = performance.now();
     let raf = 0;
     const step = (now: number) => {
@@ -94,8 +101,8 @@ export function CivTimeline({ civ, hidden, dock = 'bottom' }: CivTimelineProps) 
       const cur = getCivTime();
       if (!cur.playing) return;
       const ny = (cur.year ?? 0) + (dt / 1000) * rate;
-      if (ny >= end) {
-        setCivTime({ year: null, playing: false, story: false });
+      if (ny >= stop) {
+        setCivTime({ year: span ? stop : null, playing: false, story: false });
         return;
       }
       setCivTime({ year: ny });
@@ -103,12 +110,20 @@ export function CivTimeline({ civ, hidden, dock = 'bottom' }: CivTimelineProps) 
     };
     raf = requestAnimationFrame(step);
     return () => cancelAnimationFrame(raf);
-  }, [t.playing, t.story, t.speed, has, end]);
+  }, [t.playing, t.story, t.speed, has, end, civ]);
 
   if (!has || hidden) return null;
 
-  // 放到头了(停在结束年份):从结束年份前 400 年重播
-  const toggle = () => togglePlayback(end, replayStart(end));
+  const filmOn = film.mode === 'video';
+  const span = filmOn ? filmRangeOf(civ) : null;
+  const locked = filmOn && !!film.run;
+  // 放到头了(停在结束年份):从结束年份前 400 年重播;导出视频时从选的那一段开头重播
+  const toggle = () => {
+    if (locked) return;
+    if (!span) return togglePlayback(end, replayStart(end));
+    if (t.playing) return setCivTime({ playing: false });
+    setCivTime({ playing: true, story: false, scrubbing: false, year: year >= span.to || year < span.from ? span.from : year });
+  };
   const n = Math.floor(year);
   const firstPolity = civ.polities.length ? Math.min(...civ.polities.map((p) => p.founded)) : Infinity;
   const story =
@@ -138,7 +153,8 @@ export function CivTimeline({ civ, hidden, dock = 'bottom' }: CivTimelineProps) 
         style={{ ['--p' as string]: p }}
       >
         <button
-          className={`tb-play${t.playing ? ' on' : ''}`}
+          className={`tb-play${t.playing || locked ? ' on' : ''}${locked ? ' locked' : ''}`}
+          disabled={locked}
           onClick={toggle}
           aria-label={t.playing ? '暂停' : '播放'}
           data-tip={t.playing ? '暂停' : '播放'}
@@ -148,7 +164,13 @@ export function CivTimeline({ civ, hidden, dock = 'bottom' }: CivTimelineProps) 
           <i aria-hidden="true" />
         </button>
         <span className="tb-year">第 {n} 年</span>
-        {narrow ? (
+        {span ? (
+          !narrow && (
+            <span className="tb-film-len">
+              片长 <b>{lengthText(film.seconds)}</b>
+            </span>
+          )
+        ) : narrow ? (
           <button className="tb-speed tb-speed-one" onClick={() => setCivTime({ speed: t.speed === 4 ? 1 : 4 })} aria-label={`播放速度 ${t.speed}×,点一下换成 ${t.speed === 4 ? 1 : 4}×`}>
             {t.speed}×
           </button>
@@ -161,7 +183,14 @@ export function CivTimeline({ civ, hidden, dock = 'bottom' }: CivTimelineProps) 
             ))}
           </span>
         )}
-        <TimelineMarks entries={marks} end={end} dock={dock} year={n} />
+        <TimelineMarks
+          entries={marks}
+          end={end}
+          dock={dock}
+          year={n}
+          small={narrow}
+          range={span ? { from: span.from, to: span.to, onRange: (from, to) => setFilmRange({ from, to }, end), labels: narrow, locked } : undefined}
+        />
       </div>
     </>
   );

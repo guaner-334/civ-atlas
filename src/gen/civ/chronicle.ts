@@ -137,6 +137,8 @@ export interface ChronicleEntry {
   children?: ChronicleEntry[];
   /** 战争到结束年份还没打完 */
   ongoing?: boolean;
+  /** 战争那一条的开头(由头和出兵,不含得失):回放视频里战争还没打完时只写这一句 */
+  head?: string;
   /** 正文里写到的人物(Person.id;没有 = 不给) */
   people?: number[];
   /** 信仰的大事:哪种信仰(civ.religion.faiths 的下标;教派分立 = 新的教派) */
@@ -1576,7 +1578,8 @@ function warEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
   // (君主写在国名后面会把"大事"里国名后的来历隔开,所以放到逗号后面)
   const lead = decl.kind === 'war' ? commander(ix, decl.war, 0, ids[list.indexOf(decl)]) : null;
   if (lead && lead.role !== 'general') parts.unshift(`${rulerBare(civ, lead, start)}亲征`);
-  const text = `${warHead(civ, decl, ids[list.indexOf(decl)], lead?.role === 'general' ? lead.name : '')},${parts.join(',')}`;
+  const head = warHead(civ, decl, ids[list.indexOf(decl)], lead?.role === 'general' ? lead.name : '');
+  const text = `${head},${parts.join(',')}`;
   // 改变格局的战争是大事:灭了大国(或吞并一个像样的国家)、易手很多州、攻下做了很久的国都、两个帝国交兵且有得失
   const A0 = polityOf(civ, atk);
   const gains = gainA.length + gainD.length;
@@ -1612,6 +1615,7 @@ function warEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
       settlement: -1,
       children,
       ongoing: !over,
+      head,
     },
     lead,
   );

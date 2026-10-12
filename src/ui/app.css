@@ -1405,3 +1405,25 @@ body.imp-move .stage.terrain-on {
 .detail-tiles canvas.tile.fade {
   opacity: 0;
 }
+/* 回放视频、竖版长图:点了打开左边的导出面板(右边一个小箭头) */
+.export-item.go {
+  position: relative;
+  padding-right: 28px;
+}
+.export-item.go::after {
+  content: '';
+  position: absolute;
+  right: 13px;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  margin-top: -4px;
+  border-right: 1.6px solid var(--ink-3);
+  border-top: 1.6px solid var(--ink-3);
+  transform: rotate(45deg);
+}
+.export-hr {
+  height: 1px;
+  margin: 6px 4px;
+  background: var(--line);
+}

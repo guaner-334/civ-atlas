@@ -424,3 +424,82 @@
     font-size: 14px;
   }
 }
+
+/* ---- 导出回放视频:选一段年份(框 + 两头的把手)、竖线播放头、右边写片长 ---- */
+/* 框:蓝色描边、两头加宽成把手(上面一道白色的小竖线),框里淡蓝;框外的事件圆点变淡 */
+.tb-range {
+  top: 15.5px;
+  height: 18px;
+  box-sizing: border-box;
+  border: 2.5px solid var(--accent, #007aff);
+  border-left-width: 11px;
+  border-right-width: 11px;
+  border-radius: 6px;
+  background: var(--accent-soft, rgba(0, 122, 255, 0.12));
+  cursor: ew-resize;
+}
+.tb-range::before,
+.tb-range::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  width: 2px;
+  height: 10px;
+  margin-top: -5px;
+  border-radius: 1px;
+  background: rgba(255, 255, 255, 0.9);
+}
+.tb-range::before {
+  left: -6.5px;
+}
+.tb-range::after {
+  right: -6.5px;
+}
+.tb-track.film .tb-prog {
+  display: none;
+}
+.tb-mark.out {
+  opacity: 0.3;
+}
+.tb-ph {
+  top: 12.5px;
+  left: calc(var(--p, 0) * 100%);
+  width: 3px;
+  height: 24px;
+  margin-left: -1.5px;
+  border-radius: 2px;
+  background: var(--ink, #1d1d1f);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.9);
+  pointer-events: none;
+}
+.tb-range-lab {
+  position: absolute;
+  top: 34px;
+  transform: translateX(-50%);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--accent, #007aff);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+/* 正在导出:时间轴变淡、不能拖 */
+.tb-track.locked,
+.timebar button.tb-play.locked {
+  opacity: 0.55;
+  cursor: default;
+}
+.tb-film-len {
+  flex: none;
+  order: 9;
+  margin-left: 6px;
+  font-size: 13px;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+.tb-film-len b {
+  color: var(--ink);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
