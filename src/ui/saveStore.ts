@@ -13,8 +13,8 @@
  *   清空旧世界的修改就不会被当成这个世界的。
  * - 缩略图(480×240 JPEG dataURL)单独存一个键,第一次存这个世界时由 App 给的 thumbMaker 截一张(截不到就过一会儿再试);
  *   新建中的世界地形变了、刚创建完,App 调 refreshThumb 重截。
- * - 存储有上限:最多存 MAX_WORLDS 个世界;写不下(配额满了)就删最旧的再试 —— 删了别的世界就在顶部提示一句;
- *   删光了也写不下:提示"浏览器存储已满",带"存成文件"(同一次满只提示一回,之后写成功了再重新算)。
+ * - 存储有上限:最多存 MAX_WORLDS 个世界;存满了(个数到上限、或浏览器配额满了)这一次就存不下,**绝不自动删别的世界**:
+ *   顶部提示"没能自动存档",带"存成文件"(同一次满只提示一回,之后写成功了再重新算);腾出地方(自己删掉几个)后下一次改动就存下了。
  * - 浏览器不让用 localStorage(隐私模式、禁用了存储)时退回"只在内存里":这次打开的页面里照样能用,
  *   刷新就没了;第一次存的时候顶部提示一句(带"存成文件",10 秒后自己收起),存档菜单里一直写着。所有读写都 try/catch,从不往外抛错。
  * - 投影和中央经线(ui/projection.ts、mapWrap.ts)跟着世界存:存档时按当时的设置写进 view;
@@ -402,32 +402,32 @@ function saveFileAction(): ToastAction | undefined {
 let storageFull = false;
 /** 只在内存里存(浏览器不让存)的提示已经说过了 */
 let memoryWarned = false;
-/** 这一次写入为了腾地方删掉的世界(名字) */
-let evicted: string[] = [];
+/** 存不下的原因:个数到上限 / 浏览器配额满了 */
+let fullWhy: 'count' | 'quota' = 'quota';
 
 /** 自动存是不是写不下了(菜单里的一行字用) */
 export function storageIsFull(): boolean {
   return storageFull;
 }
 
-function reportFull() {
-  if (storageFull) return;
-  storageFull = true;
-  showToast({ id: 'storage', kind: 'warn', text: '没能自动存档:浏览器存储已满', more: ['在「我的世界」里删掉几个,或存成文件'], action: saveFileAction() });
-  changed();
+/** 最近一次存不下的原因,一小句话:个数到了上限,还是浏览器存储满了 */
+export function storageFullWhy(): string {
+  return fullWhy === 'count' ? `「我的世界」最多存 ${MAX_WORLDS} 个` : '浏览器存储已满';
 }
 
-function reportEvicted(why: 'quota' | 'count') {
-  const names = evicted;
-  evicted = [];
-  if (!names.length) return;
-  const list = names.length > 2 ? `「${names[0]}」等 ${names.length} 个` : names.map((n) => `「${n}」`).join('');
+function reportFull(why: 'count' | 'quota') {
+  // 已经提示过、原因没变:不再重复;原因变了(删了一个以后个数够了、但浏览器存储还是不够)就换成新的说法
+  if (storageFull && fullWhy === why) return;
+  fullWhy = why;
+  storageFull = true;
   showToast({
     id: 'storage',
     kind: 'warn',
-    text: why === 'quota' ? '浏览器存储已满' : `「我的世界」最多存 ${MAX_WORLDS} 个`,
-    more: [`已删掉最旧的存档${list}`],
+    text: `没能自动存档:${storageFullWhy()}`,
+    more: ['在「我的世界」里删掉几个,或存成文件'],
+    action: saveFileAction(),
   });
+  changed();
 }
 
 function reportMemoryOnly() {
@@ -531,44 +531,9 @@ function removeKeys(id: string) {
   for (const p of [PREFIX, THUMB, META, NOTES, ORIG]) kv.remove(p + id);
 }
 
-/** 删掉最旧的一个世界(不删 keep;读不出来的坏条目、没有存档的缩略图和原样最先删);没得删 = false */
-function evictOldest(keep: string): boolean {
-  const kv = store();
-  const ids = new Set<string>();
-  for (const k of kv.keys()) {
-    for (const p of [PREFIX, THUMB, META, ORIG]) if (k.startsWith(p)) ids.add(k.slice(p.length));
-  }
-  ids.delete(keep);
-  if (shield) ids.delete(shield);
-  let oldest: string | null = null;
-  let at = '￿';
-  for (const id of ids) {
-    const s = readSave(id);
-    const m = s ? readMeta(id) : {};
-    const t = s ? (m.opened && m.opened > s.savedAt ? m.opened : s.savedAt) : '';
-    if (t < at || (t === at && oldest !== null && id < oldest)) {
-      oldest = id;
-      at = t;
-    }
-  }
-  if (oldest === null) return false;
-  const name = nameOf(oldest);
-  if (name) evicted.push(name);
-  removeKeys(oldest);
-  return true;
-}
-
-/** 存不下要删旧世界时,除了正在写的那个,这一个也不删(复制时的原件) */
-let shield: string | null = null;
-
-/** 写一个键;写不下就删最旧的世界再试 */
-function put(key: string, value: string, keep: string): boolean {
-  const kv = store();
-  for (let i = 0; i < 8; i++) {
-    if (kv.set(key, value)) return true;
-    if (!evictOldest(keep)) return false;
-  }
-  return false;
+/** 写一个键;浏览器写不下就算了(返回 false),不为它删任何已经存着的世界 */
+function put(key: string, value: string): boolean {
+  return store().set(key, value);
 }
 
 function writeMeta(id: string, m: Meta): boolean {
@@ -577,15 +542,12 @@ function writeMeta(id: string, m: Meta): boolean {
   if (m.opened) v.opened = m.opened;
   if (m.alive !== undefined) v.alive = m.alive;
   if (m.draft && m.base) v.base = m.base;
-  return put(META + id, JSON.stringify(v), id);
+  return put(META + id, JSON.stringify(v));
 }
 
-/** 只写本地信息(最近打开、现存几国):存不下删了旧世界的,也提示一句 */
+/** 只写本地信息(最近打开、现存几国):存不下就算了 */
 function touchMeta(id: string, m: Meta): boolean {
-  evicted = [];
-  const ok = writeMeta(id, m);
-  reportEvicted('quota');
-  return ok;
+  return writeMeta(id, m);
 }
 
 /**
@@ -607,7 +569,7 @@ function keepOriginal(id: string, text: string | null) {
 }
 
 /**
- * 写一个世界的存档(和本地信息);新存一个超过上限就删最旧的。
+ * 写一个世界的存档(和本地信息);新存一个而个数已到上限、或浏览器写不下,就存不下(返回 false),不会删掉任何已经存着的世界。
  * 本地信息没写进去也算没存成:没有"还在新建"那一条,没建完的世界下次打开会被当成建好的、锁住。
  * 新存的就把存档也拿掉;原来就有的留着原来那份本地信息。
  * first:第一次存进来的世界原来是哪一份(打开旧版本的分享链接、旧网址以后改了才存的):比这次存的版本旧就原样留着
@@ -615,30 +577,19 @@ function keepOriginal(id: string, text: string | null) {
 function writeSave(id: string, save: SaveFile, meta?: Meta, first?: SaveFile | null): boolean {
   const kv = store();
   const fresh = kv.get(PREFIX + id) === null;
-  evicted = [];
+  if (fresh && storedCount() >= MAX_WORLDS) {
+    reportFull('count');
+    return false;
+  }
   const text = JSON.stringify(save);
   const orig = !fresh ? originalToKeep(id, save.generator) : first && first.generator < save.generator ? JSON.stringify(first) : null;
-  let ok = put(PREFIX + id, text, id);
+  let ok = put(PREFIX + id, text);
   if (ok && meta && !writeMeta(id, meta)) {
     if (fresh) kv.remove(PREFIX + id);
     ok = false;
   }
-  // 存档和本地信息都写成了才留原样(留它占的地方不挤掉别的世界、不挡着本地信息)
+  // 存档和本地信息都写成了才留原样(留它占的地方不挡着本地信息)
   if (ok) keepOriginal(id, orig);
-  reportEvicted('quota');
-  // 新存一个世界:超过上限就删最旧的
-  if (ok && fresh) {
-    const list = listWorlds();
-    let extra = list.length - MAX_WORLDS;
-    for (let i = list.length - 1; i >= 0 && extra > 0; i--) {
-      const w = list[i];
-      if (w.id === id || w.id === shield) continue;
-      evicted.push(w.save.title || `种子 ${w.save.seed}`);
-      removeKeys(w.id);
-      extra--;
-    }
-    reportEvicted('count');
-  }
   if (ok) {
     if (current?.id === id) current.wrote = text;
     if (storageFull) {
@@ -646,7 +597,7 @@ function writeSave(id: string, save: SaveFile, meta?: Meta, first?: SaveFile | n
       clearToast('storage');
     }
     reportMemoryOnly();
-  } else reportFull();
+  } else reportFull('quota');
   return ok;
 }
 
@@ -748,23 +699,17 @@ export function nextTitle(base: string): string {
 export function duplicateWorld(id: string): string | null {
   const w = loadWorld(id);
   if (!w) return null;
+  if (storedCount() >= MAX_WORLDS) {
+    fullWhy = 'count';
+    return null;
+  }
   const nid = newWorldId();
   const save: SaveFile = { ...w.save, title: nextTitle(w.save.title || '未命名世界'), savedAt: new Date().toISOString() };
-  // 存不下要删旧的:原件不删(它可能正好是最旧的)
-  shield = id;
-  try {
-    if (!writeSave(nid, save, { draft: w.draft, alive: w.alive })) return null;
-    // 缩略图写不下(删了旧的也不行)就先不要,打开它时再截一张;删了旧的照样提示
-    if (w.thumb) {
-      evicted = [];
-      put(THUMB + nid, w.thumb, nid);
-      reportEvicted('quota');
-    }
-    // 原样写不下就不带(不为它删别的世界;原件那里还有)
-    keepOriginal(nid, store().get(ORIG + id));
-  } finally {
-    shield = null;
-  }
+  if (!writeSave(nid, save, { draft: w.draft, alive: w.alive })) return null;
+  // 缩略图写不下就先不要,打开它时再截一张
+  if (w.thumb) put(THUMB + nid, w.thumb);
+  // 原样写不下就不带(原件那里还有)
+  keepOriginal(nid, store().get(ORIG + id));
   changed();
   return nid;
 }
@@ -897,10 +842,7 @@ function scheduleThumb(id: string, force = false, tries = 0) {
       url = null;
     }
     if (!url) return scheduleThumb(id, force, tries + 1);
-    evicted = [];
-    const ok = put(THUMB + id, url, id);
-    reportEvicted('quota');
-    if (ok) changed();
+    if (put(THUMB + id, url)) changed();
   }, 700);
 }
 
@@ -1334,8 +1276,8 @@ export function _resetForTest() {
   local = undefined;
   migrated = false;
   storageFull = false;
+  fullWhy = 'quota';
   memoryWarned = false;
-  evicted = [];
   mem.clear();
   stopThumb();
 }

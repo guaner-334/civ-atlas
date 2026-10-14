@@ -168,6 +168,7 @@ import {
   setThumbMaker,
   setWorldStats,
   startAutoSave,
+  storageFullWhy,
   updateCheck,
   useSavesVersion,
   viewChanged,
@@ -1809,7 +1810,7 @@ export function App() {
       kind: stored ? 'ok' : 'warn',
       dot: stored,
       text: `${clean ?? '新世界'}已创建`,
-      more: [stored ? '自动存在这个浏览器里，在「我的世界」里随时能找到' : keep ? '浏览器存储已满，没能存下；关掉页面前请存成文件' : '浏览器不让网页存数据，关掉页面前请存成文件'],
+      more: [stored ? '自动存在这个浏览器里，在「我的世界」里随时能找到' : keep ? `${storageFullWhy()}，没能存下；关掉页面前请存成文件` : '浏览器不让网页存数据，关掉页面前请存成文件'],
       ttl: 7000,
     });
     // 历史从第 0 年起放一遍(这次打开网页不再另外自动播放);不放(play=0、无头浏览器)时,

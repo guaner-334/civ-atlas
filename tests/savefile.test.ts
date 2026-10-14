@@ -2,7 +2,7 @@
  * 存档 / 读档(阶段 4):makeSave → JSON → parseSave 往返不变;坏文件、别的 JSON、未来版本给中文错误 / 提示;
  * worldCheck 确定性;州改名的稳定键 region:r123 往返;浏览器存储(saveStore)= "我的世界":一个世界一个编号、
  * 新建中 / 建好的 / 打开的链接各自什么时候存、复制一份、从文件打开、旧编号迁移、自动存 / 恢复、
- * 存储不可用(隐私模式)时退回内存、配额满了删最旧的;这几种情况顶部提示条上说一句;读档提示的短说法。
+ * 存储不可用(隐私模式)时退回内存、存满了不删任何世界;这几种情况顶部提示条上说一句;读档提示的短说法。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { copyNotes, getNote, listNotes, putNote, replaceNotes } from '../src/ai/library';
@@ -496,23 +496,60 @@ describe('浏览器存储(saveStore)', () => {
     expect(saveStore.listWorlds().map((w) => w.save.title)).toEqual(['九州大陆（二）']);
   });
 
-  it('复制一份时存满了(世界个数到上限):删的是别的旧世界,不删原件(哪怕它最旧)', () => {
+  it('复制一份时存满了(世界个数到上限):复制失败,谁也不删', () => {
     const src = saveStore.importSave(makeSave({ ...DEFAULT_PARAMS, seed: 1 }, EDITS, 'check1', '最旧的'))!;
-    const ids: string[] = [];
+    const ids: string[] = [src];
     for (let i = 2; i <= saveStore.MAX_WORLDS; i++) {
       tick();
       ids.push(saveStore.importSave(makeSave({ ...DEFAULT_PARAMS, seed: i }, EMPTY_EDITS, `check${i}`, `世界${i}`))!);
     }
     expect(saveStore.listWorlds().length).toBe(saveStore.MAX_WORLDS);
     tick();
-    const copy = saveStore.duplicateWorld(src);
-    expect(copy).toBeTruthy();
-    const left = saveStore.listWorlds().map((w) => w.id);
-    expect(left.length).toBe(saveStore.MAX_WORLDS);
-    expect(left).toContain(src);
-    expect(left).toContain(copy);
-    // 删的是除原件以外最旧的那个
-    expect(left).not.toContain(ids[0]);
+    expect(saveStore.duplicateWorld(src)).toBeNull();
+    expect(saveStore.storageFullWhy()).toContain(`${saveStore.MAX_WORLDS}`);
+    expect(saveStore.listWorlds().map((w) => w.id).sort()).toEqual([...ids].sort());
+  });
+
+  it('自动存一个新世界时已经存满个数上限:这个存不下,已有的一个都不删,提示一句', () => {
+    const ids: string[] = [];
+    for (let i = 1; i <= saveStore.MAX_WORLDS; i++) {
+      tick();
+      ids.push(saveStore.importSave(makeSave({ ...DEFAULT_PARAMS, seed: i }, EMPTY_EDITS, `check${i}`, `世界${i}`))!);
+    }
+    _resetToasts();
+    tick();
+    const id = openWorld(999);
+    setName('settlement:r1#0', '饕餮城');
+    expect(saveStore.loadWorld(id)).toBeNull();
+    expect(saveStore.storageIsFull()).toBe(true);
+    expect(peekToast('storage')).toMatchObject({ kind: 'warn', text: `没能自动存档:「我的世界」最多存 ${saveStore.MAX_WORLDS} 个` });
+    expect(saveStore.listWorlds().map((w) => w.id).sort()).toEqual([...ids].sort());
+    // 自己删掉一个,下一次改动就存下了
+    saveStore.deleteWorld(ids[0]);
+    setName('settlement:r1#0', '梼杌城');
+    expect(saveStore.loadWorld(id)).not.toBeNull();
+    expect(saveStore.storageIsFull()).toBe(false);
+    expect(saveStore.listWorlds()).toHaveLength(saveStore.MAX_WORLDS);
+  });
+
+  it('先因个数满存不下、删了一个后又因浏览器存储不够存不下:提示换成新的原因', () => {
+    const fake = new FakeStorage();
+    useStorage(fake);
+    const ids: string[] = [];
+    for (let i = 1; i <= saveStore.MAX_WORLDS; i++) {
+      tick();
+      ids.push(saveStore.importSave(makeSave({ ...DEFAULT_PARAMS, seed: i }, EMPTY_EDITS, `check${i}`, `世界${i}`))!);
+    }
+    openWorld(999);
+    setName('settlement:r1#0', '饕餮城'.repeat(500));
+    expect(peekToast('storage')?.text).toBe(`没能自动存档:「我的世界」最多存 ${saveStore.MAX_WORLDS} 个`);
+    let used = 0;
+    for (const [k, v] of fake.map) used += k.length + v.length;
+    fake.cap = used;
+    // 删一个:个数够了,但腾出的地方放不下这个大世界,提示换成"存储已满"
+    saveStore.deleteWorld(ids[0]);
+    expect(saveStore.storageIsFull()).toBe(true);
+    expect(peekToast('storage')?.text).toBe('没能自动存档:浏览器存储已满');
   });
 
   it('复制一份:名字加(二),修改、缩略图、AI 写的东西都带上;删掉复制的那份不动原来的', () => {
@@ -839,7 +876,7 @@ describe('浏览器存储(saveStore)', () => {
     expect(saveStore.listWorlds().length).toBe(1);
   });
 
-  it('配额满了:删最旧的世界腾地方,当前世界存得下', () => {
+  it('配额满了:不删任何已存的世界,存不下的这个提示一句', () => {
     const fake = new FakeStorage(2000);
     useStorage(fake);
     const ids: string[] = [];
@@ -849,16 +886,15 @@ describe('浏览器存储(saveStore)', () => {
       setName('settlement:r1#0', `城${seed}`);
     }
     const left = saveStore.listWorlds().map((w) => w.id);
-    expect(left).toContain(ids[5]);
+    // 存进去的一个都没少,后面存不下的没存
     expect(left.length).toBeLessThan(6);
-    // 删的是最旧的;顶部提示"浏览器存储已满 · 已删掉最旧的存档……"
-    expect(left).not.toContain(ids[0]);
-    const t = peekToast('storage');
-    expect(t?.text).toBe('浏览器存储已满');
-    expect(t?.more?.[0]).toMatch(/^已删掉最旧的存档「种子 \d+」/);
+    expect(left).toEqual(ids.slice(0, left.length).reverse());
+    expect(saveStore.loadWorld(ids[5])).toBeNull();
+    expect(saveStore.storageIsFull()).toBe(true);
+    expect(peekToast('storage')?.text).toBe('没能自动存档:浏览器存储已满');
   });
 
-  it('只记"最近打开"时存满了:删了最旧的世界,也提示一句', () => {
+  it('只记"最近打开"时存满了:谁也不删,也不吵人', () => {
     const fake = new FakeStorage();
     useStorage(fake);
     const a = openWorld(7, { title: '最旧的' });
@@ -871,11 +907,8 @@ describe('浏览器存储(saveStore)', () => {
     fake.cap = used;
     _resetToasts();
     openWorld(8, { id: b });
-    expect(saveStore.loadWorld(a)).toBeNull();
+    expect(saveStore.loadWorld(a)).not.toBeNull();
     expect(saveStore.loadWorld(b)).not.toBeNull();
-    const t = peekToast('storage');
-    expect(t?.text).toBe('浏览器存储已满');
-    expect(t?.more?.[0]).toContain('最旧的');
   });
 
   it('配额满了、删光别的也存不下:提示"没能自动存档"(同一次满只说一回),腾出地方后接着存', () => {
