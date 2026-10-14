@@ -13,6 +13,7 @@ import { polityName } from '../src/gen/civ/growth';
 import { aiChat, setActiveProvider, setMockResponder } from '../src/ai/client';
 import { AiError, type AiRequest } from '../src/ai/types';
 import {
+  SEA_GUIDE,
   STYLE_GUIDES,
   SUGGEST_SHOW,
   cleanExplanation,
@@ -34,6 +35,9 @@ import {
   type NameTarget,
 } from '../src/ai/prompts/names';
 import { clearEdits, getEdits, setName } from '../src/ui/editsStore';
+
+/** 发给 AI 的文字里不该出现的现实语言 / 民族名("拉丁字母"是文字,不在其内) */
+const REAL_LANG = /拉丁风|拉丁语|英法|英语|法语|古诺尔斯|北欧|斯拉夫风|斯拉夫语|古斯拉夫|希腊|阿拉伯|波斯|突厥|蒙古|罗马|维京|东欧|爱琴/;
 
 const world = generateWorld({ ...DEFAULT_PARAMS, seed: 7 });
 const raw = generateCiv(world);
@@ -64,6 +68,14 @@ describe('语感说明', () => {
     }
     for (const seed of [1, 7, 2024, 99999]) expect(worldStyleId(seed)).toBe(worldNameStyle(seed));
   });
+
+  it('发给 AI 的语感名、说明、讲法、起名提示里没有现实中的语言 / 民族名', () => {
+    for (const g of [...STYLE_GUIDES, SEA_GUIDE]) {
+      for (const t of [g.aiLabel, g.aiDesc, g.explain, g.suggest]) expect(t).not.toMatch(REAL_LANG);
+    }
+    // 界面上给人看的名字不变
+    expect(STYLE_GUIDES.find((s) => s.id === 'imperial')!.label).toBe('帝国(拉丁风)');
+  });
 });
 
 describe('释名 / 起名的材料(seed 7)', () => {
@@ -79,7 +91,7 @@ describe('释名 / 起名的材料(seed 7)', () => {
     const style = styleGuide(raw.cultures[eastPolity.culture].style)!;
     expect(style.family).toBe('eastern');
     expect(u).toContain(`"${eastPolity.name}"是国名本身`);
-    expect(u).toContain(`语感:${style.label}`);
+    expect(u).toContain(`语感:${style.aiLabel}`);
     expect(u).toContain(style.explain);
     expect(u).toContain('主体民族:');
     expect(u).toContain('【地理】');
@@ -117,13 +129,15 @@ describe('释名 / 起名的材料(seed 7)', () => {
     const style = styleGuide(raw.cultures[westCity.culture].style)!;
     expect(style.family).toBe('western');
     expect(u).toContain(`名字:${westCity.name}`);
-    expect(u).toContain(`语感:${style.label}`);
+    expect(u).toContain(`语感:${style.aiLabel}`);
     expect(u).toContain(`第 ${Math.floor(westCity.founded)} 年建城`);
     expect(u).toContain('做过国都:');
     expect(u).toMatch(/位于地图.*部/);
     expect(u).toContain('同一语感的其他名字');
     expect(systemText(explainRequest(m))).toContain('拟造的原文拼写');
     expect(userText(suggestRequest(m))).toContain('名字格式:城名');
+    // 释名、起名发给 AI 的整段文字(系统提示 + 材料 + 讲法 / 起名提示)里没有现实中的语言 / 民族名
+    for (const req of [explainRequest(m), suggestRequest(m)]) expect(req.messages.map((x) => x.content).join('\n')).not.toMatch(REAL_LANG);
   });
 
   it('河:起名的民族、流经之地的归属变迁、沿河的城', () => {
