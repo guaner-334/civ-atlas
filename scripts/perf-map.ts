@@ -267,6 +267,7 @@ async function zoom(page: Page, c: Case, cdp: CDPSession) {
   } else {
     await page.mouse.move(x, y);
     await page.keyboard.down('Control');
+    // 乘 dpr:Playwright 在 2 倍屏下发出去的滚动量到页面里会少一半,乘上以后实测正好停在 4 倍(结果里 at4 也会核对)
     for (let i = 0; i < 12; i++) {
       await page.mouse.wheel(0, (-Math.log(4) / 12) * 100 * c.dpr);
       await page.waitForTimeout(30);

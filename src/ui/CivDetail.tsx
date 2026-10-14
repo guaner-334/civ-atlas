@@ -381,10 +381,13 @@ export function CivDetail({ world, raster, params, civ, style, sel, selYear, hl,
         if (!g.__wfCivDetail.on) g.__wfCivDetail.k = ps.R.k;
       }
     };
-    /** 在备的那一份还能用:同一份数据、要画的那几张一样,格不比要的粗 */
-    const pendOk = (p: Pending | null, R: Region, step: number) =>
+    /** 在备的那一份还能用:同一个世界、地图框没变大小(第一次放大还没画上去时也可能变)、同一份数据、要画的那几张一样,格不比要的粗 */
+    const pendOk = (p: Pending | null, R: Region, vis: Visible, step: number) =>
       !!p &&
       p.ps.R === R &&
+      R.world === world &&
+      R.raster === raster &&
+      R.bw === vis.bw &&
       p.params === params &&
       p.selKey === selKey &&
       p.hlKey === hlKey &&
@@ -425,7 +428,7 @@ export function CivDetail({ world, raster, params, civ, style, sel, selYear, hl,
         if (anyNew(ps)) {
           // 同一块上换数据、换细格:后台备好再换(画着的那几张先顶着)
           for (const cv of [cvs.base!, cvs.sel!, cvs.hl!]) if (cv.width) placeOnScreen(cv, vis, R.x0, R.y0, R.k);
-          if (!pendOk(p, R, step)) submit(ps, exact);
+          if (!pendOk(p, R, vis, step)) submit(ps, exact);
           return;
         }
         // 不用重画:挪好位置(不要的那几张藏起来)
@@ -433,14 +436,14 @@ export function CivDetail({ world, raster, params, civ, style, sel, selYear, hl,
         // 拖到离画好那一块的边不到半个余量:提前在后台备好下一块,往拖的方向多留一些(拖出去之前多半已经换上了);停下来了就不备
         const ahead = exact ? null : aheadOf(R, vis, MARGIN, 2 * vis.bw, vis.bh);
         if (!ahead) cancel();
-        else if (!p || !fits(p.ps.R, vis, false) || aheadOf(p.ps.R, vis, MARGIN, 2 * vis.bw, vis.bh) || !pendOk(p, p.ps.R, stepOf(p.ps.R, true))) {
+        else if (!p || !fits(p.ps.R, vis, false) || aheadOf(p.ps.R, vis, MARGIN, 2 * vis.bw, vis.bh) || !pendOk(p, p.ps.R, vis, stepOf(p.ps.R, true))) {
           const T = newRegion(vis, ahead);
           submit(plansFor(T, stepOf(T, true), true), false);
         }
         return;
       }
       // 画好的那一块用不上了:后台备新的一块,备好了整张换上
-      const pOk = !!p && fits(p.ps.R, vis, exact) && pendOk(p, p.ps.R, stepOf(p.ps.R, interacting));
+      const pOk = !!p && fits(p.ps.R, vis, exact) && pendOk(p, p.ps.R, vis, stepOf(p.ps.R, interacting));
       if (d && !covers(d, vis.x0, vis.y0, vis.x1, vis.y1)) {
         // 拖出了画好的那一块(太快,提前备的还没好):等不及了,当下画完
         if (pOk) flushDetailJobs();
