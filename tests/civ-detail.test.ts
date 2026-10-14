@@ -3,7 +3,8 @@ import { generateWorld, DEFAULT_PARAMS, type World } from '../src/gen/world';
 import { rasterize, type Raster } from '../src/gen/raster';
 import { generateCiv, type Civ } from '../src/gen/civ';
 import { washDetail, washFields, washPixels } from '../src/render/civ/territory';
-import { detailPen } from '../src/render/civ/detail';
+import { detailCache, detailPen, planCivDetail, planSelectionDetail, type CivDetailView } from '../src/render/civ/detail';
+import type { WorkStep } from '../src/render/common';
 import { detailGrid, KEEP, landCover, nearestSide, segCell, segIndex } from '../src/render/civ/zoomGrid';
 import { CIV_SHOW_OFF, type CivDrawParams } from '../src/render/civ/overlay';
 import type { SidedLine } from '../src/render/civ/borders';
@@ -191,5 +192,88 @@ describe('线宽', () => {
     }
     // 写实风收得比手绘快
     expect(detailPen(12, 'realistic')).toBeLessThan(detailPen(12, 'fantasy'));
+  });
+});
+
+describe('分几段备料(后台分帧画细节层)', () => {
+  // Node 里没有 ImageData:草稿只用到宽、高和像素数组
+  const G = globalThis as unknown as { ImageData?: unknown };
+  G.ImageData ??= class {
+    data: Uint8ClampedArray;
+    constructor(
+      public width: number,
+      public height: number,
+    ) {
+      this.data = new Uint8ClampedArray(width * height * 4);
+    }
+  };
+  /** 陆地上有国家的一块(100 × 60 世界单位里有国土的像素最多的那一块)的左上角 */
+  let corner: [number, number] | null = null;
+  const cornerOf = () => {
+    if (corner) return corner;
+    const { r } = setup();
+    const fl = washFields(polityParams(), 1)!;
+    let best = -1;
+    for (let y0 = 0; y0 + 60 <= r.h; y0 += 30)
+      for (let x0 = 0; x0 + 100 <= r.w; x0 += 50) {
+        let n = 0;
+        for (let y = y0; y < y0 + 60; y += 3)
+          for (let x = x0; x < x0 + 100; x += 3) {
+            const reg = fl.pix[y * r.w + x];
+            if (reg >= 0 && fl.owner[reg] >= 0) n++;
+          }
+        if (n > best) [best, corner] = [n, [x0, y0]];
+      }
+    return corner!;
+  };
+  /** 放大 4 倍、这一块(400 × 240 画布像素) */
+  const view = (): CivDetailView => {
+    const [x0, y0] = cornerOf();
+    return { cw: 400, ch: 240, s: 4, ox: -x0 * 4, oy: -y0 * 4, k: 4, dpr: 1, mp: null };
+  };
+  /** deadline = 0:每一步每次只做一小段(逐行上色一次 16 行);返回一共调了几次 */
+  const run = (steps: WorkStep[], deadline: number) => {
+    let calls = 0;
+    for (const st of steps) {
+      calls++;
+      while (st(deadline) === true) calls++;
+    }
+    return calls;
+  };
+  const lit = (a: Uint8ClampedArray) => {
+    let n = 0;
+    for (let i = 3; i < a.length; i += 4) if (a[i]) n++;
+    return n;
+  };
+
+  it('底图逐行上色:分很多小段做完,和一口气做完逐像素一样', () => {
+    const p = polityParams();
+    const one = detailCache();
+    run(planCivDetail(p, view(), 1, one).steps, Infinity);
+    const many = detailCache();
+    const calls = run(planCivDetail(p, view(), 1, many).steps, 0);
+    const a = one.imgs.get('base')!.data;
+    const b = many.imgs.get('base')!.data;
+    expect(calls).toBeGreaterThan(240 / 16);
+    expect(lit(a)).toBeGreaterThan(400 * 240 * 0.1);
+    expect(Buffer.from(b).equals(Buffer.from(a))).toBe(true);
+  });
+
+  it('选中的罩染同样:分小段做完和一口气做完逐像素一样', () => {
+    const { w, r, civ } = setup();
+    const fl = washFields(polityParams(), 1)!;
+    // 这一块正中附近那个州所属的国家
+    const [x0, y0] = cornerOf();
+    let reg = -1;
+    for (let d = 0; d < 30 && !(reg >= 0 && fl.owner[reg] >= 0); d++) reg = fl.pix[(y0 + 30) * r.w + x0 + 50 + d];
+    const sel = { kind: 'polity' as const, id: fl.owner[reg] };
+    expect(sel.id).toBeGreaterThanOrEqual(0);
+    const one = detailCache();
+    run(planSelectionDetail(w, r, civ, sel, civ.endYear, 'realistic', view(), 1, one).steps, Infinity);
+    const many = detailCache();
+    run(planSelectionDetail(w, r, civ, sel, civ.endYear, 'realistic', view(), 1, many).steps, 0);
+    const a = one.imgs.get('sel')!.data;
+    expect(lit(a)).toBeGreaterThan(0);
+    expect(Buffer.from(many.imgs.get('sel')!.data).equals(Buffer.from(a))).toBe(true);
   });
 });

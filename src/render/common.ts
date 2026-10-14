@@ -285,6 +285,18 @@ export interface VecView {
   proj?: Projector;
 }
 
+/**
+ * 放大后的细节层第一次画要用的缓存,拆成一小步一小步在后台分帧算(fantasy.ts 的 fantasyDetailPrep、realistic.ts 的 realisticDetailPrep;
+ * 调度见 ui/detailJobs.ts)。一步 = 一个函数,做过的再调直接返回
+ */
+export type PrepStep = () => void;
+
+/**
+ * 分几段做的一步(逐行上色这类一次要算很久的):deadline = 这一段最晚做到什么时候(performance.now());
+ * 返回 true = 还没做完,下一段接着做。PrepStep 也是一种 WorkStep(一次做完)
+ */
+export type WorkStep = (deadline: number) => boolean | void;
+
 /** 铺进地形图(整张图、缩放 1 倍)的矢量层变换 */
 export const bakedView = (scale: number): VecView => ({ s: scale, ox: 0, oy: 0, k: 1 });
 

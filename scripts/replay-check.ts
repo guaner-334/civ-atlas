@@ -1055,6 +1055,8 @@ if (!(cached.renderMs < 20)) errs.push(`切回画过的画风仍在重画(render
     if (Math.abs(Math.log(4 / cur)) < 0.05) break;
     await zp.mouse.wheel(0, -Math.log(4 / cur) / 0.0015);
     await zp.waitForTimeout(250);
+    // 细节层在后台备料(分帧),画上去以后读到的才是这一次的倍数
+    await zp.waitForFunction(() => !(window as any).__wfDetail?.pending, null, { timeout: 30000 }).catch(() => {});
   }
   await zp.mouse.move(5, 5);
   const t0 = Date.now();
@@ -4001,6 +4003,10 @@ for (const style of ['realistic', 'fantasy']) {
   }
   await page.mouse.move(5, 5);
   await page.waitForTimeout(500);
+  // 细节层在后台备料(分帧),备好了才换上
+  const settled = () =>
+    page.waitForFunction(() => !(window as any).__wfDetail?.pending && !(window as any).__wfCivDetail?.pending, null, { timeout: 30000 }).catch(() => {});
+  await settled();
   const d = await page.evaluate(() => {
     const w = window as any;
     const cv = document.querySelector('canvas.civ-detail') as HTMLCanvasElement;
@@ -4056,6 +4062,7 @@ for (const style of ['realistic', 'fantasy']) {
   });
   await page.click('.timebar button.tb-play');
   await page.waitForTimeout(600);
+  await settled();
   const dEnd = await page.evaluate(() => (window as any).__wfCivDetail);
   const fs = [...fr.ms].sort((a, b) => a - b);
   const med = fs[fs.length >> 1] ?? NaN;
