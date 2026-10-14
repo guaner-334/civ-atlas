@@ -44,6 +44,9 @@ export interface StyleGuide {
   label: string;
   family: 'western' | 'eastern';
   desc: string;
+  /** 发给 AI 的语感名和说明:不带现实中的语言、民族名(label / desc 是界面上给人看的,可以带) */
+  aiLabel: string;
+  aiDesc: string;
   /** 释名时怎么讲 */
   explain: string;
   /** 起名时怎么起 */
@@ -56,8 +59,10 @@ export const STYLE_GUIDES: readonly StyleGuide[] = [
     label: '帝国(拉丁风)',
     family: 'western',
     desc: '古罗马式的庄重感,多以 -ia、-ona、-entia 收尾,如 阿尔多里亚、塞雷诺纳',
+    aiLabel: '帝国(庄重古典风)',
+    aiDesc: '庄重古典的帝国气象,多以 -ia、-ona、-entia 收尾,如 阿尔多里亚、塞雷诺纳',
     explain:
-      '拟造语言近于拉丁语,庄重古典。国名常以 -ia / -oria / -entia / -onia 收尾(意为"……之地""……之国"),城名常以 -ona / -enna / -ano / -ara 收尾。' +
+      '拟造语言庄重古典,元音饱满。国名常以 -ia / -oria / -entia / -onia 收尾(意为"……之地""……之国"),城名常以 -ona / -enna / -ano / -ara 收尾。' +
       '讲词源时写出拉丁字母原形,拆成词根和词尾,词根可取光、金、高、强、海、鹰、胜利之类的意思。',
     suggest: '音译成中文,庄重典雅;国名四五个字、多以"亚"收尾(如 阿尔多里亚、塞雷诺纳),城名三四个字(如 卡斯泰纳、维拉诺)',
   },
@@ -66,8 +71,10 @@ export const STYLE_GUIDES: readonly StyleGuide[] = [
     label: '王国(英法风)',
     family: 'western',
     desc: '中世纪骑士王国,城镇多带 -顿、-维尔、-堡、-福德,如 卡斯特维尔、雷文福德',
+    aiLabel: '王国(骑士风)',
+    aiDesc: '中世纪骑士王国,城镇多带 -顿、-维尔、-堡、-福德,如 卡斯特维尔、雷文福德',
     explain:
-      '拟造语言近于中古英语、古法语。城名多是"词根 + 地理词尾":-ton 围起来的村镇、-ford 浅滩渡口、-wick 聚落、-bury 堡寨、-ville 城镇、' +
+      '拟造语言朴实厚重,有骑士王国的味道。城名多是"词根 + 地理词尾":-ton 围起来的村镇、-ford 浅滩渡口、-wick 聚落、-bury 堡寨、-ville 城镇、' +
       '-mont 山、-port 港、-haven 避风港、-bridge 桥、-dale 山谷、-field 原野、-chester 古营垒;国名多为 -ia / -land。讲词源要把词根和词尾各自的意思讲出来。',
     suggest: '音译为主,词尾用固定译法(-顿、-福德、-威克、-伯里、-维尔、-堡、X港),三到五个字(如 卡斯特维尔、雷文福德、阿什伯里)',
   },
@@ -76,8 +83,10 @@ export const STYLE_GUIDES: readonly StyleGuide[] = [
     label: '北境(北欧风)',
     family: 'western',
     desc: '维京与冰原,常见 -海姆、-加德、-维克、-霍尔姆,如 斯卡尔海姆、拉夫维克',
+    aiLabel: '北境(冰原峡湾风)',
+    aiDesc: '冰原、峡湾与出海的民族,常见 -海姆、-加德、-维克、-霍尔姆,如 斯卡尔海姆、拉夫维克',
     explain:
-      '拟造语言近于古诺尔斯语:-heim 家园、-gard 围地与疆域、-vik 海湾、-holm 小岛、-by 村庄、-stad 城镇、-borg 城堡、-sund 海峡、-nes 岬角、' +
+      '拟造语言冷峻硬朗,词尾规则如下:-heim 家园、-gard 围地与疆域、-vik 海湾、-holm 小岛、-by 村庄、-stad 城镇、-borg 城堡、-sund 海峡、-nes 岬角、' +
       '-dal 山谷、-fjord 峡湾;词根多与狼、鸦、熊、冰霜、岩石、铁、雷有关。讲词源要写出原形并拆开讲。',
     suggest: '音译,常见 -海姆、-加德、-维克、-霍尔姆、-比、-斯塔德(如 斯卡尔海姆、拉夫维克),冷峻硬朗',
   },
@@ -86,19 +95,23 @@ export const STYLE_GUIDES: readonly StyleGuide[] = [
     label: '雪原(斯拉夫风)',
     family: 'western',
     desc: '东欧森林与雪原,城市多叫 -格勒、-斯克、-沃,如 别洛格勒、兹拉托沃',
+    aiLabel: '雪原(林海雪原风)',
+    aiDesc: '森林与雪原,城市多叫 -格勒、-斯克、-沃,如 别洛格勒、兹拉托沃',
     explain:
-      '拟造语言近于古斯拉夫语:-grad / -gorod 城、-sk 与 -ovo / -evo 表"……的地方"、-ets / -ka 表小称;' +
+      '拟造语言厚重绵长,词尾和词根规则如下:-grad / -gorod 城、-sk 与 -ovo / -evo 表"……的地方"、-ets / -ka 表小称;' +
       '词根如 bel 白、zlat 金、nov 新、slav 荣耀、mir 和平、gor 山、yar 春日与烈性、vol 意志、dub 橡树、bor 松林。讲词源要写出原形并拆开讲。',
-    suggest: '音译,城名多用 -格勒、-哥罗德、-斯克、-沃(如 别洛格勒、兹拉托沃),带东欧森林与雪原的味道',
+    suggest: '音译,城名多用 -格勒、-哥罗德、-斯克、-沃(如 别洛格勒、兹拉托沃),带森林与雪原的味道',
   },
   {
     id: 'hellenic',
     label: '群岛(希腊风)',
     family: 'western',
     desc: '爱琴海城邦与神话,常见 -斯、-波利斯、-亚,如 塞罗斯、卡利波利斯',
+    aiLabel: '群岛(海岛城邦风)',
+    aiDesc: '海岛城邦与神话,常见 -斯、-波利斯、-亚,如 塞罗斯、卡利波利斯',
     explain:
-      '拟造语言近于古希腊语:-polis 城邦、-ia 地,-os / -is / -a 是常见词尾;词根多与海、光、风、橄榄、葡萄、智慧、神话人物有关。' +
-      '讲词源要写出原形并拆开讲,可以附会一段神话或英雄传说(写明"相传")。',
+      '拟造语言明亮悠扬,词尾和词根规则如下:-polis 城邦、-ia 地,-os / -is / -a 是常见词尾;词根多与海、光、风、橄榄、葡萄、智慧、神话人物有关。' +
+      '讲词源要写出原形并拆开讲,可以附会一段这个世界自己的神话或英雄传说(写明"相传",不要用现实里的神话)。',
     suggest: '音译,常见 -斯、-波利斯、-亚、-拉(如 塞罗斯、卡利波利斯),明亮、有海风的味道',
   },
   {
@@ -106,8 +119,10 @@ export const STYLE_GUIDES: readonly StyleGuide[] = [
     label: '沙海(阿拉伯风)',
     family: 'western',
     desc: '沙漠、绿洲与商队,常见 -斯坦、-阿巴德、-尔,如 扎希尔、卡斯拉巴德',
+    aiLabel: '沙海(沙漠绿洲风)',
+    aiDesc: '沙漠、绿洲与商队,常见 -斯坦、-阿巴德、-尔,如 扎希尔、卡斯拉巴德',
     explain:
-      '拟造语言近于阿拉伯语、波斯语:-stan "……之地"、-abad 城镇与耕地、qasr 城堡、bahr 海、wadi 河谷、bir 井;' +
+      '拟造语言悠长顿挫,词尾和词根规则如下:-stan "……之地"、-abad 城镇与耕地、qasr 城堡、bahr 海、wadi 河谷、bir 井;' +
       '词根多与沙、星辰、水井、绿洲、商旅、盐有关。讲词源要写出原形并拆开讲。',
     suggest: '音译,常见 -斯坦、-阿巴德、-尔(如 扎希尔、卡斯拉巴德),有沙漠、绿洲与商队的味道',
   },
@@ -116,16 +131,20 @@ export const STYLE_GUIDES: readonly StyleGuide[] = [
     label: '草原(突厥蒙古风)',
     family: 'western',
     desc: '草原与游牧,沿用中文里熟悉的蒙古 / 突厥地名写法,如 查干浩特、喀拉郭勒',
+    aiLabel: '草原(游牧部落风)',
+    aiDesc: '草原与游牧,沿用中文里熟悉的草原地名写法,如 查干浩特、喀拉郭勒',
     explain:
-      '沿用中文里熟悉的蒙古 / 突厥地名写法,每一段都有意思:浩特 城、郭勒 河、诺尔 湖、乌拉 山、塔拉 草原、戈壁 荒漠、查干 白、喀拉 黑、' +
+      '沿用中文里熟悉的草原地名写法,每一段都有意思:浩特 城、郭勒 河、诺尔 湖、乌拉 山、塔拉 草原、戈壁 荒漠、查干 白、喀拉 黑、' +
       '阿勒坦 金、巴彦 富饶、腾格里 天、宝力格 泉。讲的时候逐段拆开意思。',
-    suggest: '按蒙古 / 突厥地名的写法组合,每一段都要有意思(如 查干浩特、喀拉郭勒、巴彦塔拉)',
+    suggest: '按草原地名的写法组合,每一段都要有意思(如 查干浩特、喀拉郭勒、巴彦塔拉)',
   },
   {
     id: 'elven',
     label: '林语(精灵风)',
     family: 'western',
     desc: '轻柔流动的精灵语感,多用 瑟、希、艾、林,如 艾尔瑟里昂、希尔瓦兰',
+    aiLabel: '林语(精灵风)',
+    aiDesc: '轻柔流动的精灵语感,多用 瑟、希、艾、林,如 艾尔瑟里昂、希尔瓦兰',
     explain:
       '拟造的精灵语,轻柔流动,多元音和 l、r、s、th、n;常见词尾 -ion / -ien / -iel / -ar / -wen / -dor,词根多与星光、森林、歌、流水、月、晨曦有关。' +
       '讲词源要写出原形(拉丁字母)并逐段解释,像一门有语法的古老语言那样构词。',
@@ -136,6 +155,8 @@ export const STYLE_GUIDES: readonly StyleGuide[] = [
     label: '中原(古风)',
     family: 'eastern',
     desc: '春秋战国、郡县州府式的古地名,如 大靖、北沂、宁州、云阳、雁北道',
+    aiLabel: '中原(古风)',
+    aiDesc: '春秋战国、郡县州府式的古地名,如 大靖、北沂、宁州、云阳、雁北道',
     explain:
       '中原古风:国号多取吉字或古国字(靖、宁、昭、雍、沂、汾),城名多是"X州""X阳"(山南水北为阳)、"X陵""X川""X津""X门",或两个吉字相配;' +
       '山水名多是颜色、草木、鸟兽字配"水""河""山""岭"(清水、白河、鹿山)。' +
@@ -149,6 +170,8 @@ export const STYLE_GUIDES: readonly StyleGuide[] = [
     label: '江南(仙侠风)',
     family: 'eastern',
     desc: '诗意的仙侠地名,如 落霞关、听雪城、苍澜海、摘星峰、烟波泽',
+    aiLabel: '江南(仙侠风)',
+    aiDesc: '诗意的仙侠地名,如 落霞关、听雪城、苍澜海、摘星峰、烟波泽',
     explain: '江南仙侠风:意象字(霞、雪、云、澜、星、月、烟、剑)配动词(听、摘、落、栖、望),再加通名(关、城、峰、泽、海)。讲字义要讲出意境和画面,可以化用唐诗宋词。',
     suggest: '诗意空灵:意象字 + 动词 + 通名(如 落霞关、听雪城、摘星峰、烟波泽),三个字为主',
   },
@@ -157,6 +180,8 @@ export const STYLE_GUIDES: readonly StyleGuide[] = [
     label: '边塞(西域风)',
     family: 'eastern',
     desc: '唐诗里的边关与西域古国,如 镇北关、黄沙堡、楼勒、伊昌泽、疏兰河',
+    aiLabel: '边塞(西域风)',
+    aiDesc: '唐诗里的边关与西域古国,如 镇北关、黄沙堡、楼勒、伊昌泽、疏兰河',
     explain:
       '唐诗边塞与西域古国:关塞名多是"镇 / 定 / 安 / 平 / 靖 + 方位或景物 + 关 / 堡 / 城 / 戍",西域古国名是当地古语的音译(楼勒、疏兰、伊昌)。' +
       '讲关塞名要讲字义和守边之意,可引边塞诗;讲音译名要给出一个拟造的当地古语原意。',
@@ -167,6 +192,8 @@ export const STYLE_GUIDES: readonly StyleGuide[] = [
     label: '山海(神话风)',
     family: 'eastern',
     desc: '《山海经》式的奇异地名,如 玄冒之山、翼留之台、雷墟、千目国、桂台之野',
+    aiLabel: '山海(神话风)',
+    aiDesc: '《山海经》式的奇异地名,如 玄冒之山、翼留之台、雷墟、千目国、桂台之野',
     explain: '《山海经》式的奇异地名:"X之山""X之野""X之台""X国"(千目国)、"X墟",常带异兽、神木、奇石。讲字义时像给《山海经》作注,讲其中的神怪、物产、异兽传说(可以编,写明"相传")。',
     suggest: '古奥奇异:"X之山""X之野""X墟""X国"(如 玄冒之山、雷墟、千目国、桂台之野)',
   },
@@ -178,6 +205,8 @@ export const SEA_GUIDE: StyleGuide = {
   label: '通行的中文叫法',
   family: 'eastern',
   desc: '海洋不带哪个民族的语感:意象 + 海 / 洋 / 湾(长风洋、寒雾海),或方位 + 海(北大洋)',
+  aiLabel: '通行的中文叫法',
+  aiDesc: '海洋不带哪个民族的语感:意象 + 海 / 洋 / 湾(长风洋、寒雾海),或方位 + 海(北大洋)',
   explain: '海洋、大洋、海湾的名字是这个世界通行的中文叫法,不带哪个民族的语感。讲字义,讲它为什么被这样叫(气候、海况、方位、沿岸的人)。',
   suggest: '中文意译:意象 + 海 / 洋 / 湾(如 长风洋、寒雾海、碧澜海),或方位 + 海',
 };
@@ -1067,7 +1096,7 @@ export function materialText(m: NameMaterial, opts: { chronicle?: number } = {})
   lines.push(info.name ? `名字:${info.shown}` : `名字:还没有(界面上叫"${info.shown}")`);
   if (m.nameNote) lines.push(`说明:${m.nameNote}`);
   lines.push(`种类:${info.kindLabel}`);
-  if (info.style) lines.push(`语感:${info.style.label} —— ${info.style.desc}`);
+  if (info.style) lines.push(`语感:${info.style.aiLabel} —— ${info.style.aiDesc}`);
   if (m.people) lines.push(m.people);
   if (m.peers.length) lines.push(`同一语感的其他名字(看风格用):${m.peers.join('、')}`);
   if (m.geography.length) {
@@ -1098,7 +1127,7 @@ const EXPLAIN_EASTERN = `   · 这是一个中文名字:逐字讲字义(本义�
 /** 音译名字怎么讲(西幻语感;边塞的音译名也按这个讲) */
 const EXPLAIN_WESTERN = `   · 这个名字是从这个世界的某种语言音译来的。给出拟造的原文拼写(拉丁字母),拼写要和中文译名的读音对得上(按常见音译习惯,"萨利亚"对 Saliya / Saria,不要另起一个读音不同的词);
      拆成词根、词缀,讲每部分在当地语言里的意思。这是虚构的词源,自洽即可。
-   · 只说"当地的古语""某族的语言",不要提现实中的语言(拉丁语、英语、古诺尔斯语、突厥语……)和现实中的词,也不要引用现实里的诗文典籍。`;
+   · 只说"当地的古语""某族的语言",不要提现实中的任何语言、民族和现实中的词,也不要引用现实里的诗文典籍。`;
 
 /** 边塞风:汉字取义的关塞名和音译名都有,两种讲法都给,说清怎么分 */
 const EXPLAIN_MIXED = `   · 先看名字是哪一种:汉字取义的(如 镇北关、黄沙堡、清水河)逐字讲字义,点出意象,可以引一处确定真实存在的古诗文(拿不准就不引);
@@ -1128,7 +1157,7 @@ ${how}
 export function explainRequest(m: NameMaterial): AiRequest {
   const style = m.info.style;
   const how = style
-    ? `讲法提示(${style.label}):${style.explain}`
+    ? `讲法提示(${style.aiLabel}):${style.explain}`
     : '讲法提示:按名字本身的字面讲,中式名字讲字义,音译名字给出拟造的词源。';
   const user = `请为下面这个名字写"名字由来"(${EXPLAIN_CHARS.min}–${EXPLAIN_CHARS.max} 字)。\n\n${materialText(m)}\n\n${how}`;
   const messages: AiMessage[] = [
@@ -1154,7 +1183,7 @@ names 里正好 ${SUGGEST_ASK} 个。
 要求:
 1. name 只写名字本身的中文写法。西幻语感(音译)的名字另加一个 "latin" 字段写拉丁字母原形(如 {"name":"阿尔多里亚","latin":"Aldoria"}),拼写要和中文读音对得上;中式名字不写 latin。
 2. 贴合语感说明和"同一语感的其他名字"的风格,贴合这个东西的种类、地理和历史;这些名字彼此要有差别(字面、意象、音节、词尾都别重复)。
-3. meaning 用一句 15–40 字的话讲字义或词源、取的是什么意象。音译名字讲"当地语里"的意思,不要提现实中的语言(拉丁语、突厥语、英语……),也不要按汉字字面去拆音译名。
+3. meaning 用一句 15–40 字的话讲字义或词源、取的是什么意象。音译名字讲"当地语里"的意思,不要提现实中的任何语言和民族,也不要按汉字字面去拆音译名。
 4. 不要和"同一语感的其他名字"、现在的名字重复,不要照搬现实中的国名、朝代名、城市名,也不要借用现成小说、游戏里的名字。
 5. 名字格式按下面"名字格式"的要求。作者有额外要求时优先满足。`;
 
@@ -1174,7 +1203,7 @@ export function suggestRequest(m: NameMaterial, wish?: string): AiRequest {
     materialText(m, { chronicle: 4 }),
     '',
     `名字格式:${m.format}`,
-    style ? `起名提示(${style.label}):${style.suggest}` : '',
+    style ? `起名提示(${style.aiLabel}):${style.suggest}` : '',
     w ? `作者的额外要求:${w}` : '',
   ].filter((x, i, a) => x || (i > 0 && a[i - 1]));
   const messages: AiMessage[] = [
