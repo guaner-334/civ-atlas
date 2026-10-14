@@ -14,7 +14,7 @@ import { drawFilmFrame, filmMapRect } from '../render/film';
 import { useCivShow, useCivTime } from './civView';
 import { useEdits } from './editsStore';
 import { useMapCenter } from './mapWrap';
-import { useGraticule, useProjection } from './projection';
+import { useGraticuleLines, useProjection } from './projection';
 import { getFilmViewport, useFilmSource } from './filmSource';
 import { FilmRenderer } from './filmRun';
 import { filmLiveCanvas, filmMajors, filmRangeOf, filmSetup, holeRegion, setFilmHole, useFilm } from './filmStore';
@@ -84,7 +84,7 @@ export function FilmStage({ phone, style, layer }: FilmStageProps) {
   const t = useCivTime();
   const show = useCivShow();
   const proj = useProjection();
-  const grat = useGraticule();
+  const grat = useGraticuleLines();
   const center = useMapCenter();
   const { marks, era } = useEdits();
   const [room, setRoom] = useState<Room | null>(null);

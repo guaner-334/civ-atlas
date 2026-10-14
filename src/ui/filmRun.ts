@@ -55,9 +55,12 @@ export interface FilmSetup {
   show: CivShow;
   projection: ProjectionId;
   center?: number;
-  graticule: boolean;
+  /** 经纬网每隔几度一条(0 = 不画) */
+  graticule: number;
   /** 那一年的作者标记(按那一段的世界和历史算形状) */
   marks?: (civ: Civ, world: World, year: number) => MarkItem[];
+  /** 无色标记名字里的字(和地图文字一起先加载字体) */
+  markChars?: string;
   region?: FilmRegion;
   /** 界面字体 */
   font: string;
@@ -185,6 +188,7 @@ export class FilmRenderer {
         center: s.center,
         graticule: s.graticule,
         marks: s.marks ? (y) => s.marks!(sc.civ, sc.world, y) : undefined,
+        markChars: s.markChars,
       };
       const r = this.mapRect;
       const area: ShotArea = s.area === 'region' && s.region ? { kind: 'region', ...s.region } : { kind: 'whole', dpr: 1 };

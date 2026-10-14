@@ -33,13 +33,15 @@ import {
   curvedProj,
   getProjection,
   isCurved,
+  isGraticuleStep,
   isMapProjection,
   pageColor,
   presentTerrain,
   setGraticule,
+  setGraticuleStep,
   setMapMoving,
   setProjection,
-  useGraticule,
+  useGraticuleLines,
   useMapMoving,
   useProjection,
   type MapProjection,
@@ -281,7 +283,9 @@ function readUrl() {
   const proj: MapProjection = isMapProjection(pq) && (pq !== 'globe' || GLOBE_READY) ? pq : 'equirect';
   const lq = Number(q.get('lon'));
   const lon = q.get('lon') !== null && Number.isFinite(lq) ? wrapLon(lq) : null;
-  const grat = q.get('grat') === '1';
+  // 经纬网:grat=1 = 每 30°(旧网址就是这样),grat=10 / 15 / 30 = 每隔几度;没有 = 关
+  const gq0 = q.get('grat');
+  const grat: number = gq0 === '1' ? 30 : isGraticuleStep(Number(gq0)) ? Number(gq0) : 0;
   // 生成器版本(gen=):这个网址是哪一版画出来的世界;和现在的不同,打开时说清变了什么。旧网址没有 = 不知道,不提示;
   // 带了却认不出(不是整数之类)当成第 0 版:认不出的旧版本,照样提示,也不当成没带 gen 的老网址
   const gq = q.get(GEN_KEY);
@@ -564,7 +568,8 @@ export function App() {
   const start = useState(() => {
     setProjection(init.proj);
     if (init.lon !== null) publishMapCenter(init.lon);
-    setGraticule(init.grat);
+    setGraticule(init.grat > 0);
+    if (isGraticuleStep(init.grat)) setGraticuleStep(init.grat);
     setStage(route.stage, route.target?.base ?? null);
     // 网址里给的(或默认的)图层:国家 / 民族 / 信仰开不开跟着它;新建时只看地形
     let ml = init.mapLayer;
@@ -585,7 +590,7 @@ export function App() {
     }
     return { style, layer };
   })[0];
-  const graticule = useGraticule();
+  const graticule = useGraticuleLines();
   const projection = useProjection();
   const curved = isCurved(projection);
   const mapCenter = useMapCenter();
@@ -1542,11 +1547,15 @@ export function App() {
     else return more.length ? say({ kind: 'warn', text: `已打开「${name}」`, more }) : undefined;
     say({ kind: more.length ? 'warn' : 'ok', text, more });
   };
-  /** 换成存档里的投影和中央经线(没有 = 等距圆柱、0°;认不出的投影、还没做好的地球仪 = 等距圆柱) */
+  /** 换成存档里的投影和中央经线(没有 = 等距圆柱、0°;认不出的投影、还没做好的地球仪 = 等距圆柱);存档记了经纬网就换成它的 */
   const applyView = (v: SaveView | undefined) => {
     const want = v?.projection;
     const p: MapProjection = isMapProjection(want) && (want !== 'globe' || GLOBE_READY) ? want : 'equirect';
     const lon = v && Number.isFinite(v.center) ? wrapLon(v.center) : 0;
+    if (v?.graticule !== undefined) {
+      setGraticule(v.graticule > 0);
+      if (isGraticuleStep(v.graticule)) setGraticuleStep(v.graticule);
+    }
     // 先放中心(换投影时按它摆视图),再换投影;等距圆柱再把视图转过去
     publishMapCenter(lon);
     setProjection(p);
@@ -1559,7 +1568,7 @@ export function App() {
       if (projection !== 'equirect') q.set('proj', projection);
       else q.delete('proj');
       q.delete('view'); // 旧的地球仪开关,换成 proj=globe
-      if (graticule) q.set('grat', '1');
+      if (graticule) q.set('grat', graticule === 30 ? '1' : String(graticule));
       else q.delete('grat');
       const lon = Math.round(mapCenter * 100) / 100;
       if (Math.abs(lon) >= 0.005) q.set('lon', String(lon));
@@ -3038,10 +3047,10 @@ export function App() {
           const [x, y] = projectWorld(m, wx, wy);
           return worldToStage(x, y, v, b, g.W, g.H);
         };
-        return { ...base, pt, period: 0, win: [0, r.width], k: v.k, cut: 0.4 * g.bw * v.k, sig };
+        return { ...base, pt, period: 0, win: [0, r.width], k: v.k, mapCss: g.bw, cut: 0.4 * g.bw * v.k, sig };
       }
       const pt = (wx: number, wy: number) => worldToStage(wx, wy, v, b, g.W, g.H);
-      return { ...base, pt, period: g.wrap ? (g.wrap / g.W) * g.bw * v.k : 0, win: g.wrap ? windowSpan(v.k, b) : [0, r.width], k: v.k, cut: 0, sig };
+      return { ...base, pt, period: g.wrap ? (g.wrap / g.W) * g.bw * v.k : 0, win: g.wrap ? windowSpan(v.k, b) : [0, r.width], k: v.k, mapCss: g.bw, cut: 0, sig };
     },
     regionAt: regionAtClient,
     onMap: (cx, cy) => !!pixelAt(cx, cy),
@@ -3872,7 +3881,7 @@ export function App() {
           />
         )}
         {/* 作者标记(图钉、圈的州;地球仪上也画):在地名、地球仪上面 */}
-        {data && world && <MarkLayer civ={civ} world={data.world} api={markApi} hidden={replayOn || draft || home} />}
+        {data && world && <MarkLayer civ={civ} world={data.world} api={markApi} hidden={replayOn || draft || home} style={style} />}
         {/* 作者的人物一生的足迹(选中一个人物时;地球仪上也画):在标记上面 */}
         {data && world && <CharacterLayer civ={civ} world={data.world} raster={data.raster} api={markApi} hidden={replayOn || draft || home} />}
       </main>

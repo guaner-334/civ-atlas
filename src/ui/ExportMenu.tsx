@@ -28,17 +28,18 @@ import { AZGAAR_SEA_GRAY, heightmapNote, type HeightmapBits } from '../gen/heigh
 import { LAYERS, type LayerId } from '../render/layers';
 import type { CivShow, CivStyle } from '../render/civ/overlay';
 import { IMAGE_FORMATS, drawExportMarks, drawExportTrail, drawLegend, drawMapBase, drawMapLabels, type ExportScale, type ImageFormat } from '../render/export';
-import { canvasMeasure, drawMarks, layoutMarks, type MarkItem } from '../render/marks';
+import { canvasMeasure, drawMarks, layoutMarks, markStyle, type MarkItem } from '../render/marks';
 import { drawTrail, layoutTrail, type TrailInput } from '../render/trail';
 import { getEdits, useEdits } from './editsStore';
 import { cleanEndYear } from '../gen/edits';
 import { yearFull } from '../gen/era';
-import { markItemsAt } from './markInfo';
+import { markItemsAt, plainMarkChars } from './markInfo';
+import { ensureFonts } from '../render/labels/fonts';
 import { characterTrail } from './characterInfo';
 import type { ExportRequest, ExportResponse } from '../exportWorker';
 import { getCivShow, getCivTime, getSelection, useCivTime } from './civView';
 import { getMapCenter, xOfLon } from './mapWrap';
-import { flatProjection, getGraticule, getProjection } from './projection';
+import { flatProjection, getGraticuleLines, getProjection } from './projection';
 import type { ProjectionId } from '../render/projection';
 import { wrapOf } from '../render/common';
 import { clearToast, showToast } from './toastStore';
@@ -189,7 +190,8 @@ interface MapInput {
   center?: number;
   /** 投影、经纬网(和屏幕上一样) */
   projection?: ProjectionId;
-  graticule?: boolean;
+  /** 经纬网每隔几度一条(0 = 不画) */
+  graticule?: number;
   /** 作者标记(那一年有的;不带 = 空) */
   marks?: readonly MarkItem[];
   /** 正选着的作者人物的足迹(没选 = 不给) */
@@ -315,6 +317,9 @@ export function ExportMenu({ data, civ: shown, plain, style, layer, icon }: Expo
     const era = getEdits().era;
     const fileYear = yearFull(yi, era).replace(/ /g, '');
     const markItems = withMarks && civ && ok ? markItemsAt(civ, world, marks, yi) : [];
+    // 无色标记用地图的字体写:先把字体加载好
+    const plain = withMarks ? plainMarkChars(marks) : '';
+    if (plain) await ensureFonts(markStyle(style), plain, 15000);
     // 正选着的作者人物(填写中的不算)
     const sel = getSelection().sel;
     const who = sel?.kind === 'character' ? getEdits().characters?.find((c) => c.id === sel.id) : undefined;
@@ -340,7 +345,7 @@ export function ExportMenu({ data, civ: shown, plain, style, layer, icon }: Expo
           markItems.length || trail
             ? (ctx, v) => {
                 const frame = { pt: v.pt, period: 0, win: [0, v.w] as [number, number], w: v.w, h: v.h, k: v.k, cut: 0 };
-                if (markItems.length) drawMarks(ctx, layoutMarks(markItems, frame, { measure: canvasMeasure(ctx) }), v.dpr);
+                if (markItems.length) drawMarks(ctx, layoutMarks(markItems, frame, { measure: canvasMeasure(ctx), style: markStyle(style) }), v.dpr, markStyle(style));
                 if (trail) drawTrail(ctx, layoutTrail(trail, frame, { measure: canvasMeasure(ctx) }));
               }
             : undefined,
@@ -356,7 +361,7 @@ export function ExportMenu({ data, civ: shown, plain, style, layer, icon }: Expo
         // 球面世界:按当前视图的中心展开(左右边 = 中心 ± 180°);投影、经纬网和屏幕上一样
         const center = wrapOf(world) ? xOfLon(getMapCenter(), world.width) : undefined;
         const projection = flatProjection(getProjection());
-        const graticule = getGraticule();
+        const graticule = getGraticuleLines();
         const r = await exportMap({ world, raster, civ: ok ? civ : null, style, layer, year: y, show, center, projection, graticule, marks: markItems, trail }, scale, format);
         download(r.blob, name);
         dbg = { job, name, bytes: r.blob.size, w: r.w, h: r.h, ms: performance.now() - t0, detail: r.detail };

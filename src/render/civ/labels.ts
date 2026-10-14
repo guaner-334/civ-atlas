@@ -19,7 +19,10 @@ import type { Raster } from '../../gen/raster';
 import { capitalAt, polityAlive, polityAllTitles } from '../../gen/civ/growth';
 import { FONT_FANTASY, FONT_REALISTIC } from '../labels/fonts';
 import { MIN_LABEL_PX, REF_MAP_CSS, SURFACE, type LabelItem, type LabelMark, type LabelView } from '../labels/draw';
-import { ownerAtPoint, polityCandidates, polityLabels, polityOwnerGrid } from '../labels/polity';
+import { ownerAtPoint, polityCandidates, polityLabels, polityOwnerGrid, territoryGrid, type ShapeFit } from '../labels/polity';
+import { shapeLabelFit } from '../labels/shape';
+import { cellPolygons } from '../marks';
+import { regionLabel, regionNamed } from '../../gen/civ/display';
 import { NAME_GROW, NAME_MIN_ZOOM, NAME_PRIORITY, NAME_SIZE, SYMBOL_MIN_ZOOM, SYMBOL_PRIORITY, settlementNameItem } from '../labels/settlements';
 import { RUIN, SYMBOL_BOX, SYMBOL_GROW, ruinsAt, settlementsAt, type SettlementMarkInfo } from './settlements';
 import type { CivDrawParams, CivStyle } from './overlay';
@@ -161,10 +164,96 @@ export function placeLabelItems(places: Place[], style: CivStyle): LabelItem[] {
   });
 }
 
-/** 地理名:不随年份变。"地名"关掉时为空 */
+/** 地理名:不随年份变。"地名"关掉时为空;打开了「州」时加上州名 */
 export function civLabelItems(p: CivDrawParams): LabelItem[] {
   if (!p.show.labels) return [];
-  return placeLabelItems(p.civ.places, p.style);
+  const items = placeLabelItems(p.civ.places, p.style);
+  return p.show.regions ? items.concat(regionLabelItems(p)) : items;
+}
+
+// ---------------------------------------------------------------------------
+// 州名(打开「州」时)
+
+/** 州名:字号(CSS 像素,参照宽度、缩放 1 倍)、放大时字号增长幂、从几倍出现、优先级(最低:城镇、村子、山河湖海的名字都放好了再放)、字距(疏排) */
+const REGION_NAME = { size: 10, grow: 0.25, minZoom: 2.4, priority: 8 };
+const REGION_TRACKING: [number, number] = [0.35, 1.8];
+
+/** 州名的颜色:比地理名淡一点(州是底下的一层) */
+const REGION_LOOK: Record<'fantasy' | 'realistic' | 'data', Look> = {
+  fantasy: { color: 'rgba(96,72,50,0.85)', weight: 500, halo: { color: PAPER_HALO, width: 2.2 } },
+  realistic: { color: 'rgba(46,40,34,0.85)', weight: 500, halo: { color: 'rgba(255,255,255,0.6)', width: 2 } },
+  data: { color: 'rgba(30,30,30,0.85)', weight: 500, halo: { color: 'rgba(255,255,255,0.7)', width: 2 } },
+};
+
+/** 每个州的名字顺着州的形状排的路径(世界坐标):按州划分存,名字字数变了(改名)再算 */
+const regionFits = new WeakMap<Civ['regions'], Map<number, { n: number; fit: ShapeFit | null }>>();
+
+function regionFit(world: World, civ: Civ, r: number, n: number): ShapeFit | null {
+  let m = regionFits.get(civ.regions);
+  if (!m) regionFits.set(civ.regions, (m = new Map()));
+  const hit = m.get(r);
+  if (hit && hit.n === n) return hit.fit;
+  const R = civ.regions;
+  const cells: number[] = [];
+  for (let k = R.cellStart[r]; k < R.cellStart[r + 1]; k++) cells.push(R.cells[k]);
+  const ref = world.mesh.x[R.seat[r]];
+  const polys = cellPolygons(world.mesh, cells, ref);
+  let fit: ShapeFit | null = null;
+  if (polys.length) {
+    let x0 = Infinity;
+    let y0 = Infinity;
+    let x1 = -Infinity;
+    let y1 = -Infinity;
+    for (const p of polys) {
+      for (let i = 0; i < p.length; i += 2) {
+        if (p[i] < x0) x0 = p[i];
+        if (p[i] > x1) x1 = p[i];
+        if (p[i + 1] < y0) y0 = p[i + 1];
+        if (p[i + 1] > y1) y1 = p[i + 1];
+      }
+    }
+    fit = shapeLabelFit(polys, [x0, y0, x1, y1], n);
+  }
+  m.set(r, { n, fit });
+  return fit;
+}
+
+/**
+ * 州名:有名字的州,名字顺着州的形状排(狭长的州顺着长的方向、略带弧度,很窄很高的竖排),疏排;
+ * 放大到州在画面上放得下名字时才出现(放不下就不写),排在城名之后。每个字要落在本州里(查州栅格)
+ */
+function regionLabelItems(p: CivDrawParams): LabelItem[] {
+  const { civ, world, raster } = p;
+  const look = REGION_LOOK[p.style === 'fantasy' ? 'fantasy' : p.style === 'realistic' ? 'realistic' : 'data'];
+  const family = p.style === 'fantasy' ? FONT_FANTASY : FONT_REALISTIC;
+  const grid = territoryGrid(world, raster, civ);
+  const owner = { grid, owner: grid.region };
+  const out: LabelItem[] = [];
+  for (let r = 0; r < civ.regions.count; r++) {
+    if (!regionNamed(civ, r)) continue;
+    const text = regionLabel(civ, r);
+    const fit = regionFit(world, civ, r, [...text].length);
+    if (!fit) continue;
+    out.push({
+      text,
+      path: fit.path,
+      layout: 'curve',
+      size: REGION_NAME.size,
+      grow: REGION_NAME.grow,
+      tracking: REGION_TRACKING,
+      minZoom: REGION_NAME.minZoom,
+      priority: REGION_NAME.priority,
+      family,
+      weight: look.weight,
+      color: look.color,
+      halo: look.halo,
+      area: (wx, wy) => ownerAtPoint(owner, wx, wy) === r,
+      tolerance: 0.15,
+      space: 0.3,
+      place: (px, view) => polityCandidates(text, fit.path, px, REGION_TRACKING, view, fit.vertical, MIN_LABEL_PX * view.dpr),
+    });
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -409,6 +498,7 @@ export function civLabelChars(civ: Civ): string {
     for (const c of s) set.add(c);
   };
   for (const p of civ.places) add(p.name);
+  for (let r = 0; r < civ.regions.count; r++) if (regionNamed(civ, r)) add(regionLabel(civ, r));
   for (const p of civ.polities) for (const t of polityAllTitles(p)) add(t);
   for (const s of civ.settlements) add(s.name);
   add(RUIN_PREFIX);

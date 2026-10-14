@@ -318,13 +318,20 @@ export function endYearOf(edits: Pick<WorldEdits, 'endYear'>): number {
 /** 作者标记的颜色(界面上的六种:红、橙、绿、蓝、紫、青) */
 export const MARK_COLORS = ['red', 'orange', 'green', 'blue', 'purple', 'teal'] as const;
 export type MarkColor = (typeof MARK_COLORS)[number];
+/** 标记的颜色:六种颜色,或"无色"(none:不画图钉和铺色,名字像地图上的地名) */
+export type MarkTint = MarkColor | 'none';
+/** 名字的字号档(中 = 不写) */
+export const MARK_SIZES = ['s', 'l', 'xl'] as const;
+export type MarkSizeSet = (typeof MARK_SIZES)[number];
 
 /** 一个作者标记(字段见文件头"作者标记") */
 export interface AuthorMark {
   id: number;
   title: string;
   note?: string;
-  color: MarkColor;
+  color: MarkTint;
+  /** 名字的字号:s 小 / l 大 / xl 特大;没有 = 中 */
+  size?: MarkSizeSet;
   /** 从哪年起(含) */
   from: number;
   /** 到哪年止(含);没有 = 一直都在 */
@@ -1000,7 +1007,8 @@ export function cleanMark(x: unknown): AuthorMark | null {
   const id = o.id;
   const from = yearOf(o.from);
   if (typeof id !== 'number' || !Number.isInteger(id) || id < 1 || id > MARK_ID_MAX || from === null) return null;
-  const color = MARK_COLORS.includes(o.color as MarkColor) ? (o.color as MarkColor) : MARK_COLORS[0];
+  const color: MarkTint = o.color === 'none' || MARK_COLORS.includes(o.color as MarkColor) ? (o.color as MarkTint) : MARK_COLORS[0];
+  const size = MARK_SIZES.includes(o.size as MarkSizeSet) ? (o.size as MarkSizeSet) : null;
   const title = cleanMarkTitle(o.title) || MARK_TITLE_DEFAULT;
   const note = cleanMarkNote(o.note);
   const to0 = o.to === undefined ? null : yearOf(o.to);
@@ -1018,6 +1026,7 @@ export function cleanMark(x: unknown): AuthorMark | null {
   }
   if (!regions && !at) return null;
   const m: AuthorMark = { id, title, color, from };
+  if (size) m.size = size;
   if (note) m.note = note;
   if (to !== null) m.to = to;
   if (regions) m.regions = regions;
@@ -1033,7 +1042,7 @@ export function cleanMark(x: unknown): AuthorMark | null {
 /** 两个标记是不是一模一样(各字段比,不管字段的先后) */
 export function sameMark(a: AuthorMark, b: AuthorMark): boolean {
   const list = (x?: readonly unknown[], y?: readonly unknown[]) => x === y || (!!x && !!y && x.length === y.length && x.every((v, i) => v === y[i]));
-  return a.id === b.id && a.title === b.title && a.note === b.note && a.color === b.color && a.from === b.from && a.to === b.to && list(a.at, b.at) && list(a.regions, b.regions);
+  return a.id === b.id && a.title === b.title && a.note === b.note && a.color === b.color && a.size === b.size && a.from === b.from && a.to === b.to && list(a.at, b.at) && list(a.regions, b.regions);
 }
 
 /**

@@ -22,7 +22,7 @@ import type { Civ } from '../gen/civ/types';
 import type { Raster } from '../gen/raster';
 import type { World } from '../gen/world';
 import { regionLabel } from '../gen/civ/display';
-import { MARKS_MAX, MARK_COLORS, MARK_NOTE_MAX, MARK_REGIONS_TOTAL, MARK_TITLE_DEFAULT, MARK_TITLE_MAX, markShownAt, regionKey, type AuthorMark, type MarkColor } from '../gen/edits';
+import { MARKS_MAX, MARK_COLORS, MARK_NOTE_MAX, MARK_REGIONS_TOTAL, MARK_TITLE_DEFAULT, MARK_TITLE_MAX, markShownAt, regionKey, type AuthorMark, type MarkColor, type MarkTint } from '../gen/edits';
 import { MARK_HEX } from '../render/marks';
 import { getEdits, removeMark, restoreMark, useEdits, useEra } from './editsStore';
 import { spaced, yearAt, yearFull } from '../gen/era';
@@ -55,7 +55,7 @@ const COLOR_NAME: Record<MarkColor, string> = { red: '红', orange: '橙', green
 const CHIPS_MAX = 24;
 
 /** 卡片标题前的小图钉(代替国家卡片的颜色块) */
-export function MarkPin({ color, size = 14 }: { color: MarkColor; size?: number }) {
+export function MarkPin({ color, size = 14 }: { color: MarkTint; size?: number }) {
   return (
     <svg className="mk-head-pin" width={size} height={(size * 4) / 3} viewBox="0 0 24 32" aria-hidden="true">
       <path d="M12 31.2C10.6 27 3 20.4 3 12.6a9 9 0 0 1 18 0c0 7.8-7.6 14.4-9 18.6z" fill={MARK_HEX[color]} />

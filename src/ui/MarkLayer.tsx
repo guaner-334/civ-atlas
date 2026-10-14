@@ -5,6 +5,7 @@
  * - 每帧问 App 要"世界坐标 → 舞台坐标"的换算(平面主图、弯边投影、地球仪),视图、年份、标记、选中、鼠标(放标记、圈州时)、
  *   地图文字的排版有变化才重画;一千个标记以内一帧几毫秒
  * - 名字尽量不压地图上的城名、地名(平面主图、弯边投影时按文字层排好的位置躲),也尽量不写到按钮、面板下面
+ * - 无色的标记照地图上的地名写(画风的字体、墨色;style 给画风),字体文件到了再重画一次
  * - 放标记(markStore 的 placing):鼠标在地图上时跟着一枚半透明图钉 + 十字
  * - 编辑几个州的标记:鼠标停着的州(还没选上的)描一圈虚线
  * - App 点地图、悬停时问 markHitAt:点到图钉、名字、名字牌 = 选中那个标记,点到合并的圆 = 在那里放大
@@ -21,6 +22,7 @@ import {
   drawMarks,
   hitMark,
   layoutMarks,
+  markStyle,
   projectLoops,
   type AreaShape,
   type MarkFrame,
@@ -29,6 +31,7 @@ import {
   type MarkLayout,
   type Measure,
 } from '../render/marks';
+import { ensureFonts } from '../render/labels/fonts';
 import { useEdits } from './editsStore';
 import { getCivTime, subscribeCivTime, useSelection } from './civView';
 import { useMarkUi, type MarkDraft } from './markStore';
@@ -86,12 +89,12 @@ function debugNone() {
 function draftAsMark(d: MarkDraft): AuthorMark | null {
   const from = Number(d.fromText);
   const to = d.toText.trim() ? Number(d.toText) : undefined;
-  const base = { id: d.id, title: d.title.trim() || '新标记', color: d.color, from: Number.isFinite(from) ? from : 0, to: Number.isFinite(to) ? to : undefined };
+  const base = { id: d.id, title: d.title.trim() || '新标记', color: d.color, size: d.size, from: Number.isFinite(from) ? from : 0, to: Number.isFinite(to) ? to : undefined };
   if (d.scope === 'regions') return { ...base, regions: d.regions };
   return d.at ? { ...base, at: d.at } : null;
 }
 
-export function MarkLayer({ civ, world, api, hidden }: { civ: Civ | null; world: World; api: MutableRefObject<MarkApi | null>; hidden?: boolean }) {
+export function MarkLayer({ civ, world, api, hidden, style = 'fantasy' }: { civ: Civ | null; world: World; api: MutableRefObject<MarkApi | null>; hidden?: boolean; style?: string }) {
   const edits = useEdits();
   const ui = useMarkUi();
   const { sel } = useSelection();
@@ -108,15 +111,27 @@ export function MarkLayer({ civ, world, api, hidden }: { civ: Civ | null; world:
   const state = useRef({ ver: 0, sig: '', mouse: null as { x: number; y: number; map: boolean } | null });
   // 按钮、面板(名字尽量不写到它们下面)
   const panels = useAvoidBoxes(cvRef);
-  const deps = { marks, draft, selId, placing: ui.placing, civ, panels };
+  const look = markStyle(style);
+  const deps = { marks, draft, selId, placing: ui.placing, civ, panels, look };
   const depsRef = useRef(deps);
   const was = depsRef.current;
-  if (was.marks !== marks || was.draft !== draft || was.selId !== selId || was.placing !== ui.placing || was.civ !== civ || was.panels !== panels) state.current.ver++;
+  if (was.marks !== marks || was.draft !== draft || was.selId !== selId || was.placing !== ui.placing || was.civ !== civ || was.panels !== panels || was.look !== look) state.current.ver++;
   depsRef.current = deps;
   const shapeRef = useRef(shapeOf);
   shapeRef.current = shapeOf;
 
   useEffect(() => subscribeCivTime(() => void state.current.ver++), []);
+
+  // 无色标记用地图的字体写:字体文件到了再重画一次(第一次画出来可能是后备字体)
+  const plainText = active ? [...(marks ?? []).filter((m) => m.color === 'none').map((m) => m.title), draft?.color === 'none' ? draft.title : ''].join('') : '';
+  useEffect(() => {
+    if (!plainText) return;
+    let alive = true;
+    void ensureFonts(look, plainText).then(() => alive && void state.current.ver++);
+    return () => {
+      alive = false;
+    };
+  }, [plainText, look]);
 
   // 放标记、圈州时跟着鼠标
   const followMouse = active && (ui.placing || areaEdit);
@@ -183,7 +198,7 @@ export function MarkLayer({ civ, world, api, hidden }: { civ: Civ | null; world:
       ctx.clearRect(0, 0, W, H);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       measure ??= canvasMeasure(ctx);
-      const { marks, draft, selId, placing, civ, panels } = depsRef.current;
+      const { marks, draft, selId, placing, civ, panels, look } = depsRef.current;
       if (!civ) return;
       const year = Math.floor(Math.min(civ.endYear, Math.max(0, getCivTime().year ?? civ.endYear)));
       const items: MarkItem[] = [];
@@ -195,6 +210,8 @@ export function MarkLayer({ civ, world, api, hidden }: { civ: Civ | null; world:
         shape: mk.regions ? shapeRef.current(markRegionIds(civ, mk), draft) : undefined,
         selected,
         dim,
+        size: mk.size,
+        plain: mk.color === 'none',
       });
       const editing = draft ? draftAsMark(draft) : null;
       const focus = editing ? editing.id : selId;
@@ -214,8 +231,8 @@ export function MarkLayer({ civ, world, api, hidden }: { civ: Civ | null; world:
         ctx.clip();
       }
       const avoid = [...text, ...panels].map((b) => [b[0] - v.left, b[1] - v.top, b[2] - v.left, b[3] - v.top]);
-      const layout = layoutMarks(items, v, { measure, avoid });
-      drawMarks(ctx, layout, dpr);
+      const layout = layoutMarks(items, v, { measure, avoid, style: look });
+      drawMarks(ctx, layout, dpr, look);
       const mouse = state.current.mouse;
       if (mouse?.map) {
         const x = mouse.x - v.left;
@@ -233,7 +250,7 @@ export function MarkLayer({ civ, world, api, hidden }: { civ: Civ | null; world:
       shown = { layout, view: v };
       (window as unknown as { __wfMarks?: unknown }).__wfMarks = {
         pins: layout.pins.map((p) => ({ id: p.id, x: p.x + v.left, y: p.y + v.top, w: p.w, label: p.label?.text ?? null })),
-        areas: layout.areas.map((a) => ({ id: a.id, polys: a.polys.length, pill: a.pill ? { x: a.pill.x + v.left, y: a.pill.y + v.top, text: a.pill.text } : null })),
+        areas: layout.areas.map((a) => ({ id: a.id, polys: a.polys.length, pill: a.name ? { x: a.name.x + v.left, y: a.name.y + v.top, text: a.name.text, along: !!a.name.glyphs } : null })),
         clusters: layout.clusters.map((c) => ({ x: c.x + v.left, y: c.y + v.top, ids: c.ids })),
         k: v.k,
       };

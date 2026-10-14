@@ -225,12 +225,17 @@ export function markShapeOf(world: World, civ: Civ, ids: readonly number[], draf
   return m.get(key)!;
 }
 
+/** 无色标记名字里的字(它们用地图的字体写:导出、回放画字前和地名一起先加载) */
+export function plainMarkChars(marks: readonly AuthorMark[] | undefined): string {
+  return (marks ?? []).filter((m) => m.color === 'none').map((m) => m.title).join('');
+}
+
 /** 这一年地图上有的标记,换成要画的样子(导出图片用;不分选中) */
 export function markItemsAt(civ: Civ, world: World, marks: readonly AuthorMark[] | undefined, year: number): MarkItem[] {
   const out: MarkItem[] = [];
   for (const m of marks ?? []) {
     if (!markShownAt(m, year)) continue;
-    out.push({ id: m.id, title: m.title, color: m.color, at: m.at, shape: m.regions ? markShapeOf(world, civ, markRegionIds(civ, m)) : undefined });
+    out.push({ id: m.id, title: m.title, color: m.color, size: m.size, plain: m.color === 'none', at: m.at, shape: m.regions ? markShapeOf(world, civ, markRegionIds(civ, m)) : undefined });
   }
   return out;
 }

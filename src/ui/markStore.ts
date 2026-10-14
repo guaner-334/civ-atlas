@@ -7,7 +7,7 @@
  * - 几个州的标记:编辑时点地图上的州 = 加进来 / 再点一下去掉;一个点的标记:编辑时拖图钉挪位置
  */
 import { useSyncExternalStore } from 'react';
-import { INTERVENTION_YEAR_MAX, MARKS_MAX, MARK_COLORS, MARK_REGIONS_MAX, MARK_REGIONS_TOTAL, markRegionTotal, type AuthorMark, type MarkColor } from '../gen/edits';
+import { INTERVENTION_YEAR_MAX, MARKS_MAX, MARK_COLORS, MARK_REGIONS_MAX, MARK_REGIONS_TOTAL, markRegionTotal, type AuthorMark, type MarkSizeSet, type MarkTint } from '../gen/edits';
 import { addMark, getEdits, subscribeEdits, updateMark } from './editsStore';
 import { noYearZero, yearTooEarly, yearTooLate } from '../gen/era';
 import { clearSelection, getSelection, setSelection, subscribeSelection } from './civView';
@@ -19,7 +19,9 @@ export interface MarkDraft {
   id: number;
   title: string;
   note: string;
-  color: MarkColor;
+  color: MarkTint;
+  /** 名字的字号(中 = undefined) */
+  size?: MarkSizeSet;
   /** 年份输入框里的字("到"空着 = 一直都在) */
   fromText: string;
   toText: string;
@@ -118,6 +120,7 @@ export function editMarkDraft(m: AuthorMark) {
       title: m.title,
       note: m.note ?? '',
       color: m.color,
+      size: m.size,
       fromText: yearText(m.from),
       toText: yearText(m.to),
       scope: m.regions ? 'regions' : 'point',
@@ -175,6 +178,7 @@ export function draftMark(d: MarkDraft): Omit<AuthorMark, 'id'> | null {
   const from = parseYear(d.fromText)!;
   const to = parseYear(d.toText);
   const m: Omit<AuthorMark, 'id'> = { title: d.title, color: d.color, from };
+  if (d.size) m.size = d.size;
   if (d.note.trim()) m.note = d.note;
   if (to !== null) m.to = to;
   if (d.scope === 'regions') m.regions = d.regions.slice();

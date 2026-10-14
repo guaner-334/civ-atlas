@@ -26,7 +26,7 @@ import { drawWarfare, warsShown } from './civ/warfare';
 import { drawHolyDot, holyCities } from './civ/faith';
 import { drawPlacedLabels, placeMap, toCanvas, type LabelItem, type LabelView, type Placement } from './labels/draw';
 import { ensureFonts } from './labels/fonts';
-import { canvasMeasure, drawMarks, layoutMarks, placedTextBoxes, type MarkFrame, type MarkItem } from './marks';
+import { canvasMeasure, drawMarks, layoutMarks, markStyle, placedTextBoxes, type MarkFrame, type MarkItem } from './marks';
 import { drawGraticule, labelProjection, projector, reprojectImage, type MapProj, type ProjectionId } from './projection';
 import { nearX, wrapOf } from './common';
 
@@ -50,9 +50,12 @@ export interface ShotScene {
   /** 整张地图:投影、图片正中的世界 x、经纬网(和屏幕上一样;见 render/export.ts 的 ExportMapParams) */
   projection?: ProjectionId;
   center?: number;
-  graticule?: boolean;
+  /** 经纬网每隔几度一条(0 / 不给 = 不画) */
+  graticule?: number;
   /** 那一年有的作者标记(几个州的形状算好);不给 = 不画 */
   marks?: (year: number) => readonly MarkItem[];
+  /** 无色标记名字里的字(用地图的字体写,和地图文字一起先加载) */
+  markChars?: string;
 }
 
 /**
@@ -105,7 +108,7 @@ export class MapShot {
   /** 先等地图字体加载好(画字前调一次) */
   async prepare(): Promise<void> {
     if (this.fontsOk) return;
-    await ensureFonts(this.scene.style, civLabelChars(this.scene.civ), 15000);
+    await ensureFonts(this.scene.style, civLabelChars(this.scene.civ) + (this.scene.markChars ?? ''), 15000);
     this.fontsOk = true;
   }
 
@@ -145,7 +148,7 @@ export class MapShot {
     const view = { s: v.s, ox: v.ox, oy: v.oy, k: Math.max(1, v.k) };
     if (this.scene.graticule) {
       const d = makeCanvas(this.w, this.h);
-      drawGraticule(ctx2d(d), v.mp, world.width, world.height, view, style, 0, v.dpr);
+      drawGraticule(ctx2d(d), v.mp, world.width, world.height, view, style, this.scene.graticule, v.dpr);
       this.decor = d;
     }
     if (v.mp) {
@@ -328,13 +331,16 @@ export class MapShot {
       w: this.w / d,
       h: this.h / d,
       k: a.k,
+      mapCss: a.mapCss,
+      textK: lv.k,
       cut: mp ? (0.4 * world.width * v.s) / d : 0,
     };
     ctx.save();
     ctx.scale(d, d);
     const avoid = placedTextBoxes(placed).map((b) => b.map((x) => x / d));
-    const layout = layoutMarks(marks, frame, { measure: canvasMeasure(ctx), avoid });
-    drawMarks(ctx, layout, d);
+    const ms = markStyle(style);
+    const layout = layoutMarks(marks, frame, { measure: canvasMeasure(ctx), avoid, style: ms });
+    drawMarks(ctx, layout, d, ms);
     ctx.restore();
   }
 

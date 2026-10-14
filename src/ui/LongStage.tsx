@@ -11,7 +11,7 @@ import type { LayerId } from '../render/layers';
 import { useCivShow } from './civView';
 import { useEdits } from './editsStore';
 import { useMapCenter } from './mapWrap';
-import { useGraticule, useProjection } from './projection';
+import { useGraticuleLines, useProjection } from './projection';
 import { useFlags } from './flagStore';
 import { useFilmSource, type FilmSource } from './filmSource';
 import { filmSetup } from './filmStore';
@@ -65,7 +65,7 @@ export function LongStage({ phone, style, layer }: LongStageProps) {
   const src = useFilmSource();
   const show = useCivShow();
   const proj = useProjection();
-  const grat = useGraticule();
+  const grat = useGraticuleLines();
   const center = useMapCenter();
   const { marks, era } = useEdits();
   const flags = useFlags();
@@ -86,6 +86,7 @@ export function LongStage({ phone, style, layer }: LongStageProps) {
       center: setup.center,
       graticule: setup.graticule,
       marks: setup.marks,
+      markChars: setup.markChars,
       font: setup.font,
     };
     void renderLong(src, look, lookKey(src, look, marks, flags)).catch((e) => console.error('长图画不出来', e));

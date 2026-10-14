@@ -33,7 +33,7 @@ import { KIND_INFO, cultureLabel } from '../gen/civ/display';
 import { faithRows } from '../gen/civ/religionText';
 import { yearFull, type Era } from '../gen/era';
 import { drawGraticule, labelProjection, mapProj, outlineOnCanvas, pageColor, projectWorld, projector, reprojectImage, type MapProj, type ProjectionId } from './projection';
-import { NAME_ZOOM, canvasMeasure, drawMarks, layoutMarks, placedTextBoxes, type MarkFrame, type MarkItem } from './marks';
+import { NAME_ZOOM, canvasMeasure, drawMarks, layoutMarks, markStyle, placedTextBoxes, type MarkFrame, type MarkItem } from './marks';
 import { drawTerrainProjected } from './detail';
 import { drawTrail, layoutTrail, type TrailInput } from './trail';
 import { compassSpot, drawProjFrame } from './fantasy';
@@ -70,8 +70,8 @@ export interface ExportMapParams {
   center?: number;
   /** 投影(和屏幕上一样);不给 / 'equirect' = 等距圆柱 */
   projection?: ProjectionId;
-  /** 画不画经纬网 */
-  graticule?: boolean;
+  /** 经纬网每隔几度一条(0 / 不给 = 不画) */
+  graticule?: number;
 }
 
 /** 弯边投影:图片按哪种投影、哪条中央经线画(等距圆柱 = null) */
@@ -170,7 +170,7 @@ export function drawMapDecor(ctx: Ctx2D, p: ExportMapParams): void {
   const mp = exportProj(p);
   const v = bakedView(raster.scale);
   if (mp) {
-    if (p.graticule) drawGraticule(ctx, mp, world.width, world.height, v, style, 0, raster.scale);
+    if (p.graticule) drawGraticule(ctx, mp, world.width, world.height, v, style, p.graticule, raster.scale);
     if (style === 'fantasy') {
       drawPaperVignette(ctx, world.width, world.height, v);
       drawProjFrame(ctx, mp, v);
@@ -178,7 +178,7 @@ export function drawMapDecor(ctx: Ctx2D, p: ExportMapParams): void {
     return;
   }
   const left = exportLeft(p);
-  if (p.graticule) drawGraticule(ctx, null, world.width, world.height, { s: raster.scale, ox: -left * raster.scale, oy: 0 }, style, 0, raster.scale);
+  if (p.graticule) drawGraticule(ctx, null, world.width, world.height, { s: raster.scale, ox: -left * raster.scale, oy: 0 }, style, p.graticule, raster.scale);
   if (style === 'fantasy') {
     drawPaperVignette(ctx, world.width, world.height, v);
     drawFrame(ctx, world.width, world.height, v);
@@ -388,9 +388,10 @@ function exportMarkFrame(p: Pick<ExportMapParams, 'world' | 'center' | 'projecti
         w: W / f,
         h: H / f,
         k: NAME_ZOOM,
+        textK: 1,
         cut: (0.4 * W) / f,
       }
-    : { pt: (wx, wy) => [(wx - left) / f, wy / f], period: wrapOf(p.world) ? W / f : 0, win: [0, W / f], w: W / f, h: H / f, k: NAME_ZOOM, cut: 0 };
+    : { pt: (wx, wy) => [(wx - left) / f, wy / f], period: wrapOf(p.world) ? W / f : 0, win: [0, W / f], w: W / f, h: H / f, k: NAME_ZOOM, textK: 1, cut: 0 };
   return { frame, m };
 }
 
@@ -400,7 +401,7 @@ function exportMarkFrame(p: Pick<ExportMapParams, 'world' | 'center' | 'projecti
  */
 export function drawExportMarks(
   ctx: CanvasRenderingContext2D,
-  p: Pick<ExportMapParams, 'world' | 'center' | 'projection'>,
+  p: Pick<ExportMapParams, 'world' | 'center' | 'projection' | 'style'>,
   S: ExportScale,
   items: readonly MarkItem[],
   placed?: Placement,
@@ -412,8 +413,9 @@ export function drawExportMarks(
   ctx.scale(m, m);
   // 文字层的画布像素 = 摆放坐标 × m
   const avoid = placed ? placedTextBoxes(placed).map((b) => b.map((v) => v / m)) : [];
-  const layout = layoutMarks(items, frame, { names: true, measure: canvasMeasure(ctx), avoid });
-  drawMarks(ctx, layout, m);
+  const style = markStyle(p.style);
+  const layout = layoutMarks(items, frame, { names: true, measure: canvasMeasure(ctx), avoid, style });
+  drawMarks(ctx, layout, m, style);
   ctx.restore();
   return layout.pins.length + layout.areas.length;
 }

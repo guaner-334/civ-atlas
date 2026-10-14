@@ -6,7 +6,7 @@
  *   地图右下角"地球仪 / 平面地图"按钮 = 切到 globe / 切回上一个平面投影(lastFlatProjection)。
  * - 中央经线用 mapWrap.ts 的 getMapCenter / useMapCenter / requestMapCenter(所有投影共用同一个中心):
  *   等距圆柱里拖到哪哪是中心;弯边投影里左右拖动、滑条、"设为中心"改它,整图按新中心重投影。
- * - getGraticule / useGraticule / setGraticule:经纬网图层开没开。
+ * - getGraticule / useGraticule / setGraticule:经纬网图层开没开;getGraticuleStep……:每隔几度;getGraticuleLines:要画的间隔(关着 = 0)。
  * - useMapMoving:弯边投影里正在拖动中心(拖动时国名先按世界坐标拟合的摆法投过去,停下来再按投影后的国土重新拟合)。
  * - ProjLayer:一层"和世界一样大"的画布(地形、文明底图、选中、高亮、回放帧)在弯边投影下的做法 ——
  *   先画在离屏的等距圆柱原图上,再按投影铺到显示的画布上;只改中心时不重画原图,只重铺(几毫秒)。
@@ -16,6 +16,7 @@
 import { useSyncExternalStore } from 'react';
 import type { World } from '../gen/world';
 import type { Raster } from '../gen/raster';
+import { GRATICULE_STEPS } from '../gen/savefile';
 import { doubleCanvas, drawProjected, isProjectionId, mapProj, pageColor, type MapProj, type ProjectionId } from '../render/projection';
 import { drawTerrainProjected, type DetailStyle } from '../render/detail';
 import { releaseFantasyProjCaches } from '../render/fantasy';
@@ -88,11 +89,32 @@ export function lastFlatProjection(): ProjectionId {
   return cur === 'globe' ? lastFlat : cur;
 }
 
-/** 经纬网:平面投影和地球仪共用一个开关("图层与投影"弹层里的"经纬网"改它;网址 grat=1) */
+/** 经纬网:平面投影和地球仪共用一个开关("图层与投影"弹层、新建世界的"投影"里的"经纬网"改它;网址 grat=1) */
 const graticule = store(false);
 export const getGraticule = graticule.get;
 export const useGraticule = graticule.use;
 export const setGraticule = graticule.set;
+
+/** 经纬网每隔几度一条(开关旁边选;网址 grat=10 / 15,30 = grat=1) */
+export { GRATICULE_STEPS };
+export type GraticuleStep = (typeof GRATICULE_STEPS)[number];
+export function isGraticuleStep(x: unknown): x is GraticuleStep {
+  return GRATICULE_STEPS.includes(x as GraticuleStep);
+}
+const gratStep = store<GraticuleStep>(30);
+export const getGraticuleStep = gratStep.get;
+export const useGraticuleStep = gratStep.use;
+export const setGraticuleStep = gratStep.set;
+
+/** 要画的经纬网:开着 = 每隔几度,关着 = 0(画地图、导出、回放都按它) */
+export function getGraticuleLines(): number {
+  return graticule.get() ? gratStep.get() : 0;
+}
+export function useGraticuleLines(): number {
+  const on = graticule.use();
+  const step = gratStep.use();
+  return on ? step : 0;
+}
 
 const moving = store(false);
 export const getMapMoving = moving.get;

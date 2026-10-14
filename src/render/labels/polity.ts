@@ -744,7 +744,10 @@ export function fitAll(
 
 /** 横排、竖排各拟合一次,挑字号大的(竖排要大出 VERTICAL_GAIN 倍) */
 function fitBoth(R: Rays, sizes: number[], T: ReachTable, text: string): Fit | null {
-  const n = [...text].length;
+  return fitBothN(R, sizes, T, [...text].length);
+}
+
+function fitBothN(R: Rays, sizes: number[], T: ReachTable, n: number): Fit | null {
   const h = fitText(R, n, sizes, T, false);
   const v = n >= 2 ? fitText(R, n, sizes, T, true) : null;
   if (v && (!h || v.size >= h.size * VERTICAL_GAIN)) return v;
@@ -767,6 +770,28 @@ function longest(R: Rays, s: number): Fit {
     }
   }
   return { size: s, i: bi, j: bi + RAYS / 2, li: Math.max(0, reach(R, bi, h)), lj: Math.max(0, reach(R, bi + RAYS / 2, h)), vertical: false };
+}
+
+/** 一块形状里放一行字的摆法(世界坐标;见 fitShape) */
+export interface ShapeFit {
+  /** 路径(x,y,x,y…):直线,或拐角抹圆的两段 */
+  path: number[];
+  /** 放得下这行字的最大字号(世界单位) */
+  size: number;
+  vertical: boolean;
+  /** 最难到达点 */
+  anchor: [number, number];
+}
+
+/**
+ * 栅格里 owner === id 的那块形状里排 n 个字(和国名同一套:从 cell 发放射线,字号从大往小试,横排或竖排;都放不下按最小字号找最长的)。
+ * sizes = 字号阶梯(世界单位,从大到小);作者标记圈的几个州、州名用
+ */
+export function fitShape(field: TerritoryField, id: number, cell: number, n: number, sizes: number[], maxLen: number): ShapeFit | null {
+  if (!sizes.length || cell < 0) return null;
+  const R = castRays(field, id, cell, maxLen);
+  const f = fitBothN(R, sizes, new ReachTable(R, sizes), Math.max(1, n)) ?? longest(R, sizes[sizes.length - 1]);
+  return { path: pathOf(R, f), size: f.size, vertical: f.vertical, anchor: [R.px, R.py] };
 }
 
 // ---------------------------------------------------------------------------
@@ -817,10 +842,14 @@ export function polityCandidates(
 
 /** planar = 路径已经是地图平面坐标(弯边投影下按投影后的国土拟合的),不再投影 */
 function alongPath(text: string, pathWorld: ArrayLike<number>, px: number, tracking: [number, number], view: LabelView, vertical: boolean, planar = false): Candidate[] {
+  return alongCanvasPath(text, pathToCanvas(pathWorld, view, planar), px, tracking, vertical);
+}
+
+/** 同 alongPath,路径已经是画布坐标(作者标记的名字:标记层自己换算坐标) */
+export function alongCanvasPath(text: string, pts: ArrayLike<number>, px: number, tracking: [number, number], vertical: boolean): Candidate[] {
   const cs = [...text];
   const n = cs.length;
   if (!n) return [];
-  const pts = pathToCanvas(pathWorld, view, planar);
   let path = new Polyline(pts);
   const m = path.xs.length;
   if (m < 2) {

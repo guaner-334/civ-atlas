@@ -495,11 +495,12 @@ const GRAT_INK: Record<string, [string, string]> = {
 };
 
 /**
- * 经纬网:每 30° 一条经线、纬线,赤道稍粗。
+ * 经纬网:每隔 step 度(10° / 15° / 30°;0 = 按 30°)一条经线、纬线,赤道稍粗。
  * mp = null(等距圆柱):世界坐标,经线是竖线,按画布宽度把左右各圈的都画上(跟着地图平移);
  * 弯边投影:地图平面上的折线(经线弯、纬线平)。v:坐标 × s + (ox, oy) = 画布像素;lw = 1 个 CSS 像素是几个画布像素
  */
-export function drawGraticule(ctx: Ctx2D, mp: MapProj | null, W: number, H: number, v: { s: number; ox: number; oy: number }, style: string, _span: number, lw: number): void {
+export function drawGraticule(ctx: Ctx2D, mp: MapProj | null, W: number, H: number, v: { s: number; ox: number; oy: number }, style: string, step: number, lw: number): void {
+  const deg = step > 0 ? step : 30;
   const [ink, strong] = GRAT_INK[style] ?? GRAT_INK.realistic;
   const X = (x: number) => x * v.s + v.ox;
   const Y = (y: number) => y * v.s + v.oy;
@@ -519,7 +520,7 @@ export function drawGraticule(ctx: Ctx2D, mp: MapProj | null, W: number, H: numb
     ctx.stroke();
   };
   if (mp) {
-    const g = graticuleLines(mp, 30);
+    const g = graticuleLines(mp, deg);
     stroke([...g.meridians, ...g.parallels], ink, 0.8 * lw);
     stroke([g.equator], strong, 1.3 * lw);
   } else {
@@ -527,10 +528,11 @@ export function drawGraticule(ctx: Ctx2D, mp: MapProj | null, W: number, H: numb
     const cw = ctx.canvas.width;
     const x0 = (0 - v.ox) / v.s;
     const x1 = (cw - v.ox) / v.s;
-    const step = W / 12;
+    const dx = (W * deg) / 360;
     const lines: number[][] = [];
-    for (let i = Math.floor(x0 / step); i * step <= x1; i++) lines.push([i * step, 0, i * step, H]);
-    for (const lat of [-60, -30, 30, 60]) {
+    for (let i = Math.floor(x0 / dx); i * dx <= x1; i++) lines.push([i * dx, 0, i * dx, H]);
+    for (let lat = -90 + deg; lat < 90; lat += deg) {
+      if (Math.abs(lat) < 1e-6) continue;
       const y = ((90 - lat) / 180) * H;
       lines.push([x0, y, x1, y]);
     }

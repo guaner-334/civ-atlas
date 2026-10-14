@@ -14,20 +14,26 @@
  */
 import type { Mesh } from '../gen/mesh';
 import type { Regions } from '../gen/civ/types';
-import type { MarkColor } from '../gen/edits';
+import type { MarkTint } from '../gen/edits';
 import { sphereMean } from './civ/lines';
 import { nearX } from './common';
-import { placedMarkBox, type Placement } from './labels/draw';
-import { glyphBox } from './labels/layout';
+import { MIN_LABEL_PX, REF_MAP_CSS, placedMarkBox, type Placement } from './labels/draw';
+import { NAME_GROW, NAME_SIZE } from './labels/settlements';
+import { glyphBox, type Candidate, type Glyph } from './labels/layout';
+import { FONT_FANTASY, FONT_REALISTIC, fontCss } from './labels/fonts';
+import { alongCanvasPath, type ShapeFit } from './labels/polity';
+import { shapeLabelFit } from './labels/shape';
 
 /** 六种颜色(和时间轴大事的颜色同一套) */
-export const MARK_HEX: Record<MarkColor, string> = {
+export const MARK_HEX: Record<MarkTint, string> = {
   red: '#e0443a',
   orange: '#c4870f',
   green: '#2e9a58',
   blue: '#3478d4',
   purple: '#8d5bcc',
   teal: '#1b97a6',
+  // 无色:地图上不用这个颜色;界面上的小图标、列表里的色点用地图的墨色
+  none: '#6b5845',
 };
 
 /** 名字的颜色:标记颜色压暗一点(和地图上墨色的地名分开) */
@@ -50,6 +56,42 @@ export const CLUSTER_PX = 64;
 export const DIM_ALPHA = 0.45;
 /** 混了几种颜色的圆用的深灰 */
 const CLUSTER_MIXED = '#3a3a3c';
+/** 名字的字号档:小、中(原来的大小)、大、特大(CSS 像素;选中的大 1 像素) */
+export type MarkSize = 's' | 'm' | 'l' | 'xl';
+export const MARK_SIZE_PX: Record<MarkSize, number> = { s: 12, m: 14, l: 18, xl: 24 };
+/**
+ * 无色标记的名字当成地图自己的地名:四档对着四类地名(小 = 镇名、中 = 城名、大 = 山脉名、特大 = 海名),
+ * 字号和放大时变大的快慢都照它们(见 labels/draw.ts 的 labelPx)
+ */
+const PLAIN_SIZE: Record<MarkSize, { size: number; grow: number }> = {
+  s: { size: NAME_SIZE[1], grow: NAME_GROW },
+  m: { size: NAME_SIZE[3], grow: NAME_GROW },
+  l: { size: 13, grow: 0.45 },
+  xl: { size: 14.5, grow: 0.5 },
+};
+
+/** 无色标记照哪种地名写:手绘 / 写实 / 数据图层 */
+export type MarkStyle = 'fantasy' | 'realistic' | 'data';
+export function markStyle(style: string): MarkStyle {
+  return style === 'fantasy' ? 'fantasy' : style === 'realistic' ? 'realistic' : 'data';
+}
+
+/** 无色的标记像地图上的地名:地图的字体、墨色、光晕(按画风) */
+export interface MapInk {
+  family: string;
+  weight: number;
+  ink: string;
+  halo: string;
+  haloW: number;
+  /** 几个州的外圈(虚线)颜色 */
+  line: string;
+}
+export const MAP_INK: Record<MarkStyle, MapInk> = {
+  fantasy: { family: FONT_FANTASY, weight: 500, ink: 'rgb(58,45,34)', halo: 'rgba(241,230,201,0.92)', haloW: 3, line: 'rgba(70,50,36,0.8)' },
+  realistic: { family: FONT_REALISTIC, weight: 700, ink: 'rgb(34,34,30)', halo: 'rgba(255,255,255,0.7)', haloW: 2.6, line: 'rgba(34,34,30,0.75)' },
+  data: { family: FONT_REALISTIC, weight: 700, ink: 'rgb(30,30,30)', halo: 'rgba(255,255,255,0.75)', haloW: 2.6, line: 'rgba(30,30,30,0.75)' },
+};
+
 /** 字体(和界面的 --font-sans 一样) */
 export const MARK_FONT = `-apple-system, BlinkMacSystemFont, 'PingFang SC', 'Noto Sans SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif`;
 
@@ -104,6 +146,39 @@ function meshIndex(mesh: Mesh): MeshIndex {
 /** 两极附近的地块不画多边形(包着极点的多边形在主图上拉成一长条) */
 const POLAR = 0.46;
 
+/**
+ * 一串地块各自的多边形(世界坐标;相邻三角形的重心按角度连起来,拼在一起不留缝;x 按 ref 展开)。
+ * 两极附近的地块不算(包着极点的多边形在主图上拉成一长条)
+ */
+export function cellPolygons(mesh: Mesh, cells: readonly number[], ref: number): Float32Array[] {
+  const { x, y } = mesh;
+  const W = mesh.width;
+  const H = mesh.height;
+  const ix = meshIndex(mesh);
+  const polys: Float32Array[] = [];
+  const pts: { a: number; x: number; y: number }[] = [];
+  for (const c of cells) {
+    if (Math.abs(y[c] - H / 2) > POLAR * H) continue;
+    const cx = nearX(x[c], ref, W);
+    pts.length = 0;
+    for (let k = ix.start[c]; k < ix.start[c + 1]; k++) {
+      const t = ix.tris[k];
+      const px = nearX(ix.cen[2 * t], cx, W);
+      const py = ix.cen[2 * t + 1];
+      pts.push({ a: Math.atan2(py - y[c], px - cx), x: px, y: py });
+    }
+    if (pts.length < 3) continue;
+    pts.sort((p, q) => p.a - q.a);
+    const f = new Float32Array(pts.length * 2);
+    pts.forEach((p, i) => {
+      f[2 * i] = p.x;
+      f[2 * i + 1] = p.y;
+    });
+    polys.push(f);
+  }
+  return polys;
+}
+
 /** 几个州(州号)画出来的样子;一个地块都没有(州号都不对)= null */
 export function markAreaShape(mesh: Mesh, regions: Pick<Regions, 'count' | 'cellStart' | 'cells'>, ids: readonly number[]): AreaShape | null {
   const { x, y, adjStart, adj } = mesh;
@@ -156,27 +231,7 @@ export function markAreaShape(mesh: Mesh, regions: Pick<Regions, 'count' | 'cell
     ly = y[best];
   }
   // 每个地块的多边形
-  const polys: Float32Array[] = [];
-  const pts: { a: number; x: number; y: number }[] = [];
-  for (const c of cells) {
-    if (Math.abs(y[c] - H / 2) > POLAR * H) continue;
-    const cx = nearX(x[c], ref, W);
-    pts.length = 0;
-    for (let k = ix.start[c]; k < ix.start[c + 1]; k++) {
-      const t = ix.tris[k];
-      const px = nearX(ix.cen[2 * t], cx, W);
-      const py = ix.cen[2 * t + 1];
-      pts.push({ a: Math.atan2(py - y[c], px - cx), x: px, y: py });
-    }
-    if (pts.length < 3) continue;
-    pts.sort((p, q) => p.a - q.a);
-    const f = new Float32Array(pts.length * 2);
-    pts.forEach((p, i) => {
-      f[2 * i] = p.x;
-      f[2 * i + 1] = p.y;
-    });
-    polys.push(f);
-  }
+  const polys = cellPolygons(mesh, cells, ref);
   // 外圈:这几州的地块和外面的地块之间的每条边,连起两边三角形的重心;串成环
   const link = new Map<number, number[]>();
   const add = (a: number, b: number) => {
@@ -249,6 +304,10 @@ export interface MarkFrame {
   h: number;
   /** 相当于平面主图的几倍(写不写名字按它) */
   k: number;
+  /** 缩放 1 倍时地图在屏幕上多宽(CSS 像素;无色标记的名字照地图上地名的规矩算字号用);没有 = 按参照宽度 */
+  mapCss?: number;
+  /** 地图上的地名按几倍放大算字号(无色标记的名字跟着);没有 = k(导出时 k 只管写不写名字,地名按 1 倍) */
+  textK?: number;
   /** 弯边投影:一段线在画布上长过这么多就是跨了投影的切口(不连);0 = 不管 */
   cut: number;
 }
@@ -257,13 +316,17 @@ export interface MarkFrame {
 export interface MarkItem {
   id: number;
   title: string;
-  color: MarkColor;
+  color: MarkTint;
   at?: [number, number];
   shape?: AreaShape | null;
   /** 选中 / 正在编辑的那个(画大一号,不合并) */
   selected?: boolean;
   /** 变淡:选了别的标记;选中的这个不在当前年份里 */
   dim?: boolean;
+  /** 名字的字号档(没有 = 中) */
+  size?: MarkSize;
+  /** 无色:不画图钉和铺色,名字像地图上的地名 */
+  plain?: boolean;
 }
 
 export type LabelSide = 'r' | 'l' | 'b';
@@ -277,7 +340,9 @@ export interface PlacedPin {
   w: number;
   hex: string;
   alpha: number;
-  label: { text: string; x: number; y: number; side: LabelSide; size: number; w: number; ink: string } | null;
+  label: { text: string; x: number; y: number; side: LabelSide; size: number; w: number; ink: string; look: MapInk | null } | null;
+  /** 无色:不画图钉,画一个小圆圈 */
+  plain: boolean;
 }
 
 export interface PlacedArea {
@@ -285,10 +350,28 @@ export interface PlacedArea {
   hex: string;
   alpha: number;
   selected: boolean;
+  plain: boolean;
   /** 每块多边形、外圈(画布坐标) */
   polys: Float32Array[];
   lines: Float32Array[];
-  pill: { text: string; x: number; y: number; size: number; w: number; ink: string } | null;
+  /** 名字:顺着这几州的形状排(放不下就在中间横着写一行) */
+  name: AreaName | null;
+}
+
+/** 几个州的名字(画布坐标) */
+export interface AreaName {
+  text: string;
+  /** 顺着形状排的每个字;横着写一行时 = null */
+  glyphs: Glyph[] | null;
+  /** 字的正中(横着写一行时 = 那一行的正中) */
+  x: number;
+  y: number;
+  /** 字号、一行的宽(横着写时) */
+  size: number;
+  w: number;
+  ink: string;
+  look: MapInk | null;
+  selected: boolean;
 }
 
 export interface PlacedCluster {
@@ -316,9 +399,6 @@ export interface MarkLayout {
   hits: MarkHit[];
 }
 
-/** 名字的字号 */
-const LABEL_SIZE = 14;
-const LABEL_SIZE_SEL = 15;
 const LINE = 1.25;
 /** 图钉宽:平时 / 选中 / 缩小后单独一个 */
 export const PIN_W = 24;
@@ -400,7 +480,11 @@ export function placedTextBoxes(placed: Placement): number[][] {
  * 算出点得到的范围。items 按先后排,选中的放最后(画在最上面)。
  * avoid = 地图上的城名、地名、按钮面板占的地方(和画布同一套坐标):名字先找哪个都不压的一边,找不到再只躲开别的标记
  */
-export function layoutMarks(items: readonly MarkItem[], f: MarkFrame, opts: { names?: boolean; measure?: Measure; avoid?: readonly number[][] } = {}): MarkLayout {
+export function layoutMarks(
+  items: readonly MarkItem[],
+  f: MarkFrame,
+  opts: { names?: boolean; measure?: Measure; avoid?: readonly number[][]; style?: MarkStyle } = {},
+): MarkLayout {
   const avoid = opts.avoid ?? [];
   const names = opts.names ?? f.k >= NAME_ZOOM * 0.92;
   const measure = opts.measure ?? roughMeasure;
@@ -411,7 +495,8 @@ export function layoutMarks(items: readonly MarkItem[], f: MarkFrame, opts: { na
   const order = [...items.filter((m) => !m.selected), ...items.filter((m) => m.selected)];
 
   // 几个州:铺色、外圈(总要画);名字牌的位置
-  const anchors: { m: MarkItem; x: number; y: number; area?: PlacedArea }[] = [];
+  const anchors: { m: MarkItem; x: number; y: number; area?: PlacedArea; base: number }[] = [];
+  const look = MAP_INK[opts.style ?? 'fantasy'];
   for (const m of order) {
     const sh = m.shape;
     if (!sh) continue;
@@ -419,7 +504,7 @@ export function layoutMarks(items: readonly MarkItem[], f: MarkFrame, opts: { na
     const base = lp ? shiftOf(f, lp[0]) : 0;
     const shifts = f.period ? [base - f.period, base, base + f.period] : [0];
     const hex = MARK_HEX[m.color];
-    const area: PlacedArea = { id: m.id, hex, alpha: m.dim ? DIM_ALPHA : 1, selected: !!m.selected, polys: [], lines: [], pill: null };
+    const area: PlacedArea = { id: m.id, hex, alpha: m.dim ? DIM_ALPHA : 1, selected: !!m.selected, plain: !!m.plain, polys: [], lines: [], name: null };
     for (const s of shifts) {
       // 平面主图:外接框整个不在看得见的地方就不算这一份
       if (f.period) {
@@ -435,7 +520,7 @@ export function layoutMarks(items: readonly MarkItem[], f: MarkFrame, opts: { na
     }
     if (!area.polys.length && !area.lines.length) continue;
     areas.push(area);
-    if (lp && visible(f, lp[0] + base, lp[1], 0)) anchors.push({ m, x: lp[0] + base, y: lp[1], area });
+    if (lp && visible(f, lp[0] + base, lp[1], 0)) anchors.push({ m, x: lp[0] + base, y: lp[1], area, base });
   }
 
   // 一个点:画布上的位置
@@ -471,7 +556,7 @@ export function layoutMarks(items: readonly MarkItem[], f: MarkFrame, opts: { na
         const X = grp.reduce((s, k) => s + free[k].x, 0) / grp.length;
         const Y = grp.reduce((s, k) => s + free[k].y, 0) / grp.length;
         const c0 = free[grp[0]].m.color;
-        const hex = grp.every((k) => free[k].m.color === c0) ? MARK_HEX[c0] : CLUSTER_MIXED;
+        const hex = grp.every((k) => free[k].m.color === c0 && !free[k].m.plain) ? MARK_HEX[c0] : CLUSTER_MIXED;
         const text = String(grp.length);
         const w = Math.max(28, measure(text, 13) * 0.62 + 16);
         const alpha = grp.every((k) => free[k].m.dim) ? DIM_ALPHA : 1;
@@ -479,7 +564,7 @@ export function layoutMarks(items: readonly MarkItem[], f: MarkFrame, opts: { na
         hits.push({ kind: 'cluster', ids: grp.map((k) => free[k].m.id), box: [X - w / 2, Y - 14, X + w / 2, Y + 14] });
       } else if (!free[i].area) {
         const p = free[i];
-        pins.push({ id: p.m.id, x: p.x, y: p.y, w: PIN_W_SMALL, hex: MARK_HEX[p.m.color], alpha: p.m.dim ? DIM_ALPHA : 1, label: null });
+        pins.push({ id: p.m.id, x: p.x, y: p.y, w: PIN_W_SMALL, hex: MARK_HEX[p.m.color], alpha: p.m.dim ? DIM_ALPHA : 1, label: null, plain: !!p.m.plain });
       } else {
         // 单独一个州的标记:只有铺色,名字牌的地方照样点得到(和合并的圆一样大)
         const p = free[i];
@@ -494,68 +579,174 @@ export function layoutMarks(items: readonly MarkItem[], f: MarkFrame, opts: { na
     return { areas, pins, clusters, hits };
   }
 
-  // 放大了:每个都写名字。先放名字牌(几个州;压着前面的名字牌就往下、往上错开),再放图钉的名字:右边压着别的就换左边、下边
-  for (const a of anchors) {
-    const pill = keepIn(pillOf(a.m, a.x, a.y));
-    const step = pill.size * LINE + 8;
-    for (let k = 1; k <= 8 && taken.some((t) => overlap(pillBox(pill), t)); k++) {
-      pill.y = a.y + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * step;
-      keepIn(pill);
-    }
-    a.area!.pill = pill;
-    const box = pillBox(pill);
-    taken.push(box);
-    hits.push({ kind: 'pill', ids: [a.m.id], box });
-  }
+  // 放大了:每个都写名字。先放几个州的名字(顺着形状排;压着前面的名字就挪开),再放图钉的名字:右边压着别的就换左边、下边
+  for (const a of anchors) placeAreaName(a.m, a.area!, a.base);
   for (const p of points) {
     const w = p.m.selected ? PIN_W_SEL : PIN_W;
-    taken.push([p.x - w / 2, p.y - (w * 4) / 3, p.x + w / 2, p.y]);
+    taken.push(p.m.plain ? plainBox(p.x, p.y) : [p.x - w / 2, p.y - (w * 4) / 3, p.x + w / 2, p.y]);
   }
   for (const p of points) placePin(p, p.m.selected ? PIN_W_SEL : PIN_W, true);
   finishHits();
   return { areas, pins, clusters, hits };
 
-  function pillOf(m: MarkItem, x: number, y: number) {
-    const size = m.selected ? LABEL_SIZE_SEL : LABEL_SIZE;
-    return { text: m.title, x, y, size, w: measure(m.title, size) + 18, ink: markInk(MARK_HEX[m.color]) };
+  function nameSize(m: MarkItem) {
+    const sel = m.selected ? 1 : 0;
+    if (!m.plain) return MARK_SIZE_PX[m.size ?? 'm'] + sel;
+    const t = PLAIN_SIZE[m.size ?? 'm'];
+    return Math.max(MIN_LABEL_PX, t.size * Math.sqrt((f.mapCss ?? REF_MAP_CSS) / REF_MAP_CSS) * Math.pow(Math.max(1, f.textK ?? f.k), t.grow)) + sel;
   }
-  /** 名字牌整个留在画面里(州的中心贴着画面边上时往里挪) */
-  function keepIn(p: ReturnType<typeof pillOf>) {
-    const b = pillBox(p);
+  /**
+   * 几个州的名字:按这几州的形状拟合一条路径(狭长的顺着长的方向、略带弧度;很窄很高的竖排),字沿路径疏排。
+   * 挑第一个字都在这几州里、不出画面、不压别的标记的摆法(再好是不压地图上的地名);都不行就在中间横着写一行
+   */
+  function placeAreaName(m: MarkItem, area: PlacedArea, base: number) {
+    const sh = m.shape!;
+    const size = nameSize(m);
+    const plain = !!m.plain;
+    const ink = plain ? look.ink : markInk(MARK_HEX[m.color]);
+    const text = m.title;
+    const fit = areaFit(sh, [...text].length);
+    let best: Candidate | null = null;
+    if (fit) {
+      const pts: number[] = [];
+      for (let i = 0; i < fit.path.length; i += 2) {
+        const p = f.pt(fit.path[i], fit.path[i + 1]);
+        if (!p) {
+          pts.length = 0;
+          break;
+        }
+        const X = p[0] + base;
+        if (f.cut && pts.length && Math.hypot(X - pts[pts.length - 2], p[1] - pts[pts.length - 1]) > f.cut) {
+          pts.length = 0;
+          break;
+        }
+        pts.push(X, p[1]);
+      }
+      if (pts.length >= 4) {
+        // 先照选的字号试,挤不下再缩一点(0.86、0.74)
+        const cands = AREA_SHRINK.flatMap((k) => alongCanvasPath(text, pts, size * k, AREA_TRACKING, fit.vertical).map((c) => ({ ...c, px: size * k })));
+        const boxes = (c: Candidate) => c.glyphs.map((g) => glyphBox(g, c.px ?? size, 1));
+        const inWin = (bs: number[][]) => bs.every((b) => b[0] >= f.win[0] && b[2] <= f.win[1] && b[1] >= 0 && b[3] <= f.h);
+        // 每个字的中心在这片里,字的四边(中心往外 0.45 个字号)也在里面;长名字允许一个字压一点边
+        const inShape = (c: Candidate) => {
+          const r = (c.px ?? size) * 0.45;
+          let edge = 0;
+          for (const g of c.glyphs) {
+            if (!insidePolys(area.polys, g.x, g.y)) return false;
+            if (!insidePolys(area.polys, g.x + r, g.y) || !insidePolys(area.polys, g.x - r, g.y) || !insidePolys(area.polys, g.x, g.y + r) || !insidePolys(area.polys, g.x, g.y - r)) edge++;
+          }
+          return edge <= (c.glyphs.length > 3 ? 1 : 0);
+        };
+        // 贴着边:字的中心在这片里就行(长名字允许一个字出去)
+        const nearShape = (c: Candidate) => c.glyphs.filter((g) => insidePolys(area.polys, g.x, g.y)).length >= c.glyphs.length - (c.glyphs.length > 3 ? 1 : 0);
+        const free = (bs: number[][]) => !bs.some((b) => taken.some((t) => overlap(b, t)));
+        const clear = (bs: number[][]) => !bs.some((b) => avoid.some((t) => overlap(b, t)));
+        const big = (c: Candidate) => (c.px ?? size) > size * 0.8;
+        // 挤不下时:缩小一点 → 贴着边写 → 实在不行才压地名(压得最少的那一处)
+        const tests: ((c: Candidate, bs: number[][]) => boolean)[] = [
+          (c, bs) => big(c) && inShape(c) && inWin(bs) && free(bs) && clear(bs),
+          (c, bs) => inShape(c) && inWin(bs) && free(bs) && clear(bs),
+          (c, bs) => big(c) && nearShape(c) && inWin(bs) && free(bs) && clear(bs),
+        ];
+        const bx = cands.map(boxes);
+        const covered = (bs: number[][]) => {
+          let sum = 0;
+          for (const b of bs) for (const t of avoid) sum += Math.max(0, Math.min(b[2], t[2]) - Math.max(b[0], t[0])) * Math.max(0, Math.min(b[3], t[3]) - Math.max(b[1], t[1]));
+          return sum;
+        };
+        const leastCovered = () => {
+          let at = -1;
+          let low = Infinity;
+          cands.forEach((c, k) => {
+            if (!inShape(c) || !inWin(bx[k]) || !free(bx[k])) return;
+            const v = covered(bx[k]);
+            if (v < low) {
+              low = v;
+              at = k;
+            }
+          });
+          return at;
+        };
+        for (const t of [...tests, null]) {
+          const i = t ? cands.findIndex((c, k) => t(c, bx[k])) : leastCovered();
+          if (i >= 0) {
+            best = cands[i];
+            taken.push(...bx[i]);
+            // 点得到的范围:相邻两个字连成一块(字距拉开了,点在两个字之间也算点到)
+            const b = bx[i];
+            for (let k = 0; k < b.length; k++) {
+              const q = b[Math.min(b.length - 1, k + 1)];
+              hits.push({ kind: 'pill', ids: [m.id], box: [Math.min(b[k][0], q[0]), Math.min(b[k][1], q[1]), Math.max(b[k][2], q[2]), Math.max(b[k][3], q[3])] });
+            }
+            break;
+          }
+        }
+      }
+    }
+    if (best) {
+      const gs = best.glyphs;
+      const cx = gs.reduce((a, g) => a + g.x, 0) / gs.length;
+      const cy = gs.reduce((a, g) => a + g.y, 0) / gs.length;
+      area.name = { text, glyphs: gs, x: cx, y: cy, size: best.px ?? size, w: 0, ink, look: plain ? look : null, selected: !!m.selected };
+      return;
+    }
+    // 放不下(这几州在画面上太小、太碎):在中间横着写一行,压着前面的名字就往下、往上错开
+    const lp = f.pt(sh.label[0], sh.label[1]);
+    const ax = (lp?.[0] ?? 0) + base;
+    const ay = lp?.[1] ?? 0;
+    const row: AreaName = { text, glyphs: null, x: ax, y: ay, size, w: measure(text, size), ink, look: plain ? look : null, selected: !!m.selected };
+    keepIn(row);
+    const step = size * LINE + 6;
+    for (let k = 1; k <= 8 && taken.some((t) => overlap(rowBox(row), t)); k++) {
+      row.y = ay + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * step;
+      keepIn(row);
+    }
+    area.name = row;
+    const box = rowBox(row);
+    taken.push(box);
+    hits.push({ kind: 'pill', ids: [m.id], box });
+  }
+  /** 横着写的一行整个留在画面里(州的中心贴着画面边上时往里挪) */
+  function keepIn(p: AreaName) {
+    const b = rowBox(p);
     const hh = (b[3] - b[1]) / 2;
     p.y = Math.min(Math.max(p.y, hh), Math.max(hh, f.h - hh));
-    if (f.win[1] - f.win[0] >= p.w) p.x = Math.min(Math.max(p.x, f.win[0] + p.w / 2), f.win[1] - p.w / 2);
+    const hw = (b[2] - b[0]) / 2;
+    if (f.win[1] - f.win[0] >= 2 * hw) p.x = Math.min(Math.max(p.x, f.win[0] + hw), f.win[1] - hw);
     return p;
   }
   function placeSelected(p: { m: MarkItem; x: number; y: number; area: boolean }, withName: boolean) {
     if (p.area) {
       const a = areas.find((q) => q.id === p.m.id);
       if (!a || !withName) return;
-      a.pill = keepIn(pillOf(p.m, p.x, p.y));
-      hits.push({ kind: 'pill', ids: [p.m.id], box: pillBox(a.pill) });
+      const lp = f.pt(p.m.shape!.label[0], p.m.shape!.label[1]);
+      placeAreaName(p.m, a, lp ? p.x - lp[0] : 0);
       return;
     }
     placePin(p, PIN_W_SEL, withName);
   }
   function placePin(p: { m: MarkItem; x: number; y: number }, w: number, withName: boolean) {
     const hex = MARK_HEX[p.m.color];
+    const plain = !!p.m.plain;
     const h = (w * 4) / 3;
-    const pin: PlacedPin = { id: p.m.id, x: p.x, y: p.y, w, hex, alpha: p.m.dim ? DIM_ALPHA : 1, label: null };
+    const pin: PlacedPin = { id: p.m.id, x: p.x, y: p.y, w, hex, alpha: p.m.dim ? DIM_ALPHA : 1, label: null, plain };
     if (withName) {
-      const size = p.m.selected ? LABEL_SIZE_SEL : LABEL_SIZE;
+      const size = nameSize(p.m);
       const tw = measure(p.m.title, size);
       const th = size * LINE;
-      const top = p.y - h + (p.m.selected ? 5 : 4);
+      // 图钉:名字的上沿对着图钉的圆头;无色:名字的正中对着小圆圈
+      const top = plain ? p.y - th / 2 : p.y - h + (p.m.selected ? 5 : 4);
+      const hw = plain ? PLAIN_R + 3 : w / 2 + 1;
       const cand: { side: LabelSide; box: number[]; x: number; y: number }[] = [
-        { side: 'r', x: p.x + w / 2 + 1, y: top, box: [p.x + w / 2 + 1, top, p.x + w / 2 + 1 + tw, top + th] },
-        { side: 'l', x: p.x - w / 2 - 1, y: top, box: [p.x - w / 2 - 1 - tw, top, p.x - w / 2 - 1, top + th] },
-        { side: 'b', x: p.x, y: p.y + 3, box: [p.x - tw / 2, p.y + 3, p.x + tw / 2, p.y + 3 + th] },
+        { side: 'r', x: p.x + hw, y: top, box: [p.x + hw, top, p.x + hw + tw, top + th] },
+        { side: 'l', x: p.x - hw, y: top, box: [p.x - hw - tw, top, p.x - hw, top + th] },
+        { side: 'b', x: p.x, y: p.y + (plain ? PLAIN_R + 2 : 3), box: [p.x - tw / 2, p.y + 3, p.x + tw / 2, p.y + 3 + th] },
       ];
       const fits = (c: (typeof cand)[number]) => c.box[0] >= f.win[0] && c.box[2] <= f.win[1] && c.box[1] >= 0 && c.box[3] <= f.h && !taken.some((t) => overlap(c.box, t));
       const clear = (c: (typeof cand)[number]) => fits(c) && !avoid.some((t) => overlap(c.box, t));
       const pick = cand.find(clear) ?? cand.find(fits) ?? cand[0];
       taken.push(pick.box);
-      pin.label = { text: p.m.title, x: pick.x, y: pick.y, side: pick.side, size, w: tw, ink: markInk(hex) };
+      pin.label = { text: p.m.title, x: pick.x, y: pick.y, side: pick.side, size, w: tw, ink: plain ? look.ink : markInk(hex), look: plain ? look : null };
       labelHits.push({ kind: 'label', ids: [p.m.id], box: pick.box as [number, number, number, number] });
     }
     pins.push(pin);
@@ -564,15 +755,73 @@ export function layoutMarks(items: readonly MarkItem[], f: MarkFrame, opts: { na
   function finishHits() {
     for (const p of pins) {
       const h = (p.w * 4) / 3;
-      hits.push({ kind: 'pin', ids: [p.id], box: [p.x - p.w / 2 - 2, p.y - h - 2, p.x + p.w / 2 + 2, p.y + 2] });
+      hits.push({ kind: 'pin', ids: [p.id], box: p.plain ? (plainBox(p.x, p.y, 4) as [number, number, number, number]) : [p.x - p.w / 2 - 2, p.y - h - 2, p.x + p.w / 2 + 2, p.y + 2] });
     }
     hits.push(...labelHits);
   }
 }
 
-function pillBox(p: { x: number; y: number; size: number; w: number }): [number, number, number, number] {
+/** 横着写的一行占的地方 */
+function rowBox(p: { x: number; y: number; size: number; w: number }): [number, number, number, number] {
   const h = p.size * LINE + 6;
-  return [p.x - p.w / 2, p.y - h / 2, p.x + p.w / 2, p.y + h / 2];
+  return [p.x - p.w / 2 - 4, p.y - h / 2, p.x + p.w / 2 + 4, p.y + h / 2];
+}
+
+/** 无色的一个点:小圆圈的半径、占的地方 */
+const PLAIN_R = 4;
+function plainBox(x: number, y: number, pad = 1): number[] {
+  return [x - PLAIN_R - pad, y - PLAIN_R - pad, x + PLAIN_R + pad, y + PLAIN_R + pad];
+}
+
+/** 几个州的名字:字距(字宽的倍数)[最小, 最大] —— 疏排,像地图上的国名、州名 */
+/** 区域名挤不下时依次缩到选的字号的几成 */
+const AREA_SHRINK = [1, 0.86, 0.74];
+const AREA_TRACKING: [number, number] = [0.3, 2.2];
+
+/** 几个州的名字的路径(世界坐标):每片形状、每种字数只拟合一次 */
+const fits = new WeakMap<AreaShape, Map<number, ShapeFit | null>>();
+function areaFit(sh: AreaShape, n: number): ShapeFit | null {
+  let m = fits.get(sh);
+  if (!m) fits.set(sh, (m = new Map()));
+  if (!m.has(n)) m.set(n, shapeLabelFit(sh.polys, sh.box, n));
+  return m.get(n)!;
+}
+
+/** 每块多边形的外接框(画布坐标,一块 4 个数;同一帧里摆名字要查很多次,算一次) */
+const polyBoxes = new WeakMap<readonly Float32Array[], Float32Array>();
+
+/** 画布上的一点在不在这些多边形里(先看外接框) */
+function insidePolys(polys: readonly Float32Array[], x: number, y: number): boolean {
+  let bb = polyBoxes.get(polys);
+  if (!bb) {
+    bb = new Float32Array(polys.length * 4);
+    polys.forEach((p, k) => {
+      let a = Infinity;
+      let b = Infinity;
+      let c = -Infinity;
+      let d = -Infinity;
+      for (let i = 0; i < p.length; i += 2) {
+        if (p[i] < a) a = p[i];
+        if (p[i] > c) c = p[i];
+        if (p[i + 1] < b) b = p[i + 1];
+        if (p[i + 1] > d) d = p[i + 1];
+      }
+      bb!.set([a, b, c, d], k * 4);
+    });
+    polyBoxes.set(polys, bb);
+  }
+  for (let k = 0; k < polys.length; k++) {
+    if (x < bb[4 * k] || x > bb[4 * k + 2] || y < bb[4 * k + 1] || y > bb[4 * k + 3]) continue;
+    const p = polys[k];
+    let inn = false;
+    for (let i = 0, j = p.length - 2; i < p.length; j = i, i += 2) {
+      const yi = p[i + 1];
+      const yj = p[j + 1];
+      if (yi > y !== yj > y && x < ((p[j] - p[i]) * (y - yi)) / (yj - yi) + p[i]) inn = !inn;
+    }
+    if (inn) return true;
+  }
+  return false;
 }
 
 /** 画布坐标上这一点点到了哪个标记(后画的先算;图钉、名字、名字牌、合并的圆);没点到 = null */
@@ -659,28 +908,63 @@ export function canvasMeasure(ctx: Ctx): Measure {
 function drawLabel(ctx: Ctx, l: NonNullable<PlacedPin['label']>, alpha: number) {
   ctx.save();
   ctx.globalAlpha *= alpha;
-  ctx.font = font(l.size);
   ctx.textBaseline = 'middle';
   ctx.textAlign = l.side === 'r' ? 'left' : l.side === 'l' ? 'right' : 'center';
   const y = l.y + (l.size * LINE) / 2;
+  inkText(ctx, l.text, l.x, y, l.size, l.ink, l.look, false);
+  ctx.restore();
+}
+
+/**
+ * 写一段字:标记色的名字 = 界面字体 + 白色光晕;无色(look)= 地图字体 + 地图的墨色、光晕。
+ * 调用方定好对齐方式、位置(可以先转好角度)
+ */
+function inkText(ctx: Ctx, text: string, x: number, y: number, size: number, ink: string, look: MapInk | null, bold: boolean) {
   ctx.lineJoin = 'round';
+  if (look) {
+    ctx.font = fontCss(look.family, look.weight, size);
+    ctx.strokeStyle = look.halo;
+    ctx.lineWidth = look.haloW;
+    ctx.strokeText(text, x, y);
+    ctx.fillStyle = ink;
+    ctx.fillText(text, x, y);
+    return;
+  }
+  ctx.font = font(size, bold ? 700 : 600);
   ctx.strokeStyle = 'rgba(255,255,255,0.95)';
   ctx.shadowColor = 'rgba(255,255,255,0.9)';
   ctx.shadowBlur = 6;
   ctx.lineWidth = 4;
-  ctx.strokeText(l.text, l.x, y);
+  ctx.strokeText(text, x, y);
   ctx.shadowBlur = 0;
   ctx.lineWidth = 2.5;
-  ctx.strokeText(l.text, l.x, y);
-  ctx.fillStyle = l.ink;
-  ctx.fillText(l.text, l.x, y);
-  ctx.restore();
+  ctx.strokeText(text, x, y);
+  ctx.fillStyle = ink;
+  ctx.fillText(text, x, y);
 }
 
-/** 几个州:铺色 + 白边 + 实线 */
-function drawArea(ctx: Ctx, a: PlacedArea) {
+/** 几个州:铺色 + 白边 + 实线;无色:只描一圈虚线(像地图上的界线) */
+function drawArea(ctx: Ctx, a: PlacedArea, look: MapInk) {
   ctx.save();
   ctx.globalAlpha *= a.alpha;
+  if (a.plain) {
+    const line = new Path2D();
+    for (const l of a.lines) {
+      line.moveTo(l[0], l[1]);
+      for (let i = 2; i < l.length; i += 2) line.lineTo(l[i], l[i + 1]);
+    }
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = look.halo;
+    ctx.lineWidth = a.selected ? 4.5 : 3.5;
+    ctx.stroke(line);
+    ctx.setLineDash([7, 3, 1.5, 3]);
+    ctx.strokeStyle = look.line;
+    ctx.lineWidth = a.selected ? 2 : 1.4;
+    ctx.stroke(line);
+    ctx.restore();
+    return;
+  }
   const fill = new Path2D();
   for (const p of a.polys) {
     fill.moveTo(p[0], p[1]);
@@ -705,31 +989,36 @@ function drawArea(ctx: Ctx, a: PlacedArea) {
   ctx.restore();
 }
 
-/** 几个州的名字牌:白底圆角,选中时外面一圈同色细环 */
-function drawPill(ctx: Ctx, p: NonNullable<PlacedArea['pill']>, selected: boolean, alpha: number) {
-  const [x0, y0, x1, y1] = pillBox(p);
+/** 几个州的名字:顺着形状排的每个字转好角度写;横着写的一行照原样写 */
+function drawAreaName(ctx: Ctx, n: AreaName, alpha: number) {
   ctx.save();
   ctx.globalAlpha *= alpha;
-  const r = new Path2D();
-  roundRect(r, x0, y0, x1 - x0, y1 - y0, 7);
-  ctx.shadowColor = selected ? 'rgba(0,0,0,0.25)' : 'rgba(0,0,0,0.22)';
-  ctx.shadowBlur = selected ? 4 : 3;
-  ctx.shadowOffsetY = 1;
-  ctx.fillStyle = 'rgba(255,255,255,0.92)';
-  ctx.fill(r);
-  ctx.shadowColor = 'transparent';
-  if (selected) {
-    const o = new Path2D();
-    roundRect(o, x0 - 1, y0 - 1, x1 - x0 + 2, y1 - y0 + 2, 8);
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = p.ink;
-    ctx.stroke(o);
-  }
-  ctx.font = font(p.size);
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillStyle = p.ink;
-  ctx.fillText(p.text, p.x, p.y + 0.5);
+  if (!n.glyphs) inkText(ctx, n.text, n.x, n.y + 0.5, n.size, n.ink, n.look, n.selected);
+  else {
+    for (const g of n.glyphs) {
+      ctx.save();
+      ctx.translate(g.x, g.y);
+      if (g.a) ctx.rotate(g.a);
+      inkText(ctx, g.ch, 0, 0, n.size, n.ink, n.look, n.selected);
+      ctx.restore();
+    }
+  }
+  ctx.restore();
+}
+
+/** 无色的一个点:地图墨色的小圆圈(像地图上的村镇) */
+function drawPlainDot(ctx: Ctx, x: number, y: number, look: MapInk, alpha: number, selected: boolean) {
+  ctx.save();
+  ctx.globalAlpha *= alpha;
+  ctx.beginPath();
+  ctx.arc(x, y, PLAIN_R + (selected ? 1 : 0), 0, Math.PI * 2);
+  ctx.fillStyle = look.halo;
+  ctx.fill();
+  ctx.lineWidth = selected ? 2.2 : 1.6;
+  ctx.strokeStyle = look.ink;
+  ctx.stroke();
   ctx.restore();
 }
 
@@ -770,12 +1059,16 @@ function drawCluster(ctx: Ctx, c: PlacedCluster) {
 }
 
 /** 把摆好的标记画到画布上(画布坐标 = CSS 像素;dpr = 画布像素密度,图钉按它预先画好) */
-export function drawMarks(ctx: Ctx, layout: MarkLayout, dpr = 1) {
-  for (const a of layout.areas) drawArea(ctx, a);
+export function drawMarks(ctx: Ctx, layout: MarkLayout, dpr = 1, style: MarkStyle = 'fantasy') {
+  const look = MAP_INK[style];
+  for (const a of layout.areas) drawArea(ctx, a, look);
   // 合并的圆先画:选中的图钉和名字画在它上面(和点的时候先认选中的一样)
   for (const c of layout.clusters) drawCluster(ctx, c);
-  for (const a of layout.areas) if (a.pill) drawPill(ctx, a.pill, a.selected, a.alpha);
-  for (const p of layout.pins) drawPin(ctx, p.x, p.y, p.hex, p.w, p.alpha, dpr);
+  for (const a of layout.areas) if (a.name) drawAreaName(ctx, a.name, a.alpha);
+  for (const p of layout.pins) {
+    if (p.plain) drawPlainDot(ctx, p.x, p.y, look, p.alpha, p.w === PIN_W_SEL);
+    else drawPin(ctx, p.x, p.y, p.hex, p.w, p.alpha, dpr);
+  }
   for (const p of layout.pins) if (p.label) drawLabel(ctx, p.label, p.alpha);
 }
 
