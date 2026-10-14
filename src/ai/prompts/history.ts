@@ -137,17 +137,18 @@ export const BOOK_LENGTHS: readonly HistoryLength[] = ['k3', 'k10', 'k30'];
 export const PREV_CONTEXT = 6000;
 
 /**
- * 地名语感(Culture.style)→ 给 AI 看的说明。和 gen/names 的 NAME_STYLES 一致(单测核对);
- * 抄一份在这里是为了不把地名词库打进主页面的包
+ * 地名语感(Culture.style)→ 给 AI 看的说明。family 和 gen/names 的 NAME_STYLES 一致、label 和 ai/prompts/names 的
+ * STYLE_GUIDES.aiLabel 一致(单测核对);抄一份在这里是为了不把地名词库打进主页面的包。
+ * label 不带现实中的语言、民族名("帝国(拉丁风)"→"帝国(庄重古典风)"):写在材料里,模型会把它们原样写进正文
  */
 export const NAME_FLAVOR: Record<string, { family: 'eastern' | 'western'; label: string }> = {
-  imperial: { family: 'western', label: '帝国(拉丁风)' },
-  kingdom: { family: 'western', label: '王国(英法风)' },
-  nordic: { family: 'western', label: '北境(北欧风)' },
-  slavic: { family: 'western', label: '雪原(斯拉夫风)' },
-  hellenic: { family: 'western', label: '群岛(希腊风)' },
-  desert: { family: 'western', label: '沙海(阿拉伯风)' },
-  steppe: { family: 'western', label: '草原(突厥蒙古风)' },
+  imperial: { family: 'western', label: '帝国(庄重古典风)' },
+  kingdom: { family: 'western', label: '王国(骑士风)' },
+  nordic: { family: 'western', label: '北境(冰原峡湾风)' },
+  slavic: { family: 'western', label: '雪原(林海雪原风)' },
+  hellenic: { family: 'western', label: '群岛(海岛城邦风)' },
+  desert: { family: 'western', label: '沙海(沙漠绿洲风)' },
+  steppe: { family: 'western', label: '草原(游牧部落风)' },
   elven: { family: 'western', label: '林语(精灵风)' },
   central: { family: 'eastern', label: '中原(古风)' },
   xianxia: { family: 'eastern', label: '江南(仙侠风)' },
@@ -158,7 +159,7 @@ export const NAME_FLAVOR: Record<string, { family: 'eastern' | 'western'; label:
 // ---------------------------------------------------------------------------
 // 小工具
 
-/** 语感的说明不带括号:"帝国(拉丁风)" → "帝国·拉丁风"(材料里本身就在括号里) */
+/** 语感的说明不带括号:"帝国(庄重古典风)" → "帝国·庄重古典风"(材料里本身就在括号里) */
 function flavorLabel(label: string): string {
   return label.replace(/^(.*)\((.*)\)$/, "$1·$2");
 }
@@ -660,7 +661,7 @@ function endText(civ: Civ, p: Polity, ends: ReturnType<typeof endings>, until: Y
   return e.how === 'merge' ? `${y}并入${who}` : `${y}亡于${who}`;
 }
 
-/** 国家的风格:"东方式·中原(古风)·农耕" / "西幻式·草原(突厥蒙古风)·游牧·汗国" */
+/** 国家的风格:"东方式·中原(古风)·农耕" / "西幻式·草原(游牧部落风)·游牧·汗国" */
 function polityFlavor(civ: Civ, p: Polity): string {
   const cu = civ.cultures[p.culture];
   const f = cu ? NAME_FLAVOR[cu.style] : undefined;

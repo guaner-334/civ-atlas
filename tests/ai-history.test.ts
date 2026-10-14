@@ -8,6 +8,7 @@ import { buildChronicle, entryInvolves, entryYearLabel, filterChronicle } from '
 import { polityAlive, polityName } from '../src/gen/civ/growth';
 import { applyNames, polityKey, settlementKey } from '../src/gen/edits';
 import { NAME_STYLES } from '../src/gen/names';
+import { styleGuide } from '../src/ai/prompts/names';
 import type { Civ } from '../src/gen/civ/types';
 import { recentCallsInMemory, setActiveProvider, setMockResponder } from '../src/ai/client';
 import {
@@ -35,7 +36,17 @@ const east = civ.polities.filter((p) => p.eastern).sort((a, b) => (b.dynasties?.
 const LENGTHS: HistoryLength[] = ['short', 'medium', 'long'];
 const userOf = (civ: Civ, o: HistoryOptions, i = 0) => historyMessages(buildHistoryPrompts(civ, o), i)[1].content;
 
+/** 发给 AI 的文字里不该出现的现实语言 / 民族名(系统提示里的"阿拉伯数字"不算,所以只查材料) */
+const REAL_LANG = /拉丁风|拉丁语|英法|英语|法语|古诺尔斯|北欧|斯拉夫风|斯拉夫语|古斯拉夫|希腊|阿拉伯|波斯|突厥|蒙古|罗马|维京|东欧|爱琴/;
+
 describe('AI 写史书:材料', () => {
+  it('材料里写民族 / 国家的语感,用不带现实语言 / 民族名的说法', () => {
+    const p = buildHistoryPrompts(civ, { scope: { kind: 'world' }, style: 'classic', length: 'long' });
+    const all = p.calls.map((_, i) => userOf(civ, { scope: { kind: 'world' }, style: 'classic', length: 'long' }, i)).join('\n');
+    expect(all).toMatch(/西幻语感\([^)]+风\)|西幻式·[^·\n]+\([^)]+风\)/);
+    expect(all).not.toMatch(REAL_LANG);
+  });
+
   it('世界通史(中篇):系统提示要求不改动事实;材料里有全部大事、大国、民族、山河、年份范围', () => {
     const p = buildHistoryPrompts(civ, { scope: { kind: 'world' }, style: 'classic', length: 'medium' });
     expect(p.title).toBe('世界通史');
@@ -240,7 +251,8 @@ describe('AI 写史书:材料', () => {
   });
 
   it('地名语感的说明和 gen/names 一致;字数估算', () => {
-    for (const s of NAME_STYLES) expect(NAME_FLAVOR[s.id]).toEqual({ family: s.family, label: s.label });
+    // 材料里的语感名用 aiLabel(不带现实中的语言 / 民族名),界面上的 label 不变
+    for (const s of NAME_STYLES) expect(NAME_FLAVOR[s.id]).toEqual({ family: s.family, label: styleGuide(s.id)!.aiLabel });
     expect(Object.keys(NAME_FLAVOR)).toHaveLength(NAME_STYLES.length);
     expect(estimateTokens('大昌享国三百年')).toBe(Math.ceil(7 * 0.85));
     expect(estimateTokens('abc')).toBe(1);
