@@ -15,7 +15,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { GEN_KEY, SHARE_WARN_LENGTH, editCount, encodeShare, hasShareData, saveFileName, saveText, type SaveFile } from '../gen/savefile';
 import { GENERATOR_VERSION } from '../gen/edits';
 import { useEdits } from './editsStore';
-import { addFileSaver, currentOriginal, currentSave, currentWorld, loadWorld, notify, persistent, storageIsFull, useSavesVersion } from './saveStore';
+import { addFileSaver, currentOriginal, currentSave, currentWorld, loadWorld, notify, persistent, storageFullWhy, storageIsFull, useSavesVersion } from './saveStore';
 import { oldSiteFor, openOriginal } from './oldSite';
 import { Icon } from './icons';
 import { noteDismiss } from './dismissClick';
@@ -206,7 +206,7 @@ export function SaveMenu({ ready, icon }: SaveMenuProps) {
   const status: { cls: string; text: string; icon?: 'cloudok' | 'cloudup' | 'cloudoff' } = !keep
     ? { cls: 'warn', text: '浏览器不让网页存数据，关掉前请存成文件' }
     : full
-      ? { cls: 'warn', text: '浏览器存储已满，没能自动存' }
+      ? { cls: 'warn', text: `${storageFullWhy()}，没能自动存` }
       : curStored && synced
         ? synced.state === 'synced'
           ? { cls: 'ok', icon: 'cloudok', text: `已同步到你的账号${synced.at ? `，${when(synced.at)}` : ''}` }

@@ -19,7 +19,7 @@
  * (刚才那个世界存不进浏览器、只在页面里的,标题下有「全部存成文件」)。
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { MAX_WORLDS, currentUnsaved, deleteWorld, duplicateWorld, listWorlds, loadWorld, notify, persistent, renameWorld, restoreWorld, storedCount, syncable, useSavesVersion, type StoredWorld } from './saveStore';
+import { MAX_WORLDS, currentUnsaved, deleteWorld, duplicateWorld, listWorlds, loadWorld, notify, persistent, renameWorld, restoreWorld, storageFullWhy, storedCount, syncable, useSavesVersion, type StoredWorld } from './saveStore';
 import { closeTrash, openAccount, openLogin, useAccountPanelOpen, useTrashView } from './AccountDialogs';
 import { serverBase } from '../account/server';
 import { displayName, useSession } from '../account/session';
@@ -405,7 +405,7 @@ function WorldCard({
                 data-act="world-copy"
                 onClick={act(() => {
                   const id = duplicateWorld(w.id);
-                  if (!id) return notify({ kind: 'error', text: '没能复制', more: ['浏览器存储已满'] });
+                  if (!id) return notify({ kind: 'error', text: '没能复制', more: [storageFullWhy()] });
                   const more = [`新的叫「${loadWorld(id)?.save.title ?? ''}」`];
                   // AI 写的史书、名字由来跟着复制;存不下就说一声(这一页里还看得到,刷新以后没有)
                   if (!copyNotes(w.id, id)) more.push('AI 写的史书、名字由来没能一起存下（浏览器存储已满）');
