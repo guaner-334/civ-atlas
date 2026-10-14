@@ -58,7 +58,7 @@ function fingerprint(seed: number): Record<string, string> {
 }
 
 /**
- * 期望值是 GENERATOR_VERSION 13 算的(civ.religion 是后加的字段,加它时别的字段一个没变;10 加了邦交、11 加了君主性格和扩张算账,历史都重排;12 只改了 civ.people:多了名臣,将领有了字号、籍贯、官职,撞名的将领换了名字;13 改了宜居度和城的人口上限,地形一个字段没变,历史重排)。经纬度换算、沿大圆走、球面三角形面积这些三角函数都舍入到 24 位,
+ * 期望值是 GENERATOR_VERSION 13 算的(civ.religion 是后加的字段,加它时别的字段一个没变;10 加了邦交、11 加了君主性格和扩张算账,历史都重排;12 只改了 civ.people:多了名臣,将领有了字号、籍贯、官职,撞名的将领换了名字;13 改了宜居度和城的人口上限,地形一个字段没变,历史重排;多了 civ.capNorm)。经纬度换算、沿大圆走、球面三角形面积这些三角函数都舍入到 24 位,
  * 推演里的超越函数也一样,所以各 CPU、各浏览器逐位一致
  */
 const EXPECTED: Record<number, Record<string, string>> = {
@@ -84,6 +84,7 @@ const EXPECTED: Record<number, Record<string, string>> = {
     'world.waterLevel': '984bd1fa82c4',
     'world.width': '2fd8ac4eb585',
     'civ.annals': '23866faf52e3',
+    'civ.capNorm': 'd7b67d35d6c8',
     'civ.checkpoints': 'bd5085221edd',
     'civ.culture': 'fa63930d1a52',
     'civ.cultures': 'a3029c02a8cd',
@@ -125,6 +126,7 @@ const EXPECTED: Record<number, Record<string, string>> = {
     'world.waterLevel': '1376ef2bd877',
     'world.width': '2fd8ac4eb585',
     'civ.annals': 'b9976353018a',
+    'civ.capNorm': 'c1b121cef9e4',
     'civ.checkpoints': '66c8d9df34bd',
     'civ.culture': 'b28ff478057b',
     'civ.cultures': 'b2e96a2f20a6',

@@ -295,9 +295,10 @@ describe('照草图生成', () => {
   it('草图算星球的一部分:画了草图又改地形,扩张节拍按照草图长出来的星球定', () => {
     const grid = sketchGrid({ rest: 'auto', strokes: [{ kind: 'land', r: 64, pts: [...findSpot(base, 1, 110)] }] });
     const planet = generateCiv(generateWorld(SMALL, undefined, undefined, grid));
-    expect(planetTempo(SMALL, undefined, grid)).toBe(planet.spreadYears);
+    expect(planetTempo(SMALL, undefined, grid)).toEqual({ spread: planet.spreadYears, capNorm: planet.capNorm });
     const edited = generateCiv(generateWorld(SMALL, undefined, [{ kind: 'volcano', pts: [0, 660], r: 28, s: 1.05 }], grid));
     expect(edited.spreadYears).toBe(planet.spreadYears);
+    expect(edited.capNorm).toBe(planet.capNorm);
   });
 });
 

@@ -621,8 +621,8 @@ function lineageOf(base: number, kind: Culture['kind'], seatCell: number): Polit
   return 'realm';
 }
 
-/** 可居州人口上限的第 90 百分位 ÷ CAP_P90 */
-function capacityNorm(T: CultureTerrain): number {
+/** 可居州人口上限的第 90 百分位 ÷ CAP_P90(改过地形的世界沿用没改地形时的,见 index.ts 的 planetTempo) */
+export function capacityNorm(T: CultureTerrain): number {
   const caps: number[] = [];
   for (let r = 0; r < T.R; r++) if (T.habitable[r]) caps.push(T.regions.capacity[r]);
   if (!caps.length) return 1;
@@ -638,7 +638,7 @@ function capitalSpacing(T: CultureTerrain, polities: number | 'auto'): number {
   return Math.max(2, SPACING * Math.sqrt(H / target));
 }
 
-function emptyModel(T: CultureTerrain, cultures: Culture[], seed: number, port: Uint8Array, spacing: number, years: number): PolityModel {
+function emptyModel(T: CultureTerrain, cultures: Culture[], seed: number, port: Uint8Array, spacing: number, years: number, capNorm?: number): PolityModel {
   return {
     terrain: T,
     cultures,
@@ -661,7 +661,7 @@ function emptyModel(T: CultureTerrain, cultures: Culture[], seed: number, port: 
     pAt: new Map(),
     sAt: new Map(),
     spacing,
-    capNorm: capacityNorm(T),
+    capNorm: capNorm ?? capacityNorm(T),
     years,
     reach: REACH,
     rbase: rulerBase(seed),
@@ -678,12 +678,14 @@ export interface PolityPlanParams {
   polities: number | 'auto';
   /** 扩张快慢总系数(和民族共用) */
   pace: number;
+  /** 城的人口上限按这个数折算;不给 = 按这个世界算(capacityNorm) */
+  capNorm?: number;
 }
 
 /** 民族定好之后(planCultures 的结果):港口、国都间距、城市规模的基准、国家扩张快慢 */
 export function planPolities(world: World, cm: CultureModel, p: PolityPlanParams): PolityModel {
   const T = cm.terrain;
-  return emptyModel(T, cm.cultures, world.params.seed, findPorts(world, T), capitalSpacing(T, p.polities), STEP_YEARS / Math.max(1e-3, p.pace));
+  return emptyModel(T, cm.cultures, world.params.seed, findPorts(world, T), capitalSpacing(T, p.polities), STEP_YEARS / Math.max(1e-3, p.pace), p.capNorm);
 }
 
 // ---------------------------------------------------------------------------
@@ -968,7 +970,7 @@ export function resumePolities(sim: CivSim, world: World, civ: Civ, iv?: Interve
   const reg = T.regions;
   const R = T.R;
   // 国都间距按默认的"自动"数量(和 planPolities 同一个公式)
-  const m = emptyModel(T, civ.cultures, civ.seed, findPorts(world, T), capitalSpacing(T, 'auto'), civ.polityYears ?? STEP_YEARS);
+  const m = emptyModel(T, civ.cultures, civ.seed, findPorts(world, T), capitalSpacing(T, 'auto'), civ.polityYears ?? STEP_YEARS, civ.capNorm);
   // 阶段 3 城市兴衰:国都年份段、洗劫记录接着推时会往里加,复制一份(不改传进来的 civ)
   m.settlements = civ.settlements.map((s) => {
     const c = { ...s };

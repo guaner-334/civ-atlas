@@ -401,6 +401,11 @@ export interface Civ {
    */
   spreadYears?: number;
   /**
+   * 城的人口上限按哪个数折算(polities.ts 的 capacityNorm:可居州人口上限的第 90 百分位折算)。
+   * 改过地形的世界沿用没改地形时的同一颗星球的(见 index.ts 的 planetTempo)。CivSim.fromCiv 接着推时要用
+   */
+  capNorm?: number;
+  /**
    * 国家扩张的快慢:国家在国都旁边走一个"标准路程"要多少年(见 polities.ts,离国都越远越慢)。
    * CivSim.fromCiv 接着推时要用
    */
@@ -655,6 +660,17 @@ export interface RulerLeanings {
 /** 君主怎么即位的:found 立国、rebel 叛离自立(分裂)、restore 复国(故国王室之后)、usurp 权臣篡位、rise 起兵代之(改朝换代)、heir 继位 */
 export type RulerRise = 'found' | 'rebel' | 'restore' | 'usurp' | 'rise' | 'heir';
 
+/**
+ * 一颗星球(没改地形)定下的、改过地形的世界沿用的两个数(index.ts 的 planetTempo):
+ * 按整个世界标定的数要是按改后的地形重算,远海放一座小岛也会让全世界的历史错开
+ */
+export interface PlanetTempo {
+  /** 扩张节拍:民族走一个"标准路程"要几年(不含 pace;cultures.ts 的 calibrate) */
+  spread: number;
+  /** 城的人口上限按这个数折算(polities.ts 的 capacityNorm) */
+  capNorm: number;
+}
+
 export interface CivParams {
   /** 文明史长度(年),默认 3000 */
   endYear: Year;
@@ -669,10 +685,10 @@ export interface CivParams {
   /** 阶段 4 干预(gen/edits.ts 的 Intervention;推演前先清理)。不给 / 空 = 不干预 */
   interventions?: readonly Intervention[];
   /**
-   * 改过地形的世界用的扩张节拍:planetTempo(同样的世界参数)的结果,调用方缓存了传进来,省得每次多生成一遍没改过的地形;
+   * 改过地形的世界用的扩张节拍和城的人口折算:planetTempo(同样的世界参数)的结果,调用方缓存了传进来,省得每次多生成一遍没改过的地形;
    * null = 没改过的星球长不出文明(按这个世界自己标定)。不给 = 现算。没改地形的世界不看它
    */
-  tempo?: number | null;
+  tempo?: PlanetTempo | null;
   /**
    * 地形大事(upheaval.ts 的 upheavalSteps 排好、生成好的):按年份排(同一年已合成一件),各带改后的世界
    * (第 k 件 = 原来的地形套上前 k 件大事的修改)。不给 / 空 = 没有。年份不在 (0, endYear) 里的不算

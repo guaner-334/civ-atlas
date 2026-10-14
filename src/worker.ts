@@ -19,7 +19,7 @@ import { generateWorld, type World, type WorldParams } from './gen/world';
 import { rasterizeDeferred, type Raster } from './gen/raster';
 import { GullyPool } from './gullyPool';
 import { buildHistoryFrames, type HistoryFrames } from './gen/history';
-import { DEFAULT_CIV_PARAMS, generateCiv, civTransferables, planetTempo, type Civ, type Regions } from './gen/civ';
+import { DEFAULT_CIV_PARAMS, generateCiv, civTransferables, planetTempo, type Civ, type PlanetTempo, type Regions } from './gen/civ';
 import type { Intervention, TerrainOp, Upheaval } from './gen/edits';
 import { sketchGrid, type SketchEdit } from './gen/sketch';
 import { mergeUpheavals, previewUpheaval, type UpheavalPreview, type UpheavalStep } from './gen/civ/upheaval';
@@ -29,12 +29,12 @@ import { diffRaster, patchTransferables, type RasterPatch } from './gen/rasterPa
 import type { NameMix } from './gen/names';
 
 /**
- * 一组参数 + 草图(没改地形的星球)的扩张节拍(gen/civ 的 planetTempo;null = 长不出文明),key = 这颗星球在线程里的键。
+ * 一组参数 + 草图(没改地形的星球)的扩张节拍和城的人口折算(gen/civ 的 planetTempo;null = 长不出文明),key = 这颗星球在线程里的键。
  * 线程推文明后回报给主线程,主线程下次生成、重推时带回来:线程被重开过也不用多生成一遍没改过的地形
  */
 export interface TempoNote {
   key: string;
-  tempo: number | null;
+  tempo: PlanetTempo | null;
 }
 
 /**
@@ -102,12 +102,12 @@ const keyOf = (p: WorldParams, terrain?: readonly TerrainOp[], sketch?: SketchEd
 const post = (m: WorkerResponse, transfer: Transferable[] = []) => self.postMessage(m, { transfer });
 
 /**
- * 各颗星球(参数 + 草图,没改地形)的扩张节拍(gen/civ 的 planetTempo;null = 长不出文明):改过地形的世界推文明时要用。
- * 生成没改过地形的世界时顺手记下(线程不改 pace,civ.spreadYears 就是节拍),新建时先看原样再改地形就不用多生成一遍
+ * 各颗星球(参数 + 草图,没改地形)的扩张节拍和城的人口折算(gen/civ 的 planetTempo;null = 长不出文明):改过地形的世界推文明时要用。
+ * 生成没改过地形的世界时顺手记下(线程不改 pace,civ.spreadYears 就是节拍、civ.capNorm 就是折算),新建时先看原样再改地形就不用多生成一遍
  */
-const tempos = new Map<string, number | null>();
+const tempos = new Map<string, PlanetTempo | null>();
 const TEMPO_KEEP = 32;
-function rememberTempo(params: WorldParams, sketch: SketchEdit | undefined, tempo: number | null) {
+function rememberTempo(params: WorldParams, sketch: SketchEdit | undefined, tempo: PlanetTempo | null) {
   const key = keyOf(params, undefined, sketch);
   tempos.delete(key);
   tempos.set(key, tempo);
@@ -124,7 +124,7 @@ function noteOf(params: WorldParams, sketch: SketchEdit | undefined): TempoNote 
   return tempo === undefined ? undefined : { key, tempo };
 }
 /** 推文明时带的节拍:没改地形 = 不用(按世界自己标定);改过 = 这颗星球(参数 + 草图)的节拍,手里没有就现算 */
-function tempoOf(params: WorldParams, terrain: TerrainOp[] | undefined, sketch: SketchEdit | undefined): number | null | undefined {
+function tempoOf(params: WorldParams, terrain: TerrainOp[] | undefined, sketch: SketchEdit | undefined): PlanetTempo | null | undefined {
   if (!terrain?.length) return undefined;
   const key = keyOf(params, undefined, sketch);
   if (!tempos.has(key)) rememberTempo(params, sketch, planetTempo(params, undefined, sketchGrid(sketch)) ?? null);
@@ -323,7 +323,7 @@ async function handle(m: WorkerRequest): Promise<void> {
       // 文明骨架(宜居度、州……)只读 World,之后的文明步骤都在 gen/civ/index.ts 里接
       post({ type: 'progress', id: m.id, stage: '文明', pct: 0.95 });
       const c = generateCiv(world, { interventions: m.interventions?.length ? m.interventions : undefined, tempo: tempoOf(m.params, m.terrain, m.sketch), ...upOpt(steps), ...namesOpt(m.names), ...yearsOpt(m.endYear) });
-      if (!m.terrain?.length) rememberTempo(m.params, m.sketch, c.spreadYears ?? null);
+      if (!m.terrain?.length) rememberTempo(m.params, m.sketch, c.spreadYears !== undefined && c.capNorm !== undefined ? { spread: c.spreadYears, capNorm: c.capNorm } : null);
       return c;
     });
     const vl = raster.veinLines!;
