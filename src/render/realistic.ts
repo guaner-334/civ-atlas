@@ -23,6 +23,7 @@ import {
   rowCos,
   hash2,
   wrapOf,
+  type PrepStep,
   type RGB,
   type RiverStyle,
   type VecView,
@@ -195,6 +196,14 @@ export function realisticShoreLayers(r: Raster): { water: AnyCanvas; land: AnyCa
   };
   shoreCache = { raster: r, water: layer(sides.water), land: layer(sides.land) };
   return shoreCache;
+}
+
+/**
+ * 放大后的细节层(render/detail.ts 的 drawTerrainDetail)第一次画要用的缓存,拆成几步在后台分帧算(见 render/common.ts 的 PrepStep):
+ * 小溪(creeks = false 时细节层不画小溪,不用算)、岸线两侧各一份的像素层。做过的再调直接返回,画面和画的时候现算的一样
+ */
+export function realisticDetailPrep(world: World, r: Raster, creeks = true): PrepStep[] {
+  return [...(creeks ? [() => void riversOf(world, 2)] : []), () => void realisticShoreLayers(r)];
 }
 
 /**

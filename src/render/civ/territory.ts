@@ -413,7 +413,7 @@ export function inkFromSymbols(px: Uint8ClampedArray, N: number): InkMask {
  *   - 浓淡、纸纹、渐入:粗网格的距离、纸纹双线性插值(放大后是平滑的晕染,不是方块)
  *   - 水痕(手绘民族)、本色描边(写实民族):按离界线的真实距离,宽度 × pen(按屏幕大小)
  *   - 给符号让位(手绘):ink = 这一块按细节层同样的缩放画的符号层算出的遮罩(工作分辨率),和地形细节层的符号对得上
- * out = gw × gh 的 RGBA(不预乘)
+ * out = gw × gh 的 RGBA(不预乘)。只算第 j0 行到第 j1 行(不含)之前:分几次算完和一次算完逐字节一样(每行只看自己)
  */
 export function washDetail(
   out: Uint8ClampedArray,
@@ -425,6 +425,8 @@ export function washDetail(
   segs: SegIndex | null,
   ink: InkMask | null,
   pen: number,
+  j0 = 0,
+  j1 = g.gh,
 ): void {
   const { w, h, scale: S } = r;
   const W = w / S;
@@ -444,10 +446,10 @@ export function washDetail(
   const rimW = (DETAIL_RIM_D * pen) / S;
   const lineW = (DETAIL_LINE_D * pen) / S;
   const side = new Int32Array(1);
-  const { gw, gh } = g;
+  const { gw } = g;
   // 归属图最近的一格:x = ⌊(rx + lxOff) / f⌋(像素中心对齐,同 labelImage 的取样点)
   const lxOff = f / 2 - off - 0.5;
-  for (let j = 0; j < gh; j++) {
+  for (let j = j0; j < j1; j++) {
     const row = j * gw * 4;
     const i0 = g.i0[j];
     const i1 = g.i1[j];

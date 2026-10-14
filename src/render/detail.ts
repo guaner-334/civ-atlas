@@ -15,9 +15,18 @@
  */
 import type { World } from '../gen/world';
 import type { Raster } from '../gen/raster';
-import type { VecView } from './common';
-import { drawFantasyCoasts, drawFantasyIce, drawFantasySeaLines, drawFantasyVectors, fantasyBaseClean, fantasyBaseNoInk, fantasySymbolLayerProj } from './fantasy';
-import { drawRealisticRivers, drawRealisticShores, realisticBase } from './realistic';
+import type { PrepStep, VecView } from './common';
+import {
+  drawFantasyCoasts,
+  drawFantasyIce,
+  drawFantasySeaLines,
+  drawFantasyVectors,
+  fantasyBaseClean,
+  fantasyBaseNoInk,
+  fantasyDetailPrep,
+  fantasySymbolLayerProj,
+} from './fantasy';
+import { drawRealisticRivers, drawRealisticShores, realisticBase, realisticDetailPrep } from './realistic';
 import { clipOutline, projector, reprojectImage, type MapProj } from './projection';
 
 /** 放大到几倍以上才启用细节层(以下直接看铺进地形图的那一份;两者在这附近画出来一样大) */
@@ -46,6 +55,15 @@ export function drawTerrainDetail(ctx: CanvasRenderingContext2D, world: World, r
   drawFantasyIce(ctx, world, raster, v);
   drawFantasyCoasts(ctx, raster, v);
   drawFantasyVectors(ctx, world, v);
+}
+
+/**
+ * drawTerrainDetail 第一次画时要现算的整张图缓存(手绘风的不带墨线像素层、波纹、冰缘、海岸线……,写实风的小溪、岸线两侧的像素层),
+ * 拆成一小步一小步(见 common.ts 的 PrepStep)。都做过了再画,只剩按视口画线、贴图。
+ * s = 要画的那一块每世界单位几个画布像素(同 drawTerrainDetail 的 v.s;有的缓存按放大多少分档),creeks 同 drawTerrainDetail
+ */
+export function terrainDetailPrep(world: World, raster: Raster, style: DetailStyle, s: number, creeks = true): PrepStep[] {
+  return style === 'realistic' ? realisticDetailPrep(world, raster, creeks) : fantasyDetailPrep(world, raster, s);
 }
 
 /**

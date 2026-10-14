@@ -19,7 +19,7 @@ import { renderLayer } from './layers';
 import type { CivDrawParams, CivShow, CivStyle } from './civ/overlay';
 import { drawMapCiv, drawMapDecor, drawMapLabels, drawMapTerrain, drawExportMarks, type ExportMapParams } from './export';
 import { DETAIL_K, drawTerrainDetail, drawTerrainProjected } from './detail';
-import { detailCache, drawCivDetail, drawSelectionDetail, type DetailCache } from './civ/detail';
+import { detailCache, drawCivDetail, drawSelectionDetail, releaseDetailCache, type DetailCache } from './civ/detail';
 import { civLabelChars, civLabelItems, civMapLayer, labelViewExtras } from './civ/labels';
 import { drawSettlementMarks } from './civ/settlements';
 import { drawWarfare, warsShown } from './civ/warfare';
@@ -341,7 +341,7 @@ export class MapShot {
   /** 放掉画布(显存) */
   dispose() {
     for (const c of [this.terrain, this.decor, this.civC, this.selC]) if (c) c.width = c.height = 0;
-    for (const k of [this.cache, this.selCache]) if (k?.scratch) k.scratch.canvas.width = k.scratch.canvas.height = 0;
+    for (const k of [this.cache, this.selCache]) if (k) releaseDetailCache(k);
     this.terrain = this.decor = this.civC = this.selC = null;
     this.cache = this.selCache = null;
   }

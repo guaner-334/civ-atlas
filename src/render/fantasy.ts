@@ -36,6 +36,7 @@ import {
   wrapCells,
   wrapOf,
   wrapShifts,
+  type PrepStep,
   type RGB,
   type RiverStyle,
   type VecView,
@@ -244,6 +245,38 @@ function fantasyIceFace(world: World, r: Raster): AnyCanvas {
   return iceFace.canvas;
 }
 
+/**
+ * 放大后的细节层(render/detail.ts 的 drawTerrainDetail)第一次画要用的缓存,拆成一小步一小步:
+ * 符号规划、不带墨线的像素层、波纹和排线(每圈一步)、冰缘(分布、冰缘线、背光边、排线、填色格子各一步)、冰面色那一张、海岸线、湖岸线;
+ * 给了 s(每世界单位几个画布像素)再加上按这个大小抽稀的冰面填色、背光边(每一档一份)。
+ * 每步几毫秒到几十毫秒,后台分帧依次做完(ui/detailJobs.ts),第一次放大不用一口气算几百毫秒。
+ * 做过的步骤再调直接返回;算出来的和画的时候按需现算的一样,画面逐像素相同
+ */
+export function fantasyDetailPrep(world: World, r: Raster, s?: number): PrepStep[] {
+  const lod = s === undefined ? -1 : coastLod(s);
+  return [
+    () => void planOf(world),
+    () => void fantasyBaseClean(world, r),
+    ...seaLinesSteps(world, r),
+    ...iceGeoSteps(world, r),
+    () => {
+      if (iceGeoOf(world, r)) fantasyIceFace(world, r);
+    },
+    () => void coastSea(r),
+    () => void fantasyCoastLines(r),
+    () => void flatCoastsOf(r),
+    // 冰面填色、背光边按要画的那一档抽稀、切进格子(整个世界一份,每一档第一次用到时才做)
+    () => {
+      const g = lod >= 0 ? iceGeoOf(world, r) : null;
+      if (g) tilePaths(g.fillT, lod);
+    },
+    () => {
+      const g = lod >= 0 ? iceGeoOf(world, r) : null;
+      if (g?.hatch.pts.length) tilePaths(g.shadeT, lod);
+    },
+  ];
+}
+
 function paintBase(ctx: CanvasRenderingContext2D, world: World, r: Raster, patch: InkPatch, sea: SeaFields) {
   const { w, h, water, biome } = r;
   const N = w * h;
@@ -443,19 +476,33 @@ const coastCache = new WeakMap<Raster, { sea: Float32Array[]; lake: Float32Array
 export function fantasyCoastLines(r: Raster): { sea: Float32Array[]; lake: Float32Array[] } {
   let c = coastCache.get(r);
   if (c) return c;
+  c = { sea: coastSea(r), lake: coastLake(r) };
+  coastCache.set(r, c);
+  coastHalf.delete(r);
+  return c;
+}
+
+/** 分步算(fantasyDetailPrep)时先算好的海岸线(湖岸线也算好了才一起放进 coastCache) */
+const coastHalf = new WeakMap<Raster, Float32Array[]>();
+
+/** 海岸线:交点按海拔过零处插值(和像素层画墨线的位置一样) */
+function coastSea(r: Raster): Float32Array[] {
+  const done = coastHalf.get(r);
+  if (done) return done;
   const { w, h, water } = r;
   const sea = new Uint8Array(w * h);
+  for (let k = 0; k < w * h; k++) if (water[k] === 1) sea[k] = 1;
+  const lines = traceMask(r, sea, elevCross(r.elev));
+  coastHalf.set(r, lines);
+  return lines;
+}
+
+/** 湖岸线:取像素边中点再抹平两遍 */
+function coastLake(r: Raster): Float32Array[] {
+  const { w, h, water } = r;
   const lake = new Uint8Array(w * h);
-  for (let k = 0; k < w * h; k++) {
-    if (water[k] === 1) sea[k] = 1;
-    else if (water[k] === 2) lake[k] = 1;
-  }
-  c = {
-    sea: traceMask(r, sea, elevCross(r.elev)),
-    lake: traceMask(r, lake).map((p) => chaikinPts(chaikinPts(p))),
-  };
-  coastCache.set(r, c);
-  return c;
+  for (let k = 0; k < w * h; k++) if (water[k] === 2) lake[k] = 1;
+  return traceMask(r, lake).map((p) => chaikinPts(chaikinPts(p)));
 }
 
 /** 折线(x, y 交错)Chaikin 抹平一遍,两端不动(首尾相同的环照样首尾相同) */
@@ -630,13 +677,8 @@ export function drawFantasyCoasts(ctx: CanvasRenderingContext2D, r: Raster, v: V
     }
     ({ sea, lake } = coastPaths);
   } else {
-    if (flatCoasts?.raster !== r) {
-      const lines = fantasyCoastLines(r);
-      flatCoasts = { raster: r, sea: coastChunks(lines.sea), lake: coastChunks(lines.lake) };
-    }
     // 抽稀到哪一档:偏差不到 COAST_TOL 个画布像素的最粗一档
-    let lod = 0;
-    while (lod + 1 < COAST_LOD.length && COAST_LOD[lod + 1] * v.s <= COAST_TOL) lod++;
+    const lod = coastLod(v.s);
     // 画布盖住的世界坐标范围(外加一个线宽)
     const pad = COAST_LW * gs + COAST_LOD[lod];
     const x0 = -v.ox / v.s - pad;
@@ -644,8 +686,9 @@ export function drawFantasyCoasts(ctx: CanvasRenderingContext2D, r: Raster, v: V
     const x1 = (ctx.canvas.width - v.ox) / v.s + pad;
     const y1 = (ctx.canvas.height - v.oy) / v.s + pad;
     const W = r.w / r.scale;
-    sea = chunkPath(flatCoasts.sea, lod, W, x0, y0, x1, y1);
-    lake = chunkPath(flatCoasts.lake, lod, W, x0, y0, x1, y1);
+    const fc = flatCoastsOf(r);
+    sea = chunkPath(fc.sea, lod, W, x0, y0, x1, y1);
+    lake = chunkPath(fc.lake, lod, W, x0, y0, x1, y1);
   }
   ctx.save();
   ctx.setTransform(v.s, 0, 0, v.s, v.ox, v.oy);
@@ -663,6 +706,14 @@ export function drawFantasyCoasts(ctx: CanvasRenderingContext2D, r: Raster, v: V
 /** 等距圆柱的海岸、湖岸(切成小段,世界坐标;每张像素图一份,换了世界就换掉) */
 let flatCoasts: { raster: Raster; sea: CoastChunks; lake: CoastChunks } | null = null;
 
+function flatCoastsOf(r: Raster): NonNullable<typeof flatCoasts> {
+  if (flatCoasts?.raster !== r) {
+    const lines = fantasyCoastLines(r);
+    flatCoasts = { raster: r, sea: coastChunks(lines.sea), lake: coastChunks(lines.lake) };
+  }
+  return flatCoasts;
+}
+
 /** 一段最多几条线段:段越短,只看一小块时多画的越少;太短了段数多,挑段反而慢 */
 const COAST_CHUNK = 48;
 /**
@@ -671,6 +722,13 @@ const COAST_CHUNK = 48;
  */
 const COAST_LOD = [0, 0.05, 0.12, 0.3];
 const COAST_TOL = 0.35;
+
+/** 每世界单位 s 个画布像素时抽稀到哪一档:偏差不到 COAST_TOL 个画布像素的最粗一档 */
+function coastLod(s: number): number {
+  let lod = 0;
+  while (lod + 1 < COAST_LOD.length && COAST_LOD[lod + 1] * s <= COAST_TOL) lod++;
+  return lod;
+}
 
 /**
  * 海岸 / 湖岸折线切成的小段(世界坐标,x 和折线一样是展开的,可能伸出左右边):
@@ -816,15 +874,18 @@ export type SeaGrid = Pick<Raster, 'w' | 'h' | 'scale' | 'water' | 'elev'>;
  * 三圈波纹的等值线:dist(见 SeaFields)上 RIPPLE_D 格处走方格,再抹平一遍。浓度为 0 的地方(冰面、冰区深处)那几截不要
  */
 export function seaRippleLines(r: SeaGrid, dist: Uint16Array, fade: Uint8Array): Float32Array[][] {
+  const inside = new Uint8Array(r.w * r.h);
+  return RIPPLE_D.map((D) => seaRippleRing(r, dist, fade, D, inside));
+}
+
+/** 一圈波纹(离陆地 D 格处的等值线);inside = 借用的工作区(w × h,内容不用管) */
+function seaRippleRing(r: SeaGrid, dist: Uint16Array, fade: Uint8Array, D: number, inside = new Uint8Array(r.w * r.h)): Float32Array[] {
   const N = r.w * r.h;
-  const inside = new Uint8Array(N);
-  return RIPPLE_D.map((D) => {
-    const L = D * DIST_Q;
-    for (let k = 0; k < N; k++) inside[k] = dist[k] < L ? 1 : 0;
-    const lines = traceMask(r, inside, (ka, kb) => (L - dist[ka]) / (dist[kb] - dist[ka]));
-    // 交点一格一个,放大很多倍时看得出折角:抹平一遍
-    return dropFaded(lines.map(chaikinPts), r, fade);
-  });
+  const L = D * DIST_Q;
+  for (let k = 0; k < N; k++) inside[k] = dist[k] < L ? 1 : 0;
+  const lines = traceMask(r, inside, (ka, kb) => (L - dist[ka]) / (dist[kb] - dist[ka]));
+  // 交点一格一个,放大很多倍时看得出折角:抹平一遍
+  return dropFaded(lines.map(chaikinPts), r, fade);
 }
 
 /** 折线上浓度为 0 的那几截去掉(两头的点四周四个像素的浓度都是 0 的线段),剩下的断成几条 */
@@ -982,19 +1043,65 @@ function inkAlphaCanvas(alpha: Uint8Array, w: number, h: number): AnyCanvas {
 function seaLinesOf(world: World, r: Raster): SeaLines {
   fantasyBase(world, r);
   if (seaLines?.raster === r) return seaLines;
-  if (seaLines) seaLines.rippleFade.width = seaLines.rippleFade.height = seaLines.hatchFade.width = seaLines.hatchFade.height = 0;
-  const { dist, fade } = base!.sea;
-  const rings = seaRippleLines(r, dist, fade);
-  seaLines = {
-    raster: r,
-    rings,
-    ringChunks: rings.map((ls) => coastChunks(ls)),
-    hatch: seaHatchSegments(r, dist, fade),
-    rippleFade: inkAlphaCanvas(fade, r.w, r.h),
-    hatchFade: inkAlphaCanvas(seaHatchAlpha(r, dist, fade), r.w, r.h),
-    pats: null,
+  for (const step of seaLinesSteps(world, r)) step();
+  return seaLines!;
+}
+
+/** 分步算到一半的波纹、排线(seaLinesSteps;算齐了才搬进 seaLines) */
+let seaBuild: { raster: Raster; rings: (Float32Array[] | null)[]; hatch: Float32Array | null; rippleFade: AnyCanvas | null; hatchFade: AnyCanvas | null } | null = null;
+
+/**
+ * seaLinesOf 拆成几步(每圈波纹、排线、两张浓度图各一步,最后拼起来):放大前在后台分帧算好(见 fantasyDetailPrep)。
+ * 每一步先确认像素层是这一张(fantasyBase 会把 base 换成它),做过的跳过;结果和一口气算完一样
+ */
+function seaLinesSteps(world: World, r: Raster): PrepStep[] {
+  const part = () => {
+    fantasyBase(world, r);
+    if (seaBuild?.raster !== r) {
+      if (seaBuild) for (const cv of [seaBuild.rippleFade, seaBuild.hatchFade]) if (cv) cv.width = cv.height = 0;
+      seaBuild = { raster: r, rings: RIPPLE_D.map(() => null), hatch: null, rippleFade: null, hatchFade: null };
+    }
+    return { b: seaBuild, sea: base!.sea };
   };
-  return seaLines;
+  const done = () => seaLines?.raster === r;
+  return [
+    ...RIPPLE_D.map((D, i) => () => {
+      if (done()) return;
+      const { b, sea } = part();
+      b.rings[i] ??= seaRippleRing(r, sea.dist, sea.fade, D);
+    }),
+    () => {
+      if (done()) return;
+      const { b, sea } = part();
+      b.hatch ??= seaHatchSegments(r, sea.dist, sea.fade);
+    },
+    () => {
+      if (done()) return;
+      const { b, sea } = part();
+      b.rippleFade ??= inkAlphaCanvas(sea.fade, r.w, r.h);
+    },
+    () => {
+      if (done()) return;
+      const { b, sea } = part();
+      b.hatchFade ??= inkAlphaCanvas(seaHatchAlpha(r, sea.dist, sea.fade), r.w, r.h);
+    },
+    () => {
+      if (done()) return;
+      const { b, sea } = part();
+      const rings = b.rings.map((ls, i) => ls ?? seaRippleRing(r, sea.dist, sea.fade, RIPPLE_D[i]));
+      if (seaLines) seaLines.rippleFade.width = seaLines.rippleFade.height = seaLines.hatchFade.width = seaLines.hatchFade.height = 0;
+      seaLines = {
+        raster: r,
+        rings,
+        ringChunks: rings.map((ls) => coastChunks(ls)),
+        hatch: b.hatch ?? seaHatchSegments(r, sea.dist, sea.fade),
+        rippleFade: b.rippleFade ?? inkAlphaCanvas(sea.fade, r.w, r.h),
+        hatchFade: b.hatchFade ?? inkAlphaCanvas(seaHatchAlpha(r, sea.dist, sea.fade), r.w, r.h),
+        pats: null,
+      };
+      seaBuild = null;
+    },
+  ];
 }
 
 /**
@@ -1069,8 +1176,7 @@ export function drawFantasySeaLines(ctx: CanvasRenderingContext2D, world: World,
     W = r.w / S;
   }
   // 抽稀、范围同 drawFantasyCoasts
-  let lod = 0;
-  while (lod + 1 < COAST_LOD.length && COAST_LOD[lod + 1] * v.s <= COAST_TOL) lod++;
+  const lod = coastLod(v.s);
   const pad = RIPPLE_SIG * gs + COAST_LOD[lod];
   const x0 = -v.ox / v.s - pad;
   const y0 = -v.oy / v.s - pad;
@@ -1605,9 +1711,9 @@ function tilePolys(t: FillTiles, lod: number): number[][][] {
   return p;
 }
 
-/** 范围里的填色路径(第 lod 档;世界坐标) */
-function tilePathIn(t: FillTiles, lod: number, x0: number, y0: number, x1: number, y1: number): Path2D {
-  const ps = (t.paths[lod] ??= tilePolys(t, lod).map((polys) => {
+/** 每格的填色路径(第 lod 档;世界坐标;没有多边形的格 = null) */
+function tilePaths(t: FillTiles, lod: number): (Path2D | null)[] {
+  return (t.paths[lod] ??= tilePolys(t, lod).map((polys) => {
     if (!polys.length) return null;
     const p = new Path2D();
     for (const q of polys) {
@@ -1617,6 +1723,11 @@ function tilePathIn(t: FillTiles, lod: number, x0: number, y0: number, x1: numbe
     }
     return p;
   }));
+}
+
+/** 范围里的填色路径(第 lod 档;世界坐标) */
+function tilePathIn(t: FillTiles, lod: number, x0: number, y0: number, x1: number, y1: number): Path2D {
+  const ps = tilePaths(t, lod);
   const out = new Path2D();
   forTilesIn(t.g, t.W, x0, y0, x1, y1, (i, dx) => {
     const p = ps[i];
@@ -1888,84 +1999,165 @@ function diagonalsIn(out: number[], x0: number, y0: number, x1: number, y1: numb
 function iceGeoOf(world: World, r: Raster): IceGeo | null {
   fantasyBase(world, r);
   if (iceGeo?.raster === r) return iceGeo;
-  if (iceGeo) iceGeo.inkFade.width = iceGeo.inkFade.height = 0;
-  iceGeo = null;
+  if (noIce === r) return null;
+  for (const step of iceGeoSteps(world, r)) step();
+  return iceGeo?.raster === r ? iceGeo : null;
+}
+
+/** 这张像素图上没有海冰(iceGeoOf 不用每次都重新数一遍) */
+let noIce: Raster | null = null;
+
+/** 分步算到一半的冰缘几何(iceGeoSteps;算齐了才搬进 iceGeo) */
+let iceBuild: {
+  raster: Raster;
+  iceM: Uint8Array;
+  near: Uint8Array;
+  fill?: OrientedLine[];
+  shadeM?: Uint8Array;
+  shade?: OrientedLine[];
+  hatch?: CoastChunks;
+  inkFade?: AnyCanvas;
+  fillT?: FillTiles;
+  ink?: CoastChunks;
+} | null = null;
+
+/**
+ * iceGeoOf 拆成几步(海冰分布、冰缘线、背光边、排线、浓淡图、填色格子、墨线小段各一步,最后拼起来):
+ * 放大前在后台分帧算好(见 fantasyDetailPrep)。做过的跳过;结果和一口气算完一样
+ */
+function iceGeoSteps(world: World, r: Raster): PrepStep[] {
   const { w, h, water, scale: S } = r;
-  const { mask: iceM, near } = seaIceField(r);
-  let any = false;
-  for (let k = 0; k < w * h && !any; k++) if (iceM[k]) any = true;
-  if (!any) return null;
   const W = w / S;
-  const fill = iceLines(r, iceM);
-  // 背光边要躲开的:冰 + 冰附近(背光边宽 + 1 格以内)的陆地、湖。冰 / 水之间同冰缘线,陆地 / 水之间同海岸线(海拔过零处)
-  const rimD = iceRimOf(S);
-  const nearIce = dilateWrap(iceM, w, h, rimD + 1);
-  const shadeM = new Uint8Array(w * h);
-  for (let k = 0; k < w * h; k++) shadeM[k] = iceM[k] || (water[k] !== 1 && nearIce[k]) ? 1 : 0;
-  const iceAt = iceCross(r, iceM);
-  const coastAt = elevCross(r.elev);
-  const shadeRaw = traceOriented(
-    r,
-    shadeM,
-    (ka, kb) => {
-      const sa = water[ka] === 1;
-      const sb = water[kb] === 1;
-      return sa && sb ? iceAt(ka, kb) : sa !== sb ? coastAt(ka, kb) : 0.5;
-    },
-    () => EDGE_LAND,
-  );
-  const shade: OrientedLine[] = shadeRaw.map(({ pts, kind, wrap }) => {
-    let p = pts;
-    let seg = new Uint8Array(kind.length);
-    for (let pass = 0; pass < 2; pass++) ({ pts: p, seg } = chaikinLoop(p, seg, wrap * W));
-    return { pts: p, ink: seg, wrap };
-  });
-  // 背光边排线:shade 每一小段的外框往西北扩一个背光边宽,框里的斜线(x + y = 间隔 × m + 1 格,同像素层);
-  // 离地图下边不到一个背光边宽的不画(像素层那里往东南挪就出图了,没有背光边)
-  const d = rimD / S;
   const H = h / S;
-  const gap = iceHatchOf(w, S) / S;
-  const shadeChunks = coastChunks(shade.map((l) => closedPts(l, W)));
-  const hatchSegs: Float32Array[] = [];
-  for (let j = 0; j < shadeChunks.pts.length; j++) {
-    const o = j * 4;
-    const b = shadeChunks.box;
-    const segs: number[] = [];
-    diagonalsIn(segs, b[o] - d, b[o + 1] - d, b[o + 2], Math.min(b[o + 3], H - d), gap, 1 / S);
-    if (segs.length) hatchSegs.push(Float32Array.from(segs));
-  }
-  // 排线按"线段"切小段:每批一段(外框就是那个框)
-  const hatch = segChunks(hatchSegs);
-  // 墨线浓淡:附近结冰比例小的零星碎冰处淡(同像素层)
-  const fw = Math.ceil(w / ICE_FADE_STEP);
-  const fh = Math.ceil(h / ICE_FADE_STEP);
-  const img = new ImageData(fw, fh);
-  for (let y = 0; y < fh; y++)
-    for (let x = 0; x < fw; x++) {
-      const px = Math.min(w - 1, Math.floor(((x + 0.5) * w) / fw));
-      const py = Math.min(h - 1, Math.floor(((y + 0.5) * h) / fh));
-      const nq = near[py * w + px];
-      const conc = nq > 0 ? (nq - 1) / 254 : 0;
-      const o = (y * fw + x) * 4;
-      img.data[o] = ICE_INK[0];
-      img.data[o + 1] = ICE_INK[1];
-      img.data[o + 2] = ICE_INK[2];
-      img.data[o + 3] = Math.round(255 * (0.4 + 0.6 * smoothstep(0.1, 0.6, conc)));
+  const rimD = iceRimOf(S);
+  const d = rimD / S;
+  const done = () => iceGeo?.raster === r || noIce === r;
+  /** 这张图的海冰分布;没有海冰 = null(记下 noIce) */
+  const part = () => {
+    fantasyBase(world, r);
+    if (iceBuild?.raster === r) return iceBuild;
+    if (iceBuild?.inkFade) iceBuild.inkFade.width = iceBuild.inkFade.height = 0;
+    iceBuild = null;
+    const { mask: iceM, near } = seaIceField(r);
+    let any = false;
+    for (let k = 0; k < w * h && !any; k++) if (iceM[k]) any = true;
+    if (!any) {
+      if (iceGeo) iceGeo.inkFade.width = iceGeo.inkFade.height = 0;
+      iceGeo = null;
+      noIce = r;
+      return null;
     }
-  const inkFade = makeCanvas(fw, fh);
-  (inkFade.getContext('2d') as CanvasRenderingContext2D).putImageData(img, 0, 0);
-  iceGeo = {
-    raster: r,
-    fill,
-    fillT: fillTiles(fill, W, H),
-    ink: coastChunks(fill.flatMap((l) => inkRuns(l, W))),
-    shade,
-    shadeT: fillTiles(shade, W, H, -d, -d),
-    hatch,
-    inkFade,
-    pats: null,
+    return (iceBuild = { raster: r, iceM, near });
   };
-  return iceGeo;
+  const fillOf = (b: NonNullable<typeof iceBuild>) => (b.fill ??= iceLines(r, b.iceM));
+  /** 背光边要躲开的:冰 + 冰附近(背光边宽 + 1 格以内)的陆地、湖 */
+  const shadeMOf = (b: NonNullable<typeof iceBuild>) => {
+    if (b.shadeM) return b.shadeM;
+    const { iceM } = b;
+    const nearIce = dilateWrap(iceM, w, h, rimD + 1);
+    const shadeM = new Uint8Array(w * h);
+    for (let k = 0; k < w * h; k++) shadeM[k] = iceM[k] || (water[k] !== 1 && nearIce[k]) ? 1 : 0;
+    return (b.shadeM = shadeM);
+  };
+  const shadeOf = (b: NonNullable<typeof iceBuild>) => {
+    if (b.shade) return b.shade;
+    const { iceM } = b;
+    // 冰 / 水之间同冰缘线,陆地 / 水之间同海岸线(海拔过零处)
+    const shadeM = shadeMOf(b);
+    const iceAt = iceCross(r, iceM);
+    const coastAt = elevCross(r.elev);
+    const shadeRaw = traceOriented(
+      r,
+      shadeM,
+      (ka, kb) => {
+        const sa = water[ka] === 1;
+        const sb = water[kb] === 1;
+        return sa && sb ? iceAt(ka, kb) : sa !== sb ? coastAt(ka, kb) : 0.5;
+      },
+      () => EDGE_LAND,
+    );
+    return (b.shade = shadeRaw.map(({ pts, kind, wrap }) => {
+      let p = pts;
+      let seg = new Uint8Array(kind.length);
+      for (let pass = 0; pass < 2; pass++) ({ pts: p, seg } = chaikinLoop(p, seg, wrap * W));
+      return { pts: p, ink: seg, wrap };
+    }));
+  };
+  const hatchOf = (b: NonNullable<typeof iceBuild>) => {
+    if (b.hatch) return b.hatch;
+    // 背光边排线:shade 每一小段的外框往西北扩一个背光边宽,框里的斜线(x + y = 间隔 × m + 1 格,同像素层);
+    // 离地图下边不到一个背光边宽的不画(像素层那里往东南挪就出图了,没有背光边)
+    const gap = iceHatchOf(w, S) / S;
+    const shadeChunks = coastChunks(shadeOf(b).map((l) => closedPts(l, W)));
+    const hatchSegs: Float32Array[] = [];
+    for (let j = 0; j < shadeChunks.pts.length; j++) {
+      const o = j * 4;
+      const bx = shadeChunks.box;
+      const segs: number[] = [];
+      diagonalsIn(segs, bx[o] - d, bx[o + 1] - d, bx[o + 2], Math.min(bx[o + 3], H - d), gap, 1 / S);
+      if (segs.length) hatchSegs.push(Float32Array.from(segs));
+    }
+    // 排线按"线段"切小段:每批一段(外框就是那个框)
+    return (b.hatch = segChunks(hatchSegs));
+  };
+  const inkFadeOf = (b: NonNullable<typeof iceBuild>) => {
+    if (b.inkFade) return b.inkFade;
+    // 墨线浓淡:附近结冰比例小的零星碎冰处淡(同像素层)
+    const { near } = b;
+    const fw = Math.ceil(w / ICE_FADE_STEP);
+    const fh = Math.ceil(h / ICE_FADE_STEP);
+    const img = new ImageData(fw, fh);
+    for (let y = 0; y < fh; y++)
+      for (let x = 0; x < fw; x++) {
+        const px = Math.min(w - 1, Math.floor(((x + 0.5) * w) / fw));
+        const py = Math.min(h - 1, Math.floor(((y + 0.5) * h) / fh));
+        const nq = near[py * w + px];
+        const conc = nq > 0 ? (nq - 1) / 254 : 0;
+        const o = (y * fw + x) * 4;
+        img.data[o] = ICE_INK[0];
+        img.data[o + 1] = ICE_INK[1];
+        img.data[o + 2] = ICE_INK[2];
+        img.data[o + 3] = Math.round(255 * (0.4 + 0.6 * smoothstep(0.1, 0.6, conc)));
+      }
+    const inkFade = makeCanvas(fw, fh);
+    (inkFade.getContext('2d') as CanvasRenderingContext2D).putImageData(img, 0, 0);
+    return (b.inkFade = inkFade);
+  };
+  const fillTOf = (b: NonNullable<typeof iceBuild>) => (b.fillT ??= fillTiles(fillOf(b), W, H));
+  const inkOf = (b: NonNullable<typeof iceBuild>) => (b.ink ??= coastChunks(fillOf(b).flatMap((l) => inkRuns(l, W))));
+  /** 一步:还没算完、有海冰时做 fn */
+  const step = (fn: (b: NonNullable<typeof iceBuild>) => unknown) => () => {
+    if (done()) return;
+    const b = part();
+    if (b) fn(b);
+  };
+  return [
+    step(() => {}),
+    step(fillOf),
+    step(shadeMOf),
+    step(shadeOf),
+    step(hatchOf),
+    step(inkFadeOf),
+    step(fillTOf),
+    step(inkOf),
+    step((b) => {
+      if (iceGeo) iceGeo.inkFade.width = iceGeo.inkFade.height = 0;
+      const fill = fillOf(b);
+      const shade = shadeOf(b);
+      iceGeo = {
+        raster: r,
+        fill,
+        fillT: fillTOf(b),
+        ink: inkOf(b),
+        shade,
+        shadeT: fillTiles(shade, W, H, -d, -d),
+        hatch: hatchOf(b),
+        inkFade: inkFadeOf(b),
+        pats: null,
+      };
+      iceBuild = null;
+    }),
+  ];
 }
 
 /** 一批批线段(x0, y0, x1, y1 交错)当小段:外框按线段算(用 forChunksIn 挑) */
@@ -2122,8 +2314,7 @@ export function drawFantasyIce(ctx: CanvasRenderingContext2D, world: World, r: R
   const gs = glyphScale(v.k);
   const pj = v.proj;
   const W = r.w / S;
-  let lod = 0;
-  while (lod + 1 < COAST_LOD.length && COAST_LOD[lod + 1] * v.s <= COAST_TOL) lod++;
+  const lod = coastLod(v.s);
   const pad = ICE_LW * gs + COAST_LOD[lod] + 1;
   const x0 = -v.ox / v.s - pad;
   const y0 = -v.oy / v.s - pad;
