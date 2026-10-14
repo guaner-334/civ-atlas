@@ -416,8 +416,9 @@ export function storageFullWhy(): string {
 }
 
 function reportFull(why: 'count' | 'quota') {
+  // 已经提示过、原因没变:不再重复;原因变了(删了一个以后个数够了、但浏览器存储还是不够)就换成新的说法
+  if (storageFull && fullWhy === why) return;
   fullWhy = why;
-  if (storageFull) return;
   storageFull = true;
   showToast({
     id: 'storage',

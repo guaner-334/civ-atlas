@@ -532,6 +532,26 @@ describe('浏览器存储(saveStore)', () => {
     expect(saveStore.listWorlds()).toHaveLength(saveStore.MAX_WORLDS);
   });
 
+  it('先因个数满存不下、删了一个后又因浏览器存储不够存不下:提示换成新的原因', () => {
+    const fake = new FakeStorage();
+    useStorage(fake);
+    const ids: string[] = [];
+    for (let i = 1; i <= saveStore.MAX_WORLDS; i++) {
+      tick();
+      ids.push(saveStore.importSave(makeSave({ ...DEFAULT_PARAMS, seed: i }, EMPTY_EDITS, `check${i}`, `世界${i}`))!);
+    }
+    openWorld(999);
+    setName('settlement:r1#0', '饕餮城'.repeat(500));
+    expect(peekToast('storage')?.text).toBe(`没能自动存档:「我的世界」最多存 ${saveStore.MAX_WORLDS} 个`);
+    let used = 0;
+    for (const [k, v] of fake.map) used += k.length + v.length;
+    fake.cap = used;
+    // 删一个:个数够了,但腾出的地方放不下这个大世界,提示换成"存储已满"
+    saveStore.deleteWorld(ids[0]);
+    expect(saveStore.storageIsFull()).toBe(true);
+    expect(peekToast('storage')?.text).toBe('没能自动存档:浏览器存储已满');
+  });
+
   it('复制一份:名字加(二),修改、缩略图、AI 写的东西都带上;删掉复制的那份不动原来的', () => {
     const fake = new FakeStorage();
     useStorage(fake);
