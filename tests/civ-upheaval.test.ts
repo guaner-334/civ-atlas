@@ -32,10 +32,10 @@ import { buildRoutes } from '../src/gen/civ/routes';
 import { searchCiv } from '../src/ui/searchIndex';
 
 const PARAMS = { ...DEFAULT_PARAMS, seed: 7 };
-/** 种子 7 上的三件大事:大霄国都一带海水漫进来、兹拉季纳国都一带火山喷发、萨尔斯坦和对岸之间的海峡隆起 */
-const FLOOD: Upheaval = { year: 1600, ops: [{ kind: 'sink', pts: [1856, 574, 1936, 584], r: 40, s: 1.1 }] };
+/** 种子 7 上的三件大事(GENERATOR_VERSION 13):天灵国都一带海水漫进来、贡农加德国都一带火山喷发、贡农加德和对岸之间的海峡隆起 */
+const FLOOD: Upheaval = { year: 1600, ops: [{ kind: 'sink', pts: [1850, 520, 1930, 530], r: 40, s: 1.1 }] };
 const VOLCANO: Upheaval = { year: 1800, ops: [{ kind: 'volcano', pts: [1278, 768], r: 36, s: 1.1 }] };
-const BRIDGE: Upheaval = { year: 2000, ops: [{ kind: 'raise', pts: [1566, 632, 1604, 670], r: 18, s: 1.1 }] };
+const BRIDGE: Upheaval = { year: 2000, ops: [{ kind: 'raise', pts: [1510, 641, 1529, 628], r: 18, s: 1.1 }] };
 
 let w0: World | null = null;
 const world = () => (w0 ??= generateWorld(PARAMS));
@@ -203,7 +203,7 @@ describe('地形大事 · 推演', () => {
     }
     // 结束时还在的城都在陆地上
     for (const s of b.settlements) if (s.ended === undefined) expect(last.water[s.cell]).toBe(0);
-    // 大霄的国都沉了,迁都
+    // 天灵的国都沉了,迁都
     const p = b.polities[f.polity];
     expect(capitalAt(p, Y - 1 / 256)).toBe(sunk[0].settlement);
     expect(b.settlements[capitalAt(p, Y + 0.5)].ended).toBeUndefined();
@@ -216,13 +216,13 @@ describe('地形大事 · 推演', () => {
   }, 300_000);
 
   it('后果都并进大事那一条:亡了的国家打着的仗,议和记在后果之后;早先的遗址城址沉了,从那年起不再画', () => {
-    // 第 2473 年:维尔米尔国(正和萨兰提亚共和国打仗)两州全沉,萨兰提亚共和国的国都德鲁索纳也沉了(州还在,迁都)
-    const Y = 2473;
+    // 第 2182 年:艾尔海姆部(正和贡农加德打仗)两州全沉,贡农加德的国都哈尔德维克也沉了(州还在,迁都)
+    const Y = 2182;
     const seats = [
-      [1801, 244],
-      [1800, 266],
+      [1607, 820],
+      [1621, 805],
     ];
-    const W: Upheaval = { year: Y, ops: [...seats.map((pts) => ({ kind: 'sink' as const, pts, r: 24, s: 1.1 })), { kind: 'sink', pts: [152, 225], r: 12, s: 1.1 }] };
+    const W: Upheaval = { year: Y, ops: [...seats.map((pts) => ({ kind: 'sink' as const, pts, r: 24, s: 1.1 })), { kind: 'sink', pts: [1278, 768], r: 12, s: 1.1 }] };
     const b = civOf([W]);
     const at = b.annals.filter((e) => e.year === Y).map((e) => e.kind);
     expect(at).toContain('fall');
@@ -231,10 +231,10 @@ describe('地形大事 · 推演', () => {
     const ch = buildChronicle(b).filter((x) => b.annals[x.id]?.year === Y);
     expect(ch.map((x) => x.kind)).toEqual(['upheaval']);
     expect(ch[0].text).toMatch(/亡,.+迁都/);
-    // 提里艾尔第 2705 年毁于战火、没有重建;第 2800 年城址沉入海中
-    const R: Upheaval = { year: 2800, ops: [{ kind: 'sink', pts: [804, 621], r: 30, s: 1.1 }] };
+    // 西鲁萨第 2348 年毁于战火、没有重建;第 2800 年城址沉入海中
+    const R: Upheaval = { year: 2800, ops: [{ kind: 'sink', pts: [1661, 681], r: 30, s: 1.1 }] };
     const r = civOf([R]);
-    const id = r.settlements.findIndex((s) => s.name === '提里艾尔');
+    const id = r.settlements.findIndex((s) => s.name === '西鲁萨');
     expect(r.settlements[id].ended).toBeLessThan(R.year);
     expect(r.upheavals![0].ruins).toEqual([id]);
     expect(ruinSites(r, R.year - 1).map((s) => s.id)).toContain(id);
@@ -251,7 +251,7 @@ describe('地形大事 · 推演', () => {
     expect(moved.some((s) => s.reshaped!.some((e) => e.port !== s.port))).toBe(true);
     // 远处(离海水漫进来的地方一千多里)的城不动
     const W = world();
-    const far = (s: Settlement) => Math.min(Math.abs(W.mesh.x[s.cell] - 1896), W.width - Math.abs(W.mesh.x[s.cell] - 1896)) > 600;
+    const far = (s: Settlement) => Math.min(Math.abs(W.mesh.x[s.cell] - 1890), W.width - Math.abs(W.mesh.x[s.cell] - 1890)) > 600;
     expect(b.settlements.filter((s) => s.founded < Y && far(s)).some((s) => s.reshaped)).toBe(false);
     for (const s of moved) {
       expect(s.reshaped!.map((e) => e.year)).toEqual([Y]);
@@ -277,7 +277,7 @@ describe('地形大事 · 推演', () => {
   }, 300_000);
 
   it('人口越过某个数的年份:城址变过的按换值以后的上限算(和人口曲线对得上)', () => {
-    const s: Settlement = { id: 0, cell: 0, region: 0, culture: 0, name: '', founded: 100, capacity: 30, growth: 0.0022, port: false };
+    const s: Settlement = { id: 0, cell: 0, region: 0, culture: 0, name: '', founded: 100, capacity: 48, growth: 0.0022, port: false };
     const cross = (x: Settlement, level: number) => {
       const t = yearReaching(x, level);
       if (t < Infinity && t > x.founded) {
@@ -286,37 +286,38 @@ describe('地形大事 · 推演', () => {
       }
       return t;
     };
+    // 32 = 立国门槛(polities.ts 的 FOUND_POP,后面立国那几行用到),上限 48 是它的 1.5 倍
     // 没变过的和原来的公式一样
-    const t0 = cross(s, 20);
-    expect(t0).toBeCloseTo(100 + Math.log(40 / (30 / 20 - 1)) / 0.0022, 3);
-    // 第 1000 年上限降到 15:到不了 20 了,到 10 晚了;那以前就够了的照旧
-    const down = { ...s, reshaped: [{ year: 1000, capacity: 15, port: false }] };
+    const t0 = cross(s, 32);
+    expect(t0).toBeCloseTo(100 + Math.log(40 / (48 / 32 - 1)) / 0.0022, 3);
+    // 第 1000 年上限降到 24:到不了 32 了,到 16 晚了;那以前就够了的照旧
+    const down = { ...s, reshaped: [{ year: 1000, capacity: 24, port: false }] };
     expect(t0).toBeGreaterThan(1000);
-    expect(cross(down, 20)).toBe(Infinity);
-    expect(cross(down, 10)).toBeGreaterThan(cross(s, 10));
-    expect(cross(s, 3)).toBeLessThan(1000);
-    expect(cross(down, 3)).toBe(cross(s, 3));
-    // 上限涨到 90:涨的那几十年里、涨完以后都对得上;第二件大事又降回 40
-    const up = { ...s, reshaped: [{ year: 900, capacity: 90, port: true }] };
-    for (const level of [28, 32, 50, 80, 89]) expect(cross(up, level)).toBeGreaterThan(900);
-    const twice = { ...s, reshaped: [{ year: 900, capacity: 90, port: true }, { year: 930, capacity: 40, port: false }] };
-    for (const level of [32, 38, 45]) cross(twice, level);
-    expect(cross(twice, 45)).toBe(Infinity);
+    expect(cross(down, 32)).toBe(Infinity);
+    expect(cross(down, 16)).toBeGreaterThan(cross(s, 16));
+    expect(cross(s, 5)).toBeLessThan(1000);
+    expect(cross(down, 5)).toBe(cross(s, 5));
+    // 上限涨到 144:涨的那几十年里、涨完以后都对得上;第二件大事又降回 64
+    const up = { ...s, reshaped: [{ year: 900, capacity: 144, port: true }] };
+    for (const level of [45, 51, 80, 128, 142]) expect(cross(up, level)).toBeGreaterThan(900);
+    const twice = { ...s, reshaped: [{ year: 900, capacity: 144, port: true }, { year: 930, capacity: 64, port: false }] };
+    for (const level of [51, 61, 72]) cross(twice, level);
+    expect(cross(twice, 72)).toBe(Infinity);
     // 只看某年起:没变过的 = 越过的那年和那一年取晚的;上限降下来、人口跌回去以后,早先越过的不算
-    expect(yearReaching(s, 20, 3000)).toBe(3000);
-    expect(yearReaching(s, 20, 0)).toBe(t0);
+    expect(yearReaching(s, 32, 3000)).toBe(3000);
+    expect(yearReaching(s, 32, 0)).toBe(t0);
     const fast = { ...s, growth: 0.02 };
-    const early = yearReaching(fast, 20);
+    const early = yearReaching(fast, 32);
     expect(early).toBeLessThan(450);
-    const sunk = { ...fast, reshaped: [{ year: 450, capacity: 15, port: false }] };
-    expect(yearReaching(sunk, 20)).toBe(early);
-    expect(yearReaching(sunk, 20, 460)).toBe(Infinity);
-    const back = { ...fast, reshaped: [{ year: 450, capacity: 15, port: false }, { year: 700, capacity: 60, port: true }] };
-    const again = yearReaching(back, 20, 460);
+    const sunk = { ...fast, reshaped: [{ year: 450, capacity: 24, port: false }] };
+    expect(yearReaching(sunk, 32)).toBe(early);
+    expect(yearReaching(sunk, 32, 460)).toBe(Infinity);
+    const back = { ...fast, reshaped: [{ year: 450, capacity: 24, port: false }, { year: 700, capacity: 96, port: true }] };
+    const again = yearReaching(back, 32, 460);
     expect(again).toBeGreaterThan(700);
-    expect(populationAt(back, again - 0.01)).toBeLessThan(20);
-    expect(populationAt(back, again + 0.01)).toBeGreaterThanOrEqual(20);
-    // 立国:建城满 400 年那时人口得够(第 100 年建城,第 300 多年越过门槛,第 450 年上限降到 15:到第 500 年人口不够,不立国)
+    expect(populationAt(back, again - 0.01)).toBeLessThan(32);
+    expect(populationAt(back, again + 0.01)).toBeGreaterThanOrEqual(32);
+    // 立国:建城满 400 年那时人口得够(第 100 年建城,第 300 多年越过门槛,第 450 年上限降到 24:到第 500 年人口不够,不立国)
     expect(foundingYear(fast)).toBe(500);
     expect(foundingYear(sunk)).toBe(Infinity);
     expect(foundingYear(back)).toBe(again);
@@ -325,7 +326,7 @@ describe('地形大事 · 推演', () => {
       ...fast,
       capitalFrom: 100,
       capitalSpans: [{ from: 100, until: 850, polity: 0 }],
-      reshaped: [{ year: 900, capacity: 900, port: true }, { year: 901, capacity: 10, port: false }],
+      reshaped: [{ year: 900, capacity: 1440, port: true }, { year: 901, capacity: 16, port: false }],
     };
     const peak = popPeak(spike, 100, 3000);
     expect(peak.year).toBeGreaterThan(900);
@@ -465,7 +466,7 @@ describe('地形大事 · 推演', () => {
   }, 300_000);
 
   it('大事同一年下的干预照常生效,排在大事后面', () => {
-    const p = base().polities.findIndex((x) => x.name.startsWith('兹拉季纳'));
+    const p = base().polities.findIndex((x) => x.name.startsWith('贡农加德'));
     const iv = [{ kind: 'protect' as const, a: polityKey(base(), p), from: VOLCANO.year }];
     const c = generateCiv(world(), { interventions: iv, upheavals: steps([VOLCANO]) });
     const k = c.annals.findIndex((e) => e.kind === 'intervene' && e.war === 0);
@@ -536,7 +537,7 @@ describe('地形大事 · 推演', () => {
   }, 300_000);
 
   it('沉下去又抬起来的地方:新划出来的州按键找得回自己', () => {
-    const UP: Upheaval = { year: 1800, ops: [{ kind: 'raise', pts: [1856, 574, 1936, 584], r: 44, s: 1.6 }] };
+    const UP: Upheaval = { year: 1800, ops: [{ kind: 'raise', pts: FLOOD.ops[0].pts, r: 44, s: 1.6 }] };
     const b = civOf([FLOOD, UP]);
     expect(b.upheavals![1].added.length).toBeGreaterThan(0);
     for (let r = 0; r < b.regions.count; r++) expect(resolveKey(b, regionKey(b, r))).toEqual({ kind: 'region', id: r });
@@ -605,7 +606,7 @@ describe('地形大事 · 推演', () => {
 
   it('预览同一年的第二件:州和两件合成一件真发生以后一样(只算再加的这几笔改了什么)', () => {
     // 第 1600 年已经有海水漫进来,同一年再在同一处抬升:真发生时两件合成一件,从那一年以前的州一次划到底
-    const UP: Upheaval = { year: FLOOD.year, ops: [{ kind: 'raise', pts: [1856, 574, 1936, 584], r: 44, s: 1.6 }] };
+    const UP: Upheaval = { year: FLOOD.year, ops: [{ kind: 'raise', pts: FLOOD.ops[0].pts, r: 44, s: 1.6 }] };
     const { world: w0, regions: r0 } = upheavalBase(world(), steps([FLOOD]), FLOOD.year, DEFAULT_CIV_PARAMS.regionArea);
     expect(w0).toBe(steps([FLOOD])[0].world);
     expect(r0.count).toBe(base().regions.count);

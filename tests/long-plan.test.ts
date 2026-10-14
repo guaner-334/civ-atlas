@@ -113,8 +113,10 @@ describe('一国', () => {
 
   it('正好在某节第一年亡的国家:最后一节是亡国那年,亡国那条列在里面;上一节不再放一张和最上面一样的图', () => {
     const span = chronicleEraYears(civ.endYear);
-    const p0 = civ.polities.find((p) => p.ended !== undefined && Math.floor(p.ended / span) * span > Math.floor(p.founded))!;
-    const y = Math.floor(p0.ended! / span) * span;
+    // 挑一个跨过某节开头的国家(亡了的、到结束还在的都行),把它亡国的年份挪到它最后那一节的第一年
+    const last = (p: (typeof civ.polities)[number]) => Math.min(p.ended ?? civ.endYear, civ.endYear - 1);
+    const p0 = civ.polities.find((p) => Math.floor(last(p) / span) * span > Math.floor(p.founded))!;
+    const y = Math.floor(last(p0) / span) * span;
     const p = { ...p0, ended: y };
     const c = { ...civ, polities: civ.polities.map((q) => (q.id === p.id ? p : q)) };
     const fall = { ...all.find((e) => e.kind === 'fall')!, id: -1, year: y, end: y, text: '测试国亡', importance: 3 as const, polities: [p.id], children: undefined };
