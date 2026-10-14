@@ -51,17 +51,18 @@ const FOUND_DELAY: [number, number] = [5, 40];
 /**
  * 城的人口上限(千人)= CAP_REF × (州的人口上限 / 基准)^CAP_EXP × 港口 / 大河加成 × 随机 0.8–1.25。
  * 基准 = 这个世界可居州人口上限的第 90 百分位 ÷ CAP_P90(默认世界约 100):换精细度、气候时城市的大小分布不变。
- * 指数 > 1:沃野里的城比贫瘠处的城大得多,少数大城、大量村镇(城市规模的"长尾")
+ * 指数 > 1:沃野里的城比贫瘠处的城大得多,少数大城、大量村镇(城市规模的"长尾")。
+ * CAP_REF 和立国门槛 FOUND_POP 同比例定:两个一起放大,城都变大,哪座城先够立国不变
  */
-const CAP_REF = 11;
+const CAP_REF = 17.6;
 const CAP_P90 = 2.07;
 const CAP_EXP = 1.6;
 const PORT_CAP = 1.3;
-const RIVER_CAP = 1.15;
+const RIVER_CAP = 1.35;
 /** 成长速度(每年):GROWTH × 随机 0.75–1.25 */
 const GROWTH = 0.0022;
 /** 立国门槛:人口越过这么多(千人),而且建城满 MIN_AGE 年 */
-export const FOUND_POP = 20;
+export const FOUND_POP = 32;
 const MIN_AGE = 400;
 /** 自动国家数:每多少个可居州一个(只用来定国都间距;实际数量由推演决定) */
 const REGIONS_PER_POLITY = 60;

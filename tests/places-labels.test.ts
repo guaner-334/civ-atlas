@@ -18,8 +18,8 @@ let raster: Raster;
 let civ: Civ;
 
 beforeAll(() => {
-  // seed 2024:六类地理实体都有(seed 7 没有大荒漠)
-  world = generateWorld({ ...DEFAULT_PARAMS, seed: 2024 });
+  // seed 7:六类地理实体都有,放大两倍时最大的荒漠也排得下名字(seed 2024 最大的荒漠名字长,放大到四倍才排得下)
+  world = generateWorld({ ...DEFAULT_PARAMS, seed: 7 });
   raster = rasterize(world, 1);
   civ = generateCiv(world);
 });

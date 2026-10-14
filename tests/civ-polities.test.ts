@@ -8,7 +8,7 @@ import { CivSim, Ev } from '../src/gen/civ/sim';
 import { ownersAt, ownersFromScratch } from '../src/gen/civ/timeline';
 import { polityModelOf } from '../src/gen/civ/polities';
 import { warModelOf } from '../src/gen/civ/wars';
-import { POLITY_FORMS, capitalAt, populationAt, polityAlive, polityName, polityTierAt, polityTitles, settlementRank, tierOf } from '../src/gen/civ/growth';
+import { CAPITAL_BOOST, POLITY_FORMS, capitalAt, populationAt, polityAlive, polityName, polityTierAt, polityTitles, settlementRank, tierOf } from '../src/gen/civ/growth';
 import { BAND, mergeChains, traceChains, borderLines, type SidedLine } from '../src/render/civ/borders';
 import { labelImage, pixelRegions } from '../src/render/civ/territory';
 import type { CivDrawParams, CivShow } from '../src/render/civ/overlay';
@@ -296,7 +296,7 @@ describe('城市成长 + 国家', () => {
         expect(Number.isFinite(pop)).toBe(true);
         expect(pop).toBeGreaterThanOrEqual(0);
         if (steady && (s.ended === undefined || y < s.ended)) expect(pop).toBeGreaterThanOrEqual(prev);
-        expect(pop).toBeLessThanOrEqual(s.capacity * 1.6 + 1e-9);
+        expect(pop).toBeLessThanOrEqual(s.capacity * (1 + CAPITAL_BOOST) + 1e-9);
         prev = pop;
       }
     }

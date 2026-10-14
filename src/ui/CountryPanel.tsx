@@ -6,7 +6,7 @@
  *   按钮  干预历史(主操作;窄屏点了底部抽屉展开)/ 设为中心 / 改名 / 更多(在编年史中查看、让 AI 写国史、让 AI 讲名字由来;
  *         有主体民族时还有讲它的族名由来、给它起族名)
  *   概况  国都、君主(这一年在位的那位,点了看他;共和国写"执政")、疆域(历年州数的小柱图,和概览"国家"表同一份)、
- *         人口(境内城镇)、主体民族、国教(可点,"某年起";没有写"没有")、
+ *         人口(境内各州的总人口:城 + 乡村)、主体民族、国教(可点,"某年起";没有写"没有")、
  *         宗主("某年起称臣")/ 藩属 / 盟国(可点,名字后面是哪年称臣、结盟;有才写)、邻国(可点),来历 / 结局 / 历任国都(有才写)
  *   历代君主  当前这位和前后各两位(新的在上;遇弑、被废这类结局写在名字后面),点一行看这个人;
  *         "全部 N 位"打开概览的人物页、只看这国的君主;"世系图"(不是共和国才有)打开这国的世系图,停在时间轴那一年的那一朝
@@ -24,7 +24,7 @@ import type { Civ, Polity } from '../gen/civ/types';
 import type { Raster } from '../gen/raster';
 import type { World } from '../gen/world';
 import { cultureLabel } from '../gen/civ/display';
-import { capitalAt, dynastyIndexAt, polityAlive, polityName, polityTitleChain, populationAt, populationLabel } from '../gen/civ/growth';
+import { capitalAt, dynastyIndexAt, polityAlive, polityName, polityTitleChain, populationLabel, regionPopulationAt } from '../gen/civ/growth';
 import { ownersAt, type Owners } from '../gen/civ/timeline';
 import { filterChronicle, polityChronicle } from '../gen/civ/chronicle';
 import { fullChronicle } from '../gen/civ/religionText';
@@ -197,19 +197,19 @@ function InfoPage({ civ, raw, raster, world, id, year, p, shared }: CountryPanel
   const aiOn = useAiOn();
   const shownYear = shownYearOf(p, year, civ.endYear);
   const alive = polityAlive(p, year);
-  // 这一年的州数、人口(境内的城)、各民族的州数
+  // 这一年的州数、人口(境内各州的总人口)、各民族的州数
   owners = ownersAt(civ, shownYear, owners);
   const own = owners;
   let n = 0;
   const folk = new Map<number, number>();
+  let pop = 0;
   for (let r = 0; r < civ.regions.count; r++) {
     if (own.polity[r] !== id) continue;
     n++;
+    pop += regionPopulationAt(civ, r, shownYear);
     const c = own.culture[r];
     if (c >= 0) folk.set(c, (folk.get(c) ?? 0) + 1);
   }
-  let pop = 0;
-  for (const s of civ.settlements) if (own.polity[s.region] === id) pop += populationAt(s, shownYear);
   const folks = [...folk].sort((a, b) => b[1] - a[1]);
   const top = folks.length ? civ.cultures[folks[0][0]] : civ.cultures[p.culture];
   const share = folks.length && n > 1 ? Math.round((folks[0][1] / n) * 100) : null;

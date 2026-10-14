@@ -73,7 +73,8 @@ const REBUILD_EVERY = 45;
 const REBUILD_TRIES: [number, number] = [1, 7];
 /** 每次看的机会 = REBUILD_P × 城址好坏(√(人口上限 ÷ SITE_REF),夹在 0.5–1.5) */
 const REBUILD_P = 0.18;
-const SITE_REF = 30;
+/** 和城的人口上限同比例(polities.ts 的 CAP_REF) */
+const SITE_REF = 48;
 /** 这么多年里换过国家的州(战火未息)先不重建 */
 const REBUILD_SETTLE = 15;
 /** 重建的城长得比一般的城快这么多倍(故址上重建,人口回流) */
