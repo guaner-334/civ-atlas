@@ -116,7 +116,8 @@ describe('城市兴衰 · 人口按年份段现算', () => {
 
 describe('城市兴衰 · 推演', () => {
   it('fromCiv 接着推:在第 1200 年、毁城 / 重建 / 洗劫 / 旧都渐衰那一刻和那一年切开,和一口气推完逐字节一致', () => {
-    const p = { ...DEFAULT_PARAMS, seed: 7 };
+    // seed 7 一座城也没重建过(GENERATOR_VERSION 13 以后),用 seed 2024
+    const p = { ...DEFAULT_PARAMS, seed: 2024 };
     const w = world(p);
     const whole = civOf(p);
     const A = whole.annals;
@@ -128,10 +129,11 @@ describe('城市兴衰 · 推演', () => {
     for (const e of [ruin, rebuild, sack, decline]) expect(e, '四种事都有').toBeDefined();
     const cuts = new Set([1200, ruin.year, Math.floor(ruin.year), rebuild.year, Math.floor(rebuild.year), sack.year, decline.year]);
     for (const cut of cuts) expectResumeSame(w, whole, cut);
-    // 接着推之后,毁城计数(按战争)从史事里重建出来了
-    const sim = CivSim.fromCiv(w, generateCiv(w, { endYear: 2000 }));
+    // 接着推之后,毁城计数(按战争)从史事里重建出来了(这个世界到 2500 年毁了三座城,其中两座毁在同一场战争里)
+    const sim = CivSim.fromCiv(w, generateCiv(w, { endYear: 2500 }));
     const razed = [...cityModelOf(sim)!.razed.values()].reduce((a, b) => a + b, 0);
-    expect(razed).toBe(A.filter((e) => e.kind === 'ruin' && e.year <= 2000).length);
+    expect(razed).toBeGreaterThan(0);
+    expect(razed).toBe(A.filter((e) => e.kind === 'ruin' && e.year <= 2500).length);
   }, 120_000);
 
   it('确定性:同一个种子两次,史事、城镇表逐字节相同', () => {
@@ -219,16 +221,18 @@ describe('城市兴衰 · 推演', () => {
   });
 
   it('默认参数 seed 7 / 2024:毁城 2–45 座、多数是村镇;一场战争最多毁 3 座;有重建也有留下的遗址;有洗劫、有旧都渐衰', () => {
+    let rebuilds = 0;
     for (const seed of [7, 2024]) {
       const civ = civOf({ ...DEFAULT_PARAMS, seed });
       const c = cityStats(civ);
       const tag = `seed ${seed}`;
-      // 20 个种子里毁城 2–15 座(荒僻之地留给部落以后仗少了;seed 7 最少,2 座)
+      // 20 个种子里毁城 2–15 座(荒僻之地留给部落以后仗少了;GENERATOR_VERSION 13 以后 seed 8 最少,2 座)
       expect(c.ruins, tag).toBeGreaterThanOrEqual(2);
       expect(c.ruins, tag).toBeLessThanOrEqual(45);
       expect(c.ruinsByRank[0] + c.ruinsByRank[1], tag).toBeGreaterThan(c.ruins / 2);
       expect(c.maxRuinsPerWar, tag).toBeLessThanOrEqual(3);
-      expect(c.rebuilds, tag).toBeGreaterThan(0);
+      // 重建:GENERATOR_VERSION 13 以后 20 个种子里只有 seed 7 一座也没重建(毁的 4 座都留成了遗址),两个世界合计有,见循环后
+      rebuilds += c.rebuilds;
       expect(c.ruinsAtEnd, tag).toBeGreaterThan(0);
       expect(c.sacks, tag).toBeGreaterThan(c.ruins);
       expect(c.declines, tag).toBeGreaterThan(0);
@@ -236,6 +240,7 @@ describe('城市兴衰 · 推演', () => {
       const alive = civ.settlements.filter((s) => s.ended === undefined);
       expect(new Set(alive.map((s) => s.region)).size).toBe(alive.length);
     }
+    expect(rebuilds, '两个世界合计有重建').toBeGreaterThan(0);
   });
 
   it('通往废城的路荒废:结束时还在用的路不会以废城为尽头(路过废城的干道照常);荒废年份不早于修路年份', () => {
