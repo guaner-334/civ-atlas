@@ -37,6 +37,7 @@ import {
   wrapOf,
   wrapShifts,
   type PrepStep,
+  type WorkStep,
   type RGB,
   type RiverStyle,
   type VecView,
@@ -665,18 +666,8 @@ export function drawFantasyCoasts(ctx: CanvasRenderingContext2D, r: Raster, v: V
   let sea: Path2D;
   let lake: Path2D;
   const pj = v.proj;
-  if (pj) {
-    if (!coastPaths || coastPaths.raster !== r || coastPaths.key !== pj.mp.key) {
-      const lines = fantasyCoastLines(r);
-      const unit = { s: 1, ox: 0, oy: 0 };
-      const sea = new Path2D();
-      const lake = new Path2D();
-      for (const p of lines.sea) addProjectedLine(sea, p, 2, pj, unit);
-      for (const p of lines.lake) addProjectedLine(lake, p, 2, pj, unit);
-      coastPaths = { raster: r, key: pj.mp.key, sea, lake };
-    }
-    ({ sea, lake } = coastPaths);
-  } else {
+  if (pj) ({ sea, lake } = coastPathsOf(r, pj));
+  else {
     // 抽稀到哪一档:偏差不到 COAST_TOL 个画布像素的最粗一档
     const lod = coastLod(v.s);
     // 画布盖住的世界坐标范围(外加一个线宽)
@@ -701,6 +692,20 @@ export function drawFantasyCoasts(ctx: CanvasRenderingContext2D, r: Raster, v: V
   ctx.lineWidth = COAST_LW * gs;
   ctx.stroke(sea);
   ctx.restore();
+}
+
+/** 弯边投影的海岸、湖岸路径(地图平面;每个投影 + 中心一份,只留最近的一份) */
+function coastPathsOf(r: Raster, pj: Projector): NonNullable<typeof coastPaths> {
+  if (!coastPaths || coastPaths.raster !== r || coastPaths.key !== pj.mp.key) {
+    const lines = fantasyCoastLines(r);
+    const unit = { s: 1, ox: 0, oy: 0 };
+    const sea = new Path2D();
+    const lake = new Path2D();
+    for (const p of lines.sea) addProjectedLine(sea, p, 2, pj, unit);
+    for (const p of lines.lake) addProjectedLine(lake, p, 2, pj, unit);
+    coastPaths = { raster: r, key: pj.mp.key, sea, lake };
+  }
+  return coastPaths;
 }
 
 /** 等距圆柱的海岸、湖岸(切成小段,世界坐标;每张像素图一份,换了世界就换掉) */
@@ -1139,6 +1144,77 @@ function fadePatterns(ctx: CanvasRenderingContext2D, ripple: AnyCanvas, hatch: A
   return { ripple: make(ripple), hatch: make(hatch) };
 }
 
+/** seaPathsOf 分几步做(seaPathsSteps)的半成品:同一张像素图、同一个投影 + 中心;浓度图一段一段地按行重铺 */
+let seaProjBuild: {
+  raster: Raster;
+  key: string;
+  rings: (CoastChunks | null)[];
+  hatch: Float32Array | null;
+  fades: { cv: AnyCanvas | null; row: number }[];
+} | null = null;
+/** 浓度图一次重铺几行 */
+const FADE_ROWS = 48;
+
+/** 弯边投影的波纹段、排线、浓度图,拆成一小步一小步(地图平面;每个投影 + 中心一份)。做完一步一步和一口气做完一样 */
+function seaPathsSteps(world: World, r: Raster, pj: Projector): WorkStep[] {
+  const key = pj.mp.key;
+  const done = () => !!seaPaths && seaPaths.raster === r && seaPaths.key === key;
+  const build = () => {
+    if (!seaProjBuild || seaProjBuild.raster !== r || seaProjBuild.key !== key) {
+      // 换了中心:没做完的那一份不要了
+      for (const f of seaProjBuild?.fades ?? []) if (f.cv) f.cv.width = f.cv.height = 0;
+      const sl = seaLinesOf(world, r);
+      seaProjBuild = { raster: r, key, rings: sl.rings.map(() => null), hatch: null, fades: [{ cv: null, row: 0 }, { cv: null, row: 0 }] };
+    }
+    return seaProjBuild;
+  };
+  const unit = { s: 1, ox: 0, oy: 0 };
+  const sl = () => seaLinesOf(world, r);
+  const ringStep = (i: number): WorkStep => () => {
+    if (done()) return;
+    const b = build();
+    b.rings[i] ??= coastChunks(sl().rings[i].flatMap((q) => projectLinePts(q, 2, pj, unit).map((p) => Float32Array.from(p))));
+  };
+  const fadeStep =
+    (i: number): WorkStep =>
+    (deadline) => {
+      if (done()) return;
+      const b = build();
+      const f = b.fades[i];
+      const src = i === 0 ? sl().rippleFade : sl().hatchFade;
+      f.cv ??= makeCanvas(r.w, r.h);
+      const ctx = f.cv.getContext('2d') as CanvasRenderingContext2D;
+      while (f.row < r.h) {
+        reprojectImage(ctx, src, r.w, r.h, pj.mp, { s: r.scale, ox: 0, oy: 0 }, 'low', [f.row, f.row + FADE_ROWS]);
+        f.row += FADE_ROWS;
+        if (performance.now() >= deadline) break;
+      }
+      return f.row < r.h;
+    };
+  return [
+    ...sl().rings.map((_, i) => ringStep(i)),
+    () => {
+      if (done()) return;
+      const b = build();
+      b.hatch ??= projectHatch(sl().hatch, pj);
+    },
+    fadeStep(0),
+    fadeStep(1),
+  ];
+}
+
+/** 弯边投影的波纹段、排线、浓度图(地图平面;每个投影 + 中心一份,只留最近的一份;分步做了一半的接着做完) */
+function seaPathsOf(world: World, r: Raster, pj: Projector): NonNullable<typeof seaPaths> {
+  if (!seaPaths || seaPaths.raster !== r || seaPaths.key !== pj.mp.key) {
+    for (const s of seaPathsSteps(world, r, pj)) while (s(Infinity) === true);
+    const b = seaProjBuild!;
+    if (seaPaths) seaPaths.rippleFade.width = seaPaths.rippleFade.height = seaPaths.hatchFade.width = seaPaths.hatchFade.height = 0;
+    seaPaths = { raster: r, key: pj.mp.key, rings: b.rings as CoastChunks[], hatch: b.hatch!, rippleFade: b.fades[0].cv!, hatchFade: b.fades[1].cv!, pats: null };
+    seaProjBuild = null;
+  }
+  return seaPaths;
+}
+
 /**
  * 放大后的岸线外波纹、近岸排线(代替像素层里的那两样,像素层放大后是一格一格的方块),位置、浓淡和像素层一样,
  * 线宽跟着符号一起按 glyphScale 收(和海岸墨线同一套)。画在海岸墨线之前。
@@ -1156,19 +1232,9 @@ export function drawFantasySeaLines(ctx: CanvasRenderingContext2D, world: World,
   let pats: { ripple: CanvasPattern; hatch: CanvasPattern };
   const pj = v.proj;
   if (pj) {
-    if (!seaPaths || seaPaths.raster !== r || seaPaths.key !== pj.mp.key) {
-      if (seaPaths) seaPaths.rippleFade.width = seaPaths.rippleFade.height = seaPaths.hatchFade.width = seaPaths.hatchFade.height = 0;
-      const unit = { s: 1, ox: 0, oy: 0 };
-      const rings = sl.rings.map((ls) => coastChunks(ls.flatMap((q) => projectLinePts(q, 2, pj, unit).map((p) => Float32Array.from(p)))));
-      const reproj = (src: AnyCanvas) => {
-        const cv = makeCanvas(r.w, r.h);
-        reprojectImage(cv.getContext('2d') as CanvasRenderingContext2D, src, r.w, r.h, pj.mp, { s: S, ox: 0, oy: 0 }, 'low');
-        return cv;
-      };
-      seaPaths = { raster: r, key: pj.mp.key, rings, hatch: projectHatch(sl.hatch, pj), rippleFade: reproj(sl.rippleFade), hatchFade: reproj(sl.hatchFade), pats: null };
-    }
-    seaPaths.pats ??= fadePatterns(ctx, seaPaths.rippleFade, seaPaths.hatchFade, S, 'no-repeat');
-    ({ rings: chunks, hatch: seg, pats } = seaPaths);
+    const sp = seaPathsOf(world, r, pj);
+    sp.pats ??= fadePatterns(ctx, sp.rippleFade, sp.hatchFade, S, 'no-repeat');
+    ({ rings: chunks, hatch: seg, pats } = sp);
     W = 0;
   } else {
     sl.pats ??= fadePatterns(ctx, sl.rippleFade, sl.hatchFade, S, 'repeat');
@@ -2307,6 +2373,51 @@ function iceProjOf(world: World, r: Raster, g: IceGeo, pj: Projector, lod: numbe
  *   等距圆柱:世界坐标;东西相连,伸出左右边的在另一边再画一份
  *   弯边投影(v.proj):视口附近的格子、墨线、排线逐点投影(见 iceProjOf)
  */
+/** 弯边投影:地图平面 [x0, x1] × [y0, y1] 附近的海冰(画布像素 / 地图平面 = s;盖得住、抽稀够细的那一份接着用) */
+function iceProjIn(world: World, r: Raster, g: IceGeo, pj: Projector, s: number, x0: number, y0: number, x1: number, y1: number): NonNullable<typeof iceProj> {
+  // 世界坐标里抽稀:容差按投影拉长的倍数收
+  const R = worldWindow(pj, x0, y0, x1, y1);
+  const lodOf = (tol: number) => {
+    let l = 0;
+    while (l + 1 < COAST_LOD.length && COAST_LOD[l + 1] * s * R.stretch <= tol) l++;
+    return l;
+  };
+  const lw = lodOf(COAST_TOL);
+  const lf = lodOf(ICE_FILL_TOL);
+  const c = iceProj;
+  if (!c || c.raster !== r || c.key !== pj.mp.key || c.lod > lw || c.lodF > lf || c.x0 > x0 || c.y0 > y0 || c.x1 < x1 || c.y1 < y1) {
+    releaseIceProj();
+    iceProj = iceProjOf(world, r, g, pj, lw, lf, R, x0, y0, x1, y1);
+  }
+  return iceProj!;
+}
+
+/** drawFantasyIce 画在 cw × ch 的画布上时要看的地图平面范围(同它里面的算法) */
+function iceWindow(v: { s: number; ox: number; oy: number; k: number }, cw: number, ch: number): [number, number, number, number] {
+  const pad = ICE_LW * glyphScale(v.k) + COAST_LOD[coastLod(v.s)] + 1;
+  return [-v.ox / v.s - pad, -v.oy / v.s - pad, (cw - v.ox) / v.s + pad, (ch - v.oy) / v.s + pad];
+}
+
+/**
+ * 弯边投影按投影重画细节层(drawTerrainProjected,一块视口)第一次要现算的缓存:这种投影的符号规划、地块投影位置、
+ * 海岸 / 波纹 / 排线逐点投影、浓度图重铺、视口附近的海冰,拆成一小步一小步(和中央经线有关的那几样换了中心要重算)。
+ * 都做过了再画,画出来和当下现算的一样。v = 地图平面 → 画布(cw × ch)
+ */
+export function fantasyProjPrep(world: World, r: Raster, mp: MapProj, v: { s: number; ox: number; oy: number; k: number }, cw: number, ch: number): WorkStep[] {
+  const pj = projector(mp);
+  return [
+    () => void planOf(world, mp.def.id),
+    () => void projCells(world, pj),
+    () => void coastPathsOf(r, pj),
+    ...seaPathsSteps(world, r, pj),
+    () => void seaPathsOf(world, r, pj),
+    () => {
+      const g = iceGeoOf(world, r);
+      if (g) iceProjIn(world, r, g, pj, v.s, ...iceWindow(v, cw, ch));
+    },
+  ];
+}
+
 export function drawFantasyIce(ctx: CanvasRenderingContext2D, world: World, r: Raster, v: VecView): void {
   const g = iceGeoOf(world, r);
   if (!g) return;
@@ -2326,21 +2437,7 @@ export function drawFantasyIce(ctx: CanvasRenderingContext2D, world: World, r: R
   let hatch: Path2D | null;
   let pats: { face: CanvasPattern; ink: CanvasPattern };
   if (pj) {
-    // 世界坐标里抽稀:容差按投影拉长的倍数收
-    const R = worldWindow(pj, x0, y0, x1, y1);
-    const lodOf = (tol: number) => {
-      let l = 0;
-      while (l + 1 < COAST_LOD.length && COAST_LOD[l + 1] * v.s * R.stretch <= tol) l++;
-      return l;
-    };
-    const lw = lodOf(COAST_TOL);
-    const lf = lodOf(ICE_FILL_TOL);
-    const c = iceProj;
-    if (!c || c.raster !== r || c.key !== pj.mp.key || c.lod > lw || c.lodF > lf || c.x0 > x0 || c.y0 > y0 || c.x1 < x1 || c.y1 < y1) {
-      releaseIceProj();
-      iceProj = iceProjOf(world, r, g, pj, lw, lf, R, x0, y0, x1, y1);
-    }
-    const p = iceProj!;
+    const p = iceProjIn(world, r, g, pj, v.s, x0, y0, x1, y1);
     p.pats ??= {
       face: fadePattern(ctx, p.face.cv, 1 / S, 'no-repeat', p.face.ox, p.face.oy),
       ink: fadePattern(ctx, p.inkFade.cv, W / g.inkFade.width, 'no-repeat', p.inkFade.ox, p.inkFade.oy),

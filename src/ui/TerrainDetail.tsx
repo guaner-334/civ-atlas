@@ -7,7 +7,7 @@
  * 挪过去(placeOnScreen)。重画一次要几十毫秒,所以不是每一帧都画:
  *   - 视口还在画好的那一块里、缩放倍数和画的时候差不到 30%:不重画,只挪位置(缩放倍数变了就按比例放大一点点,看不出)
  *   - 否则重画;停下来约 0.15 秒后,再按准确的缩放倍数补画一次
- * 等距圆柱重画时分帧(ui/detailJobs.ts):整张图的缓存(第一次放大时最慢的那部分)在后台一小段一小段地备,
+ * 重画时分帧(ui/detailJobs.ts):整张图的缓存(第一次放大时最慢的那部分)在后台一小段一小段地备,
  * 这期间画好的那张接着顶着(按比例拉一点),还没画过就露着底下的地形图;备好了和文明细节层一起整张换上。
  * 拖到离画好那一块的边不到半个余量就提前备下一块(往拖的方向多留一些,不多画);真拖出去了还没备好,剩下的当下做完。
  * 画出来的和当下一口气画完的逐像素一样;地址带 detail=sync 就关掉分帧。
@@ -15,6 +15,8 @@
  *
  * 弯边投影(mp,罗宾森、摩尔威德……):按投影直接在画布上重画(render/detail.ts 的 drawTerrainProjected)——
  * 面按行重投影,海岸、河逐点投影,符号在投影后的位置上正立、按屏幕大小画,放大多少倍都不糊。
+ * 同样分帧:按这个中心逐点投影、重铺的缓存(terrainProjPrep)也在后台备;备的时候画好的那一块按投影平移着顶着
+ * (停下来以后也是,差出 HOLD_ERR 像素以上才当下画完),备好了按那时的中心平移到位换上。
  *
  * 转中心(左右拖动、选中后地图飞过去)时整张图都在变,但放大以后视口里纬度跨得不大,转中心约等于整块左右平移:
  *   - 放大到 SLIDE_K 倍以上:画好的那一块按视口中间那条纬线的比例整体左右挪过去(只改 CSS 位置,不重画);
@@ -29,7 +31,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { World } from '../gen/world';
 import type { Raster } from '../gen/raster';
-import { DETAIL_K, drawTerrainDetail, drawTerrainProjected, terrainDetailPrep, type DetailStyle } from '../render/detail';
+import { DETAIL_K, drawTerrainDetail, drawTerrainProjected, terrainDetailPrep, terrainProjPrep, type DetailStyle } from '../render/detail';
 import { aheadOf, cancelDetailJob, detailAsync, flushDetailJobs, submitDetailJob, type JobStats } from './detailJobs';
 import { TILE, tileCanvas, tileKey, tilesAvailable, tileStats, tilesWorld, wantTiles } from './terrainTiles';
 import { centerShift, type MapProj } from '../render/projection';
@@ -62,6 +64,8 @@ const K_SLACK = Math.log(1.3);
 const SLIDE_K = 3;
 /** 平移和真实投影在视口上下边最多差几个 CSS 像素(超了就按新中心重画) */
 const SLIDE_ERR = 8;
+/** 按新中心重画的那一块在后台备料时,画好的那块平移着先顶着:允许差到几个 CSS 像素(更大就当下画完) */
+const HOLD_ERR = 3 * SLIDE_ERR;
 
 /** 分帧备料时这一层的名字(见 detailJobs.ts) */
 const JOB = 'terrain';
@@ -84,14 +88,14 @@ interface TileLevel {
  * 弯边投影:按 d.mp 画好的那一块换到新中心 mp 时,整体左右平移多少(地图框 CSS 像素,缩放前);
  * 不是同一种投影、或视口上下边和真实投影差太多 = null(要重画)
  */
-function slideOf(d: Drawn, mp: MapProj, vis: Visible): number | null {
+function slideOf(d: Drawn, mp: MapProj, vis: Visible, maxErr = SLIDE_ERR): number | null {
   const from = d.mp;
   if (!from || from.def !== mp.def || from.W !== mp.W || from.H !== mp.H) return null;
   // 地图平面单位 / 地图框 CSS 像素
   const ux = mp.W / vis.bw;
   const uy = mp.H / vis.bh;
   const { dx, err } = centerShift(from, mp, vis.y0 * uy, vis.y1 * uy);
-  return (err / ux) * vis.k <= SLIDE_ERR ? dx / ux : null;
+  return (err / ux) * vis.k <= maxErr ? dx / ux : null;
 }
 
 export function TerrainDetail({
@@ -118,6 +122,9 @@ export function TerrainDetail({
   const pend = useRef<Drawn | null>(null);
   const timer = useRef(0);
   const moving = useMapMoving();
+  /** 现在的投影 + 中心、是不是正在转中心(后台备好的那一块画上去时按它摆) */
+  const live = useRef({ mp, moving });
+  live.current = { mp, moving };
 
   // 地图框大小变了(窗口缩放)也要重画
   const [tick, setTick] = useState(0);
@@ -296,8 +303,8 @@ export function TerrainDetail({
      * 可以伸到地图框右边接的那一份里(x 到 2 × 地图框宽,见 mapWrap.ts)
      */
     const visible = () => visibleBox(box);
-    /** 分帧备料(见 detailJobs.ts):等距圆柱才分;弯边投影、关掉开关时当下画完 */
-    const async = detailAsync && !mp;
+    /** 分帧备料(见 detailJobs.ts);关掉开关时当下画完 */
+    const async = detailAsync;
 
     /** d 这一块(整体左右挪 dx)盖住 [x0, x1] × [y0, y1] 没有 */
     const covers = (d: Drawn, x0: number, y0: number, x1: number, y1: number, dx = 0) =>
@@ -307,6 +314,16 @@ export function TerrainDetail({
       covers(d, vis.x0, vis.y0, vis.x1, vis.y1, dx) && Math.abs(Math.log(vis.k / d.k)) < (exact ? 0.02 : K_SLACK);
     /** 同一个世界、同一种画风画的 */
     const same = (d: Drawn | null) => (d && d.world === world && d.raster === raster && d.style === style ? d : null);
+    /**
+     * 画好的(或在备的)那一块要左右挪多少才对得上(地图框 CSS 像素):同一个投影 + 中心 = 0;
+     * 弯边投影正在转中心 = 按投影整体平移(停下来要准,不算);null = 用不上,要按新中心重画
+     */
+    const shiftOf = (d: Drawn | null, exact: boolean, vis: Visible) =>
+      !d ? null : d.proj === projKey ? 0 : mp && moving && !exact ? slideOf(d, mp, vis) : null;
+    /** 后台备新的一块时,画好的那块先顶着要挪多少(停下来了也先平移着顶着,差得太多 = null) */
+    const holdOf = (d: Drawn, vis: Visible) => (d.proj === projKey ? 0 : mp ? slideOf(d, mp, vis, HOLD_ERR) : null);
+    /** 挪了 dx 的 d(提前备下一块时按它算离边多远) */
+    const shifted = (d: Drawn, dx: number) => ({ x0: d.x0 + dx, y0: d.y0, x1: d.x1 + dx, y1: d.y1 });
 
     /**
      * 新的一块:多画的余量四周各 1/4 视口,不超出地图;画布按屏幕像素(太大就降低像素密度)。
@@ -325,8 +342,8 @@ export function TerrainDetail({
       return { world, raster, style, k: vis.k, x0, y0, x1, y1, dpr, proj: projKey, mp };
     };
 
-    /** 把 r 这一块画到画布上、摆好(st = 分帧备料的统计) */
-    const paint = (r: Drawn, vis: Visible, exact: boolean, st?: JobStats) => {
+    /** 把 r 这一块画到画布上、摆好(左右挪 slide;st = 分帧备料的统计) */
+    const paint = (r: Drawn, vis: Visible, exact: boolean, st?: JobStats, slide = 0) => {
       const t0 = performance.now();
       const { x0, y0, x1, k, dpr } = r;
       const W = Math.max(1, Math.round((x1 - x0) * k * dpr));
@@ -336,16 +353,16 @@ export function TerrainDetail({
         cv.height = H;
       }
       Object.assign(cv.style, { display: '', width: `${W / dpr}px`, height: `${H / dpr}px` });
-      placeOnScreen(cv, vis, x0, y0, k);
+      placeOnScreen(cv, vis, x0 + slide, y0, k);
       const ctx = cv.getContext('2d')!;
       const s = (vis.bw / world.width) * k * dpr; // 画布像素 / 世界单位
       const v = { s, ox: -x0 * k * dpr, oy: -y0 * k * dpr, k };
-      if (mp) {
+      if (r.mp) {
         // 弯边投影:按投影直接在画布上重画(面按行重投影,线逐点投影、符号正立按屏幕大小画),不是把像素拉大
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.clearRect(0, 0, W, H);
         // 地图平面和世界一样大:画布像素 / 地图平面单位 = s,偏移同等距圆柱
-        drawTerrainProjected(ctx, world, raster, style as DetailStyle, mp, v);
+        drawTerrainProjected(ctx, world, raster, style as DetailStyle, r.mp, v);
       } else if (x0 < vis.bw && x1 > vis.bw) {
         // 这一块跨过主图的右边(180° 经线):左右两段各画一遍(右段 = 挪一整圈),各自裁在自己那一段里,
         // 接缝处的符号、河不会画两遍叠深
@@ -375,8 +392,9 @@ export function TerrainDetail({
         w: W,
         h: H,
         exact,
-        proj: mp?.def.id ?? 'equirect',
-        lon: mp?.lon0,
+        proj: r.mp?.def.id ?? 'equirect',
+        lon: r.mp?.lon0,
+        slide,
         // 分帧备料:备了多久、分几段(当下画完的没有)
         prep: st?.prep ?? 0,
         slices: st?.slices ?? 0,
@@ -388,11 +406,26 @@ export function TerrainDetail({
     const submit = (r: Drawn, bw: number, exact: boolean) => {
       pend.current = r;
       const s = (bw / world.width) * r.k * r.dpr;
-      submitDetailJob(JOB, terrainDetailPrep(world, raster, style as DetailStyle, s, !tileView.current), (st) => {
+      let steps;
+      if (r.mp) {
+        // 弯边投影:画布大小、变换同 paint
+        const W = Math.max(1, Math.round((r.x1 - r.x0) * r.k * r.dpr));
+        const H = Math.max(1, Math.round((r.y1 - r.y0) * r.k * r.dpr));
+        steps = terrainProjPrep(world, raster, style as DetailStyle, r.mp, { s, ox: -r.x0 * r.k * r.dpr, oy: -r.y0 * r.k * r.dpr, k: r.k }, W, H);
+      } else steps = terrainDetailPrep(world, raster, style as DetailStyle, s, !tileView.current);
+      submitDetailJob(JOB, steps, (st) => {
         if (pend.current !== r) return;
         pend.current = null;
         const vis = visible();
-        if (vis) paint(r, vis, exact, st);
+        if (!vis) return;
+        // 备料期间中心又转了(还在拖):按现在的中心平移过去;对不上就不画了(下一次重画会再备)
+        const now = live.current;
+        const slide = !r.mp ? 0 : now.mp && r.proj === now.mp.key ? 0 : now.mp && now.moving ? slideOf(r, now.mp, vis) : null;
+        if (slide !== null) paint(r, vis, exact, st, slide);
+        else {
+          const g = window as unknown as { __wfDetail?: Record<string, unknown> };
+          if (g.__wfDetail) g.__wfDetail.pending = false;
+        }
       });
       const g = window as unknown as { __wfDetail?: Record<string, unknown> };
       // 还没画上去过:倍数报在备的这一份的(画上去以后同样报这个)
@@ -413,17 +446,21 @@ export function TerrainDetail({
       // 弯边投影里正在转中心、放大得不够:平移对不齐,先藏起来(画布留着),停下来再画
       if (mp && moving && !precise && vis.k < SLIDE_K) return hide(false);
       // 画好的那一块要左右挪多少才对得上(地图框 CSS 像素):中心没变 = 0;正在转中心 = 按投影整体平移;null = 要重画
-      const dx = !d ? null : precise ? 0 : mp && moving && !exact ? slideOf(d, mp, vis) : null;
-      const p = async ? same(pend.current) : null;
+      const dx = shiftOf(d, exact, vis);
+      // 在备的那一块(弯边投影:按备的时候的中心;用不上的不算)
+      const p0 = async ? same(pend.current) : null;
+      const pdx = shiftOf(p0, exact, vis);
+      const p = pdx === null ? null : p0;
+      const xMax = mp ? vis.bw : 2 * vis.bw;
       if (d && dx !== null && fits(d, vis, exact, dx)) {
         placeOnScreen(cv, vis, d.x0 + dx, d.y0, d.k);
         if (dx) (window as unknown as { __wfDetail?: unknown }).__wfDetail = { on: true, k: d.k, slide: dx, proj: mp?.def.id ?? 'equirect', lon: mp?.lon0 };
         reportTiles();
         if (!async) return;
         // 拖到离画好那一块的边不到半个余量:提前在后台备好下一块,往拖的方向多留一些(拖出去之前多半已经换上了);停下来了就不备
-        const ahead = exact ? null : aheadOf(d, vis, MARGIN, 2 * vis.bw, vis.bh);
+        const ahead = exact ? null : aheadOf(shifted(d, dx), vis, MARGIN, xMax, vis.bh);
         if (!ahead) cancel();
-        else if (!p || !fits(p, vis, false) || aheadOf(p, vis, MARGIN, 2 * vis.bw, vis.bh)) submit(regionOf(vis, ahead), vis.bw, false);
+        else if (!p || !fits(p, vis, false, pdx!) || aheadOf(shifted(p, pdx!), vis, MARGIN, xMax, vis.bh)) submit(regionOf(vis, ahead), vis.bw, false);
         return;
       }
       if (!async) {
@@ -431,9 +468,11 @@ export function TerrainDetail({
         return paint(regionOf(vis), vis, exact);
       }
       // 分帧:要重画的那一块在后台备料,备好了整张换上
-      const pOk = !!p && fits(p, vis, exact);
-      if (d && !covers(d, vis.x0, vis.y0, vis.x1, vis.y1)) {
-        // 拖出了画好的那一块(太快,提前备的还没好):等不及了,当下画完
+      const pOk = !!p && fits(p, vis, exact, pdx!);
+      // 画好的那张先顶着要挪多少(弯边投影换了中心:按投影平移过去;差得太多 = null)
+      const hold = d ? holdOf(d, vis) : null;
+      if (d && (hold === null || !covers(d, vis.x0, vis.y0, vis.x1, vis.y1, hold))) {
+        // 拖出了画好的那一块(太快,提前备的还没好),或者平移对不上了:等不及了,当下画完
         if (pOk) flushDetailJobs();
         else {
           cancel();
@@ -442,7 +481,7 @@ export function TerrainDetail({
         return;
       }
       // 先用画好的那张顶着(缩放倍数不准,按比例拉一点);换了画风、世界的那张不能再露出来,藏起来露出底下的整张图
-      if (d) placeOnScreen(cv, vis, d.x0, d.y0, d.k);
+      if (d) placeOnScreen(cv, vis, d.x0 + hold!, d.y0, d.k);
       else if (drawn.current) {
         cv.style.display = 'none';
         drawn.current = null;
