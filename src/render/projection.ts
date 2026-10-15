@@ -774,14 +774,24 @@ export function clipOutline(ctx: Ctx2D, mp: MapProj, v: PlaneView): void {
  * 伪圆柱投影:画布的一行是一条纬线,从原图对应的那一行(小数行,上下两行按距离插值)取一段横向拉过来;
  * 跨过原图左右边(180° 经线)的那一行分两段取。只画外轮廓以内、画布以内的部分;不清空画布
  */
-export function reprojectImage(ctx: Ctx2D, src: CanvasImageSource, sw: number, sh: number, mp: MapProj, v: PlaneView, quality: ImageSmoothingQuality = 'medium'): void {
+export function reprojectImage(
+  ctx: Ctx2D,
+  src: CanvasImageSource,
+  sw: number,
+  sh: number,
+  mp: MapProj,
+  v: PlaneView,
+  quality: ImageSmoothingQuality = 'medium',
+  /** 只铺画布的第 rows[0] 到 rows[1] − 1 行(分几次铺完和一次铺完一样;不给 = 全部) */
+  rows?: [number, number],
+): void {
   const cw = ctx.canvas.width;
   const ch = ctx.canvas.height;
   const { W, H, def } = mp;
   const lam0 = mp.lon0 * DEG;
   // 画布上外轮廓上下边之间的行
-  const r0 = Math.max(0, Math.floor((H / 2 - mp.s * mp.yMax) * v.s + v.oy));
-  const r1 = Math.min(ch, Math.ceil((H / 2 + mp.s * mp.yMax) * v.s + v.oy));
+  const r0 = Math.max(rows ? rows[0] : 0, Math.floor((H / 2 - mp.s * mp.yMax) * v.s + v.oy));
+  const r1 = Math.min(rows ? rows[1] : ch, ch, Math.ceil((H / 2 + mp.s * mp.yMax) * v.s + v.oy));
   const mxL = (0 - v.ox) / v.s;
   const mxR = (cw - v.ox) / v.s;
   ctx.save();

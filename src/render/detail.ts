@@ -15,7 +15,7 @@
  */
 import type { World } from '../gen/world';
 import type { Raster } from '../gen/raster';
-import type { PrepStep, VecView } from './common';
+import type { PrepStep, VecView, WorkStep } from './common';
 import {
   drawFantasyCoasts,
   drawFantasyIce,
@@ -24,6 +24,7 @@ import {
   fantasyBaseClean,
   fantasyBaseNoInk,
   fantasyDetailPrep,
+  fantasyProjPrep,
   fantasySymbolLayerProj,
 } from './fantasy';
 import { drawRealisticRivers, drawRealisticShores, realisticBase, realisticDetailPrep } from './realistic';
@@ -64,6 +65,15 @@ export function drawTerrainDetail(ctx: CanvasRenderingContext2D, world: World, r
  */
 export function terrainDetailPrep(world: World, raster: Raster, style: DetailStyle, s: number, creeks = true): PrepStep[] {
   return style === 'realistic' ? realisticDetailPrep(world, raster, creeks) : fantasyDetailPrep(world, raster, s);
+}
+
+/**
+ * 弯边投影里 drawTerrainProjected 画放大后的一块视口(画布 cw × ch,v 同它)第一次要现算的缓存,拆成一小步一小步:
+ * 整张图的那几样(同 terrainDetailPrep)+ 按这个投影 + 中心逐点投影、重铺的那几样(手绘风,见 fantasyProjPrep)
+ */
+export function terrainProjPrep(world: World, raster: Raster, style: DetailStyle, mp: MapProj, v: { s: number; ox: number; oy: number; k: number }, cw: number, ch: number): WorkStep[] {
+  if (style === 'realistic') return realisticDetailPrep(world, raster, true);
+  return [...fantasyDetailPrep(world, raster), ...fantasyProjPrep(world, raster, mp, v, cw, ch)];
 }
 
 /**

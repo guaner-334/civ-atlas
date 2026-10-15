@@ -15,7 +15,7 @@
  * 逐格上色的粗细:停着的时候 1 个 CSS 像素一格;拖动、缩放中重画和回放 / 拖时间轴时 2 个 CSS 像素一格(快几倍),
  * 停下来、回放停了再按 1 个补画。线条一直按屏幕像素画。
  *
- * 等距圆柱重画时分帧(ui/detailJobs.ts,同地形细节层):符号遮罩、逐格上色在后台一小段一小段地算,画好的那几张接着顶着,
+ * 重画时分帧(ui/detailJobs.ts,同地形细节层;弯边投影也一样,备的时候画好的那几张按投影平移着顶着):符号遮罩、逐格上色在后台一小段一小段地算,画好的那几张接着顶着,
  * 备好了和地形细节层一起整张换上(画出来的和一口气画完的逐像素一样)。拖到离画好那一块的边不到半个余量就提前备下一块
  * (往拖的方向多留一些),真拖出去了还没备好,剩下的当下做完。回放 / 拖时间轴(每一年都要马上画)、换了世界或画风
  * (被藏起来的整张图、画好的那几张都是旧的,不能露出来顶着)时当下画完。
@@ -106,6 +106,8 @@ const K_SLACK = Math.log(1.3);
 const SLIDE_K = 3;
 /** 平移和真实投影在视口上下边最多差几个 CSS 像素(超了就按新中心重画) */
 const SLIDE_ERR = 8;
+/** 按新中心重画的那一块在后台备料时,画好的那块平移着先顶着:允许差到几个 CSS 像素(同地形细节层) */
+const HOLD_ERR = 3 * SLIDE_ERR;
 /** 逐格上色:停着 / 拖动、回放时一格几个 CSS 像素;工作格最多多少个(超了就放粗) */
 const STEP_FINE = 1;
 const STEP_COARSE = 2;
@@ -115,14 +117,17 @@ const MAX_CELLS_COARSE = 1.2e6;
 let regionSeq = 0;
 
 /** 弯边投影:画好的那一块换到新中心时整体左右平移多少(地图框 CSS 像素);要重画 = null(同 TerrainDetail) */
-function slideOf(d: Region, mp: MapProj, vis: Visible): number | null {
+function slideOf(d: Region, mp: MapProj, vis: Visible, maxErr = SLIDE_ERR): number | null {
   const from = d.mp;
   if (!from || from.def !== mp.def || from.W !== mp.W || from.H !== mp.H) return null;
   const ux = mp.W / vis.bw;
   const uy = mp.H / vis.bh;
   const { dx, err } = centerShift(from, mp, vis.y0 * uy, vis.y1 * uy);
-  return (err / ux) * vis.k <= SLIDE_ERR ? dx / ux : null;
+  return (err / ux) * vis.k <= maxErr ? dx / ux : null;
 }
+
+/** 挪了 dx 的一块(提前备下一块时按它算离边多远) */
+const shifted = (r: Region, dx: number) => ({ x0: r.x0 + dx, y0: r.y0, x1: r.x1 + dx, y1: r.y1 });
 
 /** 底图这一层有没有东西要画(只开着地名时没有) */
 function baseHasContent(p: CivDrawParams | null): boolean {
@@ -166,6 +171,9 @@ export function CivDetail({ world, raster, params, civ, style, sel, selYear, hl,
   const lastView = useRef<unknown>(null);
   const timer = useRef(0);
   const moving = useMapMoving();
+  /** 现在的投影 + 中心、是不是正在转中心(后台备好的那一份画上去时按它摆) */
+  const live = useRef({ mp, moving });
+  live.current = { mp, moving };
   const coverRef = useRef(onCover);
   coverRef.current = onCover;
 
@@ -227,8 +235,8 @@ export function CivDetail({ world, raster, params, civ, style, sel, selYear, hl,
     const projKey = mp ? mp.key : '';
     const fast = !!params?.fast;
     const viewNow = view;
-    // 分帧备料(见 detailJobs.ts):等距圆柱、不在回放 / 拖时间轴时才分(回放每一年都要马上画);弯边投影、关掉开关时当下画完
-    const async = detailAsync && !mp && !fast;
+    // 分帧备料(见 detailJobs.ts):不在回放 / 拖时间轴时才分(回放每一年都要马上画);关掉开关时当下画完
+    const async = detailAsync && !fast;
     const selKey = wantSel ? `${sel!.kind}|${sel!.id}|${selYear}|${style}` : null;
     const hlKey = wantHl ? `${hl!.stamp}|${style}` : null;
 
@@ -238,6 +246,14 @@ export function CivDetail({ world, raster, params, civ, style, sel, selYear, hl,
     /** 画好的(或在备的)那一块能接着用:盖得住看得见的那一块,缩放倍数差得不多(停下来补画时要准) */
     const fits = (r: Region, vis: Visible, exact: boolean, dx = 0) =>
       covers(r, vis.x0, vis.y0, vis.x1, vis.y1, dx) && Math.abs(Math.log(vis.k / r.k)) < (exact ? 0.02 : K_SLACK);
+    /**
+     * 画好的(或在备的)那一块要左右挪多少才对得上(地图框 CSS 像素):同一个投影 + 中心 = 0;
+     * 弯边投影正在转中心 = 按投影整体平移(停下来要准,不算);null = 用不上,要按新中心重画
+     */
+    const shiftOf = (r: Region | null, exact: boolean, vis: Visible) =>
+      !r ? null : r.proj === projKey ? 0 : mp && moving && !exact ? slideOf(r, mp, vis) : null;
+    /** 后台备新的一块时,画好的那块先顶着要挪多少(停下来了也先平移着顶着,差得太多 = null) */
+    const holdOf = (r: Region, vis: Visible) => (r.proj === projKey ? 0 : mp ? slideOf(r, mp, vis, HOLD_ERR) : null);
 
     /** R 这一块按多粗的格上色(拖动、缩放中或回放中粗一点) */
     const stepOf = (R: Region, interacting: boolean) => {
@@ -371,7 +387,16 @@ export function CivDetail({ world, raster, params, civ, style, sel, selYear, hl,
         if (pend.current !== job) return;
         pend.current = null;
         const vis = visibleBox(box);
-        if (vis) paint(ps, vis, exact, 0, st);
+        if (!vis) return;
+        // 备料期间中心又转了(还在拖):按现在的中心平移过去;对不上就不画了(下一次重画会再备)
+        const R = ps.R;
+        const now = live.current;
+        const slide = !R.mp ? 0 : now.mp && R.proj === now.mp.key ? 0 : now.mp && now.moving ? slideOf(R, now.mp, vis) : null;
+        if (slide !== null) paint(ps, vis, exact, slide, st);
+        else {
+          const g = window as unknown as { __wfCivDetail?: Record<string, unknown> };
+          if (g.__wfCivDetail) g.__wfCivDetail.pending = false;
+        }
       });
       const g = window as unknown as { __wfCivDetail?: Record<string, unknown> };
       // 还没画上去过:倍数报在备的这一份的(画上去以后同样报这个)
@@ -405,7 +430,7 @@ export function CivDetail({ world, raster, params, civ, style, sel, selYear, hl,
       const precise = !!d && d.proj === projKey;
       // 弯边投影里正在转中心、放大得不够:平移对不齐,先藏起来(画布留着),停下来再画
       if (mp && moving && !precise && vis.k < SLIDE_K) return off(false);
-      const dx = !d ? null : precise ? 0 : mp && moving && !exact ? slideOf(d, mp, vis) : null;
+      const dx = shiftOf(d, exact, vis);
       const R = d && dx !== null && fits(d, vis, exact, dx) ? d : null;
       const slide = R ? dx! : 0;
       // 拖动、缩放中(视图和上一次不一样)或回放中:粗一点的格
@@ -421,31 +446,36 @@ export function CivDetail({ world, raster, params, civ, style, sel, selYear, hl,
         paint(ps, vis, exact, slide);
         return;
       }
-      const p = pend.current;
+      // 在备的那一份(弯边投影:按备的时候的中心;用不上的不算)
+      const pdx = shiftOf(pend.current?.ps.R ?? null, exact, vis);
+      const p = pdx === null ? null : pend.current;
+      const xMax = mp ? vis.bw : 2 * vis.bw;
       if (R) {
         const step = stepOf(R, interacting);
         const ps = plansFor(R, step, interacting);
         if (anyNew(ps)) {
           // 同一块上换数据、换细格:后台备好再换(画着的那几张先顶着)
-          for (const cv of [cvs.base!, cvs.sel!, cvs.hl!]) if (cv.width) placeOnScreen(cv, vis, R.x0, R.y0, R.k);
+          for (const cv of [cvs.base!, cvs.sel!, cvs.hl!]) if (cv.width) placeOnScreen(cv, vis, R.x0 + slide, R.y0, R.k);
           if (!pendOk(p, R, vis, step)) submit(ps, exact);
           return;
         }
         // 不用重画:挪好位置(不要的那几张藏起来)
-        paint(ps, vis, exact, 0);
+        paint(ps, vis, exact, slide);
         // 拖到离画好那一块的边不到半个余量:提前在后台备好下一块,往拖的方向多留一些(拖出去之前多半已经换上了);停下来了就不备
-        const ahead = exact ? null : aheadOf(R, vis, MARGIN, 2 * vis.bw, vis.bh);
+        const ahead = exact ? null : aheadOf(shifted(R, slide), vis, MARGIN, xMax, vis.bh);
         if (!ahead) cancel();
-        else if (!p || !fits(p.ps.R, vis, false) || aheadOf(p.ps.R, vis, MARGIN, 2 * vis.bw, vis.bh) || !pendOk(p, p.ps.R, vis, stepOf(p.ps.R, true))) {
+        else if (!p || !fits(p.ps.R, vis, false, pdx!) || aheadOf(shifted(p.ps.R, pdx!), vis, MARGIN, xMax, vis.bh) || !pendOk(p, p.ps.R, vis, stepOf(p.ps.R, true))) {
           const T = newRegion(vis, ahead);
           submit(plansFor(T, stepOf(T, true), true), false);
         }
         return;
       }
       // 画好的那一块用不上了:后台备新的一块,备好了整张换上
-      const pOk = !!p && fits(p.ps.R, vis, exact) && pendOk(p, p.ps.R, vis, stepOf(p.ps.R, interacting));
-      if (d && !covers(d, vis.x0, vis.y0, vis.x1, vis.y1)) {
-        // 拖出了画好的那一块(太快,提前备的还没好):等不及了,当下画完
+      const pOk = !!p && fits(p.ps.R, vis, exact, pdx!) && pendOk(p, p.ps.R, vis, stepOf(p.ps.R, interacting));
+      // 画好的那几张先顶着要挪多少(弯边投影换了中心:按投影平移过去;差得太多 = null)
+      const hold = d ? holdOf(d, vis) : null;
+      if (d && (hold === null || !covers(d, vis.x0, vis.y0, vis.x1, vis.y1, hold))) {
+        // 拖出了画好的那一块(太快,提前备的还没好),或者平移对不上了:等不及了,当下画完
         if (pOk) flushDetailJobs();
         else {
           cancel();
@@ -455,7 +485,7 @@ export function CivDetail({ world, raster, params, civ, style, sel, selYear, hl,
         return;
       }
       // 先用画好的那几张顶着(缩放倍数不准,按比例拉一点);还没画过的时候底下的整张图露着
-      if (d) for (const cv of [cvs.base!, cvs.sel!, cvs.hl!]) if (cv.width) placeOnScreen(cv, vis, d.x0, d.y0, d.k);
+      if (d) for (const cv of [cvs.base!, cvs.sel!, cvs.hl!]) if (cv.width) placeOnScreen(cv, vis, d.x0 + hold!, d.y0, d.k);
       if (!pOk) {
         const T = newRegion(vis);
         submit(plansFor(T, stepOf(T, interacting), interacting), exact);

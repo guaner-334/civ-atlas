@@ -45,6 +45,7 @@ import { setMapPlacement } from './mapPick';
 import { mapBoxOf, mirrorCanvas, placeOnScreen, visibleBox } from './mapWrap';
 import { nearX } from '../render/common';
 import { labelProjection, projector, type MapProj } from '../render/projection';
+import { DETAIL_K } from '../render/detail';
 import { ProjLayer, useMapMoving } from './projection';
 import { useAvoidBoxes } from './uiAvoid';
 import { CivDetail } from './CivDetail';
@@ -159,6 +160,17 @@ interface LabelsDebug {
   wars?: { lines: number; marks: number } | null;
 }
 
+/** moving 变成 false 以后再等一个任务才变 false(变 true 是马上) */
+function useLateStop(moving: boolean): boolean {
+  const [late, setLate] = useState(moving);
+  useEffect(() => {
+    if (moving) return setLate(true);
+    const h = window.setTimeout(() => setLate(false), 0);
+    return () => window.clearTimeout(h);
+  }, [moving]);
+  return moving || late;
+}
+
 export function CivLayer({ world, raster, civ, geo, style, year, view, mp = null, labelsHost = null, detailHost = null, flags = null }: CivLayerProps) {
   const ref = useRef<HTMLCanvasElement>(null);
   const textRef = useRef<HTMLCanvasElement>(null);
@@ -215,6 +227,10 @@ export function CivLayer({ world, raster, civ, geo, style, year, view, mp = null
   const baseDrawn = useRef<unknown>(null);
   const preciseDrawn = useRef<unknown>(null);
   const moving = useMapMoving();
+  // 停下来以后底图晚一个任务再按投影精画:和地形图的精画、国名重新拟合分在两个任务里,不挤成一次长卡顿
+  const baseMoving = useLateStop(moving);
+  // 放大到细节层以上:文明细节层马上会盖住这一张(画上去之前它还露着)。不按投影精画(整图精画一次几百毫秒),整图重铺就够
+  const covered = !!mp && (view?.k ?? 1) > DETAIL_K;
   useEffect(() => {
     const cv = ref.current;
     if (!cv) return;
@@ -231,7 +247,7 @@ export function CivLayer({ world, raster, civ, geo, style, year, view, mp = null
         return;
       }
       const t0 = performance.now();
-      if (!moving) {
+      if (!baseMoving && !covered) {
         const fresh = preciseDrawn.current !== params;
         const pj = projector(mp);
         L.redraw(cv, raster.w, raster.h, mp.key, null, (ctx) => drawCivOverlay(ctx, { ...params, proj: pj }), fresh);
@@ -297,7 +313,7 @@ export function CivLayer({ world, raster, civ, geo, style, year, view, mp = null
     else copyStale.current = true;
     (window as unknown as { __wfCiv: unknown }).__wfCiv = { ready: true, ms: performance.now() - t0, show, year: params.year, fast };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [params, raster, show, mp, moving, detailOn]);
+  }, [params, raster, show, mp, baseMoving, covered, detailOn]);
   useLayoutEffect(() => {
     if (!copyStale.current || !copyVisible()) return;
     copyStale.current = false;
