@@ -1,6 +1,7 @@
 /**
  * 世界概览的"编年史"页:按年份列出推演里的大事(条目由 gen/civ/chronicle.ts 写好),新的在上。
- * 一行:年份(宋体)· 类型(彩色粗体:战争 / 改朝 / 立国 / 称帝 / 同化 / 宗教 / 干预……)· 纪事正文。
+ * 一行:年份(宋体,后面灰字写几月;手机写在年份下面一行)· 类型(彩色粗体:战争 / 改朝 / 立国 / 称帝 / 同化 / 宗教 / 干预……)· 纪事正文。
+ * 月份按世界设定「月份」(一年几个月 / 只写年;gen/era.ts 的 monthOf),按整年算的事(宗教、干预、地形大事)不写月。
  * 宗教的事(创教、立国教、传入、教派分立、圣城易主)不是史事,按年份并进来(religionText.ts 的 fullChronicle)。
  *
  * - 点一条:收起概览,时间轴跳到那一年并暂停,打开"国家"图层,地图上事发的州 / 相关国家闪约两秒
@@ -11,14 +12,16 @@
  *   只看一国时,"全部"里按年份插进这一国的历代君主继位(全世界的继位太多,看全部国家、看"大事"时不列)。
  * - 回放 / 拖时间轴时:还没发生的事(在上面)淡显,"现在"线跟着走、列表跟着滚。这一步不经过 React
  *   (订阅时间轴,直接改行的 data-st 属性和 scrollTop),几千条也不会每帧重排。
+ * - "跳到第 [ ] 年"(JumpYear.tsx 的 JumpField):回车后时间轴拨到那一年,概览不关,列表滚到那一年("现在"线在四成高处)。
  * - "复制全文":当前列出的纪事(含战争里的每一件事)复制成纯文本,给 OC 作者写设定用。
  * - "写成史书"(阶段 5):打开 HistoryBook 窗口;按国家看时默认写这一国的国史。「使用 AI 功能」关着时没有这个按钮。
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import type { Civ } from '../gen/civ/types';
 import { chronicleText, filterChronicle, polityChronicle, type ChronicleEntry } from '../gen/civ/chronicle';
-import { yearFull, yearShort } from '../gen/era';
-import { useEra } from './editsStore';
+import { monthOf, yearFull, yearShort } from '../gen/era';
+import { useEra, useMonths } from './editsStore';
+import { JumpField } from './JumpYear';
 import { fullChronicle } from '../gen/civ/religionText';
 import { polityName } from '../gen/civ/growth';
 import { getCivTime, pickChronicleEntry, setChronicle, subscribeCivTime, useChronicle, useChroniclePick, type CivTime } from './civView';
@@ -47,6 +50,7 @@ export function Chronicle({ civ }: { civ: Civ | null }) {
   const view = useChronicle();
   const aiOn = useAiOn();
   const era = useEra();
+  const months = useMonths();
   const all = useMemo(() => (civ ? fullChronicle(civ) : []), [civ]);
   // 按国家筛过的"全部"和"大事"(两个按钮上各写条数),当前列出的是其中之一;只看一国时"全部"里并进这一国的君主继位
   const mine = useMemo(() => {
@@ -124,7 +128,7 @@ export function Chronicle({ civ }: { civ: Civ | null }) {
 
   const copy = async () => {
     const title = `编年史 · 种子 ${civ.seed}${focus ? ` · 只看${focusName}` : ''}${view.major ? ' · 大事' : ''}`;
-    const text = chronicleText(list, title, era);
+    const text = chronicleText(list, title, era, months);
     (window as unknown as { __wfChronicleText: string }).__wfChronicleText = text;
     try {
       await navigator.clipboard.writeText(text);
@@ -152,6 +156,7 @@ export function Chronicle({ civ }: { civ: Civ | null }) {
     const b = Math.floor(e.end);
     const kids = top ? e.children : undefined;
     const isOpen = !!kids && expanded.has(e.id);
+    const m = monthOf(e.year, months);
     return (
       <div
         className={`chron-row imp${e.importance}${sameEntry(active, e) ? ' on' : ''}${top ? '' : ' kid'}`}
@@ -165,6 +170,7 @@ export function Chronicle({ civ }: { civ: Civ | null }) {
       >
         <span className="chron-year">
           {yearShort(a, era)}
+          {m > 0 && <span className="chron-m">{m} 月</span>}
           {top && b > a && <em>–{yearShort(b, era)}</em>}
         </span>
         <b className="tb-ev chron-type">{evLabel(e)}</b>
@@ -188,7 +194,7 @@ export function Chronicle({ civ }: { civ: Civ | null }) {
   };
 
   return (
-    <section className={`chronicle${era ? ' era' : ''}`}>
+    <section className={`chronicle${era ? ' era' : ''}${months ? ' mo' : ''}`}>
       <div className="chron-filters">
         <div className="seg">
           <button className={view.major ? 'on' : ''} onClick={() => setChronicle({ major: true })} title={`大国立国、称王称帝、改变格局的战争、分裂、复国、合并……`}>
@@ -217,6 +223,7 @@ export function Chronicle({ civ }: { civ: Civ | null }) {
             </select>
           </label>
         )}
+        <JumpField civ={civ} listRef={listRef} nowRef={nowRef} />
         <span className="chron-acts">
           <button className="ov-btn chron-copy" onClick={copy} disabled={!list.length} title="把列出的纪事(含战争里的每一件事)复制成纯文本">
             {copied ? '已复制' : '复制全文'}

@@ -2,23 +2,31 @@
  * 纪年:年份的全写 / 短写 / 起止、和第几年互换、没有 0 年;整理(cleanEra);一段字里"第 N 年"换成纪年的写法;
  * 时间轴刻度对准元年;作者填年份不合格时的提示;存档、分享链接带着纪年往返,认不出的按第几年写;
  * 改纪年不记撤销步。没设纪年时每一处写法都和原来一样。
+ * 月份:一年几个月、整年的事不写月、和纪年一起的写法、存档带着走;跳到某一年:填的字怎么算回第几年、超出范围怎么提示。
  */
 import { describe, expect, it } from 'vitest';
 import {
   ERA_DEFAULT,
+  MONTHS_DEFAULT,
   cleanEra,
+  cleanMonths,
   eraLabel,
   eraNote,
   eraText,
   eraYear,
   eraZero,
   epochOfZero,
+  monthOf,
+  monthsOf,
   noYearZero,
+  parseJump,
   sameEra,
   spaced,
   worldYear,
   yearAt,
   yearFull,
+  yearMonthAt,
+  yearMonthFull,
   yearShort,
   yearShortAt,
   yearSpan,
@@ -31,7 +39,8 @@ import { evYears, rulerLabel, rulerOf } from '../src/ui/timelineLayout';
 import { EMPTY_EDITS, type WorldEdits } from '../src/gen/edits';
 import { DEFAULT_PARAMS } from '../src/gen/world';
 import { decodeShare, editCount, editsLost, encodeShare, makeSave, parseSave, saveText } from '../src/gen/savefile';
-import { getEdits, revertEdits, setEdits, setEra } from '../src/ui/editsStore';
+import { currentMonths, getEdits, revertEdits, setEdits, setEra, setMonths } from '../src/ui/editsStore';
+import { chronicleText, type ChronicleEntry } from '../src/gen/civ/chronicle';
 import { parseChapter } from '../src/ui/BookReader';
 import { draftProblem, type MarkDraft } from '../src/ui/markStore';
 import { INTERVENTION_YEAR_MAX } from '../src/gen/edits';
@@ -283,5 +292,137 @@ describe('存档', () => {
     setEra(undefined);
     expect('era' in getEdits()).toBe(false);
     setEdits(EMPTY_EDITS);
+  });
+});
+
+describe('月份', () => {
+  it('一年 12 个月:年里过了几成 × 12,取整 + 1;正好在年初(整年算的事)不写月', () => {
+    expect(monthOf(1638, 12)).toBe(0);
+    expect(monthOf(1638 + 1 / 256, 12)).toBe(1);
+    expect(monthOf(1638.5, 12)).toBe(7);
+    expect(monthOf(1638 + 255 / 256, 12)).toBe(12);
+    expect(monthOf(1638 + 255 / 256, 24)).toBe(24);
+    expect(monthOf(1638.5, 24)).toBe(13);
+    expect(monthOf(1638.5, 0)).toBe(0);
+    expect(monthOf(Number.NaN, 12)).toBe(0);
+    // 一年 256 格,每格都落在 1–N 月里
+    for (const n of [2, 12, 24, 36]) {
+      for (let t = 1; t < 256; t++) {
+        const m = monthOf(10 + t / 256, n);
+        expect(m >= 1 && m <= n).toBe(true);
+      }
+    }
+  });
+
+  it('写法:第 1638 年 11 月、1638 年 11 月;和纪年一起写成公元前 850 年 3 月;只写年和原来一样', () => {
+    const y = 1638 + 230 / 256;
+    expect(yearMonthFull(y, 12)).toBe('第 1638 年 11 月');
+    expect(yearMonthAt(y, 12)).toBe('1638 年 11 月');
+    expect(yearMonthFull(y, 0)).toBe(yearFull(y));
+    expect(yearMonthAt(1638, 12)).toBe(yearAt(1638));
+    expect(yearMonthFull(1650 + 50 / 256, 12, AD)).toBe('公元前 850 年 3 月');
+    expect(yearMonthAt(1650 + 50 / 256, 12, AD)).toBe(yearAt(1650, AD) + ' 3 月');
+    expect(yearMonthFull(2500.99, 24, AD)).toBe('公元元年 24 月');
+  });
+
+  it('时间轴提示、编年史复制全文写到月;跨年的战争写起止,里面每一仗写到月', () => {
+    const e = (year: number, text: string, extra: Partial<ChronicleEntry> = {}) => ({ year, end: year, text, ...extra }) as ChronicleEntry;
+    expect(evYears(e(1638 + 230 / 256, 'a'), undefined, 12)).toBe('1638 年 11 月');
+    expect(evYears(e(1638 + 230 / 256, 'a'))).toBe('1638 年');
+    const war = e(1631.95, '伐之', { end: 1655.05, children: [e(1631.95, '起兵'), e(1636, '会盟')] });
+    expect(chronicleText([war], undefined, undefined, 12).split('\n')).toEqual(['第 1631—1655 年 伐之', '    第 1631 年 12 月 起兵', '    第 1636 年 会盟']);
+    expect(chronicleText([war]).split('\n')[1]).toBe('    第 1631 年 起兵');
+    expect(chronicleText([war], undefined, AD, 12).split('\n')[1]).toBe('    公元前 869 年 12 月 起兵');
+  });
+
+  it('整理:0 = 只写年,2–36 照存,12(默认)和认不出的不存', () => {
+    expect(cleanMonths(0)).toBe(0);
+    expect(cleanMonths(24)).toBe(24);
+    expect(cleanMonths(2)).toBe(2);
+    expect(cleanMonths(36)).toBe(36);
+    for (const bad of [12, 1, 37, 1.5, -3, '24', null, undefined, Number.NaN]) expect(cleanMonths(bad)).toBeUndefined();
+    expect(monthsOf(undefined)).toBe(MONTHS_DEFAULT);
+    expect(monthsOf(0)).toBe(0);
+    expect(monthsOf(99)).toBe(12);
+  });
+
+  it('存档、分享链接带着月份往返;一年 12 个月时不写这一项;认不出的按 12 个月写,提示一句', async () => {
+    const save = makeSave({ ...DEFAULT_PARAMS, seed: 7 }, { ...EMPTY_EDITS, months: 24 }, 'c');
+    expect(save.edits.months).toBe(24);
+    const r = parseSave(saveText(save));
+    expect(r.ok && r.save.edits.months).toBe(24);
+    expect(r.ok && r.warnings).toEqual([]);
+    const d = await decodeShare(await encodeShare(save));
+    expect(d.ok && d.save.edits.months).toBe(24);
+    const off = parseSave(saveText(makeSave({ ...DEFAULT_PARAMS, seed: 7 }, { ...EMPTY_EDITS, months: 0 }, 'c')));
+    expect(off.ok && off.save.edits.months).toBe(0);
+
+    const plain = makeSave({ ...DEFAULT_PARAMS, seed: 7 }, { ...EMPTY_EDITS, months: 12 }, 'c');
+    expect('months' in plain.edits).toBe(false);
+
+    const raw = JSON.parse(saveText(plain)) as { edits: Record<string, unknown> };
+    raw.edits.months = 99;
+    const w = parseSave(JSON.stringify(raw));
+    expect(w.ok && 'months' in w.save.edits).toBe(false);
+    expect(w.ok && w.warnings).toContain('月份设定认不出来,按一年 12 个月写');
+  });
+
+  it('月份算一处修改;两份存档月份不同算丢一处', () => {
+    expect(editCount({ ...EMPTY_EDITS, months: 0 })).toBe(editCount(EMPTY_EDITS) + 1);
+    expect(editCount({ ...EMPTY_EDITS, months: 12 })).toBe(editCount(EMPTY_EDITS));
+    const a = makeSave({ ...DEFAULT_PARAMS, seed: 7 }, { ...EMPTY_EDITS, months: 24 }, 'c');
+    const b = makeSave({ ...DEFAULT_PARAMS, seed: 7 }, EMPTY_EDITS, 'c');
+    expect(editsLost(a, b)).toBe(1);
+    expect(editsLost(b, makeSave({ ...DEFAULT_PARAMS, seed: 7 }, { ...EMPTY_EDITS, months: 12 }, 'c'))).toBe(0);
+  });
+
+  it('改月份不记撤销步:撤销别的修改时月份照现在的留着;不合格的不改;改回 12 不写这一项', () => {
+    setEdits(EMPTY_EDITS);
+    expect(currentMonths()).toBe(12);
+    setMonths(24);
+    expect(currentMonths()).toBe(24);
+    const before = getEdits();
+    const after = { ...before, names: { 'polity:c1#0': '昌' } };
+    setEdits(after);
+    setMonths(0);
+    expect(revertEdits(getEdits(), after, before).months).toBe(0);
+    setMonths(40);
+    expect(currentMonths()).toBe(0);
+    setMonths(12);
+    expect('months' in getEdits()).toBe(false);
+    setEdits(EMPTY_EDITS);
+  });
+});
+
+describe('跳到某一年', () => {
+  it('没设纪年:填第几年;空着、不是数字不跳也不提示', () => {
+    expect(parseJump('1400', false, undefined, 3000)).toEqual({ year: 1400, why: null, hint: null });
+    expect(parseJump('0', false, undefined, 3000)).toEqual({ year: 0, why: null, hint: null });
+    expect(parseJump('3000', false, undefined, 3000)).toEqual({ year: 3000, why: null, hint: null });
+    expect(parseJump('', false, undefined, 3000)).toEqual({ year: null, why: null, hint: null });
+    expect(parseJump('12a', false, undefined, 3000).year).toBeNull();
+    expect(parseJump('1234567', false, undefined, 3000).year).toBeNull();
+  });
+
+  it('超出这个世界:提示一句,回车停在最后一年', () => {
+    expect(parseJump('3500', false, undefined, 3000)).toEqual({
+      year: 3000,
+      why: '这个世界只推到第 3000 年',
+      hint: '回车跳到最后一年（第 3000 年）',
+    });
+    expect(parseJump('900', false, undefined, 800.5).year).toBe(800);
+  });
+
+  it('设了纪年:按纪年算回第几年;没有 0 年;早于第 0 年停在第一年', () => {
+    expect(parseJump('1300', true, AD, 3000)).toEqual({ year: 1200, why: null, hint: null });
+    expect(parseJump('1', false, AD, 3000).year).toBe(2500);
+    expect(parseJump('501', false, AD, 3000).year).toBe(3000);
+    expect(parseJump('0', true, AD, 3000)).toEqual({ year: null, why: noYearZero(AD), hint: null });
+    expect(parseJump('3000', true, AD, 3000)).toEqual({
+      year: 0,
+      why: '这个世界从公元前 2500 年开始',
+      hint: '回车跳到第一年（公元前 2500 年）',
+    });
+    expect(parseJump('900', false, AD, 3000)).toMatchObject({ year: 3000, why: '这个世界只推到公元 501 年' });
   });
 });

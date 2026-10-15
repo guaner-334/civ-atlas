@@ -23,6 +23,7 @@ export type ShortcutAction =
   | 'forward'
   | 'back100'
   | 'forward100'
+  | 'jump'
   | 'zoomIn'
   | 'zoomOut'
   | 'layer1'
@@ -110,6 +111,8 @@ export function matchShortcut(e: KeyLike): ShortcutAction | null {
   if (ch === '?') return 'help';
   if (e.shiftKey) return null;
   if (e.code === 'Space') return 'play';
+  // G 按键位认(中文输入法、别的键盘布局打出来的字不一样)
+  if (e.code === 'KeyG') return 'jump';
   // 数字按键位认:法文键盘上不按 Shift 打出来的是 é 之类,中文、日文输入法也一样
   return LAYER_CODES[e.code] ?? null;
 }
@@ -135,6 +138,8 @@ export function keyLabel(k: ShortcutKey, mac = isMacLike()): string {
       return mac ? '⇧←' : 'Shift+←';
     case 'forward100':
       return mac ? '⇧→' : 'Shift+→';
+    case 'jump':
+      return 'G';
     case 'zoomIn':
       return '+';
     case 'zoomOut':
@@ -174,6 +179,7 @@ export const SHORTCUT_GROUPS: readonly { title: string; rows: readonly { text: s
       { text: '播放 / 暂停', keys: ['play'] },
       { text: '往前 / 往后 10 年', keys: ['back', 'forward'] },
       { text: '往前 / 往后 100 年', keys: ['back100', 'forward100'] },
+      { text: '输入年份，跳到那一年', keys: ['jump'] },
     ],
   },
   {
