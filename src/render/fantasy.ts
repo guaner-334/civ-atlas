@@ -1170,10 +1170,16 @@ function seaPathsSteps(world: World, r: Raster, pj: Projector): WorkStep[] {
   };
   const unit = { s: 1, ox: 0, oy: 0 };
   const sl = () => seaLinesOf(world, r);
-  const ringStep = (i: number): WorkStep => () => {
+  // 波纹段一组一组投影,做到 deadline 就让出去(有几组要等海面线备好才知道,所以不在交活时数)
+  const ringStep: WorkStep = (deadline) => {
     if (done()) return;
     const b = build();
-    b.rings[i] ??= coastChunks(sl().rings[i].flatMap((q) => projectLinePts(q, 2, pj, unit).map((p) => Float32Array.from(p))));
+    const rings = sl().rings;
+    for (let i = 0; i < rings.length; i++) {
+      if (b.rings[i]) continue;
+      b.rings[i] = coastChunks(rings[i].flatMap((q) => projectLinePts(q, 2, pj, unit).map((p) => Float32Array.from(p))));
+      if (performance.now() >= deadline) return i + 1 < rings.length;
+    }
   };
   const fadeStep =
     (i: number): WorkStep =>
@@ -1192,7 +1198,7 @@ function seaPathsSteps(world: World, r: Raster, pj: Projector): WorkStep[] {
       return f.row < r.h;
     };
   return [
-    ...sl().rings.map((_, i) => ringStep(i)),
+    ringStep,
     () => {
       if (done()) return;
       const b = build();
