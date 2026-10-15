@@ -512,6 +512,33 @@
   color: var(--ink-2);
 }
 
+/* 「设为新建时的默认」:经纬网下面一整行的按钮;已经是了就灰着、前面打勾 */
+.studio .st-def {
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 44px;
+  margin: -6px 0 12px;
+  border: 0;
+  color: var(--link);
+  font-size: 14px;
+  cursor: pointer;
+}
+.studio .st-def:hover:not(:disabled) {
+  background: var(--hover-bg);
+}
+.studio .st-def:disabled {
+  color: var(--ink-3);
+  cursor: default;
+}
+.st-phone .st-def {
+  margin: 8px 0 0;
+  min-height: 42px;
+  font-size: 15px;
+}
+
 /* ---- 底下的一句提示(拖动看看这颗星球……) ---- */
 .st-cap {
   position: absolute;
@@ -1027,13 +1054,18 @@
   width: 58px;
   font-weight: 400;
 }
-.sk-pr > em {
-  flex: none;
-  width: 50px;
-  text-align: right;
-  font-style: normal;
-  color: var(--ink);
-  font-variant-numeric: tabular-nums;
+.sk-pr > .pf {
+  width: 64px;
+  height: 24px;
+  font-size: 13px;
+}
+.sk-err {
+  display: block;
+  margin-top: -4px;
+  padding-left: 68px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--err);
 }
 .sk-body > .sk-params + .sb-row,
 .sk-body > .nw-years-note + .sb-row,
@@ -1041,8 +1073,8 @@
   border-top: 0.5px solid var(--line);
 }
 /* 推演到:数字写"10000 年",比别的宽 */
-.sk-pr[data-param='endYear'] > em {
-  width: 64px;
+.sk-pr[data-param='endYear'] > .pf {
+  width: 80px;
 }
 .sk-name {
   padding: 10px 12px 0;
@@ -1257,4 +1289,122 @@
 }
 .st-sheet .st-in.sk-in > * {
   margin-top: 0;
+}
+
+/* ---- 设为新建时的默认以后:底下的提示带「撤销」 ---- */
+.studio > .st-def-tip {
+  padding: 0 8px 0 16px;
+  white-space: nowrap;
+}
+.st-def-tip button {
+  height: 30px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 15px;
+  background: none;
+  color: var(--link) !important;
+  font-weight: 500;
+  cursor: pointer;
+}
+.st-def-tip button:hover {
+  background: var(--hover-bg);
+}
+.st-phone .st-def-tip {
+  white-space: normal;
+}
+
+/* ---- 看过的星球:种子右边小按钮点开的列表 ---- */
+.studio > .st-seen {
+  position: absolute;
+  width: 320px;
+  max-height: calc(100% - 24px);
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  padding: 6px;
+  border-radius: 12px;
+  background: rgba(44, 44, 46, 0.97);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  box-shadow:
+    0 0 0 0.5px var(--line-strong),
+    0 12px 36px rgba(0, 0, 0, 0.5);
+  animation: st-in 0.15s ease-out;
+}
+.st-phone > .st-seen {
+  width: auto;
+  max-height: 52%;
+}
+.st-seen-hd {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 8px 6px;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+.st-seen-hd small {
+  font-size: 12px;
+}
+.st-seen-list {
+  min-height: 0;
+  overflow-y: auto;
+}
+.studio .st-seen-it {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 52px;
+  padding: 5px 10px 5px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+.st-seen-it:hover {
+  background: var(--hover-bg);
+}
+.studio .st-seen-it.on {
+  background: var(--accent);
+  color: #fff;
+}
+.st-seen-pic {
+  flex: none;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: #1d3550 center / cover;
+  box-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.2);
+}
+.st-seen-tx {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.st-seen-tx b {
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.st-seen-tx small {
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+.st-seen-it.on small,
+.st-seen-it.on .st-seen-t {
+  color: rgba(255, 255, 255, 0.85);
+}
+.st-seen-t {
+  flex: none;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+.st-seen-ft {
+  margin: 4px 8px 2px;
+  padding-top: 8px;
+  border-top: 0.5px solid var(--line);
+  font-size: 12.5px;
+  color: var(--ink-2);
 }

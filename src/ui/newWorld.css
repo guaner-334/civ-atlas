@@ -46,6 +46,34 @@
     0 24px 70px rgba(0, 0, 0, 0.28);
   animation: nd-pop 0.2s ease-out;
 }
+/* 第 2 步:标题、预设一行和底下的按钮不动,中间的参数滚(高不过窗口) */
+.nd-sheet.tall {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 48px);
+  max-height: calc(100dvh - 48px);
+}
+.nd-sheet.tall > .nd-sub {
+  margin-bottom: 12px;
+}
+.nd-preset {
+  flex: none;
+  margin: 0 0 14px;
+}
+.nd-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin: 0 -24px;
+  padding: 14px 24px 16px;
+  border-top: 0.5px solid var(--line);
+  border-bottom: 0.5px solid var(--line);
+}
+.nd-sheet.tall .nd-ft {
+  flex: none;
+  margin-top: 16px;
+}
 @keyframes nd-pop {
   from {
     transform: scale(0.97);
@@ -180,6 +208,7 @@
   color: var(--ink-3);
 }
 .nd-sheet > .nd-lab:first-of-type,
+.nd-scroll > .nd-lab:first-child,
 .nd-pbody > .nd-lab:first-child {
   margin-top: 0;
 }
@@ -189,6 +218,7 @@
   overflow: hidden;
 }
 .nd-pr {
+  --trk: rgba(120, 120, 128, 0.26);
   display: flex;
   align-items: center;
   gap: 14px;
@@ -205,19 +235,61 @@
   flex: none;
   width: 74px;
 }
-.nd-v {
+/* 打的字不对:这一行下面一句红字(和名字后面的滑条对齐) */
+.nd-pr.has-err {
+  border-bottom: 0;
+}
+.nd-err {
+  margin-top: -4px;
+  padding: 0 14px 8px 102px;
+  border-bottom: 0.5px solid var(--line);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--err);
+}
+.nd-err:last-child {
+  border-bottom: 0;
+}
+/* 「大陆」收着时的那一行:点开 */
+.nd-scrim .nd-more {
+  width: 100%;
+  border: 0;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+.nd-more:hover {
+  background: var(--hover-bg);
+}
+.nd-more-n {
+  flex: 1;
+  min-width: 0;
+}
+.nd-more-s {
   flex: none;
-  width: 92px;
-  text-align: right;
+  max-width: 55%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 13.5px;
   color: var(--ink-2);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
 }
-.nd-v em {
-  margin-left: 4px;
-  font-style: normal;
+.nd-more .icon {
+  flex: none;
+  margin-left: -6px;
   color: var(--ink-3);
+}
+.nd-scrim .nd-lab-a {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--link);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.nd-lab-a:hover {
+  text-decoration: underline;
 }
 /* 「历史」一组:开关那一行名字占满;组下面一直写着那段说明(像系统设置里开关下面的灰字) */
 .nd-grp .nd-n.wide {
@@ -546,9 +618,31 @@
 .nd-pbody .nd-n {
   width: 64px;
 }
-.nd-pbody .nd-v {
-  /* 放得下「推演到」的"10000 年" */
-  width: 66px;
+.nd-pbody .pf {
+  width: 64px;
+  height: 30px;
+  font-size: 14px;
+}
+/* 放得下「推演到」的"10000 年" */
+.nd-pbody .pf.k-endYear {
+  width: 84px;
+}
+.nd-pbody .nd-err {
+  padding-left: 86px;
+}
+/* 手机:预设一行在顶上那一排下面,不跟着滚 */
+.nd-psheet > .nd-preset {
+  margin: 0;
+  padding: 14px 16px 2px;
+}
+.nd-psheet .ps-l {
+  font-size: 15px;
+}
+.nd-psheet .ps-pop {
+  flex: 1;
+  height: 34px;
+  border-radius: 9px;
+  font-size: 15px;
 }
 .nd-pbody .nd-fld {
   flex: 1;

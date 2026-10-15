@@ -12,9 +12,12 @@
  * 「取消」、Esc、点窗口外面:什么都不留下(读好的图也扔掉)。
  * 电脑上是浮在页面正中的窗口;手机上从底部升起、几乎占满屏:顶上一排(取消 / 上一步、标题、第几步),底部一个大按钮。
  */
-import { useEffect, useRef, useState } from 'react';
-import { DEFAULT_PARAMS, type WorldParams } from '../gen/world';
-import { SLIDERS, YEARS_NOTE, YEARS_ON, YEARS_SLIDER, YEARS_SWITCH, type SliderLike } from './WorldOverviewGenesis';
+import { Fragment, useEffect, useRef, useState } from 'react';
+import type { WorldParams } from '../gen/world';
+import { CONT_SLIDERS, SLIDERS, YEARS_NOTE, YEARS_ON, YEARS_SLIDER, YEARS_SWITCH, contBrief, type SliderLike } from './WorldOverviewGenesis';
+import { CONT_RESET, ContinentSeg, ParamField, rangeFill } from './ParamField';
+import { PresetPicker, type PresetPick } from './PresetPicker';
+import { changedKeys, choiceParams, getPresets, usePresets } from './presetStore';
 import { isImageFile, loadImage, type LoadedImage } from './ImportImage';
 import { Icon } from './icons';
 import './ai.css';
@@ -57,58 +60,96 @@ const CARDS: { mode: NewWorldMode; name: string; desc: string }[] = [
   { mode: 'image', name: '照手绘图生成', desc: '导入你画的地图或高度图。海和陆地照着图长，山、河、气候由程序补上。' },
 ];
 
-/** 第 2 步的几组参数:组名、组名右边一句(电脑上)、哪几样 */
+/** 第 2 步的几组参数:组名、组名右边一句(电脑上)、哪几样;「大陆」一组另外写(只有随机生成有) */
 function groups(mode: NewWorldMode): { name: string; note?: string; keys: (keyof WorldParams)[] }[] {
   return [
     mode === 'random'
-      ? { name: '陆地', note: '海和陆地怎么分', keys: ['landFraction', 'plates', 'mountains'] }
-      : { name: '陆地', note: '山脉、高原怎么长', keys: ['plates', 'mountains'] },
+      ? {
+          name: '陆地',
+          note: '海和陆地怎么分',
+          keys: ['landFraction', 'plates', 'mountains'],
+        }
+      : // 照图的海陆照图定;板块硬度管山怎么长,照样有
+        {
+          name: '陆地',
+          note: '山脉、高原怎么长',
+          keys: ['plates', 'mountains', 'hardness'],
+        },
     { name: '气候', keys: ['temperature', 'rainfall'] },
     { name: '精细度', note: '越精细越慢', keys: ['cells'] },
   ];
 }
 
+const sliderOf = (k: keyof WorldParams) => (SLIDERS.find((x) => x.key === k) ?? CONT_SLIDERS.find((x) => x.key === k))!;
+
 const stop = (e: { stopPropagation(): void }) => e.stopPropagation();
 
-function ParamRow({ s, value, onChange, phone }: { s: SliderLike; value: number; onChange: (v: number) => void; phone: boolean }) {
+/**
+ * 一项参数:名字、滑条、能直接打字的数值框。打的字不对时这一行下面一句红字(超出范围:按回车会改成哪个数)
+ */
+function ParamRow({ s, value, onChange, phone, changed }: { s: SliderLike; value: number; onChange: (v: number) => void; phone: boolean; changed?: boolean }) {
   const k = s.key;
-  const fill = ((value - s.min) / (s.max - s.min)) * 100;
-  // 精细度只写多少千个地块("36k"),电脑上后面再写大概要多久
-  const shown = k === 'cells' ? `${Math.round(value / 1000)}k` : s.fmt(value);
-  const more = phone ? null : s.more?.(value);
+  const [err, setErr] = useState<string | null>(null);
   const name = k === 'cells' ? '地块' : s.name;
   return (
-    <label className="nd-pr" title={s.hint} data-param={k}>
-      <span className="nd-n">{name}</span>
-      <span className="tp-range">
-        <input
-          type="range"
-          aria-label={s.name}
-          min={s.min}
-          max={s.max}
-          step={s.step}
-          value={value}
-          style={{ '--fill': `${fill}%` } as React.CSSProperties}
-          onChange={(e) => onChange(Number(e.target.value))}
-        />
-      </span>
-      <span className="nd-v">
-        {shown}
-        {more && <em>{more}</em>}
-      </span>
-    </label>
+    <>
+      <label className={`nd-pr${err ? ' has-err' : ''}`} title={s.hint} data-param={k}>
+        <span className="nd-n">{name}</span>
+        <span className="tp-range">
+          <input
+            type="range"
+            aria-label={s.name}
+            className={k === 'north' ? 'mid' : undefined}
+            min={s.min}
+            max={s.max}
+            step={s.step}
+            value={value}
+            style={rangeFill(s, value)}
+            onChange={(e) => onChange(Number(e.target.value))}
+          />
+        </span>
+        <ParamField s={s} value={value} onCommit={onChange} onBad={setErr} changed={changed} />
+      </label>
+      {err && <div className={`nd-err${phone ? ' phone' : ''}`}>{err}</div>}
+    </>
   );
+}
+
+/** 打开弹窗时的参数:停在上次选的预设上(存了种子的连种子) */
+function startParams(randomSeed: () => number): {
+  params: WorldParams;
+  endYear?: number;
+} {
+  const c = choiceParams(getPresets(), getPresets().chosen);
+  return {
+    params: { ...c.params, seed: c.seed ?? randomSeed() },
+    endYear: c.endYear,
+  };
 }
 
 export function NewWorldDialog(p: NewWorldDialogProps) {
   const [step, setStep] = useState<1 | 2>(p.init?.step ?? 1);
   const [mode, setMode] = useState<NewWorldMode>(p.init?.mode ?? 'random');
-  const [params, setParams] = useState<WorldParams>(() => p.init?.params ?? { ...DEFAULT_PARAMS, seed: p.randomSeed() });
+  const [first] = useState(() => (p.init ? { params: p.init.params, endYear: p.init.endYear } : startParams(p.randomSeed)));
+  const [params, setParams] = useState<WorldParams>(first.params);
   const [seedText, setSeedText] = useState(String(params.seed));
   const [seedBad, setSeedBad] = useState(false);
   const [picture, setPicture] = useState<LoadedImage | null>(null);
   /** 推演到第几年(开关关着 = undefined,就是 3000 年) */
-  const [years, setYears] = useState<number | undefined>(p.init?.endYear);
+  const [years, setYears] = useState<number | undefined>(first.endYear);
+  /** 「大陆」一组展开了没有(平时收着,像打印窗口的「显示详细信息」) */
+  const [contOpen, setContOpen] = useState(false);
+  const presets = usePresets();
+  /** 和所选预设不一样的几样(数字用主色写) */
+  const changed = changedKeys(presets, presets.chosen, params);
+  /** 选了一个预设:参数换成它的;存了种子的连种子换 */
+  const applyPreset = (c: PresetPick) => {
+    const seed = c.seed ?? params.seed;
+    setParams({ ...c.params, seed });
+    setSeedText(String(seed));
+    setSeedBad(false);
+    setYears(c.endYear);
+  };
   const [over, setOver] = useState(false);
   const loading = useRef(0);
   /** 还没交出去的那张图(关掉弹窗、换一张时扔掉) */
@@ -151,7 +192,8 @@ export function NewWorldDialog(p: NewWorldDialogProps) {
   const start = () => {
     if (!canStart) return;
     const n = Math.floor(Number(seedText));
-    const final = mode === 'random' && n > 0 ? { ...params, seed: n } : params;
+    // 照手绘图:海岸照图,大陆一组里只露出板块硬度;预设带来的其余几样不显示,也不用
+    const final = mode === 'random' ? (n > 0 ? { ...params, seed: n } : params) : { ...params, ...CONT_RESET, hardness: params.hardness };
     given.current = true;
     if (mode !== 'image' && held.current) URL.revokeObjectURL(held.current.url);
     p.onStart({ mode, params: final, picture: mode === 'image' ? picture : null, ...(years ? { endYear: years } : {}) });
@@ -292,21 +334,65 @@ export function NewWorldDialog(p: NewWorldDialogProps) {
     </div>
   );
 
+  const setKey = (k: keyof WorldParams) => (v: number) => setParams((q) => ({ ...q, [k]: v }));
+  const row = (k: keyof WorldParams) => <ParamRow key={k} s={sliderOf(k)} value={params[k]} phone={p.phone} changed={changed.has(k)} onChange={setKey(k)} />;
+  // 大陆这几样和选中的预设(或默认)一样就不显示「恢复默认」;点它回到选中的那一套
+  const contKeys = Object.keys(CONT_RESET) as (keyof typeof CONT_RESET)[];
+  const contPlain = !contKeys.some((k) => changed.has(k));
+  const resetCont = () => {
+    const c = choiceParams(presets, presets.chosen).params;
+    setParams((q) => ({ ...q, ...Object.fromEntries(contKeys.map((k) => [k, c[k]])) }));
+  };
+  // 「大陆」一组(只有随机生成):平时收成一行,右边写改了哪些;展开是大陆数量(分段按钮)和四个滑条
+  const contSec = mode === 'random' && (
+    <div className="nd-sec" data-sec="continents">
+      <div className="nd-lab">
+        大陆
+        {!contOpen ? (
+          <small>可选</small>
+        ) : contPlain ? (
+          !p.phone && <small>数量、形状和分布</small>
+        ) : (
+          <button className="nd-lab-a" data-act="dlg-cont-reset" onClick={resetCont}>
+            恢复默认
+          </button>
+        )}
+      </div>
+      <div className="nd-grp">
+        {!contOpen ? (
+          <button className="nd-pr nd-more" data-act="dlg-cont" aria-expanded={false} onClick={() => setContOpen(true)}>
+            <span className="nd-more-n">数量、聚拢、破碎、软硬、南北</span>
+            <span className="nd-more-s">{contBrief(params) ?? '都按种子来'}</span>
+            <Icon name="chevron" size={14} />
+          </button>
+        ) : (
+          <>
+            <div className="nd-pr" data-param="continents">
+              <span className="nd-n">大陆数量</span>
+              <ContinentSeg value={params.continents} onChange={setKey('continents')} plates={params.plates} land={params.landFraction} />
+            </div>
+            {CONT_SLIDERS.map((x) => row(x.key))}
+          </>
+        )}
+      </div>
+      {contOpen && <p className="nd-foot">这几样改的是大陆怎么长：同一个种子配上不同的设置，会长出不一样的星球。</p>}
+    </div>
+  );
+
   const paramsBody = (
     <>
       {mode === 'random' ? seedGroup : imageBox}
-      {groups(mode).map((g) => (
-        <div key={g.name} className="nd-sec">
-          <div className="nd-lab">
-            {g.name}
-            {g.note && (!p.phone || g.keys[0] === 'cells') && <small>{g.note}</small>}
+      {groups(mode).map((g, i) => (
+        <Fragment key={g.name}>
+          <div className="nd-sec">
+            <div className="nd-lab">
+              {g.name}
+              {g.note && (!p.phone || g.keys[0] === 'cells') && <small>{g.note}</small>}
+            </div>
+            <div className="nd-grp">{g.keys.map(row)}</div>
           </div>
-          <div className="nd-grp">
-            {g.keys.map((k) => (
-              <ParamRow key={k} s={SLIDERS.find((x) => x.key === k)!} value={params[k]} phone={p.phone} onChange={(v) => setParams((q) => ({ ...q, [k]: v }))} />
-            ))}
-          </div>
-        </div>
+          {i === 0 && contSec}
+        </Fragment>
       ))}
       <div className="nd-sec">
         <div className="nd-lab">
@@ -329,6 +415,12 @@ export function NewWorldDialog(p: NewWorldDialogProps) {
         </div>
       )}
     </>
+  );
+  const presetRow = (
+    <div className="ps-row nd-preset">
+      <span className="ps-l">预设</span>
+      <PresetPicker params={params} endYear={years} onPick={applyPreset} phone={p.phone} saveLink={!p.phone} />
+    </div>
   );
 
   const startBtn = (
@@ -374,6 +466,7 @@ export function NewWorldDialog(p: NewWorldDialogProps) {
               </button>
             )}
           </div>
+          {step === 2 && presetRow}
           <div className="nd-pbody">
             {step === 1 && <p className="nd-sub">{sub}</p>}
             {step === 1 ? cards : paramsBody}
@@ -382,13 +475,29 @@ export function NewWorldDialog(p: NewWorldDialogProps) {
           {file}
         </div>
       ) : (
-        <div className="nd-sheet" role="dialog" aria-modal="true" aria-labelledby="nd-title" data-step={step} data-mode={mode} onClick={stop}>
+        <div
+          className={`nd-sheet${step === 2 ? ' tall' : ''}`}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="nd-title"
+          data-step={step}
+          data-mode={mode}
+          onClick={stop}
+        >
           <div className="nd-hd">
             <h2 id="nd-title">{title}</h2>
             <span className="nd-step">第 {step} 步，共 2 步</span>
           </div>
           <p className="nd-sub">{sub}</p>
-          {step === 1 ? cards : paramsBody}
+          {step === 1 ? (
+            cards
+          ) : (
+            <>
+              {presetRow}
+              {/* 预设一行和底下的按钮不动,中间的参数滚 */}
+              <div className="nd-scroll">{paramsBody}</div>
+            </>
+          )}
           <div className="nd-ft">
             <button className="nd-btn b2" data-act="dlg-cancel" onClick={p.onCancel}>
               取消

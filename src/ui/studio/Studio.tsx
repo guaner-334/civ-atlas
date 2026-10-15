@@ -32,7 +32,7 @@ import type { Raster } from '../../gen/raster';
 import { TITLE_MAX, worldKey } from '../../gen/savefile';
 import { END_YEAR_DEFAULT, cleanEndYear } from '../../gen/edits';
 import type { DraftBase } from '../stageStore';
-import { getEdits, useEdits } from '../editsStore';
+import { getEdits, setEndYear, useEdits } from '../editsStore';
 import {
   TerrainCaption,
   TerrainPanel,
@@ -61,7 +61,11 @@ import {
   useSource,
   useSourceView,
 } from '../ImportImage';
-import { ParamSlider, SLIDERS, YearsRows, paramsSide, yearsSpan } from '../WorldOverviewGenesis';
+import { CONT_SLIDERS, ParamSlider, SLIDERS, YearsRows, paramsSide, yearsSpan } from '../WorldOverviewGenesis';
+import { ContinentSeg } from '../ParamField';
+import { PresetPicker, type PresetPick } from '../PresetPicker';
+import { changedKeys, usePresets } from '../presetStore';
+import { getNewView, sameView, setNewView, useNewView, type NewView } from '../newViewStore';
 import { openAiSettings } from '../AiSettings';
 import { AiSettingsItem, MenuItem, MenuSep, PopMenu } from '../PopMenu';
 import { AssistantPanel } from '../Assistant';
@@ -74,7 +78,18 @@ import { VersionMenuFoot } from '../BetaNews';
 import { Icon } from '../icons';
 import { styleKey } from '../LayerPopover';
 import type { MapLayer } from '../mapLayers';
-import { getProjection, lastFlatProjection, setGraticule, setProjection, useGraticule, type MapProjection } from '../projection';
+import {
+  getGraticule,
+  getGraticuleStep,
+  getProjection,
+  lastFlatProjection,
+  setGraticule,
+  setGraticuleStep,
+  setProjection,
+  useGraticule,
+  useGraticuleStep,
+  type MapProjection,
+} from '../projection';
 import { GraticuleSteps } from '../ProjectionPanel';
 import type { ProjectionId } from '../../render/projection';
 import { getMapCenter } from '../mapWrap';
@@ -137,7 +152,8 @@ export interface StudioProps {
   base: DraftBase | null;
   /** 左上返回(我的世界 / 底稿那个世界) */
   back: { label: string; onClick: () => void } | null;
-  onSeed: (seed: number) => void;
+  /** 换种子(params:连参数一起换,「看过的星球」里点一颗、带种子的预设) */
+  onSeed: (seed: number, params?: WorldParams) => void;
   /** 换一个随机种子(随机生成的「换一颗」;照手绘图的「山河、地名换一种」:海陆照图,不变) */
   onRandomSeed: () => void;
   onParams: (p: WorldParams) => void;
@@ -167,6 +183,53 @@ export interface StudioProps {
   /** 淡出完了(App 卸掉新建界面) */
   onGone: () => void;
 }
+
+/** 「看过的星球」里的一条:那颗星球的参数(连种子)、当时的小图、什么时候看的 */
+interface Seen {
+  key: string;
+  params: WorldParams;
+  thumb: string | null;
+  at: number;
+}
+/** 最多记几条 */
+const SEEN_MAX = 20;
+
+/** 「看过的星球」的小图:实景整张图上正对着 lon(弧度)的那半边,裁成圆 */
+function planetThumb(c: HTMLCanvasElement | null, lon: number): string | null {
+  if (!c || !c.width) return null;
+  const t = document.createElement('canvas');
+  const S = 72;
+  t.width = t.height = S;
+  const ctx = t.getContext('2d');
+  if (!ctx) return null;
+  ctx.beginPath();
+  ctx.arc(S / 2, S / 2, S / 2, 0, Math.PI * 2);
+  ctx.clip();
+  const w = c.width / 2;
+  const cx = ((((((lon * 180) / Math.PI + 180) % 360) + 360) % 360) / 360) * c.width;
+  const sx = Math.max(0, Math.min(c.width - w, cx - w / 2));
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(c, sx, 0, w, c.height, 0, 0, S, S);
+  // 边上暗一点,像个球
+  const g = ctx.createRadialGradient(S * 0.42, S * 0.38, S * 0.1, S / 2, S / 2, S / 2);
+  g.addColorStop(0, 'rgba(0,0,0,0)');
+  g.addColorStop(0.75, 'rgba(0,0,0,0.08)');
+  g.addColorStop(1, 'rgba(0,0,0,0.5)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, S, S);
+  const url = t.toDataURL('image/jpeg', 0.8);
+  t.width = t.height = 0;
+  return url;
+}
+
+/** "现在""刚才""3 分钟前" */
+function agoText(at: number, now: number): string {
+  const m = Math.floor((now - at) / 60000);
+  return m < 1 ? '刚才' : m < 60 ? `${m} 分钟前` : `${Math.floor(m / 60)} 小时前`;
+}
+
+/** 「看过的星球」里第二行:"陆地 40%，2 块大陆""陆地 33%，大陆自动" */
+const seenBrief = (q: WorldParams) => `陆地 ${Math.round(q.landFraction * 100)}%，${q.continents ? `${q.continents} 块大陆` : '大陆自动'}`;
 
 const stop = (e: { stopPropagation(): void }) => e.stopPropagation();
 const reducedMotion = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -204,7 +267,9 @@ export function Studio(p: StudioProps) {
   const [glOk, setGlOk] = useState<boolean | null>(null);
   const [tip, setTip] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
-  const [proj, setProj] = useState<PlanetProjection>('globe');
+  /** 一进来用的投影:设过「新建时的默认」就照它(照手绘图的照旧是地球仪) */
+  const startProj = useRef<PlanetProjection>((!image && getNewView()?.proj) || 'globe');
+  const [proj, setProj] = useState<PlanetProjection>(startProj.current);
   // 经纬网:和世界页、编辑地形共用一个设置(开关 + 间隔)
   const grat = useGraticule();
   const [confirm, setConfirm] = useState(false);
@@ -237,6 +302,13 @@ export function Studio(p: StudioProps) {
 
   // ---- 设定(和原来的新建卡片一样) ----
   const [paramsOpen, setParamsOpen] = useState(false);
+  // ---- 看过的星球:这一次新建里每换一颗记一条(换种子、调参数),离开新建页就没了 ----
+  const [planets, setPlanets] = useState<Seen[]>([]);
+  const [seenOpen, setSeenOpen] = useState<{ x: number; y: number } | null>(null);
+  const noteSeen = (q: WorldParams, thumb: string | null) => {
+    const key = worldKey(q);
+    setPlanets((l) => [{ key, params: q, thumb, at: Date.now() }, ...l.filter((x) => x.key !== key)].slice(0, SEEN_MAX));
+  };
   const [name, setName] = useState(p.title);
   useEffect(() => setName(p.title), [p.title]);
   const [seedText, setSeedText] = useState(String(p.params.seed));
@@ -275,6 +347,13 @@ export function Studio(p: StudioProps) {
   useLayoutEffect(() => {
     prevProj.current = getProjection();
     prevFlat.current = lastFlatProjection();
+    // 设过「新建时的默认」:经纬网照它
+    const nv = getNewView();
+    const prevGrat = { on: getGraticule(), step: getGraticuleStep() };
+    if (nv && !image) {
+      setGraticule(nv.grat);
+      setGraticuleStep(nv.step);
+    }
     if (prevProj.current !== 'equirect') setProjection('equirect');
     // 平常页面上开着的助手不跟进来(新建里从「让助手改」打开);离开时也收起
     closeAssistant();
@@ -286,6 +365,11 @@ export function Studio(p: StudioProps) {
       // 正在认的、留着的那张图只属于这一次新建
       dropSource();
       if (!created.current && prevProj.current !== 'equirect' && getProjection() === 'equirect') setProjection(prevProj.current, prevFlat.current);
+      // 没创建就离开:经纬网也回到进来之前
+      if (!created.current && nv && !image) {
+        setGraticule(prevGrat.on);
+        setGraticuleStep(prevGrat.step);
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -483,11 +567,12 @@ export function Studio(p: StudioProps) {
   /** 第一颗星球出来:开始自转(摊平着的等卷回来再转)、缩略图开始做 */
   const settle = () => {
     const sc = sceneRef.current;
-    setProj('globe');
+    const first = startProj.current;
+    setProj(first);
     if (!image && !p.base) setTip(true);
     if (sc) {
-      sc.spin = true;
-      sc.setFlatBack('globe');
+      sc.spin = first === 'globe';
+      sc.setFlatBack(first);
     }
     p.requestThumbs(STYLE_IDS);
   };
@@ -508,10 +593,11 @@ export function Studio(p: StudioProps) {
     const latest = () => sc.gl.keepStyles((k) => k.startsWith(`${tagRef.current}:`));
     // 每换一颗都重算陆地最多的那一面(手机建好时转过去)
     landLon.current = landCenterLon(px, PLATE_W, PLATE_H);
+    if (!image && !p.base) noteSeen(p.params, planetThumb(p.baseCanvas(styleKey('realistic')), landLon.current));
     if (!prev) {
       sc.showStyle(`${tag}:${style}`);
       if (!sc.flatOn) {
-        sc.showProj('globe');
+        sc.showProj(startProj.current);
         sc.lon = landLon.current;
       }
       settle();
@@ -520,6 +606,12 @@ export function Studio(p: StudioProps) {
     // 换了一颗、改了地形慢慢淡入新样子;同一颗调了参数淡得快
     void sc.setStyle(`${tag}:${style}`, prev.seed === p.params.seed && prev.pkey !== pkey ? 450 : 1100).then(latest);
     p.requestThumbs(STYLE_IDS);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [glOk, p.data, p.ready]);
+  // 画不了地球仪(只有平面地图)时,看过的星球也照样记
+  useEffect(() => {
+    if (glOk !== false || !p.data || !p.ready || image || p.base) return;
+    noteSeen(p.params, planetThumb(p.baseCanvas(styleKey('realistic')), 0));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [glOk, p.data, p.ready]);
 
@@ -744,7 +836,16 @@ export function Studio(p: StudioProps) {
     : image
       ? '海和陆地照你的图长，山、河、气候由程序补上。'
       : `按种子随机生成。先定下这颗星球的样子，创建以后再推演它${yearsSpan(endYear, true)}的历史。`;
-  const isDefault = SLIDERS.every((s) => p.params[s.key] === DEFAULT_PARAMS[s.key]);
+  const isDefault = (Object.keys(DEFAULT_PARAMS) as (keyof WorldParams)[]).every((k) => k === 'seed' || p.params[k] === DEFAULT_PARAMS[k]);
+  const presets = usePresets();
+  /** 和所选预设不一样的几样(数字用主色写) */
+  const changed = changedKeys(presets, presets.chosen, p.params);
+  /** 选了一个预设:参数换成它的(推演年数也是);存了种子的连种子换(以别的世界为底稿时种子不换) */
+  const applyPreset = (c: PresetPick) => {
+    if (c.endYear !== years) setEndYear(c.endYear);
+    if (!base && c.seed && c.seed !== p.params.seed) p.onSeed(c.seed, { ...c.params, seed: c.seed });
+    else p.onParams({ ...c.params, seed: p.params.seed });
+  };
   const canAsk = p.ready && !!p.civ && !!p.raw;
   const ico = p.phone ? 18 : 17;
   const peek = !image && p.phone && !sheetFull && !tool.on;
@@ -764,7 +865,7 @@ export function Studio(p: StudioProps) {
         <b>种子</b>
         {seedBad && <small className="nw-seed-bad">只能填数字</small>}
       </span>
-      <span className="nw-seed-ctl">
+      <span className={`nw-seed-ctl${p.phone ? '' : ' with-hist'}`}>
         <input
           className="nw-field nw-seed-input"
           aria-label="种子"
@@ -794,8 +895,29 @@ export function Studio(p: StudioProps) {
           <Icon name="dice" size={16} />
           换一颗
         </button>
+        {!p.phone && (
+          <button
+            className={`nw-btn nw-hist${seenOpen ? ' on' : ''}`}
+            data-act="seen-planets"
+            aria-label="看过的星球"
+            aria-expanded={!!seenOpen}
+            data-tip={seenOpen ? undefined : '看过的星球'}
+            disabled={!planets.length}
+            onClick={(e) => {
+              if (seenOpen) return setSeenOpen(null);
+              const r = e.currentTarget.getBoundingClientRect();
+              setDrawer(null);
+              setSeenOpen({ x: r.right, y: r.top });
+            }}
+          >
+            <Icon name="history" size={16} />
+          </button>
+        )}
       </span>
     </div>
+  );
+  const slider = (x: (typeof SLIDERS)[number]) => (
+    <ParamSlider key={x.key} s={x} value={p.params[x.key]} changed={changed.has(x.key)} onCommit={(v) => p.onParams({ ...p.params, [x.key]: v })} />
   );
   const paramsRow = (
     <>
@@ -825,9 +947,21 @@ export function Studio(p: StudioProps) {
       </button>
       {paramsOpen && (
         <div className="nw-sliders">
-          {SLIDERS.map((s) => (
-            <ParamSlider key={s.key} s={s} value={p.params[s.key]} onCommit={(v) => p.onParams({ ...p.params, [s.key]: v })} />
-          ))}
+          <div className="ps-row nw-preset">
+            <span className="ps-l">预设</span>
+            <PresetPicker params={p.params} endYear={years} onPick={applyPreset} phone={p.phone} />
+          </div>
+          {SLIDERS.slice(0, 3).map(slider)}
+          <div className="nw-sub">大陆</div>
+          <div className="sb-row static nw-cont" data-param="continents">
+            <span className="sb-row-main">数量</span>
+            <ContinentSeg value={p.params.continents} onChange={(n) => p.onParams({ ...p.params, continents: n })} plates={p.params.plates} land={p.params.landFraction} />
+          </div>
+          {CONT_SLIDERS.map(slider)}
+          <div className="nw-sub">气候</div>
+          {SLIDERS.slice(3, 5).map(slider)}
+          <div className="nw-sub">精细度</div>
+          {SLIDERS.slice(5).map(slider)}
           <YearsRows />
         </div>
       )}
@@ -1151,6 +1285,51 @@ export function Studio(p: StudioProps) {
     </button>
   ));
   const curProj = PROJS.find((x) => x.id === shownProj) ?? PROJS[0];
+  // ---- 设为新建时的默认:记下样式、投影、经纬网;点了以后按钮变灰,底下一条提示能撤销 ----
+  const newView = useNewView();
+  const gratStep = useGraticuleStep();
+  const viewNow: NewView = { style, proj, grat, step: gratStep };
+  const viewIsDefault = newView ? sameView(newView, viewNow) : style === 'realistic' && proj === 'globe' && !grat;
+  const [viewSaved, setViewSaved] = useState<{ prev: NewView | null; text: string } | null>(null);
+  const viewTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(viewTimer.current), []);
+  const styleName = STUDIO_STYLES.find((x) => x.id === style)?.name ?? '';
+  const projName = PROJS.find((x) => x.id === proj)?.name ?? '';
+  const gratText = grat ? `经纬网每隔 ${gratStep}°` : '经纬网关着';
+  const saveView = () => {
+    setDrawer(null);
+    setTip(false);
+    const prev = newView;
+    setNewView(viewNow);
+    setViewSaved({ prev, text: `以后新建世界，一进来就是${styleName}、${projName}${grat ? `、${gratText}` : ''}` });
+    clearTimeout(viewTimer.current);
+    viewTimer.current = setTimeout(() => setViewSaved(null), 8000);
+  };
+  const undoView = () => {
+    clearTimeout(viewTimer.current);
+    if (viewSaved) setNewView(viewSaved.prev);
+    setViewSaved(null);
+  };
+  const viewBtn = (
+    <button
+      className="sb-group st-def"
+      data-act="studio-default-view"
+      disabled={viewIsDefault || tool.on}
+      data-tip={viewIsDefault || tool.on ? undefined : `以后新建世界，一进来就是现在这样：${styleName}、${projName}、${gratText}。打开存档和分享链接不受影响。`}
+      data-tip-side={p.phone ? undefined : 'left'}
+      data-tip-wide=""
+      onClick={saveView}
+    >
+      {viewIsDefault ? (
+        <>
+          <Icon name="check" size={14} />
+          已是新建时的默认
+        </>
+      ) : (
+        '设为新建时的默认'
+      )}
+    </button>
+  );
   const right = !image && (
     <aside className="st-right" aria-label="样式和投影" onPointerDown={stop} onClick={stop} onWheel={stop}>
       {(!p.phone || drawer === 'style') && (
@@ -1161,6 +1340,7 @@ export function Studio(p: StudioProps) {
           <div className="sb-group" role="radiogroup" aria-label="样式">
             {styleRows}
           </div>
+          {p.phone && viewBtn}
         </>
       )}
       {(!p.phone || drawer === 'proj') && (
@@ -1181,6 +1361,7 @@ export function Studio(p: StudioProps) {
               <GraticuleSteps />
             </div>
           </div>
+          {viewBtn}
           {tool.on && <p className="st-note">编辑地形时用平面地图，编辑完回到原来的投影</p>}
           {glOk === false && <p className="st-note">这台设备画不了地球仪，先用平面地图</p>}
         </>
@@ -1283,8 +1464,32 @@ export function Studio(p: StudioProps) {
       {right}
       {viewBar}
       {astShown && <AssistantPanel phone={p.phone} world={p.data!.world} raster={p.data!.raster} civ={p.civ!} raw={p.raw!} lock="history" busy={p.worldBusy} />}
+      {seenOpen && (
+        <SeenList
+          at={seenOpen}
+          phone={p.phone}
+          bottom={p.phone ? sheetH : 0}
+          list={planets}
+          now={worldKey(p.params)}
+          onClose={() => setSeenOpen(null)}
+          onPick={(q) => {
+            setSeenOpen(null);
+            setTip(false);
+            if (q.seed !== p.params.seed) p.onSeed(q.seed, q);
+            else p.onParams(q);
+          }}
+        />
+      )}
+      {viewSaved && !out && (
+        <div className="st-cap st-tip st-def-tip" style={!p.phone ? { left: box.x + box.w / 2 } : undefined} data-act="default-view-tip">
+          {viewSaved.text}
+          <button data-act="default-view-undo" onClick={undoView}>
+            撤销
+          </button>
+        </div>
+      )}
       {!image && (
-        <div ref={tipRef} className={`st-cap st-tip${tip && !tool.on && !out && !(p.phone && (drawer || sheetFull)) ? '' : ' off'}`}>
+        <div ref={tipRef} className={`st-cap st-tip${tip && !viewSaved && !tool.on && !out && !(p.phone && (drawer || sheetFull)) ? '' : ' off'}`}>
           {edits.sketch ? '拖动看看这颗星球；「换一颗」会照同一张草图长出新的山河' : '拖动看看这颗星球；不满意就点「换一颗」'}
         </div>
       )}
@@ -1370,5 +1575,71 @@ export function Studio(p: StudioProps) {
         </div>
       )}
     </div>
+  );
+}
+
+/** 「看过的星球」:种子右边那个小按钮点开的列表(最新的在上面,现在这颗写"现在");点一颗回到它,连当时的参数 */
+function SeenList({
+  at,
+  phone,
+  bottom,
+  list,
+  now,
+  onClose,
+  onPick,
+}: {
+  at: { x: number; y: number };
+  phone: boolean;
+  /** 手机:底部卡片多高(列表摆在它上面) */
+  bottom: number;
+  list: Seen[];
+  /** 现在这颗的键 */
+  now: string;
+  onClose: () => void;
+  onPick: (q: WorldParams) => void;
+}) {
+  const [t] = useState(() => Date.now());
+  useEffect(() => {
+    const f = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.stopPropagation();
+      onClose();
+    };
+    window.addEventListener('keydown', f, true);
+    return () => window.removeEventListener('keydown', f, true);
+  }, [onClose]);
+  const pos: React.CSSProperties = phone ? { left: 12, right: 12, bottom: bottom + 12 } : { left: at.x + 20, top: Math.max(12, at.y - 22) };
+  return (
+    <>
+      <div className="st-dismiss" onPointerDown={onClose} />
+      <div className="st-seen" role="dialog" aria-label="看过的星球" style={pos} onPointerDown={stop} onClick={stop} onWheel={stop}>
+        <div className="st-seen-hd">
+          <span>看过的星球</span>
+          <small>这次新建里</small>
+        </div>
+        <div className="st-seen-list">
+          {list.map((x) => {
+            const cur = x.key === now;
+            return (
+              <button
+                key={x.key}
+                className={`st-seen-it${cur ? ' on' : ''}`}
+                data-seed={x.params.seed}
+                aria-current={cur || undefined}
+                onClick={() => (cur ? onClose() : onPick(x.params))}
+              >
+                <span className="st-seen-pic" style={x.thumb ? { backgroundImage: `url(${x.thumb})` } : undefined} />
+                <span className="st-seen-tx">
+                  <b>种子 {x.params.seed}</b>
+                  <small>{seenBrief(x.params)}</small>
+                </span>
+                <span className="st-seen-t">{cur ? '现在' : agoText(x.at, t)}</span>
+              </button>
+            );
+          })}
+        </div>
+        <p className="st-seen-ft">点一颗回到它（连当时的参数）</p>
+      </div>
+    </>
   );
 }

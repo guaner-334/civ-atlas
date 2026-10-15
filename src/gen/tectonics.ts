@@ -24,6 +24,12 @@
  * 6. 抬升场 = 很低的基础抬升(大部分陆地是平原)+ 零星的丘陵区 + 汇聚带上窄窄的山脉 + 古老山系(细长的山脊噪声),
  *    交给侵蚀去"雕刻";高原底座(米)单独给出:侵蚀之后直接加上(平坦的高原,不被切成山地)
  *
+ * 作者可调的大陆参数(都有"原样"的默认值,默认时每一步的算式和结果都不变):
+ *   大陆数量 = 挑几个大陆核心;聚拢 = 后面的核心和长出去的板块离第一块越近越好(大的时候大陆一开始就允许相连);
+ *   破碎度 = 板块图的中小尺度扭曲、海岸噪声、裂谷 / 内海、大陆架大岛、微大陆和群岛区的多少一起放大缩小;
+ *   板块硬度 = 越硬丘陵、古老山系、碰撞带山脉和高原越少越窄(越软越多越宽);
+ *   南北偏向 = 偏向那一半球的板块更容易当大陆,陆地场再按纬度加一点,极地大陆放到那一极
+ *
  * 所有随机数来自 subSeed(seed, '…'),超越函数的结果舍入到 24 位(round24),任何电脑上逐位一致。
  */
 import { blurField, type Mesh } from './mesh';
@@ -37,6 +43,12 @@ export interface TectonicParams {
   plates: number;
   landFraction: number;
   mountains: number;
+  /** 以下几样不给 = 默认值(和没有这几样之前生成的一模一样),含义见 world.ts 的 WorldParams */
+  continents?: number;
+  gather?: number;
+  rugged?: number;
+  hardness?: number;
+  north?: number;
 }
 
 export interface Tectonics {
@@ -157,7 +169,12 @@ function shuffle<T>(arr: T[], rng: () => number): T[] {
 const gauss = (rng: () => number) => (rng() + rng() + rng() - 1.5) * 2;
 
 /** 各块大陆的目标大小(相对值,第一块最大):大小悬殊,像地球的七大洲(最大的约是最小的五六倍) */
-const CONTINENT_WEIGHTS = [1, 0.62, 0.44, 0.33, 0.25];
+/** 指定大陆块数时最多能长出几块(和下面定块数时的上限一样):板块太少、陆地太少时分不出那么多块 */
+export function continentCap(plates: number, landFraction: number): number {
+  return Math.max(1, Math.min(Math.floor(plates / 3), Math.floor((plates * clamp(landFraction * 1.3, 0.08, 0.92)) / 0.7)));
+}
+
+const CONTINENT_WEIGHTS = [1, 0.62, 0.44, 0.33, 0.25, 0.2, 0.17, 0.15];
 
 /**
  * 同一个板块被扭成几片时,除了最大的那片,其余的并进和它接壤最长的邻居板块(做两遍,连环的碎片也并干净)。
@@ -252,6 +269,7 @@ function pickContinents(
   landFraction: number,
   rng: () => number,
   pole: number,
+  opt: { continents: number; gather: number; rugged: number; north: number },
 ) {
   const { n, adjStart, adj, width: W } = mesh;
   const geo = geometryOf(mesh);
@@ -270,6 +288,7 @@ function pickContinents(
   const target = n * clamp(landFraction * 1.3, 0.08, 0.92);
   const r = rng();
   let C = r < 0.12 ? 2 : r < 0.45 ? 3 : r < 0.82 ? 4 : 5;
+  if (opt.continents > 0) C = Math.round(opt.continents);
   C = Math.max(1, Math.min(C, Math.floor(P / 3), Math.floor(target / (avg * 0.7))));
   const weight = CONTINENT_WEIGHTS.slice(0, C).map((w) => w * (0.8 + 0.4 * rng()));
   // 每块大陆一个"长轴"方向:沿长轴方向的板块更容易并进来,大陆长成狭长的一条(像美洲)而不是一团
@@ -288,6 +307,10 @@ function pickContinents(
   const { height: H } = mesh;
   const latOf = (k: number) => 90 - (180 * cy[k]) / H;
   const polar = (k: number) => Math.abs(latOf(k)) > POLAR_LAT;
+  /** 南北偏向:偏北时北半球的板块更容易当大陆(0 = 一律 1) */
+  const hemi = (k: number) => (opt.north === 0 ? 1 : Math.max(0.02, 1 + (opt.north * latOf(k)) / 30));
+  /** 聚拢:离第一块大陆核心越远越不要(0 = 一律 1) */
+  const near0 = (k: number) => (opt.gather === 0 || !core.length ? 1 : fexp((-opt.gather * 10 * geo.pointDist(cx[core[0]], cy[core[0]], cx[k], cy[k])) / W));
   const polarC = pole !== 0 && C >= 2 ? C - 1 : -1;
   const touchesOther = (k: number, c: number) => {
     for (let b = 0; b < P; b++) if (shared[k * P + b] > 0 && owner[b] >= 0 && owner[b] !== c) return true;
@@ -339,7 +362,7 @@ function pickContinents(
       if (c > 0 && touchesOther(k, -2)) continue; // 不和已有大陆接壤
       let dmin = W;
       for (let b = 0; b < P; b++) if (owner[b] >= 0) dmin = Math.min(dmin, geo.pointDist(cx[b], cy[b], cx[k], cy[k]));
-      const score = c === 0 ? area[k] * (0.5 + rng()) : dmin * (0.7 + 0.6 * rng());
+      const score = (c === 0 ? area[k] * (0.5 + rng()) : dmin * (0.7 + 0.6 * rng()) * near0(k)) * hemi(k);
       if (score > bestScore) {
         bestScore = score;
         best = k;
@@ -362,7 +385,7 @@ function pickContinents(
   const wsum = weight.slice(0, contArea.length).reduce((s, v) => s + v, 0);
   const goal = contArea.map((_, c) => (target * weight[c]) / wsum);
   const closed = contArea.map(() => false);
-  let allowMerge = contArea.length === 1;
+  let allowMerge = contArea.length === 1 || opt.gather >= 0.7;
   while (total < target) {
     let c = -1;
     let cs = Infinity;
@@ -397,6 +420,7 @@ function pickContinents(
         if (polar(k)) score *= 0.3;
       }
       if (contArea[c] + area[k] > goal[c] * 1.5) score *= 0.4;
+      score *= hemi(k) * near0(k);
       if (score > bestScore) {
         bestScore = score;
         best = k;
@@ -418,24 +442,24 @@ function pickContinents(
   };
   // 3) 微大陆:不挨着大陆的小板块(2~4 块);挑不到孤立的就挑贴着大陆的小板块(大陆边上裂出去的一块)
   const micro = new Uint8Array(P);
-  const nMicro = 2 + Math.floor(rng() * 3);
+  const nMicro = Math.round((2 + Math.floor(rng() * 3)) * opt.rugged);
   let got = 0;
   for (const pass of [0, 1]) {
     for (const k of order) {
       if (got >= nMicro) break;
       if (continental[k] || micro[k] || polar(k) || area[k] > avg * 1.1 || area[k] < avg * 0.12) continue;
-      if (pass === 0 && nearCont(k)) continue;
+      if (pass === 0 && (nearCont(k) || hemi(k) < 0.5 || near0(k) < 0.3)) continue;
       micro[k] = 1;
       got++;
     }
   }
   // 4) 群岛区:不贴大陆、不在极地的大洋板块里挑 0~2 块
   const archipelago = new Uint8Array(P);
-  const nArch = Math.floor(rng() * 2.6);
+  const nArch = Math.round(Math.floor(rng() * 2.6) * opt.rugged);
   got = 0;
   for (const k of order) {
     if (got >= nArch) break;
-    if (continental[k] || micro[k] || polar(k) || nearCont(k)) continue;
+    if (continental[k] || micro[k] || polar(k) || nearCont(k) || hemi(k) < 0.5 || near0(k) < 0.3) continue;
     archipelago[k] = 1;
     got++;
   }
@@ -479,6 +503,12 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
   const K = Math.max(3, Math.round(p.plates));
   // 细窄的带(海沟、岛弧)至少一个地块宽,粗网格上不至于消失
   const thin = (w: number) => Math.max(w, 0.9 * spacing);
+  // 破碎度:细碎的一层按它放大缩小,大尺度的一层只变一半;板块硬度:越硬越平(soft 乘在丘陵、山脉上,山脉宽窄按它的平方根)
+  const rg = p.rugged ?? 1;
+  const rgA = (1 + rg) / 2;
+  const north = p.north ?? 0;
+  const soft = 1 / (p.hardness ?? 1);
+  const softW = round24(Math.sqrt(soft));
 
   // ---- 1. 板块生长 ----
   const minSeedDist = 0.45 * Math.sqrt(geo.area / K);
@@ -540,8 +570,8 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
   const fw2 = 6.5 / W;
   const fw3 = 18 / W;
   const warpAmp = 0.085 * W;
-  const warpAmp2 = 0.035 * W;
-  const warpAmp3 = 0.012 * W;
+  const warpAmp2 = 0.035 * W * rgA;
+  const warpAmp3 = 0.012 * W * rg;
   const plate = new Int16Array(n);
   const q = [0, 0];
   for (let i = 0; i < n; i++) {
@@ -583,8 +613,15 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
   const vb = [0, 0];
   // 极地大陆放不放、放哪一极:按种子另取(不动上面这串随机数)
   const polarSeed = subSeed(p.seed, 'polar-continent');
-  const pole = keyed(polarSeed, 0) < POLAR_CONTINENT_P ? (keyed(polarSeed, 1) < 0.5 ? 1 : -1) : 0;
-  const pick = pickContinents(mesh, plate, plateCount, area, cen, p.landFraction, rng, pole);
+  let pole = keyed(polarSeed, 0) < POLAR_CONTINENT_P ? (keyed(polarSeed, 1) < 0.5 ? 1 : -1) : 0;
+  // 南北偏向够大时,极地大陆(有的话)放到偏向的那一极
+  if (pole !== 0 && Math.abs(north) >= 0.5) pole = north > 0 ? 1 : -1;
+  const pick = pickContinents(mesh, plate, plateCount, area, cen, p.landFraction, rng, pole, {
+    continents: p.continents ?? 0,
+    gather: p.gather ?? 0,
+    rugged: rg,
+    north,
+  });
   const plateContinental = new Uint8Array(plateCount);
   for (let k = 0; k < plateCount; k++) plateContinental[k] = pick.continental[k] || pick.micro[k] ? 1 : 0;
 
@@ -676,7 +713,7 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
     // 海岸噪声分两段:大尺度(几百像素的半岛、海湾)处处一样;细碎的一段强弱随地方变 ——
     // 有的海岸平直(像西非),有的支离破碎、岛屿密布(像挪威、爱琴海)
     const rug = 0.25 + 1.35 * smoothstep(-0.35, 0.45, rugN.at(i, fc, 0.8, 2.1, -6.3));
-    const coast = 0.75 * coastN.at(i, fc) + 0.4 * rug * coastF.at(i, fc, 7);
+    const coast = 0.75 * rgA * coastN.at(i, fc) + 0.4 * rg * rug * coastF.at(i, fc, 7);
     const s = sideOf(i);
     const cs = conv.str[i];
     const cd = conv.dist[i];
@@ -697,7 +734,9 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
     // 大陆架上的大岛(像不列颠、斯里兰卡、塔斯马尼亚):大陆外缘浅海里,中等尺度的噪声冒出水面
     const shelfZ = smoothstep(-0.8, -0.4, b) * (1 - smoothstep(-0.15, 0.15, b));
     const sIsle = shelfZ > 0 ? shelfZ * smoothstep(0.2, 0.55, shelfIsle.at(i, fc, 2.6, -1.7, 4.4)) : 0;
-    L[i] = 0.62 * b + 0.4 * coast + 0.16 * mtn + 1.1 * arc + 0.6 * isl + 0.55 * sIsle - 1.5 * rift - 0.9 * basin;
+    // 南北偏向:偏北时北半球的陆地场整体抬一点(纬度 45° 以上加满)
+    if (north !== 0) L[i] = north * 0.22 * clamp(geo.latitude(i) / 45, -1, 1);
+    L[i] += 0.62 * b + 0.4 * coast + 0.16 * mtn + 1.1 * arc + 0.6 * isl + 0.55 * rg * sIsle - 1.5 * rg * rift - 0.9 * rg * basin;
   }
 
   // 热点岛链(像夏威夷):大洋里几个固定的热点,板块从上面漂过,留下一串由新到老、由大到小的岛;
@@ -871,21 +910,21 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
   for (let i = 0; i < n; i++) {
     if (!land[i]) continue;
     // 基础抬升很低 → 大部分陆地是平原
-    let U = 0.016 + 0.018 * (baseU.at(i, fs, 1.5) + 1);
+    let U = 0.016 + 0.018 * soft * (baseU.at(i, fs, 1.5) + 1);
     // 零星的丘陵区
-    U += 0.1 * smoothstep(0.3, 0.75, hills.at(i, fs, 2.2, 11, -3));
+    U += 0.1 * soft * smoothstep(0.3, 0.75, hills.at(i, fs, 2.2, 11, -3));
     const s = sideOf(i);
     const cs = conv.str[i];
     const cd = conv.dist[i];
     const contF = B[i] > 0 ? 1 : 0.7;
     // 汇聚带山脉:窄长的一条。大陆撞大陆的宽一些、高一些;俯冲带上盘在海沟后面一段(安第斯);
     // 下盘(俯冲下去的那块上的陆地)只有低矮的增生楔
-    if (s === SIDE_UPPER || s === SIDE_LOWER) U += mf * 1.65 * cs * band(cd, 7 + 9 * cs) * contF;
-    else if (s === SIDE_ARC) U += mf * 1.45 * cs * band(cd - 9, 5 + 5 * cs) * contF;
+    if (s === SIDE_UPPER || s === SIDE_LOWER) U += mf * 1.65 * softW * cs * band(cd, (7 + 9 * cs) * softW) * contF;
+    else if (s === SIDE_ARC) U += mf * 1.45 * softW * cs * band(cd - 9, (5 + 5 * cs) * softW) * contF;
     else if (s === SIDE_SLAB) U += mf * 0.35 * cs * band(cd, 6) * contF;
     // 古老山系:细长的山脊噪声,只在少数地方冒头
     const r = old.at(i, fs, 1.9, 3.1, -7.4);
-    U += mf * 0.4 * smoothstep(0.78, 0.96, r) * smoothstep(0.1, 0.55, hills.at(i, fs, 0.7, -5, 2) + 0.3);
+    U += mf * 0.4 * soft * smoothstep(0.78, 0.96, r) * smoothstep(0.1, 0.55, hills.at(i, fs, 0.7, -5, 2) + 0.3);
     // 大陆裂谷:抬升减弱成低地(不减成负的:负抬升会压到海平面以下,积成一串死水湖);
     // 裂谷湖在 world.ts 里另挖(只在强的张裂带上)
     U *= 1 - 0.75 * div.str[i] * band(div.dist[i], 20) * contF;
@@ -901,7 +940,7 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
       const reach = (s === SIDE_UPPER ? 28 : 16) + 34 * (0.5 + 0.5 * plat.at(i, fs, 1.1, 4, 0));
       const inBand = smoothstep(4, 12, cd) * (1 - smoothstep(reach, reach + 16, cd));
       const along = smoothstep(-0.25, 0.3, plat.at(i, fs, 2.3, -8, 1));
-      pb = (s === SIDE_UPPER ? 3400 : 2600) * mf * smoothstep(0.25, 0.8, cs) * inBand * along;
+      pb = (s === SIDE_UPPER ? 3400 : 2600) * mf * soft * smoothstep(0.25, 0.8, cs) * inBand * along;
     }
     pb += 1400 * smoothstep(-0.2, 0.3, shield.at(i, fs, 1.2)) * smoothstep(0.1, 0.5, B[i]);
     // 草图上涂的高原:一整片平坦的高地

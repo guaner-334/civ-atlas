@@ -263,7 +263,7 @@ const KEY_MAX = 64;
 const MAX_FLAGS = 5000;
 
 /** 参数的合理范围:存档里超出的调回范围内(比界面滑条宽;再大生成会慢到卡死) */
-const PARAM_RANGE: Record<keyof WorldParams, [number, number]> = {
+export const PARAM_RANGE: Record<keyof WorldParams, [number, number]> = {
   seed: [-(2 ** 53), 2 ** 53],
   cells: [2000, 200000],
   landFraction: [0.02, 0.95],
@@ -271,6 +271,11 @@ const PARAM_RANGE: Record<keyof WorldParams, [number, number]> = {
   mountains: [0, 5],
   temperature: [-40, 40],
   rainfall: [0, 5],
+  continents: [0, 8],
+  gather: [0, 1],
+  rugged: [0.2, 2.5],
+  hardness: [0.3, 3],
+  north: [-1, 1],
 };
 
 const PARAM_NAME: Record<keyof WorldParams, string> = {
@@ -281,13 +286,23 @@ const PARAM_NAME: Record<keyof WorldParams, string> = {
   mountains: '造山强度',
   temperature: '气温',
   rainfall: '降水',
+  continents: '大陆数量',
+  gather: '大陆分布',
+  rugged: '破碎度',
+  hardness: '板块软硬',
+  north: '南北偏向',
 };
 
 const PARAM_KEYS = Object.keys(DEFAULT_PARAMS) as (keyof WorldParams)[];
+/** 后来加的参数(大陆参数):等于默认值时世界身份里不写,加之前存下的世界照样按身份找得到 */
+const LATER_KEYS = new Set<keyof WorldParams>(['continents', 'gather', 'rugged', 'hardness', 'north']);
+const written = (params: Partial<WorldParams>, k: keyof WorldParams) => !LATER_KEYS.has(k) || (params[k] ?? DEFAULT_PARAMS[k]) !== DEFAULT_PARAMS[k];
 
-/** 一个世界的身份(种子 + 全部参数,固定顺序):浏览器里按它存、按它找 */
+/** 一个世界的身份(种子 + 全部参数,固定顺序;后来加的参数是默认值时不写):浏览器里按它存、按它找 */
 export function worldKey(params: WorldParams): string {
-  return PARAM_KEYS.map((k) => `${k}=${params[k] ?? DEFAULT_PARAMS[k]}`).join('&');
+  return PARAM_KEYS.filter((k) => written(params, k))
+    .map((k) => `${k}=${params[k] ?? DEFAULT_PARAMS[k]}`)
+    .join('&');
 }
 
 /** 改了几处:改名条数 + 干预条数 + 地形修改处数 + 草图(画了算一处)+ 地形大事件数 + 作者标记个数 + 改过的旗面数 + 作者的人物个数 + 地名风格、推演年数、纪年、月份(各算一处)*/
