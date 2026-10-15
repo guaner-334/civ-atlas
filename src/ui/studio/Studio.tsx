@@ -5,8 +5,10 @@
  *   中间     这颗星球(StudioScene + PlanetGL):进来就是地球仪、自转;拖动转动。改地形时摊成平面,换成平常的平面地图和改地形覆盖层
  *            (App 按 studioStore 的 flat 摆地图)
  *   左边     设定(电脑贴着窗口左边、能收起;手机是底部卡片,平时只露种子和「创建世界」):
- *            种子 + 换一颗、世界参数;地形(改地形工具、让助手改);名字(世界名、地名风格);底部「创建世界」。
- *            点「地名风格」左边换成配比例的那一页(NameMixPage.tsx),左上返回;手机上卡片里换页、拉到最高
+ *            种子 + 换一颗、世界参数(连同「拓荒」三样);地形(改地形工具、让助手改);文明(文明起源);名字(世界名、地名风格);底部「创建世界」。
+ *            点「地名风格」左边换成配比例的那一页(NameMixPage.tsx),左上返回;手机上卡片里换页、拉到最高。
+ *            点「文明起源」左边换成选起源的那一页(OriginsPage.tsx):星球停转,点一下放一处(带号的圆点和州名跟着星球摆,
+ *            停住时才显示),点圆点拿掉,点到住不了人的地方底下提示原因;照手绘图的从第 3 步进去,地图先卷成地球仪
  *   右边     样式(不用历史的 7 种,带缩略图)和投影(地球仪 + 5 种平面)、经纬网(开关 + 间隔;编辑地形时照样能开);
  *            手机上是右上两个按钮,点开是列表
  *
@@ -19,7 +21,8 @@
  *   助手     「让助手改」打开:电脑上贴着右边,手机上是盖住设定卡片的底部卡片(上面留出星球)。
  *            新建时助手只改地形、回答问题;列出来还没执行的改地形在星球上用白色虚线圈出来、编号和清单对上,
  *            星球先转过去正对着那一块。执行后和手动改地形一样重新生成、星球淡入新样子(不放提示条)
- *   确认框   点「创建世界」先列出建好以后不能改的四样(种子 / 照的图、世界参数、地形、地名风格);确认后面板滑出、星球展开成平常的地图、淡出
+ *   确认框   点「创建世界」先列出建好以后不能改的几样(种子 / 照的图、世界参数、推演年数、拓荒、地形、文明起源、地名风格;
+ *            推演年数、拓荒、文明起源改过才列);确认后面板滑出、星球展开成平常的地图、淡出
  *
  * 没有 WebGL(或显卡丢了):中间一直是平常的平面地图;样式照样能换。
  * 系统设了"减少动态效果":地球仪不自转,换样式和投影只做很短的过渡。
@@ -32,7 +35,11 @@ import type { Raster } from '../../gen/raster';
 import { TITLE_MAX, worldKey } from '../../gen/savefile';
 import { END_YEAR_DEFAULT, cleanEndYear } from '../../gen/edits';
 import type { DraftBase } from '../stageStore';
-import { getEdits, setEndYear, useEdits } from '../editsStore';
+import { getEdits, setEndYear, setFrontier, setOrigins, useEdits } from '../editsStore';
+import { cleanOrigins, frontierBrief, terrainChangedCount, terrainValue, type Origins } from '../../gen/civ/frontier';
+import { EXPAND_SLIDER, SPREAD_SLIDER, TERRAIN_SLIDERS, withSpeed, withTerrain, withoutTerrain } from '../frontierUi';
+import { OriginsPage } from './OriginsPage';
+import { originCiv, originRefusal, originSpots, poseMap } from './origins';
 import {
   TerrainCaption,
   TerrainPanel,
@@ -135,6 +142,12 @@ const PROJS: { id: PlanetProjection; name: string; hint: string; icon: [number, 
 const AST_SHEET = 0.58;
 /** 手机上照手绘图那一页的底部卡片占屏幕多高(和 studio.css 的 .sk-sheet 一致;拉到最高时盖住地图,地图不跟着挪) */
 const SK_SHEET = 0.642;
+/** 确认框里"下面几样不能再改" */
+const LOCK_COUNT = ['', '一', '两', '三', '四', '五', '六', '七'];
+/** 选起源时点错了的那句提示留几毫秒 */
+const ORIGIN_MSG_MS = 2600;
+/** 放下一处起源后这么久里,圆点上的 click 不算拿掉(手机补发的 click) */
+const PIN_GUARD_MS = 500;
 /** 照手绘图那一页:电脑上地图下边到那句提示有多远 */
 const CAP_GAP = 34;
 
@@ -166,6 +179,8 @@ export interface StudioProps {
   ready: boolean;
   noCiv: boolean;
   data: { world: World; raster: Raster } | null;
+  /** 第 0 年的星球(有地形大事时是大事以前的那颗;文明起源按它算) */
+  baseWorld: World | null;
   /** 这颗星球推演出来的历史(套上改名的、没套的):助手要用 */
   civ: Civ | null;
   raw: Civ | null;
@@ -282,6 +297,21 @@ export function Studio(p: StudioProps) {
   const [sheetFull, setSheetFull] = useState(false);
   /** 左边换成「地名风格」页(手机上卡片里换页) */
   const [namesPage, setNamesPage] = useState(false);
+  /** 左边换成「文明起源」页 */
+  const [originsPage, setOriginsPage] = useState(false);
+  /** 起源页上:星球停住时的样子(圆点按它摆;动着 = null)、底下的提示(点错了的那句和画虚线圈的地方,过几秒收起) */
+  const [pinPose, setPinPose] = useState<StillPose | null>(null);
+  const [originMsg, setOriginMsg] = useState<{ text: string; x: number; y: number } | null>(null);
+  const msgTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  /** 上一次在星球上放下一处起源的时刻 */
+  const addedAt = useRef(-Infinity);
+  useEffect(() => () => clearTimeout(msgTimer.current), []);
+  /** 起源页上选的是「自己选」、「别处也自动长出民族」关着(一处没点时也记着);切回「自动」时收起来的几处 */
+  const [originCustom, setOriginCustom] = useState(false);
+  const [originOnly, setOriginOnly] = useState(false);
+  const keptOrigins = useRef<Origins | undefined>(undefined);
+  /** 地形难走程度展开着没有(世界参数里) */
+  const [terrOpen, setTerrOpen] = useState(false);
   /** 地名风格页还没交的份数(见 NameMixPage 的 flush) */
   const mixFlush = useRef<(() => void) | null>(null);
   const [drawer, setDrawer] = useState<'style' | 'proj' | null>(null);
@@ -414,6 +444,52 @@ export function Studio(p: StudioProps) {
   );
   useEffect(() => () => clearTimeout(labTimer.current), []);
 
+  // ---- 文明起源页:星球停转,点一下放一处、点圆点拿掉 ----
+  const originsOn = originsPage && !tool.on && !out;
+  const flashOrigin = (text: string, x: number, y: number) => {
+    clearTimeout(msgTimer.current);
+    setOriginMsg({ text, x, y });
+    msgTimer.current = setTimeout(() => setOriginMsg(null), ORIGIN_MSG_MS);
+  };
+  const tapOrigin = (sx: number, sy: number, pose: StillPose) => {
+    const d = pRef.current.data;
+    const raw = pRef.current.civ ?? pRef.current.raw;
+    const civ = raw && originCiv(raw);
+    if (!d || !civ || !originCustom) return;
+    const w = poseMap(pose, d.world.width, d.world.height).inv(sx, sy);
+    if (!w) return;
+    const o = getEdits().origins;
+    const pts = o?.pts ?? [];
+    const world = pRef.current.baseWorld ?? d.world;
+    const why = originRefusal(world, civ, w[0], w[1], originSpots(world, civ, pts));
+    if (why) return flashOrigin(why, sx, sy);
+    clearTimeout(msgTimer.current);
+    setOriginMsg(null);
+    setOrigins(cleanOrigins({ pts: [...pts, w[0], w[1]], only: originOnly || undefined }));
+    addedAt.current = performance.now();
+  };
+  const removeOrigin = (i: number) => {
+    // 手机上点一下放了一处,浏览器随后补发的 click 正好落在刚出现的圆点上,别把它当成「拿掉」
+    if (performance.now() - addedAt.current < PIN_GUARD_MS) return;
+    const o = getEdits().origins;
+    if (o) setOrigins(cleanOrigins({ pts: o.pts.filter((_, k) => k >> 1 !== i), only: o.only }));
+  };
+  const pickOriginCustom = (on: boolean) => {
+    setOriginCustom(on);
+    if (on) {
+      if (keptOrigins.current) setOrigins(keptOrigins.current);
+      keptOrigins.current = undefined;
+    } else {
+      keptOrigins.current = getEdits().origins;
+      setOrigins(undefined);
+    }
+  };
+  const pickOriginOnly = (only: boolean) => {
+    setOriginOnly(only);
+    const o = getEdits().origins;
+    if (o) setOrigins(cleanOrigins({ pts: o.pts, only: only || undefined }));
+  };
+
   // ---- 星球 ----
   const hooks = useRef<SceneHooks>({
     frame: () => {},
@@ -444,6 +520,10 @@ export function Studio(p: StudioProps) {
     still: (pose) => {
       stillRef.current = pose;
       queueLabels();
+      if (originsOn) setPinPose(pose);
+    },
+    tap: (x, y, pose) => {
+      if (originsOn) tapOrigin(x, y, pose);
     },
   };
 
@@ -463,6 +543,7 @@ export function Studio(p: StudioProps) {
         flat: (r, l) => hooks.current.flat(r, l),
         touched: () => hooks.current.touched(),
         still: (pose) => hooks.current.still(pose),
+        tap: (x, y, pose) => hooks.current.tap?.(x, y, pose),
       },
       reduce,
     );
@@ -751,6 +832,32 @@ export function Studio(p: StudioProps) {
     if (p.phone) setSheetFull(true);
     setNamesPage(true);
   };
+  /** 「文明起源」页:星球停转(照手绘图的卷成地球仪),圆点按星球现在的样子摆;手机上卡片拉开 */
+  const openOrigins = () => {
+    setDrawer(null);
+    setStyOpen(false);
+    setTip(false);
+    closeAssistant();
+    const o = getEdits().origins;
+    setOriginCustom(!!o);
+    setOriginOnly(!!o?.only);
+    keptOrigins.current = undefined;
+    if (p.phone) setSheetFull(true);
+    if (image) {
+      if (tool.on) setTerrainTool({ on: false });
+      setSourceView({ show: 'grown' });
+      setImgFlat(false);
+    }
+    const sc = sceneRef.current;
+    if (sc) sc.spin = false;
+    setPinPose(stillRef.current);
+    setOriginsPage(true);
+  };
+  const closeOrigins = () => {
+    setOriginsPage(false);
+    setOriginMsg(null);
+    setPinPose(null);
+  };
   /** 「让助手改」:改地形工具开着就先收起(星球卷回来,圈画在星球上) */
   const askAssistant = () => {
     setDrawer(null);
@@ -758,6 +865,7 @@ export function Studio(p: StudioProps) {
     setTip(false);
     setSheetFull(false);
     if (p.phone) setNamesPage(false);
+    closeOrigins();
     if (tool.on) setTerrainTool({ on: false });
     if (image) {
       setSourceView({ show: 'grown' });
@@ -836,7 +944,7 @@ export function Studio(p: StudioProps) {
     : image
       ? '海和陆地照你的图长，山、河、气候由程序补上。'
       : `按种子随机生成。先定下这颗星球的样子，创建以后再推演它${yearsSpan(endYear, true)}的历史。`;
-  const isDefault = (Object.keys(DEFAULT_PARAMS) as (keyof WorldParams)[]).every((k) => k === 'seed' || p.params[k] === DEFAULT_PARAMS[k]);
+  const isDefault = (Object.keys(DEFAULT_PARAMS) as (keyof WorldParams)[]).every((k) => k === 'seed' || p.params[k] === DEFAULT_PARAMS[k]) && !edits.frontier;
   const presets = usePresets();
   /** 和所选预设不一样的几样(数字用主色写) */
   const changed = changedKeys(presets, presets.chosen, p.params);
@@ -919,6 +1027,46 @@ export function Studio(p: StudioProps) {
   const slider = (x: (typeof SLIDERS)[number]) => (
     <ParamSlider key={x.key} s={x} value={p.params[x.key]} changed={changed.has(x.key)} onCommit={(v) => p.onParams({ ...p.params, [x.key]: v })} />
   );
+  // 「拓荒」三样(世界参数里精细度下面):民族扩散、国家扩张,「地形难走程度」点开原地展开八样
+  const frontier = edits.frontier;
+  const terrN = terrainChangedCount(frontier);
+  const frontierRows = (
+    <>
+      <ParamSlider s={SPREAD_SLIDER} value={SPREAD_SLIDER.pos(frontier?.spread ?? 1)} changed={frontier?.spread !== undefined} onCommit={(v) => setFrontier(withSpeed(getEdits().frontier, 'spread', SPREAD_SLIDER.value(v)))} />
+      <ParamSlider s={EXPAND_SLIDER} value={EXPAND_SLIDER.pos(frontier?.expand ?? 1)} changed={frontier?.expand !== undefined} onCommit={(v) => setFrontier(withSpeed(getEdits().frontier, 'expand', EXPAND_SLIDER.value(v)))} />
+      <button className={`sb-row nw-terr${terrOpen ? ' open' : ''}`} data-act="terrain-cost" aria-expanded={terrOpen} onClick={() => setTerrOpen((o) => !o)}>
+        <span className="sb-row-main">
+          <b>地形难走程度</b>
+        </span>
+        {terrOpen ? (
+          terrN > 0 && (
+            <span
+              className="sb-link"
+              role="button"
+              data-act="terrain-cost-reset"
+              onClick={(e) => {
+                e.stopPropagation();
+                setFrontier(withoutTerrain(getEdits().frontier));
+              }}
+            >
+              恢复默认
+            </span>
+          )
+        ) : (
+          <span className="sb-row-side">{terrN ? `改过 ${terrN} 样` : '默认'}</span>
+        )}
+        <Icon name={terrOpen ? 'down' : 'chevron'} size={14} className="sb-chev" />
+      </button>
+      {terrOpen && (
+        <div className="nw-terr-list">
+          {TERRAIN_SLIDERS.map(({ g, s: sl }) => {
+            const v = terrainValue(frontier, g);
+            return <ParamSlider key={g.key} s={sl} value={sl.pos(v)} changed={v !== g.def} onCommit={(x) => setFrontier(withTerrain(getEdits().frontier, g, sl.value(x)))} />;
+          })}
+        </div>
+      )}
+    </>
+  );
   const paramsRow = (
     <>
       <button className={`sb-row nw-params${paramsOpen ? ' open' : ''}`} data-act="params" aria-expanded={paramsOpen} onClick={() => setParamsOpen((o) => !o)}>
@@ -934,6 +1082,7 @@ export function Studio(p: StudioProps) {
               data-act="params-reset"
               onClick={(e) => {
                 e.stopPropagation();
+                setFrontier(undefined);
                 p.onParams({ ...DEFAULT_PARAMS, seed: p.params.seed });
               }}
             >
@@ -962,6 +1111,8 @@ export function Studio(p: StudioProps) {
           {SLIDERS.slice(3, 5).map(slider)}
           <div className="nw-sub">精细度</div>
           {SLIDERS.slice(5).map(slider)}
+          <div className="nw-sub">拓荒</div>
+          {frontierRows}
           <YearsRows />
         </div>
       )}
@@ -984,6 +1135,17 @@ export function Studio(p: StudioProps) {
         <b>让助手改</b>
       </span>
       <span className="sb-row-side">说一句话就行</span>
+      <Icon name="chevron" size={14} className="sb-chev" />
+    </button>
+  );
+  const originN = edits.origins ? edits.origins.pts.length >> 1 : 0;
+  const originsRow = (
+    <button className="sb-row" data-act="origins" disabled={!p.ready || !p.data || !(p.civ ?? p.raw)} onClick={openOrigins}>
+      <Icon name="pin" size={ico} className="sb-ico" />
+      <span className="sb-row-main">
+        <b>文明起源</b>
+      </span>
+      <span className="sb-row-side">{originN ? `自己选了 ${originN} 处` : '自动'}</span>
       <Icon name="chevron" size={14} className="sb-chev" />
     </button>
   );
@@ -1070,7 +1232,34 @@ export function Studio(p: StudioProps) {
     </button>
   );
   const mixShown = namesPage && !tool.on && !peek;
-  const mixPage = mixShown && <NameMixPage backLabel={heading} onBack={() => setNamesPage(false)} civ={p.raw} busy={p.busy} ready={p.ready} phone={p.phone} flush={mixFlush} />;
+  /** 文明起源按第 0 年的州看(有地形大事时是大事以前的,见 origins.ts 的 originCiv) */
+  const ogRaw = p.civ ?? p.raw;
+  const ogCiv = ogRaw && originCiv(ogRaw);
+  const ogShown = originsOn && !mixShown;
+  const pageShown = mixShown || ogShown;
+  const mixPage = mixShown ? (
+    <NameMixPage backLabel={heading} onBack={() => setNamesPage(false)} civ={p.raw} busy={p.busy} ready={p.ready} phone={p.phone} flush={mixFlush} />
+  ) : (
+    ogShown && (
+      <OriginsPage
+        backLabel={heading}
+        onBack={closeOrigins}
+        world={p.baseWorld ?? p.data?.world ?? null}
+        civ={ogCiv}
+        phone={p.phone}
+        noMap={glOk === false}
+        custom={originCustom}
+        onCustom={pickOriginCustom}
+        only={originOnly}
+        onOnly={pickOriginOnly}
+      />
+    )
+  );
+  const doneBtn = (
+    <button className="nw-create" data-act="origins-finish" onClick={closeOrigins}>
+      完成
+    </button>
+  );
 
   // ---- 照手绘图:图片那一行和三步 ----
   const nameNow = name.trim();
@@ -1122,6 +1311,7 @@ export function Studio(p: StudioProps) {
         <>
           <StepParams params={p.params} onParams={p.onParams} disabled={p.busy} />
           {rerollRow}
+          {originsRow}
           <div className="sk-name">{nameField}</div>
           {mixRow}
         </>,
@@ -1159,6 +1349,15 @@ export function Studio(p: StudioProps) {
           </div>
         </section>
       )}
+      {!peek && (
+        <section className="sb-sec">
+          <div className="sb-sec-head">
+            <span>文明</span>
+            <small>可选</small>
+          </div>
+          <div className="sb-group">{originsRow}</div>
+        </section>
+      )}
       {!peek && carriedSec}
       {!peek && (
         <section className="sb-sec">
@@ -1179,7 +1378,10 @@ export function Studio(p: StudioProps) {
       aria-label={sheetFull ? '收起' : '展开'}
       aria-expanded={sheetFull}
       onClick={() => {
-        if (sheetFull) setNamesPage(false);
+        if (sheetFull) {
+          setNamesPage(false);
+          closeOrigins();
+        }
         setSheetFull(!sheetFull);
       }}
     >
@@ -1191,7 +1393,7 @@ export function Studio(p: StudioProps) {
     left = (
       <section ref={sheetRef} className="st-sheet nw-sheet nw-card sk-sheet" aria-label={heading} onPointerDown={stop} onClick={stop} onWheel={stop}>
         {grip}
-        {!mixShown && (
+        {!pageShown && (
           <div className="sk-phd">
             {p.back && (
               <button className="sk-bk" data-act="back" aria-label={`返回${p.back.label}`} onClick={p.back.onClick}>
@@ -1202,15 +1404,15 @@ export function Studio(p: StudioProps) {
             {moreMenu}
           </div>
         )}
-        <div className={`st-in nw-body${mixShown ? ' nm-page' : ' sk-in'}`}>{mixPage || imageSteps}</div>
-        <footer className="st-foot">{createBtn}</footer>
+        <div className={`st-in nw-body${pageShown ? ' nm-page' : ' sk-in'}${ogShown ? ' og-page' : ''}`}>{mixPage || imageSteps}</div>
+        {!ogShown && <footer className="st-foot">{createBtn}</footer>}
       </section>
     );
   } else if (p.phone) {
     left = (
       <section ref={sheetRef} className={`st-sheet nw-sheet nw-card${peek ? ' peek' : ''}${tool.on ? ' tools' : ''}`} aria-label="新建世界" onPointerDown={stop} onClick={stop} onWheel={stop}>
         {grip}
-        <div className={`st-in nw-body${mixShown ? ' nm-page' : ''}`}>
+        <div className={`st-in nw-body${pageShown ? ' nm-page' : ''}${ogShown ? ' og-page' : ''}`}>
           {mixPage || (
             <>
               {!tool.on && backLink}
@@ -1225,13 +1427,13 @@ export function Studio(p: StudioProps) {
             </>
           )}
         </div>
-        {!tool.on && <footer className="st-foot">{createBtn}</footer>}
+        {!tool.on && !ogShown && <footer className="st-foot">{createBtn}</footer>}
       </section>
     );
   } else {
     left = (
       <aside className="st-left nw-card" aria-label={heading} onPointerDown={stop} onDoubleClick={stop} onClick={stop}>
-        <div className={`st-in nw-body${mixShown ? ' nm-page' : image ? ' sk-in' : ''}`}>
+        <div className={`st-in nw-body${pageShown ? ' nm-page' : image ? ' sk-in' : ''}${ogShown ? ' og-page' : ''}`}>
           {mixPage || (
             <>
               <div className="st-top">
@@ -1249,7 +1451,7 @@ export function Studio(p: StudioProps) {
             </>
           )}
         </div>
-        <footer className="st-foot">{createBtn}</footer>
+        <footer className="st-foot">{ogShown ? doneBtn : createBtn}</footer>
       </aside>
     );
   }
@@ -1401,6 +1603,35 @@ export function Studio(p: StudioProps) {
     </div>
   );
 
+  // 起源页:星球上带号的圆点(停住时才摆;点一下拿掉)、底下的提示、点错的地方一个虚线圈
+  let pins: React.ReactNode = null;
+  if (ogShown && pinPose && p.data && ogCiv && glOk && edits.origins) {
+    const W = p.data.world.width;
+    const pm = poseMap(pinPose, W, p.data.world.height);
+    pins = (
+      <div className="og-pins">
+        {originSpots(p.baseWorld ?? p.data.world, ogCiv, edits.origins.pts).map((sp, i) => {
+          const [x, y, vis] = pm.fwd(sp.x, sp.y);
+          if (vis <= 0.05) return null;
+          return (
+            <button key={`${sp.x},${sp.y}`} className={`og-pin${sp.ok ? '' : ' off'}`} style={{ left: x, top: y }} data-pin={i + 1} aria-label={`拿掉第 ${i + 1} 处：${sp.name}`} onClick={() => removeOrigin(i)}>
+              {i + 1}
+              <i>{sp.name}</i>
+            </button>
+          );
+        })}
+      </div>
+    );
+  }
+  const ogTip = ogShown && originCustom && glOk && (
+    <>
+      <div className="st-cap st-tip og-tip" style={p.phone ? undefined : { left: box.x + box.w / 2 }} data-bad={originMsg ? 1 : 0}>
+        {originMsg?.text ?? (p.phone ? '点能住人的地方放一处起源' : '点能住人的地方放一处起源，点圆点拿掉')}
+      </div>
+      {originMsg && <div className="og-bad" style={{ left: originMsg.x, top: originMsg.y }} />}
+    </>
+  );
+
   const cls = [
     'studio',
     p.phone ? 'st-phone' : 'st-desk',
@@ -1421,6 +1652,7 @@ export function Studio(p: StudioProps) {
       <canvas ref={glRef} className="st-gl" aria-label="这颗星球" />
       <canvas ref={labRef} className={`st-labels${labOn && !tool.on && !out && glOk ? ' on' : ''}`} aria-hidden="true" />
       <canvas ref={markRef} className={`st-labels st-marks${markOn && astShown && !tool.on && !out && glOk ? ' on' : ''}`} data-marks={markOn && astShown ? marks.length : 0} aria-hidden="true" />
+      {pins}
       {(drawer || styOpen) && (
         <div
           className="st-dismiss"
@@ -1494,6 +1726,7 @@ export function Studio(p: StudioProps) {
         </div>
       )}
       {imageCap}
+      {ogTip}
       {tool.on && (!image || (p.phone && !importing)) && <TerrainCaption phone={p.phone} />}
       {confirm && (
         <div className="st-scrim" onPointerDown={stop} onClick={() => setConfirm(false)}>
@@ -1502,7 +1735,7 @@ export function Studio(p: StudioProps) {
               <Icon name="lock" size={22} />
             </div>
             <h2 id="st-dlg-title">{nameNow ? `创建「${nameNow}」？` : '创建这个世界？'}</h2>
-            <p>创建以后，这颗星球的样子就定下来了，下面{years ? '五' : '四'}样不能再改：</p>
+            <p>创建以后，这颗星球的样子就定下来了，下面{LOCK_COUNT[4 + (years ? 1 : 0) + (frontier ? 1 : 0) + (originN ? 1 : 0)]}样不能再改：</p>
             <div className="sb-group">
               {image ? (
                 <div className="sb-row static">
@@ -1543,6 +1776,17 @@ export function Studio(p: StudioProps) {
                   </span>
                 </div>
               )}
+              {frontier && (
+                <div className="sb-row static">
+                  <Icon name="lock" size={16} className="sb-ico" />
+                  <span className="sb-row-main">
+                    <b>拓荒</b>
+                  </span>
+                  <span className="sb-row-side" data-confirm="frontier">
+                    {frontierBrief(frontier)}
+                  </span>
+                </div>
+              )}
               <div className="sb-row static">
                 <Icon name="lock" size={16} className="sb-ico" />
                 <span className="sb-row-main">
@@ -1552,6 +1796,17 @@ export function Studio(p: StudioProps) {
                   {terrainSide(edits, '没改过')}
                 </span>
               </div>
+              {originN > 0 && (
+                <div className="sb-row static">
+                  <Icon name="lock" size={16} className="sb-ico" />
+                  <span className="sb-row-main">
+                    <b>文明起源</b>
+                  </span>
+                  <span className="sb-row-side" data-confirm="origins">
+                    自己选了 {originN} 处
+                  </span>
+                </div>
+              )}
               <div className="sb-row static">
                 <Icon name="lock" size={16} className="sb-ico" />
                 <span className="sb-row-main">

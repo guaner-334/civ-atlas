@@ -42,6 +42,7 @@ import type { CivEra, NamePins, Regions, UpheavalFact } from './types';
 import type { TerrainOp } from '../edits';
 import { buildReligion } from './religion';
 import { cleanMix, type NameMix } from '../names';
+import { cleanFrontier, cleanOrigins, type Frontier } from './frontier';
 
 export * from './types';
 
@@ -94,6 +95,9 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
   const n = world.mesh.n;
   /** 整个世界的地名风格(清理过;自动 = undefined) */
   const mix = cleanMix(p.names);
+  /** 拓荒设定、自选的起源(清理过;默认 = undefined) */
+  const frontier = cleanFrontier(p.frontier);
+  const origins = cleanOrigins(p.origins);
 
   progress('宜居度', 0);
   const habitat = computeHabitat(world);
@@ -112,8 +116,10 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
   const birthSpan = p.birthSpan ?? BIRTH_SPAN;
   // 改过地形:扩张节拍、城的人口折算沿用没改地形时的同一颗星球(planetTempo);没改 = 按这个世界自己标定
   const tempo = viable && world.terrain?.length ? (p.tempo === undefined ? planetTempo(world.params, p, world.sketch) : (p.tempo ?? undefined)) : undefined;
-  const model = viable ? planCultures(world, habitat, regions, { cultures: p.cultures, pace: p.pace, birthSpan, tempo: tempo?.spread }) : null;
-  const pm = model ? planPolities(world, model, { polities: p.polities, pace: p.pace, capNorm: tempo?.capNorm }) : null;
+  const model = viable
+    ? planCultures(world, habitat, regions, { cultures: p.cultures, pace: p.pace, birthSpan, tempo: tempo?.spread, frontier, origins, interventions: p.interventions })
+    : null;
+  const pm = model ? planPolities(world, model, { polities: p.polities, pace: p.pace, capNorm: tempo?.capNorm, expand: frontier?.expand }) : null;
   // 阶段 4 干预(interventions.ts):事件最先预约(同一刻里只排在地形大事和看王朝、新君即位、迁都后重看边地后面,干预之前的历史一字不差)
   const iv = pm ? scheduleInterventions(sim, world.params.seed, p.interventions) : null;
   if (model) installCultures(sim, model);
@@ -141,7 +147,7 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
     const eraWorld = fin.world;
     const eraHabitat = fin.habitat;
     // 名字、配色、这一段的地名和道路:照"没有这件大事、照原样推到底"的那份历史(大事之前和它一模一样,见 NamePins)
-    const same = partialCiv(fin.sim, fin.model!, fin.pm!, eraHabitat, before, world.params.seed, iv);
+    const same = partialCiv(fin.sim, fin.model!, fin.pm!, eraHabitat, before, world.params.seed, iv, frontier);
     same.upheavals = facts.slice(); // 早先几件大事的经过:分支里也认得出沉过海的城址(见下面 half.upheavals)
     const branch = CivSim.fromCiv(eraWorld, same, same.interventions ?? []);
     branch.run(p.endYear);
@@ -163,7 +169,7 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
     const { joined, ...rest } = impact;
     const fact: UpheavalFact = { year: u.year, kinds: kindsOf(u.ops), items: u.items.slice(), ...rest, polity: -1, drownedBy: [], ...(joined ? { joined } : {}) };
     facts.push(fact);
-    const half = partialCiv(fin.sim, fin.model!, fin.pm!, h1, r1, world.params.seed, iv);
+    const half = partialCiv(fin.sim, fin.model!, fin.pm!, h1, r1, world.params.seed, iv, frontier);
     // 还在的城:港口、人口上限照新地形换值(从大事那一刻起;接着推时立国的年份按新的上限算)
     half.settlements = reshapeCities(half.settlements, fin.pm!.terrain, u.world, h1, r1, u.year, u.ops);
     // 早先几件大事的经过(接着推时认得出哪些城址沉过海,cities.ts 的 resumeCities)
@@ -227,6 +233,7 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
     spreadYears: model?.spreadYears,
     capNorm: pm?.capNorm,
     polityYears: pm?.years,
+    ...(frontier ? { frontier } : {}),
     ...(iv ? { interventions: iv.list.slice() } : {}),
     people,
     ...(facts.length ? { upheavals: facts, eras } : {}),
@@ -276,7 +283,7 @@ function pinNames(pins: NamePins, world: World, branch: CivSim, from: number, to
 }
 
 /** 推到一半的历史(地形大事前一刻)拼成 CivSim.fromCiv 要的 Civ(州、宜居度按给的);归属数组、检查点按州数补齐(新州 = 没人) */
-function partialCiv(sim: CivSim, model: CultureModel, pm: PolityModel, habitat: Habitat, regions: Regions, seed: number, iv: InterventionModel | null): Civ {
+function partialCiv(sim: CivSim, model: CultureModel, pm: PolityModel, habitat: Habitat, regions: Regions, seed: number, iv: InterventionModel | null, frontier?: Frontier): Civ {
   const res = sim.result();
   const pad = (a: Int16Array) => {
     if (a.length >= regions.count) return a;
@@ -303,6 +310,7 @@ function partialCiv(sim: CivSim, model: CultureModel, pm: PolityModel, habitat: 
     spreadYears: model.spreadYears,
     capNorm: pm.capNorm,
     polityYears: pm.years,
+    ...(frontier ? { frontier } : {}),
     ...(iv ? { interventions: iv.list.slice() } : {}),
     people: [],
   } as Civ;

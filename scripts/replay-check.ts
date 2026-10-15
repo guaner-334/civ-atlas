@@ -1234,7 +1234,7 @@ await studioReady();
   if (!emptyText.includes('无需登录') || !emptyText.includes('不主张任何权利')) errs.push(`第一次来:「或者打开存档文件」下面没有"无需登录……归你"那行小字(${emptyText})`);
   if (!/[?&]new=1/.test(draftUrl)) errs.push(`第一次来:新建弹窗里点「开始」没进新建(${draftUrl})`);
   if (!dlg1.includes('随机生成') || !dlg1.includes('照手绘图生成') || dlgOn !== 'random' || !dlgGone) errs.push(`新建弹窗:第 1 步没有两种(默认随机生成),或 Esc 没关掉(${dlg1},${dlgOn},${dlgGone})`);
-  if (!dlg2.includes('种子') || !dlg2.includes('都还能改') || dlgParams !== 6) errs.push(`新建弹窗:第 2 步没有种子、六项参数和"进去以后还能改"(${dlg2},${dlgParams})`);
+  if (!dlg2.includes('种子') || !dlg2.includes('都还能改') || dlgParams !== 8) errs.push(`新建弹窗:第 2 步没有种子、八项参数(六项世界参数加民族扩散、国家扩张)和"进去以后还能改"(${dlg2},${dlgParams})`);
   if (!['不能再改', '种子', '世界参数', '地形', '地名风格'].every((w) => dlg.includes(w)) || !new RegExp(`[?&]seed=${dlgSeed}(&|$)`).test(draftUrl)) errs.push(`新建界面:确认框没列出不能再改的四样(${dlg},种子 ${dlgSeed})`);
   if (!closed || !stillDraft) errs.push('新建界面:确认框点「再改改」没有关掉、回到新建');
   if (!/[?&]w=w/.test(worldUrl) || theme !== 'light' || layer !== 'political') errs.push(`新建界面:确认创建后没回到平常的世界页面(${worldUrl},${theme},${layer})`);

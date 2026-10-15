@@ -29,7 +29,7 @@
  *                   带"永久"的:这州还在 a 手里时 —— wars.ts 攻不下、议和不割让,a 丢了国都也不会被并掉残部;
  *                   politics.ts 分裂、复国不带走它(被切断就这次不分),a 是小国也不会被合并掉(locked / holdsLock)
  *   立国   found     from 那一刻以这州的城为国都立一个新国家(polities.ts 的 addPolity;州里没城就先建城 —— 故城遗址上的算重建;
- *                   民族 = 当地民族;变化日志原因记 Ev.PolityFound,和自然立国一样:之后按正常规则扩张、打仗、看内政……)。
+ *                   民族 = 当地民族;州里还没人住(住得了人)= 那一刻一支新民族来这里落脚(定民族时备好的,cultures.ts 的 planPioneers),民族就是它;变化日志原因记 Ev.PolityFound,和自然立国一样:之后按正常规则扩张、打仗、看内政……)。
  *                   州原来有主的,新国从原主分出来(Polity.parent:站稳期里别国不来打,配色和原主错开);原主照"划州"那样迁都 / 亡国。
  *                   国名:给了就用(namePolities 不再另起),不给按常规起
  *   迁都   move      from 那一刻迁都到这座城(polities.ts 的 moveCapital;城要在 a 的国土里、没被毁,否则不迁)
@@ -52,6 +52,7 @@ import { addPolity, endPolity, foundCity, moveCapital, polityModelOf, respread, 
 import { bestCapital, polityBorders, warModelOf } from './wars';
 import { capitalAt } from './growth';
 import { REBUILD_GROWTH } from './cities';
+import { pioneerArrives } from './cultures';
 
 type Ally = Extract<Intervention, { kind: 'ally' }>;
 type Halt = Extract<Intervention, { kind: 'halt' }>;
@@ -327,9 +328,10 @@ export function installInterventions(sim: CivSim, iv: InterventionModel): void {
     fallen(o, r, t, a);
   };
 
-  /** 立国:以州 r 的城为国都立新国 */
+  /** 立国:以州 r 的城为国都立新国。州里没人住(住得了人的)= 先来一支新民族落脚(cultures.ts 的 pioneerArrives) */
   const found = (v: Found, i: number, t: number) => {
     const r = regionOfKey(v.region, iv.of);
+    if (r >= 0 && r < R && culture[r] < 0) pioneerArrives(sim, r, i, t);
     if (r < 0 || r >= R || culture[r] < 0) {
       sim.record('intervene', { region: r < R ? r : -1, war: i });
       return;

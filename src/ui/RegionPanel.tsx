@@ -10,13 +10,14 @@
  *   大事  最近 5 条(可点)、这一州的干预(可撤销)
  *
  * "在这里立国""划给…"换到干预页:生效年份(−100 −10 [年份] +10)+ 国名(可不填)/ 永久;
+ * 立国:那一年没人住、但住得了人的州也能立(推演时一支新的民族来这里落脚),住不了人的写明是什么地形、按钮点不了;
  * "划给…"在地图上选国家(地图压暗、可选的国家浮出名牌,见 TargetPlates.tsx)。下了干预回到信息页,App 在后台重推,
  * 顶部提示"…划给…,已从 X 年起重新推演"带撤销。
  */
 import { useEffect, useMemo, useState } from 'react';
 import type { Civ } from '../gen/civ/types';
 import { BIOMES } from '../gen/biomes';
-import { KIND_INFO, cultureLabel, regionLabel, regionNamed } from '../gen/civ/display';
+import { HABITABLE_SUIT, KIND_INFO, cultureLabel, regionLabel, regionNamed } from '../gen/civ/display';
 import { SETTLEMENT_RANKS, capitalAt, polityAlive, polityName, populationAt, populationLabel, regionPopulationAt, settlementRank } from '../gen/civ/growth';
 import { ownersAt } from '../gen/civ/timeline';
 import { spaced, yearAt, yearSpanAt } from '../gen/era';
@@ -281,10 +282,14 @@ function RegionOrder({ civ, id, year, page, back }: { civ: Civ; id: number; year
       : civ.settlements[capitalAt(O, y)]?.region === id
         ? `,这里是${nameAt(O, y)}的国都,它会迁都`
         : '';
+  // 没人住的州:住得了人的也能立国(一支新的民族来这里落脚),住不了人的立不了
+  const livable = civ.habitat.suitability[civ.regions.seat[id]] >= HABITABLE_SUIT;
   const why = !valid
     ? `生效年份要在${spaced(yearSpanAt(0, Math.max(0, civ.endYear - 1), era))}之间`
-    : !at.peopled
-      ? `${yearAt(y, era)}这州无人居住`
+    : !at.peopled && (page !== 'found' || !livable)
+      ? page === 'found'
+        ? `这里是${BIOMES[civ.regions.biome[id]]?.name ?? '荒地'}，住不了人，立不了国`
+        : `${yearAt(y, era)}这州无人居住`
       : page === 'cede' && !others.length && !(forever && O)
         ? '该年没有别的国家'
         : null;
@@ -346,7 +351,13 @@ function RegionOrder({ civ, id, year, page, back }: { civ: Civ; id: number; year
               <span className="cp-note">之后战争、分裂都拿不走</span>
             </label>
           )}
-          <span className="cp-note">{page === 'found' ? `${holder}${O ? ',立国后从它分出来' : ''}${fate}。` : `${holder}${fate}。`}</span>
+          <span className="cp-note">
+            {page !== 'found'
+              ? `${holder}${fate}。`
+              : !at.peopled && livable
+                ? `${holder}，还没人住。立国时会有一支新的民族在这里落脚，第一座城就建在这里。`
+                : `${holder}${O ? ',立国后从它分出来' : ''}${fate}。`}
+          </span>
         </div>
         {(msg || why) && <div className="cp-msg">{msg ?? why}</div>}
         {mine.length > 0 && (

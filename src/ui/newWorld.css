@@ -302,6 +302,43 @@
   line-height: 1.6;
   color: var(--ink-2);
 }
+/* 「拓荒」一组:「地形难走程度」一行点开原地展开(像系统设置里点一行展开),右边写默认 / 改过几样;展开的几行缩进 */
+.nd-grp .nd-n.w2 {
+  width: 96px;
+}
+.nd-go-row {
+  cursor: pointer;
+}
+.nd-go {
+  flex: 1;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 6px;
+  font-size: 13.5px;
+  color: var(--ink-2);
+}
+.nd-go .nd-lk {
+  color: var(--link);
+}
+.nd-go .nd-chev {
+  color: var(--ink-3);
+  transition: transform 0.2s ease;
+}
+.nd-go .nd-chev.up {
+  transform: rotate(-90deg);
+}
+.nd-pr.sub {
+  min-height: 40px;
+  padding-left: 30px;
+}
+.nd-pr.sub .nd-n {
+  width: 52px;
+}
+.nd-foot b {
+  font-weight: 600;
+  color: var(--ink);
+}
 /* 滑条:和系统的一样,浅灰轨道、白色圆钮(20px) */
 .nd-pr .tp-range input::-webkit-slider-runnable-track {
   background: linear-gradient(to right, var(--accent) var(--fill), rgba(120, 120, 128, 0.26) var(--fill));
@@ -617,6 +654,12 @@
 }
 .nd-pbody .nd-n {
   width: 64px;
+}
+.nd-pbody .nd-pr.sub {
+  padding-left: 26px;
+}
+.nd-pbody .nd-pr.sub .nd-n {
+  width: 48px;
 }
 .nd-pbody .pf {
   width: 64px;

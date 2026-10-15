@@ -18,6 +18,8 @@ export interface SceneHooks {
   touched(): void;
   /** 星球停住了(不变形、不转、没在拖):这时的样子(地名按它排);null = 又动起来了 / 摊平了 */
   still(pose: StillPose | null): void;
+  /** 点了一下(按下松开没怎么挪):视口坐标、这时星球的样子(选文明起源用) */
+  tap?(x: number, y: number, pose: StillPose): void;
 }
 
 /** 停住时星球的样子:投影、正中的经纬度(弧度;平面投影纬度 = 0)、投影平面 1 单位多少像素、图的中心 */
@@ -53,6 +55,10 @@ interface Tween {
 }
 
 type Num = 'mix' | 's' | 'boxT' | 'markA' | 'lon' | 'tilt';
+
+/** 按下松开挪了不到几像素、不到多少毫秒算点了一下 */
+const TAP_PX = 6;
+const TAP_MS = 600;
 
 /** 自转:约 1 分钟一圈(弧度 / 毫秒) */
 const SPIN = 0.00011;
@@ -105,7 +111,7 @@ export class StudioScene {
   private last = 0;
   /** 摊平 / 展开这几段动画的序号 */
   private tok = 0;
-  private drag: { x: number; y: number; lon: number; tilt: number; id: number } | null = null;
+  private drag: { x: number; y: number; lon: number; tilt: number; id: number; t: number; far: boolean } | null = null;
   /** 上次告诉界面的停住的样子(没变就不再说) */
   private stillKey = '';
 
@@ -271,13 +277,18 @@ export class StudioScene {
       }
       return;
     }
-    const p = this.pose();
-    const globe = this.projB === 'globe';
-    const pose: StillPose = { proj: this.projB, lon: this.lon, lat: globe ? TILT + this.tilt : 0, k: p.k, cx: p.cx, cy: p.cy, w: this.vw, h: this.vh };
+    const pose = this.stillPose();
     const key = `${pose.proj}|${pose.lon.toFixed(5)}|${pose.lat.toFixed(5)}|${pose.k.toFixed(2)}|${pose.cx.toFixed(1)}|${pose.cy.toFixed(1)}|${pose.w}|${pose.h}`;
     if (key === this.stillKey) return;
     this.stillKey = key;
     this.hooks.still(pose);
+  }
+
+  /** 现在的样子(按停住时的写法) */
+  private stillPose(): StillPose {
+    const p = this.pose();
+    const globe = this.projB === 'globe';
+    return { proj: this.projB, lon: this.lon, lat: globe ? TILT + this.tilt : 0, k: p.k, cx: p.cx, cy: p.cy, w: this.vw, h: this.vh };
   }
 
   /** 转到正对着某处(经度、纬度,弧度;只在停着的地球仪上转),约 0.9 秒;转过去以后不再自转 */
@@ -433,7 +444,7 @@ export class StudioScene {
 
   private onDown = (e: PointerEvent) => {
     if (this.flatOn || e.button > 0) return;
-    this.drag = { x: e.clientX, y: e.clientY, lon: this.lon, tilt: this.tilt, id: e.pointerId };
+    this.drag = { x: e.clientX, y: e.clientY, lon: this.lon, tilt: this.tilt, id: e.pointerId, t: performance.now(), far: false };
     try {
       this.gl.canvas.setPointerCapture(e.pointerId);
     } catch {
@@ -447,6 +458,9 @@ export class StudioScene {
   private onMove = (e: PointerEvent) => {
     const d = this.drag;
     if (!d || e.pointerId !== d.id) return;
+    // 挪得很少的算点了一下:星球不动
+    if (!d.far && Math.hypot(e.clientX - d.x, e.clientY - d.y) < TAP_PX) return;
+    d.far = true;
     const p = this.pose();
     const k = Math.max(1, p.k);
     this.lon = d.lon - (e.clientX - d.x) / k;
@@ -454,9 +468,13 @@ export class StudioScene {
   };
 
   private onUp = (e: PointerEvent) => {
-    if (!this.drag || e.pointerId !== this.drag.id) return;
+    const d = this.drag;
+    if (!d || e.pointerId !== d.id) return;
     this.drag = null;
     this.gl.canvas.classList.remove('dragging');
+    if (d.far || e.type !== 'pointerup' || performance.now() - d.t > TAP_MS || !this.hooks.tap || this.s < 1 || this.tweens.has('s')) return;
+    const r = this.gl.canvas.getBoundingClientRect();
+    this.hooks.tap(e.clientX - r.left, e.clientY - r.top, this.stillPose());
   };
 }
 

@@ -34,7 +34,7 @@ const specOf = (s: SliderLike): FieldSpec => s.field ?? {};
 /** 显示成框里的字(不带单位) */
 export function fieldText(s: SliderLike, v: number): string {
   const f = specOf(s);
-  const d = (v * (f.mul ?? 1)) / (f.div ?? 1);
+  const d = s.shown ? s.shown(v) : (v * (f.mul ?? 1)) / (f.div ?? 1);
   const t = d.toFixed(f.digits ?? 0);
   if (f.signs) {
     if (Number(t) === 0) return f.zero ?? '0';
@@ -61,7 +61,7 @@ export function parseField(s: SliderLike, text: string): number | null {
   const digits = f.digits ?? 0;
   const p = 10 ** digits;
   const shown = (sign * Math.round(Number(t) * p)) / p;
-  let v = (shown * (f.div ?? 1)) / (f.mul ?? 1);
+  let v = s.fromShown ? s.fromShown(shown) : (shown * (f.div ?? 1)) / (f.mul ?? 1);
   if (f.snap) v = Math.round(v / f.snap) * f.snap;
   return v;
 }

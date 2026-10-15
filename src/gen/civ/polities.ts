@@ -36,6 +36,7 @@ import { geometryOf } from '../geometry';
 import { AdjKind, Layer, type Civ, type Culture, type NamePins, type Polity, type PolityLineage, type Regions, type Settlement, type Year } from './types';
 import { BIOME_COST } from './habitat';
 import { anchorTag, fexp, fpow, keyed, subSeed } from './rand';
+import { WORTH_EXP } from './frontier';
 import { quantize, Ev, type CivSim } from './sim';
 import { KIND_INFO } from './display';
 import { cultureNeighbors, cultureTerrain, type CultureModel, type CultureTerrain } from './cultures';
@@ -158,8 +159,10 @@ export interface PolityModel {
   spacing: number;
   /** 城的人口上限的基准(州的人口上限,见 CAP_P90) */
   capNorm: number;
-  /** 国家走一个标准路程要几年(STEP_YEARS ÷ 扩张快慢总系数) */
+  /** 国家走一个标准路程要几年(STEP_YEARS ÷ 扩张快慢总系数 ÷ 拓荒设定的国家扩张) */
   years: number;
+  /** 扩张算账的门槛倍数(拓荒设定的国家扩张调快了,门槛降低;默认 1) */
+  worthMul: number;
   /** 离国都越远越慢:× e^(路程 / reach) */
   reach: number;
   /** 阶段 4 干预(interventions.ts 挂上;没有干预 = 不给):"不许扩张"在"国家到达"时查 */
@@ -343,6 +346,7 @@ function stepYearsWith(m: PolityModel, p: Polity, k: number, b: number, dist: Fl
   const bi = reg.biome[b];
   let mod = 1;
   let cross = CROSS[kind];
+  if (kind === AdjKind.Mountain) cross *= T.fx.stateMtn;
   switch (p.kind) {
     case 'nomad':
       mod = STEPPE_DESERT[bi] ? 0.7 : FOREST[bi] ? 2.5 : 1;
@@ -370,7 +374,7 @@ function stepYearsWith(m: PolityModel, p: Polity, k: number, b: number, dist: Fl
   const len = reg.adjLen[k] / T.refLen;
   const jitter = 0.8 + 0.4 * keyed(m.base, m.ptag[p.id], reg.seat[b], 4);
   return (
-    (m.years * len * BIOME_F[bi] * Math.sqrt(T.poverty[b]) * cross * mod * culture * fexp(d / m.reach) * jitter) /
+    (m.years * len * (BIOME_F[bi] * T.fx.state[bi]) * Math.sqrt(T.poverty[b]) * cross * mod * culture * fexp(d / m.reach) * jitter) /
     p.expansionism
   );
 }
@@ -428,7 +432,7 @@ function wants(m: PolityModel, owner: Int16Array, p: Polity, b: number, dist: Fl
   // 高山难治(山地民族不算)
   if (p.kind !== 'highland') cost *= 1 + Math.max(0, reg.elevation[b] - HIGH_COST) / HIGH_SCALE;
   const coast = T.coastal[b] === 1 || T.river[b] === 1 || m.port[b] === 1;
-  return value >= WORTH * cost * (coast ? e.coast : e.worth);
+  return value >= WORTH * cost * (coast ? e.coast : e.worth) * m.worthMul;
 }
 
 /**
@@ -638,7 +642,7 @@ function capitalSpacing(T: CultureTerrain, polities: number | 'auto'): number {
   return Math.max(2, SPACING * Math.sqrt(H / target));
 }
 
-function emptyModel(T: CultureTerrain, cultures: Culture[], seed: number, port: Uint8Array, spacing: number, years: number, capNorm?: number): PolityModel {
+function emptyModel(T: CultureTerrain, cultures: Culture[], seed: number, port: Uint8Array, spacing: number, years: number, capNorm?: number, expand = 1): PolityModel {
   return {
     terrain: T,
     cultures,
@@ -663,6 +667,7 @@ function emptyModel(T: CultureTerrain, cultures: Culture[], seed: number, port: 
     spacing,
     capNorm: capNorm ?? capacityNorm(T),
     years,
+    worthMul: expand === 1 ? 1 : 1 / fpow(expand, WORTH_EXP),
     reach: REACH,
     rbase: rulerBase(seed),
     rtag: [],
@@ -680,12 +685,15 @@ export interface PolityPlanParams {
   pace: number;
   /** 城的人口上限按这个数折算;不给 = 按这个世界算(capacityNorm) */
   capNorm?: number;
+  /** 拓荒设定的国家扩张快慢(倍数;不给 = 1) */
+  expand?: number;
 }
 
 /** 民族定好之后(planCultures 的结果):港口、国都间距、城市规模的基准、国家扩张快慢 */
 export function planPolities(world: World, cm: CultureModel, p: PolityPlanParams): PolityModel {
   const T = cm.terrain;
-  return emptyModel(T, cm.cultures, world.params.seed, findPorts(world, T), capitalSpacing(T, p.polities), STEP_YEARS / Math.max(1e-3, p.pace), p.capNorm);
+  const expand = p.expand ?? 1;
+  return emptyModel(T, cm.cultures, world.params.seed, findPorts(world, T), capitalSpacing(T, p.polities), STEP_YEARS / Math.max(1e-3, p.pace * expand), p.capNorm, expand);
 }
 
 // ---------------------------------------------------------------------------
@@ -966,11 +974,11 @@ export function addPolity(m: PolityModel, sid: number, cu: number, t: Year, extr
  * 所以排在那一刻的日志(大事改的除外)前面。门槛更低的新君即位、迁都的下一刻也一样重放。
  */
 export function resumePolities(sim: CivSim, world: World, civ: Civ, iv?: InterventionModel | null): void {
-  const T = cultureTerrain(world, civ.habitat, civ.regions);
+  const T = cultureTerrain(world, civ.habitat, civ.regions, civ.frontier);
   const reg = T.regions;
   const R = T.R;
   // 国都间距按默认的"自动"数量(和 planPolities 同一个公式)
-  const m = emptyModel(T, civ.cultures, civ.seed, findPorts(world, T), capitalSpacing(T, 'auto'), civ.polityYears ?? STEP_YEARS, civ.capNorm);
+  const m = emptyModel(T, civ.cultures, civ.seed, findPorts(world, T), capitalSpacing(T, 'auto'), civ.polityYears ?? STEP_YEARS, civ.capNorm, civ.frontier?.expand);
   // 阶段 3 城市兴衰:国都年份段、洗劫记录接着推时会往里加,复制一份(不改传进来的 civ)
   m.settlements = civ.settlements.map((s) => {
     const c = { ...s };

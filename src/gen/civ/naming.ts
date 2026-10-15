@@ -83,6 +83,9 @@ export function assignStyles(
   autoStyles(cultures, neighbors, terrain, base).forEach((st, c) => (cultures[c].style = st));
 }
 
+/** 干预立国时来落脚的新民族(Culture.pioneer)= 1,排在别的民族后面 */
+export const lastIfPioneer = (cu: Culture): number => (cu.pioneer === undefined ? 0 : 1);
+
 /** 自动的挑法(见 assignStyles):返回每个民族挑到的语感,不写进 culture */
 function autoStyles(
   cultures: Culture[],
@@ -93,8 +96,9 @@ function autoStyles(
   const out = new Array<string>(cultures.length).fill(NAME_STYLES[0].id);
   const used = new Map<string, number>();
   const seat = terrain.regions.seat;
-  // 按发源州的治所地块从小到大挑(和生成先后、编号无关;改地形后别处多一个、少一个民族,这里的先后照旧)
-  const order = cultures.slice().sort((a, b) => seat[a.hearth] - seat[b.hearth] || a.id - b.id);
+  // 按发源州的治所地块从小到大挑(和生成先后、编号无关;改地形后别处多一个、少一个民族,这里的先后照旧)。
+  // 干预立国时来落脚的新民族(pioneer)排最后:别的民族照没有它时一样挑
+  const order = cultures.slice().sort((a, b) => lastIfPioneer(a) - lastIfPioneer(b) || seat[a.hearth] - seat[b.hearth] || a.id - b.id);
   /** 已经挑好的民族(相邻的民族错开语感时,只看已经挑好的) */
   const done = new Set<number>();
   for (const cu of order) {
@@ -322,7 +326,8 @@ export function nameCultures(seed: number, cultures: Culture[], owner: Int16Arra
   const namer = namerCache(subSeed(seed, 'civ-names'));
   const at = anchorsOf(cultures, (cu) => seat[cu.hearth] ?? -1);
   const taken = new Set<string>();
-  for (const i of byAnchor(at)) {
+  // 干预立国时来落脚的新民族(pioneer)最后起名:别的民族的族名照没有它时一样(排序是稳定的,同一组里仍按位置锚)
+  for (const i of byAnchor(at).sort((a, b) => lastIfPioneer(cultures[a]) - lastIfPioneer(cultures[b]))) {
     const cu = cultures[i];
     const next = namer(cu.style).keyed('state', at[i].cell, at[i].n);
     // 取前几个候选里第一个不超过 4 个字、没和别族撞名的(族名要好念);都不合适就取最短的;前几个全被占了就往后找
