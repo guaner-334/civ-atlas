@@ -501,6 +501,46 @@ button {
   font-size: 12px;
   color: var(--ink-2);
 }
+.lp-grat {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.lp-grat-step {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+/* 经纬网间隔:小号分段按钮;经纬网关着时灰掉(点一档顺手打开)。
+   字号写在外层:按钮条里的按钮一律 font: inherit(desktop.css 的 .map-bar button) */
+.grat-seg {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--r-btn);
+  background: var(--btn);
+  font-size: 12px;
+  line-height: 18px;
+  font-variant-numeric: tabular-nums;
+}
+.grat-seg button {
+  border: 0;
+  background: transparent;
+  padding: 2px 9px;
+  border-radius: 6px;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+.grat-seg button.on {
+  background: var(--panel-solid);
+  color: var(--ink);
+  box-shadow: 0 0 0 1px var(--line);
+}
+.grat-seg.off {
+  opacity: 0.45;
+}
 
 /* 悬停小卡片(跟着鼠标) */
 .hover-card {

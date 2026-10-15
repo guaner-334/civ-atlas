@@ -20,6 +20,7 @@ import {
   DEFAULT_VIEW,
   checkWarning,
   cleanView,
+  sameView,
   decodeShare,
   editCount,
   encodeShare,
@@ -40,7 +41,7 @@ import { BUNDLE_FORMAT, bundleFileName, bundleText, importBundle, openBundleText
 import { forgetNotes } from '../src/ai/library';
 import * as saveStore from '../src/ui/saveStore';
 import { clearEdits, getEdits, setEdits, setName } from '../src/ui/editsStore';
-import { getProjection, setProjection } from '../src/ui/projection';
+import { getGraticule, getGraticuleStep, getProjection, setGraticule, setGraticuleStep, setProjection } from '../src/ui/projection';
 import { getMapCenter, publishMapCenter } from '../src/ui/mapWrap';
 import { _resetToasts, clearToast, getToast, peekToast } from '../src/ui/toastStore';
 
@@ -1204,6 +1205,8 @@ describe('投影和中央经线跟着世界存(view)', () => {
     clearEdits();
     setProjection('equirect');
     publishMapCenter(0);
+    setGraticule(false);
+    setGraticuleStep(30);
   });
 
   it('存档文件带上投影和中央经线;旧存档没有 = 等距圆柱、0°;格式不对的当没存', () => {
@@ -1243,23 +1246,74 @@ describe('投影和中央经线跟着世界存(view)', () => {
     saveStore.viewChanged();
     expect(saveStore.loadWorld(id)).toBeNull();
     setName('settlement:r1#0', '饕餮城');
-    expect(saveStore.loadWorld(id)?.save.view).toEqual({ projection: 'robinson', center: 42.5 });
-    expect(saveStore.currentSave()?.view).toEqual({ projection: 'robinson', center: 42.5 });
+    expect(saveStore.loadWorld(id)?.save.view).toEqual({ projection: 'robinson', center: 42.5, graticule: 0 });
+    expect(saveStore.currentSave()?.view).toEqual({ projection: 'robinson', center: 42.5, graticule: 0 });
     // 换成摩尔威德、中心 −100°:重存
     setProjection('mollweide');
     publishMapCenter(-100);
     saveStore.viewChanged();
-    expect(saveStore.loadWorld(id)?.save.view).toEqual({ projection: 'mollweide', center: -100 });
+    expect(saveStore.loadWorld(id)?.save.view).toEqual({ projection: 'mollweide', center: -100, graticule: 0 });
     // 换个世界再回来:存着的存档带着它(App 按它换投影、转中心);存档这边不动投影
     openWorld(2024);
     setProjection('equirect');
     publishMapCenter(0);
-    expect(saveStore.loadWorld(id)?.save.view).toEqual({ projection: 'mollweide', center: -100 });
+    expect(saveStore.loadWorld(id)?.save.view).toEqual({ projection: 'mollweide', center: -100, graticule: 0 });
     openWorld(7, { id });
     expect(getProjection()).toBe('equirect');
     expect(getMapCenter()).toBe(0);
     // 原样打开不重写(看法还是存着的那个)
-    expect(saveStore.loadWorld(id)?.save.view).toEqual({ projection: 'mollweide', center: -100 });
+    expect(saveStore.loadWorld(id)?.save.view).toEqual({ projection: 'mollweide', center: -100, graticule: 0 });
+  });
+  it('经纬网跟着存:每隔几度(0 = 关);认不出的间隔当没记;没记的旧存档打开不算换了看法', async () => {
+    // 存档、分享链接带着经纬网
+    const save = makeSave({ ...DEFAULT_PARAMS, seed: 7 }, EDITS, 'c', undefined, undefined, { projection: 'robinson', center: 0, graticule: 15 });
+    expect(save.view).toEqual({ projection: 'robinson', center: 0, graticule: 15 });
+    const r = await decodeShare(await encodeShare(save));
+    expect(r.ok && r.save.view).toEqual({ projection: 'robinson', center: 0, graticule: 15 });
+    expect(cleanView({ projection: 'equirect', center: 0, graticule: 0 })).toEqual({ projection: 'equirect', center: 0, graticule: 0 });
+    for (const bad of [12, -10, '10', true, null, Infinity])
+      expect(cleanView({ projection: 'equirect', center: 0, graticule: bad }), String(bad)).toEqual({ projection: 'equirect', center: 0 });
+    // 比较:有一份没记经纬网就不比它
+    expect(sameView({ projection: 'equirect', center: 0, graticule: 10 }, { projection: 'equirect', center: 0, graticule: 30 })).toBe(false);
+    expect(sameView({ projection: 'equirect', center: 0 }, { projection: 'equirect', center: 0, graticule: 30 })).toBe(true);
+    expect(sameView(undefined, { projection: 'equirect', center: 0, graticule: 0 })).toBe(true);
+
+    // 自动存按当时的经纬网写
+    setGraticule(true);
+    setGraticuleStep(10);
+    const id = openWorld(7, { kind: 'created' });
+    expect(saveStore.loadWorld(id)?.save.view).toEqual({ projection: 'equirect', center: 0, graticule: 10 });
+    setGraticuleStep(15);
+    saveStore.viewChanged();
+    expect(saveStore.loadWorld(id)?.save.view).toEqual({ projection: 'equirect', center: 0, graticule: 15 });
+    setGraticule(false);
+    saveStore.viewChanged();
+    expect(saveStore.loadWorld(id)?.save.view).toEqual({ projection: 'equirect', center: 0, graticule: 0 });
+
+    // 没记经纬网的旧存档:打开时经纬网不动,也不为它重存;之后改了经纬网才重存
+    const old = makeSave({ ...DEFAULT_PARAMS, seed: 2024 }, EDITS, 'check2024', undefined, undefined, { projection: 'mollweide', center: 30 });
+    expect(old.view).toEqual({ projection: 'mollweide', center: 30 });
+    const oid = saveStore.importSave(old)!;
+    setGraticule(true);
+    setGraticuleStep(30);
+    setProjection('mollweide');
+    publishMapCenter(30);
+    openWorld(2024, { id: oid });
+    saveStore.viewChanged();
+    expect(saveStore.loadWorld(oid)?.save.view).toEqual({ projection: 'mollweide', center: 30 });
+    expect(getGraticule()).toBe(true);
+    expect(getGraticuleStep()).toBe(30);
+    setGraticuleStep(10);
+    saveStore.viewChanged();
+    expect(saveStore.loadWorld(oid)?.save.view).toEqual({ projection: 'mollweide', center: 30, graticule: 10 });
+
+    // 再打开同一个世界的文件:文件记了经纬网就用文件里的(存着的没记也换);文件没记就留着存着的
+    const legacy = makeSave({ ...DEFAULT_PARAMS, seed: 99 }, EDITS, 'check99', undefined, undefined, { projection: 'equirect', center: 0 });
+    const lid = saveStore.importSave(legacy)!;
+    expect(saveStore.importSave({ ...legacy, view: { projection: 'equirect', center: 0, graticule: 15 } })).toBe(lid);
+    expect(saveStore.loadWorld(lid)?.save.view).toEqual({ projection: 'equirect', center: 0, graticule: 15 });
+    expect(saveStore.importSave(legacy)).toBe(lid);
+    expect(saveStore.loadWorld(lid)?.save.view).toEqual({ projection: 'equirect', center: 0, graticule: 15 });
   });
 });
 

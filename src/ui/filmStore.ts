@@ -12,9 +12,9 @@ import type { CivStyle } from '../render/civ/overlay';
 import type { LayerId } from '../render/layers';
 import { clearSelection, getCivShow, getCivTime, getSelection, setCivTime } from './civView';
 import { getEdits } from './editsStore';
-import { markItemsAt } from './markInfo';
+import { markItemsAt, plainMarkChars } from './markInfo';
 import { getMapCenter, xOfLon } from './mapWrap';
-import { flatProjection, getGraticule, getProjection } from './projection';
+import { flatProjection, getGraticuleLines, getProjection } from './projection';
 import { wrapOf } from '../render/common';
 import { currentWorld } from './saveStore';
 import { getGlobeOn, setGlobeOn } from './Globe';
@@ -190,8 +190,9 @@ export function filmSetup(src: FilmSource, look: { style: CivStyle; layer: Layer
     show: { ...getCivShow() },
     projection: flatProjection(getProjection()),
     center: wrapOf(world) ? xOfLon(getMapCenter(), world.width) : undefined,
-    graticule: getGraticule(),
+    graticule: getGraticuleLines(),
     marks: marks?.length ? (civ, w, y) => markItemsAt(civ, w, marks, y) : undefined,
+    markChars: plainMarkChars(marks),
     region: s.area === 'region' ? region : undefined,
     font: uiFont(),
     era,

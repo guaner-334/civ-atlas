@@ -7,6 +7,7 @@
 import type { PlanetProjection } from '../../render/planet';
 import { PlanetGL, type PlanetFrame } from './planetGL';
 import { TILT, easeInOut, fitPose, flatRect, lerpPose, projExtent, type Box, type Pose } from './layout';
+import { getGraticuleLines } from '../projection';
 
 export interface SceneHooks {
   /** 画完一帧:星球的中心、卷起来时的半径、卷了多少、图的半高(光晕、提示跟着它) */
@@ -306,6 +307,7 @@ export class StudioScene {
       b: this.b || this.a,
       mix: this.mix,
       markA: this.markA,
+      grid: getGraticuleLines(),
     };
     this.gl.draw(f);
     this.hooks.frame({ cx: p.cx, cy: p.cy, r: p.k * p.m, m: p.m, hh: p.hh });

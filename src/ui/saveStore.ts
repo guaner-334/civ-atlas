@@ -17,8 +17,8 @@
  *   顶部提示"没能自动存档",带"存成文件"(同一次满只提示一回,之后写成功了再重新算);腾出地方(自己删掉几个)后下一次改动就存下了。
  * - 浏览器不让用 localStorage(隐私模式、禁用了存储)时退回"只在内存里":这次打开的页面里照样能用,
  *   刷新就没了;第一次存的时候顶部提示一句(带"存成文件",10 秒后自己收起),存档菜单里一直写着。所有读写都 try/catch,从不往外抛错。
- * - 投影和中央经线(ui/projection.ts、mapWrap.ts)跟着世界存:存档时按当时的设置写进 view;
- *   已经存着的世界换了投影 / 中心,App 调 viewChanged 重写一次。
+ * - 投影、中央经线、经纬网(ui/projection.ts、mapWrap.ts)跟着世界存:存档时按当时的设置写进 view;
+ *   已经存着的世界换了投影 / 中心 / 经纬网,App 调 viewChanged 重写一次(没记经纬网的旧存档,打开时不算换了)。
  * - 删掉一个世界,AI 给它写的东西(ai/library.ts,按世界编号存)一起删。
  * - 旧版本生成器存的世界,第一次按新版重存时,把浏览器里原来那份原样另存一份(keepOriginal;同一个世界只留最早那份,
  *   以后不覆盖):重存会把存档里的生成器版本换成新的,留着这份才知道它原来是哪一版、长什么样。删除、撤销、复制跟着世界走;
@@ -32,6 +32,7 @@ import type { WorldParams } from '../gen/world';
 import { GENERATOR_VERSION, type WorldEdits } from '../gen/edits';
 import {
   CHECK_WARNING,
+  DEFAULT_VIEW,
   SHARE_BROKEN,
   TITLE_MAX,
   cleanOrigin,
@@ -47,13 +48,13 @@ import {
 } from '../gen/savefile';
 import { getEdits, subscribeEdits } from './editsStore';
 import type { DraftBase } from './stageStore';
-import { getProjection } from './projection';
+import { getGraticuleLines, getProjection } from './projection';
 import { getMapCenter } from './mapWrap';
 import { clearToast, showToast, type ToastAction } from './toastStore';
 
-/** 当前的投影和中央经线(存档时写进去) */
+/** 当前的投影、中央经线和经纬网(存档时写进去) */
 export function currentView(): SaveView {
-  return { projection: getProjection(), center: Math.round(getMapCenter() * 100) / 100 };
+  return { projection: getProjection(), center: Math.round(getMapCenter() * 100) / 100, graticule: getGraticuleLines() };
 }
 
 const PREFIX = 'wenming-ditu:world:';
@@ -732,9 +733,10 @@ export function sameOrigin(a: SaveFile['origin'], b: SaveFile['origin']): boolea
 export function importSave(save: SaveFile): string | null {
   for (const w of listWorlds()) {
     if (w.draft || !sameSave(w.save, save)) continue;
-    // 只差投影 / 中央经线:用文件里的(下次打开还是文件里的样子)
+    // 只差投影 / 中央经线 / 经纬网:用文件里的(下次打开还是文件里的样子;文件记了经纬网、存着的没记,也换成文件里的)
     let ok = true;
-    if (!sameView(w.save.view, save.view)) {
+    const grat = save.view?.graticule;
+    if (!sameView(w.save.view, save.view) || (grat !== undefined && w.save.view?.graticule !== grat)) {
       const next: SaveFile = { ...w.save, savedAt: new Date().toISOString() };
       if (save.view) next.view = save.view;
       else delete next.view;
@@ -908,6 +910,11 @@ export function viewChanged() {
   saveCurrent(true);
 }
 
+/** 旧存档没记经纬网:打开时经纬网照旧,就当存的是现在这样(之后改了经纬网才算改了看法) */
+function withGraticule(v: SaveView): SaveView {
+  return v.graticule === undefined ? { ...v, graticule: getGraticuleLines() } : v;
+}
+
 export interface AttachSpec {
   id: string;
   params: WorldParams;
@@ -949,7 +956,7 @@ export function attachWorld(spec: AttachSpec) {
     pristine: spec.kind === 'draft' && !!spec.pristine,
     base: spec.kind === 'draft' ? (spec.base ?? undefined) : undefined,
     saved: spec.saved,
-    savedView: spec.view ?? prev?.view,
+    savedView: withGraticule(spec.view ?? prev?.view ?? DEFAULT_VIEW),
     origin: spec.kind === 'draft' ? undefined : (cleanOrigin(spec.origin) ?? undefined),
     original: spec.kind === 'draft' || !spec.original || spec.original.generator >= GENERATOR_VERSION ? undefined : spec.original,
   };

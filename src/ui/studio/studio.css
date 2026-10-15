@@ -491,6 +491,20 @@
 .st-opt[aria-checked='true']:disabled:hover {
   background: var(--accent-soft);
 }
+/* 经纬网:一行开关 + 一行间隔(编辑地形时投影灰掉,这一组照样能用);和投影那一组隔 12 像素 */
+.st-right .st-grat {
+  margin: -6px 0 12px;
+}
+.st-grat-step .sb-row-main {
+  font-size: 13px;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+.studio .grat-seg button.on {
+  background: rgba(255, 255, 255, 0.18);
+  box-shadow: none;
+  font-weight: 600;
+}
 .st-note {
   margin: -6px 4px 0;
   font-size: 12px;
@@ -771,6 +785,22 @@
 }
 .st-phone .st-opt small {
   display: none;
+}
+.st-phone .st-right .st-grat {
+  margin: 8px 0 0;
+}
+.st-phone .st-grat .sb-row {
+  font-size: 14px;
+}
+.st-phone .st-grat-step {
+  gap: 6px;
+  padding: 0 8px 0 12px;
+}
+.st-phone .st-grat-step .sb-row-main {
+  font-size: 12.5px;
+}
+.st-phone .st-grat-step .grat-seg button {
+  padding: 2px 6px;
 }
 .st-phone .st-cap {
   bottom: calc(var(--sheet-h, 260px) + 14px);

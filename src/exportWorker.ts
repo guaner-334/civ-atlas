@@ -38,7 +38,7 @@ export type ExportRequest =
       center?: number;
       /** 投影、经纬网(和屏幕上一样;见 ExportMapParams) */
       projection?: ProjectionId;
-      graticule?: boolean;
+      graticule?: number;
     }
   | {
       job: 'heightmap';

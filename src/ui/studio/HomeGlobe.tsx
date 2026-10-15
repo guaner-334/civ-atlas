@@ -41,6 +41,7 @@ export function HomeGlobe({ size }: { size: number }) {
       b: 'home',
       mix: 1,
       markA: 0,
+      grid: 0,
     });
     const step = (now: number) => {
       raf = requestAnimationFrame(step);

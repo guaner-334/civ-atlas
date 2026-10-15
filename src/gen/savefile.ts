@@ -98,13 +98,18 @@ export interface SaveOrigin {
   url: string;
 }
 
-/** 投影 + 中央经线(存进存档、分享链接) */
+/** 投影 + 中央经线 + 经纬网(存进存档、分享链接) */
 export interface SaveView {
   /** 投影名:"equirect" 等距圆柱、"robinson" 罗宾森、"naturalEarth"、"mollweide"、"mercator"、"globe" 地球仪…… */
   projection: string;
   /** 中央经线(度,−180 … 180) */
   center: number;
+  /** 经纬网:每隔几度一条(10 / 15 / 30),0 = 不画;没有 = 旧存档没记(打开时不动当前的经纬网) */
+  graticule?: number;
 }
+
+/** 经纬网能选的间隔(度) */
+export const GRATICULE_STEPS = [10, 15, 30] as const;
 
 /** 没存投影的存档(旧存档)按这个看 */
 export const DEFAULT_VIEW: SaveView = { projection: 'equirect', center: 0 };
@@ -118,7 +123,11 @@ export function cleanView(raw: unknown): SaveView | null {
   if (typeof c !== 'number' || !Number.isFinite(c)) return null;
   const t = (c + 180) / 360;
   const lon = (t - Math.floor(t)) * 360 - 180;
-  return { projection: p, center: Math.round(lon * 100) / 100 };
+  const v: SaveView = { projection: p, center: Math.round(lon * 100) / 100 };
+  // 经纬网:认得的间隔或 0;别的当没记
+  const g = raw.graticule;
+  if (g === 0 || GRATICULE_STEPS.includes(g as (typeof GRATICULE_STEPS)[number])) v.graticule = g as number;
+  return v;
 }
 
 /** 署名最长几个字 */
@@ -188,10 +197,11 @@ export function cleanOrigin(raw: unknown): SaveOrigin | null {
   return o;
 }
 
-/** 两份投影设置是不是一样(中央经线差不到 0.01° 算一样) */
+/** 两份投影设置是不是一样(中央经线差不到 0.01° 算一样;经纬网有一份没记就不比) */
 export function sameView(a: SaveView | null | undefined, b: SaveView | null | undefined): boolean {
   const x = a ?? DEFAULT_VIEW;
   const y = b ?? DEFAULT_VIEW;
+  if (x.graticule !== undefined && y.graticule !== undefined && x.graticule !== y.graticule) return false;
   return x.projection === y.projection && Math.abs(x.center - y.center) < 0.005;
 }
 

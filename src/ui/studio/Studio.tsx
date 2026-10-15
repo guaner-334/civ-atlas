@@ -7,7 +7,8 @@
  *   左边     设定(电脑贴着窗口左边、能收起;手机是底部卡片,平时只露种子和「创建世界」):
  *            种子 + 换一颗、世界参数;地形(改地形工具、让助手改);名字(世界名、地名风格);底部「创建世界」。
  *            点「地名风格」左边换成配比例的那一页(NameMixPage.tsx),左上返回;手机上卡片里换页、拉到最高
- *   右边     样式(不用历史的 7 种,带缩略图)和投影(地球仪 + 5 种平面);手机上是右上两个按钮,点开是列表
+ *   右边     样式(不用历史的 7 种,带缩略图)和投影(地球仪 + 5 种平面)、经纬网(开关 + 间隔;编辑地形时照样能开);
+ *            手机上是右上两个按钮,点开是列表
  *
  * 照手绘图生成(mode = 'image')
  *   左边     图片那一行(换一张)和三步:认出海陆 → 用笔修改 → 参数和名字(零件在 SketchSteps.tsx)。做到哪步展开哪步,
@@ -73,7 +74,8 @@ import { VersionMenuFoot } from '../BetaNews';
 import { Icon } from '../icons';
 import { styleKey } from '../LayerPopover';
 import type { MapLayer } from '../mapLayers';
-import { getProjection, lastFlatProjection, setProjection, type MapProjection } from '../projection';
+import { getProjection, lastFlatProjection, setGraticule, setProjection, useGraticule, type MapProjection } from '../projection';
+import { GraticuleSteps } from '../ProjectionPanel';
 import type { ProjectionId } from '../../render/projection';
 import { getMapCenter } from '../mapWrap';
 import { landCenterLon, plateTexels, type PlanetProjection } from '../../render/planet';
@@ -203,6 +205,8 @@ export function Studio(p: StudioProps) {
   const [tip, setTip] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [proj, setProj] = useState<PlanetProjection>('globe');
+  // 经纬网:和世界页、编辑地形共用一个设置(开关 + 间隔)
+  const grat = useGraticule();
   const [confirm, setConfirm] = useState(false);
   /** 创建以后:1 = 面板滑出、星球展开;2 = 淡出 */
   const [out, setOut] = useState<0 | 1 | 2>(0);
@@ -1166,6 +1170,16 @@ export function Studio(p: StudioProps) {
           </div>
           <div className="sb-group" role="radiogroup" aria-label="投影">
             {projRows}
+          </div>
+          <div className="sb-group st-grat">
+            <button className="sb-row" role="switch" aria-checked={grat} data-act="studio-graticule" onClick={() => setGraticule(!grat)}>
+              <span className="sb-row-main">经纬网</span>
+              <span className={`ai-switch${grat ? ' on' : ''}`} aria-hidden="true" />
+            </button>
+            <div className="sb-row static st-grat-step">
+              <span className="sb-row-main">每隔</span>
+              <GraticuleSteps />
+            </div>
           </div>
           {tool.on && <p className="st-note">编辑地形时用平面地图，编辑完回到原来的投影</p>}
           {glOk === false && <p className="st-note">这台设备画不了地球仪，先用平面地图</p>}

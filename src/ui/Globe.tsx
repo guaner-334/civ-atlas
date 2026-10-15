@@ -50,7 +50,6 @@ import {
   equivalentZoom,
   globeFrame,
   graticuleLines,
-  graticuleStep,
   lerpView,
   lonLatToScreen,
   pickGlobeMark,
@@ -67,7 +66,7 @@ import {
   wantHdTexture,
 } from '../render/globe';
 import { getCivFeed, subscribeCivFeed } from './CivLayer';
-import { getProjection, lastFlatProjection, setProjection, useGraticule, useProjection } from './projection';
+import { getProjection, lastFlatProjection, setProjection, useGraticuleLines, useProjection } from './projection';
 import { clearToast, showToast } from './toastStore';
 import { getMapCenter, publishMapCenter } from './mapWrap';
 import { animProgress } from './flyTo';
@@ -268,7 +267,8 @@ interface GlobeDebug {
   /** 放上去的地理名按种类数(海、山、河……;截图、冒烟检查用) */
   places: Record<string, number>;
   style: string;
-  graticule: boolean;
+  /** 经纬网每隔几度一条(0 = 不画) */
+  graticule: number;
   /** 回放帧盖上去的程度 0–1 */
   replay: number;
   /** 转动时的分辨率比例(慢的显卡上自动降低) */
@@ -387,7 +387,8 @@ interface OverlayInput {
   selWorld: [number, number] | null;
   /** CPU 画法:经纬网、手绘外框由这一层画 */
   cpuDecor: boolean;
-  graticule: boolean;
+  /** 经纬网每隔几度一条(0 = 不画) */
+  graticule: number;
   /** 矢量线(国界、道路、选中的描边),线宽按 unit(一个世界单位是几个 CSS 像素) */
   lines: GlobeLineStroke[];
   unit: number;
@@ -509,7 +510,7 @@ function drawOverlay(ctx: CanvasRenderingContext2D, o: OverlayInput): GlobePlace
     if (o.graticule) {
       ctx.strokeStyle = style === 'fantasy' ? 'rgba(77,51,31,0.42)' : 'rgba(235,242,255,0.26)';
       ctx.lineWidth = 1;
-      for (const l of graticuleLines(view, f, graticuleStep(view.k))) {
+      for (const l of graticuleLines(view, f, (o.graticule * Math.PI) / 180)) {
         ctx.beginPath();
         ctx.moveTo(l[0], l[1]);
         for (let i = 2; i < l.length; i += 2) ctx.lineTo(l[i], l[i + 1]);
@@ -654,8 +655,8 @@ export function Globe({ world, raster, civ, geo, style, layer, terrain, terrainK
   const glRef = useRef<HTMLCanvasElement>(null);
   const ovRef = useRef<HTMLCanvasElement>(null);
   const [cpu, setCpu] = useState(false);
-  // 经纬网:和平面投影共用一个开关(ui/projection.ts)
-  const graticule = useGraticule();
+  // 经纬网:和平面投影共用一个设置(ui/projection.ts;开着 = 每隔几度,关着 = 0)
+  const graticule = useGraticuleLines();
   const [hiLoading, setHiLoading] = useState(false);
   const { sel: picked } = useSelection();
   // 选中人物:地图上亮出他的国家;选中一种信仰:圈它的城,信仰图层上别的信仰变淡(faithSelection.ts)

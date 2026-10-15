@@ -8,18 +8,18 @@
  *
  * 弯边投影(mp,见 ui/projection.ts):图框换成投影的外轮廓(椭圆、桶形)双线,罗盘挪到轮廓外的左下角;
  * 写实风 / 数据图层沿轮廓描一道细线(盖住轮廓边缘的锯齿)。
- * 经纬网("图层与投影"弹层里的"经纬网"开着时):每 30° 一条经线、纬线,赤道稍粗 —— 等距圆柱时跟着地图平移,弯边投影按投影画。
+ * 经纬网("图层与投影"弹层里的"经纬网"开着时):每隔 10° / 15° / 30°(开关旁边选)一条经线、纬线,赤道稍粗 —— 等距圆柱时跟着地图平移,弯边投影按投影画。
  */
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { World } from '../gen/world';
 import { drawFrame, drawPaperVignette, drawProjFrame } from '../render/fantasy';
 import { drawGraticule, drawNeatOutline, type MapProj } from '../render/projection';
 import { mapBoxOf, placeOnScreen, visibleBox } from './mapWrap';
-import { useGraticule } from './projection';
+import { useGraticuleLines } from './projection';
 
 export function MapDecor({ world, style, view, mp = null }: { world: World; style: string; view: { k: number; x: number; y: number }; mp?: MapProj | null }) {
   const ref = useRef<HTMLCanvasElement>(null);
-  const grat = useGraticule();
+  const grat = useGraticuleLines();
 
   // 地图框大小变了(窗口缩放)也要重画
   const [tick, setTick] = useState(0);
@@ -59,7 +59,7 @@ export function MapDecor({ world, style, view, mp = null }: { world: World; styl
     const s = (vis.bw / world.width) * vis.k * dpr;
     const v = { s, ox: (vis.frameX - vis.x0) * vis.k * dpr, oy: -vis.y0 * vis.k * dpr, k: vis.k };
     // 经纬网:等距圆柱时跟着地图(世界坐标,地图框左边起算),弯边投影时在地图平面上(地图框就是外框)
-    if (grat) drawGraticule(ctx, mp, world.width, world.height, { s, ox: -vis.x0 * vis.k * dpr, oy: v.oy }, style, vis.bw * 2, dpr);
+    if (grat) drawGraticule(ctx, mp, world.width, world.height, { s, ox: -vis.x0 * vis.k * dpr, oy: v.oy }, style, grat, dpr);
     if (style === 'fantasy') {
       drawPaperVignette(ctx, world.width, world.height, v);
       if (mp) drawProjFrame(ctx, mp, v);

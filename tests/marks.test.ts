@@ -30,7 +30,7 @@ import { redoLastEdit, undoLastEdit } from '../src/ui/undo';
 import { clearToast, getToast } from '../src/ui/toastStore';
 import { clearSelection, getSelection, setSelection } from '../src/ui/civView';
 import { cancelDraft, draftProblem, editMarkDraft, finishDraft, getMarkUi, newMarkDraft, patchDraft, resetMarkUi, startPlacing, toggleDraftRegion, togglePlacing, type MarkDraft } from '../src/ui/markStore';
-import { CLUSTER_PX, DIM_ALPHA, NAME_ZOOM, hitMark, layoutMarks, markAreaShape, type MarkFrame, type MarkItem } from '../src/render/marks';
+import { CLUSTER_PX, DIM_ALPHA, MAP_INK, NAME_ZOOM, hitMark, layoutMarks, markAreaShape, type MarkFrame, type MarkItem } from '../src/render/marks';
 import { markEvents, markOwners, markPlaceText, markShapeOf, markSpot, regionsText, spotText } from '../src/ui/markInfo';
 import { searchCiv, searchMarks } from '../src/ui/searchIndex';
 import { markFocus } from '../src/ui/flyTo';
@@ -91,6 +91,16 @@ describe('作者标记 · 数据清理', () => {
     expect(cleanMark({ ...base(), color: 'pink' })!.color).toBe('red');
     expect(cleanMark(base({ to: 2480 }))!.to).toBeUndefined();
     expect(cleanMark(base({ to: 2490 }))!.to).toBe(2490);
+  });
+
+  it('字号、无色:s / l / xl 留着,中(没写)和认不出的都不写;无色 = none;两样都进"一不一样"的比较', () => {
+    for (const size of ['s', 'l', 'xl'] as const) expect(cleanMark(base({ size }))!.size).toBe(size);
+    expect('size' in cleanMark(base())!).toBe(false);
+    expect('size' in cleanMark({ ...base(), size: 'm' })!).toBe(false);
+    expect('size' in cleanMark({ ...base(), size: 'huge' })!).toBe(false);
+    expect(cleanMark(base({ color: 'none' }))!.color).toBe('none');
+    const m = base({ size: 'l', color: 'none' });
+    expect(cleanMark(m)).toBe(m);
   });
 
   it('列表:编号重复的换成新编号(现有最大的 + 1),不合格的丢掉', () => {
@@ -204,6 +214,14 @@ describe('作者标记 · 存档和分享链接', () => {
     expect(r.save.edits.marks!.map((m) => m.id)).toEqual([...Array.from({ length: n }, (_, i) => i + 1), n + 2]);
     expect(r.warnings).toContain(`作者标记一共最多圈 ${MARK_REGIONS_TOTAL} 个州,多出来的 1 个标记没有读进来`);
     expect(cleanMarks(raw.edits.marks).map((m) => m.id)).toEqual([...Array.from({ length: n }, (_, i) => i + 1), n + 2]);
+  });
+
+  it('字号、无色存进存档,读回来一样;旧存档的标记没有字号 = 中', () => {
+    const more: AuthorMark[] = [{ ...marks[0], size: 'xl' }, { ...marks[1], color: 'none', size: 's' }];
+    const r = parseSave(saveText(makeSave(params, { ...EMPTY_EDITS, marks: more }, 'abc')));
+    expect(r.ok && r.save.edits.marks).toEqual(more);
+    const old = parseSave(saveText(makeSave(params, edits, 'abc')));
+    expect(old.ok && old.save.edits.marks!.map((x) => x.size)).toEqual([undefined, undefined]);
   });
 
   it('分享链接带着标记,打开后一样', async () => {
@@ -491,7 +509,7 @@ describe('作者标记 · 地图上的摆放', () => {
     expect(far.clusters.length).toBe(0);
     expect(hitMark(far, 500, 400)!.ids).toEqual([1]);
     const near = layoutMarks([area(1, 500, 400), area(2, 500, 400)], frame(NAME_ZOOM));
-    const [a, b] = near.areas.map((x) => x.pill!);
+    const [a, b] = near.areas.map((x) => x.name!);
     expect(a.y).not.toBe(b.y);
     expect(hitMark(near, a.x, a.y)!.ids).toEqual([1]);
     expect(hitMark(near, b.x, b.y)!.ids).toEqual([2]);
@@ -499,10 +517,65 @@ describe('作者标记 · 地图上的摆放', () => {
     for (const sel of [false, true]) {
       const edge = layoutMarks([{ ...area(3, 995, 2), selected: sel }], frame(sel ? 1 : NAME_ZOOM));
       const box = edge.hits.find((h) => h.kind === 'pill')!.box;
-      expect(edge.areas[0].pill).toBeTruthy();
+      expect(edge.areas[0].name).toBeTruthy();
       expect(box[1]).toBeGreaterThanOrEqual(0);
       expect(box[2]).toBeLessThanOrEqual(1000);
     }
+  });
+
+  it('字号:有颜色的四档固定大小(中 = 原来的 14),选中大 1;无色的照地图上的地名,跟着放大变大、不画图钉', () => {
+    const f = frame(NAME_ZOOM);
+    const px = (over: Partial<MarkItem>, fr: MarkFrame = f) => layoutMarks([pin(1, 500, 400, over)], fr).pins[0].label!.size;
+    expect([undefined, 's', 'l', 'xl'].map((size) => px({ size: size as MarkItem['size'] }))).toEqual([14, 12, 18, 24]);
+    expect(px({ size: 'l', selected: true })).toBe(19);
+    // 无色:比同一档的地名不小;放大了变大;地图宽了也变大
+    const plain = (size: MarkItem['size'], fr: MarkFrame = f) => px({ size, plain: true, color: 'none' }, fr);
+    expect(plain('s')).toBeLessThan(plain(undefined));
+    expect(plain(undefined)).toBeLessThan(plain('l'));
+    expect(plain('l')).toBeLessThan(plain('xl'));
+    expect(plain(undefined, frame(NAME_ZOOM * 3))).toBeGreaterThan(plain(undefined));
+    expect(plain(undefined, { ...f, mapCss: 2600 })).toBeGreaterThan(plain(undefined, { ...f, mapCss: 1300 }));
+    // 导出时 k 只管写不写名字:字号按 textK
+    expect(plain(undefined, { ...frame(NAME_ZOOM * 3), textK: NAME_ZOOM })).toBe(plain(undefined));
+    const lay = layoutMarks([pin(1, 500, 400, { plain: true, color: 'none' })], f);
+    expect(lay.pins[0].plain).toBe(true);
+    // 量名字宽:无色的按地图的字体量(和画的时候一样),有颜色的按标记的字体
+    const looks: (string | null)[] = [];
+    const measure = (t: string, size: number, look?: { family: string } | null) => (looks.push(look?.family ?? null), t.length * size * (look ? 1.5 : 1));
+    const w = (over: Partial<MarkItem>) => layoutMarks([pin(1, 500, 400, over)], f, { measure, style: 'realistic' }).pins[0].label!;
+    const a = w({ plain: true, color: 'none' });
+    const b = w({});
+    expect(a.w).toBe(a.text.length * a.size * 1.5);
+    expect(b.w).toBe(b.text.length * b.size);
+    expect(looks[0]).toBe(MAP_INK.realistic.family);
+    expect(looks[1]).toBeNull();
+  });
+
+  it('几个州的名字顺着形状写:长条的州名字顺着长的方向;放不下才横着写一行', () => {
+    // 一条横着的长带(600×60)和一条竖着的(60×600)
+    const band = (x0: number, y0: number, x1: number, y1: number) => Float32Array.from([x0, y0, x1, y0, x1, y1, x0, y1]);
+    const strip = (id: number, b: Float32Array, box: [number, number, number, number]): MarkItem => ({
+      id,
+      title: '长长的一条区域',
+      color: 'blue',
+      size: 'l',
+      shape: { polys: [b], loops: [b], label: [(box[0] + box[2]) / 2, (box[1] + box[3]) / 2], box },
+    });
+    const wide = layoutMarks([strip(1, band(200, 370, 800, 430), [200, 370, 800, 430])], frame(NAME_ZOOM)).areas[0].name!;
+    expect(wide.glyphs).not.toBeNull();
+    const xs = wide.glyphs!.map((g) => g.x);
+    const ys = wide.glyphs!.map((g) => g.y);
+    expect(Math.max(...xs) - Math.min(...xs)).toBeGreaterThan(Math.max(...ys) - Math.min(...ys));
+    // 每个字都在区域里
+    for (const g of wide.glyphs!) {
+      expect(g.x).toBeGreaterThan(200);
+      expect(g.x).toBeLessThan(800);
+      expect(g.y).toBeGreaterThan(370);
+      expect(g.y).toBeLessThan(430);
+    }
+    // 小得放不下:横着写一行
+    const tiny = layoutMarks([strip(2, band(490, 395, 510, 405), [490, 395, 510, 405])], frame(NAME_ZOOM)).areas[0].name!;
+    expect(tiny.glyphs).toBeNull();
   });
 
   it('看不见的不摆;平面主图左右相连时挪到看得见的那一圈', () => {

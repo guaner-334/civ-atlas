@@ -179,6 +179,9 @@ void main() {
  * 经度不取模:贴图横向是 REPEAT,网格上经度连续,接缝处不会因为取模算错 mipmap 层而出一道细线。
  */
 export const PLANET_FS = `
+#ifdef GL_OES_standard_derivatives
+#extension GL_OES_standard_derivatives : enable
+#endif
 #ifdef GL_FRAGMENT_PRECISION_HIGH
 precision highp float;
 #else
@@ -186,6 +189,8 @@ precision mediump float;
 #endif
 uniform sampler2D u_a, u_b, u_mark;
 uniform float u_mix, u_lon, u_markA;
+uniform float u_grid, u_px;
+uniform vec4 u_gridC;
 varying vec2 v_ll;
 varying float v_light;
 const float PI = 3.14159265;
@@ -196,6 +201,26 @@ void main() {
   if (u_markA > 0.001) {
     vec4 mk = texture2D(u_mark, uv);
     o = mix(o, mk.rgb, mk.a * u_markA);
+  }
+  if (u_grid > 0.0) {
+    float lon = v_ll.x + u_lon;
+    float lat = v_ll.y;
+#ifdef GL_OES_standard_derivatives
+    float fl = max(fwidth(lon), 1e-6);
+    float fb = max(fwidth(lat), 1e-6);
+#else
+    float fl = 1.0 / u_px;
+    float fb = 1.0 / u_px;
+#endif
+    float dl = abs(fract(lon / u_grid + 0.5) - 0.5) * u_grid;
+    float db = abs(fract(lat / u_grid + 0.5) - 0.5) * u_grid;
+    float hw = 0.5 * u_gridC.a;
+    float ml = 1.0 - smoothstep(hw - 0.5, hw + 0.7, dl / fl);
+    float mb = 1.0 - smoothstep(hw - 0.5, hw + 0.7, db / fb);
+    float major = 1.0 - step(0.001, abs(fract(lon / (0.5 * PI) + 0.5) - 0.5));
+    ml *= max(major, 1.0 - smoothstep(radians(72.0), radians(80.0), abs(lat))) * (1.0 - smoothstep(radians(82.0), radians(87.0), abs(lat)));
+    float eq = 1.0 - smoothstep(hw - 0.5, hw + 1.0, abs(lat) / fb);
+    o = mix(o, u_gridC.rgb, max(max(ml, mb), eq) * 0.24);
   }
   gl_FragColor = vec4(o, 1.0);
 }`;

@@ -221,7 +221,7 @@ describe('地球仪:正射投影', () => {
     const out = { w: 120, h: 100, data: new Uint8ClampedArray(120 * 100 * 4) };
     const v: GlobeView = { lon: 0, lat: 0, k: 1 };
     const f = globeFrame(v, out.w, out.h);
-    renderGlobeCpu(out, v, f, { style: 'data', graticule: false, hl: 0, replay: 0 }, { terrain: { w: tw, h: th, data: tex } });
+    renderGlobeCpu(out, v, f, { style: 'data', graticule: 0, hl: 0, replay: 0 }, { terrain: { w: tw, h: th, data: tex } });
     const at = (x: number, y: number) => Array.from(out.data.slice((y * out.w + x) * 4, (y * out.w + x) * 4 + 4));
     const west = at(Math.round(f.cx - f.R * 0.5), Math.round(f.cy));
     const east = at(Math.round(f.cx + f.R * 0.5), Math.round(f.cy));
