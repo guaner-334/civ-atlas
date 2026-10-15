@@ -269,6 +269,11 @@ const PARAM_RANGE: Record<keyof WorldParams, [number, number]> = {
   mountains: [0, 5],
   temperature: [-40, 40],
   rainfall: [0, 5],
+  continents: [0, 8],
+  gather: [0, 1],
+  rugged: [0.2, 2.5],
+  hardness: [0.3, 3],
+  north: [-1, 1],
 };
 
 const PARAM_NAME: Record<keyof WorldParams, string> = {
@@ -279,6 +284,11 @@ const PARAM_NAME: Record<keyof WorldParams, string> = {
   mountains: '造山强度',
   temperature: '气温',
   rainfall: '降水',
+  continents: '大陆数量',
+  gather: '大陆分布',
+  rugged: '破碎度',
+  hardness: '板块软硬',
+  north: '南北偏向',
 };
 
 const PARAM_KEYS = Object.keys(DEFAULT_PARAMS) as (keyof WorldParams)[];
