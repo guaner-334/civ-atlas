@@ -131,6 +131,7 @@ import {
   editCount,
   GEN_KEY,
   isShareHash,
+  PARAM_RANGE,
   parseSave,
   versionNote,
   worldCheck,
@@ -262,7 +263,9 @@ function readUrl() {
   const params: WorldParams = { ...DEFAULT_PARAMS };
   for (const k of Object.keys(DEFAULT_PARAMS) as (keyof WorldParams)[]) {
     const v = q.get(k);
-    if (v !== null && !Number.isNaN(Number(v))) params[k] = Number(v);
+    // 和读存档一样:超出合理范围的调回范围内(手改的网址里可能是 0 或特别大的数)
+    const n = v === null || v.trim() === '' ? NaN : Number(v);
+    if (Number.isFinite(n)) params[k] = Math.min(PARAM_RANGE[k][1], Math.max(PARAM_RANGE[k][0], n));
   }
   // 画风 / 数据图层:旧链接的 style=、layer= 照旧;没有 style= 时 layer= 是新的图层名(政区、民族……,见 mapLayers.ts)
   const qs = q.get('style');

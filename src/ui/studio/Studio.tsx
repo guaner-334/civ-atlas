@@ -608,6 +608,12 @@ export function Studio(p: StudioProps) {
     p.requestThumbs(STYLE_IDS);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [glOk, p.data, p.ready]);
+  // 画不了地球仪(只有平面地图)时,看过的星球也照样记
+  useEffect(() => {
+    if (glOk !== false || !p.data || !p.ready || image || p.base) return;
+    noteSeen(p.params, planetThumb(p.baseCanvas(styleKey('realistic')), 0));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [glOk, p.data, p.ready]);
 
   // 换样式:淡过去
   useEffect(() => {

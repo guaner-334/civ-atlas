@@ -31,6 +31,7 @@ import { IMAGE_FORMATS, drawExportMarks, drawExportTrail, drawLegend, drawMapBas
 import { canvasMeasure, drawMarks, layoutMarks, markStyle, type MarkItem } from '../render/marks';
 import { drawTrail, layoutTrail, type TrailInput } from '../render/trail';
 import { getEdits, useEdits } from './editsStore';
+import { northText } from './WorldOverviewGenesis';
 import { cleanEndYear } from '../gen/edits';
 import { yearFull } from '../gen/era';
 import { markItemsAt, plainMarkChars } from './markInfo';
@@ -87,6 +88,11 @@ function paramsText(p: WorldParams, endYear?: number): string | undefined {
   if (p.landFraction !== d.landFraction) out.push(`陆地比例 ${Math.round(p.landFraction * 100)}%`);
   if (p.plates !== d.plates) out.push(`板块数量 ${p.plates}`);
   if (p.mountains !== d.mountains) out.push(`造山强度 ${p.mountains.toFixed(2)}×`);
+  if (p.continents !== d.continents) out.push(`大陆 ${p.continents} 块`);
+  if (p.gather !== d.gather) out.push(`大陆聚拢 ${Math.round(p.gather * 100)}`);
+  if (p.rugged !== d.rugged) out.push(`破碎度 ${p.rugged.toFixed(2)}×`);
+  if (p.hardness !== d.hardness) out.push(`板块硬度 ${p.hardness.toFixed(2)}×`);
+  if (p.north !== d.north) out.push(`南北偏向 ${northText(p.north)}`);
   if (p.temperature !== d.temperature) out.push(`气温 ${p.temperature > 0 ? '+' : ''}${p.temperature}°C`);
   if (p.rainfall !== d.rainfall) out.push(`降水 ${p.rainfall.toFixed(2)}×`);
   if (p.cells !== d.cells) out.push(`精细度 ${Math.round(p.cells / 1000)}k 地块`);
