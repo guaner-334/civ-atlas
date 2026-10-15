@@ -120,10 +120,10 @@ export function TimelineYear({ year, end, era, narrow, locked, below, ghost }: T
     inputRef.current?.select();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [!!edit, narrow]);
-  // 锁上了(开始导出视频)、换了世界:收起
+  // 锁上了(开始导出视频)、换了世界(结束年份、纪年不同,填的数会按新世界算错):收起
   useEffect(() => {
-    if (locked) setEdit(null);
-  }, [locked]);
+    setEdit(null);
+  }, [locked, end, era]);
 
   const parsed = edit ? parseJump(edit.text, edit.pre, era, end) : null;
   const go = () => {
@@ -292,13 +292,14 @@ export function JumpField({ civ, listRef, nowRef }: { civ: Civ | null; listRef: 
   const go = () => {
     if (parsed.year === null) return;
     jumpToYear(parsed.year);
-    // 时间轴一变,"现在"线马上挪了(useNowLine 订阅着);把它滚到四成高处。都已发生 = 最上面,都还没发生 = 最下面
+    // 时间轴一变,"现在"线马上挪了(useNowLine 订阅着);把它滚到四成高处。没有线时看列出来的行(只看一国时可能都在那年以前):
+    // 都已发生 = 最上面(最新的),都还没发生 = 最下面
     requestAnimationFrame(() => {
       const box = listRef.current;
       const line = nowRef.current;
       if (!box) return;
       if (line && line.style.display !== 'none') box.scrollTop = Math.max(0, line.offsetTop - box.clientHeight * 0.4);
-      else box.scrollTop = parsed.year! >= end ? 0 : box.scrollHeight;
+      else box.scrollTop = box.querySelector('[data-top="1"][data-st=future]') ? box.scrollHeight : 0;
     });
   };
   const input: ReactNode = (
