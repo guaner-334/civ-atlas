@@ -44,7 +44,11 @@ describe('AI 写史书:材料', () => {
     const p = buildHistoryPrompts(civ, { scope: { kind: 'world' }, style: 'classic', length: 'long' });
     const all = p.calls.map((_, i) => userOf(civ, { scope: { kind: 'world' }, style: 'classic', length: 'long' }, i)).join('\n');
     expect(all).toMatch(/西幻语感\([^)]+风\)|西幻式·[^·\n]+\([^)]+风\)/);
-    expect(all).not.toMatch(REAL_LANG);
+    // 只查语感的说法(民族那一节的"西幻语感(…)"、国家那一节括号里的风格提示):材料里推演出来的人名、地名是音译的,
+    // "兰波斯""波利波斯"这样的名字会碰上"波斯"
+    const hints = [...all.matchAll(/(?:东方|西幻)语感\([^)]*\)|\((?:东方式|西幻式)·[^)\n]*\)/g)].map((m) => m[0]);
+    expect(hints.length).toBeGreaterThan(0);
+    expect(hints.join('\n')).not.toMatch(REAL_LANG);
   });
 
   it('世界通史(中篇):系统提示要求不改动事实;材料里有全部大事、大国、民族、山河、年份范围', () => {

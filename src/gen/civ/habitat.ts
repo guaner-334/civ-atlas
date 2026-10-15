@@ -1,12 +1,16 @@
 /**
  * 宜居度(地块级):哪里适合住人。
  *
- * 沿用 Azgaar 的量级(群落底分 + 淡水 + 海岸 / 良港 − 海拔),但换成我们模拟出来的真实物理量:
- * 径流(河)、以米计的海拔和坡度、模拟的气温与降水决定的群落。
+ * 量级沿用 Azgaar(群落底分 + 淡水 + 海岸 / 良港 − 海拔),换成我们模拟出来的真实物理量:
+ * 径流(河)、以米计的海拔和坡度、降水,模拟的气温与降水决定的群落。
+ * 宜居度看的是"一片地能养活多少人"(种得出多少粮食),不是草木有多茂盛:
  *
- *   s = 群落底分
- *     + 淡水 min(40, 12 × log2(1 + 径流 / 河流阈值))      大河、汇流处加分最多;
- *            紧挨大河的岸边按那条河的流量打七五折(城市多建在大河岸边,大河本身常是州界)
+ *   s = 群落底分(见 BIOME_HABITABILITY:温带森林、热带季雨林这类能开成良田的最高;热带雨林土薄多病、远低于它们)
+ *     + 淡水 min(40, 12 × log2(1 + 径流 / 河流阈值)) × 灌溉系数
+ *            大河、汇流处加分最多;紧挨大河的岸边按那条河的流量打七五折(城市多建在大河岸边,大河本身常是州界)。
+ *            灌溉系数按当地降水:≤ IRRIGATE_DRY 毫米为 1(干旱处全靠河,大河边的荒漠绿洲),
+ *            往上线性降到 ≥ IRRIGATE_WET 毫米的 IRRIGATE_MIN(雨水本来就足,河多也不多养人)
+ *     + 冲积平原 FLOODPLAIN:大河流过或紧挨着、海拔低于 FLOOD_ELEV 米、平均坡度小于 FLOOD_SLOPE 米/公里(大河下游的平原、三角洲)
  *     + 湖岸 30(冰湖 1) · 海岸 5 · 河口 15 · 天然良港 20  (冻住的海不算)
  *     − 海拔 / 150 − 坡度罚分
  *   宜居分 = max(0, s) / 5;群落底分为 0(冰原)的地块直接不可居
@@ -18,7 +22,11 @@ import type { Habitat } from './types';
 import { KM_PER_UNIT, adjLengths, cellAreas, refCellArea } from './geo';
 import { flog2 } from './rand';
 
-/** 群落宜居底分(按 Biome 枚举下标;水面为 0) */
+/**
+ * 群落宜居底分(按 Biome 枚举下标;水面为 0)。按开垦以后养得活多少人排:
+ * 温带森林(四季分明、雨量适中,砍了林子就是良田)最高;热带季雨林(雨季种稻)次之;
+ * 温带雨林多在迎风的山坡上;草原、稀树草原雨水不够,不靠河只能放牧;热带雨林土薄、多病、难开垦,比季雨林低得多
+ */
 export const BIOME_HABITABILITY: readonly number[] = (() => {
   const t = new Array<number>(16).fill(0);
   t[Biome.Ice] = 0;
@@ -26,13 +34,13 @@ export const BIOME_HABITABILITY: readonly number[] = (() => {
   t[Biome.Taiga] = 12;
   t[Biome.ColdDesert] = 10;
   t[Biome.TemperateDesert] = 7;
-  t[Biome.Steppe] = 30;
+  t[Biome.Steppe] = 35;
   t[Biome.TemperateForest] = 100;
-  t[Biome.TemperateRainforest] = 90;
+  t[Biome.TemperateRainforest] = 60;
   t[Biome.HotDesert] = 4;
-  t[Biome.Savanna] = 22;
-  t[Biome.TropicalDryForest] = 50;
-  t[Biome.Rainforest] = 80;
+  t[Biome.Savanna] = 30;
+  t[Biome.TropicalDryForest] = 75;
+  t[Biome.Rainforest] = 35;
   t[Biome.Wetland] = 12;
   return t;
 })();
@@ -63,6 +71,14 @@ const FRESHWATER_MAX = 40;
 const RIVER_BANK = 0.75;
 /** 流量 ≥ 河流阈值的这么多倍算"大河":不作治所,跨过去代价高,州界多落在它上面(regions.ts 共用) */
 export const MAJOR_RIVER = 6;
+/** 灌溉系数:降水 ≤ IRRIGATE_DRY 毫米为 1,往上线性降到 ≥ IRRIGATE_WET 毫米的 IRRIGATE_MIN */
+const IRRIGATE_DRY = 600;
+const IRRIGATE_WET = 2000;
+const IRRIGATE_MIN = 0.35;
+/** 冲积平原:大河流过或紧挨着、海拔低于 FLOOD_ELEV 米、平均坡度小于 FLOOD_SLOPE 米/公里,加 FLOODPLAIN 分 */
+const FLOODPLAIN = 18;
+const FLOOD_ELEV = 250;
+const FLOOD_SLOPE = 3;
 const LAKE_SHORE = 30;
 const FROZEN_LAKE_SHORE = 1;
 const COAST = 5;
@@ -77,13 +93,20 @@ const SLOPE_MAX = 30;
 /** 淡水分:f = 径流 / 河流阈值 */
 const fresh = (f: number) => Math.min(FRESHWATER_MAX, FRESHWATER_K * flog2(1 + f));
 
+/** 灌溉系数(按年降水,毫米):越干越靠河 */
+export function irrigation(precip: number): number {
+  if (!(precip > IRRIGATE_DRY)) return 1;
+  if (precip >= IRRIGATE_WET) return IRRIGATE_MIN;
+  return 1 - ((1 - IRRIGATE_MIN) * (precip - IRRIGATE_DRY)) / (IRRIGATE_WET - IRRIGATE_DRY);
+}
+
 /** 冻住的海(不能靠港、不能航行):海冰群落,或年均温低于 −8°C 的海面 */
 export function frozenSea(world: World, i: number): boolean {
   return world.water[i] === 1 && (world.biome[i] === Biome.SeaIce || world.temperature[i] < -8);
 }
 
 export function computeHabitat(world: World): Habitat {
-  const { mesh, water, biome, elevation, flux, riverThreshold } = world;
+  const { mesh, water, biome, elevation, flux, riverThreshold, precipitation } = world;
   const { n, adjStart, adj } = mesh;
   const len = adjLengths(mesh);
   const area = cellAreas(mesh);
@@ -151,8 +174,10 @@ export function computeHabitat(world: World): Habitat {
     harbor[i] = seaN;
     if (base <= 0) continue;
     const river = flux[i] / riverThreshold;
+    const slope = slopeCnt ? slopeSum / slopeCnt : 0; // 米 / 公里
     let s = base;
-    s += Math.max(fresh(river), RIVER_BANK * fresh(bank / riverThreshold));
+    s += Math.max(fresh(river), RIVER_BANK * fresh(bank / riverThreshold)) * irrigation(precipitation[i]);
+    if ((river >= MAJOR_RIVER || bank > 0) && elevation[i] < FLOOD_ELEV && slope < FLOOD_SLOPE) s += FLOODPLAIN;
     s += lake;
     if (openSea) {
       s += COAST;
@@ -160,7 +185,6 @@ export function computeHabitat(world: World): Habitat {
       if (seaN === 1) s += HARBOR;
     }
     s -= Math.max(0, elevation[i]) / ELEV_PER_POINT;
-    const slope = slopeCnt ? slopeSum / slopeCnt : 0; // 米 / 公里
     s -= Math.min(SLOPE_MAX, SLOPE_K * slope);
     const v = Math.max(0, s) / 5;
     suitability[i] = v;

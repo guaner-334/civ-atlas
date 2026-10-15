@@ -197,6 +197,9 @@
  *  12:每一朝有了几位名臣(civ/officials.ts:文臣,有字号、籍贯、官职、生平),将领也有了字号、籍贯、官职、生平;
  *      将领不再重名:和此前的君主、先前的将领名臣尽量不撞,至少和本国君主、前后几百年的同名人物错开;
  *      疆域、兴亡、君主都和 11 一样,编年史里议和、幼主即位、遇弑迎立、称王称帝几类写上了经手的名臣,撞了名的将领换了名字。
+ *  13:宜居度看"养得活多少人"(civ/habitat.ts):热带雨林、温带雨林降下来,季雨林、草原、稀树草原升上去,河的加分按当地降水打折,
+ *      大河下游的低平处(冲积平原、三角洲)加分;州的人口 = 城 + 乡村(civ/growth.ts 的 regionPopulationAt),城整体放大、国都更大。
+ *      地形不变,历史重新推演。
  */
 import type { Civ, Culture, Faith, Place, Polity, Regions, Settlement } from './civ/types';
 import type { AuthorCharacter } from './characters';
@@ -207,7 +210,7 @@ import type { NameMix } from './names/mix';
 import type { Era } from './era';
 
 /** 生成器版本:生成算法有改动、同种子会得到不同世界时加一(存档读档时核对);加一时在 GENERATOR_CHANGES 里补一条 */
-export const GENERATOR_VERSION = 12;
+export const GENERATOR_VERSION = 13;
 
 /**
  * 一版生成器的改动有多大(从小到大):打开旧存档、旧链接时,按跨过的几版里最大的那一种说清变了什么(savefile.ts 的 versionNote)
@@ -233,6 +236,7 @@ export const GENERATOR_CHANGES: Readonly<Record<number, { change: GeneratorChang
   10: { change: 'history' },
   11: { change: 'history' },
   12: { change: 'chronicle' },
+  13: { change: 'history' },
 };
 
 /** 干预的种类(见文件头的表) */

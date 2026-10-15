@@ -297,14 +297,14 @@ describe('分与合', () => {
 
   it('编年史:分裂、复国、合并各有一条(分出来长成大国的、并掉大国的是大事),措辞对得上', () => {
     let majorSplit = false;
-    for (const seed of [7, 2024, 3, 99]) {
+    for (const seed of [7, 2024, 3, 99, 9]) {
       const civ = civOf({ ...DEFAULT_PARAMS, seed });
       // 大国:到过第 GREAT_TIER 档
       const great = (id: number) => Math.max(0, ...(civ.polities[id]?.titles ?? []).map((t) => t.tier)) >= GREAT_TIER;
       const list = buildChronicle(civ);
       const splits = list.filter((e) => e.kind === 'split');
       expect(splits.length).toBe(civ.annals.filter((e) => e.kind === 'split').length);
-      // 分出来的国家日后长成大国的(不常见,20 个种子(1–19、2024)里只有 2、3、6 三个世界有:四个世界里至少有一个,见循环后)
+      // 分出来的国家日后长成大国的(不常见,GENERATOR_VERSION 13 以后种子 1–20、2024 里只有 9 一个世界有:五个世界里至少有一个,见循环后)
       if (splits.some((e) => e.importance === MAJOR)) majorSplit = true;
       for (const e of splits) {
         const p = civ.polities[e.polities[0]];
@@ -332,5 +332,5 @@ describe('分与合', () => {
       }
     }
     expect(majorSplit, '分出来的国家有日后长成大国的').toBe(true);
-  });
+  }, 60_000);
 });

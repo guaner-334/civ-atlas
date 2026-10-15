@@ -231,9 +231,9 @@ describe('邦交和作者下令', () => {
         })
         .slice(0, 4);
     };
-    // 同一个宗主的两个藩属(种子 5 小世界有;称臣那一年之后,和别的藩属配对)
+    // 同一个宗主的两个藩属(种子 9 小世界有;称臣那一年之后,和别的藩属配对)
     const coVassals = (): Try[] => {
-      const { w, civ } = at(5);
+      const { w, civ } = at(9);
       return civ.annals
         .filter((e) => e.kind === 'submit')
         .flatMap((e) => {
@@ -294,8 +294,8 @@ describe('邦交和作者下令', () => {
   }, 120_000);
 
   it('下令结了盟的宗主不讨伐自立的藩属', () => {
-    // 讨伐少见:20 个种子(1–19、2024)的小世界里只有种子 1、17 有
-    const p = small(1);
+    // 讨伐不常见:20 个种子(1–19、2024)的小世界里不到一半有(GENERATOR_VERSION 13:种子 3、4、8、10、11、12、15、17、18)
+    const p = small(3);
     const w = world(p);
     const civ = civOf(p);
     const war = civ.annals.find((e) => e.kind === 'war' && e.cause === 'punish');
@@ -330,7 +330,8 @@ describe('邦交和作者下令', () => {
   }, 120_000);
 
   it('编年史:援盟的仗,盟国的名字里含着守方的名字,照样写"伐某国"', () => {
-    const civ = civOf(small(7));
+    // 种子 3 小世界有援盟的仗(盟国不是东方国名)
+    const civ = civOf(small(3));
     const i = civ.annals.findIndex((e) => e.kind === 'war' && (e.cause === 'ally' || e.cause === 'rescue') && e.settlement >= 0 && !civ.polities[e.settlement].eastern);
     expect(i, '要有一场援盟 / 救藩的仗').toBeGreaterThanOrEqual(0);
     const e = civ.annals[i];

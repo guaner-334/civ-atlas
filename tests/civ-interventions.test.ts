@@ -312,10 +312,15 @@ describe('干预 · 推演', () => {
         )?.id;
         if (z === undefined) continue;
         tried++;
+        const kz = polityKey(civ, z);
+        const kb = polityKey(civ, w.b);
         const c = generateCiv(world(seed), {
-          interventions: [{ kind: 'ally', a: polityKey(civ, z), b: polityKey(civ, w.b), from: y0 }],
+          interventions: [{ kind: 'ally', a: kz, b: kb, from: y0 }],
         });
-        const helped = c.annals.filter((e) => e.kind === 'war' && e.settlement >= 0);
+        // 结盟以后 z 为 w.b 出兵的仗(结盟之前历史里自然有的援盟、救藩不算)
+        const Z = idOf(c, kz);
+        const B = idOf(c, kb);
+        const helped = c.annals.filter((e) => e.kind === 'war' && e.year >= y0 && e.a === Z && e.settlement === B);
         if (helped.length) {
           joined++;
           const e = helped[0];
@@ -337,7 +342,8 @@ describe('干预 · 推演', () => {
   it('宣战:那一年确有 war 史事(紧跟在干预后面);不接壤的打不成,编年史写明原因', () => {
     for (const seed of [7, 2024]) {
       const civ = base(seed);
-      const y = 2000;
+      // 种子 2024 第 2000 年前后的国家都还小、彼此不接壤(GENERATOR_VERSION 13),挑晚一点的年份
+      const y = 2500;
       const own = ownersAt(civ, y - 0.01).polity;
       const alive = civ.polities.filter((p) => p.founded < y - 1 && (p.ended ?? Infinity) > y && own.includes(p.id));
       // 一对接壤、此刻没在交战的国家;一对不接壤的

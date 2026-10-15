@@ -88,24 +88,24 @@ describe('面板统计', () => {
   });
 
   it('最盛人口:还在长的城失去国都后先升后降,高点落在两个等分点之间也找得准', () => {
-    // 长得慢的城做了 600 年国都:国都加成 150 年里退掉,这期间人口先升后降;740 年被毁
+    // 长得慢的城做了 400 年国都:国都加成 150 年里退掉,这期间人口先升后降;540 年被毁
     const s = {
       id: 0, cell: 0, region: 0, culture: 0, name: '', port: false,
-      founded: 0, ended: 740, capacity: 100, growth: 0.004,
-      capitalFrom: 0, capitalSpans: [{ from: 0, until: 600, polity: 0 }],
+      founded: 0, ended: 540, capacity: 100, growth: 0.006,
+      capitalFrom: 0, capitalSpans: [{ from: 0, until: 400, polity: 0 }],
     };
     let dense = 0;
     let denseYear = 0;
     for (let i = 0; i <= 200000; i++) {
-      const y = (i / 200000) * 740;
+      const y = (i / 200000) * 540;
       const p = populationAt(s, y);
       if (p > dense) [dense, denseYear] = [p, y];
     }
     // 高点在失去国都之后、被毁之前(不在哪个拐点上)
-    expect(denseYear).toBeGreaterThan(600.5);
-    expect(denseYear).toBeLessThan(739);
+    expect(denseYear).toBeGreaterThan(400.5);
+    expect(denseYear).toBeLessThan(539);
     // 人口算式里的 exp 舍入到 24 位,高点附近有千万分之一上下的毛刺;只取等分点会少约百万分之一半
-    const top = popPeak(s, 0, 740);
+    const top = popPeak(s, 0, 540);
     expect(top.pop).toBeGreaterThanOrEqual(dense * (1 - 1e-7));
     expect(Math.abs(top.year - denseYear)).toBeLessThan(0.3);
   });

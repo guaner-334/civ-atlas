@@ -3,7 +3,7 @@
  *
  *   顶部  颜色块(当年所属国)、州名(可改)、"州，属 大昌，第 12 州"(没有国家 = "无主之地")、关闭
  *   按钮  在这里立国(主操作)/ 划给… / 改名 / 更多(在这里加标记 / 在这里加人物、设为中心、让 AI 讲名字由来)(每个面板只有一个主操作,和国家面板一样)
- *   概况  主体民族(族名可改)、宜居度、人口(州里的城;一州同一时刻最多一座城)、信仰(可点)、州里的城(可点;故城标出来)、地貌、
+ *   概况  主体民族(族名可改)、宜居度、人口(州里的总人口 = 治所的城 + 乡村,growth.ts 的 regionPopulationAt;一州同一时刻最多一座城)、信仰(可点)、州里的城(可点;故城标出来)、地貌、
  *         民族(族名由来 / 起族名)
  *   作者的人物  生在这里、经历写在这里的作者人物(没有就不显示)
  *   历任归属 按时长分段的色条,点一段跳到它开始的那年
@@ -17,7 +17,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { Civ } from '../gen/civ/types';
 import { BIOMES } from '../gen/biomes';
 import { KIND_INFO, cultureLabel, regionLabel, regionNamed } from '../gen/civ/display';
-import { SETTLEMENT_RANKS, capitalAt, polityAlive, polityName, populationAt, populationLabel, settlementRank } from '../gen/civ/growth';
+import { SETTLEMENT_RANKS, capitalAt, polityAlive, polityName, populationAt, populationLabel, regionPopulationAt, settlementRank } from '../gen/civ/growth';
 import { ownersAt } from '../gen/civ/timeline';
 import { spaced, yearAt, yearSpanAt } from '../gen/era';
 import { faithAt } from '../gen/civ/religion';
@@ -155,8 +155,7 @@ function RegionInfo({ civ, raw, raster, world, id, year, names, ai, aiRef }: Det
   const aiOn = useAiOn();
   const score = habitatScore(civ.habitat.suitability[civ.regions.seat[id]]);
   const cities = civ.settlements.filter((s) => s.region === id && s.founded <= year);
-  const city = cities.find((s) => s.ended === undefined || s.ended > year);
-  const pop = city ? populationAt(city, year) : 0;
+  const pop = regionPopulationAt(civ, id, year);
   const first = firstOwned(civ, id);
   const spans = useMemo(() => (first === null ? [] : ownerSpans(civ, id, first, civ.endYear)), [civ, id, first]);
   const upTo = entriesUpTo(regionEntries(civ, id), year);

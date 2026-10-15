@@ -486,14 +486,16 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
 // 人物:国家卡片的「君主」行和「历代君主」(当前那位标"当前"、点了打开他);人物卡片(名人第一行「事迹」、前任 / 继任、将领可点;
 // 君主有「倾向」一组四行,复制生平里也有一行,将领、宗室没有;
 // 「出征那年」跳时间轴;「编年史」打开这国的编年史;「复制生平」);编年史里的人名是蓝字,点了收起概览、打开这个人,不跳年份;
-// 世界概览的「人物」页(名人 / 君主 / 将领,「全部 N 位」进来停在这国的君主);搜名字第一个是这个人
+// 世界概览的「人物」页(名人 / 君主 / 将领,「全部 N 位」进来停在这国的君主);搜名字第一个是这个人。
+// 例子:种子 7 的第 2700 年,大鳞王朝(5 号国)的开国之君太祖帝鸾(名君,起兵代有桂朝开国;前任是前朝的少帝仲丘,
+// 继任是他的孙子太宗应喾;在位时有将领重翼领兵)
 {
-  await page.goto(`${dev.url}/?seed=7&civYear=2512`);
+  await page.goto(`${dev.url}/?seed=7&civYear=2700`);
   await page.waitForFunction(() => (window as any).__wfLabels?.polities > 0, null, { timeout: 60000 });
   await page.waitForTimeout(300);
   const year = async () => Number((await page.locator('.timebar .tb-year').innerText()).replace(/[^\d]/g, ''));
   const text = (sel: string) => page.locator(sel).first().innerText().then((t) => t.replace(/\s+/g, ' ')).catch(() => '');
-  await page.evaluate(() => (window as any).__wfSelect('polity', 9));
+  await page.evaluate(() => (window as any).__wfSelect('polity', 5));
   await page.waitForTimeout(600);
   const stats = await text('.inspector .cp-stats');
   const rulers = await page.locator('.inspector .cp-rulers .cp-dyn-row').count();
@@ -509,7 +511,7 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
   await page.waitForTimeout(200);
   const copied = (await page.evaluate(() => (window as any).__wfPersonText as string)) ?? '';
   // 将领一行的名字 → 将领的卡片;出征那年
-  await page.locator('.inspector .cp.pp .cp-stats .ins-link', { hasText: '伊索林' }).first().click();
+  await page.locator('.inspector .cp.pp .cp-stats .ins-link', { hasText: '重翼' }).first().click();
   await page.waitForTimeout(400);
   const card2 = await text('.inspector .cp.pp');
   const genLeans = await page.locator('.inspector .cp.pp [data-sec=leanings]').count();
@@ -538,7 +540,7 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
   await page.locator('.chronicle.people .pp-row').first().click();
   await page.waitForTimeout(500);
   const card4 = await text('.inspector .cp.pp');
-  await page.evaluate(() => (window as any).__wfSelect('polity', 9));
+  await page.evaluate(() => (window as any).__wfSelect('polity', 5));
   await page.waitForTimeout(400);
   await page.click('.inspector [data-act=all-rulers]');
   await page.waitForTimeout(500);
@@ -562,7 +564,7 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
   const lgFocus = await page.locator(`.lg-node.focus[data-person="${princeId}"]`).count();
   await closeOverview();
   // 搜索
-  await page.fill('.sidebar .search-input', '菲诺尔五世');
+  await page.fill('.sidebar .search-input', '太祖帝鸾');
   await page.waitForTimeout(300);
   const hit = await text('.search-row');
   const hitKind = await page.locator('.search-row').first().getAttribute('data-kind');
@@ -573,13 +575,20 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
     `人物:国家卡片「${stats.slice(0, 40)}…」,历代君主 ${rulers} 行、当前「${cur}」、「${all}」;卡片「${card1.slice(0, 50)}…」,倾向 ${leanRows} 行「${leans.slice(0, 30)}…」,复制 ${copied.length} 字;` +
       `将领卡片「${card2.slice(0, 30)}…」、出征那年 → ${y1};编年史开 ${chronOpen}、蓝字 ${names} 个,点「${pickName}」→ 收起 ${closed}、卡片 ${card3Id}/${pickId}、年份 ${y1} → ${y2};` +
       `人物页名人 ${famousOn}/${famous} 行「${famousFirst.slice(0, 30)}」→ 卡片「${card4.slice(0, 20)}」;全部 N 位 → 君主 ${rulersOn}、只看 ${polityPick}、${groups} 组 ${rows} 行;` +
-      `世系图「${lgHead.slice(0, 40)}」${lgNodes} 人、当前「${lgOn}」,宗室卡片「${princeCard.slice(0, 30)}」→ 圈出 ${lgFocus};搜"菲诺尔五世"「${hit}」(${hitKind})→「${card5}」`,
+      `世系图「${lgHead.slice(0, 40)}」${lgNodes} 人、当前「${lgOn}」,宗室卡片「${princeCard.slice(0, 30)}」→ 圈出 ${lgFocus};搜"太祖帝鸾"「${hit}」(${hitKind})→「${card5}」`,
   );
-  if (!/君主\s*菲诺尔五世\s*2501 年即位/.test(stats)) errs.push(`人物:国家卡片没有「君主」行(${stats.slice(0, 80)})`);
-  if (rulers !== 5 || !/菲诺尔五世\s*当前/.test(cur) || !/全部 \d+ 位/.test(all)) errs.push(`人物:国家卡片的历代君主不对(${rulers} 行;${cur};${all})`);
-  if (!/菲诺尔五世/.test(card1) || !/尼梅亚皇帝，2501–2552 年在位/.test(card1) || !/事迹\s*在位时得七州/.test(deed) || !/前任\s*米莱恩二世\s*兄/.test(deed))
-    errs.push(`人物:君主卡片不对(${card1.slice(0, 120)})`);
-  if (!copied.startsWith('菲诺尔五世\n尼梅亚皇帝') || !copied.includes('在位时：')) errs.push(`人物:复制生平不对(${copied.slice(0, 60)})`);
+  if (!/君主\s*太祖帝鸾\s*2671 年即位/.test(stats)) errs.push(`人物:国家卡片没有「君主」行(${stats.slice(0, 80)})`);
+  if (rulers !== 5 || !/太祖帝鸾\s*当前/.test(cur) || !/全部 \d+ 位/.test(all)) errs.push(`人物:国家卡片的历代君主不对(${rulers} 行;${cur};${all})`);
+  // 前任是前朝的末代君主(小字"前朝"),继任是同一朝的孙子(小字写亲属"孙")
+  if (
+    !/太祖帝鸾/.test(card1) ||
+    !/大鳞皇帝，2671–2713 年在位/.test(card1) ||
+    !/事迹\s*起兵建立新朝，传 14 位、298 年，在位时得四州/.test(deed) ||
+    !/前任\s*少帝仲丘\s*前朝/.test(deed) ||
+    !/继任\s*太宗应喾\s*孙/.test(deed)
+  )
+    errs.push(`人物:君主卡片不对(${card1.slice(0, 160)})`);
+  if (!copied.startsWith('太祖帝鸾\n大鳞皇帝') || !copied.includes('在位时：')) errs.push(`人物:复制生平不对(${copied.slice(0, 60)})`);
   if (
     leanRows !== 4 ||
     !/^倾向 开拓\s*\d+ 更愿意开垦偏远贫瘠的土地 好战\s*\d+ 更容易发动战争且更难停止 发展\s*\d+ 更重视领地内的建设 重商\s*\d+ 偏向沿海/.test(leans) ||
@@ -587,13 +596,13 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
   )
     errs.push(`人物:君主卡片的倾向不对(${leanRows} 行;${leans.slice(0, 80)};复制里 ${/倾向：.*/.exec(copied)?.[0]})`);
   if (genLeans || princeLeans) errs.push(`人物:将领 / 宗室的卡片上不该有倾向(${genLeans};${princeLeans})`);
-  if (!/伊索林\s*尼梅亚将领，2521–2540 年领兵/.test(card2) || y1 !== 2521) errs.push(`人物:将领卡片 / 出征那年不对(${card2.slice(0, 60)};${y1})`);
+  if (!/重翼\s*大鳞将领，2684–2705 年领兵/.test(card2) || y1 !== 2684) errs.push(`人物:将领卡片 / 出征那年不对(${card2.slice(0, 60)};${y1})`);
   if (!chronOpen || names < 3 || !closed || pickId < 0 || card3Id !== pickId || y2 !== y1) errs.push(`人物:编年史里的人名点不开,或点了跳了年份(${chronOpen};${names};${closed};${card3Id}/${pickId};${y1} → ${y2})`);
   if (!famousOn || famous < 20 || !card4) errs.push(`人物:人物页的名人不对,或点一行没打开卡片(${famousOn};${famous};${card4.slice(0, 30)})`);
-  if (!rulersOn || polityPick !== '9' || groups < 1 || rows !== 52) errs.push(`人物:「全部 N 位」没有打开这国的君主(${rulersOn};${polityPick};${groups};${rows})`);
-  if (!lgHead.startsWith('米拉斯 2479–2836 年，21 位君主') || lgNodes < 21 || !/菲诺尔五世.*当前/.test(lgOn)) errs.push(`人物:世系图不对(${lgHead};${lgNodes};${lgOn})`);
-  if (!/尼梅亚宗室，\d+–\d+/.test(princeCard) || !princeCard.includes('子嗣') || lgFocus !== 1) errs.push(`人物:宗室卡片 / 从卡片回到世系图不对(${princeCard.slice(0, 60)};${lgFocus})`);
-  if (!/^菲诺尔五世 尼梅亚皇帝，2501–2552$/.test(hit) || hitKind !== 'person' || card5 !== '菲诺尔五世') errs.push(`人物:搜"菲诺尔五世"不对(${hit};${hitKind};${card5})`);
+  if (!rulersOn || polityPick !== '5' || groups < 1 || rows !== 56) errs.push(`人物:「全部 N 位」没有打开这国的君主(${rulersOn};${polityPick};${groups};${rows})`);
+  if (!lgHead.startsWith('鳞 2671–2970 年，14 位君主') || lgNodes < 14 || !/太祖帝鸾.*当前/.test(lgOn)) errs.push(`人物:世系图不对(${lgHead};${lgNodes};${lgOn})`);
+  if (!/大鳞宗室，\d+–\d+/.test(princeCard) || !princeCard.includes('子嗣') || lgFocus !== 1) errs.push(`人物:宗室卡片 / 从卡片回到世系图不对(${princeCard.slice(0, 60)};${lgFocus})`);
+  if (!/^太祖帝鸾 大鳞皇帝，2671–2713$/.test(hit) || hitKind !== 'person' || card5 !== '太祖帝鸾') errs.push(`人物:搜"太祖帝鸾"不对(${hit};${hitKind};${card5})`);
   await page.fill('.sidebar .search-input', '');
   await page.keyboard.press('Escape');
   await page.evaluate(() => localStorage.clear());
@@ -609,7 +618,7 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
   const vp = page.viewportSize()!;
   const text = (sel: string) => page.locator(sel).first().innerText().then((t) => t.replace(/\s+/g, ' ')).catch(() => '');
   const marks = () => page.evaluate(() => (window as any).__wfMarks ?? null) as Promise<{ pins: { id: number; x: number; y: number; w: number; label: string | null }[]; areas: { id: number; pill: { text: string } | null }[] } | null>;
-  // 放大到写名字的程度(大景王朝东岸,世界坐标 1852, 512 放到地图中间),挑一座在看得见的地方的城
+  // 放大到写名字的程度(大羽沿海城多的一带,世界坐标 1852, 512 放到地图中间),挑一座在看得见的地方的城
   await page.evaluate(
     ([sx, sy]) => {
       const w = window as any;
@@ -739,7 +748,7 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
   const vp = page.viewportSize()!;
   const text = (sel: string) => page.locator(sel).first().innerText().then((t) => t.replace(/\s+/g, ' ')).catch(() => '');
   const trail = () => page.evaluate(() => (window as any).__wfTrail ?? null) as Promise<{ id: number; segs: unknown[]; dots: unknown[]; labels: { text: string }[]; pins: { x: number; y: number }[] } | null>;
-  // 和作者标记同一处:大景王朝东岸放大,挑两座在看得见的地方的城
+  // 和作者标记同一处:大羽沿海城多的一带放大,挑两座在看得见的地方的城
   await page.evaluate(
     ([sx, sy]) => {
       const w = window as any;
@@ -1553,7 +1562,11 @@ for (const style of ['realistic', 'fantasy']) {
   await page.click('.timebar button.tb-play');
   await page.waitForTimeout(300);
   const before = await tlState();
-  const spots = ((await page.evaluate('window.__wfPickables()')) as { kind: string; x: number; y: number }[]).filter((p) => p.kind === 'polity');
+  // 点一个在看得见的地方的国名(地图左右相连,名单里的国名也可能在屏幕外、侧栏底下或时间轴上,点了碰不到它)
+  const tvp = page.viewportSize()!;
+  const spots = ((await page.evaluate('window.__wfPickables()')) as { kind: string; x: number; y: number }[]).filter(
+    (p) => p.kind === 'polity' && p.x > SIDE_ROOM + 60 && p.x < tvp.width - 80 && p.y > 120 && p.y < tvp.height - 140,
+  );
   if (spots.length) await page.mouse.click(spots[0].x, spots[0].y);
   await page.waitForTimeout(300);
   const paused = await tlState();
@@ -3995,7 +4008,7 @@ for (const style of ['realistic', 'fantasy']) {
   await page.waitForTimeout(300);
   const mb = (await page.locator('.map-box').boundingBox())!;
   const st = (await page.locator('main.stage').boundingBox())!;
-  // 瓦利亚帝国和贾拉尔汗国交界的地方(陆地上有国界)
+  // 有鸿皇朝靠边的地方(第 3000 年;陆地上有色块、国界)
   await page.mouse.move(st.x + (st.width - mb.width) / 2 + mb.width * 0.4, mb.y + mb.height * 0.67);
   for (let i = 0; i < 40 && (await page.evaluate(() => (window as any).__wfView.k)) < 8; i++) {
     await page.mouse.wheel(0, -200);
@@ -4755,8 +4768,25 @@ for (const style of ['realistic', 'fantasy']) {
   };
   const mToast = (id: string) => mp.locator(`.toast[data-toast=${id}]`).innerText({ timeout: 3000 }).then((t) => t.replace(/\n/g, ' '), () => '');
   const box = (sel: string) => mp.locator(sel).first().boundingBox().catch(() => null);
+  /** 地图停稳:平移、缩放连着 300 毫秒没变(飞行动画放完);最多等 5 秒 */
+  const mapStill = () =>
+    mp
+      .waitForFunction(
+        () => {
+          const w = window as any;
+          const v = w.__wfView;
+          const key = `${v.k.toFixed(4)},${v.x.toFixed(1)},${v.y.toFixed(1)}`;
+          const now = performance.now();
+          if (w.__stillKey !== key) (w.__stillKey = key), (w.__stillAt = now);
+          return now - w.__stillAt > 300;
+        },
+        null,
+        { timeout: 5000, polling: 50 },
+      )
+      .catch(() => {});
   type Rect = { x: number; y: number; width: number; height: number } | null;
-  await mp.goto(`${dev.url}/?seed=7&civYear=2600`);
+  // 地图中心转到西经 50°(lon=-50):种子 7 第 2600 年的有桂皇朝落在屏幕中间一带,下面点国家、选结盟的国家都点得到
+  await mp.goto(`${dev.url}/?seed=7&civYear=2600&lon=-50`);
   await mp.waitForFunction(() => (window as any).__wfLabels?.polities > 0, null, { timeout: 60000 });
   await mp.waitForTimeout(600);
   // 骨架:收起的世界卡片在最底、胶囊在它上面、右上两个按钮
@@ -4852,6 +4882,8 @@ for (const style of ['realistic', 'fantasy']) {
   let doneToast = '';
   let undoToast = '';
   let tgtText = '';
+  let plateN = 0;
+  let pickLeft = false;
   if (pol) {
     await mp.touchscreen.tap(pol.x, pol.y);
     await mp.waitForTimeout(1100);
@@ -4875,11 +4907,15 @@ for (const style of ['realistic', 'fantasy']) {
     cmds = await mp.locator('.inspector .cp-cmd').count();
     if (await mp.locator('.inspector .cp-cmd[data-cmd=ally]').isEnabled().catch(() => false)) {
       await mp.tap('.inspector .cp-cmd[data-cmd=ally]');
-      await mp.waitForTimeout(1100);
+      // 选目标时地图会飞到看得见这些国家的地方(机器慢时要好一会儿):等名牌出来、地图停稳了再挑,不然点的是半路上的位置
+      await mp.waitForFunction(() => (window as any).__wfPlates().some((p: Plate) => !p.self), null, { timeout: 10000 }).catch(() => {});
+      await mapStill();
       pickToast = await mToast('pick');
       hiddenWhilePicking = !(await mp.locator('.inspector').isVisible().catch(() => false));
-      const tgt = ((await mp.evaluate('window.__wfPlates()')) as Plate[])
-        .filter((p) => !p.self && p.x > 30 && p.x < VW - 30 && p.y > 150 && p.y < VH - 120)
+      const plates = ((await mp.evaluate('window.__wfPlates()')) as Plate[]).filter((p) => !p.self);
+      plateN = plates.length;
+      const tgt = plates
+        .filter((p) => p.x > 30 && p.x < VW - 30 && p.y > 150 && p.y < VH - 120)
         .sort((a, b) => Math.abs(a.y - VH / 2) - Math.abs(b.y - VH / 2))[0];
       if (tgt) {
         tgtText = tgt.text;
@@ -4889,10 +4925,20 @@ for (const style of ['realistic', 'fantasy']) {
         await mp.waitForTimeout(300);
         doneToast = await mToast('resim-done');
         const prev2 = await mp.evaluate(() => (window as any).__wfResim?.seq ?? 0);
-        await mp.tap('.toast[data-toast=resim-done] .toast-act').catch(() => {});
+        // 提示条 7 秒后自己收起;机器很忙时这一下轻点可能等到它收起都没点上(按钮中途重画过),就直接点它的按钮
+        await mp
+          .tap('.toast[data-toast=resim-done] .toast-act', { timeout: 3000 })
+          .catch(() => mp.locator('.toast[data-toast=resim-done] .toast-act').dispatchEvent('click', undefined, { timeout: 2000 }))
+          .catch(() => {});
         await mp.waitForFunction((s) => ((window as any).__wfResim?.seq ?? 0) > s, prev2, { timeout: 20000 }).catch(() => null);
         await mp.waitForTimeout(300);
         undoToast = await mToast('resim-done');
+      }
+      // 没挑到 / 没点中目标还在选:取消,下面的步骤照常走(没生效由下面的检查报出来)
+      pickLeft = (await mp.locator('.toast[data-toast=pick]').count()) > 0;
+      if (pickLeft) {
+        await mp.keyboard.press('Escape');
+        await mp.waitForTimeout(300);
       }
     }
   }
@@ -4906,9 +4952,20 @@ for (const style of ['realistic', 'fantasy']) {
   const dark = await mp.locator('.app').getAttribute('data-theme');
   const lpClosed = !(await mp.locator('.lp-pop').count());
   // 概览:关掉详情卡片,点世界卡片上的世界名 → 概览;国家列表点一国 → 概览收起、详情卡片里是这国
-  await mp.tap('.inspector .cp-x').catch(() => {});
+  await mp.tap('.inspector .cp-x', { timeout: 5000 }).catch(() => {});
   await mp.waitForTimeout(400);
-  await mp.tap('.psheet [data-act=overview]');
+  // 关掉以后应当回到世界卡片;没回来时记下当时的样子(选中着什么、图层抽屉和提示条还在不在),按 Esc 取消选中接着查
+  const afterX = await mp.evaluate(() => ({
+    sheet: !!document.querySelector('.psheet'),
+    ins: (document.querySelector('.inspector') as HTMLElement | null)?.innerText.slice(0, 30).replace(/\n/g, ' ') ?? null,
+    lp: !!document.querySelector('.lp-pop'),
+    toasts: [...document.querySelectorAll<HTMLElement>('.toast')].map((e) => e.dataset.toast),
+  }));
+  if (!afterX.sheet) {
+    await mp.keyboard.press('Escape');
+    await mp.waitForTimeout(400);
+  }
+  await mp.tap('.psheet [data-act=overview]', { timeout: 5000 }).catch(() => {});
   await mp.waitForTimeout(400);
   const ovRow = mp.locator('.ov-row').first();
   const ovName = await ovRow.locator('.ov-name').innerText().catch(() => '');
@@ -4992,11 +5049,13 @@ for (const style of ['realistic', 'fantasy']) {
     if (!full || !sheet1 || Math.abs(sheet1.y - 0.08 * VH) > 8 || !fullCapsuleHidden) errs.push(`手机:往上拖没有拉到顶 / 胶囊没藏起来(${JSON.stringify(sheet1)})`);
     if (cmds !== 6) errs.push(`手机:干预页不对(${cmds} 条命令)`);
     if (!/^选择与.+结盟的国家 \d+ 年起生效 取消$/.test(pickToast) || !hiddenWhilePicking) errs.push(`手机:选目标的提示条 / 卡片收起不对(${pickToast})`);
-    if (!/^.+与.+结盟,已从 \d+ 年起重新推演( \d+ 年时它叫.+)? 撤销$/.test(doneToast)) errs.push(`手机:点名牌后没有生效(${doneToast})`);
+    if (!/^.+与.+结盟,已从 \d+ 年起重新推演( \d+ 年时它叫.+)? 撤销$/.test(doneToast))
+      errs.push(`手机:点名牌后没有生效(${doneToast};点的「${tgtText}」,看得见的名牌 ${plateN} 个${pickLeft ? ',还停在选目标' : ''})`);
     if (!/^已撤销/.test(undoToast)) errs.push(`手机:撤销后没有"已撤销"(${undoToast})`);
   }
   if (!lp || Math.abs(lp.y + lp.height - VH) > 1 || lp.width !== VW) errs.push(`手机:图层弹层不是底部抽屉(${JSON.stringify(lp)})`);
   if (dark !== 'dark' || !lpClosed) errs.push(`手机:图层抽屉里切到实景不对(${dark})`);
+  if (!afterX.sheet) errs.push(`手机:关掉详情卡片后没有回到世界卡片(${JSON.stringify(afterX)})`);
   if (!ovClosed || !ovName || !ovIns.includes(ovName)) errs.push(`手机:概览的国家列表点一国没有打开这国(${ovName})`);
   if (!sb || sb.width < VW - 40 || !searchFull) errs.push(`手机:搜索时世界卡片没有拉到顶(${JSON.stringify(sb)})`);
   if (!hitName || !searchIns.includes(hitName)) errs.push(`手机:搜索点一条没有打开它(${hitName})`);

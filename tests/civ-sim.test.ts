@@ -199,7 +199,8 @@ describe('民族扩张', () => {
         const m = modelOf(w, civ, 0);
         expect(m.cultures.every((c) => c.born === 0)).toBe(true);
         const until = spreadPhaseEnd(civ);
-        expect(until, '扩散阶段至少几百年').toBeGreaterThan(400);
+        // 最早改换民族的是孤地同化,要定居满 300 年(GENERATOR_VERSION 13 以后 20 个种子里最短 320 年,seed 7 是 360 年)
+        expect(until, '扩散阶段至少几百年').toBeGreaterThan(300);
         const ref = referenceFlood(m, until);
         expect(Array.from(ownersAt(civ, until).culture)).toEqual(Array.from(ref.owner));
         const settled = new Float64Array(civ.regions.count).fill(Infinity);
@@ -216,7 +217,8 @@ describe('民族扩张', () => {
     expect(new Set(m.cultures.map((c) => c.born)).size).toBeGreaterThan(1);
     expect(Math.min(...m.cultures.map((c) => c.born))).toBe(0);
     const until = spreadPhaseEnd(civ);
-    expect(until).toBeGreaterThan(500);
+    // GENERATOR_VERSION 13 以后 20 个种子里最短 367 年,seed 7 是 462 年
+    expect(until).toBeGreaterThan(350);
     expect(Array.from(ownersAt(civ, until).culture)).toEqual(Array.from(referenceFlood(m, until).owner));
   });
 

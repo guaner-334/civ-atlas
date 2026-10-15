@@ -40,6 +40,14 @@ function cellAt(x: number, y: number): number {
   return best;
 }
 
+/** 世界坐标 (x, y) 处的像素在栅格上归哪个地块(东西相连) */
+function pixelCell(x: number, y: number): number {
+  const W = world.width;
+  const px = Math.floor((((x % W) + W) % W) * raster.scale);
+  const py = Math.min(raster.h - 1, Math.max(0, Math.floor(y * raster.scale)));
+  return raster.cell[py * raster.w + px];
+}
+
 /** 有仗在打、地图上有战线的几年 */
 function warYears(): number[] {
   const out: number[] = [];
@@ -157,13 +165,14 @@ describe('战线', () => {
       const own = ownersAt(civ, y).polity;
       const { live } = warScene(civ, y);
       for (const l of warFront(params(y))) {
-        // 线上中间一点两侧各挪一点,两边的国家是交战的一对
+        // 线上中间一点两侧各挪一点,两边的国家是交战的一对。
+        // 按栅格看那个像素归哪个地块:界线和栅格一样按三角形分地块,离地块中心最近的那块在细长三角形里会差出几个单位
         const P = l.pts;
         const i = (P.length >> 2) << 1;
         const dx = P[i + 2] - P[i];
         const dy = P[i + 3] - P[i + 1];
         const d = Math.hypot(dx, dy) || 1;
-        const side = (s: number) => own[civ.regions.of[cellAt(P[i] + (s * 3 * dy) / d, P[i + 1] - (s * 3 * dx) / d)]];
+        const side = (s: number) => own[civ.regions.of[pixelCell(P[i] + (s * 3 * dy) / d, P[i + 1] - (s * 3 * dx) / d)]];
         const pair = [side(1), side(-1)].sort((a, b) => a - b);
         expect(live.some((w) => [w.atk, w.def].sort((a, b) => a - b).join() === pair.join())).toBe(true);
       }

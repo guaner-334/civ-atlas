@@ -6,7 +6,11 @@
  *
  * **城市怎么长**:S 形曲线逐年逼近上限,任何年份都能现算,不用存每年的人口:
  *   人口(年) = 上限 ÷ (1 + GROWTH_A × e^(−速度 × (年 − 建城年)))
- *   建城那年人口约是上限的 1/41(几百到一两千人的村子);国都的上限再高 CAPITAL_BOOST,在 CAPITAL_RAMP 年里渐渐加上去。
+ *   建城那年人口约是上限的 1/41(几百到几千人的村子);国都的上限再高 CAPITAL_BOOST,在 CAPITAL_RAMP 年里渐渐加上去。
+ *
+ * **州的人口**(regionPopulationAt)= 治所的城 + 乡村。乡村不另存,按州现算(ruralPopulationAt):上限 = 面积 × 每平方公里能养活的人数
+ * (按州的平均宜居分,RURAL_*),和州里第一座城一起按同样的 S 形曲线长,城被洗劫 / 被毁时跟着折损一部分。国家的人口 = 境内各州相加。
+ * 城里的人一般占州里的几个百分点;推演(战争的国力、立国、迁都)仍只看城的人口。
  *
  * **城市兴衰**(阶段 3,cities.ts):洗劫后人口大减、之后慢慢恢复(Settlement.sacks);迁都 / 亡国后旧都的国都加成慢慢退掉
  * (Settlement.capitalSpans);被毁(Settlement.ended)后为 0。都按年份段现算,见 populationAt。
@@ -33,13 +37,14 @@
  * 西幻国家王室更迭,国名不变。国名一律经由 polityName / polityTitles(p, 年份) / polityShortTitle(p, 档位, 年份) 取,
  * 界面、地图、编年史就都跟着年份变;不给年份 = 第一朝(立国时的国名)。
  */
-import type { Civ, Polity, PolityLineage, PopulationAt, Settlement, Year } from './types';
-import { fexp, flog } from './rand';
+import type { Civ, Polity, PolityLineage, PopulationAt, Regions, Settlement, Year } from './types';
+import { fexp, flog, fpow } from './rand';
+import { KM_PER_UNIT, REF_CELLS } from './geo';
 
 /** S 形成长的初值比:建城那年人口 = 上限 ÷ (1 + GROWTH_A) */
 export const GROWTH_A = 40;
 /** 国都:人口上限 × (1 + CAPITAL_BOOST),立都后 CAPITAL_RAMP 年里渐渐加上去 */
-export const CAPITAL_BOOST = 0.6;
+export const CAPITAL_BOOST = 1;
 export const CAPITAL_RAMP = 200;
 /** 旧都衰落(阶段 3 城市兴衰):失去国都之位后,国都加成在这么多年里渐渐退掉(人口一两百年里回落) */
 export const CAPITAL_DECLINE = 150;
@@ -172,6 +177,100 @@ function reachWith(s: Settlement, cap: number, level: number): Year {
   const ratio = cap / level - 1;
   if (!(ratio > 0)) return Infinity;
   return s.founded + Math.max(0, flog(GROWTH_A / ratio) / s.growth);
+}
+
+// ---------------------------------------------------------------------------
+// 州的人口:城 + 乡村
+
+/**
+ * 乡村每平方公里能养活多少人 = RURAL_DENSITY × (州的平均宜居分 ÷ RURAL_SUIT) ^ RURAL_EXP。
+ * 指数 > 1:沃野、大河下游的平原比荒原、雨林密得多(平均宜居分 30 的大河平原每平方公里约 34 人,20 分的约 10 人,10 分的约 1 人)
+ */
+export const RURAL_DENSITY = 10;
+export const RURAL_SUIT = 20;
+export const RURAL_EXP = 3;
+/** 城被洗劫 / 被毁时,州里的乡村跟着折损城里那一成的这么多(毁城当作折损全部),之后按 SACK_RECOVER 慢慢恢复 */
+export const RURAL_WAR = 0.3;
+/** 一个世界单位² 是多少平方公里 */
+const KM2_PER_UNIT2 = KM_PER_UNIT * KM_PER_UNIT;
+/** 默认精细度下一块地的面积(世界单位²;同 geo.ts 的 refCellArea:主图 2048 × 1024 按默认精细度分)。州的人口上限之和按它折算 */
+const REF_CELL_AREA = (2048 * 1024) / REF_CELLS;
+
+/** 州 r 的平均宜居分(按面积加权;没有陆地 = 0) */
+export function regionSuitability(regions: Regions, r: number): number {
+  const a = regions.area[r];
+  return a > 0 ? (regions.capacity[r] * REF_CELL_AREA) / a : 0;
+}
+
+/** 州 r 的乡村人口上限(千人):面积(平方公里)× 每平方公里能养活的人数 */
+export function ruralCapacity(regions: Regions, r: number): number {
+  const suit = regionSuitability(regions, r);
+  if (!(suit > 0)) return 0;
+  return (regions.area[r] * KM2_PER_UNIT2 * RURAL_DENSITY * fpow(suit / RURAL_SUIT, RURAL_EXP)) / 1000;
+}
+
+/** 州 → 先后建在这一州的城(按建城先后;编号即下标) */
+const chainMemo = new WeakMap<readonly Settlement[], Settlement[][]>();
+function regionCities(settlements: readonly Settlement[], r: number): Settlement[] {
+  let m = chainMemo.get(settlements);
+  if (!m) {
+    m = [];
+    for (const s of settlements) (m[s.region] ??= []).push(s);
+    for (const l of m) l?.sort((a, b) => a.founded - b.founded || a.id - b.id);
+    chainMemo.set(settlements, m);
+  }
+  return m[r] ?? [];
+}
+
+/** 第 year 年那一段地形里的州(地形大事以前的段见 Civ.eras;州的编号各段一样) */
+function regionsAt(civ: Pick<Civ, 'regions' | 'eras'>, year: Year): Regions {
+  const eras = civ.eras;
+  if (eras) for (const e of eras) if (year < e.until) return e.regions;
+  return civ.regions;
+}
+
+/**
+ * 州 r 在第 year 年的乡村人口(千人);这州还没建过城 = 0。
+ * 从这州第一次建城那年起,和那座城一样按 S 形曲线长到乡村人口上限(ruralCapacity,按那一段地形里的州算);
+ * 州里的城每被洗劫一次、被毁一次,乡村折损城里那一成的 RURAL_WAR,之后按 SACK_RECOVER 慢慢恢复。城毁了乡下的人还在
+ */
+export function ruralPopulationAt(civ: Pick<Civ, 'regions' | 'eras' | 'settlements'>, r: number, year: Year): number {
+  const chain = regionCities(civ.settlements, r);
+  const first = chain[0];
+  if (!first || !(year >= first.founded)) return 0;
+  const regions = regionsAt(civ, year);
+  if (!(r < regions.count)) return 0;
+  let cap = ruralCapacity(regions, r);
+  if (!(cap > 0)) return 0;
+  for (const s of chain) {
+    if (s.sacks) {
+      for (const k of s.sacks) {
+        if (!(year >= k.year)) break;
+        cap *= 1 - RURAL_WAR * k.loss * fexp(-(year - k.year) / SACK_RECOVER);
+      }
+    }
+    if (s.ended !== undefined && year >= s.ended) cap *= 1 - RURAL_WAR * fexp(-(year - s.ended) / SACK_RECOVER);
+  }
+  return cap / (1 + GROWTH_A * fexp(-first.growth * (year - first.founded)));
+}
+
+/** 州 r 在第 year 年的城(这一年还在的那一座;没有 = undefined) */
+export function regionCityAt(civ: Pick<Civ, 'settlements'>, r: number, year: Year): Settlement | undefined {
+  const chain = regionCities(civ.settlements, r);
+  for (let i = chain.length - 1; i >= 0; i--) {
+    const s = chain[i];
+    if (year >= s.founded && (s.ended === undefined || year < s.ended)) return s;
+  }
+  return undefined;
+}
+
+/**
+ * 州 r 在第 year 年的总人口(千人)= 治所的城(populationAt)+ 乡村(ruralPopulationAt)。
+ * 面板上州、国家的"人口"都按它算(国家 = 境内各州相加);城自己的人口仍是 populationAt
+ */
+export function regionPopulationAt(civ: Pick<Civ, 'regions' | 'eras' | 'settlements'>, r: number, year: Year): number {
+  const s = regionCityAt(civ, r, year);
+  return (s ? populationAt(s, year) : 0) + ruralPopulationAt(civ, r, year);
 }
 
 /** 城市分级:按人口(千人)的门槛 */
