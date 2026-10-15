@@ -99,6 +99,11 @@ export interface Culture {
   /** 没能兴起(发源州在更早的地形大事里沉了,见 ended):一州也没有过,史书材料、搜索里不列 */
   unborn?: true;
   /**
+   * 干预"立国"立在没人住的州时来这里落脚的新民族:那条干预在清理过的干预列表里的下标(cultures.ts 的 planPioneers)。
+   * 一开始记作没能兴起(unborn、ended);立国那一刻才兴起(born 改成那一刻,去掉 unborn、ended),没用上的就一直是没能兴起
+   */
+  pioneer?: number;
+  /**
    * 阶段 3 同化与迁徙:成规模的迁徙(按年份排好),每一波一条:年份、方位(迁出地 → 迁入地,屏幕上 y 向下 = 向南)。
    * 迁入了哪些州见史事里同一年、同一民族的 migrate;编年史写"西迁"用
    */
@@ -410,6 +415,8 @@ export interface Civ {
    * CivSim.fromCiv 接着推时要用
    */
   polityYears?: number;
+  /** 拓荒设定(CivParams.frontier,清理过的;默认 = 不写)。CivSim.fromCiv 接着推时要用 */
+  frontier?: import('./frontier').Frontier;
   /**
    * 阶段 4 干预:这份历史是带着哪些干预推出来的(清理过的列表,见 gen/edits.ts;史事 intervene 的 war 列是它的下标)。
    * 没有干预 = 不给。CivSim.fromCiv 接着推时默认带着它
@@ -699,6 +706,10 @@ export interface CivParams {
    * 不给 / 一份都没有 = 自动:每个民族按发源地从全部语感里挑(和没有这一项逐字节一样)。只管起名,不改历史
    */
   names?: import('../names').NameMix;
+  /** 拓荒:民族扩散、国家扩张快慢,各种地形难走的程度(frontier.ts;推演前先清理)。不给 = 默认(和没有这一项逐字节一样) */
+  frontier?: import('./frontier').Frontier;
+  /** 自选的文明起源(frontier.ts 的 Origins;推演前先清理)。不给 = 自动挑发源地(和没有这一项逐字节一样) */
+  origins?: import('./frontier').Origins;
 }
 
 /**

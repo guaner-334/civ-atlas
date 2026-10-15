@@ -72,7 +72,7 @@ import {
   populationAt,
   settlementRank,
 } from './growth';
-import { cultureLabel, regionLabel } from './display';
+import { HABITABLE_SUIT, cultureLabel, regionLabel } from './display';
 import { ownersAt } from './timeline';
 import { ageAt, generalRef, kinOf, rulerBare, rulerRef, rulerShort } from './peopleText';
 import { eraText, type Era } from '../era';
@@ -815,10 +815,18 @@ function interveneStory(civ: Civ, e: Annal, id: number): IvStory {
     }
     case 'found': {
       if (e.a < 0 && e.region < 0) return fail('欲于某州立国,然无此州', NO_REGION);
-      if (e.a < 0) return fail(`欲于${R}立国,然其地无人居住`, `那一年${R}没人住`);
+      if (e.a < 0) {
+        // 住不了人的州(海边冰原、大片荒漠……)立不成;住得了人的没人住时会有新民族来落脚,只有那州沉了这类意外才立不成
+        const seat = civ.regions.seat[e.region];
+        if (seat !== undefined && civ.habitat.suitability[seat] < HABITABLE_SUIT) return fail(`欲于${R}立国,然其地不可居`, `${R}住不了人`);
+        return fail(`欲于${R}立国,然其地无人居住`, `那一年${R}没人住`);
+      }
       const city = cityName(civ, e.settlement);
       const built = civ.settlements[e.settlement]?.founded === y;
       const seat = city ? (built ? `,筑${city}为都` : `,都于${city}`) : '';
+      // 州里本来没人住:备好的新民族这一刻来落脚(cultures.ts 的 pioneerArrives)
+      const cu = civ.cultures[civ.polities[e.a]?.culture ?? -1];
+      if (cu && cu.pioneer === e.war && cu.hearth === e.region && cu.born === y) return done(`${R}本无人居,${cu.name}人徙居于此,立国,号${A}${seat}`);
       return done(e.b >= 0 ? `${R}脱${B}自立,号${A}${seat}` : `${R}立国,号${A}${seat}`);
     }
     case 'move': {

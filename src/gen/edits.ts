@@ -164,6 +164,13 @@
  * 历史和自动时逐字节一样,只是国名、城名、人名、山河这些名字换了;改名按位置记,照样套得上。
  * 新建世界时配,创建以后不再改(和地形一样)。自动 / 一份都没有的不写。
  *
+ * ## 拓荒与起源
+ *
+ * WorldEdits.frontier(可选,没有 = 默认):民族扩散、国家扩张快慢,各种地形难走的程度(字段、档位、清理见 civ/frontier.ts)。
+ * WorldEdits.origins(可选,没有 = 自动):自己选的文明起源,第一批民族从这几处出发、第 0 年出现(世界坐标的点,同地形修改;见 civ/frontier.ts)。
+ * 两样都改变历史:新建世界时定,创建以后不再改(和推演年数一样);新建界面里先按默认推(只看星球),创建以后才按它们推。
+ * 默认的不写,不写时推演和没有这两项逐字节一样。
+ *
  * ## 纪年
  *
  * WorldEdits.era(可选,没有 = 按"第几年"写):年份的写法 —— 名字(默认「公元」)和元年是第几年,
@@ -208,6 +215,7 @@ import { TERRAIN_H, TERRAIN_W } from './terrainEdits';
 import type { SketchEdit } from './sketch';
 import type { NameMix } from './names/mix';
 import type { Era } from './era';
+import type { Frontier, Origins } from './civ/frontier';
 
 /** 生成器版本:生成算法有改动、同种子会得到不同世界时加一(存档读档时核对);加一时在 GENERATOR_CHANGES 里补一条 */
 export const GENERATOR_VERSION = 13;
@@ -298,6 +306,10 @@ export interface WorldEdits {
   nameMix?: NameMix;
   /** 历史推到第几年(见文件头"推演年数");没有 = 3000 */
   endYear?: number;
+  /** 拓荒:民族扩散、国家扩张快慢,地形难走程度(见文件头"拓荒与起源");没有 = 默认 */
+  frontier?: Frontier;
+  /** 自己选的文明起源(见文件头"拓荒与起源");没有 = 自动 */
+  origins?: Origins;
   /** 纪年(见文件头"纪年"、era.ts);没有 = 按"第几年"写 */
   era?: Era;
 }

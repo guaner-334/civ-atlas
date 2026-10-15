@@ -18,7 +18,7 @@
 import type { World } from '../../gen/world';
 import { AdjKind, type Civ, type Place, type Polity } from '../../gen/civ/types';
 import { BIOMES } from '../../gen/biomes';
-import { KIND_INFO, cultureLabel, regionLabel, regionNamed } from '../../gen/civ/display';
+import { HABITABLE_SUIT, KIND_INFO, cultureLabel, regionLabel, regionNamed } from '../../gen/civ/display';
 import { capitalAt, dynastyIndexAt, polityAlive, polityName, polityRootAt, polityRoots, polityTitleChain, populationAt, populationLabel } from '../../gen/civ/growth';
 import { ownersAt, type Owners } from '../../gen/civ/timeline';
 import { cnNumber } from '../../gen/civ/chronicle';
@@ -621,7 +621,7 @@ export const REWRITE_OPS = [
   '- declare country 向 other 宣战:那一年两国必须接壤',
   '- move country 迁都到 city:那一年 city 必须在它的国土里',
   '- cede 把一州划给 country:用 region 指定州,或用 city 指定"这座城所在的州";permanent: true = 之后谁也夺不走',
-  '- found 在一州立一个新国家(用 region 或 city 指定;材料里没列那一带的州时用 at = [经度, 纬度],会挑离它最近、那一年有人住的一州,不要自己编 R 编号;那一年州里要有人住);' +
+  '- found 在一州立一个新国家(用 region 或 city 指定;材料里没列那一带的州时用 at = [经度, 纬度],会挑离它最近、那一年有人住的一州,不要自己编 R 编号;州要住得了人,那一年还没人住的会有一支新民族来这里落脚);' +
     '可给 name = 国名,只写名字本身,不带"国""王国""王朝"之类的国号。作者没说年份时不要在最后几年立国(新国家来不及长大),挑一个早几百年、那一带有人住的年份',
   '命令下了就一直有效(给了 until 的到那一年为止)。后果由推演自己展开:你只能下命令,不能直接规定谁打赢、谁灭谁、哪年发生什么。',
   '',
@@ -1128,7 +1128,8 @@ class Checker {
       const name = typeof o.name === 'string' ? cleanName('polity', o.name) : '';
       text = `在${R.name}立国${name ? `,国名「${name}」` : ''}`;
       where = this.regionWhere(R.r, own, from, R.at);
-      if (own.culture[R.r] < 0) return { ...fail(text, `第 ${from} 年${R.name}没人住,立不成`), where };
+      // 没人住的州:住得了人的,立国时会有一支新民族来落脚;住不了人的(冰原、大片荒漠……)立不成
+      if (own.culture[R.r] < 0 && civ.habitat.suitability[civ.regions.seat[R.r]] < HABITABLE_SUIT) return { ...fail(text, `${R.name}住不了人,立不成`), where };
       v = name ? { kind, region: regionKey(civ, R.r), from, name } : { kind, region: regionKey(civ, R.r), from };
     } else {
       const A = pol(o.country ?? o.a ?? o.polity ?? o['国家'], '国家');

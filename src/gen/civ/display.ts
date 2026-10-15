@@ -4,6 +4,9 @@
  */
 import type { Civ, Culture, CultureKind } from './types';
 
+/** 治所宜居分 ≥ 这个值的州才算可居(民族只在这样的州定居;和"城址"显示的门槛一致) */
+export const HABITABLE_SUIT = 1;
+
 /** 七种民族类型:中文名、扩张性基数(Azgaar)、一句话说明 */
 export const KIND_INFO: Record<CultureKind, { name: string; expansionism: number; hint: string }> = {
   farm: { name: '农耕', expansionism: 1, hint: '哪里都能种地,不偏不倚' },

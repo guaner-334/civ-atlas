@@ -112,6 +112,7 @@ import {
 } from '../gen/edits';
 import { sameTerrain, sameUpheavals } from '../gen/terrainEdits';
 import { sameMix, type NameMix } from '../gen/names/mix';
+import { cleanFrontier, cleanOrigins, sameFrontier, sameOrigins, type Frontier, type Origins } from '../gen/civ/frontier';
 import type { RasterPatch } from '../gen/rasterPatch';
 import { baseRegions, civAtEra, dropComposed, eraData, eraIndex, eraMapsOf, eraReady, eraShown, patchKey, reuseRegions, useEraIndex, withHistory, type EraMaps } from './eras';
 import { sameSketch, type SketchEdit } from '../gen/sketch';
@@ -552,6 +553,17 @@ const yearsOpt = (endYear: number | undefined) => (endYear ? { endYear } : {});
  * 创建以后再按世界自己的推演年数接着推(见下面重推的那段)
  */
 const yearsFor = (draft: boolean, edits: Pick<WorldEdits, 'endYear'>) => (draft ? undefined : cleanEndYear(edits.endYear));
+/** 推文明时带的拓荒、起源(默认 = undefined) */
+type CivSetup = { frontier?: Frontier; origins?: Origins };
+const setupOpt = (s: CivSetup | undefined) => ({ ...(s?.frontier ? { frontier: s.frontier } : {}), ...(s?.origins ? { origins: s.origins } : {}) });
+/** 这一步带的拓荒、起源:和推演年数一样,新建界面里只看星球、一律按默认推;创建以后按世界自己的 */
+function setupFor(draft: boolean, edits: Pick<WorldEdits, 'frontier' | 'origins'>): CivSetup | undefined {
+  if (draft) return undefined;
+  const frontier = cleanFrontier(edits.frontier);
+  const origins = cleanOrigins(edits.origins);
+  return frontier || origins ? { ...(frontier ? { frontier } : {}), ...(origins ? { origins } : {}) } : undefined;
+}
+const sameSetup = (a: CivSetup | undefined, b: CivSetup | undefined) => sameFrontier(a?.frontier, b?.frontier) && sameOrigins(a?.origins, b?.origins);
 
 /** 结束那一年现存几国(我的世界的卡片上写;没长出文明 = 0) */
 function aliveAtEnd(civ: Civ): number {
@@ -782,6 +794,8 @@ export function App() {
   const civNames = useRef<NameMix | undefined>(undefined);
   /** 最近一次请求的文明推到第几年(3000 = undefined) */
   const civYears = useRef<number | undefined>(undefined);
+  /** 最近一次请求的文明带的拓荒、起源(默认 = undefined) */
+  const civSetup = useRef<CivSetup | undefined>(undefined);
   /** 刚创建的世界要接着往后推:推完再从第 0 年放一遍历史(true = 要放) */
   const storyAfterYears = useRef<boolean | null>(null);
   const rawUps = useRef<readonly Upheaval[] | undefined>(undefined);
@@ -982,7 +996,7 @@ export function App() {
               reject(e);
             },
           });
-          send({ type: 'trial', id: reqId.current, tid, params: p, terrain: [...genTerrain.current], sketch: genSketch.current, interventions: [...interventions], ...upsOpt(ups), ...namesOpt(civNames.current), ...yearsOpt(civYears.current) });
+          send({ type: 'trial', id: reqId.current, tid, params: p, terrain: [...genTerrain.current], sketch: genSketch.current, interventions: [...interventions], ...upsOpt(ups), ...namesOpt(civNames.current), ...yearsOpt(civYears.current), ...setupOpt(civSetup.current) });
         }),
     );
     return () => setTrialRunner(null);
@@ -1188,8 +1202,9 @@ export function App() {
       civNames.current = t.edits.nameMix;
       // 推演年数同样直接带着(新建中的世界先推 3000 年)
       civYears.current = yearsFor(t.kind === 'draft', t.edits);
+      civSetup.current = setupFor(t.kind === 'draft', t.edits);
       storyAfterYears.current = null;
-      send({ type: 'generate', id, params: p, scale: 1, terrain: [...terrain], sketch: t.edits.sketch, ...namesOpt(t.edits.nameMix), ...yearsOpt(civYears.current) });
+      send({ type: 'generate', id, params: p, scale: 1, terrain: [...terrain], sketch: t.edits.sketch, ...namesOpt(t.edits.nameMix), ...yearsOpt(civYears.current), ...setupOpt(civSetup.current) });
       // 换世界:改名、干预、选中都属于旧世界,一起作废(先停掉旧世界的自动存,清空不算"改回默认";新世界先按"没有干预、没有地形大事"生成)
       detachWorld();
       civEdits.current = EMPTY_EDITS.interventions;
@@ -1285,6 +1300,7 @@ export function App() {
     civUps.current = genUps.current = ups;
     civNames.current = getEdits().nameMix;
     civYears.current = yearsFor(getStage().stage === 'draft', getEdits());
+    civSetup.current = setupFor(getStage().stage === 'draft', getEdits());
     resimSeq.current++;
     resimInfo.current = null;
     setResim(null);
@@ -1300,7 +1316,7 @@ export function App() {
     clearChroniclePick();
     if (getChronicle().polity !== null) setChronicle({ polity: null });
     if (getPeople().polity !== null) setPeople({ polity: null });
-    send({ type: 'generate', id, params: genParams.current, scale: 1, terrain: [...t], sketch: sk, interventions: [...interventions], ...upsOpt(ups), ...namesOpt(civNames.current), ...yearsOpt(civYears.current) });
+    send({ type: 'generate', id, params: genParams.current, scale: 1, terrain: [...t], sketch: sk, interventions: [...interventions], ...upsOpt(ups), ...namesOpt(civNames.current), ...yearsOpt(civYears.current), ...setupOpt(civSetup.current) });
   }, [edits.terrain, edits.sketch, baseData, send]);
 
   // ---- 干预(阶段 4)、地形大事:干预列表或地形大事一变,就在后台带着新的重推文明(地形不动;变了的那一年以前和原来一样) ----
@@ -1313,7 +1329,10 @@ export function App() {
     // 推演年数:新建中的世界一律先推 3000 年(不因为调了年数重推);创建以后按世界自己的年数,和推好的不一样就接着推
     const endYear = draft ? civYears.current : cleanEndYear(edits.endYear);
     const sameYears = fresh.current || endYear === civYears.current;
-    if (!baseData || !genParams.current || (sameInterventions(list, civEdits.current) && sameUpheavals(ups, civUps.current) && sameNames && sameYears)) return;
+    // 拓荒、起源:同推演年数,新建中的世界一律按默认推;创建以后按世界自己的,整段历史从第 0 年重推
+    const setup = draft ? civSetup.current : setupFor(false, edits);
+    const sameSet = fresh.current || sameSetup(setup, civSetup.current);
+    if (!baseData || !genParams.current || (sameInterventions(list, civEdits.current) && sameUpheavals(ups, civUps.current) && sameNames && sameYears && sameSet)) return;
     if (!sameTerrain(getEdits().terrain, genTerrain.current) || !sameSketch(getEdits().sketch, genSketch.current)) return; // 等改地形那次生成一起推
     // 从哪一年起变:新加的 / 删掉的干预、地形大事里最早的那一年(重推完时间轴停在这里)
     const before = civEdits.current;
@@ -1328,14 +1347,17 @@ export function App() {
     // 只换了推演年数:从原来和现在的结束年份里早的那一年起变(之前的历史不变)
     const oldEnd = civYears.current ?? END_YEAR_DEFAULT;
     const newEnd = endYear ?? END_YEAR_DEFAULT;
-    const yearsOnly = !sameYears && !changed.length && !upChanged.length && sameInterventions(list, before) && sameUpheavals(ups, civUps.current);
-    const year = yearsOnly ? Math.min(oldEnd, newEnd) : years.length ? Math.max(0, Math.min(...years)) : 0;
+    const yearsOnly = !sameYears && sameSet && !changed.length && !upChanged.length && sameInterventions(list, before) && sameUpheavals(ups, civUps.current);
+    // 只换了拓荒、起源(创建世界那一刻):从第 0 年起都变了
+    const setupOnly = !sameSet && !changed.length && !upChanged.length && sameInterventions(list, before) && sameUpheavals(ups, civUps.current);
+    const year = !sameSet ? 0 : yearsOnly ? Math.min(oldEnd, newEnd) : years.length ? Math.max(0, Math.min(...years)) : 0;
     // 只换了地名风格(或推演年数):历史不变,不提示、不跳时间
     const namesOnly = !changed.length && !upChanged.length && sameInterventions(list, before) && sameUpheavals(ups, civUps.current);
     civEdits.current = list;
     civUps.current = ups;
     if (!fresh.current) civNames.current = names;
     if (!fresh.current) civYears.current = endYear;
+    if (!fresh.current) civSetup.current = setup;
     const seq = ++resimSeq.current;
     // 只多了一条 = 新下的干预 / 新加的大事;只少了一条 = 撤销(读档、自动恢复套上的不算,不提示)
     const quiet = namesOnly || (list === restoredIv.current && ups === restoredUps.current);
@@ -1345,7 +1367,7 @@ export function App() {
     const upAdded = !quiet && one && upNow.length === upBefore.length + 1 ? upChanged[0] : undefined;
     const upRemoved = !quiet && one && upNow.length === upBefore.length - 1 ? upChanged[0] : undefined;
     const note = takeRewriteNote(getEdits()) ?? undefined;
-    resimInfo.current = { seq, year, t0: performance.now(), added, removed, upAdded, upRemoved, left: list.length + upNow.length, quiet, note, years: yearsOnly };
+    resimInfo.current = { seq, year, t0: performance.now(), added, removed, upAdded, upRemoved, left: list.length + upNow.length, quiet, note, years: yearsOnly || setupOnly };
     setResim({ year, end: newEnd });
     send({
       type: 'resim',
@@ -1358,9 +1380,10 @@ export function App() {
       ...upsOpt(ups),
       ...namesOpt(civNames.current),
       ...yearsOpt(civYears.current),
+      ...setupOpt(civSetup.current),
       have: [...eraPatches.current.keys()],
     });
-  }, [edits.interventions, edits.upheavals, edits.nameMix, edits.endYear, draft, baseData, send]);
+  }, [edits.interventions, edits.upheavals, edits.nameMix, edits.endYear, edits.frontier, edits.origins, draft, baseData, send]);
   // 重推的文明画到地图上以后,记下"从下命令到地图更新"用了多久(冒烟检查用)
   useEffect(() => {
     const info = resimInfo.current;
@@ -1763,12 +1786,20 @@ export function App() {
     // 没画草图 = 整颗星球都换了,放的那几处是照原来的地形放的,不带过去。助手的对话(说的是原来那颗)也清掉
     newConversation();
     const sketch = st.edits.sketch;
-    const plain = !st.title && !sketch && !st.edits.nameMix && !st.edits.endYear && !st.edits.era && worldKey({ ...base, seed: 0 }) === worldKey({ ...DEFAULT_PARAMS, seed: 0 });
-    // 地名风格、推演年数和参数一样是这一类星球的设定,换一颗照旧;纪年(年份的写法)也照旧,
-    // 按一件事定的换成按年份(那件事是原来那颗星球上的)
-    const { nameMix, endYear, era } = st.edits;
+    const plain =
+      !st.title && !sketch && !st.edits.nameMix && !st.edits.endYear && !st.edits.frontier && !st.edits.origins && !st.edits.era && worldKey({ ...base, seed: 0 }) === worldKey({ ...DEFAULT_PARAMS, seed: 0 });
+    // 地名风格、推演年数、拓荒和参数一样是这一类星球的设定,换一颗照旧;选的起源按位置照旧(新星球上那里住不了人的,推演时跳过);
+    // 纪年(年份的写法)也照旧,按一件事定的换成按年份(那件事是原来那颗星球上的)
+    const { nameMix, endYear, frontier, origins, era } = st.edits;
     const kept: WorldEdits = sketch ? { ...EMPTY_EDITS, sketch, terrain: st.edits.terrain } : EMPTY_EDITS;
-    const edits = { ...kept, ...(nameMix ? { nameMix } : {}), ...(endYear ? { endYear } : {}), ...(era ? { era: { name: era.name, epoch: era.epoch } } : {}) };
+    const edits = {
+      ...kept,
+      ...(nameMix ? { nameMix } : {}),
+      ...(endYear ? { endYear } : {}),
+      ...(frontier ? { frontier } : {}),
+      ...(origins ? { origins } : {}),
+      ...(era ? { era: { name: era.name, epoch: era.epoch } } : {}),
+    };
     // 换一颗:记一步(按后退换回刚才那颗)
     navTo({ page: 'draft', id: t.id, seed, title: st.title });
     generate({ ...t, params: { ...base, seed }, edits, saved: undefined, title: st.title, pristine: st.pristine || plain, view: undefined, from: undefined, save: undefined });
@@ -1824,9 +1855,9 @@ export function App() {
     });
     // 历史从第 0 年起放一遍(这次打开网页不再另外自动播放);不放(play=0、无头浏览器)时,
     // 新建时放过"这颗星球的形成"、时间停在第 0 年的,回到结束那一年。
-    // 推得比 3000 年久的世界:新建时只推了 3000 年,创建以后接着往后推(重推那段),推完再放
+    // 推得比 3000 年久的世界:新建时只推了 3000 年,创建以后接着往后推(重推那段),推完再放;调了拓荒、选了起源的同样创建以后重推
     takeAutoplay();
-    const later = cleanEndYear(getEdits().endYear) !== civYears.current;
+    const later = cleanEndYear(getEdits().endYear) !== civYears.current || !sameSetup(setupFor(false, getEdits()), civSetup.current);
     if (later) storyAfterYears.current = storyOk();
     if (storyOk() && !later) startCivReplay();
     else if (getCivTime().year === 0) resetCivTime();

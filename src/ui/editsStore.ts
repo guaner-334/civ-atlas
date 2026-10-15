@@ -6,7 +6,7 @@
  * 读档时 App 先按存档的参数生成,再 setEdits(存档里的修改)。
  *
  * 撤销 / 重做(⌘Z / ⇧⌘Z,见 undo.ts):改名、改旗、干预、地形大事、作者标记、作者的人物、AI 改写每次都记一步(改之前、改之后两份),只记这次打开网页以后、这个世界上的;
- * 读档、换世界(setEdits / clearEdits)、创建世界(clearEditHistory)清空。地形修改、草图、地名风格、推演年数不记:只在新建世界时能改,工具有自己的"撤销一笔"。
+ * 读档、换世界(setEdits / clearEdits)、创建世界(clearEditHistory)清空。地形修改、草图、地名风格、推演年数、拓荒、起源不记:只在新建世界时能改,工具有自己的"撤销一笔"。
  * 纪年也不记:只换年份的写法,在世界设定里随时改回来。
  */
 import { useSyncExternalStore } from 'react';
@@ -17,6 +17,7 @@ import { CHARACTERS_MAX, cleanCharacter, nextCharacterId, sameCharacter, type Au
 import { showToast } from './toastStore';
 import { cleanMix, sameMix, type NameMix } from '../gen/names/mix';
 import { cleanEra, sameEra, type Era } from '../gen/era';
+import { cleanFrontier, cleanOrigins, sameFrontier, sameOrigins, type Frontier, type Origins } from '../gen/civ/frontier';
 
 let state: WorldEdits = EMPTY_EDITS;
 const subs = new Set<() => void>();
@@ -124,10 +125,12 @@ export function revertEdits(now: WorldEdits, from: WorldEdits, to: WorldEdits): 
   if (names === now.names && aiNames === now.aiNames && interventions === now.interventions && terrain === now.terrain && sameUps && marks === now.marks && flags === now.flags && characters === now.characters)
     return now;
   const out: WorldEdits = { names, interventions, terrain };
-  // 草图、地名风格、推演年数、纪年不记撤销步(见文件头),照现在的留着
+  // 草图、地名风格、推演年数、拓荒、起源、纪年不记撤销步(见文件头),照现在的留着
   if (now.sketch) out.sketch = now.sketch;
   if (now.nameMix) out.nameMix = now.nameMix;
   if (now.endYear) out.endYear = now.endYear;
+  if (now.frontier) out.frontier = now.frontier;
+  if (now.origins) out.origins = now.origins;
   if (now.era) out.era = now.era;
   if (upheavals.length) out.upheavals = sameUps ? now.upheavals : upheavals;
   if (aiNames && Object.keys(aiNames).length) out.aiNames = aiNames;
@@ -375,6 +378,24 @@ export function setEndYear(year: number | undefined) {
   const { endYear: _old, ...rest } = state;
   void _old;
   put(next ? { ...rest, endYear: next } : rest);
+}
+
+/** 拓荒(新建世界时定,不记撤销步):民族扩散、国家扩张、地形难走程度;undefined / 都是默认 = 去掉这一项 */
+export function setFrontier(f: Frontier | undefined) {
+  const next = cleanFrontier(f);
+  if (sameFrontier(next, state.frontier)) return;
+  const { frontier: _old, ...rest } = state;
+  void _old;
+  put(next ? { ...rest, frontier: next } : rest);
+}
+
+/** 自己选的文明起源(新建世界时定,不记撤销步);undefined / 一处也没有 = 自动,去掉这一项 */
+export function setOrigins(o: Origins | undefined) {
+  const next = cleanOrigins(o);
+  if (sameOrigins(next, state.origins)) return;
+  const { origins: _old, ...rest } = state;
+  void _old;
+  put(next ? { ...rest, origins: next } : rest);
 }
 
 /** 纪年(随时能改,不记撤销步):undefined = 按第几年写,去掉这一项。不合格的(名字空、太长,元年超范围)不改 */

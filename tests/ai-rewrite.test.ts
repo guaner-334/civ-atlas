@@ -357,7 +357,7 @@ describe('改写 · 核对 AI 的回复', () => {
     expect(one({ op: 'move', country: `P${big}` }).problem).toMatch(/没说迁到哪座城/);
   });
 
-  it('划州、立国:可用州或城指定;没人住的划不成、立不成;本来就是它的不用划;国名去掉"国"', () => {
+  it('划州、立国:可用州或城指定;没人住的划不成,住不了人的立不成;本来就是它的不用划;国名去掉"国"', () => {
     const a = polityKey(civ, big);
     expect(one({ op: 'cede', country: `P${big}`, region: `R${otherRegion}`, permanent: true }).change).toEqual({
       kind: 'intervention',
@@ -373,7 +373,14 @@ describe('改写 · 核对 AI 的回复', () => {
       change: { kind: 'intervention', v: { kind: 'found', region: regionKey(civ, otherRegion), from: Y, name: '秦' } },
       text: expect.stringMatching(/立国,国名「秦」$/),
     });
-    expect(one({ op: 'found', region: `R${empty}` }).problem).toMatch(/没人住,立不成/);
+    // 没人住的州:住不了人的立不成;住得了人的立得成(会有一支新民族来落脚)
+    const livable = (r: number) => civ.habitat.suitability[reg.seat[r]] >= 1;
+    const bare = (ok: boolean) => {
+      for (let r = 0; r < reg.count; r++) if (own.culture[r] < 0 && livable(r) === ok) return r;
+      throw new Error('找不到');
+    };
+    expect(one({ op: 'found', region: `R${bare(false)}` }).problem).toMatch(/住不了人,立不成/);
+    expect(one({ op: 'found', region: `R${bare(true)}` }).change).toEqual({ kind: 'intervention', v: { kind: 'found', region: regionKey(civ, bare(true)), from: Y } });
     expect(one({ op: 'found', region: 'R999999' }).problem).toMatch(/没有这一州/);
     expect(one({ op: 'found' }).problem).toMatch(/没说是哪一州/);
   });

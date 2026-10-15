@@ -40,6 +40,10 @@
  *   读档时过 cleanMix:认不出的语感(比如以后的新语感)、不是正数的份数去掉,提示一句;一份都不剩就按自动
  * - edits.endYear(可选):历史推到第几年(edits.ts 文件头"推演年数"),`12000`;3000 年时不写。
  *   读档时过 cleanEndYear:夹在 3000–60000、取整到千年;不是数字的按 3000,提示一句
+ * - edits.frontier(可选):拓荒(edits.ts 文件头"拓荒与起源"、civ/frontier.ts),`{ "spread": 1.5, "expand": 2, "terrain": { "desert": 6 } }`;
+ *   都是默认时不写。读档时过 cleanFrontier:吸到最近的一档,认不出的项去掉,提示一句
+ * - edits.origins(可选):自己选的文明起源(同上),`{ "pts": [976, 342, 544, 448], "only": true }`;自动时不写。
+ *   读档时过 cleanOrigins:坐标取整、去重,最多 16 处;认不出的按自动,提示一句
  * - edits.era(可选):纪年(edits.ts 文件头"纪年"、era.ts),`{ "name": "公元", "epoch": 2500 }`;按一件事定的
  *   `{ "name": "利希历", "epoch": 1610, "by": "event", "event": { "tag": "创", "text": "利希昂于菲内拉斯创立利希教" } }`;
  *   按第几年写时不写。读档时过 cleanEra:名字、元年不合格的按第几年写,提示一句
@@ -60,6 +64,7 @@ import { SKETCH_MAX_STROKES, cleanSketch, cleanSketchStroke, type SketchEdit } f
 import { decodeFlag } from './civ/flags';
 import { CHARACTERS_MAX, cleanCharacters, type AuthorCharacter } from './characters';
 import { cleanEra, sameEra } from './era';
+import { cleanFrontier, cleanOrigins, sameFrontier, sameOrigins } from './civ/frontier';
 
 export const SAVE_APP = '文明与地图';
 /**
@@ -288,7 +293,7 @@ export function worldKey(params: WorldParams): string {
   return PARAM_KEYS.map((k) => `${k}=${params[k] ?? DEFAULT_PARAMS[k]}`).join('&');
 }
 
-/** 改了几处:改名条数 + 干预条数 + 地形修改处数 + 草图(画了算一处)+ 地形大事件数 + 作者标记个数 + 改过的旗面数 + 作者的人物个数 + 地名风格、推演年数、纪年(各算一处)*/
+/** 改了几处:改名条数 + 干预条数 + 地形修改处数 + 草图(画了算一处)+ 地形大事件数 + 作者标记个数 + 改过的旗面数 + 作者的人物个数 + 地名风格、推演年数、拓荒、起源、纪年(各算一处)*/
 export function editCount(edits: WorldEdits): number {
   return (
     Object.keys(edits.names).length +
@@ -301,6 +306,8 @@ export function editCount(edits: WorldEdits): number {
     (edits.characters?.length ?? 0) +
     (edits.nameMix ? 1 : 0) +
     (cleanEndYear(edits.endYear) ? 1 : 0) +
+    (cleanFrontier(edits.frontier) ? 1 : 0) +
+    (cleanOrigins(edits.origins) ? 1 : 0) +
     (cleanEra(edits.era) ? 1 : 0)
   );
 }
@@ -363,6 +370,10 @@ export function makeSave(
   if (mix) save.edits.nameMix = { ...mix };
   const endYear = cleanEndYear(edits.endYear);
   if (endYear) save.edits.endYear = endYear;
+  const frontier = cleanFrontier(edits.frontier);
+  if (frontier) save.edits.frontier = frontier;
+  const origins = cleanOrigins(edits.origins);
+  if (origins) save.edits.origins = origins;
   const era = cleanEra(edits.era);
   if (era) save.edits.era = era;
   const t = cleanTitle(title);
@@ -589,6 +600,12 @@ export function parseSave(text: string): ParseResult {
   // 推演年数:夹在 3000–60000、取整到千年;认不出的按 3000 年
   const endYear = cleanEndYear(E.endYear);
   if (E.endYear !== undefined && (typeof E.endYear !== 'number' || !Number.isFinite(E.endYear))) warnings.push('推演年数认不出来,按 3000 年推演');
+  // 拓荒:吸到最近的一档,认不出的项去掉
+  const frontier = cleanFrontier(E.frontier);
+  if (E.frontier !== undefined && JSON.stringify(frontier ?? {}) !== JSON.stringify(E.frontier)) warnings.push(frontier ? '拓荒设定里有认不出来的项,已按最近的一档读' : '拓荒设定认不出来,按默认推演');
+  // 起源:坐标取整、去重,最多 16 处
+  const origins = cleanOrigins(E.origins);
+  if (E.origins !== undefined && !origins) warnings.push('文明起源认不出来,按自动推演');
   // 纪年:名字、元年不合格的按第几年写
   const era = cleanEra(E.era);
   if (E.era !== undefined && !era) warnings.push('纪年认不出来,年份按第几年写');
@@ -613,6 +630,8 @@ export function parseSave(text: string): ParseResult {
       ...(characters.length ? { characters } : {}),
       ...(nameMix ? { nameMix } : {}),
       ...(endYear ? { endYear } : {}),
+      ...(frontier ? { frontier } : {}),
+      ...(origins ? { origins } : {}),
       ...(era ? { era } : {}),
     },
     check: typeof raw.check === 'string' ? raw.check.slice(0, 64) : '',
@@ -866,13 +885,21 @@ export function editsLost(local: SaveFile, incoming: SaveFile): number {
     // AI 起名的记号跟着改名走,丢没丢已经按改名算过了
     if (k === 'aiNames') continue;
     const iv = I[k];
-    // 地名风格、纪年整个算一处
+    // 地名风格、拓荒、起源、纪年整个算一处
     if (k === 'nameMix') {
       if (!sameMix(lv, iv)) n++;
       continue;
     }
     if (k === 'era') {
       if (!sameEra(cleanEra(lv), cleanEra(iv))) n++;
+      continue;
+    }
+    if (k === 'frontier') {
+      if (!sameFrontier(cleanFrontier(lv), cleanFrontier(iv))) n++;
+      continue;
+    }
+    if (k === 'origins') {
+      if (!sameOrigins(cleanOrigins(lv), cleanOrigins(iv))) n++;
       continue;
     }
     if (Array.isArray(lv)) {
