@@ -119,6 +119,7 @@ import { clearEditHistory, clearEdits, getEdits, removeIntervention, removeUphea
 import { eraText, spaced, yearAt } from '../gen/era';
 import { redoLastEdit, undoLastEdit } from './undo';
 import { useShortcuts } from './useShortcuts';
+import { openJump } from './JumpYear';
 import { ShortcutsHost, openShortcuts } from './ShortcutsDialog';
 import { TipLayer } from './Tips';
 import { openSaveMenu } from './SaveMenu';
@@ -1763,12 +1764,12 @@ export function App() {
     // 没画草图 = 整颗星球都换了,放的那几处是照原来的地形放的,不带过去。助手的对话(说的是原来那颗)也清掉
     newConversation();
     const sketch = st.edits.sketch;
-    const plain = !st.title && !sketch && !st.edits.nameMix && !st.edits.endYear && !st.edits.era && worldKey({ ...base, seed: 0 }) === worldKey({ ...DEFAULT_PARAMS, seed: 0 });
-    // 地名风格、推演年数和参数一样是这一类星球的设定,换一颗照旧;纪年(年份的写法)也照旧,
+    const plain = !st.title && !sketch && !st.edits.nameMix && !st.edits.endYear && !st.edits.era && st.edits.months === undefined && worldKey({ ...base, seed: 0 }) === worldKey({ ...DEFAULT_PARAMS, seed: 0 });
+    // 地名风格、推演年数和参数一样是这一类星球的设定,换一颗照旧;纪年、月份(年份的写法)也照旧,
     // 按一件事定的换成按年份(那件事是原来那颗星球上的)
-    const { nameMix, endYear, era } = st.edits;
+    const { nameMix, endYear, era, months } = st.edits;
     const kept: WorldEdits = sketch ? { ...EMPTY_EDITS, sketch, terrain: st.edits.terrain } : EMPTY_EDITS;
-    const edits = { ...kept, ...(nameMix ? { nameMix } : {}), ...(endYear ? { endYear } : {}), ...(era ? { era: { name: era.name, epoch: era.epoch } } : {}) };
+    const edits = { ...kept, ...(nameMix ? { nameMix } : {}), ...(endYear ? { endYear } : {}), ...(era ? { era: { name: era.name, epoch: era.epoch } } : {}), ...(months !== undefined ? { months } : {}) };
     // 换一颗:记一步(按后退换回刚才那颗)
     navTo({ page: 'draft', id: t.id, seed, title: st.title });
     generate({ ...t, params: { ...base, seed }, edits, saved: undefined, title: st.title, pristine: st.pristine || plain, view: undefined, from: undefined, save: undefined });
@@ -3520,6 +3521,9 @@ export function App() {
         if (!history) return false;
         stepYear(end, (a === 'back' || a === 'back100' ? -1 : 1) * (a.endsWith('100') ? 100 : 10));
         return true;
+      case 'jump':
+        // 时间轴上的年份变成输入框(JumpYear.tsx);时间轴藏着、锁着时不管
+        return history && openJump();
       case 'zoomIn':
       case 'zoomOut':
         zoomButton(a === 'zoomIn' ? 1.5 : 1 / 1.5);

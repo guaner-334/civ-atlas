@@ -75,7 +75,7 @@ import {
 import { cultureLabel, regionLabel } from './display';
 import { ownersAt } from './timeline';
 import { ageAt, generalRef, kinOf, rulerBare, rulerRef, rulerShort } from './peopleText';
-import { eraText, type Era } from '../era';
+import { eraText, monthTail, type Era } from '../era';
 
 /** 重要度:3 最重要 */
 export type Importance = 1 | 2 | 3;
@@ -184,6 +184,11 @@ export function entryYearLabel(e: ChronicleEntry): string {
   const a = Math.floor(e.year);
   const b = Math.floor(e.end);
   return b > a ? `第 ${a}—${b} 年` : `第 ${a} 年`;
+}
+
+/** 条目的年份带月(一年 months 个月;0 = 只写年):"第 1240 年 3 月";跨年的折叠条目照旧 "第 1240—1256 年"(每一件事各自写月) */
+export function entryYearMonthLabel(e: ChronicleEntry, months: number): string {
+  return Math.floor(e.end) > Math.floor(e.year) ? entryYearLabel(e) : `${yearText(e.year)}${monthTail(e.year, months)}`;
 }
 
 function polityOf(civ: Civ, id: number): Polity | null {
@@ -2156,13 +2161,13 @@ export function filterChronicle(entries: readonly ChronicleEntry[], f: Chronicle
   return entries.filter((e) => (!f.major || e.importance >= MAJOR) && (pol === null || entryInvolves(e, pol)));
 }
 
-/** 纯文本(复制给 OC 作者写设定用):一条一行,折叠条目的子条目缩进列在下面;era = 年份照这个纪年写 */
-export function chronicleText(entries: readonly ChronicleEntry[], title?: string, era?: Era): string {
+/** 纯文本(复制给 OC 作者写设定用):一条一行,折叠条目的子条目缩进列在下面;era = 年份照这个纪年写;months = 一年几个月(0 = 只写年) */
+export function chronicleText(entries: readonly ChronicleEntry[], title?: string, era?: Era, months = 0): string {
   const lines: string[] = [];
   if (title) lines.push(title, '');
   for (const e of entries) {
-    lines.push(eraText(`${entryYearLabel(e)} ${e.text}`, era));
-    for (const c of e.children ?? []) lines.push(eraText(`    ${yearText(c.year)} ${c.text}`, era));
+    lines.push(eraText(`${entryYearMonthLabel(e, months)} ${e.text}`, era));
+    for (const c of e.children ?? []) lines.push(eraText(`    ${entryYearMonthLabel(c, months)} ${c.text}`, era));
   }
   return lines.join('\n');
 }
@@ -2188,6 +2193,8 @@ export interface ChronicleDocOptions {
   entries?: readonly ChronicleEntry[];
   /** 年份照这个纪年写(不给 = "第 N 年";分节照样按第几年分) */
   era?: Era;
+  /** 一年几个月,纪事写到哪一月(不给 / 0 = 只写年) */
+  months?: number;
 }
 
 /** Markdown 里有特殊含义的几个符号前面加反斜杠(纪事是中文,一般用不到,防个万一) */
@@ -2206,6 +2213,7 @@ export function chronicleDocument(civ: Civ, opt: ChronicleDocOptions): string {
   const end = Math.floor(civ.endYear);
   const span = Math.max(1, Math.floor(opt.eraYears ?? chronicleEraYears(civ.endYear)));
   const era = opt.era;
+  const months = opt.months ?? 0;
   const title = eraText(`编年史 · 种子 ${opt.seed} · 第 0—${end} 年`, era);
   const esc = md ? (s: string) => mdEscape(eraText(s, era)) : (s: string) => eraText(s, era);
   const out: string[] = [];
@@ -2232,8 +2240,13 @@ export function chronicleDocument(civ: Civ, opt: ChronicleDocOptions): string {
         sec = i;
         out.push(md ? `### ${eraTitle(i)}` : `【${eraTitle(i)}】`, '');
       }
-      out.push(md ? `- **${esc(entryYearLabel(e))}** ${esc(e.text)}` : `${esc(entryYearLabel(e))} ${esc(e.text)}`);
-      if (children) for (const c of e.children ?? []) out.push(md ? `  - ${esc(yearText(c.year))} ${esc(c.text)}` : `    ${esc(yearText(c.year))} ${esc(c.text)}`);
+      const ey = esc(entryYearMonthLabel(e, months));
+      out.push(md ? `- **${ey}** ${esc(e.text)}` : `${ey} ${esc(e.text)}`);
+      if (children)
+        for (const c of e.children ?? []) {
+          const cy = esc(entryYearMonthLabel(c, months));
+          out.push(md ? `  - ${cy} ${esc(c.text)}` : `    ${cy} ${esc(c.text)}`);
+        }
     }
     out.push('');
   };

@@ -1,5 +1,5 @@
 /**
- * 底部时间轴:播放 / 暂停、"第 N 年"(设了纪年:"公元前 850 年")、1× / 4×、时间轴(刻度 + 事件菱形 + 干预"令" + 播放头)。
+ * 底部时间轴:播放 / 暂停、"第 N 年"(设了纪年:"公元前 850 年";点一下输入年份跳过去,见 JumpYear.tsx)、1× / 4×、时间轴(刻度 + 事件菱形 + 干预"令" + 播放头)。
  * 窄屏(手机)整条排成一行,1× / 4× 并成一个按钮(点一下换另一档)。
  * 编年史在世界概览里(国家面板"相关事件 · 全部 ›"也能到),时间轴上不另放按钮。
  *
@@ -33,6 +33,7 @@ import {
   useCivTime,
 } from './civView';
 import { TimelineMarks } from './TimelineMarks';
+import { TimelineYear } from './JumpYear';
 import { baseRegions } from './eras';
 import { useNarrow } from './device';
 import { useEra } from './editsStore';
@@ -166,17 +167,8 @@ export function CivTimeline({ civ, hidden, dock = 'bottom' }: CivTimelineProps) 
         >
           <i aria-hidden="true" />
         </button>
-        {era ? (
-          // 纪年的字长短不一("公元元年""公元前 2500 年"):按最长的那个占位,播放时滑条不跟着伸缩
-          <span className="tb-year tb-year-era">
-            <span>{yearFull(n, era)}</span>
-            <span className="tb-year-ghost" aria-hidden="true">
-              {longestYear(end, era)}
-            </span>
-          </span>
-        ) : (
-          <span className="tb-year">{yearFull(n)}</span>
-        )}
+        {/* 点一下输入年份跳过去(JumpYear.tsx);纪年的字长短不一("公元元年""公元前 2500 年"):按最长的那个占位,播放时滑条不跟着伸缩 */}
+        <TimelineYear year={n} end={end} era={era} narrow={narrow} locked={locked} below={dock === 'top'} ghost={era ? longestYear(end, era) : undefined} />
         {span ? (
           !narrow && (
             <span className="tb-film-len">
