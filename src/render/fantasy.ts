@@ -2566,6 +2566,9 @@ export function releaseFantasyProjCaches(): void {
     seaPaths.rippleFade.width = seaPaths.rippleFade.height = seaPaths.hatchFade.width = seaPaths.hatchFade.height = 0;
     seaPaths = null;
   }
+  // 分步做了一半就不要了的那一份(备料途中切回等距圆柱)
+  for (const f of seaProjBuild?.fades ?? []) if (f.cv) f.cv.width = f.cv.height = 0;
+  seaProjBuild = null;
   releaseIceProj();
   coastPaths = null;
   projCellCache = null;
