@@ -18,12 +18,12 @@ import type { Raster } from '../../gen/raster';
 import type { Civ, Year } from '../../gen/civ/types';
 import { drawFantasyVectors, glyphScale, GLYPH_K0 } from '../fantasy';
 import { clipOutline, projector, reprojectImage, relShifts } from '../projection';
-import { nearX } from '../common';
+import { nearX, type WorkStep } from '../common';
 import { drawBorders, mergeChains, regionChains, BAND, type SidedLine } from './borders';
 import { drawRoutes } from './routes';
 import { drawRegionLines, drawSites, habitatCanvas } from './debug';
 import { addToPath, chaikin, meshWrap } from './lines';
-import { DETAIL_EDGE_D, inkFromSymbols, regionPixels, washDetail, washFields } from './territory';
+import { DETAIL_EDGE_D, inkFromSymbols, regionPixels, washDetail, washFields, type WashFields } from './territory';
 import {
   highlightBox,
   highlightFill,
@@ -67,15 +67,28 @@ export function detailPen(k: number, style: CivStyle): number {
 /** 选中、高亮的描边:缩放 k 倍时按 1/√k 收(和整张图的选中层一样,放大后不粗) */
 const thinOf = (k: number) => 1 / Math.sqrt(Math.max(1, k));
 
-/** 一块视口的缓存(网格、符号遮罩、上色用的草稿画布);视口换了就换一份 */
+/** 上色草稿的用处:底图、选中、高亮各一份(分几段算的时候三份可能同时备着) */
+type Slot = 'base' | 'sel' | 'hl';
+
+/** 一块视口的缓存(网格、符号遮罩、上色用的草稿);视口换了就换一份 */
 export interface DetailCache {
   grids: Map<number, DetailGrid>;
   inks: Map<number, InkMask | null>;
-  scratch: { canvas: HTMLCanvasElement | OffscreenCanvas; img: ImageData } | null;
+  /** 草稿:gw × gh 的 ImageData,逐格算好的颜色 */
+  imgs: Map<Slot, ImageData>;
+  /** 把草稿贴到画布上用的离屏画布(几份草稿共用,一份接一份贴) */
+  canvas: HTMLCanvasElement | OffscreenCanvas | null;
 }
 
 export function detailCache(): DetailCache {
-  return { grids: new Map(), inks: new Map(), scratch: null };
+  return { grids: new Map(), inks: new Map(), imgs: new Map(), canvas: null };
+}
+
+/** 不用了:离屏画布的显存马上还回去 */
+export function releaseDetailCache(cache: DetailCache): void {
+  if (cache.canvas) cache.canvas.width = cache.canvas.height = 0;
+  cache.canvas = null;
+  cache.imgs.clear();
 }
 
 function gridOf(cache: DetailCache, v: CivDetailView, step: number, world: World): DetailGrid {
@@ -87,25 +100,60 @@ function gridOf(cache: DetailCache, v: CivDetailView, step: number, world: World
 const makeCanvas = (w: number, h: number) =>
   typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(w, h) : Object.assign(document.createElement('canvas'), { width: w, height: h });
 
-/** 上色用的草稿(gw × gh 的 ImageData + 一张同样大的离屏画布) */
-function scratchOf(cache: DetailCache, gw: number, gh: number) {
-  const s = cache.scratch;
-  if (s && s.img.width === gw && s.img.height === gh) return s;
-  if (s) s.canvas.width = s.canvas.height = 0;
-  cache.scratch = { canvas: makeCanvas(gw, gh), img: new ImageData(gw, gh) };
-  return cache.scratch;
+/** 这一份草稿(gw × gh;大小对得上就接着用) */
+function imgOf(cache: DetailCache, slot: Slot, g: DetailGrid): ImageData {
+  const s = cache.imgs.get(slot);
+  if (s && s.width === g.gw && s.height === g.gh) return s;
+  const img = new ImageData(g.gw, g.gh);
+  cache.imgs.set(slot, img);
+  return img;
 }
 
 /** 草稿里算好的工作格贴到画布上(按 step 放大,双线性 —— 边是一两个像素的抗锯齿,不是方块) */
-function blit(ctx: CanvasRenderingContext2D, cache: DetailCache, g: DetailGrid) {
-  const s = cache.scratch!;
-  (s.canvas.getContext('2d') as CanvasRenderingContext2D).putImageData(s.img, 0, 0);
+function blit(ctx: CanvasRenderingContext2D, cache: DetailCache, img: ImageData, g: DetailGrid) {
+  let cv = cache.canvas;
+  if (!cv || cv.width !== g.gw || cv.height !== g.gh) {
+    if (cv) cv.width = cv.height = 0;
+    cv = cache.canvas = makeCanvas(g.gw, g.gh);
+  }
+  (cv.getContext('2d') as CanvasRenderingContext2D).putImageData(img, 0, 0);
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'low';
-  ctx.drawImage(s.canvas, 0, 0, g.gw * g.step, g.gh * g.step);
+  ctx.drawImage(cv, 0, 0, g.gw * g.step, g.gh * g.step);
   ctx.restore();
+}
+
+/**
+ * 细节层的一张画布分两半画:steps 备料(纯计算、离屏画布,可以分几段、隔几帧做完,不碰这张画布),
+ * draw 把备好的料画上去(一次画完)。一口气做完(runPlan)和分几段做完再画,画出来逐像素一样
+ */
+export interface DetailPlan<T> {
+  steps: WorkStep[];
+  draw: (ctx: CanvasRenderingContext2D) => T;
+}
+
+/** 备料一口气做完,马上画 */
+export function runPlan<T>(ctx: CanvasRenderingContext2D, plan: DetailPlan<T>): T {
+  for (const s of plan.steps) while (s(Infinity) === true);
+  return plan.draw(ctx);
+}
+
+/** 逐行上色分几段做:每次做 ROWS 行,做到 deadline 为止(一行几千格,几行一看时间,一段不会超出太多) */
+const ROWS = 4;
+function rowSteps(gh: () => number, rows: (j0: number, j1: number) => void): WorkStep {
+  let j = 0;
+  return (deadline) => {
+    const n = gh();
+    while (j < n) {
+      const j1 = Math.min(n, j + ROWS);
+      rows(j, j1);
+      j = j1;
+      if (performance.now() >= deadline) break;
+    }
+    return j < n;
+  };
 }
 
 /**
@@ -233,49 +281,86 @@ export interface DetailTiming {
  * 返回各步耗时
  */
 export function drawCivDetail(ctx: CanvasRenderingContext2D, p: CivDrawParams, v: CivDetailView, step: number, cache: DetailCache): DetailTiming {
+  return runPlan(ctx, planCivDetail(p, v, step, cache));
+}
+
+/** 文明底图的细节层分备料 / 画两半(同 drawCivDetail) */
+export function planCivDetail(p: CivDrawParams, v: CivDetailView, step: number, cache: DetailCache): DetailPlan<DetailTiming> {
   const { world, raster } = p;
   const S = raster.scale;
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.clearRect(0, 0, v.cw, v.ch);
   const pen = detailPen(v.k, p.style);
   const t: DetailTiming = { wash: 0, lines: 0, ink: 0 };
-  // 1. 宜居度热力图(本来就是平滑的场,直接放大贴上)
-  if (p.show.habitat) {
-    const heat = habitatCanvas(p);
-    ctx.save();
-    ctx.imageSmoothingEnabled = true;
-    if (v.mp) reprojectImage(ctx, heat, raster.w, raster.h, v.mp, v, 'low');
-    else eachPart(ctx, v, world, S, () => ctx.drawImage(heat, 0, 0, raster.w, raster.h));
-    ctx.restore();
-  }
-  // 2. 色块
-  const fl = washFields(p, p.fast ? 2 : 1);
-  if (fl) {
-    const t0 = performance.now();
-    const ink = p.style === 'fantasy' ? inkOf(cache, v, step, world) : null;
-    const t1 = performance.now();
-    const g = gridOf(cache, v, step, world);
-    // 离界线多远以内要按线判(最近一格的归属可能判错的范围 + 水痕 / 描边的宽度)
-    const band = Math.max((0.75 * fl.f + 0.3) / S, ((DETAIL_EDGE_D + 0.2) * pen) / S);
-    const segs = segIndex(fl.lines, band, g.box, meshWrap(world.mesh));
-    const sc = scratchOf(cache, g.gw, g.gh);
-    washDetail(sc.img.data, g, raster, world.mesh, fl, p.style, segs, ink, pen);
-    blit(ctx, cache, g);
-    t.ink = t1 - t0;
-    t.wash = performance.now() - t1;
-  }
-  // 3. 州界、国界、道路、城址(矢量线,线宽 × pen)
-  const t2 = performance.now();
-  const pj = v.mp ? projector(v.mp) : null;
-  eachPart(ctx, v, world, S, (cull) => {
-    const q: CivDrawParams = { ...p, proj: pj, pen, cull };
-    if (q.show.regions) drawRegionLines(ctx, q);
-    drawBorders(ctx, q);
-    drawRoutes(ctx, q);
-    if (q.show.sites) drawSites(ctx, q);
-  });
-  t.lines = performance.now() - t2;
-  return t;
+  const fantasy = p.style === 'fantasy';
+  let fl: WashFields | null = null;
+  let ink: InkMask | null = null;
+  let g: DetailGrid | null = null;
+  let segs: SegIndex | null = null;
+  let img: ImageData | null = null;
+  /** 这一步的耗时记到 key 上 */
+  const timed =
+    (key: 'wash' | 'ink', f: WorkStep): WorkStep =>
+    (deadline) => {
+      const t0 = performance.now();
+      const more = f(deadline);
+      t[key] += performance.now() - t0;
+      return more;
+    };
+  const wash = rowSteps(
+    () => (img ? g!.gh : 0),
+    (j0, j1) => washDetail(img!.data, g!, raster, world.mesh, fl!, p.style, segs, ink, pen, j0, j1),
+  );
+  const steps: WorkStep[] = [
+    () => void (p.show.habitat && habitatCanvas(p)),
+    timed('wash', () => void (fl = washFields(p, p.fast ? 2 : 1))),
+    // 手绘风"让位"遮罩:先按 INK_CSS 一格画符号层读回来,上色的格更细再放大过去
+    timed('ink', () => {
+      if (fl && fantasy) inkOf(cache, v, Math.max(step, Math.max(1, Math.round(INK_CSS * v.dpr))), world);
+    }),
+    timed('ink', () => {
+      if (fl && fantasy) ink = inkOf(cache, v, step, world);
+    }),
+    timed('wash', () => {
+      if (!fl) return;
+      g = gridOf(cache, v, step, world);
+      // 离界线多远以内要按线判(最近一格的归属可能判错的范围 + 水痕 / 描边的宽度)
+      const band = Math.max((0.75 * fl.f + 0.3) / S, ((DETAIL_EDGE_D + 0.2) * pen) / S);
+      segs = segIndex(fl.lines, band, g.box, meshWrap(world.mesh));
+      img = imgOf(cache, 'base', g);
+    }),
+    timed('wash', wash),
+  ];
+  const draw = (ctx: CanvasRenderingContext2D) => {
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, v.cw, v.ch);
+    // 1. 宜居度热力图(本来就是平滑的场,直接放大贴上)
+    if (p.show.habitat) {
+      const heat = habitatCanvas(p);
+      ctx.save();
+      ctx.imageSmoothingEnabled = true;
+      if (v.mp) reprojectImage(ctx, heat, raster.w, raster.h, v.mp, v, 'low');
+      else eachPart(ctx, v, world, S, () => ctx.drawImage(heat, 0, 0, raster.w, raster.h));
+      ctx.restore();
+    }
+    // 2. 色块
+    if (img) {
+      const t1 = performance.now();
+      blit(ctx, cache, img, g!);
+      t.wash += performance.now() - t1;
+    }
+    // 3. 州界、国界、道路、城址(矢量线,线宽 × pen)
+    const t2 = performance.now();
+    const pj = v.mp ? projector(v.mp) : null;
+    eachPart(ctx, v, world, S, (cull) => {
+      const q: CivDrawParams = { ...p, proj: pj, pen, cull };
+      if (q.show.regions) drawRegionLines(ctx, q);
+      drawBorders(ctx, q);
+      drawRoutes(ctx, q);
+      if (q.show.sites) drawSites(ctx, q);
+    });
+    t.lines = performance.now() - t2;
+    return t;
+  };
+  return { steps, draw };
 }
 
 // ---------------------------------------------------------------------------
@@ -285,31 +370,30 @@ export function drawCivDetail(ctx: CanvasRenderingContext2D, p: CivDrawParams, v
 const smoothSided = (lines: SidedLine[]): SidedLine[] => lines.map((l) => ({ ...l, ...chaikin(l, 2) }));
 
 /**
- * 一组州的罩染(逐格):value[州] > 0 的上 rgba[value] 色;边按 lines(左右两侧是 value)判,海岸抗锯齿。
- * 只算这几个州的外框附近那几行、几列
+ * 一组州的罩染(逐格,第 j0 到 j1 − 1 行;草稿先清空):value[州] > 0 的上 rgba[value] 色;边按 lines(左右两侧是 value)判,
+ * 海岸抗锯齿。只算这几个州的外框(box,litBox)附近那几行、几列
  */
 function fillDetail(
   out: Uint8ClampedArray,
   g: DetailGrid,
   r: Raster,
   world: World,
-  civ: Civ,
+  box: readonly [number, number, number, number],
   pix: Int16Array,
   value: ArrayLike<number>,
   rgba: (RGBA | null)[],
   segs: SegIndex | null,
+  j0: number,
+  j1: number,
 ): void {
-  out.fill(0);
-  const box = litBox(world, civ, value);
-  if (!box) return;
   const { w, h, scale: S } = r;
   const W = world.width;
   const blocks = coastBlocks(r);
   const side = new Int32Array(1);
   const ks = new Int32Array(4);
   const m = BAND + 1;
-  const { gw, gh } = g;
-  for (let j = 0; j < gh; j++) {
+  const { gw } = g;
+  for (let j = j0; j < j1; j++) {
     const i0 = g.i0[j];
     const i1 = g.i1[j];
     if (i1 <= i0) continue;
@@ -428,6 +512,46 @@ function litBox(world: World, civ: Civ, value: ArrayLike<number>): [number, numb
   return x0 <= x1 ? [x0, y0, x1, y1] : null;
 }
 
+/** 罩染这一份草稿分几段做:先清空、算外框,再逐行上色 */
+function fillSteps(
+  cache: DetailCache,
+  slot: Slot,
+  v: CivDetailView,
+  step: number,
+  world: World,
+  raster: Raster,
+  civ: Civ,
+  value: () => ArrayLike<number>,
+  rgba: (RGBA | null)[],
+  lines: () => SidedLine[],
+  out: { g: DetailGrid | null; img: ImageData | null },
+): WorkStep[] {
+  let box: [number, number, number, number] | null = null;
+  let segs: SegIndex | null = null;
+  let pix: Int16Array | null = null;
+  return [
+    () => {
+      const g = (out.g = gridOf(cache, v, step, world));
+      segs = segIndex(lines(), BAND + 0.75 / raster.scale, g.box, meshWrap(world.mesh));
+      pix = regionPixels(world, raster, civ);
+      out.img = imgOf(cache, slot, g);
+      out.img.data.fill(0);
+      box = litBox(world, civ, value());
+    },
+    rowSteps(
+      () => (box ? out.g!.gh : 0),
+      (j0, j1) => fillDetail(out.img!.data, out.g!, raster, world, box!, pix!, value(), rgba, segs, j0, j1),
+    ),
+  ];
+}
+
+/** 罩染贴上(这一块已经留着底图的草稿时,贴完这份就不留了:几份一样大的草稿不同时占着内存) */
+function blitFill(ctx: CanvasRenderingContext2D, cache: DetailCache, slot: Slot, out: { g: DetailGrid | null; img: ImageData | null }) {
+  if (!out.img) return;
+  blit(ctx, cache, out.img, out.g!);
+  if (cache.imgs.get(slot) === out.img && cache.imgs.has('base')) cache.imgs.delete(slot);
+}
+
 /**
  * 选中层的细节层:选中的国家 / 州淡淡罩染(边按描边那条线)+ 一道细描边;大河、山脉一道淡光。返回亮了几个州
  */
@@ -443,54 +567,88 @@ export function drawSelectionDetail(
   step: number,
   cache: DetailCache,
 ): number {
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.clearRect(0, 0, v.cw, v.ch);
-  if (!sel) return 0;
+  return runPlan(ctx, planSelectionDetail(world, raster, civ, sel, year, style, v, step, cache));
+}
+
+/** 选中层的细节层分备料 / 画两半(同 drawSelectionDetail) */
+export function planSelectionDetail(
+  world: World,
+  raster: Raster,
+  civ: Civ,
+  sel: SelectionTarget | null,
+  year: Year,
+  style: CivStyle,
+  v: CivDetailView,
+  step: number,
+  cache: DetailCache,
+): DetailPlan<number> {
   const S = raster.scale;
   const look = selectionLook(style);
   const thin = thinOf(v.k);
   const a = v.s / S;
   const pj = v.mp ? projector(v.mp) : null;
   const wrap = meshWrap(world.mesh);
+  const clear = (ctx: CanvasRenderingContext2D) => {
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, v.cw, v.ch);
+  };
+  if (!sel) return { steps: [], draw: (ctx) => (clear(ctx), 0) };
   if (sel.kind === 'place') {
-    const sl = selectionLines(world, civ, sel, year);
-    if (!sl || sl.kind !== 'band') return 0;
-    eachPart(ctx, v, world, S, () => {
-      const pa = new Path2D();
-      addToPath(pa, sl.lines, S, wrap, pj);
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-      ctx.shadowColor = look.band;
-      ctx.shadowBlur = 8 * S * thin * a;
-      ctx.strokeStyle = look.band;
-      ctx.lineWidth = sl.width * S * thin;
-      ctx.stroke(pa);
-    });
-    return 0;
+    let sl: ReturnType<typeof selectionLines> = null;
+    return {
+      steps: [() => void (sl = selectionLines(world, civ, sel, year))],
+      draw: (ctx) => {
+        clear(ctx);
+        const band = sl;
+        if (!band || band.kind !== 'band') return 0;
+        eachPart(ctx, v, world, S, () => {
+          const pa = new Path2D();
+          addToPath(pa, band.lines, S, wrap, pj);
+          ctx.lineCap = 'round';
+          ctx.lineJoin = 'round';
+          ctx.shadowColor = look.band;
+          ctx.shadowBlur = 8 * S * thin * a;
+          ctx.strokeStyle = look.band;
+          ctx.lineWidth = band.width * S * thin;
+          ctx.stroke(pa);
+        });
+        return 0;
+      },
+    };
   }
-  const grp = selectionGroup(civ, sel, year);
-  if (!grp) return 0;
-  const lines = smoothSided(mergeChains(regionChains(world.mesh, civ), grp.group));
-  // 罩染
-  const g = gridOf(cache, v, step, world);
-  const segs = segIndex(lines, BAND + 0.75 / S, g.box, wrap);
-  const sc = scratchOf(cache, g.gw, g.gh);
-  fillDetail(sc.img.data, g, raster, world, civ, regionPixels(world, raster, civ), grp.group, [null, look.fill], segs);
-  blit(ctx, cache, g);
-  // 描边(沿州界,只描陆地之间;海岸那一侧靠罩染看出来)
-  eachPart(ctx, v, world, S, () => {
-    const pa = new Path2D();
-    addToPath(pa, lines, S, wrap, pj);
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.strokeStyle = look.line[0];
-    ctx.lineWidth = 4.2 * S * thin;
-    ctx.stroke(pa);
-    ctx.strokeStyle = look.line[1];
-    ctx.lineWidth = 1.8 * S * thin;
-    ctx.stroke(pa);
-  });
-  return grp.lit;
+  let grp: ReturnType<typeof selectionGroup> = null;
+  let lines: SidedLine[] = [];
+  const out: { g: DetailGrid | null; img: ImageData | null } = { g: null, img: null };
+  const fill = fillSteps(cache, 'sel', v, step, world, raster, civ, () => grp!.group, [null, look.fill], () => lines, out);
+  return {
+    steps: [
+      () => {
+        grp = selectionGroup(civ, sel, year);
+        if (grp) lines = smoothSided(mergeChains(regionChains(world.mesh, civ), grp.group));
+      },
+      // 罩染
+      ...fill.map((f): WorkStep => (deadline) => (grp ? f(deadline) : false)),
+    ],
+    draw: (ctx) => {
+      clear(ctx);
+      if (!grp) return 0;
+      blitFill(ctx, cache, 'sel', out);
+      // 描边(沿州界,只描陆地之间;海岸那一侧靠罩染看出来)
+      eachPart(ctx, v, world, S, () => {
+        const pa = new Path2D();
+        addToPath(pa, lines, S, wrap, pj);
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.strokeStyle = look.line[0];
+        ctx.lineWidth = 4.2 * S * thin;
+        ctx.stroke(pa);
+        ctx.strokeStyle = look.line[1];
+        ctx.lineWidth = 1.8 * S * thin;
+        ctx.stroke(pa);
+      });
+      return grp.lit;
+    },
+  };
 }
 
 /**
@@ -508,73 +666,99 @@ export function drawHighlightDetail(
   step: number,
   cache: DetailCache,
 ): Uint8Array {
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.clearRect(0, 0, v.cw, v.ch);
-  const marks = highlightMarks(civ, hl);
-  if (!marks.some((m) => m)) return marks;
+  return runPlan(ctx, planHighlightDetail(world, raster, civ, hl, style, v, step, cache));
+}
+
+/** 高亮层的细节层分备料 / 画两半(同 drawHighlightDetail) */
+export function planHighlightDetail(
+  world: World,
+  raster: Raster,
+  civ: Civ,
+  hl: CivHighlight,
+  style: CivStyle,
+  v: CivDetailView,
+  step: number,
+  cache: DetailCache,
+): DetailPlan<Uint8Array> {
   const S = raster.scale;
   const thin = thinOf(v.k);
   const a = v.s / S;
   const pj = v.mp ? projector(v.mp) : null;
   const wrap = meshWrap(world.mesh);
+  let marks: Uint8Array | null = null;
+  let any = false;
+  let lines: SidedLine[] = [];
+  let st: ReturnType<typeof highlightStrokes> | null = null;
+  const out: { g: DetailGrid | null; img: ImageData | null } = { g: null, img: null };
   // 罩染:按标记(1 相关国家、2 事发州)逐格上色,边按标记之间的界线
-  const g = gridOf(cache, v, step, world);
-  const lines = smoothSided(mergeChains(regionChains(world.mesh, civ), marks));
-  const segs = segIndex(lines, BAND + 0.75 / S, g.box, wrap);
-  const sc = scratchOf(cache, g.gw, g.gh);
-  const [f1, f2] = highlightFill(style);
-  fillDetail(sc.img.data, g, raster, world, civ, regionPixels(world, raster, civ), marks, [null, f1, f2], segs);
-  blit(ctx, cache, g);
-  // 描边、光晕(光晕的模糊半径不跟着画布变换走,另乘 a)
-  const { strokes, ring } = highlightStrokes(world, civ, hl, style);
-  eachPart(ctx, v, world, S, () => {
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    for (const st of strokes) {
-      const pa = new Path2D();
-      addToPath(pa, st.lines, S, wrap, pj);
-      ctx.shadowBlur = st.blur ? st.blur * S * thin * a : 0;
-      ctx.shadowColor = st.glow ?? 'transparent';
-      ctx.strokeStyle = st.color;
-      ctx.lineWidth = st.width * S * thin;
-      ctx.stroke(pa);
-    }
-    ctx.shadowBlur = 0;
-    // 事发地在屏幕上很小:外面套一个圆圈(按屏幕大小)
-    const b = highlightBox(world, civ, marks);
-    const k = Math.max(1, v.k);
-    if (!b || Math.max(b[2] - b[0], b[3] - b[1]) * k >= RING_BELOW * world.width) return;
-    const dx = b[2] - b[0];
-    const dy = b[3] - b[1];
-    const rad = Math.max(48 / k, Math.sqrt(dx * dx + dy * dy) / 2 + 24 / k) * S;
-    const mx = (b[0] + b[2]) / 2;
-    const my = (b[1] + b[3]) / 2;
-    ctx.beginPath();
-    if (pj) {
-      const rel = pj.rel(mx);
-      const K = pj.K(my);
-      const cy = pj.Y(my) * S;
-      for (const sh of relShifts(rel, rad / S / Math.max(1e-6, K))) {
-        const cx = (pj.W / 2 + K * (rel + sh)) * S;
-        ctx.moveTo(cx + rad, cy);
-        ctx.arc(cx, cy, rad, 0, Math.PI * 2);
+  const fill = fillSteps(cache, 'hl', v, step, world, raster, civ, () => marks!, [null, ...highlightFill(style)], () => lines, out);
+  const steps: WorkStep[] = [
+    () => {
+      marks = highlightMarks(civ, hl);
+      any = marks.some((m) => m);
+      if (any) lines = smoothSided(mergeChains(regionChains(world.mesh, civ), marks));
+    },
+    ...fill.map((f): WorkStep => (deadline) => (any ? f(deadline) : false)),
+    () => void (any && (st = highlightStrokes(world, civ, hl, style))),
+  ];
+  const draw = (ctx: CanvasRenderingContext2D) => {
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, v.cw, v.ch);
+    const mk = marks!;
+    if (!any) return mk;
+    blitFill(ctx, cache, 'hl', out);
+    // 描边、光晕(光晕的模糊半径不跟着画布变换走,另乘 a)
+    const { strokes, ring } = st!;
+    eachPart(ctx, v, world, S, () => {
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      for (const st of strokes) {
+        const pa = new Path2D();
+        addToPath(pa, st.lines, S, wrap, pj);
+        ctx.shadowBlur = st.blur ? st.blur * S * thin * a : 0;
+        ctx.shadowColor = st.glow ?? 'transparent';
+        ctx.strokeStyle = st.color;
+        ctx.lineWidth = st.width * S * thin;
+        ctx.stroke(pa);
       }
-    } else {
-      for (const sh of [-world.width, 0, world.width]) {
-        const cx = (mx + sh) * S;
-        ctx.moveTo(cx + rad, my * S);
-        ctx.arc(cx, my * S, rad, 0, Math.PI * 2);
+      ctx.shadowBlur = 0;
+      // 事发地在屏幕上很小:外面套一个圆圈(按屏幕大小)
+      const b = highlightBox(world, civ, mk);
+      const k = Math.max(1, v.k);
+      if (!b || Math.max(b[2] - b[0], b[3] - b[1]) * k >= RING_BELOW * world.width) return;
+      const dx = b[2] - b[0];
+      const dy = b[3] - b[1];
+      const rad = Math.max(48 / k, Math.sqrt(dx * dx + dy * dy) / 2 + 24 / k) * S;
+      const mx = (b[0] + b[2]) / 2;
+      const my = (b[1] + b[3]) / 2;
+      ctx.beginPath();
+      if (pj) {
+        const rel = pj.rel(mx);
+        const K = pj.K(my);
+        const cy = pj.Y(my) * S;
+        for (const sh of relShifts(rel, rad / S / Math.max(1e-6, K))) {
+          const cx = (pj.W / 2 + K * (rel + sh)) * S;
+          ctx.moveTo(cx + rad, cy);
+          ctx.arc(cx, cy, rad, 0, Math.PI * 2);
+        }
+      } else {
+        for (const sh of [-world.width, 0, world.width]) {
+          const cx = (mx + sh) * S;
+          ctx.moveTo(cx + rad, my * S);
+          ctx.arc(cx, my * S, rad, 0, Math.PI * 2);
+        }
       }
-    }
-    ctx.strokeStyle = ring[0];
-    ctx.lineWidth = (7 / k) * S;
-    ctx.stroke();
-    ctx.shadowColor = ring[2];
-    ctx.shadowBlur = (8 / k) * S * a;
-    ctx.strokeStyle = ring[1];
-    ctx.lineWidth = (3.2 / k) * S;
-    ctx.stroke();
-    ctx.shadowBlur = 0;
-  });
-  return marks;
+      ctx.strokeStyle = ring[0];
+      ctx.lineWidth = (7 / k) * S;
+      ctx.stroke();
+      ctx.shadowColor = ring[2];
+      ctx.shadowBlur = (8 / k) * S * a;
+      ctx.strokeStyle = ring[1];
+      ctx.lineWidth = (3.2 / k) * S;
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+    });
+    return mk;
+  };
+  return { steps, draw };
 }

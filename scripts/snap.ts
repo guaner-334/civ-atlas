@@ -80,6 +80,10 @@ if (zoom) {
   // 鼠标移出地图,免得悬停信息挡住画面
   await page.mouse.move(5, 5);
   await page.waitForTimeout(300);
+  // 细节层在后台备料(分帧):等备好、换上了再截
+  await page
+    .waitForFunction(() => !(window as any).__wfDetail?.pending && !(window as any).__wfCivDetail?.pending, null, { timeout: 30000 })
+    .catch(() => {});
   console.log('zoom', JSON.stringify(await page.evaluate(() => (window as any).__wfLabels)));
   await page.locator('main.stage').screenshot({ path: out });
 } else if (full) {

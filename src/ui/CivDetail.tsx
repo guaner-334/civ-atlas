@@ -14,6 +14,11 @@
  *
  * 逐格上色的粗细:停着的时候 1 个 CSS 像素一格;拖动、缩放中重画和回放 / 拖时间轴时 2 个 CSS 像素一格(快几倍),
  * 停下来、回放停了再按 1 个补画。线条一直按屏幕像素画。
+ *
+ * 等距圆柱重画时分帧(ui/detailJobs.ts,同地形细节层):符号遮罩、逐格上色在后台一小段一小段地算,画好的那几张接着顶着,
+ * 备好了和地形细节层一起整张换上(画出来的和一口气画完的逐像素一样)。拖到离画好那一块的边不到半个余量就提前备下一块
+ * (往拖的方向多留一些),真拖出去了还没备好,剩下的当下做完。回放 / 拖时间轴(每一年都要马上画)、换了世界或画风
+ * (被藏起来的整张图、画好的那几张都是旧的,不能露出来顶着)时当下画完。
  */
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
@@ -22,7 +27,19 @@ import type { Raster } from '../gen/raster';
 import type { Civ } from '../gen/civ/types';
 import { DETAIL_K } from '../render/detail';
 import { centerShift, type MapProj } from '../render/projection';
-import { detailCache, drawCivDetail, drawHighlightDetail, drawSelectionDetail, type CivDetailView, type DetailCache } from '../render/civ/detail';
+import {
+  detailCache,
+  planCivDetail,
+  planHighlightDetail,
+  planSelectionDetail,
+  releaseDetailCache,
+  runPlan,
+  type CivDetailView,
+  type DetailCache,
+  type DetailPlan,
+  type DetailTiming,
+} from '../render/civ/detail';
+import { aheadOf, cancelDetailJob, detailAsync, flushDetailJobs, submitDetailJob, type JobStats } from './detailJobs';
 import { washLayer } from '../render/civ/territory';
 import type { CivDrawParams, CivStyle } from '../render/civ/overlay';
 import type { CivHighlight, SelectionTarget } from '../render/civ/highlight';
@@ -57,6 +74,27 @@ interface Drawn {
   civ: Civ | null;
   step: number;
 }
+
+/** 一块上要画的那几张(备料 / 画两半):'keep' = 画着的接着用,null = 不要这一张 */
+interface Plans {
+  R: Region;
+  step: number;
+  base: DetailPlan<DetailTiming> | 'keep' | null;
+  sel: DetailPlan<number> | 'keep' | null;
+  hl: DetailPlan<Uint8Array> | 'keep' | null;
+}
+
+/** 在后台备料的那一份,和按哪份数据备的 */
+interface Pending {
+  ps: Plans;
+  params: CivDrawParams | null;
+  selKey: string | null;
+  hlKey: string | null;
+  civ: Civ | null;
+}
+
+/** 分帧备料时这一层的名字(见 detailJobs.ts) */
+const JOB = 'civ';
 
 /** 画布最多多少像素(约 48 MB 显存);超了就降低像素密度(同地形细节层) */
 const MAX_PIXELS = 12e6;
@@ -121,6 +159,8 @@ export function CivDetail({ world, raster, params, civ, style, sel, selYear, hl,
   const baseRef = useRef<HTMLCanvasElement>(null);
   const selRef = useRef<HTMLCanvasElement>(null);
   const region = useRef<Region | null>(null);
+  /** 在后台备料、还没画上去的那一份(见 detailJobs.ts) */
+  const pend = useRef<Pending | null>(null);
   const drawn = useRef<{ base: Drawn | null; sel: Drawn | null; hl: Drawn | null }>({ base: null, sel: null, hl: null });
   const covered = useRef(false);
   const lastView = useRef<unknown>(null);
@@ -141,6 +181,7 @@ export function CivDetail({ world, raster, params, civ, style, sel, selYear, hl,
   useEffect(
     () => () => {
       window.clearTimeout(timer.current);
+      cancelDetailJob(JOB);
       for (const r of hide) if (r.current) r.current.style.visibility = '';
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -152,6 +193,14 @@ export function CivDetail({ world, raster, params, civ, style, sel, selYear, hl,
     const box = mapBoxOf(cvs.base);
     if (!cvs.base || !cvs.sel || !cvs.hl || !box) return;
     window.clearTimeout(timer.current);
+    /** 在后台备的那一份不要了 */
+    const cancel = () => {
+      if (!pend.current) return;
+      pend.current = null;
+      cancelDetailJob(JOB);
+      const g = window as unknown as { __wfCivDetail?: Record<string, unknown> };
+      if (g.__wfCivDetail?.pending) g.__wfCivDetail.pending = false;
+    };
     const setCover = (on: boolean) => {
       if (covered.current === on) return;
       covered.current = on;
@@ -160,10 +209,12 @@ export function CivDetail({ world, raster, params, civ, style, sel, selYear, hl,
     };
     /** release = false:只藏起来,画布留着(拖动中;停下来接着用,不重新分配) */
     const off = (release = true) => {
+      cancel();
       for (const cv of [cvs.base!, cvs.sel!, cvs.hl!]) {
         if (cv.style.display !== 'none') cv.style.display = 'none';
         if (release && cv.width) cv.width = cv.height = 0;
       }
+      if (region.current) releaseDetailCache(region.current.cache);
       region.current = null;
       drawn.current = { base: null, sel: null, hl: null };
       setCover(false);
@@ -176,43 +227,62 @@ export function CivDetail({ world, raster, params, civ, style, sel, selYear, hl,
     const projKey = mp ? mp.key : '';
     const fast = !!params?.fast;
     const viewNow = view;
+    // 分帧备料(见 detailJobs.ts):等距圆柱、不在回放 / 拖时间轴时才分(回放每一年都要马上画);弯边投影、关掉开关时当下画完
+    const async = detailAsync && !mp && !fast;
+    const selKey = wantSel ? `${sel!.kind}|${sel!.id}|${selYear}|${style}` : null;
+    const hlKey = wantHl ? `${hl!.stamp}|${style}` : null;
 
-    const draw = (exact: boolean) => {
-      const vis = visibleBox(box);
-      if (!vis) return off();
-      const d0 = region.current;
-      const d = d0 && d0.world === world && d0.raster === raster && d0.bw === vis.bw ? d0 : null;
-      const precise = !!d && d.proj === projKey;
-      // 弯边投影里正在转中心、放大得不够:平移对不齐,先藏起来(画布留着),停下来再画
-      if (mp && moving && !precise && vis.k < SLIDE_K) return off(false);
-      const dx = !d ? null : precise ? 0 : mp && moving && !exact ? slideOf(d, mp, vis) : null;
-      let R: Region | null = null;
-      if (d && dx !== null) {
-        const covers = d.x0 + dx <= vis.x0 + 0.5 && d.y0 <= vis.y0 + 0.5 && d.x1 + dx >= vis.x1 - 0.5 && d.y1 >= vis.y1 - 0.5;
-        const dk = Math.abs(Math.log(vis.k / d.k));
-        if (covers && (exact ? dk < 0.02 : dk < K_SLACK)) R = d;
-      }
-      const slide = R ? dx! : 0;
-      // 拖动、缩放中(视图和上一次不一样)或回放中:粗一点的格
-      const interacting = !exact && (lastView.current !== viewNow || moving);
-      lastView.current = viewNow;
-      if (!R) R = newRegion(vis);
-      region.current = R;
-      const t0 = performance.now();
+    /** r 这一块(整体左右挪 dx)盖住 [x0, x1] × [y0, y1] 没有 */
+    const covers = (r: Region, x0: number, y0: number, x1: number, y1: number, dx = 0) =>
+      r.x0 + dx <= x0 + 0.5 && r.y0 <= y0 + 0.5 && r.x1 + dx >= x1 - 0.5 && r.y1 >= y1 - 0.5;
+    /** 画好的(或在备的)那一块能接着用:盖得住看得见的那一块,缩放倍数差得不多(停下来补画时要准) */
+    const fits = (r: Region, vis: Visible, exact: boolean, dx = 0) =>
+      covers(r, vis.x0, vis.y0, vis.x1, vis.y1, dx) && Math.abs(Math.log(vis.k / r.k)) < (exact ? 0.02 : K_SLACK);
+
+    /** R 这一块按多粗的格上色(拖动、缩放中或回放中粗一点) */
+    const stepOf = (R: Region, interacting: boolean) => {
       const css = fast || interacting ? STEP_COARSE : STEP_FINE;
       const cells = (R.view.cw * R.view.ch) / (R.dpr * R.dpr * css * css);
       const maxCells = css === STEP_FINE ? MAX_CELLS_FINE : MAX_CELLS_COARSE;
-      const step = Math.max(1, Math.round(css * R.dpr * Math.max(1, Math.sqrt(cells / maxCells))));
+      return Math.max(1, Math.round(css * R.dpr * Math.max(1, Math.sqrt(cells / maxCells))));
+    };
+
+    /**
+     * 在 R 这一块上要重画哪几张(备料 / 画两半,见 render/civ/detail.ts):没画过、换了数据、换了一块,或停下来要换细格的;
+     * 'keep' = 画着的那张接着用,null = 不要这一张(藏起来)
+     */
+    const plansFor = (R: Region, step: number, interacting: boolean): Plans => {
+      const dr = drawn.current;
+      const need = (dw: Drawn | null, data: unknown, c: Civ | null = null) =>
+        !dw || dw.region !== R.id || dw.data !== data || dw.civ !== c || (dw.step > step && !interacting);
+      return {
+        R,
+        step,
+        base: wantBase && params ? (need(dr.base, params) ? planCivDetail(params, R.view, step, R.cache) : 'keep') : null,
+        sel: wantSel && civ ? (need(dr.sel, selKey, civ) ? planSelectionDetail(world, raster, civ, sel!, selYear, style, R.view, step, R.cache) : 'keep') : null,
+        hl: wantHl && civ ? (need(dr.hl, hlKey, civ) ? planHighlightDetail(world, raster, civ, hl!, style, R.view, step, R.cache) : 'keep') : null,
+      };
+    };
+    const anyNew = (ps: Plans) => [ps.base, ps.sel, ps.hl].some((x) => x !== null && x !== 'keep');
+    const stepsOf = (ps: Plans) => [ps.base, ps.sel, ps.hl].flatMap((x) => (x && x !== 'keep' ? x.steps : []));
+
+    /** 备好的画上去(没备的当下备完)、摆好、报告;st = 分帧备料的统计 */
+    const paint = (ps: Plans, vis: Visible, exact: boolean, slide: number, st?: JobStats) => {
+      const { R, step } = ps;
+      const old = region.current;
+      if (old && old !== R) releaseDetailCache(old.cache);
+      region.current = R;
+      const t0 = performance.now();
       const timing = { wash: 0, lines: 0, ink: 0, sel: 0, hl: 0 };
       let did = false;
-      const need = (dw: Drawn | null, data: unknown, c: Civ | null = null) =>
-        !dw || dw.region !== R!.id || dw.data !== data || dw.civ !== c || (dw.step > step && !interacting);
+      // 分帧备好的(st):料都备齐了,直接画;当下画的先备料再画
+      const run = <T,>(ctx: CanvasRenderingContext2D, pl: DetailPlan<T>) => (st ? pl.draw(ctx) : runPlan(ctx, pl));
       const prep = (cv: HTMLCanvasElement) => {
-        if (cv.width !== R!.view.cw || cv.height !== R!.view.ch) {
-          cv.width = R!.view.cw;
-          cv.height = R!.view.ch;
+        if (cv.width !== R.view.cw || cv.height !== R.view.ch) {
+          cv.width = R.view.cw;
+          cv.height = R.view.ch;
         }
-        Object.assign(cv.style, { display: '', width: `${R!.view.cw / R!.dpr}px`, height: `${R!.view.ch / R!.dpr}px` });
+        Object.assign(cv.style, { display: '', width: `${R.view.cw / R.dpr}px`, height: `${R.view.ch / R.dpr}px` });
         return cv.getContext('2d')!;
       };
       const hideCv = (cv: HTMLCanvasElement) => {
@@ -221,47 +291,45 @@ export function CivDetail({ world, raster, params, civ, style, sel, selYear, hl,
       };
       // 底图
       const dr = drawn.current;
-      if (wantBase && params) {
-        if (need(dr.base, params)) {
-          const t = drawCivDetail(prep(cvs.base!), params, R.view, step, R.cache);
-          timing.wash = t.wash;
-          timing.lines = t.lines;
-          timing.ink = t.ink;
-          dr.base = { region: R.id, data: params, civ: null, step };
-          did = true;
+      if (ps.base === null) {
+        if (dr.base || cvs.base!.width) {
+          hideCv(cvs.base!);
+          dr.base = null;
         }
-      } else if (dr.base || cvs.base!.width) {
-        hideCv(cvs.base!);
-        dr.base = null;
+      } else if (ps.base !== 'keep') {
+        const t = run(prep(cvs.base!), ps.base);
+        timing.wash = t.wash;
+        timing.lines = t.lines;
+        timing.ink = t.ink;
+        dr.base = { region: R.id, data: params, civ: null, step };
+        did = true;
       }
       // 选中
-      if (wantSel && civ) {
-        const key = `${sel!.kind}|${sel!.id}|${selYear}|${style}`;
-        if (need(dr.sel, key, civ)) {
-          const t1 = performance.now();
-          const lit = drawSelectionDetail(prep(cvs.sel!), world, raster, civ, sel!, selYear, style, R.view, step, R.cache);
-          timing.sel = performance.now() - t1;
-          dr.sel = { region: R.id, data: key, civ, step };
-          did = true;
-          (window as unknown as { __wfSelection: unknown }).__wfSelection = { kind: sel!.kind, id: sel!.id, lit, ms: timing.sel, detail: true };
+      if (ps.sel === null) {
+        if (dr.sel || cvs.sel!.width) {
+          hideCv(cvs.sel!);
+          dr.sel = null;
         }
-      } else if (dr.sel || cvs.sel!.width) {
-        hideCv(cvs.sel!);
-        dr.sel = null;
+      } else if (ps.sel !== 'keep') {
+        const t1 = performance.now();
+        const lit = run(prep(cvs.sel!), ps.sel);
+        timing.sel = performance.now() - t1;
+        dr.sel = { region: R.id, data: selKey, civ, step };
+        did = true;
+        (window as unknown as { __wfSelection: unknown }).__wfSelection = { kind: sel!.kind, id: sel!.id, lit, ms: timing.sel, detail: true };
       }
       // 高亮(不透明度的闪烁动画在 CivLayer 里放)
-      if (wantHl && civ) {
-        const key = `${hl!.stamp}|${style}`;
-        if (need(dr.hl, key, civ)) {
-          const t1 = performance.now();
-          drawHighlightDetail(prep(cvs.hl!), world, raster, civ, hl!, style, R.view, step, R.cache);
-          timing.hl = performance.now() - t1;
-          dr.hl = { region: R.id, data: key, civ, step };
-          did = true;
+      if (ps.hl === null) {
+        if (dr.hl || cvs.hl!.width) {
+          hideCv(cvs.hl!);
+          dr.hl = null;
         }
-      } else if (dr.hl || cvs.hl!.width) {
-        hideCv(cvs.hl!);
-        dr.hl = null;
+      } else if (ps.hl !== 'keep') {
+        const t1 = performance.now();
+        run(prep(cvs.hl!), ps.hl);
+        timing.hl = performance.now() - t1;
+        dr.hl = { region: R.id, data: hlKey, civ, step };
+        did = true;
       }
       for (const cv of [cvs.base!, cvs.sel!, cvs.hl!]) if (cv.width) placeOnScreen(cv, vis, R.x0 + slide, R.y0, R.k);
       setCover(true);
@@ -288,17 +356,123 @@ export function CivDetail({ world, raster, params, civ, style, sel, selYear, hl,
         year: params?.year,
         proj: mp?.def.id ?? 'equirect',
         lon: R.mp?.lon0,
+        // 分帧备料:备了多久、分几段(当下画完的没有);还有没有在后台备的
+        prep: st?.prep ?? 0,
+        slices: st?.slices ?? 0,
+        pending: !!pend.current,
       };
     };
 
-    /** 新的一块:看得见的那块四周各多 1/4,不超出地图;画布按屏幕像素(太大就降低像素密度) */
-    function newRegion(vis: Visible): Region {
+    /** 后台备料,备好了画上去(在等的旧活作废) */
+    const submit = (ps: Plans, exact: boolean) => {
+      pend.current = { ps, params, selKey, hlKey, civ };
+      const job = pend.current;
+      submitDetailJob(JOB, stepsOf(ps), (st) => {
+        if (pend.current !== job) return;
+        pend.current = null;
+        const vis = visibleBox(box);
+        if (vis) paint(ps, vis, exact, 0, st);
+      });
+      const g = window as unknown as { __wfCivDetail?: Record<string, unknown> };
+      // 还没画上去过:倍数报在备的这一份的(画上去以后同样报这个)
+      if (!g.__wfCivDetail) g.__wfCivDetail = { on: false, k: ps.R.k, pending: true };
+      else {
+        g.__wfCivDetail.pending = true;
+        if (!g.__wfCivDetail.on) g.__wfCivDetail.k = ps.R.k;
+      }
+    };
+    /** 在备的那一份还能用:同一个世界、地图框没变大小(第一次放大还没画上去时也可能变)、同一份数据、要画的那几张一样,格不比要的粗 */
+    const pendOk = (p: Pending | null, R: Region, vis: Visible, step: number) =>
+      !!p &&
+      p.ps.R === R &&
+      R.world === world &&
+      R.raster === raster &&
+      R.bw === vis.bw &&
+      p.params === params &&
+      p.selKey === selKey &&
+      p.hlKey === hlKey &&
+      p.civ === civ &&
+      p.ps.step <= step &&
+      (p.ps.base === null) === !(wantBase && params) &&
+      (p.ps.sel === null) === !(wantSel && civ) &&
+      (p.ps.hl === null) === !(wantHl && civ);
+
+    const draw = (exact: boolean) => {
+      const vis = visibleBox(box);
+      if (!vis) return off();
+      const d0 = region.current;
+      const d = d0 && d0.world === world && d0.raster === raster && d0.bw === vis.bw ? d0 : null;
+      const precise = !!d && d.proj === projKey;
+      // 弯边投影里正在转中心、放大得不够:平移对不齐,先藏起来(画布留着),停下来再画
+      if (mp && moving && !precise && vis.k < SLIDE_K) return off(false);
+      const dx = !d ? null : precise ? 0 : mp && moving && !exact ? slideOf(d, mp, vis) : null;
+      const R = d && dx !== null && fits(d, vis, exact, dx) ? d : null;
+      const slide = R ? dx! : 0;
+      // 拖动、缩放中(视图和上一次不一样)或回放中:粗一点的格
+      const interacting = !exact && (lastView.current !== viewNow || moving);
+      lastView.current = viewNow;
+      // 当下画完:没开分帧;换了世界、地图框变了大小(被藏起来的整张图还是旧的,不能露出来顶着);
+      // 换了画风(旧画风的那张不能再顶着)
+      const based = drawn.current.base?.data as CivDrawParams | undefined;
+      if (!async || (d0 && !d) || (based && based.style !== style)) {
+        cancel();
+        const T = R ?? newRegion(vis);
+        const ps = plansFor(T, stepOf(T, interacting), interacting);
+        paint(ps, vis, exact, slide);
+        return;
+      }
+      const p = pend.current;
+      if (R) {
+        const step = stepOf(R, interacting);
+        const ps = plansFor(R, step, interacting);
+        if (anyNew(ps)) {
+          // 同一块上换数据、换细格:后台备好再换(画着的那几张先顶着)
+          for (const cv of [cvs.base!, cvs.sel!, cvs.hl!]) if (cv.width) placeOnScreen(cv, vis, R.x0, R.y0, R.k);
+          if (!pendOk(p, R, vis, step)) submit(ps, exact);
+          return;
+        }
+        // 不用重画:挪好位置(不要的那几张藏起来)
+        paint(ps, vis, exact, 0);
+        // 拖到离画好那一块的边不到半个余量:提前在后台备好下一块,往拖的方向多留一些(拖出去之前多半已经换上了);停下来了就不备
+        const ahead = exact ? null : aheadOf(R, vis, MARGIN, 2 * vis.bw, vis.bh);
+        if (!ahead) cancel();
+        else if (!p || !fits(p.ps.R, vis, false) || aheadOf(p.ps.R, vis, MARGIN, 2 * vis.bw, vis.bh) || !pendOk(p, p.ps.R, vis, stepOf(p.ps.R, true))) {
+          const T = newRegion(vis, ahead);
+          submit(plansFor(T, stepOf(T, true), true), false);
+        }
+        return;
+      }
+      // 画好的那一块用不上了:后台备新的一块,备好了整张换上
+      const pOk = !!p && fits(p.ps.R, vis, exact) && pendOk(p, p.ps.R, vis, stepOf(p.ps.R, interacting));
+      if (d && !covers(d, vis.x0, vis.y0, vis.x1, vis.y1)) {
+        // 拖出了画好的那一块(太快,提前备的还没好):等不及了,当下画完
+        if (pOk) flushDetailJobs();
+        else {
+          cancel();
+          const T = newRegion(vis);
+          paint(plansFor(T, stepOf(T, interacting), interacting), vis, exact, 0);
+        }
+        return;
+      }
+      // 先用画好的那几张顶着(缩放倍数不准,按比例拉一点);还没画过的时候底下的整张图露着
+      if (d) for (const cv of [cvs.base!, cvs.sel!, cvs.hl!]) if (cv.width) placeOnScreen(cv, vis, d.x0, d.y0, d.k);
+      if (!pOk) {
+        const T = newRegion(vis);
+        submit(plansFor(T, stepOf(T, interacting), interacting), exact);
+      }
+    };
+
+    /**
+     * 新的一块:看得见的那块四周各多 1/4,不超出地图;画布按屏幕像素(太大就降低像素密度)。
+     * [sx, sy] = 整块往哪边挪(拖动中提前备的那一块往拖的方向挪,见 aheadOf)
+     */
+    function newRegion(vis: Visible, [sx, sy] = [0, 0]): Region {
       const mw = (vis.x1 - vis.x0) * MARGIN;
       const mh = (vis.y1 - vis.y0) * MARGIN;
-      const x0 = Math.max(0, vis.x0 - mw);
-      const y0 = Math.max(0, vis.y0 - mh);
-      const x1 = Math.min(mp ? vis.bw : 2 * vis.bw, vis.x1 + mw);
-      const y1 = Math.min(vis.bh, vis.y1 + mh);
+      const x0 = Math.max(0, vis.x0 - mw + sx);
+      const y0 = Math.max(0, vis.y0 - mh + sy);
+      const x1 = Math.min(mp ? vis.bw : 2 * vis.bw, vis.x1 + mw + sx);
+      const y1 = Math.min(vis.bh, vis.y1 + mh + sy);
       let dpr = window.devicePixelRatio || 1;
       const px = (x1 - x0) * (y1 - y0) * vis.k * vis.k;
       if (px * dpr * dpr > MAX_PIXELS) dpr = Math.sqrt(MAX_PIXELS / px);
@@ -306,8 +480,6 @@ export function CivDetail({ world, raster, params, civ, style, sel, selYear, hl,
       const ch = Math.max(1, Math.round((y1 - y0) * vis.k * dpr));
       // 画布像素 / 世界单位(地图平面和世界一样大);画布左上角 = 地图框坐标 (x0, y0)
       const s = (vis.bw / world.width) * vis.k * dpr;
-      const old = region.current;
-      if (old?.cache.scratch) old.cache.scratch.canvas.width = old.cache.scratch.canvas.height = 0;
       return {
         id: ++regionSeq,
         world,
