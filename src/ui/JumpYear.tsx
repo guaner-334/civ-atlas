@@ -18,6 +18,7 @@ import type { Civ } from '../gen/civ/types';
 import { eraYear, parseJump, yearFull, type Era } from '../gen/era';
 import { getCivTime, setCivTime, useCivTime } from './civView';
 import { useEra } from './editsStore';
+import { baseRegions } from './eras';
 import { EraPre } from './panelParts';
 
 /** 跳过去:时间轴停在第 y 年的开头,不播放 */
@@ -287,6 +288,11 @@ export function JumpField({ civ, listRef, nowRef }: { civ: Civ | null; listRef: 
   const end = civ?.endYear ?? 0;
   const cur = Math.min(end, Math.max(0, Math.floor(t.year ?? end)));
   const [st, setSt] = useState<{ text: string; pre: boolean } | null>(null);
+  // 换了世界(改名不算)、换了纪年:清空,填的数不按新的算
+  const world = civ ? baseRegions(civ) : null;
+  useEffect(() => {
+    setSt(null);
+  }, [world, era]);
   // 还没填:"前"不"前"跟着现在这一年
   const shown = st ?? { text: '', pre: startOf(cur, era).pre };
   const parsed = parseJump(shown.text, shown.pre, era, end);
