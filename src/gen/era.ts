@@ -200,3 +200,75 @@ export function eraNote(era: Era, end: number): string {
 export function eraLabel(era: Era): string {
   return era.name === '公元' ? '公元纪年' : era.name;
 }
+
+// ---------------------------------------------------------------------------
+// 月份:编年史、地图上的事件卡片、时间轴的提示写到"第 1638 年 11 月"。
+// 推演里每件事本来就记着发生在一年里的哪一格(1/256 年),一年分 N 个月,月份 = 那一年过了几成 × N,取整 + 1。
+// 年份正好落在年初的(宗教的传播、干预、地形大事这类按整年算的事)不写月。只换写法,不参与推演。
+
+/** 一年几个月:默认、最少、最多 */
+export const MONTHS_DEFAULT = 12;
+export const MONTHS_MIN = 2;
+export const MONTHS_MAX = 36;
+
+/** 整理 WorldEdits.months:0 = 只写年;MONTHS_MIN–MONTHS_MAX 的整数 = 一年几个月;默认(12)和认不出的 = undefined(不写) */
+export function cleanMonths(raw: unknown): number | undefined {
+  if (raw === 0) return 0;
+  if (typeof raw !== 'number' || !Number.isInteger(raw) || raw < MONTHS_MIN || raw > MONTHS_MAX || raw === MONTHS_DEFAULT) return undefined;
+  return raw;
+}
+
+/** 这个世界一年几个月(0 = 只写年) */
+export function monthsOf(raw: unknown): number {
+  return cleanMonths(raw) ?? MONTHS_DEFAULT;
+}
+
+/** 第 y 年(带小数)是那一年的第几月(1 起);只写年(months = 0)、正好在年初 = 0(不写月) */
+export function monthOf(y: number, months: number): number {
+  if (!months || !Number.isFinite(y)) return 0;
+  const f = y - Math.floor(y);
+  if (f <= 0) return 0;
+  return Math.min(months, Math.floor(f * months) + 1);
+}
+
+/** 接在年份后面的月份:" 11 月";不写月 = '' */
+export function monthTail(y: number, months: number): string {
+  const m = monthOf(y, months);
+  return m ? ` ${m} 月` : '';
+}
+
+/** 全写带月:"第 1638 年 11 月""公元前 850 年 3 月";不写月 = yearFull */
+export function yearMonthFull(y: number, months: number, era?: Era | null): string {
+  return yearFull(y, era) + monthTail(y, months);
+}
+
+/** 句子里带月:"1638 年 11 月";纪年 "公元前 850 年 3 月";不写月 = yearAt */
+export function yearMonthAt(y: number, months: number, era?: Era | null): string {
+  return yearAt(y, era) + monthTail(y, months);
+}
+
+// ---------------------------------------------------------------------------
+// 跳到某一年:时间轴上的年份、编年史上面那一格填的字怎么算
+
+/** 填的年份算出来的结果:year = 跳到第几年(不能跳 = null);why = 提示(没问题 = null);hint = 提示下面的小字 */
+export interface JumpParse {
+  year: number | null;
+  why: string | null;
+  hint: string | null;
+}
+
+/**
+ * 输入框里的数字 → 跳到第几年。text 只有数字(最多 6 位);设了纪年时 pre = 前面的小按钮是"名字前",数字是纪年的年数。
+ * 空着 = 不跳;纪年填 0 = 不跳(没有 0 年);超出这个世界(0–end)= 提示一句,回车停在最后一年 / 第 0 年
+ */
+export function parseJump(text: string, pre: boolean, era: Era | null | undefined, end: number): JumpParse {
+  const s = text.trim();
+  if (!/^\d{1,6}$/.test(s)) return { year: null, why: null, hint: null };
+  const n = Number(s);
+  if (era && n < 1) return { year: null, why: noYearZero(era), hint: null };
+  const y = era ? worldYear(pre, n, era) : n;
+  const last = Math.max(0, Math.floor(end));
+  if (y > last) return { year: last, why: `这个世界只推到${yearFull(last, era)}`, hint: `回车跳到最后一年（${yearFull(last, era)}）` };
+  if (y < 0) return { year: 0, why: `这个世界从${yearFull(0, era)}开始`, hint: `回车跳到第一年（${yearFull(0, era)}）` };
+  return { year: y, why: null, hint: null };
+}

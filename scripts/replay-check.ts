@@ -1644,7 +1644,9 @@ for (const style of ['realistic', 'fantasy']) {
   const n = await rows.count();
   const row = rows.nth(Math.min(Math.floor(n * 0.7), Math.max(0, n - 1)));
   const label = opened ? await row.innerText() : '';
-  const want = label.match(/\d+/)?.[0];
+  // 年份从行上的 data-y 取(年份后面可能跟着月份,行里的字连起来是"163811 月")
+  const y = opened ? Number(await row.getAttribute('data-y')) : NaN;
+  const want = Number.isFinite(y) ? String(Math.floor(y)) : undefined;
   if (opened) await row.click();
   await page.waitForFunction(() => (window as any).__wfHighlight?.stamp > 0, null, { timeout: 5000 }).catch(() => {});
   const chronClosed = !(await page.locator('.ov-root:not([hidden])').count());

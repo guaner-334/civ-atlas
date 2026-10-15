@@ -1,7 +1,7 @@
 /**
  * 世界概览的"世界设定"页:这个世界创建时定下的根 —— 种子、六项世界参数、改过的地形、地名风格、推演年数,都只能看,不能再改
  * (一改几千年的历史就要整个重来)。想换个样子:"以它为底稿新建…"(回到新建这一步,设定照原样带过去,存成另一个世界)。
- * 右栏最上面是随时能改的「纪年」(EraSettings.tsx;窄屏单独一节放在最上面),下面还有"回放世界形成"。
+ * 右栏最上面是随时能改的「纪年」(EraSettings.tsx)和「月份」(MonthSettings.tsx;窄屏单独一节放在最上面),下面还有"回放世界形成"。
  *
  * 世界参数的滑条(SLIDERS、ParamSlider)、推演年数的开关和滑条(YearsRows)在这里定义,新建世界(studio/Studio.tsx)用。
  */
@@ -15,6 +15,7 @@ import { Icon } from './icons';
 import { genSeconds } from './genSpeed';
 import { mixSummary } from './nameMix';
 import { EraSection } from './EraSettings';
+import { MonthSection } from './MonthSettings';
 import { useNarrow } from './device';
 import './ai.css';
 
@@ -169,7 +170,12 @@ export function SettingsPage(p: SettingsProps) {
   const { params } = p;
   const end = endYearOf(edits);
   const narrow = useNarrow();
-  const era = <EraSection civ={p.civ} end={end} />;
+  const era = (
+    <>
+      <EraSection civ={p.civ} end={end} />
+      <MonthSection civ={p.civ} />
+    </>
+  );
   return (
     <div className="ov-settings">
       {narrow && <section className="ov-sec">{era}</section>}

@@ -1,6 +1,6 @@
 /**
  * 地图上的事件标签:时间轴播放经过一条大事时,在事发地画一个圆环(直径 14,外带 6px 光晕),
- * 右侧一张小卡:第一行类型(彩色粗体)+ 年份,第二行纪事正文。停约 3.8 秒淡出。
+ * 右侧一张小卡:第一行类型(彩色粗体)+ 年份(写到月,见 gen/era.ts 的 monthOf),第二行纪事正文。停约 3.8 秒淡出。
  *
  * - 同时最多 3 个(timelineLayout.ts 的 PIN_MAX;再来新的,最早的那个提前淡出);卡片互不重叠:
  *   默认放在圆环右边,放不下(出屏、压着别的卡片)就换到左边、下边、上边(placeCards)。
@@ -34,7 +34,7 @@ import {
   type PinBox,
 } from './timelineLayout';
 import { eraText } from '../gen/era';
-import { useEra } from './editsStore';
+import { useEra, useMonths } from './editsStore';
 import './timeline.css';
 
 /** 世界坐标 → 屏幕坐标(clientX / clientY);算不出 = null */
@@ -58,6 +58,7 @@ const pinKey = (p: LivePin) => `${p.e.id}:${p.start}`;
 
 export function EventPins({ civ, world, toClient, hidden }: EventPinsProps) {
   const era = useEra();
+  const months = useMonths();
   const chron = useChronicle();
   const pick = useChroniclePick();
   const [setRoot, compat] = useThemeCompat();
@@ -210,7 +211,7 @@ export function EventPins({ civ, world, toClient, hidden }: EventPinsProps) {
             <div className="ev-card">
               <span className="ev-head">
                 <b className="tb-ev">{evLabel(p.e)}</b>
-                {evYears(p.e, era)}
+                {evYears(p.e, era, months)}
               </span>
               <span className="ev-text">{eraText(evText(p.e), era)}</span>
             </div>

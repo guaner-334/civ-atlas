@@ -21,7 +21,7 @@ import type { World } from '../gen/world';
 import { capitalAt } from '../gen/civ/growth';
 import { nearX, wrapOf } from '../render/common';
 import { END_YEAR_DEFAULT } from '../gen/edits';
-import { yearShort, yearSpanAt, yearAt, type Era } from '../gen/era';
+import { yearShort, yearSpanAt, yearAt, yearMonthAt, type Era } from '../gen/era';
 
 // ---------------------------------------------------------------------------
 // 事件类型
@@ -114,12 +114,15 @@ export function evText(e: Pick<ChronicleEntry, 'text'>): string {
   return e.text.replace(/^【干预】/, '');
 }
 
-/** 年份:"2629 年";跨年的 "2940–2957 年";打到最后还没打完的 "2987 年起"(纪年:"公元前 850 年""公元前 820–前 811 年") */
-export function evYears(e: Pick<ChronicleEntry, 'year' | 'end' | 'ongoing'>, era?: Era | null): string {
+/**
+ * 年份:"2629 年";跨年的 "2940–2957 年";打到最后还没打完的 "2987 年起"(纪年:"公元前 850 年""公元前 820–前 811 年")。
+ * months = 一年几个月(不给 / 0 = 只写年):不跨年的写到月 "2629 年 3 月"
+ */
+export function evYears(e: Pick<ChronicleEntry, 'year' | 'end' | 'ongoing'>, era?: Era | null, months = 0): string {
   const a = Math.floor(e.year);
   if (e.ongoing) return `${yearAt(a, era)}起`;
   const b = Math.floor(e.end);
-  return b > a ? yearSpanAt(a, b, era) : yearAt(a, era);
+  return b > a ? yearSpanAt(a, b, era) : yearMonthAt(e.year, months, era);
 }
 
 /** 种类的分量:同一处挤了几件事时画哪一件的颜色。不认识的种类算中等 */

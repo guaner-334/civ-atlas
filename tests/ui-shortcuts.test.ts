@@ -41,7 +41,7 @@ afterEach(() => {
 });
 
 describe('快捷键 · 按键', () => {
-  it('不带修饰键:空格、← →(Shift 100 年)、+ −、1–5、/、?', () => {
+  it('不带修饰键:空格、← →(Shift 100 年)、+ −、1–5、/、?、G', () => {
     expect(matchShortcut(key('Space', ' '))).toBe('play');
     expect(matchShortcut(key('ArrowLeft', 'ArrowLeft'))).toBe('back');
     expect(matchShortcut(key('ArrowRight', 'ArrowRight'))).toBe('forward');
@@ -59,6 +59,7 @@ describe('快捷键 · 按键', () => {
     expect(matchShortcut(key('Digit0', '0'))).toBeNull();
     expect(matchShortcut(key('Slash', '/'))).toBe('search');
     expect(matchShortcut(key('Slash', '?', { shiftKey: true }))).toBe('help');
+    expect(matchShortcut(key('KeyG', 'g'))).toBe('jump');
     expect(matchShortcut(key('KeyA', 'a'))).toBeNull();
     expect(matchShortcut(key('Escape', 'Escape'))).toBeNull();
   });
@@ -66,6 +67,9 @@ describe('快捷键 · 按键', () => {
   it('数字、空格按键位认(中文、日文输入法,法文键盘打出来的字不一样也照样认);+ − / ? 按键帽上的字认', () => {
     expect(matchShortcut(key('Digit2', 'ふ'))).toBe('layer2');
     expect(matchShortcut(key('Digit2', 'é'))).toBe('layer2');
+    // G 也按键位认(中文输入法下打出来的不是 g;法文键盘上 G 的位置不变)
+    expect(matchShortcut(key('KeyG', 'ｇ'))).toBe('jump');
+    expect(matchShortcut(key('KeyG', 'G', { shiftKey: true }))).toBeNull();
     expect(matchShortcut(key('Space', ' '))).toBe('play');
     // 中文标点、全角符号、死键:按键位当美式键盘上的字
     expect(matchShortcut(key('Slash', '、'))).toBe('search');
@@ -92,6 +96,7 @@ describe('快捷键 · 按键', () => {
       expect(matchShortcut(key('Backslash', '\\', m))).toBe('side');
       // ⌘F 查找、⌘+ ⌘− 整页放大、⌘数字 切标签页、⌘Shift+S 都不占
       expect(matchShortcut(key('KeyF', 'f', m))).toBeNull();
+      expect(matchShortcut(key('KeyG', 'g', m))).toBeNull();
       expect(matchShortcut(key('Equal', '=', m))).toBeNull();
       expect(matchShortcut(key('Minus', '-', m))).toBeNull();
       expect(matchShortcut(key('Digit1', '1', m))).toBeNull();
@@ -106,7 +111,7 @@ describe('快捷键 · 按键', () => {
     expect(matchShortcut(key('KeyZ', 'Ω', { altKey: true, metaKey: true }))).toBeNull();
   });
 
-  it('键怎么写:苹果写 ⌘ ⇧,别的写 Ctrl、Shift;一览里三组 11 行,每行的键都写得出来', () => {
+  it('键怎么写:苹果写 ⌘ ⇧,别的写 Ctrl、Shift;一览里三组 12 行,每行的键都写得出来', () => {
     expect(keyLabel('undo', true)).toBe('⌘Z');
     expect(keyLabel('redo', true)).toBe('⇧⌘Z');
     expect(keyLabel('save', true)).toBe('⌘S');
@@ -120,9 +125,11 @@ describe('快捷键 · 按键', () => {
     expect(keyLabel('play', false)).toBe('空格');
     expect(keyLabel('zoomOut', true)).toBe('−');
     expect(keyLabel('esc', true)).toBe('Esc');
+    expect(keyLabel('jump', false)).toBe('G');
     expect(SHORTCUT_GROUPS.map((g) => g.title)).toEqual(['时间', '地图', '世界']);
     const rows = SHORTCUT_GROUPS.flatMap((g) => g.rows);
-    expect(rows.length).toBe(11);
+    expect(rows.length).toBe(12);
+    expect(rows.find((r) => r.keys.includes('jump'))?.text).toBe('输入年份，跳到那一年');
     for (const r of rows) for (const k of r.keys) for (const mac of [true, false]) expect(keyLabel(k, mac)).toMatch(/\S/);
   });
 });

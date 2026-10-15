@@ -32,7 +32,7 @@ import { canvasMeasure, drawMarks, layoutMarks, markStyle, type MarkItem } from 
 import { drawTrail, layoutTrail, type TrailInput } from '../render/trail';
 import { getEdits, useEdits } from './editsStore';
 import { cleanEndYear } from '../gen/edits';
-import { yearFull } from '../gen/era';
+import { monthsOf, yearFull } from '../gen/era';
 import { markItemsAt, plainMarkChars } from './markInfo';
 import { ensureFonts } from '../render/labels/fonts';
 import { characterTrail } from './characterInfo';
@@ -394,7 +394,7 @@ export function ExportMenu({ data, civ: shown, plain, style, layer, icon }: Expo
       } else if (job === 'md' || job === 'txt') {
         if (!civ) throw new Error('文明还没推演完');
         const name = `${base}-编年史.${job === 'md' ? 'md' : 'txt'}`;
-        const text = chronicleDocument(civ, { format: job, seed: seedN, params, entries: fullChronicle(civ), era });
+        const text = chronicleDocument(civ, { format: job, seed: seedN, params, entries: fullChronicle(civ), era, months: monthsOf(getEdits().months) });
         const blob = new Blob([text], { type: job === 'md' ? 'text/markdown;charset=utf-8' : 'text/plain;charset=utf-8' });
         download(blob, name);
         dbg = { job, name, bytes: blob.size, ms: performance.now() - t0 };

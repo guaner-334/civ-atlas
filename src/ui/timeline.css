@@ -196,6 +196,192 @@
 .tb-year-ghost {
   visibility: hidden;
 }
+/* ---- 年份可以点:点了变输入框,打年份回车跳过去(JumpYear.tsx;样子照干预页「生效年份」:虚线 / 蓝线) ---- */
+.tb-year.jy {
+  position: relative;
+  cursor: text;
+  outline: none;
+}
+.tb-year.jy[aria-disabled='true'] {
+  cursor: default;
+}
+.jy-num {
+  border-bottom: 1.5px dashed transparent;
+}
+.tb-year.jy:not([aria-disabled='true']):hover .jy-num,
+.tb-year.jy:focus-visible .jy-num {
+  border-bottom-color: var(--line-strong, rgba(35, 28, 19, 0.4));
+}
+.tb-year.jy.on .jy-num,
+.tb-year.jy.on:hover .jy-num {
+  border-bottom-color: var(--accent, #007aff);
+}
+.jy-edit {
+  display: inline-flex;
+  align-items: baseline;
+  white-space: pre;
+  cursor: auto;
+}
+.jy-in {
+  min-width: 2ch;
+  padding: 0 2px;
+  border: 0;
+  border-bottom: 2px solid var(--accent, #007aff);
+  border-radius: 3px 3px 0 0;
+  background: var(--accent-soft, rgba(0, 122, 255, 0.12));
+  color: inherit;
+  font: inherit;
+  text-align: center;
+  outline: none;
+}
+.jy-in::selection {
+  background: color-mix(in srgb, var(--accent, #007aff) 30%, transparent);
+}
+.jy-edit.bad .jy-in {
+  border-bottom-color: var(--err, #e0443a);
+  background: color-mix(in srgb, var(--err, #e0443a) 14%, transparent);
+}
+/* 纪年时数字前面的「公元前 ⌄」(和干预页一样) */
+.jy-edit .era-pre,
+.jp-row .era-pre,
+.cj .era-pre {
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 26px;
+  margin-right: 6px;
+  padding: 0 6px 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--btn, rgba(118, 118, 128, 0.12));
+  color: var(--ink, #1d1d1f);
+  font: 500 14px var(--font-sans);
+  cursor: pointer;
+}
+/* 时间轴上:和旁边的年份一样大的字,不带底色(鼠标移上去才出),看着还是"公元前 1300 年"一句话 */
+.jy-edit .era-pre {
+  height: auto;
+  margin-right: 4px;
+  padding: 0 2px 0 4px;
+  background: transparent;
+  font: inherit;
+}
+.jy-edit .era-pre:hover,
+.jy-edit .era-pre:focus-visible {
+  background: var(--btn, rgba(118, 118, 128, 0.12));
+}
+.jy-edit .era-pre svg,
+.jp-row .era-pre svg,
+.cj .era-pre svg {
+  color: var(--ink-2, #6e6e73);
+}
+/* 输入时的提示:时间轴在底下出在上面,在顶上出在下面 */
+.jy-tip {
+  position: absolute;
+  z-index: 6;
+  left: 50%;
+  bottom: calc(100% + 22px);
+  transform: translateX(-50%);
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--panel-solid, #f5f5f7);
+  color: var(--ink, #1d1d1f);
+  box-shadow: var(--shadow-float, 0 6px 24px rgba(0, 0, 0, 0.16));
+  font: 13px/1.45 var(--font-sans);
+  white-space: nowrap;
+  text-align: left;
+  pointer-events: none;
+}
+.jy-tip.below {
+  top: calc(100% + 22px);
+  bottom: auto;
+}
+.jy-tip small {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--ink-2, #6e6e73);
+}
+.jy-tip.bad {
+  color: var(--err, #e0443a);
+}
+/* 手机:点年份弹出的小卡片,放在屏幕上半部(键盘占下半屏) */
+.jp-bg {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(0, 0, 0, 0.18);
+}
+.jp-card {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  top: calc(env(safe-area-inset-top, 0px) + 56px);
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: var(--panel-solid, #f5f5f7);
+  box-shadow: var(--shadow-float, 0 10px 40px rgba(0, 0, 0, 0.2));
+  color: var(--ink, #1d1d1f);
+  font-family: var(--font-sans);
+}
+.jp-card > b {
+  display: block;
+  margin-bottom: 12px;
+  font-size: 16px;
+  font-weight: 600;
+}
+.jp-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 18px;
+}
+.jp-row .era-pre {
+  height: 32px;
+  margin-right: 0;
+  font-size: 15px;
+}
+.jp-in {
+  flex: 1;
+  min-width: 0;
+  height: 44px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--btn, rgba(118, 118, 128, 0.12));
+  box-shadow: 0 0 0 2px var(--accent, #007aff);
+  color: inherit;
+  font: 600 20px var(--font-sans);
+  font-variant-numeric: tabular-nums;
+  outline: none;
+}
+.jp-row.bad .jp-in {
+  box-shadow: 0 0 0 2px var(--err, #e0443a);
+}
+.jp-go {
+  flex: none;
+  height: 44px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--accent, #007aff);
+  color: #fff;
+  font: 600 16px var(--font-sans);
+}
+.jp-go:disabled {
+  opacity: 0.4;
+}
+.jp-card > small {
+  display: block;
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--ink-2, #6e6e73);
+}
+.jp-card > small.bad {
+  color: var(--err, #e0443a);
+}
 .tb-speed {
   flex: none;
   display: flex;
