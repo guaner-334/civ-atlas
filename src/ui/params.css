@@ -1,0 +1,555 @@
+/*
+ * 新建世界那几样参数共用的零件(新建弹窗是浅色,新建页是深色,颜色全用 theme.css 的变量):
+ *
+ *   .pf        滑条右边能直接打字的数值框(ParamField.tsx):打字时描主色,打超了描红,和所选预设不一样的数字用主色加粗
+ *   .seg-n     大陆数量的分段按钮(自动 / 1–6)
+ *   .mid       从正中往两边填色的滑条(南北偏向)
+ *   .ps-*      「预设」弹出按钮和它的菜单(照 Mac 的弹出菜单:勾、右边小灰字、分隔线)
+ *   .psd-*     叠在上面的小窗口:存成预设、管理预设
+ */
+
+/* ---- 数值框 ---- */
+.pf {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  width: 76px;
+  height: 28px;
+  box-sizing: border-box;
+  padding: 0 8px;
+  border-radius: 6px;
+  background: var(--surface);
+  box-shadow: inset 0 0 0 0.5px var(--line-strong);
+  font-size: 13.5px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  cursor: text;
+}
+[data-theme='dark'] .pf {
+  background: rgba(0, 0, 0, 0.32);
+}
+.pf.k-endYear {
+  width: 88px;
+}
+.pf .pf-in {
+  flex: 1;
+  display: block;
+  width: 0;
+  min-width: 0;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  outline: 0;
+  -webkit-appearance: none;
+  appearance: none;
+  cursor: text;
+  text-align: right;
+  font: inherit;
+  color: var(--ink);
+}
+.pf u {
+  flex: none;
+  margin-left: 2px;
+  text-decoration: none;
+  color: var(--ink-3);
+}
+.pf.editing {
+  box-shadow:
+    inset 0 0 0 1px var(--accent),
+    0 0 0 3px var(--accent-soft);
+}
+.pf.bad {
+  box-shadow:
+    inset 0 0 0 1px var(--err),
+    0 0 0 3px color-mix(in srgb, var(--err) 18%, transparent);
+}
+.pf.chg .pf-in {
+  color: var(--accent);
+  font-weight: 600;
+}
+.pf.off {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* ---- 分段按钮(大陆数量) ---- */
+.seg-n {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  height: 28px;
+  box-sizing: border-box;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--btn);
+  font-size: 13px;
+}
+.seg-n button {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+.seg-n button.w {
+  flex: 1.6;
+}
+.seg-n button.on {
+  background: var(--surface);
+  box-shadow:
+    0 0 0 0.5px rgba(0, 0, 0, 0.06),
+    0 1px 3px rgba(0, 0, 0, 0.16);
+  font-weight: 600;
+}
+[data-theme='dark'] .seg-n button.on {
+  background: #636366;
+}
+.seg-n button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* ---- 从正中往两边填色的滑条(南北偏向):轨道颜色跟着各处的滑条(--trk) ---- */
+input[type='range'].mid::-webkit-slider-runnable-track {
+  background: linear-gradient(
+    to right,
+    var(--trk, var(--line)) var(--lo),
+    var(--accent) var(--lo),
+    var(--accent) var(--hi),
+    var(--trk, var(--line)) var(--hi)
+  ) !important;
+}
+input[type='range'].mid::-moz-range-track {
+  background: linear-gradient(
+    to right,
+    var(--trk, var(--line)) var(--lo),
+    var(--accent) var(--lo),
+    var(--accent) var(--hi),
+    var(--trk, var(--line)) var(--hi)
+  ) !important;
+}
+input[type='range'].mid::-moz-range-progress {
+  background: transparent !important;
+}
+
+/* ---- 预设:弹出按钮 ---- */
+.ps-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13.5px;
+}
+.ps-row > .ps-l {
+  flex: none;
+  color: var(--ink-2);
+}
+.ps-row .ps-sp {
+  flex: 1;
+}
+.ps-row button.ps-pop,
+button.ps-pop {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 196px;
+  height: 28px;
+  box-sizing: border-box;
+  padding: 0 6px 0 11px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--surface);
+  box-shadow:
+    0 0 0 0.5px var(--line-strong),
+    0 1px 1.5px rgba(0, 0, 0, 0.08);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.ps-pop > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ps-pop i {
+  margin-left: 4px;
+  font-style: normal;
+  color: var(--ink-3);
+}
+.ps-pop svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  box-sizing: border-box;
+  padding: 2px;
+  border-radius: 4px;
+  background: var(--accent);
+  stroke: #fff;
+  fill: none;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.ps-pop:focus-visible {
+  outline: 0;
+  box-shadow:
+    0 0 0 0.5px var(--line-strong),
+    0 0 0 3px var(--accent-soft);
+}
+.ps-row button.ps-lnk {
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--link);
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.ps-lnk:hover {
+  text-decoration: underline;
+}
+
+/* ---- 预设:菜单(挂在 body 上,按按钮的位置摆) ---- */
+.ps-menu-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+}
+.ps-menu {
+  position: fixed;
+  z-index: 41;
+  min-width: 250px;
+  max-width: calc(100vw - 24px);
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: 5px;
+  border-radius: 9px;
+  background: rgba(246, 246, 248, 0.97);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  box-shadow:
+    0 0 0 0.5px rgba(0, 0, 0, 0.2),
+    0 10px 32px rgba(0, 0, 0, 0.24);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+  line-height: 1.4;
+  animation: ps-in 0.12s ease-out;
+}
+@keyframes ps-in {
+  from {
+    opacity: 0;
+  }
+}
+.ps-menu[data-theme='dark'] {
+  background: rgba(44, 44, 46, 0.97);
+  box-shadow:
+    0 0 0 0.5px rgba(255, 255, 255, 0.16),
+    0 10px 32px rgba(0, 0, 0, 0.5);
+}
+.ps-menu button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: 26px;
+  padding: 0 10px 0 6px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  white-space: nowrap;
+  cursor: default;
+}
+.ps-menu .ck {
+  flex: none;
+  width: 16px;
+  display: grid;
+  place-items: center;
+}
+.ps-menu .ck svg {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.ps-menu .nm {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ps-menu small {
+  flex: none;
+  margin-left: auto;
+  padding-left: 18px;
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+.ps-menu button:hover:not(:disabled),
+.ps-menu button:focus-visible {
+  outline: 0;
+  background: var(--accent);
+  color: #fff;
+}
+.ps-menu button:hover:not(:disabled) small,
+.ps-menu button:focus-visible small {
+  color: rgba(255, 255, 255, 0.8);
+}
+.ps-menu button:disabled {
+  color: var(--ink-3);
+}
+.ps-menu .sep {
+  height: 0.5px;
+  margin: 5px 8px;
+  background: var(--line-strong);
+}
+/* 手机:大一号,一行高 40 */
+.ps-menu.phone {
+  min-width: 0;
+  padding: 8px;
+  border-radius: 14px;
+  font-size: 16px;
+}
+.ps-menu.phone button {
+  height: 40px;
+  padding: 0 10px 0 4px;
+  border-radius: 8px;
+  gap: 8px;
+}
+.ps-menu.phone small {
+  font-size: 14px;
+}
+.ps-menu.phone .sep {
+  margin: 6px 10px;
+}
+
+/* ---- 叠在上面的小窗口(存成预设、管理预设) ---- */
+.psd-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 42;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  place-items: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.18);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.45;
+  animation: ps-in 0.15s ease-out;
+}
+.psd-scrim[data-theme='dark'] {
+  background: rgba(0, 0, 0, 0.45);
+}
+.psd-scrim button,
+.psd-scrim input {
+  font: inherit;
+  color: inherit;
+}
+.psd {
+  width: min(440px, 100%);
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: 20px 22px 18px;
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow:
+    0 0 0 0.5px rgba(0, 0, 0, 0.16),
+    0 20px 60px rgba(0, 0, 0, 0.3);
+}
+.psd.wide {
+  width: min(480px, 100%);
+}
+.psd h3 {
+  margin: 0 0 4px;
+  font-size: 17px;
+  font-weight: 650;
+}
+.psd > p {
+  margin: 0 0 14px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--ink-2);
+}
+.psd-name {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.psd-fld {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  box-sizing: border-box;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--surface);
+  box-shadow: inset 0 0 0 0.5px var(--line-strong);
+  font-size: 14px;
+}
+[data-theme='dark'] .psd-fld {
+  background: rgba(0, 0, 0, 0.32);
+}
+.psd-fld:focus {
+  outline: 0;
+  box-shadow:
+    inset 0 0 0 1px var(--accent),
+    0 0 0 3px var(--accent-soft);
+}
+.psd-warn {
+  margin: 6px 0 0 40px;
+  font-size: 12.5px;
+  color: var(--warn);
+}
+.psd-cbx {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+  margin-top: 14px;
+  font-size: 14px;
+  cursor: pointer;
+}
+.psd-cbx input {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin: 2px 0 0;
+  accent-color: var(--accent);
+}
+.psd-cbx small {
+  display: block;
+  margin-top: 2px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+.psd-kept {
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-radius: 9px;
+  background: var(--panel-solid);
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--ink-2);
+}
+[data-theme='dark'] .psd-kept {
+  background: rgba(255, 255, 255, 0.06);
+}
+.psd-kept b {
+  color: var(--ink);
+  font-weight: 600;
+}
+.psd-btns {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 16px;
+}
+.psd-btns button {
+  height: 34px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--btn);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.psd-scrim .psd-btns .b1 {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+.psd-btns button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.psd-list {
+  border-radius: 10px;
+  background: var(--panel-solid);
+  overflow: hidden;
+}
+[data-theme='dark'] .psd-list {
+  background: rgba(255, 255, 255, 0.06);
+}
+.psd-it {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 48px;
+  box-sizing: border-box;
+  padding: 6px 10px 6px 14px;
+  border-bottom: 0.5px solid var(--line);
+}
+.psd-it:last-child {
+  border-bottom: 0;
+}
+.psd-it-tx {
+  flex: 1;
+  min-width: 0;
+}
+.psd-it-tx b {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 400;
+}
+.psd-it-tx small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+.psd-it .psd-fld {
+  height: 30px;
+}
+.psd-scrim .psd-a {
+  flex: none;
+  padding: 4px;
+  border: 0;
+  background: none;
+  color: var(--link);
+  font-size: 13.5px;
+  cursor: pointer;
+}
+.psd-scrim .psd-a.del {
+  color: var(--ink-3);
+  display: grid;
+  place-items: center;
+}
+.psd-scrim .psd-a.del:hover {
+  color: var(--err);
+}
+.psd-scrim .psd-a.red {
+  color: var(--err);
+}
+.psd-empty {
+  padding: 14px;
+  font-size: 13.5px;
+  color: var(--ink-2);
+}

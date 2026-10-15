@@ -625,10 +625,61 @@
 .param-slider-row {
   display: flex;
   justify-content: space-between;
+  align-items: center;
+  min-height: 26px;
 }
-.param-slider-row b {
+.param-slider .pf {
+  width: 70px;
+  height: 24px;
+}
+.param-slider .pf.k-endYear {
+  width: 84px;
+}
+.param-slider-err {
+  display: block;
+  padding-top: 3px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--err);
+}
+/* 世界参数里:最上面一行「预设」,再往下几小组(大陆、气候、精细度)的小标题 */
+.nw-preset {
+  padding: 8px 12px;
+  border-bottom: 0.5px solid var(--line);
+  font-size: 14px;
+}
+.nw-preset .ps-l {
+  color: var(--ink);
+}
+.nw-preset .ps-pop {
+  flex: 1;
+  min-width: 0;
+}
+.nw-sub {
+  padding: 9px 12px 3px;
+  border-bottom: 0.5px solid var(--line);
+  background: rgba(0, 0, 0, 0.12);
+  font-size: 12.5px;
   font-weight: 600;
-  font-variant-numeric: tabular-nums;
+  color: var(--ink-3);
+}
+.nw-cont {
+  font-size: 14px;
+}
+.nw-cont .sb-row-main {
+  flex: none;
+}
+.nw-seed-ctl.with-hist .nw-seed-input {
+  width: 84px;
+}
+.nw-seed-ctl .nw-btn.nw-hist {
+  width: 32px;
+  padding: 0;
+  color: var(--ink-2);
+}
+.nw-seed-ctl .nw-btn.nw-hist.on {
+  background: var(--accent);
+  color: #fff;
 }
 .param-slider input {
   --fill: 50%;
