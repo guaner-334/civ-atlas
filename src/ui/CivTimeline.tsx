@@ -168,7 +168,7 @@ export function CivTimeline({ civ, hidden, dock = 'bottom' }: CivTimelineProps) 
           <i aria-hidden="true" />
         </button>
         {/* 点一下输入年份跳过去(JumpYear.tsx);纪年的字长短不一("公元元年""公元前 2500 年"):按最长的那个占位,播放时滑条不跟着伸缩 */}
-        <TimelineYear world={world} year={n} end={end} era={era} narrow={narrow} locked={locked} below={dock === 'top'} ghost={era ? longestYear(end, era) : undefined} />
+        <TimelineYear world={world} range={span} year={n} end={end} era={era} narrow={narrow} locked={locked} below={dock === 'top'} ghost={era ? longestYear(end, era) : undefined} />
         {span ? (
           !narrow && (
             <span className="tb-film-len">

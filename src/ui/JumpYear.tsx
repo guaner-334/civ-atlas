@@ -94,10 +94,12 @@ export interface TimelineYearProps {
   below: boolean;
   /** 纪年时按最长的年份留宽(播放时滑条不跟着伸缩) */
   ghost?: string;
+  /** 导出回放视频选了一段时:只在这一段里跳(和拖时间轴一样) */
+  range?: { from: number; to: number } | null;
 }
 
 /** 时间轴左边的年份:平常是字,点了变输入框(手机弹小卡片) */
-export function TimelineYear({ world, year, end, era, narrow, locked, below, ghost }: TimelineYearProps) {
+export function TimelineYear({ world, year, end, era, narrow, locked, below, ghost, range }: TimelineYearProps) {
   const [edit, setEdit] = useState<{ text: string; pre: boolean } | null>(null);
   const boxRef = useRef<HTMLSpanElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -135,7 +137,7 @@ export function TimelineYear({ world, year, end, era, narrow, locked, below, gho
       if (!parsed.why) setEdit(null);
       return;
     }
-    jumpToYear(parsed.year);
+    jumpToYear(range ? Math.min(range.to, Math.max(range.from, parsed.year)) : parsed.year);
     setEdit(null);
   };
 

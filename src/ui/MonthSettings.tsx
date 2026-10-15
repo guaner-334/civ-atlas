@@ -7,13 +7,14 @@
  *
  * 改了马上生效(editsStore 的 setMonths;不记撤销步)。怎么算见 gen/era.ts 的 monthOf:按整年算的事(宗教、干预、地形大事)不写月。
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Civ } from '../gen/civ/types';
 import { filterChronicle } from '../gen/civ/chronicle';
 import { fullChronicle } from '../gen/civ/religionText';
 import { MONTHS_DEFAULT, MONTHS_MAX, MONTHS_MIN, monthOf, yearFull, yearMonthFull } from '../gen/era';
 import { setMonths, useEra, useMonths } from './editsStore';
 import { useYear } from './WorldOverviewMarks';
+import { baseRegions } from './eras';
 import { Icon } from './icons';
 
 /** 一年几个月那一格的数不合格的原因 */
@@ -34,6 +35,17 @@ export function MonthSection({ civ }: { civ: Civ | null }) {
   const n = months || last;
   const [text, setText] = useState(String(n));
   useEffect(() => setText(String(n)), [n]);
+  // 换了世界(改名不算):上次的月数、没填完的字都按新世界重来
+  const world = civ ? baseRegions(civ) : null;
+  const seen = useRef(world);
+  useEffect(() => {
+    if (seen.current === world) return;
+    seen.current = world;
+    const fresh = months || MONTHS_DEFAULT;
+    setLast(fresh);
+    setText(String(fresh));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [world]);
   const on = months > 0;
   const bad = on ? countWhy(text) : null;
 
