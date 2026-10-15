@@ -41,6 +41,8 @@ export interface PlanetFrame {
   b: string;
   mix: number;
   markA: number;
+  /** 经纬网每隔几度一条(0 = 不画) */
+  grid: number;
 }
 
 function compile(gl: WebGLRenderingContext, vs: string, fs: string): WebGLProgram | null {
@@ -110,6 +112,7 @@ export class PlanetGL {
       gl = null;
     }
     if (!gl) return null;
+    // 经纬网的线宽按屏幕像素算(fwidth);没有这个扩展的老设备按缩放估
     gl.getExtension('OES_standard_derivatives');
     const prog = compile(gl, PLANET_VS, PLANET_FS);
     if (!prog) return null;
@@ -297,8 +300,8 @@ export class PlanetGL {
     gl.bindTexture(gl.TEXTURE_2D, this.mark ?? this.blank);
     gl.uniform1i(u.u_mark, 2);
     gl.uniform1f(u.u_markA, this.mark ? f.markA : 0);
-    const grid = (window as unknown as { __trialGrid?: number }).__trialGrid ?? 0;
-    gl.uniform1f(u.u_grid, (grid * Math.PI) / 180);
+    // 经纬网:浅蓝白细线,线宽约 1.1 个 CSS 像素
+    gl.uniform1f(u.u_grid, (f.grid * Math.PI) / 180);
     gl.uniform1f(u.u_px, Math.max(1, f.k * dpr));
     gl.uniform4f(u.u_gridC, 0.92, 0.95, 1.0, 1.1 * dpr);
     gl.drawElements(gl.TRIANGLES, this.nIndex, gl.UNSIGNED_SHORT, 0);

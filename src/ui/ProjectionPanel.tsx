@@ -9,7 +9,7 @@ import type { Civ } from '../gen/civ/types';
 import { capitalAt } from '../gen/civ/growth';
 import { PROJECTIONS, PROJECTION_IDS, type ProjectionId } from '../render/projection';
 import { formatLon, lonOfX, requestMapCenter, useMapCenter } from './mapWrap';
-import { GLOBE_READY, setGraticule, setMapMoving, setProjection, useGraticule, useProjection, type MapProjection } from './projection';
+import { GLOBE_READY, GRATICULE_STEPS, setGraticule, setGraticuleStep, setMapMoving, setProjection, useGraticule, useGraticuleStep, useProjection, type MapProjection } from './projection';
 import type { MapSelection } from './civView';
 import { mapTarget } from './flyTo';
 
@@ -44,7 +44,7 @@ export function projectionName(p: MapProjection): string {
 
 /**
  * "图层与投影"弹层的投影部分:六种投影(轮廓小图标,悬停显示一句用途)、
- * 中央经线滑条(所有投影共用)、经纬网开关
+ * 中央经线滑条(所有投影共用)、经纬网开关和间隔
  */
 export function ProjectionSection() {
   const proj = useProjection();
@@ -109,13 +109,47 @@ export function ProjectionSection() {
           }}
         />
       </label>
-      <button className={`lp-check${grat ? ' on' : ''}`} role="checkbox" aria-checked={grat} data-act="graticule" onClick={() => setGraticule(!grat)}>
-        <span className="lp-box" aria-hidden="true">
-          {grat ? '✓' : ''}
+      <div className="lp-grat">
+        <button className={`lp-check${grat ? ' on' : ''}`} role="checkbox" aria-checked={grat} data-act="graticule" onClick={() => setGraticule(!grat)}>
+          <span className="lp-box" aria-hidden="true">
+            {grat ? '✓' : ''}
+          </span>
+          经纬网
+        </button>
+        <span className="lp-grat-step">
+          <span className="lp-sub">每隔</span>
+          <GraticuleSteps />
         </span>
-        经纬网<span className="lp-sub">每 30°</span>
-      </button>
+      </div>
     </>
+  );
+}
+
+/**
+ * 经纬网间隔 10° / 15° / 30° 三档(图层弹层、新建世界和编辑地形的侧栏共用)。
+ * 经纬网关着时灰掉,点一档顺手打开
+ */
+export function GraticuleSteps() {
+  const on = useGraticule();
+  const step = useGraticuleStep();
+  return (
+    <span className={`grat-seg${on ? '' : ' off'}`} role="radiogroup" aria-label="经纬网间隔">
+      {GRATICULE_STEPS.map((s) => (
+        <button
+          key={s}
+          className={s === step ? 'on' : undefined}
+          role="radio"
+          aria-checked={s === step}
+          data-grat={s}
+          onClick={() => {
+            setGraticuleStep(s);
+            setGraticule(true);
+          }}
+        >
+          {s}°
+        </button>
+      ))}
+    </span>
   );
 }
 

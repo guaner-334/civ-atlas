@@ -14,7 +14,7 @@
  *   顶部  名字输入框(空着 = "新标记")、"作者标记，在大景王朝的紫月洲"(几个州:年份)
  *   年份  从 / 到(各带"用第 N 年"= 时间轴当前那年;"到"空着 = 一直都在)
  *   范围  一个点 | 几个州;一个点:拖地图上的图钉挪位置(点地图也行),几个州:点地图上的州加进来 / 去掉
- *   颜色  六种;说明  随便写
+ *   颜色  六种,或「无色」(不画底色和图钉,名字照地图上的地名写);字号  小 / 中 / 大 / 特大;说明  随便写
  *   底部  取消 / 完成(填得不对时点不了,提示一句)
  */
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
@@ -22,7 +22,7 @@ import type { Civ } from '../gen/civ/types';
 import type { Raster } from '../gen/raster';
 import type { World } from '../gen/world';
 import { regionLabel } from '../gen/civ/display';
-import { MARKS_MAX, MARK_COLORS, MARK_NOTE_MAX, MARK_REGIONS_TOTAL, MARK_TITLE_DEFAULT, MARK_TITLE_MAX, markShownAt, regionKey, type AuthorMark, type MarkColor, type MarkTint } from '../gen/edits';
+import { MARKS_MAX, MARK_COLORS, MARK_NOTE_MAX, MARK_REGIONS_TOTAL, MARK_TITLE_DEFAULT, MARK_TITLE_MAX, markShownAt, regionKey, type AuthorMark, type MarkSizeSet, type MarkTint } from '../gen/edits';
 import { MARK_HEX } from '../render/marks';
 import { getEdits, removeMark, restoreMark, useEdits, useEra } from './editsStore';
 import { spaced, yearAt, yearFull } from '../gen/era';
@@ -50,7 +50,16 @@ import { Icon } from './icons';
 const F = Math.floor;
 
 /** 颜色的名字(颜色圆点的读屏文字) */
-const COLOR_NAME: Record<MarkColor, string> = { red: '红', orange: '橙', green: '绿', blue: '蓝', purple: '紫', teal: '青' };
+const COLOR_NAME: Record<MarkTint, string> = { red: '红', orange: '橙', green: '绿', blue: '蓝', purple: '紫', teal: '青', none: '无色' };
+/** 卡片上能选的颜色:六种 + 无色 */
+const TINTS: readonly MarkTint[] = [...MARK_COLORS, 'none'];
+/** 字号四档(中 = 不写) */
+const SIZES: readonly { size: MarkSizeSet | undefined; name: string }[] = [
+  { size: 's', name: '小' },
+  { size: undefined, name: '中' },
+  { size: 'l', name: '大' },
+  { size: 'xl', name: '特大' },
+];
 /** 填的时候最多列出多少个州的名字(再多写"等 N 州") */
 const CHIPS_MAX = 24;
 
@@ -365,17 +374,29 @@ function MarkEdit({ civ, raster, world, year, draft: d }: MarkPanelProps & { dra
         <section className="cp-sec">
           <div className="cp-sec-head">颜色</div>
           <div className="mk-colors" role="radiogroup" aria-label="颜色">
-            {MARK_COLORS.map((c) => (
+            {TINTS.map((c) => (
               <button
                 key={c}
-                className={c === d.color ? 'on' : undefined}
-                style={{ background: MARK_HEX[c] }}
+                className={[c === 'none' ? 'mk-none' : '', c === d.color ? 'on' : ''].filter(Boolean).join(' ') || undefined}
+                style={c === 'none' ? undefined : { background: MARK_HEX[c] }}
                 role="radio"
                 aria-checked={c === d.color}
                 aria-label={COLOR_NAME[c]}
+                title={c === 'none' ? COLOR_NAME[c] : undefined}
                 data-color={c}
                 onClick={() => patchDraft({ color: c })}
               />
+            ))}
+          </div>
+          {d.color === 'none' && <div className="cp-note mk-none-note">无色：不画底色和图钉，名字照地图上的地名写。</div>}
+        </section>
+        <section className="cp-sec">
+          <div className="cp-sec-head">字号</div>
+          <div className="seg mk-seg" role="radiogroup" aria-label="字号">
+            {SIZES.map((o) => (
+              <button key={o.name} className={o.size === d.size ? 'on' : undefined} role="radio" aria-checked={o.size === d.size} data-size={o.size ?? 'm'} onClick={() => patchDraft({ size: o.size })}>
+                {o.name}
+              </button>
             ))}
           </div>
         </section>

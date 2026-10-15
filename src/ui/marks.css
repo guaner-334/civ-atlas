@@ -103,6 +103,28 @@
   outline: 2px solid var(--accent);
   outline-offset: 4px;
 }
+/* 无色:地图纸色的圆,墨色描边,里面一圈虚线(像地图上的点划线边界) */
+.mk-colors button.mk-none {
+  position: relative;
+  background: #f4ecd8;
+  box-shadow: inset 0 0 0 1.5px #6b5845;
+}
+.mk-colors button.mk-none::after {
+  content: '';
+  position: absolute;
+  inset: 5px;
+  border-radius: 50%;
+  border: 1.2px dashed #6b5845;
+}
+.mk-colors button.mk-none.on {
+  box-shadow:
+    inset 0 0 0 1.5px #6b5845,
+    0 0 0 2px var(--panel-solid),
+    0 0 0 4px var(--ink-2);
+}
+.mk-none-note {
+  padding: 0 4px;
+}
 .mk-text {
   display: block;
   width: 100%;

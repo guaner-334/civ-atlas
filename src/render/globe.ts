@@ -248,11 +248,6 @@ export function graticuleLines(v: GlobeView, f: GlobeFrame, step: number): numbe
   return out;
 }
 
-/** 经纬网间距:缩放越大越密(30° → 15° → 10°) */
-export function graticuleStep(k: number): number {
-  return ((k >= 4 ? 10 : k >= 2 ? 15 : 30) * PI) / 180;
-}
-
 /**
  * 写实风的地貌明暗(和着色器里的 relief 同一个公式;单测用):底色 c(0–255)、细节坡度 gd、大尺度坡度 gm(都是 [东, 南],
  * 见 realistic.ts 的 GlobeCapture)、是不是开阔水面、单位向量 p 和经纬度、视图的屏幕右 e / 屏幕上 n 方向 → 打好光的颜色
@@ -301,7 +296,8 @@ export interface GlobeLook {
    * 高度角和平面主图一样)—— 转到两极也不会光从背后来。不给 / false = 贴图里已经烤好了明暗(CPU 画法、回放)
    */
   relief?: boolean;
-  graticule: boolean;
+  /** 经纬网每隔几度一条(0 = 不画) */
+  graticule: number;
   /** 高亮层(编年史点一条)的不透明度 0–1 */
   hl: number;
   /** 回放帧盖上去的程度 0–1 */
@@ -752,7 +748,7 @@ export class GlobeGL {
     gl.uniform3f(this.u('uN'), n[0], n[1], n[2]);
     gl.uniform1i(this.u('uStyle'), look.style === 'realistic' ? 0 : look.style === 'fantasy' ? 1 : 2);
     gl.uniform1f(this.u('uGrid'), look.graticule ? 1 : 0);
-    gl.uniform1f(this.u('uGridStep'), graticuleStep(view.k));
+    gl.uniform1f(this.u('uGridStep'), ((look.graticule || 30) * PI) / 180);
     gl.uniform1f(this.u('uHl'), look.hl);
     gl.uniform1f(this.u('uReplay'), look.replay);
     gl.uniform1f(this.u('uRelief'), look.relief && look.style === 'realistic' ? 1 : 0);
