@@ -4,6 +4,7 @@
  *   ImageCard   左边最上面那张图:缩略图、文件名、多大、彩色还是灰度,右边「换一张」(重新认,第 2 步画的笔留着)
  *   StepGroup   一步一组:组头 = 圆圈序号(做到这步是蓝的,做过的打勾)+ 名字 + 右边一句现在怎样 + 箭头;展开的在组头下面接着放
  *   StepParams  第 3 步的世界参数(没有陆地比例 —— 海陆照图定):拖动时只改数字,松手才重新生成;
+ *               接着是「拓荒」:民族扩散、国家扩张,「地形难走程度」点开八样(随机生成那页世界参数里的同一套);
  *               最后是开关「推演超过 3000 年」、那段说明,开了多一条「推演到」
  *   ViewBar     地图上方的切换条:原图 / 认出来的 / 长出来的;长出来的时候有「叠上原图」和样式;平面 / 地球仪
  *
@@ -11,7 +12,9 @@
  */
 import { useEffect, useState, type ReactNode } from 'react';
 import type { WorldParams } from '../../gen/world';
-import { setEndYear, useEdits } from '../editsStore';
+import { getEdits, setEndYear, setFrontier, useEdits } from '../editsStore';
+import { terrainChangedCount, terrainValue } from '../../gen/civ/frontier';
+import { EXPAND_SLIDER, SPREAD_SLIDER, TERRAIN_SLIDERS, withSpeed, withTerrain, withoutTerrain } from '../frontierUi';
 import { pickImage, setImportView, setSourceView, useImport, useSource, useSourceView, type SourceShow } from '../ImportImage';
 import { SLIDERS, YEARS_NOTE, YEARS_ON, YEARS_SLIDER, YEARS_SWITCH, type SliderLike } from '../WorldOverviewGenesis';
 import { END_YEAR_DEFAULT, cleanEndYear } from '../../gen/edits';
@@ -88,7 +91,7 @@ export function StepGroup({
 /** 第 3 步列哪几样参数(陆地比例不列:海陆照图定) */
 const STEP_KEYS: (keyof WorldParams)[] = ['plates', 'mountains', 'temperature', 'rainfall', 'cells'];
 
-function StepSlider({ s, value, onCommit, disabled }: { s: SliderLike; value: number; onCommit: (v: number) => void; disabled: boolean }) {
+function StepSlider({ s, value, onCommit, disabled, changed }: { s: SliderLike; value: number; onCommit: (v: number) => void; disabled: boolean; changed?: boolean }) {
   const k = s.key;
   const [v, setV] = useState(value);
   useEffect(() => setV(value), [value]);
@@ -108,26 +111,63 @@ function StepSlider({ s, value, onCommit, disabled }: { s: SliderLike; value: nu
           value={v}
           disabled={disabled}
           style={{ '--fill': `${fill}%` } as React.CSSProperties}
-          onChange={(e) => setV(Number(e.target.value))}
+          onChange={(e) => setV(s.snap ? s.snap(Number(e.target.value)) : Number(e.target.value))}
           onPointerUp={() => v !== value && onCommit(v)}
           onKeyUp={() => v !== value && onCommit(v)}
         />
       </span>
-      <em>{shown}</em>
+      <em className={changed ? 'chg' : undefined}>{shown}</em>
     </label>
   );
 }
 
 export function StepParams({ params, onParams, disabled }: { params: WorldParams; onParams: (p: WorldParams) => void; disabled: boolean }) {
-  const raw = useEdits().endYear;
+  const edits = useEdits();
+  const raw = edits.endYear;
   const on = raw !== undefined;
+  const f = edits.frontier;
+  const terrN = terrainChangedCount(f);
+  const [terrOpen, setTerrOpen] = useState(false);
   return (
     <>
       <div className="tp-opts sk-params">
         {STEP_KEYS.map((k) => (
           <StepSlider key={k} s={SLIDERS.find((x) => x.key === k)!} value={params[k]} disabled={disabled} onCommit={(v) => onParams({ ...params, [k]: v })} />
         ))}
+        <StepSlider s={SPREAD_SLIDER} value={SPREAD_SLIDER.pos(f?.spread ?? 1)} disabled={disabled} onCommit={(v) => setFrontier(withSpeed(getEdits().frontier, 'spread', SPREAD_SLIDER.value(v)))} />
+        <StepSlider s={EXPAND_SLIDER} value={EXPAND_SLIDER.pos(f?.expand ?? 1)} disabled={disabled} onCommit={(v) => setFrontier(withSpeed(getEdits().frontier, 'expand', EXPAND_SLIDER.value(v)))} />
       </div>
+      <button className={`sb-row nw-terr${terrOpen ? ' open' : ''}`} data-act="terrain-cost" aria-expanded={terrOpen} disabled={disabled} onClick={() => setTerrOpen((o) => !o)}>
+        <span className="sb-row-main">
+          <b>地形难走程度</b>
+        </span>
+        {terrOpen ? (
+          terrN > 0 && (
+            <span
+              className="sb-link"
+              role="button"
+              data-act="terrain-cost-reset"
+              onClick={(e) => {
+                e.stopPropagation();
+                setFrontier(withoutTerrain(getEdits().frontier));
+              }}
+            >
+              恢复默认
+            </span>
+          )
+        ) : (
+          <span className="sb-row-side">{terrN ? `改过 ${terrN} 样` : '默认'}</span>
+        )}
+        <Icon name={terrOpen ? 'down' : 'chevron'} size={14} className="sb-chev" />
+      </button>
+      {terrOpen && (
+        <div className="tp-opts sk-params">
+          {TERRAIN_SLIDERS.map(({ g, s }) => {
+            const v = terrainValue(f, g);
+            return <StepSlider key={g.key} s={s} value={s.pos(v)} disabled={disabled} changed={v !== g.def} onCommit={(x) => setFrontier(withTerrain(getEdits().frontier, g, s.value(x)))} />;
+          })}
+        </div>
+      )}
       <button className="sb-row nw-years" role="switch" aria-checked={on} data-act="years-switch" disabled={disabled} onClick={() => setEndYear(on ? undefined : YEARS_ON)}>
         <span className="sb-row-main">
           <b>{YEARS_SWITCH}</b>

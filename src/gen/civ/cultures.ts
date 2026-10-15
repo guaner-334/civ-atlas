@@ -31,7 +31,7 @@ import { quantize, Ev, type CivSim } from './sim';
 import { assignStyles, lastIfPioneer, nameCultures } from './naming';
 import type { NameMix } from '../names';
 import { HABITABLE_SUIT, KIND_INFO } from './display';
-import { cleanFrontier, frontierFx, terrainChanged, type Frontier, type FrontierFx, type Origins } from './frontier';
+import { cleanFrontier, frontierFx, originRegion, terrainChanged, type Frontier, type FrontierFx, type Origins } from './frontier';
 import { cleanInterventions, regionOfKey, type Intervention } from '../edits';
 
 // ---- 调参(以截图效果为准) ----
@@ -398,30 +398,6 @@ export interface CulturePlanParams {
   origins?: Origins;
   /** 干预(清理过的列表):立国立在没人住的州时,给它备一支新民族(planPioneers) */
   interventions?: readonly Intervention[];
-}
-
-/** 离世界坐标 (x, y) 最近的地块(左右接着的世界按近的那一边算) */
-function nearestCell(world: World, x: number, y: number): number {
-  const { x: X, y: Y, n } = world.mesh;
-  const W = world.width;
-  let best = -1;
-  let bd = Infinity;
-  for (let c = 0; c < n; c++) {
-    let dx = Math.abs(X[c] - x) % W;
-    if (dx > W / 2) dx = W - dx;
-    const d = dx * dx + (Y[c] - y) ** 2;
-    if (d < bd) {
-      bd = d;
-      best = c;
-    }
-  }
-  return best;
-}
-
-/** 起源的点落在哪一州:落在水上 = −1(住不住得了人另看 habitable)。界面和推演共用 */
-export function originRegion(world: World, regions: Regions, x: number, y: number): number {
-  const c = nearestCell(world, x, y);
-  return c >= 0 && world.water[c] === 0 ? regions.of[c] : -1;
 }
 
 /** 定民族:数量、发源地、类型、扩张性、诞生年份,并标定"走一步要几年"(给了 tempo 就用它)。可居州一个都没有时返回 null */

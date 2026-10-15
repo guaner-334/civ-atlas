@@ -12,7 +12,7 @@ import { generateCiv, type Civ } from '../src/gen/civ';
 import { Layer } from '../src/gen/civ/types';
 import { Biome } from '../src/gen/biomes';
 import { HABITABLE_SUIT } from '../src/gen/civ/display';
-import { cleanFrontier, cleanOrigins, filledYear, frontierFx, sameFrontier, terrainText, TERRAIN_GROUPS } from '../src/gen/civ/frontier';
+import { cleanFrontier, cleanOrigins, filledYear, frontierBrief, frontierFx, sameFrontier, speedText, terrainBrief, terrainText, TERRAIN_GROUPS } from '../src/gen/civ/frontier';
 import { ownersAt } from '../src/gen/civ/timeline';
 import { buildChronicle, interventionOutcome } from '../src/gen/civ/chronicle';
 import { regionKey, type Intervention } from '../src/gen/edits';
@@ -111,9 +111,15 @@ describe('拓荒 · 数据格式', () => {
     expect(filledYear(1)).toBe(3000);
     expect(filledYear(1.5)).toBe(2000);
     expect(filledYear(2)).toBe(1500);
-    expect(terrainText(1)).toBe('1');
+    expect(terrainText(1)).toBe('1.0');
     expect(terrainText(2.6)).toBe('2.6');
     expect(terrainText(11)).toBe('11');
+    expect(speedText(1.5)).toBe('1.50×');
+    const f = cleanFrontier({ spread: 1.5, expand: 2, terrain: { rainforest: 3, desert: 6 } });
+    expect(terrainBrief(f)).toBe('雨林 3，沙漠 6，其余默认');
+    expect(terrainBrief(undefined)).toBe('默认');
+    expect(frontierBrief(f)).toBe('民族 1.5×，国家 2×，地形改过 2 样');
+    expect(frontierBrief(undefined)).toBe('');
   });
 
   it('cleanOrigins:坐标取整、绕回、去重,最多 16 处;一处也没有 = undefined', () => {

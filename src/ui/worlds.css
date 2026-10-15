@@ -707,6 +707,34 @@
 .nw-years-note + .param-slider {
   border-top: 0.5px solid var(--line);
 }
+/* 「拓荒」:地形难走程度一行(点开原地展开八样,缩进);改过的数字是强调色、前面一个圆点 */
+.nw-terr {
+  width: 100%;
+  min-height: 44px;
+  font-size: 14px;
+}
+.nw-terr-list {
+  border-bottom: 0.5px solid var(--line);
+}
+.nw-terr-list .param-slider {
+  padding-left: 26px;
+}
+.nw-terr-list .param-slider:last-child {
+  border-bottom: 0;
+}
+.param-slider.chg .param-slider-row b {
+  color: var(--accent);
+}
+.param-slider.chg .param-slider-row b::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 6px;
+  border-radius: 3px;
+  background: var(--accent);
+  vertical-align: 2px;
+}
 /* 长不出文明 */
 .nw-note {
   padding: 2px 4px 0;

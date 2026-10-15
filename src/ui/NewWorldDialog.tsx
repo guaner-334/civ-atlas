@@ -5,16 +5,21 @@
  *            选好以后进新建界面,两种不能互换
  *   第 2 步  基础参数(就是新建界面「世界参数」那几样,默认值不变)。随机的有种子(随机给一个,能换);
  *            照图的先选一张图(拖进来或「选一张图」),不列陆地比例(海陆照图定),种子随机给,进去以后在「山河、地名换一种」里换。
+ *            「精细度」下面一组「拓荒」:民族扩散、国家扩张两条滑条(默认 1×),「地形难走程度」一行点开原地展开八样地形
+ *            (改过的数字变成强调色、前面一个圆点;「恢复默认」一下还原),组下面一段说明。
  *            最后一组「历史」:开关「推演超过 3000 年」(默认关),组下面一直写着那段说明;开了多一条「推演到」(刚打开 10000 年)。
  *            底下一句说进去以后这些都还能改
  *
  * 点「开始」才交给 App(存下没建完的世界、进新建界面;照图的把读好的图交过去,进去直接是第 1 步「认出海陆」)。
  * 「取消」、Esc、点窗口外面:什么都不留下(读好的图也扔掉)。
- * 电脑上是浮在页面正中的窗口;手机上从底部升起、几乎占满屏:顶上一排(取消 / 上一步、标题、第几步),底部一个大按钮。
+ * 电脑上是浮在页面正中的窗口(第 2 步比窗口高时:标题和底部按钮不动,中间一段自己滚,上下各一条细线隔开);
+ * 手机上从底部升起、几乎占满屏:顶上一排(取消 / 上一步、标题、第几步),底部一个大按钮。
  */
 import { useEffect, useRef, useState } from 'react';
 import { DEFAULT_PARAMS, type WorldParams } from '../gen/world';
 import { SLIDERS, YEARS_NOTE, YEARS_ON, YEARS_SLIDER, YEARS_SWITCH, type SliderLike } from './WorldOverviewGenesis';
+import { terrainChangedCount, type Frontier } from '../gen/civ/frontier';
+import { EXPAND_SLIDER, SPREAD_SLIDER, TERRAIN_SLIDERS, terrainValue, withSpeed, withTerrain, withoutTerrain } from './frontierUi';
 import { isImageFile, loadImage, type LoadedImage } from './ImportImage';
 import { Icon } from './icons';
 import './ai.css';
@@ -29,6 +34,8 @@ export interface NewWorldStart {
   picture: LoadedImage | null;
   /** 推演到第几年(没开「推演超过 3000 年」= 不给) */
   endYear?: number;
+  /** 拓荒(都是默认 = 不给) */
+  frontier?: Frontier;
 }
 
 /** 从哪一步开始(刷新了照手绘图还没选好图的新建:回到它的第 2 步,参数、推演年数照网址) */
@@ -70,7 +77,7 @@ function groups(mode: NewWorldMode): { name: string; note?: string; keys: (keyof
 
 const stop = (e: { stopPropagation(): void }) => e.stopPropagation();
 
-function ParamRow({ s, value, onChange, phone }: { s: SliderLike; value: number; onChange: (v: number) => void; phone: boolean }) {
+function ParamRow({ s, value, onChange, phone, sub, changed }: { s: SliderLike; value: number; onChange: (v: number) => void; phone: boolean; sub?: boolean; changed?: boolean }) {
   const k = s.key;
   const fill = ((value - s.min) / (s.max - s.min)) * 100;
   // 精细度只写多少千个地块("36k"),电脑上后面再写大概要多久
@@ -78,7 +85,7 @@ function ParamRow({ s, value, onChange, phone }: { s: SliderLike; value: number;
   const more = phone ? null : s.more?.(value);
   const name = k === 'cells' ? '地块' : s.name;
   return (
-    <label className="nd-pr" title={s.hint} data-param={k}>
+    <label className={`nd-pr${sub ? ' sub' : ''}`} title={s.hint} data-param={k}>
       <span className="nd-n">{name}</span>
       <span className="tp-range">
         <input
@@ -89,10 +96,11 @@ function ParamRow({ s, value, onChange, phone }: { s: SliderLike; value: number;
           step={s.step}
           value={value}
           style={{ '--fill': `${fill}%` } as React.CSSProperties}
-          onChange={(e) => onChange(Number(e.target.value))}
+          onChange={(e) => onChange(s.snap ? s.snap(Number(e.target.value)) : Number(e.target.value))}
         />
       </span>
-      <span className="nd-v">
+      <span className={`nd-v${changed ? ' ch' : ''}`}>
+        {changed && <i className="nd-dot" />}
         {shown}
         {more && <em>{more}</em>}
       </span>
@@ -109,6 +117,9 @@ export function NewWorldDialog(p: NewWorldDialogProps) {
   const [picture, setPicture] = useState<LoadedImage | null>(null);
   /** 推演到第几年(开关关着 = undefined,就是 3000 年) */
   const [years, setYears] = useState<number | undefined>(p.init?.endYear);
+  /** 拓荒(都是默认 = undefined);「地形难走程度」展开没有 */
+  const [frontier, setFrontier] = useState<Frontier | undefined>(undefined);
+  const [terrOpen, setTerrOpen] = useState(false);
   const [over, setOver] = useState(false);
   const loading = useRef(0);
   /** 还没交出去的那张图(关掉弹窗、换一张时扔掉) */
@@ -154,7 +165,7 @@ export function NewWorldDialog(p: NewWorldDialogProps) {
     const final = mode === 'random' && n > 0 ? { ...params, seed: n } : params;
     given.current = true;
     if (mode !== 'image' && held.current) URL.revokeObjectURL(held.current.url);
-    p.onStart({ mode, params: final, picture: mode === 'image' ? picture : null, ...(years ? { endYear: years } : {}) });
+    p.onStart({ mode, params: final, picture: mode === 'image' ? picture : null, ...(years ? { endYear: years } : {}), ...(frontier ? { frontier } : {}) });
   };
   const next = (m: NewWorldMode = mode) => {
     setMode(m);
@@ -201,8 +212,8 @@ export function NewWorldDialog(p: NewWorldDialogProps) {
   const info =
     mode === 'random'
       ? p.phone
-        ? '进去以后这些都还能改，还能用笔改地形；点「创建世界」以后才定下来。'
-        : '进去以后，这些在左边「世界参数」里都还能改，还能用笔改地形；点「创建世界」以后才定下来。'
+        ? '进去以后这些都还能改，还能用笔改地形、在地图上点文明从哪里起源；点「创建世界」以后才定下来。'
+        : '进去以后，这些在左边「世界参数」里都还能改，还能用笔改地形、在地图上点文明从哪里起源；点「创建世界」以后才定下来。'
       : '进去以后先认出图里的海和陆地，再用笔修。这些参数在「参数和名字」那一步都还能改；点「创建世界」以后才定下来。';
 
   const cards = (
@@ -292,6 +303,69 @@ export function NewWorldDialog(p: NewWorldDialogProps) {
     </div>
   );
 
+  const terrN = terrainChangedCount(frontier);
+  const frontierGroup = (
+    <div className="nd-sec" data-group="frontier">
+      <div className="nd-lab">
+        拓荒
+        <small>越快，荒地越早有人住</small>
+      </div>
+      <div className="nd-grp">
+        <ParamRow s={SPREAD_SLIDER} value={SPREAD_SLIDER.pos(frontier?.spread ?? 1)} phone={p.phone} onChange={(v) => setFrontier((f) => withSpeed(f, 'spread', SPREAD_SLIDER.value(v)))} />
+        <ParamRow s={EXPAND_SLIDER} value={EXPAND_SLIDER.pos(frontier?.expand ?? 1)} phone={p.phone} onChange={(v) => setFrontier((f) => withSpeed(f, 'expand', EXPAND_SLIDER.value(v)))} />
+        <div className="nd-pr nd-go-row" role="button" tabIndex={0} aria-expanded={terrOpen} data-act="dlg-terrain" onClick={() => setTerrOpen((o) => !o)} onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), setTerrOpen((o) => !o))}>
+          <span className="nd-n w2">地形难走程度</span>
+          <span className="nd-go">
+            {terrOpen ? (
+              terrN > 0 && (
+                <span
+                  className="nd-lk"
+                  role="button"
+                  data-act="dlg-terrain-reset"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setFrontier((f) => withoutTerrain(f));
+                  }}
+                >
+                  恢复默认
+                </span>
+              )
+            ) : (
+              <span>{terrN ? `改过 ${terrN} 样` : '默认'}</span>
+            )}
+            <Icon name="chevron" size={13} className={`nd-chev${terrOpen ? ' up' : ''}`} />
+          </span>
+        </div>
+        {terrOpen &&
+          TERRAIN_SLIDERS.map(({ g, s }) => {
+            const v = terrainValue(frontier, g);
+            return <ParamRow key={g.key} s={s} sub value={s.pos(v)} phone={p.phone} changed={v !== g.def} onChange={(x) => setFrontier((f) => withTerrain(f, g, s.value(x)))} />;
+          })}
+      </div>
+      <p className="nd-foot">
+        {terrOpen && (
+          <>
+            <b>地形难走程度</b>：走同样远的路要花几倍的时间，森林算 1。调大了，人和国家都更难往那里去。冰原和大片沙漠本来就住不了人，调小了也只是走得过去，不会有人住下。
+            <br />
+          </>
+        )}
+        {p.phone ? (
+          <>
+            <b>民族扩散</b>：人往荒地走得多快，2× 大约第 1500 年住满。
+            <br />
+            <b>国家扩张</b>：国家并下周围部落地有多快。
+          </>
+        ) : (
+          <>
+            <b>民族扩散</b>：人往荒地走得多快。1× 是现在的样子，大约第 3000 年住满；2× 大约第 1500 年就住满了。
+            <br />
+            <b>国家扩张</b>：国家把周围没有国家的地并进来有多快。调快了，没有国家的部落地留得少。
+          </>
+        )}
+      </p>
+    </div>
+  );
+
   const paramsBody = (
     <>
       {mode === 'random' ? seedGroup : imageBox}
@@ -308,6 +382,7 @@ export function NewWorldDialog(p: NewWorldDialogProps) {
           </div>
         </div>
       ))}
+      {frontierGroup}
       <div className="nd-sec">
         <div className="nd-lab">
           历史
@@ -387,9 +462,20 @@ export function NewWorldDialog(p: NewWorldDialogProps) {
             <h2 id="nd-title">{title}</h2>
             <span className="nd-step">第 {step} 步，共 2 步</span>
           </div>
-          <p className="nd-sub">{sub}</p>
-          {step === 1 ? cards : paramsBody}
-          <div className="nd-ft">
+          {step === 1 ? (
+            <>
+              <p className="nd-sub">{sub}</p>
+              {cards}
+            </>
+          ) : (
+            <>
+              <p className="nd-sub fix">{sub}</p>
+              <div className="nd-hdl" />
+              <div className="nd-body">{paramsBody}</div>
+              <div className="nd-hdl" />
+            </>
+          )}
+          <div className={`nd-ft${step === 2 ? ' fix' : ''}`}>
             <button className="nd-btn b2" data-act="dlg-cancel" onClick={p.onCancel}>
               取消
             </button>

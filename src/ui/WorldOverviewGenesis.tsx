@@ -1,12 +1,15 @@
 /**
- * 世界概览的"世界设定"页:这个世界创建时定下的根 —— 种子、六项世界参数、改过的地形、地名风格、推演年数,都只能看,不能再改
+ * 世界概览的"世界设定"页:这个世界创建时定下的根 —— 种子、六项世界参数、改过的地形、地名风格、推演年数、
+ * 拓荒(民族扩散、国家扩张、地形难走程度)、文明起源,都只能看,不能再改
  * (一改几千年的历史就要整个重来)。想换个样子:"以它为底稿新建…"(回到新建这一步,设定照原样带过去,存成另一个世界)。
  * 右栏最上面是随时能改的「纪年」(EraSettings.tsx;窄屏单独一节放在最上面),下面还有"回放世界形成"。
  *
  * 世界参数的滑条(SLIDERS、ParamSlider)、推演年数的开关和滑条(YearsRows)在这里定义,新建世界(studio/Studio.tsx)用。
  */
 import { useEffect, useState } from 'react';
-import type { WorldParams } from '../gen/world';
+import type { World, WorldParams } from '../gen/world';
+import { speedText, terrainBrief as terrainCostBrief } from '../gen/civ/frontier';
+import { originSpots } from './studio/origins';
 import type { Civ } from '../gen/civ/types';
 import { END_YEAR_DEFAULT, END_YEAR_MAX, END_YEAR_STEP, cleanEndYear, endYearOf, type TerrainKind } from '../gen/edits';
 import { setEndYear, useEdits } from './editsStore';
@@ -28,6 +31,8 @@ interface Slider {
   hint: string;
   /** 拖滑条时数字后面再加一句(只在新建世界的滑条上;世界设定页只写数字) */
   more?: (v: number) => string | null;
+  /** 拖到的位置吸到哪(只取几档的滑条;不给 = 不吸) */
+  snap?: (v: number) => number;
 }
 
 export const SLIDERS: Slider[] = [
@@ -101,13 +106,13 @@ export function terrainBrief(ops: readonly { kind: TerrainKind }[], sketch?: { r
 }
 
 /** 一项世界参数的滑条:拖动时只改数字,松手(或键盘改完)才算数 */
-export function ParamSlider({ s, value, onCommit, disabled }: { s: SliderLike; value: number; onCommit: (v: number) => void; disabled?: boolean }) {
+export function ParamSlider({ s, value, onCommit, disabled, changed }: { s: SliderLike; value: number; onCommit: (v: number) => void; disabled?: boolean; changed?: boolean }) {
   const [v, setV] = useState(value);
   useEffect(() => setV(value), [value]);
   const pct = ((v - s.min) / (s.max - s.min)) * 100;
   const more = s.more?.(v);
   return (
-    <label className="param-slider" title={s.hint} data-param={s.key}>
+    <label className={`param-slider${changed ? ' chg' : ''}`} title={s.hint} data-param={s.key}>
       <span className="param-slider-row">
         <span>{s.name}</span>
         <b>{more ? `${s.fmt(v)}，${more}` : s.fmt(v)}</b>
@@ -120,7 +125,7 @@ export function ParamSlider({ s, value, onCommit, disabled }: { s: SliderLike; v
         value={v}
         disabled={disabled}
         style={{ '--fill': `${pct}%` } as React.CSSProperties}
-        onChange={(e) => setV(Number(e.target.value))}
+        onChange={(e) => setV(s.snap ? s.snap(Number(e.target.value)) : Number(e.target.value))}
         onPointerUp={() => v !== value && onCommit(v)}
         onKeyUp={() => v !== value && onCommit(v)}
       />
@@ -152,6 +157,8 @@ export function YearsRows({ disabled }: { disabled?: boolean }) {
 
 export interface SettingsProps {
   params: WorldParams;
+  /** 这颗星球(文明起源落在哪一州要看它) */
+  world: World | null;
   civ: Civ | null;
   /** 回放世界形成:能不能点、正在放 */
   replay: { on: boolean; ready: boolean };
@@ -160,6 +167,17 @@ export interface SettingsProps {
   onReplay: () => void;
   /** 以它为底稿新建 */
   onDraftFrom: () => void;
+}
+
+/** 文明起源:"自己选的 3 处：甲、乙、丙"(住不了人、推演时跳过的不列);没选 = "自动" */
+function originsBrief(pts: readonly number[] | undefined, world: World | null, civ: Civ | null): string {
+  if (!pts?.length) return '自动';
+  const n = pts.length >> 1;
+  if (!world || !civ) return `自己选的 ${n} 处`;
+  const names = originSpots(world, civ, pts)
+    .filter((s) => s.ok)
+    .map((s) => s.name);
+  return names.length ? `自己选的 ${names.length} 处：${names.join('、')}` : `自己选的 ${n} 处都住不了人，照自动推演`;
 }
 
 export function SettingsPage(p: SettingsProps) {
@@ -203,6 +221,22 @@ export function SettingsPage(p: SettingsProps) {
           <div className="ov-kv-row" data-param="end-year">
             <span>推演年数</span>
             <b>{end} 年</b>
+          </div>
+          <div className="ov-kv-row" data-param="spread">
+            <span>民族扩散</span>
+            <b>{speedText(edits.frontier?.spread ?? 1)}</b>
+          </div>
+          <div className="ov-kv-row" data-param="expand">
+            <span>国家扩张</span>
+            <b>{speedText(edits.frontier?.expand ?? 1)}</b>
+          </div>
+          <div className="ov-kv-row" data-param="terrain-cost">
+            <span>地形难走程度</span>
+            <b>{terrainCostBrief(edits.frontier)}</b>
+          </div>
+          <div className="ov-kv-row" data-param="origins">
+            <span>文明起源</span>
+            <b>{originsBrief(edits.origins?.pts, p.world, p.civ)}</b>
           </div>
         </div>
       </section>

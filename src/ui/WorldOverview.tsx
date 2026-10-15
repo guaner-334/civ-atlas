@@ -163,6 +163,7 @@ function OverviewPage(p: WorldOverviewProps & { tab: OverviewTab }) {
       return (
         <SettingsPage
           params={p.params}
+          world={p.data?.world ?? null}
           civ={p.civ}
           generating={p.generating || !p.data}
           replay={p.replay}

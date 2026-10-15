@@ -362,10 +362,11 @@ function draftSig(params: WorldParams, edits: WorldEdits, title?: string): strin
   return JSON.stringify([worldKey(params), edits, title ?? '']);
 }
 
-/** 新建时只定了推演年数的修改(3000 = 什么都没有) */
-function yearsEdits(endYear: number | undefined): WorldEdits {
+/** 新建时只定了推演年数(3000 = 什么都没有)、拓荒(默认 = 什么都没有)的修改 */
+function yearsEdits(endYear: number | undefined, frontier?: Frontier): WorldEdits {
   const y = cleanEndYear(endYear);
-  return y ? { ...EMPTY_EDITS, endYear: y } : EMPTY_EDITS;
+  const f = cleanFrontier(frontier);
+  return y || f ? { ...EMPTY_EDITS, ...(y ? { endYear: y } : {}), ...(f ? { frontier: f } : {}) } : EMPTY_EDITS;
 }
 
 /** 一个新建中的世界(还没动过) */
@@ -1759,7 +1760,7 @@ export function App() {
    */
   const startFromDialog = (s: NewWorldStart) => {
     setNewDlg(null);
-    const d = draftTarget(s.params, null, yearsEdits(s.endYear));
+    const d = draftTarget(s.params, null, yearsEdits(s.endYear, s.frontier));
     if (s.mode === 'random') return openTarget(d);
     openTarget({ ...d, mode: 'image' });
     if (s.picture) beginImport(s.picture);

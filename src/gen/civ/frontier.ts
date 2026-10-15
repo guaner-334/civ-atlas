@@ -14,6 +14,8 @@
 import { Biome } from '../biomes';
 import { fpow } from './rand';
 import { TERRAIN_H, TERRAIN_W } from '../terrainEdits';
+import type { World } from '../world';
+import type { Regions } from './types';
 
 export type TerrainGroup = 'grass' | 'forest' | 'rainforest' | 'wetland' | 'desert' | 'taiga' | 'tundra' | 'mountain';
 
@@ -151,9 +153,47 @@ export function filledYear(spread: number): number {
   return Math.round(3000 / spread / 100) * 100;
 }
 
-/** 显示一个地形难走程度的值:10 以下一位小数(去掉 .0),以上取整 */
+/** 滑条上显示的地形难走程度:10 以下一位小数("1.0""2.6"),以上取整("11") */
 export function terrainText(v: number): string {
+  return v >= 10 ? `${Math.round(v)}` : v.toFixed(1);
+}
+
+/** 一句话里的地形难走程度:去掉 .0("3""2.6") */
+function terrainShort(v: number): string {
   return v >= 10 ? `${Math.round(v)}` : `${Math.round(v * 10) / 10}`;
+}
+
+/** 滑条上显示的快慢倍数:"1.50×" */
+export function speedText(v: number): string {
+  return `${v.toFixed(2)}×`;
+}
+
+/** 一句话里的快慢倍数:"1.5×""2×" */
+function speedShort(v: number): string {
+  return `${Math.round(v * 100) / 100}×`;
+}
+
+/** 改过几样地形 */
+export function terrainChangedCount(f: Frontier | undefined): number {
+  return f?.terrain ? Object.keys(f.terrain).length : 0;
+}
+
+/** 改过的地形难走程度:"雨林 3，沙漠 6，其余默认";都没改 = "默认" */
+export function terrainBrief(f: Frontier | undefined): string {
+  const ch = TERRAIN_GROUPS.filter((g) => f?.terrain?.[g.key] !== undefined);
+  if (!ch.length) return '默认';
+  const s = ch.map((g) => `${g.name} ${terrainShort(terrainValue(f, g))}`).join('，');
+  return ch.length < TERRAIN_GROUPS.length ? `${s}，其余默认` : s;
+}
+
+/** 拓荒改了哪些(确认框那一行):"民族 1.5×，国家 2×，地形改过 2 样";都没改 = "" */
+export function frontierBrief(f: Frontier | undefined): string {
+  const out: string[] = [];
+  if (f?.spread !== undefined) out.push(`民族 ${speedShort(f.spread)}`);
+  if (f?.expand !== undefined) out.push(`国家 ${speedShort(f.expand)}`);
+  const n = terrainChangedCount(f);
+  if (n) out.push(`地形改过 ${n} 样`);
+  return out.join('，');
 }
 
 // ---------------------------------------------------------------------------
@@ -194,6 +234,30 @@ export function cleanOrigins(x: unknown): Origins | undefined {
   }
   if (!pts.length) return undefined;
   return o.only === true ? { pts, only: true } : { pts };
+}
+
+/** 离世界坐标 (x, y) 最近的地块(左右接着的世界按近的那一边算) */
+export function nearestCell(world: World, x: number, y: number): number {
+  const { x: X, y: Y, n } = world.mesh;
+  const W = world.width;
+  let best = -1;
+  let bd = Infinity;
+  for (let c = 0; c < n; c++) {
+    let dx = Math.abs(X[c] - x) % W;
+    if (dx > W / 2) dx = W - dx;
+    const d = dx * dx + (Y[c] - y) ** 2;
+    if (d < bd) {
+      bd = d;
+      best = c;
+    }
+  }
+  return best;
+}
+
+/** 起源的点落在哪一州:落在水上 = −1(住不住得了人另看:州治所的宜居分够不够 HABITABLE_SUIT)。界面和推演共用 */
+export function originRegion(world: World, regions: Regions, x: number, y: number): number {
+  const c = nearestCell(world, x, y);
+  return c >= 0 && world.water[c] === 0 ? regions.of[c] : -1;
 }
 
 /** 两份起源设定一样(都清理过;undefined = 自动) */
