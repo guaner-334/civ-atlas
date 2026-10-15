@@ -405,8 +405,8 @@ export const PIN_W = 24;
 export const PIN_W_SEL = 30;
 export const PIN_W_SMALL = 20;
 
-/** 量字宽:measure 给了就用它(屏幕上用画布量),不给按每个字 1 em 估 */
-export type Measure = (text: string, size: number) => number;
+/** 量字宽:measure 给了就用它(屏幕上用画布量),不给按每个字 1 em 估;look = 无色标记的名字,按地图的字体量 */
+export type Measure = (text: string, size: number, look?: MapInk | null) => number;
 const roughMeasure: Measure = (t, size) => [...t].reduce((s, ch) => s + (ch.charCodeAt(0) < 0x2e80 ? 0.6 : 1), 0) * size;
 
 /** 平面主图:把画布上的 x 挪整数圈,落到看得见的范围中间附近 */
@@ -694,7 +694,7 @@ export function layoutMarks(
     const lp = f.pt(sh.label[0], sh.label[1]);
     const ax = (lp?.[0] ?? 0) + base;
     const ay = lp?.[1] ?? 0;
-    const row: AreaName = { text, glyphs: null, x: ax, y: ay, size, w: measure(text, size), ink, look: plain ? look : null, selected: !!m.selected };
+    const row: AreaName = { text, glyphs: null, x: ax, y: ay, size, w: measure(text, size, plain ? look : null), ink, look: plain ? look : null, selected: !!m.selected };
     keepIn(row);
     const step = size * LINE + 6;
     for (let k = 1; k <= 8 && taken.some((t) => overlap(rowBox(row), t)); k++) {
@@ -732,7 +732,7 @@ export function layoutMarks(
     const pin: PlacedPin = { id: p.m.id, x: p.x, y: p.y, w, hex, alpha: p.m.dim ? DIM_ALPHA : 1, label: null, plain };
     if (withName) {
       const size = nameSize(p.m);
-      const tw = measure(p.m.title, size);
+      const tw = measure(p.m.title, size, plain ? look : null);
       const th = size * LINE;
       // 图钉:名字的上沿对着图钉的圆头;无色:名字的正中对着小圆圈
       const top = plain ? p.y - th / 2 : p.y - h + (p.m.selected ? 5 : 4);
@@ -889,14 +889,14 @@ export function drawPin(ctx: Ctx, x: number, y: number, hex: string, w: number, 
 
 const font = (size: number, weight = 600) => `${weight} ${size}px ${MARK_FONT}`;
 
-/** 量字宽(用画布) */
+/** 量字宽(用画布;无色标记的名字用地图的字体,和画的时候一样) */
 export function canvasMeasure(ctx: Ctx): Measure {
   const cache = new Map<string, number>();
-  return (text, size) => {
-    const k = `${size}|${text}`;
+  return (text, size, look) => {
+    const k = `${look ? `${look.family}|${look.weight}` : ''}|${size}|${text}`;
     let w = cache.get(k);
     if (w === undefined) {
-      ctx.font = font(size);
+      ctx.font = look ? fontCss(look.family, look.weight, size) : font(size);
       w = ctx.measureText(text).width;
       cache.set(k, w);
     }

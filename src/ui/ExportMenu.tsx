@@ -317,9 +317,6 @@ export function ExportMenu({ data, civ: shown, plain, style, layer, icon }: Expo
     const era = getEdits().era;
     const fileYear = yearFull(yi, era).replace(/ /g, '');
     const markItems = withMarks && civ && ok ? markItemsAt(civ, world, marks, yi) : [];
-    // 无色标记用地图的字体写:先把字体加载好
-    const plain = withMarks ? plainMarkChars(marks) : '';
-    if (plain) await ensureFonts(markStyle(style), plain, 15000);
     // 正选着的作者人物(填写中的不算)
     const sel = getSelection().sel;
     const who = sel?.kind === 'character' ? getEdits().characters?.find((c) => c.id === sel.id) : undefined;
@@ -335,6 +332,9 @@ export function ExportMenu({ data, civ: shown, plain, style, layer, icon }: Expo
       globe: '地球仪这一面',
     };
     setStatus({ kind: 'busy', text: `正在导出${what[job]}` });
+    // 无色标记用地图的字体写:画地图、地球仪的先把字体加载好(先显示在导出,等字体时不能再点一次)
+    const plain = markItems.length && (job === 'map' || job === 'mapjpg' || job === 'globe') ? plainMarkChars(marks) : '';
+    if (plain) await ensureFonts(markStyle(style), plain, 15000);
     await nextFrame();
     const t0 = performance.now();
     try {

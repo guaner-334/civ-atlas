@@ -30,7 +30,7 @@ import { redoLastEdit, undoLastEdit } from '../src/ui/undo';
 import { clearToast, getToast } from '../src/ui/toastStore';
 import { clearSelection, getSelection, setSelection } from '../src/ui/civView';
 import { cancelDraft, draftProblem, editMarkDraft, finishDraft, getMarkUi, newMarkDraft, patchDraft, resetMarkUi, startPlacing, toggleDraftRegion, togglePlacing, type MarkDraft } from '../src/ui/markStore';
-import { CLUSTER_PX, DIM_ALPHA, NAME_ZOOM, hitMark, layoutMarks, markAreaShape, type MarkFrame, type MarkItem } from '../src/render/marks';
+import { CLUSTER_PX, DIM_ALPHA, MAP_INK, NAME_ZOOM, hitMark, layoutMarks, markAreaShape, type MarkFrame, type MarkItem } from '../src/render/marks';
 import { markEvents, markOwners, markPlaceText, markShapeOf, markSpot, regionsText, spotText } from '../src/ui/markInfo';
 import { searchCiv, searchMarks } from '../src/ui/searchIndex';
 import { markFocus } from '../src/ui/flyTo';
@@ -539,6 +539,16 @@ describe('作者标记 · 地图上的摆放', () => {
     expect(plain(undefined, { ...frame(NAME_ZOOM * 3), textK: NAME_ZOOM })).toBe(plain(undefined));
     const lay = layoutMarks([pin(1, 500, 400, { plain: true, color: 'none' })], f);
     expect(lay.pins[0].plain).toBe(true);
+    // 量名字宽:无色的按地图的字体量(和画的时候一样),有颜色的按标记的字体
+    const looks: (string | null)[] = [];
+    const measure = (t: string, size: number, look?: { family: string } | null) => (looks.push(look?.family ?? null), t.length * size * (look ? 1.5 : 1));
+    const w = (over: Partial<MarkItem>) => layoutMarks([pin(1, 500, 400, over)], f, { measure, style: 'realistic' }).pins[0].label!;
+    const a = w({ plain: true, color: 'none' });
+    const b = w({});
+    expect(a.w).toBe(a.text.length * a.size * 1.5);
+    expect(b.w).toBe(b.text.length * b.size);
+    expect(looks[0]).toBe(MAP_INK.realistic.family);
+    expect(looks[1]).toBeNull();
   });
 
   it('几个州的名字顺着形状写:长条的州名字顺着长的方向;放不下才横着写一行', () => {
