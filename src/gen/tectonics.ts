@@ -24,6 +24,12 @@
  * 6. 抬升场 = 很低的基础抬升(大部分陆地是平原)+ 零星的丘陵区 + 汇聚带上窄窄的山脉 + 古老山系(细长的山脊噪声),
  *    交给侵蚀去"雕刻";高原底座(米)单独给出:侵蚀之后直接加上(平坦的高原,不被切成山地)
  *
+ * 作者可调的大陆参数(都有"原样"的默认值,默认时每一步的算式和结果都不变):
+ *   大陆数量 = 挑几个大陆核心;聚拢 = 后面的核心和长出去的板块离第一块越近越好(大的时候大陆一开始就允许相连);
+ *   破碎度 = 板块图的中小尺度扭曲、海岸噪声、裂谷 / 内海、大陆架大岛、微大陆和群岛区的多少一起放大缩小;
+ *   板块硬度 = 越硬丘陵、古老山系、碰撞带山脉和高原越少越窄(越软越多越宽);
+ *   南北偏向 = 偏向那一半球的板块更容易当大陆,陆地场再按纬度加一点,极地大陆放到那一极
+ *
  * 所有随机数来自 subSeed(seed, '…'),超越函数的结果舍入到 24 位(round24),任何电脑上逐位一致。
  */
 import { blurField, type Mesh } from './mesh';
@@ -37,6 +43,7 @@ export interface TectonicParams {
   plates: number;
   landFraction: number;
   mountains: number;
+  /** 以下几样不给 = 默认值(和没有这几样之前生成的一模一样),含义见 world.ts 的 WorldParams */
   continents?: number;
   gather?: number;
   rugged?: number;
@@ -491,9 +498,10 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
   const K = Math.max(3, Math.round(p.plates));
   // 细窄的带(海沟、岛弧)至少一个地块宽,粗网格上不至于消失
   const thin = (w: number) => Math.max(w, 0.9 * spacing);
+  // 破碎度:细碎的一层按它放大缩小,大尺度的一层只变一半;板块硬度:越硬越平(soft 乘在丘陵、山脉上,山脉宽窄按它的平方根)
   const rg = p.rugged ?? 1;
   const rgA = (1 + rg) / 2;
-  const northB = p.north ?? 0;
+  const north = p.north ?? 0;
   const soft = 1 / (p.hardness ?? 1);
   const softW = round24(Math.sqrt(soft));
 
@@ -601,7 +609,7 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
   // 极地大陆放不放、放哪一极:按种子另取(不动上面这串随机数)
   const polarSeed = subSeed(p.seed, 'polar-continent');
   let pole = keyed(polarSeed, 0) < POLAR_CONTINENT_P ? (keyed(polarSeed, 1) < 0.5 ? 1 : -1) : 0;
-  const north = p.north ?? 0;
+  // 南北偏向够大时,极地大陆(有的话)放到偏向的那一极
   if (pole !== 0 && Math.abs(north) >= 0.5) pole = north > 0 ? 1 : -1;
   const pick = pickContinents(mesh, plate, plateCount, area, cen, p.landFraction, rng, pole, {
     continents: p.continents ?? 0,
@@ -721,7 +729,8 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
     // 大陆架上的大岛(像不列颠、斯里兰卡、塔斯马尼亚):大陆外缘浅海里,中等尺度的噪声冒出水面
     const shelfZ = smoothstep(-0.8, -0.4, b) * (1 - smoothstep(-0.15, 0.15, b));
     const sIsle = shelfZ > 0 ? shelfZ * smoothstep(0.2, 0.55, shelfIsle.at(i, fc, 2.6, -1.7, 4.4)) : 0;
-    if (northB !== 0) L[i] = northB * 0.22 * clamp(geo.latitude(i) / 45, -1, 1);
+    // 南北偏向:偏北时北半球的陆地场整体抬一点(纬度 45° 以上加满)
+    if (north !== 0) L[i] = north * 0.22 * clamp(geo.latitude(i) / 45, -1, 1);
     L[i] += 0.62 * b + 0.4 * coast + 0.16 * mtn + 1.1 * arc + 0.6 * isl + 0.55 * rg * sIsle - 1.5 * rg * rift - 0.9 * rg * basin;
   }
 

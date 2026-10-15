@@ -36,7 +36,8 @@ export interface WorldParams {
   mountains: number;
   temperature: number;
   rainfall: number;
-  /** 大陆几块(0 = 自动,按种子 2~5 块) */
+  // ---- 大陆参数(新建时可调;默认值 = 加这几样之前的生成方式,老世界、老链接没有这几样时按默认值生成) ----
+  /** 主要大陆几块(0 = 自动,按种子 2~5 块;另外的大岛、群岛照旧) */
   continents: number;
   /** 大陆聚在一起的程度(0 = 彼此尽量远,1 = 挤在一起,留出大片大洋) */
   gather: number;

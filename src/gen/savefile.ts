@@ -292,10 +292,15 @@ const PARAM_NAME: Record<keyof WorldParams, string> = {
 };
 
 const PARAM_KEYS = Object.keys(DEFAULT_PARAMS) as (keyof WorldParams)[];
+/** 后来加的参数(大陆参数):等于默认值时世界身份里不写,加之前存下的世界照样按身份找得到 */
+const LATER_KEYS = new Set<keyof WorldParams>(['continents', 'gather', 'rugged', 'hardness', 'north']);
+const written = (params: Partial<WorldParams>, k: keyof WorldParams) => !LATER_KEYS.has(k) || (params[k] ?? DEFAULT_PARAMS[k]) !== DEFAULT_PARAMS[k];
 
-/** 一个世界的身份(种子 + 全部参数,固定顺序):浏览器里按它存、按它找 */
+/** 一个世界的身份(种子 + 全部参数,固定顺序;后来加的参数是默认值时不写):浏览器里按它存、按它找 */
 export function worldKey(params: WorldParams): string {
-  return PARAM_KEYS.map((k) => `${k}=${params[k] ?? DEFAULT_PARAMS[k]}`).join('&');
+  return PARAM_KEYS.filter((k) => written(params, k))
+    .map((k) => `${k}=${params[k] ?? DEFAULT_PARAMS[k]}`)
+    .join('&');
 }
 
 /** 改了几处:改名条数 + 干预条数 + 地形修改处数 + 草图(画了算一处)+ 地形大事件数 + 作者标记个数 + 改过的旗面数 + 作者的人物个数 + 地名风格、推演年数、纪年(各算一处)*/
