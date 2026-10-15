@@ -60,7 +60,7 @@ describe('预设', () => {
     expect(m.presetSummary({ params: m.strip(DEFAULT_PARAMS) }, 3)).toBe('');
   });
 
-  it('存的东西坏了:跳过坏的条目、缺的参数按默认、选中的不在了回到默认', async () => {
+  it('存的东西坏了:跳过坏的条目、缺的参数按默认、超出范围的调回来、选中的不在了回到默认', async () => {
     store[KEY] = JSON.stringify({
       list: [{ id: 'a', name: '好的', params: { plates: 40, cells: 'x' } }, { name: '没有 id' }, null],
       last: null,
@@ -71,7 +71,18 @@ describe('预设', () => {
     expect(s.list).toHaveLength(1);
     expect(s.list[0].params).toEqual({ ...m.strip(DEFAULT_PARAMS), plates: 40 });
     expect(s.chosen).toBe('default');
+    store[KEY] = JSON.stringify({ list: [{ id: 'x', name: '改坏的', params: { cells: 1e9, hardness: 0, plates: -5 } }] });
+    expect((await fresh()).getPresets().list[0].params).toMatchObject({ cells: 200000, hardness: 0.3, plates: 2 });
     store[KEY] = '{坏了';
     expect((await fresh()).getPresets()).toEqual({ list: [], last: null, chosen: 'default' });
+  });
+});
+
+describe('大陆块数的上限', () => {
+  it('板块、陆地够多时 1–6 都能选;板块太少时少几块', async () => {
+    const { continentCap } = await import('../src/gen/tectonics');
+    expect(continentCap(30, 0.33)).toBeGreaterThanOrEqual(6);
+    expect(continentCap(8, 0.33)).toBe(2);
+    expect(continentCap(15, 0.12)).toBe(3);
   });
 });

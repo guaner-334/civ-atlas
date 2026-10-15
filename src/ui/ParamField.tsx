@@ -10,6 +10,7 @@
  * 另有几样大家共用的零件:滑条的填色(南北偏向从正中往两边填)、大陆数量的分段按钮(自动 / 1–6)、大陆五样的默认值。
  */
 import { useEffect, useRef, useState } from 'react';
+import { continentCap } from '../gen/tectonics';
 import { DEFAULT_PARAMS, type WorldParams } from '../gen/world';
 import type { SliderLike } from './WorldOverviewGenesis';
 import './params.css';
@@ -196,17 +197,22 @@ export function rangeFill(s: SliderLike, v: number): React.CSSProperties {
 export const CONTINENT_CHOICES = [0, 1, 2, 3, 4, 5, 6];
 
 /** 大陆数量:自动 / 1–6 块(分段按钮) */
-export function ContinentSeg({ value, onChange, disabled }: { value: number; onChange: (n: number) => void; disabled?: boolean }) {
+export function ContinentSeg({ value, onChange, disabled, plates, land }: { value: number; onChange: (n: number) => void; disabled?: boolean; plates: number; land: number }) {
+  // 板块或陆地太少时分不出那么多块:多出来的按钮不能点,选着的按实际能长出的块数亮
+  const cap = continentCap(plates, land);
+  const on = value > 0 ? Math.min(value, cap) : 0;
+  const tip = `${plates} 个板块、陆地 ${Math.round(land * 100)}% 时最多分出 ${cap} 块大陆`;
   return (
     <span className="seg-n" role="radiogroup" aria-label="大陆数量">
       {CONTINENT_CHOICES.map((n) => (
         <button
           key={n}
-          className={`${n === 0 ? 'w' : ''}${value === n ? ' on' : ''}`}
+          className={`${n === 0 ? 'w' : ''}${on === n ? ' on' : ''}`}
           role="radio"
-          aria-checked={value === n}
+          aria-checked={on === n}
           data-cont={n}
-          disabled={disabled}
+          data-tip={n > cap ? tip : undefined}
+          disabled={disabled || n > cap}
           onClick={() => onChange(n)}
         >
           {n === 0 ? '自动' : n}

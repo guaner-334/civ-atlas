@@ -192,7 +192,8 @@ export function NewWorldDialog(p: NewWorldDialogProps) {
   const start = () => {
     if (!canStart) return;
     const n = Math.floor(Number(seedText));
-    const final = mode === 'random' && n > 0 ? { ...params, seed: n } : params;
+    // 照手绘图:海岸照图,大陆一组里只露出板块硬度;预设带来的其余几样不显示,也不用
+    const final = mode === 'random' ? (n > 0 ? { ...params, seed: n } : params) : { ...params, ...CONT_RESET, hardness: params.hardness };
     given.current = true;
     if (mode !== 'image' && held.current) URL.revokeObjectURL(held.current.url);
     p.onStart({ mode, params: final, picture: mode === 'image' ? picture : null, ...(years ? { endYear: years } : {}) });
@@ -368,7 +369,7 @@ export function NewWorldDialog(p: NewWorldDialogProps) {
           <>
             <div className="nd-pr" data-param="continents">
               <span className="nd-n">大陆数量</span>
-              <ContinentSeg value={params.continents} onChange={setKey('continents')} />
+              <ContinentSeg value={params.continents} onChange={setKey('continents')} plates={params.plates} land={params.landFraction} />
             </div>
             {CONT_SLIDERS.map((x) => row(x.key))}
           </>

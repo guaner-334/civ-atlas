@@ -169,6 +169,11 @@ function shuffle<T>(arr: T[], rng: () => number): T[] {
 const gauss = (rng: () => number) => (rng() + rng() + rng() - 1.5) * 2;
 
 /** 各块大陆的目标大小(相对值,第一块最大):大小悬殊,像地球的七大洲(最大的约是最小的五六倍) */
+/** 指定大陆块数时最多能长出几块(和下面定块数时的上限一样):板块太少、陆地太少时分不出那么多块 */
+export function continentCap(plates: number, landFraction: number): number {
+  return Math.max(1, Math.min(Math.floor(plates / 3), Math.floor((plates * clamp(landFraction * 1.3, 0.08, 0.92)) / 0.7)));
+}
+
 const CONTINENT_WEIGHTS = [1, 0.62, 0.44, 0.33, 0.25, 0.2, 0.17, 0.15];
 
 /**

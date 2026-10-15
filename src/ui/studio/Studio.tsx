@@ -349,6 +349,7 @@ export function Studio(p: StudioProps) {
     prevFlat.current = lastFlatProjection();
     // 设过「新建时的默认」:经纬网照它
     const nv = getNewView();
+    const prevGrat = { on: getGraticule(), step: getGraticuleStep() };
     if (nv && !image) {
       setGraticule(nv.grat);
       setGraticuleStep(nv.step);
@@ -364,6 +365,11 @@ export function Studio(p: StudioProps) {
       // 正在认的、留着的那张图只属于这一次新建
       dropSource();
       if (!created.current && prevProj.current !== 'equirect' && getProjection() === 'equirect') setProjection(prevProj.current, prevFlat.current);
+      // 没创建就离开:经纬网也回到进来之前
+      if (!created.current && nv && !image) {
+        setGraticule(prevGrat.on);
+        setGraticuleStep(prevGrat.step);
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -943,7 +949,7 @@ export function Studio(p: StudioProps) {
           <div className="nw-sub">大陆</div>
           <div className="sb-row static nw-cont" data-param="continents">
             <span className="sb-row-main">数量</span>
-            <ContinentSeg value={p.params.continents} onChange={(n) => p.onParams({ ...p.params, continents: n })} />
+            <ContinentSeg value={p.params.continents} onChange={(n) => p.onParams({ ...p.params, continents: n })} plates={p.params.plates} land={p.params.landFraction} />
           </div>
           {CONT_SLIDERS.map(slider)}
           <div className="nw-sub">气候</div>

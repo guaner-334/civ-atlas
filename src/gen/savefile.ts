@@ -261,7 +261,7 @@ const KEY_MAX = 64;
 const MAX_FLAGS = 5000;
 
 /** 参数的合理范围:存档里超出的调回范围内(比界面滑条宽;再大生成会慢到卡死) */
-const PARAM_RANGE: Record<keyof WorldParams, [number, number]> = {
+export const PARAM_RANGE: Record<keyof WorldParams, [number, number]> = {
   seed: [-(2 ** 53), 2 ** 53],
   cells: [2000, 200000],
   landFraction: [0.02, 0.95],

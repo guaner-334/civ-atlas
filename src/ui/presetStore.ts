@@ -9,6 +9,7 @@
  * 都存在这个浏览器里(和存档一样换电脑带不走);浏览器不让存(隐私模式)就只在这次打开的页面里有效。
  */
 import { useSyncExternalStore } from 'react';
+import { PARAM_RANGE } from '../gen/savefile';
 import { DEFAULT_PARAMS, type WorldParams } from '../gen/world';
 import { contBrief } from './WorldOverviewGenesis';
 
@@ -51,7 +52,9 @@ function cleanParams(x: unknown): PresetParams {
   delete out.seed;
   for (const k of Object.keys(out)) {
     const v = o[k];
-    if (typeof v === 'number' && Number.isFinite(v)) out[k] = v;
+    // 和读存档一样:超出合理范围的调回范围内(浏览器里存的东西可能被改坏)
+    const [lo, hi] = PARAM_RANGE[k as keyof WorldParams];
+    if (typeof v === 'number' && Number.isFinite(v)) out[k] = Math.min(hi, Math.max(lo, v));
   }
   return out as unknown as PresetParams;
 }
