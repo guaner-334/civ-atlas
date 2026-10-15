@@ -21,8 +21,8 @@ import { BETA_SITE, OLD_SITE, latestUrl } from './oldSite';
 export type { NewsItem };
 
 export const NEWS_FILE = 'whats-new.json';
-/** 卡片里最多列几条,多出来的写「还有 N 项」 */
-export const NEWS_MAX = 6;
+/** 卡片里最多列几条,多出来的写「还有 N 项」(列得多了卡片里面自己滚) */
+export const NEWS_MAX = 20;
 
 declare const __BUILD_DAY__: string | undefined;
 /** 这份网页构建那天(北京时间,2026-10-11);在 Node 里直接跑(单测以外的脚本)时没有,当作今天 */
