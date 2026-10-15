@@ -8,6 +8,8 @@
  *   npx tsx scripts/perf-map.ts --query=detail=sync            网址另加参数(detail=sync:细节层按原来的办法当场画完,对比用)
  *   --runs=3(放大那一组重复几轮,默认 3)  --out=snaps/perf.json(逐次原始记录)  --headed(开窗口跑)
  *   --case=4倍降速                                             只跑名字里带这几个字的情况
+ *   npx tsx scripts/perf-map.ts curved                         弯边投影(罗宾森、摩尔威德):拖动转中央经线,停下再精画
+ *   --profile=snaps/prof                                       每次操作另录一份 CPU profile,摘要里打印最耗时的几个函数
  *
  * 每种情况开一个新页面,世界画好后依次:1 倍拖动 → 放大到 4 倍(第 1 轮 = 这一页第一次放大,之后几轮是第二、三次)→
  * 4 倍短拖 → 4 倍长拖(跨过画好的那一块)→(政区)放回 1 倍点一个国家。
@@ -40,6 +42,8 @@ interface Case {
   layer: 'political' | 'terrain' | 'realistic';
   civ?: string;
   cells?: number;
+  /** 投影(不给 = 等距圆柱) */
+  proj?: string;
 }
 
 const DESKTOP = { w: 1440, h: 900, dpr: 2, cpu: 1, touch: false };
@@ -63,9 +67,15 @@ const PRESETS: Record<string, Case[]> = {
     { id: '电脑-72k-7', ...DESKTOP, seed: 7, layer: 'political', cells: 72000 },
     { id: '电脑-20万-7', ...DESKTOP, seed: 7, layer: 'political', cells: 200000 },
   ],
+  curved: [
+    { id: '电脑-罗宾森-7', ...DESKTOP, seed: 7, layer: 'political', proj: 'robinson' },
+    { id: '电脑-摩尔威德-7', ...DESKTOP, seed: 7, layer: 'political', proj: 'mollweide' },
+    { id: '电脑-罗宾森-地形-7', ...DESKTOP, seed: 7, layer: 'terrain', proj: 'robinson' },
+    { id: '手机4倍降速-罗宾森-7', ...PHONE, cpu: 4, seed: 7, layer: 'political', proj: 'robinson' },
+  ],
 };
 PRESETS.default = [...PRESETS.desktop, ...PRESETS.mobile];
-PRESETS.all = [...PRESETS.desktop, ...PRESETS.mobile, ...PRESETS.extra];
+PRESETS.all = [...PRESETS.desktop, ...PRESETS.mobile, ...PRESETS.extra, ...PRESETS.curved];
 
 const args = process.argv.slice(2);
 const opt = (k: string) => args.find((a) => a.startsWith(`--${k}=`))?.slice(k.length + 3);
@@ -77,6 +87,7 @@ const RUNS = Number(opt('runs') ?? 3);
 const EXTRA_QUERY = opt('query') ?? '';
 const OUT = opt('out');
 const HEADED = args.includes('--headed');
+const PROFILE = opt('profile');
 
 /**
  * 页面里的记录器(字符串:tsx 编译出的函数带 __name 包装,页面里没有)。
@@ -85,7 +96,7 @@ const HEADED = args.includes('--headed');
 const RECORDER = `(() => {
   if (window.__perf) return;
   const P = (window.__perf = { cur: null });
-  for (const key of ['__wfDetail', '__wfCivDetail', '__wfView']) {
+  for (const key of ['__wfDetail', '__wfCivDetail', '__wfView', '__wfProj', '__wfCivProj']) {
     let v = window[key];
     Object.defineProperty(window, key, {
       configurable: true,
@@ -95,7 +106,7 @@ const RECORDER = `(() => {
         const a = P.cur;
         if (!a || !n) return;
         const t = performance.now();
-        if (key === '__wfView') { a.views.push({ t, k: n.k, x: n.x, y: n.y }); return; }
+        if (key === '__wfView') { a.views.push({ t, k: n.k, x: n.x, y: n.y, lon: n.lon }); return; }
         if (n.ms === undefined || (key === '__wfCivDetail' && n.drew !== true)) return;
         a.draws.push({ t, key, ms: n.ms, exact: !!n.exact, k: n.k, prep: n.prep || 0, slices: n.slices || 0 });
       },
@@ -134,7 +145,7 @@ const RECORDER = `(() => {
     if (a.obs) { for (const e of a.obs.takeRecords()) a.tasks.push({ t: e.startTime, ms: e.duration }); a.obs.disconnect(); }
     a.running = false;
     a.end = performance.now();
-    a.final = window.__wfView ? { k: window.__wfView.k, x: window.__wfView.x, y: window.__wfView.y } : null;
+    a.final = window.__wfView ? { k: window.__wfView.k, x: window.__wfView.x, y: window.__wfView.y, lon: window.__wfView.lon } : null;
     a.panel = [...document.querySelectorAll('.inspector')].some((e) => e.getBoundingClientRect().width > 0);
     a.canvasMiB = [...document.querySelectorAll('canvas')].reduce((s, c) => s + c.width * c.height * 4, 0) / 1048576;
     delete a.obs;
@@ -150,11 +161,11 @@ interface Raw {
   frames: { t: number; dt: number }[];
   tasks: { t: number; ms: number }[];
   draws: { t: number; key: string; ms: number; exact: boolean; k: number; prep: number; slices: number }[];
-  views: { t: number; k: number; x: number; y: number }[];
-  final: { k: number; x: number; y: number } | null;
+  views: { t: number; k: number; x: number; y: number; lon?: number }[];
+  final: { k: number; x: number; y: number; lon?: number } | null;
   panel: boolean;
   canvasMiB: number;
-  initial?: { k: number; x: number; y: number } | null;
+  initial?: { k: number; x: number; y: number; lon?: number } | null;
 }
 
 interface Row {
@@ -170,6 +181,8 @@ interface Row {
   terrainMax: number;
   civMax: number;
   prepMax: number;
+  /** 弯边投影:地形 / 文明重投影一次最久多少毫秒 */
+  projMax: number;
   k: number;
 }
 
@@ -198,6 +211,7 @@ function summarize(c: Case, op: string, run: number, raw: Raw, valid: boolean): 
     terrainMax: r1(of('__wfDetail')),
     civMax: r1(of('__wfCivDetail')),
     prepMax: r1(Math.max(0, ...raw.draws.map((d) => d.prep))),
+    projMax: r1(Math.max(of('__wfProj'), of('__wfCivProj'))),
     k: Math.round((raw.final?.k ?? 0) * 1000) / 1000,
   };
 }
@@ -276,6 +290,25 @@ async function zoom(page: Page, c: Case, cdp: CDPSession) {
   }
 }
 
+interface CpuProfile {
+  nodes: { id: number; callFrame: { functionName: string; url: string; lineNumber: number }; children?: number[] }[];
+  samples: number[];
+  timeDeltas: number[];
+}
+/** profile 里自身耗时最多的几个函数(毫秒;不含空闲、垃圾回收照记) */
+function topSelf(p: CpuProfile, n = 6): string {
+  const self = new Map<number, number>();
+  p.samples.forEach((id, i) => self.set(id, (self.get(id) ?? 0) + (p.timeDeltas[i] ?? 0) / 1000));
+  const byName = new Map<string, number>();
+  for (const node of p.nodes) {
+    const f = node.callFrame;
+    if (f.functionName === '(idle)' || f.functionName === '(program)') continue;
+    const name = `${f.functionName || '(匿名)'}@${f.url.split('/').pop()}:${f.lineNumber + 1}`;
+    byName.set(name, (byName.get(name) ?? 0) + (self.get(node.id) ?? 0));
+  }
+  return [...byName].sort((a, b) => b[1] - a[1]).slice(0, n).map(([k, v]) => `${k} ${r1(v)}`).join('  ');
+}
+
 async function reset(page: Page) {
   await page.keyboard.press('Escape');
   await page.evaluate('window.__wfSetView({ k: 1, x: 0, y: 0 }); window.__wfSetCenter(0);');
@@ -288,7 +321,14 @@ async function runCase(browser: Browser, base: string, c: Case, rows: Row[], raw
   page.setDefaultTimeout(15000);
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  const q = new URLSearchParams({ seed: String(c.seed), play: '0', layer: c.layer, ...(c.civ ? { civ: c.civ } : {}), ...(c.cells ? { cells: String(c.cells) } : {}) });
+  const q = new URLSearchParams({
+    seed: String(c.seed),
+    play: '0',
+    layer: c.layer,
+    ...(c.civ ? { civ: c.civ } : {}),
+    ...(c.cells ? { cells: String(c.cells) } : {}),
+    ...(c.proj ? { proj: c.proj } : {}),
+  });
   const url = `${base}?${q}${EXTRA_QUERY ? `&${EXTRA_QUERY}` : ''}`;
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
   await page.waitForFunction('window.__wfLabels && window.__wfLabels.ready', null, { timeout: 180000 });
@@ -297,10 +337,13 @@ async function runCase(browser: Browser, base: string, c: Case, rows: Row[], raw
   await page.evaluate(RECORDER);
   const cdp = await context.newCDPSession(page);
   if (c.cpu > 1) await cdp.send('Emulation.setCPUThrottlingRate', { rate: c.cpu });
-  const view = () => page.evaluate('window.__wfView ? { k: window.__wfView.k, x: window.__wfView.x, y: window.__wfView.y } : null') as Promise<Raw['final']>;
+  const view = () =>
+    page.evaluate('window.__wfView ? { k: window.__wfView.k, x: window.__wfView.x, y: window.__wfView.y, lon: window.__wfView.lon } : null') as Promise<Raw['final']>;
+  if (PROFILE) await cdp.send('Profiler.enable');
   const measure = async (op: string, run: number, act: () => Promise<void>, ok: (a: Raw) => boolean) => {
     const initial = await view();
     await page.evaluate('window.__perf.begin()');
+    if (PROFILE) await cdp.send('Profiler.start');
     await act();
     const raw = (await page.evaluate('window.__perf.end()')) as Raw;
     raw.initial = initial;
@@ -308,8 +351,15 @@ async function runCase(browser: Browser, base: string, c: Case, rows: Row[], raw
     rows.push(row);
     raws.push({ case: c.id, op, run, raw });
     console.log(fmt(row));
+    if (PROFILE) {
+      const { profile } = (await cdp.send('Profiler.stop')) as { profile: CpuProfile };
+      fs.mkdirSync(PROFILE, { recursive: true });
+      fs.writeFileSync(path.join(PROFILE, `${c.id}-${op}-${run}.cpuprofile`), JSON.stringify(profile));
+      console.log(`    ${topSelf(profile)}`);
+    }
   };
-  const moved = (a: Raw) => !!a.initial && !!a.final && Math.abs(a.final.x - a.initial.x) > 5;
+  // 弯边投影里横向拖动转的是中央经线,不是平移
+  const moved = (a: Raw) => !!a.initial && !!a.final && (Math.abs(a.final.x - a.initial.x) > 5 || Math.abs((a.final.lon ?? 0) - (a.initial.lon ?? 0)) > 1);
   const at4 = (a: Raw) => (a.final?.k ?? 0) >= 3.8 && (a.final?.k ?? 0) <= 4.3;
   await measure('1倍拖动', 0, () => drag(page, c, cdp, true), moved);
   for (let r = 0; r < RUNS; r++) {
@@ -348,6 +398,7 @@ const COLS: [keyof Row, string][] = [
   ['terrainMax', '地形'],
   ['civMax', '文明'],
   ['prepMax', '分帧'],
+  ['projMax', '投影'],
 ];
 const fmt = (r: Row) =>
   `${r.case.padEnd(14)} ${`${r.op}#${r.run}`.padEnd(8)} ${COLS.map(([k, n]) => `${n} ${String(r[k]).padStart(6)}`).join('  ')}  k=${r.k}${r.valid ? '' : '  (轨迹不对,不算)'}`;

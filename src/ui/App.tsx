@@ -5,6 +5,7 @@ import { DEFAULT_PARAMS, type World, type WorldParams } from '../gen/world';
 import type { Raster } from '../gen/raster';
 import { renderRealistic } from '../render/realistic';
 import { renderFantasy } from '../render/fantasy';
+import { DETAIL_K } from '../render/detail';
 import { TerrainDetail } from './TerrainDetail';
 import { MapDecor } from './MapDecor';
 import { nearX, wrapOf } from '../render/common';
@@ -2128,6 +2129,13 @@ export function App() {
   const terrainProj = useRef(new ProjLayer());
   /** 上次画的是哪个世界、哪种画风 / 图层(弯边投影下只改中心时只重铺,不算"画了新的一张") */
   const drawnKey = useRef<{ data: unknown; key: string } | null>(null);
+  /** 地图视图:缩放倍数、平移(见下面"缩放 / 平移") */
+  const [view, setView] = useState({ k: 1, x: 0, y: 0 });
+  /**
+   * 弯边投影、放大到细节层盖住整个视口(TerrainDetail 按投影重画了看得见的那一块):底下这张整图看不见,
+   * 不用按投影精画(整图精画一次几百毫秒),整图重铺就够了(露边时也对得上);缩小到细节层以下再精画
+   */
+  const terrainCovered = curved && view.k > DETAIL_K && (style === 'fantasy' || style === 'realistic');
   useLayoutEffect(() => {
     const cv = canvasRef.current;
     if (!cv || !data) return;
@@ -2155,7 +2163,7 @@ export function App() {
       }
       const t1 = performance.now();
       const proj = terrainProj.current;
-      presentTerrain(cv, mp, { world, raster, style, src, layer: proj, moving: projMoving });
+      presentTerrain(cv, mp, { world, raster, style, src, layer: proj, moving: projMoving || terrainCovered });
       mirrorCanvas(canvasCopyRef.current, null, false);
       const w = window as unknown as { __wf: unknown; __wfProj: unknown };
       w.__wfProj = { proj: mp.def.id, lon: mp.lon0, ms: performance.now() - t1 };
@@ -2179,7 +2187,7 @@ export function App() {
     // 右边再接一份(左右无限拖动)
     mirrorCanvas(canvasCopyRef.current, cv, true);
     (window as unknown as { __wf: unknown }).__wf = { ready: true, renderMs, style, layer };
-  }, [data, style, layer, mp, projMoving]);
+  }, [data, style, layer, mp, projMoving, terrainCovered]);
 
   /**
    * 某画风的整张底图(等距圆柱,和 raster 一样大):缓存里有就直接给,没有就画一张放进缓存(图层缩略图用;之后切过去也不用再画)。
@@ -2269,8 +2277,7 @@ export function App() {
     return () => ro.disconnect();
   }, []);
 
-  // ---- 缩放 / 平移 ----
-  const [view, setView] = useState({ k: 1, x: 0, y: 0 });
+  // ---- 缩放 / 平移(视图 view 在上面"地形图"那里声明)----
   /** 按下时的位置、视图(弯边投影:还有当时的中央经线;拖动改的是它) */
   const drag = useRef<{ x: number; y: number; vx: number; vy: number; lon: number; touch?: boolean } | null>(null);
   // 世界东西相连:左右无限拖动(见 mapWrap.ts)。wrapW = 一整圈的世界宽度,还没有世界时 0
@@ -2500,6 +2507,10 @@ export function App() {
     const m = mpRef.current;
     const g = geo.current;
     if (m && g.bw) {
+      // 缩放中心也在转:和拖动一样算"正在动"(整图先按投影重铺、细节层跟着挪),停一小会儿再按投影精画一次
+      setMapMoving(true);
+      clearTimeout(panIdle.current);
+      panIdle.current = window.setTimeout(() => !drag.current && !pinch.current && setMapMoving(false), 150);
       const v = viewRef.current;
       const k = Math.min(12, Math.max(1, v.k * f));
       const b = { sw: rect.width, sh: rect.height, bw: g.bw, bh: g.bh, padB: g.padB };
@@ -2602,7 +2613,13 @@ export function App() {
   const hl = useCivHighlight();
   const picking = usePolityPick();
   const viewRef = useRef(view);
-  viewRef.current = view;
+  // 只在视图状态真的变了时跟上:滚轮缩放先改 viewRef 再 setView,改中心(store)触发的那次重画可能还没带上这次 setView,
+  // 拿旧的视图盖回去的话,下一下滚轮就从旧的倍数算起(丢一下)
+  const seenView = useRef(view);
+  if (seenView.current !== view) {
+    seenView.current = view;
+    viewRef.current = view;
+  }
   // 新建界面摊平改地形:舞台挪到中间那块(正好 2:1,地图框正好铺满),视图放回 1 倍、转到刚摊平时正中的经线
   // (等舞台换成那块的大小再转;同一次摊平只转一次)
   const flatSeq = useRef(0);

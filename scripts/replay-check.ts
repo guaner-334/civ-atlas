@@ -4185,6 +4185,10 @@ for (const style of ['realistic', 'fantasy']) {
   }
   await page.mouse.up();
   await page.waitForTimeout(400);
+  // 按新中心重画是在后台分段备料的:等两层都画上去
+  await page
+    .waitForFunction(() => !(window as any).__wfDetail?.pending && !(window as any).__wfCivDetail?.pending, null, { timeout: 15000 })
+    .catch(() => {});
   const dEnd = await page.evaluate(() => (window as any).__wfDetail);
   const lonEnd = (await view()).lon;
   console.log(`罗宾森放大 ${kz.toFixed(1)} 倍左右拖:15 步里细节层藏起来 ${dHidden} 次、整块平移 ${dSlid} 次(文明细节层藏起来 ${cHidden} 次);松手后按 ${dEnd?.lon?.toFixed(1)}°(中央经线 ${lonEnd.toFixed(1)}°)重画`);
