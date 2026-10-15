@@ -733,9 +733,10 @@ export function sameOrigin(a: SaveFile['origin'], b: SaveFile['origin']): boolea
 export function importSave(save: SaveFile): string | null {
   for (const w of listWorlds()) {
     if (w.draft || !sameSave(w.save, save)) continue;
-    // 只差投影 / 中央经线:用文件里的(下次打开还是文件里的样子)
+    // 只差投影 / 中央经线 / 经纬网:用文件里的(下次打开还是文件里的样子;文件记了经纬网、存着的没记,也换成文件里的)
     let ok = true;
-    if (!sameView(w.save.view, save.view)) {
+    const grat = save.view?.graticule;
+    if (!sameView(w.save.view, save.view) || (grat !== undefined && w.save.view?.graticule !== grat)) {
       const next: SaveFile = { ...w.save, savedAt: new Date().toISOString() };
       if (save.view) next.view = save.view;
       else delete next.view;

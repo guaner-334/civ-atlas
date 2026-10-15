@@ -1306,6 +1306,14 @@ describe('投影和中央经线跟着世界存(view)', () => {
     setGraticuleStep(10);
     saveStore.viewChanged();
     expect(saveStore.loadWorld(oid)?.save.view).toEqual({ projection: 'mollweide', center: 30, graticule: 10 });
+
+    // 再打开同一个世界的文件:文件记了经纬网就用文件里的(存着的没记也换);文件没记就留着存着的
+    const legacy = makeSave({ ...DEFAULT_PARAMS, seed: 99 }, EDITS, 'check99', undefined, undefined, { projection: 'equirect', center: 0 });
+    const lid = saveStore.importSave(legacy)!;
+    expect(saveStore.importSave({ ...legacy, view: { projection: 'equirect', center: 0, graticule: 15 } })).toBe(lid);
+    expect(saveStore.loadWorld(lid)?.save.view).toEqual({ projection: 'equirect', center: 0, graticule: 15 });
+    expect(saveStore.importSave(legacy)).toBe(lid);
+    expect(saveStore.loadWorld(lid)?.save.view).toEqual({ projection: 'equirect', center: 0, graticule: 15 });
   });
 });
 

@@ -737,10 +737,11 @@ export function layoutMarks(
       // 图钉:名字的上沿对着图钉的圆头;无色:名字的正中对着小圆圈
       const top = plain ? p.y - th / 2 : p.y - h + (p.m.selected ? 5 : 4);
       const hw = plain ? PLAIN_R + 3 : w / 2 + 1;
+      const below = p.y + (plain ? PLAIN_R + 2 : 3);
       const cand: { side: LabelSide; box: number[]; x: number; y: number }[] = [
         { side: 'r', x: p.x + hw, y: top, box: [p.x + hw, top, p.x + hw + tw, top + th] },
         { side: 'l', x: p.x - hw, y: top, box: [p.x - hw - tw, top, p.x - hw, top + th] },
-        { side: 'b', x: p.x, y: p.y + (plain ? PLAIN_R + 2 : 3), box: [p.x - tw / 2, p.y + 3, p.x + tw / 2, p.y + 3 + th] },
+        { side: 'b', x: p.x, y: below, box: [p.x - tw / 2, below, p.x + tw / 2, below + th] },
       ];
       const fits = (c: (typeof cand)[number]) => c.box[0] >= f.win[0] && c.box[2] <= f.win[1] && c.box[1] >= 0 && c.box[3] <= f.h && !taken.some((t) => overlap(c.box, t));
       const clear = (c: (typeof cand)[number]) => fits(c) && !avoid.some((t) => overlap(c.box, t));
