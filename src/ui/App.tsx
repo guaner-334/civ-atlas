@@ -134,6 +134,7 @@ import {
   editCount,
   GEN_KEY,
   isShareHash,
+  PARAM_RANGE,
   parseSave,
   versionNote,
   worldCheck,
@@ -255,6 +256,8 @@ import { FilmStage } from './FilmStage';
 import { LongPanel } from './LongPanel';
 import { LongStage } from './LongStage';
 import { noteGenSpeed } from './genSpeed';
+import { getNewView } from './newViewStore';
+import { rememberLast } from './presetStore';
 
 type Replay = { w: number; h: number; frames: Uint8ClampedArray[]; mya: number[]; idx: number };
 
@@ -263,7 +266,9 @@ function readUrl() {
   const params: WorldParams = { ...DEFAULT_PARAMS };
   for (const k of Object.keys(DEFAULT_PARAMS) as (keyof WorldParams)[]) {
     const v = q.get(k);
-    if (v !== null && !Number.isNaN(Number(v))) params[k] = Number(v);
+    // 和读存档一样:超出合理范围的调回范围内(手改的网址里可能是 0 或特别大的数)
+    const n = v === null || v.trim() === '' ? NaN : Number(v);
+    if (Number.isFinite(n)) params[k] = Math.min(PARAM_RANGE[k][1], Math.max(PARAM_RANGE[k][0], n));
   }
   // 画风 / 数据图层:旧链接的 style=、layer= 照旧;没有 style= 时 layer= 是新的图层名(政区、民族……,见 mapLayers.ts)
   const qs = q.get('style');
@@ -1624,13 +1629,14 @@ export function App() {
       setHover(null);
       clearToast('created');
     }
-    // 进新建:默认实景(新建界面的开场就是实景);原来的图层记下,不建就离开时换回来
+    // 进新建:默认实景(新建界面的开场就是实景;设过「新建时的默认」就是那个样式);原来的图层记下,不建就离开时换回来
     if (next === 'draft' && was !== 'draft') {
       pausePlayback();
       const now = mapLayerRef.current;
       // 原来就是实景也记下:新建里换了别的样式、没建就离开,也换回实景
       draftLayerRef.current ??= now;
-      if (now !== 'realistic') applyLayer('realistic');
+      const first = getNewView()?.style ?? 'realistic';
+      if (now !== first) applyLayer(first);
     }
     if (next !== 'draft' && draftLayerRef.current) {
       applyLayer(draftLayerRef.current);
@@ -1842,6 +1848,8 @@ export function App() {
     if (!t || !cur || cur.id !== t.id || fresh.current || regenRef.current || resim || replayOn) return false;
     const clean = cleanTitle(title) || undefined;
     if ((clean ?? '') !== (cur.title ?? '')) renameWorld(t.id, clean ?? '');
+    // 记成预设里的「上次用的」(不含种子)
+    rememberLast(t.params, cleanEndYear(getEdits().endYear), clean ?? '');
     // 说存住了,要真的写进了浏览器(存储满了、删了旧的也写不下,或者浏览器不让存 = 只在这一页里)
     const stored = markCreated() && persistent();
     // 新建时执行过的改地形从此不能再撤销:⌘Z 也不再往回退(助手那边按锁换了,旧的确认单不能执行)

@@ -5,6 +5,7 @@
  *   data-tip="播放"         提示的字
  *   data-tip-key="play"     快捷键(shortcuts.ts 的动作名;苹果电脑写 ⌘、别的写 Ctrl)
  *   data-tip-side="above"   出在按钮的哪一边:above / below(默认)/ left / right
+ *   data-tip-wide           字多:框宽一些、能折行
  *
  * 触屏(手指点)不出;按下鼠标、滚动、按键时收起;深浅色跟着按钮所在的地方。样子见 tips.css。
  */
@@ -22,6 +23,7 @@ interface Shown {
   rect: DOMRect;
   /** 按钮所在处的深浅色(实景、高程等图层是深色;提示框挂在 body 下,自己带上) */
   theme: string | undefined;
+  wide: boolean;
 }
 
 /** 鼠标停多久才出 */
@@ -39,6 +41,7 @@ function tipOf(el: Element): Shown {
     side: side === 'above' || side === 'left' || side === 'right' ? side : 'below',
     rect: el.getBoundingClientRect(),
     theme: el.closest('[data-theme]')?.getAttribute('data-theme') ?? undefined,
+    wide: el.hasAttribute('data-tip-wide'),
   };
 }
 
@@ -95,7 +98,7 @@ export function TipLayer() {
   return createPortal(<Tip key={`${shown.text}|${shown.rect.left}|${shown.rect.top}`} {...shown} />, document.body);
 }
 
-function Tip({ text, kbd, side, rect, theme }: Shown) {
+function Tip({ text, kbd, side, rect, theme, wide }: Shown) {
   const [box, setBox] = useState<{ w: number; h: number } | null>(null);
   const vw = window.innerWidth;
   const vh = window.innerHeight;
@@ -114,7 +117,7 @@ function Tip({ text, kbd, side, rect, theme }: Shown) {
   }
   return (
     <div
-      className="ui-tip"
+      className={wide ? 'ui-tip wide' : 'ui-tip'}
       role="tooltip"
       data-theme={theme}
       ref={(el) => {

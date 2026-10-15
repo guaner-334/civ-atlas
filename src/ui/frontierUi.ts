@@ -8,7 +8,6 @@ import {
   TERRAIN_GROUPS,
   TERRAIN_STEPS,
   cleanFrontier,
-  filledYear,
   speedText,
   terrainText,
   terrainValue,
@@ -16,6 +15,11 @@ import {
   type TerrainGroupInfo,
 } from '../gen/civ/frontier';
 import type { SliderLike } from './WorldOverviewGenesis';
+import type { FieldSpec } from './ParamField';
+
+/** 右边数值框:倍数写到 0.01;难走程度写到 0.1 */
+const SPEED_FIELD: FieldSpec = { unit: '×', digits: 2 };
+const TERRAIN_FIELD: FieldSpec = { digits: 1 };
 
 /** 滑条一共多少格(对数刻度) */
 const POS = 1000;
@@ -28,7 +32,10 @@ export interface LadderSlider extends SliderLike {
   pos: (v: number) => number;
 }
 
-function ladder(steps: readonly number[], o: { key: string; name: string; hint: string; fmt: (v: number) => string; more?: (v: number) => string | null }): LadderSlider {
+function ladder(
+  steps: readonly number[],
+  o: { key: string; name: string; hint: string; fmt: (v: number) => string; field: FieldSpec },
+): LadderSlider {
   const lo = steps[0];
   const span = Math.log(steps[steps.length - 1] / lo);
   const pos = (v: number) => Math.round((POS * Math.log(v / lo)) / span);
@@ -38,7 +45,6 @@ function ladder(steps: readonly number[], o: { key: string; name: string; hint: 
     for (const s of steps) if (Math.abs(Math.log(s / t)) < Math.abs(Math.log(best / t))) best = s;
     return best;
   };
-  const more = o.more;
   return {
     key: o.key,
     name: o.name,
@@ -47,22 +53,23 @@ function ladder(steps: readonly number[], o: { key: string; name: string; hint: 
     max: POS,
     step: 1,
     fmt: (p) => o.fmt(value(p)),
-    more: more && ((p) => more(value(p))),
     snap: (p) => pos(value(p)),
+    field: o.field,
+    // 框里写档位上的数;打的数换回位置(不夹进范围,超了框变红),松手时再吸到最近的一档
+    shown: value,
+    fromShown: (d) => (d > 0 ? Math.round((POS * Math.log(d / lo)) / span) : -Infinity),
     value,
     pos,
   };
 }
 
-export const SPREAD_SLIDER = ladder(SPEED_STEPS, { key: 'spread', name: '民族扩散', hint: '人往荒地走得多快', fmt: speedText });
-/** 新建界面上的民族扩散:数字后面写大约第几年住满 */
-export const SPREAD_SLIDER_MORE = ladder(SPEED_STEPS, { key: 'spread', name: '民族扩散', hint: '人往荒地走得多快', fmt: speedText, more: (v) => `约第 ${filledYear(v)} 年住满` });
-export const EXPAND_SLIDER = ladder(SPEED_STEPS, { key: 'expand', name: '国家扩张', hint: '国家把周围没有国家的地并进来有多快', fmt: speedText });
+export const SPREAD_SLIDER = ladder(SPEED_STEPS, { key: 'spread', name: '民族扩散', hint: '人往荒地走得多快', fmt: speedText, field: SPEED_FIELD });
+export const EXPAND_SLIDER = ladder(SPEED_STEPS, { key: 'expand', name: '国家扩张', hint: '国家把周围没有国家的地并进来有多快', fmt: speedText, field: SPEED_FIELD });
 
 /** 一样地形的难走程度 */
 export const TERRAIN_SLIDERS: { g: TerrainGroupInfo; s: LadderSlider }[] = TERRAIN_GROUPS.map((g) => ({
   g,
-  s: ladder(TERRAIN_STEPS, { key: `terrain-${g.key}`, name: g.name, hint: `走同样远的路，${g.name}要花几倍的时间（森林算 1）`, fmt: terrainText }),
+  s: ladder(TERRAIN_STEPS, { key: `terrain-${g.key}`, name: g.name, hint: `走同样远的路，${g.name}要花几倍的时间（森林算 1）`, fmt: terrainText, field: TERRAIN_FIELD }),
 }));
 
 /** 改一样(值是档位上的),清理好;都回到默认 = undefined */

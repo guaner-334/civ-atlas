@@ -16,9 +16,10 @@ import { getEdits, setEndYear, setFrontier, useEdits } from '../editsStore';
 import { terrainChangedCount, terrainValue } from '../../gen/civ/frontier';
 import { EXPAND_SLIDER, SPREAD_SLIDER, TERRAIN_SLIDERS, withSpeed, withTerrain, withoutTerrain } from '../frontierUi';
 import { pickImage, setImportView, setSourceView, useImport, useSource, useSourceView, type SourceShow } from '../ImportImage';
-import { SLIDERS, YEARS_NOTE, YEARS_ON, YEARS_SLIDER, YEARS_SWITCH, type SliderLike } from '../WorldOverviewGenesis';
+import { CONT_SLIDERS, SLIDERS, YEARS_NOTE, YEARS_ON, YEARS_SLIDER, YEARS_SWITCH, type SliderLike } from '../WorldOverviewGenesis';
 import { END_YEAR_DEFAULT, cleanEndYear } from '../../gen/edits';
 import { Icon } from '../icons';
+import { ParamField, rangeFill } from '../ParamField';
 import type { MapLayer } from '../mapLayers';
 
 export function ImageCard({ phone }: { phone: boolean }) {
@@ -89,35 +90,36 @@ export function StepGroup({
 }
 
 /** 第 3 步列哪几样参数(陆地比例不列:海陆照图定) */
-const STEP_KEYS: (keyof WorldParams)[] = ['plates', 'mountains', 'temperature', 'rainfall', 'cells'];
+const STEP_KEYS: (keyof WorldParams)[] = ['plates', 'mountains', 'hardness', 'temperature', 'rainfall', 'cells'];
 
 function StepSlider({ s, value, onCommit, disabled, changed }: { s: SliderLike; value: number; onCommit: (v: number) => void; disabled: boolean; changed?: boolean }) {
   const k = s.key;
   const [v, setV] = useState(value);
   useEffect(() => setV(value), [value]);
-  const fill = ((v - s.min) / (s.max - s.min)) * 100;
-  // 精细度只写多少千个地块("36k"),右边地方窄
-  const shown = k === 'cells' ? `${Math.round(v / 1000)}k` : s.fmt(v);
+  const [err, setErr] = useState<string | null>(null);
   return (
-    <label className="sk-pr" title={s.hint} data-param={k}>
-      <b>{s.name}</b>
-      <span className="tp-range">
-        <input
-          type="range"
-          aria-label={s.name}
-          min={s.min}
-          max={s.max}
-          step={s.step}
-          value={v}
-          disabled={disabled}
-          style={{ '--fill': `${fill}%` } as React.CSSProperties}
-          onChange={(e) => setV(s.snap ? s.snap(Number(e.target.value)) : Number(e.target.value))}
-          onPointerUp={() => v !== value && onCommit(v)}
-          onKeyUp={() => v !== value && onCommit(v)}
-        />
-      </span>
-      <em className={changed ? 'chg' : undefined}>{shown}</em>
-    </label>
+    <>
+      <label className="sk-pr" title={s.hint} data-param={k}>
+        <b>{s.name}</b>
+        <span className="tp-range">
+          <input
+            type="range"
+            aria-label={s.name}
+            min={s.min}
+            max={s.max}
+            step={s.step}
+            value={v}
+            disabled={disabled}
+            style={rangeFill(s, v)}
+            onChange={(e) => setV(s.snap ? s.snap(Number(e.target.value)) : Number(e.target.value))}
+            onPointerUp={() => v !== value && onCommit(v)}
+            onKeyUp={() => v !== value && onCommit(v)}
+          />
+        </span>
+        <ParamField s={s} value={v} onCommit={onCommit} onBad={setErr} disabled={disabled} changed={changed} />
+      </label>
+      {err && <span className="sk-err">{err}</span>}
+    </>
   );
 }
 
@@ -132,7 +134,13 @@ export function StepParams({ params, onParams, disabled }: { params: WorldParams
     <>
       <div className="tp-opts sk-params">
         {STEP_KEYS.map((k) => (
-          <StepSlider key={k} s={SLIDERS.find((x) => x.key === k)!} value={params[k]} disabled={disabled} onCommit={(v) => onParams({ ...params, [k]: v })} />
+          <StepSlider
+            key={k}
+            s={(SLIDERS.find((x) => x.key === k) ?? CONT_SLIDERS.find((x) => x.key === k))!}
+            value={params[k]}
+            disabled={disabled}
+            onCommit={(v) => onParams({ ...params, [k]: v })}
+          />
         ))}
         <StepSlider s={SPREAD_SLIDER} value={SPREAD_SLIDER.pos(f?.spread ?? 1)} disabled={disabled} onCommit={(v) => setFrontier(withSpeed(getEdits().frontier, 'spread', SPREAD_SLIDER.value(v)))} />
         <StepSlider s={EXPAND_SLIDER} value={EXPAND_SLIDER.pos(f?.expand ?? 1)} disabled={disabled} onCommit={(v) => setFrontier(withSpeed(getEdits().frontier, 'expand', EXPAND_SLIDER.value(v)))} />
