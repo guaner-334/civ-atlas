@@ -525,14 +525,16 @@ export function planCultures(world: World, habitat: Habitat, regions: Regions, p
 /**
  * 干预"立国"立在没人住的州:那一刻一支新民族来这里落脚(没人住才用得上,有人住的照常以当地民族立国)。
  * 定民族时就给每条"立国"(州住得了人的)备一支,记作没能兴起;立国那一刻才兴起(pioneerArrives)。
- * 编号排在自然兴起的民族后面,不影响它们的编号、诞生年份、扩张;没有这样的干预时什么都不加
+ * 编号排在自然兴起的民族后面,不影响它们的编号、诞生年份、扩张;没有这样的干预时什么都不加。
+ * 地形大事以后接着推(resumeCultures)再按新地形补一遍:after 以后的"立国"、还没备的(新冒出来的州、变得住得了人的州)。
+ * 返回补上的几支
  */
-function planPioneers(m: CultureModel, list: readonly Intervention[], base: number, seed: number) {
+function planPioneers(m: CultureModel, list: readonly Intervention[], base: number, seed: number, after = -Infinity): Culture[] {
   const T = m.terrain;
   const reg = T.regions;
   const add: Culture[] = [];
   list.forEach((v, i) => {
-    if (v.kind !== 'found') return;
+    if (v.kind !== 'found' || v.from <= after || m.cultures.some((c) => c.pioneer === i)) return;
     const r = regionOfKey(v.region, reg.of);
     if (r < 0 || r >= T.R || !T.habitable[r]) return;
     const kind = kindOf(T, r, 'fertile', base);
@@ -550,10 +552,11 @@ function planPioneers(m: CultureModel, list: readonly Intervention[], base: numb
       pioneer: i,
     });
   });
-  if (!add.length) return;
+  if (!add.length) return add;
   m.cultures.push(...add);
   m.cost = costTable(T, m.cultures, seed);
   m.passed = new Uint8Array(m.cultures.length * T.R);
+  return add;
 }
 
 /**
@@ -749,8 +752,9 @@ export function pioneerArrives(sim: CivSim, r: number, i: number, t: number): nu
  * 从每一次出发重算一遍洇染 —— 早于 civ.endYear 的只可能是路过不可居的州(早于 endYear 到达空的可居州的,当时就定居了),
  * 照原样补上路过记录;晚于 endYear 的就是还没发生的事件,预约进引擎。还没诞生的民族重新预约诞生。
  * 州一旦有人住就不会再空出来,所以"现在还空着的州"当年也空着,当时预约的到达都还有效。
+ * 还没到的干预"立国"按这时的地形补备新民族(planPioneers),返回补上的几支(国家那一层也要认得它们)
  */
-export function resumeCultures(sim: CivSim, world: World, civ: Civ): void {
+export function resumeCultures(sim: CivSim, world: World, civ: Civ, interventions: readonly Intervention[] = civ.interventions ?? []): Culture[] {
   const T = cultureTerrain(world, civ.habitat, civ.regions, civ.frontier);
   const reg = T.regions;
   const R = T.R;
@@ -770,6 +774,7 @@ export function resumeCultures(sim: CivSim, world: World, civ: Civ): void {
   };
   // 老存档没存标定值:按同样的规则重新标定(默认扩张快慢)
   if (civ.spreadYears === undefined) m.spreadYears = calibrate(m);
+  const extra = planPioneers(m, cleanInterventions(interventions), subSeed(civ.seed, 'civ-culture'), civ.seed, sim.now);
   installCultures(sim, m, false);
   const now = sim.now;
   for (const cu of civ.cultures) if (cu.born > now && !cu.unborn) sim.schedule(cu.born, Ev.CultureBorn, cu.hearth, cu.id);
@@ -813,6 +818,7 @@ export function resumeCultures(sim: CivSim, world: World, civ: Civ): void {
     m.passed[c * R + r] = 1;
     from(r, c, t);
   }
+  return extra;
 }
 
 // ---------------------------------------------------------------------------
@@ -912,8 +918,20 @@ export function finishCultures(world: World, m: CultureModel, owner: Int16Array,
   const reg = m.terrain.regions;
   const pinned = pins?.cultures;
   if (pinned) {
+    // 地形大事以后才备的新民族(干预立国落在大事里新冒出来、变得住得了人的州):没有能照的,配色、语感照常挑,只取它们自己的
+    if (m.cultures.length > pinned.length) {
+      const all = m.cultures.map((cu) => ({ ...cu }));
+      const nb = cultureNeighbors(reg, owner, all.length);
+      assignColors(all, nb, subSeed(seed, 'civ-culture-color'), reg.seat);
+      assignStyles(all, nb, m.terrain, subSeed(seed, 'civ-culture-style'), names, areas ?? owner);
+      for (let i = pinned.length; i < all.length; i++) {
+        m.cultures[i].color = all[i].color;
+        m.cultures[i].style = all[i].style;
+      }
+    }
     // 地形大事:民族的配色、语感照没有大事时的那份历史(见 NamePins)
     m.cultures.forEach((cu, i) => {
+      if (i >= pinned.length) return;
       cu.color = [...pinned[i].color] as [number, number, number];
       cu.style = pinned[i].style;
       if (pinned[i].autoStyle) cu.autoStyle = pinned[i].autoStyle;
@@ -925,6 +943,6 @@ export function finishCultures(world: World, m: CultureModel, owner: Int16Array,
     assignStyles(m.cultures, nb, m.terrain, subSeed(seed, 'civ-culture-style'), names, areas ?? owner);
   }
   reg.name = nameCultures(seed, m.cultures, owner, reg.seat);
-  if (pinned) m.cultures.forEach((cu, i) => (cu.name = pinned[i].name));
+  if (pinned) m.cultures.forEach((cu, i) => i < pinned.length && (cu.name = pinned[i].name));
   if (pins) pins.regionNames.forEach((x, r) => x !== undefined && r < reg.count && (reg.name![r] = x));
 }

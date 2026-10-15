@@ -3808,6 +3808,7 @@ export function App() {
       ready={!!data && !progress}
       noCiv={noCiv}
       data={data}
+      baseWorld={baseData?.world ?? null}
       civ={realCiv}
       raw={rawCiv}
       worldBusy={worldBusy}
@@ -4050,6 +4051,7 @@ export function App() {
         <WorldOverview
           params={params}
           data={data}
+          baseWorld={baseData?.world ?? null}
           civ={civ}
           generating={!!progress}
           resimBusy={!!resim}

@@ -383,8 +383,9 @@ export class CivSim {
       // 地形大事(first)、干预的事件最先预约(和 generateCiv 一样:同一刻里地形大事最先,干预只排在新君即位、迁都后重看边地后面)
       first?.(sim);
       const iv = scheduleInterventions(sim, civ.seed, interventions, true);
-      resumeCultures(sim, world, civ);
-      resumePolities(sim, world, civ, iv);
+      // 地形大事以后补备的新民族(干预立国用):国家那一层也要认得它们(民族表接在后面)
+      const extra = resumeCultures(sim, world, civ, interventions);
+      resumePolities(sim, world, extra.length ? { ...civ, cultures: [...civ.cultures, ...extra] } : civ, iv);
       resumeWars(sim, world, civ);
       resumePolitics(sim, world, civ);
       resumeDynasty(sim, world, civ);

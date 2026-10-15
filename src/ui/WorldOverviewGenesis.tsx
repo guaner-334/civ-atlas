@@ -9,7 +9,7 @@
 import { useEffect, useState } from 'react';
 import type { World, WorldParams } from '../gen/world';
 import { speedText, terrainBrief as terrainCostBrief } from '../gen/civ/frontier';
-import { originSpots } from './studio/origins';
+import { originCiv, originSpots } from './studio/origins';
 import type { Civ } from '../gen/civ/types';
 import { END_YEAR_DEFAULT, END_YEAR_MAX, END_YEAR_STEP, cleanEndYear, endYearOf, type TerrainKind } from '../gen/edits';
 import { setEndYear, useEdits } from './editsStore';
@@ -157,7 +157,7 @@ export function YearsRows({ disabled }: { disabled?: boolean }) {
 
 export interface SettingsProps {
   params: WorldParams;
-  /** 这颗星球(文明起源落在哪一州要看它) */
+  /** 第 0 年的星球(文明起源落在哪一州要看它;有地形大事时是大事以前的那颗) */
   world: World | null;
   civ: Civ | null;
   /** 回放世界形成:能不能点、正在放 */
@@ -174,7 +174,7 @@ function originsBrief(pts: readonly number[] | undefined, world: World | null, c
   if (!pts?.length) return '自动';
   const n = pts.length >> 1;
   if (!world || !civ) return `自己选的 ${n} 处`;
-  const names = originSpots(world, civ, pts)
+  const names = originSpots(world, originCiv(civ), pts)
     .filter((s) => s.ok)
     .map((s) => s.name);
   return names.length ? `自己选的 ${names.length} 处：${names.join('、')}` : `自己选的 ${n} 处都住不了人，照自动推演`;

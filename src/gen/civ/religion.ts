@@ -107,6 +107,8 @@ export function buildReligion(world: World, civ: Civ): Religion {
   let reg = eras.length ? eras[0].regions : civ.regions;
   const S = civ.settlements;
   const C = civ.cultures.length;
+  /** 干预立国备的新民族(Culture.pioneer)有几支:大教编号排在民族的民间信仰后面,随机数按去掉它们的编号取,备没备都一样 */
+  const pioneers = civ.cultures.filter((cu) => cu.pioneer !== undefined).length;
   const namers = personNamers(civ.seed);
   const faiths: Faith[] = civ.cultures.map((cu) => ({
     id: cu.id,
@@ -368,7 +370,7 @@ export function buildReligion(world: World, civ: Civ): Religion {
           let n = 0;
           for (let r = 0; r < R; r++) if (ownP[r] === s.polity && faith[r] === f.id) n++;
           if (!farAway || n < SCHISM_MIN) continue;
-          if (keyed(seed, 20 + y, s.polity, f.id) >= SCHISM_ODDS) continue;
+          if (keyed(seed, 20 + y, s.polity, f.id - pioneers) >= SCHISM_ODDS) continue;
           const k = faiths.length;
           const nth = sects.get(f.id) ?? 0;
           const eastern = namers(civ.cultures[foundedBy.get(f.id) ?? S[f.holy!].culture].style).family === 'eastern';

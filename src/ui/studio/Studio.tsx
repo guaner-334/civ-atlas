@@ -39,7 +39,7 @@ import { getEdits, setFrontier, setOrigins, useEdits } from '../editsStore';
 import { cleanOrigins, frontierBrief, terrainChangedCount, terrainValue, type Origins } from '../../gen/civ/frontier';
 import { EXPAND_SLIDER, SPREAD_SLIDER_MORE, TERRAIN_SLIDERS, withSpeed, withTerrain, withoutTerrain } from '../frontierUi';
 import { OriginsPage } from './OriginsPage';
-import { originRefusal, originSpots, poseMap } from './origins';
+import { originCiv, originRefusal, originSpots, poseMap } from './origins';
 import {
   TerrainCaption,
   TerrainPanel,
@@ -163,6 +163,8 @@ export interface StudioProps {
   ready: boolean;
   noCiv: boolean;
   data: { world: World; raster: Raster } | null;
+  /** 第 0 年的星球(有地形大事时是大事以前的那颗;文明起源按它算) */
+  baseWorld: World | null;
   /** 这颗星球推演出来的历史(套上改名的、没套的):助手要用 */
   civ: Civ | null;
   raw: Civ | null;
@@ -367,13 +369,15 @@ export function Studio(p: StudioProps) {
   };
   const tapOrigin = (sx: number, sy: number, pose: StillPose) => {
     const d = pRef.current.data;
-    const civ = pRef.current.civ ?? pRef.current.raw;
+    const raw = pRef.current.civ ?? pRef.current.raw;
+    const civ = raw && originCiv(raw);
     if (!d || !civ || !originCustom) return;
     const w = poseMap(pose, d.world.width, d.world.height).inv(sx, sy);
     if (!w) return;
     const o = getEdits().origins;
     const pts = o?.pts ?? [];
-    const why = originRefusal(d.world, civ, w[0], w[1], originSpots(d.world, civ, pts));
+    const world = pRef.current.baseWorld ?? d.world;
+    const why = originRefusal(world, civ, w[0], w[1], originSpots(world, civ, pts));
     if (why) return flashOrigin(why, sx, sy);
     clearTimeout(msgTimer.current);
     setOriginMsg(null);
@@ -1093,6 +1097,9 @@ export function Studio(p: StudioProps) {
     </button>
   );
   const mixShown = namesPage && !tool.on && !peek;
+  /** 文明起源按第 0 年的州看(有地形大事时是大事以前的,见 origins.ts 的 originCiv) */
+  const ogRaw = p.civ ?? p.raw;
+  const ogCiv = ogRaw && originCiv(ogRaw);
   const ogShown = originsOn && !mixShown;
   const pageShown = mixShown || ogShown;
   const mixPage = mixShown ? (
@@ -1102,8 +1109,8 @@ export function Studio(p: StudioProps) {
       <OriginsPage
         backLabel={heading}
         onBack={closeOrigins}
-        world={p.data?.world ?? null}
-        civ={p.civ ?? p.raw}
+        world={p.baseWorld ?? p.data?.world ?? null}
+        civ={ogCiv}
         phone={p.phone}
         noMap={glOk === false}
         custom={originCustom}
@@ -1416,13 +1423,12 @@ export function Studio(p: StudioProps) {
 
   // 起源页:星球上带号的圆点(停住时才摆;点一下拿掉)、底下的提示、点错的地方一个虚线圈
   let pins: React.ReactNode = null;
-  const ogCiv = p.civ ?? p.raw;
   if (ogShown && pinPose && p.data && ogCiv && glOk && edits.origins) {
     const W = p.data.world.width;
     const pm = poseMap(pinPose, W, p.data.world.height);
     pins = (
       <div className="og-pins">
-        {originSpots(p.data.world, ogCiv, edits.origins.pts).map((sp, i) => {
+        {originSpots(p.baseWorld ?? p.data.world, ogCiv, edits.origins.pts).map((sp, i) => {
           const [x, y, vis] = pm.fwd(sp.x, sp.y);
           if (vis <= 0.05) return null;
           return (

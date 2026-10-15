@@ -49,6 +49,15 @@ export function poseMap(pose: StillPose, W: number, H: number): PoseMap {
   };
 }
 
+/**
+ * 起源落在第 0 年的星球上(推演时就是这样):有地形大事的世界换成最早那一段的州和宜居度。
+ * world 也要是大事以前的那颗(陆地、海在哪)
+ */
+export function originCiv(civ: Civ): Civ {
+  const e = civ.eras?.[0];
+  return e ? { ...civ, regions: e.regions, habitat: e.habitat } : civ;
+}
+
 /** 列表上的一处起源 */
 export interface OriginSpot {
   x: number;

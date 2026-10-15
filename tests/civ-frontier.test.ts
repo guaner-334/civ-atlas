@@ -4,7 +4,8 @@
  * - 都不调(或调成和默认一样)和不给逐字节一致
  * - 民族扩散快了,住满得早;国家扩张快了,没有国家的部落地少;某种地形难走了,人到那里晚
  * - 自选起源:第 0 年从点的几处出现;"只有这几支"就只有这几个民族;住不了人的点跳过
- * - 没人住的州立国:新民族那一年在那里兴起,之前的历史逐字节一致;住不了人的州立不成,写明原因
+ * - 没人住的州立国:新民族那一年在那里兴起,之前的历史逐字节一致(备着没用上的也不影响信仰);地形大事里新冒出来的陆地也立得成;
+ *   住不了人的州立不成,写明原因
  */
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
@@ -16,6 +17,9 @@ import { cleanFrontier, cleanOrigins, filledYear, frontierBrief, frontierFx, sam
 import { ownersAt } from '../src/gen/civ/timeline';
 import { buildChronicle, interventionOutcome } from '../src/gen/civ/chronicle';
 import { regionKey, type Intervention } from '../src/gen/edits';
+import { fullChronicle } from '../src/gen/civ/religionText';
+import { upheavalSteps } from '../src/gen/civ/upheaval';
+import { originCiv, originSpots } from '../src/ui/studio/origins';
 
 const worlds = new Map<number, World>();
 function world(seed: number): World {
@@ -264,7 +268,7 @@ describe('没人住的州立国', () => {
   it('州里已经有人住:照常以当地民族立国,备的新民族没用上(一州也没有,史书里不列)', () => {
     const seed = 7;
     const c0 = base(seed);
-    const y = 1500;
+    const y = 2800;
     const own = ownersAt(c0, y - 0.01);
     let r = 0;
     while (own.culture[r] < 0) r++;
@@ -276,7 +280,37 @@ describe('没人住的州立国', () => {
     expect(extra.unborn).toBe(true);
     expect([...c.culture].includes(extra.id)).toBe(false);
     expect(c.cultures.slice(0, -1).map((x) => x.name)).toEqual(c0.cultures.map((x) => x.name));
+    // 备着没用上的那支不影响之前的历史:信仰(大教分派按编号取随机数)和编年史一字不差
+    const before = (x: Civ) => JSON.stringify(fullChronicle(x).filter((e) => e.year < y).map((e) => e.text));
+    expect(before(c)).toBe(before(c0));
+    const greats = (x: Civ) => JSON.stringify(x.religion!.faiths.filter((f) => f.kind !== 'folk' && f.founded! < y).map((f) => [f.name, f.kind, f.form, f.founded]));
+    expect(greats(c)).toBe(greats(c0));
   }, 120_000);
+
+  it('地形大事里新冒出来的陆地:大事以后在那里立国,新民族照样来落脚;选起源按第 0 年的海陆看', () => {
+    const seed = 7;
+    const P = { ...DEFAULT_PARAMS, seed };
+    // 落日洋里抬起一片新陆地(第 2000 年)
+    const steps = upheavalSteps(P, [], null, [{ year: 2000, ops: [{ kind: 'raise', pts: [600, 350], r: 60, s: 1.1 }] }]);
+    const c0 = generateCiv(world(seed), { upheavals: steps });
+    const R0 = c0.eras![0].regions.count;
+    const own = ownersAt(c0, 2000.5);
+    let r = R0;
+    while (r < c0.regions.count && !(habitable(c0, r) && own.culture[r] < 0)) r++;
+    expect(r).toBeLessThan(c0.regions.count);
+    const c = generateCiv(world(seed), { upheavals: steps, interventions: [{ kind: 'found', region: regionKey(c0, r), from: 2001, name: '饕餮' }] });
+    expect(interventionOutcome(c, 0)).toMatchObject({ ok: true });
+    const p = c.polities[c.annals.find((e) => e.kind === 'intervene')!.a];
+    const cu = c.cultures[p.culture];
+    expect(cu.pioneer).toBe(0);
+    expect(cu.hearth).toBe(r);
+    expect(cu.born).toBe(2001);
+    expect(cu.name).toBeTruthy();
+    // 别的民族的名字、配色照没有这条干预时
+    expect(JSON.stringify(c.cultures.slice(0, -1).map((x) => [x.name, x.color]))).toBe(JSON.stringify(c0.cultures.map((x) => [x.name, x.color])));
+    // 那片地第 0 年是海:选起源时点在那里落在水上
+    expect(originSpots(world(seed), originCiv(c0), [600, 350])[0].region).toBe(-1);
+  }, 240_000);
 
   it('住不了人的州立不成,写明原因', () => {
     const seed = 7;

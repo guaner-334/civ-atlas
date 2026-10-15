@@ -37,6 +37,8 @@ import './overview.css';
 
 export interface WorldOverviewProps {
   data: { world: World; raster: Raster } | null;
+  /** 第 0 年的星球(有地形大事时是大事以前的那颗;世界设定里文明起源落在哪一州按它看) */
+  baseWorld: World | null;
   civ: Civ | null;
   params: WorldParams;
   /** 世界还在生成 */
@@ -163,7 +165,7 @@ function OverviewPage(p: WorldOverviewProps & { tab: OverviewTab }) {
       return (
         <SettingsPage
           params={p.params}
-          world={p.data?.world ?? null}
+          world={p.baseWorld ?? p.data?.world ?? null}
           civ={p.civ}
           generating={p.generating || !p.data}
           replay={p.replay}
