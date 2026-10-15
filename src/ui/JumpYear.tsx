@@ -80,6 +80,8 @@ function JumpTip({ why, hint, end, era, below }: { why: string | null; hint: str
 }
 
 export interface TimelineYearProps {
+  /** 认世界用(换了世界就收起输入框;改名不算换) */
+  world: unknown;
   year: number;
   end: number;
   era: Era | undefined;
@@ -94,7 +96,7 @@ export interface TimelineYearProps {
 }
 
 /** 时间轴左边的年份:平常是字,点了变输入框(手机弹小卡片) */
-export function TimelineYear({ year, end, era, narrow, locked, below, ghost }: TimelineYearProps) {
+export function TimelineYear({ world, year, end, era, narrow, locked, below, ghost }: TimelineYearProps) {
   const [edit, setEdit] = useState<{ text: string; pre: boolean } | null>(null);
   const boxRef = useRef<HTMLSpanElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -120,10 +122,10 @@ export function TimelineYear({ year, end, era, narrow, locked, below, ghost }: T
     inputRef.current?.select();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [!!edit, narrow]);
-  // 锁上了(开始导出视频)、换了世界(结束年份、纪年不同,填的数会按新世界算错):收起
+  // 锁上了(开始导出视频)、换了世界、换了纪年(填的数会按新的算错):收起
   useEffect(() => {
     setEdit(null);
-  }, [locked, end, era]);
+  }, [locked, world, end, era]);
 
   const parsed = edit ? parseJump(edit.text, edit.pre, era, end) : null;
   const go = () => {
