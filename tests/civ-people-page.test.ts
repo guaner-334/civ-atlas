@@ -171,19 +171,19 @@ describe('人物页 · 几处写法', () => {
     expect(kinOf(civ, 辛, 壬)).toBe('从伯父');
   });
 
-  it('seed=17:玄烈王(燕烬渊)是名人,继祖父即位;搜"烈王"第一个就是他', () => {
-    const civ = civOf(17);
-    const x = civ.people!.find((p) => p.name === '燕烬渊' && p.role === 'ruler');
+  it('seed=10:玄桓王(司空寒)是名人,继祖父即位;搜"桓王"第一个就是他', () => {
+    const civ = civOf(10);
+    const x = civ.people!.find((p) => p.name === '司空寒' && p.role === 'ruler');
     expect(x).toBeTruthy();
-    expect(personName(civ, x!)).toBe('烈王燕烬渊');
+    expect(personName(civ, x!)).toBe('桓王司空寒');
     expect(rulerRole(civ, x!)).toBe('玄王');
     expect(riseText(civ, x!)).toMatch(/^继祖父/);
     expect(famousPeople(civ).some((f) => f.id === x!.id)).toBe(true);
-    const hits = searchCiv(civ, '烈王', 2600);
-    expect(hits[0]).toMatchObject({ kind: 'person', id: x!.id, name: '烈王燕烬渊', sub: '玄王，2677–2727' });
-    // 编年史里写他即位的那条:"玄厉王薨……其孙燕烬渊即位,是为烈王" —— 前一位连国名一起切、他切名字
+    const hits = searchCiv(civ, '桓王', 2600);
+    expect(hits[0]).toMatchObject({ kind: 'person', id: x!.id, name: '桓王司空寒', sub: '玄王，2450–2486' });
+    // 编年史里写他即位的那条:"玄武王薨……其孙司空寒即位,是为桓王" —— 前一位连国名一起切、他切名字
     const e = reignEntries(civ).find((r) => r.people?.[1] === x!.id)!;
     const ms = personMentions(civ, e.text, e.people, -1, e.year).filter((m) => m.person !== undefined);
-    expect(ms.map((m) => m.text)).toEqual(['玄厉王', '燕烬渊']);
+    expect(ms.map((m) => m.text)).toEqual(['玄武王', '司空寒']);
   });
 });

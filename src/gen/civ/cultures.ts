@@ -8,12 +8,13 @@
  *   (sim.run)
  *   finishCultures  按最终的疆域给民族配色、分语感、起族名和州名
  *
- * 走几年 = 标定的年数 × 路程 × 地形系数(B) × 过界系数(A→B) × 类型修正 × 随机抖动 ÷ 扩张性
+ * 走几年 = 标定的年数 × 路程 × 地形系数(B) × 过界系数(A→B) × 类型修正 × 水土 × 随机抖动 ÷ 扩张性
  *   - 路程:两治所间的路程(regions.adjLen)÷ 一个标准值
  *   - 地形系数:群落通行代价(habitat.ts 的 BIOME_COST)换算;和发源州同一群落打折;
  *     地越贫瘠拓荒越慢(游牧民族在草原荒漠不受这条限制);海拔越高越慢
  *   - 过界系数:平地 / 跨河 / 翻山 / 海峡 / 航线;航线只有海洋民族能走
  *   - 类型修正照搬 Azgaar 的方向:游牧进森林很慢、高原民族下平原很慢、海洋民族沿海快、河谷民族顺河快……
+ *   - 水土:年均温和发源州差得多的地方越走越慢(海洋民族更甚),一个民族不会从寒带一路住到热带
  *   - 不可居的州(治所宜居分 < 1)可以路过,但不归属任何民族
  *
  * 随机数:subSeed(seed, 'civ-culture…') + keyed(按实体取),和处理顺序无关。
@@ -28,7 +29,7 @@ import { BIOME_COST, MAJOR_RIVER } from './habitat';
 import { fpow, keyed, subSeed } from './rand';
 import { refCellArea, refSpacing } from './geo';
 import { quantize, Ev, type CivSim } from './sim';
-import { assignStyles, lastIfPioneer, nameCultures } from './naming';
+import { assignStyles, lastIfPioneer, nameCultures, nameKin } from './naming';
 import type { NameMix } from '../names';
 import { HABITABLE_SUIT, KIND_INFO } from './display';
 import { cleanFrontier, frontierFx, originRegion, terrainChanged, type Frontier, type FrontierFx, type Origins } from './frontier';
@@ -66,6 +67,10 @@ const BIOME_EXP = 0.9;
 const NATIVE = 0.6;
 /** 过界系数(按 AdjKind 下标:平地、跨河、翻山、海峡、航线) */
 const CROSS = [1, 1.25, 2.2, 2.5, 3];
+/** 水土不服:年均温和发源州差 CLIMATE_FREE ℃ 以内不算,再往外每差 CLIMATE_SCALE ℃ 慢一倍;海洋民族再 × SEA_CLIMATE */
+const CLIMATE_FREE = 6;
+const CLIMATE_SCALE = 5;
+const SEA_CLIMATE = 6;
 /** 岛:所在陆块不超过这么多个州 */
 const ISLAND_REGIONS = 6;
 /** 大湖:至少这么多个地块 */
@@ -232,6 +237,8 @@ export interface CultureModel {
   cost: Float32Array;
   /** 民族 c 路过不可居的州 r 时记一笔:passed[c × R + r] */
   passed: Uint8Array;
+  /** 种子(推演中分化出新民族时补算代价表的随机抖动) */
+  seed: number;
 }
 
 /** 民族 cu 经邻接边 k 走到州 b 的代价(无量纲)。home = 民族的本土群落;jitter = 这个民族在州 b 的随机抖动 */
@@ -281,8 +288,11 @@ function edgeCost(T: CultureTerrain, cu: Culture, home: number, b: number, k: nu
       break;
   }
   if (adjKind === AdjKind.Mountain) cross *= T.fx.peopleMtn;
+  // 水土不服:年均温和发源州差得越多越慢(海洋民族沿岛链跳得远,更要紧),一个民族不会从寒带一路住到热带
+  const dT = Math.abs(T.temp[b] - T.temp[cu.hearth]) - CLIMATE_FREE;
+  const climate = dT > 0 ? 1 + (dT / CLIMATE_SCALE) * (kind === 'sea' ? SEA_CLIMATE : 1) : 1;
   const dist = reg.adjLen[k] / T.refLen;
-  return (dist * biomeF * habF * elevF * cross * mod * jitter) / cu.expansionism;
+  return (dist * biomeF * habF * elevF * cross * mod * climate * jitter) / cu.expansionism;
 }
 
 /** 算出所有民族走所有邻接边的代价表 */
@@ -515,6 +525,7 @@ export function planCultures(world: World, habitat: Habitat, regions: Regions, p
     M,
     cost: costTable(T, cultures, seed),
     passed: new Uint8Array(cultures.length * R),
+    seed,
   };
   model.spreadYears = (tempo ?? calibrate(model)) / Math.max(1e-3, p.pace * (frontier?.spread ?? 1));
   fixBirths(model);
@@ -730,6 +741,34 @@ export function installCultures(sim: CivSim, m: CultureModel, births = true): vo
 }
 
 /**
+ * 推演中分化出一个新民族(assimilation.ts 的看分化):加进民族表,补上它走各条邻接边的代价和路过记录。
+ * 编号排在已有的民族后面、还没兴起的干预立国民族(planPioneers 备的)前面 —— 那几支往后挪一号:
+ * 它们兴起以前没有在任何地方出现过,这样干预那一年以前分化出来的民族编号和没有干预时一样(干预之前的历史一字不差)。
+ * 只建民族,不改归属:调用方接着用 setOwner 把它的州改过来(邻州的到达挂在民族层的监听上)。
+ * 同化与迁徙的各民族州数(assimilation.ts)由调用方跟着挪
+ */
+export function addCulture(sim: CivSim, init: Omit<Culture, 'id' | 'name' | 'style' | 'color'>): Culture {
+  const m = models.get(sim)!;
+  let at = m.cultures.length;
+  while (at > 0 && m.cultures[at - 1].unborn && m.cultures[at - 1].pioneer !== undefined) at--;
+  const cu: Culture = { id: at, name: '', style: '', color: [128, 128, 128], ...init };
+  m.cultures.splice(at, 0, cu);
+  for (let i = at + 1; i < m.cultures.length; i++) m.cultures[i].id = i;
+  const R = m.terrain.R;
+  const C = m.cultures.length;
+  const cost = new Float32Array(C * m.M);
+  cost.set(m.cost.subarray(0, at * m.M));
+  cost.set(costTable(m.terrain, [{ ...cu, id: 0 }], m.seed).subarray(0, m.M), at * m.M);
+  cost.set(m.cost.subarray(at * m.M), (at + 1) * m.M);
+  m.cost = cost;
+  const passed = new Uint8Array(C * R);
+  passed.set(m.passed.subarray(0, at * R));
+  passed.set(m.passed.subarray(at * R), (at + 1) * R);
+  m.passed = passed;
+  return cu;
+}
+
+/**
  * 第 i 条干预在没人住的州 r 立国:备给它的新民族此刻在这里兴起(诞生年份改成此刻)。
  * 返回民族编号;没备(这州住不了人、不是定民族时那一州)= −1,立不成
  */
@@ -771,6 +810,7 @@ export function resumeCultures(sim: CivSim, world: World, civ: Civ, intervention
     M: reg.adj.length,
     cost: costTable(T, cultures, civ.seed),
     passed: new Uint8Array(cultures.length * R),
+    seed: civ.seed,
   };
   // 老存档没存标定值:按同样的规则重新标定(默认扩张快慢)
   if (civ.spreadYears === undefined) m.spreadYears = calibrate(m);
@@ -865,6 +905,33 @@ export function cultureNeighbors(reg: Regions, owner: Int16Array, C: number): Se
   return out;
 }
 
+/** 每州的民族换成它的始祖民族(分化出来的 → 最早的母族;别的不变) */
+function toRoots(cultures: readonly Culture[], owner: Int16Array): Int16Array {
+  if (!cultures.some((cu) => cu.parent !== undefined)) return owner;
+  const root = cultures.map((cu) => {
+    let x = cu;
+    while (x.parent !== undefined) x = cultures[x.parent];
+    return x.id;
+  });
+  return owner.map((c) => (c >= 0 ? root[c] : c));
+}
+
+/**
+ * 配色、配语感时的"接壤":几份归属(结束时 + 各检查点)的并集。
+ * 原有的民族只看把分化出来的民族并回母族以后的接壤 —— 后来分不分化、怎么分,不改原有民族的颜色和语感;
+ * 分化出来的民族(排在最后挑)看真实的接壤,和母族、邻族都错开。
+ */
+function kinNeighbors(reg: Regions, cultures: readonly Culture[], owners: readonly Int16Array[]): Set<number>[] {
+  const n = cultures.length;
+  const merge = (out: Set<number>[], add: Set<number>[]) => add.forEach((set, i) => set.forEach((o) => out[i].add(o)));
+  const real = cultureNeighbors(reg, owners[0], n);
+  for (const o of owners.slice(1)) merge(real, cultureNeighbors(reg, o, n));
+  if (!cultures.some((cu) => cu.parent !== undefined)) return real;
+  const rooted = cultureNeighbors(reg, toRoots(cultures, owners[0]), n);
+  for (const o of owners.slice(1)) merge(rooted, cultureNeighbors(reg, toRoots(cultures, o), n));
+  return cultures.map((cu, i) => (cu.parent === undefined ? rooted[i] : real[i]));
+}
+
 function colorDist(a: readonly number[], b: readonly number[]): number {
   // 粗略的感知色差("redmean")
   const rm = (a[0] + b[0]) / 2;
@@ -917,32 +984,43 @@ export function finishCultures(world: World, m: CultureModel, owner: Int16Array,
   const seed = world.params.seed;
   const reg = m.terrain.regions;
   const pinned = pins?.cultures;
+  const isPinned = (i: number) => !!pinned?.[i];
   if (pinned) {
-    // 地形大事以后才备的新民族(干预立国落在大事里新冒出来、变得住得了人的州):没有能照的,配色、语感照常挑,只取它们自己的
-    if (m.cultures.length > pinned.length) {
+    // 地形大事以后才有的新民族(干预立国落在大事里新冒出来、变得住得了人的州;大事以后才分化出来的):没有能照的,配色、语感照常挑,只取它们自己的
+    if (m.cultures.some((_, i) => !isPinned(i))) {
       const all = m.cultures.map((cu) => ({ ...cu }));
-      const nb = cultureNeighbors(reg, owner, all.length);
+      const nb = kinNeighbors(reg, all, [owner]);
       assignColors(all, nb, subSeed(seed, 'civ-culture-color'), reg.seat);
-      assignStyles(all, nb, m.terrain, subSeed(seed, 'civ-culture-style'), names, areas ?? owner);
-      for (let i = pinned.length; i < all.length; i++) {
+      assignStyles(all, nb, m.terrain, subSeed(seed, 'civ-culture-style'), names, toRoots(all, areas ?? owner));
+      for (let i = 0; i < all.length; i++) {
+        if (isPinned(i)) continue;
         m.cultures[i].color = all[i].color;
         m.cultures[i].style = all[i].style;
       }
     }
     // 地形大事:民族的配色、语感照没有大事时的那份历史(见 NamePins)
     m.cultures.forEach((cu, i) => {
-      if (i >= pinned.length) return;
-      cu.color = [...pinned[i].color] as [number, number, number];
-      cu.style = pinned[i].style;
-      if (pinned[i].autoStyle) cu.autoStyle = pinned[i].autoStyle;
+      const pin = pinned[i];
+      if (!pin) return;
+      cu.color = [...pin.color] as [number, number, number];
+      cu.style = pin.style;
+      if (pin.autoStyle) cu.autoStyle = pin.autoStyle;
     });
   } else {
-    const nb = cultureNeighbors(reg, owner, m.cultures.length);
-    for (const cp of history) cultureNeighbors(reg, cp.culture, m.cultures.length).forEach((set, i) => set.forEach((o) => nb[i].add(o)));
+    const nb = kinNeighbors(reg, m.cultures, [owner, ...history.map((cp) => cp.culture)]);
     assignColors(m.cultures, nb, subSeed(seed, 'civ-culture-color'), reg.seat);
-    assignStyles(m.cultures, nb, m.terrain, subSeed(seed, 'civ-culture-style'), names, areas ?? owner);
+    assignStyles(m.cultures, nb, m.terrain, subSeed(seed, 'civ-culture-style'), names, toRoots(m.cultures, areas ?? owner));
+  }
+  // 分化出来的民族:地名语感沿用母族的(按编号 = 分化先后,母族先定好)
+  for (const cu of m.cultures) {
+    if (cu.parent === undefined || isPinned(cu.id)) continue;
+    const parent = m.cultures[cu.parent];
+    cu.style = parent.style;
+    if (parent.autoStyle) cu.autoStyle = parent.autoStyle;
+    else delete cu.autoStyle;
   }
   reg.name = nameCultures(seed, m.cultures, owner, reg.seat);
-  if (pinned) m.cultures.forEach((cu, i) => i < pinned.length && (cu.name = pinned[i].name));
+  if (pinned) m.cultures.forEach((cu, i) => pinned[i] && (cu.name = pinned[i]!.name));
+  nameKin(m.cultures, isPinned);
   if (pins) pins.regionNames.forEach((x, r) => x !== undefined && r < reg.count && (reg.name![r] = x));
 }

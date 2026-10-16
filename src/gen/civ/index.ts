@@ -264,7 +264,11 @@ function pinNames(pins: NamePins, world: World, branch: CivSim, from: number, to
   bpm.cultures = bm.cultures; // 接着推时两层各复制了一份民族表:起城名、国名要用起好名的那份
   finishCultures(world, bm, res.culture, res.checkpoints, first ? undefined : pins, mix, areas);
   finishPolities(world, bpm, res.polity, pins);
-  if (first) pins.cultures = bm.cultures.map((c) => ({ name: c.name, style: c.style, ...(c.autoStyle ? { autoStyle: c.autoStyle } : {}), color: [...c.color] as [number, number, number] }));
+  // 推演中分化出来的民族:大事以前就有的才钉住(大事以后的那份历史里未必还会这样分化)
+  if (first)
+    pins.cultures = bm.cultures.map((c) =>
+      c.parent !== undefined && c.born >= to ? undefined : { name: c.name, style: c.style, ...(c.autoStyle ? { autoStyle: c.autoStyle } : {}), color: [...c.color] as [number, number, number] },
+    );
   const names = bm.terrain.regions.name ?? [];
   for (let r = 0; r < bm.terrain.regions.count; r++) if (pins.regionNames[r] === undefined) pins.regionNames[r] = names[r] ?? '';
   for (const q of bpm.polities) {

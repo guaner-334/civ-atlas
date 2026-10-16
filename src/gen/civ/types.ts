@@ -108,6 +108,13 @@ export interface Culture {
    * 迁入了哪些州见史事里同一年、同一民族的 migrate;编年史写"西迁"用
    */
   migrations?: { year: Year; dir: MigrationDir }[];
+  /**
+   * 民族分化(assimilation.ts 的看分化):从哪个民族分出来的。被海峡、山脉隔开,或分属不同国家几百年的一支渐成一族;
+   * 诞生年份 = 分化那一年,发源州 = 分出去的那几州里最宜居的。族名用母族的名字加方位(branch)。自然兴起的不给
+   */
+  parent?: number;
+  /** 分出去的那几州在母族本土的哪个方位(族名"北某某"用) */
+  branch?: MigrationDir;
 }
 
 /** 迁徙的方位 */
@@ -183,6 +190,11 @@ export interface Polity {
   /** 阶段 3 分合:复的是哪个亡国(国名沿用故国国名加"后 / 南 / 北…"前缀,编年史写"复国")。不是复国 = 不给 */
   restores?: number;
   /**
+   * 边缘立国(politics.ts 的看部落地带):受哪国影响立的国(挨着它的部落地带里提早立国的次生国家)。
+   * 国号一系(政体)沿用它的,旗沿用它的样式;史事 found 的 b 也记它。自己立国的、分出来的不给
+   */
+  mentor?: number;
+  /**
    * 阶段 3 王朝更替(dynasty.ts;按年份排好序):第一条 = 立国那年,改朝换代一次往后加一条。没改朝换代过 = 不给。
    * - name:东方语感 = 这一朝的国名词根(大昌 → 大景:地图上的国名跟着年份变,全称仍按当年的国号档位写,见 growth.ts 的 polityName);
    *   西幻语感 = 王室的名字("卡诺",写作"卡诺王朝";国名不变)。推演时留空,推演结束后由起名(naming.ts)填;
@@ -241,7 +253,7 @@ export interface Place {
  *
  * | 种类      | 说明       | a            | b                       | region          | settlement | war      |
  * |-----------|------------|--------------|-------------------------|-----------------|------------|----------|
- * | found     | 立国       | 国家         | −1                      | 国都所在州      | 国都       | −1       |
+ * | found     | 立国       | 国家         | 受哪国影响(边缘立国,见 Polity.mentor;自己立国 = −1) | 国都所在州 | 国都 | −1 |
  * | rank      | 升格 / 降格 | 国家(新国号用 polityName(国家, 年份) 查) | −1 | 国都所在州 | 国都 | −1 |
  * | war       | 宣战       | 攻方         | 守方                    | −1              | **援盟**(阶段 4 干预的结盟):应哪国之约参战 —— 守方刚向这个盟国宣战;不是援盟 = −1 | 战争编号 |
  * | conquer   | 攻占一州   | 攻方         | 原主(−1 = 部落地带)   | 州              | 州里的城(没有 = −1) | 战争编号(不在战争里 = −1) |
@@ -266,6 +278,7 @@ export interface Place {
  * | unally    | 盟约断了 | 断盟的一方(渐废:那时看邦交的一方)| 另一方 | −1 | −1 | 战争编号(背盟:紧跟着记的那场 war;坐视不救:盟国被打的那场)/ −1 |
  * | submit    | 称臣纳贡 | 藩属 | 宗主 | 藩属的国都所在州 | 藩属的国都 | 战争编号(战败称臣:紧跟在那场战争的 peace 后面)/ −1(畏强邻遣使称臣) |
  * | defect    | 藩属自立(不再称臣纳贡) | 藩属 | 原宗主 | 藩属的国都所在州 | 藩属的国都 | −1 |
+ * | diverge   | 民族分化:一支分出来渐成一族(assimilation.ts;分出去的几州同一刻改换民族,日志原因 Ev.Diverge) | **民族**:新民族 | **民族**:母族 | 新民族的发源州 | −1 | **国家**(借用这一列):分属不同国家而分化时,统治那几州的国家;隔山隔海而分化 = −1 |
  *
  * 洗劫、毁城和那一次攻占同一刻,记在那条 conquer **前面**(conquer、被迫迁都、灭亡照旧紧挨着,编年史里排回攻占后面)。
  * 议和割让的州也各记一条 conquer(a = 得到的一方,b = 割出的一方),连着记在那条 peace 前面,条数记在 peace 的 region 列。
@@ -320,7 +333,8 @@ export type AnnalKind =
   | 'alliance'
   | 'unally'
   | 'submit'
-  | 'defect';
+  | 'defect'
+  | 'diverge';
 
 /**
  * 战争的起因(史事 war 的 cause;阶段 4 干预的强制宣战不给)和盟约怎么断的(unally 的 cause):
@@ -718,8 +732,8 @@ export interface CivParams {
  * 大事之后的历史一变,之前的名字也会跟着变。钉住的先占上,新出现的照常起名、配色,不和它们撞
  */
 export interface NamePins {
-  /** 民族(推演前就定了,整份钉住):族名、语感、配色 */
-  cultures?: { name: string; style: string; autoStyle?: string; color: [number, number, number] }[];
+  /** 民族:族名、语感、配色(推演前就定了的整份钉住;推演中分化出来的,大事以前就有的才钉,没钉的 = undefined) */
+  cultures?: ({ name: string; style: string; autoStyle?: string; color: [number, number, number] } | undefined)[];
   /** 州名(下标 = 州;没有 = 不钉) */
   regionNames: (string | undefined)[];
   /** 国家:国名词根、配色、东方语感;dynasties = 各朝的朝名(下标 = Polity.dynasties 的下标;没有 = 不钉) */

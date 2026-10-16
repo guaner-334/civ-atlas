@@ -32,10 +32,10 @@ import { buildRoutes } from '../src/gen/civ/routes';
 import { searchCiv } from '../src/ui/searchIndex';
 
 const PARAMS = { ...DEFAULT_PARAMS, seed: 7 };
-/** 种子 7 上的三件大事(GENERATOR_VERSION 13):天灵国都一带海水漫进来、贡农加德国都一带火山喷发、贡农加德和对岸之间的海峡隆起 */
-const FLOOD: Upheaval = { year: 1600, ops: [{ kind: 'sink', pts: [1850, 520, 1930, 530], r: 40, s: 1.1 }] };
+/** 种子 7 上的三件大事(GENERATOR_VERSION 14):天灵国都一带海水漫进来、贡农加德国都一带火山喷发、哈尔温和对岸之间的海峡隆起 */
+const FLOOD: Upheaval = { year: 1600, ops: [{ kind: 'sink', pts: [1850, 520, 1930, 530, 1903, 469], r: 40, s: 1.1 }] };
 const VOLCANO: Upheaval = { year: 1800, ops: [{ kind: 'volcano', pts: [1278, 768], r: 36, s: 1.1 }] };
-const BRIDGE: Upheaval = { year: 2000, ops: [{ kind: 'raise', pts: [1510, 641, 1529, 628], r: 18, s: 1.1 }] };
+const BRIDGE: Upheaval = { year: 2000, ops: [{ kind: 'raise', pts: [749, 799, 729, 784], r: 18, s: 1.1 }] };
 
 let w0: World | null = null;
 const world = () => (w0 ??= generateWorld(PARAMS));
@@ -68,7 +68,7 @@ function namesBefore(civ: Civ, y: number, R: number) {
   return JSON.stringify({
     polities: civ.polities.filter((p) => p.founded < y).map((p) => [p.name, p.color, p.eastern, (p.dynasties ?? []).filter((d) => d.year < y).map((d) => d.name)]),
     settlements: civ.settlements.filter((s) => s.founded < y).map((s) => s.name),
-    cultures: civ.cultures.map((c) => [c.name, c.style, c.color]),
+    cultures: civ.cultures.filter((c) => c.parent === undefined || c.born < y).map((c) => [c.name, c.style, c.color]),
     regions: (civ.regions.name ?? []).slice(0, R),
   });
 }
@@ -85,7 +85,8 @@ function religionBefore(civ: Civ, y: number, R: number) {
   return JSON.stringify({
     events: r.events.filter((e) => e.year < y).map((e) => [e.year, e.kind, r.faiths[e.faith].name, e.polity, e.region, e.settlement]),
     states: r.states.filter((s) => s.from < y).map((s) => [s.polity, r.faiths[s.faith].name, s.from, s.until !== undefined && s.until < y ? s.until : null]),
-    checkpoints: r.checkpoints.filter((c) => c.year < y).map((c) => [c.year, Array.from(c.faith.subarray(0, R))]),
+    // 按名字比:大教排在各族的民间信仰后面,之后分化出的民族多一个、少一个,大教的编号跟着错开
+    checkpoints: r.checkpoints.filter((c) => c.year < y).map((c) => [c.year, Array.from(c.faith.subarray(0, R), (f) => (f >= 0 ? r.faiths[f].name : f))]),
   });
 }
 const placesOf = (ps: Civ['places']) => JSON.stringify(ps.map((p) => [p.kind, p.name, p.cell, p.path.length]));
@@ -216,11 +217,11 @@ describe('地形大事 · 推演', () => {
   }, 300_000);
 
   it('后果都并进大事那一条:亡了的国家打着的仗,议和记在后果之后;早先的遗址城址沉了,从那年起不再画', () => {
-    // 第 2182 年:艾尔海姆部(正和贡农加德打仗)两州全沉,贡农加德的国都哈尔德维克也沉了(州还在,迁都)
-    const Y = 2182;
+    // 第 2604 年:卢穆里亚部(正和贡农加德打仗)两州全沉,贡农加德的国都哈尔德维克也沉了(州还在,迁都)
+    const Y = 2604;
     const seats = [
-      [1607, 820],
-      [1621, 805],
+      [1646, 556],
+      [1650, 581],
     ];
     const W: Upheaval = { year: Y, ops: [...seats.map((pts) => ({ kind: 'sink' as const, pts, r: 24, s: 1.1 })), { kind: 'sink', pts: [1278, 768], r: 12, s: 1.1 }] };
     const b = civOf([W]);
@@ -231,10 +232,10 @@ describe('地形大事 · 推演', () => {
     const ch = buildChronicle(b).filter((x) => b.annals[x.id]?.year === Y);
     expect(ch.map((x) => x.kind)).toEqual(['upheaval']);
     expect(ch[0].text).toMatch(/亡,.+迁都/);
-    // 西鲁萨第 2348 年毁于战火、没有重建;第 2800 年城址沉入海中
-    const R: Upheaval = { year: 2800, ops: [{ kind: 'sink', pts: [1661, 681], r: 30, s: 1.1 }] };
+    // 索莱罗拉第 2266 年毁于战火、没有重建;第 2800 年城址沉入海中
+    const R: Upheaval = { year: 2800, ops: [{ kind: 'sink', pts: [1505, 468], r: 30, s: 1.1 }] };
     const r = civOf([R]);
-    const id = r.settlements.findIndex((s) => s.name === '西鲁萨');
+    const id = r.settlements.findIndex((s) => s.name === '索莱罗拉');
     expect(r.settlements[id].ended).toBeLessThan(R.year);
     expect(r.upheavals![0].ruins).toEqual([id]);
     expect(ruinSites(r, R.year - 1).map((s) => s.id)).toContain(id);
@@ -317,10 +318,14 @@ describe('地形大事 · 推演', () => {
     expect(again).toBeGreaterThan(700);
     expect(populationAt(back, again - 0.01)).toBeLessThan(32);
     expect(populationAt(back, again + 0.01)).toBeGreaterThanOrEqual(32);
-    // 立国:建城满 400 年那时人口得够(第 100 年建城,第 300 多年越过门槛,第 450 年上限降到 24:到第 500 年人口不够,不立国)
-    expect(foundingYear(fast)).toBe(500);
-    expect(foundingYear(sunk)).toBe(Infinity);
-    expect(foundingYear(back)).toBe(again);
+    // 立国:上限够 32 的城,建城满 120 年、人口过 10 就立(第 100 年建城,第 218 年人口过 10,等到第 220 年)
+    expect(foundingYear(fast)).toBe(220);
+    // 上限不够 32 的立不了;第 700 年上限涨到 96,从那年起立得了(人口早过了 10)
+    const small = { ...fast, capacity: 24 };
+    expect(foundingYear(small)).toBe(Infinity);
+    expect(foundingYear({ ...small, reshaped: [{ year: 700, capacity: 96, port: true }] })).toBe(700);
+    // 还没满 120 年,第 150 年上限就降到 24:立不了
+    expect(foundingYear({ ...fast, reshaped: [{ year: 150, capacity: 24, port: false }] })).toBe(Infinity);
     // 城的"最盛":上限涨上去一年就又降下来、那时人口本在往下走(旧都衰落),高点就在降之前那一刻
     const spike: Settlement = {
       ...fast,
@@ -444,7 +449,7 @@ describe('地形大事 · 推演', () => {
 
   it('还没诞生的民族,发源州在更早的大事里沉了:没能兴起(一州也没有过,不算在世的民族)', () => {
     const a = base();
-    const cu = [...a.cultures].sort((x, y) => y.born - x.born || x.id - y.id)[0];
+    const cu = a.cultures.filter((x) => x.parent === undefined).sort((x, y) => y.born - x.born || x.id - y.id)[0];
     expect(cu.born).toBeGreaterThan(100);
     const W = world();
     const seat = a.regions.seat[cu.hearth];

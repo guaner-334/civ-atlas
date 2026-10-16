@@ -19,7 +19,7 @@
  */
 import { createNamer, createPersonNamer, mixStyles, NAME_STYLES, type GeneratedName, type NameMix, type Namer, type PersonNamer } from '../names';
 import { Biome } from '../biomes';
-import type { Culture, CultureKind, Polity, Settlement } from './types';
+import type { Culture, CultureKind, MigrationDir, Polity, Settlement } from './types';
 import { polityRootAt } from './growth';
 import { keyed, subSeed } from './rand';
 
@@ -83,8 +83,11 @@ export function assignStyles(
   autoStyles(cultures, neighbors, terrain, base).forEach((st, c) => (cultures[c].style = st));
 }
 
-/** 干预立国时来落脚的新民族(Culture.pioneer)= 1,排在别的民族后面 */
-export const lastIfPioneer = (cu: Culture): number => (cu.pioneer === undefined ? 0 : 1);
+/**
+ * 干预立国时来落脚的新民族(Culture.pioneer)、推演中分化出来的民族(Culture.parent)= 1,排在别的民族后面
+ * (配色、语感、起名时别的民族照没有它们时一样挑)
+ */
+export const lastIfPioneer = (cu: Culture): number => (cu.pioneer === undefined && cu.parent === undefined ? 0 : 1);
 
 /** 自动的挑法(见 assignStyles):返回每个民族挑到的语感,不写进 culture */
 function autoStyles(
@@ -329,6 +332,8 @@ export function nameCultures(seed: number, cultures: Culture[], owner: Int16Arra
   // 干预立国时来落脚的新民族(pioneer)最后起名:别的民族的族名照没有它时一样(排序是稳定的,同一组里仍按位置锚)
   for (const i of byAnchor(at).sort((a, b) => lastIfPioneer(cultures[a]) - lastIfPioneer(cultures[b]))) {
     const cu = cultures[i];
+    // 分化出来的民族按母族的名字起(nameKin,等母族的名字定了再起)
+    if (cu.parent !== undefined) continue;
     const next = namer(cu.style).keyed('state', at[i].cell, at[i].n);
     // 取前几个候选里第一个不超过 4 个字、没和别族撞名的(族名要好念);都不合适就取最短的;前几个全被占了就往后找
     let pick = '';
@@ -355,6 +360,32 @@ export function nameCultures(seed: number, cultures: Culture[], owner: Int16Arra
     used.add(names[r]);
   }
   return names;
+}
+
+/** 分化出来的民族族名的前缀:先用分出去的方位,再用别的方位,再用"新""小" */
+const KIN_DIRS: MigrationDir[] = ['北', '南', '东', '西'];
+const KIN_MORE = ['新', '小'];
+
+/**
+ * 分化出来的民族(Culture.parent)起族名:母族那一系最初的族名前面加方位 —— "居兰" 分出 "北居兰",
+ * 北居兰再往西分出一支叫 "西居兰";方位都被占了就用 "新 / 小" 加母族的名字。
+ * skip(i) = true 的不起(钉住了名字的,见 NamePins)。按编号(= 分化先后)起,母族一定先起好
+ */
+export function nameKin(cultures: Culture[], skip: (i: number) => boolean = () => false): void {
+  const taken = new Set<string>();
+  cultures.forEach((cu, i) => {
+    if (cu.parent === undefined || skip(i)) taken.add(cu.name);
+  });
+  for (const cu of cultures) {
+    if (cu.parent === undefined || skip(cu.id)) continue;
+    const parent = cultures[cu.parent];
+    let root = parent;
+    while (root.parent !== undefined) root = cultures[root.parent];
+    const dirs = cu.branch ? [cu.branch, ...KIN_DIRS.filter((d) => d !== cu.branch)] : KIN_DIRS;
+    const cand = [...dirs.map((d) => d + root.name), ...KIN_MORE.map((x) => x + parent.name)];
+    cu.name = cand.find((n) => !taken.has(n)) ?? `${parent.name}${cu.id + 1}`;
+    taken.add(cu.name);
+  }
 }
 
 /** 复国的国名前缀(阶段 3 分合):东方语感 "后昌""南昌";西幻语感 "新索拉特""北索拉特"。依次挑第一个没被占的 */

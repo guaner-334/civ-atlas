@@ -119,12 +119,15 @@ describe('同化与迁徙', () => {
       // 定居之后的改换:原因只能是同化或迁徙;每条都有一条对应的史事
       const cur = new Int16Array(civ.regions.count).fill(-1);
       const changes = new Map<string, number>();
+      /** 分化:年份 | 新民族 → 分出去的州和原来的民族 */
+      const diverged = new Map<string, [number, number][]>();
       for (let i = 0; i < L.size; i++) {
         if (L.layer[i] !== Layer.Culture) continue;
         const r = L.region[i];
         if (cur[r] >= 0) {
-          expect([Ev.Assimilate, Ev.Migrate], `${tag} 日志 ${i}`).toContain(L.cause[i]);
-          changes.set(`${L.year[i]}|${r}`, L.cause[i]);
+          expect([Ev.Assimilate, Ev.Migrate, Ev.Diverge], `${tag} 日志 ${i}`).toContain(L.cause[i]);
+          if (L.cause[i] === Ev.Diverge) diverged.set(`${L.year[i]}|${L.value[i]}`, [...(diverged.get(`${L.year[i]}|${L.value[i]}`) ?? []), [r, cur[r]]]);
+          else changes.set(`${L.year[i]}|${r}`, L.cause[i]);
         } else expect([Ev.CultureBorn, Ev.CultureArrive, Ev.Migrate], `${tag} 日志 ${i}`).toContain(L.cause[i]);
         expect(L.value[i], `${tag}:民族层不会变回没人住`).toBeGreaterThanOrEqual(0);
         cur[r] = L.value[i];
@@ -175,6 +178,18 @@ describe('同化与迁徙', () => {
       expect(mine).toBeGreaterThan(0);
       // 日志里定居之后的每一次改换,都有一条同化 / 迁徙的史事
       expect(changes.size).toBe(A.filter((e) => (e.kind === 'assimilate' || e.kind === 'migrate') && e.b >= 0).length);
+      // 分化:一支一条 diverge(a = 新民族,b = 母族,region = 新民族的发源州);分出去的几州原来都是母族,同一刻改过来
+      const div = A.filter((e) => e.kind === 'diverge');
+      expect(div.length, tag).toBe(diverged.size);
+      for (const e of div) {
+        const got = diverged.get(`${e.year}|${e.a}`)!;
+        expect(got, `${tag} ${e.year}`).toBeDefined();
+        expect(got.every(([, old]) => old === e.b)).toBe(true);
+        expect(got.some(([r]) => r === e.region)).toBe(true);
+        const cu = civ.cultures[e.a];
+        expect([cu.parent, cu.born, cu.hearth]).toEqual([e.b, e.year, e.region]);
+      }
+      expect(civ.cultures.filter((c) => c.parent !== undefined).length).toBe(div.length);
       // 民族表里的迁徙记录:每一波一条,年份对得上
       for (const cu of civ.cultures) {
         const ys = (cu.migrations ?? []).map((m) => m.year);
@@ -218,7 +233,8 @@ describe('同化与迁徙', () => {
       const s = assimStats(civ);
       const tag = `seed ${seed}`;
       expect(s.changedShare, tag).toBeGreaterThanOrEqual(0.04);
-      expect(s.changedShare, tag).toBeLessThanOrEqual(0.3);
+      // GENERATOR_VERSION 14(民族分化:分出去的州也算改换过民族)以后 20 个种子 10%–39%:上限放宽到 0.45
+      expect(s.changedShare, tag).toBeLessThanOrEqual(0.45);
       expect(s.assimilated, tag).toBeGreaterThan(30);
       migrations += s.migrations;
       expect(s.migrated, tag).toBeGreaterThanOrEqual(s.migrations);
@@ -325,8 +341,8 @@ describe('同化与迁徙', () => {
         expect(e.text).toMatch(/^.+族亡/);
         expect(e.importance).toBe(3);
       }
-      // 和 civ-chronicle.test.ts 的"大事"条数上限一致(seed 7、2024 不超过 50,别的种子不超过 55);同化与迁徙自己的大事不超过十条
-      expect(filterChronicle(list, { major: true }).length, `seed ${seed}`).toBeLessThanOrEqual(seed === 3 ? 55 : 50);
+      // 和 civ-chronicle.test.ts 的"大事"条数上限一致(seed 7、2024 不超过 60,别的种子不超过 65);同化与迁徙自己的大事不超过十条
+      expect(filterChronicle(list, { major: true }).length, `seed ${seed}`).toBeLessThanOrEqual(seed === 3 ? 65 : 60);
       const mineMajor = filterChronicle(list, { major: true }).filter((e) => e.kind === 'migrate' || e.kind === 'assimilate' || e.kind === 'vanish');
       expect(mineMajor.length, `seed ${seed}`).toBeLessThanOrEqual(10);
     }

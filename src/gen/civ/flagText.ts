@@ -100,7 +100,7 @@ export function flagRows(civ: Civ, book: FlagBook, id: number, e: FlagEra): Flag
     rows.push({ k: '颜色', v: `${joinNames(s.c)}，${derived ? '照你改过的那面旗' : `${cu}人的颜色`}`, sw: uniq(s.c).slice(0, 3) });
     let v: string;
     if (e.dyn > 0) v = `${dynName(civ, id, e.dyn)}部掌权，换成他们的记号`;
-    else if (w.nomadParent) v = `${parentName}的烙印加一笔（从它分出来）`;
+    else if (w.nomadParent) v = `${parentName}的烙印加一笔（${w.mentor ? '受它影响立国' : '从它分出来'}）`;
     else v = `${cu}人王族的记号（草原部族给牲口烙的记号）`;
     rows.push({ k: '烙印', v });
     return rows;
@@ -108,8 +108,9 @@ export function flagRows(civ: Civ, book: FlagBook, id: number, e: FlagEra): Flag
 
   // 西幻王国 / 共和国
   const rows: FlagRow[] = [];
-  const split = p.parent !== undefined && !!s.mullets;
-  const from = split ? nameAt(civ, p.parent!, p.founded) : '';
+  // 分出来的(带星),或受影响立的国(Polity.mentor,第一面):颜色、样式、图案沿用那一国的
+  const split = (p.parent !== undefined && !!s.mullets) || (!!w.mentor && w.parent !== undefined);
+  const from = split ? nameAt(civ, w.mentor ? w.parent! : p.parent!, p.founded) : '';
   let colors: string;
   if (derived) colors = `${joinNames(s.c)}，照你改过的那面旗`;
   else if (split && e.dyn === 0 && w.swap && w.swap[0] !== w.swap[1]) colors = `${joinNames(s.c)}，沿用${from}的旗色，${tName(w.swap[0])}换成${cu}人的${tName(w.swap[1])}`;

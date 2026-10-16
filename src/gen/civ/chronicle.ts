@@ -536,6 +536,7 @@ const TAG: Record<AnnalKind, string> = {
   unally: '盟',
   submit: '臣',
   defect: '叛',
+  diverge: '衍',
 };
 
 function base(
@@ -1010,8 +1011,11 @@ function simpleEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
       const imp = isGreat(polityOf(civ, e.a)) ? 3 : 2;
       // 有人物的写开国之君:"李昭建大昌,都于汾城"
       const who = founderOf(ctx.ix, e.a, 0);
-      const head = who?.rise === 'found' ? `${who.name}建${pn(civ, e.a, y)}` : `${pn(civ, e.a, y)}立国`;
-      return withPeople(base(e, id, `${head}${where ? `,都于${where}` : ''}`, imp, [e.a], [e.region]), who?.rise === 'found' ? who : null);
+      let head = who?.rise === 'found' ? `${who.name}建${pn(civ, e.a, y)}` : `${pn(civ, e.a, y)}立国`;
+      // 边缘立国:受邻近强国影响提早立的国("受大昌影响,李昭建平国")
+      const mentor = e.b >= 0 && polityOf(civ, e.a)?.mentor === e.b ? e.b : -1;
+      if (mentor >= 0) head = `受${pn(civ, mentor, y)}影响,${head}`;
+      return withPeople(base(e, id, `${head}${where ? `,都于${where}` : ''}`, imp, mentor >= 0 ? [e.a, mentor] : [e.a], [e.region]), who?.rise === 'found' ? who : null);
     }
     case 'rank':
       return rankEntry(ctx, e, id);
@@ -1102,6 +1106,15 @@ function simpleEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
       const r = regionName(civ, e.region);
       const t = e.b >= 0 && r ? `${cn(civ, e.a)}亡,最后的${r}亦为${folk(civ, e.b)}` : `${cn(civ, e.a)}亡`;
       return { ...base(e, id, t, 3, [], [e.region]), settlement: -1 };
+    }
+    case 'diverge': {
+      // 民族分化:"居兰族的一支在瑞州一带渐成一族,称北居兰族" / "大昌治下的居兰人与本族日渐疏远,自成北居兰族"
+      const r = regionName(civ, e.region);
+      const t =
+        e.war >= 0
+          ? `${pn(civ, e.war, y)}治下的${folk(civ, e.b)}与本族日渐疏远,自成${cn(civ, e.a)}`
+          : `${cn(civ, e.b)}的一支${r ? `在${r}一带` : ''}渐成一族,称${cn(civ, e.a)}`;
+      return { ...base(e, id, t, 2, e.war >= 0 ? [e.war] : [], [e.region]), settlement: -1 };
     }
     case 'assimilate':
       return assimChild(civ, e, id);

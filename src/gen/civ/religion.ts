@@ -107,8 +107,11 @@ export function buildReligion(world: World, civ: Civ): Religion {
   let reg = eras.length ? eras[0].regions : civ.regions;
   const S = civ.settlements;
   const C = civ.cultures.length;
-  /** 干预立国备的新民族(Culture.pioneer)有几支:大教编号排在民族的民间信仰后面,随机数按去掉它们的编号取,备没备都一样 */
-  const pioneers = civ.cultures.filter((cu) => cu.pioneer !== undefined).length;
+  /**
+   * 干预立国备的新民族(Culture.pioneer)、推演中分化出来的民族(Culture.parent)有几支:大教编号排在民族的民间信仰后面,
+   * 随机数按去掉它们的编号取 —— 备没备、后来分化出几支,之前的信仰都一样
+   */
+  const pioneers = civ.cultures.filter((cu) => cu.pioneer !== undefined || cu.parent !== undefined).length;
   const namers = personNamers(civ.seed);
   const faiths: Faith[] = civ.cultures.map((cu) => ({
     id: cu.id,

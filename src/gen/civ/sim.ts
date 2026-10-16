@@ -149,6 +149,13 @@ export const enum Ev {
    * 国家隔几十年看一眼:藩属要不要自立、宗主收不收藩属的国土、盟约废不废、畏不畏强邻(称臣 / 结盟)
    */
   DiplomacyCheck = 40,
+  /**
+   * 看分化(民族分化,assimilation.ts;编号 45–49):a = 第几次看。每隔一百年看一眼各民族:被海峡、山脉隔开,
+   * 或分属不同国家几百年的一支,有机会分化成新民族(亲缘民族,族名带母族的名字)
+   */
+  DivergeCheck = 45,
+  /** 分化(assimilation.ts):不单独预约,是分出去的州改换成新民族时变化日志记的原因 */
+  Diverge = 46,
 }
 
 export interface EventInfo {
@@ -188,6 +195,8 @@ export const EVENT_INFO: EventInfo[] = [
   { id: Ev.HaltEnd, name: '解除禁扩', watch: false },
   { id: Ev.Upheaval, name: '地形大事', watch: false },
   { id: Ev.DiplomacyCheck, name: '看邦交', watch: false },
+  { id: Ev.DivergeCheck, name: '看分化', watch: false },
+  { id: Ev.Diverge, name: '分化', watch: false },
 ];
 
 /** 检查点间隔(年) */

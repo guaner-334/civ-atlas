@@ -329,7 +329,8 @@ describe('干预 · 推演', () => {
           const before = c.annals.slice(0, i).reverse().find((x) => x.kind === 'war' && x.year === e.year);
           expect(before && before.b === e.settlement && before.a === e.b).toBe(true);
           const entry = buildChronicle(c).find((x) => x.kind === 'war' && x.id === i);
-          expect(entry?.text).toMatch(/应.+之约(,遣.+)?伐/);
+          // 结盟以后 B 又向 z 称臣的,是以宗主身份去救(编年史写"救其藩属")
+          expect(entry?.text).toMatch(e.cause === 'rescue' ? /救其藩属/ : /应.+之约(,遣.+)?伐/);
         }
         if (tried >= 5 * (seed === 7 ? 1 : 2)) break;
       }

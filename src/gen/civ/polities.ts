@@ -39,7 +39,7 @@ import { anchorTag, fexp, fpow, keyed, subSeed } from './rand';
 import { WORTH_EXP } from './frontier';
 import { quantize, Ev, type CivSim } from './sim';
 import { KIND_INFO } from './display';
-import { cultureNeighbors, cultureTerrain, type CultureModel, type CultureTerrain } from './cultures';
+import { cultureModelOf, cultureNeighbors, cultureTerrain, type CultureModel, type CultureTerrain } from './cultures';
 import { SETTLEMENT_RANKS, capitalAt, populationAt, portAt, portSince, tierOf, yearReaching } from './growth';
 import { namePolities, nameSettlements, type RestoreDirection } from './naming';
 import type { RouteCity } from './routes';
@@ -62,9 +62,13 @@ const PORT_CAP = 1.3;
 const RIVER_CAP = 1.35;
 /** 成长速度(每年):GROWTH × 随机 0.75–1.25 */
 const GROWTH = 0.0022;
-/** 立国门槛:人口越过这么多(千人),而且建城满 MIN_AGE 年 */
+/**
+ * 立国:人口上限够 FOUND_POP(千人)的城才立得了国(哪些城能立国由它定),人口越过 FOUND_AT、而且建城满 MIN_AGE 年就立国。
+ * 立国看的是"够不够一方之主",不必等城长到很大:第一批国家在几百年里出现,前一千年不再几乎没有历史
+ */
 export const FOUND_POP = 32;
-const MIN_AGE = 400;
+const FOUND_AT = 10;
+const MIN_AGE = 120;
 /** 自动国家数:每多少个可居州一个(只用来定国都间距;实际数量由推演决定) */
 const REGIONS_PER_POLITY = 60;
 /** 国都间距(州图跳数)= SPACING × √(可居州数 / 目标国家数) */
@@ -85,9 +89,9 @@ const BIOME_EXP = 0.6;
  *   代价 = e^(离国都的路程 / WORTH_REACH) × 异族 WORTH_FOREIGN × (1 − ENCLAVE × 四邻里已是本国的比例)
  *          × 不是山地民族时上高山 (1 + 高出 HIGH_COST 米的部分 / HIGH_SCALE)
  *   值 ≥ WORTH × 代价 × 君主倾向折算的门槛倍数(rulers.ts 的 leaningEffect)才去。荒漠、苔原、高山、离国都太远的州不划算,留给部落
- *   (20 个种子:有人住的地方没有国家的从一成多到近三成,荒地归国家的从七成多到四成不到,富庶的州仍有八成多归国家)
+ *   (20 个种子,第 3000 年:有人住的地方没有国家的从近两成到三成多,中位两成半;立国更早、有了边缘立国以后国家更多,门槛相应提高)
  */
-const WORTH = 8;
+const WORTH = 11;
 const WORTH_REACH = 9;
 const WORTH_FOREIGN = 1.4;
 const ENCLAVE = 0.6;
@@ -248,11 +252,20 @@ function foundDelay(m: PolityModel, r: number): number {
 }
 
 /**
- * 这座城建城满 MIN_AGE 年以后、人口够立国门槛的第一年;够不着 = Infinity。
- * 建城不满 MIN_AGE 年就越过了门槛的,往后推到满 MIN_AGE 年 —— 那时人口还得够(地形大事降了上限、人口跌回门槛以下的不算)
+ * 这座城建城满 MIN_AGE 年以后、人口越过 FOUND_AT 的第一年(那时的人口上限得够 FOUND_POP);够不着 = Infinity。
+ * 建城不满 MIN_AGE 年就越过了的,往后推到满 MIN_AGE 年 —— 那时人口还得够(地形大事降了上限、人口跌回去的不算)
  */
 export function foundingYear(s: Settlement): Year {
-  return yearReaching(s, FOUND_POP, s.founded + MIN_AGE);
+  // 按地形大事切成几段(段里的上限 = 那次换成的值),只在上限够 FOUND_POP 的段里找
+  const L = s.reshaped ?? [];
+  for (let i = -1; i < L.length; i++) {
+    if ((i < 0 ? s.capacity : L[i].capacity) < FOUND_POP) continue;
+    const a = i < 0 ? -Infinity : L[i].year;
+    const b = i + 1 < L.length ? L[i + 1].year : Infinity;
+    const t = yearReaching(s, FOUND_AT, Math.max(a, s.founded + MIN_AGE));
+    if (t < b) return t;
+  }
+  return Infinity;
 }
 
 /**
@@ -978,7 +991,8 @@ export function resumePolities(sim: CivSim, world: World, civ: Civ, iv?: Interve
   const reg = T.regions;
   const R = T.R;
   // 国都间距按默认的"自动"数量(和 planPolities 同一个公式)
-  const m = emptyModel(T, civ.cultures, civ.seed, findPorts(world, T), capitalSpacing(T, 'auto'), civ.polityYears ?? STEP_YEARS, civ.capNorm, civ.frontier?.expand);
+  // 民族表用 cultures.ts 接着推时复制的那一份(推演中分化出的新民族加在那一份里)
+  const m = emptyModel(T, cultureModelOf(sim)?.cultures ?? civ.cultures, civ.seed, findPorts(world, T), capitalSpacing(T, 'auto'), civ.polityYears ?? STEP_YEARS, civ.capNorm, civ.frontier?.expand);
   // 阶段 3 城市兴衰:国都年份段、洗劫记录接着推时会往里加,复制一份(不改传进来的 civ)
   m.settlements = civ.settlements.map((s) => {
     const c = { ...s };

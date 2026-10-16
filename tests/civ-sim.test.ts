@@ -297,8 +297,10 @@ describe('民族扩张', () => {
       const w = world({ ...DEFAULT_PARAMS, seed });
       const civ = generateCiv(w);
       expect(civ.viable).toBe(true);
-      expect(civ.cultures.length).toBeGreaterThanOrEqual(4);
-      expect(civ.cultures.length).toBeLessThanOrEqual(16);
+      // 自然兴起的民族 4–16 个(推演中分化出来的不算)
+      const roots = civ.cultures.filter((c) => c.parent === undefined);
+      expect(roots.length).toBeGreaterThanOrEqual(4);
+      expect(roots.length).toBeLessThanOrEqual(16);
       const T = cultureTerrain(w, civ.habitat, civ.regions);
       let H = 0;
       let occ = 0;
