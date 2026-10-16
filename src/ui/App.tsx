@@ -253,6 +253,7 @@ import { NewWorldDialog, type NewWorldInit, type NewWorldMode, type NewWorldStar
 import { closeUpheaval, getUpUi, setUpRunner, takeUpPreview, undoUpOp, upCancel, upClick, upDown, upMove, upUp, upheavalName, useUpUi } from './upheavalStore';
 import { UpheavalHint, UpheavalOverlay } from './UpheavalPanel';
 import { PendingTray } from './PendingTray';
+import { takePendingBatch } from './pendingStore';
 import { dismissing, tookDismissClick } from './dismissClick';
 import { makeFlagView, setFlagView, useFlagPreview } from './flagStore';
 import { setFilmSource, setFilmViewport } from './filmSource';
@@ -1412,12 +1413,9 @@ export function App() {
     const upAdded = !quiet && one && upNow.length === upBefore.length + 1 ? upChanged[0] : undefined;
     const upRemoved = !quiet && one && upNow.length === upBefore.length - 1 ? upChanged[0] : undefined;
     const note = takeRewriteNote(getEdits()) ?? undefined;
-    // 待推演的单子一次加了几条:只多不少
-    const grew = list.length - before.length + upNow.length - upBefore.length;
-    const batch =
-      !quiet && !note && grew > 1 && grew === changed.length + upChanged.length
-        ? { ivs: changed, ups: upChanged }
-        : undefined;
+    // 待推演的单子一次加了几条(pendingStore 记着真加上了的那几条)
+    const pushed = takePendingBatch(getEdits());
+    const batch = !quiet && !note && pushed && pushed.ivs.length + pushed.ups.length > 1 ? pushed : undefined;
     resimInfo.current = { seq, year, t0: performance.now(), added, removed, upAdded, upRemoved, batch, left: list.length + upNow.length, quiet, note, years: yearsOnly || setupOnly };
     setResim({ year, end: newEnd });
     send({

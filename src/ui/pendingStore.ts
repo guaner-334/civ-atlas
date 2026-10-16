@@ -8,7 +8,7 @@
  *   推演时面板先藏起、地图上浮出两国名牌(panelStore.startRun);几条一起时不浮名牌。推完的提示在 App.tsx。
  */
 import { useSyncExternalStore } from 'react';
-import { cleanIntervention, type Intervention, type Upheaval } from '../gen/edits';
+import { cleanIntervention, type Intervention, type Upheaval, type WorldEdits } from '../gen/edits';
 import { cleanUpheaval, UPHEAVALS_MAX } from '../gen/terrainEdits';
 import { addEditsBatch, editBlock, getEdits, interventionKeys, onEditsReset } from './editsStore';
 import { startRun, type IvRun } from './panelStore';
@@ -99,7 +99,21 @@ export function clearPending() {
   if (items.length) set([]);
 }
 
-/** 全部推演:一次加进修改、清空单子。现在不能改(助手"先在地图上看看"时)= 提示条说原因,单子留着 */
+/** 最近一次全部推演真加上了的几条(App 推完据此给整批的提示和撤销;edits = 加上以后的修改) */
+let batch: { edits: WorldEdits; ivs: Intervention[]; ups: Upheaval[] } | null = null;
+
+/** 修改是 e 时:这是不是刚才全部推演加上的那一批(取一次就没了) */
+export function takePendingBatch(e: WorldEdits): { ivs: Intervention[]; ups: Upheaval[] } | null {
+  if (!batch || batch.edits !== e) return null;
+  const b = batch;
+  batch = null;
+  return { ivs: b.ivs, ups: b.ups };
+}
+
+/**
+ * 全部推演:一次加进修改,加上了的从单子里拿掉。现在不能改(助手"先在地图上看看"时)= 提示条说原因,单子留着。
+ * 排进来以后修改又变了(撤销 / 重做):已经下过的干预直接拿掉;地形大事满了加不上的留在单子里,提示说原因
+ */
 export function pushPending() {
   const list = items;
   if (!list.length) return;
@@ -110,10 +124,16 @@ export function pushPending() {
     return;
   }
   const ups = list.flatMap((x) => (x.kind === 'up' ? [x.u] : []));
-  const from = Math.min(...list.map((x) => x.from));
-  const one = list.length === 1 && list[0].kind === 'iv' ? list[0] : null;
+  const added = addEditsBatch(ivs, ups);
+  // 地形大事从前往后加,满了就停:加上了几件,后面的留在单子里
+  const left = list.filter((x) => x.kind === 'up').slice(added.ups.length);
+  set(left);
+  if (left.length) showToast({ id: 'edit-block', kind: 'warn', text: `${left.length} 件地形大事没加上:每个世界最多 ${UPHEAVALS_MAX} 件` });
+  const n = added.ivs.length + added.ups.length;
+  if (!n) return;
+  batch = { edits: getEdits(), ivs: added.ivs, ups: added.ups };
+  const from = Math.min(...added.ivs.map((v) => v.from), ...added.ups.map((u) => u.year));
+  const one = n === 1 && added.ivs.length === 1 ? list.find((x) => x.kind === 'iv' && same(x.v, added.ivs[0])) : undefined;
   // 推演时面板先藏起(推完回到信息页);只有一条、知道下令的国家:地图上浮出两国名牌
   startRun(one?.kind === 'iv' && one.run ? { ...one.run, from } : { self: -1, target: null, from });
-  set([]);
-  addEditsBatch(ivs, ups);
 }

@@ -4,8 +4,9 @@
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import { EMPTY_EDITS, type Intervention, type Upheaval } from '../src/gen/edits';
-import { addIntervention, clearEdits, getEdits, removeEditsBatch, setEdits } from '../src/ui/editsStore';
-import { clearPending, getPending, pendingHas, pushPending, queueIntervention, queueUpheaval, removePending } from '../src/ui/pendingStore';
+import { addIntervention, addUpheaval, clearEdits, getEdits, removeEditsBatch, setEdits } from '../src/ui/editsStore';
+import { clearPending, getPending, pendingHas, pushPending, queueIntervention, queueUpheaval, removePending, takePendingBatch } from '../src/ui/pendingStore';
+import { UPHEAVALS_MAX } from '../src/gen/terrainEdits';
 import { getPanel, endRun } from '../src/ui/panelStore';
 import { undoLastEdit } from '../src/ui/undo';
 import { clearToast } from '../src/ui/toastStore';
@@ -65,6 +66,27 @@ describe('待推演的单子', () => {
     removeEditsBatch([protect(1)], ups);
     expect(getEdits().interventions).toEqual([protect(9)]);
     expect(getEdits().upheavals).toBeUndefined();
+  });
+
+  it('排进来以后修改又变了:已经下过的干预拿掉、不算进这一批;地形大事满了的留在单子里', () => {
+    queueIntervention(protect(1), '甲国:保护');
+    queueIntervention(protect(2), '乙国:保护');
+    queueUpheaval(VOLCANO, '火山喷发');
+    addIntervention(protect(1));
+    for (let i = 0; i < UPHEAVALS_MAX; i++) addUpheaval({ ...VOLCANO, year: 10 + i });
+    pushPending();
+    expect(getEdits().interventions).toEqual([protect(1), protect(2)]);
+    expect(getPending().map((x) => x.text)).toEqual(['火山喷发']);
+    expect(takePendingBatch(getEdits())).toEqual({ ivs: [protect(2)], ups: [] });
+    expect(takePendingBatch(getEdits())).toBeNull();
+  });
+
+  it('一条也没加上:不进推演状态', () => {
+    queueIntervention(protect(1), '甲国:保护');
+    addIntervention(protect(1));
+    pushPending();
+    expect(getPending()).toEqual([]);
+    expect(getPanel().run).toBeNull();
   });
 
   it('换世界、读档清空单子', () => {
