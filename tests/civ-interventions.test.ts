@@ -14,6 +14,7 @@ import { CivSim } from '../src/gen/civ/sim';
 import { polityModelOf, canCross } from '../src/gen/civ/polities';
 import { InterventionModel } from '../src/gen/civ/interventions';
 import { ownersAt } from '../src/gen/civ/timeline';
+import { relationsAt } from '../src/gen/civ/diplomacy';
 import { buildChronicle, interventionOutcome } from '../src/gen/civ/chronicle';
 import { capitalAt, polityName } from '../src/gen/civ/growth';
 import {
@@ -346,9 +347,12 @@ describe('干预 · 推演', () => {
       const y = 2500;
       const own = ownersAt(civ, y - 0.01).polity;
       const alive = civ.polities.filter((p) => p.founded < y - 1 && (p.ended ?? Infinity) > y && own.includes(p.id));
-      // 一对接壤、此刻没在交战的国家;一对不接壤的
+      // 一对接壤、此刻没在交战、也不是盟国或宗藩的国家(那样会先断盟约 / 自立,见 civ-diplomacy);一对不接壤的
       let pair: [number, number] | null = null;
       let far: [number, number] | null = null;
+      const rel = relationsAt(civ, y - 0.01);
+      const tied = (p: number, q: number) =>
+        rel.liege.get(p)?.liege === q || rel.liege.get(q)?.liege === p || (rel.liege.has(p) && rel.liege.get(p)?.liege === rel.liege.get(q)?.liege) || rel.pacts.some((x) => (x.a === p && x.b === q) || (x.a === q && x.b === p));
       for (const p of alive) {
         for (const q of alive) {
           if (p.id === q.id) continue;
@@ -360,7 +364,7 @@ describe('干预 · 推演', () => {
               ((e.a === p.id && e.b === q.id) || (e.a === q.id && e.b === p.id)) &&
               !civ.annals.some((f) => f.kind === 'peace' && f.war === e.war && f.year < y),
           );
-          if (touch && !fighting && !pair) pair = [p.id, q.id];
+          if (touch && !fighting && !tied(p.id, q.id) && !pair) pair = [p.id, q.id];
           if (!touch && !far) far = [p.id, q.id];
         }
       }

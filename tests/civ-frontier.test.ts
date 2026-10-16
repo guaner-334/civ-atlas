@@ -250,9 +250,10 @@ describe('没人住的州立国', () => {
       // 之后可能被同化(消亡),但不会早于立国那一年
       expect(cu.ended === undefined || cu.ended > y).toBe(true);
       expect(ownersAt(c, y).culture[r]).toBe(cu.id);
-      // 别的民族照旧(编号、名字、颜色、发源地、诞生年份)
-      expect(JSON.stringify(c.cultures.slice(0, c0.cultures.length).map((x) => [x.name, x.color, x.hearth, x.born, x.style]))).toBe(
-        JSON.stringify(c0.cultures.map((x) => [x.name, x.color, x.hearth, x.born, x.style])),
+      // 别的民族照旧(编号、名字、发源地、诞生年份、语感)。颜色不比:配色要和推演里接壤过的民族错开,
+      // 立国以后的疆域变了,接壤的民族跟着变,颜色可能换(新民族排在最后挑,不抢别人的颜色)
+      expect(JSON.stringify(c.cultures.slice(0, c0.cultures.length).map((x) => [x.name, x.hearth, x.born, x.style]))).toBe(
+        JSON.stringify(c0.cultures.map((x) => [x.name, x.hearth, x.born, x.style])),
       );
       const L = c.log;
       let n = 0;

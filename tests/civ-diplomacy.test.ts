@@ -231,9 +231,9 @@ describe('邦交和作者下令', () => {
         })
         .slice(0, 4);
     };
-    // 同一个宗主的两个藩属(种子 9 小世界有;称臣那一年之后,和别的藩属配对)
+    // 同一个宗主的两个藩属(种子 3 小世界有,GENERATOR_VERSION 14;称臣那一年之后,和别的藩属配对)
     const coVassals = (): Try[] => {
-      const { w, civ } = at(9);
+      const { w, civ } = at(3);
       return civ.annals
         .filter((e) => e.kind === 'submit')
         .flatMap((e) => {

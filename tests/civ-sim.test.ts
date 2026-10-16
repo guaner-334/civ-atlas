@@ -217,8 +217,8 @@ describe('民族扩张', () => {
     expect(new Set(m.cultures.map((c) => c.born)).size).toBeGreaterThan(1);
     expect(Math.min(...m.cultures.map((c) => c.born))).toBe(0);
     const until = spreadPhaseEnd(civ);
-    // GENERATOR_VERSION 13 以后 20 个种子里最短 367 年,seed 7 是 462 年
-    expect(until).toBeGreaterThan(350);
+    // GENERATOR_VERSION 14 以后 20 个种子里最短的就是 seed 7,321 年(其次 seed 20,336 年)
+    expect(until).toBeGreaterThan(300);
     expect(Array.from(ownersAt(civ, until).culture)).toEqual(Array.from(referenceFlood(m, until).owner));
   });
 

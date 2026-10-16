@@ -141,8 +141,8 @@ describe('扩张算账 · 接着推', () => {
   it('fromCiv 接着推:迁都的下一刻按新国都重新预约扩张,断在迁都那一刻、迁都几年后都和一口气推完一样', () => {
     const w = world(7, 12000);
     const full = generateCiv(w);
-    // 这个世界 2805 年前后有一次迁都,迁都后重新预约的扩张到断开时还没到:断在迁都那一刻(重新预约还没发生)、几年后
-    const moves = full.polities.flatMap((p) => (p.capitals ?? []).slice(1).map((c) => c.year)).filter((y) => y > 2800 && y < 2810);
+    // 这个世界 2872 年前后有一次迁都(GENERATOR_VERSION 14),迁都后重新预约的扩张到断开时还没到:断在迁都那一刻(重新预约还没发生)、几年后
+    const moves = full.polities.flatMap((p) => (p.capitals ?? []).slice(1).map((c) => c.year)).filter((y) => y > 2867 && y < 2877);
     expect(moves.length).toBeGreaterThan(0);
     for (const m of moves) for (const cut of [m, m + 4]) same(w, full, cut);
   });
