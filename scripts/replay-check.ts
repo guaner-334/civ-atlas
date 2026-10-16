@@ -160,6 +160,13 @@ const openFile = async (p: Page, file: string) => {
 /** 某一点的完整读数:群落 / 海拔(水深)/ 气温降水 / 经纬度板块 / 国家 · 最近城市 / 民族 / 州(一行一条,用 " / " 连起来) */
 const probe = (p: Page, x: number, y: number) =>
   p.evaluate(([cx, cy]) => (((window as any).__wfProbe?.(cx, cy) ?? []) as string[]).join(' / '), [x, y]);
+/** 下的令先进待推演的单子:点「全部推演」(国家干预页底部的,没有就点时间轴上面单子里的;手机上轻点) */
+const pushOrders = async (p: Page, tap = false) => {
+  await p.waitForTimeout(150);
+  const foot = p.locator('.inspector [data-act=iv-push]');
+  const el = (await foot.isVisible().catch(() => false)) ? foot : p.locator('.ivq [data-act=iv-push]');
+  await (tap ? el.tap({ timeout: 5000 }) : el.click({ timeout: 5000 })).catch(() => {});
+};
 /** 顶部提示条上某个来源的那条(save 存档 / export 导出 / progress 生成……) */
 const toastText = (p: Page, id: string, timeout = 3000) =>
   p.locator(`.toast[data-toast=${id}]`).innerText({ timeout }).then((t) => t.replace(/\n/g, ' '), () => '');
@@ -2532,6 +2539,7 @@ for (const style of ['realistic', 'fantasy']) {
     const prev = await page.evaluate(() => (window as any).__wfResim?.seq ?? 0);
     await page.click('.inspector [data-act=intervene]');
     await page.click('.inspector .cp-cmd[data-cmd=protect]');
+    await pushOrders(page);
     await page.waitForFunction((s) => ((window as any).__wfResim?.seq ?? 0) > s, prev, { timeout: 20000 }).catch(() => null);
     resim = await page.evaluate(() => (window as any).__wfResim ?? null);
     await page.waitForTimeout(300);
@@ -2689,6 +2697,7 @@ for (const style of ['realistic', 'fantasy']) {
       plateOn = (await plates()).some((p) => p.id === tgt.id && p.on);
       const prev = await page.evaluate(() => (window as any).__wfResim?.seq ?? 0);
       await page.mouse.click(tgt.x, tgt.y);
+      await pushOrders(page);
       await page.waitForFunction((s) => ((window as any).__wfResim?.seq ?? 0) > s, prev, { timeout: 20000 }).catch(() => null);
       await page.waitForTimeout(300);
       doneToast = await toastText(page, 'resim-done');
@@ -3027,6 +3036,7 @@ for (const style of ['realistic', 'fantasy']) {
     await page.fill('.inspector .cp-field input', '饕餮');
     const prev = await page.evaluate(() => (window as any).__wfResim?.seq ?? 0);
     await page.click('.inspector [data-act=found-go]');
+    await pushOrders(page);
     await page.waitForFunction((s) => ((window as any).__wfResim?.seq ?? 0) > s, prev, { timeout: 20000 }).catch(() => null);
     resim = await page.evaluate(() => (window as any).__wfResim ?? null);
     await page.waitForTimeout(300);
@@ -3188,6 +3198,7 @@ for (const style of ['realistic', 'fantasy']) {
       if (tgt) {
         const prev = await page.evaluate(() => (window as any).__wfResim?.seq ?? 0);
         await page.mouse.click(tgt.x, tgt.y);
+        await pushOrders(page);
         await page.waitForFunction((s) => ((window as any).__wfResim?.seq ?? 0) > s, prev, { timeout: 20000 }).catch(() => null);
         await page.waitForTimeout(300);
         doneToast = await toastText(page, 'resim-done');
@@ -3226,6 +3237,7 @@ for (const style of ['realistic', 'fantasy']) {
   if (movable) {
     const prev = await page.evaluate(() => (window as any).__wfResim?.seq ?? 0);
     await page.click('.inspector [data-act=move-here]');
+    await pushOrders(page);
     await page.waitForTimeout(100);
     moveHidden = (await insHidden(page));
     await page.waitForFunction((s) => ((window as any).__wfResim?.seq ?? 0) > s, prev, { timeout: 20000 }).catch(() => null);
@@ -4927,6 +4939,7 @@ for (const style of ['realistic', 'fantasy']) {
         tgtText = tgt.text;
         const prev = await mp.evaluate(() => (window as any).__wfResim?.seq ?? 0);
         await mp.touchscreen.tap(tgt.x, tgt.y);
+        await pushOrders(mp, true);
         await mp.waitForFunction((s) => ((window as any).__wfResim?.seq ?? 0) > s, prev, { timeout: 20000 }).catch(() => null);
         await mp.waitForTimeout(300);
         doneToast = await mToast('resim-done');

@@ -1,10 +1,11 @@
 /**
  * 国家面板的干预页:生效年份(−100 −10 [年份] +10,默认 = 时间轴当前那一年)+ 六条命令。
  *
- *   立即生效  保护(不会被灭亡)、禁止分裂、禁止扩张
+ *   加入待推演  保护(不会被灭亡)、禁止分裂、禁止扩张
  *   选择对象  结盟(任意国家)、宣战(仅相邻国家)、迁都(本国城市)→ 在地图上选(地图压暗、可选的对象浮出名牌,见 TargetPlates.tsx)
  *
- * 不可用的命令变淡,说明换成原因。下了令:推演时面板先藏起,顶部提示条"正在重新推演 X–3000 年",推完"有鹰王朝禁止扩张,已从 X 年起重新推演"带撤销,
+ * 不可用的命令变淡,说明换成原因。下的令先进待推演的单子(pendingStore.ts,单子在时间轴上面,PendingTray.tsx),已经在单子里的变淡、写"已在待推演里";
+ * 单子里有令时底部多一个「全部推演(N 条)」。推演时面板先藏起,顶部提示条"正在重新推演 X–3000 年",推完"有鹰王朝禁止扩张,已从 X 年起重新推演"带撤销,
  * 面板回到信息页,从 X 年接着放(App.tsx、TargetPlates.tsx)。命令的数据和推演沿用 editsStore / gen/edits 的干预。
  */
 import { useMemo, useState } from 'react';
@@ -12,9 +13,10 @@ import type { Civ } from '../gen/civ/types';
 import { capitalAt, polityAlive, populationAt } from '../gen/civ/growth';
 import { ownersAt, type Owners } from '../gen/civ/timeline';
 import { polityKey, settlementKey, type Intervention, type InterventionKind } from '../gen/edits';
-import { addIntervention, editBlock, interventionKeys, useEdits } from './editsStore';
-import { cityStands, defaultYear, nameAt, neighborsAt, polityOrders, setPolityPick, type PolityPick } from './Interventions';
-import { endRun, setPanelTab, startRun } from './panelStore';
+import { useEdits } from './editsStore';
+import { cityStands, defaultYear, interventionText, nameAt, neighborsAt, polityOrders, setPolityPick, type PolityPick } from './Interventions';
+import { setPanelTab } from './panelStore';
+import { pendingInterventions, pushPending, queueIntervention, usePending } from './pendingStore';
 import { setCivTime } from './civView';
 import { YearStepper, useYearInput } from './panelParts';
 import { spaced, yearAt, yearSpanAt } from '../gen/era';
@@ -34,6 +36,7 @@ const CMDS: { k: Cmd; name: string; desc: string; pick: boolean }[] = [
 
 export function CommandPage({ civ, id, year }: { civ: Civ; id: number; year: number }) {
   const edits = useEdits();
+  const pending = usePending();
   const p = civ.polities[id];
   const key = polityKey(civ, id);
   // 生效年份的范围:立国那年 … 亡国前一年(至多结束年份前一年)
@@ -58,6 +61,8 @@ export function CommandPage({ civ, id, year }: { civ: Civ; id: number; year: num
   // 下过同一种命令(有截止年份的,到期以后可以再下)
   const has = (kind: InterventionKind) =>
     orders.some(({ v }) => v.kind === kind && v.kind !== 'found' && v.a === key && !('until' in v && v.until !== undefined && y >= v.until));
+  // 待推演的单子里有本国同一种命令
+  const queued = (kind: InterventionKind) => pendingInterventions(pending).some((v) => v.kind === kind && v.kind !== 'found' && v.a === key);
   const name = nameAt(p, y);
   /** 面板标题上的名字(时间轴当前那一年的) */
   const shown = nameAt(p, year);
@@ -67,23 +72,18 @@ export function CommandPage({ civ, id, year }: { civ: Civ; id: number; year: num
     if (!valid) return `生效年份要在${spaced(yearSpanAt(lo, hi, era))}之间`;
     if (!alive) return y < p.founded ? `${yearAt(y, era)}还没立国` : `${yearAt(y, era)}已亡`;
     if ((k === 'protect' || k === 'unity' || k === 'halt') && has(k)) return '已经下过这条命令';
+    if ((k === 'protect' || k === 'unity' || k === 'halt') && queued(k)) return '已在待推演里';
     if (k === 'ally' && !others.length) return '该年没有别的国家';
     if (k === 'declare' && !near.size) return '该年没有相邻的国家';
     if (k === 'move' && !cities.length) return '该年本国没有别的城市';
     return null;
   };
 
-  /** 下令:面板先藏起、后台重推;这条已经下过 = 原因 */
+  /** 下令:先进待推演的单子;加不了 = 原因 */
   const order = (v: Intervention, target: { kind: 'polity' | 'settlement'; id: number } | null): string | null => {
-    const blocked = editBlock(interventionKeys(v));
-    if (blocked) return blocked;
-    startRun({ self: id, target, from: y, shown });
-    if (!addIntervention(v)) {
-      endRun();
-      return '这条命令已经下过了';
-    }
-    setMsg(null);
-    return null;
+    const err = queueIntervention(v, interventionText(civ, v, -1, shown), { self: id, target, shown });
+    if (!err) setMsg(null);
+    return err;
   };
 
   const run = (k: Cmd) => {
@@ -142,17 +142,22 @@ export function CommandPage({ civ, id, year }: { civ: Civ; id: number; year: num
                   <span className="cp-cmd-name">{c.name}</span>
                   <span className="cp-cmd-desc">{off ?? c.desc}</span>
                 </span>
-                {!off && <span className="cp-cmd-go">{c.pick ? '选择对象 ›' : '立即生效'}</span>}
+                {!off && <span className="cp-cmd-go">{c.pick ? '选择对象 ›' : '加入待推演'}</span>}
               </button>
             );
           })}
         </div>
         {msg && <div className="cp-msg">{msg}</div>}
       </div>
-      <div className="cp-foot">
-        <button className="cp-btn wide" data-act="back" onClick={() => setPanelTab('info')}>
+      <div className={`cp-foot${pending.length ? ' cp-grid2' : ''}`}>
+        <button className={`cp-btn${pending.length ? '' : ' wide'}`} data-act="back" onClick={() => setPanelTab('info')}>
           返回
         </button>
+        {pending.length > 0 && (
+          <button className="cp-btn primary" data-act="iv-push" onClick={pushPending}>
+            全部推演({pending.length} 条)
+          </button>
+        )}
       </div>
     </>
   );

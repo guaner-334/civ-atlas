@@ -3,8 +3,8 @@
  *
  * 卡片:哪一年(和时间轴连着:拖时间轴跟着变,改这里时间轴跟着跳)、发生什么(火山喷发 / 地震抬升 / 海水漫进来)、大小、
  * 会怎么样(后台照"那一年的地形 + 这几笔"真生成一遍,和那一年的地形、州逐地块比:整州沉没、沉掉一块、山体压到的州按国家数,
- * 沉没 / 被毁的城列出来,国都在前)、放了几座 / 涂了几笔(撤销、全部清除)、取消 / 让它发生。
- * 涂了却没有一块会变:橙色提醒说原因,「让它发生」是灰的。手机上年份并进"发生什么"那一块,会怎么样只写两行。
+ * 沉没 / 被毁的城列出来,国都在前)、放了几座 / 涂了几笔(撤销、全部清除)、取消 / 加入待推演(先进待推演的单子,pendingStore.ts)。
+ * 涂了却没有一块会变:橙色提醒说原因,「加入待推演」是灰的。手机上年份并进"发生什么"那一块,会怎么样只写两行。
  *
  * 地图上那一层(UpheavalOverlay,世界坐标的 SVG,和编辑地形的覆盖层叠在同一处):真会沉进海里 / 抬出水面的地块涂深色描边,
  * 涂的那几笔浅浅一层 + 白虚线外轮廓,火山 = 山体虚线圈 + 毁城范围红圈 + 中间一个火山记号,会沉没的城画红圈,鼠标下一个大小圈。
@@ -19,10 +19,11 @@ import { ownersAt } from '../gen/civ/timeline';
 import { polityName } from '../gen/civ/growth';
 import { Icon } from './icons';
 import { pausePlayback, setCivTime, useCivTime } from './civView';
-import { addUpheaval, useEdits } from './editsStore';
+import { useEdits } from './editsStore';
+import { pendingUpheavals, queueUpheaval, usePending } from './pendingStore';
 import { EraPre } from './panelParts';
 import { eraYear, worldYear, yearFull } from '../gen/era';
-import { UP_KINDS, UP_SIZE, clearUpOps, closeUpheaval, requestUpPreview, setUpKind, setUpSize, undoUpOp, upKind, upYear, useUpDraft, useUpPreview, useUpUi, type UpKind } from './upheavalStore';
+import { UP_KINDS, UP_SIZE, clearUpOps, upheavalName, closeUpheaval, requestUpPreview, setUpKind, setUpSize, undoUpOp, upKind, upYear, useUpDraft, useUpPreview, useUpUi, type UpKind } from './upheavalStore';
 import { bandOutline, cellShapes } from './upheavalShapes';
 import './upheaval.css';
 
@@ -230,11 +231,14 @@ export function UpheavalPanel({ civ, world, phone }: { civ: Civ; world: World; p
   }, [sig, year, ui.ops]);
   const result = pv.result && pv.result.sig === sig ? pv.result : null;
   const sum = useMemo(() => (result && ui.ops.length ? summarize(civ, world, result, year, ui.ops) : null), [result, civ, world, year, ui.ops]);
-  const full = (edits.upheavals?.length ?? 0) >= UPHEAVALS_MAX;
+  // 已有的加上待推演单子里的
+  const pending = usePending();
+  const full = (edits.upheavals?.length ?? 0) + pendingUpheavals(pending) >= UPHEAVALS_MAX;
   const ready = !!sum && !sum.warn && !full && !pv.busy;
   const happen = () => {
     if (!ready) return;
-    if (addUpheaval({ year, ops: ui.ops })) closeUpheaval();
+    // 先进待推演的单子(pendingStore.ts),点「全部推演」才从这一年起重推
+    if (!queueUpheaval({ year, ops: ui.ops }, upheavalName({ ops: ui.ops }))) closeUpheaval();
   };
   const nV = ui.ops.filter((o) => o.kind === 'volcano').length;
   const nP = ui.ops.length - nV;
@@ -343,7 +347,7 @@ export function UpheavalPanel({ civ, world, phone }: { civ: Civ; world: World; p
         {!sum && busy}
         {sum?.warn && warn(sum.warn)}
         {list.length > 0 && rows(list)}
-        {full && warn(`每个世界最多 ${UPHEAVALS_MAX} 件地形大事。要再加，先在概览「我的干预」里撤销一件。`)}
+        {full && warn(`每个世界最多 ${UPHEAVALS_MAX} 件地形大事。要再加，先在概览「我的干预」里撤销一件，或在待推演里删掉一件。`)}
         {countRow}
       </div>
     );
@@ -372,7 +376,7 @@ export function UpheavalPanel({ civ, world, phone }: { civ: Civ; world: World; p
             {sum.note && <span className="cp-note">{sum.note}</span>}
           </>
         ) : null}
-        {full && warn(`每个世界最多 ${UPHEAVALS_MAX} 件地形大事。要再加，先在概览「我的干预」里撤销一件。`)}
+        {full && warn(`每个世界最多 ${UPHEAVALS_MAX} 件地形大事。要再加，先在概览「我的干预」里撤销一件，或在待推演里删掉一件。`)}
         {countRow}
       </div>
     );
@@ -431,7 +435,7 @@ export function UpheavalPanel({ civ, world, phone }: { civ: Civ; world: World; p
           取消
         </button>
         <button className="cp-btn primary" data-act="up-happen" disabled={!ready} onClick={happen}>
-          让它发生
+          加入待推演
         </button>
       </div>
     </>

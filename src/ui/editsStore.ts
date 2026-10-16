@@ -34,7 +34,15 @@ export function setEdits(next: WorldEdits) {
   past = [];
   future = [];
   era++;
+  for (const f of resetSubs) f();
   put(next);
+}
+
+/** 整个换掉时(换世界、读档)要跟着清的东西(比如待推演的单子) */
+const resetSubs = new Set<() => void>();
+export function onEditsReset(f: () => void): () => void {
+  resetSubs.add(f);
+  return () => resetSubs.delete(f);
 }
 
 /** 整个换掉过几次(换了世界、读档):记着"这一笔是什么时候加的"的地方据此作废旧记录 */
@@ -326,6 +334,53 @@ export function addIntervention(v: Intervention): boolean {
 export function removeIntervention(i: number) {
   if (!(i >= 0 && i < state.interventions.length)) return;
   commitEdits({ ...state, interventions: state.interventions.filter((_, j) => j !== i) });
+}
+
+/**
+ * 待推演的单子一次推演:几条干预、几件地形大事一起加进去,只记一步(⌘Z 一次撤掉整批)、App 只重推一次。
+ * 不合格的、和已有的一模一样的、现在不能改的干预不加;地形大事加到 UPHEAVALS_MAX 件为止。返回真加上了的
+ */
+export function addEditsBatch(ivs: readonly Intervention[], ups: readonly Upheaval[]): { ivs: Intervention[]; ups: Upheaval[] } {
+  const have = new Set(state.interventions.map((x) => JSON.stringify(x)));
+  const addIvs: Intervention[] = [];
+  for (const v of ivs) {
+    const c = cleanIntervention(v);
+    if (!c || editBlock(interventionKeys(c))) continue;
+    const k = JSON.stringify(c);
+    if (have.has(k)) continue;
+    have.add(k);
+    addIvs.push(c);
+  }
+  const list = state.upheavals ?? [];
+  const addUps: Upheaval[] = [];
+  for (const u of ups) {
+    const c = cleanUpheaval(u);
+    if (c && list.length + addUps.length < UPHEAVALS_MAX) addUps.push(c);
+  }
+  if (!addIvs.length && !addUps.length) return { ivs: [], ups: [] };
+  const next: WorldEdits = { ...state, interventions: addIvs.length ? [...state.interventions, ...addIvs] : state.interventions };
+  if (addUps.length) next.upheavals = [...list, ...addUps];
+  commitEdits(next);
+  return { ivs: addIvs, ups: addUps };
+}
+
+/** 撤掉一整批(推完提示上的"撤销"):这几条干预、这几件地形大事各去掉一份 */
+export function removeEditsBatch(ivs: readonly Intervention[], ups: readonly Upheaval[]) {
+  const drop = <T,>(list: readonly T[], gone: readonly T[]): T[] => {
+    const left = gone.map((x) => JSON.stringify(x));
+    return list.filter((x) => {
+      const i = left.indexOf(JSON.stringify(x));
+      if (i < 0) return true;
+      left.splice(i, 1);
+      return false;
+    });
+  };
+  const interventions = drop(state.interventions, ivs);
+  const upheavals = drop(state.upheavals ?? [], ups);
+  if (interventions.length === state.interventions.length && upheavals.length === (state.upheavals ?? []).length) return;
+  const next: WorldEdits = { ...state, interventions, upheavals };
+  if (!upheavals.length) delete next.upheavals;
+  commitEdits(next);
 }
 
 /**

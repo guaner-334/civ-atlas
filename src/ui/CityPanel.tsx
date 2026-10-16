@@ -2,7 +2,7 @@
  * 城的面板(和国家面板同一套样子,零件见 panelParts.tsx),按时间轴当前那一年:
  *
  *   顶部  颜色块(当年所属国)、城名(可改)、"城，1045 年建城，属 大昌"(毁了 = "故城"、写毁于哪年)、关闭
- *   按钮  迁都到这里(主操作:替所属国下"迁都"令,生效年份 = 当前年份,和国家干预页同一套流程)/ 设为中心 / 改名 /
+ *   按钮  迁都到这里(主操作:替所属国下"迁都"令,生效年份 = 当前年份,和国家干预页同一套流程:先进待推演的单子)/ 设为中心 / 改名 /
  *         更多(在这里加标记 / 在这里加人物、看所属国家、让 AI 讲名字由来)
  *   概况  级别(都城 / 大城 / 城 / 镇 / 村;故城)、人口、做过国都(次数或"未曾")、所在州(可点)、建城时的民族、
  *         做国都的年份段、故址(重建)
@@ -22,11 +22,11 @@ import { newMarkDraft } from './markStore';
 import { newCharacterDraft } from './characterStore';
 import { charactersAt, whereOfCity } from './characterInfo';
 import { CharacterRefs } from './CharacterPanel';
-import { addIntervention, editBlock, interventionKeys, useEdits, useEra } from './editsStore';
+import { useEdits, useEra } from './editsStore';
 import { spaced, yearAt, yearShort } from '../gen/era';
 import { NameEdit } from './NameEdit';
-import { nameAt } from './Interventions';
-import { endRun, startRun } from './panelStore';
+import { interventionText, nameAt } from './Interventions';
+import { queueIntervention } from './pendingStore';
 import { cityEntries, entriesUpTo, ownerSpans, ownersOf, popPeak, popSeries, type OwnerSpan } from './panelData';
 import {
   Act,
@@ -109,15 +109,8 @@ export function CityPanel({ civ, raw, raster, world, id, year, names }: DetailPr
   const move = () => {
     if (!moveOwner || moveWhy) return;
     const v: Intervention = { kind: 'move', a: polityKey(civ, moveOwner.id), city: settlementKey(civ, id), from: y };
-    const blocked = editBlock(interventionKeys(v));
-    setMsg(blocked);
-    if (blocked) return;
-    jumpTo(y);
-    startRun({ self: moveOwner.id, target: { kind: 'settlement', id }, from: y });
-    if (!addIntervention(v)) {
-      endRun();
-      setMsg('这条命令已经下过了');
-    }
+    // 先进待推演的单子(pendingStore.ts)
+    setMsg(queueIntervention(v, interventionText(civ, v), { self: moveOwner.id, target: { kind: 'settlement', id } }));
   };
 
   return (
