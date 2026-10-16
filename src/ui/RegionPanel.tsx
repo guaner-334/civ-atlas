@@ -11,8 +11,8 @@
  *
  * "在这里立国""划给…"换到干预页:生效年份(−100 −10 [年份] +10)+ 国名(可不填)/ 永久;
  * 立国:那一年没人住、但住得了人的州也能立(推演时一支新的民族来这里落脚),住不了人的写明是什么地形、按钮点不了;
- * "划给…"在地图上选国家(地图压暗、可选的国家浮出名牌,见 TargetPlates.tsx)。下了干预回到信息页,App 在后台重推,
- * 顶部提示"…划给…,已从 X 年起重新推演"带撤销。
+ * "划给…"在地图上选国家(地图压暗、可选的国家浮出名牌,见 TargetPlates.tsx)。下的干预先进待推演的单子(pendingStore.ts)、回到信息页;
+ * 点「全部推演」后 App 在后台重推,顶部提示"…划给…,已从 X 年起重新推演"带撤销。
  */
 import { useEffect, useMemo, useState } from 'react';
 import type { Civ } from '../gen/civ/types';
@@ -23,9 +23,10 @@ import { ownersAt } from '../gen/civ/timeline';
 import { spaced, yearAt, yearSpanAt } from '../gen/era';
 import { faithAt } from '../gen/civ/religion';
 import { cleanName, cultureKey, polityKey, regionKey, type Intervention } from '../gen/edits';
-import { addIntervention, editBlock, interventionKeys, useEdits } from './editsStore';
+import { useEdits } from './editsStore';
+import { queueIntervention } from './pendingStore';
 import { habitatScore, habitatWord } from './civDescribe';
-import { MineList, getPolityPick, nameAt, regionOrders, setPolityPick } from './Interventions';
+import { MineList, getPolityPick, interventionText, nameAt, regionOrders, setPolityPick } from './Interventions';
 import { NameEdit } from './NameEdit';
 import { AiMenuItem, MenuItem } from './PopMenu';
 import { Icon } from './icons';
@@ -305,10 +306,10 @@ function RegionOrder({ civ, id, year, page, back }: { civ: Civ; id: number; year
       : page === 'cede' && !others.length && !(forever && O)
         ? '该年没有别的国家'
         : null;
+  /** 先进待推演的单子(pendingStore.ts);加不了 = 原因 */
   const add = (v: Intervention): string | null => {
-    const blocked = editBlock(interventionKeys(v));
-    if (blocked) return blocked;
-    if (!addIntervention(v)) return '这条干预已经下过了';
+    const err = queueIntervention(v, interventionText(civ, v));
+    if (err) return err;
     back();
     return null;
   };
