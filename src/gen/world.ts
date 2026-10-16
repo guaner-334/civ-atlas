@@ -296,10 +296,10 @@ export function generateWorld(params: WorldParams, progress: Progress = () => {}
   const userRiver = ops.length ? carveRivers(mesh, water0r, elevation, ops) : null;
   let pool = drainage(mesh, land, elevation, 0);
   // 贴着海的洼地(张裂、小洼地挖到了海平面以下):水面就是海平面,积出来的是一个紧挨着海的"湖" —— 其实是海湾。
-  // 垫到海平面上当低地(湖在内陆,不会贴着海);水面高度没变,重算一遍排水
+  // 垫到海平面上当低地(湖在内陆,不会贴着海);水面高度没变,重算一遍排水。作者挖的湖照留(挖在海边的,碗沿就是海平面)
   let lowered = false;
   for (let i = 0; i < n; i++) {
-    if (land[i] && pool.filled[i] === 0 && elevation[i] < 0) {
+    if (land[i] && pool.filled[i] === 0 && elevation[i] < 0 && !(userLake && userLake[i])) {
       elevation[i] = 0;
       lowered = true;
     }
@@ -338,7 +338,9 @@ export function generateWorld(params: WorldParams, progress: Progress = () => {}
       }
     }
   }
-  // 湖心的小块地(周围全是湖水):不成州,淹成湖(湖面高度取周围湖水的最高处,湖底比水面低一点)
+  // 湖心的小块地(周围全是湖水):不成州,淹成湖(湖面高度取周围湖水的最高处,湖底比水面低一点)。
+  // 上面填平的湖也是陆地了,重新走一遍
+  seen.fill(0);
   for (let i = 0; i < n; i++) {
     if (water[i] !== 0 || seen[i]) continue;
     const comp = [i];

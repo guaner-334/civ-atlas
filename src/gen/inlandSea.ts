@@ -93,7 +93,11 @@ export function connectInlandSeas(mesh: Mesh, land: Uint8Array, protect: Uint8Ar
         }
       }
       if (hit >= 0) {
-        for (let a = hit; a >= 0 && land[a]; a = from[a]) land[a] = 0;
+        // 凿开的海峡也算外洋,后面的小海可以接到它上面
+        for (let a = hit; a >= 0 && land[a]; a = from[a]) {
+          land[a] = 0;
+          target[a] = 1;
+        }
         for (const i of cells) target[i] = 1;
         continue;
       }
