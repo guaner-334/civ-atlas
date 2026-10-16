@@ -487,15 +487,15 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
 // 君主有「倾向」一组四行,复制生平里也有一行,将领、宗室没有;
 // 「出征那年」跳时间轴;「编年史」打开这国的编年史;「复制生平」);编年史里的人名是蓝字,点了收起概览、打开这个人,不跳年份;
 // 世界概览的「人物」页(名人 / 君主 / 将领,「全部 N 位」进来停在这国的君主);搜名字第一个是这个人。
-// 例子:种子 7 的第 2700 年,大鳞王朝(5 号国)的开国之君太祖帝鸾(名君,起兵代有桂朝开国;前任是前朝的少帝仲丘,
-// 继任是他的孙子太宗应喾;在位时有将领重翼领兵)
+// 例子:种子 7 的第 2110 年,有鸿王朝(3 号国)的开国之君太祖帝熊(名君,起兵代大鳞朝开国;前任是前朝的愍帝白羿,
+// 继任是他的孙子太宗玄鸿;在位时有将领后芒领兵)
 {
-  await page.goto(`${dev.url}/?seed=7&civYear=2700`);
+  await page.goto(`${dev.url}/?seed=7&civYear=2110`);
   await page.waitForFunction(() => (window as any).__wfLabels?.polities > 0, null, { timeout: 60000 });
   await page.waitForTimeout(300);
   const year = async () => Number((await page.locator('.timebar .tb-year').innerText()).replace(/[^\d]/g, ''));
   const text = (sel: string) => page.locator(sel).first().innerText().then((t) => t.replace(/\s+/g, ' ')).catch(() => '');
-  await page.evaluate(() => (window as any).__wfSelect('polity', 5));
+  await page.evaluate(() => (window as any).__wfSelect('polity', 3));
   await page.waitForTimeout(600);
   const stats = await text('.inspector .cp-stats');
   const rulers = await page.locator('.inspector .cp-rulers .cp-dyn-row').count();
@@ -511,7 +511,7 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
   await page.waitForTimeout(200);
   const copied = (await page.evaluate(() => (window as any).__wfPersonText as string)) ?? '';
   // 将领一行的名字 → 将领的卡片;出征那年
-  await page.locator('.inspector .cp.pp .cp-stats .ins-link', { hasText: '重翼' }).first().click();
+  await page.locator('.inspector .cp.pp .cp-stats .ins-link', { hasText: '后芒' }).first().click();
   await page.waitForTimeout(400);
   const card2 = await text('.inspector .cp.pp');
   const genLeans = await page.locator('.inspector .cp.pp [data-sec=leanings]').count();
@@ -540,7 +540,7 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
   await page.locator('.chronicle.people .pp-row').first().click();
   await page.waitForTimeout(500);
   const card4 = await text('.inspector .cp.pp');
-  await page.evaluate(() => (window as any).__wfSelect('polity', 5));
+  await page.evaluate(() => (window as any).__wfSelect('polity', 3));
   await page.waitForTimeout(400);
   await page.click('.inspector [data-act=all-rulers]');
   await page.waitForTimeout(500);
@@ -564,7 +564,7 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
   const lgFocus = await page.locator(`.lg-node.focus[data-person="${princeId}"]`).count();
   await closeOverview();
   // 搜索
-  await page.fill('.sidebar .search-input', '太祖帝鸾');
+  await page.fill('.sidebar .search-input', '太祖帝熊');
   await page.waitForTimeout(300);
   const hit = await text('.search-row');
   const hitKind = await page.locator('.search-row').first().getAttribute('data-kind');
@@ -575,20 +575,20 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
     `人物:国家卡片「${stats.slice(0, 40)}…」,历代君主 ${rulers} 行、当前「${cur}」、「${all}」;卡片「${card1.slice(0, 50)}…」,倾向 ${leanRows} 行「${leans.slice(0, 30)}…」,复制 ${copied.length} 字;` +
       `将领卡片「${card2.slice(0, 30)}…」、出征那年 → ${y1};编年史开 ${chronOpen}、蓝字 ${names} 个,点「${pickName}」→ 收起 ${closed}、卡片 ${card3Id}/${pickId}、年份 ${y1} → ${y2};` +
       `人物页名人 ${famousOn}/${famous} 行「${famousFirst.slice(0, 30)}」→ 卡片「${card4.slice(0, 20)}」;全部 N 位 → 君主 ${rulersOn}、只看 ${polityPick}、${groups} 组 ${rows} 行;` +
-      `世系图「${lgHead.slice(0, 40)}」${lgNodes} 人、当前「${lgOn}」,宗室卡片「${princeCard.slice(0, 30)}」→ 圈出 ${lgFocus};搜"太祖帝鸾"「${hit}」(${hitKind})→「${card5}」`,
+      `世系图「${lgHead.slice(0, 40)}」${lgNodes} 人、当前「${lgOn}」,宗室卡片「${princeCard.slice(0, 30)}」→ 圈出 ${lgFocus};搜"太祖帝熊"「${hit}」(${hitKind})→「${card5}」`,
   );
-  if (!/君主\s*太祖帝鸾\s*2671 年即位/.test(stats)) errs.push(`人物:国家卡片没有「君主」行(${stats.slice(0, 80)})`);
-  if (rulers !== 5 || !/太祖帝鸾\s*当前/.test(cur) || !/全部 \d+ 位/.test(all)) errs.push(`人物:国家卡片的历代君主不对(${rulers} 行;${cur};${all})`);
+  if (!/君主\s*太祖帝熊\s*2089 年即位/.test(stats)) errs.push(`人物:国家卡片没有「君主」行(${stats.slice(0, 80)})`);
+  if (rulers !== 5 || !/太祖帝熊\s*当前/.test(cur) || !/全部 \d+ 位/.test(all)) errs.push(`人物:国家卡片的历代君主不对(${rulers} 行;${cur};${all})`);
   // 前任是前朝的末代君主(小字"前朝"),继任是同一朝的孙子(小字写亲属"孙")
   if (
-    !/太祖帝鸾/.test(card1) ||
-    !/大鳞皇帝，2671–2713 年在位/.test(card1) ||
-    !/事迹\s*起兵建立新朝，传 14 位、298 年，在位时得四州/.test(deed) ||
-    !/前任\s*少帝仲丘\s*前朝/.test(deed) ||
-    !/继任\s*太宗应喾\s*孙/.test(deed)
+    !/太祖帝熊/.test(card1) ||
+    !/有鸿皇帝，2089–2125 年在位/.test(card1) ||
+    !/事迹\s*起兵建立新朝，传 19 位、427 年/.test(deed) ||
+    !/前任\s*愍帝白羿\s*前朝/.test(deed) ||
+    !/继任\s*太宗玄鸿\s*孙/.test(deed)
   )
     errs.push(`人物:君主卡片不对(${card1.slice(0, 160)})`);
-  if (!copied.startsWith('太祖帝鸾\n大鳞皇帝') || !copied.includes('在位时：')) errs.push(`人物:复制生平不对(${copied.slice(0, 60)})`);
+  if (!copied.startsWith('太祖帝熊\n有鸿皇帝') || !copied.includes('在位时：')) errs.push(`人物:复制生平不对(${copied.slice(0, 60)})`);
   if (
     leanRows !== 4 ||
     !/^倾向 开拓\s*\d+ 更愿意开垦偏远贫瘠的土地 好战\s*\d+ 更容易发动战争且更难停止 发展\s*\d+ 更重视领地内的建设 重商\s*\d+ 偏向沿海/.test(leans) ||
@@ -596,13 +596,13 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
   )
     errs.push(`人物:君主卡片的倾向不对(${leanRows} 行;${leans.slice(0, 80)};复制里 ${/倾向：.*/.exec(copied)?.[0]})`);
   if (genLeans || princeLeans) errs.push(`人物:将领 / 宗室的卡片上不该有倾向(${genLeans};${princeLeans})`);
-  if (!/重翼\s*大鳞将领，2684–2705 年领兵/.test(card2) || y1 !== 2684) errs.push(`人物:将领卡片 / 出征那年不对(${card2.slice(0, 60)};${y1})`);
+  if (!/后芒\s*有鸿将领，2122–2145 年领兵/.test(card2) || y1 !== 2122) errs.push(`人物:将领卡片 / 出征那年不对(${card2.slice(0, 60)};${y1})`);
   if (!chronOpen || names < 3 || !closed || pickId < 0 || card3Id !== pickId || y2 !== y1) errs.push(`人物:编年史里的人名点不开,或点了跳了年份(${chronOpen};${names};${closed};${card3Id}/${pickId};${y1} → ${y2})`);
   if (!famousOn || famous < 20 || !card4) errs.push(`人物:人物页的名人不对,或点一行没打开卡片(${famousOn};${famous};${card4.slice(0, 30)})`);
-  if (!rulersOn || polityPick !== '5' || groups < 1 || rows !== 56) errs.push(`人物:「全部 N 位」没有打开这国的君主(${rulersOn};${polityPick};${groups};${rows})`);
-  if (!lgHead.startsWith('鳞 2671–2970 年，14 位君主') || lgNodes < 14 || !/太祖帝鸾.*当前/.test(lgOn)) errs.push(`人物:世系图不对(${lgHead};${lgNodes};${lgOn})`);
-  if (!/大鳞宗室，\d+–\d+/.test(princeCard) || !princeCard.includes('子嗣') || lgFocus !== 1) errs.push(`人物:宗室卡片 / 从卡片回到世系图不对(${princeCard.slice(0, 60)};${lgFocus})`);
-  if (!/^太祖帝鸾 大鳞皇帝，2671–2713$/.test(hit) || hitKind !== 'person' || card5 !== '太祖帝鸾') errs.push(`人物:搜"太祖帝鸾"不对(${hit};${hitKind};${card5})`);
+  if (!rulersOn || polityPick !== '3' || groups < 1 || rows !== 96) errs.push(`人物:「全部 N 位」没有打开这国的君主(${rulersOn};${polityPick};${groups};${rows})`);
+  if (!/^(有)?鸿 2089–251[78] 年，19 位君主/.test(lgHead) || lgNodes < 19 || !/太祖帝熊.*当前/.test(lgOn)) errs.push(`人物:世系图不对(${lgHead};${lgNodes};${lgOn})`);
+  if (!/有鸿宗室，\d+–\d+/.test(princeCard) || !princeCard.includes('子嗣') || lgFocus !== 1) errs.push(`人物:宗室卡片 / 从卡片回到世系图不对(${princeCard.slice(0, 60)};${lgFocus})`);
+  if (!/^太祖帝熊 有鸿皇帝，2089–2125$/.test(hit) || hitKind !== 'person' || card5 !== '太祖帝熊') errs.push(`人物:搜"太祖帝熊"不对(${hit};${hitKind};${card5})`);
   await page.fill('.sidebar .search-input', '');
   await page.keyboard.press('Escape');
   await page.evaluate(() => localStorage.clear());
