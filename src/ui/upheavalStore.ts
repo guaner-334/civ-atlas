@@ -4,7 +4,7 @@
  * 和 civView.ts 一样的小 store(get / set / use)。
  *
  * 地图上怎么放:火山喷发点一下放一座;地震抬升、海水漫进来按住拖动涂一笔(和编辑地形的画笔一样,点和点隔开小半个半径;
- * 跨 180° 经线接着涂)。几笔合成一件大事,「让它发生」时整件加进修改(editsStore 的 addUpheaval)。
+ * 跨 180° 经线接着涂)。几笔合成一件大事,「加入待推演」时整件进待推演的单子(pendingStore.ts),「全部推演」时加进修改。
  */
 import { useSyncExternalStore } from 'react';
 import type { TerrainOp, Upheaval } from '../gen/edits';

@@ -94,6 +94,125 @@ button {
 .old-badge-go:hover {
   background: var(--btn);
 }
+/* 待推演的单子(PendingTray.tsx):浮在时间轴上面;手机上占满时间轴那么宽,默认只露标题一行 */
+.ivq {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 8px);
+  z-index: 4;
+  width: 410px;
+  max-width: 100%;
+  padding: 10px 12px 10px 14px;
+  background: var(--panel);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border-radius: 14px;
+  box-shadow: var(--shadow-toast);
+  color: var(--ink);
+  text-shadow: none;
+}
+.ivq.phone {
+  right: 0;
+  width: auto;
+}
+.ivq.phone:not(.open) {
+  padding: 8px 8px 8px 14px;
+}
+.ivq-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.ivq-title {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 600;
+  text-align: left;
+}
+button.ivq-title {
+  cursor: pointer;
+}
+.ivq-title em {
+  margin-left: 6px;
+  font-size: 13px;
+  font-style: normal;
+  font-weight: 400;
+  color: var(--ink-2);
+}
+.ivq-chev {
+  margin-left: 4px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+.ivq-clear {
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  color: var(--link);
+  font-size: 13px;
+  cursor: pointer;
+}
+.ivq-go {
+  height: 30px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--on-accent, #fff);
+  font-size: 13.5px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.ivq-go:hover {
+  background: var(--accent-hover);
+}
+.ivq-list {
+  margin-top: 8px;
+  max-height: 210px;
+  overflow-y: auto;
+  border-top: 0.5px solid var(--line);
+}
+.ivq-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 0.5px solid var(--line);
+  font-size: 13.5px;
+}
+.ivq-yr {
+  flex: none;
+  min-width: 62px;
+  color: var(--ink-2);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+.ivq-text {
+  flex: 1;
+  min-width: 0;
+}
+.ivq-x {
+  flex: none;
+  padding: 0 2px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+.ivq-x:hover {
+  color: var(--err);
+}
+.ivq-note {
+  margin-top: 7px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
 /* 顶部居中的提示条(Toast.tsx) */
 .toast {
   position: absolute;

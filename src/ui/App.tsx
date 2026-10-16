@@ -121,7 +121,7 @@ import { cleanFrontier, cleanOrigins, sameFrontier, sameOrigins, type Frontier, 
 import type { RasterPatch } from '../gen/rasterPatch';
 import { baseRegions, civAtEra, dropComposed, eraData, eraIndex, eraMapsOf, eraReady, eraShown, patchKey, reuseRegions, useEraIndex, withHistory, type EraMaps } from './eras';
 import { sameSketch, type SketchEdit } from '../gen/sketch';
-import { clearEditHistory, clearEdits, getEdits, removeIntervention, removeUpheaval, setEditGate, setEdits, undoTerrainOp, useEdits } from './editsStore';
+import { clearEditHistory, clearEdits, getEdits, removeEditsBatch, removeIntervention, removeUpheaval, setEditGate, setEdits, undoTerrainOp, useEdits } from './editsStore';
 import { eraText, spaced, yearAt } from '../gen/era';
 import { redoLastEdit, undoLastEdit } from './undo';
 import { useShortcuts } from './useShortcuts';
@@ -252,6 +252,7 @@ import { SourceLayer, beginImport, isImageFile, startImport, useImportOn, useSou
 import { NewWorldDialog, type NewWorldInit, type NewWorldMode, type NewWorldStart } from './NewWorldDialog';
 import { closeUpheaval, getUpUi, setUpRunner, takeUpPreview, undoUpOp, upCancel, upClick, upDown, upMove, upUp, upheavalName, useUpUi } from './upheavalStore';
 import { UpheavalHint, UpheavalOverlay } from './UpheavalPanel';
+import { PendingTray } from './PendingTray';
 import { dismissing, tookDismissClick } from './dismissClick';
 import { makeFlagView, setFlagView, useFlagPreview } from './flagStore';
 import { setFilmSource, setFilmViewport } from './filmSource';
@@ -832,6 +833,8 @@ export function App() {
     /** 这次重推是新加了一条干预 / 撤销了一条(推完在顶部提示"…,已从 N 年起重新推演""已撤销") */
     added?: Intervention;
     removed?: Intervention;
+    /** 这次重推是待推演的单子一次加了几条(干预、地形大事;推完提示"N 条命令已生效",撤销一次撤掉整批) */
+    batch?: { ivs: Intervention[]; ups: Upheaval[] };
     /** 这次重推是新加了一件地形大事 / 撤销了一件 */
     upAdded?: Upheaval;
     upRemoved?: Upheaval;
@@ -1141,6 +1144,27 @@ export function App() {
         } else {
           showToast({ id: 'resim-done', kind: 'ok', text: info.left ? `已撤销改写,从${spaced(at(y))}起重新推演` : `已撤销改写,${at(y)}之后恢复原历史`, ttl: 4000 });
         }
+      } else if (info.batch) {
+        // 待推演的单子一次推完:几条没生效(两国不接壤、州里没人住……)的原因在概览"我的干预"页
+        const { ivs, ups } = info.batch;
+        const done = (civ.interventions ?? []).map((x) => JSON.stringify(x));
+        const failed = ivs.map((v) => done.indexOf(JSON.stringify(v))).filter((i) => i >= 0 && !interventionOutcome(civ, i).ok).length;
+        const n = ivs.length + ups.length;
+        showToast({
+          id: 'resim-done',
+          kind: failed ? 'warn' : 'ok',
+          text: `${n - failed} 条命令已生效,已从${spaced(at(y))}起重新推演`,
+          more: failed ? [`${failed} 条没生效,原因见概览的"我的干预"`] : undefined,
+          action: {
+            label: '撤销',
+            act: 'iv-batch-undo',
+            onClick: () => {
+              removeEditsBatch(ivs, ups);
+              clearToast('resim-done');
+            },
+          },
+          ttl: 7000,
+        });
       } else if (info.added) {
         const v = info.added;
         const named = applyNames(civ, getEdits().names);
@@ -1388,7 +1412,13 @@ export function App() {
     const upAdded = !quiet && one && upNow.length === upBefore.length + 1 ? upChanged[0] : undefined;
     const upRemoved = !quiet && one && upNow.length === upBefore.length - 1 ? upChanged[0] : undefined;
     const note = takeRewriteNote(getEdits()) ?? undefined;
-    resimInfo.current = { seq, year, t0: performance.now(), added, removed, upAdded, upRemoved, left: list.length + upNow.length, quiet, note, years: yearsOnly || setupOnly };
+    // 待推演的单子一次加了几条:只多不少
+    const grew = list.length - before.length + upNow.length - upBefore.length;
+    const batch =
+      !quiet && !note && grew > 1 && grew === changed.length + upChanged.length
+        ? { ivs: changed, ups: upChanged }
+        : undefined;
+    resimInfo.current = { seq, year, t0: performance.now(), added, removed, upAdded, upRemoved, batch, left: list.length + upNow.length, quiet, note, years: yearsOnly || setupOnly };
     setResim({ year, end: newEnd });
     send({
       type: 'resim',
@@ -4079,6 +4109,8 @@ export function App() {
       {/* 底部:时间轴(宽屏是卡片右边那一块底下的胶囊;手机是浮在底部卡片上面的胶囊);新建时还没有历史,不放 */}
       <div className="bottom-row">
         <div className="bottom-tl">{data && world && <CivTimeline civ={civ} hidden={replayOn} dock="inline" />}</div>
+        {/* 待推演的单子:浮在时间轴上面 */}
+        {data && world && <PendingTray phone={narrow} hidden={replayOn || draft} />}
       </div>
       {/* 详情面板:窄屏是从屏幕底升起的卡片(在这儿的空位里),宽屏在侧栏里(见上面的 inspectorHost) */}
       {data && world && createPortal(<Inspector civ={civ} raw={shownRaw} raster={data.raster} world={data.world} />, inspectorHost)}
