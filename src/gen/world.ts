@@ -67,7 +67,7 @@ export const DEFAULT_PARAMS: WorldParams = {
 /** 海拔 60 米以上的陆地块成为小洼地(小湖)中心的机会(大陆内部平缓以后天然的洼地少了,机会和大小都比以前大一些) */
 const DENT_P = 1 / 600;
 
-/** 湖中心不超过这么多块、周围全是湖水的陆地,淹成湖 */
+/** 湖中心不超过这么多块(36000 块时;按地块数比例换算)、周围全是湖水的陆地,淹成湖 */
 const LAKE_ISLET = 6;
 
 export const MAP_W = 2048;
@@ -341,6 +341,7 @@ export function generateWorld(params: WorldParams, progress: Progress = () => {}
   // 湖心的小块地(周围全是湖水):不成州,淹成湖(湖面高度取周围湖水的最高处,湖底比水面低一点)。
   // 上面填平的湖也是陆地了,重新走一遍
   seen.fill(0);
+  const islet = Math.max(1, Math.round((LAKE_ISLET * n) / 36000));
   for (let i = 0; i < n; i++) {
     if (water[i] !== 0 || seen[i]) continue;
     const comp = [i];
@@ -361,7 +362,14 @@ export function generateWorld(params: WorldParams, progress: Progress = () => {}
         } else if (water[j] === 1) ocean = true;
       }
     }
-    if (lake && !ocean && comp.length <= LAKE_ISLET && !(userLake && comp.some((c) => userLake[c]))) {
+    // 作者挖的湖、作者堆的地(火山、抬起陆地)不动
+    if (
+      lake &&
+      !ocean &&
+      comp.length <= islet &&
+      !(userLake && comp.some((c) => userLake[c])) &&
+      !(touched && comp.some((c) => touched[c]))
+    ) {
       for (const c of comp) {
         water[c] = 2;
         waterLevel[c] = level;
