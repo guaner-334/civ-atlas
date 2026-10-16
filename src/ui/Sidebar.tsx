@@ -35,7 +35,7 @@ import { searchCiv, searchMarks, type SearchHit } from './searchIndex';
 import { countUpTo } from './timelineLayout';
 import { Icon } from './icons';
 import { AiMenuItem, AiSettingsItem, MenuItem, MenuSep, PopMenu } from './PopMenu';
-import { PRIVACY_URL, SOURCE_URL, TERMS_URL } from './links';
+import { GUIDE_URL, PRIVACY_URL, SOURCE_URL, TERMS_URL } from './links';
 import { ContactMenuItem } from './ContactLink';
 import { VersionMenuFoot } from './BetaNews';
 import { useCoarse } from './device';
@@ -260,6 +260,9 @@ export function WorldMoreMenu({
       </AiMenuItem>
       <AiSettingsItem onClick={() => openAiSettings()} />
       <MenuSep />
+      <MenuItem icon={<Icon name="help" size={16} />} href={GUIDE_URL} act="guide">
+        使用教程
+      </MenuItem>
       {!coarse && (
         <MenuItem icon={<Icon name="keyboard" size={16} />} act="shortcuts" kbd={keyLabel('help')} onClick={openShortcuts}>
           键盘快捷键
