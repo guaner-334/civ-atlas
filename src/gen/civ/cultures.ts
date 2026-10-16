@@ -974,6 +974,16 @@ function assignColors(cultures: Culture[], nb: Set<number>[], base: number, seat
 }
 
 /**
+ * 民族在两份历史之间对得上的身份(钉名字用,见 NamePins):编号会因为分化出几支而挪,这个不会 ——
+ * 干预立国的民族按第几条干预,分化出来的按哪年、在哪州分出,其余(推演前就定了的)按编号
+ */
+export function cultureKey(cu: Culture): string {
+  if (cu.pioneer !== undefined) return `p${cu.pioneer}`;
+  if (cu.parent !== undefined) return `d${cu.born}:${cu.hearth}`;
+  return `b${cu.id}`;
+}
+
+/**
  * 推演结束后:配色、分语感、起族名和州名(州名按最终疆域起,写进 regions.name)。
  * 配色、语感要和接壤的民族错开:阶段 3 有了同化与迁徙,接壤关系会变、有的民族会消亡,
  * 所以"接壤"取结束时和各检查点(每百年一份)的并集 —— 回放到哪一年,相邻的民族颜色都错得开。
@@ -983,7 +993,7 @@ function assignColors(cultures: Culture[], nb: Set<number>[], base: number, seat
 export function finishCultures(world: World, m: CultureModel, owner: Int16Array, history: readonly Checkpoint[] = [], pins?: NamePins, names?: NameMix, areas?: Int16Array): void {
   const seed = world.params.seed;
   const reg = m.terrain.regions;
-  const pinned = pins?.cultures;
+  const pinned = pins?.cultures && m.cultures.map((cu) => pins.cultures!.get(cultureKey(cu)));
   const isPinned = (i: number) => !!pinned?.[i];
   if (pinned) {
     // 地形大事以后才有的新民族(干预立国落在大事里新冒出来、变得住得了人的州;大事以后才分化出来的):没有能照的,配色、语感照常挑,只取它们自己的

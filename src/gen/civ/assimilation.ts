@@ -556,6 +556,7 @@ function hook(sim: CivSim, am: AssimModel): void {
       // 能分出去的片里挑最大的(一样大取片里最小的治所地块,和州号无关)
       let pick = -1;
       let pickRuler = -1;
+      let pickApart = false;
       let pickTag = Infinity;
       for (let i = 0; i < all.length; i++) {
         if (i === main) continue;
@@ -577,12 +578,12 @@ function hook(sim: CivSim, am: AssimModel): void {
         if (apart ? settled < DIV_SETTLED_GEO * g.length : settled < DIV_SETTLED * g.length || ruled < g.length) continue;
         // 隔山隔海的先分;同一类里挑大的
         if (pick >= 0) {
-          const pApart = pickRuler < 0;
-          if (pApart && !apart) continue;
-          if (pApart === apart && (g.length < all[pick].length || (g.length === all[pick].length && tag > pickTag))) continue;
+          if (pickApart && !apart) continue;
+          if (pickApart === apart && (g.length < all[pick].length || (g.length === all[pick].length && tag > pickTag))) continue;
         }
         pick = i;
         pickTag = tag;
+        pickApart = apart;
         pickRuler = apart ? -1 : owner[g[0]];
       }
       if (pick < 0 || keyed4(am.base, reg.seat[P.hearth], pickTag, k, U_DIVERGE) >= DIV_P) continue;

@@ -21,7 +21,7 @@ import type { ChangeLog, Civ, CivParams, Culture, Habitat, PlanetTempo, Place, P
 import { computeHabitat } from './habitat';
 import { buildRegions, emptyRegions, reshapeRegions } from './regions';
 import { CivSim } from './sim';
-import { BIRTH_SPAN, cultureModelOf, finishCultures, installCultures, planCultures } from './cultures';
+import { BIRTH_SPAN, cultureKey, cultureModelOf, finishCultures, installCultures, planCultures } from './cultures';
 import { buildRoutes } from './routes';
 import { capacityNorm, finishPolities, installPolities, planPolities, polityModelOf, routeCities } from './polities';
 import { findPlaces, keepPlaceNames } from './places';
@@ -266,8 +266,10 @@ function pinNames(pins: NamePins, world: World, branch: CivSim, from: number, to
   finishPolities(world, bpm, res.polity, pins);
   // 推演中分化出来的民族:大事以前就有的才钉住(大事以后的那份历史里未必还会这样分化)
   if (first)
-    pins.cultures = bm.cultures.map((c) =>
-      c.parent !== undefined && c.born >= to ? undefined : { name: c.name, style: c.style, ...(c.autoStyle ? { autoStyle: c.autoStyle } : {}), color: [...c.color] as [number, number, number] },
+    pins.cultures = new Map(
+      bm.cultures
+        .filter((c) => c.parent === undefined || c.born < to)
+        .map((c) => [cultureKey(c), { name: c.name, style: c.style, ...(c.autoStyle ? { autoStyle: c.autoStyle } : {}), color: [...c.color] as [number, number, number] }]),
     );
   const names = bm.terrain.regions.name ?? [];
   for (let r = 0; r < bm.terrain.regions.count; r++) if (pins.regionNames[r] === undefined) pins.regionNames[r] = names[r] ?? '';

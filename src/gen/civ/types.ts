@@ -732,8 +732,11 @@ export interface CivParams {
  * 大事之后的历史一变,之前的名字也会跟着变。钉住的先占上,新出现的照常起名、配色,不和它们撞
  */
 export interface NamePins {
-  /** 民族:族名、语感、配色(推演前就定了的整份钉住;推演中分化出来的,大事以前就有的才钉,没钉的 = undefined) */
-  cultures?: ({ name: string; style: string; autoStyle?: string; color: [number, number, number] } | undefined)[];
+  /**
+   * 民族:族名、语感、配色(推演前就定了的整份钉住;推演中分化出来的,大事以前就有的才钉)。
+   * 键是 cultureKey(不是编号:大事以后分化出几支不一定,排在后面的干预立国民族编号会跟着挪)
+   */
+  cultures?: Map<string, { name: string; style: string; autoStyle?: string; color: [number, number, number] }>;
   /** 州名(下标 = 州;没有 = 不钉) */
   regionNames: (string | undefined)[];
   /** 国家:国名词根、配色、东方语感;dynasties = 各朝的朝名(下标 = Polity.dynasties 的下标;没有 = 不钉) */

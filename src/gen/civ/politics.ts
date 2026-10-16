@@ -57,7 +57,7 @@ import { fexp, flog, keyed, keyed4, subSeed } from './rand';
 import { Ev, quantize, type CivSim } from './sim';
 import { addPolity, canCross, coreOf, endPolity, foundingYear, moveCapital, polityModelOf, type PolityModel } from './polities';
 import { warModelOf, type WarModel } from './wars';
-import { capitalAt, populationAt } from './growth';
+import { capacityAt, capitalAt, populationAt } from './growth';
 
 // ---- 调参(以截图和统计数为准,见 scripts/gen-stats.ts) ----
 /** 立国后多少年开始看内政;之后每隔多少年看一次(每段里 20%–80% 处随机一个时刻) */
@@ -729,7 +729,7 @@ function hook(sim: CivSim, pol: PoliticsModel): void {
         continue;
       }
       // 边缘立国:挨着站稳了的国家,受它影响提早立国
-      if (s.capacity < EDGE_CAP || t - s.founded < EDGE_AGE || populationAt(s, t) < EDGE_POP) continue;
+      if (capacityAt(s, t) < EDGE_CAP || t - s.founded < EDGE_AGE || populationAt(s, t) < EDGE_POP) continue;
       const m = mentorOf(r, t);
       if (m < 0) continue;
       const M = pm.polities[m];

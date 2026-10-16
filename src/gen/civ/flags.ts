@@ -502,6 +502,12 @@ const easternRealm = (p: Polity) => !!p.eastern && p.lineage !== 'khanate';
 /** 汗国或游牧民族的国家:配燕尾旗 */
 const nomadic = (civ: Civ, p: Polity) => p.lineage === 'khanate' || civ.cultures[p.culture]?.kind === 'nomad';
 
+/** 两国的旗是不是一路(都配牙旗 / 都配燕尾旗 / 都配西幻的旗):是才能沿用 */
+function sameFamily(civ: Civ, p: Polity, q: Polity): boolean {
+  if (easternRealm(p) || easternRealm(q)) return easternRealm(p) && easternRealm(q);
+  return nomadic(civ, p) === nomadic(civ, q);
+}
+
 /** 某一年的那一面(没立国 = 第一面,已亡 = 最后一面) */
 export function flagAt(eras: readonly FlagEra[], year: number): FlagEra {
   let e = eras[0];
@@ -553,9 +559,11 @@ function polityEras(ctx: Ctx, id: number): FlagEra[] {
   const taste = tasteOf(cu.style);
   const dyn = dynastiesOf(p);
   const eras: FlagEra[] = [];
-  // 边缘立国(Polity.mentor)的国家:旗仿影响它的那一国的样式(和分出来的一样沿用,只是不加分家的星、镶边)
-  const byMentor = p.parent === undefined && p.mentor !== undefined && !!civ.polities[p.mentor];
-  const parent = p.parent !== undefined ? civ.polities[p.parent] : byMentor ? civ.polities[p.mentor!] : undefined;
+  // 边缘立国(Polity.mentor)的国家:旗仿影响它的那一国的样式(和分出来的一样沿用,只是不加分家的星、镶边);
+  // 两国的旗不是一路(牙旗 / 燕尾旗 / 西幻的旗)就不仿,自己配
+  const M = p.parent === undefined && p.mentor !== undefined ? civ.polities[p.mentor] : undefined;
+  const byMentor = !!M && sameFamily(civ, p, M);
+  const parent = p.parent !== undefined ? civ.polities[p.parent] : byMentor ? M : undefined;
   const cityOf = (i: number) => (i === 0 ? p.capital : dyn[i].seat);
   let edited = false;
   /** 套上作者改过的:这一朝改过 = 用改过的那面 */
