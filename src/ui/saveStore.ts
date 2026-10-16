@@ -48,13 +48,13 @@ import {
 } from '../gen/savefile';
 import { getEdits, subscribeEdits } from './editsStore';
 import type { DraftBase } from './stageStore';
-import { getGraticuleLines, getProjection } from './projection';
+import { getContourKind, getGraticuleLines, getProjection } from './projection';
 import { getMapCenter } from './mapWrap';
 import { clearToast, showToast, type ToastAction } from './toastStore';
 
-/** 当前的投影、中央经线和经纬网(存档时写进去) */
+/** 当前的投影、中央经线、经纬网和等值线(存档时写进去) */
 export function currentView(): SaveView {
-  return { projection: getProjection(), center: Math.round(getMapCenter() * 100) / 100, graticule: getGraticuleLines() };
+  return { projection: getProjection(), center: Math.round(getMapCenter() * 100) / 100, graticule: getGraticuleLines(), contours: getContourKind() ?? '' };
 }
 
 const PREFIX = 'wenming-ditu:world:';
@@ -733,10 +733,11 @@ export function sameOrigin(a: SaveFile['origin'], b: SaveFile['origin']): boolea
 export function importSave(save: SaveFile): string | null {
   for (const w of listWorlds()) {
     if (w.draft || !sameSave(w.save, save)) continue;
-    // 只差投影 / 中央经线 / 经纬网:用文件里的(下次打开还是文件里的样子;文件记了经纬网、存着的没记,也换成文件里的)
+    // 只差投影 / 中央经线 / 经纬网 / 等值线:用文件里的(下次打开还是文件里的样子;文件记了经纬网、等值线,存着的没记,也换成文件里的)
     let ok = true;
     const grat = save.view?.graticule;
-    if (!sameView(w.save.view, save.view) || (grat !== undefined && w.save.view?.graticule !== grat)) {
+    const iso = save.view?.contours;
+    if (!sameView(w.save.view, save.view) || (grat !== undefined && w.save.view?.graticule !== grat) || (iso !== undefined && w.save.view?.contours !== iso)) {
       const next: SaveFile = { ...w.save, savedAt: new Date().toISOString() };
       if (save.view) next.view = save.view;
       else delete next.view;
@@ -912,7 +913,9 @@ export function viewChanged() {
 
 /** 旧存档没记经纬网:打开时经纬网照旧,就当存的是现在这样(之后改了经纬网才算改了看法) */
 function withGraticule(v: SaveView): SaveView {
-  return v.graticule === undefined ? { ...v, graticule: getGraticuleLines() } : v;
+  let out = v.graticule === undefined ? { ...v, graticule: getGraticuleLines() } : v;
+  if (out.contours === undefined) out = { ...out, contours: getContourKind() ?? '' };
+  return out;
 }
 
 export interface AttachSpec {

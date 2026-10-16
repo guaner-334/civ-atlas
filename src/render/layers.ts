@@ -3,10 +3,11 @@ import type { World } from '../gen/world';
 import type { Raster } from '../gen/raster';
 import { BIOMES } from '../gen/biomes';
 import { latitudeAt, windAt } from '../gen/climate';
+import { CLIMATE_CLASSES, CLIMATE_WATER, climateClasses } from '../gen/koppen';
 import { geometryOf } from '../gen/geometry';
 import { bakedView, drawRivers, hexRGB, hillshade, mix, ramp, rowCos, wrapOf, wrapShifts, type RGB } from './common';
 
-export type LayerId = 'plates' | 'elevation' | 'temperature' | 'precipitation' | 'currents' | 'biomes';
+export type LayerId = 'plates' | 'elevation' | 'temperature' | 'precipitation' | 'currents' | 'biomes' | 'climate';
 
 export const LAYERS: { id: LayerId; name: string }[] = [
   { id: 'plates', name: '板块' },
@@ -15,6 +16,7 @@ export const LAYERS: { id: LayerId; name: string }[] = [
   { id: 'precipitation', name: '降水' },
   { id: 'currents', name: '洋流' },
   { id: 'biomes', name: '生物群落' },
+  { id: 'climate', name: '气候分类' },
 ];
 
 export const ELEV_RAMP: [number, RGB][] = [
@@ -56,6 +58,19 @@ export const CURRENT_RAMP: [number, RGB][] = [
   [6, hexRGB('#c7352b')],
 ];
 const CURRENT_LAND = hexRGB('#d2cdc0');
+const CLIMATE_RGB: RGB[] = CLIMATE_CLASSES.map((c) => hexRGB(c.color));
+export const CLIMATE_SEA = hexRGB('#dde4ea');
+
+/** 每张栅格的气候分类只算一次 */
+const classCache = new WeakMap<Raster, Uint8Array>();
+export function climateClassesOf(r: Raster): Uint8Array {
+  let c = classCache.get(r);
+  if (!c) {
+    c = climateClasses(r);
+    classCache.set(r, c);
+  }
+  return c;
+}
 const CURRENT_SEA = hexRGB('#cbd7e2');
 
 /**
@@ -130,6 +145,7 @@ export function renderLayer(ctx: CanvasRenderingContext2D, world: World, r: Rast
   const d = img.data;
   const { plate, plateContinental } = world.tect;
   const sst = layer === 'currents' ? currentSst(world, r) : null;
+  const cls = layer === 'climate' ? climateClassesOf(r) : null;
   for (let k = 0; k < w * h; k++) {
     let c: RGB;
     switch (layer) {
@@ -152,14 +168,17 @@ export function renderLayer(ctx: CanvasRenderingContext2D, world: World, r: Rast
       case 'currents':
         c = water[k] === 1 ? mix(ramp(CURRENT_RAMP, sst![k]), CURRENT_SEA, 0.15) : CURRENT_LAND;
         break;
+      case 'climate':
+        c = cls![k] === CLIMATE_WATER ? CLIMATE_SEA : CLIMATE_RGB[cls![k]];
+        break;
       default:
         c = BIOMES[biome[k]].real;
     }
     const s = shade[k];
     const f =
-      layer === 'plates' || (layer === 'currents' && water[k] === 1)
+      layer === 'plates' || ((layer === 'currents' || layer === 'climate') && water[k] === 1)
         ? 1
-        : Math.max(0.5, Math.min(1.4, 1 + (s - 1) * (layer === 'currents' ? 0.35 : 0.7)));
+        : Math.max(0.5, Math.min(1.4, 1 + (s - 1) * (layer === 'currents' || layer === 'climate' ? 0.35 : 0.7)));
     d[k * 4] = c[0] * f;
     d[k * 4 + 1] = c[1] * f;
     d[k * 4 + 2] = c[2] * f;
