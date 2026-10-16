@@ -5384,6 +5384,16 @@ for (const style of ['realistic', 'fantasy']) {
         if (!repos.length || repos.some((u) => u !== SOURCE_URL)) errs.push(`链接:${f} 里的仓库网址和 links.ts 不一致(${[...new Set(repos)]})`);
         if (!body.includes('href="./"')) errs.push(`链接:${f} 底部没有回到地图的链接`);
       }
+      // 使用教程:页面读同目录的 guide.md 转成网页,两样都要在构建产物里
+      for (const [f, want] of [
+        ['guide.html', '<h1>使用教程</h1>'],
+        ['guide.md', '# 使用教程'],
+      ]) {
+        const r = await page.request.get(`${base}/${f}`);
+        const body = await r.text();
+        built.push(`${f} ${r.status()}`);
+        if (r.status() !== 200 || !body.includes(want)) errs.push(`链接:构建后的 ${f} 打不开(${r.status()})`);
+      }
     } finally {
       await srv.close();
     }

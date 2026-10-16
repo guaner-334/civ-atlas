@@ -1286,3 +1286,13 @@
 .mw-phone .mw-empty p {
   font-size: 14px;
 }
+/* 使用教程是个链接(新标签页打开),样子和旁边的按钮一样 */
+.mw a.mw-btn {
+  text-decoration: none;
+}
+/* 手机上一个世界都没有、也没有账号按钮时:那排只有使用教程,放在标题右边,不把标题往下挤 */
+.mw-phone .mw-bar.solo {
+  position: absolute;
+  top: calc(20px + var(--safe-t, 0px));
+  right: calc(16px + var(--safe-r, 0px));
+}

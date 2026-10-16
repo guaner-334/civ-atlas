@@ -2,11 +2,11 @@
  * 「我的世界」:浏览器里存着的世界,一个一张卡片(缩略图、名字、种子和现存几国、最近打开的时间),最近的在前。
  * 有存档的人进站先到这一页;世界卡片顶上"‹ 我的世界"回到这里。样子照常见的文稿列表(浅灰底、缩略图网格、名字和日期在图下面)。
  *
- *   右上     打开存档文件(也可以把 .json 拖进页面)、新建世界;有网站服务器时再加账号按钮(没登录是「登录」,登录了是名字;手机在左上)
+ *   右上     使用教程(新标签页打开 public/guide.html;一个世界都没有时也在)、打开存档文件(也可以把 .json 拖进页面)、新建世界;有网站服务器时再加账号按钮(没登录是「登录」,登录了是名字;手机在左上)
  *   卡片     点一下打开;"没建完"的(还在新建)点开接着建
  *            右上"···"(电脑悬停时出现;手机长按卡片)= 改名、复制一份、存成文件、删除(点两下确认)。没建完的只有改名、删除
  *   底部     源代码、隐私政策、用户协议、联系我们(配了交流群才有,见 ContactLink.tsx)、版本号(手机上不放,在世界卡片的"更多"里)
- * 手机:两列卡片,新建世界在右上,打开存档文件在列表下面。
+ * 手机:两列卡片,使用教程、新建世界在右上(一个都没有时使用教程在标题右边),打开存档文件在列表下面。
  * 一个都没有(第一次来)时:中间一颗慢慢自转的星球、一段话说清能做什么、「新建世界」大按钮,下面"或者打开存档文件",
  * 最下面一行小字说不用登录、做出来的世界归自己(和用户协议「你创作的东西归你」同一个说法)。
  *
@@ -30,7 +30,7 @@ import { downloadAll } from './bundle';
 import { copyNotes } from '../ai/library';
 import { Icon } from './icons';
 import { TitleInput, when } from './worldParts';
-import { PRIVACY_URL, SOURCE_URL, TERMS_URL } from './links';
+import { GUIDE_URL, PRIVACY_URL, SOURCE_URL, TERMS_URL } from './links';
 import { ContactLink } from './ContactLink';
 import { VersionText } from './BetaNews';
 import { HomeGlobe } from './studio/HomeGlobe';
@@ -127,14 +127,22 @@ export function MyWorlds({ phone, onOpen, onNew, onOpenText }: MyWorldsProps) {
     // 老编号的世界存不进账号(浏览器存储满了没换成新编号):一直算没同步上
     !session ? null : !syncable(id) || sync.failed.has(id) ? 'off' : sync.busy.has(id) ? 'sync' : null;
   if (trash && session) return <TrashPage phone={phone} />;
+  // 使用教程:新标签页打开一页文字说明(public/guide.html),地图这边不动
+  const guideBtn = (
+    <a className={`mw-btn${phone ? ' round' : ''}`} href={GUIDE_URL} target="_blank" rel="noreferrer" data-link="guide">
+      <Icon name="book" size={16} />
+      使用教程
+    </a>
+  );
 
   return (
     <div className={`mw${phone ? ' mw-phone' : ''}`} role="main" aria-label="我的世界" onPointerDown={stop} onClick={stop} onDoubleClick={stop} onWheel={stop}>
       <input ref={fileRef} type="file" accept=".json,application/json" hidden onChange={onFile} data-testid="save-file-input" />
       <header className="mw-top">
-        {phone && (!empty || acctBtn) && (
-          <div className={`mw-bar${server ? ' has-acct' : ''}`}>
+        {phone && (
+          <div className={`mw-bar${server ? ' has-acct' : ''}${empty && !acctBtn ? ' solo' : ''}`}>
             {acctBtn}
+            {guideBtn}
             {!empty && (
               <button className="mw-btn blue round" data-act="new-world" onClick={onNew}>
                 <Icon name="plus" size={16} />
@@ -152,9 +160,10 @@ export function MyWorlds({ phone, onOpen, onNew, onOpenText }: MyWorldsProps) {
             {saveAll}
           </p>
         </div>
-        {/* 一个都没有时,打开存档、新建在中间的大按钮那里;右上只剩账号 */}
-        {!phone && (!empty || acctBtn) && (
+        {/* 一个都没有时,打开存档、新建在中间的大按钮那里;右上只剩使用教程和账号 */}
+        {!phone && (
           <div className="mw-acts">
+            {guideBtn}
             {!empty && (
               <>
                 <button className="mw-btn" data-act="open-file" onClick={pickFile}>
@@ -169,7 +178,7 @@ export function MyWorlds({ phone, onOpen, onNew, onOpenText }: MyWorldsProps) {
             )}
             {acctBtn && (
               <>
-                {!empty && <span className="mw-sep" aria-hidden="true" />}
+                <span className="mw-sep" aria-hidden="true" />
                 {acctBtn}
               </>
             )}
