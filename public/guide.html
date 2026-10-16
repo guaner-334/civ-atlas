@@ -245,6 +245,12 @@
               return '<a href="' + href.replace(/"/g, '&quot;') + '"' + out + '>' + text + '</a>';
             });
         }
+        // 一段话折成几行写的:中文直接接上,前后都是英文字母或数字的中间补一个空格
+        function joinLines(lines) {
+          return lines.reduce(function (acc, l) {
+            return acc && /[A-Za-z0-9,.;:!?)]$/.test(acc) && /^[A-Za-z0-9(]/.test(l) ? acc + ' ' + l : acc + l;
+          }, '');
+        }
         // 整份 Markdown → 网页;小节编号 s1、s2……(目录、手机目录都指向它)
         function render(md) {
           var out = [];
@@ -252,7 +258,7 @@
           var list = false;
           var para = [];
           var flush = function () {
-            if (para.length) out.push('<p>' + inline(para.join('')) + '</p>');
+            if (para.length) out.push('<p>' + inline(joinLines(para)) + '</p>');
             para = [];
           };
           md.replace(/<!--[\s\S]*?-->/g, '')

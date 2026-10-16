@@ -1296,3 +1296,7 @@
   top: calc(20px + var(--safe-t, 0px));
   right: calc(16px + var(--safe-r, 0px));
 }
+/* 标题上面还有「旧版 / 测试版」标记时,那一行被它占了:使用教程回到顶上一排,不和标记叠在一起 */
+.mw-phone:has(.old-badge) .mw-bar.solo {
+  position: static;
+}
