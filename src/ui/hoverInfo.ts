@@ -7,6 +7,8 @@
  *   数据图层多一行数值(海拔、气温、降水、板块、群落)
  *   在地图上选干预目标时(国家面板):对象的名字 + "点击选择 / 不可选 / 本国";下了令正在推演时不显示
  */
+import { CLIMATE_CLASSES, CLIMATE_WATER } from '../gen/koppen';
+import { climateClassesOf } from '../render/layers';
 import type { World } from '../gen/world';
 import type { Raster } from '../gen/raster';
 import type { Civ, Place } from '../gen/civ/types';
@@ -157,6 +159,11 @@ export function hoverInfo(p: {
       case 'precipitation':
         info.extra = `年降水 ${Math.round(raster.precip[k])} mm`;
         break;
+      case 'climate': {
+        const c = climateClassesOf(raster)[k];
+        if (c !== CLIMATE_WATER) info.extra = `${CLIMATE_CLASSES[c].code} ${CLIMATE_CLASSES[c].name}(估算)`;
+        break;
+      }
       case 'currents': {
         const d = world.currents.sst[cell];
         if (water && Math.abs(d) >= 0.5) info.extra = `${d > 0 ? '暖流' : '寒流'}，水温比同纬度${d > 0 ? '高' : '低'} ${Math.abs(d).toFixed(1)}°C`;

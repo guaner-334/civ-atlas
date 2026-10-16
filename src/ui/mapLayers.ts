@@ -23,7 +23,8 @@ export type MapLayer =
   | 'plates'
   | 'temperature'
   | 'precipitation'
-  | 'currents';
+  | 'currents'
+  | 'climate';
 
 export interface LayerDef {
   id: MapLayer;
@@ -51,6 +52,7 @@ export const MAP_LAYERS: LayerDef[] = [
   { id: 'plates', name: '板块', style: 'data', data: 'plates', polities: false, cultures: false, faiths: false, dark: false, main: false },
   { id: 'temperature', name: '气温', style: 'data', data: 'temperature', polities: false, cultures: false, faiths: false, dark: false, main: false },
   { id: 'precipitation', name: '降水', style: 'data', data: 'precipitation', polities: false, cultures: false, faiths: false, dark: true, main: false },
+  { id: 'climate', name: '气候', style: 'data', data: 'climate', polities: false, cultures: false, faiths: false, dark: false, main: false },
   { id: 'currents', name: '洋流', style: 'data', data: 'currents', polities: false, cultures: false, faiths: false, dark: false, main: false },
 ];
 

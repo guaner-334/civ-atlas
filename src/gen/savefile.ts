@@ -105,7 +105,7 @@ export interface SaveOrigin {
   url: string;
 }
 
-/** 投影 + 中央经线 + 经纬网(存进存档、分享链接) */
+/** 投影 + 中央经线 + 经纬网 + 等值线(存进存档、分享链接) */
 export interface SaveView {
   /** 投影名:"equirect" 等距圆柱、"robinson" 罗宾森、"naturalEarth"、"mollweide"、"mercator"、"globe" 地球仪…… */
   projection: string;
@@ -113,6 +113,15 @@ export interface SaveView {
   center: number;
   /** 经纬网:每隔几度一条(10 / 15 / 30),0 = 不画;没有 = 旧存档没记(打开时不动当前的经纬网) */
   graticule?: number;
+  /** 等值线:elev 等高线 / temp 等温线 / precip 等降水线,'' = 不画;没有 = 旧存档没记(打开时不动当前的) */
+  contours?: ContourKind | '';
+}
+
+/** 等值线的种类(一次只叠一种) */
+export const CONTOUR_KINDS = ['elev', 'temp', 'precip'] as const;
+export type ContourKind = (typeof CONTOUR_KINDS)[number];
+export function isContourKind(x: unknown): x is ContourKind {
+  return CONTOUR_KINDS.includes(x as ContourKind);
 }
 
 /** 经纬网能选的间隔(度) */
@@ -134,6 +143,8 @@ export function cleanView(raw: unknown): SaveView | null {
   // 经纬网:认得的间隔或 0;别的当没记
   const g = raw.graticule;
   if (g === 0 || GRATICULE_STEPS.includes(g as (typeof GRATICULE_STEPS)[number])) v.graticule = g as number;
+  const iso = raw.contours;
+  if (iso === '' || isContourKind(iso)) v.contours = iso;
   return v;
 }
 
@@ -209,6 +220,7 @@ export function sameView(a: SaveView | null | undefined, b: SaveView | null | un
   const x = a ?? DEFAULT_VIEW;
   const y = b ?? DEFAULT_VIEW;
   if (x.graticule !== undefined && y.graticule !== undefined && x.graticule !== y.graticule) return false;
+  if (x.contours !== undefined && y.contours !== undefined && x.contours !== y.contours) return false;
   return x.projection === y.projection && Math.abs(x.center - y.center) < 0.005;
 }
 
