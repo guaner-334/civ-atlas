@@ -3919,8 +3919,8 @@ export function App() {
         <div className="screen-layer" style={screenStyle}>
           {/* 放大后的地形细节(弯边投影:按投影一行一行铺) */}
           {data && <TerrainDetail world={data.world} raster={data.raster} style={style} view={view} mp={mp} />}
-          {data && <MapDecor world={data.world} style={style} view={view} mp={mp} />}
           {data && contourOn && <ContourLayer world={data.world} raster={data.raster} kind={contourKind!} style={style} dark={layerDark(mapLayer)} view={view} mp={mp} />}
+          {data && <MapDecor world={data.world} style={style} view={view} mp={mp} />}
         </div>
         {/* 放大后的文明细节层(CivLayer 放进来):盖住下面的地形,在文明底图那一层地图框之下 */}
         <div className="screen-layer" ref={setCivDetailHost} style={screenStyle} />

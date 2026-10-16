@@ -7,7 +7,8 @@
  *   2. drawMapLabels(主线程,要用页面里加载好的字体):地名、国名、城名和城镇符号(还有战事的战线、双剑),按"整图、缩放 1 倍"排版 ——
  *      地图按世界宽(2048 CSS 像素)显示、2× 时像素密度 × 2:2× 和 1× 排出来一模一样,只是更清楚。
  *      排版、避让和屏幕上是同一套(render/labels/draw.ts 的 placeMap),文字之间不重叠、国名落在国土上。
- *      等值线开着时,排好字、还没画之前先画线(drawExportContours),线上的数字躲开地名。
+ *      等值线开着时,后台线程把地形和上面两层分成两张交回来;排好字、还没画之前,先在地形上画线(drawExportContours,
+ *      数字躲开地名),再叠上文明底图和外框。
  *
  * 图例(drawLegend):国家 / 民族列表 + 颜色(和世界概览的国家页一样按当年的州数排;信仰图层再列信仰)、道路和城镇符号,和地图用同一套字体与配色。
  *
@@ -113,6 +114,14 @@ export function exportReserved(style: CivStyle, worldH: number, left = 0): [numb
 /** 地形 + 文明底图 + 外框罗盘,画在和 raster 一样大的画布上(后台线程和主线程都能用) */
 export function drawMapBase(ctx: Ctx2D, p: ExportMapParams, makeCanvas: (w: number, h: number) => OffscreenCanvas | HTMLCanvasElement): void {
   drawMapTerrain(ctx, p, makeCanvas);
+  drawMapOverlay(ctx, p, makeCanvas);
+}
+
+/**
+ * 地形上面的两层(文明底图、经纬网和外框罗盘),也能画在一张透明画布上:
+ * 导出带等值线时地形和它们分开交回主线程,线夹在中间(和屏幕上一样压在国界、道路底下)
+ */
+export function drawMapOverlay(ctx: Ctx2D, p: ExportMapParams, makeCanvas: (w: number, h: number) => OffscreenCanvas | HTMLCanvasElement): void {
   drawMapCiv(ctx, p, makeCanvas);
   drawMapDecor(ctx, p);
 }

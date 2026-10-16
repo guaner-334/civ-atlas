@@ -323,7 +323,7 @@ export function contourShown(kind: ContourKind, level: number, k: number): boole
 export function contourNote(kind: ContourKind, k: number): string {
   if (kind === 'elev') return k >= 3 ? '等高线(米):细线每 250 米,粗线每 1000 米写数字' : '等高线(米):细线每 500 米,粗线每 1000 米写数字';
   if (kind === 'temp') return '等温线(°C):每 5°C 一条,每 10°C 写数字';
-  return '等降水线(毫米):100 到 3000 不等距,粗线写数字';
+  return '等降水线(毫米):100 到 4000 不等距,粗线写数字';
 }
 
 export interface ContourView {

@@ -27,7 +27,7 @@ import { fullChronicle } from '../gen/civ/religionText';
 import { AZGAAR_SEA_GRAY, heightmapNote, type HeightmapBits } from '../gen/heightmap';
 import { LAYERS, type LayerId } from '../render/layers';
 import type { CivShow, CivStyle } from '../render/civ/overlay';
-import { IMAGE_FORMATS, drawExportContours, drawExportMarks, drawExportTrail, drawLegend, drawMapBase, drawMapLabels, type ExportScale, type ImageFormat } from '../render/export';
+import { IMAGE_FORMATS, drawExportContours, drawExportMarks, drawExportTrail, drawLegend, drawMapBase, drawMapLabels, drawMapOverlay, drawMapTerrain, type ExportScale, type ImageFormat } from '../render/export';
 import { canvasMeasure, drawMarks, layoutMarks, markStyle, placedTextBoxes, type MarkItem } from '../render/marks';
 import { drawTrail, layoutTrail, type TrailInput } from '../render/trail';
 import { getEdits, useEdits } from './editsStore';
@@ -226,6 +226,7 @@ async function exportMap(m: MapInput, scale: ExportScale, format: ImageFormat): 
     center: m.center,
     projection: m.projection,
     graticule: m.graticule,
+    split: !!m.contours,
   };
   const res = await runWorker(req);
   const t1 = performance.now();
@@ -237,22 +238,44 @@ async function exportMap(m: MapInput, scale: ExportScale, format: ImageFormat): 
   const ctx = cv.getContext('2d');
   if (!ctx) throw new Error('开不了这么大的画布(内存不够)');
   const detail: Record<string, number> = {};
+  // 带等值线:地形和上面的文明底图、外框分开拿回来,线画在中间(over = 上面那张,画完线再叠)
+  let over: CanvasImageSource | null = null;
   if (res.ok && res.job === 'map') {
     ctx.drawImage(res.bitmap, 0, 0);
     res.bitmap.close();
+    over = res.over ?? null;
     detail.raster = res.ms.raster;
     detail.draw = res.ms.draw;
   } else if (!res.ok && res.code === 'no-offscreen') {
     // 老浏览器:线程里画不了,只好在主线程画(会卡一下)
     const raster = scale === 1 ? m.raster : rasterize(m.world, scale, m.style === 'realistic', m.raster.veinLines);
-    drawMapBase(ctx, { ...m, raster }, (w, h) => Object.assign(document.createElement('canvas'), { width: w, height: h }));
+    const make = (w: number, h: number) => Object.assign(document.createElement('canvas'), { width: w, height: h });
+    if (m.contours) {
+      drawMapTerrain(ctx, { ...m, raster }, make);
+      const ov = make(W, H);
+      drawMapOverlay(ov.getContext('2d')!, { ...m, raster }, make);
+      over = ov;
+    } else drawMapBase(ctx, { ...m, raster }, make);
   } else throw new Error(res.ok ? '后台线程回错了东西' : res.error);
+  const putOver = () => {
+    if (!over) return;
+    ctx.drawImage(over, 0, 0);
+    if ('close' in over) over.close();
+    else (over as HTMLCanvasElement).width = 0;
+    over = null;
+  };
   detail.worker = t1 - t0;
   const t2 = performance.now();
   const iso = m.contours ? contoursOf(m.world, m.raster, m.contours) : null;
   const n = await drawMapLabels(ctx, { ...m }, scale, {
-    beforeDraw: iso ? (placed) => drawExportContours(ctx, m, scale, iso, !!m.contourDark, placed ? placedTextBoxes(placed) : []) : undefined,
+    beforeDraw: iso
+      ? (placed) => {
+          drawExportContours(ctx, m, scale, iso, !!m.contourDark, placed ? placedTextBoxes(placed) : []);
+          putOver();
+        }
+      : undefined,
   });
+  putOver();
   detail.markCount = m.marks?.length ? drawExportMarks(ctx, m, scale, m.marks, n.placed) : 0;
   if (m.trail) detail.trailDots = drawExportTrail(ctx, m, scale, m.trail, n.placed);
   const t3 = performance.now();

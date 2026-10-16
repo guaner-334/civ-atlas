@@ -16,7 +16,7 @@ import type { Civ, Year } from './gen/civ/types';
 import type { CivShow, CivStyle } from './render/civ/overlay';
 import type { LayerId } from './render/layers';
 import { heightmapPng, type HeightmapBits, type HeightmapInfo } from './gen/heightmap';
-import { drawMapBase, type ExportScale } from './render/export';
+import { drawMapBase, drawMapOverlay, drawMapTerrain, type ExportScale } from './render/export';
 import type { DrainLines } from './gen/pixelDrain';
 import type { ProjectionId } from './render/projection';
 
@@ -39,6 +39,8 @@ export type ExportRequest =
       /** 投影、经纬网(和屏幕上一样;见 ExportMapParams) */
       projection?: ProjectionId;
       graticule?: number;
+      /** 地形和上面的文明底图、外框分成两张交回(主线程在中间画等值线) */
+      split?: boolean;
     }
   | {
       job: 'heightmap';
@@ -51,7 +53,7 @@ export type ExportRequest =
     };
 
 export type ExportResponse =
-  | { ok: true; job: 'map'; bitmap: ImageBitmap; ms: { raster: number; draw: number } }
+  | { ok: true; job: 'map'; bitmap: ImageBitmap; over?: ImageBitmap; ms: { raster: number; draw: number } }
   | { ok: true; job: 'heightmap'; png: Uint8Array; info: HeightmapInfo; ms: { raster: number; encode: number } }
   | { ok: false; error: string; code?: 'no-offscreen' | 'raster' };
 
@@ -80,11 +82,20 @@ self.onmessage = async (e: MessageEvent<ExportRequest>) => {
     const cv = new OffscreenCanvas(raster.w, raster.h);
     const ctx = cv.getContext('2d');
     if (!ctx) throw new Error('开不了这么大的画布(内存不够)');
-    drawMapBase(
-      ctx,
-      { world: m.world, raster, civ: m.civ, style: m.style, layer: m.layer, year: m.year, show: m.show, center: m.center, projection: m.projection, graticule: m.graticule },
-      (w, h) => new OffscreenCanvas(w, h),
-    );
+    const p = { world: m.world, raster, civ: m.civ, style: m.style, layer: m.layer, year: m.year, show: m.show, center: m.center, projection: m.projection, graticule: m.graticule };
+    const make = (w: number, h: number) => new OffscreenCanvas(w, h);
+    if (m.split) {
+      drawMapTerrain(ctx, p, make);
+      const ov = new OffscreenCanvas(raster.w, raster.h);
+      const octx = ov.getContext('2d');
+      if (!octx) throw new Error('开不了这么大的画布(内存不够)');
+      drawMapOverlay(octx, p, make);
+      const bitmap = cv.transferToImageBitmap();
+      const over = ov.transferToImageBitmap();
+      post({ ok: true, job: 'map', bitmap, over, ms: { raster: t1 - t0, draw: performance.now() - t1 } }, [bitmap, over]);
+      return;
+    }
+    drawMapBase(ctx, p, make);
     const bitmap = cv.transferToImageBitmap();
     post({ ok: true, job: 'map', bitmap, ms: { raster: t1 - t0, draw: performance.now() - t1 } }, [bitmap]);
   } catch (err) {
