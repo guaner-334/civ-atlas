@@ -1,7 +1,8 @@
 /**
  * "图层与投影"按钮(宽屏是右上分段按钮的最后一段"更多图层",手机是右上竖排的图层图标),点开弹层:
- *   图层:六张缩略图(政区、民族、信仰、地形、生态、实景)+ 一行小字按钮(高程、板块、气温、降水、洋流)
- *         + 一行叠加开关(地名、宜居度、州、城址、道路;CivPanel.tsx 的 CivToggles);
+ *   图层:六张缩略图(政区、民族、信仰、地形、生态、实景)+ 一行小字按钮(高程、板块、气温、降水、气候、洋流)
+ *         + 一行叠加开关(地名、宜居度、州、城址、道路;CivPanel.tsx 的 CivToggles)
+ *         + 一行等值线(等高线 / 等温线 / 等降水线选一种,ContourRow;画在 ContourLayer.tsx);
  *         选中"民族"时下面是紧凑的民族色块列表(CultureLegend),选中"信仰"时是信仰的(FaithLegend)
  *   投影:ProjectionSection(六种投影、中央经线滑条、经纬网)
  * 点图层就换(弹层收起);点叠加开关不收起;点外面(包括旁边的按钮)、Esc 收起。
@@ -19,7 +20,8 @@ import { CIV_SHOW_OFF, drawCivOverlay } from '../render/civ/overlay';
 import { MAP_LAYERS, layerDef, type MapLayer } from './mapLayers';
 import { Icon } from './icons';
 import { ProjectionSection, projectionName } from './ProjectionPanel';
-import { useProjection } from './projection';
+import { setContourKind, useContourKind, useProjection } from './projection';
+import type { ContourKind } from '../gen/savefile';
 import { getCivTime } from './civView';
 import { CivToggles, CultureLegend, FaithLegend } from './CivPanel';
 import './overview.css';
@@ -259,6 +261,7 @@ export function LayerPopover({ layer, civ = null, onLayer, thumbs, requestThumbs
           {!draft && (
             <div className="lp-overlays">
               <CivToggles />
+              <ContourRow globe={proj === 'globe'} />
               {layer === 'cultures' && <CultureLegend civ={civ} />}
               {layer === 'faith' && <FaithLegend civ={civ} />}
             </div>
@@ -266,6 +269,39 @@ export function LayerPopover({ layer, civ = null, onLayer, thumbs, requestThumbs
           <ProjectionSection />
         </div>
       )}
+    </div>
+  );
+}
+
+const CONTOUR_TABS: { id: ContourKind; name: string }[] = [
+  { id: 'elev', name: '等高线' },
+  { id: 'temp', name: '等温线' },
+  { id: 'precip', name: '等降水线' },
+];
+/** 关掉时记着上次叠的是哪种,再勾上还是它 */
+let lastContour: ContourKind = 'elev';
+
+/** 等值线一行:左边开关,右边三种选一种(一次只叠一种);关着时三档灰掉,点一档顺手打开;地球仪上先不画,整行灰掉 */
+function ContourRow({ globe }: { globe: boolean }) {
+  const kind = useContourKind();
+  if (kind) lastContour = kind;
+  const on = !!kind && !globe;
+  const shown = kind ?? lastContour;
+  return (
+    <div className={`lp-grat lp-iso${globe ? ' disabled' : ''}`} title={globe ? '地球仪上暂不显示' : undefined}>
+      <button className={`lp-check${on ? ' on' : ''}`} role="checkbox" aria-checked={on} data-act="contours" disabled={globe} onClick={() => setContourKind(kind ? null : lastContour)}>
+        <span className="lp-box" aria-hidden="true">
+          {on ? '✓' : ''}
+        </span>
+        等值线
+      </button>
+      <span className={`grat-seg${on ? '' : ' off'}`} role="radiogroup" aria-label="等值线种类">
+        {CONTOUR_TABS.map((t) => (
+          <button key={t.id} className={t.id === shown ? 'on' : undefined} role="radio" aria-checked={t.id === shown} data-iso={t.id} disabled={globe} onClick={() => setContourKind(t.id)}>
+            {t.name}
+          </button>
+        ))}
+      </span>
     </div>
   );
 }

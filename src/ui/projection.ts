@@ -16,7 +16,7 @@
 import { useSyncExternalStore } from 'react';
 import type { World } from '../gen/world';
 import type { Raster } from '../gen/raster';
-import { GRATICULE_STEPS } from '../gen/savefile';
+import { GRATICULE_STEPS, type ContourKind } from '../gen/savefile';
 import { doubleCanvas, drawProjected, isProjectionId, mapProj, pageColor, type MapProj, type ProjectionId } from '../render/projection';
 import { drawTerrainProjected, type DetailStyle } from '../render/detail';
 import { releaseFantasyProjCaches } from '../render/fantasy';
@@ -115,6 +115,12 @@ export function useGraticuleLines(): number {
   const step = gratStep.use();
   return on ? step : 0;
 }
+
+/** 等值线:叠哪一种(null = 不画;"图层与投影"弹层里的"等值线"改它;网址 iso=elev / temp / precip) */
+const contours = store<ContourKind | null>(null);
+export const getContourKind = contours.get;
+export const useContourKind = contours.use;
+export const setContourKind = contours.set;
 
 const moving = store(false);
 export const getMapMoving = moving.get;
