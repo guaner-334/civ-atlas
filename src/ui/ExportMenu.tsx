@@ -27,8 +27,8 @@ import { fullChronicle } from '../gen/civ/religionText';
 import { AZGAAR_SEA_GRAY, heightmapNote, type HeightmapBits } from '../gen/heightmap';
 import { LAYERS, type LayerId } from '../render/layers';
 import type { CivShow, CivStyle } from '../render/civ/overlay';
-import { IMAGE_FORMATS, drawExportMarks, drawExportTrail, drawLegend, drawMapBase, drawMapLabels, type ExportScale, type ImageFormat } from '../render/export';
-import { canvasMeasure, drawMarks, layoutMarks, markStyle, type MarkItem } from '../render/marks';
+import { IMAGE_FORMATS, drawExportContours, drawExportMarks, drawExportTrail, drawLegend, drawMapBase, drawMapLabels, type ExportScale, type ImageFormat } from '../render/export';
+import { canvasMeasure, drawMarks, layoutMarks, markStyle, placedTextBoxes, type MarkItem } from '../render/marks';
 import { drawTrail, layoutTrail, type TrailInput } from '../render/trail';
 import { getEdits, useEdits } from './editsStore';
 import { northText } from './WorldOverviewGenesis';
@@ -40,13 +40,15 @@ import { characterTrail } from './characterInfo';
 import type { ExportRequest, ExportResponse } from '../exportWorker';
 import { getCivShow, getCivTime, getSelection, useCivTime } from './civView';
 import { getMapCenter, xOfLon } from './mapWrap';
-import { flatProjection, getGraticuleLines, getProjection } from './projection';
+import { flatProjection, getContourKind, getGraticuleLines, getProjection } from './projection';
+import { contoursOf } from './ContourLayer';
+import { MAP_LAYERS } from './mapLayers';
 import type { ProjectionId } from '../render/projection';
 import { wrapOf } from '../render/common';
 import { clearToast, showToast } from './toastStore';
 import { exportGlobeView, useGlobeOn } from './Globe';
 import { noteDismiss } from './dismissClick';
-import { fileBaseName } from '../gen/savefile';
+import { fileBaseName, type ContourKind } from '../gen/savefile';
 import { currentWorld } from './saveStore';
 import { openFilm } from './filmStore';
 import { useNarrow } from './device';
@@ -198,6 +200,9 @@ interface MapInput {
   projection?: ProjectionId;
   /** 经纬网每隔几度一条(0 = 不画) */
   graticule?: number;
+  /** 等值线(和屏幕上一样;不给 = 不画);contourDark = 底色深,线换浅色 */
+  contours?: ContourKind;
+  contourDark?: boolean;
   /** 作者标记(那一年有的;不带 = 空) */
   marks?: readonly MarkItem[];
   /** 正选着的作者人物的足迹(没选 = 不给) */
@@ -244,7 +249,10 @@ async function exportMap(m: MapInput, scale: ExportScale, format: ImageFormat): 
   } else throw new Error(res.ok ? '后台线程回错了东西' : res.error);
   detail.worker = t1 - t0;
   const t2 = performance.now();
-  const n = await drawMapLabels(ctx, { ...m }, scale);
+  const iso = m.contours ? contoursOf(m.world, m.raster, m.contours) : null;
+  const n = await drawMapLabels(ctx, { ...m }, scale, {
+    beforeDraw: iso ? (placed) => drawExportContours(ctx, m, scale, iso, !!m.contourDark, placed ? placedTextBoxes(placed) : []) : undefined,
+  });
   detail.markCount = m.marks?.length ? drawExportMarks(ctx, m, scale, m.marks, n.placed) : 0;
   if (m.trail) detail.trailDots = drawExportTrail(ctx, m, scale, m.trail, n.placed);
   const t3 = performance.now();
@@ -368,7 +376,13 @@ export function ExportMenu({ data, civ: shown, plain, style, layer, icon }: Expo
         const center = wrapOf(world) ? xOfLon(getMapCenter(), world.width) : undefined;
         const projection = flatProjection(getProjection());
         const graticule = getGraticuleLines();
-        const r = await exportMap({ world, raster, civ: ok ? civ : null, style, layer, year: y, show, center, projection, graticule, marks: markItems, trail }, scale, format);
+        const contours = getContourKind() ?? undefined;
+        const contourDark = style === 'data' && MAP_LAYERS.some((l) => l.data === layer && l.dark);
+        const r = await exportMap(
+          { world, raster, civ: ok ? civ : null, style, layer, year: y, show, center, projection, graticule, contours, contourDark, marks: markItems, trail },
+          scale,
+          format,
+        );
         download(r.blob, name);
         dbg = { job, name, bytes: r.blob.size, w: r.w, h: r.h, ms: performance.now() - t0, detail: r.detail };
         const mb = r.blob.size >= 1e6 ? `${(r.blob.size / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(r.blob.size / 1e3))} KB`;

@@ -8,6 +8,8 @@ import { renderFantasy } from '../render/fantasy';
 import { DETAIL_K } from '../render/detail';
 import { TerrainDetail } from './TerrainDetail';
 import { MapDecor } from './MapDecor';
+import { ContourLayer } from './ContourLayer';
+import { contourInk } from '../render/contours';
 import { nearX, wrapOf } from '../render/common';
 import {
   centerX,
@@ -38,10 +40,12 @@ import {
   isMapProjection,
   pageColor,
   presentTerrain,
+  setContourKind,
   setGraticule,
   setGraticuleStep,
   setMapMoving,
   setProjection,
+  useContourKind,
   useGraticuleLines,
   useMapMoving,
   useProjection,
@@ -133,6 +137,7 @@ import {
   decodeShare,
   editCount,
   GEN_KEY,
+  isContourKind,
   isShareHash,
   PARAM_RANGE,
   parseSave,
@@ -294,6 +299,9 @@ function readUrl() {
   // 经纬网:grat=1 = 每 30°(旧网址就是这样),grat=10 / 15 / 30 = 每隔几度;没有 = 关
   const gq0 = q.get('grat');
   const grat: number = gq0 === '1' ? 30 : isGraticuleStep(Number(gq0)) ? Number(gq0) : 0;
+  // 等值线:iso=elev / temp / precip;没有 = 不画
+  const iq = q.get('iso');
+  const iso = isContourKind(iq) ? iq : null;
   // 生成器版本(gen=):这个网址是哪一版画出来的世界;和现在的不同,打开时说清变了什么。旧网址没有 = 不知道,不提示;
   // 带了却认不出(不是整数之类)当成第 0 版:认不出的旧版本,照样提示,也不当成没带 gen 的老网址
   const gq = q.get(GEN_KEY);
@@ -301,7 +309,7 @@ function readUrl() {
   // 推演年数(years=):新建中、还没存下的世界(new=)刷新、后退回来还记得弹窗里开的年数
   const yq = q.get('years');
   const years = yq === null ? undefined : cleanEndYear(Number(yq));
-  return { params, style, layer, mapLayer, share, shortShare, proj, lon, grat, gen, years };
+  return { params, style, layer, mapLayer, share, shortShare, proj, lon, grat, iso, gen, years };
 }
 
 /**
@@ -467,8 +475,8 @@ function navInfo(stage: Stage, t: Target | null | undefined): NavInfo {
   return stage === 'draft' ? { page: 'draft', id: t.id, seed: t.params.seed, title: t.title } : { page: 'world', id: t.id, title: t.title };
 }
 
-/** 网址里的看法(画风、图层、投影、中央经线、经纬网):不算一步,按后退 / 前进时照现在的(nav.ts 的 url) */
-const VIEW_KEYS = ['style', 'layer', 'civ', 'proj', 'view', 'lon', 'grat'];
+/** 网址里的看法(画风、图层、投影、中央经线、经纬网、等值线):不算一步,按后退 / 前进时照现在的(nav.ts 的 url) */
+const VIEW_KEYS = ['style', 'layer', 'civ', 'proj', 'view', 'lon', 'grat', 'iso'];
 function keepView(from: string, to: string): string {
   const a = new URL(from);
   const b = new URL(to);
@@ -590,6 +598,7 @@ export function App() {
     if (init.lon !== null) publishMapCenter(init.lon);
     setGraticule(init.grat > 0);
     if (isGraticuleStep(init.grat)) setGraticuleStep(init.grat);
+    setContourKind(init.iso);
     setStage(route.stage, route.target?.base ?? null);
     // 网址里给的(或默认的)图层:国家 / 民族 / 信仰开不开跟着它;新建时只看地形
     let ml = init.mapLayer;
@@ -611,6 +620,7 @@ export function App() {
     return { style, layer };
   })[0];
   const graticule = useGraticuleLines();
+  const contourKind = useContourKind();
   const projection = useProjection();
   const curved = isCurved(projection);
   const mapCenter = useMapCenter();
@@ -872,6 +882,9 @@ export function App() {
   }, [chronPick]);
   // 3D 地球仪(网址 proj=globe,旧链接的 view=globe 也认 / 地图右下角的按钮):主图藏起来,同一套时间轴、详情面板、选中逻辑
   const globeOn = useGlobeOn();
+  /** 等值线画不画:新建世界时、地球仪上不画 */
+  const contourOn = !!contourKind && !draft && !globeOn;
+  const contourInkNow = contourKind ? contourInk(contourKind, style, layerDark(mapLayer)).line : undefined;
   const globeApi = useRef<GlobeApi | null>(null);
   /** 世界坐标 → 屏幕坐标(地图上的事件标签、截图脚本用;下面 __wfWorldToClient 那里定义) */
   const worldToClient = useRef<WorldToClient | null>(null);
@@ -1587,6 +1600,7 @@ export function App() {
       setGraticule(v.graticule > 0);
       if (isGraticuleStep(v.graticule)) setGraticuleStep(v.graticule);
     }
+    if (v?.contours !== undefined) setContourKind(v.contours || null);
     // 先放中心(换投影时按它摆视图),再换投影;等距圆柱再把视图转过去
     publishMapCenter(lon);
     setProjection(p);
@@ -1601,6 +1615,8 @@ export function App() {
       q.delete('view'); // 旧的地球仪开关,换成 proj=globe
       if (graticule) q.set('grat', graticule === 30 ? '1' : String(graticule));
       else q.delete('grat');
+      if (contourKind) q.set('iso', contourKind);
+      else q.delete('iso');
       const lon = Math.round(mapCenter * 100) / 100;
       if (Math.abs(lon) >= 0.005) q.set('lon', String(lon));
       else q.delete('lon');
@@ -1609,7 +1625,7 @@ export function App() {
       viewChanged();
     }, 450);
     return () => clearTimeout(t);
-  }, [projection, mapCenter, graticule]);
+  }, [projection, mapCenter, graticule, contourKind]);
   /** 现在这张图(或正在生成的)就是这组参数 + 草图 + 地形修改 */
   const sameGen = (p: WorldParams, terrain: readonly TerrainOp[], sketch: SketchEdit | undefined) =>
     !!genParams.current && worldKey(genParams.current) === worldKey(p) && sameTerrain(terrain, genTerrain.current) && sameSketch(sketch, genSketch.current);
@@ -3904,6 +3920,7 @@ export function App() {
           {/* 放大后的地形细节(弯边投影:按投影一行一行铺) */}
           {data && <TerrainDetail world={data.world} raster={data.raster} style={style} view={view} mp={mp} />}
           {data && <MapDecor world={data.world} style={style} view={view} mp={mp} />}
+          {data && contourOn && <ContourLayer world={data.world} raster={data.raster} kind={contourKind!} style={style} dark={layerDark(mapLayer)} view={view} mp={mp} />}
         </div>
         {/* 放大后的文明细节层(CivLayer 放进来):盖住下面的地形,在文明底图那一层地图框之下 */}
         <div className="screen-layer" ref={setCivDetailHost} style={screenStyle} />
@@ -4012,10 +4029,10 @@ export function App() {
               />
           )}
           {!draft && !filmOn && <PhoneButtons layers={{ ...layerProps, draft }} globeOn={globeOn} onToggleGlobe={toggleGlobe} marking={markable ? markPlacing : undefined} />}
-          {!draft && (OLD_SITE !== null || BETA_SITE || style === 'data') && (
+          {!draft && (OLD_SITE !== null || BETA_SITE || style === 'data' || contourOn) && (
             <div className="corner-tl">
               <OldSiteBadge />
-              {style === 'data' && <Legend layer={layer} />}
+              {(style === 'data' || contourOn) && <Legend layer={style === 'data' ? layer : null} contours={contourOn ? contourKind : null} ink={contourInkNow} zoom={view.k} />}
             </div>
           )}
         </>
@@ -4038,10 +4055,10 @@ export function App() {
             />
           )}
           {!draft && <MapBar civ={civ} layers={layerProps} exp={{ data, civ, plain: plainCiv, style, layer }} draft={draft} />}
-          {!draft && (OLD_SITE !== null || BETA_SITE || (style === 'data' && !terrainTool.on)) && (
+          {!draft && (OLD_SITE !== null || BETA_SITE || ((style === 'data' || contourOn) && !terrainTool.on)) && (
             <div className="corner-tl">
               <OldSiteBadge />
-              {style === 'data' && !terrainTool.on && <Legend layer={layer} />}
+              {(style === 'data' || contourOn) && !terrainTool.on && <Legend layer={style === 'data' ? layer : null} contours={contourOn ? contourKind : null} ink={contourInkNow} zoom={view.k} />}
             </div>
           )}
         </>

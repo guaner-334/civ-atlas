@@ -7,6 +7,7 @@
  *   2. drawMapLabels(主线程,要用页面里加载好的字体):地名、国名、城名和城镇符号(还有战事的战线、双剑),按"整图、缩放 1 倍"排版 ——
  *      地图按世界宽(2048 CSS 像素)显示、2× 时像素密度 × 2:2× 和 1× 排出来一模一样,只是更清楚。
  *      排版、避让和屏幕上是同一套(render/labels/draw.ts 的 placeMap),文字之间不重叠、国名落在国土上。
+ *      等值线开着时,排好字、还没画之前先画线(drawExportContours),线上的数字躲开地名。
  *
  * 图例(drawLegend):国家 / 民族列表 + 颜色(和世界概览的国家页一样按当年的州数排;信仰图层再列信仰)、道路和城镇符号,和地图用同一套字体与配色。
  *
@@ -37,6 +38,7 @@ import { NAME_ZOOM, canvasMeasure, drawMarks, layoutMarks, markStyle, placedText
 import { drawTerrainProjected } from './detail';
 import { drawTrail, layoutTrail, type TrailInput } from './trail';
 import { compassSpot, drawProjFrame } from './fantasy';
+import { drawContours, type ContourSet } from './contours';
 
 type Ctx2D = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
 
@@ -184,6 +186,30 @@ export function drawMapDecor(ctx: Ctx2D, p: ExportMapParams): void {
     drawFrame(ctx, world.width, world.height, v);
   }
   if (style !== 'fantasy') drawNeatFrame(ctx, raster.w, raster.h, raster.scale, style);
+}
+
+/**
+ * 等值线(开着时;主线程画在底图上、地名底下):线照屏幕上一样画,放大倍数按 1 算(等高线 500 米一条);
+ * 线上的数字躲开 avoid(画布像素的框:地名、城镇符号)。等距圆柱时线不压外框和左下角的罗盘
+ */
+export function drawExportContours(ctx: Ctx2D, p: ExportMapParams, S: number, set: ContourSet, dark: boolean, avoid: readonly (readonly number[])[] = []): void {
+  const mp = exportProj(p);
+  if (mp) {
+    drawContours(ctx, set, p.style, { mp, s: S, ox: 0, oy: 0 }, S, 1, dark, avoid);
+    return;
+  }
+  const w = p.world.width * S;
+  const h = p.world.height * S;
+  const c = COMPASS;
+  const keep: number[] = [(c.x - c.r - 12) * S, h - (c.dy + c.r + 12) * S, (c.x + c.r + 12) * S, h - (c.dy - c.r - 12) * S];
+  ctx.save();
+  const c2d = ctx as CanvasRenderingContext2D;
+  c2d.beginPath();
+  c2d.rect(14 * S, 14 * S, w - 28 * S, h - 28 * S);
+  c2d.rect(keep[0], keep[1], keep[2] - keep[0], keep[3] - keep[1]);
+  c2d.clip('evenodd');
+  drawContours(ctx, set, p.style, { mp: null, s: S, ox: -exportLeft(p) * S, oy: 0 }, S, 1, dark, [...avoid, keep]);
+  ctx.restore();
 }
 
 /** 按当前视图的中心把整张图左右转一下(左右边 = 中心 ± 180°);没给中心不动 */
@@ -342,9 +368,12 @@ export async function drawMapLabels(
   ctx: CanvasRenderingContext2D,
   p: ExportMapParams,
   S: ExportScale,
-  opt: { px?: MapTextScale; fast?: boolean } = {},
+  opt: { px?: MapTextScale; fast?: boolean; beforeDraw?: (placed: Placement | null) => void } = {},
 ): Promise<{ labels: number; marks: number; placed?: Placement }> {
-  if (!civOk(p)) return { labels: 0, marks: 0 };
+  if (!civOk(p)) {
+    opt.beforeDraw?.(null);
+    return { labels: 0, marks: 0 };
+  }
   const params = { world: p.world, raster: p.raster, civ: p.civ, style: p.style, year: p.year, show: p.show };
   // 地理名不随年份变(和屏幕上一样按结束年份取);国名、城名、城镇符号按当年
   const geo = civLabelItems({ ...params, year: p.civ.endYear });
@@ -352,10 +381,15 @@ export async function drawMapLabels(
   const layer = civMapLayer(params, { proj: exportProj(p), fast: opt.fast });
   const items = geo.concat(layer.items);
   const wars = warsShown(params);
-  if (!items.length && !layer.marks.length && !wars) return { labels: 0, marks: 0 };
+  if (!items.length && !layer.marks.length && !wars) {
+    opt.beforeDraw?.(null);
+    return { labels: 0, marks: 0 };
+  }
   await ensureFonts(p.style, civLabelChars(p.civ), 15000);
   const lv = exportLabelView(p, S, opt.px);
   const placed = placeMap(items, layer.marks, lv);
+  // 排好还没画:叠在地名底下的东西(等值线)先画,好躲开地名
+  opt.beforeDraw?.(placed);
   // 战事的战线、双剑:压在国界上、城镇符号和字底下(和屏幕上一样)
   if (wars) {
     const mp = exportProj(p);

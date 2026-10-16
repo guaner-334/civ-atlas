@@ -396,9 +396,10 @@ button {
   border: 0;
   background: transparent;
   border-radius: var(--r-btn);
-  padding: 3px 8px;
+  padding: 2px 5px;
   font-size: 12px;
   color: var(--ink-2);
+  white-space: nowrap;
 }
 .lp-mini:hover {
   background: var(--hover-bg);
@@ -539,6 +540,13 @@ button {
   box-shadow: 0 0 0 1px var(--line);
 }
 .grat-seg.off {
+  opacity: 0.45;
+}
+/* 等值线一行(LayerPopover.tsx):地球仪上先不画,整行灰掉 */
+.lp-iso .grat-seg button {
+  padding: 2px 8px;
+}
+.lp-iso.disabled .lp-check {
   opacity: 0.45;
 }
 
@@ -1031,6 +1039,60 @@ button.primary:hover {
   display: inline-flex;
   align-items: center;
   gap: 5px;
+}
+.legend.wide {
+  max-width: 500px;
+}
+.legend .keys b {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+/* 气候分类:标题、按 A–E 五组一行、最后一行说明是估算 */
+.legend .lg-title {
+  font-weight: 600;
+  margin-bottom: 7px;
+}
+.legend .lg-title span,
+.legend .lg-gname,
+.legend .lg-note {
+  font-weight: 400;
+  color: var(--ink-2);
+}
+.legend .lg-groups {
+  display: grid;
+  grid-template-columns: 62px 1fr;
+  row-gap: 5px;
+}
+.legend .lg-group {
+  display: contents;
+}
+.legend .lg-gname {
+  white-space: nowrap;
+}
+.legend .lg-groups .keys {
+  gap: 4px 11px;
+}
+.legend .lg-groups .keys span {
+  white-space: nowrap;
+}
+.legend .lg-note {
+  margin-top: 8px;
+  font-size: 11px;
+  line-height: 1.5;
+}
+/* 等值线的说明:细线、粗线的线样 + 一句话 */
+.legend .lg-contour {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.legend .lg-contour svg {
+  flex: none;
+}
+.legend .lg-sep {
+  height: 1px;
+  background: var(--line);
+  margin: 8px 0;
 }
 .legend i {
   width: 11px;
