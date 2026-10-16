@@ -18,8 +18,9 @@ let raster: Raster;
 let civ: Civ;
 
 beforeAll(() => {
-  // seed 7:六类地理实体都有,放大两倍时最大的荒漠也排得下名字(seed 2024 最大的荒漠名字长,放大到四倍才排得下)
-  world = generateWorld({ ...DEFAULT_PARAMS, seed: 7 });
+  // seed 2024(GENERATOR_VERSION 14):六类地理实体都有,打开页面时湖名就排得下,放大两倍时最大的荒漠也排得下名字
+  // (seed 7 最大的"湖"原来是一片贴着海的洼地,改成低地以后剩下的湖都小,放大两倍才排得下)
+  world = generateWorld({ ...DEFAULT_PARAMS, seed: 2024 });
   raster = rasterize(world, 1);
   civ = generateCiv(world);
 });

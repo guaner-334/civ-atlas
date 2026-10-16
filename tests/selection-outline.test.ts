@@ -78,7 +78,7 @@ describe('选中国家:国土描边连着走,没有连错的一段', () => {
   it('每条描边相邻两点都挨着(含跨 180° 经线、飞地和岛上的国土);环首尾对上', () => {
     // 看几个年份:哪一年有国家跨着 180° 经线随历史而定
     for (const { seed, world, civ } of worlds) {
-      const list = [1800, 2400, 3000].flatMap((y) => outlines(world, civ, y));
+      const list = [1400, 1800, 2400, 3000].flatMap((y) => outlines(world, civ, y));
       expect(list.length, `seed ${seed}`).toBeGreaterThan(3);
       let seam = 0;
       for (const o of list) {

@@ -14,7 +14,7 @@ import { DEFAULT_CIV_PARAMS } from '../src/gen/civ';
 import { buildChronicle } from '../src/gen/civ/chronicle';
 import { ownersAt } from '../src/gen/civ/timeline';
 import { RESHAPE_RAMP, capacityAt, capitalAt, populationAt, portAt, ruinSites, yearReaching } from '../src/gen/civ/growth';
-import type { Settlement } from '../src/gen/civ/types';
+import type { Polity, Settlement } from '../src/gen/civ/types';
 import { findPorts, foundingYear, routeCities } from '../src/gen/civ/polities';
 import { cultureTerrain } from '../src/gen/civ/cultures';
 import { UPHEAVALS_MAX, UPHEAVAL_OPS_MAX, UPHEAVAL_YEARS, cleanUpheavals, sameUpheavals } from '../src/gen/terrainEdits';
@@ -231,7 +231,7 @@ describe('地形大事 · 推演', () => {
     expect(at.indexOf('peace')).toBeGreaterThan(at.lastIndexOf('capital'));
     const ch = buildChronicle(b).filter((x) => b.annals[x.id]?.year === Y);
     expect(ch.map((x) => x.kind)).toEqual(['upheaval']);
-    expect(ch[0].text).toMatch(/亡,.+迁都/);
+    expect(ch[0].text).toMatch(/亡,.*迁都/);
     // 索莱罗拉第 2266 年毁于战火、没有重建;第 2800 年城址沉入海中
     const R: Upheaval = { year: 2800, ops: [{ kind: 'sink', pts: [1505, 468], r: 30, s: 1.1 }] };
     const r = civOf([R]);
@@ -471,7 +471,15 @@ describe('地形大事 · 推演', () => {
   }, 300_000);
 
   it('大事同一年下的干预照常生效,排在大事后面', () => {
-    const p = base().polities.findIndex((x) => x.name.startsWith('贡农加德'));
+    // 火山下面那座国都的国家
+    const [vx, vy] = VOLCANO.ops[0].pts;
+    const { x: mx, y: my } = world().mesh;
+    const near = (p: Polity) => {
+      const c = base().settlements[capitalAt(p, VOLCANO.year)].cell;
+      return (mx[c] - vx) ** 2 + (my[c] - vy) ** 2 < 4;
+    };
+    const p = base().polities.findIndex((x) => x.founded < VOLCANO.year && (x.ended ?? Infinity) > VOLCANO.year && near(x));
+    expect(p).toBeGreaterThanOrEqual(0);
     const iv = [{ kind: 'protect' as const, a: polityKey(base(), p), from: VOLCANO.year }];
     const c = generateCiv(world(), { interventions: iv, upheavals: steps([VOLCANO]) });
     const k = c.annals.findIndex((e) => e.kind === 'intervene' && e.war === 0);

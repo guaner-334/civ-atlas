@@ -212,7 +212,10 @@
  *  13:宜居度看"养得活多少人"(civ/habitat.ts):热带雨林、温带雨林降下来,季雨林、草原、稀树草原升上去,河的加分按当地降水打折,
  *      大河下游的低平处(冲积平原、三角洲)加分;州的人口 = 城 + 乡村(civ/growth.ts 的 regionPopulationAt),城整体放大、国都更大。
  *      地形不变,历史重新推演。
- *  14:立国更早(人口上限够立国的城不必长到很大,第一批国家在几百年里出现,civ/polities.ts),
+ *  14:地形上几处不自然的水:四面是陆、不通外洋的"内海"(碎屑填成陆地,离外洋近的凿海峡接通,远的填成平原,gen/inlandSea.ts);
+ *      紧挨着海的"湖"(其实是低于海平面的海边洼地,垫到海平面);湖中心周围全是水的一小块地(淹成湖,不再单独成州)。
+ *      陆地、山、气候大体不变,个别地方的海陆、湖、河变了,历史重新推演。
+ *  15:立国更早(人口上限够立国的城不必长到很大,第一批国家在几百年里出现,civ/polities.ts),
  *      强国边上的部落受它影响提早立国(边缘立国,civ/politics.ts 的看部落地带;Polity.mentor);
  *      民族往气候不同的地方走得更慢(海洋民族更甚,civ/cultures.ts),隔山隔海或分属不同国家几百年的一支分化成新民族
  *      (civ/assimilation.ts 的看分化;Culture.parent,族名带母族的名字)。地形不变,历史重新推演。
@@ -227,7 +230,7 @@ import type { Era } from './era';
 import type { Frontier, Origins } from './civ/frontier';
 
 /** 生成器版本:生成算法有改动、同种子会得到不同世界时加一(存档读档时核对);加一时在 GENERATOR_CHANGES 里补一条 */
-export const GENERATOR_VERSION = 14;
+export const GENERATOR_VERSION = 15;
 
 /**
  * 一版生成器的改动有多大(从小到大):打开旧存档、旧链接时,按跨过的几版里最大的那一种说清变了什么(savefile.ts 的 versionNote)
@@ -254,7 +257,8 @@ export const GENERATOR_CHANGES: Readonly<Record<number, { change: GeneratorChang
   11: { change: 'history' },
   12: { change: 'chronicle' },
   13: { change: 'history' },
-  14: { change: 'history' },
+  14: { change: 'terrain' },
+  15: { change: 'history' },
 };
 
 /** 干预的种类(见文件头的表) */

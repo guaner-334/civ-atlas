@@ -2787,10 +2787,13 @@ export function App() {
     const ww = wrapOf(data.world);
     const m = mpRef.current;
     if (m && box.w) return curvedJump(b, m, W, H);
+    // 宽屏左边被侧栏卡片、右边被助手面板挡住的那一截不算看得见,平移到两边中间那一块的正中
+    const L = sideRoom(W);
+    const R = astRoom(W);
     if (box.w) {
-      // 事发地取离视窗中心最近的那一份 —— 平移走短边(不会绕地球大半圈)
-      // 视窗中心(展开的世界坐标,和 sx 同一套:主图那一份左边起算)
-      const c = stageToWorld(W / 2, 0, v0, { sw: W, sh: H, bw: box.w, bh: box.h }, ww, 1)[0];
+      // 事发地取离看得见那一块的中心最近的那一份 —— 平移走短边(不会绕地球大半圈)
+      // 那一块的中心(展开的世界坐标,和 sx 同一套:主图那一份左边起算)
+      const c = stageToWorld((L + W - R) / 2, 0, v0, { sw: W, sh: H, bw: box.w, bh: box.h }, ww, 1)[0];
       const bc = (b[0] + b[2]) / 2;
       const sh = nearX(bc, c, ww) - bc;
       b = [b[0] + sh, b[1], b[2] + sh, b[3]];
@@ -2804,9 +2807,6 @@ export function App() {
     const y1 = sy(b[3]);
     // 上面留出提示条,下面留出时间轴(窄屏:底部卡片和时间轴胶囊上方)
     const [bandT, bandB, midY] = jumpBand(H);
-    // 宽屏左边被侧栏卡片、右边被助手面板挡住的那一截不算看得见,平移到两边中间那一块的正中
-    const L = sideRoom(W);
-    const R = astRoom(W);
     if (x0 >= L + 30 && x1 <= W - R - 30 && y0 >= bandT && y1 <= bandB) return;
     const cx = (x0 + x1) / 2;
     const cy = (y0 + y1) / 2;

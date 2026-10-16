@@ -275,7 +275,8 @@ describe('分与合', () => {
 
   it('复国的国名沿用故国国名加前缀(东方"后昌""南昌",西幻"新X""北X");地图上的全称、简称都在字表允许的字里', () => {
     let n = 0;
-    for (const seed of [7, 2024, 3, 99]) {
+    // GENERATOR_VERSION 14 起前四个种子里只有 1 次复国(7 号),补上有 3 次的 5 号
+    for (const seed of [7, 2024, 3, 99, 5]) {
       const civ = civOf({ ...DEFAULT_PARAMS, seed });
       const names = new Set<string>();
       for (const p of civ.polities) {

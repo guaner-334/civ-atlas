@@ -35,6 +35,7 @@
 import { blurField, type Mesh } from './mesh';
 import { MinHeap, smoothstep, subSeed, mulberry32, clamp, hypot2, keyed } from './util';
 import { geometryOf } from './geometry';
+import { connectInlandSeas } from './inlandSea';
 import { round24 } from './civ/rand';
 import { SKETCH_HILLS, SKETCH_ISLES, SKETCH_LAND, SKETCH_MOUNTAIN, SKETCH_NONE, SKETCH_PLATEAU, SKETCH_SHELF, sketchAt, sketchUsed, type Sketch } from './sketch';
 
@@ -852,6 +853,9 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
     if (hil.some((v) => v > 0)) skHills = blurField(mesh, hil, 2);
     if (pla.some((v) => v > 0)) skPlat = blurField(mesh, pla, 3);
   }
+
+  // 封闭内海:完全被陆地围住的海,凿海峡接通或填成陆地(草图涂过的不动),见 inlandSea.ts
+  connectInlandSeas(mesh, land, sk ? sk.map((v) => (v === SKETCH_NONE ? 0 : 1)) : null);
 
   // ---- 5. 海底深度 ----
   const coastSrc: number[] = [];

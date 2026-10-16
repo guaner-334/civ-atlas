@@ -1555,12 +1555,16 @@ for (const style of ['realistic', 'fantasy']) {
   await page.waitForTimeout(150);
   const again = await tlState();
   // 点侧栏"最近大事"的第二条(新的在上)
-  const rows = page.locator('.sidebar .sb-row.ev');
-  const nRows = await rows.count();
-  const row = rows.nth(Math.min(1, nRows - 1));
-  const rowYear = Number((await row.locator('.sb-year').innerText().catch(() => '')).trim());
+  // 还在放:列表随时会多出一条、往下挤,读年份和点击放在同一刻做(分两步的话中间可能换了一行)
   const h0 = await page.evaluate(() => (window as any).__wfHighlight?.stamp ?? 0);
-  await row.click();
+  const rowYear = await page.evaluate(() => {
+    const rows = document.querySelectorAll<HTMLElement>('.sidebar .sb-row.ev');
+    const row = rows[Math.min(1, rows.length - 1)];
+    if (!row) return 0;
+    const y = Number(row.querySelector('.sb-year')?.textContent?.trim());
+    row.click();
+    return y;
+  });
   await page.waitForFunction((s) => (window as any).__wfHighlight?.stamp > s, h0, { timeout: 5000 }).catch(() => {});
   const jumped = await tlState();
   const lit = await page.evaluate(() => (window as any).__wfHighlight?.lit ?? 0);
@@ -3129,7 +3133,14 @@ for (const style of ['realistic', 'fantasy']) {
   }
   // 2. 地理实体(地名)
   let placeInfo = '';
-  const places = (await picks()).filter((q) => q.kind === 'place' && free(q.x, q.y)).slice(0, 8);
+  let places = (await picks()).filter((q) => q.kind === 'place' && free(q.x, q.y)).slice(0, 8);
+  // 上一步"看所属国家"会飞过去放大,那一带可能一个地名都没有:放回整张地图再挑
+  if (!places.length) {
+    await page.keyboard.press('Escape');
+    await page.evaluate(() => (window as any).__wfSetView({ k: 1, x: 0, y: 0 }));
+    await page.waitForTimeout(900);
+    places = (await picks()).filter((q) => q.kind === 'place' && free(q.x, q.y)).slice(0, 8);
+  }
   for (const q of places) {
     if (!(await clickPick('place', q.id))) continue;
     if (await page.locator('.inspector .cp[data-place]').count()) {

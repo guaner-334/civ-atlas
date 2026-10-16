@@ -180,6 +180,16 @@ describe('改地形 · 生成', () => {
     const big = generateWorld(SMALL, undefined, [{ kind: 'lake', pts: [px, py], r: 40, s: 1 }]);
     const lake = near(big, px, py, 20).filter((i) => big.water[i] === 2);
     expect(lake.length).toBeGreaterThan(5);
+    // 紧挨着海挖的湖(碗沿就是海平面,湖底在海平面以下)照样留着,不当成贴海的洼地垫平
+    const coast = [...Array(w0.mesh.n).keys()].filter((i) => {
+      if (w0.water[i] !== 0 || Math.abs(w0.mesh.y[i] - MAP_H / 2) > MAP_H / 4) return false;
+      for (let k = w0.mesh.adjStart[i]; k < w0.mesh.adjStart[i + 1]; k++) if (w0.water[w0.mesh.adj[k]] === 1) return true;
+      return false;
+    });
+    for (const c of [coast[0], coast[coast.length >> 1], coast[coast.length - 1]]) {
+      const w1 = generateWorld(SMALL, undefined, [{ kind: 'lake', pts: [Math.round(w0.mesh.x[c]), Math.round(w0.mesh.y[c])], r: 16, s: 1 }]);
+      expect(w1.water[c]).toBe(2);
+    }
     // 点在海里的湖不生效
     const o = farthestFrom(w0, false);
     same(w0, generateWorld(SMALL, undefined, [{ kind: 'lake', pts: [Math.round(w0.mesh.x[o]), Math.round(w0.mesh.y[o])], r: 16, s: 1 }]));

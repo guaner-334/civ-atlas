@@ -151,26 +151,27 @@ describe('存档文件 · 坏文件、别的 JSON、别的版本', () => {
 
   it('生成器版本不同:照样打开,提示"来自旧版本"和变了什么 / "来自更新的版本"', () => {
     const old = parseSave(JSON.stringify({ ...good(), generator: 6 }));
-    expect(old.ok && old.warnings).toEqual(['来自旧版本：陆地和山没变，气候、河流和历史都重算了']);
+    expect(old.ok && old.warnings).toEqual(['来自旧版本：地形有局部变化，历史重新推演了']);
     const newer = parseSave(JSON.stringify({ ...good(), generator: GENERATOR_VERSION + 1 }));
     expect(newer.ok && newer.warnings).toEqual([NEWER_NOTE]);
     expect(old.ok && old.save.edits).toEqual(EDITS);
   });
 
   it('只动了改过地形的世界的那一版:没改地形的世界不按它说,改过的按它说', () => {
-    // 7 → 8:第 8 版只动了改过地形的世界(历史重新推演),第 9 版人人都有(编年史的字);第 10 版人人的历史都重新推演
+    // 7 → 8:第 8 版只动了改过地形的世界(历史重新推演),第 9 版人人都有(编年史的字);第 10 版人人的历史都重新推演;
+    // 第 14 版人人的地形都有局部变化,跨过它的都按它说(改没改过地形一样)
     const plain = parseSave(JSON.stringify({ ...good(), generator: 7 }));
-    expect(plain.ok && plain.warnings).toEqual(['来自旧版本：地形和气候没变，历史重新推演了']);
+    expect(plain.ok && plain.warnings).toEqual(['来自旧版本：地形有局部变化，历史重新推演了']);
     expect(versionNote(7, false)).toBe(versionNote(9, false));
     const g = good();
     g.generator = 7;
     (g.edits as Record<string, unknown>).terrain = [{ kind: 'volcano', pts: [812, 403], r: 28, s: 1.05 }];
     const edited = parseSave(JSON.stringify(g));
-    expect(edited.ok && edited.warnings).toEqual(['来自旧版本：地形和气候没变，历史重新推演了']);
+    expect(edited.ok && edited.warnings).toEqual(['来自旧版本：地形有局部变化，历史重新推演了']);
     // 地形修改全是坏的(读进来一处都没有)= 按没改地形生成
     (g.edits as Record<string, unknown>).terrain = [{ kind: 'meteor', pts: [1, 2] }];
     const bad = parseSave(JSON.stringify(g));
-    expect(bad.ok && bad.warnings).toEqual(['来自旧版本：地形和气候没变，历史重新推演了', '有 1 处地形修改格式不对,已跳过']);
+    expect(bad.ok && bad.warnings).toEqual(['来自旧版本：地形有局部变化，历史重新推演了', '有 1 处地形修改格式不对,已跳过']);
   });
 
   it('版本提示排在参数提示之后、改名提示之前', () => {
@@ -1092,15 +1093,17 @@ describe('旧版本的提示:照实说变了什么', () => {
   it('按跨过的几版里最大的那种改动说', () => {
     expect(versionNote(GENERATOR_VERSION, false)).toBeNull();
     expect(versionNote(GENERATOR_VERSION, true)).toBeNull();
-    // 第 10 版:邦交,历史重新推演
-    expect(versionNote(9, false)).toBe('来自旧版本：地形和气候没变，历史重新推演了');
-    expect(versionNote(9, true)).toBe('来自旧版本：地形和气候没变，历史重新推演了');
+    // 第 14 版:封闭内海、贴着海的湖、湖心小块地,地形局部变了 —— 跨过它的都按它说
+    expect(versionNote(13, false)).toBe('来自旧版本：地形有局部变化，历史重新推演了');
+    expect(versionNote(13, true)).toBe('来自旧版本：地形有局部变化，历史重新推演了');
+    expect(versionNote(9, false)).toBe(versionNote(13, false));
+    expect(versionNote(9, true)).toBe(versionNote(13, true));
     // 第 9 版只改了编年史的字、第 8 版只动了改过地形的世界:都比第 10 版小
     expect(versionNote(8, false)).toBe(versionNote(9, false));
     expect(versionNote(7, false)).toBe(versionNote(9, false));
-    expect(versionNote(7, true)).toBe('来自旧版本：地形和气候没变，历史重新推演了');
-    // 第 6、7 版:人物和战役 < 洋流(气候、河流、历史)
-    expect(versionNote(6, false)).toBe('来自旧版本：陆地和山没变，气候、河流和历史都重算了');
+    expect(versionNote(7, true)).toBe(versionNote(13, true));
+    // 第 7 版洋流(气候、河流、历史)也比第 14 版小
+    expect(versionNote(6, false)).toBe(versionNote(13, false));
     expect(versionNote(5, true)).toBe(versionNote(6, true));
     // 第 4、5 版换了整颗星球,再往前的都算进去
     for (const v of [4, 3, 2, 1, 0, -3]) expect(versionNote(v, false)).toBe('来自旧版本：整颗星球重新生成了，地形和历史都和原来不同');
