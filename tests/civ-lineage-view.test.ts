@@ -95,31 +95,33 @@ describe.each([7, 2024])('世系图 · seed=%i', (seed) => {
   });
 });
 
-describe('世系图 · seed=7 的大羽', () => {
-  it('羽朝:标题、结尾、成王的父亲是没即位的江瑶鸾;篡位的开国之君是树根;岳朝开国之君的父亲也是岳的宗室', () => {
-    const civ = civOf(7);
-    const rows = dynastyRows(civ, 0);
-    expect(rows.map((r) => r.name)).toEqual(['天灵', '岳', '景', '羽', '衍', '澜']);
-    const i = rows.findIndex((r) => r.name === '羽');
-    expect(dynastyNote(civ, rows, i)).toBe('2283–2582 年，17 位君主；靖王江云篡位');
-    expect(dynastyEnd(civ, rows, i)).toBe('2582 年，衍朝起兵代之');
-    expect(dynastyEnd(civ, rows, i - 1)).toBe('2283 年，靖王篡位');
+describe('世系图 · seed=2024 的大羽', () => {
+  // GENERATOR_VERSION 14 时的世界(以前用的是 seed=7 的大羽,地形改了以后那个国家没了)
+  it('澜朝:标题、结尾、穆王的父亲是没即位的萧翎沧;篡位的开国之君是树根;渊朝开国之君的父亲也是渊的宗室', () => {
+    const civ = civOf(2024);
+    const P = 6;
+    const rows = dynastyRows(civ, P);
+    expect(rows.map((r) => r.name)).toEqual(['乾衍', '渊', '衍', '澜', '羽']);
+    const i = rows.findIndex((r) => r.name === '澜');
+    expect(dynastyNote(civ, rows, i)).toBe('2750–2958 年，10 位君主；献王萧珩篡位');
+    expect(dynastyEnd(civ, rows, i)).toBe('2958 年，羽朝起兵代之');
+    expect(dynastyEnd(civ, rows, i - 1)).toBe('2750 年，献王篡位');
     expect(dynastyEnd(civ, rows, rows.length - 1)).toBe('');
     expect(dynastyNote(civ, rows, 0)).toMatch(/；.+立国$/);
-    expect(dynastyRowAt(rows, 2512)).toBe(i);
-    const xw = civ.people!.find((x) => x.name === '江清溟' && x.role === 'ruler')!;
+    expect(dynastyRowAt(rows, 2850)).toBe(i);
+    const xw = civ.people!.find((x) => x.name === '萧琅' && x.role === 'ruler')!;
     const f = fatherOf(civ, xw) as Person;
-    expect(f).toMatchObject({ role: 'prince', name: '江瑶鸾' });
-    expect(kidsOf(civ, f).map((k) => k.name)).toEqual(['江尘', '江清溟']);
-    expect(lineageText(civ, 0)).toContain('\n      4 成王江清溟 2340–2379 年在位\n');
-    expect(princeRole(civ, f)).toBe('大羽宗室');
+    expect(f).toMatchObject({ role: 'prince', name: '萧翎沧' });
+    expect(kidsOf(civ, f).map((k) => k.name)).toEqual(['萧琅']);
+    expect(lineageText(civ, P)).toContain('\n    2 穆王萧琅 2760–2777 年在位\n');
+    expect(princeRole(civ, f)).toBe('大澜宗室');
     // 篡位的权臣没有连上父亲:这一朝的树从他起
-    expect(layoutDynasty(civ, rows[i])[0].nodes[0].p).toMatchObject({ role: 'ruler', name: '江云' });
-    // 岳朝开国之君的父亲死在岳朝开国之前,也算岳的宗室(不写成"大天灵宗室")
-    const h = rows.findIndex((r) => r.name === '岳');
+    expect(layoutDynasty(civ, rows[i])[0].nodes[0].p).toMatchObject({ role: 'ruler', name: '萧珩' });
+    // 渊朝开国之君的父亲死在渊朝开国之前,也算渊的宗室(不写成"乾衍宗室")
+    const h = rows.findIndex((r) => r.name === '渊');
     const root = layoutDynasty(civ, rows[h])[0].nodes[0].p;
-    expect(root).toMatchObject({ role: 'prince', name: '慕容风月' });
+    expect(root).toMatchObject({ role: 'prince', name: '东方弦' });
     expect(root.died!).toBeLessThan(rows[h].from);
-    expect(princeRole(civ, root)).toBe('大岳宗室');
+    expect(princeRole(civ, root)).toBe('大渊宗室');
   });
 });

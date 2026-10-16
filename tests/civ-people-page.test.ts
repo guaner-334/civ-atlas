@@ -171,19 +171,20 @@ describe('人物页 · 几处写法', () => {
     expect(kinOf(civ, 辛, 壬)).toBe('从伯父');
   });
 
-  it('seed=17:玄烈王(燕烬渊)是名人,继祖父即位;搜"烈王"第一个就是他', () => {
-    const civ = civOf(17);
-    const x = civ.people!.find((p) => p.name === '燕烬渊' && p.role === 'ruler');
+  // GENERATOR_VERSION 14 时的世界(以前是 seed=17 的玄烈王燕烬渊,地形改了以后历史换了)
+  it('seed=18:大景世宗(洛霁霄)是名人,继祖父即位;搜"世宗"第一个就是他', () => {
+    const civ = civOf(18);
+    const x = civ.people!.find((p) => p.name === '洛霁霄' && p.role === 'ruler');
     expect(x).toBeTruthy();
-    expect(personName(civ, x!)).toBe('烈王燕烬渊');
-    expect(rulerRole(civ, x!)).toBe('玄王');
+    expect(personName(civ, x!)).toBe('世宗洛霁霄');
+    expect(rulerRole(civ, x!)).toBe('大景皇帝');
     expect(riseText(civ, x!)).toMatch(/^继祖父/);
     expect(famousPeople(civ).some((f) => f.id === x!.id)).toBe(true);
-    const hits = searchCiv(civ, '烈王', 2600);
-    expect(hits[0]).toMatchObject({ kind: 'person', id: x!.id, name: '烈王燕烬渊', sub: '玄王，2677–2727' });
-    // 编年史里写他即位的那条:"玄厉王薨……其孙燕烬渊即位,是为烈王" —— 前一位连国名一起切、他切名字
+    const hits = searchCiv(civ, '世宗', 2600);
+    expect(hits[0]).toMatchObject({ kind: 'person', id: x!.id, name: '世宗洛霁霄', sub: '大景皇帝，2831–2862' });
+    // 编年史里写他即位的那条:"大景文宗崩……其孙洛霁霄即位,是为世宗" —— 前一位连国名一起切、他切名字
     const e = reignEntries(civ).find((r) => r.people?.[1] === x!.id)!;
     const ms = personMentions(civ, e.text, e.people, -1, e.year).filter((m) => m.person !== undefined);
-    expect(ms.map((m) => m.text)).toEqual(['玄厉王', '燕烬渊']);
+    expect(ms.map((m) => m.text)).toEqual(['大景文宗', '洛霁霄']);
   });
 });

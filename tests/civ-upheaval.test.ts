@@ -14,7 +14,7 @@ import { DEFAULT_CIV_PARAMS } from '../src/gen/civ';
 import { buildChronicle } from '../src/gen/civ/chronicle';
 import { ownersAt } from '../src/gen/civ/timeline';
 import { RESHAPE_RAMP, capacityAt, capitalAt, populationAt, portAt, ruinSites, yearReaching } from '../src/gen/civ/growth';
-import type { Settlement } from '../src/gen/civ/types';
+import type { Polity, Settlement } from '../src/gen/civ/types';
 import { findPorts, foundingYear, routeCities } from '../src/gen/civ/polities';
 import { cultureTerrain } from '../src/gen/civ/cultures';
 import { UPHEAVALS_MAX, UPHEAVAL_OPS_MAX, UPHEAVAL_YEARS, cleanUpheavals, sameUpheavals } from '../src/gen/terrainEdits';
@@ -32,8 +32,8 @@ import { buildRoutes } from '../src/gen/civ/routes';
 import { searchCiv } from '../src/ui/searchIndex';
 
 const PARAMS = { ...DEFAULT_PARAMS, seed: 7 };
-/** 种子 7 上的三件大事(GENERATOR_VERSION 13):天灵国都一带海水漫进来、贡农加德国都一带火山喷发、贡农加德和对岸之间的海峡隆起 */
-const FLOOD: Upheaval = { year: 1600, ops: [{ kind: 'sink', pts: [1850, 520, 1930, 530], r: 40, s: 1.1 }] };
+/** 种子 7 上的三件大事(GENERATOR_VERSION 14):萨雷亚共和国国都一带海水漫进来、大湘国都一带火山喷发、一道海峡隆起 */
+const FLOOD: Upheaval = { year: 1600, ops: [{ kind: 'sink', pts: [1793, 773, 1873, 783], r: 40, s: 1.1 }] };
 const VOLCANO: Upheaval = { year: 1800, ops: [{ kind: 'volcano', pts: [1278, 768], r: 36, s: 1.1 }] };
 const BRIDGE: Upheaval = { year: 2000, ops: [{ kind: 'raise', pts: [1510, 641, 1529, 628], r: 18, s: 1.1 }] };
 
@@ -203,7 +203,7 @@ describe('地形大事 · 推演', () => {
     }
     // 结束时还在的城都在陆地上
     for (const s of b.settlements) if (s.ended === undefined) expect(last.water[s.cell]).toBe(0);
-    // 天灵的国都沉了,迁都
+    // 萨雷亚共和国的国都沉了,迁都
     const p = b.polities[f.polity];
     expect(capitalAt(p, Y - 1 / 256)).toBe(sunk[0].settlement);
     expect(b.settlements[capitalAt(p, Y + 0.5)].ended).toBeUndefined();
@@ -216,13 +216,13 @@ describe('地形大事 · 推演', () => {
   }, 300_000);
 
   it('后果都并进大事那一条:亡了的国家打着的仗,议和记在后果之后;早先的遗址城址沉了,从那年起不再画', () => {
-    // 第 2182 年:艾尔海姆部(正和贡农加德打仗)两州全沉,贡农加德的国都哈尔德维克也沉了(州还在,迁都)
-    const Y = 2182;
+    // 第 2429 年:图拉特汗国(正和杜拉尔汗国打仗)两州全沉,杜拉尔汗国的国都也沉了(州还在,迁都)
+    const Y = 2429;
     const seats = [
-      [1607, 820],
-      [1621, 805],
+      [1441, 723],
+      [1467, 720],
     ];
-    const W: Upheaval = { year: Y, ops: [...seats.map((pts) => ({ kind: 'sink' as const, pts, r: 24, s: 1.1 })), { kind: 'sink', pts: [1278, 768], r: 12, s: 1.1 }] };
+    const W: Upheaval = { year: Y, ops: [...seats.map((pts) => ({ kind: 'sink' as const, pts, r: 24, s: 1.1 })), { kind: 'sink', pts: [1492, 715], r: 12, s: 1.1 }] };
     const b = civOf([W]);
     const at = b.annals.filter((e) => e.year === Y).map((e) => e.kind);
     expect(at).toContain('fall');
@@ -230,11 +230,11 @@ describe('地形大事 · 推演', () => {
     expect(at.indexOf('peace')).toBeGreaterThan(at.lastIndexOf('capital'));
     const ch = buildChronicle(b).filter((x) => b.annals[x.id]?.year === Y);
     expect(ch.map((x) => x.kind)).toEqual(['upheaval']);
-    expect(ch[0].text).toMatch(/亡,.+迁都/);
-    // 西鲁萨第 2348 年毁于战火、没有重建;第 2800 年城址沉入海中
-    const R: Upheaval = { year: 2800, ops: [{ kind: 'sink', pts: [1661, 681], r: 30, s: 1.1 }] };
+    expect(ch[0].text).toMatch(/亡,.*迁都/);
+    // 乌兰库尔干第 2274 年毁于战火、没有重建;第 2800 年城址沉入海中
+    const R: Upheaval = { year: 2800, ops: [{ kind: 'sink', pts: [1545, 719], r: 30, s: 1.1 }] };
     const r = civOf([R]);
-    const id = r.settlements.findIndex((s) => s.name === '西鲁萨');
+    const id = r.settlements.findIndex((s) => s.name === '乌兰库尔干');
     expect(r.settlements[id].ended).toBeLessThan(R.year);
     expect(r.upheavals![0].ruins).toEqual([id]);
     expect(ruinSites(r, R.year - 1).map((s) => s.id)).toContain(id);
@@ -466,7 +466,15 @@ describe('地形大事 · 推演', () => {
   }, 300_000);
 
   it('大事同一年下的干预照常生效,排在大事后面', () => {
-    const p = base().polities.findIndex((x) => x.name.startsWith('贡农加德'));
+    // 火山下面那座国都的国家(大湘)
+    const [vx, vy] = VOLCANO.ops[0].pts;
+    const { x: mx, y: my } = world().mesh;
+    const near = (p: Polity) => {
+      const c = base().settlements[capitalAt(p, VOLCANO.year)].cell;
+      return (mx[c] - vx) ** 2 + (my[c] - vy) ** 2 < 4;
+    };
+    const p = base().polities.findIndex((x) => x.founded < VOLCANO.year && (x.ended ?? Infinity) > VOLCANO.year && near(x));
+    expect(p).toBeGreaterThanOrEqual(0);
     const iv = [{ kind: 'protect' as const, a: polityKey(base(), p), from: VOLCANO.year }];
     const c = generateCiv(world(), { interventions: iv, upheavals: steps([VOLCANO]) });
     const k = c.annals.findIndex((e) => e.kind === 'intervene' && e.war === 0);
