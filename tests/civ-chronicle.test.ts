@@ -865,7 +865,7 @@ describe('编年史 · 真实世界(默认参数):被迫迁都折进战争,"大�
    * 阶段 4 推演随机数改按位置取以后历史换了一遍,各种子 31–48 条(seed 7 的大国多是西幻、改朝换代少,31 条):下限放到 30。
    * 扩张算账(荒僻之地留给部落)以后国家之间接壤少了、仗少了,20 个种子 19–40 条(seed 7 34 条、seed 2024 40 条)
    */
-  // GENERATOR_VERSION 14(立国更早、边缘立国,国家多了)以后 20 个种子的"大事" 25–55 条(seed 7 52 条、2024 50 条)
+  // GENERATOR_VERSION 15(立国更早、边缘立国,国家多了)以后 20 个种子的"大事" 25–55 条(seed 7 52 条、2024 50 条)
   const RANGE: [number, number] = [30, 60];
   for (const seed of [7, 2024]) {
     it(`seed ${seed}`, () => {
@@ -934,7 +934,7 @@ describe('编年史 · 真实世界(默认参数):被迫迁都折进战争,"大�
       for (const e of major) expect(e.text).not.toMatch(/\uff08\uff09|;;|,,|,,/);
     }, 60_000);
   }
-  // 别的种子:都不超过 65 条(GENERATOR_VERSION 14 以后 20 个种子 25–55 条)
+  // 别的种子:都不超过 65 条(GENERATOR_VERSION 15 以后 20 个种子 25–55 条)
   for (const seed of [1, 3, 99]) {
     it(`seed ${seed}:"大事"不超过 65 条`, () => {
       const list = buildChronicle(generateCiv(generateWorld({ ...DEFAULT_PARAMS, seed })));

@@ -366,7 +366,8 @@ describe('干预 · 推演', () => {
               !civ.annals.some((f) => f.kind === 'peace' && f.war === e.war && f.year < y),
           );
           if (touch && !fighting && !tied(p.id, q.id) && !pair) pair = [p.id, q.id];
-          if (!touch && !far) far = [p.id, q.id];
+          // 不接壤要两个方向都过不去(只有一方能渡海时,另一方宣战那一刻两国可能已在交战)
+          if (!touch && !far && !bordering(civ, q.id, p.id, y - 0.01)) far = [p.id, q.id];
         }
       }
       expect(pair && far).toBeTruthy();

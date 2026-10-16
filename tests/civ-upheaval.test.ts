@@ -32,9 +32,9 @@ import { buildRoutes } from '../src/gen/civ/routes';
 import { searchCiv } from '../src/ui/searchIndex';
 
 const PARAMS = { ...DEFAULT_PARAMS, seed: 7 };
-/** 种子 7 上的三件大事(GENERATOR_VERSION 14):天灵国都一带海水漫进来、贡农加德国都一带火山喷发、哈尔温和对岸之间的海峡隆起 */
+/** 种子 7 上的三件大事(GENERATOR_VERSION 15):天灵国都一带海水漫进来、漓的国都长远一带火山喷发、哈尔温和对岸之间的海峡隆起 */
 const FLOOD: Upheaval = { year: 1600, ops: [{ kind: 'sink', pts: [1850, 520, 1930, 530, 1903, 469], r: 40, s: 1.1 }] };
-const VOLCANO: Upheaval = { year: 1800, ops: [{ kind: 'volcano', pts: [1278, 768], r: 36, s: 1.1 }] };
+const VOLCANO: Upheaval = { year: 1800, ops: [{ kind: 'volcano', pts: [1223, 758], r: 36, s: 1.1 }] };
 const BRIDGE: Upheaval = { year: 2000, ops: [{ kind: 'raise', pts: [749, 799, 729, 784], r: 18, s: 1.1 }] };
 
 let w0: World | null = null;
@@ -66,7 +66,8 @@ function logBefore(civ: Civ, y: number) {
 /** 大事那一年以前出现过的名字、配色 */
 function namesBefore(civ: Civ, y: number, R: number) {
   return JSON.stringify({
-    polities: civ.polities.filter((p) => p.founded < y).map((p) => [p.name, p.color, p.eastern, (p.dynasties ?? []).filter((d) => d.year < y).map((d) => d.name)]),
+    // 立国那一朝要到第一次改朝换代时才补记进 dynasties(之后的历史变了,有没有这一条跟着变):只比 y 年以前真换过的
+    polities: civ.polities.filter((p) => p.founded < y).map((p) => [p.name, p.color, p.eastern, (p.dynasties ?? []).slice(1).filter((d) => d.year < y).map((d) => d.name)]),
     settlements: civ.settlements.filter((s) => s.founded < y).map((s) => s.name),
     cultures: civ.cultures.filter((c) => c.parent === undefined || c.born < y).map((c) => [c.name, c.style, c.color]),
     regions: (civ.regions.name ?? []).slice(0, R),
@@ -217,13 +218,13 @@ describe('地形大事 · 推演', () => {
   }, 300_000);
 
   it('后果都并进大事那一条:亡了的国家打着的仗,议和记在后果之后;早先的遗址城址沉了,从那年起不再画', () => {
-    // 第 2604 年:卢穆里亚部(正和贡农加德打仗)两州全沉,贡农加德的国都哈尔德维克也沉了(州还在,迁都)
-    const Y = 2604;
+    // 第 2699 年:米拉内斯部(正和凯莱隆德打仗)两州全沉,凯莱隆德的国都艾利纳尼斯也沉了(州还在,迁都)
+    const Y = 2699;
     const seats = [
-      [1646, 556],
-      [1650, 581],
+      [90, 589],
+      [91, 566],
     ];
-    const W: Upheaval = { year: Y, ops: [...seats.map((pts) => ({ kind: 'sink' as const, pts, r: 24, s: 1.1 })), { kind: 'sink', pts: [1278, 768], r: 12, s: 1.1 }] };
+    const W: Upheaval = { year: Y, ops: [...seats.map((pts) => ({ kind: 'sink' as const, pts, r: 24, s: 1.1 })), { kind: 'sink', pts: [115, 797], r: 12, s: 1.1 }] };
     const b = civOf([W]);
     const at = b.annals.filter((e) => e.year === Y).map((e) => e.kind);
     expect(at).toContain('fall');
@@ -232,10 +233,10 @@ describe('地形大事 · 推演', () => {
     const ch = buildChronicle(b).filter((x) => b.annals[x.id]?.year === Y);
     expect(ch.map((x) => x.kind)).toEqual(['upheaval']);
     expect(ch[0].text).toMatch(/亡,.*迁都/);
-    // 索莱罗拉第 2266 年毁于战火、没有重建;第 2800 年城址沉入海中
-    const R: Upheaval = { year: 2800, ops: [{ kind: 'sink', pts: [1505, 468], r: 30, s: 1.1 }] };
+    // 特勤巴扎第 2494 年被毁、没有重建;第 2800 年城址沉入海中
+    const R: Upheaval = { year: 2800, ops: [{ kind: 'sink', pts: [1502, 647], r: 30, s: 1.1 }] };
     const r = civOf([R]);
-    const id = r.settlements.findIndex((s) => s.name === '索莱罗拉');
+    const id = r.settlements.findIndex((s) => s.name === '特勤巴扎');
     expect(r.settlements[id].ended).toBeLessThan(R.year);
     expect(r.upheavals![0].ruins).toEqual([id]);
     expect(ruinSites(r, R.year - 1).map((s) => s.id)).toContain(id);

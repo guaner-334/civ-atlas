@@ -87,7 +87,7 @@ describe('城市成长 + 国家', () => {
     for (const seed of [7, 2024, 3, 99]) {
       const civ = civOf({ ...DEFAULT_PARAMS, seed });
       expect(civ.polities.length, `seed ${seed}`).toBeGreaterThanOrEqual(8);
-      // GENERATOR_VERSION 14(立国更早、边缘立国)以后国家多了:20 个种子(1–19、2024)先后立国 35–68 个、结束时在世 15–25 个
+      // GENERATOR_VERSION 15(立国更早、边缘立国)以后国家多了:20 个种子(1–19、2024)先后立国 35–68 个、结束时在世 15–25 个
       expect(civ.polities.length, `seed ${seed}`).toBeLessThanOrEqual(80);
       // 阶段 3 有了战争、分合:有的国家灭亡了、被并了,也有分出来的
       const alive = civ.polities.filter((p) => polityAlive(p, civ.endYear)).length;

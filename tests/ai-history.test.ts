@@ -32,7 +32,8 @@ import { HISTORY_KIND, historyFileName, historyMarkdown, historyNoteStatus, list
 const world = generateWorld({ ...DEFAULT_PARAMS, seed: 7 });
 const civ = generateCiv(world);
 /** 改朝换代最多的东方国家(国史用它测分章、历朝) */
-const east = civ.polities.filter((p) => p.eastern).sort((a, b) => (b.dynasties?.length ?? 0) - (a.dynasties?.length ?? 0))[0];
+// 中原、江南一类的国号(边塞风的国名常和民族同名,改了国名,写民族的地方照旧)
+const east = civ.polities.filter((p) => p.eastern && civ.cultures[p.culture].style !== 'frontier').sort((a, b) => (b.dynasties?.length ?? 0) - (a.dynasties?.length ?? 0))[0];
 const LENGTHS: HistoryLength[] = ['short', 'medium', 'long'];
 const userOf = (civ: Civ, o: HistoryOptions, i = 0) => historyMessages(buildHistoryPrompts(civ, o), i)[1].content;
 

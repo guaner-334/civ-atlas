@@ -233,7 +233,7 @@ describe('同化与迁徙', () => {
       const s = assimStats(civ);
       const tag = `seed ${seed}`;
       expect(s.changedShare, tag).toBeGreaterThanOrEqual(0.04);
-      // GENERATOR_VERSION 14(民族分化:分出去的州也算改换过民族)以后 20 个种子 10%–39%:上限放宽到 0.45
+      // GENERATOR_VERSION 15(民族分化:分出去的州也算改换过民族)以后 20 个种子 10%–39%:上限放宽到 0.45
       expect(s.changedShare, tag).toBeLessThanOrEqual(0.45);
       expect(s.assimilated, tag).toBeGreaterThan(30);
       migrations += s.migrations;

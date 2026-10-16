@@ -391,7 +391,10 @@ export function nameKin(cultures: Culture[], skip: (i: number) => boolean = () =
 /** 复国的国名前缀(阶段 3 分合):东方语感 "后昌""南昌";西幻语感 "新索拉特""北索拉特"。依次挑第一个没被占的 */
 const RESTORE_PREFIX_EAST = ['后', '北', '南', '东', '西', '新'];
 const RESTORE_PREFIX_WEST = ['新', '北', '南', '东', '西', '后'];
-/** 这一年以后(不含这一年)立的朝代,国号字用完了可以借旧国号加前缀(见 dynastyNamer;推 3000 年的世界用不到:史事一直排到结束那一年,第 3000 年立的朝代照原来起名) */
+/**
+ * 推过这一年(不含这一年)的世界,国号字用完了的朝代可以借旧国号加前缀(见 dynastyNamer)。推 3000 年的世界用不到:
+ * 史事一直排到结束那一年,第 3000 年立的朝代照原来起名。推得更久的世界国家多,早年的朝代(按锚点先后起名,不按年份)也可能轮到字用完
+ */
 const LATE_YEAR = 3000;
 /** 这以后的朝代另起名字最多试几次(3000 年以内试 12 次) */
 const LATE_TRIES = 80;
@@ -463,7 +466,8 @@ export function namePolities(seed: number, polities: Polity[], cultures: Culture
     claim(polities[id].name);
   }
   // 历朝(不是复国的国家):按锚点地块编号小的先挑
-  const dyn = dynastyNamer(seed, places, at);
+  const late = polities.some((p) => p.founded > LATE_YEAR || (p.dynasties ?? []).some((d) => d.year > LATE_YEAR));
+  const dyn = dynastyNamer(seed, places, at, late);
   for (const id of byAnchor(at)) {
     const p = polities[id];
     if (p.restores === undefined && p.dynasties) dyn(p, styleOf(p), taken, takenBare);
@@ -542,7 +546,7 @@ export interface DynastyPlaces {
  *   还撞就按语感另起一个城名式的名字)
  * 随机数、另起的名字按"国家的位置锚 + 第几朝"取(keyed / Namer.keyed),和别的国家起名先后无关
  */
-function dynastyNamer(seed: number, { settlements, regionNames }: DynastyPlaces, at: readonly Anchor[]) {
+function dynastyNamer(seed: number, { settlements, regionNames }: DynastyPlaces, at: readonly Anchor[], late: boolean) {
   const base = subSeed(seed, 'civ-names-dynasty');
   const namer = namerCache(base);
   const free = (x: string, taken: Set<string>, takenBare: Set<string>) =>
@@ -597,8 +601,8 @@ function dynastyNamer(seed: number, { settlements, regionNames }: DynastyPlaces,
         }
       }
       // 推过 3000 年的世界:国号字和另起的名字都用完了,借以前的国号、前面加"后""北""南"……(像后唐、北宋、南宋),
-      // 再不行多试几次另起的名字;只给第 3000 年以后(不含第 3000 年)立的朝代用,推 3000 年的世界起名和原来逐字一样
-      if (!name && pool && ds[i].year > LATE_YEAR) {
+      // 再不行多试几次另起的名字;推 3000 年的世界用不到,起名和原来逐字一样
+      if (!name && pool && late) {
         const cs = [...pool];
         const k0 = Math.floor(rand(i, 1) * cs.length);
         for (const pre of RESTORE_PREFIX_EAST) {
@@ -609,7 +613,7 @@ function dynastyNamer(seed: number, { settlements, regionNames }: DynastyPlaces,
           if (name) break;
         }
       }
-      if (!name && ds[i].year > LATE_YEAR) {
+      if (!name && late) {
         const next = namer(style).keyed('state', cell, n, i);
         for (let t = 0; t < LATE_TRIES && !name; t++) {
           const g = next();

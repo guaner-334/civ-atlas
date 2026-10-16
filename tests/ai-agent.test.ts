@@ -478,16 +478,16 @@ describe('助手', () => {
   it('立国:能用经纬度指地方(挑离它最近、有人住的一州);结果里写明那一州在哪、多大、什么地貌', () => {
     const rctx = { world, civ, year: 2000, edits: EMPTY };
     const R = civ.regions;
-    // 种子 7 的 R56:大洋中间只有一州的小岛(北纬 36° 一带;GENERATOR_VERSION 14)
-    const seat = R.seat[56];
+    // 种子 7 的 R153:大洋中间只有一州的小岛(北纬 32° 一带;GENERATOR_VERSION 15)
+    const seat = R.seat[153];
     const lon = (world.mesh.x[seat] / world.width) * 360 - 180;
     const lat = 90 - (world.mesh.y[seat] / world.height) * 180;
     const p = parseRewrite(JSON.stringify({ edits: [{ op: 'found', at: [lon + 0.1, lat - 0.1], from: 2500, why: '…' }] }), rctx);
     expect(p.ok).toBe(true);
     if (!p.ok) return;
     const it = p.items[0];
-    expect(it.change).toMatchObject({ kind: 'intervention', v: { kind: 'found', region: regionKey(civ, 56), from: 2500 } });
-    expect(it.where).toMatch(/^R56 在 \(-43\.\d, 36\.\d\),小岛\(这块陆地 1 州\)上/);
+    expect(it.change).toMatchObject({ kind: 'intervention', v: { kind: 'found', region: regionKey(civ, 153), from: 2500 } });
+    expect(it.where).toMatch(/^R153 在 \(-131\.\d, 32\.\d\),小岛\(这块陆地 1 州\)上/);
     // 北极点附近:一千五百公里内没人住,说明原因和最近有人住的州
     const pole = parseRewrite(JSON.stringify({ edits: [{ op: 'found', at: [0, 89.9], from: 2500, why: '…' }] }), rctx);
     if (!pole.ok) throw new Error('看不懂');

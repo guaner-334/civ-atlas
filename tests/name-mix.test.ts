@@ -191,7 +191,8 @@ describe('按份数起名(seed 7、2024)', () => {
     delete mix.desert;
     const civ = generateCiv(world, { names: mix });
     expect(civ.cultures.some((c) => c.style === 'desert')).toBe(false);
-    const others = auto.cultures.map((cu, i) => i).filter((i) => auto.cultures[i].style !== 'desert');
+    // 分化出来的民族跟着母族的语感,母族换了它也换,分化本身也跟着历史变:只比一开始就有的民族
+    const others = auto.cultures.map((cu, i) => i).filter((i) => auto.cultures[i].style !== 'desert' && auto.cultures[i].parent === undefined);
     const kept = others.filter((i) => civ.cultures[i].style === auto.cultures[i].style).length;
     expect(kept / others.length).toBeGreaterThanOrEqual(0.8);
   });

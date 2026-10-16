@@ -251,13 +251,13 @@ describe('战争与攻占', () => {
       const civ = civOf({ ...DEFAULT_PARAMS, seed });
       const st = warStats(civ);
       expect(st.wars, `seed ${seed}`).toBeGreaterThanOrEqual(8);
-      // 立国更早、国家更多(GENERATOR_VERSION 14)以后,第一场仗早了八百年上下:20 个种子 3000 年里 70–146 场,中位一百场左右
+      // 立国更早、国家更多(GENERATOR_VERSION 15)以后,第一场仗早了八百年上下:20 个种子 3000 年里 70–146 场,中位一百场左右
       expect(st.wars, `seed ${seed}`).toBeLessThanOrEqual(160);
       falls += st.falls;
       expect(st.capitalMoves, `seed ${seed}`).toBeGreaterThan(0);
       expect(st.conquests, `seed ${seed}`).toBeGreaterThan(30);
       expect(st.alive, `seed ${seed}`).toBeGreaterThanOrEqual(8);
-      // GENERATOR_VERSION 14(立国更早、边缘立国)以后国家多了:20 个种子(1–19、2024)先后立国 35–68 个、结束时在世 15–25 个
+      // GENERATOR_VERSION 15(立国更早、边缘立国)以后国家多了:20 个种子(1–19、2024)先后立国 35–68 个、结束时在世 15–25 个
       expect(st.alive, `seed ${seed}`).toBeLessThanOrEqual(30);
       expect(st.exclaveShare, `seed ${seed}`).toBeLessThan(0.03);
       // 各个百年的政区图也成片
