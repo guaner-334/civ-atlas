@@ -2071,7 +2071,8 @@ for (const style of ['realistic', 'fantasy']) {
   const fileOpened = await page
     .waitForFunction(() => location.search.includes('seed=7') && (window as any).__wfLabels?.polities > 0, null, { timeout: 60000 })
     .then(() => true, () => false);
-  const fileNote = await toastText(page, 'save', 5000);
+  // 干预指到了这个世界的国家时,打开后要先重新推演一段,提示条推演完才出来
+  const fileNote = await toastText(page, 'save', 30000);
   // 地形修改也套上了(打开时直接带着地形修改生成):改了 5 处 = 3 处改名 + 1 条干预 + 1 处地形
   const regen = fileNote.includes('改了 5 处');
   fs.rmSync(file, { force: true });
