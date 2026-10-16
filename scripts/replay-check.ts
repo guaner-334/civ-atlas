@@ -316,7 +316,7 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
 
 // 早年一个国家都没有:侧栏"国家"下说一句为什么、第一个国家哪年立国,不显示"全部 0 国";点"跳到 N 年"时间轴跳过去,列表里有了它
 {
-  await page.goto(`${dev.url}/?seed=7&style=fantasy&civYear=600`);
+  await page.goto(`${dev.url}/?seed=7&style=fantasy&civYear=300`);
   await page.waitForFunction(() => (window as any).__wfCiv?.ready, null, { timeout: 60000 });
   await page.waitForTimeout(300);
   const empty = await page.locator('.sidebar .sb-no-polity').innerText({ timeout: 3000 }).then((t) => t.replace(/\n/g, ' '), () => '');
@@ -327,9 +327,9 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
   const yearNow = await page.locator('.timebar .tb-year').innerText().catch(() => '');
   const rowsNow = await page.locator('.sidebar .sb-home .sb-row.two').count();
   const gone = (await page.locator('.sidebar .sb-no-polity').count()) === 0;
-  console.log(`早年没有国家:第 600 年「${empty}」,"全部 N 国"${allLink ? '还在' : '不显示'};点跳转 → ${yearNow},国家 ${rowsNow} 个,说明收起 ${gone}`);
+  console.log(`早年没有国家:第 300 年「${empty}」,"全部 N 国"${allLink ? '还在' : '不显示'};点跳转 → ${yearNow},国家 ${rowsNow} 个,说明收起 ${gone}`);
   const m = empty.match(/在 \d+ 年立国.*跳到 (\d+) 年/);
-  if (!m || allLink) errs.push(`第 600 年一个国家都没有时侧栏没有说明 / 还显示"全部 0 国"(「${empty}」)`);
+  if (!m || allLink) errs.push(`第 300 年一个国家都没有时侧栏没有说明 / 还显示"全部 0 国"(「${empty}」)`);
   else if (yearNow !== `第 ${m[1]} 年` || rowsNow < 1 || !gone) errs.push(`点"跳到 ${m[1]} 年"没跳到第一个国家立国(${yearNow},国家 ${rowsNow} 个)`);
 }
 
@@ -2067,7 +2067,8 @@ for (const style of ['realistic', 'fantasy']) {
   const fileOpened = await page
     .waitForFunction(() => location.search.includes('seed=7') && (window as any).__wfLabels?.polities > 0, null, { timeout: 60000 })
     .then(() => true, () => false);
-  const fileNote = await toastText(page, 'save', 5000);
+  // 存档里的干预对上了这个世界里的国家时,打开后先重推一遍,提示等重推完才出来
+  const fileNote = await toastText(page, 'save', 30000);
   // 地形修改也套上了(打开时直接带着地形修改生成):改了 5 处 = 3 处改名 + 1 条干预 + 1 处地形
   const regen = fileNote.includes('改了 5 处');
   fs.rmSync(file, { force: true });
@@ -3098,11 +3099,11 @@ for (const style of ['realistic', 'fantasy']) {
     await page.waitForTimeout(300);
     return true;
   };
-  // 1. 城(挑一座属某国、不是国都的:"迁都到这里"、"更多"里的"看所属国家"都能点)
+  // 1. 城(挑一座属某国、不是国都的:"迁都到这里"、"更多"里的"看所属国家"都能点;看得见的城里国都多,多试几座)
   let cityInfo = '';
   let ownerInfo = '';
   let moveCity = -1;
-  const marks = (await picks()).filter((q) => q.kind === 'mark' && free(q.x, q.y)).slice(0, 12);
+  const marks = (await picks()).filter((q) => q.kind === 'mark' && free(q.x, q.y)).slice(0, 40);
   for (const m of marks) {
     if (!(await clickPick('mark', m.id))) continue;
     if (!(await page.locator('.inspector .cp[data-settlement]').count())) continue;

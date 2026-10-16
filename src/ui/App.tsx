@@ -2768,6 +2768,12 @@ export function App() {
     const cy = (y0 + y1) / 2;
     // 左右不夹(每一帧再挪整数圈,画面是连着的);上下夹在两极以内
     const to = { k: v0.k, x: v0.x + (L + W - R) / 2 - cx, y: Math.min(0, Math.max(H - H * v0.k, v0.y + midY - cy)) };
+    // 事发地差不多在背面时,让开侧栏那一点会让平移超过半圈:东西相连,改走另一边(差一整圈)
+    if (box.w) {
+      const turn = v0.k * box.w;
+      if (to.x - v0.x > turn / 2) to.x -= turn;
+      else if (to.x - v0.x < -turn / 2) to.x += turn;
+    }
     if (Math.abs(to.x - v0.x) < 1 && Math.abs(to.y - v0.y) < 1) return;
     (window as unknown as { __wfPan: unknown }).__wfPan = { dx: to.x - v0.x, dy: to.y - v0.y, stamp: hlStamp };
     const t0 = performance.now();
