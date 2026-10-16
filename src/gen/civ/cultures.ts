@@ -945,13 +945,25 @@ function colorDist(a: readonly number[], b: readonly number[]): number {
  * 配色:按发源州的治所地块从小到大依次挑(位置锚,和编号无关:改地形后别处多一个、少一个民族,远处民族的颜色尽量不变),
  * 和接壤的民族色差越大越好,和全世界已用的颜色也尽量拉开;用过的颜色尽量不再用(民族不超过 16 个时不会重复)。
  */
-function assignColors(cultures: Culture[], nb: Set<number>[], base: number, seat: ArrayLike<number>) {
+function assignColors(cultures: Culture[], nb: Set<number>[], base: number, seat: ArrayLike<number>, fixed?: (i: number) => boolean) {
   const used = new Uint8Array(CULTURE_PALETTE.length);
   const picked: number[] = [];
   const done = new Set<number>();
+  // 已经定了颜色的(钉住的)先占上,别的民族绕开它们挑
+  if (fixed)
+    for (const cu of cultures) {
+      if (!fixed(cu.id)) continue;
+      done.add(cu.id);
+      const i = CULTURE_PALETTE.findIndex((c) => c[0] === cu.color[0] && c[1] === cu.color[1] && c[2] === cu.color[2]);
+      if (i >= 0 && !used[i]) {
+        used[i] = 1;
+        picked.push(i);
+      }
+    }
   // 干预立国时来落脚的新民族排最后:别的民族照没有它时一样配
   const order = cultures.slice().sort((a, b) => lastIfPioneer(a) - lastIfPioneer(b) || seat[a.hearth] - seat[b.hearth] || a.id - b.id);
   for (const cu of order) {
+    if (done.has(cu.id)) continue;
     let best = 0;
     let bestScore = -Infinity;
     for (let i = 0; i < CULTURE_PALETTE.length; i++) {
@@ -998,9 +1010,9 @@ export function finishCultures(world: World, m: CultureModel, owner: Int16Array,
   if (pinned) {
     // 地形大事以后才有的新民族(干预立国落在大事里新冒出来、变得住得了人的州;大事以后才分化出来的):没有能照的,配色、语感照常挑,只取它们自己的
     if (m.cultures.some((_, i) => !isPinned(i))) {
-      const all = m.cultures.map((cu) => ({ ...cu }));
+      const all = m.cultures.map((cu, i) => ({ ...cu, ...(isPinned(i) ? { color: [...pinned[i]!.color] as [number, number, number] } : {}) }));
       const nb = kinNeighbors(reg, all, [owner]);
-      assignColors(all, nb, subSeed(seed, 'civ-culture-color'), reg.seat);
+      assignColors(all, nb, subSeed(seed, 'civ-culture-color'), reg.seat, isPinned);
       assignStyles(all, nb, m.terrain, subSeed(seed, 'civ-culture-style'), names, toRoots(all, areas ?? owner));
       for (let i = 0; i < all.length; i++) {
         if (isPinned(i)) continue;

@@ -320,10 +320,10 @@ describe('地形大事 · 推演', () => {
     expect(populationAt(back, again + 0.01)).toBeGreaterThanOrEqual(32);
     // 立国:上限够 32 的城,建城满 120 年、人口过 10 就立(第 100 年建城,第 218 年人口过 10,等到第 220 年)
     expect(foundingYear(fast)).toBe(220);
-    // 上限不够 32 的立不了;第 700 年上限涨到 96,从那年起立得了(人口早过了 10)
+    // 上限不够 32 的立不了;第 700 年上限往 96 涨(60 年里线性涨),涨到 32 的那一刻起立得了(人口早过了 10)
     const small = { ...fast, capacity: 24 };
     expect(foundingYear(small)).toBe(Infinity);
-    expect(foundingYear({ ...small, reshaped: [{ year: 700, capacity: 96, port: true }] })).toBe(700);
+    expect(foundingYear({ ...small, reshaped: [{ year: 700, capacity: 96, port: true }] })).toBeCloseTo(700 + (60 * 8) / 72, 9);
     // 还没满 120 年,第 150 年上限就降到 24:立不了
     expect(foundingYear({ ...fast, reshaped: [{ year: 150, capacity: 24, port: false }] })).toBe(Infinity);
     // 城的"最盛":上限涨上去一年就又降下来、那时人口本在往下走(旧都衰落),高点就在降之前那一刻

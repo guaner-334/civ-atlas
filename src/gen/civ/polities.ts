@@ -40,7 +40,7 @@ import { WORTH_EXP } from './frontier';
 import { quantize, Ev, type CivSim } from './sim';
 import { KIND_INFO } from './display';
 import { cultureModelOf, cultureNeighbors, cultureTerrain, type CultureModel, type CultureTerrain } from './cultures';
-import { SETTLEMENT_RANKS, capitalAt, populationAt, portAt, portSince, tierOf, yearReaching } from './growth';
+import { RESHAPE_RAMP, SETTLEMENT_RANKS, capacityAt, capitalAt, populationAt, portAt, portSince, tierOf, yearReaching } from './growth';
 import { namePolities, nameSettlements, type RestoreDirection } from './naming';
 import type { RouteCity } from './routes';
 import type { InterventionModel } from './interventions';
@@ -260,8 +260,13 @@ export function foundingYear(s: Settlement): Year {
   const L = s.reshaped ?? [];
   for (let i = -1; i < L.length; i++) {
     if ((i < 0 ? s.capacity : L[i].capacity) < FOUND_POP) continue;
-    const a = i < 0 ? -Infinity : L[i].year;
+    let a = i < 0 ? -Infinity : L[i].year;
     const b = i + 1 < L.length ? L[i + 1].year : Infinity;
+    // 上限是涨上去的(RESHAPE_RAMP 年里线性涨):从涨到 FOUND_POP 的那一刻起才算
+    if (i >= 0) {
+      const from = capacityAt(s, a);
+      if (from < FOUND_POP) a += (RESHAPE_RAMP * (FOUND_POP - from)) / (L[i].capacity - from);
+    }
     const t = yearReaching(s, FOUND_AT, Math.max(a, s.founded + MIN_AGE));
     if (t < b) return t;
   }
