@@ -140,11 +140,11 @@ describe('邦交:称臣纳贡、结盟、背盟', () => {
       const civ = civOf({ ...DEFAULT_PARAMS, seed });
       const s = diplomacyStats(civ);
       const tag = `seed ${seed}`;
-      // 20 个种子(1–19、2024)里结盟 0–14 次、称臣 1–12 次:每个世界都有称臣;国家之间常隔着部落,有两个世界一次结盟都没有
+      // 20 个种子(1–19、2024)里结盟 0–30 次、称臣 7–20 次:每个世界都有称臣;国家之间常隔着部落,有的世界一次结盟都没有
       pacts += s.pacts;
       expect(s.submits, tag).toBeGreaterThanOrEqual(1);
-      expect(s.submits, tag).toBeLessThanOrEqual(15);
-      expect(s.pacts, tag).toBeLessThanOrEqual(25);
+      expect(s.submits, tag).toBeLessThanOrEqual(24);
+      expect(s.pacts, tag).toBeLessThanOrEqual(36);
       // 断了的盟不多于结过的盟;自立的不多于称过臣的
       expect(s.lapses + s.abandons + s.betrayals, tag).toBeLessThanOrEqual(s.pacts);
       expect(s.defects, tag).toBeLessThanOrEqual(s.submits);
@@ -229,24 +229,25 @@ describe('邦交和作者下令', () => {
           const r = relationsAt(civ, x.from);
           return kind === 'alliance' ? r.pacts.some((q) => (q.a === x.a && q.b === x.b) || (q.a === x.b && q.b === x.a)) : r.liege.get(x.a)?.liege === x.b;
         })
-        .slice(0, 4);
-    };
-    // 同一个宗主的两个藩属(种子 3 小世界有,GENERATOR_VERSION 14;称臣那一年之后,和别的藩属配对)
-    const coVassals = (): Try[] => {
-      const { w, civ } = at(3);
-      return civ.annals
-        .filter((e) => e.kind === 'submit')
-        .flatMap((e) => {
-          const from = Math.ceil(e.year) + 1;
-          const r = relationsAt(civ, from);
-          const L = r.liege.get(e.a)?.liege;
-          return [...r.liege].filter(([v, x]) => v !== e.a && x.liege === L).flatMap(([v]) => [
-            { w, civ, a: e.a, b: v, from },
-            { w, civ, a: v, b: e.a, from },
-          ]);
-        })
         .slice(0, 8);
     };
+    // 同一个宗主的两个藩属(称臣那一年之后,和别的藩属配对;依次在几个种子的小世界里找)
+    const coVassals = (): Try[] =>
+      [9, 2024, 3, 5].flatMap((seed) => {
+        const { w, civ } = at(seed);
+        return civ.annals
+          .filter((e) => e.kind === 'submit')
+          .flatMap((e) => {
+            const from = Math.ceil(e.year) + 1;
+            const r = relationsAt(civ, from);
+            const L = r.liege.get(e.a)?.liege;
+            return [...r.liege].filter(([v, x]) => v !== e.a && x.liege === L).flatMap(([v]) => [
+              { w, civ, a: e.a, b: v, from },
+              { w, civ, a: v, b: e.a, from },
+            ]);
+          })
+          .slice(0, 6);
+      });
     const cases = [
       { what: '打盟国', list: tries('alliance'), cut: 'unally', cause: 'betray' },
       { what: '藩属打宗主', list: tries('submit'), cut: 'defect', cause: undefined },
@@ -330,9 +331,14 @@ describe('邦交和作者下令', () => {
   }, 120_000);
 
   it('编年史:援盟的仗,盟国的名字里含着守方的名字,照样写"伐某国"', () => {
-    // 种子 3 小世界有援盟的仗(盟国不是东方国名)
-    const civ = civOf(small(3));
-    const i = civ.annals.findIndex((e) => e.kind === 'war' && (e.cause === 'ally' || e.cause === 'rescue') && e.settlement >= 0 && !civ.polities[e.settlement].eastern);
+    // 找一个有援盟的仗(盟国不是东方国名)的小世界
+    const hit = (c: Civ) => c.annals.findIndex((e) => e.kind === 'war' && (e.cause === 'ally' || e.cause === 'rescue') && e.settlement >= 0 && !c.polities[e.settlement].eastern);
+    let civ = civOf(small(3));
+    for (const seed of [1, 2, 4, 5, 6]) {
+      if (hit(civ) >= 0) break;
+      civ = civOf(small(seed));
+    }
+    const i = hit(civ);
     expect(i, '要有一场援盟 / 救藩的仗').toBeGreaterThanOrEqual(0);
     const e = civ.annals[i];
     const B = polityName(civ.polities[e.b], e.year);

@@ -43,7 +43,8 @@ const world = generateWorld({ ...DEFAULT_PARAMS, seed: 7 });
 const raw = generateCiv(world);
 const raster = rasterize(world, 1);
 
-const eastPolity = raw.polities.filter((p) => p.eastern).sort((a, b) => (b.dynasties?.length ?? 0) - (a.dynasties?.length ?? 0))[0];
+// 中原、江南一类的国号(边塞风叫"汗国"、留拉丁字母,不是这里要看的)
+const eastPolity = raw.polities.filter((p) => p.eastern && raw.cultures[p.culture].style !== 'frontier').sort((a, b) => (b.dynasties?.length ?? 0) - (a.dynasties?.length ?? 0))[0];
 const westCity = raw.settlements.find((s) => styleGuide(raw.cultures[s.culture]?.style)?.family === 'western' && s.capitalSpans?.length)!;
 const riverId = raw.places.findIndex((p) => p.kind === 'river');
 /** 测试用的新国号:挑一个这个世界里没人用、也不是它现在国号的字(换了世界也不会碰巧撞名被丢掉) */

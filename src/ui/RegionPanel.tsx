@@ -4,7 +4,7 @@
  *   顶部  颜色块(当年所属国)、州名(可改)、"州，属 大昌，第 12 州"(没有国家 = "无主之地")、关闭
  *   按钮  在这里立国(主操作)/ 划给… / 改名 / 更多(在这里加标记 / 在这里加人物、设为中心、让 AI 讲名字由来)(每个面板只有一个主操作,和国家面板一样)
  *   概况  主体民族(族名可改)、宜居度、人口(州里的总人口 = 治所的城 + 乡村,growth.ts 的 regionPopulationAt;一州同一时刻最多一座城)、信仰(可点)、州里的城(可点;故城标出来)、地貌、
- *         民族(族名由来 / 起族名)
+ *         民族(族名由来 / 起族名)、来历(分化出来的民族:哪年从哪族分出,母族可点;母族已消亡的不可点)
  *   作者的人物  生在这里、经历写在这里的作者人物(没有就不显示)
  *   历任归属 按时长分段的色条,点一段跳到它开始的那年
  *   大事  最近 5 条(可点)、这一州的干预(可撤销)
@@ -36,6 +36,7 @@ import { newMarkDraft } from './markStore';
 import { newCharacterDraft } from './characterStore';
 import { charactersAt, whereOfRegion } from './characterInfo';
 import { CharacterRefs } from './CharacterPanel';
+import { cultureRegion } from './searchIndex';
 import { entriesUpTo, firstOwned, ownerSpans, ownersOf, regionEntries } from './panelData';
 import {
   Act,
@@ -153,6 +154,8 @@ function RegionInfo({ civ, raw, raster, world, id, year, names, ai, aiRef }: Det
   const own = ownersOf(civ, year);
   const cid = own.culture[id];
   const cu = civ.cultures[cid];
+  // 分化出来的民族:母族(来历一行)
+  const pa = cu?.parent !== undefined ? civ.cultures[cu.parent] : undefined;
   const culture = useRevealAi({ civ, raw, raster, target: cu ? { kind: 'culture', id: cid } : null, lazy: true, what: '族名' });
   const aiOn = useAiOn();
   const score = habitatScore(civ.habitat.suitability[civ.regions.seat[id]]);
@@ -225,6 +228,15 @@ function RegionInfo({ civ, raw, raster, world, id, year, names, ai, aiRef }: Det
                 </button>
               </>
             )}
+          </Row>
+        )}
+        {pa && (
+          <Row k="来历">
+            <span>
+              {yearAt(cu.born, edits.era)}从
+              {pa.ended !== undefined && pa.ended <= year ? cultureLabel(pa) : <Link to={{ kind: 'region', id: cultureRegion(civ, pa.id, year, own) }}>{cultureLabel(pa)}</Link>}
+              分出
+            </span>
           </Row>
         )}
       </Stats>

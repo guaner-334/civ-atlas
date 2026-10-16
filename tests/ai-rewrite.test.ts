@@ -257,7 +257,7 @@ describe('改写 · 核对 AI 的回复', () => {
 
   it('保护 / 禁止扩张 / 禁止分裂:编号换成稳定键;until 在 from 之后才收;没写年份用时间轴的年份', () => {
     const a = polityKey(civ, big);
-    // 这个国家第 1606 年立国(GENERATOR_VERSION 14),命令从立国以后下
+    // 这个国家第 473 年立国(GENERATOR_VERSION 15),命令从立国以后下
     expect(one({ op: 'protect', country: `P${big}`, from: 1700, until: 2000, why: '多撑一阵' })).toMatchObject({
       op: 'protect',
       change: { kind: 'intervention', v: { kind: 'protect', a, from: 1700, until: 2000 } },

@@ -29,6 +29,10 @@
  *
  *   看部落地带(Ev.TribalCheck)每 TRIBAL_EVERY 年看一次:当年因为离别国国都太近(国都间距)没能立国的城,
  *      那个国都灭亡 / 迁走以后,在这里补立国(走 polities.ts 同一个"立国"事件)。
+ *      同时看**边缘立国**(次生国家):部落地带里挨着一个站稳了的国家(立国满 EDGE_MENTOR_AGE 年、至少 EDGE_MENTOR_SIZE 州)的城,
+ *      受它影响,不必长到自己立国的门槛:人口上限够 EDGE_CAP、人口过 EDGE_POP、建城满 EDGE_AGE 年,
+ *      离各国国都至少 EDGE_SPACING 倍国都间距,就有机会立国(同族 EDGE_P,异族 EDGE_P_FOREIGN)。
+ *      新国家的 mentor = 影响它的国家(挨着的国家里州最多的),国号一系(王国 / 共和国)沿用它的(游牧的汗国和定居的国家不互相沿用);史事 found 的 b 记它,编年史写"受某国影响"。
  *
  *   分裂 / 复国出来的国家:founded = 起事那年、立国从第 0 档起算(按当时州数升格,同一刻记进 titles)、
  *   有自己的看邻国 / 看内政;立国 NEWBORN 年内别国不会对它宣战(站稳期,见 wars.ts)。
@@ -53,7 +57,7 @@ import { fexp, flog, keyed, keyed4, subSeed } from './rand';
 import { Ev, quantize, type CivSim } from './sim';
 import { addPolity, canCross, coreOf, endPolity, foundingYear, moveCapital, polityModelOf, type PolityModel } from './polities';
 import { warModelOf, type WarModel } from './wars';
-import { capitalAt, populationAt } from './growth';
+import { capacityAt, capitalAt, populationAt } from './growth';
 
 // ---- 调参(以截图和统计数为准,见 scripts/gen-stats.ts) ----
 /** 立国后多少年开始看内政;之后每隔多少年看一次(每段里 20%–80% 处随机一个时刻) */
@@ -147,6 +151,19 @@ const RESTORE_FRAC = 0.3;
 /** 看部落地带:第一次在哪一年,之后每隔多少年 */
 const TRIBAL_FIRST = 0;
 const TRIBAL_EVERY = 50;
+/**
+ * 边缘立国(次生国家):影响它的国家要立国满 EDGE_MENTOR_AGE 年、至少 EDGE_MENTOR_SIZE 州;
+ * 城的人口上限至少 EDGE_CAP(千人)、人口过 EDGE_POP、建城满 EDGE_AGE 年;离各国国都至少 EDGE_SPACING × 国都间距(州图跳数);
+ * 每次看的机会:和影响它的国家同族 EDGE_P,异族 EDGE_P_FOREIGN
+ */
+const EDGE_MENTOR_AGE = 100;
+const EDGE_MENTOR_SIZE = 4;
+const EDGE_CAP = 20;
+const EDGE_POP = 6;
+const EDGE_AGE = 80;
+const EDGE_SPACING = 0.6;
+const EDGE_P = 0.12;
+const EDGE_P_FOREIGN = EDGE_P / 2;
 
 // 随机数用途编号
 const U_CHECK_T = 1;
@@ -157,6 +174,7 @@ const U_MOVE = 5;
 const U_RESTORE_T = 6;
 const U_RESTORE = 7;
 const U_TRIBAL_T = 8;
+const U_EDGE = 9;
 
 // ---------------------------------------------------------------------------
 // 模型
@@ -663,15 +681,70 @@ function hook(sim: CivSim, pol: PoliticsModel): void {
     if (k + 1 < RESTORE_TRIES) sim.schedule(restoreTime(pol, f, F.ended, k + 1), Ev.RestoreCheck, k + 1, f);
   });
 
-  // ---- 部落地带补立国 ----
+  // ---- 部落地带补立国、边缘立国 ----
+  /** 州 r 离某个在世国家的国都不到 limit 跳(陆上 1、海峡 2、航线 5;caps = 国都所在州) */
+  const nearCapital = (r: number, limit: number, caps: Uint8Array) => {
+    const heap = new MinHeap(32);
+    const seen = new Map<number, number>([[r, 0]]);
+    heap.push(r, 0);
+    while (heap.size) {
+      const a = heap.pop();
+      const d = heap.lastPri;
+      if (d > seen.get(a)!) continue;
+      if (caps[a]) return true;
+      for (let q = reg.adjStart[a]; q < reg.adjStart[a + 1]; q++) {
+        const kind = reg.adjKind[q];
+        const nd = d + (kind === AdjKind.SeaRoute ? 5 : kind === AdjKind.Strait ? 2 : 1);
+        const j = reg.adj[q];
+        if (nd < limit && nd < (seen.get(j) ?? Infinity)) {
+          seen.set(j, nd);
+          heap.push(j, nd);
+        }
+      }
+    }
+    return false;
+  };
+  /** 州 r 挨着的国家里能影响它立国的(站稳了的,州最多的那个);没有 = −1 */
+  const mentorOf = (r: number, t: number) => {
+    let best = -1;
+    for (let q = reg.adjStart[r]; q < reg.adjStart[r + 1]; q++) {
+      if (reg.adjKind[q] === AdjKind.SeaRoute) continue;
+      const o = owner[reg.adj[q]];
+      if (o < 0 || o === best) continue;
+      const P = pm.polities[o];
+      if (P.ended !== undefined || t - P.founded < EDGE_MENTOR_AGE || pm.size[o] < EDGE_MENTOR_SIZE) continue;
+      if (best < 0 || pm.size[o] > pm.size[best] || (pm.size[o] === pm.size[best] && o < best)) best = o;
+    }
+    return best;
+  };
   sim.on(Ev.TribalCheck, (k, _b, t) => {
     sim.schedule(tribalTime(pol, k + 1), Ev.TribalCheck, k + 1, 0);
+    let caps: Uint8Array | null = null;
     for (const s of pm.settlements) {
       const r = s.region;
-      if (s.capitalFrom !== undefined || s.ended !== undefined || owner[r] >= 0 || culture[r] < 0 || pm.near[r] > 0) continue;
+      if (s.capitalFrom !== undefined || s.ended !== undefined || owner[r] >= 0 || culture[r] < 0) continue;
       // 自己的"立国"事件已经处理过(当时没立成);同一刻的还在排队,不重复预约
-      if (!(quantize(foundingYear(s)) < t)) continue;
-      sim.schedule(t, Ev.PolityFound, r, s.id);
+      if (pm.near[r] === 0 && quantize(foundingYear(s)) < t) {
+        sim.schedule(t, Ev.PolityFound, r, s.id);
+        continue;
+      }
+      // 边缘立国:挨着站稳了的国家,受它影响提早立国
+      if (capacityAt(s, t) < EDGE_CAP || t - s.founded < EDGE_AGE || populationAt(s, t) < EDGE_POP) continue;
+      const m = mentorOf(r, t);
+      if (m < 0) continue;
+      const M = pm.polities[m];
+      if (keyed(pol.base, pm.stag[s.id], k, U_EDGE) >= (culture[r] === M.culture ? EDGE_P : EDGE_P_FOREIGN)) continue;
+      if (!caps) {
+        caps = new Uint8Array(R);
+        for (const P of pm.polities) if (P.ended === undefined) caps[capRegion(P.id, t)] = 1;
+      }
+      if (nearCapital(r, EDGE_SPACING * pm.spacing, caps)) continue;
+      // 国号一系(王国 / 共和国)沿用那一国的;游牧的汗国和定居的国家不互相沿用
+      const nomad = pm.cultures[culture[r]].kind === 'nomad' || M.lineage === 'khanate';
+      const p = addPolity(pm, s.id, culture[r], t, nomad ? { mentor: m } : { mentor: m, lineage: M.lineage });
+      sim.setOwner(Layer.Polity, r, p.id, Ev.PolityFound);
+      sim.record('found', { a: p.id, b: m, region: r, settlement: s.id });
+      caps[r] = 1;
     }
   });
 }

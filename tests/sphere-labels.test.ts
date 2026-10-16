@@ -97,7 +97,7 @@ describe('地图文字(展开的视窗)', () => {
     for (const [wx, wy] of [[3, 500], [W - 2, 300], [1024, 600]]) expect(ownerAtPoint(f0, wx + W, wy)).toBe(ownerAtPoint(f0, wx, wy));
   });
 
-  // 这两个世界都有跨 180° 经线的国家,国名正好骑在 180° 经线上(GENERATOR_VERSION 14 起 seed 8 的不再骑线,换成 17)
+  // 这两个世界都有跨 180° 经线的国家,国名正好骑在 180° 经线上(GENERATOR_VERSION 15 时挑的)
   for (const seed of [17, 27]) {
     for (const style of ['fantasy', 'realistic'] as const) {
       it(`seed ${seed} · ${style}:视窗中心转到 180° 经线,跨接缝的国家国名只出现一次、完整、落在本国国土上`, () => {

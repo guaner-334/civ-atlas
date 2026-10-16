@@ -27,11 +27,19 @@
  *      (四周某一族的边界占比 ≥ ENCLAVE_F,隔海峡的对岸按 STRAIT_BORDER 算边界;定居 ENCLAVE_HOLD 年以上)也会被四邻同化,
  *      速率按 ENCLAVE_RATE 算(乘同样的地形、原民族大小系数)—— 零星的残部渐渐融进四邻,小民族可能就此消亡。
  *
+ *   看分化(Ev.DivergeCheck)DIV_FIRST 年起每 DIV_EVERY 年看一次各民族(民族分化):把一个民族的州按"陆上相邻(平地、跨河)
+ *      而且同属一国(或同在部落地带)"连成几片;发源州所在的(没有就最大的)那片是本土,别的片:
+ *        - 和本土隔着山、海(只按陆上平地 / 跨河相连也连不上):至少 DIV_MIN_GEO 州,其中至少 DIV_SETTLED_GEO 定居(上次改换民族)满 DIV_AGE_GEO 年
+ *        - 和本土陆上连着、只是分属不同国家:至少 DIV_MIN_POL 州,其中至少 DIV_SETTLED 定居满 DIV_AGE 年,
+ *          而且这几州归现在的国家(或一直没有国家)满 DIV_RULE 年
+ *      片里每州都改换民族满 HOLD 年(不闪烁),本土分出它以后还剩 DIV_MIN_POL 州以上;隔山隔海的先分,同一类里挑最大的一片,有 DIV_P 的机会分化:这几州同一刻改换成新民族(cultures.ts 的 addCulture;parent = 母族,branch = 在母族本土的哪个方位,
+ *      类型、扩张性沿用母族),记一条 diverge。一个民族一次看最多分出一支;整个世界最多分出 DIV_MAX 支。
+ *      新民族的族名用母族的名字加方位("北某某"),地名语感沿用母族的(naming.ts)。
  *   不闪烁:一州改换民族(含最初定居)后 HOLD 年内不再改换。
  *   民族消亡:一个民族的州全没了,记 Culture.ended 和一条 vanish;消亡前预约的到达作废(见 cultures.ts)。
  *   州名、城名、城镇的民族(Settlement.culture = 建城时的民族)都不改:地名留着旧民族的语感。
  *
- * **不存内存状态**:看民族的时刻由"国家 + 第几次"算出;统治年数 = 州最近一次换国家(战争模型,由变化日志重建);
+ * **不存内存状态**:看民族的时刻由"国家 + 第几次"算出,看孤地、看分化的时刻由"第几次"算出;统治年数 = 州最近一次换国家(战争模型,由变化日志重建);
  *   这些年打下来的州 = 战争模型里带年份的攻占(由史事重建);一州上次改换民族 = 变化日志;消亡、迁徙记在民族表里。
  *
  * 随机数:keyed(subSeed(seed, 'civ-assim'), 国家 / 州…, 第几次, 用途),和处理顺序无关。
@@ -44,7 +52,7 @@ import { geometryOf, type Geometry } from '../geometry';
 import { AdjKind, Layer, type Civ, type Culture, type MigrationDir, type Polity, type Year } from './types';
 import { fexp, keyed, keyed4, subSeed } from './rand';
 import { Ev, quantize, type CivSim } from './sim';
-import { cultureModelOf } from './cultures';
+import { addCulture, cultureModelOf } from './cultures';
 import { polityModelOf, type PolityModel } from './polities';
 import { warModelOf, type WarModel } from './wars';
 import { capitalAt } from './growth';
@@ -91,6 +99,19 @@ const ENCLAVE_RATE = 1 / 80;
 /** 看孤地时,隔海峡的邻州算多长的边界(标准路程) */
 const STRAIT_BORDER = 0.3;
 
+/** 看分化:第一次在哪一年附近、之后每隔多少年;隔山隔海 / 分属不同国家时至少几州;定居满几年的州要占几成;归现在的国家满几年;每次的机会;一个世界最多分出几支 */
+const DIV_FIRST = 300;
+const DIV_EVERY = 100;
+const DIV_MIN_GEO = 6;
+const DIV_MIN_POL = 10;
+const DIV_AGE = 500;
+const DIV_SETTLED = 0.8;
+const DIV_AGE_GEO = 300;
+const DIV_SETTLED_GEO = 0.5;
+const DIV_RULE = 500;
+const DIV_P = 0.12;
+export const DIV_MAX = 12;
+
 /** 随征服而来的移民(游牧国家):每州的机会、林地打折、一次最多几州 */
 const SETTLE_P = 0.45;
 const SETTLE_FOREST = 0.3;
@@ -118,6 +139,8 @@ const U_SETTLE = 3;
 const U_FLIGHT = 4;
 const U_ENCLAVE_T = 5;
 const U_ENCLAVE = 6;
+const U_DIVERGE_T = 7;
+const U_DIVERGE = 8;
 
 const biomeSet = (list: number[]) => {
   const t = new Uint8Array(16);
@@ -154,8 +177,14 @@ function newModel(pm: PolityModel, wm: WarModel, cultures: Culture[], world: Wor
     base: subSeed(pm.seed, 'civ-assim'),
     geo: geometryOf(world.mesh),
     since: new Float64Array(R).fill(-Infinity),
-    count: new Int32Array(cultures.length),
+    // 推演中还会分化出新民族(最多 DIV_MAX 支):留出位置
+    count: new Int32Array(cultures.length + DIV_MAX),
   };
+}
+
+/** 第 k 次看分化的时刻 */
+function divergeTime(am: AssimModel, k: number): number {
+  return DIV_FIRST + DIV_EVERY * (k + 0.2 + 0.6 * keyed(am.base, k, 0, U_DIVERGE_T));
 }
 
 /** 国家 p 第 k 次看民族的时刻 */
@@ -186,6 +215,7 @@ export function installAssimilation(sim: CivSim, pm: PolityModel, world: World):
   const am = newModel(pm, wm, cm.cultures, world);
   hook(sim, am);
   sim.schedule(enclaveTime(am, 0), Ev.EnclaveCheck, 0, 0);
+  sim.schedule(divergeTime(am, 0), Ev.DivergeCheck, 0, 0);
   return am;
 }
 
@@ -350,7 +380,7 @@ function hook(sim: CivSim, am: AssimModel): void {
   };
 
   // ---- ③ 同化 ----
-  const weight = new Float64Array(cultures.length);
+  const weight = new Float64Array(cultures.length + DIV_MAX);
   const assimilate = (P: Polity, k: number, t: number, span: number) => {
     const mine = pm.lands[P.id];
     if (!mine.length) return;
@@ -437,7 +467,7 @@ function hook(sim: CivSim, am: AssimModel): void {
   });
 
   // ---- 看孤地:部落地带里被别族团团围住的州 ----
-  const around = new Float64Array(cultures.length);
+  const around = new Float64Array(cultures.length + DIV_MAX);
   sim.on(Ev.EnclaveCheck, (k, _b, t) => {
     sim.schedule(enclaveTime(am, k + 1), Ev.EnclaveCheck, k + 1, 0);
     const span = t - (k > 0 ? quantize(enclaveTime(am, k - 1)) : 0);
@@ -473,7 +503,102 @@ function hook(sim: CivSim, am: AssimModel): void {
       const rate = ENCLAVE_RATE * f * ease(c, g, r);
       if (keyed(am.base, reg.seat[r], k, U_ENCLAVE) < 1 - fexp(-rate * span)) out.push([r, g]);
     }
-    for (const [r, g] of out) change('assimilate', r, g, Ev.Assimilate, -1, t);
+    // 同一步里先被同化光了的民族(消亡了)不再去同化别人
+    for (const [r, g] of out) if (count[g] > 0) change('assimilate', r, g, Ev.Assimilate, -1, t);
+  });
+
+  // ---- 看分化:隔山隔海、分属不同国家几百年的一支渐成一族 ----
+  const piece = new Int32Array(R).fill(-1);
+  const geoPiece = new Int32Array(R).fill(-1);
+  /** 民族 c 的州连成片:geo = 只按陆上平地 / 跨河相连;否则还要同属一国(或同在部落地带)。片号写进 out,返回各片的州 */
+  const pieces = (c: number, lands: readonly number[], geo: boolean, out: Int32Array): number[][] => {
+    const list: number[][] = [];
+    for (const r0 of lands) {
+      if (out[r0] >= 0) continue;
+      const id = list.length;
+      const q = [r0];
+      out[r0] = id;
+      for (let h = 0; h < q.length; h++) {
+        const a = q[h];
+        for (let e = reg.adjStart[a]; e < reg.adjStart[a + 1]; e++) {
+          const kind = reg.adjKind[e];
+          if (kind !== AdjKind.Flat && kind !== AdjKind.River) continue;
+          const b = reg.adj[e];
+          if (out[b] >= 0 || culture[b] !== c || (!geo && owner[b] !== owner[a])) continue;
+          out[b] = id;
+          q.push(b);
+        }
+      }
+      list.push(q);
+    }
+    return list;
+  };
+  sim.on(Ev.DivergeCheck, (k, _b, t) => {
+    sim.schedule(divergeTime(am, k + 1), Ev.DivergeCheck, k + 1, 0);
+    let made = 0;
+    for (const cu of cultures) if (cu.parent !== undefined) made++;
+    if (made >= DIV_MAX) return;
+    // 各民族的州(州号升序)
+    const C = cultures.length;
+    const lands: number[][] = Array.from({ length: C }, () => []);
+    for (let r = 0; r < R; r++) if (culture[r] >= 0) lands[culture[r]].push(r);
+    for (let c = 0; c < C && made < DIV_MAX; c++) {
+      const P = cultures[c];
+      const mine = lands[c];
+      if (P.ended !== undefined || mine.length < DIV_MIN_GEO + DIV_MIN_POL) continue;
+      for (const r of mine) piece[r] = geoPiece[r] = -1;
+      const all = pieces(c, mine, false, piece);
+      const geo = pieces(c, mine, true, geoPiece);
+      // 本土:发源州所在的那片;发源州已不是本族的,取最大的一片
+      let main = culture[P.hearth] === c ? piece[P.hearth] : 0;
+      if (culture[P.hearth] !== c) for (let i = 1; i < all.length; i++) if (all[i].length > all[main].length) main = i;
+      const home = geoPiece[all[main][0]];
+      // 能分出去的片里挑最大的(一样大取片里最小的治所地块,和州号无关)
+      let pick = -1;
+      let pickRuler = -1;
+      let pickApart = false;
+      let pickTag = Infinity;
+      for (let i = 0; i < all.length; i++) {
+        if (i === main) continue;
+        const g = all[i];
+        const apart = geoPiece[g[0]] !== home; // 和本土隔着山、海
+        if (g.length < (apart ? DIV_MIN_GEO : DIV_MIN_POL) || mine.length - g.length < DIV_MIN_POL) continue;
+        let settled = 0;
+        let ruled = 0;
+        let tag = Infinity;
+        let fresh = false;
+        for (const r of g) {
+          if (t - since[r] >= (apart ? DIV_AGE_GEO : DIV_AGE)) settled++;
+          if (t - wm.since[r] >= DIV_RULE) ruled++;
+          if (!held(r, t)) fresh = true;
+          tag = Math.min(tag, reg.seat[r]);
+        }
+        // 刚改换过民族(含最初定居)不满 HOLD 年的州还在,这次不分(不闪烁)
+        if (fresh) continue;
+        if (apart ? settled < DIV_SETTLED_GEO * g.length : settled < DIV_SETTLED * g.length || ruled < g.length) continue;
+        // 隔山隔海的先分;同一类里挑大的
+        if (pick >= 0) {
+          if (pickApart && !apart) continue;
+          if (pickApart === apart && (g.length < all[pick].length || (g.length === all[pick].length && tag > pickTag))) continue;
+        }
+        pick = i;
+        pickTag = tag;
+        pickApart = apart;
+        pickRuler = apart ? -1 : owner[g[0]];
+      }
+      if (pick < 0 || keyed4(am.base, reg.seat[P.hearth], pickTag, k, U_DIVERGE) >= DIV_P) continue;
+      const g = all[pick];
+      // 新民族的发源州:这片里治所最宜居的(一样宜居取治所地块小的)
+      let hearth = g[0];
+      for (const r of g) if (T.seatSuit[r] > T.seatSuit[hearth] || (T.seatSuit[r] === T.seatSuit[hearth] && reg.seat[r] < reg.seat[hearth])) hearth = r;
+      const cu = addCulture(sim, { kind: P.kind, hearth, born: t, expansionism: P.expansionism, parent: c, branch: direction(all[main], g) });
+      // 还没兴起的干预立国民族往后挪了一号(见 addCulture):州数跟着挪(它们都是 0)
+      count.copyWithin(cu.id + 1, cu.id, count.length - 1);
+      count[cu.id] = 0;
+      for (const r of g) sim.setOwner(Layer.Culture, r, cu.id, Ev.Diverge);
+      sim.record('diverge', { a: cu.id, b: c, region: hearth, war: pickRuler });
+      made++;
+    }
   });
 }
 
@@ -504,6 +629,9 @@ export function resumeAssimilation(sim: CivSim, world: World, civ: Civ): void {
   let k = 0;
   while (quantize(enclaveTime(am, k)) <= now) k++;
   sim.schedule(enclaveTime(am, k), Ev.EnclaveCheck, k, 0);
+  k = 0;
+  while (quantize(divergeTime(am, k)) <= now) k++;
+  sim.schedule(divergeTime(am, k), Ev.DivergeCheck, k, 0);
 }
 
 // ---------------------------------------------------------------------------

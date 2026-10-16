@@ -217,7 +217,7 @@ describe('民族扩张', () => {
     expect(new Set(m.cultures.map((c) => c.born)).size).toBeGreaterThan(1);
     expect(Math.min(...m.cultures.map((c) => c.born))).toBe(0);
     const until = spreadPhaseEnd(civ);
-    // GENERATOR_VERSION 14 以后 20 个种子里最短的就是 seed 7,321 年(其次 seed 20,336 年)
+    // GENERATOR_VERSION 14、15 以后 20 个种子里最短的就是 seed 7,321 年(其次 seed 20,336 年)
     expect(until).toBeGreaterThan(300);
     expect(Array.from(ownersAt(civ, until).culture)).toEqual(Array.from(referenceFlood(m, until).owner));
   });
@@ -297,8 +297,10 @@ describe('民族扩张', () => {
       const w = world({ ...DEFAULT_PARAMS, seed });
       const civ = generateCiv(w);
       expect(civ.viable).toBe(true);
-      expect(civ.cultures.length).toBeGreaterThanOrEqual(4);
-      expect(civ.cultures.length).toBeLessThanOrEqual(16);
+      // 自然兴起的民族 4–16 个(推演中分化出来的不算)
+      const roots = civ.cultures.filter((c) => c.parent === undefined);
+      expect(roots.length).toBeGreaterThanOrEqual(4);
+      expect(roots.length).toBeLessThanOrEqual(16);
       const T = cultureTerrain(w, civ.habitat, civ.regions);
       let H = 0;
       let occ = 0;

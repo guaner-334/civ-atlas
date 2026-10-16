@@ -83,15 +83,16 @@ describe('城市成长 + 国家', () => {
     expect(a.routes.length).toBe(b.routes.length);
   });
 
-  it('默认参数:先后立国 8–40 个(含分裂 / 复国出来的)、结束时在世 8–20 个,城镇每个有人州一座;国都之间隔得开;只有海洋国家有跨海领土', () => {
+  it('默认参数:先后立国 8–80 个(含分裂 / 复国出来的)、结束时在世 8–30 个,城镇每个有人州一座;国都之间隔得开;只有海洋国家有跨海领土', () => {
     for (const seed of [7, 2024, 3, 99]) {
       const civ = civOf({ ...DEFAULT_PARAMS, seed });
       expect(civ.polities.length, `seed ${seed}`).toBeGreaterThanOrEqual(8);
-      expect(civ.polities.length, `seed ${seed}`).toBeLessThanOrEqual(40);
+      // GENERATOR_VERSION 15(立国更早、边缘立国)以后国家多了:20 个种子(1–19、2024)先后立国 35–68 个、结束时在世 15–25 个
+      expect(civ.polities.length, `seed ${seed}`).toBeLessThanOrEqual(80);
       // 阶段 3 有了战争、分合:有的国家灭亡了、被并了,也有分出来的
       const alive = civ.polities.filter((p) => polityAlive(p, civ.endYear)).length;
       expect(alive, `seed ${seed}`).toBeGreaterThanOrEqual(8);
-      expect(alive, `seed ${seed}`).toBeLessThanOrEqual(20);
+      expect(alive, `seed ${seed}`).toBeLessThanOrEqual(30);
       const reg = civ.regions;
       // 城镇:每个有人住的州一座,在治所上;名字不重复
       // (阶段 3 城市兴衰:被毁的城在故址上重建的,同一州先后有几座 —— 前一座被毁了、后一座才建起,同族重建的沿用旧名)
@@ -237,13 +238,13 @@ describe('城市成长 + 国家', () => {
       for (const p of civ.polities) {
         const cap = civ.settlements[p.capital];
         const found = A.filter((e) => e.kind === 'found' && e.a === p.id);
-        // 分裂 / 复国出来的国家(阶段 3 分合)没有"立国",只有一条"分裂"(b = 从哪国分出来)
+        // 分裂 / 复国出来的国家(阶段 3 分合)没有"立国",只有一条"分裂"(b = 从哪国分出来);受邻国影响立的国,"立国"的 b = 那一国
         if (p.parent !== undefined) {
           expect(found).toEqual([]);
           const split = A.filter((e) => e.kind === 'split' && e.a === p.id);
           expect(split).toHaveLength(1);
           expect(split[0]).toMatchObject({ year: p.founded, b: p.parent, settlement: cap.id, war: -1 });
-        } else expect(found).toEqual([{ year: p.founded, kind: 'found', a: p.id, b: -1, region: cap.region, settlement: cap.id, war: -1 }]);
+        } else expect(found).toEqual([{ year: p.founded, kind: 'found', a: p.id, b: p.mentor ?? -1, region: cap.region, settlement: cap.id, war: -1 }]);
         const ranks = A.filter((e) => e.kind === 'rank' && e.a === p.id).map((e) => e.year);
         expect(ranks).toEqual(p.titles!.slice(1).map((t) => t.year));
         // 国都变迁:第一条是立国时的国都,之后每条对应一条"迁都"史事,或一条新朝定都根据地的"改朝换代"(阶段 3 王朝更替)
@@ -270,6 +271,7 @@ describe('城市成长 + 国家', () => {
           'migrate',
           'assimilate',
           'vanish',
+          'diverge',
           'sack',
           'ruin',
           'rebuild',

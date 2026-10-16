@@ -326,8 +326,9 @@ export interface FlagWhy {
   /** 这一朝兴起的城(Settlement id)和它是哪一类 */
   city: number;
   seat: Seat;
-  /** 从哪国分出来的(只在第一面) */
+  /** 从哪国分出来的(只在第一面);mentor = true 时是受哪国影响立的国(边缘立国,Polity.mentor),旗仿它的样式 */
   parent?: number;
+  mentor?: true;
   /** 西幻分家:第几个分出来的、换掉的颜色(旧 → 新) */
   nth?: number;
   swap?: [Tinct, Tinct];
@@ -501,6 +502,12 @@ const easternRealm = (p: Polity) => !!p.eastern && p.lineage !== 'khanate';
 /** 汗国或游牧民族的国家:配燕尾旗 */
 const nomadic = (civ: Civ, p: Polity) => p.lineage === 'khanate' || civ.cultures[p.culture]?.kind === 'nomad';
 
+/** 两国的旗是不是一路(都配牙旗 / 都配燕尾旗 / 都配西幻的旗):是才能沿用 */
+function sameFamily(civ: Civ, p: Polity, q: Polity): boolean {
+  if (easternRealm(p) || easternRealm(q)) return easternRealm(p) && easternRealm(q);
+  return nomadic(civ, p) === nomadic(civ, q);
+}
+
 /** 某一年的那一面(没立国 = 第一面,已亡 = 最后一面) */
 export function flagAt(eras: readonly FlagEra[], year: number): FlagEra {
   let e = eras[0];
@@ -552,7 +559,11 @@ function polityEras(ctx: Ctx, id: number): FlagEra[] {
   const taste = tasteOf(cu.style);
   const dyn = dynastiesOf(p);
   const eras: FlagEra[] = [];
-  const parent = p.parent !== undefined ? civ.polities[p.parent] : undefined;
+  // 边缘立国(Polity.mentor)的国家:旗仿影响它的那一国的样式(和分出来的一样沿用,只是不加分家的星、镶边);
+  // 两国的旗不是一路(牙旗 / 燕尾旗 / 西幻的旗)就不仿,自己配
+  const M = p.parent === undefined && p.mentor !== undefined ? civ.polities[p.mentor] : undefined;
+  const byMentor = !!M && sameFamily(civ, p, M);
+  const parent = p.parent !== undefined ? civ.polities[p.parent] : byMentor ? M : undefined;
   const cityOf = (i: number) => (i === 0 ? p.capital : dyn[i].seat);
   let edited = false;
   /** 套上作者改过的:这一朝改过 = 用改过的那面 */
@@ -564,7 +575,7 @@ function polityEras(ctx: Ctx, id: number): FlagEra[] {
   };
 
   // ---- 第一面 ----
-  const why0 = (kind: FlagWhy['kind']): FlagWhy => ({ kind, dyn: 0, city: p.capital, seat: seatOf(world, civ, p.capital), parent: parent ? parent.id : undefined });
+  const why0 = (kind: FlagWhy['kind']): FlagWhy => ({ kind, dyn: 0, city: p.capital, seat: seatOf(world, civ, p.capital), parent: parent ? parent.id : undefined, ...(byMentor ? { mentor: true as const } : {}) });
   if (p.restores !== undefined && civ.polities[p.restores]) {
     // 复国:用回故国最后那面旗
     const old = polityEras(ctx, p.restores);
@@ -579,9 +590,11 @@ function polityEras(ctx: Ctx, id: number): FlagEra[] {
     if (parent && easternRealm(parent)) {
       inherit = specOf(ctx, parent.id, p.founded);
       de = Math.max(0, deOf(inherit.c[0]));
-      // 清代八旗:正黄 → 镶黄(加红边);红旗镶白边
-      trim = inherit.c[0] === 'R' ? 'W' : 'R';
-      if (inherit.trim === trim) trim = trim === 'R' ? 'Y' : 'R';
+      // 清代八旗:正黄 → 镶黄(加红边);红旗镶白边。受影响立的国不加边(不是分家)
+      if (!byMentor) {
+        trim = inherit.c[0] === 'R' ? 'W' : 'R';
+        if (inherit.trim === trim) trim = trim === 'R' ? 'Y' : 'R';
+      }
     }
     const shape: Shape = p.lineage === 'republic' ? 'rect' : 'banner';
     const seat = seatOf(world, civ, p.capital);
@@ -621,10 +634,18 @@ function polityEras(ctx: Ctx, id: number): FlagEra[] {
       const swap = c.findIndex((t) => !isMetal(t));
       const alt = [...pal, ...(TASTE[cu.style]?.colors ?? [])].filter((t) => !isMetal(t) && !c.includes(t));
       if (swap >= 0 && alt.length) c[swap] = alt[0];
-      const nth = civ.polities.filter((q) => q.parent === parent.id && q.restores === undefined && q.id <= p.id).length;
-      const ns = Math.min(3, Math.max(1, nth));
-      base = { ...at, c, mullet: isMetal(c[0]) ? 'R' : 'W', mullets: ns };
-      split = { nth, swap: swap >= 0 ? [at.c[swap], c[swap]] : undefined };
+      if (byMentor) {
+        // 受影响立的国:沿用样式、换一种颜色,不加星
+        base = { ...at, c };
+        delete base.mullet;
+        delete base.mullets;
+        split = { swap: swap >= 0 ? [at.c[swap], c[swap]] : undefined };
+      } else {
+        const nth = civ.polities.filter((q) => q.parent === parent.id && q.restores === undefined && q.id <= p.id).length;
+        const ns = Math.min(3, Math.max(1, nth));
+        base = { ...at, c, mullet: isMetal(c[0]) ? 'R' : 'W', mullets: ns };
+        split = { nth, swap: swap >= 0 ? [at.c[swap], c[swap]] : undefined };
+      }
     } else {
       let layout: Layout;
       if (p.lineage === 'republic') layout = pick(rng, REPUBLIC_LAYOUTS);

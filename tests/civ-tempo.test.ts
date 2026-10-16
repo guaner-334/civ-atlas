@@ -26,8 +26,8 @@ const story = (c: Civ) =>
 
 describe('改过地形的世界沿用原来星球的扩张节拍', () => {
   const SMALL = { ...DEFAULT_PARAMS, cells: 12000, seed: 7 };
-  /** 大洋正中一座火山岛:按改后的地形重新标定的话,节拍会被拨动一点(GENERATOR_VERSION 14 时挑的位置) */
-  const ISLAND: TerrainOp[] = [{ kind: 'volcano', pts: [1500, 600], r: 28, s: 1.05 }];
+  /** 海上一座火山岛:按改后的地形重新标定的话,节拍会被拨动一点(GENERATOR_VERSION 15 时挑的位置) */
+  const ISLAND: TerrainOp[] = [{ kind: 'volcano', pts: [700, 800], r: 28, s: 1.05 }];
 
   it('节拍、城的人口折算和没改地形时一样;传进来的和现算的结果逐字节相同', () => {
     const base = generateCiv(generateWorld(SMALL));

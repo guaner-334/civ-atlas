@@ -158,8 +158,10 @@ describe('排版、切页', () => {
   });
 
   it('太长时去掉轻的大事,每节末尾说一句还有几件', () => {
-    const short = layoutLong(doc, measure, 6000);
-    expect(short.h).toBeLessThanOrEqual(6000);
+    // 上限取整张的八成(各节的标题、地图留着,去掉的只是大事)
+    const cap = Math.round(lay.h * 0.8);
+    const short = layoutLong(doc, measure, cap);
+    expect(short.h).toBeLessThanOrEqual(cap);
     expect(short.dropped).toBeGreaterThan(0);
     const notes = short.ops.filter((o) => o.t === 'text' && /这一节还有 \d+ 件大事没列出/.test(o.s));
     expect(notes.length).toBeGreaterThan(0);

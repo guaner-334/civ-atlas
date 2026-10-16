@@ -100,8 +100,11 @@ describe.each([7, 2024])('国旗 · seed=%i', (seed) => {
       } else if (e.why.parent !== undefined && e.why.kind === 'west' && e.why.nth !== undefined) {
         expect(e.spec.mullets).toBeGreaterThanOrEqual(1);
         expect(e.spec.mullets).toBeLessThanOrEqual(3);
-      } else if (e.why.parent !== undefined && e.why.kind === 'east' && isEastern(polityFlagAt(book, e.why.parent, p.founded)!.spec)) {
+      } else if (p.parent !== undefined && e.why.kind === 'east' && isEastern(polityFlagAt(book, e.why.parent!, p.founded)!.spec)) {
         expect(e.spec.trim).toBeDefined();
+      } else if (e.why.mentor && e.why.kind === 'east') {
+        // 受邻国影响立的国:沿用那一国的德,不加镶边(镶边是分家的记号)
+        expect(e.spec.trim).toBeUndefined();
       }
     });
   });
@@ -170,9 +173,13 @@ describe('国旗 · 作者改过的', () => {
     expect(after[2].spec.mark).not.toBe('feng');
     expect(flagNote(after[1])).toContain('你改过');
     expect(flagNote(after[2])).toContain('照你改过');
-    // 别的国家不受影响(除了从它分出去的)
-    const others = ov.eras.map((x, i) => (i === east || civ.polities[i].parent === east || civ.polities[i].restores === east ? '' : x.map((e) => encodeFlag(e.spec)).join()));
-    expect(others).toEqual(book.eras.map((x, i) => (i === east || civ.polities[i].parent === east || civ.polities[i].restores === east ? '' : x.map((e) => encodeFlag(e.spec)).join())));
+    // 别的国家不受影响(除了从它分出去的、受它影响立的、复它的国的,和这些国家再往下的)
+    const from = (i: number): boolean => {
+      const q = civ.polities[i];
+      return i === east || [q.parent, q.mentor, q.restores].some((j) => j !== undefined && j < i && from(j));
+    };
+    const others = ov.eras.map((x, i) => (from(i) ? '' : x.map((e) => encodeFlag(e.spec)).join()));
+    expect(others).toEqual(book.eras.map((x, i) => (from(i) ? '' : x.map((e) => encodeFlag(e.spec)).join())));
   });
 
   it('西幻:改了第一朝的样式和颜色,之后每朝照旧只换图案', () => {

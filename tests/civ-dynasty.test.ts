@@ -217,7 +217,7 @@ describe('王朝更替', () => {
     expect(west).toBeGreaterThanOrEqual(3);
   }, 60_000);
 
-  it('调参:只有大国(和当朝很老的中等国家)换;东方一朝平均 150–450 年;每个世界改朝换代 / 王室更迭 5–40 次,东方 ≤ 20 次、两个世界合计 ≥ 5 次', () => {
+  it('调参:只有大国(和当朝很老的中等国家)换;东方一朝平均 150–450 年;每个世界改朝换代 / 王室更迭 5–60 次,东方 ≤ 25 次、两个世界合计 ≥ 5 次', () => {
     // 东方改朝换代的次数看这个世界里大国是不是东方语感(起名时才定):seed 7 的大国(阶段 4 推演随机数按位置取以后)多是西幻,
     // 东方只换了一两次;所以"东方 5–20 次"改按两个世界合计算,每个世界只要求有改朝换代 / 王室更迭
     let eastSum = 0;
@@ -227,17 +227,19 @@ describe('王朝更替', () => {
       const tag = `seed ${seed}`;
       eastSum += s.eastern;
       expect(s.eastern + s.western, tag).toBeGreaterThanOrEqual(5);
-      expect(s.eastern + s.western, tag).toBeLessThanOrEqual(40);
+      // 立国提前、国家多了以后(20 个种子:合计 29–56 次;东方 6–23 次)
+      expect(s.eastern + s.western, tag).toBeLessThanOrEqual(60);
       expect(s.eastern, tag).toBeGreaterThanOrEqual(1);
-      expect(s.eastern, tag).toBeLessThanOrEqual(20);
+      expect(s.eastern, tag).toBeLessThanOrEqual(25);
       expect(s.meanEastern, tag).toBeGreaterThanOrEqual(150);
-      expect(s.meanEastern, tag).toBeLessThanOrEqual(450); // 阶段 4 地形洼地按位置取以后 seed 2024 约 427 年(seed 99 约 487 年)
-      // 不是每个国家都在换:部落不换;换过的国家不超过六成(国家少的世界里大国占的比例高一些);一朝不会上千年
+      expect(s.meanEastern, tag).toBeLessThanOrEqual(450); // 20 个种子 338–455 年,seed 7 约 395 年、seed 2024 约 392 年
+      // 不是每个国家都在换:部落不换;换过的国家不超过六成(国家少的世界里大国占的比例高一些);
+      // 一朝撑得最久的:立国提前以后,20 个种子里最长的 509–1269 年(安稳的大国一朝能过千年)
       for (const id of s.perPolity.keys()) expect(Math.max(...(civ.polities[id].titles ?? []).map((t) => t.tier)), tag).toBeGreaterThanOrEqual(1);
       expect(s.perPolity.size, tag).toBeLessThanOrEqual(civ.polities.length * 0.6);
       for (const p of civ.polities) {
         const d = p.dynasties ?? [];
-        for (let i = 1; i < d.length; i++) expect(d[i].year - d[i - 1].year, `${tag} ${p.name}`).toBeLessThan(800);
+        for (let i = 1; i < d.length; i++) expect(d[i].year - d[i - 1].year, `${tag} ${p.name}`).toBeLessThan(1400);
       }
     }
     expect(eastSum, '两个世界东方改朝换代合计').toBeGreaterThanOrEqual(5);

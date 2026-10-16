@@ -202,8 +202,10 @@ describe('起源', () => {
       while (w.water[sea] === 0) sea++;
       const pts = [...at(c0, w, rs[0]), Math.round(w.mesh.x[sea]), Math.round(w.mesh.y[sea]), ...at(c0, w, rs[1]), ...at(c0, w, rs[2])];
       const c = generateCiv(w, { origins: { pts, only: true } });
-      expect(c.cultures.map((x) => x.hearth), `seed ${seed}`).toEqual(rs);
-      expect(c.cultures.every((x) => x.born === 0)).toBe(true);
+      // 推演中分化出来的民族(Culture.parent)不算
+      const roots = c.cultures.filter((x) => x.parent === undefined);
+      expect(roots.map((x) => x.hearth), `seed ${seed}`).toEqual(rs);
+      expect(roots.every((x) => x.born === 0)).toBe(true);
       for (const r of rs) expect(ownersAt(c, 0.5).culture[r]).toBeGreaterThanOrEqual(0);
     }
   }, 120_000);
@@ -214,9 +216,11 @@ describe('起源', () => {
       const w = world(seed);
       const rs = picks(c0, 2);
       const c = generateCiv(w, { origins: { pts: rs.flatMap((r) => at(c0, w, r)) } });
-      expect(c.cultures.length, `seed ${seed}`).toBe(c0.cultures.length);
+      // 推演中分化出来的民族(Culture.parent)不算
+      const roots = (x: Civ) => x.cultures.filter((cu) => cu.parent === undefined);
+      expect(roots(c).length, `seed ${seed}`).toBe(roots(c0).length);
       expect(c.cultures.slice(0, 2).map((x) => [x.hearth, x.born])).toEqual(rs.map((r) => [r, 0]));
-      expect(c.cultures.slice(2).some((x) => x.born > 0)).toBe(true);
+      expect(roots(c).slice(2).some((x) => x.born > 0)).toBe(true);
       // 扩张节拍按自动起源标定:不因为点了起源变快变慢
       expect(c.spreadYears).toBe(c0.spreadYears);
     }
@@ -250,11 +254,10 @@ describe('没人住的州立国', () => {
       // 之后可能被同化(消亡),但不会早于立国那一年
       expect(cu.ended === undefined || cu.ended > y).toBe(true);
       expect(ownersAt(c, y).culture[r]).toBe(cu.id);
-      // 别的民族照旧(编号、名字、发源地、诞生年份、语感)。颜色不比:配色要和推演里接壤过的民族错开,
-      // 立国以后的疆域变了,接壤的民族跟着变,颜色可能换(新民族排在最后挑,不抢别人的颜色)
-      expect(JSON.stringify(c.cultures.slice(0, c0.cultures.length).map((x) => [x.name, x.hearth, x.born, x.style]))).toBe(
-        JSON.stringify(c0.cultures.map((x) => [x.name, x.hearth, x.born, x.style])),
-      );
+      // 别的民族照旧(编号、名字、发源地、诞生年份、语感);颜色按整段历史里的接壤配,立国以后接壤变了可能换一种。
+      // 那一年以后分化出的民族跟着之后的历史变,不比
+      const old = (x: Civ) => JSON.stringify(x.cultures.filter((u) => u.pioneer === undefined && (u.parent === undefined || u.born < y)).map((u) => [u.id, u.name, u.hearth, u.born, u.style]));
+      expect(old(c)).toBe(old(c0));
       const L = c.log;
       let n = 0;
       while (n < L.size && L.year[n] < y) n++;
@@ -280,7 +283,8 @@ describe('没人住的州立国', () => {
     expect(extra.pioneer).toBe(0);
     expect(extra.unborn).toBe(true);
     expect([...c.culture].includes(extra.id)).toBe(false);
-    expect(c.cultures.slice(0, -1).map((x) => x.name)).toEqual(c0.cultures.map((x) => x.name));
+    const old = (x: Civ) => x.cultures.filter((u) => u.pioneer === undefined && (u.parent === undefined || u.born < y)).map((u) => u.name);
+    expect(old(c)).toEqual(old(c0));
     // 备着没用上的那支不影响之前的历史:信仰(大教分派按编号取随机数)和编年史一字不差
     const before = (x: Civ) => JSON.stringify(fullChronicle(x).filter((e) => e.year < y).map((e) => e.text));
     expect(before(c)).toBe(before(c0));
@@ -308,7 +312,9 @@ describe('没人住的州立国', () => {
     expect(cu.born).toBe(2001);
     expect(cu.name).toBeTruthy();
     // 别的民族的名字、配色照没有这条干预时
-    expect(JSON.stringify(c.cultures.slice(0, -1).map((x) => [x.name, x.color]))).toBe(JSON.stringify(c0.cultures.map((x) => [x.name, x.color])));
+    // (第 2001 年以后分化出的民族跟着之后的历史变,不比)
+    const old = (x: Civ) => JSON.stringify(x.cultures.filter((u) => u.pioneer === undefined && (u.parent === undefined || u.born < 2001)).map((u) => [u.name, u.color]));
+    expect(old(c)).toBe(old(c0));
     // 那片地第 0 年是海:选起源时点在那里落在水上
     expect(originSpots(world(seed), originCiv(c0), [600, 350])[0].region).toBe(-1);
   }, 240_000);

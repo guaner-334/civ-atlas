@@ -19,7 +19,7 @@
  */
 import { createNamer, createPersonNamer, mixStyles, NAME_STYLES, type GeneratedName, type NameMix, type Namer, type PersonNamer } from '../names';
 import { Biome } from '../biomes';
-import type { Culture, CultureKind, Polity, Settlement } from './types';
+import type { Culture, CultureKind, MigrationDir, Polity, Settlement } from './types';
 import { polityRootAt } from './growth';
 import { keyed, subSeed } from './rand';
 
@@ -83,8 +83,11 @@ export function assignStyles(
   autoStyles(cultures, neighbors, terrain, base).forEach((st, c) => (cultures[c].style = st));
 }
 
-/** 干预立国时来落脚的新民族(Culture.pioneer)= 1,排在别的民族后面 */
-export const lastIfPioneer = (cu: Culture): number => (cu.pioneer === undefined ? 0 : 1);
+/**
+ * 干预立国时来落脚的新民族(Culture.pioneer)、推演中分化出来的民族(Culture.parent)= 1,排在别的民族后面
+ * (配色、语感、起名时别的民族照没有它们时一样挑)
+ */
+export const lastIfPioneer = (cu: Culture): number => (cu.pioneer === undefined && cu.parent === undefined ? 0 : 1);
 
 /** 自动的挑法(见 assignStyles):返回每个民族挑到的语感,不写进 culture */
 function autoStyles(
@@ -329,6 +332,8 @@ export function nameCultures(seed: number, cultures: Culture[], owner: Int16Arra
   // 干预立国时来落脚的新民族(pioneer)最后起名:别的民族的族名照没有它时一样(排序是稳定的,同一组里仍按位置锚)
   for (const i of byAnchor(at).sort((a, b) => lastIfPioneer(cultures[a]) - lastIfPioneer(cultures[b]))) {
     const cu = cultures[i];
+    // 分化出来的民族按母族的名字起(nameKin,等母族的名字定了再起)
+    if (cu.parent !== undefined) continue;
     const next = namer(cu.style).keyed('state', at[i].cell, at[i].n);
     // 取前几个候选里第一个不超过 4 个字、没和别族撞名的(族名要好念);都不合适就取最短的;前几个全被占了就往后找
     let pick = '';
@@ -357,10 +362,39 @@ export function nameCultures(seed: number, cultures: Culture[], owner: Int16Arra
   return names;
 }
 
+/** 分化出来的民族族名的前缀:先用分出去的方位,再用别的方位,再用"新""小" */
+const KIN_DIRS: MigrationDir[] = ['北', '南', '东', '西'];
+const KIN_MORE = ['新', '小'];
+
+/**
+ * 分化出来的民族(Culture.parent)起族名:母族那一系最初的族名前面加方位 —— "居兰" 分出 "北居兰",
+ * 北居兰再往西分出一支叫 "西居兰";方位都被占了就用 "新 / 小" 加母族的名字。
+ * skip(i) = true 的不起(钉住了名字的,见 NamePins)。按编号(= 分化先后)起,母族一定先起好
+ */
+export function nameKin(cultures: Culture[], skip: (i: number) => boolean = () => false): void {
+  const taken = new Set<string>();
+  cultures.forEach((cu, i) => {
+    if (cu.parent === undefined || skip(i)) taken.add(cu.name);
+  });
+  for (const cu of cultures) {
+    if (cu.parent === undefined || skip(cu.id)) continue;
+    const parent = cultures[cu.parent];
+    let root = parent;
+    while (root.parent !== undefined) root = cultures[root.parent];
+    const dirs = cu.branch ? [cu.branch, ...KIN_DIRS.filter((d) => d !== cu.branch)] : KIN_DIRS;
+    const cand = [...dirs.map((d) => d + root.name), ...KIN_MORE.map((x) => x + parent.name)];
+    cu.name = cand.find((n) => !taken.has(n)) ?? `${parent.name}${cu.id + 1}`;
+    taken.add(cu.name);
+  }
+}
+
 /** 复国的国名前缀(阶段 3 分合):东方语感 "后昌""南昌";西幻语感 "新索拉特""北索拉特"。依次挑第一个没被占的 */
 const RESTORE_PREFIX_EAST = ['后', '北', '南', '东', '西', '新'];
 const RESTORE_PREFIX_WEST = ['新', '北', '南', '东', '西', '后'];
-/** 这一年以后(不含这一年)立的朝代,国号字用完了可以借旧国号加前缀(见 dynastyNamer;推 3000 年的世界用不到:史事一直排到结束那一年,第 3000 年立的朝代照原来起名) */
+/**
+ * 推过这一年(不含这一年)的世界,国号字用完了的朝代可以借旧国号加前缀(见 dynastyNamer)。推 3000 年的世界用不到:
+ * 史事一直排到结束那一年,第 3000 年立的朝代照原来起名。推得更久的世界国家多,早年的朝代(按锚点先后起名,不按年份)也可能轮到字用完
+ */
 const LATE_YEAR = 3000;
 /** 这以后的朝代另起名字最多试几次(3000 年以内试 12 次) */
 const LATE_TRIES = 80;
@@ -432,7 +466,8 @@ export function namePolities(seed: number, polities: Polity[], cultures: Culture
     claim(polities[id].name);
   }
   // 历朝(不是复国的国家):按锚点地块编号小的先挑
-  const dyn = dynastyNamer(seed, places, at);
+  const late = polities.some((p) => p.founded > LATE_YEAR || (p.dynasties ?? []).some((d) => d.year > LATE_YEAR));
+  const dyn = dynastyNamer(seed, places, at, late);
   for (const id of byAnchor(at)) {
     const p = polities[id];
     if (p.restores === undefined && p.dynasties) dyn(p, styleOf(p), taken, takenBare);
@@ -511,7 +546,7 @@ export interface DynastyPlaces {
  *   还撞就按语感另起一个城名式的名字)
  * 随机数、另起的名字按"国家的位置锚 + 第几朝"取(keyed / Namer.keyed),和别的国家起名先后无关
  */
-function dynastyNamer(seed: number, { settlements, regionNames }: DynastyPlaces, at: readonly Anchor[]) {
+function dynastyNamer(seed: number, { settlements, regionNames }: DynastyPlaces, at: readonly Anchor[], late: boolean) {
   const base = subSeed(seed, 'civ-names-dynasty');
   const namer = namerCache(base);
   const free = (x: string, taken: Set<string>, takenBare: Set<string>) =>
@@ -566,8 +601,8 @@ function dynastyNamer(seed: number, { settlements, regionNames }: DynastyPlaces,
         }
       }
       // 推过 3000 年的世界:国号字和另起的名字都用完了,借以前的国号、前面加"后""北""南"……(像后唐、北宋、南宋),
-      // 再不行多试几次另起的名字;只给第 3000 年以后(不含第 3000 年)立的朝代用,推 3000 年的世界起名和原来逐字一样
-      if (!name && pool && ds[i].year > LATE_YEAR) {
+      // 再不行多试几次另起的名字;推 3000 年的世界用不到,起名和原来逐字一样
+      if (!name && pool && late) {
         const cs = [...pool];
         const k0 = Math.floor(rand(i, 1) * cs.length);
         for (const pre of RESTORE_PREFIX_EAST) {
@@ -578,7 +613,7 @@ function dynastyNamer(seed: number, { settlements, regionNames }: DynastyPlaces,
           if (name) break;
         }
       }
-      if (!name && ds[i].year > LATE_YEAR) {
+      if (!name && late) {
         const next = namer(style).keyed('state', cell, n, i);
         for (let t = 0; t < LATE_TRIES && !name; t++) {
           const g = next();

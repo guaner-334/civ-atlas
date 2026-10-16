@@ -323,7 +323,7 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
 
 // 早年一个国家都没有:侧栏"国家"下说一句为什么、第一个国家哪年立国,不显示"全部 0 国";点"跳到 N 年"时间轴跳过去,列表里有了它
 {
-  await page.goto(`${dev.url}/?seed=7&style=fantasy&civYear=600`);
+  await page.goto(`${dev.url}/?seed=7&style=fantasy&civYear=300`);
   await page.waitForFunction(() => (window as any).__wfCiv?.ready, null, { timeout: 60000 });
   await page.waitForTimeout(300);
   const empty = await page.locator('.sidebar .sb-no-polity').innerText({ timeout: 3000 }).then((t) => t.replace(/\n/g, ' '), () => '');
@@ -334,9 +334,9 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
   const yearNow = await page.locator('.timebar .tb-year').innerText().catch(() => '');
   const rowsNow = await page.locator('.sidebar .sb-home .sb-row.two').count();
   const gone = (await page.locator('.sidebar .sb-no-polity').count()) === 0;
-  console.log(`早年没有国家:第 600 年「${empty}」,"全部 N 国"${allLink ? '还在' : '不显示'};点跳转 → ${yearNow},国家 ${rowsNow} 个,说明收起 ${gone}`);
+  console.log(`早年没有国家:第 300 年「${empty}」,"全部 N 国"${allLink ? '还在' : '不显示'};点跳转 → ${yearNow},国家 ${rowsNow} 个,说明收起 ${gone}`);
   const m = empty.match(/在 \d+ 年立国.*跳到 (\d+) 年/);
-  if (!m || allLink) errs.push(`第 600 年一个国家都没有时侧栏没有说明 / 还显示"全部 0 国"(「${empty}」)`);
+  if (!m || allLink) errs.push(`第 300 年一个国家都没有时侧栏没有说明 / 还显示"全部 0 国"(「${empty}」)`);
   else if (yearNow !== `第 ${m[1]} 年` || rowsNow < 1 || !gone) errs.push(`点"跳到 ${m[1]} 年"没跳到第一个国家立国(${yearNow},国家 ${rowsNow} 个)`);
 }
 
@@ -494,15 +494,15 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
 // 君主有「倾向」一组四行,复制生平里也有一行,将领、宗室没有;
 // 「出征那年」跳时间轴;「编年史」打开这国的编年史;「复制生平」);编年史里的人名是蓝字,点了收起概览、打开这个人,不跳年份;
 // 世界概览的「人物」页(名人 / 君主 / 将领,「全部 N 位」进来停在这国的君主);搜名字第一个是这个人。
-// 例子:种子 7 的第 2680 年,大澜(5 号国)的开国之君康王百里昀澈(名君,起兵代大岳开国;前任是前朝的灵王独孤琅沧,
-// 继任是他的孙子献王百里瑶清;在位时有将领云霁领兵)
+// 例子:种子 7 的第 2745 年,大羽(7 号国)的开国之君太祖顾冥(名君,起兵代大灵开国;前任是前朝的末帝白珩月,
+// 继任是他的孙子太宗顾夜墨;在位时有将领陆昀烬领兵)
 {
-  await page.goto(`${dev.url}/?seed=7&civYear=2680`);
+  await page.goto(`${dev.url}/?seed=7&civYear=2745`);
   await page.waitForFunction(() => (window as any).__wfLabels?.polities > 0, null, { timeout: 60000 });
   await page.waitForTimeout(300);
   const year = async () => Number((await page.locator('.timebar .tb-year').innerText()).replace(/[^\d]/g, ''));
   const text = (sel: string) => page.locator(sel).first().innerText().then((t) => t.replace(/\s+/g, ' ')).catch(() => '');
-  await page.evaluate(() => (window as any).__wfSelect('polity', 5));
+  await page.evaluate(() => (window as any).__wfSelect('polity', 7));
   await page.waitForTimeout(600);
   const stats = await text('.inspector .cp-stats');
   const rulers = await page.locator('.inspector .cp-rulers .cp-dyn-row').count();
@@ -518,7 +518,7 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
   await page.waitForTimeout(200);
   const copied = (await page.evaluate(() => (window as any).__wfPersonText as string)) ?? '';
   // 将领一行的名字 → 将领的卡片;出征那年
-  await page.locator('.inspector .cp.pp .cp-stats .ins-link', { hasText: '云霁' }).first().click();
+  await page.locator('.inspector .cp.pp .cp-stats .ins-link', { hasText: '陆昀烬' }).first().click();
   await page.waitForTimeout(400);
   const card2 = await text('.inspector .cp.pp');
   const genLeans = await page.locator('.inspector .cp.pp [data-sec=leanings]').count();
@@ -547,7 +547,7 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
   await page.locator('.chronicle.people .pp-row').first().click();
   await page.waitForTimeout(500);
   const card4 = await text('.inspector .cp.pp');
-  await page.evaluate(() => (window as any).__wfSelect('polity', 5));
+  await page.evaluate(() => (window as any).__wfSelect('polity', 7));
   await page.waitForTimeout(400);
   await page.click('.inspector [data-act=all-rulers]');
   await page.waitForTimeout(500);
@@ -571,7 +571,7 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
   const lgFocus = await page.locator(`.lg-node.focus[data-person="${princeId}"]`).count();
   await closeOverview();
   // 搜索
-  await page.fill('.sidebar .search-input', '康王百里昀澈');
+  await page.fill('.sidebar .search-input', '太祖顾冥');
   await page.waitForTimeout(300);
   const hit = await text('.search-row');
   const hitKind = await page.locator('.search-row').first().getAttribute('data-kind');
@@ -582,20 +582,20 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
     `人物:国家卡片「${stats.slice(0, 40)}…」,历代君主 ${rulers} 行、当前「${cur}」、「${all}」;卡片「${card1.slice(0, 50)}…」,倾向 ${leanRows} 行「${leans.slice(0, 30)}…」,复制 ${copied.length} 字;` +
       `将领卡片「${card2.slice(0, 30)}…」、出征那年 → ${y1};编年史开 ${chronOpen}、蓝字 ${names} 个,点「${pickName}」→ 收起 ${closed}、卡片 ${card3Id}/${pickId}、年份 ${y1} → ${y2};` +
       `人物页名人 ${famousOn}/${famous} 行「${famousFirst.slice(0, 30)}」→ 卡片「${card4.slice(0, 20)}」;全部 N 位 → 君主 ${rulersOn}、只看 ${polityPick}、${groups} 组 ${rows} 行;` +
-      `世系图「${lgHead.slice(0, 40)}」${lgNodes} 人、当前「${lgOn}」,宗室卡片「${princeCard.slice(0, 30)}」→ 圈出 ${lgFocus};搜"康王百里昀澈"「${hit}」(${hitKind})→「${card5}」`,
+      `世系图「${lgHead.slice(0, 40)}」${lgNodes} 人、当前「${lgOn}」,宗室卡片「${princeCard.slice(0, 30)}」→ 圈出 ${lgFocus};搜"太祖顾冥"「${hit}」(${hitKind})→「${card5}」`,
   );
-  if (!/君主\s*康王百里昀澈\s*2653 年即位/.test(stats)) errs.push(`人物:国家卡片没有「君主」行(${stats.slice(0, 80)})`);
-  if (rulers !== 5 || !/康王百里昀澈\s*当前/.test(cur) || !/全部 \d+ 位/.test(all)) errs.push(`人物:国家卡片的历代君主不对(${rulers} 行;${cur};${all})`);
+  if (!/君主\s*太祖顾冥\s*2737 年即位/.test(stats)) errs.push(`人物:国家卡片没有「君主」行(${stats.slice(0, 80)})`);
+  if (rulers !== 5 || !/太祖顾冥\s*当前/.test(cur) || !/全部 \d+ 位/.test(all)) errs.push(`人物:国家卡片的历代君主不对(${rulers} 行;${cur};${all})`);
   // 前任是前朝的末代君主(小字"前朝"),继任是同一朝的孙子(小字写亲属"孙")
   if (
-    !/康王百里昀澈/.test(card1) ||
-    !/澜王，2653–2695 年在位/.test(card1) ||
-    !/事迹\s*起兵建立新朝，传 16 位，至今 346 年/.test(deed) ||
-    !/前任\s*灵王独孤琅沧\s*前朝/.test(deed) ||
-    !/继任\s*献王百里瑶清\s*孙/.test(deed)
+    !/太祖顾冥/.test(card1) ||
+    !/大羽皇帝，2737–2752 年在位/.test(card1) ||
+    !/事迹\s*起兵建立新朝，传 11 位，至今 262 年/.test(deed) ||
+    !/前任\s*末帝白珩月\s*前朝/.test(deed) ||
+    !/继任\s*太宗顾夜墨\s*孙/.test(deed)
   )
     errs.push(`人物:君主卡片不对(${card1.slice(0, 160)})`);
-  if (!copied.startsWith('康王百里昀澈\n澜王') || !copied.includes('在位时：')) errs.push(`人物:复制生平不对(${copied.slice(0, 60)})`);
+  if (!copied.startsWith('太祖顾冥\n大羽皇帝') || !copied.includes('在位时：')) errs.push(`人物:复制生平不对(${copied.slice(0, 60)})`);
   if (
     leanRows !== 4 ||
     !/^倾向 开拓\s*\d+ 更愿意开垦偏远贫瘠的土地 好战\s*\d+ 更容易发动战争且更难停止 发展\s*\d+ 更重视领地内的建设 重商\s*\d+ 偏向沿海/.test(leans) ||
@@ -603,13 +603,13 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
   )
     errs.push(`人物:君主卡片的倾向不对(${leanRows} 行;${leans.slice(0, 80)};复制里 ${/倾向：.*/.exec(copied)?.[0]})`);
   if (genLeans || princeLeans) errs.push(`人物:将领 / 宗室的卡片上不该有倾向(${genLeans};${princeLeans})`);
-  if (!/云霁\s*大澜将领，2671–2700 年领兵/.test(card2) || y1 !== 2671) errs.push(`人物:将领卡片 / 出征那年不对(${card2.slice(0, 60)};${y1})`);
+  if (!/陆昀烬\s*大羽将领，2738–2752 年领兵/.test(card2) || y1 !== 2738) errs.push(`人物:将领卡片 / 出征那年不对(${card2.slice(0, 60)};${y1})`);
   if (!chronOpen || names < 3 || !closed || pickId < 0 || card3Id !== pickId || y2 !== y1) errs.push(`人物:编年史里的人名点不开,或点了跳了年份(${chronOpen};${names};${closed};${card3Id}/${pickId};${y1} → ${y2})`);
   if (!famousOn || famous < 20 || !card4) errs.push(`人物:人物页的名人不对,或点一行没打开卡片(${famousOn};${famous};${card4.slice(0, 30)})`);
-  if (!rulersOn || polityPick !== '5' || groups < 1 || rows !== 66) errs.push(`人物:「全部 N 位」没有打开这国的君主(${rulersOn};${polityPick};${groups};${rows})`);
-  if (!lgHead.startsWith('澜 2653 年起，16 位君主') || lgNodes < 16 || !/康王百里昀澈.*当前/.test(lgOn)) errs.push(`人物:世系图不对(${lgHead};${lgNodes};${lgOn})`);
-  if (!/大澜宗室，\d+–\d+/.test(princeCard) || !princeCard.includes('子嗣') || lgFocus !== 1) errs.push(`人物:宗室卡片 / 从卡片回到世系图不对(${princeCard.slice(0, 60)};${lgFocus})`);
-  if (!/^康王百里昀澈 澜王，2653–2695$/.test(hit) || hitKind !== 'person' || card5 !== '康王百里昀澈') errs.push(`人物:搜"康王百里昀澈"不对(${hit};${hitKind};${card5})`);
+  if (!rulersOn || polityPick !== '7' || groups < 1 || rows !== 100) errs.push(`人物:「全部 N 位」没有打开这国的君主(${rulersOn};${polityPick};${groups};${rows})`);
+  if (!/^羽 2737 年起，11 位君主/.test(lgHead) || lgNodes < 11 || !/太祖顾冥.*当前/.test(lgOn)) errs.push(`人物:世系图不对(${lgHead};${lgNodes};${lgOn})`);
+  if (!/大羽宗室，\d+–\d+/.test(princeCard) || !princeCard.includes('子嗣') || lgFocus !== 1) errs.push(`人物:宗室卡片 / 从卡片回到世系图不对(${princeCard.slice(0, 60)};${lgFocus})`);
+  if (!/^太祖顾冥 大羽皇帝，2737–2752$/.test(hit) || hitKind !== 'person' || card5 !== '太祖顾冥') errs.push(`人物:搜"太祖顾冥"不对(${hit};${hitKind};${card5})`);
   await page.fill('.sidebar .search-input', '');
   await page.keyboard.press('Escape');
   await page.evaluate(() => localStorage.clear());
@@ -2078,7 +2078,7 @@ for (const style of ['realistic', 'fantasy']) {
   const fileOpened = await page
     .waitForFunction(() => location.search.includes('seed=7') && (window as any).__wfLabels?.polities > 0, null, { timeout: 60000 })
     .then(() => true, () => false);
-  // 干预指到了这个世界的国家时,打开后要先重新推演一段,提示条推演完才出来
+  // 存档里的干预对上了这个世界里的国家时,打开后先重推一遍,提示等重推完才出来
   const fileNote = await toastText(page, 'save', 30000);
   // 地形修改也套上了(打开时直接带着地形修改生成):改了 5 处 = 3 处改名 + 1 条干预 + 1 处地形
   const regen = fileNote.includes('改了 5 处');
@@ -3113,11 +3113,10 @@ for (const style of ['realistic', 'fantasy']) {
     await page.waitForTimeout(300);
     return true;
   };
-  // 1. 城(挑一座属某国、不是国都的:"迁都到这里"、"更多"里的"看所属国家"都能点)
+  // 1. 城(挑一座属某国、不是国都的:"迁都到这里"、"更多"里的"看所属国家"都能点;看得见的城里国都多,多试几座)
   let cityInfo = '';
   let ownerInfo = '';
   let moveCity = -1;
-  // 看得见的城里有不少是国都、无主的城,多挑一些
   const marks = (await picks()).filter((q) => q.kind === 'mark' && free(q.x, q.y)).slice(0, 40);
   for (const m of marks) {
     if (!(await clickPick('mark', m.id))) continue;

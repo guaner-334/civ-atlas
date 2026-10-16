@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld } from '../src/gen/world';
 import { generateCiv } from '../src/gen/civ';
 import { Layer, type Annal, type AnnalKind, type Civ, type Culture, type Polity, type Settlement } from '../src/gen/civ/types';
-import { polityTierAt } from '../src/gen/civ/growth';
+import { polityName, polityTierAt } from '../src/gen/civ/growth';
 import {
   BIG_WAR,
   CAPITAL_TIER,
@@ -840,10 +840,12 @@ describe('编年史 · 真实世界(立国、升格)', () => {
         expect(list.some((e) => e.kind === kind && e.polities[0] === p.id), `${p.name}`).toBe(true);
       }
       // 立国写开国之君和当年的国号(第 0 档:"X部" / "X城邦"):"李昭建昌部,都于汾城"
+      // 边缘立国前面加"受某国影响,":"受大昌影响,李昭建平部,都于瑞城"
       for (const e of list.filter((x) => x.kind === 'found')) {
-        expect(e.text).toMatch(/^.+建.+(部|城邦),都于.+$/);
+        expect(e.text).toMatch(/^(受.+影响,)?.+建.+(部|城邦),都于.+$/);
         const founder = civ.people!.find((x) => x.role === 'ruler' && x.polity === e.polities[0])!;
-        expect(e.text.startsWith(`${founder.name}建`)).toBe(true);
+        const mentor = civ.polities[e.polities[0]].mentor;
+        expect(e.text.startsWith(`${mentor === undefined ? '' : `受${polityName(civ.polities[mentor], e.year)}影响,`}${founder.name}建`)).toBe(true);
         expect(e.people).toEqual([founder.id]);
       }
       // 分裂:"瑞州守将李昭叛大渭自立,号瑞国,都于瑞城";复国:"故昌宗室李昭据瑞州起兵,脱大渭复国,号后昌国,都于瑞城"
@@ -863,7 +865,8 @@ describe('编年史 · 真实世界(默认参数):被迫迁都折进战争,"大�
    * 阶段 4 推演随机数改按位置取以后历史换了一遍,各种子 31–48 条(seed 7 的大国多是西幻、改朝换代少,31 条):下限放到 30。
    * 扩张算账(荒僻之地留给部落)以后国家之间接壤少了、仗少了,20 个种子 19–40 条(seed 7 34 条、seed 2024 40 条)
    */
-  const RANGE: [number, number] = [30, 50];
+  // GENERATOR_VERSION 15(立国更早、边缘立国,国家多了)以后 20 个种子的"大事" 25–55 条(seed 7 52 条、2024 50 条)
+  const RANGE: [number, number] = [30, 60];
   for (const seed of [7, 2024]) {
     it(`seed ${seed}`, () => {
       const civ = generateCiv(generateWorld({ ...DEFAULT_PARAMS, seed }));
@@ -931,13 +934,13 @@ describe('编年史 · 真实世界(默认参数):被迫迁都折进战争,"大�
       for (const e of major) expect(e.text).not.toMatch(/\uff08\uff09|;;|,,|,,/);
     }, 60_000);
   }
-  // 别的种子:都不超过 55 条(20 个种子里最少的 19 条,是 seed 1)
+  // 别的种子:都不超过 65 条(GENERATOR_VERSION 15 以后 20 个种子 25–55 条)
   for (const seed of [1, 3, 99]) {
-    it(`seed ${seed}:"大事"不超过 55 条`, () => {
+    it(`seed ${seed}:"大事"不超过 65 条`, () => {
       const list = buildChronicle(generateCiv(generateWorld({ ...DEFAULT_PARAMS, seed })));
       const n = filterChronicle(list, { major: true }).length;
       expect(n).toBeGreaterThanOrEqual(19);
-      expect(n).toBeLessThanOrEqual(55);
+      expect(n).toBeLessThanOrEqual(65);
     }, 60_000);
   }
 });
