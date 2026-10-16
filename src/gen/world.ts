@@ -67,6 +67,9 @@ export const DEFAULT_PARAMS: WorldParams = {
 /** 海拔 60 米以上的陆地块成为小洼地(小湖)中心的机会(大陆内部平缓以后天然的洼地少了,机会和大小都比以前大一些) */
 const DENT_P = 1 / 600;
 
+/** 湖中心不超过这么多块、周围全是湖水的陆地,淹成湖 */
+const LAKE_ISLET = 6;
+
 export const MAP_W = 2048;
 export const MAP_H = 1024;
 
@@ -291,7 +294,17 @@ export function generateWorld(params: WorldParams, progress: Progress = () => {}
   const water0r = new Uint8Array(n);
   for (let i = 0; i < n; i++) water0r[i] = land[i] ? 0 : 1;
   const userRiver = ops.length ? carveRivers(mesh, water0r, elevation, ops) : null;
-  const pool = drainage(mesh, land, elevation, 0);
+  let pool = drainage(mesh, land, elevation, 0);
+  // 贴着海的洼地(张裂、小洼地挖到了海平面以下):水面就是海平面,积出来的是一个紧挨着海的"湖" —— 其实是海湾。
+  // 垫到海平面上当低地(湖在内陆,不会贴着海);水面高度没变,重算一遍排水
+  let lowered = false;
+  for (let i = 0; i < n; i++) {
+    if (land[i] && pool.filled[i] === 0 && elevation[i] < 0) {
+      elevation[i] = 0;
+      lowered = true;
+    }
+  }
+  if (lowered) pool = drainage(mesh, land, elevation, 0);
   const water = new Uint8Array(n);
   const waterLevel = new Float32Array(n);
   for (let i = 0; i < n; i++) {
@@ -322,6 +335,35 @@ export function generateWorld(params: WorldParams, progress: Progress = () => {}
       for (const c of comp) {
         water[c] = 0;
         elevation[c] = pool.filled[c] - 1;
+      }
+    }
+  }
+  // 湖心的小块地(周围全是湖水):不成州,淹成湖(湖面高度取周围湖水的最高处,湖底比水面低一点)
+  for (let i = 0; i < n; i++) {
+    if (water[i] !== 0 || seen[i]) continue;
+    const comp = [i];
+    seen[i] = 1;
+    let lake = false;
+    let ocean = false;
+    let level = -Infinity;
+    for (let q = 0; q < comp.length; q++) {
+      const c = comp[q];
+      for (let k = mesh.adjStart[c]; k < mesh.adjStart[c + 1]; k++) {
+        const j = mesh.adj[k];
+        if (water[j] === 0 && !seen[j]) {
+          seen[j] = 1;
+          comp.push(j);
+        } else if (water[j] === 2) {
+          lake = true;
+          level = Math.max(level, waterLevel[j]);
+        } else if (water[j] === 1) ocean = true;
+      }
+    }
+    if (lake && !ocean && comp.length <= LAKE_ISLET && !(userLake && comp.some((c) => userLake[c]))) {
+      for (const c of comp) {
+        water[c] = 2;
+        waterLevel[c] = level;
+        elevation[c] = Math.min(elevation[c], level - 4);
       }
     }
   }
