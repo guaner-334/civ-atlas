@@ -996,11 +996,27 @@ export function cultureKey(cu: Culture): string {
 }
 
 /**
+ * 一份历史的民族归属(owner,按 from 的编号)换成另一份历史里的始祖民族编号(to 的编号):分化出来的先并回始祖,
+ * 再按身份(cultureKey)对。两份历史分化出的民族、干预立国的民族编号可以不同;对不上的(to 里没有这一族)= −1
+ */
+export function rootsAcross(owner: Int16Array, from: readonly Culture[], to: readonly Culture[]): Int16Array {
+  const rootOf = (cs: readonly Culture[], cu: Culture) => {
+    let x = cu;
+    while (x.parent !== undefined) x = cs[x.parent];
+    return x;
+  };
+  const byKey = new Map<string, number>();
+  for (const cu of to) if (cu.parent === undefined) byKey.set(cultureKey(cu), cu.id);
+  const map = from.map((cu) => byKey.get(cultureKey(rootOf(from, cu))) ?? -1);
+  return owner.map((c) => (c >= 0 && c < map.length ? map[c] : -1));
+}
+
+/**
  * 推演结束后:配色、分语感、起族名和州名(州名按最终疆域起,写进 regions.name)。
  * 配色、语感要和接壤的民族错开:阶段 3 有了同化与迁徙,接壤关系会变、有的民族会消亡,
  * 所以"接壤"取结束时和各检查点(每百年一份)的并集 —— 回放到哪一年,相邻的民族颜色都错得开。
  * names = 整个世界的地名风格(CivParams.names,清理过的;自动 = 不给);areas = 按份数凑占比时看的民族归属(不给 = owner;
- * 地形大事:起名照没有大事的那份历史,份数却要按真正推演结束时各民族住的地方凑)
+ * 地形大事:起名照没有大事的那份历史,份数却要按真正推演结束时各民族住的地方凑 —— 编号要先用 rootsAcross 换成这份历史的)
  */
 export function finishCultures(world: World, m: CultureModel, owner: Int16Array, history: readonly Checkpoint[] = [], pins?: NamePins, names?: NameMix, areas?: Int16Array): void {
   const seed = world.params.seed;

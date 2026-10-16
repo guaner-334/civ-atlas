@@ -21,7 +21,7 @@ import type { ChangeLog, Civ, CivParams, Culture, Habitat, PlanetTempo, Place, P
 import { computeHabitat } from './habitat';
 import { buildRegions, emptyRegions, reshapeRegions } from './regions';
 import { CivSim } from './sim';
-import { BIRTH_SPAN, cultureKey, cultureModelOf, finishCultures, installCultures, planCultures } from './cultures';
+import { BIRTH_SPAN, cultureKey, cultureModelOf, finishCultures, installCultures, planCultures, rootsAcross } from './cultures';
 import { buildRoutes } from './routes';
 import { capacityNorm, finishPolities, installPolities, planPolities, polityModelOf, routeCities } from './polities';
 import { findPlaces, keepPlaceNames } from './places';
@@ -140,7 +140,7 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
   const eras: CivEra[] = [];
   const facts: UpheavalFact[] = [];
   /** 配了地名风格时,各段的起名等推完再做(要按真正推演结束时各民族住的地方凑份数,见下面 nameEra) */
-  const later: ((areas: Int16Array) => void)[] = [];
+  const later: ((areas: Int16Array, cultures: readonly Culture[]) => void)[] = [];
   for (let k = 0; k < ups.length; k++) {
     const u = ups[k];
     const before = fin.regions;
@@ -153,8 +153,8 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
     branch.run(p.endYear);
     // 起名只读这一段的分支,不影响之后的推演。配了地名风格时份数按真正的结局凑(areas = 推演结束时的民族归属):
     // 照"没有大事"的那份结局凑的话,大事淹掉、改变了大片地方以后,实际的占比会和配的差出一截
-    const nameEra = (areas?: Int16Array) => {
-      const b = pinNames(pins!, eraWorld, branch, k ? ups[k - 1].year : -Infinity, u.year, k === 0, mix, areas);
+    const nameEra = (areas?: Int16Array, areaCultures?: readonly Culture[]) => {
+      const b = pinNames(pins!, eraWorld, branch, k ? ups[k - 1].year : -Infinity, u.year, k === 0, mix, areas && areaCultures && { owner: areas, cultures: areaCultures });
       const eraPlaces = findPlaces(eraWorld, before, { cultures: b.cultures, culture: b.culture, names: mix });
       if (k) keepPlaceNames(eraWorld, eras[k - 1].places, eraPlaces);
       const eraRoutes = buildRoutes(eraWorld, eraHabitat, before, { cities: b.settlements.length ? routeCities(b.settlements, b.polities, p.endYear) : undefined });
@@ -189,7 +189,7 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
   }
   const { log, checkpoints, culture, polity, annals } = fin.sim.result();
   progress('起名', 0.92);
-  for (const f of later) f(culture);
+  for (const f of later) f(culture, fin.model?.cultures ?? []);
   if (fin.model) finishCultures(fin.world, fin.model, culture, checkpoints, pins, mix);
   if (fin.pm) finishPolities(fin.world, fin.pm, polity, pins);
   const cultures: Culture[] = fin.model?.cultures ?? [];
@@ -255,14 +255,15 @@ function kindsOf(ops: readonly TerrainOp[]): UpheavalFact['kinds'] {
  * 一段推演(到第 k 件大事的前一刻)不套这件大事、照原样推到底(branch)以后起的名字、配色:
  * 年份在 [from, to) 里出现的国家、城、王朝,和这一段里新划出来的州,钉住(第一段还钉住民族)。
  * 返回 branch 起好名的民族、城、国家和推到底的民族归属(这一段的地名、道路照它定)。
- * areas = 配了地名风格时按份数凑占比看的民族归属(真正推演结束时的;只在第一段用)
+ * areas = 配了地名风格时按份数凑占比看的民族归属(真正推演结束时的,连同那份历史的民族表;只在第一段用)
  */
-function pinNames(pins: NamePins, world: World, branch: CivSim, from: number, to: number, first: boolean, mix?: NameMix, areas?: Int16Array) {
+function pinNames(pins: NamePins, world: World, branch: CivSim, from: number, to: number, first: boolean, mix?: NameMix, areas?: { owner: Int16Array; cultures: readonly Culture[] }) {
   const res = branch.result();
   const bm = cultureModelOf(branch)!;
   const bpm = polityModelOf(branch)!;
   bpm.cultures = bm.cultures; // 接着推时两层各复制了一份民族表:起城名、国名要用起好名的那份
-  finishCultures(world, bm, res.culture, res.checkpoints, first ? undefined : pins, mix, areas);
+  // 真正的结局里分化出的民族和这份分支的未必一样,编号换成分支里的始祖民族再凑份数
+  finishCultures(world, bm, res.culture, res.checkpoints, first ? undefined : pins, mix, areas && rootsAcross(areas.owner, areas.cultures, bm.cultures));
   finishPolities(world, bpm, res.polity, pins);
   // 推演中分化出来的民族:大事以前就有的才钉住(大事以后的那份历史里未必还会这样分化);
   // 每一段都补上这一段大事以前新分出来的(前面几段钉过的照旧)

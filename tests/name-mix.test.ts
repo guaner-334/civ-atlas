@@ -5,7 +5,8 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { generateCiv } from '../src/gen/civ';
-import type { Civ } from '../src/gen/civ/types';
+import type { Civ, Culture } from '../src/gen/civ/types';
+import { rootsAcross } from '../src/gen/civ/cultures';
 import { MIX_SHARE_MAX, NAME_STYLES, NAME_STYLE_META, cleanMix, mixStyles, pickStyle, sameMix, type NameMix } from '../src/gen/names';
 import { worldNameStyle } from '../src/gen/civ/places';
 import { worldStyleId } from '../src/ai/prompts/names';
@@ -224,6 +225,16 @@ describe('地形大事', () => {
     // 照没有大事的那份结局凑时,这里只有 15%
     expect(Math.abs(easternShare(civ) - 30)).toBeLessThanOrEqual(5);
     expect(civ.eras?.[0].places.length).toBeGreaterThan(0);
+  });
+
+  it('真正的结局和起名那份历史分化出的民族不一样:份数按始祖民族的身份对,不按编号', () => {
+    const cu = (id: number, extra: Partial<Culture> = {}) => ({ id, hearth: 10 + id, born: 0, ...extra }) as Culture;
+    // 结局:0、1 两族,1 分出 2(第 900 年),干预立国的民族排在 3
+    const final = [cu(0), cu(1), cu(2, { parent: 1, born: 900, hearth: 40 }), cu(3, { pioneer: 0 })];
+    // 起名那份:0 分出 2(第 700 年,结局里没有),干预立国的民族排在 3、1 分出的那支在 4
+    const branch = [cu(0), cu(1), cu(2, { parent: 0, born: 700, hearth: 30 }), cu(3, { pioneer: 0 }), cu(4, { parent: 1, born: 900, hearth: 40 })];
+    const owner = Int16Array.from([0, 1, 2, 3, -1, 9]);
+    expect(Array.from(rootsAcross(owner, final, branch))).toEqual([0, 1, 1, 3, -1, -1]);
   });
 });
 
