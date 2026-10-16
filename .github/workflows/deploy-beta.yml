@@ -3,7 +3,8 @@ name: 发布测试网站
 # 新改动先发到测试网站 https://atlas.gerdor.top/beta/ 试一阵,再用「发布正式网站」(deploy.yml)发到 https://atlas.gerdor.top。
 #
 # 什么时候跑:
-# - main 上有代码改动(PR 合并进来)就构建并发布;只改文档(*.md)的不发
+# - main 上有代码改动(PR 合并进来)就构建并发布;只改文档(*.md)的不发,
+#   但网站上的使用教程 public/guide.md 是网页内容,改了照样发
 # - 需要时可以在 Actions 页面手动跑一次(比如重发当前的 main)
 #
 # 构建前把浏览器存储的名字(localStorage 的键、IndexedDB 的库名)都换成带 beta 的(wenming-ditu: → wenming-ditu-beta: 这样):
@@ -14,8 +15,11 @@ name: 发布测试网站
 on:
   push:
     branches: [main]
-    paths-ignore:
-      - '**/*.md'
+    # 后面的规则压过前面的:先排除所有 .md,再把使用教程加回来
+    paths:
+      - '**'
+      - '!**/*.md'
+      - 'public/guide.md'
   workflow_dispatch:
 
 # 测试网站自己排队:连着合并几次时,排着的那份被更新的顶掉,最后发的总是最新的 main。

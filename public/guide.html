@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>使用教程 · 文明与地图</title>
+    <link rel="icon" href="favicon.ico" sizes="32x32" />
+    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+    <!--
+      使用教程。正文全在旁边的 guide.md(一份 Markdown),这一页打开时读进来、转成网页:
+      # 标题、## 小节(自动进左边目录)、段落、- 列表、**粗体**、[文字](网址)、`代码`。
+      改教程只改 guide.md;guide.md 开头的 <!- - 最后更新:… - -> 显示在右上角。
+      样子照「我的世界」那一页:浅灰底、系统字体、蓝色链接;电脑上左边目录、右边一栏正文,手机上一栏、目录放在开头。
+    -->
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f5f5f7;
+        --surface: #ffffff;
+        --ink: #1d1d1f;
+        --ink-2: #6e6e73;
+        --ink-3: #aeaeb2;
+        --line: rgba(60, 60, 67, 0.16);
+        --link: #0a6cdc;
+        --accent: #007aff;
+        --accent-soft: rgba(0, 122, 255, 0.12);
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html {
+        scroll-padding-top: 72px;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font: 15px/1.75 -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Noto Sans SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+        -webkit-font-smoothing: antialiased;
+        -webkit-text-size-adjust: 100%;
+      }
+      a {
+        color: var(--link);
+        text-decoration: none;
+        overflow-wrap: anywhere;
+      }
+      a:hover {
+        text-decoration: underline;
+        text-underline-offset: 2px;
+      }
+      .top {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        height: 52px;
+        display: flex;
+        align-items: center;
+        padding: 0 28px;
+        background: rgba(245, 245, 247, 0.86);
+        -webkit-backdrop-filter: blur(20px) saturate(1.6);
+        backdrop-filter: blur(20px) saturate(1.6);
+        border-bottom: 0.5px solid var(--line);
+        font-size: 14px;
+      }
+      .top .updated {
+        margin-left: auto;
+        color: var(--ink-3);
+        font-size: 12.5px;
+      }
+      .wrap {
+        display: flex;
+        gap: 74px;
+        padding: 18px 56px 64px;
+      }
+      nav.toc {
+        position: sticky;
+        top: 92px;
+        align-self: flex-start;
+        flex: none;
+        width: 210px;
+        margin-top: 22px;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      nav.toc .toc-h {
+        margin: 0 10px 6px;
+        font-size: 12.5px;
+        color: var(--ink-2);
+        font-weight: 500;
+      }
+      nav.toc a {
+        padding: 6px 10px;
+        border-radius: 6px;
+        font-size: 14px;
+        line-height: 1.5;
+        color: var(--ink);
+      }
+      nav.toc a:hover {
+        background: rgba(118, 118, 128, 0.12);
+        text-decoration: none;
+      }
+      nav.toc a.on {
+        background: var(--accent-soft);
+        color: var(--accent);
+        font-weight: 500;
+      }
+      article {
+        flex: 1;
+        min-width: 0;
+        max-width: 680px;
+      }
+      h1 {
+        margin: 0 0 8px;
+        font-size: 28px;
+        font-weight: 700;
+        letter-spacing: 0.5px;
+        line-height: 1.3;
+      }
+      h2 {
+        margin: 30px 0 6px;
+        font-size: 20px;
+        font-weight: 600;
+        line-height: 1.4;
+      }
+      p {
+        margin: 0 0 10px;
+      }
+      ul {
+        margin: 0 0 10px;
+        padding-left: 1.3em;
+      }
+      li {
+        margin: 3px 0;
+      }
+      li::marker {
+        color: var(--ink-3);
+      }
+      b {
+        font-weight: 600;
+      }
+      code {
+        padding: 0 4px;
+        border-radius: 4px;
+        background: rgba(118, 118, 128, 0.12);
+        font-size: 0.92em;
+      }
+      /* 手机上目录放在开头一组(和网站里手机卡片的分组列表一样) */
+      .toc-in {
+        display: none;
+      }
+      .toc-in .toc-h {
+        margin: 18px 4px 6px;
+        font-size: 13px;
+        color: var(--ink-2);
+      }
+      .toc-in .group {
+        background: var(--surface);
+        border-radius: 10px;
+      }
+      .toc-in a {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        height: 44px;
+        padding: 0 14px;
+        border-bottom: 0.5px solid var(--line);
+        color: var(--ink);
+        font-size: 16px;
+      }
+      .toc-in a:last-child {
+        border-bottom: 0;
+      }
+      .toc-in a::after {
+        content: '›';
+        color: var(--ink-3);
+      }
+      .top .narrow {
+        display: none;
+      }
+      .msg {
+        color: var(--ink-2);
+      }
+      @media (max-width: 760px) {
+        html {
+          scroll-padding-top: 56px;
+        }
+        body {
+          font-size: 16px;
+        }
+        .top {
+          height: 44px;
+          padding: 0 16px;
+        }
+        .wrap {
+          display: block;
+          padding: 18px 16px 48px;
+        }
+        nav.toc {
+          display: none;
+        }
+        .top .wide {
+          display: none;
+        }
+        .top .narrow {
+          display: inline;
+        }
+        .toc-in {
+          display: block;
+        }
+        h1 {
+          font-size: 30px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="top">
+      <a href="./">‹ 文明与地图</a>
+      <span class="updated" id="updated"></span>
+    </header>
+    <div class="wrap">
+      <nav class="toc" id="toc" aria-label="目录"></nav>
+      <article id="doc">
+        <h1>使用教程</h1>
+        <p class="msg" id="msg">正在读取教程……</p>
+      </article>
+    </div>
+    <script>
+      (function () {
+        var doc = document.getElementById('doc');
+        var toc = document.getElementById('toc');
+
+        function esc(s) {
+          return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        }
+        // 行内:`代码`、**粗体**、[文字](网址)(网址只认 http(s)、站内相对地址和 #小节)
+        function inline(s) {
+          return esc(s)
+            .replace(/`([^`]+)`/g, '<code>$1</code>')
+            .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
+            .replace(/\[([^\]]+)\]\(((?:https?:\/\/|\.\/|#)[^)\s]*)\)/g, function (_, text, href) {
+              var out = /^https?:/.test(href) ? ' target="_blank" rel="noreferrer"' : '';
+              return '<a href="' + href.replace(/"/g, '&quot;') + '"' + out + '>' + text + '</a>';
+            });
+        }
+        // 一段话折成几行写的:中文直接接上,前后都是英文字母或数字的中间补一个空格
+        function joinLines(lines) {
+          return lines.reduce(function (acc, l) {
+            return acc && /[A-Za-z0-9,.;:!?)]$/.test(acc) && /^[A-Za-z0-9(]/.test(l) ? acc + ' ' + l : acc + l;
+          }, '');
+        }
+        // 整份 Markdown → 网页;小节编号 s1、s2……(目录、手机目录都指向它)
+        function render(md) {
+          var out = [];
+          var heads = [];
+          var list = false;
+          var para = [];
+          var flush = function () {
+            if (para.length) out.push('<p>' + inline(joinLines(para)) + '</p>');
+            para = [];
+          };
+          md.replace(/<!--[\s\S]*?-->/g, '')
+            .split(/\r?\n/)
+            .forEach(function (line) {
+              var li = /^\s*[-*]\s+(.*)$/.exec(line);
+              if (li) {
+                flush();
+                if (!list) out.push('<ul>');
+                list = true;
+                out.push('<li>' + inline(li[1]) + '</li>');
+                return;
+              }
+              if (list) out.push('</ul>');
+              list = false;
+              var h = /^(#{1,3})\s+(.*)$/.exec(line);
+              if (h) {
+                flush();
+                if (h[1].length === 2) {
+                  heads.push(h[2]);
+                  out.push('<h2 id="s' + heads.length + '">' + inline(h[2]) + '</h2>');
+                } else out.push('<h' + h[1].length + '>' + inline(h[2]) + '</h' + h[1].length + '>');
+                return;
+              }
+              if (!line.trim()) return flush();
+              para.push(line.trim());
+            });
+          flush();
+          if (list) out.push('</ul>');
+          return { html: out.join('\n'), heads: heads };
+        }
+
+        function show(md) {
+          var r = render(md);
+          var when = /最后更新[:：]\s*([0-9-]+)/.exec(md);
+          // 电脑「最后更新：日期」,手机地方小写成「日期 更新」
+          if (when) document.getElementById('updated').innerHTML = '<span class="wide">最后更新：' + when[1] + '</span><span class="narrow">' + when[1] + ' 更新</span>';
+          doc.innerHTML = r.html;
+          var links = r.heads.map(function (t, i) {
+            return '<a href="#s' + (i + 1) + '">' + inline(t) + '</a>';
+          });
+          toc.innerHTML = '<div class="toc-h">目录</div>' + links.join('');
+          // 手机:目录插在开头那段话后面
+          var inPage = document.createElement('div');
+          inPage.className = 'toc-in';
+          inPage.innerHTML = '<div class="toc-h">目录</div><div class="group">' + links.join('') + '</div>';
+          var firstH2 = doc.querySelector('h2');
+          if (firstH2) doc.insertBefore(inPage, firstH2);
+          spy();
+          if (location.hash) {
+            var at = document.getElementById(location.hash.slice(1));
+            if (at) at.scrollIntoView();
+          }
+        }
+
+        // 电脑:往下翻时左边目录高亮当前这一节
+        function spy() {
+          var heads = Array.prototype.slice.call(doc.querySelectorAll('h2'));
+          var items = Array.prototype.slice.call(toc.querySelectorAll('a'));
+          var update = function () {
+            var cur = 0;
+            heads.forEach(function (h, i) {
+              if (h.getBoundingClientRect().top < 120) cur = i;
+            });
+            if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2) cur = heads.length - 1;
+            items.forEach(function (a, i) {
+              a.classList.toggle('on', i === cur);
+            });
+          };
+          window.addEventListener('scroll', update, { passive: true });
+          update();
+        }
+
+        fetch('./guide.md', { cache: 'no-cache' })
+          .then(function (res) {
+            if (!res.ok) throw new Error(String(res.status));
+            return res.text();
+          })
+          .then(show)
+          .catch(function () {
+            document.getElementById('msg').innerHTML = '教程没读出来，刷新一下试试；也可以直接打开 <a href="./guide.md">guide.md</a>。';
+          });
+      })();
+    </script>
+  </body>
+</html>
