@@ -252,7 +252,8 @@ function remember(key: string, r: Regions): Regions {
 }
 /** 第 year 年的地形和州(upheavalBase:同一年已有的大事地形算在内、州不算),和那时的全部地形修改 */
 function baseAt(params: WorldParams, terrain: TerrainOp[] | undefined, sketch: SketchEdit | undefined, steps: Step[], year: number): { world: World; regions: Regions; ops: TerrainOp[] } {
-  const k0 = keyOf(params, terrain, sketch);
+  // 照原样读进来的旧世界和现在的版本生成的同一个世界键一样、地形不一样:州分开记
+  const k0 = `${frozen?.key === keyOf(params, terrain, sketch) ? 'frozen:' : ''}${keyOf(params, terrain, sketch)}`;
   let w = worldOf(params, terrain, sketch);
   let r = regionsMemo.get(k0) ?? remember(k0, buildRegions(w, computeHabitat(w), { regionArea: REGION_AREA }));
   let ops: TerrainOp[] = [...(terrain ?? [])];
@@ -511,11 +512,23 @@ async function handle(m: WorkerRequest): Promise<void> {
     } else post({ type: 'trial', id: m.id, tid: m.tid, civ, ms, tempo }, civTransferables(civ));
   } else if (m.type === 'upPreview') {
     const t0 = performance.now();
-    const steps = stepsOf(m.params, m.terrain, m.sketch, m.upheavals);
-    const at = baseAt(m.params, m.terrain, m.sketch, steps, m.year);
-    const w1 = cachedWorld(m.params, [...at.ops, ...m.ops], m.sketch).world;
-    const preview = previewUpheaval(at.world, at.regions, w1, m.ops, REGION_AREA);
-    const water = w1.water.slice();
-    post({ type: 'upPreview', id: m.id, pid: m.pid, preview, water, ms: performance.now() - t0 }, [water.buffer]);
+    const run = () => {
+      const steps = stepsOf(m.params, m.terrain, m.sketch, m.upheavals);
+      const at = baseAt(m.params, m.terrain, m.sketch, steps, m.year);
+      const w1 = cachedWorld(m.params, [...at.ops, ...m.ops], m.sketch).world;
+      return { preview: previewUpheaval(at.world, at.regions, w1, m.ops, REGION_AREA), water: w1.water.slice() };
+    };
+    // 照原样打开的旧世界上预览新的大事:大事以后的地形只能按现在的版本生成,前后都按现在的版本算(和另存出来的新版一致),不拿两颗星球比
+    const pinned = frozen;
+    let out: ReturnType<typeof run>;
+    if (pinned && pinned.key === keyOf(m.params, m.terrain, m.sketch)) {
+      frozen = null;
+      try {
+        out = run();
+      } finally {
+        frozen = pinned;
+      }
+    } else out = run();
+    post({ type: 'upPreview', id: m.id, pid: m.pid, preview: out.preview, water: out.water, ms: performance.now() - t0 }, [out.water.buffer]);
   }
 }
