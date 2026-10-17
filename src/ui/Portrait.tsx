@@ -59,10 +59,9 @@ export function PortraitView({ p, size, color, dead, dark, mood, corner }: Portr
     <span
       className={`pt pt-${size}${dead ? ' pt-dead' : ''}${dead && dark ? ' pt-dark' : ''}${live ? ' pt-live' : ''}`}
       style={{ '--c': color } as CSSProperties}
-      aria-hidden="true"
     >
-      {/* 点头 / 低头换了:key 变了,动作再做一次 */}
-      <span key={act ?? ''} className={`pt-move${act ? ` pt-${act}` : ''}`}>
+      {/* 点头 / 低头换了:key 变了,动作再做一次。图只是装饰,读屏跳过;角上的按钮不藏 */}
+      <span key={act ?? ''} className={`pt-move${act ? ` pt-${act}` : ''}`} aria-hidden="true">
         <span className="pt-in">
           {layers.map((l) => (
             <img
