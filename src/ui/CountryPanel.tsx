@@ -52,6 +52,8 @@ import { useAiOn } from '../ai/client';
 import { FlagIcon } from './Flag';
 import { FlagPanel } from './FlagPanel';
 import { flagOf, useFlags } from './flagStore';
+import { developmentAt, eraLevel, eraOf } from '../gen/civ/development';
+import { ERA_COLORS, eraName } from '../render/civ/era';
 import './countryPanel.css';
 
 // ---------------------------------------------------------------------------
@@ -211,6 +213,9 @@ function InfoPage({ civ, raw, raster, world, id, year, p, shared }: CountryPanel
     if (c >= 0) folk.set(c, (folk.get(c) ?? 0) + 1);
   }
   const folks = [...folk].sort((a, b) => b[1] - a[1]);
+  // 时代:按国都所在的州算
+  const capSeat = civ.settlements[capitalAt(p, shownYear)];
+  const eraNow = civ.development && capSeat && capSeat.region >= 0 ? eraOf(eraLevel(developmentAt(civ.development, shownYear), capSeat.region)) : null;
   const top = folks.length ? civ.cultures[folks[0][0]] : civ.cultures[p.culture];
   const share = folks.length && n > 1 ? Math.round((folks[0][1] / n) * 100) : null;
   // 主体民族(占这国一半以上的州):"更多"里讲它的族名由来、给它起族名(和州面板民族一行的同一套),结果也在面板最下面
@@ -306,6 +311,15 @@ function InfoPage({ civ, raw, raster, world, id, year, p, shared }: CountryPanel
             <span data-stat="州">{n} 个州</span>
           </Row>
           <Row k="人口">{popText}</Row>
+          {eraNow && (
+            <Row k="时代" className="cp-era">
+              <EraLadder era={eraNow.era} progress={eraNow.progress} />
+              <span data-stat="时代">
+                {eraName(eraNow.era)}
+                <em className="cp-num-note">{Math.floor(eraNow.progress * 100)}%</em>
+              </span>
+            </Row>
+          )}
           <Row k="主体民族">
             {top ? cultureLabel(top) : '—'}
             {share !== null && <em className="cp-num-note">{share}%</em>}
@@ -482,5 +496,18 @@ function RulerList({ civ, id, year }: { civ: Civ; id: number; year: number }) {
         })}
       </div>
     </section>
+  );
+}
+
+/** 时代的小梯子:九格,走过的时代涂上颜色,当前这格从下往上填到走了几成 */
+function EraLadder({ era, progress }: { era: number; progress: number }) {
+  return (
+    <span className="cp-ladder" aria-hidden="true">
+      {ERA_COLORS.map((c, i) => (
+        <i key={i} style={i < era ? { background: rgb(c) } : undefined}>
+          {i === era && <b style={{ height: `${Math.round(progress * 100)}%`, background: rgb(c) }} />}
+        </i>
+      ))}
+    </span>
   );
 }

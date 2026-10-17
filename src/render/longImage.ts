@@ -38,6 +38,7 @@ const EV_COLOR: Record<EvType, string> = {
   empire: '#c4870f',
   assim: '#8d5bcc',
   faith: '#1b97a6',
+  era: '#a2652d',
   order: '#007aff',
 };
 

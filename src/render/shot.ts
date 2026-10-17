@@ -24,6 +24,7 @@ import { civLabelChars, civLabelItems, civMapLayer, labelViewExtras } from './ci
 import { drawSettlementMarks } from './civ/settlements';
 import { drawWarfare, warsShown } from './civ/warfare';
 import { drawHolyDot, holyCities } from './civ/faith';
+import { drawResourceLayer, type ResourceLook } from './civ/resources';
 import { drawPlacedLabels, placeMap, toCanvas, type LabelItem, type LabelView, type Placement } from './labels/draw';
 import { ensureFonts } from './labels/fonts';
 import { canvasMeasure, drawMarks, layoutMarks, markStyle, placedTextBoxes, type MarkFrame, type MarkItem } from './marks';
@@ -56,6 +57,8 @@ export interface ShotScene {
   marks?: (year: number) => readonly MarkItem[];
   /** 无色标记名字里的字(用地图的字体写,和地图文字一起先加载) */
   markChars?: string;
+  /** 物产图层:只看哪一样、画不画还没发现的(不给 = 全部显示) */
+  res?: ResourceLook;
 }
 
 /**
@@ -114,7 +117,7 @@ export class MapShot {
 
   private params(year: Year, civ: Civ): ExportMapParams {
     const s = this.scene;
-    return { world: s.world, raster: s.raster, civ, style: s.style, layer: s.layer, year, show: s.show, center: s.center, projection: s.projection, graticule: s.graticule };
+    return { world: s.world, raster: s.raster, civ, style: s.style, layer: s.layer, year, show: s.show, center: s.center, projection: s.projection, graticule: s.graticule, res: s.res };
   }
 
   /** 画布像素 / 世界单位、字放大几倍、画布左上角的世界坐标(一块) */
@@ -313,6 +316,7 @@ export class MapShot {
         drawHolyDot(ctx, x, y, hc.color, v.dpr);
       }
     }
+    if (show.resources) drawResourceLayer(ctx, geo, world, year, lv, placed.labels, this.scene.res);
     const marks = this.scene.marks?.(Math.floor(year)) ?? [];
     if (!marks.length) return;
     // 作者标记:按 CSS 像素排(和屏幕上一样),画的时候放大 dpr 倍

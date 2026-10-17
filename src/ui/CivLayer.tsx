@@ -40,7 +40,7 @@ import { drawWarfare, warsShown } from '../render/civ/warfare';
 import { drawPlacedLabels, placeMap, placedMarkBox, toCanvas, type LabelItem, type LabelView } from '../render/labels/draw';
 import { ensureFonts, fontsReady, preloadFonts } from '../render/labels/fonts';
 import { drawHighlight, drawSelection, drawSelectionLabels } from '../render/civ/highlight';
-import { getCivHighlight, setCivHighlight, useCivHighlight, useCivShow, useCivTime, useSelection } from './civView';
+import { getCivHighlight, setCivHighlight, useCivHighlight, useCivShow, useCivTime, useResourceView, useSelection } from './civView';
 import { setMapPlacement } from './mapPick';
 import { mapBoxOf, mirrorCanvas, placeOnScreen, visibleBox } from './mapWrap';
 import { nearX } from '../render/common';
@@ -50,6 +50,7 @@ import { ProjLayer, useMapMoving } from './projection';
 import { useAvoidBoxes } from './uiAvoid';
 import { CivDetail } from './CivDetail';
 import { drawHolyDot, holyCities } from '../render/civ/faith';
+import { drawResourceLayer, resourceBadges } from '../render/civ/resources';
 import { faithFocusOf, selectionOnMap } from './faithSelection';
 import { flagOf, type FlagView } from './flagStore';
 import { flagImage, useFlagImages } from './flagImages';
@@ -449,6 +450,12 @@ export function CivLayer({ world, raster, civ, geo, style, year, view, mp = null
 
   // 地图上盖着的界面(四角的字、时间轴、面板 / 抽屉、提示条……):它们下面不放字和符号(和地球仪同一份清单,见 uiAvoid.ts)
   const avoid = useAvoidBoxes(textRef);
+  // 物产图层:这一年州治上的圆章(只看哪一样、显示不显示没发现的由侧栏列表定)
+  const resView = useResourceView();
+  const badges = useMemo(
+    () => (params?.show.resources && base?.development ? resourceBadges(base.development, params.year, base.regions.count, resView.focus, resView.hidden) : null),
+    [params, base, resView],
+  );
   // 手绘风国都城堡插的国旗:旗的小图加载好了重画
   const flagImages = useFlagImages();
 
@@ -464,7 +471,7 @@ export function CivLayer({ world, raster, civ, geo, style, year, view, mp = null
     const items = mapLayer ? geoItems.concat(mapLayer.items) : geoItems;
     const marks = mapLayer?.marks ?? [];
     const wars = !!params && warsShown(params);
-    if ((!items.length && !marks.length && !wars) || !extras || !fontsOk) return clear();
+    if ((!items.length && !marks.length && !wars && !badges?.length) || !extras || !fontsOk) return clear();
     const t0 = performance.now();
     // 看得见的那块:地图框(已被 CSS 放大)和舞台(视口)的交集,换回地图框自己的坐标
     // (舞台换成视窗,地图框往右多算一份 —— 见 mapWrap.ts 的 visibleBox)
@@ -546,6 +553,9 @@ export function CivLayer({ world, raster, civ, geo, style, year, view, mp = null
         drawHolyDot(ctx, x, y, h.color, dpr);
       }
     }
+    // 物产图层:州治上的圆章(稀有的先放,挤了就让;压着地名、界面的不画)
+    if (badges?.length && base && params)
+      drawResourceLayer(ctx, base, world, params.year, lv, placed.labels, resView, (x, y) => ui.some((q) => q[0] < x && q[2] > x && q[1] < y && q[3] > y), badges);
     setMapPlacement({ canvas: cv, placed, view: lv });
     const w = window as unknown as { __wfLabels?: LabelsDebug };
     const fontOk = fontsReady(fontStyle, text);
@@ -567,7 +577,7 @@ export function CivLayer({ world, raster, civ, geo, style, year, view, mp = null
       lon: mp?.lon0,
       fitted: !!fitMp,
     };
-  }, [geoItems, mapLayer, extras, fontsOk, fontStyle, style, text, view, tick, params, fast, sel, civ, world, mp, fitMp, avoid, labelsHost, flags, flagImages]);
+  }, [geoItems, mapLayer, extras, fontsOk, fontStyle, style, text, view, tick, params, fast, sel, civ, world, mp, fitMp, avoid, labelsHost, flags, flagImages, badges, resView]);
 
   return (
     <>

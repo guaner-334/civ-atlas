@@ -22,9 +22,10 @@ import { capitalAt, polityAlive, polityName } from '../gen/civ/growth';
 import { ownersAt, type Owners } from '../gen/civ/timeline';
 import { filterChronicle } from '../gen/civ/chronicle';
 import { faithRows, fullChronicle } from '../gen/civ/religionText';
-import { getCivTime, pickChronicleEntry, setSelection, subscribeCivTime, useCivShow, useSelection } from './civView';
+import { getCivTime, pickChronicleEntry, setResourceView, setSelection, subscribeCivTime, useCivShow, useResourceView, useSelection } from './civView';
+import { eraRows, resourceRows } from './devRows';
 import { useEdits } from './editsStore';
-import { eraLabel, spaced, yearAt, yearShort } from '../gen/era';
+import { eraLabel, spaced, yearAt, yearFull, yearShort, type Era } from '../gen/era';
 import { openUpheaval, useUpUi } from './upheavalStore';
 import { currentWorld, useSavesVersion } from './saveStore';
 import { SaveMenu } from './SaveMenu';
@@ -343,6 +344,57 @@ const RECENT_N = 3;
 
 let owners: Owners | undefined;
 
+/** 物产图层的列表:十一样物产,点一行只看它(再点、点「全部显示」回到全部);开关「显示未发现的」 */
+function ResourceList({ civ, year, era }: { civ: Civ; year: number; era?: Era | null }) {
+  const view = useResourceView();
+  const rows = useMemo(() => resourceRows(civ, year), [civ, year]);
+  const focus = view.focus;
+  return (
+    <section className="sb-sec">
+      <div className="sb-sec-head">
+        <span>
+          物产{focus === null && <small className="sb-sec-year">{yearFull(year, era)}</small>}
+        </span>
+        {focus !== null ? (
+          <button className="sb-link" data-act="resources-all" onClick={() => setResourceView({ focus: null })}>
+            全部显示
+          </button>
+        ) : (
+          <button className={`sb-toggle${view.hidden ? ' on' : ''}`} role="switch" aria-checked={view.hidden} data-act="resources-hidden" onClick={() => setResourceView({ hidden: !view.hidden })}>
+            <i aria-hidden="true" />
+            显示未发现的
+          </button>
+        )}
+      </div>
+      <div className="sb-group sb-res" data-testid="resources">
+        {rows.map((r) => (
+          <button
+            key={r.k}
+            className={`sb-row two${r.found ? '' : ' off'}${focus === r.k ? ' on' : ''}`}
+            data-resource={r.k}
+            aria-pressed={focus === r.k}
+            onClick={() => setResourceView({ focus: focus === r.k ? null : r.k })}
+          >
+            <em className="sb-badge" style={{ background: r.color }}>
+              {r.glyph}
+            </em>
+            <span className="sb-row-main">
+              <b>{r.name}</b>
+              <small>{r.note}</small>
+            </span>
+            <span className="sb-row-side sb-res-n">
+              {r.has} 州有
+              <br />
+              {r.found ? `${r.using} 州${r.verb}` : '都还没发现'}
+            </span>
+          </button>
+        ))}
+      </div>
+      <p className="sb-note">圆章大小是这一年能用多少：矿要发现了才有，技术越高采得越多，采久了会空；林、渔、田、牧人多会吃空，人少了慢慢长回来。拖时间轴就能看到变化。</p>
+    </section>
+  );
+}
+
 /** 什么都没选时的整个世界:信仰(信仰图层)、国家按大小排、最近大事、我的干预、这颗星球(宽屏侧栏、手机的世界卡片拉到顶时共用) */
 export function WorldHome(p: Pick<SidebarProps, 'civ' | 'data' | 'params' | 'generating' | 'replay' | 'onReplay'>) {
   const { civ } = p;
@@ -374,6 +426,11 @@ export function WorldHome(p: Pick<SidebarProps, 'civ' | 'data' | 'params' | 'gen
   // 信仰图层:「国家」上面一组「信仰」(大教按信众多少,教派缩进跟在后面,最后一行民间信仰;数字是这一年的州数)
   const faithOn = useCivShow().faiths && ok && !!civ!.religion;
   const faiths = useMemo(() => (faithOn ? faithRows(civ!, year, era) : []), [faithOn, civ, year, era]);
+  // 时代图层:「国家」上面一组「时代」;物产图层:换成「物产」一组(不列国家、最近大事)
+  const show = useCivShow();
+  const eraOn = show.eras && ok && !!civ!.development;
+  const eras = useMemo(() => (eraOn ? eraRows(civ!, year, era) : []), [eraOn, civ, year, era]);
+  const resOn = show.resources && ok && !!civ!.development;
   const k = countUpTo(entries, year);
   const recent = entries.slice(Math.max(0, k - RECENT_N), k).reverse();
   // 我的干预:干预和地形大事一起数(概览"我的干预"页列在一起)
@@ -416,7 +473,28 @@ export function WorldHome(p: Pick<SidebarProps, 'civ' | 'data' | 'params' | 'gen
           </div>
         </section>
       )}
-      {ok && (
+      {eras.length > 0 && (
+        <section className="sb-sec">
+          <div className="sb-sec-head">
+            <span>时代</span>
+          </div>
+          <div className="sb-group" data-testid="eras">
+            {eras.map((e) => (
+              <div key={e.era} className="sb-row two static" data-era={e.era}>
+                <i className="sb-sw" style={{ background: rgb(e.color) }} />
+                <span className="sb-row-main">
+                  <b>{e.name}</b>
+                  {e.sub && <small>{e.sub}</small>}
+                </span>
+                <span className="sb-row-side">{e.n} 州</span>
+              </div>
+            ))}
+          </div>
+          <p className="sb-note">颜色是每州此刻所处的时代。拖时间轴看各地一步步往前走；悬停一州看它走了几成。</p>
+        </section>
+      )}
+      {resOn && <ResourceList civ={civ!} year={year} era={era} />}
+      {ok && !resOn && (
         <section className="sb-sec">
           <div className="sb-sec-head">
             <span>国家</span>
@@ -464,7 +542,7 @@ export function WorldHome(p: Pick<SidebarProps, 'civ' | 'data' | 'params' | 'gen
           </div>
         </section>
       )}
-      {ok && recent.length > 0 && (
+      {ok && !resOn && recent.length > 0 && (
         <section className="sb-sec">
           <div className="sb-sec-head">
             <span>最近大事</span>

@@ -1457,6 +1457,10 @@ button.ov-kv-row:hover {
   display: flex;
   gap: 2px;
 }
+/* 第二行小字按钮(时代、物产):紧贴上一行 */
+.lp-minor + .lp-minor {
+  margin-top: -10px;
+}
 .lp-overlays {
   display: flex;
   flex-direction: column;

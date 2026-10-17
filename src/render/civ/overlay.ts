@@ -4,7 +4,7 @@
  *
  * 按固定顺序调用各画法;每个画法在自己的文件里:
  *   宜居度热力图(debug.ts)
- *   → 国土 / 民族 / 信仰色块(territory.ts;两层都开时铺民族;开着信仰就铺信仰,见 faith.ts)
+ *   → 国土 / 民族 / 信仰 / 时代色块(territory.ts;两层都开时铺民族;开着信仰就铺信仰,见 faith.ts;开着时代就铺时代,见 era.ts)
  *   → 战事:正在打的仗里易手的州画斜线(warfare.ts)
  *   → 州界细线(debug.ts)
  *   → 国界(borders.ts)
@@ -45,6 +45,10 @@ export interface CivShow {
   polities: boolean;
   /** 信仰色块(信仰图层;开着时铺信仰,不铺民族、国土,国家只画国界和城镇) */
   faiths: boolean;
+  /** 时代色块(时代图层;开着时按各州所处的时代铺色,画法同信仰,国家只画国界和城镇) */
+  eras: boolean;
+  /** 物产圆章(物产图层;州治上画这一年能用的物产,见 resources.ts) */
+  resources: boolean;
   /** 战事:正在打的仗(战线、易手的州、交战处的双剑);要开着"国家"才画(默认打开) */
   wars: boolean;
 }
@@ -58,6 +62,8 @@ export const CIV_SHOW_OFF: CivShow = {
   cultures: false,
   polities: false,
   faiths: false,
+  eras: false,
+  resources: false,
   wars: false,
 };
 /** 打开页面时的默认显示:地名、战事(战事要开着"国家"才画) */

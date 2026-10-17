@@ -27,7 +27,7 @@ import { yearShort, yearSpanAt, yearAt, yearMonthAt, type Era } from '../gen/era
 // 事件类型
 
 /** 五类事件 + 宗教(faith)+ 干预(order);CSS 里 [data-ev=war] 等配色 */
-export type EvType = 'war' | 'dynasty' | 'found' | 'empire' | 'assim' | 'faith' | 'order';
+export type EvType = 'war' | 'dynasty' | 'found' | 'empire' | 'assim' | 'faith' | 'era' | 'order';
 
 const KIND_TYPE: Readonly<Record<string, EvType>> = {
   war: 'war',
@@ -55,6 +55,7 @@ const KIND_TYPE: Readonly<Record<string, EvType>> = {
   vanish: 'assim',
   diverge: 'assim',
   faith: 'faith',
+  era: 'era',
   intervene: 'order',
   upheaval: 'order',
 };
@@ -96,6 +97,7 @@ const TAG_LABEL: Readonly<Record<string, string>> = {
   传: '传入',
   派: '教派',
   圣: '圣城',
+  代: '时代',
   臣: '称臣',
   盟: '结盟',
   绝: '盟绝',
@@ -148,6 +150,7 @@ const KIND_WEIGHT: Readonly<Record<string, number>> = {
   decline: 2,
   sack: 1,
   faith: 2,
+  era: 2,
   intervene: 9,
   upheaval: 9,
   submit: 4,
