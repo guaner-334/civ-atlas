@@ -9,14 +9,14 @@
  * **五种能力**(每州每 STEP 年算一次):生产、运输、信息、行政、动员。数值和时代用同一把尺子(0 = 石器时代开头,
  *   1 = 青铜时代开头,……,见 ERAS),每样能力:
  *   - 自己长(创新):速度 = 动力 ÷ 这一档要的年数(ERA_YEARS)。动力看这一样能力靠什么:
- *       生产看粮和人口,运输看道路、大河、海港、木材,信息看大城、国都、和多少外邦相邻,行政看有没有国家、国家多大多老、是不是国都;
+ *       生产看粮和人口,运输看道路(已修、还没废的)、大河(只有最后的地形可查)、海港(按当时那一段地形)、木材,信息看大城、国都、和多少外邦相邻,行政看有没有国家、国家多大多老、是不是国都;
  *     打仗的地方长得慢(近几十年本州的战役、攻占、洗劫越多越慢)。
  *     某一样比这个州的时代领先近一档时,自己长得很慢;领先两档以上时,向邻居学也很慢(单靠一样堆不上去)。
  *   - 向邻居学(传播):向本样能力最高的那个邻州靠拢,差得越多学得越快。同一国里快、跨国慢,翻山、过海峡、走航线更慢;
  *     行政主要在一国之内传。
  *   - 战乱折损:本州的攻占、战役、洗劫、毁城当即扣一点;之后按到过的最高值较快地恢复(技术没丢,只是要重建)。
  *   - 物产卡脖子(只卡生产的创新):要进青铜时代得有铜锡,进铁器得有铁,进工业得有煤和铁 ——
- *     本州、相邻的州或者本国有就行(买得到);都没有就停在门口附近,只能靠邻居传过来。
+ *     本州、相邻的州或者本国有就行(买得到);都没有的,到门口附近自己就长得很慢(GATE_SLOW),主要靠邻居传过来。
  *   - 动员不单独长:跟着生产和行政走(游牧民族另高一截)。
  *   - 没人住的州不长;刚有人住的州带着邻居的本事来(取最高邻居的 SETTLE_CARRY)。
  *
@@ -115,6 +115,8 @@ const HIT_RUIN: readonly number[] = [0.2, 0.1, 0.15, 0.08];
 const SETTLE_CARRY = 0.85;
 /** 没人住了:每步剩几成 */
 const ABANDON_KEEP = 0.98;
+/** 国家有这么多州时,行政动力里「国家大」那一项到顶 */
+const ADMIN_SIZE = 40;
 /** 州的人口、城的人口到这么多(千人)时算一半(人口、城的规模 = 人口 ÷ (人口 + 这个数)) */
 const POP_HALF = 300;
 const CITY_HALF = 40;
@@ -169,28 +171,37 @@ export function buildDevelopment(world: World, civ: Civ): Development {
   const S = civ.settlements;
   const P = civ.polities.length;
 
-  // 各州哪一年起有路(道路、小路、航线经过本州的陆地)
-  const roadSince = new Float64Array(R).fill(Infinity);
-  for (const rt of civ.routes) {
-    for (const cell of rt.cells) {
-      const r = civ.regions.of[cell];
-      if (r >= 0 && rt.built < roadSince[r]) roadSince[r] = rt.built;
+  // 地形大事以前的每一段各有一份州、海港、路网;最后一段用 civ 本身的
+  const segs = [...eras.map((e) => ({ regions: e.regions, habitat: e.habitat, routes: e.routes })), { regions: civ.regions, habitat: civ.habitat, routes: civ.routes }];
+  // 每条路经过哪些州(道路、小路、航线经过的陆地);有路 = 那一段里有一条已修、还没废的路经过
+  const routeRegions = segs.map((g) =>
+    g.routes.map((rt) => {
+      const on = new Set<number>();
+      for (const cell of rt.cells) {
+        const r = g.regions.of[cell];
+        if (r >= 0 && r < R) on.add(r);
+      }
+      return Int32Array.from(on);
+    }),
+  );
+  // 各段各州有没有海港;大河只有最后的地形可查,各段都用它
+  const ports = segs.map((g) => {
+    const port = new Uint8Array(R);
+    const { cellStart, cells } = g.regions;
+    for (let r = 0; r < Math.min(R, g.regions.count); r++) {
+      for (let k = cellStart[r]; k < cellStart[r + 1]; k++) if (g.habitat.harbor[cells[k]] > 0) port[r] = 1;
     }
-  }
-  // 各州有没有大河、海港
+    return port;
+  });
   const river = new Uint8Array(R);
-  const port = new Uint8Array(R);
   {
     const { cellStart, cells } = civ.regions;
     const major = MAJOR_RIVER * world.riverThreshold;
     for (let r = 0; r < R; r++) {
-      for (let k = cellStart[r]; k < cellStart[r + 1]; k++) {
-        const i = cells[k];
-        if (world.flux[i] >= major) river[r] = 1;
-        if (civ.habitat.harbor[i] > 0) port[r] = 1;
-      }
+      for (let k = cellStart[r]; k < cellStart[r + 1]; k++) if (world.flux[cells[k]] >= major) river[r] = 1;
     }
   }
+  const road = new Uint8Array(R);
   // 战乱:史事按步分桶(攻占、战役、洗劫、毁城)
   const years: Year[] = [];
   for (let y = 0; y <= civ.endYear; y += STEP) years.push(y);
@@ -209,6 +220,8 @@ export function buildDevelopment(world: World, civ: Civ): Development {
   const best = new Float64Array(R * CAP_COUNT);
   const war = new Float64Array(R);
   const settled = new Uint8Array(R);
+  /** 住过人、后来空了的州(再有人住时按刚有人住算) */
+  const left = new Uint8Array(R);
   const E = new Float64Array(R);
   const Eprev = new Float64Array(R);
   /** 各州归了现在的民族、国家是哪一刻 */
@@ -269,6 +282,16 @@ export function buildDevelopment(world: World, civ: Civ): Development {
       if (cap && cap.region < R && ownP[cap.region] === p) capR[p] = cap.region;
     }
     const { adjStart, adj, adjKind } = reg;
+    const port = ports[era];
+    road.fill(0);
+    {
+      const rts = segs[era].routes;
+      for (let i = 0; i < rts.length; i++) {
+        const rt = rts[i];
+        if (rt.built > y || (rt.abandoned !== undefined && rt.abandoned <= y)) continue;
+        for (const r of routeRegions[era][i]) road[r] = 1;
+      }
+    }
     const Rn = reg.count;
     // 人口、城每 SNAP 年看一次(变得慢,逐步现算太费时)
     if (y % SNAP === 0) {
@@ -286,13 +309,17 @@ export function buildDevelopment(world: World, civ: Civ): Development {
       for (let r = 0; r < Rn; r++) {
         const o = r * CAP_COUNT;
         if (ownC[r] < 0) {
-          if (settled[r]) for (let c = 0; c < CAP_COUNT; c++) next[o + c] = cur[o + c] * ABANDON_KEEP;
+          if (settled[r]) {
+            left[r] = 1;
+            for (let c = 0; c < CAP_COUNT; c++) next[o + c] = cur[o + c] * ABANDON_KEEP;
+          }
           continue;
         }
         const p = ownP[r];
-        if (!settled[r]) {
-          // 刚有人住:带着邻居的本事来
+        if (!settled[r] || left[r]) {
+          // 刚有人住(或空了以后又有人来):带着邻居的本事来,和本州留下的取高的
           settled[r] = 1;
+          left[r] = 0;
           for (let k = adjStart[r]; k < adjStart[r + 1]; k++) {
             const n = adj[k];
             if (n >= R || ownC[n] < 0) continue;
@@ -314,11 +341,10 @@ export function buildDevelopment(world: World, civ: Civ): Development {
           if (ownP[n] !== p && foreign < 4) foreign++;
         }
         const peace = 1 / (1 + war[r]);
-        const road = y >= roadSince[r] ? 1 : 0;
         drive[0] = 0.15 + 0.1 * resources[ro + Res.Grain] + 1.2 * popF;
-        drive[1] = 0.1 + 0.3 * road + 0.2 * river[r] + 0.3 * port[r] + 0.05 * resources[ro + Res.Timber] + 0.6 * popF;
-        drive[2] = 0.1 + 1.2 * cityF + (isCap ? 0.3 : 0) + 0.08 * foreign + 0.2 * road;
-        drive[3] = p < 0 ? 0.15 : 0.3 + 0.15 * tierAt(civ.polities[p].titles, y) + (isCap ? 0.4 : 0) + 0.3 * Math.min(1, (y - civ.polities[p].founded) / 400);
+        drive[1] = 0.1 + 0.3 * road[r] + 0.2 * river[r] + 0.3 * port[r] + 0.05 * resources[ro + Res.Timber] + 0.6 * popF;
+        drive[2] = 0.1 + 1.2 * cityF + (isCap ? 0.3 : 0) + 0.08 * foreign + 0.2 * road[r];
+        drive[3] = p < 0 ? 0.15 : 0.3 + 0.15 * tierAt(civ.polities[p].titles, y) + 0.2 * Math.min(1, size[p] / ADMIN_SIZE) + (isCap ? 0.4 : 0) + 0.3 * Math.min(1, (y - civ.polities[p].founded) / 400);
         // 向每样能力最高的邻居学(一遍邻居,四样一起看)
         learn.fill(0);
         for (let k = adjStart[r]; k < adjStart[r + 1]; k++) {
@@ -398,9 +424,12 @@ export function buildDevelopment(world: World, civ: Civ): Development {
       const e = eraOf(E[r]).era;
       if (polityEra[p] < 0) polityEra[p] = e;
       else if (e > polityEra[p]) {
-        polityEra[p] = e;
+        // 一步跨了几个时代(例如迁都到先进得多的州)就每个都记
         const city = regionCityAt(civ, r, y);
-        events.push({ year: crossed(r, e, Math.max(sinceC[r], sinceP[r])), kind: 'enter', era: e, region: r, culture: ownC[r], polity: p, settlement: city ? city.id : -1 });
+        for (let k = polityEra[p] + 1; k <= e; k++) {
+          events.push({ year: crossed(r, k, Math.max(sinceC[r], sinceP[r])), kind: 'enter', era: k, region: r, culture: ownC[r], polity: p, settlement: city ? city.id : -1 });
+        }
+        polityEra[p] = e;
       }
     }
 
