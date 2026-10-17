@@ -104,6 +104,11 @@ describe('作者的人物 · 数据清理', () => {
     expect(cleanCharacter(base({ died: 2490 }))!.died).toBe(2490);
   });
 
+  it('头像换过几次(portrait):正整数留着,别的去掉', () => {
+    expect(cleanCharacter(base({ portrait: 3 }))!.portrait).toBe(3);
+    for (const bad of [0, -1, 2.5, '3', 1e7]) expect(cleanCharacter({ ...base(), portrait: bad })!.portrait).toBeUndefined();
+  });
+
   it('地方、亲友、勾的事和人:格式不对的去掉;亲友不能是自己,两样都没有的不要', () => {
     const c = cleanCharacter({
       ...base(),

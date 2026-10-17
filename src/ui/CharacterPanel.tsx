@@ -3,7 +3,7 @@
  * 世界概览「人物」页的「我的」、搜索、地图上的头像、别的卡片里「作者的人物」打开;新建、编辑也在这张卡片里填(characterStore.ts 的 draft)。
  *
  * 看的时候
- *   顶部  圆形头像(名字的第一个字)、名字、"作者的人物，2490–2561 年"
+ *   顶部  头像(Portrait.tsx;按编号挑,他的国家定服饰,年龄跟时间轴;右下角「换一张」)、名字、"作者的人物，2490–2561 年"
  *   按钮  出生那年(主操作:时间轴跳到生年)/ 编辑 / 复制生平 / 更多(设为中心、删除人物;删了提示条上能撤销)
  *   简介  作者写的那几句
  *   概况  年龄(跟时间轴:"22 岁"、"还没出生"、"已故，享年 71 岁")、身份、国家(那年在位的君主)、出生地、亲友
@@ -28,6 +28,7 @@ import { MARK_COLORS, polityKey, type MarkColor } from '../gen/edits';
 import {
   CHARACTERS_MAX,
   CHAR_NAME_DEFAULT,
+  PORTRAIT_SWAP_MAX,
   CHAR_NAME_MAX,
   CHAR_NOTE_MAX,
   CHAR_ROLE_MAX,
@@ -41,7 +42,9 @@ import {
   type AuthorCharacter,
 } from '../gen/characters';
 import { MARK_HEX } from '../render/marks';
-import { getEdits, removeCharacter, restoreCharacter, useEdits, useEra } from './editsStore';
+import { getEdits, removeCharacter, restoreCharacter, updateCharacter, useEdits, useEra } from './editsStore';
+import { characterPortrait } from '../gen/portrait';
+import { PortraitView } from './Portrait';
 import { eraText, spaced, yearAt, yearFull, yearShort } from '../gen/era';
 import { clearSelection, pickChronicleEntry, setSelection, type MapSelection } from './civView';
 import {
@@ -119,6 +122,16 @@ export function CharAvatar({ c, size }: { c: Pick<AuthorCharacter, 'name' | 'col
   );
 }
 
+/** 「换一张」的图标:两道首尾相接的弯箭头 */
+function SwapIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M2.5 8a5.5 5.5 0 0 1 9.6-3.7M13.5 8a5.5 5.5 0 0 1-9.6 3.7" />
+      <path d="M12.6 1.8v2.8H9.8M3.4 14.2v-2.8h2.8" />
+    </svg>
+  );
+}
+
 export interface CharacterPanelProps {
   civ: Civ;
   raster: Raster | null;
@@ -174,6 +187,8 @@ function CharView({ civ, raster, world, year, c, chars }: CharacterPanelProps & 
   const [copied, setCopied] = useState(false);
   const era = useEra();
   const polity = useMemo(() => characterPolity(civ, world, raster, c), [civ, world, raster, c]);
+  const ptAge = Math.floor((c.died !== undefined ? Math.min(year, c.died) : year) - c.born);
+  const portrait = useMemo(() => characterPortrait(civ, c, polity, c.born + ptAge), [civ, c, polity, ptAge]);
   const around = useMemo(() => aroundEvents(civ, world, raster, c), [civ, world, raster, c]);
   const kin = useMemo(() => kinList(civ, c, chars), [civ, c, chars]);
   const focus = useMemo(() => {
@@ -358,7 +373,31 @@ function CharView({ civ, raster, world, year, c, chars }: CharacterPanelProps & 
 
   return (
     <div className="cp pp oc-card" data-character={c.id}>
-      <PanelHead icon={<CharAvatar c={c} size={38} />}>
+      <PanelHead
+        icon={
+          portrait ? (
+            <PortraitView
+              p={portrait}
+              size="card"
+              color={MARK_HEX[c.color]}
+              dead={c.died !== undefined && year > c.died}
+              corner={
+                <button
+                  className="pt-swap"
+                  data-act="character-portrait"
+                  title="换一张头像"
+                  aria-label="换一张头像"
+                  onClick={() => updateCharacter({ ...c, portrait: ((c.portrait ?? 0) % PORTRAIT_SWAP_MAX) + 1 })}
+                >
+                  <SwapIcon />
+                </button>
+              }
+            />
+          ) : (
+            <CharAvatar c={c} size={38} />
+          )
+        }
+      >
         <div className="ins-name-row big">
           <span className="ins-name pp-title oc-name">{c.name}</span>
         </div>

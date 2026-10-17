@@ -223,8 +223,10 @@ export function finishDraft(): number {
   const c = d && draftCharacterData(d);
   if (!d || !c) return -1;
   let id = d.id;
+  const old = getEdits().characters?.find((x) => x.id === id);
   if (id === 0) id = addCharacter(c);
-  else if (getEdits().characters?.some((x) => x.id === id)) updateCharacter({ ...c, id });
+  // 卡片上换过的头像(portrait)不在填的表里,原样留着
+  else if (old) updateCharacter({ ...c, id, ...(old.portrait !== undefined ? { portrait: old.portrait } : {}) });
   else id = addCharacter(c);
   set({ draft: null, picking: null });
   if (id > 0) setSelection({ kind: 'character', id });
