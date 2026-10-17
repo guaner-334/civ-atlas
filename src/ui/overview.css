@@ -1453,39 +1453,34 @@ button.ov-kv-row:hover {
 }
 
 /* ==== 图层弹层:叠加开关、宜居度 / 道路小图例、民族色块列表(CivPanel.tsx) ==== */
-.lp-minor {
-  display: flex;
-  gap: 2px;
-}
 .lp-overlays {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--line);
 }
+/* 叠加开关:三个一行,圆形勾选 */
 .lp-toggles {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 12px;
-  padding-top: 8px;
-  border-top: 1px solid var(--line);
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  row-gap: 8px;
+  font-size: 13px;
 }
 .lp-tog {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 7px;
   border: 0;
   background: transparent;
-  padding: 2px 0;
+  padding: 0;
   color: var(--ink);
-  font-size: 12px;
+  font-size: 13px;
   white-space: nowrap;
 }
 .lp-tog .lp-box {
-  width: 13px;
-  height: 13px;
-  font-size: 9px;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  font-size: 10px;
 }
 .lp-tog.on .lp-box {
   background: var(--accent);

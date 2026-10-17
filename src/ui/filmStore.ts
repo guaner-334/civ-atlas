@@ -10,6 +10,7 @@ import { fullChronicle } from '../gen/civ/religionText';
 import { fileBaseName } from '../gen/savefile';
 import type { CivStyle } from '../render/civ/overlay';
 import type { LayerId } from '../render/layers';
+import type { SurfaceLook } from '../render/surface';
 import { clearSelection, getCivShow, getCivTime, getSelection, setCivTime } from './civView';
 import { getEdits } from './editsStore';
 import { markItemsAt, plainMarkChars } from './markInfo';
@@ -172,7 +173,7 @@ export function uiFont(): string {
 }
 
 /** 按现在的选项和屏幕上的样子(画风、图层、地名开关、投影)组一份 FilmSetup */
-export function filmSetup(src: FilmSource, look: { style: CivStyle; layer: LayerId }, region?: FilmRegion): FilmSetup {
+export function filmSetup(src: FilmSource, look: { style: CivStyle; layer: LayerId; surface?: SurfaceLook }, region?: FilmRegion): FilmSetup {
   const s = state;
   const sc = src.at(src.full.endYear);
   const world = sc.world;
@@ -187,6 +188,7 @@ export function filmSetup(src: FilmSource, look: { style: CivStyle; layer: Layer
     title: filmTitleOf(),
     style: look.style,
     layer: look.layer,
+    look: look.surface,
     show: { ...getCivShow() },
     projection: flatProjection(getProjection()),
     center: wrapOf(world) ? xOfLon(getMapCenter(), world.width) : undefined,

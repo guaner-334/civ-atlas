@@ -9,6 +9,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { CivStyle } from '../render/civ/overlay';
 import type { LayerId } from '../render/layers';
+import type { SurfaceLook } from '../render/surface';
 import { useFilmSource } from './filmSource';
 import { filmSupported } from './filmEncode';
 import { closeFilm, cancelFilm, deliverFilm, etaText, filmRangeOf, filmSetup, filmTitleOf, getFilm, holeRegion, runFilm, setFilm, setFilmRangeKind, useFilm } from './filmStore';
@@ -22,6 +23,8 @@ export interface FilmPanelProps {
   phone: boolean;
   style: CivStyle;
   layer: LayerId;
+  /** 写实底图的画法 */
+  look?: SurfaceLook;
 }
 
 /** 浏览器能不能导视频(查一次,记住) */
@@ -91,7 +94,7 @@ function sizeText(seconds: number): string {
   return `约 ${mb >= 15 ? Math.round(mb / 5) * 5 : Math.max(1, Math.round(mb))} MB`;
 }
 
-export function FilmPanel({ phone, style, layer }: FilmPanelProps) {
+export function FilmPanel({ phone, style, layer, look }: FilmPanelProps) {
   const s = useFilm();
   const src = useFilmSource();
   const ok = useFilmSupported();
@@ -129,7 +132,7 @@ export function FilmPanel({ phone, style, layer }: FilmPanelProps) {
     const region = s.area === 'region' ? holeRegion() : undefined;
     if (s.area === 'region' && !region) return;
     try {
-      const d = await runFilm(src, filmSetup(src, { style, layer }, region));
+      const d = await runFilm(src, filmSetup(src, { style, layer, surface: look }, region));
       if (d) deliverFilm(d, phone, 'video');
     } catch (e) {
       console.error('导出视频失败', e);

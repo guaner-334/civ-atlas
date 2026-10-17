@@ -20,6 +20,7 @@ import type { World } from '../gen/world';
 import type { Raster } from '../gen/raster';
 import type { Civ, Year } from '../gen/civ/types';
 import { renderRealistic } from './realistic';
+import type { SurfaceLook } from './surface';
 import { drawFrame, drawPaperVignette, renderFantasy } from './fantasy';
 import { bakedView, wrapOf } from './common';
 import { renderLayer, type LayerId } from './layers';
@@ -63,6 +64,8 @@ export interface ExportMapParams {
   civ: Civ | null;
   style: CivStyle;
   layer: LayerId;
+  /** 写实风的画法(不给 = 经典卫星) */
+  look?: SurfaceLook;
   /** 画哪一年(时间轴当前的年份) */
   year: Year;
   show: CivShow;
@@ -139,7 +142,7 @@ export function drawMapTerrain(ctx: Ctx2D, p: ExportMapParams, makeCanvas: (w: n
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = pageColor(style);
     ctx.fillRect(0, 0, raster.w, raster.h);
-    if (style === 'fantasy' || style === 'realistic') drawTerrainProjected(c2d, world, raster, style, mp, { s: raster.scale, ox: 0, oy: 0, k: 1 });
+    if (style === 'fantasy' || style === 'realistic') drawTerrainProjected(c2d, world, raster, style, mp, { s: raster.scale, ox: 0, oy: 0, k: 1 }, p.look);
     else {
       const src = makeCanvas(raster.w, raster.h);
       renderLayer(src.getContext('2d') as CanvasRenderingContext2D, world, raster, p.layer);
@@ -149,7 +152,7 @@ export function drawMapTerrain(ctx: Ctx2D, p: ExportMapParams, makeCanvas: (w: n
     ctx.restore();
     return;
   }
-  if (style === 'realistic') renderRealistic(c2d, world, raster);
+  if (style === 'realistic') renderRealistic(c2d, world, raster, p.look);
   else if (style === 'fantasy') renderFantasy(c2d, world, raster);
   else renderLayer(c2d, world, raster, p.layer);
   rotateToCenter(ctx, p, makeCanvas);

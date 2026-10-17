@@ -1,8 +1,8 @@
 /**
  * 浮在地图上的按钮(宽屏的主体界面在左边的侧栏里,见 Sidebar.tsx):
  *
- *   右上 MapBar       图层分段按钮(政区 / 民族 / 信仰 / 地形 / 实景 / 更多图层)、导出、编年史、助手;写史书时最前面是写作进度
- *                     新建世界这一步还没有历史:只有地形 / 实景 / 高程 / 更多图层、助手(没有政区、民族、信仰,不放导出、编年史)
+ *   右上 MapBar       填色分段按钮(不填 / 国家 / 民族 / 信仰)+ 底图按钮(小图 + 底图名,点开图层面板)、导出、编年史、助手;
+ *                     写史书时最前面是写作进度。新建世界这一步不显示(新建界面有自己的样式列表)
  *                     「助手」开关右边的助手面板(Assistant.tsx),开着时按钮是按下去的样子
  *   右下 MapControls  「标记」(点了在地图上放作者标记)、"地球 / 平面"切换、放大、缩小(触屏不放 + −,窄屏整个不放)
  *   窄屏(手机):
@@ -22,51 +22,46 @@ import { Icon } from './icons';
 import { LayerPopover, type LayerPopoverProps } from './LayerPopover';
 import { ExportMenu, type ExportMenuProps } from './ExportMenu';
 import { openOverview } from './overviewStore';
-import { layerDef, type MapLayer } from './mapLayers';
+import { FILLS, FILL_KEYS, type MapLayer } from './mapLayers';
 import { toggleAssistant, useAstOpen } from './astPanel';
 import { togglePlacing } from './markStore';
 import { useAiOn } from '../ai/client';
 import { BETA_SITE, OLD_SITE, OLD_UNTIL, latestUrl } from './oldSite';
 import './book.css';
 
-/** 右上图层分段按钮里直接列出的几个图层(其余的在"更多图层"里) */
-export const SEG_LAYERS: MapLayer[] = ['political', 'cultures', 'faith', 'terrain', 'realistic'];
-/** 新建世界时(还没有历史) */
+/** 新建世界时数字键 1–3 换的样式(还没有历史) */
 export const DRAFT_SEG: MapLayer[] = ['terrain', 'realistic', 'elevation'];
 
-/** 宽屏右上:写作进度、图层分段按钮、导出、编年史、助手(「使用 AI 功能」关着时没有助手和写作进度) */
-export function MapBar({ layers, exp, civ, draft }: { layers: LayerPopoverProps; exp: ExportMenuProps; civ: Civ | null; draft?: boolean }) {
+/** 宽屏右上:写作进度、填色分段按钮 + 底图按钮、导出、编年史、助手(「使用 AI 功能」关着时没有助手和写作进度) */
+export function MapBar({ layers, exp, civ }: { layers: LayerPopoverProps; exp: ExportMenuProps; civ: Civ | null }) {
   const stop = (e: { stopPropagation(): void }) => e.stopPropagation();
-  const seg = draft ? DRAFT_SEG : SEG_LAYERS;
-  const inSeg = seg.includes(layers.layer);
   return (
     <div className="map-bar" onPointerDown={stop} onDoubleClick={stop} onClick={stop}>
       <BookChip />
-      <div className="glass seg-bar" role="radiogroup" aria-label="图层">
-        {seg.map((id, i) => (
+      <div className="glass seg-bar" role="radiogroup" aria-label="填色">
+        {FILLS.map((f) => (
           <button
-            key={id}
-            className={`seg-btn${layers.layer === id ? ' on' : ''}`}
+            key={f.id}
+            className={`seg-btn${layers.fill === f.id ? ' on' : ''}`}
             role="radio"
-            aria-checked={layers.layer === id}
-            data-layer={id}
-            data-tip={layerDef(id).name}
-            data-tip-key={`layer${i + 1}`}
+            aria-checked={layers.fill === f.id}
+            data-fill={f.id}
+            data-tip={f.name}
+            data-tip-key={`layer${FILL_KEYS.indexOf(f.id) + 1}`}
             disabled={layers.disabled}
-            onClick={() => layers.onLayer(id)}
+            onClick={() => layers.onFill(f.id)}
           >
-            {layerDef(id).name}
+            {f.name}
           </button>
         ))}
-        <LayerPopover {...layers} trigger="seg" inSeg={inSeg} draft={draft} />
+        <span className="seg-div" aria-hidden="true" />
+        <LayerPopover {...layers} trigger="seg" />
       </div>
-      {!draft && <ExportMenu {...exp} icon={<Icon name="export" size={16} />} />}
-      {!draft && (
-        <button className="glass mb-btn" data-act="chronicle" disabled={!civ || !civ.viable} onClick={() => openOverview('chronicle', { polity: null })} title="按年份看全部大事">
-          <Icon name="book" size={16} />
-          <span className="mb-label">编年史</span>
-        </button>
-      )}
+      <ExportMenu {...exp} icon={<Icon name="export" size={16} />} />
+      <button className="glass mb-btn" data-act="chronicle" disabled={!civ || !civ.viable} onClick={() => openOverview('chronicle', { polity: null })} title="按年份看全部大事">
+        <Icon name="book" size={16} />
+        <span className="mb-label">编年史</span>
+      </button>
       <AssistantButton disabled={!civ} />
     </div>
   );

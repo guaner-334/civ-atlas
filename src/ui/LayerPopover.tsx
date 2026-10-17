@@ -1,15 +1,16 @@
 /**
- * "图层与投影"按钮(宽屏是右上分段按钮的最后一段"更多图层",手机是右上竖排的图层图标),点开弹层:
- *   图层:六张缩略图(政区、民族、信仰、地形、生态、实景)+ 一行小字按钮(高程、板块、气温、降水、气候、洋流)
- *         + 一行叠加开关(地名、宜居度、州、城址、道路;CivPanel.tsx 的 CivToggles)
- *         + 一行等值线(等高线 / 等温线 / 等降水线选一种,ContourRow;画在 ContourLayer.tsx);
- *         选中"民族"时下面是紧凑的民族色块列表(CultureLegend),选中"信仰"时是信仰的(FaithLegend)
- *   投影:ProjectionSection(六种投影、中央经线滑条、经纬网)
- * 点图层就换(弹层收起);点叠加开关不收起;点外面(包括旁边的按钮)、Esc 收起。
- * 窄屏(手机):弹层是从底部升起的抽屉(右上 ✕ 收起)。
+ * 图层面板:宽屏是右上按钮条最后的「底图」按钮(小图 + 底图名),手机是右上竖排的图层图标;点开:
+ *   底图   四张缩略图(手绘、卫星、地理图、白模);选卫星时下面一行「卫星画法 经典 | 细节」;一行说明
+ *   数据底图  生态、高程、板块、气温 / 降水、气候、洋流(选了它,上面四张都不亮)
+ *   填色   不填 / 国家 / 民族 / 信仰(按钮条前几段也是它);一行说明;民族、信仰下面是色块列表。任何底图都能配任何填色
+ *   叠加   地名、州、城址、道路、战事、宜居度(CivPanel.tsx 的 CivToggles);经纬网(间隔 10° / 15° / 30°);
+ *          等值线(等高线 / 等温线 / 等降水线选一种,画在 ContourLayer.tsx)
+ *   投影   一行,点开是投影列表和中央经线(ProjectionPanel.tsx 的 ProjectionSection)
+ * 点底图、填色都不收起(看着换);点外面(包括旁边的按钮)、Esc 收起。窄屏(手机):弹层是从底部升起的抽屉。
+ * 换到还没画过的底图:那张缩略图上转小圈,地图先留着原来的,画好一下子换过去(App 的 pickBase)。
  *
  * 缩略图是当前世界真实画出来的小图:App 给 baseCanvas(画风键)取整张底图(画过的直接从缓存拿,没画过的画一张放进缓存),
- * 政区 / 民族 / 信仰再叠上文明底图,缩成小图存成 dataURL。当前图层的一张在世界出来后就做;其余的等弹层第一次打开时
+ * 政区 / 民族 / 信仰(新建界面用)再叠上文明底图,缩成小图存成 dataURL。当前底图的一张在世界出来后就做;其余的等弹层第一次打开时
  * 一张一张做(每张之间让出主线程),没做好的先显示占位。换世界全部作废;历史重推(干预、改地形)只作废政区、民族、信仰三张。
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -17,10 +18,23 @@ import type { World } from '../gen/world';
 import type { Raster } from '../gen/raster';
 import type { Civ } from '../gen/civ/types';
 import { CIV_SHOW_OFF, drawCivOverlay } from '../render/civ/overlay';
-import { MAP_LAYERS, layerDef, type MapLayer } from './mapLayers';
+import {
+  DATA_BASES,
+  FILLS,
+  MAIN_BASES,
+  baseHint,
+  baseName,
+  baseThumb,
+  layerDef,
+  type BaseId,
+  type FillId,
+  type MapLayer,
+  type SatLook,
+  type ThumbId,
+} from './mapLayers';
 import { Icon } from './icons';
-import { ProjectionSection, projectionName } from './ProjectionPanel';
-import { setContourKind, useContourKind, useProjection } from './projection';
+import { GraticuleSteps, ProjectionSection, projectionName } from './ProjectionPanel';
+import { setContourKind, setGraticule, useContourKind, useGraticule, useProjection } from './projection';
 import type { ContourKind } from '../gen/savefile';
 import { getCivTime } from './civView';
 import { CivToggles, CultureLegend, FaithLegend } from './CivPanel';
@@ -37,6 +51,11 @@ export function styleKey(id: MapLayer): string {
   return d.style === 'data' ? `data:${d.data}` : d.style;
 }
 
+/** 缩略图在底图缓存里的键(写实的几种画法是 realistic:画法) */
+function thumbKey(id: ThumbId): string {
+  return id.startsWith('realistic:') ? id : styleKey(id as MapLayer);
+}
+
 export interface ThumbSource {
   data: { world: World; raster: Raster } | null;
   /** 生成出来的文明(不含改名:缩略图只画色块);有地形大事时是时间轴那一段的(州、宜居度和 data 的地形对得上) */
@@ -45,21 +64,21 @@ export interface ThumbSource {
   baseCanvas: (key: string) => HTMLCanvasElement | null;
 }
 
-/** 缩略图:当前图层的先做,其余的按需排队做 */
-export function useLayerThumbs(src: ThumbSource, current: MapLayer) {
-  const [thumbs, setThumbs] = useState<Partial<Record<MapLayer, string>>>({});
+/** 缩略图:当前底图的先做,其余的按需排队做 */
+export function useLayerThumbs(src: ThumbSource, current: ThumbId) {
+  const [thumbs, setThumbs] = useState<Partial<Record<ThumbId, string>>>({});
   const srcRef = useRef(src);
   srcRef.current = src;
-  const queue = useRef<MapLayer[]>([]);
+  const queue = useRef<ThumbId[]>([]);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const have = useRef<Partial<Record<MapLayer, string>>>({});
+  const have = useRef<Partial<Record<ThumbId, string>>>({});
   have.current = thumbs;
 
-  const make = (id: MapLayer): string | null => {
+  const make = (id: ThumbId): string | null => {
     const { data, civ, baseCanvas } = srcRef.current;
     if (!data) return null;
-    const def = layerDef(id);
-    const base = baseCanvas(styleKey(id));
+    const def = id.startsWith('realistic:') ? layerDef('realistic') : layerDef(id as MapLayer);
+    const base = baseCanvas(thumbKey(id));
     if (!base || !base.width) return null;
     const t = document.createElement('canvas');
     t.width = TW;
@@ -117,7 +136,7 @@ export function useLayerThumbs(src: ThumbSource, current: MapLayer) {
 
   /** 把这几张排进队(已有的、已排着的跳过) */
   const request = useCallback(
-    (ids: MapLayer[]) => {
+    (ids: ThumbId[]) => {
       // 子组件的 effect 比下面换世界的 effect 先跑:这时缓存还是上一个世界的,先作废再排
       if (haveFor.current !== srcRef.current.data) reset();
       for (const id of ids) if (!have.current[id] && !queue.current.includes(id)) queue.current.push(id);
@@ -143,7 +162,7 @@ export function useLayerThumbs(src: ThumbSource, current: MapLayer) {
     }
     civSeen.current = civ;
   }, [civ]);
-  // 当前图层的缩略图(图层按钮上用):世界出来、画好以后过一会儿做
+  // 当前底图的缩略图(底图按钮上用):世界出来、画好以后过一会儿做
   useEffect(() => {
     if (!data || thumbs[current]) return;
     const t = setTimeout(() => request([current]), 700);
@@ -155,36 +174,33 @@ export function useLayerThumbs(src: ThumbSource, current: MapLayer) {
 }
 
 export interface LayerPopoverProps {
-  layer: MapLayer;
-  /** 界面上的文明(套过改名;民族图例用) */
+  base: BaseId;
+  fill: FillId;
+  /** 卫星记着的画法(经典 / 细节) */
+  sat: SatLook;
+  /** 界面上的文明 */
   civ?: Civ | null;
-  onLayer: (id: MapLayer) => void;
-  thumbs: Partial<Record<MapLayer, string>>;
-  requestThumbs: (ids: MapLayer[]) => void;
+  onBase: (b: BaseId) => void;
+  onFill: (f: FillId) => void;
+  onSat: (s: SatLook) => void;
+  /** 正在画的底图(那张缩略图上转小圈;画好之前地图先留着原来的) */
+  pending?: { base: BaseId; sat: SatLook } | null;
+  thumbs: Partial<Record<ThumbId, string>>;
+  requestThumbs: (ids: ThumbId[]) => void;
   disabled?: boolean;
-  /**
-   * 按钮的样子:seg = 一段文字"更多图层"(宽屏右上的分段按钮最后一段;当前图层不在前几段里时写当前图层名);
-   * icon = 只有一个图层图标(手机右上竖排的毛玻璃按钮)
-   */
+  /** 按钮的样子:seg = 底图按钮(小图 + 底图名,宽屏右上按钮条的最后一段);icon = 只有一个图层图标(手机右上竖排的毛玻璃按钮) */
   trigger?: 'seg' | 'icon';
-  /** trigger = seg 时:当前图层在不在前几段里(在 = 这一段不亮) */
-  inSeg?: boolean;
-  /** 新建世界这一步(还没有历史):不列政区、民族,不放国家 / 民族的叠加开关 */
-  draft?: boolean;
 }
 
-/** 新建世界时列不出来的图层(要有历史) */
-const HISTORY_LAYERS: MapLayer[] = ['political', 'cultures', 'faith'];
-
-export function LayerPopover({ layer, civ = null, onLayer, thumbs, requestThumbs, disabled, trigger = 'icon', inSeg = true, draft = false }: LayerPopoverProps) {
+export function LayerPopover({ base, fill, sat, civ = null, onBase, onFill, onSat, pending = null, thumbs, requestThumbs, disabled, trigger = 'icon' }: LayerPopoverProps) {
   const [open, setOpen] = useState(false);
   const proj = useProjection();
   const rootRef = useRef<HTMLDivElement>(null);
-  const cur = layerDef(layer);
+  const name = baseName(base, sat);
 
   useEffect(() => {
     if (!open) return;
-    requestThumbs(MAP_LAYERS.filter((l) => l.main).map((l) => l.id));
+    requestThumbs(MAIN_BASES.map((b) => baseThumb(b.id, sat)));
     const onDown = (e: PointerEvent) => {
       if (rootRef.current?.contains(e.target as Node)) return;
       setOpen(false);
@@ -197,25 +213,23 @@ export function LayerPopover({ layer, civ = null, onLayer, thumbs, requestThumbs
       document.removeEventListener('pointerdown', onDown, true);
       document.removeEventListener('keydown', onKey);
     };
-  }, [open, requestThumbs]);
+  }, [open, sat, requestThumbs]);
 
-  const pick = (id: MapLayer) => {
-    onLayer(id);
-    setOpen(false);
-  };
   const stop = (e: { stopPropagation(): void }) => e.stopPropagation();
+  const hint = pending ? `正在画${baseName(pending.base, pending.sat)}，画好之前先显示${name}` : baseHint(base, sat);
   return (
     <div className={`lp ${trigger === 'seg' ? 'lp-seg' : 'lp-icon'}`} ref={rootRef} onPointerDown={stop} onDoubleClick={stop}>
       {trigger === 'seg' ? (
         <button
-          className={`seg-btn lp-btn${open ? ' open' : ''}${inSeg ? '' : ' on'}`}
+          className={`seg-btn lp-btn lp-base${open ? ' open' : ''}`}
           data-act="layers"
           disabled={disabled}
           onClick={() => setOpen((o) => !o)}
           aria-expanded={open}
-          title="全部图层、地图上显示什么、投影"
+          title="换底图、地图上显示什么、投影"
         >
-          {inSeg ? '更多图层' : cur.name}
+          <Thumb src={thumbs[baseThumb(base, sat)]} className="lp-swatch" />
+          {name}
           <svg className="seg-caret" width="9" height="9" viewBox="0 0 10 10" aria-hidden="true">
             <path d="M2 3.5l3 3 3-3" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
@@ -227,49 +241,108 @@ export function LayerPopover({ layer, civ = null, onLayer, thumbs, requestThumbs
           disabled={disabled}
           onClick={() => setOpen((o) => !o)}
           aria-expanded={open}
-          aria-label={`图层与投影(现在是${cur.name}，${projectionName(proj)})`}
-          title="图层与投影"
+          aria-label={`图层(现在是${name}${fill === 'none' ? '' : `加${FILLS.find((f) => f.id === fill)!.name}`}，${projectionName(proj)})`}
+          title="图层"
         >
           <Icon name="layers" size={19} />
         </button>
       )}
       {open && (
-        <div className="lp-pop" role="dialog" aria-label="图层与投影">
-          {/* 窄屏是底部抽屉:顶上一条拖动条的样子 + 关闭(宽屏不显示) */}
+        <div className="lp-pop" role="dialog" aria-label="图层">
+          {/* 窄屏是底部抽屉:顶上一条拖动条的样子(宽屏不显示) */}
           <div className="lp-head">
             <span className="lp-grip" aria-hidden="true" />
-            <button className="lp-close" data-act="layers-close" aria-label="关闭" onClick={() => setOpen(false)}>
-              ✕
-            </button>
           </div>
-          <div className="lp-sec">图层</div>
-          <div className="lp-layers" role="radiogroup" aria-label="图层">
-            {MAP_LAYERS.filter((l) => l.main && !(draft && HISTORY_LAYERS.includes(l.id))).map((l) => (
-              <button key={l.id} className={`lp-layer${layer === l.id ? ' on' : ''}`} role="radio" aria-checked={layer === l.id} data-layer={l.id} onClick={() => pick(l.id)}>
-                <Thumb src={thumbs[l.id]} />
-                <span>{l.name}</span>
+          <div className="lp-sec">底图</div>
+          <div className="lp-layers" role="radiogroup" aria-label="底图">
+            {MAIN_BASES.map((b) => (
+              <button key={b.id} className={`lp-layer${base === b.id ? ' on' : ''}`} role="radio" aria-checked={base === b.id} data-base={b.id} onClick={() => onBase(b.id)}>
+                <Thumb src={thumbs[baseThumb(b.id, sat)]} busy={pending?.base === b.id} />
+                <span>{b.name}</span>
               </button>
             ))}
           </div>
-          <div className="lp-minor" role="radiogroup" aria-label="数据图层">
-            {MAP_LAYERS.filter((l) => !l.main).map((l) => (
-              <button key={l.id} className={`lp-mini${layer === l.id ? ' on' : ''}`} role="radio" aria-checked={layer === l.id} data-layer={l.id} onClick={() => pick(l.id)}>
-                {l.name}
-              </button>
-            ))}
-          </div>
-          {!draft && (
-            <div className="lp-overlays">
-              <CivToggles />
-              <ContourRow globe={proj === 'globe'} />
-              {layer === 'cultures' && <CultureLegend civ={civ} />}
-              {layer === 'faith' && <FaithLegend civ={civ} />}
+          {base === 'satellite' && (
+            <div className="lp-grat lp-sat">
+              <span>卫星画法</span>
+              <span className="grat-seg" role="radiogroup" aria-label="卫星画法">
+                {(['classic', 'detail'] as const).map((s) => (
+                  <button key={s} className={s === sat ? 'on' : undefined} role="radio" aria-checked={s === sat} data-sat={s} onClick={() => onSat(s)}>
+                    {s === 'classic' ? '经典' : '细节'}
+                  </button>
+                ))}
+              </span>
             </div>
           )}
-          <ProjectionSection />
+          <div className="lp-hint">{hint}</div>
+          <div className="lp-sec">数据底图</div>
+          <div className="lp-chips" role="radiogroup" aria-label="数据底图">
+            {DATA_BASES.map((id) => (
+              <button key={id} className={`lp-chip${base === id ? ' on' : ''}${pending?.base === id ? ' busy' : ''}`} role="radio" aria-checked={base === id} data-base={id} onClick={() => onBase(id)}>
+                {layerDef(id as MapLayer).name}
+              </button>
+            ))}
+          </div>
+          <div className="lp-line" />
+          <div className="lp-sec">填色</div>
+          <div className="lp-fills grat-seg" role="radiogroup" aria-label="填色">
+            {FILLS.map((f) => (
+              <button key={f.id} className={f.id === fill ? 'on' : undefined} role="radio" aria-checked={f.id === fill} data-fill={f.id} onClick={() => onFill(f.id)}>
+                {f.name}
+              </button>
+            ))}
+          </div>
+          <div className="lp-hint">{FILLS.find((f) => f.id === fill)!.hint}</div>
+          {fill === 'cultures' && <CultureLegend civ={civ} />}
+          {fill === 'faiths' && <FaithLegend civ={civ} />}
+          <div className="lp-line" />
+          <div className="lp-sec">叠加</div>
+          <div className="lp-overlays">
+            <CivToggles />
+            <GraticuleRow />
+            <ContourRow globe={proj === 'globe'} />
+          </div>
+          <div className="lp-line" />
+          <ProjectionRow />
         </div>
       )}
     </div>
+  );
+}
+
+/** 经纬网一行:左边开关,右边间隔 10° / 15° / 30°(关着时灰掉,点一档顺手打开) */
+function GraticuleRow() {
+  const grat = useGraticule();
+  return (
+    <div className="lp-grat">
+      <button className={`lp-check lp-tog${grat ? ' on' : ''}`} role="checkbox" aria-checked={grat} data-act="graticule" onClick={() => setGraticule(!grat)}>
+        <span className="lp-box" aria-hidden="true">
+          {grat ? '✓' : ''}
+        </span>
+        经纬网
+      </button>
+      <GraticuleSteps />
+    </div>
+  );
+}
+
+/** 投影一行:右边是现在的投影,点开是投影列表和中央经线 */
+function ProjectionRow() {
+  const proj = useProjection();
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <div className="lp-grat lp-projrow">
+        <span>投影</span>
+        <button className={`lp-pick${open ? ' open' : ''}`} data-act="projections" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+          {projectionName(proj)}
+          <svg className="seg-caret" width="9" height="9" viewBox="0 0 10 10" aria-hidden="true">
+            <path d={open ? 'M2 6.5l3-3 3 3' : 'M2 3.5l3 3 3-3'} fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+      </div>
+      {open && <ProjectionSection />}
+    </>
   );
 }
 
@@ -289,7 +362,7 @@ function ContourRow({ globe }: { globe: boolean }) {
   const shown = kind ?? lastContour;
   return (
     <div className={`lp-grat lp-iso${globe ? ' disabled' : ''}`} title={globe ? '地球仪上暂不显示' : undefined}>
-      <button className={`lp-check${on ? ' on' : ''}`} role="checkbox" aria-checked={on} data-act="contours" disabled={globe} onClick={() => setContourKind(kind ? null : lastContour)}>
+      <button className={`lp-check lp-tog${on ? ' on' : ''}`} role="checkbox" aria-checked={on} data-act="contours" disabled={globe} onClick={() => setContourKind(kind ? null : lastContour)}>
         <span className="lp-box" aria-hidden="true">
           {on ? '✓' : ''}
         </span>
@@ -306,6 +379,10 @@ function ContourRow({ globe }: { globe: boolean }) {
   );
 }
 
-function Thumb({ src }: { src?: string }) {
-  return <span className={`lp-thumb${src ? '' : ' empty'}`} style={src ? { backgroundImage: `url(${src})` } : undefined} aria-hidden="true" />;
+function Thumb({ src, busy, className }: { src?: string; busy?: boolean; className?: string }) {
+  return (
+    <span className={`lp-thumb${src ? '' : ' empty'}${className ? ` ${className}` : ''}`} style={src ? { backgroundImage: `url(${src})` } : undefined} aria-hidden="true">
+      {busy && <i className="lp-spin" />}
+    </span>
+  );
 }

@@ -37,12 +37,14 @@ import { TILE, tileCanvas, tileKey, tilesAvailable, tileStats, tilesWorld, wantT
 import { centerShift, type MapProj } from '../render/projection';
 import { mapBoxOf, placeOnScreen, visibleBox, type Visible } from './mapWrap';
 import { useMapMoving } from './projection';
+import type { SurfaceLook } from '../render/surface';
 
 /** 画好的那一块(地图框 CSS 坐标,缩放前)和画的时候的缩放倍数 */
 interface Drawn {
   world: World;
   raster: Raster;
   style: string;
+  look: SurfaceLook;
   k: number;
   x0: number;
   y0: number;
@@ -102,12 +104,15 @@ export function TerrainDetail({
   world,
   raster,
   style,
+  look = 'classic',
   view,
   mp = null,
 }: {
   world: World;
   raster: Raster;
   style: string;
+  /** 写实风的画法(surface.ts) */
+  look?: SurfaceLook;
   view: { k: number; x: number; y: number };
   /** 弯边投影(当前投影 + 中心);等距圆柱 = null */
   mp?: MapProj | null;
@@ -116,7 +121,7 @@ export function TerrainDetail({
   const tilesRef = useRef<HTMLDivElement>(null);
   const levels = useRef<Map<string, TileLevel>>(new Map());
   /** 现在这一档、看得见的块(列已展开)、它们放在哪个世界上 */
-  const tileView = useRef<{ id: string; want: { tx: number; ty: number }[]; world: World } | null>(null);
+  const tileView = useRef<{ id: string; want: { tx: number; ty: number }[]; world: World; look: SurfaceLook } | null>(null);
   const drawn = useRef<Drawn | null>(null);
   /** 在后台备料、还没画上去的那一块(见 detailJobs.ts) */
   const pend = useRef<Drawn | null>(null);
@@ -178,7 +183,7 @@ export function TerrainDetail({
     // 写实风、等距圆柱:地形连河按屏幕现算一块块(后台线程能用时;放大到细节层才起线程)
     const tiled = style === 'realistic' && !mp && tilesAvailable();
     if (!tiled) clearTiles();
-    else if (tileView.current && tileView.current.world !== world) clearTiles();
+    else if (tileView.current && (tileView.current.world !== world || tileView.current.look !== look)) clearTiles();
     const projKey = mp ? mp.key : '';
 
     /** 一块放上去(fade:刚算好的淡入;缓存里拿的直接显示) */
@@ -205,7 +210,7 @@ export function TerrainDetail({
      */
     const updateTiles = (vis: Visible, exact: boolean) => {
       if (!tiled) return;
-      tilesWorld(world, raster);
+      tilesWorld(world, raster, look);
       const perUnit = (vis.bw / world.width) * vis.k; // 屏幕 CSS 像素 / 世界单位
       const S = Math.min(TILE_MAX_S, 2 ** Math.round(Math.log2(Math.max(perUnit, 1e-6))));
       if (S < TILE_MIN_S) {
@@ -259,7 +264,7 @@ export function TerrainDetail({
         }
       let missing = 0;
       for (const t of want) if (!showTile(lv, t.tx, t.ty, nx, false)) missing++;
-      tileView.current = { id, want, world };
+      tileView.current = { id, want, world, look };
       if (!missing) dropOtherLevels(id);
       if (exact && missing) {
         const level = lv;
@@ -313,7 +318,7 @@ export function TerrainDetail({
     const fits = (d: Drawn, vis: Visible, exact: boolean, dx = 0) =>
       covers(d, vis.x0, vis.y0, vis.x1, vis.y1, dx) && Math.abs(Math.log(vis.k / d.k)) < (exact ? 0.02 : K_SLACK);
     /** 同一个世界、同一种画风画的 */
-    const same = (d: Drawn | null) => (d && d.world === world && d.raster === raster && d.style === style ? d : null);
+    const same = (d: Drawn | null) => (d && d.world === world && d.raster === raster && d.style === style && d.look === look ? d : null);
     /**
      * 画好的(或在备的)那一块要左右挪多少才对得上(地图框 CSS 像素):同一个投影 + 中心 = 0;
      * 弯边投影正在转中心 = 按投影整体平移(停下来要准,不算);null = 用不上,要按新中心重画
@@ -339,7 +344,7 @@ export function TerrainDetail({
       let dpr = window.devicePixelRatio || 1;
       const px = (x1 - x0) * (y1 - y0) * vis.k * vis.k;
       if (px * dpr * dpr > MAX_PIXELS) dpr = Math.sqrt(MAX_PIXELS / px);
-      return { world, raster, style, k: vis.k, x0, y0, x1, y1, dpr, proj: projKey, mp };
+      return { world, raster, style, look, k: vis.k, x0, y0, x1, y1, dpr, proj: projKey, mp };
     };
 
     /** 把 r 这一块画到画布上、摆好(左右挪 slide;st = 分帧备料的统计) */
@@ -362,7 +367,7 @@ export function TerrainDetail({
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.clearRect(0, 0, W, H);
         // 地图平面和世界一样大:画布像素 / 地图平面单位 = s,偏移同等距圆柱
-        drawTerrainProjected(ctx, world, raster, style as DetailStyle, r.mp, v);
+        drawTerrainProjected(ctx, world, raster, style as DetailStyle, r.mp, v, look);
       } else if (x0 < vis.bw && x1 > vis.bw) {
         // 这一块跨过主图的右边(180° 经线):左右两段各画一遍(右段 = 挪一整圈),各自裁在自己那一段里,
         // 接缝处的符号、河不会画两遍叠深
@@ -376,13 +381,13 @@ export function TerrainDetail({
           ctx.beginPath();
           ctx.rect(c0, 0, c1 - c0, H);
           ctx.clip();
-          drawTerrainDetail(ctx, world, raster, style as DetailStyle, { ...v, ox: v.ox + shift }, !tileView.current);
+          drawTerrainDetail(ctx, world, raster, style as DetailStyle, { ...v, ox: v.ox + shift }, !tileView.current, look);
           ctx.restore();
         }
       } else {
         // 整块都在右边接的那一份里:挪回一整圈画
         const shift = x0 >= vis.bw ? world.width * s : 0;
-        drawTerrainDetail(ctx, world, raster, style as DetailStyle, { ...v, ox: v.ox + shift }, !tileView.current);
+        drawTerrainDetail(ctx, world, raster, style as DetailStyle, { ...v, ox: v.ox + shift }, !tileView.current, look);
       }
       drawn.current = r;
       (window as unknown as { __wfDetail?: unknown }).__wfDetail = {
@@ -411,8 +416,8 @@ export function TerrainDetail({
         // 弯边投影:画布大小、变换同 paint
         const W = Math.max(1, Math.round((r.x1 - r.x0) * r.k * r.dpr));
         const H = Math.max(1, Math.round((r.y1 - r.y0) * r.k * r.dpr));
-        steps = terrainProjPrep(world, raster, style as DetailStyle, r.mp, { s, ox: -r.x0 * r.k * r.dpr, oy: -r.y0 * r.k * r.dpr, k: r.k }, W, H);
-      } else steps = terrainDetailPrep(world, raster, style as DetailStyle, s, !tileView.current);
+        steps = terrainProjPrep(world, raster, style as DetailStyle, r.mp, { s, ox: -r.x0 * r.k * r.dpr, oy: -r.y0 * r.k * r.dpr, k: r.k }, W, H, look);
+      } else steps = terrainDetailPrep(world, raster, style as DetailStyle, s, !tileView.current, look);
       submitDetailJob(JOB, steps, (st) => {
         if (pend.current !== r) return;
         pend.current = null;
@@ -492,7 +497,7 @@ export function TerrainDetail({
     draw(false);
     // 停下来以后按准确的缩放倍数补画一次
     timer.current = window.setTimeout(() => draw(true), 150);
-  }, [world, raster, style, view, tick, mp, moving]);
+  }, [world, raster, style, look, view, tick, mp, moving]);
 
   return (
     <>

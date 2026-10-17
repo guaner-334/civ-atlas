@@ -429,7 +429,7 @@
   visibility: hidden;
 }
 
-/* ==== 图层与投影 → 从底部升起的抽屉(6 张缩略图两行三列) ==== */
+/* ==== 图层面板 → 从底部升起的抽屉(底图四张缩略图一行) ==== */
 .app.phone .lp-pop {
   position: fixed;
   left: 0;
@@ -463,18 +463,6 @@
   height: 4px;
   border-radius: 2px;
   background: var(--line-strong);
-}
-.app.phone .lp-close {
-  position: absolute;
-  right: 0;
-  top: 2px;
-  border: 0;
-  background: transparent;
-  color: var(--ink-2);
-  border-radius: var(--r-btn);
-  padding: 6px 10px;
-  font-size: 14px;
-  line-height: 1;
 }
 .app.phone .lp-layers {
   gap: 10px;

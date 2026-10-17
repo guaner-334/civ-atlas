@@ -115,6 +115,9 @@ import { fantasyGlobeBase, releaseFantasyGlobeBase } from '../render/fantasy';
 import type { LabelPick } from './mapPick';
 import { AVOID_MS, measureAvoid, type Box } from './uiAvoid';
 import type { GlobeTexRequest, GlobeTexResponse } from '../globeWorker';
+import { reliefWeights } from '../render/realistic';
+import type { SurfaceLook } from '../render/surface';
+import { LOOK_NAMES } from './mapLayers';
 import { fileBaseName } from '../gen/savefile';
 import { currentWorld } from './saveStore';
 import { createWheelReader, inGesturePinch, wheelSample } from './wheel';
@@ -212,6 +215,8 @@ export interface GlobeProps {
   geo?: Civ | null;
   style: 'realistic' | 'fantasy' | 'data';
   layer: LayerId;
+  /** 写实风的画法(surface.ts;不给 = 经典卫星) */
+  look?: SurfaceLook;
   /** 主图上画好的地形画布(当前画风);terrainKey 变了 = 重画过 */
   terrain: HTMLCanvasElement | null;
   terrainKey: unknown;
@@ -335,8 +340,9 @@ interface HdTexture {
   slope?: PixelSource;
 }
 
-/** 高清贴图按什么存:画风(数据图层再加上是哪一层) */
-const hdKey = (p: { style: string; layer: string }) => (p.style === 'data' ? `data:${p.layer}` : p.style);
+/** 高清贴图按什么存:画风(数据图层再加上是哪一层,写实风再加上画法) */
+const hdKey = (p: { style: string; layer: string; look: SurfaceLook }) =>
+  p.style === 'data' ? `data:${p.layer}` : p.style === 'realistic' && p.look !== 'classic' ? `realistic:${p.look}` : p.style;
 
 /** 画布 → RGBA 像素(CPU 画法用;先复制到一张单独的画布再读,不让主图画布降级成软件渲染) */
 function readPixels(src: CanvasImageSource & { width: number; height: number }): RgbaImage | null {
@@ -650,7 +656,7 @@ const sameKey = (a: readonly unknown[] | null, b: readonly unknown[]) => !!a && 
 
 // ---------------------------------------------------------------------------
 
-export function Globe({ world, raster, civ, geo, style, layer, terrain, terrainKey, replay, startLon, apiRef, onHover, leftRoom = 0, rightRoom = 0 }: GlobeProps) {
+export function Globe({ world, raster, civ, geo, style, layer, look = 'classic', terrain, terrainKey, replay, startLon, apiRef, onHover, leftRoom = 0, rightRoom = 0 }: GlobeProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const glRef = useRef<HTMLCanvasElement>(null);
   const ovRef = useRef<HTMLCanvasElement>(null);
@@ -750,8 +756,8 @@ export function Globe({ world, raster, civ, geo, style, layer, terrain, terrainK
   }).current;
 
   // 最新的 props(帧回调里读)
-  const props = useRef({ world, raster, civ, geo, style, layer, terrain, terrainKey, replay, graticule, sel, show, leftRoom, rightRoom, hl, faithFocus });
-  props.current = { world, raster, civ, geo, style, layer, terrain, terrainKey, replay, graticule, sel, show, leftRoom, rightRoom, hl, faithFocus };
+  const props = useRef({ world, raster, civ, geo, style, layer, look, terrain, terrainKey, replay, graticule, sel, show, leftRoom, rightRoom, hl, faithFocus });
+  props.current = { world, raster, civ, geo, style, layer, look, terrain, terrainKey, replay, graticule, sel, show, leftRoom, rightRoom, hl, faithFocus };
 
   /** 左边被侧栏卡片挡住的宽度(画布太窄就不让) */
   const leftOf = () => (s.size.w > 2 * props.current.leftRoom ? props.current.leftRoom : 0);
@@ -972,7 +978,7 @@ export function Globe({ world, raster, civ, geo, style, layer, terrain, terrainK
       fail.add(key);
     };
     // 细沟只有写实风用得着(别的画风不带,省得拷一份)
-    const req: GlobeTexRequest = { world: p.world, style: p.style, layer: p.layer, scale, veins: p.style === 'realistic' ? p.raster.veinLines : undefined };
+    const req: GlobeTexRequest = { world: p.world, style: p.style, layer: p.layer, look: p.look, scale, veins: p.style === 'realistic' ? p.raster.veinLines : undefined };
     wk.postMessage(req);
   };
   /** 放大到 1.5 倍以上、主图那张不够清楚时,后台线程按两倍像素重铺一张 */
@@ -1154,7 +1160,7 @@ export function Globe({ world, raster, civ, geo, style, layer, terrain, terrainK
       }
     }
     s.hlA = hlA;
-    const look: GlobeLook = { style: p.style, relief: s.relief, graticule: p.graticule, hl: hlA, replay: s.replayMix };
+    const look: GlobeLook = { style: p.style, relief: s.relief, weights: reliefWeights(p.look), graticule: p.graticule, hl: hlA, replay: s.replayMix };
     const { w, h, dpr } = s.size;
     const busy = !!(s.drag || s.fly || s.inertia || s.pinch || s.shiftAnim) || now - s.wheelAt < SETTLE_MS;
     // 中心经度和弹层里的"中央经线"、平面地图互通:停下来时记下正对着的经度(转动中不记,免得整页跟着重排)
@@ -1351,7 +1357,7 @@ export function Globe({ world, raster, civ, geo, style, layer, terrain, terrainK
   }, []);
 
   // 贴图来源、开关变了:下一帧上传、重画
-  useEffect(invalidate, [terrain, terrainKey, replay, raster, graticule, style, civ, geo, sel, show, leftRoom, rightRoom, hl, faithFocus]);
+  useEffect(invalidate, [terrain, terrainKey, replay, raster, graticule, style, look, civ, geo, sel, show, leftRoom, rightRoom, hl, faithFocus]);
   useEffect(() => subscribeCivFeed(invalidate), []);
   // 时间轴一动:文明贴图、国界道路的矢量线换成那一年的
   useEffect(() => subscribeCivTime(invalidate), []);
@@ -1683,7 +1689,7 @@ export function Globe({ world, raster, civ, geo, style, layer, terrain, terrainK
       out.width = W;
       out.height = H;
       const octx = out.getContext('2d')!;
-      const look: GlobeLook = { style: p.style, relief: s.relief, graticule: p.graticule, hl: 0, replay: s.replayMix };
+      const look: GlobeLook = { style: p.style, relief: s.relief, weights: reliefWeights(p.look), graticule: p.graticule, hl: 0, replay: s.replayMix };
       if (s.gl) {
         const ow = cvs.width;
         const oh = cvs.height;
@@ -1726,7 +1732,7 @@ export function Globe({ world, raster, civ, geo, style, layer, terrain, terrainK
       // 文件名在编码之前定下:编码要一会儿,这期间换了年份、打开了别的世界,名字照样对得上画出来的这一张
       const civ = p.civ;
       const year = civ ? Math.floor(Math.max(0, Math.min(civ.endYear, getCivTime().year ?? civ.endYear))) : 0;
-      const styleName = p.style === 'realistic' ? '写实' : p.style === 'fantasy' ? '手绘' : '数据图层';
+      const styleName = p.style === 'realistic' ? LOOK_NAMES[p.look] : p.style === 'fantasy' ? '手绘' : '数据图层';
       const name = `${fileBaseName({ title: currentWorld()?.title, seed: p.world.params.seed })}-${yearFull(year, currentEra()).replace(/ /g, '')}-地球仪-${styleName}.png`;
       const blob = await new Promise<Blob>((res, rej) => out.toBlob((b) => (b ? res(b) : rej(new Error('图片太大,浏览器编码不了'))), 'image/png'));
       out.width = out.height = 0;

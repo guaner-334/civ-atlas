@@ -66,20 +66,37 @@ const openLayers = async (p: Page = page) => {
   if (!(await p.locator('.lp-pop').count())) await p.click('[data-act=layers]');
   await p.locator('.lp-pop').waitFor({ timeout: 5000 });
 };
-/** 换图层(政区 / 民族 / 地形 / 生态 / 高程 / 实景 / 板块 / 气温 / 降水;点完弹层自己收起) */
-const pickLayer = async (p: Page, id: string) => {
+/** 图层面板里点开「投影」一行(投影列表、中央经线) */
+const openProj = async (p: Page = page) => {
   await openLayers(p);
-  await p.click(`.lp-pop [data-layer=${id}]`);
+  if (!(await p.locator('.lp-projs').count())) await p.click('.lp-pop [data-act=projections]');
+  await p.locator('.lp-projs').waitFor({ timeout: 5000 });
+};
+/** 旧图层名 → 底图 + 填色(数据图层 = 那种数据底图 + 不填) */
+const LAYER_PARTS: Record<string, [string, string]> = {
+  political: ['fantasy', 'polities'],
+  cultures: ['fantasy', 'cultures'],
+  faith: ['fantasy', 'faiths'],
+  terrain: ['fantasy', 'none'],
+  realistic: ['satellite', 'none'],
+};
+/** 换图层(政区 / 民族 / 地形 / 生态 / 高程 / 实景 / 板块 / 气温 / 降水):在图层面板里点底图、填色,再点按钮收起 */
+const pickLayer = async (p: Page, id: string) => {
+  const [base, fill] = LAYER_PARTS[id] ?? [id, 'none'];
+  await openLayers(p);
+  await p.click(`.lp-pop [data-base=${base}]`);
+  await p.click(`.lp-pop [data-fill=${fill}]`);
+  await p.click('[data-act=layers]');
 };
 /** 换投影(点完收起弹层) */
 const pickProj = async (p: Page, id: string) => {
-  await openLayers(p);
+  await openProj(p);
   await p.click(`.lp-proj[data-proj=${id}]`);
   await p.keyboard.press('Escape');
 };
 /** 弹层里当前选中的投影 */
 const projOn = async (p: Page = page) => {
-  await openLayers(p);
+  await openProj(p);
   const v = await p.locator('.lp-proj.on').getAttribute('data-proj').catch(() => null);
   await p.keyboard.press('Escape');
   return v;
@@ -170,8 +187,8 @@ const pushOrders = async (p: Page, tap = false) => {
 /** 顶部提示条上某个来源的那条(save 存档 / export 导出 / progress 生成……) */
 const toastText = (p: Page, id: string, timeout = 3000) =>
   p.locator(`.toast[data-toast=${id}]`).innerText({ timeout }).then((t) => t.replace(/\n/g, ' '), () => '');
-// 界面骨架:地图铺满窗口,左边浮着侧栏卡片(世界名 + 副标、搜索框);右上图层分段按钮"政区"亮着;第一次打开有操作提示(拖一下就没了);
-// 悬停小卡片(国名 + 州数);右下 + − 缩放;弹层("更多图层"):缩略图、切到实景 → 深色主题、网址记下;叠加开关(地名……)、民族图例;
+// 界面骨架:地图铺满窗口,左边浮着侧栏卡片(世界名 + 副标、搜索框);右上填色分段按钮"国家"亮着、底图按钮写"手绘";第一次打开有操作提示(拖一下就没了);
+// 悬停小卡片(国名 + 州数);右下 + − 缩放;图层面板:缩略图、切到卫星 → 深色主题、网址记下、面板不收;叠加开关(地名……)、民族图例;
 // 世界概览:打开、四个页签、Esc / 点外面收起、国家表点一行 → 概览收起、选中这国;点国家 → 详情在侧栏里(世界首页换成面板)
 {
   await page.goto(`${dev.url}/?seed=7`);
@@ -184,6 +201,7 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
   const sideRadius = await page.locator('aside.sidebar').evaluate((e) => getComputedStyle(e).borderTopLeftRadius);
   const title = (await page.locator('.sb-title').innerText()).replace(/\n/g, ' ');
   const label0 = await page.locator('.seg-btn.on').innerText();
+  const base0 = await page.locator('.lp-base').innerText();
   const theme0 = await page.locator('.app').getAttribute('data-theme');
   const hint0 = await page.locator('.first-hint').count();
   // 右下 + −
@@ -208,18 +226,20 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
     await page.waitForTimeout(25);
     card = (await page.locator('.hover-card').innerText().catch(() => '')).replace(/\n/g, ' ');
   }
-  // 弹层:缩略图做出来;切到实景
+  // 图层面板:缩略图做出来;切到卫星(面板不收)
   await page.click('[data-act=layers]');
   const pop = (await page.locator('.lp-pop').innerText().catch(() => '')).replace(/\n/g, ' ');
-  await page.waitForFunction(() => document.querySelectorAll('.lp-layer .lp-thumb:not(.empty)').length >= 6, null, { timeout: 20000 }).catch(() => {});
+  await page.waitForFunction(() => document.querySelectorAll('.lp-layer .lp-thumb:not(.empty)').length >= 4, null, { timeout: 20000 }).catch(() => {});
   const thumbs = await page.locator('.lp-layer .lp-thumb:not(.empty)').count();
-  await page.click('.lp-layer[data-layer=realistic]');
+  await page.click('.lp-layer[data-base=satellite]');
   await page.waitForFunction(() => (window as any).__wf?.style === 'realistic', null, { timeout: 10000 }).catch(() => {});
   await page.waitForTimeout(600);
   const theme1 = await page.locator('.app').getAttribute('data-theme');
-  const label1 = await page.locator('.seg-btn.on').innerText();
+  const label1 = `${await page.locator('.seg-btn.on').innerText()}+${await page.locator('.lp-base').innerText()}`;
   const url1 = page.url();
   const popClosed = !(await page.locator('.lp-pop').count());
+  const satRow = (await page.locator('.lp-sat').innerText().catch(() => '')).replace(/\n/g, ' ');
+  await page.click('[data-act=layers]');
   await pickLayer(page, 'political');
   await page.waitForTimeout(300);
   const theme2 = await page.locator('.app').getAttribute('data-theme');
@@ -230,10 +250,11 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
   const regionsOn = (await page.locator('.lp-tog[data-civ=regions]').getAttribute('aria-checked')) === 'true';
   const stillOpen = (await page.locator('.lp-pop').count()) === 1;
   await page.click('.lp-tog[data-civ=regions]');
-  await page.click('.lp-pop [data-layer=cultures]');
-  await page.click('[data-act=layers]');
+  await page.click('.lp-pop [data-fill=cultures]');
+  await page.waitForTimeout(200);
   const cultureKeys = await page.locator('.lp-cultures .lp-cu').count();
-  await page.click('.lp-pop [data-layer=political]');
+  await page.click('.lp-pop [data-fill=polities]');
+  await page.click('[data-act=layers]');
   await page.waitForTimeout(300);
   // 世界概览:点世界名打开;头部、四个页签;Esc 收起;点外面收起
   await page.click('[data-act=overview]');
@@ -280,7 +301,7 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
   console.log(
     `界面骨架:侧栏 ${side ? `${side.width}×${side.height}` : '没有'},舞台 ${stage.width}×${stage.height} @ ${stage.x}(视口 ${vp.width}×${vp.height}),地图框 ${Math.round(mapBox.width)}×${Math.round(mapBox.height)};侧栏顶上「${title}」;图层「${label0}」;` +
       `主题 ${theme0};首次提示 ${hint0} → 拖动后 ${hint1};缩放按钮 ${k0} → ${k1.toFixed(2)} → ${k2.toFixed(2)};悬停「${card}」;` +
-      `弹层「${pop.slice(0, 40)}…」缩略图 ${thumbs} 张;切实景 → 主题 ${theme1}、按钮「${label1}」、弹层收起 ${popClosed}、网址 ${url1.split('?')[1]};切回政区 → 主题 ${theme2};` +
+      `弹层「${pop.slice(0, 40)}…」缩略图 ${thumbs} 张;切卫星 → 主题 ${theme1}、按钮「${label1}」、面板收起 ${popClosed}、${satRow}、网址 ${url1.split('?')[1]};切回手绘 + 国家 → 主题 ${theme2};` +
       `叠加开关「${togs}」:点"州" ${regionsOn}、弹层不收 ${stillOpen};民族色块 ${cultureKeys} 个;` +
       `概览打开 ${ovOpen}、头部「${ovHead}」、页签「${ovTabs}」、国家 ${ovRows} 行;编年史「${pages.chronicle?.slice(0, 30)}…」;我的干预「${pages.interventions}」;` +
       `世界设定「${pages.genesis?.slice(0, 40)}…」;Esc 收起 ${escClosed}、点外面收起 ${scrimClosed};国家表点「${rowName}」→ 概览收起 ${rowClosed}、面板「${rowIns.slice(0, 30)}」;` +
@@ -300,14 +321,15 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
     errs.push(`界面骨架:应是地图铺满窗口 + 左边浮着圆角的侧栏卡片(卡片 ${JSON.stringify(side)}、圆角 ${sideRadius};舞台 ${JSON.stringify(stage)})`);
   if (!(mapBox.height >= stage.height - 1 && mapBox.width >= stage.width - 1)) errs.push('界面骨架:地图框没有盖满舞台');
   if (!/未命名世界/.test(title) || !/种子 7，现存 \d+ 国/.test(title)) errs.push(`界面骨架:侧栏顶上的世界名 / 副标不对(${title})`);
-  if (label0 !== '政区' || theme0 !== 'light') errs.push(`界面骨架:默认图层应为"政区"、浅色(${label0},${theme0})`);
+  if (label0 !== '国家' || base0 !== '手绘' || theme0 !== 'light') errs.push(`界面骨架:默认应为手绘 + 国家、浅色(${label0},${base0},${theme0})`);
   if (hint0 !== 1 || hint1 !== 0) errs.push('界面骨架:第一次打开的操作提示没出现 / 拖动后没消失');
   if (!(k1 > 1.4 && Math.abs(k2 - 1) < 0.01)) errs.push(`界面骨架:右下的 + − 没有缩放(${k0} → ${k1} → ${k2})`);
   if (!/\d+ 州/.test(card)) errs.push(`界面骨架:国家图层上悬停没有"国名 N 州"(${card})`);
-  if (!pop.includes('图层') || !pop.includes('投影') || !pop.includes('中央经线') || !pop.includes('经纬网')) errs.push('界面骨架:图层与投影弹层内容不全');
-  if (thumbs < 6) errs.push(`界面骨架:弹层里的缩略图没做出来(${thumbs} 张)`);
-  if (theme1 !== 'dark' || label1 !== '实景' || !popClosed || !/[?&]layer=realistic/.test(url1)) errs.push(`界面骨架:切到实景不对(主题 ${theme1},按钮 ${label1},网址 ${url1})`);
-  if (theme2 !== 'light') errs.push('界面骨架:切回政区后没换回浅色主题');
+  if (!['底图', '数据底图', '填色', '叠加', '经纬网', '等值线', '投影'].every((w) => pop.includes(w))) errs.push(`界面骨架:图层面板内容不全(${pop.slice(0, 80)})`);
+  if (thumbs < 4) errs.push(`界面骨架:面板里的缩略图没做出来(${thumbs} 张)`);
+  if (theme1 !== 'dark' || label1 !== '国家+卫星' || popClosed || !/[?&]map=satellite/.test(url1) || !/[?&]sat=detail/.test(url1) || !satRow.includes('细节'))
+    errs.push(`界面骨架:切到卫星不对(主题 ${theme1},按钮 ${label1},面板收起 ${popClosed},${satRow},网址 ${url1})`);
+  if (theme2 !== 'light') errs.push('界面骨架:切回手绘后没换回浅色主题');
   if (!['地名', '宜居度', '州', '城址', '道路'].every((w) => togs.includes(w)) || !regionsOn || !stillOpen) errs.push(`图层弹层:叠加开关不全 / 点了没反应(${togs})`);
   if (cultureKeys < 2) errs.push(`图层弹层:选"民族"时没有列出民族色块(${cultureKeys})`);
   if (!ovOpen || !['现存', '历来', '民族', '城镇', '种子 7', '当前'].every((w) => ovHead.includes(w))) errs.push(`世界概览:打不开 / 头部不全(${ovHead})`);
@@ -408,7 +430,7 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
   const savePrevented = await page.evaluate(() => (window as any).__kbSave);
   await page.keyboard.press('Escape');
   // 提示框:鼠标停在"民族"上
-  await page.hover('.seg-btn[data-layer=cultures]');
+  await page.hover('.seg-btn[data-fill=cultures]');
   await page.waitForTimeout(700);
   const tip = (await page.locator('.ui-tip').innerText().catch(() => '')).replace(/\s+/g, ' ');
   await page.mouse.move(SIDE_ROOM + (vp.width - SIDE_ROOM) / 2, vp.height / 2);
@@ -473,8 +495,8 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
   if (!play1 || play2) errs.push(`快捷键:空格没有播放 / 暂停(${play1}、${play2})`);
   if (!play3 || play4) errs.push(`快捷键:点过播放键以后按空格,应只暂停一次(${play3} → ${play4})`);
   if (!(k1 > k0 * 1.3 && Math.abs(k2 - k0) < 0.01)) errs.push(`快捷键:+ − 没有缩放(${k0} → ${k1} → ${k2})`);
-  if (l2 !== '民族' || l1 !== '政区') errs.push(`快捷键:1 2 没有换图层(${l2}、${l1})`);
-  if (!searchFocused || typed !== '2' || lTyped !== '政区') errs.push(`快捷键:/ 没有跳进搜索框,或在框里打字换了图层(${searchFocused}、「${typed}」、${lTyped})`);
+  if (l2 !== '民族' || l1 !== '国家') errs.push(`快捷键:1 2 没有换填色(${l2}、${l1})`);
+  if (!searchFocused || typed !== '2' || lTyped !== '国家') errs.push(`快捷键:/ 没有跳进搜索框,或在框里打字换了图层(${searchFocused}、「${typed}」、${lTyped})`);
   // 修饰键苹果电脑上写成 ⌘(⌘S、⌘\),别的系统写成 Ctrl+(见 src/ui/shortcuts.ts 的 keyLabel)
   if (!['时间', '地图', '世界', '播放 / 暂停', '撤销 / 重做'].every((w) => help.includes(w)) || !/Ctrl\+S|⌘S/.test(help) || playUnderHelp || !helpClosed)
     errs.push(`快捷键:? 一览不对,或开着时空格还在播放 / Esc 收不起(${help.slice(0, 60)};${playUnderHelp};${helpClosed})`);
@@ -954,10 +976,10 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
   const country = (await page.locator('.inspector .cp').innerText().catch(() => '')).replace(/\s+/g, ' ');
   await page.keyboard.press('Escape');
   console.log(
-    `信仰图层:按 3 → ${label}(${/[?&]layer=faith/.test(url) ? '网址记下' : url});侧栏 ${rows.length} 行「${rows.slice(0, 3).join(' | ')} … ${rows[rows.length - 1] ?? ''}」;` +
+    `信仰图层:按 3 → ${label}(${/[?&]fill=faiths/.test(url) ? '网址记下' : url});侧栏 ${rows.length} 行「${rows.slice(0, 3).join(' | ')} … ${rows[rows.length - 1] ?? ''}」;` +
       `悬停「${card}」→ 卡片「${panel.slice(0, 60)}…」;侧栏第一行 → 「${panelFaith.slice(0, 40)}…」;国家卡片${country.includes('国教') ? '有' : '没有'}国教`,
   );
-  if (label !== '信仰' || !/[?&]layer=faith/.test(url)) errs.push(`信仰图层:按 3 没有换到"信仰" / 网址没记下(${label};${url})`);
+  if (label !== '信仰' || !/[?&]fill=faiths/.test(url)) errs.push(`信仰图层:按 3 没有换到"信仰" / 网址没记下(${label};${url})`);
   if (names.length < 2 || !/民间信仰/.test(rows[rows.length - 1] ?? '') || !rows.every((r) => /\d+ 州/.test(r))) errs.push(`信仰图层:侧栏的信仰列表不对(${rows.join(' | ')})`);
   if (!spot) errs.push(`信仰图层:悬停陆地没有显示这里信的教(${card})`);
   else if (!panel || !['类型', '信众'].every((w) => panel.includes(w)) || !panel.startsWith(card.split(' ')[0]))
@@ -4130,7 +4152,7 @@ for (const style of ['realistic', 'fantasy']) {
   await page.waitForTimeout(300);
   const view = () => page.evaluate(() => (window as any).__wfView);
   // 1. 切到罗宾森:地形、文明层、文字都按投影重画;量"点下去 → 画完"的耗时
-  await openLayers();
+  await openProj();
   const t0 = Date.now();
   await page.click('.lp-proj[data-proj=robinson]');
   const switched = await page
@@ -4229,7 +4251,7 @@ for (const style of ['realistic', 'fantasy']) {
   // 4. 只用左键:右键不出菜单;弹层里的中央经线滑条转到 −120°(显示"120°W")
   await page.mouse.click(mb.x + mb.width * 0.3, mb.y + mb.height * 0.5, { button: 'right' });
   const ctx = await page.locator('.ctx-menu').count();
-  await openLayers();
+  await openProj();
   await page.evaluate(() => {
     const el = document.querySelector('.lp-center input') as HTMLInputElement;
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, '-120');
@@ -4973,15 +4995,18 @@ for (const style of ['realistic', 'fantasy']) {
       }
     }
   }
-  // 图层抽屉:从底部升起、铺满宽度;切到实景
+  // 图层抽屉:从底部升起、铺满宽度;切到卫星(抽屉不收),再点图层按钮收起
   await mp.tap('[data-act=layers]');
   await mp.waitForTimeout(400);
   const lp = await box('.lp-pop');
-  await mp.tap('.lp-pop [data-layer=realistic]');
+  await mp.tap('.lp-pop [data-base=satellite]');
   await mp.waitForFunction(() => (window as any).__wf?.style === 'realistic', null, { timeout: 10000 }).catch(() => {});
   await mp.waitForTimeout(300);
   const dark = await mp.locator('.app').getAttribute('data-theme');
-  const lpClosed = !(await mp.locator('.lp-pop').count());
+  const lpOpen = (await mp.locator('.lp-pop').count()) === 1;
+  await mp.tap('[data-act=layers]');
+  await mp.waitForTimeout(300);
+  const lpClosed = lpOpen && !(await mp.locator('.lp-pop').count());
   // 概览:关掉详情卡片,点世界卡片上的世界名 → 概览;国家列表点一国 → 概览收起、详情卡片里是这国
   await mp.tap('.inspector .cp-x', { timeout: 5000 }).catch(() => {});
   await mp.waitForTimeout(400);
@@ -5050,7 +5075,7 @@ for (const style of ['realistic', 'fantasy']) {
       `捏合 k ${k0.toFixed(2)} → ${k1.toFixed(2)}(中点下 ${mid0?.map((v: number) => v.toFixed(0))} → ${mid1?.map((v: number) => v.toFixed(0))});单指拖动 ${panned};点两下回正 k ${kReset.toFixed(2)};` +
       `点「${pol?.text}」→ 详情卡片 ${JSON.stringify(sheet0)}、胶囊 ${JSON.stringify(row1)}、国都圆环 ${JSON.stringify(ring)}、悬停卡片 ${hover};上拖 → 拉到顶 ${full} ${JSON.stringify(sheet1)}、胶囊藏起 ${fullCapsuleHidden};` +
       `干预页 ${cmds} 条;结盟提示「${pickToast}」、卡片藏起 ${hiddenWhilePicking};点「${tgtText}」→「${doneToast}」;撤销 →「${undoToast}」;` +
-      `图层抽屉 ${JSON.stringify(lp)} → 实景 ${dark}、收起 ${lpClosed};概览「${ovRowText}」→ 收起 ${ovClosed};搜索框 ${JSON.stringify(sb)} 拉到顶 ${searchFull} → 「${hitName}」;` +
+      `图层抽屉 ${JSON.stringify(lp)} → 卫星 ${dark}、收起 ${lpClosed};概览「${ovRowText}」→ 收起 ${ovClosed};搜索框 ${JSON.stringify(sb)} 拉到顶 ${searchFull} → 「${hitName}」;` +
       `拉到顶 ${homeFull} 点我的世界 → ${JSON.stringify(homeBox)}、${homeCards} 个世界;新建 → 卡片 ${JSON.stringify(nwBox)};改地形 → 工具 ${nwTools};完成 → 退回 ${nwBack}`,
   );
   if (!ws0 || Math.abs(ws0.y - (VH - PEEK)) > 2 || Math.abs(ws0.y + ws0.height - VH) > 1 || ws0.width !== VW) errs.push(`手机:世界卡片没有收在最底(${JSON.stringify(ws0)})`);
@@ -5085,7 +5110,7 @@ for (const style of ['realistic', 'fantasy']) {
     if (!/^已撤销/.test(undoToast)) errs.push(`手机:撤销后没有"已撤销"(${undoToast})`);
   }
   if (!lp || Math.abs(lp.y + lp.height - VH) > 1 || lp.width !== VW) errs.push(`手机:图层弹层不是底部抽屉(${JSON.stringify(lp)})`);
-  if (dark !== 'dark' || !lpClosed) errs.push(`手机:图层抽屉里切到实景不对(${dark})`);
+  if (dark !== 'dark' || !lpClosed) errs.push(`手机:图层抽屉里切到卫星不对 / 收不起来(${dark},${lpClosed})`);
   if (!afterX.sheet) errs.push(`手机:关掉详情卡片后没有回到世界卡片(${JSON.stringify(afterX)})`);
   if (!ovClosed || !ovName || !ovIns.includes(ovName)) errs.push(`手机:概览的国家列表点一国没有打开这国(${ovName})`);
   if (!sb || sb.width < VW - 40 || !searchFull) errs.push(`手机:搜索时世界卡片没有拉到顶(${JSON.stringify(sb)})`);
