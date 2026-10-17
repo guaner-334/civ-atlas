@@ -21,11 +21,13 @@ import { aiChat, getProvider, useAiOn } from '../ai/client';
 import { openAiSettings } from './AiSettings';
 import { AiError, type AiErrorCode, type AiProviderKind } from '../ai/types';
 import { getNote, putNote, useNotesVersion, type AiNote } from '../ai/library';
+import { fixRealWords } from '../ai/realWords';
 import {
   cleanExplanation,
   defaultName,
   explainNoteKey,
   explainRequest,
+  explainScan,
   isMockReply,
   mockSuggestions,
   nameInfo,
@@ -211,8 +213,10 @@ export function useAiName({ civ, raw, raster, target, compact, lazy, what }: AiN
     try {
       const m = nameMaterial(civ, target, raster);
       if (!m) throw new AiError('other', '找不到这个名字了');
-      const r = await aiChat(explainRequest(m), { signal: c.signal, onDelta: (_, full) => patch(k, { live: full }) });
-      const text = cleanExplanation(r.text);
+      const req = explainRequest(m);
+      const r = await aiChat(req, { signal: c.signal, onDelta: (_, full) => patch(k, { live: full }) });
+      // 扫一遍现实里的词(真实的语言、典籍、人物……),命中的句子让 AI 改一次
+      const text = await fixRealWords(cleanExplanation(r.text), { ...explainScan(m), feature: req.feature, title: req.title, signal: c.signal });
       if (!text) throw new AiError('bad-response', 'AI 没有写出内容,再试一次');
       const saved: NameNote = {
         key: explainNoteKey(k),

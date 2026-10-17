@@ -35,6 +35,7 @@ import { MAJOR, buildChronicle, cnNumber, type ChronicleEntry } from '../../gen/
 import { NAME_MAX, cleanName, cultureKey, dynastyKey, placeKeyOf, polityKey, regionKey, settlementKey, type KeyKind } from '../../gen/edits';
 import { habitatScore, habitatWord } from '../../ui/civDescribe';
 import type { AiMessage, AiRequest } from '../types';
+import type { ScanOptions } from '../realWords';
 
 // ---------------------------------------------------------------------------
 // 语感(12 种):和 gen/names 的 NAME_STYLES 一一对应、顺序一致(单测核对 id、label、desc)
@@ -1165,6 +1166,20 @@ export function explainRequest(m: NameMaterial): AiRequest {
     { role: 'user', content: user },
   ];
   return { feature: '释名', title: `${m.info.shown} · ${m.info.kindLabel}`, messages, temperature: 0.8, maxTokens: 800 };
+}
+
+/**
+ * 名字由来写完扫现实词的规矩(realWords.ts),和 explainSystem 的讲法对应:中式名字可以引一处古诗文,
+ * 音译名字可以有拟造的拉丁字母拼写,边塞风(和不知道语感的)两种都有。发给 AI 的提示和材料里有的词不算
+ */
+export function explainScan(m: NameMaterial): ScanOptions {
+  const style = m.info.style;
+  const mixed = !style || style.id === 'frontier';
+  return {
+    material: explainRequest(m).messages.map((x) => x.content).join('\n'),
+    allowClassics: mixed || style.family === 'eastern',
+    allowSpelling: mixed || style.family === 'western',
+  };
 }
 
 /**

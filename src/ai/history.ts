@@ -11,6 +11,7 @@ import type { Civ } from '../gen/civ/types';
 import { aiChat } from './client';
 import { AiError, type AiProviderKind } from './types';
 import { listNotes, putNote, type AiNote } from './library';
+import { fixRealWords } from './realWords';
 import {
   HISTORY_LENGTHS,
   HISTORY_STYLES,
@@ -116,6 +117,7 @@ export interface WriteHistoryOptions {
 
 /**
  * 写一部史书:一次(短、中篇)或一章一次(长篇)地调 AI,边写边回调 onProgress;写完存进本地笔记并返回。
+ * 每章写完扫一遍现实里的词(realWords.ts),命中的句子重写一次。
  * 没设置 AI / 失败 / 取消都抛 AiError(取消 = code 'aborted');这时不存,旧的那部(同一个键)不动
  */
 export async function writeHistory(civ: Civ, opts: HistoryOptions, o: WriteHistoryOptions): Promise<HistoryNote> {
@@ -125,6 +127,8 @@ export async function writeHistory(civ: Civ, opts: HistoryOptions, o: WriteHisto
   let done = '';
   let provider: AiProviderKind | '' = '';
   let model = '';
+  // 扫现实词时,整部书的材料里出现过的词都不算(后面几章会提到前面材料里的名字)
+  const material = prompts.calls.map((c) => `${c.head}\n${c.body}`).join('\n');
   for (let i = 0; i < n; i++) {
     if (o.signal?.aborted) throw new AiError('aborted', '已取消');
     const c = prompts.calls[i];
@@ -134,7 +138,8 @@ export async function writeHistory(civ: Civ, opts: HistoryOptions, o: WriteHisto
       { feature: HISTORY_KIND, title: c.title, messages: historyMessages(prompts, i, done), temperature: c.temperature, maxTokens: c.maxTokens },
       { signal: o.signal, onDelta: (_, full) => o.onProgress?.({ text: prefix + full, call: i, calls: n }) },
     );
-    done = prefix + r.text.trim();
+    // 每章写完扫一遍现实里的词,命中的句子让 AI 改一次
+    done = prefix + (await fixRealWords(r.text.trim(), { material, feature: HISTORY_KIND, title: c.title, signal: o.signal }));
     provider = r.provider;
     model = r.model;
   }
