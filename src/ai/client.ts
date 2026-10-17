@@ -10,6 +10,8 @@
  * 类型见 types.ts。
  */
 import { useSyncExternalStore } from 'react';
+import { recordDiag } from '../diag/log';
+import { diagDoing } from '../diag/watch';
 import { worldKey } from '../gen/savefile';
 import { currentWorld } from '../ui/saveStore';
 import { AiError, type AiCallOptions, type AiCallRecord, type AiProviderKind, type AiRequest, type AiResult, type AiToolCall } from './types';
@@ -162,6 +164,22 @@ let recorder: Recorder = (rec) => {
 export function setCallRecorder(f: Recorder): void {
   recorder = f;
 }
+/** 记一条:交给记录器,问题记录里也记一条(只有成没成功、耗时、用量,不带发出去和收到的内容) */
+function record(rec: AiCallRecord): void {
+  recorder(rec);
+  recordDiag({
+    kind: 'ai',
+    at: rec.at,
+    feature: rec.feature,
+    provider: rec.provider,
+    model: rec.model,
+    ok: rec.ok,
+    ...(rec.error ? { code: rec.error.code } : {}),
+    ms: rec.ms,
+    ...(rec.usage ? { tokensIn: rec.usage.inputTokens, tokensOut: rec.usage.outputTokens } : {}),
+    ...(rec.toolCalls?.length ? { toolCalls: rec.toolCalls.length } : {}),
+  });
+}
 /** 默认记录器里的最近几条(测试用) */
 export function recentCallsInMemory(): readonly AiCallRecord[] {
   return memory;
@@ -196,18 +214,18 @@ export async function aiChat(req: AiRequest, opts: AiCallOptions = {}): Promise<
   };
   if (aiOff) {
     const err = new AiError('not-configured', 'AI 功能已关(AI 设置里可以打开)');
-    recorder({ ...base, provider: kind ?? 'none', model: '', ok: false, error: { code: err.code, message: err.message }, ms: 0 });
+    record({ ...base, provider: kind ?? 'none', model: '', ok: false, error: { code: err.code, message: err.message }, ms: 0 });
     throw err;
   }
   if (!p) {
     const err = new AiError('not-configured', getAiStatus().reason ?? '还没有设置 AI');
-    recorder({ ...base, provider: kind ?? 'none', model: '', ok: false, error: { code: err.code, message: err.message }, ms: 0 });
+    record({ ...base, provider: kind ?? 'none', model: '', ok: false, error: { code: err.code, message: err.message }, ms: 0 });
     throw err;
   }
   const st = p.status();
   if (!st.ready) {
     const err = new AiError('not-configured', st.reason ?? `${p.label} 还没设置好`);
-    recorder({ ...base, provider: p.kind, model: st.model, ok: false, error: { code: err.code, message: err.message }, ms: 0 });
+    record({ ...base, provider: p.kind, model: st.model, ok: false, error: { code: err.code, message: err.message }, ms: 0 });
     throw err;
   }
   // 记下已经收到的部分:停止 / 中途断线时也写进记录(这部分服务商照样计费,用户能看到写到了哪)
@@ -219,10 +237,11 @@ export async function aiChat(req: AiRequest, opts: AiCallOptions = {}): Promise<
       opts.onDelta?.(chunk, full);
     },
   };
+  const idle = diagDoing(`AI:${req.feature}`);
   try {
     const r = await p.chat(req, tracked);
     const res: AiResult = { ...r, provider: p.kind, ms: Math.round(now()) };
-    recorder({
+    record({
       ...base,
       provider: p.kind,
       model: r.model,
@@ -241,7 +260,7 @@ export async function aiChat(req: AiRequest, opts: AiCallOptions = {}): Promise<
         : opts.signal?.aborted
           ? new AiError('aborted', '已取消')
           : new AiError('other', `AI 调用失败:${e instanceof Error ? e.message : String(e)}`);
-    recorder({
+    record({
       ...base,
       provider: p.kind,
       model: st.model,
@@ -251,6 +270,8 @@ export async function aiChat(req: AiRequest, opts: AiCallOptions = {}): Promise<
       ...(partial ? { text: clip(partial) } : {}),
     });
     throw err;
+  } finally {
+    idle();
   }
 }
 

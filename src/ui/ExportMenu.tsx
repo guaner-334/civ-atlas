@@ -38,6 +38,7 @@ import { monthsOf, yearFull } from '../gen/era';
 import { markItemsAt, plainMarkChars } from './markInfo';
 import { ensureFonts } from '../render/labels/fonts';
 import { characterTrail } from './characterInfo';
+import { diagDoing, recordWorkerError } from '../diag/watch';
 import type { ExportRequest, ExportResponse } from '../exportWorker';
 import { getCivShow, getCivTime, getResourceView, getSelection, useCivTime } from './civView';
 import { getMapCenter, xOfLon } from './mapWrap';
@@ -117,13 +118,18 @@ function download(blob: Blob, name: string) {
 function runWorker(req: ExportRequest): Promise<ExportResponse> {
   return new Promise((resolve, reject) => {
     const w = new Worker(new URL('../exportWorker.ts', import.meta.url), { type: 'module' });
-    const done = () => w.terminate();
+    const idle = diagDoing('导出图片');
+    const done = () => {
+      idle();
+      w.terminate();
+    };
     w.onmessage = (e: MessageEvent<ExportResponse>) => {
       done();
       resolve(e.data);
     };
     w.onerror = (e) => {
       done();
+      recordWorkerError(e, '导出图片的线程');
       reject(new Error(e.message || '后台线程出错'));
     };
     w.onmessageerror = () => {
