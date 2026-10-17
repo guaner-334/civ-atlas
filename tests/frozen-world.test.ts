@@ -118,6 +118,22 @@ describe('照原样打开旧世界:找原件', () => {
     expect(await frozenResult(id, { ...save, generator: GENERATOR_VERSION })).toBeNull();
   });
 
+  it('浏览器里读原件出错:算坏了(不当成没有)', async () => {
+    const id = oldWorld();
+    const save = saveStore.loadWorld(id)!.save;
+    await putSnapshot(id, await snapshotOf(save));
+    let calls = 0;
+    _setResultBackend({
+      ...mem,
+      get: async () => {
+        calls++;
+        throw new Error('读不出来');
+      },
+    });
+    expect(await frozenResult(id, save)).toBe('broken');
+    expect(calls).toBe(2);
+  });
+
   it('刚复制的世界马上打开:原件复制完再找', async () => {
     const id = oldWorld();
     const save = saveStore.loadWorld(id)!.save;

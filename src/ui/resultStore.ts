@@ -259,11 +259,19 @@ export async function loadResult(id: string, generator: number): Promise<ResultR
 /**
  * 照原样打开这个旧世界用的原件:存档是比现在旧的版本建的、浏览器里有那一版的原件、格式认得、配方和存档对得上。
  * 没有 = null;有那一版的原件、可是用不了(配方对不上、读不出来)= 'broken'。
- * 排在前面的写(刚复制世界时原件跟着复制)写完再读
+ * 排在前面的写(刚复制世界时原件跟着复制)写完再读;读出错再试一次,还不行也算 'broken'(不当成没有)
  */
 export async function frozenResult(id: string, save: SaveFile): Promise<Snapshot | 'broken' | null> {
   if (!(save.generator < GENERATOR_VERSION)) return null;
-  const r = await queue(() => loadResult(id, save.generator));
+  const b = be();
+  if (!b) return null;
+  const get = () => queue(() => b.get(id, save.generator));
+  let r: ResultRecord | undefined;
+  try {
+    r = await get().catch(get);
+  } catch {
+    return 'broken';
+  }
   if (!r) return null;
   const s = r.snapshot;
   if (s.format !== SNAPSHOT_FORMAT || s.generator !== save.generator) return 'broken';

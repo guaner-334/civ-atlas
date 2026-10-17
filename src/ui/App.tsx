@@ -441,6 +441,8 @@ function oldStored(t: Target): SaveFile | null {
   if (t.kind !== 'created') return null;
   const w = loadWorld(t.id);
   if (!w || w.draft || !(w.save.generator < GENERATOR_VERSION)) return null;
+  // 从文件打开、认成存着的这一个:文件也得是那一版的(更新版本的文件照文件里的版本打开)
+  if (t.save && t.save.generator !== w.save.generator) return null;
   return worldKey(w.save.params) === worldKey(t.params) && JSON.stringify(w.save.edits) === JSON.stringify(t.edits) ? w.save : null;
 }
 
@@ -999,7 +1001,8 @@ export function App() {
         if (m.type === 'snapshot') return void offerSnapshot(m.snapshot);
         if (m.type === 'progress') setProgress((s) => ({ stage: m.stage, pct: m.pct, regen: regenRef.current?.id === m.id, seed: s?.seed }));
         else if (m.type === 'done') {
-          noteGenSpeed(m.world.params.cells, m.genMs, m.ms);
+          // 读原件来的不算生成速度
+          if (!frozenLoad.current) noteGenSpeed(m.world.params.cells, m.genMs, m.ms);
           // 换了世界:各段的主图补丁都作废
           eraPatches.current.clear();
           dropComposed();
