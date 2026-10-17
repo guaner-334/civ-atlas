@@ -3066,6 +3066,8 @@ for (const style of ['realistic', 'fantasy']) {
     await pushOrders(page);
     await page.waitForFunction((s) => ((window as any).__wfResim?.seq ?? 0) > s, prev, { timeout: 20000 }).catch(() => null);
     resim = await page.evaluate(() => (window as any).__wfResim ?? null);
+    // 重推后时间轴从立国那年接着放:先停下,后面换图层、点地图看的还是这几年(放久了新国家可能已被吞并)
+    if (await page.locator('.timebar .tb-play.on:not(.locked)').count()) await page.click('.timebar .tb-play.on:not(.locked)');
     await page.waitForTimeout(300);
     regionAfter = (await page.locator('.inspector .ins-status').innerText().catch(() => '')).replace(/\n/g, ' ');
     await openOverview(page, 'interventions');
