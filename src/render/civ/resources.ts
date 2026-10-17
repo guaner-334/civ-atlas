@@ -10,6 +10,7 @@ import type { Civ, Development } from '../../gen/civ/types';
 import type { World } from '../../gen/world';
 import { RESOURCE_COUNT, resourcesAt } from '../../gen/civ/development';
 import { toCanvas, type LabelView, type PlacedLabel } from '../labels/draw';
+import { glyphBox } from '../labels/layout';
 import { nearX } from '../common';
 
 /** 圆章上的字(和 RESOURCES 一一对应) */
@@ -71,15 +72,25 @@ export function resourceBadges(dev: Development, year: number, regions: number, 
   return out;
 }
 
+/** 半径 r 的圆章放在 (x, y)(画布像素)会不会压着哪个地名的字(按字的实际大小、转角,再留 2 像素) */
+export function hitsLabels(labels: readonly PlacedLabel[], x: number, y: number, r: number): boolean {
+  return labels.some((l) =>
+    l.glyphs.some((g) => {
+      const b = glyphBox(g, l.px, r + 2);
+      return x > b[0] && x < b[2] && y > b[1] && y < b[3];
+    }),
+  );
+}
+
 /**
- * 按屏幕位置画圆章:pos 给州治在画布上的位置(看不见 = null),blocked 判断那里压没压着地名、界面。
+ * 按屏幕位置画圆章:pos 给州治在画布上的位置(看不见 = null),blocked 判断那里(半径 r 的圆章)压没压着地名、界面。
  * 返回画了几个
  */
 export function drawResourceBadges(
   ctx: CanvasRenderingContext2D,
   badges: readonly ResourceBadge[],
   pos: (region: number) => [number, number] | null,
-  blocked: (x: number, y: number) => boolean,
+  blocked: (x: number, y: number, r: number) => boolean,
   focus: boolean,
   dpr: number,
 ): number {
@@ -89,7 +100,7 @@ export function drawResourceBadges(
     const p = pos(b.region);
     if (!p) continue;
     const [x, y] = p;
-    if (blocked(x, y) || put.some(([px, py]) => Math.hypot(px - x, py - y) < gap)) continue;
+    if (blocked(x, y, RADIUS[Math.max(1, Math.min(3, b.tier))] * dpr) || put.some(([px, py]) => Math.hypot(px - x, py - y) < gap)) continue;
     put.push([x, y]);
     drawResourceBadge(ctx, x, y, b.resource, b.tier, b.hidden, dpr);
   }
@@ -161,7 +172,6 @@ export function drawResourceLayer(
   const W = lv.canvasW ?? ctx.canvas.width;
   const H = lv.canvasH ?? ctx.canvas.height;
   const cx = (W / 2 - lv.ox) / lv.scale;
-  const near = 11 * lv.dpr;
   return drawResourceBadges(
     ctx,
     list,
@@ -172,7 +182,7 @@ export function drawResourceLayer(
       const [x, y] = lv.proj ? toCanvas(lv, wx, wy) : [nearX(wx, cx, lv.wrap ?? 0) * lv.scale + lv.ox, wy * lv.scale + lv.oy];
       return Number.isFinite(x) && x >= 0 && y >= 0 && x <= W && y <= H ? [x, y] : null;
     },
-    (x, y) => !!blocked?.(x, y) || labels.some((l) => l.glyphs.some((g) => Math.abs(g.x - x) < near && Math.abs(g.y - y) < near)),
+    (x, y, r) => !!blocked?.(x, y) || hitsLabels(labels, x, y, r),
     look.focus !== null,
     lv.dpr,
   );

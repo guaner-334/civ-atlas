@@ -27,7 +27,7 @@ import { polityNameAt } from './searchIndex';
 import { showToast } from './toastStore';
 
 /** 地图上的样子(和屏幕上一样;filmSetup 给的那几样) */
-export type LongLook = Pick<FilmSetup, 'style' | 'layer' | 'show' | 'projection' | 'center' | 'graticule' | 'marks' | 'markChars' | 'font'>;
+export type LongLook = Pick<FilmSetup, 'style' | 'layer' | 'show' | 'res' | 'projection' | 'center' | 'graticule' | 'marks' | 'markChars' | 'font'>;
 
 /** 整个世界的图:字放大几倍(960 像素宽的图,字按 740 个 CSS 像素宽的地图排;再放大国名就放不进国土、被挤掉了) */
 const WHOLE_DPR = 1.3;
@@ -125,6 +125,7 @@ function sceneOf(src: FilmSource, look: LongLook, year: number): ShotScene {
     style: look.style,
     layer: look.layer,
     show: look.show,
+    res: look.res,
     projection: look.projection,
     center: look.center,
     graticule: look.graticule,

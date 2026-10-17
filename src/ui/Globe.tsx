@@ -71,7 +71,7 @@ import { clearToast, showToast } from './toastStore';
 import { getMapCenter, publishMapCenter } from './mapWrap';
 import { animProgress } from './flyTo';
 import { drawSettlementMarks, type SettlementMarkInfo } from '../render/civ/settlements';
-import { REF_MAP_CSS, drawPlacedLabels, placeMap, placedMarkBox, type LabelItem, type LabelMark, type LabelView, type Placement } from '../render/labels/draw';
+import { REF_MAP_CSS, drawPlacedLabels, placeMap, placedMarkBox, type LabelItem, type LabelMark, type LabelView, type PlacedLabel, type Placement } from '../render/labels/draw';
 import { glyphBox } from '../render/labels/layout';
 import { getCivTime, setSelection, subscribeCivTime, useCivHighlight, useCivShow, useResourceView, useSelection } from './civView';
 import {
@@ -119,7 +119,7 @@ import { fileBaseName } from '../gen/savefile';
 import { currentWorld } from './saveStore';
 import { createWheelReader, inGesturePinch, wheelSample } from './wheel';
 import { drawHolyDot, holyCities } from '../render/civ/faith';
-import { drawResourceBadges, resourceBadges, type ResourceBadge } from '../render/civ/resources';
+import { drawResourceBadges, hitsLabels, resourceBadges, type ResourceBadge } from '../render/civ/resources';
 import { faithFocusOf, selectionOnMap } from './faithSelection';
 import { yearFull } from '../gen/era';
 import { currentEra } from './editsStore';
@@ -460,6 +460,22 @@ function placeGlobeLabels(o: PlaceInput): GlobePlacement {
   return { placed, lv, facing: vm.facing, quick: o.quick, ms: performance.now() - t0 };
 }
 
+/** 物产圆章画到球面那层上(背面的不画,压着地名的让) */
+function drawGlobeBadges(ctx: CanvasRenderingContext2D, b: NonNullable<OverlayInput['badges']>, lv: GlobeLabelView, labels: readonly PlacedLabel[], dpr: number) {
+  drawResourceBadges(
+    ctx,
+    b.list,
+    (r) => {
+      const [wx, wy] = b.at(r);
+      const [x, y, d] = globeToCanvas(lv, wx, wy);
+      return d > MARK_MIN_D ? [x, y] : null;
+    },
+    (x, y, rad) => hitsLabels(labels, x, y, rad),
+    b.focus,
+    dpr,
+  );
+}
+
 /**
  * 球上面那层 2D 画布:手绘符号(山、丘陵……)→ 矢量线(国界、道路、选中的描边)→(CPU 画法:经纬网、手绘外框)
  * → 选中的名字底下的光晕 → 城镇符号 → 文字(和平面主图一样:符号在地形里、线压在符号上、字在最上面)。
@@ -533,7 +549,15 @@ function drawOverlay(ctx: CanvasRenderingContext2D, o: OverlayInput): GlobePlace
     }
   }
   const pl = o.placement;
-  if (!pl) return placed;
+  if (!pl) {
+    // 地名、道路都关了也画物产圆章
+    if (o.badges) {
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      drawGlobeBadges(ctx, o.badges, globeLabelView({ view: o.view, w: o.w, h: o.h, dpr, worldW: o.world.width, worldH: o.world.height, shift: o.shift }), [], dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+    return placed;
+  }
   // 3. 选中的名字底下的光晕、选中的城外一圈细环 → 城镇符号 → 文字(和主图文字层一样的顺序)
   const { lv } = pl;
   const sel = o.selection;
@@ -550,22 +574,7 @@ function drawOverlay(ctx: CanvasRenderingContext2D, o: OverlayInput): GlobePlace
     const [x, y, d] = globeToCanvas(lv, h.wx, h.wy);
     if (d > MARK_MIN_D) drawHolyDot(ctx, x, y, h.color, dpr);
   }
-  if (o.badges) {
-    const b = o.badges;
-    const near = 11 * dpr;
-    drawResourceBadges(
-      ctx,
-      b.list,
-      (r) => {
-        const [wx, wy] = b.at(r);
-        const [x, y, d] = globeToCanvas(lv, wx, wy);
-        return d > MARK_MIN_D ? [x, y] : null;
-      },
-      (x, y) => pl.placed.labels.some((l) => l.glyphs.some((g) => Math.abs(g.x - x) < near && Math.abs(g.y - y) < near)),
-      b.focus,
-      dpr,
-    );
-  }
+  if (o.badges) drawGlobeBadges(ctx, o.badges, lv, pl.placed.labels, dpr);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   // 点选用:CSS 像素
   for (const m of pl.placed.marks) {
