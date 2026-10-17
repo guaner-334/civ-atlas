@@ -3066,6 +3066,8 @@ for (const style of ['realistic', 'fantasy']) {
     await pushOrders(page);
     await page.waitForFunction((s) => ((window as any).__wfResim?.seq ?? 0) > s, prev, { timeout: 20000 }).catch(() => null);
     resim = await page.evaluate(() => (window as any).__wfResim ?? null);
+    // 重推完时间轴从立国那年接着放:先停下,看刚立国时的地图(新国家过些年可能又被并回去)
+    if (await page.locator('.timebar .tb-play.on').count()) await page.click('.timebar .tb-play');
     await page.waitForTimeout(300);
     regionAfter = (await page.locator('.inspector .ins-status').innerText().catch(() => '')).replace(/\n/g, ' ');
     // 重推完时间轴从立国那年接着放:先停下,免得放到后面这州又被邻国吞了(下面还要在地图上点它)

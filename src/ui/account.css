@@ -68,6 +68,10 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* 照原样打开的旧世界、推演前问的窗口(FrozenWorld.tsx):标题和正文一样大,窗口轻一些(手机照常) */
+.acct-dlg.frozen-ask:not(.sheet) .acct-head h2 {
+  font-size: 13.5px;
+}
 .acct-x {
   flex: none;
   width: 28px;
