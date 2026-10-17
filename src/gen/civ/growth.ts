@@ -172,9 +172,15 @@ export function yearReachingDev(s: Settlement, level: number, until: Year): Year
   const pop = (y: number) => (capacityAt(s, y) * devFactorAt(dc, y)) / (1 + GROWTH_A * fexp(-s.growth * (y - s.founded)));
   let a = s.founded;
   if (pop(a) >= level) return a;
+  // 地形大事降上限的前一刻也看一次(之前长过 level、大事以后又跌回去的,在两个取样点之间)
+  const cuts = (s.reshaped ?? []).map((x) => x.year - 1 / 256);
   for (let b = a + DEV_RAMP; a < until; a = b, b += DEV_RAMP) {
-    const e = Math.min(b, until);
-    if (pop(e) < level) continue;
+    let e = Math.min(b, until);
+    if (pop(e) < level) {
+      const c = cuts.find((x) => x > a && x < e && pop(x) >= level);
+      if (c === undefined) continue;
+      e = c;
+    }
     let lo = a;
     let hi = e;
     for (let k = 0; k < 32; k++) {

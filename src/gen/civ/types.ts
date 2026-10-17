@@ -603,7 +603,7 @@ export interface Development {
   /** 各州物产的底子(储量):州 × RESOURCE_COUNT 样(见 development.ts 的 RESOURCES),0 没有 / 1 少 / 2 中 / 3 多;开局按地形定,不变
    * (有地形大事的:最后一件大事以后的地形重新分的档;大事以前的 avail 按当时的档,可能比这里多) */
   resources: Uint8Array;
-  /** 各州物产哪一年被发现(州 × RESOURCE_COUNT;没有储量或一直没发现 = Infinity) */
+  /** 各州物产哪一年被发现(州 × RESOURCE_COUNT;一直没发现 = Infinity;地形大事后没有了的留着以前发现的年份) */
   found: Float64Array;
   /** 各州物产眼下能用多少:每份 = 州 × RESOURCE_COUNT 样,存的是 0–3 档 × AVAIL_SCALE(没发现 = 0);和 snapYears 一一对应 */
   avail: Uint8Array[];
@@ -639,6 +639,8 @@ export interface DevState {
   stock: Float64Array;
   availNow: Float64Array;
   depleted: Uint8Array;
+  /** 旧版本存的没有(当作一直有) */
+  resFrom?: Float64Array;
   polityEra: number[];
   worldEra: number;
   invented: Uint8Array;

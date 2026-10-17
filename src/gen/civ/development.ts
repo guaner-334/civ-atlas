@@ -303,6 +303,8 @@ interface DevModel {
   stock: Float64Array;
   availNow: Float64Array;
   depleted: Uint8Array;
+  /** 这样物产从哪一刻起有(地形大事以后才有的 = 那一刻;发现不早于它;一直有的 = −Infinity) */
+  resFrom: Float64Array;
   /** 各国到过的时代(−1 = 还没看过;立国时已在的不记大事) */
   polityEra: number[];
   worldEra: number;
@@ -358,6 +360,7 @@ function emptyDev(world: World, pm: PolityModel, seed: number, habitat: Civ['hab
     stock,
     availNow: new Float64Array(RK),
     depleted: new Uint8Array(RK),
+    resFrom: new Float64Array(RK).fill(-Infinity),
     polityEra: [],
     worldEra: 0,
     invented: new Uint8Array(INVENTIONS.length),
@@ -404,6 +407,7 @@ export function resumeDevelopment(sim: CivSim, world: World, civ: Civ): void {
     copy(d.road, st.road, 1);
     copy(d.availNow, st.availNow, RESOURCE_COUNT);
     copy(d.depleted, st.depleted, RESOURCE_COUNT);
+    if (st.resFrom) copy(d.resFrom, st.resFrom, RESOURCE_COUNT);
     copy(d.found, dev.found, RESOURCE_COUNT);
     // 储量:物产按这一段的地形重新分档了的,按新旧档位之比缩放(没变的原样接上)
     const old = dev.resources;
@@ -414,12 +418,12 @@ export function resumeDevelopment(sim: CivSim, world: World, civ: Civ): void {
       if (!LIFE[k]) d.stock[i] = a ? st.stock[i] : 1;
       else if (a === b) d.stock[i] = st.stock[i];
       else if (a && b) d.stock[i] = (st.stock[i] * b) / a;
-      if (!b) {
-        // 这一段的地形里没有了(沉了、重新分档掉到没有):眼下能用的也清零
-        d.found[i] = Infinity;
-        d.availNow[i] = 0;
-      }
+      // 这一段的地形里没有了(沉了、重新分档掉到没有):眼下能用的清零,发现的年份留着(拖回以前还看得到)
+      if (!b) d.availNow[i] = 0;
+      // 这一段才有的:发现不早于这一刻
+      else if (!a) d.resFrom[i] = sim.now;
     }
+    for (let i = R0 * RESOURCE_COUNT; i < d.resFrom.length; i++) d.resFrom[i] = sim.now;
     d.last = st.last;
     d.annals = st.annals;
     d.polityEra = st.polityEra.slice();
@@ -681,15 +685,28 @@ function tick(sim: CivSim, d: DevModel, y: Year): void {
     d.events.push({ era: eraOf(E[r]).era, ...e, culture: ownC[r], polity: ownP[r], settlement: cityId(r) });
   };
 
-  // 大事:世界第一次进入某个时代;各国国都所在的州第一次进入某个时代
-  let top = -1;
+  /** 这一步里 a → b 过了 k 的州中,估出的那一刻最早的(同一刻取到得高的);没有 = -1 */
+  const firstCross = (va: ArrayLike<number>, vb: ArrayLike<number>, per: number, off: number, k: number): { r: number; t: Year } => {
+    let at = -1;
+    let tAt = Infinity;
+    for (let r = 0; r < R; r++) {
+      const o = r * per + off;
+      if (ownC[r] < 0 || !(vb[o] >= k)) continue;
+      const t = crossAt(va[o], vb[o], k, sinceOf(r));
+      if (t < tAt || (t === tAt && vb[o] > vb[at * per + off])) (tAt = t), (at = r);
+    }
+    return { r: at, t: tAt };
+  };
+
+  // 大事:世界第一次进入某个时代(同一步里有几州都进了,记估出的那一刻最早的);各国国都所在的州第一次进入某个时代
   let topLv = 0;
-  for (let r = 0; r < R; r++) if (ownC[r] >= 0 && E[r] > topLv) (topLv = E[r]), (top = r);
+  for (let r = 0; r < R; r++) if (ownC[r] >= 0 && E[r] > topLv) topLv = E[r];
   const topEra = eraOf(topLv).era;
-  if (top >= 0 && topEra > d.worldEra) {
-    for (let k = d.worldEra + 1; k <= topEra; k++) push({ year: crossAt(Eprev[top], E[top], k, sinceOf(top)), kind: 'first', era: k, region: top });
-    d.worldEra = topEra;
+  for (let k = d.worldEra + 1; k <= topEra; k++) {
+    const f = firstCross(Eprev, E, 1, 0, k);
+    if (f.r >= 0) push({ year: f.t, kind: 'first', era: k, region: f.r });
   }
+  if (topEra > d.worldEra) d.worldEra = topEra;
   for (let p = 0; p < P; p++) {
     const r = capR[p];
     if (r < 0) continue;
@@ -697,21 +714,21 @@ function tick(sim: CivSim, d: DevModel, y: Year): void {
     const seen = d.polityEra[p] ?? -1;
     if (seen < 0) d.polityEra[p] = e;
     else if (e > seen) {
-      // 一步跨了几个时代(例如迁都到先进得多的州)就每个都记
-      for (let k = seen + 1; k <= e; k++) push({ year: crossAt(Eprev[r], E[r], k, sinceOf(r)), kind: 'enter', era: k, region: r });
+      // 一步跨了几个时代(例如迁都到先进得多的州)就每个都记;不早于迁到这个国都
+      const caps = pm.polities[p].capitals;
+      let moved = -Infinity;
+      if (caps) for (const c of caps) if (c.year <= y) moved = c.year;
+      for (let k = seen + 1; k <= e; k++) push({ year: crossAt(Eprev[r], E[r], k, Math.max(sinceOf(r), moved)), kind: 'enter', era: k, region: r });
       d.polityEra[p] = e;
     }
   }
-  // 发明:世上第一次有州的那样能力到了那一档(同一步里先到的先记)
+  // 发明:世上第一次有州的那样能力到了那一档(同一步里有几州都到了,记估出的那一刻最早的)
   INVENTIONS.forEach((inv, i) => {
     if (d.invented[i]) return;
-    let at = -1;
-    let lv = inv.level;
-    for (let r = 0; r < R; r++) if (ownC[r] >= 0 && cur[r * CAP_COUNT + inv.cap] >= lv) (lv = cur[r * CAP_COUNT + inv.cap]), (at = r);
-    if (at < 0) return;
+    const f = firstCross(prev, cur, CAP_COUNT, inv.cap, inv.level);
+    if (f.r < 0) return;
     d.invented[i] = 1;
-    const o = at * CAP_COUNT + inv.cap;
-    push({ year: crossAt(prev[o], cur[o], inv.level, sinceOf(at)), kind: 'invent', invention: i, region: at });
+    push({ year: f.t, kind: 'invent', invention: i, region: f.r });
   });
 
   // 物产:发现、开采、吃空、长回来
@@ -729,7 +746,7 @@ function tick(sim: CivSim, d: DevModel, y: Year): void {
       if (found[i] === Infinity) {
         if (!live || Pr < DISCOVER_AT[k]) continue;
         // 这一步里哪一刻过了门槛(不早于这州归了现在的民族和国家)
-        found[i] = crossAt(Pa, Pr, DISCOVER_AT[k], since);
+        found[i] = crossAt(Pa, Pr, DISCOVER_AT[k], Math.max(since, d.resFrom[i]));
         if (tier === 3 && LIFE[k]) push({ year: found[i], kind: 'discover', region: r, resource: k });
       }
       const vPrev = availNow[i];
@@ -837,6 +854,7 @@ export function finishDevelopment(sim: CivSim, endYear: Year): Development | und
     stock: d.stock.slice(),
     availNow: d.availNow.slice(),
     depleted: d.depleted.slice(),
+    resFrom: d.resFrom.slice(),
     polityEra: d.polityEra.slice(),
     worldEra: d.worldEra,
     invented: d.invented.slice(),
