@@ -335,8 +335,18 @@ export function erasedOps(ops: readonly TerrainOp[], st: SketchStroke): number[]
       if (eraseGap(st, op.pts[0], op.pts[1]) < 0.5 * op.r) out.push(i);
       return;
     }
-    for (let k = 0; k < op.pts.length; k += 2) {
-      if (eraseGap(st, op.pts[k], op.pts[k + 1]) < 0.5 * op.r) return void out.push(i);
+    // 河:每一段按半个笔宽一步取点(两点隔得远时,擦过段的中间也算碰到)
+    const p = op.pts;
+    const step = Math.max(1, 0.25 * op.r);
+    for (let k = 0; k < p.length; k += 2) {
+      const bx = k === 0 ? p[0] : near(p[k], p[k - 2]);
+      const n = k === 0 ? 1 : Math.min(64, Math.ceil(Math.hypot(bx - p[k - 2], p[k + 1] - p[k - 1]) / step));
+      for (let j = 1; j <= n; j++) {
+        const t = j / n;
+        const x = k === 0 ? p[0] : p[k - 2] + (bx - p[k - 2]) * t;
+        const y = k === 0 ? p[1] : p[k - 1] + (p[k + 1] - p[k - 1]) * t;
+        if (eraseGap(st, x, y) < 0.5 * op.r) return void out.push(i);
+      }
     }
   });
   return out;

@@ -8,6 +8,7 @@ import { DEFAULT_PARAMS, MAP_H, MAP_W, generateWorld, type World } from '../src/
 import { EMPTY_EDITS, type TerrainOp, type WorldEdits } from '../src/gen/edits';
 import { TERRAIN_H, TERRAIN_MAX_OPS, TERRAIN_MAX_PTS, TERRAIN_PRESETS, TERRAIN_W, applyClimatePens, cleanTerrainOp, cleanTerrainOps, presetStrength, sameTerrain } from '../src/gen/terrainEdits';
 import { drawnFlux, shownRivers } from '../src/render/common';
+import { geometryOf } from '../src/gen/geometry';
 import { editCount, makeSave, parseSave, saveText, worldCheck } from '../src/gen/savefile';
 import { G_VOLCANO, planGlyphs, type Glyph } from '../src/render/fantasy';
 
@@ -299,6 +300,27 @@ describe('改地形 · 生成', () => {
     expect(lakeOf(curvy).length).toBeGreaterThan(5);
     expect(lakeOf(curvy)).not.toEqual(lakeOf(old));
     same(curvy, generateWorld(SMALL, undefined, [{ kind: 'lake', pts: [px, py], r: 24, s: 1, e: 1 }]));
+    // 最小的圆湖(比地块还小):点在离哪块地块中心都远的地方(比湖的找法看得远),也落得下
+    const geo = geometryOf(w0.mesh);
+    const nearest = (x: number, y: number) => {
+      let best = -1;
+      let bd = Infinity;
+      for (let i = 0; i < w0.mesh.n; i++) {
+        const d = geo.nearTo(i, x, y, 20);
+        if (d >= 0 && d < bd) [best, bd] = [i, d];
+      }
+      return [best, bd] as const;
+    };
+    let spot: [number, number, number] | undefined;
+    for (let dy = -40; dy <= 40 && !spot; dy++) {
+      for (let dx = -40; dx <= 40 && !spot; dx++) {
+        const [i, d] = nearest(px + dx, py + dy);
+        if (d > 1.95 * 4 && w0.water[i] === 0) spot = [px + dx, py + dy, i];
+      }
+    }
+    expect(spot).toBeDefined();
+    const tiny = generateWorld(SMALL, undefined, [{ kind: 'lake', pts: [spot![0], spot![1]], r: 4, s: 1, e: 0 }]);
+    expect(tiny.water[spot![2]]).toBe(2);
   });
 
   it('改气候:涂过的地方降水 / 气温变了,地形、远处一点不动;圈起来填满的圈里整片都改', () => {

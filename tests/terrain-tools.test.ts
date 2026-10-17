@@ -4,7 +4,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { clearEdits, getEdits, putSketch, addTerrainOp, setEdits } from '../src/ui/editsStore';
-import { EMPTY_EDITS } from '../src/gen/edits';
+import { EMPTY_EDITS, type TerrainOp } from '../src/gen/edits';
 import {
   clearAllTerrain,
   erasedOps,
@@ -206,6 +206,10 @@ describe('编辑地形:撤销 / 重做 / 全部清除', () => {
     // 擦过湖和河,没碰火山
     const pts = [580, 400, 640, 400, 700, 390, 800, 380, 880, 370, 920, 360];
     expect(erasedOps(before, { kind: 'erase', r: 20, pts })).toEqual([1, 2]);
+    // 两点隔得很远的河,擦过中间那一段也算碰到
+    const longRiver: TerrainOp = { kind: 'river', pts: [100, 300, 700, 300], r: 8, s: 1 };
+    expect(erasedOps([longRiver], { kind: 'erase', r: 10, pts: [400, 280, 400, 320] })).toEqual([0]);
+    expect(erasedOps([longRiver], { kind: 'erase', r: 10, pts: [400, 340, 400, 380] })).toEqual([]);
     setTerrainTool({ tool: 'erase', r: 20 });
     drag(Array.from({ length: pts.length / 2 }, (_, i) => [pts[2 * i], pts[2 * i + 1]] as [number, number]));
     expect(getEdits().terrain.map((o) => o.kind)).toEqual(['volcano']);

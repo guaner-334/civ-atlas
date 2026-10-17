@@ -417,16 +417,18 @@ export function carveLakes(mesh: Mesh, land: Uint8Array, elevation: Float32Array
       v = b;
       return Math.sqrt(u * u + v * v) / r;
     };
+    // 湖心落在哪一块:新画法的小湖可能比地块还小,找最近的一块时至少看出去一块半地块那么远
+    const Rc = e === undefined ? R : Math.max(R, 1.5 * mesh.spacing);
     let c = -1;
     let cd = Infinity;
     for (let i = 0; i < n; i++) {
-      const d = geo.nearTo(i, px, py, R);
+      const d = geo.nearTo(i, px, py, Rc);
       if (d < 0) continue;
       if (d < cd) {
         cd = d;
         c = i;
       }
-      if (tOf(i) < 1 && land[i]) bowl.push(i);
+      if (d <= R && tOf(i) < 1 && land[i]) bowl.push(i);
     }
     if (c < 0 || !land[c]) continue;
     if (!bowl.includes(c)) bowl.push(c);
