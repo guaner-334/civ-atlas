@@ -43,6 +43,7 @@ import {
   syncable,
   type RawWorld,
 } from '../ui/saveStore';
+import { clearResults } from '../ui/resultStore';
 import { getStage, subscribeStage } from '../ui/stageStore';
 import { clearToast, getToast, showToast } from '../ui/toastStore';
 import { deleteCloud, getCloud, listCloud, putCloud, type CloudEntry, type CloudWorld, type PutBody } from './cloud';
@@ -1096,7 +1097,10 @@ export async function signOut(keep: boolean): Promise<{ ok: true } | { ok: false
     try {
       gone = removeAllWorlds();
       // 没删成:页面里的 AI 写的东西留着(有的只在页面里,浏览器存不下),不然之后同步会把账号里的清空
-      if (gone) forgetNotes();
+      if (gone) {
+        forgetNotes();
+        void clearResults();
+      }
     } finally {
       applying = false;
     }
