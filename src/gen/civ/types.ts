@@ -589,8 +589,12 @@ export interface Religion {
 
 /** 发展度(development.ts) */
 export interface Development {
-  /** 各州的物产:州 × 8 样(见 development.ts 的 RESOURCES),0 没有 / 1 少 / 2 中 / 3 多 */
+  /** 各州物产的底子(储量):州 × RESOURCE_COUNT 样(见 development.ts 的 RESOURCES),0 没有 / 1 少 / 2 中 / 3 多;开局按地形定,不变 */
   resources: Uint8Array;
+  /** 各州物产哪一年被发现(州 × RESOURCE_COUNT;没有储量或一直没发现 = Infinity) */
+  found: Float64Array;
+  /** 各州物产眼下能用多少:每份 = 州 × RESOURCE_COUNT 样,存的是 0–3 档 × AVAIL_SCALE(没发现 = 0);和 snapYears 一一对应 */
+  avail: Uint8Array[];
   /** 各州的五种能力:每份 = 州 × 5 样(见 CAPS),存的是能力 × LEVEL_SCALE;和 snapYears 一一对应 */
   snaps: Uint8Array[];
   /** 每份快照的年份(递增;最后一份是结束那年) */
@@ -600,13 +604,16 @@ export interface Development {
 }
 
 /**
- * 发展度的大事:first = 世界上第一次有州进入这个时代;enter = 这个国家的国都所在的州第一次进入这个时代(立国时已在的不记)。
- * era = 第几个时代(见 development.ts 的 ERAS);culture、polity、settlement = 那一刻那州的民族、国家、城(−1 = 没有)
+ * 发展度的大事:first = 世界上第一次有州进入这个时代;enter = 这个国家的国都所在的州第一次进入这个时代(立国时已在的不记);
+ * discover = 储量多的州第一次发现这样矿;deplete = 储量多的州这样物产采空(矿:能用的跌到两成以下)、吃空(林、渔、田、牧:跌到四成以下)。
+ * era = 那一刻那州在第几个时代(见 development.ts 的 ERAS);culture、polity、settlement = 那一刻那州的民族、国家、城(−1 = 没有)
  */
 export interface DevEvent {
   year: Year;
-  kind: 'first' | 'enter';
+  kind: 'first' | 'enter' | 'discover' | 'deplete';
   era: number;
+  /** discover / deplete:哪样物产(见 development.ts 的 RESOURCES) */
+  resource?: number;
   region: number;
   culture: number;
   polity: number;
