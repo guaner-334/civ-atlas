@@ -28,7 +28,7 @@ import { assimStats } from '../src/gen/civ/assimilation';
 import { cityStats } from '../src/gen/civ/cities';
 import { Layer } from '../src/gen/civ/types';
 import { faithAt, faithFromScratch } from '../src/gen/civ/religion';
-import { BAD_LEVEL, CAP_COUNT, ERAS, RESOURCE_COUNT } from '../src/gen/civ/development';
+import { AVAIL_SCALE, BAD_LEVEL, CAP_COUNT, ERAS, RESOURCE_COUNT } from '../src/gen/civ/development';
 import { civLabelItems, civMapLayer, labelViewExtras } from '../src/render/civ/labels';
 import { placeMap } from '../src/render/labels/draw';
 import { END_YEAR_MAX, type TerrainOp, type Upheaval } from '../src/gen/edits';
@@ -36,7 +36,7 @@ import { upheavalSteps } from '../src/gen/civ/upheaval';
 import { buildChronicle } from '../src/gen/civ/chronicle';
 import { sketchGrid, type SketchEdit, type SketchKind } from '../src/gen/sketch';
 
-/** 发展度:有文明就有;快照的年份递增、最后一份是结束那年,没有算坏的能力;物产 0–3 档;大事的年份有序、时代和国家编号在范围内 */
+/** 发展度:有文明就有;快照的年份递增、最后一份是结束那年,没有算坏的能力和物产;物产 0–3 档,眼下能用的不超过底子;大事的年份有序、时代、物产和国家编号在范围内 */
 function devBad(civ: ReturnType<typeof generateCiv>): number {
   const dev = civ.development;
   if (!dev) return civ.viable && civ.cultures.length ? 1 : 0;
@@ -48,8 +48,15 @@ function devBad(civ: ReturnType<typeof generateCiv>): number {
     if (!Number.isFinite(y) || (i && !(y > dev.snapYears[i - 1]))) cn++;
   });
   for (const s of dev.snaps) if (s.length !== R * CAP_COUNT || s.includes(BAD_LEVEL)) cn++;
+  if (dev.avail.length !== dev.snaps.length || dev.found.length !== R * RESOURCE_COUNT) cn++;
+  for (const a of dev.avail) {
+    if (a.length !== R * RESOURCE_COUNT) cn++;
+    for (let i = 0; i < a.length; i++) if (a[i] === BAD_LEVEL || a[i] > dev.resources[i] * AVAIL_SCALE) cn++;
+  }
   dev.events.forEach((e, i) => {
-    if (!Number.isFinite(e.year) || (i && e.year < dev.events[i - 1].year) || !(e.era >= 1 && e.era < ERAS.length) || e.polity >= civ.polities.length || !(e.region >= 0 && e.region < R)) cn++;
+    const res = e.kind === 'discover' || e.kind === 'deplete';
+    if (!Number.isFinite(e.year) || (i && e.year < dev.events[i - 1].year) || !(e.era >= (res ? 0 : 1) && e.era < ERAS.length) || e.polity >= civ.polities.length || !(e.region >= 0 && e.region < R)) cn++;
+    if (res && !(e.resource! >= 0 && e.resource! < RESOURCE_COUNT)) cn++;
   });
   return cn;
 }
