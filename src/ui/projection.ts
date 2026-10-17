@@ -19,6 +19,7 @@ import type { Raster } from '../gen/raster';
 import { GRATICULE_STEPS, type ContourKind } from '../gen/savefile';
 import { doubleCanvas, drawProjected, isProjectionId, mapProj, pageColor, type MapProj, type ProjectionId } from '../render/projection';
 import { drawTerrainProjected, type DetailStyle } from '../render/detail';
+import type { SurfaceLook } from '../render/surface';
 import { releaseFantasyProjCaches } from '../render/fantasy';
 import { releaseWashScratch } from '../render/civ/territory';
 
@@ -267,14 +268,14 @@ export class ProjLayer {
 export function presentTerrain(
   cv: HTMLCanvasElement,
   mp: MapProj,
-  o: { world: World; raster: Raster; style: string; src: HTMLCanvasElement; layer: ProjLayer; moving: boolean },
+  o: { world: World; raster: Raster; style: string; look?: SurfaceLook; src: HTMLCanvasElement; layer: ProjLayer; moving: boolean },
 ): number {
   const { world, raster, style, layer } = o;
   layer.use(o.src);
   layer.onRelease = releaseCurvedCaches;
   if ((style !== 'fantasy' && style !== 'realistic') || o.moving) return layer.present(cv, mp, pageColor(style));
   return layer.redraw(cv, raster.w, raster.h, mp.key, pageColor(style), (ctx) =>
-    drawTerrainProjected(ctx, world, raster, style as DetailStyle, mp, { s: raster.scale, ox: 0, oy: 0, k: 1 }),
+    drawTerrainProjected(ctx, world, raster, style as DetailStyle, mp, { s: raster.scale, ox: 0, oy: 0, k: 1 }, o.look),
   );
 }
 

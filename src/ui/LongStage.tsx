@@ -8,6 +8,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { CivStyle } from '../render/civ/overlay';
 import type { LayerId } from '../render/layers';
+import type { SurfaceLook } from '../render/surface';
 import { useCivShow, useResourceView } from './civView';
 import { useEdits } from './editsStore';
 import { useMapCenter } from './mapWrap';
@@ -24,6 +25,7 @@ export interface LongStageProps {
   phone: boolean;
   style: CivStyle;
   layer: LayerId;
+  look?: SurfaceLook;
 }
 
 const ids = new WeakMap<object, number>();
@@ -37,7 +39,7 @@ const idOf = (o: object | null | undefined) => {
 
 /** 地图画法的指纹:换了就把拍好的地图全部重拍 */
 function lookKey(src: FilmSource, look: LongLook, marks: unknown, flags: unknown): string {
-  return [idOf(src), look.style, look.layer, JSON.stringify(look.show), JSON.stringify(look.res ?? null), look.projection, look.center ?? '', look.graticule, idOf(marks as object), idOf(flags as object)].join('|');
+  return [idOf(src), look.style, look.layer, look.look ?? '', JSON.stringify(look.show), JSON.stringify(look.res ?? null), look.projection, look.center ?? '', look.graticule, idOf(marks as object), idOf(flags as object)].join('|');
 }
 
 interface Box {
@@ -60,7 +62,7 @@ function measure(): { pv: Box; strip: Box } {
   return { pv: { left, top: 24, w: pvW, h: H - 48 }, strip: { left: left + pvW + gap, top: 24, w: stripW, h: H - 24 - 54 } };
 }
 
-export function LongStage({ phone, style, layer }: LongStageProps) {
+export function LongStage({ phone, style, layer, look }: LongStageProps) {
   const s = useLong();
   const src = useFilmSource();
   const show = useCivShow();
@@ -78,10 +80,11 @@ export function LongStage({ phone, style, layer }: LongStageProps) {
   // 选项、画法变了就重画
   useEffect(() => {
     if (!src) return;
-    const setup = filmSetup(src, { style, layer });
-    const look: LongLook = {
+    const setup = filmSetup(src, { style, layer, surface: look });
+    const ll: LongLook = {
       style: setup.style,
       layer: setup.layer,
+      look: setup.look,
       show: setup.show,
       res: setup.res,
       projection: setup.projection,
@@ -91,8 +94,8 @@ export function LongStage({ phone, style, layer }: LongStageProps) {
       markChars: setup.markChars,
       font: setup.font,
     };
-    void renderLong(src, look, lookKey(src, look, marks, flags)).catch((e) => console.error('长图画不出来', e));
-  }, [src, style, layer, show, resView, proj, grat, center, marks, era, flags, s.scope, s.polity, s.maps, s.events, s.split, s.title]);
+    void renderLong(src, ll, lookKey(src, ll, marks, flags)).catch((e) => console.error('长图画不出来', e));
+  }, [src, style, layer, look, show, resView, proj, grat, center, marks, era, flags, s.scope, s.polity, s.maps, s.events, s.split, s.title]);
   // 关掉面板:画好的图放掉
   useEffect(() => () => disposeLong(), []);
 

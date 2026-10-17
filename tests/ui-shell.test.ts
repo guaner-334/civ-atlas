@@ -3,7 +3,24 @@
  * 宽屏左边侧栏卡片的收起 / 展开;地图飞回整张图时的进度。
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { MAP_LAYERS, layerDark, layerDef, layerFromUrl, layerOf, layerShow } from '../src/ui/mapLayers';
+import {
+  MAP_LAYERS,
+  baseDark,
+  baseLook,
+  baseName,
+  baseOf,
+  baseThumb,
+  fillOf,
+  fillShow,
+  layerDark,
+  layerDef,
+  layerFromUrl,
+  layerOf,
+  layerParts,
+  layerShow,
+  mapViewFromUrl,
+  writeMapView,
+} from '../src/ui/mapLayers';
 import { _resetToasts, clearToast, getToast, peekToast, showToast } from '../src/ui/toastStore';
 import { closeOverview, getOverview, openOverview } from '../src/ui/overviewStore';
 import { clearSelection, getChronicle, getSelection, setChronicle, setSelection } from '../src/ui/civView';
@@ -46,6 +63,75 @@ describe('图层换算', () => {
     expect(layerFromUrl(q('seed=7&civ=cultures'))).toBe(null);
     expect(layerFromUrl(q('seed=7'))).toBe('political');
     expect(layerFromUrl(q('seed=7&layer=nonsense'))).toBe('political');
+  });
+});
+
+describe('底图 × 填色', () => {
+  const q = (s: string) => new URLSearchParams(s);
+  it('旧图层的对应:政区 = 手绘 + 国家,信仰 = 手绘 + 信仰,地形 = 手绘 + 不填,实景 = 经典卫星 + 不填,高程 = 高程 + 不填', () => {
+    expect(layerParts('political')).toEqual({ base: 'fantasy', fill: 'polities' });
+    expect(layerParts('cultures')).toEqual({ base: 'fantasy', fill: 'cultures' });
+    expect(layerParts('faith')).toEqual({ base: 'fantasy', fill: 'faiths' });
+    expect(layerParts('terrain')).toEqual({ base: 'fantasy', fill: 'none' });
+    expect(layerParts('realistic')).toEqual({ base: 'satellite', fill: 'none', sat: 'classic' });
+    expect(layerParts('elevation')).toEqual({ base: 'elevation', fill: 'none' });
+    expect(layerParts('era')).toEqual({ base: 'fantasy', fill: 'eras' });
+    expect(layerParts('resources')).toEqual({ base: 'fantasy', fill: 'none', resources: true });
+  });
+  it('填色和文明层开关互换:信仰留着国界;任何底图都能配任何填色', () => {
+    for (const f of ['none', 'polities', 'cultures', 'faiths', 'eras'] as const) expect(fillOf(fillShow(f))).toBe(f);
+    expect(fillShow('faiths')).toEqual({ polities: true, cultures: false, faiths: true, eras: false });
+    expect(fillShow('eras')).toEqual({ polities: true, cultures: false, faiths: false, eras: true });
+    // 物产是叠加开关,换填色不碰它
+    expect('resources' in fillShow('none')).toBe(false);
+    for (const b of ['fantasy', 'satellite', 'geo', 'blank', 'elevation'] as const) {
+      const l = baseLook(b, 'detail');
+      expect(baseOf(l.style, l.data ?? 'biomes', l.look ?? 'detail')).toBe(b);
+    }
+    expect(baseLook('satellite', 'classic')).toEqual({ style: 'realistic', look: 'classic' });
+    expect(baseLook('geo', 'classic')).toEqual({ style: 'realistic', look: 'geo' });
+  });
+  it('名字、深色界面、缩略图:卫星按画法写「经典卫星」或「卫星」;白模浅色,卫星、地理图深色', () => {
+    expect(baseName('satellite', 'classic')).toBe('经典卫星');
+    expect(baseName('satellite', 'detail')).toBe('卫星');
+    expect(baseName('elevation', 'detail')).toBe('高程');
+    expect([baseDark('satellite'), baseDark('geo'), baseDark('blank'), baseDark('fantasy'), baseDark('elevation'), baseDark('plates')]).toEqual([true, true, false, false, true, false]);
+    expect(baseThumb('satellite', 'classic')).toBe('realistic');
+    expect(baseThumb('satellite', 'detail')).toBe('realistic:detail');
+    expect(baseThumb('blank', 'detail')).toBe('realistic:blank');
+    expect(baseThumb('fantasy', 'detail')).toBe('terrain');
+  });
+  it('读网址:map= / fill= / sat=;卫星没写画法按经典;旧链接按旧图层认;只有 civ= 或带 style= 的照原样', () => {
+    expect(mapViewFromUrl(q('map=geo&fill=cultures'))).toEqual({ base: 'geo', fill: 'cultures', sat: undefined });
+    expect(mapViewFromUrl(q('map=satellite&sat=detail'))).toEqual({ base: 'satellite', fill: 'polities', sat: 'detail' });
+    expect(mapViewFromUrl(q('map=satellite'))?.sat).toBe('classic');
+    expect(mapViewFromUrl(q('fill=none'))).toEqual({ base: 'fantasy', fill: 'none', sat: undefined });
+    expect(mapViewFromUrl(q('layer=realistic'))).toEqual({ base: 'satellite', fill: 'none', sat: 'classic' });
+    expect(mapViewFromUrl(q('layer=faith'))).toEqual({ base: 'fantasy', fill: 'faiths' });
+    expect(mapViewFromUrl(q('layer=resources'))).toEqual({ base: 'fantasy', fill: 'none', resources: true });
+    expect(mapViewFromUrl(q('fill=eras'))?.fill).toBe('eras');
+    expect(mapViewFromUrl(q(''))).toEqual({ base: 'fantasy', fill: 'polities' });
+    expect(mapViewFromUrl(q('style=realistic'))).toBeNull();
+    expect(mapViewFromUrl(q('civ=cultures'))).toBeNull();
+  });
+  it('写网址:默认的手绘、国家省掉,卫星才写画法;去掉旧的 style=、layer= 和 civ= 里的填色开关;写完再读回来一样', () => {
+    const w = (s: string, v: Parameters<typeof writeMapView>[1]) => writeMapView(q(s), v).toString();
+    expect(w('seed=7&layer=realistic&style=fantasy', { base: 'fantasy', fill: 'polities', sat: 'detail' })).toBe('seed=7');
+    expect(w('seed=7&civ=cultures,-labels', { base: 'blank', fill: 'polities', sat: 'detail' })).toBe('seed=7&civ=-labels&map=blank');
+    expect(w('', { base: 'satellite', fill: 'none', sat: 'detail' })).toBe('map=satellite&fill=none&sat=detail');
+    expect(w('civ=-labels', { base: 'fantasy', fill: 'polities', sat: 'detail' })).toBe('civ=-labels&fill=polities');
+    expect(w('sat=classic', { base: 'elevation', fill: 'faiths', sat: 'classic' })).toBe('map=elevation&fill=faiths');
+    expect(w('civ=eras,resources', { base: 'fantasy', fill: 'eras', sat: 'detail' })).toBe('civ=resources&fill=eras');
+    for (const v of [
+      { base: 'satellite', fill: 'cultures', sat: 'classic' },
+      { base: 'geo', fill: 'none', sat: 'detail' },
+      { base: 'temperature', fill: 'polities', sat: 'detail' },
+    ] as const) {
+      const back = mapViewFromUrl(writeMapView(q(''), v));
+      expect(back?.base).toBe(v.base);
+      expect(back?.fill).toBe(v.fill);
+      if (v.base === 'satellite') expect(back?.sat).toBe(v.sat);
+    }
   });
 });
 

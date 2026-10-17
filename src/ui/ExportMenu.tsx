@@ -44,7 +44,8 @@ import { getCivShow, getCivTime, getResourceView, getSelection, useCivTime } fro
 import { getMapCenter, xOfLon } from './mapWrap';
 import { flatProjection, getContourKind, getGraticuleLines, getProjection } from './projection';
 import { contoursOf } from './ContourLayer';
-import { MAP_LAYERS } from './mapLayers';
+import { LOOK_NAMES, MAP_LAYERS } from './mapLayers';
+import type { SurfaceLook } from '../render/surface';
 import type { ProjectionId } from '../render/projection';
 import { wrapOf } from '../render/common';
 import { clearToast, showToast } from './toastStore';
@@ -79,8 +80,8 @@ interface ExportDebug {
   seaLevel?: number;
 }
 
-function styleName(style: CivStyle, layer: LayerId): string {
-  if (style === 'realistic') return '写实';
+function styleName(style: CivStyle, layer: LayerId, look: SurfaceLook): string {
+  if (style === 'realistic') return LOOK_NAMES[look];
   if (style === 'fantasy') return '手绘';
   return LAYERS.find((l) => l.id === layer)?.name ?? '数据图层';
 }
@@ -199,6 +200,7 @@ interface MapInput {
   civ: Civ | null;
   style: CivStyle;
   layer: LayerId;
+  look: SurfaceLook;
   year: number;
   show: CivShow;
   /** 球面世界:图片正中的世界 x(= 屏幕上当前视图的中心) */
@@ -230,6 +232,7 @@ async function exportMap(m: MapInput, scale: ExportScale, format: ImageFormat): 
     civ: m.civ,
     style: m.style,
     layer: m.layer,
+    look: m.look,
     year: m.year,
     show: m.show,
     center: m.center,
@@ -304,11 +307,13 @@ export interface ExportMenuProps {
   plain?: Civ | null;
   style: CivStyle;
   layer: LayerId;
+  /** 写实风的画法(不给 = 经典卫星) */
+  look?: SurfaceLook;
   /** 按钮上文字前面的小图标 */
   icon?: ReactNode;
 }
 
-export function ExportMenu({ data, civ: shown, plain, style, layer, icon }: ExportMenuProps) {
+export function ExportMenu({ data, civ: shown, plain, style, layer, look = 'classic', icon }: ExportMenuProps) {
   const [open, setOpen] = useState(false);
   const [scale, setScale] = useState<ExportScale>(1);
   const [usePlain, setUsePlain] = useState(false);
@@ -403,7 +408,7 @@ export function ExportMenu({ data, civ: shown, plain, style, layer, icon }: Expo
         setStatus({ kind: 'ok', text: `已导出 ${r.name}`, more: `${r.w}×${r.h}，${gmb}，用时 ${((performance.now() - t0) / 1000).toFixed(1)} 秒` });
       } else if (job === 'map' || job === 'mapjpg') {
         const format: ImageFormat = job === 'map' ? 'png' : 'jpeg';
-        const name = `${base}-${fileYear}-${styleName(style, layer)}${x2}.${IMAGE_FORMATS[format].ext}`;
+        const name = `${base}-${fileYear}-${styleName(style, layer, look)}${x2}.${IMAGE_FORMATS[format].ext}`;
         // 球面世界:按当前视图的中心展开(左右边 = 中心 ± 180°);投影、经纬网和屏幕上一样
         const center = wrapOf(world) ? xOfLon(getMapCenter(), world.width) : undefined;
         const projection = flatProjection(getProjection());
@@ -411,7 +416,7 @@ export function ExportMenu({ data, civ: shown, plain, style, layer, icon }: Expo
         const contours = getContourKind() ?? undefined;
         const contourDark = style === 'data' && MAP_LAYERS.some((l) => l.data === layer && l.dark);
         const r = await exportMap(
-          { world, raster, civ: ok ? civ : null, style, layer, year: y, show, center, projection, graticule, contours, contourDark, marks: markItems, trail, res: { ...getResourceView() } },
+          { world, raster, civ: ok ? civ : null, style, layer, look, year: y, show, center, projection, graticule, contours, contourDark, marks: markItems, trail, res: { ...getResourceView() } },
           scale,
           format,
         );
@@ -469,7 +474,7 @@ export function ExportMenu({ data, civ: shown, plain, style, layer, icon }: Expo
 
   const items: { job: Job; title: string; sub: string; need?: boolean }[] = [
     ...(globeOn ? [{ job: 'globe' as const, title: '导出地球仪这一面', sub: '现在看到的样子，PNG' }] : []),
-    { job: 'map', title: '地图图片(PNG)', sub: `整张地图，${styleName(style, layer)}，${yearFull(year, edits.era)}，${W}×${H}`, need: true },
+    { job: 'map', title: '地图图片(PNG)', sub: `整张地图，${styleName(style, layer, look)}，${yearFull(year, edits.era)}，${W}×${H}`, need: true },
     { job: 'mapjpg', title: '地图图片(JPEG)', sub: `同上,文件小好几倍(质量 ${Math.round(IMAGE_FORMATS.jpeg.quality! * 100)}%)`, need: true },
     { job: 'legend', title: '图例(PNG)', sub: `${yearFull(year, edits.era)}的国家 / 民族 + 颜色、城镇符号、道路`, need: true },
     { job: 'height16', title: '高度图(16 位 PNG)', sub: `游戏引擎、World Machine 用，${W}×${H}` },

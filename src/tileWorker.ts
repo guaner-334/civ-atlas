@@ -8,13 +8,14 @@ import type { World } from './gen/world';
 import type { Raster } from './gen/raster';
 import { WINDOW_PAD, rasterizeWindow, zoomSource, type ZoomSource } from './gen/rasterWindow';
 import { drawRealisticRivers, macroGrids, realisticWindowPixels, type MacroGrids } from './render/realistic';
+import type { SurfaceLook } from './render/surface';
 
 /** 整张主图里放大现算要用的几样(1 倍) */
 export type WholeRaster = Pick<Raster, 'w' | 'h' | 'scale' | 'elev' | 'water' | 'ice' | 'iceConc' | 'iceTone' | 'bank' | 'veinLines'>;
 
 export type TileRequest =
-  /** 换了世界(wid = 第几个世界) */
-  | { type: 'world'; wid: number; world: World; whole: WholeRaster }
+  /** 换了世界或画法(wid = 第几个世界;look = 写实风的画法) */
+  | { type: 'world'; wid: number; world: World; whole: WholeRaster; look: SurfaceLook }
   /** S 倍主图上从 (x0, y0) 开始的 size × size 一块;k = 河按几倍缩放的样子画(这一档一个像素 = 一个屏幕像素时的缩放倍数) */
   | { type: 'tile'; wid: number; key: string; S: number; x0: number; y0: number; size: number; k: number };
 
@@ -31,7 +32,7 @@ export interface TileResponse {
 
 const NO_CANVAS = '后台线程不能画图';
 
-let cur: { wid: number; world: World; src: ZoomSource; grids: MacroGrids } | null = null;
+let cur: { wid: number; world: World; look: SurfaceLook; src: ZoomSource; grids: MacroGrids } | null = null;
 
 self.onmessage = (e: MessageEvent<TileRequest>) => {
   const m = e.data;
@@ -39,7 +40,7 @@ self.onmessage = (e: MessageEvent<TileRequest>) => {
     // 收到就准备(细节层放大到一定倍数才送世界过来,等停下来要块时多半已经准备好了)
     cur = null;
     try {
-      cur = { wid: m.wid, world: m.world, src: zoomSource(m.world, m.whole), grids: macroGrids(m.whole as Raster) };
+      cur = { wid: m.wid, world: m.world, look: m.look, src: zoomSource(m.world, m.whole), grids: macroGrids(m.whole as Raster) };
     } catch {
       // 要块时报错
     }
@@ -54,14 +55,14 @@ self.onmessage = (e: MessageEvent<TileRequest>) => {
     const P = WINDOW_PAD;
     const n = m.size + 2 * P;
     const r = rasterizeWindow(cur.src, m.S, m.x0 - P, m.y0 - P, n, n);
-    const all = realisticWindowPixels(r, cur.grids);
+    const all = realisticWindowPixels(r, cur.grids, cur.look);
     const px = new Uint8ClampedArray(m.size * m.size * 4);
     for (let y = 0; y < m.size; y++) px.set(all.subarray(((y + P) * n + P) * 4, ((y + P) * n + P + m.size) * 4), y * m.size * 4);
     const cv = new OffscreenCanvas(m.size, m.size);
     const ctx = cv.getContext('2d') as unknown as CanvasRenderingContext2D | null;
     if (!ctx) throw new Error(NO_CANVAS);
     ctx.putImageData(new ImageData(px, m.size, m.size), 0, 0);
-    drawRealisticRivers(ctx, world, r, { s: m.S, ox: -m.x0, oy: -m.y0, k: m.k });
+    drawRealisticRivers(ctx, world, r, { s: m.S, ox: -m.x0, oy: -m.y0, k: m.k }, true, cur.look);
     const bitmap = cv.transferToImageBitmap();
     res = { wid: m.wid, key: m.key, bitmap, ms: performance.now() - t0 };
     self.postMessage(res, { transfer: [bitmap] });

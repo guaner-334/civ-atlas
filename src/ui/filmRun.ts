@@ -11,6 +11,7 @@ import type { World } from '../gen/world';
 import type { Era } from '../gen/era';
 import { ownersAt } from '../gen/civ/timeline';
 import { MapShot, type ShotArea, type ShotScene } from '../render/shot';
+import type { SurfaceLook } from '../render/surface';
 import { drawFilmFrame, filmMapRect, type FilmLook } from '../render/film';
 import { labelProjection, type MapProj } from '../render/projection';
 import type { MarkItem } from '../render/marks';
@@ -53,6 +54,8 @@ export interface FilmSetup {
   title: string;
   style: CivStyle;
   layer: LayerId;
+  /** 写实底图的画法(经典卫星、卫星、地理图、白模) */
+  look?: SurfaceLook;
   show: CivShow;
   /** 物产图层只看哪一样、画不画还没发现的(和屏幕上一样) */
   res?: ResourceLook;
@@ -186,6 +189,7 @@ export class FilmRenderer {
         geo: sc.geo,
         style: s.style,
         layer: s.layer,
+        look: s.look,
         show: s.show,
         res: s.res,
         projection: s.projection,
