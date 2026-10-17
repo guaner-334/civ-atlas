@@ -98,6 +98,23 @@ describe('原件存进浏览器(resultStore)', () => {
     expect((await loadResult(id, GENERATOR_VERSION))?.snapshot.recipe).toBe(fresh.recipe);
   });
 
+  it('等着写的工夫存档又改了:这份不写', async () => {
+    const id = saveStore.newWorldId();
+    openWorld(id);
+    saveStore.markCreated();
+    const s = await snapshotOf(getEdits());
+    // 查存过哪些的时候,存档改了(推演年数)
+    _setResultBackend({
+      ...mem,
+      heads: async () => {
+        setEdits({ ...getEdits(), endYear: 5000 });
+        return mem.heads();
+      },
+    });
+    expect(await offerSnapshot(s)).toBe(false);
+    expect(mem.records.size).toBe(0);
+  });
+
   it('新建中的世界、旧版本存的存档不存', async () => {
     const id = saveStore.newWorldId();
     openWorld(id, { ...EMPTY_EDITS, names: { 'region:c1': '甲' } }, 'draft');

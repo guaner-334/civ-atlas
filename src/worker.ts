@@ -301,11 +301,21 @@ function mapPart(key: string, world: World): Promise<SnapshotPart> {
   return p;
 }
 
+/** 交给主线程之前复制一份历史给原件用;浏览器复制不了就不做这次的原件(世界照常交回去) */
+function cloneCiv(civ: Civ): Civ | null {
+  try {
+    return structuredClone(civ);
+  } catch {
+    return null;
+  }
+}
+
 /**
  * 推完的这次排一份原件:配方指纹(这次用到的全部输入)+ 地图 + 各段世界 + 整段历史。
- * civ 要在交给主线程(transfer 以后这边的数组就空了)之前复制一份传进来
+ * civ 要在交给主线程(transfer 以后这边的数组就空了)之前复制一份传进来;没复制成(null)就不排
  */
-function queueSnapshot(id: number, m: CivInput & { interventions?: Intervention[] }, world: World, steps: Step[], civ: Civ) {
+function queueSnapshot(id: number, m: CivInput & { interventions?: Intervention[] }, world: World, steps: Step[], civ: Civ | null) {
+  if (!civ) return;
   const baseKey = keyOf(m.params, m.terrain, m.sketch);
   bg.push(async () => {
     let snapshot: Snapshot;
@@ -396,7 +406,7 @@ async function handle(m: WorkerRequest): Promise<void> {
     const { history: _history, ...rest } = world;
     void _history;
     const baseKey = keyOf(m.params, m.terrain, m.sketch);
-    const kept = structuredClone(civ);
+    const kept = cloneCiv(civ);
     post({ type: 'done', id: m.id, world: { ...rest, history: [] }, raster, civ, ms: performance.now() - t0, genMs, tempo: noteOf(m.params, m.sketch), eras: eraWorlds(steps), baseKey }, transfer);
     queuePatches(m.id, m, steps);
     queueSnapshot(m.id, m, world, steps, kept);
@@ -411,7 +421,7 @@ async function handle(m: WorkerRequest): Promise<void> {
     const ms = performance.now() - t0;
     const tempo = noteOf(m.params, m.sketch);
     if (m.type === 'resim') {
-      const kept = structuredClone(civ);
+      const kept = cloneCiv(civ);
       post({ type: 'civ', id: m.id, seq: m.seq, civ, ms, tempo, eras: eraWorlds(steps), baseKey: keyOf(m.params, m.terrain, m.sketch) }, civTransferables(civ));
       queuePatches(m.id, m, steps);
       queueSnapshot(m.id, m, world, steps, kept);

@@ -1097,13 +1097,12 @@ export async function signOut(keep: boolean): Promise<{ ok: true } | { ok: false
     try {
       gone = removeAllWorlds();
       // 没删成:页面里的 AI 写的东西留着(有的只在页面里,浏览器存不下),不然之后同步会把账号里的清空
-      if (gone) {
-        forgetNotes();
-        void clearResults();
-      }
+      if (gone) forgetNotes();
     } finally {
       applying = false;
     }
+    // 浏览器里存的原件也删掉,删完才算退出(关掉页面也不会留下)
+    if (gone) await clearResults();
     // 浏览器不让删(存储突然不让用了之类):不退出,不然以为删干净了,刷新以后世界又都在。没删掉的同步记录还在,下次同步不会当成删了
     if (!gone) {
       // 删前每个世界都和账号里的一样(上面查过);现在不一样的 = 删了一部分又没能放回去(比如存档还在、AI 写的东西没了):

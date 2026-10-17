@@ -14,7 +14,7 @@
  * 现在只存不读:打开世界还是按存档重新生成。以后读原件打开旧版本的世界。
  */
 import { GENERATOR_VERSION } from '../gen/edits';
-import { recipeKey, recipeOfSave, type Snapshot } from '../gen/snapshot';
+import { recipeKey, recipeOfSave, recipeText, type Snapshot } from '../gen/snapshot';
 import { currentWorld, loadWorld, persistent, storedIds, subscribe } from './saveStore';
 import { APP_VERSION } from './version';
 
@@ -195,7 +195,9 @@ export function keepPending(): Promise<boolean> {
     const w = loadWorld(c.id);
     if (!w || w.draft || w.save.generator !== s.generator) return false;
     try {
-      if ((await recipeKey(recipeOfSave(w.save))) !== s.recipe) return false;
+      const recipe = recipeOfSave(w.save);
+      const text = recipeText(recipe);
+      if ((await recipeKey(recipe)) !== s.recipe) return false;
       const heads = await b.heads();
       const sums = sumsOf(s);
       // 存过了 / 存下了:这份不用再看了(之后再改了历史,worker 会交新的一份)
@@ -203,6 +205,8 @@ export function keepPending(): Promise<boolean> {
         if (pending === s) pending = null;
         return false;
       }
+      // 等的这一会儿换了世界、存档又改了(这一页或别的页)、世界删了:这份不算它的结果,不写(存档变了会再看一次)
+      if (!sameWorld(c.id, text)) return false;
       const at = new Date().toISOString();
       await b.put({ id: c.id, generator: s.generator, app: APP_VERSION, at, snapshot: s }, { id: c.id, generator: s.generator, recipe: s.recipe, sums, size: sizeOf(s), at });
       if (pending === s) pending = null;
@@ -218,6 +222,14 @@ export function keepPending(): Promise<boolean> {
       return false;
     }
   });
+}
+
+/** 当前打开的还是这个世界,存着的存档还是这个配方、这一版 */
+function sameWorld(id: string, text: string): boolean {
+  const c = currentWorld();
+  if (!c || c.id !== id || c.kind !== 'created' || c.unsaved || c.gone) return false;
+  const w = loadWorld(id);
+  return !!w && !w.draft && w.save.generator === GENERATOR_VERSION && recipeText(recipeOfSave(w.save)) === text;
 }
 
 /** 一个世界存着的原件(按生成器版本从旧到新) */
