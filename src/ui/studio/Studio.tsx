@@ -81,6 +81,7 @@ import { useAiOn } from '../../ai/client';
 import { AST_W, closeAssistant, openAssistant, useAstOpen } from '../astPanel';
 import { PRIVACY_URL, SOURCE_URL, TERMS_URL } from '../links';
 import { ContactMenuItem } from '../ContactLink';
+import { openDiag } from '../DiagDialog';
 import { VersionMenuFoot } from '../BetaNews';
 import { Icon } from '../icons';
 import { styleKey } from '../LayerPopover';
@@ -1182,6 +1183,9 @@ export function Studio(p: StudioProps) {
       <PopMenu className="sb-pill sb-more" icon={<Icon name="more" size={17} />} title="更多" act="world-more" align="right">
         <AiSettingsItem onClick={() => openAiSettings()} />
         <MenuSep />
+        <MenuItem icon={<Icon name="log" size={16} />} act="diag" onClick={openDiag}>
+          问题记录
+        </MenuItem>
         <MenuItem icon={<Icon name="info" size={16} />} href={SOURCE_URL} act="source">
           源代码
         </MenuItem>
