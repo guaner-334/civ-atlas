@@ -889,6 +889,22 @@
 .tp-sw.k-erase {
   box-shadow: inset 0 0 0 1.5px var(--ink-2);
 }
+.tp-sw.k-wet {
+  background: #3fb8a8;
+}
+.tp-sw.k-dry {
+  background: #dcbc78;
+}
+.tp-sw.k-warm {
+  background: #f07a4a;
+}
+.tp-sw.k-cold {
+  background: #a8d8ff;
+}
+/* 地貌 / 气候两页的切换,在组头下面、工具上面 */
+.tp-pages {
+  margin: 2px 0 10px;
+}
 /* 手机:工具排成一行横着滑,放一处前面隔一道竖线 */
 .tp-strip {
   display: flex;
