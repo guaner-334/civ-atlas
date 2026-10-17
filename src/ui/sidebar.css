@@ -535,3 +535,108 @@ a.sb-row {
   color: var(--ink-3);
   user-select: text;
 }
+
+/* ==== 时代 / 物产图层的列表(Sidebar.tsx 的 WorldHome、ResourceList;手机世界卡片共用) ==== */
+/* 列表下面一段说明 */
+.sb-note {
+  margin: 2px 4px 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--ink-2);
+}
+/* 「物产」后面的年份 */
+.sb-sec-year {
+  margin-left: 6px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--ink-3);
+}
+/* 「显示未发现的」小开关 */
+.sb-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink-2);
+  font-size: 13px;
+  font-weight: 400;
+  cursor: pointer;
+}
+.sb-toggle i {
+  position: relative;
+  width: 28px;
+  height: 17px;
+  border-radius: 9px;
+  background: rgba(120, 120, 128, 0.24);
+  transition: background-color 0.2s;
+}
+.sb-toggle i::after {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 2px;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  transition: left 0.2s;
+}
+.sb-toggle.on i {
+  background: #34c759;
+}
+.sb-toggle.on i::after {
+  left: 13px;
+}
+.sb-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+/* 物产一行:圆章 + 名字和小字 + 右边两行数字;选中的浅蓝底;哪州都没发现的灰掉 */
+.sb-res .sb-row {
+  gap: 11px;
+  min-height: 46px;
+  padding: 4px 12px;
+}
+.sb-res .sb-row.on {
+  background: var(--accent-soft);
+}
+.sb-res .sb-row-main b {
+  font-weight: 400;
+  font-size: 14px;
+}
+.sb-res .sb-row-main small {
+  font-size: 12px;
+}
+.sb-badge {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  font-style: normal;
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1;
+  color: #fff;
+  box-shadow:
+    0 0 0 1.5px #fff,
+    0 1px 2px rgba(0, 0, 0, 0.35);
+}
+.sb-res .sb-row.off .sb-badge {
+  background: none !important;
+  box-shadow: none;
+  border: 1.5px dashed var(--ink-3);
+  color: var(--ink-3);
+}
+.sb-res .sb-row.off .sb-row-main b {
+  color: var(--ink-2);
+}
+.sb-res-n {
+  font-size: 12px;
+  line-height: 1.35;
+  text-align: right;
+}

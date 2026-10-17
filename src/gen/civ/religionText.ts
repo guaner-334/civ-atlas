@@ -11,6 +11,7 @@ import { ownersAt, type Owners } from './timeline';
 import { rulerRef } from './peopleText';
 import { buildChronicle, mergeChronicle, type ChronicleEntry, type Importance } from './chronicle';
 import { faithCounts, faithRoot, FOLK_COLOR } from './religion';
+import { developmentEntries } from './developmentText';
 import { yearAt, type Era } from '../era';
 
 /** 类型的说明(宗教卡片「类型」一行的小字) */
@@ -110,12 +111,15 @@ export function faithEntries(civ: Civ): ChronicleEntry[] {
 
 const fullCache = new WeakMap<Civ, ChronicleEntry[]>();
 
-/** 史事 + 宗教大事(编年史、时间轴、最近大事、卡片里的大事用这一份;不含君主继位)。按 civ 缓存;地图在更早一段时按整段历史(Civ.history)算 */
+/**
+ * 史事 + 宗教大事 + 时代和物产的大事(编年史、时间轴、最近大事、卡片里的大事用这一份;不含君主继位)。
+ * 按 civ 缓存;地图在更早一段时按整段历史(Civ.history)算
+ */
 export function fullChronicle(civ: Civ): ChronicleEntry[] {
   if (civ.history) return fullChronicle(civ.history);
   const hit = fullCache.get(civ);
   if (hit) return hit;
-  const out = mergeChronicle(buildChronicle(civ), faithEntries(civ));
+  const out = mergeChronicle(mergeChronicle(buildChronicle(civ), faithEntries(civ)), developmentEntries(civ));
   fullCache.set(civ, out);
   return out;
 }

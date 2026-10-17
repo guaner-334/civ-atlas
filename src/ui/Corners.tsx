@@ -47,7 +47,7 @@ export function MapBar({ layers, exp, civ }: { layers: LayerPopoverProps; exp: E
             aria-checked={layers.fill === f.id}
             data-fill={f.id}
             data-tip={f.name}
-            data-tip-key={`layer${FILL_KEYS.indexOf(f.id) + 1}`}
+            data-tip-key={FILL_KEYS.includes(f.id) ? `layer${FILL_KEYS.indexOf(f.id) + 1}` : undefined}
             disabled={layers.disabled}
             onClick={() => layers.onFill(f.id)}
           >

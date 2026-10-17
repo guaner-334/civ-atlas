@@ -11,7 +11,7 @@ import { fileBaseName } from '../gen/savefile';
 import type { CivStyle } from '../render/civ/overlay';
 import type { LayerId } from '../render/layers';
 import type { SurfaceLook } from '../render/surface';
-import { clearSelection, getCivShow, getCivTime, getSelection, setCivTime } from './civView';
+import { clearSelection, getCivShow, getCivTime, getResourceView, getSelection, setCivTime } from './civView';
 import { getEdits } from './editsStore';
 import { markItemsAt, plainMarkChars } from './markInfo';
 import { getMapCenter, xOfLon } from './mapWrap';
@@ -190,6 +190,7 @@ export function filmSetup(src: FilmSource, look: { style: CivStyle; layer: Layer
     layer: look.layer,
     look: look.surface,
     show: { ...getCivShow() },
+    res: { ...getResourceView() },
     projection: flatProjection(getProjection()),
     center: wrapOf(world) ? xOfLon(getMapCenter(), world.width) : undefined,
     graticule: getGraticuleLines(),

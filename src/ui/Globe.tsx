@@ -71,9 +71,9 @@ import { clearToast, showToast } from './toastStore';
 import { getMapCenter, publishMapCenter } from './mapWrap';
 import { animProgress } from './flyTo';
 import { drawSettlementMarks, type SettlementMarkInfo } from '../render/civ/settlements';
-import { REF_MAP_CSS, drawPlacedLabels, placeMap, placedMarkBox, type LabelItem, type LabelMark, type LabelView, type Placement } from '../render/labels/draw';
+import { REF_MAP_CSS, drawPlacedLabels, placeMap, placedMarkBox, type LabelItem, type LabelMark, type LabelView, type PlacedLabel, type Placement } from '../render/labels/draw';
 import { glyphBox } from '../render/labels/layout';
-import { getCivTime, setSelection, subscribeCivTime, useCivHighlight, useCivShow, useSelection } from './civView';
+import { getCivTime, setSelection, subscribeCivTime, useCivHighlight, useCivShow, useResourceView, useSelection } from './civView';
 import {
   drawHighlight,
   drawSelectionLabels,
@@ -122,6 +122,7 @@ import { fileBaseName } from '../gen/savefile';
 import { currentWorld } from './saveStore';
 import { createWheelReader, inGesturePinch, wheelSample } from './wheel';
 import { drawHolyDot, holyCities } from '../render/civ/faith';
+import { drawResourceBadges, hitsLabels, resourceBadges, type ResourceBadge } from '../render/civ/resources';
 import { faithFocusOf, selectionOnMap } from './faithSelection';
 import { yearFull } from '../gen/era';
 import { currentEra } from './editsStore';
@@ -412,6 +413,8 @@ interface OverlayInput {
   hl: { strokes: GlobeLineStroke[]; ring: { box: [number, number, number, number]; colors: [string, string, string] } | null; alpha: number } | null;
   /** 信仰图层:圣城的小圆点(世界坐标、这个教的颜色) */
   holy: { wx: number; wy: number; color: readonly number[] }[];
+  /** 物产图层:州治上的圆章(先放的在前;at = 州治的世界坐标);没开 = null */
+  badges: { list: ResourceBadge[]; at: (region: number) => [number, number]; focus: boolean } | null;
 }
 
 /** 排版要用的东西 */
@@ -461,6 +464,22 @@ function placeGlobeLabels(o: PlaceInput): GlobePlacement {
   const items = o.items.filter((it) => lv.k >= it.minZoom * 0.92 && (!o.quick || isQuickLabel(it)) && onFront(it, lv)).map(globePolityItem);
   const placed = placeMap(items, vm.marks, lv);
   return { placed, lv, facing: vm.facing, quick: o.quick, ms: performance.now() - t0 };
+}
+
+/** 物产圆章画到球面那层上(背面的不画,压着地名的让) */
+function drawGlobeBadges(ctx: CanvasRenderingContext2D, b: NonNullable<OverlayInput['badges']>, lv: GlobeLabelView, labels: readonly PlacedLabel[], dpr: number) {
+  drawResourceBadges(
+    ctx,
+    b.list,
+    (r) => {
+      const [wx, wy] = b.at(r);
+      const [x, y, d] = globeToCanvas(lv, wx, wy);
+      return d > MARK_MIN_D ? [x, y] : null;
+    },
+    (x, y, rad) => hitsLabels(labels, x, y, rad),
+    b.focus,
+    dpr,
+  );
 }
 
 /**
@@ -536,7 +555,15 @@ function drawOverlay(ctx: CanvasRenderingContext2D, o: OverlayInput): GlobePlace
     }
   }
   const pl = o.placement;
-  if (!pl) return placed;
+  if (!pl) {
+    // 地名、道路都关了也画物产圆章
+    if (o.badges) {
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      drawGlobeBadges(ctx, o.badges, globeLabelView({ view: o.view, w: o.w, h: o.h, dpr, worldW: o.world.width, worldH: o.world.height, shift: o.shift }), [], dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+    return placed;
+  }
   // 3. 选中的名字底下的光晕、选中的城外一圈细环 → 城镇符号 → 文字(和主图文字层一样的顺序)
   const { lv } = pl;
   const sel = o.selection;
@@ -553,6 +580,7 @@ function drawOverlay(ctx: CanvasRenderingContext2D, o: OverlayInput): GlobePlace
     const [x, y, d] = globeToCanvas(lv, h.wx, h.wy);
     if (d > MARK_MIN_D) drawHolyDot(ctx, x, y, h.color, dpr);
   }
+  if (o.badges) drawGlobeBadges(ctx, o.badges, lv, pl.placed.labels, dpr);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   // 点选用:CSS 像素
   for (const m of pl.placed.marks) {
@@ -670,6 +698,7 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
   const faithFocus = faithFocusOf(picked);
   const hl = useCivHighlight();
   const show = useCivShow();
+  const resView = useResourceView();
 
   /** 所有每帧要用的东西放在一个 ref 里(不触发 React 重新渲染) */
   const s = useRef({
@@ -756,8 +785,8 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
   }).current;
 
   // 最新的 props(帧回调里读)
-  const props = useRef({ world, raster, civ, geo, style, layer, look, terrain, terrainKey, replay, graticule, sel, show, leftRoom, rightRoom, hl, faithFocus });
-  props.current = { world, raster, civ, geo, style, layer, look, terrain, terrainKey, replay, graticule, sel, show, leftRoom, rightRoom, hl, faithFocus };
+  const props = useRef({ world, raster, civ, geo, style, layer, look, terrain, terrainKey, replay, graticule, sel, show, leftRoom, rightRoom, hl, faithFocus, resView });
+  props.current = { world, raster, civ, geo, style, layer, look, terrain, terrainKey, replay, graticule, sel, show, leftRoom, rightRoom, hl, faithFocus, resView };
 
   /** 左边被侧栏卡片挡住的宽度(画布太窄就不让) */
   const leftOf = () => (s.size.w > 2 * props.current.leftRoom ? props.current.leftRoom : 0);
@@ -1100,6 +1129,17 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
               return { wx: p.world.mesh.x[c], wy: p.world.mesh.y[c], color: x.color };
             })
           : [],
+      badges:
+        cp && cp.show.resources && cp.civ.development
+          ? {
+              list: resourceBadges(cp.civ.development, cp.year, cp.civ.regions.count, p.resView.focus, p.resView.hidden),
+              at: (r) => {
+                const c = cp.civ.regions.seat[r];
+                return [p.world.mesh.x[c], p.world.mesh.y[c]];
+              },
+              focus: p.resView.focus !== null,
+            }
+          : null,
     };
   };
 
@@ -1357,7 +1397,7 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
   }, []);
 
   // 贴图来源、开关变了:下一帧上传、重画
-  useEffect(invalidate, [terrain, terrainKey, replay, raster, graticule, style, look, civ, geo, sel, show, leftRoom, rightRoom, hl, faithFocus]);
+  useEffect(invalidate, [terrain, terrainKey, replay, raster, graticule, style, look, civ, geo, sel, show, leftRoom, rightRoom, hl, faithFocus, resView]);
   useEffect(() => subscribeCivFeed(invalidate), []);
   // 时间轴一动:文明贴图、国界道路的矢量线换成那一年的
   useEffect(() => subscribeCivTime(invalidate), []);

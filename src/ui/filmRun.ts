@@ -16,6 +16,7 @@ import { drawFilmFrame, filmMapRect, type FilmLook } from '../render/film';
 import { labelProjection, type MapProj } from '../render/projection';
 import type { MarkItem } from '../render/marks';
 import type { CivShow, CivStyle } from '../render/civ/overlay';
+import type { ResourceLook } from '../render/civ/resources';
 import type { LayerId } from '../render/layers';
 import type { ProjectionId } from '../render/projection';
 import type { FilmSource } from './filmSource';
@@ -56,6 +57,8 @@ export interface FilmSetup {
   /** 写实底图的画法(经典卫星、卫星、地理图、白模) */
   look?: SurfaceLook;
   show: CivShow;
+  /** 物产图层只看哪一样、画不画还没发现的(和屏幕上一样) */
+  res?: ResourceLook;
   projection: ProjectionId;
   center?: number;
   /** 经纬网每隔几度一条(0 = 不画) */
@@ -188,6 +191,7 @@ export class FilmRenderer {
         layer: s.layer,
         look: s.look,
         show: s.show,
+        res: s.res,
         projection: s.projection,
         center: s.center,
         graticule: s.graticule,

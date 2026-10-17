@@ -9,7 +9,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { CivStyle } from '../render/civ/overlay';
 import type { LayerId } from '../render/layers';
 import type { SurfaceLook } from '../render/surface';
-import { useCivShow } from './civView';
+import { useCivShow, useResourceView } from './civView';
 import { useEdits } from './editsStore';
 import { useMapCenter } from './mapWrap';
 import { useGraticuleLines, useProjection } from './projection';
@@ -39,7 +39,7 @@ const idOf = (o: object | null | undefined) => {
 
 /** 地图画法的指纹:换了就把拍好的地图全部重拍 */
 function lookKey(src: FilmSource, look: LongLook, marks: unknown, flags: unknown): string {
-  return [idOf(src), look.style, look.layer, look.look ?? '', JSON.stringify(look.show), look.projection, look.center ?? '', look.graticule, idOf(marks as object), idOf(flags as object)].join('|');
+  return [idOf(src), look.style, look.layer, look.look ?? '', JSON.stringify(look.show), JSON.stringify(look.res ?? null), look.projection, look.center ?? '', look.graticule, idOf(marks as object), idOf(flags as object)].join('|');
 }
 
 interface Box {
@@ -66,6 +66,7 @@ export function LongStage({ phone, style, layer, look }: LongStageProps) {
   const s = useLong();
   const src = useFilmSource();
   const show = useCivShow();
+  const resView = useResourceView();
   const proj = useProjection();
   const grat = useGraticuleLines();
   const center = useMapCenter();
@@ -85,6 +86,7 @@ export function LongStage({ phone, style, layer, look }: LongStageProps) {
       layer: setup.layer,
       look: setup.look,
       show: setup.show,
+      res: setup.res,
       projection: setup.projection,
       center: setup.center,
       graticule: setup.graticule,
@@ -93,7 +95,7 @@ export function LongStage({ phone, style, layer, look }: LongStageProps) {
       font: setup.font,
     };
     void renderLong(src, ll, lookKey(src, ll, marks, flags)).catch((e) => console.error('长图画不出来', e));
-  }, [src, style, layer, look, show, proj, grat, center, marks, era, flags, s.scope, s.polity, s.maps, s.events, s.split, s.title]);
+  }, [src, style, layer, look, show, resView, proj, grat, center, marks, era, flags, s.scope, s.polity, s.maps, s.events, s.split, s.title]);
   // 关掉面板:画好的图放掉
   useEffect(() => () => disposeLong(), []);
 

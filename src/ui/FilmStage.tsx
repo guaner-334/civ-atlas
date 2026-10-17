@@ -12,7 +12,7 @@ import type { CivStyle } from '../render/civ/overlay';
 import type { LayerId } from '../render/layers';
 import type { SurfaceLook } from '../render/surface';
 import { drawFilmFrame, filmMapRect } from '../render/film';
-import { useCivShow, useCivTime } from './civView';
+import { useCivShow, useCivTime, useResourceView } from './civView';
 import { useEdits } from './editsStore';
 import { useMapCenter } from './mapWrap';
 import { useGraticuleLines, useProjection } from './projection';
@@ -85,6 +85,7 @@ export function FilmStage({ phone, style, layer, look }: FilmStageProps) {
   const src = useFilmSource();
   const t = useCivTime();
   const show = useCivShow();
+  const resView = useResourceView();
   const proj = useProjection();
   const grat = useGraticuleLines();
   const center = useMapCenter();
@@ -140,7 +141,7 @@ export function FilmStage({ phone, style, layer, look }: FilmStageProps) {
     const region = whole ? undefined : holeRegion();
     return new FilmRenderer(src, filmSetup(src, { style, layer, surface: look }, region), filmMajors(src.full));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [src, s.mode, s.shape, s.area, s.rangeKind, s.range, s.seconds, s.captions, s.cards, s.title, style, layer, look, show, proj, grat, center, marks, era, whole ? '' : vkey, box?.w]);
+  }, [src, s.mode, s.shape, s.area, s.rangeKind, s.range, s.seconds, s.captions, s.cards, s.title, style, layer, look, show, resView, proj, grat, center, marks, era, whole ? '' : vkey, box?.w]);
   useEffect(() => () => renderer?.dispose(), [renderer]);
 
   // 整张地图:预览按年份重画(一帧要 0.1 秒多;拖时间轴时只画最新的那一年,选项改了用新的画法)

@@ -27,6 +27,7 @@ import { fullChronicle } from '../gen/civ/religionText';
 import { AZGAAR_SEA_GRAY, heightmapNote, type HeightmapBits } from '../gen/heightmap';
 import { LAYERS, type LayerId } from '../render/layers';
 import type { CivShow, CivStyle } from '../render/civ/overlay';
+import type { ResourceLook } from '../render/civ/resources';
 import { IMAGE_FORMATS, drawExportContours, drawExportMarks, drawExportTrail, drawLegend, drawMapBase, drawMapLabels, drawMapOverlay, drawMapTerrain, type ExportScale, type ImageFormat } from '../render/export';
 import { canvasMeasure, drawMarks, layoutMarks, markStyle, placedTextBoxes, type MarkItem } from '../render/marks';
 import { drawTrail, layoutTrail, type TrailInput } from '../render/trail';
@@ -39,7 +40,7 @@ import { ensureFonts } from '../render/labels/fonts';
 import { characterTrail } from './characterInfo';
 import { diagDoing, recordWorkerError } from '../diag/watch';
 import type { ExportRequest, ExportResponse } from '../exportWorker';
-import { getCivShow, getCivTime, getSelection, useCivTime } from './civView';
+import { getCivShow, getCivTime, getResourceView, getSelection, useCivTime } from './civView';
 import { getMapCenter, xOfLon } from './mapWrap';
 import { flatProjection, getContourKind, getGraticuleLines, getProjection } from './projection';
 import { contoursOf } from './ContourLayer';
@@ -215,6 +216,8 @@ interface MapInput {
   marks?: readonly MarkItem[];
   /** 正选着的作者人物的足迹(没选 = 不给) */
   trail?: TrailInput | null;
+  /** 物产图层:只看哪一样、画不画还没发现的 */
+  res?: ResourceLook;
 }
 
 /** 地图图片:后台线程画地形和文明底图,主线程叠文字、编码 PNG / JPEG */
@@ -413,7 +416,7 @@ export function ExportMenu({ data, civ: shown, plain, style, layer, look = 'clas
         const contours = getContourKind() ?? undefined;
         const contourDark = style === 'data' && MAP_LAYERS.some((l) => l.data === layer && l.dark);
         const r = await exportMap(
-          { world, raster, civ: ok ? civ : null, style, layer, look, year: y, show, center, projection, graticule, contours, contourDark, marks: markItems, trail },
+          { world, raster, civ: ok ? civ : null, style, layer, look, year: y, show, center, projection, graticule, contours, contourDark, marks: markItems, trail, res: { ...getResourceView() } },
           scale,
           format,
         );

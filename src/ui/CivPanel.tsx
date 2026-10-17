@@ -19,13 +19,14 @@ import { yearFull } from '../gen/era';
 import { useEra } from './editsStore';
 import { getCivTime, setCivShow, subscribeCivTime, useCivShow } from './civView';
 
-const TOGGLES: { key: Exclude<keyof CivShow, 'polities' | 'cultures' | 'faiths'>; name: string; hint: string }[] = [
+const TOGGLES: { key: Exclude<keyof CivShow, 'polities' | 'cultures' | 'faiths' | 'eras'>; name: string; hint: string }[] = [
   { key: 'labels', name: '地名', hint: '海洋、山脉、大河、湖泊、大岛、荒漠的名字;放大地图显示更多' },
   { key: 'regions', name: '州', hint: '按山脊、大河自然划分的地区,是文明扩张的基本单位' },
   { key: 'sites', name: '城址', hint: '每州最宜居的一块地;圆点越大,这一州能养活的人越多' },
   { key: 'routes', name: '道路', hint: '实线是大城之间的大路,虚线是小路;海上的点线是港口之间的航线' },
   { key: 'wars', name: '战事', hint: '正在打的仗(开着国家时画):红线是战线,斜线是这场仗里易手的州,双剑是打过仗的地方' },
   { key: 'habitat', name: '宜居度', hint: '哪里适合住人:颜色越深越宜居;不上色的是冰原等不可居之地' },
+  { key: 'resources', name: '物产', hint: '州治上的圆章:这一州出什么、这一年能用多少;侧栏里能只看一样' },
 ];
 
 /** "道路"图例:实线大路、虚线小路、点线航线 */

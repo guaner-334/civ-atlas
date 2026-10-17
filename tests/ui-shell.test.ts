@@ -17,6 +17,7 @@ import {
   layerFromUrl,
   layerOf,
   layerParts,
+  layerShow,
   mapViewFromUrl,
   writeMapView,
 } from '../src/ui/mapLayers';
@@ -29,7 +30,7 @@ import { FLY_MS, animProgress, easeOutCubic, flatFly, sideRoom } from '../src/ui
 describe('图层换算', () => {
   it('每个图层换成设置再换回来还是它自己', () => {
     for (const l of MAP_LAYERS) {
-      expect(layerOf(l.style, l.data ?? 'biomes', { polities: l.polities, cultures: l.cultures, faiths: l.faiths })).toBe(l.id);
+      expect(layerOf(l.style, l.data ?? 'biomes', layerShow(l))).toBe(l.id);
     }
   });
   it('旧的组合也认得出:写实 + 国家算实景;手绘 + 国家 + 民族算政区;没有数据图层名的算生态;信仰开着(手绘)算信仰', () => {
@@ -39,6 +40,14 @@ describe('图层换算', () => {
     expect(layerOf('fantasy', 'biomes', { polities: true, cultures: true })).toBe('political');
     expect(layerOf('fantasy', 'biomes', { polities: false, cultures: false })).toBe('terrain');
     expect(layerOf('data', 'temperature', { polities: true, cultures: false })).toBe('temperature');
+  });
+  it('时代、物产是第二行小字按钮:时代留国界(开着国家),物产不叠国家;网址 layer=era / layer=resources', () => {
+    expect(MAP_LAYERS.filter((l) => l.dev).map((l) => l.id)).toEqual(['era', 'resources']);
+    expect(layerShow(layerDef('era'))).toEqual({ polities: true, cultures: false, faiths: false, eras: true, resources: false });
+    expect(layerShow(layerDef('resources'))).toEqual({ polities: false, cultures: false, faiths: false, eras: false, resources: true });
+    expect(layerOf('fantasy', 'biomes', { polities: true, cultures: false, eras: true })).toBe('era');
+    expect(layerFromUrl(new URLSearchParams('seed=7&layer=era'))).toBe('era');
+    expect(layerFromUrl(new URLSearchParams('seed=7&layer=resources'))).toBe('resources');
   });
   it('深色主题:实景、高程、降水;六张缩略图是政区、民族、信仰、地形、生态、实景', () => {
     expect(MAP_LAYERS.filter((l) => layerDark(l.id)).map((l) => l.id)).toEqual(['realistic', 'elevation', 'precipitation']);
@@ -66,10 +75,15 @@ describe('底图 × 填色', () => {
     expect(layerParts('terrain')).toEqual({ base: 'fantasy', fill: 'none' });
     expect(layerParts('realistic')).toEqual({ base: 'satellite', fill: 'none', sat: 'classic' });
     expect(layerParts('elevation')).toEqual({ base: 'elevation', fill: 'none' });
+    expect(layerParts('era')).toEqual({ base: 'fantasy', fill: 'eras' });
+    expect(layerParts('resources')).toEqual({ base: 'fantasy', fill: 'none', resources: true });
   });
   it('填色和文明层开关互换:信仰留着国界;任何底图都能配任何填色', () => {
-    for (const f of ['none', 'polities', 'cultures', 'faiths'] as const) expect(fillOf(fillShow(f))).toBe(f);
-    expect(fillShow('faiths')).toEqual({ polities: true, cultures: false, faiths: true });
+    for (const f of ['none', 'polities', 'cultures', 'faiths', 'eras'] as const) expect(fillOf(fillShow(f))).toBe(f);
+    expect(fillShow('faiths')).toEqual({ polities: true, cultures: false, faiths: true, eras: false });
+    expect(fillShow('eras')).toEqual({ polities: true, cultures: false, faiths: false, eras: true });
+    // 物产是叠加开关,换填色不碰它
+    expect('resources' in fillShow('none')).toBe(false);
     for (const b of ['fantasy', 'satellite', 'geo', 'blank', 'elevation'] as const) {
       const l = baseLook(b, 'detail');
       expect(baseOf(l.style, l.data ?? 'biomes', l.look ?? 'detail')).toBe(b);
@@ -94,6 +108,8 @@ describe('底图 × 填色', () => {
     expect(mapViewFromUrl(q('fill=none'))).toEqual({ base: 'fantasy', fill: 'none', sat: undefined });
     expect(mapViewFromUrl(q('layer=realistic'))).toEqual({ base: 'satellite', fill: 'none', sat: 'classic' });
     expect(mapViewFromUrl(q('layer=faith'))).toEqual({ base: 'fantasy', fill: 'faiths' });
+    expect(mapViewFromUrl(q('layer=resources'))).toEqual({ base: 'fantasy', fill: 'none', resources: true });
+    expect(mapViewFromUrl(q('fill=eras'))?.fill).toBe('eras');
     expect(mapViewFromUrl(q(''))).toEqual({ base: 'fantasy', fill: 'polities' });
     expect(mapViewFromUrl(q('style=realistic'))).toBeNull();
     expect(mapViewFromUrl(q('civ=cultures'))).toBeNull();
@@ -105,6 +121,7 @@ describe('底图 × 填色', () => {
     expect(w('', { base: 'satellite', fill: 'none', sat: 'detail' })).toBe('map=satellite&fill=none&sat=detail');
     expect(w('civ=-labels', { base: 'fantasy', fill: 'polities', sat: 'detail' })).toBe('civ=-labels&fill=polities');
     expect(w('sat=classic', { base: 'elevation', fill: 'faiths', sat: 'classic' })).toBe('map=elevation&fill=faiths');
+    expect(w('civ=eras,resources', { base: 'fantasy', fill: 'eras', sat: 'detail' })).toBe('civ=resources&fill=eras');
     for (const v of [
       { base: 'satellite', fill: 'cultures', sat: 'classic' },
       { base: 'geo', fill: 'none', sat: 'detail' },

@@ -1,11 +1,12 @@
 /**
  * 图层(界面骨架的"图层与投影"弹层):六张缩略图 + 五个小字按钮。
  *
- * 一个图层 = 画风(手绘 / 写实 / 数据图层)+ 数据图层(数据图层时)+ 文明层开不开国家 / 民族 / 信仰:
+ * 一个图层 = 画风(手绘 / 写实 / 数据图层)+ 数据图层(数据图层时)+ 文明层开不开国家 / 民族 / 信仰 / 时代 / 物产:
  *   政区 = 手绘 + 国家      民族 = 手绘 + 民族      信仰 = 手绘 + 信仰(留国界、国名)
  *   地形 = 手绘,不叠文明   生态 = 数据图层"群落"   实景 = 写实地貌,不叠文明
  *   高程 / 板块 / 气温 / 降水 / 洋流 = 对应的数据图层
- * 反过来,任意一组(画风, 数据图层, 国家 / 民族 / 信仰开关)都能认出它算哪个图层(旧链接 style=、layer=、civ= 照样认)。
+ *   时代 = 手绘 + 时代(留国界、国名)   物产 = 手绘 + 州治上的物产圆章(这两个是第二行小字按钮)
+ * 反过来,任意一组(画风, 数据图层, 文明层开关)都能认出它算哪个图层(旧链接 style=、layer=、civ= 照样认)。
  * 主题:高程、实景、降水底色深,界面换深色;其余浅色。
  */
 import type { LayerId as DataLayer } from '../render/layers';
@@ -25,7 +26,9 @@ export type MapLayer =
   | 'temperature'
   | 'precipitation'
   | 'currents'
-  | 'climate';
+  | 'climate'
+  | 'era'
+  | 'resources';
 
 export interface LayerDef {
   id: MapLayer;
@@ -33,13 +36,17 @@ export interface LayerDef {
   style: Style;
   /** 数据图层时画哪一层 */
   data?: DataLayer;
-  /** 文明层:国家 / 民族 / 信仰开不开 */
+  /** 文明层:国家 / 民族 / 信仰 / 时代 / 物产开不开 */
   polities: boolean;
   cultures: boolean;
   faiths: boolean;
+  eras?: boolean;
+  resources?: boolean;
   dark: boolean;
-  /** 六张缩略图里的(false = 下面一行小字按钮) */
+  /** 六张缩略图里的(false = 下面的小字按钮) */
   main: boolean;
+  /** 小字按钮的第二行(时代、物产) */
+  dev?: boolean;
 }
 
 export const MAP_LAYERS: LayerDef[] = [
@@ -55,6 +62,8 @@ export const MAP_LAYERS: LayerDef[] = [
   { id: 'precipitation', name: '降水', style: 'data', data: 'precipitation', polities: false, cultures: false, faiths: false, dark: true, main: false },
   { id: 'climate', name: '气候', style: 'data', data: 'climate', polities: false, cultures: false, faiths: false, dark: false, main: false },
   { id: 'currents', name: '洋流', style: 'data', data: 'currents', polities: false, cultures: false, faiths: false, dark: false, main: false },
+  { id: 'era', name: '时代', style: 'fantasy', polities: true, cultures: false, faiths: false, eras: true, dark: false, main: false, dev: true },
+  { id: 'resources', name: '物产', style: 'fantasy', polities: false, cultures: false, faiths: false, resources: true, dark: false, main: false, dev: true },
 ];
 
 const BY_ID = new Map(MAP_LAYERS.map((l) => [l.id, l]));
@@ -67,14 +76,25 @@ export function isMapLayer(x: unknown): x is MapLayer {
   return typeof x === 'string' && BY_ID.has(x as MapLayer);
 }
 
-/** 这组设置算哪个图层(写实 + 国家也算"实景";手绘时先看信仰、再看国家、再看民族) */
-export function layerOf(style: Style, data: DataLayer, show: { polities: boolean; cultures: boolean; faiths?: boolean }): MapLayer {
+/** 这组设置算哪个图层(写实 + 国家也算"实景";手绘时先看信仰、时代、物产,再看国家、再看民族) */
+export function layerOf(
+  style: Style,
+  data: DataLayer,
+  show: { polities: boolean; cultures: boolean; faiths?: boolean; eras?: boolean; resources?: boolean },
+): MapLayer {
   if (style === 'realistic') return 'realistic';
   if (style === 'data') return isMapLayer(data) ? data : 'biomes';
   if (show.faiths) return 'faith';
+  if (show.eras) return 'era';
+  if (show.resources) return 'resources';
   if (show.polities) return 'political';
   if (show.cultures) return 'cultures';
   return 'terrain';
+}
+
+/** 图层对应的文明层开关(换图层时整组设上) */
+export function layerShow(d: LayerDef): { polities: boolean; cultures: boolean; faiths: boolean; eras: boolean; resources: boolean } {
+  return { polities: d.polities, cultures: d.cultures, faiths: d.faiths, eras: !!d.eras, resources: !!d.resources };
 }
 
 /** 图层用深色界面 */
@@ -97,9 +117,9 @@ export function layerFromUrl(q: URLSearchParams): MapLayer | null {
 
 // ---- 底图 × 填色(图层面板):任何底图都能配任何填色 ----
 //   底图 = 手绘 / 卫星(经典 | 细节两种画法)/ 地理图 / 白模,或一种数据底图(生态、高程……);
-//   填色 = 不填 / 国家 / 民族 / 信仰(就是文明层的国家 / 民族 / 信仰开关)。
-//   旧图层的对应:政区 = 手绘 + 国家,民族 = 手绘 + 民族,信仰 = 手绘 + 信仰,地形 = 手绘 + 不填,
-//   实景 = 卫星(经典)+ 不填,生态 / 高程…… = 对应数据底图 + 不填。
+//   填色 = 不填 / 国家 / 民族 / 信仰 / 时代(就是文明层的国家 / 民族 / 信仰 / 时代开关);物产是叠加开关,哪种填色上都能开。
+//   旧图层的对应:政区 = 手绘 + 国家,民族 = 手绘 + 民族,信仰 = 手绘 + 信仰,时代 = 手绘 + 时代,地形 = 手绘 + 不填,
+//   物产 = 手绘 + 不填 + 物产,实景 = 卫星(经典)+ 不填,生态 / 高程…… = 对应数据底图 + 不填。
 
 /** 写实画法的名字(卫星的两种画法、地理图、白模) */
 export const LOOK_NAMES: Record<SurfaceLook, string> = { classic: '经典卫星', detail: '卫星', geo: '地理图', blank: '白模' };
@@ -168,42 +188,44 @@ export function baseLook(base: BaseId, sat: SatLook): { style: Style; data?: Dat
   return { style: 'data', data: base };
 }
 
-export type FillId = 'none' | 'polities' | 'cultures' | 'faiths';
+export type FillId = 'none' | 'polities' | 'cultures' | 'faiths' | 'eras';
 
 export const FILLS: { id: FillId; name: string; hint: string }[] = [
   { id: 'none', name: '不填', hint: '只看底图，不铺颜色' },
   { id: 'polities', name: '国家', hint: '国家的颜色铺在底图上，国界、国名跟着显示' },
   { id: 'cultures', name: '民族', hint: '各民族的颜色铺在底图上' },
   { id: 'faiths', name: '信仰', hint: '各信仰的颜色铺在底图上，留着国界' },
+  { id: 'eras', name: '时代', hint: '各州按所处的时代上色，留着国界' },
 ];
 
 /** 数字键 1–4 换的填色(和以前的政区、民族、信仰同一个键;4 = 不填) */
 export const FILL_KEYS: FillId[] = ['polities', 'cultures', 'faiths', 'none'];
 
 export function isFillId(x: unknown): x is FillId {
-  return x === 'none' || x === 'polities' || x === 'cultures' || x === 'faiths';
+  return x === 'none' || x === 'polities' || x === 'cultures' || x === 'faiths' || x === 'eras';
 }
 
-/** 文明层开关算哪种填色(先看信仰、再看国家、再看民族) */
-export function fillOf(show: { polities: boolean; cultures: boolean; faiths?: boolean }): FillId {
+/** 文明层开关算哪种填色(先看信仰、时代,再看国家、再看民族) */
+export function fillOf(show: { polities: boolean; cultures: boolean; faiths?: boolean; eras?: boolean }): FillId {
   if (show.faiths) return 'faiths';
+  if (show.eras) return 'eras';
   if (show.polities) return 'polities';
   if (show.cultures) return 'cultures';
   return 'none';
 }
 
-/** 填色对应的文明层开关(信仰留着国界) */
-export function fillShow(id: FillId): { polities: boolean; cultures: boolean; faiths: boolean } {
-  return { polities: id === 'polities' || id === 'faiths', cultures: id === 'cultures', faiths: id === 'faiths' };
+/** 填色对应的文明层开关(信仰、时代留着国界;不碰物产等叠加开关) */
+export function fillShow(id: FillId): { polities: boolean; cultures: boolean; faiths: boolean; eras: boolean } {
+  return { polities: id === 'polities' || id === 'faiths' || id === 'eras', cultures: id === 'cultures', faiths: id === 'faiths', eras: id === 'eras' };
 }
 
-/** 旧图层名 → 底图 + 填色(实景按经典卫星) */
-export function layerParts(id: MapLayer): { base: BaseId; fill: FillId; sat?: SatLook } {
+/** 旧图层名 → 底图 + 填色(实景按经典卫星;物产图层 = 手绘 + 不填,再开物产) */
+export function layerParts(id: MapLayer): { base: BaseId; fill: FillId; sat?: SatLook; resources?: true } {
   const d = layerDef(id);
   const fill = fillOf(d);
   if (d.style === 'realistic') return { base: 'satellite', fill, sat: 'classic' };
   if (d.style === 'data') return { base: d.data!, fill };
-  return { base: 'fantasy', fill };
+  return d.resources ? { base: 'fantasy', fill, resources: true } : { base: 'fantasy', fill };
 }
 
 /** 网址里的底图 / 填色 / 卫星画法 */
@@ -212,6 +234,8 @@ export interface MapView {
   fill: FillId;
   /** 卫星画法:网址里写了(或旧链接认得出)才有 */
   sat?: SatLook;
+  /** 旧链接的物产图层:打开物产 */
+  resources?: true;
 }
 
 /**
@@ -231,14 +255,14 @@ export function mapViewFromUrl(q: URLSearchParams): MapView | null {
   return l ? layerParts(l) : null;
 }
 
-/** 写网址:map= / fill= / sat=(默认的手绘、国家省掉;卫星才写画法),去掉旧的 style=、layer= 和 civ= 里的国家 / 民族 / 信仰 */
+/** 写网址:map= / fill= / sat=(默认的手绘、国家省掉;卫星才写画法),去掉旧的 style=、layer= 和 civ= 里的国家 / 民族 / 信仰 / 时代 */
 export function writeMapView(q: URLSearchParams, v: { base: BaseId; fill: FillId; sat: SatLook }): URLSearchParams {
   const o = new URLSearchParams(q);
   o.delete('style');
   o.delete('layer');
   const civ = o.get('civ');
   if (civ !== null) {
-    const rest = civ.split(/[,+ ]/).filter((k) => k && !/^-?(polities|cultures|faiths)$/.test(k));
+    const rest = civ.split(/[,+ ]/).filter((k) => k && !/^-?(polities|cultures|faiths|eras)$/.test(k));
     if (rest.length) o.set('civ', rest.join(','));
     else o.delete('civ');
   }

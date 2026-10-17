@@ -1,12 +1,17 @@
 /**
  * 发展度(gen/civ/development.ts,推演结束后照历史算的):物产分档、能力和时代的节奏、"第一次进入某时代"的大事、
- * 按年份查(快照插值),以及它不改历史(加它时 determinism.test.ts 里别的字段一个没变)。
+ * 按年份查(快照插值),以及它不改历史(加它时 determinism.test.ts 里别的字段一个没变);
+ * 编年史里的时代大事、时代图层的色块、物产图层的圆章。
  */
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
 import { ownersAt } from '../src/gen/civ/timeline';
 import { polityAlive } from '../src/gen/civ/growth';
+import { developmentEntries } from '../src/gen/civ/developmentText';
+import { fullChronicle } from '../src/gen/civ/religionText';
+import { eraCiv, eraLevelsAt } from '../src/render/civ/era';
+import { resourceBadges } from '../src/render/civ/resources';
 import { AVAIL_SCALE, CAP_COUNT, ERAS, LEVEL_SCALE, RESOURCES, RESOURCE_COUNT, buildDevelopment, developmentAt, eraLevel, eraOf, resourcesAt } from '../src/gen/civ/development';
 
 const worlds = new Map<number, World>();
@@ -62,6 +67,10 @@ describe.each([7, 2024])('发展度 · seed=%i', (seed) => {
     for (let r = 0; r < R; r++) copper = Math.min(copper, dev.found[r * RESOURCE_COUNT + 2]);
     const bronze = dev.events.find((e) => e.kind === 'first' && e.era === 1)!.year;
     expect(copper).toBeLessThan(bronze);
+    // 金银不卡时代,比铜锡还早认得
+    let gold = Infinity;
+    for (let r = 0; r < R; r++) gold = Math.min(gold, dev.found[r * RESOURCE_COUNT + 10]);
+    expect(gold).toBeLessThan(copper);
     for (const k of [4, 8, 9]) for (let r = 0; r < R; r++) expect(dev.found[r * RESOURCE_COUNT + k]).toBe(Infinity);
   });
 
@@ -133,5 +142,52 @@ describe('时代数值', () => {
     expect(eraOf(2.7)).toEqual({ era: 2, progress: expect.closeTo(0.7, 9) });
     expect(eraOf(9).era).toBe(ERAS.length - 1);
     expect(eraOf(-0.1)).toEqual({ era: 0, progress: 0 });
+  });
+});
+
+describe.each([7, 2024])('时代、物产写进编年史和图层 · seed=%i', (seed) => {
+  it('世上第一次进入某时代是大事(每个时代一条);各国的、发现、采空只在"全部";id 不和别的纪事撞', () => {
+    const civ = civOf(seed);
+    const dev = developmentEntries(civ);
+    const firsts = civ.development!.events.filter((e) => e.kind === 'first');
+    const major = dev.filter((e) => e.importance >= 3);
+    expect(major.length).toBe(firsts.length);
+    for (const e of major) expect(e.text).toMatch(/始入.+时代,为天下之先$/);
+    expect(dev.some((e) => e.importance < 3 && e.text.includes('始入'))).toBe(true);
+    for (const e of dev) expect(e.kind).toBe('era');
+    const all = fullChronicle(civ);
+    expect(new Set(all.map((e) => e.id)).size).toBe(all.length);
+    for (let i = 1; i < all.length; i++) expect(all[i].year).toBeGreaterThanOrEqual(all[i - 1].year);
+    // 同一国同一年只有一条
+    const keys = dev.filter((e) => e.importance < 3 && e.polities.length).map((e) => `${e.polities[0]}:${Math.floor(e.year)}`);
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  it('时代图层:换进民族那一层的九个时代;第 0 年有人住的州都是石器,结束那年和按年份查的一致', () => {
+    const civ = civOf(seed);
+    const view = eraCiv(civ);
+    expect(view.cultures.length).toBe(ERAS.length);
+    expect(eraCiv(civ)).toBe(view);
+    const at0 = ownersAt(view, 0);
+    const lv0 = eraLevelsAt(civ, 0);
+    for (let r = 0; r < civ.regions.count; r++) if (lv0[r] >= 0) expect(at0.culture[r]).toBe(0);
+    const end = ownersAt(view, civ.endYear);
+    const lv = eraLevelsAt(civ, civ.endYear);
+    for (let r = 0; r < civ.regions.count; r++) expect(end.culture[r]).toBe(lv[r] < 0 ? -1 : Math.min(ERAS.length - 1, Math.floor(lv[r])));
+  });
+
+  it('物产圆章:全部显示时每州至多一个(最稀有的多),只看一样时只有那一样;没发现的只在开着"显示未发现的"时出现', () => {
+    const civ = civOf(seed);
+    const dev = civ.development!;
+    const all = resourceBadges(dev, civ.endYear, civ.regions.count, null, false);
+    expect(all.length).toBeGreaterThan(0);
+    expect(new Set(all.map((b) => b.region)).size).toBe(all.length);
+    for (const b of all) expect(b.hidden).toBe(false);
+    const iron = resourceBadges(dev, civ.endYear, civ.regions.count, 3, false);
+    for (const b of iron) expect(b.resource).toBe(3);
+    expect(iron.length).toBeGreaterThan(all.filter((b) => b.resource === 3).length);
+    const ghost = resourceBadges(dev, 1000, civ.regions.count, 4, true);
+    expect(ghost.length).toBeGreaterThan(0);
+    for (const b of ghost) expect(b.hidden).toBe(true);
   });
 });

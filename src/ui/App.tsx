@@ -654,7 +654,7 @@ export function App() {
         writeViewUrl({ ...mv, sat: init.sat });
       }
     }
-    if (mv) setCivShow(fillShow(mv.fill));
+    if (mv) setCivShow(mv.resources ? { ...fillShow(mv.fill), resources: true } : fillShow(mv.fill));
     return { style, layer, surface, sat: init.sat };
   })[0];
   const graticule = useGraticuleLines();
@@ -820,8 +820,9 @@ export function App() {
   /** 按旧的图层名换(新建界面的样式;实景 = 卫星,用记着的画法) */
   const applyLayer = useCallback(
     (id: MapLayer) => {
-      const { base, fill } = layerParts(id);
+      const { base, fill, resources } = layerParts(id);
       applyMapView({ base, fill });
+      if (resources) setCivShow({ resources: true });
     },
     [applyMapView],
   );
