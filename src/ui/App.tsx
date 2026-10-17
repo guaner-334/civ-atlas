@@ -446,6 +446,12 @@ function oldStored(t: Target): SaveFile | null {
   return worldKey(w.save.params) === worldKey(t.params) && JSON.stringify(w.save.edits) === JSON.stringify(t.edits) ? w.save : null;
 }
 
+/** 存档原文里记的生成器版本(读不出 = null) */
+function genOfText(text: string): number | null {
+  const r = parseSave(text);
+  return r.ok ? r.save.generator : null;
+}
+
 /** 网址里带种子的(别人发的网址、截图脚本):直接看这个世界,先不存,改了才存 */
 function visitTarget(params: WorldParams, gen: number | null = null): Target {
   const t: Target = { id: newWorldId(), kind: 'visit', params, edits: EMPTY_EDITS };
@@ -1823,8 +1829,9 @@ export function App() {
       (cur.title ?? '') === (w.save.title ?? '') &&
       sameOrigin(cur.origin, w.save.origin) &&
       JSON.stringify(getEdits()) === JSON.stringify(w.save.edits) &&
-      // 开着的是照原样读的旧世界:存着的也得还是那一版(别的页面里换成了新版的 = 重新打开)
-      (cur.frozen === undefined || cur.frozen === w.save.generator);
+      // 版本也得一样:开着的是照原样读的旧世界,存着的也得还是那一版;别的页面里换成了别的版本的存档(新版的、旧版的)= 重新打开
+      (cur.frozen === undefined || cur.frozen === w.save.generator) &&
+      (cur.wrote == null || genOfText(cur.wrote) === w.save.generator);
     if (cur?.id === id && targetRef.current?.id === id && same) {
       markOpened(id);
       enterStage(w.draft ? 'draft' : 'world', w.draft ? (w.base ?? null) : null);
