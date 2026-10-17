@@ -52,7 +52,7 @@ import {
 } from '../ai/prompts/names';
 import type { HistoryLength, HistoryScope, HistoryStyle } from '../ai/prompts/history';
 import { bookHow, getBook, startBook } from './bookStore';
-import { commitEdits, getEdits, revertEdits, setName, subscribeEdits } from './editsStore';
+import { askHistory, commitEdits, getEdits, historyDiffers, revertEdits, setName, subscribeEdits } from './editsStore';
 import { currentWorld } from './saveStore';
 import { setCivTime, setSelection, type MapSelection } from './civView';
 import { requestFly } from './panelStore';
@@ -594,6 +594,8 @@ export function applyProposal(id: number, now: { busy?: boolean }): string | nul
   const before = getEdits();
   const after = mergeRewrite(before, pickedChanges(t));
   if (after === before) return '这些修改都已经有了';
+  // 照原样保存的旧世界:改历史先问要不要另存一份(App 问),这里不执行
+  if (historyDiffers(before, after) && askHistory(after)) return '';
   exitPreview();
   patch(id, { applied: { before, after } });
   save();

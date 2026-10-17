@@ -11,10 +11,12 @@
  *   退出登录选了"从这台设备上删掉"时全删(clearResults)。复制世界时原件跟着复制(copyResults)。
  * - 写不下(浏览器存储满了)、浏览器不让用 IndexedDB:这次不存,不提示(原件是额外的一份,存档本身照常)。
  *
- * 现在只存不读:打开世界还是按存档重新生成。以后读原件打开旧版本的世界。
+ * - 读:浏览器里存着的世界是旧版本建的(存档的生成器版本比现在旧),有那一版的原件、配方对得上存档,就照原样打开(frozenResult;
+ *   worker 读原件,不重新生成)。读不出来的照旧按存档重新生成。
  */
 import { GENERATOR_VERSION } from '../gen/edits';
-import { recipeKey, recipeOfSave, recipeText, type Snapshot } from '../gen/snapshot';
+import { SNAPSHOT_FORMAT, recipeKey, recipeOfSave, recipeText, type Snapshot } from '../gen/snapshot';
+import type { SaveFile } from '../gen/savefile';
 import { currentWorld, loadWorld, persistent, storedIds, subscribe } from './saveStore';
 import { APP_VERSION } from './version';
 
@@ -252,6 +254,50 @@ export async function loadResult(id: string, generator: number): Promise<ResultR
   } catch {
     return null;
   }
+}
+
+/**
+ * 照原样打开这个旧世界用的原件:存档是比现在旧的版本建的、浏览器里有那一版的原件、格式认得、配方和存档对得上。
+ * 没有 = null;有那一版的原件、可是用不了(配方对不上、读不出来)= 'broken'
+ */
+export async function frozenResult(id: string, save: SaveFile): Promise<Snapshot | 'broken' | null> {
+  if (!(save.generator < GENERATOR_VERSION)) return null;
+  const r = await loadResult(id, save.generator);
+  if (!r) return null;
+  const s = r.snapshot;
+  if (s.format !== SNAPSHOT_FORMAT || s.generator !== save.generator) return 'broken';
+  try {
+    return (await recipeKey(recipeOfSave(save))) === s.recipe ? s : 'broken';
+  } catch {
+    return 'broken';
+  }
+}
+
+/** 照原样打开时的提示条:同一个世界在同一版网站里只说一次(记在 localStorage:世界编号 → 说过时的生成器版本) */
+const TOLD_KEY = 'civ-atlas:frozen-told';
+const TOLD_MAX = 200;
+function readTold(): Record<string, number> {
+  try {
+    const v = JSON.parse(localStorage.getItem(TOLD_KEY) ?? '{}') as unknown;
+    return v && typeof v === 'object' ? (v as Record<string, number>) : {};
+  } catch {
+    return {};
+  }
+}
+/** 这个世界在这一版里说过了没有;没说过就记下(返回 false) */
+export function toldFrozen(id: string): boolean {
+  const told = readTold();
+  if (told[id] === GENERATOR_VERSION) return true;
+  delete told[id];
+  told[id] = GENERATOR_VERSION;
+  const keys = Object.keys(told);
+  for (const k of keys.slice(0, Math.max(0, keys.length - TOLD_MAX))) delete told[k];
+  try {
+    localStorage.setItem(TOLD_KEY, JSON.stringify(told));
+  } catch {
+    /* 记不下就下次再说一次 */
+  }
+  return false;
 }
 
 /** 复制世界:原件跟着复制一份(写不下就算了) */

@@ -121,7 +121,7 @@ import { cleanFrontier, cleanOrigins, sameFrontier, sameOrigins, type Frontier, 
 import type { RasterPatch } from '../gen/rasterPatch';
 import { baseRegions, civAtEra, dropComposed, eraData, eraIndex, eraMapsOf, eraReady, eraShown, patchKey, reuseRegions, useEraIndex, withHistory, type EraMaps } from './eras';
 import { sameSketch, type SketchEdit } from '../gen/sketch';
-import { clearEditHistory, clearEdits, getEdits, removeEditsBatch, removeIntervention, removeUpheaval, setEditGate, setEdits, undoTerrainOp, useEdits } from './editsStore';
+import { clearEditHistory, clearEdits, getEdits, removeEditsBatch, removeIntervention, removeUpheaval, setEditGate, setEdits, setHistoryGate, undoTerrainOp, useEdits } from './editsStore';
 import { eraText, spaced, yearAt } from '../gen/era';
 import { redoLastEdit, undoLastEdit } from './undo';
 import { useShortcuts } from './useShortcuts';
@@ -175,6 +175,7 @@ import {
   refreshThumb,
   renameWorld,
   sameOrigin,
+  saveAsNewVersion,
   setReopenHandler,
   setThumbMaker,
   setWorldStats,
@@ -227,7 +228,9 @@ import { Globe, getGlobeOn, setGlobeOn, useGlobeOn, type GlobeApi } from './Glob
 import { setupAi } from '../ai/setup';
 import { ToastBar, clearToast, showToast } from './Toast';
 import { DRAFT_SEG, FirstHint, HoverCard, MapBar, MapControls, OldSiteBadge, PhoneButtons, SEG_LAYERS, hintSeen, markHintSeen } from './Corners';
-import { offerSnapshot, startResults } from './resultStore';
+import { frozenResult, offerSnapshot, startResults, toldFrozen } from './resultStore';
+import { FrozenAsk, askSaveAsNew, closeSaveAsNew, setSaveAsNew } from './FrozenWorld';
+import { copyNotes } from '../ai/library';
 import { BETA_SITE, OLD_SITE, OWN_KEY, oldSiteFor, oldSiteNote, openInLatest, openOriginal, plainSave } from './oldSite';
 import type { ToastAction } from './toastStore';
 import { Sidebar } from './Sidebar';
@@ -802,6 +805,16 @@ export function App() {
   /** 发给当前线程、还没回音的活(生成世界 / 回放帧 / 重推文明)有几件 */
   const busyRef = useRef(0);
   const reqId = useRef(0);
+  /**
+   * 照原样打开的旧世界(读存着的原件,不重新生成):正在读的是哪个世界、建它的生成器版本;
+   * 原件读不出来、改成按新版生成的是哪个世界(提示条上说一句)。见 resultStore.frozenResult / worker 的 load
+   */
+  const frozenLoad = useRef<{ id: string; gen: number } | null>(null);
+  const frozenBroken = useRef<string | null>(null);
+  /** 等原件的这一会儿要发的生成请求(读不出来就照它生成) */
+  const genReq = useRef<WorkerRequest | null>(null);
+  /** 刚另存的新版:打开它以后提示"已另存为…"(from = 原来那一份的名字) */
+  const savedCopy = useRef<{ id: string; from: string; more: string[] } | null>(null);
   // ---- 阶段 4 干预:带着干预在后台重推文明 ----
   /** 最近一次请求的文明是带着哪些干预推的(生成新世界时 = 没有) */
   const civEdits = useRef<readonly Intervention[]>(EMPTY_EDITS.interventions);
@@ -958,6 +971,16 @@ export function App() {
           return;
         }
         if (m.type === 'upPreview') return void takeUpPreview(m.pid, m.preview, m.water, m.ms);
+        // 原件读不出来:按现在的规则生成(提示条上说一句)
+        if (m.type === 'loadFailed') {
+          const req = genReq.current;
+          frozenBroken.current = frozenLoad.current?.id ?? null;
+          frozenLoad.current = genReq.current = null;
+          civEdits.current = EMPTY_EDITS.interventions;
+          civUps.current = genUps.current = undefined;
+          if (req) sendRef.current(req);
+          return;
+        }
         // 这次生成 / 重推的原件:对得上存着的存档就存进浏览器(resultStore.ts)
         if (m.type === 'snapshot') return void offerSnapshot(m.snapshot);
         if (m.type === 'progress') setProgress((s) => ({ stage: m.stage, pct: m.pct, regen: regenRef.current?.id === m.id, seed: s?.seed }));
@@ -992,12 +1015,14 @@ export function App() {
   }, []);
   const send = useCallback(
     (req: WorkerRequest) => {
-      const w = idleWorker(req.type === 'generate');
+      const w = idleWorker(req.type === 'generate' || req.type === 'load');
       busyRef.current++;
       w.postMessage(req.type === 'history' || req.type === 'upPreview' || !tempoNote.current ? req : { ...req, tempo: tempoNote.current });
     },
     [idleWorker],
   );
+  const sendRef = useRef(send);
+  sendRef.current = send;
   // 助手的试推演:和重推一样交给线程(排在别的活后面),结果单独交回、不换上去;州和宜居度沿用现在这份
   useEffect(() => {
     setTrialRunner(
@@ -1247,13 +1272,34 @@ export function App() {
       setShownSketch(t.edits.sketch);
       setTerrainTool({ on: false });
       closeUpheaval();
+      closeSaveAsNew();
       // 地名风格也直接带着(只管起名,和改名、干预不同:生成完不用再重推一遍)
       civNames.current = t.edits.nameMix;
       // 推演年数同样直接带着(新建中的世界先推 3000 年)
       civYears.current = yearsFor(t.kind === 'draft', t.edits);
       civSetup.current = setupFor(t.kind === 'draft', t.edits);
       storyAfterYears.current = null;
-      send({ type: 'generate', id, params: p, scale: 1, terrain: [...terrain], sketch: t.edits.sketch, ...namesOpt(t.edits.nameMix), ...yearsOpt(civYears.current), ...setupOpt(civSetup.current) });
+      const req: WorkerRequest = { type: 'generate', id, params: p, scale: 1, terrain: [...terrain], sketch: t.edits.sketch, ...namesOpt(t.edits.nameMix), ...yearsOpt(civYears.current), ...setupOpt(civSetup.current) };
+      frozenLoad.current = null;
+      genReq.current = null;
+      const save = t.save;
+      // 存着的、旧版本建的世界:浏览器里有它那一版的原件就照原样打开(读原件,不重新生成);没有才按现在的规则生成
+      if (t.kind === 'created' && save && (t.from === 'stored' || t.from === 'restore') && save.generator < GENERATOR_VERSION) {
+        genReq.current = req;
+        void frozenResult(t.id, save).then((r) => {
+          if (id !== reqId.current) return;
+          if (!r || r === 'broken') {
+            if (r) frozenBroken.current = t.id;
+            genReq.current = null;
+            return send(req);
+          }
+          // 原件里的历史就是带着存档里的干预、地形大事推出来的:套上以后不用重推
+          frozenLoad.current = { id: t.id, gen: save.generator };
+          civEdits.current = t.edits.interventions;
+          civUps.current = genUps.current = t.edits.upheavals;
+          send({ type: 'load', id, params: p, scale: 1, parts: r.parts, terrain: [...terrain], sketch: t.edits.sketch, ...upsOpt(t.edits.upheavals), interventions: [...t.edits.interventions], ...namesOpt(t.edits.nameMix), ...yearsOpt(civYears.current), ...setupOpt(civSetup.current) });
+        });
+      } else send(req);
       // 换世界:改名、干预、选中都属于旧世界,一起作废(先停掉旧世界的自动存,清空不算"改回默认";新世界先按"没有干预、没有地形大事"生成)
       detachWorld();
       civEdits.current = EMPTY_EDITS.interventions;
@@ -1585,9 +1631,20 @@ export function App() {
     setEdits(edits);
     // 还没存着的旧版本世界(分享链接、旧网址、存不进浏览器的文件):原来那一份跟着(看原样;改了存进来时原样留着)
     const original = t.from === 'url' ? (t.gen !== undefined ? plainSave(world.params, t.gen) : null) : t.from === 'link' || t.from === 'file' ? (t.save ?? null) : null;
-    attachWorld({ id: t.id, params: world.params, check, kind: t.kind, title: t.title, saved: t.saved ?? edits, view: t.view ?? undefined, pristine: t.pristine, base: t.base, origin: t.origin, original });
+    // 照原样打开的旧世界:存档照旧记建它的那一版
+    const frozen = frozenLoad.current?.id === t.id ? frozenLoad.current.gen : undefined;
+    frozenLoad.current = null;
+    attachWorld({ id: t.id, params: world.params, check, kind: t.kind, title: t.title, saved: t.saved ?? edits, view: t.view ?? undefined, pristine: t.pristine, base: t.base, origin: t.origin, original, frozen });
     if (t.kind !== 'draft') setWorldStats(aliveAtEnd(rc));
     const save = t.save;
+    // 刚另存的新版:说一声另存好了(原来那一份照原样留着)
+    const copy = savedCopy.current?.id === t.id ? savedCopy.current : null;
+    savedCopy.current = null;
+    if (copy) {
+      // 另存的那份带着要推演的命令时,接着就是"正在重新推演"那条:这条不自动收,推完露出来(右边可以关)
+      showToast({ id: 'save', kind: copy.more.length ? 'warn' : 'ok', dot: true, ttl: 0, dismissible: true, text: `已另存为「${t.title ?? ''}」`, more: [`原来的「${copy.from}」照原样留在我的世界里`, ...copy.more] });
+      return;
+    }
     // 带种子的网址(别人发的普通链接):是旧版本画的就说清现在变了什么
     if (t.from === 'url') {
       const note = t.gen !== undefined ? versionNote(t.gen, false) : null;
@@ -1597,7 +1654,16 @@ export function App() {
     }
     if (!save || !t.from) return;
     const more: string[] = [...(t.warnings ?? [])];
-    const note = versionNote(save.generator, (save.edits.terrain?.length ?? 0) > 0 || !!save.edits.sketch);
+    // 照原样打开的:看到的就是原来的样子,不说"变了什么"、不放「看原样」;同一个世界在这一版网站里只说一次(自动恢复的也说"已打开")
+    const told = frozen !== undefined && !toldFrozen(t.id);
+    if (told) {
+      more.push('这个世界是旧版本建的，照原样打开，新版的改动不影响它');
+      // 手机上按钮折成两行(按新版 / 另存一份,phone.css),中间留一个看不见的断点
+      act = { label: '按新版\u200b另存一份', act: 'save-new', onClick: () => saveAsNewRef.current() };
+    }
+    if (frozenBroken.current === t.id) more.push('原样的存档读不出来，按新版打开了');
+    frozenBroken.current = null;
+    const note = frozen !== undefined ? null : versionNote(save.generator, (save.edits.terrain?.length ?? 0) > 0 || !!save.edits.sketch);
     // 从文件、分享链接打开的,这句已经在读档的警告里
     if (note && (t.from === 'stored' || t.from === 'restore')) more.push(note);
     // 世界变了样(有"来自旧版本"这一句)才放「看原样」;旧网站里来自更新版本的放「到最新版打开」
@@ -1619,7 +1685,7 @@ export function App() {
       text = `已打开分享的世界「${name}」`;
     }
     // 从我的世界点开的:看到的就是它,没有要说的就不提示
-    else if (t.from === 'stored') return more.length ? say({ kind: 'warn', text: `已打开「${name}」`, more }) : undefined;
+    else if (t.from === 'stored' || told) return more.length ? say({ kind: 'warn', text: `已打开「${name}」`, more }) : undefined;
     else if (n) text = `已恢复上次的修改(${n} 处)`;
     else return more.length ? say({ kind: 'warn', text: `已打开「${name}」`, more }) : undefined;
     say({ kind: more.length ? 'warn' : 'ok', text, more });
@@ -1972,6 +2038,39 @@ export function App() {
   showHomeRef.current = showHome;
   const openStoredRef = useRef(openStored);
   openStoredRef.current = openStored;
+  /**
+   * 照原样打开的旧世界「按新版另存一份」(提示条、存档菜单、推演前问的窗口):原来的不动,另存一份带着 edits(不给 = 现在的修改),
+   * 打开它按新版重新生成、推演;AI 写的史书、名字由来跟着复制
+   */
+  const saveAsNewNow = (edits?: WorldEdits) => {
+    closeSaveAsNew();
+    const c = currentWorld();
+    if (!c || c.frozen === undefined) return;
+    const from = c.title || `种子 ${c.params.seed}`;
+    const id = saveAsNewVersion(c.id, edits ?? getEdits());
+    if (!id) return notify({ kind: 'error', text: '没能另存', more: [storageFullWhy()] });
+    const more = copyNotes(c.id, id) ? [] : ['AI 写的史书、名字由来没能一起存下（浏览器存储已满）'];
+    savedCopy.current = { id, from, more };
+    openStoredRef.current(id);
+  };
+  const saveAsNewRef = useRef(saveAsNewNow);
+  saveAsNewRef.current = saveAsNewNow;
+  useEffect(() => {
+    setSaveAsNew((e) => saveAsNewRef.current(e));
+    // 照原样打开的旧世界:改历史(要用现在的规则重新推演)先问要不要另存一份;别的世界照常改
+    setHistoryGate((next) => {
+      const c = currentWorld();
+      if (!c || c.frozen === undefined) return false;
+      const now = getEdits();
+      const count = Math.max(0, next.interventions.length - now.interventions.length) + Math.max(0, (next.upheavals?.length ?? 0) - (now.upheavals?.length ?? 0));
+      askSaveAsNew({ next, title: c.title || `种子 ${c.params.seed}`, count });
+      return true;
+    });
+    return () => {
+      setSaveAsNew(null);
+      setHistoryGate(null);
+    };
+  }, []);
   // 云同步:登录了就开始(account/sync.ts);正在看的世界在别的设备上、别的页面里改过,点"载入"重新打开它;账号窗里点"最近删除"回到我的世界
   useEffect(() => {
     const stop = startSync();
@@ -4146,6 +4245,7 @@ export function App() {
       {realCiv && <HistoryBook civ={realCiv} />}
       <AiSettingsHost />
       <AccountHost phone={narrow} />
+      <FrozenAsk phone={narrow} />
       <ShortcutsHost />
       <TipLayer />
       {newDlg && home && <NewWorldDialog phone={narrow} init={newDlg.init} randomSeed={randomSeedValue} onCancel={cancelDialog} onStart={startFromDialog} />}

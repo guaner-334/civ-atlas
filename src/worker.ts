@@ -33,7 +33,7 @@ import { buildRegions, reshapeRegions } from './gen/civ/regions';
 import { diffRaster, patchTransferables, type RasterPatch } from './gen/rasterPatch';
 import type { NameMix } from './gen/names';
 import type { Frontier, Origins } from './gen/civ/frontier';
-import { SNAPSHOT_FORMAT, makePart, recipeKey, type Snapshot, type SnapshotPart } from './gen/snapshot';
+import { SNAPSHOT_FORMAT, makePart, readPart, recipeKey, type Snapshot, type SnapshotPart } from './gen/snapshot';
 
 /**
  * 一组参数 + 草图(没改地形的星球)的扩张节拍和城的人口折算(gen/civ 的 planetTempo;null = 长不出文明),key = 这颗星球在线程里的键。
@@ -88,6 +88,11 @@ export type WorkerRequest =
   | ({ type: 'resim'; id: number; seq: number; interventions: Intervention[] } & CivInput)
   /** 试推演(助手用):和 resim 一样重推(同样带节拍),但只把结果交回去,主线程不换上它;tid = 第几次试推演 */
   | ({ type: 'trial'; id: number; tid: number; interventions: Intervention[] } & CivInput)
+  /**
+   * 照原样打开:不生成,读这个世界存着的原件(gen/snapshot.ts 的各块:地图、各段世界、整段历史),铺像素以后照 generate 一样交 done。
+   * 参数、地形修改、草图、地形大事、干预是存档里的(对上原件里的键、排出各段;配方已经在主线程核对过)。读不出来交 loadFailed
+   */
+  | ({ type: 'load'; id: number; scale: number; parts: SnapshotPart[]; interventions?: Intervention[] } & CivInput)
   /** 地形大事的预览:upheavals = 已经有的大事,在 year 那一年再加上 ops 会怎么样;pid = 第几次预览(主线程只认最新的) */
   | { type: 'upPreview'; id: number; pid: number; params: WorldParams; terrain?: TerrainOp[]; sketch?: SketchEdit; upheavals?: Upheaval[]; year: number; ops: TerrainOp[] };
 
@@ -105,7 +110,9 @@ export type WorkerResponse =
   /** 地形大事的预览;water = 加上这几笔以后各地块的海陆(0 陆地 / 1 海 / 2 湖) */
   | { type: 'upPreview'; id: number; pid: number; preview: UpheavalPreview; water: Uint8Array; ms: number }
   /** 这次生成 / 重推的原件(后台打好的) */
-  | { type: 'snapshot'; id: number; snapshot: Snapshot };
+  | { type: 'snapshot'; id: number; snapshot: Snapshot }
+  /** 原件读不出来(坏了、对不上):主线程改成按存档生成 */
+  | { type: 'loadFailed'; id: number };
 
 /** 上一个生成的世界(含回放快照),回放时直接用 */
 let last: { key: string; world: World } | null = null;
@@ -144,11 +151,33 @@ function tempoOf(params: WorldParams, terrain: TerrainOp[] | undefined, sketch: 
   return tempos.get(key);
 }
 
+/**
+ * 照原样打开的世界(load):原件里的地图和各段世界按键钉住,不丢、不重新生成(重新生成用的是现在的生成器,和原件不一样)。
+ * 换世界(generate、下一次 load)时换掉
+ */
+let frozen: { key: string; world: World; eras: Map<string, World> } | null = null;
+
 /** 这组参数(+ 草图 + 地形修改)的世界:手里有就用,没有(线程被重开过)就重新生成(同样的输入 = 同一个世界) */
 function worldOf(params: WorldParams, terrain?: TerrainOp[], sketch?: SketchEdit): World {
   const key = keyOf(params, terrain, sketch);
+  if (frozen?.key === key) return frozen.world;
   if (!last || last.key !== key) last = { key, world: generateWorld(params, undefined, terrain, sketchGrid(sketch)) };
   return last.world;
+}
+
+/**
+ * 回放世界形成用的世界(带形成过程的快照)。照原样打开的世界原件里没存形成过程:现在的生成器生成出来的地形和原件一模一样,
+ * 就用它的形成过程;不一样(生成器改了地形)就只放原件里现在的样子这一帧,不拿别的星球的形成过程顶替
+ */
+function formationOf(params: WorldParams, terrain?: TerrainOp[], sketch?: SketchEdit): World {
+  const key = keyOf(params, terrain, sketch);
+  if (frozen?.key !== key) return worldOf(params, terrain, sketch);
+  const now = frozen.world;
+  const fresh = generateWorld(params, undefined, terrain, sketchGrid(sketch));
+  const a = fresh.elevation;
+  const b = now.elevation;
+  const same = a.length === b.length && a.every((v, i) => Object.is(v, b[i]));
+  return same ? fresh : { ...now, history: [now.elevation] };
 }
 
 // ---------------------------------------------------------------------------
@@ -159,6 +188,8 @@ const WORLD_KEEP = 8;
 const worlds = new Map<string, World>();
 function cachedWorld(params: WorldParams, ops: readonly TerrainOp[], sketch: SketchEdit | undefined): { key: string; world: World } {
   const key = keyOf(params, ops, sketch);
+  const pinned = frozen?.eras.get(key);
+  if (pinned) return { key, world: pinned };
   let w = worlds.get(key);
   if (w) worlds.delete(key);
   else {
@@ -380,6 +411,7 @@ async function handle(m: WorkerRequest): Promise<void> {
     // 换了世界:后台排着的补丁和记着的整图都作废
     bg.length = 0;
     rasters.clear();
+    frozen = null;
     await pool.up;
     const t0 = performance.now();
     const world = generateWorld(m.params, (stage, pct) => post({ type: 'progress', id: m.id, stage, pct }), m.terrain, sketchGrid(m.sketch));
@@ -410,8 +442,55 @@ async function handle(m: WorkerRequest): Promise<void> {
     post({ type: 'done', id: m.id, world: { ...rest, history: [] }, raster, civ, ms: performance.now() - t0, genMs, tempo: noteOf(m.params, m.sketch), eras: eraWorlds(steps), baseKey }, transfer);
     queuePatches(m.id, m, steps);
     queueSnapshot(m.id, m, world, steps, kept);
+  } else if (m.type === 'load') {
+    bg.length = 0;
+    rasters.clear();
+    frozen = null;
+    await pool.up;
+    const t0 = performance.now();
+    post({ type: 'progress', id: m.id, stage: '读取', pct: 0.3 });
+    const baseKey = keyOf(m.params, m.terrain, m.sketch);
+    let world: World;
+    let civ: Civ;
+    let steps: Step[];
+    try {
+      const read = (name: string) => {
+        const p = m.parts.find((x) => x.name === name);
+        if (!p) throw new Error(`原件缺 ${name}`);
+        return readPart(p);
+      };
+      world = (await read('map')) as World;
+      const e = (await read('eras')) as { baseKey: string; eras: EraWorld[] };
+      civ = (await read('civ')) as Civ;
+      if (e.baseKey !== baseKey) throw new Error('原件不是这个世界的');
+      // 各段世界和原来的世界是同一套网格(原件里没带)
+      const eras = new Map(e.eras.map((x) => [x.key, { ...x.world, mesh: world.mesh } as World]));
+      let all: TerrainOp[] = [...(m.terrain ?? [])];
+      steps = mergeUpheavals(m.upheavals ?? []).map((u) => {
+        all = [...all, ...u.ops];
+        const key = keyOf(m.params, all, m.sketch);
+        const w = eras.get(key);
+        if (!w) throw new Error('原件里少一段');
+        return { ...u, key, all, world: w };
+      });
+      frozen = { key: baseKey, world, eras };
+    } catch {
+      post({ type: 'loadFailed', id: m.id });
+      return;
+    }
+    const genMs = performance.now() - t0;
+    post({ type: 'progress', id: m.id, stage: '铺展地图', pct: 0.93 });
+    pool.prepare(world, m.scale);
+    const d = rasterizeDeferred(world, m.scale);
+    const raster = d.raster;
+    await pool.finish(d);
+    const vl = raster.veinLines!;
+    const transfer = [raster.elev, raster.temp, raster.precip, raster.water, raster.biome, raster.cell, raster.ice, raster.iceConc, raster.iceTone, raster.gully!, raster.bank!, raster.vein!, vl.off, vl.x, vl.y, vl.a].map((a) => a.buffer);
+    transfer.push(...civTransferables(civ));
+    post({ type: 'done', id: m.id, world: { ...world, history: [] }, raster, civ, ms: performance.now() - t0, genMs, eras: eraWorlds(steps), baseKey }, transfer);
+    queuePatches(m.id, m, steps);
   } else if (m.type === 'history') {
-    const h = buildHistoryFrames(worldOf(m.params, m.terrain, m.sketch));
+    const h = buildHistoryFrames(formationOf(m.params, m.terrain, m.sketch));
     post({ type: 'history', id: m.id, ...h }, h.frames.map((f) => f.buffer));
   } else if (m.type === 'resim' || m.type === 'trial') {
     const t0 = performance.now();

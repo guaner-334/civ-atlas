@@ -715,6 +715,30 @@ export function duplicateWorld(id: string): string | null {
   return nid;
 }
 
+/**
+ * 照原样打开的旧世界「按新版另存一份」:复制一份(名字后面加「（新版）」,重了再编号),修改换成 edits(带着要推演的那几条),
+ * 存档记现在的生成器版本,打开时按新版重新生成、推演。原来那份不动。返回新编号(存不下、满了 = null)
+ */
+export function saveAsNewVersion(id: string, edits: WorldEdits): string | null {
+  const w = loadWorld(id);
+  if (!w) return null;
+  if (storedCount() >= MAX_WORLDS) {
+    fullWhy = 'count';
+    return null;
+  }
+  const suffix = '（新版）';
+  const root = cleanTitle(w.save.title) || '未命名世界';
+  const first = [...root].slice(0, TITLE_MAX - suffix.length).join('') + suffix;
+  const taken = new Set(listWorlds().map((x) => x.save.title ?? ''));
+  const title = taken.has(first) ? nextTitle(first) : first;
+  // 地形校验留空:新版生成出来的地形可能不一样,打开后按生成出来的记上(不提示"对不上")
+  const save = makeSave(w.save.params, edits, '', title, undefined, w.save.view, w.save.origin);
+  const nid = newWorldId();
+  if (!writeSave(nid, save, { alive: w.alive })) return null;
+  changed();
+  return nid;
+}
+
 /** 两份存档是不是同一个世界的同一个样子(参数、修改、名字、底稿出处都相同;投影、存档时间不算) */
 export function sameSave(a: SaveFile, b: SaveFile): boolean {
   return worldKey(a.params) === worldKey(b.params) && (a.title ?? '') === (b.title ?? '') && JSON.stringify(a.edits) === JSON.stringify(b.edits) && sameOrigin(a.origin, b.origin);
@@ -789,9 +813,18 @@ interface Current {
   origin?: SaveOrigin;
   /** 打开时还没存着、来自旧版本的世界(分享链接、旧网址):原来那一份,第一次存进来时原样留着 */
   original?: SaveFile;
+  /** 照原样打开的旧世界(读的是它那一版的原件,没有重新生成):建它的生成器版本,存档照旧记这一版 */
+  frozen?: number;
 }
 
 let current: Current | null = null;
+
+/** 当前世界的存档:照原样打开的旧世界照旧记建它的那一版 */
+function saveOf(c: Current, edits: WorldEdits, view: SaveView | null | undefined): SaveFile {
+  const save = makeSave(c.params, edits, c.check, c.title, undefined, view, c.origin);
+  if (c.frozen !== undefined) save.generator = c.frozen;
+  return save;
+}
 /** 截缩略图(App 给):画布还没画好这个世界 = null */
 let thumbMaker: ((id: string) => string | null) | null = null;
 let thumbTimer: ReturnType<typeof setTimeout> | undefined;
@@ -824,7 +857,7 @@ export function currentUnsaved(): boolean {
 /** 当前世界 → 存档(存成文件用) */
 export function currentSave(): SaveFile | null {
   if (!current) return null;
-  return makeSave(current.params, getEdits(), current.check, current.title, undefined, currentView(), current.origin);
+  return saveOf(current, getEdits(), currentView());
 }
 
 /** 过一会儿截一张缩略图(画布这时可能还没画好这个世界,截不到就再等等);force = 已经有了也重截 */
@@ -878,7 +911,7 @@ function saveCurrent(force = false): boolean {
   if (c.kind === 'visit') c.kind = 'created';
   const view = currentView();
   c.savedView = view;
-  const ok = writeSave(c.id, makeSave(c.params, edits, c.check, c.title, undefined, view, c.origin), metaOf(c), c.original);
+  const ok = writeSave(c.id, saveOf(c, edits, view), metaOf(c), c.original);
   c.unsaved = !ok;
   if (ok) scheduleThumb(c.id, redraw);
   changed();
@@ -940,6 +973,8 @@ export interface AttachSpec {
   origin?: SaveOrigin | null;
   /** 还没存着、来自旧版本的世界(分享链接、旧网址、存不进浏览器的存档文件):原来那一份(看原样用,第一次存进来时原样留着) */
   original?: SaveFile | null;
+  /** 照原样打开的旧世界(读的原件):建它的生成器版本(存档照旧记这一版;只对建好的、比现在旧的算) */
+  frozen?: number;
 }
 
 /**
@@ -962,6 +997,7 @@ export function attachWorld(spec: AttachSpec) {
     savedView: withGraticule(spec.view ?? prev?.view ?? DEFAULT_VIEW),
     origin: spec.kind === 'draft' ? undefined : (cleanOrigin(spec.origin) ?? undefined),
     original: spec.kind === 'draft' || !spec.original || spec.original.generator >= GENERATOR_VERSION ? undefined : spec.original,
+    frozen: spec.kind === 'created' && spec.frozen !== undefined && spec.frozen < GENERATOR_VERSION ? spec.frozen : undefined,
   };
   const keep = spec.kind === 'created' || (spec.kind === 'draft' && !spec.pristine);
   const same =

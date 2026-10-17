@@ -536,6 +536,14 @@
 .app.phone .toast-act {
   padding: 7px 12px;
 }
+/* 照原样打开旧世界的提示条:「按新版另存一份」折成两行,让出地方给说明 */
+.app.phone .toast-act[data-act='save-new'] {
+  white-space: normal;
+  word-break: keep-all;
+  line-height: 1.35;
+  max-width: calc(4.2em + 24px);
+  text-align: left;
+}
 .app.phone .toast-x {
   padding: 6px 8px;
 }
