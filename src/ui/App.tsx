@@ -127,6 +127,7 @@ import { redoLastEdit, undoLastEdit } from './undo';
 import { useShortcuts } from './useShortcuts';
 import { openJump } from './JumpYear';
 import { ShortcutsHost, openShortcuts } from './ShortcutsDialog';
+import { DiagHost } from './DiagDialog';
 import { TipLayer } from './Tips';
 import { openSaveMenu } from './SaveMenu';
 import { replayStart } from './timelineLayout';
@@ -269,6 +270,7 @@ import { LongStage } from './LongStage';
 import { noteGenSpeed } from './genSpeed';
 import { getNewView } from './newViewStore';
 import { rememberLast } from './presetStore';
+import { diagBeat, recordWorkerError, setDiagContext } from '../diag/watch';
 
 type Replay = { w: number; h: number; frames: Uint8ClampedArray[]; mya: number[]; idx: number };
 
@@ -611,6 +613,15 @@ function aliveAtEnd(civ: Civ): number {
   return civ.viable ? civ.polities.filter((x) => polityAlive(x, civ.endYear)).length : 0;
 }
 
+/** 线程上的活,问题记录里的说法 */
+const WORK_LABEL: Partial<Record<WorkerRequest['type'], string>> = {
+  generate: '生成世界',
+  resim: '推演历史',
+  history: '回放世界形成',
+  trial: '助手试推演',
+  upPreview: '预览地形大事',
+};
+
 export function App() {
   const init = useMemo(readUrl, []);
   /** 打开网页时去哪:我的世界 / 新建 / 某个世界(见 firstRoute) */
@@ -823,6 +834,20 @@ export function App() {
   const trialSeq = useRef(0);
   /** 发给当前线程、还没回音的活(生成世界 / 回放帧 / 重推文明)有几件 */
   const busyRef = useRef(0);
+  /** 线程在忙什么(问题记录用;闲下来 = null) */
+  const workLabel = useRef<string | null>(null);
+  const layerRef = useRef(layer);
+  layerRef.current = layer;
+  // 问题记录:出错、意外关闭时带上线程在忙什么、在看哪一年、哪个世界、哪个图层
+  useEffect(() => {
+    setDiagContext(() => ({
+      doing: workLabel.current ?? undefined,
+      year: getCivTime().year ?? undefined,
+      world: genParams.current ? worldKey(genParams.current) : undefined,
+      layer: layerRef.current,
+    }));
+    return () => setDiagContext(() => ({}));
+  }, []);
   const reqId = useRef(0);
   /**
    * 照原样打开的旧世界(读存着的原件,不重新生成):正在读的是哪个世界、建它的生成器版本;
@@ -964,11 +989,20 @@ export function App() {
     }
     if (!workerRef.current) {
       const w = new Worker(new URL('../worker.ts', import.meta.url), { type: 'module' });
+      w.onerror = (e) => {
+        if (workerRef.current === w) recordWorkerError(e, '生成世界的线程');
+      };
       w.onmessage = (e: MessageEvent<WorkerResponse>) => {
         const m = e.data;
         if (workerRef.current !== w) return; // 已被换掉的线程
         // 主图补丁、原件是后台自己排的活,不算一件回音
-        if (m.type !== 'progress' && m.type !== 'eraPatch' && m.type !== 'snapshot') busyRef.current = Math.max(0, busyRef.current - 1);
+        if (m.type !== 'progress' && m.type !== 'eraPatch' && m.type !== 'snapshot') {
+          busyRef.current = Math.max(0, busyRef.current - 1);
+          if (!busyRef.current) {
+            workLabel.current = null;
+            diagBeat();
+          }
+        }
         if ((m.type === 'done' || m.type === 'civ' || m.type === 'trial') && m.tempo) tempoNote.current = m.tempo;
         if (m.type === 'trial') {
           // 试推演(助手):交给等着它的那一次;世界换了的话助手那边已经停下,结果没人要
@@ -1040,6 +1074,9 @@ export function App() {
     (req: WorkerRequest) => {
       const w = idleWorker(req.type === 'generate' || req.type === 'load');
       busyRef.current++;
+      // 问题记录:意外关闭时记下线程在忙什么
+      workLabel.current = WORK_LABEL[req.type] ?? workLabel.current;
+      diagBeat();
       w.postMessage(req.type === 'history' || req.type === 'upPreview' || !tempoNote.current ? req : { ...req, tempo: tempoNote.current });
     },
     [idleWorker],
@@ -4277,6 +4314,7 @@ export function App() {
       <AccountHost phone={narrow} />
       <FrozenAsk phone={narrow} />
       <ShortcutsHost />
+      <DiagHost />
       <TipLayer />
       {newDlg && home && <NewWorldDialog phone={narrow} init={newDlg.init} randomSeed={randomSeedValue} onCancel={cancelDialog} onStart={startFromDialog} />}
       {dropping && (
