@@ -411,6 +411,8 @@ async function handle(m: WorkerRequest): Promise<void> {
     // 换了世界:后台排着的补丁和记着的整图都作废
     bg.length = 0;
     rasters.clear();
+    // 刚才是照原样读进来的旧世界:州的划分是按旧地形算的,同样的键这回要按新生成的重算
+    if (frozen) regionsMemo.clear();
     frozen = null;
     await pool.up;
     const t0 = performance.now();
@@ -445,6 +447,8 @@ async function handle(m: WorkerRequest): Promise<void> {
   } else if (m.type === 'load') {
     bg.length = 0;
     rasters.clear();
+    // 州的划分按读进来的旧地形重算,不沿用按新版生成时记下的
+    regionsMemo.clear();
     frozen = null;
     await pool.up;
     const t0 = performance.now();

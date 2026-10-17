@@ -26,9 +26,7 @@ import { Seg, Slider } from './tpControls';
 import {
   addSketchStroke,
   addTerrainOp,
-  clearSketch,
-  clearSketchStrokes,
-  clearTerrain,
+  clearTerrainAndSketch,
   editsEra,
   getEdits,
   setSketchBase,
@@ -360,9 +358,7 @@ export function setTerrainCoast(v: number) {
 }
 /** 全部清除:草图、放的火山湖河、旧的地形修改一起清掉,回到程序原来的星球;照手绘图的只清笔画,照着长的那张图留着 */
 export function clearAllTerrain() {
-  if (getEdits().sketch?.image) clearSketchStrokes();
-  else clearSketch();
-  clearTerrain();
+  if (!clearTerrainAndSketch(true)) return;
   order = [];
   redo = [];
   redoAt = null;

@@ -4,7 +4,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import * as saveStore from '../src/ui/saveStore';
-import { addEditsBatch, addIntervention, addUpheaval, clearEdits, commitEdits, getEdits, setEdits, setEndYear, setHistoryGate, setName } from '../src/ui/editsStore';
+import { addEditsBatch, addIntervention, addUpheaval, clearEdits, clearTerrainAndSketch, commitEdits, getEdits, setEdits, setEndYear, setHistoryGate, setName } from '../src/ui/editsStore';
 import { clearPending, getPending, pushPending, queueIntervention } from '../src/ui/pendingStore';
 import { clearToast } from '../src/ui/toastStore';
 import { endRun } from '../src/ui/panelStore';
@@ -195,6 +195,19 @@ describe('照原样打开旧世界:存档和修改', () => {
     saveStore.detachWorld();
     clearEdits();
     expect(addIntervention(protect(2))).toBe(true);
+  });
+
+  it('全部清除地形:地形和草图算一次修改,只问一次;拦下了两样都不动', () => {
+    const sketch = { rest: 'auto' as const, strokes: [{ kind: 'land' as const, r: 20, pts: [100, 100, 140, 120] }] };
+    const id = oldWorld({ ...EMPTY_EDITS, terrain: [{ kind: 'volcano', pts: [1278, 768], r: 36, s: 1.1 }], sketch });
+    openFrozen(id);
+    gateLikeApp();
+    const before = getEdits();
+    expect(clearTerrainAndSketch(true)).toBe(false);
+    expect(getEdits()).toBe(before);
+    expect(asked.length).toBe(1);
+    expect(asked[0].terrain).toEqual([]);
+    expect(asked[0].sketch).toBeUndefined();
   });
 
   it('全部推演被拦下:待推演的单子留着(取消了还在)', () => {

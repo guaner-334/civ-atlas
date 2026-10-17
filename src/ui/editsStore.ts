@@ -596,6 +596,15 @@ export function clearSketch() {
   if (state.sketch) putSketch(null);
 }
 
+/** 地形和草图一起清掉,算一次修改(只问一次、要么都清要么都不清);keepImage:草图只清笔画,导入的图、海岸线留着。返回是否清了 */
+export function clearTerrainAndSketch(keepImage: boolean): boolean {
+  const { sketch: now, ...rest } = state;
+  const keep = !!(keepImage && now?.image);
+  if (!rest.terrain.length && (!now || (keep && !now.strokes.length))) return true;
+  const sketch = now && keep ? cleanSketch({ ...now, strokes: [] }) : null;
+  return put({ ...rest, terrain: EMPTY_EDITS.terrain, ...(sketch ? { sketch } : {}) });
+}
+
 /** 草图:没涂的地方交给程序('auto')还是都是海('sea') */
 export function setSketchRest(rest: SketchEdit['rest']) {
   const now = state.sketch;
