@@ -26,7 +26,7 @@
 import { Biome } from '../biomes';
 import { MinHeap } from '../util';
 import type { Progress, World } from '../world';
-import type { Habitat, Regions, Route, Year } from './types';
+import { AdjKind, Layer, type ChangeLog, type Culture, type Habitat, type Regions, type Route, type Year } from './types';
 import { KM_PER_UNIT, adjLengths, cellAreas, refSpacing } from './geo';
 import { geometryOf } from '../geometry';
 
@@ -50,9 +50,18 @@ export interface RouteCity {
   ended?: Year;
 }
 
+/** 推演里走过的一条海峡 / 航线(州图上的边):两头的海岸地块 a、b(Regions.adjCoast),从 built 那年起画 */
+export interface UsedLane {
+  a: number;
+  b: number;
+  built: Year;
+}
+
 export interface RouteOptions {
   /** 不传 = 每州治所一座城(见 seatCities) */
   cities?: RouteCity[];
+  /** 推演里走过的海峡、航线(usedLanes):两头的海岸之间一定画一条航线,从 built 那年起(和港口之间的航线一起修,重合的并成一条) */
+  lanes?: UsedLane[];
   progress?: Progress;
 }
 
@@ -180,7 +189,7 @@ export function seatCities(world: World, habitat: Habitat, regions: Regions): Ro
   return cities;
 }
 
-interface Link {
+export interface Link {
   a: number;
   b: number;
   w: number;
@@ -190,7 +199,7 @@ interface Link {
  * 城的"邻城图":从所有城同时洇染(代价 cost,< 0 不能走;maxD 以外不去),
  * 两城的势力范围相接就连一条边,边权 = 两边到交界的代价之和(取最小)。
  */
-function neighborGraph(
+export function neighborGraph(
   mesh: World['mesh'],
   src: number[],
   cost: Float32Array,
@@ -247,7 +256,7 @@ function neighborGraph(
 }
 
 /** Urquhart 图:每个三角(三点两两相连)删掉最长的那条边。边权并列时按编号定,保证最小生成树留在图里 */
-function urquhart(count: number, links: Link[]): Link[] {
+export function urquhart(count: number, links: Link[]): Link[] {
   const longer = (x: Link, y: Link) => x.w > y.w || (x.w === y.w && (x.a > y.a || (x.a === y.a && x.b > y.b)));
   const nb: Map<number, number>[] = Array.from({ length: count }, () => new Map());
   links.forEach((e, idx) => {
@@ -301,7 +310,7 @@ export function buildRoutes(world: World, habitat: Habitat, regions: Regions, op
   const progress = opts.progress ?? (() => {});
   progress('道路', 0.85);
   const cities = opts.cities ?? seatCities(world, habitat, regions);
-  if (cities.length < 2) return [];
+  if (cities.length < 2 && !opts.lanes?.length) return [];
 
   const { mesh, water, biome, elevation, flux, riverThreshold } = world;
   const { n, adjStart, adj } = mesh;
@@ -578,29 +587,38 @@ export function buildRoutes(world: World, habitat: Habitat, regions: Regions, op
   progress('航线', 0.9);
   const ports = all.filter((c) => cities[c].port);
   const seaPieces: Piece[] = [];
-  if (ports.length >= 2) {
-    const links = linksOf(ports, seaCost, SEA_MAX_STEPS * step);
-    links.sort((p, q) => builtSea(p.a, p.b) - builtSea(q.a, q.b) || p.w - q.w || p.a - q.a || p.b - q.b);
-    for (const e of links) {
-      const end = endOf(e.a, e.b);
-      if (!(builtSea(e.a, e.b) < end)) continue;
-      const ca = cities[e.a].cell;
-      const cb = cities[e.b].cell;
-      if (comp[ca] === comp[cb]) {
-        // 同一片陆地:陆路本来就连着。海路要比陆路近得多才开
-        const land = findLand(ca, cb);
-        if (land) {
-          let lc = 0;
-          for (let t = 1; t < land.length; t++) lc += landCost[slotOf(mesh, land[t - 1], land[t])];
-          if (lc <= SEA_VS_LAND * e.w) continue;
-        }
+  // 港口之间的航线 + 推演里走过的航线(出海口之间,opts.lanes):一起按修建年份修,早修的先占海面,后修的重合的那几段并进去
+  interface SeaJob {
+    ca: number;
+    cb: number;
+    built: Year;
+    end: Year;
+    /** 港口之间的连线:海路代价(同一片陆地上要和陆路比);走过的航线 = −1(一定画) */
+    w: number;
+  }
+  const seaJobs: SeaJob[] = [];
+  for (const e of linksOf(ports, seaCost, SEA_MAX_STEPS * step)) {
+    const end = endOf(e.a, e.b);
+    if (builtSea(e.a, e.b) < end) seaJobs.push({ ca: cities[e.a].cell, cb: cities[e.b].cell, built: builtSea(e.a, e.b), end, w: e.w });
+  }
+  for (const e of opts.lanes ?? []) if (e.a !== e.b) seaJobs.push({ ca: e.a, cb: e.b, built: e.built, end: Infinity, w: -1 });
+  seaJobs.sort((p, q) => p.built - q.built || (p.w < 0 ? 1 : 0) - (q.w < 0 ? 1 : 0) || p.w - q.w || p.ca - q.ca || p.cb - q.cb);
+  for (const e of seaJobs) {
+    const { ca, cb } = e;
+    if (e.w >= 0 && comp[ca] === comp[cb]) {
+      // 同一片陆地:陆路本来就连着。海路要比陆路近得多才开
+      const land = findLand(ca, cb);
+      if (land) {
+        let lc = 0;
+        for (let t = 1; t < land.length; t++) lc += landCost[slotOf(mesh, land[t - 1], land[t])];
+        if (lc <= SEA_VS_LAND * e.w) continue;
       }
-      const path = findSea(ca, cb);
-      if (!path) continue;
-      const before = pieces.length;
-      lay(path, 'sea', builtSea(e.a, e.b), end);
-      seaPieces.push(...pieces.splice(before));
     }
+    const path = findSea(ca, cb);
+    if (!path) continue;
+    const before = pieces.length;
+    lay(path, 'sea', e.built, e.end);
+    seaPieces.push(...pieces.splice(before));
   }
 
   const out: Route[] = [];
@@ -636,6 +654,57 @@ export function buildRoutes(world: World, habitat: Habitat, regions: Regions, op
   const order = { road: 0, trail: 1, sea: 2 } as const;
   out.sort((a, b) => order[a.kind] - order[b.kind]);
   return out;
+}
+
+/**
+ * 推演里走过的海峡、航线:州图上的海峡(AdjKind.Strait)、航线(AdjKind.SeaRoute)两头的州,哪一年起归了同一个国家、
+ * 或同一个海洋民族(民族迁徙只看海洋民族:别的民族过海峡也是当陆路走)。跨海扩张、隔海攻占,分裂、合并、复国以后隔海的两块国土,
+ * 都有这样一条连着 —— 按它补画航线(buildRoutes 的 lanes),画出来的就包括推演里走过的(两头偶然同属一家、其实没走过的也画,宁多不少)。
+ * from = 这一段地形从哪年起(地形大事以后州图变了):那一刻已经同属一家的记 from,之前的不看。
+ * 返回两头的海岸地块(Regions.adjCoast),按州号 (a, b) 升序
+ */
+export function usedLanes(regions: Regions, log: ChangeLog, cultures: readonly Culture[], from = -Infinity): UsedLane[] {
+  const R = regions.count;
+  const { adjStart, adj, adjKind, adjCoast } = regions;
+  const own = [new Int16Array(R).fill(-1), new Int16Array(R).fill(-1)];
+  /** 州对 → [年份, 这一侧的海岸, 那一侧的海岸] */
+  const first = new Map<number, [Year, number, number]>();
+  /** 州 r 隔海的另一头和它同属一家(layer 这一层的 v)的,记下年份 y */
+  const mark = (r: number, layer: number, v: number, y: Year) => {
+    if (v < 0 || (layer === Layer.Culture && cultures[v]?.kind !== 'sea')) return;
+    const o = own[layer];
+    for (let k = adjStart[r]; k < adjStart[r + 1]; k++) {
+      if (adjKind[k] !== AdjKind.SeaRoute && adjKind[k] !== AdjKind.Strait) continue;
+      const j = adj[k];
+      if (o[j] !== v) continue;
+      const key = Math.min(r, j) * R + Math.max(r, j);
+      if (first.has(key)) continue;
+      let back = -1;
+      for (let q = adjStart[j]; q < adjStart[j + 1] && back < 0; q++) if (adj[q] === r) back = q;
+      first.set(key, r < j ? [y, adjCoast[k], adjCoast[back]] : [y, adjCoast[back], adjCoast[k]]);
+    }
+  };
+  let swept = false;
+  /** 到 from 那一刻:已经同属一家的都记上 */
+  const sweep = () => {
+    swept = true;
+    for (let r = 0; r < R; r++) for (let layer = 0; layer < 2; layer++) mark(r, layer, own[layer][r], from);
+  };
+  for (let i = 0; i < log.size; i++) {
+    const y = log.year[i];
+    if (!swept && y >= from) sweep();
+    const r = log.region[i];
+    if (r >= R) continue;
+    const layer = log.layer[i];
+    const v = log.value[i];
+    own[layer][r] = v;
+    if (swept) mark(r, layer, v, y);
+  }
+  if (!swept) sweep();
+  return [...first]
+    .sort((p, q) => p[0] - q[0])
+    .filter(([, [, a, b]]) => a >= 0 && b >= 0)
+    .map(([, [built, a, b]]) => ({ a, b, built }));
 }
 
 /** 废城邻城之间的绕行连线:一座废城的邻城不超过这么多座时两两相连,多了每座连代价最接近的两座 */

@@ -325,7 +325,7 @@ function hook(sim: CivSim, pol: PoliticsModel): void {
       const r = queue[h];
       for (let k = reg.adjStart[r]; k < reg.adjStart[r + 1]; k++) {
         const j = reg.adj[k];
-        if (reach[j] === rStamp || owner[j] !== pid || inG[j] === gStamp || !canCross(P, reg.adjKind[k])) continue;
+        if (reach[j] === rStamp || owner[j] !== pid || inG[j] === gStamp || !canCross(pm, P, reg.adjKind[k], t)) continue;
         reach[j] = rStamp;
         queue[qt++] = j;
       }
@@ -470,7 +470,7 @@ function hook(sim: CivSim, pol: PoliticsModel): void {
   const tryMerge = (B: Polity, k: number, t: number, mine: readonly number[]): boolean => {
     const bid = B.id;
     const nB = pm.size[bid];
-    // 接壤的同族大国(陆上相邻;海洋国家隔着海峡、航线也算:它的国土本来就能跨海)
+    // 接壤的同族大国(陆上相邻;能出海的(海洋国家,航海时代以后的普通国家)隔着海峡、航线也算)
     let A = -1;
     for (const r of mine) {
       if (!settled(r, t)) return false;
@@ -481,7 +481,7 @@ function hook(sim: CivSim, pol: PoliticsModel): void {
         if (O.culture !== B.culture || O.ended !== undefined || pm.size[o] < MERGE_RATIO * nB) continue;
         if (wm.iv?.halted(o, t)) continue; // 阶段 4 干预"不许扩张":不并别国
         if (wm.dm && wm.dm.liegeOf(bid) >= 0 && wm.dm.liegeOf(bid) !== o) continue; // 邦交:藩属只会并入自己的宗主
-        if (!canCross(O, reg.adjKind[e])) continue;
+        if (!canCross(pm, O, reg.adjKind[e], t)) continue;
         if (A < 0 || pm.size[o] > pm.size[A] || (pm.size[o] === pm.size[A] && o < A)) A = o;
       }
     }

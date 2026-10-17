@@ -7,7 +7,8 @@
  *   2. 分地块:从所有种子同时洇染(多源 Dijkstra),翻山、跨大河、换群落都要加价,不能过水
  *      —— 州界自然落在山脊、大河上。
  *   3. 修整:锯齿修平(Azgaar normalize 的规则)、碎片并回邻区、太小的州(孤岛除外)并进共享边界最长的邻区。
- *   4. 建地区邻接图:陆上相邻(平地 / 跨河 / 翻山),海上用多源洇染找"水波相遇"(海峡 / 航线),冻住的海不能走。
+ *   4. 建地区邻接图:陆上相邻(平地 / 跨河 / 翻山);海峡用多源洇染找"水波相遇"(隔海很近的两州);
+ *      航线只连各州的出海口(和画出来的航线同一套连法,见 seaLanes),冻住的海不能走。
  *
  * 只沿 mesh 邻接走,距离一律来自 geo.ts,不用 x、y 算间距。
  */
@@ -17,6 +18,7 @@ import { AdjKind, type Habitat, type Regions } from './types';
 import { adjLengths, cellAreas, REF_MESH_CELLS, refSpacing, REGION_AREA_SCALE } from './geo';
 import { MAJOR_RIVER, frozenSea } from './habitat';
 import { flog2, fpow, keyed, subSeed } from './rand';
+import { neighborGraph, roadPassable, seaPassable, urquhart, type Link } from './routes';
 
 export interface RegionParams {
   /** 每州目标面积(世界单位²) */
@@ -46,9 +48,11 @@ const RIVER_STEPS = 0.9;
 const BIOME_CHANGE = 0.3;
 /** 小于目标面积的这个比例的州,并进邻区(孤岛除外) */
 const MIN_AREA_FRAC = 0.22;
-/** 海上连接:海路不超过几个地块间距算"海峡",不超过多少算"航线" */
+/** 海上连接:海路不超过几个地块间距算"海峡",出海口之间不超过多少算"航线"(见 seaLanes) */
 const STRAIT_STEPS = 4;
 const ROUTE_STEPS = 30;
+/** 同一块陆地上的两州:陆路比航线远这么多倍才连航线(和 routes.ts 画航线的 SEA_VS_LAND 同一个意思) */
+const LANE_VS_LAND = 2.5;
 /** 州界两侧治所都比山口低这么多米 → 翻山;或者较低的一侧低这么多 */
 const MOUNTAIN_ABOVE_HIGHER = 350;
 const MOUNTAIN_ABOVE_LOWER = 1100;
@@ -493,16 +497,6 @@ function finishRegions(
   }
 
   // ---- 陆上邻接 ----
-  interface Edge {
-    a: number;
-    b: number;
-    pairs: number;
-    riverPairs: number;
-    pass: number;
-    len: number;
-    border: number;
-    kind: number;
-  }
   const edges: Edge[] = [];
   const edgeOf = new Map<number, number>();
   for (let i = 0; i < n; i++) {
@@ -537,15 +531,16 @@ function finishRegions(
     else if (E.riverPairs >= RIVER_BORDER_FRAC * E.pairs) E.kind = AdjKind.River;
   }
 
-  // ---- 海上连接:从所有海岸块出发在开阔海面上洇染,两州的"水波"相遇就连一条边 ----
+  // ---- 海峡:从所有海岸块出发在开阔海面上洇染(到 STRAIT_STEPS 为止),两州的"水波"相遇就连一条边 ----
   const seaD = new Float64Array(n).fill(Infinity);
   const seaLab = new Int32Array(n).fill(-1);
   const seaOrig = new Int32Array(n).fill(-1);
   const open = new Uint8Array(n);
-  for (let i = 0; i < n; i++) if (water[i] === 1 && !frozenSea(world, i)) open[i] = 1;
+  // 能通航的海面:没冻住、没结冰(画航线也走得过去,routes.ts 的 seaPassable);海岸块是冰原的不出海
+  for (let i = 0; i < n; i++) if (water[i] === 1 && !frozenSea(world, i) && seaPassable(world, i)) open[i] = 1;
   heap.size = 0;
   for (let i = 0; i < n; i++) {
-    if (of[i] < 0) continue;
+    if (of[i] < 0 || !roadPassable(world, i)) continue;
     for (let k = adjStart[i]; k < adjStart[i + 1]; k++) {
       if (open[adj[k]]) {
         seaD[i] = 0;
@@ -556,7 +551,7 @@ function finishRegions(
       }
     }
   }
-  const routeMax = ROUTE_STEPS * step;
+  const strait = STRAIT_STEPS * step;
   while (heap.size) {
     const i = heap.pop();
     const d = heap.lastPri;
@@ -565,7 +560,7 @@ function finishRegions(
       const j = adj[k];
       if (!open[j]) continue;
       const nd = d + len[k];
-      if (nd < seaD[j] && nd <= routeMax) {
+      if (nd < seaD[j] && nd <= strait) {
         seaD[j] = nd;
         seaLab[j] = seaLab[i];
         seaOrig[j] = seaOrig[i];
@@ -582,7 +577,7 @@ function finishRegions(
       if (seaLab[j] < 0 || seaLab[j] === seaLab[i]) continue;
       if (open[j] && j < i) continue;
       const d = seaD[i] + len[k] + seaD[j];
-      if (d > routeMax) continue;
+      if (d > strait) continue;
       let a = seaLab[i];
       let b = seaLab[j];
       let oa = seaOrig[i];
@@ -597,20 +592,19 @@ function finishRegions(
       if (!cur || d < cur.d) seaBest.set(key, { d, oa, ob });
     }
   }
-  const strait = STRAIT_STEPS * step;
-  for (const [key, v] of seaBest) {
+  for (const [key, v] of [...seaBest].sort((x, y) => x[0] - y[0])) {
     const a = Math.floor(key / count);
     const b = key - a * count;
-    edges.push({
-      a,
-      b,
-      pairs: 0,
-      riverPairs: 0,
-      pass: 0,
-      len: dSeat[v.oa] + v.d + dSeat[v.ob],
-      border: 0,
-      kind: v.d <= strait ? AdjKind.Strait : AdjKind.SeaRoute,
-    });
+    edgeOf.set(key, edges.length);
+    edges.push({ a, b, pairs: 0, riverPairs: 0, pass: 0, len: dSeat[v.oa] + v.d + dSeat[v.ob], border: 0, kind: AdjKind.Strait, ca: v.oa, cb: v.ob });
+  }
+
+  // ---- 航线:州的出海口之间(见 seaLanes) ----
+  const seaGate = seaGates(world, of, count, open, dSeat);
+  for (const e of seaLanes(world, edges, seaGate, open, len, step, edgeOf, landmass)) {
+    const ca = seaGate[e.a];
+    const cb = seaGate[e.b];
+    edges.push({ a: e.a, b: e.b, pairs: 0, riverPairs: 0, pass: 0, len: dSeat[ca] + e.w + dSeat[cb], border: 0, kind: AdjKind.SeaRoute, ca, cb });
   }
 
   // ---- 邻接 CSR(邻居按编号升序) ----
@@ -631,6 +625,7 @@ function finishRegions(
   const adjKind = new Uint8Array(m);
   const adjLen = new Float32Array(m);
   const adjBorder = new Float32Array(m);
+  const adjCoast = new Int32Array(m).fill(-1);
   for (let r = 0; r < count; r++) {
     const list = tmp[r].sort((x, y) => x.to - y.to);
     let o = adjStartR[r];
@@ -640,6 +635,7 @@ function finishRegions(
       adjKind[o] = E.kind;
       adjLen[o] = E.len;
       adjBorder[o] = E.border;
+      if (E.ca !== undefined) adjCoast[o] = r === E.a ? E.ca : E.cb!;
       o++;
     }
   }
@@ -660,7 +656,105 @@ function finishRegions(
     elevation: rElev,
     landmass,
     adjBorder,
+    adjCoast,
   };
+}
+
+/** 州邻接边(建邻接图时的草稿) */
+interface Edge {
+  a: number;
+  b: number;
+  pairs: number;
+  riverPairs: number;
+  pass: number;
+  len: number;
+  border: number;
+  kind: number;
+  /** 海峡、航线:两头州 a、b 这一侧的海岸块(见 Regions.adjCoast) */
+  ca?: number;
+  cb?: number;
+}
+
+/** 各州的出海口(航线从这里出发):区内挨着能通航的海、离治所最近的陆地块(冰原除外;一样近取编号小的);不挨海 = −1 */
+function seaGates(world: World, of: Int32Array, count: number, open: Uint8Array, dSeat: Float64Array): Int32Array {
+  const { n, adjStart, adj } = world.mesh;
+  const gate = new Int32Array(count).fill(-1);
+  for (let i = 0; i < n; i++) {
+    const r = of[i];
+    if (r < 0 || !roadPassable(world, i)) continue;
+    let coast = false;
+    for (let k = adjStart[i]; k < adjStart[i + 1] && !coast; k++) coast = open[adj[k]] === 1;
+    if (!coast) continue;
+    const g = gate[r];
+    if (g < 0 || dSeat[i] < dSeat[g]) gate[r] = i;
+  }
+  return gate;
+}
+
+/**
+ * 航线(AdjKind.SeaRoute):各州出海口之间"势力范围相接"的连线(从所有出海口同时在开阔海面上洇染,水波相遇就连,
+ * 海路不超过 ROUTE_STEPS 个地块间距),再做 Urquhart(三州两两相连时删掉最长的那条:岛链上一站一站走,不直接跳过中间的岛)。
+ * 陆上已相邻、隔着海峡的两州不另连航线;同一块陆地上的两州,陆路比航线远 LANE_VS_LAND 倍以上才连(隔着海湾)。
+ * 和画出来的航线同一个连法(routes.ts 的 neighborGraph / urquhart):推演里能走的航线都画得出来。
+ * 返回 { a < b 两州, w = 两个出海口之间的海路长 },按 (a, b) 升序
+ */
+function seaLanes(world: World, edges: readonly Edge[], gate: Int32Array, open: Uint8Array, len: Float32Array, step: number, edgeOf: Map<number, number>, landmass: Int32Array): Link[] {
+  const { mesh } = world;
+  const { n, adjStart, adj } = mesh;
+  const count = gate.length;
+  const ids: number[] = [];
+  const src: number[] = [];
+  const isGate = new Uint8Array(n);
+  for (let r = 0; r < count; r++) {
+    if (gate[r] < 0) continue;
+    ids.push(r);
+    src.push(gate[r]);
+    isGate[gate[r]] = 1;
+  }
+  if (ids.length < 2) return [];
+  const cost = new Float32Array(adj.length);
+  for (let i = 0; i < n; i++) {
+    for (let k = adjStart[i]; k < adjStart[i + 1]; k++) cost[k] = open[adj[k]] && (open[i] || isGate[i]) ? len[k] : -1;
+  }
+  const links = urquhart(ids.length, neighborGraph(mesh, src, cost, ROUTE_STEPS * step));
+  // 陆路(州图上平地、跨河、翻山的边;按两治所间路程)
+  const land: { to: number; len: number }[][] = Array.from({ length: count }, () => []);
+  for (const E of edges) {
+    if (E.kind === AdjKind.Strait) continue;
+    land[E.a].push({ to: E.b, len: E.len });
+    land[E.b].push({ to: E.a, len: E.len });
+  }
+  const dist = new Map<number, number>();
+  const heap = new MinHeap(64);
+  /** 州 a 到 b 的陆路是不是比 limit 还远 */
+  const landFarther = (a: number, b: number, limit: number): boolean => {
+    dist.clear();
+    heap.size = 0;
+    dist.set(a, 0);
+    heap.push(a, 0);
+    while (heap.size) {
+      const r = heap.pop();
+      const d = heap.lastPri;
+      if (d > dist.get(r)!) continue;
+      if (r === b) return false;
+      for (const e of land[r]) {
+        const nd = d + e.len;
+        if (nd > limit || nd >= (dist.get(e.to) ?? Infinity)) continue;
+        dist.set(e.to, nd);
+        heap.push(e.to, nd);
+      }
+    }
+    return true;
+  };
+  const out: Link[] = [];
+  for (const e of links) {
+    const a = ids[e.a];
+    const b = ids[e.b];
+    if (edgeOf.has(a * count + b)) continue;
+    if (landmass[a] === landmass[b] && !landFarther(a, b, LANE_VS_LAND * e.w)) continue;
+    out.push({ a, b, w: e.w });
+  }
+  return out;
 }
 
 /** 没有陆地时的空地区表 */
@@ -681,6 +775,7 @@ export function emptyRegions(n: number): Regions {
     elevation: new Float32Array(0),
     landmass: new Int32Array(0),
     adjBorder: new Float32Array(0),
+    adjCoast: new Int32Array(0),
   };
 }
 

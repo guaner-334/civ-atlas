@@ -99,7 +99,7 @@ function bordering(civ: Civ, a: number, b: number, y: number): boolean {
   const A = civ.polities[a];
   for (let r = 0; r < reg.count; r++) {
     if (own[r] !== a) continue;
-    for (let k = reg.adjStart[r]; k < reg.adjStart[r + 1]; k++) if (own[reg.adj[k]] === b && canCross(A, reg.adjKind[k])) return true;
+    for (let k = reg.adjStart[r]; k < reg.adjStart[r + 1]; k++) if (own[reg.adj[k]] === b && canCross(civ, A, reg.adjKind[k], y)) return true;
   }
   return false;
 }
