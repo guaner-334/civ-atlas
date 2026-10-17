@@ -3,6 +3,7 @@
  * MP4 封装用开源库 mediabunny(MPL-2.0),按需加载,不进首屏。
  * 浏览器没有 WebCodecs、不支持 H.264 编码(旧浏览器、不是 https 的网页)时,filmSupported() = false,面板里说一句导不了。
  */
+import { diagDoing } from '../diag/watch';
 import { FILM_BITRATE, FILM_FPS } from './filmPlan';
 
 let support: Promise<boolean> | null = null;
@@ -47,6 +48,7 @@ export async function encodeFilm(job: EncodeJob): Promise<Blob> {
   const source = new CanvasSource(job.canvas, { codec: 'avc', bitrate: FILM_BITRATE, keyFrameInterval: 2 });
   output.addVideoTrack(source, { frameRate: FILM_FPS });
   await output.start();
+  const idle = diagDoing('导出回放视频');
   try {
     for (let f = 0; f < job.frames; f++) {
       if (job.cancelled()) throw new FilmCancelled();
@@ -59,6 +61,8 @@ export async function encodeFilm(job: EncodeJob): Promise<Blob> {
   } catch (e) {
     await output.cancel().catch(() => {});
     throw e;
+  } finally {
+    idle();
   }
   return new Blob([target.buffer!], { type: 'video/mp4' });
 }
