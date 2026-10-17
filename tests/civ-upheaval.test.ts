@@ -32,7 +32,7 @@ import { buildRoutes } from '../src/gen/civ/routes';
 import { searchCiv } from '../src/ui/searchIndex';
 
 const PARAMS = { ...DEFAULT_PARAMS, seed: 7 };
-/** 种子 7 上的三件大事(GENERATOR_VERSION 15):天灵国都一带海水漫进来、漓的国都长远一带火山喷发、哈尔温和对岸之间的海峡隆起 */
+/** 种子 7 上的三件大事(GENERATOR_VERSION 16):天灵国都一带海水漫进来、漓的国都长远一带火山喷发、哈尔温和对岸之间的海峡隆起 */
 const FLOOD: Upheaval = { year: 1600, ops: [{ kind: 'sink', pts: [1850, 520, 1930, 530, 1903, 469], r: 40, s: 1.1 }] };
 const VOLCANO: Upheaval = { year: 1800, ops: [{ kind: 'volcano', pts: [1223, 758], r: 36, s: 1.1 }] };
 const BRIDGE: Upheaval = { year: 2000, ops: [{ kind: 'raise', pts: [749, 799, 729, 784], r: 18, s: 1.1 }] };
@@ -218,13 +218,15 @@ describe('地形大事 · 推演', () => {
   }, 300_000);
 
   it('后果都并进大事那一条:亡了的国家打着的仗,议和记在后果之后;早先的遗址城址沉了,从那年起不再画', () => {
-    // 第 2699 年:米拉内斯部(正和凯莱隆德打仗)两州全沉,凯莱隆德的国都艾利纳尼斯也沉了(州还在,迁都)
-    const Y = 2699;
-    const seats = [
-      [90, 589],
-      [91, 566],
-    ];
-    const W: Upheaval = { year: Y, ops: [...seats.map((pts) => ({ kind: 'sink' as const, pts, r: 24, s: 1.1 })), { kind: 'sink', pts: [115, 797], r: 12, s: 1.1 }] };
+    // 第 1533 年:埃菲亚部(正和乌耶汗国打仗)的州全沉,乌耶的国都也沉了(州还在,迁都)
+    const Y = 1533;
+    const W: Upheaval = {
+      year: Y,
+      ops: [
+        { kind: 'sink', pts: [1747, 459], r: 24, s: 1.1 },
+        { kind: 'sink', pts: [1725, 359], r: 12, s: 1.1 },
+      ],
+    };
     const b = civOf([W]);
     const at = b.annals.filter((e) => e.year === Y).map((e) => e.kind);
     expect(at).toContain('fall');
@@ -233,10 +235,10 @@ describe('地形大事 · 推演', () => {
     const ch = buildChronicle(b).filter((x) => b.annals[x.id]?.year === Y);
     expect(ch.map((x) => x.kind)).toEqual(['upheaval']);
     expect(ch[0].text).toMatch(/亡,.*迁都/);
-    // 特勤巴扎第 2494 年被毁、没有重建;第 2800 年城址沉入海中
-    const R: Upheaval = { year: 2800, ops: [{ kind: 'sink', pts: [1502, 647], r: 30, s: 1.1 }] };
+    // 岚州第 1939 年被毁、没有重建;第 2800 年城址沉入海中
+    const R: Upheaval = { year: 2800, ops: [{ kind: 'sink', pts: [1441, 723], r: 30, s: 1.1 }] };
     const r = civOf([R]);
-    const id = r.settlements.findIndex((s) => s.name === '特勤巴扎');
+    const id = r.settlements.findIndex((s) => s.name === '岚州');
     expect(r.settlements[id].ended).toBeLessThan(R.year);
     expect(r.upheavals![0].ruins).toEqual([id]);
     expect(ruinSites(r, R.year - 1).map((s) => s.id)).toContain(id);
@@ -496,11 +498,17 @@ describe('地形大事 · 推演', () => {
     expect(burnt.length).toBeGreaterThan(0);
     for (const e of burnt) expect(e.b).toBe(0);
 
+    // 第 1900 年海峡两岸分属两家;到第 2000 年哈尔温已经占了对岸,写"境内的海峡"
+    const early = civOf([{ ...BRIDGE, year: 1900 }]);
+    const f0 = early.upheavals![0];
+    expect(f0.joinedBy![0]).not.toBe(f0.joinedBy![1]);
+    expect(buildChronicle(early).find((x) => x.kind === 'upheaval')!.text).toMatch(/之间的海峡隆起成陆$/);
     const r = civOf([BRIDGE]);
     const f = r.upheavals![0];
     expect(f.joined).toBeDefined();
-    expect(f.joinedBy![0]).not.toBe(f.joinedBy![1]);
-    expect(buildChronicle(r).find((x) => x.kind === 'upheaval')!.text).toMatch(/之间的海峡隆起成陆$/);
+    expect(f.joinedBy![0]).toBeGreaterThanOrEqual(0);
+    expect(f.joinedBy![0]).toBe(f.joinedBy![1]);
+    expect(buildChronicle(r).find((x) => x.kind === 'upheaval')!.text).toMatch(/境内的海峡隆起成陆$/);
     // 新冒出来的陆地都分进了州
     const w = steps([BRIDGE])[0].world;
     for (let c = 0; c < w.mesh.n; c++) if (w.water[c] === 0) expect(r.regions.of[c]).toBeGreaterThanOrEqual(0);

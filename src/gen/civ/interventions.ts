@@ -418,7 +418,7 @@ export function installInterventions(sim: CivSim, iv: InterventionModel): void {
       for (const w of fighting) wm.makePeace!(w, t);
     } else if (v.kind === 'declare') {
       // 宣战:两国都在、没在交战、接壤,才打得成
-      if (!alive(a) || !alive(b) || fighting.length || !polityBorders(pm, owner, a, b)) return;
+      if (!alive(a) || !alive(b) || fighting.length || !polityBorders(pm, owner, a, b, t)) return;
       wm.declare!(a, b, t);
     }
   });

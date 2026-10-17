@@ -20,10 +20,10 @@ const small = { ...DEFAULT_PARAMS, cells: 12000 };
  * 州 r 是不是国家 pid 灭国时一并收下的残部(wars.ts 的 annex:"隔海的残部最后一并归 x"):
  * r 最后一次归 pid 是攻占,而且就在那一刻有国家亡于 pid。这样收下的隔海领土,非海洋国家也会有
  */
-function annexedOverseas(civ: Civ, pid: number, r: number): boolean {
+function annexedOverseas(civ: Civ, pid: number, r: number, upTo = Infinity): boolean {
   const L = civ.log;
   let last = -1;
-  for (let i = 0; i < L.size; i++) if (L.region[i] === r && L.layer[i] === Layer.Polity) last = i;
+  for (let i = 0; i < L.size && L.year[i] <= upTo; i++) if (L.region[i] === r && L.layer[i] === Layer.Polity) last = i;
   if (last < 0 || L.value[last] !== pid || L.cause[last] !== Ev.Conquer) return false;
   const y = L.year[last];
   return civ.annals.some((e) => e.kind === 'fall' && e.b === pid && e.year === y);
@@ -83,7 +83,7 @@ describe('城市成长 + 国家', () => {
     expect(a.routes.length).toBe(b.routes.length);
   });
 
-  it('默认参数:先后立国 8–80 个(含分裂 / 复国出来的)、结束时在世 8–30 个,城镇每个有人州一座;国都之间隔得开;只有海洋国家有跨海领土', () => {
+  it('默认参数:先后立国 8–80 个(含分裂 / 复国出来的)、结束时在世 8–30 个,城镇每个有人州一座;国都之间隔得开;航海时代以前只有海洋国家有跨海领土', () => {
     for (const seed of [7, 2024, 3, 99]) {
       const civ = civOf({ ...DEFAULT_PARAMS, seed });
       expect(civ.polities.length, `seed ${seed}`).toBeGreaterThanOrEqual(8);
@@ -125,10 +125,13 @@ describe('城市成长 + 国家', () => {
           expect(d[caps[j]], `seed ${seed} 国都 ${i}–${j}`).toBeGreaterThanOrEqual(3);
         }
       }
-      // 跨海领土:国土占了不止一片陆地的,一定是海洋国家 —— 除了灭国时一并收下的隔海残部(wars.ts 的 annex)
+      // 跨海领土:航海时代以前,国土占了不止一片陆地的一定是海洋国家 —— 除了灭国时一并收下的隔海残部(wars.ts 的 annex)
+      const pre = Math.floor(civ.sailFrom!);
+      expect(pre).toBeGreaterThan(1000);
+      const own = ownersAt(civ, pre).polity;
       for (const p of civ.polities) {
         const lms = new Set<number>();
-        for (let r = 0; r < reg.count; r++) if (civ.polity[r] === p.id && !annexedOverseas(civ, p.id, r)) lms.add(reg.landmass[r]);
+        for (let r = 0; r < reg.count; r++) if (own[r] === p.id && !annexedOverseas(civ, p.id, r, pre)) lms.add(reg.landmass[r]);
         if (lms.size > 1) expect(p.kind, `${p.name}`).toBe('sea');
       }
       // 有部落地带(有人住、没国家),但国家占了大半。修好"离国都的路程"以后(国家扩张不再莫名停住)部落地带只剩荒漠、边远处;
