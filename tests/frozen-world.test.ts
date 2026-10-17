@@ -156,6 +156,18 @@ describe('照原样打开旧世界:找原件', () => {
   });
 });
 
+describe('照原样打开旧世界:从文件打开', () => {
+  it('和存着的旧世界一样、版本更新的文件:存着的跟着记文件的版本(以后不再照原样打开),旧的那份留作原样', () => {
+    const id = oldWorld();
+    const old = saveStore.loadWorld(id)!.save;
+    expect(saveStore.importSave({ ...old })).toBe(id);
+    expect(saveStore.loadWorld(id)!.save.generator).toBe(OLD);
+    expect(saveStore.importSave({ ...old, generator: GENERATOR_VERSION, check: 'c8' })).toBe(id);
+    expect(saveStore.loadWorld(id)!.save).toMatchObject({ generator: GENERATOR_VERSION, check: 'c8' });
+    expect(saveStore.originalOf(id)?.generator).toBe(OLD);
+  });
+});
+
 describe('照原样打开旧世界:存档和修改', () => {
   it('改名照常存,存档还记建它的那一版', () => {
     const id = oldWorld();
@@ -208,6 +220,22 @@ describe('照原样打开旧世界:存档和修改', () => {
     expect(asked.length).toBe(1);
     expect(asked[0].terrain).toEqual([]);
     expect(asked[0].sketch).toBeUndefined();
+  });
+
+  it('撤销地形被拦下:撤销、重做的记录不动', async () => {
+    const { undoTerrain, redoTerrain } = await import('../src/ui/TerrainTools');
+    const op = { kind: 'volcano' as const, pts: [1278, 768], r: 36, s: 1.1 };
+    const id = oldWorld({ ...EMPTY_EDITS, terrain: [op] });
+    openFrozen(id);
+    gateLikeApp();
+    const before = getEdits();
+    undoTerrain();
+    expect(getEdits()).toBe(before);
+    expect(asked.length).toBe(1);
+    // 没撤成就没有可重做的
+    redoTerrain();
+    expect(getEdits()).toBe(before);
+    expect(asked.length).toBe(1);
   });
 
   it('全部推演被拦下:待推演的单子留着(取消了还在)', () => {

@@ -536,9 +536,9 @@ export function currentMonths(): number {
 }
 
 /** 地形修改:撤销最后一处 */
-export function undoTerrainOp() {
-  if (!state.terrain.length) return;
-  put({ ...state, terrain: state.terrain.slice(0, -1) });
+export function undoTerrainOp(): boolean {
+  if (!state.terrain.length) return false;
+  return put({ ...state, terrain: state.terrain.slice(0, -1) });
 }
 
 /** 地形修改:全部清除(地形回到种子原本的样子) */
@@ -567,10 +567,10 @@ export function addSketchStroke(stroke: SketchStroke, coast?: number): boolean {
 }
 
 /** 草图:撤销最后一笔 */
-export function undoSketchStroke() {
+export function undoSketchStroke(): boolean {
   const now = state.sketch;
-  if (!now?.strokes.length) return;
-  putSketch({ ...now, strokes: now.strokes.slice(0, -1) });
+  if (!now?.strokes.length) return false;
+  return putSketch({ ...now, strokes: now.strokes.slice(0, -1) });
 }
 
 /**

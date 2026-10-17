@@ -324,18 +324,20 @@ export function undoTerrain() {
   trimOrder();
   const e = getEdits();
   const ns = e.sketch?.strokes.length ?? 0;
-  const t = order.pop() ?? (ns ? 's' : e.terrain.length ? 'o' : null);
+  const popped = order.pop();
+  const t = popped ?? (ns ? 's' : e.terrain.length ? 'o' : null);
   if (!t) return;
+  // 没撤成(被拦下了):撤销、重做的记录都不动
+  if (!(t === 's' ? undoSketchStroke() : undoTerrainOp())) {
+    if (popped) order.push(popped);
+    return;
+  }
   if (!canRedo(e.terrain, e.sketch)) redo = [];
   if (t === 's') {
     redo.push({ t, v: e.sketch!.strokes[ns - 1] });
     // 撤掉最后一笔、草图没了:记下它的海岸线,重做时照样
     if (ns === 1) setTerrainTool({ coast: sketchCoast(e.sketch) });
-    undoSketchStroke();
-  } else {
-    redo.push({ t, v: e.terrain[e.terrain.length - 1] });
-    undoTerrainOp();
-  }
+  } else redo.push({ t, v: e.terrain[e.terrain.length - 1] });
   const a = getEdits();
   redoAt = { terrain: a.terrain, sketch: a.sketch };
 }

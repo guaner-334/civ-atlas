@@ -761,11 +761,22 @@ export function importSave(save: SaveFile): string | null {
     let ok = true;
     const grat = save.view?.graticule;
     const iso = save.view?.contours;
-    if (!sameView(w.save.view, save.view) || (grat !== undefined && w.save.view?.graticule !== grat) || (iso !== undefined && w.save.view?.contours !== iso)) {
+    const view = !sameView(w.save.view, save.view) || (grat !== undefined && w.save.view?.graticule !== grat) || (iso !== undefined && w.save.view?.contours !== iso);
+    // 文件是更新的版本:存着的跟着记文件的版本(以后打开按文件的版本,不再照原样读旧的那一份);旧的那份留作原样
+    const newer = save.generator > w.save.generator;
+    if (view || newer) {
       const next: SaveFile = { ...w.save, savedAt: new Date().toISOString() };
-      if (save.view) next.view = save.view;
-      else delete next.view;
+      if (view) {
+        if (save.view) next.view = save.view;
+        else delete next.view;
+      }
+      const was = store().get(PREFIX + w.id);
+      if (newer) {
+        next.generator = save.generator;
+        next.check = save.check;
+      }
       ok = writeSave(w.id, next);
+      if (ok && newer && store().get(ORIG + w.id) === null) keepOriginal(w.id, was);
       changed();
     }
     // 存着的已经是更新的版本、还没留原样:文件这份就是它原来的样子(看原样);存档写成了以后再留

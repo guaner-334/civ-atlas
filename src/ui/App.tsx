@@ -1822,7 +1822,9 @@ export function App() {
       worldKey(cur.params) === worldKey(w.save.params) &&
       (cur.title ?? '') === (w.save.title ?? '') &&
       sameOrigin(cur.origin, w.save.origin) &&
-      JSON.stringify(getEdits()) === JSON.stringify(w.save.edits);
+      JSON.stringify(getEdits()) === JSON.stringify(w.save.edits) &&
+      // 开着的是照原样读的旧世界:存着的也得还是那一版(别的页面里换成了新版的 = 重新打开)
+      (cur.frozen === undefined || cur.frozen === w.save.generator);
     if (cur?.id === id && targetRef.current?.id === id && same) {
       markOpened(id);
       enterStage(w.draft ? 'draft' : 'world', w.draft ? (w.base ?? null) : null);
