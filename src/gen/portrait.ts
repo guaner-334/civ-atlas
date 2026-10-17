@@ -297,7 +297,9 @@ function compose(group: PortraitGroupId, g: PortraitGroupParts, genes: Genes, wh
   }
   const old = who.age >= AGE_WRINKLE[1];
   const closed = (name: string) => P.filter((p) => p.expr === name).map((p) => img(group, p, face)).filter((x): x is PortraitImg => !!x);
-  const blink = old && closed('closed-old').length ? [...closed('closed').filter((x) => x.layer !== 'eye'), ...closed('closed-old')] : closed('closed');
+  // 没有年轻闭眼图的组(画出来和睁眼一样,没切成层)用老人的闭眼
+  const useOld = closed('closed-old').length > 0 && (old || !closed('closed').some((x) => x.layer === 'eye'));
+  const blink = useOld ? [...closed('closed').filter((x) => x.layer !== 'eye'), ...closed('closed-old')] : closed('closed');
   const white = Math.max(0, Math.min(1, (who.age - AGE_WHITE[0]) / (AGE_WHITE[1] - AGE_WHITE[0])));
   return { group, face, layers: imgs, white: Math.round(white * 100) / 100, exprs, blink };
 }

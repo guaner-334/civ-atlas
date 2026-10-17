@@ -47,6 +47,7 @@ describe.each([7, 2024])('人物头像 · seed=%i', (seed) => {
       expect(a, x.name).not.toBeNull();
       expect(a!.layers.length).toBeGreaterThanOrEqual(3);
       expect(personPortrait(again, x.id, x.died ?? civ.endYear)).toEqual(a);
+      expect(a!.blink.some((l) => l.layer === 'eye'), `${x.name} 眨眼`).toBe(true);
       // 贴在脸上的层只用这张底脸自己的图,不借第一张脸的
       const all = [...a!.layers, ...a!.blink, ...Object.values(a!.exprs).flat()];
       for (const l of all) if (a!.face > 1 && ['body', 'jaw', 'nose', 'wrinkle', 'brow', 'eye', 'mouth'].includes(l.layer)) expect(l.src).toContain(`.f${a!.face}.`);
@@ -113,7 +114,7 @@ describe.each([7, 2024])('人物头像 · seed=%i', (seed) => {
       const rest = (l: typeof ls) => l.filter((q) => !['brow', 'eye', 'mouth'].includes(q.layer)).map((q) => q.src);
       expect(rest(ls)).toEqual(rest(p.layers));
     }
-    expect(p.blink.length).toBeGreaterThan(0);
+    expect(p.blink.some((l) => l.layer === 'eye')).toBe(true);
     expect(portraitMood(civ, x, x.commands![0].from).expr).not.toBe('calm');
     expect(portraitMood(civ, x, x.born - 5).expr).toBe('calm');
     // 神情里按年份二分找史事:史事要按年份排好
