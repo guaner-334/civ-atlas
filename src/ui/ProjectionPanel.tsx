@@ -1,5 +1,5 @@
 /**
- * 投影的界面:"图层与投影"弹层里的投影部分(投影切换、中央经线滑条、经纬网开关;LayerPopover.tsx 挂它),
+ * 投影的界面:图层面板里的投影部分(投影切换、中央经线滑条;LayerPopover.tsx 挂它)、经纬网间隔,
  * 以及"选中的东西在哪条经线上"(国家面板的"设为中心"用)。状态在 ui/projection.ts(投影、经纬网)和 mapWrap.ts(中心经度)里。
  * 只用左键:没有右键菜单,把某处转到正中用国家面板的"设为中心"。
  */
@@ -43,13 +43,12 @@ export function projectionName(p: MapProjection): string {
 }
 
 /**
- * "图层与投影"弹层的投影部分:六种投影(轮廓小图标,悬停显示一句用途)、
- * 中央经线滑条(所有投影共用)、经纬网开关和间隔
+ * 图层面板「投影」一行点开的部分:六种投影(轮廓小图标,悬停显示一句用途)、中央经线滑条(所有投影共用)。
+ * 经纬网在「叠加」里(LayerPopover.tsx)
  */
 export function ProjectionSection() {
   const proj = useProjection();
   const center = useMapCenter();
-  const grat = useGraticule();
   // 拖滑条时显示的值(松手前地图已经跟着转了)
   const [drag, setDrag] = useState<number | null>(null);
   const shown = drag ?? Math.round(center);
@@ -58,7 +57,6 @@ export function ProjectionSection() {
   const hint = OPTIONS.find((o) => o.id === (hover ?? proj))?.hint ?? '';
   return (
     <>
-      <div className="lp-sec">投影</div>
       <div className="lp-projs" role="radiogroup" aria-label="地图投影">
         {OPTIONS.map((o) => (
           <button
@@ -109,18 +107,6 @@ export function ProjectionSection() {
           }}
         />
       </label>
-      <div className="lp-grat">
-        <button className={`lp-check${grat ? ' on' : ''}`} role="checkbox" aria-checked={grat} data-act="graticule" onClick={() => setGraticule(!grat)}>
-          <span className="lp-box" aria-hidden="true">
-            {grat ? '✓' : ''}
-          </span>
-          经纬网
-        </button>
-        <span className="lp-grat-step">
-          <span className="lp-sub">每隔</span>
-          <GraticuleSteps />
-        </span>
-      </div>
     </>
   );
 }

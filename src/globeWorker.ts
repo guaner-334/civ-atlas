@@ -14,12 +14,15 @@ import type { DrainLines } from './gen/pixelDrain';
 import type { LayerId } from './render/layers';
 import { renderLayer } from './render/layers';
 import { realisticGlobeMaps } from './render/realistic';
+import type { SurfaceLook } from './render/surface';
 import { fantasyGlobeBase } from './render/fantasy';
 
 export interface GlobeTexRequest {
   world: World;
   style: 'realistic' | 'fantasy' | 'data';
   layer: LayerId;
+  /** 写实风的画法(不给 = 经典卫星) */
+  look?: SurfaceLook;
   scale: number;
   /** 屏幕上那张主图的细沟(照它画,和屏幕上一样;不给 = 现算) */
   veins?: DrainLines;
@@ -39,7 +42,7 @@ self.onmessage = async (e: MessageEvent<GlobeTexRequest>) => {
     let bitmap: ImageBitmap;
     let slope: { w: number; h: number; data: Uint8Array } | undefined;
     if (m.style === 'realistic') {
-      const g = realisticGlobeMaps(m.world, raster);
+      const g = realisticGlobeMaps(m.world, raster, m.look);
       bitmap = (g.albedo as OffscreenCanvas).transferToImageBitmap();
       slope = { w: raster.w, h: raster.h, data: g.slope };
     } else if (m.style === 'fantasy') {

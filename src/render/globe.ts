@@ -23,7 +23,7 @@
  * 纬度 = 90° − y / 高 × 180°。三维单位向量 p = (cos 纬 cos 经, cos 纬 sin 经, sin 纬)。
  */
 
-import { RELIEF_DETAIL_W, RELIEF_MACRO_W, RELIEF_SEA_W, SLOPE_MAX } from './realistic';
+import { SLOPE_MAX, reliefWeights } from './realistic';
 
 export type Vec3 = [number, number, number];
 
@@ -252,7 +252,7 @@ export function graticuleLines(v: GlobeView, f: GlobeFrame, step: number): numbe
  * 写实风的地貌明暗(和着色器里的 relief 同一个公式;单测用):底色 c(0–255)、细节坡度 gd、大尺度坡度 gm(都是 [东, 南],
  * 见 realistic.ts 的 GlobeCapture)、是不是开阔水面、单位向量 p 和经纬度、视图的屏幕右 e / 屏幕上 n 方向 → 打好光的颜色
  */
-export function reliefShade(c: Vec3, gd: [number, number], gm: [number, number], water: boolean, p: Vec3, lon: number, lat: number, e: Vec3, n: Vec3): Vec3 {
+export function reliefShade(c: Vec3, gd: [number, number], gm: [number, number], water: boolean, p: Vec3, lon: number, lat: number, e: Vec3, n: Vec3, wt: ReliefWeights = reliefWeights()): Vec3 {
   const so = Math.sin(lon);
   const co = Math.cos(lon);
   const sl = Math.sin(lat);
@@ -271,13 +271,13 @@ export function reliefShade(c: Vec3, gd: [number, number], gm: [number, number],
     const l = Math.hypot(v[0], v[1], v[2]);
     return (v[0] * Lr[0] + v[1] * Lr[1] + v[2] * Lr[2]) / l;
   };
-  const s = 1 + RELIEF_DETAIL_W * (shade(gd) - 1) + (water ? RELIEF_SEA_W : RELIEF_MACRO_W) * (shade(gm) - 1);
+  const s = 1 + wt.detail * (shade(gd) - 1) + (water ? wt.sea : wt.macro) * (shade(gm) - 1);
   let f: number;
   let cool = 0;
   if (s >= 1) f = Math.min(1.4, 1 + (s - 1) * 0.7);
   else {
-    const a = 1 - Math.exp((s - 1) / 0.45);
-    f = 1 - 0.45 * a;
+    const a = 1 - Math.exp((s - 1) / wt.shadow);
+    f = 1 - wt.shadow * a;
     cool = 0.4 * a;
   }
   const sky: Vec3 = [60, 70, 90];
@@ -289,6 +289,9 @@ export function reliefShade(c: Vec3, gd: [number, number], gm: [number, number],
 
 export type GlobeStyle = 'realistic' | 'fantasy' | 'data';
 
+/** 写实风几样晕渲的权重和暗面压暗多少(realistic.ts 的 reliefWeights,随画法变) */
+export type ReliefWeights = ReturnType<typeof reliefWeights>;
+
 export interface GlobeLook {
   style: GlobeStyle;
   /**
@@ -296,6 +299,8 @@ export interface GlobeLook {
    * 高度角和平面主图一样)—— 转到两极也不会光从背后来。不给 / false = 贴图里已经烤好了明暗(CPU 画法、回放)
    */
   relief?: boolean;
+  /** relief 时的晕渲权重(不给 = 经典卫星的) */
+  weights?: ReliefWeights;
   /** 经纬网每隔几度一条(0 = 不画) */
   graticule: number;
   /** 高亮层(编年史点一条)的不透明度 0–1 */
@@ -344,15 +349,13 @@ uniform sampler2D uReplayTex;
 uniform sampler2D uWater;
 uniform sampler2D uSlope;
 uniform float uRelief;
+// 几样晕渲的权重(细节、大尺度、海底)和暗面压暗多少(realistic.ts 的 reliefWeights)
+uniform vec4 uReliefW;
 out vec4 outColor;
 
 const float PI = 3.141592653589793;
 // 等效坡度的编码(和 realistic.ts 的 encodeSlope 一致):字节 → v ∈ [−1, 1] → 坡度 = sign(v) v² × SLOPE_MAX
 const float SLOPE_MAX = ${SLOPE_MAX.toFixed(2)};
-// 几样晕渲的权重(realistic.ts 的 RELIEF_*)
-const float RELIEF_DETAIL_W = ${RELIEF_DETAIL_W.toFixed(4)};
-const float RELIEF_MACRO_W = ${RELIEF_MACRO_W.toFixed(4)};
-const float RELIEF_SEA_W = ${RELIEF_SEA_W.toFixed(4)};
 // 平面主图的暗面天空色(realistic.ts 的 SKY_SHADOW)
 const vec3 SKY_SHADOW = vec3(60.0, 70.0, 90.0) / 255.0;
 
@@ -398,13 +401,13 @@ vec3 relief(vec3 c, vec4 g, float water, vec3 p, float lon, float lat) {
   // 细节晕渲、大尺度晕渲各算一次(平地 = 1),按平面主图的权重加起来
   float sd = dot(normalize(-g.x * Ep + g.y * Np + p), Lr);
   float sm = dot(normalize(-g.z * Ep + g.w * Np + p), Lr);
-  float s = 1.0 + RELIEF_DETAIL_W * (sd - 1.0) + (water > 0.5 ? RELIEF_SEA_W : RELIEF_MACRO_W) * (sm - 1.0);
+  float s = 1.0 + uReliefW.x * (sd - 1.0) + (water > 0.5 ? uReliefW.z : uReliefW.y) * (sm - 1.0);
   float f;
   float cool = 0.0;
   if (s >= 1.0) f = min(1.4, 1.0 + (s - 1.0) * 0.7);
   else {
-    float a = 1.0 - exp((s - 1.0) / 0.45);
-    f = 1.0 - 0.45 * a;
+    float a = 1.0 - exp((s - 1.0) / uReliefW.w);
+    f = 1.0 - uReliefW.w * a;
     cool = 0.4 * a;
   }
   vec3 cf = c * f;
@@ -752,6 +755,8 @@ export class GlobeGL {
     gl.uniform1f(this.u('uHl'), look.hl);
     gl.uniform1f(this.u('uReplay'), look.replay);
     gl.uniform1f(this.u('uRelief'), look.relief && look.style === 'realistic' ? 1 : 0);
+    const wt = look.weights ?? reliefWeights();
+    gl.uniform4f(this.u('uReliefW'), wt.detail, wt.macro, wt.sea, wt.shadow);
     gl.uniform1f(this.u('uAniso'), ANISO);
     const [tw, th] = this.size('terrain');
     gl.uniform2f(this.u('uTexSize'), tw, th);

@@ -19,6 +19,7 @@ import { heightmapPng, type HeightmapBits, type HeightmapInfo } from './gen/heig
 import { drawMapBase, drawMapOverlay, drawMapTerrain, type ExportScale } from './render/export';
 import type { DrainLines } from './gen/pixelDrain';
 import type { ProjectionId } from './render/projection';
+import type { SurfaceLook } from './render/surface';
 
 export type ExportRequest =
   | {
@@ -32,6 +33,8 @@ export type ExportRequest =
       civ: Civ | null;
       style: CivStyle;
       layer: LayerId;
+      /** 写实风的画法(不给 = 经典卫星) */
+      look?: SurfaceLook;
       year: Year;
       show: CivShow;
       /** 球面世界:图片正中的世界 x(见 render/export.ts 的 ExportMapParams.center) */
@@ -82,7 +85,7 @@ self.onmessage = async (e: MessageEvent<ExportRequest>) => {
     const cv = new OffscreenCanvas(raster.w, raster.h);
     const ctx = cv.getContext('2d');
     if (!ctx) throw new Error('开不了这么大的画布(内存不够)');
-    const p = { world: m.world, raster, civ: m.civ, style: m.style, layer: m.layer, year: m.year, show: m.show, center: m.center, projection: m.projection, graticule: m.graticule };
+    const p = { world: m.world, raster, civ: m.civ, style: m.style, layer: m.layer, look: m.look, year: m.year, show: m.show, center: m.center, projection: m.projection, graticule: m.graticule };
     const make = (w: number, h: number) => new OffscreenCanvas(w, h);
     if (m.split) {
       drawMapTerrain(ctx, p, make);

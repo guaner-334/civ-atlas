@@ -278,14 +278,14 @@ export function useCivHighlight(): CivHighlightState | null {
 const pick = store<{ entry: ChronicleEntry | null; stamp: number }>({ entry: null, stamp: 0 });
 
 /**
- * 点编年史的一条:时间轴跳到那一年并暂停,换到政区图层(宗教大事:正在信仰图层上就留在信仰图层;时代的:正在时代、物产图层上就留着),地图上闪烁高亮事发地
+ * 点编年史的一条:时间轴跳到那一年并暂停,填色换成国家(宗教大事:正在信仰填色上就留着;时代的:正在时代填色上就留着;物产等叠加开关不动),地图上闪烁高亮事发地
  * (事发地不在视野里时 App 把地图平移过去);编年史面板里这一条标成选中(战争自动展开,不在视野里就滚过去)。
  */
 export function pickChronicleEntry(e: ChronicleEntry) {
   setCivTime({ year: e.year, playing: false, scrubbing: false, story: false });
   const s = getCivShow();
   if ((e.kind === 'faith' && s.faiths) || (e.kind === 'era' && s.eras)) setCivShow({ polities: true });
-  else if (!(e.kind === 'era' && s.resources)) setCivShow({ polities: true, cultures: false, faiths: false, eras: false, resources: false });
+  else setCivShow({ polities: true, cultures: false, faiths: false, eras: false });
   setCivHighlight({ regions: e.regions, polities: e.polities, year: e.year });
   pick.set({ entry: e, stamp: pick.get().stamp + 1 });
 }
