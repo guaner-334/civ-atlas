@@ -3564,8 +3564,10 @@ export function planGlyphs(world: World, metric?: GlyphMetric): Plan {
   const mtnNear = (i: number) => {
     const gx = Math.floor(x[i] / cellSize);
     const gy = Math.floor(y[i] / cellSize);
+    // 高纬度同样的地面距离在图上横向更宽,多查几列
+    const rx = Math.min(gw >> 1, Math.ceil(mtnGap / Math.max(1e-3, Math.sin((y[i] / world.height) * Math.PI)) / cellSize));
     for (let yy = gy - 1; yy <= gy + 1; yy++)
-      for (let x0 = gx - 1; x0 <= gx + 1; x0++) {
+      for (let x0 = gx - rx; x0 <= gx + rx; x0++) {
         const xx = x0 < 0 ? x0 + gw : x0 >= gw ? x0 - gw : x0;
         const l = mtnGrid.get(yy * gw + xx);
         if (l) for (const j of l) if (geo.dist(i, j) < mtnGap) return true;
