@@ -236,7 +236,7 @@ import { PhoneSheet } from './PhoneSheet';
 import { useLayerThumbs } from './LayerPopover';
 import { WorldOverview } from './WorldOverview';
 import { hoverInfo, probeLines, type HoverInfo } from './hoverInfo';
-import { layerDark, layerDef, layerFromUrl, layerOf, type MapLayer, type Style } from './mapLayers';
+import { layerDark, layerDef, layerFromUrl, layerOf, layerShow, type MapLayer, type Style } from './mapLayers';
 import {
   TerrainOverlay,
   getTerrainTool,
@@ -318,14 +318,14 @@ function readUrl() {
 }
 
 /**
- * 换了图层:写进网址(layer= 新的图层名;去掉旧的 style=,civ= 里的国家 / 民族 / 信仰开关交给图层管),刷新、复制网址都还在
+ * 换了图层:写进网址(layer= 新的图层名;去掉旧的 style=,civ= 里的国家 / 民族 / 信仰 / 时代 / 物产开关交给图层管),刷新、复制网址都还在
  */
 function writeLayerUrl(id: MapLayer) {
   const q = new URLSearchParams(location.search);
   q.delete('style');
   const civ = q.get('civ');
   if (civ !== null) {
-    const rest = civ.split(/[,+ ]/).filter((k) => k && !/^-?(polities|cultures|faiths)$/.test(k));
+    const rest = civ.split(/[,+ ]/).filter((k) => k && !/^-?(polities|cultures|faiths|eras|resources)$/.test(k));
     if (rest.length) q.set('civ', rest.join(','));
     else q.delete('civ');
   }
@@ -507,7 +507,7 @@ function goneToast(title: string | undefined) {
 const STUDIO_LAYERS: MapLayer[] = STUDIO_STYLES.map((x) => x.id);
 
 /** 新建时列不出来的图层(要有历史):进新建时换成"地形",建好以后换回来 */
-const HISTORY_LAYERS: MapLayer[] = ['political', 'cultures', 'faith'];
+const HISTORY_LAYERS: MapLayer[] = ['political', 'cultures', 'faith', 'era', 'resources'];
 
 /**
  * 把世界写进网址:种子 + 参数(和默认值相同的省略,别人打开是同一颗星球);存着的加 w=编号,新建中还没存的加 new=1
@@ -629,7 +629,7 @@ export function App() {
     }
     if (ml) {
       const d = layerDef(ml);
-      setCivShow({ polities: d.polities, cultures: d.cultures, faiths: d.faiths });
+      setCivShow(layerShow(d));
     }
     return { style, layer };
   })[0];
@@ -776,7 +776,7 @@ export function App() {
     const d = layerDef(id);
     setStyle(d.style);
     if (d.data) setLayer(d.data);
-    setCivShow({ polities: d.polities, cultures: d.cultures, faiths: d.faiths });
+    setCivShow(layerShow(d));
     writeLayerUrl(id);
   }, []);
   /** 第一次打开的操作提示(第一次拖动 / 缩放 / 点击之后不再出现) */

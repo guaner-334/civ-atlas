@@ -92,7 +92,7 @@ export function CivTimeline({ civ, hidden, dock = 'bottom' }: CivTimelineProps) 
       setCivTime({ year: null, playing: false, story: false });
       return;
     }
-    if (t.story) setCivShow({ cultures: true, polities: true, faiths: false });
+    if (t.story) setCivShow({ cultures: true, polities: true, faiths: false, eras: false, resources: false });
     const fm = getFilm();
     const span = fm.mode === 'video' && civ ? filmRangeOf(civ) : null;
     const rate = t.story ? end / STORY_SECONDS : span ? filmClock(span, fm.seconds, fm.cards).rate : playRate(t.speed, end);

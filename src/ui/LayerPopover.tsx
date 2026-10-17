@@ -1,6 +1,7 @@
 /**
  * "图层与投影"按钮(宽屏是右上分段按钮的最后一段"更多图层",手机是右上竖排的图层图标),点开弹层:
  *   图层:六张缩略图(政区、民族、信仰、地形、生态、实景)+ 一行小字按钮(高程、板块、气温、降水、气候、洋流)
+ *         + 第二行小字按钮(时代、物产;要有历史,新建时不列)
  *         + 一行叠加开关(地名、宜居度、州、城址、道路;CivPanel.tsx 的 CivToggles)
  *         + 一行等值线(等高线 / 等温线 / 等降水线选一种,ContourRow;画在 ContourLayer.tsx);
  *         选中"民族"时下面是紧凑的民族色块列表(CultureLegend),选中"信仰"时是信仰的(FaithLegend)
@@ -174,7 +175,7 @@ export interface LayerPopoverProps {
 }
 
 /** 新建世界时列不出来的图层(要有历史) */
-const HISTORY_LAYERS: MapLayer[] = ['political', 'cultures', 'faith'];
+const HISTORY_LAYERS: MapLayer[] = ['political', 'cultures', 'faith', 'era', 'resources'];
 
 export function LayerPopover({ layer, civ = null, onLayer, thumbs, requestThumbs, disabled, trigger = 'icon', inSeg = true, draft = false }: LayerPopoverProps) {
   const [open, setOpen] = useState(false);
@@ -252,12 +253,21 @@ export function LayerPopover({ layer, civ = null, onLayer, thumbs, requestThumbs
             ))}
           </div>
           <div className="lp-minor" role="radiogroup" aria-label="数据图层">
-            {MAP_LAYERS.filter((l) => !l.main).map((l) => (
+            {MAP_LAYERS.filter((l) => !l.main && !l.dev).map((l) => (
               <button key={l.id} className={`lp-mini${layer === l.id ? ' on' : ''}`} role="radio" aria-checked={layer === l.id} data-layer={l.id} onClick={() => pick(l.id)}>
                 {l.name}
               </button>
             ))}
           </div>
+          {!draft && (
+            <div className="lp-minor lp-minor-dev" role="radiogroup" aria-label="发展图层">
+              {MAP_LAYERS.filter((l) => l.dev).map((l) => (
+                <button key={l.id} className={`lp-mini${layer === l.id ? ' on' : ''}`} role="radio" aria-checked={layer === l.id} data-layer={l.id} onClick={() => pick(l.id)}>
+                  {l.name}
+                </button>
+              ))}
+            </div>
+          )}
           {!draft && (
             <div className="lp-overlays">
               <CivToggles />

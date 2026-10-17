@@ -14,6 +14,7 @@
  * - 国土里藩属的颜色往宗主那边靠(vassals.ts),看得出是宗主的势力范围。
  * - 信仰图层:把信仰换进民族那一层(faith.ts 的 faithCiv),画法和民族色块一样,只是浓一点(手绘 PAINT_FAITH_*);
  *   选中一种信仰时别的信仰变淡(faithColors)。
+ * - 时代图层:同样把各州的时代换进民族那一层(era.ts 的 eraCiv),浓淡和信仰一样。
  * - 回放 / 拖时间轴时(fast)用半分辨率,静止时用全分辨率;刚归属的州用几十年渐入,看起来像颜料慢慢洇开。
  *
  * washPixels 是纯计算(不碰 DOM),stress 脚本在 Node 里给它计时。
@@ -32,6 +33,7 @@ import { coastBlocks, KEEP, landCover, nearestCellPixel, nearestSide, type Detai
 import { reprojectImage } from '../projection';
 import type { CivDrawParams, CivStyle } from './overlay';
 import { faithBase, faithCiv, faithColors } from './faith';
+import { eraBase, eraCiv, eraColors } from './era';
 import { vassalColors, vassalTies } from './vassals';
 
 /** 刚被占的州用多少年渐入 */
@@ -748,8 +750,8 @@ function cacheOf(p: CivDrawParams): Cache {
   let c = caches.get(civ);
   if (!c || c.raster !== raster) {
     const R = civ.regions.count;
-    // 信仰图层换出来的 Civ 和原来的州一样:像素 → 州(连同借来的像素)借原来那一份
-    const base = faithBase(civ);
+    // 信仰、时代图层换出来的 Civ 和原来的州一样:像素 → 州(连同借来的像素)借原来那一份
+    const base = faithBase(civ) ?? eraBase(civ);
     const from = base ? cacheOf({ world, raster, civ: base } as CivDrawParams) : null;
     const weak = from ? from.weak : new Uint8Array(raster.w * raster.h);
     c = {
@@ -797,9 +799,10 @@ export function fadeIn(civ: Civ, year: number, since: Float32Array, out: Float32
   return out;
 }
 
-/** 这一帧铺哪一层:信仰打开就铺信仰(换进民族那一层,见 faithParams),民族打开就铺民族(国家只画国界),只开国家就铺国土 */
+/** 这一帧铺哪一层:信仰 / 时代打开就铺信仰 / 时代(换进民族那一层,见 faithParams),民族打开就铺民族(国家只画国界),只开国家就铺国土 */
 export function washLayer(p: CivDrawParams): Layer | null {
   if (p.show.faiths && p.civ.religion?.faiths.length) return Layer.Culture;
+  if (p.show.eras && p.civ.development) return Layer.Culture;
   if (p.show.cultures && p.civ.cultures.length) return Layer.Culture;
   if (p.show.polities && p.civ.polities.length) return Layer.Polity;
   return null;
@@ -832,9 +835,11 @@ export interface WashFields {
   faith: boolean;
 }
 
-/** 信仰图层:换成把信仰换进民族那一层的参数(faithCiv);不是信仰图层 = null */
+/** 信仰 / 时代图层:换成把信仰 / 时代换进民族那一层的参数(faithCiv、eraCiv);都不是 = null */
 function faithParams(p: CivDrawParams): CivDrawParams | null {
-  if (!p.show.faiths || !p.civ.religion?.faiths.length || faithBase(p.civ)) return null;
+  if (faithBase(p.civ) || eraBase(p.civ)) return null;
+  if (p.show.eras && p.civ.development) return { ...p, civ: eraCiv(p.civ), show: { ...p.show, cultures: true, faiths: false, eras: false } };
+  if (!p.show.faiths || !p.civ.religion?.faiths.length) return null;
   return { ...p, civ: faithCiv(p.civ), show: { ...p.show, cultures: true, faiths: false } };
 }
 
@@ -869,7 +874,7 @@ export function washFields(p0: CivDrawParams, f: number): WashFields | null {
     dist: new Float32Array(0),
   });
   // 国土:藩属往宗主的颜色靠(vassals.ts)
-  const colors = fp ? faithColors(p0.civ, p0.faithFocus) : layer === Layer.Polity ? vassalColors(look.colors, vassalTies(civ, p.year)) : look.colors;
+  const colors = fp ? (eraBase(fp.civ) ? eraColors() : faithColors(p0.civ, p0.faithFocus)) : layer === Layer.Polity ? vassalColors(look.colors, vassalTies(civ, p.year)) : look.colors;
   const out: WashFields = { key, layer, f, label, W, H, edge, owner, fade, fading, colors, lines, polity: layer === Layer.Polity, pix: c.pix, faith: !!fp };
   c.fields.set(f, out);
   return out;

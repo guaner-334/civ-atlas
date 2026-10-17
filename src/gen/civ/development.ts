@@ -2,12 +2,12 @@
  * 发展度(generateCiv 的第 ⑧ 步):推演结束后,照已有的历史算各州的物产、五种能力和时代 —— 只算不改历史,
  * 国界、兴亡、战争、人物一个都不变(以后让能力反过来影响推演时,再挪进推演里)。纯计算,不碰 DOM。
  *
- * **物产**(每州一份,不随年份变):粮、牲畜(含马)、铜锡、铁、煤、木材、盐、渔获、石油、稀有矿,各 0–3 档(没有 / 少 / 中 / 多)。
+ * **物产**(每州一份,不随年份变):粮、牲畜(含马)、铜锡、铁、煤、木材、盐、渔获、石油、稀有矿、金银,各 0–3 档(没有 / 少 / 中 / 多)。
  *   从地形、群落、气候、板块算一个"有多少"的分,按全世界的排名分档:每样只有一部分州有(RESOURCE_SHARE),
  *   有的里面少、中、多大约各占一半、三成、两成。矿和煤另加一点按州的随机(同一片山里也有贫有富)。
  *   这是底子(储量);眼下能用多少按年份变(avail):
  *   - 发现:粮、牲畜、木材、盐、渔获有人住就知道;矿要本州的生产能力到了 DISCOVER_AT(比要它的那道时代门槛早一截)才发现。
- *   - 矿(铜锡、铁、煤、石油、稀有矿):技术越高采得越多(发现后约一个半时代采到足量);一档储量全力采 LIFE 年,剩最后三成时越采越少,直到采空。
+ *   - 矿(铜锡、铁、煤、石油、稀有矿、金银):技术越高采得越多(发现后约一个半时代采到足量);一档储量全力采 LIFE 年,剩最后三成时越采越少,直到采空。
  *   - 林、渔、田、牧:人多、开发久的地方慢慢吃空(捕鱼到火药以后才吃得空),人少了每年长回缺口的 REGROW;盐不变。
  *   生产、运输的动力和卡脖子的物产都按眼下能用的算(采空了也会卡住)。
  *
@@ -45,7 +45,7 @@ import { capitalAt, populationAt, regionCityAt, regionPopulationAt } from './gro
 import { keyed, subSeed } from './rand';
 
 /** 物产(下标就是 Development.resources 里的第几样) */
-export const RESOURCES = ['粮', '牲畜', '铜锡', '铁', '煤', '木材', '盐', '渔获', '石油', '稀有矿'] as const;
+export const RESOURCES = ['粮', '牲畜', '铜锡', '铁', '煤', '木材', '盐', '渔获', '石油', '稀有矿', '金银'] as const;
 export const enum Res {
   Grain = 0,
   Livestock = 1,
@@ -57,16 +57,17 @@ export const enum Res {
   Fish = 7,
   Oil = 8,
   Rare = 9,
+  Gold = 10,
 }
-export const RESOURCE_COUNT = 10;
+export const RESOURCE_COUNT = 11;
 /** 每样物产有的州占全部有人能住的州的比例 */
-const RESOURCE_SHARE: readonly number[] = [0.7, 0.5, 0.22, 0.4, 0.2, 0.55, 0.3, 0.45, 0.15, 0.12];
-/** 生产能力到这么多时发现这样物产(粮、牲畜、木材、盐、渔获有人住就知道;矿都比要它的那道门槛早一截) */
-const DISCOVER_AT: readonly number[] = [0, 0, 0.6, 1.5, 4.5, 0, 0, 0, 5.5, 6.5];
+const RESOURCE_SHARE: readonly number[] = [0.7, 0.5, 0.22, 0.4, 0.2, 0.55, 0.3, 0.45, 0.15, 0.12, 0.12];
+/** 生产能力到这么多时发现这样物产(粮、牲畜、木材、盐、渔获有人住就知道;矿都比要它的那道门槛早一截;金银不卡时代,石器时代后段就认得) */
+const DISCOVER_AT: readonly number[] = [0, 0, 0.6, 1.5, 4.5, 0, 0, 0, 5.5, 6.5, 0.4];
 /** 矿:一档储量全力开采能采几年 */
-const LIFE: readonly number[] = [0, 0, 2500, 3000, 1200, 0, 0, 0, 400, 800];
+const LIFE: readonly number[] = [0, 0, 2500, 3000, 1200, 0, 0, 0, 400, 800, 800];
 /** 林、渔、田、牧:吃空的快慢、每年长回缺口的几成 */
-const DEPLETE: readonly number[] = [0.0015, 0.003, 0, 0, 0, 0.004, 0, 0.004, 0, 0];
+const DEPLETE: readonly number[] = [0.0015, 0.003, 0, 0, 0, 0.004, 0, 0.004, 0, 0, 0];
 const REGROW = 0.003;
 /** 眼下能用多少存成 0–3 档 × 这个数 */
 export const AVAIL_SCALE = 80;
@@ -583,6 +584,7 @@ export function computeResources(world: World, civ: Pick<Civ, 'regions' | 'habit
     let fish = 0;
     let oil = 0;
     let rare = 0;
+    let gold = 0;
     let suit = 0;
     for (let k = a; k < b; k++) {
       const i = cells[k];
@@ -610,6 +612,8 @@ export function computeResources(world: World, civ: Pick<Civ, 'regions' | 'habit
       if (h < 600) oil += OIL[bi] + (coast ? 0.4 : 0);
       // 稀有矿:板块剧烈碰撞带(火山弧)、张裂带
       rare += conv > 0.3 ? Math.min(1, conv) : conv < -0.3 ? 0.7 * Math.min(1, -conv) : 0;
+      // 金银:碰撞带、高山里的矿脉,加上山区大河里淘得到的沙金
+      gold += (conv > 0.2 ? Math.min(1, conv) : 0) + (h > 1200 ? 0.4 : 0) + (h > 300 && flux[i] >= major ? 0.5 : 0);
       // 渔获:海岸(冷水更多)、湖岸、大河
       if (coast) fish += temperature[i] < 12 ? 1.4 : 1;
       if (flux[i] >= major) fish += 0.5;
@@ -637,6 +641,8 @@ export function computeResources(world: World, civ: Pick<Civ, 'regions' | 'habit
     // 油田、稀有矿比煤还更成片:一大半地方即使地形对也没有
     score[Res.Oil][r] = (oil / m) * luck(Res.Oil) * (0.15 + keyed(seed, key, 101));
     score[Res.Rare][r] = (rare / m) * luck(Res.Rare) * (0.15 + keyed(seed, key, 102));
+    // 金银也成片:同样的山,有的出金银、有的没有
+    score[Res.Gold][r] = (gold / m) * luck(Res.Gold) * (0.15 + keyed(seed, key, 103));
   }
   const out = new Uint8Array(R * RESOURCE_COUNT);
   const ids: number[] = [];
