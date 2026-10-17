@@ -12,7 +12,8 @@
  *       强国的边远处照样可能打不过近处的小国 —— 被夺去的州过些年又被夺回来,前线有来有回
  *     同一对国家议和后 TRUCE 年内不再开战;对方已经同时在打 MAX_WARS 场仗的不去凑;
  *     分裂 / 复国出来的国家(politics.ts)立国 NEWBORN 年内没人对它宣战(站稳期)。
- *     国力 = 本国城镇人口之和(growth.ts 的 populationAt 现算)。
+ *     国力 = 本国城镇人口之和(growth.ts 的 populationAt 现算;城的人口上限随生产能力变)× 军力系数(PolityModel.military,
+ *     发展度按国都所在州的动员能力定,有上下限)。
  *   宣战 → 每隔 GAP 年打一仗(Ev.Campaign):
  *     攻方挑一个**和自己国土接壤**的敌州打(国土保持成片):被自己围得越多的州越先打(前线齐整,不打出飞地),
  *       其次是离敌国国都近的(直取国都)、好走的(翻山、跨河难打);打下来会把敌国切出一大块(> MAX_CUT 州)的先不打。
@@ -264,7 +265,7 @@ export function installWars(sim: CivSim, pm: PolityModel, wm: WarModel = newMode
   });
 
   /**
-   * 这几国此刻的国力(城镇人口之和,按州号顺序加,千人;至少 1)。只算要用的几国(别的国家留 0),
+   * 这几国此刻的国力(城镇人口之和,按州号顺序加,千人;至少 1;再乘军力系数)。只算要用的几国(别的国家留 0),
    * 只扫它们自己的国土(pm.lands):国家多了以后每次都把全世界的城算一遍太慢
    */
   const popAt = populationAt; // 热循环里用本地引用(tsx 下每次读导入的函数都要过一层 getter)
@@ -277,7 +278,8 @@ export function installWars(sim: CivSim, pm: PolityModel, wm: WarModel = newMode
         const c = pm.cityOf[r];
         if (c >= 0) sum += popAt(pm.settlements[c], t);
       }
-      pow[p] = Math.max(1, sum);
+      // 军力系数(发展度按国都所在州的动员能力定,见 development.ts;没有 = 1)
+      pow[p] = Math.max(1, sum) * (pm.military?.[p] ?? 1);
     }
     return pow;
   };

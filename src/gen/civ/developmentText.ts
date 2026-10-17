@@ -1,6 +1,8 @@
 /**
  * 发展度的大事写进编年史(kind = 'era',标签"代",界面上叫"时代"):
- * - 世上第一次有州进入某时代:大事(重要度 3),"米里多尔共和国伊洛里恩始入火药时代,为天下之先"。
+ * - 世上第一次有州进入某时代:大事(重要度 3),"米里多尔共和国执政官某某时,伊洛里恩始入火药时代,为天下之先"(有国家、当时有君主的写上君主)。
+ * - 世上第一次有发明(文字、马镫、印刷术……,见 development.ts 的 INVENTIONS):写法同上,"始创印刷术";要紧的几样是大事,别的重要度 2;
+ *   同一处同一年的几样并成一句("始创文字、车轮")。
  * - 各国国都进入新时代(重要度 2)、储量多的州发现大矿、物产采空 / 吃空(重要度 1):只在"全部"里;
  *   发现、采空一国(没有国家的按民族)每样只记头一回;同一国同一年的几件并成一句:"内里尼亚王国始入中古时代,特罗纳发现大铁矿"。
  * 国名用事发当年的国号,地方先写城名、没有城写州名;没有国家的写"某某人"。
@@ -8,7 +10,9 @@
 import type { Civ, DevEvent, Year } from './types';
 import { polityName } from './growth';
 import { regionLabel } from './display';
-import { ERAS } from './development';
+import { ERAS, INVENTIONS } from './development';
+import { rulerAt } from './peopleInfo';
+import { rulerBare } from './peopleText';
 import type { ChronicleEntry, Importance } from './chronicle';
 
 /** 一字标签(界面上的类型名见 timelineLayout.ts 的 TAG_LABEL) */
@@ -69,20 +73,41 @@ export function developmentEntries(civ: Civ): ChronicleEntry[] {
       regions: e.region >= 0 ? [e.region] : [],
       settlement: e.settlement,
     });
+    /** 世上第一次:"某国某君时,某城……,为天下之先"(没有国家、当时没有君主的:"某国某城……") */
+    const first = (e: DevEvent, i: number, what: string, importance: Importance) => {
+      const ruler = e.polity >= 0 && civ.people?.length ? rulerAt(civ, e.polity, e.year) : null;
+      const head = ruler ? `${who(civ, e)}${rulerBare(civ, ruler, e.year)}时,${place(civ, e)}` : `${who(civ, e)}${place(civ, e)}`;
+      const entry = base(e, i, `${head}${what},为天下之先`, importance);
+      if (ruler) entry.people = [ruler.id];
+      out.push(entry);
+    };
     // 世上第一次:那一国同一年国都也进了这个时代的,不再另记
     const firsts = new Set<string>();
     dev.events.forEach((e, i) => {
       if (e.kind !== 'first') return;
       firsts.add(`${e.polity}:${Math.floor(e.year)}:${e.era}`);
-      out.push(base(e, i, `${who(civ, e)}${place(civ, e)}始入${ERAS[e.era]}时代,为天下之先`, 3));
+      first(e, i, `始入${ERAS[e.era]}时代`, 3);
     });
+    // 发明:同一处同一年的并成一句
+    const inventions = new Map<string, { i: number; e: DevEvent; list: number[] }>();
+    dev.events.forEach((e, i) => {
+      if (e.kind !== 'invent' || e.invention === undefined || !INVENTIONS[e.invention]) return;
+      const key = `${e.region}:${Math.floor(e.year)}`;
+      const g = inventions.get(key);
+      if (g) g.list.push(e.invention);
+      else inventions.set(key, { i, e, list: [e.invention] });
+    });
+    for (const g of inventions.values()) {
+      const major = g.list.some((k) => INVENTIONS[k].major);
+      first(g.e, g.i, `始创${g.list.map((k) => INVENTIONS[k].name).join('、')}`, major ? 3 : 2);
+    }
     // 各国的:同一国同一年的并成一条(先进时代,再发现,再采空;一步跨几个时代的写"始入青铜、铁器时代")
     const groups = new Map<string, { i: number; list: DevEvent[] }>();
     const order: { i: number; list: DevEvent[] }[] = [];
     // 发现、采空:一国(没有国家的按民族)每样只记头一回,免得金银矿一年年刷屏
     const seen = new Set<string>();
     dev.events.forEach((e, i) => {
-      if (e.kind === 'first') return;
+      if (e.kind === 'first' || e.kind === 'invent') return;
       if (e.kind === 'enter' && firsts.has(`${e.polity}:${Math.floor(e.year)}:${e.era}`)) return;
       if (e.kind !== 'enter') {
         const once = `${e.kind}:${e.polity >= 0 ? e.polity : `c${e.culture}`}:${e.resource}`;
@@ -98,7 +123,7 @@ export function developmentEntries(civ: Civ): ChronicleEntry[] {
       }
       g.list.push(e);
     });
-    const rank = { enter: 0, discover: 1, deplete: 2, first: 0 } as const;
+    const rank = { enter: 0, discover: 1, deplete: 2, first: 0, invent: 0 } as const;
     for (const g of order) {
       const list = g.list.slice().sort((a, b) => rank[a.kind] - rank[b.kind]);
       const head = list[0];

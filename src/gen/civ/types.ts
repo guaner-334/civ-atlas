@@ -161,6 +161,12 @@ export interface Settlement {
    * 按年份取值见 growth.ts 的 capacityAt / portAt
    */
   reshaped?: { year: Year; capacity: number; port: boolean }[];
+  /**
+   * 人口上限随所在州的生产能力变的倍数(development.ts 推演里每 20 年看一次,变了才记):扁平的 [年份, 倍数, 年份, 倍数, …],年份递增。
+   * 建城那一刻记第一对;之后每一对从那一刻起 20 年里从上一个倍数线性变到这个倍数。按年份取值见 growth.ts 的 devFactorAt。
+   * 没有发展度的历史(没有 = 不给)倍数一律是 1
+   */
+  devCap?: number[];
 }
 
 /** 国家 */
@@ -187,6 +193,11 @@ export interface Polity {
    * 某一年的国都用 growth.ts 的 capitalAt(p, 年份) 查,别直接读 capital(capital 只是立国时的国都)
    */
   capitals?: { year: Year; settlement: number }[];
+  /**
+   * 普通国家从哪一刻起能走远洋(海峡、航线):国都所在州的运输能力够了的那一刻(development.ts 推演里每 20 年看一次);
+   * 从能远洋的国家分出去、复国的,立国那一刻。海洋国家从来就能,不给;还不能的不给。见 polities.ts 的 sailsOcean
+   */
+  sail?: Year;
   /**
    * 阶段 3 分合(politics.ts):从哪国分出来的(分裂 / 独立、复国时起兵反抗的那一国)。
    * 分出来的国家没有"立国"史事,只有一条 split(a = 本国,b = parent);立国就不给
@@ -434,7 +445,7 @@ export interface Civ {
    * CivSim.fromCiv 接着推时要用
    */
   polityYears?: number;
-  /** 航海时代从哪一刻起(polities.ts 的 ageOfSailYear、sailsOcean;接着推时沿用) */
+  /** 全世界统一的航海时代从哪一刻起(旧版本的历史;现在各国自己进,见 Polity.sail,这里是 Infinity。polities.ts 的 sailsOcean;接着推时沿用) */
   sailFrom?: Year;
   /** 拓荒设定(CivParams.frontier,清理过的;默认 = 不写)。CivSim.fromCiv 接着推时要用 */
   frontier?: import('./frontier').Frontier;
@@ -589,9 +600,10 @@ export interface Religion {
 
 /** 发展度(development.ts) */
 export interface Development {
-  /** 各州物产的底子(储量):州 × RESOURCE_COUNT 样(见 development.ts 的 RESOURCES),0 没有 / 1 少 / 2 中 / 3 多;开局按地形定,不变 */
+  /** 各州物产的底子(储量):州 × RESOURCE_COUNT 样(见 development.ts 的 RESOURCES),0 没有 / 1 少 / 2 中 / 3 多;开局按地形定,不变
+   * (有地形大事的:最后一件大事以后的地形重新分的档;大事以前的 avail 按当时的档,可能比这里多) */
   resources: Uint8Array;
-  /** 各州物产哪一年被发现(州 × RESOURCE_COUNT;没有储量或一直没发现 = Infinity) */
+  /** 各州物产哪一年被发现(州 × RESOURCE_COUNT;一直没发现 = Infinity;地形大事后没有了的留着以前发现的年份) */
   found: Float64Array;
   /** 各州物产眼下能用多少:每份 = 州 × RESOURCE_COUNT 样,存的是 0–3 档 × AVAIL_SCALE(没发现 = 0);和 snapYears 一一对应 */
   avail: Uint8Array[];
@@ -601,17 +613,53 @@ export interface Development {
   snapYears: Year[];
   /** 按年份排好 */
   events: DevEvent[];
+  /**
+   * 推演到结束那一刻的内部状态(全精度),接着推(CivSim.fromCiv)时从这里接着算;界面不用。
+   * 最后一份快照不在整百年上时(结束年份不是整百年)它是补的,接着推时去掉(见 tail)
+   */
+  state?: DevState;
+}
+
+/** 发展度推演的内部状态(development.ts;字段含义见那里的 DevModel) */
+export interface DevState {
+  /** 上一步算到哪一年 */
+  last: Year;
+  /** 史事读到第几条 */
+  annals: number;
+  /** 快照里最后一份是补的(结束那年不在整百年上) */
+  tail: boolean;
+  cur: Float64Array;
+  best: Float64Array;
+  war: Float64Array;
+  era: Float64Array;
+  flags: Uint8Array;
+  pop: Float64Array;
+  city: Float64Array;
+  road: Uint8Array;
+  stock: Float64Array;
+  availNow: Float64Array;
+  depleted: Uint8Array;
+  /** 旧版本存的没有(当作一直有) */
+  resFrom?: Float64Array;
+  polityEra: number[];
+  worldEra: number;
+  invented: Uint8Array;
+  /** 各国的军力系数(PolityModel.military) */
+  military: number[];
 }
 
 /**
  * 发展度的大事:first = 世界上第一次有州进入这个时代;enter = 这个国家的国都所在的州第一次进入这个时代(立国时已在的不记);
- * discover = 储量多的州第一次发现这样矿;deplete = 储量多的州这样物产采空(矿:能用的跌到两成以下)、吃空(林、渔、田、牧:跌到四成以下)。
+ * discover = 储量多的州第一次发现这样矿;deplete = 储量多的州这样物产采空(矿:能用的跌到两成以下)、吃空(林、渔、田、牧:跌到四成以下);
+ * invent = 世界上第一次有州的某样能力到了某样发明那一档(文字、冶铁、印刷……)。
  * era = 那一刻那州在第几个时代(见 development.ts 的 ERAS);culture、polity、settlement = 那一刻那州的民族、国家、城(−1 = 没有)
  */
 export interface DevEvent {
   year: Year;
-  kind: 'first' | 'enter' | 'discover' | 'deplete';
+  kind: 'first' | 'enter' | 'discover' | 'deplete' | 'invent';
   era: number;
+  /** invent:哪样发明(见 development.ts 的 INVENTIONS) */
+  invention?: number;
   /** discover / deplete:哪样物产(见 development.ts 的 RESOURCES) */
   resource?: number;
   region: number;

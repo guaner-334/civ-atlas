@@ -220,18 +220,19 @@ describe('邦交和作者下令', () => {
     type Try = { w: World; civ: Civ; a: number; b: number; from: number };
     const at = (seed: number) => ({ w: world(small(seed)), civ: civOf(small(seed)) });
     // 每种情形挑几对当时还结着的,下令开战;两国不接壤的打不成,换下一对
-    // (种子 2024 小世界)
-    const tries = (kind: 'alliance' | 'submit'): Try[] => {
-      const { w, civ } = at(2024);
-      return civ.annals
-        .filter((e) => e.kind === kind)
-        .map((e) => ({ w, civ, a: e.a, b: e.b, from: Math.ceil(e.year) + 1 }))
-        .filter((x) => {
-          const r = relationsAt(civ, x.from);
-          return kind === 'alliance' ? r.pacts.some((q) => (q.a === x.a && q.b === x.b) || (q.a === x.b && q.b === x.a)) : r.liege.get(x.a)?.liege === x.b;
-        })
-        .slice(0, 8);
-    };
+    // (依次在几个种子的小世界里找)
+    const tries = (kind: 'alliance' | 'submit'): Try[] =>
+      [2024, 9, 5].flatMap((seed) => {
+        const { w, civ } = at(seed);
+        return civ.annals
+          .filter((e) => e.kind === kind)
+          .map((e) => ({ w, civ, a: e.a, b: e.b, from: Math.ceil(e.year) + 1 }))
+          .filter((x) => {
+            const r = relationsAt(civ, x.from);
+            return kind === 'alliance' ? r.pacts.some((q) => (q.a === x.a && q.b === x.b) || (q.a === x.b && q.b === x.a)) : r.liege.get(x.a)?.liege === x.b;
+          })
+          .slice(0, 8);
+      });
     // 同一个宗主的两个藩属(称臣那一年之后,和别的藩属配对;依次在几个种子的小世界里找)
     const coVassals = (): Try[] =>
       [9, 2024, 3, 5].flatMap((seed) => {

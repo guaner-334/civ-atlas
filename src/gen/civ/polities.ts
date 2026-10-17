@@ -40,7 +40,7 @@ import { WORTH_EXP } from './frontier';
 import { quantize, Ev, type CivSim } from './sim';
 import { KIND_INFO } from './display';
 import { REF_YEAR, cultureModelOf, cultureNeighbors, cultureTerrain, type CultureModel, type CultureTerrain } from './cultures';
-import { RESHAPE_RAMP, SETTLEMENT_RANKS, capacityAt, capitalAt, populationAt, portAt, portSince, tierOf, yearReaching } from './growth';
+import { RESHAPE_RAMP, SETTLEMENT_RANKS, capacityAt, capitalAt, populationAt, portAt, portSince, tierOf, yearReaching, yearReachingDev } from './growth';
 import { namePolities, nameSettlements, type RestoreDirection } from './naming';
 import type { RouteCity } from './routes';
 import type { InterventionModel } from './interventions';
@@ -184,6 +184,12 @@ export interface PolityModel {
   sailFrom: Year;
   /** 阶段 4 干预(interventions.ts 挂上;没有干预 = 不给):"不许扩张"在"国家到达"时查 */
   iv?: InterventionModel;
+  /**
+   * 发展度(development.ts)挂上:各州城的人口上限此刻随生产能力变的倍数(新建的城从它记起,见 Settlement.devCap)、
+   * 各国此刻的军力系数(按国家号;打仗的国力乘它,见 wars.ts)。没有发展度 = 不给(倍数、系数都是 1)
+   */
+  capFactor?: Float64Array;
+  military?: number[];
   /** 君主在位表(rulers.ts)的随机数根、各国的位置锚(和 people.ts 一样按国都的城所在地块数,见 rulerTags) */
   rbase: number;
   rtag: number[];
@@ -516,12 +522,12 @@ export function dynastyReign(sim: CivSim, m: PolityModel, pid: number, t: Year):
 }
 
 /**
- * 国家 p 在 t 这一刻能不能走远洋(海峡、航线):海洋国家从来就能,普通国家从航海时代(m.sailFrom)起能。
- * 推演里"某国此刻能不能出海"只在这里判断(扩张、离国都的路程、国土连不连成一片、打仗、邦交都经它);
- * 以后要改成按各国自己的能力(航海技术、港口……)判断,只改这一处 —— 离国都的路程表也按它分档(voyageOf)
+ * 国家 p 在 t 这一刻能不能走远洋(海峡、航线):海洋国家从来就能,普通国家从国都的运输能力够了的那一刻(Polity.sail,
+ * development.ts 每 20 年看一次)起能。旧版本的历史全世界同一年进航海时代(m.sailFrom / Civ.sailFrom;现在推出来的是 Infinity)。
+ * 推演里"某国此刻能不能出海"只在这里判断(扩张、离国都的路程、国土连不连成一片、打仗、邦交都经它);离国都的路程表也按它分档(voyageOf)
  */
 export function sailsOcean(at: SailClock, p: Polity, t: Year): boolean {
-  return p.kind === 'sea' || t >= (at.sailFrom ?? Infinity);
+  return p.kind === 'sea' || t >= (p.sail ?? Infinity) || t >= (at.sailFrom ?? Infinity);
 }
 
 /** 航海时代从哪一刻起:推演模型(PolityModel)或推演结果(Civ)都带着 */
@@ -536,8 +542,8 @@ export function ageOfSailYear(pace: number): Year {
 }
 
 /** 离国都的路程表按哪一档算(capitalDistance):0 = 不渡海,1 = 海洋国家,2 = 航海时代的普通国家 */
-function voyageOf(m: PolityModel, kind: Polity['kind'], t: Year): Voyage {
-  return kind === 'sea' ? 1 : t >= m.sailFrom ? 2 : 0;
+function voyageOf(m: PolityModel, p: Pick<Polity, 'kind' | 'sail'>, t: Year): Voyage {
+  return p.kind === 'sea' ? 1 : t >= m.sailFrom || t >= (p.sail ?? Infinity) ? 2 : 0;
 }
 
 /** 国家 p 在 t 这一刻能不能走邻接边 k(海峡、航线见 sailsOcean) */
@@ -773,7 +779,8 @@ export interface PolityPlanParams {
 export function planPolities(world: World, cm: CultureModel, p: PolityPlanParams): PolityModel {
   const T = cm.terrain;
   const expand = p.expand ?? 1;
-  return emptyModel(T, cm.cultures, world.params.seed, findPorts(world, T), capitalSpacing(T, p.polities), STEP_YEARS / Math.max(1e-3, p.pace * expand), ageOfSailYear(p.pace), p.capNorm, expand);
+  // 远洋看各国自己的运输能力(Polity.sail),没有全世界统一的航海时代
+  return emptyModel(T, cm.cultures, world.params.seed, findPorts(world, T), capitalSpacing(T, p.polities), STEP_YEARS / Math.max(1e-3, p.pace * expand), Infinity, p.capNorm, expand);
 }
 
 // ---------------------------------------------------------------------------
@@ -901,6 +908,19 @@ export function installPolities(sim: CivSim, m: PolityModel): void {
   if (m.sailFrom > sim.now) sim.schedule(m.sailFrom, Ev.AgeOfSail, 0, 0);
 }
 
+/**
+ * 普通国家 pid 从这一刻起能走远洋(国都的运输能力够了;development.ts 的发展度那一刻调用):记进 Polity.sail,
+ * 换成能渡海的路程表,从现有国土往外重新预约一遍(和航海时代一样;resumePolities 按 Polity.sail 在同一刻重放)
+ */
+export function grantSail(sim: CivSim, m: PolityModel, pid: number): void {
+  const p = m.polities[pid];
+  if (p.kind === 'sea' || p.ended !== undefined || p.sail !== undefined) return;
+  p.sail = sim.now;
+  if (sim.now >= m.sailFrom) return; // 旧版本的历史:全世界已经进了航海时代
+  m.capDist[pid] = capitalDistance(m.terrain, m.settlements[capitalAt(p, Infinity)].region, 2, m.port);
+  respread(sim, m, pid);
+}
+
 /** 国家 pid 刚拿下州 r:给 r 的邻州里有人住、还没有国家的预约"国家到达" */
 function spreadFrom(sim: CivSim, m: PolityModel, r: number, pid: number, t: number, prev?: LeaningEffect) {
   const reg = m.terrain.regions;
@@ -943,6 +963,8 @@ export function foundCity(sim: CivSim, m: PolityModel, r: number, t: Year, rebui
     port: m.port[r] === 1,
   };
   if (rebuild) s.rebuilds = rebuild.of;
+  // 人口上限随生产能力变的倍数:从建城那一刻的(development.ts 每 20 年更新)记起
+  if (m.capFactor) s.devCap = [t, m.capFactor[r]];
   m.settlements.push(s);
   m.stag.push(nextTag(m.sAt, s.cell));
   m.cityOf[r] = id;
@@ -997,7 +1019,7 @@ export function moveCapital(m: PolityModel, pid: number, sid: number, t: Year): 
     capitalLost.get(m)?.(old, pid, t);
   }
   m.capDistPrev[pid] = m.capDist[pid];
-  m.capDist[pid] = capitalDistance(m.terrain, s.region, voyageOf(m, p.kind, t), m.port);
+  m.capDist[pid] = capitalDistance(m.terrain, s.region, voyageOf(m, p, t), m.port);
   m.capMoved[pid] = t;
   // 迁都那一刻的预约还按旧国都算(见 distFor),下一刻起按新的
   simOf.get(m)?.schedule(t + 1 / 256, Ev.Respread, 0, pid);
@@ -1045,7 +1067,7 @@ export function addPolity(m: PolityModel, sid: number, cu: number, t: Year, extr
   m.size.push(0);
   m.lands.push([]);
   m.tier.push(-1);
-  m.capDist.push(capitalDistance(m.terrain, r, voyageOf(m, kind, t), m.port));
+  m.capDist.push(capitalDistance(m.terrain, r, voyageOf(m, { kind, sail: p.sail }, t), m.port));
   m.capDistPrev.push(null);
   m.capMoved.push(-Infinity);
   m.met.push(new Set());
@@ -1076,6 +1098,7 @@ export function resumePolities(sim: CivSim, world: World, civ: Civ, iv?: Interve
     const c = { ...s };
     if (s.capitalSpans) c.capitalSpans = s.capitalSpans.map((x) => ({ ...x }));
     if (s.sacks) c.sacks = s.sacks.map((x) => ({ ...x }));
+    if (s.devCap) c.devCap = s.devCap.slice();
     return c;
   });
   m.polities = civ.polities.map((p) => ({
@@ -1099,7 +1122,7 @@ export function resumePolities(sim: CivSim, world: World, civ: Civ, iv?: Interve
   // t = 用这张表的时刻(渡海的一档按它定,见 voyageOf)
   const distOf = (p: Polity, sid: number, t: Year) => {
     const r = m.settlements[sid].region;
-    const sea = voyageOf(m, p.kind, t);
+    const sea = voyageOf(m, p, t);
     const key = r * 3 + sea;
     let d = distCache.get(key);
     if (!d) distCache.set(key, (d = capitalDistance(T, r, sea, m.port)));
@@ -1204,6 +1227,9 @@ export function resumePolities(sim: CivSim, world: World, civ: Civ, iv?: Interve
     for (let i = 1; i < caps.length; i++) if (caps[i].year + 1 / 256 <= until) ends.push({ t: caps[i].year + 1 / 256, pid: p.id });
     // 航海时代那一刻在世的普通国家(见 Ev.AgeOfSail;同一刻灭亡的,灭亡排在它后面)
     if (p.kind !== 'sea' && p.founded < m.sailFrom && m.sailFrom <= now && !((p.ended ?? Infinity) < m.sailFrom)) ends.push({ t: m.sailFrom, pid: p.id });
+    // 这国自己能远洋的那一刻(发展度那一刻,见 grantSail;那时它一定还在)。立国就带着的(分裂时从母国带来)在同一刻立国的日志之前重放,
+    // 那时它还没有州,什么也不做 —— 和推演里一样(立国时离国都的路程表已经按能远洋算,见 addPolity)
+    if (p.sail !== undefined && p.sail <= now && p.sail < m.sailFrom) ends.push({ t: p.sail, pid: p.id });
   }
   ends.sort((a, b) => a.t - b.t);
   let ei = 0;
@@ -1424,13 +1450,13 @@ export function routeCities(settlements: Settlement[], polities: Polity[], endYe
     if (capitalFrom.has(s.id) || harbor === s.founded) return s.founded;
     let y: Year;
     if (s.ended === undefined) {
-      if (populationAt(s, endYear) >= town) y = Math.max(s.founded, yearReaching(s, town));
+      if (populationAt(s, endYear) >= town) y = Math.max(s.founded, yearReachingDev(s, town, endYear));
       else if (s.reshaped?.some((e) => e.year <= endYear && populationAt(s, e.year - 1 / 256) >= town)) {
         // 地形大事降了上限、到结束时已经不是镇的:降之前确实是镇(算上洗劫)的,长成镇那年修起来的路照样在(路只随城被毁荒废)
-        y = Math.max(s.founded, yearReaching(s, town));
+        y = Math.max(s.founded, yearReachingDev(s, town, endYear));
       } else y = Infinity;
     } else {
-      y = Math.max(s.founded, yearReaching(s, town));
+      y = Math.max(s.founded, yearReachingDev(s, town, s.ended));
       if (!(y < s.ended)) y = Infinity;
     }
     return Math.min(y, harbor);
