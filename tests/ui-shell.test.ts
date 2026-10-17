@@ -3,7 +3,7 @@
  * 宽屏左边侧栏卡片的收起 / 展开;地图飞回整张图时的进度。
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { MAP_LAYERS, layerDark, layerDef, layerFromUrl, layerOf } from '../src/ui/mapLayers';
+import { MAP_LAYERS, layerDark, layerDef, layerFromUrl, layerOf, layerShow } from '../src/ui/mapLayers';
 import { _resetToasts, clearToast, getToast, peekToast, showToast } from '../src/ui/toastStore';
 import { closeOverview, getOverview, openOverview } from '../src/ui/overviewStore';
 import { clearSelection, getChronicle, getSelection, setChronicle, setSelection } from '../src/ui/civView';
@@ -13,7 +13,7 @@ import { FLY_MS, animProgress, easeOutCubic, flatFly, sideRoom } from '../src/ui
 describe('图层换算', () => {
   it('每个图层换成设置再换回来还是它自己', () => {
     for (const l of MAP_LAYERS) {
-      expect(layerOf(l.style, l.data ?? 'biomes', { polities: l.polities, cultures: l.cultures, faiths: l.faiths })).toBe(l.id);
+      expect(layerOf(l.style, l.data ?? 'biomes', layerShow(l))).toBe(l.id);
     }
   });
   it('旧的组合也认得出:写实 + 国家算实景;手绘 + 国家 + 民族算政区;没有数据图层名的算生态;信仰开着(手绘)算信仰', () => {
@@ -23,6 +23,14 @@ describe('图层换算', () => {
     expect(layerOf('fantasy', 'biomes', { polities: true, cultures: true })).toBe('political');
     expect(layerOf('fantasy', 'biomes', { polities: false, cultures: false })).toBe('terrain');
     expect(layerOf('data', 'temperature', { polities: true, cultures: false })).toBe('temperature');
+  });
+  it('时代、物产是第二行小字按钮:时代留国界(开着国家),物产不叠国家;网址 layer=era / layer=resources', () => {
+    expect(MAP_LAYERS.filter((l) => l.dev).map((l) => l.id)).toEqual(['era', 'resources']);
+    expect(layerShow(layerDef('era'))).toEqual({ polities: true, cultures: false, faiths: false, eras: true, resources: false });
+    expect(layerShow(layerDef('resources'))).toEqual({ polities: false, cultures: false, faiths: false, eras: false, resources: true });
+    expect(layerOf('fantasy', 'biomes', { polities: true, cultures: false, eras: true })).toBe('era');
+    expect(layerFromUrl(new URLSearchParams('seed=7&layer=era'))).toBe('era');
+    expect(layerFromUrl(new URLSearchParams('seed=7&layer=resources'))).toBe('resources');
   });
   it('深色主题:实景、高程、降水;六张缩略图是政区、民族、信仰、地形、生态、实景', () => {
     expect(MAP_LAYERS.filter((l) => layerDark(l.id)).map((l) => l.id)).toEqual(['realistic', 'elevation', 'precipitation']);

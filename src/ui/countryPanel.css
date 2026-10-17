@@ -1478,3 +1478,27 @@
 .cp-year .era-pre svg {
   color: var(--ink-2);
 }
+/* 概况「时代」:九格小梯子 + "中古时代 53%"(按国都所在的州) */
+.cp-era {
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 8px;
+}
+.cp-ladder {
+  display: flex;
+  gap: 2px;
+}
+.cp-ladder i {
+  position: relative;
+  width: 7px;
+  height: 12px;
+  border-radius: 1.5px;
+  background: var(--line);
+  overflow: hidden;
+}
+.cp-ladder b {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 100%;
+}

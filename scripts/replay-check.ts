@@ -3048,6 +3048,8 @@ for (const style of ['realistic', 'fantasy']) {
     if (await page.locator('.timebar .tb-play.on').count()) await page.click('.timebar .tb-play');
     await page.waitForTimeout(300);
     regionAfter = (await page.locator('.inspector .ins-status').innerText().catch(() => '')).replace(/\n/g, ' ');
+    // 重推完时间轴从立国那年接着放:先停下,免得放到后面这州又被邻国吞了(下面还要在地图上点它)
+    if (await page.locator('.timebar .tb-play.on').count()) await page.click('.timebar button.tb-play');
     await openOverview(page, 'interventions');
     listed = (await page.locator('.ov-ivs .ov-iv').allInnerTexts().catch(() => [])).join(' / ').replace(/\n/g, ' ');
     await closeOverview();

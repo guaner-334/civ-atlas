@@ -15,6 +15,7 @@ import { drawFilmFrame, filmMapRect, type FilmLook } from '../render/film';
 import { labelProjection, type MapProj } from '../render/projection';
 import type { MarkItem } from '../render/marks';
 import type { CivShow, CivStyle } from '../render/civ/overlay';
+import type { ResourceLook } from '../render/civ/resources';
 import type { LayerId } from '../render/layers';
 import type { ProjectionId } from '../render/projection';
 import type { FilmSource } from './filmSource';
@@ -53,6 +54,8 @@ export interface FilmSetup {
   style: CivStyle;
   layer: LayerId;
   show: CivShow;
+  /** 物产图层只看哪一样、画不画还没发现的(和屏幕上一样) */
+  res?: ResourceLook;
   projection: ProjectionId;
   center?: number;
   /** 经纬网每隔几度一条(0 = 不画) */
@@ -184,6 +187,7 @@ export class FilmRenderer {
         style: s.style,
         layer: s.layer,
         show: s.show,
+        res: s.res,
         projection: s.projection,
         center: s.center,
         graticule: s.graticule,

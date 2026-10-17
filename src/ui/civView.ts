@@ -3,7 +3,7 @@
  * 放在这里而不是 App.tsx 里,这样以后加开关 / 时间轴时只改文明自己的文件。
  *
  * 网址参数(截图脚本用):
- *   civ=habitat,regions,sites,routes,cultures,polities,faiths,wars   直接打开对应显示;前面加减号是关掉,
+ *   civ=habitat,regions,sites,routes,cultures,polities,faiths,eras,resources,wars   直接打开对应显示;前面加减号是关掉,
  *                                               如 civ=-labels 关掉默认打开的地名、civ=-wars 关掉默认打开的战事
  *   civYear=1200                                时间轴停在第 1200 年(不给 = 结束年份);给了就不自动播放
  *   chron=1 / chron=all                         打开世界概览的编年史页(1 = 只看大事,all = 全部)
@@ -69,6 +69,29 @@ export function setCivShow(patch: Partial<CivShow>) {
 
 export function useCivShow(): CivShow {
   return show.use();
+}
+
+// ---- 物产图层:只看哪一样、显示不显示还没发现的(侧栏列表改,地图上的圆章读) ----
+
+export interface ResourceView {
+  /** 只看这一样(RESOURCES 的下标);null = 全部显示 */
+  focus: number | null;
+  /** 也画还没发现的储量(虚线灰章) */
+  hidden: boolean;
+}
+
+const resView = store<ResourceView>({ focus: null, hidden: false });
+
+export function getResourceView(): ResourceView {
+  return resView.get();
+}
+
+export function setResourceView(patch: Partial<ResourceView>) {
+  resView.set(patch);
+}
+
+export function useResourceView(): ResourceView {
+  return resView.use();
 }
 
 // ---- 时间轴(1× / 4×、自动播放) ----
@@ -255,12 +278,14 @@ export function useCivHighlight(): CivHighlightState | null {
 const pick = store<{ entry: ChronicleEntry | null; stamp: number }>({ entry: null, stamp: 0 });
 
 /**
- * 点编年史的一条:时间轴跳到那一年并暂停,换到政区图层(宗教大事:正在信仰图层上就留在信仰图层),地图上闪烁高亮事发地
+ * 点编年史的一条:时间轴跳到那一年并暂停,换到政区图层(宗教大事:正在信仰图层上就留在信仰图层;时代的:正在时代、物产图层上就留着),地图上闪烁高亮事发地
  * (事发地不在视野里时 App 把地图平移过去);编年史面板里这一条标成选中(战争自动展开,不在视野里就滚过去)。
  */
 export function pickChronicleEntry(e: ChronicleEntry) {
   setCivTime({ year: e.year, playing: false, scrubbing: false, story: false });
-  setCivShow(e.kind === 'faith' && getCivShow().faiths ? { polities: true } : { polities: true, cultures: false, faiths: false });
+  const s = getCivShow();
+  if ((e.kind === 'faith' && s.faiths) || (e.kind === 'era' && s.eras)) setCivShow({ polities: true });
+  else if (!(e.kind === 'era' && s.resources)) setCivShow({ polities: true, cultures: false, faiths: false, eras: false, resources: false });
   setCivHighlight({ regions: e.regions, polities: e.polities, year: e.year });
   pick.set({ entry: e, stamp: pick.get().stamp + 1 });
 }

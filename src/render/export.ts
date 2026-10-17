@@ -24,6 +24,9 @@ import { drawFrame, drawPaperVignette, renderFantasy } from './fantasy';
 import { bakedView, wrapOf } from './common';
 import { renderLayer, type LayerId } from './layers';
 import { drawCivOverlay, type CivShow, type CivStyle } from './civ/overlay';
+import { RESOURCE_COLORS, drawResourceLayer, resourceTier, type ResourceLook } from './civ/resources';
+import { ERA_COLORS, eraLevelsAt, eraName } from './civ/era';
+import { RESOURCES, RESOURCE_COUNT, resourcesAt } from '../gen/civ/development';
 import { civLabelChars, civLabelItems, civMapLayer, labelViewExtras } from './civ/labels';
 import { drawSettlementMarks, SYMBOL_BOX, SYMBOL_GROW, type SettlementKind } from './civ/settlements';
 import { drawWarfare, warsShown } from './civ/warfare';
@@ -75,6 +78,8 @@ export interface ExportMapParams {
   projection?: ProjectionId;
   /** 经纬网每隔几度一条(0 / 不给 = 不画) */
   graticule?: number;
+  /** 物产图层:只看哪一样、画不画还没发现的(和屏幕上一样;不给 = 全部显示) */
+  res?: ResourceLook;
 }
 
 /** 弯边投影:图片按哪种投影、哪条中央经线画(等距圆柱 = null) */
@@ -390,7 +395,7 @@ export async function drawMapLabels(
   const layer = civMapLayer(params, { proj: exportProj(p), fast: opt.fast });
   const items = geo.concat(layer.items);
   const wars = warsShown(params);
-  if (!items.length && !layer.marks.length && !wars) {
+  if (!items.length && !layer.marks.length && !wars && !p.show.resources) {
     opt.beforeDraw?.(null);
     return { labels: 0, marks: 0 };
   }
@@ -406,6 +411,7 @@ export async function drawMapLabels(
   }
   drawSettlementMarks(ctx, placed.marks, p.style);
   drawPlacedLabels(ctx, placed.labels, lv);
+  if (p.show.resources) drawResourceLayer(ctx, p.civ!, p.world, p.year, lv, placed.labels, p.res);
   return { labels: placed.labels.length, marks: placed.marks.length, placed };
 }
 
@@ -522,6 +528,33 @@ export function faithLegendRows(civ: Civ, year: Year): LegendRow[] {
   });
 }
 
+/** 时代图层的图例:这一年有州在的时代(新的在上)和州数 */
+export function eraLegendRows(civ: Civ, year: Year): LegendRow[] {
+  const lv = eraLevelsAt(civ, Math.floor(year));
+  const n = new Array<number>(ERA_COLORS.length).fill(0);
+  for (let r = 0; r < lv.length; r++) if (lv[r] >= 0) n[Math.min(ERA_COLORS.length - 1, Math.floor(lv[r]))]++;
+  const out: LegendRow[] = [];
+  for (let k = n.length - 1; k >= 0; k--) if (n[k]) out.push({ color: [...ERA_COLORS[k]] as [number, number, number], name: eraName(k), note: `${n[k]} 州` });
+  return out;
+}
+
+/** 物产图层的图例:十一样物产的颜色,这一年几州能用(哪州都还没发现的不列) */
+export function resourceLegendRows(civ: Civ, year: Year): LegendRow[] {
+  const dev = civ.development;
+  if (!dev) return [];
+  const at = resourcesAt(dev, Math.floor(year));
+  const out: LegendRow[] = [];
+  RESOURCES.forEach((name, k) => {
+    let n = 0;
+    for (let r = 0; r < civ.regions.count; r++) if (resourceTier(at[r * RESOURCE_COUNT + k])) n++;
+    if (!n) return;
+    const hex = RESOURCE_COLORS[k];
+    const color: [number, number, number] = [parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16)];
+    out.push({ color, name, note: `${n} 州` });
+  });
+  return out;
+}
+
 interface LegendLook {
   paper: string;
   edge: string;
@@ -572,13 +605,19 @@ export async function drawLegend(p: LegendParams, scale: ExportScale): Promise<H
   // 信仰图层:地图铺的是信仰(国家只画国界),图例列国家(空心框)和信仰
   const faithOn = show.faiths && !!civ.religion?.faiths.length;
   const faiths = faithOn ? faithLegendRows(civ, y) : [];
-  const wantPol = show.polities || (!show.cultures && !faithOn);
-  const wantCul = !faithOn && (show.cultures || !show.polities);
-  const outline = show.cultures || faithOn;
+  // 时代图层:地图铺的是时代(国家只画国界),图例列国家(空心框)和时代;物产图层:列物产(不列国家、民族)
+  const eraOn = !faithOn && show.eras && !!civ.development;
+  const eras = eraOn ? eraLegendRows(civ, y) : [];
+  const resOn = show.resources && !!civ.development;
+  const res = resOn ? resourceLegendRows(civ, y) : [];
+  const wantPol = !resOn && (show.polities || (!show.cultures && !faithOn && !eraOn));
+  const wantCul = !resOn && !faithOn && !eraOn && (show.cultures || !show.polities);
+  const outline = show.cultures || faithOn || eraOn;
   const withMarks = show.polities || show.routes;
   const withRoutes = show.routes;
 
-  const allText = [...rows.polities, ...rows.cultures, ...faiths].map((r) => r.name + r.note).join('') + '图例第年国家民族信仰教派城镇道路大路小路航线部落地带种子州都' + yearFull(y, p.era);
+  const allText =
+    [...rows.polities, ...rows.cultures, ...faiths, ...eras, ...res].map((r) => r.name + r.note).join('') + '图例第年国家民族信仰教派时代物产城镇道路大路小路航线部落地带种子州都' + yearFull(y, p.era);
   await ensureFonts(style, allText, 15000);
 
   // ---- 版式(CSS 像素,最后 × S)----
@@ -586,11 +625,13 @@ export async function drawLegend(p: LegendParams, scale: ExportScale): Promise<H
   const COL = 300;
   const ROW = 26;
   const HEAD = 34;
-  type Block = { title: string; rows: LegendRow[]; kind: 'pol' | 'cul' | 'faith' };
+  type Block = { title: string; rows: LegendRow[]; kind: 'pol' | 'cul' | 'faith' | 'era' | 'res' };
   const blocks: Block[] = [];
   if (wantPol) blocks.push({ title: '国家', rows: rows.polities, kind: 'pol' });
   if (wantCul) blocks.push({ title: '民族', rows: rows.cultures, kind: 'cul' });
   if (faithOn) blocks.push({ title: '信仰', rows: faiths, kind: 'faith' });
+  if (eraOn) blocks.push({ title: '时代', rows: eras, kind: 'era' });
+  if (resOn) blocks.push({ title: '物产', rows: res, kind: 'res' });
   const most = Math.max(1, ...blocks.map((b) => b.rows.length));
   const cols = most > 14 ? 2 : 1;
   const W = PAD * 2 + COL * cols + (cols - 1) * 24;
