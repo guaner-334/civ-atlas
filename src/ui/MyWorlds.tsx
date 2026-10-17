@@ -28,6 +28,7 @@ import { listTrash, restoreTrash, type TrashEntry } from '../account/cloud';
 import { downloadSave } from './SaveMenu';
 import { downloadAll } from './bundle';
 import { copyNotes } from '../ai/library';
+import { copyResults } from './resultStore';
 import { Icon } from './icons';
 import { TitleInput, when } from './worldParts';
 import { GUIDE_URL, PRIVACY_URL, SOURCE_URL, TERMS_URL } from './links';
@@ -418,6 +419,7 @@ function WorldCard({
                   const more = [`新的叫「${loadWorld(id)?.save.title ?? ''}」`];
                   // AI 写的史书、名字由来跟着复制;存不下就说一声(这一页里还看得到,刷新以后没有)
                   if (!copyNotes(w.id, id)) more.push('AI 写的史书、名字由来没能一起存下（浏览器存储已满）');
+                  void copyResults(w.id, id);
                   notify({ kind: more.length > 1 ? 'warn' : 'ok', text: `已复制一份「${name}」`, more });
                 })}
               >

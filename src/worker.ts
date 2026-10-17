@@ -14,13 +14,18 @@
  * 各段的主图太大,不整张交:交完文明以后在后台逐段铺整张主图、和上一段比,只交回变了的那一块(gen/rasterPatch.ts 的补丁,
  * 主线程有了的不再交);后台的活排在消息后面,有新消息先处理消息。
  * "会怎么样"预览(upPreview):照"那一年的地形 + 这几笔"生成一遍,和那一年的地形、州逐地块比(previewUpheaval)。
+ *
+ * 原件(gen/snapshot.ts):生成、重推完,在后台把这次的世界、各段世界、整段历史打成一份原件交回去(snapshot),
+ * 主线程对得上建好的世界存着的存档才存进浏览器(ui/resultStore.ts),以后生成器升级了也有当时的结果可读。
+ * 新建中的世界也打(点了「创建」不一定再重推,那时用的就是这一份);换世界的时候排着的作废。排在各段主图补丁后面;
+ * 地图那一块按世界的键记着,只重推历史时不用再打一遍。
  */
 import { generateWorld, type World, type WorldParams } from './gen/world';
 import { rasterizeDeferred, type Raster } from './gen/raster';
 import { GullyPool } from './gullyPool';
 import { buildHistoryFrames, type HistoryFrames } from './gen/history';
 import { DEFAULT_CIV_PARAMS, generateCiv, civTransferables, planetTempo, type Civ, type PlanetTempo, type Regions } from './gen/civ';
-import type { Intervention, TerrainOp, Upheaval } from './gen/edits';
+import { GENERATOR_VERSION, type Intervention, type TerrainOp, type Upheaval } from './gen/edits';
 import { sketchGrid, type SketchEdit } from './gen/sketch';
 import { mergeUpheavals, previewUpheaval, type UpheavalPreview, type UpheavalStep } from './gen/civ/upheaval';
 import { computeHabitat } from './gen/civ/habitat';
@@ -28,6 +33,7 @@ import { buildRegions, reshapeRegions } from './gen/civ/regions';
 import { diffRaster, patchTransferables, type RasterPatch } from './gen/rasterPatch';
 import type { NameMix } from './gen/names';
 import type { Frontier, Origins } from './gen/civ/frontier';
+import { SNAPSHOT_FORMAT, makePart, recipeKey, type Snapshot, type SnapshotPart } from './gen/snapshot';
 
 /**
  * 一组参数 + 草图(没改地形的星球)的扩张节拍和城的人口折算(gen/civ 的 planetTempo;null = 长不出文明),key = 这颗星球在线程里的键。
@@ -97,7 +103,9 @@ export type WorkerResponse =
   /** 一段的主图补丁:key 这一段比 prev 那一段(原来的世界或上一件大事以后)变了的那一块;null = 看不出变化 */
   | { type: 'eraPatch'; id: number; key: string; prev: string; patch: RasterPatch | null }
   /** 地形大事的预览;water = 加上这几笔以后各地块的海陆(0 陆地 / 1 海 / 2 湖) */
-  | { type: 'upPreview'; id: number; pid: number; preview: UpheavalPreview; water: Uint8Array; ms: number };
+  | { type: 'upPreview'; id: number; pid: number; preview: UpheavalPreview; water: Uint8Array; ms: number }
+  /** 这次生成 / 重推的原件(后台打好的) */
+  | { type: 'snapshot'; id: number; snapshot: Snapshot };
 
 /** 上一个生成的世界(含回放快照),回放时直接用 */
 let last: { key: string; world: World } | null = null;
@@ -273,6 +281,62 @@ function queuePatches(id: number, m: CivInput, steps: Step[]) {
 }
 
 // ---------------------------------------------------------------------------
+// 原件(后台打)
+
+/** 原件的地图那一块,按世界的键记着最近两个(只重推历史时不用再打一遍) */
+const mapParts = new Map<string, Promise<SnapshotPart>>();
+function mapPart(key: string, world: World): Promise<SnapshotPart> {
+  let p = mapParts.get(key);
+  if (p) mapParts.delete(key);
+  else {
+    // 形成过程的回放快照太大,不进原件
+    const { history: _h, ...rest } = world;
+    void _h;
+    p = makePart('map', { ...rest, history: [] });
+    // 打坏了的不留着(下次再打)
+    p.catch(() => mapParts.delete(key));
+  }
+  mapParts.set(key, p);
+  while (mapParts.size > 2) mapParts.delete(mapParts.keys().next().value!);
+  return p;
+}
+
+/** 交给主线程之前复制一份历史给原件用;浏览器复制不了就不做这次的原件(世界照常交回去) */
+function cloneCiv(civ: Civ): Civ | null {
+  try {
+    return structuredClone(civ);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 推完的这次排一份原件:配方指纹(这次用到的全部输入)+ 地图 + 各段世界 + 整段历史。
+ * civ 要在交给主线程(transfer 以后这边的数组就空了)之前复制一份传进来;没复制成(null)就不排
+ */
+function queueSnapshot(id: number, m: CivInput & { interventions?: Intervention[] }, world: World, steps: Step[], civ: Civ | null) {
+  if (!civ) return;
+  const baseKey = keyOf(m.params, m.terrain, m.sketch);
+  bg.push(async () => {
+    let snapshot: Snapshot;
+    let eras: SnapshotPart;
+    let civPart: SnapshotPart;
+    try {
+      const recipe = await recipeKey({ params: m.params, terrain: m.terrain, sketch: m.sketch, interventions: m.interventions, upheavals: m.upheavals, names: m.names, endYear: m.endYear, frontier: m.frontier, origins: m.origins });
+      const map = await mapPart(baseKey, world);
+      eras = await makePart('eras', { baseKey, eras: eraWorlds(steps) ?? [] });
+      civPart = await makePart('civ', civ);
+      snapshot = { format: SNAPSHOT_FORMAT, generator: GENERATOR_VERSION, recipe, formation: false, parts: [map, eras, civPart] };
+    } catch {
+      // 打不了(不是 https 的网页算不了校验之类):这次就没有原件,世界照常用
+      return;
+    }
+    // 地图那一块还记着(下次重推用),不交出去,复制一份
+    post({ type: 'snapshot', id, snapshot }, [eras.data, civPart.data]);
+  });
+}
+
+// ---------------------------------------------------------------------------
 // 帮手线程(gullyPool.ts):整张主图的沟和山脊分给它们算,本线程同时推文明。开线程时就起好
 const pool = new GullyPool();
 
@@ -342,8 +406,10 @@ async function handle(m: WorkerRequest): Promise<void> {
     const { history: _history, ...rest } = world;
     void _history;
     const baseKey = keyOf(m.params, m.terrain, m.sketch);
+    const kept = cloneCiv(civ);
     post({ type: 'done', id: m.id, world: { ...rest, history: [] }, raster, civ, ms: performance.now() - t0, genMs, tempo: noteOf(m.params, m.sketch), eras: eraWorlds(steps), baseKey }, transfer);
     queuePatches(m.id, m, steps);
+    queueSnapshot(m.id, m, world, steps, kept);
   } else if (m.type === 'history') {
     const h = buildHistoryFrames(worldOf(m.params, m.terrain, m.sketch));
     post({ type: 'history', id: m.id, ...h }, h.frames.map((f) => f.buffer));
@@ -355,8 +421,10 @@ async function handle(m: WorkerRequest): Promise<void> {
     const ms = performance.now() - t0;
     const tempo = noteOf(m.params, m.sketch);
     if (m.type === 'resim') {
+      const kept = cloneCiv(civ);
       post({ type: 'civ', id: m.id, seq: m.seq, civ, ms, tempo, eras: eraWorlds(steps), baseKey: keyOf(m.params, m.terrain, m.sketch) }, civTransferables(civ));
       queuePatches(m.id, m, steps);
+      queueSnapshot(m.id, m, world, steps, kept);
     } else post({ type: 'trial', id: m.id, tid: m.tid, civ, ms, tempo }, civTransferables(civ));
   } else if (m.type === 'upPreview') {
     const t0 = performance.now();

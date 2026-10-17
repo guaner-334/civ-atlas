@@ -227,6 +227,7 @@ import { Globe, getGlobeOn, setGlobeOn, useGlobeOn, type GlobeApi } from './Glob
 import { setupAi } from '../ai/setup';
 import { ToastBar, clearToast, showToast } from './Toast';
 import { DRAFT_SEG, FirstHint, HoverCard, MapBar, MapControls, OldSiteBadge, PhoneButtons, SEG_LAYERS, hintSeen, markHintSeen } from './Corners';
+import { offerSnapshot, startResults } from './resultStore';
 import { BETA_SITE, OLD_SITE, OWN_KEY, oldSiteFor, oldSiteNote, openInLatest, openOriginal, plainSave } from './oldSite';
 import type { ToastAction } from './toastStore';
 import { Sidebar } from './Sidebar';
@@ -932,8 +933,8 @@ export function App() {
       w.onmessage = (e: MessageEvent<WorkerResponse>) => {
         const m = e.data;
         if (workerRef.current !== w) return; // 已被换掉的线程
-        // 主图补丁是后台自己排的活,不算一件回音
-        if (m.type !== 'progress' && m.type !== 'eraPatch') busyRef.current = Math.max(0, busyRef.current - 1);
+        // 主图补丁、原件是后台自己排的活,不算一件回音
+        if (m.type !== 'progress' && m.type !== 'eraPatch' && m.type !== 'snapshot') busyRef.current = Math.max(0, busyRef.current - 1);
         if ((m.type === 'done' || m.type === 'civ' || m.type === 'trial') && m.tempo) tempoNote.current = m.tempo;
         if (m.type === 'trial') {
           // 试推演(助手):交给等着它的那一次;世界换了的话助手那边已经停下,结果没人要
@@ -957,6 +958,8 @@ export function App() {
           return;
         }
         if (m.type === 'upPreview') return void takeUpPreview(m.pid, m.preview, m.water, m.ms);
+        // 这次生成 / 重推的原件:对得上存着的存档就存进浏览器(resultStore.ts)
+        if (m.type === 'snapshot') return void offerSnapshot(m.snapshot);
         if (m.type === 'progress') setProgress((s) => ({ stage: m.stage, pct: m.pct, regen: regenRef.current?.id === m.id, seed: s?.seed }));
         else if (m.type === 'done') {
           noteGenSpeed(m.world.params.cells, m.genMs, m.ms);
@@ -1491,6 +1494,8 @@ export function App() {
 
   // ---- 存档(阶段 4):自动存、自动恢复、读档 ----
   useEffect(() => startAutoSave(), []);
+  // 建好的世界推完以后,把这次的结果(原件)存进浏览器
+  useEffect(() => startResults(), []);
   // AI(阶段 5):登记服务商、恢复设置、调用记录存本地
   useEffect(() => setupAi(), []);
   // 「使用 AI 功能」关了:助手停下、回到现在、收起;正在写的史书停下(写到一半的不存),写史书的窗口、阅读页关上
