@@ -936,6 +936,7 @@ export function App() {
   /** 等值线画不画:新建世界时、地球仪上不画 */
   const contourOn = !!contourKind && !draft && !globeOn;
   /** 等值线的墨色按哪种底色配:白模底色浅,和浅色的数据底图同一套 */
+  // 等值线、经纬网的墨色:白模是浅底,和数据底图一样用深色线
   const contourStyle = mapBase === 'blank' ? 'data' : style;
   const contourInkNow = contourKind ? contourInk(contourKind, contourStyle, baseDark(mapBase)).line : undefined;
   const globeApi = useRef<GlobeApi | null>(null);
@@ -4085,7 +4086,7 @@ export function App() {
           {/* 放大后的地形细节(弯边投影:按投影一行一行铺) */}
           {data && <TerrainDetail world={data.world} raster={data.raster} style={style} look={terrainLook} view={view} mp={mp} />}
           {data && contourOn && <ContourLayer world={data.world} raster={data.raster} kind={contourKind!} style={contourStyle} dark={baseDark(mapBase)} view={view} mp={mp} />}
-          {data && <MapDecor world={data.world} style={style} view={view} mp={mp} />}
+          {data && <MapDecor world={data.world} style={style} ink={contourStyle} view={view} mp={mp} />}
         </div>
         {/* 放大后的文明细节层(CivLayer 放进来):盖住下面的地形,在文明底图那一层地图框之下 */}
         <div className="screen-layer" ref={setCivDetailHost} style={screenStyle} />

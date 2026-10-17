@@ -175,16 +175,22 @@ export function drawMapCiv(ctx: Ctx2D, p: ExportMapParams, makeCanvas: (w: numbe
   cv.width = cv.height = 0;
 }
 
+/** 经纬网、等值线按哪种底色挑墨色:白模是浅底,和数据底图一样用深色线 */
+export function inkStyle(p: Pick<ExportMapParams, 'style' | 'look'>): string {
+  return p.style === 'realistic' && p.look === 'blank' ? 'data' : p.style;
+}
+
 /**
  * 底图的第三层:经纬网(开着时)、纸边做旧、外框和罗盘,画在最上面。都是普通的叠加(不读底下的像素),
  * 也能单独画在一张透明画布上再叠上去,结果一样
  */
 export function drawMapDecor(ctx: Ctx2D, p: ExportMapParams): void {
   const { world, raster, style } = p;
+  const ink = inkStyle(p);
   const mp = exportProj(p);
   const v = bakedView(raster.scale);
   if (mp) {
-    if (p.graticule) drawGraticule(ctx, mp, world.width, world.height, v, style, p.graticule, raster.scale);
+    if (p.graticule) drawGraticule(ctx, mp, world.width, world.height, v, ink, p.graticule, raster.scale);
     if (style === 'fantasy') {
       drawPaperVignette(ctx, world.width, world.height, v);
       drawProjFrame(ctx, mp, v);
@@ -192,7 +198,7 @@ export function drawMapDecor(ctx: Ctx2D, p: ExportMapParams): void {
     return;
   }
   const left = exportLeft(p);
-  if (p.graticule) drawGraticule(ctx, null, world.width, world.height, { s: raster.scale, ox: -left * raster.scale, oy: 0 }, style, p.graticule, raster.scale);
+  if (p.graticule) drawGraticule(ctx, null, world.width, world.height, { s: raster.scale, ox: -left * raster.scale, oy: 0 }, ink, p.graticule, raster.scale);
   if (style === 'fantasy') {
     drawPaperVignette(ctx, world.width, world.height, v);
     drawFrame(ctx, world.width, world.height, v);
@@ -207,7 +213,7 @@ export function drawMapDecor(ctx: Ctx2D, p: ExportMapParams): void {
 export function drawExportContours(ctx: Ctx2D, p: ExportMapParams, S: number, set: ContourSet, dark: boolean, avoid: readonly (readonly number[])[] = []): void {
   const mp = exportProj(p);
   if (mp) {
-    drawContours(ctx, set, p.style, { mp, s: S, ox: 0, oy: 0 }, S, 1, dark, avoid);
+    drawContours(ctx, set, inkStyle(p), { mp, s: S, ox: 0, oy: 0 }, S, 1, dark, avoid);
     return;
   }
   const w = p.world.width * S;
@@ -220,7 +226,7 @@ export function drawExportContours(ctx: Ctx2D, p: ExportMapParams, S: number, se
   c2d.rect(14 * S, 14 * S, w - 28 * S, h - 28 * S);
   c2d.rect(keep[0], keep[1], keep[2] - keep[0], keep[3] - keep[1]);
   c2d.clip('evenodd');
-  drawContours(ctx, set, p.style, { mp: null, s: S, ox: -exportLeft(p) * S, oy: 0 }, S, 1, dark, [...avoid, keep]);
+  drawContours(ctx, set, inkStyle(p), { mp: null, s: S, ox: -exportLeft(p) * S, oy: 0 }, S, 1, dark, [...avoid, keep]);
   ctx.restore();
 }
 

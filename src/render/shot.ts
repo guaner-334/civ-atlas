@@ -17,7 +17,7 @@ import type { Civ, Year } from '../gen/civ/types';
 import type { LayerId } from './layers';
 import { renderLayer } from './layers';
 import type { CivDrawParams, CivShow, CivStyle } from './civ/overlay';
-import { drawMapCiv, drawMapDecor, drawMapLabels, drawMapTerrain, drawExportMarks, type ExportMapParams } from './export';
+import { drawMapCiv, drawMapDecor, drawMapLabels, drawMapTerrain, drawExportMarks, inkStyle, type ExportMapParams } from './export';
 import { DETAIL_K, drawTerrainDetail, drawTerrainProjected } from './detail';
 import { detailCache, drawCivDetail, drawSelectionDetail, releaseDetailCache, type DetailCache } from './civ/detail';
 import { civLabelChars, civLabelItems, civMapLayer, labelViewExtras } from './civ/labels';
@@ -151,7 +151,7 @@ export class MapShot {
     const view = { s: v.s, ox: v.ox, oy: v.oy, k: Math.max(1, v.k) };
     if (this.scene.graticule) {
       const d = makeCanvas(this.w, this.h);
-      drawGraticule(ctx2d(d), v.mp, world.width, world.height, view, style, this.scene.graticule, v.dpr);
+      drawGraticule(ctx2d(d), v.mp, world.width, world.height, view, inkStyle({ style, look }), this.scene.graticule, v.dpr);
       this.decor = d;
     }
     if (v.mp) {

@@ -834,8 +834,9 @@ function paintRealistic(ctx: CanvasRenderingContext2D, r: Raster, cap?: GlobeCap
   const snowN = win ? cylinderNoise(11, W0, 5, Float64Array.from({ length: w }, (_, px) => (wx0 + px + 0.5) * fx)) : cylinderNoise(11, w, 5);
 
   const col: RGB = [0, 0, 0];
-  // 陆地像素:颜色写进 col,返回打光的明暗 s;地球仪的细节坡度写进 dg。单独一个函数(主循环太大,引擎第一次画时优化得慢)
-  const dg = new Float64Array(2);
+  // 陆地像素:颜色写进 col,返回打光的明暗 s;地球仪的细节坡度写进 dg[0..1],积雪上明暗减弱的系数写进 dg[2]。
+  // 单独一个函数(主循环太大,引擎第一次画时优化得慢)
+  const dg = new Float64Array(3);
   const land = (k: number, px: number, py: number, e: number, s: number, gxk: number, ty: number): number => {
     const kr = px < w - 1 ? k + 1 : k - w + 1;
     const kl = px > 0 ? k - 1 : k + w - 1;
@@ -894,14 +895,17 @@ function paintRealistic(ctx: CanvasRenderingContext2D, r: Raster, cap?: GlobeCap
     const keep = DETAIL_FLAT + (1 - DETAIL_FLAT) * smoothstep(DETAIL_E0, DETAIL_E1, level[k]);
     let s2 = 1 + dd * DETAIL_W * keep * smoothstep(SOFT0, SOFT1, ad) + (macro[k] - 1) * MACRO_W;
     // 积雪 / 冰盖上的明暗减弱(冰原不出大块的灰色拼块)
-    if (SNOW_FLAT > 0) s2 = 1 + (s2 - 1) * (1 - SNOW_FLAT * snow);
+    const snowK = SNOW_FLAT > 0 ? 1 - SNOW_FLAT * snow : 1;
+    if (SNOW_FLAT > 0) s2 = 1 + (s2 - 1) * snowK;
     if (slo) {
       // 细节晕渲的坡度(和 hillshade 同一个算法),乘上平原压平、软阈值两个系数(软阈值按坡度大小算,和光从哪边来无关)
       const dx = gx * 0.5 * zd;
       const dy = gy * 0.5 * zd;
       const wd = keep * smoothstep(SOFT0, SOFT1, (Math.sqrt(dx * dx + dy * dy) * LIGHT_XY) / LIGHT_Z);
-      dg[0] = dx * wd;
-      dg[1] = dy * wd;
+      // 地球仪的坡度也按积雪减弱,雪山在地球仪上和平面图一样平
+      dg[0] = dx * wd * snowK;
+      dg[1] = dy * wd * snowK;
+      dg[2] = snowK;
     }
     return s2;
   };
@@ -980,8 +984,8 @@ function paintRealistic(ctx: CanvasRenderingContext2D, r: Raster, cap?: GlobeCap
         if (slo) {
           dgx = dg[0];
           dgy = dg[1];
-          mgxk = mgx![k];
-          mgyk = mgy![k];
+          mgxk = mgx![k] * dg[2];
+          mgyk = mgy![k] * dg[2];
         }
       }
       if (FLAT) {
