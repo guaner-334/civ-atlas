@@ -313,6 +313,36 @@ export interface RiverStyle {
   thin?: number;
 }
 
+/**
+ * 作者画的河(改地形的 `river`)在地图上按多大的流量画:至少是全图细节层级门槛的好几倍(全图、各种画法都画得出来),
+ * 画笔越粗画得越粗(半宽 4 最细,20 往上一样粗)。只改显示,推演用的流量不变
+ */
+export function drawnFlux(r: number, threshold: number): number {
+  const w = Math.min(1, Math.max(0.25, 0.25 + (0.75 * (r - 4)) / 16));
+  return Math.max(12 * threshold, threshold + 1200 * w * w);
+}
+
+const shownCache = new WeakMap<readonly { pts: Float32Array }[], { pts: Float32Array }[]>();
+/**
+ * 画在地图上的河:作者画的那几段(River.drawn)流量抬到 drawnFlux,其余原样。没有画的河 = 原数组;
+ * 同一份河记住结果(河网几何按数组缓存,换了数组要重算)
+ */
+export function shownRivers<T extends { pts: Float32Array; drawn?: Uint8Array }>(rivers: readonly T[], threshold: number): T[] {
+  if (!rivers.some((r) => r.drawn)) return rivers as T[];
+  let out = shownCache.get(rivers) as T[] | undefined;
+  if (!out) {
+    out = rivers.map((r) => {
+      const d = r.drawn;
+      if (!d) return r;
+      const pts = r.pts.slice();
+      for (let i = 0; i < d.length; i++) if (d[i]) pts[i * 3 + 2] = Math.max(pts[i * 3 + 2], drawnFlux(d[i], threshold));
+      return { ...r, pts };
+    });
+    shownCache.set(rivers, out);
+  }
+  return out;
+}
+
 /** 河流的细节层级(两种画风共用):缩放 k 倍时只画流量 ≥ 门槛 × 这个数的河段 —— 全图时小溪不画,放大到 3 倍左右全画 */
 export function riverLod(k: number): number {
   return Math.max(1, 4.5 * Math.pow(Math.max(1, k), -1.3));
@@ -369,6 +399,7 @@ export function drawRivers(
   opts?: RiverOptions,
 ) {
   const v = typeof at === 'number' ? bakedView(at) : at;
+  rivers = shownRivers(rivers, threshold);
   if (opts) {
     drawRiverNetwork(ctx, rivers, v, threshold, style, opts);
     return;

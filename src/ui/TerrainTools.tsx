@@ -5,8 +5,12 @@
  * - 涂一片(陆地、丘陵、山地、高原、浅海、海、群岛、擦掉):按住拖动涂一笔(画法"圈起来填满" = 画一圈,松手连上起点、圈里整片涂上),
  *   大小是滑条(笔的半径,世界坐标),山地另有高低。每一笔加进草图(editsStore.addSketchStroke,格式见 gen/sketch.ts),
  *   程序照草图重新长出整颗星球。
- * - 放一处:火山 / 湖 = 点一下放一处(拖动照样平移);河 = 从源头画到海边的一条线。三档大小见 gen/terrainEdits.ts 的 TERRAIN_PRESETS。
+ * - 放一处:火山 / 湖 = 点一下放一处(拖动照样平移);河 = 从源头画到海边的一条线。大小(河是粗细)是滑条,强度跟着大小在
+ *   gen/terrainEdits.ts 的 TERRAIN_PRESETS 三档之间连续取(presetStrength);湖另有湖岸(圆润 / 适中 / 曲折,存成 e)。
  *   加一处 = editsStore.addTerrainOp。旧存档里、或"让助手改"做出来的山脉 / 抬起陆地 / 沉成海照常生效、照常画出来,算在"画了几笔"里。
+ * - 「擦掉」除了把涂过的地方交还给程序,还整个去掉碰到的火山、湖、河(画的时候描红;和这一笔算同一步,撤销一起回来)。
+ * - 随机生成的面板分两页:地貌(涂一片 + 放一处)、气候(更湿 / 更干 / 更暖 / 更冷,用法同涂一片,多一个程度;
+ *   存成地形修改的气候四种,见 gen/edits.ts 文件头"地形修改")。照手绘图的面板只有地貌。
  * - 两种新建各一套面板:随机生成的是「编辑地形」(组头"完成"收起;整张草图里海岸线、没涂的地方);
  *   照手绘图生成的是第 2 步「用笔修改」(mode = 'image',没有组头和没涂的地方 —— 没盖到的都是海)。
  *   照手绘图时认图(ImportImage.tsx)那一步也开着编辑地形(地图事件转给认图);「照这样长出星球」= applyImport,
@@ -20,10 +24,11 @@
 import { useEffect, useId, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react';
 import type { TerrainKind, TerrainOp } from '../gen/edits';
 import { SKETCH_COAST, SKETCH_MAX_PTS, SKETCH_R, sketchCoast, type SketchEdit, type SketchImage, type SketchKind, type SketchStroke } from '../gen/sketch';
-import { TERRAIN_MAX_PTS, TERRAIN_PRESETS as PRESETS, isPointKind, sameTerrain } from '../gen/terrainEdits';
+import { TERRAIN_MAX_PTS, TERRAIN_PRESETS as PRESETS, isPointKind, presetStrength, sameTerrain } from '../gen/terrainEdits';
 import { Icon, type IconName } from './icons';
 import { Seg, Slider } from './tpControls';
 import {
+  addEraseStroke,
   addSketchStroke,
   addTerrainOp,
   clearTerrainAndSketch,
@@ -32,6 +37,7 @@ import {
   setSketchBase,
   setSketchCoast,
   setSketchRest,
+  undoEraseStroke,
   undoSketchStroke,
   undoTerrainOp,
   useEdits,
@@ -58,30 +64,41 @@ import {
 
 /** 放一处的三样 */
 export type PlaceKind = 'volcano' | 'lake' | 'river';
-export type EditTool = SketchKind | PlaceKind;
+/** 改气候的四支笔 */
+export type ClimateKind = 'wet' | 'dry' | 'warm' | 'cold';
+export type EditTool = SketchKind | PlaceKind | ClimateKind;
 
 export interface TerrainToolState {
   on: boolean;
   tool: EditTool;
-  /** 涂一片的笔:半径(世界坐标,SKETCH_R 范围) */
+  /** 涂一片、改气候的笔:半径(世界坐标,SKETCH_R 范围) */
   r: number;
-  /** 涂一片的画法:涂抹 / 圈起来填满 */
+  /** 涂一片、改气候的画法:涂抹 / 圈起来填满 */
   method: 'paint' | 'lasso';
   /** 山地的高低:0 低 / 1 中 / 2 高 */
   h: 0 | 1 | 2;
-  /** 放一处的大小:0 小 / 1 中 / 2 大 */
-  size: 0 | 1 | 2;
+  /** 放一处的大小(世界坐标的半径;河是河谷半宽),范围见 PLACE_R */
+  place: Record<PlaceKind, number>;
+  /** 湖岸:0 圆润 / 0.5 适中 / 1 曲折 */
+  shore: number;
+  /** 改气候的程度:0 一点 / 1 明显 / 2 很多 */
+  level: 0 | 1 | 2;
   /** 地图上显示草图(涂过的地方、放的火山湖河) */
   show: boolean;
   /** 海岸线的选择(草图还一笔没有时也记着,画第一笔时带上;有草图时以草图里的为准) */
   coast: number;
 }
 
-let tool: TerrainToolState = { on: false, tool: 'land', r: 40, method: 'paint', h: 1, size: 1, show: true, coast: SKETCH_COAST };
+/** 放一处的大小滑条范围 */
+export const PLACE_R: Record<PlaceKind, readonly [number, number]> = { volcano: [8, 60], lake: [4, 60], river: [4, 20] };
+const PLACE_DEF: Record<PlaceKind, number> = { volcano: PRESETS.volcano[1][0], lake: PRESETS.lake[1][0], river: PRESETS.river[1][0] };
+
+let tool: TerrainToolState = { on: false, tool: 'land', r: 40, method: 'paint', h: 1, place: PLACE_DEF, shore: 0.5, level: 1, show: true, coast: SKETCH_COAST };
 const toolSubs = new Set<() => void>();
 const emitTool = () => toolSubs.forEach((f) => f());
 
 export const isPlaceTool = (t: EditTool): t is PlaceKind => t === 'volcano' || t === 'lake' || t === 'river';
+export const isClimateTool = (t: EditTool): t is ClimateKind => t === 'wet' || t === 'dry' || t === 'warm' || t === 'cold';
 
 export function getTerrainTool(): TerrainToolState {
   return tool;
@@ -95,6 +112,22 @@ export function setTerrainTool(p: Partial<TerrainToolState>) {
     cancelImport();
   }
   emitTool();
+}
+/** 两页各记着上一次用的笔,切回来还是它 */
+let lastShape: EditTool = 'land';
+let lastClimate: ClimateKind = 'wet';
+/** 切到地貌 / 气候那一页(换成那一页上次用的笔) */
+export function setTerrainPage(p: 'shape' | 'climate') {
+  const now = tool.tool;
+  if (p === 'climate') {
+    if (isClimateTool(now)) return;
+    lastShape = now;
+    setTerrainTool({ tool: lastClimate });
+  } else {
+    if (!isClimateTool(now)) return;
+    lastClimate = now;
+    setTerrainTool({ tool: lastShape });
+  }
 }
 export function useTerrainTool(): TerrainToolState {
   return useSyncExternalStore(
@@ -112,13 +145,25 @@ const PAINT: { id: SketchKind; name: string; hint: string }[] = [
   { id: 'shelf', name: '浅海', hint: '涂过的地方是一片浅海，像大陆架那样浅。' },
   { id: 'sea', name: '海', hint: '涂过的地方沉成深海。' },
   { id: 'isles', name: '群岛', hint: '涂过的地方冒出一片大大小小的岛。' },
-  { id: 'erase', name: '擦掉', hint: '擦过的地方交还给程序。' },
+  { id: 'erase', name: '擦掉', hint: '擦过的地方交还给程序；碰到的火山、湖、河整个去掉（变红的就是松手后会去掉的）。' },
 ];
-const PLACE: { id: PlaceKind; name: string; icon: IconName; sizes: [string, string, string]; hint: string }[] = [
-  { id: 'volcano', name: '火山', icon: 'volcano', sizes: ['小', '中', '大'], hint: '点一下放一座火山；点在海里是火山岛。' },
-  { id: 'lake', name: '湖', icon: 'lake', sizes: ['小', '中', '大'], hint: '点一下挖一个湖（点在陆地上）。' },
-  { id: 'river', name: '河', icon: 'river', sizes: ['细', '中', '粗'], hint: '从源头画到海边，河顺着画的线流。' },
+const PLACE: { id: PlaceKind; name: string; icon: IconName; size: string; hint: string }[] = [
+  { id: 'volcano', name: '火山', icon: 'volcano', size: '大小', hint: '点一下放一座火山；点在海里是火山岛。' },
+  { id: 'lake', name: '湖', icon: 'lake', size: '大小', hint: '点一下挖一个湖（点在陆地上）。湖岸越曲折，越像天然的湖。' },
+  { id: 'river', name: '河', icon: 'river', size: '粗细', hint: '从源头画到海边，河顺着画的线流；全图也看得见。' },
 ];
+const CLIMATE: { id: ClimateKind; name: string; hint: string }[] = [
+  { id: 'wet', name: '更湿', hint: '涂过的地方雨水更多：沙漠变草原，草原长出森林。只改气候，不动地形。' },
+  { id: 'dry', name: '更干', hint: '涂过的地方雨水更少：森林变草原，草原变荒漠。只改气候，不动地形。' },
+  { id: 'warm', name: '更暖', hint: '涂过的地方更暖和：冰雪化开，苔原长出森林。只改气候，不动地形。' },
+  { id: 'cold', name: '更冷', hint: '涂过的地方更冷：森林退成苔原，高处积起冰雪。只改气候，不动地形。' },
+];
+const SHORES: { v: number; name: string }[] = [
+  { v: 0, name: '圆润' },
+  { v: 0.5, name: '适中' },
+  { v: 1, name: '曲折' },
+];
+const LEVELS = ['一点', '明显', '很多'];
 const LASSO_HINT = '按住画一圈，松手自动连上起点，圈里整片涂满。';
 const PHONE_HINT = '一根手指涂，两根手指拖动、放大。';
 const COASTS: { v: number; name: string }[] = [
@@ -174,8 +219,10 @@ function displayPts(pts: readonly number[], wrap: number): number[] {
 
 /** 这支笔现在多大(世界坐标的半径) */
 function radiusOf(t: TerrainToolState): number {
-  return isPlaceTool(t.tool) ? PRESETS[t.tool][t.size][0] : t.r;
+  return isPlaceTool(t.tool) ? t.place[t.tool] : t.r;
 }
+/** 画成一处地形修改的线(河、改气候)最多 TERRAIN_MAX_PTS 个点,草图的笔 SKETCH_MAX_PTS 个 */
+const capOf = (t: EditTool) => (t === 'river' || isClimateTool(t) ? TERRAIN_MAX_PTS : SKETCH_MAX_PTS);
 const lassoOn = (t: TerrainToolState) => !isPlaceTool(t.tool) && t.method === 'lasso';
 
 /** 地图上按下:涂、圈、画河的工具开始画(返回 true = 这一下归编辑地形管,不平移) */
@@ -202,7 +249,7 @@ export function terrainMove(w: [number, number] | null): boolean {
   const ly = d[d.length - 1];
   // 点和点至少隔开小半个半径(手抖的小折弯不算,线也不会太长);圈的时候点密一点,圈出来的边顺
   const step = lassoOn(tool) ? 4 : Math.max(tool.tool === 'river' ? 4 : 2, r * 0.4);
-  const cap = tool.tool === 'river' ? TERRAIN_MAX_PTS : SKETCH_MAX_PTS;
+  const cap = capOf(tool.tool);
   // 按上一个点展开(跨 180° 经线接着画,不跳到地图另一头)
   const wx = near(w[0], lx);
   const far = (wx - lx) ** 2 + (w[1] - ly) ** 2 >= step * step;
@@ -220,20 +267,87 @@ export function terrainUp() {
   setDraft({ draft: null, cursor: c0 });
   const c: [number, number] | null = c0 && [near(c0[0], d[d.length - 2]), c0[1]];
   // 松开的地方离最后一个点还差一小段(不到一步):补上,线画到哪儿就到哪儿
-  const cap = tool.tool === 'river' ? TERRAIN_MAX_PTS : SKETCH_MAX_PTS;
+  const cap = capOf(tool.tool);
   const pts = c && d.length < cap * 2 && (c[0] - d[d.length - 2]) ** 2 + (c[1] - d[d.length - 1]) ** 2 >= 4 ? [...d, Math.round(c[0]), Math.round(c[1])] : d;
   if (tool.tool === 'river') {
     // 河至少要有两个点(点一下不算)
     if (pts.length < 4) return;
-    const [r, s] = PRESETS.river[tool.size];
-    addOp({ kind: 'river', pts, r, s });
+    const r = tool.place.river;
+    addOp({ kind: 'river', pts, r, s: presetStrength('river', r) });
     return;
   }
   if (isPlaceTool(tool.tool)) return;
+  const fill = lassoOn(tool) && pts.length >= 6;
+  if (isClimateTool(tool.tool)) {
+    const op: TerrainOp = { kind: tool.tool, pts, r: tool.r, s: PRESETS[tool.tool][tool.level][1] };
+    if (fill) op.f = 1;
+    addOp(op);
+    return;
+  }
   const st: SketchStroke = { kind: tool.tool, r: tool.r, pts };
   if (tool.tool === 'mountain' && tool.h !== 1) st.h = tool.h;
-  if (lassoOn(tool) && pts.length >= 6) st.fill = 1;
+  if (fill) st.fill = 1;
+  if (tool.tool === 'erase') {
+    const hit = erasedOps(getEdits().terrain, st);
+    if (hit.length) return eraseStroke(st, hit);
+  }
   addStroke(st);
+}
+
+/** 擦掉能整个去掉的几种:放下的火山、湖、河 */
+const ERASABLE = (k: TerrainKind) => k === 'volcano' || k === 'lake' || k === 'river';
+
+/** 点 (px, py) 到线段 a–b 的距离的平方(都已按东西相连挪到同一圈) */
+function segDist2(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const l = dx * dx + dy * dy;
+  const t = l > 0 ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / l)) : 0;
+  return (px - ax - t * dx) ** 2 + (py - ay - t * dy) ** 2;
+}
+/** 点 (px, py) 离擦掉的这一笔多远(涂抹 = 到笔走过的线的距离减去笔的半径;圈起来填满 = 在圈里是 0,圈外是到圈边的距离) */
+function eraseGap(st: SketchStroke, px0: number, py: number): number {
+  const p = st.pts;
+  const px = near(px0, p[0]);
+  const m = p.length >> 1;
+  let d2 = Infinity;
+  let inside = false;
+  for (let a = 0; a < m; a++) {
+    const b = st.fill ? (a + m - 1) % m : a === 0 ? 0 : a - 1;
+    const ax = p[2 * a];
+    const ay = p[2 * a + 1];
+    const bx = p[2 * b];
+    const by = p[2 * b + 1];
+    d2 = Math.min(d2, segDist2(px, py, ax, ay, bx, by));
+    if (st.fill && ay > py !== by > py && px < ((bx - ax) * (py - ay)) / (by - ay) + ax) inside = !inside;
+  }
+  if (inside) return 0;
+  return Math.max(0, Math.sqrt(d2) - (st.fill ? 0 : st.r));
+}
+/** 擦掉的这一笔碰到了哪几处放下的火山、湖、河(下标,从小到大):圈碰到圈(火山、湖按半径的一半算),河有一段碰到就算 */
+export function erasedOps(ops: readonly TerrainOp[], st: SketchStroke): number[] {
+  const out: number[] = [];
+  ops.forEach((op, i) => {
+    if (!ERASABLE(op.kind)) return;
+    if (isPointKind(op.kind)) {
+      if (eraseGap(st, op.pts[0], op.pts[1]) < 0.5 * op.r) out.push(i);
+      return;
+    }
+    // 河:每一段按半个笔宽一步取点(两点隔得远时,擦过段的中间也算碰到)
+    const p = op.pts;
+    const step = Math.max(1, 0.25 * op.r);
+    for (let k = 0; k < p.length; k += 2) {
+      const bx = k === 0 ? p[0] : near(p[k], p[k - 2]);
+      const n = k === 0 ? 1 : Math.min(64, Math.ceil(Math.hypot(bx - p[k - 2], p[k + 1] - p[k - 1]) / step));
+      for (let j = 1; j <= n; j++) {
+        const t = j / n;
+        const x = k === 0 ? p[0] : p[k - 2] + (bx - p[k - 2]) * t;
+        const y = k === 0 ? p[1] : p[k - 1] + (p[k + 1] - p[k - 1]) * t;
+        if (eraseGap(st, x, y) < 0.5 * op.r) return void out.push(i);
+      }
+    }
+  });
+  return out;
 }
 
 /** 单击地图:火山、湖在这里放一处(返回 true = 这一下归编辑地形管,不看详情) */
@@ -244,8 +358,10 @@ export function terrainClick(w: [number, number] | null): boolean {
     return true;
   }
   if (!w || (tool.tool !== 'volcano' && tool.tool !== 'lake')) return true;
-  const [r, s] = PRESETS[tool.tool][tool.size];
-  addOp({ kind: tool.tool, pts: [Math.round(w[0]), Math.round(w[1])], r, s });
+  const r = tool.place[tool.tool];
+  const op: TerrainOp = { kind: tool.tool, pts: [Math.round(w[0]), Math.round(w[1])], r, s: presetStrength(tool.tool, r) };
+  if (tool.tool === 'lake') op.e = tool.shore;
+  addOp(op);
   return true;
 }
 
@@ -267,9 +383,19 @@ export function terrainCancel(): boolean {
 // ---------------------------------------------------------------------------
 // 撤销 / 重做:草图的笔和放的一处按先后混在一起
 
-type Step = 's' | 'o';
-type Item = { t: 's'; v: SketchStroke } | { t: 'o'; v: TerrainOp };
-/** 这次编辑里加的先后('s' 草图的一笔,'o' 放的一处);和 editsStore 里两份列表的末尾对得上 */
+/**
+ * 擦掉的一笔顺带去掉了几处放下的:去掉之前 / 之后的地形修改,和那时的先后记录(撤销 / 重做时整个换回去;
+ * 去掉的那几处在 before 里,它们在先后记录里的 'o' 在 orderBefore 里)
+ */
+interface EraseStep {
+  before: readonly TerrainOp[];
+  after: readonly TerrainOp[];
+  orderBefore: Step[];
+  orderAfter: Step[];
+}
+type Step = 's' | 'o' | EraseStep;
+type Item = { t: 's'; v: SketchStroke } | { t: 'o'; v: TerrainOp } | { t: 'x'; v: SketchStroke; x: EraseStep };
+/** 这次编辑里加的先后('s' 草图的一笔,'o' 放的一处,EraseStep 擦掉的一笔连同去掉的几处);和 editsStore 里两份列表的末尾对得上 */
 let order: Step[] = [];
 /** 撤掉的(最后撤的在最后),和撤完时的样子(之后又改过别的 = 不能重做) */
 let redo: Item[] = [];
@@ -291,7 +417,7 @@ function trimOrder() {
   // 从后往前对:多出来的(被别处清掉、撤掉的)去掉
   const keep: Step[] = [];
   for (let i = order.length - 1; i >= 0; i--) {
-    if (order[i] === 's' ? ns-- > 0 : no-- > 0) keep.push(order[i]);
+    if (order[i] !== 'o' ? ns-- > 0 : no-- > 0) keep.push(order[i]);
   }
   order = keep.reverse();
 }
@@ -305,6 +431,19 @@ function addOp(op: TerrainOp) {
   trimOrder();
   if (!addTerrainOp(op)) return;
   order.push('o');
+  redo = [];
+}
+/** 擦掉的一笔,顺带去掉 hit 这几处(地形修改的下标);先后记录里它们的 'o' 一起去掉 */
+function eraseStroke(st: SketchStroke, hit: readonly number[]) {
+  trimOrder();
+  const before = getEdits().terrain;
+  const after = before.filter((_, i) => !hit.includes(i));
+  // 先后记录里的 'o' 对着地形修改列表的末尾那几处
+  let j = before.length - order.filter((x) => x === 'o').length;
+  const orderAfter = order.filter((x) => x !== 'o' || !hit.includes(j++));
+  const x: EraseStep = { before, after, orderBefore: order, orderAfter };
+  if (!addEraseStroke(st, after, tool.coast)) return;
+  order = [...orderAfter, x];
   redo = [];
 }
 /**
@@ -333,7 +472,12 @@ export function undoTerrain() {
     return;
   }
   if (!canRedo(e.terrain, e.sketch)) redo = [];
-  if (t === 's') {
+  if (typeof t === 'object') {
+    redo.push({ t: 'x', v: e.sketch!.strokes[ns - 1], x: t });
+    if (ns === 1) setTerrainTool({ coast: sketchCoast(e.sketch) });
+    undoEraseStroke(t.before);
+    order = t.orderBefore.slice();
+  } else if (t === 's') {
     redo.push({ t, v: e.sketch!.strokes[ns - 1] });
     // 撤掉最后一笔、草图没了:记下它的海岸线,重做时照样
     if (ns === 1) setTerrainTool({ coast: sketchCoast(e.sketch) });
@@ -348,8 +492,12 @@ export function redoTerrain() {
   if (!canRedo(e.terrain, e.sketch)) return;
   const it = redo.pop()!;
   trimOrder();
-  const ok = it.t === 's' ? addSketchStroke(it.v, tool.coast) : addTerrainOp(it.v);
-  if (ok) order.push(it.t);
+  if (it.t === 'x') {
+    if (addEraseStroke(it.v, it.x.after, tool.coast)) order = [...it.x.orderAfter, it.x];
+  } else {
+    const ok = it.t === 's' ? addSketchStroke(it.v, tool.coast) : addTerrainOp(it.v);
+    if (ok) order.push(it.t);
+  }
   const a = getEdits();
   redoAt = { terrain: a.terrain, sketch: a.sketch };
 }
@@ -452,6 +600,8 @@ export function useTerrainKeys() {
 function toolHint(t: TerrainToolState, phone: boolean): string {
   const place = isPlaceTool(t.tool) ? PLACE.find((x) => x.id === t.tool)! : null;
   if (place) return place.hint;
+  const climate = CLIMATE.find((x) => x.id === t.tool);
+  if (climate) return phone ? `${climate.hint.split('：')[0]}，只改气候、不动地形。` : t.method === 'lasso' ? LASSO_HINT : climate.hint;
   if (t.method === 'lasso') return LASSO_HINT;
   return phone ? PHONE_HINT : PAINT.find((x) => x.id === t.tool)!.hint;
 }
@@ -464,6 +614,7 @@ export function useTerrainHint(): string {
   const d = useDraft();
   if (d.draft && lassoOn(t)) return lassoCaption(t);
   if (isPlaceTool(t.tool) || t.method === 'lasso') return toolHint(t, false).replace(/。$/, '');
+  if (t.tool === 'erase') return '按住拖动来擦；碰到的火山、湖、河整个去掉';
   return '按住拖动来涂；松手后星球照着重新长';
 }
 
@@ -487,6 +638,12 @@ export function TerrainPanel({ disabled, phone = false, mode = 'random', extra }
   const rest = sk?.rest ?? 'auto';
   const redoOk = canRedo(edits.terrain, sk);
 
+  // 照手绘图的面板没有气候那一页:从随机生成那边带过来的气候笔换回陆地;手机上改气候只有涂抹
+  useEffect(() => {
+    if (image && isClimateTool(t.tool)) setTerrainTool({ tool: 'land' });
+    else if (phone && isClimateTool(t.tool) && t.method === 'lasso') setTerrainTool({ method: 'paint' });
+  }, [image, phone, t.tool, t.method]);
+
   useEffect(() => {
     if (!confirm) return;
     const id = setTimeout(() => setConfirm(false), 3000);
@@ -494,6 +651,8 @@ export function TerrainPanel({ disabled, phone = false, mode = 'random', extra }
   }, [confirm]);
 
   const place = isPlaceTool(t.tool) ? PLACE.find((x) => x.id === t.tool)! : null;
+  // 随机生成的面板分两页:气候四支笔一页,其余(涂一片、放一处)一页
+  const climatePage = !image && isClimateTool(t.tool);
 
   const tile = (id: EditTool, name: string, mark: ReactNode) => (
     <button key={id} className={`tp-tile${t.tool === id ? ' on' : ''}`} role="radio" aria-checked={t.tool === id} data-tool={id} onClick={() => setTerrainTool({ tool: id })}>
@@ -503,7 +662,21 @@ export function TerrainPanel({ disabled, phone = false, mode = 'random', extra }
   );
   const paintTiles = PAINT.map((x) => tile(x.id, x.name, <i className={`tp-sw k-${x.id}`} />));
   const placeTiles = PLACE.map((x) => tile(x.id, x.name, <Icon name={x.icon} size={18} />));
-  const toolList = phone ? (
+  const climateTiles = CLIMATE.map((x) => tile(x.id, x.name, <i className={`tp-sw k-${x.id}`} />));
+  const pages = (
+    <div className="tp-seg tp-pages" role="tablist" aria-label="编辑什么" data-act="terrain-page">
+      {(['shape', 'climate'] as const).map((p) => (
+        <button key={p} role="tab" aria-selected={climatePage === (p === 'climate')} className={climatePage === (p === 'climate') ? 'on' : ''} data-v={p} onClick={() => setTerrainPage(p)}>
+          {p === 'climate' ? '气候' : '地貌'}
+        </button>
+      ))}
+    </div>
+  );
+  const toolList = climatePage ? (
+    <div className={phone ? 'tp-strip' : 'tp-tools'} role="radiogroup" aria-label="工具">
+      {phone ? climateTiles : <div className="tp-tiles c4">{climateTiles}</div>}
+    </div>
+  ) : phone ? (
     <div className="tp-strip" role="radiogroup" aria-label="工具">
       {paintTiles}
       <span className="tp-bar" />
@@ -522,21 +695,36 @@ export function TerrainPanel({ disabled, phone = false, mode = 'random', extra }
   const penOpts = (
     <div className="tp-opts">
       {place ? (
-        <Seg label="大小" act="terrain-place-size" items={place.sizes.map((name, i) => ({ v: i as 0 | 1 | 2, name }))} value={t.size} onPick={(v) => setTerrainTool({ size: v })} />
+        <>
+          <Slider
+            label={place.size}
+            act="terrain-place-size"
+            min={PLACE_R[place.id][0]}
+            max={PLACE_R[place.id][1]}
+            value={t.place[place.id]}
+            onChange={(v) => setTerrainTool({ place: { ...t.place, [place.id]: v } })}
+            show={t.place[place.id]}
+          />
+          {place.id === 'lake' && <Seg label="湖岸" act="terrain-shore" items={SHORES} value={t.shore} onPick={(v) => setTerrainTool({ shore: v })} />}
+        </>
       ) : (
         <>
-          <Seg
-            label="画法"
-            act="terrain-method"
-            items={[
-              { v: 'paint' as const, name: '涂抹' },
-              { v: 'lasso' as const, name: '圈起来填满' },
-            ]}
-            value={t.method}
-            onPick={(v) => setTerrainTool({ method: v })}
-          />
+          {/* 手机上改气候只有涂抹(卡片矮,少一行) */}
+          {!(phone && isClimateTool(t.tool)) && (
+            <Seg
+              label="画法"
+              act="terrain-method"
+              items={[
+                { v: 'paint' as const, name: '涂抹' },
+                { v: 'lasso' as const, name: '圈起来填满' },
+              ]}
+              value={t.method}
+              onPick={(v) => setTerrainTool({ method: v })}
+            />
+          )}
           <SizeSlider r={t.r} />
           {t.tool === 'mountain' && <Seg label="高低" act="terrain-height" items={HEIGHTS.map((name, i) => ({ v: i as 0 | 1 | 2, name }))} value={t.h} onPick={(v) => setTerrainTool({ h: v })} />}
+          {isClimateTool(t.tool) && <Seg label="程度" act="terrain-level" items={LEVELS.map((name, i) => ({ v: i as 0 | 1 | 2, name }))} value={t.level} onPick={(v) => setTerrainTool({ level: v })} />}
         </>
       )}
       {image && coastSeg}
@@ -609,6 +797,7 @@ export function TerrainPanel({ disabled, phone = false, mode = 'random', extra }
             完成
           </button>
         </div>
+        {pages}
         <div className="sb-group">{toolList}</div>
       </section>
       <div className="sb-group">
@@ -687,9 +876,12 @@ const pathOf = (pts: readonly number[]) => {
   return d;
 };
 
-/** 一处修改在地图上的记号:圈(火山、湖)、带子 + 中线(山脉)、带子(画笔)、亮蓝的线(河);线都描一道暗边,浅色、深色的底上都看得清 */
-function OpMark({ op, pending }: { op: TerrainOp; pending: boolean }) {
-  const cls = `tt-mark k-${op.kind}${pending ? ' pending' : ''}`;
+/**
+ * 一处修改在地图上的记号:圈(火山、湖)、带子 + 中线(山脉)、带子(画笔、改气候;圈起来填满的是一块)、亮蓝的线(河);
+ * 线都描一道暗边,浅色、深色的底上都看得清。doomed = 正在擦的这一笔碰到了它(描红,松手就去掉)
+ */
+function OpMark({ op, pending, doomed = false }: { op: TerrainOp; pending: boolean; doomed?: boolean }) {
+  const cls = `tt-mark k-${op.kind}${pending ? ' pending' : ''}${doomed ? ' doomed' : ''}`;
   if (isPointKind(op.kind))
     return (
       <g className={cls}>
@@ -698,6 +890,14 @@ function OpMark({ op, pending }: { op: TerrainOp; pending: boolean }) {
       </g>
     );
   const d = pathOf(op.pts);
+  if (op.f)
+    return (
+      <g className={`${cls} fill`}>
+        <path className="tt-area" d={`${d}Z`} />
+        <path className="tt-halo" d={`${d}Z`} vectorEffect="non-scaling-stroke" />
+        <path className="tt-line" d={`${d}Z`} vectorEffect="non-scaling-stroke" />
+      </g>
+    );
   if (op.kind === 'river')
     return (
       <g className={cls}>
@@ -736,6 +936,7 @@ function StrokeMark({ s, pending, pat }: { s: SketchStroke; pending: boolean; pa
 const sameStroke = (a: SketchStroke, b: SketchStroke) =>
   a === b || (a.kind === b.kind && a.r === b.r && a.h === b.h && a.fill === b.fill && a.pts.length === b.pts.length && a.pts.every((v, i) => v === b.pts[i]));
 const NO_STROKES: readonly SketchStroke[] = [];
+const NO_HIT: number[] = [];
 const disp = (pts: readonly number[], wrap: number) => (wrap ? displayPts(pts, wrap) : (pts as number[]));
 
 /**
@@ -845,12 +1046,18 @@ export function TerrainOverlay({
     const image = t.show && img ? { img, pending: !shownImg || shownImg.cells !== img.cells || (shownImg.at ?? 0) !== (img.at ?? 0) } : null;
     return sketchLayer(t.show ? strokes : NO_STROKES, sameS, image, erasePts && { kind: 'erase', r: t.r, pts: erasePts }, uid, width, height, wrap);
   }, [t.on, t.show, t.r, strokes, shownStrokes, img, shownImg, erasePts, uid, width, height, wrap]);
+  // 正在擦的这一笔碰到了哪几处(涂抹、圈起来都算;圈的时候按连上起点的圈算)
+  const erasing = t.on && dr.draft && t.tool === 'erase' ? dr.draft : null;
+  const doomed = useMemo(
+    () => (erasing ? erasedOps(ops, { kind: 'erase', r: t.r, pts: erasing, ...(t.method === 'lasso' && erasing.length >= 6 ? { fill: 1 as const } : {}) }) : NO_HIT),
+    [erasing, ops, t.r, t.method],
+  );
   const opMarks = useMemo(() => {
-    if (!t.on || !t.show) return null;
+    if (!t.on || (!t.show && !doomed.length)) return null;
     let same = 0;
     while (same < ops.length && same < shown.length && sameTerrain([ops[same]], [shown[same]])) same++;
-    return ops.map((op, i) => <OpMark key={i} op={{ ...op, pts: disp(op.pts, wrap) }} pending={i >= same} />);
-  }, [t.on, t.show, ops, shown, wrap]);
+    return ops.map((op, i) => (t.show || doomed.includes(i) ? <OpMark key={i} op={{ ...op, pts: disp(op.pts, wrap) }} pending={i >= same} doomed={doomed.includes(i)} /> : null));
+  }, [t.on, t.show, ops, shown, wrap, doomed]);
   if (!t.on) return null;
   if (importing)
     return (
@@ -868,6 +1075,7 @@ export function TerrainOverlay({
   if (dr.draft) {
     const pts = dr.draft;
     if (t.tool === 'river') draftMark = <OpMark op={{ kind: 'river', pts, r, s: 1 }} pending />;
+    else if (isClimateTool(t.tool) && t.method !== 'lasso') draftMark = <OpMark op={{ kind: t.tool, pts, r, s: 1 }} pending />;
     else if (!isPlaceTool(t.tool) && t.method === 'lasso') {
       const n = pts.length;
       draftMark = (

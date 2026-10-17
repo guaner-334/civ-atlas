@@ -20,7 +20,7 @@ import { mulberry32, subSeed, clamp, keyed, smoothstep } from './util';
 import { geometryOf, sphereSpacing } from './geometry';
 import type { TerrainOp } from './edits';
 import { computeCurrents, type Currents } from './currents';
-import { TERRAIN_MAX_OPS, UPHEAVALS_MAX, UPHEAVAL_OPS_MAX, applyTerrainTectonics, carveLakes, carveRivers, cleanTerrainOps, volcanoPeaks } from './terrainEdits';
+import { TERRAIN_MAX_OPS, UPHEAVALS_MAX, UPHEAVAL_OPS_MAX, applyClimatePens, applyTerrainTectonics, carveLakes, carveRivers, cleanTerrainOps, volcanoPeaks } from './terrainEdits';
 import { sketchUsed, type Sketch } from './sketch';
 
 /**
@@ -82,6 +82,11 @@ export interface River {
    * 画在任何投影上都按这条链取点(主图上的 x、y 跨 180° 经线时会跳到另一边)
    */
   cells: Int32Array;
+  /**
+   * 作者画的河(改地形的 `river`)经过的点:画笔的半宽(世界坐标,取整),0 = 这一点不是画的;没有画的河经过 = 不给。
+   * 只给地图显示用(画的河全图也画得出来,见 render/common.ts 的 shownRivers),不进推演
+   */
+  drawn?: Uint8Array;
 }
 
 export interface World {
@@ -382,6 +387,8 @@ export function generateWorld(params: WorldParams, progress: Progress = () => {}
   progress('风与降水', 0.72);
   const currents = computeCurrents(mesh, water);
   const clim = computeClimate(mesh, elevation, water, climateP, currents);
+  // 改地形:作者涂的更湿 / 更干 / 更暖 / 更冷
+  if (ops.length) applyClimatePens(mesh, clim.temperature, clim.precipitation, ops);
   const seaIce = computeSeaIce(mesh, elevation, water, clim.temperature, clim.windX, clim.windY, p.seed);
 
   // ---- 水系 ----
@@ -492,7 +499,14 @@ function traceRivers(
       visited[r] = 1;
       i = r;
     }
-    if (pts.length >= 6) rivers.push({ pts: Float32Array.from(pts), cells: Int32Array.from(chain) });
+    if (pts.length < 6) continue;
+    const river: River = { pts: Float32Array.from(pts), cells: Int32Array.from(chain) };
+    // 作者画的河:每个点记下画笔的半宽(入湖口 / 入海口那一点取旁边的陆地块),只给地图显示用
+    if (forced && chain.some((c) => forced[c])) {
+      const k = chain.length;
+      river.drawn = Uint8Array.from(chain, (c, j) => forced[water[c] === 0 ? c : chain[j === 0 ? Math.min(1, k - 1) : j - 1]]);
+    }
+    rivers.push(river);
   }
   return rivers;
 }
