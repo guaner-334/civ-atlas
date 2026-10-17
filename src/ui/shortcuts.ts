@@ -186,7 +186,7 @@ export const SHORTCUT_GROUPS: readonly { title: string; rows: readonly { text: s
     title: '地图',
     rows: [
       { text: '放大 / 缩小', keys: ['zoomIn', 'zoomOut'] },
-      { text: '政区、民族、信仰、地形、实景', keys: ['layer1', 'layer2', 'layer3', 'layer4', 'layer5'] },
+      { text: '填色：国家、民族、信仰、不填', keys: ['layer1', 'layer2', 'layer3', 'layer4'] },
       { text: '收起 / 展开左边的卡片', keys: ['side'] },
       { text: '取消选中，关掉弹出的东西', keys: ['esc'] },
     ],

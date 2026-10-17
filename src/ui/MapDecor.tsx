@@ -17,7 +17,8 @@ import { drawGraticule, drawNeatOutline, type MapProj } from '../render/projecti
 import { mapBoxOf, placeOnScreen, visibleBox } from './mapWrap';
 import { useGraticuleLines } from './projection';
 
-export function MapDecor({ world, style, view, mp = null }: { world: World; style: string; view: { k: number; x: number; y: number }; mp?: MapProj | null }) {
+/** ink:经纬网按哪种底色挑墨色(不给 = 和 style 一样;白模是浅底,给 'data') */
+export function MapDecor({ world, style, ink = style, view, mp = null }: { world: World; style: string; ink?: string; view: { k: number; x: number; y: number }; mp?: MapProj | null }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const grat = useGraticuleLines();
 
@@ -59,14 +60,14 @@ export function MapDecor({ world, style, view, mp = null }: { world: World; styl
     const s = (vis.bw / world.width) * vis.k * dpr;
     const v = { s, ox: (vis.frameX - vis.x0) * vis.k * dpr, oy: -vis.y0 * vis.k * dpr, k: vis.k };
     // 经纬网:等距圆柱时跟着地图(世界坐标,地图框左边起算),弯边投影时在地图平面上(地图框就是外框)
-    if (grat) drawGraticule(ctx, mp, world.width, world.height, { s, ox: -vis.x0 * vis.k * dpr, oy: v.oy }, style, grat, dpr);
+    if (grat) drawGraticule(ctx, mp, world.width, world.height, { s, ox: -vis.x0 * vis.k * dpr, oy: v.oy }, ink, grat, dpr);
     if (style === 'fantasy') {
       drawPaperVignette(ctx, world.width, world.height, v);
       if (mp) drawProjFrame(ctx, mp, v);
       else drawFrame(ctx, world.width, world.height, v);
     } else if (mp) drawNeatOutline(ctx, mp, v, style, dpr);
     (window as unknown as { __wfDecor?: unknown }).__wfDecor = { ms: performance.now() - t0, w: W, h: H, proj: mp?.def.id ?? 'equirect', grat };
-  }, [world, style, view, tick, mp, grat]);
+  }, [world, style, ink, view, tick, mp, grat]);
 
   return <canvas ref={ref} className="decor" style={{ pointerEvents: 'none', display: 'none' }} />;
 }

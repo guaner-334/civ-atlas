@@ -26,6 +26,8 @@ export interface LongPanelProps {
   phone: boolean;
   /** 屏幕上的画风(面板里写一句"现在是手绘") */
   style: Style;
+  /** 屏幕上的底图名(手绘、卫星、白模、高程……) */
+  baseName?: string;
 }
 
 const SCOPES = [
@@ -117,7 +119,7 @@ function PickRow({ full, id, phone, onOpen }: { full: Civ; id: number | null; ph
   );
 }
 
-export function LongPanel({ phone, style }: LongPanelProps) {
+export function LongPanel({ phone, style, baseName }: LongPanelProps) {
   const s = useLong();
   const src = useFilmSource();
   const full = src?.full ?? null;
@@ -285,7 +287,7 @@ export function LongPanel({ phone, style }: LongPanelProps) {
           <input className="film-field" value={title} maxLength={40} data-act="long-title" onChange={(e) => setLong({ title: e.target.value })} />
         </div>
       </div>
-      {!s.ask && <div className="film-fine">地图照屏幕上的画风（现在是{STYLE_NAME[style]}）。选中了一个国家时，范围默认是「一国」。</div>}
+      {!s.ask && <div className="film-fine">地图照屏幕上的画风（现在是{baseName ?? STYLE_NAME[style]}）。选中了一个国家时，范围默认是「一国」。</div>}
       <div className="film-foot">
         {s.ask && many ? (
           <div className="long-ask">

@@ -17,7 +17,7 @@ import type { Civ, Year } from '../gen/civ/types';
 import type { LayerId } from './layers';
 import { renderLayer } from './layers';
 import type { CivDrawParams, CivShow, CivStyle } from './civ/overlay';
-import { drawMapCiv, drawMapDecor, drawMapLabels, drawMapTerrain, drawExportMarks, type ExportMapParams } from './export';
+import { drawMapCiv, drawMapDecor, drawMapLabels, drawMapTerrain, drawExportMarks, inkStyle, type ExportMapParams } from './export';
 import { DETAIL_K, drawTerrainDetail, drawTerrainProjected } from './detail';
 import { detailCache, drawCivDetail, drawSelectionDetail, releaseDetailCache, type DetailCache } from './civ/detail';
 import { civLabelChars, civLabelItems, civMapLayer, labelViewExtras } from './civ/labels';
@@ -30,6 +30,7 @@ import { ensureFonts } from './labels/fonts';
 import { canvasMeasure, drawMarks, layoutMarks, markStyle, placedTextBoxes, type MarkFrame, type MarkItem } from './marks';
 import { drawGraticule, labelProjection, projector, reprojectImage, type MapProj, type ProjectionId } from './projection';
 import { nearX, wrapOf } from './common';
+import type { SurfaceLook } from './surface';
 
 type AnyCanvas = HTMLCanvasElement | OffscreenCanvas;
 
@@ -47,6 +48,8 @@ export interface ShotScene {
   geo?: Civ;
   style: CivStyle;
   layer: LayerId;
+  /** 写实风的画法(不给 = 经典卫星) */
+  look?: SurfaceLook;
   show: CivShow;
   /** 整张地图:投影、图片正中的世界 x、经纬网(和屏幕上一样;见 render/export.ts 的 ExportMapParams) */
   projection?: ProjectionId;
@@ -117,7 +120,7 @@ export class MapShot {
 
   private params(year: Year, civ: Civ): ExportMapParams {
     const s = this.scene;
-    return { world: s.world, raster: s.raster, civ, style: s.style, layer: s.layer, year, show: s.show, center: s.center, projection: s.projection, graticule: s.graticule, res: s.res };
+    return { world: s.world, raster: s.raster, civ, style: s.style, layer: s.layer, look: s.look, year, show: s.show, center: s.center, projection: s.projection, graticule: s.graticule, res: s.res };
   }
 
   /** 画布像素 / 世界单位、字放大几倍、画布左上角的世界坐标(一块) */
@@ -136,7 +139,7 @@ export class MapShot {
   /** 地形(只画一次) */
   private terrainCanvas(): AnyCanvas {
     if (this.terrain) return this.terrain;
-    const { world, raster, style, layer } = this.scene;
+    const { world, raster, style, layer, look } = this.scene;
     if (this.area.kind === 'whole') {
       const t = makeCanvas(raster.w, raster.h);
       drawMapTerrain(ctx2d(t), this.params(0, this.scene.civ), makeCanvas);
@@ -151,13 +154,13 @@ export class MapShot {
     const view = { s: v.s, ox: v.ox, oy: v.oy, k: Math.max(1, v.k) };
     if (this.scene.graticule) {
       const d = makeCanvas(this.w, this.h);
-      drawGraticule(ctx2d(d), v.mp, world.width, world.height, view, style, this.scene.graticule, v.dpr);
+      drawGraticule(ctx2d(d), v.mp, world.width, world.height, view, inkStyle({ style, look }), this.scene.graticule, v.dpr);
       this.decor = d;
     }
     if (v.mp) {
       ctx.fillStyle = style === 'fantasy' ? '#efe2c2' : '#12161c';
       ctx.fillRect(0, 0, this.w, this.h);
-      if (style === 'fantasy' || style === 'realistic') drawTerrainProjected(ctx, world, raster, style, v.mp, view);
+      if (style === 'fantasy' || style === 'realistic') drawTerrainProjected(ctx, world, raster, style, v.mp, view, look);
       else {
         const src = makeCanvas(raster.w, raster.h);
         renderLayer(ctx2d(src), world, raster, layer);
@@ -183,7 +186,7 @@ export class MapShot {
       ctx.beginPath();
       ctx.rect(c0, 0, c1 - c0, this.h);
       ctx.clip();
-      if (style === 'fantasy' || style === 'realistic') drawTerrainDetail(ctx, world, raster, style, { ...view, ox: view.ox + shift }, true);
+      if (style === 'fantasy' || style === 'realistic') drawTerrainDetail(ctx, world, raster, style, { ...view, ox: view.ox + shift }, true, look);
       else {
         if (!layerImg) {
           layerImg = makeCanvas(raster.w, raster.h);

@@ -227,7 +227,7 @@ import { useAiOn } from '../ai/client';
 import { Globe, getGlobeOn, setGlobeOn, useGlobeOn, type GlobeApi } from './Globe';
 import { setupAi } from '../ai/setup';
 import { ToastBar, clearToast, showToast } from './Toast';
-import { DRAFT_SEG, FirstHint, HoverCard, MapBar, MapControls, OldSiteBadge, PhoneButtons, SEG_LAYERS, hintSeen, markHintSeen } from './Corners';
+import { DRAFT_SEG, FirstHint, HoverCard, MapBar, MapControls, OldSiteBadge, PhoneButtons, hintSeen, markHintSeen } from './Corners';
 import { offerSnapshot, startResults } from './resultStore';
 import { BETA_SITE, OLD_SITE, OWN_KEY, oldSiteFor, oldSiteNote, openInLatest, openOriginal, plainSave } from './oldSite';
 import type { ToastAction } from './toastStore';
@@ -236,7 +236,28 @@ import { PhoneSheet } from './PhoneSheet';
 import { useLayerThumbs } from './LayerPopover';
 import { WorldOverview } from './WorldOverview';
 import { hoverInfo, probeLines, type HoverInfo } from './hoverInfo';
-import { layerDark, layerDef, layerFromUrl, layerOf, layerShow, type MapLayer, type Style } from './mapLayers';
+import {
+  FILL_KEYS,
+  baseDark,
+  baseLook,
+  baseName,
+  baseOf,
+  baseThumb,
+  fillOf,
+  fillShow,
+  layerOf,
+  layerParts,
+  mapViewFromUrl,
+  writeMapView,
+  type BaseId,
+  type FillId,
+  type MapLayer,
+  type MapView as BaseFill,
+  type SatLook,
+  type Style,
+  type ThumbId,
+} from './mapLayers';
+import type { SurfaceLook } from '../render/surface';
 import {
   TerrainOverlay,
   getTerrainTool,
@@ -280,16 +301,20 @@ function readUrl() {
     const n = v === null || v.trim() === '' ? NaN : Number(v);
     if (Number.isFinite(n)) params[k] = Math.min(PARAM_RANGE[k][1], Math.max(PARAM_RANGE[k][0], n));
   }
-  // 画风 / 数据图层:旧链接的 style=、layer= 照旧;没有 style= 时 layer= 是新的图层名(政区、民族……,见 mapLayers.ts)
+  // 底图 / 填色:新链接是 map=、fill=、sat=;旧链接的 style=、layer=、civ= 照旧认(实景 = 经典卫星;见 mapLayers.ts)
   const qs = q.get('style');
   const ql = q.get('layer');
-  const mapLayer = layerFromUrl(q);
+  const mapView = mapViewFromUrl(q);
   let style: Style = qs === 'realistic' || qs === 'data' ? qs : 'fantasy';
   let layer: LayerId = LAYERS.some((l) => l.id === ql) ? (ql as LayerId) : 'biomes';
-  if (mapLayer) {
-    const d = layerDef(mapLayer);
-    style = d.style;
-    if (d.data) layer = d.data;
+  // 卫星画法:网址里有就照它;旧链接的写实按经典;都没有 = 细节(新的默认)
+  const sat: SatLook = mapView?.sat ?? (qs === 'realistic' ? 'classic' : 'detail');
+  let surface: SurfaceLook = sat;
+  if (mapView) {
+    const b = baseLook(mapView.base, sat);
+    style = b.style;
+    if (b.data) layer = b.data;
+    if (b.look) surface = b.look;
   }
   // 分享链接:# 后面是整份存档(gen/savefile.ts 的 encodeShare)
   const share = isShareHash(location.hash) ? location.hash : null;
@@ -314,26 +339,23 @@ function readUrl() {
   // 推演年数(years=):新建中、还没存下的世界(new=)刷新、后退回来还记得弹窗里开的年数
   const yq = q.get('years');
   const years = yq === null ? undefined : cleanEndYear(Number(yq));
-  return { params, style, layer, mapLayer, share, shortShare, proj, lon, grat, iso, gen, years };
+  return { params, style, layer, surface, sat, mapView, share, shortShare, proj, lon, grat, iso, gen, years };
 }
 
 /**
- * 换了图层:写进网址(layer= 新的图层名;去掉旧的 style=,civ= 里的国家 / 民族 / 信仰 / 时代 / 物产开关交给图层管),刷新、复制网址都还在
+ * 换了底图 / 填色 / 卫星画法:写进网址(map=、fill=、sat=;去掉旧的 style=、layer=,civ= 里的国家 / 民族 / 信仰开关交给填色管),
+ * 刷新、复制网址都还在
  */
-function writeLayerUrl(id: MapLayer) {
-  const q = new URLSearchParams(location.search);
-  q.delete('style');
-  const civ = q.get('civ');
-  if (civ !== null) {
-    const rest = civ.split(/[,+ ]/).filter((k) => k && !/^-?(polities|cultures|faiths|eras|resources)$/.test(k));
-    if (rest.length) q.set('civ', rest.join(','));
-    else q.delete('civ');
-  }
-  // 默认的"政区"可以省掉(没有 civ= 时才省:有 civ= 的旧链接按它认图层)
-  if (id === 'political' && !q.has('civ')) q.delete('layer');
-  else q.set('layer', id);
-  const next = `?${q}`;
+function writeViewUrl(v: { base: BaseId; fill: FillId; sat: SatLook }) {
+  const next = `?${writeMapView(new URLSearchParams(location.search), v)}`;
   if (next !== location.search) navUrl(next);
+}
+
+/** 底图在缓存里的键:手绘 / 写实(经典 = realistic,其余 realistic:画法)/ data:数据图层 */
+export function baseKeyOf(style: Style, layer: LayerId, look: SurfaceLook): string {
+  if (style === 'data') return `data:${layer}`;
+  if (style === 'realistic') return look === 'classic' ? 'realistic' : `realistic:${look}`;
+  return style;
 }
 
 /** 一个要打开的世界:生成(或直接用正在看的这一个)→ 套上修改 → 交给 saveStore 自动存 */
@@ -481,7 +503,7 @@ function navInfo(stage: Stage, t: Target | null | undefined): NavInfo {
 }
 
 /** 网址里的看法(画风、图层、投影、中央经线、经纬网、等值线):不算一步,按后退 / 前进时照现在的(nav.ts 的 url) */
-const VIEW_KEYS = ['style', 'layer', 'civ', 'proj', 'view', 'lon', 'grat', 'iso'];
+const VIEW_KEYS = ['style', 'layer', 'map', 'fill', 'sat', 'civ', 'proj', 'view', 'lon', 'grat', 'iso'];
 function keepView(from: string, to: string): string {
   const a = new URL(from);
   const b = new URL(to);
@@ -506,8 +528,12 @@ function goneToast(title: string | undefined) {
 /** 新建时能看的样式(不用历史的那几种) */
 const STUDIO_LAYERS: MapLayer[] = STUDIO_STYLES.map((x) => x.id);
 
-/** 新建时列不出来的图层(要有历史):进新建时换成"地形",建好以后换回来 */
-const HISTORY_LAYERS: MapLayer[] = ['political', 'cultures', 'faith', 'era', 'resources'];
+/** 新建时能看这组底图和填色(填色要有历史;新建界面的样式里没有地理图、白模和几种数据底图) */
+function studioView(v: { base: BaseId; fill: FillId }): boolean {
+  if (v.fill !== 'none') return false;
+  return v.base === 'satellite' || v.base === 'fantasy' || STUDIO_LAYERS.includes(v.base as MapLayer);
+}
+
 
 /**
  * 把世界写进网址:种子 + 参数(和默认值相同的省略,别人打开是同一颗星球);存着的加 w=编号,新建中还没存的加 new=1
@@ -604,8 +630,8 @@ export function App() {
   const init = useMemo(readUrl, []);
   /** 打开网页时去哪:我的世界 / 新建 / 某个世界(见 firstRoute) */
   const route = useMemo(() => firstRoute(init), [init]);
-  /** 进新建时换掉的图层(政区、民族、信仰要有历史);建好 / 打开别的世界时换回来 */
-  const draftLayerRef = useRef<MapLayer | null>(null);
+  /** 进新建时换掉的底图和填色(填色要有历史);建好 / 打开别的世界时换回来 */
+  const draftViewRef = useRef<{ base: BaseId; fill: FillId } | null>(null);
   // 网址里的投影、中央经线、经纬网:第一次渲染之前放进 store(等距圆柱的视图在世界出来以后再转过去,见 pendingLon)
   const start = useState(() => {
     setProjection(init.proj);
@@ -614,24 +640,22 @@ export function App() {
     if (isGraticuleStep(init.grat)) setGraticuleStep(init.grat);
     setContourKind(init.iso);
     setStage(route.stage, route.target?.base ?? null);
-    // 网址里给的(或默认的)图层:国家 / 民族 / 信仰开不开跟着它;新建时只看地形
-    let ml = init.mapLayer;
-    let { style, layer } = init;
-    // 新建:网址里给的是新建时能看的样式就照它,否则用实景(政区、民族要有历史;建好以后换回来)
+    // 网址里给的(或默认的)底图和填色:国家 / 民族 / 信仰开不开跟着填色;新建时只看地形
+    let mv: BaseFill | null = init.mapView;
+    let { style, layer, surface } = init;
+    // 新建:网址里给的是新建时能看的样式就照它,否则用卫星(填色要有历史;建好以后换回来)
     if (route.stage === 'draft') {
-      const now = ml ?? layerOf(style, layer, getCivShow());
-      if (!STUDIO_LAYERS.includes(now)) {
-        if (HISTORY_LAYERS.includes(now)) draftLayerRef.current = now;
-        ml = 'realistic';
+      const now = mv ?? { base: baseOf(style, layer, surface), fill: fillOf(getCivShow()) };
+      draftViewRef.current = { base: now.base, fill: now.fill };
+      if (!studioView(now)) {
+        mv = { base: 'satellite', fill: 'none' };
         style = 'realistic';
-        writeLayerUrl(ml);
-      } else draftLayerRef.current = now;
+        surface = init.sat;
+        writeViewUrl({ ...mv, sat: init.sat });
+      }
     }
-    if (ml) {
-      const d = layerDef(ml);
-      setCivShow(layerShow(d));
-    }
-    return { style, layer };
+    if (mv) setCivShow(mv.resources ? { ...fillShow(mv.fill), resources: true } : fillShow(mv.fill));
+    return { style, layer, surface, sat: init.sat };
   })[0];
   const graticule = useGraticuleLines();
   const contourKind = useContourKind();
@@ -642,6 +666,10 @@ export function App() {
   const [params, setParams] = useState<WorldParams>(route.target?.params ?? init.params);
   const [style, setStyle] = useState<Style>(start.style);
   const [layer, setLayer] = useState<LayerId>(start.layer);
+  /** 写实底图的画法(经典卫星 / 卫星 / 地理图 / 白模;不是写实底图时不用) */
+  const [surface, setSurface] = useState<SurfaceLook>(start.surface);
+  /** 卫星记着的画法(经典 / 细节):换到别的底图再换回卫星还是它 */
+  const [satLook, setSatLook] = useState<SatLook>(start.sat);
   const { stage, base: stageBase } = useStage();
   const draft = stage === 'draft';
   const home = stage === 'home';
@@ -762,23 +790,42 @@ export function App() {
     setPickHover(h?.info.pick ?? -1);
     setHoverState(h);
   };
-  // ---- 图层(政区 / 民族 / 信仰 / 地形 / 生态 / 高程 / 实景 / 板块 / 气温 / 降水)= 画风 + 数据图层 + 国家 / 民族 / 信仰开关 ----
+  // ---- 底图(手绘 / 卫星 / 地理图 / 白模 / 数据底图)× 填色(不填 / 国家 / 民族 / 信仰 = 文明层的开关) ----
   const civShow = useCivShow();
+  const mapBase = baseOf(style, layer, surface);
+  const mapFill = fillOf(civShow);
+  /** 旧的图层名(新建界面的样式、新建时的默认用) */
   const mapLayer = layerOf(style, layer, civShow);
-  const mapLayerRef = useRef(mapLayer);
-  mapLayerRef.current = mapLayer;
-  const theme = studioOn || layerDark(mapLayer) ? 'dark' : 'light';
+  /** 地形画在写实底图上时用哪种画法(别的画风不看它) */
+  const terrainLook: SurfaceLook = style === 'realistic' ? surface : 'classic';
+  const mapViewRef = useRef({ base: mapBase, fill: mapFill, sat: satLook });
+  mapViewRef.current = { base: mapBase, fill: mapFill, sat: satLook };
+  const theme = studioOn || baseDark(mapBase) ? 'dark' : 'light';
   // 挂在 body 下的弹窗(AI 设置、史书)也跟着换主题;画第一帧之前就换好(首次打开深色图层时不先闪一下浅色底)
   useLayoutEffect(() => {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
-  const applyLayer = useCallback((id: MapLayer) => {
-    const d = layerDef(id);
-    setStyle(d.style);
-    if (d.data) setLayer(d.data);
-    setCivShow(layerShow(d));
-    writeLayerUrl(id);
+  /** 换底图 / 填色 / 卫星画法(没给的照旧) */
+  const applyMapView = useCallback((patch: Partial<{ base: BaseId; fill: FillId; sat: SatLook }>) => {
+    const v = { ...mapViewRef.current, ...patch };
+    const b = baseLook(v.base, v.sat);
+    setStyle(b.style);
+    if (b.data) setLayer(b.data);
+    if (b.look) setSurface(b.look);
+    setSatLook(v.sat);
+    setCivShow(fillShow(v.fill));
+    mapViewRef.current = v;
+    writeViewUrl(v);
   }, []);
+  /** 按旧的图层名换(新建界面的样式;实景 = 卫星,用记着的画法) */
+  const applyLayer = useCallback(
+    (id: MapLayer) => {
+      const { base, fill, resources } = layerParts(id);
+      applyMapView({ base, fill });
+      if (resources) setCivShow({ resources: true });
+    },
+    [applyMapView],
+  );
   /** 第一次打开的操作提示(第一次拖动 / 缩放 / 点击之后不再出现) */
   const [hintOn, setHintOn] = useState(() => !hintSeen());
   const trashView = useTrashView();
@@ -914,7 +961,10 @@ export function App() {
   const globeOn = useGlobeOn();
   /** 等值线画不画:新建世界时、地球仪上不画 */
   const contourOn = !!contourKind && !draft && !globeOn;
-  const contourInkNow = contourKind ? contourInk(contourKind, style, layerDark(mapLayer)).line : undefined;
+  /** 等值线的墨色按哪种底色配:白模底色浅,和浅色的数据底图同一套 */
+  // 等值线、经纬网的墨色:白模是浅底,和数据底图一样用深色线
+  const contourStyle = mapBase === 'blank' ? 'data' : style;
+  const contourInkNow = contourKind ? contourInk(contourKind, contourStyle, baseDark(mapBase)).line : undefined;
   const globeApi = useRef<GlobeApi | null>(null);
   /** 世界坐标 → 屏幕坐标(地图上的事件标签、截图脚本用;下面 __wfWorldToClient 那里定义) */
   const worldToClient = useRef<WorldToClient | null>(null);
@@ -1718,15 +1768,15 @@ export function App() {
     // 进新建:默认实景(新建界面的开场就是实景;设过「新建时的默认」就是那个样式);原来的图层记下,不建就离开时换回来
     if (next === 'draft' && was !== 'draft') {
       pausePlayback();
-      const now = mapLayerRef.current;
-      // 原来就是实景也记下:新建里换了别的样式、没建就离开,也换回实景
-      draftLayerRef.current ??= now;
-      const first = getNewView()?.style ?? 'realistic';
-      if (now !== first) applyLayer(first);
+      const { base, fill } = mapViewRef.current;
+      // 原来就是卫星也记下:新建里换了别的样式、没建就离开,也换回卫星
+      draftViewRef.current ??= { base, fill };
+      const first = layerParts(getNewView()?.style ?? 'realistic');
+      if (base !== first.base || fill !== 'none') applyMapView({ base: first.base, fill: 'none' });
     }
-    if (next !== 'draft' && draftLayerRef.current) {
-      applyLayer(draftLayerRef.current);
-      draftLayerRef.current = null;
+    if (next !== 'draft' && draftViewRef.current) {
+      applyMapView(draftViewRef.current);
+      draftViewRef.current = null;
     }
     setStage(next, base);
   };
@@ -1945,7 +1995,7 @@ export function App() {
     navReplace({ page: 'world', id: t.id, title: clean });
     enterStage('world');
     // 建好的世界看政区
-    draftLayerRef.current = null;
+    draftViewRef.current = null;
     applyLayer('political');
     writeWorldUrl(targetRef.current);
     if (rawRef.current) setWorldStats(aliveAtEnd(rawRef.current));
@@ -2245,9 +2295,9 @@ export function App() {
     if (!cv || !data) return;
     const { world, raster } = data;
     const maps = mapsOf(data);
-    const key = style === 'data' ? `data:${layer}` : style;
+    const key = baseKeyOf(style, layer, surface);
     const render = (ctx: CanvasRenderingContext2D) => {
-      if (style === 'realistic') renderRealistic(ctx, world, raster);
+      if (style === 'realistic') renderRealistic(ctx, world, raster, surface);
       else if (style === 'fantasy') renderFantasy(ctx, world, raster);
       else renderLayer(ctx, world, raster, layer);
     };
@@ -2267,7 +2317,7 @@ export function App() {
       }
       const t1 = performance.now();
       const proj = terrainProj.current;
-      presentTerrain(cv, mp, { world, raster, style, src, layer: proj, moving: projMoving || terrainCovered });
+      presentTerrain(cv, mp, { world, raster, style, look: terrainLook, src, layer: proj, moving: projMoving || terrainCovered });
       mirrorCanvas(canvasCopyRef.current, null, false);
       const w = window as unknown as { __wf: unknown; __wfProj: unknown };
       w.__wfProj = { proj: mp.def.id, lon: mp.lon0, ms: performance.now() - t1 };
@@ -2291,7 +2341,7 @@ export function App() {
     // 右边再接一份(左右无限拖动)
     mirrorCanvas(canvasCopyRef.current, cv, true);
     (window as unknown as { __wf: unknown }).__wf = { ready: true, renderMs, style, layer };
-  }, [data, style, layer, mp, projMoving, terrainCovered]);
+  }, [data, style, layer, surface, terrainLook, mp, projMoving, terrainCovered]);
 
   /**
    * 某画风的整张底图(等距圆柱,和 raster 一样大):缓存里有就直接给,没有就画一张放进缓存(图层缩略图用;之后切过去也不用再画)。
@@ -2309,6 +2359,7 @@ export function App() {
       const ctx = c.getContext('2d');
       if (!ctx) return null;
       if (key === 'realistic') renderRealistic(ctx, d.world, d.raster);
+      else if (key.startsWith('realistic:')) renderRealistic(ctx, d.world, d.raster, key.slice(10) as SurfaceLook);
       else if (key === 'fantasy') renderFantasy(ctx, d.world, d.raster);
       else renderLayer(ctx, d.world, d.raster, key.slice(5) as LayerId);
       maps.set(key, c);
@@ -2316,7 +2367,53 @@ export function App() {
     return c;
   }, []);
   // 缩略图和地图画同一段:时间轴在地形大事以前时,底图是那一段的,州也要用那一段的(shownRaw)
-  const { thumbs, request: requestThumbs } = useLayerThumbs({ data, civ: shownRaw, baseCanvas }, mapLayer);
+  const { thumbs, request: requestThumbs } = useLayerThumbs({ data, civ: shownRaw, baseCanvas }, baseThumb(mapBase, satLook));
+  /** 正在画的底图(缩略图上转圈;画好之前地图先留着原来的) */
+  const [pendingBase, setPendingBase] = useState<{ base: BaseId; sat: SatLook } | null>(null);
+  const pickTok = useRef(0);
+  /**
+   * 点了一种底图(或卫星画法):缓存里有就直接换;没有就先在缩略图上转圈、让界面画一帧,画好整张再换过去;
+   * 没画出来就留在原来的底图,顶上提示带「重试」
+   */
+  const pickBase = useCallback(
+    (base: BaseId, sat: SatLook = mapViewRef.current.sat) => {
+      const d = dataRef.current;
+      const b = baseLook(base, sat);
+      const key = baseKeyOf(b.style, b.data ?? layer, b.look ?? surface);
+      clearToast('base-fail');
+      if (!d || mapsOf(d).has(key)) {
+        pickTok.current++;
+        setPendingBase(null);
+        return applyMapView({ base, sat });
+      }
+      const tok = ++pickTok.current;
+      const was = mapViewRef.current;
+      setPendingBase({ base, sat });
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => {
+          if (tok !== pickTok.current) return;
+          let ok = false;
+          try {
+            ok = !!baseCanvas(key, d);
+          } catch (e) {
+            console.error('底图没画出来', e);
+          }
+          setPendingBase(null);
+          if (dataRef.current !== d) return;
+          if (ok) return applyMapView({ base, sat });
+          showToast({
+            id: 'base-fail',
+            kind: 'error',
+            text: `${baseName(base, sat)}没画出来，地图还是${baseName(was.base, was.sat)}`,
+            more: ['年份、位置、选中的都没动'],
+            action: { label: '重试', act: 'base-retry', onClick: () => pickBase(base, sat) },
+          });
+        }),
+      );
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [applyMapView, baseCanvas, layer, surface],
+  );
 
   // ---- 回放:看世界长出来 ----
   const startReplay = () => {
@@ -3368,7 +3465,7 @@ export function App() {
   };
   const showHover = (p: [number, number], label: ReturnType<typeof pickLabelAt>, x: number, y: number) => {
     if (!data) return;
-    const info = hoverInfo({ world: data.world, raster: data.raster, civ, px: p[0], py: p[1], layer: mapLayer, label, year: getCivTime().year });
+    const info = hoverInfo({ world: data.world, raster: data.raster, civ, px: p[0], py: p[1], layer: { style, data: layer, ...fillShow(mapFill) }, label, year: getCivTime().year });
     setHover(info ? { info, x, y } : null);
   };
   const onPointerUp = (e: React.PointerEvent) => {
@@ -3691,9 +3788,17 @@ export function App() {
       case 'layer3':
       case 'layer4':
       case 'layer5': {
-        const id = (draft ? DRAFT_SEG : SEG_LAYERS)[Number(a.slice(5)) - 1];
-        if (!id) return false;
-        applyLayer(id);
+        const i = Number(a.slice(5)) - 1;
+        if (draft) {
+          const id = DRAFT_SEG[i];
+          if (!id) return false;
+          applyLayer(id);
+          return true;
+        }
+        // 平常:1–4 = 填色(国家 / 民族 / 信仰 / 不填)
+        const f = FILL_KEYS[i];
+        if (!f || !data) return false;
+        applyMapView({ fill: f });
         return true;
       }
       case 'search': {
@@ -3750,7 +3855,7 @@ export function App() {
     () => (replayOn && replay ? { w: replay.w, h: replay.h, frame: replay.frames[replay.idx] } : null),
     [replayOn, replay],
   );
-  const terrainKey = useMemo(() => ({ data, style, layer }), [data, style, layer]);
+  const terrainKey = useMemo(() => ({ data, style, layer, look: terrainLook }), [data, style, layer, terrainLook]);
   const onGlobeHover = (p: [number, number] | null) => {
     if (!p || !data || replayOn) return setHover(null);
     const [x, y] = mouseAt.current;
@@ -3885,7 +3990,19 @@ export function App() {
   }, [filmWorld, previewRaw]);
   /** 打开别人分享的世界、还没改过:地图下那条说明代替第一次打开的操作提示 */
   const sharedOn = world && !!data && !!sharedFor && curWorld?.id === sharedFor.id && curWorld.kind === 'visit' && !terrainTool.on;
-  const layerProps = { layer: mapLayer, civ, onLayer: applyLayer, thumbs, requestThumbs, disabled: !data };
+  const layerProps = {
+    base: mapBase,
+    fill: mapFill,
+    sat: satLook,
+    civ,
+    onBase: pickBase,
+    onFill: (fill: FillId) => applyMapView({ fill }),
+    onSat: (sat: SatLook) => pickBase('satellite', sat),
+    pending: pendingBase,
+    thumbs,
+    requestThumbs,
+    disabled: !data,
+  };
   /** 新建界面确认创建:建好了就让平常的地图从星球展开时正中的经线接着看(放回 1 倍) */
   const studioCreate = (title: string, lon: number): boolean => {
     // 先立刻标上"新建界面正在退场"再清掉草稿:不然新建界面会被拆掉又重装一次,重装时照手绘图的笔又被打开
@@ -3907,6 +4024,11 @@ export function App() {
     }
     return true;
   };
+  // 新建界面的「实景」是卫星(用记着的画法)
+  const satThumb = baseThumb('satellite', satLook);
+  const studioThumbs = { ...thumbs, realistic: thumbs[satThumb] };
+  const studioRequest = (ids: MapLayer[]) => requestThumbs(ids.map((id): ThumbId => (id === 'realistic' ? satThumb : id)));
+  const studioBase = (key: string) => baseCanvas(key === 'realistic' ? baseKeyOf('realistic', layer, satLook) : key);
   const studio = (draft || studioOut > 0) && (
     <Studio
       phone={narrow}
@@ -3931,9 +4053,9 @@ export function App() {
       worldBusy={worldBusy}
       layer={mapLayer}
       onLayer={applyLayer}
-      baseCanvas={baseCanvas}
-      thumbs={thumbs}
-      requestThumbs={requestThumbs}
+      baseCanvas={studioBase}
+      thumbs={studioThumbs}
+      requestThumbs={studioRequest}
       onFade={() => setStudioOut(2)}
       onGone={() => setStudioOut(0)}
     />
@@ -3949,6 +4071,8 @@ export function App() {
       className={`app${narrow ? ' phone' : ' has-side'}${chron.open ? ' chron-open' : ''}${panelOpen ? ' panel-open' : ''}${narrow && panelOpen && panelUi.sheet === 'full' ? ' sheet-full' : ''}${narrow && !selState.sel && !upOn && !filmOn && panelUi.world === 'full' ? ' world-full' : ''}${narrow && panelUi.drag ? ' sheet-drag' : ''}${narrow && selState.sel && !panelOpen ? ' sheet-away' : ''}${!narrow && world && sideUi.collapsed && !sideUi.peek ? ' side-collapsed' : ''}${picking ? ' picking' : ''}${globeOn ? ' globe-on' : ''}${data ? '' : ' booting'}${home ? ' home' : ''}${draft ? ' draft' : ''}${studioOn ? ' studio-on' : ''}${fr ? ' studio-flat' : ''}${astOpen && !narrow && !home && !draft ? ' ast-open' : ''}${preview ? ' ast-preview' : ''}${filmOn ? ' film-on' : ''}${filmOn && filmUi.mode === 'long' ? ' film-long' : ''}`}
       data-theme={theme}
       data-layer={mapLayer}
+      data-base={mapBase}
+      data-fill={mapFill}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
@@ -3998,9 +4122,9 @@ export function App() {
         </div>
         <div className="screen-layer" style={screenStyle}>
           {/* 放大后的地形细节(弯边投影:按投影一行一行铺) */}
-          {data && <TerrainDetail world={data.world} raster={data.raster} style={style} view={view} mp={mp} />}
-          {data && contourOn && <ContourLayer world={data.world} raster={data.raster} kind={contourKind!} style={style} dark={layerDark(mapLayer)} view={view} mp={mp} />}
-          {data && <MapDecor world={data.world} style={style} view={view} mp={mp} />}
+          {data && <TerrainDetail world={data.world} raster={data.raster} style={style} look={terrainLook} view={view} mp={mp} />}
+          {data && contourOn && <ContourLayer world={data.world} raster={data.raster} kind={contourKind!} style={contourStyle} dark={baseDark(mapBase)} view={view} mp={mp} />}
+          {data && <MapDecor world={data.world} style={style} ink={contourStyle} view={view} mp={mp} />}
         </div>
         {/* 放大后的文明细节层(CivLayer 放进来):盖住下面的地形,在文明底图那一层地图框之下 */}
         <div className="screen-layer" ref={setCivDetailHost} style={screenStyle} />
@@ -4038,6 +4162,7 @@ export function App() {
             geo={shownRaw}
             style={style}
             layer={layer}
+            look={terrainLook}
             terrain={canvasRef.current}
             terrainKey={terrainKey}
             replay={globeReplay}
@@ -4054,9 +4179,9 @@ export function App() {
         {data && world && <CharacterLayer civ={civ} world={data.world} raster={data.raster} api={markApi} hidden={replayOn || draft || home} />}
       </main>
       {/* 导出回放视频:地图压暗、中间的预览,或者地图上的框(FilmStage.tsx) */}
-      {filmOn && filmUi.mode === 'video' && <FilmStage phone={narrow} style={style} layer={layer} />}
+      {filmOn && filmUi.mode === 'video' && <FilmStage phone={narrow} style={style} layer={layer} look={terrainLook} />}
       {/* 竖版长图:地图压暗、中间的长图预览和右边一条全貌(手机整屏是预览;LongStage.tsx) */}
-      {filmOn && filmUi.mode === 'long' && <LongStage phone={narrow} style={style} layer={layer} />}
+      {filmOn && filmUi.mode === 'long' && <LongStage phone={narrow} style={style} layer={layer} look={terrainLook} />}
       {/* 选干预目标 / 推演中:压暗地图、浮出名牌;选中国家:国都的圆环(TargetPlates.tsx) */}
       {data && world && <TargetLayer civ={civ} world={data.world} toClient={globeOn ? globeToClient : worldToClient} resim={resim} generating={!!progress} labelAt={labelAt} />}
 
@@ -4094,7 +4219,7 @@ export function App() {
               界面都在卡片和毛玻璃按钮上,地图上不再压字、不用渐变遮罩;最近大事在世界卡片拉到顶时的列表里。
               新建时这些都不放(新建界面自己一套) */}
           {filmOn ? (
-            filmUi.mode === 'long' ? <LongPanel phone style={style} /> : <FilmPanel phone style={style} layer={layer} />
+            filmUi.mode === 'long' ? <LongPanel phone style={style} baseName={baseName(mapBase, satLook)} /> : <FilmPanel phone style={style} layer={layer} look={terrainLook} />
           ) : !draft && !selState.sel && !upOn && (
               <PhoneSheet
                 data={data}
@@ -4105,10 +4230,10 @@ export function App() {
                 replay={{ on: replayOn, ready: !!replay }}
                 onReplay={startReplay}
                 onHome={goHome}
-                exp={{ data, civ, plain: plainCiv, style, layer }}
+                exp={{ data, civ, plain: plainCiv, style, layer, look: terrainLook }}
               />
           )}
-          {!draft && !filmOn && <PhoneButtons layers={{ ...layerProps, draft }} globeOn={globeOn} onToggleGlobe={toggleGlobe} marking={markable ? markPlacing : undefined} />}
+          {!draft && !filmOn && <PhoneButtons layers={layerProps} globeOn={globeOn} onToggleGlobe={toggleGlobe} marking={markable ? markPlacing : undefined} />}
           {!draft && (OLD_SITE !== null || BETA_SITE || style === 'data' || contourOn) && (
             <div className="corner-tl">
               <OldSiteBadge />
@@ -4120,7 +4245,7 @@ export function App() {
         <>
           {/* 宽屏:左边侧栏(世界 / 选中的东西的详情、搜索、存档);右上图层、导出、编年史;数据图层的图例、旧网站的「旧版」(测试网站的「测试版」)标记在地图左上。新建时都不放(新建界面自己一套) */}
           {filmOn ? (
-            filmUi.mode === 'long' ? <LongPanel phone={false} style={style} /> : <FilmPanel phone={false} style={style} layer={layer} />
+            filmUi.mode === 'long' ? <LongPanel phone={false} style={style} baseName={baseName(mapBase, satLook)} /> : <FilmPanel phone={false} style={style} layer={layer} look={terrainLook} />
           ) : !draft && (
             <Sidebar
               data={data}
@@ -4134,7 +4259,7 @@ export function App() {
               inspectorSlot={inspectorSlot}
             />
           )}
-          {!draft && <MapBar civ={civ} layers={layerProps} exp={{ data, civ, plain: plainCiv, style, layer }} draft={draft} />}
+          {!draft && <MapBar civ={civ} layers={layerProps} exp={{ data, civ, plain: plainCiv, style, layer, look: terrainLook }} />}
           {!draft && (OLD_SITE !== null || BETA_SITE || ((style === 'data' || contourOn) && !terrainTool.on)) && (
             <div className="corner-tl">
               <OldSiteBadge />

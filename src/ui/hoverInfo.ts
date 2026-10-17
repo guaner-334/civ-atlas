@@ -20,7 +20,7 @@ import { faithAt } from '../gen/civ/religion';
 import { SETTLEMENT_RANKS, capitalAt, polityAlive, polityName, populationAt, populationLabel, settlementRank } from '../gen/civ/growth';
 import { latitudeAt } from '../gen/climate';
 import type { LabelPick } from './mapPick';
-import { layerDef, type MapLayer } from './mapLayers';
+import type { LayerDef } from './mapLayers';
 import { describeCiv } from './civDescribe';
 import { formatLon, lonOfX } from './mapWrap';
 import { VERDICT_TEXT, getPolityPick, pickVerdict, type PolityPick } from './Interventions';
@@ -93,7 +93,8 @@ export function hoverInfo(p: {
   civ: Civ | null;
   px: number;
   py: number;
-  layer: MapLayer;
+  /** 地图上现在的样子:画风、数据底图、填色(国家 / 民族 / 信仰开不开) */
+  layer: Pick<LayerDef, 'style' | 'data' | 'polities' | 'cultures' | 'faiths' | 'eras'>;
   /** 鼠标下的城镇符号 / 国名 / 地名 */
   label?: LabelPick | null;
   /** 时间轴当前的年份(null = 结束年份) */
@@ -103,7 +104,7 @@ export function hoverInfo(p: {
   const k = py * raster.w + px;
   if (!(k >= 0 && k < raster.cell.length)) return null;
   const cell = raster.cell[k];
-  const def = layerDef(layer);
+  const def = layer;
   const year = civ ? Math.floor(Math.min(civ.endYear, Math.max(0, p.year ?? civ.endYear))) : 0;
   let info: HoverInfo | null = null;
 

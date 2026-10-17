@@ -10,6 +10,7 @@
 import type { World } from '../gen/world';
 import type { Raster } from '../gen/raster';
 import type { TileRequest, TileResponse, WholeRaster } from '../tileWorker';
+import type { SurfaceLook } from '../render/surface';
 
 /** 一块多少像素(边长) */
 export const TILE = 256;
@@ -32,6 +33,7 @@ let failed = false;
 let wid = 0;
 let curWorld: World | null = null;
 let curRaster: Raster | null = null;
+let curLook: SurfaceLook = 'classic';
 /** 算好的块(Map 的顺序 = 最近看过的在后) */
 const cache = new Map<string, HTMLCanvasElement>();
 /** 还没领走的块(按先后) */
@@ -68,11 +70,12 @@ export function tilesAvailable(): boolean {
   return typeof Worker !== 'undefined' && !!ensurePool();
 }
 
-/** 换成这个世界(同一个世界不做事);旧世界的块全部作废 */
-export function tilesWorld(world: World, raster: Raster): void {
-  if (world === curWorld && raster === curRaster) return;
+/** 换成这个世界、这种画法(都一样就不做事);旧的块全部作废 */
+export function tilesWorld(world: World, raster: Raster, look: SurfaceLook = 'classic'): void {
+  if (world === curWorld && raster === curRaster && look === curLook) return;
   curWorld = world;
   curRaster = raster;
+  curLook = look;
   wid++;
   cache.clear();
   queue = [];
@@ -83,7 +86,7 @@ export function tilesWorld(world: World, raster: Raster): void {
   // 细沟的线随主图带过去(各线程不用再各算一遍)
   const whole: WholeRaster = { w: raster.w, h: raster.h, scale: raster.scale, elev: raster.elev, water: raster.water, ice: raster.ice, iceConc: raster.iceConc, iceTone: raster.iceTone, bank: raster.bank, veinLines: raster.veinLines };
   for (const s of pool) {
-    const m: TileRequest = { type: 'world', wid, world: lite, whole };
+    const m: TileRequest = { type: 'world', wid, world: lite, whole, look };
     s.w.postMessage(m);
     s.busy = null;
   }

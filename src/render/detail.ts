@@ -29,6 +29,7 @@ import {
 } from './fantasy';
 import { drawRealisticRivers, drawRealisticShores, realisticBase, realisticDetailPrep } from './realistic';
 import { clipOutline, projector, reprojectImage, type MapProj } from './projection';
+import type { SurfaceLook } from './surface';
 
 /** 放大到几倍以上才启用细节层(以下直接看铺进地形图的那一份;两者在这附近画出来一样大) */
 export const DETAIL_K = 1.2;
@@ -37,12 +38,12 @@ export type DetailStyle = 'realistic' | 'fantasy';
 
 /**
  * 在画布上画细节层:v = 世界坐标 → 画布像素的变换,v.k = 缩放倍数。
- * creeks = false:写实风不画小溪(上面盖着现算的块,块里有)
+ * creeks = false:写实风不画小溪(上面盖着现算的块,块里有);look = 写实风的画法(surface.ts)
  */
-export function drawTerrainDetail(ctx: CanvasRenderingContext2D, world: World, raster: Raster, style: DetailStyle, v: VecView, creeks = true) {
+export function drawTerrainDetail(ctx: CanvasRenderingContext2D, world: World, raster: Raster, style: DetailStyle, v: VecView, creeks = true, look: SurfaceLook = 'classic') {
   if (style === 'realistic') {
-    drawRealisticShores(ctx, raster, v);
-    drawRealisticRivers(ctx, world, raster, v, creeks);
+    drawRealisticShores(ctx, raster, v, look);
+    drawRealisticRivers(ctx, world, raster, v, creeks, look);
     return;
   }
   // 像素层按视口变换放大贴上(和地形图被 CSS 放大时一样是双线性插值;放大用不着更贵的高质量缩放)
@@ -63,16 +64,16 @@ export function drawTerrainDetail(ctx: CanvasRenderingContext2D, world: World, r
  * 拆成一小步一小步(见 common.ts 的 PrepStep)。都做过了再画,只剩按视口画线、贴图。
  * s = 要画的那一块每世界单位几个画布像素(同 drawTerrainDetail 的 v.s;有的缓存按放大多少分档),creeks 同 drawTerrainDetail
  */
-export function terrainDetailPrep(world: World, raster: Raster, style: DetailStyle, s: number, creeks = true): PrepStep[] {
-  return style === 'realistic' ? realisticDetailPrep(world, raster, creeks) : fantasyDetailPrep(world, raster, s);
+export function terrainDetailPrep(world: World, raster: Raster, style: DetailStyle, s: number, creeks = true, look: SurfaceLook = 'classic'): PrepStep[] {
+  return style === 'realistic' ? realisticDetailPrep(world, raster, creeks, look) : fantasyDetailPrep(world, raster, s);
 }
 
 /**
  * 弯边投影里 drawTerrainProjected 画放大后的一块视口(画布 cw × ch,v 同它)第一次要现算的缓存,拆成一小步一小步:
  * 整张图的那几样(同 terrainDetailPrep)+ 按这个投影 + 中心逐点投影、重铺的那几样(手绘风,见 fantasyProjPrep)
  */
-export function terrainProjPrep(world: World, raster: Raster, style: DetailStyle, mp: MapProj, v: { s: number; ox: number; oy: number; k: number }, cw: number, ch: number): WorkStep[] {
-  if (style === 'realistic') return realisticDetailPrep(world, raster, true);
+export function terrainProjPrep(world: World, raster: Raster, style: DetailStyle, mp: MapProj, v: { s: number; ox: number; oy: number; k: number }, cw: number, ch: number, look: SurfaceLook = 'classic'): WorkStep[] {
+  if (style === 'realistic') return realisticDetailPrep(world, raster, true, look);
   return [...fantasyDetailPrep(world, raster), ...fantasyProjPrep(world, raster, mp, v, cw, ch)];
 }
 
@@ -86,14 +87,14 @@ export function terrainProjPrep(world: World, raster: Raster, style: DetailStyle
  * v.k = 缩放倍数(细节层级,同 drawTerrainDetail)。整张图、缩放 1 倍(铺进地形图)时符号层用缓存的那一张(文明层"让位"也用它)。
  * 不清空画布,外轮廓外面不画
  */
-export function drawTerrainProjected(ctx: CanvasRenderingContext2D, world: World, raster: Raster, style: DetailStyle, mp: MapProj, v: { s: number; ox: number; oy: number; k: number }): void {
+export function drawTerrainProjected(ctx: CanvasRenderingContext2D, world: World, raster: Raster, style: DetailStyle, mp: MapProj, v: { s: number; ox: number; oy: number; k: number }, look: SurfaceLook = 'classic'): void {
   const fantasy = style === 'fantasy';
   const whole = v.k <= 1 && v.ox === 0 && v.oy === 0 && Math.abs(v.s - raster.scale) < 1e-9 && ctx.canvas.width === raster.w && ctx.canvas.height === raster.h;
   const pv = { ...v, proj: projector(mp) };
   if (fantasy || whole) {
-    const base = !fantasy ? realisticBase(raster) : whole ? fantasyBaseNoInk(world, raster) : fantasyBaseClean(world, raster);
+    const base = !fantasy ? realisticBase(raster, look) : whole ? fantasyBaseNoInk(world, raster) : fantasyBaseClean(world, raster);
     reprojectImage(ctx, base, raster.w, raster.h, mp, v, whole ? 'medium' : 'low');
-  } else drawRealisticShores(ctx, raster, pv);
+  } else drawRealisticShores(ctx, raster, pv, look);
   ctx.save();
   clipOutline(ctx, mp, v);
   if (fantasy) {
@@ -104,6 +105,6 @@ export function drawTerrainProjected(ctx: CanvasRenderingContext2D, world: World
     drawFantasyCoasts(ctx, raster, pv);
     if (whole) ctx.drawImage(fantasySymbolLayerProj(world, raster, mp), 0, 0);
     else drawFantasyVectors(ctx, world, pv);
-  } else drawRealisticRivers(ctx, world, raster, pv);
+  } else drawRealisticRivers(ctx, world, raster, pv, true, look);
   ctx.restore();
 }
