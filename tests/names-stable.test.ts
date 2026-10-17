@@ -124,7 +124,9 @@ function historyPrint(world: World, civ: Civ): string {
     h.update(`${typeof v}:${String(v)}`);
   };
   feed({ elevation: world.elevation, water: world.water, flux: world.flux });
-  feed(civ);
+  // 发展度(推演后算的,不改历史)由 determinism.test.ts 钉住;这里不算它,期望值和加它以前一样
+  const { development: _dev, ...history } = civ;
+  feed(history);
   return h.digest('hex').slice(0, 16);
 }
 

@@ -452,6 +452,11 @@ export interface Civ {
    */
   religion?: Religion;
   /**
+   * 发展度(development.ts):各州的物产、五种能力和时代。推演结束后按历史算出来,国界、兴亡、战争、人物一个都不变。
+   * 没有文明 = 不给
+   */
+  development?: Development;
+  /**
    * 地形大事(upheaval.ts;gen/edits.ts 文件头"地形大事"):按年份排,同一年的合成一件。下标 = 史事 upheaval 的 a。
    * 没有 = 不给。regions、places、routes 是最后一件大事以后的;更早的各段见 eras
    */
@@ -573,6 +578,32 @@ export interface Religion {
   log: { size: number; year: Float32Array; region: Int32Array; value: Int16Array };
   /** 每 100 年一份各州的信仰(按年份递增;那一年的变化已经算进去) */
   checkpoints: { year: Year; faith: Int16Array }[];
+}
+
+/** 发展度(development.ts) */
+export interface Development {
+  /** 各州的物产:州 × 8 样(见 development.ts 的 RESOURCES),0 没有 / 1 少 / 2 中 / 3 多 */
+  resources: Uint8Array;
+  /** 各州的五种能力:每份 = 州 × 5 样(见 CAPS),存的是能力 × LEVEL_SCALE;和 snapYears 一一对应 */
+  snaps: Uint8Array[];
+  /** 每份快照的年份(递增;最后一份是结束那年) */
+  snapYears: Year[];
+  /** 按年份排好 */
+  events: DevEvent[];
+}
+
+/**
+ * 发展度的大事:first = 世界上第一次有州进入这个时代;enter = 这个国家的国都所在的州第一次进入这个时代(立国时已在的不记)。
+ * era = 第几个时代(见 development.ts 的 ERAS);culture、polity、settlement = 那一刻那州的民族、国家、城(−1 = 没有)
+ */
+export interface DevEvent {
+  year: Year;
+  kind: 'first' | 'enter';
+  era: number;
+  region: number;
+  culture: number;
+  polity: number;
+  settlement: number;
 }
 
 /**
