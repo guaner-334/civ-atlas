@@ -11,6 +11,7 @@
  *   将领   按第一次领兵的年份排,新的在上;一句"伐萨尔斯坦帝国，攻取三州"(全部国家时前面加"大景将领")
  *   名臣   按入仕的年份排,新的在上;一句"大景丞相，出使萨尔斯坦帝国，辅幼主宣宗"(没经手大事的写"在朝 21 年";
  *          只看一国时不带国名:"丞相，…")。「名人」不收名臣
+ * 推演里的人名字前有 26 像素的圆头像(Portrait.tsx 的 PersonFace)。
  * 国家下拉框只看这一国(国家卡片的"全部 N 位"进来 = 这国的君主);"复制全文"复制成纯文字(世系图 = 缩进的家谱)。
  * 和编年史一样跟着时间轴:还没上台的淡显,"现在"线在第一位已经上台的上方(Chronicle.tsx 的 useNowLine)。
  */
@@ -48,6 +49,7 @@ import { polityHistory } from './WorldOverviewCountries';
 import { copyText, selectPerson } from './panelParts';
 import { PolityFlag } from './Flag';
 import { PeopleLineage } from './PeopleLineage';
+import { PersonFace } from './Portrait';
 import './timeline.css';
 
 const F = Math.floor;
@@ -363,7 +365,10 @@ export function PeoplePage({ civ, data }: { civ: Civ | null; data: { world: Worl
                     {yearShort(r.from, era)}
                     <em>–{r.until !== null ? yearShort(r.until, era) : ''}</em>
                   </span>
-                  <b className="pp-who">{r.name}</b>
+                  <b className="pp-who">
+                    <PersonFace civ={civ} x={r.x!} year={year} size="row" />
+                    {r.name}
+                  </b>
                   <span className="chron-text">{r.line}</span>
                 </div>
               </div>

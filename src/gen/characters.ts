@@ -14,6 +14,7 @@
  * | note       | 简介(可以分行,CHAR_NOTE_MAX 个字以内)                                                 |
  * | life       | 一生的几段经历(LifeEntry,按写进来的先后存,显示时按年份排;最多 LIFE_MAX 段)            |
  * | kin        | 亲友(KinEntry;最多 KIN_MAX 个)                                                         |
+ * | portrait   | 头像"换一张"换过几次(正整数,最大 PORTRAIT_SWAP_MAX;没有 = 没换过,用按编号挑的那张,见 gen/portrait.ts) |
  *
  * 地方(Where)有三种,和作者标记一样按稳定键 / 世界坐标记,改地形以后还指同一处:
  *   城 = 城键 `settlement:c4567#1`;州 = 州键 `region:c4567`;任意一点 = 世界坐标 [x, y](x 规整到 [0, 2048))。
@@ -49,6 +50,8 @@ export const LIFE_TEXT_MAX = 200;
 export const KIN_REL_MAX = 16;
 /** 一段经历最多勾几件事、几个人 */
 export const LINKS_MAX = 20;
+/** 头像"换一张"的次数最多记到几(再换从 1 重来) */
+export const PORTRAIT_SWAP_MAX = 1e6;
 /** 名字是空的就叫这个 */
 export const CHAR_NAME_DEFAULT = '新人物';
 /** 编号最大到几(和作者标记一样) */
@@ -88,6 +91,7 @@ export interface AuthorCharacter {
   note?: string;
   life?: LifeEntry[];
   kin?: KinEntry[];
+  portrait?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -270,6 +274,8 @@ export function cleanCharacter(x: unknown): AuthorCharacter | null {
     }
     if (kin.length) c.kin = kin;
   }
+  const pt = o.portrait;
+  if (typeof pt === 'number' && Number.isInteger(pt) && pt >= 1 && pt <= PORTRAIT_SWAP_MAX) c.portrait = pt;
   return JSON.stringify(c) === JSON.stringify(x) ? (x as AuthorCharacter) : c;
 }
 

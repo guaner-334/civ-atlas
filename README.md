@@ -212,3 +212,5 @@ pnpm dev        # http://localhost:5188
 - **思源宋体 Google 版**（Noto Serif SC，[google/fonts](https://github.com/google/fonts/tree/main/ofl/notoserifsc) 2.003）：写实风。© Adobe；SIL Open Font License 1.1。
 
 许可证全文和来源校验值见 `public/fonts/` 中的 `OFL-*.txt`、`SOURCES.txt`。
+
+人物头像的部件图放在 `public/portraits/`，由图像生成工具生成后裁切、去底、调色，以 [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/)（公有领域贡献）发布，随便用、不用署名；说明见 `public/portraits/LICENSE.txt`。
