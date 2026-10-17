@@ -586,6 +586,10 @@ button.ivq-title {
   flex: 1;
   padding: 2px 0;
 }
+/* 面板里的分段按钮(卫星画法、填色、经纬网间隔、等值线种类):选中的加粗 */
+.lp-pop .grat-seg button.on {
+  font-weight: 600;
+}
 .lp-sec + .lp-fills,
 .lp-sec + .lp-overlays {
   margin-top: -2px;
