@@ -487,8 +487,12 @@ export function buildRoutes(world: World, habitat: Habitat, regions: Regions, op
     kind: Route['kind'];
     cells: number[];
     built: Year;
+    /** 航线:停用以后又有新航线走上来、重新开的那几段,这一段自己的停用年份(段号 → 年份;没有的看 seaEnd) */
+    stop?: Map<number, Year>;
   }
   const pieces: Piece[] = [];
+  /** 航线上重新开过的段 → 最近一次重新开的那一段路 */
+  const reopened = new Map<number, Piece>();
   /** 小路被大路"升级"的年份(两个方向都记;−1 = 没升级) */
   const upgrade = new Float64Array(adj.length).fill(-1);
   /**
@@ -507,31 +511,55 @@ export function buildRoutes(world: World, habitat: Habitat, regions: Regions, op
     const cellsOn = kind === 'sea' ? onSea : onRoad;
     const ends = kind === 'sea' ? seaEnd : roadEnd;
     let cur: number[] | null = null;
+    let curStop: Map<number, Year> | null = null;
+    const push = () => {
+      if (!cur) return;
+      const piece: Piece = { kind, cells: cur, built };
+      if (curStop) {
+        piece.stop = curStop;
+        for (const k of curStop.keys()) reopened.set(k, piece);
+      }
+      pieces.push(piece);
+      cur = null;
+      curStop = null;
+    };
     for (let t = 1; t < path.length; t++) {
       const a = path[t - 1];
       const b = path[t];
       const k = slotOf(mesh, a, b);
-      if (end > ends[k]) ends[k] = ends[slotOf(mesh, b, a)] = end;
+      const back = slotOf(mesh, b, a);
+      if (slots[k] && kind === 'sea') {
+        const re = reopened.get(k);
+        const last = re ? re.stop!.get(k)! : ends[k];
+        if (last <= built) {
+          // 这一段早先的航线到 built 以前已经停用(一头的港口毁了):从 built 起重新开,新起一段,停用年份单记
+          (curStop ??= new Map()).set(k, end).set(back, end);
+          if (!cur) cur = [a];
+          cur.push(b);
+          continue;
+        }
+        if (end > last) {
+          if (re) re.stop!.set(k, end).set(back, end);
+          else ends[k] = ends[back] = end;
+        }
+      } else if (end > ends[k]) ends[k] = ends[back] = end;
       if (slots[k]) {
         if (kind === 'road' && slots[k] === KIND_CODE.trail) {
-          const back = slotOf(mesh, b, a);
           slots[k] = slots[back] = KIND_CODE.road;
           upgrade[k] = upgrade[back] = built;
           if (!cur) cur = [a];
           cur.push(b);
           continue;
         }
-        if (cur) pieces.push({ kind, cells: cur, built });
-        cur = null;
+        push();
         continue;
       }
-      const back = slotOf(mesh, b, a);
       slots[k] = slots[back] = KIND_CODE[kind];
       if (kind !== 'sea') roadYear[k] = roadYear[back] = built;
       if (!cur) cur = [a];
       cur.push(b);
     }
-    if (cur) pieces.push({ kind, cells: cur, built });
+    push();
     for (const c of path) cellsOn[c] = 1;
   };
 
@@ -629,7 +657,7 @@ export function buildRoutes(world: World, habitat: Habitat, regions: Regions, op
     const ends = p.kind === 'sea' ? seaEnd : roadEnd;
     const stopOf = (k: number) => {
       const u = p.kind === 'trail' && upgrade[k] >= 0 ? upgrade[k] : Infinity;
-      return Math.min(u, ends[k]);
+      return Math.min(u, p.stop?.get(k) ?? ends[k]);
     };
     let run: number[] = [p.cells[0]];
     let runU = NaN;
@@ -685,14 +713,14 @@ export function usedLanes(regions: Regions, log: ChangeLog, cultures: readonly C
     }
   };
   let swept = false;
-  /** 到 from 那一刻:已经同属一家的都记上 */
+  /** 过了 from 那一刻:那时同属一家的都记上(from 那一刻的归属变化先都算进去,地形大事清掉、改划的州不算) */
   const sweep = () => {
     swept = true;
     for (let r = 0; r < R; r++) for (let layer = 0; layer < 2; layer++) mark(r, layer, own[layer][r], from);
   };
   for (let i = 0; i < log.size; i++) {
     const y = log.year[i];
-    if (!swept && y >= from) sweep();
+    if (!swept && y > from) sweep();
     const r = log.region[i];
     if (r >= R) continue;
     const layer = log.layer[i];
