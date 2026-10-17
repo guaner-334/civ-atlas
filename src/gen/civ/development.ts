@@ -23,6 +23,7 @@
  * **时代** = 生产、运输、信息、行政四样的"偏短板"平均(调和平均,见 eraLevel):整数部分是哪个时代,小数部分是走到这个时代的几成。
  *
  * **大事**:世界上第一次有州进入某个时代(first,记州、民族、国家、城);各国国都所在的州第一次进入某个时代(enter;立国时已在的时代不记)。
+ *   年份按上一步到这一步线性估出跨过门槛的那一刻(不早于那州归了现在的民族、国家)。
  *
  * 结果是 Civ.development:物产、每 SNAP 年一份的各州能力(加结束那年)、大事。任意年份用 developmentAt 查(前后两份线性插值)。
  * 只用加减乘除(IEEE 精确舍入)和推演里已经舍入过的人口,跨 CPU 逐位一致。
@@ -209,6 +210,10 @@ export function buildDevelopment(world: World, civ: Civ): Development {
   const war = new Float64Array(R);
   const settled = new Uint8Array(R);
   const E = new Float64Array(R);
+  const Eprev = new Float64Array(R);
+  /** 各州归了现在的民族、国家是哪一刻 */
+  const sinceC = new Float64Array(R);
+  const sinceP = new Float64Array(R);
   // 归属:按年份往后翻日志(和 ownersAt 同一个结果)
   const ownC = new Int16Array(R).fill(-1);
   const ownP = new Int16Array(R).fill(-1);
@@ -241,8 +246,13 @@ export function buildDevelopment(world: World, civ: Civ): Development {
     const dt = step ? y - years[step - 1] : 0;
     while (era < eras.length && y >= eras[era].until) reg = ++era < eras.length ? eras[era].regions : civ.regions;
     for (; li < L.size && L.year[li] <= y; li++) {
-      if (L.layer[li] === CULTURE_LAYER) ownC[L.region[li]] = L.value[li];
-      else ownP[L.region[li]] = L.value[li];
+      if (L.layer[li] === CULTURE_LAYER) {
+        ownC[L.region[li]] = L.value[li];
+        sinceC[L.region[li]] = L.year[li];
+      } else {
+        ownP[L.region[li]] = L.value[li];
+        sinceP[L.region[li]] = L.year[li];
+      }
     }
     size.fill(0);
     has.fill(0);
@@ -360,7 +370,15 @@ export function buildDevelopment(world: World, civ: Civ): Development {
     }
     cur.set(next);
     for (let i = 0; i < cur.length; i++) if (cur[i] > best[i]) best[i] = cur[i];
+    Eprev.set(E);
     for (let r = 0; r < R; r++) E[r] = ownC[r] >= 0 ? eraLevel(cur, r) : 0;
+    /** 州 r 的时代数值在这一步里哪一刻过了 k(按上一步到这一步线性估;不早于这州归了现在的民族 / 国家那一刻) */
+    const crossed = (r: number, k: number, since: number): Year => {
+      const a = Eprev[r];
+      const b = E[r];
+      const t = b > a ? Math.min(1, Math.max(0, (k - a) / (b - a))) : 1;
+      return Math.min(y, Math.max(since, y - dt + dt * t));
+    };
 
     // 大事:世界第一次进入某个时代;各国国都所在的州第一次进入某个时代
     let top = -1;
@@ -370,7 +388,7 @@ export function buildDevelopment(world: World, civ: Civ): Development {
     if (top >= 0 && topEra > worldEra) {
       for (let k = worldEra + 1; k <= topEra; k++) {
         const city = regionCityAt(civ, top, y);
-        events.push({ year: y, kind: 'first', era: k, region: top, culture: ownC[top], polity: ownP[top], settlement: city ? city.id : -1 });
+        events.push({ year: crossed(top, k, Math.max(sinceC[top], sinceP[top])), kind: 'first', era: k, region: top, culture: ownC[top], polity: ownP[top], settlement: city ? city.id : -1 });
       }
       worldEra = topEra;
     }
@@ -382,7 +400,7 @@ export function buildDevelopment(world: World, civ: Civ): Development {
       else if (e > polityEra[p]) {
         polityEra[p] = e;
         const city = regionCityAt(civ, r, y);
-        events.push({ year: y, kind: 'enter', era: e, region: r, culture: ownC[r], polity: p, settlement: city ? city.id : -1 });
+        events.push({ year: crossed(r, e, Math.max(sinceC[r], sinceP[r])), kind: 'enter', era: e, region: r, culture: ownC[r], polity: p, settlement: city ? city.id : -1 });
       }
     }
 
@@ -394,6 +412,8 @@ export function buildDevelopment(world: World, civ: Civ): Development {
       snapYears.push(y);
     }
   }
+  // 同一步里的几件按估出来的那一刻排(排序是稳定的)
+  events.sort((a, b) => a.year - b.year);
   return { resources, snaps, snapYears, events };
 }
 
