@@ -47,6 +47,9 @@ describe.each([7, 2024])('人物头像 · seed=%i', (seed) => {
       expect(a, x.name).not.toBeNull();
       expect(a!.layers.length).toBeGreaterThanOrEqual(3);
       expect(personPortrait(again, x.id, x.died ?? civ.endYear)).toEqual(a);
+      // 贴在脸上的层只用这张底脸自己的图,不借第一张脸的
+      const all = [...a!.layers, ...a!.blink, ...Object.values(a!.exprs).flat()];
+      for (const l of all) if (a!.face > 1 && ['body', 'jaw', 'nose', 'wrinkle', 'brow', 'eye', 'mouth'].includes(l.layer)) expect(l.src).toContain(`.f${a!.face}.`);
     }
   });
 

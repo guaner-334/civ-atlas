@@ -34,7 +34,8 @@ export type PortraitLean = 'war' | 'trade' | 'dev' | 'explore';
  *   id 文件名;layer 叠在哪一层;expr 表情(smile / frown / angry / surprise / closed 闭眼 / closed-old 老人闭眼 / talk-a、talk-o 口型);
  *   roles 给哪些身份穿戴;tier 君主的冠是哪一档(1 小国、2 王、3 称帝);lean 倾向对应的打扮;rare 少量随机的饰物(伤疤、眼罩);
  *   bald 谢顶;def 默认发型;hides 戴上就不画头发(头盔、帽、巾);young 年轻的身体;age 皱纹第几档;
- *   own 哪几张底脸有自己的一份(<id>.f<几>.webp;别的脸用第一张脸那份);nobase 第一张脸没有这一件
+ *   own 哪几张底脸有自己的一份(<id>.f<几>.webp);贴在脸上的层(身体、脸型、鼻、皱纹、眉眼嘴)别的脸没有 = 这张脸用不着
+ *   (做这个表情和平静时一样),衣服、头发这些共用第一张脸那份;nobase 第一张脸没有这一件
  */
 export interface PortraitPart {
   id: string;
@@ -209,10 +210,15 @@ interface Who {
   martial?: boolean;
 }
 
+/** 贴在脸上的层:每张底脸各有一套,不借别的脸的(借了会把第一张脸的五官贴到别的脸上) */
+const FACE_LAYERS = new Set<PortraitLayer>(['body', 'jaw', 'nose', 'wrinkle', 'brow', 'eye', 'mouth']);
+
+/** 一件部件在这张底脸上用哪张图;这张脸没有(做这个表情和平静时一样)= null,不叠 */
 function img(group: PortraitGroupId, p: PortraitPart, face: number): PortraitImg | null {
-  const own = face > 1 && p.own?.includes(face);
-  if (!own && p.nobase) return null;
-  return { src: `${group}/${p.id}${own ? `.f${face}` : ''}.webp`, layer: p.layer, ...(p.layer === 'hair' || p.layer === 'beard' ? { white: true } : {}) };
+  let suffix = '';
+  if (face > 1 && p.own?.includes(face)) suffix = `.f${face}`;
+  else if (face > 1 ? FACE_LAYERS.has(p.layer) : p.nobase) return null;
+  return { src: `${group}/${p.id}${suffix}.webp`, layer: p.layer, ...(p.layer === 'hair' || p.layer === 'beard' ? { white: true } : {}) };
 }
 
 const pickOne = <T,>(rng: Rng, list: readonly T[]): T | undefined => (list.length ? list[Math.floor(rng() * list.length)] : undefined);
