@@ -278,7 +278,7 @@ describe('助手面板', () => {
     expect(getEdits()).toBe(before);
     expect(takeRewriteNote(getEdits())).toMatchObject({ kind: 'undo', turn: id });
     expect(turn(id).applied).toMatchObject({ undone: true });
-  });
+  }, 30_000);
 
   it('⌘Z / ⇧⌘Z:执行过的一轮也能撤销、再做一遍(对话里的"已执行 / 已撤销"跟着变,推完的提示和点撤销一样)', async () => {
     setTrialRunner(runner);

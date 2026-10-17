@@ -1,18 +1,20 @@
 /**
- * 发展度(gen/civ/development.ts,推演结束后照历史算的):物产分档、能力和时代的节奏、"第一次进入某时代"的大事、
- * 按年份查(快照插值),以及它不改历史(加它时 determinism.test.ts 里别的字段一个没变);
+ * 发展度(gen/civ/development.ts,推演里每 20 年算一步):物产分档、能力和时代的节奏、"第一次进入某时代"和发明的大事、
+ * 按年份查(快照插值)、接着推和一口气推完一样;反过来影响推演(城的人口上限、远洋);
  * 编年史里的时代大事、时代图层的色块、物产图层的圆章。
  */
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
 import { ownersAt } from '../src/gen/civ/timeline';
-import { polityAlive } from '../src/gen/civ/growth';
+import { devFactorAt, polityAlive } from '../src/gen/civ/growth';
+import { CivSim } from '../src/gen/civ/sim';
+import { polityModelOf } from '../src/gen/civ/polities';
 import { developmentEntries } from '../src/gen/civ/developmentText';
 import { fullChronicle } from '../src/gen/civ/religionText';
 import { eraCiv, eraLevelsAt } from '../src/render/civ/era';
 import { resourceBadges } from '../src/render/civ/resources';
-import { AVAIL_SCALE, CAP_COUNT, ERAS, LEVEL_SCALE, RESOURCES, RESOURCE_COUNT, buildDevelopment, developmentAt, eraLevel, eraOf, resourcesAt } from '../src/gen/civ/development';
+import { AVAIL_SCALE, CAP_COUNT, ERAS, LEVEL_SCALE, RESOURCES, RESOURCE_COUNT, INVENTIONS, developmentAt, finishDevelopment, popFactor, eraLevel, eraOf, resourcesAt } from '../src/gen/civ/development';
 
 const worlds = new Map<number, World>();
 function world(seed: number): World {
@@ -37,14 +39,83 @@ function erasAt(civ: Civ, year: number): number[] {
 }
 
 describe.each([7, 2024])('发展度 · seed=%i', (seed) => {
-  it('同一个种子算两遍逐字节一样', () => {
+  it('同一个种子推两遍逐字节一样;从半路接着推(整百年、不在整步上),发展度、城的人口上限倍数、远洋的年份都和一口气推完一样', () => {
     const civ = civOf(seed);
-    const again = buildDevelopment(world(seed), civ);
-    expect(again.resources).toEqual(civ.development!.resources);
-    expect(again.snaps).toEqual(civ.development!.snaps);
-    expect(again.events).toEqual(civ.development!.events);
-    expect(again.avail).toEqual(civ.development!.avail);
-    expect(again.found).toEqual(civ.development!.found);
+    const again = generateCiv(world(seed));
+    expect(again.development!.snaps).toEqual(civ.development!.snaps);
+    expect(again.development!.events).toEqual(civ.development!.events);
+    for (const cut of [1200, 1655.5]) {
+      const half = generateCiv(world(seed), { endYear: cut });
+      const sim = CivSim.fromCiv(world(seed), half);
+      sim.run(civ.endYear);
+      const dev = finishDevelopment(sim, civ.endYear)!;
+      const tag = `从第 ${cut} 年接着推`;
+      expect(dev.snapYears, tag).toEqual(civ.development!.snapYears);
+      expect(dev.snaps, tag).toEqual(civ.development!.snaps);
+      expect(dev.avail, tag).toEqual(civ.development!.avail);
+      expect(dev.events, tag).toEqual(civ.development!.events);
+      expect(dev.found, tag).toEqual(civ.development!.found);
+      const pm = polityModelOf(sim)!;
+      expect(pm.settlements.map((s) => s.devCap ?? null), tag).toEqual(civ.settlements.map((s) => s.devCap ?? null));
+      expect(pm.polities.map((p) => p.sail ?? null), tag).toEqual(civ.polities.map((p) => p.sail ?? null));
+    }
+  }, 120_000);
+
+  it('城的人口上限随生产能力变:倍数在石器时代的和封顶之间,每对隔够 20 年;第 3000 年先进的州的城比落后的倍数高', () => {
+    const civ = civOf(seed);
+    const lv = developmentAt(civ.development!, 3000);
+    const lo: number[] = [];
+    const hi: number[] = [];
+    for (const s of civ.settlements) {
+      const dc = s.devCap!;
+      expect(dc.length % 2).toBe(0);
+      expect(dc[0]).toBe(s.founded);
+      for (let i = 2; i < dc.length; i += 2) expect(dc[i] - dc[i - 2]).toBeGreaterThanOrEqual(i === 2 ? 0 : 20);
+      for (let i = 1; i < dc.length; i += 2) {
+        expect(dc[i]).toBeGreaterThanOrEqual(popFactor(0));
+        expect(dc[i]).toBeLessThanOrEqual(2);
+      }
+      if (s.ended !== undefined || s.founded > 2500) continue;
+      const P = lv[s.region * CAP_COUNT];
+      if (P < 1.5) lo.push(devFactorAt(dc, 3000));
+      else if (P > 3) hi.push(devFactorAt(dc, 3000));
+    }
+    expect(lo.length).toBeGreaterThan(5);
+    expect(hi.length).toBeGreaterThan(5);
+    const mean = (a: number[]) => a.reduce((x, y) => x + y, 0) / a.length;
+    expect(mean(hi)).toBeGreaterThan(mean(lo) + 0.1);
+  });
+
+  it('远洋:普通国家各在自己国都的运输能力够了那年起才能远洋,年份有先有后(从能远洋的国家分出去的立国就能);海洋国家不记', () => {
+    const civ = civOf(seed);
+    const sail = civ.polities.filter((p) => p.sail !== undefined);
+    expect(sail.length).toBeGreaterThan(3);
+    for (const p of sail) {
+      expect(p.kind).not.toBe('sea');
+      if (p.sail === p.founded && p.parent !== undefined) {
+        const P = civ.polities[p.parent];
+        expect(P.kind === 'sea' || P.sail! <= p.founded).toBe(true);
+      } else expect(p.sail! % 20).toBe(0);
+      expect(polityAlive(p, p.sail!)).toBe(true);
+    }
+    expect(new Set(sail.map((p) => p.sail)).size).toBeGreaterThan(2);
+    expect(Math.min(...sail.map((p) => p.sail!))).toBeGreaterThan(1000);
+  });
+
+  it('发明:按出现先后、各样只记一次,那一刻那州的那样能力到了那一档', () => {
+    const civ = civOf(seed);
+    const inv = civ.development!.events.filter((e) => e.kind === 'invent');
+    expect(inv.length).toBeGreaterThan(12);
+    expect(new Set(inv.map((e) => e.invention)).size).toBe(inv.length);
+    for (const e of inv) {
+      const x = INVENTIONS[e.invention!];
+      // 快照之间线性插值,只看下一份快照时到了没有
+      const next = civ.development!.snapYears.find((y) => y >= e.year)!;
+      expect(developmentAt(civ.development!, next)[e.region * CAP_COUNT + x.cap] + 1 / LEVEL_SCALE).toBeGreaterThanOrEqual(x.level);
+    }
+    // 文字比印刷术早
+    const at = (name: string) => inv.find((e) => INVENTIONS[e.invention!].name === name)?.year ?? Infinity;
+    expect(at('文字')).toBeLessThan(at('印刷术'));
   });
 
   it('物产随年份:矿要发现了才有,发现在要它的那个时代之前;眼下能用的不超过底子;第 3000 年还没有煤、石油、稀有矿', () => {
@@ -146,13 +217,18 @@ describe('时代数值', () => {
 });
 
 describe.each([7, 2024])('时代、物产写进编年史和图层 · seed=%i', (seed) => {
-  it('世上第一次进入某时代是大事(每个时代一条);各国的、发现、采空只在"全部";id 不和别的纪事撞', () => {
+  it('世上第一次进入某时代、要紧的发明是大事;各国的、发现、采空只在"全部";id 不和别的纪事撞', () => {
     const civ = civOf(seed);
     const dev = developmentEntries(civ);
     const firsts = civ.development!.events.filter((e) => e.kind === 'first');
     const major = dev.filter((e) => e.importance >= 3);
-    expect(major.length).toBe(firsts.length);
-    for (const e of major) expect(e.text).toMatch(/始入.+时代,为天下之先$/);
+    expect(major.filter((e) => e.text.includes('时代')).length).toBe(firsts.length);
+    for (const e of major) expect(e.text).toMatch(/(始入.+时代|始创.+),为天下之先$/);
+    // 发明:每样都写进去了;有国家、当时有君主的写上君主(人物能点开)
+    const inv = dev.filter((e) => e.text.includes('始创'));
+    const names = inv.map((e) => e.text).join('');
+    for (const e of civ.development!.events) if (e.kind === 'invent') expect(names).toContain(INVENTIONS[e.invention!].name);
+    expect(inv.some((e) => e.people?.length)).toBe(true);
     expect(dev.some((e) => e.importance < 3 && e.text.includes('始入'))).toBe(true);
     for (const e of dev) expect(e.kind).toBe('era');
     const all = fullChronicle(civ);

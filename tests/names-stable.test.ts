@@ -134,8 +134,8 @@ function historyPrint(world: World, civ: Civ): string {
 
 describe('起名不碰推演', () => {
   it('没有改地形时,除名字外的世界、历史钉住指纹;同种子两次连名字都一样', () => {
-    // 期望值是 GENERATOR_VERSION 16(球面世界 + 人物、战役 + 洋流 + 君主世系 + 邦交 + 君主倾向和扩张算账(好战影响开战;迁都后按新国都重新看边地;同一刻的即位、到达排定次序) + 名臣 + 按养得活多少人算的宜居度和城的人口上限 + 封闭内海、贴海的湖、湖心小块地的处理 + 立国更早、边缘立国、民族分化 + 航线和航海时代,加上推演后贴上去的信仰)算的。推演、地形有意改了的话更新它,并把 GENERATOR_VERSION 加一
-    const expected: Record<number, string> = { 7: 'f410159cacde5101', 2024: '878747fdb268371a' };
+    // 期望值是 GENERATOR_VERSION 17(球面世界 + 人物、战役 + 洋流 + 君主世系 + 邦交 + 君主倾向和扩张算账(好战影响开战;迁都后按新国都重新看边地;同一刻的即位、到达排定次序) + 名臣 + 按养得活多少人算的宜居度和城的人口上限 + 封闭内海、贴海的湖、湖心小块地的处理 + 立国更早、边缘立国、民族分化 + 航线和航海时代 + 发展度反过来影响人口、打仗和远航,加上推演后贴上去的信仰)算的。推演、地形有意改了的话更新它,并把 GENERATOR_VERSION 加一
+    const expected: Record<number, string> = { 7: 'c88ce3209ca858a9', 2024: '30f72d0c0016e87f' };
     for (const seed of [7, 2024]) {
       const P = { ...DEFAULT_PARAMS, cells: 12000, seed };
       const w = generateWorld(P);

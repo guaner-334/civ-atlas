@@ -9,7 +9,7 @@
  *   ⑤ 地理名称             places.ts              → places
  *   ⑥ 人物                 people.ts              → people(历代君主、战争里的统帅;按推出来的历史排,不改历史)
  *   ⑦ 信仰                 religion.ts            → religion(民间信仰、大教、国教、教派;照推出来的历史贴上去,不改历史)
- *   ⑧ 发展度               development.ts         → development(物产、五种能力、时代;照推出来的历史算,不改历史)
+ *   发展度(物产、五种能力、时代)在推演里每 20 年算一步,反过来影响人口上限、军力、远洋(development.ts → development)
  *
  * 阶段 4 干预(params.interventions,interventions.ts):带着干预从第 0 年整段重推;干预年份之前和不干预时逐字节一致。
  * 阶段 4 改地形(world.terrain):扩张节拍、城的人口折算按没改地形时的同一颗星球定(planetTempo),只有改动附近的历史跟着地形变。
@@ -42,7 +42,7 @@ import type { InterventionModel } from './interventions';
 import type { CivEra, NamePins, Regions, UpheavalFact } from './types';
 import type { TerrainOp } from '../edits';
 import { buildReligion } from './religion';
-import { buildDevelopment } from './development';
+import { finishDevelopment, installDevelopment } from './development';
 import { cleanMix, type NameMix } from '../names';
 import { cleanFrontier, cleanOrigins, type Frontier } from './frontier';
 
@@ -132,6 +132,7 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
   if (pm) installAssimilation(sim, pm, world); // 阶段 3 同化与迁徙(assimilation.ts):同化、随征服而来的移民、避兵外迁、民族消亡
   if (pm) installCities(sim, pm, warModelOf(sim)!); // 阶段 3 城市兴衰(cities.ts):洗劫、毁城、重建、旧都衰落
   if (pm) installDiplomacy(sim, pm); // 邦交(diplomacy.ts):称臣纳贡、结盟、背盟、援盟、讨伐叛藩
+  if (pm) installDevelopment(sim, world, pm, habitat, world.params.seed); // 发展度(development.ts):每 20 年算各州的能力,影响人口上限、军力、远洋
   if (iv) installInterventions(sim, iv); // 阶段 4 干预:不许灭、结盟、宣战、禁止分裂(各机制在决策点查 WarModel.iv)
   progress('民族推演', 0.85);
   // 地形大事:推到第一件的前一刻,之后每件套上新地形接着推(upheaval.ts)
@@ -249,8 +250,11 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
   };
   // ⑦ religion.ts:要整份 civ(按年份查归属、国都、君主;地形大事以前按那时的州)
   if (viable && cultures.length) civ.religion = buildReligion(fin.world, civ);
-  // ⑧ development.ts:同样按整份历史算
-  if (viable && cultures.length) civ.development = buildDevelopment(fin.world, civ);
+  // 发展度:推演里算好的,整理一份(和推演结束那一刻的状态)
+  if (viable && cultures.length) {
+    const dev = finishDevelopment(fin.sim, p.endYear);
+    if (dev) civ.development = dev;
+  }
   return civ;
 }
 
@@ -303,6 +307,7 @@ function pinNames(pins: NamePins, world: World, branch: CivSim, from: number, to
 /** 推到一半的历史(地形大事前一刻)拼成 CivSim.fromCiv 要的 Civ(州、宜居度按给的);归属数组、检查点按州数补齐(新州 = 没人) */
 function partialCiv(sim: CivSim, model: CultureModel, pm: PolityModel, habitat: Habitat, regions: Regions, seed: number, iv: InterventionModel | null, frontier?: Frontier): Civ {
   const res = sim.result();
+  const dev = finishDevelopment(sim, res.endYear);
   const pad = (a: Int16Array) => {
     if (a.length >= regions.count) return a;
     const b = new Int16Array(regions.count).fill(-1);
@@ -332,6 +337,7 @@ function partialCiv(sim: CivSim, model: CultureModel, pm: PolityModel, habitat: 
     ...(frontier ? { frontier } : {}),
     ...(iv ? { interventions: iv.list.slice() } : {}),
     people: [],
+    ...(dev ? { development: dev } : {}),
   } as Civ;
 }
 

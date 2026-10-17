@@ -28,7 +28,7 @@ import { assimStats } from '../src/gen/civ/assimilation';
 import { cityStats } from '../src/gen/civ/cities';
 import { Layer } from '../src/gen/civ/types';
 import { faithAt, faithFromScratch } from '../src/gen/civ/religion';
-import { AVAIL_SCALE, BAD_LEVEL, CAP_COUNT, ERAS, RESOURCE_COUNT } from '../src/gen/civ/development';
+import { AVAIL_SCALE, BAD_LEVEL, CAP_COUNT, ERAS, INVENTIONS, RESOURCE_COUNT } from '../src/gen/civ/development';
 import { civLabelItems, civMapLayer, labelViewExtras } from '../src/render/civ/labels';
 import { placeMap } from '../src/render/labels/draw';
 import { END_YEAR_MAX, type TerrainOp, type Upheaval } from '../src/gen/edits';
@@ -49,14 +49,19 @@ function devBad(civ: ReturnType<typeof generateCiv>): number {
   });
   for (const s of dev.snaps) if (s.length !== R * CAP_COUNT || s.includes(BAD_LEVEL)) cn++;
   if (dev.avail.length !== dev.snaps.length || dev.found.length !== R * RESOURCE_COUNT) cn++;
-  for (const a of dev.avail) {
+  // 储量是最后一件地形大事以后的地形分的档:大事以前的快照只查不是坏数
+  const lastUp = Math.max(-Infinity, ...(civ.upheavals ?? []).map((u) => u.year));
+  dev.avail.forEach((a, k) => {
     if (a.length !== R * RESOURCE_COUNT) cn++;
-    for (let i = 0; i < a.length; i++) if (a[i] === BAD_LEVEL || a[i] > dev.resources[i] * AVAIL_SCALE) cn++;
-  }
+    const capped = dev.snapYears[k] >= lastUp;
+    for (let i = 0; i < a.length; i++) if (a[i] === BAD_LEVEL || (capped && a[i] > dev.resources[i] * AVAIL_SCALE)) cn++;
+  });
   dev.events.forEach((e, i) => {
     const res = e.kind === 'discover' || e.kind === 'deplete';
-    if (!Number.isFinite(e.year) || (i && e.year < dev.events[i - 1].year) || !(e.era >= (res ? 0 : 1) && e.era < ERAS.length) || e.polity >= civ.polities.length || !(e.region >= 0 && e.region < R)) cn++;
+    const inv = e.kind === 'invent';
+    if (!Number.isFinite(e.year) || (i && e.year < dev.events[i - 1].year) || !(e.era >= (res || inv ? 0 : 1) && e.era < ERAS.length) || e.polity >= civ.polities.length || !(e.region >= 0 && e.region < R)) cn++;
     if (res && !(e.resource! >= 0 && e.resource! < RESOURCE_COUNT)) cn++;
+    if (inv && !(e.invention! >= 0 && e.invention! < INVENTIONS.length)) cn++;
   });
   return cn;
 }

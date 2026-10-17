@@ -1,13 +1,14 @@
 /**
  * 航线与航海时代:州图上的航线只连各州的出海口;推演里走过的海峡、航线都画了出来(routes.ts 的 usedLanes);
- * 航海时代以前只有海洋国家渡海,以后有港口的普通国家也沿航线往海外扩张(polities.ts 的 sailsOcean);接着推跨过航海时代那一刻照样一致。
+ * 海洋国家从来就能渡海;普通国家从自己国都的运输能力够了那一刻(Polity.sail,发展度定)起,有港口的也沿航线往海外扩张
+ * (polities.ts 的 sailsOcean);接着推跨过那一刻照样一致。
  */
 import { describe, expect, it } from 'vitest';
 import { generateWorld, DEFAULT_PARAMS, type WorldParams, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
 import { AdjKind, Layer } from '../src/gen/civ/types';
 import { CivSim, Ev } from '../src/gen/civ/sim';
-import { ageOfSailYear, polityModelOf } from '../src/gen/civ/polities';
+import { polityModelOf } from '../src/gen/civ/polities';
 import { seaPassable, usedLanes } from '../src/gen/civ/routes';
 
 const small = { ...DEFAULT_PARAMS, cells: 12000 };
@@ -81,12 +82,11 @@ describe('航线与航海时代', () => {
     }
   }, 60_000);
 
-  it('航海时代以前普通国家不渡海;以后有港口的普通国家沿航线拿下海外的州(从港口出发)', () => {
+  it('普通国家能远洋以前不渡海;以后有港口的沿航线拿下海外的州(从港口出发)', () => {
     let after = 0;
     for (const seed of [7, 2024, 3]) {
       const civ = civOf({ ...small, seed });
-      const S = civ.sailFrom!;
-      expect(S).toBe(ageOfSailYear(1));
+      expect(civ.sailFrom).toBe(Infinity);
       const reg = civ.regions;
       const own = new Int16Array(reg.count).fill(-1);
       const L = civ.log;
@@ -103,7 +103,7 @@ describe('航线与航海时代', () => {
             if (reg.adjKind[k] <= AdjKind.Mountain) land = true;
             else bySea = true;
           }
-          expect(land || (bySea && L.year[i] >= S), `seed ${seed} 第 ${L.year[i]} 年州 ${r}`).toBe(true);
+          expect(land || (bySea && L.year[i] >= (civ.polities[v].sail ?? Infinity)), `seed ${seed} 第 ${L.year[i]} 年州 ${r}`).toBe(true);
           if (!land) after++;
         }
         own[r] = v;
@@ -112,14 +112,14 @@ describe('航线与航海时代', () => {
     expect(after).toBeGreaterThan(0);
   }, 60_000);
 
-  it('fromCiv 接着推:在航海时代前后切开,和一口气推完逐字节一致', () => {
+  it('fromCiv 接着推:在最早有普通国家能远洋的那一刻前后切开,和一口气推完逐字节一致', () => {
     for (const seed of [7, 2024]) {
       const w = world({ ...small, seed });
       const whole = civOf({ ...small, seed });
-      const S = whole.sailFrom!;
-      for (const cut of [Math.floor(S), Math.ceil(S), Math.floor(S) + 200]) {
+      const S = Math.min(...whole.polities.map((p) => p.sail ?? Infinity));
+      expect(S).toBeLessThan(whole.endYear);
+      for (const cut of [S - 1 / 256, S, S + 200]) {
         const half = generateCiv(w, { endYear: cut });
-        expect(half.sailFrom).toBe(S);
         const sim = CivSim.fromCiv(w, half);
         sim.run(whole.endYear);
         const res = sim.result();

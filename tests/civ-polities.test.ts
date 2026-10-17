@@ -9,6 +9,7 @@ import { ownersAt, ownersFromScratch } from '../src/gen/civ/timeline';
 import { polityModelOf } from '../src/gen/civ/polities';
 import { warModelOf } from '../src/gen/civ/wars';
 import { CAPITAL_BOOST, POLITY_FORMS, capitalAt, populationAt, polityAlive, polityName, polityTierAt, polityTitles, settlementRank, tierOf } from '../src/gen/civ/growth';
+import { POP_MAX } from '../src/gen/civ/development';
 import { BAND, mergeChains, traceChains, borderLines, type SidedLine } from '../src/render/civ/borders';
 import { labelImage, pixelRegions } from '../src/render/civ/territory';
 import type { CivDrawParams, CivShow } from '../src/render/civ/overlay';
@@ -125,8 +126,8 @@ describe('城市成长 + 国家', () => {
           expect(d[caps[j]], `seed ${seed} 国都 ${i}–${j}`).toBeGreaterThanOrEqual(3);
         }
       }
-      // 跨海领土:航海时代以前,国土占了不止一片陆地的一定是海洋国家 —— 除了灭国时一并收下的隔海残部(wars.ts 的 annex)
-      const pre = Math.floor(civ.sailFrom!);
+      // 跨海领土:最早有普通国家能远洋以前,国土占了不止一片陆地的一定是海洋国家 —— 除了灭国时一并收下的隔海残部(wars.ts 的 annex)
+      const pre = Math.floor(Math.min(...civ.polities.map((q) => q.sail ?? Infinity)) - 1);
       expect(pre).toBeGreaterThan(1000);
       const own = ownersAt(civ, pre).polity;
       for (const p of civ.polities) {
@@ -294,23 +295,24 @@ describe('城市成长 + 国家', () => {
     for (const s of civ.settlements) {
       expect(populationAt(s, s.founded - 1)).toBe(0);
       // 阶段 3 城市兴衰:被洗劫过、失去过国都之位的城人口会往下走(见 civ-cities.test.ts),其余的只长不减
-      const steady = !s.sacks && !s.capitalSpans?.some((x) => x.until !== undefined);
+      // 生产能力往回掉过(战乱)的,人口上限的倍数跟着往下走(devCap)
+      const steady = !s.sacks && !s.capitalSpans?.some((x) => x.until !== undefined) && !s.devCap?.some((v, i) => i % 2 === 1 && i > 1 && v < s.devCap![i - 2]);
       let prev = 0;
       for (let y = Math.ceil(s.founded); y <= civ.endYear; y += 250) {
         const pop = populationAt(s, y);
         expect(Number.isFinite(pop)).toBe(true);
         expect(pop).toBeGreaterThanOrEqual(0);
         if (steady && (s.ended === undefined || y < s.ended)) expect(pop).toBeGreaterThanOrEqual(prev);
-        expect(pop).toBeLessThanOrEqual(s.capacity * (1 + CAPITAL_BOOST) + 1e-9);
+        expect(pop).toBeLessThanOrEqual(s.capacity * (1 + CAPITAL_BOOST) * POP_MAX + 1e-9);
         prev = pop;
       }
     }
-    // 结束时各级城市都有,村镇多、大城少
+    // 结束时各级城市都有,村镇多、大城少(生产能力高了城都大一些:20 个种子里有几个城比镇多,村镇合起来总比城多)
     const ranks = [0, 0, 0, 0];
     for (const s of civ.settlements) ranks[settlementRank(populationAt(s, civ.endYear))]++;
     expect(ranks.every((n) => n > 0)).toBe(true);
     expect(ranks[3]).toBeLessThan(ranks[2]);
-    expect(ranks[2]).toBeLessThan(ranks[1]);
+    expect(ranks[2]).toBeLessThan(ranks[0] + ranks[1]);
     // 国号:第一条是立国那年、第 0 档(分裂 / 复国出来的国家:按起事那年的州数定档);之后只升不降
     // (打了败仗、国土缩小也不降:历史上缩小的帝国照样叫帝国);结束时的档位 ≥ 州数对应的档位
     let empires = 0;
