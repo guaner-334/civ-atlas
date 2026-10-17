@@ -2,7 +2,7 @@
  * 发展度(generateCiv 的第 ⑧ 步):推演结束后,照已有的历史算各州的物产、五种能力和时代 —— 只算不改历史,
  * 国界、兴亡、战争、人物一个都不变(以后让能力反过来影响推演时,再挪进推演里)。纯计算,不碰 DOM。
  *
- * **物产**(每州一份,不随年份变):粮、牲畜(含马)、铜锡、铁、煤、木材、盐、渔获,各 0–3 档(没有 / 少 / 中 / 多)。
+ * **物产**(每州一份,不随年份变):粮、牲畜(含马)、铜锡、铁、煤、木材、盐、渔获、石油、稀有矿,各 0–3 档(没有 / 少 / 中 / 多)。
  *   从地形、群落、气候、板块算一个"有多少"的分,按全世界的排名分档:每样只有一部分州有(RESOURCE_SHARE),
  *   有的里面少、中、多大约各占一半、三成、两成。矿和煤另加一点按州的随机(同一片山里也有贫有富)。
  *
@@ -15,7 +15,7 @@
  *   - 向邻居学(传播):向本样能力最高的那个邻州靠拢,差得越多学得越快。同一国里快、跨国慢,翻山、过海峡、走航线更慢;
  *     行政主要在一国之内传。
  *   - 战乱折损:本州的攻占、战役、洗劫、毁城当即扣一点;之后按到过的最高值较快地恢复(技术没丢,只是要重建)。
- *   - 物产卡脖子(只卡生产的创新):要进青铜时代得有铜锡,进铁器得有铁,进工业得有煤和铁 ——
+ *   - 物产卡脖子(只卡生产的创新):要进青铜时代得有铜锡,进铁器得有铁,进工业得有煤和铁,进电气得有石油,进信息得有稀有矿 ——
  *     本州、相邻的州或者本国有就行(买得到);都没有的,到门口附近自己就长得很慢(GATE_SLOW),主要靠邻居传过来。
  *   - 动员不单独长:跟着生产和行政走(游牧民族另高一截)。
  *   - 没人住的州不长;刚有人住的州带着邻居的本事来(取最高邻居的 SETTLE_CARRY)。
@@ -38,7 +38,7 @@ import { capitalAt, populationAt, regionCityAt, regionPopulationAt } from './gro
 import { keyed, subSeed } from './rand';
 
 /** 物产(下标就是 Development.resources 里的第几样) */
-export const RESOURCES = ['粮', '牲畜', '铜锡', '铁', '煤', '木材', '盐', '渔获'] as const;
+export const RESOURCES = ['粮', '牲畜', '铜锡', '铁', '煤', '木材', '盐', '渔获', '石油', '稀有矿'] as const;
 export const enum Res {
   Grain = 0,
   Livestock = 1,
@@ -48,10 +48,12 @@ export const enum Res {
   Timber = 5,
   Salt = 6,
   Fish = 7,
+  Oil = 8,
+  Rare = 9,
 }
-export const RESOURCE_COUNT = 8;
+export const RESOURCE_COUNT = 10;
 /** 每样物产有的州占全部有人能住的州的比例 */
-const RESOURCE_SHARE: readonly number[] = [0.7, 0.5, 0.22, 0.4, 0.2, 0.55, 0.3, 0.45];
+const RESOURCE_SHARE: readonly number[] = [0.7, 0.5, 0.22, 0.4, 0.2, 0.55, 0.3, 0.45, 0.15, 0.12];
 
 /** 五种能力(下标就是快照里每州的第几样) */
 export const CAPS = ['生产', '运输', '信息', '行政', '动员'] as const;
@@ -251,7 +253,7 @@ export function buildDevelopment(world: World, civ: Civ): Development {
   const learn = new Float64Array(4);
   const needBits = (lvP: number): number => {
     const target = Math.floor(lvP) + 1;
-    return target === 1 ? 1 << Res.Copper : target === 2 ? 1 << Res.Iron : target === 5 ? (1 << Res.Coal) | (1 << Res.Iron) : 0;
+    return target === 1 ? 1 << Res.Copper : target === 2 ? 1 << Res.Iron : target === 5 ? (1 << Res.Coal) | (1 << Res.Iron) : target === 6 ? 1 << Res.Oil : target === 7 ? 1 << Res.Rare : 0;
   };
 
   for (let step = 0; step < years.length; step++) {
@@ -479,6 +481,8 @@ export function computeResources(world: World, civ: Pick<Civ, 'regions' | 'habit
     let wood = 0;
     let salt = 0;
     let fish = 0;
+    let oil = 0;
+    let rare = 0;
     let suit = 0;
     for (let k = a; k < b; k++) {
       const i = cells[k];
@@ -502,6 +506,10 @@ export function computeResources(world: World, civ: Pick<Civ, 'regions' | 'habit
       const coast = habitat.coastDist[i] === 1;
       if (coast && temperature[i] > 14 && precipitation[i] < 1000) salt += 1;
       if (bi === Biome.HotDesert || bi === Biome.TemperateDesert || bi === Biome.ColdDesert) salt += h < 1500 ? 0.6 : 0.2;
+      // 石油:低地的沉积盆地(荒漠、沼泽、草原、海边)
+      if (h < 600) oil += OIL[bi] + (coast ? 0.4 : 0);
+      // 稀有矿:板块剧烈碰撞带(火山弧)、张裂带
+      rare += conv > 0.3 ? Math.min(1, conv) : conv < -0.3 ? 0.7 * Math.min(1, -conv) : 0;
       // 渔获:海岸(冷水更多)、湖岸、大河
       if (coast) fish += temperature[i] < 12 ? 1.4 : 1;
       if (flux[i] >= major) fish += 0.5;
@@ -526,6 +534,9 @@ export function computeResources(world: World, civ: Pick<Civ, 'regions' | 'habit
     score[Res.Timber][r] = wood / m;
     score[Res.Salt][r] = (salt / m) * luck(Res.Salt);
     score[Res.Fish][r] = fish / m;
+    // 油田、稀有矿比煤还更成片:一大半地方即使地形对也没有
+    score[Res.Oil][r] = (oil / m) * luck(Res.Oil) * (0.15 + keyed(seed, key, 101));
+    score[Res.Rare][r] = (rare / m) * luck(Res.Rare) * (0.15 + keyed(seed, key, 102));
   }
   const out = new Uint8Array(R * RESOURCE_COUNT);
   const ids: number[] = [];
@@ -542,6 +553,7 @@ export function computeResources(world: World, civ: Pick<Civ, 'regions' | 'habit
 /** 群落 → 能种多少粮(乘在宜居分上)、能放多少牧、有多少木材 */
 const FARM: readonly number[] = biomeTable({ TemperateForest: 1, TropicalDryForest: 1, TemperateRainforest: 0.7, Savanna: 0.6, Steppe: 0.5, Rainforest: 0.5, Wetland: 0.5, Taiga: 0.3, TemperateDesert: 0.3, HotDesert: 0.3, ColdDesert: 0.2 });
 const GRAZE: readonly number[] = biomeTable({ Steppe: 1, Savanna: 0.8, ColdDesert: 0.5, TemperateDesert: 0.4, Tundra: 0.3, TemperateForest: 0.2, TropicalDryForest: 0.2, HotDesert: 0.1 });
+const OIL: readonly number[] = biomeTable({ HotDesert: 1, TemperateDesert: 0.9, ColdDesert: 0.6, Wetland: 0.8, Steppe: 0.5, Tundra: 0.4, Savanna: 0.3, Taiga: 0.2 });
 const WOOD: readonly number[] = biomeTable({ Taiga: 1, TemperateForest: 1, TemperateRainforest: 1, Rainforest: 0.8, TropicalDryForest: 0.7, Wetland: 0.3, Savanna: 0.2 });
 
 function biomeTable(v: Partial<Record<keyof typeof Biome, number>>): number[] {
