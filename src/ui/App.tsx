@@ -3846,8 +3846,12 @@ export function App() {
   const layerProps = { layer: mapLayer, civ, onLayer: applyLayer, thumbs, requestThumbs, disabled: !data };
   /** 新建界面确认创建:建好了就让平常的地图从星球展开时正中的经线接着看(放回 1 倍) */
   const studioCreate = (title: string, lon: number): boolean => {
-    if (!createWorld(title)) return false;
-    setStudioOut(1);
+    // 先立刻标上"新建界面正在退场"再清掉草稿:不然新建界面会被拆掉又重装一次,重装时照手绘图的笔又被打开
+    flushSync(() => setStudioOut(1));
+    if (!createWorld(title)) {
+      setStudioOut(0);
+      return false;
+    }
     stopFly();
     publishMapCenter(wrapLon(lon));
     const el = stageRef.current;
