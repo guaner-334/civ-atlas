@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, MAP_H, MAP_W, generateWorld, type World } from '../src/gen/world';
 import { EMPTY_EDITS, type TerrainOp, type WorldEdits } from '../src/gen/edits';
-import { TERRAIN_H, TERRAIN_MAX_OPS, TERRAIN_MAX_PTS, TERRAIN_PRESETS, TERRAIN_W, cleanTerrainOp, cleanTerrainOps, presetStrength, sameTerrain } from '../src/gen/terrainEdits';
+import { TERRAIN_H, TERRAIN_MAX_OPS, TERRAIN_MAX_PTS, TERRAIN_PRESETS, TERRAIN_W, applyClimatePens, cleanTerrainOp, cleanTerrainOps, presetStrength, sameTerrain } from '../src/gen/terrainEdits';
 import { drawnFlux, shownRivers } from '../src/render/common';
 import { editCount, makeSave, parseSave, saveText, worldCheck } from '../src/gen/savefile';
 import { G_VOLCANO, planGlyphs, type Glyph } from '../src/render/fantasy';
@@ -323,6 +323,23 @@ describe('改地形 · 生成', () => {
     for (const i of near(dw, lx, ly, 12)) {
       expect(dw.precipitation[i]).toBeCloseTo(w0.precipitation[i] * 0.5, 2);
       expect(dw.temperature[i]).toBeCloseTo(w0.temperature[i] + 3, 3);
+    }
+  });
+
+  it('改气候:同一处叠满笔,降水、气温停在上限,不会溢出', () => {
+    const w0 = base7();
+    const l = farthestFrom(w0, true);
+    const pts = [Math.round(w0.mesh.x[l]), Math.round(w0.mesh.y[l])];
+    for (const kind of ['wet', 'warm', 'cold'] as const) {
+      const t = Float32Array.from(w0.temperature);
+      const p = Float32Array.from(w0.precipitation);
+      applyClimatePens(w0.mesh, t, p, Array.from({ length: TERRAIN_MAX_OPS }, () => ({ kind, pts, r: 60, s: 1.6 })));
+      for (let i = 0; i < w0.mesh.n; i++) {
+        expect(Number.isFinite(p[i]) && Number.isFinite(t[i])).toBe(true);
+        expect(p[i]).toBeLessThanOrEqual(Math.max(6000, w0.precipitation[i]));
+        expect(t[i]).toBeLessThanOrEqual(Math.max(40, w0.temperature[i]));
+        expect(t[i]).toBeGreaterThanOrEqual(Math.min(-50, w0.temperature[i]));
+      }
     }
   });
 

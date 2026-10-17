@@ -1625,6 +1625,18 @@ body.terrain-pan .stage.terrain-on:active {
 .sk-lasso.k-erase .sk-lasso-area {
   fill: rgba(255, 255, 255, 0.12);
 }
+.sk-lasso.k-wet .sk-lasso-area {
+  fill: rgba(63, 184, 168, 0.3);
+}
+.sk-lasso.k-dry .sk-lasso-area {
+  fill: rgba(220, 188, 120, 0.3);
+}
+.sk-lasso.k-warm .sk-lasso-area {
+  fill: rgba(240, 122, 74, 0.3);
+}
+.sk-lasso.k-cold .sk-lasso-area {
+  fill: rgba(168, 216, 255, 0.3);
+}
 .terrain-marks .sk-lasso-close {
   stroke: rgba(255, 255, 255, 0.7);
   stroke-width: 1.2;

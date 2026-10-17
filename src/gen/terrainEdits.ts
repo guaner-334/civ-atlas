@@ -556,6 +556,10 @@ const WET_MM = 260;
 const WET_MUL = 0.9;
 const DRY_MUL = 0.5;
 const WARM_C = 6;
+/** 叠笔的上限:降水(毫米 / 年)、最暖、最冷(°C) */
+const WET_CAP = 6000;
+const WARM_CAP = 40;
+const COLD_CAP = -50;
 
 /**
  * 按先后套上改气候的笔(原地改 temperature、precipitation):涂抹 = 笔走过的带子,圈起来填满 = 圈里整片;
@@ -576,10 +580,13 @@ export function applyClimatePens(mesh: Mesh, temperature: Float32Array, precipit
       const w = op.f && insidePolygon(op.pts, mesh.x[i], mesh.y[i]) ? 1 : 1 - smoothstep(0.6 * r, 1.1 * r, d);
       if (w <= 0) continue;
       const k = op.s * w;
-      if (op.kind === 'wet') precipitation[i] = precipitation[i] * (1 + WET_MUL * k) + WET_MM * k;
-      else if (op.kind === 'dry') precipitation[i] = precipitation[i] * Math.max(0.05, 1 - DRY_MUL * k);
-      else if (op.kind === 'warm') temperature[i] += WARM_C * k;
-      else temperature[i] -= WARM_C * k;
+      // 同一处叠很多笔也有个头:雨水最多加到 WET_CAP,气温最多推到 WARM_CAP / COLD_CAP(本来就超过的不动)
+      const p0 = precipitation[i];
+      const t0 = temperature[i];
+      if (op.kind === 'wet') precipitation[i] = Math.max(p0, Math.min(WET_CAP, p0 * (1 + WET_MUL * k) + WET_MM * k));
+      else if (op.kind === 'dry') precipitation[i] = p0 * Math.max(0.05, 1 - DRY_MUL * k);
+      else if (op.kind === 'warm') temperature[i] = Math.max(t0, Math.min(WARM_CAP, t0 + WARM_C * k));
+      else temperature[i] = Math.min(t0, Math.max(COLD_CAP, t0 - WARM_C * k));
     }
   }
 }
