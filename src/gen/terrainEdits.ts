@@ -575,9 +575,27 @@ export function applyClimatePens(mesh: Mesh, temperature: Float32Array, precipit
   for (const op of pens) {
     const r = op.r;
     const sh = geo.polyline(op.f ? [...op.pts, op.pts[0], op.pts[1]] : op.pts, 1.1 * r);
+    // 圈起来填满的圈可能很大,圈里不一定在包围球里:另按圈在主图上的外框筛(x 和 insidePolygon 一样挪到离第一个点最近的那一圈)
+    let x0 = Infinity;
+    let x1 = -Infinity;
+    let y0 = Infinity;
+    let y1 = -Infinity;
+    if (op.f) {
+      for (let k = 0; k < op.pts.length; k += 2) {
+        x0 = Math.min(x0, op.pts[k]);
+        x1 = Math.max(x1, op.pts[k]);
+        y0 = Math.min(y0, op.pts[k + 1]);
+        y1 = Math.max(y1, op.pts[k + 1]);
+      }
+    }
     for (let i = 0; i < n; i++) {
-      // 圈起来填满的圈可能很大,圈里不一定离线近:不按包围球筛
-      if (!op.f && !sh.covers(i)) continue;
+      if (!sh.covers(i)) {
+        if (!op.f) continue;
+        const y = mesh.y[i];
+        if (y < y0 || y > y1) continue;
+        const x = nearLon(mesh.x[i], op.pts[0]) + (mesh.x[i] - Math.round(mesh.x[i]));
+        if (x < x0 || x > x1) continue;
+      }
       const d = sh.nearest(mesh.x[i], mesh.y[i]).d;
       const w = op.f && insidePolygon(op.pts, mesh.x[i], mesh.y[i]) ? 1 : 1 - smoothstep(0.6 * r, 1.1 * r, d);
       if (w <= 0) continue;
