@@ -43,7 +43,7 @@ import {
   type VecView,
 } from './common';
 import { keyed, smoothstep, subSeed } from '../gen/util';
-import { geometryOf } from '../gen/geometry';
+import { geometryOf, sphereSpacing } from '../gen/geometry';
 import { addProjectedLine, clipOutline, glyphMetric, insideProj, outlineOnCanvas, projectLinePts, projector, relShifts, reprojectImage, type GlyphMetric, type MapProj, type Projector, type ProjectionId } from './projection';
 
 const PAPER = hexRGB('#efe2c2');
@@ -3199,12 +3199,24 @@ function skirt(out: Uint8Array, g: Glyph, gx: number, w: number, h: number, S: n
   }
 }
 
-/** 只在陆地内部做邻居平均(海当作"没有数据",避免海岸被误判成山脊)。 */
-function landBlur(world: World, f: Float32Array, land: Uint8Array, passes: number) {
-  const { n, adjStart, adj } = world.mesh;
+/**
+ * 只在陆地内部做邻居平均(海当作"没有数据",避免海岸被误判成山脊),一次算出几种平滑程度。
+ * passes = 默认精细度(GLYPH_REF_CELLS 个地块)下各要平均几遍。平均的范围随遍数的平方根扩大、按地块间距算 ——
+ * 要按地面距离不变,遍数乘 (默认间距 / 这张图的间距)²;不是整数时,最后一遍只走一部分(和下一遍按比例混合),
+ * 精细度连续变,平滑范围也连续变。几种程度共用同一串平均(平滑得狠的接着平滑得轻的往下算)。
+ */
+function landBlur(world: World, f: Float32Array, land: Uint8Array, passes: readonly number[]): Float32Array[] {
+  const { n, adjStart, adj, spacing } = world.mesh;
+  const k = (sphereSpacing(world.width, GLYPH_REF_CELLS) / spacing) ** 2;
+  const want = passes.map((p) => p * k);
+  const out: Float32Array[] = new Array(passes.length);
   let a = f.slice();
   let b = new Float32Array(n);
-  for (let p = 0; p < passes; p++) {
+  const last = Math.max(0, ...want);
+  for (let p = 0; ; p++) {
+    // 正好平均了 p 遍的要 a;p 到 p + 1 之间的,等这一遍算完按比例混合
+    for (let w = 0; w < want.length; w++) if (want[w] === p) out[w] = a.slice();
+    if (p >= last) break;
     for (let i = 0; i < n; i++) {
       if (!land[i]) {
         b[i] = a[i];
@@ -3212,8 +3224,8 @@ function landBlur(world: World, f: Float32Array, land: Uint8Array, passes: numbe
       }
       let s = a[i];
       let c = 1;
-      for (let k = adjStart[i]; k < adjStart[i + 1]; k++) {
-        const j = adj[k];
+      for (let q = adjStart[i]; q < adjStart[i + 1]; q++) {
+        const j = adj[q];
         if (land[j]) {
           s += a[j];
           c++;
@@ -3221,12 +3233,25 @@ function landBlur(world: World, f: Float32Array, land: Uint8Array, passes: numbe
       }
       b[i] = s / c;
     }
-    const t = a;
+    for (let w = 0; w < want.length; w++) {
+      const t = want[w] - p;
+      if (t > 0 && t < 1) {
+        const o = new Float32Array(n);
+        for (let i = 0; i < n; i++) o[i] = a[i] + (b[i] - a[i]) * t;
+        out[w] = o;
+      }
+    }
+    const tmp = a;
     a = b;
-    b = t;
+    b = tmp;
   }
-  return a;
+  return out;
 }
+
+/** 符号疏密按这个精细度(默认的地块数)调好:更细 / 更粗的网格按地面距离换算,全图上的山、丘陵疏密不变 */
+const GLYPH_REF_CELLS = 36000;
+/** 山和山之间的最小地面距离 = 默认精细度下地块间距的几倍(相邻地块的中心至少隔 1 倍间距,所以默认精细度下这条不起作用) */
+const MTN_GAP = 1;
 
 /**
  * 大范围"基准面":方圆几十像素内陆地的平均海拔(在粗网格上盒式模糊,很便宜)。
@@ -3308,6 +3333,10 @@ export function planGlyphs(world: World, metric?: GlyphMetric): Plan {
   /** 地块 cell 上、做 use 这件事的随机数 [0, 1)(见上面的 R_*) */
   const rnd = (cell: number, use: number) => keyed(gSeed, cell, use);
   const glyphs: Glyph[] = [];
+  /** 一个地块的面积 / 默认精细度下一个地块的面积 */
+  const cellFrac = (spacing / sphereSpacing(world.width, GLYPH_REF_CELLS)) ** 2;
+  /** 默认精细度下一个地块的概率 p,换成这张图一个地块的概率(地块小了,同样一片地上的候选多了,每个地块的概率相应降低) */
+  const perCell = (p: number) => (cellFrac === 1 ? p : 1 - (1 - p) ** cellFrac);
 
   // ---- 地形量:脊度(比周围高多少)、坡度 ----
   const land = new Uint8Array(n);
@@ -3318,8 +3347,8 @@ export function planGlyphs(world: World, metric?: GlyphMetric): Plan {
       e0[i] = Math.max(0, elevation[i]);
     }
   }
-  const b4 = landBlur(world, e0, land, 4);
-  const b1 = landBlur(world, e0, land, 1);
+  // 平滑程度:4 遍 = 脊度,1 遍 = 坡度,9 遍 = 主脊,2 遍 = 侧脊(都是默认精细度下的遍数,见 landBlur)
+  const [b4, b1, bMain, bSpur] = landBlur(world, e0, land, [4, 1, 9, 2]);
   const ridge = new Float32Array(n);
   const slope = new Float32Array(n);
   for (let i = 0; i < n; i++) {
@@ -3347,8 +3376,6 @@ export function planGlyphs(world: World, metric?: GlyphMetric): Plan {
   // ---- 山脊:脊线、主脊 / 侧脊、走向(候选,按分数排好) ----
   // 脊线 = 平滑后的地形上"两侧都更低"的地块。平滑得狠 → 只剩主脊;平滑得轻 → 还有侧脊。
   // 主脊先占位、画得大;侧脊后占位、画得小;山坡和高原不放山。
-  const bMain = landBlur(world, e0, land, 9);
-  const bSpur = landBlur(world, e0, land, 2);
   const crest = (bf: Float32Array, i: number) => {
     let lo = 0;
     let deg = 0;
@@ -3530,6 +3557,21 @@ export function planGlyphs(world: World, metric?: GlyphMetric): Plan {
     index(placed.length - 1);
   };
   let tf = 1;
+  // 山和山之间至少隔默认精细度下的一个地块(按地面距离):默认精细度下山放在脊线的地块上,本来就隔得开;
+  // 网格更细时脊线上的地块挨得更近,不加这一条同一段山脉会挤进更多座山
+  const mtnGap = MTN_GAP * sphereSpacing(world.width, GLYPH_REF_CELLS);
+  const mtnGrid = new Map<number, number[]>();
+  const mtnNear = (i: number) => {
+    const gx = Math.floor(x[i] / cellSize);
+    const gy = Math.floor(y[i] / cellSize);
+    for (let yy = gy - 1; yy <= gy + 1; yy++)
+      for (let x0 = gx - 1; x0 <= gx + 1; x0++) {
+        const xx = x0 < 0 ? x0 + gw : x0 >= gw ? x0 - gw : x0;
+        const l = mtnGrid.get(yy * gw + xx);
+        if (l) for (const j of l) if (geo.dist(i, j) < mtnGap) return true;
+      }
+    return false;
+  };
   const used = new Uint8Array(n); // 已经有符号的地块
   const mtnCell = new Uint8Array(n);
 
@@ -3564,8 +3606,12 @@ export function planGlyphs(world: World, metric?: GlyphMetric): Plan {
       const s = main ? 4.6 + 8.4 * Math.sqrt(0.6 * tE + 0.4 * tP) : 3.5 + 4.2 * Math.sqrt(0.6 * tE + 0.4 * tP) * (0.55 + 0.45 * tR);
       if (tier === 0 && !main && s < 5.3) continue;
       const rad = main ? s * 0.62 : s * 0.9;
-      if (near(x[i], y[i], rad)) continue;
+      if (near(x[i], y[i], rad) || (mtnGap && mtnNear(i))) continue;
       add(x[i], y[i], rad);
+      const mk = Math.floor(y[i] / cellSize) * gw + Math.floor(x[i] / cellSize);
+      const ml = mtnGrid.get(mk);
+      if (ml) ml.push(i);
+      else mtnGrid.set(mk, [i]);
       used[i] = mtnCell[i] = 1;
       const [a, c] = ridgeAxis(i);
       glyphs.push({ x: x[i], y: y[i], kind: G_MOUNTAIN, s, v: rnd(i, R_MTN_LEAN), a, c, cell: i, z });
@@ -3594,7 +3640,7 @@ export function planGlyphs(world: World, metric?: GlyphMetric): Plan {
         p = 0.75 * tS;
         spread = 2;
       }
-      if (rnd(i, R_HILL_PICK) >= Math.min(0.95, p * boost)) continue;
+      if (rnd(i, R_HILL_PICK) >= perCell(Math.min(0.95, p * boost))) continue;
       const s = 2.8 + rnd(i, R_HILL_SIZE) * 1.1 + Math.min(0.9, ridge[i] / 450);
       const rad = s * spread;
       if (near(x[i], y[i], rad)) continue;
@@ -3608,7 +3654,7 @@ export function planGlyphs(world: World, metric?: GlyphMetric): Plan {
       if (used[i]) continue;
       const kind = dKind[i];
       const dens = kind === G_DUNE ? 0.14 : 0.16;
-      if (rnd(i, R_DOT_PICK) > dens * (1 + 0.9 * tier)) continue;
+      if (rnd(i, R_DOT_PICK) > perCell(Math.min(1, dens * (1 + 0.9 * tier)))) continue;
       let px = x[i] + (rnd(i, R_DOT_X) - 0.5) * spacing * 1.2;
       const py = y[i] + (rnd(i, R_DOT_Y) - 0.5) * spacing * 1.2;
       // 东西相连:挪出左右边的放回图里(画的时候挨着边的会在另一边再画一份)
