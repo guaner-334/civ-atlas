@@ -7,7 +7,7 @@ import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
 import { ownersAt } from '../src/gen/civ/timeline';
 import { polityAlive } from '../src/gen/civ/growth';
-import { CAP_COUNT, ERAS, LEVEL_SCALE, RESOURCES, RESOURCE_COUNT, buildDevelopment, developmentAt, eraLevel, eraOf } from '../src/gen/civ/development';
+import { AVAIL_SCALE, CAP_COUNT, ERAS, LEVEL_SCALE, RESOURCES, RESOURCE_COUNT, buildDevelopment, developmentAt, eraLevel, eraOf, resourcesAt } from '../src/gen/civ/development';
 
 const worlds = new Map<number, World>();
 function world(seed: number): World {
@@ -38,6 +38,31 @@ describe.each([7, 2024])('发展度 · seed=%i', (seed) => {
     expect(again.resources).toEqual(civ.development!.resources);
     expect(again.snaps).toEqual(civ.development!.snaps);
     expect(again.events).toEqual(civ.development!.events);
+    expect(again.avail).toEqual(civ.development!.avail);
+    expect(again.found).toEqual(civ.development!.found);
+  });
+
+  it('物产随年份:矿要发现了才有,发现在要它的那个时代之前;眼下能用的不超过底子;第 3000 年还没有煤、石油、稀有矿', () => {
+    const civ = civOf(seed);
+    const dev = civ.development!;
+    const R = civ.regions.count;
+    for (const a of dev.avail) for (let i = 0; i < a.length; i++) expect(a[i]).toBeLessThanOrEqual(dev.resources[i] * AVAIL_SCALE);
+    const at = resourcesAt(dev, 2500);
+    let known = 0;
+    for (let r = 0; r < R; r++) {
+      for (let k = 0; k < RESOURCE_COUNT; k++) {
+        const i = r * RESOURCE_COUNT + k;
+        if (dev.found[i] > 2500) expect(at[i]).toBe(0);
+        else if (dev.resources[i]) known++;
+      }
+    }
+    expect(known).toBeGreaterThan(0);
+    // 铜锡比青铜时代早发现;煤、石油、稀有矿要到工业时代前后
+    let copper = Infinity;
+    for (let r = 0; r < R; r++) copper = Math.min(copper, dev.found[r * RESOURCE_COUNT + 2]);
+    const bronze = dev.events.find((e) => e.kind === 'first' && e.era === 1)!.year;
+    expect(copper).toBeLessThan(bronze);
+    for (const k of [4, 8, 9]) for (let r = 0; r < R; r++) expect(dev.found[r * RESOURCE_COUNT + k]).toBe(Infinity);
   });
 
   it('物产:每样都有、0–3 档,多的少于少的;铜锡、煤比粮、木材稀', () => {
