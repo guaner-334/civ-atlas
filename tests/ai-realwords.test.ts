@@ -8,6 +8,7 @@ import { generateCiv } from '../src/gen/civ';
 import { recentCallsInMemory, setActiveProvider, setMockResponder } from '../src/ai/client';
 import { fixRealWords, parseFixed, scanRealWords } from '../src/ai/realWords';
 import { buildHistoryPrompts, type HistoryOptions } from '../src/ai/prompts/history';
+import { explainScan, nameMaterial } from '../src/ai/prompts/names';
 import { HISTORY_KIND, writeHistory } from '../src/ai/history';
 
 const words = (text: string, o: Parameters<typeof scanRealWords>[1] = { material: '' }) => scanRealWords(text, o).map((h) => h.word);
@@ -41,6 +42,25 @@ describe('现实词检查:扫', () => {
     expect(words('"揽"取《楚辞》之意,李白有诗。', east)).toEqual([]);
     expect(words('"揽"取《楚辞》之意,近于梵文。', east)).toEqual(['梵文']);
     expect(words('吏部尚书据史记载,仿佛教导后人。如来犯之敌。')).toEqual([]);
+  });
+});
+
+describe('现实词检查:名字由来的规矩', () => {
+  it('不算的词只取世界自己的材料:写法要求、语感说明里的"公元""拉丁""中世纪"照样扫', () => {
+    const civ = generateCiv(generateWorld({ ...DEFAULT_PARAMS, seed: 7 }));
+    const seen = new Set<string>();
+    civ.settlements.forEach((_, id) => {
+      const m = nameMaterial(civ, { kind: 'settlement', id });
+      const style = m?.info.style;
+      if (!m || !style || seen.has(style.id)) return;
+      seen.add(style.id);
+      const o = explainScan(m);
+      expect(o.allowSpelling).toBe(style.family === 'western' || style.id === 'frontier');
+      expect(o.allowClassics).toBe(style.family === 'eastern');
+      expect(words('此城建于公元 800 年,兴于中世纪。', o)).toEqual(['公元', '世纪']);
+      expect(words('近于拉丁。', o)).toEqual(['拉丁']);
+    });
+    expect(seen.size).toBeGreaterThan(1);
   });
 });
 

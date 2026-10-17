@@ -1170,13 +1170,14 @@ export function explainRequest(m: NameMaterial): AiRequest {
 
 /**
  * 名字由来写完扫现实词的规矩(realWords.ts),和 explainSystem 的讲法对应:中式名字可以引一处古诗文,
- * 音译名字可以有拟造的拉丁字母拼写,边塞风(和不知道语感的)两种都有。发给 AI 的提示和材料里有的词不算
+ * 音译名字可以有拟造的拉丁字母拼写,边塞风(和不知道语感的)两种都有。
+ * 世界自己的材料里有的词不算;写法要求和语感说明不算材料(里面有"公元""拉丁""中世纪"这类提到现实的字眼)
  */
 export function explainScan(m: NameMaterial): ScanOptions {
   const style = m.info.style;
   const mixed = !style || style.id === 'frontier';
   return {
-    material: explainRequest(m).messages.map((x) => x.content).join('\n'),
+    material: materialText(m).split('\n').filter((l) => !l.startsWith('语感:')).join('\n'),
     allowClassics: mixed || style.family === 'eastern',
     allowSpelling: mixed || style.family === 'western',
   };
