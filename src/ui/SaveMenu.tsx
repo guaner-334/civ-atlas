@@ -7,6 +7,7 @@
  *     没有修改 = 普通网址(只带种子、参数);剪贴板用不了:菜单留着,里面多一行选中了链接的输入框,让用户自己复制
  *   登录了网站账号:当前世界那一行写同步到账号了没有;"复制分享链接"换成"分享…"(短链接,随时能停,AccountDialogs.tsx 的分享窗)
  *   看原样:旧版本建的世界(留着原来那一份,saveStore 的 currentOriginal)到那一版的旧网站里打开,新页面(oldSite.ts)
+ *   按新版另存一份:照原样打开的旧世界(没有重新生成,FrozenWorld.tsx)另存一份按新版推演;这时不放「看原样」(看到的就是原样)
  *
  * 存、读、列都在 saveStore.ts。存储满了之类的提示(saveStore 的 notify)显示在顶部的提示条上。
  * ⌘S 打开这个菜单(openSaveMenu;世界本来就自动存着,菜单上写着存没存好)。
@@ -24,6 +25,7 @@ import { openShareDialog } from './AccountDialogs';
 import { when } from './worldParts';
 import { useSession } from '../account/session';
 import { useSyncView, worldSync } from '../account/sync';
+import { saveAsNew } from './FrozenWorld';
 
 export interface SaveMenuProps {
   /** 世界生成完了(能存) */
@@ -217,7 +219,8 @@ export function SaveMenu({ ready, icon }: SaveMenuProps) {
           ? { cls: 'ok', text: '已自动存在这个浏览器里' }
           : { cls: '', text: '还没存进我的世界；改了名字或历史就会自动存' };
   // 旧版本建的世界:能到那一版的旧网站里看原样(菜单开着才找)
-  const orig = open && cur ? currentOriginal() : null;
+  const frozen = cur?.frozen !== undefined;
+  const orig = open && cur && !frozen ? currentOriginal() : null;
   const site = orig ? oldSiteFor(orig.generator) : null;
   const seeOriginal = () => {
     if (!orig || !site) return;
@@ -276,6 +279,22 @@ export function SaveMenu({ ready, icon }: SaveMenuProps) {
               <span>
                 <b>复制分享链接</b>
                 <small>{count || title ? '对方打开看到同一个世界、同样的修改' : '还没有修改，只带种子和参数'}</small>
+              </span>
+            </button>
+          )}
+          {frozen && (
+            <button
+              className="save-it"
+              data-act="save-new"
+              onClick={() => {
+                setOpen(false);
+                saveAsNew();
+              }}
+            >
+              <Icon name="copy" size={17} />
+              <span>
+                <b>按新版另存一份</b>
+                <small>这一份照原样留着，另存的用新版重新推演</small>
               </span>
             </button>
           )}

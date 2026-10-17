@@ -35,7 +35,7 @@ export function setEdits(next: WorldEdits) {
   future = [];
   era++;
   for (const f of resetSubs) f();
-  put(next);
+  put(next, false);
 }
 
 /** 整个换掉时(换世界、读档)要跟着清的东西(比如待推演的单子) */
@@ -51,10 +51,34 @@ export function editsEra(): number {
   return era;
 }
 
-function put(next: WorldEdits) {
-  if (next === state) return;
+/** 换成 next;改历史的修改被拦下(historyGate)= false。读档(setEdits)不拦 */
+function put(next: WorldEdits, gated = true): boolean {
+  if (next === state) return true;
+  if (gated && historyBlocked(next)) return false;
   state = next;
   emit();
+  return true;
+}
+
+/**
+ * 改历史之前问一声(App 在照原样打开的旧世界上挂上):干预、地形大事、地形修改、草图、地名风格、推演年数、拓荒、起源变了
+ * 都要用现在的规则重新推演。gate 拿到改之后的修改,返回 true = 这次不改(App 问作者要不要另存一份,在那一份上改)
+ */
+let historyGate: ((next: WorldEdits) => boolean) | null = null;
+export function setHistoryGate(f: ((next: WorldEdits) => boolean) | null) {
+  historyGate = f;
+}
+const HISTORY_KEYS = ['interventions', 'upheavals', 'terrain', 'sketch', 'nameMix', 'endYear', 'frontier', 'origins'] as const;
+/** 两份修改里,推演用到的部分不一样 */
+export function historyDiffers(a: WorldEdits, b: WorldEdits): boolean {
+  return HISTORY_KEYS.some((k) => a[k] !== b[k] && JSON.stringify(a[k] ?? null) !== JSON.stringify(b[k] ?? null));
+}
+function historyBlocked(next: WorldEdits): boolean {
+  return historyDiffers(state, next) && askHistory(next);
+}
+/** 要改成 next(会改历史)之前问一声:被拦下 = true(App 接着问作者) */
+export function askHistory(next: WorldEdits): boolean {
+  return !!historyGate && historyGate(next);
 }
 
 // ---------------------------------------------------------------------------
@@ -75,14 +99,15 @@ let future: EditStep[] = [];
 let replaying = false;
 
 /** 改一处,记一步(用户自己的修改都走这里;读档用 setEdits) */
-export function commitEdits(next: WorldEdits, turn?: EditStep['turn']) {
-  if (next === state) return;
+export function commitEdits(next: WorldEdits, turn?: EditStep['turn']): boolean {
+  if (next === state) return true;
+  if (historyBlocked(next)) return false;
   if (!replaying) {
     past.push({ before: state, after: next, turn });
     if (past.length > HISTORY_MAX) past.shift();
     future = [];
   }
-  put(next);
+  return put(next, false);
 }
 
 export function canUndoEdit(): boolean {
@@ -110,8 +135,8 @@ export function stepEdits(dir: 'undo' | 'redo', run: (s: EditStep) => void): boo
 }
 
 /** 把修改换成 next,不记一步(撤销 / 重做时用) */
-export function replaceEdits(next: WorldEdits) {
-  put(next);
+export function replaceEdits(next: WorldEdits): boolean {
+  return put(next);
 }
 
 /**
@@ -326,8 +351,7 @@ export function addIntervention(v: Intervention): boolean {
   if (!c || editBlock(interventionKeys(c))) return false;
   const key = JSON.stringify(c);
   if (state.interventions.some((x) => JSON.stringify(x) === key)) return false;
-  commitEdits({ ...state, interventions: [...state.interventions, c] });
-  return true;
+  return commitEdits({ ...state, interventions: [...state.interventions, c] });
 }
 
 /** 干预:去掉第 i 条(下标越界 = 不动) */
@@ -338,9 +362,10 @@ export function removeIntervention(i: number) {
 
 /**
  * 待推演的单子一次推演:几条干预、几件地形大事一起加进去,只记一步(⌘Z 一次撤掉整批)、App 只重推一次。
- * 不合格的、和已有的一模一样的、现在不能改的干预不加;地形大事加到 UPHEAVALS_MAX 件为止。返回真加上了的
+ * 不合格的、和已有的一模一样的、现在不能改的干预不加;地形大事加到 UPHEAVALS_MAX 件为止。返回真加上了的;
+ * 改历史被拦下(照原样打开的旧世界,App 问要不要另存一份)= null,一条都没加
  */
-export function addEditsBatch(ivs: readonly Intervention[], ups: readonly Upheaval[]): { ivs: Intervention[]; ups: Upheaval[] } {
+export function addEditsBatch(ivs: readonly Intervention[], ups: readonly Upheaval[]): { ivs: Intervention[]; ups: Upheaval[] } | null {
   const have = new Set(state.interventions.map((x) => JSON.stringify(x)));
   const addIvs: Intervention[] = [];
   for (const v of ivs) {
@@ -360,7 +385,7 @@ export function addEditsBatch(ivs: readonly Intervention[], ups: readonly Upheav
   if (!addIvs.length && !addUps.length) return { ivs: [], ups: [] };
   const next: WorldEdits = { ...state, interventions: addIvs.length ? [...state.interventions, ...addIvs] : state.interventions };
   if (addUps.length) next.upheavals = [...list, ...addUps];
-  commitEdits(next);
+  if (!commitEdits(next)) return null;
   return { ivs: addIvs, ups: addUps };
 }
 
@@ -391,8 +416,7 @@ export function addUpheaval(u: Upheaval): Upheaval | null {
   const c = cleanUpheaval(u);
   const list = state.upheavals ?? [];
   if (!c || list.length >= UPHEAVALS_MAX) return null;
-  commitEdits({ ...state, upheavals: [...list, c] });
-  return c;
+  return commitEdits({ ...state, upheavals: [...list, c] }) ? c : null;
 }
 
 /** 地形大事:去掉第 i 件(下标越界 = 不动;一件不剩就去掉这一项) */
@@ -411,8 +435,7 @@ export function removeUpheaval(i: number) {
 export function addTerrainOp(op: TerrainOp): boolean {
   const c = cleanTerrainOp(op);
   if (!c || state.terrain.length >= TERRAIN_MAX_OPS) return false;
-  put({ ...state, terrain: [...state.terrain, c] });
-  return true;
+  return put({ ...state, terrain: [...state.terrain, c] });
 }
 
 /** 地名风格(新建世界时配,不记撤销步):每种语感几份;undefined / 一份都没有 = 自动,去掉这一项 */
@@ -513,9 +536,9 @@ export function currentMonths(): number {
 }
 
 /** 地形修改:撤销最后一处 */
-export function undoTerrainOp() {
-  if (!state.terrain.length) return;
-  put({ ...state, terrain: state.terrain.slice(0, -1) });
+export function undoTerrainOp(): boolean {
+  if (!state.terrain.length) return false;
+  return put({ ...state, terrain: state.terrain.slice(0, -1) });
 }
 
 /** 地形修改:全部清除(地形回到种子原本的样子) */
@@ -527,11 +550,11 @@ export function clearTerrain() {
 // ---- 草图(新建世界时「编辑地形」涂的;格式见 gen/edits.ts 文件头"地形草图") ----
 
 /** 把草图换成 next(清理过;一笔没有、没涂的又交给程序 = 去掉这个字段)。App 看到草图变了就在后台照新的草图重新生成 */
-export function putSketch(next: SketchEdit | null) {
+export function putSketch(next: SketchEdit | null): boolean {
   const c = next ? cleanSketch(next) : null;
   const { sketch: _, ...rest } = state;
   void _;
-  put(c ? { ...rest, sketch: c } : rest);
+  return put(c ? { ...rest, sketch: c } : rest);
 }
 
 /** 草图:加一笔(清理过的;不合格的、已满 SKETCH_MAX_STROKES 笔的不加)。还没有草图时新开一张,海岸线用 coast(不给 = 默认)。返回是否加上了 */
@@ -540,8 +563,7 @@ export function addSketchStroke(stroke: SketchStroke, coast?: number): boolean {
   const now = state.sketch;
   if (!c || (now?.strokes.length ?? 0) >= SKETCH_MAX_STROKES) return false;
   const base: SketchEdit = now ?? (coast === undefined ? { rest: 'auto', strokes: [] } : { rest: 'auto', coast, strokes: [] });
-  putSketch({ ...base, strokes: [...base.strokes, c] });
-  return true;
+  return putSketch({ ...base, strokes: [...base.strokes, c] });
 }
 
 /**
@@ -570,10 +592,10 @@ export function undoEraseStroke(terrain: readonly TerrainOp[]) {
 }
 
 /** 草图:撤销最后一笔 */
-export function undoSketchStroke() {
+export function undoSketchStroke(): boolean {
   const now = state.sketch;
-  if (!now?.strokes.length) return;
-  putSketch({ ...now, strokes: now.strokes.slice(0, -1) });
+  if (!now?.strokes.length) return false;
+  return putSketch({ ...now, strokes: now.strokes.slice(0, -1) });
 }
 
 /**
@@ -585,8 +607,7 @@ export function setSketchBase(name: string, layer: Uint8Array, coast?: number): 
   const image = cleanSketchImage({ name, cells: encodeLayer(layer) }, now?.strokes.length ?? 0);
   if (!image) return false;
   const base: SketchEdit = now ?? (coast === undefined ? { rest: 'sea', strokes: [] } : { rest: 'sea', coast, strokes: [] });
-  putSketch({ ...base, rest: 'sea', image });
-  return true;
+  return putSketch({ ...base, rest: 'sea', image });
 }
 
 /** 草图:清掉所有笔画(导入的图、海岸线、没涂的地方留着) */
@@ -598,6 +619,15 @@ export function clearSketchStrokes() {
 /** 草图:全部清除(连同"没涂的地方都是海",回到程序原本的星球) */
 export function clearSketch() {
   if (state.sketch) putSketch(null);
+}
+
+/** 地形和草图一起清掉,算一次修改(只问一次、要么都清要么都不清);keepImage:草图只清笔画,导入的图、海岸线留着。返回是否清了 */
+export function clearTerrainAndSketch(keepImage: boolean): boolean {
+  const { sketch: now, ...rest } = state;
+  const keep = !!(keepImage && now?.image);
+  if (!rest.terrain.length && (!now || (keep && !now.strokes.length))) return true;
+  const sketch = now && keep ? cleanSketch({ ...now, strokes: [] }) : null;
+  return put({ ...rest, terrain: EMPTY_EDITS.terrain, ...(sketch ? { sketch } : {}) });
 }
 
 /** 草图:没涂的地方交给程序('auto')还是都是海('sea') */

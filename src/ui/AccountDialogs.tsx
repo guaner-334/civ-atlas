@@ -155,7 +155,7 @@ function useEscape(f: () => void) {
   }, []);
 }
 
-function Dialog({
+export function Dialog({
   phone,
   label,
   width = 420,
@@ -163,6 +163,7 @@ function Dialog({
   head,
   children,
   testId,
+  className,
 }: {
   phone: boolean;
   label: string;
@@ -172,6 +173,8 @@ function Dialog({
   head?: ReactNode;
   children: ReactNode;
   testId?: string;
+  /** 窗口上多加的 class */
+  className?: string;
 }) {
   useEscape(() => onClose?.());
   const stop = (e: { stopPropagation(): void }) => e.stopPropagation();
@@ -185,7 +188,7 @@ function Dialog({
       onClick={stop}
       onWheel={stop}
     >
-      <div className={`acct-dlg${phone ? ' sheet' : ''}`} role="dialog" aria-modal="true" aria-label={label} data-testid={testId} style={phone ? undefined : { width }}>
+      <div className={`acct-dlg${phone ? ' sheet' : ''}${className ? ` ${className}` : ''}`} role="dialog" aria-modal="true" aria-label={label} data-testid={testId} style={phone ? undefined : { width }}>
         {phone && <div className="acct-grip" aria-hidden="true" />}
         {head ?? (
           <div className="acct-head">
