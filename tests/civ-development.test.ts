@@ -62,6 +62,10 @@ describe.each([7, 2024])('发展度 · seed=%i', (seed) => {
     for (let r = 0; r < R; r++) copper = Math.min(copper, dev.found[r * RESOURCE_COUNT + 2]);
     const bronze = dev.events.find((e) => e.kind === 'first' && e.era === 1)!.year;
     expect(copper).toBeLessThan(bronze);
+    // 金银不卡时代,比铜锡还早认得
+    let gold = Infinity;
+    for (let r = 0; r < R; r++) gold = Math.min(gold, dev.found[r * RESOURCE_COUNT + 10]);
+    expect(gold).toBeLessThan(copper);
     for (const k of [4, 8, 9]) for (let r = 0; r < R; r++) expect(dev.found[r * RESOURCE_COUNT + k]).toBe(Infinity);
   });
 
