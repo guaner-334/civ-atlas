@@ -544,6 +544,31 @@ export function addSketchStroke(stroke: SketchStroke, coast?: number): boolean {
   return true;
 }
 
+/**
+ * 草图:加擦掉的一笔,地形修改同时换成 terrain(擦掉碰到的火山、湖、河去掉以后的;一次换上,只重新生成一遍)。
+ * 加不上(不合格、已满)时什么都不动,返回 false
+ */
+export function addEraseStroke(stroke: SketchStroke, terrain: readonly TerrainOp[], coast?: number): boolean {
+  const c = cleanSketchStroke(stroke);
+  const now = state.sketch;
+  if (!c || (now?.strokes.length ?? 0) >= SKETCH_MAX_STROKES) return false;
+  const base: SketchEdit = now ?? (coast === undefined ? { rest: 'auto', strokes: [] } : { rest: 'auto', coast, strokes: [] });
+  const sk = cleanSketch({ ...base, strokes: [...base.strokes, c] });
+  const { sketch: _, ...rest } = state;
+  void _;
+  put(sk ? { ...rest, terrain: [...terrain], sketch: sk } : { ...rest, terrain: [...terrain] });
+  return true;
+}
+
+/** 撤销擦掉的一笔:草图去掉最后一笔,地形修改换回 terrain(擦掉之前的) */
+export function undoEraseStroke(terrain: readonly TerrainOp[]) {
+  const now = state.sketch;
+  const sk = now?.strokes.length ? cleanSketch({ ...now, strokes: now.strokes.slice(0, -1) }) : now;
+  const { sketch: _, ...rest } = state;
+  void _;
+  put(sk ? { ...rest, terrain: [...terrain], sketch: sk } : { ...rest, terrain: [...terrain] });
+}
+
 /** 草图:撤销最后一笔 */
 export function undoSketchStroke() {
   const now = state.sketch;

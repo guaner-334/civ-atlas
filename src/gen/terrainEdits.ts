@@ -35,6 +35,12 @@ export const TERRAIN_MAX_PTS = 256;
 /** 大小(r)、强度(s)的范围 */
 export const TERRAIN_R: readonly [number, number] = [3, 160];
 export const TERRAIN_S: readonly [number, number] = [0.2, 2];
+/** 气候四种的三档(r 是默认的画笔半径,s 是程度) */
+const CLIMATE_PRESET: [r: number, s: number][] = [
+  [40, 0.5],
+  [40, 1],
+  [40, 1.6],
+];
 
 /** 每种工具三档(小 / 中 / 大;山脉是低 / 中 / 高)的大小 r(世界坐标)和强度 s:改地形的工具条、AI 改写共用 */
 export const TERRAIN_PRESETS: Record<TerrainKind, [r: number, s: number][]> = {
@@ -68,11 +74,34 @@ export const TERRAIN_PRESETS: Record<TerrainKind, [r: number, s: number][]> = {
     [9, 1],
     [14, 1.3],
   ],
+  // 气候四种:三档是程度(一点 / 明显 / 很多),大小用画笔的滑条
+  wet: CLIMATE_PRESET,
+  dry: CLIMATE_PRESET,
+  warm: CLIMATE_PRESET,
+  cold: CLIMATE_PRESET,
 };
 
-const KINDS: readonly TerrainKind[] = ['volcano', 'range', 'lake', 'raise', 'sink', 'river'];
+/**
+ * 放一处的大小改成滑条以后,强度跟着大小在三档之间连续取(小于小档 = 小档的强度,大于大档 = 大档的)。
+ * 编辑地形面板放火山、湖、河时用
+ */
+export function presetStrength(kind: TerrainKind, r: number): number {
+  const p = TERRAIN_PRESETS[kind];
+  if (r <= p[0][0]) return p[0][1];
+  for (let i = 1; i < p.length; i++) {
+    if (r <= p[i][0]) {
+      const t = (r - p[i - 1][0]) / (p[i][0] - p[i - 1][0]);
+      return Math.round((p[i - 1][1] + t * (p[i][1] - p[i - 1][1])) * 100) / 100;
+    }
+  }
+  return p[p.length - 1][1];
+}
+
+const KINDS: readonly TerrainKind[] = ['volcano', 'range', 'lake', 'raise', 'sink', 'river', 'wet', 'dry', 'warm', 'cold'];
 /** 只有一个点的种类 */
 export const isPointKind = (k: TerrainKind) => k === 'volcano' || k === 'lake';
+/** 改气候的四种(不动地形,算完气候后改降水 / 气温) */
+export const isClimateKind = (k: TerrainKind) => k === 'wet' || k === 'dry' || k === 'warm' || k === 'cold';
 
 // ---------------------------------------------------------------------------
 // 清理(读档、加一处修改时用)
@@ -112,9 +141,24 @@ export function cleanTerrainOp(x: unknown): TerrainOp | null {
   if (r0 === null || s0 === null) return null;
   const r = Math.round(clamp(r0, TERRAIN_R[0], TERRAIN_R[1]) * 10) / 10;
   const s = Math.round(clamp(s0, TERRAIN_S[0], TERRAIN_S[1]) * 100) / 100;
+  // 湖岸曲折程度:只有湖带,夹到 0–1、保留两位小数;不是有限数的当没有
+  const e0 = kind === 'lake' ? num(o.e) : null;
+  const e = e0 === null ? undefined : Math.round(clamp(e0, 0, 1) * 100) / 100;
+  // 圈起来填满:只有气候四种带,至少三个点才圈得成
+  const f = isClimateKind(kind) && o.f === 1 && pts.length >= 6 ? 1 : undefined;
   const same =
-    Object.keys(o).length === 4 && r === o.r && s === o.s && raw.length === pts.length && pts.every((v, i) => v === raw[i]);
-  return same ? (x as TerrainOp) : { kind, pts, r, s };
+    Object.keys(o).length === 4 + (o.e === undefined ? 0 : 1) + (o.f === undefined ? 0 : 1) &&
+    e === o.e &&
+    f === o.f &&
+    r === o.r &&
+    s === o.s &&
+    raw.length === pts.length &&
+    pts.every((v, i) => v === raw[i]);
+  if (same) return x as TerrainOp;
+  const out: TerrainOp = { kind, pts, r, s };
+  if (e !== undefined) out.e = e;
+  if (f !== undefined) out.f = f;
+  return out;
 }
 
 /** 清理一份地形修改列表(规则同 cleanTerrainOp;不合格的丢掉,最多 max 处,默认 TERRAIN_MAX_OPS)。全都合格时返回原数组 */
@@ -191,7 +235,7 @@ export function sameTerrain(a: readonly TerrainOp[], b: readonly TerrainOp[]): b
   if (a.length !== b.length) return false;
   return a.every((x, i) => {
     const y = b[i];
-    return x.kind === y.kind && x.r === y.r && x.s === y.s && x.pts.length === y.pts.length && x.pts.every((v, j) => v === y.pts[j]);
+    return x.kind === y.kind && x.r === y.r && x.s === y.s && x.e === y.e && x.f === y.f && x.pts.length === y.pts.length && x.pts.every((v, j) => v === y.pts[j]);
   });
 }
 
@@ -220,7 +264,7 @@ const RAISE_U = 0.07;
  * 返回"改过的地块"(1 = 这里的地形被改过;换算成米时不参与最高峰取样)。没有这几种修改 = null(什么都没动)
  */
 export function applyTerrainTectonics(mesh: Mesh, tect: Tectonics, ops: readonly TerrainOp[], seed: number): Uint8Array | null {
-  const shapes = ops.filter((o) => o.kind !== 'lake' && o.kind !== 'river');
+  const shapes = ops.filter((o) => o.kind === 'volcano' || o.kind === 'range' || o.kind === 'raise' || o.kind === 'sink');
   if (!shapes.length) return null;
   const { n } = mesh;
   const geo = geometryOf(mesh);
@@ -343,13 +387,36 @@ export function carveLakes(mesh: Mesh, land: Uint8Array, elevation: Float32Array
   const inBowl = new Uint8Array(n);
   const warp = warper(geo, seed);
   const q = [0, 0];
+  const nz = geo.fbm(subSeed(seed, 'terrain-lake') ^ 0x2f17, 3);
+  const off = [0, 0];
   for (const op of lakes) {
     const [px, py] = op.pts;
     const r = op.r;
+    const e = op.e;
     // 碗:湖心半径 r 内的陆地(湖岸扭一扭,不是正圆)
     const bowl: number[] = [];
-    const amp = 0.3 * r;
-    const R = r + amp;
+    const amp = e === undefined ? 0.3 * r : (0.25 + 0.45 * e) * r;
+    const R = (e === undefined ? r : r * 1.7) + amp;
+    // 新画法:按湖的大小取噪声的尺度(小湖也有弯),整体拉长成椭圆、朝向随位置
+    const th = Math.PI * nz.pointScale(px, py, 400, 3.1, 7.7);
+    const str = 1 + (0.35 + 0.5 * (e ?? 0)) * (0.5 + 0.5 * nz.pointScale(px, py, 400, -5.3, 1.9));
+    const ca = Math.cos(th);
+    const sa = Math.sin(th);
+    const tOf = (i: number): number => {
+      if (e === undefined) {
+        warp(i, amp, q);
+        return geo.pointDist(q[0], q[1], px, py) / r;
+      }
+      geo.pointOffset(px, py, mesh.x[i], mesh.y[i], off);
+      const sc = Math.max(6, 0.9 * r);
+      let u = off[0] + amp * nz.atScale(i, sc, 11.3, 2.9) + 0.18 * e * r * nz.atScale(i, sc * 0.35, -4.1, 8.3);
+      let v = off[1] + amp * nz.atScale(i, sc, -6.7, 5.1) + 0.18 * e * r * nz.atScale(i, sc * 0.35, 9.9, -2.2);
+      const a = (u * ca + v * sa) / Math.sqrt(str);
+      const b = (-u * sa + v * ca) * Math.sqrt(str);
+      u = a;
+      v = b;
+      return Math.sqrt(u * u + v * v) / r;
+    };
     let c = -1;
     let cd = Infinity;
     for (let i = 0; i < n; i++) {
@@ -359,8 +426,7 @@ export function carveLakes(mesh: Mesh, land: Uint8Array, elevation: Float32Array
         cd = d;
         c = i;
       }
-      warp(i, amp, q);
-      if (geo.pointDist(q[0], q[1], px, py) < r && land[i]) bowl.push(i);
+      if (tOf(i) < 1 && land[i]) bowl.push(i);
     }
     if (c < 0 || !land[c]) continue;
     if (!bowl.includes(c)) bowl.push(c);
@@ -376,8 +442,7 @@ export function carveLakes(mesh: Mesh, land: Uint8Array, elevation: Float32Array
     }
     if (!Number.isFinite(rim)) rim = elevation[c];
     for (const i of bowl) {
-      warp(i, amp, q);
-      const t = Math.min(1, geo.pointDist(q[0], q[1], px, py) / r);
+      const t = Math.min(1, tOf(i));
       const target = rim - LAKE_LIP - LAKE_DEPTH * op.s * (1 - t * t);
       if (elevation[i] > target) elevation[i] = target;
       mask[i] = 1;
@@ -453,7 +518,7 @@ export function carveRivers(mesh: Mesh, water: Uint8Array, elevation: Float32Arr
       e = Math.max(1, e);
       elevation[c] = e;
       prev = e;
-      forced[c] = 1;
+      forced[c] = Math.max(forced[c], Math.min(255, Math.round(op.r)));
     }
     for (const c of run) onChain[c] = 0;
   }
@@ -481,4 +546,55 @@ export function volcanoPeaks(mesh: Mesh, water: Uint8Array, elevation: Float32Ar
     if (best >= 0 && !out.includes(best)) out.push(best);
   }
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// 算完气候之后:改气候的四支笔
+
+/** 程度 1 时:更湿多下的雨(mm,另按原来的雨量加九成)、更干少下的比例、更暖 / 更冷的度数 */
+const WET_MM = 260;
+const WET_MUL = 0.9;
+const DRY_MUL = 0.5;
+const WARM_C = 6;
+
+/**
+ * 按先后套上改气候的笔(原地改 temperature、precipitation):涂抹 = 笔走过的带子,圈起来填满 = 圈里整片;
+ * 核心一片照足,边缘软(半径的 0.6–1.1 倍之间渐弱)。没有这几种 = 什么都不动
+ */
+export function applyClimatePens(mesh: Mesh, temperature: Float32Array, precipitation: Float32Array, ops: readonly TerrainOp[]) {
+  const pens = ops.filter((o) => isClimateKind(o.kind));
+  if (!pens.length) return;
+  const { n } = mesh;
+  const geo = geometryOf(mesh);
+  for (const op of pens) {
+    const r = op.r;
+    const sh = geo.polyline(op.f ? [...op.pts, op.pts[0], op.pts[1]] : op.pts, 1.1 * r);
+    for (let i = 0; i < n; i++) {
+      // 圈起来填满的圈可能很大,圈里不一定离线近:不按包围球筛
+      if (!op.f && !sh.covers(i)) continue;
+      const d = sh.nearest(mesh.x[i], mesh.y[i]).d;
+      const w = op.f && insidePolygon(op.pts, mesh.x[i], mesh.y[i]) ? 1 : 1 - smoothstep(0.6 * r, 1.1 * r, d);
+      if (w <= 0) continue;
+      const k = op.s * w;
+      if (op.kind === 'wet') precipitation[i] = precipitation[i] * (1 + WET_MUL * k) + WET_MM * k;
+      else if (op.kind === 'dry') precipitation[i] = precipitation[i] * Math.max(0.05, 1 - DRY_MUL * k);
+      else if (op.kind === 'warm') temperature[i] += WARM_C * k;
+      else temperature[i] -= WARM_C * k;
+    }
+  }
+}
+
+/** 世界坐标点 (px, py) 在不在折线首尾连起来的圈里(主图平面上数射线穿过几次;x 先挪到离圈的第一个点最近的那一圈) */
+function insidePolygon(pts: readonly number[], px0: number, py: number): boolean {
+  const px = nearLon(px0, pts[0]) + (px0 - Math.round(px0));
+  let inside = false;
+  const m = pts.length >> 1;
+  for (let a = 0, b = m - 1; a < m; b = a++) {
+    const xa = pts[2 * a];
+    const ya = pts[2 * a + 1];
+    const xb = pts[2 * b];
+    const yb = pts[2 * b + 1];
+    if (ya > py !== yb > py && px < ((xb - xa) * (py - ya)) / (yb - ya) + xa) inside = !inside;
+  }
+  return inside;
 }

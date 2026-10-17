@@ -1485,6 +1485,37 @@ body.terrain-pan .stage.terrain-on:active {
 .tt-mark.k-sink .tt-band {
   stroke: #3f8fe0;
 }
+/* 改气候:各支笔的颜色(和面板上的色点一样);圈起来填满的是一块 */
+.tt-mark.k-wet {
+  --tt-c: #3fb8a8;
+}
+.tt-mark.k-dry {
+  --tt-c: #dcbc78;
+}
+.tt-mark.k-warm {
+  --tt-c: #f07a4a;
+}
+.tt-mark.k-cold {
+  --tt-c: #a8d8ff;
+}
+.tt-mark:is(.k-wet, .k-dry, .k-warm, .k-cold) .tt-band {
+  stroke: var(--tt-c);
+  opacity: 0.4;
+}
+.tt-mark:is(.k-wet, .k-dry, .k-warm, .k-cold) .tt-line {
+  stroke: var(--tt-c);
+}
+.tt-mark .tt-area {
+  fill: var(--tt-c, #ffd08a);
+  fill-opacity: 0.32;
+  fill-rule: evenodd;
+}
+/* 擦掉的这一笔碰到的火山、湖、河:描红,松手就去掉 */
+.tt-mark.doomed .tt-line,
+.tt-mark.doomed .tt-river {
+  stroke: #ff6b5e;
+  stroke-dasharray: 3 3;
+}
 /* 光标圈:实线,淡一点 */
 .tt-cursor .tt-line {
   stroke: rgba(255, 255, 255, 0.9);

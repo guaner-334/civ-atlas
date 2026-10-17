@@ -7,8 +7,11 @@ import { clearEdits, getEdits, putSketch, addTerrainOp, setEdits } from '../src/
 import { EMPTY_EDITS } from '../src/gen/edits';
 import {
   clearAllTerrain,
+  erasedOps,
+  getTerrainTool,
   redoTerrain,
   setTerrainCoast,
+  setTerrainPage,
   setTerrainTool,
   setTerrainWrap,
   terrainCancel,
@@ -32,7 +35,7 @@ beforeEach(() => {
   clearEdits();
   clearAllTerrain();
   setTerrainWrap(2048);
-  setTerrainTool({ on: true, tool: 'land', r: 40, method: 'paint', h: 1, size: 1, show: true, coast: 0.6 });
+  setTerrainTool({ on: true, tool: 'land', r: 40, method: 'paint', h: 1, place: { volcano: 28, lake: 16, river: 9 }, shore: 0.5, level: 1, show: true, coast: 0.6 });
 });
 afterEach(() => setTerrainTool({ on: false }));
 
@@ -95,6 +98,50 @@ describe('编辑地形:画', () => {
     expect(getEdits().sketch).toBeUndefined();
   });
 
+  it('放一处的大小是滑条:火山、湖、河照工具的半径,强度跟着大小取;湖带上湖岸', () => {
+    setTerrainTool({ tool: 'volcano', place: { volcano: 50, lake: 7, river: 18 }, shore: 1 });
+    terrainClick([500, 500]);
+    setTerrainTool({ tool: 'lake' });
+    terrainClick([520, 500]);
+    setTerrainTool({ tool: 'river' });
+    drag([
+      [600, 600],
+      [640, 660],
+    ]);
+    const t = getEdits().terrain;
+    expect(t[0]).toMatchObject({ kind: 'volcano', r: 50, s: 1.3 });
+    expect(t[0].e).toBeUndefined();
+    expect(t[1]).toMatchObject({ kind: 'lake', r: 7, s: 0.7, e: 1 });
+    expect(t[2]).toMatchObject({ kind: 'river', r: 18, s: 1.3 });
+  });
+
+  it('改气候:涂一笔 = 一处地形修改(半径、程度照工具),圈起来填满带 f;两页各记着上次的笔', () => {
+    setTerrainTool({ tool: 'hills' });
+    setTerrainPage('climate');
+    expect(getTerrainTool().tool).toBe('wet');
+    setTerrainTool({ tool: 'warm', level: 2, r: 30 });
+    drag([
+      [400, 400],
+      [460, 400],
+    ]);
+    setTerrainTool({ method: 'lasso', level: 0 });
+    drag([
+      [800, 500],
+      [860, 500],
+      [860, 560],
+      [800, 560],
+    ]);
+    const t = getEdits().terrain;
+    expect(t[0]).toMatchObject({ kind: 'warm', r: 30, s: 1.6, pts: [400, 400, 460, 400] });
+    expect(t[0].f).toBeUndefined();
+    expect(t[1]).toMatchObject({ kind: 'warm', s: 0.5, f: 1 });
+    expect(getEdits().sketch).toBeUndefined();
+    setTerrainPage('shape');
+    expect(getTerrainTool().tool).toBe('hills');
+    setTerrainPage('climate');
+    expect(getTerrainTool().tool).toBe('warm');
+  });
+
   it('第二根手指紧跟着按下:刚开始的那一笔不算', () => {
     expect(terrainDown([300, 300], 0)).toBe(true);
     expect(terrainCancel()).toBe(true);
@@ -137,6 +184,55 @@ describe('编辑地形:撤销 / 重做 / 全部清除', () => {
     ]);
     redoTerrain();
     expect(getEdits().sketch!.strokes).toHaveLength(2);
+  });
+
+  it('擦掉碰到的火山、湖、河整个去掉,和擦的这一笔算同一步:撤销一起回来,重做一起去掉', () => {
+    setTerrainTool({ tool: 'volcano' });
+    terrainClick([300, 300]);
+    setTerrainTool({ tool: 'lake' });
+    terrainClick([600, 400]);
+    setTerrainTool({ tool: 'river' });
+    drag([
+      [900, 300],
+      [900, 360],
+      [905, 420],
+    ]);
+    setTerrainTool({ tool: 'land' });
+    drag([
+      [1200, 300],
+      [1260, 300],
+    ]);
+    const before = getEdits().terrain;
+    // 擦过湖和河,没碰火山
+    const pts = [580, 400, 640, 400, 700, 390, 800, 380, 880, 370, 920, 360];
+    expect(erasedOps(before, { kind: 'erase', r: 20, pts })).toEqual([1, 2]);
+    setTerrainTool({ tool: 'erase', r: 20 });
+    drag(Array.from({ length: pts.length / 2 }, (_, i) => [pts[2 * i], pts[2 * i + 1]] as [number, number]));
+    expect(getEdits().terrain.map((o) => o.kind)).toEqual(['volcano']);
+    expect(getEdits().sketch!.strokes.map((s) => s.kind)).toEqual(['land', 'erase']);
+    expect(terrainCount(getEdits())).toBe(3);
+    undoTerrain();
+    expect(getEdits().terrain).toEqual(before);
+    expect(getEdits().sketch!.strokes.map((s) => s.kind)).toEqual(['land']);
+    redoTerrain();
+    expect(getEdits().terrain.map((o) => o.kind)).toEqual(['volcano']);
+    expect(getEdits().sketch!.strokes).toHaveLength(2);
+    // 一路撤:擦掉 → 涂陆地 → 河,按先后
+    undoTerrain();
+    undoTerrain();
+    expect(getEdits().sketch).toBeUndefined();
+    expect(getEdits().terrain.map((o) => o.kind)).toEqual(['volcano', 'lake', 'river']);
+    undoTerrain();
+    expect(getEdits().terrain.map((o) => o.kind)).toEqual(['volcano', 'lake']);
+    // 圈起来擦:圈住火山
+    setTerrainTool({ tool: 'erase', method: 'lasso' });
+    drag([
+      [250, 250],
+      [350, 250],
+      [350, 350],
+      [250, 350],
+    ]);
+    expect(getEdits().terrain.map((o) => o.kind)).toEqual(['lake']);
   });
 
   it('别处加的(读档、助手)也撤得掉:先撤草图,再撤放的', () => {

@@ -6,7 +6,8 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, MAP_H, MAP_W, generateWorld, type World } from '../src/gen/world';
 import { EMPTY_EDITS, type TerrainOp, type WorldEdits } from '../src/gen/edits';
-import { TERRAIN_H, TERRAIN_MAX_OPS, TERRAIN_MAX_PTS, TERRAIN_W, cleanTerrainOp, cleanTerrainOps, sameTerrain } from '../src/gen/terrainEdits';
+import { TERRAIN_H, TERRAIN_MAX_OPS, TERRAIN_MAX_PTS, TERRAIN_PRESETS, TERRAIN_W, cleanTerrainOp, cleanTerrainOps, presetStrength, sameTerrain } from '../src/gen/terrainEdits';
+import { drawnFlux, shownRivers } from '../src/render/common';
 import { editCount, makeSave, parseSave, saveText, worldCheck } from '../src/gen/savefile';
 import { G_VOLCANO, planGlyphs, type Glyph } from '../src/render/fantasy';
 
@@ -54,6 +55,27 @@ const same = (a: World, b: World) => {
 describe('改地形 · 格式', () => {
   it('世界坐标的范围和地图原图一致', () => {
     expect([TERRAIN_W, TERRAIN_H]).toEqual([MAP_W, MAP_H]);
+  });
+
+  it('湖岸 e 只有湖留(夹到 0–1),圈起来填满 f 只有改气候的留(至少三个点);放一处的强度随大小在三档之间连续取', () => {
+    expect(cleanTerrainOp({ kind: 'lake', pts: [10, 10], r: 16, s: 1, e: 1.7 })).toEqual({ kind: 'lake', pts: [10, 10], r: 16, s: 1, e: 1 });
+    const ok = { kind: 'lake', pts: [10, 10], r: 16, s: 1, e: 0.5 };
+    expect(cleanTerrainOp(ok)).toBe(ok);
+    expect(cleanTerrainOp({ kind: 'volcano', pts: [10, 10], r: 16, s: 1, e: 0.5 })).toEqual({ kind: 'volcano', pts: [10, 10], r: 16, s: 1 });
+    const ring = { kind: 'wet', pts: [10, 10, 40, 10, 40, 40], r: 30, s: 1, f: 1 };
+    expect(cleanTerrainOp(ring)).toBe(ring);
+    expect(cleanTerrainOp({ ...ring, pts: [10, 10, 40, 10] })).toEqual({ kind: 'wet', pts: [10, 10, 40, 10], r: 30, s: 1 });
+    expect(cleanTerrainOp({ kind: 'raise', pts: [10, 10, 40, 10, 40, 40], r: 30, s: 1, f: 1 })).toEqual({ kind: 'raise', pts: [10, 10, 40, 10, 40, 40], r: 30, s: 1 });
+    expect(sameTerrain([{ kind: 'lake', pts: [1, 1], r: 9, s: 1, e: 0 }], [{ kind: 'lake', pts: [1, 1], r: 9, s: 1 }])).toBe(false);
+    for (const k of ['volcano', 'lake', 'river'] as const) {
+      const p = TERRAIN_PRESETS[k];
+      for (const [r, st] of p) expect(presetStrength(k, r)).toBe(st);
+      expect(presetStrength(k, 1)).toBe(p[0][1]);
+      expect(presetStrength(k, 999)).toBe(p[2][1]);
+      const mid = presetStrength(k, (p[0][0] + p[1][0]) / 2);
+      expect(mid).toBeGreaterThan(p[0][1]);
+      expect(mid).toBeLessThan(p[1][1]);
+    }
   });
 
   it('清理:认不出的丢掉,超出范围的夹回来(x 是经度:取模、按上一个点展开),本来就合格的原样返回', () => {
@@ -238,6 +260,70 @@ describe('改地形 · 生成', () => {
     const sea = farthestFrom(w0, false);
     const [sx, sy] = [Math.round(w0.mesh.x[sea]), Math.round(w0.mesh.y[sea])];
     same(w0, generateWorld(SMALL, undefined, [{ kind: 'river', pts: [sx - 20, sy, sx + 20, sy], r: 9, s: 1 }]));
+  });
+
+  it('画的河:经过的点记下画笔半宽,地图上按 drawnFlux 画(推演用的流量不变)', () => {
+    const w0 = base7();
+    const l = farthestFrom(w0, true);
+    const [lx, ly] = [Math.round(w0.mesh.x[l]), Math.round(w0.mesh.y[l])];
+    const w = generateWorld(SMALL, undefined, [{ kind: 'river', pts: [lx, ly, lx + 40, ly + 30], r: 12, s: 1 }]);
+    const drawn = w.rivers.filter((r) => r.drawn);
+    expect(drawn.length).toBeGreaterThan(0);
+    expect(drawn.some((r) => Array.from(r.drawn!).includes(12))).toBe(true);
+    for (const r of drawn) expect(r.drawn!.length).toBe(r.cells.length);
+    const shown = shownRivers(w.rivers, w.riverThreshold);
+    expect(shownRivers(w.rivers, w.riverThreshold)).toBe(shown);
+    w.rivers.forEach((r, k) => {
+      const d = r.drawn;
+      for (let i = 0; i < r.cells.length; i++) {
+        const f = shown[k].pts[i * 3 + 2];
+        if (d?.[i]) expect(f).toBeGreaterThanOrEqual(drawnFlux(d[i], w.riverThreshold));
+        else expect(f).toBe(r.pts[i * 3 + 2]);
+      }
+    });
+    // 没有画的河:原数组
+    expect(shownRivers(w0.rivers, w0.riverThreshold)).toBe(w0.rivers);
+    // 笔越粗画得越粗;最细的也过全图的细节层级门槛
+    expect(drawnFlux(20, 14)).toBeGreaterThan(drawnFlux(4, 14));
+    expect(drawnFlux(4, 14)).toBeGreaterThan(4.5 * 2.5 * 14);
+  });
+
+  it('湖岸:带 e 的湖照新画法长(形状和旧画法不同,同一个 e 两次一样),湖心照样是湖', () => {
+    const w0 = base7();
+    const c = farthestFrom(w0, true);
+    const [px, py] = [Math.round(w0.mesh.x[c]), Math.round(w0.mesh.y[c])];
+    const lakeOf = (w: World) => near(w, px, py, 80).filter((i) => w.water[i] === 2);
+    const old = generateWorld(SMALL, undefined, [{ kind: 'lake', pts: [px, py], r: 24, s: 1 }]);
+    const curvy = generateWorld(SMALL, undefined, [{ kind: 'lake', pts: [px, py], r: 24, s: 1, e: 1 }]);
+    expect(curvy.water[c]).toBe(2);
+    expect(lakeOf(curvy).length).toBeGreaterThan(5);
+    expect(lakeOf(curvy)).not.toEqual(lakeOf(old));
+    same(curvy, generateWorld(SMALL, undefined, [{ kind: 'lake', pts: [px, py], r: 24, s: 1, e: 1 }]));
+  });
+
+  it('改气候:涂过的地方降水 / 气温变了,地形、远处一点不动;圈起来填满的圈里整片都改', () => {
+    const w0 = base7();
+    const l = farthestFrom(w0, true);
+    const [lx, ly] = [Math.round(w0.mesh.x[l]), Math.round(w0.mesh.y[l])];
+    const w = generateWorld(SMALL, undefined, [{ kind: 'wet', pts: [lx - 20, ly, lx + 20, ly], r: 30, s: 1 }]);
+    expect(Buffer.from(w.elevation.buffer).equals(Buffer.from(w0.elevation.buffer))).toBe(true);
+    expect(Array.from(w.water)).toEqual(Array.from(w0.water));
+    for (const i of near(w, lx, ly, 12)) expect(w.precipitation[i]).toBeGreaterThan(w0.precipitation[i] + 200);
+    const far = [...Array(w.mesh.n).keys()].filter((i) => Math.hypot(w.mesh.x[i] - lx, w.mesh.y[i] - ly) > 100 && Math.abs(w.mesh.x[i] - lx) < 1000);
+    expect(far.every((i) => w.precipitation[i] === w0.precipitation[i] && w.temperature[i] === w0.temperature[i])).toBe(true);
+    // 更冷 + 圈起来:圈里(离边远)每一处冷了约 6 × 程度 度
+    const ring = [lx - 50, ly - 50, lx + 50, ly - 50, lx + 50, ly + 50, lx - 50, ly + 50];
+    const c = generateWorld(SMALL, undefined, [{ kind: 'cold', pts: ring, r: 10, s: 1.6, f: 1 }]);
+    for (const i of near(c, lx, ly, 35)) expect(c.temperature[i]).toBeCloseTo(w0.temperature[i] - 9.6, 3);
+    // 更干、更暖
+    const dw = generateWorld(SMALL, undefined, [
+      { kind: 'dry', pts: [lx, ly], r: 30, s: 1 },
+      { kind: 'warm', pts: [lx, ly], r: 30, s: 0.5 },
+    ]);
+    for (const i of near(dw, lx, ly, 12)) {
+      expect(dw.precipitation[i]).toBeCloseTo(w0.precipitation[i] * 0.5, 2);
+      expect(dw.temperature[i]).toBeCloseTo(w0.temperature[i] + 3, 3);
+    }
   });
 
   it('一座大火山不会把全世界别的山压矮', () => {
