@@ -13,7 +13,8 @@
  * 国家、州、城一律按稳定键记(gen/edits.ts);显示的名字按当前这份历史解析。
  */
 import { useSyncExternalStore } from 'react';
-import { AdjKind, type Civ, type Polity } from '../gen/civ/types';
+import type { Civ, Polity } from '../gen/civ/types';
+import { canCross } from '../gen/civ/polities';
 import { polityAlive, polityName } from '../gen/civ/growth';
 import { regionLabel } from '../gen/civ/display';
 import { ownersAt, type Owners } from '../gen/civ/timeline';
@@ -226,16 +227,15 @@ export function neighborsAt(civ: Civ, id: number, y: number): { size: Map<number
   const reg = civ.regions;
   const size = new Map<number, number>();
   const near = new Set<number>();
-  const sea = civ.polities[id]?.kind === 'sea';
+  const P = civ.polities[id];
   for (let r = 0; r < reg.count; r++) {
     const o = own[r];
     if (o < 0) continue;
     size.set(o, (size.get(o) ?? 0) + 1);
-    if (o !== id) continue;
+    if (o !== id || !P) continue;
     for (let k = reg.adjStart[r]; k < reg.adjStart[r + 1]; k++) {
       const q = own[reg.adj[k]];
-      const kind = reg.adjKind[k];
-      if (q >= 0 && q !== id && (sea || (kind !== AdjKind.Strait && kind !== AdjKind.SeaRoute))) near.add(q);
+      if (q >= 0 && q !== id && canCross(civ, P, reg.adjKind[k], y)) near.add(q);
     }
   }
   return { size, near };

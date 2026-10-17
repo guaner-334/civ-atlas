@@ -318,7 +318,7 @@ export function installDiplomacy(sim: CivSim, pm: PolityModel, dm: DiplomacyMode
   const warsOf = (p: number) => wm.active.filter((w) => w.a === p || w.b === p);
   const atWar = (p: number) => wm.active.some((w) => w.a === p || w.b === p);
   const fighting = (p: number, q: number) => wm.active.some((w) => (w.a === p && w.b === q) || (w.a === q && w.b === p));
-  const borders = (x: number, y: number) => polityBorders(pm, owner, x, y);
+  const borders = (x: number, y: number) => polityBorders(pm, owner, x, y, sim.now);
   const capRegion = (p: number, t: number) => pm.settlements[capitalAt(pm.polities[p], t)].region;
   const halted = (p: number, t: number) => !!wm.iv?.halted(p, t);
   /** 国力:城镇人口之和(千人;至少 1),和 wars.ts 一样按州号顺序加。一次看邦交里记住算过的(这期间归属不变) */
@@ -342,7 +342,7 @@ export function installDiplomacy(sim: CivSim, pm: PolityModel, dm: DiplomacyMode
     for (const r of pm.lands[p]) {
       for (let e = reg.adjStart[r]; e < reg.adjStart[r + 1]; e++) {
         const q = owner[reg.adj[e]];
-        if (q >= 0 && q !== p && canCross(P, reg.adjKind[e]) && alive(q)) out.add(q);
+        if (q >= 0 && q !== p && canCross(pm, P, reg.adjKind[e], sim.now) && alive(q)) out.add(q);
       }
     }
     return [...out].sort((x, y) => x - y);

@@ -13,10 +13,10 @@ import { buildChronicle } from '../src/gen/civ/chronicle';
  * 州 r 是不是国家 pid 灭国时一并收下的残部(wars.ts 的 annex:"隔海的残部最后一并归 x"):
  * r 最后一次归 pid 是攻占,而且就在那一刻有国家亡于 pid。这样收下的隔海领土,非海洋国家也会有
  */
-function annexedOverseas(civ: Civ, pid: number, r: number): boolean {
+function annexedOverseas(civ: Civ, pid: number, r: number, upTo = Infinity): boolean {
   const L = civ.log;
   let last = -1;
-  for (let i = 0; i < L.size; i++) if (L.region[i] === r && L.layer[i] === Layer.Polity) last = i;
+  for (let i = 0; i < L.size && L.year[i] <= upTo; i++) if (L.region[i] === r && L.layer[i] === Layer.Polity) last = i;
   if (last < 0 || L.value[last] !== pid || L.cause[last] !== Ev.Conquer) return false;
   const y = L.year[last];
   return civ.annals.some((e) => e.kind === 'fall' && e.b === pid && e.year === y);
@@ -134,7 +134,7 @@ describe('战争与攻占', () => {
             let touch = false;
             for (let r = 0; r < reg.count && !touch; r++) {
               if (before[r] !== e.a) continue;
-              for (let k = reg.adjStart[r]; k < reg.adjStart[r + 1]; k++) if (before[reg.adj[k]] === e.b && canCross(P[e.a], reg.adjKind[k])) touch = true;
+              for (let k = reg.adjStart[r]; k < reg.adjStart[r + 1]; k++) if (before[reg.adj[k]] === e.b && canCross(civ, P[e.a], reg.adjKind[k], e.year)) touch = true;
             }
             expect(touch, `战争 ${e.war}`).toBe(true);
             war.set(e.war, { a: e.a, b: e.b, start: e.year, at: i });
@@ -227,10 +227,11 @@ describe('战争与攻占', () => {
         if (L.layer[i] !== Layer.Polity) continue;
         const r = L.region[i];
         if (L.cause[i] === Ev.Conquer) {
-          expect(L.year[i] - last[r], `seed ${seed} 州 ${r} 第 ${L.year[i]} 年`).toBeGreaterThanOrEqual(HOLD);
+          // 亡国时残部一并归攻方(annex)不看 HOLD:国家没了,谈不上前线来回
+          if (!fellAt.has(`${L.year[i]}|${own[r]}`)) expect(L.year[i] - last[r], `seed ${seed} 州 ${r} 第 ${L.year[i]} 年`).toBeGreaterThanOrEqual(HOLD);
           const x = L.value[i];
           let touch = false;
-          for (let k = reg.adjStart[r]; k < reg.adjStart[r + 1]; k++) if (own[reg.adj[k]] === x && canCross(civ.polities[x], reg.adjKind[k])) touch = true;
+          for (let k = reg.adjStart[r]; k < reg.adjStart[r + 1]; k++) if (own[reg.adj[k]] === x && canCross(civ, civ.polities[x], reg.adjKind[k], L.year[i])) touch = true;
           expect(touch || fellAt.has(`${L.year[i]}|${own[r]}`), `seed ${seed} 州 ${r}`).toBe(true);
         }
         own[r] = L.value[i];
@@ -321,7 +322,7 @@ describe('战争与攻占', () => {
     expect(w0.children!.find((c) => c.kind === 'peace')!.text).toMatch(/既亡,兵戈遂息$/);
   });
 
-  it('被攻占的州民族不变、城镇照旧(这一刻被毁的除外,见 cities.ts);只有海洋国家能跨海打仗', () => {
+  it('被攻占的州民族不变、城镇照旧(这一刻被毁的除外,见 cities.ts);航海时代以前只有海洋国家能跨海打仗', () => {
     const civ = civOf({ ...DEFAULT_PARAMS, seed: 2024 });
     const L = civ.log;
     const cultureAt = new Int16Array(civ.regions.count).fill(-1);
@@ -338,11 +339,13 @@ describe('战争与攻占', () => {
       }
     }
     for (let i = 0; i < L.size; i++) expect(L.layer[i] === Layer.Culture && L.cause[i] === Ev.Conquer).toBe(false);
-    // 非海洋国家的国土不跨陆块(灭国时一并收下的隔海残部除外,见 annexedOverseas)
+    // 航海时代以前,非海洋国家的国土不跨陆块(灭国时一并收下的隔海残部除外,见 annexedOverseas)
+    const pre = Math.floor(civ.sailFrom!);
+    const own = ownersAt(civ, pre).polity;
     for (const p of civ.polities) {
       if (p.kind === 'sea') continue;
       const lms = new Set<number>();
-      for (let r = 0; r < civ.regions.count; r++) if (civ.polity[r] === p.id && !annexedOverseas(civ, p.id, r)) lms.add(civ.regions.landmass[r]);
+      for (let r = 0; r < civ.regions.count; r++) if (own[r] === p.id && !annexedOverseas(civ, p.id, r, pre)) lms.add(civ.regions.landmass[r]);
       expect(lms.size).toBeLessThanOrEqual(1);
     }
     expect(AdjKind.Strait).toBe(3);

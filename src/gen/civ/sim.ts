@@ -3,7 +3,7 @@
  *
  * - **事件堆**:按时间排序(复用 util.ts 的 MinHeap)。每个事件是 {时间, 类型, 对象 a, 对象 b, 版本号}。
  *   时间精度 1/256 年;"时间 + 同一刻里的次序"拼成一个整数当优先级,保证确定性:同一时刻最先处理地形大事,
- *   再处理看王朝、新君即位、迁都后重看边地(按国家号,见 earlyOrder),再处理别的事件(按预约先后),最后处理民族、国家的到达
+ *   再处理航海时代、看王朝、新君即位、迁都后重看边地(按国家号,见 earlyOrder),再处理别的事件(按预约先后),最后处理民族、国家的到达
  *   (按"民族先、国家后,再按州号、民族 / 国家号"排,见 arrivalOrder)。头尾这两类和预约先后无关 —— 接着推时它们是
  *   按日志重新预约 / 重放的,预约先后和一口气推完时不一样,同一刻撞上了也要按同样的次序处理。
  * - **州的版本号**:州的归属(任何一层)一变就 +1。事件预约时记下州 a 的版本号,弹出时对不上就是过期了,
@@ -102,6 +102,11 @@ export const enum Ev {
   /** 迁都的下一刻(polities.ts 的 moveCapital):b = 国家。按新国都的路程从现有国土往外重新预约扩张 */
   Respread = 17,
   /**
+   * 航海时代(polities.ts):这一刻起,有港口的普通国家也能沿航线往海外扩张(海洋国家从来就能)。
+   * 在世的普通国家这一刻从现有国土往外重新预约一遍扩张(同一刻里排在地形大事后面、别的事件前面)
+   */
+  AgeOfSail = 18,
+  /**
    * 看民族(阶段 3 同化与迁徙,assimilation.ts;编号 20–24):a = 立国后第几次看(按年份段编号),b = 国家。
    * 国家隔几十年看一眼治下的各州:异族州被统治久了、离核心近、四周同族多,就改换成统治民族(同化);
    * 统治民族太少时反过来被多数民族同化;这些年打下来的州,游牧民族会迁人进来,被征服的民族会外迁
@@ -184,6 +189,7 @@ export const EVENT_INFO: EventInfo[] = [
   { id: Ev.TribalCheck, name: '看部落地带', watch: false },
   { id: Ev.DynastyCheck, name: '看王朝', watch: false },
   { id: Ev.Reign, name: '新君即位', watch: false },
+  { id: Ev.AgeOfSail, name: '航海时代', watch: false },
   { id: Ev.CultureCheck, name: '看民族', watch: false },
   { id: Ev.Assimilate, name: '同化', watch: false },
   { id: Ev.Migrate, name: '迁徙', watch: false },
@@ -228,6 +234,7 @@ function arrivalOrder(kind: number, a: number, b: number): number {
 /**
  * 排在同一刻最前面的事件的次序(0 起,< EARLY_SPAN):
  * - 地形大事 = 0:同一刻的别的事都按大事以后的地形和归属算(一次推演里只有一件,见 index.ts)
+ * - 航海时代 = 1:同一刻的别的事都按"已经能走航线"算(polities.ts 的 sailsOcean)
  * - 看王朝、新君即位、迁都后重看边地:按国家号,同一国依次是看王朝、即位、重看。
  *   看王朝在前:同一刻改朝换代了,旧朝原定这一刻即位的那位就不即位了(在位表重排,Ev.Reign 对不上就丢掉);
  *   即位、重看只从现有国土往外预约扩张、不改归属,排在别的事件前面 —— 接着推时 resumePolities 也是在同一刻的日志
@@ -237,9 +244,10 @@ function arrivalOrder(kind: number, a: number, b: number): number {
 const EARLY_KINDS: Partial<Record<number, number>> = { [Ev.DynastyCheck]: 0, [Ev.Reign]: 1, [Ev.Respread]: 2 };
 function earlyOrder(kind: number, b: number): number {
   if (kind === Ev.Upheaval) return 0;
+  if (kind === Ev.AgeOfSail) return 1;
   const i = EARLY_KINDS[kind];
-  if (i === undefined || !(b >= 0 && b < (EARLY_SPAN - 1) / 3 - 1)) return -1;
-  return 1 + b * 3 + i;
+  if (i === undefined || !(b >= 0 && b < (EARLY_SPAN - 2) / 3 - 1)) return -1;
+  return 2 + b * 3 + i;
 }
 
 /** 把时间取整到引擎的精度(1/256 年)。引擎里所有事件时间、日志年份都是这样的值 */
