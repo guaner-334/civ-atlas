@@ -322,7 +322,7 @@ export function installWars(sim: CivSim, pm: PolityModel, wm: WarModel = newMode
     for (const r of pm.lands[y]) {
       if (t - wm.since[r] < HOLD || r === graceR || r === guardR) continue;
       if (wm.iv?.locked(r, t)) continue; // 阶段 4 干预:永久划给它的州攻不下
-      if (guardR >= 0 && nextTo(r, guardR, Y)) continue;
+      if (guardR >= 0 && nextTo(r, guardR, Y, t)) continue;
       if (lost && !lost.has(r) && wm.prev[r] !== x) continue;
       let att = 0;
       let tot = 0;
@@ -330,7 +330,7 @@ export function installWars(sim: CivSim, pm: PolityModel, wm: WarModel = newMode
       for (let k = reg.adjStart[r]; k < reg.adjStart[r + 1]; k++) {
         const kind = reg.adjKind[k];
         if (kind !== AdjKind.SeaRoute) tot += reg.adjBorder[k];
-        if (owner[reg.adj[k]] === x && canCross(X, kind)) {
+        if (owner[reg.adj[k]] === x && canCross(pm, X, kind, t)) {
           att += reg.adjBorder[k];
           if (DEFENSE[kind] < def) def = DEFENSE[kind];
         }
@@ -348,8 +348,8 @@ export function installWars(sim: CivSim, pm: PolityModel, wm: WarModel = newMode
     let n0 = -1;
     for (const [r, def] of cand) {
       if (r !== capR) {
-        if (n0 < 0) n0 = reachable(y, capR, -1);
-        if (n0 - 1 - reachable(y, capR, r) > MAX_CUT) continue;
+        if (n0 < 0) n0 = reachable(y, capR, -1, t);
+        if (n0 - 1 - reachable(y, capR, r, t) > MAX_CUT) continue;
       }
       return [r, def];
     }
@@ -357,8 +357,8 @@ export function installWars(sim: CivSim, pm: PolityModel, wm: WarModel = newMode
   };
 
   /** 州 r 和州 c 相邻(国家 P 能走的边) */
-  const nextTo = (r: number, c: number, P: Polity): boolean => {
-    for (let k = reg.adjStart[r]; k < reg.adjStart[r + 1]; k++) if (reg.adj[k] === c && canCross(P, reg.adjKind[k])) return true;
+  const nextTo = (r: number, c: number, P: Polity, t: Year): boolean => {
+    for (let k = reg.adjStart[r]; k < reg.adjStart[r + 1]; k++) if (reg.adj[k] === c && canCross(pm, P, reg.adjKind[k], t)) return true;
     return false;
   };
 
@@ -366,7 +366,7 @@ export function installWars(sim: CivSim, pm: PolityModel, wm: WarModel = newMode
   const seen = new Int32Array(R);
   let stamp = 0;
   const queue = new Int32Array(R);
-  const reachable = (y: number, from: number, skip: number): number => {
+  const reachable = (y: number, from: number, skip: number, t: Year): number => {
     const Y = pm.polities[y];
     if (owner[from] !== y || from === skip) return 0;
     stamp++;
@@ -377,7 +377,7 @@ export function installWars(sim: CivSim, pm: PolityModel, wm: WarModel = newMode
       const r = queue[h];
       for (let k = reg.adjStart[r]; k < reg.adjStart[r + 1]; k++) {
         const j = reg.adj[k];
-        if (seen[j] === stamp || j === skip || owner[j] !== y || !canCross(Y, reg.adjKind[k])) continue;
+        if (seen[j] === stamp || j === skip || owner[j] !== y || !canCross(pm, Y, reg.adjKind[k], t)) continue;
         seen[j] = stamp;
         queue[qt++] = j;
       }
@@ -403,7 +403,7 @@ export function installWars(sim: CivSim, pm: PolityModel, wm: WarModel = newMode
           for (let r = 0; r < R; r++) {
             if (owner[r] !== x || core[r] === cs || t - wm.since[r] < HOLD || wm.iv?.locked(r, t)) continue;
             for (let k = reg.adjStart[r]; k < reg.adjStart[r + 1]; k++) {
-              if (owner[reg.adj[k]] === y && canCross(Y, reg.adjKind[k])) {
+              if (owner[reg.adj[k]] === y && canCross(pm, Y, reg.adjKind[k], t)) {
                 give.push(r);
                 break;
               }
@@ -481,7 +481,7 @@ export function installWars(sim: CivSim, pm: PolityModel, wm: WarModel = newMode
         if (owner[q] !== y) continue;
         if (touch) {
           let adj = false;
-          for (let k = reg.adjStart[q]; k < reg.adjStart[q + 1] && !adj; k++) adj = owner[reg.adj[k]] === x && canCross(X, reg.adjKind[k]);
+          for (let k = reg.adjStart[q]; k < reg.adjStart[q + 1] && !adj; k++) adj = owner[reg.adj[k]] === x && canCross(pm, X, reg.adjKind[k], t);
           if (!adj) continue;
         }
         sim.setOwner(Layer.Polity, q, x, Ev.Conquer);
@@ -496,7 +496,7 @@ export function installWars(sim: CivSim, pm: PolityModel, wm: WarModel = newMode
   };
 
   /** x、y 的国土接壤(x 能走过去的边) */
-  const borders = (x: number, y: number): boolean => polityBorders(pm, owner, x, y);
+  const borders = (x: number, y: number): boolean => polityBorders(pm, owner, x, y, sim.now);
 
   const declare = (x: number, y: number, t: number, ally = -1, cause?: AnnalCause): War => {
     const w: War = { id: wm.wars.length, a: x, b: y, start: t, takes: [] };
@@ -545,7 +545,7 @@ export function installWars(sim: CivSim, pm: PolityModel, wm: WarModel = newMode
         const j = reg.adj[e];
         const q = owner[j];
         const kind = reg.adjKind[e];
-        if (q < 0 || q === p || !canCross(P, kind)) continue;
+        if (q < 0 || q === p || !canCross(pm, P, kind, t)) continue;
         border.set(q, (border.get(q) ?? 0) + 1);
         let f = front.get(q);
         if (!f) front.set(q, (f = new Map()));
@@ -735,7 +735,7 @@ export function bestCapital(pm: PolityModel, owner: Int16Array, y: number, t: Ye
       if (pm.cityOf[u] >= 0) sum += populationAt(pm.settlements[pm.cityOf[u]], t);
       for (let k = reg.adjStart[u]; k < reg.adjStart[u + 1]; k++) {
         const j = reg.adj[k];
-        if (piece[j] < 0 && owner[j] === y && j !== skip && canCross(Y, reg.adjKind[k])) {
+        if (piece[j] < 0 && owner[j] === y && j !== skip && canCross(pm, Y, reg.adjKind[k], t)) {
           piece[j] = id;
           stack.push(j);
         }
@@ -760,12 +760,12 @@ export function bestCapital(pm: PolityModel, owner: Int16Array, y: number, t: Ye
   return sid;
 }
 
-/** 国家 x、y 此刻国土接壤(陆上相邻;海洋国家 x 隔着海峡、航线也算,和看邻国时一样按 x 能走的边) */
-export function polityBorders(pm: PolityModel, owner: Int16Array, x: number, y: number): boolean {
+/** 国家 x、y 在 t 这一刻国土接壤(陆上相邻;x 能出海时隔着海峡、航线也算,和看邻国时一样按 x 能走的边) */
+export function polityBorders(pm: PolityModel, owner: Int16Array, x: number, y: number, t: Year): boolean {
   const reg = pm.terrain.regions;
   const X = pm.polities[x];
   for (const r of pm.lands[x]) {
-    for (let k = reg.adjStart[r]; k < reg.adjStart[r + 1]; k++) if (owner[reg.adj[k]] === y && canCross(X, reg.adjKind[k])) return true;
+    for (let k = reg.adjStart[r]; k < reg.adjStart[r + 1]; k++) if (owner[reg.adj[k]] === y && canCross(pm, X, reg.adjKind[k], t)) return true;
   }
   return false;
 }
@@ -790,7 +790,7 @@ export interface WarStats {
   exclaveShare: number;
 }
 
-/** 某一年的飞地:每州 1 = 飞地(和本国国都经本国国土不连通;海洋国家的海外领土不算飞地) */
+/** 某一年的飞地:每州 1 = 飞地(和本国国都经本国国土不连通;能出海的国家(polities.ts 的 sailsOcean)沿航线连着的海外领土不算飞地) */
 export function exclaveMask(civ: Civ, owner: Int16Array = civ.polity, year: Year = civ.endYear): Uint8Array {
   const reg = civ.regions;
   const R = reg.count;
@@ -807,7 +807,7 @@ export function exclaveMask(civ: Civ, owner: Int16Array = civ.polity, year: Year
       const r = q[h];
       for (let k = reg.adjStart[r]; k < reg.adjStart[r + 1]; k++) {
         const j = reg.adj[k];
-        if (reached[j] || owner[j] !== p.id || !canCross(p, reg.adjKind[k])) continue;
+        if (reached[j] || owner[j] !== p.id || !canCross(civ, p, reg.adjKind[k], year)) continue;
         reached[j] = 1;
         q.push(j);
       }

@@ -124,9 +124,9 @@ describe('手绘符号在地球仪上正立着画', () => {
   it('大小和平面主图同样缩放时一样:glyphScale(等效缩放) × 一个世界单位的像素', () => {
     const v = view(0, 0, 2);
     expect(globeGlyphScale(v)).toBeCloseTo(glyphScale(v.kEq) * v.unit, 9);
-    // 放大后出现更高一级的符号(按缩放分级)
-    const z1 = placeGlobeGlyphs(set, view(0, 0, 1)).map((p) => set.glyphs[p.i].z);
-    const z4 = placeGlobeGlyphs(set, view(0, 0, 4)).map((p) => set.glyphs[p.i].z);
+    // 放大后出现更高一级的符号(按缩放分级);对着一片陆地放大(经纬度 0° 一带是海,放大 4 倍后看不到几个符号)
+    const z1 = placeGlobeGlyphs(set, view(-60, 20, 1)).map((p) => set.glyphs[p.i].z);
+    const z4 = placeGlobeGlyphs(set, view(-60, 20, 4)).map((p) => set.glyphs[p.i].z);
     expect(Math.max(...z4)).toBeGreaterThan(Math.max(...z1));
   });
 

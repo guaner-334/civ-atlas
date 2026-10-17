@@ -99,10 +99,14 @@ describe('AI 写史书:材料', () => {
       }
       expect(used[0]).toBeLessThanOrEqual(used[1]);
     }
-    // 短篇的通史:大事全在,小事只放一部分
+    // 短篇的通史:先放大事;大事多到放不全时(seed 7 有五十多条)按时间均匀地挑,绝大多数都在,小事一条不放
     const short = buildHistoryPrompts(civ, { scope: { kind: 'world' }, style: 'plain', length: 'short' });
     const user = historyMessages(short, 0)[1].content;
-    for (const e of filterChronicle(buildChronicle(civ), { major: true })) expect(user).toContain(e.text);
+    const all = buildChronicle(civ);
+    const major = filterChronicle(all, { major: true });
+    const missing = major.filter((e) => !user.includes(e.text)).length;
+    expect(missing).toBeLessThanOrEqual(major.length * 0.2);
+    if (missing) for (const e of all) if (e.importance === 2) expect(user).not.toContain(e.text);
     expect(short.calls[0].used).toBeLessThan(short.calls[0].total);
   });
 
@@ -218,7 +222,8 @@ describe('AI 写史书:材料', () => {
     expect(before).not.toContain('饕餮城');
     expect(after).toContain('饕餮城');
     expect(after).toMatch(/饕部|饕国|大饕/);
-    expect(after).not.toContain(`${east.name}部`);
+    // 别的国家的国号里带着这个字的(分出去的"东漓部"一类)不算
+    expect(after).not.toMatch(new RegExp(`(^|[^\\u4e00-\\u9fff])${east.name}部`));
     expect(historyFingerprint(renamed, o.scope)).not.toBe(historyFingerprint(civ, o.scope));
     expect(historyFingerprint(renamed, { kind: 'world' })).not.toBe(historyFingerprint(civ, { kind: 'world' }));
     // 同一份历史:指纹不变

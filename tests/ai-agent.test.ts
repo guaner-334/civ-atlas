@@ -46,7 +46,7 @@ const from = Math.floor(fall.year) - 30;
 const vName = nameAt(civ.polities[victim], from);
 const ownFrom = ownersAt(civ, from).polity;
 const friend =
-  [...bordersAt(civ, ownFrom, victim)].find((q) => q !== conqueror) ??
+  [...bordersAt(civ, ownFrom, victim, from)].find((q) => q !== conqueror) ??
   civ.polities.find((p) => p.id !== victim && p.id !== conqueror && p.founded <= from && (p.ended === undefined || p.ended > from))!.id;
 const PROTECT = { op: 'protect', country: `P${victim}`, from, why: '国都攻不下' };
 const ALLY = { op: 'ally', country: `P${victim}`, other: `P${friend}`, from, why: '找个帮手' };
@@ -581,7 +581,7 @@ describe('助手', () => {
       const own = ownersAt(civ, y).polity;
       for (const p of civ.polities) {
         if (p.founded >= y - 1 || (p.ended !== undefined && p.ended <= y + 1)) continue;
-        const q = [...bordersAt(civ, own, p.id)].find((b) => !wars.some((e) => Math.floor(e.year) <= y && Math.floor(e.end) >= y && e.polities.includes(p.id) && e.polities.includes(b)));
+        const q = [...bordersAt(civ, own, p.id, y)].find((b) => !wars.some((e) => Math.floor(e.year) <= y && Math.floor(e.end) >= y && e.polities.includes(p.id) && e.polities.includes(b)));
         if (q !== undefined) {
           pair = [p.id, q, y];
           break;
@@ -609,7 +609,7 @@ describe('助手', () => {
       const y1 = Math.floor(w.year) + 1;
       const peace = civ.annals.find((q, j) => j > k && q.kind === 'peace' && q.war === w.war);
       if (!peace || peace.year < y1 + 1) return false;
-      return [w.a, w.b].every((id) => civ.polities[id].ended === undefined || civ.polities[id].ended! > y1 + 1) && bordersAt(civ, ownersAt(civ, y1).polity, w.a).has(w.b);
+      return [w.a, w.b].every((id) => civ.polities[id].ended === undefined || civ.polities[id].ended! > y1 + 1) && bordersAt(civ, ownersAt(civ, y1).polity, w.a, y1).has(w.b);
     })!;
     const y1 = Math.floor(busy.year) + 1;
     const s2 = { trials: [] as AssistantTrial[], proposal: null };

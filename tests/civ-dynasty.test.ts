@@ -234,12 +234,13 @@ describe('王朝更替', () => {
       expect(s.meanEastern, tag).toBeGreaterThanOrEqual(150);
       expect(s.meanEastern, tag).toBeLessThanOrEqual(450); // 20 个种子 338–455 年,seed 7 约 395 年、seed 2024 约 392 年
       // 不是每个国家都在换:部落不换;换过的国家不超过六成(国家少的世界里大国占的比例高一些);
-      // 一朝撑得最久的:立国提前以后,20 个种子里最长的 509–1269 年(安稳的大国一朝能过千年)
+      // 一朝撑得最久的:立国提前以后,20 个种子里最长的 509–1269 年(安稳的大国一朝能过千年);
+      // GENERATOR_VERSION 16(航海时代)以后 639–2129 年(seed 7 一个小国立国两千年后才头一回换朝)
       for (const id of s.perPolity.keys()) expect(Math.max(...(civ.polities[id].titles ?? []).map((t) => t.tier)), tag).toBeGreaterThanOrEqual(1);
       expect(s.perPolity.size, tag).toBeLessThanOrEqual(civ.polities.length * 0.6);
       for (const p of civ.polities) {
         const d = p.dynasties ?? [];
-        for (let i = 1; i < d.length; i++) expect(d[i].year - d[i - 1].year, `${tag} ${p.name}`).toBeLessThan(1400);
+        for (let i = 1; i < d.length; i++) expect(d[i].year - d[i - 1].year, `${tag} ${p.name}`).toBeLessThan(2200);
       }
     }
     expect(eastSum, '两个世界东方改朝换代合计').toBeGreaterThanOrEqual(5);

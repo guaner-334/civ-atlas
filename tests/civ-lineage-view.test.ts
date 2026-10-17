@@ -96,27 +96,27 @@ describe.each([7, 2024])('世系图 · seed=%i', (seed) => {
 });
 
 describe('世系图 · seed=7 的康那、苍翼', () => {
-  // GENERATOR_VERSION 15 时的世界
-  it('焉耶朝:标题、结尾、篡位的开国之君是树根;苍翼懿宗的父亲是没即位的共益;受旧朝之后才兴的王室,开国之君的父亲算本朝宗室', () => {
+  // GENERATOR_VERSION 16 时的世界
+  it('康兹朝:标题、结尾、篡位的开国之君是树根;苍翼懿宗的父亲是没即位的共益;受旧朝之后才兴的王室,开国之君的父亲算本朝宗室', () => {
     const civ = civOf(7);
     const id = civ.polities.findIndex((p) => p.name === '康那');
     const rows = dynastyRows(civ, id);
     expect(rows.map((r) => r.name)).toEqual(['康那', '焉耶', '康兹', '伊兹', '且绝', '于耶', '康昌']);
-    const i = rows.findIndex((r) => r.name === '焉耶');
-    expect(dynastyNote(civ, rows, i)).toBe('1273–1735 年，23 位君主；屈斤篡位');
-    expect(dynastyEnd(civ, rows, i)).toBe('1735 年，吐伽啜篡位');
-    expect(dynastyEnd(civ, rows, i - 1)).toBe('1273 年，屈斤篡位');
+    const i = rows.findIndex((r) => r.name === '康兹');
+    expect(dynastyNote(civ, rows, i)).toBe('1687–2039 年，15 位君主；吐伽啜篡位');
+    expect(dynastyEnd(civ, rows, i)).toBe('2039 年，伊兹朝起兵代之');
+    expect(dynastyEnd(civ, rows, i - 1)).toBe('1687 年，吐伽啜篡位');
     expect(dynastyEnd(civ, rows, rows.length - 1)).toBe('');
     expect(dynastyNote(civ, rows, 0)).toMatch(/；.+立国$/);
-    expect(dynastyRowAt(rows, 1500)).toBe(i);
+    expect(dynastyRowAt(rows, 1800)).toBe(i);
     // 篡位的权臣没有连上父亲:这一朝的树从他起
-    expect(layoutDynasty(civ, rows[i])[0].nodes[0].p).toMatchObject({ role: 'ruler', name: '屈斤' });
+    expect(layoutDynasty(civ, rows[i])[0].nodes[0].p).toMatchObject({ role: 'ruler', name: '吐伽啜' });
     const cy = civ.polities.findIndex((p) => p.name === '苍翼');
     const xw = civ.people!.find((x) => x.name === '重鸾' && x.role === 'ruler')!;
     const f = fatherOf(civ, xw) as Person;
     expect(f).toMatchObject({ role: 'prince', name: '共益' });
     expect(kidsOf(civ, f).map((k) => k.name)).toEqual(['共喾', '重鸾', '稷龙', '皋益']);
-    expect(lineageText(civ, cy)).toContain('\n            5 懿宗重鸾 1729–1731 年在位\n');
+    expect(lineageText(civ, cy)).toContain('\n            5 懿宗重鸾 1640–1643 年在位\n');
     expect(princeRole(civ, f)).toBe('七股宗室');
     // 有狐朝开国之君的父亲死在有狐朝之前,也算有狐的宗室(不写成"苍翼宗室")
     const cr = dynastyRows(civ, cy);
@@ -125,13 +125,13 @@ describe('世系图 · seed=7 的康那、苍翼', () => {
     expect(root).toMatchObject({ role: 'prince', name: '应顼' });
     expect(root.died!).toBeLessThan(cr[h].from);
     expect(princeRole(civ, root)).toBe('有狐宗室');
-    // 内里尼亚的特罗纳王室:开国之君的父亲死在新朝之前,不写成上一朝(内罗纳)的宗室
+    // 内里尼亚的克拉里亚王室:开国之君的父亲死在新朝之前,不写成上一朝(特罗纳)的宗室
     const w = civ.polities.findIndex((p) => p.name === '内里尼亚');
     const wr = dynastyRows(civ, w);
-    const k = wr.findIndex((r) => r.name === '特罗纳');
+    const k = wr.findIndex((r) => r.name === '克拉里亚');
     const wroot = layoutDynasty(civ, wr[k])[0].nodes[0].p;
     expect(wroot).toMatchObject({ role: 'prince' });
     expect(wroot.died!).toBeLessThan(wr[k].from);
-    expect(princeRole(civ, wroot)).not.toContain('内罗纳');
+    expect(princeRole(civ, wroot)).not.toContain('特罗纳');
   });
 });

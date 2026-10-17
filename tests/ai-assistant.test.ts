@@ -59,7 +59,7 @@ const ward = civ.polities.find((p) => {
   if (p.ended === undefined || p.ended - p.founded < 100) return false;
   const from = Math.max(Math.ceil(p.founded), Math.floor(p.ended) - 30);
   const fall = civ.annals.find((e) => e.kind === 'fall' && e.a === p.id);
-  return [...bordersAt(civ, ownersAt(civ, from).polity, p.id)].some((q) => q !== fall?.b);
+  return [...bordersAt(civ, ownersAt(civ, from).polity, p.id, from)].some((q) => q !== fall?.b);
 })!;
 const wardName = nameAt(ward, Y);
 

@@ -153,7 +153,7 @@ describe('分与合', () => {
             const r = q.pop()!;
             for (let k = reg.adjStart[r]; k < reg.adjStart[r + 1]; k++) {
               const j = reg.adj[k];
-              if (after[j] === e.a && !reached.has(j) && canCross(N, reg.adjKind[k])) {
+              if (after[j] === e.a && !reached.has(j) && canCross(civ, N, reg.adjKind[k], e.year)) {
                 reached.add(j);
                 q.push(j);
               }

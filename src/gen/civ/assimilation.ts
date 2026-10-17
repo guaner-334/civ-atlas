@@ -681,15 +681,17 @@ export function assimStats(civ: Civ): AssimStats {
   let migrated = 0;
   let migrations = 0;
   let settlerWaves = 0;
-  civ.annals.forEach((e, i) => {
+  // 一波 = 同一刻、同一民族、同一起因(和编年史一样按这三样折;中间可能夹着一条民族消亡)
+  const waves = new Set<string>();
+  civ.annals.forEach((e) => {
     if (e.kind === 'assimilate') {
       assimilated++;
       if (civ.polities[e.war]?.culture === e.b) reverse++;
     } else if (e.kind === 'migrate') {
       migrated++;
-      const prev = civ.annals[i - 1];
-      const same = prev && prev.kind === 'migrate' && prev.year === e.year && prev.a === e.a && prev.war === e.war;
-      if (!same) {
+      const key = `${e.year}|${e.a}|${e.war}`;
+      if (!waves.has(key)) {
+        waves.add(key);
         migrations++;
         if (civ.polities[e.war]?.culture === e.a) settlerWaves++;
       }
