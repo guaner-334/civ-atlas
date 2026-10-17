@@ -231,6 +231,12 @@ const PATHS = {
       <path d="M10 14l.6-3L18 3.6a1.4 1.4 0 0 1 2 2L12.6 13z" />
     </>
   ),
+  log: (
+    <>
+      <path d="M6.5 3.5h11v17h-11z" />
+      <path d="M9.5 8h5M9.5 12h5M9.5 16h3" />
+    </>
+  ),
   keyboard: (
     <>
       <rect x="3" y="6.5" width="18" height="11" rx="2" />
