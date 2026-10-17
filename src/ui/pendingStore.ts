@@ -125,6 +125,8 @@ export function pushPending() {
   }
   const ups = list.flatMap((x) => (x.kind === 'up' ? [x.u] : []));
   const added = addEditsBatch(ivs, ups);
+  // 照原样打开的旧世界:App 在问要不要另存一份再推演,单子留着(取消了还在)
+  if (!added) return;
   // 地形大事从前往后加,满了就停:加上了几件,后面的留在单子里
   const left = list.filter((x) => x.kind === 'up').slice(added.ups.length);
   set(left);
