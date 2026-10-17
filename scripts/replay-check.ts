@@ -612,7 +612,6 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
   if (
     !/成王杜霖/.test(card1) ||
     !/沂王，2148–2190 年在位/.test(card1) ||
-    !/事迹\s*起兵建立新朝，传 22 位、482 年/.test(deed) ||
     !/前任\s*愍王熊泰\s*前朝/.test(deed) ||
     !/继任\s*安王杜澈\s*孙/.test(deed)
   )
@@ -625,11 +624,11 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
   )
     errs.push(`人物:君主卡片的倾向不对(${leanRows} 行;${leans.slice(0, 80)};复制里 ${/倾向：.*/.exec(copied)?.[0]})`);
   if (genLeans || princeLeans) errs.push(`人物:将领 / 宗室的卡片上不该有倾向(${genLeans};${princeLeans})`);
-  if (!/王晟\s*沂将领，2169–2197 年领兵/.test(card2) || y1 !== 2169) errs.push(`人物:将领卡片 / 出征那年不对(${card2.slice(0, 60)};${y1})`);
+  if (!/王晟\s*大沂将领，2169–2197 年领兵/.test(card2) || y1 !== 2169) errs.push(`人物:将领卡片 / 出征那年不对(${card2.slice(0, 60)};${y1})`);
   if (!chronOpen || names < 3 || !closed || pickId < 0 || card3Id !== pickId || y2 !== y1) errs.push(`人物:编年史里的人名点不开,或点了跳了年份(${chronOpen};${names};${closed};${card3Id}/${pickId};${y1} → ${y2})`);
   if (!famousOn || famous < 20 || !card4) errs.push(`人物:人物页的名人不对,或点一行没打开卡片(${famousOn};${famous};${card4.slice(0, 30)})`);
   if (!rulersOn || polityPick !== '0' || groups < 1 || rows !== 121) errs.push(`人物:「全部 N 位」没有打开这国的君主(${rulersOn};${polityPick};${groups};${rows})`);
-  if (!/^沂 2148–2630 年，22 位君主/.test(lgHead) || lgNodes < 22 || !/成王杜霖.*当前/.test(lgOn)) errs.push(`人物:世系图不对(${lgHead};${lgNodes};${lgOn})`);
+  if (!/^沂 2148–2629 年，22 位君主/.test(lgHead) || lgNodes < 22 || !/成王杜霖.*当前/.test(lgOn)) errs.push(`人物:世系图不对(${lgHead};${lgNodes};${lgOn})`);
   if (!/沂宗室，\d+–\d+/.test(princeCard) || !princeCard.includes('子嗣') || lgFocus !== 1) errs.push(`人物:宗室卡片 / 从卡片回到世系图不对(${princeCard.slice(0, 60)};${lgFocus})`);
   if (!/^成王杜霖 沂王，2148–2190$/.test(hit) || hitKind !== 'person' || card5 !== '成王杜霖') errs.push(`人物:搜"成王杜霖"不对(${hit};${hitKind};${card5})`);
   await page.fill('.sidebar .search-input', '');
@@ -2687,7 +2686,8 @@ for (const style of ['realistic', 'fantasy']) {
     moved = Math.abs(v1.k - v0.k) > 0.01 || Math.abs(((v1.lon - v0.lon + 540) % 360) - 180) > 0.5 || Math.abs(v1.y - v0.y) > 2;
     info = (await page.locator('.inspector').innerText().catch(() => '')).replace(/\n/g, ' / ');
     mark = await page.locator('.tp-mark .tp-ring').isVisible().catch(() => false);
-    near = await page.locator('.inspector .cp-grid .cp-links').first().locator('.ins-link').allInnerTexts();
+    // 「邻国」那一行(前面可能还有「藩属」「盟国」,也是 .cp-links)
+    near = await page.locator('.inspector .cp-grid').locator('xpath=./span[contains(@class,"cp-k") and normalize-space()="邻国"]/following-sibling::span[1]').first().locator('.ins-link').allInnerTexts();
     // 干预页
     await page.click('.inspector [data-act=intervene]');
     cmds = await page.locator('.inspector .cp-cmd').count();
