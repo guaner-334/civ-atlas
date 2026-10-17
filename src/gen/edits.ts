@@ -219,6 +219,9 @@
  *      强国边上的部落受它影响提早立国(边缘立国,civ/politics.ts 的看部落地带;Polity.mentor);
  *      民族往气候不同的地方走得更慢(海洋民族更甚,civ/cultures.ts),隔山隔海或分属不同国家几百年的一支分化成新民族
  *      (civ/assimilation.ts 的看分化;Culture.parent,族名带母族的名字)。地形不变,历史重新推演。
+ *  16:跨海只走航线:州之间的航线只连各州的出海口(和地图上画的航线同一套连法,civ/regions.ts 的 seaLanes),
+ *      推演里走过的海峡、航线都画出来(civ/routes.ts 的 usedLanes);到航海时代(默认第 1800.5 年,civ/polities.ts 的 sailsOcean)
+ *      有港口的普通国家也沿航线往海外扩张、隔海打仗。地形不变,历史重新推演。
  */
 import type { Civ, Culture, Faith, Place, Polity, Regions, Settlement } from './civ/types';
 import type { AuthorCharacter } from './characters';
@@ -230,7 +233,7 @@ import type { Era } from './era';
 import type { Frontier, Origins } from './civ/frontier';
 
 /** 生成器版本:生成算法有改动、同种子会得到不同世界时加一(存档读档时核对);加一时在 GENERATOR_CHANGES 里补一条 */
-export const GENERATOR_VERSION = 15;
+export const GENERATOR_VERSION = 16;
 
 /**
  * 一版生成器的改动有多大(从小到大):打开旧存档、旧链接时,按跨过的几版里最大的那一种说清变了什么(savefile.ts 的 versionNote)
@@ -259,6 +262,7 @@ export const GENERATOR_CHANGES: Readonly<Record<number, { change: GeneratorChang
   13: { change: 'history' },
   14: { change: 'terrain' },
   15: { change: 'history' },
+  16: { change: 'history' },
 };
 
 /** 干预的种类(见文件头的表) */

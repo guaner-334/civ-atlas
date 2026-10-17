@@ -55,6 +55,11 @@ export interface Regions {
   landmass: Int32Array;
   /** 每条邻接边的共享边界长度(世界单位,约等于相邻地块对数 × 地块间距);海上连接为 0 */
   adjBorder: Float32Array;
+  /**
+   * 海峡、航线(每条邻接边一个):这一侧从哪块海岸地块出海(陆上相邻 = −1)。
+   * 航线只在各州的出海口(区内挨着能通航的海、离治所最近的陆地块)之间连;推演里走过的海峡、航线照这两头画出来(routes.ts 的 usedLanes)
+   */
+  adjCoast: Int32Array;
   /** 州名(按占据它的民族的语感起名;没人住的州为空串,界面上显示"第 N 州") */
   name?: string[];
   /**
@@ -429,6 +434,8 @@ export interface Civ {
    * CivSim.fromCiv 接着推时要用
    */
   polityYears?: number;
+  /** 航海时代从哪一刻起(polities.ts 的 ageOfSailYear、sailsOcean;接着推时沿用) */
+  sailFrom?: Year;
   /** 拓荒设定(CivParams.frontier,清理过的;默认 = 不写)。CivSim.fromCiv 接着推时要用 */
   frontier?: import('./frontier').Frontier;
   /**
@@ -582,8 +589,12 @@ export interface Religion {
 
 /** 发展度(development.ts) */
 export interface Development {
-  /** 各州的物产:州 × 8 样(见 development.ts 的 RESOURCES),0 没有 / 1 少 / 2 中 / 3 多 */
+  /** 各州物产的底子(储量):州 × RESOURCE_COUNT 样(见 development.ts 的 RESOURCES),0 没有 / 1 少 / 2 中 / 3 多;开局按地形定,不变 */
   resources: Uint8Array;
+  /** 各州物产哪一年被发现(州 × RESOURCE_COUNT;没有储量或一直没发现 = Infinity) */
+  found: Float64Array;
+  /** 各州物产眼下能用多少:每份 = 州 × RESOURCE_COUNT 样,存的是 0–3 档 × AVAIL_SCALE(没发现 = 0);和 snapYears 一一对应 */
+  avail: Uint8Array[];
   /** 各州的五种能力:每份 = 州 × 5 样(见 CAPS),存的是能力 × LEVEL_SCALE;和 snapYears 一一对应 */
   snaps: Uint8Array[];
   /** 每份快照的年份(递增;最后一份是结束那年) */
@@ -593,13 +604,16 @@ export interface Development {
 }
 
 /**
- * 发展度的大事:first = 世界上第一次有州进入这个时代;enter = 这个国家的国都所在的州第一次进入这个时代(立国时已在的不记)。
- * era = 第几个时代(见 development.ts 的 ERAS);culture、polity、settlement = 那一刻那州的民族、国家、城(−1 = 没有)
+ * 发展度的大事:first = 世界上第一次有州进入这个时代;enter = 这个国家的国都所在的州第一次进入这个时代(立国时已在的不记);
+ * discover = 储量多的州第一次发现这样矿;deplete = 储量多的州这样物产采空(矿:能用的跌到两成以下)、吃空(林、渔、田、牧:跌到四成以下)。
+ * era = 那一刻那州在第几个时代(见 development.ts 的 ERAS);culture、polity、settlement = 那一刻那州的民族、国家、城(−1 = 没有)
  */
 export interface DevEvent {
   year: Year;
-  kind: 'first' | 'enter';
+  kind: 'first' | 'enter' | 'discover' | 'deplete';
   era: number;
+  /** discover / deplete:哪样物产(见 development.ts 的 RESOURCES) */
+  resource?: number;
   region: number;
   culture: number;
   polity: number;

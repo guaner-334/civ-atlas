@@ -240,7 +240,8 @@ describe('同化与迁徙', () => {
       expect(s.migrated, tag).toBeGreaterThanOrEqual(s.migrations);
       expect(s.alive, tag).toBeGreaterThanOrEqual(Math.ceil(civ.cultures.length * 0.7));
       expect(s.alive + s.vanished, tag).toBe(civ.cultures.length);
-      expect(s.rulingShare, tag).toBeGreaterThan(0.85);
+      // GENERATOR_VERSION 16(航海时代:大国在海外拿下别族的州)以后 20 个种子 0.70–0.98(以前 0.86–0.98),seed 2024 最低
+      expect(s.rulingShare, tag).toBeGreaterThan(0.65);
       expect(s.flippy, tag).toBe(0);
       // 消亡的民族:图例上还在民族表里,有消亡年份
       for (const cu of civ.cultures) if (cu.ended !== undefined) expect(cu.ended).toBeLessThanOrEqual(civ.endYear);
@@ -341,8 +342,8 @@ describe('同化与迁徙', () => {
         expect(e.text).toMatch(/^.+族亡/);
         expect(e.importance).toBe(3);
       }
-      // 和 civ-chronicle.test.ts 的"大事"条数上限一致(seed 7、2024 不超过 60,别的种子不超过 65);同化与迁徙自己的大事不超过十条
-      expect(filterChronicle(list, { major: true }).length, `seed ${seed}`).toBeLessThanOrEqual(seed === 3 ? 65 : 60);
+      // 和 civ-chronicle.test.ts 的"大事"条数上限一致(不超过 70);同化与迁徙自己的大事不超过十条
+      expect(filterChronicle(list, { major: true }).length, `seed ${seed}`).toBeLessThanOrEqual(70);
       const mineMajor = filterChronicle(list, { major: true }).filter((e) => e.kind === 'migrate' || e.kind === 'assimilate' || e.kind === 'vanish');
       expect(mineMajor.length, `seed ${seed}`).toBeLessThanOrEqual(10);
     }

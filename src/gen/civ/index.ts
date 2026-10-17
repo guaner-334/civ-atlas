@@ -5,7 +5,7 @@
  *   ① 宜居度 + 州          habitat.ts / regions.ts
  *   ② 民族扩张 + 回放引擎   sim.ts / cultures.ts   → cultures、log、checkpoints、culture
  *   ③ 城市成长 + 国家       polities.ts            → settlements、polities、polity
- *   ④ 道路网               routes.ts              → routes
+ *   ④ 道路网               routes.ts              → routes(推演里走过的航线一定画出来,见 usedLanes)
  *   ⑤ 地理名称             places.ts              → places
  *   ⑥ 人物                 people.ts              → people(历代君主、战争里的统帅;按推出来的历史排,不改历史)
  *   ⑦ 信仰                 religion.ts            → religion(民间信仰、大教、国教、教派;照推出来的历史贴上去,不改历史)
@@ -23,7 +23,7 @@ import { computeHabitat } from './habitat';
 import { buildRegions, emptyRegions, reshapeRegions } from './regions';
 import { CivSim } from './sim';
 import { BIRTH_SPAN, cultureKey, cultureModelOf, finishCultures, installCultures, planCultures, rootsAcross } from './cultures';
-import { buildRoutes } from './routes';
+import { buildRoutes, usedLanes } from './routes';
 import { capacityNorm, finishPolities, installPolities, planPolities, polityModelOf, routeCities } from './polities';
 import { findPlaces, keepPlaceNames } from './places';
 import { installWars } from './wars';
@@ -159,7 +159,8 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
       const b = pinNames(pins!, eraWorld, branch, k ? ups[k - 1].year : -Infinity, u.year, k === 0, mix, areas && areaCultures && { owner: areas, cultures: areaCultures });
       const eraPlaces = findPlaces(eraWorld, before, { cultures: b.cultures, culture: b.culture, names: mix });
       if (k) keepPlaceNames(eraWorld, eras[k - 1].places, eraPlaces);
-      const eraRoutes = buildRoutes(eraWorld, eraHabitat, before, { cities: b.settlements.length ? routeCities(b.settlements, b.polities, p.endYear) : undefined });
+      const eraLanes = usedLanes(before, branch.result().log, b.cultures, k ? ups[k - 1].year : -Infinity);
+      const eraRoutes = buildRoutes(eraWorld, eraHabitat, before, { cities: b.settlements.length ? routeCities(b.settlements, b.polities, p.endYear) : undefined, lanes: eraLanes });
       eras.push({ until: u.year, habitat: eraHabitat, regions: before, places: eraPlaces, routes: eraRoutes });
     };
     if (mix) later.push(nameEra);
@@ -197,9 +198,13 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
   const cultures: Culture[] = fin.model?.cultures ?? [];
   const settlements: Settlement[] = fin.pm?.settlements ?? []; // ③ polities.ts
   const polities: Polity[] = fin.pm?.polities ?? []; // ③ polities.ts
-  // ④ routes.ts:城镇列表交给道路(国都之间修大路,路的修建年份取两端较晚者)
+  // ④ routes.ts:城镇列表交给道路(国都之间修大路,路的修建年份取两端较晚者);推演里走过的航线一定画(usedLanes)
   const routes: Route[] = viable
-    ? buildRoutes(fin.world, fin.habitat, fin.regions, { progress, cities: settlements.length ? routeCities(settlements, polities, p.endYear) : undefined })
+    ? buildRoutes(fin.world, fin.habitat, fin.regions, {
+        progress,
+        cities: settlements.length ? routeCities(settlements, polities, p.endYear) : undefined,
+        lanes: usedLanes(fin.regions, log, cultures, facts.length ? facts[facts.length - 1].year : -Infinity),
+      })
     : [];
   const places: Place[] = findPlaces(fin.world, fin.regions, { cultures, culture, names: mix }); // ⑤ places.ts(山海湖岛是地理,不看 viable)
   // 地形大事以后:同一处地方沿用大事以前的地名
@@ -235,6 +240,7 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
     spreadYears: model?.spreadYears,
     capNorm: pm?.capNorm,
     polityYears: pm?.years,
+    ...(pm ? { sailFrom: pm.sailFrom } : {}),
     ...(frontier ? { frontier } : {}),
     ...(iv ? { interventions: iv.list.slice() } : {}),
     people,
@@ -322,6 +328,7 @@ function partialCiv(sim: CivSim, model: CultureModel, pm: PolityModel, habitat: 
     spreadYears: model.spreadYears,
     capNorm: pm.capNorm,
     polityYears: pm.years,
+    sailFrom: pm.sailFrom,
     ...(frontier ? { frontier } : {}),
     ...(iv ? { interventions: iv.list.slice() } : {}),
     people: [],
