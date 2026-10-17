@@ -55,6 +55,11 @@ export interface Regions {
   landmass: Int32Array;
   /** 每条邻接边的共享边界长度(世界单位,约等于相邻地块对数 × 地块间距);海上连接为 0 */
   adjBorder: Float32Array;
+  /**
+   * 海峡、航线(每条邻接边一个):这一侧从哪块海岸地块出海(陆上相邻 = −1)。
+   * 航线只在各州的出海口(区内挨着能通航的海、离治所最近的陆地块)之间连;推演里走过的海峡、航线照这两头画出来(routes.ts 的 usedLanes)
+   */
+  adjCoast: Int32Array;
   /** 州名(按占据它的民族的语感起名;没人住的州为空串,界面上显示"第 N 州") */
   name?: string[];
   /**
@@ -429,6 +434,8 @@ export interface Civ {
    * CivSim.fromCiv 接着推时要用
    */
   polityYears?: number;
+  /** 航海时代从哪一刻起(polities.ts 的 ageOfSailYear、sailsOcean;接着推时沿用) */
+  sailFrom?: Year;
   /** 拓荒设定(CivParams.frontier,清理过的;默认 = 不写)。CivSim.fromCiv 接着推时要用 */
   frontier?: import('./frontier').Frontier;
   /**

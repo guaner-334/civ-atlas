@@ -141,9 +141,10 @@ describe('邦交:称臣纳贡、结盟、背盟', () => {
       const s = diplomacyStats(civ);
       const tag = `seed ${seed}`;
       // 20 个种子(1–19、2024)里结盟 0–30 次、称臣 7–20 次:每个世界都有称臣;国家之间常隔着部落,有的世界一次结盟都没有
+      // GENERATOR_VERSION 16(航海时代,隔海的国家也接壤了)以后结盟 3–27 次、称臣 6–28 次(seed 2024 最多):上限放到 30
       pacts += s.pacts;
       expect(s.submits, tag).toBeGreaterThanOrEqual(1);
-      expect(s.submits, tag).toBeLessThanOrEqual(24);
+      expect(s.submits, tag).toBeLessThanOrEqual(30);
       expect(s.pacts, tag).toBeLessThanOrEqual(36);
       // 断了的盟不多于结过的盟;自立的不多于称过臣的
       expect(s.lapses + s.abandons + s.betrayals, tag).toBeLessThanOrEqual(s.pacts);

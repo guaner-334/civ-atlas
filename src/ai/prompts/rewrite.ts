@@ -16,7 +16,8 @@
  * - 测试用假 AI(网址 ai=mock)回的是 {"mock":true,…},界面换成 mockRewrite 的一份固定提议,好检查界面和流程
  */
 import type { World } from '../../gen/world';
-import { AdjKind, type Civ, type Place, type Polity } from '../../gen/civ/types';
+import type { Civ, Place, Polity } from '../../gen/civ/types';
+import { canCross } from '../../gen/civ/polities';
 import { BIOMES } from '../../gen/biomes';
 import { HABITABLE_SUIT, KIND_INFO, cultureLabel, regionLabel, regionNamed } from '../../gen/civ/display';
 import { capitalAt, dynastyIndexAt, polityAlive, polityName, polityRootAt, polityRoots, polityTitleChain, populationAt, populationLabel } from '../../gen/civ/growth';
@@ -221,17 +222,17 @@ const stands = (civ: Civ, sid: number, y: number) => {
   return !!s && s.founded <= y && (s.ended === undefined || s.ended > y);
 };
 
-/** y 年和国家 id 接壤的国家(和国家面板的"宣战"同一口径:海洋国家隔海峡、航线也算) */
-export function bordersAt(civ: Civ, own: Int16Array, id: number): Set<number> {
+/** year 年(own 是那年的归属)和国家 id 接壤的国家(和国家面板的"宣战"同一口径:能出海的国家隔海峡、航线也算,见 canCross) */
+export function bordersAt(civ: Civ, own: Int16Array, id: number, year: number): Set<number> {
   const reg = civ.regions;
   const near = new Set<number>();
-  const sea = civ.polities[id]?.kind === 'sea';
+  const P = civ.polities[id];
+  if (!P) return near;
   for (let r = 0; r < reg.count; r++) {
     if (own[r] !== id) continue;
     for (let k = reg.adjStart[r]; k < reg.adjStart[r + 1]; k++) {
       const q = own[reg.adj[k]];
-      const kind = reg.adjKind[k];
-      if (q >= 0 && q !== id && (sea || (kind !== AdjKind.Strait && kind !== AdjKind.SeaRoute))) near.add(q);
+      if (q >= 0 && q !== id && canCross(civ, P, reg.adjKind[k], year)) near.add(q);
     }
   }
   return near;
@@ -453,7 +454,7 @@ export function rewriteMaterial(world: World, civ: Civ, year: number, edits: Wor
           .sort((a, b) => populationAt(b, Y) - populationAt(a, Y) || a.id - b.id)
           .slice(0, 3)
           .forEach((s) => cityIds.add(s.id));
-        const near = [...bordersAt(civ, own.polity, p.id)].sort((a, b) => a - b);
+        const near = [...bordersAt(civ, own.polity, p.id, Y)].sort((a, b) => a - b);
         const lm = reg.landmass[S[cap]?.region ?? 0];
         out.push(
           `  第 ${Y} 年:在世,${size.get(p.id)} 州,国都 C${cap} ${S[cap]?.name ?? ''} ${ll(cellLL(world, S[cap].cell))},在 L${lm};` +
@@ -1151,7 +1152,7 @@ class Checker {
           v = untilOk !== undefined ? { kind, a, b, from, until: untilOk } : { kind, a, b, from };
         } else {
           text = `${A.name}向${B.name}宣战`;
-          if (!bordersAt(civ, own.polity, A.id).has(B.id)) return fail(text, `第 ${from} 年两国不接壤,打不起来`);
+          if (!bordersAt(civ, own.polity, A.id, from).has(B.id)) return fail(text, `第 ${from} 年两国不接壤,打不起来`);
           v = { kind, a, b, from };
         }
       } else if (kind === 'move') {

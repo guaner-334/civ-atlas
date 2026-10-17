@@ -202,6 +202,8 @@ describe.each([7, 2024])('人物 · seed=%i', (seed) => {
       for (const pid of e.polities) {
         for (const x of rulersOf(civ, pid)) {
           if (x.rise === 'heir' || !e.text.includes(x.name) || Math.abs(x.from! - e.year) > 30) continue;
+          // 写到的是同名的另一个人(议和派去的宫相和开国之君同名)
+          if ((e.people ?? []).some((id) => id !== x.id && P[id].name === x.name)) continue;
           expect(e.people ?? [], `${e.text} / ${x.name}`).toContain(x.id);
         }
       }

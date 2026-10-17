@@ -667,7 +667,7 @@ export function assistantTools(
       const Y = Math.floor(Math.min(ctx.year, end));
       if (polityAlive(p, Y)) {
         const own = Y >= civ.endYear ? civ.polity : ownersAt(civ, Y).polity;
-        const near = [...bordersAt(civ, own, id)].sort((x, y) => x - y);
+        const near = [...bordersAt(civ, own, id, Y)].sort((x, y) => x - y);
         out.push(
           `第 ${Y} 年(时间轴):${sizesAt(civ, Y).get(id) ?? 0} 州,国都 C${capitalAt(p, Y)} ${S[capitalAt(p, Y)]?.name ?? ''},` +
             (near.length ? `邻国 ${near.map((q) => `P${q} ${nameAt(civ.polities[q], Y)}`).join('、')}` : '没有接壤的国家'),
@@ -757,7 +757,7 @@ export function assistantTools(
       const out = [`第 ${Y} 年在世的国家 ${alive.length} 个${alive.length > 40 ? '(列最大的 40 个)' : ''}:`];
       for (const p of alive.slice(0, 40)) {
         const cap = capitalAt(p, Y);
-        const near = [...bordersAt(civ, own, p.id)].sort((x, y) => x - y);
+        const near = [...bordersAt(civ, own, p.id, Y)].sort((x, y) => x - y);
         out.push(`- P${p.id} ${nameAt(p, Y)} · ${size.get(p.id)} 州 · 国都 C${cap} ${S[cap]?.name ?? ''}${near.length ? ` · 邻国 ${near.map((q) => `P${q}`).join('、')}` : ''}`);
       }
       const allWars = buildChronicle(civ).filter((e) => e.kind === 'war');
@@ -776,7 +776,7 @@ export function assistantTools(
       }
       // 刚查过的国家那一年还在:小字说它(紧跟在查它那一行下面,不再写国名:"剩 9 州，和有梧王朝、提布里亚帝国接壤"),否则说整个天下
       const me = subject >= 0 && size.get(subject) ? subject : -1;
-      const near = me >= 0 ? [...bordersAt(civ, own, me)].sort((x, y) => (size.get(y) ?? 0) - (size.get(x) ?? 0) || x - y) : [];
+      const near = me >= 0 ? [...bordersAt(civ, own, me, Y)].sort((x, y) => (size.get(y) ?? 0) - (size.get(x) ?? 0) || x - y) : [];
       // 那年的国号和现在(左边卡片上)不一样的,补一句后来叫什么
       const names = near.slice(0, 3).map((q) => {
         const then = nameAt(civ.polities[q], Y);
@@ -1077,7 +1077,7 @@ export function mockAssistant(ctx: AssistantContext): (req: AiRequest) => MockTu
     const from = p.ended !== undefined ? Math.max(Math.ceil(p.founded), Math.floor(p.ended) - 30) : Math.max(Math.ceil(p.founded), Math.min(Math.floor(civ.endYear) - 1, Math.floor(ctx.year)));
     const own = ownersAt(civ, from).polity;
     const fall = civ.annals.find((e) => e.kind === 'fall' && e.a === id);
-    const near = [...bordersAt(civ, own, id)].filter((q) => q !== fall?.b);
+    const near = [...bordersAt(civ, own, id, from)].filter((q) => q !== fall?.b);
     const size = sizesAt(civ, from);
     const friend = p.parent !== undefined && near.includes(p.parent) ? p.parent : near.sort((a, b) => (size.get(b) ?? 0) - (size.get(a) ?? 0))[0];
     const protect = { op: 'protect', country: P, from, why: '国都攻不下,不会被灭' };
