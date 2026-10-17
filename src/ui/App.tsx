@@ -964,7 +964,10 @@ export function App() {
         // 主图补丁、原件是后台自己排的活,不算一件回音
         if (m.type !== 'progress' && m.type !== 'eraPatch' && m.type !== 'snapshot') {
           busyRef.current = Math.max(0, busyRef.current - 1);
-          if (!busyRef.current) workLabel.current = null;
+          if (!busyRef.current) {
+            workLabel.current = null;
+            diagBeat();
+          }
         }
         if ((m.type === 'done' || m.type === 'civ' || m.type === 'trial') && m.tempo) tempoNote.current = m.tempo;
         if (m.type === 'trial') {

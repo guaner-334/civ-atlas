@@ -74,6 +74,8 @@ const TOOL: Record<string, string> = {
   situation: '看局势',
   try_edits: '试推演',
   propose_edits: '列确认单',
+  /** 模型写了一个没有的工具(名字不记) */
+  '?': '不认识的工具',
 };
 const TOOL_WHY: Record<string, string> = { 'no-tool': '没有这个工具', 'bad-args': '参数不是合法的 JSON', failed: '执行时出错' };
 

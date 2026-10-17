@@ -238,8 +238,8 @@ export async function runAgent(req: AgentRequest): Promise<AgentOutcome> {
       }
       step.result = clipResult(result);
       step.ms = Math.round(now() - t0);
-      // 问题记录:只记工具名、成没成功、耗时,不记参数和结果
-      recordDiag({ kind: 'tool', tool: c.name.slice(0, 40), ok: step.state === 'ok', ...(why ? { why } : {}), ms: step.ms });
+      // 问题记录:只记工具名(没有这个工具时名字是模型随便写的,不记)、成没成功、耗时,不记参数和结果
+      recordDiag({ kind: 'tool', tool: tool ? c.name : '?', ok: step.state === 'ok', ...(why ? { why } : {}), ms: step.ms });
       emit({ type: 'step-done', step: { ...step } });
       msgs.push({ role: 'tool', toolCallId: c.id, content: step.result });
     }

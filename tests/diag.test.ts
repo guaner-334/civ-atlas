@@ -71,11 +71,20 @@ describe('记和读', () => {
     expect(JSON.parse(store.m.get(DIAG_KEY)!)).toHaveLength(MAX_ENTRIES);
   });
 
-  it('存不下就只记在内存里,界面照样看得到', () => {
+  it('存不下就只记在内存里,界面照样看得到,一条也不丢', () => {
     setDiagStorage(memStorage({ failSet: true }));
-    recordDiag({ kind: 'tool', tool: 'x', ok: true, ms: 1 });
-    expect(getDiag().entries).toHaveLength(1);
+    for (let i = 0; i < 20; i++) recordDiag({ kind: 'tool', tool: `t${i}`, ok: true, ms: 1 });
+    expect(getDiag().entries).toHaveLength(20);
     expect(getDiag().persistent).toBe(false);
+  });
+
+  it('两个标签页轮流记:谁也不盖掉谁', () => {
+    recordDiag({ kind: 'tool', tool: 'a', ok: true, ms: 1 });
+    // 另一个标签页往同一个存储里记了一条
+    const other = JSON.parse(store.m.get(DIAG_KEY)!);
+    store.m.set(DIAG_KEY, JSON.stringify([{ kind: 'tool', tool: 'b', ok: true, ms: 1, at: new Date().toISOString() }, ...other]));
+    recordDiag({ kind: 'tool', tool: 'c', ok: true, ms: 1 });
+    expect(JSON.parse(store.m.get(DIAG_KEY)!).map((e: { tool: string }) => e.tool)).toEqual(['c', 'b', 'a']);
   });
 
   it('存的东西坏了:从空的开始', () => {
@@ -93,13 +102,14 @@ describe('记和读', () => {
     expect(JSON.parse(store.m.get(DIAG_KEY)!)).toEqual([]);
   });
 
-  it('同一个错 10 秒内又出只记一条,次数加上', () => {
-    for (let i = 0; i < 5; i++) recordError('window', 'boom', undefined);
+  it('同一个错(说明和出错的地方都一样)10 秒内又出只记一条,次数加上', () => {
+    for (let i = 0; i < 5; i++) recordError('window', 'boom', 'at f (a.js:1:2)');
+    recordError('window', 'boom', 'at g (b.js:3:4)');
     recordError('window', '别的错', undefined);
     const e = getDiag().entries;
-    expect(e).toHaveLength(2);
-    expect((e[1] as { n?: number }).n).toBe(5);
-    expect(summarize(e).errors).toBe(6);
+    expect(e).toHaveLength(3);
+    expect((e[2] as { n?: number }).n).toBe(5);
+    expect(summarize(e).errors).toBe(7);
   });
 });
 
@@ -212,7 +222,7 @@ describe('AI 调用和助手用工具顺带记一条', () => {
     expect(tools.map((t) => [t.tool, t.ok, t.why])).toEqual([
       ['look', true, undefined],
       ['look', false, 'bad-args'],
-      ['nope', false, 'no-tool'],
+      ['?', false, 'no-tool'],
       ['boom', false, 'failed'],
     ]);
     expect(JSON.stringify(getDiag().entries)).not.toContain('作者的秘密');

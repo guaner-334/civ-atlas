@@ -27,8 +27,8 @@ export interface LiveMark extends DiagContext {
 
 type Marks = Record<string, LiveMark>;
 
-/** 在做什么(生成世界、推演历史、导出视频……);同时只记最近设的那件,结束时设回 null */
-let doing: string | null = null;
+/** 正在做的事(生成世界、推演历史、导出视频……),后开始的在后;记号上写最后开始、还没做完的那件 */
+const doing: { label: string }[] = [];
 /** 年份、世界、图层:App 接上,写记号、记出错时问一下 */
 let context: () => DiagContext = () => ({});
 
@@ -40,13 +40,15 @@ let beat: () => void = () => {};
 /** 马上写一次记号(App 换了线程上的活时调) */
 export const diagBeat = (): void => beat();
 
-/** 开始做一件事;返回"做完了"(做完时只在还是这件事时清掉) */
+/** 开始做一件事;返回"做完了"(几件事叠着做时,只去掉自己那件) */
 export function diagDoing(label: string): () => void {
-  doing = label;
+  const job = { label };
+  doing.push(job);
   beat();
   return () => {
-    if (doing !== label) return;
-    doing = null;
+    const i = doing.indexOf(job);
+    if (i < 0) return;
+    doing.splice(i, 1);
     beat();
   };
 }
@@ -58,7 +60,8 @@ function ctxNow(): DiagContext {
   } catch {
     // 拿不到就不带
   }
-  return cleanCtx({ ...c, ...(doing ? { doing } : {}) });
+  const top = doing[doing.length - 1];
+  return cleanCtx({ ...c, ...(top ? { doing: top.label } : {}) });
 }
 
 function readMarks(s: Storage): Marks {

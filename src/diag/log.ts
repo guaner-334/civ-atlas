@@ -151,6 +151,20 @@ function load(): DiagEntry[] {
   return list;
 }
 
+/** 写之前重读一遍:同时开着几个标签页时,别的页面刚记的不会被这一页旧的那份盖掉 */
+function fresh(): DiagEntry[] {
+  if (persistent && storage) {
+    try {
+      const raw = storage.getItem(DIAG_KEY);
+      const v = raw ? (JSON.parse(raw) as unknown) : [];
+      if (Array.isArray(v)) list = v.filter(valid);
+    } catch {
+      // 读不出来就用手上这份
+    }
+  }
+  return load();
+}
+
 function save() {
   const l = load();
   if (!storage) return;
@@ -164,10 +178,11 @@ function save() {
     storage.setItem(DIAG_KEY, text);
     persistent = true;
   } catch {
-    // 存不下:删掉一半再试一次,还不行就只在内存里记
-    l.splice(Math.max(1, Math.floor(l.length / 2)));
+    // 存不下:存一半试试;还不行就只在内存里记(内存里那份不删)
+    const half = l.slice(0, Math.max(1, Math.floor(l.length / 2)));
     try {
-      storage.setItem(DIAG_KEY, JSON.stringify(l));
+      storage.setItem(DIAG_KEY, JSON.stringify(half));
+      l.length = half.length;
       persistent = true;
     } catch {
       persistent = false;
@@ -227,7 +242,7 @@ export function stackFrames(stack: string | undefined, max = 6): string[] {
 
 /** 记一条(at 不给 = 现在) */
 export function recordDiag(e: DiagInput): void {
-  const l = load();
+  const l = fresh();
   const entry = { ...e, at: e.at ?? new Date().toISOString() } as DiagEntry;
   l.unshift(entry);
   if (l.length > MAX_ENTRIES) l.length = MAX_ENTRIES;
@@ -237,11 +252,13 @@ export function recordDiag(e: DiagInput): void {
 
 /** 记一次出错:同一个错 10 秒内又出,只在上一条上加次数 */
 export function recordError(src: DiagErrorEntry['src'], message: string, stack: string | undefined, ctx: DiagContext = {}): void {
-  const l = load();
+  const l = fresh();
   const msg = cleanText(message || '(没有说明)');
   const frames = stackFrames(stack);
   const last = l.find((e) => e.kind === 'error') as DiagErrorEntry | undefined;
-  if (last && last.message === msg && last.src === src && Date.now() - Date.parse(last.at) < REPEAT_MS) {
+  // 说明一样、出错的地方也一样才算同一个错
+  const same = last && last.message === msg && last.src === src && (last.stack ?? []).join() === frames.join();
+  if (last && same && Date.now() - Date.parse(last.at) < REPEAT_MS) {
     last.n = (last.n ?? 1) + 1;
     save();
     emit();
@@ -261,7 +278,8 @@ export function cleanCtx(c: DiagContext): DiagContext {
 }
 
 export function clearDiag(): void {
-  load().length = 0;
+  load();
+  list = [];
   save();
   emit();
 }
