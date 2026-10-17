@@ -55,7 +55,7 @@ import { geometryOf, type Geometry } from '../geometry';
 import { AdjKind, Layer, type Civ, type Polity, type Year } from './types';
 import { fexp, flog, keyed, keyed4, subSeed } from './rand';
 import { Ev, quantize, type CivSim } from './sim';
-import { addPolity, canCross, coreOf, endPolity, foundingYear, moveCapital, polityModelOf, type PolityModel } from './polities';
+import { addPolity, canCross, coreOf, endPolity, foundingYear, moveCapital, polityModelOf, sailsOcean, type PolityModel } from './polities';
 import { warModelOf, type WarModel } from './wars';
 import { capacityAt, capitalAt, populationAt } from './growth';
 
@@ -362,7 +362,9 @@ function hook(sim: CivSim, pol: PoliticsModel): void {
   /** 州组从 parent 分出去,立新国(国都 sid),记一条 split(起事的州 = rising)。返回新国家 */
   const secede = (parent: number, group: number[], sid: number, rising: number, t: number, extra: Partial<Polity>): Polity => {
     const capR = pm.settlements[sid].region;
-    const p = addPolity(pm, sid, culture[capR], t, { parent, ...extra });
+    // 从能远洋的国家分出去的,带着船走:立国那一刻起就能远洋(Polity.sail)
+    const sail = pm.cultures[culture[capR]].kind !== 'sea' && sailsOcean(pm, pm.polities[parent], t) ? { sail: t } : {};
+    const p = addPolity(pm, sid, culture[capR], t, { parent, ...sail, ...extra });
     sim.setOwner(Layer.Polity, capR, p.id, Ev.Split);
     for (const r of group) if (r !== capR) sim.setOwner(Layer.Polity, r, p.id, Ev.Split);
     sim.record('split', { a: p.id, b: parent, region: rising, settlement: sid });
@@ -470,7 +472,7 @@ function hook(sim: CivSim, pol: PoliticsModel): void {
   const tryMerge = (B: Polity, k: number, t: number, mine: readonly number[]): boolean => {
     const bid = B.id;
     const nB = pm.size[bid];
-    // 接壤的同族大国(陆上相邻;能出海的(海洋国家,航海时代以后的普通国家)隔着海峡、航线也算)
+    // 接壤的同族大国(陆上相邻;能出海的(海洋国家,能远洋以后的普通国家)隔着海峡、航线也算)
     let A = -1;
     for (const r of mine) {
       if (!settled(r, t)) return false;

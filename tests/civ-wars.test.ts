@@ -322,7 +322,7 @@ describe('战争与攻占', () => {
     expect(w0.children!.find((c) => c.kind === 'peace')!.text).toMatch(/既亡,兵戈遂息$/);
   });
 
-  it('被攻占的州民族不变、城镇照旧(这一刻被毁的除外,见 cities.ts);航海时代以前只有海洋国家能跨海打仗', () => {
+  it('被攻占的州民族不变、城镇照旧(这一刻被毁的除外,见 cities.ts);还没有国家能远洋时只有海洋国家能跨海打仗', () => {
     const civ = civOf({ ...DEFAULT_PARAMS, seed: 2024 });
     const L = civ.log;
     const cultureAt = new Int16Array(civ.regions.count).fill(-1);
@@ -339,8 +339,8 @@ describe('战争与攻占', () => {
       }
     }
     for (let i = 0; i < L.size; i++) expect(L.layer[i] === Layer.Culture && L.cause[i] === Ev.Conquer).toBe(false);
-    // 航海时代以前,非海洋国家的国土不跨陆块(灭国时一并收下的隔海残部除外,见 annexedOverseas)
-    const pre = Math.floor(civ.sailFrom!);
+    // 头一个普通国家能远洋以前,非海洋国家的国土不跨陆块(灭国时一并收下的隔海残部除外,见 annexedOverseas)
+    const pre = Math.floor(Math.min(civ.endYear + 1, ...civ.polities.map((p) => p.sail ?? Infinity)) - 1);
     const own = ownersAt(civ, pre).polity;
     for (const p of civ.polities) {
       if (p.kind === 'sea') continue;

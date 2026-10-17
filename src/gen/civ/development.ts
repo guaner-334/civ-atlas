@@ -1,6 +1,6 @@
 /**
- * 发展度(generateCiv 的第 ⑧ 步):推演结束后,照已有的历史算各州的物产、五种能力和时代 —— 只算不改历史,
- * 国界、兴亡、战争、人物一个都不变(以后让能力反过来影响推演时,再挪进推演里)。纯计算,不碰 DOM。
+ * 发展度:各州的物产、五种能力和时代,在推演里每 STEP(20)年算一步(Ev.DevTick,同一刻里排在地形大事、航海时代后面,别的事件前面),
+ * 再反过来影响推演。纯计算,不碰 DOM。
  *
  * **物产**(每州一份,不随年份变):粮、牲畜(含马)、铜锡、铁、煤、木材、盐、渔获、石油、稀有矿、金银,各 0–3 档(没有 / 少 / 中 / 多)。
  *   从地形、群落、气候、板块算一个"有多少"的分,按全世界的排名分档:每样只有一部分州有(RESOURCE_SHARE),
@@ -10,39 +10,53 @@
  *   - 矿(铜锡、铁、煤、石油、稀有矿、金银):技术越高采得越多(发现后约一个半时代采到足量);一档储量全力采 LIFE 年,剩最后三成时越采越少,直到采空。
  *   - 林、渔、田、牧:人多、开发久的地方慢慢吃空(捕鱼到火药以后才吃得空),人少了每年长回缺口的 REGROW;盐不变。
  *   生产、运输的动力和卡脖子的物产都按眼下能用的算(采空了也会卡住)。
+ *   地形大事以后按新地形重新分档(接着推时),储量按新旧档位之比缩放。
  *
  * **五种能力**(每州每 STEP 年算一次):生产、运输、信息、行政、动员。数值和时代用同一把尺子(0 = 石器时代开头,
  *   1 = 青铜时代开头,……,见 ERAS),每样能力:
  *   - 自己长(创新):速度 = 动力 ÷ 这一档要的年数(ERA_YEARS)。动力看这一样能力靠什么:
- *       生产看粮和人口,运输看道路(已修、还没废的)、大河(只有最后的地形可查)、海港(按当时那一段地形)、木材,信息看大城、国都、和多少外邦相邻,行政看有没有国家、国家多大多老、是不是国都;
+ *       生产看粮和人口,运输看路(推演里还没有路网,在国家里、有长到镇的城就算有路)、大河、海港、木材,
+ *       信息看大城、国都、和多少外邦相邻,行政看有没有国家、国家多大多老、是不是国都;
  *     打仗的地方长得慢(近几十年本州的战役、攻占、洗劫越多越慢)。
  *     某一样比这个州的时代领先近一档时,自己长得很慢;领先两档以上时,向邻居学也很慢(单靠一样堆不上去)。
  *   - 向邻居学(传播):向本样能力最高的那个邻州靠拢,差得越多学得越快。同一国里快、跨国慢,翻山、过海峡、走航线更慢;
  *     行政主要在一国之内传。
  *   - 战乱折损:本州的攻占、战役、洗劫、毁城当即扣一点;之后按到过的最高值较快地恢复(技术没丢,只是要重建)。
- *   - 物产卡脖子(只卡生产的创新):要进青铜时代得有铜锡,进铁器得有铁,进工业得有煤和铁,进电气得有石油,进信息得有稀有矿 ——
- *     本州、相邻的州或者本国有就行(买得到);都没有的,到门口附近自己就长得很慢(GATE_SLOW),主要靠邻居传过来。
+ *   - **跨时代的门槛**(到下一个时代门口 GATE_NEAR 以内时查;不够的自己长得只剩 GATE_SLOW,主要靠邻居传过来):
+ *     · 物产(只卡生产):进青铜要铜锡,进铁器要铁,进工业要煤和铁,进电气要石油,进信息要稀有矿 —— 本州、相邻的州或者本国有就行(买得到);
+ *     · 组织:进铁器以后要在国家里;进中古以后国家要到"国"一档以上、本州行政能力够(比要进的时代低 ADMIN_GAP 以内);
+ *     · 太平和城:进火药以后本州近年少战乱、有长到镇的城;
+ *     · 地理:进工业以后要沿海(有港口)、有大河或是平原。
  *   - 动员不单独长:跟着生产和行政走(游牧民族另高一截)。
  *   - 没人住的州不长;刚有人住的州带着邻居的本事来(取最高邻居的 SETTLE_CARRY)。
  *
  * **时代** = 生产、运输、信息、行政四样的"偏短板"平均(调和平均,见 eraLevel):整数部分是哪个时代,小数部分是走到这个时代的几成。
  *
+ * **反过来影响推演**(第 2 步):
+ *   - 城和乡村的人口上限 × popFactor(本州的生产能力):石器时代 POP_BASE 倍,往上每一档 + POP_PER,最多 POP_MAX 倍。
+ *     每步看一次,变了才记进 Settlement.devCap(20 年里渐渐变过去,见 growth.ts 的 devFactorAt);立国的时机不随它变。
+ *   - 打仗的国力 × 军力系数(PolityModel.military):1 + MIL_PER × 国都所在州的动员能力,最多 MIL_MAX。
+ *   - 普通国家国都所在州的运输能力到了 SAIL_LEVEL,从这一刻起能走远洋(polities.ts 的 grantSail;没有全世界统一的航海时代了)。
+ *
  * **大事**:世界上第一次有州进入某个时代(first,记州、民族、国家、城);各国国都所在的州第一次进入某个时代(enter;立国时已在的时代不记);
- *   储量多的州发现一样矿(discover)、一样物产采空或吃空(deplete)。
+ *   储量多的州发现一样矿(discover)、一样物产采空或吃空(deplete);世界上第一次有州的某样能力到了某样发明那一档(invent,见 INVENTIONS)。
  *   年份按上一步到这一步线性估出跨过门槛的那一刻(不早于那州归了现在的民族、国家)。
  *
- * 结果是 Civ.development:物产的底子和发现年份、每 SNAP 年一份的各州能力和眼下能用的物产(加结束那年)、大事。
- * 任意年份用 developmentAt、resourcesAt 查(前后两份线性插值)。
- * 只用加减乘除(IEEE 精确舍入)和推演里已经舍入过的人口,跨 CPU 逐位一致。
+ * 结果是 Civ.development:物产的底子和发现年份、每 SNAP 年一份的各州能力和眼下能用的物产(加结束那年)、大事,
+ * 还有接着推(CivSim.fromCiv)要用的全精度状态(state)。任意年份用 developmentAt、resourcesAt 查(前后两份线性插值)。
+ * 每一步只读这一刻以前已经发生的事。只用加减乘除(IEEE 精确舍入)和推演里已经舍入过的人口,跨 CPU 逐位一致。
  * 随机数一律 keyed(subSeed(seed, 'civ-development'), 治所地块, …)。
  */
-import type { Civ, DevEvent, Development, Year } from './types';
+import type { Civ, DevEvent, DevState, Development, Settlement, Year } from './types';
 import type { World } from '../world';
 import { AdjKind, Layer } from './types';
 import { Biome } from '../biomes';
 import { MAJOR_RIVER } from './habitat';
-import { capitalAt, populationAt, regionCityAt, regionPopulationAt } from './growth';
-import { keyed, subSeed } from './rand';
+import { GROWTH_A, capitalAt, populationAt, ruralCapacity } from './growth';
+import { fexp, keyed, subSeed } from './rand';
+import { Ev, type CivSim } from './sim';
+import { grantSail, polityModelOf, type PolityModel } from './polities';
+import { cultureModelOf } from './cultures';
 
 /** 物产(下标就是 Development.resources 里的第几样) */
 export const RESOURCES = ['粮', '牲畜', '铜锡', '铁', '煤', '木材', '盐', '渔获', '石油', '稀有矿', '金银'] as const;
@@ -114,7 +128,6 @@ const LINK: readonly number[] = (() => {
 const SEA_PER_TRANSPORT = 0.08;
 /** 循环里要用的枚举值(另一个文件的 const enum,先取成本地常量) */
 const SEA_ROUTE: number = AdjKind.SeaRoute;
-const CULTURE_LAYER: number = Layer.Culture;
 /** 某样能力比时代领先 OVERSHOOT 以上时,自己长得只剩 OVERSHOOT_SLOW;领先 OVERSHOOT_LEARN 以上时,向邻居学也只剩这么多 */
 const OVERSHOOT = 0.8;
 const OVERSHOOT_LEARN = 2;
@@ -190,110 +203,356 @@ function snapAt(snaps: Uint8Array[], ys: Year[], scale: number, year: Year, out?
   return out;
 }
 
-/** 推演结束后算发展度(见文件头) */
-export function buildDevelopment(world: World, civ: Civ): Development {
-  const seed = subSeed(civ.seed, 'civ-development');
-  const R = civ.regions.count;
-  const eras = civ.eras ?? [];
-  let era = 0;
-  let reg = eras.length ? eras[0].regions : civ.regions;
-  const resources = computeResources(world, civ, seed);
-  const S = civ.settlements;
-  const P = civ.polities.length;
+// ---------------------------------------------------------------------------
+// 反过来影响推演(第 2 步)
 
-  // 地形大事以前的每一段各有一份州、海港、路网;最后一段用 civ 本身的
-  const segs = [...eras.map((e) => ({ regions: e.regions, habitat: e.habitat, routes: e.routes })), { regions: civ.regions, habitat: civ.habitat, routes: civ.routes }];
-  // 每条路经过哪些州(道路、小路、航线经过的陆地);有路 = 那一段里有一条已修、还没废的路经过
-  const routeRegions = segs.map((g) =>
-    g.routes.map((rt) => {
-      const on = new Set<number>();
-      for (const cell of rt.cells) {
-        const r = g.regions.of[cell];
-        if (r >= 0 && r < R) on.add(r);
-      }
-      return Int32Array.from(on);
-    }),
-  );
-  // 各段各州有没有海港;大河只有最后的地形可查,各段都用它
-  const ports = segs.map((g) => {
-    const port = new Uint8Array(R);
-    const { cellStart, cells } = g.regions;
-    for (let r = 0; r < Math.min(R, g.regions.count); r++) {
-      for (let k = cellStart[r]; k < cellStart[r + 1]; k++) if (g.habitat.harbor[cells[k]] > 0) port[r] = 1;
-    }
-    return port;
-  });
-  const river = new Uint8Array(R);
-  {
-    const { cellStart, cells } = civ.regions;
-    const major = MAJOR_RIVER * world.riverThreshold;
-    for (let r = 0; r < R; r++) {
-      for (let k = cellStart[r]; k < cellStart[r + 1]; k++) if (world.flux[cells[k]] >= major) river[r] = 1;
-    }
-  }
-  const road = new Uint8Array(R);
-  // 战乱:史事按步分桶(攻占、战役、洗劫、毁城)
-  const years: Year[] = [];
-  for (let y = 0; y <= civ.endYear; y += STEP) years.push(y);
-  if (years[years.length - 1] < civ.endYear) years.push(civ.endYear);
-  const hits: { region: number; hit: readonly number[] }[][] = years.map(() => []);
-  for (const a of civ.annals) {
-    const hit = a.kind === 'conquer' ? HIT_CONQUER : a.kind === 'battle' ? HIT_BATTLE : a.kind === 'sack' ? HIT_SACK : a.kind === 'ruin' ? HIT_RUIN : null;
-    if (!hit || !(a.region >= 0 && a.region < R)) continue;
-    // 落在 (上一步, 这一步] 里
-    const k = Math.min(years.length - 1, Math.max(0, Math.ceil(a.year / STEP)));
-    hits[k].push({ region: a.region, hit });
-  }
+/** 城、乡村的人口上限 × (POP_BASE + POP_PER × 生产能力),POP_MAX 封顶;倍数取到 1/POP_QUANT(变了才记进 Settlement.devCap) */
+const POP_BASE = 0.85;
+const POP_PER = 0.1;
+export const POP_MAX = 2;
+const POP_QUANT = 32;
+/** 军力系数 = 1 + MIL_PER × 国都所在州的动员能力,MIL_MAX 封顶 */
+const MIL_PER = 0.12;
+const MIL_MAX = 1.6;
+/** 普通国家国都所在州的运输能力到这么多,从这一刻起能走远洋 */
+const SAIL_LEVEL = 1.7;
+/** 跨时代的门槛(见文件头):本州行政能力比要进的时代低这么多以内;近年战乱(war)不超过这么多算太平;平原 = 治所海拔低于这么多米 */
+const ADMIN_GAP = 1.3;
+const WAR_CALM = 0.5;
+const PLAIN = 500;
+/** 镇(千人;和 growth.ts 的 SETTLEMENT_RANKS 一致):在国家里、有长到镇的城算"有路";进火药以后要有 */
+const TOWN = 8;
 
-  const cur = new Float64Array(R * CAP_COUNT);
-  const next = new Float64Array(R * CAP_COUNT);
-  const best = new Float64Array(R * CAP_COUNT);
-  const war = new Float64Array(R);
-  const settled = new Uint8Array(R);
-  /** 住过人、后来空了的州(再有人住时按刚有人住算) */
-  const left = new Uint8Array(R);
-  const E = new Float64Array(R);
-  const Eprev = new Float64Array(R);
-  /** 上一步的生产能力(估发现那一刻用) */
-  const Pprev = new Float64Array(R);
-  /** 各州归了现在的民族、国家是哪一刻 */
-  const sinceC = new Float64Array(R);
-  const sinceP = new Float64Array(R);
-  // 归属:按年份往后翻日志(和 ownersAt 同一个结果)
-  const ownC = new Int16Array(R).fill(-1);
-  const ownP = new Int16Array(R).fill(-1);
-  const L = civ.log;
-  let li = 0;
-  /** 各国这一步:州数、国都所在的州、有哪些物产(按位) */
-  const size = new Int32Array(P);
-  const capR = new Int32Array(P);
-  const has = new Int32Array(P);
+/** 州的生产能力 → 人口上限的倍数(取到 1/POP_QUANT) */
+export function popFactor(production: number): number {
+  const f = Math.min(POP_MAX, POP_BASE + POP_PER * Math.max(0, production));
+  return Math.round(f * POP_QUANT) / POP_QUANT;
+}
+
+/**
+ * 发明:哪样能力(Cap)到了哪一档(和时代同一把尺子),世上第一次到的那一州记一条 invent。
+ * major = 编年史里算大事(见 developmentText.ts)。和时代同名的(青铜、铁器、火药……)不另列
+ */
+export const INVENTIONS: readonly { name: string; cap: number; level: number; major?: boolean }[] = [
+  { name: '陶轮', cap: 0, level: 0.5 },
+  { name: '车轮', cap: 1, level: 0.6 },
+  { name: '文字', cap: 2, level: 0.7, major: true },
+  { name: '战车', cap: 4, level: 0.9 },
+  { name: '成文法', cap: 3, level: 1 },
+  { name: '帆船', cap: 1, level: 1.2 },
+  { name: '犁耕', cap: 0, level: 1.5 },
+  { name: '字母', cap: 2, level: 1.6 },
+  { name: '户籍', cap: 3, level: 1.8 },
+  { name: '驿道', cap: 1, level: 2 },
+  { name: '马镫', cap: 4, level: 2.2, major: true },
+  { name: '造纸', cap: 2, level: 2.5, major: true },
+  { name: '水车', cap: 0, level: 2.6 },
+  { name: '文官考选', cap: 3, level: 2.8 },
+  { name: '指南针', cap: 1, level: 3, major: true },
+  { name: '常备军', cap: 4, level: 3 },
+  { name: '高炉', cap: 0, level: 3.4 },
+  { name: '印刷术', cap: 2, level: 3.4, major: true },
+  { name: '远洋帆船', cap: 1, level: 3.7 },
+  { name: '火器', cap: 4, level: 4.1 },
+  { name: '人口普查', cap: 3, level: 4.5 },
+  { name: '报刊', cap: 2, level: 4.6 },
+  { name: '机械织机', cap: 0, level: 4.6 },
+  { name: '征兵制', cap: 4, level: 5 },
+  { name: '蒸汽机', cap: 0, level: 5.2, major: true },
+  { name: '铁路', cap: 1, level: 5.4 },
+  { name: '电报', cap: 2, level: 5.6, major: true },
+  { name: '电力', cap: 0, level: 6.2 },
+  { name: '汽车', cap: 1, level: 6.3 },
+  { name: '无线电', cap: 2, level: 6.5 },
+  { name: '飞机', cap: 1, level: 6.9 },
+  { name: '计算机', cap: 2, level: 7.3, major: true },
+];
+
+// ---------------------------------------------------------------------------
+// 推演里的模型
+
+/** 状态各数组里每州的标记(DevModel.flags):有人住过 / 住过人后来空了 */
+const SETTLED = 1;
+const LEFT = 2;
+
+interface DevModel {
+  seed: number;
+  pm: PolityModel;
+  /** 州数(地形大事以后按新的州表补齐) */
+  R: number;
+  /** 物产的底子(州 × RESOURCE_COUNT) */
+  resources: Uint8Array;
+  /** 物产哪一年发现(州 × RESOURCE_COUNT;没发现 = Infinity) */
+  found: Float64Array;
+  /** 上一步算到哪一年;史事读到第几条 */
+  last: Year;
+  annals: number;
+  /** 各州五种能力(州 × CAP_COUNT)、到过的最高值 */
+  cur: Float64Array;
+  best: Float64Array;
+  /** 各州近年的战乱(每步旧账留 WAR_KEEP,每件 +1) */
+  war: Float64Array;
+  /** 各州上一步的时代数值 */
+  era: Float64Array;
+  flags: Uint8Array;
+  /** 各州人口、城的规模(0–1)、有没有路(在国家里、有长到镇的城);每 SNAP 年更新 */
+  pop: Float64Array;
+  city: Float64Array;
+  road: Uint8Array;
+  /** 矿还剩多少年的量,林、渔、田、牧还剩几成;眼下能用多少(0–3 档);采空的大事记过没有 */
+  stock: Float64Array;
+  availNow: Float64Array;
+  depleted: Uint8Array;
   /** 各国到过的时代(−1 = 还没看过;立国时已在的不记大事) */
-  const polityEra = new Int8Array(P).fill(-1);
-  let worldEra = 0;
-  const events: DevEvent[] = [];
-  const pushRes = (kind: 'discover' | 'deplete', year: Year, r: number, k: number) => {
-    const city = regionCityAt(civ, r, year);
-    events.push({ year, kind, era: eraOf(E[r]).era, region: r, resource: k, culture: ownC[r], polity: ownP[r], settlement: city ? city.id : -1 });
-  };
-  const snaps: Uint8Array[] = [];
-  const snapYears: Year[] = [];
-  // 物产随年份:哪年发现;矿还剩多少年的量,林、渔、田、牧还剩几成;眼下能用多少(0–3 档);大事记过没有
+  polityEra: number[];
+  worldEra: number;
+  /** 各样发明出现过没有 */
+  invented: Uint8Array;
+  /** 各州归了现在的民族、国家是哪一刻(归属监听里记) */
+  sinceC: Float64Array;
+  sinceP: Float64Array;
+  /** 各州第一座城(乡村人口跟它一起长);已经看到第几座城了 */
+  firstCity: Int32Array;
+  seenCities: number;
+  /** 各州城的人口上限此刻的倍数(PolityModel.capFactor,同一份) */
+  capF: Float64Array;
+  events: DevEvent[];
+  snaps: Uint8Array[];
+  avail: Uint8Array[];
+  snapYears: Year[];
+}
+
+const models = new WeakMap<CivSim, DevModel>();
+
+/** 推演引擎上挂着的发展度模型(测试、统计用) */
+export function devModelOf(sim: CivSim): DevModel | undefined {
+  return models.get(sim);
+}
+
+/** 新的模型(全是初始状态;推演开头,或接着推时 Civ 里没存状态) */
+function emptyDev(world: World, pm: PolityModel, seed: number, habitat: Civ['habitat']): DevModel {
+  const R = pm.terrain.R;
+  const resources = computeResources(world, { regions: pm.terrain.regions, habitat }, seed);
   const RK = R * RESOURCE_COUNT;
-  const found = new Float64Array(RK).fill(Infinity);
   const stock = new Float64Array(RK);
   for (let i = 0; i < RK; i++) {
     const k = i % RESOURCE_COUNT;
     stock[i] = LIFE[k] ? resources[i] * LIFE[k] : 1;
   }
-  const availNow = new Float64Array(RK);
-  const depleted = new Uint8Array(RK);
-  const avail: Uint8Array[] = [];
-  /** 各州眼下有哪些物产(按位;每步开头按上一步的 availNow 算) */
+  return {
+    seed,
+    pm,
+    R,
+    resources,
+    found: new Float64Array(RK).fill(Infinity),
+    last: -Infinity,
+    annals: 0,
+    cur: new Float64Array(R * CAP_COUNT),
+    best: new Float64Array(R * CAP_COUNT),
+    war: new Float64Array(R),
+    era: new Float64Array(R),
+    flags: new Uint8Array(R),
+    pop: new Float64Array(R),
+    city: new Float64Array(R),
+    road: new Uint8Array(R),
+    stock,
+    availNow: new Float64Array(RK),
+    depleted: new Uint8Array(RK),
+    polityEra: [],
+    worldEra: 0,
+    invented: new Uint8Array(INVENTIONS.length),
+    sinceC: new Float64Array(R),
+    sinceP: new Float64Array(R),
+    firstCity: new Int32Array(R).fill(-1),
+    seenCities: 0,
+    capF: new Float64Array(R).fill(popFactor(0)),
+    events: [],
+    snaps: [],
+    avail: [],
+    snapYears: [],
+  };
+}
+
+/** 登记发展度(generateCiv 里,各层 install 之后):第 0 年起每 STEP 年算一步 */
+export function installDevelopment(sim: CivSim, world: World, pm: PolityModel, habitat: Civ['habitat'], seed: number): void {
+  const d = emptyDev(world, pm, subSeed(seed, 'civ-development'), habitat);
+  hook(sim, d);
+  sim.schedule(0, Ev.DevTick, 0, 0);
+}
+
+/**
+ * 接着推(CivSim.fromCiv 调用,在各层 resume 之后):从 Civ.development.state 接上(地形大事以后州多了的补齐、物产按新地形重新分档);
+ * 没存状态的(旧版本的历史)从头开始的状态接着算
+ */
+export function resumeDevelopment(sim: CivSim, world: World, civ: Civ): void {
+  const pm = polityModelOf(sim);
+  if (!pm) return;
+  const d = emptyDev(world, pm, subSeed(civ.seed, 'civ-development'), civ.habitat);
+  const dev = civ.development;
+  const st = dev?.state;
+  const R = d.R;
+  if (dev && st) {
+    const R0 = Math.min(R, st.era.length);
+    const copy = <T extends Float64Array | Uint8Array>(to: T, from: T, per: number) => to.set(from.subarray(0, R0 * per));
+    copy(d.cur, st.cur, CAP_COUNT);
+    copy(d.best, st.best, CAP_COUNT);
+    copy(d.war, st.war, 1);
+    copy(d.era, st.era, 1);
+    copy(d.flags, st.flags, 1);
+    copy(d.pop, st.pop, 1);
+    copy(d.city, st.city, 1);
+    copy(d.road, st.road, 1);
+    copy(d.availNow, st.availNow, RESOURCE_COUNT);
+    copy(d.depleted, st.depleted, RESOURCE_COUNT);
+    copy(d.found, dev.found, RESOURCE_COUNT);
+    // 储量:物产按这一段的地形重新分档了的,按新旧档位之比缩放(没变的原样接上)
+    const old = dev.resources;
+    for (let i = 0; i < R0 * RESOURCE_COUNT; i++) {
+      const k = i % RESOURCE_COUNT;
+      const a = old[i];
+      const b = d.resources[i];
+      if (!LIFE[k]) d.stock[i] = a ? st.stock[i] : 1;
+      else if (a === b) d.stock[i] = st.stock[i];
+      else if (a && b) d.stock[i] = (st.stock[i] * b) / a;
+      if (!b) {
+        // 这一段的地形里没有了(沉了、重新分档掉到没有):眼下能用的也清零
+        d.found[i] = Infinity;
+        d.availNow[i] = 0;
+      }
+    }
+    d.last = st.last;
+    d.annals = st.annals;
+    d.polityEra = st.polityEra.slice();
+    d.worldEra = st.worldEra;
+    d.invented.set(st.invented.subarray(0, d.invented.length));
+    d.events = dev.events.map((e) => ({ ...e }));
+    const keep = dev.snapYears.length - (st.tail ? 1 : 0);
+    d.snaps = dev.snaps.slice(0, keep).map((x) => padTo(x, R * CAP_COUNT));
+    d.avail = dev.avail.slice(0, keep).map((x) => padTo(x, R * RESOURCE_COUNT));
+    d.snapYears = dev.snapYears.slice(0, keep);
+    pm.military = st.military.slice();
+  } else {
+    // 没存状态:从下一个整 STEP 年起算,史事从现在起读
+    d.last = Math.floor(sim.now / STEP) * STEP;
+    d.annals = civ.annals.length;
+  }
+  // 归属的年份、各州第一座城:按日志、城表重建(和推演里监听记的一样)
+  const log = civ.log;
+  for (let i = 0; i < log.size; i++) {
+    const r = log.region[i];
+    if (r >= R) continue;
+    if (log.layer[i] === Layer.Culture) d.sinceC[r] = log.year[i];
+    else d.sinceP[r] = log.year[i];
+  }
+  seeCities(d);
+  // 城的人口上限倍数:和上一步算完时一样(只看生产能力)
+  if (st) for (let r = 0; r < R; r++) d.capF[r] = popFactor(d.cur[r * CAP_COUNT + Cap.Production]);
+  hook(sim, d);
+  sim.schedule(d.last + STEP, Ev.DevTick, 0, 0);
+}
+
+function padTo(a: Uint8Array, n: number): Uint8Array {
+  if (a.length >= n) return a.slice();
+  const b = new Uint8Array(n);
+  b.set(a);
+  return b;
+}
+
+/** 挂到推演引擎上:归属监听、事件处理;城的人口上限倍数交给国家模型(新建的城从它记起) */
+function hook(sim: CivSim, d: DevModel): void {
+  models.set(sim, d);
+  d.pm.capFactor = d.capF;
+  d.pm.military ??= [];
+  sim.onChange(Layer.Culture, (r) => {
+    if (r < d.R) d.sinceC[r] = sim.now;
+  });
+  sim.onChange(Layer.Polity, (r) => {
+    if (r < d.R) d.sinceP[r] = sim.now;
+  });
+  sim.on(Ev.DevTick, (_a, _b, t) => {
+    tick(sim, d, t);
+    sim.schedule(t + STEP, Ev.DevTick, 0, 0);
+  });
+}
+
+/** 新建的城:各州第一座城(编号即建城先后) */
+function seeCities(d: DevModel) {
+  const S = d.pm.settlements;
+  for (; d.seenCities < S.length; d.seenCities++) {
+    const s = S[d.seenCities];
+    if (s.region < d.R && d.firstCity[s.region] < 0) d.firstCity[s.region] = s.id;
+  }
+}
+
+/** 州 r 此刻的城(还在的那一座;没有 = undefined) */
+function cityIn(pm: PolityModel, r: number): Settlement | undefined {
+  const c = pm.cityOf[r];
+  if (c < 0) return undefined;
+  const s = pm.settlements[c];
+  return s.ended === undefined ? s : undefined;
+}
+
+/** 每 SNAP 年:各州人口、城的规模、有没有路 */
+function refreshRoads(d: DevModel, y: Year, sim: CivSim) {
+  const pm = d.pm;
+  const S = pm.settlements;
+  const reg = pm.terrain.regions;
+  const ownC = sim.owners[Layer.Culture];
+  const ownP = sim.owners[Layer.Polity];
+  for (let r = 0; r < d.R; r++) {
+    if (ownC[r] < 0) continue;
+    const s = cityIn(pm, r);
+    const cityPop = s ? populationAt(s, y) : 0;
+    // 乡村:和第一座城一起按 S 形曲线长(不算洗劫;只拿来定动力)
+    const f = d.firstCity[r];
+    const first = f >= 0 ? S[f] : undefined;
+    const rural = first && y >= first.founded ? (ruralCapacity(reg, r) * d.capF[r]) / (1 + GROWTH_A * fexp(-first.growth * (y - first.founded))) : 0;
+    const pop = cityPop + rural;
+    d.pop[r] = pop / (pop + POP_HALF);
+    d.city[r] = cityPop / (cityPop + CITY_HALF);
+    d.road[r] = ownP[r] >= 0 && cityPop >= TOWN ? 1 : 0;
+  }
+}
+
+/** 某年的国号档位(0 部 … 3 帝国;没升过格 = 0) */
+function tierNow(titles: { year: Year; tier: number }[] | undefined): number {
+  return titles?.length ? Math.max(0, titles[titles.length - 1].tier) : 0;
+}
+
+/** 算一步(第 y 年;见文件头) */
+function tick(sim: CivSim, d: DevModel, y: Year): void {
+  const pm = d.pm;
+  const T = pm.terrain;
+  const reg = T.regions;
+  const R = d.R;
+  const P = pm.polities.length;
+  const S = pm.settlements;
+  const cultures = cultureModelOf(sim)?.cultures ?? pm.cultures;
+  const ownC = sim.owners[Layer.Culture];
+  const ownP = sim.owners[Layer.Polity];
+  const dt = d.last > -Infinity ? y - d.last : 0;
+  const { cur, best, war, flags, availNow, resources, found, stock } = d;
+  const E = d.era;
+  const Eprev = E.slice();
+  const prev = cur.slice();
+  const next = cur.slice();
+  seeCities(d);
+  if (y % SNAP === 0) refreshRoads(d, y, sim);
+
+  // 各州眼下有哪些物产(按位);各国:有哪些物产、国都所在的州
+  const RK = R * RESOURCE_COUNT;
   const resBits = new Int32Array(R);
-  /** 各州人口、城的规模(0–1,每 SNAP 年更新) */
-  const popOf = new Float64Array(R);
-  const cityOf = new Float64Array(R);
+  for (let i = 0; i < RK; i++) if (availNow[i] > 0) resBits[(i / RESOURCE_COUNT) | 0] |= 1 << i % RESOURCE_COUNT;
+  const has = new Int32Array(P);
+  const capR = new Int32Array(P).fill(-1);
+  for (let r = 0; r < R; r++) if (ownP[r] >= 0) has[ownP[r]] |= resBits[r];
+  for (let p = 0; p < P; p++) {
+    const q = pm.polities[p];
+    if (q.ended !== undefined || !pm.size[p]) continue;
+    const cap = S[capitalAt(q, Infinity)];
+    if (cap && cap.region < R && ownP[cap.region] === p) capR[p] = cap.region;
+  }
+  const { adjStart, adj, adjKind } = reg;
   const drive = new Float64Array(4);
   const learn = new Float64Array(4);
   const needBits = (lvP: number): number => {
@@ -301,259 +560,289 @@ export function buildDevelopment(world: World, civ: Civ): Development {
     return target === 1 ? 1 << Res.Copper : target === 2 ? 1 << Res.Iron : target === 5 ? (1 << Res.Coal) | (1 << Res.Iron) : target === 6 ? 1 << Res.Oil : target === 7 ? 1 << Res.Rare : 0;
   };
 
-  for (let step = 0; step < years.length; step++) {
-    const y = years[step];
-    const dt = step ? y - years[step - 1] : 0;
-    while (era < eras.length && y >= eras[era].until) reg = ++era < eras.length ? eras[era].regions : civ.regions;
-    for (; li < L.size && L.year[li] <= y; li++) {
-      if (L.layer[li] === CULTURE_LAYER) {
-        ownC[L.region[li]] = L.value[li];
-        sinceC[L.region[li]] = L.year[li];
-      } else {
-        ownP[L.region[li]] = L.value[li];
-        sinceP[L.region[li]] = L.year[li];
-      }
-    }
-    resBits.fill(0);
-    for (let i = 0; i < RK; i++) if (availNow[i] > 0) resBits[(i / RESOURCE_COUNT) | 0] |= 1 << i % RESOURCE_COUNT;
-    size.fill(0);
-    has.fill(0);
-    capR.fill(-1);
+  if (dt > 0) {
     for (let r = 0; r < R; r++) {
+      const o = r * CAP_COUNT;
+      if (ownC[r] < 0) {
+        if (flags[r] & SETTLED) {
+          flags[r] |= LEFT;
+          for (let c = 0; c < CAP_COUNT; c++) next[o + c] = cur[o + c] * ABANDON_KEEP;
+        }
+        continue;
+      }
       const p = ownP[r];
-      if (p < 0) continue;
-      size[p]++;
-      has[p] |= resBits[r];
-    }
-    for (let p = 0; p < P; p++) {
-      if (!size[p]) continue;
-      const cap = S[capitalAt(civ.polities[p], y)];
-      if (cap && cap.region < R && ownP[cap.region] === p) capR[p] = cap.region;
-    }
-    const { adjStart, adj, adjKind } = reg;
-    const port = ports[era];
-    road.fill(0);
-    {
-      const rts = segs[era].routes;
-      for (let i = 0; i < rts.length; i++) {
-        const rt = rts[i];
-        if (rt.built > y || (rt.abandoned !== undefined && rt.abandoned <= y)) continue;
-        for (const r of routeRegions[era][i]) road[r] = 1;
-      }
-    }
-    const Rn = reg.count;
-    // 人口、城每 SNAP 年看一次(变得慢,逐步现算太费时)
-    if (y % SNAP === 0) {
-      for (let r = 0; r < Rn; r++) {
-        if (ownC[r] < 0) continue;
-        const pop = regionPopulationAt(civ, r, y);
-        const city = regionCityAt(civ, r, y);
-        const cityPop = city ? populationAt(city, y) : 0;
-        popOf[r] = pop / (pop + POP_HALF);
-        cityOf[r] = cityPop / (cityPop + CITY_HALF);
-      }
-    }
-    next.set(cur);
-    if (dt > 0) {
-      for (let r = 0; r < Rn; r++) {
-        const o = r * CAP_COUNT;
-        if (ownC[r] < 0) {
-          if (settled[r]) {
-            left[r] = 1;
-            for (let c = 0; c < CAP_COUNT; c++) next[o + c] = cur[o + c] * ABANDON_KEEP;
-          }
-          continue;
-        }
-        const p = ownP[r];
-        if (!settled[r] || left[r]) {
-          // 刚有人住(或空了以后又有人来):带着邻居的本事来,和本州留下的取高的
-          settled[r] = 1;
-          left[r] = 0;
-          for (let k = adjStart[r]; k < adjStart[r + 1]; k++) {
-            const n = adj[k];
-            if (n >= R || ownC[n] < 0) continue;
-            for (let c = 0; c < CAP_COUNT; c++) next[o + c] = Math.max(next[o + c], cur[n * CAP_COUNT + c] * SETTLE_CARRY);
-          }
-          continue;
-        }
-        const popF = popOf[r];
-        const cityF = cityOf[r];
-        const ro = r * RESOURCE_COUNT;
-        const isCap = p >= 0 && capR[p] === r;
-        // 和几个外邦(别国、部落地带)相邻;本国 / 本州附近能不能买到物产
-        let foreign = 0;
-        let near = resBits[r] | (p >= 0 ? has[p] : 0);
+      if (!(flags[r] & SETTLED) || flags[r] & LEFT) {
+        // 刚有人住(或空了以后又有人来):带着邻居的本事来,和本州留下的取高的
+        flags[r] = SETTLED;
         for (let k = adjStart[r]; k < adjStart[r + 1]; k++) {
           const n = adj[k];
           if (n >= R || ownC[n] < 0) continue;
-          near |= resBits[n];
-          if (ownP[n] !== p && foreign < 4) foreign++;
+          for (let c = 0; c < CAP_COUNT; c++) next[o + c] = Math.max(next[o + c], cur[n * CAP_COUNT + c] * SETTLE_CARRY);
         }
-        const peace = 1 / (1 + war[r]);
-        drive[0] = 0.15 + 0.1 * availNow[ro + Res.Grain] + 1.2 * popF;
-        drive[1] = 0.1 + 0.3 * road[r] + 0.2 * river[r] + 0.3 * port[r] + 0.05 * availNow[ro + Res.Timber] + 0.6 * popF;
-        drive[2] = 0.1 + 1.2 * cityF + (isCap ? 0.3 : 0) + 0.08 * foreign + 0.2 * road[r];
-        drive[3] = p < 0 ? 0.15 : 0.3 + 0.15 * tierAt(civ.polities[p].titles, y) + 0.2 * Math.min(1, size[p] / ADMIN_SIZE) + (isCap ? 0.4 : 0) + 0.3 * Math.min(1, (y - civ.polities[p].founded) / 400);
-        // 向每样能力最高的邻居学(一遍邻居,四样一起看)
-        learn.fill(0);
-        for (let k = adjStart[r]; k < adjStart[r + 1]; k++) {
-          const n = adj[k];
-          if (n >= R || ownC[n] < 0) continue;
-          const kind = adjKind[k];
-          let link = LINK[kind] ?? 1;
-          if (kind === SEA_ROUTE) link += SEA_PER_TRANSPORT * cur[o + Cap.Transport];
-          const same = p >= 0 && ownP[n] === p;
-          if (same) link *= SAME_STATE;
-          const no = n * CAP_COUNT;
-          for (let c = 0; c < 4; c++) {
-            const gap = cur[no + c] - cur[o + c];
-            if (gap <= 0) continue;
-            const g = gap * LEARN[c] * (c === Cap.Administration && !same ? link * ADMIN_ABROAD : link);
-            if (g > learn[c]) learn[c] = g;
-          }
-        }
-        const e = E[r];
-        for (let c = 0; c < 4; c++) {
-          const v = cur[o + c];
-          const lvl = Math.min(ERA_YEARS.length - 1, Math.floor(v));
-          let grow = (drive[c] * peace) / ERA_YEARS[lvl];
-          let got = learn[c];
-          if (v > e + OVERSHOOT) grow *= OVERSHOOT_SLOW;
-          if (v > e + OVERSHOOT_LEARN) got *= OVERSHOOT_SLOW;
-          if (c === Cap.Production) {
-            const need = needBits(v);
-            if (need && (near & need) !== need && v > Math.floor(v) + 1 - GATE_NEAR) grow *= GATE_SLOW;
-          }
-          const recover = (best[o + c] - v) * RECOVER;
-          let nv = v + dt * (grow + got + (recover > 0 ? recover : 0));
-          if (c === Cap.Administration && p < 0 && nv > TRIBAL_ADMIN_MAX) nv = Math.max(v, TRIBAL_ADMIN_MAX);
-          next[o + c] = Math.min(LEVEL_MAX, nv);
-        }
-        // 动员:跟着生产和行政走
-        const nomad = civ.cultures[ownC[r]]?.kind === 'nomad';
-        const target = 0.5 * (next[o + Cap.Production] + next[o + Cap.Administration]) + (nomad ? 0.7 : 0) + (p >= 0 ? 0.15 : 0);
-        const m = cur[o + Cap.Mobilization];
-        next[o + Cap.Mobilization] = Math.min(LEVEL_MAX, m + (target - m) * Math.min(1, 0.01 * dt));
+        continue;
       }
-    }
-    // 战乱折损
-    for (let r = 0; r < R; r++) war[r] *= WAR_KEEP;
-    for (const h of hits[step]) {
-      const o = h.region * CAP_COUNT;
-      war[h.region] += 1;
-      for (let c = 0; c < 4; c++) next[o + c] = Math.max(0, next[o + c] - h.hit[c]);
-    }
-    for (let r = 0; r < R; r++) Pprev[r] = cur[r * CAP_COUNT + Cap.Production];
-    cur.set(next);
-    for (let i = 0; i < cur.length; i++) if (cur[i] > best[i]) best[i] = cur[i];
-    Eprev.set(E);
-    for (let r = 0; r < R; r++) E[r] = ownC[r] >= 0 ? eraLevel(cur, r) : 0;
-    /** 州 r 的时代数值在这一步里哪一刻过了 k(按上一步到这一步线性估;不早于这州归了现在的民族 / 国家那一刻) */
-    const crossed = (r: number, k: number, since: number): Year => {
-      const a = Eprev[r];
-      const b = E[r];
-      const t = b > a ? Math.min(1, Math.max(0, (k - a) / (b - a))) : 1;
-      return Math.min(y, Math.max(since, y - dt + dt * t));
-    };
-
-    // 大事:世界第一次进入某个时代;各国国都所在的州第一次进入某个时代
-    let top = -1;
-    let topLv = 0;
-    for (let r = 0; r < R; r++) if (ownC[r] >= 0 && E[r] > topLv) (topLv = E[r]), (top = r);
-    const topEra = eraOf(topLv).era;
-    if (top >= 0 && topEra > worldEra) {
-      for (let k = worldEra + 1; k <= topEra; k++) {
-        const city = regionCityAt(civ, top, y);
-        events.push({ year: crossed(top, k, Math.max(sinceC[top], sinceP[top])), kind: 'first', era: k, region: top, culture: ownC[top], polity: ownP[top], settlement: city ? city.id : -1 });
-      }
-      worldEra = topEra;
-    }
-    for (let p = 0; p < P; p++) {
-      const r = capR[p];
-      if (r < 0) continue;
-      const e = eraOf(E[r]).era;
-      if (polityEra[p] < 0) polityEra[p] = e;
-      else if (e > polityEra[p]) {
-        // 一步跨了几个时代(例如迁都到先进得多的州)就每个都记
-        const city = regionCityAt(civ, r, y);
-        for (let k = polityEra[p] + 1; k <= e; k++) {
-          events.push({ year: crossed(r, k, Math.max(sinceC[r], sinceP[r])), kind: 'enter', era: k, region: r, culture: ownC[r], polity: p, settlement: city ? city.id : -1 });
-        }
-        polityEra[p] = e;
-      }
-    }
-
-    // 物产:发现、开采、吃空、长回来
-    for (let r = 0; r < R; r++) {
+      const popF = d.pop[r];
+      const cityF = d.city[r];
       const ro = r * RESOURCE_COUNT;
-      const live = ownC[r] >= 0;
-      const P = cur[r * CAP_COUNT + Cap.Production];
-      const popF = live ? popOf[r] : 0;
-      for (let k = 0; k < RESOURCE_COUNT; k++) {
-        const i = ro + k;
-        const tier = resources[i];
-        if (!tier) continue;
-        if (found[i] === Infinity) {
-          if (!live || P < DISCOVER_AT[k]) continue;
-          // 这一步里哪一刻过了门槛(按上一步到这一步线性估;不早于这州归了现在的民族和国家)
-          const a = Pprev[r];
-          const t = P > a ? Math.min(1, Math.max(0, (DISCOVER_AT[k] - a) / (P - a))) : 1;
-          found[i] = Math.min(y, Math.max(sinceC[r], sinceP[r], y - dt + dt * t));
-          if (tier === 3 && LIFE[k]) pushRes('discover', found[i], r, k);
-        }
-        const vPrev = availNow[i];
-        let v: number;
-        if (LIFE[k]) {
-          // 矿:技术越高采得越多(发现后一个半时代采到足量);一直采会采空,剩最后三成时越采越少
-          const tech = Math.min(1, 0.25 + 0.5 * Math.max(0, P - DISCOVER_AT[k]));
-          // 只扣发现以后、有人住以后的那几年
-          const span = Math.max(0, Math.min(dt, y - Math.max(found[i], sinceC[r])));
-          if (live) stock[i] = Math.max(0, stock[i] - span * tech * (0.4 + 0.6 * popF));
-          v = tier * tech * Math.min(1, stock[i] / (0.3 * tier * LIFE[k]));
-        } else if (DEPLETE[k]) {
-          // 林、渔、田、牧:人多、开发久就吃空,人少了慢慢长回来;捕鱼到火药以后才吃得空
-          const e = E[r];
-          const press =
-            k === Res.Timber ? Math.max(0, popF - 0.35) * (1 + 0.3 * Math.max(0, e - 3))
-            : k === Res.Fish ? Math.max(0, popF - 0.3) * Math.max(0, e - 3.5)
-            : k === Res.Grain ? Math.max(0, popF - 0.7)
-            : Math.max(0, popF - 0.55);
-          const h = stock[i];
-          stock[i] = Math.min(1, Math.max(0.05, h + dt * (REGROW * (1 - h) - DEPLETE[k] * press * h)));
-          v = tier * stock[i];
-        } else v = tier;
-        availNow[i] = v;
-        const low = (LIFE[k] ? 0.2 : 0.4) * tier;
-        if (tier === 3 && !depleted[i] && v < low && (!LIFE[k] || stock[i] < 0.3 * tier * LIFE[k])) {
-          depleted[i] = 1;
-          // 这一步里哪一刻掉过线(按能用量线性估;不早于发现、不早于这州归了现在的民族和国家)
-          const t = vPrev > low && vPrev > v ? (vPrev - low) / (vPrev - v) : 1;
-          pushRes('deplete', Math.min(y, Math.max(found[i], sinceC[r], sinceP[r], y - dt + dt * t)), r, k);
+      const polity = p >= 0 ? pm.polities[p] : undefined;
+      const isCap = p >= 0 && capR[p] === r;
+      const port = pm.port[r];
+      const river = T.riverSeat[r] | T.river[r];
+      // 和几个外邦(别国、部落地带)相邻;本国 / 本州附近能不能买到物产
+      let foreign = 0;
+      let near = resBits[r] | (p >= 0 ? has[p] : 0);
+      for (let k = adjStart[r]; k < adjStart[r + 1]; k++) {
+        const n = adj[k];
+        if (n >= R || ownC[n] < 0) continue;
+        near |= resBits[n];
+        if (ownP[n] !== p && foreign < 4) foreign++;
+      }
+      const peace = 1 / (1 + war[r]);
+      const road = d.road[r];
+      drive[0] = 0.15 + 0.1 * availNow[ro + Res.Grain] + 1.2 * popF;
+      drive[1] = 0.1 + 0.3 * road + 0.2 * river + 0.3 * port + 0.05 * availNow[ro + Res.Timber] + 0.6 * popF;
+      drive[2] = 0.1 + 1.2 * cityF + (isCap ? 0.3 : 0) + 0.08 * foreign + 0.2 * road;
+      drive[3] = !polity ? 0.15 : 0.3 + 0.15 * tierNow(polity.titles) + 0.2 * Math.min(1, pm.size[p] / ADMIN_SIZE) + (isCap ? 0.4 : 0) + 0.3 * Math.min(1, (y - polity.founded) / 400);
+      // 向每样能力最高的邻居学(一遍邻居,四样一起看)
+      learn.fill(0);
+      for (let k = adjStart[r]; k < adjStart[r + 1]; k++) {
+        const n = adj[k];
+        if (n >= R || ownC[n] < 0) continue;
+        const kind = adjKind[k];
+        let link = LINK[kind] ?? 1;
+        if (kind === SEA_ROUTE) link += SEA_PER_TRANSPORT * cur[o + Cap.Transport];
+        const same = p >= 0 && ownP[n] === p;
+        if (same) link *= SAME_STATE;
+        const no = n * CAP_COUNT;
+        for (let c = 0; c < 4; c++) {
+          const gap = cur[no + c] - cur[o + c];
+          if (gap <= 0) continue;
+          const g = gap * LEARN[c] * (c === Cap.Administration && !same ? link * ADMIN_ABROAD : link);
+          if (g > learn[c]) learn[c] = g;
         }
       }
-    }
-
-    if (y % SNAP === 0 || step === years.length - 1) {
-      const av = new Uint8Array(RK);
-      for (let i = 0; i < RK; i++) av[i] = availNow[i] >= 0 ? Math.min(3 * AVAIL_SCALE, Math.round(availNow[i] * AVAIL_SCALE)) : BAD_LEVEL;
-      avail.push(av);
-      const snap = new Uint8Array(R * CAP_COUNT);
-      // 算坏了(NaN)存成 BAD_LEVEL,压力测试查得出来;正常最多 LEVEL_MAX × LEVEL_SCALE
-      for (let i = 0; i < snap.length; i++) snap[i] = cur[i] >= 0 ? Math.min(LEVEL_MAX * LEVEL_SCALE, Math.round(cur[i] * LEVEL_SCALE)) : BAD_LEVEL;
-      snaps.push(snap);
-      snapYears.push(y);
+      // 跨时代的门槛(组织、太平和城、地理;见文件头):到下一个时代门口时查
+      const tier = polity ? tierNow(polity.titles) : -1;
+      const flat = reg.elevation[r] < PLAIN;
+      const gateOK = (target: number): boolean => {
+        if (target >= 2 && !polity) return false;
+        if (target >= 3 && (tier < 1 || cur[o + Cap.Administration] < target - ADMIN_GAP)) return false;
+        if (target >= 4 && (war[r] > WAR_CALM || !road)) return false;
+        if (target >= 5 && !(port || river || flat)) return false;
+        return true;
+      };
+      const e = E[r];
+      for (let c = 0; c < 4; c++) {
+        const v = cur[o + c];
+        const lvl = Math.min(ERA_YEARS.length - 1, Math.floor(v));
+        let grow = (drive[c] * peace) / ERA_YEARS[lvl];
+        let got = learn[c];
+        if (v > e + OVERSHOOT) grow *= OVERSHOOT_SLOW;
+        if (v > e + OVERSHOOT_LEARN) got *= OVERSHOOT_SLOW;
+        if (v > Math.floor(v) + 1 - GATE_NEAR) {
+          const need = c === Cap.Production ? needBits(v) : 0;
+          if ((need && (near & need) !== need) || !gateOK(Math.floor(v) + 1)) grow *= GATE_SLOW;
+        }
+        const recover = (best[o + c] - v) * RECOVER;
+        let nv = v + dt * (grow + got + (recover > 0 ? recover : 0));
+        if (c === Cap.Administration && !polity && nv > TRIBAL_ADMIN_MAX) nv = Math.max(v, TRIBAL_ADMIN_MAX);
+        next[o + c] = Math.min(LEVEL_MAX, nv);
+      }
+      // 动员:跟着生产和行政走
+      const nomad = cultures[ownC[r]]?.kind === 'nomad';
+      const target = 0.5 * (next[o + Cap.Production] + next[o + Cap.Administration]) + (nomad ? 0.7 : 0) + (polity ? 0.15 : 0);
+      const m = cur[o + Cap.Mobilization];
+      next[o + Cap.Mobilization] = Math.min(LEVEL_MAX, m + (target - m) * Math.min(1, 0.01 * dt));
     }
   }
-  // 同一步里的几件按估出来的那一刻排(排序是稳定的)
-  events.sort((a, b) => a.year - b.year);
-  return { resources, found, avail, snaps, snapYears, events };
+  // 战乱折损:上一步到这一步的史事(攻占、战役、洗劫、毁城)
+  for (let r = 0; r < R; r++) war[r] *= WAR_KEEP;
+  for (; d.annals < sim.annalCount; d.annals++) {
+    const a = sim.annal(d.annals);
+    const hit = a.kind === 'conquer' ? HIT_CONQUER : a.kind === 'battle' ? HIT_BATTLE : a.kind === 'sack' ? HIT_SACK : a.kind === 'ruin' ? HIT_RUIN : null;
+    if (!hit || !(a.region >= 0 && a.region < R)) continue;
+    const o = a.region * CAP_COUNT;
+    war[a.region] += 1;
+    for (let c = 0; c < 4; c++) next[o + c] = Math.max(0, next[o + c] - hit[c]);
+  }
+  cur.set(next);
+  for (let i = 0; i < cur.length; i++) if (cur[i] > best[i]) best[i] = cur[i];
+  for (let r = 0; r < R; r++) E[r] = ownC[r] >= 0 ? eraLevel(cur, r) : 0;
+  const t0 = d.last > -Infinity ? d.last : y;
+  /** a → b 在这一步里哪一刻过了 k(按上一步到这一步线性估;不早于 since) */
+  const crossAt = (a: number, b: number, k: number, since: number): Year => {
+    const t = b > a ? Math.min(1, Math.max(0, (k - a) / (b - a))) : 1;
+    return Math.min(y, Math.max(since, t0 + (y - t0) * t));
+  };
+  const sinceOf = (r: number) => Math.max(d.sinceC[r], d.sinceP[r]);
+  const cityId = (r: number) => cityIn(pm, r)?.id ?? -1;
+  const push = (e: Omit<DevEvent, 'era' | 'culture' | 'polity' | 'settlement'> & { era?: number }) => {
+    const r = e.region;
+    d.events.push({ era: eraOf(E[r]).era, ...e, culture: ownC[r], polity: ownP[r], settlement: cityId(r) });
+  };
+
+  // 大事:世界第一次进入某个时代;各国国都所在的州第一次进入某个时代
+  let top = -1;
+  let topLv = 0;
+  for (let r = 0; r < R; r++) if (ownC[r] >= 0 && E[r] > topLv) (topLv = E[r]), (top = r);
+  const topEra = eraOf(topLv).era;
+  if (top >= 0 && topEra > d.worldEra) {
+    for (let k = d.worldEra + 1; k <= topEra; k++) push({ year: crossAt(Eprev[top], E[top], k, sinceOf(top)), kind: 'first', era: k, region: top });
+    d.worldEra = topEra;
+  }
+  for (let p = 0; p < P; p++) {
+    const r = capR[p];
+    if (r < 0) continue;
+    const e = eraOf(E[r]).era;
+    const seen = d.polityEra[p] ?? -1;
+    if (seen < 0) d.polityEra[p] = e;
+    else if (e > seen) {
+      // 一步跨了几个时代(例如迁都到先进得多的州)就每个都记
+      for (let k = seen + 1; k <= e; k++) push({ year: crossAt(Eprev[r], E[r], k, sinceOf(r)), kind: 'enter', era: k, region: r });
+      d.polityEra[p] = e;
+    }
+  }
+  // 发明:世上第一次有州的那样能力到了那一档(同一步里先到的先记)
+  INVENTIONS.forEach((inv, i) => {
+    if (d.invented[i]) return;
+    let at = -1;
+    let lv = inv.level;
+    for (let r = 0; r < R; r++) if (ownC[r] >= 0 && cur[r * CAP_COUNT + inv.cap] >= lv) (lv = cur[r * CAP_COUNT + inv.cap]), (at = r);
+    if (at < 0) return;
+    d.invented[i] = 1;
+    const o = at * CAP_COUNT + inv.cap;
+    push({ year: crossAt(prev[o], cur[o], inv.level, sinceOf(at)), kind: 'invent', invention: i, region: at });
+  });
+
+  // 物产:发现、开采、吃空、长回来
+  for (let r = 0; r < R; r++) {
+    const ro = r * RESOURCE_COUNT;
+    const live = ownC[r] >= 0;
+    const Pr = cur[r * CAP_COUNT + Cap.Production];
+    const Pa = prev[r * CAP_COUNT + Cap.Production];
+    const popF = live ? d.pop[r] : 0;
+    const since = Math.max(d.sinceC[r], d.sinceP[r]);
+    for (let k = 0; k < RESOURCE_COUNT; k++) {
+      const i = ro + k;
+      const tier = resources[i];
+      if (!tier) continue;
+      if (found[i] === Infinity) {
+        if (!live || Pr < DISCOVER_AT[k]) continue;
+        // 这一步里哪一刻过了门槛(不早于这州归了现在的民族和国家)
+        found[i] = crossAt(Pa, Pr, DISCOVER_AT[k], since);
+        if (tier === 3 && LIFE[k]) push({ year: found[i], kind: 'discover', region: r, resource: k });
+      }
+      const vPrev = availNow[i];
+      let v: number;
+      if (LIFE[k]) {
+        // 矿:技术越高采得越多(发现后一个半时代采到足量);一直采会采空,剩最后三成时越采越少
+        const tech = Math.min(1, 0.25 + 0.5 * Math.max(0, Pr - DISCOVER_AT[k]));
+        // 只扣发现以后、有人住以后的那几年
+        const span = Math.max(0, Math.min(dt, y - Math.max(found[i], d.sinceC[r])));
+        if (live) stock[i] = Math.max(0, stock[i] - span * tech * (0.4 + 0.6 * popF));
+        v = tier * tech * Math.min(1, stock[i] / (0.3 * tier * LIFE[k]));
+      } else if (DEPLETE[k]) {
+        // 林、渔、田、牧:人多、开发久就吃空,人少了慢慢长回来;捕鱼到火药以后才吃得空
+        const e = E[r];
+        const press =
+          k === Res.Timber ? Math.max(0, popF - 0.35) * (1 + 0.3 * Math.max(0, e - 3))
+          : k === Res.Fish ? Math.max(0, popF - 0.3) * Math.max(0, e - 3.5)
+          : k === Res.Grain ? Math.max(0, popF - 0.7)
+          : Math.max(0, popF - 0.55);
+        const h = stock[i];
+        stock[i] = Math.min(1, Math.max(0.05, h + dt * (REGROW * (1 - h) - DEPLETE[k] * press * h)));
+        v = tier * stock[i];
+      } else v = tier;
+      availNow[i] = v;
+      const low = (LIFE[k] ? 0.2 : 0.4) * tier;
+      if (tier === 3 && !d.depleted[i] && v < low && (!LIFE[k] || stock[i] < 0.3 * tier * LIFE[k])) {
+        d.depleted[i] = 1;
+        // 这一步里哪一刻掉过线(按能用量线性估;不早于发现、不早于这州归了现在的民族和国家)
+        const t = vPrev > low && vPrev > v ? (vPrev - low) / (vPrev - v) : 1;
+        push({ year: Math.min(y, Math.max(found[i], since, t0 + (y - t0) * t)), kind: 'deplete', region: r, resource: k });
+      }
+    }
+  }
+
+  // 反过来影响推演:城的人口上限倍数(变了才记)、各国的军力系数、远洋
+  for (let r = 0; r < R; r++) {
+    const f = popFactor(cur[r * CAP_COUNT + Cap.Production]);
+    d.capF[r] = f;
+    const s = cityIn(pm, r);
+    if (!s) continue;
+    const dc = (s.devCap ??= [s.founded, f]);
+    if (dc[dc.length - 1] !== f) dc.push(y, f);
+  }
+  const mil = pm.military!;
+  for (let p = 0; p < P; p++) {
+    const r = capR[p];
+    if (r < 0) continue;
+    const o = r * CAP_COUNT;
+    mil[p] = Math.min(MIL_MAX, 1 + MIL_PER * cur[o + Cap.Mobilization]);
+    if (cur[o + Cap.Transport] >= SAIL_LEVEL) grantSail(sim, pm, p);
+  }
+
+  d.last = y;
+  if (y % SNAP === 0) {
+    const s = makeSnap(d);
+    d.snaps.push(s.snap);
+    d.avail.push(s.avail);
+    d.snapYears.push(y);
+  }
 }
 
-/** 某年的国号档位(0 部 … 3 帝国;没升过格 = 0) */
-function tierAt(titles: { year: Year; tier: number }[] | undefined, y: Year): number {
-  let t = 0;
-  if (titles) for (const x of titles) if (x.year <= y) t = Math.max(0, x.tier);
-  return t;
+/** 此刻的一份快照(能力、眼下能用的物产) */
+function makeSnap(d: DevModel): { snap: Uint8Array; avail: Uint8Array } {
+  const RK = d.R * RESOURCE_COUNT;
+  const av = new Uint8Array(RK);
+  for (let i = 0; i < RK; i++) av[i] = d.availNow[i] >= 0 ? Math.min(3 * AVAIL_SCALE, Math.round(d.availNow[i] * AVAIL_SCALE)) : BAD_LEVEL;
+  const snap = new Uint8Array(d.R * CAP_COUNT);
+  // 算坏了(NaN)存成 BAD_LEVEL,压力测试查得出来;正常最多 LEVEL_MAX × LEVEL_SCALE
+  for (let i = 0; i < snap.length; i++) snap[i] = d.cur[i] >= 0 ? Math.min(LEVEL_MAX * LEVEL_SCALE, Math.round(d.cur[i] * LEVEL_SCALE)) : BAD_LEVEL;
+  return { snap, avail: av };
+}
+
+/**
+ * 推演结束(或推到一半拼 Civ 时):整理成 Civ.development。结束那年不在整百年上的,补一份那一刻的快照(按最近一步的状态;接着推时去掉)。
+ * 返回的数组都是副本,之后接着推不影响它
+ */
+export function finishDevelopment(sim: CivSim, endYear: Year): Development | undefined {
+  const d = models.get(sim);
+  if (!d) return undefined;
+  const snaps = d.snaps.slice();
+  const avail = d.avail.slice();
+  const snapYears = d.snapYears.slice();
+  const tail = !snapYears.length || snapYears[snapYears.length - 1] < endYear;
+  if (tail) {
+    const s = makeSnap(d);
+    snaps.push(s.snap);
+    avail.push(s.avail);
+    snapYears.push(endYear);
+  }
+  const events = d.events.map((e) => ({ ...e }));
+  // 同一步里的几件按估出来的那一刻排(排序是稳定的)
+  events.sort((a, b) => a.year - b.year);
+  const state: DevState = {
+    last: d.last,
+    annals: d.annals,
+    tail,
+    cur: d.cur.slice(),
+    best: d.best.slice(),
+    war: d.war.slice(),
+    era: d.era.slice(),
+    flags: d.flags.slice(),
+    pop: d.pop.slice(),
+    city: d.city.slice(),
+    road: d.road.slice(),
+    stock: d.stock.slice(),
+    availNow: d.availNow.slice(),
+    depleted: d.depleted.slice(),
+    polityEra: d.polityEra.slice(),
+    worldEra: d.worldEra,
+    invented: d.invented.slice(),
+    military: (d.pm.military ?? []).slice(),
+  };
+  return { resources: d.resources.slice(), found: d.found.slice(), avail, snaps, snapYears, events, state };
 }
 
 /**

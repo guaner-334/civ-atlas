@@ -222,6 +222,10 @@
  *  16:跨海只走航线:州之间的航线只连各州的出海口(和地图上画的航线同一套连法,civ/regions.ts 的 seaLanes),
  *      推演里走过的海峡、航线都画出来(civ/routes.ts 的 usedLanes);到航海时代(默认第 1800.5 年,civ/polities.ts 的 sailsOcean)
  *      有港口的普通国家也沿航线往海外扩张、隔海打仗。地形不变,历史重新推演。
+ *  17:发展度挪进推演里,每 20 年算一步并反过来影响历史(civ/development.ts):城和乡村的人口上限随所在州的生产能力变
+ *      (Settlement.devCap),打仗的国力乘上按动员能力定的军力系数,普通国家各在自己国都的运输能力够了那年起才能远洋
+ *      (Polity.sail;不再有全世界统一的航海时代);跨时代要几个条件同时满足(国家、行政、太平、地理),编年史记下世上第一次的发明。
+ *      地形不变,历史重新推演。
  */
 import type { Civ, Culture, Faith, Place, Polity, Regions, Settlement } from './civ/types';
 import type { AuthorCharacter } from './characters';
@@ -233,7 +237,7 @@ import type { Era } from './era';
 import type { Frontier, Origins } from './civ/frontier';
 
 /** 生成器版本:生成算法有改动、同种子会得到不同世界时加一(存档读档时核对);加一时在 GENERATOR_CHANGES 里补一条 */
-export const GENERATOR_VERSION = 16;
+export const GENERATOR_VERSION = 17;
 
 /**
  * 一版生成器的改动有多大(从小到大):打开旧存档、旧链接时,按跨过的几版里最大的那一种说清变了什么(savefile.ts 的 versionNote)
@@ -263,6 +267,7 @@ export const GENERATOR_CHANGES: Readonly<Record<number, { change: GeneratorChang
   14: { change: 'terrain' },
   15: { change: 'history' },
   16: { change: 'history' },
+  17: { change: 'history' },
 };
 
 /** 干预的种类(见文件头的表) */

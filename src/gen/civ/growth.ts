@@ -7,6 +7,7 @@
  * **城市怎么长**:S 形曲线逐年逼近上限,任何年份都能现算,不用存每年的人口:
  *   人口(年) = 上限 ÷ (1 + GROWTH_A × e^(−速度 × (年 − 建城年)))
  *   建城那年人口约是上限的 1/41(几百到几千人的村子);国都的上限再高 CAPITAL_BOOST,在 CAPITAL_RAMP 年里渐渐加上去。
+ *   上限还随所在州的生产能力变(Settlement.devCap,发展度推演里每 20 年看一次):石器时代的城小,铁器、中古以后大(devFactorAt)。
  *
  * **州的人口**(regionPopulationAt)= 治所的城 + 乡村。乡村不另存,按州现算(ruralPopulationAt):上限 = 面积 × 每平方公里能养活的人数
  * (按州的平均宜居分,RURAL_*),和州里第一座城一起按同样的 S 形曲线长,城被洗劫 / 被毁时跟着折损一部分。国家的人口 = 境内各州相加。
@@ -116,14 +117,39 @@ export function capitalLevel(s: Settlement, year: Year): number {
   return off === off ? Math.max(0, lvl - (year - off) / CAPITAL_DECLINE) : lvl;
 }
 
+/** 人口上限随生产能力变的倍数,每一对从记下那一刻起这么多年里从上一个倍数线性变过去(= 发展度推演的步长) */
+export const DEV_RAMP = 20;
+
+/**
+ * 某年人口上限随生产能力变的倍数(Settlement.devCap:[年份, 倍数, …]):第一对以前、第一对那一刻 = 第一个倍数;
+ * 之后每一对从它的年份起 DEV_RAMP 年里从上一个倍数线性变到它的倍数(各对至少隔 DEV_RAMP 年,上一段一定变完了)
+ */
+export function devFactorAt(dc: readonly number[], year: Year): number {
+  const n = dc.length >> 1;
+  if (!n) return 1;
+  if (!(year > dc[0])) return dc[1];
+  let lo = 0;
+  let hi = n - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (dc[mid * 2] <= year) lo = mid;
+    else hi = mid - 1;
+  }
+  const f = dc[lo * 2 + 1];
+  if (lo === 0) return f;
+  const prev = dc[lo * 2 - 1];
+  return prev + (f - prev) * Math.min(1, (year - dc[lo * 2]) / DEV_RAMP);
+}
+
 /**
  * 某年的人口(千人);还没建城 / 已经被毁 = 0。
- * = S 形曲线 × 国都加成(capitalLevel)× 各次洗劫后还没恢复的那部分(1 − 折损 × e^(−年数 ÷ SACK_RECOVER))。
+ * = S 形曲线 × 随生产能力变的倍数(devFactorAt)× 国都加成(capitalLevel)× 各次洗劫后还没恢复的那部分(1 − 折损 × e^(−年数 ÷ SACK_RECOVER))。
  * 全是现算,任何年份都能直接算,不存每年的人口
  */
 export const populationAt: PopulationAt = (s: Settlement, year: Year): number => {
   if (!(year >= s.founded) || (s.ended !== undefined && year >= s.ended)) return 0;
   let cap = capacityAt(s, year);
+  if (s.devCap) cap *= devFactorAt(s.devCap, year);
   if (s.capitalFrom !== undefined && year > s.capitalFrom) cap *= 1 + CAPITAL_BOOST * capitalLevel(s, year);
   const sacks = s.sacks;
   if (sacks) {
@@ -136,7 +162,34 @@ export const populationAt: PopulationAt = (s: Settlement, year: Year): number =>
 };
 
 /**
+ * 不算国都加成、洗劫,但算上随生产能力变的倍数(Settlement.devCap)时,人口越过 level(千人)的年份;上限不够 = Infinity。
+ * 没有 devCap 的同 yearReaching;有的每 DEV_RAMP 年看一次,越过的那一段里二分(倍数变低时人口可能又跌回去,取第一次越过的)。
+ * until:最多看到哪一年(含)
+ */
+export function yearReachingDev(s: Settlement, level: number, until: Year): Year {
+  const dc = s.devCap;
+  if (!dc) return yearReaching(s, level);
+  const pop = (y: number) => (capacityAt(s, y) * devFactorAt(dc, y)) / (1 + GROWTH_A * fexp(-s.growth * (y - s.founded)));
+  let a = s.founded;
+  if (pop(a) >= level) return a;
+  for (let b = a + DEV_RAMP; a < until; a = b, b += DEV_RAMP) {
+    const e = Math.min(b, until);
+    if (pop(e) < level) continue;
+    let lo = a;
+    let hi = e;
+    for (let k = 0; k < 32; k++) {
+      const m = (lo + hi) / 2;
+      if (pop(m) >= level) hi = m;
+      else lo = m;
+    }
+    return hi;
+  }
+  return Infinity;
+}
+
+/**
  * 不算国都加成、洗劫时,人口越过 level(千人)的年份;上限不够 = Infinity。
+ * 也不算随生产能力变的倍数(推演里定立国的年份用它,立国的节奏不随能力变;要算上它见 yearReachingDev)。
  * since:只看这一年起(含)人口够不够 —— 地形大事把上限降下来以后人口会跌回 level 以下,早先越过的不算数
  */
 export function yearReaching(s: Settlement, level: number, since = -Infinity): Year {
@@ -231,7 +284,7 @@ function regionsAt(civ: Pick<Civ, 'regions' | 'eras'>, year: Year): Regions {
 
 /**
  * 州 r 在第 year 年的乡村人口(千人);这州还没建过城 = 0。
- * 从这州第一次建城那年起,和那座城一样按 S 形曲线长到乡村人口上限(ruralCapacity,按那一段地形里的州算);
+ * 从这州第一次建城那年起,和那座城一样按 S 形曲线长到乡村人口上限(ruralCapacity,按那一段地形里的州算;和城一样乘上随生产能力变的倍数);
  * 州里的城每被洗劫一次、被毁一次,乡村折损城里那一成的 RURAL_WAR,之后按 SACK_RECOVER 慢慢恢复。城毁了乡下的人还在
  */
 export function ruralPopulationAt(civ: Pick<Civ, 'regions' | 'eras' | 'settlements'>, r: number, year: Year): number {
@@ -242,6 +295,10 @@ export function ruralPopulationAt(civ: Pick<Civ, 'regions' | 'eras' | 'settlemen
   if (!(r < regions.count)) return 0;
   let cap = ruralCapacity(regions, r);
   if (!(cap > 0)) return 0;
+  // 随生产能力变的倍数:按这一年(或这一年以前最后一座)城的(城毁了乡下照旧按毁时的)
+  let last: Settlement | undefined;
+  for (const s of chain) if (year >= s.founded) last = s;
+  if (last?.devCap) cap *= devFactorAt(last.devCap, last.ended !== undefined ? Math.min(year, last.ended) : year);
   for (const s of chain) {
     if (s.sacks) {
       for (const k of s.sacks) {

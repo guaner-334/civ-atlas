@@ -125,13 +125,13 @@ describe('世系图 · seed=7 的康那、苍翼', () => {
     expect(root).toMatchObject({ role: 'prince', name: '应顼' });
     expect(root.died!).toBeLessThan(cr[h].from);
     expect(princeRole(civ, root)).toBe('有狐宗室');
-    // 内里尼亚的克拉里亚王室:开国之君的父亲死在新朝之前,不写成上一朝(特罗纳)的宗室
-    const w = civ.polities.findIndex((p) => p.name === '内里尼亚');
+    // 漓的嘉朝:开国之君的父亲死在新朝之前,不写成上一朝(湘)的宗室
+    const w = civ.polities.findIndex((p) => p.name === '漓');
     const wr = dynastyRows(civ, w);
-    const k = wr.findIndex((r) => r.name === '克拉里亚');
+    const k = wr.findIndex((r) => r.name === '嘉');
     const wroot = layoutDynasty(civ, wr[k])[0].nodes[0].p;
     expect(wroot).toMatchObject({ role: 'prince' });
     expect(wroot.died!).toBeLessThan(wr[k].from);
-    expect(princeRole(civ, wroot)).not.toContain('特罗纳');
+    expect(princeRole(civ, wroot)).not.toContain('湘');
   });
 });

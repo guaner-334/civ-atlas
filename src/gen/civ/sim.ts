@@ -3,7 +3,7 @@
  *
  * - **事件堆**:按时间排序(复用 util.ts 的 MinHeap)。每个事件是 {时间, 类型, 对象 a, 对象 b, 版本号}。
  *   时间精度 1/256 年;"时间 + 同一刻里的次序"拼成一个整数当优先级,保证确定性:同一时刻最先处理地形大事,
- *   再处理航海时代、看王朝、新君即位、迁都后重看边地(按国家号,见 earlyOrder),再处理别的事件(按预约先后),最后处理民族、国家的到达
+ *   再处理航海时代、发展度、看王朝、新君即位、迁都后重看边地(按国家号,见 earlyOrder),再处理别的事件(按预约先后),最后处理民族、国家的到达
  *   (按"民族先、国家后,再按州号、民族 / 国家号"排,见 arrivalOrder)。头尾这两类和预约先后无关 —— 接着推时它们是
  *   按日志重新预约 / 重放的,预约先后和一口气推完时不一样,同一刻撞上了也要按同样的次序处理。
  * - **州的版本号**:州的归属(任何一层)一变就 +1。事件预约时记下州 a 的版本号,弹出时对不上就是过期了,
@@ -19,6 +19,7 @@
  *   分裂、合并、复国、主动迁都的冷却同样(见 politics.ts 的 resumePolitics);王朝更替也一样(dynasty.ts 的 resumeDynasty);
  *   同化与迁徙同样(见 assimilation.ts 的 resumeAssimilation);
  *   城市兴衰(毁城后的重建、旧都衰落)也一样(cities.ts 的 resumeCities)。
+ *   发展度是例外:各州能力的全精度状态存在 Civ.development.state 里,接着推时从那里接上(development.ts 的 resumeDevelopment)。
  *   阶段 4 的干预不存进事件堆:fromCiv(world, civ, 干预列表)按列表补上还没到的干预(interventions.ts 的 resumeInterventions)。
  *
  * 纯计算,不碰 DOM。
@@ -34,6 +35,7 @@ import { resumeDynasty } from './dynasty';
 import { resumeAssimilation } from './assimilation';
 import { resumeCities } from './cities';
 import { resumeDiplomacy } from './diplomacy';
+import { resumeDevelopment } from './development';
 import { resumeInterventions, scheduleInterventions } from './interventions';
 import type { Intervention } from '../edits';
 
@@ -161,6 +163,11 @@ export const enum Ev {
   DivergeCheck = 45,
   /** 分化(assimilation.ts):不单独预约,是分出去的州改换成新民族时变化日志记的原因 */
   Diverge = 46,
+  /**
+   * 发展度(development.ts;编号 50):每 20 年一刻,算各州的五种能力、时代、物产,再让它们影响推演
+   * (城的人口上限、打仗的军力、普通国家能不能远洋)。同一刻里排在地形大事、航海时代后面,别的事件前面(见 earlyOrder)
+   */
+  DevTick = 50,
 }
 
 export interface EventInfo {
@@ -203,6 +210,7 @@ export const EVENT_INFO: EventInfo[] = [
   { id: Ev.DiplomacyCheck, name: '看邦交', watch: false },
   { id: Ev.DivergeCheck, name: '看分化', watch: false },
   { id: Ev.Diverge, name: '分化', watch: false },
+  { id: Ev.DevTick, name: '发展度', watch: false },
 ];
 
 /** 检查点间隔(年) */
@@ -235,6 +243,7 @@ function arrivalOrder(kind: number, a: number, b: number): number {
  * 排在同一刻最前面的事件的次序(0 起,< EARLY_SPAN):
  * - 地形大事 = 0:同一刻的别的事都按大事以后的地形和归属算(一次推演里只有一件,见 index.ts)
  * - 航海时代 = 1:同一刻的别的事都按"已经能走航线"算(polities.ts 的 sailsOcean)
+ * - 发展度 = 2:只读这一刻以前的事;它改的人口上限、军力、远洋,同一刻的别的事都按改过的算(接着推时按 Civ 里存的状态接上)
  * - 看王朝、新君即位、迁都后重看边地:按国家号,同一国依次是看王朝、即位、重看。
  *   看王朝在前:同一刻改朝换代了,旧朝原定这一刻即位的那位就不即位了(在位表重排,Ev.Reign 对不上就丢掉);
  *   即位、重看只从现有国土往外预约扩张、不改归属,排在别的事件前面 —— 接着推时 resumePolities 也是在同一刻的日志
@@ -245,9 +254,10 @@ const EARLY_KINDS: Partial<Record<number, number>> = { [Ev.DynastyCheck]: 0, [Ev
 function earlyOrder(kind: number, b: number): number {
   if (kind === Ev.Upheaval) return 0;
   if (kind === Ev.AgeOfSail) return 1;
+  if (kind === Ev.DevTick) return 2;
   const i = EARLY_KINDS[kind];
-  if (i === undefined || !(b >= 0 && b < (EARLY_SPAN - 2) / 3 - 1)) return -1;
-  return 2 + b * 3 + i;
+  if (i === undefined || !(b >= 0 && b < (EARLY_SPAN - 3) / 3 - 1)) return -1;
+  return 3 + b * 3 + i;
 }
 
 /** 把时间取整到引擎的精度(1/256 年)。引擎里所有事件时间、日志年份都是这样的值 */
@@ -409,6 +419,7 @@ export class CivSim {
       resumeAssimilation(sim, world, civ);
       resumeCities(sim, world, civ);
       resumeDiplomacy(sim, world, civ);
+      resumeDevelopment(sim, world, civ);
       if (iv) resumeInterventions(sim, iv);
     }
     return sim;
@@ -448,6 +459,16 @@ export class CivSim {
     const early = earlyOrder(kind, b);
     const order = arrivalOrder(kind, a, b);
     this.heap.push(id, tick * TICK_SPAN + (early >= 0 ? early : order >= 0 ? SEQ_SPAN + order : EARLY_SPAN + this.seq++));
+  }
+
+  /** 已经记了几条史事 */
+  get annalCount(): number {
+    return this.annals.length;
+  }
+
+  /** 第 i 条史事(只读) */
+  annal(i: number): Readonly<Annal> {
+    return this.annals[i];
   }
 
   /** 待处理的事件数(含已过期、还没弹出的) */
