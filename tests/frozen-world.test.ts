@@ -12,7 +12,7 @@ import { DEFAULT_PARAMS } from '../src/gen/world';
 import { EMPTY_EDITS, GENERATOR_VERSION, type Intervention, type Upheaval, type WorldEdits } from '../src/gen/edits';
 import { makeSave, type SaveFile } from '../src/gen/savefile';
 import { SNAPSHOT_FORMAT, makePart, recipeKey, recipeOfSave, type Snapshot } from '../src/gen/snapshot';
-import { _setResultBackend, frozenResult, memoryResults, toldFrozen } from '../src/ui/resultStore';
+import { _setResultBackend, copyResults, frozenResult, memoryResults, toldFrozen } from '../src/ui/resultStore';
 
 class FakeStorage {
   map = new Map<string, string>();
@@ -116,6 +116,16 @@ describe('照原样打开旧世界:找原件', () => {
     expect(await frozenResult(id, save)).toBe('broken');
     // 现在这一版建的:照常生成
     expect(await frozenResult(id, { ...save, generator: GENERATOR_VERSION })).toBeNull();
+  });
+
+  it('刚复制的世界马上打开:原件复制完再找', async () => {
+    const id = oldWorld();
+    const save = saveStore.loadWorld(id)!.save;
+    const s = await snapshotOf(save);
+    await putSnapshot(id, s);
+    const nid = saveStore.duplicateWorld(id)!;
+    void copyResults(id, nid);
+    expect(await frozenResult(nid, saveStore.loadWorld(nid)!.save)).toEqual(s);
   });
 
   it('打开时的提示:同一个世界在这一版里只说一次', () => {

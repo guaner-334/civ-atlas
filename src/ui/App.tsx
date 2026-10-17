@@ -433,6 +433,17 @@ function storedTarget(w: StoredWorld, from: 'stored' | 'restore'): Target {
   };
 }
 
+/**
+ * 存在"我的世界"里、旧版本建的世界(打开时先找它那一版的原件,照原样打开):存着的那份存档;别的 = null。
+ * 从文件打开、和存着的一模一样的(读档时认成了同一个)也算
+ */
+function oldStored(t: Target): SaveFile | null {
+  if (t.kind !== 'created') return null;
+  const w = loadWorld(t.id);
+  if (!w || w.draft || !(w.save.generator < GENERATOR_VERSION)) return null;
+  return worldKey(w.save.params) === worldKey(t.params) && JSON.stringify(w.save.edits) === JSON.stringify(t.edits) ? w.save : null;
+}
+
 /** 网址里带种子的(别人发的网址、截图脚本):直接看这个世界,先不存,改了才存 */
 function visitTarget(params: WorldParams, gen: number | null = null): Target {
   const t: Target = { id: newWorldId(), kind: 'visit', params, edits: EMPTY_EDITS };
@@ -811,6 +822,8 @@ export function App() {
    */
   const frozenLoad = useRef<{ id: string; gen: number } | null>(null);
   const frozenBroken = useRef<string | null>(null);
+  /** 线程里现在这个世界是读原件来的(同样的参数也不能拿来当新版的世界用,反过来也一样) */
+  const loadedFrozen = useRef(false);
   /** 等原件的这一会儿要发的生成请求(读不出来就照它生成) */
   const genReq = useRef<WorkerRequest | null>(null);
   /** 刚另存的新版:打开它以后提示"已另存为…"(from = 原来那一份的名字) */
@@ -976,6 +989,7 @@ export function App() {
           const req = genReq.current;
           frozenBroken.current = frozenLoad.current?.id ?? null;
           frozenLoad.current = genReq.current = null;
+          loadedFrozen.current = false;
           civEdits.current = EMPTY_EDITS.interventions;
           civUps.current = genUps.current = undefined;
           if (req) sendRef.current(req);
@@ -1282,9 +1296,9 @@ export function App() {
       const req: WorkerRequest = { type: 'generate', id, params: p, scale: 1, terrain: [...terrain], sketch: t.edits.sketch, ...namesOpt(t.edits.nameMix), ...yearsOpt(civYears.current), ...setupOpt(civSetup.current) };
       frozenLoad.current = null;
       genReq.current = null;
-      const save = t.save;
+      const save = oldStored(t);
       // 存着的、旧版本建的世界:浏览器里有它那一版的原件就照原样打开(读原件,不重新生成);没有才按现在的规则生成
-      if (t.kind === 'created' && save && (t.from === 'stored' || t.from === 'restore') && save.generator < GENERATOR_VERSION) {
+      if (save) {
         genReq.current = req;
         void frozenResult(t.id, save).then((r) => {
           if (id !== reqId.current) return;
@@ -1295,11 +1309,13 @@ export function App() {
           }
           // 原件里的历史就是带着存档里的干预、地形大事推出来的:套上以后不用重推
           frozenLoad.current = { id: t.id, gen: save.generator };
+          loadedFrozen.current = true;
           civEdits.current = t.edits.interventions;
           civUps.current = genUps.current = t.edits.upheavals;
           send({ type: 'load', id, params: p, scale: 1, parts: r.parts, terrain: [...terrain], sketch: t.edits.sketch, ...upsOpt(t.edits.upheavals), interventions: [...t.edits.interventions], ...namesOpt(t.edits.nameMix), ...yearsOpt(civYears.current), ...setupOpt(civSetup.current) });
         });
       } else send(req);
+      loadedFrozen.current = false;
       // 换世界:改名、干预、选中都属于旧世界,一起作废(先停掉旧世界的自动存,清空不算"改回默认";新世界先按"没有干预、没有地形大事"生成)
       detachWorld();
       civEdits.current = EMPTY_EDITS.interventions;
@@ -1653,7 +1669,8 @@ export function App() {
       return;
     }
     if (!save || !t.from) return;
-    const more: string[] = [...(t.warnings ?? [])];
+    // 照原样打开的:读档时"来自旧版本…"那句不对了(看到的就是原样)
+    const more: string[] = (t.warnings ?? []).filter((w) => frozen === undefined || !w.startsWith('来自旧版本'));
     // 照原样打开的:看到的就是原来的样子,不说"变了什么"、不放「看原样」;同一个世界在这一版网站里只说一次(自动恢复的也说"已打开")
     const told = frozen !== undefined && !toldFrozen(t.id);
     if (told) {
@@ -1771,7 +1788,8 @@ export function App() {
     enterStage(t.kind === 'draft' ? 'draft' : 'world', t.kind === 'draft' ? (t.base ?? null) : null);
     if (t.kind === 'draft') setDraftTitle(t.title ?? '');
     setParams(t.params);
-    if (sameGen(t.params, t.edits.terrain, t.edits.sketch)) {
+    // 照原样打开的旧世界和按新版生成的世界参数一样也不是同一个:都重新打开(旧的读原件;正在找原件、读原件的也不接着用)
+    if (sameGen(t.params, t.edits.terrain, t.edits.sketch) && !loadedFrozen.current && !genReq.current && !oldStored(t)) {
       if (fresh.current) {
         targetRef.current = t;
         writeWorldUrl(t);

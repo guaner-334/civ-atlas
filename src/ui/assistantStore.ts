@@ -636,6 +636,8 @@ export function undoProposal(id: number) {
   if (!x || !a || a.undone || x.lock !== state.lock) return;
   const now = getEdits();
   const next = unmergeRewrite(now, a.before, a.after);
+  // 照原样保存的旧世界:改历史先问要不要另存一份(App 问),这一轮照旧算执行着
+  if (historyDiffers(now, next) && askHistory(next)) return;
   x.set({ ...a, undone: true });
   if (next === now) return;
   if (next.interventions === now.interventions && next.terrain === now.terrain) {
@@ -654,6 +656,7 @@ export function redoProposal(id: number) {
   if (!x || !a || !a.undone || x.lock !== state.lock) return;
   const now = getEdits();
   const next = revertEdits(now, a.before, a.after);
+  if (historyDiffers(now, next) && askHistory(next)) return;
   x.set({ ...a, undone: false });
   if (next === now) return;
   const undo = () => undoProposal(id);
