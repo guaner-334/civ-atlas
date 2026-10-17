@@ -2,7 +2,7 @@
  * 人物卡片(和国家卡片同一套样子,零件见 panelParts.tsx):点编年史、卡片、人物页、搜索里的人名打开。
  * 地图上亮出他的国家(civView.ts 的 MapSelection、flyTo.ts 的 mapTarget);点人名不挪时间轴,按"即位那年 / 出征那年"才跳。
  *
- *   顶部  国家颜色块、称呼("圣宗柳玄""阿尔德里克三世""楚尧")、"大景皇帝，2485–2519 年在位" / "大景将领，2478–2509 年领兵"
+ *   顶部  头像(Portrait.tsx:眨眼、呼吸,按那一年的事换表情;去世以后成了画像)、称呼("圣宗柳玄""阿尔德里克三世""楚尧")、"大景皇帝，2485–2519 年在位" / "大景将领，2478–2509 年领兵"
  *         / "大景丞相，2501–2537 年在朝" / "大景宗室，2428–2467"(没即位的宗室:世系图里补上的父辈)
  *   按钮  即位那年 / 出征那年 / 入仕那年(主操作:时间轴跳过去;宗室换成「世系图」)、编年史(这国的编年史,滚到他在台上那段)、
  *         复制生平(纯文字,写设定用;带上「生平」那一段)、更多(加一个和他有关的作者人物:亲友里先填上他)
@@ -27,6 +27,8 @@ import { LEANING_KEYS, LEANING_TEXT, ageAt, generalRole, isConsul, kinOf, leanin
 import { deedsShort, ministerFate, personArt, personBio } from '../gen/civ/officialText';
 import { fatherOf, hasLineage, kidsOf } from '../gen/civ/lineageInfo';
 import { personKey } from '../gen/characters';
+import { personPortrait, portraitMood } from '../gen/portrait';
+import { PortraitView } from './Portrait';
 import { openLineage, openOverview } from './overviewStore';
 import { useEdits } from './editsStore';
 import { eraText, spaced, yearAt, yearShort, yearSpan, yearSpanAt, type Era } from '../gen/era';
@@ -130,6 +132,10 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
   const events = useMemo(() => (x && p ? personEvents(civ, x) : []), [civ, x, p]);
   const bio = useMemo(() => (x && p ? personBio(civ, x, era) : ''), [civ, x, p, era]);
   const refs = useMemo(() => charactersOfPerson(civ, chars, id, era), [civ, chars, id, era]);
+  // 头像按岁数变(年份取整),去世以后定在去世那年
+  const age = x ? Math.floor((x.died !== undefined ? Math.min(year, x.died) : year) - x.born) : 0;
+  const portrait = useMemo(() => (x ? personPortrait(civ, x.id, x.born + age) : null), [civ, x, age]);
+  const mood = useMemo(() => (x ? portraitMood(civ, x, year) : undefined), [civ, x, year]);
   if (!x || !p) return null;
   const ruler = x.role === 'ruler';
   const prince = x.role === 'prince';
@@ -166,7 +172,21 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
 
   return (
     <div className="cp pp" data-person={id}>
-      <PanelHead color={rgb(p.color)}>
+      <PanelHead
+        color={rgb(p.color)}
+        icon={
+          portrait && (
+            <PortraitView
+              p={portrait}
+              size="card"
+              color={rgb(p.color)}
+              dead={x.died !== undefined && year > x.died}
+              dark={x.fate === 'murdered' || x.fate === 'fell' || x.fate === 'battle'}
+              mood={mood}
+            />
+          )
+        }
+      >
         <div className="ins-name-row big">
           <span className="ins-name pp-title">{name}</span>
         </div>
