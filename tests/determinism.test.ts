@@ -58,7 +58,7 @@ function fingerprint(seed: number): Record<string, string> {
 }
 
 /**
- * 期望值是 GENERATOR_VERSION 15 算的(civ.religion 是后加的字段,加它时别的字段一个没变;10 加了邦交、11 加了君主性格和扩张算账,历史都重排;12 只改了 civ.people:多了名臣,将领有了字号、籍贯、官职,撞名的将领换了名字;13 改了宜居度和城的人口上限,地形一个字段没变,历史重排;多了 civ.capNorm;14 处理了封闭内海、贴着海的湖、湖心小块地,地形局部变了、历史重排;15 立国更早、多了边缘立国和民族分化,历史重排)。经纬度换算、沿大圆走、球面三角形面积这些三角函数都舍入到 24 位,
+ * 期望值是 GENERATOR_VERSION 16 算的(civ.religion 是后加的字段,加它时别的字段一个没变;10 加了邦交、11 加了君主性格和扩张算账,历史都重排;12 只改了 civ.people:多了名臣,将领有了字号、籍贯、官职,撞名的将领换了名字;13 改了宜居度和城的人口上限,地形一个字段没变,历史重排;多了 civ.capNorm;14 处理了封闭内海、贴着海的湖、湖心小块地,地形局部变了、历史重排;15 立国更早、多了边缘立国和民族分化,历史重排;civ.development 是后加的字段,加它时别的字段一个没变;16 有了航海时代,历史重排)。经纬度换算、沿大圆走、球面三角形面积这些三角函数都舍入到 24 位,
  * 推演里的超越函数也一样,所以各 CPU、各浏览器逐位一致
  */
 const EXPECTED: Record<number, Record<string, string>> = {
@@ -88,6 +88,7 @@ const EXPECTED: Record<number, Record<string, string>> = {
     'civ.checkpoints': '2d1f19851aff',
     'civ.culture': '6151fbd1221f',
     'civ.cultures': '202b2b643d6c',
+    'civ.development': 'dc4d62d2a0a5',
     'civ.endYear': 'c1d83dcab0a1',
     'civ.habitat': '5eacb285c75d',
     'civ.log': 'e974799fa7f0',
@@ -131,6 +132,7 @@ const EXPECTED: Record<number, Record<string, string>> = {
     'civ.checkpoints': '30cc51b89dd1',
     'civ.culture': '35d16fc3c0bd',
     'civ.cultures': '19758472ff84',
+    'civ.development': '7186179545be',
     'civ.endYear': 'c1d83dcab0a1',
     'civ.habitat': '3394ac78e6ec',
     'civ.log': 'db4d18afa482',

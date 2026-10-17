@@ -9,6 +9,7 @@
  *   ⑤ 地理名称             places.ts              → places
  *   ⑥ 人物                 people.ts              → people(历代君主、战争里的统帅;按推出来的历史排,不改历史)
  *   ⑦ 信仰                 religion.ts            → religion(民间信仰、大教、国教、教派;照推出来的历史贴上去,不改历史)
+ *   ⑧ 发展度               development.ts         → development(物产、五种能力、时代;照推出来的历史算,不改历史)
  *
  * 阶段 4 干预(params.interventions,interventions.ts):带着干预从第 0 年整段重推;干预年份之前和不干预时逐字节一致。
  * 阶段 4 改地形(world.terrain):扩张节拍、城的人口折算按没改地形时的同一颗星球定(planetTempo),只有改动附近的历史跟着地形变。
@@ -41,6 +42,7 @@ import type { InterventionModel } from './interventions';
 import type { CivEra, NamePins, Regions, UpheavalFact } from './types';
 import type { TerrainOp } from '../edits';
 import { buildReligion } from './religion';
+import { buildDevelopment } from './development';
 import { cleanMix, type NameMix } from '../names';
 import { cleanFrontier, cleanOrigins, type Frontier } from './frontier';
 
@@ -247,6 +249,8 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
   };
   // ⑦ religion.ts:要整份 civ(按年份查归属、国都、君主;地形大事以前按那时的州)
   if (viable && cultures.length) civ.religion = buildReligion(fin.world, civ);
+  // ⑧ development.ts:同样按整份历史算
+  if (viable && cultures.length) civ.development = buildDevelopment(fin.world, civ);
   return civ;
 }
 

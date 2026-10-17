@@ -28,12 +28,31 @@ import { assimStats } from '../src/gen/civ/assimilation';
 import { cityStats } from '../src/gen/civ/cities';
 import { Layer } from '../src/gen/civ/types';
 import { faithAt, faithFromScratch } from '../src/gen/civ/religion';
+import { BAD_LEVEL, CAP_COUNT, ERAS, RESOURCE_COUNT } from '../src/gen/civ/development';
 import { civLabelItems, civMapLayer, labelViewExtras } from '../src/render/civ/labels';
 import { placeMap } from '../src/render/labels/draw';
 import { END_YEAR_MAX, type TerrainOp, type Upheaval } from '../src/gen/edits';
 import { upheavalSteps } from '../src/gen/civ/upheaval';
 import { buildChronicle } from '../src/gen/civ/chronicle';
 import { sketchGrid, type SketchEdit, type SketchKind } from '../src/gen/sketch';
+
+/** 发展度:有文明就有;快照的年份递增、最后一份是结束那年,没有算坏的能力;物产 0–3 档;大事的年份有序、时代和国家编号在范围内 */
+function devBad(civ: ReturnType<typeof generateCiv>): number {
+  const dev = civ.development;
+  if (!dev) return civ.viable && civ.cultures.length ? 1 : 0;
+  let cn = 0;
+  const R = civ.regions.count;
+  if (dev.resources.length !== R * RESOURCE_COUNT || dev.resources.some((v) => v > 3)) cn++;
+  if (!dev.snaps.length || dev.snaps.length !== dev.snapYears.length || dev.snapYears[dev.snapYears.length - 1] !== civ.endYear) cn++;
+  dev.snapYears.forEach((y, i) => {
+    if (!Number.isFinite(y) || (i && !(y > dev.snapYears[i - 1]))) cn++;
+  });
+  for (const s of dev.snaps) if (s.length !== R * CAP_COUNT || s.includes(BAD_LEVEL)) cn++;
+  dev.events.forEach((e, i) => {
+    if (!Number.isFinite(e.year) || (i && e.year < dev.events[i - 1].year) || !(e.era >= 1 && e.era < ERAS.length) || e.polity >= civ.polities.length || !(e.region >= 0 && e.region < R)) cn++;
+  });
+  return cn;
+}
 
 /** 极端的地形修改:大杂烩(最大最强的火山、横贯全图的山脉、角上 / 海里的湖、画笔)、整片沉成海、整片抬成陆地 */
 const rows = (kind: 'sink' | 'raise'): TerrainOp[] => [0, 200, 400, 600, 800, 1000].map((y) => ({ kind, pts: [0, y, 1024, y + 30, 2048, y], r: 160, s: 2 }));
@@ -274,6 +293,7 @@ for (const c of cases) {
       const b = faithFromScratch(civ, civ.endYear * 0.55);
       for (let q = 0; q < R.count; q++) if (a[q] !== b[q]) cn++;
     }
+    cn += devBad(civ);
     // 国名、城名、城镇符号:国名的路径、字号不能有 NaN;排版 + 避让一帧的耗时(缩放 1 倍,Node 里,不含画)
     let labelMs = 0;
     for (const y of [civ.endYear * 0.6, civ.endYear]) {
@@ -380,6 +400,7 @@ for (const [name, list] of UPHEAVAL_CASES) {
       const b = faithFromScratch(civ, civ.endYear * 0.55);
       for (let q = 0; q < civ.regions.count; q++) if (a[q] !== b[q]) cn++;
     }
+    cn += devBad(civ);
     const ch = buildChronicle(civ).filter((e) => e.kind === 'upheaval');
     if (civ.viable && civ.cultures.length && ch.length !== (civ.upheavals?.length ?? 0)) cn++;
     for (const e of ch) if (!e.text) cn++;
@@ -421,6 +442,7 @@ for (const [seed, ups] of [
     const b = faithFromScratch(civ, civ.endYear * 0.55);
     for (let q = 0; q < civ.regions.count; q++) if (a[q] !== b[q]) cn++;
   }
+  cn += devBad(civ);
   const ch = buildChronicle(civ);
   for (const e of ch) if (!e.text || /undefined|NaN/.test(e.text)) cn++;
   if (civ.endYear !== END_YEAR_MAX) cn++;
