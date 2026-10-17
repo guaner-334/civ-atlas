@@ -233,6 +233,10 @@
  *      (Settlement.devCap),打仗的国力乘上按动员能力定的军力系数,普通国家各在自己国都的运输能力够了那年起才能远洋
  *      (Polity.sail;不再有全世界统一的航海时代);跨时代要几个条件同时满足(国家、行政、太平、地理),编年史记下世上第一次的发明。
  *      地形不变,历史重新推演。
+ *  18:降水分夏半年、冬半年两次算再平均(gen/climate.ts 的 SEASON_WIND):夏天信风伸到 35° 上下,把水汽从大陆东岸送进去(季风),
+ *      东岸不再是一直通到海边的沙漠;副热带看空气从哪种洋流上吹来,暖流那边(大陆东岸)湿、寒流那边(大陆西岸)更干;
+ *      温带雨林要年降水 2300 毫米以上(原来 1700,迎风坡上到处是);冰盖上不再流河;成河门槛从 14 降到 10,河段多了约一半。
+ *      陆地、山、湖不变,气候、群落、河流变了,历史重新推演。
  */
 import type { Civ, Culture, Faith, Place, Polity, Regions, Settlement } from './civ/types';
 import type { AuthorCharacter } from './characters';
@@ -244,7 +248,7 @@ import type { Era } from './era';
 import type { Frontier, Origins } from './civ/frontier';
 
 /** 生成器版本:生成算法有改动、同种子会得到不同世界时加一(存档读档时核对);加一时在 GENERATOR_CHANGES 里补一条 */
-export const GENERATOR_VERSION = 17;
+export const GENERATOR_VERSION = 18;
 
 /**
  * 一版生成器的改动有多大(从小到大):打开旧存档、旧链接时,按跨过的几版里最大的那一种说清变了什么(savefile.ts 的 versionNote)
@@ -275,6 +279,7 @@ export const GENERATOR_CHANGES: Readonly<Record<number, { change: GeneratorChang
   15: { change: 'history' },
   16: { change: 'history' },
   17: { change: 'history' },
+  18: { change: 'climate' },
 };
 
 /** 干预的种类(见文件头的表) */

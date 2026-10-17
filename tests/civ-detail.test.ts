@@ -133,8 +133,8 @@ describe('细节层的色块', () => {
   });
 
   it('放大 8 倍:色块的边就是界线 —— 线两侧各 0.15 个世界单位(1 个多屏幕像素)就是两边的颜色', () => {
-    // 第 2000 年国家多、国与国接壤的界线多
-    const p = { ...polityParams('fantasy'), year: 2000 };
+    // 第 2200 年国家多、国与国接壤的界线多
+    const p = { ...polityParams('fantasy'), year: 2200 };
     const { w, r } = setup();
     const fl = washFields(p, 1)!;
     const lines = fl.lines.filter((l) => l.left >= 0 && l.right >= 0 && l.pts.length >= 24);
