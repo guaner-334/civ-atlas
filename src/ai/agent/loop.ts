@@ -11,6 +11,7 @@
  *   就补一句话再问一轮,这一轮可以只给几样工具。同一种补话一次对话最多补一次(不同的毛病各补各的);剩下的轮数不够做完再说完就不补
  * - 停下(signal)= 抛 AiError('aborted');已经做完的步骤在 onEvent 里已经报过了
  */
+import { recordDiag } from '../../diag/log';
 import { aiChat } from '../client';
 import { AiError, type AiMessage, type AiTool, type AiUsage } from '../types';
 
@@ -210,10 +211,13 @@ export async function runAgent(req: AgentRequest): Promise<AgentOutcome> {
       emit({ type: 'step', step: { ...step } });
       const t0 = now();
       let result: string;
+      let why: 'no-tool' | 'bad-args' | 'failed' | undefined;
       if (!tool) {
+        why = 'no-tool';
         step.state = 'error';
         result = `没有叫 ${c.name} 的工具,能用的有:${defs.map((d) => d.name).join('、')}`;
       } else if (!args) {
+        why = 'bad-args';
         step.state = 'error';
         result = '参数不是一个合法的 JSON 对象,请改好再调';
       } else {
@@ -227,12 +231,15 @@ export async function runAgent(req: AgentRequest): Promise<AgentOutcome> {
           step.state = 'ok';
         } catch (e) {
           if (req.signal?.aborted || (e instanceof AiError && e.code === 'aborted')) throw aborted();
+          why = 'failed';
           step.state = 'error';
           result = `出错了:${e instanceof Error ? e.message : String(e)}`;
         }
       }
       step.result = clipResult(result);
       step.ms = Math.round(now() - t0);
+      // 问题记录:只记工具名(没有这个工具时名字是模型随便写的,不记)、成没成功、耗时,不记参数和结果
+      recordDiag({ kind: 'tool', tool: tool ? c.name : '?', ok: step.state === 'ok', ...(why ? { why } : {}), ms: step.ms });
       emit({ type: 'step-done', step: { ...step } });
       msgs.push({ role: 'tool', toolCallId: c.id, content: step.result });
     }

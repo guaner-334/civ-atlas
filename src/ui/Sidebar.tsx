@@ -41,6 +41,7 @@ import { VersionMenuFoot } from './BetaNews';
 import { useCoarse } from './device';
 import { keyLabel } from './shortcuts';
 import { openShortcuts } from './ShortcutsDialog';
+import { openDiag } from './DiagDialog';
 import { EntryText, jumpTo, rgb } from './panelParts';
 import { collapseSide, expandSide, useSide } from './sideStore';
 import { PolityFlag } from './Flag';
@@ -231,7 +232,7 @@ export function useWorldInfo(civ: Civ | null, data: SidebarProps['data']): { tit
   return { title: currentWorld()?.title || '未命名世界', sub };
 }
 
-/** "更多"菜单:写成史书(「使用 AI 功能」关着时没有)、AI 设置、键盘快捷键(有鼠标时)、源代码和两份协议;最底下一行版本号 */
+/** "更多"菜单:写成史书(「使用 AI 功能」关着时没有)、AI 设置、键盘快捷键(有鼠标时)、问题记录、源代码和两份协议;最底下一行版本号 */
 export function WorldMoreMenu({
   civ,
   onBook,
@@ -268,6 +269,9 @@ export function WorldMoreMenu({
           键盘快捷键
         </MenuItem>
       )}
+      <MenuItem icon={<Icon name="log" size={16} />} act="diag" onClick={openDiag}>
+        问题记录
+      </MenuItem>
       <MenuItem icon={<Icon name="info" size={16} />} href={SOURCE_URL} act="source">
         源代码
       </MenuItem>
