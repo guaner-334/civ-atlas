@@ -1,0 +1,12 @@
+人物头像的部件图(本目录下的 .webp)
+====================================
+
+这些图由图像生成工具按本项目的要求生成，再经过裁切、去底、调色。
+以 CC0 1.0 通用(公有领域贡献)发布：在法律允许的范围内放弃一切著作权及相关权利，
+任何人可以为任何目的复制、修改、发布、使用，不需要署名，也不需要征得同意。
+全文:https://creativecommons.org/publicdomain/zero/1.0/legalcode.zh-hans
+
+本项目的代码另按 AGPL-3.0 发布(见仓库根目录的 LICENSE),两者互不影响。
+
+Portrait part images in this directory are released under CC0 1.0 Universal
+(https://creativecommons.org/publicdomain/zero/1.0/). The code of this project is AGPL-3.0.
