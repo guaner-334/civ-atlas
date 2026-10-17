@@ -88,7 +88,7 @@ const EXPECTED: Record<number, Record<string, string>> = {
     'civ.checkpoints': 'ca64e12a8202',
     'civ.culture': '090dc844531f',
     'civ.cultures': '069352802528',
-    'civ.development': '0b5d7d4f0a7f',
+    'civ.development': '37cbc9e9ee7f',
     'civ.endYear': 'c1d83dcab0a1',
     'civ.habitat': '5eacb285c75d',
     'civ.log': '6e9aea15c217',

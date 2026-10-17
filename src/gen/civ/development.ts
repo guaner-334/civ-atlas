@@ -494,17 +494,20 @@ export function buildDevelopment(world: World, civ: Civ): Development {
         if (!tier) continue;
         if (found[i] === Infinity) {
           if (!live || P < DISCOVER_AT[k]) continue;
-          // 这一步里哪一刻过了门槛(按上一步到这一步线性估;不早于这州归了现在的民族)
+          // 这一步里哪一刻过了门槛(按上一步到这一步线性估;不早于这州归了现在的民族和国家)
           const a = Pprev[r];
           const t = P > a ? Math.min(1, Math.max(0, (DISCOVER_AT[k] - a) / (P - a))) : 1;
-          found[i] = Math.min(y, Math.max(sinceC[r], y - dt + dt * t));
+          found[i] = Math.min(y, Math.max(sinceC[r], sinceP[r], y - dt + dt * t));
           if (tier === 3 && LIFE[k]) pushRes('discover', found[i], r, k);
         }
+        const vPrev = availNow[i];
         let v: number;
         if (LIFE[k]) {
           // 矿:技术越高采得越多(发现后一个半时代采到足量);一直采会采空,剩最后三成时越采越少
           const tech = Math.min(1, 0.25 + 0.5 * Math.max(0, P - DISCOVER_AT[k]));
-          if (live) stock[i] = Math.max(0, stock[i] - dt * tech * (0.4 + 0.6 * popF));
+          // 只扣发现以后、有人住以后的那几年
+          const span = Math.max(0, Math.min(dt, y - Math.max(found[i], sinceC[r])));
+          if (live) stock[i] = Math.max(0, stock[i] - span * tech * (0.4 + 0.6 * popF));
           v = tier * tech * Math.min(1, stock[i] / (0.3 * tier * LIFE[k]));
         } else if (DEPLETE[k]) {
           // 林、渔、田、牧:人多、开发久就吃空,人少了慢慢长回来;捕鱼到火药以后才吃得空
@@ -519,9 +522,12 @@ export function buildDevelopment(world: World, civ: Civ): Development {
           v = tier * stock[i];
         } else v = tier;
         availNow[i] = v;
-        if (tier === 3 && !depleted[i] && (LIFE[k] ? v < 0.2 * tier && stock[i] < 0.3 * tier * LIFE[k] : v < 0.4 * tier)) {
+        const low = (LIFE[k] ? 0.2 : 0.4) * tier;
+        if (tier === 3 && !depleted[i] && v < low && (!LIFE[k] || stock[i] < 0.3 * tier * LIFE[k])) {
           depleted[i] = 1;
-          pushRes('deplete', y, r, k);
+          // 这一步里哪一刻掉过线(按能用量线性估;不早于发现、不早于这州归了现在的民族和国家)
+          const t = vPrev > low && vPrev > v ? (vPrev - low) / (vPrev - v) : 1;
+          pushRes('deplete', Math.min(y, Math.max(found[i], sinceC[r], sinceP[r], y - dt + dt * t)), r, k);
         }
       }
     }
