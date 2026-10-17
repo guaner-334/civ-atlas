@@ -3,7 +3,7 @@
  *
  *   左边  朝代一列(手机上换成一排横滑的按钮):一朝一行,名字、年份、几位;时间轴那一年的那一朝标「当前」;点一行换树。下面是图例
  *   右边  标题"景  2377–2794 年，27 位君主；太祖柳渺玄起兵代衍朝开国"(手机上不写开国那句),下面这一朝的树(排法见 gen/civ/lineageInfo.ts):
- *         白底方框 = 即位的君主(左边灰色数字是这一朝第几位,两行:称呼、在位年份);虚线框 = 没即位的宗室(生卒);
+ *         白底方框 = 即位的君主(左边灰色数字是这一朝第几位、30 像素的圆头像,两行:称呼、在位年份);虚线框 = 没即位的宗室(生卒);
  *         时间轴那一年在位的标「当前」、蓝框,还没即位(宗室:还没出生)的变淡;从人物卡片进来的那位蓝框圈出。
  *         最后一位下面写这一朝怎么结束("2794 年，渊朝起兵代之");连不上开国那一支的远支另起一小棵。点一位看他的卡片
  * 看哪一朝:人物卡片进来 = 他那一朝;别的 = 时间轴那一年的那一朝(还没立国 = 第一朝,亡了 = 最后一朝);打开时滚到圈出的那位或「当前」。
@@ -13,6 +13,7 @@ import { Fragment, useLayoutEffect, useMemo, useRef } from 'react';
 import type { Civ, Person } from '../gen/civ/types';
 import { rulerAt } from '../gen/civ/peopleInfo';
 import { personName } from '../gen/civ/peopleText';
+import { PersonFace } from './Portrait';
 import { dynastyEnd, dynastyNote, dynastyRowAt, dynastyRows, layoutDynasty, reignOrder, type DynastyRow, type LineageTree } from '../gen/civ/lineageInfo';
 import { setPeople } from './overviewStore';
 import { selectPerson } from './panelParts';
@@ -22,11 +23,11 @@ import { yearShort, yearShortAt, yearSpanAt, type Era } from '../gen/era';
 
 
 /** 方框大小、间距(电脑 / 手机);FONT = 名字的字号(估名字多宽用) */
-const BOX = { wide: { W: 136, H: 44, GAP: 18, STEP: 68, FONT: 13.5 }, narrow: { W: 128, H: 42, GAP: 12, STEP: 64, FONT: 13 } };
-/** 方框里名字以外占的宽(左边序号、内边距,多留 1 像素) */
-const CHROME = 39;
+const BOX = { wide: { W: 172, H: 44, GAP: 18, STEP: 68, FONT: 13.5 }, narrow: { W: 164, H: 42, GAP: 12, STEP: 64, FONT: 13 } };
+/** 方框里名字以外占的宽(左边序号、头像连同空隙 36、内边距,多留 1 像素) */
+const CHROME = 75;
 /** 名字很长(西幻的"多布罗斯拉夫一世")时方框最宽放到这么宽 */
-const W_MAX = 188;
+const W_MAX = 224;
 /** 树四周留的边 */
 const PAD = 4;
 /** 最后一位下面那句话占的高 */
@@ -115,6 +116,7 @@ function Tree({ civ, row, tree, box, year, cur, focus, tail }: { civ: Civ; row: 
             onClick={() => selectPerson(p.id)}
           >
             {k > 0 && <span className="lg-n">{k}</span>}
+            <PersonFace civ={civ} x={p} year={year} size="mini" />
             <span className="lg-t">
               <b>
                 <span className="lg-nm">{name}</span>
