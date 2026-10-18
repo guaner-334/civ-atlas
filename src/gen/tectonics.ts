@@ -81,6 +81,11 @@ export interface Tectonics {
    * 海里为 0。换算成米时按回放进度一起长高(world.ts 的 toMeters)
    */
   plateau: Float32Array;
+  /**
+   * 草图选了"只补细节"或"完全照画"时,涂过的地块(1;草图的格子值不是 0 的)—— 后面挖裂谷湖、随机洼地时绕开(world.ts)。
+   * 随意发挥、没画草图 = 不给
+   */
+  sketched?: Uint8Array;
 }
 
 /** distanceField 的运行计数(单测用):出堆次数、真正往外扩展的次数、跳过的过期条目数。 */
@@ -486,6 +491,8 @@ const SK_FINE_MIN = 6;
 /** 草图上涂的山地:抬升(× 山的高低参数);低 / 中 / 高三档各乘 SK_MTN_H */
 const SK_MTN_U = 1.25;
 const SK_MTN_H = [0.6, 1, 1.55];
+/** 完全照画:涂过的陆地处处一样的抬升(比一般平原的基础抬升低,长出来是平的) */
+const SK_EXACT_U = 0.012;
 /** 草图上涂的丘陵:抬升 */
 const SK_HILLS_U = 0.2;
 /** 草图上涂的高原:底座(米) */
@@ -854,8 +861,48 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
     if (pla.some((v) => v > 0)) skPlat = blurField(mesh, pla, 3);
   }
 
-  // 封闭内海:完全被陆地围住的海,凿海峡接通或填成陆地(草图涂过的不动),见 inlandSea.ts
-  connectInlandSeas(mesh, land, sk ? sk.map((v) => (v === SKETCH_NONE ? 0 : 1)) : null);
+  // 不长新陆地:没涂的陆地只留和涂过的陆地连成一片的(程序补出来的半岛、海岸),别处冒出来的大陆、岛沉回海里
+  if (sk && sketch?.noNewLand) {
+    const keep = new Uint8Array(n);
+    const queue: number[] = [];
+    for (let i = 0; i < n; i++) {
+      if (land[i] && sk[i] !== SKETCH_NONE) {
+        keep[i] = 1;
+        queue.push(i);
+      }
+    }
+    for (let a = 0; a < queue.length; a++) {
+      const i = queue[a];
+      for (let k = adjStart[i]; k < adjStart[i + 1]; k++) {
+        const j = adj[k];
+        if (land[j] && !keep[j]) {
+          keep[j] = 1;
+          queue.push(j);
+        }
+      }
+    }
+    for (let i = 0; i < n; i++) if (!keep[i]) land[i] = 0;
+  }
+  // 程序补全只补细节 / 完全照画:涂过的地块(后面抬升、高原、裂谷湖、洼地都绕开它们)
+  const fixed = sk && sketch?.fill ? sk.map((v) => (v === SKETCH_NONE ? 0 : 1)) : null;
+
+  // 封闭内海:完全被陆地围住的海,凿海峡接通或填成陆地(草图涂过的不动),见 inlandSea.ts。
+  // 只补细节 / 完全照画时挨着涂过的地方的海也不动(作者画的内海);不长新陆地时只凿通、不填成陆地
+  let protect: Uint8Array | null = sk ? sk.map((v) => (v === SKETCH_NONE ? 0 : 1)) : null;
+  if (protect && fixed) {
+    const rim = protect.slice();
+    for (let i = 0; i < n; i++) {
+      if (land[i] || protect[i]) continue;
+      for (let k = adjStart[i]; k < adjStart[i + 1]; k++) {
+        if (protect[adj[k]]) {
+          rim[i] = 1;
+          break;
+        }
+      }
+    }
+    protect = rim;
+  }
+  connectInlandSeas(mesh, land, protect, !!sketch?.noNewLand);
 
   // ---- 5. 海底深度 ----
   const coastSrc: number[] = [];
@@ -911,8 +958,19 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
   const uplift = new Float32Array(n);
   const plateau = new Float32Array(n);
   const mf = p.mountains;
+  const exact = sketch?.fill === 'exact';
   for (let i = 0; i < n; i++) {
     if (!land[i]) continue;
+    // 只补细节 / 完全照画的涂过的地块:只有基础抬升(完全照画的连起伏也不要:处处一样的低抬升,侵蚀出来是一片低平原)
+    // + 草图自己涂的山地、丘陵、高原
+    if (fixed && fixed[i]) {
+      let U = exact ? SK_EXACT_U : 0.016 + 0.018 * soft * (baseU.at(i, fs, 1.5) + 1);
+      if (skMtn && skRidge && skMtn[i] > 0) U += mf * SK_MTN_U * skMtn[i] * (0.35 + 0.9 * skRidge.at(i, fs, 3.2, 5.1, -2.7));
+      if (skHills && skHills[i] > 0) U += SK_HILLS_U * skHills[i] * (0.6 + 0.4 * hills.at(i, fs, 4.1, -2, 6));
+      uplift[i] = U;
+      plateau[i] = skPlat && skPlat[i] > 0 ? SK_PLATEAU_M * skPlat[i] * (0.85 + 0.15 * plat.at(i, fs, 2.6, 3, -5)) * smoothstep(3, 30, dSea[i]) : 0;
+      continue;
+    }
     // 基础抬升很低 → 大部分陆地是平原
     let U = 0.016 + 0.018 * soft * (baseU.at(i, fs, 1.5) + 1);
     // 零星的丘陵区
@@ -968,5 +1026,6 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
     oceanDepth,
     uplift,
     plateau,
+    ...(fixed ? { sketched: fixed } : {}),
   };
 }

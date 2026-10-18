@@ -12,7 +12,7 @@
 import { useSyncExternalStore } from 'react';
 import { EMPTY_EDITS, END_YEAR_DEFAULT, MARKS_MAX, cleanEndYear, MARK_REGIONS_TOTAL, cleanIntervention, cleanMark, markRegionTotal, sameMark, markAiName, nextMarkId, type AuthorMark, type Intervention, type TerrainOp, type Upheaval, type WorldEdits } from '../gen/edits';
 import { TERRAIN_MAX_OPS, UPHEAVALS_MAX, cleanTerrainOp, cleanUpheaval } from '../gen/terrainEdits';
-import { SKETCH_MAX_STROKES, cleanSketch, cleanSketchImage, cleanSketchStroke, encodeLayer, sketchCoast, type SketchEdit, type SketchStroke } from '../gen/sketch';
+import { SKETCH_MAX_STROKES, cleanSketch, cleanSketchImage, cleanSketchStroke, encodeLayer, sketchCoast, sketchFill, type SketchEdit, type SketchFill, type SketchStroke } from '../gen/sketch';
 import { CHARACTERS_MAX, cleanCharacter, nextCharacterId, sameCharacter, type AuthorCharacter } from '../gen/characters';
 import { showToast } from './toastStore';
 import { cleanMix, sameMix, type NameMix } from '../gen/names/mix';
@@ -557,12 +557,20 @@ export function putSketch(next: SketchEdit | null): boolean {
   return put(c ? { ...rest, sketch: c } : rest);
 }
 
-/** 草图:加一笔(清理过的;不合格的、已满 SKETCH_MAX_STROKES 笔的不加)。还没有草图时新开一张,海岸线用 coast(不给 = 默认)。返回是否加上了 */
-export function addSketchStroke(stroke: SketchStroke, coast?: number): boolean {
+/** 新开一张草图:没涂的地方 rest,海岸线 coast、程序补全 fill(不给 = 默认) */
+function freshSketch(rest: SketchEdit['rest'], coast?: number, fill?: SketchFill | 'free'): SketchEdit {
+  return { rest, ...(coast === undefined ? {} : { coast }), ...(fill && fill !== 'free' ? { fill } : {}), strokes: [] };
+}
+
+/**
+ * 草图:加一笔(清理过的;不合格的、已满 SKETCH_MAX_STROKES 笔的不加)。还没有草图时新开一张,海岸线用 coast、程序补全用 fill(不给 = 默认)。
+ * 返回是否加上了
+ */
+export function addSketchStroke(stroke: SketchStroke, coast?: number, fill?: SketchFill | 'free'): boolean {
   const c = cleanSketchStroke(stroke);
   const now = state.sketch;
   if (!c || (now?.strokes.length ?? 0) >= SKETCH_MAX_STROKES) return false;
-  const base: SketchEdit = now ?? (coast === undefined ? { rest: 'auto', strokes: [] } : { rest: 'auto', coast, strokes: [] });
+  const base: SketchEdit = now ?? freshSketch('auto', coast, fill);
   return putSketch({ ...base, strokes: [...base.strokes, c] });
 }
 
@@ -570,11 +578,11 @@ export function addSketchStroke(stroke: SketchStroke, coast?: number): boolean {
  * 草图:加擦掉的一笔,地形修改同时换成 terrain(擦掉碰到的火山、湖、河去掉以后的;一次换上,只重新生成一遍)。
  * 加不上(不合格、已满)时什么都不动,返回 false
  */
-export function addEraseStroke(stroke: SketchStroke, terrain: readonly TerrainOp[], coast?: number): boolean {
+export function addEraseStroke(stroke: SketchStroke, terrain: readonly TerrainOp[], coast?: number, fill?: SketchFill | 'free'): boolean {
   const c = cleanSketchStroke(stroke);
   const now = state.sketch;
   if (!c || (now?.strokes.length ?? 0) >= SKETCH_MAX_STROKES) return false;
-  const base: SketchEdit = now ?? (coast === undefined ? { rest: 'auto', strokes: [] } : { rest: 'auto', coast, strokes: [] });
+  const base: SketchEdit = now ?? freshSketch('auto', coast, fill);
   const sk = cleanSketch({ ...base, strokes: [...base.strokes, c] });
   const { sketch: _, ...rest } = state;
   void _;
@@ -630,11 +638,20 @@ export function clearTerrainAndSketch(keepImage: boolean): boolean {
   return put({ ...rest, terrain: EMPTY_EDITS.terrain, ...(sketch ? { sketch } : {}) });
 }
 
-/** 草图:没涂的地方交给程序('auto')还是都是海('sea') */
-export function setSketchRest(rest: SketchEdit['rest']) {
+/** 草图:没涂的地方交给程序('auto')、不长新陆地('noNewLand')还是都是海('sea')。还没有草图时新开一张,海岸线、程序补全用 coast、fill */
+export function setSketchRest(rest: SketchEdit['rest'], coast?: number, fill?: SketchFill | 'free') {
   const now = state.sketch;
   if ((now?.rest ?? 'auto') === rest) return;
-  putSketch({ ...(now ?? { strokes: [] }), rest });
+  putSketch({ ...(now ?? freshSketch(rest, coast, fill)), rest });
+}
+
+/** 草图:程序补全随意发挥('free')、只补细节('detail')还是完全照画('exact');还没有草图时不动(画第一笔时带上) */
+export function setSketchFill(fill: SketchFill | 'free') {
+  const now = state.sketch;
+  if (!now || sketchFill(now) === fill) return;
+  const { fill: _, ...rest } = now;
+  void _;
+  putSketch(fill === 'free' ? rest : { ...rest, fill });
 }
 
 /** 草图:海岸线贴着画(0)、适中(SKETCH_COAST)还是曲折(1) */

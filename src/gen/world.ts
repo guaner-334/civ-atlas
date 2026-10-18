@@ -20,7 +20,22 @@ import { mulberry32, subSeed, clamp, keyed, smoothstep } from './util';
 import { geometryOf, sphereSpacing } from './geometry';
 import type { TerrainOp } from './edits';
 import { computeCurrents, type Currents } from './currents';
-import { TERRAIN_MAX_OPS, UPHEAVALS_MAX, UPHEAVAL_OPS_MAX, applyClimatePens, applyHeightPens, applyTerrainTectonics, carveLakes, carveRivers, cleanTerrainOps, isHeightKind, volcanoPeaks } from './terrainEdits';
+import {
+  DEL_WATER_FLUX,
+  TERRAIN_MAX_OPS,
+  UPHEAVALS_MAX,
+  UPHEAVAL_OPS_MAX,
+  applyClimatePens,
+  applyHeightPens,
+  applyTerrainTectonics,
+  carveLakes,
+  carveRivers,
+  cleanTerrainOps,
+  isHeightKind,
+  lakeAt,
+  riversAt,
+  volcanoPeaks,
+} from './terrainEdits';
 import { sketchUsed, type Sketch } from './sketch';
 
 /**
@@ -163,7 +178,8 @@ export interface BaseCache {
 const isShapeOp = (o: TerrainOp) => o.kind === 'volcano' || o.kind === 'range' || o.kind === 'raise' || o.kind === 'sink';
 const baseKeyOf = (p: WorldParams, shapes: readonly TerrainOp[]) => JSON.stringify([Object.entries(p).sort(([a], [b]) => (a < b ? -1 : 1)), shapes]);
 const sameSketchGrid = (a: Sketch | null, b: Sketch | null) =>
-  a === b || (!!a && !!b && a.coast === b.coast && a.grid.length === b.grid.length && a.grid.every((v, i) => v === b.grid[i]));
+  a === b ||
+  (!!a && !!b && a.coast === b.coast && a.fill === b.fill && a.noNewLand === b.noNewLand && a.grid.length === b.grid.length && a.grid.every((v, i) => v === b.grid[i]));
 
 /** 前一半(见 TerrainBase):ops 只给侵蚀之前套的那几种 */
 function growTerrain(p: WorldParams, sk: Sketch | null, ops: readonly TerrainOp[], climateP: ClimateParams, progress: Progress, key: string): TerrainBase {
@@ -293,8 +309,10 @@ function growTerrain(p: WorldParams, sk: Sketch | null, ops: readonly TerrainOp[
 
   // ---- 湖泊:裂谷下陷 + 少量冰川 / 构造洼地 ----
   progress('湖泊与水系', 0.62);
+  // 草图选了只补细节 / 完全照画:涂过的地方不挖裂谷
+  const sketched = tect.sketched;
   for (let i = 0; i < n; i++) {
-    if (!land[i]) continue;
+    if (!land[i] || sketched?.[i]) continue;
     const contF = tect.plateContinental[tect.plate[i]] ? 1 : 0.5;
     // 只在强的张裂带上挖;下挖不超过当地海拔的一半(低平原上的张裂带不会挖到海平面以下,积成一串贴着海的死水湖)
     const rift = 220 * contF * smoothstep(0.2, 0.65, tect.strengthDiv[i]) * Math.exp(-Math.pow(tect.distDiv[i] / 20, 2));
@@ -310,17 +328,20 @@ function growTerrain(p: WorldParams, sk: Sketch | null, ops: readonly TerrainOp[
     highLand++;
     if (keyed(dentBase, c, 0) < DENT_P) dents.push(c);
   }
+  // 完全照画:涂过的地方也不挖小洼地(只补细节的照挖,小湖算细节)
+  const noDent = sk?.fill === 'exact' ? sketched : undefined;
   for (const c of dents) {
+    if (noDent?.[c]) continue;
     const r = spacing * (1.6 + keyed(dentBase, c, 1) * 2.8);
     const depth = 40 + keyed(dentBase, c, 2) * 160;
     // 只在附近 cell 上挖
     const r3 = r * 3;
     for (const i of geo.cellsNear(c, r3)) {
-      if (!land[i]) continue;
+      if (!land[i] || noDent?.[i]) continue;
       elevation[i] -= depth * Math.exp(-geo.near2(i, c, r3) / (r * r));
     }
   }
-  return { key, sketch: sk && { grid: sk.grid.slice(), coast: sk.coast }, mesh, tect, elevation, history, touched, highLand };
+  return { key, sketch: sk && { ...sk, grid: sk.grid.slice() }, mesh, tect, elevation, history, touched, highLand };
 }
 
 /**
@@ -465,6 +486,22 @@ export function generateWorld(params: WorldParams, progress: Progress = () => {}
     }
   }
 
+  // 改地形:删河湖 —— 点在湖里的,整片湖填平(湖底垫到湖面下 1 米,排水不再积出湖,流进来的河穿过去);别的留到串河之前删河
+  const delRivers: TerrainOp[] = [];
+  for (const op of ops) {
+    if (op.kind !== 'delWater') continue;
+    const lake = lakeAt(mesh, water, op.pts[0], op.pts[1]);
+    if (!lake) {
+      delRivers.push(op);
+      continue;
+    }
+    for (const c of lake) {
+      water[c] = 0;
+      waterLevel[c] = 0;
+      elevation[c] = pool.filled[c] - 1;
+    }
+  }
+
   // ---- 最终气候 ----
   progress('风与降水', 0.72);
   const currents = computeCurrents(mesh, water);
@@ -489,6 +526,29 @@ export function generateWorld(params: WorldParams, progress: Progress = () => {}
   }
   const flux = accumulate(route, land, runoff, new Float32Array(n));
   const riverThreshold = 10 * (n / 36000);
+  // 改地形:删河湖指着的河 —— 按先后一处处删:照现在的流量串一遍河,找指着的那条连同支流,它们的陆地段和上游流域(只沿陆地往上,
+  // 不穿过湖)流量压到 DEL_WATER_FLUX 倍门槛以下;下一处按删过的再找
+  if (delRivers.length) {
+    const gone = new Uint8Array(n);
+    const cap = DEL_WATER_FLUX * riverThreshold;
+    for (const op of delRivers) {
+      const now = traceRivers(mesh, land, water, route.receiver, flux, riverThreshold, userRiver, clim.temperature);
+      const hit = riversAt(now, water, op.pts[0], op.pts[1], op.r);
+      if (!hit.length) continue;
+      gone.fill(0);
+      for (const k of hit) {
+        const cs = now[k].cells;
+        for (let j = 0; j < cs.length - 1; j++) if (water[cs[j]] === 0) gone[cs[j]] = 1;
+      }
+      // order 从下游往上游排:下游删了,流进它的陆地块也删
+      for (let a = 0; a < route.orderLen; a++) {
+        const i = route.order[a];
+        const r = route.receiver[i];
+        if (!gone[i] && r >= 0 && gone[r] && water[i] === 0) gone[i] = 1;
+      }
+      for (let i = 0; i < n; i++) if (gone[i] && flux[i] > cap) flux[i] = cap;
+    }
+  }
   const rivers = traceRivers(mesh, land, water, route.receiver, flux, riverThreshold, userRiver, clim.temperature);
 
   // ---- 生物群落 ----

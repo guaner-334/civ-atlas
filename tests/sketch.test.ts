@@ -302,6 +302,89 @@ describe('照草图生成', () => {
   });
 });
 
+describe('程序补全、不长新陆地', () => {
+  const base = generateWorld(SMALL);
+  const strokes: SketchStroke[] = [{ kind: 'land', r: 120, pts: [880, 500, 1120, 500] }];
+  const relief = (w: World) => {
+    const e = near(w, 1000, 500, 90)
+      .filter((i) => w.water[i] === 0)
+      .map((i) => w.elevation[i]);
+    const m = e.reduce((a, b) => a + b, 0) / e.length;
+    return { sd: Math.sqrt(e.reduce((a, b) => a + (b - m) ** 2, 0) / e.length), max: Math.max(...e) };
+  };
+
+  it('清理:程序补全只留只补细节 / 完全照画(随意发挥不存);没涂的地方认不长新陆地,一笔没涂也留着', () => {
+    expect(cleanSketch({ rest: 'auto', fill: 'detail', strokes })).toEqual({ rest: 'auto', fill: 'detail', strokes });
+    expect(cleanSketch({ rest: 'auto', fill: 'free', strokes })).toEqual({ rest: 'auto', strokes });
+    expect(cleanSketch({ rest: 'auto', fill: 'wild', strokes })).toEqual({ rest: 'auto', strokes });
+    const ok: SketchEdit = { rest: 'noNewLand', fill: 'exact', strokes };
+    expect(cleanSketch(ok)).toBe(ok);
+    expect(cleanSketch({ rest: 'noNewLand', strokes: [] })).toEqual({ rest: 'noNewLand', strokes: [] });
+    expect(sameSketch({ rest: 'auto', strokes }, { rest: 'auto', fill: 'detail', strokes })).toBe(false);
+    expect(sameSketch({ rest: 'auto', strokes }, { rest: 'auto', fill: undefined, strokes })).toBe(true);
+    expect(sketchGrid({ rest: 'auto', fill: 'exact', strokes })!.fill).toBe('exact');
+    expect(sketchGrid({ rest: 'noNewLand', strokes: [] })!.noNewLand).toBe(true);
+  });
+
+  it('涂成陆地的一片:随意发挥有山,只补细节只有小起伏,完全照画是平的', () => {
+    const gen = (fill?: 'detail' | 'exact') => generateWorld(SMALL, undefined, undefined, sketchGrid({ rest: 'auto', ...(fill ? { fill } : {}), strokes }));
+    const free = relief(gen());
+    const detail = relief(gen('detail'));
+    const exact = relief(gen('exact'));
+    expect(free.max).toBeGreaterThan(1500);
+    expect(detail.max).toBeLessThan(800);
+    expect(exact.sd).toBeLessThan(detail.sd * 0.6);
+    expect(exact.max).toBeLessThan(300);
+  });
+
+  it('完全照画:涂过的地方不挖裂谷、洼地,没有程序的湖;涂的山地照样起山', () => {
+    const w = generateWorld(SMALL, undefined, undefined, sketchGrid({ rest: 'auto', fill: 'exact', strokes }));
+    expect(near(w, 1000, 500, 90).filter((i) => w.water[i] === 2)).toHaveLength(0);
+    const mtn = generateWorld(SMALL, undefined, undefined, sketchGrid({ rest: 'auto', fill: 'exact', strokes: [...strokes, { kind: 'mountain', r: 24, pts: [940, 500, 1060, 500] }] }));
+    expect(relief(mtn).max).toBeGreaterThan(relief(w).max + 500);
+  });
+
+  it('不长新陆地:和涂过的陆地连不上的陆地都沉回海里,连着的留下', () => {
+    const [sx, sy] = findSpot(base, 1, 110);
+    const isle: SketchStroke[] = [{ kind: 'land', r: 64, pts: [sx - 30, sy, sx + 30, sy] }];
+    const share = (rest: SketchEdit['rest']) => {
+      const w = generateWorld(SMALL, undefined, undefined, sketchGrid({ rest, strokes: isle }));
+      let land = 0;
+      for (let i = 0; i < w.mesh.n; i++) if (w.water[i] === 0) land++;
+      return { w, land: land / w.mesh.n };
+    };
+    const no = share('noNewLand');
+    expect(landShare(no.w, near(no.w, sx, sy, 40))).toBeGreaterThan(0.8);
+    // 陆地一块块数:每一块都碰到涂过的地方附近
+    const { n, adjStart, adj } = no.w.mesh;
+    const comp = new Int32Array(n).fill(-1);
+    let k = 0;
+    for (let i = 0; i < n; i++) {
+      if (no.w.water[i] === 1 || comp[i] >= 0) continue;
+      const q = [i];
+      comp[i] = k;
+      let touches = false;
+      for (let h = 0; h < q.length; h++) {
+        const a = q[h];
+        const dx = Math.min(Math.abs(no.w.mesh.x[a] - sx), 2048 - Math.abs(no.w.mesh.x[a] - sx));
+        if (Math.hypot(dx, no.w.mesh.y[a] - sy) < 140) touches = true;
+        for (let e = adjStart[a]; e < adjStart[a + 1]; e++) {
+          const j = adj[e];
+          if (no.w.water[j] !== 1 && comp[j] < 0) (comp[j] = k), q.push(j);
+        }
+      }
+      expect(touches).toBe(true);
+      k++;
+    }
+    expect(no.land).toBeLessThan(share('auto').land);
+  });
+
+  it('一笔没涂的不长新陆地:整颗星球是海', () => {
+    const w = generateWorld(SMALL, undefined, undefined, sketchGrid({ rest: 'noNewLand', strokes: [] }));
+    expect(w.water.every((v) => v !== 0)).toBe(true);
+  });
+});
+
 describe('存档', () => {
   const edit: SketchEdit = { rest: 'sea', strokes: [{ kind: 'land', r: 32, pts: [700, 300, 760, 310] }, { kind: 'mountain', r: 16, pts: [720, 305] }] };
 
