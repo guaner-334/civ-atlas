@@ -82,7 +82,7 @@ import { AST_W, closeAssistant, openAssistant, useAstOpen } from '../astPanel';
 import { PRIVACY_URL, SOURCE_URL, TERMS_URL } from '../links';
 import { ContactMenuItem } from '../ContactLink';
 import { openDiag } from '../DiagDialog';
-import { VersionMenuFoot } from '../BetaNews';
+import { VersionMenuFoot } from '../VersionNews';
 import { Icon } from '../icons';
 import { styleKey } from '../LayerPopover';
 import type { MapLayer } from '../mapLayers';

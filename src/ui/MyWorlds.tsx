@@ -33,7 +33,7 @@ import { Icon } from './icons';
 import { TitleInput, when } from './worldParts';
 import { GUIDE_URL, PRIVACY_URL, SOURCE_URL, TERMS_URL } from './links';
 import { ContactLink } from './ContactLink';
-import { VersionText } from './BetaNews';
+import { VersionText } from './VersionNews';
 import { HomeGlobe } from './studio/HomeGlobe';
 import { OldSiteBadge } from './Corners';
 import { BETA_SITE, OLD_SITE } from './oldSite';

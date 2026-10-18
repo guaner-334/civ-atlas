@@ -31,7 +31,7 @@ import { PRIVACY_URL, SOURCE_URL, TERMS_URL } from './links';
 import { ContactLink } from './ContactLink';
 import { useNarrow } from './device';
 import { Icon } from './icons';
-import { VersionText } from './BetaNews';
+import { VersionText } from './VersionNews';
 import { TitleInput } from './worldParts';
 import './overview.css';
 
