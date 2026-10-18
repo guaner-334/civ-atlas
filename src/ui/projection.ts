@@ -192,11 +192,12 @@ export class ProjLayer {
    * force = false 时,同一个投影、原图没变就不重铺
    */
   present(dst: HTMLCanvasElement, mp: MapProj, fill: PageFill = null, force = false): number {
+    // 在备的精画先作废(哪怕这一版不用重铺:拖动、放大时它会占着分帧调度,拖慢别的细节层)
+    this.drop();
     const src = this.src;
     if (!src || !src.width) return 0;
     const key = `${mp.key}|${fill}`;
     if (!force && !this.dirty && key === this.shown && dst.width === src.width) return 0;
-    this.drop();
     const t0 = performance.now();
     if (this.dirty || !this.dbl) {
       this.dbl = doubleCanvas(src, this.dbl ?? document.createElement('canvas'));
@@ -225,9 +226,9 @@ export class ProjLayer {
    * key 相同、原图没变(没 touch 过)就不重画;之后再 present(整图重投影)会重铺
    */
   redraw(dst: HTMLCanvasElement, w: number, h: number, key: string, fill: PageFill, draw: (ctx: CanvasRenderingContext2D) => void, force = false): number {
+    this.drop();
     const k = `redraw|${key}|${fill}`;
     if (!force && k === this.shown && dst.width === w && dst.height === h) return 0;
-    this.drop();
     const t0 = performance.now();
     if (dst.width !== w || dst.height !== h) {
       dst.width = w;
