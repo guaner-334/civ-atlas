@@ -25,6 +25,8 @@ export interface ZoomSource {
   width: number;
   height: number;
   R: number;
+  /** 地块间距(世界单位) */
+  spacing: number;
   triangles: Uint32Array;
   /** 每个三角形三条边所在大圆的法向(朝三角形里面),9 个数 */
   nrm: Float64Array;
@@ -66,6 +68,7 @@ export function zoomSource(world: World, whole: Pick<Raster, 'w' | 'h' | 'scale'
     width: world.width,
     height: world.height,
     R: world.width / (2 * Math.PI),
+    spacing: mesh.spacing,
     triangles: mesh.triangles,
     nrm,
     box,
@@ -150,7 +153,7 @@ export function rasterizeWindow(src: ZoomSource, S: number, x0: number, y0: numb
     win: { x0, y0, W, H },
   };
   const zoom = { gullies: src.gullies, base: src.base, w: src.bw, h: src.bh, x0, y0, S: W / src.bw };
-  shadeSphere(out, tri, wa, wb, src.planes, base, carve, calm, src.dTile, src.jTile, g, src.R, null, zoom);
+  shadeSphere(out, tri, wa, wb, src.planes, base, carve, calm, src.dTile, src.jTile, g, src.R, src.spacing, null, zoom);
   out.bank = bankBytes(calm);
   out.vein = new Uint8Array(N);
   stampVeins(src.veins, S, w, h, out.vein, x0, y0, W);

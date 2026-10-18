@@ -6,14 +6,15 @@
  * 细节噪声不是处处一样强:
  *   - 按当地起伏走:起伏 = 地块和邻居的平均高差。平原 / 沙漠只剩几米,山地几百米
  *   - 海岸另加一层:岸线沿法向挪动几个像素。平原海岸圆润但仍有细碎的分形细节,
- *     山地海岸挪得更多、再叠一层低频扭曲,显得破碎(海湾、岬角、小岛)
+ *     山地海岸挪得更多、再叠一层低频扭曲,显得破碎(海湾、岬角、小岛);
+ *     网格粗(地块大)时平原海岸另加一层低频弯曲,免得岸线只是柔化后的地块轮廓、一圈圆包
  *   - 沿河道刻出河谷:河越大谷越宽越深,山里的谷更深;谷底把噪声压平
  * 噪声不逐像素现算,而是预先算两张可平铺的噪声贴图(细节 / 气候抖动),按像素在球面上的三维位置
  * 从三个方向投影取样、按法向加权("三向贴图")—— 东西没有接缝,两极不"拉丝"。
  *
  * 流程:地块上算插值源 → 球面三角形覆盖(sphereCover:跨 180° 经线的三角形像素列取模,包着极点的三角形
  * 扫到极点、整圈经度)→ 铺海拔 → 柔化(按纬度修正:高纬度一个像素的东西向地面宽度只有 cos(纬度),列下标取模)
- * → 刻河谷(沿展开后的河道,跨接缝的河在两边各刻一份)→ 逐像素(其余字段 + 噪声 + 群落)→ 海冰。
+ * → 刻河谷(沿展开后的河道,跨接缝的河在两边各刻一份)→ 逐像素(其余字段 + 噪声 + 群落)→ 去近岸碎点 → 海冰。
  * 几个重循环各放在独立的小函数里,引擎更快把它们优化成机器码(第一次调用也快)。
  * 结果带 wrap = true:画风据此把邻域操作的列下标取模。
  */
@@ -97,6 +98,17 @@ const JITTER_STD = 0.29;
 const DETAIL_SIZE = 512;
 /** 气候抖动贴图:256²,最底层 18 格,3 层;采样时放大到波长约 40 像素 */
 const JITTER_SIZE = 256;
+/**
+ * 网格粗时平原海岸另加的弯曲:海拔是在地块三角形上插值再柔化的,地块越大,平原岸线越"圆鼓"(一串圆包、成段的缓弧),
+ * 固定几个像素的碎边盖不住。按地块间距(世界单位)加:20 万地块(间距约 2.1)以下不加,
+ * 3.6 万(约 4.95)加满一份,再粗最多两份。山地海岸本来就破碎,不加
+ */
+const COAST_FINE = 2.1;
+const COAST_STEP = 2.85;
+/** 加满一份时这层弯曲的幅度(世界单位,和下面 D 同一个量纲) */
+const COAST_BEND = 5;
+/** 小于这么多像素(1 倍主图)、四面都是海的陆地碎点去掉:多是近岸噪声撒出来的,不是板块算出来的岛 */
+const SPECK_MAX = 4;
 
 /**
  * 每个三角形存 7 个字段(依次为湖泊比例、细节幅度、海岸标记、海平面等效温度、降水、海岸陡峭度、平滑海冰程度),
@@ -537,12 +549,57 @@ function rasterizeRaw(world: World, scale: number, gully: boolean, lines?: Drain
   };
   const R = world.width / (2 * Math.PI);
   const job = gully ? newGullyJob(subSeed(world.params.seed, 'gully'), w, h, R, scale) : null;
-  shadeSphere(out, b.tri, b.wa, b.wb, b.planes, b.elev, carve, calm, dTile, jTile, b.g, R, job);
+  shadeSphere(out, b.tri, b.wa, b.wb, b.planes, b.elev, carve, calm, dTile, jTile, b.g, R, world.mesh.spacing, job);
+  dropSpecks(out, Math.round(SPECK_MAX * scale * scale));
   out.bank = bankBytes(calm);
   seaIcePixels(world, out);
   // 细沟只有写实风用(和沟壑一样,gully = false 时不算)
   const veins: VeinJob | null = gully ? { w, h, scale, elev: out.elev, water: out.water, bank: out.bank, streams: lines ? undefined : streamsOf(world), lines } : null;
   return { raster: out, job, veins };
+}
+
+/**
+ * 去掉近岸噪声撒出来的陆地碎点:不超过 max 个像素(四连通)、四周全是没冰的海,改成浅海。
+ * 只管整张主图;温度按海面改回(陆地像素按海拔降过温),群落重分
+ */
+function dropSpecks(r: Raster, max: number) {
+  const { w, h, water, elev, temp, precip, biome, ice } = r;
+  const seen = new Uint8Array(w * h);
+  const comp: number[] = [];
+  const stack: number[] = [];
+  for (let k0 = 0; k0 < w * h; k0++) {
+    if (water[k0] !== 0 || seen[k0]) continue;
+    comp.length = 0;
+    stack.push(k0);
+    seen[k0] = 1;
+    let shut = false;
+    while (stack.length) {
+      const k = stack.pop()!;
+      comp.push(k);
+      const x = k % w;
+      const y = (k - x) / w;
+      for (let d = 0; d < 4; d++) {
+        if ((d === 2 && y === 0) || (d === 3 && y === h - 1)) {
+          shut = true;
+          continue;
+        }
+        const q = d === 0 ? k - x + ((x + w - 1) % w) : d === 1 ? k - x + ((x + 1) % w) : d === 2 ? k - w : k + w;
+        if (water[q] === 0) {
+          if (!seen[q]) {
+            seen[q] = 1;
+            stack.push(q);
+          }
+        } else if (water[q] !== 1 || ice[q] > 0) shut = true;
+      }
+    }
+    if (shut || comp.length > max) continue;
+    for (const k of comp) {
+      temp[k] += LAPSE * Math.max(0, elev[k]);
+      elev[k] = -2;
+      water[k] = 1;
+      biome[k] = classifyBiome(temp[k], precip[k], 1, 0);
+    }
+  }
 }
 
 /** 铺像素的前半段(整张主图和放大现算都要用):插值源、球面三角形覆盖、柔化后的海拔、最近地块 */
@@ -652,6 +709,8 @@ export function finishGully(r: Raster, j: GullyJob, heights: Float32Array): void
   const elev = r.elev;
   for (let i = 0; i < j.n; i++) {
     const k = idx[i];
+    // 记下以后又被去掉的陆地碎点(dropSpecks)已经是海,不叠
+    if (r.water[k] !== 0) continue;
     let eg = base[i] + heights[i];
     if (floor[i] && eg < 2) eg = 2;
     const c = cut[i];
@@ -785,6 +844,7 @@ export function shadeSphere(
   jTile: Float32Array,
   g: SphereGrid,
   R: number,
+  spacing: number,
   job: GullyJob | null,
   zoom: ZoomBase | null = null,
 ) {
@@ -796,6 +856,7 @@ export function shadeSphere(
   const FJ = JITTER_SIZE / 18 / 40;
   const fine2 = !!zoom && scale >= 2;
   const fine4 = !!zoom && scale >= 4;
+  const coarse = Math.min(2, Math.max(0, (spacing - COAST_FINE) / COAST_STEP));
   let ti = 0;
   for (let py = 0; py < h; py++) {
     const row = py * w;
@@ -856,9 +917,17 @@ export function shadeSphere(
         let rug = 0;
         if (cw > 0.01) {
           rug = P[o + 15] * fx + P[o + 16] * fy + P[o + 17];
-          const D = ((1.2 + 3.5 * rug) * scale * smoothstep(0.01, 0.5, cw)) / DETAIL_STD;
+          const flat = coarse * (1 - rug);
+          const sD = (scale * smoothstep(0.01, 0.5, cw)) / DETAIL_STD;
+          const D = (1.2 + 3.5 * rug) * sD;
           let wx = tri3(dTile, DETAIL_SIZE, 1, 211.3);
           let wy = tri3(dTile, DETAIL_SIZE, 1, 53.9);
+          if (flat > 0.02) {
+            // 粗网格的平原海岸:两层低频(波长约 56、28)把圆鼓的岸线掰出海湾和岬角
+            const m = (COAST_BEND * flat) / (1.2 + 3.5 * rug);
+            wx += m * (tri3(dTile, DETAIL_SIZE, 1 / 4, 401.9) + 0.5 * tri3(dTile, DETAIL_SIZE, 1 / 2, 433.7));
+            wy += m * (tri3(dTile, DETAIL_SIZE, 1 / 4, 277.3) + 0.5 * tri3(dTile, DETAIL_SIZE, 1 / 2, 129.1));
+          }
           if (fine2) {
             wx += 0.25 * tri3(dTile, DETAIL_SIZE, 2, 311.3);
             wy += 0.25 * tri3(dTile, DETAIL_SIZE, 2, 83.9);
