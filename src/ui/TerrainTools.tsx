@@ -28,7 +28,7 @@
 import { useEffect, useId, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react';
 import type { TerrainKind, TerrainOp } from '../gen/edits';
 import { SKETCH_COAST, SKETCH_MAX_PTS, SKETCH_R, sketchCoast, type SketchEdit, type SketchImage, type SketchKind, type SketchStroke } from '../gen/sketch';
-import { HEIGHT_M, HEIGHT_S, TERRAIN_MAX_PTS, TERRAIN_PRESETS as PRESETS, isHeightKind, isPointKind, liftAt, presetStrength, sameTerrain } from '../gen/terrainEdits';
+import { HEIGHT_M, HEIGHT_S, TERRAIN_MAX_PTS, TERRAIN_R, TERRAIN_PRESETS as PRESETS, isHeightKind, isPointKind, liftAt, presetStrength, sameTerrain } from '../gen/terrainEdits';
 import type { World } from '../gen/world';
 import type { Raster } from '../gen/raster';
 import { Icon, type IconName } from './icons';
@@ -310,7 +310,9 @@ function displayPts(pts: readonly number[], wrap: number): number[] {
 
 /** 这支笔现在多大(世界坐标的半径) */
 function radiusOf(t: TerrainToolState): number {
-  return isPlaceTool(t.tool) ? t.place[t.tool] : t.r;
+  if (isPlaceTool(t.tool)) return t.place[t.tool];
+  // 高度、气候的笔存成地形修改,半径最小 TERRAIN_R[0](草图的笔可以更细)
+  return isHeightTool(t.tool) || isClimateTool(t.tool) ? Math.max(TERRAIN_R[0], t.r) : t.r;
 }
 /** 画成一处地形修改的线(河、改气候)最多 TERRAIN_MAX_PTS 个点,草图的笔 SKETCH_MAX_PTS 个 */
 const capOf = (t: EditTool) => (t === 'river' || isClimateTool(t) || isHeightTool(t) ? TERRAIN_MAX_PTS : SKETCH_MAX_PTS);
@@ -349,7 +351,14 @@ export function terrainMove(w: [number, number] | null): boolean {
   // 按上一个点展开(跨 180° 经线接着画,不跳到地图另一头)
   const wx = near(w[0], lx);
   const far = (wx - lx) ** 2 + (w[1] - ly) ** 2 >= step * step;
-  const next = far && d.length < cap * 2 ? [...d, Math.round(wx), Math.round(w[1])] : d;
+  let next = far && d.length < cap * 2 ? [...d, Math.round(wx), Math.round(w[1])] : d;
+  // 抬高、压低、平滑、抹平每个点是一下:鼠标一下挪得远,中间按步长补上,涂出来和画的带子一样连着
+  if (next !== d && isDabTool(tool.tool)) {
+    const dist = Math.hypot(wx - lx, w[1] - ly);
+    const k = Math.min(Math.ceil(dist / step), cap - (d.length >> 1));
+    next = [...d];
+    for (let j = 1; j <= k; j++) next.push(Math.round(lx + ((wx - lx) * j) / k), Math.round(ly + ((w[1] - ly) * j) / k));
+  }
   if (next !== d) lastDab = performance.now();
   setDraft({ draft: next, cursor: [wx, w[1]] });
   return true;
@@ -375,14 +384,14 @@ export function terrainUp() {
   }
   if (isPlaceTool(tool.tool)) return;
   if (isHeightTool(tool.tool)) {
-    if (tool.tool === 'setHeight') return void addOp({ kind: 'setHeight', pts, r: tool.r, s: 1, h: tool.height, edge: tool.edge });
+    if (tool.tool === 'setHeight') return void addOp({ kind: 'setHeight', pts, r: radiusOf(tool), s: 1, h: tool.height, edge: tool.edge });
     // 按着 Alt:抬高、压低反过来
     const kind = draftAlt && tool.tool === 'lift' ? 'lower' : draftAlt && tool.tool === 'lower' ? 'lift' : tool.tool;
-    return void addOp({ kind, pts, r: tool.r, s: tool.power });
+    return void addOp({ kind, pts, r: radiusOf(tool), s: tool.power });
   }
   const fill = lassoOn(tool) && pts.length >= 6;
   if (isClimateTool(tool.tool)) {
-    const op: TerrainOp = { kind: tool.tool, pts, r: tool.r, s: PRESETS[tool.tool][tool.level][1] };
+    const op: TerrainOp = { kind: tool.tool, pts, r: radiusOf(tool), s: PRESETS[tool.tool][tool.level][1] };
     if (fill) op.f = 1;
     addOp(op);
     return;
@@ -702,8 +711,9 @@ function HeightField({ value, picking, phone }: { value: number; picking: boolea
 }
 
 /** 大小滑条:两头一个小点、一个大点,右边写半径 */
-function SizeSlider({ r }: { r: number }) {
-  return <Slider label="大小" act="terrain-size" min={SKETCH_R[0]} max={SKETCH_R[1]} value={r} onChange={(v) => setTerrainTool({ r: v })} show={r} />;
+function SizeSlider({ r, min = SKETCH_R[0] }: { r: number; min?: number }) {
+  const v = Math.max(min, r);
+  return <Slider label="大小" act="terrain-size" min={min} max={SKETCH_R[1]} value={v} onChange={(x) => setTerrainTool({ r: x })} show={v} />;
 }
 
 /**
@@ -884,7 +894,7 @@ export function TerrainPanel({ disabled, phone = false, mode = 'random', extra }
     <div className="tp-opts">
       {page === 'height' ? (
         <>
-          <SizeSlider r={t.r} />
+          <SizeSlider r={t.r} min={TERRAIN_R[0]} />
           {t.tool === 'setHeight' ? (
             <>
               <HeightField value={t.height} picking={t.picking} phone={phone} />
@@ -930,7 +940,7 @@ export function TerrainPanel({ disabled, phone = false, mode = 'random', extra }
               onPick={(v) => setTerrainTool({ method: v })}
             />
           )}
-          <SizeSlider r={t.r} />
+          <SizeSlider r={t.r} min={isClimateTool(t.tool) ? TERRAIN_R[0] : undefined} />
           {t.tool === 'mountain' && <Seg label="高低" act="terrain-height" items={HEIGHTS.map((name, i) => ({ v: i as 0 | 1 | 2, name }))} value={t.h} onPick={(v) => setTerrainTool({ h: v })} />}
           {isClimateTool(t.tool) && <Seg label="程度" act="terrain-level" items={LEVELS.map((name, i) => ({ v: i as 0 | 1 | 2, name }))} value={t.level} onPick={(v) => setTerrainTool({ level: v })} />}
         </>
@@ -1246,7 +1256,7 @@ function heightTip(t: TerrainToolState, dr: Draft, arrow: number): string | null
     return t.picking ? `${fmtM(e)} 米` : `${fmtM(e)} 米 → ${fmtM(t.height)} 米`;
   }
   if ((t.tool === 'lift' || t.tool === 'lower') && dr.draft) {
-    const d = liftAt({ kind: arrow < 0 ? 'lower' : 'lift', pts: dr.draft, r: t.r, s: t.power }, x, y, chord);
+    const d = liftAt({ kind: arrow < 0 ? 'lower' : 'lift', pts: dr.draft, r: radiusOf(t), s: t.power }, x, y, chord);
     return `${d < 0 ? '−' : '+'}${fmtM(Math.abs(d))} 米`;
   }
   return null;

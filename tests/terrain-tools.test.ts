@@ -175,6 +175,25 @@ describe('编辑地形:画', () => {
     expect(getTerrainTool().tool).toBe('setHeight');
   });
 
+  it('高度笔:鼠标一下挪得远,中间按步长补上点(涂出来是连着的);太细的笔按地形修改的最小半径存', () => {
+    setTerrainPage('height');
+    setTerrainTool({ tool: 'lower', r: 10, power: 1 });
+    drag([
+      [100, 100],
+      [200, 100],
+    ]);
+    const op = getEdits().terrain[0];
+    expect(op.kind).toBe('lower');
+    for (let k = 2; k < op.pts.length; k += 2) expect(Math.hypot(op.pts[k] - op.pts[k - 2], op.pts[k + 1] - op.pts[k - 1])).toBeLessThanOrEqual(4.5);
+    expect(op.pts.slice(-2)).toEqual([200, 100]);
+    setTerrainTool({ tool: 'smooth', r: 2 });
+    drag([
+      [300, 300],
+      [310, 300],
+    ]);
+    expect(getEdits().terrain[1]).toMatchObject({ kind: 'smooth', r: 3 });
+  });
+
   it('定高的「从地图上取」:点一下地图取那里的海拔(这一下不画),取完收起', () => {
     const elevation = new Float32Array([120, 1234.6]);
     const raster = { w: 4, h: 2, scale: 1 / 512, cell: Int32Array.from([0, 0, 1, 1, 0, 0, 1, 1]) };
