@@ -1526,6 +1526,29 @@ body.terrain-pan .stage.terrain-on:active {
   stroke-width: 3.5;
   stroke: rgba(20, 16, 12, 0.4);
 }
+/* 高度笔:淡白的带子(笔走过的地方);抬高 / 压低的光标圈里一个箭头,涂的时候圈里淡淡填白 */
+.tt-mark.k-height .tt-band {
+  stroke: #fff;
+  opacity: 0.28;
+}
+.terrain-marks .tt-arrow {
+  stroke: #fff;
+  stroke-width: 1.6;
+}
+.tt-cursor.k-height.on .tt-line {
+  stroke-width: 2;
+}
+.tt-cursor.k-height.on.k-arrow .tt-line {
+  fill: rgba(255, 255, 255, 0.12);
+}
+/* 高度笔指针旁的读数:深色圆角小条、白字 */
+.terrain-marks .tt-tip rect {
+  fill: rgba(20, 20, 24, 0.86);
+}
+.terrain-marks .tt-tip text {
+  fill: #fff;
+  font-variant-numeric: tabular-nums;
+}
 /* 河:亮蓝的线 */
 .terrain-marks .tt-river {
   stroke: rgba(120, 200, 255, 0.95);

@@ -15,6 +15,8 @@
  * - 海拔换算成米时,"最高峰"取样跳过改过的地块(返回的 touched):一座大火山不会把全世界的山都压矮
  * - 随机洼地之后(carveLakes):在湖的位置挖一个碗形洼地,碗底比碗沿外一圈的最低处还低,
  *   排水(Priority-Flood)自己把它灌满成湖;用户挖的湖不受"太大的湖填成平地"的限制
+ * - 随机洼地之后、挖湖之前(applyHeightPens):高度五种笔(抬高 / 压低 / 平滑 / 抹平 / 定高)直接改最后的海拔(米),
+ *   改过以后高过海平面的是陆地、低于海平面的是海;之后的湖、河、气候、群落照新高度算。侵蚀已经跑完,涂的高度不会被抹掉
  * - 最后(volcanoPeaks):每座火山的峰顶地块,手绘风在那里画火山符号
  *
  * 确定性:不用随机数;山脉脊上的起伏、新海岸线的细碎用 subSeed(seed, 'terrain-edit') 的噪声。
@@ -41,6 +43,16 @@ const CLIMATE_PRESET: [r: number, s: number][] = [
   [40, 1],
   [40, 1.6],
 ];
+/** 高度五种(编辑地形的高度页,大小、力度都是滑条;这里只给 AI 改写、类型齐全用) */
+const HEIGHT_PRESET: [r: number, s: number][] = [
+  [20, 0.4],
+  [30, 0.4],
+  [50, 0.4],
+];
+/** 高度五种的力度范围(定高不用力度,存 1) */
+export const HEIGHT_S: readonly [number, number] = [0.05, 1];
+/** 定高的海拔范围(米) */
+export const HEIGHT_M: readonly [number, number] = [-6000, 9000];
 
 /** 每种工具三档(小 / 中 / 大;山脉是低 / 中 / 高)的大小 r(世界坐标)和强度 s:改地形的工具条、AI 改写共用 */
 export const TERRAIN_PRESETS: Record<TerrainKind, [r: number, s: number][]> = {
@@ -79,6 +91,11 @@ export const TERRAIN_PRESETS: Record<TerrainKind, [r: number, s: number][]> = {
   dry: CLIMATE_PRESET,
   warm: CLIMATE_PRESET,
   cold: CLIMATE_PRESET,
+  lift: HEIGHT_PRESET,
+  lower: HEIGHT_PRESET,
+  smooth: HEIGHT_PRESET,
+  flatten: HEIGHT_PRESET,
+  setHeight: HEIGHT_PRESET,
 };
 
 /**
@@ -97,11 +114,13 @@ export function presetStrength(kind: TerrainKind, r: number): number {
   return p[p.length - 1][1];
 }
 
-const KINDS: readonly TerrainKind[] = ['volcano', 'range', 'lake', 'raise', 'sink', 'river', 'wet', 'dry', 'warm', 'cold'];
+const KINDS: readonly TerrainKind[] = ['volcano', 'range', 'lake', 'raise', 'sink', 'river', 'wet', 'dry', 'warm', 'cold', 'lift', 'lower', 'smooth', 'flatten', 'setHeight'];
 /** 只有一个点的种类 */
 export const isPointKind = (k: TerrainKind) => k === 'volcano' || k === 'lake';
 /** 改气候的四种(不动地形,算完气候后改降水 / 气温) */
 export const isClimateKind = (k: TerrainKind) => k === 'wet' || k === 'dry' || k === 'warm' || k === 'cold';
+/** 高度五种(改最后的海拔) */
+export const isHeightKind = (k: TerrainKind) => k === 'lift' || k === 'lower' || k === 'smooth' || k === 'flatten' || k === 'setHeight';
 
 // ---------------------------------------------------------------------------
 // 清理(读档、加一处修改时用)
@@ -119,7 +138,8 @@ export const nearLon = (x: number, ref: number) => Math.round(x - TERRAIN_W * Ma
  * 清理一处地形修改:种类不认识、坐标 / 大小 / 强度不是有限数、点不够的 = null;
  * 坐标取整:y 夹在两极之间 [0, TERRAIN_H];x 是经度,不夹 —— 第一个点取模到 [0, TERRAIN_W),之后每个点挪到离上一个点
  * 最近的那一圈(跨 180° 经线的一笔是连着的,x 可以超出 [0, TERRAIN_W));
- * 大小、强度夹到范围内(大小保留一位小数,强度两位);火山、湖只留第一个点,折线最多 TERRAIN_MAX_PTS 个点。
+ * 大小、强度夹到范围内(大小保留一位小数,强度两位;高度五种的力度夹到 HEIGHT_S,定高的力度一律 1);火山、湖只留第一个点,折线最多 TERRAIN_MAX_PTS 个点。
+ * 定高要有海拔 h(取整、夹到 HEIGHT_M;没有 = null),边缘 edge 只认 0 / 1 / 2(别的当没有 = 适中)。
  * 本来就合格的原样返回(同一个对象)
  */
 export function cleanTerrainOp(x: unknown): TerrainOp | null {
@@ -140,16 +160,24 @@ export function cleanTerrainOp(x: unknown): TerrainOp | null {
   const s0 = num(o.s);
   if (r0 === null || s0 === null) return null;
   const r = Math.round(clamp(r0, TERRAIN_R[0], TERRAIN_R[1]) * 10) / 10;
-  const s = Math.round(clamp(s0, TERRAIN_S[0], TERRAIN_S[1]) * 100) / 100;
+  const height = isHeightKind(kind);
+  const s = kind === 'setHeight' ? 1 : Math.round(clamp(s0, ...(height ? HEIGHT_S : TERRAIN_S)) * 100) / 100;
+  // 定高的海拔、边缘
+  const h0 = kind === 'setHeight' ? num(o.h) : null;
+  if (kind === 'setHeight' && h0 === null) return null;
+  const h = h0 === null ? undefined : Math.round(clamp(h0, HEIGHT_M[0], HEIGHT_M[1]));
+  const edge = kind === 'setHeight' && (o.edge === 0 || o.edge === 1 || o.edge === 2) ? o.edge : undefined;
   // 湖岸曲折程度:只有湖带,夹到 0–1、保留两位小数;不是有限数的当没有
   const e0 = kind === 'lake' ? num(o.e) : null;
   const e = e0 === null ? undefined : Math.round(clamp(e0, 0, 1) * 100) / 100;
   // 圈起来填满:只有气候四种带,至少三个点才圈得成
   const f = isClimateKind(kind) && o.f === 1 && pts.length >= 6 ? 1 : undefined;
   const same =
-    Object.keys(o).length === 4 + (o.e === undefined ? 0 : 1) + (o.f === undefined ? 0 : 1) &&
+    Object.keys(o).length === 4 + (o.e === undefined ? 0 : 1) + (o.f === undefined ? 0 : 1) + (o.h === undefined ? 0 : 1) + (o.edge === undefined ? 0 : 1) &&
     e === o.e &&
     f === o.f &&
+    h === o.h &&
+    edge === o.edge &&
     r === o.r &&
     s === o.s &&
     raw.length === pts.length &&
@@ -158,6 +186,8 @@ export function cleanTerrainOp(x: unknown): TerrainOp | null {
   const out: TerrainOp = { kind, pts, r, s };
   if (e !== undefined) out.e = e;
   if (f !== undefined) out.f = f;
+  if (h !== undefined) out.h = h;
+  if (edge !== undefined) out.edge = edge;
   return out;
 }
 
@@ -235,7 +265,17 @@ export function sameTerrain(a: readonly TerrainOp[], b: readonly TerrainOp[]): b
   if (a.length !== b.length) return false;
   return a.every((x, i) => {
     const y = b[i];
-    return x.kind === y.kind && x.r === y.r && x.s === y.s && x.e === y.e && x.f === y.f && x.pts.length === y.pts.length && x.pts.every((v, j) => v === y.pts[j]);
+    return (
+      x.kind === y.kind &&
+      x.r === y.r &&
+      x.s === y.s &&
+      x.e === y.e &&
+      x.f === y.f &&
+      x.h === y.h &&
+      x.edge === y.edge &&
+      x.pts.length === y.pts.length &&
+      x.pts.every((v, j) => v === y.pts[j])
+    );
   });
 }
 
@@ -364,6 +404,99 @@ export function applyTerrainTectonics(mesh: Mesh, tect: Tectonics, ops: readonly
     }
   }
   return touched;
+}
+
+// ---------------------------------------------------------------------------
+// 随机洼地之后、挖湖之前:高度五种笔
+
+/** 抬高 / 压低:力度 1 时每个点在笔心抬(压)多少米 */
+const LIFT_M = 60;
+/** 平滑、抹平:力度 1 时每个点在笔心往目标走多少(比例) */
+const SMOOTH_K = 0.5;
+const FLAT_K = 0.5;
+/** 定高的三种边缘(硬 / 适中 / 软):笔半径的多少倍以内照足,往外到笔的边上渐弱到 0 */
+const EDGE_IN = [0.85, 0.5, 0.15];
+
+/** 笔心到边上的权重(t = 离笔心的距离 / 半径):(1 − t²)²,笔心 1、边上 0,没有折角(涂出来没有台阶、尖刺) */
+export const penFalloff = (t: number) => (t >= 1 ? 0 : (1 - t * t) * (1 - t * t));
+
+/** 定高在离笔走过的线 t 个半径处的权重(1 = 正好是写的海拔) */
+export const setHeightWeight = (t: number, edge: 0 | 1 | 2 = 1) => (t >= 1 ? 0 : 1 - smoothstep(EDGE_IN[edge], 1, t));
+
+/**
+ * 抬高 / 压低一笔在世界坐标点 (x, y) 处一共抬了多少米(压低是负数;编辑地形的读数用,和 applyHeightPens 同一个算法)。
+ * dist = 两个世界坐标点的距离(生成时是球面上的弦长)
+ */
+export function liftAt(op: TerrainOp, x: number, y: number, dist: (ax: number, ay: number, bx: number, by: number) => number): number {
+  if (op.kind !== 'lift' && op.kind !== 'lower') return 0;
+  let sum = 0;
+  for (let k = 0; k < op.pts.length; k += 2) sum += penFalloff(dist(op.pts[k], op.pts[k + 1], x, y) / op.r);
+  return (op.kind === 'lift' ? 1 : -1) * op.s * LIFT_M * sum;
+}
+
+/**
+ * 按先后套上高度五种笔(原地改 elevation、land):
+ * - 抬高 / 压低、平滑、抹平:笔按过的每个点(按住不动时同一个点记好几次)各改一下笔下的地块,权重 penFalloff,越涂越多;
+ *   平滑 = 往四周邻居的平均走,抹平 = 往这一笔第一个点(按下的地方)那时的海拔走
+ * - 定高:笔走过的带子里改成 h 米,边缘按 edge 渐弱(setHeightWeight)
+ * 改完以后,改过的地块高过海平面的是陆地、不高于海平面的是海。
+ * 返回改过的地块(1 = 改过);没有这几种 = null(什么都没动)
+ */
+export function applyHeightPens(mesh: Mesh, land: Uint8Array, elevation: Float32Array, ops: readonly TerrainOp[]): Uint8Array | null {
+  const pens = ops.filter((o) => isHeightKind(o.kind));
+  if (!pens.length) return null;
+  const { n, adjStart, adj } = mesh;
+  const geo = geometryOf(mesh);
+  const mask = new Uint8Array(n);
+  let at: ((x: number, y: number) => number) | null = null;
+  for (const op of pens) {
+    const r = op.r;
+    if (op.kind === 'setHeight') {
+      const h = op.h ?? 0;
+      const sh = geo.polyline(op.pts, r);
+      for (let i = 0; i < n; i++) {
+        if (!sh.covers(i)) continue;
+        const w = setHeightWeight(sh.nearest(mesh.x[i], mesh.y[i]).d / r, op.edge);
+        if (w <= 0) continue;
+        elevation[i] = w >= 1 ? h : elevation[i] + (h - elevation[i]) * w;
+        mask[i] = 1;
+      }
+      continue;
+    }
+    const sign = op.kind === 'lower' ? -1 : 1;
+    let target = 0;
+    if (op.kind === 'flatten') {
+      at ??= geo.locator();
+      target = elevation[at(op.pts[0], op.pts[1])];
+    }
+    for (let k = 0; k < op.pts.length; k += 2) {
+      const px = op.pts[k];
+      const py = op.pts[k + 1];
+      const cells = geo.cellsNearPoint(px, py, r);
+      // 平滑:这一个点笔下的地块一起算(都按改之前的邻居),再一起写回去
+      const next = op.kind === 'smooth' ? new Float64Array(cells.length) : null;
+      for (let j = 0; j < cells.length; j++) {
+        const i = cells[j];
+        const f = penFalloff(geo.distTo(i, px, py) / r);
+        if (op.kind === 'lift' || op.kind === 'lower') elevation[i] += sign * op.s * LIFT_M * f;
+        else if (op.kind === 'flatten') elevation[i] += (target - elevation[i]) * Math.min(1, op.s * FLAT_K * f);
+        else {
+          let sum = 0;
+          for (let a = adjStart[i]; a < adjStart[i + 1]; a++) sum += elevation[adj[a]];
+          const avg = sum / (adjStart[i + 1] - adjStart[i]);
+          next![j] = elevation[i] + (avg - elevation[i]) * Math.min(1, op.s * SMOOTH_K * f);
+        }
+        if (f > 0) mask[i] = 1;
+      }
+      if (next) for (let j = 0; j < cells.length; j++) elevation[cells[j]] = next[j];
+    }
+  }
+  for (let i = 0; i < n; i++) {
+    if (!mask[i]) continue;
+    if (land[i] && elevation[i] <= 0) land[i] = 0;
+    else if (!land[i] && elevation[i] > 0) land[i] = 1;
+  }
+  return mask;
 }
 
 // ---------------------------------------------------------------------------

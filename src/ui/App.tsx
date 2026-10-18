@@ -266,6 +266,7 @@ import {
   getTerrainTool,
   setTerrainTool,
   setTerrainWrap,
+  setTerrainProbe,
   terrainClick,
   terrainDown,
   terrainMove,
@@ -1091,8 +1092,8 @@ export function App() {
         if (m.type === 'snapshot') return void offerSnapshot(m.snapshot);
         if (m.type === 'progress') setProgress((s) => ({ stage: m.stage, pct: m.pct, regen: regenRef.current?.id === m.id, seed: s?.seed }));
         else if (m.type === 'done') {
-          // 读原件来的不算生成速度
-          if (!frozenLoad.current) noteGenSpeed(m.world.params.cells, m.genMs, m.ms);
+          // 读原件来的、只算了后一半的(编辑地形接着上一次)不算生成速度
+          if (!frozenLoad.current && !m.reused) noteGenSpeed(m.world.params.cells, m.genMs, m.ms);
           // 换了世界:各段的主图补丁都作废
           eraPatches.current.clear();
           dropComposed();
@@ -2613,6 +2614,8 @@ export function App() {
   // 世界东西相连:左右无限拖动(见 mapWrap.ts)。wrapW = 一整圈的世界宽度,还没有世界时 0
   const wrapW = data ? wrapOf(data.world) : 0;
   setTerrainWrap(wrapW);
+  // 编辑地形的高度笔按地图上现在这个世界读海拔
+  setTerrainProbe(data);
   /**
    * 窄屏底部被卡片和时间轴胶囊盖住的那一截:没选东西时是收起的世界卡片 + 胶囊,详情卡片开着时是半高的卡片 + 胶囊。
    * 地图可以往上推进这一截(见 mapWrap.ts 的 StageBox.padB),下半截的国家也能飞到上方看得见的地方;卡片收回去后慢慢回到原来的范围
