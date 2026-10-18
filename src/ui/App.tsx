@@ -116,6 +116,7 @@ import {
   type WorldEdits,
 } from '../gen/edits';
 import { sameTerrain, sameUpheavals } from '../gen/terrainEdits';
+import { multisetDiff } from '../gen/util';
 import { sameMix, type NameMix } from '../gen/names/mix';
 import { cleanFrontier, cleanOrigins, sameFrontier, sameOrigins, type Frontier, type Origins } from '../gen/civ/frontier';
 import type { RasterPatch } from '../gen/rasterPatch';
@@ -1544,13 +1545,12 @@ export function App() {
     if (!sameTerrain(getEdits().terrain, genTerrain.current) || !sameSketch(getEdits().sketch, genSketch.current)) return; // 等改地形那次生成一起推
     // 从哪一年起变:新加的 / 删掉的干预、地形大事里最早的那一年(重推完时间轴停在这里)
     const before = civEdits.current;
-    const ks = <T,>(l: readonly T[]) => l.map((v) => JSON.stringify(v));
-    const [a, b] = [ks(list), ks(before)];
-    const changed = [...list.filter((_, i) => !b.includes(a[i])), ...before.filter((_, i) => !a.includes(b[i]))];
+    const d = multisetDiff(list, before);
+    const changed = [...d.added, ...d.removed];
     const upBefore = civUps.current ?? [];
     const upNow = ups ?? [];
-    const [ua, ub] = [ks(upNow), ks(upBefore)];
-    const upChanged = [...upNow.filter((_, i) => !ub.includes(ua[i])), ...upBefore.filter((_, i) => !ua.includes(ub[i]))];
+    const ud = multisetDiff(upNow, upBefore);
+    const upChanged = [...ud.added, ...ud.removed];
     const years = [...(changed.length || upChanged.length ? changed : list).map((v) => Math.floor(v.from)), ...upChanged.map((u) => u.year)].filter((y) => Number.isFinite(y));
     // 只换了推演年数:从原来和现在的结束年份里早的那一年起变(之前的历史不变)
     const oldEnd = civYears.current ?? END_YEAR_DEFAULT;
