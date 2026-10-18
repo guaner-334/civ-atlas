@@ -2227,7 +2227,10 @@ export function App() {
     const title = w.map ? undefined : nextTitle(w.save.title || '未命名世界');
     const mapCheck = w.save.generator < GENERATOR_VERSION && w.save.check ? w.save.check : undefined;
     setNewDlg(null);
-    openTarget({ ...draftTarget(w.save.params, null, edits, title), mapCheck });
+    // 一开始就存成没建完的(刷新、后退再前进都回得来;地图出自哪个世界、文明种子都在存档里),底稿出处跟着;什么都没动就返回,这一份删掉
+    const d = draftTarget(w.save.params, null, edits, title);
+    derivedRef.current = { id: d.id, sig: draftSig(d.params, d.edits, d.title) };
+    openTarget({ ...d, pristine: false, origin: w.save.origin ?? null, mapCheck });
   };
   const startNewCivRef = useRef(startNewCiv);
   startNewCivRef.current = startNewCiv;
@@ -2336,7 +2339,16 @@ export function App() {
         },
       };
     }
-    return { label: '我的世界', onClick: () => navBack({ page: 'home' }) || goHome() };
+    return {
+      label: '我的世界',
+      onClick: () => {
+        if (navBack({ page: 'home' })) return;
+        // 在一张地图上打造、什么都没动就返回:那一份删掉(后退的话 routeNav 删)
+        const left = derivedUntouched();
+        if (left) deleteWorld(left);
+        goHome();
+      },
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft, stageBase, v]);
   // ---- 浏览器的后退、前进(nav.ts):换到记着的那一步 ----

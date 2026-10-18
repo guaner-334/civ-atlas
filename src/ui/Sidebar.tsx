@@ -408,7 +408,7 @@ export function WorldHome(p: Pick<SidebarProps, 'civ' | 'data' | 'params' | 'gen
   const edits = useEdits();
   const era = edits.era;
   const ok = !!civ && civ.viable;
-  // 这张地图上已有几个文明(连同这个):只有存着的、建好了的世界才有这一行
+  // 这张地图上已有几个文明(连同这个):只有存着的、建好了的世界才有这一行(存不进浏览器的不算:这里数出 0 个)
   const saves = useSavesVersion();
   const now = currentWorld();
   const curId = now?.kind === 'created' ? now.id : null;
@@ -607,7 +607,7 @@ export function WorldHome(p: Pick<SidebarProps, 'civ' | 'data' | 'params' | 'gen
               <Icon name="chevron" size={14} className="sb-chev" />
             </button>
           )}
-          {mates !== null && (
+          {!!mates && (
             <button className="sb-row" data-act="side-new-civ" disabled={p.generating || p.replay.on} onClick={() => curId && startNewCiv(curId)} title="用这张地图一开始的样子，换一个文明种子从第 0 年推演">
               <Icon name="map" size={17} className="sb-ico" />
               <span className="sb-row-main">

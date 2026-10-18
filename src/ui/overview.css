@@ -1618,3 +1618,7 @@ button.ov-kv-row:hover {
   font-size: 12px;
   color: var(--ink-2);
 }
+/* 「地图」页右栏:没有「这张地图上的文明」那一块时,回放那一组顶上不空出间距 */
+.ov-sec > h3.ov-gap:first-child {
+  margin-top: 0;
+}

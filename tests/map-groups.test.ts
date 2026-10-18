@@ -8,6 +8,7 @@ import { makeSave } from '../src/gen/savefile';
 import * as saveStore from '../src/ui/saveStore';
 import { clearEdits, seedTag, setCivSeed, setEdits } from '../src/ui/editsStore';
 import { mapBriefOf, mapGroups, mapKeyOf, mapLine, mapMates, mapName } from '../src/ui/mapGroups';
+import { bundleText, importBundle, parseBundle } from '../src/ui/bundle';
 import type { StoredWorld } from '../src/ui/saveStore';
 
 const range: TerrainOp = { kind: 'range', pts: [1156, 380, 1215, 430, 1273, 483], r: 23, s: 1 };
@@ -128,6 +129,36 @@ describe('保存地图', () => {
     expect(saveStore.loadWorld(w.id)?.save.edits.names).toEqual({});
     // 建好的世界不能这样存
     expect(saveStore.saveCurrentAsMap()).toBe(false);
+  });
+
+  it('全部存成文件再放回来:只存了地图的那份还是只有地图', () => {
+    const params = { ...DEFAULT_PARAMS, seed: 512 };
+    setEdits(EMPTY_EDITS);
+    saveStore.attachWorld({ id: 'wmtest0002', params, check: 'c512', kind: 'draft', saved: EMPTY_EDITS });
+    // 再放一个同样参数、没改过的建好的世界:放回来时不能和地图那份当成同一个
+    saveStore.importSave(makeSave(params, EMPTY_EDITS, 'c512'));
+    expect(saveStore.saveCurrentAsMap()).toBe(true);
+    const text = bundleText()!.text;
+    g.localStorage = new FakeStorage();
+    saveStore._resetForTest();
+    const r = parseBundle(text);
+    if (!r?.ok) throw new Error('读不出');
+    expect(importBundle(r.bundle).added).toHaveLength(2);
+    const back = saveStore.listWorlds();
+    expect(back.filter((w) => w.map)).toHaveLength(1);
+    expect(back.filter((w) => !w.map)).toHaveLength(1);
+  });
+
+  it('在别的世界的地图上打造:新建中就带着那个世界的底稿出处', () => {
+    const origin = { by: '明月', title: '苍澜界', url: 'https://atlas.example.com/s/k7Qm2xPa' };
+    const edits = newHistoryEdits(EMPTY_EDITS, { civSeed: 5, from: 'wmsrc00001' });
+    setEdits(edits);
+    saveStore.attachWorld({ id: 'wmtest0003', params: DEFAULT_PARAMS, check: 'c', kind: 'draft', saved: edits, origin });
+    expect(saveStore.loadWorld('wmtest0003')?.save.origin).toEqual(origin);
+    // 平常的新建不带
+    clearEdits();
+    saveStore.attachWorld({ id: 'wmtest0004', params: DEFAULT_PARAMS, check: 'c', kind: 'draft', saved: EMPTY_EDITS, origin });
+    expect(saveStore.currentWorld()?.origin).toBeUndefined();
   });
 
   it('同步来的标记:只存了地图的、新建中的不会同时是两样', () => {

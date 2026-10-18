@@ -375,6 +375,8 @@ function MapCivs({ id, disabled }: { id: string; disabled: boolean }) {
   const edits = useEdits();
   const saves = useSavesVersion();
   const mates = useMemo(() => mapMates(listWorlds(), id, { map: edits.map }), [saves, id, edits.map]);
+  // 存不进浏览器的(满了)不在列表里:没法从它打造,这一块不显示
+  if (!mates.some((w) => w.id === id)) return null;
   return (
     <>
       <h3>

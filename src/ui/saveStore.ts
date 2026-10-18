@@ -271,7 +271,7 @@ export function setReopenHandler(f: ((id: string) => void) | null) {
 
 /** 别的标签页改了浏览器存储(storage 事件;单测直接调):key = null 是整个清空 */
 export function otherTabChanged(key: string | null, newValue: string | null): void {
-  if (key !== null && ![PREFIX, THUMB, META, NOTES, LEGACY].some((p) => key.startsWith(p))) return;
+  if (key !== null && ![PREFIX, THUMB, MAPTHUMB, META, NOTES, LEGACY].some((p) => key.startsWith(p))) return;
   const c = current;
   // 整个清空:存过的当前世界也没了
   const cleared = key === null && !!c && (c.kind === 'created' || (c.kind === 'draft' && !c.pristine)) && store().get(PREFIX + c.id) === null;
@@ -1067,7 +1067,8 @@ export function attachWorld(spec: AttachSpec) {
     base: spec.kind === 'draft' ? (spec.base ?? undefined) : undefined,
     saved: spec.saved,
     savedView: withGraticule(spec.view ?? prev?.view ?? DEFAULT_VIEW),
-    origin: spec.kind === 'draft' ? undefined : (cleanOrigin(spec.origin) ?? undefined),
+    // 新建中的没有底稿出处;在别的世界的地图上打造的文明例外:地图出自那里,出处跟着(建好以后侧栏照样写)
+    origin: spec.kind === 'draft' && !spec.saved?.map?.from ? undefined : (cleanOrigin(spec.origin) ?? undefined),
     original: spec.kind === 'draft' || !spec.original || spec.original.generator >= GENERATOR_VERSION ? undefined : spec.original,
     frozen: spec.kind === 'created' && spec.frozen !== undefined && spec.frozen < GENERATOR_VERSION ? spec.frozen : undefined,
   };
