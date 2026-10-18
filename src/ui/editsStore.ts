@@ -13,7 +13,7 @@ import { useSyncExternalStore } from 'react';
 import { EMPTY_EDITS, END_YEAR_DEFAULT, MARKS_MAX, cleanEndYear, MARK_REGIONS_TOTAL, cleanIntervention, cleanMark, markRegionTotal, sameMark, markAiName, nextMarkId, type AuthorMark, type Intervention, type TerrainOp, type Upheaval, type WorldEdits } from '../gen/edits';
 import { TERRAIN_MAX_OPS, UPHEAVALS_MAX, cleanTerrainOp, cleanUpheaval } from '../gen/terrainEdits';
 import { SKETCH_MAX_STROKES, cleanSketch, cleanSketchImage, cleanSketchStroke, encodeLayer, sketchCoast, sketchFill, type SketchEdit, type SketchFill, type SketchStroke } from '../gen/sketch';
-import { PLATE_MAX_OPS, cleanPlateOp, type PlateOp } from '../gen/plateEdits';
+import { PLATE_MAX_OPS, cleanPlateImage, cleanPlateOp, type PlateImage, type PlateOp } from '../gen/plateEdits';
 import { CHARACTERS_MAX, cleanCharacter, nextCharacterId, sameCharacter, type AuthorCharacter } from '../gen/characters';
 import { showToast } from './toastStore';
 import { cleanMix, sameMix, type NameMix } from '../gen/names/mix';
@@ -699,8 +699,24 @@ export function setPlateOrogeny(on: boolean, coast?: number, fill?: SketchFill |
   const now = state.sketch;
   if ((now?.plates?.orogeny !== false) === on) return;
   const base: SketchEdit = now ?? freshSketch('auto', coast, fill);
-  const ops = base.plates?.ops ?? [];
-  putSketch({ ...base, plates: on ? { ops } : { ops, orogeny: false } });
+  const { orogeny: _, ...pl } = base.plates ?? { ops: [] };
+  void _;
+  putSketch({ ...base, plates: on ? pl : { ...pl, orogeny: false } });
+}
+
+/**
+ * 草图:照一张图分板块(null = 去掉)。换了分法,之前的板块改动(指的是原来的板块)一起清掉,造山开关留着。
+ * 还没有草图时新开一张(海岸线、程序补全用 coast、fill)。返回清掉了几处改动;没换成(格子不合格)= -1
+ */
+export function setPlateImage(img: PlateImage | null, coast?: number, fill?: SketchFill | 'free'): number {
+  const now = state.sketch;
+  const c = img ? cleanPlateImage(img) : null;
+  if (img && !c) return -1;
+  if (!c && !now?.plates?.image) return 0;
+  const dropped = now?.plates?.ops.length ?? 0;
+  const base: SketchEdit = now ?? freshSketch('auto', coast, fill);
+  const off = base.plates?.orogeny === false;
+  return putSketch({ ...base, plates: { ops: [], ...(c ? { image: c } : {}), ...(off ? { orogeny: false as const } : {}) } }) ? dropped : -1;
 }
 
 // ---- 作者标记 ----

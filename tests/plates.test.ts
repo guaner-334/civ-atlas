@@ -6,12 +6,14 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { cleanSketch, sketchGrid, type SketchEdit } from '../src/gen/sketch';
-import { PLATE_MAX_OPS, cleanPlateOp, cleanPlates, driftOf, driftText, type PlateEdit, type PlateOp } from '../src/gen/plateEdits';
+import { PLATE_IMAGE_MAX, PLATE_MAX_OPS, cleanPlateImage, cleanPlateOp, cleanPlates, driftOf, driftText, plateImageCount, type PlateEdit, type PlateOp } from '../src/gen/plateEdits';
+import { placeOnLayer, plateRegions, preparePicture } from '../src/gen/sketchImage';
+import { LAYER_H, LAYER_W, encodeLayer } from '../src/gen/sketch';
 import { makeSave, parseSave, saveText, worldCheck } from '../src/gen/savefile';
 import { EMPTY_EDITS } from '../src/gen/edits';
 import { rasterize } from '../src/gen/raster';
 import { PLATE_ARROW_L, plateArrows } from '../src/render/layers';
-import { clearEdits, getEdits, setPlateOrogeny } from '../src/ui/editsStore';
+import { addPlateOp, clearEdits, getEdits, setPlateImage, setPlateOrogeny } from '../src/ui/editsStore';
 import {
   clearAllTerrain,
   redoTerrain,
@@ -311,3 +313,103 @@ describe('界面:板块页', () => {
     expect(getEdits().sketch!.plates!.ops).toHaveLength(1);
   });
 });
+
+/** 合成一张板块图:8 个点的 Voronoi(东西绕圈,边界弯一点),每块一种颜色,块之间描黑线 */
+function platePicture(lines = true) {
+  const W = 400;
+  const H = 200;
+  const pts = [[50, 50], [150, 40], [260, 60], [350, 45], [75, 150], [200, 130], [300, 160], [380, 140]];
+  const cols = [[230, 120, 120], [120, 200, 120], [120, 140, 230], [230, 210, 110], [190, 120, 210], [110, 210, 210], [240, 160, 90], [160, 160, 160]];
+  const data = new Uint8ClampedArray(W * H * 4);
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const qx = x + 4 * Math.sin(y / 11);
+      const qy = y + 4 * Math.sin(x / 15);
+      let b = 0;
+      let bd = Infinity;
+      let b2 = Infinity;
+      pts.forEach(([px, py], k) => {
+        const dx = Math.min(Math.abs(qx - px), W - Math.abs(qx - px));
+        const d = Math.hypot(dx, qy - py);
+        if (d < bd) [b2, bd, b] = [bd, d, k];
+        else if (d < b2) b2 = d;
+      });
+      const c = lines && b2 - bd < 1.5 ? [20, 20, 20] : cols[b];
+      data.set([...c, 255], (y * W + x) * 4);
+    }
+  }
+  return { pic: preparePicture({ data, width: W, height: H }), pts };
+}
+function plateLayer(lines = true) {
+  const { pic, pts } = platePicture(lines);
+  const r = plateRegions(pic, PLATE_IMAGE_MAX);
+  return { r, layer: placeOnLayer(r.values, pic.w, pic.h, { fit: 'fill' }), pts };
+}
+
+describe('照图分', () => {
+  it('按颜色分成一块块:描线、不描线都认得出 8 块;左右两边碰头的同色两块并成一块', () => {
+    for (const lines of [true, false]) {
+      const { r, layer } = plateLayer(lines);
+      expect(r.count).toBe(8);
+      // 几乎每一格都分到了块(线、太碎的才是 0)
+      expect(layer.filter((v) => v > 0).length).toBeGreaterThan(LAYER_W * LAYER_H * 0.9);
+    }
+  });
+
+  it('清理:分出来不到两块、块号超过上限的不要;名字去掉控制字符', () => {
+    const { layer } = plateLayer();
+    const cells = encodeLayer(layer);
+    const ok = { name: 'a.png', cells };
+    expect(cleanPlateImage(ok)).toBe(ok);
+    expect(cleanPlateImage({ name: 'a\u0001b.png', cells })).toEqual({ name: 'ab.png', cells });
+    expect(cleanPlateImage({ name: 'x', cells: encodeLayer(new Uint8Array(LAYER_W * LAYER_H).fill(1)) })).toBeNull();
+    expect(cleanPlateImage({ name: 'x', cells: encodeLayer(layer.map((v) => (v ? v + PLATE_IMAGE_MAX : 0))) })).toBeNull();
+    expect(plateImageCount(ok)).toBe(8);
+    expect(cleanPlates({ ops: [], image: ok })).toEqual({ ops: [], image: ok });
+  });
+
+  it('生成:板块换成图上的 8 块,每块在图上那块的位置;同一张图同一个种子生成同一个世界;改动叠在上面', () => {
+    const { layer, pts } = plateLayer();
+    const image = { name: 'a.png', cells: encodeLayer(layer) };
+    const w = gen({ ops: [], image });
+    expect(w.tect.plateCount).toBe(8);
+    // 图上每个点(图宽 400 → 世界 2048)那里的板块各不相同
+    const geoPlate = (x: number, y: number) => {
+      let best = 0;
+      let bd = Infinity;
+      for (let i = 0; i < w.mesh.n; i++) {
+        const d = Math.hypot(w.mesh.x[i] - x, w.mesh.y[i] - y);
+        if (d < bd) [best, bd] = [i, d];
+      }
+      return w.tect.plate[best];
+    };
+    const ids = pts.map(([x, y]) => geoPlate((x / 400) * 2048, (y / 200) * 1024));
+    expect(new Set(ids).size).toBe(8);
+    expect(worldCheck(gen({ ops: [], image }))).toBe(worldCheck(w));
+    // 漂移按种子另取:每块都在动
+    for (let k = 0; k < 8; k++) expect(Math.hypot(w.tect.plateVx[k], w.tect.plateVy[k])).toBeGreaterThan(0.1);
+    // 改动叠在照图分的板块上:改第一块往北
+    const [x0, y0] = [(pts[5][0] / 400) * 2048, (pts[5][1] / 200) * 1024];
+    const w2 = gen({ ops: [{ kind: 'set', pts: [Math.round(x0), Math.round(y0)], dir: 0, speed: 8 }], image });
+    const d = driftOf(w2.tect.plateVx[ids[5]], w2.tect.plateVy[ids[5]]);
+    expect(d.speed).toBeCloseTo(8, 3);
+    expect(Math.min(d.dir, 360 - d.dir)).toBeLessThan(0.01);
+  });
+
+  it('照图分存进存档、读回来一样;换了分法之前的板块改动清掉,造山开关留着;去掉回到程序的板块', () => {
+    const { layer } = plateLayer();
+    const image = { name: 'a.png', cells: encodeLayer(layer) };
+    const back = parseSave(saveText(makeSave(SMALL, { ...EMPTY_EDITS, sketch: { rest: 'auto', strokes: [], plates: { ops: [], image } } }, 'x')));
+    expect(back.ok && back.save.edits.sketch?.plates?.image).toEqual(image);
+    clearEdits();
+    addPlateOp({ kind: 'set', pts: [100, 100], dir: 90 });
+    setPlateOrogeny(false);
+    expect(setPlateImage(image)).toBe(1);
+    expect(getEdits().sketch!.plates).toEqual({ ops: [], image, orogeny: false });
+    expect(setPlateImage({ name: 'bad', cells: '' })).toBe(-1);
+    expect(setPlateImage(null)).toBe(0);
+    expect(getEdits().sketch!.plates).toEqual({ ops: [], orogeny: false });
+    clearEdits();
+  });
+});
+

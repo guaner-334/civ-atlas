@@ -8,14 +8,18 @@
  *   照搬原来那块的转动(角速度一样,新的边界上起初不碰也不离),之后再选中改
  * - merge:pts = [ax, ay, bx, by],点 b 所在的板块并进点 a 所在的(两块要挨着;b 的编号空着,别的编号不变,颜色不跳)
  *
+ * 照一张图分(image):图片本身不存,只存认出来的分块格子图(sketchImage.ts 的 plateRegions 认,LAYER_W × LAYER_H,值 = 第几块,
+ * 0 = 描的线 / 太碎认不出,生成时归给挨着的块)。生成时最先套上:整张板块图换成图上的分块,每块的漂移按种子另取;上面那串改动再叠在它上面。
+ *
  * 生成时(tectonics.ts)在板块长好、挑完大陆之后按先后套上:地壳记在每个地块上(合并不会把大洋变成大陆,
  * 切开的两半各是原来的地壳),改了陆壳 / 洋壳的那块整块换;山脉、海沟、裂谷按新的边界和漂移重新长。
  */
 import type { Mesh } from './mesh';
 import { geometryOf } from './geometry';
 import { round24 } from './civ/rand';
-import { clamp } from './util';
-import { TERRAIN_H, nearLon, wrapLon } from './terrainEdits';
+import { clamp, keyed, subSeed } from './util';
+import { TERRAIN_H, TERRAIN_W, nearLon, wrapLon } from './terrainEdits';
+import { LAYER_H, LAYER_W, SKETCH_IMAGE_NAME_MAX, decodeLayer } from './sketch';
 
 /** 板块的一处改动 */
 export type PlateOp =
@@ -26,9 +30,17 @@ export type PlateOp =
 /** 地壳:陆壳 / 洋壳 */
 export type PlateCrust = 'continental' | 'oceanic';
 
+/** 照一张图分的板块:图片的文件名(只用来显示)+ 认出来的分块格子图(编码同草图的 SketchImage.cells) */
+export interface PlateImage {
+  name: string;
+  cells: string;
+}
+
 export interface PlateEdit {
   /** 改动,按先后 */
   ops: PlateOp[];
+  /** 照一张图分的板块(最先套上) */
+  image?: PlateImage;
   /** false = 板块相撞时不造山(只长草图画的山);不给 = 造山 */
   orogeny?: false;
 }
@@ -38,6 +50,8 @@ export const PLATE_MAX_OPS = 300;
 export const PLATE_MAX_PTS = 400;
 /** 漂移速度:生成里的速度 1 = 每年这么多厘米(随机分的板块是 0.3–1,也就是每年 2–8 厘米) */
 export const PLATE_CM = 8;
+/** 照图分最多分几块(和新建世界的板块数上限一样) */
+export const PLATE_IMAGE_MAX = 60;
 /** 能改到的速度范围(每年厘米) */
 export const PLATE_SPEED: readonly [number, number] = [0, 16];
 
@@ -103,10 +117,33 @@ export function cleanPlates(x: unknown): PlateEdit | null {
     if (c !== v) same = false;
   }
   const off = o.orogeny === false;
-  if (!ops.length && !off) return null;
-  same = same && Object.keys(o).length === (off ? 2 : 1);
+  const image = o.image === undefined ? null : cleanPlateImage(o.image);
+  if (!ops.length && !off && !image) return null;
+  same = same && (image ? image === o.image : !('image' in o)) && Object.keys(o).length === 1 + (off ? 1 : 0) + (image ? 1 : 0);
   if (same) return x as PlateEdit;
-  return off ? { ops, orogeny: false } : { ops };
+  return { ops, ...(image ? { image } : {}), ...(off ? { orogeny: false as const } : {}) };
+}
+
+/** 清理照图分的格子:格子解不开、分出来不到两块、块号超过 PLATE_IMAGE_MAX 的 = null;名字去掉控制字符、截到 SKETCH_IMAGE_NAME_MAX 个字。本来就合格的原样返回 */
+export function cleanPlateImage(x: unknown): PlateImage | null {
+  if (!x || typeof x !== 'object') return null;
+  const o = x as Record<string, unknown>;
+  if (typeof o.cells !== 'string') return null;
+  const layer = decodeLayer(o.cells, PLATE_IMAGE_MAX);
+  if (!layer) return null;
+  const seen = new Set<number>();
+  for (const v of layer) if (v) seen.add(v);
+  if (seen.size < 2) return null;
+  // eslint-disable-next-line no-control-regex
+  const name0 = typeof o.name === 'string' ? o.name.replace(/[\u0000-\u001f\u007f]/g, '').trim() : '';
+  const name = [...name0].slice(0, SKETCH_IMAGE_NAME_MAX).join('');
+  return name === o.name && Object.keys(o).length === 2 ? (x as PlateImage) : { name, cells: o.cells };
+}
+
+/** 照图分的格子分出几块 */
+export function plateImageCount(img: PlateImage): number {
+  const layer = decodeLayer(img.cells, PLATE_IMAGE_MAX);
+  return layer ? new Set(layer.filter((v) => v > 0)).size : 0;
 }
 
 /** 两份板块改动是不是一样(都清理过;都没有也算一样) */
@@ -157,6 +194,91 @@ export interface PlateState {
 
 /** 切下来的一片至少多大才另起一块(占那块板块的比例;再小的并回旁边的那片) */
 const MIN_PIECE = 0.03;
+
+/** 照图分的一块至少多大(地块数占全图的比例):再小的碎片归给挨着的块 */
+const MIN_IMAGE_PIECE = 1 / 2000;
+
+/**
+ * 照图分:整张板块图换成图上的分块(st 原地改)。每个地块取它落在格子图哪一格;线、认不出的格子和太碎的小片从挨着的块往外长着归过去。
+ * 块号按图上的号从小到大重排成 0、1、2…;每块的漂移(方向、快慢、密度、自转)按种子和块号另取,和随机分的板块同一个范围
+ */
+export function applyPlateImage(mesh: Mesh, st: PlateState, layer: Uint8Array, seed: number) {
+  const { n, x, y, adjStart, adj } = mesh;
+  const { plate } = st;
+  const cw = TERRAIN_W / LAYER_W;
+  const ch = TERRAIN_H / LAYER_H;
+  const lab = new Int32Array(n);
+  for (let i = 0; i < n; i++) {
+    const lx = Math.min(LAYER_W - 1, Math.floor(wrapLon(x[i]) / cw));
+    const ly = Math.min(LAYER_H - 1, Math.max(0, Math.floor(y[i] / ch)));
+    lab[i] = layer[ly * LAYER_W + lx] - 1;
+  }
+  const grow = () => {
+    const q: number[] = [];
+    for (let i = 0; i < n; i++) if (lab[i] >= 0) q.push(i);
+    for (let h = 0; h < q.length; h++) {
+      const c = q[h];
+      for (let k = adjStart[c]; k < adjStart[c + 1]; k++) {
+        const j = adj[k];
+        if (lab[j] < 0) {
+          lab[j] = lab[c];
+          q.push(j);
+        }
+      }
+    }
+  };
+  grow();
+  // 太碎的小片(连成一片的同一块不到 MIN_IMAGE_PIECE)清掉,再从挨着的长过去
+  const min = Math.max(3, n * MIN_IMAGE_PIECE);
+  const seen = new Uint8Array(n);
+  let dropped = false;
+  for (let s = 0; s < n; s++) {
+    if (seen[s]) continue;
+    const q = [s];
+    seen[s] = 1;
+    for (let h = 0; h < q.length; h++) {
+      const c = q[h];
+      for (let k = adjStart[c]; k < adjStart[c + 1]; k++) {
+        const j = adj[k];
+        if (!seen[j] && lab[j] === lab[s]) {
+          seen[j] = 1;
+          q.push(j);
+        }
+      }
+    }
+    if (q.length < min) {
+      for (const c of q) lab[c] = -1;
+      dropped = true;
+    }
+  }
+  // 整张都碎(不会发生:清理时至少两块):留着原来的板块
+  if (dropped && !lab.some((v) => v >= 0)) return;
+  if (dropped) grow();
+  const ids = [...new Set(lab)].sort((a, b) => a - b);
+  const to = new Map(ids.map((v, k) => [v, k]));
+  const P = ids.length;
+  for (let i = 0; i < n; i++) plate[i] = to.get(lab[i])!;
+  const geo = geometryOf(mesh);
+  const cnt = new Float32Array(P);
+  for (let i = 0; i < n; i++) cnt[plate[i]]++;
+  const c = geo.groupCentroids(plate, P, cnt);
+  const vx = new Float32Array(P);
+  const vy = new Float32Array(P);
+  const base = subSeed(seed, 'plate-image');
+  st.density = [];
+  st.spin = [];
+  for (let k = 0; k < P; k++) {
+    const a = keyed(base, k, 0) * Math.PI * 2;
+    const sp = 0.3 + 0.7 * keyed(base, k, 1);
+    vx[k] = round24(Math.cos(a)) * sp;
+    vy[k] = round24(Math.sin(a)) * sp;
+    st.density.push(keyed(base, k, 2));
+    st.spin.push(2 * keyed(base, k, 3) - 1);
+  }
+  st.omega = Array.from(geo.plateMotion(vx, vy, c.x, c.y, st.spin).omega);
+  st.count = P;
+  st.touched = new Set(ids.map((_, k) => k));
+}
 
 /** 按先后套上板块改动(st 原地改) */
 export function applyPlateOps(mesh: Mesh, st: PlateState, ops: readonly PlateOp[]) {

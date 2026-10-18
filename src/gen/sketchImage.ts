@@ -8,6 +8,7 @@
  *   适合手画的地图、彩色地图、只描了海岸线的线稿。
  * - 按深浅(levelsFrom):比海平面亮的是陆地、暗的是海(也可以反过来);还可以按亮度分出丘陵、山地。适合高度图、黑白分明的图。
  * 认完按放法(placeOnLayer:铺满整张 / 保持比例)铺到 LAYER_W × LAYER_H 的格子图上,layerStats 看认得像不像样。
+ * 编辑地形「板块」页的照图分也用这里:plateRegions 按颜色把图分成一块块,铺满整张当板块图(plateEdits.ts)。
  */
 import { clamp } from './util';
 import { LAYER_H, LAYER_W, SKETCH_HILLS, SKETCH_LAND, SKETCH_MOUNTAIN, SKETCH_NONE, SKETCH_SEA, SKETCH_SHELF } from './sketch';
@@ -291,6 +292,83 @@ function dropSmallLand(sea: Uint8Array, w: number, h: number, min: number) {
     }
     if (tail < min) for (let k = 0; k < tail; k++) sea[piece[k]] = 1;
   }
+}
+
+// ---------------------------------------------------------------------------
+// 照图分板块
+
+/** 照图分:一块颜色和它起头那一格差多少(Lab 距离)以内算同一块;走一步最多差多少(糊开的边上一点点变过去的不算) */
+const REGION_RANGE = 14;
+const REGION_STEP = 6;
+/** 比这小的一块(占整张图的比例,至少 REGION_MIN_CELLS 格)不算一块:多半是字、描的线边上的杂色 */
+const REGION_MIN = 0.003;
+const REGION_MIN_CELLS = 30;
+
+/**
+ * 照图分板块:按颜色把图分成一块块(每块涂一种颜色的板块图,描的分界线也认),返回每格是第几块(1 起,0 = 线、太小认不出的)和一共几块。
+ * 从左上往右下扫,碰到还没分的格子就从它往外长:颜色和起头那一格差得不多、走一步也差得不多、不是线,就算同一块;
+ * 左右两边碰头的同色两块并成一块(星球东西相连)。太小的块不要;超过 max 块的只留最大的 max 块;块号按扫到的先后排
+ */
+export function plateRegions(pic: Picture, max: number): { values: Uint8Array; count: number } {
+  const { w, h, lab, line } = pic;
+  const N = w * h;
+  const id = new Int32Array(N).fill(-1);
+  const sizes: number[] = [];
+  const queue = new Int32Array(N);
+  const r2 = REGION_RANGE ** 2;
+  const s2 = REGION_STEP ** 2;
+  const d2 = (i: number, j: number) => (lab[3 * j] - lab[3 * i]) ** 2 + (lab[3 * j + 1] - lab[3 * i + 1]) ** 2 + (lab[3 * j + 2] - lab[3 * i + 2]) ** 2;
+  for (let s = 0; s < N; s++) {
+    if (id[s] >= 0 || line[s]) continue;
+    const k = sizes.length;
+    let head = 0;
+    let tail = 0;
+    id[s] = k;
+    queue[tail++] = s;
+    while (head < tail) {
+      const i = queue[head++];
+      const x = i % w;
+      const y = (i - x) / w;
+      for (let q = 0; q < 4; q++) {
+        const nx = x + (q === 0 ? -1 : q === 1 ? 1 : 0);
+        const ny = y + (q === 2 ? -1 : q === 3 ? 1 : 0);
+        if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+        const j = ny * w + nx;
+        if (id[j] >= 0 || line[j] || d2(i, j) >= s2 || d2(s, j) >= r2) continue;
+        id[j] = k;
+        queue[tail++] = j;
+      }
+    }
+    sizes.push(tail);
+  }
+  // 图的左右两边是星球上挨着的(东西绕圈):两边同一行颜色差不多的两块并成一块
+  const root = sizes.map((_, k) => k);
+  const find = (k: number): number => (root[k] === k ? k : (root[k] = find(root[k])));
+  for (let y = 0; y < h; y++) {
+    const i = y * w;
+    const j = i + w - 1;
+    if (id[i] < 0 || id[j] < 0 || d2(i, j) >= r2) continue;
+    const a = find(id[i]);
+    const b = find(id[j]);
+    if (a === b) continue;
+    root[Math.max(a, b)] = Math.min(a, b);
+    sizes[Math.min(a, b)] += sizes[Math.max(a, b)];
+    sizes[Math.max(a, b)] = 0;
+  }
+  for (let i = 0; i < N; i++) if (id[i] >= 0) id[i] = find(id[i]);
+  const min = Math.max(REGION_MIN_CELLS, N * REGION_MIN);
+  const keep = sizes
+    .map((n, k) => ({ n, k }))
+    .filter((e) => e.n >= min)
+    .sort((a, b) => b.n - a.n || a.k - b.k)
+    .slice(0, max)
+    .map((e) => e.k)
+    .sort((a, b) => a - b);
+  const to = new Int32Array(sizes.length);
+  keep.forEach((k, r) => (to[k] = r + 1));
+  const values = new Uint8Array(N);
+  for (let i = 0; i < N; i++) if (id[i] >= 0) values[i] = to[id[i]];
+  return { values, count: keep.length };
 }
 
 // ---------------------------------------------------------------------------

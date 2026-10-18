@@ -1146,6 +1146,7 @@
 .tp .tp-orogeny {
   margin-top: 4px;
 }
+.tp .tp-image + .tp-orogeny,
 .tp .tp-orogeny:first-child {
   border-top: 0;
   margin-top: 0;
