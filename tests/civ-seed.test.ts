@@ -5,6 +5,7 @@ import { generateCiv, type Civ } from '../src/gen/civ';
 import { EMPTY_EDITS, civSeedOf, cleanCivSeed, cleanMapRef, newHistoryEdits, type TerrainOp, type WorldEdits } from '../src/gen/edits';
 import { editCount, makeSave, parseSave, worldCheck } from '../src/gen/savefile';
 import { makePart, recipeOfSave, recipeText } from '../src/gen/snapshot';
+import { reuseRegions } from '../src/ui/eras';
 
 const small = { ...DEFAULT_PARAMS, seed: 7, cells: 12000 };
 const VOLCANO: TerrainOp = { kind: 'volcano', pts: [1024, 512], r: 20, s: 1 };
@@ -73,6 +74,16 @@ describe('文明种子', () => {
     const c = generateCiv(w, { tempo: { spread: 9999, capNorm: 9999 } });
     const d = generateCiv(w, { tempo: { spread: 30, capNorm: 1 } });
     expect(isDeepStrictEqual(printOf(c), printOf(d))).toBe(false);
+  });
+
+  it('换上另一个文明种子推出来的历史:州不沿用原来那一份(州数一样也不沿用)', () => {
+    const w = world();
+    const a = generateCiv(w, { civSeed: 52817 });
+    const b = generateCiv(w, { civSeed: 90311 });
+    expect(reuseRegions(a, b, true, true).regions).toBe(b.regions);
+    // 同一个文明种子照旧沿用
+    const again = generateCiv(w, { civSeed: 52817 });
+    expect(reuseRegions(a, again, true).regions).toBe(a.regions);
   });
 
   it('文明种子清理:整数才认', () => {

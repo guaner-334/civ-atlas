@@ -230,21 +230,23 @@ export function keepPending(): Promise<boolean> {
 }
 
 /**
- * worker 交回来一份原件:当前世界是新开的历史、还没记地图的校验,原件又是它这一版的结果(配方对得上),就记上地图那块的校验
+ * worker 交回来一份原件:当前世界是新开的历史、还没记地图的校验,原件又是它这一版的结果(配方对得上),就记上地图那块的校验。
+ * 只记「我的世界」里存着的:别人分享的链接只是看看,记一笔会触发自动保存、把它存进「我的世界」
  */
 export async function noteMapSum(s: Snapshot): Promise<void> {
   const map = getEdits().map;
   const sum = partOf(s, 'map')?.sum;
   const c = currentWorld();
   const save = currentSave();
-  if (!map || map.sum || !sum || !c || !save || s.generator !== GENERATOR_VERSION) return;
+  if (!map || map.sum || !sum || !c || c.kind === 'visit' || !save || s.generator !== GENERATOR_VERSION) return;
   try {
     if ((await recipeKey(recipeOfSave(save))) !== s.recipe) return;
   } catch {
     return;
   }
   // 等的这一会儿换了世界:不记
-  if (currentWorld()?.id !== c.id || getEdits().map !== map) return;
+  const now = currentWorld();
+  if (now?.id !== c.id || now.kind === 'visit' || getEdits().map !== map) return;
   setMapSum(sum);
 }
 

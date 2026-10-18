@@ -1667,6 +1667,19 @@ describe('全部存成文件(bundle)', () => {
     expect(saveStore.listWorlds()).toHaveLength(4);
   });
 
+  it('同一张地图上的另一段历史:放回来以后记的还是放回来的那个世界(文件里新开的那段排在前面也一样)', () => {
+    const src = makeSave({ ...DEFAULT_PARAMS, seed: 7 }, EDITS, 'c7', '苍澜界');
+    const alt = makeSave({ ...DEFAULT_PARAMS, seed: 7 }, { ...EMPTY_EDITS, civSeed: 52817, map: { from: 'wfile000001' } }, 'c7', '苍澜界（二）');
+    const r = importBundle({ worlds: [{ id: 'wfile000002', save: alt, meta: {}, thumb: null, notes: [] }, { id: 'wfile000001', save: src, meta: {}, thumb: null, notes: [] }], bad: 0 });
+    expect(r.added).toHaveLength(2);
+    const ws = saveStore.listWorlds();
+    const a = ws.find((w) => w.save.title === '苍澜界')!;
+    const b = ws.find((w) => w.save.title === '苍澜界（二）')!;
+    expect(b.save.edits.map).toEqual({ from: a.id });
+    // 再放一次:都认出是原来就有的
+    expect(importBundle({ worlds: [{ id: 'wfile000002', save: alt, meta: {}, thumb: null, notes: [] }, { id: 'wfile000001', save: src, meta: {}, thumb: null, notes: [] }], bad: 0 })).toMatchObject({ added: [], same: 2 });
+  });
+
   it('正在看的世界刚点了「创建世界」,存储满了没改写进浏览器:文件里按页面里的算(建好了,不再记底稿)', () => {
     const a = saveStore.importSave(makeSave({ ...DEFAULT_PARAMS, seed: 7 }, EDITS, 'c7', '苍澜界'))!;
     tick();
