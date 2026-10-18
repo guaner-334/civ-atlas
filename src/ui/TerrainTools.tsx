@@ -901,9 +901,9 @@ export function TerrainPanel({ disabled, phone = false, mode = 'random', extra }
   const fill = sk ? sketchFill(sk) : t.fill;
   const redoOk = canRedo(edits.terrain, sk);
 
-  // 照手绘图的面板没有气候、高度两页:从随机生成那边带过来的气候笔、高度笔换回陆地;手机上改气候只有涂抹
+  // 照手绘图的面板没有气候、高度两页和删河湖:从随机生成那边带过来的这些笔换回陆地;手机上改气候只有涂抹
   useEffect(() => {
-    if (image && (isClimateTool(t.tool) || isHeightTool(t.tool))) setTerrainTool({ tool: 'land' });
+    if (image && (isClimateTool(t.tool) || isHeightTool(t.tool) || t.tool === 'delWater')) setTerrainTool({ tool: 'land' });
     else if (phone && isClimateTool(t.tool) && t.method === 'lasso') setTerrainTool({ method: 'paint' });
   }, [image, phone, t.tool, t.method]);
 

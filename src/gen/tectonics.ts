@@ -861,8 +861,10 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
     if (pla.some((v) => v > 0)) skPlat = blurField(mesh, pla, 3);
   }
 
-  // 不长新陆地:没涂的陆地只留和涂过的陆地连成一片的(程序补出来的半岛、海岸),别处冒出来的大陆、岛沉回海里
-  if (sk && sketch?.noNewLand) {
+  // 不长新陆地:没涂的陆地只留和涂过的陆地连成一片的(程序补出来的半岛、海岸),别处冒出来的大陆、岛沉回海里。
+  // 凿通封闭内海后再筛一次(凿掉的地峡可能是连着涂过的陆地的唯一一段)
+  const dropDetached = () => {
+    if (!sk || !sketch?.noNewLand) return;
     const keep = new Uint8Array(n);
     const queue: number[] = [];
     for (let i = 0; i < n; i++) {
@@ -883,7 +885,8 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
       }
     }
     for (let i = 0; i < n; i++) if (!keep[i]) land[i] = 0;
-  }
+  };
+  dropDetached();
   // 程序补全只补细节 / 完全照画:涂过的地块(后面抬升、高原、裂谷湖、洼地都绕开它们)
   const fixed = sk && sketch?.fill ? sk.map((v) => (v === SKETCH_NONE ? 0 : 1)) : null;
 
@@ -904,6 +907,7 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
     protect = rim;
   }
   connectInlandSeas(mesh, land, protect, !!sketch?.noNewLand);
+  dropDetached();
 
   // ---- 5. 海底深度 ----
   const coastSrc: number[] = [];
