@@ -8,6 +8,7 @@
  *     自己没在打仗(帝国级的大国可以两线作战)、上次议和过了 REST 年,就在接壤的邻国里挑一个最"值得打"的:
  *       赔率 = WAR_ODDS × 扩张性 × 边境胜算^LOCAL_EXP × 异族 FOREIGN × 收复失地 × 小国 PREY_ODDS × 边界长短
  *       挑好了打谁,开不开战再乘此刻在位君主的好战倍数(rulers.ts:越好战越容易开战)
+ *       动荡(unrest.ts):邻国大乱的格外招人(趁虚而入),自己国内乱也更想对外开战(转移矛盾)
  *       边境胜算 = 对方边境上各州的胜率(和打仗时一样按局部国力算)的平均,换成"胜率 ÷ 败率":
  *       强国的边远处照样可能打不过近处的小国 —— 被夺去的州过些年又被夺回来,前线有来有回
  *     同一对国家议和后 TRUCE 年内不再开战;对方已经同时在打 MAX_WARS 场仗的不去凑;
@@ -127,6 +128,15 @@ const PROTECT_KEEP = 3;
 const PROTECT_DEF = 1.6;
 /** 开战的由头"乘乱":对方正和别国交兵,或这么多年内丢了国都 / 迁都、改朝换代 */
 const CHAOS_YEARS = 20;
+/**
+ * 动荡(unrest.ts):邻国动荡超过 PREY_CALM 的部分每一点,开战的赔率 × (1 + PREY_UNREST)(趁虚而入);
+ * 自己动荡每一点 × (1 + DIVERT)(对外开战转移矛盾)
+ */
+const PREY_CALM = 1;
+/** 讨伐民变的战争最多打几倍的年限(见 WarModel.revolt):打不完就议和,起事的一方割据一方 */
+const REVOLT_LENGTH = 1.5;
+const PREY_UNREST = 0.35;
+const DIVERT = 0.15;
 
 // 随机数用途编号
 const U_CHECK_T = 1;
@@ -194,6 +204,16 @@ export interface WarModel {
   sue?: (w: War, i: number, t: Year, pow: Float64Array, capitalFell: boolean) => boolean;
   /** 议和(installWars 填;干预的结盟用:结盟那一刻正在交战的两国当即议和) */
   makePeace?: (w: War, t: Year) => void;
+  /** 动荡(unrest.ts 挂上):国内越乱越想对外开战转移矛盾,邻国也越想趁虚而入 */
+  unrest?: (p: number, t: Year) => number;
+  /** 士气(unrest.ts 挂上):战争 w 里 x 一方的国力倍数(讨伐民变:起事的饥民初起时声势大,朝廷一方人心不附) */
+  morale?: (w: War, x: number, t: Year) => number;
+  /**
+   * 讨伐民变的战争(unrest.ts 挂上):朝廷一方刚丢的州也能马上去打(不等 HOLD 年),起事的一方反攻不限于夺回失地(往都城打)
+   */
+  revolt?: (w: War) => boolean;
+  /** 民变(unrest.ts 挂上):战争 w 里 x 打下了 y 的国都,y 就此亡国、余下的州一并归 x(起事的饥民攻破都城) */
+  overthrow?: (w: War, x: number, y: number, t: Year) => boolean;
 }
 
 const pairKey = (a: number, b: number) => Math.min(a, b) * 32768 + Math.max(a, b);
@@ -292,12 +312,17 @@ export function installWars(sim: CivSim, pm: PolityModel, wm: WarModel = newMode
   const warsOf = (p: number) => wm.active.filter((w) => w.a === p || w.b === p);
 
   /** x 攻打 y 的州 r(r 挨着 x 的国土,def = 攻方最好打的那条边的过界难度):胜率 */
-  const chance = (x: number, y: number, r: number, def: number, t: number, pow: Float64Array): number => {
+  const chance = (x: number, y: number, r: number, def: number, t: number, pow: Float64Array, w?: War): number => {
     const X = pm.polities[x];
     const Y = pm.polities[y];
     // 军力系数高(动员能力强、走得远)的国家远征打折少:强国越打越远,能滚雪球
     let sx = pow[x] * fexp(-reachOf(wm, x)[r] / (PROJECT * (pm.military?.[x] ?? 1)));
     let sy = pow[y] * fexp(-reachOf(wm, y)[r] / (PROJECT * (pm.military?.[y] ?? 1))) * def;
+    // 士气(讨伐民变:见 WarModel.morale)
+    if (w && wm.morale) {
+      sx *= wm.morale(w, x, t);
+      sy *= wm.morale(w, y, t);
+    }
     if (culture[r] === X.culture) sx *= KIN_ATTACK;
     if (culture[r] === Y.culture) sy *= HOME_DEF;
     if (pm.settlements[capitalAt(Y, t)].region === r) sy *= CAPITAL_DEF;
@@ -319,7 +344,9 @@ export function installWars(sim: CivSim, pm: PolityModel, wm: WarModel = newMode
     if (retake) lost = new Set(w.takes.filter((e) => e.by === y).map((e) => e.region));
     const cand: [number, number, number][] = [];
     // 刚迁都的国家,新国都 CAPITAL_GRACE 年内攻不下(残兵收拢、新都严防):不会几年里一迁再迁
-    const graceR = t - pm.capMoved[y] < CAPITAL_GRACE ? pm.settlements[capitalAt(pm.polities[y], t)].region : -1;
+    // 讨伐民变不等(见 WarModel.revolt)
+    const free = !!wm.revolt?.(w);
+    const graceR = !free && t - pm.capMoved[y] < CAPITAL_GRACE ? pm.settlements[capitalAt(pm.polities[y], t)].region : -1;
     // 阶段 4 干预"不许灭":国都和紧挨着国都的州(京畿)攻不下(不会亡国、不会因丢了国都被并掉残部);只剩几州时一州都攻不下
     let guardR = -1;
     if (wm.iv?.protects(y, t)) {
@@ -327,8 +354,9 @@ export function installWars(sim: CivSim, pm: PolityModel, wm: WarModel = newMode
       guardR = pm.settlements[capitalAt(pm.polities[y], t)].region;
     }
     const Y = pm.polities[y];
+    const hold = free ? 0 : HOLD;
     for (const r of pm.lands[y]) {
-      if (t - wm.since[r] < HOLD || r === graceR || r === guardR) continue;
+      if (t - wm.since[r] < hold || r === graceR || r === guardR) continue;
       if (wm.iv?.locked(r, t)) continue; // 阶段 4 干预:永久划给它的州攻不下
       if (guardR >= 0 && nextTo(r, guardR, Y, t)) continue;
       if (lost && !lost.has(r) && wm.prev[r] !== x) continue;
@@ -456,13 +484,15 @@ export function installWars(sim: CivSim, pm: PolityModel, wm: WarModel = newMode
       fall(w, x, y, r, t);
       return true;
     }
+    // 起事的饥民攻破都城:余下的州一并归它,亡国(unrest.ts)
+    if (wm.overthrow?.(w, x, y, t)) return annex(w, x, y, r, t);
     // 丢了国都只剩不到 MIN_STATE 州(而且都不是刚易手的):撑不下去,残部一并归攻方,亡国
     let left = 0;
     let settled = true;
     for (let q = 0; q < R; q++) {
       if (owner[q] !== y) continue;
       left++;
-      if (t - wm.since[q] < HOLD) settled = false;
+      if (t - wm.since[q] < HOLD && !wm.revolt?.(w)) settled = false;
     }
     // 阶段 4 干预:手里有永久划给它的州的,不被并掉残部(迁都到剩下的城,那一块里没城就到别的块里挑)
     const keep = !!wm.iv?.holdsLock(y, t);
@@ -594,6 +624,8 @@ export function installWars(sim: CivSim, pm: PolityModel, wm: WarModel = newMode
       // 小国(一场仗就能吞下)格外招人
       if (pm.size[q] <= PREY) o *= PREY_ODDS;
       if (betray) o *= dm!.betrayOdds;
+      // 邻国大乱:趁虚而入
+      if (wm.unrest) o *= 1 + PREY_UNREST * Math.max(0, wm.unrest(q, t) - PREY_CALM);
       if (o > odds) {
         odds = o;
         target = q;
@@ -601,8 +633,9 @@ export function installWars(sim: CivSim, pm: PolityModel, wm: WarModel = newMode
       }
     }
     if (target < 0) return;
-    // 越好战的君主越容易开战
+    // 越好战的君主越容易开战;国内越乱越想对外开战转移矛盾
     odds *= rulerOf(pm, p, t).eff.declare;
+    if (wm.unrest) odds *= 1 + DIVERT * wm.unrest(p, t);
     if (keyed(wm.base, pm.ptag[p], k, U_DECLARE) >= odds / (1 + odds)) return;
     if (traitor) {
       // 背盟:先记盟约断了(war 列 = 紧跟着的这场战争),再宣战
@@ -631,12 +664,12 @@ export function installWars(sim: CivSim, pm: PolityModel, wm: WarModel = newMode
     /** 丢了国都的是守方(攻方打下的) */
     let defCapital = false;
     const [r, def] = pickTarget(w, i, w.a, w.b, t, false);
-    if (r >= 0 && warRand(wm, w, i, U_ATTACK) < chance(w.a, w.b, r, def, t, pow)) {
+    if (r >= 0 && warRand(wm, w, i, U_ATTACK) < chance(w.a, w.b, r, def, t, pow, w)) {
       capitalFell = defCapital = take(w, w.a, w.b, r, t, true);
       // 乘胜连下几州(打下国都、一方亡国就停)
       for (let j = 1; j <= BREAK_MAX && !capitalFell && w.end === undefined; j++) {
         const [q, qdef] = pickTarget(w, i * 8 + j, w.a, w.b, t, false);
-        if (q < 0 || warRand(wm, w, i * 8 + j, U_BREAK) >= BREAK * chance(w.a, w.b, q, qdef, t, pow)) break;
+        if (q < 0 || warRand(wm, w, i * 8 + j, U_BREAK) >= BREAK * chance(w.a, w.b, q, qdef, t, pow, w)) break;
         capitalFell = defCapital = take(w, w.a, w.b, q, t, true);
       }
     } else {
@@ -644,9 +677,9 @@ export function installWars(sim: CivSim, pm: PolityModel, wm: WarModel = newMode
       if (r >= 0) sim.record('battle', { a: w.a, b: w.b, region: r, settlement: pm.cityOf[r], war: w.id, via: DEFENSE.indexOf(def) });
       if (warRand(wm, w, i, U_COUNTER) < COUNTER) {
         // 守方反攻:夺回被攻方占去的州
-        const [q, qdef] = pickTarget(w, i, w.b, w.a, t, true);
+        const [q, qdef] = pickTarget(w, i, w.b, w.a, t, !wm.revolt?.(w));
         if (q >= 0) {
-          if (warRand(wm, w, i, U_RETAKE) < chance(w.b, w.a, q, qdef, t, pow)) capitalFell = take(w, w.b, w.a, q, t, true);
+          if (warRand(wm, w, i, U_RETAKE) < chance(w.b, w.a, q, qdef, t, pow, w)) capitalFell = take(w, w.b, w.a, q, t, true);
           else sim.record('battle', { a: w.b, b: w.a, region: q, settlement: pm.cityOf[q], war: w.id, via: DEFENSE.indexOf(qdef) });
         }
       }
@@ -659,7 +692,9 @@ export function installWars(sim: CivSim, pm: PolityModel, wm: WarModel = newMode
     // 攻方此刻在位的君主:越好战越不轻易罢兵、想多拿几州,好战低的打不了多久就想议和(rulers.ts)
     const eff = rulerOf(pm, w.a, t).eff;
     let peace = t - w.start >= lengthOf(wm, w) * eff.war || t - last >= STALL;
-    if (!peace) {
+    // 讨伐民变:不到厌战(REVOLT_LENGTH 倍的年限)不罢兵,直到一方亡(讨平,或攻破都城)
+    if (wm.revolt?.(w)) peace = t - w.start >= REVOLT_LENGTH * lengthOf(wm, w) * eff.war;
+    else if (!peace) {
       let held = 0;
       for (const e of w.takes) if (e.by === w.a && owner[e.region] === w.a) held++;
       // 灭国之战:拿下国都、对方丢了过半国土都不停(不设目标,见 CRUSH_GOAL;君主的倾向只管打多久,算在上面的年限里)

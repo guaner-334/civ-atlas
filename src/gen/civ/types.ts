@@ -148,8 +148,11 @@ export interface Settlement {
    * 迁都 / 亡国后在 CAPITAL_DECLINE 年里渐渐退掉(旧都衰落)。没有这一项、只有 capitalFrom 的(旧数据)= 从 capitalFrom 起一直是国都
    */
   capitalSpans?: { from: Year; until?: Year; polity: number }[];
-  /** 阶段 3 城市兴衰:被洗劫(按先后)。loss = 当时人口折损的比例(0..1),之后按 SACK_RECOVER 年慢慢恢复(见 growth.ts) */
-  sacks?: { year: Year; loss: number }[];
+  /**
+   * 阶段 3 城市兴衰:被洗劫(按先后)。loss = 当时人口折损的比例(0..1),之后按 SACK_RECOVER 年慢慢恢复(见 growth.ts)。
+   * 饥荒(unrest.ts)也记在这里(cause = famine):人口一样掉一截、慢慢长回来
+   */
+  sacks?: { year: Year; loss: number; cause?: 'famine' }[];
   /**
    * 阶段 3 城市兴衰:这座城是在哪座被毁的城(Settlement id)的故址上重建的(同一州、同一地块)。
    * 同族重建沿用旧名;换了民族的另起新名。不是重建的 = 不给
@@ -295,6 +298,9 @@ export interface Place {
  * | submit    | 称臣纳贡 | 藩属 | 宗主 | 藩属的国都所在州 | 藩属的国都 | 战争编号(战败称臣:紧跟在那场战争的 peace 后面)/ −1(畏强邻遣使称臣) |
  * | defect    | 藩属自立(不再称臣纳贡) | 藩属 | 原宗主 | 藩属的国都所在州 | 藩属的国都 | −1 |
  * | diverge   | 民族分化:一支分出来渐成一族(assimilation.ts;分出去的几州同一刻改换民族,日志原因 Ev.Diverge) | **民族**:新民族 | **民族**:母族 | 新民族的发源州 | −1 | **国家**(借用这一列):分属不同国家而分化时,统治那几州的国家;隔山隔海而分化 = −1 |
+ * | famine    | 饥荒(unrest.ts):一国治下同一年景里闹饥荒的几州(各城的折损见 Settlement.sacks 里 cause = famine 的那一条) | 国家 | 闹饥荒的州数 | 灾最重的州 | 那州的城 | −1 |
+ * | revolt    | 民变:饥民起事、立了新势力(紧跟着记原来的国家讨伐它的那场 war,cause = quell) | 起事立的新国家 | 原来的国家 | 起事的州 | 新国都 | −1 |
+ * | collapse  | 大崩解:大国一下子散成几块(紧跟着记各块自立的 split,cause = collapse;散回部落的州不另记,日志原因 Ev.Collapse) | 国家 | 怎么崩:0 = 中央崩(各地自立)、1 = 地方崩(毁城断路,发展度掉)、2 = 两样都崩(散回部落) | 国都所在州 | 国都 | **散出去几块**(借用这一列;散回部落 = 散出去的州数) |
  *
  * 洗劫、毁城和那一次攻占同一刻,记在那条 conquer **前面**(conquer、被迫迁都、灭亡照旧紧挨着,编年史里排回攻占后面)。
  * 议和割让的州也各记一条 conquer(a = 得到的一方,b = 割出的一方),连着记在那条 peace 前面,条数记在 peace 的 region 列。
@@ -322,7 +328,9 @@ export interface Place {
  *   war 的 Annal.cause = 为什么打(见 WarCause);援盟、救藩的 settlement 列 = 援的是哪国。
  *   宗主收藩属的国土记 merge(编年史写"纳土归附");藩属、盟约在任一方亡国 / 被并时随之了结,不另记。
  *   某一年谁是谁的藩属、谁和谁结着盟,按这几条推(diplomacy.ts 的 relationsAt)。
- * 阶段 3 以后再有新种类(瘟疫……)在末尾往下加。
+ * 动荡、饥荒、民变、大崩解(unrest.ts):民变被讨平 = 起事的国家亡于讨伐它的那场战争(fall,b = 原来的国家);
+ *   民变打下原来国家的国都 = 原来的国家余下的州一并归起事的国家、亡国(fall,b = 起事的国家,war = 讨伐的那场战争)。
+ * 以后再有新种类(瘟疫……)在末尾往下加。
  */
 export type AnnalKind =
   | 'found'
@@ -350,15 +358,19 @@ export type AnnalKind =
   | 'unally'
   | 'submit'
   | 'defect'
-  | 'diverge';
+  | 'diverge'
+  | 'famine'
+  | 'revolt'
+  | 'collapse';
 
 /**
  * 战争的起因(史事 war 的 cause;阶段 4 干预的强制宣战不给)和盟约怎么断的(unally 的 cause):
  *   expand 争边地(没有别的由头)/ claim 收复故土(对方手里有原属本国的州)/ chaos 乘对方之乱(对方正和别国交兵、刚丢了国都、刚改朝换代)/
- *   prey 吞并小国 / betray 背盟来攻 / punish 讨伐自立的藩属 / ally 应盟国之约 / rescue 宗主救藩属;
+ *   prey 吞并小国 / betray 背盟来攻 / punish 讨伐自立的藩属 / ally 应盟国之约 / rescue 宗主救藩属 / quell 讨伐起事的饥民(民变);
+ *   collapse:大崩解里自立的那几块(史事 split 的 cause);
  *   lapse 盟约渐废 / abandon 坐视不救 / vassal 一方称臣
  */
-export type AnnalCause = 'expand' | 'claim' | 'chaos' | 'prey' | 'betray' | 'punish' | 'ally' | 'rescue' | 'lapse' | 'abandon' | 'vassal';
+export type AnnalCause = 'expand' | 'claim' | 'chaos' | 'prey' | 'betray' | 'punish' | 'ally' | 'rescue' | 'lapse' | 'abandon' | 'vassal' | 'quell' | 'collapse';
 
 /**
  * 一条史事(阶段 3):推演里各事件处理函数用 CivSim.record 往 Civ.annals 里记,编年史(界面上的事件列表)只读它。

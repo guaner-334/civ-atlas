@@ -55,6 +55,11 @@
  * - **名臣**(Person.deeds):经手的事写上他(官职按那一年):议和"大景王朝遣礼部尚书百里青与萨尔斯坦帝国议和"
  *   (对方的使臣写在对方国名后面);称王称帝"…,丞相某某劝进"(西幻"…,首相某某力主其事");幼主即位"…,时年 11 岁,丞相某某辅政"
  *   (西幻"摄政");先君遇弑"…;丞相某某迎立其兄柳清瑶,是为睿宗"(西幻、汗国"拥立")。
+ * - **灾异**(动荡、饥荒、民变、大崩解,unrest.ts):饥荒写"大渭瑞州等三州大饥,死者十之二"(标签"饥",只在"全部"里);
+ *   民变连同讨伐它的那场战争折成一条"瑞州大饥,饥民奉李昭为主,据瑞城起事,号瑞国,叛大渭,…"再写结局
+ *   ("旋为大渭所平""攻破汾城,大渭亡""得汾州,与大渭议和,割据一方";标签"起",攻破都城、亡了原来国家的是大事);
+ *   民变被讨平的那条灭亡写"大渭讨平瑞国"(标签"平");大崩解写"大渭大乱,瑞州、汾州各自立国,大渭仅保汾城一隅"
+ *   (地方崩加"诸州残破",散回部落"…土崩瓦解,二十三州散为部落…";标签"崩",一律是大事),紧跟着自立的几块是它的子条目。
  * - 年份写法和时间轴一致:"第 N 年"(N = 年份取整)。州数等计数用中文数字("得瑞州等五州"),年数用阿拉伯数字。
  *
  * buildChronicle 按 civ 缓存(同一个 civ 只算一次)。
@@ -126,7 +131,7 @@ export interface ChronicleEntry {
   end: Year;
   /** 纪事正文(不带年份) */
   text: string;
-  /** 一个字的标签(界面上的小印章):立 升 降 战 占 征 和 割 亡 迁 分 复 合 朝 徙 化 湮 掠 毁 建 衰 干 役 变 没 嗣;信仰:创 皈 传 派 圣;时代:代 */
+  /** 一个字的标签(界面上的小印章):立 升 降 战 占 征 和 割 亡 迁 分 复 合 朝 徙 化 湮 掠 毁 建 衰 干 役 变 没 嗣 饥 起 崩 平;信仰:创 皈 传 派 圣;时代:代 */
   tag: string;
   importance: Importance;
   /** 相关国家(按国家筛选、地图高亮用;先主后次,不含 −1) */
@@ -423,6 +428,8 @@ interface Ctx {
   flight: Map<number, string>;
   /** 人物索引(没有人物 = null,照旧不写人名) */
   ix: PeopleIndex | null;
+  /** 讨伐民变的战争(war 的 cause = quell)→ 起事的国家 */
+  quell: Map<number, number>;
 }
 
 /**
@@ -538,6 +545,9 @@ const TAG: Record<AnnalKind, string> = {
   submit: '臣',
   defect: '叛',
   diverge: '衍',
+  famine: '饥',
+  revolt: '起',
+  collapse: '崩',
 };
 
 function base(
@@ -910,6 +920,8 @@ function warHead(civ: Civ, e: Annal, id: number, general: string): string {
       return general ? `${A}背盟,遣${general}伐${B}` : `${A}背盟伐${B}`;
     case 'punish':
       return `${A}以${B}绝贡,${general ? `遣${general}讨之` : '兴兵讨之'}`;
+    case 'quell':
+      return general ? `${A}遣${general}讨${B}` : `${A}发兵讨${B}`;
     case 'rescue':
       return ally ? `${A}救其藩属${ally},${go(B)}` : `${A}${go(B)}`;
     default:
@@ -972,8 +984,8 @@ function claimText(civ: Civ, e: Annal, id: number): string {
   return rs.length === 1 ? `欲夺回${r}` : `欲复${r}等故地`;
 }
 
-/** 宣战的动词:讨伐自立的藩属写"讨",别的写"伐" */
-const warVerb = (e: Annal) => (e.cause === 'punish' ? '讨' : '伐');
+/** 宣战的动词:讨伐自立的藩属、起事的饥民写"讨",别的写"伐" */
+const warVerb = (e: Annal) => (e.cause === 'punish' || e.cause === 'quell' ? '讨' : '伐');
 
 /** 由头里点了守方的名("以昌国绝贡,"、"乘昌国与索拉特交兵,"、"欲并昌国,"、"与昌国争边,"),后面写"伐之" */
 const NAMES_FOE: ReadonlySet<AnnalCause> = new Set<AnnalCause>(['punish', 'chaos', 'prey', 'expand']);
@@ -1029,6 +1041,8 @@ function simpleEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
       return withPeople(base(e, id, head.text, 2, [e.a, e.b], []), ...head.people);
     }
     case 'fall':
+      // 民变被讨平:"大渭讨平瑞国"(标签"平")
+      if (e.war >= 0 && ctx.quell.get(e.war) === e.a && e.b >= 0) return base(e, id, `${pn(civ, e.b, y)}讨平${pn(civ, e.a, y)}`, 2, [e.a, e.b], [e.region], '平');
       // 亡于战争的,"大事"里由那场战争说("…,昌国亡");不在战争里土崩瓦解的,大国是大事,小国、部落是小事
       const last = endedAt(ctx.ix, e.a, y);
       return withPeople(base(e, id, fallText(civ, e, last), e.war < 0 && isGreat(polityOf(civ, e.a)) ? 3 : 2, [e.a, e.b], [e.region]), last);
@@ -1070,6 +1084,8 @@ function simpleEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
       const imp = isGreat(polityOf(civ, e.a)) ? 3 : 2;
       return withPeople(base(e, id, t, imp, [e.a, e.b], [e.region], fallen ? '复' : '分'), r || fallen ? who : null);
     }
+    case 'famine':
+      return base(e, id, famineText(civ, e), 2, [e.a], [e.region]);
     case 'merge': {
       // 并掉的是大国才是大事
       // 藩属纳土归附宗主(diplomacy.ts)
@@ -1642,6 +1658,118 @@ function warEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
   );
 }
 
+// ---------------------------------------------------------------------------
+// 饥荒、民变、大崩解(unrest.ts)
+
+/** 一州闹饥荒时城里的人口折损(Settlement.sacks 里 cause = famine、同一年的那一条;找不到 = 0) */
+function famineLoss(civ: Civ, e: Annal): number {
+  const s = e.settlement >= 0 ? civ.settlements[e.settlement] : undefined;
+  return s?.sacks?.find((k) => k.cause === 'famine' && k.year === e.year)?.loss ?? 0;
+}
+
+/** "死者十之二"(按灾最重那州城里的折损;一成以下的不写);三成以上的加"人相食" */
+function famineToll(loss: number): string {
+  const k = Math.round(loss * 10);
+  if (k < 1) return '';
+  return `${k >= 3 ? ',人相食' : ''},死者十之${cnNumber(k)}`;
+}
+
+/** 饥荒:"大渭瑞州等三州大饥,死者十之二"(标签"饥") */
+function famineText(civ: Civ, e: Annal): string {
+  const r = regionName(civ, e.region) || cityName(civ, e.settlement);
+  const where = e.b > 1 ? `${r || '诸州'}等${cnNumber(e.b)}州` : r || '境内';
+  return `${e.a >= 0 ? pn(civ, e.a, e.year) : ''}${where}大饥${famineToll(famineLoss(civ, e))}`;
+}
+
+/**
+ * 民变(史事 revolt + 讨伐它的那场战争)写成一条:"瑞州大饥,饥民奉李昭为主,据瑞城起事,号瑞国,叛大渭"
+ * 再写结局:"旋为大渭所平"("十二年后为大渭所平")/ "攻破汾城,大渭亡"(大事)/ "得汾州等三州,与大渭议和,割据一方"/ "战事未休"。
+ * 标签"起";子条目是那场战争的每一件事(讨伐、攻占、战役、议和、亡国)。攻破都城、亡了原来国家的是大事
+ */
+function revoltEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
+  const { civ } = ctx;
+  const A = civ.annals;
+  const e = A[ids[0]];
+  const y = e.year;
+  const rebel = e.a;
+  const court = e.b;
+  const war = warEntry(ctx, ids.slice(1));
+  const list = ids.map((i) => A[i]);
+  const r = regionName(civ, e.region);
+  const city = cityName(civ, e.settlement);
+  const lead = founderOf(ctx.ix, rebel, 0);
+  const who = lead && lead.rise === 'rebel' ? lead : null;
+  const t = `${r || city || '境内'}大饥,饥民${who ? `奉${who.name}为主,` : ''}${city ? `据${city}起事` : '起事'},号${pn(civ, rebel, y)},叛${pn(civ, court, y)}`;
+  const fallR = list.find((f) => f.kind === 'fall' && f.a === rebel);
+  const fallC = list.find((f) => f.kind === 'fall' && f.a === court && f.b === rebel);
+  const peace = list.find((f) => f.kind === 'peace');
+  let outcome: string;
+  if (fallC) {
+    const C = polityOf(civ, court);
+    const cap = C ? cityName(civ, capitalBefore(C, fallC.year)) : '';
+    const n = Math.floor(fallC.year) - Math.floor(y);
+    outcome = `${n >= 2 ? `${n} 年后` : ''}攻破${cap || '都城'},${pn(civ, court, fallC.year)}亡`;
+  } else if (fallR) {
+    const n = Math.floor(fallR.year) - Math.floor(y);
+    outcome = `${n >= 2 ? `${n} 年后` : '旋'}为${pn(civ, court, fallR.year)}所平`;
+  } else if (peace) {
+    // 净得的州:最后是起事的一方打下来的
+    const lastBy = new Map<number, number>();
+    for (const c of list) if (c.kind === 'conquer' && c.region >= 0) lastBy.set(c.region, c.a);
+    const got = [...lastBy].filter(([, by]) => by === rebel).map(([q]) => q);
+    outcome = `${got.length ? `得${regionList(civ, got)},` : ''}与${pn(civ, court, peace.year)}议和,割据一方`;
+  } else outcome = '战事未休';
+  const polities = uniq([rebel, court, ...war.polities]);
+  return withPeople(
+    {
+      ...war,
+      id: ids[0],
+      kind: 'revolt',
+      year: y,
+      text: `${t},${outcome}`,
+      tag: '起',
+      importance: fallC ? 3 : 2,
+      polities,
+      regions: uniq([e.region, ...war.regions]),
+      settlement: e.settlement,
+      head: undefined,
+    },
+    who,
+  );
+}
+
+/** 紧跟在大崩解后面、并进那一条的:那几块自立(split,cause = collapse) */
+function collapseTail(e: Annal, head: Annal): boolean {
+  return e.year === head.year && e.kind === 'split' && e.cause === 'collapse' && e.b === head.a;
+}
+
+/**
+ * 大崩解:"大渭大乱,瑞州、汾州、雪西各自立国,大渭仅保汾城一隅"(地方崩加"诸州残破";散回部落:"大渭土崩瓦解,
+ * 二十三州散为部落,大渭仅保汾城一隅")。标签"崩",一律是大事;子条目是各块自立("瑞州守将李昭叛大渭自立,号瑞国,都于瑞城")
+ */
+function collapseEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
+  const { civ } = ctx;
+  const A = civ.annals;
+  const e = A[ids[0]];
+  const y = e.year;
+  const P = pn(civ, e.a, y);
+  const city = cityName(civ, e.settlement) || regionName(civ, e.region);
+  const keep = city ? `,${P}仅保${city}一隅` : '';
+  const pieces = ids.slice(1).map((i) => A[i]);
+  const children = ids.slice(1).map((i) => simpleEntry(ctx, A[i], i));
+  let text: string;
+  if (e.b === 2) text = `${P}土崩瓦解,${e.war > 0 ? `${cnNumber(e.war)}州` : '诸州'}散为部落${keep}`;
+  else {
+    const names = uniq(pieces.map((s) => s.region)).map((r) => regionName(civ, r)).filter(Boolean);
+    const rose = names.length ? `${names.join('、')}各自立国` : '诸州各自立国';
+    text = `${P}大乱,${e.b === 1 ? '诸州残破,' : ''}${rose}${keep}`;
+  }
+  return {
+    ...base(e, ids[0], text, 3, uniq([e.a, ...pieces.map((s) => s.a)]), uniq(pieces.map((s) => s.region))),
+    ...(children.length ? { children } : {}),
+  };
+}
+
 /** 战役里攻方从哪种边打过去(AdjKind:平地、跨河、翻山、海峡、航线) */
 const VIA = ['', '渡河', '翻山', '渡海', '浮海'];
 
@@ -1912,7 +2040,7 @@ function introduce(civ: Civ, list: ChronicleEntry[], told: ReadonlyMap<Chronicle
   const A = civ.annals;
   // 每个国家的来历(立国 / 分裂 / 复国那条史事)
   const origin = new Map<number, Annal>();
-  for (const e of A) if ((e.kind === 'found' || e.kind === 'split') && e.a >= 0 && !origin.has(e.a)) origin.set(e.a, e);
+  for (const e of A) if ((e.kind === 'found' || e.kind === 'split' || e.kind === 'revolt') && e.a >= 0 && !origin.has(e.a)) origin.set(e.a, e);
   /** 国家 → 大事里最近一次出现时的国号词根 */
   const shown = new Map<number, string>();
   for (const e of list) {
@@ -1921,7 +2049,7 @@ function introduce(civ: Civ, list: ChronicleEntry[], told: ReadonlyMap<Chronicle
     const pids = e.polities.filter((id) => polityOf(civ, id));
     const personNames = (e.people ?? []).map((k) => civ.people?.[k]?.name ?? '').filter(Boolean);
     // 立国、分裂、复国这一条本身就是来历(干预"立国"那一条也是)
-    const founding = e.kind === 'found' || e.kind === 'split' || (e.kind === 'intervene' && civ.interventions?.[A[e.id]?.war]?.kind === 'found');
+    const founding = e.kind === 'found' || e.kind === 'split' || e.kind === 'revolt' || (e.kind === 'intervene' && civ.interventions?.[A[e.id]?.war]?.kind === 'found');
     if (founding && pids.length) shown.set(pids[0], polityRootAt(civ.polities[pids[0]], y));
     const also = told.get(e);
     if (also !== undefined && polityOf(civ, also)) shown.set(also, polityRootAt(civ.polities[also], y));
@@ -1953,6 +2081,7 @@ function introduce(civ: Civ, list: ChronicleEntry[], told: ReadonlyMap<Chronicle
         if (o) {
           const oy = o.year;
           if (o.kind === 'found') note = `第 ${Math.floor(oy)} 年立国`;
+          else if (o.kind === 'revolt') note = o.b >= 0 ? `第 ${Math.floor(oy)} 年饥民起事,叛${pn(civ, o.b, oy)}自立` : `第 ${Math.floor(oy)} 年饥民起事`;
           else if (p.restores !== undefined) note = o.b >= 0 ? `第 ${Math.floor(oy)} 年脱${pn(civ, o.b, oy)}复国` : `第 ${Math.floor(oy)} 年复国`;
           else note = o.b >= 0 ? `第 ${Math.floor(oy)} 年叛${pn(civ, o.b, oy)}自立` : `第 ${Math.floor(oy)} 年自立`;
           const first = polityRootAt(p, oy);
@@ -1978,7 +2107,9 @@ export function buildChronicle(civ: Civ): ChronicleEntry[] {
   const A = civ.annals ?? [];
   const splitFrom = new Map<number, number>();
   for (const e of A) if (e.kind === 'split' && e.a >= 0 && e.b >= 0) splitFrom.set(e.a, e.b);
-  const ctx: Ctx = { civ, titleUsed: new Map(), retake: retakes(A), splitFrom, flight: new Map(), ix: peopleOf(civ) };
+  const quell = new Map<number, number>();
+  for (const e of A) if (e.kind === 'war' && e.cause === 'quell') quell.set(e.war, e.b);
+  const ctx: Ctx = { civ, titleUsed: new Map(), retake: retakes(A), splitFrom, flight: new Map(), ix: peopleOf(civ), quell };
   const out: ChronicleEntry[] = [];
   const wars = new Map<number, number[]>();
   const tribal = new Map<number, number[]>();
@@ -2000,6 +2131,21 @@ export function buildChronicle(civ: Civ): ChronicleEntry[] {
       while (i + 1 < A.length && upheavalTail(A[i + 1], e)) ids.push(++i);
       out.push(upheavalEntry(ctx, ids));
       continue;
+    }
+    // 大崩解:紧跟着自立的几块并进崩解那一条
+    if (e.kind === 'collapse') {
+      const ids = [i];
+      while (i + 1 < A.length && collapseTail(A[i + 1], e)) ids.push(++i);
+      out.push(collapseEntry(ctx, ids));
+      continue;
+    }
+    // 民变:并进讨伐它的那场战争(紧跟着记的 war,cause = quell),写成一条民变
+    if (e.kind === 'revolt') {
+      const w = A[i + 1];
+      if (w && w.kind === 'war' && w.cause === 'quell' && w.b === e.a) {
+        wars.set(w.war, [i]);
+        continue;
+      }
     }
     // 被迫迁都(capital 带战争编号)、洗劫、毁城(阶段 3 城市兴衰)也折进那场战争
     // 邦交:战败称臣(submit 带战争编号)、背盟来攻、坐视不救(unally 带战争编号)也折进那场战争
@@ -2042,7 +2188,7 @@ export function buildChronicle(civ: Civ): ChronicleEntry[] {
     }
     out.push(simpleEntry(ctx, e, i));
   }
-  for (const ids of wars.values()) out.push(warEntry(ctx, ids));
+  for (const ids of wars.values()) out.push(A[ids[0]].kind === 'revolt' ? revoltEntry(ctx, ids) : warEntry(ctx, ids));
   tribalEntries(ctx, tribal, out);
   const dirUsed = new Map<number, number>();
   for (const ids of waves.values()) out.push(migrationEntry(ctx, ids, dirUsed));

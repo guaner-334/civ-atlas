@@ -52,7 +52,7 @@
 import type { World } from '../world';
 import { MinHeap } from '../util';
 import { geometryOf, type Geometry } from '../geometry';
-import { AdjKind, Layer, type Civ, type Polity, type Year } from './types';
+import { AdjKind, Layer, type AnnalCause, type Civ, type Polity, type Year } from './types';
 import { fexp, flog, keyed, keyed4, subSeed } from './rand';
 import { Ev, quantize, type CivSim } from './sim';
 import { addPolity, canCross, coreOf, endPolity, foundingYear, moveCapital, polityModelOf, sailsOcean, type PolityModel } from './polities';
@@ -193,6 +193,24 @@ export interface PoliticsModel {
   restored: Set<number>;
   /** 被并掉的国家(不复国) */
   merged: Set<number>;
+  /**
+   * 国家此刻的危机(hook 里填):国土太大、刚丢了国都 / 迁了都、正在打仗、这些年接连丢州。
+   * 动荡(unrest.ts 的 unrestOf)在它上面再加边远、异族、王朝老了、饥荒、民变
+   */
+  strain?: (P: Polity, t: Year) => number;
+  /** 动荡(unrest.ts 挂上;没挂 = 只看危机):分裂的"动荡"那一项用它 */
+  unrest?: (P: Polity, t: Year) => number;
+  /** 看内政时最先看的大崩解(unrest.ts 挂上):崩了 = true,这一次看内政就到此为止 */
+  crisis?: (P: Polity, k: number, t: Year) => boolean;
+  /**
+   * 州组从 parent 分出去,立新国(国都 sid,起事的州 rising;hook 里填):记一条 kind(split / revolt;split 带 cause),
+   * 新国都是某个同族亡国的故都时算复国。州组不用连着国都以外的碎块(要的先用 cutOff 补上)
+   */
+  secede?: (parent: number, group: number[], sid: number, rising: number, t: Year, kind: 'split' | 'revolt', cause?: AnnalCause) => Polity;
+  /** 州组(升序)从 pid 分出去以后,pid 和国都断开的碎块也并进来(hook 里填;碎块太大、有刚换过国家的州 = null) */
+  cutOff?: (pid: number, group: number[], t: Year, cap: number) => number[] | null;
+  /** 州组里人口最多的城(hook 里填;没有城 = −1) */
+  biggestCity?: (group: readonly number[], t: Year) => number;
 }
 
 function newModel(pm: PolityModel, wm: WarModel, world: World): PoliticsModel {
@@ -298,6 +316,17 @@ function hook(sim: CivSim, pol: PoliticsModel): void {
   /** 国家 p 现在的国土(州号升序;复制一份,分出去、并掉时原表会变) */
   const regionsOf = (p: number): number[] => pm.lands[p].slice();
 
+  /** 危机(见 PoliticsModel.strain):国土大、刚丢了国都 / 迁了都、正在打仗、接连丢州 */
+  const strain = (P: Polity, t: number): number => {
+    const pid = P.id;
+    let g = SIZE_D * Math.max(0, flog(pm.size[pid] / SPLIT_MIN_SIZE));
+    if (t - lastMove(P) < CRISIS_YEARS) g += CRISIS_CAPITAL;
+    if (atWar(pid)) g += CRISIS_WAR;
+    g += CRISIS_LOSS * Math.min(1, lostRecently(pid, t) / 6);
+    return g;
+  };
+  pol.strain = strain;
+
   // 草稿数组(每个引擎一份)
   const dis = new Float64Array(R);
   const inG = new Int32Array(R);
@@ -344,7 +373,7 @@ function hook(sim: CivSim, pol: PoliticsModel): void {
   };
 
   /** 州组里人口最多的城(没有城 = −1) */
-  const biggestCity = (group: number[], t: number): number => {
+  const biggestCity = (group: readonly number[], t: number): number => {
     let sid = -1;
     let best = -1;
     for (const r of group) {
@@ -358,18 +387,40 @@ function hook(sim: CivSim, pol: PoliticsModel): void {
     }
     return sid;
   };
+  pol.biggestCity = biggestCity;
 
   /** 州组从 parent 分出去,立新国(国都 sid),记一条 split(起事的州 = rising)。返回新国家 */
-  const secede = (parent: number, group: number[], sid: number, rising: number, t: number, extra: Partial<Polity>): Polity => {
+  const secede = (
+    parent: number,
+    group: number[],
+    sid: number,
+    rising: number,
+    t: number,
+    extra: Partial<Polity>,
+    kind: 'split' | 'revolt' = 'split',
+    cause?: AnnalCause,
+  ): Polity => {
     const capR = pm.settlements[sid].region;
     // 从能远洋的国家分出去的,带着船走:立国那一刻起就能远洋(Polity.sail)
     const sail = pm.cultures[culture[capR]].kind !== 'sea' && sailsOcean(pm, pm.polities[parent], t) ? { sail: t } : {};
     const p = addPolity(pm, sid, culture[capR], t, { parent, ...sail, ...extra });
     sim.setOwner(Layer.Polity, capR, p.id, Ev.Split);
     for (const r of group) if (r !== capR) sim.setOwner(Layer.Polity, r, p.id, Ev.Split);
-    sim.record('split', { a: p.id, b: parent, region: rising, settlement: sid });
-    pol.lastSplit.set(parent, t);
+    sim.record(kind, { a: p.id, b: parent, region: rising, settlement: sid, ...(cause ? { cause } : {}) });
+    if (kind === 'split') pol.lastSplit.set(parent, t);
     return p;
+  };
+  pol.secede = (parent, group, sid, rising, t, kind, cause) => {
+    // 新国都是某个同族亡国的故都:这一次起兵就是复国
+    const f = kind === 'split' ? heirOf(sid, t) : null;
+    const p = secede(parent, group, sid, rising, t, f ? { restores: f.id, lineage: f.lineage } : {}, kind, cause);
+    if (f) pol.restored.add(f.id);
+    return p;
+  };
+  pol.cutOff = (pid, group, t, cap) => {
+    const stamp = ++gStamp;
+    for (const r of group) inG[r] = stamp;
+    return withCutOff(pid, group, t, cap);
   };
 
   // ---- ① 分裂 ----
@@ -383,12 +434,8 @@ function hook(sim: CivSim, pol: PoliticsModel): void {
     const N = pm.size[pid];
     const capR = capRegion(pid, t);
     const dist = pm.capDist[pid];
-    // 动荡(整个国家)
-    let g = SIZE_D * Math.max(0, flog(N / SPLIT_MIN_SIZE));
-    if (t - lastMove(P) < CRISIS_YEARS) g += CRISIS_CAPITAL;
-    if (t - lastDynasty(P) < DYNASTY_YEARS) g += CRISIS_DYNASTY;
-    if (atWar(pid)) g += CRISIS_WAR;
-    g += CRISIS_LOSS * Math.min(1, lostRecently(pid, t) / 6);
+    // 动荡(整个国家;unrest.ts 没挂上时只看危机,新朝初立再加一点)
+    const g = pol.unrest ? pol.unrest(P, t) : strain(P, t) + (t - lastDynasty(P) < DYNASTY_YEARS ? CRISIS_DYNASTY : 0);
     // 各州的离心力;挑起事的州
     let r0 = -1;
     let s0 = -Infinity;
@@ -595,6 +642,8 @@ function hook(sim: CivSim, pol: PoliticsModel): void {
     const split = canSplit(P, t);
     const merge = canMerge(P, t);
     const move = canMove(P, k, t);
+    // 大崩解(unrest.ts):动荡到顶的大国一下子散成几块,这一次看内政就到此为止
+    if (pol.crisis?.(P, k, t)) return;
     if (!split && !merge && !move) return;
     const mine = regionsOf(p);
     if (split && trySplit(P, k, t, mine)) return;

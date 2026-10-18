@@ -143,6 +143,9 @@ const HIT_CONQUER: readonly number[] = [0.08, 0.05, 0, 0.1];
 const HIT_BATTLE: readonly number[] = [0.04, 0.02, 0, 0];
 const HIT_SACK: readonly number[] = [0.12, 0.05, 0.08, 0.04];
 const HIT_RUIN: readonly number[] = [0.2, 0.1, 0.15, 0.08];
+/** 大崩解(unrest.ts):地方崩(毁城断路)、两样都崩(散回部落)时,散出去的每一州扣多少(生产、运输、信息、行政) */
+const HIT_COLLAPSE: readonly number[] = [0.3, 0.35, 0.25, 0.5];
+const HIT_TRIBAL: readonly number[] = [0.45, 0.5, 0.4, 0.9];
 /** 刚有人住的州:取邻居最高值的几成 */
 const SETTLE_CARRY = 0.85;
 /** 没人住了:每步剩几成 */
@@ -663,6 +666,10 @@ function tick(sim: CivSim, d: DevModel, y: Year): void {
   for (let r = 0; r < R; r++) war[r] *= WAR_KEEP;
   for (; d.annals < sim.annalCount; d.annals++) {
     const a = sim.annal(d.annals);
+    if (a.kind === 'collapse') {
+      if (a.b >= 1) collapseHit(sim, d.annals, a.b === 2 ? HIT_TRIBAL : HIT_COLLAPSE, next, war);
+      continue;
+    }
     const hit = a.kind === 'conquer' ? HIT_CONQUER : a.kind === 'battle' ? HIT_BATTLE : a.kind === 'sack' ? HIT_SACK : a.kind === 'ruin' ? HIT_RUIN : null;
     if (!hit || !(a.region >= 0 && a.region < R)) continue;
     const o = a.region * CAP_COUNT;
@@ -823,6 +830,39 @@ function makeSnap(d: DevModel): { snap: Uint8Array; avail: Uint8Array } {
  * 推演结束(或推到一半拼 Civ 时):整理成 Civ.development。结束那年不在整百年上的,补一份那一刻的快照(按最近一步的状态;接着推时去掉)。
  * 返回的数组都是副本,之后接着推不影响它
  */
+/**
+ * 大崩解(第 i 条史事 collapse)里散出去的州各扣一次能力:紧跟着它自立的几块(split,cause = collapse)和散回部落的州
+ * (日志原因 Ev.Collapse),按变化日志里同一刻的那几条找
+ */
+function collapseHit(sim: CivSim, i: number, hit: readonly number[], lv: Float64Array, war: Float64Array): void {
+  const e = sim.annal(i);
+  const pieces = new Set<number>();
+  for (let j = i + 1; j < sim.annalCount; j++) {
+    const s = sim.annal(j);
+    if (s.year !== e.year || s.kind !== 'split' || s.cause !== 'collapse' || s.b !== e.a) break;
+    pieces.add(s.a);
+  }
+  const log = sim.logView;
+  let lo = 0;
+  let hi = log.size;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (log.year[mid] < e.year) lo = mid + 1;
+    else hi = mid;
+  }
+  const R = war.length;
+  for (let k = lo; k < log.size && log.year[k] === e.year; k++) {
+    if (log.layer[k] !== Layer.Polity) continue;
+    const c = log.cause[k];
+    if (!((c === Ev.Split && pieces.has(log.value[k])) || c === Ev.Collapse)) continue;
+    const r = log.region[k];
+    if (r >= R) continue;
+    war[r] += 1;
+    const o = r * CAP_COUNT;
+    for (let c2 = 0; c2 < 4; c2++) lv[o + c2] = Math.max(0, lv[o + c2] - hit[c2]);
+  }
+}
+
 export function finishDevelopment(sim: CivSim, endYear: Year): Development | undefined {
   const d = models.get(sim);
   if (!d) return undefined;
