@@ -72,6 +72,30 @@ const OCEAN_GEO: [number, RGB][] = [
   [-200, hexRGB('#6fa3c7')],
   [0, hexRGB('#86b5d3')],
 ];
+/** 简化卫星:远洋一片深蓝,只在岸边很窄一条变浅 */
+const OCEAN_SIMPLE: [number, RGB][] = [
+  [-7000, hexRGB('#0b2350')],
+  [-2000, hexRGB('#0e2a5a')],
+  [-500, hexRGB('#123366')],
+  [-150, hexRGB('#15396d')],
+  [-40, hexRGB('#1f4c80')],
+  [0, hexRGB('#2c6593')],
+];
+/** 简化卫星的群落底色:比卫星合成图亮、饱和一点的绿和米黄 */
+const SIMPLE_BIOMES: Partial<Record<Biome, string>> = {
+  [Biome.Tundra]: '#8c8a6a',
+  [Biome.Taiga]: '#3f6236',
+  [Biome.ColdDesert]: '#b9a77f',
+  [Biome.TemperateDesert]: '#d6c08f',
+  [Biome.Steppe]: '#a8a465',
+  [Biome.TemperateForest]: '#4f7a37',
+  [Biome.TemperateRainforest]: '#3d6b33',
+  [Biome.HotDesert]: '#e0c891',
+  [Biome.Savanna]: '#a59b55',
+  [Biome.TropicalDryForest]: '#6d8a3c',
+  [Biome.Rainforest]: '#336a2c',
+  [Biome.Wetland]: '#4e7448',
+};
 /** 地理图的群落底色:地图上常用的环境色(森林绿、草原黄绿、荒漠浅褐),没列的照 BIOMES[].real */
 const GEO_BIOMES: Partial<Record<Biome, string>> = {
   [Biome.Tundra]: '#a9a88c',
@@ -122,6 +146,10 @@ interface Material {
   texCav: number;
   ecoP: number;
   valleyDark: number;
+  /** 调色板模糊的半径(格;越大群落之间过渡越宽) */
+  paletteBlur?: number;
+  /** 细沟压暗乘这么多(默认 1) */
+  veinK?: number;
   /** 白模:海陆平涂的几种颜色(不打光);null = 照常画 */
   flat: { sea: RGB; shelf: RGB; land: RGB; ice: RGB } | null;
 }
@@ -225,6 +253,39 @@ const MATERIALS: Record<SurfaceLook, Material> = {
     macroW: 0,
     seaRelief: 0,
     flat: { sea: hexRGB('#c6dbea'), shelf: hexRGB('#d6e6f1'), land: hexRGB('#efece4'), ice: hexRGB('#fbfcfd') },
+  },
+  // 简化卫星:颜色大片连续过渡(调色板模糊得更宽、色带深浅压扁)、纹理很轻、起伏淡、海面安静、雪平、只画大河
+  simple: {
+    ...CLASSIC,
+    ocean: OCEAN_SIMPLE,
+    rock: hexRGB('#9a8a74'),
+    rockE0: 2800,
+    rockE1: 5200,
+    rockEW: 0.35,
+    lake: hexRGB('#1f4f86'),
+    river: { ...CLASSIC.river, color: 'rgb(38, 82, 120)', minW: 0.45, growW: 1.5 },
+    riverFlux: [3, 1.6],
+    veinK: 0,
+    detailW: 0.5,
+    macroW: 0.3,
+    seaRelief: 0.05,
+    shadowDepth: 0.28,
+    detailFlat: 0.25,
+    soft0: 0.02,
+    soft1: 0.14,
+    snowFlat: 0.85,
+    biomes: SIMPLE_BIOMES,
+    rampSquash: 0.35,
+    paletteBlur: 4,
+    texAmpWet: 0.12,
+    texAmpDry: 0.16,
+    texGeo: 0.4,
+    texFine: 0.24,
+    texStreak: 0.08,
+    geoSharp: 2,
+    texCav: 0.05,
+    ecoP: 0.12,
+    valleyDark: 0.06,
   },
 };
 
@@ -866,7 +927,7 @@ function paintRealistic(ctx: CanvasRenderingContext2D, r: Raster, cap?: GlobeCap
     paletteColor(lut, temp[k] + ECO_T * tx, pp, tb, col);
     // 降水多更深;谷底压暗
     const low = level[k] - relief[k];
-    const v = (1.03 - Math.min(0.12, pk / 25000)) * (low > VALLEY_E0 ? 1 - VALLEY_DARK * smoothstep(VALLEY_E0, VALLEY_E1, low) : 1) * (1 - VEIN_DARK * vc);
+    const v = (1.03 - Math.min(0.12, pk / 25000)) * (low > VALLEY_E0 ? 1 - VALLEY_DARK * smoothstep(VALLEY_E0, VALLEY_E1, low) : 1) * (1 - VEIN_DARK * (m.veinK ?? 1) * vc);
     let cr = col[0] * v;
     let cg = col[1] * v;
     let cb = col[2] * v;
@@ -1119,7 +1180,7 @@ function biomePalette(look: SurfaceLook): Float32Array {
     }
   }
   // 三次盒式模糊 ≈ 高斯(σ ≈ 3 格:温度 ±3°C、降水 ±30% 的过渡带)
-  for (const a of ch) for (let it = 0; it < 3; it++) boxBlur(a, PNT, PNP, 2);
+  for (const a of ch) for (let it = 0; it < 3; it++) boxBlur(a, PNT, PNP, m.paletteBlur ?? 2);
   const lut = new Float32Array(n * RK * 3);
   for (let i = 0; i < n; i++) for (let q = 0; q < RK; q++) for (let c = 0; c < 3; c++) lut[(i * RK + q) * 3 + c] = ch[q * 3 + c][i];
   paletteCache.set(look, lut);
