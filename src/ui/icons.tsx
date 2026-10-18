@@ -172,6 +172,11 @@ const PATHS = {
     </>
   ),
   trash: <path d="M5 7h14M10 7V5h4v2M7 7l1 13h8l1-13" />,
+  /** 板块页:选中、切开、合并、照图分 */
+  plPick: <path d="M5 3l13 8-6 1.5L9 19z" />,
+  plCut: <path d="M6 3l12 18M4 14c2-1 3.5-1 5 0M15 10c2-1 3.5-1 5 0" />,
+  plMerge: <path d="M5 5l7 7 7-7M12 12v8" />,
+  plImage: <path d="M4 5h16v14H4zM4 15l5-5 4 4 3-3 4 4M15.5 8.5h.01" />,
   link: (
     <>
       <path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1" />
