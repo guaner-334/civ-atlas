@@ -26,6 +26,7 @@ import {
   fantasyDetailPrep,
   fantasyProjPrep,
   fantasySymbolLayerProj,
+  fantasyWholeProjPrep,
 } from './fantasy';
 import { drawRealisticRivers, drawRealisticShores, realisticBase, realisticDetailPrep } from './realistic';
 import { clipOutline, projector, reprojectImage, type MapProj } from './projection';
@@ -75,6 +76,43 @@ export function terrainDetailPrep(world: World, raster: Raster, style: DetailSty
 export function terrainProjPrep(world: World, raster: Raster, style: DetailStyle, mp: MapProj, v: { s: number; ox: number; oy: number; k: number }, cw: number, ch: number, look: SurfaceLook = 'classic'): WorkStep[] {
   if (style === 'realistic') return realisticDetailPrep(world, raster, true, look);
   return [...fantasyDetailPrep(world, raster), ...fantasyProjPrep(world, raster, mp, v, cw, ch)];
+}
+
+/** 整张地形图按投影重画分步时,面每一步铺多少行 */
+const WHOLE_ROWS = 64;
+
+/**
+ * drawTerrainProjected 画整张地形图(缩放 1 倍、画布和地图平面一样大:弯边投影停着时的地形图)拆成一小步一小步:
+ * 备料(这种投影的符号规划、海岸线逐点投影、投影后的符号层……)、面按行重投影(每步 WHOLE_ROWS 行)、
+ * 最后裁外轮廓画海岸墨线 / 河、贴符号层。ctx() = 要画的那张画布(画布上已铺好底色;拿不到 = 不画了)。
+ * 依次做完和 drawTerrainProjected 整图那一档一口气画逐像素一样(两边改一处要一起改)
+ */
+export function terrainProjWholeSteps(ctx: () => CanvasRenderingContext2D | null, world: World, raster: Raster, style: DetailStyle, mp: MapProj, look: SurfaceLook = 'classic'): WorkStep[] {
+  const fantasy = style === 'fantasy';
+  const v = { s: raster.scale, ox: 0, oy: 0, k: 1 };
+  const pv = { ...v, proj: projector(mp) };
+  const base = () => (fantasy ? fantasyBaseNoInk(world, raster) : realisticBase(raster, look));
+  const steps: WorkStep[] = [() => void base()];
+  if (fantasy) steps.push(...fantasyWholeProjPrep(world, raster, mp));
+  for (let r = 0; r < raster.h; r += WHOLE_ROWS) {
+    const rows: [number, number] = [r, Math.min(raster.h, r + WHOLE_ROWS)];
+    steps.push(() => {
+      const c = ctx();
+      if (c) reprojectImage(c, base(), raster.w, raster.h, mp, v, 'medium', rows);
+    });
+  }
+  steps.push(() => {
+    const c = ctx();
+    if (!c) return;
+    c.save();
+    clipOutline(c, mp, v);
+    if (fantasy) {
+      drawFantasyCoasts(c, raster, pv);
+      c.drawImage(fantasySymbolLayerProj(world, raster, mp), 0, 0);
+    } else drawRealisticRivers(c, world, raster, pv, true, look);
+    c.restore();
+  });
+  return steps;
 }
 
 /**

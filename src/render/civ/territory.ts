@@ -25,10 +25,10 @@ import type { Civ } from '../../gen/civ/types';
 import { Layer } from '../../gen/civ/types';
 import { ownersAt, recentChanges, type Owners } from '../../gen/civ/timeline';
 import type { Mesh } from '../../gen/mesh';
-import { hash2 } from '../common';
+import { hash2, type WorkStep } from '../common';
 import { bandLabels, borderLines, type SidedLine } from './borders';
 import { meshWrap } from './lines';
-import { fantasyGlobeInkMask, fantasyInkMask, fantasyInkProj, inkFromPixels, type InkMask } from '../fantasy';
+import { fantasyGlobeInkMask, fantasyInkMask, fantasyInkProj, fantasyWholeProjPrep, inkFromPixels, type InkMask } from '../fantasy';
 import { coastBlocks, KEEP, landCover, nearestCellPixel, nearestSide, type DetailGrid, type SegIndex } from './zoomGrid';
 import { reprojectImage } from '../projection';
 import type { CivDrawParams, CivStyle } from './overlay';
@@ -969,6 +969,16 @@ function scratchCanvases(w: number, h: number) {
  *   hard / soft 来自投影后的符号层(fantasy.ts 的 fantasyInkProj),(1 − SYM_KEEP) 是 washPixels 顺手写的那张图(同样重投影过来),
  *   在显卡上合成:soft ∩ keep(destination-in 相乘)→ 加上 hard(lighter 相加)→ 从色块里挖掉(destination-out)
  */
+/**
+ * 弯边投影下 drawCivOverlay 第一次画要现算的缓存(手绘风:投影后的符号层、色块"让位"的遮罩),拆成一小步一小步;
+ * 做过的(同一个投影 + 中心)跳过。做完再画和当下现算的逐像素一样
+ */
+export function civProjPrep(p: CivDrawParams): WorkStep[] {
+  if (!p.proj || p.style !== 'fantasy' || washLayer(faithParams(p) ?? p) === null) return [];
+  const mp = p.proj.mp;
+  return [...fantasyWholeProjPrep(p.world, p.raster, mp), () => void fantasyInkProj(p.world, p.raster, mp, SYM_FOREST, SYM_PAPER)];
+}
+
 function drawWashProjected(ctx: CanvasRenderingContext2D, p: CivDrawParams, b: Buf, projInk: boolean) {
   const mp = p.proj!.mp;
   const v = { s: p.raster.scale, ox: 0, oy: 0 };

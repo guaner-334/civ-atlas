@@ -66,8 +66,8 @@ export interface LabelItem {
   sizeWorld?: number;
   /** 字必须落在这块区域里(世界坐标;国名 = 本国国土)。不在里面的采样点和地面不合要求的一起按 tolerance 算 */
   area?: (wx: number, wy: number) => boolean;
-  /** 自己给候选摆法(画布像素;城名:围着自家符号的 8 个方位)。给了就不按 layout 排 */
-  place?: (px: number, view: LabelView) => Candidate[];
+  /** 自己给候选摆法(画布像素;城名:围着自家符号的 8 个方位)。给了就不按 layout 排。可以边挑边生成(排版挑中一个就不再往下要) */
+  place?: (px: number, view: LabelView) => Iterable<Candidate>;
   /** 所属符号(LabelMark.id):不和自家符号算重叠;自家符号没放上去,这条文字也不放 */
   mark?: number;
   /** 周围留白(字号的倍数);不给 = 按字距自动算(字距越大留得越多,见 personalSpace) */
@@ -498,35 +498,34 @@ function glyphTransform(ctx: CanvasRenderingContext2D, g: Glyph, sk: number) {
   if (sk) ctx.transform(1, 0, sk, 1, 0, 0);
 }
 
-/** 生成候选摆法(画布像素) */
-function candidates(it: LabelItem, view: LabelView, px: number): Candidate[] {
+/** 生成候选摆法(画布像素;按先后边挑边生成,挑中了后面的就不用算) */
+function* candidates(it: LabelItem, view: LabelView, px: number): Generator<Candidate> {
   const pts = pathToCanvas(it.path, view, it.planar);
-  if (!pts.length) return [];
+  if (!pts.length) return;
   const on = it.on ?? 0;
   const path = new Polyline(pts);
   // 半径是世界单位:弯边投影时按这条路径中点处的局部比例换成地图平面单位
   const r = (it.radius ?? 0) * view.scale * (view.proj && it.path.length >= 2 && !it.planar ? localScale(view.proj, it.path) : 1);
-  let out: Candidate[];
   switch (it.layout) {
     case 'line':
-      out = layoutLine(it.text, path, px, it.tracking, on);
+      yield* layoutLine(it.text, path, px, it.tracking, on);
       break;
     case 'curve':
-      out = layoutCurve(it.text, path, px, it.tracking, on);
+      yield* layoutCurve(it.text, path, px, it.tracking, on);
       break;
     case 'river':
-      out = layoutRiver(it.text, path, px, it.tracking, r, on).filter((c) => clearOf(c, path, r + px * 0.45));
+      for (const c of layoutRiver(it.text, path, px, it.tracking, r, on)) if (clearOf(c, path, r + px * 0.45)) yield c;
       break;
     case 'point': {
       const [cx, cy] = path.at(path.length / 2);
-      return layoutPoint(it.text, cx, cy, r, px, it.tracking, it.inside ?? 0, on);
+      yield* layoutPoint(it.text, cx, cy, r, px, it.tracking, it.inside ?? 0, on);
+      return;
     }
   }
   if (it.around !== undefined && it.radius !== undefined) {
     const [cx, cy] = path.at(path.length / 2);
-    out = out.concat(layoutPoint(it.text, cx, cy, r, px, [it.tracking[0], it.tracking[0]], 0, it.around));
+    yield* layoutPoint(it.text, cx, cy, r, px, [it.tracking[0], it.tracking[0]], 0, it.around);
   }
-  return out;
 }
 
 /** 弯边投影在路径中点处的局部比例(地图平面单位 / 世界单位,横竖取几何平均) */

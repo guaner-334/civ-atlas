@@ -624,7 +624,7 @@ export function layoutMarks(
       }
       if (pts.length >= 4) {
         // 先照选的字号试,挤不下再缩一点(0.86、0.74)
-        const cands = AREA_SHRINK.flatMap((k) => alongCanvasPath(text, pts, size * k, AREA_TRACKING, fit.vertical).map((c) => ({ ...c, px: size * k })));
+        const cands = AREA_SHRINK.flatMap((k) => [...alongCanvasPath(text, pts, size * k, AREA_TRACKING, fit.vertical)].map((c) => ({ ...c, px: size * k })));
         const boxes = (c: Candidate) => c.glyphs.map((g) => glyphBox(g, c.px ?? size, 1));
         const inWin = (bs: number[][]) => bs.every((b) => b[0] >= f.win[0] && b[2] <= f.win[1] && b[1] >= 0 && b[3] <= f.h);
         // 每个字的中心在这片里,字的四边(中心往外 0.45 个字号)也在里面;长名字允许一个字压一点边

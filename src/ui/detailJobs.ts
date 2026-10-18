@@ -155,18 +155,24 @@ function step(deadline: number) {
  * 不挤在换上那一刻)。换上 = 两张对调显示(swap),不用再画、也不用贴图。两张是同一种画布、同样大小,
  * 画在藏着的那张上和直接画在显示的那张上逐像素一样。
  * 藏着的那张紧挨着显示的那张(上下层次不变);类名跟着对调,显示着的那张总是原来的类名(藏着的加 "-back")。
+ * 换下来的那张先留着内存,接着拖动、点选时下一次直接画在上面(重新开一张大画布要几十到上百毫秒);
+ * 闲了一会儿(IDLE_MS)没再用才还回去,平时只多占一张画布的内存,和备料时一样。
  * 原来那张(React 建的)之外的另一张由这里建、这里删(dispose)
  */
+const IDLE_MS = 2000;
+
 export class DetailBuffer {
   front: HTMLCanvasElement;
   private spare: HTMLCanvasElement | null = null;
   private readonly own: HTMLCanvasElement;
+  private idle = 0;
   constructor(front: HTMLCanvasElement) {
     this.front = this.own = front;
   }
 
   /** 藏着的那张调成 w × h、清空,返回画笔(画不出来,比如手机上画布内存超了 = null) */
   back(w: number, h: number): CanvasRenderingContext2D | null {
+    window.clearTimeout(this.idle);
     let b = this.spare;
     if (!b) {
       b = document.createElement('canvas');
@@ -190,25 +196,33 @@ export class DetailBuffer {
     return ctx;
   }
 
-  /** 藏着的那张换上来(显示交给调用的人摆);原来显示的那张藏起来、还回显存 */
+  /** 藏着的那张换上来(显示交给调用的人摆);原来显示的那张藏起来,闲一会儿再还显存 */
   swap(): void {
     const b = this.spare;
     if (!b) return;
     const f = this.front;
     [f.className, b.className] = [b.className, f.className];
     f.style.display = 'none';
-    f.width = f.height = 0;
     this.front = b;
     this.spare = f;
+    this.rest();
   }
 
-  /** 藏着的那张不要了:还回显存 */
+  /** 这回备的不用了:藏着的那张闲一会儿再还显存(马上又要备就接着用) */
+  rest(): void {
+    window.clearTimeout(this.idle);
+    this.idle = window.setTimeout(() => this.drop(), IDLE_MS);
+  }
+
+  /** 藏着的那张不要了:马上还回显存 */
   drop(): void {
+    window.clearTimeout(this.idle);
     if (this.spare?.width) this.spare.width = this.spare.height = 0;
   }
 
   /** 卸下时:这里建的那张从页面上拿掉 */
   dispose(): void {
+    window.clearTimeout(this.idle);
     for (const c of [this.front, this.spare]) if (c && c !== this.own) c.remove();
   }
 }

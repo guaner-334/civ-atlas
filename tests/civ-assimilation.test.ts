@@ -304,7 +304,7 @@ describe('同化与迁徙', () => {
     expect(nearSum / nearN).toBeLessThan(farSum / farN);
   }, 60_000);
 
-  it('编年史(真实世界):一波迁徙折成一条,同化按国家和年代折叠,民族消亡单列;措辞干净,"大事"不超过九十五条', () => {
+  it('编年史(真实世界):一波迁徙折成一条,同化按国家和年代折叠,民族消亡单列;措辞干净,"大事"不超过一百一十五条', () => {
     const BAD = /undefined|NaN|null|−1|-1|第 0 州|某国|某族|异族人|Infinity|\[object/;
     for (const seed of [7, 2024, 3]) {
       const civ = civOf({ ...DEFAULT_PARAMS, seed });
@@ -342,9 +342,9 @@ describe('同化与迁徙', () => {
         expect(e.text).toMatch(/^.+族亡/);
         expect(e.importance).toBe(3);
       }
-      // 和 civ-chronicle.test.ts 的"大事"条数上限一致(不超过 95);同化与迁徙自己的大事不超过十二条
+      // 和 civ-chronicle.test.ts 的"大事"条数上限一致(不超过 115);同化与迁徙自己的大事不超过十二条
       // (GENERATOR_VERSION 19 亡国多了,避兵锋的迁徙跟着多:种子 2024 有 11 条)
-      expect(filterChronicle(list, { major: true }).length, `seed ${seed}`).toBeLessThanOrEqual(95);
+      expect(filterChronicle(list, { major: true }).length, `seed ${seed}`).toBeLessThanOrEqual(115);
       const mineMajor = filterChronicle(list, { major: true }).filter((e) => e.kind === 'migrate' || e.kind === 'assimilate' || e.kind === 'vanish');
       expect(mineMajor.length, `seed ${seed}`).toBeLessThanOrEqual(12);
     }
