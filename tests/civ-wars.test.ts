@@ -213,7 +213,7 @@ describe('战争与攻占', () => {
     }
   }, 60_000);
 
-  it('前线不闪烁:一州在战争里易手后 HOLD 年内不再易手,50 年内没有换 3 次国家的州;攻方只打和自己接壤的州;迁都不会一迁再迁', () => {
+  it('前线不闪烁:一州在战争里易手后 HOLD 年内不再易手,但会拉锯(有 50 年内换 3 次国家的州);攻方只打和自己接壤的州;迁都不会一迁再迁', () => {
     for (const seed of [7, 2024, 3, 99]) {
       const civ = civOf({ ...DEFAULT_PARAMS, seed });
       const reg = civ.regions;
@@ -237,7 +237,8 @@ describe('战争与攻占', () => {
         own[r] = L.value[i];
         last[r] = L.year[i];
       }
-      expect(warStats(civ).flippy, `seed ${seed}`).toBe(0);
+      // GENERATOR_VERSION 19(HOLD 缩到几年)以后 20 个种子各有 2–19 个拉锯州
+      expect(warStats(civ).flippy, `seed ${seed}`).toBeGreaterThan(0);
       // 迁都后 CAPITAL_GRACE 年内不再迁都(新国都攻不下):不会几年里一迁再迁
       for (const p of civ.polities) {
         const c = p.capitals!;
@@ -252,8 +253,8 @@ describe('战争与攻占', () => {
       const civ = civOf({ ...DEFAULT_PARAMS, seed });
       const st = warStats(civ);
       expect(st.wars, `seed ${seed}`).toBeGreaterThanOrEqual(8);
-      // 立国更早、国家更多(GENERATOR_VERSION 15)以后,第一场仗早了八百年上下:20 个种子 3000 年里 70–146 场,中位一百场左右
-      expect(st.wars, `seed ${seed}`).toBeLessThanOrEqual(160);
+      // GENERATOR_VERSION 19(仗短而狠、休战期短)以后:20 个种子 3000 年里 95–281 场,中位一百六十场上下
+      expect(st.wars, `seed ${seed}`).toBeLessThanOrEqual(300);
       falls += st.falls;
       expect(st.capitalMoves, `seed ${seed}`).toBeGreaterThan(0);
       expect(st.conquests, `seed ${seed}`).toBeGreaterThan(30);

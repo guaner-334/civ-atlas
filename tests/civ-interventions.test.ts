@@ -280,7 +280,7 @@ describe('干预 · 推演', () => {
         const text = buildChronicle(c).find((e) => e.kind === 'intervene')!.text;
         expect(text).toMatch(/^【干预】.+与.+结盟$/);
       }
-      // 正在交战时结盟:当即议和(议和紧跟在干预后面)
+      // 正在交战时结盟:当即议和(议和紧跟在干预后面;中间只能夹着议和时划界割让的攻占,条数记在议和的 region 列)
       const w = civ.annals.find((e) => {
         if (e.kind !== 'war') return false;
         const end = civ.annals.find((f) => f.kind === 'peace' && f.war === e.war);
@@ -288,10 +288,13 @@ describe('干预 · 推演', () => {
       })!;
       const mid = Math.floor(w.year) + 3;
       const c = generateCiv(world(seed), { interventions: [{ kind: 'ally', a: polityKey(civ, w.a), b: polityKey(civ, w.b), from: mid }] });
-      const i = c.annals.findIndex((e) => e.kind === 'intervene');
+      let i = c.annals.findIndex((e) => e.kind === 'intervene');
+      let ceded = 0;
+      while (c.annals[i + 1]?.kind === 'conquer' && c.annals[i + 1].year === mid) (i++, ceded++);
       expect(c.annals[i + 1]?.kind).toBe('peace');
       expect(c.annals[i + 1].year).toBe(mid);
       expect(c.annals[i + 1].war).toBe(w.war);
+      expect(c.annals[i + 1].region).toBe(ceded > 0 ? ceded : -1);
     }
   }, 120_000);
 

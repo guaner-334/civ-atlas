@@ -486,7 +486,7 @@ describe('编年史', () => {
     // 索拉特灭瑞:吞并;"大事"里瑞第一次出现,带一句来历
     const other = war(2, FALL_WAR);
     expect(other.importance).toBe(3);
-    expect(other.text).toBe('索拉特大汗国伐瑞国(第 1400 年叛大渭自立),得汾州等五州,瑞国亡');
+    expect(other.text).toBe('索拉特大汗国伐瑞国(第 1400 年叛大渭自立),得渭州等六州,瑞国亡');
   });
 
   it('议和割让写"议定疆界,某州划归某国",残部一并归攻方写"余下某州尽归某国",都不写"攻取"', () => {
@@ -604,7 +604,7 @@ describe('编年史', () => {
     ];
     const list = buildChronicle(c);
     const major = filterChronicle(list, { major: true }).map((e) => e.text);
-    expect(major).toEqual(['昌部立国,都于汾城', '景国(原昌国)升格为大景', '大渭伐青国(第 1100 年立国),得渭州等五州,青国亡']);
+    expect(major).toEqual(['昌部立国,都于汾城', '景国(原昌国)升格为大景', '大渭伐青国(第 1100 年立国),得渭州等六州,青国亡']);
     // 小事不带来历
     expect(list.find((e) => e.kind === 'dynasty')!.importance).toBe(2);
     expect(list.find((e) => e.kind === 'found' && e.polities[0] === 5)!.text).toBe('青部立国,都于金陵');
@@ -632,16 +632,16 @@ describe('编年史', () => {
       annal(1100, 'dynasty', { a: 1, region: 5, settlement: 2 }),
       annal(1105, 'split', { a: 4, b: 1, region: 1, settlement: 1 }),
       annal(1290, 'war', { a: 1, b: 0, war: 0 }),
-      ...[0, 2, 3, 4, 6].map((r, k) => annal(1291 + k, 'conquer', { a: 1, b: 0, region: r, war: 0 })),
-      annal(1295, 'fall', { a: 0, b: 1, region: 6, war: 0 }),
-      annal(1295, 'peace', { a: 1, b: 0, war: 0 }),
+      ...[0, 2, 3, 4, 5, 6].map((r, k) => annal(1291 + k, 'conquer', { a: 1, b: 0, region: r, war: 0 })),
+      annal(1296, 'fall', { a: 0, b: 1, region: 6, war: 0 }),
+      annal(1296, 'peace', { a: 1, b: 0, war: 0 }),
       ...[7, 8, 9, 3, 4].map((r) => annal(1300, 'migrate', { a: 0, b: 1, region: r, war: 1 })),
     ];
     const list = buildChronicle(c);
     const major = filterChronicle(list, { major: true });
     expect(major.map((e) => e.text)).toEqual([
       '大渭享国 400 年而亡,权臣秦氏篡位,国号大秦;五年后瑞州叛大秦自立,号大瑞,都于瑞城',
-      '大秦伐昌国,得汾州等五州,昌国亡,昌族南迁,入柳州等五州',
+      '大秦伐昌国,得渭州等六州,昌国亡,昌族南迁,入柳州等五州',
     ]);
     // 合写进去的那一件在"全部"里照旧单列
     expect(list.find((e) => e.kind === 'split')!.importance).toBe(2);
@@ -867,7 +867,8 @@ describe('编年史 · 真实世界(默认参数):被迫迁都折进战争,"大�
    */
   // GENERATOR_VERSION 15(立国更早、边缘立国,国家多了)以后 20 个种子的"大事" 25–55 条(seed 7 52 条、2024 50 条)
   // GENERATOR_VERSION 16(航海时代:沿海大国跨海扩张,仗多了)以后 20 个种子 24–66 条(seed 7 59 条、2024 66 条):上限放到 70
-  const RANGE: [number, number] = [30, 70];
+  // GENERATOR_VERSION 19(仗短而狠、乘胜连下、拉锯:亡国、分合多了)以后 20 个种子 34–87 条(seed 7 55 条、2024 87 条):上限放到 95
+  const RANGE: [number, number] = [30, 95];
   for (const seed of [7, 2024]) {
     it(`seed ${seed}`, () => {
       const civ = generateCiv(generateWorld({ ...DEFAULT_PARAMS, seed }));
@@ -935,13 +936,13 @@ describe('编年史 · 真实世界(默认参数):被迫迁都折进战争,"大�
       for (const e of major) expect(e.text).not.toMatch(/\uff08\uff09|;;|,,|,,/);
     }, 60_000);
   }
-  // 别的种子:都不超过 70 条(GENERATOR_VERSION 16 以后 20 个种子 24–66 条)
+  // 别的种子:都不超过 95 条(GENERATOR_VERSION 19 以后 20 个种子 34–87 条)
   for (const seed of [1, 3, 99]) {
-    it(`seed ${seed}:"大事"不超过 70 条`, () => {
+    it(`seed ${seed}:"大事"不超过 95 条`, () => {
       const list = buildChronicle(generateCiv(generateWorld({ ...DEFAULT_PARAMS, seed })));
       const n = filterChronicle(list, { major: true }).length;
       expect(n).toBeGreaterThanOrEqual(19);
-      expect(n).toBeLessThanOrEqual(70);
+      expect(n).toBeLessThanOrEqual(95);
     }, 60_000);
   }
 });

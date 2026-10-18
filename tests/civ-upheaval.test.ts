@@ -235,10 +235,10 @@ describe('地形大事 · 推演', () => {
     const ch = buildChronicle(b).filter((x) => b.annals[x.id]?.year === Y);
     expect(ch.map((x) => x.kind)).toEqual(['upheaval']);
     expect(ch[0].text).toMatch(/亡,.*迁都/);
-    // 顺定第 1996 年被毁、没有重建;第 2800 年城址沉入海中
-    const R: Upheaval = { year: 2800, ops: [{ kind: 'sink', pts: [1387, 439], r: 30, s: 1.1 }] };
+    // 萨利亚第 1603 年被毁、没有重建;第 2800 年城址沉入海中
+    const R: Upheaval = { year: 2800, ops: [{ kind: 'sink', pts: [1629, 481], r: 30, s: 1.1 }] };
     const r = civOf([R]);
-    const id = r.settlements.findIndex((s) => s.name === '顺定');
+    const id = r.settlements.findIndex((s) => s.name === '萨利亚');
     expect(r.settlements[id].ended).toBeLessThan(R.year);
     expect(r.upheavals![0].ruins).toEqual([id]);
     expect(ruinSites(r, R.year - 1).map((s) => s.id)).toContain(id);

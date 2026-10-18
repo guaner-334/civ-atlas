@@ -36,7 +36,7 @@
  *
  *   分裂 / 复国出来的国家:founded = 起事那年、立国从第 0 档起算(按当时州数升格,同一刻记进 titles)、
  *   有自己的看邻国 / 看内政;立国 NEWBORN 年内别国不会对它宣战(站稳期,见 wars.ts)。
- *   起兵、合并的州都要 SETTLE 年没换过国家(和战争的 HOLD 一起,保证 50 年内没有州易手 3 次)。
+ *   起兵、合并的州都要 SETTLE 年没换过国家(内乱不跟着刚打完的仗来回翻;战争里的易手只受 HOLD 管,前线可以拉锯)。
  *
  * 阶段 4 干预(interventions.ts,挂在 WarModel.iv 上;没有干预时只多一次判空):不许灭的国家不会被合并掉;
  *   禁止分裂的国家不会分裂,它的国土里也不会有遗民起兵复国;
@@ -63,7 +63,7 @@ import { capacityAt, capitalAt, populationAt } from './growth';
 /** 立国后多少年开始看内政;之后每隔多少年看一次(每段里 20%–80% 处随机一个时刻) */
 const POL_FIRST = 60;
 const POL_EVERY = 40;
-/** 起兵、合并、复国的州要这么多年没换过国家(战争的 HOLD 是 25 年:两者加起来,50 年内一州最多易手两次) */
+/** 起兵、合并、复国的州要这么多年没换过国家(刚在战争里易手的州不马上又分出去) */
 const SETTLE = 30;
 
 /** 分裂:国土至少这么多州、立国满这么多年;同一国分裂后这么多年内不再分裂 */
@@ -333,7 +333,7 @@ function hook(sim: CivSim, pol: PoliticsModel): void {
     const out = group.slice();
     for (let r = 0; r < R; r++) {
       if (core0[r] && reach[r] !== rStamp && inG[r] !== gStamp) {
-        // 碎块里有刚换过国家的州:这次不分(不让一州 50 年内易手 3 次);有永久划给它的州(阶段 4 干预)也不分
+        // 碎块里有刚换过国家的州:这次不分(SETTLE 年内不跟着内乱再换);有永久划给它的州(阶段 4 干预)也不分
         if (!settled(r, t) || wm.iv?.locked(r, t)) return null;
         inG[r] = gStamp;
         out.push(r);

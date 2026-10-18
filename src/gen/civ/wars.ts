@@ -17,8 +17,9 @@
  *   宣战 → 每隔 GAP 年打一仗(Ev.Campaign):
  *     攻方挑一个**和自己国土接壤**的敌州打(国土保持成片):被自己围得越多的州越先打(前线齐整,不打出飞地),
  *       其次是离敌国国都近的(直取国都)、好走的(翻山、跨河难打);打下来会把敌国切出一大块(> MAX_CUT 州)的先不打。
- *     打不打得下看局部国力:双方国力各按"离本国国都的路程"打折(远征越远越弱),
+ *     打不打得下看局部国力:双方国力各按"离本国国都的路程"打折(远征越远越弱;军力系数高的打折少,强国能越打越远),
  *       守方再乘过界难度(翻山 / 跨河 / 渡海)、守国都、守本族的加成;胜率 = 攻² ÷ (攻² + 守²)。
+ *     打下来了还能乘胜:接着挑下一州,机会 = BREAK × 那一州的胜率,一仗最多连下 BREAK_MAX 州(打下国都、一方亡国就停)。
  *     打不下来,守方有 COUNTER 的机会反攻,夺回被攻方占去的州(这场战争里丢的、以前丢的;同样按局部国力)。
  *     没打下来的这一仗(攻方的、守方反攻的)记一条史事 battle(从哪种边打过去记在 via),不改归属,编年史写成"某某之战"。
  *     一州易手后 HOLD 年内不会再易手:前线有来有回,但不会闪烁。
@@ -62,7 +63,7 @@ import type { DiplomacyModel } from './diplomacy';
 // ---- 调参(以截图和统计数为准,见 scripts/gen-stats.ts) ----
 /** 立国后多少年开始看邻国;之后每隔多少年看一次(每段里 20%–80% 处随机一个时刻) */
 const CHECK_FIRST = 40;
-const CHECK_EVERY = 40;
+const CHECK_EVERY = 25;
 /** 宣战赔率的底数(国家之间常隔着部落、接壤的不多,底数取得高些);边境胜算(胜率 ÷ 败率)的指数;对异族 */
 const WAR_ODDS = 0.3;
 const LOCAL_EXP = 0.65;
@@ -70,17 +71,17 @@ const FOREIGN = 1.6;
 /** 边界不到这么多段(州与州相邻的对数)时,赔率按比例打折 */
 const BORDER_FULL = 4;
 /** 打完仗至少歇多少年才会再主动宣战;同一对国家议和后多少年内不再开战 */
-const REST = 30;
-const TRUCE = 35;
+const REST = 8;
+const TRUCE = 10;
 /** 一国最多同时打几场仗(被别国趁火打劫算在内);国土到这么多州(帝国一档)的大国可以同时主动开两场仗 */
 const MAX_WARS = 2;
 const TWO_FRONTS = 70;
 /** 两仗之间隔几年(随机) */
-const GAP: [number, number] = [2, 6];
+const GAP: [number, number] = [1, 3];
 /** 厌战:一场战争最多打多少年(随机) */
-const LENGTH: [number, number] = [12, 45];
+const LENGTH: [number, number] = [5, 18];
 /** 僵持:连着这么多年没攻下一州就议和 */
-const STALL = 15;
+const STALL = 6;
 /** 小国:不超过这么多州的邻国,宣战赔率 × PREY_ODDS */
 const PREY = 4;
 const PREY_ODDS = 2.5;
@@ -93,7 +94,7 @@ const MIN_STATE = 4;
 /** 打下一州会把守方的国土切出去超过这么多州(和守方国都不再连成一片)的,先不打(不打出大块飞地) */
 const MAX_CUT = 2;
 /** 一州换了国家以后,这么多年内不会再在战争里易手(前线不闪烁) */
-export const HOLD = 25;
+export const HOLD = 8;
 /** 远征打折:国力 × e^(−离本国国都的路程 / PROJECT)(路程以"标准路程"计,见 polities.ts 的 capDist) */
 const PROJECT = 11;
 /** 守方的过界加成(按 AdjKind:平地、跨河、翻山、海峡、航线):攻方从最好打的那条边打进来 */
@@ -106,15 +107,18 @@ const KIN_ATTACK = 1.15;
 const P_MIN = 0.04;
 const P_MAX = 0.9;
 /** 攻方没打下来时,守方反攻(夺回被攻方占去的州)的机会 */
-const COUNTER = 0.5;
+const COUNTER = 0.85;
+/** 乘胜:一仗打下一州后,接着再打下一州的机会 = BREAK × 那一州的胜率,一仗最多连下 BREAK_MAX 州(势如破竹) */
+const BREAK = 0.8;
+const BREAK_MAX = 5;
 /** 战争目标:这场战争想拿下几州(随机,含两头);拿到就议和 */
-const GOAL: [number, number] = [2, 7];
+const GOAL: [number, number] = [3, 10];
 /** 灭国之战:攻方国力是守方的这么多倍;战争目标翻几倍(Infinity = 不设目标) */
 const CRUSH = 3;
 const CRUSH_GOAL = Infinity;
 /** 收复失地:邻国手里每有一州原是本国的,宣战赔率 × (1 + REVANCHE)(最多算 4 州);打仗时先打这些州 */
-const REVANCHE = 0.35;
-const REGAIN = 0.8;
+const REVANCHE = 0.8;
+const REGAIN = 2.5;
 /** 阶段 4 结盟:盟国被第三国宣战时,另一方(和攻方接壤)援盟参战的机会 */
 const ALLY_JOIN = 0.8;
 /** 阶段 4 不许灭:国都攻不下;国土只剩这么多州(含)以下时,一州都攻不下(保住国都一带的几州,不至于缩成孤城) */
@@ -135,6 +139,7 @@ const U_RETAKE = 7;
 const U_TARGET = 8;
 const U_GOAL = 9;
 const U_ALLY = 10;
+const U_BREAK = 11;
 
 // ---------------------------------------------------------------------------
 // 模型
@@ -290,8 +295,9 @@ export function installWars(sim: CivSim, pm: PolityModel, wm: WarModel = newMode
   const chance = (x: number, y: number, r: number, def: number, t: number, pow: Float64Array): number => {
     const X = pm.polities[x];
     const Y = pm.polities[y];
-    let sx = pow[x] * fexp(-reachOf(wm, x)[r] / PROJECT);
-    let sy = pow[y] * fexp(-reachOf(wm, y)[r] / PROJECT) * def;
+    // 军力系数高(动员能力强、走得远)的国家远征打折少:强国越打越远,能滚雪球
+    let sx = pow[x] * fexp(-reachOf(wm, x)[r] / (PROJECT * (pm.military?.[x] ?? 1)));
+    let sy = pow[y] * fexp(-reachOf(wm, y)[r] / (PROJECT * (pm.military?.[y] ?? 1))) * def;
     if (culture[r] === X.culture) sx *= KIN_ATTACK;
     if (culture[r] === Y.culture) sy *= HOME_DEF;
     if (pm.settlements[capitalAt(Y, t)].region === r) sy *= CAPITAL_DEF;
@@ -627,6 +633,12 @@ export function installWars(sim: CivSim, pm: PolityModel, wm: WarModel = newMode
     const [r, def] = pickTarget(w, i, w.a, w.b, t, false);
     if (r >= 0 && warRand(wm, w, i, U_ATTACK) < chance(w.a, w.b, r, def, t, pow)) {
       capitalFell = defCapital = take(w, w.a, w.b, r, t, true);
+      // 乘胜连下几州(打下国都、一方亡国就停)
+      for (let j = 1; j <= BREAK_MAX && !capitalFell && w.end === undefined; j++) {
+        const [q, qdef] = pickTarget(w, i * 8 + j, w.a, w.b, t, false);
+        if (q < 0 || warRand(wm, w, i * 8 + j, U_BREAK) >= BREAK * chance(w.a, w.b, q, qdef, t, pow)) break;
+        capitalFell = defCapital = take(w, w.a, w.b, q, t, true);
+      }
     } else {
       // 没打下来:记一条战役(不改归属;编年史写成"某某之战")
       if (r >= 0) sim.record('battle', { a: w.a, b: w.b, region: r, settlement: pm.cityOf[r], war: w.id, via: DEFENSE.indexOf(def) });
