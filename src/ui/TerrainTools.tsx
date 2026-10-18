@@ -790,10 +790,15 @@ export function pickPlateImage() {
  * 照这张图分板块:按颜色分成一块块(sketchImage.ts 的 plateRegions),铺满整张当板块图;之前的板块改动清掉(撤销记录里的也作废)。
  * 认不出两块以上出一条提示。返回是否用上了
  */
+let plateImageReq = 0;
 export async function plateImageFrom(file: File): Promise<boolean> {
+  // 读图要等一会:这期间又选了一张、换了世界的,这一张作废
+  const req = ++plateImageReq;
+  const era = editsEra();
   const l = await loadImage(file);
   if (!l) return false;
   URL.revokeObjectURL(l.url);
+  if (req !== plateImageReq || era !== editsEra()) return false;
   const r = plateRegions(l.pic, PLATE_IMAGE_MAX);
   const img = { name: l.name, cells: encodeLayer(placeOnLayer(r.values, l.pic.w, l.pic.h, { fit: 'fill' })) };
   if (!cleanPlateImage(img)) {
@@ -907,6 +912,7 @@ export function terrainCount(e: { terrain: readonly TerrainOp[]; sketch?: Sketch
 export function terrainSide(e: { terrain: readonly TerrainOp[]; sketch?: SketchEdit }, none: string): string {
   const n = terrainCount(e);
   if (e.sketch?.image) return n ? `照一张图，又画了 ${n} 笔` : '照一张图';
+  if (e.sketch?.plates?.image) return n ? `照图分板块，又画了 ${n} 笔` : '照图分板块';
   if (n) return `画了 ${n} 笔`;
   // 一笔没画:没涂的地方都是海 / 不长新陆地(整颗星球是海),或者只关了板块相撞造山
   if (e.sketch?.rest === 'sea' || e.sketch?.rest === 'noNewLand') return '都是海';

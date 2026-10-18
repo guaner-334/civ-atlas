@@ -396,6 +396,16 @@ describe('照图分', () => {
     expect(Math.min(d.dir, 360 - d.dir)).toBeLessThan(0.01);
   });
 
+  it('图上的块太窄、落到地块上不到两块时留着程序分的板块', () => {
+    // 第二块只是贴着北极的一行格子:12000 格时分不到几个地块,碎片并掉后只剩一块
+    const layer = new Uint8Array(LAYER_W * LAYER_H).fill(1);
+    layer.fill(2, 0, LAYER_W);
+    const image = { name: 'a.png', cells: encodeLayer(layer) };
+    expect(cleanPlateImage(image)).toBe(image);
+    const w = gen({ ops: [], image });
+    expect(w.tect.plateCount).toBe(generateWorld(SMALL).tect.plateCount);
+  });
+
   it('照图分存进存档、读回来一样;换了分法之前的板块改动清掉,造山开关留着;去掉回到程序的板块', () => {
     const { layer } = plateLayer();
     const image = { name: 'a.png', cells: encodeLayer(layer) };
@@ -406,6 +416,7 @@ describe('照图分', () => {
     setPlateOrogeny(false);
     expect(setPlateImage(image)).toBe(1);
     expect(getEdits().sketch!.plates).toEqual({ ops: [], image, orogeny: false });
+    expect(terrainSide(getEdits(), '还没改')).toBe('照图分板块');
     expect(setPlateImage({ name: 'bad', cells: '' })).toBe(-1);
     expect(setPlateImage(null)).toBe(0);
     expect(getEdits().sketch!.plates).toEqual({ ops: [], orogeny: false });

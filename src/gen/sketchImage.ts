@@ -342,7 +342,7 @@ export function plateRegions(pic: Picture, max: number): { values: Uint8Array; c
     sizes.push(tail);
   }
   // 图的左右两边是星球上挨着的(东西绕圈):两边同一行颜色差不多的两块并成一块
-  const root = sizes.map((_, k) => k);
+  const root = Int32Array.from({ length: sizes.length }, (_, k) => k);
   const find = (k: number): number => (root[k] === k ? k : (root[k] = find(root[k])));
   for (let y = 0; y < h; y++) {
     const i = y * w;
@@ -357,12 +357,12 @@ export function plateRegions(pic: Picture, max: number): { values: Uint8Array; c
   }
   for (let i = 0; i < N; i++) if (id[i] >= 0) id[i] = find(id[i]);
   const min = Math.max(REGION_MIN_CELLS, N * REGION_MIN);
-  const keep = sizes
-    .map((n, k) => ({ n, k }))
-    .filter((e) => e.n >= min)
-    .sort((a, b) => b.n - a.n || a.k - b.k)
+  // 杂乱的图可能一格一块,只把够大的挑出来再排
+  const big: number[] = [];
+  for (let k = 0; k < sizes.length; k++) if (sizes[k] >= min) big.push(k);
+  const keep = big
+    .sort((a, b) => sizes[b] - sizes[a] || a - b)
     .slice(0, max)
-    .map((e) => e.k)
     .sort((a, b) => a - b);
   const to = new Int32Array(sizes.length);
   keep.forEach((k, r) => (to[k] = r + 1));

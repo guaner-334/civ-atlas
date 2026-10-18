@@ -251,10 +251,10 @@ export function applyPlateImage(mesh: Mesh, st: PlateState, layer: Uint8Array, s
       dropped = true;
     }
   }
-  // 整张都碎(不会发生:清理时至少两块):留着原来的板块
-  if (dropped && !lab.some((v) => v >= 0)) return;
   if (dropped) grow();
   const ids = [...new Set(lab)].sort((a, b) => a - b);
+  // 落到地块上的不到两块(图上的块太窄、精细度太低,一格都没分到或碎掉了):留着原来的板块
+  if (ids.length < 2 || ids[0] < 0) return;
   const to = new Map(ids.map((v, k) => [v, k]));
   const P = ids.length;
   for (let i = 0; i < n; i++) plate[i] = to.get(lab[i])!;
