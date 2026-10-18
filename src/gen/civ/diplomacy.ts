@@ -534,7 +534,8 @@ export function installDiplomacy(sim: CivSim, pm: PolityModel, dm: DiplomacyMode
   wm.sue = (w: War, i: number, t: number, pow: Float64Array, capitalFell: boolean): boolean => {
     const a = w.a;
     const b = w.b;
-    if (!alive(a) || !alive(b) || pow[a] < SUE_RATIO * pow[b]) return false;
+    // 讨伐民变不受降:义军要么被讨平、要么割据、要么攻破都城(unrest.ts)
+    if (wm.revolt?.(w) || !alive(a) || !alive(b) || pow[a] < SUE_RATIO * pow[b]) return false;
     if (dm.liegeOf(a) >= 0 || dm.liegeOf(b) >= 0 || dm.vassalsOf(b).length || halted(a, t) || fightsBloc(b, a)) return false;
     // 这场战争里攻方占下、此刻还在手里的州(同一州反复易手只算一次)
     const won = new Set<number>();

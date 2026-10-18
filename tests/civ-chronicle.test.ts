@@ -834,10 +834,11 @@ describe('编年史 · 真实世界(立国、升格)', () => {
       expect(flat(list).length).toBeGreaterThanOrEqual(list.length);
       for (const e of flat(list)) clean(e);
       for (let i = 1; i < list.length; i++) expect(list[i].year).toBeGreaterThanOrEqual(list[i - 1].year);
-      // 每个国家都有一条立国;分裂 / 复国出来的国家(阶段 3 分合)是一条"分裂"
+      // 每个国家都有一条立国;分裂 / 复国出来的国家(阶段 3 分合)是一条"分裂"(大崩解散出来的在大崩解那一条底下),饥民起事的是一条"民变"
+      const rebels = new Set(civ.annals.filter((e) => e.kind === 'revolt').map((e) => e.a));
       for (const p of civ.polities) {
-        const kind = p.parent === undefined ? 'found' : 'split';
-        expect(list.some((e) => e.kind === kind && e.polities[0] === p.id), `${p.name}`).toBe(true);
+        const kind = p.parent === undefined ? 'found' : rebels.has(p.id) ? 'revolt' : 'split';
+        expect(flat(list).some((e) => e.kind === kind && e.polities[0] === p.id), `${p.name}`).toBe(true);
       }
       // 立国写开国之君和当年的国号(第 0 档:"X部" / "X城邦"):"李昭建昌部,都于汾城"
       // 边缘立国前面加"受某国影响,":"受大昌影响,李昭建平部,都于瑞城"
@@ -868,7 +869,8 @@ describe('编年史 · 真实世界(默认参数):被迫迁都折进战争,"大�
   // GENERATOR_VERSION 15(立国更早、边缘立国,国家多了)以后 20 个种子的"大事" 25–55 条(seed 7 52 条、2024 50 条)
   // GENERATOR_VERSION 16(航海时代:沿海大国跨海扩张,仗多了)以后 20 个种子 24–66 条(seed 7 59 条、2024 66 条):上限放到 70
   // GENERATOR_VERSION 19(仗短而狠、乘胜连下、拉锯:亡国、分合多了)以后 20 个种子 34–87 条(seed 7 55 条、2024 87 条):上限放到 95
-  const RANGE: [number, number] = [30, 95];
+  // GENERATOR_VERSION 20(饥荒、民变、大崩解;仗多了)以后 20 个种子 46–109 条(seed 7 59 条、2024 95 条):上限放到 115
+  const RANGE: [number, number] = [30, 115];
   for (const seed of [7, 2024]) {
     it(`seed ${seed}`, () => {
       const civ = generateCiv(generateWorld({ ...DEFAULT_PARAMS, seed }));
@@ -890,14 +892,15 @@ describe('编年史 · 真实世界(默认参数):被迫迁都折进战争,"大�
       // 被迫迁都不在顶层,而在同一个战争编号的那场战争的子条目里;主动迁都在顶层,帝国级的是大事
       const top = new Set(list.map((e) => e.id));
       const warOf = new Map<number, ChronicleEntry>();
-      for (const w of list) if (w.kind === 'war') for (const k of w.children ?? []) warOf.set(k.id, w);
+      for (const w of list) if (w.kind === 'war' || w.kind === 'revolt') for (const k of w.children ?? []) warOf.set(k.id, w);
       A.forEach((e, i) => {
         if (e.kind !== 'capital') return;
         if (e.war >= 0) {
           expect(top.has(i)).toBe(false);
           const w = warOf.get(i);
           expect(w, `第 ${i} 条迁都`).toBeDefined();
-          expect(A[w!.id].war).toBe(e.war);
+          // 民变那一条记在起事(revolt)上,讨伐的战争紧跟其后
+          expect(A[w!.id].kind === 'revolt' ? A[w!.id + 1].war : A[w!.id].war).toBe(e.war);
           expect(w!.children!.find((k) => k.id === i)!.text).toMatch(/^.+迁都.+$/);
         } else {
           expect(top.has(i)).toBe(true);

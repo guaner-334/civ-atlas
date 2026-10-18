@@ -7,7 +7,7 @@
  * - 事件类型:史事种类(types.ts 的 AnnalKind)归成五类 + 宗教 + 干预,颜色用 CSS 变量(timeline.css 的 [data-ev=…]):
  *   战争(打仗、战役、攻占、议和、洗劫、毁城、灭亡)/ 改朝(改朝换代、君主继位、迁都、旧都衰落)/
  *   立国(立国、分裂自立、复国、重建、藩属绝贡自立)/ 称帝(升格、称帝、降格、合并、称臣、结盟、盟约断了)/
- *   同化(同化、迁徙、民族消亡)/ 宗教(创教、立国教、传入、教派分立、圣城易主)/ 干预(主色)。
+ *   同化(同化、迁徙、民族消亡)/ 宗教(创教、立国教、传入、教派分立、圣城易主)/ 灾异(饥荒、民变、大崩解、民变被讨平)/ 干预(主色)。
  *   卡片上的类型名按一字标签细分("攻占""迁都"……)。
  * - 刻度:每条纪事一个小菱形(战争画在开战那年);挨得太近(DIAMOND_GAP 像素以内)合并成一个,
  *   颜色取其中分量最重的那一件,悬停列出每一件。干预单独一种"令"标记、地形大事一种"变"标记,不和菱形合并。
@@ -26,8 +26,8 @@ import { yearShort, yearSpanAt, yearAt, yearMonthAt, type Era } from '../gen/era
 // ---------------------------------------------------------------------------
 // 事件类型
 
-/** 五类事件 + 宗教(faith)+ 干预(order);CSS 里 [data-ev=war] 等配色 */
-export type EvType = 'war' | 'dynasty' | 'found' | 'empire' | 'assim' | 'faith' | 'era' | 'order';
+/** 五类事件 + 宗教(faith)+ 时代(era)+ 灾异(calamity)+ 干预(order);CSS 里 [data-ev=war] 等配色 */
+export type EvType = 'war' | 'dynasty' | 'found' | 'empire' | 'assim' | 'faith' | 'era' | 'calamity' | 'order';
 
 const KIND_TYPE: Readonly<Record<string, EvType>> = {
   war: 'war',
@@ -58,10 +58,15 @@ const KIND_TYPE: Readonly<Record<string, EvType>> = {
   era: 'era',
   intervene: 'order',
   upheaval: 'order',
+  famine: 'calamity',
+  revolt: 'calamity',
+  collapse: 'calamity',
 };
 
 /** 这条纪事归哪一类(不认识的种类算"改朝":蓝色,和普通链接一样不抢眼) */
-export function evType(e: Pick<ChronicleEntry, 'kind'>): EvType {
+export function evType(e: Pick<ChronicleEntry, 'kind'> & Partial<Pick<ChronicleEntry, 'tag'>>): EvType {
+  // 民变被讨平(灭亡那一条,标签"平")也归灾异
+  if (e.tag === '平') return 'calamity';
   return KIND_TYPE[e.kind] ?? 'dynasty';
 }
 
@@ -103,6 +108,10 @@ const TAG_LABEL: Readonly<Record<string, string>> = {
   绝: '盟绝',
   背: '背盟',
   叛: '绝贡',
+  饥: '饥荒',
+  起: '民变',
+  崩: '崩解',
+  平: '平定',
 };
 
 /** 卡片 / 最近事件 / 提示里的类型名:"战争""改朝""称帝"…… */
@@ -153,6 +162,9 @@ const KIND_WEIGHT: Readonly<Record<string, number>> = {
   era: 2,
   intervene: 9,
   upheaval: 9,
+  collapse: 6,
+  revolt: 5,
+  famine: 1,
   submit: 4,
   defect: 4,
   alliance: 2,

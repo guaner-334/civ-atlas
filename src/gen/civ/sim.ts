@@ -36,6 +36,7 @@ import { resumeAssimilation } from './assimilation';
 import { resumeCities } from './cities';
 import { resumeDiplomacy } from './diplomacy';
 import { resumeDevelopment } from './development';
+import { resumeUnrest } from './unrest';
 import { resumeInterventions, scheduleInterventions } from './interventions';
 import type { Intervention } from '../edits';
 
@@ -168,6 +169,13 @@ export const enum Ev {
    * (城的人口上限、打仗的军力、普通国家能不能远洋)。同一刻里排在地形大事、航海时代后面,别的事件前面(见 earlyOrder)
    */
   DevTick = 50,
+  /**
+   * 看年景(动荡、饥荒、民变、大崩解,unrest.ts;编号 55–57):a = 第几次看。每隔十来年,世上几处闹灾年(干旱、寒冷的地方多),
+   * 人口顶到上限的城闹饥荒、人口掉一截;闹了饥荒又动荡的大国,饥民可能起事(民变)
+   */
+  FamineCheck = 55,
+  /** 散回部落(unrest.ts 的大崩解):不单独预约,是大国崩解时散回部落地带的州(国家归属 → −1)变化日志记的原因 */
+  Collapse = 57,
 }
 
 export interface EventInfo {
@@ -211,6 +219,8 @@ export const EVENT_INFO: EventInfo[] = [
   { id: Ev.DivergeCheck, name: '看分化', watch: false },
   { id: Ev.Diverge, name: '分化', watch: false },
   { id: Ev.DevTick, name: '发展度', watch: false },
+  { id: Ev.FamineCheck, name: '看年景', watch: false },
+  { id: Ev.Collapse, name: '散回部落', watch: false },
 ];
 
 /** 检查点间隔(年) */
@@ -420,6 +430,7 @@ export class CivSim {
       resumeCities(sim, world, civ);
       resumeDiplomacy(sim, world, civ);
       resumeDevelopment(sim, world, civ);
+      resumeUnrest(sim, world, civ);
       if (iv) resumeInterventions(sim, iv);
     }
     return sim;
@@ -459,6 +470,11 @@ export class CivSim {
     const early = earlyOrder(kind, b);
     const order = arrivalOrder(kind, a, b);
     this.heap.push(id, tick * TICK_SPAN + (early >= 0 ? early : order >= 0 ? SEQ_SPAN + order : EARLY_SPAN + this.seq++));
+  }
+
+  /** 变化日志(只读;推演中会增长、换数组,用完就丢,不要存下来):发展度按它找大崩解里散出去的州 */
+  get logView(): Readonly<ChangeLog> {
+    return this.log;
   }
 
   /** 已经记了几条史事 */
