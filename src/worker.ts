@@ -7,6 +7,7 @@
  *
  * 改地形(阶段 4):世界 = 参数 + 草图(sketch)+ 地形修改(terrain)。改了地形、画了草图就带着它们重新 generate(连同当时的干预一起推文明);
  * 回放帧、重推文明也带着它们,线程被重开过时按"参数 + 草图 + 地形修改"重新生成(同样的输入 = 同一个世界)。
+ * 生成的前一半(网格、板块、侵蚀)记在 baseCache 里:只加了湖、河、气候笔、高度笔时跳过它,只算后一半(gen/world.ts 的 TerrainBase)。
  * 试推演(助手)和重推一样算,只是结果单独交回,主线程不换上它。
  *
  * 地形大事(gen/civ/upheaval.ts):推文明时带着作者的地形大事(upheavals),每件大事以后的世界(原来的地形修改 + 前几件大事的修改)
@@ -20,7 +21,7 @@
  * 新建中的世界也打(点了「创建」不一定再重推,那时用的就是这一份);换世界的时候排着的作废。排在各段主图补丁后面;
  * 地图那一块按世界的键记着,只重推历史时不用再打一遍。
  */
-import { generateWorld, type World, type WorldParams } from './gen/world';
+import { generateWorld, type BaseCache, type World, type WorldParams } from './gen/world';
 import { rasterizeDeferred, type Raster } from './gen/raster';
 import { GullyPool } from './gullyPool';
 import { buildHistoryFrames, type HistoryFrames } from './gen/history';
@@ -98,8 +99,11 @@ export type WorkerRequest =
 
 export type WorkerResponse =
   | { type: 'progress'; id: number; stage: string; pct: number }
-  /** ms = 线程里花的时间(生成 + 文明 + 铺像素),genMs = 其中生成世界那一步;tempo = 这组参数的扩张节拍(知道的话);eras = 地形大事以后的各段世界(没有大事 = 不给) */
-  | { type: 'done'; id: number; world: World; raster: Raster; civ: Civ; ms: number; genMs: number; tempo?: TempoNote; eras?: EraWorld[]; baseKey: string }
+  /**
+   * ms = 线程里花的时间(生成 + 文明 + 铺像素),genMs = 其中生成世界那一步(reused = 前一半是接着上一次的,genMs 只是后一半);
+   * tempo = 这组参数的扩张节拍(知道的话);eras = 地形大事以后的各段世界(没有大事 = 不给)
+   */
+  | { type: 'done'; id: number; world: World; raster: Raster; civ: Civ; ms: number; genMs: number; reused?: true; tempo?: TempoNote; eras?: EraWorld[]; baseKey: string }
   | ({ type: 'history'; id: number } & HistoryFrames)
   /** 重推好的文明;ms = 线程里花的时间(含按参数重新生成世界);tempo、eras 同 done */
   | { type: 'civ'; id: number; seq: number; civ: Civ; ms: number; tempo?: TempoNote; eras?: EraWorld[]; baseKey: string }
@@ -116,6 +120,8 @@ export type WorkerResponse =
 
 /** 上一个生成的世界(含回放快照),回放时直接用 */
 let last: { key: string; world: World } | null = null;
+/** 上一次生成的前一半(网格、板块、侵蚀;见 gen/world.ts 的 TerrainBase):编辑地形只改了湖、河、气候、高度时接着用 */
+const baseCache: BaseCache = { base: null };
 const keyOf = (p: WorldParams, terrain?: readonly TerrainOp[], sketch?: SketchEdit) =>
   JSON.stringify([Object.entries(p).sort(([a], [b]) => (a < b ? -1 : 1)), terrain ?? [], sketch ?? null]);
 
@@ -161,7 +167,7 @@ let frozen: { key: string; world: World; eras: Map<string, World> } | null = nul
 function worldOf(params: WorldParams, terrain?: TerrainOp[], sketch?: SketchEdit): World {
   const key = keyOf(params, terrain, sketch);
   if (frozen?.key === key) return frozen.world;
-  if (!last || last.key !== key) last = { key, world: generateWorld(params, undefined, terrain, sketchGrid(sketch)) };
+  if (!last || last.key !== key) last = { key, world: generateWorld(params, undefined, terrain, sketchGrid(sketch), baseCache) };
   return last.world;
 }
 
@@ -417,7 +423,9 @@ async function handle(m: WorkerRequest): Promise<void> {
     frozen = null;
     await pool.up;
     const t0 = performance.now();
-    const world = generateWorld(m.params, (stage, pct) => post({ type: 'progress', id: m.id, stage, pct }), m.terrain, sketchGrid(m.sketch));
+    const had = baseCache.base;
+    const world = generateWorld(m.params, (stage, pct) => post({ type: 'progress', id: m.id, stage, pct }), m.terrain, sketchGrid(m.sketch), baseCache);
+    const reused = !!had && baseCache.base === had;
     last = { key: keyOf(m.params, m.terrain, m.sketch), world };
     const steps = stepsOf(m.params, m.terrain, m.sketch, m.upheavals, (k, n) => post({ type: 'progress', id: m.id, stage: '地形大事', pct: 0.9 + (0.03 * k) / n }));
     const genMs = performance.now() - t0;
@@ -442,7 +450,7 @@ async function handle(m: WorkerRequest): Promise<void> {
     void _history;
     const baseKey = keyOf(m.params, m.terrain, m.sketch);
     const kept = cloneCiv(civ);
-    post({ type: 'done', id: m.id, world: { ...rest, history: [] }, raster, civ, ms: performance.now() - t0, genMs, tempo: noteOf(m.params, m.sketch), eras: eraWorlds(steps), baseKey }, transfer);
+    post({ type: 'done', id: m.id, world: { ...rest, history: [] }, raster, civ, ms: performance.now() - t0, genMs, ...(reused ? { reused: true as const } : {}), tempo: noteOf(m.params, m.sketch), eras: eraWorlds(steps), baseKey }, transfer);
     queuePatches(m.id, m, steps);
     queueSnapshot(m.id, m, world, steps, kept);
   } else if (m.type === 'load') {

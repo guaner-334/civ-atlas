@@ -20,7 +20,7 @@ import { mulberry32, subSeed, clamp, keyed, smoothstep } from './util';
 import { geometryOf, sphereSpacing } from './geometry';
 import type { TerrainOp } from './edits';
 import { computeCurrents, type Currents } from './currents';
-import { TERRAIN_MAX_OPS, UPHEAVALS_MAX, UPHEAVAL_OPS_MAX, applyClimatePens, applyTerrainTectonics, carveLakes, carveRivers, cleanTerrainOps, volcanoPeaks } from './terrainEdits';
+import { TERRAIN_MAX_OPS, UPHEAVALS_MAX, UPHEAVAL_OPS_MAX, applyClimatePens, applyHeightPens, applyTerrainTectonics, carveLakes, carveRivers, cleanTerrainOps, isHeightKind, volcanoPeaks } from './terrainEdits';
 import { sketchUsed, type Sketch } from './sketch';
 
 /**
@@ -134,18 +134,41 @@ export interface World {
 
 export type Progress = (stage: string, pct: number) => void;
 
-/** terrain:作者的地形修改(WorldEdits.terrain,按先后;不给 / 空 = 不改);sketch:草图涂成的格子图(不给 / null = 没画) */
-export function generateWorld(params: WorldParams, progress: Progress = () => {}, terrain?: readonly TerrainOp[], sketch?: Sketch | null): World {
-  const p = { ...DEFAULT_PARAMS, ...params };
-  // 地形修改 + 地形大事(upheaval.ts 生成大事以后的世界时接在后面)
-  const ops = cleanTerrainOps(terrain ?? [], TERRAIN_MAX_OPS + UPHEAVALS_MAX * UPHEAVAL_OPS_MAX);
+/**
+ * 生成到"随机洼地"为止的那一半(网格、板块、造山侵蚀,最慢的一段)。只由参数、草图、侵蚀之前套上的几种地形修改
+ * (火山、山脉、抬起陆地、沉成海)定:编辑地形时只加了湖、河、气候笔、高度笔,这一半一点不变。
+ * BaseCache 记着上一次的这一半,键对得上就直接接着算后一半(结果和从头生成逐位相同;后一半只在副本上改)
+ */
+export interface TerrainBase {
+  /** 参数 + 侵蚀之前套上的地形修改 */
+  key: string;
+  /** 草图(格子图复制一份比内容) */
+  sketch: Sketch | null;
+  mesh: Mesh;
+  tect: Tectonics;
+  /** 随机洼地挖完的海拔(米);后一半在副本上接着改 */
+  elevation: Float32Array;
+  history: Float32Array[];
+  /** 侵蚀之前改过的地块(applyTerrainTectonics 的 touched) */
+  touched: Uint8Array | null;
+  /** 海拔 60 米以上的陆地块数(太大的湖按它定) */
+  highLand: number;
+}
+/** 记着上一次生成的前一半(worker 里一个世界一份) */
+export interface BaseCache {
+  base: TerrainBase | null;
+}
+
+/** 侵蚀之前套上的几种地形修改(火山、山脉、抬起陆地、沉成海):前一半只看它们 */
+const isShapeOp = (o: TerrainOp) => o.kind === 'volcano' || o.kind === 'range' || o.kind === 'raise' || o.kind === 'sink';
+const baseKeyOf = (p: WorldParams, shapes: readonly TerrainOp[]) => JSON.stringify([Object.entries(p).sort(([a], [b]) => (a < b ? -1 : 1)), shapes]);
+const sameSketchGrid = (a: Sketch | null, b: Sketch | null) =>
+  a === b || (!!a && !!b && a.coast === b.coast && a.grid.length === b.grid.length && a.grid.every((v, i) => v === b.grid[i]));
+
+/** 前一半(见 TerrainBase):ops 只给侵蚀之前套的那几种 */
+function growTerrain(p: WorldParams, sk: Sketch | null, ops: readonly TerrainOp[], climateP: ClimateParams, progress: Progress, key: string): TerrainBase {
   const W = MAP_W;
   const H = MAP_H;
-  const climateP: ClimateParams = {
-    seed: p.seed,
-    temperature: p.temperature,
-    rainfall: p.rainfall,
-  };
 
   progress('撒下地块', 0.02);
   const spacing = sphereSpacing(W, p.cells);
@@ -154,7 +177,6 @@ export function generateWorld(params: WorldParams, progress: Progress = () => {}
   const geo = geometryOf(mesh);
 
   progress('板块漂移', 0.12);
-  const sk = sketchUsed(sketch) ? sketch : null;
   const tect = buildTectonics(mesh, p, sk);
   // 改地形:火山、山脉、抬起 / 沉下 —— 侵蚀之前改抬升场和海陆(touched = 改过的地块)
   const land0 = ops.length ? tect.land.slice() : null;
@@ -298,6 +320,60 @@ export function generateWorld(params: WorldParams, progress: Progress = () => {}
       elevation[i] -= depth * Math.exp(-geo.near2(i, c, r3) / (r * r));
     }
   }
+  return { key, sketch: sk && { grid: sk.grid.slice(), coast: sk.coast }, mesh, tect, elevation, history, touched, highLand };
+}
+
+/**
+ * terrain:作者的地形修改(WorldEdits.terrain,按先后;不给 / 空 = 不改);sketch:草图涂成的格子图(不给 / null = 没画)。
+ * cache:记着上一次的前一半(见 TerrainBase);参数、草图、侵蚀之前的地形修改都没变时跳过网格、板块、侵蚀
+ */
+export function generateWorld(params: WorldParams, progress: Progress = () => {}, terrain?: readonly TerrainOp[], sketch?: Sketch | null, cache?: BaseCache): World {
+  const p = { ...DEFAULT_PARAMS, ...params };
+  // 地形修改 + 地形大事(upheaval.ts 生成大事以后的世界时接在后面)
+  const ops = cleanTerrainOps(terrain ?? [], TERRAIN_MAX_OPS + UPHEAVALS_MAX * UPHEAVAL_OPS_MAX);
+  const W = MAP_W;
+  const H = MAP_H;
+  const climateP: ClimateParams = {
+    seed: p.seed,
+    temperature: p.temperature,
+    rainfall: p.rainfall,
+  };
+  const sk = sketchUsed(sketch) ? sketch : null;
+  const shapes = ops.filter(isShapeOp);
+  const key = baseKeyOf(p, shapes);
+  const had = cache?.base;
+  let base: TerrainBase;
+  if (had && had.key === key && sameSketchGrid(had.sketch, sk)) {
+    base = had;
+    progress('湖泊与水系', 0.62);
+  } else {
+    base = growTerrain(p, sk, shapes, climateP, progress, key);
+    if (cache) cache.base = base;
+  }
+  const { mesh, touched, highLand } = base;
+  const { n } = mesh;
+  const elevation = base.elevation.slice();
+  // 改地形:高度五种笔(抬高、压低、平滑、抹平、定高)直接改海拔;涂过海平面的地方海陆跟着变(在副本上改,前一半记着的不动)。
+  // painted = 涂过的地块:下面填平太大的湖、淹掉湖心小岛时不动它们(和作者挖的湖、堆的地一样)
+  let tect = base.tect;
+  let history = base.history;
+  let painted: Uint8Array | null = null;
+  if (ops.some((o) => isHeightKind(o.kind))) {
+    tect = { ...tect, land: tect.land.slice() };
+    painted = applyHeightPens(mesh, tect.land, elevation, ops);
+    // 形成过程的回放帧也加上涂的高低(回放用的是现在的海陆),最后一帧和现在的地形对得上
+    const changed: number[] = [];
+    for (let i = 0; i < n; i++) if (elevation[i] !== base.elevation[i]) changed.push(i);
+    if (changed.length) {
+      history = history.map((fr) => {
+        const out = fr.slice();
+        for (const i of changed) out[i] += elevation[i] - base.elevation[i];
+        return out;
+      });
+    }
+  }
+  const { land } = tect;
+
   // 改地形:作者挖的湖(碗形洼地,下面排水时灌满)
   const userLake = ops.length ? carveLakes(mesh, land, elevation, ops, p.seed) : null;
   // 改地形:作者画的河(沿线挖河谷,这一路一定画成河)
@@ -341,7 +417,7 @@ export function generateWorld(params: WorldParams, progress: Progress = () => {}
         }
       }
     }
-    if (comp.length > maxLake && !(userLake && comp.some((c) => userLake[c]))) {
+    if (comp.length > maxLake && !(userLake && comp.some((c) => userLake[c])) && !(painted && comp.some((c) => painted[c]))) {
       for (const c of comp) {
         water[c] = 0;
         elevation[c] = pool.filled[c] - 1;
@@ -372,13 +448,14 @@ export function generateWorld(params: WorldParams, progress: Progress = () => {}
         } else if (water[j] === 1) ocean = true;
       }
     }
-    // 作者挖的湖、作者堆的地(火山、抬起陆地)不动
+    // 作者挖的湖、作者堆的地(火山、抬起陆地)、高度笔涂过的地方不动
     if (
       lake &&
       !ocean &&
       comp.length <= islet &&
       !(userLake && comp.some((c) => userLake[c])) &&
-      !(touched && comp.some((c) => touched[c]))
+      !(touched && comp.some((c) => touched[c])) &&
+      !(painted && comp.some((c) => painted[c]))
     ) {
       for (const c of comp) {
         water[c] = 2;

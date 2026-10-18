@@ -2,7 +2,7 @@
  * 编辑地形的工具(ui/TerrainTools.tsx):在地图上按下、拖动、松开画成草图的一笔或一条河,点一下放火山湖;
  * 撤销 / 重做按先后把草图的笔和放的一处混在一起算;全部清除;海岸线的选择在画第一笔前也记着;画了几笔的说法
  */
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { clearEdits, getEdits, putSketch, addTerrainOp, setEdits } from '../src/ui/editsStore';
 import { EMPTY_EDITS, type TerrainOp } from '../src/gen/edits';
 import {
@@ -12,6 +12,7 @@ import {
   redoTerrain,
   setTerrainCoast,
   setTerrainPage,
+  setTerrainProbe,
   setTerrainTool,
   setTerrainWrap,
   terrainCancel,
@@ -140,6 +141,73 @@ describe('编辑地形:画', () => {
     expect(getTerrainTool().tool).toBe('hills');
     setTerrainPage('climate');
     expect(getTerrainTool().tool).toBe('warm');
+  });
+
+  it('高度页:抬高 / 压低按力度存,按住不动也越记越多;定高带海拔和边缘;三页各记着上次的笔', () => {
+    setTerrainTool({ tool: 'hills' });
+    setTerrainPage('height');
+    expect(getTerrainTool().tool).toBe('lift');
+    setTerrainTool({ r: 30, power: 0.4 });
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'performance'] });
+    try {
+      expect(terrainDown([400, 400], 0)).toBe(true);
+      vi.advanceTimersByTime(500);
+      terrainUp();
+    } finally {
+      vi.useRealTimers();
+    }
+    const lift = getEdits().terrain[0];
+    expect(lift).toMatchObject({ kind: 'lift', r: 30, s: 0.4 });
+    // 按住不动 0.5 秒:同一个点又记了几次
+    expect(lift.pts.length / 2).toBeGreaterThanOrEqual(4);
+    expect(lift.pts.every((v, i) => v === (i % 2 ? 400 : 400))).toBe(true);
+    setTerrainTool({ tool: 'setHeight', height: -350, edge: 2 });
+    drag([
+      [500, 500],
+      [560, 500],
+    ]);
+    expect(getEdits().terrain[1]).toMatchObject({ kind: 'setHeight', r: 30, s: 1, h: -350, edge: 2, pts: [500, 500, 560, 500] });
+    setTerrainPage('climate');
+    expect(['wet', 'dry', 'warm', 'cold']).toContain(getTerrainTool().tool);
+    setTerrainPage('shape');
+    expect(getTerrainTool().tool).toBe('hills');
+    setTerrainPage('height');
+    expect(getTerrainTool().tool).toBe('setHeight');
+  });
+
+  it('高度笔:鼠标一下挪得远,中间按步长补上点(涂出来是连着的);太细的笔按地形修改的最小半径存', () => {
+    setTerrainPage('height');
+    setTerrainTool({ tool: 'lower', r: 10, power: 1 });
+    drag([
+      [100, 100],
+      [200, 100],
+    ]);
+    const op = getEdits().terrain[0];
+    expect(op.kind).toBe('lower');
+    for (let k = 2; k < op.pts.length; k += 2) expect(Math.hypot(op.pts[k] - op.pts[k - 2], op.pts[k + 1] - op.pts[k - 1])).toBeLessThanOrEqual(4.5);
+    expect(op.pts.slice(-2)).toEqual([200, 100]);
+    setTerrainTool({ tool: 'smooth', r: 2 });
+    drag([
+      [300, 300],
+      [310, 300],
+    ]);
+    expect(getEdits().terrain[1]).toMatchObject({ kind: 'smooth', r: 3 });
+  });
+
+  it('定高的「从地图上取」:点一下地图取那里的海拔(这一下不画),取完收起', () => {
+    const elevation = new Float32Array([120, 1234.6]);
+    const raster = { w: 4, h: 2, scale: 1 / 512, cell: Int32Array.from([0, 0, 1, 1, 0, 0, 1, 1]) };
+    setTerrainProbe({ world: { width: 2048, height: 1024, elevation }, raster } as never);
+    setTerrainTool({ tool: 'setHeight', picking: true, height: 2000 });
+    expect(terrainDown([1500, 100], 0)).toBe(false);
+    expect(terrainClick([1500, 100])).toBe(true);
+    expect(getTerrainTool()).toMatchObject({ height: 1235, picking: false });
+    expect(getEdits().terrain).toEqual([]);
+    // 换笔也收起
+    setTerrainTool({ picking: true });
+    setTerrainTool({ tool: 'lift' });
+    expect(getTerrainTool().picking).toBe(false);
+    setTerrainProbe(null);
   });
 
   it('第二根手指紧跟着按下:刚开始的那一笔不算', () => {
