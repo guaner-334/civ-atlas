@@ -4,9 +4,9 @@
  * 手绘风的符号(山、丘陵、沙丘、草丛、林块)改地形后远处一个都不挪。
  */
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_PARAMS, MAP_H, MAP_W, generateWorld, type World } from '../src/gen/world';
+import { DEFAULT_PARAMS, MAP_H, MAP_W, generateWorld, type BaseCache, type World } from '../src/gen/world';
 import { EMPTY_EDITS, type TerrainOp, type WorldEdits } from '../src/gen/edits';
-import { TERRAIN_H, TERRAIN_MAX_OPS, TERRAIN_MAX_PTS, TERRAIN_PRESETS, TERRAIN_W, applyClimatePens, cleanTerrainOp, cleanTerrainOps, presetStrength, sameTerrain } from '../src/gen/terrainEdits';
+import { HEIGHT_M, TERRAIN_H, TERRAIN_MAX_OPS, TERRAIN_MAX_PTS, TERRAIN_PRESETS, TERRAIN_W, applyClimatePens, cleanTerrainOp, cleanTerrainOps, liftAt, presetStrength, sameTerrain } from '../src/gen/terrainEdits';
 import { drawnFlux, shownRivers } from '../src/render/common';
 import { geometryOf } from '../src/gen/geometry';
 import { editCount, makeSave, parseSave, saveText, worldCheck } from '../src/gen/savefile';
@@ -378,6 +378,177 @@ describe('改地形 · 生成', () => {
     let top = 0;
     for (let i = 0; i < w0.mesh.n; i++) if (w0.elevation[i] > w0.elevation[top]) top = i;
     expect(Math.abs(w.elevation[top] - w0.elevation[top])).toBeLessThan(w0.elevation[top] * 0.08);
+  });
+});
+
+describe('改地形 · 高度笔', () => {
+  it('清理:定高要有海拔(取整、夹到范围),边缘只认 0 / 1 / 2;力度夹到 0.05–1,定高的力度一律 1', () => {
+    const ok: TerrainOp = { kind: 'setHeight', pts: [10, 10, 30, 10], r: 30, s: 1, h: 2000, edge: 0 };
+    expect(cleanTerrainOp(ok)).toBe(ok);
+    expect(cleanTerrainOp({ kind: 'setHeight', pts: [10, 10], r: 30, s: 1 })).toBeNull();
+    expect(cleanTerrainOp({ kind: 'setHeight', pts: [10, 10], r: 30, s: 0.3, h: 99999.6, edge: 5 })).toEqual({ kind: 'setHeight', pts: [10, 10], r: 30, s: 1, h: HEIGHT_M[1] });
+    expect(cleanTerrainOp({ kind: 'setHeight', pts: [10, 10], r: 30, s: 1, h: -120.4, edge: 2 })).toEqual({ kind: 'setHeight', pts: [10, 10], r: 30, s: 1, h: -120, edge: 2 });
+    expect(cleanTerrainOp({ kind: 'lift', pts: [10, 10, 10, 10], r: 30, s: 1.7, h: 5, edge: 1 })).toEqual({ kind: 'lift', pts: [10, 10, 10, 10], r: 30, s: 1 });
+    expect(cleanTerrainOp({ kind: 'smooth', pts: [10, 10], r: 30, s: 0 })?.s).toBe(0.05);
+    // 按住不动时同一个点记好几次:原样留着
+    const dabs: TerrainOp = { kind: 'lower', pts: [10, 10, 10, 10, 10, 10], r: 30, s: 0.4 };
+    expect(cleanTerrainOp(dabs)).toBe(dabs);
+    expect(sameTerrain([ok], [{ ...ok, h: 2001 }])).toBe(false);
+    expect(sameTerrain([ok], [{ ...ok, edge: 1 }])).toBe(false);
+  });
+
+  /** 一片不挨海、不太高的陆地的中心(世界坐标) */
+  const plain = (w: World): [number, number] => {
+    const c = farthestFrom(w, true);
+    return [Math.round(w.mesh.x[c]), Math.round(w.mesh.y[c])];
+  };
+  const geo = () => geometryOf(base7().mesh);
+
+  it('定高:涂过的地方正好是写的海拔,边上渐渐接回去;离得远的海拔一点不动', () => {
+    const w0 = base7();
+    const [x, y] = plain(w0);
+    const w = generateWorld(SMALL, undefined, [{ kind: 'setHeight', pts: [x - 20, y, x + 20, y], r: 30, s: 1, h: 2000, edge: 0 }]);
+    const core = near(w, x, y, 18);
+    expect(core.length).toBeGreaterThan(5);
+    for (const i of core) expect(w.elevation[i]).toBe(2000);
+    // 远处(三个笔宽以外)的海拔逐位不变
+    const g = geo();
+    let far = 0;
+    for (let i = 0; i < w.mesh.n; i++) {
+      if (g.distTo(i, x, y) < 200) continue;
+      far++;
+      expect(w.elevation[i]).toBe(w0.elevation[i]);
+    }
+    expect(far).toBeGreaterThan(w.mesh.n * 0.9);
+    // 软边:笔心照足,往外越来越接近原来的高度
+    const soft = generateWorld(SMALL, undefined, [{ kind: 'setHeight', pts: [x, y], r: 40, s: 1, h: 2000, edge: 2 }]);
+    const mid = near(soft, x, y, 30).filter((i) => g.distTo(i, x, y) > 22);
+    expect(mid.every((i) => soft.elevation[i] < 2000 && soft.elevation[i] > w0.elevation[i])).toBe(true);
+  });
+
+  it('定高到海里:冒出一座岛;定高到海平面以下:陆地沉成海', () => {
+    const w0 = base7();
+    const o = farthestFrom(w0, false);
+    const [ox, oy] = [Math.round(w0.mesh.x[o]), Math.round(w0.mesh.y[o])];
+    const isle = generateWorld(SMALL, undefined, [{ kind: 'setHeight', pts: [ox, oy], r: 30, s: 1, h: 300, edge: 0 }]);
+    for (const i of near(isle, ox, oy, 15)) expect(isle.water[i]).toBe(0);
+    // 形成过程的回放:最后一帧(今天)这里也是陆地的高度,不是原来的海底
+    const last = isle.history[isle.history.length - 1];
+    for (const i of near(isle, ox, oy, 15)) expect(last[i]).toBeGreaterThan(0);
+    const [x, y] = plain(w0);
+    const sea = generateWorld(SMALL, undefined, [{ kind: 'setHeight', pts: [x, y], r: 30, s: 1, h: -200, edge: 0 }]);
+    for (const i of near(sea, x, y, 15)) expect(sea.water[i]).toBe(1);
+  });
+
+  it('压低出一大片盆地:积成的大湖留着,不当成"太大的湖"填平;湖里涂高的小岛也不淹', () => {
+    const w0 = base7();
+    const [x, y] = plain(w0);
+    const big = generateWorld(SMALL, undefined, [{ kind: 'setHeight', pts: [x, y], r: 60, s: 1, h: 1, edge: 0 }]);
+    const core = near(big, x, y, 50);
+    const lake = core.filter((i) => big.water[i] === 2).length;
+    expect(lake).toBeGreaterThan(0.8 * core.length);
+    expect(lake).toBeGreaterThan(40);
+    const isle = generateWorld(SMALL, undefined, [
+      { kind: 'setHeight', pts: [x, y], r: 60, s: 1, h: 1, edge: 0 },
+      { kind: 'setHeight', pts: [x, y], r: 4, s: 1, h: 400, edge: 0 },
+    ]);
+    const top = near(isle, x, y, 2);
+    expect(top.length).toBeGreaterThan(0);
+    for (const i of top) expect(isle.water[i]).toBe(0);
+  });
+
+  it('抬高 / 压低:涂得越多变得越多,笔心抬的米数和读数(liftAt)对得上', () => {
+    const w0 = base7();
+    const [x, y] = plain(w0);
+    const g = geo();
+    const one: TerrainOp = { kind: 'lift', pts: [x, y], r: 30, s: 0.5 };
+    const three: TerrainOp = { ...one, pts: [x, y, x, y, x, y] };
+    const a = generateWorld(SMALL, undefined, [one]);
+    const b = generateWorld(SMALL, undefined, [three]);
+    const c = near(w0, x, y, 6);
+    for (const i of c) {
+      const want = liftAt(one, w0.mesh.x[i], w0.mesh.y[i], (ax, ay, bx, by) => g.pointDist(ax, ay, bx, by));
+      expect(want).toBeGreaterThan(20);
+      expect(a.elevation[i] - w0.elevation[i]).toBeCloseTo(want, 0);
+      expect(b.elevation[i] - w0.elevation[i]).toBeCloseTo(3 * want, 0);
+    }
+    const down = generateWorld(SMALL, undefined, [{ ...three, kind: 'lower' }]);
+    for (const i of c) expect(down.elevation[i]).toBeLessThan(w0.elevation[i] - 40);
+  });
+
+  it('压低出一个盆地:比四周都低,积水成湖;水系跟着变', () => {
+    const w0 = base7();
+    const [x, y] = plain(w0);
+    const g = geo();
+    // 盆底比盆沿外一圈最低处还低 150 米
+    let rim = Infinity;
+    for (let i = 0; i < w0.mesh.n; i++) {
+      const d = g.distTo(i, x, y);
+      if (d > 24 && d < 40) rim = Math.min(rim, w0.elevation[i]);
+    }
+    const pit = generateWorld(SMALL, undefined, [{ kind: 'setHeight', pts: [x, y], r: 22, s: 1, h: Math.round(rim - 150), edge: 0 }]);
+    expect(near(pit, x, y, 8).every((i) => pit.water[i] === 2)).toBe(true);
+    expect(Buffer.from(pit.flux.buffer).equals(Buffer.from(w0.flux.buffer))).toBe(false);
+  });
+
+  it('平滑、抹平:涂过的一片更平,不冒出比原来更高、更低的尖', () => {
+    const w0 = base7();
+    // 找一片起伏大的陆地(海拔差最大的陆地块附近)
+    let best = -1;
+    let bestD = 0;
+    const { adjStart, adj } = w0.mesh;
+    for (let i = 0; i < w0.mesh.n; i++) {
+      if (w0.water[i] !== 0) continue;
+      let d = 0;
+      for (let k = adjStart[i]; k < adjStart[i + 1]; k++) if (w0.water[adj[k]] === 0) d = Math.max(d, Math.abs(w0.elevation[i] - w0.elevation[adj[k]]));
+      if (d > bestD) (bestD = d), (best = i);
+    }
+    const [x, y] = [Math.round(w0.mesh.x[best]), Math.round(w0.mesh.y[best])];
+    const area = near(w0, x, y, 14).filter((i) => w0.water[i] === 0);
+    const rough = (w: World) => {
+      let s = 0;
+      for (const i of area) {
+        let sum = 0;
+        for (let k = adjStart[i]; k < adjStart[i + 1]; k++) sum += w.elevation[adj[k]];
+        s += Math.abs(w.elevation[i] - sum / (adjStart[i + 1] - adjStart[i]));
+      }
+      return s / area.length;
+    };
+    const dabs = Array.from({ length: 12 }, () => [x, y]).flat();
+    const sm = generateWorld(SMALL, undefined, [{ kind: 'smooth', pts: dabs, r: 30, s: 1 }]);
+    expect(rough(sm)).toBeLessThan(rough(w0) * 0.6);
+    const fl = generateWorld(SMALL, undefined, [{ kind: 'flatten', pts: dabs, r: 30, s: 1 }]);
+    expect(rough(fl)).toBeLessThan(rough(w0) * 0.6);
+    const lo = Math.min(...area.map((i) => w0.elevation[i]));
+    const hi = Math.max(...area.map((i) => w0.elevation[i]));
+    for (const i of area) {
+      expect(fl.elevation[i]).toBeGreaterThanOrEqual(lo - 1);
+      expect(fl.elevation[i]).toBeLessThanOrEqual(hi + 1);
+    }
+  });
+
+  it('接着上一次的前一半算(只加了湖、河、气候、高度):和从头生成逐位相同,记着的前一半不被改', () => {
+    const cache: BaseCache = { base: null };
+    const w0 = generateWorld(SMALL, undefined, [], null, cache);
+    same(w0, base7());
+    const first = cache.base;
+    const [x, y] = plain(w0);
+    const steps: TerrainOp[][] = [
+      [{ kind: 'lake', pts: [x + 60, y], r: 16, s: 1 }],
+      [{ kind: 'lake', pts: [x + 60, y], r: 16, s: 1 }, { kind: 'lift', pts: [x, y, x + 10, y], r: 30, s: 0.6 }],
+      [{ kind: 'lake', pts: [x + 60, y], r: 16, s: 1 }, { kind: 'lift', pts: [x, y, x + 10, y], r: 30, s: 0.6 }, { kind: 'setHeight', pts: [x - 40, y], r: 20, s: 1, h: 1500 }, { kind: 'wet', pts: [x, y], r: 30, s: 1 }],
+    ];
+    for (const ops of steps) {
+      const a = generateWorld(SMALL, undefined, ops, null, cache);
+      expect(cache.base).toBe(first);
+      same(a, generateWorld(SMALL, undefined, ops));
+    }
+    // 回到没改:和原来一样(前一半没被高度笔改坏)
+    same(generateWorld(SMALL, undefined, [], null, cache), w0);
+    // 加了火山(侵蚀之前套的):前一半重算,结果照样和从头生成一样
+    const v: TerrainOp[] = [{ kind: 'volcano', pts: [x, y], r: 28, s: 1 }];
+    same(generateWorld(SMALL, undefined, v, null, cache), generateWorld(SMALL, undefined, v));
+    expect(cache.base).not.toBe(first);
   });
 });
 
