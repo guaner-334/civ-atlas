@@ -365,22 +365,33 @@ function makeCanvas(w: number, h: number): AnyCanvas {
  * v.k 决定细节层级:符号大小按 glyphScale(k),只画出现门槛 ≤ k 的符号;河流按流量分级。
  */
 export function drawFantasyVectors(ctx: CanvasRenderingContext2D, world: World, v: VecView) {
+  for (const layer of fantasyVectorLayers(world, v)) layer(ctx);
+}
+
+/**
+ * 矢量层按先后拆成三样(林块、河流、符号),同 drawFantasyVectors 的画法和顺序;依次画完和 drawFantasyVectors 逐像素一样。
+ * 文明细节层算"让位"遮罩时一样一步画(中间让出主线程)
+ */
+export function fantasyVectorLayers(world: World, v: VecView): ((ctx: CanvasRenderingContext2D) => void)[] {
   if (v.proj) {
     // 弯边投影(按投影重画):这种投影的符号规划;林块、符号在投影后的位置上按屏幕大小画,河逐点投影
     const pj = v.proj;
     const pp = planOf(world, pj.mp.def.id);
-    drawForests(ctx, world, pp.forest, v, v.k > 1 ? 256 : FOREST_TILE, projCells(world, pj));
-    drawRivers(ctx, world.rivers, v, world.riverThreshold, fantasyRiverStyle(v.k, world.riverThreshold));
-    drawSymbols(ctx, pp.glyphs, v);
-    return;
+    return [
+      (ctx) => drawForests(ctx, world, pp.forest, v, v.k > 1 ? 256 : FOREST_TILE, projCells(world, pj)),
+      (ctx) => drawRivers(ctx, world.rivers, v, world.riverThreshold, fantasyRiverStyle(v.k, world.riverThreshold)),
+      (ctx) => drawSymbols(ctx, pp.glyphs, v),
+    ];
   }
   const plan = planOf(world);
   // 东西相连:挨着左右边的林块、河、符号在另一边再画一份。图框不画在这里(主图是一整圈星球,不是一页纸;
   // 纸边、外框画在视窗上,见 ui/MapDecor.tsx、导出)
   const vw = { ...v, wrap: wrapOf(world) };
-  drawForests(ctx, world, plan.forest, vw, v.k > 1 ? 256 : FOREST_TILE);
-  drawRivers(ctx, world.rivers, vw, world.riverThreshold, fantasyRiverStyle(v.k, world.riverThreshold));
-  drawSymbols(ctx, plan.glyphs, vw);
+  return [
+    (ctx) => drawForests(ctx, world, plan.forest, vw, v.k > 1 ? 256 : FOREST_TILE),
+    (ctx) => drawRivers(ctx, world.rivers, vw, world.riverThreshold, fantasyRiverStyle(v.k, world.riverThreshold)),
+    (ctx) => drawSymbols(ctx, plan.glyphs, vw),
+  ];
 }
 
 // ---------------------------------------------------------------------------

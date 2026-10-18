@@ -16,7 +16,7 @@
 import type { World } from '../../gen/world';
 import type { Raster } from '../../gen/raster';
 import type { Civ, Year } from '../../gen/civ/types';
-import { drawFantasyVectors, glyphScale, GLYPH_K0 } from '../fantasy';
+import { drawFantasyVectors, fantasyVectorLayers, glyphScale, GLYPH_K0 } from '../fantasy';
 import { clipOutline, projector, reprojectImage, relShifts } from '../projection';
 import { nearX, type WorkStep } from '../common';
 import { drawBorders, mergeChains, regionChains, BAND, type SidedLine } from './borders';
@@ -243,6 +243,12 @@ function inkOf(cache: DetailCache, v: CivDetailView, step: number, world: World)
 /** 遮罩双线性放大:目标格 (i, j) 的中心在源网格的 ((i + 0.5)·r − 0.5, …) */
 function upsample(src: Uint8Array, sw: number, sh: number, dw: number, dh: number, r: number): Uint8Array {
   const out = new Uint8Array(dw * dh);
+  upsampleRows(src, sw, sh, dw, r, upsampleCols(sw, dw, r), out, 0, dh);
+  return out;
+}
+
+/** 双线性放大每一列取源网格的哪两列、各占多少(同 upsample) */
+function upsampleCols(sw: number, dw: number, r: number) {
   const x0 = new Int32Array(dw);
   const x1 = new Int32Array(dw);
   const tx = new Float32Array(dw);
@@ -252,7 +258,22 @@ function upsample(src: Uint8Array, sw: number, sh: number, dw: number, dh: numbe
     x1[i] = Math.min(sw - 1, x0[i] + 1);
     tx[i] = u - x0[i];
   }
-  for (let j = 0; j < dh; j++) {
+  return { x0, x1, tx };
+}
+
+/** 双线性放大的第 j0 到 j1 − 1 行(分几次放和一次放完逐字节一样) */
+function upsampleRows(
+  src: Uint8Array,
+  sw: number,
+  sh: number,
+  dw: number,
+  r: number,
+  { x0, x1, tx }: ReturnType<typeof upsampleCols>,
+  out: Uint8Array,
+  j0: number,
+  j1: number,
+): void {
+  for (let j = j0; j < j1; j++) {
     const v = Math.min(sh - 1, Math.max(0, (j + 0.5) * r - 0.5));
     const y0 = Math.floor(v);
     const y1 = Math.min(sh - 1, y0 + 1);
@@ -266,7 +287,97 @@ function upsample(src: Uint8Array, sw: number, sh: number, dw: number, dh: numbe
       out[o + i] = a + (b - a) * ty + 0.5;
     }
   }
-  return out;
+}
+
+/** 遮罩放大一次做多少行 */
+const INK_ROWS = 64;
+
+/**
+ * inkOf 拆成一小步一小步(分帧备料用;结果和 inkOf 逐字节一样,同样存进 cache.inks):
+ * 按 INK_CSS 一格的那份:符号层的林块、河流、符号各画一步,读回来算遮罩一步;更细的格:双线性放大每 INK_ROWS 行一步。
+ * 返回的 WorkStep 一次做一小步,返回 true = 还没做完
+ */
+function inkWork(cache: DetailCache, v: CivDetailView, step: number, world: World): WorkStep {
+  let todo: (() => void)[] | null = null;
+  let k = 0;
+  return () => {
+    todo ??= cache.inks.has(step) ? [] : inkTodo(cache, v, step, world);
+    if (k < todo.length) todo[k++]();
+    return k < todo.length;
+  };
+}
+
+function inkTodo(cache: DetailCache, v: CivDetailView, step: number, world: World): (() => void)[] {
+  const ms = Math.max(1, Math.round(INK_CSS * v.dpr));
+  const g = gridOf(cache, v, step, world);
+  if (step < ms) {
+    const src = cache.inks.get(ms);
+    // 粗的那份还没算(不该发生):当下按 inkOf 算完
+    if (!src) return [() => void inkOf(cache, v, step, world)];
+    const gs = gridOf(cache, v, ms, world);
+    const cols = upsampleCols(gs.gw, g.gw, step / ms);
+    const hard = new Uint8Array(g.gw * g.gh);
+    const soft = new Uint8Array(g.gw * g.gh);
+    const todo: (() => void)[] = [];
+    for (let j = 0; j < g.gh; j += INK_ROWS) {
+      const j1 = Math.min(g.gh, j + INK_ROWS);
+      todo.push(() => {
+        upsampleRows(src.hard, gs.gw, gs.gh, g.gw, step / ms, cols, hard, j, j1);
+        upsampleRows(src.soft, gs.gw, gs.gh, g.gw, step / ms, cols, soft, j, j1);
+      });
+    }
+    todo.push(() => void cache.inks.set(step, { hard, soft }));
+    return todo;
+  }
+  // 同 inkOf:按细节层同样的缩放画符号层(三样各一步;每一样都裁在同样的范围里,和一口气画完逐像素一样)
+  let cv: HTMLCanvasElement | OffscreenCanvas | null = null;
+  let ctx: CanvasRenderingContext2D | null = null;
+  const vs = { s: v.s / step, ox: v.ox / step, oy: v.oy / step, k: v.k };
+  /** 每一段:裁在哪(画之前调)、按哪个视图画 */
+  const parts: [(c: CanvasRenderingContext2D) => void, ((c: CanvasRenderingContext2D) => void)[]][] = [];
+  if (v.mp) {
+    const mp = v.mp;
+    parts.push([(c) => clipOutline(c, mp, vs), fantasyVectorLayers(world, { ...vs, proj: projector(mp) })]);
+  } else {
+    // 跨过主图右边(180° 经线)的那一块:左右两段各画一遍,各自裁在自己那一段里(同 inkOf)
+    const W = world.width;
+    const seam = W * vs.s + vs.ox;
+    const segs: [number, number, number][] = seam >= g.gw ? [[0, g.gw, 0]] : seam <= 0 ? [[0, g.gw, W * vs.s]] : [
+      [0, seam, 0],
+      [seam, g.gw, W * vs.s],
+    ];
+    for (const [c0, c1, sh] of segs) {
+      const clip =
+        segs.length > 1
+          ? (c: CanvasRenderingContext2D) => {
+              c.beginPath();
+              c.rect(c0, 0, c1 - c0, g.gh);
+              c.clip();
+            }
+          : () => {};
+      parts.push([clip, fantasyVectorLayers(world, { ...vs, ox: vs.ox + sh })]);
+    }
+  }
+  const todo: (() => void)[] = [
+    () => {
+      cv = makeCanvas(g.gw, g.gh);
+      ctx = cv.getContext('2d', { willReadFrequently: true }) as CanvasRenderingContext2D;
+    },
+  ];
+  for (let layer = 0; layer < 3; layer++)
+    todo.push(() => {
+      for (const [clip, layers] of parts) {
+        ctx!.save();
+        clip(ctx!);
+        layers[layer](ctx!);
+        ctx!.restore();
+      }
+    });
+  todo.push(() => {
+    cache.inks.set(step, inkFromSymbols(ctx!.getImageData(0, 0, g.gw, g.gh).data, g.gw * g.gh));
+    cv!.width = cv!.height = 0;
+  });
+  return todo;
 }
 
 export interface DetailTiming {
@@ -305,6 +416,9 @@ export function planCivDetail(p: CivDrawParams, v: CivDetailView, step: number, 
       t[key] += performance.now() - t0;
       return more;
     };
+  // 手绘风"让位"遮罩:先按 INK_CSS 一格画符号层读回来,上色的格更细再放大过去
+  const inkCoarse = inkWork(cache, v, Math.max(step, Math.max(1, Math.round(INK_CSS * v.dpr))), world);
+  const inkFine = inkWork(cache, v, step, world);
   const wash = rowSteps(
     () => (img ? g!.gh : 0),
     (j0, j1) => washDetail(img!.data, g!, raster, world.mesh, fl!, p.style, segs, ink, pen, j0, j1),
@@ -312,12 +426,10 @@ export function planCivDetail(p: CivDrawParams, v: CivDetailView, step: number, 
   const steps: WorkStep[] = [
     () => void (p.show.habitat && habitatCanvas(p)),
     timed('wash', () => void (fl = washFields(p, p.fast ? 2 : 1))),
-    // 手绘风"让位"遮罩:先按 INK_CSS 一格画符号层读回来,上色的格更细再放大过去
+    timed('ink', (d) => (fl && fantasy ? inkCoarse(d) : false)),
+    timed('ink', (d) => (fl && fantasy ? inkFine(d) : false)),
     timed('ink', () => {
-      if (fl && fantasy) inkOf(cache, v, Math.max(step, Math.max(1, Math.round(INK_CSS * v.dpr))), world);
-    }),
-    timed('ink', () => {
-      if (fl && fantasy) ink = inkOf(cache, v, step, world);
+      if (fl && fantasy) ink = cache.inks.get(step) ?? inkOf(cache, v, step, world);
     }),
     timed('wash', () => {
       if (!fl) return;
