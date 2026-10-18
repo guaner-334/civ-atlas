@@ -763,7 +763,6 @@ function addPlate(op: PlateOp) {
   order.push('p');
   redo = [];
 }
-/** 照图分:选一张图(选文件框和照手绘图的「换一张」一样放进页面里再点) */
 /** 去掉照图分(回到程序分的板块;之前的板块改动一起清掉) */
 function dropPlateImage() {
   trimOrder();
@@ -771,6 +770,7 @@ function dropPlateImage() {
   redo = [];
   setTerrainTool({ plateAt: null });
 }
+/** 照图分:选一张图(选文件框和照手绘图的「换一张」一样放进页面里再点) */
 export function pickPlateImage() {
   document.querySelector('input.imp-pick')?.remove();
   const input = document.createElement('input');
