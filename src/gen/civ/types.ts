@@ -831,6 +831,12 @@ export interface CivParams {
   frontier?: import('./frontier').Frontier;
   /** 自选的文明起源(frontier.ts 的 Origins;推演前先清理)。不给 = 自动挑发源地(和没有这一项逐字节一样) */
   origins?: import('./frontier').Origins;
+  /**
+   * 文明种子:推演里的随机数(州、民族、国家、人物、名字、旗……)都从它取,地图的随机数照旧从 world.params.seed 取。
+   * 不给 = 等于地图种子(和没有这一项逐字节一样)。
+   * 给了的是"在一张地图上新开的一段历史":改过地形的世界,扩张节拍和城的人口折算也按这张地图本身标定(不看 tempo,不另生成没改地形的星球)
+   */
+  civSeed?: number;
 }
 
 /**

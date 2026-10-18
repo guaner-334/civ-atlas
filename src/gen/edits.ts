@@ -192,6 +192,20 @@
  * 两样都改变历史:新建世界时定,创建以后不再改(和推演年数一样);新建界面里先按默认推(只看星球),创建以后才按它们推。
  * 默认的不写,不写时推演和没有这两项逐字节一样。
  *
+ * ## 文明种子
+ *
+ * WorldEdits.civSeed(可选,没有 = 等于地图种子):推演用的随机数从它取(州的划分、民族、国家、人物、地名、旗……),
+ * 地图(地形、气候、河流)照旧只看 params.seed。同一张地图换一个文明种子,就是这张地图上另一段从第 0 年起的历史。
+ * 没写时推演和没有这一项逐字节一样(加这一项以前的世界都没写)。写了的是"在一张地图上新开的历史":
+ * 改过地形的,扩张节拍和城的人口折算按这张地图本身标定(civ/index.ts 的 generateCiv),不另按现在的生成器长一颗没改地形的星球。
+ * 和拓荒、起源一样创建以后不再改。
+ *
+ * WorldEdits.map(可选):在一张地图上新开的历史,记着用的是哪张地图 —— sum = 那张地图的校验(生成出来的地图打成原件那一块的
+ * SHA-256,gen/snapshot.ts;同一张地图逐字节一样才相同,不只是同一个种子),from = 从哪个世界新开的(浏览器里的世界编号,
+ * 从新开的那段再新开,记的还是最早那个;"我的世界"按它把同一张地图上的几段历史放在一起)。只是记下来,不参与推演。
+ * 新开时用的是原来那个世界的**初始**地图(参数、地形修改、草图;不带地形大事),推演从第 0 年起;
+ * 原来的国家、人物、干预、地形大事、纪年、改名、作者标记和人物、改过的旗都不带(newHistoryEdits)。
+ *
  * ## 纪年
  *
  * WorldEdits.era(可选,没有 = 按"第几年"写):年份的写法 —— 名字(默认「公元」)和元年是第几年,
@@ -393,6 +407,10 @@ export interface WorldEdits {
   frontier?: Frontier;
   /** 自己选的文明起源(见文件头"拓荒与起源");没有 = 自动 */
   origins?: Origins;
+  /** 文明种子(见文件头"文明种子");没有 = 等于地图种子 */
+  civSeed?: number;
+  /** 这段历史用的是哪张地图(见文件头"文明种子");没有 = 不是在别的世界的地图上新开的 */
+  map?: MapRef;
   /** 纪年(见文件头"纪年"、era.ts);没有 = 按"第几年"写 */
   era?: Era;
   /** 一年几个月(见文件头"月份");0 = 只写年;没有 = 12 */
@@ -409,6 +427,70 @@ export function cleanEndYear(v: unknown): number | undefined {
   if (typeof v !== 'number' || !Number.isFinite(v)) return undefined;
   const y = Math.min(END_YEAR_MAX, Math.max(END_YEAR_DEFAULT, Math.round(v / END_YEAR_STEP) * END_YEAR_STEP));
   return y === END_YEAR_DEFAULT ? undefined : y;
+}
+
+/** 文明种子清理:整数(和地图种子同一范围)才认,别的 = undefined(按地图种子推) */
+export function cleanCivSeed(v: unknown): number | undefined {
+  return typeof v === 'number' && Number.isSafeInteger(v) ? v : undefined;
+}
+
+/** 这个世界推演用的文明种子(没写 = 地图种子) */
+export function civSeedOf(edits: Pick<WorldEdits, 'civSeed'>, mapSeed: number): number {
+  return cleanCivSeed(edits.civSeed) ?? mapSeed;
+}
+
+/** 一段历史用的是哪张地图(见文件头"文明种子") */
+export interface MapRef {
+  /** 地图的校验(地图那块原件的 SHA-256,十六进制);新开以后第一次推完才知道的,之前没有 */
+  sum?: string;
+  /** 从哪个世界新开的(世界编号) */
+  from?: string;
+}
+
+/** 地图记录清理:校验是 64 位十六进制、编号是不带控制字符的短字符串才留;一样都不剩 = undefined */
+export function cleanMapRef(v: unknown): MapRef | undefined {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return undefined;
+  const o = v as Record<string, unknown>;
+  const sum = typeof o.sum === 'string' && /^[0-9a-f]{64}$/.test(o.sum) ? o.sum : undefined;
+  // eslint-disable-next-line no-control-regex
+  const from = typeof o.from === 'string' && o.from.length > 0 && o.from.length <= 400 && !/[\u0000-\u001f\u007f]/.test(o.from) ? o.from : undefined;
+  return sum || from ? { ...(sum ? { sum } : {}), ...(from ? { from } : {}) } : undefined;
+}
+
+/** 两份地图记录一样(都没有也算) */
+export function sameMapRef(a: MapRef | undefined, b: MapRef | undefined): boolean {
+  return (a?.sum ?? '') === (b?.sum ?? '') && (a?.from ?? '') === (b?.from ?? '');
+}
+
+/** 在一张地图上新开一段历史时可以另选的(不给 = 默认:地名风格自动、推演 3000 年) */
+export interface NewHistoryOptions {
+  civSeed: number;
+  nameMix?: NameMix;
+  endYear?: number;
+  /** 地图的校验(知道就给) */
+  sum?: string;
+  /** 从哪个世界新开的 */
+  from: string;
+}
+
+/**
+ * 在 base 这个世界的地图上新开一段历史的修改:只带初始地图(地形修改、草图),外加新的文明种子、地图记录和另选的地名风格、推演年数。
+ * 原来的国家、人物、干预、地形大事、纪年、月份、改名、AI 起名、作者标记和人物、改过的旗、拓荒和起源一律不带。
+ * base 自己是新开的(有 map.from)时,from 记最早那个世界
+ */
+export function newHistoryEdits(base: WorldEdits, o: NewHistoryOptions): WorldEdits {
+  const out: WorldEdits = {
+    names: {},
+    interventions: [],
+    terrain: (base.terrain ?? []).map((x) => ({ ...x, pts: x.pts.slice() })),
+  };
+  if (base.sketch) out.sketch = JSON.parse(JSON.stringify(base.sketch)) as SketchEdit;
+  if (o.nameMix) out.nameMix = { ...o.nameMix };
+  const endYear = cleanEndYear(o.endYear);
+  if (endYear) out.endYear = endYear;
+  out.civSeed = o.civSeed;
+  out.map = cleanMapRef({ sum: o.sum, from: cleanMapRef(base.map)?.from ?? o.from });
+  return out;
 }
 
 /** 这个世界推到第几年(没写 = 默认) */

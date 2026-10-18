@@ -258,7 +258,7 @@ export function FlagPanel({ id, year, anchor, onClose }: { id: number; year: num
           <WestEditor
             spec={mode.spec}
             slot={mode.slot}
-            pal={culturePalette(v.world.params.seed, civ, p.culture)}
+            pal={culturePalette(civ.seed, civ, p.culture)}
             onSpec={(spec, slot = mode.slot) => setMode({ ...mode, spec, slot })}
           />
         )}

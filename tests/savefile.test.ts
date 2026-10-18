@@ -577,6 +577,36 @@ describe('浏览器存储(saveStore)', () => {
     expect(saveStore.duplicateWorld('wnothere001')).toBeNull();
   });
 
+  it('在一个世界的地图上新开一段历史:另存一个世界,只带地图和新的文明种子;原来的不动,删掉哪个都不影响另一个', () => {
+    const fake = new FakeStorage();
+    useStorage(fake);
+    const terrain = [{ kind: 'volcano' as const, pts: [1024, 512], r: 20, s: 1 }];
+    const a = openWorld(7, { title: '苍澜界', edits: { ...EDITS, terrain, endYear: 6000, era: { name: '公元', epoch: 2500 } } });
+    putNote(a, NOTE);
+    const before = fake.getItem(`wenming-ditu:world:${a}`);
+    tick();
+    const b = saveStore.newHistoryWorld(a, { civSeed: 52817, title: '苍澜界 另一段历史' })!;
+    expect(b).not.toBe(a);
+    const w = saveStore.loadWorld(b)!;
+    expect(w.draft).toBe(false);
+    expect(w.save.title).toBe('苍澜界 另一段历史');
+    expect(w.save.params).toEqual(saveStore.loadWorld(a)!.save.params);
+    expect(w.save.check).toBe('check7');
+    expect(w.save.edits).toEqual({ names: {}, interventions: [], terrain, civSeed: 52817, map: { from: a } });
+    expect(listNotes(b)).toEqual([]);
+    // 原来的一个字没变
+    expect(fake.getItem(`wenming-ditu:world:${a}`)).toBe(before);
+    // 从新开的那段再新开:记的是最早那个;没给名字 = 原名加编号
+    const c = saveStore.newHistoryWorld(b, { civSeed: 9 })!;
+    expect(saveStore.loadWorld(c)!.save.edits.map).toEqual({ from: a });
+    expect(saveStore.loadWorld(c)!.save.title).toBe('苍澜界 另一段历史（二）');
+    // 删掉原来的,新开的还在、照样是那张地图
+    saveStore.detachWorld();
+    saveStore.deleteWorld(a);
+    expect(saveStore.loadWorld(b)!.save.edits.terrain).toEqual(terrain);
+    expect(saveStore.newHistoryWorld('wnothere001', { civSeed: 1 })).toBeNull();
+  });
+
   it('删除后撤销:存档、缩略图、AI 写的东西原样放回,列表里回到原来的位置;存不下 = 说没放回去', () => {
     const fake = new FakeStorage();
     useStorage(fake);
@@ -1635,6 +1665,19 @@ describe('全部存成文件(bundle)', () => {
     expect(importBundle(draftOf(baseA))).toMatchObject({ added: [], same: 1, filled: 1 });
     expect(saveStore.listWorlds().find((w) => w.id === d)?.base).toEqual(baseA);
     expect(saveStore.listWorlds()).toHaveLength(4);
+  });
+
+  it('同一张地图上的另一段历史:放回来以后记的还是放回来的那个世界(文件里新开的那段排在前面也一样)', () => {
+    const src = makeSave({ ...DEFAULT_PARAMS, seed: 7 }, EDITS, 'c7', '苍澜界');
+    const alt = makeSave({ ...DEFAULT_PARAMS, seed: 7 }, { ...EMPTY_EDITS, civSeed: 52817, map: { from: 'wfile000001' } }, 'c7', '苍澜界（二）');
+    const r = importBundle({ worlds: [{ id: 'wfile000002', save: alt, meta: {}, thumb: null, notes: [] }, { id: 'wfile000001', save: src, meta: {}, thumb: null, notes: [] }], bad: 0 });
+    expect(r.added).toHaveLength(2);
+    const ws = saveStore.listWorlds();
+    const a = ws.find((w) => w.save.title === '苍澜界')!;
+    const b = ws.find((w) => w.save.title === '苍澜界（二）')!;
+    expect(b.save.edits.map).toEqual({ from: a.id });
+    // 再放一次:都认出是原来就有的
+    expect(importBundle({ worlds: [{ id: 'wfile000002', save: alt, meta: {}, thumb: null, notes: [] }, { id: 'wfile000001', save: src, meta: {}, thumb: null, notes: [] }], bad: 0 })).toMatchObject({ added: [], same: 2 });
   });
 
   it('正在看的世界刚点了「创建世界」,存储满了没改写进浏览器:文件里按页面里的算(建好了,不再记底稿)', () => {

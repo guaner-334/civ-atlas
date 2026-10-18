@@ -397,6 +397,8 @@ function kindOf(T: CultureTerrain, r: number, arch: Archetype, base: number): Cu
 }
 
 export interface CulturePlanParams {
+  /** 文明种子(CivParams.civSeed;没给时调用方填地图种子) */
+  seed: number;
   cultures: CivParams['cultures'];
   pace: number;
   birthSpan: number;
@@ -412,7 +414,7 @@ export interface CulturePlanParams {
 
 /** 定民族:数量、发源地、类型、扩张性、诞生年份,并标定"走一步要几年"(给了 tempo 就用它)。可居州一个都没有时返回 null */
 export function planCultures(world: World, habitat: Habitat, regions: Regions, p: CulturePlanParams): CultureModel | null {
-  const seed = world.params.seed;
+  const seed = p.seed;
   const base = subSeed(seed, 'civ-culture');
   const frontier = cleanFrontier(p.frontier);
   const T = cultureTerrain(world, habitat, regions, frontier);
@@ -433,7 +435,7 @@ export function planCultures(world: World, habitat: Habitat, regions: Regions, p
   // 自选了起源、改了地形难走程度:扩张节拍按"自动起源、默认地形"标定(不然标定会把调的抵消掉:比如处处难走,又标定回第 3000 年住满)
   let tempo = p.tempo;
   if (tempo === undefined && (U || terrainChanged(frontier))) {
-    tempo = planCultures(world, habitat, regions, { cultures: p.cultures, pace: 1, birthSpan: p.birthSpan })!.spreadYears;
+    tempo = planCultures(world, habitat, regions, { seed, cultures: p.cultures, pace: 1, birthSpan: p.birthSpan })!.spreadYears;
   }
 
   // ---- 数量 ----
@@ -1019,7 +1021,7 @@ export function rootsAcross(owner: Int16Array, from: readonly Culture[], to: rea
  * 地形大事:起名照没有大事的那份历史,份数却要按真正推演结束时各民族住的地方凑 —— 编号要先用 rootsAcross 换成这份历史的)
  */
 export function finishCultures(world: World, m: CultureModel, owner: Int16Array, history: readonly Checkpoint[] = [], pins?: NamePins, names?: NameMix, areas?: Int16Array): void {
-  const seed = world.params.seed;
+  const seed = m.seed;
   const reg = m.terrain.regions;
   const pinned = pins?.cultures && m.cultures.map((cu) => pins.cultures!.get(cultureKey(cu)));
   const isPinned = (i: number) => !!pinned?.[i];

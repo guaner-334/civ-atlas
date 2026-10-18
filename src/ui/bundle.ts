@@ -234,6 +234,13 @@ function fillFrom(id: string, w: BundleWorld, base: DraftBase | undefined): { fi
 /** 同一个世界:存档一样(sameSave),生成器版本、地形哈希也一样(版本不同的同样参数可能是两个不同的世界) */
 const sameWorld = (a: SaveFile, b: SaveFile) => sameSave(a, b) && a.generator === b.generator && a.check === b.check;
 
+/** 地图出自的那个世界(edits.map.from)换成现在的编号(那个世界已经放过了才知道) */
+function withMapFrom(save: SaveFile, ids: Map<string, string>): SaveFile {
+  const m = save.edits.map;
+  const to = m?.from && ids.get(m.from);
+  return to && to !== m.from ? { ...save, edits: { ...save.edits, map: { ...m, from: to } } } : save;
+}
+
 /** 放回「我的世界」(见文件头) */
 export function importBundle(b: Bundle): ImportResult {
   const have = listWorlds().map((w) => ({ id: w.id, save: w.save, draft: w.draft, base: w.base }));
@@ -241,9 +248,11 @@ export function importBundle(b: Bundle): ImportResult {
   const res: ImportResult = { added: [], same: 0, filled: 0, left: 0, notesLost: false };
   /** 文件里的编号 → 现在的编号(放进来的、原来就有的) */
   const ids = new Map<string, string>();
-  // 建好的先放:没建完的放的时候,它的底稿已经有了新编号
-  const order = [...b.worlds.filter((w) => !w.meta.draft), ...b.worlds.filter((w) => w.meta.draft)];
-  for (const w of order) {
+  // 建好的先放:没建完的放的时候,它的底稿已经有了新编号;同理,记着地图出自哪个世界(edits.map.from)的排在后面
+  const later = (w: Bundle['worlds'][number]) => (w.meta.draft ? 2 : 0) + (w.save.edits.map?.from ? 1 : 0);
+  const order = b.worlds.map((w, i) => ({ w, i })).sort((a, c) => later(a.w) - later(c.w) || a.i - c.i).map((x) => x.w);
+  for (const w0 of order) {
+    const w = { ...w0, save: withMapFrom(w0.save, ids) };
     const draft = !!w.meta.draft;
     // 没建完的记着的底稿:文件里的编号换成现在的
     const old = w.meta.base;

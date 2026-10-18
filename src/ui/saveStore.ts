@@ -29,7 +29,7 @@
  */
 import { useSyncExternalStore } from 'react';
 import type { WorldParams } from '../gen/world';
-import { GENERATOR_VERSION, type WorldEdits } from '../gen/edits';
+import { GENERATOR_VERSION, newHistoryEdits, type NewHistoryOptions, type WorldEdits } from '../gen/edits';
 import {
   CHECK_WARNING,
   DEFAULT_VIEW,
@@ -735,6 +735,31 @@ export function saveAsNewVersion(id: string, edits: WorldEdits): string | null {
   const save = makeSave(w.save.params, edits, '', title, undefined, w.save.view, w.save.origin);
   const nid = newWorldId();
   if (!writeSave(nid, save, { alive: w.alive })) return null;
+  changed();
+  return nid;
+}
+
+/**
+ * 在一个建好的世界的地图上新开一段历史(gen/edits.ts 文件头"文明种子"):存一个新的世界,参数、初始地形(地形修改、草图)、
+ * 投影、底稿出处照原来的,修改换成 newHistoryEdits(新的文明种子、记着用的哪张地图,原来的历史和作者内容一样不带)。
+ * 名字不给 = 原来的名字加"(二)"(重了再编号)。原来那个不动。返回新编号(没有这个世界、没建完、存不下、满了 = null)。
+ * 原来的世界是旧版本建的、地图在现在的版本里长得不一样时不能这样新开:调用前先核对(这里不管)
+ */
+export function newHistoryWorld(id: string, o: Omit<NewHistoryOptions, 'from'> & { title?: string }): string | null {
+  const w = loadWorld(id);
+  if (!w || w.draft) return null;
+  if (storedCount() >= MAX_WORLDS) {
+    fullWhy = 'count';
+    return null;
+  }
+  const { title: want, ...opts } = o;
+  const edits = newHistoryEdits(w.save.edits, { ...opts, from: id });
+  const title = cleanTitle(want) || nextTitle(w.save.title || '未命名世界');
+  // 地形校验:同一张地图照抄;旧版本建的留空,打开后按生成出来的记上
+  const check = w.save.generator === GENERATOR_VERSION ? w.save.check : '';
+  const save = makeSave(w.save.params, edits, check, title, undefined, w.save.view, w.save.origin);
+  const nid = newWorldId();
+  if (!writeSave(nid, save, { opened: save.savedAt })) return null;
   changed();
   return nid;
 }
