@@ -598,6 +598,26 @@ export function capitalAt(p: Polity, year: Year): number {
   return s;
 }
 
+/**
+ * 亡国那条史事(下标 i)前面,丢了国都撑不下去、残部一并归攻方的那几条攻占(不是打下来的,史事下标)。
+ * 亡国前同一刻连着的几条攻占里,打下国都的那一条以前的是这一仗打下来的(乘胜连下的几州也在同一刻),以后的是残部;
+ * 找不到国都那一条(手工拼的史事)时,只把最早一条当打下来的
+ */
+export function annexedRemnants(civ: Pick<Civ, 'annals' | 'polities' | 'settlements'>, i: number): number[] {
+  const A = civ.annals;
+  const e = A[i];
+  const run: number[] = [];
+  for (let j = i - 1; j >= 0; j--) {
+    const c = A[j];
+    if (c.kind !== 'conquer' || c.war !== e.war || c.year !== e.year || c.a !== e.b || c.b !== e.a) break;
+    run.push(j);
+  }
+  const Y = civ.polities[e.a];
+  const cr = Y ? civ.settlements[capitalAt(Y, e.year)]?.region : undefined;
+  const k = cr === undefined ? -1 : run.findIndex((j) => A[j].region === cr);
+  return k >= 0 ? run.slice(0, k) : run.slice(0, -1);
+}
+
 /** 国家在某一年存在(已立国、还没灭亡) */
 export function polityAlive(p: Polity, year: Year): boolean {
   return year >= p.founded && (p.ended === undefined || year < p.ended);

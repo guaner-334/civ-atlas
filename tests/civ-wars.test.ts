@@ -6,7 +6,7 @@ import { CivSim, Ev } from '../src/gen/civ/sim';
 import { ownersAt } from '../src/gen/civ/timeline';
 import { canCross, polityModelOf } from '../src/gen/civ/polities';
 import { CAPITAL_GRACE, HOLD, exclaveMask, warModelOf, warStats } from '../src/gen/civ/wars';
-import { capitalAt, polityAlive } from '../src/gen/civ/growth';
+import { annexedRemnants, capitalAt, polityAlive } from '../src/gen/civ/growth';
 import { buildChronicle } from '../src/gen/civ/chronicle';
 
 /**
@@ -245,6 +245,31 @@ describe('战争与攻占', () => {
         for (let i = 2; i < c.length; i++) expect(c[i].year - c[i - 1].year, `seed ${seed} ${p.name}`).toBeGreaterThanOrEqual(CAPITAL_GRACE);
       }
     }
+  }, 60_000);
+
+  it('乘胜连下几州后打下国都亡国:同一刻里打下国都以前的攻占是打下来的,只有以后的算残部', () => {
+    let before = 0;
+    let remnants = 0;
+    for (const seed of [7, 2024]) {
+      const civ = civOf({ ...DEFAULT_PARAMS, seed });
+      const A = civ.annals;
+      A.forEach((e, i) => {
+        if (e.kind !== 'fall' || e.war < 0) return;
+        const cr = civ.settlements[capitalAt(civ.polities[e.a], e.year)].region;
+        // 亡国前同一刻连着的攻占里,打下国都的那一条
+        let k = i - 1;
+        while (k >= 0 && A[k].kind === 'conquer' && A[k].year === e.year && A[k].war === e.war && A[k].region !== cr) k--;
+        if (!(k >= 0 && A[k].kind === 'conquer' && A[k].region === cr && A[k].year === e.year)) return;
+        const rest = annexedRemnants(civ, i);
+        expect(rest.every((j) => j > k), `seed ${seed} 第 ${i} 条亡国`).toBe(true);
+        expect(rest).toHaveLength(i - 1 - k);
+        remnants += rest.length;
+        for (let j = k - 1; j >= 0 && A[j].kind === 'conquer' && A[j].year === e.year && A[j].war === e.war; j--) before++;
+      });
+    }
+    // 两个世界里都有:先乘胜连下、再打下国都的,打下国都以后并掉残部的
+    expect(before).toBeGreaterThan(0);
+    expect(remnants).toBeGreaterThan(0);
   }, 60_000);
 
   it('默认参数 seed 7 / 2024:有战争、有迁都,两个世界里有亡国;在世国家 8–20 个;第 3000 年的政区图成片(飞地 < 3%)', () => {

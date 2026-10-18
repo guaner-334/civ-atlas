@@ -62,6 +62,7 @@
 import type { Annal, AnnalCause, AnnalKind, Civ, Culture, MigrationDir, Person, Polity, Year } from './types';
 import {
   TIER_REGIONS,
+  annexedRemnants,
   dynastyIndexAt,
   dynastyTitle,
   polityName,
@@ -1387,21 +1388,14 @@ function warEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
   }
   order.push(...held);
   // 不是打下来的攻占:议和时划界割让的(peace 的 region = 紧挨在它前面的几条)、丢了国都撑不下去残部一并归攻方的
-  // (亡国前同一刻连着的几条攻占,第一条是打下国都的那一仗)。各合成一条子条目,不写"攻取"
+  // (亡国前同一刻、打下国都以后连着的几条攻占,见 growth.ts 的 annexedRemnants)。各合成一条子条目,不写"攻取"
   const special = new Map<number, 'cede' | 'annex'>();
   for (const i of ids) {
     const e = A[i];
     if (e.kind === 'peace' && e.region > 0) {
       for (let j = Math.max(0, i - e.region); j < i; j++) if (A[j].kind === 'conquer' && A[j].war === e.war) special.set(j, 'cede');
     } else if (e.kind === 'fall') {
-      const run: number[] = [];
-      for (let j = i - 1; j >= 0; j--) {
-        const c = A[j];
-        if (c.kind !== 'conquer' || c.war !== e.war || c.year !== e.year || c.a !== e.b || c.b !== e.a) break;
-        run.push(j);
-      }
-      run.pop();
-      for (const j of run) special.set(j, 'annex');
+      for (const j of annexedRemnants(civ, i)) special.set(j, 'annex');
     }
   }
   // 人物:统帅这场战争里第一次出场写全("大渭将李牧攻取瑞州"),之后攻占只写国名
