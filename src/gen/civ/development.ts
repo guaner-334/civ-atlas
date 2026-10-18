@@ -850,11 +850,26 @@ function collapseHit(sim: CivSim, i: number, hit: readonly number[], lv: Float64
     if (log.year[mid] < e.year) lo = mid + 1;
     else hi = mid;
   }
+  // 散回部落的州:同一刻崩了几国时,日志里按史事的先后一国一段(各 e.war 条),跳过排在前面的几国
+  let skip = 0;
+  let take = e.b === 2 ? e.war : 0;
+  for (let j = i - 1; j >= 0; j--) {
+    const p = sim.annal(j);
+    if (p.year !== e.year) break;
+    if (p.kind === 'collapse' && p.b === 2) skip += p.war;
+  }
   const R = war.length;
   for (let k = lo; k < log.size && log.year[k] === e.year; k++) {
     if (log.layer[k] !== Layer.Polity) continue;
     const c = log.cause[k];
-    if (!((c === Ev.Split && pieces.has(log.value[k])) || c === Ev.Collapse)) continue;
+    if (c === Ev.Collapse) {
+      if (skip > 0) {
+        skip--;
+        continue;
+      }
+      if (take <= 0) continue;
+      take--;
+    } else if (!(c === Ev.Split && pieces.has(log.value[k]))) continue;
     const r = log.region[k];
     if (r >= R) continue;
     war[r] += 1;
