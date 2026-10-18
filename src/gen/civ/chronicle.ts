@@ -1789,7 +1789,7 @@ function plagueToll(loss: number, great: boolean): string {
 /**
  * 瘟疫(plague.ts;同一场的几条史事 plague 折成一条):"大疫起于维罗拉,传至特罗纳、哈尔兰、碧台等地,5 年间诸国死者十之二"
  * (只在一国:"…,5 年间大渭死者十之一";没传开:"大渭维罗拉大疫,死者十之一";大瘟疫染了 GREAT_WRITE 州以上:"天下大疫,起于维罗拉,
- * 传至…等五国四十州,12 年乃息,死者十之三四")。死几成按染疫各城的平均。标签"疫";大瘟疫、传到三国以上、死者十之二以上的是大事。
+ * 传至…等五国四十州,12 年乃息(起疫那年也算一年),死者十之三四")。死几成按染疫各城的平均。标签"疫";大瘟疫、传到三国以上、死者十之二以上的是大事。
  * 子条目是逐年传到哪("大渭维罗拉起疫""疫传至大渭瑞州等三州")
  */
 function plagueEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
@@ -1814,7 +1814,8 @@ function plagueEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
   }
   const shown = places.slice(0, 3).join('、');
   const more = places.length > 3 ? '等地' : '';
-  const years = Math.floor(end) - Math.floor(e.year);
+  // 闹了几个年头(起疫那年、最后染上的那年都算)
+  const years = Math.floor(end) - Math.floor(e.year) + 1;
   let text: string;
   if (great) {
     const where = shown ? `,传至${shown}等${polities.length > 1 ? `${cnNumber(polities.length)}国` : ''}${cnNumber(hits.length)}州` : '';
@@ -1835,7 +1836,8 @@ function plagueEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
       : undefined;
   const big = great || polities.length >= 3 || mean >= 0.195;
   return {
-    ...base(e, ids[0], text, big ? 3 : 2, polities, uniq(list.map((x) => x.region))),
+    // 点这一条时标出染过疫的每一州(史事一国一年只记死得最多的那州)
+    ...base(e, ids[0], text, big ? 3 : 2, polities, uniq([...list.map((x) => x.region), ...hits.map((h) => h.region)])),
     end,
     ...(children ? { children } : {}),
   };

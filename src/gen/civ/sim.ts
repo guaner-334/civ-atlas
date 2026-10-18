@@ -263,10 +263,12 @@ function arrivalOrder(kind: number, a: number, b: number): number {
  * - 地形大事 = 0:同一刻的别的事都按大事以后的地形和归属算(一次推演里只有一件,见 index.ts)
  * - 航海时代 = 1:同一刻的别的事都按"已经能走航线"算(polities.ts 的 sailsOcean)
  * - 发展度 = 2:只读这一刻以前的事;它改的人口上限、军力、远洋,同一刻的别的事都按改过的算(接着推时按 Civ 里存的状态接上)
- * - 看王朝、新君即位、迁都后重看边地:按国家号,同一国依次是看王朝、即位、重看。
+ * - 看王朝、新君即位、迁都后重看边地 = 3 起:按国家号,同一国依次是看王朝、即位、重看。
  *   看王朝在前:同一刻改朝换代了,旧朝原定这一刻即位的那位就不即位了(在位表重排,Ev.Reign 对不上就丢掉);
  *   即位、重看只从现有国土往外预约扩张、不改归属,排在别的事件前面 —— 接着推时 resumePolities 也是在同一刻的日志
  *   (大事改的归属除外)之前重放
+ * - 看疫情、疫情传开 = EARLY_SPAN − 2、− 1(这几类之后、别的事件之前):接着推时它们最后才补进引擎,
+ *   排在固定的位置,同一刻的别的事件(攻占、毁城)在它前还是在它后,和一口气推完一样
  * 不是这几类、或国家号超出能编的范围,返回 −1(按预约先后)
  */
 const EARLY_KINDS: Partial<Record<number, number>> = { [Ev.DynastyCheck]: 0, [Ev.Reign]: 1, [Ev.Respread]: 2 };
@@ -274,8 +276,10 @@ function earlyOrder(kind: number, b: number): number {
   if (kind === Ev.Upheaval) return 0;
   if (kind === Ev.AgeOfSail) return 1;
   if (kind === Ev.DevTick) return 2;
+  if (kind === Ev.PlagueCheck) return EARLY_SPAN - 2;
+  if (kind === Ev.PlagueStep) return EARLY_SPAN - 1;
   const i = EARLY_KINDS[kind];
-  if (i === undefined || !(b >= 0 && b < (EARLY_SPAN - 3) / 3 - 1)) return -1;
+  if (i === undefined || !(b >= 0 && b < (EARLY_SPAN - 5) / 3 - 1)) return -1;
   return 3 + b * 3 + i;
 }
 
