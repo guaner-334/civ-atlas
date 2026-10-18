@@ -385,16 +385,14 @@ export function civMapLayer(p: CivDrawParams, opt: { fast?: boolean; proj?: MapP
                 ownerAtPoint(field, wx + LOST_MARGIN, wy) === id &&
                 ownerAtPoint(field, wx, wy - LOST_MARGIN) === id &&
                 ownerAtPoint(field, wx, wy + LOST_MARGIN) === id,
-        place: (px, view) => {
+        place: function* (px, view) {
           const min = MIN_LABEL_PX * view.dpr;
           const planar = !!l.planar;
-          const main = polityCandidates(l.text, l.path, px, POLITY_TRACKING, view, l.vertical, min, planar);
-          if (!l.alt) return main;
+          yield* polityCandidates(l.text, l.path, px, POLITY_TRACKING, view, l.vertical, min, planar);
+          if (!l.alt) return;
           // 备选路径绕开国都;字号按它自己拟合的大小(相对主路径)换算
           const f = l.alt.size / l.size;
-          return main.concat(
-            polityCandidates(l.text, l.alt.path, Math.max(min, px * f), POLITY_TRACKING, view, l.alt.vertical, min, planar).map((c) => ({ ...c, px: c.px ?? Math.max(min, px * f) })),
-          );
+          for (const c of polityCandidates(l.text, l.alt.path, Math.max(min, px * f), POLITY_TRACKING, view, l.alt.vertical, min, planar)) yield { ...c, px: c.px ?? Math.max(min, px * f) };
         },
         planar: !!l.planar,
         tolerance: 0.1,

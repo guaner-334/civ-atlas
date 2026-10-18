@@ -34,10 +34,12 @@ import type { World } from '../gen/world';
 import type { Raster } from '../gen/raster';
 import type { Civ, Year } from '../gen/civ/types';
 import { drawCivOverlay, type CivDrawParams, type CivStyle, type CivViewport } from '../render/civ/overlay';
+import { civProjPrep } from '../render/civ/territory';
+import { detailAsync } from './detailJobs';
 import { civLabelChars, civLabelItems, civMapLayer, labelViewExtras, reserveCanvasBoxes, type CivMapLayer } from '../render/civ/labels';
 import { drawSettlementMarks, type CapitalFlags } from '../render/civ/settlements';
 import { drawWarfare, warsShown } from '../render/civ/warfare';
-import { drawPlacedLabels, placeMap, placedMarkBox, toCanvas, type LabelItem, type LabelView } from '../render/labels/draw';
+import { drawPlacedLabels, placeMap, placedMarkBox, toCanvas, type LabelItem, type LabelView, type Placement } from '../render/labels/draw';
 import { ensureFonts, fontsReady, preloadFonts } from '../render/labels/fonts';
 import { drawHighlight, drawSelection, drawSelectionLabels } from '../render/civ/highlight';
 import { getCivHighlight, setCivHighlight, useCivHighlight, useCivShow, useCivTime, useResourceView, useSelection } from './civView';
@@ -161,6 +163,9 @@ interface LabelsDebug {
   wars?: { lines: number; marks: number } | null;
 }
 
+/** 弯边投影停下来以后文明底图按投影重画(后台分小步)的活名 */
+const CIV_PROJ_JOB = 'proj-civ';
+
 /** moving 变成 false 以后再等一个任务才变 false(变 true 是马上) */
 function useLateStop(moving: boolean): boolean {
   const [late, setLate] = useState(moving);
@@ -217,6 +222,8 @@ export function CivLayer({ world, raster, civ, geo, style, year, view, mp = null
   // 右边接的那一份只在视窗里看得见它的时候才复制(视窗没跨过主图右边 = 180° 经线时看不见):
   // 回放、拖时间轴时每帧省一次整张图的复制(没有显卡加速的机器上这一下很慢);看不见时记下"过期",平移到看得见时再补
   const copyStale = useRef(false);
+  /** 选中层右边接的那一份过期了(同 copyStale) */
+  const selCopyStale = useRef(false);
   const copyVisible = () => {
     const box = ref.current?.parentElement;
     const vis = box ? visibleBox(box) : null;
@@ -251,7 +258,36 @@ export function CivLayer({ world, raster, civ, geo, style, year, view, mp = null
       if (!baseMoving && !covered) {
         const fresh = preciseDrawn.current !== params;
         const pj = projector(mp);
-        L.redraw(cv, raster.w, raster.h, mp.key, null, (ctx) => drawCivOverlay(ctx, { ...params, proj: pj }), fresh);
+        const pp = { ...params, proj: pj };
+        const draw = (ctx: CanvasRenderingContext2D) => drawCivOverlay(ctx, pp);
+        // 刚停下来(屏幕上是这份参数、这个中心的整图重投影):按投影重画在后台分小步备,和地形图的一起贴上
+        if (detailAsync && baseDrawn.current === params && L.presenting(mp)) {
+          const p0 = params;
+          L.refine(
+            CIV_PROJ_JOB,
+            cv,
+            raster.w,
+            raster.h,
+            mp.key,
+            null,
+            (ctx) => [
+              ...civProjPrep(pp),
+              () => {
+                const c = ctx();
+                if (c) draw(c);
+              },
+            ],
+            draw,
+            (ms, st) => {
+              const w = window as unknown as { __wfCiv: unknown; __wfCivProj: unknown };
+              w.__wfCivProj = { ms, lon: mp.lon0, proj: mp.def.id, precise: true, prep: st.prep, slices: st.slices };
+              if (preciseDrawn.current !== p0) w.__wfCiv = { ready: true, ms, show, year: p0.year, fast, proj: mp.def.id };
+              preciseDrawn.current = p0;
+            },
+          );
+          return;
+        }
+        L.redraw(cv, raster.w, raster.h, mp.key, null, draw, fresh);
         preciseDrawn.current = params;
         const w = window as unknown as { __wfCiv: unknown; __wfCivProj: unknown };
         const ms = performance.now() - t0;
@@ -316,9 +352,10 @@ export function CivLayer({ world, raster, civ, geo, style, year, view, mp = null
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params, raster, show, mp, baseMoving, covered, detailOn]);
   useLayoutEffect(() => {
-    if (!copyStale.current || !copyVisible()) return;
-    copyStale.current = false;
-    mirrorCanvas(refCopy.current, ref.current, true);
+    if (!(copyStale.current || selCopyStale.current) || !copyVisible()) return;
+    if (copyStale.current) mirrorCanvas(refCopy.current, ref.current, true);
+    if (selCopyStale.current) mirrorCanvas(selCopy.current, selRef.current, true);
+    copyStale.current = selCopyStale.current = false;
   });
 
   // ---- 3. 高亮层(编年史点一条):只在点的那一下画一次 ----
@@ -391,6 +428,7 @@ export function CivLayer({ world, raster, civ, geo, style, year, view, mp = null
     if (detailOn) return;
     if (!sel || !ok || !base || sel.kind === 'settlement') {
       if (cv.width) cv.width = cv.height = 0;
+      selCopyStale.current = false;
       mirrorCanvas(selCopy.current, cv, false);
       patchFeed({ sel: cv, selVer: feed.selVer + 1 });
       return;
@@ -404,12 +442,15 @@ export function CivLayer({ world, raster, civ, geo, style, year, view, mp = null
     if (m) {
       // 弯边投影:按投影直接画在地图平面上(罩染按行重投影,描边逐点投影;转中心时每次重画,约十毫秒)
       const lit = drawSelection(cv.getContext('2d')!, world, raster, base, sel, selPolityYear, style, 2 ** selZoom, projector(m));
+      selCopyStale.current = false;
       mirrorCanvas(selCopy.current, null, false);
       (window as unknown as { __wfSelection: unknown }).__wfSelection = { kind: sel.kind, id: sel.id, lit, ms: performance.now() - t0 };
       return;
     }
     const lit = drawSelection(cv.getContext('2d')!, world, raster, base, sel, selPolityYear, style, 2 ** selZoom);
-    mirrorCanvas(selCopy.current, cv, true);
+    // 右边接的那一份同底图:看得见时才复制,看不见记下"过期",平移到看得见时再补
+    selCopyStale.current = !copyVisible();
+    if (!selCopyStale.current) mirrorCanvas(selCopy.current, cv, true);
     patchFeed({ sel: cv, selVer: feed.selVer + 1 });
     (window as unknown as { __wfSelection: unknown }).__wfSelection = { kind: sel.kind, id: sel.id, lit, ms: performance.now() - t0 };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -458,6 +499,8 @@ export function CivLayer({ world, raster, civ, geo, style, year, view, mp = null
   );
   // 手绘风国都城堡插的国旗:旗的小图加载好了重画
   const flagImages = useFlagImages();
+  // 上一次排版的结果:排版看的东西(文字、符号、视口、要让开的框、字体)都没变就接着用 —— 只换了选中、旗子、物产圆章时不重排
+  const lastPlace = useRef<{ geo: LabelItem[]; layer: unknown; extras: unknown; mp: unknown; key: string; placed: Placement } | null>(null);
 
   useLayoutEffect(() => {
     const cv = textRef.current;
@@ -506,14 +549,22 @@ export function CivLayer({ world, raster, civ, geo, style, year, view, mp = null
     // 界面(屏幕坐标)→ 文字层画布像素(画布左上角 = 看得见的那一块的左上角,一个 CSS 像素 = dpr 个画布像素)
     const ui = avoid.map((b) => [(b[0] - vis.left) * dpr, (b[1] - vis.top) * dpr, (b[2] - vis.left) * dpr, (b[3] - vis.top) * dpr] as const);
     if (ui.length) lv.reserved = reserveCanvasBoxes(lv, ui);
-    const placed = placeMap(items, marks, lv);
+    const fontOk = fontsReady(fontStyle, text);
+    const pkey = [W, H, lv.scale, lv.ox, lv.oy, dpr, k, bw, lv.frameLeft, lv.wrap, fontStyle, text, fontOk, JSON.stringify(lv.reserved ?? null)].join('|');
+    const lp = lastPlace.current;
+    const raw =
+      lp && lp.geo === geoItems && lp.layer === mapLayer && lp.extras === extras && lp.mp === mp && lp.key === pkey ? lp.placed : placeMap(items, marks, lv);
+    lastPlace.current = { geo: geoItems, layer: mapLayer, extras, mp, key: pkey, placed: raw };
     // 国都的符号总要画(排版时不看重叠),但压在界面下面的也不画(和地球仪一样)
-    if (ui.length) {
-      placed.marks = placed.marks.filter((pm) => {
-        const b = placedMarkBox(pm);
-        return !ui.some((r) => r[0] < b[2] && r[2] > b[0] && r[1] < b[3] && r[3] > b[1]);
-      });
-    }
+    const placed: Placement = !ui.length
+      ? raw
+      : {
+          ...raw,
+          marks: raw.marks.filter((pm) => {
+            const b = placedMarkBox(pm);
+            return !ui.some((r) => r[0] < b[2] && r[2] > b[0] && r[1] < b[3] && r[3] > b[1]);
+          }),
+        };
     // 选中的城(符号没画出来时按它的位置画圈)、选中的东西的名字底下的光晕
     let at: [number, number] | null = null;
     if (sel?.kind === 'settlement' && civ?.settlements[sel.id]) {
@@ -558,7 +609,6 @@ export function CivLayer({ world, raster, civ, geo, style, year, view, mp = null
       drawResourceLayer(ctx, base, world, params.year, lv, placed.labels, resView, (x, y) => ui.some((q) => q[0] < x && q[2] > x && q[1] < y && q[3] > y), badges);
     setMapPlacement({ canvas: cv, placed, view: lv });
     const w = window as unknown as { __wfLabels?: LabelsDebug };
-    const fontOk = fontsReady(fontStyle, text);
     w.__wfLabels = {
       ready: true,
       drawn: placed.labels.length,
