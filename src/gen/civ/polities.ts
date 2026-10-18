@@ -780,7 +780,7 @@ export function planPolities(world: World, cm: CultureModel, p: PolityPlanParams
   const T = cm.terrain;
   const expand = p.expand ?? 1;
   // 远洋看各国自己的运输能力(Polity.sail),没有全世界统一的航海时代
-  return emptyModel(T, cm.cultures, world.params.seed, findPorts(world, T), capitalSpacing(T, p.polities), STEP_YEARS / Math.max(1e-3, p.pace * expand), Infinity, p.capNorm, expand);
+  return emptyModel(T, cm.cultures, cm.seed, findPorts(world, T), capitalSpacing(T, p.polities), STEP_YEARS / Math.max(1e-3, p.pace * expand), Infinity, p.capNorm, expand);
 }
 
 // ---------------------------------------------------------------------------
@@ -1372,7 +1372,7 @@ function assignPolityColors(polities: Polity[], nb: Set<number>[], base: number,
 
 /** 推演结束后:配色、国名词根、城名 */
 export function finishPolities(world: World, m: PolityModel, owner: Int16Array, pins?: NamePins): void {
-  const seed = world.params.seed;
+  const seed = m.seed;
   // 配色看"历史上接壤过的国家"(推演中逐次记下的,见 met)+ 结束时的邻国:灭亡、易手之后,回放到哪一年邻国颜色都错得开
   const nb = cultureNeighbors(m.terrain.regions, owner, m.polities.length);
   m.met.forEach((set, i) => set.forEach((o) => nb[i].add(o)));

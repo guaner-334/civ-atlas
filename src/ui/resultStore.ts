@@ -11,13 +11,16 @@
  *   退出登录选了"从这台设备上删掉"时全删(clearResults)。复制世界时原件跟着复制(copyResults)。
  * - 写不下(浏览器存储满了)、浏览器不让用 IndexedDB:这次不存,不提示(原件是额外的一份,存档本身照常)。
  *
+ * - 在别的世界的地图上新开的历史(gen/edits.ts 文件头"文明种子"),第一次推完时把这份原件里地图那块的校验记进修改(noteMapSum):
+ *   以后认得出这段历史用的是哪一张地图。
  * - 读:浏览器里存着的世界是旧版本建的(存档的生成器版本比现在旧),有那一版的原件、配方对得上存档,就照原样打开(frozenResult;
  *   worker 读原件,不重新生成)。读不出来的照旧按存档重新生成。
  */
 import { GENERATOR_VERSION } from '../gen/edits';
-import { SNAPSHOT_FORMAT, recipeKey, recipeOfSave, recipeText, type Snapshot } from '../gen/snapshot';
+import { SNAPSHOT_FORMAT, partOf, recipeKey, recipeOfSave, recipeText, type Snapshot } from '../gen/snapshot';
 import type { SaveFile } from '../gen/savefile';
-import { currentWorld, loadWorld, persistent, storedIds, subscribe } from './saveStore';
+import { currentSave, currentWorld, loadWorld, persistent, storedIds, subscribe } from './saveStore';
+import { getEdits, setMapSum } from './editsStore';
 import { APP_VERSION } from './version';
 
 /** 一个世界最多留几份原件(各是一个生成器版本的) */
@@ -224,6 +227,25 @@ export function keepPending(): Promise<boolean> {
       return false;
     }
   });
+}
+
+/**
+ * worker 交回来一份原件:当前世界是新开的历史、还没记地图的校验,原件又是它这一版的结果(配方对得上),就记上地图那块的校验
+ */
+export async function noteMapSum(s: Snapshot): Promise<void> {
+  const map = getEdits().map;
+  const sum = partOf(s, 'map')?.sum;
+  const c = currentWorld();
+  const save = currentSave();
+  if (!map || map.sum || !sum || !c || !save || s.generator !== GENERATOR_VERSION) return;
+  try {
+    if ((await recipeKey(recipeOfSave(save))) !== s.recipe) return;
+  } catch {
+    return;
+  }
+  // 等的这一会儿换了世界:不记
+  if (currentWorld()?.id !== c.id || getEdits().map !== map) return;
+  setMapSum(sum);
 }
 
 /** 当前打开的还是这个世界,存着的存档还是这个配方、这一版 */

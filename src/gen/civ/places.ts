@@ -38,6 +38,8 @@ export interface PlaceNaming {
   culture?: Int16Array;
   /** 整个世界的地名风格(CivParams.names):没人住的地方也照它 */
   names?: NameMix;
+  /** 文明种子(CivParams.civSeed):地名跟着民族起,也从它取;不给 = 地图种子 */
+  seed?: number;
 }
 
 type Kind = Place['kind'];
@@ -100,7 +102,7 @@ export function findPlaces(world: World, regions: Regions, naming: PlaceNaming =
   const n = mesh.n;
   if (n === 0) return [];
   const ctx = makeContext(world);
-  const namers = makeNamers(world.params.seed, regions, naming);
+  const namers = makeNamers(naming.seed ?? world.params.seed, regions, naming);
 
   const out: Place[] = [];
   // 先找齐(顺序固定:海 → 山 → 河 → 湖 → 岛 → 荒漠),再统一起名(nameAll:名字按位置取,和找的先后无关)

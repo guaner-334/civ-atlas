@@ -635,7 +635,7 @@ describe('地形大事 · 推演', () => {
     const w1 = steps([FLOOD, UP])[0].world;
     const pv = previewUpheaval(w0, r0, w1, UP.ops, DEFAULT_CIV_PARAMS.regionArea);
     const real = civOf([FLOOD, UP]);
-    const r1 = reshapeRegions(w1, computeHabitat(w1), r0, { regionArea: DEFAULT_CIV_PARAMS.regionArea });
+    const r1 = reshapeRegions(w1, computeHabitat(w1), r0, { regionArea: DEFAULT_CIV_PARAMS.regionArea, seed: w1.params.seed });
     expect(r1.count).toBe(real.regions.count);
     expect(Array.from(r1.of)).toEqual(Array.from(real.regions.of));
     expect(pv.added).toEqual(real.upheavals![0].added);
