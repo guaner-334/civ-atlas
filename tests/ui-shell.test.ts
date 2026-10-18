@@ -98,6 +98,8 @@ describe('底图 × 填色', () => {
     expect([baseDark('satellite'), baseDark('geo'), baseDark('blank'), baseDark('fantasy'), baseDark('elevation'), baseDark('plates')]).toEqual([true, true, false, false, true, false]);
     expect(baseThumb('satellite', 'classic')).toBe('realistic');
     expect(baseThumb('satellite', 'detail')).toBe('realistic:detail');
+    expect(baseName('satellite', 'simple')).toBe('简化卫星');
+    expect(baseThumb('satellite', 'simple')).toBe('realistic:simple');
     expect(baseThumb('blank', 'detail')).toBe('realistic:blank');
     expect(baseThumb('fantasy', 'detail')).toBe('terrain');
   });
