@@ -266,9 +266,9 @@ export function LayerPopover({ base, fill, sat, civ = null, onBase, onFill, onSa
             <div className="lp-grat lp-sat">
               <span>卫星画法</span>
               <span className="grat-seg" role="radiogroup" aria-label="卫星画法">
-                {(['classic', 'detail'] as const).map((s) => (
+                {(['classic', 'detail', 'simple'] as const).map((s) => (
                   <button key={s} className={s === sat ? 'on' : undefined} role="radio" aria-checked={s === sat} data-sat={s} onClick={() => onSat(s)}>
-                    {s === 'classic' ? '经典' : '细节'}
+                    {s === 'classic' ? '经典' : s === 'detail' ? '细节' : '简化'}
                   </button>
                 ))}
               </span>

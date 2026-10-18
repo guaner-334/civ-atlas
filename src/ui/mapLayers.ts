@@ -122,12 +122,12 @@ export function layerFromUrl(q: URLSearchParams): MapLayer | null {
 //   物产 = 手绘 + 不填 + 物产,实景 = 卫星(经典)+ 不填,生态 / 高程…… = 对应数据底图 + 不填。
 
 /** 写实画法的名字(卫星的两种画法、地理图、白模) */
-export const LOOK_NAMES: Record<SurfaceLook, string> = { classic: '经典卫星', detail: '卫星', geo: '地理图', blank: '白模' };
+export const LOOK_NAMES: Record<SurfaceLook, string> = { classic: '经典卫星', detail: '卫星', geo: '地理图', blank: '白模', simple: '简化卫星' };
 
 /** 卫星的两种画法 */
-export type SatLook = 'classic' | 'detail';
+export type SatLook = 'classic' | 'detail' | 'simple';
 export function isSatLook(x: unknown): x is SatLook {
-  return x === 'classic' || x === 'detail';
+  return x === 'classic' || x === 'detail' || x === 'simple';
 }
 
 /** 四张缩略图的底图 */
@@ -144,6 +144,7 @@ export const MAIN_BASES: { id: MainBase; name: string; hint: string }[] = [
 /** 数据底图(两行,四个一行) */
 export const DATA_BASES: DataLayer[] = ['biomes', 'elevation', 'plates', 'temperature', 'precipitation', 'climate', 'currents'];
 export const CLASSIC_HINT = '以前的实景画法，原样保留';
+export const SIMPLE_HINT = '颜色大片过渡，纹理和起伏都轻，像远远看一颗星球';
 
 export function isMainBase(x: unknown): x is MainBase {
   return x === 'fantasy' || x === 'satellite' || x === 'geo' || x === 'blank';
@@ -169,6 +170,7 @@ export function baseName(base: BaseId, sat: SatLook): string {
 /** 底图下面那行说明 */
 export function baseHint(base: BaseId, sat: SatLook): string {
   if (base === 'satellite' && sat === 'classic') return CLASSIC_HINT;
+  if (base === 'satellite' && sat === 'simple') return SIMPLE_HINT;
   const m = MAIN_BASES.find((b) => b.id === base);
   return m ? m.hint : `看一种数据：${layerDef(base as MapLayer).name}；国家颜色照样能叠上去`;
 }
@@ -282,7 +284,7 @@ export type ThumbId = MapLayer | `realistic:${Exclude<SurfaceLook, 'classic'>}`;
 /** 某种底图的缩略图(不叠填色) */
 export function baseThumb(base: BaseId, sat: SatLook): ThumbId {
   if (base === 'fantasy') return 'terrain';
-  if (base === 'satellite') return sat === 'classic' ? 'realistic' : 'realistic:detail';
+  if (base === 'satellite') return sat === 'classic' ? 'realistic' : `realistic:${sat}`;
   if (base === 'geo' || base === 'blank') return `realistic:${base}`;
   return base as MapLayer;
 }
