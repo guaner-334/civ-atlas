@@ -13,6 +13,7 @@ import { useSyncExternalStore } from 'react';
 import { EMPTY_EDITS, END_YEAR_DEFAULT, MARKS_MAX, cleanEndYear, MARK_REGIONS_TOTAL, cleanIntervention, cleanMark, markRegionTotal, sameMark, markAiName, nextMarkId, type AuthorMark, type Intervention, type TerrainOp, type Upheaval, type WorldEdits } from '../gen/edits';
 import { TERRAIN_MAX_OPS, UPHEAVALS_MAX, cleanTerrainOp, cleanUpheaval } from '../gen/terrainEdits';
 import { SKETCH_MAX_STROKES, cleanSketch, cleanSketchImage, cleanSketchStroke, encodeLayer, sketchCoast, sketchFill, type SketchEdit, type SketchFill, type SketchStroke } from '../gen/sketch';
+import { PLATE_MAX_OPS, cleanPlateOp, type PlateOp } from '../gen/plateEdits';
 import { CHARACTERS_MAX, cleanCharacter, nextCharacterId, sameCharacter, type AuthorCharacter } from '../gen/characters';
 import { showToast } from './toastStore';
 import { cleanMix, sameMix, type NameMix } from '../gen/names/mix';
@@ -659,6 +660,35 @@ export function setSketchCoast(coast: number) {
   const now = state.sketch;
   if (sketchCoast(now) === coast) return;
   putSketch({ ...(now ?? { rest: 'auto', strokes: [] }), coast });
+}
+
+/**
+ * 草图:加一处板块的改动(编辑地形「板块」页;清理过的,不合格的、已满 PLATE_MAX_OPS 处的不加)。
+ * 还没有草图时新开一张(海岸线、程序补全用 coast、fill)。返回是否加上了
+ */
+export function addPlateOp(op: PlateOp, coast?: number, fill?: SketchFill | 'free'): boolean {
+  const c = cleanPlateOp(op);
+  const now = state.sketch;
+  const ops = now?.plates?.ops ?? [];
+  if (!c || ops.length >= PLATE_MAX_OPS) return false;
+  const base: SketchEdit = now ?? freshSketch('auto', coast, fill);
+  return putSketch({ ...base, plates: { ...base.plates, ops: [...ops, c] } });
+}
+
+/** 草图:撤销最后一处板块的改动 */
+export function undoPlateOp(): boolean {
+  const now = state.sketch;
+  if (!now?.plates?.ops.length) return false;
+  return putSketch({ ...now, plates: { ...now.plates, ops: now.plates.ops.slice(0, -1) } });
+}
+
+/** 草图:板块相撞时造不造山(还没有草图时新开一张,海岸线、程序补全用 coast、fill) */
+export function setPlateOrogeny(on: boolean, coast?: number, fill?: SketchFill | 'free') {
+  const now = state.sketch;
+  if ((now?.plates?.orogeny !== false) === on) return;
+  const base: SketchEdit = now ?? freshSketch('auto', coast, fill);
+  const ops = base.plates?.ops ?? [];
+  putSketch({ ...base, plates: on ? { ops } : { ops, orogeny: false } });
 }
 
 // ---- 作者标记 ----

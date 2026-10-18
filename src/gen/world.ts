@@ -7,7 +7,7 @@
  * 作者改过地形(阶段 4,terrain = WorldEdits.terrain)时,修改在对应的那一步套上(gen/terrainEdits.ts):
  * 火山、山脉、抬起 / 沉下在侵蚀之前改抬升场和海陆,湖在"随机洼地"那一步挖;之后照常侵蚀、排水、算气候。
  * 作者画过草图(新建世界时「画大陆和海」,sketch = gen/sketch.ts 的 sketchGrid 涂成的格子图)时,在板块定海陆那一步照草图改
- * (tectonics.ts 的 4b 步),山地格加抬升;地形修改再套在草图长出来的星球上。
+ * (tectonics.ts 的 4b 步),山地格加抬升;草图里改过板块(plates)的,在板块那一步套上(tectonics.ts 的 2b 步);地形修改再套在草图长出来的星球上。
  * 没有地形修改、没有草图时结果逐字节不变。
  */
 import { buildMesh, type Mesh } from './mesh';
@@ -38,6 +38,7 @@ import {
   volcanoPeaks,
 } from './terrainEdits';
 import { sketchUsed, type Sketch } from './sketch';
+import { samePlates } from './plateEdits';
 
 /**
  * 生成参数(滑条上的那些数)。世界是一整颗星球:东西无缝、有南北极,主图是等距圆柱投影
@@ -184,7 +185,14 @@ const isShapeOp = (o: TerrainOp) => o.kind === 'volcano' || o.kind === 'range' |
 const baseKeyOf = (p: WorldParams, shapes: readonly TerrainOp[]) => JSON.stringify([Object.entries(p).sort(([a], [b]) => (a < b ? -1 : 1)), shapes]);
 const sameSketchGrid = (a: Sketch | null, b: Sketch | null) =>
   a === b ||
-  (!!a && !!b && a.coast === b.coast && a.fill === b.fill && a.noNewLand === b.noNewLand && a.grid.length === b.grid.length && a.grid.every((v, i) => v === b.grid[i]));
+  (!!a &&
+    !!b &&
+    a.coast === b.coast &&
+    a.fill === b.fill &&
+    a.noNewLand === b.noNewLand &&
+    samePlates(a.plates, b.plates) &&
+    a.grid.length === b.grid.length &&
+    a.grid.every((v, i) => v === b.grid[i]));
 
 /** 前一半(见 TerrainBase):ops 只给侵蚀之前套的那几种 */
 function growTerrain(p: WorldParams, sk: Sketch | null, ops: readonly TerrainOp[], climateP: ClimateParams, progress: Progress, key: string): TerrainBase {
@@ -239,10 +247,10 @@ function growTerrain(p: WorldParams, sk: Sketch | null, ops: readonly TerrainOp[
     // 取第几小的值:hh 本来就是 32 位数,存进 Float32Array 原样不变,用类型化数组自带的数值排序(比带比较函数的快得多)
     const vals = refVals.subarray(0, m).sort();
     const ref = vals[Math.max(0, Math.min(m - 1, Math.floor((m + skip) * 0.997) - skip))] || 1;
-    return tect.sketched ? Math.max(ref, reliefFloor(hh)) : ref;
+    return tect.sketched || tect.noOrogeny ? Math.max(ref, reliefFloor(hh)) : ref;
   };
   /**
-   * 草图只补细节 / 完全照画时"最高峰"的下限:涂过的地方抬升很低,涂满了陆地、别处没有程序的山时,
+   * 草图只补细节 / 完全照画、或者关掉了板块相撞时造山时"最高峰"的下限:涂过的地方抬升很低,涂满了陆地、别处没有程序的山时,
    * 第 99.7% 那一名就是平地,换算会把平地拉成几千米的高山。下限 = 有山的世界里最高峰大约有多高:
    * 这颗星球上侵蚀高度和抬升之比的中位数 × 普通世界里高山的抬升(山地参数越大越高),网格疏密也随这个比值一起算进去
    */

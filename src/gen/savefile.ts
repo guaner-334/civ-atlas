@@ -27,7 +27,7 @@
  * - edits.terrain:地形修改(edits.ts 文件头"地形修改");读档时逐处过 cleanTerrainOp,格式不对的跳过。
  *   旧存档没有这个字段 = 没改地形。check 是**改过地形以后**的地形哈希(读档时带着地形修改生成,再核对)
  * - edits.sketch(可选):地形草图(edits.ts 文件头"地形草图"),`{ "rest": "auto", "strokes": [{ "kind": "land", "r": 32, "pts": [700, 300, 760, 310] }] }`,
- *   导入过图片的多一个 `"image": { "name": "地图.jpg", "cells": "<认出来的格子图>" }`;
+ *   导入过图片的多一个 `"image": { "name": "地图.jpg", "cells": "<认出来的格子图>" }`,改过板块的多一个 `"plates": { "ops": [{ "kind": "cut", "pts": [600, 340, 640, 500] }] }`;
  *   没画时不写这个字段。读档时过 cleanSketch,格式不对的笔画、图片跳过。check 同样是照草图生成以后的地形哈希
  * - edits.upheavals(可选):地形大事(edits.ts 文件头"地形大事"),`[{ "year": 1600, "ops": [{ "kind": "sink", "pts": [1856, 574, 1936, 584], "r": 40, "s": 1.1 }] }]`;
  *   没有时不写这个字段。读档时过 cleanUpheaval,格式不对的跳过。check 只核对原来的地形(大事之后的地形由它和大事一起定)
@@ -63,6 +63,7 @@ import { cleanMix, sameMix } from './names/mix';
 import { GENERATOR_CHANGES, GENERATOR_VERSION, MARKS_MAX, MARK_REGIONS_TOTAL, NAME_MAX, aiNameKeys, cleanEndYear, cleanMark, freeMarkId, type AiNameMark, type AuthorMark, type GeneratorChange, type Intervention, type TerrainOp, type Upheaval, type WorldEdits } from './edits';
 import { TERRAIN_MAX_OPS, UPHEAVALS_MAX, UPHEAVAL_KINDS, UPHEAVAL_OPS_MAX, cleanTerrainOp, cleanUpheaval } from './terrainEdits';
 import { SKETCH_MAX_STROKES, cleanSketch, cleanSketchStroke, type SketchEdit } from './sketch';
+import type { PlateEdit } from './plateEdits';
 import { decodeFlag } from './civ/flags';
 import { CHARACTERS_MAX, cleanCharacters, type AuthorCharacter } from './characters';
 import { cleanEra, cleanMonths, sameEra } from './era';
@@ -382,12 +383,14 @@ export function makeSave(
   if (ai.length) save.edits.aiNames = Object.fromEntries(ai.map((k) => [k, { ...edits.aiNames![k] }]));
   // 草图:画了才写
   if (edits.sketch) {
-    const { rest, coast, strokes, image } = edits.sketch;
+    const { rest, coast, fill, strokes, image, plates } = edits.sketch;
     save.edits.sketch = {
       rest,
       ...(coast !== undefined ? { coast } : {}),
+      ...(fill ? { fill } : {}),
       strokes: strokes.map((x) => ({ ...x, pts: x.pts.slice() })),
       ...(image ? { image: { ...image } } : {}),
+      ...(plates ? { plates: JSON.parse(JSON.stringify(plates)) as PlateEdit } : {}),
     };
   }
   // 地形大事:有才写

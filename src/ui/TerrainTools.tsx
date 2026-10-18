@@ -18,6 +18,9 @@
  *   记一次(越涂越多),力度是滑条,按住 Alt 涂就反过来;平滑、抹平用法一样;定高写海拔(米),边缘硬 / 适中 / 软,
  *   「从地图上取」点一下地图取那里的海拔。定高时指针旁写"原来多高 → 涂完多高",抬高 / 压低涂的时候写抬了多少(liftAt)。
  *   涂过的高度笔地图上本身就看得出来,不另画记号(还在重新生成的那几笔照样闪着)。
+ * - 「板块」页(存在草图的 plates 里,见 gen/plateEdits.ts):地图换成板块配色(App 切过去,离开这一页换回来)。
+ *   选中 = 点一块板块选中它,地图上它的漂移箭头变白,拖箭头头上的圈改方向和快慢(松手记一处改动);面板里改陆壳 / 洋壳、
+ *   「板块相撞时造山」开关;切开 = 画一条线(松手切开);合并 = 依次点两块挨着的板块。都用点指板块,算在"画了几笔"里,能撤销。
  * - 两种新建各一套面板:随机生成的是「编辑地形」(组头"完成"收起;整张草图里海岸线、没涂的地方);
  *   照手绘图生成的是第 2 步「用笔修改」(mode = 'image',没有组头和没涂的地方 —— 没盖到的都是海)。
  *   照手绘图时认图(ImportImage.tsx)那一步也开着编辑地形(地图事件转给认图);「照这样长出星球」= applyImport,
@@ -61,10 +64,13 @@ import {
 } from '../gen/terrainEdits';
 import type { World } from '../gen/world';
 import type { Raster } from '../gen/raster';
+import { PLATE_SPEED, cutsPlate, driftOf, driftText, type PlateCrust, type PlateOp } from '../gen/plateEdits';
+import { PLATE_ARROW_L, plateArrows } from '../render/layers';
 import { Icon, type IconName } from './icons';
 import { Seg, Slider } from './tpControls';
 import {
   addEraseStroke,
+  addPlateOp,
   addSketchStroke,
   addTerrainOp,
   clearTerrainAndSketch,
@@ -73,8 +79,10 @@ import {
   setSketchBase,
   setSketchCoast,
   setSketchFill,
+  setPlateOrogeny,
   setSketchRest,
   undoEraseStroke,
+  undoPlateOp,
   undoSketchStroke,
   undoTerrainOp,
   useEdits,
@@ -105,7 +113,9 @@ export type PlaceKind = 'volcano' | 'lake' | 'river';
 export type ClimateKind = 'wet' | 'dry' | 'warm' | 'cold';
 /** 高度页的五支笔 */
 export type HeightKind = 'lift' | 'lower' | 'smooth' | 'flatten' | 'setHeight';
-export type EditTool = SketchKind | PlaceKind | ClimateKind | HeightKind | 'delWater';
+/** 板块页:选中、切开、合并 */
+export type PlateTool = 'plateSelect' | 'plateCut' | 'plateMerge';
+export type EditTool = SketchKind | PlaceKind | ClimateKind | HeightKind | PlateTool | 'delWater';
 
 export interface TerrainToolState {
   on: boolean;
@@ -130,6 +140,10 @@ export interface TerrainToolState {
   edge: 0 | 1 | 2;
   /** 定高的「从地图上取」:下一次点地图取那里的海拔 */
   picking: boolean;
+  /** 板块页选中的板块(选中:改它;合并:先点的那块):点的位置(世界坐标),没选 = null */
+  plateAt: [number, number] | null;
+  /** 板块页这一下没做成的原因(合并时点的两块不挨着),写在面板的提示里;没有 = null */
+  plateNote: string | null;
   /** 地图上显示草图(涂过的地方、放的火山湖河) */
   show: boolean;
   /** 海岸线的选择(草图还一笔没有时也记着,画第一笔时带上;有草图时以草图里的为准) */
@@ -155,6 +169,8 @@ let tool: TerrainToolState = {
   height: 2000,
   edge: 1,
   picking: false,
+  plateAt: null,
+  plateNote: null,
   show: true,
   coast: SKETCH_COAST,
   fill: SKETCH_FILL_NEW,
@@ -167,14 +183,17 @@ export const isClimateTool = (t: EditTool): t is ClimateKind => t === 'wet' || t
 export const isHeightTool = (t: EditTool): t is HeightKind => t === 'lift' || t === 'lower' || t === 'smooth' || t === 'flatten' || t === 'setHeight';
 /** 按住涂、越涂越多的四支(定高不算:涂过的就是那个海拔) */
 const isDabTool = (t: EditTool) => isHeightTool(t) && t !== 'setHeight';
+export const isPlateTool = (t: EditTool): t is PlateTool => t === 'plateSelect' || t === 'plateCut' || t === 'plateMerge';
 
 export function getTerrainTool(): TerrainToolState {
   return tool;
 }
 export function setTerrainTool(p: Partial<TerrainToolState>) {
   const next = { ...tool, ...p };
-  // 换了笔:「从地图上取」收起
+  // 换了笔:「从地图上取」收起;合并先点的那块不带到别的笔
   if (next.tool !== tool.tool && p.picking === undefined) next.picking = false;
+  if (next.tool !== tool.tool && p.plateAt === undefined && (tool.tool === 'plateMerge' || next.tool === 'plateMerge')) next.plateAt = null;
+  if (next.tool !== tool.tool && p.plateNote === undefined) next.plateNote = null;
   if ((Object.keys(next) as (keyof TerrainToolState)[]).every((k) => next[k] === tool[k])) return;
   tool = next;
   if (!tool.on) {
@@ -183,12 +202,12 @@ export function setTerrainTool(p: Partial<TerrainToolState>) {
   }
   emitTool();
 }
-/** 编辑地形的几页:地貌、高度、气候 */
-export type TerrainPage = 'shape' | 'height' | 'climate';
+/** 编辑地形的几页:地貌、高度、气候、板块 */
+export type TerrainPage = 'shape' | 'height' | 'climate' | 'plates';
 /** 这支笔在哪一页 */
-export const pageOf = (t: EditTool): TerrainPage => (isClimateTool(t) ? 'climate' : isHeightTool(t) ? 'height' : 'shape');
+export const pageOf = (t: EditTool): TerrainPage => (isClimateTool(t) ? 'climate' : isHeightTool(t) ? 'height' : isPlateTool(t) ? 'plates' : 'shape');
 /** 各页记着上一次用的笔,切回来还是它 */
-const lastOnPage: Record<TerrainPage, EditTool> = { shape: 'land', height: 'lift', climate: 'wet' };
+const lastOnPage: Record<TerrainPage, EditTool> = { shape: 'land', height: 'lift', climate: 'wet', plates: 'plateSelect' };
 /** 切到哪一页(换成那一页上次用的笔) */
 export function setTerrainPage(p: TerrainPage) {
   const now = tool.tool;
@@ -234,6 +253,18 @@ const HEIGHT: { id: HeightKind; name: string; icon: IconName; hint: string; phon
   { id: 'flatten', name: '抹平', icon: 'hFlatten', hint: '按住涂，涂过的地方抹成按下那一点的高度；涂得越久越平。', phone: '按住涂，抹成按下那一点的高度。' },
   { id: 'setHeight', name: '定高', icon: 'hSet', hint: '按住涂，涂过的地方变成这个海拔。改的就是最后的高度，河流、气候、植被跟着重算。', phone: '涂过的地方变成这个海拔。' },
 ];
+const PLATE: { id: PlateTool; name: string; icon: IconName; hint: string }[] = [
+  { id: 'plateSelect', name: '选中', icon: 'plPick', hint: '点一块板块选中它，在地图上拖它的箭头改方向和快慢。山脉、海沟、裂谷照新的板块重新长。' },
+  { id: 'plateCut', name: '切开', icon: 'plCut', hint: '从板块一边画到另一边，沿着画的线切成两块。新的那块先跟着原来的方向走，再拖箭头改。' },
+  { id: 'plateMerge', name: '合并', icon: 'plMerge', hint: '依次点两块挨着的板块，合成一块。' },
+];
+const MERGE_NEXT = '再点一块挨着它的板块，两块合成一块。';
+const MERGE_FAR = '这两块不挨着，合不了。换一块挨着的点。';
+const CUT_SHORT = '这条线没把板块整个切开。要从板块的一边一直画到另一边。';
+const CRUSTS: { v: PlateCrust; name: string }[] = [
+  { v: 'continental', name: '陆壳' },
+  { v: 'oceanic', name: '洋壳' },
+];
 const EDGES = ['硬', '适中', '软'];
 const SHORES: { v: number; name: string }[] = [
   { v: 0, name: '圆润' },
@@ -241,7 +272,7 @@ const SHORES: { v: number; name: string }[] = [
   { v: 1, name: '曲折' },
 ];
 const LEVELS = ['一点', '明显', '很多'];
-const PAGE_NAME: Record<TerrainPage, string> = { shape: '地貌', height: '高度', climate: '气候' };
+const PAGE_NAME: Record<TerrainPage, string> = { shape: '地貌', height: '高度', climate: '气候', plates: '板块' };
 const PICK_HINT = '点一下地图，取那里的海拔。';
 /** 海拔写成"2,000""−120"(整数米,千位加逗号,负号用减号) */
 export const fmtM = (v: number) => {
@@ -275,6 +306,8 @@ interface Draft {
   cursor: [number, number] | null;
   /** 按着 Alt(抬高 / 压低反过来) */
   alt?: boolean;
+  /** 正在拖选中板块的箭头:箭头头拖到了哪(世界坐标);没在拖 = 不给 */
+  tip?: [number, number];
 }
 let draftNow: Draft = { draft: null, cursor: null };
 /** 这一笔按下时按着 Alt */
@@ -305,7 +338,7 @@ let draftT0 = 0;
 const draftSubs = new Set<() => void>();
 function setDraft(s: Draft) {
   if (!s.draft) stopDabs();
-  draftNow = { ...s, alt: s.alt ?? draftNow.alt };
+  draftNow = { ...s, alt: s.alt ?? draftNow.alt, tip: s.tip };
   draftSubs.forEach((f) => f());
 }
 function useDraft(): Draft {
@@ -335,16 +368,64 @@ let probe: { world: World; raster: Raster } | null = null;
 export function setTerrainProbe(d: { world: World; raster: Raster } | null) {
   probe = d;
 }
-/** 世界坐标点那里的海拔(米;那一像素最近的地块);没有世界 = null */
-export function heightAt(x: number, y: number): number | null {
-  if (!probe) return null;
+/** 世界坐标点落在哪个地块(那一像素最近的地块);没有世界 = −1 */
+function cellAt(x: number, y: number): number {
+  if (!probe) return -1;
   const { world, raster } = probe;
   const W = world.width;
   const px = Math.min(raster.w - 1, Math.max(0, Math.floor((x - W * Math.floor(x / W)) * raster.scale)));
   const py = Math.min(raster.h - 1, Math.max(0, Math.floor(y * raster.scale)));
   const c = raster.cell[py * raster.w + px];
-  return c >= 0 && c < world.elevation.length ? world.elevation[c] : null;
+  return c >= 0 && c < world.elevation.length ? c : -1;
 }
+/** 世界坐标点那里的海拔(米;那一像素最近的地块);没有世界 = null */
+export function heightAt(x: number, y: number): number | null {
+  const c = cellAt(x, y);
+  return c < 0 ? null : probe!.world.elevation[c];
+}
+/** 世界坐标点那里是哪块板块(地图上现在这个世界);没有世界 = null */
+export function plateAtPoint(x: number, y: number): number | null {
+  const c = cellAt(x, y);
+  return c < 0 ? null : probe!.world.tect.plate[c];
+}
+/** 两块板块挨不挨着(地图上现在这个世界) */
+function platesTouch(a: number, b: number): boolean {
+  if (!probe) return false;
+  const { mesh, tect } = probe.world;
+  const { plate } = tect;
+  for (let i = 0; i < mesh.n; i++) {
+    if (plate[i] !== a) continue;
+    for (let k = mesh.adjStart[i]; k < mesh.adjStart[i + 1]; k++) if (plate[mesh.adj[k]] === b) return true;
+  }
+  return false;
+}
+/** 选中(或合并先点)的那块板块和它的漂移箭头;没选、没有世界 = null */
+function pickedArrow(t: TerrainToolState) {
+  if (!t.plateAt || !probe) return null;
+  const k = plateAtPoint(t.plateAt[0], t.plateAt[1]);
+  if (k === null) return null;
+  const a = plateArrows(probe.world)[k];
+  return a ? { k, a } : null;
+}
+/** 箭头写成一句:"每年 4 厘米，往东北" */
+function arrowText(a: { dx: number; dy: number; east: number }): string {
+  const d = driftOf(a.dx / (a.east * PLATE_ARROW_L), a.dy / PLATE_ARROW_L);
+  return driftText(d.dir, d.speed);
+}
+/** 选中的板块的箭头比地图上画的长这么多倍(地图上的箭头短,慢的板块只有箭头头那么长,拖不住) */
+const PICK_ARROW = 5.5;
+/** 选中的板块的箭头头在哪(世界坐标) */
+const pickedTip = (a: { x: number; y: number; dx: number; dy: number }): [number, number] => [a.x + a.dx * PICK_ARROW, a.y + a.dy * PICK_ARROW];
+/** 箭头头拖到 tip 时的漂移:往哪边(整度)、每年几厘米(半厘米一档,最快 PLATE_SPEED[1]) */
+function dragDrift(a: { x: number; y: number; east: number }, tip: readonly [number, number]): { dir: number; speed: number } {
+  const L = PLATE_ARROW_L * PICK_ARROW;
+  const d = driftOf((near(tip[0], a.x) - a.x) / (a.east * L), (tip[1] - a.y) / L);
+  return { dir: Math.round(d.dir) % 360, speed: Math.round(Math.min(PLATE_SPEED[1], d.speed) * 2) / 2 };
+}
+/** 屏幕上一个世界单位多少像素(覆盖层画的时候记下;拖箭头时量手指离箭头头多远用) */
+let overlayK = 1;
+/** 手指离箭头头的圈不超过这么多屏幕像素算抓住了 */
+const HANDLE_PX = 18;
 /**
  * 删河湖:世界坐标点指着地图上现在这个世界的哪个湖(那一片湖的地块)或哪几条河(world.rivers 的下标,连同流进它的支流)——
  * 和生成时删的是同一片(gen/terrainEdits.ts 的 lakeAt、riversAt;按存进修改的取整坐标算);没有世界、没指着 = null
@@ -377,14 +458,24 @@ function radiusOf(t: TerrainToolState): number {
   return isHeightTool(t.tool) || isClimateTool(t.tool) ? Math.max(TERRAIN_R[0], t.r) : t.r;
 }
 /** 画成一处地形修改的线(河、改气候)最多 TERRAIN_MAX_PTS 个点,草图的笔 SKETCH_MAX_PTS 个 */
-const capOf = (t: EditTool) => (t === 'river' || isClimateTool(t) || isHeightTool(t) ? TERRAIN_MAX_PTS : SKETCH_MAX_PTS);
-/** 高度笔只有涂抹 */
-const lassoOn = (t: TerrainToolState) => !isPlaceTool(t.tool) && !isHeightTool(t.tool) && t.method === 'lasso';
+const capOf = (t: EditTool) => (t === 'river' || t === 'plateCut' || isClimateTool(t) || isHeightTool(t) ? TERRAIN_MAX_PTS : SKETCH_MAX_PTS);
+/** 高度笔、板块页只有涂抹(画线) */
+const lassoOn = (t: TerrainToolState) => !isPlaceTool(t.tool) && !isHeightTool(t.tool) && !isPlateTool(t.tool) && t.method === 'lasso';
 
 /** 地图上按下:涂、圈、画河的工具开始画(返回 true = 这一下归编辑地形管,不平移) */
 export function terrainDown(w: [number, number] | null, button: number): boolean {
   if (tool.on && importOn()) return !space && importDown(w, button);
-  if (!tool.on || !w || button !== 0 || space || tool.tool === 'volcano' || tool.tool === 'lake' || tool.tool === 'delWater') return false;
+  if (!tool.on || !w || button !== 0 || space || tool.tool === 'volcano' || tool.tool === 'lake' || tool.tool === 'delWater' || tool.tool === 'plateMerge') return false;
+  // 选中:按在选中板块箭头头的圈上 = 开始拖箭头;按在别处是点,交给 terrainClick(选中那里的板块)
+  if (tool.tool === 'plateSelect') {
+    const p = pickedArrow(tool);
+    if (!p) return false;
+    const [tx, ty] = pickedTip(p.a);
+    const wx = near(w[0], tx);
+    if (Math.hypot(wx - tx, w[1] - ty) * overlayK > HANDLE_PX) return false;
+    setDraft({ draft: null, cursor: w, tip: [wx, w[1]] });
+    return true;
+  }
   // 「从地图上取」:这一下是点,交给 terrainClick
   if (tool.tool === 'setHeight' && tool.picking) return false;
   draftT0 = performance.now();
@@ -398,6 +489,11 @@ export function terrainDown(w: [number, number] | null, button: number): boolean
 export function terrainMove(w: [number, number] | null): boolean {
   if (!tool.on) return false;
   if (importOn()) return importMove(w);
+  const tip = draftNow.tip;
+  if (tip) {
+    if (w) setDraft({ draft: null, cursor: w, tip: [near(w[0], tip[0]), w[1]] });
+    return true;
+  }
   const d = draftNow.draft;
   if (!d) {
     if (w !== draftNow.cursor) setDraft({ draft: null, cursor: w });
@@ -408,7 +504,7 @@ export function terrainMove(w: [number, number] | null): boolean {
   const lx = d[d.length - 2];
   const ly = d[d.length - 1];
   // 点和点至少隔开小半个半径(手抖的小折弯不算,线也不会太长);圈的时候点密一点,圈出来的边顺
-  const step = lassoOn(tool) ? 4 : Math.max(tool.tool === 'river' ? 4 : 2, r * 0.4);
+  const step = lassoOn(tool) ? 4 : tool.tool === 'plateCut' ? 6 : Math.max(tool.tool === 'river' ? 4 : 2, r * 0.4);
   const cap = capOf(tool.tool);
   // 按上一个点展开(跨 180° 经线接着画,不跳到地图另一头)
   const wx = near(w[0], lx);
@@ -429,6 +525,13 @@ export function terrainMove(w: [number, number] | null): boolean {
 /** 松开:画完的一笔加进草图,或者加成一条河 */
 export function terrainUp() {
   if (importOn()) return importUp();
+  const tip = draftNow.tip;
+  if (tip) {
+    setDraft({ draft: null, cursor: draftNow.cursor });
+    const p = pickedArrow(tool);
+    if (p && tool.plateAt) addPlate({ kind: 'set', pts: [...tool.plateAt], ...dragDrift(p.a, tip) });
+    return;
+  }
   const d = draftNow.draft;
   if (!d) return;
   const c0 = draftNow.cursor;
@@ -437,6 +540,14 @@ export function terrainUp() {
   // 松开的地方离最后一个点还差一小段(不到一步):补上,线画到哪儿就到哪儿
   const cap = capOf(tool.tool);
   const pts = c && d.length < cap * 2 && (c[0] - d[d.length - 2]) ** 2 + (c[1] - d[d.length - 1]) ** 2 >= 4 ? [...d, Math.round(c[0]), Math.round(c[1])] : d;
+  if (tool.tool === 'plateCut') {
+    // 切开的线至少两个点(点一下不算);没把哪块板块整个切开的不记(提示要从一边画到另一边)
+    if (pts.length < 4) return;
+    if (probe && !cutsPlate(probe.world.mesh, probe.world.tect.plate, pts)) return setTerrainTool({ plateNote: CUT_SHORT });
+    setTerrainTool({ plateNote: null });
+    addPlate({ kind: 'cut', pts });
+    return;
+  }
   if (tool.tool === 'river') {
     // 河至少要有两个点(点一下不算)
     if (pts.length < 4) return;
@@ -444,7 +555,7 @@ export function terrainUp() {
     addOp({ kind: 'river', pts, r, s: presetStrength('river', r) });
     return;
   }
-  if (isPlaceTool(tool.tool) || tool.tool === 'delWater') return;
+  if (isPlaceTool(tool.tool) || tool.tool === 'delWater' || isPlateTool(tool.tool)) return;
   if (isHeightTool(tool.tool)) {
     if (tool.tool === 'setHeight') return void addOp({ kind: 'setHeight', pts, r: radiusOf(tool), s: 1, h: tool.height, edge: tool.edge });
     // 按着 Alt:抬高、压低反过来
@@ -536,6 +647,10 @@ export function terrainClick(w: [number, number] | null): boolean {
     setTerrainTool(e === null ? { picking: false } : { picking: false, height: Math.round(Math.min(HEIGHT_M[1], Math.max(HEIGHT_M[0], e))) });
     return true;
   }
+  if (isPlateTool(tool.tool)) {
+    if (w) plateClick(w);
+    return true;
+  }
   if (w && tool.tool === 'delWater') {
     if (waterAt(w[0], w[1])) addOp({ kind: 'delWater', pts: [Math.round(w[0]), Math.round(w[1])], r: DEL_WATER_R, s: 1 });
     return true;
@@ -548,6 +663,21 @@ export function terrainClick(w: [number, number] | null): boolean {
   return true;
 }
 
+/** 板块页点了一下地图:选中 = 选中那块;合并 = 先点一块,再点挨着的一块就合成一块(再点先点的那块 = 不选了) */
+function plateClick(w: [number, number]) {
+  const at: [number, number] = [Math.round(w[0]), Math.round(w[1])];
+  const b = plateAtPoint(at[0], at[1]);
+  if (b === null) return;
+  if (tool.tool === 'plateSelect') return setTerrainTool({ plateAt: at, plateNote: null });
+  if (tool.tool !== 'plateMerge') return;
+  const a = tool.plateAt ? plateAtPoint(tool.plateAt[0], tool.plateAt[1]) : null;
+  if (a === null || !tool.plateAt) return setTerrainTool({ plateAt: at, plateNote: null });
+  if (a === b) return setTerrainTool({ plateAt: null, plateNote: null });
+  if (!platesTouch(a, b)) return setTerrainTool({ plateNote: MERGE_FAR });
+  addPlate({ kind: 'merge', pts: [...tool.plateAt, ...at] });
+  setTerrainTool({ plateAt: null, plateNote: null });
+}
+
 /**
  * 手机上第二根手指按下:刚按下不久的这一笔不算(是想两根手指拖动、放大),返回 true = 收掉了、可以开始捏合;
  * 已经画了一阵的照旧画完(手掌碰到屏幕不打断)
@@ -555,6 +685,10 @@ export function terrainClick(w: [number, number] | null): boolean {
 export function terrainCancel(): boolean {
   if (importOn()) {
     importCancel();
+    return true;
+  }
+  if (draftNow.tip) {
+    setDraft({ draft: null, cursor: null });
     return true;
   }
   if (!draftNow.draft) return true;
@@ -576,9 +710,9 @@ interface EraseStep {
   orderBefore: Step[];
   orderAfter: Step[];
 }
-type Step = 's' | 'o' | EraseStep;
-type Item = { t: 's'; v: SketchStroke } | { t: 'o'; v: TerrainOp } | { t: 'x'; v: SketchStroke; x: EraseStep };
-/** 这次编辑里加的先后('s' 草图的一笔,'o' 放的一处,EraseStep 擦掉的一笔连同去掉的几处);和 editsStore 里两份列表的末尾对得上 */
+type Step = 's' | 'o' | 'p' | EraseStep;
+type Item = { t: 's'; v: SketchStroke } | { t: 'o'; v: TerrainOp } | { t: 'p'; v: PlateOp } | { t: 'x'; v: SketchStroke; x: EraseStep };
+/** 这次编辑里加的先后('s' 草图的一笔,'o' 放的一处,'p' 板块的一处改动,EraseStep 擦掉的一笔连同去掉的几处);和 editsStore 里几份列表的末尾对得上 */
 let order: Step[] = [];
 /** 撤掉的(最后撤的在最后),和撤完时的样子(之后又改过别的 = 不能重做) */
 let redo: Item[] = [];
@@ -597,10 +731,11 @@ function trimOrder() {
   const e = getEdits();
   let ns = e.sketch?.strokes.length ?? 0;
   let no = e.terrain.length;
+  let np = e.sketch?.plates?.ops.length ?? 0;
   // 从后往前对:多出来的(被别处清掉、撤掉的)去掉
   const keep: Step[] = [];
   for (let i = order.length - 1; i >= 0; i--) {
-    if (order[i] !== 'o' ? ns-- > 0 : no-- > 0) keep.push(order[i]);
+    if (order[i] === 'o' ? no-- > 0 : order[i] === 'p' ? np-- > 0 : ns-- > 0) keep.push(order[i]);
   }
   order = keep.reverse();
 }
@@ -614,6 +749,12 @@ function addOp(op: TerrainOp) {
   trimOrder();
   if (!addTerrainOp(op)) return;
   order.push('o');
+  redo = [];
+}
+function addPlate(op: PlateOp) {
+  trimOrder();
+  if (!addPlateOp(op, tool.coast, tool.fill)) return;
+  order.push('p');
   redo = [];
 }
 /** 擦掉的一笔,顺带去掉 hit 这几处(地形修改的下标);先后记录里它们的 'o' 一起去掉 */
@@ -646,11 +787,12 @@ export function undoTerrain() {
   trimOrder();
   const e = getEdits();
   const ns = e.sketch?.strokes.length ?? 0;
+  const np = e.sketch?.plates?.ops.length ?? 0;
   const popped = order.pop();
-  const t = popped ?? (ns ? 's' : e.terrain.length ? 'o' : null);
+  const t = popped ?? (ns ? 's' : e.terrain.length ? 'o' : np ? 'p' : null);
   if (!t) return;
   // 没撤成(被拦下了):撤销、重做的记录都不动
-  if (!(t === 's' ? undoSketchStroke() : undoTerrainOp())) {
+  if (!(t === 's' ? undoSketchStroke() : t === 'p' ? undoPlateOp() : undoTerrainOp())) {
     if (popped) order.push(popped);
     return;
   }
@@ -664,6 +806,10 @@ export function undoTerrain() {
     redo.push({ t, v: e.sketch!.strokes[ns - 1] });
     // 撤掉最后一笔、草图没了:记下它的海岸线、程序补全,重做时照样
     if (ns === 1) setTerrainTool({ coast: sketchCoast(e.sketch), fill: sketchFill(e.sketch) });
+  } else if (t === 'p') {
+    redo.push({ t, v: e.sketch!.plates!.ops[np - 1] });
+    // 撤掉最后一处、草图没了:同上
+    if (!getEdits().sketch) setTerrainTool({ coast: sketchCoast(e.sketch), fill: sketchFill(e.sketch) });
   } else redo.push({ t, v: e.terrain[e.terrain.length - 1] });
   const a = getEdits();
   redoAt = { terrain: a.terrain, sketch: a.sketch };
@@ -678,7 +824,7 @@ export function redoTerrain() {
   if (it.t === 'x') {
     if (addEraseStroke(it.v, it.x.after, tool.coast, tool.fill)) order = [...it.x.orderAfter, it.x];
   } else {
-    const ok = it.t === 's' ? addSketchStroke(it.v, tool.coast, tool.fill) : addTerrainOp(it.v);
+    const ok = it.t === 's' ? addSketchStroke(it.v, tool.coast, tool.fill) : it.t === 'p' ? addPlateOp(it.v, tool.coast, tool.fill) : addTerrainOp(it.v);
     if (ok) order.push(it.t);
   }
   const a = getEdits();
@@ -702,9 +848,9 @@ export function clearAllTerrain() {
   redoAt = null;
 }
 
-/** 编辑地形画了几笔:草图的笔 + 放的一处(连同旧的地形修改) */
+/** 编辑地形画了几笔:草图的笔 + 放的一处(连同旧的地形修改)+ 板块的改动 */
 export function terrainCount(e: { terrain: readonly TerrainOp[]; sketch?: SketchEdit }): number {
-  return e.terrain.length + (e.sketch?.strokes.length ?? 0);
+  return e.terrain.length + (e.sketch?.strokes.length ?? 0) + (e.sketch?.plates?.ops.length ?? 0);
 }
 /** 入口那一行、创建前确认框里地形那一行右边写什么(none = 一笔没画时) */
 export function terrainSide(e: { terrain: readonly TerrainOp[]; sketch?: SketchEdit }, none: string): string {
@@ -860,6 +1006,7 @@ export function useTerrainKeys() {
 /** 这支笔怎么用(随机生成的面板里写在笔下面;照手绘图的写在地图下边,见 terrainHint) */
 function toolHint(t: TerrainToolState, phone: boolean): string {
   if (t.tool === 'delWater') return DEL_WATER.hint;
+  if (isPlateTool(t.tool)) return t.plateNote ?? (t.tool === 'plateMerge' && t.plateAt ? MERGE_NEXT : PLATE.find((x) => x.id === t.tool)!.hint);
   const place = isPlaceTool(t.tool) ? PLACE.find((x) => x.id === t.tool)! : null;
   if (place) return place.hint;
   const height = HEIGHT.find((x) => x.id === t.tool);
@@ -903,9 +1050,9 @@ export function TerrainPanel({ disabled, phone = false, mode = 'random', extra }
   const fill = sk ? sketchFill(sk) : t.fill;
   const redoOk = canRedo(edits.terrain, sk);
 
-  // 照手绘图的面板没有气候、高度两页和删河湖:从随机生成那边带过来的这些笔换回陆地;手机上改气候只有涂抹
+  // 照手绘图的面板没有气候、高度、板块三页和删河湖:从随机生成那边带过来的这些笔换回陆地;手机上改气候只有涂抹
   useEffect(() => {
-    if (image && (isClimateTool(t.tool) || isHeightTool(t.tool) || t.tool === 'delWater')) setTerrainTool({ tool: 'land' });
+    if (image && (isClimateTool(t.tool) || isHeightTool(t.tool) || isPlateTool(t.tool) || t.tool === 'delWater')) setTerrainTool({ tool: 'land' });
     else if (phone && isClimateTool(t.tool) && t.method === 'lasso') setTerrainTool({ method: 'paint' });
   }, [image, phone, t.tool, t.method]);
 
@@ -930,9 +1077,10 @@ export function TerrainPanel({ disabled, phone = false, mode = 'random', extra }
   const placeTiles = [...PLACE, ...(image ? [] : [DEL_WATER])].map((x) => tile(x.id, x.name, <Icon name={x.icon} size={18} />));
   const climateTiles = CLIMATE.map((x) => tile(x.id, x.name, <i className={`tp-sw k-${x.id}`} />));
   const heightTiles = HEIGHT.map((x) => tile(x.id, x.name, <Icon name={x.icon} size={18} />));
+  const plateTiles = PLATE.map((x) => tile(x.id, x.name, <Icon name={x.icon} size={18} />));
   const pages = (
     <div className="tp-seg tp-pages" role="tablist" aria-label="编辑什么" data-act="terrain-page">
-      {(['shape', 'height', 'climate'] as const).map((p) => (
+      {(['shape', 'height', 'climate', 'plates'] as const).map((p) => (
         <button key={p} role="tab" aria-selected={page === p} className={page === p ? 'on' : ''} data-v={p} onClick={() => setTerrainPage(p)}>
           {PAGE_NAME[p]}
         </button>
@@ -942,6 +1090,10 @@ export function TerrainPanel({ disabled, phone = false, mode = 'random', extra }
   const toolList = page === 'height' ? (
     <div className={phone ? 'tp-strip' : 'tp-tools'} role="radiogroup" aria-label="工具">
       {phone ? heightTiles : <div className="tp-tiles c3">{heightTiles}</div>}
+    </div>
+  ) : page === 'plates' ? (
+    <div className={phone ? 'tp-strip' : 'tp-tools'} role="radiogroup" aria-label="工具">
+      {phone ? plateTiles : <div className="tp-tiles c3">{plateTiles}</div>}
     </div>
   ) : climatePage ? (
     <div className={phone ? 'tp-strip' : 'tp-tools'} role="radiogroup" aria-label="工具">
@@ -963,9 +1115,33 @@ export function TerrainPanel({ disabled, phone = false, mode = 'random', extra }
   );
 
   const coastSeg = <Seg label="海岸线" act="terrain-coast" items={COASTS} value={coast} onPick={setTerrainCoast} />;
+  const picked = page === 'plates' && t.tool === 'plateSelect' && probe ? pickedArrow(t) : null;
+  const orogeny = sk?.plates?.orogeny !== false;
   const penOpts = (
     <div className="tp-opts">
-      {page === 'height' ? (
+      {page === 'plates' ? (
+        <>
+          {picked && (
+            <>
+              <Seg
+                label="地壳"
+                act="terrain-crust"
+                items={CRUSTS}
+                value={probe!.world.tect.plateContinental[picked.k] ? 'continental' : 'oceanic'}
+                onPick={(v) => t.plateAt && addPlate({ kind: 'set', pts: [...t.plateAt], crust: v })}
+              />
+              <div className="tp-lbl" data-act="terrain-drift">
+                <b>漂移</b>
+                <span className="tp-drift">{arrowText(picked.a)}</span>
+              </div>
+            </>
+          )}
+          <button className="sb-row tp-show tp-orogeny" role="switch" aria-checked={orogeny} data-act="terrain-orogeny" onClick={() => setPlateOrogeny(!orogeny, t.coast, t.fill)}>
+            <span className="sb-row-main">板块相撞时造山</span>
+            <span className={`ai-switch${orogeny ? ' on' : ''}`} aria-hidden="true" />
+          </button>
+        </>
+      ) : page === 'height' ? (
         <>
           <SizeSlider r={t.r} min={TERRAIN_R[0]} />
           {t.tool === 'setHeight' ? (
@@ -1084,7 +1260,7 @@ export function TerrainPanel({ disabled, phone = false, mode = 'random', extra }
         <div className="sb-group">{toolList}</div>
       </section>
       <div className="sb-group">
-        {t.tool !== 'delWater' && penOpts}
+        {t.tool !== 'delWater' && t.tool !== 'plateCut' && t.tool !== 'plateMerge' && penOpts}
         <div className="tp-hint">{t.tool === 'setHeight' && t.picking ? PICK_HINT : toolHint(t, phone)}</div>
       </div>
       {phone ? (
@@ -1359,6 +1535,33 @@ function HeightTip({ x, y, text, scale: k }: { x: number; y: number; text: strin
 }
 
 /**
+ * 选中的板块的漂移箭头:白色粗箭头描暗边,起点一个白点;handle = 箭头头上套一个圈(能拖);text = 箭头头右边的读数。
+ * 线宽、点和圈按屏幕像素定大小(k = 屏幕上一个世界单位多少像素)
+ */
+function PlateArrowMark({ x0, y0, x1, y1, handle, text, scale: k }: { x0: number; y0: number; x1: number; y1: number; handle: boolean; text: string | null; scale: number }) {
+  const u = 1 / k;
+  const len = Math.hypot(x1 - x0, y1 - y0);
+  // 箭头头:沿箭头方向 18 像素长、两边各 9 像素宽的三角,尖顶在圈里(太短时缩短)
+  const ux = len > 0 ? (x1 - x0) / len : 0;
+  const uy = len > 0 ? (y1 - y0) / len : 0;
+  const hl = Math.min(18 * u, len);
+  const tx = x1 - ux * Math.min(3 * u, len - hl);
+  const ty = y1 - uy * Math.min(3 * u, len - hl);
+  const head = `M${tx} ${ty}L${tx - ux * hl - uy * 9 * u} ${ty - uy * hl + ux * 9 * u}L${tx - ux * hl + uy * 9 * u} ${ty - uy * hl - ux * 9 * u}Z`;
+  const shaft = `M${x0} ${y0}L${tx - ux * hl * 0.6} ${ty - uy * hl * 0.6}`;
+  return (
+    <g className="tt-plate">
+      <path className="tt-plate-halo" d={shaft} vectorEffect="non-scaling-stroke" />
+      <path className="tt-plate-shaft" d={shaft} vectorEffect="non-scaling-stroke" />
+      {len > 0 && <path className="tt-plate-head" d={head} />}
+      <circle className="tt-plate-dot" cx={x0} cy={y0} r={6 * u} vectorEffect="non-scaling-stroke" />
+      {handle && <circle className="tt-plate-ring" cx={x1} cy={y1} r={9 * u} vectorEffect="non-scaling-stroke" />}
+      {text && <HeightTip x={x1 + 14 * u} y={y1 - 12 * u} text={text} scale={k} />}
+    </g>
+  );
+}
+
+/**
  * 删河湖指着的湖 / 河描红(x0 = 光标的 x:画在光标那一圈)。湖画成一个虚线椭圆(按湖里地块的位置量出来的,外扩小半个地块),
  * 河(连同流进它的支流)画成红线
  */
@@ -1444,6 +1647,7 @@ export function TerrainOverlay({
   scale?: number;
 }) {
   const uid = useId().replace(/[^a-zA-Z0-9_-]/g, '');
+  overlayK = scale;
   const t = useTerrainTool();
   const edits = useEdits();
   const dr = useDraft();
@@ -1497,10 +1701,35 @@ export function TerrainOverlay({
   const del = t.tool === 'delWater' && dr.cursor ? waterAt(dr.cursor[0], dr.cursor[1]) : null;
   const tip = del ? `点一下删掉这${'lake' in del ? '个湖' : '条河'}` : dr.cursor ? heightTip(t, dr, arrow) : null;
 
+  const platePage = isPlateTool(t.tool);
+  // 板块页:选中(合并先点)的那块板块的箭头变白;选中的能拖,拖的时候箭头跟着手,读数写新的漂移
+  let plateMark: ReactNode = null;
+  const picked = platePage && t.tool !== 'plateCut' ? pickedArrow(t) : null;
+  if (picked) {
+    const { a } = picked;
+    const tip = t.tool === 'plateSelect' && dr.tip ? dr.tip : null;
+    const [x1, y1] = tip ?? pickedTip(a);
+    const drag = tip && dragDrift(a, tip);
+    const text = t.tool !== 'plateSelect' ? null : drag ? driftText(drag.dir, drag.speed) : arrowText(a);
+    plateMark = <PlateArrowMark x0={a.x} y0={a.y} x1={x1} y1={y1} handle={t.tool === 'plateSelect'} text={text} scale={scale} />;
+  }
+
   let draftMark: ReactNode = null;
   if (dr.draft) {
     const pts = dr.draft;
-    if (t.tool === 'river') draftMark = <OpMark op={{ kind: 'river', pts, r, s: 1 }} pending />;
+    if (t.tool === 'plateCut') {
+      const n = pts.length;
+      const end = dr.cursor ? [near(dr.cursor[0], pts[n - 2]), dr.cursor[1]] : [pts[n - 2], pts[n - 1]];
+      const d = `${pathOf(pts)}L${end[0]} ${end[1]}`;
+      draftMark = (
+        <g className="tt-cut">
+          <path className="tt-cut-halo" d={d} vectorEffect="non-scaling-stroke" />
+          <path className="tt-cut-line" d={d} vectorEffect="non-scaling-stroke" />
+          <circle className="tt-cut-end" cx={end[0]} cy={end[1]} r={5 / scale} />
+          <HeightTip x={end[0] + 14 / scale} y={end[1]} text="松手切开" scale={scale} />
+        </g>
+      );
+    } else if (t.tool === 'river') draftMark = <OpMark op={{ kind: 'river', pts, r, s: 1 }} pending />;
     else if (isHeightTool(t.tool)) draftMark = <OpMark op={{ kind: t.tool, pts, r, s: 1 }} pending />;
     else if (isClimateTool(t.tool) && t.method !== 'lasso') draftMark = <OpMark op={{ kind: t.tool, pts, r, s: 1 }} pending />;
     else if (!isPlaceTool(t.tool) && t.method === 'lasso') {
@@ -1531,9 +1760,10 @@ export function TerrainOverlay({
       <g id={uid} className="terrain-marks">
         {layer.body}
         {opMarks}
+        {plateMark}
         {draftMark}
         {del && dr.cursor && <WaterMark hit={del} x0={dr.cursor[0]} />}
-        {dr.cursor && t.tool !== 'delWater' && (!dr.draft || heightPen) && (
+        {dr.cursor && t.tool !== 'delWater' && !platePage && (!dr.draft || heightPen) && (
           <g className={`tt-cursor${heightPen ? ' k-height' : ''}${arrow ? ' k-arrow' : ''}${dr.draft ? ' on' : ''}`}>
             <circle className="tt-halo" cx={dr.cursor[0]} cy={dr.cursor[1]} r={r} vectorEffect="non-scaling-stroke" />
             <circle className="tt-line" cx={dr.cursor[0]} cy={dr.cursor[1]} r={r} vectorEffect="non-scaling-stroke" />

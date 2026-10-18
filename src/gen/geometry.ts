@@ -80,6 +80,8 @@ export type WindCuts = Float64Array;
 export interface PlateMotion {
   /** 板块 k 在地块 i 处的漂移速度:东、南分量写进 out */
   at(k: number, i: number, out: number[]): void;
+  /** 板块 k 在世界坐标点 (px, py) 处的漂移速度(同上;画箭头、编辑板块时量质心处的速度用) */
+  atPoint(k: number, px: number, py: number, out: number[]): void;
   /** 每个板块的角速度向量 ω(交错存 x, y, z;|ω| = 质心处的速度) */
   readonly omega: Float32Array;
 }
@@ -148,6 +150,8 @@ export interface Geometry {
    * spin = 每个板块绕自己质心的自转(−1…1,乘上质心处的速度:欧拉轴从"和质心垂直"往质心偏一点)
    */
   plateMotion(vx: Float32Array, vy: Float32Array, cx: Float32Array, cy: Float32Array, spin: ArrayLike<number>): PlateMotion;
+  /** 已知每个板块的角速度向量 ω(交错存 x, y, z)时的板块运动(编辑过板块时:切开的一块照搬原来那块的 ω) */
+  motionOf(omega: Float32Array): PlateMotion;
 
   // ---- 质心 ----
 
@@ -1232,8 +1236,13 @@ class SphereGeometry implements Geometry {
       omega[3 * k + 1] = c[2] * tx - c[0] * tz + sp * c[1];
       omega[3 * k + 2] = c[0] * ty - c[1] * tx + sp * c[2];
     }
+    return this.motionOf(omega);
+  }
+
+  motionOf(omega: Float32Array): PlateMotion {
     const p = this.p;
     const { ex, ey, sx, sy, sz } = this;
+    const pt = new PointVec(this.W, this.H);
     return {
       omega,
       at(k: number, i: number, out: number[]) {
@@ -1249,6 +1258,17 @@ class SphereGeometry implements Geometry {
         const vz3 = wx * py - wy * px;
         out[0] = vx3 * ex[i] + vy3 * ey[i];
         out[1] = vx3 * sx[i] + vy3 * sy[i] + vz3 * sz[i];
+      },
+      atPoint(k: number, x: number, y: number, out: number[]) {
+        const c = pt.set(x, y);
+        const wx = omega[3 * k];
+        const wy = omega[3 * k + 1];
+        const wz = omega[3 * k + 2];
+        const vx3 = wy * c[2] - wz * c[1];
+        const vy3 = wz * c[0] - wx * c[2];
+        const vz3 = wx * c[1] - wy * c[0];
+        out[0] = pt.east(vx3, vy3);
+        out[1] = pt.south(vx3, vy3, vz3);
       },
     };
   }

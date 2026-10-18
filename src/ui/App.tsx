@@ -265,6 +265,7 @@ import type { SurfaceLook } from '../render/surface';
 import {
   TerrainOverlay,
   getTerrainTool,
+  pageOf,
   setTerrainTool,
   setTerrainWrap,
   setTerrainProbe,
@@ -3654,6 +3655,21 @@ export function App() {
   useEffect(() => {
     if (terrainTool.on) closeUpheaval();
   }, [terrainTool.on]);
+  // 编辑地形的「板块」页:地图换成板块配色(看得见边界和漂移箭头);离开这一页、收起编辑地形时换回原来的(其间作者自己换过就不动)
+  const platePage = terrainTool.on && pageOf(terrainTool.tool) === 'plates';
+  const beforePlates = useRef<MapLayer | null>(null);
+  useEffect(() => {
+    if (platePage) {
+      if (mapLayer !== 'plates') {
+        beforePlates.current = mapLayer;
+        applyLayer('plates');
+      }
+    } else if (beforePlates.current) {
+      if (mapLayer === 'plates') applyLayer(beforePlates.current);
+      beforePlates.current = null;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 只在进出板块页时换
+  }, [platePage]);
 
   // ---- 点选(阶段 4):单击(不是拖动)选中 城镇符号 / 城名 → 城,国名 → 国家,地名 → 地理实体;
   // 都没点到:"国家"开着时点到国土 → 国家,否则 → 州;点到海上 / 地图外 = 取消。双击(复位视图)不改选中 ----

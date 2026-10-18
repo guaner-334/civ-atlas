@@ -312,43 +312,29 @@ function drawPlateOverlay(ctx: CanvasRenderingContext2D, world: World, S: number
     }
   }
   // 漂移方向箭头(画在板块重心)
-  const P = tect.plateCount;
-  const cx = new Float64Array(P);
-  const cy = new Float64Array(P);
-  const cnt = new Float64Array(P);
-  for (let i = 0; i < n; i++) cnt[tect.plate[i]]++;
-  // 箭头的东西向、南北向分量(世界单位 / 速度 1)
-  const ex = new Float64Array(P).fill(1);
-  const cen = geometryOf(mesh).groupCentroids(tect.plate, P, cnt);
-  for (let p = 0; p < P; p++) {
-    if (!cnt[p]) continue;
-    cx[p] = cen.x[p] * cnt[p];
-    cy[p] = cen.y[p] * cnt[p];
-    // 重心处一段地面长度在主图上东西向占 1 / cos(纬度) 倍
-    ex[p] = 1 / Math.max(0.2, Math.sin((cen.y[p] / world.height) * Math.PI));
-  }
   ctx.strokeStyle = 'rgba(20,20,20,0.85)';
   ctx.fillStyle = 'rgba(20,20,20,0.85)';
   ctx.lineWidth = 2.2 * S;
-  for (let p = 0; p < P; p++) {
-    if (!cnt[p]) continue;
-    const L = 70 * S;
-    const x0 = (cx[p] / cnt[p]) * S;
-    const dx = tect.plateVx[p] * ex[p] * L;
+  const arrows = plateArrows(world);
+  for (let p = 0; p < tect.plateCount; p++) {
+    const a = arrows[p];
+    if (!a) continue;
+    const x0 = a.x * S;
+    const dx = a.dx * S;
     for (const sh of wrapShifts(Math.min(x0, x0 + dx) / S - 12, Math.max(x0, x0 + dx) / S + 12, wrap)) {
       const ox = x0 + sh * S;
-      const oy = (cy[p] / cnt[p]) * S;
+      const oy = a.y * S;
       const tx = ox + dx;
-      const ty = oy + tect.plateVy[p] * L;
+      const ty = oy + a.dy * S;
       ctx.beginPath();
       ctx.moveTo(ox, oy);
       ctx.lineTo(tx, ty);
       ctx.stroke();
-      const a = Math.atan2(ty - oy, tx - ox);
+      const ang = Math.atan2(ty - oy, tx - ox);
       ctx.beginPath();
       ctx.moveTo(tx, ty);
-      ctx.lineTo(tx - Math.cos(a - 0.45) * 12 * S, ty - Math.sin(a - 0.45) * 12 * S);
-      ctx.lineTo(tx - Math.cos(a + 0.45) * 12 * S, ty - Math.sin(a + 0.45) * 12 * S);
+      ctx.lineTo(tx - Math.cos(ang - 0.45) * 12 * S, ty - Math.sin(ang - 0.45) * 12 * S);
+      ctx.lineTo(tx - Math.cos(ang + 0.45) * 12 * S, ty - Math.sin(ang + 0.45) * 12 * S);
       ctx.closePath();
       ctx.fill();
       ctx.beginPath();
@@ -356,6 +342,45 @@ function drawPlateOverlay(ctx: CanvasRenderingContext2D, world: World, S: number
       ctx.fill();
     }
   }
+}
+
+/** 漂移箭头的长度:速度 1 在主图上画多长(世界单位) */
+export const PLATE_ARROW_L = 70;
+
+/** 每个板块的漂移箭头(主图的世界坐标):起点 = 重心,(dx, dy) = 箭头,east = 东西向一个速度单位在主图上拉宽的倍数;空着的编号 = null */
+export interface PlateArrow {
+  x: number;
+  y: number;
+  dx: number;
+  dy: number;
+  east: number;
+}
+
+const arrowCache = new WeakMap<World, (PlateArrow | null)[]>();
+
+/**
+ * 板块图上的漂移箭头(地图上画的、编辑板块时拖的是同一支)。重心按球面算(跨 180° 经线的板块不会被"平均"到地图另一头),
+ * 箭头 = 重心处的速度(东、南分量)× PLATE_ARROW_L,东西向按纬度拉宽(重心处一段地面长度在主图上东西向占 1 / cos(纬度) 倍)
+ */
+export function plateArrows(world: World): (PlateArrow | null)[] {
+  const had = arrowCache.get(world);
+  if (had) return had;
+  const { mesh, tect } = world;
+  const P = tect.plateCount;
+  const cnt = new Float64Array(P);
+  for (let i = 0; i < mesh.n; i++) cnt[tect.plate[i]]++;
+  const cen = geometryOf(mesh).groupCentroids(tect.plate, P, cnt);
+  const out: (PlateArrow | null)[] = [];
+  for (let p = 0; p < P; p++) {
+    if (!cnt[p]) {
+      out.push(null);
+      continue;
+    }
+    const east = 1 / Math.max(0.2, Math.sin((cen.y[p] / world.height) * Math.PI));
+    out.push({ x: cen.x[p], y: cen.y[p], dx: tect.plateVx[p] * east * PLATE_ARROW_L, dy: tect.plateVy[p] * PLATE_ARROW_L, east });
+  }
+  arrowCache.set(world, out);
+  return out;
 }
 
 function drawWind(ctx: CanvasRenderingContext2D, world: World, S: number) {

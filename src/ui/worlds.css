@@ -1137,6 +1137,19 @@
 .tp .tp-show .sb-row-main {
   font-weight: 500;
 }
+/* 板块页:漂移那一行的读数、「板块相撞时造山」开关(在选项里,上面一道细线) */
+.tp-lbl .tp-drift {
+  flex: 1;
+  opacity: 0.85;
+  font-variant-numeric: tabular-nums;
+}
+.tp .tp-orogeny {
+  margin-top: 4px;
+}
+.tp .tp-orogeny:first-child {
+  border-top: 0;
+  margin-top: 0;
+}
 /* 手机:「整张草图」那一行点开,下面接着海岸线、没涂的地方、显示草图 */
 .tp-whole.open + .tp-opts {
   border-top: 0.5px solid var(--line);
