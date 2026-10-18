@@ -11,7 +11,7 @@ import { makeSave, parseSave, saveText, worldCheck } from '../src/gen/savefile';
 import { EMPTY_EDITS } from '../src/gen/edits';
 import { rasterize } from '../src/gen/raster';
 import { PLATE_ARROW_L, plateArrows } from '../src/render/layers';
-import { clearEdits, getEdits } from '../src/ui/editsStore';
+import { clearEdits, getEdits, setPlateOrogeny } from '../src/ui/editsStore';
 import {
   clearAllTerrain,
   redoTerrain,
@@ -22,6 +22,7 @@ import {
   terrainCount,
   terrainDown,
   terrainMove,
+  terrainSide,
   terrainUp,
   undoTerrain,
 } from '../src/ui/TerrainTools';
@@ -282,6 +283,15 @@ describe('界面:板块页', () => {
     terrainUp();
     expect(getEdits().sketch!.plates!.ops.map((o) => o.kind)).toEqual(['cut']);
     expect(terrainCount(getEdits())).toBe(1);
+  });
+
+  it('入口那一行:只关了相撞造山写「相撞不造山」(不是"都是海")', () => {
+    setPlateOrogeny(false);
+    expect(terrainCount(getEdits())).toBe(0);
+    expect(terrainSide(getEdits(), '还没改')).toBe('相撞不造山');
+    setPlateOrogeny(true);
+    expect(getEdits().sketch).toBeFalsy();
+    expect(terrainSide(getEdits(), '还没改')).toBe('还没改');
   });
 
   it('合并:依次点两块挨着的,存成一处 merge;再点同一块取消;撤销、重做', () => {

@@ -856,8 +856,10 @@ export function terrainCount(e: { terrain: readonly TerrainOp[]; sketch?: Sketch
 export function terrainSide(e: { terrain: readonly TerrainOp[]; sketch?: SketchEdit }, none: string): string {
   const n = terrainCount(e);
   if (e.sketch?.image) return n ? `照一张图，又画了 ${n} 笔` : '照一张图';
-  // 一笔没画、没涂的地方都是海(草图只剩这一条设定)
-  return n ? `画了 ${n} 笔` : e.sketch ? '都是海' : none;
+  if (n) return `画了 ${n} 笔`;
+  // 一笔没画:没涂的地方都是海 / 不长新陆地(整颗星球是海),或者只关了板块相撞造山
+  if (e.sketch?.rest === 'sea' || e.sketch?.rest === 'noNewLand') return '都是海';
+  return e.sketch?.plates?.orogeny === false ? '相撞不造山' : none;
 }
 
 // ---------------------------------------------------------------------------
