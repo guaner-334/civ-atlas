@@ -439,6 +439,7 @@
 .mw-phone .mw-menu.pm-menu {
   top: 8px;
   right: 6px;
+  min-width: 0;
 }
 .mw .mw-open-file {
   flex: none;

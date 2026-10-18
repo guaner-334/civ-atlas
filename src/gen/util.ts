@@ -356,3 +356,24 @@ export function tileableFbm(seed: number, size: number, cells: number, octaves: 
   for (let i = 0; i < out.length; i++) out[i] = (out[i] - mean) * inv;
   return out;
 }
+
+/**
+ * 两份列表按内容比出"新加的 / 少了的",一模一样的几件按个数算(各加了几件就算几件);
+ * 次序保持:新加的在前、少了的在后,各自按原列表里的先后。
+ */
+export function multisetDiff<T>(now: readonly T[], before: readonly T[]): { added: T[]; removed: T[] } {
+  const left = (from: readonly T[], other: readonly T[]) => {
+    const pool = new Map<string, number>();
+    for (const v of other) {
+      const k = JSON.stringify(v);
+      pool.set(k, (pool.get(k) ?? 0) + 1);
+    }
+    return from.filter((v) => {
+      const k = JSON.stringify(v);
+      const n = pool.get(k) ?? 0;
+      if (n > 0) pool.set(k, n - 1);
+      return n === 0;
+    });
+  };
+  return { added: left(now, before), removed: left(before, now) };
+}
