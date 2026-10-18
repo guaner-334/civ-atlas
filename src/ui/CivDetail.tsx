@@ -223,8 +223,8 @@ export function CivDetail({ world, raster, params, civ, style, sel, selYear, hl,
     const cancel = () => {
       if (!pend.current) return;
       pend.current = null;
-      bf.base.drop();
-      bf.sel.drop();
+      bf.base.rest();
+      bf.sel.rest();
       cancelDetailJob(JOB);
       const g = window as unknown as { __wfCivDetail?: Record<string, unknown> };
       if (g.__wfCivDetail?.pending) g.__wfCivDetail.pending = false;
@@ -241,6 +241,10 @@ export function CivDetail({ world, raster, params, civ, style, sel, selYear, hl,
       for (const cv of [cvs.base!, cvs.sel!, cvs.hl!]) {
         if (cv.style.display !== 'none') cv.style.display = 'none';
         if (release && cv.width) cv.width = cv.height = 0;
+      }
+      if (release) {
+        bf.base.drop();
+        bf.sel.drop();
       }
       if (region.current) releaseDetailCache(region.current.cache);
       region.current = null;
@@ -432,8 +436,8 @@ export function CivDetail({ world, raster, params, civ, style, sel, selYear, hl,
           if (ctx) job.ready.sel = s.draw(ctx);
         });
       const drop = () => {
-        bf.base.drop();
-        bf.sel.drop();
+        bf.base.rest();
+        bf.sel.rest();
       };
       submitDetailJob(JOB, steps, (st) => {
         if (pend.current !== job) return;

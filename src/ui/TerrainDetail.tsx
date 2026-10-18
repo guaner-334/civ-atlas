@@ -166,7 +166,7 @@ export function TerrainDetail({
       if (!pend.current) return;
       pend.current = null;
       ready.current = null;
-      bf.drop();
+      bf.rest();
       cancelDetailJob(JOB);
       const g = window as unknown as { __wfDetail?: Record<string, unknown> };
       if (g.__wfDetail?.pending) g.__wfDetail.pending = false;
@@ -184,6 +184,7 @@ export function TerrainDetail({
       const cv = bf.front;
       if (cv.style.display !== 'none') cv.style.display = 'none';
       if (release && cv.width) cv.width = cv.height = 0; // 释放显存(几十 MB)
+      if (release) bf.drop();
       if (release) clearTiles();
       else if (tl.style.display !== 'none') tl.style.display = 'none';
       drawn.current = null;
@@ -458,14 +459,14 @@ export function TerrainDetail({
         const vis = visible();
         const ok = ready.current === r && !!vis && vis.bw === bw && creeks === !tileView.current;
         ready.current = null;
-        if (!ok) bf.drop();
+        if (!ok) bf.rest();
         if (!vis) return;
         // 备料期间中心又转了(还在拖):按现在的中心平移过去;对不上就不画了(下一次重画会再备)
         const now = live.current;
         const slide = !r.mp ? 0 : now.mp && r.proj === now.mp.key ? 0 : now.mp && now.moving ? slideOf(r, now.mp, vis) : null;
         if (slide !== null) paint(r, vis, exact, st, slide, ok);
         else {
-          bf.drop();
+          bf.rest();
           const g = window as unknown as { __wfDetail?: Record<string, unknown> };
           if (g.__wfDetail) g.__wfDetail.pending = false;
         }

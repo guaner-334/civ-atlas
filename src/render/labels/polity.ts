@@ -819,7 +819,7 @@ const TURN = (22 * Math.PI) / 180;
  * 国名的候选摆法(画布像素):沿路径均匀疏排(字距在 tracking 之间按路径长取),横排时字随路径略转,
  * 竖排时字正立、从上往下。先试正中,再按 SHIFTS 前后左右挪;落在国土外的由 placeMap 按 area 筛掉。
  */
-export function polityCandidates(
+export function* polityCandidates(
   text: string,
   pathWorld: ArrayLike<number>,
   px0: number,
@@ -828,28 +828,25 @@ export function polityCandidates(
   vertical: boolean,
   minPx = 0,
   planar = false,
-): Candidate[] {
-  const out: Candidate[] = [];
+): Generator<Candidate> {
+  // 按先后边挑边生成(排版挑中一个就不再往下要);路径换到画布上只换一次(planar = 路径已经是地图平面坐标,
+  // 弯边投影下按投影后的国土拟合的,不再投影)
+  let pts: ArrayLike<number> | null = null;
   let last = 0;
   for (const f of STEP_DOWN) {
     const px = Math.max(minPx, px0 * f);
     if (px === last) continue;
     last = px;
-    for (const c of alongPath(text, pathWorld, px, tracking, view, vertical, planar)) out.push(f === 1 ? c : { ...c, px });
+    pts ??= pathToCanvas(pathWorld, view, planar);
+    for (const c of alongCanvasPath(text, pts, px, tracking, vertical)) yield f === 1 ? c : { ...c, px };
   }
-  return out;
 }
 
-/** planar = 路径已经是地图平面坐标(弯边投影下按投影后的国土拟合的),不再投影 */
-function alongPath(text: string, pathWorld: ArrayLike<number>, px: number, tracking: [number, number], view: LabelView, vertical: boolean, planar = false): Candidate[] {
-  return alongCanvasPath(text, pathToCanvas(pathWorld, view, planar), px, tracking, vertical);
-}
-
-/** 同 alongPath,路径已经是画布坐标(作者标记的名字:标记层自己换算坐标) */
-export function alongCanvasPath(text: string, pts: ArrayLike<number>, px: number, tracking: [number, number], vertical: boolean): Candidate[] {
+/** 同 polityCandidates 的一档字号,路径已经是画布坐标(作者标记的名字:标记层自己换算坐标);按先后边挑边生成 */
+export function* alongCanvasPath(text: string, pts: ArrayLike<number>, px: number, tracking: [number, number], vertical: boolean): Generator<Candidate> {
   const cs = [...text];
   const n = cs.length;
-  if (!n) return [];
+  if (!n) return;
   let path = new Polyline(pts);
   const m = path.xs.length;
   if (m < 2) {
@@ -857,7 +854,8 @@ export function alongCanvasPath(text: string, pts: ArrayLike<number>, px: number
     const x0 = path.xs[0] ?? 0;
     const y0 = path.ys[0] ?? 0;
     const pitch = px * (1 + tracking[0]);
-    return [{ on: 0, glyphs: cs.map((ch, i) => ({ ch, x: x0 + (i - (n - 1) / 2) * pitch, y: y0, a: 0 })) }];
+    yield { on: 0, glyphs: cs.map((ch, i) => ({ ch, x: x0 + (i - (n - 1) / 2) * pitch, y: y0, a: 0 })) };
+    return;
   }
   const gx = path.xs[m - 1] - path.xs[0];
   const gy = path.ys[m - 1] - path.ys[0];
@@ -873,7 +871,6 @@ export function alongCanvasPath(text: string, pts: ArrayLike<number>, px: number
     nx = -nx;
     ny = -ny;
   }
-  const out: Candidate[] = [];
   for (const [along, across] of SHIFTS) {
     const sc = L / 2 + along * pitch;
     // 整行字不出路径两头太多(放大后国名相对变小,挪动的余地就大了)
@@ -892,7 +889,6 @@ export function alongCanvasPath(text: string, pts: ArrayLike<number>, px: number
       }
       glyphs.push({ ch: cs[i], x: x + ox, y: y + oy, a });
     }
-    out.push({ on: 0, glyphs });
+    yield { on: 0, glyphs };
   }
-  return out;
 }

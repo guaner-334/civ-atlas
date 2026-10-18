@@ -99,7 +99,8 @@ describe.each([7, 2024])('发展度 · seed=%i', (seed) => {
       expect(polityAlive(p, p.sail!)).toBe(true);
     }
     expect(new Set(sail.map((p) => p.sail)).size).toBeGreaterThan(2);
-    expect(Math.min(...sail.map((p) => p.sail!))).toBeGreaterThan(1000);
+    // 自己进航海时代的最早也在第 1000 年以后(从海洋国家分出去的,立国那年就能远洋,不算)
+    expect(Math.min(...sail.filter((p) => !(p.sail === p.founded && p.parent !== undefined)).map((p) => p.sail!))).toBeGreaterThan(1000);
   });
 
   it('发明:按出现先后、各样只记一次,那一刻那州的那样能力到了那一档', () => {

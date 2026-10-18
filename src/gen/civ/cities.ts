@@ -170,8 +170,10 @@ export function installCities(sim: CivSim, pm: PolityModel, wm: WarModel, cm: Ci
       if (rebuildTries(cm, s) > 0) sim.schedule(rebuildTime(cm, s, 0), Ev.CityRebuild, 0, sid);
       return;
     }
+    // 刚被洗劫过(饥荒的折损不算)
+    let recent = false;
     const sk = s.sacks;
-    const recent = !!sk && sk.length > 0 && t - sk[sk.length - 1].year < SACK_REST;
+    if (sk) for (let i = sk.length - 1; i >= 0 && t - sk[i].year < SACK_REST && !recent; i--) if (!sk[i].cause) recent = true;
     const pSack = Math.min(P_MAX, SACK_P * harsh * (capital ? CAPITAL_SACK : 1) * (recent ? SACK_AGAIN : 1));
     if (keyed(base, tag, tick, U_SACK) < pSack) {
       const loss = LOSS[0] + (LOSS[1] - LOSS[0]) * keyed(base, tag, tick, U_LOSS) + (brutal || nomad ? LOSS_HARSH : 0);

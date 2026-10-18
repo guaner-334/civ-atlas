@@ -130,11 +130,12 @@ describe('战争与攻占', () => {
           case 'war': {
             expect(e.war).toBe(war.size); // 按宣战先后编号
             expect(polityAlive(P[e.a], e.year) && polityAlive(P[e.b], e.year)).toBe(true);
-            // 宣战时两国接壤(经攻方能走的边)
+            // 宣战时两国接壤(经攻方能走的边);讨伐民变紧跟在起事后面,看起事以后的国土
+            const own = e.cause === 'quell' ? after : before;
             let touch = false;
             for (let r = 0; r < reg.count && !touch; r++) {
-              if (before[r] !== e.a) continue;
-              for (let k = reg.adjStart[r]; k < reg.adjStart[r + 1]; k++) if (before[reg.adj[k]] === e.b && canCross(civ, P[e.a], reg.adjKind[k], e.year)) touch = true;
+              if (own[r] !== e.a) continue;
+              for (let k = reg.adjStart[r]; k < reg.adjStart[r + 1]; k++) if (own[reg.adj[k]] === e.b && canCross(civ, P[e.a], reg.adjKind[k], e.year)) touch = true;
             }
             expect(touch, `战争 ${e.war}`).toBe(true);
             war.set(e.war, { a: e.a, b: e.b, start: e.year, at: i });
@@ -222,13 +223,16 @@ describe('战争与攻占', () => {
       // 按日志顺序重放国家层的归属:每条"攻占"之前,攻方的国土要挨着这一州(同一时刻先攻下的州也算:丢了国都撑不下去的小国,残部挨着国都)。
       // 例外:丢了国都撑不下去、残部一并归攻方(wars.ts 的 annex)时,和国都不连着的残部(隔海的、被别国围住的飞地)最后一并归攻方
       const fellAt = new Set(civ.annals.filter((e) => e.kind === 'fall').map((e) => `${e.year}|${e.a}`));
+      // 讨伐民变的仗不看 HOLD(起事的州刚换主,官军、义军你来我往)
+      const quell = new Set(civ.annals.filter((e) => e.kind === 'war' && e.cause === 'quell').map((e) => e.war));
+      const quellAt = new Set(civ.annals.filter((e) => e.kind === 'conquer' && quell.has(e.war)).map((e) => `${e.year}|${e.region}`));
       const own = new Int16Array(reg.count).fill(-1);
       for (let i = 0; i < L.size; i++) {
         if (L.layer[i] !== Layer.Polity) continue;
         const r = L.region[i];
         if (L.cause[i] === Ev.Conquer) {
           // 亡国时残部一并归攻方(annex)不看 HOLD:国家没了,谈不上前线来回
-          if (!fellAt.has(`${L.year[i]}|${own[r]}`)) expect(L.year[i] - last[r], `seed ${seed} 州 ${r} 第 ${L.year[i]} 年`).toBeGreaterThanOrEqual(HOLD);
+          if (!fellAt.has(`${L.year[i]}|${own[r]}`) && !quellAt.has(`${L.year[i]}|${r}`)) expect(L.year[i] - last[r], `seed ${seed} 州 ${r} 第 ${L.year[i]} 年`).toBeGreaterThanOrEqual(HOLD);
           const x = L.value[i];
           let touch = false;
           for (let k = reg.adjStart[r]; k < reg.adjStart[r + 1]; k++) if (own[reg.adj[k]] === x && canCross(civ, civ.polities[x], reg.adjKind[k], L.year[i])) touch = true;
@@ -239,10 +243,11 @@ describe('战争与攻占', () => {
       }
       // GENERATOR_VERSION 19(HOLD 缩到几年)以后 20 个种子各有 2–19 个拉锯州
       expect(warStats(civ).flippy, `seed ${seed}`).toBeGreaterThan(0);
-      // 迁都后 CAPITAL_GRACE 年内不再迁都(新国都攻不下):不会几年里一迁再迁
+      // 迁都后 CAPITAL_GRACE 年内不再迁都(新国都攻不下):不会几年里一迁再迁(讨伐民变的仗里不论,义军流窜、官军穷追)
+      const fled = new Set(civ.annals.filter((e) => e.kind === 'capital' && quell.has(e.war)).map((e) => `${e.year}|${e.a}`));
       for (const p of civ.polities) {
         const c = p.capitals!;
-        for (let i = 2; i < c.length; i++) expect(c[i].year - c[i - 1].year, `seed ${seed} ${p.name}`).toBeGreaterThanOrEqual(CAPITAL_GRACE);
+        for (let i = 2; i < c.length; i++) if (!fled.has(`${c[i].year}|${p.id}`)) expect(c[i].year - c[i - 1].year, `seed ${seed} ${p.name}`).toBeGreaterThanOrEqual(CAPITAL_GRACE);
       }
     }
   }, 60_000);
@@ -309,7 +314,10 @@ describe('战争与攻占', () => {
       const civ = civOf({ ...DEFAULT_PARAMS, seed });
       const list = buildChronicle(civ);
       const count = (k: string) => civ.annals.filter((e) => e.kind === k).length;
-      expect(list.filter((e) => e.kind === 'war').length).toBe(count('war'));
+      // 讨伐民变的仗折进民变那一条
+      const quell = civ.annals.filter((e) => e.kind === 'war' && e.cause === 'quell').length;
+      expect(list.filter((e) => e.kind === 'war').length).toBe(count('war') - quell);
+      expect(list.filter((e) => e.kind === 'revolt').length).toBe(quell);
       // 没有单列的攻占:都挂在某场战争下(部落地带的扩张走"国家到达",不记攻占)
       expect(civ.annals.every((e) => e.kind !== 'conquer' || (e.war >= 0 && e.b >= 0))).toBe(true);
       expect(list.some((e) => e.kind === 'conquer')).toBe(false);
@@ -320,7 +328,7 @@ describe('战争与攻占', () => {
       expect(list.filter((e) => e.kind === 'capital').length).toBe(count('capital') - forced);
       expect(list.flatMap((e) => e.children ?? []).filter((c) => c.kind === 'capital').length).toBe(forced);
       for (const e of list) for (const x of [e, ...(e.children ?? [])]) expect(x.text).not.toMatch(/某国|undefined|NaN/);
-      for (const w of list.filter((e) => e.kind === 'war')) {
+      for (const w of list.filter((e) => e.kind === 'war' || e.kind === 'revolt')) {
         const peace = w.children!.find((c) => c.kind === 'peace');
         if (!peace) continue;
         const gone = w.polities.slice(0, 2).some((id) => (civ.polities[id].ended ?? Infinity) <= peace.year);

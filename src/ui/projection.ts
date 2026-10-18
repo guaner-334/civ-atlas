@@ -11,17 +11,19 @@
  * - ProjLayer:一层"和世界一样大"的画布(地形、文明底图、选中、高亮、回放帧)在弯边投影下的做法 ——
  *   先画在离屏的等距圆柱原图上,再按投影铺到显示的画布上;只改中心时不重画原图,只重铺(几毫秒)。
  *   拖动中心时用它(快);停下来以后地形、文明层按投影重画(presentTerrain、CivLayer:线逐点投影,符号正立),
- *   数据图层、回放帧这样的"面"一直用它。
+ *   数据图层、回放帧这样的"面"一直用它。停下来时屏幕上已经是这个中心的整图重投影,按投影重画就在后台分小步备(refine),
+ *   备好了一次贴上,不在松手那一下卡住。
  */
 import { useSyncExternalStore } from 'react';
 import type { World } from '../gen/world';
 import type { Raster } from '../gen/raster';
 import { GRATICULE_STEPS, type ContourKind } from '../gen/savefile';
 import { doubleCanvas, drawProjected, isProjectionId, mapProj, pageColor, type MapProj, type ProjectionId } from '../render/projection';
-import { drawTerrainProjected, type DetailStyle } from '../render/detail';
+import { drawTerrainProjected, terrainProjWholeSteps, type DetailStyle } from '../render/detail';
 import type { SurfaceLook } from '../render/surface';
 import { releaseFantasyProjCaches } from '../render/fantasy';
 import { releaseWashScratch } from '../render/civ/territory';
+import { cancelDetailJob, detailAsync, detailJobPending, submitDetailJob, type JobStats, type WorkStep } from './detailJobs';
 
 export { pageColor };
 
@@ -142,6 +144,9 @@ export class ProjLayer {
   private dirty = true;
   /** 最近一次铺到显示画布上的投影(同一个投影、原图没变就不重铺) */
   private shown = '';
+  /** 在后台按投影重画的那一份(refine):活名、要画成哪一版;画在 back 上 */
+  private pend: { owner: string; k: string } | null = null;
+  private back: HTMLCanvasElement | null = null;
 
   /**
    * 离屏的等距圆柱原图(w × h;按需创建,大小变了就换)。
@@ -187,6 +192,8 @@ export class ProjLayer {
    * force = false 时,同一个投影、原图没变就不重铺
    */
   present(dst: HTMLCanvasElement, mp: MapProj, fill: PageFill = null, force = false): number {
+    // 在备的精画先作废(哪怕这一版不用重铺:拖动、放大时它会占着分帧调度,拖慢别的细节层)
+    this.drop();
     const src = this.src;
     if (!src || !src.width) return 0;
     const key = `${mp.key}|${fill}`;
@@ -219,6 +226,7 @@ export class ProjLayer {
    * key 相同、原图没变(没 touch 过)就不重画;之后再 present(整图重投影)会重铺
    */
   redraw(dst: HTMLCanvasElement, w: number, h: number, key: string, fill: PageFill, draw: (ctx: CanvasRenderingContext2D) => void, force = false): number {
+    this.drop();
     const k = `redraw|${key}|${fill}`;
     if (!force && k === this.shown && dst.width === w && dst.height === h) return 0;
     const t0 = performance.now();
@@ -240,11 +248,96 @@ export class ProjLayer {
     return performance.now() - t0;
   }
 
+  /** 显示画布上现在是不是这个投影的整图重投影(拖动时铺的那一版,原图没变过) */
+  presenting(mp: MapProj, fill: PageFill = null): boolean {
+    return !this.dirty && this.shown === `${mp.key}|${fill}`;
+  }
+
+  /**
+   * 同 redraw,只是分小步在后台画(ui/detailJobs.ts,owner = 活名):显示画布上先留着现在那一版,
+   * steps(ctx) 依次画在藏着的那张上(ctx() 第一次调时把它设成 w × h、铺好底色;这份作废了 = null),
+   * 都做完了一次贴到 dst 上 —— 和 redraw 当下画完逐像素一样。同一版已经在备、已经画好了就不再交;
+   * 藏着的那张拿不到画笔(手机上画布内存超了)就当下用 draw 画。done = 贴上去以后(贴用了多少毫秒、备料统计)
+   */
+  refine(
+    owner: string,
+    dst: HTMLCanvasElement,
+    w: number,
+    h: number,
+    key: string,
+    fill: PageFill,
+    steps: (ctx: () => CanvasRenderingContext2D | null) => WorkStep[],
+    draw: (ctx: CanvasRenderingContext2D) => void,
+    done?: (ms: number, st: JobStats) => void,
+  ): void {
+    const k = `redraw|${key}|${fill}`;
+    if (k === this.shown && dst.width === w && dst.height === h) return;
+    if (this.pend?.k === k && this.pend.owner === owner && detailJobPending(owner)) return;
+    this.drop();
+    const pend = (this.pend = { owner, k });
+    let ctx: CanvasRenderingContext2D | null = null;
+    let failed = false;
+    const get = () => {
+      if (this.pend !== pend || failed) return null;
+      if (ctx) return ctx;
+      const b = (this.back ??= document.createElement('canvas'));
+      b.width = w;
+      b.height = h;
+      ctx = b.getContext('2d');
+      if (!ctx) {
+        failed = true;
+        return null;
+      }
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = 'source-over';
+      if (fill) {
+        ctx.fillStyle = fill;
+        ctx.fillRect(0, 0, w, h);
+      } else ctx.clearRect(0, 0, w, h);
+      return ctx;
+    };
+    submitDetailJob(owner, [...steps(get), () => void get()], (st) => {
+      if (this.pend !== pend) return;
+      this.pend = null;
+      const t0 = performance.now();
+      const b = this.back;
+      if (!ctx || !b) {
+        this.redraw(dst, w, h, key, fill, draw, true);
+        done?.(performance.now() - t0, st);
+        return;
+      }
+      if (dst.width !== w || dst.height !== h) {
+        dst.width = w;
+        dst.height = h;
+      }
+      const d = dst.getContext('2d');
+      if (!d) return;
+      d.setTransform(1, 0, 0, 1, 0, 0);
+      d.globalAlpha = 1;
+      d.globalCompositeOperation = 'source-over';
+      d.clearRect(0, 0, w, h);
+      d.drawImage(b, 0, 0);
+      b.width = b.height = 0;
+      this.shown = k;
+      done?.(performance.now() - t0, st);
+    });
+  }
+
+  /** 后台在备的那一份(refine)不要了 */
+  private drop(): void {
+    if (!this.pend) return;
+    cancelDetailJob(this.pend.owner);
+    this.pend = null;
+    if (this.back) this.back.width = this.back.height = 0;
+  }
+
   /** release 时顺带要做的事(地形图那一层:释放按投影重画的缓存,见 presentTerrain) */
   onRelease: (() => void) | null = null;
 
   /** 释放离屏画布的显存(回到等距圆柱时) */
   release(): void {
+    this.drop();
     this.onRelease?.();
     if (this.src && !this.borrowed) this.src.width = this.src.height = 0;
     if (this.dbl) this.dbl.width = this.dbl.height = 0;
@@ -274,9 +367,25 @@ export function presentTerrain(
   layer.use(o.src);
   layer.onRelease = releaseCurvedCaches;
   if ((style !== 'fantasy' && style !== 'realistic') || o.moving) return layer.present(cv, mp, pageColor(style));
-  return layer.redraw(cv, raster.w, raster.h, mp.key, pageColor(style), (ctx) =>
-    drawTerrainProjected(ctx, world, raster, style as DetailStyle, mp, { s: raster.scale, ox: 0, oy: 0, k: 1 }, o.look),
-  );
+  const fill = pageColor(style);
+  const draw = (ctx: CanvasRenderingContext2D) => drawTerrainProjected(ctx, world, raster, style as DetailStyle, mp, { s: raster.scale, ox: 0, oy: 0, k: 1 }, o.look);
+  // 刚停下来(屏幕上是这个中心的整图重投影):按投影重画在后台分小步备,备好了贴上
+  if (detailAsync && layer.presenting(mp, fill)) {
+    const t0 = performance.now();
+    layer.refine(PROJ_JOB, cv, raster.w, raster.h, mp.key, fill, (ctx) => terrainProjWholeSteps(ctx, world, raster, style as DetailStyle, mp, o.look), draw, (ms, st) => {
+      (window as unknown as { __wfProj?: unknown }).__wfProj = { proj: mp.def.id, lon: mp.lon0, ms, prep: st.prep, slices: st.slices };
+    });
+    return performance.now() - t0;
+  }
+  return layer.redraw(cv, raster.w, raster.h, mp.key, fill, draw);
+}
+
+/** 地形图停下来以后按投影重画(后台分小步)的活名 */
+const PROJ_JOB = 'proj-terrain';
+
+/** 地形图按投影重画还在后台备着(调试字段用) */
+export function terrainRefining(): boolean {
+  return detailJobPending(PROJ_JOB);
 }
 
 /** 回到等距圆柱:按投影重画用的缓存(投影后的符号层、文明层让位遮罩、合成用的草稿画布……)都扔掉 */

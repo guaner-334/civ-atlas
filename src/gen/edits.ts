@@ -255,6 +255,9 @@
  *      陆地、山、湖不变,气候、群落、河流变了,历史重新推演。
  *  19:仗短而狠(civ/wars.ts):一场仗中位几年到十来年,打下一州可乘胜连下几州(势如破竹),州易手后几年就能再被夺回(拉锯),
  *      丢了地的国家更想收复故土、休战期短了;军力系数高的国家远征打折少,强国能越打越远。地形不变,历史重新推演。
+ *  20:动荡、饥荒、民变、大崩解(civ/unrest.ts):国家越大、边远异族越多、王朝越老、刚闹了饥荒越乱;
+ *      人口顶到上限的城碰上灾年会闹饥荒(人口掉一截),饥民可能起事、和朝廷打一场(被讨平、割据一方或攻破都城);
+ *      动荡到顶的大国一下子散成几块(各地自立 / 毁城断路 / 散回部落)。地形不变,历史重新推演。
  */
 import type { Civ, Culture, Faith, Place, Polity, Regions, Settlement } from './civ/types';
 import type { AuthorCharacter } from './characters';
@@ -266,7 +269,7 @@ import type { Era } from './era';
 import type { Frontier, Origins } from './civ/frontier';
 
 /** 生成器版本:生成算法有改动、同种子会得到不同世界时加一(存档读档时核对);加一时在 GENERATOR_CHANGES 里补一条 */
-export const GENERATOR_VERSION = 19;
+export const GENERATOR_VERSION = 20;
 
 /**
  * 一版生成器的改动有多大(从小到大):打开旧存档、旧链接时,按跨过的几版里最大的那一种说清变了什么(savefile.ts 的 versionNote)
@@ -299,6 +302,7 @@ export const GENERATOR_CHANGES: Readonly<Record<number, { change: GeneratorChang
   17: { change: 'history' },
   18: { change: 'climate' },
   19: { change: 'history' },
+  20: { change: 'history' },
 };
 
 /** 干预的种类(见文件头的表) */
