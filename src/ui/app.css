@@ -1516,6 +1516,19 @@ body.terrain-pan .stage.terrain-on:active {
   stroke: #ff6b5e;
   stroke-dasharray: 3 3;
 }
+/* 删河湖指着的湖 / 河:红色虚线(湖里淡淡填红) */
+.tt-del .tt-line {
+  stroke: #ff6b5e;
+  stroke-width: 2.5;
+  stroke-dasharray: 5 4;
+}
+.tt-del .tt-halo {
+  stroke-width: 5;
+}
+.tt-del .tt-area {
+  fill: #ff6b5e;
+  fill-opacity: 0.18;
+}
 /* 光标圈:实线,淡一点 */
 .tt-cursor .tt-line {
   stroke: rgba(255, 255, 255, 0.9);

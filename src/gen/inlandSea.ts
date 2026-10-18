@@ -18,8 +18,11 @@ const CRUMB = 12;
 /** 海峡最多凿穿这么多块陆地(36000 块时;地块越小,按边长比例放长) */
 const STRAIT = 3;
 
-/** 改 land 本身:0 海 / 1 陆。protect 里非 0 的地块不改(草图涂过的) */
-export function connectInlandSeas(mesh: Mesh, land: Uint8Array, protect: Uint8Array | null = null): void {
+/**
+ * 改 land 本身:0 海 / 1 陆。protect 里非 0 的地块不改(草图涂过的),碰到它的封闭海域整片不动;
+ * noFill = 不填成陆地(草图选了不长新陆地):接不通的照旧是海
+ */
+export function connectInlandSeas(mesh: Mesh, land: Uint8Array, protect: Uint8Array | null = null, noFill = false): void {
   const { n, adjStart, adj } = mesh;
   const comp = new Int32Array(n).fill(-1);
   const comps: number[][] = [];
@@ -102,6 +105,6 @@ export function connectInlandSeas(mesh: Mesh, land: Uint8Array, protect: Uint8Ar
         continue;
       }
     }
-    for (const i of cells) land[i] = 1;
+    if (!noFill) for (const i of cells) land[i] = 1;
   }
 }

@@ -123,7 +123,7 @@ export function paramsSide(p: WorldParams): string {
   return `陆地 ${Math.round(p.landFraction * 100)}%，${p.continents ? `${p.continents} 块大陆` : `${p.plates} 个板块`}`;
 }
 
-const KIND_NAME: Record<TerrainKind, string> = { volcano: '火山', range: '山脉', lake: '湖', raise: '抬起陆地', sink: '沉成海', river: '河', wet: '更湿', dry: '更干', warm: '更暖', cold: '更冷', lift: '抬高', lower: '压低', smooth: '平滑', flatten: '抹平', setHeight: '定高' };
+const KIND_NAME: Record<TerrainKind, string> = { volcano: '火山', range: '山脉', lake: '湖', raise: '抬起陆地', sink: '沉成海', river: '河', wet: '更湿', dry: '更干', warm: '更暖', cold: '更冷', lift: '抬高', lower: '压低', smooth: '平滑', flatten: '抹平', setHeight: '定高', delWater: '删河湖' };
 
 /**
  * 改过的地形:"2 处：火山 1、山脉 1";画过草图的和编辑地形里一个说法:"画了 12 笔：草图 11 笔、河 1"
