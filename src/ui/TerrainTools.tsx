@@ -21,6 +21,7 @@
  * - 「板块」页(存在草图的 plates 里,见 gen/plateEdits.ts):地图换成板块配色(App 切过去,离开这一页换回来)。
  *   选中 = 点一块板块选中它,地图上它的漂移箭头变白,拖箭头头上的圈改方向和快慢(松手记一处改动);面板里改陆壳 / 洋壳、
  *   「板块相撞时造山」开关;切开 = 画一条线(松手切开);合并 = 依次点两块挨着的板块。都用点指板块,算在"画了几笔"里,能撤销。
+ *   照图分 = 选一张图,按颜色分成一块块铺满整张当板块图(不算一笔,面板里「去掉」;换了分法之前的板块改动清掉)。
  * - 两种新建各一套面板:随机生成的是「编辑地形」(组头"完成"收起;整张草图里海岸线、没涂的地方);
  *   照手绘图生成的是第 2 步「用笔修改」(mode = 'image',没有组头和没涂的地方 —— 没盖到的都是海)。
  *   照手绘图时认图(ImportImage.tsx)那一步也开着编辑地形(地图事件转给认图);「照这样长出星球」= applyImport,
@@ -45,6 +46,7 @@ import {
   type SketchImage,
   type SketchKind,
   type SketchStroke,
+  encodeLayer,
 } from '../gen/sketch';
 import {
   DEL_WATER_R,
@@ -64,7 +66,9 @@ import {
 } from '../gen/terrainEdits';
 import type { World } from '../gen/world';
 import type { Raster } from '../gen/raster';
-import { PLATE_SPEED, cutsPlate, driftOf, driftText, type PlateCrust, type PlateOp } from '../gen/plateEdits';
+import { PLATE_IMAGE_MAX, PLATE_SPEED, cleanPlateImage, cutsPlate, driftOf, driftText, plateImageCount, type PlateCrust, type PlateOp } from '../gen/plateEdits';
+import { placeOnLayer, plateRegions } from '../gen/sketchImage';
+import { showToast } from './toastStore';
 import { PLATE_ARROW_L, plateArrows } from '../render/layers';
 import { Icon, type IconName } from './icons';
 import { Seg, Slider } from './tpControls';
@@ -79,6 +83,7 @@ import {
   setSketchBase,
   setSketchCoast,
   setSketchFill,
+  setPlateImage,
   setPlateOrogeny,
   setSketchRest,
   undoEraseStroke,
@@ -101,6 +106,7 @@ import {
   importUndoClick,
   importUp,
   keepImport,
+  loadImage,
   useImport,
 } from './ImportImage';
 
@@ -757,6 +763,56 @@ function addPlate(op: PlateOp) {
   order.push('p');
   redo = [];
 }
+/** 去掉照图分(回到程序分的板块;之前的板块改动一起清掉) */
+function dropPlateImage() {
+  trimOrder();
+  if (setPlateImage(null, tool.coast, tool.fill) < 0) return;
+  redo = [];
+  setTerrainTool({ plateAt: null });
+}
+/** 照图分:选一张图(选文件框和照手绘图的「换一张」一样放进页面里再点) */
+export function pickPlateImage() {
+  document.querySelector('input.imp-pick')?.remove();
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/*';
+  input.className = 'imp-pick';
+  input.hidden = true;
+  input.addEventListener('change', () => {
+    const f = input.files?.[0];
+    input.remove();
+    if (f) void plateImageFrom(f);
+  });
+  document.body.append(input);
+  input.click();
+}
+/**
+ * 照这张图分板块:按颜色分成一块块(sketchImage.ts 的 plateRegions),铺满整张当板块图;之前的板块改动清掉(撤销记录里的也作废)。
+ * 认不出两块以上出一条提示。返回是否用上了
+ */
+let plateImageReq = 0;
+export async function plateImageFrom(file: File): Promise<boolean> {
+  // 读图要等一会:这期间又选了一张、换了世界的,这一张作废
+  const req = ++plateImageReq;
+  const era = editsEra();
+  const l = await loadImage(file);
+  if (!l) return false;
+  URL.revokeObjectURL(l.url);
+  if (req !== plateImageReq || era !== editsEra()) return false;
+  const r = plateRegions(l.pic, PLATE_IMAGE_MAX);
+  const img = { name: l.name, cells: encodeLayer(placeOnLayer(r.values, l.pic.w, l.pic.h, { fit: 'fill' })) };
+  if (!cleanPlateImage(img)) {
+    showToast({ id: 'plate-image', kind: 'warn', text: '没从这张图认出几块板块', more: ['每块板块涂一种颜色(或描出分界线)', '至少要两块'] });
+    return false;
+  }
+  trimOrder();
+  const dropped = setPlateImage(img, tool.coast, tool.fill);
+  if (dropped < 0) return false;
+  redo = [];
+  setTerrainTool({ tool: 'plateSelect', plateAt: null });
+  showToast({ id: 'plate-image', kind: 'ok', text: `照「${l.name}」分成了 ${plateImageCount(img)} 块板块`, more: dropped ? [`之前改的 ${dropped} 处板块清掉了`] : undefined });
+  return true;
+}
 /** 擦掉的一笔,顺带去掉 hit 这几处(地形修改的下标);先后记录里它们的 'o' 一起去掉 */
 function eraseStroke(st: SketchStroke, hit: readonly number[]) {
   trimOrder();
@@ -856,6 +912,7 @@ export function terrainCount(e: { terrain: readonly TerrainOp[]; sketch?: Sketch
 export function terrainSide(e: { terrain: readonly TerrainOp[]; sketch?: SketchEdit }, none: string): string {
   const n = terrainCount(e);
   if (e.sketch?.image) return n ? `照一张图，又画了 ${n} 笔` : '照一张图';
+  if (e.sketch?.plates?.image) return n ? `照图分板块，又画了 ${n} 笔` : '照图分板块';
   if (n) return `画了 ${n} 笔`;
   // 一笔没画:没涂的地方都是海 / 不长新陆地(整颗星球是海),或者只关了板块相撞造山
   if (e.sketch?.rest === 'sea' || e.sketch?.rest === 'noNewLand') return '都是海';
@@ -1079,7 +1136,13 @@ export function TerrainPanel({ disabled, phone = false, mode = 'random', extra }
   const placeTiles = [...PLACE, ...(image ? [] : [DEL_WATER])].map((x) => tile(x.id, x.name, <Icon name={x.icon} size={18} />));
   const climateTiles = CLIMATE.map((x) => tile(x.id, x.name, <i className={`tp-sw k-${x.id}`} />));
   const heightTiles = HEIGHT.map((x) => tile(x.id, x.name, <Icon name={x.icon} size={18} />));
-  const plateTiles = PLATE.map((x) => tile(x.id, x.name, <Icon name={x.icon} size={18} />));
+  const plateTiles = [
+    ...PLATE.map((x) => tile(x.id, x.name, <Icon name={x.icon} size={18} />)),
+    <button key="plateImage" className="tp-tile" data-act="terrain-plate-image" onClick={pickPlateImage}>
+      <Icon name="plImage" size={18} />
+      照图分
+    </button>,
+  ];
   const pages = (
     <div className="tp-seg tp-pages" role="tablist" aria-label="编辑什么" data-act="terrain-page">
       {(['shape', 'height', 'climate', 'plates'] as const).map((p) => (
@@ -1095,7 +1158,7 @@ export function TerrainPanel({ disabled, phone = false, mode = 'random', extra }
     </div>
   ) : page === 'plates' ? (
     <div className={phone ? 'tp-strip' : 'tp-tools'} role="radiogroup" aria-label="工具">
-      {phone ? plateTiles : <div className="tp-tiles c3">{plateTiles}</div>}
+      {phone ? plateTiles : <div className="tp-tiles c4">{plateTiles}</div>}
     </div>
   ) : climatePage ? (
     <div className={phone ? 'tp-strip' : 'tp-tools'} role="radiogroup" aria-label="工具">
@@ -1119,10 +1182,21 @@ export function TerrainPanel({ disabled, phone = false, mode = 'random', extra }
   const coastSeg = <Seg label="海岸线" act="terrain-coast" items={COASTS} value={coast} onPick={setTerrainCoast} />;
   const picked = page === 'plates' && t.tool === 'plateSelect' && probe ? pickedArrow(t) : null;
   const orogeny = sk?.plates?.orogeny !== false;
+  const plImg = sk?.plates?.image;
   const penOpts = (
     <div className="tp-opts">
       {page === 'plates' ? (
         <>
+          {plImg && (
+            <div className="sb-row tp-image" data-act="terrain-plate-image-row">
+              <span className="sb-row-main">
+                照「{plImg.name || '图片'}」分了 {plateImageCount(plImg)} 块
+              </span>
+              <button className="sb-link" data-act="terrain-plate-image-off" onClick={dropPlateImage}>
+                去掉
+              </button>
+            </div>
+          )}
           {picked && (
             <>
               <Seg

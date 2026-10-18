@@ -41,8 +41,8 @@ import { MinHeap, smoothstep, subSeed, mulberry32, clamp, hypot2, keyed } from '
 import { geometryOf } from './geometry';
 import { connectInlandSeas } from './inlandSea';
 import { round24 } from './civ/rand';
-import { SKETCH_HILLS, SKETCH_ISLES, SKETCH_LAND, SKETCH_MOUNTAIN, SKETCH_NONE, SKETCH_PLATEAU, SKETCH_SHELF, sketchAt, sketchPainted, type Sketch } from './sketch';
-import { applyPlateOps, type PlateState } from './plateEdits';
+import { SKETCH_HILLS, SKETCH_ISLES, SKETCH_LAND, SKETCH_MOUNTAIN, SKETCH_NONE, SKETCH_PLATEAU, SKETCH_SHELF, decodeLayer, sketchAt, sketchPainted, type Sketch } from './sketch';
+import { PLATE_IMAGE_MAX, applyPlateImage, applyPlateOps, type PlateState } from './plateEdits';
 
 export interface TectonicParams {
   seed: number;
@@ -653,8 +653,11 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
   let dens = density;
   let motion = motion0;
   const pe = sketch?.plates;
-  if (pe?.ops.length) {
+  const peImage = pe?.image ? decodeLayer(pe.image.cells, PLATE_IMAGE_MAX) : null;
+  if (pe && (pe.ops.length || peImage)) {
     const st: PlateState = { plate, count: plateCount, omega: Array.from(motion0.omega), density: Array.from(density), spin: Array.from(spin), crust, touched: new Set() };
+    // 照一张图分的最先套上(整张板块图换掉),再按先后套改动
+    if (peImage) applyPlateImage(mesh, st, peImage, p.seed);
     applyPlateOps(mesh, st, pe.ops);
     P = st.count;
     dens = Float32Array.from(st.density);
@@ -665,8 +668,8 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
     const c2 = geo.groupCentroids(plate, P, cnt);
     vxOut = new Float32Array(P);
     vyOut = new Float32Array(P);
-    vxOut.set(plateVx);
-    vyOut.set(plateVy);
+    vxOut.set(plateVx.subarray(0, Math.min(P, plateCount)));
+    vyOut.set(plateVy.subarray(0, Math.min(P, plateCount)));
     for (const k of st.touched) {
       if (!cnt[k]) {
         vxOut[k] = vyOut[k] = 0;

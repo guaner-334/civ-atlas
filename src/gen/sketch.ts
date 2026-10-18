@@ -163,8 +163,8 @@ export function encodeLayer(layer: Uint8Array): string {
   return btoa(bin);
 }
 
-/** 存的字符串 → 格子图;不是 base64、个数是 0、值超过 9、加起来不是正好 LAYER_W × LAYER_H 格的 = null */
-export function decodeLayer(cells: string): Uint8Array | null {
+/** 存的字符串 → 格子图;不是 base64、个数是 0、值超过 max(草图的格子值最大 9;照图分的板块图是块号)、加起来不是正好 LAYER_W × LAYER_H 格的 = null */
+export function decodeLayer(cells: string, max = SKETCH_MOUNTAIN + 2): Uint8Array | null {
   if (cells.length > LAYER_CELLS_B64_MAX || !/^[A-Za-z0-9+/]*={0,2}$/.test(cells)) return null;
   let bin: string;
   try {
@@ -178,7 +178,7 @@ export function decodeLayer(cells: string): Uint8Array | null {
   for (let i = 0; i < bin.length; i += 2) {
     const n = bin.charCodeAt(i);
     const v = bin.charCodeAt(i + 1);
-    if (!n || v > SKETCH_MOUNTAIN + 2 || k + n > out.length) return null;
+    if (!n || v > max || k + n > out.length) return null;
     out.fill(v, k, k + n);
     k += n;
   }
