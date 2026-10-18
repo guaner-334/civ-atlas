@@ -13,7 +13,7 @@ import type { Raster } from '../gen/raster';
 import type { World } from '../gen/world';
 import { markShownAt, type AuthorMark } from '../gen/edits';
 import { MARK_HEX } from '../render/marks';
-import { useEdits } from './editsStore';
+import { seedTag, useEdits } from './editsStore';
 import { getCivTime, setSelection, subscribeCivTime } from './civView';
 import { closeOverview } from './overviewStore';
 import { useNowLine } from './Chronicle';
@@ -71,7 +71,7 @@ export function MarksPage({ civ, data }: { civ: Civ | null; data: { world: World
     startPlacing();
   };
   const copy = async () => {
-    const lines = [`标记 · 种子 ${civ.seed}${only ? ` · ${yearFull(year, era)}有的` : ''}`, ''];
+    const lines = [`标记 · ${seedTag(civ.seed)}${only ? ` · ${yearFull(year, era)}有的` : ''}`, ''];
     for (const r of rows) lines.push(`${markYears(r.m, era)} ${r.m.title}${r.line ? ` ${r.line}` : ''}`);
     const text = lines.join('\n').trim();
     (window as unknown as { __wfMarksText: string }).__wfMarksText = text;

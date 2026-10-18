@@ -5,9 +5,10 @@
  *            选好以后进新建界面,两种不能互换
  *   第 2 步  基础参数(就是新建界面「世界参数」那几样,默认值不变)。随机的有种子(随机给一个,能换);
  *            照图的先选一张图(拖进来或「选一张图」),不列陆地比例(海陆照图定),种子随机给,进去以后在「山河、地名换一种」里换。
- *            「精细度」下面一组「拓荒」:民族扩散、国家扩张两条滑条(默认 1×),「地形难走程度」一行点开原地展开八样地形
+ *            照图的「精细度」下面一组「拓荒」:民族扩散、国家扩张两条滑条(默认 1×),「地形难走程度」一行点开原地展开八样地形
  *            (改过的数字变成强调色、前面一个圆点;「恢复默认」一下还原),组下面一段说明。
  *            最后一组「历史」:开关「推演超过 3000 年」(默认关),组下面一直写着那段说明;开了多一条「推演到」(刚打开 10000 年)。
+ *            随机生成的不列「拓荒」「历史」(先只做地图,这两样在新建界面第 2 步「打造文明」里定)。
  *            底下一句说进去以后这些都还能改
  *
  * 点「开始」才交给 App(存下没建完的世界、进新建界面;照图的把读好的图交过去,进去直接是第 1 步「认出海陆」)。
@@ -207,7 +208,7 @@ export function NewWorldDialog(p: NewWorldDialogProps) {
     const final = mode === 'random' ? (n > 0 ? { ...params, seed: n } : params) : { ...params, ...CONT_RESET, hardness: params.hardness };
     given.current = true;
     if (mode !== 'image' && held.current) URL.revokeObjectURL(held.current.url);
-    p.onStart({ mode, params: final, picture: mode === 'image' ? picture : null, ...(years ? { endYear: years } : {}), ...(frontier ? { frontier } : {}) });
+    p.onStart({ mode, params: final, picture: mode === 'image' ? picture : null, ...(years ? { endYear: years } : {}), ...(frontier && mode === 'image' ? { frontier } : {}) });
   };
   const next = (m: NewWorldMode = mode) => {
     setMode(m);
@@ -254,8 +255,8 @@ export function NewWorldDialog(p: NewWorldDialogProps) {
   const info =
     mode === 'random'
       ? p.phone
-        ? '进去以后这些都还能改，还能用笔改地形、在地图上点文明从哪里起源；点「创建世界」以后才定下来。'
-        : '进去以后，这些在左边「世界参数」里都还能改，还能用笔改地形、在地图上点文明从哪里起源；点「创建世界」以后才定下来。'
+        ? '进去以后这些都还能改，还能用笔改地形。地图做好了，可以先保存，也可以接着打造文明：推演年数、拓荒、文明从哪里起源，都在那一步。'
+        : '进去以后，这些在左边「世界参数」里都还能改，还能用笔改地形。地图做好了，可以先保存，也可以接着打造文明：推演年数、拓荒、文明从哪里起源，都在那一步。'
       : '进去以后先认出图里的海和陆地，再用笔修。这些参数在「参数和名字」那一步都还能改；点「创建世界」以后才定下来。';
 
   const cards = (
@@ -467,21 +468,26 @@ export function NewWorldDialog(p: NewWorldDialogProps) {
           {i === 0 && contSec}
         </Fragment>
       ))}
-      {frontierGroup}
-      <div className="nd-sec">
-        <div className="nd-lab">
-          历史
-          <small>年数越多，打开越慢</small>
-        </div>
-        <div className="nd-grp">
-          <label className="nd-pr">
-            <span className="nd-n wide">{YEARS_SWITCH}</span>
-            <button className={`ai-switch${years ? ' on' : ''}`} role="switch" aria-checked={!!years} data-act="dlg-years" onClick={() => setYears(years ? undefined : YEARS_ON)} />
-          </label>
-          {years && <ParamRow s={YEARS_SLIDER} value={years} phone={p.phone} onChange={setYears} />}
-        </div>
-        <p className="nd-foot">{YEARS_NOTE}</p>
-      </div>
+      {/* 随机生成先只做地图:拓荒、历史在新建界面的第 2 步「打造文明」里定 */}
+      {mode === 'image' && (
+        <>
+          {frontierGroup}
+          <div className="nd-sec">
+            <div className="nd-lab">
+              历史
+              <small>年数越多，打开越慢</small>
+            </div>
+            <div className="nd-grp">
+              <label className="nd-pr">
+                <span className="nd-n wide">{YEARS_SWITCH}</span>
+                <button className={`ai-switch${years ? ' on' : ''}`} role="switch" aria-checked={!!years} data-act="dlg-years" onClick={() => setYears(years ? undefined : YEARS_ON)} />
+              </label>
+              {years && <ParamRow s={YEARS_SLIDER} value={years} phone={p.phone} onChange={setYears} />}
+            </div>
+            <p className="nd-foot">{YEARS_NOTE}</p>
+          </div>
+        </>
+      )}
       {(mode === 'random' || picture) && (
         <div className="nd-info">
           <Icon name="info" size={17} />

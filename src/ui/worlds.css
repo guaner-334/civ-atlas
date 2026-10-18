@@ -369,6 +369,136 @@
   font-size: 13px;
   line-height: 1.5;
 }
+/* 页签「地图 | 文明」:分段控件(和 Mac 的一样:浅灰槽,选中的那段白底浮起来) */
+.mw-seg {
+  flex: none;
+  align-self: flex-start;
+  margin-top: 16px;
+  display: inline-flex;
+  height: 30px;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--btn);
+}
+.mw .mw-seg button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  font-size: 13.5px;
+  cursor: pointer;
+}
+.mw-seg button i {
+  font-style: normal;
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+.mw .mw-seg button.on {
+  background: var(--surface);
+  box-shadow:
+    0 0 0 0.5px rgba(0, 0, 0, 0.06),
+    0 1px 3px rgba(0, 0, 0, 0.16);
+  font-weight: 600;
+}
+.mw-seg ~ .mw-grid {
+  margin-top: 20px;
+}
+.mw-none {
+  margin: 40px 0 0;
+  color: var(--ink-2);
+}
+/* 「地图」页签:卡片比文明的小一号(宽屏四列) */
+.mw-grid.mw-maps {
+  --gap: 24px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 30px var(--gap);
+}
+@media (min-width: 1900px) {
+  .mw-grid.mw-maps {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}
+@media (max-width: 1100px) {
+  .mw-grid.mw-maps {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+.mw-map.on .mw-thumb,
+.mw-map.on .mw-open:hover .mw-thumb {
+  box-shadow: 0 0 0 2.5px var(--accent);
+}
+/* 选中的地图下面展开的那块:占满一行,浅灰底;上面一个小尖角对着选中的卡片 */
+.mw-panel {
+  grid-column: 1 / -1;
+  position: relative;
+  margin: -6px -16px 0;
+  padding: 15px 16px 28px;
+  border-radius: 14px;
+  background: rgba(118, 118, 128, 0.08);
+  box-shadow: inset 0 0 0 0.5px var(--line);
+}
+.mw-caret {
+  position: absolute;
+  top: -9px;
+  left: calc(16px + (100% - 32px - (var(--cols) - 1) * var(--gap)) / var(--cols) * (var(--col) + 0.5) + var(--col) * var(--gap) - 9px);
+  width: 18px;
+  height: 18px;
+  transform: rotate(45deg);
+  background: color-mix(in srgb, var(--panel-solid), rgb(118, 118, 128) 8%);
+  box-shadow: -0.5px -0.5px 0 var(--line);
+}
+.mw-panel-hd {
+  position: relative;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-height: 32px;
+  padding: 0 4px;
+}
+.mw-panel-hd b {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 32px;
+}
+.mw-panel-hd span {
+  min-width: 0;
+  font-size: 13px;
+  color: var(--ink-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mw-panel-hd .mw-btn {
+  margin-left: auto;
+  align-self: center;
+}
+.mw-panel-grid {
+  margin-top: 14px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 300px));
+  gap: 24px;
+}
+.mw-panel-txt {
+  margin: 18px 4px 0;
+  font-size: 13.5px;
+  color: var(--ink-2);
+}
+.mw-panel-acts {
+  margin: 14px 4px 0;
+  display: flex;
+  gap: 10px;
+}
+.mw .mw-panel-acts .mw-btn {
+  height: 34px;
+  padding: 0 16px;
+}
+.mw-panel.empty {
+  padding-bottom: 32px;
+}
 @media (prefers-reduced-motion: reduce) {
   .mw-globe canvas {
     transition: none;
@@ -435,6 +565,111 @@
 }
 .mw-phone .mw-rename {
   top: calc(50cqw + 3px);
+}
+.mw-phone .mw-seg {
+  display: flex;
+  align-self: stretch;
+  margin-top: 10px;
+  height: 36px;
+  border-radius: 9px;
+}
+.mw-phone .mw-seg button {
+  flex: 1;
+  font-size: 15px;
+}
+.mw-phone .mw-seg ~ .mw-grid {
+  margin-top: 14px;
+}
+.mw-phone .mw-grid.mw-maps {
+  --gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px var(--gap);
+}
+.mw-phone .mw-map .mw-name {
+  font-size: 16px;
+  line-height: 21px;
+}
+.mw-phone .mw-map .mw-line {
+  font-size: 13.5px;
+  line-height: 19px;
+}
+.mw-phone .mw-panel {
+  margin: -6px -10px 0;
+  padding: 14px 14px 16px;
+  border-radius: 16px;
+}
+.mw-phone .mw-caret {
+  left: calc(10px + (100% - 20px - (var(--cols) - 1) * var(--gap)) / var(--cols) * (var(--col) + 0.5) + var(--col) * var(--gap) - 9px);
+}
+.mw-phone .mw-panel-hd b {
+  font-size: 17px;
+  line-height: 28px;
+}
+.mw-panel-list {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.mw .mw-civ-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 14px 14px 16px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--surface);
+  text-align: left;
+  cursor: pointer;
+}
+.mw-civ-th {
+  flex: none;
+  width: 94px;
+  height: 47px;
+  border-radius: 6px;
+  background: var(--btn) center / cover no-repeat;
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.14);
+}
+.mw-civ-meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.mw-civ-meta b {
+  font-size: 16px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mw-civ-meta span {
+  font-size: 14px;
+  color: var(--ink-2);
+}
+.mw-civ-chev {
+  flex: none;
+  color: var(--ink-3);
+}
+.mw .mw-btn.wide {
+  width: 100%;
+  height: 50px;
+  margin-top: 12px;
+  border-radius: 14px;
+  font-size: 17px;
+  font-weight: 600;
+}
+.mw-phone .mw-panel-txt {
+  margin-top: 10px;
+  font-size: 14px;
+}
+.mw-phone .mw-panel-acts {
+  flex-direction: column;
+  gap: 0;
+  margin: 4px 0 0;
+}
+.mw-phone .mw-panel-acts .mw-btn.wide {
+  height: 50px;
 }
 .mw-phone .mw-menu.pm-menu {
   top: 8px;
