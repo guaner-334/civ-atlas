@@ -171,9 +171,15 @@ export function markEvents(civ: Civ, ids: readonly number[], m: Pick<AuthorMark,
   const set = new Set(ids);
   const end = m.to === undefined ? Infinity : m.to + 1;
   const out: ChronicleEntry[] = [];
+  // 亡国、城毁既单独一条,又在那场战争底下:只列一次
+  const seen = new Set<string>();
   for (const e of fullChronicle(civ)) {
     for (const x of e.children?.length ? e.children : [e]) {
-      if (x.year >= m.from && x.year < end && x.regions.some((r) => set.has(r))) out.push(x);
+      if (x.year < m.from || x.year >= end || !x.regions.some((r) => set.has(r))) continue;
+      const k = `${x.kind}:${x.id}`;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      out.push(x);
     }
   }
   return out.sort((a, b) => a.year - b.year);

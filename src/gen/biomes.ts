@@ -64,7 +64,7 @@ export function classifyBiome(t: number, p: number, water: number, ice = 0): Bio
   if (t < 18) {
     if (p < 250) return Biome.TemperateDesert;
     if (p < 600) return Biome.Steppe;
-    if (p < 1700) return Biome.TemperateForest;
+    if (p < 2300) return Biome.TemperateForest;
     return Biome.TemperateRainforest;
   }
   if (p < 320) return Biome.HotDesert;

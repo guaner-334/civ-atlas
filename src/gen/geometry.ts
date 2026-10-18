@@ -120,9 +120,10 @@ export interface Geometry {
   pointDot(ax: number, ay: number, bx: number, by: number, ve: number, vs: number): number;
   /**
    * 地块 i 的位置在方向 (ve, vs) 上的投影:顺风排序用(先算上风的地块)。
-   * 风带绕一圈没有起点,在每条风带里从切口(cuts,见 windCuts)那条经线切开,经度从切口往东量:x' ·ve + y·vs
+   * 风带绕一圈没有起点,在每条风带里从切口(cuts,见 windCuts)那条经线切开,经度从切口往东量:x' ·ve + y·vs。
+   * by:按哪个 y 认风带(风带随季节挪了位置时,按挪之前的位置认,和全年平均时同一条风带用同一个切口);不给 = 地块自己的 y
    */
-  downwind(i: number, ve: number, vs: number, cuts?: WindCuts | null): number;
+  downwind(i: number, ve: number, vs: number, cuts?: WindCuts | null, by?: number): number;
   /**
    * 每条风带的切口(顺风排序用):water 非 1 = 陆地 / 湖。
    * 六条风带(0–30°、30–60°、60–90°,南北各三)各选一条经线,在陆地最少(最大的那片大洋中间)的地方
@@ -1121,11 +1122,11 @@ class SphereGeometry implements Geometry {
     const t = ve * A.east(dx, dy) + vs * A.south(dx, dy, dz);
     return t / (Math.sqrt(dx * dx + dy * dy + dz * dz) || 1);
   }
-  downwind(i: number, ve: number, vs: number, cuts?: WindCuts | null): number {
+  downwind(i: number, ve: number, vs: number, cuts?: WindCuts | null, by?: number): number {
     const x = this.x[i];
     const y = this.y[i];
     if (!cuts) return x * ve + y * vs;
-    const b = Math.min(WIND_BANDS - 1, Math.floor((y * WIND_BANDS) / this.H));
+    const b = Math.max(0, Math.min(WIND_BANDS - 1, Math.floor(((by ?? y) * WIND_BANDS) / this.H)));
     let xr = x - cuts[b];
     if (xr < 0) xr += this.W;
     return xr * ve + y * vs;

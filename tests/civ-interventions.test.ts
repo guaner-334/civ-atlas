@@ -525,7 +525,8 @@ function expander(civ: Civ, a: number, b: number): number {
   let best = -1;
   let gain = 0;
   for (const p of civ.polities) {
-    if (!(p.founded < a && (p.ended ?? Infinity) > b)) continue;
+    // 开头至少 3 州:只有一州的部落不许扩张,多半撑不到禁令到期就被吞了
+    if (!(p.founded < a && (p.ended ?? Infinity) > b) || sizeAt(civ, p.id, a) < 3) continue;
     const g = sizeAt(civ, p.id, b) - sizeAt(civ, p.id, a);
     if (g > gain) {
       gain = g;

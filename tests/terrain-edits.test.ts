@@ -183,12 +183,17 @@ describe('改地形 · 生成', () => {
     const w = generateWorld(SMALL, undefined, [{ kind: 'range', pts, r: 20, s: 1 }]);
     const ridge = near(w, cx, cy, 20);
     expect(mean(w, ridge)).toBeGreaterThan(mean(w0, ridge) + 800);
-    // 河的源头在山脉两侧不远处
-    const sources = (x: World) =>
-      x.rivers.filter((r) => {
-        const [sx, sy] = [r.pts[0], r.pts[1]];
-        return Math.abs(sx - cx) < 120 && Math.abs(sy - cy) < 90;
-      }).length;
+    // 河的源头在山脉两侧不远处(离山脊线 50 以内)
+    const toRidge = (sx: number, sy: number) => {
+      let d = Infinity;
+      for (let k = 0; k + 3 < pts.length; k += 2) {
+        const [ax, ay, bx, by] = [pts[k], pts[k + 1], pts[k + 2], pts[k + 3]];
+        const t = Math.max(0, Math.min(1, ((sx - ax) * (bx - ax) + (sy - ay) * (by - ay)) / ((bx - ax) ** 2 + (by - ay) ** 2)));
+        d = Math.min(d, Math.hypot(sx - ax - t * (bx - ax), sy - ay - t * (by - ay)));
+      }
+      return d;
+    };
+    const sources = (x: World) => x.rivers.filter((r) => toRidge(r.pts[0], r.pts[1]) < 50).length;
     expect(sources(w)).toBeGreaterThan(0);
     expect(sources(w)).toBeGreaterThanOrEqual(sources(w0));
   });

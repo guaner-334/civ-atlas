@@ -11,6 +11,7 @@
  * 只往前看:每一位的父亲只取决于他和他之前的君主,干预某年之前的世系不变。不用随机数,名字按位置锚取(和君主、将领同一个起名器)。
  * 纯计算,不碰 DOM。
  */
+
 import type { Person, Polity, Year } from './types';
 
 /** 生儿子的年纪 */
@@ -21,6 +22,8 @@ const POSTHUMOUS = 0.75;
 const MAX_AGE = 88;
 /** 补出来的开国之君的父亲:比两个儿子里年长的那个大多少岁(年纪差太大时少一些) */
 const FOUNDER_FATHER_AGE = 30;
+/** 补出来的宗室起名最多试几次(和本国的君主、将领、名臣、别的宗室都不重名) */
+const PRINCE_NAME_TRIES = 120;
 
 const TICK = 256;
 const q = (x: number) => Math.round(x * TICK) / TICK;
@@ -135,7 +138,8 @@ export function buildLineage(
       for (let d: Node | undefined = n; d && !r; d = d.kids.find((c) => c.p.role === 'ruler') ?? d.kids[0]) if (d.p.role === 'ruler') r = d.p;
       const sur = namer.surnamed && r ? opts.surnameOf(r) : '';
       let name = '';
-      for (let a = 0; !name || (used.has(name) && a < 24); a++) name = sur + namer.given(opts.tag[p.id], 2, i, a);
+      // 名字少的语感(几百个、抽出来常重复)一国用过的名字多了,24 次常常凑不出没用过的:多试几次
+      for (let a = 0; !name || (used.has(name) && a < PRINCE_NAME_TRIES); a++) name = sur + namer.given(opts.tag[p.id], 2, i, a);
       used.add(name);
       n.p.name = name;
       n.p.died = q(n.died);

@@ -148,7 +148,8 @@ describe('拓荒 · 推演', () => {
     for (const seed of [7, 2024]) {
       const d = y90(base(seed));
       const fast = generateCiv(world(seed), { frontier: { spread: 2 } });
-      expect(y90(fast), `seed ${seed}`).toBeLessThan(d * 0.65);
+      // GENERATOR_VERSION 18 起 seed 2024 是 0.67(东岸湿了,最后住满的是远处的海岛,要等能远洋)
+      expect(y90(fast), `seed ${seed}`).toBeLessThan(d * 0.7);
       expect(fast.frontier).toEqual({ spread: 2 });
       const slow = generateCiv(world(seed), { frontier: { spread: 0.5 } });
       expect(y90(slow), `seed ${seed}`).toBe(Infinity);

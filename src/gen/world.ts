@@ -70,6 +70,11 @@ const DENT_P = 1 / 600;
 /** 湖中心不超过这么多块(36000 块时;按地块数比例换算)、周围全是湖水的陆地,淹成湖 */
 const LAKE_ISLET = 6;
 
+/** 年均温低于这个(°C)的陆地是冰盖(和 biomes.ts 的冰原同一条线):雪不化成河 */
+export const ICE_SHEET_T = -9;
+/** 冰盖每块的径流(米/年):只有一点融水,整片冰盖汇起来也成不了大河 */
+const ICE_RUNOFF = 0.004;
+
 export const MAP_W = 2048;
 export const MAP_H = 1024;
 
@@ -386,7 +391,7 @@ export function generateWorld(params: WorldParams, progress: Progress = () => {}
   // ---- 最终气候 ----
   progress('风与降水', 0.72);
   const currents = computeCurrents(mesh, water);
-  const clim = computeClimate(mesh, elevation, water, climateP, currents);
+  const clim = computeClimate(mesh, elevation, water, climateP, currents, true);
   // 改地形:作者涂的更湿 / 更干 / 更暖 / 更冷
   if (ops.length) applyClimatePens(mesh, clim.temperature, clim.precipitation, ops);
   const seaIce = computeSeaIce(mesh, elevation, water, clim.temperature, clim.windX, clim.windY, p.seed);
@@ -397,12 +402,17 @@ export function generateWorld(params: WorldParams, progress: Progress = () => {}
   const runoff = new Float32Array(n);
   for (let i = 0; i < n; i++) {
     if (!land[i]) continue;
+    // 冰盖上的雪不化成河(冰川慢慢流到边上入海),只算一点点融水
+    if (clim.temperature[i] < ICE_SHEET_T) {
+      runoff[i] = ICE_RUNOFF;
+      continue;
+    }
     const pet = 250 + 22 * Math.max(0, clim.temperature[i]); // 粗略蒸散
     runoff[i] = Math.max(0.03, (clim.precipitation[i] - 0.45 * pet) / 1000);
   }
   const flux = accumulate(route, land, runoff, new Float32Array(n));
-  const riverThreshold = 14 * (n / 36000);
-  const rivers = traceRivers(mesh, land, water, route.receiver, flux, riverThreshold, userRiver);
+  const riverThreshold = 10 * (n / 36000);
+  const rivers = traceRivers(mesh, land, water, route.receiver, flux, riverThreshold, userRiver, clim.temperature);
 
   // ---- 生物群落 ----
   progress('生物群落', 0.9);
@@ -448,12 +458,16 @@ function traceRivers(
   flux: Float32Array,
   thr: number,
   forced: Uint8Array | null = null,
+  temperature: Float32Array | null = null,
 ): River[] {
   const { n, x, y } = mesh;
   const geo = geometryOf(mesh);
   const m: number[] = [0, 0];
   const isRiver = new Uint8Array(n);
-  for (let i = 0; i < n; i++) if (water[i] === 0 && (flux[i] >= thr || forced?.[i])) isRiver[i] = 1;
+  // 冰盖上不流河(作者画的照画)
+  for (let i = 0; i < n; i++) {
+    if (water[i] === 0 && (forced?.[i] || (flux[i] >= thr && !(temperature && temperature[i] < ICE_SHEET_T)))) isRiver[i] = 1;
+  }
   const hasRiverDonor = new Uint8Array(n);
   const lakeInlet = new Int32Array(n).fill(-1);
   for (let i = 0; i < n; i++) {
@@ -493,6 +507,8 @@ function traceRivers(
         chain.push(r);
         break;
       }
+      // 流进冰盖就停(作者画的照画)
+      if (!forced?.[r] && temperature && temperature[r] < ICE_SHEET_T) break;
       pts.push(x[r], y[r], flux[r]);
       chain.push(r);
       if (visited[r]) break;

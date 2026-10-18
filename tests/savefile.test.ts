@@ -257,7 +257,9 @@ describe('州改名 · region:c4567', () => {
     // 编年史里写到过的一个州(按条目记的州找:州名可能碰巧也是别的名字的一部分,比如和某个王朝同名)
     const list0 = buildChronicle(civ);
     const text0 = chronicleText(list0, '编年史');
-    const named = (x: number) => !!civ.regions.name?.[x] && civ.regions.name.indexOf(civ.regions.name[x]) === x;
+    // 和某个王朝同名的州("卢米纳王朝")不挑:改州名不改王朝名,编年史里那几个字照旧
+    const named = (x: number) =>
+      !!civ.regions.name?.[x] && civ.regions.name.indexOf(civ.regions.name[x]) === x && !text0.includes(`${civ.regions.name[x]}王朝`);
     let r = -1;
     for (const e of list0) {
       const hit = e.regions.find((x) => named(x) && e.text.includes(civ.regions.name![x]));
