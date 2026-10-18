@@ -490,7 +490,7 @@ export function generateWorld(params: WorldParams, progress: Progress = () => {}
   const delRivers: TerrainOp[] = [];
   for (const op of ops) {
     if (op.kind !== 'delWater') continue;
-    const lake = lakeAt(mesh, water, op.pts[0], op.pts[1]);
+    const lake = lakeAt(mesh, water, op.pts[0], op.pts[1], userLake);
     if (!lake) {
       delRivers.push(op);
       continue;

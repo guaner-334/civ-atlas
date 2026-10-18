@@ -866,7 +866,8 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
     const keep = new Uint8Array(n);
     const queue: number[] = [];
     for (let i = 0; i < n; i++) {
-      if (land[i] && sk[i] !== SKETCH_NONE) {
+      // 只从要陆地的笔(陆地、丘陵、高原、山地、群岛)起步;涂成海、大陆架的地方被海岸噪声留下的陆地不算
+      if (land[i] && (sk[i] >= SKETCH_LAND || sk[i] === SKETCH_ISLES)) {
         keep[i] = 1;
         queue.push(i);
       }

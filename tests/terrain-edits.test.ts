@@ -19,6 +19,7 @@ import {
   cleanTerrainOp,
   cleanTerrainOps,
   lakeAt,
+  ownLakeCells,
   liftAt,
   presetStrength,
   riversAt,
@@ -634,6 +635,18 @@ describe('改地形 · 删河湖', () => {
     }
     // 别的河照旧:删的那批以外,原来的河口流量大的几条还在
     expect(out.rivers.length).toBeGreaterThan(w.rivers.length - hit.length - 5);
+  });
+
+  it('作者放的湖删不掉:点在上面不生效,描红也不认', () => {
+    const w = base7();
+    const c = farthestFrom(w, true);
+    const lake: TerrainOp = { kind: 'lake', pts: [Math.round(w.mesh.x[c]), Math.round(w.mesh.y[c])], r: 16, s: 1 };
+    const withLake = generateWorld(SMALL, undefined, [lake]);
+    const [x, y] = lake.pts;
+    expect(lakeAt(withLake.mesh, withLake.water, x, y)).not.toBeNull();
+    expect(lakeAt(withLake.mesh, withLake.water, x, y, ownLakeCells(withLake.mesh, [lake]))).toBeNull();
+    const both = generateWorld(SMALL, undefined, [del(x, y), lake]);
+    expect(both.water).toEqual(withLake.water);
   });
 
   it('同样的删河湖两次生成逐字节相同', () => {

@@ -608,13 +608,13 @@ export function undoSketchStroke(): boolean {
 
 /**
  * 草图:照手绘图生成时,导入的图认出来的格子图(LAYER_W × LAYER_H)是整颗星球的底子 —— 铺在所有笔画底下,没盖到的地方都是海;
- * 已经有的换掉(「换一张」),笔画留着。还没有草图时新开一张,海岸线用 coast(不给 = 默认)。一格也没盖到的不导入;返回是否导入了
+ * 已经有的换掉(「换一张」),笔画留着。还没有草图时新开一张,海岸线、程序补全用 coast、fill(不给 = 默认)。一格也没盖到的不导入;返回是否导入了
  */
-export function setSketchBase(name: string, layer: Uint8Array, coast?: number): boolean {
+export function setSketchBase(name: string, layer: Uint8Array, coast?: number, fill?: SketchFill | 'free'): boolean {
   const now = state.sketch;
   const image = cleanSketchImage({ name, cells: encodeLayer(layer) }, now?.strokes.length ?? 0);
   if (!image) return false;
-  const base: SketchEdit = now ?? (coast === undefined ? { rest: 'sea', strokes: [] } : { rest: 'sea', coast, strokes: [] });
+  const base: SketchEdit = now ?? freshSketch('sea', coast, fill);
   return putSketch({ ...base, rest: 'sea', image });
 }
 

@@ -383,6 +383,15 @@ describe('程序补全、不长新陆地', () => {
     const w = generateWorld(SMALL, undefined, undefined, sketchGrid({ rest: 'noNewLand', strokes: [] }));
     expect(w.water.every((v) => v !== 0)).toBe(true);
   });
+
+  it('只涂了海和大陆架的不长新陆地:海岸噪声留下的陆地不算涂过的陆地,整颗星球还是海', () => {
+    const sea: SketchStroke[] = [
+      { kind: 'sea', r: 120, pts: [880, 500, 1120, 500] },
+      { kind: 'shelf', r: 90, pts: [300, 400, 500, 450] },
+    ];
+    const w = generateWorld(SMALL, undefined, undefined, sketchGrid({ rest: 'noNewLand', strokes: sea }));
+    expect(w.water.every((v) => v !== 0)).toBe(true);
+  });
 });
 
 describe('存档', () => {

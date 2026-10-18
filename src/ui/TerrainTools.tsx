@@ -53,6 +53,7 @@ import {
   isHeightKind,
   isPointKind,
   lakeAt,
+  ownLakeCells,
   liftAt,
   presetStrength,
   riversAt,
@@ -348,10 +349,13 @@ export function heightAt(x: number, y: number): number | null {
  * 删河湖:世界坐标点指着地图上现在这个世界的哪个湖(那一片湖的地块)或哪几条河(world.rivers 的下标,连同流进它的支流)——
  * 和生成时删的是同一片(gen/terrainEdits.ts 的 lakeAt、riversAt);没有世界、没指着 = null
  */
+let ownLakes: { world: World; ops: readonly TerrainOp[]; cells: Uint8Array } | null = null;
 export function waterAt(x: number, y: number): { lake: number[] } | { rivers: number[] } | null {
   if (!probe) return null;
   const { world } = probe;
-  const lake = lakeAt(world.mesh, world.water, x, y);
+  const ops = getEdits().terrain;
+  if (ownLakes?.world !== world || ownLakes.ops !== ops) ownLakes = { world, ops, cells: ownLakeCells(world.mesh, ops) };
+  const lake = lakeAt(world.mesh, world.water, x, y, ownLakes.cells);
   if (lake) return { lake };
   const rivers = riversAt(world.rivers, world.water, x, y, DEL_WATER_R);
   return rivers.length ? { rivers } : null;
@@ -629,7 +633,7 @@ function eraseStroke(st: SketchStroke, hit: readonly number[]) {
  */
 export function applyImport(): boolean {
   const r = importResult();
-  if (!r || !setSketchBase(r.name, r.layer, tool.coast)) return false;
+  if (!r || !setSketchBase(r.name, r.layer, tool.coast, tool.fill)) return false;
   keepImport();
   return true;
 }

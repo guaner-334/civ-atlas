@@ -685,8 +685,11 @@ export interface RiverLike {
   drawn?: Uint8Array;
 }
 
-/** 点 (px, py) 落在哪个湖里:离它最近的地块是湖(water = 2)= 那一整片湖(相连的湖水地块,从那一块开始一圈圈往外);不是湖 = null */
-export function lakeAt(mesh: Mesh, water: Uint8Array, px: number, py: number): number[] | null {
+/**
+ * 点 (px, py) 落在哪个湖里:离它最近的地块是湖(water = 2)= 那一整片湖(相连的湖水地块,从那一块开始一圈圈往外);不是湖 = null。
+ * own 标着作者放的湖:这片湖碰到其中一块就不算(删河湖只删程序生成的)
+ */
+export function lakeAt(mesh: Mesh, water: Uint8Array, px: number, py: number, own?: ArrayLike<number> | null): number[] | null {
   const c = geometryOf(mesh).nearest(px, py, 0);
   if (water[c] !== 2) return null;
   const comp = [c];
@@ -701,7 +704,14 @@ export function lakeAt(mesh: Mesh, water: Uint8Array, px: number, py: number): n
       }
     }
   }
-  return comp;
+  return own && comp.some((i) => own[i]) ? null : comp;
+}
+
+/** 作者放的湖各自的中心落在哪个地块(标 1):地图上指着湖时,用它认出作者放的湖、不描红 */
+export function ownLakeCells(mesh: Mesh, ops: readonly TerrainOp[]): Uint8Array {
+  const out = new Uint8Array(mesh.n);
+  for (const op of ops) if (op.kind === 'lake') out[geometryOf(mesh).nearest(op.pts[0], op.pts[1], 0)] = 1;
+  return out;
 }
 
 /**
