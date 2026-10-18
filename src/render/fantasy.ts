@@ -2533,6 +2533,53 @@ export function fantasySymbolLayerProj(world: World, r: Raster, mp: MapProj): An
 }
 
 /**
+ * 弯边投影的整张地形图(缩放 1 倍,drawTerrainProjected 的整图那一档)第一次画要现算的缓存,拆成一小步一小步:
+ * 这种投影的符号规划、地块投影位置、海岸线逐点投影,符号层(林块、河流、符号各画一步,画在一张新画布上,画完才换进缓存)。
+ * 每步各自按外轮廓裁剪,依次画完和 fantasySymbolLayerProj 一口气画逐像素一样。这个投影 + 中心已经有了的跳过
+ */
+export function fantasyWholeProjPrep(world: World, r: Raster, mp: MapProj): WorkStep[] {
+  const pj = projector(mp);
+  const v = { s: r.scale, ox: 0, oy: 0, k: 1, proj: pj };
+  const have = () => !!projSym && projSym.raster === r && projSym.key === mp.key;
+  let cv: AnyCanvas | null = null;
+  let layers: ((ctx: CanvasRenderingContext2D) => void)[] | null = null;
+  const layer =
+    (i: number): WorkStep =>
+    () => {
+      if (have()) return;
+      cv ??= makeCanvas(r.w, r.h);
+      layers ??= fantasyVectorLayers(world, v);
+      const ctx = cv.getContext('2d') as CanvasRenderingContext2D;
+      ctx.save();
+      clipOutline(ctx, mp, v);
+      layers[i](ctx);
+      ctx.restore();
+    };
+  return [
+    () => void planOf(world, mp.def.id),
+    () => void projCells(world, pj),
+    () => void coastPathsOf(r, pj),
+    layer(0),
+    layer(1),
+    layer(2),
+    () => {
+      const c = cv;
+      cv = null;
+      if (!c) return;
+      if (have()) {
+        c.width = c.height = 0;
+        return;
+      }
+      if (projSym) {
+        projSym.canvas.width = projSym.canvas.height = 0;
+        if (projSym.ink) projSym.ink.hard.width = projSym.ink.hard.height = projSym.ink.soft.width = projSym.ink.soft.height = 0;
+      }
+      projSym = { raster: r, key: mp.key, canvas: c, ink: null };
+    },
+  ];
+}
+
+/**
  * 弯边投影下文明层的"让位"遮罩(和 fantasyInkMask 同一套分档,只是按投影后的符号层算):
  * 两张和地图平面一样大的画布,透明度 = hard / soft(见 InkMask)。文明层拿它们在显卡上合成(render/civ/territory.ts)
  */

@@ -40,6 +40,7 @@ import {
   isMapProjection,
   pageColor,
   presentTerrain,
+  terrainRefining,
   setContourKind,
   setGraticule,
   setGraticuleStep,
@@ -2450,7 +2451,7 @@ export function App() {
       presentTerrain(cv, mp, { world, raster, style, look: terrainLook, src, layer: proj, moving: projMoving || terrainCovered });
       mirrorCanvas(canvasCopyRef.current, null, false);
       const w = window as unknown as { __wf: unknown; __wfProj: unknown };
-      w.__wfProj = { proj: mp.def.id, lon: mp.lon0, ms: performance.now() - t1 };
+      w.__wfProj = { proj: mp.def.id, lon: mp.lon0, ms: performance.now() - t1, pending: terrainRefining() };
       if (fresh) w.__wf = { ready: true, renderMs: performance.now() - t0, style, layer, proj: mp.def.id };
       return;
     }
@@ -3570,10 +3571,13 @@ export function App() {
       const d = drag.current;
       if (Math.abs(e.clientX - d.x) + Math.abs(e.clientY - d.y) > (d.touch ? TOUCH_SLOP : CLICK_SLOP)) moved.current = true;
       if (mp && box.w) {
-        // 弯边投影:左右拖 = 转中央经线(赤道上的地方跟着鼠标走),上下拖 = 平移
-        if (moved.current) setMapMoving(true);
-        const pxPerDeg = view.k * (box.w / mp.W) * mp.s * mp.def.kx(0) * (Math.PI / 180);
-        if (pxPerDeg > 0) scheduleCenter(d.lon - (e.clientX - d.x) / pxPerDeg);
+        // 弯边投影:左右拖 = 转中央经线(赤道上的地方跟着鼠标走),上下拖 = 平移。
+        // 移动没超过点击的容差前不转:还算"点一下"时转了中心,停着的那一版就得按投影整张重画(几百毫秒),马上又被拖动盖掉
+        if (moved.current) {
+          setMapMoving(true);
+          const pxPerDeg = view.k * (box.w / mp.W) * mp.s * mp.def.kx(0) * (Math.PI / 180);
+          if (pxPerDeg > 0) scheduleCenter(d.lon - (e.clientX - d.x) / pxPerDeg);
+        }
         setView((v) => clampRef.current({ k: v.k, x: v.x, y: d.vy + e.clientY - d.y }, rect.width, rect.height));
       } else setView((v) => clampRef.current({ k: v.k, x: d.vx + e.clientX - d.x, y: d.vy + e.clientY - d.y }, rect.width, rect.height));
     } else {

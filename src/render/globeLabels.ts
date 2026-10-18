@@ -228,7 +228,13 @@ export function globePolityItem(it: LabelItem): LabelItem {
   let g = polityItems.get(it);
   if (!g) {
     const orig = it.place;
-    g = { ...it, place: (px, view) => orig(px, view).concat(uprightRows(it, px, view)) };
+    g = {
+      ...it,
+      place: function* (px, view) {
+        yield* orig(px, view);
+        yield* uprightRows(it, px, view);
+      },
+    };
     polityItems.set(it, g);
   }
   return g;
