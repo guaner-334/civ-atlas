@@ -796,7 +796,7 @@ export function sameOrigin(a: SaveFile['origin'], b: SaveFile['origin']): boolea
  */
 export function importSave(save: SaveFile): string | null {
   for (const w of listWorlds()) {
-    if (w.draft || !sameSave(w.save, save)) continue;
+    if (w.draft || w.map || !sameSave(w.save, save)) continue;
     // 只差投影 / 中央经线 / 经纬网 / 等值线:用文件里的(下次打开还是文件里的样子;文件记了经纬网、等值线,存着的没记,也换成文件里的)
     let ok = true;
     const grat = save.view?.graticule;
@@ -1133,7 +1133,10 @@ export function saveCurrentAsMap(): boolean {
   const e = getEdits();
   const edits: WorldEdits = { names: {}, interventions: [], terrain: e.terrain, ...(e.sketch ? { sketch: e.sketch } : {}) };
   const save = makeSave(c.params, edits, c.check, undefined, undefined, currentView());
+  const prev = store().get(PREFIX + c.id);
   if (!writeSave(c.id, save, { map: true, opened: save.savedAt })) {
+    // 存档换成了只有地图的、本地信息却没写上:放回原来那份(还是没建完的,名字、文明的设定都在)
+    if (prev !== null && store().get(PREFIX + c.id) !== prev) put(PREFIX + c.id, prev);
     changed();
     return false;
   }

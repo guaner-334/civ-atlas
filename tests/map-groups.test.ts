@@ -131,6 +131,36 @@ describe('保存地图', () => {
     expect(saveStore.saveCurrentAsMap()).toBe(false);
   });
 
+  it('「保存地图」写到一半存不下:放回原来那份,还是没建完的', () => {
+    const params = { ...DEFAULT_PARAMS, seed: 512 };
+    const edits: WorldEdits = { ...EMPTY_EDITS, terrain: [range], endYear: 6000, civSeed: 9 };
+    setEdits(edits);
+    saveStore.attachWorld({ id: 'wmtest0005', params, check: 'c512', kind: 'draft', saved: edits, title: '雾海' });
+    const fs = g.localStorage as FakeStorage;
+    const set = fs.setItem.bind(fs);
+    fs.setItem = (k: string, v: string) => {
+      if (k.startsWith('wenming-ditu:meta:')) throw Object.assign(new Error('full'), { name: 'QuotaExceededError' });
+      set(k, v);
+    };
+    expect(saveStore.saveCurrentAsMap()).toBe(false);
+    fs.setItem = set;
+    const w = saveStore.loadWorld('wmtest0005');
+    expect(w?.draft).toBe(true);
+    expect(w?.map).toBe(false);
+    expect(w?.save.title).toBe('雾海');
+    expect(w?.save.edits.civSeed).toBe(9);
+  });
+
+  it('打开一个存档文件:和只存了地图的那份一样也不当成同一个', () => {
+    const params = { ...DEFAULT_PARAMS, seed: 512 };
+    setEdits(EMPTY_EDITS);
+    saveStore.attachWorld({ id: 'wmtest0006', params, check: 'c512', kind: 'draft', saved: EMPTY_EDITS });
+    expect(saveStore.saveCurrentAsMap()).toBe(true);
+    const id = saveStore.importSave(makeSave(params, EMPTY_EDITS, 'c512'));
+    expect(id).not.toBe('wmtest0006');
+    expect(saveStore.loadWorld('wmtest0006')?.map).toBe(true);
+  });
+
   it('全部存成文件再放回来:只存了地图的那份还是只有地图', () => {
     const params = { ...DEFAULT_PARAMS, seed: 512 };
     setEdits(EMPTY_EDITS);

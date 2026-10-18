@@ -420,7 +420,9 @@ function randomSeedValue(): number {
 
 /** 新建中的世界现在的样子(参数、修改、名字),比较动没动过用 */
 function draftSig(params: WorldParams, edits: WorldEdits, title?: string): string {
-  return JSON.stringify([worldKey(params), edits, title ?? '']);
+  // 地图的校验值是生成完自动记上的,不算动过
+  const e = edits.map?.sum === undefined ? edits : { ...edits, map: { ...edits.map, sum: undefined } };
+  return JSON.stringify([worldKey(params), e, title ?? '']);
 }
 
 /** 新建时只定了推演年数(3000 = 什么都没有)、拓荒(默认 = 什么都没有)的修改 */
@@ -2195,10 +2197,11 @@ export function App() {
     const cur = currentWorld();
     if (!t || !cur || cur.id !== t.id || fresh.current) return;
     // 以它为底稿新建的地图还能改:不再算原来那张地图上的(地图记录不带;文明种子照旧带过去)
-    const e: WorldEdits = { ...getEdits() };
+    const orig = getEdits();
+    const e: WorldEdits = { ...orig };
     delete e.map;
     const base: DraftBase = { id: cur.id, title: cur.title || '未命名世界', names: Object.keys(e.names).length, interventions: e.interventions.length };
-    backRef.current = { ...t, kind: cur.kind, edits: e, saved: undefined, title: cur.title, from: undefined, save: undefined, view: undefined };
+    backRef.current = { ...t, kind: cur.kind, edits: orig, saved: undefined, title: cur.title, from: undefined, save: undefined, view: undefined };
     const d = draftTarget(t.params, base, e, nextTitle(base.title));
     derivedRef.current = { id: d.id, sig: draftSig(d.params, d.edits, d.title) };
     openTarget({ ...d, pristine: false, view: undefined });

@@ -597,8 +597,9 @@ function MapGrid({
 /** 选中的地图下面展开的那块 */
 function MapPanel({ g, col, cols, phone, onOpen, onNewCiv, loggedIn }: { g: MapGroup; col: number; cols: number; phone: boolean; onOpen: (id: string) => void; onNewCiv: (id: string) => void; loggedIn: boolean }) {
   const n = g.civs.length;
-  // 在哪个世界的地图上打造:地图那一份 / 最早那个世界 / 最近的一个文明(都是同一张地图)
+  // 在哪个世界的地图上打造:地图那一份 / 最早那个世界 / 最近的一个建好的文明(都是同一张地图;没建完的不算)
   const from = g.head.id;
+  const src = (g.map ?? (g.head.draft ? g.civs.find((w) => !w.draft) : g.head))?.id;
   const style = { '--col': col, '--cols': cols } as React.CSSProperties;
   if (!n) {
     return (
@@ -621,8 +622,8 @@ function MapPanel({ g, col, cols, phone, onOpen, onNewCiv, loggedIn }: { g: MapG
       </div>
     );
   }
-  const add = (
-    <button className={`mw-btn blue${phone ? ' wide' : ''}`} data-act="map-new-civ" onClick={() => onNewCiv(from)}>
+  const add = src && (
+    <button className={`mw-btn blue${phone ? ' wide' : ''}`} data-act="map-new-civ" onClick={() => onNewCiv(src)}>
       <Icon name="plus" size={16} />
       打造新文明
     </button>

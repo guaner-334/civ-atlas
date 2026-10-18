@@ -974,7 +974,7 @@ export function Studio(p: StudioProps) {
         : civStep
           ? '地图定下了。接下来定文明怎么推演，点「开始推演」从第 0 年推起。'
           : '按种子随机生成。地图做好了，可以先保存，也可以接着打造文明。';
-  const isDefault = (Object.keys(DEFAULT_PARAMS) as (keyof WorldParams)[]).every((k) => k === 'seed' || p.params[k] === DEFAULT_PARAMS[k]) && !edits.frontier;
+  const isDefault = (Object.keys(DEFAULT_PARAMS) as (keyof WorldParams)[]).every((k) => k === 'seed' || p.params[k] === DEFAULT_PARAMS[k]) && (twoStep || !edits.frontier);
   const presets = usePresets();
   /** 和所选预设不一样的几样(数字用主色写) */
   const changed = changedKeys(presets, presets.chosen, p.params);
@@ -1112,7 +1112,8 @@ export function Studio(p: StudioProps) {
               data-act="params-reset"
               onClick={(e) => {
                 e.stopPropagation();
-                setFrontier(undefined);
+                // 分两步的新建:拓荒是第 2 步「文明」里的,这里不动它
+                if (!twoStep) setFrontier(undefined);
                 p.onParams({ ...DEFAULT_PARAMS, seed: p.params.seed });
               }}
             >
