@@ -145,7 +145,9 @@
  * | strokes   | 笔画,按先后:{ kind, r, pts, h?, fill? } —— kind 是 `land` 陆地 / `hills` 丘陵 / `mountain` 山地 / `plateau` 高原 / `shelf` 浅海 / `sea` 海 / `isles` 群岛 / `erase` 擦掉(涂回没涂),r 是笔的半径,pts 是经过的点(和"地形修改"的折线同一套世界坐标和规则;一个点 = 点了一下),h 是山地的高低(0 低 / 2 高,不给 = 中),fill = 1 是圈起来填满(首尾连起来,圈里整片涂上) |
  * | image     | 导入的图片(可选):{ name, cells, at? } —— 图片本身不存,只存认出来的格子图:cells 是 512 × 256 格(一格 = 草图格子 2 × 2,世界坐标 4 × 4;逐行从北往南、每行从西往东),值同草图格子(0 没盖到、1 海、2 浅海、4 陆地、5 丘陵、7–9 山地低中高),行程编码 [个数 1–255, 值]… 再 base64;name 是图片的文件名(只用来显示);at = 铺在第几笔之后(前 at 笔先涂,后面的盖在它上面;不给 = 0) |
  *
- * 读进来的先过 sketch.ts 的 cleanSketch(笔画格式不对的丢掉,最多 SKETCH_MAX_STROKES 笔;图片的格子读不出来的丢掉;一笔也没有、没导入图片、没涂的又交给程序 = 没画)。
+ * | plates    | 「板块」页的改动(可选,plateEdits.ts):{ ops, orogeny? } —— ops 按先后:`{ kind: 'set', pts: [x, y], dir?, speed?, crust? }` 改那里的板块(dir 往哪边漂,度,0 北 90 东;speed 每年几厘米,0–16;crust `continental` 陆壳 / `oceanic` 洋壳),`{ kind: 'cut', pts }` 沿画的线把线穿过的板块切开,`{ kind: 'merge', pts: [ax, ay, bx, by] }` 把 b 处的板块并进挨着的 a 处那块;都用世界坐标的点指板块。orogeny = false 是板块相撞时不造山(只长草图画的山) |
+ *
+ * 读进来的先过 sketch.ts 的 cleanSketch(笔画格式不对的丢掉,最多 SKETCH_MAX_STROKES 笔;图片的格子读不出来的丢掉;板块的改动格式不对的丢掉;一笔也没有、没导入图片、没改板块、没涂的又交给程序 = 没画)。
  *
  * ## 作者标记
  *

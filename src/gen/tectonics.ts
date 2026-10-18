@@ -24,6 +24,10 @@
  * 6. 抬升场 = 很低的基础抬升(大部分陆地是平原)+ 零星的丘陵区 + 汇聚带上窄窄的山脉 + 古老山系(细长的山脊噪声),
  *    交给侵蚀去"雕刻";高原底座(米)单独给出:侵蚀之后直接加上(平坦的高原,不被切成山地)
  *
+ * 作者在编辑地形「板块」页的改动(草图的 plates,见 plateEdits.ts)在第 2 步挑完大陆之后套上:改漂移、切开、合并、换地壳,
+ * 之后的边界、山脉、海沟、裂谷都按改过的板块算;大陆、海岸照每个地块原来的地壳定(换了地壳的那块整块换)。
+ * 关掉"板块相撞时造山"时第 6 步不加汇聚带的山脉和碰撞带后面的高原(只长草图画的山)。没有改动时结果逐字节不变。
+ *
  * 作者可调的大陆参数(都有"原样"的默认值,默认时每一步的算式和结果都不变):
  *   大陆数量 = 挑几个大陆核心;聚拢 = 后面的核心和长出去的板块离第一块越近越好(大的时候大陆一开始就允许相连);
  *   破碎度 = 板块图的中小尺度扭曲、海岸噪声、裂谷 / 内海、大陆架大岛、微大陆和群岛区的多少一起放大缩小;
@@ -37,7 +41,8 @@ import { MinHeap, smoothstep, subSeed, mulberry32, clamp, hypot2, keyed } from '
 import { geometryOf } from './geometry';
 import { connectInlandSeas } from './inlandSea';
 import { round24 } from './civ/rand';
-import { SKETCH_HILLS, SKETCH_ISLES, SKETCH_LAND, SKETCH_MOUNTAIN, SKETCH_NONE, SKETCH_PLATEAU, SKETCH_SHELF, sketchAt, sketchUsed, type Sketch } from './sketch';
+import { SKETCH_HILLS, SKETCH_ISLES, SKETCH_LAND, SKETCH_MOUNTAIN, SKETCH_NONE, SKETCH_PLATEAU, SKETCH_SHELF, sketchAt, sketchPainted, type Sketch } from './sketch';
+import { applyPlateOps, type PlateState } from './plateEdits';
 
 export interface TectonicParams {
   seed: number;
@@ -86,6 +91,8 @@ export interface Tectonics {
    * 随意发挥、没画草图 = 不给
    */
   sketched?: Uint8Array;
+  /** 作者关掉了"板块相撞时造山"(world.ts 换算海拔时"最高峰"同样加下限,平地不被拉成高山);开着 = 不给 */
+  noOrogeny?: true;
 }
 
 /** distanceField 的运行计数(单测用):出堆次数、真正往外扩展的次数、跳过的过期条目数。 */
@@ -616,7 +623,7 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
   // 板块运动:绕欧拉轴转动(质心处是上面的速度,再带一点绕质心的自转,按板块编号取)
   const spinBase = subSeed(p.seed, 'plate-spin');
   const spin = Float32Array.from({ length: plateCount }, (_, k) => 2 * keyed(spinBase, k) - 1);
-  const motion = geo.plateMotion(plateVx, plateVy, cen.x, cen.y, spin);
+  const motion0 = geo.plateMotion(plateVx, plateVy, cen.x, cen.y, spin);
   const va = [0, 0];
   const vb = [0, 0];
   // 极地大陆放不放、放哪一极:按种子另取(不动上面这串随机数)
@@ -630,8 +637,51 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
     rugged: rg,
     north,
   });
-  const plateContinental = new Uint8Array(plateCount);
+  let plateContinental = new Uint8Array(plateCount);
   for (let k = 0; k < plateCount; k++) plateContinental[k] = pick.continental[k] || pick.micro[k] ? 1 : 0;
+  // 每个地块的地壳:大陆 2、微大陆 1、大洋 0(按挑大陆时的板块;作者改板块以后也按地块记,合并、切开不改地壳)
+  const crust0 = (k: number) => (pick.continental[k] ? 2 : pick.micro[k] ? 1 : 0);
+  const crust = new Uint8Array(n);
+  for (let i = 0; i < n; i++) crust[i] = crust0(plate[i]);
+  /** 群岛区按挑大陆时的板块(切开、合并以后照旧在原来那片) */
+  const archAt = pick.archipelago.some((v) => v > 0) ? Uint8Array.from(plate, (k) => pick.archipelago[k]) : null;
+
+  // ---- 2b. 作者改的板块:按先后套上,板块编号、转动、密度换成改过的 ----
+  let P = plateCount;
+  let vxOut = plateVx;
+  let vyOut = plateVy;
+  let dens = density;
+  let motion = motion0;
+  const pe = sketch?.plates;
+  if (pe?.ops.length) {
+    const st: PlateState = { plate, count: plateCount, omega: Array.from(motion0.omega), density: Array.from(density), spin: Array.from(spin), crust, touched: new Set() };
+    applyPlateOps(mesh, st, pe.ops);
+    P = st.count;
+    dens = Float32Array.from(st.density);
+    motion = geo.motionOf(Float32Array.from(st.omega));
+    // 画箭头用的质心处速度:改过的板块按改过的转动在新的质心处量(没改过的照旧)
+    const cnt = new Float32Array(P);
+    for (let i = 0; i < n; i++) cnt[plate[i]]++;
+    const c2 = geo.groupCentroids(plate, P, cnt);
+    vxOut = new Float32Array(P);
+    vyOut = new Float32Array(P);
+    vxOut.set(plateVx);
+    vyOut.set(plateVy);
+    for (const k of st.touched) {
+      if (!cnt[k]) {
+        vxOut[k] = vyOut[k] = 0;
+        continue;
+      }
+      motion.atPoint(k, c2.x[k], c2.y[k], va);
+      vxOut[k] = va[0];
+      vyOut[k] = va[1];
+    }
+    // 板块是大陆还是大洋:按地块的地壳,多数算
+    const contCnt = new Float32Array(P);
+    for (let i = 0; i < n; i++) if (crust[i] > 0) contCnt[plate[i]]++;
+    plateContinental = new Uint8Array(P);
+    for (let k = 0; k < P; k++) plateContinental[k] = cnt[k] > 0 && contCnt[k] * 2 > cnt[k] ? 1 : 0;
+  }
 
   // ---- 3. 板块边界:汇聚 / 离散;汇聚边界上谁俯冲谁 ----
   const convergence = new Float32Array(n);
@@ -643,11 +693,15 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
     let sum = 0;
     let cnt = 0;
     let other = -1;
+    let oc = -1;
     for (let k = adjStart[i]; k < adjStart[i + 1]; k++) {
       const j = adj[k];
       const pj = plate[j];
       if (pj === pi) continue;
-      if (other < 0) other = pj;
+      if (other < 0) {
+        other = pj;
+        oc = j;
+      }
       // 相对速度沿"从 i 指向 j"的分量:正 = 迎面撞上(两块板块在这个地块处的速度之差)
       motion.at(pi, i, va);
       motion.at(pj, i, vb);
@@ -659,11 +713,12 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
     convergence[i] = c;
     if (c > 0.25) {
       convSources.push(i);
-      const ca = plateContinental[pi];
-      const cb = plateContinental[other];
-      if (ca && cb) side[i] = density[pi] < density[other] ? SIDE_UPPER : SIDE_LOWER;
+      // 两边的地壳按边界两侧的地块算(改过板块时一块板块上可以既有陆壳又有洋壳)
+      const ca = crust[i] > 0;
+      const cb = crust[oc] > 0;
+      if (ca && cb) side[i] = dens[pi] < dens[other] ? SIDE_UPPER : SIDE_LOWER;
       else if (ca !== cb) side[i] = ca ? SIDE_ARC : SIDE_SLAB;
-      else side[i] = density[pi] < density[other] ? SIDE_ARC : SIDE_SLAB;
+      else side[i] = dens[pi] < dens[other] ? SIDE_ARC : SIDE_SLAB;
     } else if (c < -0.25) divSources.push(i);
   }
   const conv = distanceField(mesh, convSources, (i) => clamp(convergence[i] / 0.9, 0, 1));
@@ -678,13 +733,12 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
   // 地壳底色:到"大陆 / 大洋"分界线的带符号距离(大陆内为正),换成 ±1 之间的缓坡。
   // 分界处两板块背向分开(被动大陆边缘,像大西洋两岸)时,海岸往大陆里缩一段 —— 缩进去的是大陆架,
   // 洋中脊在外海;俯冲带(主动边缘)海岸就在海沟后面不远
-  const crust = (k: number) => (pick.continental[k] ? 2 : pick.micro[k] ? 1 : 0);
   const shore: number[] = [];
   for (let i = 0; i < n; i++) {
     // 微大陆和大陆之间也算分界:中间隔一道浅海峡(像马达加斯加、斯里兰卡、塔斯马尼亚),不并成大陆的一个半岛
-    const ci = crust(plate[i]);
+    const ci = crust[i];
     for (let k = adjStart[i]; k < adjStart[i + 1]; k++) {
-      if (crust(plate[adj[k]]) !== ci) {
+      if (crust[adj[k]] !== ci) {
         shore.push(i);
         break;
       }
@@ -692,8 +746,8 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
   }
   const sh = distanceField(mesh, shore, (i) => convergence[i]);
   const archBase = new Float32Array(n);
-  for (let i = 0; i < n; i++) archBase[i] = pick.archipelago[plate[i]] ? 1 : 0;
-  const archBlur = pick.archipelago.some((v) => v > 0) ? blurField(mesh, archBase, Math.max(4, Math.round((30 / spacing) ** 2))) : archBase;
+  if (archAt) for (let i = 0; i < n; i++) archBase[i] = archAt[i] ? 1 : 0;
+  const archBlur = archAt ? blurField(mesh, archBase, Math.max(4, Math.round((30 / spacing) ** 2))) : archBase;
 
   const coastN = geo.fbm(subSeed(p.seed, 'land'), 3, 0.6);
   const coastF = geo.fbm(subSeed(p.seed, 'coast-fine'), 4, 0.6);
@@ -709,8 +763,7 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
   const B = new Float32Array(n);
   const L = new Float32Array(n);
   for (let i = 0; i < n; i++) {
-    const pk = plate[i];
-    const cr = crust(pk);
+    const cr = crust[i];
     // 被动边缘缩进:离得最近的分界处是张裂(那里 convergence < 0)缩得多,转换边界缩一点,俯冲带几乎不缩
     const cS = sh.str[i];
     const inset = (4 + 10 * smoothstep(0.1, -0.2, cS) + 34 * smoothstep(-0.1, -0.6, cS)) * (0.55 + 0.9 * (0.5 + 0.5 * insetN.at(i, fc, 1.3)));
@@ -809,7 +862,7 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
   let skHills: Float32Array | null = null;
   let skPlat: Float32Array | null = null;
   let sk: Uint8Array | null = null;
-  if (sketchUsed(sketch)) {
+  if (sketchPainted(sketch)) {
     // 每个地块在扭过的位置上取草图的值
     sk = new Uint8Array(n);
     const cp = clamp(sketch.coast, 0, 1);
@@ -964,6 +1017,8 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
   const plateau = new Float32Array(n);
   const mf = p.mountains;
   const exact = sketch?.fill === 'exact';
+  // 板块相撞时造山(作者在「板块」页可以关掉:只长草图画的山)
+  const orogeny = pe?.orogeny !== false;
   for (let i = 0; i < n; i++) {
     if (!land[i]) continue;
     // 只补细节 / 完全照画的涂过的地块:只有基础抬升(完全照画的连起伏也不要:处处一样的低抬升,侵蚀出来是一片低平原)
@@ -986,9 +1041,11 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
     const contF = B[i] > 0 ? 1 : 0.7;
     // 汇聚带山脉:窄长的一条。大陆撞大陆的宽一些、高一些;俯冲带上盘在海沟后面一段(安第斯);
     // 下盘(俯冲下去的那块上的陆地)只有低矮的增生楔
-    if (s === SIDE_UPPER || s === SIDE_LOWER) U += mf * 1.65 * softW * cs * band(cd, (7 + 9 * cs) * softW) * contF;
-    else if (s === SIDE_ARC) U += mf * 1.45 * softW * cs * band(cd - 9, (5 + 5 * cs) * softW) * contF;
-    else if (s === SIDE_SLAB) U += mf * 0.35 * cs * band(cd, 6) * contF;
+    if (orogeny) {
+      if (s === SIDE_UPPER || s === SIDE_LOWER) U += mf * 1.65 * softW * cs * band(cd, (7 + 9 * cs) * softW) * contF;
+      else if (s === SIDE_ARC) U += mf * 1.45 * softW * cs * band(cd - 9, (5 + 5 * cs) * softW) * contF;
+      else if (s === SIDE_SLAB) U += mf * 0.35 * cs * band(cd, 6) * contF;
+    }
     // 古老山系:细长的山脊噪声,只在少数地方冒头
     const r = old.at(i, fs, 1.9, 3.1, -7.4);
     U += mf * 0.4 * soft * smoothstep(0.78, 0.96, r) * smoothstep(0.1, 0.55, hills.at(i, fs, 0.7, -5, 2) + 0.3);
@@ -1003,7 +1060,7 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
     // 高原底座(米):碰撞带、强俯冲带上盘背后一大片平坦的高地(青藏、安第斯高原),沿走向时有时无;
     // 大陆内部零星的台地(非洲、巴西那样几百到一千多米的高原)。离海近处收掉,海岸不会是悬崖
     let pb = 0;
-    if ((s === SIDE_UPPER || s === SIDE_ARC) && cs > 0.25) {
+    if (orogeny && (s === SIDE_UPPER || s === SIDE_ARC) && cs > 0.25) {
       const reach = (s === SIDE_UPPER ? 28 : 16) + 34 * (0.5 + 0.5 * plat.at(i, fs, 1.1, 4, 0));
       const inBand = smoothstep(4, 12, cd) * (1 - smoothstep(reach, reach + 16, cd));
       const along = smoothstep(-0.25, 0.3, plat.at(i, fs, 2.3, -8, 1));
@@ -1016,10 +1073,10 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
   }
 
   return {
-    plateCount,
+    plateCount: P,
     plate,
-    plateVx,
-    plateVy,
+    plateVx: vxOut,
+    plateVy: vyOut,
     plateOmega: motion.omega,
     plateContinental,
     convergence,
@@ -1032,5 +1089,6 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
     uplift,
     plateau,
     ...(fixed ? { sketched: fixed } : {}),
+    ...(orogeny ? {} : { noOrogeny: true as const }),
   };
 }
