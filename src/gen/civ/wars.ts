@@ -485,7 +485,8 @@ export function installWars(sim: CivSim, pm: PolityModel, wm: WarModel = newMode
       return true;
     }
     // 起事的饥民攻破都城:余下的州一并归它,亡国(unrest.ts)
-    if (wm.overthrow?.(w, x, y, t)) return annex(w, x, y, r, t);
+    // 朝廷还守着永久割让的州时不能整个吞掉,照常迁都(下面 keep 那条)
+    if (wm.overthrow?.(w, x, y, t) && !wm.iv?.holdsLock(y, t)) return annex(w, x, y, r, t);
     // 丢了国都只剩不到 MIN_STATE 州(而且都不是刚易手的):撑不下去,残部一并归攻方,亡国
     let left = 0;
     let settled = true;
