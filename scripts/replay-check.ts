@@ -517,7 +517,7 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
 // 「出征那年」跳时间轴;「编年史」打开这国的编年史;「复制生平」);编年史里的人名是蓝字,点了收起概览、打开这个人,不跳年份;
 // 世界概览的「人物」页(名人 / 君主 / 将领,「全部 N 位」进来停在这国的君主);搜名字第一个是这个人。
 // 例子:种子 7 的第 2300 年,天灵(6 号国)的昭王苏溟(前任是前朝的怀王江云尧,
-// 继任是安王苏珩羽;在位时有将领端木寒霁领兵)
+// 继任是他的儿子安王苏珩羽;在位时有将领端木寒霁领兵)
 {
   await page.goto(`${dev.url}/?seed=7&civYear=2300`);
   await page.waitForFunction(() => (window as any).__wfLabels?.polities > 0, null, { timeout: 60000 });
@@ -606,17 +606,17 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
       `人物页名人 ${famousOn}/${famous} 行「${famousFirst.slice(0, 30)}」→ 卡片「${card4.slice(0, 20)}」;全部 N 位 → 君主 ${rulersOn}、只看 ${polityPick}、${groups} 组 ${rows} 行;` +
       `世系图「${lgHead.slice(0, 40)}」${lgNodes} 人、当前「${lgOn}」,宗室卡片「${princeCard.slice(0, 30)}」→ 圈出 ${lgFocus};搜"昭王苏溟"「${hit}」(${hitKind})→「${card5}」`,
   );
-  if (!/君主\s*成王杜霖\s*2148 年即位/.test(stats)) errs.push(`人物:国家卡片没有「君主」行(${stats.slice(0, 80)})`);
-  if (rulers !== 5 || !/成王杜霖\s*当前/.test(cur) || !/全部 \d+ 位/.test(all)) errs.push(`人物:国家卡片的历代君主不对(${rulers} 行;${cur};${all})`);
-  // 前任是前朝的末代君主(小字"前朝"),继任是同一朝的孙子(小字写亲属"孙")
+  if (!/君主\s*昭王苏溟\s*2287 年即位/.test(stats)) errs.push(`人物:国家卡片没有「君主」行(${stats.slice(0, 80)})`);
+  if (rulers !== 5 || !/昭王苏溟\s*当前/.test(cur) || !/全部 \d+ 位/.test(all)) errs.push(`人物:国家卡片的历代君主不对(${rulers} 行;${cur};${all})`);
+  // 前任是前朝的末代君主(小字"前朝"),继任是同一朝的儿子(小字写亲属"子")
   if (
-    !/成王杜霖/.test(card1) ||
-    !/沂王，2148–2190 年在位/.test(card1) ||
-    !/前任\s*愍王熊泰\s*前朝/.test(deed) ||
-    !/继任\s*安王杜澈\s*孙/.test(deed)
+    !/昭王苏溟/.test(card1) ||
+    !/衍王，2287–2308 年在位/.test(card1) ||
+    !/前任\s*怀王江云尧\s*前朝/.test(deed) ||
+    !/继任\s*安王苏珩羽\s*子/.test(deed)
   )
     errs.push(`人物:君主卡片不对(${card1.slice(0, 160)})`);
-  if (!copied.startsWith('成王杜霖\n沂王') || !copied.includes('在位时：')) errs.push(`人物:复制生平不对(${copied.slice(0, 60)})`);
+  if (!copied.startsWith('昭王苏溟\n衍王') || !copied.includes('在位时：')) errs.push(`人物:复制生平不对(${copied.slice(0, 60)})`);
   if (
     leanRows !== 4 ||
     !/^倾向 开拓\s*\d+ 更愿意开垦偏远贫瘠的土地 好战\s*\d+ 更容易发动战争且更难停止 发展\s*\d+ 更重视领地内的建设 重商\s*\d+ 偏向沿海/.test(leans) ||
@@ -624,13 +624,13 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
   )
     errs.push(`人物:君主卡片的倾向不对(${leanRows} 行;${leans.slice(0, 80)};复制里 ${/倾向：.*/.exec(copied)?.[0]})`);
   if (genLeans || princeLeans) errs.push(`人物:将领 / 宗室的卡片上不该有倾向(${genLeans};${princeLeans})`);
-  if (!/王晟\s*大沂将领，2169–2197 年领兵/.test(card2) || y1 !== 2169) errs.push(`人物:将领卡片 / 出征那年不对(${card2.slice(0, 60)};${y1})`);
+  if (!/端木寒霁\s*大衍将领，2292–2312 年领兵/.test(card2) || y1 !== 2292) errs.push(`人物:将领卡片 / 出征那年不对(${card2.slice(0, 60)};${y1})`);
   if (!chronOpen || names < 3 || !closed || pickId < 0 || card3Id !== pickId || y2 !== y1) errs.push(`人物:编年史里的人名点不开,或点了跳了年份(${chronOpen};${names};${closed};${card3Id}/${pickId};${y1} → ${y2})`);
   if (!famousOn || famous < 20 || !card4) errs.push(`人物:人物页的名人不对,或点一行没打开卡片(${famousOn};${famous};${card4.slice(0, 30)})`);
-  if (!rulersOn || polityPick !== '0' || groups < 1 || rows !== 121) errs.push(`人物:「全部 N 位」没有打开这国的君主(${rulersOn};${polityPick};${groups};${rows})`);
-  if (!/^沂 2148–2629 年，22 位君主/.test(lgHead) || lgNodes < 22 || !/成王杜霖.*当前/.test(lgOn)) errs.push(`人物:世系图不对(${lgHead};${lgNodes};${lgOn})`);
-  if (!/沂宗室，\d+–\d+/.test(princeCard) || !princeCard.includes('子嗣') || lgFocus !== 1) errs.push(`人物:宗室卡片 / 从卡片回到世系图不对(${princeCard.slice(0, 60)};${lgFocus})`);
-  if (!/^成王杜霖 沂王，2148–2190$/.test(hit) || hitKind !== 'person' || card5 !== '成王杜霖') errs.push(`人物:搜"成王杜霖"不对(${hit};${hitKind};${card5})`);
+  if (!rulersOn || polityPick !== '6' || groups < 1 || rows !== 102) errs.push(`人物:「全部 N 位」没有打开这国的君主(${rulersOn};${polityPick};${groups};${rows})`);
+  if (!/^衍 2287–2501 年，8 位君主/.test(lgHead) || lgNodes < 8 || !/昭王苏溟.*当前/.test(lgOn)) errs.push(`人物:世系图不对(${lgHead};${lgNodes};${lgOn})`);
+  if (!/衍宗室，\d+–\d+/.test(princeCard) || !princeCard.includes('子嗣') || lgFocus !== 1) errs.push(`人物:宗室卡片 / 从卡片回到世系图不对(${princeCard.slice(0, 60)};${lgFocus})`);
+  if (!/^昭王苏溟 衍王，2287–2308$/.test(hit) || hitKind !== 'person' || card5 !== '昭王苏溟') errs.push(`人物:搜"昭王苏溟"不对(${hit};${hitKind};${card5})`);
   await page.fill('.sidebar .search-input', '');
   await page.keyboard.press('Escape');
   await page.evaluate(() => localStorage.clear());
