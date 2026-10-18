@@ -112,7 +112,7 @@ const COLLAPSE_REST = 200;
 /** 大崩解的赔率 = COLLAPSE_ODDS × e^(COLLAPSE_K × (动荡 − COLLAPSE_U0)) */
 const COLLAPSE_ODDS = 0.05;
 const COLLAPSE_K = 2.5;
-const COLLAPSE_U0 = 1.8;
+const COLLAPSE_U0 = 1.7;
 /** 大崩解:国都一带留给原来的国家的几成(KEEP 里随机);散出去的每块大约几州;每块至少几州 */
 const KEEP: readonly [number, number] = [0.25, 0.4];
 const PIECE_SIZE = 12;
@@ -131,7 +131,6 @@ const CLIMATE: readonly number[] = (() => {
 
 // 随机数用途编号
 const U_FAM_T = 1;
-const U_CLUSTERS = 2;
 const U_CENTER = 3;
 const U_HOPS = 4;
 const U_SEV = 5;
@@ -266,32 +265,19 @@ function hook(sim: CivSim, um: UnrestModel): void {
   /** 第 k 次看年景:挑几处灾年,闹饥荒;闹了饥荒的国家看会不会民变 */
   sim.on(Ev.FamineCheck, (k, _b, t) => {
     sim.schedule(famineTime(um, k + 1), Ev.FamineCheck, k + 1, 0);
-    // 有城、有人住的州(按州号);按气候加权挑灾年的中心
-    const cand: number[] = [];
-    const cum: number[] = [];
-    let total = 0;
+    // 灾年的中心:有城、有人住的州各自掷(按州的治所取随机数,改了别处的地形这里照旧);干旱、寒冷的地方更容易
+    const centres: number[] = [];
     for (let r = 0; r < R; r++) {
       if (pm.cityOf[r] < 0 || culture[r] < 0) continue;
-      total += CLIMATE[reg.biome[r]] ?? 1;
-      cand.push(r);
-      cum.push(total);
+      if (keyed4(um.base, k, reg.seat[r], 0, U_CENTER) < (CLIMATE[reg.biome[r]] ?? 1) / CLUSTER_PER) centres.push(r);
     }
-    if (!cand.length) return;
-    const n = Math.floor(cand.length / CLUSTER_PER + keyed(um.base, k, 0, U_CLUSTERS));
+    if (!centres.length) return;
     /** 这一次闹了饥荒的州:国家 → [州, 折损] */
     const hits = new Map<number, [number, number][]>();
-    for (let c = 0; c < n; c++) {
-      const x = keyed(um.base, k, c, U_CENTER) * total;
-      let lo = 0;
-      let hi = cum.length - 1;
-      while (lo < hi) {
-        const mid = (lo + hi) >> 1;
-        if (cum[mid] > x) hi = mid;
-        else lo = mid + 1;
-      }
-      const c0 = cand[lo];
-      const hops = 1 + Math.floor(CLUSTER_HOPS * keyed(um.base, k, c, U_HOPS));
-      const sev = SEV[0] + (SEV[1] - SEV[0]) * keyed(um.base, k, c, U_SEV);
+    for (const c0 of centres) {
+      const c = reg.seat[c0];
+      const hops = 1 + Math.floor(CLUSTER_HOPS * keyed4(um.base, k, c, 0, U_HOPS));
+      const sev = SEV[0] + (SEV[1] - SEV[0]) * keyed4(um.base, k, c, 0, U_SEV);
       // 从中心往外几州(陆上、跨河、翻山、海峡)
       const st = ++stamp;
       let qt = 0;
@@ -464,7 +450,7 @@ function hook(sim: CivSim, um: UnrestModel): void {
         if (hop[r] < away[r]) away[r] = hop[r];
         for (let e = reg.adjStart[r]; e < reg.adjStart[r + 1]; e++) {
           const j = reg.adj[e];
-          if (mark[j] === st || !inRest.has(j) || reg.adjKind[e] === AdjKind.SeaRoute) continue;
+          if (mark[j] === st || !inRest.has(j) || reg.adjKind[e] === AdjKind.SeaRoute || reg.adjKind[e] === AdjKind.Strait) continue;
           mark[j] = st;
           hop[j] = hop[r] + 1;
           queue[qt++] = j;
@@ -487,7 +473,7 @@ function hook(sim: CivSim, um: UnrestModel): void {
       seeds.push(best);
       bfs(best);
     }
-    // 各州归最近的那块(同时从各块往外长;海峡隔着的也算,航线隔着的留给原来的国家)
+    // 各州归最近的那块(同时从各块往外长,只走陆路;海峡、航线隔着的留给原来的国家)
     const piece = new Int32Array(R).fill(-1);
     let qt = 0;
     for (let i = 0; i < seeds.length; i++) {
@@ -498,7 +484,7 @@ function hook(sim: CivSim, um: UnrestModel): void {
       const r = queue[h];
       for (let e = reg.adjStart[r]; e < reg.adjStart[r + 1]; e++) {
         const j = reg.adj[e];
-        if (piece[j] >= 0 || !inRest.has(j) || reg.adjKind[e] === AdjKind.SeaRoute) continue;
+        if (piece[j] >= 0 || !inRest.has(j) || reg.adjKind[e] === AdjKind.SeaRoute || reg.adjKind[e] === AdjKind.Strait) continue;
         piece[j] = piece[r];
         queue[qt++] = j;
       }

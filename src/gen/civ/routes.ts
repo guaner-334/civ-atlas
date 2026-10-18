@@ -793,7 +793,7 @@ function bypassLinks<L extends { a: number; b: number; w: number; kind: Route['k
 /**
  * 删掉冗余的平行小路:把陆路网在"城 / 岔口 / 端点 / 大小路交界"处断成一段段,
  * 对每段小路(从长到短),看它两端之间沿其余路网有没有另一条不超过 PARALLEL_RATIO 倍长、
- * 而且处处紧挨着它(它的每一块都在那条路上或和那条路相邻)的路;有就删掉它,车马改走那条路。
+ * 而且处处紧挨着它(它的每一块都在那条路上或和那条路相邻)的路;有就删掉它,车马改走那条路。删掉以后重新切段再查,直到删不动。
  * 段的中间没有城(城是断点),两端又仍然连着,所以删掉不会把任何城孤立。
  * 只并进"那时已经有"的路(修建年份不晚于它),回放时不会出现一段时间没路可走。
  * slot 就地改写(删掉的路段清零),返回切好的路段。
@@ -843,35 +843,6 @@ function dropParallelTrails<P extends { kind: Route['kind']; cells: number[]; bu
     }
     nodes.sort((a, b) => a - b);
   }
-  const used = new Uint8Array(adj.length);
-  const chains: Chain[] = [];
-  for (const a of nodes) {
-    if (!isStop(a)) continue;
-    for (let k0 = adjStart[a]; k0 < adjStart[a + 1]; k0++) {
-      if (slot[k0] !== TRAIL || used[k0]) continue;
-      const ch: Chain = { cells: [a], slots: [], len: 0, year: -Infinity };
-      let k = k0;
-      let prev = a;
-      for (;;) {
-        const b = adj[k];
-        used[k] = 1;
-        used[slotOf(mesh, b, prev)] = 1;
-        ch.cells.push(b);
-        ch.slots.push(k);
-        ch.len += len[k];
-        ch.year = Math.max(ch.year, year[k]);
-        if (isStop(b)) break;
-        let nk = -1;
-        for (let q = adjStart[b]; q < adjStart[b + 1]; q++) if (slot[q] && adj[q] !== prev) nk = q;
-        if (nk < 0 || used[nk] || slot[nk] !== TRAIL) break;
-        prev = b;
-        k = nk;
-      }
-      if (ch.cells.length >= 3) chains.push(ch);
-    }
-  }
-  chains.sort((p, q) => q.len - p.len || p.cells[0] - q.cells[0]);
-
   // ---- 逐段检查 ----
   const dist = new Float64Array(n);
   const prevOf = new Int32Array(n);
@@ -885,64 +856,98 @@ function dropParallelTrails<P extends { kind: Route['kind']; cells: number[]; bu
       slot[slotOf(mesh, ch.cells[t + 1], ch.cells[t])] = v;
     }
   };
-  for (const ch of chains) {
-    const u = ch.cells[0];
-    const v = ch.cells[ch.cells.length - 1];
-    if (u === v) continue;
-    setSlots(ch, 0);
-    // 沿其余路网从 u 到 v 的最短路(限长;只走那时已经修好的路)
-    const limit = PARALLEL_RATIO * ch.len;
-    const st = ++stamp;
-    seen[u] = st;
-    dist[u] = 0;
-    prevOf[u] = -1;
-    heap.size = 0;
-    heap.push(u, 0);
-    let found = false;
-    while (heap.size) {
-      const i = heap.pop();
-      const d = heap.lastPri;
-      if (d > dist[i]) continue;
-      if (i === v) {
-        found = true;
-        break;
-      }
-      for (let k = adjStart[i]; k < adjStart[i + 1]; k++) {
-        if (!slot[k] || year[k] > ch.year) continue;
-        const j = adj[k];
-        const nd = d + len[k];
-        if (nd > limit) continue;
-        if (seen[j] !== st || nd < dist[j]) {
-          seen[j] = st;
-          dist[j] = nd;
-          prevOf[j] = i;
-          heap.push(j, nd);
+  // 删掉一段以后,两头的岔口可能不再是岔口,相邻的几段连成一段、又成了平行的冗余小路:再切一遍、再查,直到删不动
+  for (let dropped = true; dropped; ) {
+    dropped = false;
+    const used = new Uint8Array(adj.length);
+    const chains: Chain[] = [];
+    for (const a of nodes) {
+      if (!isStop(a)) continue;
+      for (let k0 = adjStart[a]; k0 < adjStart[a + 1]; k0++) {
+        if (slot[k0] !== TRAIL || used[k0]) continue;
+        const ch: Chain = { cells: [a], slots: [], len: 0, year: -Infinity };
+        let k = k0;
+        let prev = a;
+        for (;;) {
+          const b = adj[k];
+          used[k] = 1;
+          used[slotOf(mesh, b, prev)] = 1;
+          ch.cells.push(b);
+          ch.slots.push(k);
+          ch.len += len[k];
+          ch.year = Math.max(ch.year, year[k]);
+          if (isStop(b)) break;
+          let nk = -1;
+          for (let q = adjStart[b]; q < adjStart[b + 1]; q++) if (slot[q] && adj[q] !== prev) nk = q;
+          if (nk < 0 || used[nk] || slot[nk] !== TRAIL) break;
+          prev = b;
+          k = nk;
         }
+        if (ch.cells.length >= 3) chains.push(ch);
       }
     }
-    let redundant = false;
-    if (found) {
-      // 那条路上的地块和它们的邻居
-      for (let i = v; i >= 0; i = prevOf[i]) {
-        near[i] = st;
-        for (let k = adjStart[i]; k < adjStart[i + 1]; k++) near[adj[k]] = st;
-      }
-      redundant = true;
-      for (let t = 1; t < ch.cells.length - 1; t++) {
-        if (near[ch.cells[t]] !== st) {
-          redundant = false;
+    chains.sort((p, q) => q.len - p.len || p.cells[0] - q.cells[0]);
+
+    for (const ch of chains) {
+      const u = ch.cells[0];
+      const v = ch.cells[ch.cells.length - 1];
+      if (u === v) continue;
+      setSlots(ch, 0);
+      // 沿其余路网从 u 到 v 的最短路(限长;只走那时已经修好的路)
+      const limit = PARALLEL_RATIO * ch.len;
+      const st = ++stamp;
+      seen[u] = st;
+      dist[u] = 0;
+      prevOf[u] = -1;
+      heap.size = 0;
+      heap.push(u, 0);
+      let found = false;
+      while (heap.size) {
+        const i = heap.pop();
+        const d = heap.lastPri;
+        if (d > dist[i]) continue;
+        if (i === v) {
+          found = true;
           break;
         }
+        for (let k = adjStart[i]; k < adjStart[i + 1]; k++) {
+          if (!slot[k] || year[k] > ch.year) continue;
+          const j = adj[k];
+          const nd = d + len[k];
+          if (nd > limit) continue;
+          if (seen[j] !== st || nd < dist[j]) {
+            seen[j] = st;
+            dist[j] = nd;
+            prevOf[j] = i;
+            heap.push(j, nd);
+          }
+        }
       }
-    }
-    if (!redundant) setSlots(ch, TRAIL);
-    else if (ends) {
-      // 删掉的小路上走的连线改走替代它的那条路:那条路至少用到它的连线结束那年(阶段 3 城市兴衰)
-      let e = -Infinity;
-      for (const k of ch.slots) e = Math.max(e, ends[k]);
-      for (let i = v; prevOf[i] >= 0; i = prevOf[i]) {
-        const k = slotOf(mesh, prevOf[i], i);
-        if (e > ends[k]) ends[k] = ends[slotOf(mesh, i, prevOf[i])] = e;
+      let redundant = false;
+      if (found) {
+        // 那条路上的地块和它们的邻居
+        for (let i = v; i >= 0; i = prevOf[i]) {
+          near[i] = st;
+          for (let k = adjStart[i]; k < adjStart[i + 1]; k++) near[adj[k]] = st;
+        }
+        redundant = true;
+        for (let t = 1; t < ch.cells.length - 1; t++) {
+          if (near[ch.cells[t]] !== st) {
+            redundant = false;
+            break;
+          }
+        }
+      }
+      if (!redundant) setSlots(ch, TRAIL);
+      else dropped = true;
+      if (redundant && ends) {
+        // 删掉的小路上走的连线改走替代它的那条路:那条路至少用到它的连线结束那年(阶段 3 城市兴衰)
+        let e = -Infinity;
+        for (const k of ch.slots) e = Math.max(e, ends[k]);
+        for (let i = v; prevOf[i] >= 0; i = prevOf[i]) {
+          const k = slotOf(mesh, prevOf[i], i);
+          if (e > ends[k]) ends[k] = ends[slotOf(mesh, i, prevOf[i])] = e;
+        }
       }
     }
   }

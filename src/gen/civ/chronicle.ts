@@ -721,7 +721,7 @@ function sackText(civ: Civ, e: Annal): string {
   const A = pn(civ, e.a, e.year);
   const { city } = besieged(civ, e);
   const s = e.settlement >= 0 ? civ.settlements[e.settlement] : undefined;
-  const loss = s?.sacks?.find((k) => k.year === e.year)?.loss ?? 0;
+  const loss = s?.sacks?.find((k) => !k.cause && k.year === e.year)?.loss ?? 0;
   if (loss >= 0.7) return `${A}纵兵大掠${city},十室九空`;
   if (loss >= 0.55) return `${A}纵兵大掠${city}`;
   return `${A}洗劫${city}`;
@@ -1733,6 +1733,8 @@ function revoltEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
       regions: uniq([e.region, ...war.regions]),
       settlement: e.settlement,
       head: undefined,
+      // 只记句子里写到的人(讨伐的统帅写在子条目里)
+      people: undefined,
     },
     who,
   );

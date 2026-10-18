@@ -84,12 +84,13 @@ describe('城市成长 + 国家', () => {
     expect(a.routes.length).toBe(b.routes.length);
   });
 
-  it('默认参数:先后立国 8–80 个(含分裂 / 复国出来的)、结束时在世 8–30 个,城镇每个有人州一座;国都之间隔得开;航海时代以前只有海洋国家有跨海领土', () => {
+  it('默认参数:先后立国 8–140 个(含分裂 / 复国出来的)、结束时在世 8–30 个,城镇每个有人州一座;国都之间隔得开;航海时代以前只有海洋国家有跨海领土', () => {
     for (const seed of [7, 2024, 3, 99]) {
       const civ = civOf({ ...DEFAULT_PARAMS, seed });
       expect(civ.polities.length, `seed ${seed}`).toBeGreaterThanOrEqual(8);
       // GENERATOR_VERSION 15(立国更早、边缘立国)以后国家多了:20 个种子(1–19、2024)先后立国 35–68 个、结束时在世 15–25 个
-      expect(civ.polities.length, `seed ${seed}`).toBeLessThanOrEqual(80);
+      // GENERATOR_VERSION 20(大崩解散出几国、民变自立)以后 20 个种子先后立国 61–129 个(种子 99 84 个)
+      expect(civ.polities.length, `seed ${seed}`).toBeLessThanOrEqual(140);
       // 阶段 3 有了战争、分合:有的国家灭亡了、被并了,也有分出来的
       const alive = civ.polities.filter((p) => polityAlive(p, civ.endYear)).length;
       expect(alive, `seed ${seed}`).toBeGreaterThanOrEqual(8);
@@ -242,10 +243,10 @@ describe('城市成长 + 国家', () => {
       for (const p of civ.polities) {
         const cap = civ.settlements[p.capital];
         const found = A.filter((e) => e.kind === 'found' && e.a === p.id);
-        // 分裂 / 复国出来的国家(阶段 3 分合)没有"立国",只有一条"分裂"(b = 从哪国分出来);受邻国影响立的国,"立国"的 b = 那一国
+        // 分裂 / 复国出来的国家(阶段 3 分合)没有"立国",只有一条"分裂"(b = 从哪国分出来;饥民起事的是一条"民变");受邻国影响立的国,"立国"的 b = 那一国
         if (p.parent !== undefined) {
           expect(found).toEqual([]);
-          const split = A.filter((e) => e.kind === 'split' && e.a === p.id);
+          const split = A.filter((e) => (e.kind === 'split' || e.kind === 'revolt') && e.a === p.id);
           expect(split).toHaveLength(1);
           expect(split[0]).toMatchObject({ year: p.founded, b: p.parent, settlement: cap.id, war: -1 });
         } else expect(found).toEqual([{ year: p.founded, kind: 'found', a: p.id, b: p.mentor ?? -1, region: cap.region, settlement: cap.id, war: -1 }]);
@@ -285,6 +286,9 @@ describe('城市成长 + 国家', () => {
           'unally',
           'submit',
           'defect',
+          'famine',
+          'revolt',
+          'collapse',
         ]).toContain(e.kind);
       }
     }

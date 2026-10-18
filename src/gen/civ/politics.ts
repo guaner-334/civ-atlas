@@ -812,6 +812,8 @@ export function resumePolitics(sim: CivSim, world: World, civ: Civ): void {
   const pol = newModel(pm, wm, world);
   for (const e of civ.annals) {
     if (e.kind === 'split') pol.lastSplit.set(e.b, e.year);
+    // 散回部落地带的大崩解没有 split 史事,同样算刚分裂过
+    else if (e.kind === 'collapse' && e.b === 2) pol.lastSplit.set(e.a, e.year);
     else if (e.kind === 'merge') pol.merged.add(e.b);
   }
   for (const p of pm.polities) if (p.restores !== undefined) pol.restored.add(p.restores);

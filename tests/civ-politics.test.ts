@@ -206,8 +206,8 @@ describe('分与合', () => {
       for (const e of civ.annals) {
         if (e.kind !== 'war') continue;
         const Q = civ.polities[e.b];
-        // 援盟、救藩不算:是它先动的手(打了别国的盟国 / 藩属)
-        if (e.cause === 'ally' || e.cause === 'rescue') continue;
+        // 援盟、救藩不算:是它先动的手(打了别国的盟国 / 藩属);讨伐民变不算:起事当即发兵
+        if (e.cause === 'ally' || e.cause === 'rescue' || e.cause === 'quell') continue;
         if (Q.parent !== undefined) expect(e.year - Q.founded, `seed ${seed} 战争 ${e.war}`).toBeGreaterThanOrEqual(NEWBORN);
       }
       const restored = civ.polities.filter((p) => p.restores !== undefined).map((p) => p.restores!);
@@ -225,7 +225,7 @@ describe('分与合', () => {
   // 没有复国的世界前后都有(20 个里 2–3 个):单个世界的分裂 + 复国按 2 次起算,另要两个世界合计 8 次以上;复国按两个世界合计算
   // 君主有了好战倾向以后,20 个种子(1–19、2024)平均分裂 2.7 次、复国 1.4 次;分裂 + 复国最少的是种子 17(0 次)、
   // 12(1 次)、11(2 次),其余 17 个世界都 ≥ 3 次:两个世界合计从 8 次放到 6 次
-  it('默认参数 seed 7 / 2024:分裂 1–20 次、分裂 + 复国 ≥ 2 次(两个世界合计 ≥ 6)、合并 ≤ 16 次、复国 ≤ 12 次(复国、合并、主动迁都两个世界里都有);结束时在世 8–30 国;政区图成片、前线会拉锯', () => {
+  it('默认参数 seed 7 / 2024:分裂 1–30 次、分裂 + 复国 ≥ 2 次(两个世界合计 ≥ 6)、合并 ≤ 20 次、复国 ≤ 30 次(复国、合并、主动迁都两个世界里都有);结束时在世 8–30 国;政区图成片、前线会拉锯', () => {
     // 合并、主动迁都是少见的事(各个种子 0–4 次):按两个世界合计至少一次算,不要求每个世界都有
     let merges = 0;
     let moves = 0;
@@ -237,36 +237,40 @@ describe('分与合', () => {
       const ws = warStats(civ);
       const tag = `seed ${seed}`;
       expect(ps.splits, tag).toBeGreaterThanOrEqual(1);
-      expect(ps.splits, tag).toBeLessThanOrEqual(20);
+      // GENERATOR_VERSION 20(大崩解一次散出几国)以后 20 个种子分裂 3–24 次、合并 3–18 次
+      expect(ps.splits, tag).toBeLessThanOrEqual(30);
       expect(ps.splits + ps.restorations, tag).toBeGreaterThanOrEqual(2);
       splitsAndRestorations += ps.splits + ps.restorations;
       merges += ps.merges;
       moves += ps.capitalMoves;
       restorations += ps.restorations;
       // GENERATOR_VERSION 15(立国更早、边缘立国)以后小国多了:20 个种子合并 4–14 次、复国 0–10 次、结束时在世 15–25 国
-      expect(ps.merges, tag).toBeLessThanOrEqual(16);
-      expect(ps.restorations, tag).toBeLessThanOrEqual(12);
+      expect(ps.merges, tag).toBeLessThanOrEqual(20);
+      // GENERATOR_VERSION 20(大崩解、民变以后亡国、复国都多了)以后 20 个种子复国 7–24 次
+      expect(ps.restorations, tag).toBeLessThanOrEqual(30);
       expect(ws.alive, tag).toBeGreaterThanOrEqual(8);
       expect(ws.alive, tag).toBeLessThanOrEqual(30);
       // 拉锯州来自战争(HOLD 只有几年),分合不添:GENERATOR_VERSION 19 以后 20 个种子各 2–19 个
       expect(ws.flippy, tag).toBeGreaterThan(0);
       // GENERATOR_VERSION 17(各国自己进航海时代)以后,20 个种子里飞地占比最多 1.1%(种子 7)
       expect(ws.exclaveShare, tag).toBeLessThan(0.015);
-      // 分出来的国家不是一出生就没了;和原国颜色不同(回放时看得出裂出了一块)
+      // 分出来的国家不是一出生就没了(民变起事的可能旋即被讨平,不算);和原国颜色不同(回放时看得出裂出了一块)
       const born = civ.polities.filter((p) => p.parent !== undefined);
       for (const p of born) expect(p.color, `${tag} ${p.name}`).not.toEqual(civ.polities[p.parent!].color);
-      expect(born.filter((p) => p.ended !== undefined && p.ended - p.founded < NEWBORN)).toEqual([]);
-      // 大帝国不会一夜碎成十几块:同一国同一年最多分裂一次
+      const rebels = new Set(civ.annals.filter((x) => x.kind === 'revolt').map((x) => x.a));
+      expect(born.filter((p) => !rebels.has(p.id) && p.ended !== undefined && p.ended - p.founded < NEWBORN)).toEqual([]);
+      // 大帝国不会一夜碎成十几块:同一国同一年最多分裂一次(大崩解一次散成 2–4 国,算一次)
       const once = new Set<string>();
-      for (const e of civ.annals.filter((x) => x.kind === 'split')) {
+      for (const e of civ.annals.filter((x) => x.kind === 'split' && x.cause !== 'collapse')) {
         const k = `${e.b}|${Math.floor(e.year)}`;
         expect(once.has(k), `${tag} ${k}`).toBe(false);
         once.add(k);
       }
-      // 新国家都不小:分裂至少 5 州(复国至少 2 州)
+      // 新国家都不小:分裂至少 5 州(复国至少 2 州;大崩解散出来的至少 3 州)
       for (const e of civ.annals.filter((x) => x.kind === 'split')) {
         const n = sizesAt(civ, e.year).get(e.a) ?? 0;
-        expect(n, `${tag} ${civ.polities[e.a].name}`).toBeGreaterThanOrEqual(civ.polities[e.a].restores === undefined ? 5 : 2);
+        const min = e.cause === 'collapse' ? 3 : civ.polities[e.a].restores === undefined ? 5 : 2;
+        expect(n, `${tag} ${civ.polities[e.a].name}`).toBeGreaterThanOrEqual(min);
       }
     }
     expect(splitsAndRestorations, '两个世界合计的分裂 + 复国').toBeGreaterThanOrEqual(6);
@@ -308,7 +312,8 @@ describe('分与合', () => {
       const great = (id: number) => Math.max(0, ...(civ.polities[id]?.titles ?? []).map((t) => t.tier)) >= GREAT_TIER;
       const list = buildChronicle(civ);
       const splits = list.filter((e) => e.kind === 'split');
-      expect(splits.length).toBe(civ.annals.filter((e) => e.kind === 'split').length);
+      // 大崩解散出来的国家折进大崩解那一条
+      expect(splits.length).toBe(civ.annals.filter((e) => e.kind === 'split' && e.cause !== 'collapse').length);
       // 分出来的国家日后长成大国的(不常见,GENERATOR_VERSION 13 以后种子 1–20、2024 里只有 9 一个世界有:五个世界里至少有一个,见循环后)
       if (splits.some((e) => e.importance === MAJOR)) majorSplit = true;
       for (const e of splits) {
