@@ -6,7 +6,10 @@
  * 存的是笔画(SketchEdit.strokes):每一笔 = 笔的种类 + 半径 + 经过的点,坐标和改地形一样是主图的世界坐标(2048 × 1024);
  * 山地笔另带高低(h),"圈起来填满"画的一笔带 fill(首尾连起来,圈里涂满)。
  * 生成前(sketchGrid)按先后把笔画涂到一张等距圆柱的小格子图上(SKETCH_W × SKETCH_H,一格 = 世界坐标 2 × 2),后涂的盖住先涂的;
- * 格子值见下面的 SKETCH_*:0 = 没涂(照旧由程序定),值 ≥ SKETCH_LAND 的都是陆地。rest = 'sea' 时没涂的格子都当海。
+ * 格子值见下面的 SKETCH_*:0 = 没涂(照旧由程序定),值 ≥ SKETCH_LAND 的都是陆地。rest = 'sea' 时没涂的格子都当海;
+ * rest = 'noNewLand' 时没涂的格子照旧由程序定,但和涂过的陆地连不上的陆地沉回海里(不长新陆地,tectonics.ts 的 4b 步)。
+ * fill(程序补全)管涂过的地方程序还加不加东西:没有 = 随意发挥(板块碰撞的山、古老山系、丘陵、裂谷、台地照加),
+ * 'detail' = 只补细节(只加小起伏),'exact' = 完全照画(一点不加;涂的山地、丘陵、高原照样长)。
  *
  * 导入的图片(SketchEdit.image):图片本身不存,只存认出来的格子图(sketchImage.ts 认,LAYER_W × LAYER_H,一格 = 草图格子 2 × 2),
  * 和笔画排在同一个先后里:前 at 笔先涂,再铺这张图(值是 0 的格子 = 没盖到,留着底下的),后面的笔画盖在它上面。
@@ -42,7 +45,14 @@ export interface Sketch {
   grid: Uint8Array;
   /** 海岸线:0 贴着画 – 1 曲折(SketchEdit.coast) */
   coast: number;
+  /** 程序补全(SketchEdit.fill):没有 = 随意发挥 */
+  fill?: SketchFill;
+  /** 没涂的地方不长新陆地(SketchEdit.rest = 'noNewLand') */
+  noNewLand?: true;
 }
+
+/** 程序补全:只补细节 / 完全照画(随意发挥 = 不存) */
+export type SketchFill = 'detail' | 'exact';
 
 /** 笔:陆地、丘陵、山地、高原、浅海、海、群岛,擦掉 = 涂回"没涂" */
 export type SketchKind = 'land' | 'hills' | 'mountain' | 'plateau' | 'shelf' | 'sea' | 'isles' | 'erase';
@@ -70,10 +80,12 @@ export interface SketchImage {
 }
 
 export interface SketchEdit {
-  /** 没涂的地方:'auto' = 照旧由程序定,'sea' = 都是海 */
-  rest: 'auto' | 'sea';
+  /** 没涂的地方:'auto' = 照旧由程序定,'sea' = 都是海,'noNewLand' = 由程序定,但不长出和涂过的陆地连不上的新陆地 */
+  rest: 'auto' | 'sea' | 'noNewLand';
   /** 海岸线:0 = 贴着画的走,1 = 曲折,像真实的海岸(不给 = SKETCH_COAST 适中) */
   coast?: number;
+  /** 程序补全:'detail' 只补细节、'exact' 完全照画(不给 = 随意发挥,'free' 读进来当不给) */
+  fill?: SketchFill;
   /** 笔画,按先后 */
   strokes: SketchStroke[];
   /** 导入的图片(不给 = 没导入) */
@@ -108,6 +120,14 @@ const VALUE: Record<SketchKind, number> = {
 /** 一笔涂上去的格子值(山地按高低) */
 function valueOf(s: SketchStroke): number {
   return s.kind === 'mountain' ? SKETCH_MOUNTAIN + (s.h ?? 1) : VALUE[s.kind];
+}
+
+/** 新建草图时程序补全默认哪一档 */
+export const SKETCH_FILL_NEW: SketchFill = 'detail';
+
+/** 草图的程序补全(随意发挥 = 'free') */
+export function sketchFill(edit: SketchEdit | null | undefined): SketchFill | 'free' {
+  return edit?.fill ?? 'free';
 }
 
 /** 草图的海岸线参数(0 贴着画 – 1 曲折) */
@@ -221,19 +241,22 @@ export function cleanSketchImage(x: unknown, strokes: number, at?: number): Sket
 
 /**
  * 清理一份草图:不是对象的 = null;笔画逐笔过 cleanSketchStroke(不合格的丢掉,最多 SKETCH_MAX_STROKES 笔);
- * rest 不认识的当 'auto';coast 夹到 [0, 1] 保留两位小数(SKETCH_COAST 是默认,不存);导入的图片过 cleanSketchImage(不合格的丢掉)。
+ * rest 不认识的当 'auto';coast 夹到 [0, 1] 保留两位小数(SKETCH_COAST 是默认,不存);fill 只认 'detail' / 'exact'(别的当随意发挥,不存);
+ * 导入的图片过 cleanSketchImage(不合格的丢掉)。
  * 一笔也没有、没导入图片、没涂的又交给程序 = null(和没画一样)。本来就合格的原样返回
  */
 export function cleanSketch(x: unknown): SketchEdit | null {
   if (!x || typeof x !== 'object') return null;
   const o = x as Record<string, unknown>;
-  const rest = o.rest === 'sea' ? 'sea' : 'auto';
+  const rest = o.rest === 'sea' || o.rest === 'noNewLand' ? o.rest : 'auto';
+  const fill = o.fill === 'detail' || o.fill === 'exact' ? o.fill : undefined;
   const c0 = num(o.coast);
   const coast = c0 === null ? SKETCH_COAST : Math.round(clamp(c0, 0, 1) * 100) / 100;
   const list = Array.isArray(o.strokes) ? (o.strokes as unknown[]) : [];
   const strokes: SketchStroke[] = [];
   let same = rest === o.rest && list === o.strokes && list.length <= SKETCH_MAX_STROKES;
   same = same && (coast === SKETCH_COAST ? !('coast' in o) : coast === o.coast);
+  same = same && (fill ? fill === o.fill : !('fill' in o));
   // 导入的图铺在原来第几笔之后;丢掉了不合格的笔画时,换成它前面留下来的笔数(先后不变)
   const img = o.image && typeof o.image === 'object' ? (o.image as Record<string, unknown>) : null;
   const a0 = img ? num(img.at) : null;
@@ -249,17 +272,17 @@ export function cleanSketch(x: unknown): SketchEdit | null {
   if (at < 0) at = strokes.length;
   const image = o.image === undefined ? null : cleanSketchImage(o.image, strokes.length, at);
   same = same && (image ? image === o.image : !('image' in o));
-  same = same && Object.keys(o).length === 2 + (coast === SKETCH_COAST ? 0 : 1) + (image ? 1 : 0);
+  same = same && Object.keys(o).length === 2 + (coast === SKETCH_COAST ? 0 : 1) + (fill ? 1 : 0) + (image ? 1 : 0);
   if (!strokes.length && !image && rest === 'auto') return null;
   if (same) return x as SketchEdit;
-  return { rest, ...(coast === SKETCH_COAST ? {} : { coast }), strokes, ...(image ? { image } : {}) };
+  return { rest, ...(coast === SKETCH_COAST ? {} : { coast }), ...(fill ? { fill } : {}), strokes, ...(image ? { image } : {}) };
 }
 
 /** 两份草图是不是一样(逐笔逐字段比;都没有也算一样) */
 export function sameSketch(a: SketchEdit | null | undefined, b: SketchEdit | null | undefined): boolean {
   if (a === b) return true;
   if (!a || !b) return !a && !b;
-  if (a.rest !== b.rest || sketchCoast(a) !== sketchCoast(b) || a.strokes.length !== b.strokes.length) return false;
+  if (a.rest !== b.rest || sketchCoast(a) !== sketchCoast(b) || sketchFill(a) !== sketchFill(b) || a.strokes.length !== b.strokes.length) return false;
   const ia = a.image;
   const ib = b.image;
   if (ia !== ib && (!ia || !ib || ia.name !== ib.name || ia.cells !== ib.cells || (ia.at ?? 0) !== (ib.at ?? 0))) return false;
@@ -366,7 +389,7 @@ function paintLayer(grid: Uint8Array, layer: Uint8Array) {
 
 /**
  * 草图涂成的格子图(生成用)。没有草图、或者涂完一格也没有(没涂的又交给程序)= null,和没画一样。
- * rest = 'sea' 时没涂的格子当海:什么也没画就是一颗全是海的星球
+ * rest = 'sea' 时没涂的格子当海:什么也没画就是一颗全是海的星球;rest = 'noNewLand' 时什么也没画也一样(没有能连上的陆地)
  */
 export function sketchGrid(edit: SketchEdit | null | undefined): Sketch | null {
   if (!edit) return null;
@@ -377,7 +400,9 @@ export function sketchGrid(edit: SketchEdit | null | undefined): Sketch | null {
   if (layer) paintLayer(grid, layer);
   for (let k = at; k < edit.strokes.length; k++) paint(grid, edit.strokes[k]);
   if (edit.rest === 'sea') for (let i = 0; i < grid.length; i++) if (grid[i] === SKETCH_NONE) grid[i] = SKETCH_SEA;
-  const out = { grid, coast: sketchCoast(edit) };
+  const out: Sketch = { grid, coast: sketchCoast(edit) };
+  if (edit.fill === 'detail' || edit.fill === 'exact') out.fill = edit.fill;
+  if (edit.rest === 'noNewLand') out.noNewLand = true;
   return sketchUsed(out) ? out : null;
 }
 
@@ -397,7 +422,7 @@ export function sketchCells(mesh: Mesh, grid: Uint8Array): Uint8Array {
   return out;
 }
 
-/** 草图上有没有涂过东西 */
+/** 草图上有没有涂过东西(不长新陆地的,一笔没涂也算:没有能连上的陆地) */
 export function sketchUsed(sketch: Sketch | null | undefined): sketch is Sketch {
-  return !!sketch && sketch.grid.some((v) => v !== SKETCH_NONE);
+  return !!sketch && (!!sketch.noNewLand || sketch.grid.some((v) => v !== SKETCH_NONE));
 }

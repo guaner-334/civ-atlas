@@ -6,7 +6,27 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, MAP_H, MAP_W, generateWorld, type BaseCache, type World } from '../src/gen/world';
 import { EMPTY_EDITS, type TerrainOp, type WorldEdits } from '../src/gen/edits';
-import { HEIGHT_M, TERRAIN_H, TERRAIN_MAX_OPS, TERRAIN_MAX_PTS, TERRAIN_PRESETS, TERRAIN_W, applyClimatePens, cleanTerrainOp, cleanTerrainOps, liftAt, presetStrength, sameTerrain } from '../src/gen/terrainEdits';
+import {
+  DEL_WATER_FLUX,
+  DEL_WATER_R,
+  HEIGHT_M,
+  TERRAIN_H,
+  TERRAIN_MAX_OPS,
+  TERRAIN_MAX_PTS,
+  TERRAIN_PRESETS,
+  TERRAIN_W,
+  applyClimatePens,
+  cleanTerrainOp,
+  cleanTerrainOps,
+  lakeAt,
+  ownLakeCells,
+  riverCells,
+  liftAt,
+  presetStrength,
+  riversAt,
+  sameTerrain,
+} from '../src/gen/terrainEdits';
+import { CREEK_FRAC } from '../src/gen/creeks';
 import { drawnFlux, shownRivers } from '../src/render/common';
 import { geometryOf } from '../src/gen/geometry';
 import { editCount, makeSave, parseSave, saveText, worldCheck } from '../src/gen/savefile';
@@ -549,6 +569,105 @@ describe('改地形 · 高度笔', () => {
     const v: TerrainOp[] = [{ kind: 'volcano', pts: [x, y], r: 28, s: 1 }];
     same(generateWorld(SMALL, undefined, v, null, cache), generateWorld(SMALL, undefined, v));
     expect(cache.base).not.toBe(first);
+  });
+});
+
+describe('改地形 · 删河湖', () => {
+  const del = (x: number, y: number): TerrainOp => ({ kind: 'delWater', pts: [x, y], r: DEL_WATER_R, s: 1 });
+  /** 最大的湖里的一块,和流量排第几的河中段的一点 */
+  const lakeSpot = (w: World) => {
+    let best: number[] = [];
+    for (let i = 0; i < w.mesh.n; i++) {
+      if (w.water[i] !== 2 || best.includes(i)) continue;
+      const c = lakeAt(w.mesh, w.water, w.mesh.x[i], w.mesh.y[i])!;
+      if (c.length > best.length) best = c;
+    }
+    return best;
+  };
+  const riverSpot = (w: World, rank: number): [number, number] => {
+    const k = w.rivers.map((r, i) => [r.pts[r.pts.length - 1], i]).sort((a, b) => b[0] - a[0])[rank][1];
+    const p = w.rivers[k].pts;
+    const m = Math.floor(p.length / 6) * 3;
+    return [Math.round(p[m]), Math.round(p[m + 1])];
+  };
+
+  it('清理:只留一个点,强度一律 1;压流量的门槛比画小溪的还低', () => {
+    expect(cleanTerrainOp({ kind: 'delWater', pts: [10.4, 20, 30, 40], r: DEL_WATER_R, s: 0.5 })).toEqual({ kind: 'delWater', pts: [10, 20], r: DEL_WATER_R, s: 1 });
+    expect(DEL_WATER_FLUX).toBeLessThan(CREEK_FRAC);
+  });
+
+  it('点在湖里:整片湖填成地,不再积出湖;没指着河湖的不生效', () => {
+    const w = base7();
+    const lake = lakeSpot(w);
+    expect(lake.length).toBeGreaterThan(0);
+    const c = lake[0];
+    const out = generateWorld(SMALL, undefined, [del(Math.round(w.mesh.x[c]), Math.round(w.mesh.y[c]))]);
+    for (const i of lake) expect(out.water[i]).toBe(0);
+    // 同一个湖点两次:第二次还是这个湖,不会改成删附近的河
+    const twice = generateWorld(SMALL, undefined, [del(Math.round(w.mesh.x[c]), Math.round(w.mesh.y[c])), del(Math.round(w.mesh.x[c]), Math.round(w.mesh.y[c]))]);
+    expect(worldCheck(twice)).toBe(worldCheck(out));
+    expect(out.water.filter((v) => v === 2).length).toBe(w.water.filter((v) => v === 2).length - lake.length);
+    // 海中间点一下:找不到河湖,世界不变
+    const sea = farthestFrom(w, false);
+    const none = generateWorld(SMALL, undefined, [del(Math.round(w.mesh.x[sea]), Math.round(w.mesh.y[sea]))]);
+    expect(none.water).toEqual(w.water);
+    expect(none.rivers.length).toBe(w.rivers.length);
+  });
+
+  it('点在河上:这条河连同支流不再出现,不留断头河;描红的和删掉的是同一批', () => {
+    const w = base7();
+    // 挑一条有支流的大河
+    let [x, y] = riverSpot(w, 0);
+    let hit = riversAt(w.rivers, w.water, x, y, DEL_WATER_R);
+    for (let k = 1; k < 20 && hit.length < 2; k++) {
+      [x, y] = riverSpot(w, k);
+      hit = riversAt(w.rivers, w.water, x, y, DEL_WATER_R);
+    }
+    expect(hit.length).toBeGreaterThan(1);
+    const out = generateWorld(SMALL, undefined, [del(x, y)]);
+    expect(riversAt(out.rivers, out.water, x, y, DEL_WATER_R)).toEqual([]);
+    // 删掉的河的地块上不再有河
+    const gone = new Set<number>();
+    for (const k of hit) w.rivers[k].cells.forEach((c, j, a) => j < a.length - 1 && w.water[c] === 0 && gone.add(c));
+    for (const r of out.rivers) for (let j = 0; j < r.cells.length - 1; j++) expect(gone.has(r.cells[j])).toBe(false);
+    // 不留断头河:每条河都流到海、湖、别的河或冰盖
+    const on = new Set<number>();
+    for (const r of out.rivers) r.cells.forEach((c, j, a) => j < a.length - 1 && on.add(c));
+    for (const r of out.rivers) {
+      const last = r.cells[r.cells.length - 1];
+      expect(out.water[last] !== 0 || on.has(last) || out.temperature[last] < -9 || out.temperature[r.cells[r.cells.length - 2] ?? last] < -9).toBe(true);
+    }
+    // 别的河照旧:删的那批以外,原来的河口流量大的几条还在
+    expect(out.rivers.length).toBeGreaterThan(w.rivers.length - hit.length - 5);
+  });
+
+  it('每条河自己的陆地段:汇进别的河的那一块和河口不算;流到冰盖边停下的河,最后一块算它自己的', () => {
+    const water = new Uint8Array(10);
+    water[9] = 1;
+    const river = (cells: number[]) => ({ pts: new Float32Array(cells.length * 3), cells: Int32Array.from(cells) });
+    // 0 号河流到冰盖边停在 3;1 号河在 2 汇进 0 号;2 号河入海(9)
+    const rivers = [river([1, 2, 3]), river([5, 6, 2]), river([7, 8, 9])];
+    expect(riverCells(rivers, water, [0])).toEqual([1, 2, 3]);
+    expect(riverCells(rivers, water, [1])).toEqual([5, 6]);
+    expect(riverCells(rivers, water, [2])).toEqual([7, 8]);
+  });
+
+  it('作者放的湖删不掉:点在上面不生效,描红也不认', () => {
+    const w = base7();
+    const c = farthestFrom(w, true);
+    const lake: TerrainOp = { kind: 'lake', pts: [Math.round(w.mesh.x[c]), Math.round(w.mesh.y[c])], r: 16, s: 1 };
+    const withLake = generateWorld(SMALL, undefined, [lake]);
+    const [x, y] = lake.pts;
+    expect(lakeAt(withLake.mesh, withLake.water, x, y)).not.toBeNull();
+    expect(lakeAt(withLake.mesh, withLake.water, x, y, ownLakeCells(withLake.mesh, [lake]))).toBeNull();
+    const both = generateWorld(SMALL, undefined, [del(x, y), lake]);
+    expect(both.water).toEqual(withLake.water);
+  });
+
+  it('同样的删河湖两次生成逐字节相同', () => {
+    const w = base7();
+    const ops = [del(...riverSpot(w, 5))];
+    expect(worldCheck(generateWorld(SMALL, undefined, ops))).toBe(worldCheck(generateWorld(SMALL, undefined, ops)));
   });
 });
 
