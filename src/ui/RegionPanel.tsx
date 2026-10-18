@@ -11,6 +11,7 @@
  *
  * "在这里立国""划给…"换到干预页:生效年份(−100 −10 [年份] +10)+ 国名(可不填)/ 永久;
  * 立国:那一年没人住、但住得了人的州也能立(推演时一支新的民族来这里落脚),住不了人的写明是什么地形、按钮点不了;
+ * 在别国(不止这一州的)领土里立国,多一句提示:新国只有一州,几十年后常被原主收回,要留下来得再下「保护」;
  * "划给…"在地图上选国家(地图压暗、可选的国家浮出名牌,见 TargetPlates.tsx)。下的干预先进待推演的单子(pendingStore.ts)、回到信息页;
  * 点「全部推演」后 App 在后台重推,顶部提示"…划给…,已从 X 年起重新推演"带撤销。
  */
@@ -371,6 +372,11 @@ function RegionOrder({ civ, id, year, page, back }: { civ: Civ; id: number; year
                 ? `${holder}，还没人住。立国时会有一支新的民族在这里落脚，第一座城就建在这里。`
                 : `${holder}${O ? ',立国后从它分出来' : ''}${fate}。`}
           </span>
+          {page === 'found' && O && (at.size.get(O.id) ?? 0) > 1 && (
+            <span className="cp-note" data-hint="found-protect">
+              新国一开始只有这一州,几十年后常被母国收回。想让它留下来,立国后给它下「保护」。
+            </span>
+          )}
         </div>
         {(msg || why) && <div className="cp-msg">{msg ?? why}</div>}
         {mine.length > 0 && (
