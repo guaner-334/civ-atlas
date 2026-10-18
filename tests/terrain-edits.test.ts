@@ -432,9 +432,29 @@ describe('改地形 · 高度笔', () => {
     const [ox, oy] = [Math.round(w0.mesh.x[o]), Math.round(w0.mesh.y[o])];
     const isle = generateWorld(SMALL, undefined, [{ kind: 'setHeight', pts: [ox, oy], r: 30, s: 1, h: 300, edge: 0 }]);
     for (const i of near(isle, ox, oy, 15)) expect(isle.water[i]).toBe(0);
+    // 形成过程的回放:最后一帧(今天)这里也是陆地的高度,不是原来的海底
+    const last = isle.history[isle.history.length - 1];
+    for (const i of near(isle, ox, oy, 15)) expect(last[i]).toBeGreaterThan(0);
     const [x, y] = plain(w0);
     const sea = generateWorld(SMALL, undefined, [{ kind: 'setHeight', pts: [x, y], r: 30, s: 1, h: -200, edge: 0 }]);
     for (const i of near(sea, x, y, 15)) expect(sea.water[i]).toBe(1);
+  });
+
+  it('压低出一大片盆地:积成的大湖留着,不当成"太大的湖"填平;湖里涂高的小岛也不淹', () => {
+    const w0 = base7();
+    const [x, y] = plain(w0);
+    const big = generateWorld(SMALL, undefined, [{ kind: 'setHeight', pts: [x, y], r: 60, s: 1, h: 1, edge: 0 }]);
+    const core = near(big, x, y, 50);
+    const lake = core.filter((i) => big.water[i] === 2).length;
+    expect(lake).toBeGreaterThan(0.8 * core.length);
+    expect(lake).toBeGreaterThan(40);
+    const isle = generateWorld(SMALL, undefined, [
+      { kind: 'setHeight', pts: [x, y], r: 60, s: 1, h: 1, edge: 0 },
+      { kind: 'setHeight', pts: [x, y], r: 4, s: 1, h: 400, edge: 0 },
+    ]);
+    const top = near(isle, x, y, 2);
+    expect(top.length).toBeGreaterThan(0);
+    for (const i of top) expect(isle.water[i]).toBe(0);
   });
 
   it('抬高 / 压低:涂得越多变得越多,笔心抬的米数和读数(liftAt)对得上', () => {

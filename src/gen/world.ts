@@ -350,14 +350,27 @@ export function generateWorld(params: WorldParams, progress: Progress = () => {}
     base = growTerrain(p, sk, shapes, climateP, progress, key);
     if (cache) cache.base = base;
   }
-  const { mesh, touched, highLand, history } = base;
+  const { mesh, touched, highLand } = base;
   const { n } = mesh;
   const elevation = base.elevation.slice();
-  // 改地形:高度五种笔(抬高、压低、平滑、抹平、定高)直接改海拔;涂过海平面的地方海陆跟着变(在副本上改,前一半记着的不动)
+  // 改地形:高度五种笔(抬高、压低、平滑、抹平、定高)直接改海拔;涂过海平面的地方海陆跟着变(在副本上改,前一半记着的不动)。
+  // painted = 涂过的地块:下面填平太大的湖、淹掉湖心小岛时不动它们(和作者挖的湖、堆的地一样)
   let tect = base.tect;
+  let history = base.history;
+  let painted: Uint8Array | null = null;
   if (ops.some((o) => isHeightKind(o.kind))) {
     tect = { ...tect, land: tect.land.slice() };
-    applyHeightPens(mesh, tect.land, elevation, ops);
+    painted = applyHeightPens(mesh, tect.land, elevation, ops);
+    // 形成过程的回放帧也加上涂的高低(回放用的是现在的海陆),最后一帧和现在的地形对得上
+    const changed: number[] = [];
+    for (let i = 0; i < n; i++) if (elevation[i] !== base.elevation[i]) changed.push(i);
+    if (changed.length) {
+      history = history.map((fr) => {
+        const out = fr.slice();
+        for (const i of changed) out[i] += elevation[i] - base.elevation[i];
+        return out;
+      });
+    }
   }
   const { land } = tect;
 
@@ -404,7 +417,7 @@ export function generateWorld(params: WorldParams, progress: Progress = () => {}
         }
       }
     }
-    if (comp.length > maxLake && !(userLake && comp.some((c) => userLake[c]))) {
+    if (comp.length > maxLake && !(userLake && comp.some((c) => userLake[c])) && !(painted && comp.some((c) => painted[c]))) {
       for (const c of comp) {
         water[c] = 0;
         elevation[c] = pool.filled[c] - 1;
@@ -435,13 +448,14 @@ export function generateWorld(params: WorldParams, progress: Progress = () => {}
         } else if (water[j] === 1) ocean = true;
       }
     }
-    // 作者挖的湖、作者堆的地(火山、抬起陆地)不动
+    // 作者挖的湖、作者堆的地(火山、抬起陆地)、高度笔涂过的地方不动
     if (
       lake &&
       !ocean &&
       comp.length <= islet &&
       !(userLake && comp.some((c) => userLake[c])) &&
-      !(touched && comp.some((c) => touched[c]))
+      !(touched && comp.some((c) => touched[c])) &&
+      !(painted && comp.some((c) => painted[c]))
     ) {
       for (const c of comp) {
         water[c] = 2;
