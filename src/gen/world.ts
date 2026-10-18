@@ -71,7 +71,7 @@ const DENT_P = 1 / 600;
 const LAKE_ISLET = 6;
 
 /** 年均温低于这个(°C)的陆地是冰盖(和 biomes.ts 的冰原同一条线):雪不化成河 */
-const ICE_SHEET_T = -9;
+export const ICE_SHEET_T = -9;
 /** 冰盖每块的径流(米/年):只有一点融水,整片冰盖汇起来也成不了大河 */
 const ICE_RUNOFF = 0.004;
 
@@ -507,6 +507,8 @@ function traceRivers(
         chain.push(r);
         break;
       }
+      // 流进冰盖就停(作者画的照画)
+      if (!forced?.[r] && temperature && temperature[r] < ICE_SHEET_T) break;
       pts.push(x[r], y[r], flux[r]);
       chain.push(r);
       if (visited[r]) break;

@@ -5,7 +5,7 @@
  * 地块中心连成的线放大后太直:相邻两点之间加一个往旁边偏一点的中点(偏多少按两个地块的编号定),画出来弯弯曲曲。
  * 纯计算:不碰页面,worker / Node 都能跑;同一个世界结果一样。
  */
-import type { River, World } from './world';
+import { ICE_SHEET_T, type River, type World } from './world';
 import { drainage } from './erosion';
 import { geometryOf } from './geometry';
 
@@ -33,7 +33,7 @@ export function creeksOf(world: World): River[] {
 }
 
 function traceCreeks(world: World): River[] {
-  const { mesh, water, flux, riverThreshold } = world;
+  const { mesh, water, flux, riverThreshold, temperature } = world;
   const land = world.tect.land;
   const { n, x, y } = mesh;
   const receiver = drainage(mesh, land, world.elevation, 1e-3).receiver;
@@ -43,7 +43,9 @@ function traceCreeks(world: World): River[] {
   const onRiver = new Uint8Array(n);
   for (const r of world.rivers) for (const c of r.cells) onRiver[c] = 1;
   const isCreek = new Uint8Array(n);
-  for (let i = 0; i < n; i++) if (water[i] === 0 && !onRiver[i] && flux[i] >= thr) isCreek[i] = 1;
+  // 冰盖上的那点融水攒多了也不画成溪
+  const ice = (i: number) => temperature[i] < ICE_SHEET_T;
+  for (let i = 0; i < n; i++) if (water[i] === 0 && !onRiver[i] && flux[i] >= thr && !ice(i)) isCreek[i] = 1;
   const hasDonor = new Uint8Array(n);
   for (let i = 0; i < n; i++) if (isCreek[i] && receiver[i] >= 0) hasDonor[receiver[i]] = 1;
   const sources: number[] = [];
@@ -78,6 +80,7 @@ function traceCreeks(world: World): River[] {
         chain.push(r);
         break;
       }
+      if (ice(r)) break;
       pts.push(x[r], y[r], flux[r]);
       chain.push(r);
       if (visited[r]) break;
