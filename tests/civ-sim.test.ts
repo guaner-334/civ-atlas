@@ -81,7 +81,7 @@ function spreadPhaseEnd(civ: Civ): number {
 
 /** 和 generateCiv 用同样的输入重新定一遍民族(不含推演后的起名 / 配色) */
 function modelOf(w: World, civ: Civ, birthSpan: number): CultureModel {
-  return planCultures(w, civ.habitat, civ.regions, { cultures: 'auto', pace: 1, birthSpan })!;
+  return planCultures(w, civ.habitat, civ.regions, { seed: w.params.seed, cultures: 'auto', pace: 1, birthSpan })!;
 }
 
 /** Civ 里所有能比的数组 */

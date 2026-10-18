@@ -709,7 +709,7 @@ export interface FlagBook {
 
 /** 算出所有国家历代的旗;overrides = 作者改过的(键 → 旗) */
 export function flagBook(world: World, civ: Civ, overrides: FlagOverrides = {}): FlagBook {
-  const ctx: Ctx = { world, civ, seed: world.params.seed, overrides, memo: new Map() };
+  const ctx: Ctx = { world, civ, seed: civ.seed, overrides, memo: new Map() };
   return { eras: civ.polities.map((p) => polityEras(ctx, p.id)) };
 }
 
@@ -735,7 +735,7 @@ export function polityFlagKeys(civ: Civ, id: number): string[] {
  */
 export function flagAlternatives(world: World, civ: Civ, id: number, era: FlagEra, batch = 0, n = 8): FlagSpec[] {
   const p = civ.polities[id];
-  const seed = world.params.seed;
+  const seed = civ.seed;
   const pal = culturePalette(seed, civ, p.culture);
   const taste = tasteOf(civ.cultures[p.culture].style);
   const seat = era.why.seat;

@@ -69,6 +69,8 @@ interface CivInput {
   frontier?: Frontier;
   /** 自己选的文明起源(gen/edits.ts 的 WorldEdits.origins;不给 = 自动) */
   origins?: Origins;
+  /** 文明种子(gen/edits.ts 的 WorldEdits.civSeed;不给 = 地图种子) */
+  civSeed?: number;
   tempo?: TempoNote;
   /** 主线程已经有了的主图补丁("上一段的键>这一段的键");没给的才在后台铺 */
   have?: string[];
@@ -95,7 +97,7 @@ export type WorkerRequest =
    */
   | ({ type: 'load'; id: number; scale: number; parts: SnapshotPart[]; interventions?: Intervention[] } & CivInput)
   /** 地形大事的预览:upheavals = 已经有的大事,在 year 那一年再加上 ops 会怎么样;pid = 第几次预览(主线程只认最新的) */
-  | { type: 'upPreview'; id: number; pid: number; params: WorldParams; terrain?: TerrainOp[]; sketch?: SketchEdit; upheavals?: Upheaval[]; year: number; ops: TerrainOp[] };
+  | { type: 'upPreview'; id: number; pid: number; params: WorldParams; terrain?: TerrainOp[]; sketch?: SketchEdit; upheavals?: Upheaval[]; civSeed?: number; year: number; ops: TerrainOp[] };
 
 export type WorkerResponse =
   | { type: 'progress'; id: number; stage: string; pct: number }
@@ -149,9 +151,12 @@ function noteOf(params: WorldParams, sketch: SketchEdit | undefined): TempoNote 
   const tempo = tempos.get(key);
   return tempo === undefined ? undefined : { key, tempo };
 }
-/** 推文明时带的节拍:没改地形 = 不用(按世界自己标定);改过 = 这颗星球(参数 + 草图)的节拍,手里没有就现算 */
-function tempoOf(params: WorldParams, terrain: TerrainOp[] | undefined, sketch: SketchEdit | undefined): PlanetTempo | null | undefined {
-  if (!terrain?.length) return undefined;
+/**
+ * 推文明时带的节拍:没改地形 = 不用(按世界自己标定);改过 = 这颗星球(参数 + 草图)的节拍,手里没有就现算。
+ * 给了文明种子的(一张地图上新开的历史)按地图本身标定,也不用
+ */
+function tempoOf(params: WorldParams, terrain: TerrainOp[] | undefined, sketch: SketchEdit | undefined, civSeed?: number): PlanetTempo | null | undefined {
+  if (!terrain?.length || civSeed !== undefined) return undefined;
   const key = keyOf(params, undefined, sketch);
   if (!tempos.has(key)) rememberTempo(params, sketch, planetTempo(params, undefined, sketchGrid(sketch)) ?? null);
   return tempos.get(key);
@@ -230,7 +235,11 @@ const namesOpt = (names: NameMix | undefined) => (names ? { names } : {});
 const yearsOpt = (endYear: number | undefined) => (endYear ? { endYear } : {});
 
 /** 推文明时带的拓荒、起源(默认 = 不带) */
-const setupOpt = (m: Pick<CivInput, 'frontier' | 'origins'>) => ({ ...(m.frontier ? { frontier: m.frontier } : {}), ...(m.origins ? { origins: m.origins } : {}) });
+const setupOpt = (m: Pick<CivInput, 'frontier' | 'origins' | 'civSeed'>) => ({
+  ...(m.frontier ? { frontier: m.frontier } : {}),
+  ...(m.origins ? { origins: m.origins } : {}),
+  ...(m.civSeed !== undefined ? { civSeed: m.civSeed } : {}),
+});
 
 /** 推文明时带的地形大事(没有 = 不带,和不加这一项逐字节一样) */
 const upOpt = (steps: Step[]) => (steps.length ? { upheavals: steps } : {});
@@ -257,11 +266,11 @@ function remember(key: string, r: Regions): Regions {
   return r;
 }
 /** 第 year 年的地形和州(upheavalBase:同一年已有的大事地形算在内、州不算),和那时的全部地形修改 */
-function baseAt(params: WorldParams, terrain: TerrainOp[] | undefined, sketch: SketchEdit | undefined, steps: Step[], year: number): { world: World; regions: Regions; ops: TerrainOp[] } {
-  // 照原样读进来的旧世界和现在的版本生成的同一个世界键一样、地形不一样:州分开记
-  const k0 = `${frozen?.key === keyOf(params, terrain, sketch) ? 'frozen:' : ''}${keyOf(params, terrain, sketch)}`;
+function baseAt(params: WorldParams, terrain: TerrainOp[] | undefined, sketch: SketchEdit | undefined, steps: Step[], year: number, seed: number): { world: World; regions: Regions; ops: TerrainOp[] } {
+  // 照原样读进来的旧世界和现在的版本生成的同一个世界键一样、地形不一样:州分开记;同一张地图上的几段历史州也不一样(文明种子)
+  const k0 = `${frozen?.key === keyOf(params, terrain, sketch) ? 'frozen:' : ''}${seed === params.seed ? '' : `civ${seed}:`}${keyOf(params, terrain, sketch)}`;
   let w = worldOf(params, terrain, sketch);
-  let r = regionsMemo.get(k0) ?? remember(k0, buildRegions(w, computeHabitat(w), { regionArea: REGION_AREA }));
+  let r = regionsMemo.get(k0) ?? remember(k0, buildRegions(w, computeHabitat(w), { regionArea: REGION_AREA, seed }));
   let ops: TerrainOp[] = [...(terrain ?? [])];
   let chain = k0;
   for (const s of steps) {
@@ -271,7 +280,7 @@ function baseAt(params: WorldParams, terrain: TerrainOp[] | undefined, sketch: S
     if (s.year === year) break;
     const prev = r;
     chain = `${chain}>${s.key}`;
-    r = regionsMemo.get(chain) ?? remember(chain, reshapeRegions(w, computeHabitat(w), prev, { regionArea: REGION_AREA }));
+    r = regionsMemo.get(chain) ?? remember(chain, reshapeRegions(w, computeHabitat(w), prev, { regionArea: REGION_AREA, seed }));
   }
   return { world: w, regions: r, ops };
 }
@@ -360,7 +369,7 @@ function queueSnapshot(id: number, m: CivInput & { interventions?: Intervention[
     let eras: SnapshotPart;
     let civPart: SnapshotPart;
     try {
-      const recipe = await recipeKey({ params: m.params, terrain: m.terrain, sketch: m.sketch, interventions: m.interventions, upheavals: m.upheavals, names: m.names, endYear: m.endYear, frontier: m.frontier, origins: m.origins });
+      const recipe = await recipeKey({ params: m.params, terrain: m.terrain, sketch: m.sketch, interventions: m.interventions, upheavals: m.upheavals, names: m.names, endYear: m.endYear, frontier: m.frontier, origins: m.origins, civSeed: m.civSeed });
       const map = await mapPart(baseKey, world);
       eras = await makePart('eras', { baseKey, eras: eraWorlds(steps) ?? [] });
       civPart = await makePart('civ', civ);
@@ -437,9 +446,9 @@ async function handle(m: WorkerRequest): Promise<void> {
     const civ = await pool.finish(d, () => {
       // 文明骨架(宜居度、州……)只读 World,之后的文明步骤都在 gen/civ/index.ts 里接
       post({ type: 'progress', id: m.id, stage: '文明', pct: 0.95 });
-      const c = generateCiv(world, { interventions: m.interventions?.length ? m.interventions : undefined, tempo: tempoOf(m.params, m.terrain, m.sketch), ...upOpt(steps), ...namesOpt(m.names), ...yearsOpt(m.endYear), ...setupOpt(m) });
-      // 调了民族扩散的,civ.spreadYears 不是节拍(÷ 了倍数),不记
-      if (!m.terrain?.length && !m.frontier?.spread) rememberTempo(m.params, m.sketch, c.spreadYears !== undefined && c.capNorm !== undefined ? { spread: c.spreadYears, capNorm: c.capNorm } : null);
+      const c = generateCiv(world, { interventions: m.interventions?.length ? m.interventions : undefined, tempo: tempoOf(m.params, m.terrain, m.sketch, m.civSeed), ...upOpt(steps), ...namesOpt(m.names), ...yearsOpt(m.endYear), ...setupOpt(m) });
+      // 调了民族扩散的,civ.spreadYears 不是节拍(÷ 了倍数);另起文明种子的,州和民族不是这颗星球原来的那一份:都不记
+      if (!m.terrain?.length && !m.frontier?.spread && m.civSeed === undefined) rememberTempo(m.params, m.sketch, c.spreadYears !== undefined && c.capNorm !== undefined ? { spread: c.spreadYears, capNorm: c.capNorm } : null);
       return c;
     });
     const vl = raster.veinLines!;
@@ -509,7 +518,7 @@ async function handle(m: WorkerRequest): Promise<void> {
     const t0 = performance.now();
     const world = worldOf(m.params, m.terrain, m.sketch);
     const steps = stepsOf(m.params, m.terrain, m.sketch, m.upheavals);
-    const civ = generateCiv(world, { interventions: m.interventions, tempo: tempoOf(m.params, m.terrain, m.sketch), ...upOpt(steps), ...namesOpt(m.names), ...yearsOpt(m.endYear), ...setupOpt(m) });
+    const civ = generateCiv(world, { interventions: m.interventions, tempo: tempoOf(m.params, m.terrain, m.sketch, m.civSeed), ...upOpt(steps), ...namesOpt(m.names), ...yearsOpt(m.endYear), ...setupOpt(m) });
     const ms = performance.now() - t0;
     const tempo = noteOf(m.params, m.sketch);
     if (m.type === 'resim') {
@@ -522,9 +531,10 @@ async function handle(m: WorkerRequest): Promise<void> {
     const t0 = performance.now();
     const run = () => {
       const steps = stepsOf(m.params, m.terrain, m.sketch, m.upheavals);
-      const at = baseAt(m.params, m.terrain, m.sketch, steps, m.year);
+      const seed = m.civSeed ?? m.params.seed;
+      const at = baseAt(m.params, m.terrain, m.sketch, steps, m.year, seed);
       const w1 = cachedWorld(m.params, [...at.ops, ...m.ops], m.sketch).world;
-      return { preview: previewUpheaval(at.world, at.regions, w1, m.ops, REGION_AREA), water: w1.water.slice() };
+      return { preview: previewUpheaval(at.world, at.regions, w1, m.ops, REGION_AREA, seed), water: w1.water.slice() };
     };
     // 照原样打开的旧世界上预览新的大事:大事以后的地形只能按现在的版本生成,前后都按现在的版本算(和另存出来的新版一致),不拿两颗星球比
     const pinned = frozen;

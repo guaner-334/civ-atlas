@@ -23,6 +23,8 @@ import { neighborGraph, roadPassable, seaPassable, urquhart, type Link } from '.
 export interface RegionParams {
   /** 每州目标面积(世界单位²) */
   regionArea: number;
+  /** 文明种子(CivParams.civSeed;没给时调用方填地图种子) */
+  seed: number;
 }
 
 // ---- 调参(以截图效果为准) ----
@@ -74,7 +76,7 @@ function riverSize(flux: number, thr: number): number {
 export function buildRegions(world: World, habitat: Habitat, p: RegionParams): Regions {
   const { mesh, water, biome, elevation, flux, riverThreshold } = world;
   const { n, adjStart, adj } = mesh;
-  const base = subSeed(world.params.seed, 'civ-regions');
+  const base = subSeed(p.seed, 'civ-regions');
   const len = adjLengths(mesh);
   const cellArea = cellAreas(mesh);
   const step = refSpacing(mesh);
@@ -791,7 +793,7 @@ export function emptyRegions(n: number): Regions {
 export function reshapeRegions(world: World, habitat: Habitat, prev: Regions, p: RegionParams): Regions {
   const { mesh, water, flux, riverThreshold } = world;
   const { n, adjStart, adj } = mesh;
-  const base = subSeed(world.params.seed, 'civ-regions');
+  const base = subSeed(p.seed, 'civ-regions');
   const len = adjLengths(mesh);
   const cellArea = cellAreas(mesh);
   const step = refSpacing(mesh);
