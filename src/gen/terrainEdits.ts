@@ -17,6 +17,8 @@
  *   排水(Priority-Flood)自己把它灌满成湖;用户挖的湖不受"太大的湖填成平地"的限制
  * - 随机洼地之后、挖湖之前(applyHeightPens):高度五种笔(抬高 / 压低 / 平滑 / 抹平 / 定高)直接改最后的海拔(米),
  *   改过以后高过海平面的是陆地、低于海平面的是海;之后的湖、河、气候、群落照新高度算。侵蚀已经跑完,涂的高度不会被抹掉
+ * - 排水、填湖之后(deleteLakes):删河湖点在湖里的,整片湖填平成地;算完流量、串河之前(deleteRivers):删河湖指着的河连同支流,
+ *   上游流域的流量压到成河门槛以下
  * - 最后(volcanoPeaks):每座火山的峰顶地块,手绘风在那里画火山符号
  *
  * 确定性:不用随机数;山脉脊上的起伏、新海岸线的细碎用 subSeed(seed, 'terrain-edit') 的噪声。
@@ -37,6 +39,10 @@ export const TERRAIN_MAX_PTS = 256;
 /** 大小(r)、强度(s)的范围 */
 export const TERRAIN_R: readonly [number, number] = [3, 160];
 export const TERRAIN_S: readonly [number, number] = [0.2, 2];
+/** 删河湖:点下去的地方离河多远以内算指着这条河(世界坐标) */
+export const DEL_WATER_R = 10;
+/** 删掉的河的上游流域,流量压到成河门槛的这么多倍以下(比地图上画小溪的门槛 creeks.ts 的 CREEK_FRAC 还低,小溪也不画) */
+export const DEL_WATER_FLUX = 0.1;
 /** 气候四种的三档(r 是默认的画笔半径,s 是程度) */
 const CLIMATE_PRESET: [r: number, s: number][] = [
   [40, 0.5],
@@ -96,6 +102,12 @@ export const TERRAIN_PRESETS: Record<TerrainKind, [r: number, s: number][]> = {
   smooth: HEIGHT_PRESET,
   flatten: HEIGHT_PRESET,
   setHeight: HEIGHT_PRESET,
+  // 删河湖:r 是找河的最远距离(三档一样,只给类型齐全用)
+  delWater: [
+    [DEL_WATER_R, 1],
+    [DEL_WATER_R, 1],
+    [DEL_WATER_R, 1],
+  ],
 };
 
 /**
@@ -114,8 +126,8 @@ export function presetStrength(kind: TerrainKind, r: number): number {
   return p[p.length - 1][1];
 }
 
-const KINDS: readonly TerrainKind[] = ['volcano', 'range', 'lake', 'raise', 'sink', 'river', 'wet', 'dry', 'warm', 'cold', 'lift', 'lower', 'smooth', 'flatten', 'setHeight'];
-/** 只有一个点的种类 */
+const KINDS: readonly TerrainKind[] = ['volcano', 'range', 'lake', 'raise', 'sink', 'river', 'wet', 'dry', 'warm', 'cold', 'lift', 'lower', 'smooth', 'flatten', 'setHeight', 'delWater'];
+/** 放一处的点(火山、湖):画成一个圈 */
 export const isPointKind = (k: TerrainKind) => k === 'volcano' || k === 'lake';
 /** 改气候的四种(不动地形,算完气候后改降水 / 气温) */
 export const isClimateKind = (k: TerrainKind) => k === 'wet' || k === 'dry' || k === 'warm' || k === 'cold';
@@ -148,7 +160,7 @@ export function cleanTerrainOp(x: unknown): TerrainOp | null {
   const kind = o.kind as TerrainKind;
   if (!KINDS.includes(kind) || !Array.isArray(o.pts) || o.pts.length < 2) return null;
   const raw = o.pts as unknown[];
-  const take = isPointKind(kind) ? 2 : Math.min(raw.length, TERRAIN_MAX_PTS * 2) & ~1;
+  const take = isPointKind(kind) || kind === 'delWater' ? 2 : Math.min(raw.length, TERRAIN_MAX_PTS * 2) & ~1;
   const pts: number[] = [];
   for (let i = 0; i < take; i += 2) {
     const px = num(raw[i]);
@@ -161,7 +173,7 @@ export function cleanTerrainOp(x: unknown): TerrainOp | null {
   if (r0 === null || s0 === null) return null;
   const r = Math.round(clamp(r0, TERRAIN_R[0], TERRAIN_R[1]) * 10) / 10;
   const height = isHeightKind(kind);
-  const s = kind === 'setHeight' ? 1 : Math.round(clamp(s0, ...(height ? HEIGHT_S : TERRAIN_S)) * 100) / 100;
+  const s = kind === 'setHeight' || kind === 'delWater' ? 1 : Math.round(clamp(s0, ...(height ? HEIGHT_S : TERRAIN_S)) * 100) / 100;
   // 定高的海拔、边缘
   const h0 = kind === 'setHeight' ? num(o.h) : null;
   if (kind === 'setHeight' && h0 === null) return null;
@@ -658,6 +670,120 @@ export function carveRivers(mesh: Mesh, water: Uint8Array, elevation: Float32Arr
     for (const c of run) onChain[c] = 0;
   }
   return forced;
+}
+
+// ---------------------------------------------------------------------------
+// 删河湖
+
+/** 河(world.ts 的 River 里删河湖要用的几样;这里不引 world.ts) */
+export interface RiverLike {
+  /** x, y, 流量 交错存 */
+  pts: Float32Array;
+  /** 经过的地块链 */
+  cells: Int32Array;
+  /** 作者画的河经过的点(有 = 作者画的河) */
+  drawn?: Uint8Array;
+}
+
+/**
+ * 点 (px, py) 落在哪个湖里:离它最近的地块是湖(water = 2)= 那一整片湖(相连的湖水地块,从那一块开始一圈圈往外);不是湖 = null。
+ * own 标着作者放的湖:这片湖碰到其中一块就不算(删河湖只删程序生成的)
+ */
+export function lakeAt(mesh: Mesh, water: Uint8Array, px: number, py: number, own?: ArrayLike<number> | null): number[] | null {
+  const c = geometryOf(mesh).nearest(px, py, 0);
+  if (water[c] !== 2) return null;
+  const comp = [c];
+  const seen = new Set(comp);
+  for (let q = 0; q < comp.length; q++) {
+    const a = comp[q];
+    for (let k = mesh.adjStart[a]; k < mesh.adjStart[a + 1]; k++) {
+      const j = mesh.adj[k];
+      if (water[j] === 2 && !seen.has(j)) {
+        seen.add(j);
+        comp.push(j);
+      }
+    }
+  }
+  return own && comp.some((i) => own[i]) ? null : comp;
+}
+
+/** 作者放的湖各自的中心落在哪个地块(标 1):地图上指着湖时,用它认出作者放的湖、不描红 */
+export function ownLakeCells(mesh: Mesh, ops: readonly TerrainOp[]): Uint8Array {
+  const out = new Uint8Array(mesh.n);
+  for (const op of ops) if (op.kind === 'lake') out[geometryOf(mesh).nearest(op.pts[0], op.pts[1], 0)] = 1;
+  return out;
+}
+
+/**
+ * 点 (px, py) 指着哪几条河:离它不超过 R(主图上的距离,东西相连)的河里最近的一条(作者画的河不算),
+ * 连同流进它的支流(一层层往上:河的最后一个地块落在要删的河自己的陆地段上 = 流进它;作者画的支流不算)。返回河的下标(先是指着的那条);没有 = []。
+ * 地图上指着时描红、生成时删,都按这个算
+ */
+export function riversAt(rivers: readonly RiverLike[], water: Uint8Array, px: number, py: number, R: number): number[] {
+  let best = -1;
+  let bestD = R * R;
+  rivers.forEach((rv, i) => {
+    if (rv.drawn) return;
+    const p = rv.pts;
+    let sx = 0;
+    let sy = 0;
+    for (let k = 0; k < p.length; k += 3) {
+      // 第一个点挪到离 px 最近的那一圈,之后每个点挪到离上一个点最近的那一圈(跨 180° 经线的一段是连着的)
+      const bx = p[k] - TERRAIN_W * Math.round((p[k] - (k === 0 ? px : sx)) / TERRAIN_W);
+      const by = p[k + 1];
+      if (k === 0) {
+        sx = bx;
+        sy = by;
+      }
+      const dx = bx - sx;
+      const dy = by - sy;
+      const l = dx * dx + dy * dy;
+      const t = l > 0 ? clamp(((px - sx) * dx + (py - sy) * dy) / l, 0, 1) : 0;
+      const d = (px - sx - t * dx) ** 2 + (py - sy - t * dy) ** 2;
+      if (d < bestD) {
+        bestD = d;
+        best = i;
+      }
+      sx = bx;
+      sy = by;
+    }
+  });
+  if (best < 0) return [];
+  const out = [best];
+  const taken = new Set(out);
+  const own = riverOwner(rivers, water);
+  const gone = new Set(riverCells(rivers, water, out, own));
+  for (let more = true; more; ) {
+    more = false;
+    rivers.forEach((rv, i) => {
+      const last = rv.cells[rv.cells.length - 1];
+      if (rv.drawn || taken.has(i) || own.get(last) === i || !gone.has(last)) return;
+      out.push(i);
+      taken.add(i);
+      for (const c of riverCells(rivers, water, [i], own)) gone.add(c);
+      more = true;
+    });
+  }
+  return out;
+}
+
+/** 每个陆地块归哪条河:最先经过它的那条(后串的河走到串过的地块就停,那一块是汇进去的地方,归先串的那条) */
+function riverOwner(rivers: readonly RiverLike[], water: Uint8Array): Map<number, number> {
+  const own = new Map<number, number>();
+  rivers.forEach((rv, i) => {
+    for (const c of rv.cells) if (water[c] === 0 && !own.has(c)) own.set(c, i);
+  });
+  return own;
+}
+
+/**
+ * 这几条河自己的陆地段:河口(海、湖)和汇进别的河的那一块不算;流到冰盖边停下的河,最后一块是它自己的。
+ * 删河时压的就是这些地块(和它们的上游)
+ */
+export function riverCells(rivers: readonly RiverLike[], water: Uint8Array, idx: readonly number[], own = riverOwner(rivers, water)): number[] {
+  const out: number[] = [];
+  for (const i of idx) for (const c of rivers[i].cells) if (own.get(c) === i) out.push(c);
+  return out;
 }
 
 // ---------------------------------------------------------------------------
