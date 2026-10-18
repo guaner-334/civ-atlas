@@ -716,7 +716,7 @@ export function ownLakeCells(mesh: Mesh, ops: readonly TerrainOp[]): Uint8Array 
 
 /**
  * 点 (px, py) 指着哪几条河:离它不超过 R(主图上的距离,东西相连)的河里最近的一条(作者画的河不算),
- * 连同流进它的支流(一层层往上:河的最后一个地块落在要删的河的陆地段上 = 流进它;作者画的支流不算)。返回河的下标(先是指着的那条);没有 = []。
+ * 连同流进它的支流(一层层往上:河的最后一个地块落在要删的河自己的陆地段上 = 流进它;作者画的支流不算)。返回河的下标(先是指着的那条);没有 = []。
  * 地图上指着时描红、生成时删,都按这个算
  */
 export function riversAt(rivers: readonly RiverLike[], water: Uint8Array, px: number, py: number, R: number): number[] {
@@ -751,22 +751,38 @@ export function riversAt(rivers: readonly RiverLike[], water: Uint8Array, px: nu
   if (best < 0) return [];
   const out = [best];
   const taken = new Set(out);
-  // 要删的陆地段:每条河的最后一个地块是河口(海、湖)或汇进的那条河上的地块,不算它自己的
-  const gone = new Set<number>();
-  const add = (rv: RiverLike) => {
-    for (let k = 0; k < rv.cells.length - 1; k++) if (water[rv.cells[k]] === 0) gone.add(rv.cells[k]);
-  };
-  add(rivers[best]);
+  const own = riverOwner(rivers, water);
+  const gone = new Set(riverCells(rivers, water, out, own));
   for (let more = true; more; ) {
     more = false;
     rivers.forEach((rv, i) => {
-      if (rv.drawn || taken.has(i) || !gone.has(rv.cells[rv.cells.length - 1])) return;
+      const last = rv.cells[rv.cells.length - 1];
+      if (rv.drawn || taken.has(i) || own.get(last) === i || !gone.has(last)) return;
       out.push(i);
       taken.add(i);
-      add(rv);
+      for (const c of riverCells(rivers, water, [i], own)) gone.add(c);
       more = true;
     });
   }
+  return out;
+}
+
+/** 每个陆地块归哪条河:最先经过它的那条(后串的河走到串过的地块就停,那一块是汇进去的地方,归先串的那条) */
+function riverOwner(rivers: readonly RiverLike[], water: Uint8Array): Map<number, number> {
+  const own = new Map<number, number>();
+  rivers.forEach((rv, i) => {
+    for (const c of rv.cells) if (water[c] === 0 && !own.has(c)) own.set(c, i);
+  });
+  return own;
+}
+
+/**
+ * 这几条河自己的陆地段:河口(海、湖)和汇进别的河的那一块不算;流到冰盖边停下的河,最后一块是它自己的。
+ * 删河时压的就是这些地块(和它们的上游)
+ */
+export function riverCells(rivers: readonly RiverLike[], water: Uint8Array, idx: readonly number[], own = riverOwner(rivers, water)): number[] {
+  const out: number[] = [];
+  for (const i of idx) for (const c of rivers[i].cells) if (own.get(c) === i) out.push(c);
   return out;
 }
 

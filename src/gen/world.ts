@@ -33,6 +33,7 @@ import {
   cleanTerrainOps,
   isHeightKind,
   lakeAt,
+  riverCells,
   riversAt,
   volcanoPeaks,
 } from './terrainEdits';
@@ -84,6 +85,10 @@ const DENT_P = 1 / 600;
 
 /** 湖中心不超过这么多块(36000 块时;按地块数比例换算)、周围全是湖水的陆地,淹成湖 */
 const LAKE_ISLET = 6;
+
+/** 草图只补细节 / 完全照画时"最高峰"下限里普通世界高山的抬升:REF_FLOOR_U + REF_FLOOR_MTN_U × 山地参数(和 tectonics.ts 里碰撞带的山同一量级) */
+const REF_FLOOR_U = 0.13;
+const REF_FLOOR_MTN_U = 1.65;
 
 /** 年均温低于这个(°C)的陆地是冰盖(和 biomes.ts 的冰原同一条线):雪不化成河 */
 export const ICE_SHEET_T = -9;
@@ -233,7 +238,21 @@ function growTerrain(p: WorldParams, sk: Sketch | null, ops: readonly TerrainOp[
     }
     // 取第几小的值:hh 本来就是 32 位数,存进 Float32Array 原样不变,用类型化数组自带的数值排序(比带比较函数的快得多)
     const vals = refVals.subarray(0, m).sort();
-    return vals[Math.max(0, Math.min(m - 1, Math.floor((m + skip) * 0.997) - skip))] || 1;
+    const ref = vals[Math.max(0, Math.min(m - 1, Math.floor((m + skip) * 0.997) - skip))] || 1;
+    return tect.sketched ? Math.max(ref, reliefFloor(hh)) : ref;
+  };
+  /**
+   * 草图只补细节 / 完全照画时"最高峰"的下限:涂过的地方抬升很低,涂满了陆地、别处没有程序的山时,
+   * 第 99.7% 那一名就是平地,换算会把平地拉成几千米的高山。下限 = 有山的世界里最高峰大约有多高:
+   * 这颗星球上侵蚀高度和抬升之比的中位数 × 普通世界里高山的抬升(山地参数越大越高),网格疏密也随这个比值一起算进去
+   */
+  const ratio = new Float32Array(n);
+  const reliefFloor = (hh: Float32Array) => {
+    let m = 0;
+    for (let i = 0; i < n; i++) if (land[i] && uplift[i] > 0) ratio[m++] = hh[i] / uplift[i];
+    if (!m) return 0;
+    const vals = ratio.subarray(0, m).sort();
+    return vals[m >> 1] * (REF_FLOOR_U + REF_FLOOR_MTN_U * clamp(p.mountains, 0, 2));
   };
   /**
    * 侵蚀高度 → 米。pk = 这一刻的"最高峰"(回放时从矮到高长);高原底座(base,米)按同样的进度一起长高
@@ -536,10 +555,7 @@ export function generateWorld(params: WorldParams, progress: Progress = () => {}
       const hit = riversAt(now, water, op.pts[0], op.pts[1], op.r);
       if (!hit.length) continue;
       gone.fill(0);
-      for (const k of hit) {
-        const cs = now[k].cells;
-        for (let j = 0; j < cs.length - 1; j++) if (water[cs[j]] === 0) gone[cs[j]] = 1;
-      }
+      for (const c of riverCells(now, water, hit)) gone[c] = 1;
       // order 从下游往上游排:下游删了,流进它的陆地块也删
       for (let a = 0; a < route.orderLen; a++) {
         const i = route.order[a];

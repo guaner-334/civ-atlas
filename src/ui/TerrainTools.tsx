@@ -629,11 +629,11 @@ function eraseStroke(st: SketchStroke, hit: readonly number[]) {
 }
 /**
  * 「照这样长出星球」:认出来的铺成草图的底子(铺在所有笔画底下,没盖到的地方都是海;换一张时换掉,笔画留着),
- * 这张图和认法留着,收起认的面板。返回是否用上了
+ * 这张图和认法留着,收起认的面板。新开的草图程序补全按只补细节(照图这一步的面板没有那一行)。返回是否用上了
  */
 export function applyImport(): boolean {
   const r = importResult();
-  if (!r || !setSketchBase(r.name, r.layer, tool.coast, tool.fill)) return false;
+  if (!r || !setSketchBase(r.name, r.layer, tool.coast, SKETCH_FILL_NEW)) return false;
   keepImport();
   return true;
 }

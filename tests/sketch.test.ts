@@ -337,6 +337,14 @@ describe('程序补全、不长新陆地', () => {
     expect(exact.max).toBeLessThan(300);
   });
 
+  it('没涂的地方都是海、陆地全是涂的:只补细节、完全照画照样低平,不被拉成高山;涂的山照样高', () => {
+    const gen = (fill: 'detail' | 'exact', extra: SketchStroke[] = []) =>
+      generateWorld(SMALL, undefined, undefined, sketchGrid({ rest: 'sea', fill, strokes: [...strokes, ...extra] }));
+    expect(relief(gen('detail')).max).toBeLessThan(800);
+    expect(relief(gen('exact')).max).toBeLessThan(300);
+    expect(relief(gen('exact', [{ kind: 'mountain', r: 24, pts: [940, 500, 1060, 500] }])).max).toBeGreaterThan(1500);
+  });
+
   it('完全照画:涂过的地方不挖裂谷、洼地,没有程序的湖;涂的山地照样起山', () => {
     const w = generateWorld(SMALL, undefined, undefined, sketchGrid({ rest: 'auto', fill: 'exact', strokes }));
     expect(near(w, 1000, 500, 90).filter((i) => w.water[i] === 2)).toHaveLength(0);

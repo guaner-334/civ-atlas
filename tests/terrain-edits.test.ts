@@ -20,6 +20,7 @@ import {
   cleanTerrainOps,
   lakeAt,
   ownLakeCells,
+  riverCells,
   liftAt,
   presetStrength,
   riversAt,
@@ -635,6 +636,17 @@ describe('改地形 · 删河湖', () => {
     }
     // 别的河照旧:删的那批以外,原来的河口流量大的几条还在
     expect(out.rivers.length).toBeGreaterThan(w.rivers.length - hit.length - 5);
+  });
+
+  it('每条河自己的陆地段:汇进别的河的那一块和河口不算;流到冰盖边停下的河,最后一块算它自己的', () => {
+    const water = new Uint8Array(10);
+    water[9] = 1;
+    const river = (cells: number[]) => ({ pts: new Float32Array(cells.length * 3), cells: Int32Array.from(cells) });
+    // 0 号河流到冰盖边停在 3;1 号河在 2 汇进 0 号;2 号河入海(9)
+    const rivers = [river([1, 2, 3]), river([5, 6, 2]), river([7, 8, 9])];
+    expect(riverCells(rivers, water, [0])).toEqual([1, 2, 3]);
+    expect(riverCells(rivers, water, [1])).toEqual([5, 6]);
+    expect(riverCells(rivers, water, [2])).toEqual([7, 8]);
   });
 
   it('作者放的湖删不掉:点在上面不生效,描红也不认', () => {
