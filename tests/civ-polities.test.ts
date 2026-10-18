@@ -389,9 +389,10 @@ describe('城市成长 + 国家', () => {
           far = Math.max(far, dist[k]);
           if (dist[k] >= 3) beyond3++;
         }
-        // 改判几乎全在 3 像素以内(手绘风的线多抖了一点,偶尔几个像素略远,但都在 BAND 以内)
+        // 改判几乎全在 3 像素以内(手绘风的线多抖了一点,偶尔几个像素略远,但都在 BAND 以内;
+        // GENERATOR_VERSION 19 国界多了,种子 7 手绘风有 7 个)
         expect(far, `seed ${seed} ${style}:改判的像素离界线最远 ${far.toFixed(2)}`).toBeLessThan(BAND);
-        expect(beyond3, `seed ${seed} ${style}`).toBeLessThanOrEqual(6);
+        expect(beyond3, `seed ${seed} ${style}`).toBeLessThanOrEqual(10);
         expect(changed).toBeGreaterThan(50);
         // 2. 线两侧各 1 像素处,色块正好是线左 / 右两侧的归属
         let ok = 0;

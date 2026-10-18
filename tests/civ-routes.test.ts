@@ -133,7 +133,8 @@ describe('道路网与航线', () => {
       let missed = 0;
       for (const c of capitals) {
         if (!capitals.some((o) => o !== c && comp[o] === comp[c])) continue;
-        // 例外:大路连到的邻近国都在它立都以前就毁了(那条大路从来没修过),它只在小路上。20 个种子里只有 seed 2024 有一处
+        // 例外:大路连到的邻近国都在它立都以前就毁了(那条大路从来没修过),它只在小路上。
+        // GENERATOR_VERSION 19(仗多、城毁得多)以后种子 7、2024 里最多两处
         if (!onRoad.has(c)) {
           expect(onAny.has(c)).toBe(true);
           missed++;
@@ -141,7 +142,7 @@ describe('道路网与航线', () => {
         }
         linked++;
       }
-      expect(missed).toBeLessThanOrEqual(1);
+      expect(missed).toBeLessThanOrEqual(2);
       expect(linked).toBeGreaterThan(1);
       // 路随城出现:每条路的修建年份不早于它两端附近的城(至少不早于最早的城)
       const firstCity = Math.min(...civ.settlements.map((s) => s.founded));

@@ -26,7 +26,7 @@
 import type { Annal, Civ, Person, PersonCommand, PersonFate, Polity, RulerRise, Year } from './types';
 import { keyed4, subSeed } from './rand';
 import { personNamers } from './naming';
-import { capitalAt, polityTierAt } from './growth';
+import { annexedRemnants, capitalAt, polityTierAt } from './growth';
 import { buildLineage } from './lineage';
 import { buildOfficials } from './officials';
 import { K_RULER, MAX_AGE, U_AGE, leaningEffect, reignStep, rulerBase, rulerTags } from './rulers';
@@ -605,14 +605,7 @@ function warsOf(civ: PeopleInput): WarFacts[] {
     if (e.kind === 'peace' && e.region > 0) {
       for (let j = Math.max(0, i - e.region); j < i; j++) if (A[j].kind === 'conquer' && A[j].war === e.war) skip.add(j);
     } else if (e.kind === 'fall' && e.war >= 0) {
-      const run: number[] = [];
-      for (let j = i - 1; j >= 0; j--) {
-        const c = A[j];
-        if (c.kind !== 'conquer' || c.war !== e.war || c.year !== e.year || c.a !== e.b || c.b !== e.a) break;
-        run.push(j);
-      }
-      run.pop();
-      for (const j of run) skip.add(j);
+      for (const j of annexedRemnants(civ, i)) skip.add(j);
     }
   });
   A.forEach((e, i) => {

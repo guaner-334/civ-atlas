@@ -855,10 +855,11 @@ export function finishDevelopment(sim: CivSim, endYear: Year): Development | und
     availNow: d.availNow.slice(),
     depleted: d.depleted.slice(),
     resFrom: d.resFrom.slice(),
-    polityEra: d.polityEra.slice(),
+    // 两步之间立国又亡了的国家从没记过时代、军力,数组里留了空位:补成 −1、1(和没记过一样),存档、打包读回才一模一样
+    polityEra: Array.from(d.polityEra, (e) => e ?? -1),
     worldEra: d.worldEra,
     invented: d.invented.slice(),
-    military: (d.pm.military ?? []).slice(),
+    military: Array.from(d.pm.military ?? [], (m) => m ?? 1),
   };
   return { resources: d.resources.slice(), found: d.found.slice(), avail, snaps, snapYears, events, state };
 }

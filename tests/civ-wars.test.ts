@@ -6,7 +6,7 @@ import { CivSim, Ev } from '../src/gen/civ/sim';
 import { ownersAt } from '../src/gen/civ/timeline';
 import { canCross, polityModelOf } from '../src/gen/civ/polities';
 import { CAPITAL_GRACE, HOLD, exclaveMask, warModelOf, warStats } from '../src/gen/civ/wars';
-import { capitalAt, polityAlive } from '../src/gen/civ/growth';
+import { annexedRemnants, capitalAt, polityAlive } from '../src/gen/civ/growth';
 import { buildChronicle } from '../src/gen/civ/chronicle';
 
 /**
@@ -213,7 +213,7 @@ describe('战争与攻占', () => {
     }
   }, 60_000);
 
-  it('前线不闪烁:一州在战争里易手后 HOLD 年内不再易手,50 年内没有换 3 次国家的州;攻方只打和自己接壤的州;迁都不会一迁再迁', () => {
+  it('前线不闪烁:一州在战争里易手后 HOLD 年内不再易手,但会拉锯(有 50 年内换 3 次国家的州);攻方只打和自己接壤的州;迁都不会一迁再迁', () => {
     for (const seed of [7, 2024, 3, 99]) {
       const civ = civOf({ ...DEFAULT_PARAMS, seed });
       const reg = civ.regions;
@@ -237,7 +237,8 @@ describe('战争与攻占', () => {
         own[r] = L.value[i];
         last[r] = L.year[i];
       }
-      expect(warStats(civ).flippy, `seed ${seed}`).toBe(0);
+      // GENERATOR_VERSION 19(HOLD 缩到几年)以后 20 个种子各有 2–19 个拉锯州
+      expect(warStats(civ).flippy, `seed ${seed}`).toBeGreaterThan(0);
       // 迁都后 CAPITAL_GRACE 年内不再迁都(新国都攻不下):不会几年里一迁再迁
       for (const p of civ.polities) {
         const c = p.capitals!;
@@ -246,14 +247,39 @@ describe('战争与攻占', () => {
     }
   }, 60_000);
 
+  it('乘胜连下几州后打下国都亡国:同一刻里打下国都以前的攻占是打下来的,只有以后的算残部', () => {
+    let before = 0;
+    let remnants = 0;
+    for (const seed of [7, 2024]) {
+      const civ = civOf({ ...DEFAULT_PARAMS, seed });
+      const A = civ.annals;
+      A.forEach((e, i) => {
+        if (e.kind !== 'fall' || e.war < 0) return;
+        const cr = civ.settlements[capitalAt(civ.polities[e.a], e.year)].region;
+        // 亡国前同一刻连着的攻占里,打下国都的那一条
+        let k = i - 1;
+        while (k >= 0 && A[k].kind === 'conquer' && A[k].year === e.year && A[k].war === e.war && A[k].region !== cr) k--;
+        if (!(k >= 0 && A[k].kind === 'conquer' && A[k].region === cr && A[k].year === e.year)) return;
+        const rest = annexedRemnants(civ, i);
+        expect(rest.every((j) => j > k), `seed ${seed} 第 ${i} 条亡国`).toBe(true);
+        expect(rest).toHaveLength(i - 1 - k);
+        remnants += rest.length;
+        for (let j = k - 1; j >= 0 && A[j].kind === 'conquer' && A[j].year === e.year && A[j].war === e.war; j--) before++;
+      });
+    }
+    // 两个世界里都有:先乘胜连下、再打下国都的,打下国都以后并掉残部的
+    expect(before).toBeGreaterThan(0);
+    expect(remnants).toBeGreaterThan(0);
+  }, 60_000);
+
   it('默认参数 seed 7 / 2024:有战争、有迁都,两个世界里有亡国;在世国家 8–20 个;第 3000 年的政区图成片(飞地 < 3%)', () => {
     let falls = 0;
     for (const seed of [7, 2024]) {
       const civ = civOf({ ...DEFAULT_PARAMS, seed });
       const st = warStats(civ);
       expect(st.wars, `seed ${seed}`).toBeGreaterThanOrEqual(8);
-      // 立国更早、国家更多(GENERATOR_VERSION 15)以后,第一场仗早了八百年上下:20 个种子 3000 年里 70–146 场,中位一百场左右
-      expect(st.wars, `seed ${seed}`).toBeLessThanOrEqual(160);
+      // GENERATOR_VERSION 19(仗短而狠、休战期短)以后:20 个种子 3000 年里 95–281 场,中位一百六十场上下
+      expect(st.wars, `seed ${seed}`).toBeLessThanOrEqual(300);
       falls += st.falls;
       expect(st.capitalMoves, `seed ${seed}`).toBeGreaterThan(0);
       expect(st.conquests, `seed ${seed}`).toBeGreaterThan(30);

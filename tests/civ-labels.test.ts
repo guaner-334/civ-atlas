@@ -264,7 +264,9 @@ describe('国名、城名标注与城镇符号(视口文字层)', () => {
       let bigPx = 0;
       let smallPx = Infinity;
       // 国土太窄、连最小的字号都排不下国名的大国(半岛加一条窄边、沿海岸伸展的海上共和国),缩放 1 倍时本来就不写:
-      // 这种国家 20 个种子里每个世界 0–5 个,其余的大国都要写出来
+      // 这种国家 20 个种子里每个世界 0–5 个,其余的大国都要写出来。
+      // 只排得下比最小字号大一点点的(不到 1.1 倍)也算:国土里城多时,城的符号占了地方就排不下了
+      // (GENERATOR_VERSION 19 种子 7 的哈兹斯坦,49 州,能排 10.9 像素)
       const fit = polityLabels(c.world, c.raster, c.civ, c.civ.endYear, { refCss: REF_MAP_CSS }).labels;
       let narrow = 0;
       for (const p of c.civ.polities) {
@@ -272,7 +274,7 @@ describe('国名、城名标注与城镇符号(视口文字层)', () => {
         const tier = polityTierAt(p, c.civ.endYear);
         const hit = shown.get(polityName(p, c.civ.endYear)) ?? shown.get(polityShortTitle(p, tier, c.civ.endYear));
         const f = fit.find((l) => l.polity === p.id);
-        if (n >= 25 && !hit && f && (f.size * REF_MAP_CSS) / c.world.width < MIN_LABEL_PX) {
+        if (n >= 25 && !hit && f && (f.size * REF_MAP_CSS) / c.world.width < MIN_LABEL_PX * 1.1) {
           narrow++;
           continue;
         }
