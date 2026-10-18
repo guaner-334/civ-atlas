@@ -32,7 +32,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { World } from '../gen/world';
 import type { Raster } from '../gen/raster';
 import { DETAIL_K, drawTerrainDetail, drawTerrainProjected, terrainDetailPrep, terrainProjPrep, type DetailStyle } from '../render/detail';
-import { aheadOf, cancelDetailJob, detailAsync, flushDetailJobs, submitDetailJob, type JobStats } from './detailJobs';
+import { aheadOf, cancelDetailJob, DetailBuffer, detailAsync, flushDetailJobs, submitDetailJob, type JobStats, type WorkStep } from './detailJobs';
 import { TILE, tileCanvas, tileKey, tilesAvailable, tileStats, tilesWorld, wantTiles } from './terrainTiles';
 import { centerShift, type MapProj } from '../render/projection';
 import { mapBoxOf, placeOnScreen, visibleBox, type Visible } from './mapWrap';
@@ -125,6 +125,10 @@ export function TerrainDetail({
   const drawn = useRef<Drawn | null>(null);
   /** 在后台备料、还没画上去的那一块(见 detailJobs.ts) */
   const pend = useRef<Drawn | null>(null);
+  /** 画布两张:显示着的和藏着的(备料的最后一步画在藏着的那张上,换上时对调,见 detailJobs.ts) */
+  const buf = useRef<DetailBuffer | null>(null);
+  /** 藏着的那张画好了哪一块(在备的那一块画完了 = pend.current;没有 = null) */
+  const ready = useRef<Drawn | null>(null);
   const timer = useRef(0);
   const moving = useMapMoving();
   /** 现在的投影 + 中心、是不是正在转中心(后台备好的那一块画上去时按它摆) */
@@ -144,20 +148,25 @@ export function TerrainDetail({
     () => () => {
       window.clearTimeout(timer.current);
       cancelDetailJob(JOB);
+      buf.current?.dispose();
+      buf.current = null;
     },
     [],
   );
 
   useLayoutEffect(() => {
-    const cv = ref.current;
+    const el = ref.current;
     const tl = tilesRef.current;
-    const box = mapBoxOf(cv);
-    if (!cv || !tl || !box) return;
+    const box = mapBoxOf(el);
+    if (!el || !tl || !box) return;
+    const bf = (buf.current ??= new DetailBuffer(el));
     window.clearTimeout(timer.current);
     /** 在后台备的那一块不要了 */
     const cancel = () => {
       if (!pend.current) return;
       pend.current = null;
+      ready.current = null;
+      bf.drop();
       cancelDetailJob(JOB);
       const g = window as unknown as { __wfDetail?: Record<string, unknown> };
       if (g.__wfDetail?.pending) g.__wfDetail.pending = false;
@@ -172,6 +181,7 @@ export function TerrainDetail({
     /** release = false:只藏起来,画布留着(拖动中;停下来接着用这一张,不重新分配) */
     const hide = (release = true) => {
       cancel();
+      const cv = bf.front;
       if (cv.style.display !== 'none') cv.style.display = 'none';
       if (release && cv.width) cv.width = cv.height = 0; // 释放显存(几十 MB)
       if (release) clearTiles();
@@ -347,20 +357,13 @@ export function TerrainDetail({
       return { world, raster, style, look, k: vis.k, x0, y0, x1, y1, dpr, proj: projKey, mp };
     };
 
-    /** 把 r 这一块画到画布上、摆好(左右挪 slide;st = 分帧备料的统计) */
-    const paint = (r: Drawn, vis: Visible, exact: boolean, st?: JobStats, slide = 0) => {
-      const t0 = performance.now();
+    /** r 这一块的画布多大(画布像素) */
+    const sizeOf = (r: Drawn) => [Math.max(1, Math.round((r.x1 - r.x0) * r.k * r.dpr)), Math.max(1, Math.round((r.y1 - r.y0) * r.k * r.dpr))];
+
+    /** 把 r 这一块画到 ctx 上(画布 W × H,先清空;bw = 地图框宽,creeks = 连小溪画) */
+    const drawRegion = (ctx: CanvasRenderingContext2D, r: Drawn, bw: number, W: number, H: number, creeks: boolean) => {
       const { x0, y0, x1, k, dpr } = r;
-      const W = Math.max(1, Math.round((x1 - x0) * k * dpr));
-      const H = Math.max(1, Math.round((r.y1 - y0) * k * dpr));
-      if (cv.width !== W || cv.height !== H) {
-        cv.width = W;
-        cv.height = H;
-      }
-      Object.assign(cv.style, { display: '', width: `${W / dpr}px`, height: `${H / dpr}px` });
-      placeOnScreen(cv, vis, x0 + slide, y0, k);
-      const ctx = cv.getContext('2d')!;
-      const s = (vis.bw / world.width) * k * dpr; // 画布像素 / 世界单位
+      const s = (bw / world.width) * k * dpr; // 画布像素 / 世界单位
       const v = { s, ox: -x0 * k * dpr, oy: -y0 * k * dpr, k };
       if (r.mp) {
         // 弯边投影:按投影直接在画布上重画(面按行重投影,线逐点投影、符号正立按屏幕大小画),不是把像素拉大
@@ -368,10 +371,10 @@ export function TerrainDetail({
         ctx.clearRect(0, 0, W, H);
         // 地图平面和世界一样大:画布像素 / 地图平面单位 = s,偏移同等距圆柱
         drawTerrainProjected(ctx, world, raster, style as DetailStyle, r.mp, v, look);
-      } else if (x0 < vis.bw && x1 > vis.bw) {
+      } else if (x0 < bw && x1 > bw) {
         // 这一块跨过主图的右边(180° 经线):左右两段各画一遍(右段 = 挪一整圈),各自裁在自己那一段里,
         // 接缝处的符号、河不会画两遍叠深
-        const seam = (vis.bw - x0) * k * dpr;
+        const seam = (bw - x0) * k * dpr;
         ctx.clearRect(0, 0, W, H);
         for (const [c0, c1, shift] of [
           [0, seam, 0],
@@ -381,14 +384,33 @@ export function TerrainDetail({
           ctx.beginPath();
           ctx.rect(c0, 0, c1 - c0, H);
           ctx.clip();
-          drawTerrainDetail(ctx, world, raster, style as DetailStyle, { ...v, ox: v.ox + shift }, !tileView.current, look);
+          drawTerrainDetail(ctx, world, raster, style as DetailStyle, { ...v, ox: v.ox + shift }, creeks, look);
           ctx.restore();
         }
       } else {
         // 整块都在右边接的那一份里:挪回一整圈画
-        const shift = x0 >= vis.bw ? world.width * s : 0;
-        drawTerrainDetail(ctx, world, raster, style as DetailStyle, { ...v, ox: v.ox + shift }, !tileView.current, look);
+        const shift = x0 >= bw ? world.width * s : 0;
+        drawTerrainDetail(ctx, world, raster, style as DetailStyle, { ...v, ox: v.ox + shift }, creeks, look);
       }
+    };
+
+    /**
+     * 把 r 这一块画到画布上、摆好(左右挪 slide;st = 分帧备料的统计;
+     * swap = 藏着的那张已经画好了这一块(备料的最后一步画的),对调上来就行)
+     */
+    const paint = (r: Drawn, vis: Visible, exact: boolean, st?: JobStats, slide = 0, swap = false) => {
+      const t0 = performance.now();
+      const { x0, y0, k, dpr } = r;
+      const [W, H] = sizeOf(r);
+      if (swap) bf.swap();
+      const cv = bf.front;
+      if (cv.width !== W || cv.height !== H) {
+        cv.width = W;
+        cv.height = H;
+      }
+      Object.assign(cv.style, { display: '', width: `${W / dpr}px`, height: `${H / dpr}px` });
+      placeOnScreen(cv, vis, x0 + slide, y0, k);
+      if (!swap) drawRegion(cv.getContext('2d')!, r, vis.bw, W, H, !tileView.current);
       drawn.current = r;
       (window as unknown as { __wfDetail?: unknown }).__wfDetail = {
         on: true,
@@ -410,24 +432,40 @@ export function TerrainDetail({
     /** 后台备料,备好了画 r(在等的旧活作废);bw = 地图框宽(同 paint 里画布像素 / 世界单位的算法) */
     const submit = (r: Drawn, bw: number, exact: boolean) => {
       pend.current = r;
+      ready.current = null;
       const s = (bw / world.width) * r.k * r.dpr;
-      let steps;
-      if (r.mp) {
-        // 弯边投影:画布大小、变换同 paint
-        const W = Math.max(1, Math.round((r.x1 - r.x0) * r.k * r.dpr));
-        const H = Math.max(1, Math.round((r.y1 - r.y0) * r.k * r.dpr));
-        steps = terrainProjPrep(world, raster, style as DetailStyle, r.mp, { s, ox: -r.x0 * r.k * r.dpr, oy: -r.y0 * r.k * r.dpr, k: r.k }, W, H, look);
-      } else steps = terrainDetailPrep(world, raster, style as DetailStyle, s, !tileView.current, look);
+      const creeks = !tileView.current;
+      // 画布大小、变换同 paint
+      const [W, H] = sizeOf(r);
+      let steps: WorkStep[];
+      if (r.mp) steps = terrainProjPrep(world, raster, style as DetailStyle, r.mp, { s, ox: -r.x0 * r.k * r.dpr, oy: -r.y0 * r.k * r.dpr, k: r.k }, W, H, look);
+      else steps = terrainDetailPrep(world, raster, style as DetailStyle, s, creeks, look);
+      // 最后一步:先画在藏着的那张上,换上时对调
+      steps = [
+        ...steps,
+        () => {
+          if (pend.current !== r) return;
+          const ctx = bf.back(W, H);
+          if (!ctx) return;
+          drawRegion(ctx, r, bw, W, H, creeks);
+          ready.current = r;
+        },
+      ];
       submitDetailJob(JOB, steps, (st) => {
         if (pend.current !== r) return;
         pend.current = null;
+        // 藏着的那张是按备料时的地图框宽、小溪开关画的:变了就当下重画
         const vis = visible();
+        const ok = ready.current === r && !!vis && vis.bw === bw && creeks === !tileView.current;
+        ready.current = null;
+        if (!ok) bf.drop();
         if (!vis) return;
         // 备料期间中心又转了(还在拖):按现在的中心平移过去;对不上就不画了(下一次重画会再备)
         const now = live.current;
         const slide = !r.mp ? 0 : now.mp && r.proj === now.mp.key ? 0 : now.mp && now.moving ? slideOf(r, now.mp, vis) : null;
-        if (slide !== null) paint(r, vis, exact, st, slide);
+        if (slide !== null) paint(r, vis, exact, st, slide, ok);
         else {
+          bf.drop();
           const g = window as unknown as { __wfDetail?: Record<string, unknown> };
           if (g.__wfDetail) g.__wfDetail.pending = false;
         }
@@ -458,7 +496,7 @@ export function TerrainDetail({
       const p = pdx === null ? null : p0;
       const xMax = mp ? vis.bw : 2 * vis.bw;
       if (d && dx !== null && fits(d, vis, exact, dx)) {
-        placeOnScreen(cv, vis, d.x0 + dx, d.y0, d.k);
+        placeOnScreen(bf.front, vis, d.x0 + dx, d.y0, d.k);
         if (dx) (window as unknown as { __wfDetail?: unknown }).__wfDetail = { on: true, k: d.k, slide: dx, proj: mp?.def.id ?? 'equirect', lon: mp?.lon0 };
         reportTiles();
         if (!async) return;
@@ -486,9 +524,9 @@ export function TerrainDetail({
         return;
       }
       // 先用画好的那张顶着(缩放倍数不准,按比例拉一点);换了画风、世界的那张不能再露出来,藏起来露出底下的整张图
-      if (d) placeOnScreen(cv, vis, d.x0 + hold!, d.y0, d.k);
+      if (d) placeOnScreen(bf.front, vis, d.x0 + hold!, d.y0, d.k);
       else if (drawn.current) {
-        cv.style.display = 'none';
+        bf.front.style.display = 'none';
         drawn.current = null;
       }
       if (!pOk) submit(regionOf(vis), vis.bw, exact);

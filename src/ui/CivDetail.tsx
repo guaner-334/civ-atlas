@@ -39,7 +39,7 @@ import {
   type DetailPlan,
   type DetailTiming,
 } from '../render/civ/detail';
-import { aheadOf, cancelDetailJob, detailAsync, flushDetailJobs, submitDetailJob, type JobStats } from './detailJobs';
+import { aheadOf, cancelDetailJob, DetailBuffer, detailAsync, flushDetailJobs, submitDetailJob, type JobStats } from './detailJobs';
 import { washLayer } from '../render/civ/territory';
 import type { CivDrawParams, CivStyle } from '../render/civ/overlay';
 import type { CivHighlight, SelectionTarget } from '../render/civ/highlight';
@@ -91,6 +91,8 @@ interface Pending {
   selKey: string | null;
   hlKey: string | null;
   civ: Civ | null;
+  /** 底图、选中这两张在藏着的那张画布上画好了(备料的最后几步画的),换上时对调,画出来的东西(draw 的返回值)存在这 */
+  ready: { base?: DetailTiming; sel?: number };
 }
 
 /** 分帧备料时这一层的名字(见 detailJobs.ts) */
@@ -163,6 +165,8 @@ export interface CivDetailProps {
 export function CivDetail({ world, raster, params, civ, style, sel, selYear, hl, view, mp, host, hlRef, hide, onCover }: CivDetailProps) {
   const baseRef = useRef<HTMLCanvasElement>(null);
   const selRef = useRef<HTMLCanvasElement>(null);
+  /** 底图、选中各两张画布:显示着的和藏着的(备料的最后几步画在藏着的那张上,换上时对调,见 detailJobs.ts)。高亮那张有闪烁动画,不对调 */
+  const bufs = useRef<{ base: DetailBuffer; sel: DetailBuffer } | null>(null);
   const region = useRef<Region | null>(null);
   /** 在后台备料、还没画上去的那一份(见 detailJobs.ts) */
   const pend = useRef<Pending | null>(null);
@@ -190,6 +194,9 @@ export function CivDetail({ world, raster, params, civ, style, sel, selYear, hl,
     () => () => {
       window.clearTimeout(timer.current);
       cancelDetailJob(JOB);
+      bufs.current?.base.dispose();
+      bufs.current?.sel.dispose();
+      bufs.current = null;
       for (const r of hide) if (r.current) r.current.style.visibility = '';
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -197,14 +204,27 @@ export function CivDetail({ world, raster, params, civ, style, sel, selYear, hl,
   );
 
   useLayoutEffect(() => {
-    const cvs = { base: baseRef.current, sel: selRef.current, hl: hlRef.current };
-    const box = mapBoxOf(cvs.base);
-    if (!cvs.base || !cvs.sel || !cvs.hl || !box) return;
+    const box = mapBoxOf(baseRef.current);
+    if (!baseRef.current || !selRef.current || !hlRef.current || !box) return;
+    const bf = (bufs.current ??= { base: new DetailBuffer(baseRef.current), sel: new DetailBuffer(selRef.current) });
+    const hlCv = hlRef.current;
+    /** 显示着的那几张(底图、选中两张会对调,每次现取) */
+    const cvs = {
+      get base() {
+        return bf.base.front;
+      },
+      get sel() {
+        return bf.sel.front;
+      },
+      hl: hlCv,
+    };
     window.clearTimeout(timer.current);
     /** 在后台备的那一份不要了 */
     const cancel = () => {
       if (!pend.current) return;
       pend.current = null;
+      bf.base.drop();
+      bf.sel.drop();
       cancelDetailJob(JOB);
       const g = window as unknown as { __wfCivDetail?: Record<string, unknown> };
       if (g.__wfCivDetail?.pending) g.__wfCivDetail.pending = false;
@@ -282,8 +302,8 @@ export function CivDetail({ world, raster, params, civ, style, sel, selYear, hl,
     const anyNew = (ps: Plans) => [ps.base, ps.sel, ps.hl].some((x) => x !== null && x !== 'keep');
     const stepsOf = (ps: Plans) => [ps.base, ps.sel, ps.hl].flatMap((x) => (x && x !== 'keep' ? x.steps : []));
 
-    /** 备好的画上去(没备的当下备完)、摆好、报告;st = 分帧备料的统计 */
-    const paint = (ps: Plans, vis: Visible, exact: boolean, slide: number, st?: JobStats) => {
+    /** 备好的画上去(没备的当下备完)、摆好、报告;st = 分帧备料的统计;ready = 藏着的那张已经画好的那几张,对调上来就行 */
+    const paint = (ps: Plans, vis: Visible, exact: boolean, slide: number, st?: JobStats, ready: Pending['ready'] = {}) => {
       const { R, step } = ps;
       const old = region.current;
       if (old && old !== R) releaseDetailCache(old.cache);
@@ -293,6 +313,10 @@ export function CivDetail({ world, raster, params, civ, style, sel, selYear, hl,
       let did = false;
       // 分帧备好的(st):料都备齐了,直接画;当下画的先备料再画
       const run = <T,>(ctx: CanvasRenderingContext2D, pl: DetailPlan<T>) => (st ? pl.draw(ctx) : runPlan(ctx, pl));
+      /** 对调上来的那张摆好(大小、显示) */
+      const shown = (cv: HTMLCanvasElement) => {
+        Object.assign(cv.style, { display: '', width: `${R.view.cw / R.dpr}px`, height: `${R.view.ch / R.dpr}px` });
+      };
       const prep = (cv: HTMLCanvasElement) => {
         if (cv.width !== R.view.cw || cv.height !== R.view.ch) {
           cv.width = R.view.cw;
@@ -313,7 +337,12 @@ export function CivDetail({ world, raster, params, civ, style, sel, selYear, hl,
           dr.base = null;
         }
       } else if (ps.base !== 'keep') {
-        const t = run(prep(cvs.base!), ps.base);
+        let t: DetailTiming;
+        if (ready.base) {
+          bf.base.swap();
+          shown(cvs.base);
+          t = ready.base;
+        } else t = run(prep(cvs.base!), ps.base);
         timing.wash = t.wash;
         timing.lines = t.lines;
         timing.ink = t.ink;
@@ -328,7 +357,12 @@ export function CivDetail({ world, raster, params, civ, style, sel, selYear, hl,
         }
       } else if (ps.sel !== 'keep') {
         const t1 = performance.now();
-        const lit = run(prep(cvs.sel!), ps.sel);
+        let lit: number;
+        if (ready.sel !== undefined) {
+          bf.sel.swap();
+          shown(cvs.sel);
+          lit = ready.sel;
+        } else lit = run(prep(cvs.sel!), ps.sel);
         timing.sel = performance.now() - t1;
         dr.sel = { region: R.id, data: selKey, civ, step };
         did = true;
@@ -381,19 +415,38 @@ export function CivDetail({ world, raster, params, civ, style, sel, selYear, hl,
 
     /** 后台备料,备好了画上去(在等的旧活作废) */
     const submit = (ps: Plans, exact: boolean) => {
-      pend.current = { ps, params, selKey, hlKey, civ };
+      pend.current = { ps, params, selKey, hlKey, civ, ready: {} };
       const job = pend.current;
-      submitDetailJob(JOB, stepsOf(ps), (st) => {
+      const { cw, ch } = ps.R.view;
+      // 最后几步:底图、选中要重画的各一步先画在藏着的那张上,换上时对调
+      const steps = stepsOf(ps);
+      const { base, sel: s } = ps;
+      if (base && base !== 'keep')
+        steps.push(() => {
+          const ctx = pend.current === job ? bf.base.back(cw, ch) : null;
+          if (ctx) job.ready.base = base.draw(ctx);
+        });
+      if (s && s !== 'keep')
+        steps.push(() => {
+          const ctx = pend.current === job ? bf.sel.back(cw, ch) : null;
+          if (ctx) job.ready.sel = s.draw(ctx);
+        });
+      const drop = () => {
+        bf.base.drop();
+        bf.sel.drop();
+      };
+      submitDetailJob(JOB, steps, (st) => {
         if (pend.current !== job) return;
         pend.current = null;
         const vis = visibleBox(box);
-        if (!vis) return;
+        if (!vis) return drop();
         // 备料期间中心又转了(还在拖):按现在的中心平移过去;对不上就不画了(下一次重画会再备)
         const R = ps.R;
         const now = live.current;
         const slide = !R.mp ? 0 : now.mp && R.proj === now.mp.key ? 0 : now.mp && now.moving ? slideOf(R, now.mp, vis) : null;
-        if (slide !== null) paint(ps, vis, exact, slide, st);
+        if (slide !== null) paint(ps, vis, exact, slide, st, job.ready);
         else {
+          drop();
           const g = window as unknown as { __wfCivDetail?: Record<string, unknown> };
           if (g.__wfCivDetail) g.__wfCivDetail.pending = false;
         }

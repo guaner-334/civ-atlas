@@ -2,8 +2,8 @@
  * 细节层分帧备料(地形细节层 TerrainDetail.tsx、文明细节层 CivDetail.tsx 共用):
  * 放大、拖动、停下来补画时,要重画的那一层不在当下一口气画完 —— 备料(整张图的缓存、这一块逐格上色……)
  * 切成一小步一小步,每做 SLICE 毫秒左右就把主线程让出来(浏览器照常响应拖动、画下一帧);
- * 都备好了,在同一个任务里把几层一起画上去(整张换上)。备料期间屏幕上还是原来那张(挪到新位置、按比例放大),
- * 或者底下的整张图(第一次放大时)。
+ * 备料的最后一步把这一层先画到藏着的那张画布上(DetailBuffer);都备好了,在同一个任务里几层一起和显示着的那张对调(整张换上),
+ * 换上那一下不用再画。备料期间屏幕上还是原来那张(挪到新位置、按比例放大),或者底下的整张图(第一次放大时)。
  *
  * 每一层同一时间最多一份活,新的顶掉旧的;几层的活都备好了才一起画 —— 地形和文明的细节层同时换上,
  * 手绘风文明色块给符号"让位"的遮罩和地形的符号对得上。
@@ -148,4 +148,67 @@ function step(deadline: number) {
   const all = [...jobs.values()];
   jobs.clear();
   for (const job of all) job.commit(job.stats);
+}
+
+/**
+ * 一层细节层的两张画布:显示着的那张(front)和藏着的那张(备料的最后一步画在藏着的那张上,画的活也分在备料里,
+ * 不挤在换上那一刻)。换上 = 两张对调显示(swap),不用再画、也不用贴图。两张是同一种画布、同样大小,
+ * 画在藏着的那张上和直接画在显示的那张上逐像素一样。
+ * 藏着的那张紧挨着显示的那张(上下层次不变);类名跟着对调,显示着的那张总是原来的类名(藏着的加 "-back")。
+ * 原来那张(React 建的)之外的另一张由这里建、这里删(dispose)
+ */
+export class DetailBuffer {
+  front: HTMLCanvasElement;
+  private spare: HTMLCanvasElement | null = null;
+  private readonly own: HTMLCanvasElement;
+  constructor(front: HTMLCanvasElement) {
+    this.front = this.own = front;
+  }
+
+  /** 藏着的那张调成 w × h、清空,返回画笔(画不出来,比如手机上画布内存超了 = null) */
+  back(w: number, h: number): CanvasRenderingContext2D | null {
+    let b = this.spare;
+    if (!b) {
+      b = document.createElement('canvas');
+      b.className = `${this.front.className}-back`;
+      b.style.pointerEvents = 'none';
+      b.style.display = 'none';
+      this.front.after(b);
+      this.spare = b;
+    }
+    if (b.width !== w || b.height !== h) {
+      b.width = w;
+      b.height = h;
+    }
+    const ctx = b.getContext('2d');
+    if (!ctx) {
+      this.drop();
+      return null;
+    }
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    return ctx;
+  }
+
+  /** 藏着的那张换上来(显示交给调用的人摆);原来显示的那张藏起来、还回显存 */
+  swap(): void {
+    const b = this.spare;
+    if (!b) return;
+    const f = this.front;
+    [f.className, b.className] = [b.className, f.className];
+    f.style.display = 'none';
+    f.width = f.height = 0;
+    this.front = b;
+    this.spare = f;
+  }
+
+  /** 藏着的那张不要了:还回显存 */
+  drop(): void {
+    if (this.spare?.width) this.spare.width = this.spare.height = 0;
+  }
+
+  /** 卸下时:这里建的那张从页面上拿掉 */
+  dispose(): void {
+    for (const c of [this.front, this.spare]) if (c && c !== this.own) c.remove();
+  }
 }
