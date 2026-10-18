@@ -84,8 +84,10 @@ const baseHabitat = (civ: Civ) => civ.eras?.[0]?.habitat ?? civ.habitat;
  * 重推回来的文明沿用现在这份的州(地理没变;地图上的缓存按对象认"还是同一个世界"):
  * 第一件大事以前的州和宜居度总是一样的(同一个世界);之后各段的只在带着一样的地形大事(sameUps)时沿用。州数对不上的不沿用。
  * 州名(regions.name)不是地理:换了地名风格会重起。names = 要换上的这份是真的换上去(不是试推演):沿用的州换上新起的州名(还是同一个对象)
+ * 文明种子不一样的不沿用:州是按文明种子划的,州数一样、边界也不一样
  */
 export function reuseRegions(old: Civ, next: Civ, sameUps: boolean, names = false): Civ {
+  if (old.seed !== next.seed) return next;
   const base = baseRegions(old);
   const withNames = names ? carryNames : (keep: Civ['regions']) => keep;
   if (sameUps) {

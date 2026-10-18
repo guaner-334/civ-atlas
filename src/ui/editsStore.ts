@@ -7,7 +7,7 @@
  *
  * 撤销 / 重做(⌘Z / ⇧⌘Z,见 undo.ts):改名、改旗、干预、地形大事、作者标记、作者的人物、AI 改写每次都记一步(改之前、改之后两份),只记这次打开网页以后、这个世界上的;
  * 读档、换世界(setEdits / clearEdits)、创建世界(clearEditHistory)清空。地形修改、草图、地名风格、推演年数、拓荒、起源不记:只在新建世界时能改,工具有自己的"撤销一笔"。
- * 纪年、月份也不记:只换年份的写法,在世界设定里随时改回来。
+ * 纪年、月份也不记:只换年份的写法,在世界设定里随时改回来。文明种子、用的哪张地图在新开历史时定,之后不改(只在第一次推完时补上地图的校验)。
  */
 import { useSyncExternalStore } from 'react';
 import { EMPTY_EDITS, END_YEAR_DEFAULT, MARKS_MAX, cleanEndYear, MARK_REGIONS_TOTAL, cleanIntervention, cleanMark, markRegionTotal, sameMark, markAiName, nextMarkId, type AuthorMark, type Intervention, type TerrainOp, type Upheaval, type WorldEdits } from '../gen/edits';
@@ -69,7 +69,7 @@ let historyGate: ((next: WorldEdits) => boolean) | null = null;
 export function setHistoryGate(f: ((next: WorldEdits) => boolean) | null) {
   historyGate = f;
 }
-const HISTORY_KEYS = ['interventions', 'upheavals', 'terrain', 'sketch', 'nameMix', 'endYear', 'frontier', 'origins'] as const;
+const HISTORY_KEYS = ['interventions', 'upheavals', 'terrain', 'sketch', 'nameMix', 'endYear', 'frontier', 'origins', 'civSeed'] as const;
 /** 两份修改里,推演用到的部分不一样 */
 export function historyDiffers(a: WorldEdits, b: WorldEdits): boolean {
   return HISTORY_KEYS.some((k) => a[k] !== b[k] && JSON.stringify(a[k] ?? null) !== JSON.stringify(b[k] ?? null));
@@ -165,6 +165,8 @@ export function revertEdits(now: WorldEdits, from: WorldEdits, to: WorldEdits): 
   if (now.endYear) out.endYear = now.endYear;
   if (now.frontier) out.frontier = now.frontier;
   if (now.origins) out.origins = now.origins;
+  if (now.civSeed !== undefined) out.civSeed = now.civSeed;
+  if (now.map) out.map = now.map;
   if (now.era) out.era = now.era;
   if (now.months !== undefined) out.months = now.months;
   if (upheavals.length) out.upheavals = sameUps ? now.upheavals : upheavals;
@@ -476,6 +478,13 @@ export function setOrigins(o: Origins | undefined) {
   const { origins: _old, ...rest } = state;
   void _old;
   put(next ? { ...rest, origins: next } : rest);
+}
+
+/** 新开的历史第一次推完:补上用的那张地图的校验(只是记录,不记撤销步、不算改历史);不是新开的、已经有了的不动 */
+export function setMapSum(sum: string) {
+  const map = state.map;
+  if (!map || map.sum) return;
+  put({ ...state, map: { ...map, sum } }, false);
 }
 
 /** 纪年(随时能改,不记撤销步):undefined = 按第几年写,去掉这一项。不合格的(名字空、太长,元年超范围)不改 */

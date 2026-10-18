@@ -100,6 +100,7 @@ import {
   GENERATOR_VERSION,
   applyNames,
   aiNameKeys,
+  cleanCivSeed,
   cleanEndYear,
   faithKey,
   keySeats,
@@ -231,7 +232,7 @@ import { Globe, getGlobeOn, setGlobeOn, useGlobeOn, type GlobeApi } from './Glob
 import { setupAi } from '../ai/setup';
 import { ToastBar, clearToast, showToast } from './Toast';
 import { DRAFT_SEG, FirstHint, HoverCard, MapBar, MapControls, OldSiteBadge, PhoneButtons, hintSeen, markHintSeen } from './Corners';
-import { frozenResult, offerSnapshot, startResults, toldFrozen } from './resultStore';
+import { frozenResult, noteMapSum, offerSnapshot, startResults, toldFrozen } from './resultStore';
 import { FrozenAsk, askSaveAsNew, closeSaveAsNew, setSaveAsNew } from './FrozenWorld';
 import { copyNotes } from '../ai/library';
 import { BETA_SITE, OLD_SITE, OWN_KEY, oldSiteFor, oldSiteNote, openInLatest, openOriginal, plainSave } from './oldSite';
@@ -626,17 +627,22 @@ const yearsOpt = (endYear: number | undefined) => (endYear ? { endYear } : {});
  * 创建以后再按世界自己的推演年数接着推(见下面重推的那段)
  */
 const yearsFor = (draft: boolean, edits: Pick<WorldEdits, 'endYear'>) => (draft ? undefined : cleanEndYear(edits.endYear));
-/** 推文明时带的拓荒、起源(默认 = undefined) */
-type CivSetup = { frontier?: Frontier; origins?: Origins };
-const setupOpt = (s: CivSetup | undefined) => ({ ...(s?.frontier ? { frontier: s.frontier } : {}), ...(s?.origins ? { origins: s.origins } : {}) });
-/** 这一步带的拓荒、起源:和推演年数一样,新建界面里只看星球、一律按默认推;创建以后按世界自己的 */
-function setupFor(draft: boolean, edits: Pick<WorldEdits, 'frontier' | 'origins'>): CivSetup | undefined {
+/** 推文明时带的拓荒、起源、文明种子(默认 = undefined) */
+type CivSetup = { frontier?: Frontier; origins?: Origins; civSeed?: number };
+const setupOpt = (s: CivSetup | undefined) => ({
+  ...(s?.frontier ? { frontier: s.frontier } : {}),
+  ...(s?.origins ? { origins: s.origins } : {}),
+  ...(s?.civSeed !== undefined ? { civSeed: s.civSeed } : {}),
+});
+/** 这一步带的拓荒、起源、文明种子:和推演年数一样,新建界面里只看星球、一律按默认推;创建以后按世界自己的 */
+function setupFor(draft: boolean, edits: Pick<WorldEdits, 'frontier' | 'origins' | 'civSeed'>): CivSetup | undefined {
   if (draft) return undefined;
   const frontier = cleanFrontier(edits.frontier);
   const origins = cleanOrigins(edits.origins);
-  return frontier || origins ? { ...(frontier ? { frontier } : {}), ...(origins ? { origins } : {}) } : undefined;
+  const civSeed = cleanCivSeed(edits.civSeed);
+  return frontier || origins || civSeed !== undefined ? { ...(frontier ? { frontier } : {}), ...(origins ? { origins } : {}), ...(civSeed !== undefined ? { civSeed } : {}) } : undefined;
 }
-const sameSetup = (a: CivSetup | undefined, b: CivSetup | undefined) => sameFrontier(a?.frontier, b?.frontier) && sameOrigins(a?.origins, b?.origins);
+const sameSetup = (a: CivSetup | undefined, b: CivSetup | undefined) => sameFrontier(a?.frontier, b?.frontier) && sameOrigins(a?.origins, b?.origins) && a?.civSeed === b?.civSeed;
 
 /** 结束那一年现存几国(我的世界的卡片上写;没长出文明 = 0) */
 function aliveAtEnd(civ: Civ): number {
@@ -1092,7 +1098,11 @@ export function App() {
           return;
         }
         // 这次生成 / 重推的原件:对得上存着的存档就存进浏览器(resultStore.ts)
-        if (m.type === 'snapshot') return void offerSnapshot(m.snapshot);
+        if (m.type === 'snapshot') {
+          void offerSnapshot(m.snapshot);
+          void noteMapSum(m.snapshot);
+          return;
+        }
         if (m.type === 'progress') setProgress((s) => ({ stage: m.stage, pct: m.pct, regen: regenRef.current?.id === m.id, seed: s?.seed }));
         else if (m.type === 'done') {
           // 读原件来的、只算了后一半的(编辑地形接着上一次)不算生成速度
@@ -1173,7 +1183,7 @@ export function App() {
     setUpRunner((pid, year, ops) => {
       const p = genParams.current;
       if (!p) return;
-      send({ type: 'upPreview', id: reqId.current, pid, params: p, terrain: [...genTerrain.current], sketch: genSketch.current, ...upsOpt(rawUps.current), year, ops: [...ops] });
+      send({ type: 'upPreview', id: reqId.current, pid, params: p, terrain: [...genTerrain.current], sketch: genSketch.current, ...upsOpt(rawUps.current), ...(civSetup.current?.civSeed !== undefined ? { civSeed: civSetup.current.civSeed } : {}), year, ops: [...ops] });
     });
     return () => setUpRunner(null);
   }, [send]);
@@ -1596,7 +1606,7 @@ export function App() {
       ...setupOpt(civSetup.current),
       have: [...eraPatches.current.keys()],
     });
-  }, [edits.interventions, edits.upheavals, edits.nameMix, edits.endYear, edits.frontier, edits.origins, draft, baseData, send]);
+  }, [edits.interventions, edits.upheavals, edits.nameMix, edits.endYear, edits.frontier, edits.origins, edits.civSeed, draft, baseData, send]);
   // 重推的文明画到地图上以后,记下"从下命令到地图更新"用了多久(冒烟检查用)
   useEffect(() => {
     const info = resimInfo.current;
@@ -2037,12 +2047,13 @@ export function App() {
       !st.edits.endYear &&
       !st.edits.frontier &&
       !st.edits.origins &&
+      st.edits.civSeed === undefined &&
       !st.edits.era &&
       st.edits.months === undefined &&
       worldKey({ ...base, seed: 0 }) === worldKey({ ...DEFAULT_PARAMS, seed: 0 });
     // 地名风格、推演年数、拓荒和参数一样是这一类星球的设定,换一颗照旧;选的起源按位置照旧(新星球上那里住不了人的,推演时跳过);
     // 纪年、月份(年份的写法)也照旧,按一件事定的换成按年份(那件事是原来那颗星球上的)
-    const { nameMix, endYear, frontier, origins, era, months } = st.edits;
+    const { nameMix, endYear, frontier, origins, civSeed, era, months } = st.edits;
     const kept: WorldEdits = sketch ? { ...EMPTY_EDITS, sketch, terrain: st.edits.terrain } : EMPTY_EDITS;
     const edits = {
       ...kept,
@@ -2050,6 +2061,7 @@ export function App() {
       ...(endYear ? { endYear } : {}),
       ...(frontier ? { frontier } : {}),
       ...(origins ? { origins } : {}),
+      ...(civSeed !== undefined ? { civSeed } : {}),
       ...(era ? { era: { name: era.name, epoch: era.epoch } } : {}),
       ...(months !== undefined ? { months } : {}),
     };
