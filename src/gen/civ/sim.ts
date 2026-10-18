@@ -37,6 +37,7 @@ import { resumeCities } from './cities';
 import { resumeDiplomacy } from './diplomacy';
 import { resumeDevelopment } from './development';
 import { resumeUnrest } from './unrest';
+import { resumePlague } from './plague';
 import { resumeInterventions, scheduleInterventions } from './interventions';
 import type { Intervention } from '../edits';
 
@@ -176,6 +177,12 @@ export const enum Ev {
   FamineCheck = 55,
   /** 散回部落(unrest.ts 的大崩解):不单独预约,是大国崩解时散回部落地带的州(国家归属 → −1)变化日志记的原因 */
   Collapse = 57,
+  /**
+   * 看疫情(瘟疫,plague.ts;编号 58–59):a = 第几次看。每隔几十年看一次,偶尔从一座大城或港口起疫
+   */
+  PlagueCheck = 58,
+  /** 疫情传开(plague.ts):a = 第几场瘟疫(起疫那次看疫情的编号),b = 起疫后第几年。染疫的州往外传一圈,预约下一年 */
+  PlagueStep = 59,
 }
 
 export interface EventInfo {
@@ -221,6 +228,8 @@ export const EVENT_INFO: EventInfo[] = [
   { id: Ev.DevTick, name: '发展度', watch: false },
   { id: Ev.FamineCheck, name: '看年景', watch: false },
   { id: Ev.Collapse, name: '散回部落', watch: false },
+  { id: Ev.PlagueCheck, name: '看疫情', watch: false },
+  { id: Ev.PlagueStep, name: '疫情传开', watch: false },
 ];
 
 /** 检查点间隔(年) */
@@ -431,6 +440,7 @@ export class CivSim {
       resumeDiplomacy(sim, world, civ);
       resumeDevelopment(sim, world, civ);
       resumeUnrest(sim, world, civ);
+      resumePlague(sim, world, civ);
       if (iv) resumeInterventions(sim, iv);
     }
     return sim;

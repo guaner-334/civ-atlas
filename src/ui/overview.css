@@ -1513,6 +1513,19 @@ button.ov-kv-row:hover {
 [data-theme='dark'] .lp-war .lp-route {
   color: var(--ev-war);
 }
+/* 瘟疫图例:和地图上的疫区一样的墨点,用正文色(不跟战事的红) */
+.lp-key .lp-plague {
+  color: var(--ink-2);
+}
+.lp-plague b {
+  width: 14px;
+  height: 10px;
+  border-radius: 2px;
+  background-image: radial-gradient(circle, currentColor 0.9px, transparent 1.3px), radial-gradient(circle, currentColor 0.9px, transparent 1.3px);
+  background-size: 4px 4px;
+  background-position: 0 0, 2px 2px;
+  opacity: 0.85;
+}
 .lp-cultures {
   display: grid;
   grid-template-columns: 1fr 1fr;

@@ -6,6 +6,7 @@
  *   宜居度热力图(debug.ts)
  *   → 国土 / 民族 / 信仰 / 时代色块(territory.ts;两层都开时铺民族;开着信仰就铺信仰,见 faith.ts;开着时代就铺时代,见 era.ts)
  *   → 战事:正在打的仗里易手的州画斜线(warfare.ts)
+ *   → 瘟疫:正在闹、疫过不久的州铺墨点(plague.ts)
  *   → 州界细线(debug.ts)
  *   → 国界(borders.ts)
  *   → 道路(routes.ts;按修建年份出现)
@@ -23,6 +24,7 @@ import { drawTerritory } from './territory';
 import { drawBorders } from './borders';
 import { drawRoutes } from './routes';
 import { drawWarHatch } from './warfare';
+import { drawPlague } from './plague';
 import { clipOutline, type Projector } from '../projection';
 
 export type CivStyle = 'realistic' | 'fantasy' | 'data';
@@ -51,6 +53,8 @@ export interface CivShow {
   resources: boolean;
   /** 战事:正在打的仗(战线、易手的州、交战处的双剑);要开着"国家"才画(默认打开) */
   wars: boolean;
+  /** 瘟疫:正在闹、疫过不久的州铺墨点(plague.ts);要开着"国家"才画(默认打开) */
+  plague: boolean;
 }
 
 export const CIV_SHOW_OFF: CivShow = {
@@ -65,9 +69,10 @@ export const CIV_SHOW_OFF: CivShow = {
   eras: false,
   resources: false,
   wars: false,
+  plague: false,
 };
-/** 打开页面时的默认显示:地名、战事(战事要开着"国家"才画) */
-export const CIV_SHOW_DEFAULT: CivShow = { ...CIV_SHOW_OFF, labels: true, wars: true };
+/** 打开页面时的默认显示:地名、战事、瘟疫(战事、瘟疫要开着"国家"才画) */
+export const CIV_SHOW_DEFAULT: CivShow = { ...CIV_SHOW_OFF, labels: true, wars: true, plague: true };
 
 /** 视口:缩放倍数 k、平移 x/y(CSS 像素)。文字层随缩放重画时用 */
 export interface CivViewport {
@@ -114,6 +119,7 @@ export function drawCivOverlay(ctx: CanvasRenderingContext2D, p: CivDrawParams) 
   if (p.show.habitat) drawHabitat(ctx, p);
   drawTerritory(ctx, p);
   drawWarHatch(ctx, p);
+  drawPlague(ctx, p);
   // 弯边投影:线和点不出外轮廓(伸出 ±180° 的那截在另一边接着画)
   ctx.save();
   if (p.proj) clipOutline(ctx, p.proj.mp, { s: p.raster.scale, ox: 0, oy: 0 });
@@ -133,6 +139,7 @@ export function drawCivFill(ctx: CanvasRenderingContext2D, p: CivDrawParams) {
   if (p.show.habitat) drawHabitat(ctx, p);
   drawTerritory(ctx, p);
   drawWarHatch(ctx, p);
+  drawPlague(ctx, p);
   if (p.show.regions) drawRegionLines(ctx, p);
   if (p.show.sites) drawSites(ctx, p);
 }

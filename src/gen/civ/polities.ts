@@ -1282,7 +1282,8 @@ export function resumePolities(sim: CivSim, world: World, civ: Civ, iv?: Interve
   // 在世的国家:下一次君主交接(此刻刚改朝换代的,新朝第一位下一刻即位);此刻刚迁都的,下一刻重新预约扩张
   for (const p of m.polities) {
     if (p.ended !== undefined) continue;
-    for (const c of p.capitals!) if (c.year + 1 / 256 > now) sim.schedule(c.year + 1 / 256, Ev.Respread, 0, p.id);
+    // 立国那一条(capitals[0])不是迁都,推演里没有预约(分裂出来的国家正好在此刻立国时会多出一次)
+    for (const c of p.capitals!.slice(1)) if (c.year + 1 / 256 > now) sim.schedule(c.year + 1 / 256, Ev.Respread, 0, p.id);
     const list = reignBook(m.rbase, m.rtag[p.id], p, now);
     const last = list.length - 1;
     if (reignStart(list[last]) > now) sim.schedule(reignStart(list[last]), Ev.Reign, last, p.id);

@@ -250,6 +250,8 @@ export const RURAL_SUIT = 20;
 export const RURAL_EXP = 3;
 /** 城被洗劫 / 被毁时,州里的乡村跟着折损城里那一成的这么多(毁城当作折损全部),之后按 SACK_RECOVER 慢慢恢复 */
 export const RURAL_WAR = 0.3;
+/** 瘟疫(plague.ts)时乡村折损城里那一成的几成:疫气城乡都染,乡下人稀,死得少一些 */
+export const RURAL_PLAGUE = 0.7;
 /** 一个世界单位² 是多少平方公里 */
 const KM2_PER_UNIT2 = KM_PER_UNIT * KM_PER_UNIT;
 /** 默认精细度下一块地的面积(世界单位²;同 geo.ts 的 refCellArea:主图 2048 × 1024 按默认精细度分)。州的人口上限之和按它折算 */
@@ -309,7 +311,7 @@ export function ruralPopulationAt(civ: Pick<Civ, 'regions' | 'eras' | 'settlemen
     if (s.sacks) {
       for (const k of s.sacks) {
         if (!(year >= k.year)) break;
-        cap *= 1 - RURAL_WAR * k.loss * fexp(-(year - k.year) / SACK_RECOVER);
+        cap *= 1 - (k.cause === 'plague' ? RURAL_PLAGUE : RURAL_WAR) * k.loss * fexp(-(year - k.year) / SACK_RECOVER);
       }
     }
     if (s.ended !== undefined && year >= s.ended) cap *= 1 - RURAL_WAR * fexp(-(year - s.ended) / SACK_RECOVER);
