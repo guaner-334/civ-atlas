@@ -603,6 +603,9 @@ describe('改地形 · 删河湖', () => {
     const c = lake[0];
     const out = generateWorld(SMALL, undefined, [del(Math.round(w.mesh.x[c]), Math.round(w.mesh.y[c]))]);
     for (const i of lake) expect(out.water[i]).toBe(0);
+    // 同一个湖点两次:第二次还是这个湖,不会改成删附近的河
+    const twice = generateWorld(SMALL, undefined, [del(Math.round(w.mesh.x[c]), Math.round(w.mesh.y[c])), del(Math.round(w.mesh.x[c]), Math.round(w.mesh.y[c]))]);
+    expect(worldCheck(twice)).toBe(worldCheck(out));
     expect(out.water.filter((v) => v === 2).length).toBe(w.water.filter((v) => v === 2).length - lake.length);
     // 海中间点一下:找不到河湖,世界不变
     const sea = farthestFrom(w, false);

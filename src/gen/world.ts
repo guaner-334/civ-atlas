@@ -506,10 +506,12 @@ export function generateWorld(params: WorldParams, progress: Progress = () => {}
   }
 
   // 改地形:删河湖 —— 点在湖里的,整片湖填平(湖底垫到湖面下 1 米,排水不再积出湖,流进来的河穿过去);别的留到串河之前删河
+  // 指着的是不是湖按删之前的湖算:同一个湖点了两次,第二次还是删这个湖(不会落到填平的地上、改成删附近的河)
   const delRivers: TerrainOp[] = [];
+  const lakes0 = ops.some((o) => o.kind === 'delWater') ? water.slice() : water;
   for (const op of ops) {
     if (op.kind !== 'delWater') continue;
-    const lake = lakeAt(mesh, water, op.pts[0], op.pts[1], userLake);
+    const lake = lakeAt(mesh, lakes0, op.pts[0], op.pts[1], userLake);
     if (!lake) {
       delRivers.push(op);
       continue;
@@ -556,11 +558,11 @@ export function generateWorld(params: WorldParams, progress: Progress = () => {}
       if (!hit.length) continue;
       gone.fill(0);
       for (const c of riverCells(now, water, hit)) gone[c] = 1;
-      // order 从下游往上游排:下游删了,流进它的陆地块也删
+      // order 从下游往上游排:下游删了,流进它的陆地块也删;作者画的河(连同它的上游)不动,照样是河
       for (let a = 0; a < route.orderLen; a++) {
         const i = route.order[a];
         const r = route.receiver[i];
-        if (!gone[i] && r >= 0 && gone[r] && water[i] === 0) gone[i] = 1;
+        if (!gone[i] && r >= 0 && gone[r] && water[i] === 0 && !userRiver?.[i]) gone[i] = 1;
       }
       for (let i = 0; i < n; i++) if (gone[i] && flux[i] > cap) flux[i] = cap;
     }
