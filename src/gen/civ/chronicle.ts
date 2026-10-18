@@ -62,6 +62,7 @@
 import type { Annal, AnnalCause, AnnalKind, Civ, Culture, MigrationDir, Person, Polity, Year } from './types';
 import {
   TIER_REGIONS,
+  annexedRemnants,
   dynastyIndexAt,
   dynastyTitle,
   polityName,
@@ -86,7 +87,7 @@ export const TRIBAL_GAP = 30;
 /** 收服部落:一轮最长这么多年(国家一直在扩张时,每一百年左右记一条,不会一条跨上千年) */
 export const TRIBAL_SPAN = 100;
 /** 易手这么多州以上的战争改变格局(大事) */
-export const BIG_WAR = 10;
+export const BIG_WAR = 15;
 /** 攻下做了这么多年以上的国都(故都陷落)的战争是大事 */
 export const OLD_CAPITAL = 300;
 /** 到过这一档(王国 / 二十五州)以上的是大国:立国算大事 */
@@ -94,9 +95,9 @@ export const GREAT_TIER = 2;
 /** 双方开战时都在这一档(帝国 / 七十州)以上:大国交兵,有得失就算大事 */
 export const TITAN_TIER = 3;
 /** 大国交兵:易手这么多州以上才算大事 */
-export const TITAN_WAR = 5;
+export const TITAN_WAR = 8;
 /** 灭国之战:亡的是大国,或者易手这么多州以上(吞并一个像样的国家),才算大事;小国(残部)被收拾掉的只在"全部"里 */
-export const FALL_WAR = 5;
+export const FALL_WAR = 6;
 /** 改朝换代(东方)、主动迁都:当时在这一档(帝国 / 七十州)以上的是大事;小一些的国家只在"全部"里 */
 export const DYNASTY_TIER = 2;
 export const CAPITAL_TIER = 3;
@@ -1387,21 +1388,14 @@ function warEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
   }
   order.push(...held);
   // 不是打下来的攻占:议和时划界割让的(peace 的 region = 紧挨在它前面的几条)、丢了国都撑不下去残部一并归攻方的
-  // (亡国前同一刻连着的几条攻占,第一条是打下国都的那一仗)。各合成一条子条目,不写"攻取"
+  // (亡国前同一刻、打下国都以后连着的几条攻占,见 growth.ts 的 annexedRemnants)。各合成一条子条目,不写"攻取"
   const special = new Map<number, 'cede' | 'annex'>();
   for (const i of ids) {
     const e = A[i];
     if (e.kind === 'peace' && e.region > 0) {
       for (let j = Math.max(0, i - e.region); j < i; j++) if (A[j].kind === 'conquer' && A[j].war === e.war) special.set(j, 'cede');
     } else if (e.kind === 'fall') {
-      const run: number[] = [];
-      for (let j = i - 1; j >= 0; j--) {
-        const c = A[j];
-        if (c.kind !== 'conquer' || c.war !== e.war || c.year !== e.year || c.a !== e.b || c.b !== e.a) break;
-        run.push(j);
-      }
-      run.pop();
-      for (const j of run) special.set(j, 'annex');
+      for (const j of annexedRemnants(civ, i)) special.set(j, 'annex');
     }
   }
   // 人物:统帅这场战争里第一次出场写全("大渭将李牧攻取瑞州"),之后攻占只写国名

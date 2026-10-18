@@ -225,7 +225,7 @@ describe('分与合', () => {
   // 没有复国的世界前后都有(20 个里 2–3 个):单个世界的分裂 + 复国按 2 次起算,另要两个世界合计 8 次以上;复国按两个世界合计算
   // 君主有了好战倾向以后,20 个种子(1–19、2024)平均分裂 2.7 次、复国 1.4 次;分裂 + 复国最少的是种子 17(0 次)、
   // 12(1 次)、11(2 次),其余 17 个世界都 ≥ 3 次:两个世界合计从 8 次放到 6 次
-  it('默认参数 seed 7 / 2024:分裂 1–20 次、分裂 + 复国 ≥ 2 次(两个世界合计 ≥ 6)、合并 ≤ 16 次、复国 ≤ 12 次(复国、合并、主动迁都两个世界里都有);结束时在世 8–30 国;政区图成片、前线不闪烁', () => {
+  it('默认参数 seed 7 / 2024:分裂 1–20 次、分裂 + 复国 ≥ 2 次(两个世界合计 ≥ 6)、合并 ≤ 16 次、复国 ≤ 12 次(复国、合并、主动迁都两个世界里都有);结束时在世 8–30 国;政区图成片、前线会拉锯', () => {
     // 合并、主动迁都是少见的事(各个种子 0–4 次):按两个世界合计至少一次算,不要求每个世界都有
     let merges = 0;
     let moves = 0;
@@ -248,7 +248,8 @@ describe('分与合', () => {
       expect(ps.restorations, tag).toBeLessThanOrEqual(12);
       expect(ws.alive, tag).toBeGreaterThanOrEqual(8);
       expect(ws.alive, tag).toBeLessThanOrEqual(30);
-      expect(ws.flippy, tag).toBe(0);
+      // 拉锯州来自战争(HOLD 只有几年),分合不添:GENERATOR_VERSION 19 以后 20 个种子各 2–19 个
+      expect(ws.flippy, tag).toBeGreaterThan(0);
       // GENERATOR_VERSION 17(各国自己进航海时代)以后,20 个种子里飞地占比最多 1.1%(种子 7)
       expect(ws.exclaveShare, tag).toBeLessThan(0.015);
       // 分出来的国家不是一出生就没了;和原国颜色不同(回放时看得出裂出了一块)
