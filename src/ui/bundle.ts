@@ -93,11 +93,12 @@ export interface BundleOut {
 export function bundleText(at = new Date(), max = MAX_LEN): BundleOut | null {
   const cur = currentWorld();
   const fresh = cur && currentUnsaved() ? currentSave() : null;
-  const one = (id: string, save: SaveFile, w: { draft: boolean; alive?: number; base?: SyncMeta['base']; at?: string }, thumb: string | null) => {
+  const one = (id: string, save: SaveFile, w: { draft: boolean; alive?: number; base?: SyncMeta['base']; map?: boolean; at?: string }, thumb: string | null) => {
     const meta: SyncMeta = {};
     if (w.draft) meta.draft = true;
     if (w.alive !== undefined) meta.alive = w.alive;
     if (w.draft && w.base) meta.base = w.base;
+    if (w.map && !w.draft) meta.map = true;
     return { id, save, meta, opened: w.at && w.at > save.savedAt ? w.at : undefined, thumb, notes: exportNotes(id) };
   };
   const list = listWorlds();
@@ -243,7 +244,7 @@ function withMapFrom(save: SaveFile, ids: Map<string, string>): SaveFile {
 
 /** 放回「我的世界」(见文件头) */
 export function importBundle(b: Bundle): ImportResult {
-  const have = listWorlds().map((w) => ({ id: w.id, save: w.save, draft: w.draft, base: w.base }));
+  const have = listWorlds().map((w) => ({ id: w.id, save: w.save, draft: w.draft, base: w.base, map: w.map }));
   let count = have.length;
   const res: ImportResult = { added: [], same: 0, filled: 0, left: 0, notesLost: false };
   /** 文件里的编号 → 现在的编号(放进来的、原来就有的) */
@@ -258,7 +259,7 @@ export function importBundle(b: Bundle): ImportResult {
     const old = w.meta.base;
     const base = old && ids.has(old.id) ? { ...old, id: ids.get(old.id)! } : old;
     // 没建完的还要底稿一样才算同一个(有一边不知道底稿的不算不一样,这边缺的用文件里的补上)
-    const dup = have.find((h) => h.draft === draft && sameWorld(h.save, w.save) && (!draft || !h.base || !base || h.base.id === base.id));
+    const dup = have.find((h) => h.draft === draft && h.map === !!w.meta.map && sameWorld(h.save, w.save) && (!draft || !h.base || !base || h.base.id === base.id));
     if (dup) {
       if (w.id) ids.set(w.id, dup.id);
       res.same++;
@@ -285,7 +286,7 @@ export function importBundle(b: Bundle): ImportResult {
     }
     if (w.id) ids.set(w.id, id);
     if (w.notes.length && !replaceNotes(id, w.notes)) res.notesLost = true;
-    have.push({ id, save: w.save, draft, base: draft ? base : undefined });
+    have.push({ id, save: w.save, draft, base: draft ? base : undefined, map: !!w.meta.map });
     count++;
     res.added.push(id);
   }

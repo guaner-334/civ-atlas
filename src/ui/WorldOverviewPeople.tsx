@@ -37,7 +37,7 @@ import { generalRole, isConsul, ministerRole, personName, rulerFateWord } from '
 import { deedLine } from '../gen/civ/officialText';
 import { hasLineage, lineageText } from '../gen/civ/lineageInfo';
 import { closeOverview, setPeople, usePeople, type PeopleList } from './overviewStore';
-import { useEdits } from './editsStore';
+import { seedTag, useEdits } from './editsStore';
 import { setSelection } from './civView';
 import { newCharacterDraft } from './characterStore';
 import { characterLine, characterPolity } from './characterInfo';
@@ -229,7 +229,7 @@ export function PeoplePage({ civ, data }: { civ: Civ | null; data: { world: Worl
   const end = civ.endYear;
 
   const copy = async () => {
-    const lines = [`人物 · ${listName}${tree ? ' · 世系图' : ''} · 种子 ${civ.seed}${focus ? ` · 只看${focusName}` : ''}`, ''];
+    const lines = [`人物 · ${listName}${tree ? ' · 世系图' : ''} · ${seedTag(civ.seed)}${focus ? ` · 只看${focusName}` : ''}`, ''];
     if (tree) lines.push(lineageText(civ, polity!, era));
     for (const g of tree ? [] : groups) {
       if (g.head) lines.push(`${g.head.name}(${g.head.note})`);

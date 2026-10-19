@@ -109,6 +109,12 @@ const studioReady = async (p: Page = page) => {
   await p.waitForFunction(() => (window as any).__wf?.ready, null, { timeout: 60000 });
   await p.waitForTimeout(450);
 };
+/** 「我的世界」默认在「地图」页签,一个世界(文明)一张的卡片在「文明」页签:切过去(空的首页没有页签,不动) */
+const civsTab = async (p: Page = page) => {
+  await p.locator('.mw').waitFor({ timeout: 10000 }).catch(() => {});
+  const tab = p.locator('.mw-seg [data-tab=civs]');
+  if (await tab.count()) await tab.click();
+};
 /** 「新建世界」弹窗:第 1 步(默认随机生成)点「下一步」,第 2 步点「开始」;tap = 手机上点 */
 const dialogStart = async (p: Page, tap = false) => {
   const hit = (sel: string) => (tap ? p.tap(sel) : p.click(sel));
@@ -145,16 +151,25 @@ const terrainOn = async (p: Page = page) => {
   await p.evaluate(() => (window as any).__wfSetCenter?.(0));
   await p.waitForTimeout(250);
 };
-/** 新建界面里创建:点「创建世界」→ 确认框里点「确认创建」→ 星球展开、新建界面淡出 */
+/** 随机生成的新建分两步:第 1 步(地图)点「打造文明 ›」到第 2 步(文明);已经在第 2 步、照图的、以它为底稿的没有这一步 */
+const toCivStep = async (p: Page = page) => {
+  const next = p.locator('.studio [data-act=to-civ]');
+  if (!(await next.count())) return;
+  await next.click();
+  await p.locator('.studio [data-act=back-to-map]').waitFor({ timeout: 5000 }).catch(() => {});
+};
+/** 新建界面里创建:(随机生成的先到第 2 步)点「创建世界 / 开始推演」→ 确认框里点「确认创建」→ 星球展开、新建界面淡出 */
 const createNow = async (p: Page = page) => {
   await studioReady(p);
+  await toCivStep(p);
   await p.click('.studio [data-act=create-world]');
   await p.click('.st-dlg [data-act=confirm-create]');
   await p.locator('.studio').waitFor({ state: 'detached', timeout: 15000 });
 };
-/** 回放世界形成(创建好的世界:概览"世界设定"页的按钮,点了概览收起) */
+/** 回放世界形成(创建好的世界:概览"世界设定"页「地图」那一页的按钮,点了概览收起) */
 const replayClick = async (p: Page = page) => {
   await openOverview(p, 'genesis');
+  await p.click('.ov-seg [data-tab=map]');
   await p.click('.ov [data-act=replay]');
 };
 /**
@@ -268,6 +283,12 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
     await page.click(`.ov-tab[data-tab=${t}]`);
     await page.waitForTimeout(200);
     pages[t] = (await page.locator('.ov-body').innerText()).replace(/\n/g, ' ');
+    // 世界设定分「文明」「地图」两页:两页的字连起来看
+    if (t === 'genesis' && (await page.locator('.ov-seg [data-tab=map]').count())) {
+      await page.click('.ov-seg [data-tab=map]');
+      await page.waitForTimeout(200);
+      pages[t] += ' ' + (await page.locator('.ov-body').innerText()).replace(/\n/g, ' ');
+    }
   }
   await page.keyboard.press('Escape');
   await page.waitForTimeout(200);
@@ -335,7 +356,7 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
   if (!ovOpen || !['现存', '历来', '民族', '城镇', '种子 7', '当前'].every((w) => ovHead.includes(w))) errs.push(`世界概览:打不开 / 头部不全(${ovHead})`);
   if (!['国家', '编年史', '我的干预 0', '世界设定'].every((w) => ovTabs.includes(w)) || ovRows < 3) errs.push(`世界概览:页签不全 / 国家表没有列出国家(${ovTabs};${ovRows} 行)`);
   if (!/大事 \d+/.test(pages.chronicle ?? '') || !(pages.interventions ?? '').includes('还没有干预')) errs.push('世界概览:编年史页 / 我的干预页(空)不对');
-  if (!['创建时定下的', '不能再改', '种子', '陆地', '改过的地形', '以它为底稿新建', '回放世界形成'].every((w) => (pages.genesis ?? '').includes(w)) || /换一颗|随机/.test(pages.genesis ?? ''))
+  if (!['创建时定下的', '不能再改', '文明种子', '陆地', '改过的地形', '以它为底稿新建', '回放世界形成'].every((w) => (pages.genesis ?? '').includes(w)) || /换一颗|随机/.test(pages.genesis ?? ''))
     errs.push(`世界概览:世界设定页不对(应只能看、能以它为底稿新建、回放;${pages.genesis})`);
   if (!escClosed || !scrimClosed) errs.push('世界概览:Esc / 点外面收不起');
   if (!rowClosed || !rowIns.includes(rowName)) errs.push(`世界概览:国家表点一行没有收起概览、选中这国(${rowName};${rowIns.slice(0, 40)})`);
@@ -1165,6 +1186,7 @@ if (!(cached.renderMs < 20)) errs.push(`切回画过的画风仍在重画(render
 await replayClick();
 await page.waitForTimeout(1000);
 await openOverview(page, 'genesis');
+await page.click('.ov-seg [data-tab=civ]');
 await page.click('.ov [data-act=draft-from]');
 const fromCard = (await page.locator('.studio .st-left').waitFor({ timeout: 5000 }).then(() => true, () => false)) && !(await page.locator('.nd-scrim').count());
 const fromClosed = !(await page.locator('.ov-root:not([hidden])').count());
@@ -1238,9 +1260,11 @@ await studioReady();
   await fp.click('.nd-scrim [data-act=dlg-next]');
   const dlg2 = (await fp.locator('.nd-sheet').innerText().catch(() => '')).replace(/\n/g, ' ');
   const dlgParams = await fp.locator('.nd-sheet [data-param]').count();
+  const dlgFrontier = await fp.locator('.nd-sheet [data-group=frontier]').count();
   await fp.click('.nd-scrim [data-act=dlg-start]');
   await studioReady(fp);
   const draftUrl = fp.url();
+  await toCivStep(fp);
   await fp.click('.studio [data-act=create-world]');
   const dlg = (await fp.locator('.st-dlg').innerText().catch(() => '')).replace(/\n/g, ' ');
   const dlgSeed = await fp.locator('.st-dlg [data-confirm=seed]').innerText().catch(() => '');
@@ -1262,7 +1286,7 @@ await studioReady();
   if (!emptyText.includes('无需登录') || !emptyText.includes('不主张任何权利')) errs.push(`第一次来:「或者打开存档文件」下面没有"无需登录……归你"那行小字(${emptyText})`);
   if (!/[?&]new=1/.test(draftUrl)) errs.push(`第一次来:新建弹窗里点「开始」没进新建(${draftUrl})`);
   if (!dlg1.includes('随机生成') || !dlg1.includes('照手绘图生成') || dlgOn !== 'random' || !dlgGone) errs.push(`新建弹窗:第 1 步没有两种(默认随机生成),或 Esc 没关掉(${dlg1},${dlgOn},${dlgGone})`);
-  if (!dlg2.includes('种子') || !dlg2.includes('都还能改') || dlgParams !== 8) errs.push(`新建弹窗:第 2 步没有种子、八项参数(六项世界参数加民族扩散、国家扩张)和"进去以后还能改"(${dlg2},${dlgParams})`);
+  if (!dlg2.includes('种子') || !dlg2.includes('都还能改') || dlgParams !== 6 || dlgFrontier) errs.push(`新建弹窗:第 2 步没有种子、六项世界参数和"进去以后还能改",或还列着拓荒(随机生成先只定地图)(${dlg2},${dlgParams},${dlgFrontier})`);
   if (!['不能再改', '种子', '世界参数', '地形', '地名风格'].every((w) => dlg.includes(w)) || !new RegExp(`[?&]seed=${dlgSeed}(&|$)`).test(draftUrl)) errs.push(`新建界面:确认框没列出不能再改的四样(${dlg},种子 ${dlgSeed})`);
   if (!closed || !stillDraft) errs.push('新建界面:确认框点「再改改」没有关掉、回到新建');
   if (!/[?&]w=w/.test(worldUrl) || theme !== 'light' || layer !== 'political') errs.push(`新建界面:确认创建后没回到平常的世界页面(${worldUrl},${theme},${layer})`);
@@ -1956,6 +1980,7 @@ for (const style of ['realistic', 'fantasy']) {
       // 回到"我的世界":有这个世界的卡片
       await page.click('.sidebar [data-act=home]');
       await page.locator('.mw').waitFor({ timeout: 5000 });
+      await civsTab(page);
       listed = await page.locator('.mw [data-act=open-world]').count();
       // 换一个世界(种子 2024),清掉浏览器里的存档(像换了台电脑),再从文件打开
       await page.goto(`${dev.url}/?seed=2024&style=fantasy&civ=polities`);
@@ -2006,6 +2031,7 @@ for (const style of ['realistic', 'fantasy']) {
   };
   await page.evaluate(([k, v]) => localStorage.setItem(k, v), [`wenming-ditu:world:${id}`, JSON.stringify(legacy)]);
   await page.goto(`${dev.url}/?style=fantasy&civ=polities`);
+  await civsTab(page);
   const card = await page.locator('.mw [data-act=open-world]').first().waitFor({ timeout: 10000 }).then(() => true, () => false);
   if (card) await page.locator('.mw [data-act=open-world]').first().click();
   await page.waitForFunction(() => (window as any).__wfLabels?.polities > 0, null, { timeout: 60000 });
@@ -2040,6 +2066,7 @@ for (const style of ['realistic', 'fantasy']) {
     errs.push(`改版前的网址刷新没有回到原来的存档(w=${back.w},键 ${back.keys.join()},改名 ${backNames})`);
   // "我的世界"里删除:点一下就删(不再问第二次),提示条上点"撤销"放回来
   await page.goto(`${dev.url}/?style=fantasy&civ=polities`);
+  await civsTab(page);
   await page.locator('.mw [data-act=open-world]').first().waitFor({ timeout: 10000 }).catch(() => {});
   const cardCount = () => page.locator('.mw [data-act=open-world]').count();
   const cardsBefore = await cardCount();
@@ -2236,6 +2263,7 @@ for (const style of ['realistic', 'fantasy']) {
         await closeOverview(b);
         await b.click('.sidebar [data-act=home]');
         await b.locator('.mw').waitFor({ timeout: 5000 }).catch(() => {});
+        await civsTab(b);
         cards = await b.locator('.mw [data-act=open-world]').count();
         await b.locator('.mw [data-act=open-world]').first().click().catch(() => {});
         await ready(b);
@@ -2963,6 +2991,7 @@ for (const style of ['realistic', 'fantasy']) {
     await page.locator('.sidebar .sb-title').waitFor({ timeout: 10000 }).catch(() => {});
     const noEntry = (await page.locator('[data-act=terrain]').count()) === 0;
     await openOverview(page, 'genesis');
+    await page.click('.ov-seg [data-tab=map]');
     const settings = (await page.locator('.ov-settings [data-param=terrain]').innerText().catch(() => '')).replace(/\n/g, ' ');
     await closeOverview();
     console.log(`改地形:创建后改地形入口 ${noEntry ? '没有' : '还在'},世界设定页「${settings}」`);
@@ -5060,6 +5089,7 @@ for (const style of ['realistic', 'fantasy']) {
   await mp.tap('.psheet .ps-tiles [data-act=home]').catch(() => {});
   await mp.locator('.mw').waitFor({ timeout: 5000 }).catch(() => {});
   const homeBox = await box('.mw');
+  await civsTab(mp);
   const homeCards = await mp.locator('.mw [data-act=open-world]').count();
   await mp.tap('.mw [data-act=new-world] >> nth=0').catch(() => {});
   await dialogStart(mp, true).catch(() => {});
@@ -5070,10 +5100,11 @@ for (const style of ['realistic', 'fantasy']) {
   await mp.locator('.st-sheet [data-act=terrain]:not([disabled])').waitFor({ timeout: 60000 }).catch(() => {});
   await mp.tap('.st-sheet [data-act=terrain]').catch(() => {});
   await mp.waitForTimeout(400);
-  const nwTools = (await mp.locator('.st-sheet.tools .tp').isVisible().catch(() => false)) && !(await mp.locator('.st-sheet [data-act=create-world]').count());
+  // 随机生成的第 1 步(地图)底部是「保存地图」「地图做好了，下一步」
+  const nwTools = (await mp.locator('.st-sheet.tools .tp').isVisible().catch(() => false)) && !(await mp.locator('.st-sheet [data-act=to-civ]').count());
   await mp.tap('.tp [data-act=terrain-done]').catch(() => {});
   await mp.waitForTimeout(400);
-  const nwBack = !(await mp.locator('.tp').count()) && (await mp.locator('.st-sheet [data-act=create-world]').isVisible().catch(() => false));
+  const nwBack = !(await mp.locator('.tp').count()) && (await mp.locator('.st-sheet [data-act=to-civ]').isVisible().catch(() => false));
   console.log(
     `手机布局:胶囊 ${JSON.stringify(row)},轨道 ${JSON.stringify(track)};世界卡片 ${JSON.stringify(ws0)}「${sub}」;右上 ${btnActs} ${JSON.stringify(btns)};提示「${hint0}」;+ − ${zoomBtns} 个;` +
       `上拖 → 拉到顶 ${JSON.stringify(wsFull)}、大按钮 ${tiles} 个、胶囊藏起 ${capsuleHidden};点拖动条${gripTaps > 1 ? `(点了 ${gripTaps} 次)` : ''} → 收起 ${JSON.stringify(ws1)};` +
@@ -5221,6 +5252,7 @@ for (const style of ['realistic', 'fantasy']) {
   for (const [seed, title] of [[2024, '群星之海'], [7, '落日洋']] as const) {
     await bp.goto(`${dev.url}/?new=1&seed=${seed}&play=0`);
     await studioReady(bp);
+    await toCivStep(bp);
     await bp.fill('input[placeholder="给这个世界起个名字"]', title);
     await bp.keyboard.press('Enter');
     await createNow(bp);
@@ -5247,6 +5279,7 @@ for (const style of ['realistic', 'fantasy']) {
     return s;
   };
   await p.goto(`${dev.url}/?play=0`);
+  await civsTab(p);
   await p.locator('.mw-card').first().waitFor({ timeout: 15000 });
   await p.locator('.mw-card', { hasText: '落日洋' }).locator('[data-act=open-world]').click();
   await ready(p);
@@ -5295,6 +5328,7 @@ for (const style of ['realistic', 'fantasy']) {
   await seedIs(d2.seed, true);
   await step('前进', (s) => s.where === '新建' && s.seed === d2.seed);
   await studioReady(p);
+  await toCivStep(p);
   await p.fill('input[placeholder="给这个世界起个名字"]', '北境');
   await p.keyboard.press('Enter');
   await createNow(p);
@@ -5312,6 +5346,7 @@ for (const style of ['realistic', 'fantasy']) {
   await step('左上回我的世界', (s) => s.where === '我的世界');
   const other = await ctx.newPage();
   await other.goto(`${dev.url}/?play=0`);
+  await civsTab(other);
   await other.locator('.mw-card', { hasText: '群星之海' }).locator('[data-act=world-menu]').click();
   await other.locator('[data-act=world-delete]').click();
   await other.waitForTimeout(300);

@@ -1813,3 +1813,37 @@ body.imp-move .stage.terrain-on {
   margin: 6px 4px;
   background: var(--line);
 }
+/* 板块页:选中的板块的漂移箭头(白色粗箭头描暗边,起点白点,能拖的箭头头套一个圈) */
+.terrain-marks .tt-plate-halo {
+  stroke: rgba(0, 0, 0, 0.35);
+  stroke-width: 7;
+}
+.terrain-marks .tt-plate-shaft {
+  stroke: #fff;
+  stroke-width: 4;
+}
+.terrain-marks .tt-plate-head {
+  fill: #fff;
+}
+.terrain-marks .tt-plate-dot {
+  fill: #fff;
+  stroke: rgba(0, 0, 0, 0.4);
+  stroke-width: 1;
+}
+.terrain-marks .tt-plate-ring {
+  stroke: #fff;
+  stroke-width: 2;
+}
+/* 切开:正在画的线是白色虚线描暗边,线头一个白点 */
+.terrain-marks .tt-cut-halo {
+  stroke: rgba(0, 0, 0, 0.35);
+  stroke-width: 5;
+}
+.terrain-marks .tt-cut-line {
+  stroke: #fff;
+  stroke-width: 2.5;
+  stroke-dasharray: 8 5;
+}
+.terrain-marks .tt-cut-end {
+  fill: #fff;
+}

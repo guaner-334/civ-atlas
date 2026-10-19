@@ -15,10 +15,17 @@
  * 登录了的:标题下那句话说世界存在账号里(不再提醒,「全部存成文件」照样在);卡片时间那个位置在没同步好时换成"正在同步""还没同步上"(同步好了不标);
  * 账号窗里点「最近删除」,这一页换成最近删除(30 天内能找回,点一张卡片找回)。
  *
+ * 两个页签(分段控件,默认「地图」;回到这一页还是上次看的那个):
+ *   地图     一张地图一张卡片(实景、没有国界和地名的地图缩略图,名字"种子 7",下面写这张地图上有几个文明;分组见 mapGroups.ts)。
+ *            点一张选中(描蓝边),它那一行下面展开:这张地图上的文明(点一个打开)和「打造新文明」;
+ *            还没有文明的(新建时只保存了地图)展开里是「打造文明」「删除这张地图」。再点一下收起
+ *   文明     一个文明一张卡片(就是原来的我的世界);"···"菜单里多一项「在这张地图上打造新文明」
+ * 手机上页签铺满一行,地图两列,展开的那块里文明一行一个,底下一个大的「打造新文明」。
+ *
  * 存、读、列都在 saveStore.ts;打开一个世界(生成 + 套上修改)由 App 做。一个都没有时也停在这一页
  * (刚才那个世界存不进浏览器、只在页面里的,标题下有「全部存成文件」)。
  */
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { MAX_WORLDS, currentUnsaved, deleteWorld, duplicateWorld, listWorlds, loadWorld, notify, persistent, renameWorld, restoreWorld, storageFullWhy, storedCount, syncable, useSavesVersion, type StoredWorld } from './saveStore';
 import { closeTrash, openAccount, openLogin, useAccountPanelOpen, useTrashView } from './AccountDialogs';
 import { serverBase } from '../account/server';
@@ -37,7 +44,28 @@ import { VersionText } from './VersionNews';
 import { HomeGlobe } from './studio/HomeGlobe';
 import { OldSiteBadge } from './Corners';
 import { BETA_SITE, OLD_SITE } from './oldSite';
+import { civName, mapBrief, mapGroups, mapLine, mapName, type MapGroup } from './mapGroups';
 import './worlds.css';
+
+/** 我的世界看的是哪个页签、「地图」里选中了哪张(组的编号);回到这一页照旧 */
+type WorldsTab = 'maps' | 'civs';
+let view: { tab: WorldsTab; pick: string | null } = { tab: 'maps', pick: null };
+const viewSubs = new Set<() => void>();
+function setView(v: Partial<typeof view>) {
+  view = { ...view, ...v };
+  for (const f of viewSubs) f();
+}
+function useView() {
+  return useSyncExternalStore(
+    (f) => (viewSubs.add(f), () => viewSubs.delete(f)),
+    () => view,
+    () => view,
+  );
+}
+/** 回到我的世界时看「地图」页签、选中这张地图(刚保存的地图) */
+export function showMapInWorlds(key: string) {
+  setView({ tab: 'maps', pick: key });
+}
 
 export interface MyWorldsProps {
   phone: boolean;
@@ -47,6 +75,8 @@ export interface MyWorldsProps {
   onNew: () => void;
   /** 从文件打开:文件内容(App 解析、存进我的世界、打开) */
   onOpenText: (text: string, fileName?: string) => void;
+  /** 在这个世界(或只存了地图的那一份)的地图上打造新文明 */
+  onNewCiv: (id: string) => void;
 }
 
 /** 卡片第二行:"种子 7，现存 13 国" / "种子 1009，还在新建" */
@@ -57,9 +87,12 @@ function worldLine(w: StoredWorld): string {
   return w.alive ? `${seed}，现存 ${w.alive} 国` : `${seed}，没有文明`;
 }
 
-export function MyWorlds({ phone, onOpen, onNew, onOpenText }: MyWorldsProps) {
+export function MyWorlds({ phone, onOpen, onNew, onOpenText, onNewCiv }: MyWorldsProps) {
   const v = useSavesVersion();
   const list = useMemo(() => listWorlds(), [v]);
+  const groups = useMemo(() => mapGroups(list), [list]);
+  const civs = useMemo(() => list.filter((w) => !w.map), [list]);
+  const { tab, pick } = useView();
   const fileRef = useRef<HTMLInputElement>(null);
   /** 菜单开在哪张卡片上 */
   const [menu, setMenu] = useState<string | null>(null);
@@ -210,8 +243,20 @@ export function MyWorlds({ phone, onOpen, onNew, onOpenText }: MyWorldsProps) {
         </div>
       )}
       {!empty && (
+        <div className="mw-seg" role="tablist" aria-label="看地图还是文明">
+          <button role="tab" aria-selected={tab === 'maps'} className={tab === 'maps' ? 'on' : ''} data-tab="maps" onClick={() => setView({ tab: 'maps' })}>
+            地图<i>{groups.length}</i>
+          </button>
+          <button role="tab" aria-selected={tab === 'civs'} className={tab === 'civs' ? 'on' : ''} data-tab="civs" onClick={() => setView({ tab: 'civs' })}>
+            文明<i>{civs.length}</i>
+          </button>
+        </div>
+      )}
+      {!empty && tab === 'maps' && <MapGrid groups={groups} phone={phone} pick={pick} onPick={(k) => setView({ pick: k })} onOpen={onOpen} onNewCiv={onNewCiv} />}
+      {!empty && tab === 'civs' && !civs.length && <p className="mw-none">还没有文明。到「地图」里选一张地图打造文明，或者新建世界。</p>}
+      {!empty && tab === 'civs' && civs.length > 0 && (
         <div className="mw-grid" role="list">
-          {list.map((w) => (
+          {civs.map((w) => (
             <WorldCard
               key={w.id}
               w={w}
@@ -221,6 +266,7 @@ export function MyWorlds({ phone, onOpen, onNew, onOpenText }: MyWorldsProps) {
               renaming={renaming === w.id}
               onRename={(o) => setRenaming(o ? w.id : null)}
               onOpen={() => onOpen(w.id)}
+              onNewCiv={() => onNewCiv(w.id)}
               sync={syncOf(w.id)}
               loggedIn={!!session}
             />
@@ -278,6 +324,7 @@ function WorldCard({
   renaming,
   onRename,
   onOpen,
+  onNewCiv,
   sync,
   loggedIn,
 }: {
@@ -288,6 +335,7 @@ function WorldCard({
   renaming: boolean;
   onRename: (on: boolean) => void;
   onOpen: () => void;
+  onNewCiv: () => void;
   sync: 'sync' | 'off' | null;
   loggedIn: boolean;
 }) {
@@ -426,6 +474,10 @@ function WorldCard({
                 <Icon name="copy" size={16} />
                 <span className="pm-text">复制一份</span>
               </button>
+              <button className="pm-item" data-act="world-new-civ" onClick={act(onNewCiv)}>
+                <Icon name="map" size={16} />
+                <span className="pm-text">在这张地图上打造新文明</span>
+              </button>
               <button
                 className="pm-item"
                 data-act="world-file"
@@ -445,33 +497,179 @@ function WorldCard({
           <button
             className="pm-item red"
             data-act="world-delete"
-            onClick={act(() => {
-              // 已经存进账号的:账号里跟着删,进最近删除(还没传上去的只是从这里删掉,找不回来,不这么说)
-              const synced = loggedIn && inAccount(w.id);
-              // 点一下就删,不再问;提示条上的"撤销"兜底(提示条还在的时候点,放回原处;已经存进账号的跟着存回去)
-              const gone = deleteWorld(w.id);
-              // 别的页面里已经删掉了(这一页的列表还没跟上):没有可撤销的
-              if (!gone) return notify({ kind: 'ok', text: `「${name}」已在别的页面里删掉了` });
-              notify({
-                kind: 'ok',
-                text: `已删除「${name}」`,
-                ...(synced ? { more: ['所有设备上都会删掉；30 天内能在账号的「最近删除」里找回'] } : {}),
-                action: {
-                  label: '撤销',
-                  act: 'world-undelete',
-                  onClick: () => {
-                    if (restoreWorld(gone)) notify(null);
-                    else notify({ kind: 'error', text: '没能放回去', more: ['浏览器存储已满'] });
-                  },
-                },
-              });
-            })}
+            onClick={act(() => removeWorld(w.id, name, loggedIn))}
           >
             <Icon name="trash" size={16} />
             <span className="pm-text">删除</span>
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+/** 删掉一个世界(或只存了地图的那一份):点一下就删,不再问;提示条上的"撤销"兜底(提示条还在的时候点,放回原处;已经存进账号的跟着存回去) */
+function removeWorld(id: string, name: string, loggedIn: boolean) {
+  // 已经存进账号的:账号里跟着删,进最近删除(还没传上去的只是从这里删掉,找不回来,不这么说)
+  const synced = loggedIn && inAccount(id);
+  const gone = deleteWorld(id);
+  // 别的页面里已经删掉了(这一页的列表还没跟上):没有可撤销的
+  if (!gone) return notify({ kind: 'ok', text: `「${name}」已在别的页面里删掉了` });
+  notify({
+    kind: 'ok',
+    text: `已删除「${name}」`,
+    ...(synced ? { more: ['所有设备上都会删掉；30 天内能在账号的「最近删除」里找回'] } : {}),
+    action: {
+      label: '撤销',
+      act: 'world-undelete',
+      onClick: () => {
+        if (restoreWorld(gone)) notify(null);
+        else notify({ kind: 'error', text: '没能放回去', more: ['浏览器存储已满'] });
+      },
+    },
+  });
+}
+
+/** 展开那块里一个文明的第二行:"现存 15 国" */
+function civLine(w: StoredWorld): string {
+  if (w.draft) return '还在新建';
+  if (w.alive === undefined) return `种子 ${w.save.seed}`;
+  return w.alive ? `现存 ${w.alive} 国` : '没长出国家';
+}
+
+/**
+ * 「地图」页签:一张地图一张卡片;选中的那张所在的那一行下面展开它上面的文明(网格里插一块占满一行的)。
+ * 展开那块上面的小尖角对着选中的卡片
+ */
+function MapGrid({
+  groups,
+  phone,
+  pick,
+  onPick,
+  onOpen,
+  onNewCiv,
+}: {
+  groups: MapGroup[];
+  phone: boolean;
+  pick: string | null;
+  onPick: (key: string | null) => void;
+  onOpen: (id: string) => void;
+  onNewCiv: (id: string) => void;
+}) {
+  const grid = useRef<HTMLDivElement>(null);
+  const [cols, setCols] = useState(phone ? 2 : 4);
+  useLayoutEffect(() => {
+    const el = grid.current;
+    if (!el) return;
+    const count = () => setCols(Math.max(1, getComputedStyle(el).gridTemplateColumns.split(' ').filter(Boolean).length));
+    count();
+    if (typeof ResizeObserver !== 'function') return;
+    const ro = new ResizeObserver(count);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [phone]);
+  const sel = groups.findIndex((g) => g.key === pick);
+  // 选中的那张没了(删掉了):不展开
+  const at = sel < 0 ? -1 : Math.min(groups.length - 1, Math.floor(sel / cols) * cols + cols - 1);
+  const session = useSession();
+  return (
+    <div ref={grid} className="mw-grid mw-maps" role="list">
+      {groups.map((g, i) => (
+        <Fragment key={g.key}>
+          <div className={`mw-card mw-map${i === sel ? ' on' : ''}`} role="listitem" data-map={g.key}>
+            <button className="mw-open" data-act="pick-map" aria-expanded={i === sel} onClick={() => onPick(i === sel ? null : g.key)}>
+              <span className="mw-thumb" style={g.thumb ? { backgroundImage: `url(${g.thumb})` } : undefined} />
+              <span className="mw-meta">
+                <span className="mw-row1">
+                  <b className="mw-name">{mapName(g.head)}</b>
+                </span>
+                <span className="mw-line">{mapLine(g, phone)}</span>
+              </span>
+            </button>
+          </div>
+          {i === at && <MapPanel g={groups[sel]} col={sel % cols} cols={cols} phone={phone} onOpen={onOpen} onNewCiv={onNewCiv} loggedIn={!!session} />}
+        </Fragment>
+      ))}
+    </div>
+  );
+}
+
+/** 选中的地图下面展开的那块 */
+function MapPanel({ g, col, cols, phone, onOpen, onNewCiv, loggedIn }: { g: MapGroup; col: number; cols: number; phone: boolean; onOpen: (id: string) => void; onNewCiv: (id: string) => void; loggedIn: boolean }) {
+  const n = g.civs.length;
+  // 在哪个世界的地图上打造:地图那一份 / 最早那个世界 / 最近的一个建好的文明(都是同一张地图;没建完的不算)
+  const from = g.head.id;
+  const src = (g.map ?? (g.head.draft ? g.civs.find((w) => !w.draft) : g.head))?.id;
+  const style = { '--col': col, '--cols': cols } as React.CSSProperties;
+  if (!n) {
+    return (
+      <div className="mw-panel empty" role="group" aria-label="这张地图上还没有文明" style={style}>
+        <i className="mw-caret" aria-hidden="true" />
+        <div className="mw-panel-hd">
+          <b>这张地图上还没有文明</b>
+          {!phone && <span>{mapBrief(g.head)}</span>}
+        </div>
+        <p className="mw-panel-txt">打造文明会在这张地图上从第 0 年推演：民族、国家、城都从头长出来。地图本身不再变。</p>
+        <div className="mw-panel-acts">
+          <button className={`mw-btn blue${phone ? ' wide' : ''}`} data-act="map-new-civ" onClick={() => onNewCiv(from)}>
+            <Icon name="plus" size={16} />
+            打造文明
+          </button>
+          <button className={`mw-btn${phone ? ' wide' : ''}`} data-act="map-delete" onClick={() => removeWorld(from, mapName(g.head), loggedIn)}>
+            删除这张地图
+          </button>
+        </div>
+      </div>
+    );
+  }
+  const add = src && (
+    <button className={`mw-btn blue${phone ? ' wide' : ''}`} data-act="map-new-civ" onClick={() => onNewCiv(src)}>
+      <Icon name="plus" size={16} />
+      打造新文明
+    </button>
+  );
+  return (
+    <div className="mw-panel" role="group" aria-label={`这张地图上的 ${n} 个文明`} style={style}>
+      <i className="mw-caret" aria-hidden="true" />
+      <div className="mw-panel-hd">
+        <b>这张地图上的 {n} 个文明</b>
+        {!phone && <span>{mapBrief(g.head)}</span>}
+        {!phone && add}
+      </div>
+      {phone ? (
+        <div className="mw-panel-list" role="list">
+          {g.civs.map((w) => (
+            <button key={w.id} className="mw-civ-row" role="listitem" data-id={w.id} data-act="open-world" onClick={() => onOpen(w.id)}>
+              <span className="mw-civ-th" style={w.thumb ? { backgroundImage: `url(${w.thumb})` } : undefined} />
+              <span className="mw-civ-meta">
+                <b>{civName(w)}</b>
+                <span>{civLine(w)}</span>
+              </span>
+              <Icon name="chevron" size={14} className="mw-civ-chev" />
+            </button>
+          ))}
+        </div>
+      ) : (
+        <div className="mw-panel-grid" role="list">
+          {g.civs.map((w) => (
+            <div key={w.id} className={`mw-card${w.draft ? ' draft' : ''}`} role="listitem" data-id={w.id}>
+              <button className="mw-open" data-act="open-world" onClick={() => onOpen(w.id)} title={w.draft ? '接着建这个文明' : '打开这个文明'}>
+                <span className="mw-thumb" style={w.thumb ? { backgroundImage: `url(${w.thumb})` } : undefined}>
+                  {w.draft && <span className="mw-tag">没建完</span>}
+                </span>
+                <span className="mw-meta">
+                  <span className="mw-row1">
+                    <b className="mw-name">{civName(w)}</b>
+                    <span className="mw-time">{when(w.at)}</span>
+                  </span>
+                  <span className="mw-line">{civLine(w)}</span>
+                </span>
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      {phone && add}
     </div>
   );
 }
