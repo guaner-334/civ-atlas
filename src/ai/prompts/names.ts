@@ -346,6 +346,26 @@ export function explainNoteKey(key: string): string {
 
 const r1 = (y: number) => Math.round(y * 4) / 4;
 
+/** 海 / 河的材料里"沿岸的城"最多列几个 */
+const ALONG_LIMIT = 6;
+
+/**
+ * 海名的材料里"沿岸的港口"那一行:按最后一段地形列港口城,最多 ALONG_LIMIT 个。
+ * 用"地块 + 建城年"认城(城的编号会随历史改写变),写释名时存一份,之后比这一份。
+ * 老笔记没有这一项:那时存的 stamp 不变,不会被误标;新写的释名才看港口变化。
+ */
+export function placePortStamp(civ: Civ, t: NameTarget, raster?: Raster | null): string | null {
+  if (t.kind !== 'place' || !raster) return null;
+  const p = civ.places[t.id];
+  if (!p || p.kind !== 'sea') return null;
+  const g = geoOf(civ, raster);
+  if (!g.centers) return null;
+  return alongCities(civ, g, p, ALONG_LIMIT, (s) => portAt(s, Infinity))
+    .map((s) => `${s.cell}@${r1(s.founded)}`)
+    .join(',');
+}
+
+/** 释名指纹:改名不变,历史改写 / 改地形才变 */
 export function nameStamp(civ: Civ, t: NameTarget): string {
   const S = civ.settlements;
   const cellOfCity = (id: number) => S[id]?.cell ?? -1;
@@ -388,6 +408,14 @@ export function nameStamp(civ: Civ, t: NameTarget): string {
       return `R|${seat[t.id]}|${civ.regions.biome[t.id]}|${hist}|${cuSeat(civ.culture[t.id])}/${poCell(civ.polity[t.id])}`;
     }
   }
+}
+
+/** 存下的释名是不是过时了:老笔记没有 portStamp 的只看 stamp,不会因为新加的港口记录被误标 */
+export function noteStale(civ: Civ, t: NameTarget, note: { stamp?: string; portStamp?: string }, raster?: Raster | null): boolean {
+  if (typeof note.stamp === 'string' && note.stamp !== nameStamp(civ, t)) return true;
+  if (typeof note.portStamp !== 'string') return false;
+  const now = placePortStamp(civ, t, raster);
+  return now !== null && note.portStamp !== now;
 }
 
 // ---------------------------------------------------------------------------
@@ -699,22 +727,27 @@ function citiesIn(civ: Civ, region: number): string {
     .join('、');
 }
 
-/** 沿河 / 湖岸 / 海边 / 山下的城 */
-function citiesAlong(civ: Civ, g: Geo, p: Place, limit: number): string {
-  if (!g.centers) return '';
-  const near: { name: string; d: number; founded: number }[] = [];
+/** 沿河 / 湖岸 / 海边 / 山下的城:在 nearLimit 以内,按建城先后取前 limit 个;at 决定算不算(海只算港口) */
+function alongCities(civ: Civ, g: Geo, p: Place, limit: number, at: (s: Civ['settlements'][number]) => boolean): Civ['settlements'] {
+  if (!g.centers) return [];
+  const near: { s: Civ['settlements'][number]; d: number }[] = [];
   for (const s of civ.settlements) {
-    if (p.kind === 'sea' && !portAt(s, Infinity)) continue; // 地名是最后一段地形的:港口也按最后一段
+    if (!at(s)) continue;
     const pos = posOf(g, s.cell);
     if (!pos) continue;
     const d = pathDist(p.path, pos[0], pos[1]);
-    if (d <= nearLimit(p)) near.push({ name: s.name, d, founded: s.founded });
+    if (d <= nearLimit(p)) near.push({ s, d });
   }
-  near.sort((a, b) => a.founded - b.founded);
-  return near
-    .slice(0, limit)
-    .map((x) => `${x.name}(${yearText(x.founded)}建)`)
-    .join('、');
+  // 同一年建城的按地块排:不靠编号,历史改写挪了城也不会换顺序
+  near.sort((a, b) => a.s.founded - b.s.founded || a.s.cell - b.s.cell);
+  return near.slice(0, limit).map((x) => x.s);
+}
+
+/** 沿河 / 湖岸 / 海边 / 山下的城 */
+function citiesAlong(civ: Civ, g: Geo, p: Place, limit: number): string {
+  // 地名是最后一段地形的:港口也按最后一段
+  const list = alongCities(civ, g, p, limit, (s) => p.kind !== 'sea' || portAt(s, Infinity));
+  return list.map((s) => `${s.name}(${yearText(s.founded)}建)`).join('、');
 }
 
 /** 地理实体经过的州(河、山脉沿路径取样,别的看锚点) */
@@ -753,6 +786,8 @@ export interface NameMaterial {
   format: string;
   /** 历史改写检查用(见 nameStamp) */
   stamp: string;
+  /** 海名的"沿岸的港口"列了哪些城(写释名时存下;老笔记没有这一项) */
+  portStamp?: string;
 }
 
 function peopleText(civ: Civ, c: number, what: string): string {
@@ -954,7 +989,7 @@ export function nameMaterial(civ: Civ, t: NameTarget, raster?: Raster | null): N
       const near = nearbyText(g, pos[0], pos[1], p.kind !== 'sea', t.id);
       if (near) geography.push(`附近:${near}`);
     }
-    const along = citiesAlong(civ, g, p, 6);
+    const along = citiesAlong(civ, g, p, ALONG_LIMIT);
     if (along) geography.push(`${p.kind === 'river' ? '沿河' : p.kind === 'sea' ? '沿岸的港口' : p.kind === 'lake' ? '湖边' : p.kind === 'mountains' ? '山下' : '附近'}的城:${along}`);
     if (p.kind !== 'sea') {
       const own = ownershipText(civ, regs);
@@ -1042,6 +1077,7 @@ export function nameMaterial(civ: Civ, t: NameTarget, raster?: Raster | null): N
     peers: peers.filter((x) => x && x !== info.name && x !== info.shown),
     format: formatRule(civ, t, info),
     stamp: nameStamp(civ, t),
+    portStamp: placePortStamp(civ, t, raster) ?? undefined,
   };
 }
 

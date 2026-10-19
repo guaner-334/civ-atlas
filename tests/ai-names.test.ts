@@ -9,7 +9,7 @@ import { rasterize } from '../src/gen/raster';
 import { NAME_STYLES } from '../src/gen/names';
 import { worldNameStyle } from '../src/gen/civ/places';
 import { applyNames } from '../src/gen/edits';
-import { polityName } from '../src/gen/civ/growth';
+import { polityName, portAt } from '../src/gen/civ/growth';
 import { aiChat, setActiveProvider, setMockResponder } from '../src/ai/client';
 import { AiError, type AiRequest } from '../src/ai/types';
 import {
@@ -24,7 +24,9 @@ import {
   nameInfo,
   nameMaterial,
   nameStamp,
+  noteStale,
   parseSuggestions,
+  placePortStamp,
   styleGuide,
   suggestRequest,
   suggestionEdit,
@@ -204,6 +206,90 @@ describe('释名 / 起名的材料(seed 7)', () => {
     };
     expect(nameMaterial(shrunk, t, raster)!.geography).toEqual(nameMaterial(raw, t, raster)!.geography);
     expect(nameStamp(shrunk, t)).not.toBe(nameStamp(raw, t));
+  });
+
+  it('地形大事改掉海边城的港口:海名的释名记下沿岸港口,变了标过时;远处/没列出的城不影响', () => {
+    // 找一片材料里列了港城的海
+    let target: NameTarget | null = null;
+    let cityId = -1;
+    for (let i = 0; i < raw.places.length && !target; i++) {
+      const p = raw.places[i];
+      if (p.kind !== 'sea') continue;
+      const t: NameTarget = { kind: 'place', id: i };
+      const line = nameMaterial(raw, t, raster)!.geography.find((x) => x.startsWith('沿岸的港口')) ?? '';
+      const s = raw.settlements.find((x) => portAt(x, Infinity) && line.includes(`${x.name}(`));
+      if (s) {
+        target = t;
+        cityId = s.id;
+      }
+    }
+    expect(target).not.toBeNull();
+    expect(cityId).toBeGreaterThanOrEqual(0);
+    const sea = raw.places[target!.id];
+    const line = nameMaterial(raw, target!, raster)!.geography.find((x) => x.startsWith('沿岸的港口')) ?? '';
+    const distToSea = (s: (typeof raw.settlements)[number]) => {
+      let d = Infinity;
+      for (let i = 0; i + 1 < sea.path.length; i += 2) {
+        let dx = Math.abs(sea.path[i] - world.mesh.x[s.cell]);
+        if (dx > world.mesh.width / 2) dx = world.mesh.width - dx;
+        d = Math.min(d, Math.hypot(dx, sea.path[i + 1] - world.mesh.y[s.cell]));
+      }
+      return d;
+    };
+    const before = placePortStamp(raw, target!, raster);
+    const oldStamp = nameStamp(raw, target!);
+    expect(before).not.toBeNull();
+    expect(nameMaterial(raw, target!, raster)!.portStamp).toBe(before);
+    const year = (raw.settlements[cityId].reshaped?.at(-1)?.year ?? raw.settlements[cityId].founded) + 100;
+    const flip = (id: number, port: boolean) => ({
+      ...raw,
+      settlements: raw.settlements.map((s) =>
+        s.id === id ? { ...s, reshaped: [...(s.reshaped ?? []), { year, capacity: s.capacity, port }] } : s,
+      ),
+    });
+    const flipped = flip(cityId, !portAt(raw.settlements[cityId], Infinity));
+    expect(nameMaterial(flipped, target!, raster)!.geography.join('\n')).not.toContain(`${raw.settlements[cityId].name}(`);
+    expect(placePortStamp(flipped, target!, raster)).not.toBe(before);
+    expect(nameStamp(flipped, target!)).toBe(oldStamp);
+    const newNote = { stamp: oldStamp, portStamp: before! };
+    expect(noteStale(raw, target!, newNote, raster)).toBe(false);
+    expect(noteStale(flipped, target!, newNote, raster)).toBe(true);
+    // 老笔记没有 portStamp:只比原来的 stamp,不会因为新加的港口记录被误标
+    expect(noteStale(flipped, target!, { stamp: oldStamp }, raster)).toBe(false);
+
+    // 大事在城建城以前、城是在新地形上生成的(没有 reshaped):建城时就不是港口,同样看得出来
+    const byFounding = {
+      ...raw,
+      settlements: raw.settlements.map((s) => (s.id === cityId ? { ...s, port: false, reshaped: [] } : s)),
+    };
+    expect(nameMaterial(byFounding, target!, raster)!.geography.join('\n')).not.toContain(`${raw.settlements[cityId].name}(`);
+    expect(placePortStamp(byFounding, target!, raster)).not.toBe(before);
+    expect(noteStale(byFounding, target!, newNote, raster)).toBe(true);
+
+    // 别处历史改写挪了城的编号:这份记录只认地块和建城年,不该跟着变
+    const reordered = { ...raw, settlements: [...raw.settlements].reverse() };
+    expect(placePortStamp(reordered, target!, raster)).toBe(before);
+    expect(noteStale(reordered, target!, newNote, raster)).toBe(false);
+
+    // 离这片海很远的港城变了港口:材料里没有它,港口记录也不变
+    const far = raw.settlements.find((s) => portAt(s, Infinity) && s.id !== cityId && distToSea(s) > (sea.size ?? 0) + 60);
+    if (far) {
+      const moved = flip(far.id, false);
+      expect(nameMaterial(moved, target!, raster)!.geography.join('\n')).not.toContain(`${far.name}(`);
+      expect(placePortStamp(moved, target!, raster)).toBe(before);
+      expect(noteStale(moved, target!, newNote, raster)).toBe(false);
+    }
+
+    // 在这片海边上、但没进"沿岸的港口"前 6 名的港城变了:材料那一行没变,港口记录也不变
+    const nearUnlisted = raw.settlements.find(
+      (s) => portAt(s, Infinity) && s.id !== cityId && !line.includes(`${s.name}(`) && distToSea(s) <= (sea.size ?? 0) + 20,
+    );
+    if (nearUnlisted) {
+      const moved = flip(nearUnlisted.id, false);
+      expect(nameMaterial(moved, target!, raster)!.geography.find((x) => x.startsWith('沿岸的港口')) ?? '').toBe(line);
+      expect(placePortStamp(moved, target!, raster)).toBe(before);
+      expect(noteStale(moved, target!, newNote, raster)).toBe(false);
+    }
   });
 });
 

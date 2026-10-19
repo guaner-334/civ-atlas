@@ -32,7 +32,7 @@ import {
   mockSuggestions,
   nameInfo,
   nameMaterial,
-  nameStamp,
+  noteStale,
   parseSuggestions,
   suggestRequest,
   suggestionEdit,
@@ -51,6 +51,8 @@ interface NameNote extends AiNote {
   name?: string;
   shown?: string;
   stamp?: string;
+  /** 写释名时"沿岸的港口"列了哪些城(地块 + 建城年);老笔记没有 */
+  portStamp?: string;
 }
 
 interface Err {
@@ -196,7 +198,7 @@ export function useAiName({ civ, raw, raster, target, compact, lazy, what }: AiN
   const world = worldId(civ);
   const note = getNote(world, explainNoteKey(key)) as NameNote | undefined;
   const renamed = !!note && typeof note.name === 'string' && note.name !== info.name;
-  const rewritten = !!note && typeof note.stamp === 'string' && note.stamp !== nameStamp(civ, target);
+  const rewritten = !!note && noteStale(civ, target, note, raster);
 
   const start = () => {
     ctl.current?.abort();
@@ -229,6 +231,7 @@ export function useAiName({ civ, raw, raster, target, compact, lazy, what }: AiN
         name: m.info.name,
         shown: m.info.shown,
         stamp: m.stamp,
+        portStamp: m.portStamp,
       };
       putNote(world, saved);
       patch(k, { writing: false, live: '' });
