@@ -537,10 +537,10 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
 // 君主有「倾向」一组四行,复制生平里也有一行,将领、宗室没有;
 // 「出征那年」跳时间轴;「编年史」打开这国的编年史;「复制生平」);编年史里的人名是蓝字,点了收起概览、打开这个人,不跳年份;
 // 世界概览的「人物」页(名人 / 君主 / 将领,「全部 N 位」进来停在这国的君主);搜名字第一个是这个人。
-// 例子:种子 7 的第 2490 年,天灵(6 号国)衍朝的成王苏羽(前任是他的祖父文王苏霆珏,
-// 继任是他的孙子怀王苏辰;在位时有将领柳霁领兵)
+// 例子:种子 7 的第 2740 年,天灵(6 号国)霄朝的钦宗沈昀(前任是他的父亲太宗沈曦翎,
+// 继任是他的孙子顺宗沈冥;在位时有将领景昀泠领兵)
 {
-  await page.goto(`${dev.url}/?seed=7&civYear=2490`);
+  await page.goto(`${dev.url}/?seed=7&civYear=2740`);
   await page.waitForFunction(() => (window as any).__wfLabels?.polities > 0, null, { timeout: 60000 });
   await page.waitForTimeout(300);
   const year = async () => Number((await page.locator('.timebar .tb-year').innerText()).replace(/[^\d]/g, ''));
@@ -561,7 +561,7 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
   await page.waitForTimeout(200);
   const copied = (await page.evaluate(() => (window as any).__wfPersonText as string)) ?? '';
   // 将领一行的名字 → 将领的卡片;出征那年
-  await page.locator('.inspector .cp.pp .cp-stats .ins-link', { hasText: '柳霁' }).first().click();
+  await page.locator('.inspector .cp.pp .cp-stats .ins-link', { hasText: '景昀泠' }).first().click();
   await page.waitForTimeout(400);
   const card2 = await text('.inspector .cp.pp');
   const genLeans = await page.locator('.inspector .cp.pp [data-sec=leanings]').count();
@@ -614,7 +614,7 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
   const lgFocus = await page.locator(`.lg-node.focus[data-person="${princeId}"]`).count();
   await closeOverview();
   // 搜索
-  await page.fill('.sidebar .search-input', '成王苏羽');
+  await page.fill('.sidebar .search-input', '钦宗沈昀');
   await page.waitForTimeout(300);
   const hit = await text('.search-row');
   const hitKind = await page.locator('.search-row').first().getAttribute('data-kind');
@@ -625,19 +625,19 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
     `人物:国家卡片「${stats.slice(0, 40)}…」,历代君主 ${rulers} 行、当前「${cur}」、「${all}」;卡片「${card1.slice(0, 50)}…」,倾向 ${leanRows} 行「${leans.slice(0, 30)}…」,复制 ${copied.length} 字;` +
       `将领卡片「${card2.slice(0, 30)}…」、出征那年 → ${y1};编年史开 ${chronOpen}、蓝字 ${names} 个,点「${pickName}」→ 收起 ${closed}、卡片 ${card3Id}/${pickId}、年份 ${y1} → ${y2};` +
       `人物页名人 ${famousOn}/${famous} 行「${famousFirst.slice(0, 30)}」→ 卡片「${card4.slice(0, 20)}」;全部 N 位 → 君主 ${rulersOn}、只看 ${polityPick}、${groups} 组 ${rows} 行;` +
-      `世系图「${lgHead.slice(0, 40)}」${lgNodes} 人、当前「${lgOn}」,宗室卡片「${princeCard.slice(0, 30)}」→ 圈出 ${lgFocus};搜"成王苏羽"「${hit}」(${hitKind})→「${card5}」`,
+      `世系图「${lgHead.slice(0, 40)}」${lgNodes} 人、当前「${lgOn}」,宗室卡片「${princeCard.slice(0, 30)}」→ 圈出 ${lgFocus};搜"钦宗沈昀"「${hit}」(${hitKind})→「${card5}」`,
   );
-  if (!/君主\s*成王苏羽\s*2448 年即位/.test(stats)) errs.push(`人物:国家卡片没有「君主」行(${stats.slice(0, 80)})`);
-  if (rulers !== 5 || !/成王苏羽\s*当前/.test(cur) || !/全部 \d+ 位/.test(all)) errs.push(`人物:国家卡片的历代君主不对(${rulers} 行;${cur};${all})`);
-  // 前任、继任的小字写亲属(祖父、孙)
+  if (!/君主\s*钦宗沈昀\s*2723 年即位/.test(stats)) errs.push(`人物:国家卡片没有「君主」行(${stats.slice(0, 80)})`);
+  if (rulers !== 5 || !/钦宗沈昀\s*当前/.test(cur) || !/全部 \d+ 位/.test(all)) errs.push(`人物:国家卡片的历代君主不对(${rulers} 行;${cur};${all})`);
+  // 前任、继任的小字写亲属(父、孙)
   if (
-    !/成王苏羽/.test(card1) ||
-    !/衍王，2448–2499 年在位/.test(card1) ||
-    !/前任\s*文王苏霆珏\s*祖父/.test(deed) ||
-    !/继任\s*怀王苏辰\s*孙/.test(deed)
+    !/钦宗沈昀/.test(card1) ||
+    !/大霄皇帝，2723–2768 年在位/.test(card1) ||
+    !/前任\s*太宗沈曦翎\s*父/.test(deed) ||
+    !/继任\s*顺宗沈冥\s*孙/.test(deed)
   )
     errs.push(`人物:君主卡片不对(${card1.slice(0, 160)})`);
-  if (!copied.startsWith('成王苏羽\n衍王') || !copied.includes('在位时：')) errs.push(`人物:复制生平不对(${copied.slice(0, 60)})`);
+  if (!copied.startsWith('钦宗沈昀\n大霄皇帝') || !copied.includes('在位时：')) errs.push(`人物:复制生平不对(${copied.slice(0, 60)})`);
   if (
     leanRows !== 4 ||
     !/^倾向 开拓\s*\d+ 更愿意开垦偏远贫瘠的土地 好战\s*\d+ 更容易发动战争且更难停止 发展\s*\d+ 更重视领地内的建设 重商\s*\d+ 偏向沿海/.test(leans) ||
@@ -645,13 +645,13 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
   )
     errs.push(`人物:君主卡片的倾向不对(${leanRows} 行;${leans.slice(0, 80)};复制里 ${/倾向：.*/.exec(copied)?.[0]})`);
   if (genLeans || princeLeans) errs.push(`人物:将领 / 宗室的卡片上不该有倾向(${genLeans};${princeLeans})`);
-  if (!/柳霁\s*大衍将领，2481–2484 年领兵/.test(card2) || y1 !== 2481) errs.push(`人物:将领卡片 / 出征那年不对(${card2.slice(0, 60)};${y1})`);
+  if (!/景昀泠\s*大霄将领，2731–2733 年领兵/.test(card2) || y1 !== 2731) errs.push(`人物:将领卡片 / 出征那年不对(${card2.slice(0, 60)};${y1})`);
   if (!chronOpen || names < 3 || !closed || pickId < 0 || card3Id !== pickId || y2 !== y1) errs.push(`人物:编年史里的人名点不开,或点了跳了年份(${chronOpen};${names};${closed};${card3Id}/${pickId};${y1} → ${y2})`);
   if (!famousOn || famous < 20 || !card4) errs.push(`人物:人物页的名人不对,或点一行没打开卡片(${famousOn};${famous};${card4.slice(0, 30)})`);
-  if (!rulersOn || polityPick !== '6' || groups < 1 || rows !== 102) errs.push(`人物:「全部 N 位」没有打开这国的君主(${rulersOn};${polityPick};${groups};${rows})`);
-  if (!/^衍 2287–2501 年，8 位君主/.test(lgHead) || lgNodes < 8 || !/成王苏羽.*当前/.test(lgOn)) errs.push(`人物:世系图不对(${lgHead};${lgNodes};${lgOn})`);
-  if (!/衍宗室，\d+–\d+/.test(princeCard) || !princeCard.includes('子嗣') || lgFocus !== 1) errs.push(`人物:宗室卡片 / 从卡片回到世系图不对(${princeCard.slice(0, 60)};${lgFocus})`);
-  if (!/^成王苏羽 衍王，2448–2499$/.test(hit) || hitKind !== 'person' || card5 !== '成王苏羽') errs.push(`人物:搜"成王苏羽"不对(${hit};${hitKind};${card5})`);
+  if (!rulersOn || polityPick !== '6' || groups < 1 || rows !== 101) errs.push(`人物:「全部 N 位」没有打开这国的君主(${rulersOn};${polityPick};${groups};${rows})`);
+  if (!/^霄 2655 年起，14 位君主/.test(lgHead) || lgNodes < 8 || !/钦宗沈昀.*当前/.test(lgOn)) errs.push(`人物:世系图不对(${lgHead};${lgNodes};${lgOn})`);
+  if (!/霄宗室，\d+–\d+/.test(princeCard) || !princeCard.includes('子嗣') || lgFocus !== 1) errs.push(`人物:宗室卡片 / 从卡片回到世系图不对(${princeCard.slice(0, 60)};${lgFocus})`);
+  if (!/^钦宗沈昀 大霄皇帝，2723–2768$/.test(hit) || hitKind !== 'person' || card5 !== '钦宗沈昀') errs.push(`人物:搜"钦宗沈昀"不对(${hit};${hitKind};${card5})`);
   await page.fill('.sidebar .search-input', '');
   await page.keyboard.press('Escape');
   await page.evaluate(() => localStorage.clear());
@@ -4959,8 +4959,18 @@ for (const style of ['realistic', 'fantasy']) {
   await mp.evaluate(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
   await mp.waitForTimeout(300);
   // 点国家 → 底部抽屉半高;国家落在抽屉上方
-  const pol = ((await mp.evaluate('window.__wfPickables()')) as Pick[])
+  // 等地图停稳(双击回正有动画,机器慢时还在动)再取国名的位置
+  for (let i = 0, last = ''; i < 40; i++) {
+    const v = JSON.stringify(await mp.evaluate(() => (window as any).__wfView));
+    if (v === last) break;
+    last = v;
+    await mp.waitForTimeout(150);
+  }
+  // 国名旁边 30 像素内有城镇符号等别的可点之物的不挑:手指点偏一点就点成了城(字体不同,国名的位置会差几个像素)
+  const picks = (await mp.evaluate('window.__wfPickables()')) as Pick[];
+  const pol = picks
     .filter((q) => q.kind === 'polity' && q.x > 40 && q.x < VW - 40 && q.y > 130 && q.y < VH - 200)
+    .filter((q) => !picks.some((o) => o !== q && Math.hypot(o.x - q.x, o.y - q.y) < 30))
     .sort((a, b) => Math.abs(a.x - VW / 2) + Math.abs(a.y - VH / 2) - Math.abs(b.x - VW / 2) - Math.abs(b.y - VH / 2))[0];
   let sheet0: Rect = null;
   let row1: Rect = null;
@@ -4996,6 +5006,7 @@ for (const style of ['realistic', 'fantasy']) {
       fullCapsuleHidden = !(await mp.locator('.bottom-row').isVisible());
     }
     // 干预 → 结盟 → 点名牌
+    if (!(await mp.locator('.inspector [data-act=intervene]').count())) throw new Error(`手机:点「${pol.text}」(${Math.round(pol.x)}, ${Math.round(pol.y)})没出国家卡片:${info.slice(0, 80)}`);
     await mp.tap('.inspector [data-act=intervene]');
     await mp.waitForTimeout(300);
     cmds = await mp.locator('.inspector .cp-cmd').count();

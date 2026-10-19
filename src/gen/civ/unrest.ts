@@ -32,6 +32,8 @@
  *
  *   **大崩解**(看内政时最先看,politics.ts 的 crisis):国土至少 COLLAPSE_MIN 州、立国满 COLLAPSE_AGE 年的大国,
  *     赔率 = COLLAPSE_ODDS × e^(COLLAPSE_K × (动荡 − COLLAPSE_U0));同一国崩过 COLLAPSE_REST 年内不再崩。
+ *     盛极而衰:只看占了所在大陆(国土最多的那块陆地)有人住的州 HEG_GATE 以上的大国;占的越多动荡越高
+ *     (超过 HEG_0 的部分,再占 HEG_SPAN 加满 HEG_W),称霸一块大陆的国家迟早散架,过些年再被邻国、新兴的国家收拾起来。
  *     崩的时候国都一带(按离国都的路程,留国土的 KEEP 里随机的几成)留给原来的国家,其余的散成 2–4 块
  *     (离国都远、不满最重的州先起事,各块从起事的州往外长,块和块尽量离得远),各块以块里人口最多的城为都自立(记 split,cause = collapse;
  *     故都是同族亡国国都的算复国)。三种崩法(记在 collapse 的 b):
@@ -113,11 +115,16 @@ const COURT_MORALE = 0.6;
 /** 大崩解:国土至少几州、立国满几年;同一国这么多年内不再崩 */
 const COLLAPSE_MIN = 30;
 const COLLAPSE_AGE = 150;
-const COLLAPSE_REST = 200;
+const COLLAPSE_REST = 300;
 /** 大崩解的赔率 = COLLAPSE_ODDS × e^(COLLAPSE_K × (动荡 − COLLAPSE_U0)) */
 const COLLAPSE_ODDS = 0.05;
 const COLLAPSE_K = 2.5;
-const COLLAPSE_U0 = 1.7;
+const COLLAPSE_U0 = 2.35;
+/** 盛极而衰:占所在大陆有人住的州不到几成的不崩;超过 HEG_0 的部分每多 HEG_SPAN,崩解时的动荡多 HEG_W(加满为止) */
+const HEG_GATE = 0.25;
+const HEG_0 = 0.3;
+const HEG_SPAN = 0.3;
+const HEG_W = 2;
 /** 大崩解:国都一带留给原来的国家的几成(KEEP 里随机);散出去的每块大约几州;每块至少几州 */
 const KEEP: readonly [number, number] = [0.25, 0.4];
 const PIECE_SIZE = 12;
@@ -416,12 +423,28 @@ function hook(sim: CivSim, um: UnrestModel): void {
   };
 
   // ---- 大崩解 ----
+  /** 各块陆地上的州(州号升序) */
+  const lands: number[][] = [];
+  for (let r = 0; r < R; r++) (lands[reg.landmass[r]] ??= []).push(r);
+  /** 国家 pid 占它国土最多的那块陆地上有人住的州的几成 */
+  const landShare = (pid: number): number => {
+    const by = new Map<number, number>();
+    for (const r of pm.lands[pid]) by.set(reg.landmass[r], (by.get(reg.landmass[r]) ?? 0) + 1);
+    let best = -1;
+    let most = 0;
+    for (const [l, n] of by) if (n > most || (n === most && l < best)) [best, most] = [l, n];
+    let lived = 0;
+    for (const r of lands[best]) if (culture[r] >= 0) lived++;
+    return most / Math.max(1, lived);
+  };
   pol.crisis = (P: Polity, k: number, t: number): boolean => {
     const pid = P.id;
     const N = pm.size[pid];
     if (N < COLLAPSE_MIN || t - P.founded < COLLAPSE_AGE || t - (um.collapsed.get(pid) ?? -Infinity) < COLLAPSE_REST) return false;
     if (wm.iv?.unites(pid, t)) return false; // 阶段 4 干预"禁止分裂"
-    const u = unrest(P, t);
+    const share = landShare(pid);
+    if (share < HEG_GATE) return false;
+    const u = unrest(P, t) + HEG_W * Math.min(1, Math.max(0, (share - HEG_0) / HEG_SPAN));
     const odds = COLLAPSE_ODDS * fexp(COLLAPSE_K * (u - COLLAPSE_U0));
     if (keyed(um.base, pm.ptag[pid], k, U_COLLAPSE) >= odds / (1 + odds)) return false;
     return collapse(P, k, t);
