@@ -22,7 +22,7 @@ import type { Sketch } from '../sketch';
 import type { Annal, ChangeLog, Civ, CivParams, Culture, Habitat, PlanetTempo, Place, Polity, Route, Settlement } from './types';
 import { computeHabitat } from './habitat';
 import { buildRegions, emptyRegions, reshapeRegions } from './regions';
-import { CivSim } from './sim';
+import { CivSim, quantize } from './sim';
 import { BIRTH_SPAN, cultureKey, cultureModelOf, finishCultures, installCultures, planCultures } from './cultures';
 import { buildRoutes, usedLanes } from './routes';
 import { capacityNorm, finishPolities, installPolities, planPolities, polityModelOf, routeCities } from './polities';
@@ -41,7 +41,7 @@ import type { CultureModel } from './cultures';
 import type { PolityModel } from './polities';
 import type { InterventionModel } from './interventions';
 import type { CivEra, NamePins, Regions, UpheavalFact } from './types';
-import type { Intervention, TerrainOp } from '../edits';
+import { cleanInterventions, sameInterventions, type Intervention, type TerrainOp } from '../edits';
 import { buildReligion } from './religion';
 import { finishDevelopment, installDevelopment } from './development';
 import { installUnrest } from './unrest';
@@ -201,21 +201,32 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
  * (归属、日志、史事、检查点,名字、配色、人物、道路、信仰……)。params 要和推出 civ 时的一样(endYear 除外)。
  * 推演完以后的整理(起名、配色、人物、道路、信仰)只看每样东西出现以前的历史,所以已经发生的不随后来推多远而变。
  * 有地形大事的世界、要推的年份不比 civ 晚的,照常从第 0 年整段重推(结果一样,只是不省时间)。
+ * params.interventions(不给 = civ 推出来时带着的):可以是 civ 的干预后面接上几条比 civ.endYear 晚才生效的(游戏模式下的新命令,play.ts),
+ * 接着推的结果和带着它们一口气推完一样;不是这样接上的(改了、删了早先的干预)照常整段重推。
  * 返回的是生成出来的名字:用户改过的名字(gen/edits.ts 的 applyNames)不在 Civ 里随推演走,照常在结果上再套一遍
  */
 export function continueCiv(world: World, civ: Civ, params: Partial<CivParams> = {}, progress: Progress = () => {}): Civ {
   const p: CivParams = { ...DEFAULT_CIV_PARAMS, ...params };
-  if (!civ.viable || !civ.cultures.length || civ.upheavals?.length || p.upheavals?.length || !(p.endYear > civ.endYear)) return generateCiv(world, params, progress);
+  const had = civ.interventions ?? [];
+  const list = params.interventions === undefined ? had : cleanInterventions(params.interventions);
+  if (!civ.viable || !civ.cultures.length || civ.upheavals?.length || p.upheavals?.length || !(p.endYear > civ.endYear) || !extends_(had, list, civ.endYear))
+    return generateCiv(world, params, progress);
   const seed = p.civSeed ?? world.params.seed;
   progress('民族推演', 0.85);
   // 起名会写州名(regions.name):换一份州,不改传进来的 civ
-  const sim = CivSim.fromCiv(world, { ...civ, regions: { ...civ.regions } });
+  const sim = CivSim.fromCiv(world, { ...civ, regions: { ...civ.regions } }, list);
   sim.run(p.endYear);
   const model = cultureModelOf(sim)!;
   const pm = polityModelOf(sim)!;
   pm.cultures = model.cultures; // 接着推时两层各复制了一份民族表:起城名、国名要用起好名的那份
   const fin = { sim, model, pm, world, habitat: civ.habitat, regions: model.terrain.regions };
-  return finishCiv({ fin, p, seed, viable: true, mix: civ.names, frontier: civ.frontier, interventions: civ.interventions, model, pm, eras: [], facts: [], progress });
+  return finishCiv({ fin, p, seed, viable: true, mix: civ.names, frontier: civ.frontier, interventions: list.length ? list : undefined, model, pm, eras: [], facts: [], progress });
+}
+
+/** 干预列表 next 是 had 后面接上几条、接上的都在 endYear 以后才生效(接着推得出和从第 0 年重推一样的结果) */
+function extends_(had: readonly Intervention[], next: readonly Intervention[], endYear: number): boolean {
+  if (next.length < had.length || !sameInterventions(had, next.slice(0, had.length))) return false;
+  return next.slice(had.length).every((v) => quantize(v.from) > endYear);
 }
 
 /** 推完以后整理成 Civ 要的东西(generateCiv、continueCiv 共用) */
