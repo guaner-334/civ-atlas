@@ -2,7 +2,7 @@
  * 信仰(generateCiv 的第 ⑦ 步):推演结束后,照已有的历史把信仰"贴"上去 —— 国界、兴亡、战争、人物一个都不变。
  * 纯计算,不碰 DOM。
  *
- *   - 民间信仰:每个民族自带一种(编号 = 民族编号),州一有人住就是它;民族换了(同化、迁徙),民间信仰跟着换
+ *   - 民间信仰:每个民族自带一种(Faith.culture = 民族编号),州一有人住就是它;民族换了(同化、迁徙),民间信仰跟着换(按日志,换的那一刻就换)
  *   - 大教:2–5 个(按州数),在 FOUND_SPAN 里几个年份上(那年没有合适的城:不到两个大教就往后推,够两个就不创这一个),挑当时人口最多、离别的圣城够远、还信民间信仰的大城,
  *     由一位创教者创立;那座城是圣城
  *   - 传播:每 STEP 年向相邻的州传一次;同一国里快,奉它为国教的国里更快,跨国界、出海、翻山慢,已经信了别的大教的州很难改信
@@ -13,6 +13,8 @@
  *
  * 结果是 Civ.religion:信仰列表、大事、各国国教,和一本"各州信仰"的变化日志(加每 100 年一份检查点),
  * 任意年份的各州信仰用 faithAt 查(和 ownersAt 一样:最近的检查点 + 补日志)。
+ * 信仰的编号按出现的先后排:推演前就定了的民族的民间信仰最先(按民族编号),之后大教、教派、推演中分化出来的民族的民间信仰
+ * 按创立 / 分化的先后接着排 —— 和每一样都只看它以前的历史一起,推到哪一年都一样:接着往后推,已经有的信仰、大事都不变。
  *
  * 随机数一律 keyed(subSeed(seed, 'trial-religion'), …)(用途名沿用最初试算时的叫法:改了它,同一个种子的信仰就全变了)。
  * 以后改这里的算法、让同一个种子的信仰变了,要把 edits.ts 的 GENERATOR_VERSION 加一。
@@ -107,19 +109,14 @@ export function buildReligion(world: World, civ: Civ): Religion {
   let reg = eras.length ? eras[0].regions : civ.regions;
   const S = civ.settlements;
   const C = civ.cultures.length;
-  /**
-   * 干预立国备的新民族(Culture.pioneer)、推演中分化出来的民族(Culture.parent)有几支:大教编号排在民族的民间信仰后面,
-   * 随机数按去掉它们的编号取 —— 备没备、后来分化出几支,之前的信仰都一样
-   */
-  const pioneers = civ.cultures.filter((cu) => cu.pioneer !== undefined || cu.parent !== undefined).length;
+  /** 自然兴起的民族有几支:教派分立的随机数按"它们的个数 + 第几个大教 / 教派"取 —— 备没备干预立国的民族、后来分化出几支,之前的信仰都一样 */
+  const roots = civ.cultures.filter((cu) => cu.pioneer === undefined && cu.parent === undefined).length;
   const namers = personNamers(civ.seed);
-  const faiths: Faith[] = civ.cultures.map((cu) => ({
-    id: cu.id,
-    kind: 'folk',
-    name: `${cu.name}${folkSuffix(namers(cu.style).family === 'eastern')}`,
-    culture: cu.id,
-    color: FOLK_COLOR,
-  }));
+  const faiths: Faith[] = [];
+  /** 民族 → 它的民间信仰的编号(−1 = 还没有:推演中分化出来的民族,分出来那一刻才有) */
+  const folkOf = new Int16Array(C).fill(-1);
+  /** 大教、教派 → 第几个(按创立先后) */
+  const ordinal = new Map<number, number>();
   const events: FaithEvent[] = [];
   const states: StateFaith[] = [];
   const book = new FaithBook(R);
@@ -145,10 +142,6 @@ export function buildReligion(world: World, civ: Civ): Religion {
   // 信仰 → 是不是民间信仰、所属的大教(查表:循环里每步要查几十万次)
   let isFolk = new Uint8Array(C + 16);
   let rootArr = new Int16Array(C + 16);
-  for (let i = 0; i < C; i++) {
-    isFolk[i] = 1;
-    rootArr[i] = i;
-  }
   const addFaith = (f: Faith) => {
     if (f.id >= isFolk.length) {
       const a = new Uint8Array(isFolk.length * 2);
@@ -160,8 +153,18 @@ export function buildReligion(world: World, civ: Civ): Religion {
     }
     isFolk[f.id] = f.kind === 'folk' ? 1 : 0;
     rootArr[f.id] = f.kind === 'sect' ? f.parent! : f.id;
+    if (f.kind !== 'folk') ordinal.set(f.id, ordinal.size);
     faiths.push(f);
   };
+  /** 民族 c 的民间信仰(没有就这一刻起一个,编号接在后面) */
+  const folkFaith = (c: number): number => {
+    if (folkOf[c] >= 0) return folkOf[c];
+    const cu = civ.cultures[c];
+    folkOf[c] = faiths.length;
+    addFaith({ id: faiths.length, kind: 'folk', name: `${cu.name}${folkSuffix(namers(cu.style).family === 'eastern')}`, culture: cu.id, color: FOLK_COLOR });
+    return folkOf[c];
+  };
+  for (const cu of civ.cultures) if (cu.parent === undefined) folkFaith(cu.id);
   const rootOf = (f: number) => rootArr[f];
   const folk = (f: number) => isFolk[f] === 1;
 
@@ -221,20 +224,29 @@ export function buildReligion(world: World, civ: Civ): Religion {
   const seenP = new Int32Array(P);
   const order: number[] = [];
   const faithOrder: number[][] = Array.from({ length: P }, () => []);
-  // 每 STEP 年一步;结束年份不在整步上时最后补一步,让结束那年的信仰也对得上那年的民族、国家
-  const years: Year[] = [];
-  for (let y = 0; y <= civ.endYear; y += STEP) years.push(y);
-  if (years[years.length - 1] < civ.endYear) years.push(civ.endYear);
-  for (let step = 0; step < years.length; step++) {
-    const y = years[step];
-    while (era < eras.length && y >= eras[era].until) reg = ++era < eras.length ? eras[era].regions : civ.regions;
+  /** 日志往后翻到 y(含):各州的归属;有人住了 / 民族换了,民间信仰在那一刻跟着民族(信大教的不变) */
+  const follow = (y: Year) => {
     for (; li < L.size && L.year[li] <= y; li++) {
-      if (L.layer[li] === Layer.Culture) ownC[L.region[li]] = L.value[li];
-      else ownP[L.region[li]] = L.value[li];
+      const r = L.region[li];
+      if (L.layer[li] !== Layer.Culture) {
+        ownP[r] = L.value[li];
+        continue;
+      }
+      const cu = L.value[li];
+      ownC[r] = cu;
+      if (cu === lastCulture[r]) continue;
+      lastCulture[r] = cu;
+      if (cu < 0) {
+        book.set(L.year[li], r, -1);
+        continue;
+      }
+      // 分化出来的民族:第一次出现在日志里(分出来那一刻)就有它的民间信仰,住的州信不信它都一样
+      const own = folkFaith(cu);
+      if (faith[r] < 0 || folk(faith[r])) book.set(L.year[li], r, own);
     }
-    // 有人住了 / 民族换了:民间信仰跟着民族(信大教的不变)
-    followCultures(book, y, ownC, lastCulture, isFolk);
-    // 亡国:国教跟着结束
+  };
+  /** 亡国:国教跟着结束 */
+  const endStates = (y: Year) => {
     for (const s of states) {
       const end = civ.polities[s.polity].ended;
       if (s.until === undefined && end !== undefined && end <= y) {
@@ -242,6 +254,16 @@ export function buildReligion(world: World, civ: Civ): Religion {
         stateOf[s.polity] = -1;
       }
     }
+  };
+  // 每 STEP 年一步(第 0、5、10…… 年;推到的年份不在整步上的,最后只把归属、民间信仰、国教的结束跟到那一年,
+  // 和推得更远的历史在那一步以前一模一样)
+  const years: Year[] = [];
+  for (let y = 0; y <= civ.endYear; y += STEP) years.push(y);
+  for (let step = 0; step < years.length; step++) {
+    const y = years[step];
+    while (era < eras.length && y >= eras[era].until) reg = ++era < eras.length ? eras[era].regions : civ.regions;
+    follow(y);
+    endStates(y);
 
     // 创教
     if (nextFound < foundYears.length && y >= foundYears[nextFound]) {
@@ -300,9 +322,8 @@ export function buildReligion(world: World, civ: Civ): Religion {
       // 这一年没有合适的城(都信了大教、离圣城太近):已经有两个大教就不创这一个,不到两个下一步再找
     }
 
-    // 传播:大教 / 教派向相邻的州传(结束年份补的那一步不满 STEP 年,不传,只跟上归属的变化)
-    if (y % STEP === 0) spreadStep(seed, y, reg, faith, next, ownP, stateOf, isFolk, rootArr);
-    else next.set(faith);
+    // 传播:大教 / 教派向相邻的州传
+    spreadStep(seed, y, reg, faith, next, ownP, stateOf, isFolk, rootArr);
     // 改信:第一次传进一国(那国里还没有别的州信这一教)记一件"传入"
     const F = faiths.length;
     if (inPolity.length < P * F) {
@@ -373,7 +394,7 @@ export function buildReligion(world: World, civ: Civ): Religion {
           let n = 0;
           for (let r = 0; r < R; r++) if (ownP[r] === s.polity && faith[r] === f.id) n++;
           if (!farAway || n < SCHISM_MIN) continue;
-          if (keyed(seed, 20 + y, s.polity, f.id - pioneers) >= SCHISM_ODDS) continue;
+          if (keyed(seed, 20 + y, s.polity, roots + ordinal.get(f.id)!) >= SCHISM_ODDS) continue;
           const k = faiths.length;
           const nth = sects.get(f.id) ?? 0;
           const eastern = namers(civ.cultures[foundedBy.get(f.id) ?? S[f.holy!].culture].style).family === 'eastern';
@@ -400,6 +421,10 @@ export function buildReligion(world: World, civ: Civ): Religion {
     }
     if (y % CHECKPOINT === 0) checkpoints.push({ year: y, faith: Int16Array.from(faith) });
   }
+  follow(civ.endYear);
+  endStates(civ.endYear);
+  // 一直没住进过哪个州的民族(推演中分化出来的不会这样):民间信仰排在最后
+  for (const cu of civ.cultures) folkFaith(cu.id);
   return {
     faiths,
     events,
@@ -424,18 +449,6 @@ class FaithBook {
     this.year.push(y);
     this.region.push(r);
     this.value.push(f);
-  }
-}
-
-/** 有人住了 / 民族换了:民间信仰跟着民族(信大教的不变;没人住了 = −1) */
-function followCultures(book: FaithBook, y: Year, ownC: Int16Array, lastCulture: Int16Array, isFolk: Uint8Array): void {
-  const faith = book.faith;
-  for (let r = 0; r < ownC.length; r++) {
-    const cu = ownC[r];
-    if (cu === lastCulture[r]) continue;
-    lastCulture[r] = cu;
-    if (cu < 0) book.set(y, r, -1);
-    else if (faith[r] < 0 || isFolk[faith[r]] === 1) book.set(y, r, cu);
   }
 }
 

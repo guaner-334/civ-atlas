@@ -33,14 +33,14 @@ import { Biome } from '../biomes';
 import type { World } from '../world';
 import { MinHeap } from '../util';
 import { geometryOf } from '../geometry';
-import { AdjKind, Layer, type Civ, type Culture, type NamePins, type Polity, type PolityLineage, type Regions, type Settlement, type Year } from './types';
+import { AdjKind, Layer, type ChangeLog, type Civ, type Culture, type NamePins, type Polity, type PolityLineage, type Regions, type Settlement, type Year } from './types';
 import { BIOME_COST } from './habitat';
 import { anchorTag, fexp, fpow, keyed, subSeed } from './rand';
 import { WORTH_EXP } from './frontier';
 import { quantize, Ev, type CivSim } from './sim';
 import { KIND_INFO } from './display';
-import { REF_YEAR, cultureModelOf, cultureNeighbors, cultureTerrain, type CultureModel, type CultureTerrain } from './cultures';
-import { RESHAPE_RAMP, SETTLEMENT_RANKS, capacityAt, capitalAt, populationAt, portAt, portSince, tierOf, yearReaching, yearReachingDev } from './growth';
+import { OwnerReplay, REF_YEAR, cultureModelOf, cultureTerrain, ownersNear, type CultureModel, type CultureTerrain } from './cultures';
+import { RESHAPE_RAMP, SETTLEMENT_RANKS, capacityAt, capitalAt, portAt, portSince, tierOf, yearReaching, yearReachingPop } from './growth';
 import { namePolities, nameSettlements, type RestoreDirection } from './naming';
 import type { RouteCity } from './routes';
 import type { InterventionModel } from './interventions';
@@ -156,8 +156,6 @@ export interface PolityModel {
   /** 国家 → 上一个国都的路程表、最近一次迁都的年份(迁都那一刻预约的扩张还按旧国都算,见 distFor) */
   capDistPrev: (Float32Array | null)[];
   capMoved: number[];
-  /** 国家 → 历史上接壤过的国家(配色用:灭亡、易手之后照样错开颜色) */
-  met: Set<number>[];
   /**
    * 国家 → 位置锚:anchorTag(立国时国都的地块, 这州第几个立的国)(和稳定键 `polity:c4567#0` 同一个意思)。
    * 推演里按国家取的随机数(keyed)一律按它取,不按编号(见 rand.ts)
@@ -744,7 +742,6 @@ function emptyModel(T: CultureTerrain, cultures: Culture[], seed: number, port: 
     capDist: [],
     capDistPrev: [],
     capMoved: [],
-    met: [],
     ptag: [],
     stag: [],
     pAt: new Map(),
@@ -835,13 +832,6 @@ export function installPolities(sim: CivSim, m: PolityModel): void {
       scheduleReign(sim, m, v, 1, sim.now);
     }
     if (tierOf(m.size[v]) > m.tier[v]) sim.schedule(sim.now, Ev.PolityRank, m.settlements[capitalAt(m.polities[v], sim.now)].region, v);
-    for (let k = reg.adjStart[r]; k < reg.adjStart[r + 1]; k++) {
-      const o = polity[reg.adj[k]];
-      if (o >= 0 && o !== v && reg.adjKind[k] !== AdjKind.SeaRoute) {
-        m.met[v].add(o);
-        m.met[o].add(v);
-      }
-    }
     spreadFrom(sim, m, r, v, sim.now);
   });
 
@@ -1070,7 +1060,6 @@ export function addPolity(m: PolityModel, sid: number, cu: number, t: Year, extr
   m.capDist.push(capitalDistance(m.terrain, r, voyageOf(m, { kind, sail: p.sail }, t), m.port));
   m.capDistPrev.push(null);
   m.capMoved.push(-Infinity);
-  m.met.push(new Set());
   markNear(m.terrain.regions, r, m.spacing, m.near, 1);
   return p;
 }
@@ -1090,9 +1079,9 @@ export function resumePolities(sim: CivSim, world: World, civ: Civ, iv?: Interve
   const T = cultureTerrain(world, civ.habitat, civ.regions, civ.frontier);
   const reg = T.regions;
   const R = T.R;
-  // 国都间距按默认的"自动"数量(和 planPolities 同一个公式)
+  // 国都间距:推出这份历史时定的(CivParams.polities);旧版本的历史没记,按默认的"自动"数量(和 planPolities 同一个公式)
   // 民族表用 cultures.ts 接着推时复制的那一份(推演中分化出的新民族加在那一份里)
-  const m = emptyModel(T, cultureModelOf(sim)?.cultures ?? civ.cultures, civ.seed, findPorts(world, T), capitalSpacing(T, 'auto'), civ.polityYears ?? STEP_YEARS, civ.sailFrom ?? ageOfSailYear(1), civ.capNorm, civ.frontier?.expand);
+  const m = emptyModel(T, cultureModelOf(sim)?.cultures ?? civ.cultures, civ.seed, findPorts(world, T), civ.capSpacing ?? capitalSpacing(T, 'auto'), civ.polityYears ?? STEP_YEARS, civ.sailFrom ?? ageOfSailYear(1), civ.capNorm, civ.frontier?.expand);
   // 阶段 3 城市兴衰:国都年份段、洗劫记录接着推时会往里加,复制一份(不改传进来的 civ)
   m.settlements = civ.settlements.map((s) => {
     const c = { ...s };
@@ -1138,7 +1127,6 @@ export function resumePolities(sim: CivSim, world: World, civ: Civ, iv?: Interve
     m.capDist.push(distOf(p, caps[caps.length - 1].settlement, Math.min(sim.now, p.ended ?? Infinity)));
     m.capDistPrev.push(caps.length > 1 ? distOf(p, caps[caps.length - 2].settlement, caps[caps.length - 1].year) : null);
     m.capMoved.push(caps.length > 1 ? caps[caps.length - 1].year : -Infinity);
-    m.met.push(new Set());
     // 国都间距标记跟着国都走(见 moveCapital):在世的国家标在现在的国都周围
     if (p.ended === undefined) markNear(reg, m.settlements[caps[caps.length - 1].settlement].region, m.spacing, m.near, 1);
   }
@@ -1267,14 +1255,6 @@ export function resumePolities(sim: CivSim, world: World, civ: Civ, iv?: Interve
         const j = reg.adj[k];
         if (cu[j] >= 0 && po[j] < 0) add(i, v, k, j, y);
       }
-      // 历史上接壤过的国家(配色用)
-      for (let k = reg.adjStart[r]; k < reg.adjStart[r + 1]; k++) {
-        const o = po[reg.adj[k]];
-        if (o >= 0 && o !== v && reg.adjKind[k] !== AdjKind.SeaRoute) {
-          m.met[v].add(o);
-          m.met[o].add(v);
-        }
-      }
     }
   }
   if (ei < ends.length) retrigger(log.size - 1, Infinity);
@@ -1333,8 +1313,9 @@ function colorDist(a: readonly number[], b: readonly number[]): number {
 const PARENT_COLOR_W = 0.6;
 
 /**
- * 配色:按编号依次挑,和接壤国家色差越大越好(和原国更要错开);同一时期的国家尽量不重复
- * (早已灭亡的国家的颜色可以再用:阶段 3 分分合合,先后立过的国家比色板里的颜色多)
+ * 配色:按编号(= 立国先后)依次挑,和邻国色差越大越好(和原国更要错开);同一时期的国家尽量不重复
+ * (早已灭亡的国家的颜色可以再用:阶段 3 分分合合,先后立过的国家比色板里的颜色多)。
+ * nb[国家] = 它的"邻国":只看编号在它前面的(立国以前就有的),推得再远颜色也不变
  */
 function assignPolityColors(polities: Polity[], nb: Set<number>[], base: number, tags: readonly number[], pins?: NamePins['polities']) {
   const used = new Uint8Array(POLITY_PALETTE.length);
@@ -1371,15 +1352,29 @@ function assignPolityColors(polities: Polity[], nb: Set<number>[], base: number,
   }
 }
 
-/** 推演结束后:配色、国名词根、城名 */
-export function finishPolities(world: World, m: PolityModel, owner: Int16Array, pins?: NamePins): void {
+/** 配色时的"邻国":立国那一刻,国都周围这么多跳(州图上走)以内有国土的国家(日后多半要接壤) */
+const COLOR_NEAR_HOPS = 5;
+
+/**
+ * 推演结束后:配色、国名词根、城名。每样都只看它出现那一刻以前的历史,推到哪一年都一样 —— 接着往后推,已经有的不变:
+ * 配色的"邻国"按立国那一刻国都周围的国家(按日志,见 COLOR_NEAR_HOPS);城名、国名、朝名按出现的先后起(见 naming.ts)。
+ * authored = 作者在干预"立国"时起好的国名(国家编号 → 国名);别的国名、朝名都重起(接着推时传进来的是起过名的)
+ */
+export function finishPolities(world: World, m: PolityModel, log: Readonly<ChangeLog>, pins?: NamePins, authored?: ReadonlyMap<number, string>): void {
   const seed = m.seed;
-  // 配色看"历史上接壤过的国家"(推演中逐次记下的,见 met)+ 结束时的邻国:灭亡、易手之后,回放到哪一年邻国颜色都错得开
-  const nb = cultureNeighbors(m.terrain.regions, owner, m.polities.length);
-  m.met.forEach((set, i) => set.forEach((o) => nb[i].add(o)));
+  const reg = m.terrain.regions;
+  const nb = m.polities.map(() => new Set<number>());
+  const replay = new OwnerReplay(log, Layer.Polity, reg.count);
+  for (const p of m.polities) {
+    ownersNear(reg, replay.to(p.founded), m.settlements[p.capital].region, COLOR_NEAR_HOPS, p.id, nb[p.id]);
+  }
   assignPolityColors(m.polities, nb, subSeed(seed, 'civ-polity-color'), m.ptag, pins?.polities);
   // 城名先起:西幻的王朝名借王室根据地的城名(阶段 3 王朝更替)。城名、国名各用各的种子,先后不影响结果
   nameSettlements(seed, m.settlements, m.cultures, pins?.settlements);
+  for (const p of m.polities) {
+    p.name = authored?.get(p.id) ?? '';
+    p.dynasties?.forEach((d) => (d.name = ''));
+  }
   // 地形大事:钉住的国名先占上(和干预"立国"时作者起的国名一样不另起),朝名起完再照钉住的改回去
   if (pins) for (const [id, v] of pins.polities) if (v.name && m.polities[id]) m.polities[id].name = v.name;
   const pinned = pins ? new Set([...pins.polities.values()].map((v) => v.name ?? '')) : undefined;
@@ -1415,14 +1410,14 @@ function restoreDirection(world: World, m: PolityModel): RestoreDirection {
 }
 
 /**
- * 修路用的城(交给 routes.ts):国都、港口,以及到结束年份长到"镇"以上的城镇(村子不修路,路网不至于密成一张网)。
+ * 修路用的城(交给 routes.ts):国都、港口,以及长到过"镇"以上的城镇(村子不修路,路网不至于密成一张网)。
  * 国都(含迁都后的新国都)= 大城(大路从立都 / 迁都那年起修),港口照城镇的标记。
- * "建城年份"交给道路的是这座城长成镇的年份(港口、国都是真正的建城年份):路随城镇长大一条条修起来,
- * 早年只有零星村落,不会一开始就路网密布。路的修建年份取两端里较晚的那个。
+ * "建城年份"交给道路的是这座城长成镇的年份(港口 = 真正的建城年份,国都 = 立都那年和长成镇那年里早的那个):
+ * 路随城镇长大一条条修起来,早年只有零星村落,不会一开始就路网密布。路的修建年份取两端里较晚的那个。
+ * 长成过镇、后来又衰落的城照样通路(路只随城被毁荒废):够不够格只看那一年以前,推得更远,早先修的路不变。
  *
- * 阶段 3 城市兴衰:同一处城址先后的城(被毁、又重建,同一地块)合成一座 —— 从第一座(够格的)建起,
- * 到最后一座被毁为止(ended;还在 = 不给):通往废城的路那一年起荒废,中间重建过的照常通路。
- * 被毁的城按"被毁之前长到过镇"算够不够格。
+ * 阶段 3 城市兴衰:同一处城址先后的城(被毁、又重建,同一地块)合成一座,每一座够格修路的城记一段在世的年份(lives):
+ * 通往废城的路被毁那年荒废,原址重建的城长成镇(或立都)以后重新通路。ended = 最后一座城被毁的年份(还在 = 不给)。
  */
 export function routeCities(settlements: Settlement[], polities: Polity[], endYear: Year): RouteCity[] {
   const capitalFrom = new Map<number, Year>();
@@ -1442,37 +1437,35 @@ export function routeCities(settlements: Settlement[], polities: Polity[], endYe
   /** 港口:按这份历史的最后一段地形(地形大事以后城址变了的,见 Settlement.reshaped) */
   const port = (s: Settlement) => portAt(s, Infinity);
   /**
-   * 够格修路的年份(国都、港口 = 建城那年;其余 = 长成镇那年;被毁前没长成镇 / 到结束年份还不是镇 = Infinity)。
-   * 地形大事以后才成了港口的:成港口那年和长成镇那年里早的那个(航线另记,见下面的 portFrom);
-   * 地形大事降了上限、到结束时已经不是镇的:降之前是镇的照长成镇那年
+   * 够格修路的年份:港口 = 建城那年;国都 = 立都那年和长成镇那年里早的那个;其余 = 长成镇那年
+   * (只看结束年份 / 被毁以前;被毁前没长成镇 = Infinity)。地形大事以后才成了港口的:成港口那年和长成镇那年里早的那个(航线另记,见下面的 portFrom)
    */
   const from = (s: Settlement): Year => {
     const harbor = portSince(s);
-    if (capitalFrom.has(s.id) || harbor === s.founded) return s.founded;
-    let y: Year;
-    if (s.ended === undefined) {
-      if (populationAt(s, endYear) >= town) y = Math.max(s.founded, yearReachingDev(s, town, endYear));
-      else if (s.reshaped?.some((e) => e.year <= endYear && populationAt(s, e.year - 1 / 256) >= town)) {
-        // 地形大事降了上限、到结束时已经不是镇的:降之前确实是镇(算上洗劫)的,长成镇那年修起来的路照样在(路只随城被毁荒废)
-        y = Math.max(s.founded, yearReachingDev(s, town, endYear));
-      } else y = Infinity;
-    } else {
-      y = Math.max(s.founded, yearReachingDev(s, town, s.ended));
-      if (!(y < s.ended)) y = Infinity;
-    }
-    return Math.min(y, harbor);
+    if (harbor === s.founded) return s.founded;
+    let y = Math.max(s.founded, yearReachingPop(s, town, s.ended ?? endYear));
+    if (s.ended !== undefined && !(y < s.ended)) y = Infinity;
+    return Math.min(y, capitalFrom.get(s.id) ?? Infinity, harbor);
   };
   const out: RouteCity[] = [];
   for (const s of settlements) {
     const g = atCell.get(s.cell)!;
     if (g[0] !== s) continue;
-    let founded = Infinity;
+    const lives: [Year, Year][] = [];
     let majorFrom = Infinity;
     for (const x of g) {
-      founded = Math.min(founded, from(x));
+      const a = from(x);
+      const e = x.ended ?? Infinity;
+      if (a < e) {
+        // 毁了当年就在原址重建的:连成一段
+        const last = lives[lives.length - 1];
+        if (last && a <= last[1]) last[1] = Math.max(last[1], e);
+        else lives.push([a, e]);
+      }
       if (capitalFrom.has(x.id)) majorFrom = Math.min(majorFrom, capitalFrom.get(x.id)!);
     }
-    if (!(founded < Infinity)) continue;
+    if (!lives.length) continue;
+    const founded = lives[0][0];
     // 港口看这处城址的最后一座城:先前的城可能在地形大事以前就毁了,记着的还是那时的港口
     const last = g[g.length - 1];
     const c: RouteCity = { cell: s.cell, major: majorFrom < Infinity, majorFrom: majorFrom < Infinity ? majorFrom : undefined, port: port(last), founded };
@@ -1485,9 +1478,10 @@ export function routeCities(settlements: Settlement[], polities: Polity[], endYe
       harbor = h;
     }
     if (harbor < Infinity && harbor > founded) c.portFrom = harbor;
-    const ended = g[g.length - 1].ended;
-    if (ended !== undefined) c.ended = ended;
+    if (last.ended !== undefined) c.ended = last.ended;
+    if (lives.length > 1 || lives[0][1] !== (c.ended ?? Infinity)) c.lives = lives;
     out.push(c);
   }
-  return out;
+  // 按够格的先后排(并列按地块):推得更远时,早先够格的城编号不变
+  return out.sort((a, b) => a.founded - b.founded || a.cell - b.cell);
 }

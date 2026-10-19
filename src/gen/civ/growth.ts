@@ -190,8 +190,8 @@ export const populationAt: PopulationAt = (s: Settlement, year: Year): number =>
 
 /**
  * 不算国都加成、洗劫,但算上随生产能力变的倍数(Settlement.devCap)时,人口越过 level(千人)的年份;上限不够 = Infinity。
- * 没有 devCap 的同 yearReaching;有的每 DEV_RAMP 年看一次,越过的那一段里二分(倍数变低时人口可能又跌回去,取第一次越过的)。
- * until:最多看到哪一年(含)
+ * 没有 devCap 的同 yearReaching;有的从建城起每 DEV_RAMP 年看一次(再加地形大事降上限的前一刻),取第一个够了的取样年份
+ * (倍数变低时人口可能又跌回去,取第一次越过的)。只看 until(含)以前的取样:推得更远,早先算出的年份不变。
  */
 export function yearReachingDev(s: Settlement, level: number, until: Year): Year {
   const dc = s.devCap;
@@ -202,20 +202,26 @@ export function yearReachingDev(s: Settlement, level: number, until: Year): Year
   // 地形大事降上限的前一刻也看一次(之前长过 level、大事以后又跌回去的,在两个取样点之间)
   const cuts = (s.reshaped ?? []).map((x) => x.year - 1 / 256);
   for (let b = a + DEV_RAMP; a < until; a = b, b += DEV_RAMP) {
-    let e = Math.min(b, until);
-    if (pop(e) < level) {
-      const c = cuts.find((x) => x > a && x < e && pop(x) >= level);
-      if (c === undefined) continue;
-      e = c;
-    }
-    let lo = a;
-    let hi = e;
-    for (let k = 0; k < 32; k++) {
-      const m = (lo + hi) / 2;
-      if (pop(m) >= level) hi = m;
-      else lo = m;
-    }
-    return hi;
+    const c = cuts.find((x) => x > a && x < b && x <= until && pop(x) >= level);
+    if (c !== undefined) return c;
+    if (b <= until && pop(b) >= level) return b;
+  }
+  return Infinity;
+}
+
+/**
+ * 人口(populationAt:算上国都加成、洗劫)第一次到 level(千人)的取样年份;只看 until(含)以前,没到 = Infinity。
+ * 从 yearReachingDev 起(不算国都加成、洗劫的人口不会更少 —— 国都加成只在立都以后),往后照它的取样点(每 DEV_RAMP 年 + 地形大事前一刻)一个个看:
+ * 快到的时候被洗劫、人口没缓过来的,等缓过来那一刻才算。推得更远,早先算出的年份不变
+ */
+export function yearReachingPop(s: Settlement, level: number, until: Year): Year {
+  const y0 = yearReachingDev(s, level, until);
+  if (!(y0 <= until)) return Infinity;
+  if (populationAt(s, y0) >= level) return y0;
+  const cuts = (s.reshaped ?? []).map((x) => x.year - 1 / 256);
+  for (let a = s.founded + Math.floor((y0 - s.founded) / DEV_RAMP) * DEV_RAMP, b = a + DEV_RAMP; a < until; a = b, b += DEV_RAMP) {
+    for (const c of cuts) if (c > Math.max(a, y0) && c < b && c <= until && populationAt(s, c) >= level) return c;
+    if (b > y0 && b <= until && populationAt(s, b) >= level) return b;
   }
   return Infinity;
 }
