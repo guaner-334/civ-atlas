@@ -12,7 +12,10 @@
  * - 自动存:App 生成完一个世界就 attachWorld;之后修改(editsStore)一变就写一次。换世界前 App 先 detachWorld,
  *   清空旧世界的修改就不会被当成这个世界的。
  * - 缩略图(480×240 JPEG dataURL)单独存一个键,第一次存这个世界时由 App 给的 thumbMaker 截一张(截不到就过一会儿再试);
- *   新建中的世界地形变了、刚创建完,App 调 refreshThumb 重截。
+ *   新建中的世界地形变了、刚创建完,App 调 refreshThumb 重截。另有一张"地图缩略图"(实景、第 0 年的地形、不带国界和地名,
+ *   「我的世界」的「地图」页签用;mapThumbMaker 给),和缩略图一起截;只在这台设备上,不同步(没有的就用缩略图)。
+ * - 只存了地图、还没有文明的(新建时点「保存地图」,saveCurrentAsMap):本地信息记 map,存档里只有参数和地形修改。
+ *   它不当世界打开,只在「我的世界」的「地图」页签里,点「打造文明」在它上面新建(见 mapGroups.ts)。
  * - 存储有上限:最多存 MAX_WORLDS 个世界;存满了(个数到上限、或浏览器配额满了)这一次就存不下,**绝不自动删别的世界**:
  *   顶部提示"没能自动存档",带"存成文件"(同一次满只提示一回,之后写成功了再重新算);腾出地方(自己删掉几个)后下一次改动就存下了。
  * - 浏览器不让用 localStorage(隐私模式、禁用了存储)时退回"只在内存里":这次打开的页面里照样能用,
@@ -60,6 +63,8 @@ export function currentView(): SaveView {
 const PREFIX = 'wenming-ditu:world:';
 const THUMB = 'wenming-ditu:thumb:';
 const META = 'wenming-ditu:meta:';
+/** 地图缩略图(见文件头) */
+const MAPTHUMB = 'wenming-ditu:mapthumb:';
 /** AI 写的东西(ai/library.ts)按世界编号存的键 */
 const NOTES = 'civ-atlas:ai-notes:';
 /** 以前按"种子 + 参数"当编号存的世界换成了哪个新编号(旧网址只带种子、参数,刷新还回到它) */
@@ -266,7 +271,7 @@ export function setReopenHandler(f: ((id: string) => void) | null) {
 
 /** 别的标签页改了浏览器存储(storage 事件;单测直接调):key = null 是整个清空 */
 export function otherTabChanged(key: string | null, newValue: string | null): void {
-  if (key !== null && ![PREFIX, THUMB, META, NOTES, LEGACY].some((p) => key.startsWith(p))) return;
+  if (key !== null && ![PREFIX, THUMB, MAPTHUMB, META, NOTES, LEGACY].some((p) => key.startsWith(p))) return;
   const c = current;
   // 整个清空:存过的当前世界也没了
   const cleared = key === null && !!c && (c.kind === 'created' || (c.kind === 'draft' && !c.pristine)) && store().get(PREFIX + c.id) === null;
@@ -451,6 +456,8 @@ interface Meta {
   alive?: number;
   /** 新建中、以某个世界为底稿:原来那个世界 */
   base?: DraftBase;
+  /** 只存了地图、还没有文明(见文件头) */
+  map?: boolean;
 }
 
 export interface StoredWorld {
@@ -467,6 +474,10 @@ export interface StoredWorld {
   alive?: number;
   /** 新建中、以某个世界为底稿:原来那个世界 */
   base?: DraftBase;
+  /** 只存了地图、还没有文明 */
+  map: boolean;
+  /** 地图缩略图(没截过 = null) */
+  mapThumb: string | null;
 }
 
 function readSave(id: string): SaveFile | null {
@@ -486,6 +497,7 @@ function parseMeta(text: string): Meta {
     const v = JSON.parse(text) as Record<string, unknown>;
     const m: Meta = {};
     if (v.draft === true) m.draft = true;
+    if (v.map === true && v.draft !== true) m.map = true;
     if (typeof v.opened === 'string' && !Number.isNaN(Date.parse(v.opened))) m.opened = v.opened;
     if (typeof v.alive === 'number' && Number.isFinite(v.alive) && v.alive >= 0) m.alive = Math.floor(v.alive);
     const b = v.base as Record<string, unknown> | undefined;
@@ -503,7 +515,8 @@ export function loadWorld(id: string): StoredWorld | null {
   if (!save) return null;
   const m = readMeta(id);
   const at = m.opened && m.opened > save.savedAt ? m.opened : save.savedAt;
-  return { id, save, count: editCount(save.edits), thumb: store().get(THUMB + id), draft: !!m.draft, at, alive: m.alive, base: m.draft ? m.base : undefined };
+  const kv = store();
+  return { id, save, count: editCount(save.edits), thumb: kv.get(THUMB + id), draft: !!m.draft, at, alive: m.alive, base: m.draft ? m.base : undefined, map: !!m.map, mapThumb: kv.get(MAPTHUMB + id) };
 }
 
 /** 存过的世界,最近打开或改过的在前 */
@@ -529,7 +542,7 @@ const nameOf = (id: string) => {
 
 function removeKeys(id: string) {
   const kv = store();
-  for (const p of [PREFIX, THUMB, META, NOTES, ORIG]) kv.remove(p + id);
+  for (const p of [PREFIX, THUMB, META, NOTES, ORIG, MAPTHUMB]) kv.remove(p + id);
 }
 
 /** 写一个键;浏览器写不下就算了(返回 false),不为它删任何已经存着的世界 */
@@ -543,6 +556,7 @@ function writeMeta(id: string, m: Meta): boolean {
   if (m.opened) v.opened = m.opened;
   if (m.alive !== undefined) v.alive = m.alive;
   if (m.draft && m.base) v.base = m.base;
+  if (m.map && !m.draft) v.map = true;
   return put(META + id, JSON.stringify(v));
 }
 
@@ -615,7 +629,7 @@ export function setDeleteHook(f: ((id: string) => void) | null) {
 export function deleteWorld(id: string): DeletedWorld | null {
   const kv = store();
   const keys: [string, string][] = [];
-  for (const p of [PREFIX, THUMB, META, NOTES, ORIG]) {
+  for (const p of [PREFIX, THUMB, META, NOTES, ORIG, MAPTHUMB]) {
     const v = kv.get(p + id);
     if (v !== null) keys.push([p + id, v]);
   }
@@ -646,12 +660,12 @@ export interface DeletedWorld {
 export function restoreWorld(d: DeletedWorld): boolean {
   const kv = store();
   const wrote: string[] = [];
-  for (const p of [PREFIX, META, NOTES, ORIG, THUMB]) {
+  for (const p of [PREFIX, META, NOTES, ORIG, THUMB, MAPTHUMB]) {
     const k = p + d.id;
     const v = d.keys.find((e) => e[0] === k)?.[1];
     if (v === undefined || kv.get(k) !== null) continue;
     if (kv.set(k, v)) wrote.push(k);
-    else if (p !== THUMB && p !== ORIG) {
+    else if (p !== THUMB && p !== ORIG && p !== MAPTHUMB) {
       for (const w of wrote) kv.remove(w);
       changed();
       return false;
@@ -709,6 +723,7 @@ export function duplicateWorld(id: string): string | null {
   if (!writeSave(nid, save, { draft: w.draft, alive: w.alive })) return null;
   // 缩略图写不下就先不要,打开它时再截一张
   if (w.thumb) put(THUMB + nid, w.thumb);
+  if (w.mapThumb) put(MAPTHUMB + nid, w.mapThumb);
   // 原样写不下就不带(原件那里还有)
   keepOriginal(nid, store().get(ORIG + id));
   changed();
@@ -781,7 +796,7 @@ export function sameOrigin(a: SaveFile['origin'], b: SaveFile['origin']): boolea
  */
 export function importSave(save: SaveFile): string | null {
   for (const w of listWorlds()) {
-    if (w.draft || !sameSave(w.save, save)) continue;
+    if (w.draft || w.map || !sameSave(w.save, save)) continue;
     // 只差投影 / 中央经线 / 经纬网 / 等值线:用文件里的(下次打开还是文件里的样子;文件记了经纬网、等值线,存着的没记,也换成文件里的)
     let ok = true;
     const grat = save.view?.graticule;
@@ -878,6 +893,20 @@ export function setThumbMaker(f: ((id: string) => string | null) | null) {
   thumbMaker = f;
 }
 
+/** 截地图缩略图(App 给;见文件头):画布还没画好 = null */
+let mapThumbMaker: ((id: string) => string | null) | null = null;
+export function setMapThumbMaker(f: ((id: string) => string | null) | null) {
+  mapThumbMaker = f;
+}
+
+const take = (f: ((id: string) => string | null) | null, id: string): string | null => {
+  try {
+    return f?.(id) ?? null;
+  } catch {
+    return null;
+  }
+};
+
 export type CurrentWorld = Readonly<Omit<Current, 'saved' | 'savedView'>>;
 
 /** 当前世界(自动存的对象);换世界途中 = null */
@@ -906,15 +935,22 @@ function scheduleThumb(id: string, force = false, tries = 0) {
   thumbTimer = setTimeout(() => {
     thumbTimer = undefined;
     thumbForce = null;
-    if (current?.id !== id || !store().get(PREFIX + id) || (!force && store().get(THUMB + id))) return;
-    let url: string | null = null;
-    try {
-      url = thumbMaker?.(id) ?? null;
-    } catch {
-      url = null;
+    const kv = store();
+    if (current?.id !== id || !kv.get(PREFIX + id)) return;
+    const wantThumb = force || !kv.get(THUMB + id);
+    const wantMap = !!mapThumbMaker && (force || !kv.get(MAPTHUMB + id));
+    if (!wantThumb && !wantMap) return;
+    const url = wantThumb ? take(thumbMaker, id) : null;
+    const map = wantMap ? take(mapThumbMaker, id) : null;
+    const a = !!url && put(THUMB + id, url);
+    const b = !!map && put(MAPTHUMB + id, map);
+    if (a || b) changed();
+    if (wantThumb && !url) return scheduleThumb(id, force, tries + 1);
+    if (wantMap && !map) {
+      // 只差地图缩略图:旧的那张(地形变了以前的)不留,下一次补上
+      kv.remove(MAPTHUMB + id);
+      scheduleThumb(id, false, tries + 1);
     }
-    if (!url) return scheduleThumb(id, force, tries + 1);
-    if (put(THUMB + id, url)) changed();
   }, 700);
 }
 
@@ -1031,7 +1067,8 @@ export function attachWorld(spec: AttachSpec) {
     base: spec.kind === 'draft' ? (spec.base ?? undefined) : undefined,
     saved: spec.saved,
     savedView: withGraticule(spec.view ?? prev?.view ?? DEFAULT_VIEW),
-    origin: spec.kind === 'draft' ? undefined : (cleanOrigin(spec.origin) ?? undefined),
+    // 新建中的没有底稿出处;在别的世界的地图上打造的文明例外:地图出自那里,出处跟着(建好以后侧栏照样写)
+    origin: spec.kind === 'draft' && !spec.saved?.map?.from ? undefined : (cleanOrigin(spec.origin) ?? undefined),
     original: spec.kind === 'draft' || !spec.original || spec.original.generator >= GENERATOR_VERSION ? undefined : spec.original,
     frozen: spec.kind === 'created' && spec.frozen !== undefined && spec.frozen < GENERATOR_VERSION ? spec.frozen : undefined,
   };
@@ -1055,7 +1092,7 @@ export function attachWorld(spec: AttachSpec) {
   } else if (prev) {
     touchMeta(spec.id, metaOf(current, new Date().toISOString()));
     // 刚从文件打开的(先存了、再生成):还没有缩略图,截一张
-    if (store().get(THUMB + spec.id) === null) scheduleThumb(spec.id);
+    if (store().get(THUMB + spec.id) === null || (mapThumbMaker && store().get(MAPTHUMB + spec.id) === null)) scheduleThumb(spec.id);
   }
   current.wrote = store().get(PREFIX + spec.id);
   changed();
@@ -1084,6 +1121,33 @@ export function markCreated(): boolean {
   c.pristine = false;
   c.base = undefined;
   return saveCurrent(true);
+}
+
+/**
+ * 新建中点了「保存地图」:当前世界存成只有地图的一份(参数、地形修改、草图;名字、地名风格、推演年数这些文明的设定都不要),
+ * 缩略图、地图缩略图当场截(截不到就没有);从此不再自动存它(App 接着回到我的世界)。写进去了 = true
+ */
+export function saveCurrentAsMap(): boolean {
+  const c = current;
+  if (!c || c.kind !== 'draft' || c.gone) return false;
+  const e = getEdits();
+  const edits: WorldEdits = { names: {}, interventions: [], terrain: e.terrain, ...(e.sketch ? { sketch: e.sketch } : {}) };
+  const save = makeSave(c.params, edits, c.check, undefined, undefined, currentView());
+  const prev = store().get(PREFIX + c.id);
+  if (!writeSave(c.id, save, { map: true, opened: save.savedAt })) {
+    // 存档换成了只有地图的、本地信息却没写上:放回原来那份(还是没建完的,名字、文明的设定都在)
+    if (prev !== null && store().get(PREFIX + c.id) !== prev) put(PREFIX + c.id, prev);
+    changed();
+    return false;
+  }
+  const url = take(thumbMaker, c.id);
+  const map = take(mapThumbMaker, c.id);
+  if (url) put(THUMB + c.id, url);
+  if (map) put(MAPTHUMB + c.id, map);
+  current = null;
+  stopThumb();
+  changed();
+  return true;
 }
 
 /** 结束那一年现存几国(App 推演完告诉这里;"我的世界"的卡片上写) */
@@ -1127,6 +1191,7 @@ export interface SyncMeta {
   draft?: boolean;
   alive?: number;
   base?: DraftBase;
+  map?: boolean;
 }
 
 /** 本地信息 → 同步的那几项(键的顺序固定,算指纹用) */
@@ -1135,6 +1200,7 @@ export function syncMetaOf(m: Meta): SyncMeta {
   if (m.draft) v.draft = true;
   if (m.alive !== undefined) v.alive = m.alive;
   if (m.draft && m.base) v.base = m.base;
+  if (m.map && !m.draft) v.map = true;
   return v;
 }
 
@@ -1277,7 +1343,7 @@ export function removeSyncedWorld(id: string) {
  * 正在看的世界接着用
  */
 export function removeAllWorlds(): boolean {
-  const ours = (k: string) => [PREFIX, THUMB, META, NOTES, LEGACY, ORIG].some((p) => k.startsWith(p));
+  const ours = (k: string) => [PREFIX, THUMB, META, NOTES, LEGACY, ORIG, MAPTHUMB].some((p) => k.startsWith(p));
   if (!wipeBrowser(ours)) {
     // 正在看的那份没能放回去:马上再存一次
     if (current?.wrote != null && store().get(PREFIX + current.id) === null) saveCurrent(true);

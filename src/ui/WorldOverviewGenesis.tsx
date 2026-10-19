@@ -1,19 +1,21 @@
 /**
- * 世界概览的"世界设定"页:这个世界创建时定下的根 —— 种子、六项世界参数、改过的地形、地名风格、推演年数、
- * 拓荒(民族扩散、国家扩张、地形难走程度)、文明起源,都只能看,不能再改
- * (一改几千年的历史就要整个重来)。想换个样子:"以它为底稿新建…"(回到新建这一步,设定照原样带过去,存成另一个世界)。
- * 右栏最上面是随时能改的「纪年」(EraSettings.tsx)和「月份」(MonthSettings.tsx;窄屏单独一节放在最上面),下面还有"回放世界形成"。
+ * 世界概览的"世界设定"页:这个世界创建时定下的根,都只能看,不能再改(一改几千年的历史就要整个重来)。分两页:
+ * 「文明」—— 文明种子、地名风格、推演年数、拓荒(民族扩散、国家扩张、地形难走程度)、文明起源;想换个样子:"以它为底稿新建…"
+ * (回到新建这一步,设定照原样带过去,存成另一个世界);右栏是随时能改的「纪年」(EraSettings.tsx)和「月份」(MonthSettings.tsx;窄屏放在最上面)。
+ * 「地图」—— 种子、世界参数、改过的地形;右栏是这张地图上的几个文明(点了打开)、"在这张地图上打造新文明…"、"回放世界形成"。
  *
  * 世界参数的滑条(SLIDERS、ParamSlider)、推演年数的开关和滑条(YearsRows)在这里定义,新建世界(studio/Studio.tsx)用。
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { World, WorldParams } from '../gen/world';
 import { speedText, terrainBrief as terrainCostBrief } from '../gen/civ/frontier';
 import { originCiv, originSpots } from './studio/origins';
 import type { Civ } from '../gen/civ/types';
-import { END_YEAR_DEFAULT, END_YEAR_MAX, END_YEAR_STEP, cleanEndYear, endYearOf, type TerrainKind } from '../gen/edits';
+import { END_YEAR_DEFAULT, END_YEAR_MAX, END_YEAR_STEP, civSeedOf, cleanEndYear, endYearOf, type TerrainKind } from '../gen/edits';
 import { setEndYear, useEdits } from './editsStore';
-import { currentWorld, useSavesVersion } from './saveStore';
+import { currentWorld, listWorlds, useSavesVersion } from './saveStore';
+import { civName, mapMates } from './mapGroups';
+import { openWorldById, startNewCiv } from './newCivAction';
 import { Icon } from './icons';
 import { genSeconds } from './genSpeed';
 import { mixSummary } from './nameMix';
@@ -231,13 +233,86 @@ function originsBrief(pts: readonly number[] | undefined, world: World | null, c
   return names.length ? `自己选的 ${names.length} 处：${names.join('、')}` : `自己选的 ${n} 处都住不了人，照自动推演`;
 }
 
+/** 世界设定的两页:文明(推演怎么定的)、地图(星球怎么定的,这张地图上还有哪些文明) */
+type SettingsTab = 'civ' | 'map';
+
 export function SettingsPage(p: SettingsProps) {
   useSavesVersion();
   const edits = useEdits();
-  const title = currentWorld()?.title;
+  const cur = currentWorld();
+  const title = cur?.title;
   const { params } = p;
   const end = endYearOf(edits);
   const narrow = useNarrow();
+  const [tab, setTab] = useState<SettingsTab>('civ');
+  const seg = (
+    <div className="ov-seg" role="tablist">
+      {(['civ', 'map'] as const).map((t) => (
+        <button key={t} role="tab" aria-selected={tab === t} className={tab === t ? 'on' : undefined} data-tab={t} onClick={() => setTab(t)}>
+          {t === 'civ' ? '文明' : '地图'}
+        </button>
+      ))}
+    </div>
+  );
+  const locked = (
+    <h3>
+      创建时定下的
+      <small>
+        <Icon name="lock" size={14} />
+        不能再改
+      </small>
+    </h3>
+  );
+  if (tab === 'map') {
+    return (
+      <div className="ov-settings">
+        {seg}
+        <section className="ov-sec">
+          {locked}
+          <div className="ov-kv">
+            <div className="ov-kv-row" data-param="seed">
+              <span>种子</span>
+              <b>{params.seed}</b>
+            </div>
+            {SLIDERS.map((s) => (
+              <div key={s.key} className="ov-kv-row" data-param={s.key}>
+                <span>{s.name}</span>
+                <b>{s.fmt(params[s.key])}</b>
+              </div>
+            ))}
+            {/* 大陆五样:改过才列(按种子来的世界和以前一样) */}
+            {!contDefault(params) && (
+              <>
+                <div className="ov-kv-row" data-param="continents">
+                  <span>大陆数量</span>
+                  <b>{params.continents ? `${params.continents} 块` : '自动'}</b>
+                </div>
+                {CONT_SLIDERS.map((s) => (
+                  <div key={s.key} className="ov-kv-row" data-param={s.key}>
+                    <span>{s.name}</span>
+                    <b>{s.fmt(params[s.key])}</b>
+                  </div>
+                ))}
+              </>
+            )}
+            <div className="ov-kv-row" data-param="terrain">
+              <span>改过的地形</span>
+              <b>{terrainBrief(edits.terrain, edits.sketch)}</b>
+            </div>
+          </div>
+        </section>
+        <section className="ov-sec">
+          {cur?.kind === 'created' && <MapCivs id={cur.id} disabled={p.generating} />}
+          <h3 className="ov-gap">这颗星球是怎么来的</h3>
+          <p className="ov-txt dim">从板块漂移到流水侵蚀，几秒钟看完这颗星球长成现在的样子，接着放{yearsSpan(end, true)}的历史。</p>
+          <button className="ov-btn ov-ico-btn replay" data-act="replay" disabled={p.generating || p.replay.on} onClick={p.onReplay}>
+            <Icon name="replay" size={16} />
+            {p.replay.on ? (p.replay.ready ? '正在回放' : '正在准备回放') : '回放世界形成'}
+          </button>
+        </section>
+      </div>
+    );
+  }
   const era = (
     <>
       <EraSection civ={p.civ} end={end} />
@@ -246,44 +321,14 @@ export function SettingsPage(p: SettingsProps) {
   );
   return (
     <div className="ov-settings">
+      {seg}
       {narrow && <section className="ov-sec">{era}</section>}
       <section className="ov-sec">
-        <h3>
-          创建时定下的
-          <small>
-            <Icon name="lock" size={14} />
-            不能再改
-          </small>
-        </h3>
+        {locked}
         <div className="ov-kv">
-          <div className="ov-kv-row" data-param="seed">
-            <span>种子</span>
-            <b>{params.seed}</b>
-          </div>
-          {SLIDERS.map((s) => (
-            <div key={s.key} className="ov-kv-row" data-param={s.key}>
-              <span>{s.name}</span>
-              <b>{s.fmt(params[s.key])}</b>
-            </div>
-          ))}
-          {/* 大陆五样:改过才列(按种子来的世界和以前一样) */}
-          {!contDefault(params) && (
-            <>
-              <div className="ov-kv-row" data-param="continents">
-                <span>大陆数量</span>
-                <b>{params.continents ? `${params.continents} 块` : '自动'}</b>
-              </div>
-              {CONT_SLIDERS.map((s) => (
-                <div key={s.key} className="ov-kv-row" data-param={s.key}>
-                  <span>{s.name}</span>
-                  <b>{s.fmt(params[s.key])}</b>
-                </div>
-              ))}
-            </>
-          )}
-          <div className="ov-kv-row" data-param="terrain">
-            <span>改过的地形</span>
-            <b>{terrainBrief(edits.terrain, edits.sketch)}</b>
+          <div className="ov-kv-row" data-param="civ-seed">
+            <span>文明种子</span>
+            <b>{civSeedOf(edits, params.seed)}</b>
           </div>
           <div className="ov-kv-row" data-param="name-mix">
             <span>地名风格</span>
@@ -310,25 +355,66 @@ export function SettingsPage(p: SettingsProps) {
             <b>{originsBrief(edits.origins?.pts, p.world, p.civ)}</b>
           </div>
         </div>
-      </section>
-      <section className="ov-sec">
-        {!narrow && era}
-        <h3>想换个样子</h3>
+        <h3 className="ov-gap">想换个样子</h3>
         <p className="ov-txt">
-          种子、参数和地形一变，{yearsSpan(end)}的历史就要整个重来。想试试别的样子，可以以{title || '它'}为底稿另建一个世界：设定全部带过去，改过的名字和干预也跟过去，
+          这些一变，文明就要整个重来。想试试别的样子，可以以{title || '它'}为底稿另建一个世界：设定全部带过去，改过的名字和干预也跟过去，
           {title || '原来的世界'}本身不变。
         </p>
         <button className="ov-btn ov-primary ov-ico-btn" data-act="draft-from" disabled={p.generating} onClick={p.onDraftFrom}>
           <Icon name="copy" size={16} />
           以它为底稿新建…
         </button>
-        <h3 className="ov-gap">这颗星球是怎么来的</h3>
-        <p className="ov-txt dim">从板块漂移到流水侵蚀，几秒钟看完这颗星球长成现在的样子，接着放{yearsSpan(end, true)}的历史。</p>
-        <button className="ov-btn ov-ico-btn replay" data-act="replay" disabled={p.generating || p.replay.on} onClick={p.onReplay}>
-          <Icon name="replay" size={16} />
-          {p.replay.on ? (p.replay.ready ? '正在回放' : '正在准备回放') : '回放世界形成'}
-        </button>
       </section>
+      {!narrow && <section className="ov-sec">{era}</section>}
     </div>
+  );
+}
+
+/** 「地图」页右栏:这张地图上的文明(正在看的标出来,别的点了打开)、「在这张地图上打造新文明…」 */
+function MapCivs({ id, disabled }: { id: string; disabled: boolean }) {
+  const edits = useEdits();
+  const saves = useSavesVersion();
+  const mates = useMemo(() => mapMates(listWorlds(), id, { map: edits.map }), [saves, id, edits.map]);
+  // 存不进浏览器的(满了)不在列表里:没法从它打造,这一块不显示
+  if (!mates.some((w) => w.id === id)) return null;
+  return (
+    <>
+      <h3>
+        这张地图上的文明<small>{mates.length} 个</small>
+      </h3>
+      {mates.length > 0 && (
+        <div className="ov-kv ov-civs">
+          {mates.map((w) => {
+            const here = w.id === id;
+            const seed = civSeedOf(w.save.edits, w.save.params.seed);
+            const line = `${w.draft ? '还在新建' : w.alive === undefined ? '' : w.alive ? `现存 ${w.alive} 国，` : '没长出国家，'}${w.draft ? '' : `文明种子 ${seed}`}`;
+            const body = (
+              <>
+                {w.thumb ? <img src={w.thumb} alt="" /> : <span className="ov-civ-th" />}
+                <span className="ov-civ-t">
+                  {civName(w)}
+                  <small>{line}</small>
+                </span>
+                {here ? <em>正在看</em> : <Icon name="chevron" size={16} />}
+              </>
+            );
+            return here ? (
+              <div key={w.id} className="ov-kv-row ov-civ on" data-civ={w.id}>
+                {body}
+              </div>
+            ) : (
+              <button key={w.id} className="ov-kv-row ov-civ" data-civ={w.id} onClick={() => openWorldById(w.id)}>
+                {body}
+              </button>
+            );
+          })}
+        </div>
+      )}
+      <p className="ov-txt dim ov-civs-note">同一张地图，换一个文明种子从第 0 年推，就是另一个文明：民族、国家、名字都从头长。原来的几个都不动。</p>
+      <button className="ov-btn ov-primary ov-ico-btn" data-act="settings-new-civ" disabled={disabled} onClick={() => startNewCiv(id)}>
+        <Icon name="map" size={16} />
+        在这张地图上打造新文明…
+      </button>
+    </>
   );
 }

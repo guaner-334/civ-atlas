@@ -975,6 +975,73 @@ button.ov-iv-text:hover {
   align-content: start;
   padding-top: 24px;
 }
+/* 「文明 | 地图」分段控件:占满一行,靠左 */
+.ov-seg {
+  grid-column: 1 / -1;
+  justify-self: start;
+  display: inline-flex;
+  height: 30px;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--btn);
+}
+.ov-seg button {
+  padding: 0 16px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13.5px;
+  cursor: pointer;
+}
+.ov-seg button.on {
+  background: var(--surface);
+  box-shadow:
+    0 0 0 0.5px rgba(0, 0, 0, 0.06),
+    0 1px 3px rgba(0, 0, 0, 0.16);
+  font-weight: 600;
+}
+/* 「地图」页:这张地图上的文明,一行一个(缩略图、名字、现存几国和文明种子;正在看的写出来,别的点了打开) */
+.ov-civs {
+  overflow: hidden;
+}
+.ov-kv-row.ov-civ {
+  gap: 12px;
+  min-height: 60px;
+}
+.ov-civ img,
+.ov-kv-row .ov-civ-th {
+  flex: none;
+  width: 64px;
+  height: 32px;
+  border-radius: 4px;
+  object-fit: cover;
+  background: var(--btn);
+}
+.ov-kv-row .ov-civ-t {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ov-civ-t small {
+  font-size: 12px;
+  color: var(--ink-2);
+}
+.ov-civ em {
+  font-style: normal;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.ov-civ .icon {
+  flex: none;
+  color: var(--ink-3);
+}
+.ov-txt.ov-civs-note {
+  margin-top: 10px;
+}
 .ov-sec h3 {
   display: flex;
   align-items: center;
@@ -1550,4 +1617,8 @@ button.ov-kv-row:hover {
 .lp-none {
   font-size: 12px;
   color: var(--ink-2);
+}
+/* 「地图」页右栏:没有「这张地图上的文明」那一块时,回放那一组顶上不空出间距 */
+.ov-sec > h3.ov-gap:first-child {
+  margin-top: 0;
 }

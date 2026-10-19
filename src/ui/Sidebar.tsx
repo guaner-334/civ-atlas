@@ -7,7 +7,7 @@
  *          搜索框里有字:搜索结果(点一条 = 选中它,地图飞过去)
  *          地图上选中了东西:它的详情(Inspector:国家 / 城 / 地理实体 / 州的面板);打开了地形大事:它的卡片(UpheavalPanel.tsx)
  *          什么都没选:整个世界(WorldHome:信仰(只在信仰图层)、国家按大小排、最近大事、我的干预(干预和地形大事)、
- *          这颗星球(回放世界形成、地形大事、世界设定;从别人的分享另存来的,最后一行是底稿出处,点了在新标签页打开那个分享链接))
+ *          这颗星球(回放世界形成、地形大事、在这张地图上打造新文明、世界设定;从别人的分享另存来的,最后一行是底稿出处,点了在新标签页打开那个分享链接))
  * 收起:卡片右上角的侧栏图标 → 卡片往左滑走,左上角留一个小按钮(侧栏图标 + 世界名),点它滑回来;记在浏览器里(sideStore.ts)。
  *       收起时选中了东西,卡片弹出来显示它,取消选中又收回去;收起时搜索框跟着卡片一起收起。
  * 新建世界是另一套界面(studio/Studio.tsx),不用侧栏。
@@ -27,7 +27,9 @@ import { eraRows, resourceRows } from './devRows';
 import { useEdits } from './editsStore';
 import { eraLabel, spaced, yearAt, yearFull, yearShort, type Era } from '../gen/era';
 import { openUpheaval, useUpUi } from './upheavalStore';
-import { currentWorld, useSavesVersion } from './saveStore';
+import { currentWorld, listWorlds, useSavesVersion } from './saveStore';
+import { mapMates } from './mapGroups';
+import { startNewCiv } from './newCivAction';
 import { SaveMenu } from './SaveMenu';
 import { openAiSettings } from './AiSettings';
 import { openHistoryBook } from './bookStore';
@@ -406,6 +408,11 @@ export function WorldHome(p: Pick<SidebarProps, 'civ' | 'data' | 'params' | 'gen
   const edits = useEdits();
   const era = edits.era;
   const ok = !!civ && civ.viable;
+  // 这张地图上已有几个文明(连同这个):只有存着的、建好了的世界才有这一行(存不进浏览器的不算:这里数出 0 个)
+  const saves = useSavesVersion();
+  const now = currentWorld();
+  const curId = now?.kind === 'created' ? now.id : null;
+  const mates = useMemo(() => (curId ? mapMates(listWorlds(), curId, { map: edits.map }).length : null), [saves, curId, edits.map]);
   // 现存的国家按当年的州数排
   const top = useMemo(() => {
     if (!ok) return { list: [], alive: 0 };
@@ -597,6 +604,16 @@ export function WorldHome(p: Pick<SidebarProps, 'civ' | 'data' | 'params' | 'gen
                 <b>地形大事</b>
               </span>
               <span className="sb-row-side">{nUp ? `${nUp} 件` : '还没有'}</span>
+              <Icon name="chevron" size={14} className="sb-chev" />
+            </button>
+          )}
+          {!!mates && (
+            <button className="sb-row" data-act="side-new-civ" disabled={p.generating || p.replay.on} onClick={() => curId && startNewCiv(curId)} title="用这张地图一开始的样子，换一个文明种子从第 0 年推演">
+              <Icon name="map" size={17} className="sb-ico" />
+              <span className="sb-row-main">
+                <b>在这张地图上打造新文明</b>
+              </span>
+              <span className="sb-row-side">已有 {mates} 个</span>
               <Icon name="chevron" size={14} className="sb-chev" />
             </button>
           )}

@@ -105,6 +105,7 @@ import {
   faithKey,
   keySeats,
   namesWithoutAi,
+  newHistoryEdits,
   placeKeyOf,
   polityKey,
   regionKey,
@@ -180,6 +181,8 @@ import {
   renameWorld,
   sameOrigin,
   saveAsNewVersion,
+  saveCurrentAsMap,
+  setMapThumbMaker,
   setReopenHandler,
   setThumbMaker,
   setWorldStats,
@@ -192,6 +195,7 @@ import {
   type WorldKind,
 } from './saveStore';
 import { getStage, setStage, useStage, type DraftBase, type Stage } from './stageStore';
+import { setNewCivHandler, setOpenWorldHandler } from './newCivAction';
 import { polityAlive } from '../gen/civ/growth';
 import { CIV_SHOW_OFF, drawCivOverlay } from '../render/civ/overlay';
 import { getPolityPick, interventionActorThen, interventionDoneText, setPickHover, setPolityPick, usePolityPick } from './Interventions';
@@ -212,7 +216,8 @@ import { getPanel, setSheet, setWorldSheet, usePanel } from './panelStore';
 import { closeOverview, getPeople, setPeople, useOverview } from './overviewStore';
 import { STUDIO_STYLES, Studio } from './studio/Studio';
 import { setFlatGeomSource, useStudioFlat } from './studio/studioStore';
-import { MyWorlds } from './MyWorlds';
+import { MyWorlds, showMapInWorlds } from './MyWorlds';
+import { mapBriefOf } from './mapGroups';
 import { useCoarse, useNarrow } from './device';
 import { isDoubleTap, pinchStep, type Pt, type Tap } from './gestures';
 import { createPinchGuard, createWheelReader, inGesturePinch, setGesturePinch, wheelSample } from './wheel';
@@ -395,10 +400,16 @@ interface Target {
   origin?: SaveOrigin | null;
   /** 新建时选的照手绘图生成(还没照图长出星球时靠它认;存下以后看草图里有没有那张图) */
   mode?: 'image';
+  /**
+   * 在旧版本建的世界的地图上打造文明:那个世界存的地形校验。生成出来的地图和它对不上(现在的版本算出来不一样了)就不让打造
+   */
+  mapCheck?: string;
 }
 
 /** 新建中的世界是哪一种:照手绘图(选的就是它,或者草图里有照着长的图;旧的没建完的世界也这样认)/ 随机 */
 function draftModeOf(t: Target | null): NewWorldMode {
+  // 在一张地图上打造文明(地图锁着):不管地图是不是照手绘图长的,都是「打造文明」那一页
+  if (t?.edits.map) return 'random';
   return t && (t.mode === 'image' || !!t.edits.sketch?.image) ? 'image' : 'random';
 }
 
@@ -409,7 +420,9 @@ function randomSeedValue(): number {
 
 /** 新建中的世界现在的样子(参数、修改、名字),比较动没动过用 */
 function draftSig(params: WorldParams, edits: WorldEdits, title?: string): string {
-  return JSON.stringify([worldKey(params), edits, title ?? '']);
+  // 地图的校验值是生成完自动记上的,不算动过
+  const e = edits.map?.sum === undefined ? edits : { ...edits, map: { ...edits.map, sum: undefined } };
+  return JSON.stringify([worldKey(params), e, title ?? '']);
 }
 
 /** 新建时只定了推演年数(3000 = 什么都没有)、拓荒(默认 = 什么都没有)的修改 */
@@ -505,6 +518,11 @@ function firstRoute(init: ReturnType<typeof readUrl>): { stage: Stage; target: T
   if (init.share) return { stage: 'world', target: visitTarget(init.params) };
   const w = q.get('w');
   const stored = isWorldId(w) ? loadWorld(w) : null;
+  // 只存了地图的:不当世界打开,回到我的世界的「地图」页签、选中它
+  if (stored?.map) {
+    showMapInWorlds(stored.id);
+    return { stage: 'home', target: null };
+  }
   if (stored) return { stage: stored.draft ? 'draft' : 'world', target: storedTarget(stored, 'restore') };
   const was: unknown = history.state;
   if (isWorldId(w) && isNavState(was) && was.page !== 'home' && was.id === w) return { stage: 'home', target: null, gone: was.title ?? '' };
@@ -634,12 +652,15 @@ const setupOpt = (s: CivSetup | undefined) => ({
   ...(s?.origins ? { origins: s.origins } : {}),
   ...(s?.civSeed !== undefined ? { civSeed: s.civSeed } : {}),
 });
-/** 这一步带的拓荒、起源、文明种子:和推演年数一样,新建界面里只看星球、一律按默认推;创建以后按世界自己的 */
+/**
+ * 这一步带的拓荒、起源、文明种子:拓荒、起源和推演年数一样,新建界面里只看星球、一律按默认推,创建以后按世界自己的;
+ * 文明种子新建界面里就带着(星球上的地名、选起源时的州名照它长)
+ */
 function setupFor(draft: boolean, edits: Pick<WorldEdits, 'frontier' | 'origins' | 'civSeed'>): CivSetup | undefined {
-  if (draft) return undefined;
+  const civSeed = cleanCivSeed(edits.civSeed);
+  if (draft) return civSeed !== undefined ? { civSeed } : undefined;
   const frontier = cleanFrontier(edits.frontier);
   const origins = cleanOrigins(edits.origins);
-  const civSeed = cleanCivSeed(edits.civSeed);
   return frontier || origins || civSeed !== undefined ? { ...(frontier ? { frontier } : {}), ...(origins ? { origins } : {}), ...(civSeed !== undefined ? { civSeed } : {}) } : undefined;
 }
 const sameSetup = (a: CivSetup | undefined, b: CivSetup | undefined) => sameFrontier(a?.frontier, b?.frontier) && sameOrigins(a?.origins, b?.origins) && a?.civSeed === b?.civSeed;
@@ -1550,8 +1571,8 @@ export function App() {
     // 推演年数:新建中的世界一律先推 3000 年(不因为调了年数重推);创建以后按世界自己的年数,和推好的不一样就接着推
     const endYear = draft ? civYears.current : cleanEndYear(edits.endYear);
     const sameYears = fresh.current || endYear === civYears.current;
-    // 拓荒、起源:同推演年数,新建中的世界一律按默认推;创建以后按世界自己的,整段历史从第 0 年重推
-    const setup = draft ? civSetup.current : setupFor(false, edits);
+    // 拓荒、起源:同推演年数,新建中的世界一律按默认推;创建以后按世界自己的,整段历史从第 0 年重推(文明种子新建中就照它推)
+    const setup = setupFor(draft, edits);
     const sameSet = fresh.current || sameSetup(setup, civSetup.current);
     if (!baseData || !genParams.current || (sameInterventions(list, civEdits.current) && sameUpheavals(ups, civUps.current) && sameNames && sameYears && sameSet)) return;
     if (!sameTerrain(getEdits().terrain, genTerrain.current) || !sameSketch(getEdits().sketch, genSketch.current)) return; // 等改地形那次生成一起推
@@ -1717,7 +1738,28 @@ export function App() {
       cv.width = cv.height = 0;
       return url;
     });
-    return () => setThumbMaker(null);
+    // 地图缩略图(我的世界的「地图」页签):实景、第 0 年的地形(地形大事以前),不带国界和地名
+    setMapThumbMaker((id) => {
+      const t = targetRef.current;
+      const b = baseRef.current;
+      if (!b || fresh.current || regenRef.current || !t || t.id !== id) return null;
+      const base = baseCanvas('realistic', b);
+      if (!base) return null;
+      const cv = document.createElement('canvas');
+      cv.width = THUMB_W;
+      cv.height = THUMB_H;
+      const x = cv.getContext('2d');
+      if (!x) return null;
+      x.imageSmoothingQuality = 'high';
+      x.drawImage(base, 0, 0, cv.width, cv.height);
+      const url = cv.toDataURL('image/jpeg', 0.8);
+      cv.width = cv.height = 0;
+      return url;
+    });
+    return () => {
+      setThumbMaker(null);
+      setMapThumbMaker(null);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   // 推演完(重推历史以后也是):结束那一年现存几国记下来,我的世界的卡片上写
@@ -1759,6 +1801,13 @@ export function App() {
     // 照原样打开的旧世界:存档照旧记建它的那一版
     const frozen = frozenLoad.current?.id === t.id ? frozenLoad.current.gen : undefined;
     frozenLoad.current = null;
+    // 在旧版本建的世界的地图上打造文明:现在算出来的地图和它不一样,不让打造(这一份还没存,回到我的世界)
+    if (t.kind === 'draft' && t.mapCheck && t.mapCheck !== check) {
+      targetRef.current = null;
+      showHomeRef.current();
+      notify({ kind: 'error', text: '没法在这张地图上打造文明', more: ['这个世界是旧版本做的，地图现在算出来不一样了，没法新开'] });
+      return;
+    }
     attachWorld({ id: t.id, params: world.params, check, kind: t.kind, title: t.title, saved: t.saved ?? edits, view: t.view ?? undefined, pristine: t.pristine, base: t.base, origin: t.origin, original, frozen });
     if (t.kind !== 'draft') setWorldStats(aliveAtEnd(rc));
     const save = t.save;
@@ -1799,7 +1848,8 @@ export function App() {
     if (cw) more.push(cw);
     const lost = Object.keys(edits.names).filter((k) => !resolveKey(rc, k)).length;
     if (lost) more.push(`${lost} 处改名没对上,先保留`);
-    const n = editCount(save.edits);
+    // 文明种子是打造文明时定的,不算"修改"
+    const n = editCount(save.edits) - (cleanCivSeed(save.edits.civSeed) !== undefined ? 1 : 0);
     const name = save.title || `种子 ${world.params.seed}`;
     // 没建完的世界接着建:不用提示
     if (t.kind === 'draft') return more.length ? say({ kind: 'warn', text: `已打开「${name}」`, more }) : undefined;
@@ -1919,6 +1969,12 @@ export function App() {
   const openStored = (id: string) => {
     const w = loadWorld(id);
     if (!w) return notify({ kind: 'error', text: '打不开这个存档', more: ['可能已在别的页面里删掉了'] });
+    // 只存了地图的:不当世界打开,在我的世界的「地图」页签里选中它
+    if (w.map) {
+      showMapInWorlds(id);
+      if (getStage().stage !== 'home') showHome();
+      return;
+    }
     navTo({ page: w.draft ? 'draft' : 'world', id, seed: w.draft ? w.save.params.seed : undefined, title: w.save.title });
     // 下面一直开着的就是它、存的和开着的一样(没在别的页面里改过):不用重新打开
     const cur = currentWorld();
@@ -2032,7 +2088,8 @@ export function App() {
   /** 新建中换种子:另一颗星球,草图留着(连同放的火山湖河);没画草图时放的那几处作废;没起名、参数也是默认的、没画草图 = 又算没动过(不存) */
   const draftSeed = (seed: number, params?: WorldParams) => {
     const t = draftNow();
-    if (!t || t.base) return;
+    // 以别的世界为底稿、在一张地图上打造文明:种子锁着
+    if (!t || t.base || t.edits.map) return;
     const st = draftState(t);
     // 按后退 / 前进换回的那颗:参数也换回那一步的(params)
     const base = params ?? t.params;
@@ -2072,7 +2129,8 @@ export function App() {
   /** 新建中调参数:改过的地形留着(按新参数重新生成) */
   const draftParams = (p: WorldParams) => {
     const t = draftNow();
-    if (!t) return;
+    // 在一张地图上打造文明:地图锁着
+    if (!t || t.edits.map) return;
     const st = draftState(t);
     generate({ ...t, params: { ...p, seed: t.base ? t.params.seed : p.seed }, edits: st.edits, saved: undefined, title: st.title, pristine: false, view: undefined, from: undefined, save: undefined });
   };
@@ -2138,13 +2196,56 @@ export function App() {
     const t = targetRef.current;
     const cur = currentWorld();
     if (!t || !cur || cur.id !== t.id || fresh.current) return;
-    const e = getEdits();
+    // 以它为底稿新建的地图还能改:不再算原来那张地图上的(地图记录不带;文明种子照旧带过去)
+    const orig = getEdits();
+    const e: WorldEdits = { ...orig };
+    delete e.map;
     const base: DraftBase = { id: cur.id, title: cur.title || '未命名世界', names: Object.keys(e.names).length, interventions: e.interventions.length };
-    backRef.current = { ...t, kind: cur.kind, edits: e, saved: undefined, title: cur.title, from: undefined, save: undefined, view: undefined };
+    backRef.current = { ...t, kind: cur.kind, edits: orig, saved: undefined, title: cur.title, from: undefined, save: undefined, view: undefined };
     const d = draftTarget(t.params, base, e, nextTitle(base.title));
     derivedRef.current = { id: d.id, sig: draftSig(d.params, d.edits, d.title) };
     openTarget({ ...d, pristine: false, view: undefined });
   };
+  /** 新建第 1 步点了「保存地图」:只存地图(没有文明),回到我的世界的「地图」页签、选中它。存下了 = true */
+  const saveMap = (): boolean => {
+    const t = draftNow();
+    const cur = currentWorld();
+    if (!t || !cur || cur.id !== t.id || fresh.current || regenRef.current) return false;
+    if (!saveCurrentAsMap()) {
+      notify({ kind: 'error', text: '没能保存地图', more: [persistent() ? storageFullWhy() : '浏览器不让网页存数据'] });
+      return false;
+    }
+    showMapInWorlds(t.id);
+    showHome();
+    return true;
+  };
+  /**
+   * 在一个世界(或只存了地图的那一份)的地图上打造新文明:进新建界面的「打造文明」(地图锁着,定文明种子、推演年数、拓荒、起源、
+   * 名字、地名风格)。用的是它一开始的地图(参数、地形修改、草图;不带地形大事),原来的国家、人物、干预、改名……都不带;原来的不动。
+   * 文明种子先随机给一个;名字先填"原名(二)"。旧版本建的世界:生成出来的地图和它存的对不上就不让打造(见 readyRef)
+   */
+  const startNewCiv = (id: string) => {
+    const w = loadWorld(id);
+    if (!w || w.draft) return notify({ kind: 'error', text: '打不开这张地图', more: ['可能已在别的页面里删掉了'] });
+    const edits = newHistoryEdits(w.save.edits, { civSeed: randomSeedValue(), from: id, sum: w.save.edits.map?.sum });
+    const title = w.map ? undefined : nextTitle(w.save.title || '未命名世界');
+    const mapCheck = w.save.generator < GENERATOR_VERSION && w.save.check ? w.save.check : undefined;
+    setNewDlg(null);
+    // 一开始就存成没建完的(刷新、后退再前进都回得来;地图出自哪个世界、文明种子都在存档里),底稿出处跟着;什么都没动就返回,这一份删掉
+    const d = draftTarget(w.save.params, null, edits, title);
+    derivedRef.current = { id: d.id, sig: draftSig(d.params, d.edits, d.title) };
+    openTarget({ ...d, pristine: false, origin: w.save.origin ?? null, mapCheck });
+  };
+  const startNewCivRef = useRef(startNewCiv);
+  startNewCivRef.current = startNewCiv;
+  useEffect(() => {
+    setNewCivHandler((id) => startNewCivRef.current(id));
+    setOpenWorldHandler((id) => openStoredRef.current(id));
+    return () => {
+      setNewCivHandler(null);
+      setOpenWorldHandler(null);
+    };
+  }, []);
   /** 以别的世界为底稿新建时,那个世界(没存过的也回得去) */
   const backRef = useRef<Target | null>(null);
   /** 以别的世界为底稿新建的那一份:编号和一开始的样子(返回时没动过就删掉) */
@@ -2242,7 +2343,16 @@ export function App() {
         },
       };
     }
-    return { label: '我的世界', onClick: () => navBack({ page: 'home' }) || goHome() };
+    return {
+      label: '我的世界',
+      onClick: () => {
+        if (navBack({ page: 'home' })) return;
+        // 在一张地图上打造、什么都没动就返回:那一份删掉(后退的话 routeNav 删)
+        const left = derivedUntouched();
+        if (left) deleteWorld(left);
+        goHome();
+      },
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft, stageBase, v]);
   // ---- 浏览器的后退、前进(nav.ts):换到记着的那一步 ----
@@ -4194,6 +4304,16 @@ export function App() {
   const studioThumbs = { ...thumbs, realistic: thumbs[satThumb] };
   const studioRequest = (ids: MapLayer[]) => requestThumbs(ids.map((id): ThumbId => (id === 'realistic' ? satThumb : id)));
   const studioBase = (key: string) => baseCanvas(key === 'realistic' ? baseKeyOf('realistic', layer, satLook) : key);
+  // 在一张地图上打造文明:用的是哪个世界的地图(它的名字;只存了地图的、那个世界已经删掉了 = null)
+  // (看要打开的那一个:还在生成时套着的修改还是上一个世界的)
+  const draftMap = draft ? targetRef.current?.edits.map : undefined;
+  const draftMapFrom = useMemo(() => {
+    if (!draftMap) return undefined;
+    const w = draftMap.from ? loadWorld(draftMap.from) : null;
+    const t = targetRef.current!;
+    return { title: (w && !w.map && w.save.title) || null, brief: `种子 ${t.params.seed}，${mapBriefOf(t.params, t.edits)}` };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftMap, v]);
   const studio = (draft || studioOut > 0) && (
     <Studio
       phone={narrow}
@@ -4207,6 +4327,8 @@ export function App() {
       onParams={draftParams}
       onTitle={draftRename}
       onCreate={studioCreate}
+      onSaveMap={saveMap}
+      mapFrom={draftMapFrom}
       // 以它为底稿新建、调过参数:带过来的干预要等重推完(不然创建时截的缩略图、放的历史是没干预的)
       busy={!!progress || !!resim}
       ready={!!data && !progress}
@@ -4376,7 +4498,7 @@ export function App() {
             }}
           />
         ) : (
-          <MyWorlds phone={narrow} onOpen={openStored} onNew={startDraft} onOpenText={openText} />
+          <MyWorlds phone={narrow} onOpen={openStored} onNew={startDraft} onOpenText={openText} onNewCiv={startNewCiv} />
         )
       ) : narrow ? (
         <>

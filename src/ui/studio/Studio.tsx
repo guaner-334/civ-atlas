@@ -1,7 +1,14 @@
 /**
  * 新建世界(和平常的地图页面分开的一套深色界面)。两种,在「新建世界」弹窗里选(NewWorldDialog.tsx),进来以后不能换成另一种:
  *
- * 随机生成(mode = 'random')
+ * 随机生成(mode = 'random')。分两步(左上标着「① 地图 ② 文明」):
+ *   第 1 步  地图:种子 + 换一颗、世界参数;地形(改地形工具、让助手改)。底部「保存地图」(只存地图,回我的世界的「地图」页签)
+ *            和「打造文明 ›」(到第 2 步;手机上是「地图做好了，下一步」)
+ *   第 2 步  文明:地图定下(左上「‹ 改地图」回第 1 步);文明种子 + 换一个(默认就是地图种子)、推演年数、拓荒、文明起源;
+ *            名字(世界名、地名风格);底部「开始推演」。手机上卡片里先是文明种子、推演年数和「更多设定」(拓荒、起源、地名),名字框
+ *   打造文明 在已有的一张地图上(App 的 startNewCiv;修改里记着 map):只有第 2 步,标题「打造文明」,最上面一组「地图」锁着
+ *            (哪个世界一开始的地图),文明种子先随机给一个,底下写明原来那个世界的东西都不带
+ *   以别的世界为底稿新建(base):还是一页(种子锁着,世界参数里连拓荒、推演年数),底部「创建新世界」
  *   中间     这颗星球(StudioScene + PlanetGL):进来就是地球仪、自转;拖动转动。改地形时摊成平面,换成平常的平面地图和改地形覆盖层
  *            (App 按 studioStore 的 flat 摆地图)
  *   左边     设定(电脑贴着窗口左边、能收起;手机是底部卡片,平时只露种子和「创建世界」):
@@ -33,9 +40,9 @@ import { DEFAULT_PARAMS } from '../../gen/world';
 import type { Civ } from '../../gen/civ/types';
 import type { Raster } from '../../gen/raster';
 import { TITLE_MAX, worldKey } from '../../gen/savefile';
-import { END_YEAR_DEFAULT, cleanEndYear } from '../../gen/edits';
+import { END_YEAR_DEFAULT, cleanCivSeed, cleanEndYear } from '../../gen/edits';
 import type { DraftBase } from '../stageStore';
-import { getEdits, setEndYear, setFrontier, setOrigins, useEdits } from '../editsStore';
+import { getEdits, setCivSeed, setEndYear, setFrontier, setOrigins, useEdits } from '../editsStore';
 import { cleanOrigins, frontierBrief, terrainChangedCount, terrainValue, type Origins } from '../../gen/civ/frontier';
 import { EXPAND_SLIDER, SPREAD_SLIDER, TERRAIN_SLIDERS, withSpeed, withTerrain, withoutTerrain } from '../frontierUi';
 import { OriginsPage } from './OriginsPage';
@@ -174,6 +181,10 @@ export interface StudioProps {
   onTitle: (title: string) => void;
   /** 确认创建:名字、正中的经度(度,平常的地图从这里接着看);true = 建好了 */
   onCreate: (title: string, lon: number) => boolean;
+  /** 第 1 步「保存地图」:只存地图、回我的世界;存下了 = true */
+  onSaveMap: () => boolean;
+  /** 在一张地图上打造文明(地图锁着):那张地图是哪个世界的(名字;只存了地图的、那个世界删掉了 = null)、一句简介;新建世界 = undefined */
+  mapFrom?: { title: string | null; brief: string };
   /** 正在生成(换了种子、调了参数、改了地形):创建不了 */
   busy: boolean;
   /** 世界出来了(不在生成) */
@@ -283,6 +294,16 @@ export function Studio(p: StudioProps) {
   const [glOk, setGlOk] = useState<boolean | null>(null);
   const [tip, setTip] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
+  /** 在一张地图上打造文明:地图锁着,只有定文明这一步 */
+  const locked = !image && !!p.mapFrom;
+  /** 新建世界分两步(以别的世界为底稿的还是一页) */
+  const twoStep = !image && !p.base && !locked;
+  /** 两步里到了第 2 步「文明」 */
+  const [civStep, setCivStep] = useState(false);
+  const step2 = locked || (twoStep && civStep);
+  /** 第 2 步里推演年数、拓荒展开着没有 */
+  const [yearsOpen, setYearsOpen] = useState(false);
+  const [frontierOpen, setFrontierOpen] = useState(false);
   /** 一进来用的投影:设过「新建时的默认」就照它(照手绘图的照旧是地球仪) */
   const startProj = useRef<PlanetProjection>((!image && getNewView()?.proj) || 'globe');
   const [proj, setProj] = useState<PlanetProjection>(startProj.current);
@@ -940,12 +961,20 @@ export function Studio(p: StudioProps) {
     if (n > 0 && n !== p.params.seed) p.onSeed(n);
     else setSeedText(String(p.params.seed));
   };
-  const intro0 = base
-    ? `设定都带过来了，改完存成一个新世界，${base.title}本身不变。`
-    : image
-      ? '海和陆地照你的图长，山、河、气候由程序补上。'
-      : `按种子随机生成。先定下这颗星球的样子，创建以后再推演它${yearsSpan(endYear, true)}的历史。`;
-  const isDefault = (Object.keys(DEFAULT_PARAMS) as (keyof WorldParams)[]).every((k) => k === 'seed' || p.params[k] === DEFAULT_PARAMS[k]) && !edits.frontier;
+  /** 打造文明:地图是哪个世界的 */
+  const srcName = p.mapFrom?.title ?? null;
+  const intro0 = locked
+    ? srcName
+      ? `用「${srcName}」一开始的地图，从第 0 年推演出一个新的文明。「${srcName}」本身不动。`
+      : '用这张地图，从第 0 年推演出一个新的文明。地图本身不动。'
+    : base
+      ? `设定都带过来了，改完存成一个新世界，${base.title}本身不变。`
+      : image
+        ? '海和陆地照你的图长，山、河、气候由程序补上。'
+        : civStep
+          ? '地图定下了。接下来定文明怎么推演，点「开始推演」从第 0 年推起。'
+          : '按种子随机生成。地图做好了，可以先保存，也可以接着打造文明。';
+  const isDefault = (Object.keys(DEFAULT_PARAMS) as (keyof WorldParams)[]).every((k) => k === 'seed' || p.params[k] === DEFAULT_PARAMS[k]) && (twoStep || !edits.frontier);
   const presets = usePresets();
   /** 和所选预设不一样的几样(数字用主色写) */
   const changed = changedKeys(presets, presets.chosen, p.params);
@@ -1083,7 +1112,8 @@ export function Studio(p: StudioProps) {
               data-act="params-reset"
               onClick={(e) => {
                 e.stopPropagation();
-                setFrontier(undefined);
+                // 分两步的新建:拓荒是第 2 步「文明」里的,这里不动它
+                if (!twoStep) setFrontier(undefined);
                 p.onParams({ ...DEFAULT_PARAMS, seed: p.params.seed });
               }}
             >
@@ -1112,9 +1142,14 @@ export function Studio(p: StudioProps) {
           {SLIDERS.slice(3, 5).map(slider)}
           <div className="nw-sub">精细度</div>
           {SLIDERS.slice(5).map(slider)}
-          <div className="nw-sub">拓荒</div>
-          {frontierRows}
-          <YearsRows />
+          {/* 分两步的新建:拓荒、推演年数在第 2 步「文明」里 */}
+          {!twoStep && (
+            <>
+              <div className="nw-sub">拓荒</div>
+              {frontierRows}
+              <YearsRows />
+            </>
+          )}
         </div>
       )}
     </>
@@ -1150,6 +1185,111 @@ export function Studio(p: StudioProps) {
       <Icon name="chevron" size={14} className="sb-chev" />
     </button>
   );
+  // ---- 第 2 步「文明」:文明种子、推演年数、拓荒(起源、名字、地名风格和原来一样) ----
+  /** 文明种子:没写 = 跟着地图种子 */
+  const civSeedNow = cleanCivSeed(edits.civSeed) ?? p.params.seed;
+  const [civText, setCivText] = useState(String(civSeedNow));
+  useEffect(() => setCivText(String(civSeedNow)), [civSeedNow]);
+  const [civBad, setCivBad] = useState(false);
+  /** 定文明种子:新建世界里和地图种子一样就不写(跟着地图种子);打造文明的一直写着 */
+  const putCivSeed = (n: number) => setCivSeed(!locked && n === p.params.seed ? undefined : n);
+  const commitCiv = () => {
+    const n = Math.floor(Number(civText));
+    if (n > 0 && n !== civSeedNow) putCivSeed(n);
+    else setCivText(String(civSeedNow));
+  };
+  const civSeedRow = (
+    <div className="sb-row nw-seed nw-civ-seed">
+      <span className="sb-row-main">
+        <b>文明种子</b>
+        {civBad && <small className="nw-seed-bad">只能填数字</small>}
+      </span>
+      <span className="nw-seed-ctl">
+        <input
+          className="nw-field nw-seed-input"
+          aria-label="文明种子"
+          data-act="civ-seed"
+          value={civText}
+          inputMode="numeric"
+          disabled={!p.ready}
+          onChange={(e) => {
+            const v = e.target.value;
+            const d = v.replace(/\D/g, '');
+            setCivBad(d !== v);
+            setCivText(d.slice(0, 9));
+          }}
+          onKeyDown={(e) => e.key === 'Enter' && (e.currentTarget as HTMLInputElement).blur()}
+          onBlur={() => {
+            setCivBad(false);
+            commitCiv();
+          }}
+        />
+        <button className="nw-btn tint" data-act="new-civ-seed" disabled={!p.ready} onClick={() => putCivSeed(Math.floor(Math.random() * 999999) + 1)} title="随机换一个文明种子">
+          <Icon name="dice" size={16} />
+          换一个
+        </button>
+      </span>
+    </div>
+  );
+  const yearsRow = (
+    <>
+      <button className={`sb-row nw-params${yearsOpen ? ' open' : ''}`} data-act="years" aria-expanded={yearsOpen} disabled={!p.ready} onClick={() => setYearsOpen((o) => !o)}>
+        <Icon name="history" size={ico} className="sb-ico" />
+        <span className="sb-row-main">
+          <b>推演年数</b>
+        </span>
+        {!yearsOpen && <span className="sb-row-side">{endYear} 年</span>}
+        <Icon name={yearsOpen ? 'down' : 'chevron'} size={14} className="sb-chev" />
+      </button>
+      {yearsOpen && (
+        <div className="nw-sliders">
+          <YearsRows />
+        </div>
+      )}
+    </>
+  );
+  const frontierRow = (
+    <>
+      <button className={`sb-row nw-params${frontierOpen ? ' open' : ''}`} data-act="frontier" aria-expanded={frontierOpen} disabled={!p.ready} onClick={() => setFrontierOpen((o) => !o)}>
+        <Icon name="sketch" size={ico} className="sb-ico" />
+        <span className="sb-row-main">
+          <b>拓荒</b>
+        </span>
+        {frontierOpen ? (
+          frontier && (
+            <span
+              className="sb-link"
+              role="button"
+              data-act="frontier-reset"
+              onClick={(e) => {
+                e.stopPropagation();
+                setFrontier(undefined);
+              }}
+            >
+              恢复默认
+            </span>
+          )
+        ) : (
+          <span className="sb-row-side">{frontier ? frontierBrief(frontier) : '默认'}</span>
+        )}
+        <Icon name={frontierOpen ? 'down' : 'chevron'} size={14} className="sb-chev" />
+      </button>
+      {frontierOpen && <div className="nw-sliders">{frontierRows}</div>}
+    </>
+  );
+  /** 打造文明:最上面锁着的那张地图 */
+  const mapRow = locked && (
+    <div className="sb-row static nw-map-row" data-act="map-locked">
+      <Icon name="map" size={ico} className="sb-ico" />
+      <span className="sb-row-main">
+        <b>{srcName ? `${srcName}一开始的地图` : '这张地图'}</b>
+        {!p.phone && <small>{p.mapFrom!.brief}</small>}
+      </span>
+      {p.phone && <Icon name="lock" size={15} className="nw-lock" />}
+    </div>
+  );
+  const civNote = <div className="nw-note">文明种子决定民族、国家和名字怎么长出来。同一张地图换一个文明种子，就是另一个文明。</div>;
+  const leftNote = locked && srcName && <div className="nw-note">{srcName}里的国家、人物、你的干预、标记、改过的名字和地形大事都不带过来。</div>;
   const noCivHint = p.noCiv && <div className="nw-note warn">{image ? '这颗星球长不出文明，多画些陆地试试' : '这颗星球长不出文明，换一颗或调大陆地比例'}</div>;
   const baseRows = base && (
     <>
@@ -1200,12 +1340,56 @@ export function Studio(p: StudioProps) {
       </PopMenu>
     </div>
   );
-  const heading = base ? `以${base.title}为底稿新建` : image ? '照手绘图新建' : '新建世界';
-  const backLink = p.back && (
-    <button className="nw-back" data-act="back" onClick={p.back.onClick}>
-      <Icon name="back" size={18} />
-      {p.back.label}
-    </button>
+  const heading = locked ? '打造文明' : base ? `以${base.title}为底稿新建` : image ? '照手绘图新建' : '新建世界';
+  /** 第 1 步 → 第 2 步:改地形、助手、地名风格和起源那两页都收起;星球底下换一句提示 */
+  const toCiv = () => {
+    setDrawer(null);
+    setSeenOpen(null);
+    if (tool.on) setTerrainTool({ on: false });
+    closeAssistant();
+    setNamesPage(false);
+    closeOrigins();
+    setSheetFull(false);
+    setCivStep(true);
+    setTip(true);
+  };
+  const toMap = () => {
+    setDrawer(null);
+    setNamesPage(false);
+    closeOrigins();
+    setSheetFull(false);
+    setYearsOpen(false);
+    setFrontierOpen(false);
+    setCivStep(false);
+    setTip(false);
+  };
+  const backLink =
+    twoStep && civStep ? (
+      <button className="nw-back" data-act="back-to-map" onClick={toMap}>
+        <Icon name="back" size={18} />
+        改地图
+      </button>
+    ) : (
+      p.back && (
+        <button className="nw-back" data-act="back" onClick={p.back.onClick}>
+          <Icon name="back" size={18} />
+          {p.back.label}
+        </button>
+      )
+    );
+  /** 两步:「① 地图 —— ② 文明」,现在这一步蓝色,做完的打勾 */
+  const stepper = twoStep && (
+    <div className="st-steps" aria-label={civStep ? '第 2 步，共 2 步' : '第 1 步，共 2 步'}>
+      <span className={`st-st${civStep ? ' ok' : ' on'}`} data-step="map">
+        <i>{civStep ? <Icon name="check" size={11} /> : '1'}</i>
+        地图
+      </span>
+      <span className="st-bar" aria-hidden="true" />
+      <span className={`st-st${civStep ? ' on' : ''}`} data-step="civ">
+        <i>2</i>
+        文明
+      </span>
+    </div>
   );
   const nameField = (
     <input
@@ -1232,9 +1416,21 @@ export function Studio(p: StudioProps) {
   );
   const createBtn = (
     <button className="nw-create" data-act="create-world" disabled={p.busy || !p.ready || out > 0 || importing || (image && !applied)} onClick={askCreate}>
-      {base ? '创建新世界' : '创建世界'}
+      {base ? '创建新世界' : step2 ? '开始推演' : '创建世界'}
     </button>
   );
+  /** 第 1 步底部:「保存地图」「打造文明 ›」 */
+  const mapBtns = (
+    <div className="st-foot-2">
+      <button className="nw-create alt" data-act="save-map" disabled={p.busy || !p.ready || out > 0} onClick={() => p.onSaveMap()}>
+        保存地图
+      </button>
+      <button className="nw-create" data-act="to-civ" disabled={p.busy || !p.ready || out > 0} onClick={toCiv}>
+        {p.phone ? '地图做好了，下一步' : '打造文明 ›'}
+      </button>
+    </div>
+  );
+  const footBtn = twoStep && !civStep ? mapBtns : createBtn;
   const mixShown = namesPage && !tool.on && !peek;
   /** 文明起源按第 0 年的州看(有地形大事时是大事以前的,见 origins.ts 的 originCiv) */
   const ogRaw = p.civ ?? p.raw;
@@ -1325,8 +1521,65 @@ export function Studio(p: StudioProps) {
     </>
   );
 
+  /** 第 2 步「文明」(打造文明的最上面多一组锁着的「地图」);compact = 手机卡片没拉开时 */
+  const civSettings = (compact: boolean) => (
+    <>
+      {locked && !p.phone && (
+        <section className="sb-sec">
+          <div className="sb-sec-head">
+            <span>地图</span>
+            <small className="nw-locked">
+              <Icon name="lock" size={13} />
+              沿用，不能改
+            </small>
+          </div>
+          <div className="sb-group">{mapRow}</div>
+        </section>
+      )}
+      <section className="sb-sec">
+        {!p.phone && (
+          <div className="sb-sec-head">
+            <span>文明</span>
+          </div>
+        )}
+        <div className="sb-group">
+          {p.phone && mapRow}
+          {civSeedRow}
+          {yearsRow}
+          {compact ? (
+            <button className="sb-row" data-act="civ-more" onClick={() => setSheetFull(true)}>
+              <span className="sb-row-main">
+                <b>更多设定</b>
+              </span>
+              <span className="sb-row-side">拓荒、起源、地名</span>
+              <Icon name="chevron" size={14} className="sb-chev" />
+            </button>
+          ) : (
+            <>
+              {frontierRow}
+              {originsRow}
+            </>
+          )}
+        </div>
+        {!p.phone && civNote}
+        {noCivHint}
+      </section>
+      <section className="sb-sec">
+        {!p.phone && (
+          <div className="sb-sec-head">
+            <span>名字</span>
+          </div>
+        )}
+        {nameField}
+        {!compact && <div className="sb-group">{mixRow}</div>}
+        {leftNote}
+      </section>
+    </>
+  );
   const settings = tool.on ? (
     <TerrainPanel disabled={p.busy} phone={p.phone} />
+  ) : step2 ? (
+    civSettings(p.phone && !sheetFull)
   ) : (
     <>
       <section className="sb-sec">
@@ -1353,7 +1606,7 @@ export function Studio(p: StudioProps) {
           </div>
         </section>
       )}
-      {!peek && (
+      {!peek && !twoStep && (
         <section className="sb-sec">
           <div className="sb-sec-head">
             <span>文明</span>
@@ -1363,7 +1616,7 @@ export function Studio(p: StudioProps) {
         </section>
       )}
       {!peek && carriedSec}
-      {!peek && (
+      {!peek && !twoStep && (
         <section className="sb-sec">
           <div className="sb-sec-head">
             <span>名字</span>
@@ -1413,8 +1666,17 @@ export function Studio(p: StudioProps) {
       </section>
     );
   } else if (p.phone) {
+    // 第 2 步「文明」:卡片没拉开时也是一整组(文明种子、推演年数、更多设定、名字),不是只露一行
+    const civPeek = step2 && !sheetFull;
     left = (
-      <section ref={sheetRef} className={`st-sheet nw-sheet nw-card${peek ? ' peek' : ''}${tool.on ? ' tools' : ''}`} aria-label="新建世界" onPointerDown={stop} onClick={stop} onWheel={stop}>
+      <section
+        ref={sheetRef}
+        className={`st-sheet nw-sheet nw-card${peek && !step2 ? ' peek' : ''}${civPeek ? ' civ-peek' : ''}${tool.on ? ' tools' : ''}`}
+        aria-label={heading}
+        onPointerDown={stop}
+        onClick={stop}
+        onWheel={stop}
+      >
         {grip}
         <div className={`st-in nw-body${pageShown ? ' nm-page' : ''}${ogShown ? ' og-page' : ''}`}>
           {mixPage || (
@@ -1423,15 +1685,16 @@ export function Studio(p: StudioProps) {
               {!tool.on && (
                 <div className="nw-title-row">
                   <div className="nw-title">{heading}</div>
-                  {moreMenu}
+                  {!step2 && moreMenu}
                 </div>
               )}
-              {!peek && !tool.on && <div className="nw-intro">{intro0}</div>}
+              {!peek && !tool.on && !civPeek && stepper}
+              {(!peek || step2) && !tool.on && <div className="nw-intro">{intro0}</div>}
               {settings}
             </>
           )}
         </div>
-        {!tool.on && !ogShown && <footer className="st-foot">{createBtn}</footer>}
+        {!tool.on && !ogShown && <footer className="st-foot">{footBtn}</footer>}
       </section>
     );
   } else {
@@ -1450,12 +1713,13 @@ export function Studio(p: StudioProps) {
                 <div className="nw-title">{heading}</div>
                 {moreMenu}
               </div>
+              {!tool.on && stepper}
               {(image || !tool.on) && <div className="nw-intro">{intro0}</div>}
               {image ? imageSteps : settings}
             </>
           )}
         </div>
-        <footer className="st-foot">{ogShown ? doneBtn : createBtn}</footer>
+        <footer className="st-foot">{ogShown ? doneBtn : footBtn}</footer>
       </aside>
     );
   }
@@ -1726,7 +1990,17 @@ export function Studio(p: StudioProps) {
       )}
       {!image && (
         <div ref={tipRef} className={`st-cap st-tip${tip && !viewSaved && !tool.on && !out && !(p.phone && (drawer || sheetFull)) ? '' : ' off'}`}>
-          {edits.sketch ? '拖动看看这颗星球；「换一颗」会照同一张草图长出新的山河' : '拖动看看这颗星球；不满意就点「换一颗」'}
+          {locked
+            ? srcName
+              ? `这是「${srcName}」一开始的地图；拖动看看，在${p.phone ? '下面' : '左边'}定文明怎么推演`
+              : `这是这张地图；拖动看看，在${p.phone ? '下面' : '左边'}定文明怎么推演`
+            : step2
+              ? p.phone
+                ? '地图定下了；在下面定文明怎么推演'
+                : '地图定下了；在左边定文明怎么推演'
+              : edits.sketch
+                ? '拖动看看这颗星球；「换一颗」会照同一张草图长出新的山河'
+                : '拖动看看这颗星球；不满意就点「换一颗」'}
         </div>
       )}
       {imageCap}
@@ -1738,8 +2012,10 @@ export function Studio(p: StudioProps) {
             <div className="st-dlg-ico">
               <Icon name="lock" size={22} />
             </div>
-            <h2 id="st-dlg-title">{nameNow ? `创建「${nameNow}」？` : '创建这个世界？'}</h2>
-            <p>创建以后，这颗星球的样子就定下来了，下面{LOCK_COUNT[4 + (years ? 1 : 0) + (frontier ? 1 : 0) + (originN ? 1 : 0)]}样不能再改：</p>
+            <h2 id="st-dlg-title">{step2 ? (nameNow ? `开始推演「${nameNow}」？` : '开始推演这个文明？') : nameNow ? `创建「${nameNow}」？` : '创建这个世界？'}</h2>
+            <p>
+              {step2 ? '开始推演以后' : '创建以后，这颗星球的样子就定下来了'}，下面{LOCK_COUNT[4 + (step2 ? 1 : 0) + (years ? 1 : 0) + (frontier ? 1 : 0) + (originN ? 1 : 0)]}样不能再改：
+            </p>
             <div className="sb-group">
               {image ? (
                 <div className="sb-row static">
@@ -1769,6 +2045,17 @@ export function Studio(p: StudioProps) {
                 </span>
                 <span className="sb-row-side">{paramsSide(p.params)}</span>
               </div>
+              {step2 && (
+                <div className="sb-row static">
+                  <Icon name="lock" size={16} className="sb-ico" />
+                  <span className="sb-row-main">
+                    <b>文明种子</b>
+                  </span>
+                  <span className="sb-row-side" data-confirm="civ-seed">
+                    {civSeedNow}
+                  </span>
+                </div>
+              )}
               {years && (
                 <div className="sb-row static">
                   <Icon name="lock" size={16} className="sb-ico" />
@@ -1821,13 +2108,13 @@ export function Studio(p: StudioProps) {
                 </span>
               </div>
             </div>
-            <p className="st-dlg-note">世界名、历史和一个个国名地名，创建以后随时能改。</p>
+            <p className="st-dlg-note">世界名、历史和一个个国名地名，{step2 ? '推演' : '创建'}以后随时能改。</p>
             <div className="st-dlg-btns">
               <button className="st-b2" data-act="confirm-back" onClick={() => setConfirm(false)}>
                 再改改
               </button>
               <button className="st-b1" data-act="confirm-create" autoFocus onClick={() => void doCreate()}>
-                确认创建
+                {step2 ? '开始推演' : '确认创建'}
               </button>
             </div>
           </div>

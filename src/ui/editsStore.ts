@@ -10,7 +10,7 @@
  * 纪年、月份也不记:只换年份的写法,在世界设定里随时改回来。文明种子、用的哪张地图在新开历史时定,之后不改(只在第一次推完时补上地图的校验)。
  */
 import { useSyncExternalStore } from 'react';
-import { EMPTY_EDITS, END_YEAR_DEFAULT, MARKS_MAX, cleanEndYear, MARK_REGIONS_TOTAL, cleanIntervention, cleanMark, markRegionTotal, sameMark, markAiName, nextMarkId, type AuthorMark, type Intervention, type TerrainOp, type Upheaval, type WorldEdits } from '../gen/edits';
+import { EMPTY_EDITS, END_YEAR_DEFAULT, MARKS_MAX, cleanCivSeed, cleanEndYear, MARK_REGIONS_TOTAL, cleanIntervention, cleanMark, markRegionTotal, sameMark, markAiName, nextMarkId, type AuthorMark, type Intervention, type TerrainOp, type Upheaval, type WorldEdits } from '../gen/edits';
 import { TERRAIN_MAX_OPS, UPHEAVALS_MAX, cleanTerrainOp, cleanUpheaval } from '../gen/terrainEdits';
 import { SKETCH_MAX_STROKES, cleanSketch, cleanSketchImage, cleanSketchStroke, encodeLayer, sketchCoast, sketchFill, type SketchEdit, type SketchFill, type SketchStroke } from '../gen/sketch';
 import { PLATE_MAX_OPS, cleanPlateImage, cleanPlateOp, type PlateImage, type PlateOp } from '../gen/plateEdits';
@@ -478,6 +478,20 @@ export function setOrigins(o: Origins | undefined) {
   const { origins: _old, ...rest } = state;
   void _old;
   put(next ? { ...rest, origins: next } : rest);
+}
+
+/** 文明种子(新建世界、打造文明时定,不记撤销步);undefined = 跟着地图种子,去掉这一项 */
+export function setCivSeed(seed: number | undefined) {
+  const next = cleanCivSeed(seed);
+  if (next === state.civSeed) return;
+  const { civSeed: _old, ...rest } = state;
+  void _old;
+  put(next !== undefined ? { ...rest, civSeed: next } : rest);
+}
+
+/** 复制出去的文字抬头写的种子(civSeed = 推演用的种子,即 civ.seed):有自己的文明种子写"文明种子 N",没有的就是地图种子"种子 N" */
+export function seedTag(civSeed: number): string {
+  return cleanCivSeed(state.civSeed) !== undefined ? `文明种子 ${civSeed}` : `种子 ${civSeed}`;
 }
 
 /** 新开的历史第一次推完:补上用的那张地图的校验(只是记录,不记撤销步、不算改历史);不是新开的、已经有了的不动 */

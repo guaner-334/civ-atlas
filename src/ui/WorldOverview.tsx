@@ -25,6 +25,7 @@ import { SettingsPage } from './WorldOverviewGenesis';
 import { getCivTime, subscribeCivTime } from './civView';
 import { useEdits, useEra } from './editsStore';
 import { spaced, yearAt } from '../gen/era';
+import { cleanCivSeed } from '../gen/edits';
 import { currentWorld, renameWorld, useSavesVersion } from './saveStore';
 import { closeOverview, setOverviewTab, useOverview, type OverviewTab } from './overviewStore';
 import { PRIVACY_URL, SOURCE_URL, TERMS_URL } from './links';
@@ -207,7 +208,8 @@ function OverviewSummary({ civ, seed }: { civ: Civ | null; seed: number | null }
     for (const s of civ.settlements) if (populationAt(s, year) > 0) towns++;
     return { alive, founded, cultures, towns, regions: civ.regions.count };
   }, [civ, year]);
-  const sub = [seed !== null ? `种子 ${seed}` : '正在生成', civ ? `当前${spaced(yearAt(year, era))}` : null, n ? `干预了 ${n} 处` : '未干预'].filter(Boolean).join('，');
+  const civSeed = cleanCivSeed(edits.civSeed);
+  const sub = [seed !== null ? `种子 ${seed}${civSeed !== undefined && civSeed !== seed ? `，文明种子 ${civSeed}` : ''}` : '正在生成', civ ? `当前${spaced(yearAt(year, era))}` : null, n ? `干预了 ${n} 处` : '未干预'].filter(Boolean).join('，');
   return (
     <div className="ov-summary">
       <div className="ov-title">
