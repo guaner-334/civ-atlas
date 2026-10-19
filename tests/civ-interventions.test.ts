@@ -453,7 +453,9 @@ describe('干预 · 推演', () => {
     const named = applyNames(c, names);
     const id = idOf(c, key);
     expect(named.polities[id].name).toBe('饕餮');
-    expect(polityName(named.polities[id], named.endYear)).toContain('饕餮');
+    // 东方改朝换代以后国号换成新朝的(GENERATOR_VERSION 22 种子 7 这国后来改了朝),看改朝以前的
+    const renamed = named.polities[id];
+    expect(polityName(renamed, Math.min(named.endYear, (renamed.dynasties?.[1]?.year ?? Infinity) - 1))).toContain('饕餮');
     expect(named.polities.some((q) => q.name === '失落' || q.name === '不存在')).toBe(false);
     // 编年史里的干预条目也用新名字
     expect(buildChronicle(named).find((e) => e.kind === 'intervene')!.text).toContain('饕餮');
