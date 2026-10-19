@@ -52,6 +52,7 @@ import {
   TerrainPanel,
   applyImport,
   getTerrainTool,
+  pageOf,
   setTerrainTool,
   terrainCount,
   terrainSide,
@@ -771,6 +772,8 @@ export function Studio(p: StudioProps) {
     setImgFlat(true);
     setStyOpen(false);
     if (!getTerrainTool().on) setTerrainTool({ on: true });
+    // 认图时地图上看的是图:停在板块页的笔换回陆地(板块页会把地图换成板块配色)
+    if (pageOf(getTerrainTool().tool) === 'plates') setTerrainTool({ tool: 'land' });
   }, [importing, image]);
   // 第 2 步的笔收起了(按了 Esc、切到地球仪、打开助手):这一步也收起
   useEffect(() => {
