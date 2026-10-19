@@ -45,6 +45,7 @@ import {
 import { keyed, smoothstep, subSeed } from '../gen/util';
 import { geometryOf, sphereSpacing } from '../gen/geometry';
 import { addProjectedLine, clipOutline, glyphMetric, insideProj, outlineOnCanvas, projectLinePts, projector, relShifts, reprojectImage, type GlyphMetric, type MapProj, type Projector, type ProjectionId } from './projection';
+import { FONT_FANTASY, fontCss } from './labels/fonts';
 
 const PAPER = hexRGB('#efe2c2');
 const PAPER_EDGE = hexRGB('#c9ae7c');
@@ -4333,7 +4334,8 @@ function drawCompass(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingCon
     ctx.stroke();
   }
   ctx.fillStyle = INK_CSS + '0.95)';
-  ctx.font = `600 ${14 * S}px "Songti SC", "STSong", serif`;
+  // 和地名同一款字(霞鹜文楷);页面上靠 preloadFonts 下载,导出的后台线程自己加载(exportWorker.ts)
+  ctx.font = fontCss(FONT_FANTASY, 500, 14 * S);
   ctx.textAlign = 'center';
   ctx.textBaseline = 'bottom';
   ctx.fillText('北', 0, -R - 3 * S);

@@ -36,7 +36,7 @@ import { northText } from './WorldOverviewGenesis';
 import { cleanEndYear } from '../gen/edits';
 import { monthsOf, yearFull } from '../gen/era';
 import { markItemsAt, plainMarkChars } from './markInfo';
-import { ensureFonts } from '../render/labels/fonts';
+import { ensureFonts, fantasyFontUrl } from '../render/labels/fonts';
 import { characterTrail } from './characterInfo';
 import { diagDoing, recordWorkerError } from '../diag/watch';
 import type { ExportRequest, ExportResponse } from '../exportWorker';
@@ -241,6 +241,7 @@ async function exportMap(m: MapInput, scale: ExportScale, format: ImageFormat): 
     projection: m.projection,
     graticule: m.graticule,
     split: !!m.contours,
+    font: m.style === 'fantasy' ? fantasyFontUrl() : undefined,
   };
   const res = await runWorker(req);
   const t1 = performance.now();

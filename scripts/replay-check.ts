@@ -2688,6 +2688,8 @@ for (const style of ['realistic', 'fantasy']) {
   let near: string[] = [];
   let cmds = 0;
   let cmdText = '';
+  let untilText = '';
+  let untilOff = false;
   let warPlates: Plate[] = [];
   let backToCmd = false;
   let dim = 0;
@@ -2719,7 +2721,12 @@ for (const style of ['realistic', 'fantasy']) {
     // 干预页
     await page.click('.inspector [data-act=intervene]');
     cmds = await page.locator('.inspector .cp-cmd').count();
-    cmdText = (await page.locator('.inspector .cp-from').innerText().catch(() => '')).replace(/\n/g, ' ');
+    cmdText = (await page.locator('.inspector .cp-from').first().innerText().catch(() => '')).replace(/\n/g, ' ');
+    // 持续到:选「到某一年」多出年份,切回「一直有效」收起(后面的结盟照旧一直有效)
+    await page.click('.inspector .cp-until [data-act=until-on]');
+    untilText = (await page.locator('.inspector .cp-until').innerText().catch(() => '')).replace(/\n/g, ' ');
+    await page.click('.inspector .cp-until [data-act=until-off]');
+    untilOff = !(await page.locator('.inspector .cp-until .cp-from-row').count());
     // 宣战:只有相邻的国家浮出名牌;Esc 回到干预页
     if (await page.locator('.inspector .cp-cmd[data-cmd=declare]').isEnabled()) {
       await page.click('.inspector .cp-cmd[data-cmd=declare]');
@@ -2787,6 +2794,7 @@ for (const style of ['realistic', 'fantasy']) {
     if (!moved) errs.push(`国家面板:点国家后地图没有飞过去(${flown})`);
     if (!mark) errs.push('国家面板:选中国家后国都没有圆环');
     if (cmds !== 6 || !/生效年份.*年.*该年之前的历史不变/.test(cmdText)) errs.push(`国家面板:干预页不对(${cmds} 条命令,「${cmdText}」)`);
+    if (!/持续到.*到某一年.*\d+.*年.*只对保护、禁止扩张、结盟有效/.test(untilText) || !untilOff) errs.push(`国家面板:「持续到」不对(「${untilText}」,切回一直有效后收起 ${untilOff})`);
     if (warNames.some((n) => !near.includes(n))) errs.push(`国家面板:宣战时浮出了不相邻国家的名牌(${warNames.join('、')};邻国 ${near.join('、')})`);
     if (!backToCmd) errs.push('国家面板:选目标时按 Esc 没有回到干预页');
     if (!dim || allyPlates.length < 3 || !allyPlates.some((p) => p.self && p.note === '本国')) errs.push(`国家面板:结盟选目标时没有压暗 / 名牌不对(压暗 ${dim},名牌 ${allyPlates.length})`);

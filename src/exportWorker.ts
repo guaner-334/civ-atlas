@@ -17,6 +17,7 @@ import type { CivShow, CivStyle } from './render/civ/overlay';
 import type { LayerId } from './render/layers';
 import { heightmapPng, type HeightmapBits, type HeightmapInfo } from './gen/heightmap';
 import { drawMapBase, drawMapOverlay, drawMapTerrain, type ExportScale } from './render/export';
+import { loadWorkerFont } from './render/labels/fonts';
 import type { DrainLines } from './gen/pixelDrain';
 import type { ProjectionId } from './render/projection';
 import type { SurfaceLook } from './render/surface';
@@ -44,6 +45,8 @@ export type ExportRequest =
       graticule?: number;
       /** 地形和上面的文明底图、外框分成两张交回(主线程在中间画等值线) */
       split?: boolean;
+      /** 手绘风字体文件的地址(罗盘的「北」字要用;线程里没有页面加载好的字体) */
+      font?: string;
     }
   | {
       job: 'heightmap';
@@ -81,6 +84,7 @@ self.onmessage = async (e: MessageEvent<ExportRequest>) => {
     }
     // 沟和山脊只有写实风打光用得着(分给帮手线程算)
     const raster = m.raster ?? (m.style === 'realistic' ? await rasterizeWithHelpers(m.world, m.scale, m.veins) : rasterize(m.world, m.scale, false));
+    if (m.font) await loadWorkerFont(m.font);
     const t1 = performance.now();
     const cv = new OffscreenCanvas(raster.w, raster.h);
     const ctx = cv.getContext('2d');

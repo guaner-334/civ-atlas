@@ -29,7 +29,14 @@ export function MapDecor({ world, style, ink = style, view, mp = null }: { world
     if (!box || typeof ResizeObserver === 'undefined') return;
     const ro = new ResizeObserver(() => setTick((t) => t + 1));
     ro.observe(box);
-    return () => ro.disconnect();
+    // 罗盘的「北」字用网页字体:字体下载完再画一遍(canvas 不会自己重画)
+    const fonts = typeof document !== 'undefined' ? document.fonts : undefined;
+    const bump = () => setTick((t) => t + 1);
+    fonts?.addEventListener('loadingdone', bump);
+    return () => {
+      ro.disconnect();
+      fonts?.removeEventListener('loadingdone', bump);
+    };
   }, []);
 
   useLayoutEffect(() => {

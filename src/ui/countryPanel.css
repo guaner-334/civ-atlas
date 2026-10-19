@@ -665,6 +665,39 @@
   align-items: center;
   gap: 6px;
 }
+/* 持续到:一条分段开关(一直有效 | 到某一年),选了到某一年才多出年份 */
+.cp-until-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.cp-until-head .cp-k {
+  flex: none;
+}
+.cp-dur {
+  flex: 1;
+  display: flex;
+  height: 32px;
+  padding: 2px;
+  border-radius: 8px;
+  background: rgba(118, 118, 128, 0.16);
+}
+.cpanel .cp-dur button {
+  flex: 1;
+  padding: 0;
+  border: 0;
+  border-radius: 6.5px;
+  background: transparent;
+  color: var(--ink);
+  font-size: 13px;
+  cursor: pointer;
+}
+.cpanel .cp-dur button.on {
+  background: var(--surface);
+  box-shadow: 0 0.5px 1.5px rgba(0, 0, 0, 0.18), 0 0 0 0.5px rgba(0, 0, 0, 0.04);
+  font-weight: 500;
+  cursor: default;
+}
 .cpanel .cp-step {
   height: 30px;
   padding: 0 10px;
