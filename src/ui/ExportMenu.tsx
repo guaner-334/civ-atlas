@@ -28,7 +28,7 @@ import { AZGAAR_SEA_GRAY, heightmapNote, type HeightmapBits } from '../gen/heigh
 import { LAYERS, type LayerId } from '../render/layers';
 import type { CivShow, CivStyle } from '../render/civ/overlay';
 import type { ResourceLook } from '../render/civ/resources';
-import { IMAGE_FORMATS, drawExportContours, drawExportMarks, drawExportTrail, drawLegend, drawMapBase, drawMapLabels, drawMapOverlay, drawMapTerrain, type ExportScale, type ImageFormat } from '../render/export';
+import { IMAGE_FORMATS, drawExportContours, drawExportMarks, drawExportTrail, drawLegend, drawMapBase, drawMapLabels, drawMapLegend, drawMapOverlay, drawMapTerrain, type ExportScale, type ImageFormat } from '../render/export';
 import { canvasMeasure, drawMarks, layoutMarks, markStyle, placedTextBoxes, type MarkItem } from '../render/marks';
 import { drawTrail, layoutTrail, type TrailInput } from '../render/trail';
 import { getEdits, useEdits } from './editsStore';
@@ -293,6 +293,8 @@ async function exportMap(m: MapInput, scale: ExportScale, format: ImageFormat): 
   putOver();
   detail.markCount = m.marks?.length ? drawExportMarks(ctx, m, scale, m.marks, n.placed) : 0;
   if (m.trail) detail.trailDots = drawExportTrail(ctx, m, scale, m.trail, n.placed);
+  // 数据图层:最上面压一条色阶(排地名时已经让开这块,不会盖住字)
+  await drawMapLegend(ctx, m, scale);
   const t3 = performance.now();
   detail.labels = t3 - t2;
   detail.labelCount = n.labels;
@@ -462,7 +464,7 @@ export function ExportMenu({ data, civ: shown, plain, style, layer, look = 'clas
       } else {
         if (!ok || !civ) throw new Error('文明还没推演完');
         const name = `${base}-${fileYear}-图例${x2}.png`;
-        const cv = await drawLegend({ civ, style, year: y, show, seed: seedN, era }, scale);
+        const cv = await drawLegend({ civ, style, year: y, show, seed: seedN, layer, era }, scale);
         const blob = await toBlob(cv);
         download(blob, name);
         dbg = { job, name, bytes: blob.size, w: cv.width, h: cv.height, ms: performance.now() - t0 };
@@ -477,9 +479,17 @@ export function ExportMenu({ data, civ: shown, plain, style, layer, look = 'clas
 
   const items: { job: Job; title: string; sub: string; need?: boolean }[] = [
     ...(globeOn ? [{ job: 'globe' as const, title: '导出地球仪这一面', sub: '现在看到的样子，PNG' }] : []),
-    { job: 'map', title: '地图图片(PNG)', sub: `整张地图，${styleName(style, layer, look)}，${yearFull(year, edits.era)}，${W}×${H}`, need: true },
+    { job: 'map', title: '地图图片(PNG)', sub: `整张地图，${styleName(style, layer, look)}，${yearFull(year, edits.era)}${style === 'data' ? '，左上带色阶' : ''}，${W}×${H}`, need: true },
     { job: 'mapjpg', title: '地图图片(JPEG)', sub: `同上,文件小好几倍(质量 ${Math.round(IMAGE_FORMATS.jpeg.quality! * 100)}%)`, need: true },
-    { job: 'legend', title: '图例(PNG)', sub: `${yearFull(year, edits.era)}的国家 / 民族 + 颜色、城镇符号、道路`, need: true },
+    {
+      job: 'legend',
+      title: '图例(PNG)',
+      sub:
+        style === 'data'
+          ? `${styleName(style, layer, look)}的色阶 / 色块，配地图用`
+          : `${yearFull(year, edits.era)}的国家 / 民族 + 颜色、城镇符号、道路`,
+      need: true,
+    },
     { job: 'height16', title: '高度图(16 位 PNG)', sub: `游戏引擎、World Machine 用，${W}×${H}` },
     { job: 'height8', title: '高度图(8 位 PNG)', sub: `Azgaar 导入用，海平面 = 灰度 ${AZGAAR_SEA_GRAY}(Azgaar 的 20)` },
     { job: 'md', title: '编年史(Markdown)', sub: '按时代分节,大事在前、全部附后', need: true },

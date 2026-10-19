@@ -120,7 +120,7 @@ export class MapShot {
 
   private params(year: Year, civ: Civ): ExportMapParams {
     const s = this.scene;
-    return { world: s.world, raster: s.raster, civ, style: s.style, layer: s.layer, look: s.look, year, show: s.show, center: s.center, projection: s.projection, graticule: s.graticule, res: s.res };
+    return { world: s.world, raster: s.raster, civ, style: s.style, layer: s.layer, look: s.look, year, show: s.show, center: s.center, projection: s.projection, graticule: s.graticule, res: s.res, legend: false };
   }
 
   /** 画布像素 / 世界单位、字放大几倍、画布左上角的世界坐标(一块) */
