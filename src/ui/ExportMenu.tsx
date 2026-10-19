@@ -25,10 +25,11 @@ import type { Civ } from '../gen/civ/types';
 import { chronicleDocument } from '../gen/civ/chronicle';
 import { fullChronicle } from '../gen/civ/religionText';
 import { AZGAAR_SEA_GRAY, heightmapNote, type HeightmapBits } from '../gen/heightmap';
+import { isGradientLegend } from '../render/dataLegend';
 import { LAYERS, type LayerId } from '../render/layers';
 import type { CivShow, CivStyle } from '../render/civ/overlay';
 import type { ResourceLook } from '../render/civ/resources';
-import { IMAGE_FORMATS, drawExportContours, drawExportMarks, drawExportTrail, drawLegend, drawMapBase, drawMapLabels, drawMapLegend, drawMapOverlay, drawMapTerrain, type ExportScale, type ImageFormat } from '../render/export';
+import { IMAGE_FORMATS, drawExportContours, drawExportMarks, drawExportTrail, drawLegend, drawMapBase, drawMapLabels, drawMapLegend, mapLegendCanvasBoxes, drawMapOverlay, drawMapTerrain, type ExportScale, type ImageFormat } from '../render/export';
 import { canvasMeasure, drawMarks, layoutMarks, markStyle, placedTextBoxes, type MarkItem } from '../render/marks';
 import { drawTrail, layoutTrail, type TrailInput } from '../render/trail';
 import { getEdits, useEdits } from './editsStore';
@@ -291,10 +292,11 @@ async function exportMap(m: MapInput, scale: ExportScale, format: ImageFormat): 
       : undefined,
   });
   putOver();
-  detail.markCount = m.marks?.length ? drawExportMarks(ctx, m, scale, m.marks, n.placed) : 0;
-  if (m.trail) detail.trailDots = drawExportTrail(ctx, m, scale, m.trail, n.placed);
-  // 数据图层:最上面压一条色阶(排地名时已经让开这块,不会盖住字)
+  // 数据图层的色阶压在地名上面、标记和足迹下面:标记的名字、足迹的年份排的时候让开色阶,点本身画在色阶上面,不会被盖住
   await drawMapLegend(ctx, m, scale);
+  const legendBoxes = mapLegendCanvasBoxes(m, scale);
+  detail.markCount = m.marks?.length ? drawExportMarks(ctx, m, scale, m.marks, n.placed, undefined, legendBoxes) : 0;
+  if (m.trail) detail.trailDots = drawExportTrail(ctx, m, scale, m.trail, n.placed, legendBoxes);
   const t3 = performance.now();
   detail.labels = t3 - t2;
   detail.labelCount = n.labels;
@@ -479,7 +481,7 @@ export function ExportMenu({ data, civ: shown, plain, style, layer, look = 'clas
 
   const items: { job: Job; title: string; sub: string; need?: boolean }[] = [
     ...(globeOn ? [{ job: 'globe' as const, title: '导出地球仪这一面', sub: '现在看到的样子，PNG' }] : []),
-    { job: 'map', title: '地图图片(PNG)', sub: `整张地图，${styleName(style, layer, look)}，${yearFull(year, edits.era)}${style === 'data' ? '，左上带色阶' : ''}，${W}×${H}`, need: true },
+    { job: 'map', title: '地图图片(PNG)', sub: `整张地图，${styleName(style, layer, look)}，${yearFull(year, edits.era)}${style !== 'data' ? '' : isGradientLegend(layer) ? '，左上带色阶' : '，色块另在图例图片里'}，${W}×${H}`, need: true },
     { job: 'mapjpg', title: '地图图片(JPEG)', sub: `同上,文件小好几倍(质量 ${Math.round(IMAGE_FORMATS.jpeg.quality! * 100)}%)`, need: true },
     {
       job: 'legend',
