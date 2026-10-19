@@ -42,6 +42,8 @@ export function playTurn(
   commands: readonly unknown[],
   years: number,
 ): { civ: Civ; play: PlayState; rejected: unknown[] } {
+  // 已经推到能推的最后一年:推不动了,命令一条也不收(收了也永远等不到生效)
+  if (play.year >= INTERVENTION_YEAR_MAX) return { civ, play, rejected: [...commands] };
   const n = Math.min(PLAY_YEARS_MAX, Math.max(1, Math.round(years)));
   const issued = issueCommands(play, commands);
   const next: PlayState = { year: Math.min(INTERVENTION_YEAR_MAX, play.year + n), commands: issued.play.commands };

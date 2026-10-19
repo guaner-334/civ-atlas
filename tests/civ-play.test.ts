@@ -10,7 +10,7 @@ import { generateWorld, DEFAULT_PARAMS, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
 import { Layer } from '../src/gen/civ/types';
 import { playCiv, playStop, playTurn } from '../src/gen/civ/play';
-import { cleanPlay, issueCommands, playInterventions, polityKey, regionKey, settlementKey, type Intervention, type PlayState, type WorldEdits } from '../src/gen/edits';
+import { INTERVENTION_YEAR_MAX, cleanPlay, issueCommands, playInterventions, polityKey, regionKey, settlementKey, type Intervention, type PlayState, type WorldEdits } from '../src/gen/edits';
 import { makeSave, parseSave, saveText } from '../src/gen/savefile';
 import { packValue, recipeOfSave, recipeText, unpackValue } from '../src/gen/snapshot';
 
@@ -131,6 +131,11 @@ describe('游戏模式:停在第 T 年下命令,接着推', () => {
     expect(got.play).toEqual({ year: 725, commands: [ok] });
     same(got.civ, playTurn(w, civ, {}, play, [ok], 25).civ, '不收的命令');
     expect(issueCommands(play, [early]).play.commands).toEqual([]);
+    // 推到能推的最后一年:推不动了,命令一条也不收
+    const last: PlayState = { year: INTERVENTION_YEAR_MAX, commands: [] };
+    const stuck = playTurn(w, civ, {}, last, [{ ...ok, from: INTERVENTION_YEAR_MAX }], 25);
+    expect(stuck.play).toBe(last);
+    expect(stuck.rejected).toHaveLength(1);
   }, 120_000);
 
   it('存档往返:推到第 T 年存下、读回、接着推,和不存档直接推一样;没在玩的旧存档照旧', () => {
