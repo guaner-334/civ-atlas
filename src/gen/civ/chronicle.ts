@@ -60,6 +60,8 @@
  *   ("旋为大渭所平""攻破汾城,大渭亡""得汾州,与大渭议和,割据一方";标签"起",攻破都城、亡了原来国家的是大事);
  *   民变被讨平的那条灭亡写"大渭讨平瑞国"(标签"平");大崩解写"大渭大乱,瑞州、汾州各自立国,大渭仅保汾城一隅"
  *   (地方崩加"诸州残破",散回部落"…土崩瓦解,二十三州散为部落…";标签"崩",一律是大事),紧跟着自立的几块是它的子条目。
+ *   瘟疫(plague.ts)同一场折成一条"大疫起于维罗拉,传至特罗纳、哈尔兰,5 年间诸国死者十之二"(大瘟疫"天下大疫,起于…";标签"疫";
+ *   大瘟疫、传到三国以上、死者十之二以上的是大事),子条目是逐年传到哪。
  * - 年份写法和时间轴一致:"第 N 年"(N = 年份取整)。州数等计数用中文数字("得瑞州等五州"),年数用阿拉伯数字。
  *
  * buildChronicle 按 civ 缓存(同一个 civ 只算一次)。
@@ -80,6 +82,7 @@ import {
 } from './growth';
 import { HABITABLE_SUIT, cultureLabel, regionLabel } from './display';
 import { ownersAt } from './timeline';
+import { plagueSpans } from './plagueSpans';
 import { ageAt, generalRef, kinOf, rulerBare, rulerRef, rulerShort } from './peopleText';
 import { eraText, monthTail, type Era } from '../era';
 
@@ -131,7 +134,7 @@ export interface ChronicleEntry {
   end: Year;
   /** 纪事正文(不带年份) */
   text: string;
-  /** 一个字的标签(界面上的小印章):立 升 降 战 占 征 和 割 亡 迁 分 复 合 朝 徙 化 湮 掠 毁 建 衰 干 役 变 没 嗣 饥 起 崩 平;信仰:创 皈 传 派 圣;时代:代 */
+  /** 一个字的标签(界面上的小印章):立 升 降 战 占 征 和 割 亡 迁 分 复 合 朝 徙 化 湮 掠 毁 建 衰 干 役 变 没 嗣 饥 起 崩 平 疫;信仰:创 皈 传 派 圣;时代:代 */
   tag: string;
   importance: Importance;
   /** 相关国家(按国家筛选、地图高亮用;先主后次,不含 −1) */
@@ -548,6 +551,7 @@ const TAG: Record<AnnalKind, string> = {
   famine: '饥',
   revolt: '起',
   collapse: '崩',
+  plague: '疫',
 };
 
 function base(
@@ -1772,6 +1776,73 @@ function collapseEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
   };
 }
 
+/** 大瘟疫染了至少这么多州才写成"天下大疫" */
+const GREAT_WRITE = 30;
+
+/** "死者十之二"(大瘟疫"十之三四");不到一成的不写 */
+function plagueToll(loss: number, great: boolean): string {
+  const k = Math.round(loss * 10);
+  if (k < 1) return '';
+  return `死者十之${cnNumber(k)}${great && k < 9 ? cnNumber(k + 1) : ''}`;
+}
+
+/**
+ * 瘟疫(plague.ts;同一场的几条史事 plague 折成一条):"大疫起于维罗拉,传至特罗纳、哈尔兰、碧台等地,5 年间诸国死者十之二"
+ * (只在一国:"…,5 年间大渭死者十之一";没传开:"大渭维罗拉大疫,死者十之一";大瘟疫染了 GREAT_WRITE 州以上:"天下大疫,起于维罗拉,
+ * 传至…等五国四十州,12 年乃息(起疫那年也算一年),死者十之三四")。死几成按染疫各城的平均。标签"疫";大瘟疫、传到三国以上、死者十之二以上的是大事。
+ * 子条目是逐年传到哪("大渭维罗拉起疫""疫传至大渭瑞州等三州")
+ */
+function plagueEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
+  const { civ } = ctx;
+  const A = civ.annals;
+  const e = A[ids[0]];
+  const span = plagueSpans(civ).find((x) => x.id === e.war);
+  const hits = span?.hits ?? [];
+  // 大瘟疫没传开的(港口孤悬、头几年就止住了)照一般的大疫写
+  const great = e.cause === 'great' && hits.length >= GREAT_WRITE;
+  const mean = hits.length ? hits.reduce((a, h) => a + h.loss, 0) / hits.length : 0;
+  const toll = plagueToll(mean, great);
+  const end = Math.max(A[ids[ids.length - 1]].year, span?.end ?? e.year);
+  const origin = cityName(civ, e.settlement) || regionName(civ, e.region) || '一城';
+  const list = ids.map((i) => A[i]);
+  const polities = uniq(list.map((x) => x.a).filter((p) => p >= 0));
+  // 传到哪:后来几条各写死得最多的那城(和起疫的不重名),最多三处
+  const places: string[] = [];
+  for (const x of list.slice(1)) {
+    const n = cityName(civ, x.settlement) || regionName(civ, x.region);
+    if (n && n !== origin && !places.includes(n)) places.push(n);
+  }
+  const shown = places.slice(0, 3).join('、');
+  const more = places.length > 3 ? '等地' : '';
+  // 闹了几个年头(起疫那年、最后染上的那年都算)
+  const years = Math.floor(end) - Math.floor(e.year) + 1;
+  let text: string;
+  if (great) {
+    const where = shown ? `,传至${shown}等${polities.length > 1 ? `${cnNumber(polities.length)}国` : ''}${cnNumber(hits.length)}州` : '';
+    text = `天下大疫,起于${origin}${where}${years >= 2 ? `,${years} 年乃息` : ''}${toll ? `,${toll}` : ''}`;
+  } else if (!shown) text = `${pn(civ, e.a, e.year)}${origin}大疫${toll ? `,${toll}` : ''}`;
+  else {
+    const who = polities.length > 1 ? '诸国' : pn(civ, e.a, e.year);
+    text = `大疫起于${origin},传至${shown}${more}${toll ? `,${years >= 2 ? `${years} 年间` : ''}${who}${toll}` : ''}`;
+  }
+  const children =
+    ids.length > 1
+      ? ids.map((i, n) => {
+          const x = A[i];
+          const r = regionName(civ, x.region) || cityName(civ, x.settlement) || '一州';
+          const where = x.b > 1 ? `${r}等${cnNumber(x.b)}州` : r;
+          return base(x, i, n === 0 ? `${pn(civ, x.a, x.year)}${origin}起疫` : `疫传至${pn(civ, x.a, x.year)}${where}`, 1, [x.a], [x.region]);
+        })
+      : undefined;
+  const big = great || polities.length >= 3 || mean >= 0.195;
+  return {
+    // 点这一条时标出染过疫的每一州(史事一国一年只记死得最多的那州)
+    ...base(e, ids[0], text, big ? 3 : 2, polities, uniq([...list.map((x) => x.region), ...hits.map((h) => h.region)])),
+    end,
+    ...(children ? { children } : {}),
+  };
+}
+
 /** 战役里攻方从哪种边打过去(AdjKind:平地、跨河、翻山、海峡、航线) */
 const VIA = ['', '渡河', '翻山', '渡海', '浮海'];
 
@@ -2114,6 +2185,7 @@ export function buildChronicle(civ: Civ): ChronicleEntry[] {
   const ctx: Ctx = { civ, titleUsed: new Map(), retake: retakes(A), splitFrom, flight: new Map(), ix: peopleOf(civ), quell };
   const out: ChronicleEntry[] = [];
   const wars = new Map<number, number[]>();
+  const plagues = new Map<number, number[]>();
   const tribal = new Map<number, number[]>();
   // 同化与迁徙:一波迁徙(同一刻、同一民族、同一起因);同一国治下同一对民族的同化
   const waves = new Map<string, number[]>();
@@ -2139,6 +2211,13 @@ export function buildChronicle(civ: Civ): ChronicleEntry[] {
       const ids = [i];
       while (i + 1 < A.length && collapseTail(A[i + 1], e)) ids.push(++i);
       out.push(collapseEntry(ctx, ids));
+      continue;
+    }
+    // 瘟疫:同一场的几条并成一条
+    if (e.kind === 'plague') {
+      let g = plagues.get(e.war);
+      if (!g) plagues.set(e.war, (g = []));
+      g.push(i);
       continue;
     }
     // 民变:并进讨伐它的那场战争(紧跟着记的 war,cause = quell),写成一条民变
@@ -2191,6 +2270,7 @@ export function buildChronicle(civ: Civ): ChronicleEntry[] {
     out.push(simpleEntry(ctx, e, i));
   }
   for (const ids of wars.values()) out.push(A[ids[0]].kind === 'revolt' ? revoltEntry(ctx, ids) : warEntry(ctx, ids));
+  for (const ids of plagues.values()) out.push(plagueEntry(ctx, ids));
   tribalEntries(ctx, tribal, out);
   const dirUsed = new Map<number, number>();
   for (const ids of waves.values()) out.push(migrationEntry(ctx, ids, dirUsed));

@@ -62,7 +62,8 @@ describe('事件类型', () => {
     expect(evType(entry(1, 'intervene'))).toBe('order');
     expect(['submit', 'alliance', 'unally'].map((k) => evType({ kind: k as ChronicleEntry['kind'] }))).toEqual(Array(3).fill('empire'));
     expect(evType(entry(1, 'defect'))).toBe('found');
-    expect(evType({ kind: 'plague' as ChronicleEntry['kind'] })).toBe('dynasty');
+    expect(evType({ kind: 'unknown' as ChronicleEntry['kind'] })).toBe('dynasty');
+    expect(['famine', 'plague', 'revolt', 'collapse'].map((k) => evType({ kind: k as ChronicleEntry['kind'] }))).toEqual(Array(4).fill('calamity'));
   });
 
   it('类型名按一字标签;升格里称帝的写"称帝";干预的正文去掉前缀', () => {

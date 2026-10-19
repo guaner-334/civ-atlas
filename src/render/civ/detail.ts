@@ -7,7 +7,8 @@
  *   - 色块(国土 / 民族):逐个工作格(1 个 CSS 像素一格,回放时更粗)按 territory.ts 的 washDetail 上色 ——
  *     边按平滑后的界线判、海岸按岸线抗锯齿;浓淡、纸纹是平滑的晕染;水痕按屏幕大小;
  *     手绘风给符号"让位"的遮罩按这一块、这个缩放倍数画的符号层算(和地形细节层画出来的符号是同一套)
- *   - 州界、国界、道路、城址:矢量线(和整张图同一套画法),线宽、虚线 × pen —— 比地图放大得慢,放大后不会粗成一条带子
+ *   - 州界、国界、道路、城址:矢量线(和整张图同一套画法),线宽、虚线 × pen —— 比地图放大得慢,放大后不会粗成一条带子;
+ *     疫区的墨点(plague.ts)同样点距、点大小 × pen
  *   - 选中 / 高亮:罩染同样逐格上色(边按描边那条线),描边按屏幕粗细
  *
  * 弯边投影(罗宾森、摩尔威德……):工作格按行反投影到世界坐标(同一行是一条纬线),逐格上色;线逐点投影。
@@ -21,6 +22,7 @@ import { clipOutline, projector, reprojectImage, relShifts } from '../projection
 import { nearX, type WorkStep } from '../common';
 import { drawBorders, mergeChains, regionChains, BAND, type SidedLine } from './borders';
 import { drawRoutes } from './routes';
+import { drawPlagueDetail } from './plague';
 import { drawRegionLines, drawSites, habitatCanvas } from './debug';
 import { addToPath, chaikin, meshWrap } from './lines';
 import { DETAIL_EDGE_D, inkFromSymbols, regionPixels, washDetail, washFields, type WashFields } from './territory';
@@ -464,6 +466,7 @@ export function planCivDetail(p: CivDrawParams, v: CivDetailView, step: number, 
     const pj = v.mp ? projector(v.mp) : null;
     eachPart(ctx, v, world, S, (cull) => {
       const q: CivDrawParams = { ...p, proj: pj, pen, cull };
+      drawPlagueDetail(ctx, q);
       if (q.show.regions) drawRegionLines(ctx, q);
       drawBorders(ctx, q);
       drawRoutes(ctx, q);

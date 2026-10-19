@@ -9,7 +9,8 @@
  *     危机(politics.ts 的 strain:国土大、刚丢了国都 / 迁了都、正在打仗、接连丢州)
  *     + 边远的州多(各州离国都路程的平均,超过 FAR_0 的部分 × FAR_W)+ 异族多(异族州的比例 × FOREIGN_W)
  *     + 王朝老了(当朝 AGE_0 年以后渐涨,AGE_SPAN 年涨满 AGE_W;新朝初立 NEW_YEARS 年内反倒减 NEW_W)
- *     + 闹了饥荒(FAMINE_YEARS 年内闹饥荒的州,占国土 FAMINE_FULL 就加满 FAMINE_W)+ 民变还没平(REVOLT_W)。
+ *     + 闹了饥荒(FAMINE_YEARS 年内闹饥荒的州,占国土 FAMINE_FULL 就加满 FAMINE_W)
+ *     + 闹了瘟疫(PLAGUE_YEARS 年内染疫的州,占国土 PLAGUE_FULL 就加满 PLAGUE_W;瘟疫见 plague.ts)+ 民变还没平(REVOLT_W)。
  *     它让国家更容易分裂(politics.ts 的分裂赔率用它)、更容易被邻国趁虚而入、更想对外开战转移矛盾(wars.ts)、
  *     动荡到顶的大国就会大崩解(见下)。
  *
@@ -71,6 +72,10 @@ const FAMINE_YEARS = 30;
 const FAMINE_FULL = 0.12;
 const FAMINE_FULL_MIN = 3;
 const FAMINE_W = 0.9;
+/** 动荡:PLAGUE_YEARS 年内染疫的州,占国土 PLAGUE_FULL(至少 FAMINE_FULL_MIN 州)就加满 PLAGUE_W */
+const PLAGUE_YEARS = 20;
+const PLAGUE_FULL = 0.25;
+const PLAGUE_W = 0.6;
 /** 动荡:民变还没平 */
 const REVOLT_W = 0.4;
 
@@ -153,6 +158,8 @@ export interface UnrestModel {
   base: number;
   /** 国家 → 闹过的饥荒(按先后:年份、州数) */
   famines: Map<number, { year: Year; n: number }[]>;
+  /** 国家 → 染过的瘟疫(按先后:年份、这一年染疫的州数;plague.ts 往里记) */
+  plagues: Map<number, { year: Year; n: number }[]>;
   /** 讨伐民变的战争 → 起事的国家 */
   quell: Map<number, number>;
   /** 国家 → 最近一次大崩解的年份 */
@@ -160,7 +167,7 @@ export interface UnrestModel {
 }
 
 function newModel(pm: PolityModel, wm: WarModel, pol: PoliticsModel, seed: number): UnrestModel {
-  return { pm, wm, pol, base: subSeed(seed, 'civ-unrest'), famines: new Map(), quell: new Map(), collapsed: new Map() };
+  return { pm, wm, pol, base: subSeed(seed, 'civ-unrest'), famines: new Map(), plagues: new Map(), quell: new Map(), collapsed: new Map() };
 }
 
 const models = new WeakMap<CivSim, UnrestModel>();
@@ -227,6 +234,12 @@ function hook(sim: CivSim, um: UnrestModel): void {
       let n = 0;
       for (let i = fl.length - 1; i >= 0 && t - fl[i].year < FAMINE_YEARS; i--) n += fl[i].n;
       if (n) u += FAMINE_W * Math.min(1, n / Math.max(FAMINE_FULL_MIN, FAMINE_FULL * N));
+    }
+    const pl = um.plagues.get(pid);
+    if (pl) {
+      let n = 0;
+      for (let i = pl.length - 1; i >= 0 && t - pl[i].year < PLAGUE_YEARS; i--) n += pl[i].n;
+      if (n) u += PLAGUE_W * Math.min(1, n / Math.max(FAMINE_FULL_MIN, PLAGUE_FULL * N));
     }
     for (const w of wm.active) if (w.a === pid && um.quell.has(w.id)) u += REVOLT_W;
     return Math.max(0, u);
@@ -549,6 +562,10 @@ export function resumeUnrest(sim: CivSim, _world: World, civ: Civ): void {
       let fl = um.famines.get(e.a);
       if (!fl) um.famines.set(e.a, (fl = []));
       fl.push({ year: e.year, n: e.b });
+    } else if (e.kind === 'plague' && e.a >= 0) {
+      let pl = um.plagues.get(e.a);
+      if (!pl) um.plagues.set(e.a, (pl = []));
+      pl.push({ year: e.year, n: e.b });
     } else if (e.kind === 'revolt') {
       const w = A[i + 1];
       if (w && w.kind === 'war' && w.cause === 'quell' && w.b === e.a) um.quell.set(w.war, e.a);
