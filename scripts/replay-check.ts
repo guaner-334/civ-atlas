@@ -4959,8 +4959,18 @@ for (const style of ['realistic', 'fantasy']) {
   await mp.evaluate(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
   await mp.waitForTimeout(300);
   // 点国家 → 底部抽屉半高;国家落在抽屉上方
-  const pol = ((await mp.evaluate('window.__wfPickables()')) as Pick[])
+  // 等地图停稳(双击回正有动画,机器慢时还在动)再取国名的位置
+  for (let i = 0, last = ''; i < 40; i++) {
+    const v = JSON.stringify(await mp.evaluate(() => (window as any).__wfView));
+    if (v === last) break;
+    last = v;
+    await mp.waitForTimeout(150);
+  }
+  // 国名旁边 30 像素内有城镇符号等别的可点之物的不挑:手指点偏一点就点成了城(字体不同,国名的位置会差几个像素)
+  const picks = (await mp.evaluate('window.__wfPickables()')) as Pick[];
+  const pol = picks
     .filter((q) => q.kind === 'polity' && q.x > 40 && q.x < VW - 40 && q.y > 130 && q.y < VH - 200)
+    .filter((q) => !picks.some((o) => o !== q && Math.hypot(o.x - q.x, o.y - q.y) < 30))
     .sort((a, b) => Math.abs(a.x - VW / 2) + Math.abs(a.y - VH / 2) - Math.abs(b.x - VW / 2) - Math.abs(b.y - VH / 2))[0];
   let sheet0: Rect = null;
   let row1: Rect = null;
@@ -4996,6 +5006,7 @@ for (const style of ['realistic', 'fantasy']) {
       fullCapsuleHidden = !(await mp.locator('.bottom-row').isVisible());
     }
     // 干预 → 结盟 → 点名牌
+    if (!(await mp.locator('.inspector [data-act=intervene]').count())) throw new Error(`手机:点「${pol.text}」(${Math.round(pol.x)}, ${Math.round(pol.y)})没出国家卡片:${info.slice(0, 80)}`);
     await mp.tap('.inspector [data-act=intervene]');
     await mp.waitForTimeout(300);
     cmds = await mp.locator('.inspector .cp-cmd').count();
