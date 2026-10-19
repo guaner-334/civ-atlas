@@ -620,7 +620,7 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
   const hitKind = await page.locator('.search-row').first().getAttribute('data-kind');
   await page.locator('.search-row').first().click();
   await page.waitForTimeout(400);
-  const card5 = await text('.inspector .cp.pp .pp-title');
+  const card5 = await text('.inspector .cp.pp .ins-name');
   console.log(
     `人物:国家卡片「${stats.slice(0, 40)}…」,历代君主 ${rulers} 行、当前「${cur}」、「${all}」;卡片「${card1.slice(0, 50)}…」,倾向 ${leanRows} 行「${leans.slice(0, 30)}…」,复制 ${copied.length} 字;` +
       `将领卡片「${card2.slice(0, 30)}…」、出征那年 → ${y1};编年史开 ${chronOpen}、蓝字 ${names} 个,点「${pickName}」→ 收起 ${closed}、卡片 ${card3Id}/${pickId}、年份 ${y1} → ${y2};` +

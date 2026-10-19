@@ -34,6 +34,7 @@
  *
  * WorldEdits.names:稳定键 → 新名字。国家改的是国名词根(全称 = 词根 + 当年的国号,见 gen/civ/growth.ts),
  * 东方的朝代改的是那一朝的国号词根,西幻的朝代改的是王室名(显示为"某某王朝");城、地名、民族直接改(民族不带"族"字)。
+ * 人物(君主、将领、名臣、宗室,键见 personKey)改的是本名,称号(庙号、谥号、几世)照旧;生成时的名字留在 Person.defaultName。
  * 州名写进新 Civ 的 regionNames(civ.regions 保持同一份:画国土、国界的缓存都按它存,改州名不重画底图)。
  * applyNames 返回套上名字的新 Civ(原 Civ 不改;没有任何名字生效时直接返回原 Civ)。连带跟着变的(用户没单独改过的):
  * - 复国的国家("后昌")跟着故国的国号变("昌" 改成 "秦" → "后秦")
@@ -273,7 +274,7 @@
  *      人口顶到上限的城碰上灾年会闹饥荒(人口掉一截),饥民可能起事、和朝廷打一场(被讨平、割据一方或攻破都城);
  *      动荡到顶的大国一下子散成几块(各地自立 / 毁城断路 / 散回部落)。地形不变,历史重新推演。
  */
-import type { Civ, Culture, Faith, Place, Polity, Regions, Settlement } from './civ/types';
+import type { Civ, Culture, Faith, Person, Place, Polity, Regions, Settlement } from './civ/types';
 import type { AuthorCharacter } from './characters';
 import { polityRootAt } from './civ/growth';
 import { TERRAIN_H, TERRAIN_W } from './terrainEdits';
@@ -536,7 +537,7 @@ export const EMPTY_EDITS: WorldEdits = Object.freeze({
   terrain: Object.freeze([]) as unknown as TerrainOp[],
 });
 
-export type KeyKind = 'polity' | 'settlement' | 'place' | 'culture' | 'dynasty' | 'region' | 'faith';
+export type KeyKind = 'polity' | 'settlement' | 'place' | 'culture' | 'dynasty' | 'region' | 'faith' | 'person';
 
 export interface ResolvedKey {
   kind: KeyKind;
@@ -646,6 +647,59 @@ export function faithKey(civ: Civ, id: number): string {
   return keyIndex(civ).faith[id];
 }
 
+/**
+ * 人物的稳定键:国家的稳定键 + 身份 + 名字 + 生年(重推历史后同一国、同名、同年生的还是他;推演变了、指不到就算了)。
+ * 名字用生成时的名字(Person.defaultName,改过名的才有):给人物改名不会让键变。
+ * 同一国、同身份、同名、同年生的不止一个(西幻的君主会重名):第二个起后面加 #1、#2……(按人物编号的先后)
+ */
+export function personKey(civ: Civ, id: number): string {
+  return personKeys(civ)[id] ?? '';
+}
+
+const personKeyCache = new WeakMap<object, { keys: string[]; byKey: Map<string, number> }>();
+
+/** 每个人的稳定键(下标 = 人物编号;国家没了的 = '')。按人物列表存 */
+function personIndex(civ: Civ): { keys: string[]; byKey: Map<string, number> } {
+  const list = civ.people ?? [];
+  let ix = personKeyCache.get(list);
+  if (ix && ix.keys.length === list.length) return ix;
+  const keys: string[] = [];
+  const byKey = new Map<string, number>();
+  const seen = new Map<string, number>();
+  for (const x of list) {
+    if (!civ.polities[x.polity]) {
+      keys[x.id] = '';
+      continue;
+    }
+    const base = `person:${polityKey(civ, x.polity)}|${x.role}|${x.defaultName ?? x.name}|${Math.round(x.born)}`;
+    const n = seen.get(base) ?? 0;
+    seen.set(base, n + 1);
+    const k = n ? `${base}#${n}` : base;
+    keys[x.id] = k;
+    byKey.set(k, x.id);
+  }
+  ix = { keys, byKey };
+  personKeyCache.set(list, ix);
+  return ix;
+}
+
+const personKeys = (civ: Civ) => personIndex(civ).keys;
+
+/** 按人物的稳定键在(重推过的)历史里找回这个人;找不到 = −1 */
+export function resolvePersonKey(civ: Civ, key: string): number {
+  if (!civ.people?.length) return -1;
+  const ix = personIndex(civ);
+  const hit = ix.byKey.get(key);
+  if (hit !== undefined) return hit;
+  // 将领后来按不重名的规则改过名(旧存档里记的是原来的名字):同一国、同年生的将领只有一位,就是他
+  const m = /^(person:.+\|general)\|[^|]+\|(-?\d+)(?:#\d+)?$/.exec(key);
+  if (!m) return -1;
+  const head = m[1] + '|';
+  const tail = '|' + m[2];
+  const found = ix.keys.flatMap((k, id) => (k.startsWith(head) && (k.endsWith(tail) || k.includes(tail + '#')) ? [id] : []));
+  return found.length === 1 ? found[0] : -1;
+}
+
 /** 信仰的位置锚:大教 = 圣城所在的州,教派 = 分出时那国国都所在的州,民间信仰 = 民族的发源州 */
 function faithRegion(civ: Civ, f: Faith): number {
   if (f.kind === 'folk') return civ.cultures[f.culture ?? f.id]?.hearth ?? -1;
@@ -712,6 +766,10 @@ export function resolveKey(civ: Civ, key: string): ResolvedKey | null {
   if (key.startsWith('place:')) {
     const id = ix.places.get(key);
     return id !== undefined ? { kind: 'place', id } : null;
+  }
+  if (key.startsWith('person:')) {
+    const id = resolvePersonKey(civ, key);
+    return id >= 0 ? { kind: 'person', id } : null;
   }
   if (key.startsWith('dynasty:')) {
     const cut = key.lastIndexOf('/');
@@ -891,6 +949,7 @@ export function applyNames(civ: Civ, names: Record<string, string>): Civ {
   const culture = new Map<number, string>();
   const region = new Map<number, string>();
   const faith = new Map<number, string>();
+  const person = new Map<number, string>();
   for (const key in names) {
     const name = names[key];
     if (typeof name !== 'string' || !name) continue;
@@ -902,13 +961,14 @@ export function applyNames(civ: Civ, names: Record<string, string>): Civ {
     else if (r.kind === 'culture') culture.set(r.id, name);
     else if (r.kind === 'region') region.set(r.id, name);
     else if (r.kind === 'faith') faith.set(r.id, name);
+    else if (r.kind === 'person') person.set(r.id, name);
     else {
       let m = dynasty.get(r.id);
       if (!m) dynasty.set(r.id, (m = new Map()));
       m.set(r.index!, name);
     }
   }
-  if (!polityRoot.size && !dynasty.size && !settlement.size && !place.size && !culture.size && !region.size && !faith.size) return civ;
+  if (!polityRoot.size && !dynasty.size && !settlement.size && !place.size && !culture.size && !region.size && !faith.size && !person.size) return civ;
 
   let changed = false;
   // 州名:另起一份 regionNames(civ.regions 不动,见文件头)
@@ -1008,8 +1068,24 @@ export function applyNames(civ: Civ, names: Record<string, string>): Civ {
       changed = true;
     }
   }
+  // 人物:换本名,生成时的名字留在 defaultName(稳定键按它算,见 personKey)
+  let people = civ.people;
+  if (person.size && people) {
+    let list: Person[] | null = null;
+    for (const [id, name] of person) {
+      const x = people[id];
+      if (!x || x.name === name) continue;
+      list ??= people.slice();
+      list[id] = { ...x, name, defaultName: x.defaultName ?? x.name };
+    }
+    if (list) {
+      people = list;
+      changed = true;
+    }
+  }
   if (!changed) return civ;
   const out: Civ = { ...civ, cultures, places, settlements, polities };
+  if (people) out.people = people;
   if (regionNames) out.regionNames = regionNames;
   if (religion) out.religion = religion;
   return out;

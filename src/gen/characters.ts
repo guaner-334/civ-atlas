@@ -30,7 +30,7 @@
  * 读进来的列表先过 cleanCharacters(格式不对的丢掉,编号重复的换一个新编号,最多留 CHARACTERS_MAX 个)。
  */
 import type { Civ } from './civ/types';
-import { INTERVENTION_YEAR_MAX, MARK_COLORS, freeMarkId, isCityKey, isPolityKey, isRegionKey, polityKey, yearOf, type MarkColor } from './edits';
+import { INTERVENTION_YEAR_MAX, MARK_COLORS, freeMarkId, isCityKey, isPolityKey, isRegionKey, yearOf, type MarkColor } from './edits';
 import { TERRAIN_H, TERRAIN_W } from './terrainEdits';
 
 /** 一个世界最多几个作者的人物 */
@@ -97,57 +97,8 @@ export interface AuthorCharacter {
 // ---------------------------------------------------------------------------
 // 推演里的人的稳定键
 
-/**
- * 人物的稳定键:国家的稳定键 + 身份 + 名字 + 生年(重推历史后同一国、同名、同年生的还是他;推演变了、指不到就算了)。
- * 同一国、同身份、同名、同年生的不止一个(西幻的君主会重名):第二个起后面加 #1、#2……(按人物编号的先后)
- */
-export function personKey(civ: Civ, id: number): string {
-  return personKeys(civ)[id] ?? '';
-}
-
-const personKeyCache = new WeakMap<object, { keys: string[]; byKey: Map<string, number> }>();
-
-/** 每个人的稳定键(下标 = 人物编号;国家没了的 = '')。按人物列表存 */
-function personIndex(civ: Civ): { keys: string[]; byKey: Map<string, number> } {
-  const list = civ.people ?? [];
-  let ix = personKeyCache.get(list);
-  if (ix && ix.keys.length === list.length) return ix;
-  const keys: string[] = [];
-  const byKey = new Map<string, number>();
-  const seen = new Map<string, number>();
-  for (const x of list) {
-    if (!civ.polities[x.polity]) {
-      keys[x.id] = '';
-      continue;
-    }
-    const base = `person:${polityKey(civ, x.polity)}|${x.role}|${x.name}|${Math.round(x.born)}`;
-    const n = seen.get(base) ?? 0;
-    seen.set(base, n + 1);
-    const k = n ? `${base}#${n}` : base;
-    keys[x.id] = k;
-    byKey.set(k, x.id);
-  }
-  ix = { keys, byKey };
-  personKeyCache.set(list, ix);
-  return ix;
-}
-
-const personKeys = (civ: Civ) => personIndex(civ).keys;
-
-/** 按人物的稳定键在(重推过的)历史里找回这个人;找不到 = −1 */
-export function resolvePersonKey(civ: Civ, key: string): number {
-  if (!civ.people?.length) return -1;
-  const ix = personIndex(civ);
-  const hit = ix.byKey.get(key);
-  if (hit !== undefined) return hit;
-  // 将领后来按不重名的规则改过名(旧存档里记的是原来的名字):同一国、同年生的将领只有一位,就是他
-  const m = /^(person:.+\|general)\|[^|]+\|(-?\d+)(?:#\d+)?$/.exec(key);
-  if (!m) return -1;
-  const head = m[1] + '|';
-  const tail = '|' + m[2];
-  const found = ix.keys.flatMap((k, id) => (k.startsWith(head) && (k.endsWith(tail) || k.includes(tail + '#')) ? [id] : []));
-  return found.length === 1 ? found[0] : -1;
-}
+// 人物的稳定键(personKey、resolvePersonKey)写在 edits.ts:改名也要按它认人
+export { personKey, resolvePersonKey } from './edits';
 
 const PERSON_KEY = /^person:polity:(r-?\d{1,7}|c\d{1,7})#\d{1,5}\|(ruler|general|prince|minister)\|[^|\n]{1,32}\|-?\d{1,6}(#\d{1,4})?$/;
 const EVENT_KEY = /^event:\d{1,5}\|[a-z]{1,16}\|[^|\n]{1,48}\|[^|\n]{1,100}#\d{1,4}$/;

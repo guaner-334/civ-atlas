@@ -716,6 +716,8 @@ export interface Person {
   commands?: PersonCommand[];
   /** 父亲(Person.id;君主和宗室才有;一朝的第一位、共和国执政官、将领没有) */
   parent?: number;
+  /** 作者改过名时,生成时的名字(稳定键按它算,见 gen/edits.ts 的 personKey);没改过 = 不给 */
+  defaultName?: string;
   /** 字(名臣、将领;东方带姓的语感才有,见 officials.ts) */
   courtesy?: string;
   /** 号的后半("居士""山人";前半是籍贯的城名,officialText.ts 的 personArt 现拼:作者改了城名跟着变)。一部分名臣、将领有 */

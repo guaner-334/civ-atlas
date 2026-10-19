@@ -37,6 +37,7 @@ import { charactersOfPerson } from './characterInfo';
 import { CharacterRefs } from './CharacterPanel';
 import { MenuItem } from './PopMenu';
 import { Icon } from './icons';
+import { NameEdit } from './NameEdit';
 import { Act, Acts, EntryText, EventList, Link, MoreAct, PanelHead, Row, Stats, SubLine, copyText, jumpTo, rgb, type DetailProps } from './panelParts';
 
 const F = Math.floor;
@@ -127,7 +128,8 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
   const x = civ.people?.[id];
   const p = x ? civ.polities[x.polity] : undefined;
   const [copied, setCopied] = useState(false);
-  const { characters: chars, era } = useEdits();
+  const [renaming, setRenaming] = useState(false);
+  const { characters: chars, era, names } = useEdits();
   const lines = useMemo(() => (x && p ? personLines(civ, x, era) : []), [civ, x, p, era]);
   const events = useMemo(() => (x && p ? personEvents(civ, x) : []), [civ, x, p]);
   const bio = useMemo(() => (x && p ? personBio(civ, x, era) : ''), [civ, x, p, era]);
@@ -155,6 +157,11 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
           : `${ministerRole(civ, x)}，${yearSpanAt(span.from, span.until, era)}在朝`
         : `${generalRole(civ, x)}，${yearSpanAt(span.from, end, era)}领兵`;
   const name = personName(civ, x);
+  // 改名:只改本名;前面的庙号、谥号不动(国家没了、算不出键的人不能改)
+  const nameKey = personKey(civ, id);
+  const fallbackName = x.defaultName ?? x.name;
+  const lead = name.endsWith(x.name) ? name.slice(0, name.length - x.name.length) : '';
+  const nameHint = `${lead ? `只改名字，${/[宗祖]$/.test(lead) ? '庙号' : '称号'}「${lead}」不变；` : '只改名字；'}留空 = 换回「${fallbackName}」。`;
   const head = ruler ? (consul ? '在任时' : '在位时') : minister ? '在朝时' : '领兵时';
   const lineage = () => openLineage(x.polity, { dynasty: x.dynasty ?? 0, focus: x.id });
 
@@ -187,9 +194,25 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
           )
         }
       >
-        <div className="ins-name-row big">
-          <span className="ins-name pp-title">{name}</span>
-        </div>
+        {nameKey ? (
+          <NameEdit
+            k={nameKey}
+            kind="person"
+            shown={name}
+            current={x.name}
+            fallback={x.defaultName ?? x.name}
+            names={names}
+            big
+            editing={renaming}
+            onEditing={setRenaming}
+            hint={nameHint}
+            preview={(v) => personName(civ, { ...x, name: v })}
+          />
+        ) : (
+          <div className="ins-name-row big">
+            <span className="ins-name pp-title">{name}</span>
+          </div>
+        )}
         <SubLine parts={[sub]} />
       </PanelHead>
       <Acts>
@@ -209,6 +232,11 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
           {copied ? '已复制' : '复制生平'}
         </Act>
         <MoreAct>
+          {nameKey && (
+            <MenuItem icon={<Icon name="rename" size={16} />} act="person-rename" onClick={() => setRenaming(true)}>
+              改名
+            </MenuItem>
+          )}
           <MenuItem icon={<Icon name="person" size={16} />} act="person-add-character" onClick={() => newCharacterDraft({ kin: [{ rel: '', person: personKey(civ, id) }], year })}>
             加一个和他有关的人物
           </MenuItem>
