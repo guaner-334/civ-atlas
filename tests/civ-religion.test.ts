@@ -36,7 +36,7 @@ function civOf(seed: number): Civ {
 const CLEAN = /undefined|NaN|null|\[object/;
 
 describe.each([7, 2024])('信仰 · seed=%i', (seed) => {
-  it('编号就是下标:先是各族的民间信仰(编号 = 民族编号),再是大教、教派(按创立先后);名字不重', () => {
+  it('编号就是下标:先是推演前就有的各族的民间信仰(按民族编号),再按出现先后排大教、教派、分化出来的民族的民间信仰;名字不重', () => {
     const civ = civOf(seed);
     const F = civ.religion!.faiths;
     F.forEach((f, i) => {
@@ -45,14 +45,17 @@ describe.each([7, 2024])('信仰 · seed=%i', (seed) => {
       expect(f.name).not.toMatch(CLEAN);
       expect(f.color).toHaveLength(3);
     });
-    const C = civ.cultures.length;
-    expect(F.slice(0, C).every((f, i) => f.kind === 'folk' && f.culture === i)).toBe(true);
-    expect(F.slice(C).every((f) => f.kind !== 'folk')).toBe(true);
+    const roots = civ.cultures.filter((c) => c.parent === undefined);
+    const C = roots.length;
+    expect(F.slice(0, C).every((f, i) => f.kind === 'folk' && f.culture === roots[i].id)).toBe(true);
+    // 每个民族正好一种民间信仰
+    expect(F.filter((f) => f.kind === 'folk').map((f) => f.culture).sort((a, b) => a! - b!)).toEqual(civ.cultures.map((c) => c.id));
+    const later = F.slice(C).filter((f) => f.kind !== 'folk');
     expect(new Set(F.map((f) => f.name)).size).toBe(F.length);
     const greats = F.filter((f) => f.kind === 'great');
     expect(greats.length).toBeGreaterThanOrEqual(2);
     expect(greats.length).toBeLessThanOrEqual(5);
-    for (let i = C + 1; i < F.length; i++) expect(F[i].founded!).toBeGreaterThanOrEqual(F[i - 1].founded!);
+    for (let i = 1; i < later.length; i++) expect(later[i].founded!).toBeGreaterThanOrEqual(later[i - 1].founded!);
     for (const g of greats) {
       expect(g.form).toBeDefined();
       expect(g.founder?.name.length).toBeGreaterThanOrEqual(2);
@@ -70,14 +73,17 @@ describe.each([7, 2024])('信仰 · seed=%i', (seed) => {
     for (const g of greats) expect(F.filter((f) => f.parent === g.id).length).toBeLessThanOrEqual(2);
   });
 
-  it('任意一年:检查点 + 补日志 = 从头翻日志;每 5 年算一步,两步之间沿用上一步', () => {
+  it('任意一年:检查点 + 补日志 = 从头翻日志;大教每 5 年传一步,民间信仰在民族换的那一刻跟着换', () => {
     const civ = civOf(seed);
     const out = new Int16Array(civ.regions.count);
     for (const y of [0, 450, 1234.5, 2000, Math.floor(civ.endYear / 2) + 0.25, civ.endYear]) {
       const a = faithAt(civ, y, out);
       expect(a).toBe(out);
       expect([...a], `${y} 年`).toEqual([...faithFromScratch(civ, y)]);
-      expect([...a], `${y} 年`).toEqual([...faithAt(civ, Math.floor(y / 5) * 5)]);
+      // 两步之间只有民间信仰跟着民族变
+      const step = faithAt(civ, Math.floor(y / 5) * 5);
+      const F = civ.religion!.faiths;
+      for (let r = 0; r < a.length; r++) if (a[r] !== step[r]) expect(a[r] < 0 || F[a[r]].kind === 'folk', `${y} 年 州 ${r}`).toBe(true);
     }
   });
 

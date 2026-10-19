@@ -32,7 +32,7 @@ const rulersOf = (civ: Civ, p: number) =>
 const flat = (list: readonly ChronicleEntry[]) => list.flatMap((e) => [e, ...(e.children ?? [])]);
 
 describe.each([7, 2024])('人物 · seed=%i', (seed) => {
-  it('编号就是下标;名字干净;先是君主,再是统帅,最后是没即位的宗室', () => {
+  it('编号就是下标;名字干净;按出道先后排(同一年先君主、再统帅、宗室、名臣)', () => {
     const civ = civOf(seed);
     const P = civ.people!;
     expect(P.length).toBeGreaterThan(civ.polities.length);
@@ -43,8 +43,10 @@ describe.each([7, 2024])('人物 · seed=%i', (seed) => {
       expect(x.polity).toBeGreaterThanOrEqual(0);
       expect(x.polity).toBeLessThan(civ.polities.length);
     });
-    const rank = { ruler: 0, general: 1, prince: 2, minister: 3 };
-    for (let i = 1; i < P.length; i++) expect(rank[P[i].role]).toBeGreaterThanOrEqual(rank[P[i - 1].role]);
+    // 宗室出道(为哪位君主补的)不存:只比君主即位、统帅第一次领兵、名臣入仕的年份
+    const debut = P.filter((x) => x.role !== 'prince').map((x) => (x.role === 'general' ? x.commands![0].from : x.from!));
+    for (let i = 1; i < debut.length; i++) expect(debut[i]).toBeGreaterThanOrEqual(debut[i - 1]);
+    expect(new Set(P.map((x) => x.role)).size).toBeGreaterThanOrEqual(3);
   });
 
   it('历代君主从立国到灭亡一位接一位,不断档;每一朝的第一位不是"继位"', () => {
@@ -281,7 +283,7 @@ describe.each([7, 2024])('世系 · seed=%i', (seed) => {
     for (const x of P) if (x.role === 'general' || (x.role === 'ruler' && civ.polities[x.polity].lineage === 'republic')) expect(x.parent).toBeUndefined();
   });
 
-  it('补出来的宗室:有名字、有儿子,在儿子即位前去世;不和本国的君主、将领同名', () => {
+  it('补出来的宗室:有名字、有儿子,在儿子即位前去世;不和本国先出道的君主、将领同名', () => {
     const civ = civOf(seed);
     const P = civ.people!;
     const princes = P.filter((x) => x.role === 'prince');
@@ -294,7 +296,7 @@ describe.each([7, 2024])('世系 · seed=%i', (seed) => {
       expect(x.fate).toBe('died');
       expect(x.commands).toBeUndefined();
       expect(kids.get(x.id)?.length, x.name).toBeGreaterThan(0);
-      const names = P.filter((o) => o.polity === x.polity && o.id !== x.id && o.role !== 'prince').map((o) => o.name);
+      const names = P.filter((o) => o.polity === x.polity && o.id < x.id && o.role !== 'prince').map((o) => o.name);
       expect(names, x.name).not.toContain(x.name);
     }
   });

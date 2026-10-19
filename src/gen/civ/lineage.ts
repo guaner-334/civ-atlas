@@ -7,8 +7,9 @@
  *   - 差 14 岁以上 → 前一位的儿子;差 40 岁以上 → 孙子(中间补一位没即位、在他即位前去世的父亲,早卒的太子)
  *   - 差得少 → 和前一位同一个父亲的兄弟(前一位没有父亲 —— 一朝的第一位 —— 就补一位没即位的父亲)
  * 对不上再依次试:前一位兄弟的儿子(侄)、前一位祖父的儿子(叔伯)、前一位叔伯的儿子(从兄弟);都不行就不连(宗室远支)。
- * 补出来的人是 role = 'prince' 的人物(只有国家、朝代、名字、生卒、父亲),排在 civ.people 的最后。
- * 只往前看:每一位的父亲只取决于他和他之前的君主,干预某年之前的世系不变。不用随机数,名字按位置锚取(和君主、将领同一个起名器)。
+ * 补出来的人是 role = 'prince' 的人物(只有国家、朝代、名字、生卒、父亲);编号按"为了哪一位君主即位补的"那一刻排(people.ts)。
+ * 只往前看:每一位的父亲只取决于他和他之前的君主;补出来的宗室的生卒、名字只看补他的那一刻以前的人 ——
+ * 干预某年之前、接着往后推,那时的世系都不变。不用随机数,名字按位置锚取(和君主、将领同一个起名器)。
  * 纯计算,不碰 DOM。
  */
 
@@ -22,7 +23,7 @@ const POSTHUMOUS = 0.75;
 const MAX_AGE = 88;
 /** 补出来的开国之君的父亲:比两个儿子里年长的那个大多少岁(年纪差太大时少一些) */
 const FOUNDER_FATHER_AGE = 30;
-/** 补出来的宗室起名最多试几次(和本国的君主、将领、名臣、别的宗室都不重名) */
+/** 补出来的宗室起名最多试几次(和那时本国已有的君主、将领、名臣、别的宗室都不重名) */
 const PRINCE_NAME_TRIES = 120;
 
 const TICK = 256;
@@ -35,8 +36,8 @@ interface Node {
   died: Year;
   parent?: Node;
   kids: Node[];
-  /** 补出来的开国之君的父亲:卒年跟着最小的儿子往后挪 */
-  flex?: boolean;
+  /** 补出来的宗室:为了哪一位君主即位补的(那一刻) */
+  debut?: Year;
 }
 
 export interface LineageNamer {
@@ -46,7 +47,7 @@ export interface LineageNamer {
 }
 
 /**
- * 给每国的君主连上父亲,返回补出来的宗室(按国家、补出来的先后)。rulers[国家] = 这国的君主(即位先后);
+ * 给每国的君主连上父亲,返回补出来的宗室(按国家、补出来的先后)和补他们的那一刻(debut)。rulers[国家] = 这国的君主(即位先后);
  * Person.parent 先记成 Person(parentOf),等 people.ts 排好编号再换成编号
  */
 export function buildLineage(
@@ -55,29 +56,30 @@ export function buildLineage(
   /** 别的人物(将领、名臣):补出来的宗室不和本国的这些人重名 */
   generals: readonly Person[],
   opts: { tag: readonly number[]; namerOf: (p: Polity) => LineageNamer; surnameOf: (ruler: Person) => string },
-): { princes: Person[]; parentOf: Map<Person, Person> } {
+): { princes: Person[]; parentOf: Map<Person, Person>; debut: Map<Person, Year> } {
   const princes: Person[] = [];
   const parentOf = new Map<Person, Person>();
-  const generalNames: Set<string>[] = polities.map(() => new Set());
-  for (const g of generals) generalNames[g.polity]?.add(g.name);
+  const debut = new Map<Person, Year>();
+  /** 各国的将领、名臣:出道那年 + 名字 */
+  const generalNames: [Year, string][][] = polities.map(() => []);
+  for (const g of generals) generalNames[g.polity]?.push([g.commands?.[0]?.from ?? g.from ?? g.born, g.name]);
   for (const p of polities) {
     if (p.lineage === 'republic') continue;
     const list = rulers[p.id];
     const mine: Node[] = [];
     const nodes = new Map<Person, Node>();
-    const prince = (born: Year, died: Year, dynasty: number, flex = false): Node => {
+    const prince = (born: Year, died: Year, dynasty: number, at: Year): Node => {
       const x: Person = { id: -1, role: 'prince', polity: p.id, name: '', born: q(born), died: q(died), fate: 'died', dynasty };
-      const n: Node = { p: x, born: x.born, died: x.died!, kids: [], flex };
+      const n: Node = { p: x, born: x.born, died: x.died!, kids: [], debut: at };
       mine.push(n);
       return n;
     };
     const fits = (f: Node, x: Node) => {
       const age = x.born - f.born;
       if (age < GEN_AGE[0] || age > GEN_AGE[1]) return false;
-      return x.born <= f.died + POSTHUMOUS || (f.flex === true && x.born - f.born <= MAX_AGE);
+      return x.born <= f.died + POSTHUMOUS;
     };
     const adopt = (f: Node, x: Node) => {
-      if (f.flex && x.born > f.died) f.died = x.born;
       x.parent = f;
       f.kids.push(x);
     };
@@ -89,7 +91,7 @@ export function buildLineage(
       const hi = Math.min(f.died + POSTHUMOUS, x.born - GEN_AGE[0]);
       if (lo > hi) return false;
       const b = (lo + hi) / 2;
-      const m = prince(b, Math.max(x.born, Math.min(from - 1, b + MAX_AGE)), x.p.dynasty ?? 0);
+      const m = prince(b, Math.max(x.born, Math.min(from - 1, b + MAX_AGE)), x.p.dynasty ?? 0, from);
       adopt(f, m);
       adopt(m, x);
       return true;
@@ -112,7 +114,7 @@ export function buildLineage(
         const a = Math.min(PV.born, X.born);
         const b = Math.max(PV.born, X.born);
         if (b - a <= GEN_AGE[1] - GEN_AGE[0]) {
-          const f = prince(a - Math.max(GEN_AGE[0], Math.min(FOUNDER_FATHER_AGE, GEN_AGE[1] - (b - a))), b, r.dynasty ?? 0, true);
+          const f = prince(a - Math.max(GEN_AGE[0], Math.min(FOUNDER_FATHER_AGE, GEN_AGE[1] - (b - a))), b, r.dynasty ?? 0, from);
           adopt(f, PV);
           adopt(f, X);
           ok = true;
@@ -130,10 +132,16 @@ export function buildLineage(
       if (GG && GG.kids.some((s) => s !== G && child(s, X))) continue;
       bridge(GG, X, from);
     }
-    // 宗室的名字:东方中式 = 本朝的姓 + 名;不和这国的君主、将领、别的宗室同名
+    // 宗室的名字:东方中式 = 本朝的姓 + 名;不和补他那一刻这国已有的君主、将领、名臣、先补的宗室同名(按补出来的先后起)
     const namer = opts.namerOf(p);
-    const used = new Set([...list.map((x) => x.name), ...generalNames[p.id]]);
+    const used = new Set<string>();
+    let ri = 0;
+    let gi = 0;
+    const others = generalNames[p.id].slice().sort((a, b) => a[0] - b[0]);
     mine.forEach((n, i) => {
+      const t = n.debut!;
+      for (; ri < list.length && (list[ri].from ?? list[ri].born) <= t; ri++) used.add(list[ri].name);
+      for (; gi < others.length && others[gi][0] <= t; gi++) used.add(others[gi][1]);
       let r: Person | undefined;
       for (let d: Node | undefined = n; d && !r; d = d.kids.find((c) => c.p.role === 'ruler') ?? d.kids[0]) if (d.p.role === 'ruler') r = d.p;
       const sur = namer.surnamed && r ? opts.surnameOf(r) : '';
@@ -143,9 +151,10 @@ export function buildLineage(
       used.add(name);
       n.p.name = name;
       n.p.died = q(n.died);
+      debut.set(n.p, t);
     });
     for (const n of [...nodes.values(), ...mine]) if (n.parent) parentOf.set(n.p, n.parent.p);
     princes.push(...mine.map((n) => n.p));
   }
-  return { princes, parentOf };
+  return { princes, parentOf, debut };
 }

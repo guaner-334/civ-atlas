@@ -399,9 +399,17 @@ export function buildPeople(civ: PeopleInput): Person[] {
   for (const n of naming) n.x.name = book.pick(n.at, n.x.born, n.x.polity, n.T);
   finish();
 
-  // ---- 世系:谁是谁的父亲,补上没即位的宗室(编号排在将领后面;不和本国的君主、将领、名臣重名)----
-  const { princes, parentOf } = buildLineage(polities, rulers, [...generals, ...ministers], { tag, namerOf: (p) => namerOf(styleOf(p)), surnameOf: (r) => splitSurname(r.name) });
-  const out = [...rulers.flat(), ...generals, ...princes, ...ministers];
+  // ---- 世系:谁是谁的父亲,补上没即位的宗室(不和本国的君主、将领、名臣重名)----
+  const { princes, parentOf, debut } = buildLineage(polities, rulers, [...generals, ...ministers], { tag, namerOf: (p) => namerOf(styleOf(p)), surnameOf: (r) => splitSurname(r.name) });
+  // 编号按出道先后排(同一年:君主、将领、宗室、名臣),接着往后推时先出道的人编号不变
+  const all = [
+    ...rulers.flat().map((x) => ({ x, T: x.from!, r: 0 })),
+    ...generals.map((x) => ({ x, T: x.commands![0].from, r: 1 })),
+    ...princes.map((x) => ({ x, T: debut.get(x)!, r: 2 })),
+    ...ministers.map((x) => ({ x, T: x.from!, r: 3 })),
+  ].map((e, k) => ({ ...e, k }));
+  all.sort((a, b) => a.T - b.T || a.r - b.r || a.x.polity - b.x.polity || a.k - b.k);
+  const out = all.map((e) => e.x);
   out.forEach((p, i) => (p.id = i));
   for (const [x, f] of parentOf) x.parent = f.id;
   for (const [d, x] of fixups) d.person = x.id;

@@ -459,6 +459,11 @@ export interface Civ {
    * CivSim.fromCiv 接着推时要用
    */
   polityYears?: number;
+  /**
+   * 国都彼此至少隔几跳(polities.ts 的 capitalSpacing,按 CivParams.polities 定)。CivSim.fromCiv 接着推时要用;
+   * 没有(旧版本的历史)= 按"自动"的国家数重算
+   */
+  capSpacing?: number;
   /** 全世界统一的航海时代从哪一刻起(旧版本的历史;现在各国自己进,见 Polity.sail,这里是 Infinity。polities.ts 的 sailsOcean;接着推时沿用) */
   sailFrom?: Year;
   /** 拓荒设定(CivParams.frontier,清理过的;默认 = 不写)。CivSim.fromCiv 接着推时要用 */

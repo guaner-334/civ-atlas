@@ -70,9 +70,9 @@ describe('地理实体(places.ts)', () => {
   });
 
   it('同一个种子两次结果一样;没有民族数据时整个世界一种语感', () => {
-    // civ.places 是按各州民族的语感起的名:用同样的民族数据再算一遍,应该完全一样
+    // 按各州民族的语感起名:同样的民族数据算两遍完全一样;地名的位置和 civ.places 一样(civ.places 按计划中的疆域起名)
     const again = findPlaces(world, civ.regions, { cultures: civ.cultures, culture: civ.culture });
-    expect(again.map((p) => p.name)).toEqual(civ.places.map((p) => p.name));
+    expect(findPlaces(world, civ.regions, { cultures: civ.cultures, culture: civ.culture }).map((p) => p.name)).toEqual(again.map((p) => p.name));
     for (let i = 0; i < again.length; i++) expect(Array.from(again[i].path)).toEqual(Array.from(civ.places[i].path));
     // 不给民族数据:两次一样,地名的位置和给了民族数据时一样(只是名字的语感不同)
     const plain = findPlaces(world, civ.regions);
