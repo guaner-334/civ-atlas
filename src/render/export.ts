@@ -358,10 +358,15 @@ export function mapLegendReserved(p: Pick<ExportMapParams, 'style' | 'layer' | '
   return b ? [[b.x, b.y, b.x + b.w, b.y + b.h]] : [];
 }
 
+/** 色阶在画布上占的地方(画布像素),给标记 / 足迹排名字、年份时让开 */
+export function mapLegendCanvasBoxes(p: Pick<ExportMapParams, 'style' | 'layer' | 'legend'>, S: ExportScale): number[][] {
+  return mapLegendReserved(p).map((b) => b.map((v) => v * S));
+}
+
 /**
  * 地图图片左上角的色阶:一块半透明纸底 + 标题 + 单位 + 色带 + 刻度。
  * 只画连续色阶(海拔、气温、降水、洋流);分类图层(板块、生态、气候)的色块图例走单独导出的图例图片。
- * 在地图全部画完以后压在最上面;排地名时 mapLegendReserved() 已经让开这块,不会盖住字。
+ * 压在地名上面、作者标记和人物足迹下面;排地名、标记名字、足迹年份时都让开这块(mapLegendCanvasBoxes),标记和足迹的点本身仍画在最上面,不会被色阶盖住。
  */
 export async function drawMapLegend(ctx: CanvasRenderingContext2D, p: Pick<ExportMapParams, 'style' | 'layer' | 'legend'>, S: ExportScale): Promise<boolean> {
   if (p.style !== 'data' || p.legend === false) return false;
@@ -543,13 +548,15 @@ export function drawExportMarks(
   items: readonly MarkItem[],
   placed?: Placement,
   px: MapTextScale = { s: S, dpr: S },
+  /** 别的要让开的地方(画布像素),比如色阶 */
+  extraAvoid: readonly number[][] = [],
 ): number {
   if (!items.length) return 0;
   const { frame, m } = exportMarkFrame(p, px);
   ctx.save();
   ctx.scale(m, m);
   // 文字层的画布像素 = 摆放坐标 × m
-  const avoid = placed ? placedTextBoxes(placed).map((b) => b.map((v) => v / m)) : [];
+  const avoid = [...(placed ? placedTextBoxes(placed) : []), ...extraAvoid].map((b) => b.map((v) => v / m));
   const style = markStyle(p.style);
   const layout = layoutMarks(items, frame, { names: true, measure: canvasMeasure(ctx), avoid, style });
   drawMarks(ctx, layout, m, style);
@@ -558,11 +565,11 @@ export function drawExportMarks(
 }
 
 /** 正选着的作者人物的足迹(和屏幕上一样的线、圆点、年份、头像);年份尽量不压地图上的字。返回画了几个点 */
-export function drawExportTrail(ctx: CanvasRenderingContext2D, p: Pick<ExportMapParams, 'world' | 'center' | 'projection'>, S: ExportScale, trail: TrailInput, placed?: Placement): number {
+export function drawExportTrail(ctx: CanvasRenderingContext2D, p: Pick<ExportMapParams, 'world' | 'center' | 'projection'>, S: ExportScale, trail: TrailInput, placed?: Placement, extraAvoid: readonly number[][] = []): number {
   const { frame, m } = exportMarkFrame(p, { s: S, dpr: S });
   ctx.save();
   ctx.scale(m, m);
-  const avoid = placed ? placedTextBoxes(placed).map((b) => b.map((v) => v / m)) : [];
+  const avoid = [...(placed ? placedTextBoxes(placed) : []), ...extraAvoid].map((b) => b.map((v) => v / m));
   const layout = layoutTrail(trail, frame, { measure: canvasMeasure(ctx), avoid });
   drawTrail(ctx, layout);
   ctx.restore();

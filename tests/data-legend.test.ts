@@ -5,7 +5,7 @@
 import { describe, expect, it } from 'vitest';
 import { LAYERS, type LayerId } from '../src/render/layers';
 import { dataLegend, dataLegendText, isGradientLegend } from '../src/render/dataLegend';
-import { mapLegendBox } from '../src/render/export';
+import { mapLegendBox, mapLegendCanvasBoxes } from '../src/render/export';
 
 const GRADIENT: LayerId[] = ['elevation', 'temperature', 'precipitation', 'currents'];
 
@@ -55,6 +55,16 @@ describe('数据图层图例', () => {
         expect(box).toBeNull();
       }
     }
+  });
+
+  it('标记和足迹排名字时让开的色阶位置:连续色阶按倍数放大,其余不留', () => {
+    const grad = LAYERS.find((l) => GRADIENT.includes(l.id))!.id;
+    const flat = LAYERS.find((l) => !GRADIENT.includes(l.id))!.id;
+    const box = mapLegendBox(grad)!;
+    expect(mapLegendCanvasBoxes({ style: 'data', layer: grad }, 2)).toEqual([[box.x * 2, box.y * 2, (box.x + box.w) * 2, (box.y + box.h) * 2]]);
+    expect(mapLegendCanvasBoxes({ style: 'data', layer: grad, legend: false }, 2)).toEqual([]);
+    expect(mapLegendCanvasBoxes({ style: 'data', layer: flat }, 2)).toEqual([]);
+    expect(mapLegendCanvasBoxes({ style: 'fantasy', layer: grad }, 1)).toEqual([]);
   });
 
   it('图例里要写的字包括标题、单位 / 刻度和说明', () => {
