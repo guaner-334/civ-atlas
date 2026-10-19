@@ -85,7 +85,7 @@ const SIZE_D = 0.4;
 const DYNASTY_YEARS = 60;
 const CRISIS_DYNASTY = 0.25;
 /** 起兵的赔率:SPLIT_ODDS × e^(SPLIT_K × (离心力 + 动荡 − SPLIT_D0)) */
-const SPLIT_ODDS = 0.08;
+const SPLIT_ODDS = 0.04;
 const SPLIT_K = 2;
 const SPLIT_D0 = 1.8;
 /** 挑起事的州时,离心力加一点随机(不总是同一州) */

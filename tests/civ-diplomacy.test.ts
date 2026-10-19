@@ -297,8 +297,9 @@ describe('邦交和作者下令', () => {
   }, 120_000);
 
   it('下令结了盟的宗主不讨伐自立的藩属', () => {
-    // 讨伐不常见:20 个种子(1–19、2024)的小世界里不到一半有(GENERATOR_VERSION 13:种子 3、4、8、10、11、12、15、17、18)
-    const p = small(3);
+    // 讨伐不常见:GENERATOR_VERSION 13 时 20 个种子(1–19、2024)的小世界里不到一半有;
+    // GENERATOR_VERSION 22 有讨伐的是种子 4、5、7–14、17、2024(种子 3 没有了),用种子 9(上面的测试也用它)
+    const p = small(9);
     const w = world(p);
     const civ = civOf(p);
     const war = civ.annals.find((e) => e.kind === 'war' && e.cause === 'punish');

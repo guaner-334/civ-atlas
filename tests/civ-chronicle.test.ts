@@ -870,7 +870,9 @@ describe('编年史 · 真实世界(默认参数):被迫迁都折进战争,"大�
   // GENERATOR_VERSION 16(航海时代:沿海大国跨海扩张,仗多了)以后 20 个种子 24–66 条(seed 7 59 条、2024 66 条):上限放到 70
   // GENERATOR_VERSION 19(仗短而狠、乘胜连下、拉锯:亡国、分合多了)以后 20 个种子 34–87 条(seed 7 55 条、2024 87 条):上限放到 95
   // GENERATOR_VERSION 20(饥荒、民变、大崩解;仗多了)以后 20 个种子 46–109 条(seed 7 59 条、2024 95 条):上限放到 115
-  const RANGE: [number, number] = [30, 115];
+  // GENERATOR_VERSION 22(称霸大陆的大国盛极而衰,崩了又被重新统一:崩解、亡国、复国多了)以后 20 个种子 47–135 条
+  // (seed 7 75 条、2024 98 条):上限放到 140
+  const RANGE: [number, number] = [30, 140];
   for (const seed of [7, 2024]) {
     it(`seed ${seed}`, () => {
       const civ = generateCiv(generateWorld({ ...DEFAULT_PARAMS, seed }));
@@ -939,13 +941,13 @@ describe('编年史 · 真实世界(默认参数):被迫迁都折进战争,"大�
       for (const e of major) expect(e.text).not.toMatch(/\uff08\uff09|;;|,,|,,/);
     }, 60_000);
   }
-  // 别的种子:都不超过 95 条(GENERATOR_VERSION 19 以后 20 个种子 34–87 条)
+  // 别的种子:都不超过 140 条(GENERATOR_VERSION 22 以后 20 个种子 47–135 条;seed 1 92 条、3 107 条、99 62 条)
   for (const seed of [1, 3, 99]) {
-    it(`seed ${seed}:"大事"不超过 95 条`, () => {
+    it(`seed ${seed}:"大事"不超过 140 条`, () => {
       const list = buildChronicle(generateCiv(generateWorld({ ...DEFAULT_PARAMS, seed })));
       const n = filterChronicle(list, { major: true }).length;
       expect(n).toBeGreaterThanOrEqual(19);
-      expect(n).toBeLessThanOrEqual(95);
+      expect(n).toBeLessThanOrEqual(140);
     }, 60_000);
   }
 });
