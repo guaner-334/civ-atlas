@@ -53,6 +53,8 @@
  *   按第几年写时不写。读档时过 cleanEra:名字、元年不合格的按第几年写,提示一句
  * - edits.months(可选):一年几个月(edits.ts 文件头"月份"),`24`;只写年 `0`;一年 12 个月时不写。
  *   读档时过 cleanMonths:认不出的按 12 个月,提示一句
+ * - edits.play(可选):游戏模式的进度(edits.ts 文件头"游戏模式的进度"),`{ "year": 825, "commands": [{ "kind": "declare", "a": "polity:c4567#0", "b": "polity:c8123#0", "from": 825 }] }`;
+ *   不在玩时不写。读档时过 cleanPlay:年份不对的当没在玩、不合格的命令丢掉,提示一句。读回来按"推到哪年 + 命令串"重新推出同一刻(civ/play.ts 的 playCiv)
  * - view:看这个世界用的投影和中央经线(`{ "projection": "robinson", "center": 120 }`,可选)。
  *   投影名原样存(render/projection.ts 的 ProjectionId,或 "globe"),认不出的由界面当成等距圆柱;
  *   旧存档没有这个字段 = 等距圆柱、中央经线 0°
@@ -64,7 +66,7 @@
  */
 import { DEFAULT_PARAMS, type World, type WorldParams } from './world';
 import { cleanMix, sameMix } from './names/mix';
-import { GENERATOR_CHANGES, GENERATOR_VERSION, MARKS_MAX, MARK_REGIONS_TOTAL, NAME_MAX, aiNameKeys, cleanCivSeed, cleanEndYear, cleanMapRef, cleanMark, freeMarkId, type AiNameMark, type AuthorMark, type GeneratorChange, type Intervention, type TerrainOp, type Upheaval, type WorldEdits } from './edits';
+import { GENERATOR_CHANGES, GENERATOR_VERSION, MARKS_MAX, MARK_REGIONS_TOTAL, NAME_MAX, aiNameKeys, cleanCivSeed, cleanEndYear, cleanMapRef, cleanMark, cleanPlay, freeMarkId, type AiNameMark, type AuthorMark, type GeneratorChange, type Intervention, type TerrainOp, type Upheaval, type WorldEdits } from './edits';
 import { TERRAIN_MAX_OPS, UPHEAVALS_MAX, UPHEAVAL_KINDS, UPHEAVAL_OPS_MAX, cleanTerrainOp, cleanUpheaval } from './terrainEdits';
 import { SKETCH_MAX_STROKES, cleanSketch, cleanSketchStroke, type SketchEdit } from './sketch';
 import type { PlateEdit } from './plateEdits';
@@ -329,7 +331,7 @@ export function worldKey(params: WorldParams): string {
     .join('&');
 }
 
-/** 改了几处:改名条数 + 干预条数 + 地形修改处数 + 草图(画了算一处)+ 地形大事件数 + 作者标记个数 + 改过的旗面数 + 作者的人物个数 + 地名风格、推演年数、拓荒、起源、文明种子、纪年、月份(各算一处)*/
+/** 改了几处:改名条数 + 干预条数 + 地形修改处数 + 草图(画了算一处)+ 地形大事件数 + 作者标记个数 + 改过的旗面数 + 作者的人物个数 + 地名风格、推演年数、拓荒、起源、文明种子、纪年、月份、游戏进度(各算一处)*/
 export function editCount(edits: WorldEdits): number {
   return (
     Object.keys(edits.names).length +
@@ -346,7 +348,8 @@ export function editCount(edits: WorldEdits): number {
     (cleanOrigins(edits.origins) ? 1 : 0) +
     (cleanCivSeed(edits.civSeed) !== undefined ? 1 : 0) +
     (cleanEra(edits.era) ? 1 : 0) +
-    (cleanMonths(edits.months) !== undefined ? 1 : 0)
+    (cleanMonths(edits.months) !== undefined ? 1 : 0) +
+    (cleanPlay(edits.play) ? 1 : 0)
   );
 }
 
@@ -422,6 +425,8 @@ export function makeSave(
   if (era) save.edits.era = era;
   const months = cleanMonths(edits.months);
   if (months !== undefined) save.edits.months = months;
+  const play = cleanPlay(edits.play);
+  if (play) save.edits.play = { year: play.year, commands: play.commands.map((x) => ({ ...x })) };
   const t = cleanTitle(title);
   if (t) save.title = t;
   const v = view ? cleanView(view) : null;
@@ -662,6 +667,13 @@ export function parseSave(text: string): ParseResult {
   // 月份:认不出的按一年 12 个月
   const months = cleanMonths(E.months);
   if (E.months !== undefined && E.months !== 12 && months === undefined) warnings.push('月份设定认不出来,按一年 12 个月写');
+  // 游戏模式的进度:年份不对的当没在玩,不合格的命令丢掉
+  const play = cleanPlay(E.play);
+  if (E.play !== undefined) {
+    const raw = isObj(E.play) && Array.isArray(E.play.commands) ? E.play.commands.length : 0;
+    if (!play) warnings.push('游戏进度认不出来,按没在玩打开');
+    else if (play.commands.length < raw) warnings.push(`游戏进度里有 ${raw - play.commands.length} 条命令格式不对,已跳过`);
+  }
   const note = versionNote(generator, terrain.length > 0 || !!sketch);
   if (note) warnings.splice(noteAt, 0, note);
 
@@ -689,6 +701,7 @@ export function parseSave(text: string): ParseResult {
       ...(map ? { map } : {}),
       ...(era ? { era } : {}),
       ...(months !== undefined ? { months } : {}),
+      ...(play ? { play } : {}),
     },
     check: typeof raw.check === 'string' ? raw.check.slice(0, 64) : '',
     savedAt: typeof raw.savedAt === 'string' && !Number.isNaN(Date.parse(raw.savedAt)) ? raw.savedAt : '',

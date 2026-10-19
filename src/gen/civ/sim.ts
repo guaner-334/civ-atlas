@@ -413,7 +413,7 @@ export class CivSim {
    * 由 Civ 数据重建推演状态(各层归属、版本号、日志、检查点),再让各层重建待发生的事件,
    * 然后就能从 civ.endYear 接着推:sim.run(更晚的年份)。不需要保存事件堆,阶段 4 的存档也只存 Civ。
    * interventions = 接着推时带着的干预(阶段 4;默认 = 这份历史推出来时带着的 civ.interventions):
-   * 已经过了的只影响之后的决定(规则),还没到的补上它们的事件
+   * 已经过了的只影响之后的决定(规则),还没到的补上它们的事件。后面可以接上几条比 civ.endYear 晚的(游戏模式下的新命令,civ/play.ts)
    */
   static fromCiv(world: World, civ: Civ, interventions: readonly Intervention[] = civ.interventions ?? [], first?: (sim: CivSim) => void): CivSim {
     const sim = new CivSim(civ.regions.count);

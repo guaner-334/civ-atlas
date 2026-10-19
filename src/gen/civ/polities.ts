@@ -1143,6 +1143,7 @@ export function resumePolities(sim: CivSim, world: World, civ: Civ, iv?: Interve
   // 定居年份(日志里最后一次"从没人住变成有人住";阶段 3 同化、迁徙改换民族不算定居,建城不另预约)。
   // 顺带记下每州最后一条日志的下标(下面判断当年预约的"国家到达"过期了没有)
   const settled = new Float64Array(R).fill(Infinity);
+  const settledAt = new Int32Array(R).fill(-1);
   const lastLog = new Int32Array(R).fill(-1);
   const log = civ.log;
   {
@@ -1152,18 +1153,24 @@ export function resumePolities(sim: CivSim, world: World, civ: Civ, iv?: Interve
       lastLog[r] = i;
       if (log.layer[i] !== Layer.Culture) continue;
       const v = log.value[i];
-      if (v >= 0 && cur[r] < 0) settled[r] = log.year[i];
-      else if (v < 0) settled[r] = Infinity;
+      if (v >= 0 && cur[r] < 0) {
+        settled[r] = log.year[i];
+        settledAt[r] = i;
+      } else if (v < 0) settled[r] = Infinity;
       cur[r] = v;
     }
   }
   // 还没建城的州(城被毁了的州不算:重建由 cities.ts 管)
   const hadCity = new Uint8Array(R);
   for (const s of m.settlements) hadCity[s.region] = 1;
+  // 按定居的先后预约(一口气推完时是定居那一刻预约的):同一刻建两座城的,先后和一口气推完一样
+  const toFound: number[] = [];
   for (let r = 0; r < R; r++) {
     if (culture[r] < 0 || hadCity[r] || !T.habitable[r] || !(settled[r] < Infinity)) continue;
-    sim.schedule(settled[r] + foundDelay(m, r), Ev.SettlementFound, r, 0);
+    toFound.push(r);
   }
+  toFound.sort((x, y) => settledAt[x] - settledAt[y]);
+  for (const r of toFound) sim.schedule(settled[r] + foundDelay(m, r), Ev.SettlementFound, r, 0);
   // 还没到立国年份的城(当过国都的不算:立国过了,或是迁都迁来的 —— 那一州早归了国家,立国事件触发时本来也立不成;
   // 被毁的城也不算:立国事件触发时立不成)
   for (const s of m.settlements) {
