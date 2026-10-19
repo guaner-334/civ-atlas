@@ -448,8 +448,8 @@ export function namePolities(seed: number, polities: Polity[], cultures: Culture
   for (const p of polities) {
     // 东方语感的国家,国号走中式写法(growth.ts 的 easternTitles)
     p.eastern = NAME_STYLES.find((s) => s.id === cultures[p.culture]?.style)?.family === 'eastern';
-    // 阶段 4 干预"立国"时作者起好了国名的、地形大事钉住的,不另起
-    if (p.name) claim(p.name);
+    // 地形大事钉住的国名一开始就占上;干预"立国"时作者起好的国名(也不另起)立国那一刻才占:推到立国以前,早先的国名不变
+    if (p.name && pinned?.has(p.name)) claim(p.name);
   }
   /** 按这个国家的键另起一个国名词根:前几个候选里第一个不超过 4 个字、没被占的;都不合适取最短的 */
   const fresh = (p: Polity): string => {
@@ -499,7 +499,7 @@ export function namePolities(seed: number, polities: Polity[], cultures: Culture
         p.name = cu.name;
       } else p.name = fresh(p);
       claim(p.name);
-    }
+    } else if (kind === 0) claim(p.name);
     if (p.dynasties?.[i]) dyn(p, i, styleOf(p), taken, takenBare);
   }
 }

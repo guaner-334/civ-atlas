@@ -200,7 +200,8 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
  * 接着往后推:从一份推到 civ.endYear 的历史(可以是存档读回来的)接着推到 params.endYear,和一次推到 params.endYear 的结果完全一样
  * (归属、日志、史事、检查点,名字、配色、人物、道路、信仰……)。params 要和推出 civ 时的一样(endYear 除外)。
  * 推演完以后的整理(起名、配色、人物、道路、信仰)只看每样东西出现以前的历史,所以已经发生的不随后来推多远而变。
- * 有地形大事的世界、要推的年份不比 civ 晚的,照常从第 0 年整段重推(结果一样,只是不省时间)
+ * 有地形大事的世界、要推的年份不比 civ 晚的,照常从第 0 年整段重推(结果一样,只是不省时间)。
+ * 返回的是生成出来的名字:用户改过的名字(gen/edits.ts 的 applyNames)不在 Civ 里随推演走,照常在结果上再套一遍
  */
 export function continueCiv(world: World, civ: Civ, params: Partial<CivParams> = {}, progress: Progress = () => {}): Civ {
   const p: CivParams = { ...DEFAULT_CIV_PARAMS, ...params };

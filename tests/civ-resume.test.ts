@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { generateWorld, DEFAULT_PARAMS, type World } from '../src/gen/world';
 import { continueCiv, generateCiv, type Civ, type CivParams } from '../src/gen/civ';
 import { packValue, unpackValue } from '../src/gen/snapshot';
+import { regionKey, type Intervention } from '../src/gen/edits';
 
 const worlds = new Map<number, World>();
 const world = (seed: number) => {
@@ -90,4 +91,20 @@ describe('接着推不改过去', () => {
       }
     }
   }, 400_000);
+
+  it('作者在第 2000 年立国时起的国名和早先某国的国名撞了:推到第 1200 年和推到第 3000 年,早先那国的国名一样', () => {
+    for (const seed of SEEDS) {
+      const w = world(seed);
+      const civ = generateCiv(w, { endYear: 1200 });
+      const roots = new Set(civ.cultures.map((c) => c.name));
+      const early = civ.polities.find((p) => !roots.has(p.name))!;
+      const town = civ.settlements.find((s) => s.founded < 1200 && !civ.polities.some((p) => p.capital === s.id))!;
+      const v: Intervention = { kind: 'found', region: regionKey(civ, town.region), from: 2000, name: early.name };
+      const a = generateCiv(w, { endYear: 1200, interventions: [v] });
+      const b = generateCiv(w, { endYear: 3000, interventions: [v] });
+      expect(b.annals.some((e) => e.kind === 'intervene' && e.a >= 0), `seed ${seed} 立国`).toBe(true);
+      samePast(a, b, 1200, `seed ${seed} 立国起名`);
+      expect(continueCiv(w, unpackValue(packValue(a)) as Civ, { endYear: 3000, interventions: [v] }).polities).toEqual(b.polities);
+    }
+  }, 240_000);
 });

@@ -652,15 +652,16 @@ export function buildRoutes(world: World, habitat: Habitat, regions: Regions, op
     return out;
   };
   /** 一组城按够格的年份(at)一批批加进邻城图(GrowingGraph):新城和别的城的连线,t = 连上的那年 */
+  const alive = (c: number, t: Year) => livesOf(c).some(([s, e]) => s <= t && t < e);
   const linksOf = (ids: number[], at: (c: number) => Year, cost: Float32Array, maxD?: number): TimedLink[] => {
-    const graph = new GrowingGraph(mesh, cost, maxD);
+    const graph = new GrowingGraph(mesh, cost, alive, maxD);
     const order = ids.filter((c) => at(c) < Infinity).sort((x, y) => at(x) - at(y) || x - y);
     const out: TimedLink[] = [];
     for (let i = 0; i < order.length; ) {
       const t = at(order[i]);
       let j = i;
       while (j < order.length && at(order[j]) === t) j++;
-      for (const e of graph.add(order.slice(i, j), cellOf)) out.push({ ...e, t });
+      for (const e of graph.add(order.slice(i, j), cellOf, t)) out.push({ ...e, t });
       i = j;
     }
     return out;
@@ -836,14 +837,16 @@ class GrowingGraph {
   constructor(
     private readonly mesh: World['mesh'],
     private readonly cost: Float32Array,
+    /** 城 c 在 t 年在世吗(绕路只走那年还在的城) */
+    private readonly alive: (c: number, t: Year) => boolean,
     private readonly maxD = Infinity,
   ) {
     this.d = new Float64Array(mesh.n).fill(Infinity);
     this.lab = new Int32Array(mesh.n).fill(-1);
   }
 
-  /** 加一批城(ids = 城的编号),返回留下的新连线(a < b) */
-  add(ids: readonly number[], cellOf: (c: number) => number): Link[] {
+  /** t 年加一批城(ids = 城的编号),返回留下的新连线(a < b) */
+  add(ids: readonly number[], cellOf: (c: number) => number, t: Year): Link[] {
     const { mesh, d, lab, heap, cost, maxD } = this;
     const { adjStart, adj } = mesh;
     const got: number[] = [];
@@ -914,10 +917,10 @@ class GrowingGraph {
       }
       return true;
     });
-    // 由近到远:两城沿已经留下的连线绕过去不超过 DETOUR 倍远的,不再连(早先连上的路还在,新城不必条条都连)
+    // 由近到远:两城沿已经留下的连线、经那年还在的城绕过去不超过 DETOUR 倍远的,不再连(早先连上的路还在,新城不必条条都连)
     kept.sort((x, y) => x.w - y.w || x.a - y.a || x.b - y.b);
     return kept.filter((e) => {
-      if (this.reach(e.a, e.b, DETOUR * e.w)) return false;
+      if (this.reach(e.a, e.b, DETOUR * e.w, t)) return false;
       for (const [x, y] of [
         [e.a, e.b],
         [e.b, e.a],
@@ -933,8 +936,8 @@ class GrowingGraph {
   /** 留下的连线:城 → [邻城, 边权] */
   private readonly links = new Map<number, [number, number][]>();
   private readonly cityHeap = new MinHeap(64);
-  /** 沿留下的连线从 a 走到 b,路程不超过 limit 吗 */
-  private reach(a: number, b: number, limit: number): boolean {
+  /** t 年沿留下的连线、只经过那年还在的城,从 a 走到 b,路程不超过 limit 吗 */
+  private reach(a: number, b: number, limit: number, t: Year): boolean {
     const dist = new Map<number, number>([[a, 0]]);
     const heap = this.cityHeap;
     heap.size = 0;
@@ -946,7 +949,7 @@ class GrowingGraph {
       if (i === b) return true;
       for (const [j, w] of this.links.get(i) ?? []) {
         const nd = d + w;
-        if (nd > limit || nd >= (dist.get(j) ?? Infinity)) continue;
+        if (nd > limit || nd >= (dist.get(j) ?? Infinity) || (j !== b && !this.alive(j, t))) continue;
         dist.set(j, nd);
         heap.push(j, nd);
       }
