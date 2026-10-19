@@ -1344,6 +1344,9 @@ await studioReady();
   const step1Done = await ip.locator('.sk-group[data-step="1"] .sk-no.ok').count();
   const sum1 = await ip.locator('.sk-group[data-step="1"] .sk-s').innerText().catch(() => '');
   const step2Open = await ip.locator('.sk-group[data-step="2"] .sk-body .tp-step').count();
+  // 第 2 步和随机生成一样分四页、放一处有删河湖、有程序补全
+  const step2Pages = await ip.locator('.sk-group[data-step="2"] [data-act=terrain-page] [role=tab]').count();
+  const step2Extra = (await ip.locator('.sk-group[data-step="2"] [data-tool=delWater]').count()) + (await ip.locator('.sk-group[data-step="2"] [data-act=terrain-fill]').count());
   const grownOk = !(await ip.locator('.sk-vbar [data-v=grown]').isDisabled().catch(() => true));
   await ip.waitForFunction(() => !document.querySelector('.studio [data-act=create-world]')?.hasAttribute('disabled'), null, { timeout: 30000 }).catch(() => {});
   await ip.click('.studio [data-act=create-world]').catch(() => {});
@@ -1357,6 +1360,7 @@ await studioReady();
   );
   if (!noLand || !startOff || !picked.includes('照图测试.png')) errs.push(`照手绘图新建:弹窗第 2 步应没有陆地比例、没选图时「开始」是灰的、选好图写着文件名(${noLand},${startOff},${picked})`);
   if (heading !== '照手绘图新建' || !noRight || !step1 || !locked || !createOff) errs.push(`照手绘图新建:进来应是照图那一页的第 1 步(${heading},${noRight},${step1},${locked},${createOff})`);
+  if (step2Pages !== 4 || step2Extra !== 2) errs.push(`照手绘图新建:第 2 步应有四页、删河湖和程序补全(${step2Pages},${step2Extra})`);
   if (!clicks.includes('点了 1 处')) errs.push(`照手绘图新建:在图上点一下海没记上(${clicks})`);
   if (!step1Done || !/陆地 \d+%/.test(sum1) || !step2Open || !grownOk) errs.push(`照手绘图新建:「照这样长出星球」以后第 1 步应打勾、第 2 步展开(${step1Done},${sum1},${step2Open},${grownOk})`);
   if (dlgImage !== '照图测试.png' || dlgSeed) errs.push(`照手绘图新建:确认框里应是「图片」那一行(${dlgImage},${dlgSeed})`);
