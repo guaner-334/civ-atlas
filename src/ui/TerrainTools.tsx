@@ -12,8 +12,8 @@
  * - 「删河湖」(放一处的第四样):指着程序生成的湖或河描红(河连同流进它的支流,和生成时删的一样,见 gen/terrainEdits.ts 的 lakeAt、riversAt),
  *   点一下存成一处地形修改 delWater(点的位置),生成时删掉;撤销找回来。
  * - 整张草图:海岸线、程序补全(随意发挥 / 只补细节 / 完全照画;新开的草图默认只补细节)、没涂的地方(交给程序 / 不长新陆地 / 都是海)。
- * - 随机生成的面板分三页:地貌(涂一片 + 放一处)、高度、气候(更湿 / 更干 / 更暖 / 更冷,用法同涂一片,多一个程度;
- *   存成地形修改的气候四种,见 gen/edits.ts 文件头"地形修改")。照手绘图的面板只有地貌。
+ * - 面板分四页:地貌(涂一片 + 放一处)、高度、气候(更湿 / 更干 / 更暖 / 更冷,用法同涂一片,多一个程度;
+ *   存成地形修改的气候四种,见 gen/edits.ts 文件头"地形修改")、板块。随机生成和照手绘图一样。
  * - 高度页五支笔(存成地形修改的高度五种,改的是最后的海拔):抬高 / 压低按住涂,按过的每个点各改一下,按住不动也每隔 DAB_MS
  *   记一次(越涂越多),力度是滑条,按住 Alt 涂就反过来;平滑、抹平用法一样;定高写海拔(米),边缘硬 / 适中 / 软,
  *   「从地图上取」点一下地图取那里的海拔。定高时指针旁写"原来多高 → 涂完多高",抬高 / 压低涂的时候写抬了多少(liftAt)。
@@ -23,7 +23,7 @@
  *   「板块相撞时造山」开关;切开 = 画一条线(松手切开);合并 = 依次点两块挨着的板块。都用点指板块,算在"画了几笔"里,能撤销。
  *   照图分 = 选一张图,按颜色分成一块块铺满整张当板块图(不算一笔,面板里「去掉」;换了分法之前的板块改动清掉)。
  * - 两种新建各一套面板:随机生成的是「编辑地形」(组头"完成"收起;整张草图里海岸线、没涂的地方);
- *   照手绘图生成的是第 2 步「用笔修改」(mode = 'image',没有组头和没涂的地方 —— 没盖到的都是海)。
+ *   照手绘图生成的是第 2 步「用笔修改」(mode = 'image',没有组头和没涂的地方 —— 没盖到的都是海;海岸线、程序补全排在笔的选项下面)。
  *   照手绘图时认图(ImportImage.tsx)那一步也开着编辑地形(地图事件转给认图);「照这样长出星球」= applyImport,
  *   认出来的格子铺成草图的底子(editsStore.setSketchBase,铺在所有笔画底下),不算一笔、撤销不掉,「全部清除」也只清笔画。
  * - 撤销 / 重做按先后,草图的笔和放的一处混在一起算(Ctrl / ⌘ + Z,Ctrl / ⌘ + Shift + Z 或 Ctrl + Y);全部清除点两下才清。
@@ -1083,7 +1083,8 @@ export function useTerrainHint(): string {
   const t = useTerrainTool();
   const d = useDraft();
   if (d.draft && lassoOn(t)) return lassoCaption(t);
-  if (isPlaceTool(t.tool) || t.tool === 'delWater' || t.method === 'lasso') return toolHint(t, false).replace(/。$/, '');
+  if (t.tool === 'setHeight' && t.picking) return PICK_HINT.replace(/。$/, '');
+  if (pageOf(t.tool) !== 'shape' || isPlaceTool(t.tool) || t.tool === 'delWater' || t.method === 'lasso') return toolHint(t, false).replace(/。$/, '');
   if (t.tool === 'erase') return '按住拖动来擦；碰到的火山、湖、河整个去掉';
   return '按住拖动来涂；松手后星球照着重新长';
 }
@@ -1092,8 +1093,9 @@ export function useTerrainHint(): string {
  * 编辑地形的面板。
  * 随机生成(新建世界卡片里"编辑地形"点开后的样子):涂一片的八支笔、放一处的三样;这支笔的画法 / 大小 / 高低和一句怎么用;
  * 整张草图的海岸线、没涂的地方、画了几笔(撤销 / 重做 / 全部清除)、在地图上显示草图。组头右边"完成"(收起)。
- * 照手绘图生成(mode = 'image',第 2 步「用笔修改」展开的样子):没有组头;笔、画法 / 大小 / 高低 / 海岸线、画了几笔、显示草图一路排下来,
- * 最后是 extra(「让助手改」);没有"没涂的地方"(没盖到的都是海),怎么用写在地图下边。
+ * 照手绘图生成(mode = 'image',第 2 步「用笔修改」展开的样子):没有组头;同样分四页,笔、画法 / 大小 / 高低、海岸线 / 程序补全、画了几笔、
+ * 显示草图一路排下来,最后是 extra(「让助手改」);没有"没涂的地方"(没盖到的都是海),怎么用写在地图下边。
+ * 照图长的陆地整片都算涂过,程序补全不是随意发挥时板块相撞不在陆地上造山:板块页多一句提示。
  * 世界还在生成时"画了几笔"那里写"生成中…"。手机上工具排成一行横着滑,随机生成的海岸线和没涂的地方收进「整张草图」那一行(点开展开)。
  */
 export function TerrainPanel({ disabled, phone = false, mode = 'random', extra }: { disabled: boolean; phone?: boolean; mode?: 'random' | 'image'; extra?: ReactNode }) {
@@ -1109,11 +1111,10 @@ export function TerrainPanel({ disabled, phone = false, mode = 'random', extra }
   const fill = sk ? sketchFill(sk) : t.fill;
   const redoOk = canRedo(edits.terrain, sk);
 
-  // 照手绘图的面板没有气候、高度、板块三页和删河湖:从随机生成那边带过来的这些笔换回陆地;手机上改气候只有涂抹
+  // 手机上改气候只有涂抹
   useEffect(() => {
-    if (image && (isClimateTool(t.tool) || isHeightTool(t.tool) || isPlateTool(t.tool) || t.tool === 'delWater')) setTerrainTool({ tool: 'land' });
-    else if (phone && isClimateTool(t.tool) && t.method === 'lasso') setTerrainTool({ method: 'paint' });
-  }, [image, phone, t.tool, t.method]);
+    if (phone && isClimateTool(t.tool) && t.method === 'lasso') setTerrainTool({ method: 'paint' });
+  }, [phone, t.tool, t.method]);
 
   useEffect(() => {
     if (!confirm) return;
@@ -1122,8 +1123,8 @@ export function TerrainPanel({ disabled, phone = false, mode = 'random', extra }
   }, [confirm]);
 
   const place = isPlaceTool(t.tool) ? PLACE.find((x) => x.id === t.tool)! : null;
-  // 随机生成的面板分三页:高度五支笔一页、气候四支笔一页,其余(涂一片、放一处)一页
-  const page: TerrainPage = image ? 'shape' : pageOf(t.tool);
+  // 分四页:高度五支笔一页、气候四支笔一页、板块一页,其余(涂一片、放一处)一页
+  const page: TerrainPage = pageOf(t.tool);
   const climatePage = page === 'climate';
 
   const tile = (id: EditTool, name: string, mark: ReactNode) => (
@@ -1133,7 +1134,7 @@ export function TerrainPanel({ disabled, phone = false, mode = 'random', extra }
     </button>
   );
   const paintTiles = PAINT.map((x) => tile(x.id, x.name, <i className={`tp-sw k-${x.id}`} />));
-  const placeTiles = [...PLACE, ...(image ? [] : [DEL_WATER])].map((x) => tile(x.id, x.name, <Icon name={x.icon} size={18} />));
+  const placeTiles = [...PLACE, DEL_WATER].map((x) => tile(x.id, x.name, <Icon name={x.icon} size={18} />));
   const climateTiles = CLIMATE.map((x) => tile(x.id, x.name, <i className={`tp-sw k-${x.id}`} />));
   const heightTiles = HEIGHT.map((x) => tile(x.id, x.name, <Icon name={x.icon} size={18} />));
   const plateTiles = [
@@ -1172,10 +1173,10 @@ export function TerrainPanel({ disabled, phone = false, mode = 'random', extra }
     </div>
   ) : (
     <div className="tp-tools" role="radiogroup" aria-label="工具">
-      {!image && <div className="tp-sub">涂一片</div>}
+      <div className="tp-sub">涂一片</div>
       <div className="tp-tiles c4">{paintTiles}</div>
-      {!image && <div className="tp-sub">放一处</div>}
-      <div className={`tp-tiles ${image ? 'c3' : 'c4'}`}>{placeTiles}</div>
+      <div className="tp-sub">放一处</div>
+      <div className="tp-tiles c4">{placeTiles}</div>
     </div>
   );
 
@@ -1270,14 +1271,15 @@ export function TerrainPanel({ disabled, phone = false, mode = 'random', extra }
           {isClimateTool(t.tool) && <Seg label="程度" act="terrain-level" items={LEVELS.map((name, i) => ({ v: i as 0 | 1 | 2, name }))} value={t.level} onPick={(v) => setTerrainTool({ level: v })} />}
         </>
       )}
-      {image && coastSeg}
     </div>
   );
+  const fillSeg = <Seg label="程序补全" act="terrain-fill" items={FILLS} value={fill} onPick={setTerrainFill} />;
+  const penless = t.tool === 'delWater' || t.tool === 'plateCut' || t.tool === 'plateMerge';
 
   const wholeOpts = (
     <div className="tp-opts">
       {coastSeg}
-      <Seg label="程序补全" act="terrain-fill" items={FILLS} value={fill} onPick={setTerrainFill} />
+      {fillSeg}
       <Seg label="没涂的地方" act="terrain-rest" items={RESTS} value={rest} onPick={(v) => setSketchRest(v, t.coast, t.fill)} />
     </div>
   );
@@ -1314,8 +1316,18 @@ export function TerrainPanel({ disabled, phone = false, mode = 'random', extra }
   if (image)
     return (
       <div className="tp tp-step" role="toolbar" aria-label="用笔修改">
+        {pages}
         {toolList}
-        {penOpts}
+        {!penless && penOpts}
+        <div className="tp-opts">
+          {coastSeg}
+          {fillSeg}
+        </div>
+        {page === 'plates' && fill !== 'free' && (
+          <div className="tp-hint" data-act="terrain-plate-fill-hint">
+            陆地是照图长的：程序补全选「随意发挥」，板块相撞才会在陆地上造山。
+          </div>
+        )}
         {count}
         {showRow}
         {extra}
@@ -1336,7 +1348,7 @@ export function TerrainPanel({ disabled, phone = false, mode = 'random', extra }
         <div className="sb-group">{toolList}</div>
       </section>
       <div className="sb-group">
-        {t.tool !== 'delWater' && t.tool !== 'plateCut' && t.tool !== 'plateMerge' && penOpts}
+        {!penless && penOpts}
         <div className="tp-hint">{t.tool === 'setHeight' && t.picking ? PICK_HINT : toolHint(t, phone)}</div>
       </div>
       {phone ? (
