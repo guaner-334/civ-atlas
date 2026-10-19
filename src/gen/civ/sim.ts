@@ -37,6 +37,7 @@ import { resumeCities } from './cities';
 import { resumeDiplomacy } from './diplomacy';
 import { resumeDevelopment } from './development';
 import { resumeUnrest } from './unrest';
+import { resumePlague } from './plague';
 import { resumeInterventions, scheduleInterventions } from './interventions';
 import type { Intervention } from '../edits';
 
@@ -176,6 +177,12 @@ export const enum Ev {
   FamineCheck = 55,
   /** 散回部落(unrest.ts 的大崩解):不单独预约,是大国崩解时散回部落地带的州(国家归属 → −1)变化日志记的原因 */
   Collapse = 57,
+  /**
+   * 看疫情(瘟疫,plague.ts;编号 58–59):a = 第几次看。每隔几十年看一次,偶尔从一座大城或港口起疫
+   */
+  PlagueCheck = 58,
+  /** 疫情传开(plague.ts):a = 第几场瘟疫(起疫那次看疫情的编号),b = 起疫后第几年。染疫的州往外传一圈,预约下一年 */
+  PlagueStep = 59,
 }
 
 export interface EventInfo {
@@ -221,6 +228,8 @@ export const EVENT_INFO: EventInfo[] = [
   { id: Ev.DevTick, name: '发展度', watch: false },
   { id: Ev.FamineCheck, name: '看年景', watch: false },
   { id: Ev.Collapse, name: '散回部落', watch: false },
+  { id: Ev.PlagueCheck, name: '看疫情', watch: false },
+  { id: Ev.PlagueStep, name: '疫情传开', watch: false },
 ];
 
 /** 检查点间隔(年) */
@@ -254,10 +263,12 @@ function arrivalOrder(kind: number, a: number, b: number): number {
  * - 地形大事 = 0:同一刻的别的事都按大事以后的地形和归属算(一次推演里只有一件,见 index.ts)
  * - 航海时代 = 1:同一刻的别的事都按"已经能走航线"算(polities.ts 的 sailsOcean)
  * - 发展度 = 2:只读这一刻以前的事;它改的人口上限、军力、远洋,同一刻的别的事都按改过的算(接着推时按 Civ 里存的状态接上)
- * - 看王朝、新君即位、迁都后重看边地:按国家号,同一国依次是看王朝、即位、重看。
+ * - 看王朝、新君即位、迁都后重看边地 = 3 起:按国家号,同一国依次是看王朝、即位、重看。
  *   看王朝在前:同一刻改朝换代了,旧朝原定这一刻即位的那位就不即位了(在位表重排,Ev.Reign 对不上就丢掉);
  *   即位、重看只从现有国土往外预约扩张、不改归属,排在别的事件前面 —— 接着推时 resumePolities 也是在同一刻的日志
  *   (大事改的归属除外)之前重放
+ * - 看疫情、疫情传开 = EARLY_SPAN − 2、− 1(这几类之后、别的事件之前):接着推时它们最后才补进引擎,
+ *   排在固定的位置,同一刻的别的事件(攻占、毁城)在它前还是在它后,和一口气推完一样
  * 不是这几类、或国家号超出能编的范围,返回 −1(按预约先后)
  */
 const EARLY_KINDS: Partial<Record<number, number>> = { [Ev.DynastyCheck]: 0, [Ev.Reign]: 1, [Ev.Respread]: 2 };
@@ -265,8 +276,10 @@ function earlyOrder(kind: number, b: number): number {
   if (kind === Ev.Upheaval) return 0;
   if (kind === Ev.AgeOfSail) return 1;
   if (kind === Ev.DevTick) return 2;
+  if (kind === Ev.PlagueCheck) return EARLY_SPAN - 2;
+  if (kind === Ev.PlagueStep) return EARLY_SPAN - 1;
   const i = EARLY_KINDS[kind];
-  if (i === undefined || !(b >= 0 && b < (EARLY_SPAN - 3) / 3 - 1)) return -1;
+  if (i === undefined || !(b >= 0 && b < (EARLY_SPAN - 5) / 3 - 1)) return -1;
   return 3 + b * 3 + i;
 }
 
@@ -431,6 +444,7 @@ export class CivSim {
       resumeDiplomacy(sim, world, civ);
       resumeDevelopment(sim, world, civ);
       resumeUnrest(sim, world, civ);
+      resumePlague(sim, world, civ);
       if (iv) resumeInterventions(sim, iv);
     }
     return sim;

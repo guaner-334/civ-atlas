@@ -106,7 +106,13 @@ export function capitalLevel(s: Settlement, year: Year): number {
   let lvl = 0;
   /** 上一段结束的年份(还没有结束过的段 = NaN) */
   let off = NaN;
-  for (const sp of spans) {
+  // 从 year 以前最后一次"空了 CAPITAL_DECLINE 年以上才又立都"的那一段算起:那时加成已经正好退回 0,更早的段不影响结果
+  // (做过很多国家国都的城,推演几万年后有几百段)
+  let i = spans.length;
+  while (i > 0 && !(year > spans[i - 1].from)) i--;
+  while (i > 1 && !(spans[i - 1].from - (spans[i - 2].until ?? Infinity) >= CAPITAL_DECLINE)) i--;
+  for (let j = Math.max(0, i - 1); j < spans.length; j++) {
+    const sp = spans[j];
     if (!(year > sp.from)) break;
     if (off === off) lvl = Math.max(0, lvl - (sp.from - off) / CAPITAL_DECLINE);
     const until = sp.until ?? Infinity;
@@ -142,6 +148,26 @@ export function devFactorAt(dc: readonly number[], year: Year): number {
 }
 
 /**
+ * 洗劫、饥荒、瘟疫过去这么多年后,"1 − 折损 × e^(−年数 ÷ SACK_RECOVER)"在双精度里正好是 1(折损不超过 1:
+ * e^(−2700 / 70) < 2^−54),乘上去不改人口。推演很久(几万年)时一座城攒下几百次折损,算人口时跳过这些,结果逐位不变
+ */
+const SACK_FORGET = 2700;
+
+/** sacks(按年份排)里第一条 year 这一年还算数的(年份晚于 year − SACK_FORGET) */
+function sackFrom(sacks: readonly { year: Year }[], year: Year): number {
+  const y = year - SACK_FORGET;
+  if (!(sacks.length && sacks[0].year <= y)) return 0;
+  let lo = 0;
+  let hi = sacks.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (sacks[mid].year <= y) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
+/**
  * 某年的人口(千人);还没建城 / 已经被毁 = 0。
  * = S 形曲线 × 随生产能力变的倍数(devFactorAt)× 国都加成(capitalLevel)× 各次洗劫后还没恢复的那部分(1 − 折损 × e^(−年数 ÷ SACK_RECOVER))。
  * 全是现算,任何年份都能直接算,不存每年的人口
@@ -153,7 +179,8 @@ export const populationAt: PopulationAt = (s: Settlement, year: Year): number =>
   if (s.capitalFrom !== undefined && year > s.capitalFrom) cap *= 1 + CAPITAL_BOOST * capitalLevel(s, year);
   const sacks = s.sacks;
   if (sacks) {
-    for (const k of sacks) {
+    for (let i = sackFrom(sacks, year); i < sacks.length; i++) {
+      const k = sacks[i];
       if (!(year >= k.year)) break;
       cap *= 1 - k.loss * fexp(-(year - k.year) / SACK_RECOVER);
     }
@@ -250,6 +277,8 @@ export const RURAL_SUIT = 20;
 export const RURAL_EXP = 3;
 /** 城被洗劫 / 被毁时,州里的乡村跟着折损城里那一成的这么多(毁城当作折损全部),之后按 SACK_RECOVER 慢慢恢复 */
 export const RURAL_WAR = 0.3;
+/** 瘟疫(plague.ts)时乡村折损城里那一成的几成:疫气城乡都染,乡下人稀,死得少一些 */
+export const RURAL_PLAGUE = 0.7;
 /** 一个世界单位² 是多少平方公里 */
 const KM2_PER_UNIT2 = KM_PER_UNIT * KM_PER_UNIT;
 /** 默认精细度下一块地的面积(世界单位²;同 geo.ts 的 refCellArea:主图 2048 × 1024 按默认精细度分)。州的人口上限之和按它折算 */
@@ -307,9 +336,10 @@ export function ruralPopulationAt(civ: Pick<Civ, 'regions' | 'eras' | 'settlemen
   if (last?.devCap) cap *= devFactorAt(last.devCap, last.ended !== undefined ? Math.min(year, last.ended) : year);
   for (const s of chain) {
     if (s.sacks) {
-      for (const k of s.sacks) {
+      for (let i = sackFrom(s.sacks, year); i < s.sacks.length; i++) {
+        const k = s.sacks[i];
         if (!(year >= k.year)) break;
-        cap *= 1 - RURAL_WAR * k.loss * fexp(-(year - k.year) / SACK_RECOVER);
+        cap *= 1 - (k.cause === 'plague' ? RURAL_PLAGUE : RURAL_WAR) * k.loss * fexp(-(year - k.year) / SACK_RECOVER);
       }
     }
     if (s.ended !== undefined && year >= s.ended) cap *= 1 - RURAL_WAR * fexp(-(year - s.ended) / SACK_RECOVER);

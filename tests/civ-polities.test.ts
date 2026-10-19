@@ -289,6 +289,7 @@ describe('城市成长 + 国家', () => {
           'famine',
           'revolt',
           'collapse',
+          'plague',
         ]).toContain(e.kind);
       }
     }

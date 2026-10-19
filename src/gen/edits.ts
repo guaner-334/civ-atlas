@@ -271,7 +271,9 @@
  *      丢了地的国家更想收复故土、休战期短了;军力系数高的国家远征打折少,强国能越打越远。地形不变,历史重新推演。
  *  20:动荡、饥荒、民变、大崩解(civ/unrest.ts):国家越大、边远异族越多、王朝越老、刚闹了饥荒越乱;
  *      人口顶到上限的城碰上灾年会闹饥荒(人口掉一截),饥民可能起事、和朝廷打一场(被讨平、割据一方或攻破都城);
- *      动荡到顶的大国一下子散成几块(各地自立 / 毁城断路 / 散回部落)。地形不变,历史重新推演。
+ *      动荡到顶的大国一下子散成几块(各地自立 / 诸州残破 / 散回部落)。地形不变,历史重新推演。
+ *  21:瘟疫(civ/plague.ts):偶尔从大城、港口起疫,一年年沿相邻的州、海峡、航线传开,染疫的城人口骤降;
+ *      很少见的大瘟疫循着航线传遍几块大陆。疫区国力下降、更动荡。地形不变,历史重新推演。
  */
 import type { Civ, Culture, Faith, Place, Polity, Regions, Settlement } from './civ/types';
 import type { AuthorCharacter } from './characters';
@@ -283,7 +285,7 @@ import type { Era } from './era';
 import type { Frontier, Origins } from './civ/frontier';
 
 /** 生成器版本:生成算法有改动、同种子会得到不同世界时加一(存档读档时核对);加一时在 GENERATOR_CHANGES 里补一条 */
-export const GENERATOR_VERSION = 20;
+export const GENERATOR_VERSION = 21;
 
 /**
  * 一版生成器的改动有多大(从小到大):打开旧存档、旧链接时,按跨过的几版里最大的那一种说清变了什么(savefile.ts 的 versionNote)
@@ -317,6 +319,7 @@ export const GENERATOR_CHANGES: Readonly<Record<number, { change: GeneratorChang
   18: { change: 'climate' },
   19: { change: 'history' },
   20: { change: 'history' },
+  21: { change: 'history' },
 };
 
 /** 干预的种类(见文件头的表) */
