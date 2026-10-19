@@ -97,7 +97,7 @@ const MAX_CUT = 2;
 /** 一州换了国家以后,这么多年内不会再在战争里易手(前线不闪烁) */
 export const HOLD = 8;
 /** 远征打折:国力 × e^(−离本国国都的路程 / PROJECT)(路程以"标准路程"计,见 polities.ts 的 capDist) */
-const PROJECT = 11;
+const PROJECT = 18;
 /** 守方的过界加成(按 AdjKind:平地、跨河、翻山、海峡、航线):攻方从最好打的那条边打进来 */
 const DEFENSE = [1, 1.35, 1.9, 1.6, 2.2];
 /** 守国都;守本族的州;攻方打同族的州 */
@@ -113,7 +113,7 @@ const COUNTER = 0.85;
 const BREAK = 0.8;
 const BREAK_MAX = 5;
 /** 战争目标:这场战争想拿下几州(随机,含两头);拿到就议和 */
-const GOAL: [number, number] = [3, 10];
+const GOAL: [number, number] = [3, 20];
 /** 灭国之战:攻方国力是守方的这么多倍;战争目标翻几倍(Infinity = 不设目标) */
 const CRUSH = 3;
 const CRUSH_GOAL = Infinity;

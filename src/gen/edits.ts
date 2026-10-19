@@ -274,6 +274,9 @@
  *      动荡到顶的大国一下子散成几块(各地自立 / 诸州残破 / 散回部落)。地形不变,历史重新推演。
  *  21:瘟疫(civ/plague.ts):偶尔从大城、港口起疫,一年年沿相邻的州、海峡、航线传开,染疫的城人口骤降;
  *      很少见的大瘟疫循着航线传遍几块大陆。疫区国力下降、更动荡。地形不变,历史重新推演。
+ *  22:治乱循环(civ/unrest.ts、wars.ts、politics.ts):称霸一块大陆的大国更容易大崩解(盛极而衰),一般的大国少崩一些;
+ *      边地零星自立少了一半,强国远征打折少、一场仗想拿的州多了,崩解以后邻国、新兴的国家更快收拾残局、重新统一。
+ *      地形不变,历史重新推演。
  */
 import type { Civ, Culture, Faith, Place, Polity, Regions, Settlement } from './civ/types';
 import type { AuthorCharacter } from './characters';
@@ -285,7 +288,7 @@ import type { Era } from './era';
 import type { Frontier, Origins } from './civ/frontier';
 
 /** 生成器版本:生成算法有改动、同种子会得到不同世界时加一(存档读档时核对);加一时在 GENERATOR_CHANGES 里补一条 */
-export const GENERATOR_VERSION = 21;
+export const GENERATOR_VERSION = 22;
 
 /**
  * 一版生成器的改动有多大(从小到大):打开旧存档、旧链接时,按跨过的几版里最大的那一种说清变了什么(savefile.ts 的 versionNote)
@@ -320,6 +323,7 @@ export const GENERATOR_CHANGES: Readonly<Record<number, { change: GeneratorChang
   19: { change: 'history' },
   20: { change: 'history' },
   21: { change: 'history' },
+  22: { change: 'history' },
 };
 
 /** 干预的种类(见文件头的表) */
