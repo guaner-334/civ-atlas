@@ -281,6 +281,8 @@ const MAX_BYTES = 8 * 1024 * 1024;
 /** 改名最多多少条、键最长多少字 */
 const MAX_NAMES = 20000;
 const KEY_MAX = 64;
+/** 人物的键带着名字(最长 32 字),放宽一些 */
+const PERSON_KEY_MAX = 96;
 /** 最多读多少面改过的旗 */
 const MAX_FLAGS = 5000;
 
@@ -508,7 +510,7 @@ export function parseSave(text: string): ParseResult {
         dropped++;
         continue;
       }
-      if (typeof v !== 'string' || !v.trim() || k.length > KEY_MAX || !k.includes(':')) {
+      if (typeof v !== 'string' || !v.trim() || k.length > (k.startsWith('person:') ? PERSON_KEY_MAX : KEY_MAX) || !k.includes(':')) {
         dropped++;
         continue;
       }
