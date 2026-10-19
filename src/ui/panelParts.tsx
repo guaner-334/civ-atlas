@@ -491,36 +491,10 @@ export function useYearInput(initial: number, lo: number, hi: number, onChange?:
 
 /** 生效年份:−100 −10 [年份] +10,下面一句说明;then = 第二行(那一年它叫什么,和现在不一样时才给) */
 export function YearStepper({ yi, then }: { yi: YearInput; then?: string }) {
-  const { text, pre, era, setText, flipPre, tidy, y, lo, hi, nudge } = yi;
-  const id = useId();
   return (
     <div className="cp-from">
       <span className="cp-k">生效年份</span>
-      <div className="cp-from-row">
-        <button className="cp-step" onClick={() => nudge(-100)} disabled={y <= lo}>
-          −100
-        </button>
-        <button className="cp-step" onClick={() => nudge(-10)} disabled={y <= lo}>
-          −10
-        </button>
-        <label className="cp-year" htmlFor={id}>
-          {era && <EraPre era={era} pre={pre} onFlip={flipPre} />}
-          <input
-            id={id}
-            value={text}
-            inputMode="numeric"
-            aria-label="生效年份"
-            onChange={(e) => setText(digits(e.target.value, era))}
-            onBlur={tidy}
-            onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
-            style={{ width: `${Math.max(2, text.length) + 0.6}ch` }}
-          />
-          年
-        </label>
-        <button className="cp-step" onClick={() => nudge(10)} disabled={y >= hi}>
-          +10
-        </button>
-      </div>
+      <YearRow yi={yi} label="生效年份" />
       <span className="cp-note">
         该年之前的历史不变,之后重新推演。
         {then && (
@@ -530,6 +504,44 @@ export function YearStepper({ yi, then }: { yi: YearInput; then?: string }) {
           </>
         )}
       </span>
+    </div>
+  );
+}
+
+/** 一行年份步进:−100 −10 [年份] +10(wide 再多一个 +100);label = 输入框的无障碍名 */
+export function YearRow({ yi, label, wide }: { yi: YearInput; label: string; wide?: boolean }) {
+  const { text, pre, era, setText, flipPre, tidy, y, lo, hi, nudge } = yi;
+  const id = useId();
+  return (
+    <div className="cp-from-row">
+      <button className="cp-step" onClick={() => nudge(-100)} disabled={y <= lo}>
+        −100
+      </button>
+      <button className="cp-step" onClick={() => nudge(-10)} disabled={y <= lo}>
+        −10
+      </button>
+      <label className="cp-year" htmlFor={id}>
+        {era && <EraPre era={era} pre={pre} onFlip={flipPre} />}
+        <input
+          id={id}
+          value={text}
+          inputMode="numeric"
+          aria-label={label}
+          onChange={(e) => setText(digits(e.target.value, era))}
+          onBlur={tidy}
+          onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+          style={{ width: `${Math.max(2, text.length) + 0.6}ch` }}
+        />
+        年
+      </label>
+      <button className="cp-step" onClick={() => nudge(10)} disabled={y >= hi}>
+        +10
+      </button>
+      {wide && (
+        <button className="cp-step" onClick={() => nudge(100)} disabled={y >= hi}>
+          +100
+        </button>
+      )}
     </div>
   );
 }

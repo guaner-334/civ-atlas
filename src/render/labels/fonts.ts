@@ -43,15 +43,43 @@ export function fontCss(family: string, weight: number, px: number): string {
   return `${weight} ${px.toFixed(2)}px "${family}", ${FALLBACK[family] ?? 'serif'}`;
 }
 
+/** 字体文件在页面里的完整地址 */
+function fontUrl(f: FontFile): string {
+  const base = import.meta.env.BASE_URL ?? './';
+  return new URL(`${base}fonts/${f.file}`, document.baseURI).href;
+}
+
+/** 手绘风字体文件的完整地址(交给后台线程,见 loadWorkerFont);不在页面里 = undefined */
+export function fantasyFontUrl(): string | undefined {
+  if (typeof document === 'undefined') return undefined;
+  const f = FONT_FILES.find((x) => x.family === FONT_FANTASY);
+  return f && fontUrl(f);
+}
+
+/**
+ * 后台线程里要画手绘风的字(罗盘的「北」):线程看不到页面加载好的字体,自己登记一份并等它加载好。
+ * 线程不支持、加载失败也返回,照常画(用后备字体)
+ */
+export async function loadWorkerFont(url: string): Promise<void> {
+  const fonts = (self as unknown as { fonts?: FontFaceSet }).fonts;
+  if (!fonts || typeof FontFace === 'undefined') return;
+  try {
+    const face = new FontFace(FONT_FANTASY, `url("${url}") format("woff2")`, { weight: '500', style: 'normal' });
+    fonts.add(face);
+    await face.load();
+  } catch {
+    // 后备字体
+  }
+}
+
 let registered = false;
 
 /** 把字体文件登记到 document.fonts(只登记,不下载;真正下载在第一次 load 时) */
 export function registerFonts(): void {
   if (registered || typeof document === 'undefined' || typeof FontFace === 'undefined') return;
   registered = true;
-  const base = import.meta.env.BASE_URL ?? './';
   for (const f of FONT_FILES) {
-    const url = new URL(`${base}fonts/${f.file}`, document.baseURI).href;
+    const url = fontUrl(f);
     const face = new FontFace(f.family, `url("${url}") format("woff2")`, { weight: String(f.weight), style: 'normal', display: 'block' });
     document.fonts.add(face);
   }

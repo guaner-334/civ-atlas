@@ -1,5 +1,7 @@
 /**
- * 国家面板的干预页:生效年份(−100 −10 [年份] +10,默认 = 时间轴当前那一年)+ 六条命令。
+ * 国家面板的干预页:生效年份(−100 −10 [年份] +10,默认 = 时间轴当前那一年)+ 持续到 + 六条命令。
+ *
+ *   持续到  一直有效 | 到某一年(−100 −10 [年份] +10 +100,默认 = 生效年份 + 100);只管保护、禁止扩张、结盟,到这一年止(不含)
  *
  *   加入待推演  保护(不会被灭亡)、禁止分裂、禁止扩张
  *   选择对象  结盟(任意国家)、宣战(仅相邻国家)、迁都(本国城市)→ 在地图上选(地图压暗、可选的对象浮出名牌,见 TargetPlates.tsx)
@@ -18,7 +20,7 @@ import { cityStands, defaultYear, interventionText, nameAt, neighborsAt, polityO
 import { setPanelTab } from './panelStore';
 import { pendingInterventions, pushPending, queueIntervention, usePending } from './pendingStore';
 import { setCivTime } from './civView';
-import { YearStepper, useYearInput } from './panelParts';
+import { YearRow, YearStepper, useYearInput } from './panelParts';
 import { spaced, yearAt, yearSpanAt } from '../gen/era';
 
 let owners: Owners | undefined;
@@ -45,6 +47,11 @@ export function CommandPage({ civ, id, year }: { civ: Civ; id: number; year: num
   const [msg, setMsg] = useState<string | null>(null);
   const yi = useYearInput(defaultYear(p, year), lo, hi, () => setMsg(null));
   const { y, valid, era } = yi;
+  // 持续到:一直有效 / 到某一年(截止那年不含,所以至少是生效年份的下一年)
+  const [limited, setLimited] = useState(false);
+  const ui = useYearInput(y + 100, Math.min(y + 1, civ.endYear), civ.endYear, () => setMsg(null));
+  const timed = (k: Cmd) => k === 'protect' || k === 'halt' || k === 'ally';
+  const until = limited ? { until: ui.y } : {};
 
   const alive = polityAlive(p, y);
   const { size, near } = useMemo(() => neighborsAt(civ, id, y), [civ, id, y]);
@@ -71,6 +78,7 @@ export function CommandPage({ civ, id, year }: { civ: Civ; id: number; year: num
   const why = (k: Cmd): string | null => {
     if (!valid) return `生效年份要在${spaced(yearSpanAt(lo, hi, era))}之间`;
     if (!alive) return y < p.founded ? `${yearAt(y, era)}还没立国` : `${yearAt(y, era)}已亡`;
+    if (timed(k) && limited && !ui.valid) return `持续到的年份要在${spaced(yearSpanAt(ui.lo, ui.hi, era))}之间`;
     if ((k === 'protect' || k === 'unity' || k === 'halt') && has(k)) return '已经下过这条命令';
     if ((k === 'protect' || k === 'unity' || k === 'halt') && queued(k)) return '已在待推演里';
     if (k === 'ally' && !others.length) return '该年没有别的国家';
@@ -88,7 +96,11 @@ export function CommandPage({ civ, id, year }: { civ: Civ; id: number; year: num
 
   const run = (k: Cmd) => {
     setMsg(null);
-    if (k === 'protect' || k === 'unity' || k === 'halt') {
+    if (k === 'protect' || k === 'halt') {
+      setMsg(order({ kind: k, a: key, from: y, ...until }, null));
+      return;
+    }
+    if (k === 'unity') {
       setMsg(order({ kind: k, a: key, from: y }, null));
       return;
     }
@@ -120,7 +132,8 @@ export function CommandPage({ civ, id, year }: { civ: Civ; id: number; year: num
           const Q = civ.polities[q];
           if (!Q || !polityAlive(Q, y) || !(size.get(q)! > 0)) return `${yearAt(y, era)}${Q ? nameAt(Q, y) : '这个国家'}不在`;
           if (k === 'declare' && !near.has(q)) return '两国不接壤,无法宣战';
-          return order({ kind: k, a: key, b: polityKey(civ, q), from: y }, { kind: 'polity', id: q });
+          const b = polityKey(civ, q);
+          return order(k === 'ally' ? { kind: k, a: key, b, from: y, ...until } : { kind: k, a: key, b, from: y }, { kind: 'polity', id: q });
         },
       };
     }
@@ -133,6 +146,36 @@ export function CommandPage({ civ, id, year }: { civ: Civ; id: number; year: num
     <>
       <div className="cp-body">
         <YearStepper yi={yi} then={valid && alive && name !== shown ? `${yearAt(y, era)}时它叫${name}。` : undefined} />
+        <div className="cp-from cp-until">
+          <div className="cp-until-head">
+            <span className="cp-k">持续到</span>
+            <div className="cp-dur" role="radiogroup" aria-label="持续到">
+              <button role="radio" aria-checked={!limited} className={limited ? '' : 'on'} data-act="until-off" onClick={() => setLimited(false)}>
+                一直有效
+              </button>
+              <button
+                role="radio"
+                aria-checked={limited}
+                className={limited ? 'on' : ''}
+                data-act="until-on"
+                onClick={() => {
+                  if (limited) return;
+                  // 每次打开都从生效年份 + 100 起
+                  ui.nudge(y + 100 - ui.y);
+                  setLimited(true);
+                }}
+              >
+                到某一年
+              </button>
+            </div>
+          </div>
+          {limited && (
+            <>
+              <YearRow yi={ui} label="持续到的年份" wide />
+              <span className="cp-note">只对保护、禁止扩张、结盟有效。</span>
+            </>
+          )}
+        </div>
         <div className="cp-cmds">
           {CMDS.map((c) => {
             const off = why(c.k);
