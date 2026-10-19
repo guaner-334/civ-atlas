@@ -13,10 +13,13 @@
  *
  * 导入的图片(SketchEdit.image):图片本身不存,只存认出来的格子图(sketchImage.ts 认,LAYER_W × LAYER_H,一格 = 草图格子 2 × 2),
  * 和笔画排在同一个先后里:前 at 笔先涂,再铺这张图(值是 0 的格子 = 没盖到,留着底下的),后面的笔画盖在它上面。
+ *
+ * 「板块」页的改动(SketchEdit.plates,见 plateEdits.ts)也存在草图里:只改板块、一笔没涂的草图照样生效(只改板块,不动海陆的定法)。
  */
 import type { Mesh } from './mesh';
 import { clamp } from './util';
 import { TERRAIN_H, TERRAIN_W, nearLon, wrapLon } from './terrainEdits';
+import { cleanPlates, samePlates, type PlateEdit } from './plateEdits';
 
 export const SKETCH_W = 1024;
 export const SKETCH_H = 512;
@@ -49,6 +52,8 @@ export interface Sketch {
   fill?: SketchFill;
   /** 没涂的地方不长新陆地(SketchEdit.rest = 'noNewLand') */
   noNewLand?: true;
+  /** 板块的改动(SketchEdit.plates) */
+  plates?: PlateEdit;
 }
 
 /** 程序补全:只补细节 / 完全照画(随意发挥 = 不存) */
@@ -90,6 +95,8 @@ export interface SketchEdit {
   strokes: SketchStroke[];
   /** 导入的图片(不给 = 没导入) */
   image?: SketchImage;
+  /** 「板块」页的改动(不给 = 没改板块) */
+  plates?: PlateEdit;
 }
 
 /** 最多多少笔、一笔最多多少个点 */
@@ -156,8 +163,8 @@ export function encodeLayer(layer: Uint8Array): string {
   return btoa(bin);
 }
 
-/** 存的字符串 → 格子图;不是 base64、个数是 0、值超过 9、加起来不是正好 LAYER_W × LAYER_H 格的 = null */
-export function decodeLayer(cells: string): Uint8Array | null {
+/** 存的字符串 → 格子图;不是 base64、个数是 0、值超过 max(草图的格子值最大 9;照图分的板块图是块号)、加起来不是正好 LAYER_W × LAYER_H 格的 = null */
+export function decodeLayer(cells: string, max = SKETCH_MOUNTAIN + 2): Uint8Array | null {
   if (cells.length > LAYER_CELLS_B64_MAX || !/^[A-Za-z0-9+/]*={0,2}$/.test(cells)) return null;
   let bin: string;
   try {
@@ -171,7 +178,7 @@ export function decodeLayer(cells: string): Uint8Array | null {
   for (let i = 0; i < bin.length; i += 2) {
     const n = bin.charCodeAt(i);
     const v = bin.charCodeAt(i + 1);
-    if (!n || v > SKETCH_MOUNTAIN + 2 || k + n > out.length) return null;
+    if (!n || v > max || k + n > out.length) return null;
     out.fill(v, k, k + n);
     k += n;
   }
@@ -242,8 +249,8 @@ export function cleanSketchImage(x: unknown, strokes: number, at?: number): Sket
 /**
  * 清理一份草图:不是对象的 = null;笔画逐笔过 cleanSketchStroke(不合格的丢掉,最多 SKETCH_MAX_STROKES 笔);
  * rest 不认识的当 'auto';coast 夹到 [0, 1] 保留两位小数(SKETCH_COAST 是默认,不存);fill 只认 'detail' / 'exact'(别的当随意发挥,不存);
- * 导入的图片过 cleanSketchImage(不合格的丢掉)。
- * 一笔也没有、没导入图片、没涂的又交给程序 = null(和没画一样)。本来就合格的原样返回
+ * 导入的图片过 cleanSketchImage(不合格的丢掉);板块的改动过 plateEdits.ts 的 cleanPlates。
+ * 一笔也没有、没导入图片、没改板块、没涂的又交给程序 = null(和没画一样)。本来就合格的原样返回
  */
 export function cleanSketch(x: unknown): SketchEdit | null {
   if (!x || typeof x !== 'object') return null;
@@ -272,10 +279,12 @@ export function cleanSketch(x: unknown): SketchEdit | null {
   if (at < 0) at = strokes.length;
   const image = o.image === undefined ? null : cleanSketchImage(o.image, strokes.length, at);
   same = same && (image ? image === o.image : !('image' in o));
-  same = same && Object.keys(o).length === 2 + (coast === SKETCH_COAST ? 0 : 1) + (fill ? 1 : 0) + (image ? 1 : 0);
-  if (!strokes.length && !image && rest === 'auto') return null;
+  const plates = o.plates === undefined ? null : cleanPlates(o.plates);
+  same = same && (plates ? plates === o.plates : !('plates' in o));
+  same = same && Object.keys(o).length === 2 + (coast === SKETCH_COAST ? 0 : 1) + (fill ? 1 : 0) + (image ? 1 : 0) + (plates ? 1 : 0);
+  if (!strokes.length && !image && !plates && rest === 'auto') return null;
   if (same) return x as SketchEdit;
-  return { rest, ...(coast === SKETCH_COAST ? {} : { coast }), ...(fill ? { fill } : {}), strokes, ...(image ? { image } : {}) };
+  return { rest, ...(coast === SKETCH_COAST ? {} : { coast }), ...(fill ? { fill } : {}), strokes, ...(image ? { image } : {}), ...(plates ? { plates } : {}) };
 }
 
 /** 两份草图是不是一样(逐笔逐字段比;都没有也算一样) */
@@ -286,6 +295,7 @@ export function sameSketch(a: SketchEdit | null | undefined, b: SketchEdit | nul
   const ia = a.image;
   const ib = b.image;
   if (ia !== ib && (!ia || !ib || ia.name !== ib.name || ia.cells !== ib.cells || (ia.at ?? 0) !== (ib.at ?? 0))) return false;
+  if (!samePlates(a.plates, b.plates)) return false;
   return a.strokes.every((x, i) => {
     const y = b.strokes[i];
     return x.kind === y.kind && x.r === y.r && x.h === y.h && x.fill === y.fill && x.pts.length === y.pts.length && x.pts.every((v, j) => v === y.pts[j]);
@@ -403,6 +413,7 @@ export function sketchGrid(edit: SketchEdit | null | undefined): Sketch | null {
   const out: Sketch = { grid, coast: sketchCoast(edit) };
   if (edit.fill === 'detail' || edit.fill === 'exact') out.fill = edit.fill;
   if (edit.rest === 'noNewLand') out.noNewLand = true;
+  if (edit.plates) out.plates = edit.plates;
   return sketchUsed(out) ? out : null;
 }
 
@@ -422,7 +433,12 @@ export function sketchCells(mesh: Mesh, grid: Uint8Array): Uint8Array {
   return out;
 }
 
-/** 草图上有没有涂过东西(不长新陆地的,一笔没涂也算:没有能连上的陆地) */
-export function sketchUsed(sketch: Sketch | null | undefined): sketch is Sketch {
+/** 草图上有没有涂过东西(不长新陆地的,一笔没涂也算:没有能连上的陆地);只改了板块的不算 */
+export function sketchPainted(sketch: Sketch | null | undefined): sketch is Sketch {
   return !!sketch && (!!sketch.noNewLand || sketch.grid.some((v) => v !== SKETCH_NONE));
+}
+
+/** 草图管不管用:涂过东西,或者改了板块 */
+export function sketchUsed(sketch: Sketch | null | undefined): sketch is Sketch {
+  return !!sketch && (!!sketch.plates || sketchPainted(sketch));
 }

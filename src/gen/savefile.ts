@@ -27,7 +27,7 @@
  * - edits.terrain:地形修改(edits.ts 文件头"地形修改");读档时逐处过 cleanTerrainOp,格式不对的跳过。
  *   旧存档没有这个字段 = 没改地形。check 是**改过地形以后**的地形哈希(读档时带着地形修改生成,再核对)
  * - edits.sketch(可选):地形草图(edits.ts 文件头"地形草图"),`{ "rest": "auto", "strokes": [{ "kind": "land", "r": 32, "pts": [700, 300, 760, 310] }] }`,
- *   导入过图片的多一个 `"image": { "name": "地图.jpg", "cells": "<认出来的格子图>" }`;
+ *   导入过图片的多一个 `"image": { "name": "地图.jpg", "cells": "<认出来的格子图>" }`,改过板块的多一个 `"plates": { "ops": [{ "kind": "cut", "pts": [600, 340, 640, 500] }] }`;
  *   没画时不写这个字段。读档时过 cleanSketch,格式不对的笔画、图片跳过。check 同样是照草图生成以后的地形哈希
  * - edits.upheavals(可选):地形大事(edits.ts 文件头"地形大事"),`[{ "year": 1600, "ops": [{ "kind": "sink", "pts": [1856, 574, 1936, 584], "r": 40, "s": 1.1 }] }]`;
  *   没有时不写这个字段。读档时过 cleanUpheaval,格式不对的跳过。check 只核对原来的地形(大事之后的地形由它和大事一起定)
@@ -44,6 +44,10 @@
  *   都是默认时不写。读档时过 cleanFrontier:吸到最近的一档,认不出的项去掉,提示一句
  * - edits.origins(可选):自己选的文明起源(同上),`{ "pts": [976, 342, 544, 448], "only": true }`;自动时不写。
  *   读档时过 cleanOrigins:坐标取整、去重,最多 16 处;认不出的按自动,提示一句
+ * - edits.civSeed(可选):文明种子(edits.ts 文件头"文明种子"),`52817`;等于地图种子时不写(加这一项以前的存档都没写)。
+ *   读档时过 cleanCivSeed:不是整数的去掉(按地图种子推),提示一句
+ * - edits.map(可选):在别的世界的地图上新开的历史,用的是哪张地图(edits.ts 文件头"文明种子"),
+ *   `{ "sum": "<地图那块原件的 SHA-256>", "from": "<从哪个世界新开的>" }`;不是新开的不写。读档时过 cleanMapRef,认不出的项去掉(不提示:只是记录)
  * - edits.era(可选):纪年(edits.ts 文件头"纪年"、era.ts),`{ "name": "公元", "epoch": 2500 }`;按一件事定的
  *   `{ "name": "利希历", "epoch": 1610, "by": "event", "event": { "tag": "创", "text": "利希昂于菲内拉斯创立利希教" } }`;
  *   按第几年写时不写。读档时过 cleanEra:名字、元年不合格的按第几年写,提示一句
@@ -60,9 +64,10 @@
  */
 import { DEFAULT_PARAMS, type World, type WorldParams } from './world';
 import { cleanMix, sameMix } from './names/mix';
-import { GENERATOR_CHANGES, GENERATOR_VERSION, MARKS_MAX, MARK_REGIONS_TOTAL, NAME_MAX, aiNameKeys, cleanEndYear, cleanMark, freeMarkId, type AiNameMark, type AuthorMark, type GeneratorChange, type Intervention, type TerrainOp, type Upheaval, type WorldEdits } from './edits';
+import { GENERATOR_CHANGES, GENERATOR_VERSION, MARKS_MAX, MARK_REGIONS_TOTAL, NAME_MAX, aiNameKeys, cleanCivSeed, cleanEndYear, cleanMapRef, cleanMark, freeMarkId, type AiNameMark, type AuthorMark, type GeneratorChange, type Intervention, type TerrainOp, type Upheaval, type WorldEdits } from './edits';
 import { TERRAIN_MAX_OPS, UPHEAVALS_MAX, UPHEAVAL_KINDS, UPHEAVAL_OPS_MAX, cleanTerrainOp, cleanUpheaval } from './terrainEdits';
 import { SKETCH_MAX_STROKES, cleanSketch, cleanSketchStroke, type SketchEdit } from './sketch';
+import type { PlateEdit } from './plateEdits';
 import { decodeFlag } from './civ/flags';
 import { CHARACTERS_MAX, cleanCharacters, type AuthorCharacter } from './characters';
 import { cleanEra, cleanMonths, sameEra } from './era';
@@ -322,7 +327,7 @@ export function worldKey(params: WorldParams): string {
     .join('&');
 }
 
-/** 改了几处:改名条数 + 干预条数 + 地形修改处数 + 草图(画了算一处)+ 地形大事件数 + 作者标记个数 + 改过的旗面数 + 作者的人物个数 + 地名风格、推演年数、拓荒、起源、纪年、月份(各算一处)*/
+/** 改了几处:改名条数 + 干预条数 + 地形修改处数 + 草图(画了算一处)+ 地形大事件数 + 作者标记个数 + 改过的旗面数 + 作者的人物个数 + 地名风格、推演年数、拓荒、起源、文明种子、纪年、月份(各算一处)*/
 export function editCount(edits: WorldEdits): number {
   return (
     Object.keys(edits.names).length +
@@ -337,6 +342,7 @@ export function editCount(edits: WorldEdits): number {
     (cleanEndYear(edits.endYear) ? 1 : 0) +
     (cleanFrontier(edits.frontier) ? 1 : 0) +
     (cleanOrigins(edits.origins) ? 1 : 0) +
+    (cleanCivSeed(edits.civSeed) !== undefined ? 1 : 0) +
     (cleanEra(edits.era) ? 1 : 0) +
     (cleanMonths(edits.months) !== undefined ? 1 : 0)
   );
@@ -382,12 +388,14 @@ export function makeSave(
   if (ai.length) save.edits.aiNames = Object.fromEntries(ai.map((k) => [k, { ...edits.aiNames![k] }]));
   // 草图:画了才写
   if (edits.sketch) {
-    const { rest, coast, strokes, image } = edits.sketch;
+    const { rest, coast, fill, strokes, image, plates } = edits.sketch;
     save.edits.sketch = {
       rest,
       ...(coast !== undefined ? { coast } : {}),
+      ...(fill ? { fill } : {}),
       strokes: strokes.map((x) => ({ ...x, pts: x.pts.slice() })),
       ...(image ? { image: { ...image } } : {}),
+      ...(plates ? { plates: JSON.parse(JSON.stringify(plates)) as PlateEdit } : {}),
     };
   }
   // 地形大事:有才写
@@ -404,6 +412,10 @@ export function makeSave(
   if (frontier) save.edits.frontier = frontier;
   const origins = cleanOrigins(edits.origins);
   if (origins) save.edits.origins = origins;
+  const civSeed = cleanCivSeed(edits.civSeed);
+  if (civSeed !== undefined) save.edits.civSeed = civSeed;
+  const map = cleanMapRef(edits.map);
+  if (map) save.edits.map = map;
   const era = cleanEra(edits.era);
   if (era) save.edits.era = era;
   const months = cleanMonths(edits.months);
@@ -638,6 +650,10 @@ export function parseSave(text: string): ParseResult {
   // 起源:坐标取整、去重,最多 16 处
   const origins = cleanOrigins(E.origins);
   if (E.origins !== undefined && !origins) warnings.push('文明起源认不出来,按自动推演');
+  // 文明种子:不是整数的按地图种子推
+  const civSeed = cleanCivSeed(E.civSeed);
+  if (E.civSeed !== undefined && civSeed === undefined) warnings.push('文明种子认不出来,按地图种子推演');
+  const map = cleanMapRef(E.map);
   // 纪年:名字、元年不合格的按第几年写
   const era = cleanEra(E.era);
   if (E.era !== undefined && !era) warnings.push('纪年认不出来,年份按第几年写');
@@ -667,6 +683,8 @@ export function parseSave(text: string): ParseResult {
       ...(endYear ? { endYear } : {}),
       ...(frontier ? { frontier } : {}),
       ...(origins ? { origins } : {}),
+      ...(civSeed !== undefined ? { civSeed } : {}),
+      ...(map ? { map } : {}),
       ...(era ? { era } : {}),
       ...(months !== undefined ? { months } : {}),
     },
@@ -918,8 +936,8 @@ export function editsLost(local: SaveFile, incoming: SaveFile): number {
   const I = incoming.edits as unknown as Record<string, unknown>;
   let n = 0;
   for (const [k, lv] of Object.entries(L)) {
-    // AI 起名的记号跟着改名走,丢没丢已经按改名算过了
-    if (k === 'aiNames') continue;
+    // AI 起名的记号跟着改名走,丢没丢已经按改名算过了;用的哪张地图只是记录(第一次推完才补上校验),不算修改
+    if (k === 'aiNames' || k === 'map') continue;
     const iv = I[k];
     // 地名风格、拓荒、起源、纪年整个算一处
     if (k === 'nameMix') {

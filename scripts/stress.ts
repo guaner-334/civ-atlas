@@ -6,6 +6,7 @@
  * 以及 36k 默认精细度下的生成总时长。
  * 改地形(阶段 4):几组极端的地形修改(最大最强的火山 / 山脉铺满全图、两极的湖、跨 180° 经线的笔画、整片沉成海 / 抬成陆地)。
  * 草图:一片陆地也没画的"都是海"(整颗星球是海)、满图涂成山地、跨 180° 经线和两极的大杂烩(再叠上地形修改)。
+ * 板块:满图横竖切开、改成最快 / 不动、陆壳洋壳来回换、四处合并;照图分到上限(60 条窄条再横切);全成陆壳又关掉造山("都是海"、再叠上地形修改)。
  * 地形大事:半路整颗星球沉入海中、整片抬成陆地、五件最大最强的火山(有同一年的、第 1 年和第 2999 年的),
  * 各段的州和那时的地形对得上,大事以后的城、国家、信仰、编年史照样合法。
  * 推演年数:推到最久(60000 年,有一组再叠一件地形大事),史事、国都、人口、信仰照样合法,名字里不冒数字。
@@ -34,7 +35,8 @@ import { placeMap } from '../src/render/labels/draw';
 import { END_YEAR_MAX, type TerrainOp, type Upheaval } from '../src/gen/edits';
 import { upheavalSteps } from '../src/gen/civ/upheaval';
 import { buildChronicle } from '../src/gen/civ/chronicle';
-import { sketchGrid, type SketchEdit, type SketchKind } from '../src/gen/sketch';
+import { LAYER_W, LAYER_H, encodeLayer, sketchGrid, type SketchEdit, type SketchKind } from '../src/gen/sketch';
+import { PLATE_IMAGE_MAX, type PlateEdit, type PlateOp } from '../src/gen/plateEdits';
 
 /** 发展度:有文明就有;快照的年份递增、最后一份是结束那年,没有算坏的能力和物产;物产 0–3 档,眼下能用的不超过底子;大事的年份有序、时代、物产和国家编号在范围内 */
 function devBad(civ: ReturnType<typeof generateCiv>): number {
@@ -109,17 +111,39 @@ const SKETCH_MIX: SketchEdit = {
   ],
 };
 
+/** 极端的板块改动:满图横竖切十几刀(跨 180° 经线、贴着两极)、一格格改成最快 / 不动、陆壳洋壳来回换、四处合并;另一组全成陆壳又关掉造山 */
+const PLATE_MIX: PlateEdit = {
+  ops: [
+    ...Array.from({ length: 8 }, (_, k): PlateOp => ({ kind: 'cut', pts: [-200, 60 + k * 128, 1024, 90 + k * 128, 2248, 60 + k * 128] })),
+    ...Array.from({ length: 8 }, (_, k): PlateOp => ({ kind: 'cut', pts: [k * 256 + 40, 0, k * 256 + 90, 512, k * 256 + 40, 1024] })),
+    ...Array.from({ length: 64 }, (_, k): PlateOp => ({ kind: 'set', pts: [(k % 8) * 256 + 128, Math.floor(k / 8) * 128 + 64], dir: k * 47, speed: k % 3 ? 16 : 0, crust: k % 2 ? 'oceanic' : 'continental' })),
+    ...Array.from({ length: 20 }, (_, k): PlateOp => ({ kind: 'merge', pts: [k * 100, 500, k * 100 + 60, 520] })),
+    { kind: 'set', pts: [0, 0], speed: 16 },
+    { kind: 'set', pts: [2047, 1024], dir: 359 },
+  ],
+};
+/** 照图分到上限:60 条竖着的窄条(每条一块),上面再横切几刀 */
+const PLATE_STRIPES: PlateEdit = {
+  ops: Array.from({ length: 4 }, (_, k): PlateOp => ({ kind: 'cut', pts: [-100, 200 + k * 200, 2148, 220 + k * 200] })),
+  image: { name: 'stripes.png', cells: encodeLayer(Uint8Array.from({ length: LAYER_W * LAYER_H }, (_, i) => 1 + Math.floor(((i % LAYER_W) * PLATE_IMAGE_MAX) / LAYER_W))) },
+};
+const PLATE_LAND: PlateEdit = {
+  ops: Array.from({ length: 128 }, (_, k): PlateOp => ({ kind: 'set', pts: [(k % 16) * 128 + 64, Math.floor(k / 16) * 128 + 64], speed: 16, crust: 'continental' })),
+  orogeny: false,
+};
+
 const cases = [
   {}, { landFraction: 0.12 }, { landFraction: 0.6 }, { plates: 5 }, { plates: 30 }, { plates: 60 },
   { cells: 200000 }, { cells: 12000 }, { temperature: -12 }, { temperature: 12 }, { rainfall: 0.4 }, { mountains: 2 }, { mountains: 0.2 },
   { terrain: MIX }, { terrain: rows('sink') }, { terrain: rows('raise') },
   { sketch: { rest: 'sea', strokes: [] } }, { sketch: fill('mountain') }, { sketch: fill('land', 'sea') }, { sketch: fill('isles', 'sea') }, { sketch: fill('plateau') },
+  { sketch: { rest: 'auto', strokes: [], plates: PLATE_MIX } }, { sketch: { rest: 'auto', strokes: [], plates: PLATE_STRIPES } }, { sketch: { rest: 'sea', strokes: [], plates: PLATE_LAND }, terrain: MIX },
   { sketch: { ...SKETCH_MIX, coast: 0 }, terrain: MIX }, { sketch: SKETCH_MIX, terrain: [...MIX, { kind: 'river', pts: [1950, 420, 2150, 470, 2300, 500], r: 9, s: 1 }] },
 ] as ({ terrain?: TerrainOp[]; sketch?: SketchEdit } & Partial<typeof DEFAULT_PARAMS>)[];
 /** 打印用:改地形的只写"改地形 · 几处",草图只写"草图 · 几笔" */
 const caseName = (c: (typeof cases)[number]) =>
   c.sketch
-    ? `{"草图":"${c.sketch.rest === 'sea' ? '都是海' : '交给程序'} ${c.sketch.strokes.length} 笔"${c.terrain ? `,"改地形":"${c.terrain.length} 处"` : ''}}`
+    ? `{"草图":"${c.sketch.rest === 'sea' ? '都是海' : '交给程序'} ${c.sketch.strokes.length} 笔"${c.sketch.plates ? `,"板块":"${c.sketch.plates.image ? '照图分 ' : ''}${c.sketch.plates.ops.length} 处${c.sketch.plates.orogeny === false ? ' 不造山' : ''}"` : ''}${c.terrain ? `,"改地形":"${c.terrain.length} 处"` : ''}}`
     : c.terrain
       ? `{"改地形":"${c.terrain[0].kind === 'sink' && c.terrain.length === 6 ? '整片沉成海' : c.terrain[0].kind === 'raise' ? '整片抬成陆地' : '大杂烩'} ${c.terrain.length} 处"}`
       : JSON.stringify(c);

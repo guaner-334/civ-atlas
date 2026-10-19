@@ -87,7 +87,7 @@ function styleName(style: CivStyle, layer: LayerId, look: SurfaceLook): string {
 }
 
 /** 和默认值不同的世界参数(和推演年数),写进编年史 / 高度图说明(同一种子 + 参数 = 同一个世界) */
-function paramsText(p: WorldParams, endYear?: number): string | undefined {
+function paramsText(p: WorldParams, endYear?: number, civSeed?: number): string | undefined {
   const d = DEFAULT_PARAMS;
   const out: string[] = [];
   if (p.landFraction !== d.landFraction) out.push(`陆地比例 ${Math.round(p.landFraction * 100)}%`);
@@ -101,6 +101,8 @@ function paramsText(p: WorldParams, endYear?: number): string | undefined {
   if (p.temperature !== d.temperature) out.push(`气温 ${p.temperature > 0 ? '+' : ''}${p.temperature}°C`);
   if (p.rainfall !== d.rainfall) out.push(`降水 ${p.rainfall.toFixed(2)}×`);
   if (p.cells !== d.cells) out.push(`精细度 ${Math.round(p.cells / 1000)}k 地块`);
+  // 同一张地图上另起的一段历史:写上文明种子,照着能推出同一段历史
+  if (civSeed !== undefined && civSeed !== p.seed) out.push(`文明种子 ${civSeed}`);
   const years = cleanEndYear(endYear);
   if (years) out.push(`推演到 ${years} 年`);
   return out.length ? out.join('、') : undefined;
@@ -364,7 +366,7 @@ export function ExportMenu({ data, civ: shown, plain, style, layer, look = 'clas
     const y = civ ? Math.max(0, Math.min(civ.endYear, t.year ?? civ.endYear)) : 0;
     const yi = Math.floor(y);
     const show = { ...getCivShow() };
-    const params = paramsText(world.params, getEdits().endYear);
+    const params = paramsText(world.params, getEdits().endYear, civ?.seed);
     // 文件名、图例、编年史里的年份照作者的纪年写(文件名里不带空格:"第1650年""公元前850年")
     const era = getEdits().era;
     const fileYear = yearFull(yi, era).replace(/ /g, '');

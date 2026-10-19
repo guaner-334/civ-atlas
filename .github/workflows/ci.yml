@@ -41,7 +41,8 @@ jobs:
     needs: changed
     if: ${{ !cancelled() && (github.event_name != 'schedule' || needs.changed.outputs.any == 'true') }}
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # 平常十分钟上下;机器慢的时候单测加压力能到十五分钟以上,留足余量
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4

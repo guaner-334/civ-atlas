@@ -201,6 +201,85 @@
   opacity: 0.45;
   cursor: default;
 }
+/* 新建分两步:标题下面「① 地图 —— ② 文明」(现在这一步蓝底白字,做完的打勾) */
+.st-steps {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: -5px;
+  font-size: 13px;
+  color: var(--ink-3);
+}
+.st-st {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.st-st i {
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px var(--ink-3);
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 600;
+}
+.st-st.on {
+  color: var(--ink);
+  font-weight: 600;
+}
+.st-st.on i {
+  background: var(--accent);
+  box-shadow: none;
+  color: #fff;
+}
+.st-st.ok {
+  color: var(--ink-2);
+}
+.st-st.ok i {
+  background: rgba(118, 118, 128, 0.32);
+  box-shadow: none;
+  color: var(--ink);
+}
+.st-bar {
+  flex: 0 0 28px;
+  height: 1px;
+  background: var(--line-strong);
+}
+.st-steps + .nw-intro {
+  margin-top: 0;
+}
+/* 第 1 步底部两个按钮:「保存地图」灰、「打造文明 ›」蓝 */
+.st-foot-2 {
+  display: flex;
+  gap: 8px;
+}
+.st-foot-2 .nw-create {
+  flex: 1.4;
+}
+.studio .st-foot-2 .nw-create.alt {
+  flex: 1;
+  background: rgba(118, 118, 128, 0.26);
+  color: var(--ink);
+  font-weight: 500;
+}
+.studio .st-foot-2 .nw-create.alt:hover:not(:disabled) {
+  background: rgba(118, 118, 128, 0.36);
+}
+/* 打造文明:「地图」组头右边「沿用，不能改」,锁着的那张地图下面一行小字 */
+.nw-locked {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.nw-map-row .sb-row-main small {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
 /* 行首的图标是灰的;「让助手改」:助手开着时这一行是选中的样子(字和图标变蓝);改地形工具底下单独一组 */
 .studio .sb-row .sb-ico {
   color: var(--ink-2);

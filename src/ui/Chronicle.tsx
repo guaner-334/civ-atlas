@@ -20,7 +20,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject }
 import type { Civ } from '../gen/civ/types';
 import { chronicleText, filterChronicle, polityChronicle, type ChronicleEntry } from '../gen/civ/chronicle';
 import { monthOf, yearFull, yearShort } from '../gen/era';
-import { useEra, useMonths } from './editsStore';
+import { seedTag, useEra, useMonths } from './editsStore';
 import { JumpField } from './JumpYear';
 import { fullChronicle } from '../gen/civ/religionText';
 import { polityName } from '../gen/civ/growth';
@@ -127,7 +127,7 @@ export function Chronicle({ civ }: { civ: Civ | null }) {
   const focusName = focus ? polityName(focus, Math.min(civ.endYear, focus.ended ?? civ.endYear)) : '';
 
   const copy = async () => {
-    const title = `编年史 · 种子 ${civ.seed}${focus ? ` · 只看${focusName}` : ''}${view.major ? ' · 大事' : ''}`;
+    const title = `编年史 · ${seedTag(civ.seed)}${focus ? ` · 只看${focusName}` : ''}${view.major ? ' · 大事' : ''}`;
     const text = chronicleText(list, title, era, months);
     (window as unknown as { __wfChronicleText: string }).__wfChronicleText = text;
     try {
