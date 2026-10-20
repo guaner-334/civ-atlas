@@ -17,7 +17,8 @@
  *   自动("事少快、事多慢")= 没事的年份按 rate 走(默认 4× 的速度),到一段事上停下讲,讲的时候年份从这段第一件走到最后一件,讲完接着走。
  *     任意十年里多于 3 件时只留分量重的(头等大事全留),其余进"略过的"(crowd)。
  *     给了可用时长(秒)= 最多放这么久:放不下先略过分量轻的(time),再加快没事的年份。
- *   固定速度 = 年份一直按 rate 走(默认 1× 的速度;给了可用时长 = 整段正好放这么久,按它定速度)。
+ *   固定速度 = 年份一直按 rate 走(默认 1× 的速度;给了可用时长 = 整段正好放这么久,按它定速度,讲不完的略过;
+ *     没给 = 最后一段可以讲过头,年份停在最后一年等它讲完)。
  *     每段在那件事发生的那一刻出字幕(镜头提前 0.6 秒起飞),段和段不重叠,撞了最多往后挪 1 秒;
  *     分量重的先排,排不下的只留这段分量最重的那件再试,还不行进"略过的"(time)。
  * - 年份范围含头不含尾([from, to)),整段排到世界最后一年时最后一年也算:一步一步往下排时同一件事不会排两次。
@@ -87,7 +88,7 @@ export interface DirectorPace {
   rate?: number;
   /** 一件事停多久的系数:0.5 短 / 1 标准(默认)/ 2 长 */
   hold?: number;
-  /** 可用时长(秒):auto = 最多放这么久;fixed = 整段正好放这么久(按它定速度,不看 rate)。不给 = 不限 */
+  /** 可用时长(秒):auto = 最多放这么久;fixed = 整段正好放这么久(按它定速度,不看 rate;最后讲不完的略过)。不给 = 不限 */
   seconds?: number;
 }
 
@@ -249,20 +250,19 @@ export function directorPlan(world: World, civ: Civ, input: DirectorInput): Dire
   if (mode === 'auto') {
     items = uncrowd(items, (c) => skip(c, 'crowd'));
     if (seconds) {
-      const reserve = Math.min(span / rate, seconds * IDLE_SHARE);
-      let cost = 0;
-      for (const c of items) cost += c.hold + DIRECTOR_FLY;
-      if (cost > seconds - reserve) {
+      // 按合成以后的段算(合成的一段镜头只飞一次)
+      const limit = seconds - Math.min(span / rate, seconds * IDLE_SHARE);
+      const cost = (list: readonly Cand[]) => mergeGroups(ctx, list).reduce((s, g) => s + DIRECTOR_FLY + g.reduce((h, c) => h + c.hold, 0), 0);
+      if (cost(items) > limit) {
         const drop = new Set<Cand>();
+        let left = items;
         for (const c of [...items].sort(byWeight).reverse()) {
-          if (cost <= seconds - reserve) break;
           drop.add(c);
-          cost -= c.hold + DIRECTOR_FLY;
+          left = items.filter((x) => !drop.has(x));
+          if (cost(left) <= limit) break;
         }
-        items = items.filter((c) => {
-          if (drop.has(c)) skip(c, 'time');
-          return !drop.has(c);
-        });
+        for (const c of items) if (drop.has(c)) skip(c, 'time');
+        items = left;
       }
     }
   }
@@ -289,7 +289,7 @@ export function directorPlan(world: World, civ: Civ, input: DirectorInput): Dire
     }
     ({ segments, clock, duration } = autoTimes(ctx, groups, from, to, rate));
   } else {
-    ({ segments, clock, duration } = fixedTimes(ctx, groups, from, to, rate, (c) => skip(c, 'time')));
+    ({ segments, clock, duration } = fixedTimes(ctx, groups, from, to, rate, seconds !== null && span > 0, (c) => skip(c, 'time')));
   }
   skipped.sort(byTime);
   return { from, to, mode, rate, hold: factor, duration, segments, skipped, clock };
@@ -577,9 +577,10 @@ function autoTimes(ctx: ShotCtx, groups: readonly Cand[][], from: number, to: nu
 
 /**
  * 固定速度:年份一直按 rate 走。每段想在第一件发生的那一刻出字幕(镜头提前 DIRECTOR_FLY 秒起飞),字幕一件接一件、
- * 每件不早于它发生的那一刻;段和段不重叠,撞了最多往后挪 FIXED_SHIFT 秒。分量重的段先排;排不下的只留它分量最重的那件再试一次
+ * 每件不早于它发生的那一刻;段和段不重叠,撞了最多往后挪 FIXED_SHIFT 秒。分量重的段先排;排不下的只留它分量最重的那件再试一次。
+ * exact(给了可用时长):讲不到最后一年放完那一刻的也算排不下;不然最后一段可以讲过头,年份停在最后一年等它讲完
  */
-function fixedTimes(ctx: ShotCtx, groups: readonly Cand[][], from: number, to: number, rate: number, onSkip: (c: Cand) => void) {
+function fixedTimes(ctx: ShotCtx, groups: readonly Cand[][], from: number, to: number, rate: number, exact: boolean, onSkip: (c: Cand) => void) {
   const T = (to - from) / rate;
   const natural = (y: number) => Math.max(0, (y - from) / rate);
   const taken: { at: number; end: number }[] = [];
@@ -599,6 +600,7 @@ function fixedTimes(ctx: ShotCtx, groups: readonly Cand[][], from: number, to: n
     const starts = [pref, ...taken.map((p) => p.end).filter((e) => e > pref && e <= pref + FIXED_SHIFT)].sort((a, b) => a - b);
     for (const s of starts) {
       const l = layout(g, s);
+      if (exact && l.end > T + 1e-9) break;
       if (free(s, l.end)) {
         taken.push({ at: s, end: l.end });
         return { at: s, times: l.times };

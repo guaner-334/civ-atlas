@@ -225,6 +225,11 @@ describe('自动节奏:事少快、事多慢', () => {
     const roomy = plan(list, { pace: { mode: 'auto', rate: 80, seconds: 600 } });
     expect(roomy.skipped).toHaveLength(0);
     expect(roomy.rate).toBe(80);
+    // 合成一段的镜头只飞一次,按合成以后的算:同一处相隔 5 年的两件(3 + 2 秒)放得进 6 秒
+    const pair = plan([big(1000), mid(1005)], { from: 1000, to: 1010, pace: { mode: 'auto', rate: 80, seconds: 6 } });
+    expect(pair.skipped).toHaveLength(0);
+    expect(pair.segments).toHaveLength(1);
+    expect(pair.duration).toBeLessThanOrEqual(6);
     // 事都略过了,没事的年份也要加快到放得下
     const fast = plan([], { pace: { mode: 'auto', rate: 10, seconds: 20 } });
     expect(fast.duration).toBeCloseTo(20, 6);
@@ -244,6 +249,15 @@ describe('固定速度', () => {
     const q = plan([big(1500)], { pace: { mode: 'fixed', seconds: 40 } });
     expect(q.rate).toBeCloseTo(25, 9);
     expect(q.duration).toBeCloseTo(40, 9);
+    // 给了可用时长:最后讲不完的略过,不拖长;没给:最后一段讲过头,年份停在最后一年等它讲完
+    const late = big(1999);
+    const r = plan([late], { pace: { mode: 'fixed', seconds: 40 } });
+    expect(r.duration).toBeCloseTo(40, 9);
+    expect(r.skipped.map((s) => [s.entry, s.why])).toEqual([[late, 'time']]);
+    const free = plan([late], { pace: { mode: 'fixed', rate: 25 } });
+    expect(told(free)).toEqual([late]);
+    expect(free.duration).toBeGreaterThan(40);
+    expect(directorYear(free, free.duration - 0.1)).toBe(2000);
   });
 
   it('来不及讲:分量重的先排,撞了最多往后挪 1 秒,还撞的进"略过的"', () => {
