@@ -20,6 +20,7 @@ import type { Mesh } from './mesh';
 import { blurField } from './mesh';
 import type { World } from './world';
 import type { Raster } from './raster';
+import { boxSpans, type PixelBox } from './pixelBox';
 import { classifyBiome } from './biomes';
 import { clamp, fbm3, noise3, orderByKey, smoothstep, subSeed } from './util';
 import { geometryOf } from './geometry';
@@ -309,9 +310,15 @@ function edgeDistance3(t: FloeTable3, base: number, bi: number, ux: number, uy: 
  *   - 按格子逐块处理(每块一次函数调用,引擎很快就把它编译成机器码),四个角只读一次
  *   - 冰块中心预先查表;冰盖深处只找落在哪块冰上(取色调),四个角都在同一块冰上时整格都不用找;
  *     用不到的那层浮冰直接跳过
+ *
+ * box:只做主图上这一块里的像素(编辑地形后按块重铺,gen/rasterEdit.ts),框外的不动。每个像素的结果只看它自己和
+ * 按绝对位置取的噪声格点、冰块中心,和整张图一起做逐位相同(冰块中心表只按框里的冰区建,四周的余量够,查不到表外)
  */
-export function seaIcePixels(world: World, r: Raster) {
+export function seaIcePixels(world: World, r: Raster, box?: PixelBox) {
   const { w, h, scale, ice, iceConc, iceTone, biome, temp, precip } = r;
+  const spans: [number, number][] = box ? boxSpans(box, w) : [[0, w]];
+  const ry0 = box ? box.y0 : 0;
+  const ry1 = box ? box.y0 + box.h : h;
   const seed = world.params.seed;
   const R = world.width / (2 * Math.PI);
   const cosLon = new Float64Array(w);
@@ -342,23 +349,25 @@ export function seaIcePixels(world: World, r: Raster) {
   let bz0 = Infinity;
   let bz1 = -Infinity;
   let any = false;
-  for (let py = 0; py < h; py++) {
+  for (let py = ry0; py < ry1; py++) {
     const row = py * w;
     const J = Math.floor(py * invS) * gw;
     const cl = cosLat[py] * R;
     const z = sinLat[py] * R;
-    for (let px = 0; px < w; px++) {
-      if (!(ice[row + px] > SEA_ICE_MIN)) continue;
-      any = true;
-      act[J + Math.floor(px * invS)] = 1;
-      const x = cl * cosLon[px];
-      const y = cl * sinLon[px];
-      if (x < bx0) bx0 = x;
-      if (x > bx1) bx1 = x;
-      if (y < by0) by0 = y;
-      if (y > by1) by1 = y;
-      if (z < bz0) bz0 = z;
-      if (z > bz1) bz1 = z;
+    for (const [xa, xb] of spans) {
+      for (let px = xa; px < xb; px++) {
+        if (!(ice[row + px] > SEA_ICE_MIN)) continue;
+        any = true;
+        act[J + Math.floor(px * invS)] = 1;
+        const x = cl * cosLon[px];
+        const y = cl * sinLon[px];
+        if (x < bx0) bx0 = x;
+        if (x > bx1) bx1 = x;
+        if (y < by0) by0 = y;
+        if (y > by1) by1 = y;
+        if (z < bz0) bz0 = z;
+        if (z > bz1) bz1 = z;
+      }
     }
   }
   if (!any) return;
@@ -443,17 +452,18 @@ export function seaIcePixels(world: World, r: Raster) {
     return clamp((ed / Math.sqrt(t2) - gap) * scale * Math.sqrt(t2 / px2) + 0.5, 0, 1);
   };
 
-  const square = (I: number, J: number) => {
+  /** 一格(第 I 列、第 J 行)里列 xa..xb − 1、行在 ry0..ry1 以内的像素 */
+  const square = (I: number, J: number, xa: number, xb: number) => {
     const py0 = J * S;
-    const py1 = Math.min(h, py0 + S);
     const px0 = I * S;
-    const px1 = Math.min(w, px0 + S);
+    const ya = Math.max(py0, ry0);
+    const yb = Math.min(h, py0 + S, ry1);
     const a = node(I, J);
     const b = node(I + 1, J);
     const c = node(I, J + 1);
     const d = node(I + 1, J + 1);
     let whole = -2;
-    for (let py = py0; py < py1; py++) {
+    for (let py = ya; py < yb; py++) {
       const ty = (py - py0) * invS;
       const cl = cosLat[py];
       const sl = sinLat[py];
@@ -463,7 +473,7 @@ export function seaIcePixels(world: World, r: Raster) {
       const aR = grid[b + 1] + (grid[d + 1] - grid[b + 1]) * ty;
       const bL = grid[a + 2] + (grid[c + 2] - grid[a + 2]) * ty;
       const bR = grid[b + 2] + (grid[d + 2] - grid[b + 2]) * ty;
-      for (let px = px0; px < px1; px++) {
+      for (let px = xa; px < xb; px++) {
         const k = py * w + px;
         const c0 = ice[k];
         if (!(c0 > SEA_ICE_MIN)) continue;
@@ -534,6 +544,15 @@ export function seaIcePixels(world: World, r: Raster) {
     }
   };
   for (let J = 0; J < gh - 1; J++) {
-    for (let I = 0; I < gw - 1; I++) if (act[J * gw + I]) square(I, J);
+    for (let I = 0; I < gw - 1; I++) {
+      if (!act[J * gw + I]) continue;
+      const px0 = I * S;
+      const px1 = Math.min(w, px0 + S);
+      for (const [sa, sb] of spans) {
+        const xa = Math.max(px0, sa);
+        const xb = Math.min(px1, sb);
+        if (xa < xb) square(I, J, xa, xb);
+      }
+    }
   }
 }

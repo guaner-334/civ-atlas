@@ -10,6 +10,7 @@
  */
 import type { Raster } from './raster';
 import type { DrainLines } from './pixelDrain';
+import { boxOfCols, boxSpans, type PixelBox } from './pixelBox';
 
 /** 补丁里有的字段(cell 只由网格定,各段一样,不存) */
 const F32 = ['elev', 'temp', 'precip', 'ice', 'gully'] as const;
@@ -69,19 +70,14 @@ export function diffRaster(a: Raster, b: Raster): RasterPatch | null {
     return { W, H, x0: 0, y0: 0, w: 0, h: 0, f32: {}, u8: {}, veins: copyLines(v) };
   }
   // 列:找最长的一段没变的(东西相连,绕一圈),框 = 剩下的那一段
-  let best = 0;
-  let bestEnd = 0;
-  let run = 0;
-  for (let k = 0; k < 2 * W; k++) {
-    if (col[k % W]) run = 0;
-    else if (++run > best && run <= W) {
-      best = run;
-      bestEnd = k;
-    }
-  }
-  const w = W - best;
-  const x0 = best ? (bestEnd + 1) % W : 0;
-  const h = y1 - y0 + 1;
+  return cutPatch(b, boxOfCols(col, y0, y1)!, true);
+}
+
+/** b 上一块框里的各字段拷出来成一块补丁;lines = 连细沟的线一起带上(有的话) */
+function cutPatch(b: Raster, box: PixelBox, lines: boolean): RasterPatch {
+  const W = b.w;
+  const H = b.h;
+  const { x0, y0, w, h } = box;
   const f32: RasterPatch['f32'] = {};
   const u8: RasterPatch['u8'] = {};
   for (const k of F32) {
@@ -92,8 +88,61 @@ export function diffRaster(a: Raster, b: Raster): RasterPatch | null {
     const q = b[k];
     if (q) u8[k] = cut(q, W, x0, y0, w, h, new Uint8Array(w * h));
   }
-  const v = b.veinLines;
+  const v = lines ? b.veinLines : undefined;
   return { W, H, x0, y0, w, h, f32, u8, ...(v ? { veins: copyLines(v) } : {}) };
+}
+
+/**
+ * b 比 a 变了的那一块,逐位比(没有"看不出来"的差别;编辑地形后交给主线程按块换上、按块重画,换上以后和 b 逐位相同)。
+ * win:只在这块里比(调用方保证框外除了细沟都和 a 一样;不给 = 整张比);细沟(vein)整张比,细沟的线变了才带上。
+ * 一个像素、一条线也没变 = null
+ */
+export function exactPatch(a: Raster, b: Raster, win?: PixelBox | null): RasterPatch | null {
+  const W = b.w;
+  const H = b.h;
+  if (a.w !== W || a.h !== H) throw new Error('主图大小不一样');
+  const col = new Uint8Array(W);
+  let y0 = H;
+  let y1 = -1;
+  const scan = (p: ArrayLike<number>, q: ArrayLike<number>, box: PixelBox) => {
+    for (let y = box.y0; y < box.y0 + box.h; y++) {
+      const row = y * W;
+      for (const [s, e] of boxSpans(box, W)) {
+        for (let x = s; x < e; x++) {
+          if (p[row + x] === q[row + x]) continue;
+          col[x] = 1;
+          if (y < y0) y0 = y;
+          if (y > y1) y1 = y;
+        }
+      }
+    }
+  };
+  const all: PixelBox = { x0: 0, y0: 0, w: W, h: H };
+  const box = win === undefined ? all : win;
+  const bits = (x: Float32Array) => new Int32Array(x.buffer, x.byteOffset, x.length);
+  if (box) {
+    for (const k of F32) {
+      const p = a[k];
+      const q = b[k];
+      if (!p && !q) continue;
+      if (!p || !q) throw new Error(`主图的 ${k} 一份有一份没有`);
+      scan(bits(p), bits(q), box);
+    }
+    for (const k of U8) {
+      if (k === 'vein') continue;
+      const p = a[k];
+      const q = b[k];
+      if (!p && !q) continue;
+      if (!p || !q) throw new Error(`主图的 ${k} 一份有一份没有`);
+      scan(p, q, box);
+    }
+  }
+  if (a.vein && b.vein) scan(a.vein, b.vein, all);
+  else if (a.vein || b.vein) throw new Error('主图的 vein 一份有一份没有');
+  const v = b.veinLines;
+  const linesChanged = !!v && !sameLines(a.veinLines, v);
+  if (y1 < 0) return linesChanged ? { W, H, x0: 0, y0: 0, w: 0, h: 0, f32: {}, u8: {}, veins: copyLines(v!) } : null;
+  return cutPatch(b, boxOfCols(col, y0, y1)!, linesChanged);
 }
 
 function copyLines(v: DrainLines): DrainLines {
@@ -183,4 +232,38 @@ export function patchTransferables(p: RasterPatch): ArrayBuffer[] {
 /** 补丁占多少字节 */
 export function patchBytes(p: RasterPatch): number {
   return arrays(p).reduce((s, a) => s + a.byteLength, 0);
+}
+
+/** 主图上一块(列从 x0 起往右 w 列,出右边接回左边)拷出来成一张小图(带 win:它在整张图上的位置) */
+export function cutRaster(r: Raster, x0: number, y0: number, w: number, h: number): Raster {
+  const W = r.w;
+  const cut = <T extends Float32Array | Uint8Array>(src: T, out: T): T => {
+    for (let y = 0; y < h; y++) {
+      const row = (y0 + y) * W;
+      const first = Math.min(w, W - x0);
+      out.set(src.subarray(row + x0, row + x0 + first), y * w);
+      if (first < w) out.set(src.subarray(row, row + w - first), y * w + first);
+    }
+    return out;
+  };
+  const N = w * h;
+  return {
+    w,
+    h,
+    scale: r.scale,
+    elev: cut(r.elev, new Float32Array(N)),
+    temp: cut(r.temp, new Float32Array(N)),
+    precip: cut(r.precip, new Float32Array(N)),
+    water: cut(r.water, new Uint8Array(N)),
+    biome: cut(r.biome, new Uint8Array(N)),
+    cell: new Int32Array(0),
+    ice: cut(r.ice, new Float32Array(N)),
+    iceConc: cut(r.iceConc, new Uint8Array(N)),
+    iceTone: cut(r.iceTone, new Uint8Array(N)),
+    gully: r.gully && cut(r.gully, new Float32Array(N)),
+    bank: r.bank && cut(r.bank, new Uint8Array(N)),
+    vein: r.vein && cut(r.vein, new Uint8Array(N)),
+    wrap: true,
+    win: { x0, y0, W, H: r.h },
+  };
 }

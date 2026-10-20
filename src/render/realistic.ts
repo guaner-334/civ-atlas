@@ -24,6 +24,7 @@ import {
   hash2,
   wrapOf,
   type PrepStep,
+  type WorkStep,
   type RGB,
   type RiverStyle,
   type VecView,
@@ -31,6 +32,9 @@ import {
 import { smoothstep } from '../gen/util';
 import { CREEK_FRAC, creeksOf } from '../gen/creeks';
 import { reprojectImage, type Projector } from './projection';
+import { boxOfCols, boxSpans, growBox, unionBox, type PixelBox } from '../gen/pixelBox';
+import { WINDOW_PAD } from '../gen/rasterWindow';
+import { cutRaster } from '../gen/rasterPatch';
 import type { SurfaceLook } from './surface';
 
 /**
@@ -326,10 +330,12 @@ interface Base {
   look: SurfaceLook;
   canvas: AnyCanvas;
   raw: Uint8ClampedArray | null;
+  /** 大尺度晕渲的粗网格(编辑地形后按块重画时和下一张的比,见 realisticPatchSteps) */
+  grids: MacroGrids | null;
 }
 /**
  * 当前这张地图的像素层(不含河;realisticBase 刚给出的那一份)。
- * raw = 水陆交界抗锯齿之前的像素(放大后的细节层拼水、陆两份要用,见 realisticShoreLayers;拼好就不留了)
+ * raw = 水陆交界抗锯齿之前的像素(放大后的细节层拼水、陆两份要用,见 realisticShoreLayers;编辑地形后按块重画时照它补一块)
  */
 let base: Base | null = null;
 /**
@@ -348,15 +354,142 @@ export function realisticBase(r: Raster, look: SurfaceLook = 'classic'): AnyCanv
     bases = [hit, ...bases.filter((b) => b !== hit)];
     return hit.canvas;
   }
-  const keep = bases.filter((b) => b.raster.cell === r.cell).slice(0, BASES_KEEP - 1);
-  for (const b of bases) if (!keep.includes(b)) b.canvas.width = b.canvas.height = 0;
   const cv = makeCanvas(r.w, r.h);
   const ctx = cv.getContext('2d') as CanvasRenderingContext2D;
-  const raw = paintRealistic(ctx, r, undefined, true, undefined, look);
-  base = { raster: r, look, canvas: cv, raw };
-  bases = [base, ...keep];
+  const grids = r.win ? null : macroGrids(r);
+  const raw = paintRealistic(ctx, r, undefined, true, grids ?? undefined, look);
+  adoptBase({ raster: r, look, canvas: cv, raw, grids });
   return cv;
 }
+
+/** 新铺好的一张像素层放进缓存(最前);同一个世界留最近 BASES_KEEP 张,别的释放 */
+function adoptBase(b: Base): void {
+  const keep = bases.filter((x) => x.raster.cell === b.raster.cell && !(x.raster === b.raster && x.look === b.look)).slice(0, BASES_KEEP - 1);
+  for (const x of bases) if (!keep.includes(x)) x.canvas.width = x.canvas.height = 0;
+  base = b;
+  bases = [b, ...keep];
+}
+
+/** 一条带子每步重画多少个像素(约一两帧的活) */
+const PATCH_BAND_PX = 120000;
+
+/**
+ * 编辑地形后按块重画像素层(地形、海、冰、晕渲,不含河):r1 是 r0 贴上一块主图补丁得来的,两张只在 box 里不一样
+ * (gen/rasterPatch.ts 的 exactPatch;null = 一个像素也没变)。r0 这种画法的像素层还在缓存里,就复制一份,
+ * 只重画受影响的那块:box 外扩 3 像素(晕渲、岸线抗锯齿看邻居,湖岸看 ±3)+ 大尺度晕渲粗网格变了的那几格管到的像素。
+ * 每条带子四周再多画 WINDOW_PAD 个像素裁掉(带子边上的邻居不全;过了右边的列按整张图接回左边算)。
+ * 分几步做(每步一条带子),最后一步把新的一张放进缓存:结果和整张重画逐像素相同。缓存里没有 r0 的 = null(到时候整张画)
+ */
+export function realisticPatchSteps(r1: Raster, r0: Raster, look: SurfaceLook, box: PixelBox | null): WorkStep[] | null {
+  const b0 = bases.find((b) => b.raster === r0 && b.look === look);
+  if (!b0 || r0.win || r1.win || r1.w !== r0.w || r1.h !== r0.h || r1.scale !== 1) return null;
+  const W = r1.w;
+  const H = r1.h;
+  let g0 = b0.grids;
+  let g1: MacroGrids | null = null;
+  let region: PixelBox | null = null;
+  let cv: AnyCanvas | null = null;
+  let ctx: CanvasRenderingContext2D | null = null;
+  let raw: Uint8ClampedArray | null = null;
+  let y = 0;
+  let band = 1;
+  return [
+    () => void (g0 ??= macroGrids(r0)),
+    () => void (g1 = macroGrids(r1)),
+    () => {
+      region = realisticPatchRegion(box, g0!, g1!, W, H);
+      cv = makeCanvas(W, H);
+      ctx = cv.getContext('2d') as CanvasRenderingContext2D;
+      ctx.drawImage(b0.canvas, 0, 0);
+      raw = b0.raw ? b0.raw.slice() : null;
+      y = region ? region.y0 : 0;
+      band = region ? Math.max(8, Math.floor(PATCH_BAND_PX / region.w)) : 1;
+    },
+    () => {
+      if (!region) return;
+      const y1 = Math.min(region.y0 + region.h, y + band);
+      for (const p of realisticBandPixels(r1, g1!, look, region, y, y1, !!raw)) {
+        ctx!.putImageData(new ImageData(p.px, p.n, y1 - y), p.x, y);
+        if (raw && p.raw) for (let yy = 0; yy < y1 - y; yy++) raw.set(p.raw.subarray(yy * p.n * 4, (yy + 1) * p.n * 4), ((y + yy) * W + p.x) * 4);
+      }
+      y = y1;
+      return y < region.y0 + region.h;
+    },
+    () => adoptBase({ raster: r1, look, canvas: cv!, raw, grids: g1 }),
+  ];
+}
+
+/** 编辑地形后要重画的那块(见 realisticPatchSteps):r0 → r1 两张主图、两张粗网格比出来;没有要重画的 = null */
+export function realisticPatchRegion(box: PixelBox | null, g0: MacroGrids, g1: MacroGrids, W: number, H: number): PixelBox | null {
+  return unionBox(box && growBox(box, 3, 3, W, H), gridChange(g0, g1, W, H), W);
+}
+
+/** 两张粗网格(同样大)变了的格子管到的像素的框(双线性取样用到这一格的像素,多算一点;没变 = null) */
+function gridChange(a: MacroGrids, b: MacroGrids, W: number, H: number): PixelBox | null {
+  const { F, mw, mh } = b;
+  if (a.mw !== mw || a.mh !== mh) return { x0: 0, y0: 0, w: W, h: H };
+  const col = new Uint8Array(W);
+  let y0 = H;
+  let y1 = -1;
+  const bits = (x: Float32Array) => new Int32Array(x.buffer, x.byteOffset, x.length);
+  const pairs = [
+    [bits(a.SL), bits(b.SL)],
+    [bits(a.SS), bits(b.SS)],
+    [bits(a.P), bits(b.P)],
+  ];
+  const cells = new Uint8Array(mw * mh);
+  for (const [p, q] of pairs) for (let j = 0; j < p.length; j++) if (p[j] !== q[j]) cells[j] = 1;
+  for (let cy = 0; cy < mh; cy++) {
+    for (let cx = 0; cx < mw; cx++) {
+      if (!cells[cy * mw + cx]) continue;
+      y0 = Math.min(y0, Math.max(0, F * cy - 2 * F));
+      y1 = Math.max(y1, Math.min(H - 1, F * cy + 2 * F));
+      for (let x = F * cx - 2 * F; x <= F * cx + 2 * F; x++) col[((x % W) + W) % W] = 1;
+    }
+  }
+  return boxOfCols(col, y0, y1);
+}
+
+/**
+ * 纯计算(单测用):region 里 y0..y1 − 1 这几行的像素(和整张重画的这几行逐像素相同),按 region 的列分成一两段
+ * (x = 这一段从全图第几列起,n 列;px = 抗锯齿以后的 RGBA,raw = 抗锯齿之前的,wantRaw 才给)。
+ * 四周多画 WINDOW_PAD 个像素再裁掉;region 加上余量够一整圈时整圈画(整圈的一块东西相连,和整张图一样)
+ */
+export function realisticBandPixels(r: Raster, g: MacroGrids, look: SurfaceLook, region: PixelBox, y0: number, y1: number, wantRaw: boolean): { x: number; n: number; px: Uint8ClampedArray; raw: Uint8ClampedArray | null }[] {
+  const W = r.w;
+  const H = r.h;
+  const P = WINDOW_PAD;
+  const wy0 = Math.max(0, y0 - P);
+  const wy1 = Math.min(H, y1 + P);
+  const whole = region.w + 2 * P >= W;
+  const wx0 = whole ? 0 : (region.x0 - P + W) % W;
+  const ww = whole ? W : region.w + 2 * P;
+  const win = cutRaster(r, wx0, wy0, ww, wy1 - wy0);
+  let px: Uint8ClampedArray | null = null;
+  const sink = {
+    createImageData: (w: number, h: number) => ({ width: w, height: h, data: new Uint8ClampedArray(w * h * 4) }),
+    putImageData: (img: { data: Uint8ClampedArray }) => {
+      px = img.data;
+    },
+  } as unknown as CanvasRenderingContext2D;
+  const pre = paintRealistic(sink, win, undefined, wantRaw, g, look);
+  const out = px as unknown as Uint8ClampedArray;
+  const rows = y1 - y0;
+  return boxSpans(region, W).map(([s, e]) => {
+    const n = e - s;
+    // 这一段的第一列在这一块里是第几列(整圈画的一块就是全图的列号;不然是余量 + 在 region 里第几列)
+    const wc = whole ? s : P + ((s - region.x0 + W) % W);
+    const o = new Uint8ClampedArray(n * rows * 4);
+    const q = pre ? new Uint8ClampedArray(n * rows * 4) : null;
+    for (let yy = 0; yy < rows; yy++) {
+      const src = ((y0 + yy - wy0) * ww + wc) * 4;
+      o.set(out.subarray(src, src + n * 4), yy * n * 4);
+      if (q) q.set(pre!.subarray(src, src + n * 4), yy * n * 4);
+    }
+    return { x: s, n, px: o, raw: q };
+  });
+}
+
 
 export function renderRealistic(ctx: CanvasRenderingContext2D, world: World, r: Raster, look: SurfaceLook = 'classic') {
   ctx.drawImage(realisticBase(r, look), 0, 0);
@@ -430,7 +563,6 @@ export function realisticShoreLayers(r: Raster, look: SurfaceLook = 'classic'): 
   if (shoreCache) shoreCache.water.width = shoreCache.water.height = shoreCache.land.width = shoreCache.land.height = 0;
   realisticBase(r, look);
   const sides = shoreSides(base!.raw ?? paintRealistic(rawSink, r, undefined, true, undefined, look)!, r);
-  base!.raw = null;
   const layer = (px: Uint8ClampedArray) => {
     const cv = makeCanvas(r.w, r.h);
     (cv.getContext('2d') as CanvasRenderingContext2D).putImageData(new ImageData(px, r.w, r.h), 0, 0);
@@ -818,6 +950,19 @@ export function realisticGlobeMaps(world: World, r: Raster, look: SurfaceLook = 
   return { albedo: cv, slope: px.slope };
 }
 
+/** 纯计算(单测用):整张像素层的像素(和 realisticBase 一样)和水陆交界抗锯齿之前的那一份 */
+export function realisticPixels(r: Raster, look: SurfaceLook = 'classic'): { px: Uint8ClampedArray; raw: Uint8ClampedArray } {
+  let px: Uint8ClampedArray | null = null;
+  const sink = {
+    createImageData: (w: number, h: number) => ({ width: w, height: h, data: new Uint8ClampedArray(w * h * 4) }),
+    putImageData: (img: { data: Uint8ClampedArray }) => {
+      px = img.data;
+    },
+  } as unknown as CanvasRenderingContext2D;
+  const raw = paintRealistic(sink, r, undefined, true, r.win ? undefined : macroGrids(r), look)!;
+  return { px: px!, raw };
+}
+
 /**
  * 纯计算(Node 里也能跑,单测用):平面主图的像素(打好光的,和 realisticBase 一样)、地球仪的不打光底色、坡度(RGBA 交错,见 GlobeCapture)
  */
@@ -882,17 +1027,19 @@ function paintRealistic(ctx: CanvasRenderingContext2D, r: Raster, cap?: GlobeCap
   const fy = win ? grids!.h / win.H : 1;
   const wx0 = win ? win.x0 : 0;
   const wy0 = win ? win.y0 : 0;
+  // 同样大小的一块(编辑地形后按块重画,见 realisticPatch):过了右边的列按整张图接回左边算,和整张图那一列逐位相同
+  const colOf = win && win.W === W0 ? (px: number) => (wx0 + px >= W0 ? wx0 + px - W0 : wx0 + px) : (px: number) => wx0 + px;
   // 地面纹理、群落交界打散:按世界坐标取(整张图、放大现算的块接得上),细的几层放大后才叠
   const pxW = 1 / r.scale;
   const Ww = (win ? win.W : w) / r.scale;
-  const wxOf = (px: number) => (wx0 + px + 0.5) / r.scale;
+  const wxOf = (px: number) => (colOf(px) + 0.5) / r.scale;
   const bank = r.bank;
   const vein = r.vein;
   const geo = new RowNoise(GEO_OCT, 101, w, wxOf, Ww, pxW);
   const fine = new RowNoise(FINE_OCT, 201, w, wxOf, Ww, pxW, 1, TEX_BIG_PX);
   const streak = new RowNoise(STREAK_OCT, 301, w, wxOf, Ww, pxW, STREAK_SX, TEX_BIG_PX);
   // 雪线的抖动:平滑噪声(高纬度大片地方气温都在雪线附近,值噪声会露出一格一格)
-  const snowN = win ? cylinderNoise(11, W0, 5, Float64Array.from({ length: w }, (_, px) => (wx0 + px + 0.5) * fx)) : cylinderNoise(11, w, 5);
+  const snowN = win ? cylinderNoise(11, W0, 5, Float64Array.from({ length: w }, (_, px) => (colOf(px) + 0.5) * fx)) : cylinderNoise(11, w, 5);
 
   const col: RGB = [0, 0, 0];
   // 陆地像素:颜色写进 col,返回打光的明暗 s;地球仪的细节坡度写进 dg[0..1],积雪上明暗减弱的系数写进 dg[2]。
@@ -1504,8 +1651,10 @@ function macroUpsample(g: MacroGrids, r: Raster): { shade: Float32Array; level: 
   const cx0 = new Int32Array(w);
   const cx1 = new Int32Array(w);
   const cax = new Float32Array(w);
+  // 同样大小的一块(编辑地形后按块重画):过了右边的列按整张图接回左边算
+  const same = !!win && win.W === g.w;
   for (let px = 0; px < w; px++) {
-    const fx0 = win ? ((ox + px + 0.5) * fx) / F - 0.5 : (px + 0.5) / F - 0.5;
+    const fx0 = win ? ((same && ox + px >= g.w ? ox + px - g.w : ox + px) + 0.5) * fx / F - 0.5 : (px + 0.5) / F - 0.5;
     // 左右边的像素插在最后一格和第一格之间
     const x0 = Math.floor(fx0);
     cax[px] = fx0 - x0;

@@ -4,7 +4,7 @@ import { createPortal, flushSync } from 'react-dom';
 import { DEFAULT_PARAMS, type World, type WorldParams } from '../gen/world';
 import type { Raster } from '../gen/raster';
 import { renderRealistic } from '../render/realistic';
-import { renderFantasy } from '../render/fantasy';
+import { adoptPlan, renderFantasy } from '../render/fantasy';
 import { DETAIL_K } from '../render/detail';
 import { TerrainDetail } from './TerrainDetail';
 import { MapDecor } from './MapDecor';
@@ -123,6 +123,7 @@ import { multisetDiff } from '../gen/util';
 import { sameMix, type NameMix } from '../gen/names/mix';
 import { cleanFrontier, cleanOrigins, sameFrontier, sameOrigins, type Frontier, type Origins } from '../gen/civ/frontier';
 import type { RasterPatch } from '../gen/rasterPatch';
+import { cancelTerrainPatch, startTerrainPatch, type PatchStats, type PatchView, type PreProjected } from './terrainPatch';
 import { baseRegions, civAtEra, dropComposed, eraData, eraIndex, eraMapsOf, eraReady, eraShown, patchKey, reuseRegions, useEraIndex, withHistory, type EraMaps } from './eras';
 import { sameSketch, type SketchEdit } from '../gen/sketch';
 import { clearEditHistory, clearEdits, getEdits, removeEditsBatch, removeIntervention, removeUpheaval, setEditGate, setEdits, setHistoryGate, undoTerrainOp, useEdits } from './editsStore';
@@ -1002,7 +1003,26 @@ export function App() {
   /** 换了新世界、还没套上它的修改(自动恢复 / 读档)之前:这时的修改不属于这个世界,不按它重新生成 */
   const fresh = useRef(false);
   /** 正在进行的"按新地形重新生成"(编号 = 那次生成的请求编号);t0 = 发出去的时刻 */
-  const regenRef = useRef<{ id: number; t0: number; terrain: readonly TerrainOp[]; sketch?: SketchEdit; workerMs?: number; arrived?: number } | null>(null);
+  const regenRef = useRef<{
+    id: number;
+    t0: number;
+    terrain: readonly TerrainOp[];
+    sketch?: SketchEdit;
+    workerMs?: number;
+    arrived?: number;
+    /** 线程交回来的时刻(毫秒,从发出去算起)、线程里铺像素用了多久、按块换上的备料统计(冒烟检查、测速用) */
+    got?: number;
+    rasterMs?: number;
+    patch?: PatchStats;
+    /** 地形图换上以后的下一帧(从发出去算起,毫秒) */
+    shown?: number;
+  } | null>(null);
+  /** 地图上那张整图(baseRef)是哪个世界的(线程的 baseKey;编辑地形时线程按它判断能不能只交回变了的那块) */
+  const baseKeyRef = useRef<string | null>(null);
+  /** 最近一次发出去的生成请求(按块重铺对不上时按整张重新要) */
+  const genSent = useRef<WorkerRequest | null>(null);
+  /** 编辑地形后在后台按投影画好的整张地形图(弯边投影时换上地图直接贴它,见 ui/terrainPatch.ts) */
+  const preProj = useRef<PreProjected | null>(null);
   /** 正在进行的"按新地形重新生成"是一次 AI 改写 / 撤销改写(生成完说"已按你说的改写",带撤销) */
   const regenNote = useRef<RewriteNote | null>(null);
   /** 地图上现在这个世界带着的地形修改(覆盖层据此标出还在生成的那几处) */
@@ -1053,6 +1073,9 @@ export function App() {
   const mp = useMemo(() => (data ? curvedProj(projection, mapCenter, data.world.width, data.world.height) : null), [data, projection, mapCenter]);
   const mpRef = useRef<MapProj | null>(mp);
   mpRef.current = mp;
+  /** 地图现在怎么画(编辑地形按块换上时,线程回调里看这一份决定重画哪种像素层) */
+  const drawView = useRef<PatchView>({ style, look: surface, mp });
+  drawView.current = { style, look: surface, mp };
 
   // ---- 后台线程 ----
   // 线程一次只能算一个世界。连续改参数时,与其排队把每个中间世界都算完,
@@ -1126,22 +1149,51 @@ export function App() {
         }
         if (m.type === 'progress') setProgress((s) => ({ stage: m.stage, pct: m.pct, regen: regenRef.current?.id === m.id, seed: s?.seed }));
         else if (m.type === 'done') {
-          // 读原件来的、只算了后一半的(编辑地形接着上一次)不算生成速度
-          if (!frozenLoad.current && !m.reused) noteGenSpeed(m.world.params.cells, m.genMs, m.ms);
-          // 换了世界:各段的主图补丁都作废
-          eraPatches.current.clear();
-          dropComposed();
-          baseRef.current = { world: m.world, raster: m.raster };
-          setData(baseRef.current);
-          setEraMaps(m.eras ? eraMapsOf(m.world, m.baseKey, m.eras) : null);
-          rawUps.current = genUps.current;
-          setRawCiv(m.civ);
-          setProgress(null);
-          const rg = regenRef.current;
-          if (rg && rg.id === m.id) terrainDoneRef.current(m.world, m.civ, m.ms);
-          else {
-            fresh.current = false;
-            readyRef.current(m.world, m.civ);
+          const rg0 = regenRef.current;
+          if (rg0 && rg0.id === m.id) {
+            rg0.got = performance.now() - rg0.t0;
+            rg0.rasterMs = m.rasterMs;
+          }
+          const finish = (raster: Raster) => {
+            // 读原件来的、只算了后一半的(编辑地形接着上一次)不算生成速度
+            if (!frozenLoad.current && !m.reused) noteGenSpeed(m.world.params.cells, m.genMs, m.ms);
+            // 换了世界:各段的主图补丁都作废
+            eraPatches.current.clear();
+            dropComposed();
+            baseRef.current = { world: m.world, raster };
+            baseKeyRef.current = m.baseKey;
+            setData(baseRef.current);
+            setEraMaps(m.eras ? eraMapsOf(m.world, m.baseKey, m.eras) : null);
+            rawUps.current = genUps.current;
+            setRawCiv(m.civ);
+            setProgress(null);
+            const rg = regenRef.current;
+            if (rg && rg.id === m.id) terrainDoneRef.current(m.world, m.civ, m.ms);
+            else {
+              fresh.current = false;
+              readyRef.current(m.world, m.civ);
+            }
+          };
+          if (m.raster) {
+            cancelTerrainPatch();
+            finish(m.raster);
+          } else {
+            // 编辑地形按块重铺的:只带回变了的那块,贴到地图上那张整图上;按块重画的像素层分小步备好再一次换上
+            const b = baseRef.current;
+            if (!b || baseKeyRef.current !== m.from) {
+              // 地图上那张不是线程比的那张(不该发生):这次按整张重新要一遍
+              const req = genSent.current;
+              if (req?.type === 'generate' && req.id === m.id) sendRef.current({ ...req, from: undefined });
+              return;
+            }
+            adoptPlan(m.world, m.plan);
+            startTerrainPatch({ w0: b.world, r0: b.raster, w1: m.world, patch: m.patch, view: drawView.current }, (r1, st, pre) => {
+              if (m.id !== reqId.current) return;
+              const rg = regenRef.current;
+              if (rg && rg.id === m.id) rg.patch = st;
+              preProj.current = pre;
+              finish(r1);
+            });
           }
         } else if (m.type === 'history') {
           setReplay({ w: m.w, h: m.h, frames: m.frames, mya: m.mya, idx: 0 });
@@ -1158,6 +1210,9 @@ export function App() {
   const send = useCallback(
     (req: WorkerRequest) => {
       const w = idleWorker(req.type === 'generate' || req.type === 'load');
+      if (req.type === 'generate') genSent.current = req;
+      // 又要了一个新世界:还在后台备着换上的那一次已经过时了(线程交回的旧结果本来也不认)
+      if (req.type === 'generate' || req.type === 'load') cancelTerrainPatch();
       busyRef.current++;
       // 问题记录:意外关闭时记下线程在忙什么
       workLabel.current = WORK_LABEL[req.type] ?? workLabel.current;
@@ -1424,7 +1479,8 @@ export function App() {
       civYears.current = yearsFor(t.kind === 'draft', t.edits);
       civSetup.current = setupFor(t.kind === 'draft', t.edits);
       storyAfterYears.current = null;
-      const req: WorkerRequest = { type: 'generate', id, params: p, scale: 1, terrain: [...terrain], sketch: t.edits.sketch, ...namesOpt(t.edits.nameMix), ...yearsOpt(civYears.current), ...setupOpt(civSetup.current) };
+      // 新建的世界能编辑地形:线程留着整张主图,第一笔就能只重铺变了的那块
+      const req: WorkerRequest = { type: 'generate', id, params: p, scale: 1, terrain: [...terrain], sketch: t.edits.sketch, ...namesOpt(t.edits.nameMix), ...yearsOpt(civYears.current), ...setupOpt(civSetup.current), ...(t.kind === 'draft' ? { keep: true } : {}) };
       frozenLoad.current = null;
       genReq.current = null;
       const save = oldStored(t);
@@ -1558,7 +1614,8 @@ export function App() {
     clearChroniclePick();
     if (getChronicle().polity !== null) setChronicle({ polity: null });
     if (getPeople().polity !== null) setPeople({ polity: null });
-    send({ type: 'generate', id, params: genParams.current, scale: 1, terrain: [...t], sketch: sk, interventions: [...interventions], ...upsOpt(ups), ...namesOpt(civNames.current), ...yearsOpt(civYears.current), ...setupOpt(civSetup.current) });
+    // 线程还留着地图上那张整图(baseKeyRef):只重铺、只交回变了的那块
+    send({ type: 'generate', id, params: genParams.current, scale: 1, terrain: [...t], sketch: sk, interventions: [...interventions], ...upsOpt(ups), ...namesOpt(civNames.current), ...yearsOpt(civYears.current), ...setupOpt(civSetup.current), keep: getStage().stage === 'draft', ...(baseKeyRef.current ? { from: baseKeyRef.current } : {}) });
   }, [edits.terrain, edits.sketch, baseData, send]);
 
   // ---- 干预(阶段 4)、地形大事:干预列表或地形大事一变,就在后台带着新的重推文明(地形不动;变了的那一年以前和原来一样) ----
@@ -1679,6 +1736,10 @@ export function App() {
         arrivedMs: rg.arrived,
         drawnMs: drawn,
         paintedMs: performance.now() - rg.t0,
+        gotMs: rg.got,
+        rasterMs: rg.rasterMs,
+        shownMs: rg.shown,
+        patch: rg.patch,
       };
     });
     regenRef.current = null;
@@ -2544,6 +2605,13 @@ export function App() {
    * 不用按投影精画(整图精画一次几百毫秒),整图重铺就够了(露边时也对得上);缩小到细节层以下再精画
    */
   const terrainCovered = curved && view.k > DETAIL_K && (style === 'fantasy' || style === 'realistic');
+  /** 按新地形重新生成的世界画到地形图上了:记下下一帧(地图在屏幕上换上)的时刻(冒烟检查、测速用) */
+  const noteShown = () => {
+    const rg = regenRef.current;
+    if (!rg || rg.arrived === undefined || rg.shown !== undefined) return;
+    rg.shown = -1;
+    requestAnimationFrame(() => (rg.shown = performance.now() - rg.t0));
+  };
   useLayoutEffect(() => {
     const cv = canvasRef.current;
     if (!cv || !data) return;
@@ -2571,11 +2639,17 @@ export function App() {
       }
       const t1 = performance.now();
       const proj = terrainProj.current;
-      presentTerrain(cv, mp, { world, raster, style, look: terrainLook, src, layer: proj, moving: projMoving || terrainCovered });
+      // 编辑地形后在后台按投影画好的那一版(同一张图、同一个投影和中心)
+      const p = preProj.current;
+      const pre = p && p.raster === raster && p.key === mp.key ? p.canvas : null;
+      preProj.current = null;
+      presentTerrain(cv, mp, { world, raster, style, look: terrainLook, src, layer: proj, moving: projMoving || terrainCovered, pre });
+      if (p) p.canvas.width = p.canvas.height = 0;
       mirrorCanvas(canvasCopyRef.current, null, false);
       const w = window as unknown as { __wf: unknown; __wfProj: unknown };
       w.__wfProj = { proj: mp.def.id, lon: mp.lon0, ms: performance.now() - t1, pending: terrainRefining() };
       if (fresh) w.__wf = { ready: true, renderMs: performance.now() - t0, style, layer, proj: mp.def.id };
+      noteShown();
       return;
     }
     terrainProj.current.release();
@@ -2595,6 +2669,7 @@ export function App() {
     // 右边再接一份(左右无限拖动)
     mirrorCanvas(canvasCopyRef.current, cv, true);
     (window as unknown as { __wf: unknown }).__wf = { ready: true, renderMs, style, layer };
+    noteShown();
   }, [data, style, layer, surface, terrainLook, mp, projMoving, terrainCovered]);
 
   /**
@@ -2880,6 +2955,8 @@ export function App() {
       setView(v);
     };
     w.__wfSetProjection = (p: MapProjection) => setProjection(p);
+    // 编辑地形的检查脚本用:地图上现在这张(世界、主图)和投影,拿去从头整张重画、和画面逐像素比
+    w.__wfMapData = () => ({ data: dataRef.current, mp: mpRef.current, style: drawView.current.style, look: drawView.current.look });
     w.__wfWorldToClient = worldToClient.current = (wx: number, wy: number): [number, number] | null => {
       const el = stageRef.current;
       const g = geo.current;

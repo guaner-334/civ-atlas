@@ -40,6 +40,7 @@ import { getCivTime } from './civView';
 import { CivToggles, CultureLegend, FaithLegend } from './CivPanel';
 import './overview.css';
 import { noteDismiss } from './dismissClick';
+import { terrainPatchPending } from './terrainPatch';
 
 /** 缩略图大小(显示时 88×44 左右,按两倍像素做) */
 const TW = 192;
@@ -110,6 +111,11 @@ export function useLayerThumbs(src: ThumbSource, current: ThumbId) {
     if (timer.current !== undefined) return;
     const step = () => {
       timer.current = undefined;
+      // 编辑地形后新地图正在后台分小步备着(ui/terrainPatch.ts):缩略图一张要画一两百毫秒,先让地图换上再做
+      if (terrainPatchPending()) {
+        timer.current = setTimeout(step, 100);
+        return;
+      }
       const id = queue.current.shift();
       if (!id) return;
       if (!have.current[id]) {
