@@ -6,7 +6,7 @@
  *   下面   三选一 ——
  *          搜索框里有字:搜索结果(点一条 = 选中它,地图飞过去)
  *          地图上选中了东西:它的详情(Inspector:国家 / 城 / 地理实体 / 州的面板);打开了地形大事:它的卡片(UpheavalPanel.tsx)
- *          什么都没选:整个世界(WorldHome:信仰(只在信仰图层)、国家按大小排、最近大事、我的干预(干预和地形大事)、
+ *          什么都没选:整个世界(WorldHome:信仰(只在信仰图层)、国家按大小排、民族按大小排、最近大事、我的干预(干预和地形大事)、
  *          这颗星球(回放世界形成、地形大事、在这张地图上打造新文明、世界设定;从别人的分享另存来的,最后一行是底稿出处,点了在新标签页打开那个分享链接))
  * 收起:卡片右上角的侧栏图标 → 卡片往左滑走,左上角留一个小按钮(侧栏图标 + 世界名),点它滑回来;记在浏览器里(sideStore.ts)。
  *       收起时选中了东西,卡片弹出来显示它,取消选中又收回去;收起时搜索框跟着卡片一起收起。
@@ -19,6 +19,7 @@ import type { Civ } from '../gen/civ/types';
 import type { Raster } from '../gen/raster';
 import type { World, WorldParams } from '../gen/world';
 import { capitalAt, polityAlive, polityName } from '../gen/civ/growth';
+import { KIND_INFO, cultureLabel } from '../gen/civ/display';
 import { ownersAt, type Owners } from '../gen/civ/timeline';
 import { filterChronicle } from '../gen/civ/chronicle';
 import { faithRows, fullChronicle } from '../gen/civ/religionText';
@@ -34,7 +35,8 @@ import { SaveMenu } from './SaveMenu';
 import { openAiSettings } from './AiSettings';
 import { openHistoryBook } from './bookStore';
 import { openOverview } from './overviewStore';
-import { searchCiv, searchMarks, type SearchHit } from './searchIndex';
+import { cultureRegion, searchCiv, searchMarks, type SearchHit } from './searchIndex';
+import { cultureAlive } from './WorldOverviewCultures';
 import { countUpTo } from './timelineLayout';
 import { Icon } from './icons';
 import { AiMenuItem, AiSettingsItem, MenuItem, MenuSep, PopMenu } from './PopMenu';
@@ -343,7 +345,7 @@ export function SearchResults({ q, hits, active, onActive, onPick }: { q: string
 // ---------------------------------------------------------------------------
 // 什么都没选时:整个世界
 
-/** 国家一栏列几个 */
+/** 国家、民族一栏各列几个 */
 const TOP_N = 5;
 /** 最近大事列几条 */
 const RECENT_N = 3;
@@ -401,7 +403,7 @@ function ResourceList({ civ, year, era }: { civ: Civ; year: number; era?: Era | 
   );
 }
 
-/** 什么都没选时的整个世界:信仰(信仰图层)、国家按大小排、最近大事、我的干预、这颗星球(宽屏侧栏、手机的世界卡片拉到顶时共用) */
+/** 什么都没选时的整个世界:信仰(信仰图层)、国家按大小排、民族按大小排、最近大事、我的干预、这颗星球(宽屏侧栏、手机的世界卡片拉到顶时共用) */
 export function WorldHome(p: Pick<SidebarProps, 'civ' | 'data' | 'params' | 'generating' | 'replay' | 'onReplay'>) {
   const { civ } = p;
   const year = useYear(civ);
@@ -413,18 +415,26 @@ export function WorldHome(p: Pick<SidebarProps, 'civ' | 'data' | 'params' | 'gen
   const now = currentWorld();
   const curId = now?.kind === 'created' ? now.id : null;
   const mates = useMemo(() => (curId ? mapMates(listWorlds(), curId, { map: edits.map }).length : null), [saves, curId, edits.map]);
-  // 现存的国家按当年的州数排
-  const top = useMemo(() => {
-    if (!ok) return { list: [], alive: 0 };
+  // 现存的国家、民族按当年的州数排
+  const { top, folks } = useMemo(() => {
+    if (!ok) return { top: { list: [], alive: 0 }, folks: { list: [], alive: 0 } };
     owners = ownersAt(civ!, year, owners);
     const n = new Map<number, number>();
+    const m = new Map<number, number>();
     for (let r = 0; r < civ!.regions.count; r++) {
       const q = owners.polity[r];
       if (q >= 0) n.set(q, (n.get(q) ?? 0) + 1);
+      const c = owners.culture[r];
+      if (c >= 0) m.set(c, (m.get(c) ?? 0) + 1);
     }
     const alive = civ!.polities.filter((x) => polityAlive(x, year));
     alive.sort((a, b) => (n.get(b.id) ?? 0) - (n.get(a.id) ?? 0));
-    return { list: alive.slice(0, TOP_N).map((x) => ({ p: x, n: n.get(x.id) ?? 0 })), alive: alive.length };
+    const cus = civ!.cultures.filter((x) => cultureAlive(x, year));
+    cus.sort((a, b) => (m.get(b.id) ?? 0) - (m.get(a.id) ?? 0) || a.id - b.id);
+    return {
+      top: { list: alive.slice(0, TOP_N).map((x) => ({ p: x, n: n.get(x.id) ?? 0 })), alive: alive.length },
+      folks: { list: cus.slice(0, TOP_N).map((x) => ({ cu: x, n: m.get(x.id) ?? 0 })), alive: cus.length },
+    };
   }, [ok, civ, year]);
   // 一个国家都没有的年份(多半是早年各族还是部落):说一句,给出之后第一个立国的
   const next = useMemo(() => {
@@ -544,6 +554,39 @@ export function WorldHome(p: Pick<SidebarProps, 'civ' | 'data' | 'params' | 'gen
                     <b>{polityName(x, year)}</b>
                     <small>
                       {yearAt(x.founded, era)}立国{cap ? `，都${cap.name}` : ''}
+                    </small>
+                  </span>
+                  <span className="sb-row-side">{n} 州</span>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      )}
+      {ok && !resOn && folks.alive > 0 && (
+        <section className="sb-sec">
+          <div className="sb-sec-head">
+            <span>民族</span>
+            <button className="sb-link" data-act="all-cultures" onClick={() => openOverview('cultures')}>
+              全部 {folks.alive} 族
+            </button>
+          </div>
+          <div className="sb-group" data-testid="cultures">
+            {folks.list.map(({ cu, n }) => {
+              const parent = cu.parent !== undefined ? civ!.cultures[cu.parent] : undefined;
+              return (
+                <button
+                  key={cu.id}
+                  className="sb-row two"
+                  data-culture={cu.id}
+                  onClick={() => setSelection({ kind: 'region', id: cultureRegion(civ!, cu.id, year, ownersAt(civ!, year)) })}
+                >
+                  <i className="sb-sw as-flag" style={{ background: rgb(cu.color) }} />
+                  <span className="sb-row-main">
+                    <b>{cultureLabel(cu)}</b>
+                    <small>
+                      {KIND_INFO[cu.kind].name}民族，{yearAt(cu.born, era)}
+                      {parent ? `从${cultureLabel(parent)}分出` : '出现'}
                     </small>
                   </span>
                   <span className="sb-row-side">{n} 州</span>
