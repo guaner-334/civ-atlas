@@ -115,12 +115,15 @@ export function fantasyPatchSteps(w1: World, r1: Raster, w0: World, r0: Raster, 
   let y = 0;
   let band = 1;
   const steps: WorkStep[] = [
+    // 原来那张先复制下来(后面几步之间让出主线程,缓存里的那张可能被挤掉、释放)
+    () => {
+      cv = makeCanvas(W, H);
+      (cv.getContext('2d') as CanvasRenderingContext2D).drawImage(b0.canvas, 0, 0);
+    },
     () => void planOf(w0),
     () => void planOf(w1),
     () => void ({ region, calm1, ice1 } = patchRegionOf(w1, r1, w0, r0, box)),
     () => {
-      cv = makeCanvas(W, H);
-      (cv.getContext('2d') as CanvasRenderingContext2D).drawImage(b0.canvas, 0, 0);
       const p = b0.patch;
       patch = { coast: p.coast.without(region, W), lake: p.lake.without(region, W), sea: p.sea.without(region, W), iceW: p.iceW.without(region, W), iceI: p.iceI.without(region, W) };
       sea = { dist: b0.sea.dist.slice(), fade: b0.sea.fade.slice() };

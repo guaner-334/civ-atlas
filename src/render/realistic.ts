@@ -394,14 +394,17 @@ export function realisticPatchSteps(r1: Raster, r0: Raster, look: SurfaceLook, b
   let y = 0;
   let band = 1;
   return [
-    () => void (g0 ??= macroGrids(r0)),
-    () => void (g1 = macroGrids(r1)),
+    // 原来那张先复制下来(后面几步之间让出主线程,缓存里的那张可能被别的画法挤掉、释放)
     () => {
-      region = realisticPatchRegion(box, g0!, g1!, W, H);
       cv = makeCanvas(W, H);
       ctx = cv.getContext('2d') as CanvasRenderingContext2D;
       ctx.drawImage(b0.canvas, 0, 0);
       raw = b0.raw ? b0.raw.slice() : null;
+    },
+    () => void (g0 ??= macroGrids(r0)),
+    () => void (g1 = macroGrids(r1)),
+    () => {
+      region = realisticPatchRegion(box, g0!, g1!, W, H);
       y = region ? region.y0 : 0;
       band = region ? Math.max(8, Math.floor(PATCH_BAND_PX / region.w)) : 1;
     },
