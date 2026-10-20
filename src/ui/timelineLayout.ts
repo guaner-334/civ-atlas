@@ -461,7 +461,28 @@ export function placeCards(pins: readonly PinBox[], bw: number, bh: number, pad 
 // ---------------------------------------------------------------------------
 // 事发地
 
-const anchorCache = new WeakMap<Civ, Map<number, [number, number] | null>>();
+/**
+ * 事发地是哪一处:圆环画在哪块地(cell),那块地是哪座城 / 哪一州的治所 / 哪一国那一年的国都
+ * (kind + id;导播的镜头拿它当飞过去的目标)
+ */
+export interface EntrySpot {
+  cell: number;
+  kind: 'settlement' | 'region' | 'polity';
+  id: number;
+}
+
+const spotCache = new WeakMap<Civ, Map<number, { spot: EntrySpot | null; at: [number, number] | null }>>();
+
+function spotOf(world: World, civ: Civ, e: ChronicleEntry): { spot: EntrySpot | null; at: [number, number] | null } {
+  let m = spotCache.get(civ);
+  if (!m) spotCache.set(civ, (m = new Map()));
+  const hit = m.get(e.id);
+  if (hit) return hit;
+  const spot = findSpot(world, civ, e);
+  const v = { spot, at: spot ? ([world.mesh.x[spot.cell], world.mesh.y[spot.cell]] as [number, number]) : null };
+  m.set(e.id, v);
+  return v;
+}
 
 /**
  * 纪事的事发地(世界坐标;标签的圆环画在这里):
@@ -469,23 +490,26 @@ const anchorCache = new WeakMap<Civ, Map<number, [number, number] | null>>();
  * 里离它们中心最近的那一州的治所;都没有就是第一个相关国家那一年的国都。找不到 = null
  */
 export function entryAnchor(world: World, civ: Civ, e: ChronicleEntry): [number, number] | null {
-  let m = anchorCache.get(civ);
-  if (!m) anchorCache.set(civ, (m = new Map()));
-  const hit = m.get(e.id);
-  if (hit !== undefined) return hit;
-  const at = anchorOf(world, civ, e);
-  m.set(e.id, at);
-  return at;
+  return spotOf(world, civ, e).at;
 }
 
-function anchorOf(world: World, civ: Civ, e: ChronicleEntry): [number, number] | null {
+/** 事发地是哪一处(和 entryAnchor 同一块地,多给出它是哪座城 / 哪一州 / 哪一国);找不到 = null */
+export function entrySpot(world: World, civ: Civ, e: ChronicleEntry): EntrySpot | null {
+  return spotOf(world, civ, e).spot;
+}
+
+function findSpot(world: World, civ: Civ, e: ChronicleEntry): EntrySpot | null {
   const { x, y } = world.mesh;
   const n = world.mesh.n;
-  const cellXY = (c: number): [number, number] | null => (c >= 0 && c < n ? [x[c], y[c]] : null);
+  const ok = (c: number) => c >= 0 && c < n;
   const s = e.settlement;
-  if (s >= 0 && s < civ.settlements.length) return cellXY(civ.settlements[s].cell);
-  const seats = e.regions.filter((r) => r >= 0 && r < civ.regions.count).map((r) => civ.regions.seat[r]).filter((c) => c >= 0 && c < n);
-  if (seats.length) {
+  if (s >= 0 && s < civ.settlements.length) {
+    const c = civ.settlements[s].cell;
+    return ok(c) ? { cell: c, kind: 'settlement', id: s } : null;
+  }
+  const regs = e.regions.filter((r) => r >= 0 && r < civ.regions.count && ok(civ.regions.seat[r]));
+  if (regs.length) {
+    const seats = regs.map((r) => civ.regions.seat[r]);
     // 跨 180° 经线的一片按连着算:都挪到离第一个最近的那一份再求中心
     const W = wrapOf(world);
     const ref = x[seats[0]];
@@ -497,19 +521,22 @@ function anchorOf(world: World, civ: Civ, e: ChronicleEntry): [number, number] |
     }
     const cx = sx / seats.length;
     const cy = sy / seats.length;
-    let best = seats[0];
+    let best = 0;
     let bd = Infinity;
-    for (const c of seats) {
+    seats.forEach((c, i) => {
       const d = (nearX(x[c], cx, W) - cx) ** 2 + (y[c] - cy) ** 2;
-      if (d < bd) [best, bd] = [c, d];
-    }
-    return cellXY(best);
+      if (d < bd) [best, bd] = [i, d];
+    });
+    return { cell: seats[best], kind: 'region', id: regs[best] };
   }
   for (const id of e.polities) {
     const p = civ.polities[id];
     if (!p) continue;
     const cap = capitalAt(p, e.year);
-    if (cap >= 0 && cap < civ.settlements.length) return cellXY(civ.settlements[cap].cell);
+    if (cap >= 0 && cap < civ.settlements.length) {
+      const c = civ.settlements[cap].cell;
+      return ok(c) ? { cell: c, kind: 'polity', id } : null;
+    }
   }
   return null;
 }
