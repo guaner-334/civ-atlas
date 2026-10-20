@@ -271,13 +271,16 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
   await page.click('.lp-pop [data-fill=polities]');
   await page.click('[data-act=layers]');
   await page.waitForTimeout(300);
-  // 世界概览:点世界名打开;头部、四个页签;Esc 收起;点外面收起
+  // 世界概览:点世界名打开;头部、页签(国家、民族都列出几行);Esc 收起;点外面收起
   await page.click('[data-act=overview]');
   await page.waitForTimeout(300);
   const ovOpen = await page.locator('.ov-root:not([hidden]) .ov').isVisible();
   const ovHead = (await page.locator('.ov-head').innerText()).replace(/\n/g, ' ');
   const ovTabs = (await page.locator('.ov-tabs').innerText()).replace(/\n/g, ' ');
   const ovRows = await page.locator('.ov-countries .ov-row').count();
+  await page.click('.ov-tab[data-tab=cultures]');
+  await page.waitForTimeout(200);
+  const ovFolks = await page.locator('.ov-cultures .ov-row').count();
   const pages: Record<string, string> = {};
   for (const t of ['chronicle', 'interventions', 'genesis']) {
     await page.click(`.ov-tab[data-tab=${t}]`);
@@ -324,7 +327,7 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
       `主题 ${theme0};首次提示 ${hint0} → 拖动后 ${hint1};缩放按钮 ${k0} → ${k1.toFixed(2)} → ${k2.toFixed(2)};悬停「${card}」;` +
       `弹层「${pop.slice(0, 40)}…」缩略图 ${thumbs} 张;切卫星 → 主题 ${theme1}、按钮「${label1}」、面板收起 ${popClosed}、${satRow}、网址 ${url1.split('?')[1]};切回手绘 + 国家 → 主题 ${theme2};` +
       `叠加开关「${togs}」:点"州" ${regionsOn}、弹层不收 ${stillOpen};民族色块 ${cultureKeys} 个;` +
-      `概览打开 ${ovOpen}、头部「${ovHead}」、页签「${ovTabs}」、国家 ${ovRows} 行;编年史「${pages.chronicle?.slice(0, 30)}…」;我的干预「${pages.interventions}」;` +
+      `概览打开 ${ovOpen}、头部「${ovHead}」、页签「${ovTabs}」、国家 ${ovRows} 行、民族 ${ovFolks} 行;编年史「${pages.chronicle?.slice(0, 30)}…」;我的干预「${pages.interventions}」;` +
       `世界设定「${pages.genesis?.slice(0, 40)}…」;Esc 收起 ${escClosed}、点外面收起 ${scrimClosed};国家表点「${rowName}」→ 概览收起 ${rowClosed}、面板「${rowIns.slice(0, 30)}」;` +
       `点「${pol?.text}」→ 侧栏里的面板 ${ins ? `${Math.round(ins.width)}×${Math.round(ins.height)} @ ${Math.round(ins.x)},${Math.round(ins.y)}` : '没出来'}、世界首页收起 ${home === 0}`,
   );
@@ -354,7 +357,8 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
   if (!['地名', '宜居度', '州', '城址', '道路'].every((w) => togs.includes(w)) || !regionsOn || !stillOpen) errs.push(`图层弹层:叠加开关不全 / 点了没反应(${togs})`);
   if (cultureKeys < 2) errs.push(`图层弹层:选"民族"时没有列出民族色块(${cultureKeys})`);
   if (!ovOpen || !['现存', '历来', '民族', '城镇', '种子 7', '当前'].every((w) => ovHead.includes(w))) errs.push(`世界概览:打不开 / 头部不全(${ovHead})`);
-  if (!['国家', '编年史', '我的干预 0', '世界设定'].every((w) => ovTabs.includes(w)) || ovRows < 3) errs.push(`世界概览:页签不全 / 国家表没有列出国家(${ovTabs};${ovRows} 行)`);
+  if (!['国家', '民族', '编年史', '我的干预 0', '世界设定'].every((w) => ovTabs.includes(w)) || ovRows < 3) errs.push(`世界概览:页签不全 / 国家表没有列出国家(${ovTabs};${ovRows} 行)`);
+  if (ovFolks < 3) errs.push(`世界概览:民族页没有列出民族(${ovFolks} 行)`);
   if (!/大事 \d+/.test(pages.chronicle ?? '') || !(pages.interventions ?? '').includes('还没有干预')) errs.push('世界概览:编年史页 / 我的干预页(空)不对');
   if (!['创建时定下的', '不能再改', '文明种子', '陆地', '改过的地形', '以它为底稿新建', '回放世界形成'].every((w) => (pages.genesis ?? '').includes(w)) || /换一颗|随机/.test(pages.genesis ?? ''))
     errs.push(`世界概览:世界设定页不对(应只能看、能以它为底稿新建、回放;${pages.genesis})`);
@@ -375,7 +379,7 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
   await page.locator('.sidebar [data-act=first-polity]').click({ timeout: 15000 }).catch(() => {});
   await page.waitForTimeout(400);
   const yearNow = await page.locator('.timebar .tb-year').innerText().catch(() => '');
-  const rowsNow = await page.locator('.sidebar .sb-home .sb-row.two').count();
+  const rowsNow = await page.locator('.sidebar .sb-home .sb-row.two[data-polity]').count();
   const gone = (await page.locator('.sidebar .sb-no-polity').count()) === 0;
   console.log(`早年没有国家:第 300 年「${empty}」,"全部 N 国"${allLink ? '还在' : '不显示'};点跳转 → ${yearNow},国家 ${rowsNow} 个,说明收起 ${gone}`);
   const m = empty.match(/在 \d+ 年立国.*跳到 (\d+) 年/);
