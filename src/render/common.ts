@@ -186,9 +186,10 @@ export function hillshade(r: Raster, exaggeration: number, waterFactor = 0.15): 
 
 /**
  * Felzenszwalb 精确欧氏距离变换:返回每个像素到最近 mask=1 像素的距离(像素)。
- * 东西相连(列下标取模):按行那一遍把这一行左右各接上半行(环上任意两点最多隔半圈),结果和"环形"的精确距离一样
+ * 东西相连(列下标取模):按行那一遍把这一行左右各接上半行(环上任意两点最多隔半圈),结果和"环形"的精确距离一样。
+ * wrap = false:左右不相连(主图上切下来的一块,编辑地形后按块重画用)
  */
-export function distanceTo(mask: Uint8Array, w: number, h: number): Float32Array {
+export function distanceTo(mask: Uint8Array, w: number, h: number, wrap = true): Float32Array {
   const INF = 1e20;
   const d = new Float64Array(w * h);
   for (let i = 0; i < w * h; i++) d[i] = mask[i] ? 0 : INF;
@@ -223,6 +224,17 @@ export function distanceTo(mask: Uint8Array, w: number, h: number): Float32Array
     for (let y = 0; y < h; y++) f[y] = d[y * w + x];
     pass(h);
     for (let y = 0; y < h; y++) d[y * w + x] = g[y];
+  }
+  if (!wrap) {
+    for (let y = 0; y < h; y++) {
+      const row = y * w;
+      for (let x = 0; x < w; x++) f[x] = d[row + x];
+      pass(w);
+      for (let x = 0; x < w; x++) d[row + x] = g[x];
+    }
+    const out = new Float32Array(w * h);
+    for (let i = 0; i < w * h; i++) out[i] = Math.sqrt(d[i]);
+    return out;
   }
   // 第 q 个位置 = 第 (q − H) mod w 列;第 x 列的结果在 q = x + H(左右各有半行,环上最远的点也照顾到)
   const H = w >> 1;

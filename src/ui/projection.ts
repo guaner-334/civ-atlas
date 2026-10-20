@@ -356,18 +356,21 @@ export class ProjLayer {
  *   海岸墨线、河逐点投影(线宽处处一致),山、树林符号在投影后的位置上正立、按屏幕大小画;
  * - 数据图层,或者正在左右拖动中心:把等距圆柱的整张地形图(src,符号、河都在里面)整图重投影 ——
  *   拖动时每帧只要几毫秒,停下来再按投影重画。
- * layer = 地形图的 ProjLayer(记着原图和画布上现在是哪一版)。返回用了多少毫秒
+ * layer = 地形图的 ProjLayer(记着原图和画布上现在是哪一版)。返回用了多少毫秒。
+ * pre = 已经按投影重画好的这一版(编辑地形后在后台画好的,见 ui/terrainPatch.ts):直接贴上,不用当下再画
  */
 export function presentTerrain(
   cv: HTMLCanvasElement,
   mp: MapProj,
-  o: { world: World; raster: Raster; style: string; look?: SurfaceLook; src: HTMLCanvasElement; layer: ProjLayer; moving: boolean },
+  o: { world: World; raster: Raster; style: string; look?: SurfaceLook; src: HTMLCanvasElement; layer: ProjLayer; moving: boolean; pre?: HTMLCanvasElement | null },
 ): number {
   const { world, raster, style, layer } = o;
   layer.use(o.src);
   layer.onRelease = releaseCurvedCaches;
   if ((style !== 'fantasy' && style !== 'realistic') || o.moving) return layer.present(cv, mp, pageColor(style));
   const fill = pageColor(style);
+  const pre = o.pre;
+  if (pre && pre.width === raster.w && pre.height === raster.h) return layer.redraw(cv, raster.w, raster.h, mp.key, fill, (ctx) => ctx.drawImage(pre, 0, 0), true);
   const draw = (ctx: CanvasRenderingContext2D) => drawTerrainProjected(ctx, world, raster, style as DetailStyle, mp, { s: raster.scale, ox: 0, oy: 0, k: 1 }, o.look);
   // 刚停下来(屏幕上是这个中心的整图重投影):按投影重画在后台分小步备,备好了贴上
   if (detailAsync && layer.presenting(mp, fill)) {

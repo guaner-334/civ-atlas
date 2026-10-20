@@ -34,7 +34,9 @@ import { sketchGrid, type SketchEdit } from './gen/sketch';
 import { mergeUpheavals, previewUpheaval, type UpheavalPreview, type UpheavalStep } from './gen/civ/upheaval';
 import { computeHabitat } from './gen/civ/habitat';
 import { buildRegions, reshapeRegions } from './gen/civ/regions';
-import { diffRaster, patchTransferables, type RasterPatch } from './gen/rasterPatch';
+import { diffRaster, exactPatch, patchTransferables, type RasterPatch } from './gen/rasterPatch';
+import { rasterizePatch, type RasterKeep } from './gen/rasterEdit';
+import { planGlyphs, type Plan } from './render/fantasy';
 import type { NameMix } from './gen/names';
 import type { Frontier, Origins } from './gen/civ/frontier';
 import { SNAPSHOT_FORMAT, makePart, readPart, recipeKey, recipeText, type Recipe, type Snapshot, type SnapshotPart } from './gen/snapshot';
@@ -82,12 +84,22 @@ interface CivInput {
   have?: string[];
 }
 
+/**
+ * 编辑地形(新建世界时)按块重铺:keep = 这次铺好的整张主图留在线程里(下一笔接着按块重铺;不给 = 不留,留着的也扔掉);
+ * from = 主线程地图上现在那张整图是哪个世界的(上一次 done 的 baseKey):线程留着的正是它,就只铺变了的那块、只交回那一块
+ * (gen/rasterEdit.ts、gen/rasterPatch.ts 的 exactPatch),主线程贴到自己那张上,和整张交回来逐位相同
+ */
+interface PatchInput {
+  keep?: boolean;
+  from?: string;
+}
+
 export type WorkerRequest =
   /**
    * 生成世界。terrain = 地形修改(不给 = 没改);sketch = 草图(不给 = 没画);interventions = 推文明时带上的干预(改地形重新生成时用;不给 = 没有);
    * tempo = 主线程记着的扩张节拍(星球对不上就不用)
    */
-  | ({ type: 'generate'; id: number; scale: number; interventions?: Intervention[] } & CivInput)
+  | ({ type: 'generate'; id: number; scale: number; interventions?: Intervention[] } & CivInput & PatchInput)
   /** 回放帧。带上参数:线程被重开过、手里没有这个世界时,按参数重新生成(同参数 = 同世界) */
   | { type: 'history'; id: number; params: WorldParams; terrain?: TerrainOp[]; sketch?: SketchEdit }
   /**
@@ -113,10 +125,16 @@ export type WorkerRequest =
 export type WorkerResponse =
   | { type: 'progress'; id: number; stage: string; pct: number }
   /**
-   * ms = 线程里花的时间(生成 + 文明 + 铺像素),genMs = 其中生成世界那一步(reused = 前一半是接着上一次的,genMs 只是后一半);
-   * tempo = 这组参数的扩张节拍(知道的话);eras = 地形大事以后的各段世界(没有大事 = 不给)
+   * ms = 线程里花的时间(生成 + 文明 + 铺像素),genMs = 其中生成世界那一步(reused = 前一半是接着上一次的,genMs 只是后一半),
+   * rasterMs = 铺像素(推文明之前那一段,沟壑和细沟不算);
+   * tempo = 这组参数的扩张节拍(知道的话);eras = 地形大事以后的各段世界(没有大事 = 不给)。
+   * 主图:raster = 整张;按块重铺的不带 raster,带 patch(比 from 那张整图变了的那一块,null = 一个像素也没变),见 PatchInput;
+   * 按块重铺的另带手绘风的符号规划(plan,render/fantasy.ts 的 planGlyphs:主线程按块重画手绘地图要用,精细度高时要算一两百毫秒,在这里算)
    */
-  | { type: 'done'; id: number; world: World; raster: Raster; civ: Civ; ms: number; genMs: number; reused?: true; tempo?: TempoNote; eras?: EraWorld[]; baseKey: string }
+  | ({ type: 'done'; id: number; world: World; civ: Civ; ms: number; genMs: number; rasterMs: number; reused?: true; tempo?: TempoNote; eras?: EraWorld[]; baseKey: string } & (
+      | { raster: Raster; patch?: undefined; from?: undefined }
+      | { raster?: undefined; patch: RasterPatch | null; from: string; plan: Plan }
+    ))
   | ({ type: 'history'; id: number } & HistoryFrames)
   /** 重推好的文明;ms = 线程里花的时间(含按参数重新生成世界);tempo、eras 同 done */
   | { type: 'civ'; id: number; seq: number; civ: Civ; ms: number; tempo?: TempoNote; eras?: EraWorld[]; baseKey: string }
@@ -135,6 +153,33 @@ export type WorkerResponse =
 
 /** 上一个生成的世界(含回放快照),回放时直接用 */
 let last: { key: string; world: World } | null = null;
+/**
+ * 编辑地形时留着的整张主图和它的输入(下一笔按块重铺,gen/rasterEdit.ts);key = 这张图是哪个世界的(同 baseKey)。
+ * 只在请求带 keep 时留(新建世界、能编辑地形的时候),别的时候不占这份内存
+ */
+let kept: { key: string; keep: RasterKeep } | null = null;
+/** 整张铺的(变得多)也比一比:变的那块不到整张图的这么多,就只交那一块(主线程按块重画还是划算) */
+const PATCH_SEND = 0.7;
+
+/** 主图各数组拷一份(整张交给主线程时数组 transfer 走了,线程里留的是这一份) */
+function copyRaster(r: Raster): Raster {
+  return {
+    ...r,
+    elev: r.elev.slice(),
+    temp: r.temp.slice(),
+    precip: r.precip.slice(),
+    water: r.water.slice(),
+    biome: r.biome.slice(),
+    cell: r.cell.slice(),
+    ice: r.ice.slice(),
+    iceConc: r.iceConc.slice(),
+    iceTone: r.iceTone.slice(),
+    gully: r.gully?.slice(),
+    bank: r.bank?.slice(),
+    vein: r.vein?.slice(),
+    veinLines: r.veinLines && { off: r.veinLines.off.slice(), x: r.veinLines.x.slice(), y: r.veinLines.y.slice(), a: r.veinLines.a.slice() },
+  };
+}
 /** 上一次生成的前一半(网格、板块、侵蚀;见 gen/world.ts 的 TerrainBase):编辑地形只改了湖、河、气候、高度时接着用 */
 const baseCache: BaseCache = { base: null };
 const keyOf = (p: WorldParams, terrain?: readonly TerrainOp[], sketch?: SketchEdit) =>
@@ -471,11 +516,20 @@ async function handle(m: WorkerRequest): Promise<void> {
     last = { key: keyOf(m.params, m.terrain, m.sketch), world };
     const steps = stepsOf(m.params, m.terrain, m.sketch, m.upheavals, (k, n) => post({ type: 'progress', id: m.id, stage: '地形大事', pct: 0.9 + (0.03 * k) / n }));
     const genMs = performance.now() - t0;
-    // 先铺像素(山坡上的沟和山脊、细沟交给帮手线程),同时推文明
+    // 先铺像素(山坡上的沟和山脊、细沟交给帮手线程),同时推文明。
+    // 编辑地形:主线程地图上那张整图线程里还留着,就只重铺变了的那块(gen/rasterEdit.ts)
     post({ type: 'progress', id: m.id, stage: '铺展地图', pct: 0.93 });
+    const t1 = performance.now();
+    const prev = m.keep && m.from !== undefined && m.scale === 1 && kept?.key === m.from ? kept : null;
+    const cover = kept?.keep.inputs.cover;
+    if (!m.keep) kept = null;
     pool.prepare(world, m.scale);
-    const d = rasterizeDeferred(world, m.scale);
+    const tried = prev ? rasterizePatch(world, prev.keep) : null;
+    const pj = tried && 'job' in tried ? tried : null;
+    // 要重铺的那块太大(比如海里放火山,侵蚀整个重算):整张铺,已经算好的输入接着用
+    const d = pj ?? rasterizeDeferred(world, m.scale, undefined, cover, tried && 'whole' in tried ? tried.whole : undefined);
     const raster = d.raster;
+    const rasterMs = performance.now() - t1;
     const civ = await pool.finish(d, () => {
       // 文明骨架(宜居度、州……)只读 World,之后的文明步骤都在 gen/civ/index.ts 里接
       post({ type: 'progress', id: m.id, stage: '文明', pct: 0.95 });
@@ -484,18 +538,36 @@ async function handle(m: WorkerRequest): Promise<void> {
       if (!m.terrain?.length && !m.frontier?.spread && m.civSeed === undefined) rememberTempo(m.params, m.sketch, c.spreadYears !== undefined && c.capNorm !== undefined ? { spread: c.spreadYears, capNorm: c.capNorm } : null);
       return c;
     });
-    const vl = raster.veinLines!;
-    const transfer = [raster.elev, raster.temp, raster.precip, raster.water, raster.biome, raster.cell, raster.ice, raster.iceConc, raster.iceTone, raster.gully!, raster.bank!, raster.vein!, vl.off, vl.x, vl.y, vl.a].map((a) => a.buffer);
-    transfer.push(...civTransferables(civ));
+    const transfer: ArrayBuffer[] = [];
     // 回放快照体积大且主线程用不上,不随世界一起发送
     const { history: _history, ...rest } = world;
     void _history;
     const baseKey = keyOf(m.params, m.terrain, m.sketch);
-    const kept = cloneCiv(civ);
+    let map: { raster: Raster } | { patch: RasterPatch | null; from: string; plan: Plan };
+    // 主线程有那张整图:只交回变了的那一块(逐位比),主线程按块重画;整张留在线程里,下一笔接着用。
+    // 按块重铺的只在重铺的那块里比;整张铺的(变得多)整张比,变的那块不到 PATCH_SEND 张图也照样只交那一块
+    const patch = prev && m.scale === 1 ? exactPatch(prev.keep.raster, raster, pj ? pj.win : undefined) : undefined;
+    const send = prev && patch !== undefined && (pj || !patch || patch.w * patch.h <= PATCH_SEND * raster.w * raster.h);
+    if (prev && send) {
+      if (patch) transfer.push(...patchTransferables(patch));
+      const plan = planGlyphs(world);
+      transfer.push(plan.forest.buffer as ArrayBuffer);
+      map = { patch: patch ?? null, from: prev.key, plan };
+    } else {
+      const vl = raster.veinLines!;
+      transfer.push(...[raster.elev, raster.temp, raster.precip, raster.water, raster.biome, raster.cell, raster.ice, raster.iceConc, raster.iceTone, raster.gully!, raster.bank!, raster.vein!, vl.off, vl.x, vl.y, vl.a].map((a) => a.buffer as ArrayBuffer));
+      map = { raster };
+    }
+    // 整张交出去的数组 transfer 走了,留的是一份拷贝
+    if (m.keep && m.scale === 1) kept = { key: baseKey, keep: { raster: 'patch' in map ? raster : copyRaster(raster), inputs: d.inputs } };
+    // 地形大事的补丁要和这张整图比:直接用留着的这一份,不用再铺一遍
+    if (kept?.key === baseKey) rasters.set(baseKey, kept.keep.raster);
+    transfer.push(...civTransferables(civ));
+    const cloned = cloneCiv(civ);
     keepPlayed(m, m.play, civ);
-    post({ type: 'done', id: m.id, world: { ...rest, history: [] }, raster, civ, ms: performance.now() - t0, genMs, ...(reused ? { reused: true as const } : {}), tempo: noteOf(m.params, m.sketch), eras: eraWorlds(steps), baseKey }, transfer);
+    post({ type: 'done', id: m.id, world: { ...rest, history: [] }, ...map, civ, ms: performance.now() - t0, genMs, rasterMs, ...(reused ? { reused: true as const } : {}), tempo: noteOf(m.params, m.sketch), eras: eraWorlds(steps), baseKey }, transfer);
     queuePatches(m.id, m, steps);
-    queueSnapshot(m.id, m, world, steps, kept);
+    queueSnapshot(m.id, m, world, steps, cloned);
   } else if (m.type === 'load') {
     bg.length = 0;
     rasters.clear();
@@ -536,15 +608,19 @@ async function handle(m: WorkerRequest): Promise<void> {
     }
     const genMs = performance.now() - t0;
     post({ type: 'progress', id: m.id, stage: '铺展地图', pct: 0.93 });
+    // 照原样打开的世界不编辑地形:不留整张主图
+    kept = null;
+    const t1 = performance.now();
     pool.prepare(world, m.scale);
     const d = rasterizeDeferred(world, m.scale);
     const raster = d.raster;
+    const rasterMs = performance.now() - t1;
     await pool.finish(d);
     const vl = raster.veinLines!;
     const transfer = [raster.elev, raster.temp, raster.precip, raster.water, raster.biome, raster.cell, raster.ice, raster.iceConc, raster.iceTone, raster.gully!, raster.bank!, raster.vein!, vl.off, vl.x, vl.y, vl.a].map((a) => a.buffer);
     transfer.push(...civTransferables(civ));
     keepPlayed(m, m.play, civ);
-    post({ type: 'done', id: m.id, world: { ...world, history: [] }, raster, civ, ms: performance.now() - t0, genMs, eras: eraWorlds(steps), baseKey }, transfer);
+    post({ type: 'done', id: m.id, world: { ...world, history: [] }, raster, civ, ms: performance.now() - t0, genMs, rasterMs, eras: eraWorlds(steps), baseKey }, transfer);
     queuePatches(m.id, m, steps);
   } else if (m.type === 'history') {
     const h = buildHistoryFrames(formationOf(m.params, m.terrain, m.sketch));
