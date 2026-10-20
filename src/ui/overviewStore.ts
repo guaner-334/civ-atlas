@@ -4,6 +4,7 @@
  *   openOverview()                               打开(停在上次那一页)
  *   openOverview('chronicle', { polity: 3 })     打开编年史,只看 3 号国家的事
  *   openOverview('interventions')                打开"我的干预"
+ *   openOverview('cultures')                     打开"民族"页(侧栏「民族」的"全部 N 族")
  *   openPeople({ list: 'rulers', polity: 3 })    打开人物页,看 3 号国家的历代君主(usePeople() 读人物页的筛选)
  *   openLineage(3, { dynasty: 4, focus: 120 })   打开人物页,看 3 号国家的世系图:第 4 朝,圈出 120 号人物
  *   closeOverview()                              收起(编年史的"只看这一国"一起清掉)
@@ -16,9 +17,9 @@
 import { useSyncExternalStore } from 'react';
 import { getChronicle, setChronicle, subscribeChronicle, type ChronicleView } from './civView';
 
-export type OverviewTab = 'countries' | 'chronicle' | 'people' | 'marks' | 'interventions' | 'genesis';
+export type OverviewTab = 'countries' | 'cultures' | 'chronicle' | 'people' | 'marks' | 'interventions' | 'genesis';
 
-export const OVERVIEW_TABS: readonly OverviewTab[] = ['countries', 'chronicle', 'people', 'marks', 'interventions', 'genesis'];
+export const OVERVIEW_TABS: readonly OverviewTab[] = ['countries', 'cultures', 'chronicle', 'people', 'marks', 'interventions', 'genesis'];
 
 export interface OverviewState {
   open: boolean;

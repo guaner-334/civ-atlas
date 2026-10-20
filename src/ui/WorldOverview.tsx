@@ -3,7 +3,7 @@
  *
  *   头部  世界名;一行"种子 7，当前 2679 年，未干预"(设了纪年:"当前公元前 850 年");一行汇总(现存几国、历来几国、民族、城镇、州,跟着时间轴的当前年份);
  *         关闭。存档、导出、AI 设置、写成史书不放这里:宽屏在侧栏和地图右上,手机在底部世界卡片的按钮和「···」里
- *   页签  国家(WorldOverviewCountries.tsx)/ 编年史(Chronicle.tsx)/ 人物(WorldOverviewPeople.tsx:名人、君主、将领)/
+ *   页签  国家(WorldOverviewCountries.tsx)/ 民族(WorldOverviewCultures.tsx)/ 编年史(Chronicle.tsx)/ 人物(WorldOverviewPeople.tsx:名人、君主、将领)/
  *         标记(WorldOverviewMarks.tsx:作者在地图上放的标记)/
  *         我的干预(WorldOverviewInterventions.tsx)/
  *         世界设定(WorldOverviewGenesis.tsx:创建时定下的种子、参数、地形,只能看;以它为底稿新建、回放世界形成)
@@ -20,6 +20,7 @@ import { Chronicle } from './Chronicle';
 import { PeoplePage } from './WorldOverviewPeople';
 import { MarksPage } from './WorldOverviewMarks';
 import { CountriesPage } from './WorldOverviewCountries';
+import { CulturesPage } from './WorldOverviewCultures';
 import { InterventionsPage } from './WorldOverviewInterventions';
 import { SettingsPage } from './WorldOverviewGenesis';
 import { getCivTime, subscribeCivTime } from './civView';
@@ -55,6 +56,7 @@ export interface WorldOverviewProps {
 
 const TABS: { id: OverviewTab; name: string }[] = [
   { id: 'countries', name: '国家' },
+  { id: 'cultures', name: '民族' },
   { id: 'chronicle', name: '编年史' },
   { id: 'people', name: '人物' },
   { id: 'marks', name: '标记' },
@@ -144,16 +146,23 @@ function AboutLinks() {
   );
 }
 
-/** 国家页跟着时间轴的当前年份(一年重新渲染一次);其余几页不用 */
+/** 国家页、民族页跟着时间轴的当前年份(一年重新渲染一次);其余几页不用 */
 function Countries({ civ }: { civ: Civ | null }) {
   const year = useYear(civ);
   return <CountriesPage civ={civ} year={year} />;
+}
+
+function Cultures({ civ }: { civ: Civ | null }) {
+  const year = useYear(civ);
+  return <CulturesPage civ={civ} year={year} />;
 }
 
 function OverviewPage(p: WorldOverviewProps & { tab: OverviewTab }) {
   switch (p.tab) {
     case 'countries':
       return <Countries civ={p.civ} />;
+    case 'cultures':
+      return <Cultures civ={p.civ} />;
     case 'chronicle':
       return <Chronicle civ={p.civ} />;
     case 'people':

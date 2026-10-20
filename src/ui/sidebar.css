@@ -365,6 +365,10 @@ a.sb-row {
   border-radius: 3.5px;
   flex: none;
 }
+/* 民族一组的色块:放在和国旗(21px)一样宽的位置,族名和上面一组的国名对齐 */
+.sb-sw.as-flag {
+  margin: 0 4.5px;
+}
 .sb-ico {
   color: var(--accent);
   flex: none;
