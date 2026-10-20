@@ -2639,9 +2639,9 @@ export function App() {
       }
       const t1 = performance.now();
       const proj = terrainProj.current;
-      // 编辑地形后在后台按投影画好的那一版(同一张图、同一个投影和中心)
+      // 编辑地形后在后台按投影画好的那一版(同一张图、同一个投影和中心、同一种画风和画法)
       const p = preProj.current;
-      const pre = p && p.raster === raster && p.key === mp.key ? p.canvas : null;
+      const pre = p && p.raster === raster && p.key === mp.key && p.style === style && (style !== 'realistic' || p.look === surface) ? p.canvas : null;
       preProj.current = null;
       presentTerrain(cv, mp, { world, raster, style, look: terrainLook, src, layer: proj, moving: projMoving || terrainCovered, pre });
       if (p) p.canvas.width = p.canvas.height = 0;

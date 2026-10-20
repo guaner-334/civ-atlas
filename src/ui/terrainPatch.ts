@@ -30,6 +30,9 @@ export interface PatchView {
 export interface PreProjected {
   raster: Raster;
   key: string;
+  /** 按哪种画风、写实的哪种画法画的(换上时地图已经换了画风 / 画法就不能用) */
+  style: 'realistic' | 'fantasy';
+  look: SurfaceLook;
   canvas: HTMLCanvasElement;
 }
 
@@ -99,7 +102,7 @@ export function startTerrainPatch(o: { w0: World; r0: Raster; w1: World; patch: 
         ctx.fillRect(0, 0, W, H);
         return ctx;
       };
-      return [...terrainProjWholeSteps(get, w1, r1!, kind, mp, view.look), () => void (ctx && (pre = { raster: r1!, key: mp.key, canvas: cv }))];
+      return [...terrainProjWholeSteps(get, w1, r1!, kind, mp, view.look), () => void (ctx && (pre = { raster: r1!, key: mp.key, style: kind as PreProjected['style'], look: view.look, canvas: cv }))];
     }),
   ];
   let pre: PreProjected | null = null;
