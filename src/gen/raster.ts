@@ -505,9 +505,18 @@ export function rasterize(world: World, scale = 1, gully = true, lines?: DrainLi
  * (沟壑全是陆地上的逐像素噪声,细沟要逐像素汇流),后台线程可以分给几个线程,和推文明同时算
  * (gullyHeights 分段算、finishGully 叠回去;veinsOf 算、finishVeins 存进去);结果和 rasterize 一样
  */
-export function rasterizeDeferred(world: World, scale = 1, lines?: DrainLines, cover?: Cover): { raster: Raster; job: GullyJob; veins: VeinJob; inputs: RasterInputs } {
-  const { raster, job, veins, inputs } = rasterizeRaw(world, scale, true, lines, cover);
+export function rasterizeDeferred(world: World, scale = 1, lines?: DrainLines, cover?: Cover, pre?: Precomputed): { raster: Raster; job: GullyJob; veins: VeinJob; inputs: RasterInputs } {
+  const { raster, job, veins, inputs } = rasterizeRaw(world, scale, true, lines, cover, pre);
   return { raster, job: trimJob(job!), veins: veins!, inputs };
+}
+
+/**
+ * 已经算好的这个世界 1 倍主图的输入(rasterInputs;编辑地形按块重铺不划算、改成整张铺时接着用)和最近地块
+ * (同一张网格、同一个球面三角形覆盖的主图,最近地块一样)
+ */
+export interface Precomputed {
+  inputs: RasterInputs;
+  cell: Int32Array;
 }
 
 /**
@@ -564,12 +573,22 @@ export function finishVeins(r: Raster, v: { lines: DrainLines; vein: Uint8Array 
 }
 
 /** 铺像素;gully = true 时把要算沟壑的像素记进 job(没截短)、细沟要的几样记进 veins */
-function rasterizeRaw(world: World, scale: number, gully: boolean, lines?: DrainLines, cover?: Cover): { raster: Raster; job: GullyJob | null; veins: VeinJob | null; inputs: RasterInputs } {
-  const b = rasterBase(world, scale, cover);
+function rasterizeRaw(world: World, scale: number, gully: boolean, lines?: DrainLines, cover?: Cover, pre?: Precomputed): { raster: Raster; job: GullyJob | null; veins: VeinJob | null; inputs: RasterInputs } {
+  const pi = pre && scale === 1 && coverFits(pre.inputs.cover, world.mesh, Math.round(world.width), Math.round(world.height)) ? pre.inputs : null;
+  const b = pi
+    ? { w: pi.cover.g.w, h: pi.cover.g.h, N: pi.cover.g.w * pi.cover.g.h, g: pi.cover.g, tri: pi.cover.tri, wa: pi.cover.wa, wb: pi.cover.wb, planes: pi.planes, elev: pi.base, cell: pre!.cell, sElev: pi.sElev }
+    : rasterBase(world, scale, cover);
   const { w, h, N } = b;
-  const carve = b.scratch.fill(0);
-  const calm = new Float32Array(N);
-  carveValleys(valleyLines(world.rivers, world.riverThreshold, world.width), world.riverThreshold, scale, w, h, carve, calm);
+  let carve: Float32Array;
+  let calm: Float32Array;
+  if (pi) {
+    carve = pi.carve;
+    calm = pi.calm;
+  } else {
+    carve = (b as ReturnType<typeof rasterBase>).scratch.fill(0);
+    calm = new Float32Array(N);
+    carveValleys(valleyLines(world.rivers, world.riverThreshold, world.width), world.riverThreshold, scale, w, h, carve, calm);
+  }
 
   const { dTile, jTile } = noiseTiles(world.params.seed);
   const out: Raster = {

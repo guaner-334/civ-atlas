@@ -72,15 +72,18 @@ function chain(seed: number, strokes: (w: World) => TerrainOp[]) {
   for (const op of strokes(w0)) {
     ops.push(op);
     const w = generateWorld(params, undefined, ops, null, cache);
-    const pj = rasterizePatch(w, keep);
+    const tried = rasterizePatch(w, keep);
     const full = finish(rasterizeDeferred(w, 1));
-    if (!pj) {
+    if (!tried || !('job' in tried)) {
       log.push(`${op.kind}: 整张`);
-      const d = rasterizeDeferred(w, 1, undefined, keep.inputs.cover);
+      wins.push(null);
+      // 按块不划算:整张铺,三角形覆盖、已经算好的输入接着用,和从头整张铺逐位相同
+      const d = rasterizeDeferred(w, 1, undefined, keep.inputs.cover, tried?.whole);
       keep = { raster: finish(d), inputs: d.inputs };
-      expect(rasterDiff(keep.raster, full), `${op.kind} 整张(接着用三角形覆盖)`).toBe('');
+      expect(rasterDiff(keep.raster, full), `${op.kind} 整张(接着用三角形覆盖、算好的输入)`).toBe('');
       continue;
     }
+    const pj = tried;
     const got = finish(pj);
     expect(rasterDiff(got, full), `${op.kind} 按块重铺`).toBe('');
     const patch = exactPatch(keep.raster, got, pj.win);
@@ -107,7 +110,7 @@ describe('编辑地形 · 按块重铺主图', () => {
     expect(unionBox({ x0: 90, y0: 0, w: 5, h: 2 }, { x0: 2, y0: 4, w: 3, h: 1 }, 100)).toEqual({ x0: 90, y0: 0, w: 15, h: 5 });
   });
 
-  it('种子 7:高度、气候、湖、河、跨 180° 经线、两极附近,一笔笔按块重铺和整张重铺逐位相同', { timeout: 300000 }, () => {
+  it('种子 7:高度、气候、湖、河、跨 180° 经线、两极附近,一笔笔按块重铺和整张重铺逐位相同;变得太多的改成整张铺', { timeout: 300000 }, () => {
     const { log, wins } = chain(7, (w) => {
       const [x, y] = landAt(w, 200, 900);
       const [px, py] = landAt(w, -Infinity, Infinity, 0, 60);
@@ -120,9 +123,12 @@ describe('编辑地形 · 按块重铺主图', () => {
         { kind: 'lower', pts: [2030, 500, 2070, 505], r: 25, s: 1 },
         { kind: 'cold', pts: [px, py], r: 40, s: 1 },
         { kind: 'lift', pts: [1000, 1012, 1040, 1015], r: 20, s: 1 },
+        // 海里放火山:侵蚀整个重算,变的地方超过半张,改成整张铺(接着用算好的输入)
+        { kind: 'volcano', pts: [1205, 577], r: 28, s: 1 },
       ];
     });
-    expect(log.length, log.join(';')).toBe(7);
+    expect(log.length, log.join(';')).toBe(8);
+    expect(log[7], log.join(';')).toBe('volcano: 整张');
     // 跨 180° 经线的那一笔:重铺的那块跨过右边接回左边;两极附近的整圈都铺
     expect(wins[4]!.x0 + wins[4]!.w, log[4]).toBeGreaterThan(2048);
     expect(wins[4]!.w, log[4]).toBeLessThan(2048);

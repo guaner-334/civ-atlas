@@ -522,8 +522,10 @@ async function handle(m: WorkerRequest): Promise<void> {
     const cover = kept?.keep.inputs.cover;
     if (!m.keep) kept = null;
     pool.prepare(world, m.scale);
-    const pj = prev ? rasterizePatch(world, prev.keep) : null;
-    const d = pj ?? rasterizeDeferred(world, m.scale, undefined, cover);
+    const tried = prev ? rasterizePatch(world, prev.keep) : null;
+    const pj = tried && 'job' in tried ? tried : null;
+    // 要重铺的那块太大(比如海里放火山,侵蚀整个重算):整张铺,已经算好的输入接着用
+    const d = pj ?? rasterizeDeferred(world, m.scale, undefined, cover, tried && 'whole' in tried ? tried.whole : undefined);
     const raster = d.raster;
     const rasterMs = performance.now() - t1;
     const civ = await pool.finish(d, () => {

@@ -64,7 +64,9 @@ async function nodeTimes(): Promise<void> {
     gullyHeights(full.job, 0, full.job.n);
     const gFull = t() - t0;
     t0 = t();
-    const pj = rasterizePatch(w1, keep)!;
+    const tried = rasterizePatch(w1, keep);
+    if (!tried || !('job' in tried)) throw new Error('这一笔没按块重铺');
+    const pj = tried;
     const rPatch = t() - t0;
     t0 = t();
     const hp = gullyHeights(pj.job, 0, pj.job.n);

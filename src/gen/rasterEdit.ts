@@ -26,6 +26,7 @@ import {
   streamsOf,
   trimJobIn,
   type GullyJob,
+  type Precomputed,
   type Raster,
   type RasterInputs,
 } from './raster';
@@ -56,10 +57,11 @@ export interface PatchJob {
 const SPECK_PAD = 6;
 
 /**
- * 按块重铺:世界 world 和 prev 是同一张网格(编辑地形不换网格)才做;要重铺的那块超过整张图的 maxFrac 就不划算,
- * 返回 null(调用方整张铺)
+ * 按块重铺:世界 world 和 prev 是同一张网格(编辑地形不换网格)才做,不是 = null(调用方整张铺)。
+ * 要重铺的那块超过整张图的 maxFrac 就不划算,返回 { whole }:已经算好的输入,调用方整张铺时接着用
+ * (rasterizeDeferred 的 pre),不用再算一遍
  */
-export function rasterizePatch(world: World, prev: RasterKeep, maxFrac = 0.5): PatchJob | null {
+export function rasterizePatch(world: World, prev: RasterKeep, maxFrac = 0.5): PatchJob | { whole: Precomputed } | null {
   const r0 = prev.raster;
   const { w: W, h: H } = r0;
   const N = W * H;
@@ -78,7 +80,7 @@ export function rasterizePatch(world: World, prev: RasterKeep, maxFrac = 0.5): P
     const s1 = growBox(changed, (py) => dmax / Math.max(g.cosLat[py], 0.05) + 2, Math.ceil(dmax) + 2, W, H);
     w2 = growBox(s1, SPECK_PAD, SPECK_PAD, W, H);
     w3 = growBox(w2, SPECK_PAD, SPECK_PAD, W, H);
-    if (w3.w * w3.h > maxFrac * N) return null;
+    if (w3.w * w3.h > maxFrac * N) return { whole: { inputs, cell: r0.cell } };
   }
   const raster: Raster = {
     w: W,
