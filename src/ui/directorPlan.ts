@@ -519,8 +519,9 @@ function segmentOf(ctx: ShotCtx, g: readonly Cand[], at: number, times: readonly
   let box: [number, number, number, number] | null = null;
   const ref = g.find((c) => c.box)?.pin?.[0] ?? 0;
   for (const c of g) {
-    if (!c.box) continue;
-    const d = nearX(c.box[0], ref, ctx.W) - c.box[0];
+    if (!c.box || !c.pin) continue;
+    // 每件的范围按它自己的事发地展开过,整个挪到离第一件最近的那一份
+    const d = nearX(c.pin[0], ref, ctx.W) - c.pin[0];
     const b: [number, number, number, number] = [c.box[0] + d, c.box[1], c.box[2] + d, c.box[3]];
     box = box ? [Math.min(box[0], b[0]), Math.min(box[1], b[1]), Math.max(box[2], b[2]), Math.max(box[3], b[3])] : b;
   }
