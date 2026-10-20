@@ -11,7 +11,7 @@ import { polityModelOf } from '../src/gen/civ/polities';
 import { cityModelOf, cityStats } from '../src/gen/civ/cities';
 import { CAPITAL_BOOST, CAPITAL_DECLINE, CAPITAL_RAMP, SACK_RECOVER, capitalLevel, populationAt, ruinSites } from '../src/gen/civ/growth';
 import { buildChronicle, filterChronicle, MAJOR } from '../src/gen/civ/chronicle';
-import { routeCities } from '../src/gen/civ/polities';
+import { routeCities, ruinGaps } from '../src/gen/civ/polities';
 import { rasterize } from '../src/gen/raster';
 import { civMapLayer } from '../src/render/civ/labels';
 import { RUIN, ruinsAt } from '../src/render/civ/settlements';
@@ -274,6 +274,40 @@ describe('城市兴衰 · 推演', () => {
       for (const c of rc) if (c.ended !== undefined) expect(ruins.has(c.cell)).toBe(true);
       expect(w.mesh.n).toBeGreaterThan(0);
     }
+  });
+
+  it('航线不通到遗址:城空着的年份(毁了还没重建、或再没重建)里,还在用的航线两头都不是遗址', () => {
+    for (const seed of [7, 2024]) {
+      const civ = civOf({ ...DEFAULT_PARAMS, seed });
+      const S = civ.settlements;
+      // 每处空档的中间那年,加上最后一年
+      const years = [civ.endYear];
+      for (const s of S) {
+        const old = s.rebuilds !== undefined ? S[s.rebuilds] : undefined;
+        if (old?.ended !== undefined && old.ended < s.founded) years.push(Math.floor((old.ended + s.founded) / 2));
+      }
+      expect(years.length, `seed ${seed} 有重建的城址`).toBeGreaterThan(5);
+      for (const y of years) {
+        const ruins = new Set(ruinSites(civ, y).map((s) => s.cell));
+        for (const r of civ.routes) {
+          if (r.kind !== 'sea' || !(r.built <= y) || (r.abandoned ?? Infinity) <= y) continue;
+          expect(ruins.has(r.cells[0]) || ruins.has(r.cells[r.cells.length - 1]), `seed ${seed} 第 ${y} 年航线通到遗址`).toBe(false);
+        }
+      }
+    }
+  });
+
+  it('城址空着的年份段:毁了到原址重建起下一座城以前;没重建的一直空着;毁了当年就重建的不算', () => {
+    const a = city({ id: 0, cell: 5, founded: 100, ended: 200 });
+    const b = city({ id: 1, cell: 5, founded: 400, ended: 500, rebuilds: 0 });
+    const c = city({ id: 2, cell: 5, founded: 500, ended: 700, rebuilds: 1 });
+    const d = city({ id: 3, cell: 9, founded: 50 });
+    const gaps = ruinGaps([a, d, b, c]);
+    expect(gaps.get(5)).toEqual([
+      [200, 400],
+      [700, Infinity],
+    ]);
+    expect(gaps.has(9)).toBe(false);
   });
 });
 

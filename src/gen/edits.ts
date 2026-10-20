@@ -292,6 +292,8 @@
  *      地形不变,历史重新推演。
  *  23:接着推不改过去(civ/index.ts 的 continueCiv):推完以后的整理(民族、州、城、国家的名字和配色,人物,道路,信仰)
  *      只看每样东西出现以前的历史,推到 T1 再接着推和一口气推完一样;疆域、兴亡不变,名字、配色、人物编号、道路、信仰的传播换了一遍。
+ *  24:航线不通到遗址(civ/routes.ts、polities.ts 的 ruinGaps):推演里走过的航线,登岸处的城被毁、还没在原址重建(或再没重建)的那些年不画,
+ *      重建以后照原路重新画。地形、历史不变,只有航线变了。
  */
 import type { Civ, Culture, Faith, Person, Place, Polity, Regions, Settlement } from './civ/types';
 import type { AuthorCharacter } from './characters';
@@ -303,18 +305,19 @@ import type { Era } from './era';
 import type { Frontier, Origins } from './civ/frontier';
 
 /** 生成器版本:生成算法有改动、同种子会得到不同世界时加一(存档读档时核对);加一时在 GENERATOR_CHANGES 里补一条 */
-export const GENERATOR_VERSION = 23;
+export const GENERATOR_VERSION = 24;
 
 /**
  * 一版生成器的改动有多大(从小到大):打开旧存档、旧链接时,按跨过的几版里最大的那一种说清变了什么(savefile.ts 的 versionNote)
  *   names      地形、历史不变,默认的名字换了
  *   chronicle  疆域、兴亡不变,编年史里添了内容
+ *   routes     地形、历史不变,道路和航线变了
  *   history    地形、气候不变,历史重新推演
  *   climate    陆地和山不变,气候、河流、历史变了
  *   terrain    地形有局部变化,历史重新推演
  *   planet     整颗星球重新生成
  */
-export type GeneratorChange = 'names' | 'chronicle' | 'history' | 'climate' | 'terrain' | 'planet';
+export type GeneratorChange = 'names' | 'chronicle' | 'routes' | 'history' | 'climate' | 'terrain' | 'planet';
 
 /** 每一版(加到这个号时)改了什么;edited = 只有改过地形的世界变了,没改地形的和上一版一样 */
 export const GENERATOR_CHANGES: Readonly<Record<number, { change: GeneratorChange; edited?: true }>> = {
@@ -340,6 +343,7 @@ export const GENERATOR_CHANGES: Readonly<Record<number, { change: GeneratorChang
   21: { change: 'history' },
   22: { change: 'history' },
   23: { change: 'history' },
+  24: { change: 'routes' },
 };
 
 /** 干预的种类(见文件头的表) */
