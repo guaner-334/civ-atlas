@@ -20,6 +20,7 @@
  *      每一步路记下"用它的连线里最晚结束的那一年"(两端都还在的连线 = 永不结束),全都结束了才荒废;
  *      废城的邻城之间另加"绕行"连线(城被毁那年起;寻路时几乎全走原来经过废城的路),所以路过废城的干道照常在,只有岔进废城的那一截荒废。
  *      没修的冗余小路,它的连线改记在替代它的那条路上。停用以后又有新连线走上来的路段,从那年起重新开一段。
+ *      推演里走过的航线(opts.lanes)登岸处是故址的(城被毁、还没在原址重建,见 polities.ts 的 ruinGaps),那些年也不画,重建以后照原路重新画。
  *
  * 距离和启发函数一律来自几何层(geo.ts / gen/geometry.ts),只沿 mesh 邻接走,不用 x、y 直接算间距。
  * 没有随机数:结果只由世界决定;并列时按地块 / 城的编号定先后。
@@ -68,6 +69,8 @@ export interface RouteOptions {
   cities?: RouteCity[];
   /** 推演里走过的海峡、航线(usedLanes):两头的海岸之间一定画一条航线,从 built 那年起(和港口之间的航线一起修,重合的并成一条) */
   lanes?: UsedLane[];
+  /** 城址空着的年份段(polities.ts 的 ruinGaps):走过的航线登岸处是故址的,这些年不画,原址重建以后照原路重新画 */
+  ruins?: ReadonlyMap<number, readonly (readonly [Year, Year])[]>;
   progress?: Progress;
 }
 
@@ -715,8 +718,24 @@ export function buildRoutes(world: World, habitat: Habitat, regions: Regions, op
   for (const e of linksOf(ports, portOf, seaCost, SEA_MAX_STEPS * step)) {
     for (const [built, end] of spans(e.a, e.b, e.t)) seaJobs.push({ ca: cities[e.a].cell, cb: cities[e.b].cell, built, end, w: e.w });
   }
-  for (const e of opts.lanes ?? []) if (e.a !== e.b) seaJobs.push({ ca: e.a, cb: e.b, built: e.built, end: Infinity, w: -1 });
+  /** 走过的航线:从 from 起、两头登岸处都不是故址(opts.ruins)的年份段 */
+  const landed = (a: number, b: number, from: Year): [Year, Year][] => {
+    const gaps = [...(opts.ruins?.get(a) ?? []), ...(opts.ruins?.get(b) ?? [])].sort((p, q) => p[0] - q[0]);
+    const out: [Year, Year][] = [];
+    let s = from;
+    for (const [g0, g1] of gaps) {
+      if (g0 > s) out.push([s, g0]);
+      s = Math.max(s, g1);
+    }
+    if (s < Infinity) out.push([s, Infinity]);
+    return out;
+  };
+  for (const e of opts.lanes ?? []) {
+    if (e.a !== e.b) for (const [built, end] of landed(e.a, e.b, e.built)) seaJobs.push({ ca: e.a, cb: e.b, built, end, w: -1 });
+  }
   seaJobs.sort((p, q) => p.built - q.built || (p.w < 0 ? 1 : 0) - (q.w < 0 ? 1 : 0) || p.w - q.w || p.ca - q.ca || p.cb - q.cb);
+  /** 走过的航线隔着故址断成几段的:后几段照第一段的路走(不重新寻路,别的航线也就不跟着挪) */
+  const lanePaths = new Map<number, number[] | null>();
   for (const e of seaJobs) {
     const { ca, cb } = e;
     if (e.w >= 0 && comp[ca] === comp[cb]) {
@@ -729,7 +748,12 @@ export function buildRoutes(world: World, habitat: Habitat, regions: Regions, op
         if (lc <= SEA_VS_LAND * e.w) continue;
       }
     }
-    const path = findSea(ca, cb);
+    let path: number[] | null;
+    if (e.w < 0) {
+      const key = ca * mesh.n + cb;
+      path = lanePaths.has(key) ? lanePaths.get(key)! : findSea(ca, cb);
+      lanePaths.set(key, path);
+    } else path = findSea(ca, cb);
     if (path) lay(path, 'sea', e.built, e.end);
   }
 

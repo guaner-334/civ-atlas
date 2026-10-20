@@ -1492,3 +1492,27 @@ export function routeCities(settlements: Settlement[], polities: Polity[], endYe
   // 按够格的先后排(并列按地块):推得更远时,早先够格的城编号不变
   return out.sort((a, b) => a.founded - b.founded || a.cell - b.cell);
 }
+
+/**
+ * 城址空着的年份段(交给 routes.ts):同一地块上的城被毁、到原址重建起下一座城以前(没重建 = 一直空着),村子也算。
+ * 推演里走过的航线登岸处正是这样一处故址的,这些年不画(港口之间的航线、陆路已经按 RouteCity.lives 断开)
+ */
+export function ruinGaps(settlements: readonly Settlement[]): Map<number, [Year, Year][]> {
+  const atCell = new Map<number, Settlement[]>();
+  for (const s of settlements) {
+    const g = atCell.get(s.cell);
+    if (g) g.push(s);
+    else atCell.set(s.cell, [s]);
+  }
+  const out = new Map<number, [Year, Year][]>();
+  for (const [cell, g] of atCell) {
+    const gaps: [Year, Year][] = [];
+    for (let i = 0; i < g.length; i++) {
+      const e = g[i].ended;
+      const next = i + 1 < g.length ? g[i + 1].founded : Infinity;
+      if (e !== undefined && e < next) gaps.push([e, next]);
+    }
+    if (gaps.length) out.set(cell, gaps);
+  }
+  return out;
+}

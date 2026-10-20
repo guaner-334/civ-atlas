@@ -10,6 +10,7 @@ import { AdjKind, Layer } from '../src/gen/civ/types';
 import { CivSim, Ev } from '../src/gen/civ/sim';
 import { polityModelOf } from '../src/gen/civ/polities';
 import { seaPassable, usedLanes } from '../src/gen/civ/routes';
+import { ruinSites } from '../src/gen/civ/growth';
 
 const small = { ...DEFAULT_PARAMS, cells: 12000 };
 
@@ -63,7 +64,7 @@ describe('航线与航海时代', () => {
     }
   }, 60_000);
 
-  it('推演里走过的海峡、航线都画出来了:两头的海岸在走过的那一年已经由画出来的航线连着', () => {
+  it('推演里走过的海峡、航线都画出来了:两头的海岸在走过的那一年已经由画出来的航线连着(登岸处那年是遗址的不画)', () => {
     for (const seed of [7, 2024]) {
       const civ = civOf({ ...DEFAULT_PARAMS, seed });
       const used = usedLanes(civ.regions, civ.log, civ.cultures);
@@ -71,6 +72,8 @@ describe('航线与航海时代', () => {
       const sea = civ.routes.filter((r) => r.kind === 'sea');
       const n = civ.regions.of.length;
       for (const L of used) {
+        const ruins = new Set(ruinSites(civ, L.built).map((s) => s.cell));
+        if (ruins.has(L.a) || ruins.has(L.b)) continue;
         const par = new Int32Array(n).map((_, i) => i);
         const find = (i: number): number => (par[i] === i ? i : (par[i] = find(par[i])));
         for (const r of sea) {

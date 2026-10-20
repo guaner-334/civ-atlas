@@ -25,7 +25,7 @@ import { buildRegions, emptyRegions, reshapeRegions } from './regions';
 import { CivSim, quantize } from './sim';
 import { BIRTH_SPAN, cultureKey, cultureModelOf, finishCultures, installCultures, planCultures } from './cultures';
 import { buildRoutes, usedLanes } from './routes';
-import { capacityNorm, finishPolities, installPolities, planPolities, polityModelOf, routeCities } from './polities';
+import { capacityNorm, finishPolities, installPolities, planPolities, polityModelOf, routeCities, ruinGaps } from './polities';
 import { findPlaces, keepPlaceNames } from './places';
 import { installWars } from './wars';
 import { installPolitics } from './politics';
@@ -166,7 +166,11 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
     const eraPlaces = findPlaces(eraWorld, before, { cultures: b.cultures, culture: b.planned, names: mix, seed });
     if (k) keepPlaceNames(eraWorld, eras[k - 1].places, eraPlaces);
     const eraLanes = usedLanes(before, branch.result().log, b.cultures, k ? ups[k - 1].year : -Infinity);
-    const eraRoutes = buildRoutes(eraWorld, eraHabitat, before, { cities: b.settlements.length ? routeCities(b.settlements, b.polities, p.endYear) : undefined, lanes: eraLanes });
+    const eraRoutes = buildRoutes(eraWorld, eraHabitat, before, {
+      cities: b.settlements.length ? routeCities(b.settlements, b.polities, p.endYear) : undefined,
+      lanes: eraLanes,
+      ruins: ruinGaps(b.settlements),
+    });
     eras.push({ until: u.year, habitat: eraHabitat, regions: before, places: eraPlaces, routes: eraRoutes });
     // 新地形:州沿用编号,只改变了的地方;比出这件大事改了什么
     const h1 = computeHabitat(u.world);
@@ -264,6 +268,7 @@ function finishCiv(x: Finish): Civ {
         progress,
         cities: settlements.length ? routeCities(settlements, polities, p.endYear) : undefined,
         lanes: usedLanes(fin.regions, log, cultures, facts.length ? facts[facts.length - 1].year : -Infinity),
+        ruins: ruinGaps(settlements),
       })
     : [];
   const places: Place[] = findPlaces(fin.world, fin.regions, { cultures, culture: planned, names: mix, seed }); // ⑤ places.ts(山海湖岛是地理,不看 viable)
