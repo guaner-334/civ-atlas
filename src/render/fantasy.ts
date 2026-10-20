@@ -87,6 +87,8 @@ export const GLYPH_TIERS = [1, 2, 3.5, 6];
 
 /** 按块重画的一条带子每步铺多少个像素(约一两帧的活) */
 const PATCH_BAND_PX = 100000;
+/** 按块重画要用的场,一条带子多少个像素算一组 */
+const FIELD_BAND_PX = 150000;
 /** 离海岸多远以内,离陆地 / 离海的距离还影响颜色(波纹最远 15 格,浓度到这里已经小到连浮点数的最后一位都改不动) */
 const SHORE_REACH = 22;
 
@@ -328,8 +330,8 @@ function regionFieldSteps(r: Raster, region: PixelBox, calm: Uint8Array, ice: Ic
   // 更远的颜色已经不受影响)
   const dLand = new Float32Array(N);
   const dSea = new Float32Array(N);
-  const dist = (out: Float32Array, toSea: boolean) => () => {
-    const e = growBox(region, SHORE_REACH, SHORE_REACH, W, H);
+  const dist = (out: Float32Array, toSea: boolean, reg: PixelBox) => () => {
+    const e = growBox(reg, SHORE_REACH, SHORE_REACH, W, H);
     const m = new Uint8Array(e.w * e.h);
     forBoxRows(e, W, (a, b) => {
       for (let k = a; k < b; k++) {
@@ -339,7 +341,7 @@ function regionFieldSteps(r: Raster, region: PixelBox, calm: Uint8Array, ice: Ic
       }
     });
     const dd = distanceTo(m, e.w, e.h, e.w === W);
-    forBoxRows(region, W, (a, b) => {
+    forBoxRows(reg, W, (a, b) => {
       for (let k = a; k < b; k++) {
         const yy = (k / W) | 0;
         out[k] = dd[local(e, k - yy * W, yy)];
@@ -348,11 +350,11 @@ function regionFieldSteps(r: Raster, region: PixelBox, calm: Uint8Array, ice: Ic
   };
   // 晕渲:那块外扩 3 圈要用(雪地柔化),再多切 1 圈给邻居
   const shade = new Float32Array(N);
-  const shadeStep = () => {
-    const sb = growBox(region, 4, 4, W, H);
+  const shadeStep = (reg: PixelBox) => () => {
+    const sb = growBox(reg, 4, 4, W, H);
     const cut = cutRaster(r, sb.x0, sb.y0, sb.w, sb.h);
     const s = hillshade(cut, 0.008, 0);
-    forBoxRows(growBox(region, 3, 3, W, H), W, (a, b) => {
+    forBoxRows(growBox(reg, 3, 3, W, H), W, (a, b) => {
       for (let k = a; k < b; k++) {
         const yy = (k / W) | 0;
         shade[k] = s[local(sb, k - yy * W, yy)];
@@ -363,14 +365,14 @@ function regionFieldSteps(r: Raster, region: PixelBox, calm: Uint8Array, ice: Ic
   const near = new Uint8Array(N);
   const band = new Uint8Array(N);
   const iceM = ice.mask;
-  const iceStep = () => {
-    forBoxRows(region, W, (a, b) => {
+  const iceStep = (reg: PixelBox) => () => {
+    forBoxRows(reg, W, (a, b) => {
       for (let k = a; k < b; k++) {
         const yy = (k / W) | 0;
         near[k] = nearAt(ice, k - yy * W, yy);
       }
     });
-    forBoxRows(growBox(region, ICE_BAND, ICE_BAND, W, H), W, (a, b) => {
+    forBoxRows(growBox(reg, ICE_BAND, ICE_BAND, W, H), W, (a, b) => {
       for (let k = a; k < b; k++) {
         if (water[k] !== 1) continue;
         const yy = (k / W) | 0;
@@ -401,21 +403,21 @@ function regionFieldSteps(r: Raster, region: PixelBox, calm: Uint8Array, ice: Ic
   const pr = new Float32Array(N);
   const pg = new Float32Array(N);
   const pb = new Float32Array(N);
-  const washStep = () => {
+  const washStep = (reg: PixelBox) => () => {
     const br = Math.min((W - 1) >> 1, Math.round(3 * S));
     const ry = Math.round(3 * S);
     const inv = 1 / (2 * br + 1);
     const iy = 1 / (2 * ry + 1);
-    const ya = Math.max(0, region.y0 - ry);
-    const yb = Math.min(H - 1, region.y0 + region.h - 1 + ry);
-    const rw = region.w;
+    const ya = Math.max(0, reg.y0 - ry);
+    const yb = Math.min(H - 1, reg.y0 + reg.h - 1 + ry);
+    const rw = reg.w;
     const tr = new Float32Array((yb - ya + 1) * rw);
     const tg = new Float32Array((yb - ya + 1) * rw);
     const tb = new Float32Array((yb - ya + 1) * rw);
     for (let yy = ya; yy <= yb; yy++) {
       const row = yy * W;
       for (let i = 0; i < rw; i++) {
-        const x = (region.x0 + i) % W;
+        const x = (reg.x0 + i) % W;
         let sr = 0;
         let sg = 0;
         let sb = 0;
@@ -433,7 +435,7 @@ function regionFieldSteps(r: Raster, region: PixelBox, calm: Uint8Array, ice: Ic
         tb[t] = sb * inv;
       }
     }
-    for (let yy = region.y0; yy < region.y0 + region.h; yy++) {
+    for (let yy = reg.y0; yy < reg.y0 + reg.h; yy++) {
       for (let i = 0; i < rw; i++) {
         let sr = 0;
         let sg = 0;
@@ -444,15 +446,22 @@ function regionFieldSteps(r: Raster, region: PixelBox, calm: Uint8Array, ice: Ic
           sg += tg[t];
           sb += tb[t];
         }
-        const k = yy * W + ((region.x0 + i) % W);
+        const k = yy * W + ((reg.x0 + i) % W);
         pr[k] = sr * iy;
         pg[k] = sg * iy;
         pb[k] = sb * iy;
       }
     }
   };
+  // 一条带子一组(每步几十毫秒以内;每条带子按自己的余量算,和整块一起算逐位相同)
+  const steps: WorkStep[] = [];
+  const rows = Math.max(8, Math.floor(FIELD_BAND_PX / region.w));
+  for (let y = region.y0; y < region.y0 + region.h; y += rows) {
+    const reg: PixelBox = { x0: region.x0, y0: y, w: region.w, h: Math.min(rows, region.y0 + region.h - y) };
+    steps.push(dist(dLand, false, reg), dist(dSea, true, reg), shadeStep(reg), iceStep(reg), washStep(reg));
+  }
   return {
-    steps: [dist(dLand, false), dist(dSea, true), shadeStep, iceStep, washStep],
+    steps,
     fields: { dLand, dSea, shade, calm, iceM, iceNear: near, band, pr, pg, pb, patch, sea },
   };
 }
@@ -3529,7 +3538,7 @@ function seaIceField(r: Raster) {
   const { w, h } = r;
   const near = new Uint8Array(w * h);
   if (!c.any) return { mask: c.mask, near };
-  const { G, gw, gh, gIce } = c;
+  const { G, gw, gh, gIce, inv, colX0, colX1, colT } = c;
   for (let by = 0; by < gh; by++) {
     for (let bx = 0; bx < gw; bx++) {
       if (gIce[by * gw + bx] < 1e-3) continue; // 附近两块内都没冰
@@ -3537,7 +3546,22 @@ function seaIceField(r: Raster) {
       const y0 = by * G;
       const x1 = Math.min(w, x0 + G);
       const y1 = Math.min(h, y0 + G);
-      for (let py = y0; py < y1; py++) for (let px = x0; px < x1; px++) near[py * w + px] = nearAt(c, px, py);
+      // 同 nearAt,按行先算好纵向的那几样(整张图时热循环)
+      for (let py = y0; py < y1; py++) {
+        // 粗网格双线性插值
+        const fy = Math.min(gh - 1, Math.max(0, (py + 0.5) / G - 0.5));
+        const gy0 = Math.floor(fy);
+        const ty = fy - gy0;
+        const r0 = gy0 * gw;
+        const r1 = Math.min(gh - 1, gy0 + 1) * gw;
+        for (let px = x0; px < x1; px++) {
+          const a = colX0[px];
+          const b = colX1[px];
+          const tx = colT[px];
+          const v = ((gIce[r0 + a] * (1 - tx) + gIce[r0 + b] * tx) * (1 - ty) + (gIce[r1 + a] * (1 - tx) + gIce[r1 + b] * tx) * ty) * inv;
+          near[py * w + px] = 1 + Math.round(Math.min(1, v) * 254);
+        }
+      }
     }
   }
   return { mask: c.mask, near };

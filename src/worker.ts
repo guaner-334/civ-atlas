@@ -158,6 +158,8 @@ let last: { key: string; world: World } | null = null;
  * 只在请求带 keep 时留(新建世界、能编辑地形的时候),别的时候不占这份内存
  */
 let kept: { key: string; keep: RasterKeep } | null = null;
+/** 整张铺的(变得多)也比一比:变的那块不到整张图的这么多,就只交那一块(主线程按块重画还是划算) */
+const PATCH_SEND = 0.7;
 
 /** 主图各数组拷一份(整张交给主线程时数组 transfer 走了,线程里留的是这一份) */
 function copyRaster(r: Raster): Raster {
@@ -542,20 +544,22 @@ async function handle(m: WorkerRequest): Promise<void> {
     void _history;
     const baseKey = keyOf(m.params, m.terrain, m.sketch);
     let map: { raster: Raster } | { patch: RasterPatch | null; from: string; plan: Plan };
-    if (pj && prev) {
-      // 按块重铺的:只交回变了的那一块(逐位比);整张留在线程里,下一笔接着用
-      const patch = exactPatch(prev.keep.raster, raster, pj.win);
+    // 主线程有那张整图:只交回变了的那一块(逐位比),主线程按块重画;整张留在线程里,下一笔接着用。
+    // 按块重铺的只在重铺的那块里比;整张铺的(变得多)整张比,变的那块不到 PATCH_SEND 张图也照样只交那一块
+    const patch = prev && m.scale === 1 ? exactPatch(prev.keep.raster, raster, pj ? pj.win : undefined) : undefined;
+    const send = prev && patch !== undefined && (pj || !patch || patch.w * patch.h <= PATCH_SEND * raster.w * raster.h);
+    if (prev && send) {
       if (patch) transfer.push(...patchTransferables(patch));
       const plan = planGlyphs(world);
       transfer.push(plan.forest.buffer as ArrayBuffer);
-      map = { patch, from: prev.key, plan };
+      map = { patch: patch ?? null, from: prev.key, plan };
     } else {
       const vl = raster.veinLines!;
       transfer.push(...[raster.elev, raster.temp, raster.precip, raster.water, raster.biome, raster.cell, raster.ice, raster.iceConc, raster.iceTone, raster.gully!, raster.bank!, raster.vein!, vl.off, vl.x, vl.y, vl.a].map((a) => a.buffer as ArrayBuffer));
       map = { raster };
     }
     // 整张交出去的数组 transfer 走了,留的是一份拷贝
-    if (m.keep && m.scale === 1) kept = { key: baseKey, keep: { raster: pj ? raster : copyRaster(raster), inputs: d.inputs } };
+    if (m.keep && m.scale === 1) kept = { key: baseKey, keep: { raster: 'patch' in map ? raster : copyRaster(raster), inputs: d.inputs } };
     // 地形大事的补丁要和这张整图比:直接用留着的这一份,不用再铺一遍
     if (kept?.key === baseKey) rasters.set(baseKey, kept.keep.raster);
     transfer.push(...civTransferables(civ));
