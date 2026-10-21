@@ -5,6 +5,7 @@ import react from '@vitejs/plugin-react';
 import { fakeAiMiddleware } from './scripts/lib/fakeAiServer';
 import { SOURCE_URL } from './src/ui/links';
 import { WHATS_NEW } from './src/ui/whatsNew';
+import { ShardSequencer } from './tests/lib/shardSequencer';
 
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as { version: string; license: string };
 
@@ -70,6 +71,11 @@ export default defineConfig({
   },
   worker: { format: 'es', rollupOptions: { output: { banner: () => banner() } } },
   server: { port: 5188, strictPort: true },
-  // 只跑 tests/ 下的单测;本地工具目录(.claude/)里的不算
-  test: { include: ['tests/**/*.test.ts'], exclude: ['**/node_modules/**', '.claude/**'] },
+  // 只跑 tests/ 下的单测;本地工具目录(.claude/)里的不算。
+  // 先后和分份(PR 检查上分几台机器跑)按各文件大概多久排,见 tests/lib/shardSequencer.ts
+  test: {
+    include: ['tests/**/*.test.ts'],
+    exclude: ['**/node_modules/**', '.claude/**'],
+    sequence: { sequencer: ShardSequencer },
+  },
 });

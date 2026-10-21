@@ -1,5 +1,5 @@
 /**
- * 极端参数压力测试:npx tsx scripts/stress.ts(出现 NaN 则退出码 1)
+ * 极端参数压力测试:npx tsx scripts/stress.ts(出现 NaN 则退出码 1;STRESS_PART=1/2 只跑其中一份,见 PART)
  * 每行打印:生成 / 铺像素 / 文明(其中宜居度 + 划州、推演(民族 + 城镇 + 国家 + 战争)、回放一帧、道路)耗时,
  * 州数、民族数、占据率、国家数、城镇数、路段数,战争统计(场数、攻占、灭亡、迁都、飞地、易手频繁的州),
  * 分合统计(分裂、合并、复国、主动迁都),王朝更替(东方改朝换代 / 西幻王室更迭),信仰(大教、教派、宗教大事),
@@ -147,6 +147,19 @@ const caseName = (c: (typeof cases)[number]) =>
     : c.terrain
       ? `{"改地形":"${c.terrain[0].kind === 'sink' && c.terrain.length === 6 ? '整片沉成海' : c.terrain[0].kind === 'raise' ? '整片抬成陆地' : '大杂烩'} ${c.terrain.length} 处"}`
       : JSON.stringify(c);
+/**
+ * 只跑其中一份:STRESS_PART=1/2 跑第 1 份、2/2 跑第 2 份(PR 检查上分两台机器同时跑);不设就全跑。
+ * 下面每个(参数组合, 种子)按出现的先后轮流分给各份,几份合起来正好是全部
+ */
+const [PART, PARTS] = (process.env.STRESS_PART ?? '1/1').split('/').map(Number);
+if (!(Number.isInteger(PART) && Number.isInteger(PARTS) && PART >= 1 && PART <= PARTS)) {
+  throw new Error(`STRESS_PART 要写成"第几份/共几份",比如 1/2;现在是 ${process.env.STRESS_PART}`);
+}
+if (PARTS > 1) console.log(`只跑第 ${PART} 份(共 ${PARTS} 份)\n`);
+let turn = 0;
+/** 这一组轮到本份跑吗 */
+const mine = () => turn++ % PARTS === PART - 1;
+
 let worstHabReg = 0;
 let worstRoutes = 0;
 let worstTotal = 0;
@@ -155,6 +168,7 @@ let worstFrame = 0;
 let worstLabels = 0;
 for (const c of cases) {
   for (const seed of [3, 99]) {
+    if (!mine()) continue;
     const { terrain, sketch, ...pc } = c;
     const grid = sketchGrid(sketch);
     // 改过地形的世界要原来星球(参数 + 草图)的扩张节拍:和 worker 一样事先记下(新建时先生成的就是没改的星球),不算进耗时
@@ -398,6 +412,7 @@ const UPHEAVAL_CASES: [string, Upheaval[]][] = [
 ];
 for (const [name, list] of UPHEAVAL_CASES) {
   for (const seed of [3, 99]) {
+    if (!mine()) continue;
     const params = { ...DEFAULT_PARAMS, seed };
     const t0 = performance.now();
     const w = generateWorld(params);
@@ -456,6 +471,7 @@ for (const [seed, ups] of [
   [7, []],
   [99, [{ year: 2999, ops: [{ kind: 'volcano', pts: [900, 400], r: 160, s: 2 }] }]],
 ] as [number, Upheaval[]][]) {
+  if (!mine()) continue;
   const params = { ...DEFAULT_PARAMS, seed };
   const w = generateWorld(params);
   const steps = upheavalSteps(params, [], null, ups);
