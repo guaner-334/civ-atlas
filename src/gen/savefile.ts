@@ -65,12 +65,21 @@
  * - origin:底稿出处(可选)。打开别人的分享短链接、改了另存进自己的"我的世界"时记下:分享的人填的署名(可以没有)、
  *   那时的世界名、分享链接(`{ "by": "明月", "title": "苍澜界", "url": "https://…/s/k7Qm2xPa" }`)。
  *   跟着世界走(存成文件、同步、再分享都带着);别人再从这一份另存,记的是直接的来源,不往上追
+ * - moment:打开时看哪(可选,只在分享里带;见下面 SaveMoment),
+ *   `{ "year": 1500, "selected": "polity:c32577#0", "camera": { "lon": 112.4, "lat": 31.25, "zoom": 2.5 } }`:
+ *   别人打开分享链接时,时间轴停在第 year 年、选中 selected(国家或州的稳定键,见 edits.ts 文件头"稳定键")、
+ *   画面正中对着经纬度 (lon, lat)、放大 zoom 倍(平面地图 1 = 整张图正好放下;地球仪是它自己的倍数)。三样都可以没有,
+ *   没有的那样照平常打开。不改变世界本身(和种子、参数、修改无关),所以不进"我的世界"的自动存档(makeSave 不写它)。
+ *   读档时过 cleanMoment:年份不是 0 到这个世界推到的那年(逐年推演的是"现在"那年)、键的样子不对、经纬度和倍数不是数的,
+ *   那一样去掉,不提示(只是打开时的位置);旧链接没有这个字段 = 照平常打开。键在这个世界里找不到(国家不存在)由
+ *   resolveMoment 按生成好的历史再核对一次,找不到的不选
  *
  * 纯计算,不碰 DOM(Node 里可测)。
  */
 import { DEFAULT_PARAMS, type World, type WorldParams } from './world';
 import { cleanMix, sameMix } from './names/mix';
-import { GENERATOR_CHANGES, GENERATOR_VERSION, MARKS_MAX, MARK_REGIONS_TOTAL, NAME_MAX, aiNameKeys, cleanCivSeed, cleanEndYear, cleanMapRef, cleanMark, cleanPlay, cleanPlayFrom, cleanAdvance, advanceOf, sameAdvance, freeMarkId, type AdvanceSettings, type AiNameMark, type AuthorMark, type GeneratorChange, type Intervention, type TerrainOp, type Upheaval, type WorldEdits } from './edits';
+import { END_YEAR_MAX, GENERATOR_CHANGES, GENERATOR_VERSION, MARKS_MAX, MARK_REGIONS_TOTAL, NAME_MAX, aiNameKeys, cleanCivSeed, cleanEndYear, cleanMapRef, cleanMark, cleanPlay, cleanPlayFrom, cleanAdvance, advanceOf, sameAdvance, endYearOf, freeMarkId, resolveKey, type AdvanceSettings, type AiNameMark, type AuthorMark, type GeneratorChange, type Intervention, type TerrainOp, type Upheaval, type WorldEdits } from './edits';
+import type { Civ } from './civ/types';
 import { TERRAIN_MAX_OPS, UPHEAVALS_MAX, UPHEAVAL_KINDS, UPHEAVAL_OPS_MAX, cleanTerrainOp, cleanUpheaval } from './terrainEdits';
 import { SKETCH_MAX_STROKES, cleanSketch, cleanSketchStroke, type SketchEdit } from './sketch';
 import type { PlateEdit } from './plateEdits';
@@ -102,8 +111,27 @@ export interface SaveFile {
   view?: SaveView;
   /** 底稿出处:从别人的分享链接另存来的 */
   origin?: SaveOrigin;
+  /** 打开时看哪(只在分享里带;见文件头"moment") */
+  moment?: SaveMoment;
   /** 存档时间(ISO 8601) */
   savedAt: string;
+}
+
+/** 打开时看哪:分享的人那一刻的年份、选中的东西、镜头;三样都可以没有 */
+export interface SaveMoment {
+  /** 时间轴停在第几年(可以带小数,存到千分之一年) */
+  year?: number;
+  /** 选中的国家或州:稳定键(`polity:c32577#0`、`region:c8123`) */
+  selected?: string;
+  /** 镜头 */
+  camera?: SaveCamera;
+}
+
+/** 镜头:画面正中对着的经纬度(度)、放大倍数(平面地图 1 = 整张图正好放下;地球仪是它自己的倍数) */
+export interface SaveCamera {
+  lon: number;
+  lat: number;
+  zoom: number;
 }
 
 /** 底稿出处 */
@@ -226,6 +254,77 @@ export function cleanOrigin(raw: unknown): SaveOrigin | null {
   return o;
 }
 
+/** 打开时选中的东西:国家、州的稳定键(新旧两种写法都认,见 edits.ts 文件头"稳定键";以后要放开城、人物再加) */
+const MOMENT_KEY = /^(?:polity:(?:r-?\d{1,7}|c\d{1,7})#\d{1,5}|region:[rc]\d{1,7})$/;
+/** 镜头放大倍数的范围(平面地图 1–12 倍、地球仪 0.55–8 倍都在里面;界面再按投影夹一次) */
+export const CAMERA_ZOOM_RANGE: readonly [number, number] = [0.5, 12];
+/** 留到千分之一(年份、经纬度、倍数);同一个数清理两次结果不变 */
+const round3 = (v: number) => Math.round(v * 1000) / 1000;
+
+/** 镜头清理:三个数都得是有限数;经度挪到 [−180, 180)、纬度夹在 ±90、倍数夹在 CAMERA_ZOOM_RANGE,都留到千分之一。不像样的 = null */
+export function cleanCamera(raw: unknown): SaveCamera | null {
+  if (!isObj(raw)) return null;
+  const { lon, lat, zoom } = raw;
+  if (typeof lon !== 'number' || typeof lat !== 'number' || typeof zoom !== 'number') return null;
+  if (!Number.isFinite(lon) || !Number.isFinite(lat) || !Number.isFinite(zoom)) return null;
+  let x = round3(((((lon + 180) % 360) + 360) % 360) - 180);
+  if (x >= 180) x -= 360;
+  const [z0, z1] = CAMERA_ZOOM_RANGE;
+  return { lon: x, lat: round3(Math.min(90, Math.max(-90, lat))), zoom: round3(Math.min(z1, Math.max(z0, zoom))) };
+}
+
+/**
+ * 打开时看哪的清理(见文件头"moment"):年份要在 [0, maxYear](这个世界推到的那年)、选中的要像国家或州的稳定键、镜头过 cleanCamera,
+ * 不合格的那一样去掉;一样都不剩 = null
+ */
+export function cleanMoment(raw: unknown, maxYear: number = END_YEAR_MAX): SaveMoment | null {
+  if (!isObj(raw)) return null;
+  const m: SaveMoment = {};
+  const y = raw.year;
+  if (typeof y === 'number' && Number.isFinite(y) && y >= 0 && y <= maxYear) m.year = round3(y);
+  const s = raw.selected;
+  if (typeof s === 'string' && MOMENT_KEY.test(s)) m.selected = s;
+  const c = cleanCamera(raw.camera);
+  if (c) m.camera = c;
+  return Object.keys(m).length ? m : null;
+}
+
+/** 这个世界的历史推到第几年(逐年推演的 = "现在"那年):打开时看的年份不能超过它 */
+export function momentYearMax(edits: Pick<WorldEdits, 'endYear' | 'play'>): number {
+  return cleanPlay(edits.play)?.year ?? endYearOf(edits);
+}
+
+/** 分享前给存档带上"打开时看哪"(清理过;null 或一样都不剩 = 去掉)。返回新的一份,原来的不动 */
+export function withMoment(save: SaveFile, moment: SaveMoment | null | undefined): SaveFile {
+  const { moment: _old, ...rest } = save;
+  const m = moment ? cleanMoment(moment, momentYearMax(save.edits)) : null;
+  return m ? { ...rest, moment: m } : rest;
+}
+
+/** 按生成好的历史核对过的"打开时看哪":年份夹在历史以内,选中的换成这个世界里的编号(找不到 = 不选) */
+export interface ResolvedMoment {
+  year?: number;
+  selected?: { kind: 'polity' | 'region'; id: number };
+  camera?: SaveCamera;
+}
+
+/**
+ * 打开分享链接、世界生成好以后,把存档里的"打开时看哪"对到这个世界上:
+ * 年份超出这段历史的不要(逐年推演推到"现在"差不到一年的,按"现在"那一刻);选中的键找不到(国家不存在、版本变了)的不选;镜头原样
+ */
+export function resolveMoment(civ: Civ, moment: SaveMoment | null | undefined): ResolvedMoment {
+  const out: ResolvedMoment = {};
+  if (!moment) return out;
+  const y = moment.year;
+  if (y !== undefined && y >= 0 && y <= Math.ceil(civ.endYear)) out.year = Math.min(y, civ.endYear);
+  if (moment.selected) {
+    const r = resolveKey(civ, moment.selected);
+    if (r && (r.kind === 'polity' || r.kind === 'region')) out.selected = { kind: r.kind, id: r.id };
+  }
+  if (moment.camera) out.camera = { ...moment.camera };
+  return out;
+}
+
 /** 两份投影设置是不是一样(中央经线差不到 0.01° 算一样;经纬网有一份没记就不比) */
 export function sameView(a: SaveView | null | undefined, b: SaveView | null | undefined): boolean {
   const x = a ?? DEFAULT_VIEW;
@@ -309,7 +408,8 @@ export const PARAM_RANGE: Record<keyof WorldParams, [number, number]> = {
   north: [-1, 1],
 };
 
-const PARAM_NAME: Record<keyof WorldParams, string> = {
+/** 参数在提示里的叫法 */
+export const PARAM_NAME: Record<keyof WorldParams, string> = {
   seed: '种子',
   cells: '精细度',
   landFraction: '陆地比例',
@@ -736,6 +836,9 @@ export function parseSave(text: string): ParseResult {
   // 底稿出处:格式不对就当没有
   const origin = cleanOrigin(raw.origin);
   if (origin) save.origin = origin;
+  // 打开时看哪(分享链接里带的):不合格的那一样去掉,不提示
+  const moment = cleanMoment(raw.moment, momentYearMax(save.edits));
+  if (moment) save.moment = moment;
   return { ok: true, save, warnings };
 }
 
@@ -790,7 +893,8 @@ export function worldCheck(world: World): string {
 //   https://…/?seed=7&style=fantasy#share=<base64url(deflate-raw(存档的 JSON))>
 //
 // - # 后面的东西浏览器不发给服务器,只在打开链接的人自己的页面里读
-// - 编码的是**整个** SaveFile(JSON.stringify,不挑字段):存档以后加了字段(比如地形修改),链接自动带上
+// - 编码的是**整个** SaveFile(JSON.stringify,不挑字段):存档以后加了字段(比如地形修改),链接自动带上;
+//   "打开时看哪"(moment,withMoment 带上)也在里面,旧版本的页面读到不认识的字段会跳过,照平常打开
 // - 压缩用浏览器自带的 CompressionStream('deflate-raw')(= zlib 的 raw deflate,Node 里 zlib.inflateRawSync 也能解),
 //   再转成 base64url(只有 A–Z a–z 0–9 - _,放进网址不用转义)
 // - 解开以后走和"从文件打开"同一个 parseSave:版本不同、参数超范围这些照样打开并提示
@@ -895,9 +999,9 @@ async function through(data: Uint8Array, ts: Pipe, limit = Infinity): Promise<Ui
   return out;
 }
 
-/** 这个存档值得做成带数据的链接吗:有任何修改(改名、干预、以后的地形修改……)或者起了名字 */
+/** 这个存档值得做成带数据的链接吗:有任何修改(改名、干预、以后的地形修改……)、起了名字,或者带着"打开时看哪" */
 export function hasShareData(save: SaveFile): boolean {
-  if (save.title) return true;
+  if (save.title || save.moment) return true;
   for (const v of Object.values(save.edits as unknown as Record<string, unknown>)) {
     if (Array.isArray(v) ? v.length > 0 : isObj(v) ? Object.keys(v).length > 0 : v !== undefined && v !== null && v !== false && v !== '') return true;
   }
