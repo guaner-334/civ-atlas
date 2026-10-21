@@ -27,6 +27,7 @@ import {
   worldToStage,
   windowSpan,
   xOfLon,
+  type MapView,
   type StageBox,
 } from './mapWrap';
 import { projectWorld, projectWorldNear, unprojectRel, unprojectWorld, wrapLon, type MapProj } from '../render/projection';
@@ -59,6 +60,8 @@ import type { Civ } from '../gen/civ/types';
 import { CivLayer } from './CivLayer';
 import { CivTimeline } from './CivTimeline';
 import { EventPins, type WorldToClient } from './EventPins';
+import { DirectorCaption, DirectorEngine, DirectorPanels, DirectorPin } from './Director';
+import { directorHandBack, useDirectorFly, useDirectorOn } from './directorStore';
 import { HistoryBook } from './HistoryBook';
 import { AiSettingsHost } from './AiSettings';
 import { AccountHost, ShareGone, SharedHint, closeTrash, openLogin, setGoHome, useTrashView } from './AccountDialogs';
@@ -75,6 +78,7 @@ import {
   getChronicle,
   getCivShow,
   getCivTime,
+  useCivStory,
   getSelection,
   pausePlayback,
   playFrom,
@@ -202,7 +206,7 @@ import { CIV_SHOW_OFF, drawCivOverlay } from '../render/civ/overlay';
 import { getPolityPick, interventionActorThen, interventionDoneText, setPickHover, setPolityPick, usePolityPick } from './Interventions';
 import { Inspector } from './Inspector';
 import { TargetLayer } from './TargetPlates';
-import { FLY_MS, animProgress, curvedFly, easeOutCubic, flatFly, markFocus, personKey, pointsFocus, resolvePersonKey, selectionFocus, selectionKey, sideRoom, phoneFree, type FlyGoal } from './flyTo';
+import { FLY_MS, animProgress, curvedFly, easeOutCubic, flatFly, freeArea, markFocus, personKey, pointsFocus, resolvePersonKey, selectionFocus, selectionKey, sideRoom, phoneFree, type FlyGoal, type Focus } from './flyTo';
 import { MarkLayer, markHitAt, markPinAt, markPinTip, type MarkApi } from './MarkLayer';
 import { cancelDraft, getMarkUi, newMarkDraft, patchDraft, resetMarkUi, setMarkDragging, stopPlacing, toggleDraftRegion, useMarkUi } from './markStore';
 import { markHover, markSpot, ownerName } from './markInfo';
@@ -219,7 +223,7 @@ import { STUDIO_STYLES, Studio } from './studio/Studio';
 import { setFlatGeomSource, useStudioFlat } from './studio/studioStore';
 import { MyWorlds, showMapInWorlds } from './MyWorlds';
 import { mapBriefOf } from './mapGroups';
-import { useCoarse, useNarrow } from './device';
+import { NARROW_MAX, useCoarse, useNarrow } from './device';
 import { isDoubleTap, pinchStep, type Pt, type Tap } from './gestures';
 import { createPinchGuard, createWheelReader, inGesturePinch, setGesturePinch, wheelSample } from './wheel';
 import { mapTextBoxes, pickLabelAt } from './mapPick';
@@ -3035,6 +3039,7 @@ export function App() {
    */
   const zoomAt = (mx: number, my: number, f: number) => {
     stopFly();
+    directorHandBack();
     const el = stageRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
@@ -3081,6 +3086,7 @@ export function App() {
   useEffect(() => () => clearTimeout(panIdle.current), []);
   const wheelPan = (dx: number, dy: number) => {
     stopFly();
+    directorHandBack();
     const el = stageRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
@@ -3344,9 +3350,12 @@ export function App() {
     const flat = m ? null : flatFly(viewRef.current, b, W, H, goal);
     const step = m ? curvedFly(viewRef.current, b, m, (lon) => curvedProj(getProjection(), lon, W, H) ?? m, goal) : flat && ((e: number) => ({ v: flat(e), lon: null }));
     if (!step) return;
+    runFly(step, !!m);
+  };
+  /** 一帧帧飞过去(FLY_MS,ease-out 三次方);用户自己拖动 / 缩放时 stopFly 让给用户(按下地图、滚轮、右下的 + −) */
+  const runFly = (step: (e: number) => { v: MapView; lon: number | null }, curvedNow: boolean) => {
     const t0 = performance.now();
-    if (m) setMapMoving(true);
-    // 用户自己拖动 / 缩放时 stopFly 让给用户(按下地图、滚轮、右下的 + −)
+    if (curvedNow) setMapMoving(true);
     const frame = (now: number) => {
       const t = animProgress(now, t0, FLY_MS);
       const r = step(easeOutCubic(t));
@@ -3358,6 +3367,53 @@ export function App() {
     };
     flyRaf.current = requestAnimationFrame(frame);
   };
+  /**
+   * 导播请地图飞到一段事上(Director.tsx):看全事发地周围几个州,放在字幕条上面那块地方的正中;
+   * 事发地已经在那块的中间一半里、缩放也差不多(不到 1.4 倍)就不动。地球仪转过去
+   */
+  const flyDirector = (focus: Focus) => {
+    const el = stageRef.current;
+    if (!data || !el || !box.w || replayOn || getTerrainTool().on) return;
+    const r = el.getBoundingClientRect();
+    const b: StageBox = { sw: el.clientWidth, sh: el.clientHeight, bw: box.w, bh: box.h, padB: geo.current.padB };
+    // 看得见的地方:宽屏让开侧栏、助手、顶上的按钮;手机让开收起的世界卡片;都让开时间轴和它上面的字幕条
+    const phoneNow = b.sw <= NARROW_MAX;
+    const [l, t, rr, bb] = freeArea(b, !phoneNow);
+    const row = document.querySelector('.app .bottom-row')?.getBoundingClientRect();
+    const capTop = row && row.height ? row.top - r.top - (phoneNow ? 115 : 100) : bb;
+    const area: [number, number, number, number] = [l, t, rr, Math.max(t + 80, Math.min(bb, capTop))];
+    const near = (p: [number, number] | null | undefined) => {
+      if (!p) return false;
+      const x = p[0] - r.left;
+      const y = p[1] - r.top;
+      const qw = (area[2] - area[0]) / 4;
+      const qh = (area[3] - area[1]) / 4;
+      return x > area[0] + qw && x < area[2] - qw && y > area[1] + qh && y < area[3] - qh;
+    };
+    if (getGlobeOn()) {
+      if (!near(globeApi.current?.worldToClient(focus.x, focus.y))) globeApi.current?.flyTo(focus.lon, focus.lat);
+      return;
+    }
+    stopFly();
+    const goal: FlyGoal = { focus, kind: 'polity' };
+    const W = data.world.width;
+    const H = data.world.height;
+    const m = mpRef.current;
+    const flat = m ? null : flatFly(viewRef.current, b, W, H, goal, area);
+    const step = m ? curvedFly(viewRef.current, b, m, (lon) => curvedProj(getProjection(), lon, W, H) ?? m, goal, area) : flat && ((e: number) => ({ v: flat(e), lon: null }));
+    if (!step) return;
+    const k = step(1).v.k / viewRef.current.k;
+    if (k < 1.4 && k > 1 / 1.4 && near(worldToClient.current?.(focus.x, focus.y))) return;
+    runFly(step, !!m);
+  };
+  const flyDirectorRef = useRef(flyDirector);
+  flyDirectorRef.current = flyDirector;
+  const directorFly = useDirectorFly();
+  const directorOnPref = useDirectorOn();
+  const civStory = useCivStory();
+  useEffect(() => {
+    if (directorFly) flyDirectorRef.current(directorFly.focus);
+  }, [directorFly]);
   /** 选中的作者标记(正在填的那一份优先:新建的还没存)在地图上的位置 */
   const selectedMarkFocus = (civ: Civ, id: number) => {
     if (!data) return null;
@@ -3512,6 +3568,8 @@ export function App() {
   const onPointerDown = (e: React.PointerEvent) => {
     touchRef.current();
     stopFly();
+    // 导播放着:一按地图(拖、点、捏合)镜头就交还,导播停在这件事上等着
+    directorHandBack();
     if (getGlobeOn()) return; // 地球仪自己管拖动
     const touch = e.pointerType === 'touch';
     // 第二根手指:开始捏合(编辑地形刚按下第一根手指就跟上第二根 = 想捏合,那一笔不算;已经画了一阵的不管)
@@ -4333,6 +4391,10 @@ export function App() {
   /** 建好的世界(不是新建中、不在我的世界):时间轴、详情、概览、事件标签这些才有 */
   const world = stage === 'world';
   const filmOn = !!filmUi.mode && !!data && world && !draft && !home;
+  /** 导播停用:还没有历史、新建、回放世界形成、导出视频 / 长图时(这时时间轴照平常放) */
+  const directorOff = !markable || filmOn;
+  // 接着回放世界形成放文明时导播不管(事件小卡照旧)
+  const directing = directorOnPref && !directorOff && !civStory;
   const curWorld = currentWorld();
   // 离开这个世界(回首页、去新建、浏览器前进后退换了一个世界),或者助手"先看看"的历史进来、退出(预览条上的"回到现在"):
   // 导出面板关掉,正在导出的视频取消(不然会接着拍已经不在屏幕上的那一份历史)
@@ -4516,8 +4578,9 @@ export function App() {
             </div>
           </div>
         )}
-        {/* 地图上钉在事发地的事件标签 */}
-        {data && world && <EventPins civ={civ} world={data.world} toClient={globeOn ? globeToClient : worldToClient} hidden={replayOn || filmOn} />}
+        {/* 地图上钉在事发地的事件标签;导播开着时播放经过的大事换成导播的圆环 + 名牌(Director.tsx),点编年史跳过去的照旧 */}
+        {data && world && <EventPins civ={civ} world={data.world} toClient={globeOn ? globeToClient : worldToClient} hidden={replayOn || filmOn} quiet={directing} />}
+        {data && world && <DirectorPin toClient={globeOn ? globeToClient : worldToClient} hidden={directorOff} />}
         {data && globeOn && (
           <Globe
             world={data.world}
@@ -4597,7 +4660,7 @@ export function App() {
                 exp={{ data, civ, plain: plainCiv, style, layer, look: terrainLook }}
               />
           )}
-          {!draft && !filmOn && <PhoneButtons layers={layerProps} globeOn={globeOn} onToggleGlobe={toggleGlobe} marking={markable ? markPlacing : undefined} />}
+          {!draft && !filmOn && <PhoneButtons layers={layerProps} globeOn={globeOn} onToggleGlobe={toggleGlobe} marking={markable ? markPlacing : undefined} director={!directorOff} />}
           {!draft && (OLD_SITE !== null || BETA_SITE || style === 'data' || contourOn) && (
             <div className="corner-tl">
               <OldSiteBadge />
@@ -4642,15 +4705,29 @@ export function App() {
       {/* 顶部居中:提示条(同一时间只有一条) */}
       <ToastBar />
       {/* 右下(时间轴上方):地球 / 平面、放大、缩小。触屏不放 + −(用双指捏合);窄屏整个不放(地球在右上竖排的按钮里) */}
-      <MapControls globeOn={globeOn} onToggleGlobe={toggleGlobe} onZoom={zoomButton} shifted={false} hidden={!data || narrow || home || draft} zoom={!coarse} marking={markable ? markPlacing : undefined} />
+      <MapControls
+        globeOn={globeOn}
+        onToggleGlobe={toggleGlobe}
+        onZoom={zoomButton}
+        shifted={false}
+        hidden={!data || narrow || home || draft}
+        zoom={!coarse}
+        marking={markable ? markPlacing : undefined}
+        director={!directorOff}
+      />
       {sharedOn ? <SharedHint phone={narrow} short={sharedFor.short} by={sharedFor.by} own={sharedFor.own} onOk={() => setSharedFor(null)} /> : <FirstHint show={hintOn && !!data && world && !terrainTool.on && !upOn} touch={coarse} />}
       {world && !narrow && <UpheavalHint />}
       {/* 底部:时间轴(宽屏是卡片右边那一块底下的胶囊;手机是浮在底部卡片上面的胶囊);新建时还没有历史,不放 */}
       <div className="bottom-row">
-        <div className="bottom-tl">{data && world && <CivTimeline civ={civ} hidden={replayOn} dock="inline" />}</div>
+        <div className="bottom-tl">{data && world && <CivTimeline civ={civ} hidden={replayOn} dock="inline" directorOff={directorOff} />}</div>
         {/* 待推演的单子:浮在时间轴上面 */}
         {data && world && <PendingTray phone={narrow} hidden={replayOn || draft} />}
+        {/* 导播的字幕条:浮在时间轴上面 */}
+        {data && world && <DirectorCaption phone={narrow} civ={civ} hidden={directorOff} />}
       </div>
+      {/* 导播:推进时间轴(不画东西)、右上「导播略过的」(手机是拉起的卡片)、手机的导播设置 */}
+      {data && world && <DirectorEngine world={data.world} civ={civ} off={directorOff} />}
+      {data && world && <DirectorPanels phone={narrow} civ={civ} hidden={directorOff} />}
       {/* 详情面板:窄屏是从屏幕底升起的卡片(在这儿的空位里),宽屏在侧栏里(见上面的 inspectorHost) */}
       {data && world && createPortal(<Inspector civ={civ} raw={shownRaw} raster={data.raster} world={data.world} />, inspectorHost)}
       {narrow && world && <div className="inspector-slot" ref={inspectorSlot} />}

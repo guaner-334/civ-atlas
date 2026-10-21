@@ -10,6 +10,7 @@
  * - 事发地:相关的城 / 事发各州的中心 / 相关国家那一年的国都(timelineLayout.ts 的 entryAnchor)。
  * - 用的纪事:编年史的"大事"(编年史只看某国时就只看这国的),和最近事件一致。
  * - 标签不接鼠标(点得到下面的地图)。
+ * - 导播开着(quiet,见 Director.tsx):播放经过的大事不出标签(导播自己放),点一条跳过去的照旧出。
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
 import type { Civ } from '../gen/civ/types';
@@ -47,6 +48,8 @@ export interface EventPinsProps {
   toClient: MutableRefObject<WorldToClient | null>;
   /** 地质回放时藏起来 */
   hidden?: boolean;
+  /** 播放经过的大事不出标签(导播开着时) */
+  quiet?: boolean;
 }
 
 /** 一帧里年份往前跳得比这多(年)就不算"播放经过",是跳过去的(不补标签) */
@@ -56,7 +59,7 @@ const BOTTOM_RESERVE = 84;
 
 const pinKey = (p: LivePin) => `${p.e.id}:${p.start}`;
 
-export function EventPins({ civ, world, toClient, hidden }: EventPinsProps) {
+export function EventPins({ civ, world, toClient, hidden, quiet }: EventPinsProps) {
   const era = useEra();
   const months = useMonths();
   const chron = useChronicle();
@@ -79,6 +82,12 @@ export function EventPins({ civ, world, toClient, hidden }: EventPinsProps) {
   const [pins, setPins] = useState<LivePin[]>([]);
   const pinsRef = useRef(pins);
   pinsRef.current = pins;
+  const quietRef = useRef(quiet);
+  quietRef.current = quiet;
+  // 导播开了:播放经过时出的标签收掉
+  useEffect(() => {
+    if (quiet) setPins((ps) => (ps.length ? [] : ps));
+  }, [quiet]);
 
   // 播放经过大事:加标签;拖动 / 跳到别的年份:收起
   useEffect(() => {
@@ -92,10 +101,10 @@ export function EventPins({ civ, world, toClient, hidden }: EventPinsProps) {
     const off = subscribeCivTime((t) => {
       const y = t.year ?? end;
       if (t.playing && prevPlaying && y > prevYear && y - prevYear <= JUMP_YEARS) {
-        add(crossed(entries, prevYear, y));
+        if (!quietRef.current) add(crossed(entries, prevYear, y));
       } else if (!t.playing && prevPlaying && t.year === null) {
         // 放到了结束年份(最后一帧没有推进年份,把剩下那一小段补上)
-        add(crossed(entries, prevYear, end));
+        if (!quietRef.current) add(crossed(entries, prevYear, end));
       } else if (y !== prevYear) {
         // 拖动、跳到别的年份、从别的年份重新放起:标签说的已经不是眼前的事了
         clear();

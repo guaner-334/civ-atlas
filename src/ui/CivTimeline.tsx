@@ -5,6 +5,8 @@
  *
  * - 打开网页、第一个世界显示出来时,从第 2600 年(结束年份前 400 年)起按 1× 自动播放;放到结束年份停下,
  *   再点播放从第 2600 年重播(网址给了 civYear、play=0,或在无头浏览器里不自动播放,见 civView.ts)。
+ * - 导播开着(Director.tsx)时,速度前面多一档「自动」(事少快、事多慢),年份由导播按它的排期推进,这里不推;
+ *   手机上那一个速度按钮在 自动 / 1× / 4× 之间换。
  * - 1× = 每秒 20 年,4× = 每秒 80 年;推得比 3000 年久的世界,速度和"结束年份前 400 年"都按年数放大(60000 年 = 20 倍,
  *   timelineLayout.ts 的 timeScale)。"回放世界形成"放完地质接着放文明时(story),从第 0 年用 15 秒放完一遍,
  *   这时自动打开"民族"和"国家",顶部显示"人类登场 / 列国并起"的说明。
@@ -41,6 +43,7 @@ import { yearFull, type Era } from '../gen/era';
 import { STORY_SECONDS, playRate, replayStart } from './timelineLayout';
 import { filmRangeOf, getFilm, setFilmRange, useFilm } from './filmStore';
 import { filmClock, lengthText } from './filmPlan';
+import { setDirectorPace, useDirector } from './directorStore';
 import './timeline.css';
 
 export interface CivTimelineProps {
@@ -49,10 +52,17 @@ export interface CivTimelineProps {
   hidden?: boolean;
   /** 浮在地图底部(默认)/ 顶部(数据图层的图例占着底部时)/ 不定位、填满父元素 */
   dock?: 'top' | 'bottom' | 'inline';
+  /** 导播停用(回放世界形成、导出视频、新建):开着也照平常播放,没有「自动」 */
+  directorOff?: boolean;
 }
 
-export function CivTimeline({ civ, hidden, dock = 'bottom' }: CivTimelineProps) {
+export function CivTimeline({ civ, hidden, dock = 'bottom', directorOff }: CivTimelineProps) {
   const t = useCivTime();
+  const dir = useDirector();
+  const dirOn = dir.on && !directorOff;
+  // 导播推进年份(故事回放照旧这里放)
+  const directed = dirOn && !t.story;
+  const auto = dirOn && dir.pace === 'auto';
   const narrow = useNarrow();
   // 导出回放视频时:时间轴上选一段(两头的把手),播放按成片的速度放这一段,右边写片长
   const film = useFilm();
@@ -92,6 +102,7 @@ export function CivTimeline({ civ, hidden, dock = 'bottom' }: CivTimelineProps) 
       setCivTime({ year: null, playing: false, story: false });
       return;
     }
+    if (directed) return;
     if (t.story) setCivShow({ cultures: true, polities: true, faiths: false, eras: false, resources: false });
     const fm = getFilm();
     const span = fm.mode === 'video' && civ ? filmRangeOf(civ) : null;
@@ -114,7 +125,7 @@ export function CivTimeline({ civ, hidden, dock = 'bottom' }: CivTimelineProps) 
     };
     raf = requestAnimationFrame(step);
     return () => cancelAnimationFrame(raf);
-  }, [t.playing, t.story, t.speed, has, end, civ, film.mode, film.seconds, film.cards, film.rangeKind, film.range]);
+  }, [t.playing, t.story, t.speed, has, end, civ, film.mode, film.seconds, film.cards, film.rangeKind, film.range, directed]);
 
   if (!has || hidden) return null;
 
@@ -176,13 +187,35 @@ export function CivTimeline({ civ, hidden, dock = 'bottom' }: CivTimelineProps) 
             </span>
           )
         ) : narrow ? (
-          <button className="tb-speed tb-speed-one" onClick={() => setCivTime({ speed: t.speed === 4 ? 1 : 4 })} aria-label={`播放速度 ${t.speed}×,点一下换成 ${t.speed === 4 ? 1 : 4}×`}>
-            {t.speed}×
-          </button>
+          dirOn ? (
+            // 导播开着:自动 → 1× → 4× → 自动
+            <button
+              className="tb-speed tb-speed-one"
+              data-act="speed"
+              onClick={() => (auto ? setDirectorPace('fixed', 1) : t.speed === 1 ? setDirectorPace('fixed', 4) : setDirectorPace('auto'))}
+              aria-label={`播放速度 ${auto ? '自动' : `${t.speed}×`},点一下换成 ${auto ? '1×' : t.speed === 1 ? '4×' : '自动'}`}
+            >
+              {auto ? '自动' : `${t.speed}×`}
+            </button>
+          ) : (
+            <button className="tb-speed tb-speed-one" data-act="speed" onClick={() => setCivTime({ speed: t.speed === 4 ? 1 : 4 })} aria-label={`播放速度 ${t.speed}×,点一下换成 ${t.speed === 4 ? 1 : 4}×`}>
+              {t.speed}×
+            </button>
+          )
         ) : (
           <span className="tb-speed" role="group" aria-label="播放速度">
+            {dirOn && (
+              <button className={auto ? 'on' : ''} aria-pressed={auto} data-act="speed-auto" title="事少快、事多慢：没事的年份一闪而过，有大事时放慢，放完再走" onClick={() => setDirectorPace('auto')}>
+                自动
+              </button>
+            )}
             {([1, 4] as const).map((s) => (
-              <button key={s} className={t.speed === s ? 'on' : ''} aria-pressed={t.speed === s} onClick={() => setCivTime({ speed: s })}>
+              <button
+                key={s}
+                className={!auto && t.speed === s ? 'on' : ''}
+                aria-pressed={!auto && t.speed === s}
+                onClick={() => (dirOn ? setDirectorPace('fixed', s) : setCivTime({ speed: s }))}
+              >
                 {s}×
               </button>
             ))}

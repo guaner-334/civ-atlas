@@ -131,6 +131,15 @@ export function useCivTime(): CivTime {
   return time.use();
 }
 
+/** 只看"这次播放是不是接着回放世界形成放的"(年份每帧都变时不跟着重新渲染) */
+export function useCivStory(): boolean {
+  return useSyncExternalStore(
+    time.subscribe,
+    () => time.get().story,
+    () => time.get().story,
+  );
+}
+
 /** 年份一变就调 f(不经过 React;回放时每帧都会调) */
 export function subscribeCivTime(f: (t: CivTime) => void): () => void {
   return time.subscribe(() => f(time.get()));
