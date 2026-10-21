@@ -6,10 +6,12 @@
  *   平面投影   按 mapProj 投到地图平面,再按星球的姿势放大挪到屏幕上
  *
  * 字号、出现的门槛按图在屏幕上有多大算(和平常的地图一样:图越小,只放越大的名字)。
+ * 地球仪小到等效缩放不到 1 倍时(手机上),和打开世界后的地球仪一样按"缩放 1 倍、地图显示得窄一些"排
+ * (globeLabels.ts 的 overviewFloor;平面投影本来就这样排):全图就有的名字照样出现,字号跟着缩小、最小字号托底。
  */
 import type { World } from '../../gen/world';
 import { drawPlacedLabels, placeMap, type LabelItem, type LabelView } from '../../render/labels/draw';
-import { globeGlyphAlpha, globeLabelView, globeToCanvas, type GlobeLabelView } from '../../render/globeLabels';
+import { globeGlyphAlpha, globeLabelView, globeToCanvas, overviewFloor, type GlobeLabelView } from '../../render/globeLabels';
 import { labelProjection, mapProj } from '../../render/projection';
 import type { StillPose } from './scene';
 
@@ -30,6 +32,25 @@ function onFront(it: LabelItem, lv: GlobeLabelView): boolean {
   return d > 0.05 && x > -slack && y > -slack && x < cw + slack && y < ch + slack;
 }
 
+/**
+ * 地球仪姿势下排地名用的视图(球心、半径用星球自己的)。球小、等效缩放不到 1 倍时按缩放 1 倍、地图显示得窄一些排
+ * (overviewFloor);够 1 倍时原样
+ */
+export function planetGlobeLabelView(pose: StillPose, dpr: number, worldW: number, worldH: number, surface?: LabelView['surface']): GlobeLabelView {
+  return overviewFloor(
+    globeLabelView({
+      view: { lon: pose.lon, lat: pose.lat, k: 1 },
+      w: pose.w,
+      h: pose.h,
+      dpr,
+      worldW,
+      worldH,
+      surface,
+      frame: { cx: pose.cx, cy: pose.cy, R: pose.k },
+    }),
+  );
+}
+
 /** 在 cv 上按 pose 排、画地名(画布铺满视口);返回放上去几条 */
 export function drawPlanetLabels(cv: HTMLCanvasElement, items: readonly LabelItem[], pose: StillPose, world: World, surface: LabelView['surface'], dpr: number): number {
   const cw = Math.max(1, Math.round(pose.w * dpr));
@@ -46,16 +67,7 @@ export function drawPlanetLabels(cv: HTMLCanvasElement, items: readonly LabelIte
   const W = world.width;
   const H = world.height;
   if (pose.proj === 'globe') {
-    const lv = globeLabelView({
-      view: { lon: pose.lon, lat: pose.lat, k: 1 },
-      w: pose.w,
-      h: pose.h,
-      dpr,
-      worldW: W,
-      worldH: H,
-      surface,
-      frame: { cx: pose.cx, cy: pose.cy, R: pose.k },
-    });
+    const lv = planetGlobeLabelView(pose, dpr, W, H, surface);
     const placed = placeMap(
       items.filter((it) => onFront(it, lv)),
       [],
