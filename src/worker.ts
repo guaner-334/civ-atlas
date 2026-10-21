@@ -22,14 +22,20 @@
  * 地图那一块按世界的键记着,只重推历史时不用再打一遍。
  *
  * 逐年推演(gen/civ/play.ts):请求带着进度(play:推到哪年 + 命令串)的,推到那一年年初,命令接在干预后面;
- * 一步(turn)在那一刻下命令、接着推几年。上一步的结果记在线程里(played),下一步从它接着推,不从第 0 年重算。
+ * 一步(turn)在那一刻下命令、接着推几年。上一步的结果记在线程里(held),下一步从它接着推,不从第 0 年重算。
+ *
+ * 再推 N 年(extend,gen/civ/extend.ts):在推完的世界上接着推到第 to 年,前面的历史一点不变。推好的历史记在线程里(held,
+ * 和原件用同一份复制),从它接着推;推演那一步分段推,每段之间报进度(extendProgress)、先让新到的消息排进来:
+ * 来了新的再推、重推、生成、读档、逐年推演的一步,或者叫停(extendStop),这次就不推了(extendStopped)。
+ * 只把推演年数调大的重推(resim)也从记着的历史接着推。结果都和从第 0 年一口气推到那一年一样。
  */
 import { generateWorld, type BaseCache, type World, type WorldParams } from './gen/world';
 import { rasterizeDeferred, type Raster } from './gen/raster';
 import { GullyPool } from './gullyPool';
 import { buildHistoryFrames, type HistoryFrames } from './gen/history';
-import { DEFAULT_CIV_PARAMS, generateCiv, civTransferables, planetTempo, type Civ, type PlanetTempo, type Regions } from './gen/civ';
-import { GENERATOR_VERSION, playInterventions, type Intervention, type PlayState, type TerrainOp, type Upheaval } from './gen/edits';
+import { DEFAULT_CIV_PARAMS, continueCiv, generateCiv, civTransferables, planetTempo, type Civ, type PlanetTempo, type Regions } from './gen/civ';
+import { extendCiv } from './gen/civ/extend';
+import { END_YEAR_DEFAULT, GENERATOR_VERSION, cleanEndYear, playInterventions, type Intervention, type PlayState, type TerrainOp, type Upheaval } from './gen/edits';
 import { sketchGrid, type SketchEdit } from './gen/sketch';
 import { mergeUpheavals, previewUpheaval, type UpheavalPreview, type UpheavalStep } from './gen/civ/upheaval';
 import { computeHabitat } from './gen/civ/habitat';
@@ -119,6 +125,15 @@ export type WorkerRequest =
    * 线程里记着这份进度的结果就接着推;没有(线程被重开过、换了世界)就从第 0 年推到这一刻再接着推(结果一样,只是慢)
    */
   | ({ type: 'turn'; id: number; play: PlayState; commands: unknown[]; years: number; interventions?: Intervention[] } & CivInput)
+  /**
+   * 再推 N 年:在推完的世界上接着推到第 to 年(gen/edits.ts 的 extendedEndYear 算;整数,到 END_YEAR_MAX 为止),前面的历史一点不变。
+   * 其余各项和推这个世界时一样(推演年数不带:线程记着推好的那份历史,从它接着推);逐年推演中的世界不用这个(用 turn)。
+   * xid = 第几次再推(主线程只认最新的)。推的时候交 extendProgress;推完交 extended(随后照常排原件 snapshot,配方里的推演年数是 to);
+   * 被顶掉、叫停交 extendStopped。线程里没有推好的历史(被重开过)就从第 0 年推(结果一样,只是慢、不分段)
+   */
+  | ({ type: 'extend'; id: number; xid: number; to: number; interventions?: Intervention[] } & Omit<CivInput, 'endYear' | 'play'>)
+  /** 叫停再推:xid 和它以前的再推都不推了(在推的停下,排着的不推);没在推就什么也不做 */
+  | { type: 'extendStop'; id: number; xid: number }
   /** 地形大事的预览:upheavals = 已经有的大事,在 year 那一年再加上 ops 会怎么样;pid = 第几次预览(主线程只认最新的) */
   | { type: 'upPreview'; id: number; pid: number; params: WorldParams; terrain?: TerrainOp[]; sketch?: SketchEdit; upheavals?: Upheaval[]; civSeed?: number; year: number; ops: TerrainOp[] };
 
@@ -140,6 +155,15 @@ export type WorkerResponse =
   | { type: 'civ'; id: number; seq: number; civ: Civ; ms: number; tempo?: TempoNote; eras?: EraWorld[]; baseKey: string }
   /** 逐年推演一步的结果:推到下一步年初的历史、新的进度(play)、没收下的命令(rejected);ms、tempo、eras 同 civ */
   | { type: 'turn'; id: number; civ: Civ; play: PlayState; rejected: unknown[]; ms: number; tempo?: TempoNote; eras?: EraWorld[]; baseKey: string }
+  /**
+   * 再推的进度:推演已经推到第 year 年,整体进度 pct(0–1,只增不减)。开始时交一次(year = 推好的那年,pct = 0);
+   * 推演那一步推完(year = to)以后还有推完以后的整理(起名、人物、道路……),pct 在那时停一会儿(3000→4000 年约停在 0.4)
+   */
+  | { type: 'extendProgress'; id: number; xid: number; year: number; pct: number }
+  /** 再推好了:推到第 to 年的整段历史(civ.endYear = to);ms(线程里花的时间)、tempo、eras 同 civ */
+  | { type: 'extended'; id: number; xid: number; civ: Civ; to: number; ms: number; tempo?: TempoNote; eras?: EraWorld[]; baseKey: string }
+  /** 这次再推没推完就停了(被新请求顶掉、被叫停):世界还是原来的样子 */
+  | { type: 'extendStopped'; id: number; xid: number }
   /** 试推演的结果;tempo 同 done */
   | { type: 'trial'; id: number; tid: number; civ: Civ; ms: number; tempo?: TempoNote }
   /** 一段的主图补丁:key 这一段比 prev 那一段(原来的世界或上一件大事以后)变了的那一块;null = 看不出变化 */
@@ -303,20 +327,37 @@ const setupOpt = (m: Pick<CivInput, 'frontier' | 'origins' | 'civSeed'>) => ({
 const playOpt = (m: Pick<CivInput, 'play'> & { interventions?: Intervention[] }) =>
   m.play ? { interventions: [...playInterventions(m.interventions ?? [], m.play)], endYear: playStop(m.play.year) } : {};
 
+/** 推这个世界用的输入(推演年数、逐年推演的进度除外) */
+type CivRecipe = Omit<CivInput, 'endYear' | 'play'> & { interventions?: Intervention[] };
+
 /**
- * 逐年推演上一步的结果(复制的一份;交给主线程的那份数组 transfer 走了)和它的配方:下一步配方对得上就从它接着推。
+ * 上一次推好的历史和它的配方(不算推演年数):逐年推演的下一步、再推 N 年、只调大推演年数的重推,配方对得上就从它接着推
+ * (gen/civ/index.ts 的 continueCiv,不改传进去的历史;结果和从第 0 年推一样)。civ = 交给主线程之前复制的那一份
+ * (交出去的数组 transfer 走了),原件也用这一份打;照原样打开的旧世界先只记原件里历史那一块(part),要接着推时才读出来。
  * 照原样打开的旧世界另记(键前加 frozen:,地形和按现在的版本生成的不一样)
  */
-let played: { key: string; civ: Civ } | null = null;
-function playedKey(m: CivInput & { interventions?: Intervention[] }, play: PlayState): string {
-  const r: Recipe = { params: m.params, terrain: m.terrain, sketch: m.sketch, interventions: m.interventions, upheavals: m.upheavals, names: m.names, endYear: m.endYear, frontier: m.frontier, origins: m.origins, civSeed: m.civSeed, play };
+let held: { key: string; civ?: Civ; part?: SnapshotPart } | null = null;
+function heldKey(m: CivRecipe, play: PlayState | undefined): string {
+  const r: Recipe = { params: m.params, terrain: m.terrain, sketch: m.sketch, interventions: m.interventions, upheavals: m.upheavals, names: m.names, frontier: m.frontier, origins: m.origins, civSeed: m.civSeed, play };
   return `${frozen?.key === keyOf(m.params, m.terrain, m.sketch) ? 'frozen:' : ''}${recipeText(r)}`;
 }
-/** 推好了一份逐年推演进度的结果(在交给主线程之前调用):记下来 */
-function keepPlayed(m: CivInput & { interventions?: Intervention[] }, play: PlayState | undefined, civ: Civ) {
-  if (!play) return;
-  const kept = cloneCiv(civ);
-  played = kept ? { key: playedKey(m, play), civ: kept } : null;
+/** 推好了一份历史(复制的那一份,交给主线程之前调用;没复制成 = null):记下来 */
+function keepCiv(m: CivRecipe, play: PlayState | undefined, civ: Civ | null) {
+  held = civ ? { key: heldKey(m, play), civ } : null;
+}
+/** 记着的、配方对得上的推好的历史(没有、对不上、原件读不出来 = null) */
+async function heldCiv(m: CivRecipe, play: PlayState | undefined): Promise<Civ | null> {
+  const h = held;
+  if (!h || h.key !== heldKey(m, play)) return null;
+  if (h.civ) return h.civ;
+  try {
+    const civ = (await readPart(h.part!)) as Civ;
+    if (held === h) held = { key: h.key, civ };
+    return civ;
+  } catch {
+    if (held === h) held = null;
+    return null;
+  }
 }
 
 /** 推文明时带的地形大事(没有 = 不带,和不加这一项逐字节一样) */
@@ -500,7 +541,7 @@ async function pump() {
 }
 
 async function handle(m: WorkerRequest): Promise<void> {
-  if (m.type !== 'history' && m.type !== 'upPreview') takeTempo(m.params, m.sketch, m.tempo);
+  if (m.type !== 'history' && m.type !== 'upPreview' && m.type !== 'extendStop') takeTempo(m.params, m.sketch, m.tempo);
   if (m.type === 'generate') {
     // 换了世界:后台排着的补丁和记着的整图都作废
     bg.length = 0;
@@ -564,7 +605,7 @@ async function handle(m: WorkerRequest): Promise<void> {
     if (kept?.key === baseKey) rasters.set(baseKey, kept.keep.raster);
     transfer.push(...civTransferables(civ));
     const cloned = cloneCiv(civ);
-    keepPlayed(m, m.play, civ);
+    keepCiv(m, m.play, cloned);
     post({ type: 'done', id: m.id, world: { ...rest, history: [] }, ...map, civ, ms: performance.now() - t0, genMs, rasterMs, ...(reused ? { reused: true as const } : {}), tempo: noteOf(m.params, m.sketch), eras: eraWorlds(steps), baseKey }, transfer);
     queuePatches(m.id, m, steps);
     queueSnapshot(m.id, m, world, steps, cloned);
@@ -619,7 +660,9 @@ async function handle(m: WorkerRequest): Promise<void> {
     const vl = raster.veinLines!;
     const transfer = [raster.elev, raster.temp, raster.precip, raster.water, raster.biome, raster.cell, raster.ice, raster.iceConc, raster.iceTone, raster.gully!, raster.bank!, raster.vein!, vl.off, vl.x, vl.y, vl.a].map((a) => a.buffer);
     transfer.push(...civTransferables(civ));
-    keepPlayed(m, m.play, civ);
+    // 历史那一块原件留着(读出来的那份交给主线程了):接着推时再读
+    const civPart = m.parts.find((x) => x.name === 'civ');
+    held = civPart ? { key: heldKey(m, m.play), part: civPart } : null;
     post({ type: 'done', id: m.id, world: { ...world, history: [] }, raster, civ, ms: performance.now() - t0, genMs, rasterMs, eras: eraWorlds(steps), baseKey }, transfer);
     queuePatches(m.id, m, steps);
   } else if (m.type === 'history') {
@@ -629,15 +672,18 @@ async function handle(m: WorkerRequest): Promise<void> {
     const t0 = performance.now();
     const world = worldOf(m.params, m.terrain, m.sketch);
     const steps = stepsOf(m.params, m.terrain, m.sketch, m.upheavals);
-    const civ = generateCiv(world, { interventions: m.interventions, tempo: tempoOf(m.params, m.terrain, m.sketch, m.civSeed), ...upOpt(steps), ...namesOpt(m.names), ...yearsOpt(m.endYear), ...setupOpt(m), ...playOpt(m) });
+    const params = { interventions: m.interventions, tempo: tempoOf(m.params, m.terrain, m.sketch, m.civSeed), ...upOpt(steps), ...namesOpt(m.names), ...yearsOpt(m.endYear), ...setupOpt(m) };
+    // 只调大了推演年数(别的都没变):从记着的那份接着推(和从第 0 年推一样;接不上的 continueCiv 自己从第 0 年推)
+    const base = m.type === 'resim' && !m.play ? await heldCiv(m, undefined) : null;
+    const civ = base && base.endYear < (cleanEndYear(m.endYear) ?? END_YEAR_DEFAULT) ? continueCiv(world, base, params) : generateCiv(world, { ...params, ...playOpt(m) });
     const ms = performance.now() - t0;
     const tempo = noteOf(m.params, m.sketch);
     if (m.type === 'resim') {
-      const kept = cloneCiv(civ);
-      keepPlayed(m, m.play, civ);
+      const cloned = cloneCiv(civ);
+      keepCiv(m, m.play, cloned);
       post({ type: 'civ', id: m.id, seq: m.seq, civ, ms, tempo, eras: eraWorlds(steps), baseKey: keyOf(m.params, m.terrain, m.sketch) }, civTransferables(civ));
       queuePatches(m.id, m, steps);
-      queueSnapshot(m.id, m, world, steps, kept);
+      queueSnapshot(m.id, m, world, steps, cloned);
     } else post({ type: 'trial', id: m.id, tid: m.tid, civ, ms, tempo }, civTransferables(civ));
   } else if (m.type === 'turn') {
     const t0 = performance.now();
@@ -645,15 +691,40 @@ async function handle(m: WorkerRequest): Promise<void> {
     const steps = stepsOf(m.params, m.terrain, m.sketch, m.upheavals);
     const params = { interventions: m.interventions, tempo: tempoOf(m.params, m.terrain, m.sketch, m.civSeed), ...upOpt(steps), ...namesOpt(m.names), ...yearsOpt(m.endYear), ...setupOpt(m) };
     // 上一步的结果对不上这份进度(线程被重开过、换了世界):先从第 0 年推到这一步年初
-    const from = played?.key === playedKey(m, m.play) ? played.civ : generateCiv(world, { ...params, ...playOpt(m) });
-    played = null;
+    const from = (await heldCiv(m, m.play)) ?? generateCiv(world, { ...params, ...playOpt(m) });
     const out = playTurn(world, from, params, m.play, m.commands, m.years);
     const ms = performance.now() - t0;
-    const kept = cloneCiv(out.civ);
-    keepPlayed(m, out.play, out.civ);
+    const cloned = cloneCiv(out.civ);
+    keepCiv(m, out.play, cloned);
     post({ type: 'turn', id: m.id, civ: out.civ, play: out.play, rejected: out.rejected, ms, tempo: noteOf(m.params, m.sketch), eras: eraWorlds(steps), baseKey: keyOf(m.params, m.terrain, m.sketch) }, civTransferables(out.civ));
     queuePatches(m.id, m, steps);
-    queueSnapshot(m.id, { ...m, play: out.play }, world, steps, kept);
+    queueSnapshot(m.id, { ...m, play: out.play }, world, steps, cloned);
+  } else if (m.type === 'extend') {
+    const t0 = performance.now();
+    const to = cleanEndYear(m.to) ?? END_YEAR_DEFAULT;
+    const world = worldOf(m.params, m.terrain, m.sketch);
+    const steps = stepsOf(m.params, m.terrain, m.sketch, m.upheavals);
+    const params = { interventions: m.interventions, tempo: tempoOf(m.params, m.terrain, m.sketch, m.civSeed), ...upOpt(steps), ...namesOpt(m.names), ...yearsOpt(cleanEndYear(to)), ...setupOpt(m) };
+    const base = await heldCiv(m, undefined);
+    // 后面排着会换掉这份历史的请求,或者叫停这一次的:不推了
+    const stop = () => fg.some((r) => r.type === 'generate' || r.type === 'load' || r.type === 'resim' || r.type === 'turn' || r.type === 'extend' || (r.type === 'extendStop' && r.xid >= m.xid));
+    const civ = await extendCiv(world, base, params, {
+      progress: (year, pct) => post({ type: 'extendProgress', id: m.id, xid: m.xid, year, pct }),
+      pause: () => new Promise((r) => setTimeout(r, 0)),
+      stop,
+    });
+    if (!civ) {
+      post({ type: 'extendStopped', id: m.id, xid: m.xid });
+      return;
+    }
+    const ms = performance.now() - t0;
+    const cloned = cloneCiv(civ);
+    keepCiv(m, undefined, cloned);
+    post({ type: 'extended', id: m.id, xid: m.xid, civ, to, ms, tempo: noteOf(m.params, m.sketch), eras: eraWorlds(steps), baseKey: keyOf(m.params, m.terrain, m.sketch) }, civTransferables(civ));
+    queuePatches(m.id, m, steps);
+    queueSnapshot(m.id, { ...m, endYear: to }, world, steps, cloned);
+  } else if (m.type === 'extendStop') {
+    // 只在再推的时候有用(推的那几段之间看排着的消息);这时候没在推,什么也不做
   } else if (m.type === 'upPreview') {
     const t0 = performance.now();
     const run = () => {

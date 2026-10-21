@@ -207,24 +207,65 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
  * 有地形大事的世界、要推的年份不比 civ 晚的,照常从第 0 年整段重推(结果一样,只是不省时间)。
  * params.interventions(不给 = civ 推出来时带着的):可以是 civ 的干预后面接上几条比 civ.endYear 晚才生效的(逐年推演时下的新命令,play.ts),
  * 接着推的结果和带着它们一口气推完一样;不是这样接上的(改了、删了早先的干预)照常整段重推。
- * 返回的是生成出来的名字:用户改过的名字(gen/edits.ts 的 applyNames)不在 Civ 里随推演走,照常在结果上再套一遍
+ * 返回的是生成出来的名字:用户改过的名字(gen/edits.ts 的 applyNames)不在 Civ 里随推演走,照常在结果上再套一遍。
+ * 传进来的 civ 不改(worker 留着它,下次再推还从它接着推)
  */
 export function continueCiv(world: World, civ: Civ, params: Partial<CivParams> = {}, progress: Progress = () => {}): Civ {
+  const run = startContinue(world, civ, params, progress);
+  return run ? run.finish() : generateCiv(world, params, progress);
+}
+
+/** 分段接着推(startContinue):推到哪一刻了、再推一段、推完整理 */
+export interface Continuation {
+  /** 从哪一刻接着推(传进来的 civ.endYear) */
+  readonly from: number;
+  /** 推到哪一刻为止(params.endYear) */
+  readonly to: number;
+  /** 已经推到哪一刻 */
+  readonly year: number;
+  /** 再推到 untilYear(超过 to 的按 to);分几段推和一口气推结果逐字节一样(推演只按事件的时刻走,不看在哪儿停过) */
+  advance(untilYear: number): void;
+  /** 推到 to(还没推到的接着推完),整理成 Civ(起名、配色、人物、道路、信仰);只调一次 */
+  finish(): Civ;
+}
+
+/**
+ * continueCiv 拆成几段推(worker 再推 N 年时用:每段之间报进度、看有没有新的请求要停下)。参数和规矩同 continueCiv;
+ * 接不上(有地形大事、要推的年份不比 civ 晚、改了早先的干预……)= null,照常从第 0 年整段重推(generateCiv)。
+ * 推演那一步拆开推,推完以后的整理照旧一次做完;不改传进来的 civ
+ */
+export function startContinue(world: World, civ: Civ, params: Partial<CivParams> = {}, progress: Progress = () => {}): Continuation | null {
   const p: CivParams = { ...DEFAULT_CIV_PARAMS, ...params };
   const had = civ.interventions ?? [];
   const list = params.interventions === undefined ? had : cleanInterventions(params.interventions);
-  if (!civ.viable || !civ.cultures.length || civ.upheavals?.length || p.upheavals?.length || !(p.endYear > civ.endYear) || !extends_(had, list, civ.endYear))
-    return generateCiv(world, params, progress);
+  if (!civ.viable || !civ.cultures.length || civ.upheavals?.length || p.upheavals?.length || !(p.endYear > civ.endYear) || !extends_(had, list, civ.endYear)) return null;
   const seed = p.civSeed ?? world.params.seed;
   progress('民族推演', 0.85);
   // 起名会写州名(regions.name):换一份州,不改传进来的 civ
   const sim = CivSim.fromCiv(world, { ...civ, regions: { ...civ.regions } }, list);
-  sim.run(p.endYear);
-  const model = cultureModelOf(sim)!;
-  const pm = polityModelOf(sim)!;
-  pm.cultures = model.cultures; // 接着推时两层各复制了一份民族表:起城名、国名要用起好名的那份
-  const fin = { sim, model, pm, world, habitat: civ.habitat, regions: model.terrain.regions };
-  return finishCiv({ fin, p, seed, viable: true, mix: civ.names, frontier: civ.frontier, interventions: list.length ? list : undefined, model, pm, eras: [], facts: [], progress });
+  const to = p.endYear;
+  let done = false;
+  return {
+    from: civ.endYear,
+    to,
+    get year() {
+      return sim.now;
+    },
+    advance(untilYear: number) {
+      if (done) throw new Error('startContinue:已经整理完了');
+      if (untilYear > sim.now) sim.run(Math.min(to, untilYear));
+    },
+    finish() {
+      if (done) throw new Error('startContinue:已经整理完了');
+      if (to > sim.now) sim.run(to);
+      done = true;
+      const model = cultureModelOf(sim)!;
+      const pm = polityModelOf(sim)!;
+      pm.cultures = model.cultures; // 接着推时两层各复制了一份民族表:起城名、国名要用起好名的那份
+      const fin = { sim, model, pm, world, habitat: civ.habitat, regions: model.terrain.regions };
+      return finishCiv({ fin, p, seed, viable: true, mix: civ.names, frontier: civ.frontier, interventions: list.length ? list : undefined, model, pm, eras: [], facts: [], progress });
+    },
+  };
 }
 
 /** 干预列表 next 是 had 后面接上几条、接上的都在 endYear 以后才生效(接着推得出和从第 0 年重推一样的结果) */

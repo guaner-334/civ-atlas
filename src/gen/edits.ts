@@ -177,9 +177,12 @@
  *
  * ## 推演年数
  *
- * WorldEdits.endYear(可选,没有 = END_YEAR_DEFAULT 即 3000 年):历史推到第几年,END_YEAR_DEFAULT–END_YEAR_MAX、整千年。
+ * WorldEdits.endYear(可选,没有 = END_YEAR_DEFAULT 即 3000 年):历史推到第几年,END_YEAR_DEFAULT–END_YEAR_MAX 的整数年。
  * 推得更久的世界照样从第 0 年推起,前 3000 年和推 3000 年的世界几乎一样;扩张节拍、民族诞生、大宗教创立都按前 3000 年排,
- * 之后只是各国接着兴亡更替。新建世界时定,创建以后不再改(和地名风格一样)。3000 年的不写。
+ * 之后只是各国接着兴亡更替。新建世界时选(一格 END_YEAR_STEP 即整千年),当作第一次推到哪;推完以后可以再推 N 年
+ * (worker 的 extend,gen/civ/index.ts 的 continueCiv:前面的历史一点不变,只往后长),所以年数不限整千年,到 END_YEAR_MAX 为止。
+ * 推到第 T 年再推到第 T' 年,和一次推到第 T' 年结果一样:存档只记推到哪一年,读档照它推(或读原件)得出同一个世界。
+ * 3000 年的不写。以前只有整千年(存档、链接里写的都是整千年),照旧读出同一个数。
  *
  * ## 地名风格
  *
@@ -192,7 +195,7 @@
  *
  * WorldEdits.frontier(可选,没有 = 默认):民族扩散、国家扩张快慢,各种地形难走的程度(字段、档位、清理见 civ/frontier.ts)。
  * WorldEdits.origins(可选,没有 = 自动):自己选的文明起源,第一批民族从这几处出发、第 0 年出现(世界坐标的点,同地形修改;见 civ/frontier.ts)。
- * 两样都改变历史:新建世界时定,创建以后不再改(和推演年数一样);新建界面里先按默认推(只看星球),创建以后才按它们推。
+ * 两样都改变历史:新建世界时定,创建以后不再改;新建界面里先按默认推(只看星球),创建以后才按它们推。
  * 默认的不写,不写时推演和没有这两项逐字节一样。
  *
  * ## 文明种子
@@ -453,16 +456,26 @@ export interface PlayState {
   commands: Intervention[];
 }
 
-/** 推演年数:默认、最多、一格(见文件头"推演年数") */
+/** 推演年数:默认、最多、新建世界时选年数的一格(见文件头"推演年数";推完以后再推的年数不限整千年) */
 export const END_YEAR_DEFAULT = 3000;
 export const END_YEAR_MAX = 60000;
 export const END_YEAR_STEP = 1000;
 
-/** 推演年数清理:不是数字 = undefined;夹在 END_YEAR_DEFAULT–END_YEAR_MAX,取整到 END_YEAR_STEP;等于默认 = undefined(不写) */
+/** 推演年数清理:不是数字 = undefined;取整到年,夹在 END_YEAR_DEFAULT–END_YEAR_MAX;等于默认 = undefined(不写) */
 export function cleanEndYear(v: unknown): number | undefined {
   if (typeof v !== 'number' || !Number.isFinite(v)) return undefined;
-  const y = Math.min(END_YEAR_MAX, Math.max(END_YEAR_DEFAULT, Math.round(v / END_YEAR_STEP) * END_YEAR_STEP));
+  const y = Math.min(END_YEAR_MAX, Math.max(END_YEAR_DEFAULT, Math.round(v)));
   return y === END_YEAR_DEFAULT ? undefined : y;
+}
+
+/**
+ * 推到第 endYear 年的世界再推 years 年,推到第几年:years 取整、至少 1 年,到 END_YEAR_MAX 为止
+ * (已经推到 END_YEAR_MAX 的 = END_YEAR_MAX,推不动了)。years 不是有限数 = 不再推(返回 endYear 本身,清理过)
+ */
+export function extendedEndYear(endYear: number, years: number): number {
+  const from = cleanEndYear(endYear) ?? END_YEAR_DEFAULT;
+  if (!Number.isFinite(years)) return from;
+  return Math.min(END_YEAR_MAX, from + Math.max(1, Math.round(years)));
 }
 
 /** 文明种子清理:整数(和地图种子同一范围)才认,别的 = undefined(按地图种子推) */
