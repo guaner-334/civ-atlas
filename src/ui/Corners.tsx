@@ -4,9 +4,10 @@
  *   右上 MapBar       填色分段按钮(不填 / 国家 / 民族 / 信仰)+ 底图按钮(小图 + 底图名,点开图层面板)、导出、编年史、助手;
  *                     写史书时最前面是写作进度。新建世界这一步不显示(新建界面有自己的样式列表)
  *                     「助手」开关右边的助手面板(Assistant.tsx),开着时按钮是按下去的样子
- *   右下 MapControls  「标记」(点了在地图上放作者标记)、"地球 / 平面"切换、放大、缩小(触屏不放 + −,窄屏整个不放)
+ *   右下 MapControls  「导播」(时间轴播放时镜头跟着大事走,见 Director.tsx)、「标记」(点了在地图上放作者标记)、"地球 / 平面"切换、
+ *                     放大、缩小(触屏不放 + −,窄屏整个不放)
  *   窄屏(手机):
- *   右上 PhoneButtons 竖排的毛玻璃按钮:图层与投影(弹层从底部升起)、放标记、地球 / 平面、助手;写史书时进度条在它们左边。
+ *   右上 PhoneButtons 竖排的毛玻璃按钮:图层与投影(弹层从底部升起)、放标记、地球 / 平面、导播(摄像机)、助手;写史书时进度条在它们左边。
  *                     世界名、搜索、存档、成书都在底部的世界卡片里(PhoneSheet.tsx)
  *   底部 FirstHint    第一次打开时的一行操作提示,第一次拖动 / 缩放 / 点击之后不再出现(触屏换成"双指缩放"的说法)
  *   跟随鼠标 HoverCard 悬停小卡片(内容见 hoverInfo.ts)
@@ -25,6 +26,7 @@ import { openOverview } from './overviewStore';
 import { FILLS, FILL_KEYS, type MapLayer } from './mapLayers';
 import { toggleAssistant, useAstOpen } from './astPanel';
 import { togglePlacing } from './markStore';
+import { directorButton, useDirector } from './directorStore';
 import { useAiOn } from '../ai/client';
 import { BETA_SITE, OLD_SITE, OLD_UNTIL, latestUrl } from './oldSite';
 import './book.css';
@@ -120,12 +122,15 @@ export function PhoneButtons({
   globeOn,
   onToggleGlobe,
   marking,
+  director,
 }: {
   layers: LayerPopoverProps;
   globeOn: boolean;
   onToggleGlobe: () => void;
   /** 「标记」按钮:正在放标记 = true;不放这个按钮(还没有历史、新建时)= undefined */
   marking?: boolean;
+  /** 放不放「导播」按钮(有历史、没在导出视频时) */
+  director?: boolean;
 }) {
   const stop = (e: { stopPropagation(): void }) => e.stopPropagation();
   const astOpen = useAstOpen();
@@ -158,6 +163,7 @@ export function PhoneButtons({
         >
           <Icon name={globeOn ? 'map' : 'globe'} size={19} />
         </button>
+        {director && <DirectorButton phone disabled={layers.disabled} />}
         {aiOn && (
           <button
             className={`pb-btn${astOpen ? ' on' : ''}`}
@@ -184,6 +190,7 @@ export function MapControls({
   hidden,
   zoom = true,
   marking,
+  director,
 }: {
   globeOn: boolean;
   onToggleGlobe: () => void;
@@ -194,11 +201,14 @@ export function MapControls({
   zoom?: boolean;
   /** 「标记」按钮:正在放标记 = true;不放这个按钮(还没有历史)= undefined */
   marking?: boolean;
+  /** 放不放「导播」按钮(有历史、没在导出视频时) */
+  director?: boolean;
 }) {
   if (hidden) return null;
   const stop = (e: { stopPropagation(): void }) => e.stopPropagation();
   return (
     <div className={`map-controls${shifted ? ' shifted' : ''}`} onPointerDown={stop} onDoubleClick={stop}>
+      {director && <DirectorButton />}
       {marking !== undefined && (
         <button className={`glass mc-btn mc-globe mc-mark${marking ? ' on' : ''}`} data-act="mark" aria-pressed={marking} onClick={togglePlacing} title="在地图上放一个标记(Esc 取消)">
           <Icon name="pin" size={18} />
@@ -220,6 +230,36 @@ export function MapControls({
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * 「导播」:关着 = 打开(时间轴没在放就放起来);开着(蓝底)= 关掉;拖开了地图、导播停着等你(空心)= 回到导播。
+ * 手机上是右上那一列里的摄像机
+ */
+function DirectorButton({ phone, disabled }: { phone?: boolean; disabled?: boolean }) {
+  const d = useDirector();
+  const state = !d.on ? 'off' : d.held ? 'held' : 'on';
+  const tip = state === 'off' ? '导播：时间往前走时，镜头自己移到出事的地方' : state === 'held' ? '回到导播' : '关掉导播';
+  if (phone)
+    return (
+      <button
+        className={`pb-btn${state === 'on' ? ' dr-on' : state === 'held' ? ' dr-held' : ''}`}
+        data-act="director"
+        aria-pressed={d.on}
+        disabled={disabled}
+        onClick={directorButton}
+        aria-label={tip}
+        title={tip}
+      >
+        <Icon name="camera" size={21} />
+      </button>
+    );
+  return (
+    <button className={`glass mc-btn mc-globe mc-dir${state === 'off' ? '' : ` ${state}`}`} data-act="director" aria-pressed={d.on} onClick={directorButton} title={tip}>
+      <Icon name="camera" size={18} />
+      <span>导播</span>
+    </button>
   );
 }
 

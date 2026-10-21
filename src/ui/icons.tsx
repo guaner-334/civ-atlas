@@ -262,6 +262,21 @@ const PATHS = {
     </>
   ),
   warn: <path d="M12 3.5l9.5 16.5h-19zM12 10v4.5M12 17.2v.3" />,
+  camera: (
+    <>
+      <rect x="3" y="7" width="12.5" height="10" rx="2" />
+      <path d="M15.5 10.5 21 7.5v9l-5.5-3" />
+    </>
+  ),
+  gear: (
+    <>
+      <circle cx="12" cy="12" r="3" />
+      <path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7" />
+    </>
+  ),
+  list: <path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01" />,
+  play: <path d="M8 5.5l10 6.5-10 6.5z" />,
+  up: <path d="M6 15l6-6 6 6" />,
 } satisfies Record<string, ReactNode>;
 
 export type IconName = keyof typeof PATHS;
