@@ -195,7 +195,7 @@ function renderLayerSteps(ctx: CanvasRenderingContext2D, world: World, r: Raster
   const rows = Math.max(1, Math.floor(LAYER_BAND_PX / w));
   return [
     () => {
-      shade = hillshade(r, 0.01, 0.2);
+      shade = layerShade(r);
       img = ctx.createImageData(w, h);
     },
     () => {
@@ -224,16 +224,26 @@ function renderLayerSteps(ctx: CanvasRenderingContext2D, world: World, r: Raster
   ];
 }
 
+/** 数据图层共用的晕渲(各图层一样;每张主图算一次,涂一笔以后几个图层接连画不用各算一遍) */
+const shadeCache = new WeakMap<Raster, Float32Array>();
+function layerShade(r: Raster): Float32Array {
+  let s = shadeCache.get(r);
+  if (!s) shadeCache.set(r, (s = hillshade(r, 0.01, 0.2)));
+  return s;
+}
+
 /** 像素 k0 .. k1 − 1 上色,写进 d(RGBA) */
 function layerPixels(world: World, r: Raster, layer: LayerId, shade: Float32Array, sst: Float32Array | null, cls: Uint8Array | null, d: Uint8ClampedArray, k0: number, k1: number): void {
   const { elev, water, temp, precip, biome, cell } = r;
   const { plate, plateContinental } = world.tect;
+  /** 各板块的颜色(每个板块算一次) */
+  const plateRGB: RGB[] = [];
   for (let k = k0; k < k1; k++) {
     let c: RGB;
     switch (layer) {
       case 'plates': {
         const p = plate[cell[k]];
-        c = plateColor(p);
+        c = plateRGB[p] ??= plateColor(p);
         if (!plateContinental[p]) c = mix(c, [40, 60, 90], 0.45);
         if (water[k] !== 0) c = mix(c, [20, 40, 70], 0.2);
         break;

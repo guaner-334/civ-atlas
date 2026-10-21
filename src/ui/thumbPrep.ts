@@ -72,12 +72,13 @@ interface Job {
   done: (() => void)[];
 }
 let queue: Job[] = [];
-let timer: ReturnType<typeof setTimeout> | undefined;
+/** 已经排了下一段 */
+let posted = false;
 /** 备的时候出过错的(这一张就照原来的办法当场整张画) */
 const failed = new WeakMap<Raster, Set<string>>();
 
-/** 一段做多少毫秒就让出主线程 */
-const SLICE = 10;
+/** 一段做多少毫秒就让出主线程(一帧的一部分:拖地图、点按钮照样跟手) */
+const SLICE = 12;
 
 /**
  * 画风键 key、这张主图的整张底图能不能当场取(缓存里已经有了、备好了,或者备的时候出了错只能当场画):能 = true;
@@ -111,11 +112,31 @@ export function thumbPrepPending(): boolean {
 }
 
 function schedule(): void {
-  if (timer === undefined && queue.length) timer = setTimeout(run, 0);
+  if (!posted && queue.length) {
+    posted = true;
+    post(run);
+  }
 }
 
+/** 让出主线程,下一个任务接着做(MessageChannel:不像 setTimeout 那样连着几次以后最少隔 4 毫秒;同 ui/terrainPatch.ts) */
+const post: (f: () => void) => void = (() => {
+  if (typeof MessageChannel === 'undefined') return (f) => void setTimeout(f, 0);
+  const ch = new MessageChannel();
+  let next: (() => void) | null = null;
+  ch.port1.onmessage = () => {
+    const f = next;
+    next = null;
+    f?.();
+  };
+  (ch.port1 as unknown as { unref?: () => void }).unref?.();
+  return (f) => {
+    next = f;
+    ch.port2.postMessage(null);
+  };
+})();
+
 function run(): void {
-  timer = undefined;
+  posted = false;
   const deadline = performance.now() + SLICE;
   while (queue.length && performance.now() < deadline) {
     const job = queue[0];

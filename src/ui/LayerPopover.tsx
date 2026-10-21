@@ -115,7 +115,7 @@ export function useLayerThumbs(src: ThumbSource, current: ThumbId) {
     return url;
   };
 
-  const pump = useCallback(() => {
+  const pump = useCallback((delay = 30) => {
     if (timer.current !== undefined) return;
     const step = () => {
       timer.current = undefined;
@@ -130,7 +130,7 @@ export function useLayerThumbs(src: ThumbSource, current: ThumbId) {
       noteThumbs(data, true);
       if (data && !have.current[id]) {
         // 整张底图缓存里还没有:先在后台分小步备好(ui/thumbPrep.ts),备好了再来;换了世界就不等了(队列也重新排过)
-        const ready = baseReady(thumbKey(id), data.world, data.raster, { alive: () => srcRef.current.data === data, done: pump });
+        const ready = baseReady(thumbKey(id), data.world, data.raster, { alive: () => srcRef.current.data === data, done: () => pump(0) });
         if (!ready) return;
         const url = make(id);
         if (url) {
@@ -140,10 +140,10 @@ export function useLayerThumbs(src: ThumbSource, current: ThumbId) {
         dropThumbPrep();
       }
       if (queue.current[0] === id) queue.current.shift();
-      if (queue.current.length) timer.current = setTimeout(step, 30);
+      if (queue.current.length) timer.current = setTimeout(step, 0);
       else noteThumbs(data, false);
     };
-    timer.current = setTimeout(step, 30);
+    timer.current = setTimeout(step, delay);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
