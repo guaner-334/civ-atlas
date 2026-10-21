@@ -5,6 +5,8 @@
  * - 一步一年、一步五年:和带着同样的干预从第 0 年一口气推完逐字段相等
  * - 走到一半存档、读回(进度、从第几年起、推进设置原样回来),按存档重新推出那一刻、接着走:最后照样相等
  * - 存回推演模式:打开(从第 0 年推到第 1500 年)和逐年推演到"现在"一样;接着再推 100 年和一口气推到第 1600 年一样
+ * 用 RUN_CELLS 个地块的小一点的世界(推演规则一样;一步的耗时大头是推完以后按整段历史的整理,世界小一半多就快一半多)。
+ * 默认大小的世界:stepwise.test.ts 里从第 2800 年一步五年推到第 3000 年、civ-play.test.ts 里每 25 年一步推到第 1500 年。
  */
 import { describe, expect, it } from 'vitest';
 import { generateWorld, DEFAULT_PARAMS, type World } from '../../src/gen/world';
@@ -16,10 +18,15 @@ import { makeSave, parseSave, saveText } from '../../src/gen/savefile';
 import { interventionFate, laterInterventions, startStepwise, stepwiseToNormal } from '../../src/gen/stepwise';
 import { nextStep } from '../../src/ui/stepwisePlan';
 
-const worlds = new Map<number, World>();
-export const worldOf = (seed: number) => {
-  let w = worlds.get(seed);
-  if (!w) worlds.set(seed, (w = generateWorld({ ...DEFAULT_PARAMS, seed })));
+/** 长跑用的世界有几个地块 */
+export const RUN_CELLS = 12000;
+
+const worlds = new Map<string, World>();
+/** 种子 seed、cells 个地块(不给 = 默认大小)的世界,同一个只生成一次 */
+export const worldOf = (seed: number, cells = DEFAULT_PARAMS.cells) => {
+  const key = `${seed}/${cells}`;
+  let w = worlds.get(key);
+  if (!w) worlds.set(key, (w = generateWorld({ ...DEFAULT_PARAMS, seed, cells })));
   return w;
 };
 
@@ -151,12 +158,12 @@ function walk(w: World, edits: WorldEdits, to: number, saveAt: number) {
 }
 
 export function stepwiseRun(seed: number) {
-  describe(`逐年推演长跑(seed ${seed})`, () => {
+  describe(`逐年推演长跑(seed ${seed},${RUN_CELLS} 个地块)`, () => {
     // 推演模式的世界:作者在第 700、1000、1300 年下过干预(挑那几年还在的国家;第一次用到时才推)
     let made: { w: World; author: Intervention[]; world: WorldEdits } | null = null;
     const setup = () => {
       if (made) return made;
-      const w = worldOf(seed);
+      const w = worldOf(seed, RUN_CELLS);
       const author = authorPlan(generateCiv(w, { endYear: 1500 }), [700, 1000, 1300]);
       return (made = { w, author, world: { names: {}, interventions: author, terrain: [], endYear: 3000 } });
     };
