@@ -333,7 +333,7 @@ import { FilmStage } from './FilmStage';
 import { LongPanel } from './LongPanel';
 import { LongStage } from './LongStage';
 import { noteGenSpeed } from './genSpeed';
-import { holdMark } from './holdMark';
+import { cancelTimeout, holdMark } from './holdMark';
 import { getNewView } from './newViewStore';
 import { rememberLast } from './presetStore';
 import { diagBeat, recordWorkerError, setDiagContext } from '../diag/watch';
@@ -2182,7 +2182,7 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
       if (next !== location.search) navUrl(next);
       viewChanged();
     }, 450);
-    return () => clearTimeout(t);
+    return cancelTimeout(t);
   }, [projection, mapCenter, graticule, contourKind]);
   /** 现在这张图(或正在生成的)就是这组参数 + 草图 + 地形修改 */
   const sameGen = (p: WorldParams, terrain: readonly TerrainOp[], sketch: SketchEdit | undefined) =>
@@ -2637,8 +2637,11 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
     const cw = currentWorld();
     if (cw) navTitle(cw.id, cw.title || undefined);
   }, [v]);
-  /** 新建卡片左上的返回:底稿那个世界 / 我的世界;第一次来(没有别的世界)不显示 */
-  const draftBack = useMemo(() => {
+  /**
+   * 新建卡片左上的返回:底稿那个世界 / 我的世界;第一次来(没有别的世界)不显示。
+   * 每次渲染现做(不 useMemo):记下来的回调会连带拉住记下那一刻的世界,编辑地形涂了几笔以后旧的主图还放不掉
+   */
+  const draftBack = (() => {
     if (!draft) return null;
     if (stageBase) {
       return {
@@ -2665,8 +2668,7 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
         goHome();
       },
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft, stageBase, v]);
+  })();
   // ---- 浏览器的后退、前进(nav.ts):换到记着的那一步 ----
   /** 离开时还没存着的世界(只是看看的、别人分享的):退回来时照原样打开(只记在这一页里,刷新就没了) */
   const navTargets = useRef(new Map<string, Target>());

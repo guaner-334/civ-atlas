@@ -535,7 +535,23 @@ interface BandScratch {
   stamp: Int32Array;
   s: number;
 }
+/**
+ * 草稿数组按大小留一份(整图那么大时三个加起来 20 MB):连着画(播放、拖时间轴)时接着用,不每次新开。
+ * 闲了 BAND_IDLE_MS 没再用就放掉,下次用时再开一份(新开的 stamp 全是 0,只读本次打过记号的格子,和接着用的结果一样)
+ */
 const bandScratch = new Map<number, BandScratch>();
+const BAND_IDLE_MS = 5000;
+let bandIdle: ReturnType<typeof setTimeout> | undefined;
+
+function bandScratchOf(N: number): BandScratch {
+  clearTimeout(bandIdle);
+  bandIdle = setTimeout(() => bandScratch.clear(), BAND_IDLE_MS);
+  // Node(单测、压力测试)里不让这个计时器拖住进程
+  (bandIdle as unknown as { unref?: () => void }).unref?.();
+  let sc = bandScratch.get(N);
+  if (!sc) bandScratch.set(N, (sc = { best: new Float32Array(N), lab: new Int16Array(N), stamp: new Int32Array(N), s: 0 }));
+  return sc;
+}
 
 /** 按原样保留(线的断头外面) */
 const KEEP = -32768;
@@ -560,8 +576,7 @@ export function bandLabels(
   weak: Uint8Array | null = null,
 ): void {
   const N = W * H;
-  let sc = bandScratch.get(N);
-  if (!sc) bandScratch.set(N, (sc = { best: new Float32Array(N), lab: new Int16Array(N), stamp: new Int32Array(N), s: 0 }));
+  const sc = bandScratchOf(N);
   const st = ++sc.s;
   const { best, lab, stamp } = sc;
   const off = (f >> 1) + 0.5;

@@ -49,9 +49,20 @@ import { baseReady, dropThumbPrep } from './thumbPrep';
 const TW = 192;
 const TH = 96;
 
-/** 调试字段(检查脚本量缩略图多久换好用):data = 最近在做 / 做完的是哪个世界的,busy = 还有没做完的 */
-function noteThumbs(data: unknown, busy: boolean): void {
-  (window as unknown as { __wfThumbs: unknown }).__wfThumbs = { data, busy };
+/**
+ * 调试字段(检查脚本量缩略图多久换好用):data = 最近在做 / 做完的是哪个世界的,busy = 还有没做完的。
+ * 世界只弱引用着(读的时候取):调试字段不拉住已经换掉的世界
+ */
+function noteThumbs(data: object | null, busy: boolean): void {
+  (window as unknown as { __wfThumbs: unknown }).__wfThumbs = thumbsNote(data && typeof WeakRef !== 'undefined' ? new WeakRef(data) : data, busy);
+}
+function thumbsNote(d: WeakRef<object> | object | null, busy: boolean) {
+  return {
+    get data() {
+      return typeof WeakRef !== 'undefined' && d instanceof WeakRef ? (d.deref() ?? null) : d;
+    },
+    busy,
+  };
 }
 
 /** 画风键:手绘 / 写实 / data:某数据图层(和 App 的底图缓存同一套键) */

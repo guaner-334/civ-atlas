@@ -1717,10 +1717,12 @@ export function Studio(p: StudioProps) {
       <i aria-hidden="true" />
     </button>
   );
+  // 属性一直不变的容器(卡片、侧栏、最外层):世界、历史换了就换个记号,免得它记着的旧 props 拉住旧世界(见 holdMark.ts)
+  const hold = holdMark(p.data, p.baseWorld, p.civ, p.raw);
   let left: React.ReactNode;
   if (p.phone && image) {
     left = (
-      <section ref={sheetRef} className="st-sheet nw-sheet nw-card sk-sheet" aria-label={heading} onPointerDown={stop} onClick={stop} onWheel={stop}>
+      <section ref={sheetRef} className="st-sheet nw-sheet nw-card sk-sheet" data-hold={hold} aria-label={heading} onPointerDown={stop} onClick={stop} onWheel={stop}>
         {grip}
         {!pageShown && (
           <div className="sk-phd">
@@ -1744,6 +1746,7 @@ export function Studio(p: StudioProps) {
       <section
         ref={sheetRef}
         className={`st-sheet nw-sheet nw-card${peek && !step2 ? ' peek' : ''}${civPeek ? ' civ-peek' : ''}${tool.on ? ' tools' : ''}`}
+        data-hold={hold}
         aria-label={heading}
         onPointerDown={stop}
         onClick={stop}
@@ -1771,7 +1774,7 @@ export function Studio(p: StudioProps) {
     );
   } else {
     left = (
-      <aside className="st-left nw-card" aria-label={heading} onPointerDown={stop} onDoubleClick={stop} onClick={stop}>
+      <aside className="st-left nw-card" data-hold={hold} aria-label={heading} onPointerDown={stop} onDoubleClick={stop} onClick={stop}>
         <div className={`st-in nw-body${pageShown ? ' nm-page' : image ? ' sk-in' : ''}${ogShown ? ' og-page' : ''}`}>
           {mixPage || (
             <>
@@ -1987,7 +1990,7 @@ export function Studio(p: StudioProps) {
     .filter(Boolean)
     .join(' ');
   return (
-    <div ref={rootRef} className={cls} data-theme="dark" style={p.phone ? ({ '--sheet-h': `${sheetH}px` } as React.CSSProperties) : undefined}>
+    <div ref={rootRef} className={cls} data-theme="dark" data-hold={hold} style={p.phone ? ({ '--sheet-h': `${sheetH}px` } as React.CSSProperties) : undefined}>
       <div ref={glowRef} className="st-glow" aria-hidden="true" />
       <canvas ref={glRef} className="st-gl" aria-label="这颗星球" />
       <canvas ref={labRef} className={`st-labels${labOn && !tool.on && !out && glOk ? ' on' : ''}`} aria-hidden="true" />
