@@ -352,13 +352,15 @@ async function scenario(name: string, query: string, body: (rig: Rig, mark: (lab
   if (ONLY && !ONLY.includes(name)) return;
   const t0 = Date.now();
   let rig: Rig | null = null;
+  // 取样停下的开关(场景中途出错也要停:finally 里关)
+  let stop = false;
+  let loop: Promise<void> | null = null;
   try {
     rig = await openRig(`${base}/?${query}`);
     const r = rig;
     // 操作期间每 300 ms 取一次(每三次带上进程内存),记各项峰值
     const peak: Partial<Keys> = {};
-    let stop = false;
-    const loop = (async () => {
+    loop = (async () => {
       for (let n = 0; !stop; n++) {
         const t = Date.now();
         try {
@@ -387,6 +389,8 @@ async function scenario(name: string, query: string, body: (rig: Rig, mark: (lab
     console.log(`${name} 出错:${msg}`);
     rows.push({ name, peak: {}, rest: {}, marks: [], note: `出错:${msg}` });
   } finally {
+    stop = true;
+    await loop;
     await rig?.close().catch(() => {});
   }
 }
