@@ -1,9 +1,11 @@
 /**
  * 打开网页时先出首页、主程序在后台下载(src/ui/Boot.tsx):什么时候算"只是打开首页"(src/ui/homeStart.ts 的 plainHome)。
  * 只有网址后面没有别的事、这一步也不是浏览器记着的某个世界时才先出首页;别的一律直接交给主程序按网址打开。
- * index.html 里最先跑的那一段(bootScript)是同一个判断:首页第一次来先下星球的图,不是首页时主程序和页面代码一起下。
+ * index.html 里最先跑的那一段(bootScript)是同一个判断:不是首页时主程序和页面代码一起下。
+ * 首页上主程序等首页要的图下好了再下(src/ui/homeLoad.ts)。
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { afterHomeLoad, holdHomeLoad } from '../src/ui/homeLoad';
 import { bootScript, plainHome } from '../src/ui/homeStart';
 
 const at = (search: string, hash = '') => ({ search, hash });
@@ -38,51 +40,65 @@ describe('plainHome', () => {
   });
 });
 
-/** 在假的页面里跑一遍 bootScript:返回它要了什么(星球的图、提前下载的主程序) */
-function runBoot(o: { path?: string; search?: string; hash?: string; state?: unknown; stored?: number }, appUrl: string | null = './assets/App-x.js') {
+/** 在假的页面里跑一遍 bootScript:返回它提前要了什么 */
+function runBoot(o: { search?: string; hash?: string; state?: unknown }) {
   const got: string[] = [];
   const link: Record<string, string> = {};
   const env = {
-    location: { pathname: o.path ?? '/', search: o.search ?? '', hash: o.hash ?? '' },
+    location: { pathname: '/', search: o.search ?? '', hash: o.hash ?? '' },
     history: { state: o.state ?? null },
-    localStorage: { length: o.stored ?? 0 },
     URLSearchParams,
-    Image: class {
-      set src(v: string) {
-        got.push(`image ${v}`);
-      }
-    },
     document: {
       createElement: () => link,
       head: { appendChild: () => got.push(`${link.rel} ${link.href}`) },
     },
   };
-  new Function(...Object.keys(env), bootScript(appUrl))(...Object.values(env));
+  new Function(...Object.keys(env), bootScript('./assets/App-x.js'))(...Object.values(env));
   return got;
 }
 
 describe('bootScript', () => {
-  it('第一次来、打开的就是首页:先下星球的图,不提前下主程序', () => {
-    expect(runBoot({})).toEqual(['image home-planet.jpg']);
-    expect(runBoot({ path: '/beta/', search: '?lon=30' })).toEqual(['image home-planet.jpg']);
-  });
-
-  it('存过东西的(多半有世界、星球用不上)、网址少了结尾斜杠的:首页什么都不先下', () => {
-    expect(runBoot({ stored: 3 })).toEqual([]);
-    expect(runBoot({ path: '/beta' })).toEqual([]);
+  it('打开的就是首页:什么都不多下', () => {
+    expect(runBoot({})).toEqual([]);
+    expect(runBoot({ search: '?lon=30' })).toEqual([]);
+    expect(runBoot({ state: nav('home') })).toEqual([]);
   });
 
   it('不是首页:主程序和页面代码一起下(和 plainHome 同一个判断)', () => {
     expect(runBoot({ search: '?seed=7' })).toEqual(['modulepreload ./assets/App-x.js']);
     expect(runBoot({ hash: '#v1abc' })).toEqual(['modulepreload ./assets/App-x.js']);
     expect(runBoot({ state: nav('world', 'wabc') })).toEqual(['modulepreload ./assets/App-x.js']);
-    expect(runBoot({ state: nav('home') })).toEqual(['image home-planet.jpg']);
-    for (const search of ['', '?play=0', '?seed=7', '?w=wabc', '?map=satellite']) {
-      expect(runBoot({ search }).some((x) => x.startsWith('modulepreload')), search).toBe(!plainHome(at(search), null));
+    for (const search of ['', '?play=0', '?ai=mock', '?seed=7', '?w=wabc', '?map=satellite', '?new=1&seed=7']) {
+      expect(runBoot({ search }).length > 0, search).toBe(!plainHome(at(search), null));
     }
   });
+});
 
-  it('开发时没有打包好的主程序:不提前下', () => {
-    expect(runBoot({ search: '?seed=7' }, null)).toEqual([]);
+describe('afterHomeLoad', () => {
+  it('首页的图下好了才做;没有在下的下一轮马上做;最多等 maxMs', () => {
+    vi.useFakeTimers();
+    try {
+      const done: string[] = [];
+      afterHomeLoad(() => done.push('马上'), 10_000);
+      vi.advanceTimersByTime(0);
+      expect(done).toEqual(['马上']);
+
+      const loaded = holdHomeLoad();
+      afterHomeLoad(() => done.push('等图'), 10_000);
+      vi.advanceTimersByTime(5000);
+      expect(done).toEqual(['马上']);
+      loaded();
+      loaded();
+      expect(done).toEqual(['马上', '等图']);
+
+      const stuck = holdHomeLoad();
+      afterHomeLoad(() => done.push('等太久'), 10_000);
+      vi.advanceTimersByTime(10_000);
+      expect(done).toEqual(['马上', '等图', '等太久']);
+      stuck();
+      expect(done).toHaveLength(3);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

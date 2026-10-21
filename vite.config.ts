@@ -97,15 +97,16 @@ export default defineConfig({
       },
     },
     precompress(),
-    // 页面里最先跑的一小段(src/ui/homeStart.ts 的 bootScript):第一次来先下首页那颗星球的图;
-    // 打开的不是首页时,主程序(App)和页面的代码同时开始下载
+    // 页面里最先跑的一小段(src/ui/homeStart.ts 的 bootScript):打开的不是首页时,主程序(App)和页面的代码同时开始下载
     {
       name: 'boot-script',
+      apply: 'build',
       transformIndexHtml: {
         order: 'post',
         handler(_html, ctx) {
           const app = Object.values(ctx.bundle ?? {}).find((c) => c.type === 'chunk' && c.isDynamicEntry && c.name === 'App');
-          return [{ tag: 'script', children: bootScript(app ? `./${app.fileName}` : null), injectTo: 'head' }];
+          if (!app) throw new Error('构建结果里没找到主程序(App)那一份,src/ui/Boot.tsx 的写法可能改过');
+          return [{ tag: 'script', children: bootScript(`./${app.fileName}`), injectTo: 'head' }];
         },
       },
     },

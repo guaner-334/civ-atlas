@@ -46,12 +46,11 @@ export function plainHome(loc: { search: string; hash: string } = location, stat
 }
 
 /**
- * index.html 里最先跑的一小段(构建时写进去,见 vite.config.ts),不等页面的代码下完:
- * - 打开的就是首页(和 plainHome 同一个判断)、第一次来(这个网站还没在浏览器里存过东西):首页正中那颗星球的图(studio/HomeGlobe.tsx)现在就开始下载
- * - 不是首页(打开某个世界、分享链接、新建……):主程序(appUrl)和页面的代码同时开始下载,不用等页面的代码跑起来再去要
- * appUrl = 主程序打包以后的地址(开发时没有)
+ * index.html 里最先跑的一小段(构建时写进去,见 vite.config.ts):打开的不是首页(打开某个世界、分享链接、新建……;
+ * 和 plainHome 同一个判断)时,主程序(appUrl = 打包以后的地址)和页面的代码同时开始下载,不用等页面的代码跑起来再去要。
+ * 首页什么都不多下:线路慢的时候,同时多下一样,首页就晚出来一点(主程序等首页要的下好了再下,见 Boot.tsx)
  */
-export function bootScript(appUrl: string | null): string {
+export function bootScript(appUrl: string): string {
   return `(function () {
   try {
     var home = !location.hash.replace(/^#/, '');
@@ -60,18 +59,11 @@ export function bootScript(appUrl: string | null): string {
     });
     var s = history.state;
     if (s && typeof s === 'object' && s.wf === 1 && s.page !== 'home') home = false;
-    if (home) {
-      if (/\\/$/.test(location.pathname) && !localStorage.length) new Image().src = 'home-planet.jpg';
-      return;
-    }${
-      appUrl
-        ? `
+    if (home) return;
     var l = document.createElement('link');
     l.rel = 'modulepreload';
     l.href = ${JSON.stringify(appUrl)};
-    document.head.appendChild(l);`
-        : ''
-    }
+    document.head.appendChild(l);
   } catch (e) {}
 })();`;
 }
