@@ -383,13 +383,19 @@
   color: var(--ink-2);
 }
 
-/* ---- 设置:宽屏是字幕条右上的弹层 ---- */
+/* ---- 设置:宽屏是字幕条右上的弹层(开着时整个底部一行压在右上的略过列表上面;窗口矮时弹层里能滚) ---- */
+.bottom-row:has(.dr-set) {
+  z-index: 5;
+}
 .dr-set {
   position: absolute;
   right: 0;
   bottom: calc(100% + 8px);
   width: 370px;
   max-width: calc(100vw - 28px);
+  max-height: calc(100vh - 210px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding-bottom: 6px;
   background: var(--panel);
   -webkit-backdrop-filter: var(--glass-blur);
