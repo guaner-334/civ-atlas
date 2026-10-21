@@ -535,7 +535,21 @@ interface BandScratch {
   stamp: Int32Array;
   s: number;
 }
-const bandScratch = new Map<number, BandScratch>();
+/**
+ * 草稿数组按大小留一份(整图那么大时三个加起来 20 MB):连着画(播放、拖时间轴)时接着用,不每次新开。
+ * 只弱引用着:闲下来浏览器回收内存时照样收走,下次用时再开一份(新开的 stamp 全是 0,和接着用的结果一样)
+ */
+const bandScratch = new Map<number, BandScratch | WeakRef<BandScratch>>();
+const canWeak = typeof WeakRef !== 'undefined';
+
+function bandScratchOf(N: number): BandScratch {
+  const hit = bandScratch.get(N);
+  const sc = canWeak && hit instanceof WeakRef ? hit.deref() : (hit as BandScratch | undefined);
+  if (sc) return sc;
+  const fresh: BandScratch = { best: new Float32Array(N), lab: new Int16Array(N), stamp: new Int32Array(N), s: 0 };
+  bandScratch.set(N, canWeak ? new WeakRef(fresh) : fresh);
+  return fresh;
+}
 
 /** 按原样保留(线的断头外面) */
 const KEEP = -32768;
@@ -560,8 +574,7 @@ export function bandLabels(
   weak: Uint8Array | null = null,
 ): void {
   const N = W * H;
-  let sc = bandScratch.get(N);
-  if (!sc) bandScratch.set(N, (sc = { best: new Float32Array(N), lab: new Int16Array(N), stamp: new Int32Array(N), s: 0 }));
+  const sc = bandScratchOf(N);
   const st = ++sc.s;
   const { best, lab, stamp } = sc;
   const off = (f >> 1) + 0.5;

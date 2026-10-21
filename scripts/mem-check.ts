@@ -7,6 +7,7 @@
  *
  * 场景:new36k / new200k 新建世界(3.6 万 / 20 万地块);edit20 编辑地形连涂 20 笔;open 打开一个世界;play 播放时间轴 45 秒;
  * director 导播 45 秒;globe 地球仪开关 3 次(每次转几下);export 导出地图图片 1 倍、2 倍;switch5 回我的世界新建并创建,连换 5 个世界;
+ * stepui 逐年推演的界面:世界卡片里「从这里演绎」,照默认设置往下走 60 秒(停下来就点「接着演绎」);
  * stepwise50 逐年推演走 50 步(一步 20 年;只量后台线程这一头:在空白首页里另开一个生成线程,按逐年推演的请求一步步走)。
  *
  * 每个场景一个新浏览器。量的几样(MB):
@@ -530,6 +531,33 @@ await scenario('switch5', 'seed=7&play=0', async (rig, mark) => {
     await sleep(5000);
     await mark(`第 ${i} 个世界`);
   }
+});
+
+await scenario('stepui', 'seed=7&play=0', async (rig, mark) => {
+  const p = rig.page;
+  await civReady(rig);
+  await sleep(5000);
+  await mark('演绎前');
+  // 世界卡片里「从这里演绎」→「开始演绎」,停下来就点「接着演绎」
+  if (!(await p.locator('[data-act=step-from]').isVisible().catch(() => false))) {
+    await p.tap('[data-act=world-sheet]');
+    await sleep(800);
+  }
+  await p.locator('[data-act=step-from]').first().tap();
+  await p.locator('[data-act=step-start]').first().tap();
+  const t0 = Date.now();
+  for (let i = 1; i <= 3; i++) {
+    while (Date.now() - t0 < i * 20000) {
+      const go = p.locator('[data-act=step-go]:visible').first();
+      if (await go.count()) await go.tap().catch(() => {});
+      await sleep(1000);
+    }
+    await mark(`演绎 ${i * 20} s`);
+  }
+  const s = await p.evaluate(() => (window as any).__wfStep?.());
+  await p.locator('[data-act=step-hold]:visible').first().tap().catch(() => {});
+  await sleep(1500);
+  return `演绎到第 ${s?.now ?? '?'} 年(从第 ${s?.start ?? '?'} 年起)`;
 });
 
 await scenario('stepwise50', '', async (rig, mark) => {

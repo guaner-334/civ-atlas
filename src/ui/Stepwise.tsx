@@ -86,6 +86,7 @@ import { entryWeight, evType } from './timelineLayout';
 import { TimelineYear } from './JumpYear';
 import { baseRegions } from './eras';
 import { Icon } from './icons';
+import { holdMark } from './holdMark';
 import type { WorldToClient } from './EventPins';
 import type { Focus } from './flyTo';
 import './timeline.css';
@@ -299,6 +300,32 @@ let genCount = 0;
 /** 最近几步从交出去到换上历史用了几毫秒(检查脚本看) */
 const stepMs: number[] = [];
 
+/**
+ * 检查脚本用的 window.__wfStep:现在推到哪、这一段、停没停、最近几步每秒算几年。
+ * 在模块里建:挂在 window 上一直不换,要是在组件里建,会拉住第一次渲染时的历史
+ */
+function stepDebug(rate: { current: number | null }): void {
+  (window as unknown as { __wfStep: unknown }).__wfStep = () => {
+    const s = getStepwise();
+    return {
+      on: s.on,
+      start: s.start,
+      since: s.since,
+      now: s.now,
+      busy: !!s.busy,
+      due: s.due?.why ?? null,
+      stop: s.stop ? { from: s.stop.from, to: s.stop.to, why: s.stop.why, items: s.stop.items.length } : null,
+      clock: s.clock,
+      look: stepLookYear(),
+      seen: getSeen(),
+      fresh: s.fresh,
+      marks: s.marks,
+      rate: rate.current,
+      stepMs: [...stepMs],
+    };
+  };
+}
+
 export function StepwiseEngine({ world, civ }: { world: World; civ: Civ | null }) {
   const st = useStepwise();
   const edits = useEdits();
@@ -332,27 +359,7 @@ export function StepwiseEngine({ world, civ }: { world: World; civ: Civ | null }
   }, [civ]);
 
   // 检查脚本用:现在推到哪、这一段、停没停、最近几步每秒算几年
-  useEffect(() => {
-    (window as unknown as { __wfStep: unknown }).__wfStep = () => {
-      const s = getStepwise();
-      return {
-        on: s.on,
-        start: s.start,
-        since: s.since,
-        now: s.now,
-        busy: !!s.busy,
-        due: s.due?.why ?? null,
-        stop: s.stop ? { from: s.stop.from, to: s.stop.to, why: s.stop.why, items: s.stop.items.length } : null,
-        clock: s.clock,
-        look: stepLookYear(),
-        seen: getSeen(),
-        fresh: s.fresh,
-        marks: s.marks,
-        rate: computed.current,
-        stepMs: [...stepMs],
-      };
-    };
-  }, []);
+  useEffect(() => stepDebug(computed), []);
 
   // 刚打开导播(右边的按钮):没在放就放起来
   useEffect(() => {
@@ -674,6 +681,7 @@ export function StepTimeline({ civ, phone, hidden }: { civ: Civ | null; phone: b
     <div
       ref={rootRef}
       className={`civ-timeline timebar dock-inline sw-bar${phone ? ' phone' : ''}${past ? ' past' : ''}`}
+      data-hold={holdMark(civ)}
       data-step-from={from}
       data-step-to={to}
       onPointerDown={stop}

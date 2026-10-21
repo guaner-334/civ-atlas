@@ -19,3 +19,28 @@ function idOf(o: object | null | undefined): number {
 export function holdMark(...objs: (object | null | undefined)[]): string {
   return objs.map(idOf).join('.');
 }
+
+/*
+ * 组件里 useEffect 返回的清理函数会一直留到这个 effect 下次重跑:它要是在组件那一次渲染里建,
+ * 就连带拉住那一次渲染时的世界、主图、历史(JS 引擎让同一次渲染里建的函数共用一份作用域)。
+ * effect 的依赖里没有世界、历史时,换了世界它也不重跑 —— 旧世界就一直放不掉。
+ * 下面两个在模块里建清理函数,只记着自己要用的那一点。
+ */
+
+/** 取消这个 setTimeout 的清理函数:useEffect(() => { const t = setTimeout(…); return cancelTimeout(t); }, [...]) */
+export function cancelTimeout(t: ReturnType<typeof setTimeout>): () => void {
+  return () => clearTimeout(t);
+}
+
+/** p 完成后调 done(还没取消的话),返回取消的函数;调过或取消以后就不再记着 done */
+export function whenDone(p: Promise<unknown>, done: () => void): () => void {
+  const box: { done: (() => void) | null } = { done };
+  void p.then(() => {
+    const f = box.done;
+    box.done = null;
+    f?.();
+  });
+  return () => {
+    box.done = null;
+  };
+}
