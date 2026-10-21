@@ -15,7 +15,7 @@
  *   画布      建过上下文、还活着的画布和 ImageBitmap 按 宽×高×4 估算(主线程 + 线程;显存里的那份浏览器不报,只能估)
  *   渲染进程 / 显卡进程   系统看到的进程私有内存(Windows 是 PrivateMemorySize,别的系统是常驻内存)
  * 用的是 Chromium 的手机模拟,不是真机:Safari 的 JS 引擎、画布、显存记账都不一样,数字只在同一台机器上前后对比有意义。
- * Playwright 起浏览器时另开一个调试端口,脚本直接连上(页面和它开的每个线程各一个会话)。
+ * Playwright 起浏览器时另开一个调试端口,脚本直接连上(页面和它开的每个线程各连一路)。
  */
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import fs from 'node:fs';
@@ -67,7 +67,7 @@ const CENSUS = `(() => {
 })();`;
 
 // ---------------------------------------------------------------------------
-// 调试端口:页面、线程各一个会话
+// 调试端口:页面、线程各连一路
 
 interface Usage {
   used: number;
@@ -78,7 +78,7 @@ class Cdp {
   private ws!: WebSocket;
   private seq = 0;
   private pending = new Map<number, { ok: (v: any) => void; bad: (e: Error) => void }>();
-  /** 会话 → 名字(main / 线程脚本名#序号) */
+  /** 每一路连接 → 名字(main / 线程脚本名#序号) */
   sessions = new Map<string, string>();
   private names = new Map<string, number>();
   page = '';
