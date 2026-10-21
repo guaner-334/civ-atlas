@@ -30,7 +30,7 @@
  * 只把推演年数调大的重推(resim)也从记着的历史接着推。结果都和从第 0 年一口气推到那一年一样。
  */
 import { generateWorld, type BaseCache, type World, type WorldParams } from './gen/world';
-import { rasterizeDeferred, type Raster } from './gen/raster';
+import { dropGullyBuffers, rasterizeDeferred, type Raster } from './gen/raster';
 import { GullyPool } from './gullyPool';
 import { buildHistoryFrames, type HistoryFrames } from './gen/history';
 import { DEFAULT_CIV_PARAMS, continueCiv, generateCiv, civTransferables, planetTempo, type Civ, type PlanetTempo, type Regions } from './gen/civ';
@@ -134,6 +134,11 @@ export type WorkerRequest =
   | ({ type: 'extend'; id: number; xid: number; to: number; interventions?: Intervention[] } & Omit<CivInput, 'endYear' | 'play'>)
   /** 叫停再推:xid 和它以前的再推都不推了(在推的停下,排着的不推);没在推就什么也不做 */
   | { type: 'extendStop'; id: number; xid: number }
+  /**
+   * 不再编辑地形了(新建的世界建好了,地形锁住):编辑地形时留着的整张主图和铺像素的输入放掉。没有回音
+   * (主线程直接发,不算一件活)
+   */
+  | { type: 'release'; id: number }
   /** 地形大事的预览:upheavals = 已经有的大事,在 year 那一年再加上 ops 会怎么样;pid = 第几次预览(主线程只认最新的) */
   | { type: 'upPreview'; id: number; pid: number; params: WorldParams; terrain?: TerrainOp[]; sketch?: SketchEdit; upheavals?: Upheaval[]; civSeed?: number; year: number; ops: TerrainOp[] };
 
@@ -535,6 +540,12 @@ async function pump() {
       // 让一下:这期间到了的消息先排进来
       if (!fg.length && bg.length) await new Promise((r) => setTimeout(r, 0));
     }
+    // 手头的活都干完了:不在编辑地形(没留着整图)就把只在铺像素时用的大数组放掉 ——
+    // 记沟壑像素的那几张(约 50 MB)、和下一段比的整图(有地形大事时最多两张,每张六十多 MB)。下次要用再分配、再铺
+    if (!kept) {
+      dropGullyBuffers();
+      rasters.clear();
+    }
   } finally {
     running = false;
   }
@@ -546,8 +557,8 @@ let turnSnap: ReturnType<typeof setTimeout> | undefined;
 
 async function handle(m: WorkerRequest): Promise<void> {
   // 有了新的活:逐年推演上一步等着打的原件不要了(新的一步、换了世界、重推会各自再排)
-  if (m.type !== 'history' && m.type !== 'upPreview' && m.type !== 'extendStop' && m.type !== 'trial') clearTimeout(turnSnap);
-  if (m.type !== 'history' && m.type !== 'upPreview' && m.type !== 'extendStop') takeTempo(m.params, m.sketch, m.tempo);
+  if (m.type !== 'history' && m.type !== 'upPreview' && m.type !== 'extendStop' && m.type !== 'trial' && m.type !== 'release') clearTimeout(turnSnap);
+  if (m.type !== 'history' && m.type !== 'upPreview' && m.type !== 'extendStop' && m.type !== 'release') takeTempo(m.params, m.sketch, m.tempo);
   if (m.type === 'generate') {
     // 换了世界:后台排着的补丁和记着的整图都作废
     bg.length = 0;
@@ -567,7 +578,7 @@ async function handle(m: WorkerRequest): Promise<void> {
     // 编辑地形:主线程地图上那张整图线程里还留着,就只重铺变了的那块(gen/rasterEdit.ts)
     post({ type: 'progress', id: m.id, stage: '铺展地图', pct: 0.93 });
     const t1 = performance.now();
-    const prev = m.keep && m.from !== undefined && m.scale === 1 && kept?.key === m.from ? kept : null;
+    let prev = m.keep && m.from !== undefined && m.scale === 1 && kept?.key === m.from ? kept : null;
     const cover = kept?.keep.inputs.cover;
     if (!m.keep) kept = null;
     pool.prepare(world, m.scale);
@@ -575,6 +586,10 @@ async function handle(m: WorkerRequest): Promise<void> {
     const pj = tried && 'job' in tried ? tried : null;
     // 要重铺的那块太大(比如海里放火山,侵蚀整个重算):整张铺,已经算好的输入接着用
     const d = pj ?? rasterizeDeferred(world, m.scale, undefined, cover, tried && 'whole' in tried ? tried.whole : undefined);
+    // 上一张铺像素的输入比完了(覆盖表已经接到这一份里):只留下比补丁要用的整图,别的先放掉,推文明的时候不白占着
+    const old = prev && { key: prev.key, raster: prev.keep.raster };
+    if (prev && kept === prev) kept = null;
+    prev = null;
     const raster = d.raster;
     const rasterMs = performance.now() - t1;
     const civ = await pool.finish(d, () => {
@@ -593,13 +608,13 @@ async function handle(m: WorkerRequest): Promise<void> {
     let map: { raster: Raster } | { patch: RasterPatch | null; from: string; plan: Plan };
     // 主线程有那张整图:只交回变了的那一块(逐位比),主线程按块重画;整张留在线程里,下一笔接着用。
     // 按块重铺的只在重铺的那块里比;整张铺的(变得多)整张比,变的那块不到 PATCH_SEND 张图也照样只交那一块
-    const patch = prev && m.scale === 1 ? exactPatch(prev.keep.raster, raster, pj ? pj.win : undefined) : undefined;
-    const send = prev && patch !== undefined && (pj || !patch || patch.w * patch.h <= PATCH_SEND * raster.w * raster.h);
-    if (prev && send) {
+    const patch = old && m.scale === 1 ? exactPatch(old.raster, raster, pj ? pj.win : undefined) : undefined;
+    const send = old && patch !== undefined && (pj || !patch || patch.w * patch.h <= PATCH_SEND * raster.w * raster.h);
+    if (old && send) {
       if (patch) transfer.push(...patchTransferables(patch));
       const plan = planGlyphs(world);
       transfer.push(plan.forest.buffer as ArrayBuffer);
-      map = { patch: patch ?? null, from: prev.key, plan };
+      map = { patch: patch ?? null, from: old.key, plan };
     } else {
       const vl = raster.veinLines!;
       transfer.push(...[raster.elev, raster.temp, raster.precip, raster.water, raster.biome, raster.cell, raster.ice, raster.iceConc, raster.iceTone, raster.gully!, raster.bank!, raster.vein!, vl.off, vl.x, vl.y, vl.a].map((a) => a.buffer as ArrayBuffer));
@@ -736,6 +751,8 @@ async function handle(m: WorkerRequest): Promise<void> {
     queueSnapshot(m.id, { ...m, endYear: to }, world, steps, cloned);
   } else if (m.type === 'extendStop') {
     // 只在再推的时候有用(推的那几段之间看排着的消息);这时候没在推,什么也不做
+  } else if (m.type === 'release') {
+    kept = null;
   } else if (m.type === 'upPreview') {
     const t0 = performance.now();
     const run = () => {

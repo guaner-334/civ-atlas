@@ -856,12 +856,20 @@ export interface GullyJob extends GullyInput {
   into?: Float32Array;
 }
 
-/** 记像素用的大数组(和 1 倍主图一样大)留着下次用:每次重新分配几十 MB 也要时间。导出用的大图不留(用完就放掉) */
+/** 记像素用的大数组(1 倍主图的)留着下次用:每次重新分配几十 MB 也要时间。导出用的大图不留(用完就放掉) */
 let jobBuf: GullyJob | null = null;
+
+/**
+ * 记像素的数组先按整张图像素数的 JOB_START 分配,记满了再加大 JOB_GROW 倍(最多整张图那么大):
+ * 要算沟壑的像素一般只占整张图的两三成,一开始就按整张分配,1 倍主图多占三十来 MB、两倍的导出图多占一百多 MB
+ */
+const JOB_START = 0.25;
+const JOB_GROW = 1.5;
 
 export function newGullyJob(seed: number, w: number, h: number, R: number, scale: number): GullyJob {
   const N = w * h;
-  if (jobBuf && jobBuf.idx.length === N) return { ...jobBuf, seed, w, h, R, scale, n: 0 };
+  if (jobBuf && jobBuf.w === w && jobBuf.h === h) return { ...jobBuf, seed, w, h, R, scale, n: 0 };
+  const cap = Math.min(N, Math.max(4096, Math.ceil(N * JOB_START)));
   const job: GullyJob = {
     seed,
     w,
@@ -869,16 +877,43 @@ export function newGullyJob(seed: number, w: number, h: number, R: number, scale
     R,
     scale,
     n: 0,
-    idx: new Int32Array(N),
-    ge: new Float32Array(N),
-    gn: new Float32Array(N),
-    amp: new Float32Array(N),
-    base: new Float32Array(N),
-    cut: new Float32Array(N),
-    floor: new Uint8Array(N),
+    idx: new Int32Array(cap),
+    ge: new Float32Array(cap),
+    gn: new Float32Array(cap),
+    amp: new Float32Array(cap),
+    base: new Float32Array(cap),
+    cut: new Float32Array(cap),
+    floor: new Uint8Array(cap),
   };
   if (scale === 1) jobBuf = job;
   return { ...job };
+}
+
+/** 记满了:几个数组加大(记过的照搬),留着下次用的那一份跟着换 */
+function growGullyJob(job: GullyJob): void {
+  const cap = Math.min(job.w * job.h, Math.ceil(job.idx.length * JOB_GROW));
+  const more = <T extends Int32Array | Float32Array | Uint8Array>(a: T): T => {
+    const b = new (a.constructor as new (n: number) => T)(cap);
+    b.set(a);
+    return b;
+  };
+  const kept = jobBuf && jobBuf.idx === job.idx ? jobBuf : null;
+  job.idx = more(job.idx);
+  job.ge = more(job.ge);
+  job.gn = more(job.gn);
+  job.amp = more(job.amp);
+  job.base = more(job.base);
+  job.cut = more(job.cut);
+  job.floor = more(job.floor);
+  if (kept) Object.assign(kept, { idx: job.idx, ge: job.ge, gn: job.gn, amp: job.amp, base: job.base, cut: job.cut, floor: job.floor });
+}
+
+/**
+ * 放掉留着下次用的大数组(1 倍主图上约 50 MB):不编辑地形的时候一个世界只铺一次像素,留着白占内存
+ * (手机上内存紧);下次铺像素时再分配
+ */
+export function dropGullyBuffers(): void {
+  jobBuf = null;
 }
 
 /** 按实际个数截短(交给后台线程时只拷用到的那一段) */
@@ -1187,6 +1222,7 @@ export function shadeSphere(
             // 坡上本来的细节噪声压一些,让沟壑当主角
             const gb = eb + amp * q * dd * (1 - 0.6 * st);
             if (job) {
+              if (job.n === job.idx.length) growGullyJob(job);
               const n = job.n++;
               job.idx[n] = k;
               job.ge[n] = ge;

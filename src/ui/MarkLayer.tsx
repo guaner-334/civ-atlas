@@ -33,7 +33,7 @@ import {
 } from '../render/marks';
 import { ensureFonts } from '../render/labels/fonts';
 import { useEdits } from './editsStore';
-import { getCivTime, subscribeCivTime, useSelection } from './civView';
+import { bumpOnCivTime, getCivTime, useSelection } from './civView';
 import { useMarkUi, type MarkDraft } from './markStore';
 import { markRegionIds, markShapeOf } from './markInfo';
 import { useAvoidBoxes } from './uiAvoid';
@@ -120,7 +120,7 @@ export function MarkLayer({ civ, world, api, hidden, style = 'fantasy' }: { civ:
   const shapeRef = useRef(shapeOf);
   shapeRef.current = shapeOf;
 
-  useEffect(() => subscribeCivTime(() => void state.current.ver++), []);
+  useEffect(() => bumpOnCivTime(state), []);
 
   // 无色标记用地图的字体写:字体文件到了再重画一次(第一次画出来可能是后备字体)
   const plainText = active ? [...(marks ?? []).filter((m) => m.color === 'none').map((m) => m.title), draft?.color === 'none' ? draft.title : ''].join('') : '';
