@@ -1,6 +1,6 @@
 import { execSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { readdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { readdir, readFile, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { brotliCompress, constants as zlibConst, gzip } from 'node:zlib';
@@ -36,14 +36,14 @@ function banner(commit = ''): string {
   return `/*! 文明与地图 v${pkg.version}${commit ? ` (${commit})` : ''} | Copyright (C) 2026 guaner-334 | ${pkg.license} | ${SOURCE_URL} */`;
 }
 
-/** 预先压好的文件:这几种文本文件、不小于 1 KB 的才压(.html 不压:发布流程最后才换页面本身,压好的那份要跟着它一起换) */
+/** 预先压好的文件:这几种文本文件(.html 不压:发布流程最后才换页面本身,压好的那份要跟着它一起换) */
 const PACK_EXT = /\.(js|mjs|css|json|svg|txt|md)$/;
-const PACK_MIN = 1024;
 
 /**
  * 构建完把文本文件各压一份最高等级的 .gz 和 .br 放在旁边(gzip 9 级、brotli 11 级),
  * 网站服务器打开"有压好的就直接发"(nginx 的 gzip_static / brotli_static)后不用每次现压,下载的也更少。
- * 压出来不比原文件小的不留
+ * 每个都压,再小、压了不见小的也压:发布时不删服务器上的旧文件,名字不变的文件(guide.md、whats-new.json……)
+ * 这次不压的话,服务器上还留着上次压的那份旧内容,会被发出去
  */
 function precompress(): Plugin {
   let outDir = '';
@@ -68,14 +68,12 @@ function precompress(): Plugin {
       const files = await walk(outDir);
       await Promise.all(
         files.map(async (f) => {
-          if ((await stat(f)).size < PACK_MIN) return;
           const src = await readFile(f);
           const [g, b] = await Promise.all([
             gz(src, { level: 9 }),
             br(src, { params: { [zlibConst.BROTLI_PARAM_QUALITY]: 11, [zlibConst.BROTLI_PARAM_MODE]: zlibConst.BROTLI_MODE_TEXT, [zlibConst.BROTLI_PARAM_SIZE_HINT]: src.length } }),
           ]);
-          if (g.length < src.length) await writeFile(`${f}.gz`, g);
-          if (b.length < src.length) await writeFile(`${f}.br`, b);
+          await Promise.all([writeFile(`${f}.gz`, g), writeFile(`${f}.br`, b)]);
         }),
       );
     },

@@ -5,7 +5,8 @@
  *
  * 要离开这一页的事(打开一个世界、新建弹窗里点「开始」、打开存档文件、在一张地图上打造新文明)交给 App:
  * onLeave 把这一件交出去,Boot.tsx 等主程序下好、把 App 挂上,App 接着做(见 App 的 fromHome)。
- * 按浏览器的后退 / 前进、地址栏里贴了分享链接(只有 # 不同,页面不刷新)也交给 App:它照这时的网址打开,和刷新一样。
+ * 按浏览器的后退 / 前进、地址栏里贴了分享链接(只有 # 不同,页面不刷新)也交给 App:它照这时的网址打开,和刷新一样
+ * (这一页先记成我的世界那一步,贴的分享链接记成新的一步,和 App 记的一样,打开以后按后退回得到首页)。
  *
  * 和 App 一样在这里也做的:云同步、AI 接入(开了就一直开着,App 挂上以后接着用)、页面缩放的拦截、⌘S 不弹浏览器的"存储网页"。
  */
@@ -28,6 +29,7 @@ import { startSync } from '../account/sync';
 import { setupAi } from '../ai/setup';
 import { isShareHash } from '../gen/savefile';
 import { randomSeedValue, type HomeStart } from './homeStart';
+import { isNavState, navAdopt, navMark } from './nav';
 
 /**
  * null = 不带要做的事(按后退 / 前进、贴了分享链接):App 照这时的网址打开;
@@ -66,9 +68,13 @@ export function HomeShell({ onLeave }: { onLeave: LeaveHome }) {
     startSync();
     // 账号窗里点「最近删除」等回到我的世界:已经在这一页
     setGoHome(() => {});
-    // 按后退 / 前进到了这个网站记的另一步、地址栏里贴了分享链接:交给 App 照网址打开
+    // 浏览器的后退、前进:这一页先记成我的世界那一步(和 App 一样;App 挂上以后接着记)
+    navMark({ page: 'home' });
+    // 按后退 / 前进到了这个网站记的另一步:交给 App 照网址打开
     const onPop = () => onLeave(null);
+    // 地址栏里自己加了 #:浏览器记了一步、这个网站没记过,也记成一步(和 App 一样);贴的是分享链接,交给 App 照网址打开
     const onHash = () => {
+      if (!isNavState(history.state)) navAdopt({ page: 'home' });
       if (isShareHash(location.hash)) onLeave(null);
     };
     window.addEventListener('popstate', onPop);
