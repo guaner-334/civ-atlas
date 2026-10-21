@@ -3359,9 +3359,15 @@ export function App() {
   };
   /** 一帧帧飞过去(FLY_MS,ease-out 三次方);用户自己拖动 / 缩放时 stopFly 让给用户(按下地图、滚轮、右下的 + −) */
   const runFly = (step: (e: number) => { v: MapView; lon: number | null }, curvedNow: boolean) => {
-    const t0 = performance.now();
-    if (curvedNow) setMapMoving(true);
+    let t0 = -1;
     const frame = (now: number) => {
+      // 第一帧地图不动:点选时刚打开的面板先画到屏幕上(反馈不等地图重画),下一帧起飞,时长不变
+      if (t0 < 0) {
+        t0 = now;
+        flyRaf.current = requestAnimationFrame(frame);
+        return;
+      }
+      if (curvedNow) setMapMoving(true);
       const t = animProgress(now, t0, FLY_MS);
       const r = step(easeOutCubic(t));
       if (r.lon !== null) publishMapCenter(wrapLon(r.lon));
