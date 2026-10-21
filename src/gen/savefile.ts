@@ -39,7 +39,7 @@
  * - edits.nameMix(可选):整个世界的地名风格,每种语感占几份(edits.ts 文件头"地名风格"),`{ "xianxia": 6, "central": 4 }`;自动时不写。
  *   读档时过 cleanMix:认不出的语感(比如以后的新语感)、不是正数的份数去掉,提示一句;一份都不剩就按自动
  * - edits.endYear(可选):历史推到第几年(edits.ts 文件头"推演年数"),`12000`;3000 年时不写。
- *   读档时过 cleanEndYear:夹在 3000–60000、取整到千年;不是数字的按 3000,提示一句
+ *   读档时过 cleanEndYear:取整到年、夹在 3000–60000(以前只有整千年,照旧读出同一个数);不是数字的按 3000,提示一句
  * - edits.frontier(可选):拓荒(edits.ts 文件头"拓荒与起源"、civ/frontier.ts),`{ "spread": 1.5, "expand": 2, "terrain": { "desert": 6 } }`;
  *   都是默认时不写。读档时过 cleanFrontier:吸到最近的一档,认不出的项去掉,提示一句
  * - edits.origins(可选):自己选的文明起源(同上),`{ "pts": [976, 342, 544, 448], "only": true }`;自动时不写。
@@ -649,7 +649,7 @@ export function parseSave(text: string): ParseResult {
   const rawMix = isObj(E.nameMix) ? E.nameMix : null;
   if (E.nameMix !== undefined && (!rawMix || Object.keys(rawMix).some((k) => nameMix?.[k] !== rawMix[k])))
     warnings.push(nameMix ? '地名风格里有认不出来的语感或份数,已去掉' : '地名风格认不出来,按自动起名');
-  // 推演年数:夹在 3000–60000、取整到千年;认不出的按 3000 年
+  // 推演年数:取整到年、夹在 3000–60000;认不出的按 3000 年
   const endYear = cleanEndYear(E.endYear);
   if (E.endYear !== undefined && (typeof E.endYear !== 'number' || !Number.isFinite(E.endYear))) warnings.push('推演年数认不出来,按 3000 年推演');
   // 拓荒:吸到最近的一档,认不出的项去掉
