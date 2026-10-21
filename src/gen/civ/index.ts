@@ -2,7 +2,7 @@
  * 文明生成总流程:generateWorld() 之后在 worker 里调用。纯计算,不碰 DOM。
  *
  * 步骤顺序固定:
- *   ① 宜居度 + 州          habitat.ts / regions.ts
+ *   ① 宜居度 + 州          habitat.ts / regions.ts(只跟地形、文明种子有关;调用方可以经 params.base 传预先算好的,见 civBase)
  *   ② 民族扩张 + 回放引擎   sim.ts / cultures.ts   → cultures、log、checkpoints、culture
  *   ③ 城市成长 + 国家       polities.ts            → settlements、polities、polity
  *   ④ 道路网               routes.ts              → routes(推演里走过的航线一定画出来,见 usedLanes)
@@ -19,7 +19,7 @@
  */
 import { generateWorld, type Progress, type World, type WorldParams } from '../world';
 import type { Sketch } from '../sketch';
-import type { Annal, ChangeLog, Civ, CivParams, Culture, Habitat, PlanetTempo, Place, Polity, Route, Settlement } from './types';
+import type { Annal, ChangeLog, Civ, CivBase, CivParams, Culture, Habitat, PlanetTempo, Place, Polity, Route, Settlement } from './types';
 import { computeHabitat } from './habitat';
 import { buildRegions, emptyRegions, reshapeRegions } from './regions';
 import { CivSim, quantize } from './sim';
@@ -96,6 +96,30 @@ export function planetTempo(params: WorldParams, civ: Partial<CivParams> = {}, s
   return model ? { spread: model.spreadYears, capNorm: capacityNorm(model.terrain) } : undefined;
 }
 
+/**
+ * 推文明的底子:宜居度和州(generateCiv 的头两步,和它算的一模一样)。只跟地形、文明种子、每州面积有关:
+ * 调用方(worker)按"这个世界 + 文明种子"留着一份,改了干预、拓荒、起源、地名风格、推演年数重推时经 CivParams.base 传回 generateCiv
+ */
+export function civBase(world: World, params: Partial<CivParams> = {}): CivBase {
+  const p: CivParams = { ...DEFAULT_CIV_PARAMS, ...params };
+  const seed = p.civSeed ?? world.params.seed;
+  const habitat = computeHabitat(world);
+  const { land } = viability(world, habitat);
+  const regions = land > 0 ? buildRegions(world, habitat, { regionArea: p.regionArea, seed }) : emptyRegions(world.mesh.n);
+  return { world, seed, regionArea: p.regionArea, habitat, regions };
+}
+
+/** 复制一份(类型化数组、普通数组各复制一份,别的照搬):预先算好的底子不跟着推演改、不随 Civ 交出去 */
+function copyArrays<T extends object>(o: T): T {
+  const out = { ...o } as unknown as Record<string, unknown>;
+  for (const k of Object.keys(out)) {
+    const v = out[k];
+    if (ArrayBuffer.isView(v)) out[k] = (v as Uint8Array).slice();
+    else if (Array.isArray(v)) out[k] = v.slice();
+  }
+  return out as T;
+}
+
 export function generateCiv(world: World, params: Partial<CivParams> = {}, progress: Progress = () => {}): Civ {
   const p: CivParams = { ...DEFAULT_CIV_PARAMS, ...params };
   const n = world.mesh.n;
@@ -106,13 +130,15 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
   const origins = cleanOrigins(p.origins);
   /** 文明种子:没给 = 地图种子 */
   const seed = p.civSeed ?? world.params.seed;
+  /** 预先算好的宜居度和州:同一个世界、同一个文明种子、同样的每州面积才用 */
+  const pre = p.base && p.base.world === world && p.base.seed === seed && p.base.regionArea === p.regionArea ? p.base : undefined;
 
   progress('宜居度', 0);
-  const habitat = computeHabitat(world);
+  const habitat = pre ? copyArrays(pre.habitat) : computeHabitat(world);
   const { land, viable } = viability(world, habitat);
 
   progress('划分州', 0.3);
-  const regions = land > 0 ? buildRegions(world, habitat, { regionArea: p.regionArea, seed }) : emptyRegions(n);
+  const regions = land > 0 ? (pre ? copyArrays(pre.regions) : buildRegions(world, habitat, { regionArea: p.regionArea, seed })) : emptyRegions(n);
 
   progress('文明', 0.8);
   const R = regions.count;

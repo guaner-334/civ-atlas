@@ -9,6 +9,7 @@
  * 回放帧、重推文明也带着它们,线程被重开过时按"参数 + 草图 + 地形修改"重新生成(同样的输入 = 同一个世界)。
  * 生成的前一半(网格、板块、侵蚀)记在 baseCache 里:只加了湖、河、气候笔、高度笔时跳过它,只算后一半(gen/world.ts 的 TerrainBase)。
  * 试推演(助手)和重推一样算,只是结果单独交回,主线程不换上它。
+ * 推文明的头两步(宜居度、划州)只跟地形和文明种子有关,记在 civMemo 里:改干预、拓荒、地名风格……重推时不再重算。
  *
  * 地形大事(gen/civ/upheaval.ts):推文明时带着作者的地形大事(upheavals),每件大事以后的世界(原来的地形修改 + 前几件大事的修改)
  * 照样从头生成,记在线程里(同样的输入不再生成);推完把各段的世界交给主线程(eras:地图、地名、河按时间轴换段)。
@@ -33,7 +34,7 @@ import { generateWorld, type BaseCache, type World, type WorldParams } from './g
 import { dropGullyBuffers, rasterizeDeferred, type Raster } from './gen/raster';
 import { GullyPool } from './gullyPool';
 import { buildHistoryFrames, type HistoryFrames } from './gen/history';
-import { DEFAULT_CIV_PARAMS, continueCiv, generateCiv, civTransferables, planetTempo, type Civ, type PlanetTempo, type Regions } from './gen/civ';
+import { DEFAULT_CIV_PARAMS, civBase, continueCiv, generateCiv, civTransferables, planetTempo, type Civ, type CivBase, type PlanetTempo, type Regions } from './gen/civ';
 import { extendCiv } from './gen/civ/extend';
 import { END_YEAR_DEFAULT, GENERATOR_VERSION, cleanEndYear, playInterventions, type Intervention, type PlayState, type TerrainOp, type Upheaval } from './gen/edits';
 import { sketchGrid, type SketchEdit } from './gen/sketch';
@@ -259,9 +260,29 @@ let frozen: { key: string; world: World; eras: Map<string, World> } | null = nul
 function worldOf(params: WorldParams, terrain?: TerrainOp[], sketch?: SketchEdit): World {
   const key = keyOf(params, terrain, sketch);
   if (frozen?.key === key) return frozen.world;
-  if (!last || last.key !== key) last = { key, world: generateWorld(params, undefined, terrain, sketchGrid(sketch), baseCache) };
+  if (!last || last.key !== key) {
+    // 换下来的世界的推文明底子一起放掉(不拉住旧世界)
+    if (civMemo && civMemo.world === last?.world) civMemo = null;
+    last = { key, world: generateWorld(params, undefined, terrain, sketchGrid(sketch), baseCache) };
+  }
   return last.world;
 }
+
+/**
+ * 推文明的底子(宜居度和州,gen/civ 的 civBase):只跟地形和文明种子有关,改干预、拓荒、起源、地名风格、推演年数重推时直接用。
+ * 只留一份(手上这个世界、这个文明种子的):生成(新世界、编辑地形涂一笔)、读档一开始就放掉,换了世界、换了文明种子就重算、换掉。
+ * 按世界对象认(重新生成的世界是另一个对象,不会用错);generateCiv 用的是复制的一份,留着的这份不随结果交出去
+ */
+let civMemo: CivBase | null = null;
+/** 这个世界、这个文明种子的底子:留着的对得上就用,对不上就现算(一定要从第 0 年推的时候用) */
+function baseOf(world: World, civSeed: number | undefined): CivBase {
+  if (civMemo?.world === world && civMemo.seed === (civSeed ?? world.params.seed)) return civMemo;
+  // 先放掉旧的,算新的时候不同时占着两份
+  civMemo = null;
+  return (civMemo = civBase(world, civSeed === undefined ? {} : { civSeed }));
+}
+/** 留着的、对得上的底子(没有 = 不带):接着推的时候多半用不上,不为它现算 */
+const memoOpt = (world: World, civSeed: number | undefined) => (civMemo?.world === world && civMemo.seed === (civSeed ?? world.params.seed) ? { base: civMemo } : {});
 
 /**
  * 回放世界形成用的世界(带形成过程的快照)。照原样打开的世界原件里没存形成过程:现在的生成器生成出来的地形和原件一模一样,
@@ -560,9 +581,10 @@ async function handle(m: WorkerRequest): Promise<void> {
   if (m.type !== 'history' && m.type !== 'upPreview' && m.type !== 'extendStop' && m.type !== 'trial' && m.type !== 'release') clearTimeout(turnSnap);
   if (m.type !== 'history' && m.type !== 'upPreview' && m.type !== 'extendStop' && m.type !== 'release') takeTempo(m.params, m.sketch, m.tempo);
   if (m.type === 'generate') {
-    // 换了世界:后台排着的补丁和记着的整图都作废
+    // 换了世界:后台排着的补丁和记着的整图、推文明的底子都作废
     bg.length = 0;
     rasters.clear();
+    civMemo = null;
     // 刚才是照原样读进来的旧世界:州的划分是按旧地形算的,同样的键这回要按新生成的重算
     if (frozen) regionsMemo.clear();
     frozen = null;
@@ -595,7 +617,7 @@ async function handle(m: WorkerRequest): Promise<void> {
     const civ = await pool.finish(d, () => {
       // 文明骨架(宜居度、州……)只读 World,之后的文明步骤都在 gen/civ/index.ts 里接
       post({ type: 'progress', id: m.id, stage: '文明', pct: 0.95 });
-      const c = generateCiv(world, { interventions: m.interventions?.length ? m.interventions : undefined, tempo: tempoOf(m.params, m.terrain, m.sketch, m.civSeed), ...upOpt(steps), ...namesOpt(m.names), ...yearsOpt(m.endYear), ...setupOpt(m), ...playOpt(m) });
+      const c = generateCiv(world, { interventions: m.interventions?.length ? m.interventions : undefined, tempo: tempoOf(m.params, m.terrain, m.sketch, m.civSeed), ...upOpt(steps), ...namesOpt(m.names), ...yearsOpt(m.endYear), ...setupOpt(m), ...playOpt(m), base: baseOf(world, m.civSeed) });
       // 调了民族扩散的,civ.spreadYears 不是节拍(÷ 了倍数);另起文明种子的,州和民族不是这颗星球原来的那一份:都不记
       if (!m.terrain?.length && !m.frontier?.spread && m.civSeed === undefined) rememberTempo(m.params, m.sketch, c.spreadYears !== undefined && c.capNorm !== undefined ? { spread: c.spreadYears, capNorm: c.capNorm } : null);
       return c;
@@ -633,6 +655,7 @@ async function handle(m: WorkerRequest): Promise<void> {
   } else if (m.type === 'load') {
     bg.length = 0;
     rasters.clear();
+    civMemo = null;
     // 州的划分按读进来的旧地形重算,不沿用按新版生成时记下的
     regionsMemo.clear();
     frozen = null;
@@ -696,7 +719,10 @@ async function handle(m: WorkerRequest): Promise<void> {
     const params = { interventions: m.interventions, tempo: tempoOf(m.params, m.terrain, m.sketch, m.civSeed), ...upOpt(steps), ...namesOpt(m.names), ...yearsOpt(m.endYear), ...setupOpt(m) };
     // 只调大了推演年数(别的都没变):从记着的那份接着推(和从第 0 年推一样;接不上的 continueCiv 自己从第 0 年推)
     const base = m.type === 'resim' && !m.play ? await heldCiv(m, undefined) : null;
-    const civ = base && base.endYear < (cleanEndYear(m.endYear) ?? END_YEAR_DEFAULT) ? continueCiv(world, base, params) : generateCiv(world, { ...params, ...playOpt(m) });
+    const civ =
+      base && base.endYear < (cleanEndYear(m.endYear) ?? END_YEAR_DEFAULT)
+        ? continueCiv(world, base, { ...params, ...memoOpt(world, m.civSeed) })
+        : generateCiv(world, { ...params, ...playOpt(m), base: baseOf(world, m.civSeed) });
     const ms = performance.now() - t0;
     const tempo = noteOf(m.params, m.sketch);
     if (m.type === 'resim') {
@@ -712,8 +738,8 @@ async function handle(m: WorkerRequest): Promise<void> {
     const steps = stepsOf(m.params, m.terrain, m.sketch, m.upheavals);
     const params = { interventions: m.interventions, tempo: tempoOf(m.params, m.terrain, m.sketch, m.civSeed), ...upOpt(steps), ...namesOpt(m.names), ...yearsOpt(m.endYear), ...setupOpt(m) };
     // 上一步的结果对不上这份进度(线程被重开过、换了世界):先从第 0 年推到这一步年初
-    const from = (await heldCiv(m, m.play)) ?? generateCiv(world, { ...params, ...playOpt(m) });
-    const out = playTurn(world, from, params, m.play, m.commands, m.years);
+    const from = (await heldCiv(m, m.play)) ?? generateCiv(world, { ...params, ...playOpt(m), base: baseOf(world, m.civSeed) });
+    const out = playTurn(world, from, { ...params, ...memoOpt(world, m.civSeed) }, m.play, m.commands, m.years);
     const ms = performance.now() - t0;
     const cloned = cloneCiv(out.civ);
     keepCiv(m, out.play, cloned);
@@ -734,7 +760,7 @@ async function handle(m: WorkerRequest): Promise<void> {
     const base = await heldCiv(m, undefined);
     // 后面排着会换掉这份历史的请求,或者叫停这一次的:不推了
     const stop = () => fg.some((r) => r.type === 'generate' || r.type === 'load' || r.type === 'resim' || r.type === 'turn' || r.type === 'extend' || (r.type === 'extendStop' && r.xid >= m.xid));
-    const civ = await extendCiv(world, base, params, {
+    const civ = await extendCiv(world, base, { ...params, ...(base ? memoOpt(world, m.civSeed) : { base: baseOf(world, m.civSeed) }) }, {
       progress: (year, pct) => post({ type: 'extendProgress', id: m.id, xid: m.xid, year, pct }),
       pause: () => new Promise((r) => setTimeout(r, 0)),
       stop,

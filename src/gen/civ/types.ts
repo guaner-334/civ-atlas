@@ -806,6 +806,22 @@ export interface PlanetTempo {
   capNorm: number;
 }
 
+/**
+ * 推文明的底子:宜居度和州(index.ts 的 civBase;generateCiv 的头两步)。
+ * 只跟地形(world)、文明种子、每州目标面积有关,和干预、拓荒、起源、地名风格、推演年数……都无关:
+ * 调用方留着一份,改了这些重推时经 CivParams.base 传回去,省得每次重算
+ */
+export interface CivBase {
+  /** 按哪个世界算的(generateCiv 只在传进来的是同一个世界对象时用它) */
+  world: World;
+  /** 划州用的文明种子(CivParams.civSeed;没给 = 地图种子) */
+  seed: number;
+  /** 划州用的每州目标面积(CivParams.regionArea) */
+  regionArea: number;
+  habitat: Habitat;
+  regions: Regions;
+}
+
 export interface CivParams {
   /** 文明史长度(年),默认 3000 */
   endYear: Year;
@@ -844,6 +860,11 @@ export interface CivParams {
    * 给了的是"在一张地图上新开的一段历史":改过地形的世界,扩张节拍和城的人口折算也按这张地图本身标定(不看 tempo,不另生成没改地形的星球)
    */
   civSeed?: number;
+  /**
+   * 预先算好的宜居度和州(index.ts 的 civBase):世界、文明种子、每州面积都对得上才用(用的是复制的一份,传进来的不改,
+   * 也不会出现在推出来的 Civ 里);对不上 / 不给 = 现算。用不用结果都逐字节一样,只省时间
+   */
+  base?: CivBase;
 }
 
 /**
