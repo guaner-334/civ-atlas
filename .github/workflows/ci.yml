@@ -17,7 +17,8 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
-# 三个任务并行跑,总时长 ≈ 最慢的那个(冒烟)
+# 几项检查在几台机器上同时跑,总时长 ≈ 最慢的那项(冒烟)。
+# 类型检查、单测、压力、构建原来挤在一项里要 17–21 分钟,现在分开:单测分 4 份、压力测试分 2 份,每项几分钟
 jobs:
   # 每天的兜底:最近一天 main 上有没有代码改动(文档不算)
   changed:
@@ -36,13 +37,13 @@ jobs:
           n=$(git log --since='25 hours ago' --format=%H -- . ':!*.md' | wc -l)
           echo "any=$([ "$n" -gt 0 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
 
-  check:
-    name: 类型检查 / 单测 / 压力 / 构建
+  build:
+    name: 类型检查 / 构建
     needs: changed
     if: ${{ !cancelled() && (github.event_name != 'schedule' || needs.changed.outputs.any == 'true') }}
     runs-on: ubuntu-latest
-    # 平常十分钟上下;机器慢的时候单测加压力能到十五分钟以上,留足余量
-    timeout-minutes: 25
+    # 平常一分半左右
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -53,12 +54,57 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: 类型检查
         run: pnpm typecheck
-      - name: 单元测试
-        run: pnpm test
-      - name: 极端参数压力测试
-        run: pnpm stress
       - name: 生产构建
         run: pnpm build
+
+  # 单测分 4 份同时跑;怎么分(按各文件大概多久,几份差不多快)见 tests/lib/shardSequencer.ts
+  test:
+    name: 单测 ${{ matrix.shard }}
+    needs: changed
+    if: ${{ !cancelled() && (github.event_name != 'schedule' || needs.changed.outputs.any == 'true') }}
+    runs-on: ubuntu-latest
+    # 平常每份四分钟上下
+    timeout-minutes: 15
+    strategy:
+      # 一份没过不停掉别的几份,一次看全哪些没过
+      fail-fast: false
+      matrix:
+        shard: ['1/4', '2/4', '3/4', '4/4']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: 单元测试(第 ${{ matrix.shard }} 份)
+        run: pnpm test --shard=${{ matrix.shard }}
+
+  # 压力测试分 2 份同时跑(各组参数轮流分,见 scripts/stress.ts 的 STRESS_PART)
+  stress:
+    name: 压力测试 ${{ matrix.part }}
+    needs: changed
+    if: ${{ !cancelled() && (github.event_name != 'schedule' || needs.changed.outputs.any == 'true') }}
+    runs-on: ubuntu-latest
+    # 平常每份三四分钟
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        part: ['1/2', '2/2']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: 极端参数压力测试(第 ${{ matrix.part }} 份)
+        run: pnpm stress
+        env:
+          STRESS_PART: ${{ matrix.part }}
 
   smoke:
     name: 冒烟
