@@ -28,8 +28,10 @@ import { toggleAssistant, useAstOpen } from './astPanel';
 import { togglePlacing } from './markStore';
 import { directorButton, useDirector } from './directorStore';
 import { useAiOn } from '../ai/client';
-import { BETA_SITE, OLD_SITE, OLD_UNTIL, latestUrl } from './oldSite';
 import './book.css';
+
+// 左上的旧版 / 测试版标记单独一个文件(我的世界页也用,不带上这里的地图按钮)
+export { OldSiteBadge } from './OldSiteBadge';
 
 /** 新建世界时数字键 1–3 换的样式(还没有历史) */
 export const DRAFT_SEG: MapLayer[] = ['terrain', 'realistic', 'elevation'];
@@ -330,35 +332,5 @@ function HoverLines({ info }: { info: HoverInfo }) {
       </div>
       {info.extra && <div className="hc-extra">{info.extra}</div>}
     </>
-  );
-}
-
-/**
- * 旧版网站:地图左上(和「我的世界」页顶上)一直挂着的标记,写明是旧版、哪天以前的,带回最新版的链接;
- * 测试网站同一个位置、同一个样子,写明是测试版,带回正式版的链接。正式网站不放
- */
-export function OldSiteBadge() {
-  if (BETA_SITE) {
-    return (
-      <div className="glass old-badge" data-testid="beta-site">
-        <Icon name="flask" size={16} />
-        <b>测试版</b>
-        <span className="old-badge-when">新功能先在这里试</span>
-        <a className="old-badge-go" href={latestUrl().href} data-act="beta-latest">
-          到正式版
-        </a>
-      </div>
-    );
-  }
-  if (OLD_SITE === null) return null;
-  return (
-    <div className="glass old-badge" data-testid="old-site">
-      <Icon name="history" size={16} />
-      <b>旧版</b>
-      {OLD_UNTIL && <span className="old-badge-when">{OLD_UNTIL}更新以前</span>}
-      <a className="old-badge-go" href={latestUrl().href} data-act="old-latest">
-        到最新版
-      </a>
-    </div>
   );
 }

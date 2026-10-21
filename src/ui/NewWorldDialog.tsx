@@ -18,13 +18,13 @@
  */
 import { Fragment, useEffect, useRef, useState } from 'react';
 import type { WorldParams } from '../gen/world';
-import { CONT_SLIDERS, SLIDERS, YEARS_NOTE, YEARS_ON, YEARS_SLIDER, YEARS_SWITCH, contBrief, type SliderLike } from './WorldOverviewGenesis';
+import { CONT_SLIDERS, SLIDERS, YEARS_NOTE, YEARS_ON, YEARS_SLIDER, YEARS_SWITCH, contBrief, type SliderLike } from './genesisSliders';
 import { CONT_RESET, ContinentSeg, ParamField, rangeFill } from './ParamField';
 import { PresetPicker, type PresetPick } from './PresetPicker';
 import { changedKeys, choiceParams, getPresets, usePresets } from './presetStore';
 import { terrainChangedCount, type Frontier } from '../gen/civ/frontier';
 import { EXPAND_SLIDER, SPREAD_SLIDER, TERRAIN_SLIDERS, terrainValue, withSpeed, withTerrain, withoutTerrain } from './frontierUi';
-import { isImageFile, loadImage, type LoadedImage } from './ImportImage';
+import { isImageFile, loadImage, type LoadedImage } from './imageFile';
 import { Icon } from './icons';
 import './ai.css';
 import './newWorld.css';
@@ -61,6 +61,11 @@ export interface NewWorldDialogProps {
 
 const PIC_RANDOM = `${import.meta.env.BASE_URL}new-random.jpg`;
 const PIC_SKETCH = `${import.meta.env.BASE_URL}new-sketch.jpg`;
+
+/** 首页出来以后先把第 1 步两张卡片的图下好(点「新建世界」时不用再等图) */
+export function warmNewWorldPictures() {
+  for (const src of [PIC_RANDOM, PIC_SKETCH]) new Image().src = src;
+}
 
 /** 第 1 步的两张卡片 */
 const CARDS: { mode: NewWorldMode; name: string; desc: string }[] = [

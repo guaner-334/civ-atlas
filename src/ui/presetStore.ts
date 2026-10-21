@@ -10,8 +10,8 @@
  */
 import { useSyncExternalStore } from 'react';
 import { PARAM_RANGE } from '../gen/savefile';
-import { DEFAULT_PARAMS, type WorldParams } from '../gen/world';
-import { contBrief } from './WorldOverviewGenesis';
+import { DEFAULT_PARAMS, type WorldParams } from '../gen/params';
+import { contBrief } from './genesisSliders';
 
 /** 预设里的参数:世界参数去掉种子 */
 export type PresetParams = Omit<WorldParams, 'seed'>;

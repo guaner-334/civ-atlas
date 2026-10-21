@@ -56,6 +56,9 @@ jobs:
         run: pnpm typecheck
       - name: 生产构建
         run: pnpm build
+      # 打开网站时首页要下载的代码 + 样式(gzip)不超过上限;超了怎么办见 scripts/first-load.ts 开头
+      - name: 首页下载量
+        run: pnpm size
 
   # 单测分 4 份同时跑;怎么分(按各文件大概多久,几份差不多快)见 tests/lib/shardSequencer.ts
   test:

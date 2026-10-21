@@ -1,10 +1,16 @@
 import { execSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { readdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
+import { promisify } from 'node:util';
+import { brotliCompress, constants as zlibConst, gzip } from 'node:zlib';
+import type { Plugin } from 'vite';
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import { fakeAiMiddleware } from './scripts/lib/fakeAiServer';
 import { SOURCE_URL } from './src/ui/links';
 import { WHATS_NEW } from './src/ui/whatsNew';
+import { bootScript } from './src/ui/homeStart';
 import { ShardSequencer } from './tests/lib/shardSequencer';
 
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as { version: string; license: string };
@@ -30,6 +36,52 @@ function banner(commit = ''): string {
   return `/*! 文明与地图 v${pkg.version}${commit ? ` (${commit})` : ''} | Copyright (C) 2026 guaner-334 | ${pkg.license} | ${SOURCE_URL} */`;
 }
 
+/** 预先压好的文件:这几种文本文件、不小于 1 KB 的才压(.html 不压:发布流程最后才换页面本身,压好的那份要跟着它一起换) */
+const PACK_EXT = /\.(js|mjs|css|json|svg|txt|md)$/;
+const PACK_MIN = 1024;
+
+/**
+ * 构建完把文本文件各压一份最高等级的 .gz 和 .br 放在旁边(gzip 9 级、brotli 11 级),
+ * 网站服务器打开"有压好的就直接发"(nginx 的 gzip_static / brotli_static)后不用每次现压,下载的也更少。
+ * 压出来不比原文件小的不留
+ */
+function precompress(): Plugin {
+  let outDir = '';
+  const gz = promisify(gzip);
+  const br = promisify(brotliCompress);
+  const walk = async (dir: string): Promise<string[]> => {
+    const out: string[] = [];
+    for (const e of await readdir(dir, { withFileTypes: true })) {
+      const p = join(dir, e.name);
+      if (e.isDirectory()) out.push(...(await walk(p)));
+      else if (PACK_EXT.test(e.name)) out.push(p);
+    }
+    return out;
+  };
+  return {
+    name: 'precompress',
+    apply: 'build',
+    configResolved(c) {
+      outDir = resolve(c.root, c.build.outDir);
+    },
+    async closeBundle() {
+      const files = await walk(outDir);
+      await Promise.all(
+        files.map(async (f) => {
+          if ((await stat(f)).size < PACK_MIN) return;
+          const src = await readFile(f);
+          const [g, b] = await Promise.all([
+            gz(src, { level: 9 }),
+            br(src, { params: { [zlibConst.BROTLI_PARAM_QUALITY]: 11, [zlibConst.BROTLI_PARAM_MODE]: zlibConst.BROTLI_MODE_TEXT, [zlibConst.BROTLI_PARAM_SIZE_HINT]: src.length } }),
+          ]);
+          if (g.length < src.length) await writeFile(`${f}.gz`, g);
+          if (b.length < src.length) await writeFile(`${f}.br`, b);
+        }),
+      );
+    },
+  };
+}
+
 export default defineConfig({
   base: './',
   // 界面上显示的版本号(src/ui/version.ts)、构建那天(src/ui/betaNews.ts)
@@ -42,6 +94,19 @@ export default defineConfig({
       apply: 'build',
       generateBundle() {
         this.emitFile({ type: 'asset', fileName: 'whats-new.json', source: `${JSON.stringify({ built: BUILD_DAY, news: WHATS_NEW })}\n` });
+      },
+    },
+    precompress(),
+    // 页面里最先跑的一小段(src/ui/homeStart.ts 的 bootScript):第一次来先下首页那颗星球的图;
+    // 打开的不是首页时,主程序(App)和页面的代码同时开始下载
+    {
+      name: 'boot-script',
+      transformIndexHtml: {
+        order: 'post',
+        handler(_html, ctx) {
+          const app = Object.values(ctx.bundle ?? {}).find((c) => c.type === 'chunk' && c.isDynamicEntry && c.name === 'App');
+          return [{ tag: 'script', children: bootScript(app ? `./${app.fileName}` : null), injectTo: 'head' }];
+        },
       },
     },
     // 开发时的假网站服务器(账号、云同步、分享、我们的 AI;接口约定见 src/ai/providers/official.ts、src/account/cloud.ts 文件头):

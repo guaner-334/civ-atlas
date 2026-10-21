@@ -14,7 +14,8 @@
     "snap": "tsx scripts/snap.ts",
     "stress": "tsx scripts/stress.ts",
     "smoke": "tsx scripts/replay-check.ts",
-    "test:visual": "tsx scripts/visual-check.ts"
+    "test:visual": "tsx scripts/visual-check.ts",
+    "size": "tsx scripts/first-load.ts"
   },
   "dependencies": {
     "d3-delaunay": "^6.0.4",
