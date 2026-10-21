@@ -10,12 +10,15 @@ import { clearEdits, getEdits, revertEdits, setEdits, setEndYear } from '../src/
 import { playRate, replayStart, rulerOf } from '../src/ui/timelineLayout';
 
 describe('清理', () => {
-  it('取整到年、夹在 3000–60000;3000 = 不写;整千年和以前一样', () => {
+  it('取整到年、夹在 1–60000(不到 3000 年的是逐年推演存回来的);3000 = 不写;整千年和以前一样', () => {
     expect(cleanEndYear(undefined)).toBeUndefined();
     expect(cleanEndYear('12000')).toBeUndefined();
     expect(cleanEndYear(Number.NaN)).toBeUndefined();
     expect(cleanEndYear(END_YEAR_DEFAULT)).toBeUndefined();
-    expect(cleanEndYear(1000)).toBeUndefined();
+    expect(cleanEndYear(1000)).toBe(1000);
+    expect(cleanEndYear(2675)).toBe(2675);
+    expect(cleanEndYear(0)).toBe(1);
+    expect(cleanEndYear(-50)).toBe(1);
     expect(cleanEndYear(3000.4)).toBeUndefined();
     expect(cleanEndYear(3000.6)).toBe(3001);
     expect(cleanEndYear(3250)).toBe(3250);
@@ -37,6 +40,7 @@ describe('清理', () => {
     expect(extendedEndYear(59900, 1000)).toBe(END_YEAR_MAX);
     expect(extendedEndYear(END_YEAR_MAX, 100)).toBe(END_YEAR_MAX);
     expect(extendedEndYear(3000, Number.NaN)).toBe(3000);
+    expect(extendedEndYear(2675, 100)).toBe(2775);
   });
 });
 

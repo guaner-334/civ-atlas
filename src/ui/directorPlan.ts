@@ -295,8 +295,8 @@ export function directorPlan(world: World, civ: Civ, input: DirectorInput): Dire
   return { from, to, mode, rate, hold: factor, duration, segments, skipped, clock };
 }
 
-/** 头等大事 / 其余大事 / 小事 */
-function tierOf(e: ChronicleEntry): DirectorTier {
+/** 头等大事 / 其余大事 / 小事(逐年推演"出大事也停"也照它判断,见 stepwisePlan.ts) */
+export function tierOf(e: ChronicleEntry): DirectorTier {
   if (e.importance < MAJOR) return 'minor';
   return entryWeight(e) >= BIG_WEIGHT ? 'big' : 'major';
 }

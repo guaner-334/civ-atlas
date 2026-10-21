@@ -39,7 +39,7 @@
  * - edits.nameMix(可选):整个世界的地名风格,每种语感占几份(edits.ts 文件头"地名风格"),`{ "xianxia": 6, "central": 4 }`;自动时不写。
  *   读档时过 cleanMix:认不出的语感(比如以后的新语感)、不是正数的份数去掉,提示一句;一份都不剩就按自动
  * - edits.endYear(可选):历史推到第几年(edits.ts 文件头"推演年数"),`12000`;3000 年时不写。
- *   读档时过 cleanEndYear:取整到年、夹在 3000–60000(以前只有整千年,照旧读出同一个数);不是数字的按 3000,提示一句
+ *   读档时过 cleanEndYear:取整到年、夹在 1–60000(逐年推演存回的普通世界可以不到 3000 年;以前只有 3000 起的整千年,照旧读出同一个数);不是数字的按 3000,提示一句
  * - edits.frontier(可选):拓荒(edits.ts 文件头"拓荒与起源"、civ/frontier.ts),`{ "spread": 1.5, "expand": 2, "terrain": { "desert": 6 } }`;
  *   都是默认时不写。读档时过 cleanFrontier:吸到最近的一档,认不出的项去掉,提示一句
  * - edits.origins(可选):自己选的文明起源(同上),`{ "pts": [976, 342, 544, 448], "only": true }`;自动时不写。
@@ -55,6 +55,10 @@
  *   读档时过 cleanMonths:认不出的按 12 个月,提示一句
  * - edits.play(可选):逐年推演的进度(edits.ts 文件头"逐年推演的进度"),`{ "year": 825, "commands": [{ "kind": "declare", "a": "polity:c4567#0", "b": "polity:c8123#0", "from": 825 }] }`;
  *   没在逐年推演时不写。读档时过 cleanPlay:年份不对的当没在逐年推演、不合格的命令丢掉,提示一句。读回来按"推到哪年 + 命令串"重新推出同一刻(civ/play.ts 的 playCiv)
+ * - edits.playFrom(可选):这次逐年推演从第几年起(edits.ts 文件头"逐年推演的进度"),`2650`;没在逐年推演、从第 0 年起的不写。
+ *   读档时过 cleanPlayFrom:取整、夹到 [0, play.year],没有 play 的去掉(不提示:只是记录)
+ * - edits.advance(可选):推进设置(edits.ts 文件头"推进设置"),`{ "step": 5, "every": 50, "big": true, "countdown": 0 }`;都是默认时不写。
+ *   读档时过 cleanAdvance:认不出的项按默认,提示一句
  * - view:看这个世界用的投影和中央经线(`{ "projection": "robinson", "center": 120 }`,可选)。
  *   投影名原样存(render/projection.ts 的 ProjectionId,或 "globe"),认不出的由界面当成等距圆柱;
  *   旧存档没有这个字段 = 等距圆柱、中央经线 0°
@@ -66,7 +70,7 @@
  */
 import { DEFAULT_PARAMS, type World, type WorldParams } from './world';
 import { cleanMix, sameMix } from './names/mix';
-import { GENERATOR_CHANGES, GENERATOR_VERSION, MARKS_MAX, MARK_REGIONS_TOTAL, NAME_MAX, aiNameKeys, cleanCivSeed, cleanEndYear, cleanMapRef, cleanMark, cleanPlay, freeMarkId, type AiNameMark, type AuthorMark, type GeneratorChange, type Intervention, type TerrainOp, type Upheaval, type WorldEdits } from './edits';
+import { GENERATOR_CHANGES, GENERATOR_VERSION, MARKS_MAX, MARK_REGIONS_TOTAL, NAME_MAX, aiNameKeys, cleanCivSeed, cleanEndYear, cleanMapRef, cleanMark, cleanPlay, cleanPlayFrom, cleanAdvance, advanceOf, sameAdvance, freeMarkId, type AdvanceSettings, type AiNameMark, type AuthorMark, type GeneratorChange, type Intervention, type TerrainOp, type Upheaval, type WorldEdits } from './edits';
 import { TERRAIN_MAX_OPS, UPHEAVALS_MAX, UPHEAVAL_KINDS, UPHEAVAL_OPS_MAX, cleanTerrainOp, cleanUpheaval } from './terrainEdits';
 import { SKETCH_MAX_STROKES, cleanSketch, cleanSketchStroke, type SketchEdit } from './sketch';
 import type { PlateEdit } from './plateEdits';
@@ -428,6 +432,10 @@ export function makeSave(
   if (months !== undefined) save.edits.months = months;
   const play = cleanPlay(edits.play);
   if (play) save.edits.play = { year: play.year, commands: play.commands.map((x) => ({ ...x })) };
+  const playFrom = cleanPlayFrom(edits.playFrom, play);
+  if (playFrom !== undefined) save.edits.playFrom = playFrom;
+  const advance = cleanAdvance(edits.advance);
+  if (advance) save.edits.advance = { ...advance };
   const t = cleanTitle(title);
   if (t) save.title = t;
   const v = view ? cleanView(view) : null;
@@ -463,6 +471,13 @@ export function saveFileName(save: Pick<SaveFile, 'title' | 'seed'>): string {
 }
 
 const isObj = (x: unknown): x is Record<string, unknown> => typeof x === 'object' && x !== null && !Array.isArray(x);
+
+/** 读进来的推进设置和清理以后的一样(写明了默认值、big 写了 false 的也算一样;多了认不出的项、值被改了的不算) */
+function sameAdvanceRaw(raw: unknown, clean: AdvanceSettings | undefined): boolean {
+  if (!isObj(raw)) return false;
+  const full = advanceOf({ advance: clean }) as unknown as Record<string, unknown>;
+  return Object.entries(raw).every(([k, v]) => k in full && full[k] === v);
+}
 
 /**
  * 读存档:文件内容 → 存档。读不了(不是 JSON、不是本应用的存档、格式比自己新、没有种子)给中文错误;
@@ -649,7 +664,7 @@ export function parseSave(text: string): ParseResult {
   const rawMix = isObj(E.nameMix) ? E.nameMix : null;
   if (E.nameMix !== undefined && (!rawMix || Object.keys(rawMix).some((k) => nameMix?.[k] !== rawMix[k])))
     warnings.push(nameMix ? '地名风格里有认不出来的语感或份数,已去掉' : '地名风格认不出来,按自动起名');
-  // 推演年数:取整到年、夹在 3000–60000;认不出的按 3000 年
+  // 推演年数:取整到年、夹在 1–60000;认不出的按 3000 年
   const endYear = cleanEndYear(E.endYear);
   if (E.endYear !== undefined && (typeof E.endYear !== 'number' || !Number.isFinite(E.endYear))) warnings.push('推演年数认不出来,按 3000 年推演');
   // 拓荒:吸到最近的一档,认不出的项去掉
@@ -675,6 +690,10 @@ export function parseSave(text: string): ParseResult {
     if (!play) warnings.push('逐年推演的进度认不出来,已跳过');
     else if (play.commands.length < raw) warnings.push(`逐年推演的进度里有 ${raw - play.commands.length} 条命令格式不对,已跳过`);
   }
+  const playFrom = cleanPlayFrom(E.playFrom, play);
+  // 推进设置:认不出的项按默认
+  const advance = cleanAdvance(E.advance);
+  if (E.advance !== undefined && !sameAdvanceRaw(E.advance, advance)) warnings.push('推进设置里有认不出来的项,已按默认读');
   const note = versionNote(generator, terrain.length > 0 || !!sketch);
   if (note) warnings.splice(noteAt, 0, note);
 
@@ -703,6 +722,8 @@ export function parseSave(text: string): ParseResult {
       ...(era ? { era } : {}),
       ...(months !== undefined ? { months } : {}),
       ...(play ? { play } : {}),
+      ...(playFrom !== undefined ? { playFrom } : {}),
+      ...(advance ? { advance } : {}),
     },
     check: typeof raw.check === 'string' ? raw.check.slice(0, 64) : '',
     savedAt: typeof raw.savedAt === 'string' && !Number.isNaN(Date.parse(raw.savedAt)) ? raw.savedAt : '',
@@ -976,6 +997,12 @@ export function editsLost(local: SaveFile, incoming: SaveFile): number {
       if (cleanMonths(lv) !== cleanMonths(iv)) n++;
       continue;
     }
+    // 推进设置整个算一处;逐年推演从第几年起跟着进度走,丢没丢已经按进度算过了
+    if (k === 'advance') {
+      if (!sameAdvance(lv, iv)) n++;
+      continue;
+    }
+    if (k === 'playFrom') continue;
     if (Array.isArray(lv)) {
       const has = new Set(Array.isArray(iv) ? iv.map((x) => JSON.stringify(x)) : []);
       n += lv.filter((x) => !has.has(JSON.stringify(x))).length;

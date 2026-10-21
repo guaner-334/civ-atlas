@@ -231,14 +231,16 @@ export interface Continuation {
 
 /**
  * continueCiv 拆成几段推(worker 再推 N 年时用:每段之间报进度、看有没有新的请求要停下)。参数和规矩同 continueCiv;
- * 接不上(有地形大事、要推的年份不比 civ 晚、改了早先的干预……)= null,照常从第 0 年整段重推(generateCiv)。
+ * 接不上(有地形大事、要推的年份不比 civ 晚、改了早先的干预、civ 停在第 0 年以前:第 0 年那一刻的事还没发生,没有能接着用的……)
+ * = null,照常从第 0 年整段重推(generateCiv)。
  * 推演那一步拆开推,推完以后的整理照旧一次做完;不改传进来的 civ
  */
 export function startContinue(world: World, civ: Civ, params: Partial<CivParams> = {}, progress: Progress = () => {}): Continuation | null {
   const p: CivParams = { ...DEFAULT_CIV_PARAMS, ...params };
   const had = civ.interventions ?? [];
   const list = params.interventions === undefined ? had : cleanInterventions(params.interventions);
-  if (!civ.viable || !civ.cultures.length || civ.upheavals?.length || p.upheavals?.length || !(p.endYear > civ.endYear) || !extends_(had, list, civ.endYear)) return null;
+  if (!civ.viable || !civ.cultures.length || !(civ.endYear >= 0) || civ.upheavals?.length || p.upheavals?.length || !(p.endYear > civ.endYear) || !extends_(had, list, civ.endYear))
+    return null;
   const seed = p.civSeed ?? world.params.seed;
   progress('民族推演', 0.85);
   // 起名会写州名(regions.name):换一份州,不改传进来的 civ

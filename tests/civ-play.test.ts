@@ -165,7 +165,7 @@ describe('逐年推演:停在第 T 年下命令,接着推', () => {
   it('读进来的进度先清理:年份不对 = 没在逐年推演;晚于现在、比前一条早、格式不对的命令丢掉', () => {
     const v = (from: number): Intervention => ({ kind: 'unity', a: 'polity:c12#0', from });
     expect(cleanPlay(undefined)).toBeUndefined();
-    expect(cleanPlay({ year: 0, commands: [] })).toBeUndefined();
+    expect(cleanPlay({ year: -1, commands: [] })).toBeUndefined();
     expect(cleanPlay({ year: 12.5, commands: [] })).toBeUndefined();
     const ok = { year: 300, commands: [v(100), v(100), v(200)] };
     expect(cleanPlay(ok)).toBe(ok);
