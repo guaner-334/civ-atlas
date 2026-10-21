@@ -3133,6 +3133,7 @@ export function App() {
     const rect = el.getBoundingClientRect();
     const cx = (sideRoom(rect.width) + rect.width - astRoom(rect.width)) / 2;
     const cy = rect.height / 2;
+    directorHandBack();
     if (getGlobeOn()) return globeApi.current?.zoomBy(f, rect.left + cx, rect.top + cy);
     zoomAt(cx, cy, f);
   };
@@ -3568,8 +3569,6 @@ export function App() {
   const onPointerDown = (e: React.PointerEvent) => {
     touchRef.current();
     stopFly();
-    // 导播放着:一按地图(拖、点、捏合)镜头就交还,导播停在这件事上等着
-    directorHandBack();
     if (getGlobeOn()) return; // 地球仪自己管拖动
     const touch = e.pointerType === 'touch';
     // 第二根手指:开始捏合(编辑地形刚按下第一根手指就跟上第二根 = 想捏合,那一笔不算;已经画了一阵的不管)
@@ -4392,7 +4391,7 @@ export function App() {
   const world = stage === 'world';
   const filmOn = !!filmUi.mode && !!data && world && !draft && !home;
   /** 导播停用:还没有历史、新建、回放世界形成、导出视频 / 长图时(这时时间轴照平常放) */
-  const directorOff = !markable || filmOn;
+  const directorOff = !markable || filmOn || !civ?.viable || !civ.cultures.length;
   // 接着回放世界形成放文明时导播不管(事件小卡照旧)
   const directing = directorOnPref && !directorOff && !civStory;
   const curWorld = currentWorld();
@@ -4510,9 +4509,12 @@ export function App() {
         style={stagePos}
         onPointerDown={onPointerDown}
         onPointerDownCapture={(e) => {
+          // 导播放着:一按地图(拖、点、捏合;地球仪上也算)镜头就交还,导播停在这件事上等着
+          directorHandBack();
           onTouchDownCapture(e);
           onMarkDownCapture(e);
         }}
+        onWheelCapture={directorHandBack}
         onPointerMove={onPointerMove}
         onPointerMoveCapture={(e) => {
           mouseAt.current = [e.clientX, e.clientY];

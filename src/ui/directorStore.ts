@@ -246,19 +246,22 @@ function sync(year: number) {
   const at = directorAt(p, E.t);
   if (at) {
     const seg = p.segments[at.seg];
-    const k = Math.max(0, at.item);
-    const it = seg.items[k];
     if (at.seg !== E.seg) {
       E.seg = at.seg;
       E.lastShot = seg.shot;
       fly(seg.shot);
     }
     E.lastEnd = seg.at + seg.hold;
+    // 在放的那件;两件之间空着(固定速度时等下一件发生)= 刚放完的那件接着留着;镜头还在飞 = 字幕还没出来(上一段的多留着)
+    let k = at.item;
+    if (k < 0) for (let i = seg.items.length - 1; i >= 0 && k < 0; i--) if (seg.items[i].at <= E.t) k = i;
+    if (k < 0) return;
+    const it = seg.items[k];
     if (k !== E.item || S.shown?.cap !== it) {
       E.item = k;
       patch({ shown: { cap: it, left: seg.items.length - 1 - k, next: k + 1 < seg.items.length || at.seg + 1 < p.segments.length, peek: false } });
     }
-    setProgress(at.item < 0 ? 0 : Math.min(1, Math.max(0, (E.t - it.at) / Math.max(1e-6, it.hold))));
+    setProgress(Math.min(1, Math.max(0, (E.t - it.at) / Math.max(1e-6, it.hold))));
     return;
   }
   E.seg = -1;
@@ -324,20 +327,15 @@ export function takeDirectorStart(): boolean {
 // ---------------------------------------------------------------------------
 // 按钮
 
-/** 下一件:这一段里的下一件,没有就下一段 */
+/** 下一件:这一段里还没出字幕的下一件,没有就下一段的第一件(镜头这时才起飞,字幕马上换) */
 export function directorNextItem() {
   const p = E.plan;
   if (!p || S.held) return;
   const at = directorAt(p, E.t);
-  let to = -1;
-  if (at) {
-    const seg = p.segments[at.seg];
-    const k = Math.max(0, at.item) + 1;
-    if (k < seg.items.length) to = seg.items[k].at;
-  }
+  let to = at ? (p.segments[at.seg].items.find((it) => it.at > E.t + 1e-9)?.at ?? -1) : -1;
   if (to < 0) {
     const n = directorNext(p, E.t);
-    if (n >= 0) to = p.segments[n].at;
+    if (n >= 0) to = p.segments[n].items[0].at;
   }
   if (to >= 0) E.t = Math.max(E.t, to);
 }

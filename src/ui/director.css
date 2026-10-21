@@ -10,6 +10,10 @@
   overflow: hidden;
   pointer-events: none;
 }
+/* 地球仪铺满舞台、排在标签层后面:标记要浮在球上面(和 .ev-pins 一样) */
+.app.globe-on .dr-pins {
+  z-index: 1;
+}
 .dr-pin {
   position: absolute;
   left: 0;

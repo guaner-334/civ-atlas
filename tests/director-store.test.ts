@@ -164,6 +164,34 @@ describe('导播放到哪了', () => {
     expect(getDirector().shown).toBeNull();
   });
 
+  it('镜头还在飞时字幕不换成这一段的;一段里字幕只往后换(两件之间空着时留着刚放完的那件)', () => {
+    for (const pace of [AUTO, FAST, { mode: 'fixed', rate: playRate(1, end) } as DirectorPace]) {
+      const plan = maker(pace)(2400);
+      start(2400, pace);
+      const dt = 1 / 60;
+      let t = 0;
+      let seg = -1;
+      let best = -1;
+      for (let i = 0; i < 60 * 60; i++) {
+        const y = directorAdvance(dt);
+        if (y === null) break;
+        setCivTime({ year: y });
+        t += dt;
+        const at = directorAt(plan, t);
+        if (!at) continue;
+        const s = plan.segments[at.seg];
+        if (at.seg !== seg) [seg, best] = [at.seg, -1];
+        const idx = s.items.findIndex((it) => it.entry.id === getDirector().shown?.cap.entry.id);
+        if (t < s.items[0].at - 1e-3) expect(idx).toBe(-1);
+        else if (t > s.items[0].at + 1e-3) {
+          expect(idx).toBeGreaterThanOrEqual(best);
+          best = idx;
+        }
+      }
+      directorReset();
+    }
+  });
+
   it('点略过的一条:字幕换成它、停着等你、镜头飞过去', () => {
     start(2645, FAST);
     run(3);
