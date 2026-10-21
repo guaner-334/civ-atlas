@@ -97,6 +97,19 @@ export default defineConfig({
       },
     },
     precompress(),
+    // 署名放在每个文件的最开头:压缩时 import 和几个小函数会被挪到署名前面(主程序 import 首页那一份的名字很长,署名就落到了几千字以后)
+    {
+      name: 'banner-first',
+      apply: 'build',
+      enforce: 'post',
+      generateBundle(_o, bundle) {
+        for (const c of Object.values(bundle)) {
+          if (c.type !== 'chunk') continue;
+          const m = /\/\*! 文明与地图 [^*]*\*\//.exec(c.code);
+          if (m && m.index > 0) c.code = m[0] + c.code.slice(0, m.index) + c.code.slice(m.index + m[0].length);
+        }
+      },
+    },
     // 页面里最先跑的一小段(src/ui/homeStart.ts 的 bootScript):打开的不是首页时,主程序(App)和页面的代码同时开始下载
     {
       name: 'boot-script',
