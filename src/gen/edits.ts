@@ -216,17 +216,17 @@
  * 和改名一样只是记下来:不改变世界、不参与推演、和生成器版本无关;年份(干预、标记、网址)照旧按第几年存。
  * 随时能改,改了不记撤销步。字段、写法见 era.ts。
  *
- * ## 游戏模式的进度
+ * ## 逐年推演的进度
  *
- * WorldEdits.play(可选,没有 = 不在玩):游戏模式一回回往下推的进度 —— 推到第几年年初(year),一路下过的命令(commands)。
- * 每回合停在第 year 年年初:第 year 年以前的事都推完了,这一年的事一件还没发生;命令就下在这一刻(from = year),
- * 再接着推几年,停在下一回合的年初(civ/play.ts 的 playTurn)。命令的格式和干预一样(上面"干预"那一节),
+ * WorldEdits.play(可选,没有 = 没在逐年推演):逐年推演一步步往下推的进度 —— 推到第几年年初(year),一路下过的命令(commands)。
+ * 每一步停在第 year 年年初:第 year 年以前的事都推完了,这一年的事一件还没发生;命令就下在这一刻(from = year),
+ * 再接着推几年,停在下一步的年初(civ/play.ts 的 playTurn)。命令的格式和干预一样(上面"干预"那一节),
  * 推演时接在作者的干预后面(playInterventions):停下来下命令、接着推,和带着同样的命令从第 0 年一口气推完结果一样
  * (所以读档、换一台设备都能照"推到哪年 + 命令串"重新推出同一个世界)。
  * 命令串里的先后就是序号:同一年下的几条按先后执行(和干预一样,先下的先生效);from 只增不减、不晚于 year。
  * 命令只能下在"现在"(issueCommands:from 不是 year 的不收,不影响推演)。
  * 读进来的先过 cleanPlay(年份不是正整数 = 没有这一项;命令按 cleanIntervention 清理,晚于 year、比前一条早的丢掉)。
- * 不在玩的不写,不写时一切和没有这一项一样。
+ * 没在逐年推演的不写,不写时一切和没有这一项一样。
  *
  * ## 月份
  *
@@ -441,11 +441,11 @@ export interface WorldEdits {
   era?: Era;
   /** 一年几个月(见文件头"月份");0 = 只写年;没有 = 12 */
   months?: number;
-  /** 游戏模式的进度(见文件头"游戏模式的进度");没有 = 不在玩 */
+  /** 逐年推演的进度(见文件头"逐年推演的进度");没有 = 没在逐年推演 */
   play?: PlayState;
 }
 
-/** 游戏模式的进度(见文件头"游戏模式的进度") */
+/** 逐年推演的进度(见文件头"逐年推演的进度") */
 export interface PlayState {
   /** 推到第几年年初(正整数):这一年以前的事都推完了,这一年的事一件还没发生 */
   year: number;
@@ -1220,7 +1220,7 @@ export function sameInterventions(a: readonly Intervention[], b: readonly Interv
 }
 
 /**
- * 游戏模式的进度清理(读档、推演前用;见文件头"游戏模式的进度"):年份不是 1–INTERVENTION_YEAR_MAX 的整数 = undefined(不在玩);
+ * 逐年推演的进度清理(读档、推演前用;见文件头"逐年推演的进度"):年份不是 1–INTERVENTION_YEAR_MAX 的整数 = undefined(没在逐年推演);
  * 命令逐条过 cleanIntervention,不合格的、晚于 year 的、比前一条早的丢掉。全都合格时返回原对象
  */
 export function cleanPlay(raw: unknown): PlayState | undefined {
@@ -1239,7 +1239,7 @@ export function cleanPlay(raw: unknown): PlayState | undefined {
 }
 
 /**
- * 在游戏进度的"现在"(play.year 年初)下几条命令:清理过、from 正是 play.year 的收下,接在命令串后面;
+ * 在逐年推演的进度的"现在"(play.year 年初)下几条命令:清理过、from 正是 play.year 的收下,接在命令串后面;
  * 早于现在的(过去的事改不了)、晚于现在的、格式不对的不收(rejected,原样交回),不影响推演。返回新的进度(原来的不改)
  */
 export function issueCommands(play: PlayState, commands: readonly unknown[]): { play: PlayState; accepted: Intervention[]; rejected: unknown[] } {
@@ -1253,7 +1253,7 @@ export function issueCommands(play: PlayState, commands: readonly unknown[]): { 
   return { play: { year: play.year, commands: [...play.commands, ...accepted] }, accepted, rejected };
 }
 
-/** 推演用的干预列表:作者的干预后面接上游戏模式下过的命令(不在玩 = 作者的干预本身) */
+/** 推演用的干预列表:作者的干预后面接上逐年推演时下过的命令(没在逐年推演 = 作者的干预本身) */
 export function playInterventions(interventions: readonly Intervention[], play: PlayState | undefined): readonly Intervention[] {
   return play?.commands.length ? [...interventions, ...play.commands] : interventions;
 }
