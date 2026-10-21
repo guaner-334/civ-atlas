@@ -28,6 +28,7 @@ import { NameEdit } from './NameEdit';
 import { interventionText, nameAt } from './Interventions';
 import { queueIntervention } from './pendingStore';
 import { nextYear, useStepwise } from './stepwiseStore';
+import { STEP_LOOK_WHY, useStepView } from './Stepwise';
 import { cityEntries, entriesUpTo, ownerSpans, ownersOf, popPeak, popSeries, type OwnerSpan } from './panelData';
 import {
   Act,
@@ -100,7 +101,10 @@ export function CityPanel({ civ, raw, raster, world, id, year, names }: DetailPr
     const P = civ.polities[q];
     return P && polityAlive(P, y) ? P : undefined;
   })();
-  const moveWhy = !then.built
+  const look = useStepView().look;
+  const moveWhy = sw.on && look !== null
+    ? STEP_LOOK_WHY
+    : !then.built
     ? '还没建城'
     : then.ruined
       ? '城已毁'

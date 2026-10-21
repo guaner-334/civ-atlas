@@ -21,13 +21,17 @@ import { setCivTime } from '../src/ui/civView';
 import { REVIEW_WEIGHT, STEP_EASE_MIN, STEP_RATE, nextStep, reviewItems, stepEase, stepPause, stepRate } from '../src/ui/stepwisePlan';
 import {
   _resetStepwise,
+  clearFresh,
   enterStepwise,
   enterStop,
+  getSeen,
   getStepwise,
   holdClock,
   nextYear,
   passStop,
   resumeFromStop,
+  rewindKeepPref,
+  rewoundTo,
   saveBackEdits,
   stepArrived,
   stepSent,
@@ -92,6 +96,41 @@ describe('这一段的状态', () => {
     expect(getStepwise().since).toBe(25);
     expect(getStepwise().due).toBeNull();
     expect(getStepwise().stop).toBeNull();
+  });
+
+  it('往回翻按停过的那几年切段;从某一年重新演绎:"现在"就是那一年,停着等接着演绎(不倒计时),这一段从那一年数起', () => {
+    enterStepwise(2650, 2650);
+    expect(getStepwise().marks).toEqual([2650]);
+    expect(getSeen()).toBe(2650);
+    enterStop({ from: 2650, to: 2675, why: 'every', big: [], items: [] }, 60);
+    resumeFromStop();
+    stepArrived(2700, { why: 'every', big: [] });
+    enterStop({ from: 2675, to: 2700, why: 'every', big: [], items: [] }, 60);
+    expect(getStepwise().marks).toEqual([2650, 2675]);
+    expect(getSeen()).toBe(2700);
+    // 往回翻到第 2667 年、从那里重新演绎
+    rewoundTo(2650, 2667);
+    const s = getStepwise();
+    expect([s.start, s.since, s.now]).toEqual([2650, 2667, 2667]);
+    expect([s.stop, s.clock, s.busy, s.due, s.page]).toEqual([null, null, null, null, null]);
+    expect(s.fresh).toBe(true);
+    expect(s.marks).toEqual([2650]);
+    expect(getSeen()).toBe(2667);
+    expect(nextYear()).toBe(2667);
+    clearFresh();
+    expect(getStepwise().fresh).toBe(false);
+    // 倒回到起演那年以前:起演那年跟着变,以前停过的都在这一年以后
+    rewoundTo(2640, 2640);
+    expect([getStepwise().start, getStepwise().since]).toEqual([2640, 2640]);
+    expect(getStepwise().marks).toEqual([]);
+    passStop(2665);
+    expect(getStepwise().marks).toEqual([2665]);
+    // 打开别的逐年推演的世界:从头来
+    enterStepwise(100, 300);
+    expect(getStepwise().marks).toEqual([100]);
+    expect(getStepwise().fresh).toBe(false);
+    // "先把现在这份存回推演模式"默认开(浏览器里记不了的时候也是)
+    expect(rewindKeepPref()).toBe(true);
   });
 });
 

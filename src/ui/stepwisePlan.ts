@@ -11,9 +11,12 @@
  *   灭了大国……;要给走这一步以前的编年史才看得出来),或者这一步里有一件头等大事的(仗里亡了国)。
  *   干预、地形大事不算:是作者自己安排的,本来就知道;刚停下来加的干预下一步就生效,算进去的话每加一次干预就又停一次。
  * - 同一步里几样都碰上了,按 到头 > 每隔几年 > 出大事 说。
+ * - 往回翻(stepPage):时间轴只放一段,以前的按这次演绎停过的那几年切段,再往前按"每隔几年"切到第 0 年;
+ *   从某一年重新演绎时弹窗里"不要了的历史"列几件大事的短句(rewindBrief)。
  */
 import type { ChronicleEntry } from '../gen/civ/chronicle';
 import type { Civ } from '../gen/civ/types';
+import { polityShortTitle, polityTierAt } from '../gen/civ/growth';
 import type { World } from '../gen/world';
 import type { Era } from '../gen/era';
 import { END_YEAR_MAX, type Advance } from '../gen/edits';
@@ -136,6 +139,97 @@ export const STEP_DOT_IMPORTANCE = 2;
  */
 export const REVIEW_WEIGHT = 25;
 export const REVIEW_MAX = 12;
+
+// ---------------------------------------------------------------------------
+// 往回翻:时间轴只放一段,两头「‹ ›」一段一段翻
+
+/** 时间轴上的一段([from, to] 年);current = "现在"这一段(停一下的那一段 / 正在往下走的那一段) */
+export interface StepPage {
+  from: number;
+  to: number;
+  current: boolean;
+}
+
+/**
+ * 第 y 年落在哪一段:在"现在"这一段(cur,含两头)里 = cur;更早的按这次演绎停过的那几年(marks:起演那年、每次停下 / 接着走的那年、
+ * 倒回的那年)切开,两次之间、最早那次以前再按"每隔几年"(every)切:一段最长 every 年,最早到第 0 年
+ */
+export function stepPage(y: number, cur: { from: number; to: number }, marks: readonly number[], every: number): StepPage {
+  if (y >= cur.from) return { from: cur.from, to: cur.to, current: true };
+  const e = Math.max(1, Math.round(every));
+  const ms = [...new Set(marks.filter((m) => Number.isFinite(m) && m >= 0 && m < cur.from))].sort((a, b) => a - b);
+  ms.push(cur.from);
+  const t = Math.max(0, y);
+  let i = -1;
+  for (let k = 0; k < ms.length && ms[k] <= t; k++) i = k;
+  // 最早那次以前:从它往回每 every 年一段
+  const a = i < 0 ? ms[0] : ms[i];
+  const from = a + Math.floor((t - a) / e) * e;
+  const to = i < 0 ? from + e : Math.min(from + e, ms[i + 1]);
+  return { from: Math.max(0, from), to, current: false };
+}
+
+/** 上一段(「‹」;已经到第 0 年 = null) */
+export function prevPage(p: StepPage, cur: { from: number; to: number }, marks: readonly number[], every: number): StepPage | null {
+  return p.from <= 0 ? null : stepPage(p.from - 0.5, cur, marks, every);
+}
+
+/** 下一段(「›」;已经是"现在"这一段 = null) */
+export function nextPage(p: StepPage, cur: { from: number; to: number }, marks: readonly number[], every: number): StepPage | null {
+  return p.current ? null : stepPage(p.to, cur, marks, every);
+}
+
+/** 一国在第 y 年的简称("大霄王朝" → "大霄";地图上放不下全称时写的那个) */
+function shortAt(civ: Civ, id: number | undefined, y: number): string {
+  const p = id === undefined ? undefined : civ.polities[id];
+  if (!p) return '';
+  return polityShortTitle(p, Math.max(0, polityTierAt(p, y)), y) || p.name;
+}
+
+/** 一件事写成几个字("纳巴斯坦自立""大霄灭大康""有鹰代有桂");说不成短句的取正文第一截 */
+function briefOf(civ: Civ, e: ChronicleEntry): string {
+  const [a, b] = e.polities;
+  const y = e.year;
+  const A = shortAt(civ, a, y);
+  const B = shortAt(civ, b, y);
+  if (e.tag === '分' && A) return `${A}自立`;
+  if (e.tag === '复' && A) return `${A}复国`;
+  if (e.tag === '亡' && A) return B ? `${B}灭${A}` : `${A}亡`;
+  if (e.tag === '朝' && a !== undefined) {
+    const old = shortAt(civ, a, y - 1 / 512);
+    const now = shortAt(civ, a, y + 1 / 512);
+    if (old && now && old !== now) return `${now}代${old}`;
+  }
+  if (e.tag === '战') {
+    // 仗里亡了国的:"大霄灭大康";不然 "甲伐乙"
+    const fall = e.children?.find((c) => c.tag === '亡' && c.polities.length > 1);
+    if (fall) return briefOf(civ, fall);
+    if (A && B) return `${A}伐${B}`;
+  }
+  const head = e.text.split(/[,，;；。]/)[0];
+  return head.length > BRIEF_MAX ? `${head.slice(0, BRIEF_MAX)}…` : head;
+}
+
+/** 说不成短句、取正文第一截的,最多几个字 */
+const BRIEF_MAX = 14;
+
+/**
+ * 从某一年重新演绎时,"不要了的历史"那一行列的几件:[from, to) 这一段里分量最重的 max 件(和停一下的卡片一样挑:分量不小于 REVIEW_WEIGHT;
+ * 干预、地形大事不算),按先后,一件写成几个字。entries = fullChronicle 那一份
+ */
+export function rewindBrief(civ: Civ, from: number, to: number, entries: readonly ChronicleEntry[], max = 3): string[] {
+  const list = entries
+    .filter((e) => e.year >= from && e.year < to && e.kind !== 'intervene' && e.kind !== 'upheaval' && entryWeight(e) >= REVIEW_WEIGHT)
+    .sort((x, y) => entryWeight(y) - entryWeight(x) || x.year - y.year || x.id - y.id);
+  // 同一件事有两条的(仗里亡了国,亡国那条又单列)只算一件
+  const pick: { e: ChronicleEntry; s: string }[] = [];
+  for (const e of list) {
+    if (pick.length >= max) break;
+    const s = briefOf(civ, e);
+    if (s && !pick.some((x) => x.s === s)) pick.push({ e, s });
+  }
+  return pick.sort((x, y) => x.e.year - y.e.year || x.e.id - y.e.id).map((x) => x.s);
+}
 
 /** 停一下时卡片里列的这一段([from, to))的大事,按先后。entries = fullChronicle 那一份 */
 export function reviewItems(world: World, civ: Civ, from: number, to: number, entries: readonly ChronicleEntry[], era?: Era | null): StepReviewItem[] {

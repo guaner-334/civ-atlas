@@ -12,7 +12,7 @@
  *
  * 逐年推演(Stepwise.tsx):只在"现在"干预 —— 生效年份换成"第 N 年年初(下一步)"一块,不能加减;按钮写「加入」,
  * 加的进「下一步生效的干预」(同一个单子),下一步开始时一起生效,没有「全部推演」;单子里有的写"已在下一步生效的干预里"。
- * 手机底部多一行"已加几条干预"(点开看每一条,能删)和「接着演绎」。
+ * 手机底部多一行"已加几条干预"(点开看每一条,能删)和「接着演绎」。往回看以前的一年时干预都变淡(从那一年改要先「从这里重新演绎」)。
  */
 import { useMemo, useState } from 'react';
 import type { Civ } from '../gen/civ/types';
@@ -21,7 +21,7 @@ import { ownersAt, type Owners } from '../gen/civ/timeline';
 import { END_YEAR_MAX, cleanPlay, playInterventions, polityKey, settlementKey, type Intervention, type InterventionKind } from '../gen/edits';
 import { useNarrow } from './device';
 import { nextYear, useStepwise } from './stepwiseStore';
-import { STEP_QUEUED, StepCommandFoot, StepEffectTime } from './Stepwise';
+import { STEP_LOOK_WHY, STEP_QUEUED, StepCommandFoot, StepEffectTime, useStepView } from './Stepwise';
 import { useEdits } from './editsStore';
 import { cityStands, defaultYear, interventionText, nameAt, neighborsAt, polityOrders, setPolityPick, type PolityPick } from './Interventions';
 import { setPanelTab } from './panelStore';
@@ -50,6 +50,8 @@ export function CommandPage({ civ, id, year }: { civ: Civ; id: number; year: num
   // 逐年推演:只在"现在"干预,生效年份固定是下一步开始的那一年(不能加减),下的令进「下一步生效的干预」
   const sw = useStepwise();
   const step = sw.on;
+  // 往回看以前的一年:只能在"现在"干预,干预都变淡
+  const look = useStepView().look;
   const p = civ.polities[id];
   const key = polityKey(civ, id);
   // 生效年份的范围:立国那年 … 亡国前一年(至多结束年份前一年;逐年推演的历史停在某一年年初之前,结束年份不是整数,按整年算)
@@ -93,6 +95,7 @@ export function CommandPage({ civ, id, year }: { civ: Civ; id: number; year: num
 
   /** 这一条命令为什么用不了(能用 = null) */
   const why = (k: Cmd): string | null => {
+    if (step && look !== null) return STEP_LOOK_WHY;
     if (!valid) return `生效年份要在${spaced(yearSpanAt(lo, hi, era))}之间`;
     if (!alive) return y < p.founded ? `${yearAt(y, era)}还没立国` : `${yearAt(y, era)}已亡`;
     if (timed(k) && limited && !ui.valid) return `持续到的年份要在${spaced(yearSpanAt(ui.lo, ui.hi, era))}之间`;

@@ -10,6 +10,9 @@
  *   卡片列出这一段的大事(和导播放的一样挑)、倒计时,倒计时走完、点「接着演绎」接着走。这一段一件大事也没有就不停(接着走)。
  * - 干预:国家 / 州 / 城的干预先进单子(pendingStore.ts,和推演模式的待推演是同一个单子),下一步开始时一起交给 worker,
  *   生效年份 = 下一步从哪年起(nextYear)。打开干预页时倒计时停住,点「接着演绎」再走。
+ * - 往回看:时间轴两头「‹ ›」一段一段翻(page、marks;怎么切段见 stepwisePlan.ts 的 stepPage),拖、跳年、点编年史也能回到以前任一年;
+ *   比放到过的最远处(seen)早就是在往回看,倒计时停住。从那一年重新演绎(App 的 rewind):那一年和以后的不要了,
+ *   "现在"回到那一年,停着等点「接着演绎」(fresh),这一段从那一年数起。
  *
  * 不碰 DOM;算一步、存回推演模式、从某一年开始由 App 实现(setStepwiseActions)。
  */
@@ -43,7 +46,9 @@ export type StepDialog =
   /** 中途改推进设置 */
   | { kind: 'settings' }
   /** 存回推演模式 */
-  | { kind: 'save' };
+  | { kind: 'save' }
+  /** 从第 year 年重新演绎之前先问一句 */
+  | { kind: 'rewind'; year: number };
 
 export interface StepwiseState {
   /** 当前世界在逐年推演 */
@@ -64,9 +69,17 @@ export interface StepwiseState {
   cur: number;
   clock: StepClock | null;
   dialog: StepDialog | null;
+  /** 往回翻时时间轴放的那一段从哪年起(「‹ ›」翻到的;null = 跟着年份走:"现在"这一段,或年份落在的那一段) */
+  page: number | null;
+  /** 这次演绎停过的那几年(起演那年、每次停下 / 不停接着走的那年、倒回的那年;往回翻时按它切段,见 stepwisePlan.ts 的 stepPage) */
+  marks: readonly number[];
+  /** 刚从某一年重新演绎、还没接着走:时间轴上面写"第 N 年停着,从这一年重新演绎"(手机是一张卡片),不倒计时 */
+  fresh: boolean;
+  /** 手机:停一下的卡片收起来了(看时间轴、往回翻);点"这一段的大事"拉回来 */
+  down: boolean;
 }
 
-const INIT: StepwiseState = { on: false, start: 0, since: 0, now: 0, busy: null, due: null, stop: null, cur: -1, clock: null, dialog: null };
+const INIT: StepwiseState = { on: false, start: 0, since: 0, now: 0, busy: null, due: null, stop: null, cur: -1, clock: null, dialog: null, page: null, marks: [], fresh: false, down: false };
 
 let S: StepwiseState = INIT;
 const subs = new Set<() => void>();
@@ -138,6 +151,32 @@ export function subscribeStepHead(f: () => void): () => void {
 }
 
 // ---------------------------------------------------------------------------
+// 放到过的最远处:播放头往下走到过哪(停一下、打开、倒回时 = "现在")。
+// 时间轴的年份比它早(拖回去、「‹」翻回去、跳年、点编年史)就是在往回看(Stepwise.tsx 的 useStepView);
+// 往下走时播放头比算好的"现在"慢一两年,平常暂停不算往回看
+
+let seen = 0;
+const seenSubs = new Set<() => void>();
+function putSeen(y: number) {
+  if (y === seen) return;
+  seen = y;
+  seenSubs.forEach((f) => f());
+}
+/** 播放头往下走到了 y(只往后挪) */
+export function markSeen(y: number) {
+  if (y > seen) putSeen(y);
+}
+export function getSeen(): number {
+  return seen;
+}
+export function subscribeSeen(f: () => void): () => void {
+  seenSubs.add(f);
+  return () => {
+    seenSubs.delete(f);
+  };
+}
+
+// ---------------------------------------------------------------------------
 // 用的人正按着地图(拖、捏合、滚轮):这一会儿世界先不往下走,算好的一步等松开再换上(换历史要重画整张地图,拖着的时候会卡一下)
 
 let gesture = false;
@@ -180,6 +219,8 @@ export interface StepwiseActions {
   start(year: number, drop: readonly number[], adv: Advance): void;
   /** 存回推演模式:asNew = 存成新世界(不然覆盖原来那个);open = 存好以后打开它 */
   saveBack(asNew: boolean, open: boolean): void;
+  /** 从第 year 年重新演绎(那一年和以后的不要了;keep = 先把现在这份存回推演模式,存成一个新世界) */
+  rewind(year: number, keep: boolean): void;
 }
 
 let actions: StepwiseActions | null = null;
@@ -203,7 +244,40 @@ export function leaveStepwise() {
  * 开着的开始设置、存回的窗口照留(换世界由 leaveStepwise 收)
  */
 export function enterStepwise(start: number, now: number) {
-  patch({ on: true, start, since: now, now, busy: null, due: null, stop: null, cur: -1, clock: null, dialog: S.dialog?.kind === 'start' ? null : S.dialog });
+  const dialog = S.dialog?.kind === 'start' || S.dialog?.kind === 'rewind' ? null : S.dialog;
+  patch({ on: true, start, since: now, now, busy: null, due: null, stop: null, cur: -1, clock: null, dialog, page: null, marks: [start], fresh: false, down: false });
+  putSeen(now);
+}
+
+/**
+ * 从第 year 年重新演绎了(进度已经换成那一年年初;start = 这次从第几年起演绎,倒回到起演那年以前时跟着变):
+ * "现在"就是这一年,这一段从这一年数起(问题里定的:重新算 every 年再停);停着、不倒计时,等点「接着演绎」。
+ * 以前停过的那几年(这一年以前的)留着,往回翻时照它们切段
+ */
+export function rewoundTo(start: number, year: number) {
+  const marks = [...new Set([...S.marks, start])].filter((m) => m >= start && m < year).sort((a, b) => a - b);
+  patch({ on: true, start, since: year, now: year, busy: null, due: null, stop: null, cur: -1, clock: null, dialog: null, page: null, marks, fresh: true, down: false });
+  putSeen(year);
+}
+
+/** 接着走了:不再是"刚倒回来停着" */
+export function clearFresh() {
+  if (S.fresh) patch({ fresh: false });
+}
+
+/** 时间轴放哪一段(「‹ ›」翻的;null = 跟着年份走) */
+export function setStepPage(from: number | null) {
+  patch({ page: from });
+}
+
+/** 手机:停一下的卡片收起 / 拉回来 */
+export function setStepDown(down: boolean) {
+  patch({ down });
+}
+
+/** 这一段从第 at 年数起了:记下来(往回翻时按它切段) */
+function withMark(at: number): readonly number[] {
+  return S.marks.includes(at) ? S.marks : [...S.marks, at].sort((a, b) => a - b);
 }
 
 /** 一步交出去了:从第 from 年起,照 plan 走;commands = 随这一步交出去的干预(还在算时存回推演模式也要带上) */
@@ -237,19 +311,20 @@ export function nextYear(s: StepwiseState = S): number {
 
 /** 播放头走到"现在"、这一年该停:停下来看这一段的大事;countdown = 倒计时几秒(0 = 不倒计时) */
 export function enterStop(stop: StepStop, countdown: number) {
-  patch({ stop, cur: -1, due: null, clock: countdown > 0 ? { total: countdown, left: countdown, run: true, why: null } : null });
+  patch({ stop, cur: -1, due: null, down: false, clock: countdown > 0 ? { total: countdown, left: countdown, run: true, why: null } : null });
+  putSeen(stop.to);
 }
 
 /** 这一段一件大事也没有:不停,这一年当作新的一段的开头,接着走 */
 export function passStop(at: number) {
-  patch({ since: at, due: null });
+  patch({ since: at, due: null, marks: withMark(at) });
 }
 
 /** 接着演绎:从停下的那一年起数下一段(App 接着放、接着算) */
 export function resumeFromStop() {
   const st = S.stop;
   if (!st) return;
-  patch({ stop: null, cur: -1, clock: null, since: st.to });
+  patch({ stop: null, cur: -1, clock: null, since: st.to, marks: withMark(st.to), down: false, page: null });
 }
 
 /** 卡片里正在看第几件 */
@@ -295,7 +370,27 @@ export function saveBackEdits(edits: WorldEdits, queued: readonly Intervention[]
   return stepwiseToNormal(now.length ? { ...edits, play: issueCommands(play, now).play } : edits);
 }
 
+// ---------------------------------------------------------------------------
+// 从这一年重新演绎时"先把现在这份存回推演模式"开不开:默认开,记住上次的选择(记在浏览器里)
+
+const KEEP_KEY = 'wenming-ditu:rewind-keep';
+export function rewindKeepPref(): boolean {
+  try {
+    return localStorage.getItem(KEEP_KEY) !== '0';
+  } catch {
+    return true;
+  }
+}
+export function setRewindKeepPref(on: boolean) {
+  try {
+    localStorage.setItem(KEEP_KEY, on ? '1' : '0');
+  } catch {
+    /* 隐私模式:只管这一次 */
+  }
+}
+
 /** 单测用 */
 export function _resetStepwise() {
   S = INIT;
+  seen = 0;
 }

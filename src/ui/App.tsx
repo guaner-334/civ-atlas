@@ -62,14 +62,15 @@ import { CivTimeline } from './CivTimeline';
 import { EventPins, type WorldToClient } from './EventPins';
 import { DirectorCaption, DirectorEngine, DirectorPanels, DirectorPin } from './Director';
 import { directorHandBack, setDirectorMode, useDirectorFly, useDirectorOn } from './directorStore';
-import { StepDock, StepPins, StepReviewSheet, StepTimeline, StepwiseEngine, stepwiseNudge, stepwiseToggle } from './Stepwise';
-import { SAVE_SUFFIX, StepSaveDialog, StepStartDialog } from './StepwiseDialogs';
+import { StepDock, StepPins, StepReviewSheet, StepTimeline, StepwiseEngine, stepwiseNudge, stepwiseToggle, useStepCard, useStepReplay, useStepStrip } from './Stepwise';
+import { SAVE_SUFFIX, StepRewindDialog, StepSaveDialog, StepStartDialog } from './StepwiseDialogs';
 import {
   enterStepwise,
   getStepGesture,
   getStepwise,
   leaveStepwise,
   onStepGestureEnd,
+  rewoundTo,
   setStepGesture,
   saveBackEdits,
   setStepwiseActions,
@@ -78,7 +79,7 @@ import {
   useStepwiseOn,
   useStepwiseStopped,
 } from './stepwiseStore';
-import { startStepwise } from '../gen/stepwise';
+import { rewindStepwise, startStepwise } from '../gen/stepwise';
 import { HistoryBook } from './HistoryBook';
 import { AiSettingsHost } from './AiSettings';
 import { AccountHost, ShareGone, SharedHint, closeTrash, openLogin, setGoHome, useTrashView } from './AccountDialogs';
@@ -154,7 +155,7 @@ import { baseReady } from './thumbPrep';
 import { baseRegions, civAtEra, dropComposed, eraData, eraIndex, eraMapsOf, eraReady, eraShown, patchKey, reuseRegions, useEraIndex, withHistory, type EraMaps } from './eras';
 import { sameSketch, type SketchEdit } from '../gen/sketch';
 import { clearEditHistory, clearEdits, getEdits, putEditsQuiet, putPlay, removeEditsBatch, removeIntervention, removeUpheaval, setEditGate, setEdits, setHistoryGate, undoTerrainOp, useEdits } from './editsStore';
-import { eraText, spaced, yearAt } from '../gen/era';
+import { eraText, spaced, yearAt, yearFull } from '../gen/era';
 import { redoLastEdit, undoLastEdit } from './undo';
 import { useShortcuts } from './useShortcuts';
 import { openJump } from './JumpYear';
@@ -320,7 +321,7 @@ import { NewWorldDialog, type NewWorldInit, type NewWorldMode, type NewWorldStar
 import { closeUpheaval, getUpUi, setUpRunner, takeUpPreview, undoUpOp, upCancel, upClick, upDown, upMove, upUp, upheavalName, useUpUi } from './upheavalStore';
 import { UpheavalHint, UpheavalOverlay } from './UpheavalPanel';
 import { PendingTray } from './PendingTray';
-import { getPending, takePendingBatch } from './pendingStore';
+import { getPending, removePending, takePendingBatch } from './pendingStore';
 import { dismissing, tookDismissClick } from './dismissClick';
 import { makeFlagView, setFlagView, useFlagPreview } from './flagStore';
 import { setFilmSource, setFilmViewport } from './filmSource';
@@ -993,6 +994,11 @@ export function App() {
   const civPlay = useRef<PlayState | undefined>(undefined);
   /** 逐年推演的世界推好以后要不要马上往下走(刚点了「开始演绎」= true;从我的世界打开的停在"现在") */
   const stepAuto = useRef(false);
+  /**
+   * 刚从某一年重新演绎、正按新的进度推到那一年(界面已经换成停在那一年):推好以后不再从头进逐年推演(停着等「接着演绎」,
+   * 推的时候点了播放的接着走),顶上提示"已回到第 N 年"(先存了一份的写存成了哪个世界)
+   */
+  const rewindNote = useRef<{ year: number; now: number; saved: { id: string; title: string } | null } | null>(null);
   /** 刚创建的世界要接着往后推:推完再从第 0 年放一遍历史(true = 要放) */
   const storyAfterYears = useRef<boolean | null>(null);
   const rawUps = useRef<readonly Upheaval[] | undefined>(undefined);
@@ -1359,6 +1365,33 @@ export function App() {
         if (open) return openStoredRef.current(id);
         showToast({ id: 'step-saved', kind: 'ok', dot: true, text: `已存回推演模式「${title}」`, more: ['这个故事照样留着，在「我的世界」里随时能打开那一个'], ttl: 6000 });
       },
+      rewind: (year, keep) => {
+        const cur = currentWorld();
+        const e0 = getEdits();
+        const play = cleanPlay(e0.play);
+        const r = rewindStepwise(e0, year);
+        if (!cur || !play || !r || !r.edits.play) return;
+        const T = r.edits.play.year;
+        // 先把现在这份存回推演模式(存成新世界,原来演绎到哪、一路加的干预都在;正在算的那一步、单子里的当作在"现在"下的)
+        let saved: { id: string; title: string } | null = null;
+        if (keep) {
+          const inflight = getStepwise().busy?.commands ?? [];
+          const normal = saveBackEdits(e0, [...inflight, ...getPending().flatMap((x) => (x.kind === 'iv' ? [x.v] : []))]);
+          if (!normal) return notify({ kind: 'error', text: '没能先存一份', more: ['推得太远了，普通世界最多推到第 60000 年'] });
+          const want = `${cur.title || '未命名世界'}（演绎到${spaced(yearAt(play.year, e0.era))}）`;
+          const title = listWorlds().some((w) => w.save.title === want) ? nextTitle(want) : want;
+          const id = saveCurrentAs(normal, title);
+          if (!id) return notify({ kind: 'error', text: '没能先存一份', more: [storageFullWhy()] });
+          saved = { id, title };
+        }
+        // 单子里还没交出去的干预在"现在"以后生效:一起不要
+        for (const x of getPending()) if (x.kind === 'iv') removePending(x.id);
+        rewindNote.current = { year: T, now: play.year, saved };
+        // 进度换成那一年年初(App 照它从第 0 年推到那一年;正在算的那一步交回来时对不上,不要)
+        putEditsQuiet(r.edits);
+        rewoundTo(playFromOf(r.edits), T);
+        setCivTime({ year: T, playing: false, scrubbing: false, story: false });
+      },
     });
     return () => setStepwiseActions(null);
   }, [send]);
@@ -1549,7 +1582,21 @@ export function App() {
     setResim(null);
     // 逐年推演的世界推到"现在"了:时间轴只放这一段,播放头停在"现在";刚点了「开始演绎」的接着就往下走
     const play = civPlay.current;
-    if (play && cleanPlay(getEdits().play)) {
+    const rw = rewindNote.current;
+    rewindNote.current = null;
+    if (play && rw && rw.year === play.year && getStepwise().on && getStepwise().now === play.year) {
+      // 刚从这一年重新演绎:界面早就停在这一年了(推的时候点了「接着演绎」的照走),这里只说一声
+      const era = getEdits().era;
+      showToast({
+        id: 'step-rewound',
+        kind: 'ok',
+        dot: true,
+        text: `已回到${yearFull(rw.year, era)}`,
+        more: rw.saved ? [narrowRef.current ? '原来那份另存了一个世界，在「我的世界」里' : `原来演绎到${spaced(yearAt(rw.now, era))}的那份，存成了「${rw.saved.title}」`] : undefined,
+        action: rw.saved && !narrowRef.current ? { label: '打开', act: 'step-rewound-open', onClick: () => openStoredRef.current(rw.saved!.id) } : undefined,
+        ttl: 7000,
+      });
+    } else if (play && cleanPlay(getEdits().play)) {
       enterStepwise(playFromOf(getEdits()), play.year);
       setCivTime({ year: play.year, playing: stepAuto.current, scrubbing: false, story: false });
       stepAuto.current = false;
@@ -4630,6 +4677,11 @@ export function App() {
   }, [stepWorld]);
   const stepOn = useStepwiseOn() && stepWorld;
   const stepStopped = useStepwiseStopped() && stepOn;
+  // 停一下的卡片、编号点:停着、没在往回看 / 重放(手机上卡片没收起);往回看、刚重新演绎停着时时间轴上面那一条占着字幕条的地方
+  const stepCard = useStepCard() && stepOn;
+  const stepStrip = useStepStrip() && stepOn;
+  const stepReplay = useStepReplay();
+  const stepQuiet = (stepStopped && !stepReplay) || stepStrip;
   const curWorld = currentWorld();
   // 离开这个世界(回首页、去新建、浏览器前进后退换了一个世界),或者助手"先看看"的历史进来、退出(预览条上的"回到现在"):
   // 导出面板关掉,正在导出的视频取消(不然会接着拍已经不在屏幕上的那一份历史)
@@ -4731,7 +4783,7 @@ export function App() {
   const hold = holdMark(data, civ, shownRaw);
   return (
     <div
-      className={`app${narrow ? ' phone' : ' has-side'}${chron.open ? ' chron-open' : ''}${panelOpen ? ' panel-open' : ''}${narrow && panelOpen && panelUi.sheet === 'full' ? ' sheet-full' : ''}${narrow && !selState.sel && !upOn && !filmOn && panelUi.world === 'full' ? ' world-full' : ''}${narrow && panelUi.drag ? ' sheet-drag' : ''}${narrow && selState.sel && !panelOpen ? ' sheet-away' : ''}${!narrow && world && sideUi.collapsed && !sideUi.peek ? ' side-collapsed' : ''}${picking ? ' picking' : ''}${globeOn ? ' globe-on' : ''}${data ? '' : ' booting'}${home ? ' home' : ''}${draft ? ' draft' : ''}${studioOn ? ' studio-on' : ''}${fr ? ' studio-flat' : ''}${astOpen && !narrow && !home && !draft ? ' ast-open' : ''}${preview ? ' ast-preview' : ''}${filmOn ? ' film-on' : ''}${filmOn && filmUi.mode === 'long' ? ' film-long' : ''}${stepOn ? ' step-on' : ''}${stepStopped && !selState.sel ? ' step-stop' : ''}`}
+      className={`app${narrow ? ' phone' : ' has-side'}${chron.open ? ' chron-open' : ''}${panelOpen ? ' panel-open' : ''}${narrow && panelOpen && panelUi.sheet === 'full' ? ' sheet-full' : ''}${narrow && !selState.sel && !upOn && !filmOn && panelUi.world === 'full' ? ' world-full' : ''}${narrow && panelUi.drag ? ' sheet-drag' : ''}${narrow && selState.sel && !panelOpen ? ' sheet-away' : ''}${!narrow && world && sideUi.collapsed && !sideUi.peek ? ' side-collapsed' : ''}${picking ? ' picking' : ''}${globeOn ? ' globe-on' : ''}${data ? '' : ' booting'}${home ? ' home' : ''}${draft ? ' draft' : ''}${studioOn ? ' studio-on' : ''}${fr ? ' studio-flat' : ''}${astOpen && !narrow && !home && !draft ? ' ast-open' : ''}${preview ? ' ast-preview' : ''}${filmOn ? ' film-on' : ''}${filmOn && filmUi.mode === 'long' ? ' film-long' : ''}${stepOn ? ' step-on' : ''}${stepCard && !selState.sel ? ' step-stop' : ''}`}
       data-theme={theme}
       data-layer={mapLayer}
       data-base={mapBase}
@@ -4827,9 +4879,9 @@ export function App() {
         )}
         {/* 地图上钉在事发地的事件标签;导播开着时播放经过的大事换成导播的圆环 + 名牌(Director.tsx),点编年史跳过去的照旧 */}
         {data && world && <EventPins civ={civ} world={data.world} toClient={globeOn ? globeToClient : worldToClient} hidden={replayOn || filmOn} quiet={directing} />}
-        {data && world && <DirectorPin toClient={globeOn ? globeToClient : worldToClient} hidden={directorOff || stepStopped} />}
+        {data && world && <DirectorPin toClient={globeOn ? globeToClient : worldToClient} hidden={directorOff || stepQuiet} />}
         {/* 逐年推演停一下:地图上按先后标出这一段的大事 */}
-        {data && world && stepStopped && <StepPins toClient={globeOn ? globeToClient : worldToClient} phone={narrow} />}
+        {data && world && stepCard && <StepPins toClient={globeOn ? globeToClient : worldToClient} phone={narrow} />}
         {data && globeOn && (
           <Globe
             world={data.world}
@@ -4975,16 +5027,17 @@ export function App() {
         {data && world && !stepOn && <PendingTray phone={narrow} hidden={replayOn || draft} />}
         {data && world && stepOn && <StepDock phone={narrow} />}
         {/* 导播的字幕条:浮在时间轴上面 */}
-        {data && world && <DirectorCaption phone={narrow} civ={civ} hidden={directorOff || stepStopped} />}
+        {data && world && <DirectorCaption phone={narrow} civ={civ} hidden={directorOff || stepQuiet} />}
       </div>
       {/* 导播:推进时间轴(不画东西;逐年推演时由 StepwiseEngine 推)、右上「导播略过的」(手机是拉起的卡片)、手机的导播设置 */}
       {data && world && <DirectorEngine world={data.world} civ={civ} off={directorOff} stepwise={stepWorld} />}
       {data && world && <DirectorPanels phone={narrow} civ={civ} hidden={directorOff} />}
       {/* 逐年推演:往下走(不画东西)、手机停一下时的卡片、开始之前 / 推进设置 / 存回推演模式的窗口 */}
       {data && world && stepWorld && <StepwiseEngine world={data.world} civ={civ} />}
-      {data && world && narrow && stepStopped && <StepReviewSheet />}
+      {data && world && narrow && stepCard && <StepReviewSheet />}
       {data && world && <StepStartDialog phone={narrow} civ={civ} />}
       {data && world && stepOn && <StepSaveDialog phone={narrow} />}
+      {data && world && stepOn && <StepRewindDialog phone={narrow} civ={civ} />}
       {/* 详情面板:窄屏是从屏幕底升起的卡片(在这儿的空位里),宽屏在侧栏里(见上面的 inspectorHost) */}
       {data && world && createPortal(<Inspector civ={civ} raw={shownRaw} raster={data.raster} world={data.world} />, inspectorHost)}
       {narrow && world && <div className="inspector-slot" ref={inspectorSlot} />}
