@@ -89,18 +89,20 @@ export function CityPanel({ civ, raw, raster, world, id, year, names }: DetailPr
   };
 
   // 迁都到这里:替当年的主人下"迁都"令(生效年份 = 当前年份;到了结束年份就往前一年)。
-  // 逐年推演:只在"现在"下,生效年份 = 下一步开始的那一年(那时的主人按"现在"看)
+  // 逐年推演:只在"现在"下,生效年份 = 下一步开始的那一年;能不能迁、替谁迁都按"现在"看(往回拖着看以前的年份时也一样)
   const sw = useStepwise();
-  const y = sw.on ? Math.min(Math.max(0, civ.endYear), year) : Math.max(0, Math.min(civ.endYear - 1, year));
+  const y = sw.on ? Math.max(0, civ.endYear) : Math.max(0, Math.min(civ.endYear - 1, year));
+  const from = sw.on ? nextYear(sw) : y;
+  const then = sw.on ? { built: y >= s.founded, ruined: s.ended !== undefined && y >= s.ended } : { built, ruined };
   const moveOwner = (() => {
     if (!(y >= s.founded) || (s.ended !== undefined && y >= s.ended)) return undefined;
     const q = y === year ? own.polity[s.region] : ownersAt(civ, y).polity[s.region];
     const P = civ.polities[q];
     return P && polityAlive(P, y) ? P : undefined;
   })();
-  const moveWhy = !built
+  const moveWhy = !then.built
     ? '还没建城'
-    : ruined
+    : then.ruined
       ? '城已毁'
       : !moveOwner
         ? '不属于任何国家'
@@ -111,7 +113,7 @@ export function CityPanel({ civ, raw, raster, world, id, year, names }: DetailPr
             : null;
   const move = () => {
     if (!moveOwner || moveWhy) return;
-    const v: Intervention = { kind: 'move', a: polityKey(civ, moveOwner.id), city: settlementKey(civ, id), from: sw.on ? nextYear(sw) : y };
+    const v: Intervention = { kind: 'move', a: polityKey(civ, moveOwner.id), city: settlementKey(civ, id), from };
     // 先进待推演的单子(pendingStore.ts)
     setMsg(queueIntervention(v, interventionText(civ, v), { self: moveOwner.id, target: { kind: 'settlement', id } }));
   };
@@ -141,7 +143,7 @@ export function CityPanel({ civ, raw, raster, world, id, year, names }: DetailPr
         />
       </PanelHead>
       <Acts>
-        <Act icon="flag" primary act="move-here" disabled={!!moveWhy} title={moveWhy ?? `${nameAt(moveOwner!, y)}迁都到这里,${yearAt(y, era)}起生效`} onClick={move}>
+        <Act icon="flag" primary act="move-here" disabled={!!moveWhy} title={moveWhy ?? `${nameAt(moveOwner!, y)}迁都到这里,${yearAt(from, era)}起生效`} onClick={move}>
           迁都到这里
         </Act>
         <CenterAct world={world} civ={civ} sel={{ kind: 'settlement', id }} year={year} />

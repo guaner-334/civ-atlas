@@ -122,6 +122,7 @@ import {
   GENERATOR_VERSION,
   applyNames,
   aiNameKeys,
+  cleanAdvance,
   cleanCivSeed,
   cleanEndYear,
   cleanPlay,
@@ -1318,10 +1319,14 @@ export function App() {
         });
         return true;
       },
-      start: (year, drop) => {
+      start: (year, drop, adv) => {
         const cur = currentWorld();
         if (!cur || !rawRef.current) return;
-        const e = startStepwise(getEdits(), year, drop);
+        // 推进设置只写进新的那个(原来的世界不动)
+        const { advance: _old, ...rest } = getEdits();
+        void _old;
+        const a = cleanAdvance(adv);
+        const e = startStepwise(a ? { ...rest, advance: a } : rest, year, drop);
         // 原来的世界不动:另存一个从这一年开始演绎的(名字照旧;存回推演模式时能选覆盖原来那个)
         const id = saveCurrentAs(e, cur.title || '', isStored(cur.id) ? cur.id : undefined);
         if (!id) return notify({ kind: 'error', text: '没能开始演绎', more: [storageFullWhy()] });
@@ -1333,8 +1338,10 @@ export function App() {
         const e0 = getEdits();
         const play = cleanPlay(e0.play);
         if (!cur || !play) return;
-        // 单子里还没交出去的干预:当作在"现在"下的,一起存进去(在那一年年初生效)
-        const normal = saveBackEdits(e0, getPending().flatMap((x) => (x.kind === 'iv' ? [x.v] : [])));
+        // 正在算的那一步带走的干预、单子里还没交出去的:都当作在"现在"下的,一起存进去(在那一年年初生效;
+        // 正在算的那一步还没换上来,修改里的进度还是"现在")
+        const inflight = getStepwise().busy?.commands ?? [];
+        const normal = saveBackEdits(e0, [...inflight, ...getPending().flatMap((x) => (x.kind === 'iv' ? [x.v] : []))]);
         if (!normal) return notify({ kind: 'error', text: '没能存回推演模式', more: ['推得太远了，普通世界最多推到第 60000 年'] });
         const origin = stepOrigin(cur.id);
         let id: string | null;
@@ -1635,8 +1642,10 @@ export function App() {
           loadedFrozen.current = true;
           civEdits.current = t.edits.interventions;
           civUps.current = genUps.current = t.edits.upheavals;
-          civPlay.current = cleanPlay(t.edits.play);
-          send({ type: 'load', id, params: p, scale: 1, parts: r.parts, terrain: [...terrain], sketch: t.edits.sketch, ...upsOpt(t.edits.upheavals), interventions: [...t.edits.interventions], ...namesOpt(t.edits.nameMix), ...yearsOpt(civYears.current), ...setupOpt(civSetup.current) });
+          const play = cleanPlay(t.edits.play);
+          civPlay.current = play;
+          // 带上进度:线程按它记下这份历史,下一步从这里接着推(不从第 0 年重推)
+          send({ type: 'load', id, params: p, scale: 1, parts: r.parts, terrain: [...terrain], sketch: t.edits.sketch, ...upsOpt(t.edits.upheavals), interventions: [...t.edits.interventions], ...namesOpt(t.edits.nameMix), ...yearsOpt(civYears.current), ...setupOpt(civSetup.current), ...(play ? { play } : {}) });
         });
       } else send(req);
       loadedFrozen.current = false;
@@ -4731,7 +4740,8 @@ export function App() {
         onPointerDownCapture={(e) => {
           // 导播放着:一按地图(拖、点、捏合;地球仪上也算)镜头就交还,导播停在这件事上等着
           directorHandBack();
-          // 逐年推演:按着地图的时候世界先不往下走(手指、鼠标都松开了接着走)
+          // 逐年推演:按着地图的时候世界先不往下走(手指、鼠标都松开了接着走)。导播开着时上面那句已经停下了,
+          // 和推演模式一样等用的人点「回到导播」或播放键
           stepPointers.current.add(e.pointerId);
           setStepGesture(true);
           onTouchDownCapture(e);

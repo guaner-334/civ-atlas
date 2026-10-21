@@ -821,8 +821,10 @@ export function overwriteWorld(id: string, edits: WorldEdits): boolean {
   const w = loadWorld(id);
   if (!w || w.draft || w.map) return false;
   const save = makeSave(w.save.params, edits, w.save.check, w.save.title, undefined, w.save.view, w.save.origin);
-  if (!writeSave(id, save, { ...readMeta(id), opened: save.savedAt })) return false;
-  // 结束那一年现存几国、缩略图都是原来那段历史的:打开时重新数、重截
+  // 结束那一年现存几国、缩略图都是原来那段历史的:去掉,打开时重新数、重截
+  const meta: Meta = { ...readMeta(id), opened: save.savedAt };
+  delete meta.alive;
+  if (!writeSave(id, save, meta)) return false;
   store().remove(THUMB + id);
   changed();
   return true;

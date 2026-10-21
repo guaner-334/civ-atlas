@@ -17,7 +17,7 @@ import type { Civ } from '../gen/civ/types';
 import type { World } from '../gen/world';
 import type { ChronicleEntry } from '../gen/civ/chronicle';
 import { fullChronicle } from '../gen/civ/religionText';
-import { advanceOf, type Advance } from '../gen/edits';
+import { advanceOf, type Advance, type Intervention } from '../gen/edits';
 import { eraText, yearAt, yearFull, yearShort, type Era } from '../gen/era';
 import { directorPlan, type DirectorPlan, type DirectorShot } from './directorPlan';
 import {
@@ -280,10 +280,10 @@ export function StepwiseEngine({ world, civ }: { world: World; civ: Civ | null }
       }
       if (s.now - y > plan.years + 1e-6) return;
       const queued = getPending().filter((x) => x.kind === 'iv');
-      const cmds = queued.flatMap((x) => (x.kind === 'iv' ? [{ ...x.v, from: s.now }] : []));
+      const cmds = queued.flatMap((x) => (x.kind === 'iv' ? [{ ...x.v, from: s.now } as Intervention] : []));
       if (!stepwiseActions()?.turn(plan.years, cmds)) return;
       for (const x of queued) removePending(x.id);
-      stepSent(s.now, plan);
+      stepSent(s.now, plan, cmds);
     };
     /** 播放头走到"现在"、这一年该停:列出这一段的大事,停下来;一件也没有(只是到了"每隔几年")就不停 */
     const arrive = (): boolean => {
@@ -393,6 +393,18 @@ export function StepwiseEngine({ world, civ }: { world: World; civ: Civ | null }
   useEffect(() => {
     if (acting && getStepwise().stop) holdClock('act');
   }, [acting, st.stop]);
+
+  // 开着推进设置 / 存回推演模式的窗口:先停下(存回的就是窗口里写的那一年;倒计时也不走),关上以后刚才在放的接着放
+  const dlg = st.on && (st.dialog?.kind === 'settings' || st.dialog?.kind === 'save');
+  useEffect(() => {
+    if (!dlg) return;
+    const was = getCivTime().playing;
+    if (was) setCivTime({ playing: false });
+    if (getStepwise().stop) holdClock('user');
+    return () => {
+      if (was && getStepwise().on && !getStepwise().stop) setCivTime({ playing: true, story: false, scrubbing: false });
+    };
+  }, [dlg]);
 
   return null;
 }

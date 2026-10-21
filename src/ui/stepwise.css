@@ -190,6 +190,10 @@
 .app:has(.sw-review, .sw-held, .sw-queue, .sw-sheet) .first-hint {
   visibility: hidden;
 }
+/* 手机:单子那一行在胶囊上面,字幕卡再往上让一行 */
+.bottom-row:has(.sw-queue.phone) .dr-capwrap.phone {
+  bottom: calc(100% + 64px);
+}
 /* 导播字幕条在单子开着时靠右放(和推演模式的待推演单子一样) */
 .bottom-row:has(.sw-queue:not(.phone)) .dr-capwrap:not(.phone) {
   left: auto;

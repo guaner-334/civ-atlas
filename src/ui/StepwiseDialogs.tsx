@@ -278,10 +278,11 @@ function AdvanceDialog({ phone, civ, start }: { phone: boolean; civ: Civ; start:
   const close = () => openStepDialog(null);
   useDialogKeys(close);
   const ok = () => {
-    setAdvance(adv);
+    // 开始演绎:推进设置只写进另存出来的那个世界(原来的世界不动);演绎中改设置:写进这个世界
+    if (start === null) setAdvance(adv);
     setStepDirectorOn(dirOn);
     close();
-    if (start !== null) stepwiseActions()?.start(start, [...drop]);
+    if (start !== null) stepwiseActions()?.start(start, [...drop], adv);
   };
   const title = start !== null ? `从${yearFull(start, era)}开始演绎` : '推进设置';
   const lead =

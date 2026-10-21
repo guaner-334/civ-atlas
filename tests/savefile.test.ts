@@ -577,6 +577,29 @@ describe('浏览器存储(saveStore)', () => {
     expect(saveStore.duplicateWorld('wnothere001')).toBeNull();
   });
 
+  it('逐年推演:另存时记下从哪个世界来;存回时覆盖原来那个 = 修改换掉、名字照旧,现存几国和缩略图去掉(打开时重算)', () => {
+    const fake = new FakeStorage();
+    useStorage(fake);
+    const a = openWorld(7, { title: '苍澜界', edits: EDITS });
+    fake.setItem(`wenming-ditu:thumb:${a}`, 'data:image/jpeg;base64,AAAA');
+    saveStore.setWorldStats(13);
+    const story: WorldEdits = { ...EMPTY_EDITS, play: { year: 2650, commands: [] }, playFrom: 2650 };
+    const b = saveStore.saveCurrentAs(story, '苍澜界', a)!;
+    expect(b).not.toBe(a);
+    openWorld(7, { id: b });
+    expect(saveStore.stepOrigin(b)).toEqual({ id: a, title: '苍澜界' });
+    // 正在看的那个不在这里改
+    expect(saveStore.overwriteWorld(b, EMPTY_EDITS)).toBe(false);
+    const normal: WorldEdits = { ...EMPTY_EDITS, endYear: 2700 };
+    expect(saveStore.overwriteWorld(a, normal)).toBe(true);
+    const w = saveStore.loadWorld(a)!;
+    expect(w.save.title).toBe('苍澜界');
+    expect(w.save.edits).toEqual(normal);
+    expect(w.alive).toBeUndefined();
+    expect(w.thumb).toBeNull();
+    expect(saveStore.loadWorld(b)?.save.edits).toEqual(story);
+  });
+
   it('在一个世界的地图上新开一段历史:另存一个世界,只带地图和新的文明种子;原来的不动,删掉哪个都不影响另一个', () => {
     const fake = new FakeStorage();
     useStorage(fake);

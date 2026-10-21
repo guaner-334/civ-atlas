@@ -15,7 +15,7 @@
  */
 import { useSyncExternalStore } from 'react';
 import type { ChronicleEntry } from '../gen/civ/chronicle';
-import { cleanPlay, issueCommands, type Intervention, type WorldEdits } from '../gen/edits';
+import { cleanPlay, issueCommands, type Advance, type Intervention, type WorldEdits } from '../gen/edits';
 import { stepwiseToNormal } from '../gen/stepwise';
 import type { PauseWhy, StepPlan, StepReviewItem } from './stepwisePlan';
 
@@ -54,8 +54,8 @@ export interface StepwiseState {
   since: number;
   /** 推到哪年年初了("现在";历史算到这一刻之前) */
   now: number;
-  /** 正在算的一步:从哪年起、照哪份打算走(走几年、走完停不停;没在算 = null) */
-  busy: { from: number; to: number; plan: StepPlan; t0: number } | null;
+  /** 正在算的一步:从哪年起、照哪份打算走(走几年、走完停不停)、随这一步交出去的干预(在 from 那年生效;没在算 = null) */
+  busy: { from: number; to: number; plan: StepPlan; t0: number; commands: readonly Intervention[] } | null;
   /** 推到的这一年要停一下(走完的那一步说的):播放头走到这里就停 */
   due: { why: PauseWhy; big: readonly ChronicleEntry[] } | null;
   /** 停着看这一段的大事 */
@@ -173,8 +173,11 @@ export function onStepGestureEnd(f: () => void): () => void {
 export interface StepwiseActions {
   /** 算一步:在"现在"下这几条干预(from 已经是"现在"),接着走 years 年;交出去了 = true */
   turn(years: number, commands: unknown[]): boolean;
-  /** 从推演模式第 year 年开始(drop = 不带的那几条以后的干预,laterInterventions 的 index):另存一个世界、打开它 */
-  start(year: number, drop: readonly number[]): void;
+  /**
+   * 从推演模式第 year 年开始(drop = 不带的那几条以后的干预,laterInterventions 的 index;adv = 推进设置):
+   * 另存一个世界、打开它(推进设置只写进新的那个,原来的世界不动)
+   */
+  start(year: number, drop: readonly number[], adv: Advance): void;
   /** 存回推演模式:asNew = 存成新世界(不然覆盖原来那个);open = 存好以后打开它 */
   saveBack(asNew: boolean, open: boolean): void;
 }
@@ -203,9 +206,9 @@ export function enterStepwise(start: number, now: number) {
   patch({ on: true, start, since: now, now, busy: null, due: null, stop: null, cur: -1, clock: null, dialog: S.dialog?.kind === 'start' ? null : S.dialog });
 }
 
-/** 一步交出去了:从第 from 年起,照 plan 走 */
-export function stepSent(from: number, plan: StepPlan) {
-  patch({ busy: { from, to: plan.to, plan, t0: performance.now() } });
+/** 一步交出去了:从第 from 年起,照 plan 走;commands = 随这一步交出去的干预(还在算时存回推演模式也要带上) */
+export function stepSent(from: number, plan: StepPlan, commands: readonly Intervention[] = []) {
+  patch({ busy: { from, to: plan.to, plan, t0: performance.now(), commands } });
 }
 
 /**
