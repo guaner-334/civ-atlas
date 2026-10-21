@@ -44,7 +44,7 @@ import { ensureFonts, fontsReady, preloadFonts } from '../render/labels/fonts';
 import { drawHighlight, drawSelection, drawSelectionLabels } from '../render/civ/highlight';
 import { getCivHighlight, setCivHighlight, useCivHighlight, useCivShow, useCivTime, useResourceView, useSelection } from './civView';
 import { setMapPlacement } from './mapPick';
-import { mapBoxOf, mirrorCanvas, placeOnScreen, visibleBox } from './mapWrap';
+import { mapBoxOf, mirrorCanvas, placeOnScreen, visibleBox, watchMapBox } from './mapWrap';
 import { nearX } from '../render/common';
 import { labelProjection, projector, type MapProj } from '../render/projection';
 import { DETAIL_K } from '../render/detail';
@@ -481,13 +481,7 @@ export function CivLayer({ world, raster, civ, geo, style, year, view, mp = null
 
   // 地图框大小变了(窗口缩放)也要重画
   const [tick, setTick] = useState(0);
-  useEffect(() => {
-    const box = mapBoxOf(textRef.current);
-    if (!box || typeof ResizeObserver === 'undefined') return;
-    const ro = new ResizeObserver(() => setTick((t) => t + 1));
-    ro.observe(box);
-    return () => ro.disconnect();
-  }, [labelsHost]);
+  useEffect(() => watchMapBox(textRef.current, setTick), [labelsHost]);
 
   // 地图上盖着的界面(四角的字、时间轴、面板 / 抽屉、提示条……):它们下面不放字和符号(和地球仪同一份清单,见 uiAvoid.ts)
   const avoid = useAvoidBoxes(textRef);

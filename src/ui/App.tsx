@@ -330,6 +330,7 @@ import { FilmStage } from './FilmStage';
 import { LongPanel } from './LongPanel';
 import { LongStage } from './LongStage';
 import { noteGenSpeed } from './genSpeed';
+import { holdMark } from './holdMark';
 import { getNewView } from './newViewStore';
 import { rememberLast } from './presetStore';
 import { diagBeat, recordWorkerError, setDiagContext } from '../diag/watch';
@@ -2400,6 +2401,8 @@ export function App() {
     const stored = markCreated() && persistent();
     // 新建时执行过的改地形从此不能再撤销:⌘Z 也不再往回退(助手那边按锁换了,旧的确认单不能执行)
     clearEditHistory();
+    // 地形锁住了:后台线程为编辑地形留着的整图放掉(没有回音,不算一件活)
+    workerRef.current?.postMessage({ type: 'release', id: 0 } satisfies WorkerRequest);
     targetRef.current = { ...t, kind: 'created', base: null, pristine: false, title: clean, from: undefined, save: undefined };
     // 这一步换成建好的世界;前面换过的几颗星球(同一个编号)按后退时跳过(见 routeNav)
     navReplace({ page: 'world', id: t.id, title: clean });
@@ -2771,8 +2774,11 @@ export function App() {
   // 用画布对画布复制而不是 getImageData,不从显卡读回像素,
   // 免得浏览器把主画布降级成软件渲染(那样河流、墨线的抗锯齿会变样)。
   // 用 useLayoutEffect:地形先于文明层(CivLayer 里的 useEffect)画好 —— 手绘风的文明层要借地形的符号层给水彩"让位"。
-  const cacheRef = useRef<{ data: { raster: Raster }; maps: Map<string, HTMLCanvasElement> }[]>([]);
-  /** d 这一张图的缓存(用到的挪到最前);同一个世界(主图的地块索引是同一份)留最近 MAP_KEEP 张,别的释放 */
+  const cacheRef = useRef<{ data: { raster: Raster }; base: unknown; maps: Map<string, HTMLCanvasElement> }[]>([]);
+  /**
+   * d 这一张图的缓存(用到的挪到最前);同一个世界(同一张生成出来的主图、地块索引是同一份)留最近 MAP_KEEP 张,别的释放。
+   * 编辑地形涂一笔以后主图换了一张(地块索引还是那一份):旧主图的几张也放掉,不再当成同一个世界的另一段留着
+   */
   const mapsOf = (d: { raster: Raster }): Map<string, HTMLCanvasElement> => {
     const list = cacheRef.current;
     const hit = list.find((e) => e.data === d);
@@ -2780,10 +2786,11 @@ export function App() {
       cacheRef.current = [hit, ...list.filter((e) => e !== hit)];
       return hit.maps;
     }
-    const keep = list.filter((e) => e.data.raster.cell === d.raster.cell).slice(0, MAP_KEEP - 1);
+    const base = baseRef.current?.raster;
+    const keep = list.filter((e) => e.base === base && e.data.raster.cell === d.raster.cell).slice(0, MAP_KEEP - 1);
     for (const e of list) if (!keep.includes(e)) for (const c of e.maps.values()) c.width = c.height = 0; // 尽快释放显存
     const maps = new Map<string, HTMLCanvasElement>();
-    cacheRef.current = [{ data: d, maps }, ...keep];
+    cacheRef.current = [{ data: d, base, maps }, ...keep];
     return maps;
   };
   /** 弯边投影:地形图(缓存里的等距圆柱原图)按投影铺到屏幕上 */
@@ -4720,6 +4727,8 @@ export function App() {
   // 两层放大的地图框共用一个变换、按视窗裁;两层屏幕层按同一个视窗裁(见下面的 JSX)
   const wrapStyle: CSSProperties = { transform: `translate(${view.x}px, ${view.y}px) scale(${view.k})`, clipPath: wrapClip(view, sb, wrapW), display: globeOn ? 'none' : undefined };
   const screenStyle: CSSProperties = { clipPath: screenClip(view, sb, wrapW), display: globeOn ? 'none' : undefined };
+  // 装着地图各层的容器:换了世界、历史就换个记号,免得容器记着的旧 props 拉住旧世界(见 holdMark.ts)
+  const hold = holdMark(data, civ, shownRaw);
   return (
     <div
       className={`app${narrow ? ' phone' : ' has-side'}${chron.open ? ' chron-open' : ''}${panelOpen ? ' panel-open' : ''}${narrow && panelOpen && panelUi.sheet === 'full' ? ' sheet-full' : ''}${narrow && !selState.sel && !upOn && !filmOn && panelUi.world === 'full' ? ' world-full' : ''}${narrow && panelUi.drag ? ' sheet-drag' : ''}${narrow && selState.sel && !panelOpen ? ' sheet-away' : ''}${!narrow && world && sideUi.collapsed && !sideUi.peek ? ' side-collapsed' : ''}${picking ? ' picking' : ''}${globeOn ? ' globe-on' : ''}${data ? '' : ' booting'}${home ? ' home' : ''}${draft ? ' draft' : ''}${studioOn ? ' studio-on' : ''}${fr ? ' studio-flat' : ''}${astOpen && !narrow && !home && !draft ? ' ast-open' : ''}${preview ? ' ast-preview' : ''}${filmOn ? ' film-on' : ''}${filmOn && filmUi.mode === 'long' ? ' film-long' : ''}${stepOn ? ' step-on' : ''}${stepStopped && !selState.sel ? ' step-stop' : ''}`}
@@ -4784,7 +4793,7 @@ export function App() {
             <canvas ref={canvasCopyRef} className="wrap-copy" />
           </div>
         </div>
-        <div className="screen-layer" style={screenStyle}>
+        <div className="screen-layer" data-hold={hold} style={screenStyle}>
           {/* 放大后的地形细节(弯边投影:按投影一行一行铺) */}
           {data && <TerrainDetail world={data.world} raster={data.raster} style={style} look={terrainLook} view={view} mp={mp} />}
           {data && contourOn && <ContourLayer world={data.world} raster={data.raster} kind={contourKind!} style={contourStyle} dark={baseDark(mapBase)} view={view} mp={mp} />}
@@ -4792,8 +4801,8 @@ export function App() {
         </div>
         {/* 放大后的文明细节层(CivLayer 放进来):盖住下面的地形,在文明底图那一层地图框之下 */}
         <div className="screen-layer" ref={setCivDetailHost} style={screenStyle} />
-        <div className="canvas-wrap-upper" style={wrapStyle}>
-          <div className="map-box-upper" style={{ width: box.w, height: box.h }}>
+        <div className="canvas-wrap-upper" data-hold={hold} style={wrapStyle}>
+          <div className="map-box-upper" data-hold={hold} style={{ width: box.w, height: box.h }}>
             {data && (
               <CivLayer world={data.world} raster={data.raster} civ={civ} geo={shownRaw} style={style} view={view} mp={mp} labelsHost={labelsHost} detailHost={civDetailHost} flags={flagView} />
             )}
@@ -4810,8 +4819,8 @@ export function App() {
         <div className="screen-layer" ref={setLabelsHost} style={(replayOn && replay) || importing || (draft && sourceView.show !== 'grown') ? { ...screenStyle, display: 'none' } : screenStyle} />
         {/* 地形大事:涂的地方、会变的地块、会没了的城盖在地名上面(和地图一起缩放) */}
         {data && !curved && upOn && (
-          <div className="canvas-wrap-upper" style={wrapStyle}>
-            <div className="map-box-upper" style={{ width: box.w, height: box.h }}>
+          <div className="canvas-wrap-upper" data-hold={hold} style={wrapStyle}>
+            <div className="map-box-upper" data-hold={hold} style={{ width: box.w, height: box.h }}>
               <UpheavalOverlay civ={civ} world={data.world} wrap={wrapW} scale={(box.w / data.world.width) * view.k} />
             </div>
           </div>

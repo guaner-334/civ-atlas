@@ -43,7 +43,7 @@ import { aheadOf, cancelDetailJob, DetailBuffer, detailAsync, flushDetailJobs, s
 import { washLayer } from '../render/civ/territory';
 import type { CivDrawParams, CivStyle } from '../render/civ/overlay';
 import type { CivHighlight, SelectionTarget } from '../render/civ/highlight';
-import { mapBoxOf, placeOnScreen, visibleBox, type Visible } from './mapWrap';
+import { mapBoxOf, placeOnScreen, visibleBox, watchMapBox, type Visible } from './mapWrap';
 import { useMapMoving } from './projection';
 
 /** 画好的那一块(地图框 CSS 坐标,缩放前)、画的时候的缩放倍数、画布 → 地图平面的变换 */
@@ -138,6 +138,21 @@ function baseHasContent(p: CivDrawParams | null): boolean {
   return washLayer(p) !== null || (s.polities && p.civ.polities.length > 0) || (s.routes && p.civ.routes.length > 0) || s.regions || s.sites || s.habitat;
 }
 
+/**
+ * 卸下时收拾(给 useEffect 当清理函数用)。清理函数在这里(模块里)建:要是在组件那一次渲染里建,
+ * 它会一直拉住挂上那一刻的世界、主图、历史,换了世界也放不掉
+ */
+function unmountDetail(timer: { current: number }, bufs: { current: { base: DetailBuffer; sel: DetailBuffer } | null }, hide: RefObject<HTMLCanvasElement>[]) {
+  return () => {
+    window.clearTimeout(timer.current);
+    cancelDetailJob(JOB);
+    bufs.current?.base.dispose();
+    bufs.current?.sel.dispose();
+    bufs.current = null;
+    for (const r of hide) if (r.current) r.current.style.visibility = '';
+  };
+}
+
 export interface CivDetailProps {
   world: World;
   raster: Raster;
@@ -183,25 +198,9 @@ export function CivDetail({ world, raster, params, civ, style, sel, selYear, hl,
 
   // 地图框大小变了(窗口缩放)也要重画
   const [tick, setTick] = useState(0);
-  useEffect(() => {
-    const box = mapBoxOf(baseRef.current);
-    if (!box || typeof ResizeObserver === 'undefined') return;
-    const ro = new ResizeObserver(() => setTick((t) => t + 1));
-    ro.observe(box);
-    return () => ro.disconnect();
-  }, [host]);
-  useEffect(
-    () => () => {
-      window.clearTimeout(timer.current);
-      cancelDetailJob(JOB);
-      bufs.current?.base.dispose();
-      bufs.current?.sel.dispose();
-      bufs.current = null;
-      for (const r of hide) if (r.current) r.current.style.visibility = '';
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
-  );
+  useEffect(() => watchMapBox(baseRef.current, setTick), [host]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => unmountDetail(timer, bufs, hide), []);
 
   useLayoutEffect(() => {
     const box = mapBoxOf(baseRef.current);

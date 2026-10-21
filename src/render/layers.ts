@@ -184,6 +184,20 @@ export function renderLayer(ctx: CanvasRenderingContext2D, world: World, r: Rast
   for (const s of renderLayerSteps(ctx, world, r, layer)) while (s(Infinity) === true);
 }
 
+/**
+ * 逐像素上色用的整张像素缓冲(主图那么大,8 MB):几张图层接连画(涂一笔以后的图层缩略图)时接着用同一块,
+ * 不是每张都新开一块、等着回收。只弱引用着:浏览器回收内存时照样收走,下次再开。
+ * 每条带子写完马上贴上画布、整张每个像素都会写到,接着用不会带出上一张的颜色
+ */
+let pixelBuf: WeakRef<ImageData> | null = null;
+function pixelImage(ctx: CanvasRenderingContext2D, w: number, h: number): ImageData {
+  const hit = pixelBuf?.deref();
+  if (hit && hit.width === w && hit.height === h) return hit;
+  const img = ctx.createImageData(w, h);
+  pixelBuf = typeof WeakRef === 'undefined' ? null : new WeakRef(img);
+  return img;
+}
+
 /** renderLayer 分成几步:晕渲、逐像素上色(一步一条带子)、叠加的箭头 / 河 / 风 / 洋流 */
 function renderLayerSteps(ctx: CanvasRenderingContext2D, world: World, r: Raster, layer: LayerId): WorkStep[] {
   const { w, h } = r;
@@ -196,7 +210,7 @@ function renderLayerSteps(ctx: CanvasRenderingContext2D, world: World, r: Raster
   return [
     () => {
       shade = layerShade(r);
-      img = ctx.createImageData(w, h);
+      img = pixelImage(ctx, w, h);
     },
     () => {
       sst = layer === 'currents' ? currentSst(world, r) : null;

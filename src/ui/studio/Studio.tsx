@@ -124,6 +124,7 @@ import { labelSurface } from '../../render/civ/labels';
 import type { LabelView } from '../../render/labels/draw';
 import { LEFT_W, RIGHT_W, appPose, flatRect } from './layout';
 import { flatGeom, getStudioFlat, setStudioFlat } from './studioStore';
+import { holdMark } from '../holdMark';
 import '../worlds.css';
 import './studio.css';
 
@@ -665,7 +666,8 @@ export function Studio(p: StudioProps) {
 
   // ---- 世界:贴图;第一颗直接是地球仪,换了一颗、调了参数、改了地形都淡过去 ----
   const tagRef = useRef(0);
-  const shown = useRef<{ data: object; tag: number; seed: number; pkey: string } | null>(null);
+  /** 星球上贴着的是哪一颗(mark = holdMark(世界数据):只记记号不拉住数据,摊平改地形时旧的那颗不白占内存) */
+  const shown = useRef<{ mark: string; tag: number; seed: number; pkey: string } | null>(null);
   const landLon = useRef(0);
   /** 把某样式的整张图放上显卡(App 缓存里有就直接拿;没有就画一张,要等一会儿) */
   const upload = (sc: StudioScene, tag: number, id: MapLayer): boolean => {
@@ -696,7 +698,7 @@ export function Studio(p: StudioProps) {
     const sc = sceneRef.current;
     const d = p.data;
     if (!glOk || !sc || !d || !p.ready || gone.current) return;
-    if (shown.current?.data === d) return;
+    if (shown.current?.mark === holdMark(d)) return;
     const prev = shown.current;
     // 摊平着看不见星球:贴图等收起平面时再换(整张底图那时多半已经在缩略图那边分小步备好了,贴上只要一下),
     // 不在每涂一笔以后都当场整张画一遍;右边的缩略图照样做
@@ -711,7 +713,7 @@ export function Studio(p: StudioProps) {
     const t = d.world.tect;
     const px = plateTexels(d.raster.cell, d.raster.w, d.raster.h, t.plate, d.world.water, t.plateContinental, PLATE_W, PLATE_H);
     const pkey = worldKey({ ...p.params, seed: 0 });
-    shown.current = { data: d, tag, seed: p.params.seed, pkey };
+    shown.current = { mark: holdMark(d), tag, seed: p.params.seed, pkey };
     const latest = () => sc.gl.keepStyles((k) => k.startsWith(`${tagRef.current}:`));
     // 每换一颗都重算陆地最多的那一面(手机建好时转过去)
     landLon.current = landCenterLon(px, PLATE_W, PLATE_H);

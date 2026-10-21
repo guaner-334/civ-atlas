@@ -35,7 +35,7 @@ import { DETAIL_K, drawTerrainDetail, drawTerrainProjected, terrainDetailPrep, t
 import { aheadOf, cancelDetailJob, DetailBuffer, detailAsync, flushDetailJobs, submitDetailJob, type JobStats, type WorkStep } from './detailJobs';
 import { TILE, tileCanvas, tileKey, tilesAvailable, tileStats, tilesWorld, wantTiles } from './terrainTiles';
 import { centerShift, type MapProj } from '../render/projection';
-import { mapBoxOf, placeOnScreen, visibleBox, type Visible } from './mapWrap';
+import { mapBoxOf, placeOnScreen, visibleBox, watchMapBox, type Visible } from './mapWrap';
 import { useMapMoving } from './projection';
 import type { SurfaceLook } from '../render/surface';
 
@@ -71,6 +71,19 @@ const HOLD_ERR = 3 * SLIDE_ERR;
 
 /** 分帧备料时这一层的名字(见 detailJobs.ts) */
 const JOB = 'terrain';
+
+/**
+ * 卸下时收拾(给 useEffect 当清理函数用)。清理函数在这里(模块里)建:要是在组件那一次渲染里建,
+ * 它会一直拉住挂上那一刻的世界、主图,换了世界也放不掉
+ */
+function unmountDetail(timer: { current: number }, buf: { current: DetailBuffer | null }) {
+  return () => {
+    window.clearTimeout(timer.current);
+    cancelDetailJob(JOB);
+    buf.current?.dispose();
+    buf.current = null;
+  };
+}
 
 /** 现算的块:S 像素 / 世界单位,按屏幕像素取最近的 2 的幂;不到 TILE_MIN_S 不现算(拉大的像素层不太糊),最多 TILE_MAX_S */
 const TILE_MIN_S = 2;
@@ -137,22 +150,8 @@ export function TerrainDetail({
 
   // 地图框大小变了(窗口缩放)也要重画
   const [tick, setTick] = useState(0);
-  useEffect(() => {
-    const box = mapBoxOf(ref.current);
-    if (!box || typeof ResizeObserver === 'undefined') return;
-    const ro = new ResizeObserver(() => setTick((t) => t + 1));
-    ro.observe(box);
-    return () => ro.disconnect();
-  }, []);
-  useEffect(
-    () => () => {
-      window.clearTimeout(timer.current);
-      cancelDetailJob(JOB);
-      buf.current?.dispose();
-      buf.current = null;
-    },
-    [],
-  );
+  useEffect(() => watchMapBox(ref.current, setTick), []);
+  useEffect(() => unmountDetail(timer, buf), []);
 
   useLayoutEffect(() => {
     const el = ref.current;

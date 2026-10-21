@@ -145,6 +145,14 @@ export function subscribeCivTime(f: (t: CivTime) => void): () => void {
   return time.subscribe(() => f(time.get()));
 }
 
+/**
+ * 时间一变就把 r.current.ver 加一(按版本号判断要不要重画的图层用),返回取消的函数。回调在这里建:
+ * 组件里建的一直挂着的回调会连带拉住挂上那一刻的世界、主图、历史,换了世界也放不掉
+ */
+export function bumpOnCivTime(r: { current: { ver: number } }): () => void {
+  return time.subscribe(() => void r.current.ver++);
+}
+
 /** 从某一年起按 1× 播放(干预重推完,App 从生效年份接着放) */
 export function playFrom(year: number) {
   time.set({ year: Math.max(0, year), playing: true, scrubbing: false, story: false, speed: 1 });

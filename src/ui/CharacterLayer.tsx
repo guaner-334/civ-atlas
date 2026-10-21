@@ -15,7 +15,7 @@ import type { AuthorCharacter } from '../gen/characters';
 import { MARK_HEX, canvasMeasure, type Measure } from '../render/marks';
 import { avatarCenter, drawGhostAvatar, drawTrail, hitTrailPin, layoutTrail, type PlacedTrail } from '../render/trail';
 import { useEdits } from './editsStore';
-import { getCivTime, subscribeCivTime, useSelection } from './civView';
+import { bumpOnCivTime, getCivTime, useSelection } from './civView';
 import { draftAsCharacter, parseYear, useCharUi, type CharDraft } from './characterStore';
 import { characterTrail, type TrailMode } from './characterInfo';
 import type { MarkApi, MarkView } from './MarkLayer';
@@ -83,7 +83,7 @@ export function CharacterLayer({ civ, world, raster, api, hidden }: { civ: Civ |
   if (was.char !== char || was.draft !== draft || was.picking !== ui.picking || was.civ !== civ || was.panels !== panels || was.raster !== raster || was.era !== era) state.current.ver++;
   depsRef.current = deps;
 
-  useEffect(() => subscribeCivTime(() => void state.current.ver++), []);
+  useEffect(() => bumpOnCivTime(state), []);
 
   // 挑地方时跟着鼠标
   const followMouse = active && !!ui.picking;

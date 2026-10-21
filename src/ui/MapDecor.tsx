@@ -14,7 +14,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { World } from '../gen/world';
 import { drawFrame, drawPaperVignette, drawProjFrame } from '../render/fantasy';
 import { drawGraticule, drawNeatOutline, type MapProj } from '../render/projection';
-import { mapBoxOf, placeOnScreen, visibleBox } from './mapWrap';
+import { mapBoxOf, placeOnScreen, visibleBox, watchMapBox } from './mapWrap';
 import { useGraticuleLines } from './projection';
 
 /** ink:经纬网按哪种底色挑墨色(不给 = 和 style 一样;白模是浅底,给 'data') */
@@ -24,20 +24,8 @@ export function MapDecor({ world, style, ink = style, view, mp = null }: { world
 
   // 地图框大小变了(窗口缩放)也要重画
   const [tick, setTick] = useState(0);
-  useEffect(() => {
-    const box = mapBoxOf(ref.current);
-    if (!box || typeof ResizeObserver === 'undefined') return;
-    const ro = new ResizeObserver(() => setTick((t) => t + 1));
-    ro.observe(box);
-    // 罗盘的「北」字用网页字体:字体下载完再画一遍(canvas 不会自己重画)
-    const fonts = typeof document !== 'undefined' ? document.fonts : undefined;
-    const bump = () => setTick((t) => t + 1);
-    fonts?.addEventListener('loadingdone', bump);
-    return () => {
-      ro.disconnect();
-      fonts?.removeEventListener('loadingdone', bump);
-    };
-  }, []);
+  // 罗盘的「北」字用网页字体:字体下载完再画一遍(canvas 不会自己重画)
+  useEffect(() => watchMapBox(ref.current, setTick, true), []);
 
   useLayoutEffect(() => {
     const cv = ref.current;
