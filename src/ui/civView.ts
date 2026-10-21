@@ -11,7 +11,7 @@
  *                                               (不给:自动播放;无头浏览器(截图、冒烟检查)里默认不播,画面才固定)
  */
 import { useSyncExternalStore } from 'react';
-import { CIV_SHOW_DEFAULT, type CivShow } from '../render/civ/overlay';
+import { CIV_SHOW_DEFAULT, type CivShow } from '../render/civ/show';
 import type { ChronicleEntry } from '../gen/civ/chronicle';
 
 function fromUrl(): CivShow {

@@ -140,15 +140,23 @@ export function startNav(first: NavInfo, h: NavHooks): () => void {
   pending = null;
   silent = 0;
   deferred = null;
-  const was = W().history.state;
-  replace(isNavState(was) ? pageOf(first, was.idx, was.prev) : pageOf(first, 0, false));
-  here = W().location.href;
+  navMark(first);
   W().addEventListener('popstate', onPop);
   return () => {
     W().removeEventListener('popstate', onPop);
     hooks = null;
     cur = null;
   };
+}
+
+/**
+ * 只把这一步记成第一个画面(和 startNav 记的一样),不听后退、前进:打开网站时首页先出来、App 还没挂上的那一阵(HomeShell.tsx)用,
+ * 之后在这里贴分享链接、按后退回来,认得出这一步是我的世界。App 挂上以后照常 startNav
+ */
+export function navMark(first: NavInfo): void {
+  const was = W().history.state;
+  replace(isNavState(was) ? pageOf(first, was.idx, was.prev) : pageOf(first, 0, false));
+  here = W().location.href;
 }
 
 /** 现在这一步(单测、App 判断用) */

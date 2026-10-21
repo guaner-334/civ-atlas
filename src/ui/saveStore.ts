@@ -51,7 +51,7 @@ import {
 } from '../gen/savefile';
 import { getEdits, subscribeEdits } from './editsStore';
 import type { DraftBase } from './stageStore';
-import { getContourKind, getGraticuleLines, getProjection } from './projection';
+import { getContourKind, getGraticuleLines, getProjection } from './projectionStore';
 import { getMapCenter } from './mapWrap';
 import { clearToast, showToast, type ToastAction } from './toastStore';
 

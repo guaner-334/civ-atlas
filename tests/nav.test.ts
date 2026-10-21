@@ -3,7 +3,7 @@
  * 浏览器的 history.go 是过一会儿才到的(popstate),假的也一样:flush() 才到。
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { _resetNav, getNav, navAdopt, navBack, navLayer, navReplace, navSettled, navTitle, navTo, navUrl, startNav, type NavHooks, type NavLayer, type NavState } from '../src/ui/nav';
+import { _resetNav, getNav, navAdopt, navBack, navLayer, navMark, navReplace, navSettled, navTitle, navTo, navUrl, startNav, type NavHooks, type NavLayer, type NavState } from '../src/ui/nav';
 
 class FakeHistory {
   list: { state: unknown; url: string }[] = [{ state: null, url: '/' }];
@@ -396,5 +396,28 @@ describe('后退:世界里的卡片、概览(每打开一样算一步)', () => {
     navLayer(polity('p1'));
     expect(h.list.length).toBe(1);
     expect(at().layer).toBeUndefined();
+  });
+});
+
+describe('首页先出来、主程序还没挂上时(navMark)', () => {
+  it('首页记成第一步;贴了分享链接(浏览器多记一步)接着记;主程序挂上以后按后退回到首页', () => {
+    navMark({ page: 'home' });
+    expect(h.list[0].state).toMatchObject({ wf: 1, idx: 0, page: 'home' });
+    // 地址栏里贴了 #share=…:浏览器自己记了一步,首页那边记成新的一步再交给主程序
+    h.pushState(null, '', '/#share=x');
+    navAdopt({ page: 'home' });
+    expect(h.list[1].state).toMatchObject({ wf: 1, idx: 1, page: 'home', prev: true });
+    // 主程序挂上:这一步是分享来的世界
+    const a = app();
+    startNav({ page: 'world', id: 'S' }, a.hooks);
+    expect(at()).toMatchObject({ idx: 1, page: 'world', id: 'S', prev: true });
+    h.back();
+    expect(a.log).toEqual(['后退:home']);
+  });
+
+  it('刷新回来的那一步(记着首页)照旧用它的序号', () => {
+    h.replaceState({ wf: 1, idx: 3, page: 'home', bare: 3, prev: true }, '', '/');
+    navMark({ page: 'home' });
+    expect(h.list[0].state).toMatchObject({ idx: 3, page: 'home', prev: true });
   });
 });

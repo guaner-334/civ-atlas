@@ -318,6 +318,8 @@ import {
 } from './TerrainTools';
 import { SourceLayer, beginImport, isImageFile, startImport, useImportOn, useSourceView } from './ImportImage';
 import { NewWorldDialog, type NewWorldInit, type NewWorldMode, type NewWorldStart } from './NewWorldDialog';
+import { randomSeedValue, type HomeStart } from './homeStart';
+import { WORKER_URL } from './workerUrl';
 import { closeUpheaval, getUpUi, setUpRunner, takeUpPreview, undoUpOp, upCancel, upClick, upDown, upMove, upUp, upheavalName, useUpUi } from './upheavalStore';
 import { UpheavalHint, UpheavalOverlay } from './UpheavalPanel';
 import { PendingTray } from './PendingTray';
@@ -444,11 +446,6 @@ function draftModeOf(t: Target | null): NewWorldMode {
   // 在一张地图上打造文明(地图锁着):不管地图是不是照手绘图长的,都是「打造文明」那一页
   if (t?.edits.map) return 'random';
   return t && (t.mode === 'image' || !!t.edits.sketch?.image) ? 'image' : 'random';
-}
-
-/** 随机一个种子(新建世界、"换一颗") */
-function randomSeedValue(): number {
-  return Math.floor(Math.random() * 999999) + 1;
 }
 
 /** 新建中的世界现在的样子(参数、修改、名字),比较动没动过用 */
@@ -712,7 +709,8 @@ const WORK_LABEL: Partial<Record<WorkerRequest['type'], string>> = {
   upPreview: '预览地形大事',
 };
 
-export function App() {
+/** fromHome:打开网站时先出来的首页(HomeShell.tsx)上点了要离开首页的事,挂上以后接着做(见 Boot.tsx) */
+export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
   const init = useMemo(readUrl, []);
   /** 打开网页时去哪:我的世界 / 新建 / 某个世界(见 firstRoute) */
   const route = useMemo(() => firstRoute(init), [init]);
@@ -1136,7 +1134,7 @@ export function App() {
       trials.current.clear();
     }
     if (!workerRef.current) {
-      const w = new Worker(new URL('../worker.ts', import.meta.url), { type: 'module' });
+      const w = new Worker(WORKER_URL, { type: 'module' });
       w.onerror = (e) => {
         if (workerRef.current === w) recordWorkerError(e, '生成世界的线程');
       };
@@ -2543,6 +2541,17 @@ export function App() {
       setNewCivHandler(null);
       setOpenWorldHandler(null);
     };
+  }, []);
+  // 先出来的首页上点的那一件(主程序那时还在下载):挂上以后接着做,和在这里点的一样(浏览器的后退已经在上面接上了)
+  useEffect(() => {
+    const s = fromHome;
+    if (!s) return;
+    if (s.kind === 'open') openStored(s.id);
+    else if (s.kind === 'text') openText(s.text, s.fileName);
+    else if (s.kind === 'newCiv') startNewCiv(s.id);
+    else startFromDialog(s.start);
+    // 只在挂上时做一次
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   /** 以别的世界为底稿新建时,那个世界(没存过的也回得去) */
   const backRef = useRef<Target | null>(null);

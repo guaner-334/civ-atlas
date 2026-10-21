@@ -42,7 +42,7 @@ import { GUIDE_URL, PRIVACY_URL, SOURCE_URL, TERMS_URL } from './links';
 import { ContactLink } from './ContactLink';
 import { VersionText } from './VersionNews';
 import { HomeGlobe } from './studio/HomeGlobe';
-import { OldSiteBadge } from './Corners';
+import { OldSiteBadge } from './OldSiteBadge';
 import { BETA_SITE, OLD_SITE } from './oldSite';
 import { civName, mapBrief, mapGroups, mapLine, mapName, type MapGroup } from './mapGroups';
 import { cleanPlay } from '../gen/edits';

@@ -11,8 +11,8 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { continentCap } from '../gen/tectonics';
-import { DEFAULT_PARAMS, type WorldParams } from '../gen/world';
-import type { SliderLike } from './WorldOverviewGenesis';
+import { DEFAULT_PARAMS, type WorldParams } from '../gen/params';
+import type { SliderLike } from './genesisSliders';
 import './params.css';
 
 /** 数值框怎么写:显示的数 = 值 × mul ÷ div,保留 digits 位小数;unit 跟在后面 */
