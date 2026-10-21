@@ -45,6 +45,8 @@ import { HomeGlobe } from './studio/HomeGlobe';
 import { OldSiteBadge } from './Corners';
 import { BETA_SITE, OLD_SITE } from './oldSite';
 import { civName, mapBrief, mapGroups, mapLine, mapName, type MapGroup } from './mapGroups';
+import { cleanPlay } from '../gen/edits';
+import { yearFull } from '../gen/era';
 import './worlds.css';
 
 /** 我的世界看的是哪个页签、「地图」里选中了哪张(组的编号);回到这一页照旧 */
@@ -79,10 +81,12 @@ export interface MyWorldsProps {
   onNewCiv: (id: string) => void;
 }
 
-/** 卡片第二行:"种子 7，现存 13 国" / "种子 1009，还在新建" */
+/** 卡片第二行:"种子 7，现存 13 国" / "种子 1009，还在新建" / 逐年推演的 "种子 7，演绎到第 2675 年" */
 function worldLine(w: StoredWorld): string {
   const seed = `种子 ${w.save.seed}`;
   if (w.draft) return `${seed}，还在新建`;
+  const play = cleanPlay(w.save.edits.play);
+  if (play) return `${seed}，演绎到${yearFull(play.year, w.save.edits.era)}`;
   if (w.alive === undefined) return seed;
   return w.alive ? `${seed}，现存 ${w.alive} 国` : `${seed}，没有文明`;
 }
@@ -416,6 +420,7 @@ function WorldCard({
       >
         <span className="mw-thumb" style={w.thumb ? { backgroundImage: `url(${w.thumb})` } : undefined}>
           {w.draft && <span className="mw-tag">没建完</span>}
+          {!w.draft && w.save.edits.play && <span className="mw-tag">逐年推演</span>}
         </span>
         {phone ? (
           <span className="mw-meta">

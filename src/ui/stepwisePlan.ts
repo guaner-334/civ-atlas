@@ -13,8 +13,12 @@
  * - 同一步里几样都碰上了,按 到头 > 每隔几年 > 出大事 说。
  */
 import type { ChronicleEntry } from '../gen/civ/chronicle';
+import type { Civ } from '../gen/civ/types';
+import type { World } from '../gen/world';
+import type { Era } from '../gen/era';
 import { END_YEAR_MAX, type Advance } from '../gen/edits';
-import { tierOf } from './directorPlan';
+import { directorCards, tierOf, type DirectorCaption, type DirectorShot } from './directorPlan';
+import { entryWeight } from './timelineLayout';
 
 /** 下一步 */
 export interface StepPlan {
@@ -84,4 +88,60 @@ export function stepPause(
   const list = bigEntries(entries, from, step.to, before);
   const why: PauseWhy | null = step.pause ?? (advance.big && list.length ? 'big' : null);
   return { why, big: list };
+}
+
+// ---------------------------------------------------------------------------
+// 放的快慢、停一下时看哪几件(界面用,见 Stepwise.tsx)
+
+/**
+ * 逐年推演往下走的速度(每秒几年):固定速度 1× / 4×;导播"自动"节奏里没事的年份按 4× 走。
+ * 比推演模式慢得多(那边每秒几十年):历史是一步一步现算的,算得比放得慢就再放慢一点等它(stepRate)
+ */
+export const STEP_RATE: Readonly<Record<1 | 4, number>> = { 1: 2, 4: 8 };
+
+/** 放的速度最多是"算一步"速度的几成(留一点余量,播放头不追上还在算的那一步) */
+export const STEP_RATE_SHARE = 0.85;
+
+/** 实际用的速度:想要的 want(每秒几年);算得比它慢时按算的速度打折(computed = 最近几步每秒算几年;还不知道 = null) */
+export function stepRate(want: number, computed: number | null): number {
+  if (computed === null || !(computed > 0)) return want;
+  return Math.max(0.25, Math.min(want, computed * STEP_RATE_SHARE));
+}
+
+/**
+ * 播放头快追上还在算的那一步了:放慢一点等它,不一下子停住。gap = 离算好的最后一年还剩几年,rate = 每秒几年;
+ * 离到头还有 STEP_EASE 秒以上照常走,越近越慢,最慢 STEP_EASE_MIN 倍
+ */
+export const STEP_EASE = 0.6;
+export const STEP_EASE_MIN = 0.15;
+export function stepEase(gap: number, rate: number): number {
+  if (!(rate > 0)) return 1;
+  const t = Math.max(0, gap) / rate;
+  return Math.min(1, Math.max(STEP_EASE_MIN, t / STEP_EASE));
+}
+
+/** 停一下时卡片里的一件:字幕(类型、年份、原句、事发地)+ 镜头去哪 */
+export interface StepReviewItem {
+  cap: DirectorCaption;
+  shot: DirectorShot | null;
+}
+
+/**
+ * 只放这一段的时间轴上画哪几件:一段只有几十年,比整段历史的时间轴细一层 —— 大事(重要度 3)之外,重要度 2 的也画
+ */
+export const STEP_DOT_IMPORTANCE = 2;
+/**
+ * 停一下时卡片里列哪几件:分量(timelineLayout.ts 的 entryWeight)不小于这个的 —— 大事都列,
+ * 重要度 2 的只列亡国、分裂、打仗、改朝换代、民变这类(种类分量 ≥ 5);一段里最多 REVIEW_MAX 件,多了留分量重的
+ */
+export const REVIEW_WEIGHT = 25;
+export const REVIEW_MAX = 12;
+
+/** 停一下时卡片里列的这一段([from, to))的大事,按先后。entries = fullChronicle 那一份 */
+export function reviewItems(world: World, civ: Civ, from: number, to: number, entries: readonly ChronicleEntry[], era?: Era | null): StepReviewItem[] {
+  if (!(to > from)) return [];
+  let pick = entries.filter((e) => e.year >= from && e.year < to && entryWeight(e) >= REVIEW_WEIGHT);
+  if (pick.length > REVIEW_MAX) pick = [...pick].sort((a, b) => entryWeight(b) - entryWeight(a) || a.year - b.year || a.id - b.id).slice(0, REVIEW_MAX);
+  pick.sort((a, b) => a.year - b.year || a.id - b.id);
+  return directorCards(world, civ, pick, era);
 }

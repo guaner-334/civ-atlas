@@ -13,6 +13,7 @@
  */
 import { useSyncExternalStore } from 'react';
 import { directorAt, directorNext, directorYear, type DirectorCaption, type DirectorPlan, type DirectorSkip } from './directorPlan';
+// 逐年推演(Stepwise.tsx)也用这里:历史一步步算出来,排期一份份接着放(directorFeed / directorStep),开关另记一份(setDirectorMode)
 import type { Focus } from './flyTo';
 import { getCivTime, pausePlayback, setCivTime, type CivTime, type PlaySpeed } from './civView';
 
@@ -60,11 +61,23 @@ export interface DirectorState {
 
 const KEY = 'wenming-ditu:director';
 
+/**
+ * 开关分两份记:推演模式(on,默认关)和逐年推演(onStep,默认开;逐年推演就是看着世界一步步往下走,导播跟着放)。
+ * 节奏、停多久两边共用
+ */
+let onInfer = false;
+let onStep = true;
+/** 现在是不是在逐年推演(App 按打开的世界设,见 setDirectorMode) */
+let stepMode = false;
+
 function load(): Pick<DirectorState, 'on' | 'pace' | 'hold'> {
   try {
-    const v = JSON.parse(localStorage.getItem(KEY) ?? 'null') as Partial<DirectorState> | null;
-    if (v && typeof v === 'object')
-      return { on: v.on === true, pace: v.pace === 'fixed' ? 'fixed' : 'auto', hold: HOLD_STEPS.includes(v.hold as number) ? (v.hold as number) : 1 };
+    const v = JSON.parse(localStorage.getItem(KEY) ?? 'null') as (Partial<DirectorState> & { onStep?: unknown }) | null;
+    if (v && typeof v === 'object') {
+      onInfer = v.on === true;
+      onStep = v.onStep !== false;
+      return { on: onInfer, pace: v.pace === 'fixed' ? 'fixed' : 'auto', hold: HOLD_STEPS.includes(v.hold as number) ? (v.hold as number) : 1 };
+    }
   } catch {
     /* 存不了 / 坏了:用默认 */
   }
@@ -72,8 +85,10 @@ function load(): Pick<DirectorState, 'on' | 'pace' | 'hold'> {
 }
 
 function save() {
+  if (stepMode) onStep = S.on;
+  else onInfer = S.on;
   try {
-    localStorage.setItem(KEY, JSON.stringify({ on: S.on, pace: S.pace, hold: S.hold }));
+    localStorage.setItem(KEY, JSON.stringify({ on: onInfer, onStep, pace: S.pace, hold: S.hold }));
   } catch {
     /* 隐私模式:只管这一次 */
   }
@@ -315,6 +330,21 @@ export function directorReset(keepList = false) {
 /** 用的人自己动了地图(拖、缩放、点):放着的话停下,镜头交还 */
 export function directorHandBack() {
   if (E.driving && getCivTime().playing) pausePlayback();
+  handSubs.forEach((f) => f());
+}
+
+/** 用的人一动地图就调 f(逐年推演停一下时一件件飞过去的那串,一动地图就不再自己飞) */
+const handSubs = new Set<() => void>();
+export function onDirectorHandBack(f: () => void): () => void {
+  handSubs.add(f);
+  return () => {
+    handSubs.delete(f);
+  };
+}
+
+/** 这一刻正在放一段(镜头在飞或字幕在走):逐年推演等下一步时不放慢这一段 */
+export function directorNarrating(): boolean {
+  return !!E.plan && directorAt(E.plan, E.t) !== null;
 }
 
 /** DirectorEngine:刚打开导播、时间轴没在放 → 放起来(只取一次) */
@@ -372,6 +402,83 @@ export function directorButton() {
   if (!S.on) return setDirectorOn(true);
   if (S.held) return directorResume();
   setDirectorOn(false);
+}
+
+/**
+ * 在逐年推演 / 推演模式之间换(App 按打开的世界设):开关换成那一边记着的(逐年推演默认开、推演模式默认关),
+ * 字幕、略过的列表从头来
+ */
+export function setDirectorMode(step: boolean) {
+  if (step === stepMode) return;
+  stepMode = step;
+  E.plan = null;
+  E.driving = false;
+  E.start = false;
+  patch({ on: step ? onStep : onInfer, shown: null, held: false, list: [], panel: null, folded: false });
+  setProgress(0);
+}
+
+/** 逐年推演的开始设置里改导播开关:只改逐年推演那一份(推演模式里开着的照旧) */
+export function setStepDirectorOn(on: boolean) {
+  if (stepMode) return setDirectorOn(on);
+  onStep = on;
+  save();
+  subs.forEach((f) => f());
+}
+
+/** 逐年推演那一份开关(开始设置里显示) */
+export function stepDirectorOn(): boolean {
+  return stepMode ? S.on : onStep;
+}
+
+/** 请地图飞到一处(逐年推演停一下时一件件看这一段的大事) */
+export function directorFlyTo(focus: Focus | null) {
+  fly(focus);
+}
+
+// ---------------------------------------------------------------------------
+// 逐年推演:历史一步步算出来,排期也一份份接着排(每份 = 算好的那几年,[from, to))
+
+/**
+ * 接着放一份新排的(上一份放完了、下一步也算好了):字幕、略过的列表、刚放完那段的余韵都留着,
+ * 时钟从这一份的第 0 秒起。还没放过(刚开始、换了设置)用 directorBegin
+ */
+export function directorFeed(plan: DirectorPlan, key: string) {
+  E.lastEnd -= E.t;
+  E.plan = plan;
+  E.key = key;
+  E.t = 0;
+  E.seg = -1;
+  E.item = -1;
+  E.skipAt = 0;
+  E.driving = true;
+  E.year = plan.from;
+  if (S.held) patch({ held: false });
+}
+
+/**
+ * 逐年推演往前走 dt 秒:放到这一份的最后一年就停在那里等下一份(时钟照走,字幕放完照常多留一会儿再收);
+ * 返回这一刻的年份(没有排期 = null)
+ */
+export function directorStep(dt: number): number | null {
+  const p = E.plan;
+  if (!p) return null;
+  E.t += dt;
+  E.driving = true;
+  const y = directorYear(p, E.t);
+  E.year = y;
+  sync(y);
+  return y;
+}
+
+/** 这一份放完了(逐年推演:可以接下一份了) */
+export function directorDone(): boolean {
+  return !E.plan || E.t >= E.plan.duration - 1e-9;
+}
+
+/** 正在放的这一份排期(逐年推演认"还是不是它") */
+export function directorPlanNow(): DirectorPlan | null {
+  return E.plan;
 }
 
 export function setDirectorOn(on: boolean) {

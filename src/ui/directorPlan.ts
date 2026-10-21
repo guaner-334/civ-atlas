@@ -295,6 +295,22 @@ export function directorPlan(world: World, civ: Civ, input: DirectorInput): Dire
   return { from, to, mode, rate, hold: factor, duration, segments, skipped, clock };
 }
 
+/**
+ * 给定的几件事各自的字幕、事发地和镜头(不挑、不排时间;逐年推演停一下时卡片里列的那几件用,见 stepwisePlan.ts 的 reviewItems)。
+ * 写法和排期里的一样(编年史原句、中文标点;打到 civ.endYear 还没打完的仗只写开头一句,年份写"第 N 年起")
+ */
+export function directorCards(world: World, civ: Civ, entries: readonly ChronicleEntry[], era?: Era | null): { cap: DirectorCaption; shot: DirectorShot | null }[] {
+  const ctx = shotCtx(world, civ);
+  const texts = new Map<number, FilmEvent>();
+  for (const f of filmEvents(entries, ALL_YEARS, undefined, era ?? null)) texts.set(f.id, f);
+  return entries.flatMap((e) => {
+    const f = texts.get(e.id);
+    if (!f) return [];
+    const c = candOf(ctx, e, f, tierOf(e), 1, era ?? null);
+    return [{ cap: captionOf(c), shot: c.box ? shotOf(ctx, c.box, c.spot) : null }];
+  });
+}
+
 /** 头等大事 / 其余大事 / 小事(逐年推演"出大事也停"也照它判断,见 stepwisePlan.ts) */
 export function tierOf(e: ChronicleEntry): DirectorTier {
   if (e.importance < MAJOR) return 'minor';

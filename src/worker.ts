@@ -540,7 +540,13 @@ async function pump() {
   }
 }
 
+/** 逐年推演走完一步以后过多久(没有下一步了)才打这一份原件(毫秒);等着的那一次 */
+const TURN_SNAPSHOT_IDLE = 2500;
+let turnSnap: ReturnType<typeof setTimeout> | undefined;
+
 async function handle(m: WorkerRequest): Promise<void> {
+  // 有了新的活:逐年推演上一步等着打的原件不要了(新的一步、换了世界、重推会各自再排)
+  if (m.type !== 'history' && m.type !== 'upPreview' && m.type !== 'extendStop' && m.type !== 'trial') clearTimeout(turnSnap);
   if (m.type !== 'history' && m.type !== 'upPreview' && m.type !== 'extendStop') takeTempo(m.params, m.sketch, m.tempo);
   if (m.type === 'generate') {
     // 换了世界:后台排着的补丁和记着的整图都作废
@@ -698,7 +704,12 @@ async function handle(m: WorkerRequest): Promise<void> {
     keepCiv(m, out.play, cloned);
     post({ type: 'turn', id: m.id, civ: out.civ, play: out.play, rejected: out.rejected, ms, tempo: noteOf(m.params, m.sketch), eras: eraWorlds(steps), baseKey: keyOf(m.params, m.terrain, m.sketch) }, civTransferables(out.civ));
     queuePatches(m.id, m, steps);
-    queueSnapshot(m.id, { ...m, play: out.play }, world, steps, cloned);
+    // 原件很大,打一份要好一会儿:一步接一步往下走的时候不每一步都打(会拖慢下一步),停下来一阵子没有下一步了才打最后这一份
+    clearTimeout(turnSnap);
+    turnSnap = setTimeout(() => {
+      queueSnapshot(m.id, { ...m, play: out.play }, world, steps, cloned);
+      void pump();
+    }, TURN_SNAPSHOT_IDLE);
   } else if (m.type === 'extend') {
     const t0 = performance.now();
     const to = cleanEndYear(m.to) ?? END_YEAR_DEFAULT;
