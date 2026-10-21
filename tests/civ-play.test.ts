@@ -1,9 +1,9 @@
 /**
- * 游戏模式的地基(gen/civ/play.ts):停在第 T 年年初下命令、接着推。
+ * 逐年推演的地基(gen/civ/play.ts):停在第 T 年年初下命令、接着推。
  * - 每 25 年停一次、每次下 1–3 条命令推到第 1500 年:和带着同样的命令从第 0 年一口气推到同一刻逐项一样(seed 7 / 2024)
  * - 同一年下的几条命令按先后执行,换个先后结果跟着换,同样的先后两次推演一样
  * - 命令只能下在"现在":早于、晚于现在的不收,结果和没下一样
- * - 存档往返:推到第 T 年存下、读回、接着推,和不存档直接推一样(按存档重新推、读原件接着推都行);没在玩的旧存档照旧
+ * - 存档往返:推到第 T 年存下、读回、接着推,和不存档直接推一样(按存档重新推、读原件接着推都行);没在逐年推演的旧存档照旧
  */
 import { describe, expect, it } from 'vitest';
 import { generateWorld, DEFAULT_PARAMS, type World } from '../src/gen/world';
@@ -55,7 +55,7 @@ function orders(civ: Civ, T: number): Intervention[] {
   return out;
 }
 
-/** 从第 25 年起每 25 年一回合推到第 to 年年初,每回合下 orders 挑的命令 */
+/** 从第 25 年起每 25 年一步推到第 to 年年初,每一步下 orders 挑的命令 */
 function playUntil(w: World, to: number, start: PlayState = { year: 25, commands: [] }, civ0?: Civ) {
   let play = start;
   let civ = civ0 ?? playCiv(w, {}, play);
@@ -82,7 +82,7 @@ function ownerAfter(civ: Civ, r: number, year: number): number {
   return v;
 }
 
-describe('游戏模式:停在第 T 年下命令,接着推', () => {
+describe('逐年推演:停在第 T 年下命令,接着推', () => {
   it('每 25 年停一次、每次下 1–3 条命令推到第 1500 年:和带着同样的命令一口气推完逐项一样(seed 7 / 2024)', () => {
     for (const seed of [7, 2024]) {
       const w = world(seed);
@@ -138,7 +138,7 @@ describe('游戏模式:停在第 T 年下命令,接着推', () => {
     expect(stuck.rejected).toHaveLength(1);
   }, 120_000);
 
-  it('存档往返:推到第 T 年存下、读回、接着推,和不存档直接推一样;没在玩的旧存档照旧', () => {
+  it('存档往返:推到第 T 年存下、读回、接着推,和不存档直接推一样;没在逐年推演的旧存档照旧', () => {
     const w = world(7);
     const mid = playUntil(w, 300);
     const edits: WorldEdits = { names: {}, interventions: [], terrain: [], play: mid.play };
@@ -155,14 +155,14 @@ describe('游戏模式:停在第 T 年下命令,接着推', () => {
     const direct = playUntil(w, 600, mid.play, mid.civ);
     same(playUntil(w, 600, play, unpackValue(packValue(mid.civ)) as Civ).civ, direct.civ, '读原件接着推');
     same(playUntil(w, 600, play, again).civ, direct.civ, '按存档重推再接着推');
-    // 配方:在玩的记进度;没在玩的和加这一项以前一样
+    // 配方:在逐年推演的记进度;没在逐年推演的和加这一项以前一样
     expect(recipeText(recipeOfSave(r.save))).toContain('"play"');
     const old = parseSave(saveText(makeSave(w.params, { names: {}, interventions: [], terrain: [] }, 'x')));
     expect(old.ok && 'play' in old.save.edits).toBe(false);
     expect(old.ok && recipeText(recipeOfSave(old.save))).not.toContain('play');
   }, 300_000);
 
-  it('读进来的进度先清理:年份不对 = 没在玩;晚于现在、比前一条早、格式不对的命令丢掉', () => {
+  it('读进来的进度先清理:年份不对 = 没在逐年推演;晚于现在、比前一条早、格式不对的命令丢掉', () => {
     const v = (from: number): Intervention => ({ kind: 'unity', a: 'polity:c12#0', from });
     expect(cleanPlay(undefined)).toBeUndefined();
     expect(cleanPlay({ year: 0, commands: [] })).toBeUndefined();
@@ -174,6 +174,6 @@ describe('游戏模式:停在第 T 年下命令,接着推', () => {
     expect(playInterventions([v(5)], { year: 300, commands: [v(100)] })).toEqual([v(5), v(100)]);
     const r = parseSave(JSON.stringify({ ...JSON.parse(saveText(makeSave(DEFAULT_PARAMS, { names: {}, interventions: [], terrain: [] }, 'x'))), edits: { names: {}, interventions: [], terrain: [], play: { year: 'x' } } }));
     expect(r.ok && r.save.edits.play).toBeUndefined();
-    expect(r.ok && r.warnings).toContain('游戏进度认不出来,按没在玩打开');
+    expect(r.ok && r.warnings).toContain('逐年推演的进度认不出来,已跳过');
   });
 });

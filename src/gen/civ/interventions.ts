@@ -43,7 +43,7 @@
  * **不存内存状态**:Civ + 干预列表就能接着推(CivSim.fromCiv(world, civ, 干预列表)):规则本来就只看列表和当时的归属,
  *   还没到 from / until 的事件由 scheduleInterventions 按"比现在晚"补上;已经过去的"不许扩张到期"那一刻预约的扩张,
  *   由 resumePolities 按日志重放补上(haltEndsUpTo)。
- *   游戏模式(play.ts)停在第 T 年年初的前一刻,在列表后面接上 from = T 的新命令:比现在晚,和别的还没到的干预一样补上事件,
+ *   逐年推演(play.ts)停在第 T 年年初的前一刻,在列表后面接上 from = T 的新命令:比现在晚,和别的还没到的干预一样补上事件,
  *   同一刻里照样排在别的事件前面、按列表先后 —— 所以停下来下命令接着推,和带着同样的命令一口气推完一样。纯计算,不碰 DOM。
  */
 import { cleanInterventions, keyByRegion, regionOfKey, type Intervention } from '../edits';

@@ -21,8 +21,8 @@
  * 新建中的世界也打(点了「创建」不一定再重推,那时用的就是这一份);换世界的时候排着的作废。排在各段主图补丁后面;
  * 地图那一块按世界的键记着,只重推历史时不用再打一遍。
  *
- * 游戏模式(gen/civ/play.ts):请求带着进度(play:推到哪年 + 命令串)的,推到那一年年初,命令接在干预后面;
- * 一回合(turn)在那一刻下命令、接着推几年。上一回合的结果记在线程里(played),下一回合从它接着推,不从第 0 年重算。
+ * 逐年推演(gen/civ/play.ts):请求带着进度(play:推到哪年 + 命令串)的,推到那一年年初,命令接在干预后面;
+ * 一步(turn)在那一刻下命令、接着推几年。上一步的结果记在线程里(played),下一步从它接着推,不从第 0 年重算。
  */
 import { generateWorld, type BaseCache, type World, type WorldParams } from './gen/world';
 import { rasterizeDeferred, type Raster } from './gen/raster';
@@ -77,7 +77,7 @@ interface CivInput {
   origins?: Origins;
   /** 文明种子(gen/edits.ts 的 WorldEdits.civSeed;不给 = 地图种子) */
   civSeed?: number;
-  /** 游戏模式的进度(gen/edits.ts 的 WorldEdits.play;不给 = 不在玩):推到 play.year 年初,命令接在干预后面 */
+  /** 逐年推演的进度(gen/edits.ts 的 WorldEdits.play;不给 = 没在逐年推演):推到 play.year 年初,命令接在干预后面 */
   play?: PlayState;
   tempo?: TempoNote;
   /** 主线程已经有了的主图补丁("上一段的键>这一段的键");没给的才在后台铺 */
@@ -115,7 +115,7 @@ export type WorkerRequest =
    */
   | ({ type: 'load'; id: number; scale: number; parts: SnapshotPart[]; interventions?: Intervention[] } & CivInput)
   /**
-   * 游戏模式的一回合(gen/civ/play.ts 的 playTurn):在 play.year 年初下 commands(只收 from = play.year 的),接着推 years 年。
+   * 逐年推演的一步(gen/civ/play.ts 的 playTurn):在 play.year 年初下 commands(只收 from = play.year 的),接着推 years 年。
    * 线程里记着这份进度的结果就接着推;没有(线程被重开过、换了世界)就从第 0 年推到这一刻再接着推(结果一样,只是慢)
    */
   | ({ type: 'turn'; id: number; play: PlayState; commands: unknown[]; years: number; interventions?: Intervention[] } & CivInput)
@@ -138,7 +138,7 @@ export type WorkerResponse =
   | ({ type: 'history'; id: number } & HistoryFrames)
   /** 重推好的文明;ms = 线程里花的时间(含按参数重新生成世界);tempo、eras 同 done */
   | { type: 'civ'; id: number; seq: number; civ: Civ; ms: number; tempo?: TempoNote; eras?: EraWorld[]; baseKey: string }
-  /** 游戏模式一回合的结果:推到下一回合年初的历史、新的进度(play)、没收下的命令(rejected);ms、tempo、eras 同 civ */
+  /** 逐年推演一步的结果:推到下一步年初的历史、新的进度(play)、没收下的命令(rejected);ms、tempo、eras 同 civ */
   | { type: 'turn'; id: number; civ: Civ; play: PlayState; rejected: unknown[]; ms: number; tempo?: TempoNote; eras?: EraWorld[]; baseKey: string }
   /** 试推演的结果;tempo 同 done */
   | { type: 'trial'; id: number; tid: number; civ: Civ; ms: number; tempo?: TempoNote }
@@ -299,12 +299,12 @@ const setupOpt = (m: Pick<CivInput, 'frontier' | 'origins' | 'civSeed'>) => ({
   ...(m.civSeed !== undefined ? { civSeed: m.civSeed } : {}),
 });
 
-/** 推文明时带的游戏进度(没在玩 = 不带):推到 play.year 年初,命令接在干预后面(放在最后,盖过干预、推演年数) */
+/** 推文明时带的逐年推演进度(没在逐年推演 = 不带):推到 play.year 年初,命令接在干预后面(放在最后,盖过干预、推演年数) */
 const playOpt = (m: Pick<CivInput, 'play'> & { interventions?: Intervention[] }) =>
   m.play ? { interventions: [...playInterventions(m.interventions ?? [], m.play)], endYear: playStop(m.play.year) } : {};
 
 /**
- * 游戏模式上一回合的结果(复制的一份;交给主线程的那份数组 transfer 走了)和它的配方:下一回合配方对得上就从它接着推。
+ * 逐年推演上一步的结果(复制的一份;交给主线程的那份数组 transfer 走了)和它的配方:下一步配方对得上就从它接着推。
  * 照原样打开的旧世界另记(键前加 frozen:,地形和按现在的版本生成的不一样)
  */
 let played: { key: string; civ: Civ } | null = null;
@@ -312,7 +312,7 @@ function playedKey(m: CivInput & { interventions?: Intervention[] }, play: PlayS
   const r: Recipe = { params: m.params, terrain: m.terrain, sketch: m.sketch, interventions: m.interventions, upheavals: m.upheavals, names: m.names, endYear: m.endYear, frontier: m.frontier, origins: m.origins, civSeed: m.civSeed, play };
   return `${frozen?.key === keyOf(m.params, m.terrain, m.sketch) ? 'frozen:' : ''}${recipeText(r)}`;
 }
-/** 推好了一份游戏进度的结果(在交给主线程之前调用):记下来 */
+/** 推好了一份逐年推演进度的结果(在交给主线程之前调用):记下来 */
 function keepPlayed(m: CivInput & { interventions?: Intervention[] }, play: PlayState | undefined, civ: Civ) {
   if (!play) return;
   const kept = cloneCiv(civ);
@@ -644,7 +644,7 @@ async function handle(m: WorkerRequest): Promise<void> {
     const world = worldOf(m.params, m.terrain, m.sketch);
     const steps = stepsOf(m.params, m.terrain, m.sketch, m.upheavals);
     const params = { interventions: m.interventions, tempo: tempoOf(m.params, m.terrain, m.sketch, m.civSeed), ...upOpt(steps), ...namesOpt(m.names), ...yearsOpt(m.endYear), ...setupOpt(m) };
-    // 上一回合的结果对不上这份进度(线程被重开过、换了世界):先从第 0 年推到这一回合年初
+    // 上一步的结果对不上这份进度(线程被重开过、换了世界):先从第 0 年推到这一步年初
     const from = played?.key === playedKey(m, m.play) ? played.civ : generateCiv(world, { ...params, ...playOpt(m) });
     played = null;
     const out = playTurn(world, from, params, m.play, m.commands, m.years);
