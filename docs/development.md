@@ -83,7 +83,7 @@ src/
 ├── ai/             AI 接入:唯一入口 aiChat、各家服务商、设置与密钥、本地调用记录、提示词;agent/ 是助手(调用工具、试推演对照)
 ├── account/        网站账号、云同步、短链接(只在配了 VITE_AI_SERVER 时启用)
 ├── ui/             界面(React)
-├── worker.ts / exportWorker.ts / globeWorker.ts   后台线程
+├── worker.ts / exportWorker.ts / globeWorker.ts / globeCpuWorker.ts   后台线程
 └── main.tsx
 scripts/            冒烟测试、压力测试、画面回归、截图、统计、字体裁剪等脚本(lib/ 是它们共用的零件)
 tests/              单元测试(vitest);visual/baseline/ 是画面回归的基准图

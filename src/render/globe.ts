@@ -16,7 +16,8 @@
  *     包到球上转到两极,一半的地形光从背后来,出现暗块;重新打光以后从哪个角度看都一致,正对着看时和平面主图几乎一样
  *   - 经纬网在着色器里画(按屏幕像素定线宽,放大不变粗)
  *
- * 没有 WebGL2 时 renderGlobeCpu 在 CPU 上按同样的公式逐像素画(慢一些,拖动时降分辨率)。
+ * 没有 WebGL2 时 renderGlobeCpu 在 CPU 上按同样的公式逐像素画(慢一些,拖动时降分辨率;
+ * 平时在几个后台线程里分段画,见 globeCpuWorker.ts、ui/globeCpu.ts)。
  * 这里的数学函数(屏幕 ↔ 经纬度、拖动、缩放)是纯计算,单测在 Node 里跑。
  *
  * 坐标约定(和主图一致,见 ui/mapWrap.ts):经度 −180°…180°,世界 x = 0 是 180° 经线,主图正中是 0°;
@@ -792,8 +793,12 @@ export interface CpuSources {
 
 const hexRgb = (h: string): Vec3 => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
 
-/** 在 CPU 上画一帧到 out(画布像素)。经纬网、外框由调用方另画(见 graticuleLines) */
-export function renderGlobeCpu(out: RgbaImage, view: GlobeView, f: GlobeFrame, look: GlobeLook, src: CpuSources): void {
+/**
+ * 在 CPU 上画一帧到 out(画布像素)。经纬网、外框由调用方另画(见 graticuleLines)。
+ * y0 = out 的第一行是整帧的第几行:分几段(几个后台线程)画同一帧时,每段只画 out.h 行,f 照旧是整帧的球;
+ * 每个像素的算法和整帧一次画完完全一样,拼起来逐像素一致
+ */
+export function renderGlobeCpu(out: RgbaImage, view: GlobeView, f: GlobeFrame, look: GlobeLook, src: CpuSources, y0 = 0): void {
   const { w, h, data } = out;
   const { c, e, n } = globeBasis(view.lon, view.lat);
   const bg = hexRgb(GLOBE_BG[look.style]);
@@ -833,9 +838,9 @@ export function renderGlobeCpu(out: RgbaImage, view: GlobeView, f: GlobeFrame, l
     }
     return 1;
   };
-  for (let y = 0; y < h; y++) {
+  for (let y = y0; y < y0 + h; y++) {
     for (let x = 0; x < w; x++) {
-      const o = (y * w + x) * 4;
+      const o = ((y - y0) * w + x) * 4;
       const u = (x + 0.5 - f.cx) / f.R;
       const t = (f.cy - y - 0.5) / f.R;
       const r = Math.sqrt(u * u + t * t);

@@ -230,4 +230,41 @@ describe('地球仪:正射投影', () => {
     expect(at(0, 0)).toEqual([13, 15, 18, 255]);
     for (const v of out.data) expect(Number.isFinite(v)).toBe(true);
   });
+
+  it('CPU 画法分段画(几个后台线程各画几行)拼起来和整帧一次画完逐像素一致', () => {
+    const tw = 96;
+    const th = 48;
+    const tex = new Uint8ClampedArray(tw * th * 4);
+    const civ = new Uint8ClampedArray(tw * th * 4);
+    for (let i = 0; i < tw * th; i++) {
+      tex[i * 4] = (i * 37) % 251;
+      tex[i * 4 + 1] = (i * 91) % 241;
+      tex[i * 4 + 2] = (i * 13) % 239;
+      tex[i * 4 + 3] = 255;
+      // 文明层:一半透明、一半半透明色块
+      civ[i * 4] = 200;
+      civ[i * 4 + 1] = 40;
+      civ[i * 4 + 2] = 90;
+      civ[i * 4 + 3] = (i % tw) < tw / 2 ? 0 : 140;
+    }
+    const src = { terrain: { w: tw, h: th, data: tex }, civ: { w: tw, h: th, data: civ } };
+    const W = 131;
+    const H = 97;
+    for (const style of ['realistic', 'fantasy', 'data'] as const) {
+      const v: GlobeView = { lon: 0.7, lat: 0.4, k: 1.6 };
+      const f = globeFrame(v, W, H, 9);
+      const look = { style, graticule: 0, hl: 0, replay: 0 };
+      const whole = { w: W, h: H, data: new Uint8ClampedArray(W * H * 4) };
+      renderGlobeCpu(whole, v, f, look, src);
+      const joined = new Uint8ClampedArray(W * H * 4);
+      // 段的行数故意不整齐(最后一段只剩几行)
+      for (let y0 = 0; y0 < H; y0 += 23) {
+        const rows = Math.min(23, H - y0);
+        const band = { w: W, h: rows, data: new Uint8ClampedArray(W * rows * 4) };
+        renderGlobeCpu(band, v, f, look, src, y0);
+        joined.set(band.data, y0 * W * 4);
+      }
+      expect(joined).toEqual(whole.data);
+    }
+  });
 });

@@ -45,14 +45,17 @@ for (let i = 0; i < shots.length; i++) {
     await page.waitForTimeout(300);
     // 放大了:等高清贴图(没触发就不等)
     await page.waitForFunction(() => { const g = (window as any).__wfGlobe; return g.tier === 2 || !g.texPending; }, null, { timeout: 30000 }).catch(() => {});
+    // CPU 画法:后台线程画完、换上了这个视角的全分辨率那张
+    await page.waitForFunction(() => !(window as any).__wfGlobe.cpuPending, null, { timeout: 30000 }).catch(() => {});
     await page.waitForTimeout(300);
   }
   const sel = [...flags].find((f) => f.startsWith('--sel='))?.slice(6);
   if (sel) {
     const ok = await page.evaluate((n) => (window as any).__wfGlobeSelectName(n), sel);
     if (!ok) console.log(`  球上没有「${sel}」这个名字,没选中`);
-    // 等球转过去、球心随面板打开挪过去(约 0.6 秒)
+    // 等球转过去、球心随面板打开挪过去(约 0.6 秒;CPU 画法再等后台线程画完)
     await page.waitForTimeout(900);
+    await page.waitForFunction(() => !(window as any).__wfGlobe.cpuPending, null, { timeout: 30000 }).catch(() => {});
     // 详情面板会盖住一边:截图时藏起来(--panel:留着,截整页,看球心左移)
     if (!flags.has('--panel')) {
       await page.addStyleTag({ content: '.inspector{display:none !important}' });
