@@ -298,7 +298,7 @@ for (const c of CASES) {
   await page.addInitScript('window.__name = (f) => f');
   if (thumbsOnly) await page.addInitScript(LONG_TASKS);
   page.on('pageerror', (e) => errs.push(`${c.seed} ${c.style}: ${e.message}`));
-  const look = c.sat ? { map: 'satellite', sat: c.sat } : { style: c.style };
+  const look: Record<string, string> = c.sat ? { map: 'satellite', sat: c.sat } : { style: c.style };
   const q = new URLSearchParams({ new: '1', seed: String(c.seed), play: '0', ...look, ...(cells ? { cells: String(cells) } : {}) });
   await page.goto(`${dev.url}/?${q}`);
   await terrainOn(page);

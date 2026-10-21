@@ -139,8 +139,8 @@ function plateColor(k: number): RGB {
 }
 
 /**
- * 后台分小步画好、还没用上的一张(见 prepareLayer):下一次 renderLayer 画同一张主图、同一个图层到一张空的同样大的画布上时
- * 直接贴上(画布贴画布,逐像素一样),贴完就丢。只留一张
+ * 后台分小步画好、还没用上的一张(见 prepareLayer):下一次 renderLayer 画同一张主图、同一个图层到同样大、没有变换的画布上时
+ * 直接贴上(整张不透明,画布贴画布和当场画逐像素一样),贴完就丢。只留一张
  */
 let prepared: { raster: Raster; layer: LayerId; canvas: HTMLCanvasElement | OffscreenCanvas } | null = null;
 
