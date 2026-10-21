@@ -9,7 +9,7 @@ import { civLabelItems, civMapLayer, labelSurface } from '../src/render/civ/labe
 import { CIV_SHOW_DEFAULT, type CivDrawParams } from '../src/render/civ/overlay';
 import { placeMap, placedMarkBox, pathToCanvas } from '../src/render/labels/draw';
 import { Polyline, glyphBox } from '../src/render/labels/layout';
-import { GLYPH_MIN_D, MARK_MIN_D, globeLabelView, globeToCanvas, isQuickLabel, visibleMarks } from '../src/render/globeLabels';
+import { GLYPH_MIN_D, MARK_MIN_D, globeLabelView, globeToCanvas, isQuickLabel, overviewFloor, visibleMarks } from '../src/render/globeLabels';
 
 let world: World;
 let raster: Raster;
@@ -162,4 +162,56 @@ describe('地球仪文字:排版', () => {
     }
     expect(quick.some((it) => it.pick?.kind === 'polity')).toBe(true);
   });
+});
+
+describe('地球仪文字:手机上球小', () => {
+  // 手机竖屏:球的半径 = 屏幕宽 × 0.43,等效缩放不到 1 倍
+  const PW = 390;
+  const PH = 844;
+  const phone = (lon: number, lat: number, k: number) => {
+    const p: CivDrawParams = { world, raster, civ, style: 'fantasy', year: civ.endYear, show: { ...CIV_SHOW_DEFAULT, polities: true, routes: true } };
+    const raw = globeLabelView({ view: { lon: lon * D, lat: lat * D, k }, w: PW, h: PH, dpr: DPR, worldW: world.width, worldH: world.height, surface: labelSurface(world, raster, 1) });
+    const layer = civMapLayer(p);
+    return { raw, lv: overviewFloor(raw), layer, items: civLabelItems(p).concat(layer.items) };
+  };
+
+  it('等效缩放不到 1 倍时按缩放 1 倍、地图显示得窄一些排;够 1 倍时原样', () => {
+    const { raw, lv } = phone(115, 15, 1);
+    expect(raw.k).toBeLessThan(0.92);
+    expect(lv.k).toBe(1);
+    expect(lv.mapCss).toBeCloseTo(raw.mapCss * raw.k, 9);
+    // 投影、球的位置不变
+    expect(lv.proj).toBe(raw.proj);
+    expect(lv.globe).toBe(raw.globe);
+    const big = globeLabelView({ view: { lon: 0, lat: 0, k: 1 }, w: W, h: H, dpr: DPR, worldW: world.width, worldH: world.height });
+    expect(big.k).toBeGreaterThan(1);
+    expect(overviewFloor(big)).toBe(big);
+  });
+
+  for (const [lon, lat] of [
+    [0, 18],
+    [115, 15],
+    [-60, 10],
+  ] as [number, number][]) {
+    it(`视图 ${lon},${lat}(缩放 1 倍):有地名、城镇符号,不重叠,字号不比电脑上的大`, () => {
+      const { raw, lv, layer, items } = phone(lon, lat, 1);
+      // 不托底:门槛一个都过不去(这就是手机上球上什么都没有的原因)
+      expect(placeMap(items, visibleMarks(layer.marks, raw).marks, raw).labels.length).toBe(0);
+      const placed = placeMap(items, visibleMarks(layer.marks, lv).marks, lv);
+      expect(placed.labels.length).toBeGreaterThan(3);
+      expect(placed.marks.length).toBeGreaterThan(3);
+      const boxes: { text: string; b: number[] }[] = [];
+      for (const l of placed.labels) for (const g of l.glyphs) boxes.push({ text: l.item.text, b: glyphBox(g, l.px, 0) });
+      for (let i = 0; i < boxes.length; i++)
+        for (let j = i + 1; j < boxes.length; j++)
+          if (boxes[i].text !== boxes[j].text) expect(overlap(boxes[i].b, boxes[j].b), `${boxes[i].text} × ${boxes[j].text}`).toBe(false);
+      // 字号:同一条在电脑上(大球)排出来的不比这里小
+      const desk = setup(lon, lat, 1);
+      const deskPx = new Map(placeMap(desk.items, visibleMarks(desk.layer.marks, desk.lv).marks, desk.lv).labels.map((l) => [l.item.text, l.px]));
+      for (const l of placed.labels) {
+        const d = deskPx.get(l.item.text);
+        if (d !== undefined) expect(l.px, l.item.text).toBeLessThanOrEqual(d + 1e-6);
+      }
+    });
+  }
 });

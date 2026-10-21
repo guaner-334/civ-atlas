@@ -110,7 +110,7 @@ import {
   type GlobeLineStroke,
   type GlobeProjector,
 } from '../render/globeLines';
-import { MARK_MIN_D, globeGlyphAlpha, globeLabelView, globePolityItem, globeToCanvas, isQuickLabel, visibleMarks, type GlobeLabelView } from '../render/globeLabels';
+import { MARK_MIN_D, globeGlyphAlpha, globeLabelView, globePolityItem, globeToCanvas, isQuickLabel, overviewFloor, visibleMarks, type GlobeLabelView } from '../render/globeLabels';
 import { ALL_FIGHTS_K, drawSwords, swordHalf, warFront, warMarkPoints, warsShown } from '../render/civ/warfare';
 import { drawGlobeGlyphs, globeGlyphSet, placeGlobeGlyphs, type GlobeGlyphSet, type GlobeGlyphView, type PlacedGlobeGlyph } from '../render/globeGlyphs';
 import { fantasyGlobeBase, releaseFantasyGlobeBase } from '../render/fantasy';
@@ -493,7 +493,8 @@ function onFront(it: LabelItem, lv: GlobeLabelView): boolean {
  */
 function placeGlobeLabels(o: PlaceInput): GlobePlacement {
   const t0 = performance.now();
-  const lv = globeLabelView({ view: o.view, w: o.w, h: o.h, dpr: o.dpr, worldW: o.world.width, worldH: o.world.height, surface: o.surface, reserved: o.reserved, shift: o.shift });
+  // 手机上球小、等效缩放不到 1 倍:按缩放 1 倍、地图显示得窄一些排(overviewFloor)
+  const lv = overviewFloor(globeLabelView({ view: o.view, w: o.w, h: o.h, dpr: o.dpr, worldW: o.world.width, worldH: o.world.height, surface: o.surface, reserved: o.reserved, shift: o.shift }));
   const vm = visibleMarks(o.marks, lv);
   const items = o.items.filter((it) => lv.k >= it.minZoom * 0.92 && (!o.quick || isQuickLabel(it)) && onFront(it, lv)).map(globePolityItem);
   const placed = placeMap(items, vm.marks, lv);
@@ -1238,7 +1239,8 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
       const f = globeFrame(at.view, w, h, at.shift);
       const gv: GlobeGlyphView = {
         P: globeProjector(at.view, globeFrame(at.view, w * dpr, h * dpr, at.shift * dpr)),
-        kEq: equivalentZoom(f.R, REF_MAP_CSS),
+        // 分级出现的门槛不低于 1 倍(手机上球小,等效缩放不到 1;全图就有的那一级照样画,大小本来就按 unit 跟着球缩小)
+        kEq: Math.max(1, equivalentZoom(f.R, REF_MAP_CSS)),
         unit: (2 * Math.PI * f.R * dpr) / p.world.width,
         quick: quick && GLYPH_QUICK,
       };
