@@ -312,12 +312,18 @@ interface GlobeDebug {
 /** CPU 画法的贴图槽位 */
 type CpuSlot = 'terrain' | 'civ' | 'sel' | 'replay';
 const CPU_SLOTS: CpuSlot[] = ['terrain', 'civ', 'sel', 'replay'];
-/** CPU 画法的一帧底图按什么画的(视角、球心挪动、全分辨率与否;key = 这些加上分辨率、画风、贴图版本) */
+/**
+ * CPU 画法的一帧底图按什么画的(视角、球心挪动、全分辨率与否、当时的舞台大小 w × h 和像素密度;
+ * key = 这些加上分辨率、画风、贴图版本)
+ */
 interface CpuTag {
   key: string;
   view: GlobeView;
   shift: number;
   full: boolean;
+  w: number;
+  h: number;
+  dpr: number;
 }
 /** 球上面那层按哪个视角画 */
 interface ViewAt {
@@ -918,6 +924,11 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
     const fr = s.cpuReady;
     if (!fr) return false;
     s.cpuReady = null;
+    // 画的这段时间里窗口大小变了:这张的比例不对,不换上(新大小的那张接着就画)
+    if (fr.tag.w !== s.size.w || fr.tag.h !== s.size.h || fr.tag.dpr !== s.size.dpr) {
+      s.cpuPool?.recycle(fr);
+      return false;
+    }
     if (cvs.width !== fr.w || cvs.height !== fr.h) {
       cvs.width = fr.w;
       cvs.height = fr.h;
@@ -1385,7 +1396,7 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
           s.cpuWant = key;
           if (s.cpuShown?.key !== key) {
             pushCpuSources(pool);
-            pool.request({ view: s.view, f, look, w: cw, h: ch, idle: !busy, tag: { key, view: s.view, shift: s.shift, full: q === 1 } });
+            pool.request({ view: s.view, f, look, w: cw, h: ch, idle: !busy, tag: { key, view: s.view, shift: s.shift, full: q === 1, w, h, dpr } });
           }
         }
         cpuWait = s.cpuShown?.key !== key;
@@ -1407,7 +1418,7 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
           });
           ctx.putImageData(img, 0, 0);
         }
-        s.cpuShown = { key: '', view: s.view, shift: s.shift, full: q === 1 };
+        s.cpuShown = { key: '', view: s.view, shift: s.shift, full: q === 1, w, h, dpr };
         s.cpuWant = '';
         s.cpuSeq++;
       }
@@ -1631,17 +1642,24 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
     }
     return best;
   };
+  /**
+   * 屏幕上现在是按哪个视角画的:CPU 画法后台还没画好新视角那张时,是换上的那张的(点选、悬停、钉在球上的东西都按它算,
+   * 和看到的对得上);显卡画法、当场画 = 现在的视角
+   */
+  const shownAt = (): ViewAt => (!s.gl && s.cpuPool && s.cpuShown?.key ? { view: s.cpuShown.view, shift: s.cpuShown.shift } : { view: s.view, shift: s.shift });
   const pixelAt = (cx: number, cy: number): [number, number] | null => {
     const q = local(cx, cy);
     if (!q) return null;
     const r = props.current.raster;
-    return screenToPixel(s.view, frameOf(s.view, s.size.w, s.size.h), q[0], q[1], r.w, r.h);
+    const a = shownAt();
+    return screenToPixel(a.view, globeFrame(a.view, s.size.w, s.size.h, a.shift), q[0], q[1], r.w, r.h);
   };
   /** 经纬度(弧度)→ 屏幕坐标(clientX / clientY);背面、贴着球的边缘(朝向不到 EDGE_D)= null */
   const llToClient = (lon: number, lat: number): [number, number] | null => {
     const r = rootRef.current?.getBoundingClientRect();
     if (!r || !s.size.w) return null;
-    const [x, y, d] = lonLatToScreen(s.view, frameOf(s.view, s.size.w, s.size.h), lon, lat);
+    const a = shownAt();
+    const [x, y, d] = lonLatToScreen(a.view, globeFrame(a.view, s.size.w, s.size.h, a.shift), lon, lat);
     return d > EDGE_D ? [r.left + x, r.top + y] : null;
   };
   const worldToClient = (wx: number, wy: number): [number, number] | null => {
@@ -1671,8 +1689,9 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
     lonLatToClient: (lon, lat) => llToClient(lon * D, lat * D),
     viewSig: () => {
       if (!s.size.w) return null;
-      const f = frameOf(s.view, s.size.w, s.size.h);
-      return { sig: `${s.view.lon},${s.view.lat},${f.cx},${f.cy},${f.R}`, k: equivalentZoom(f.R, REF_MAP_CSS) };
+      const a = shownAt();
+      const f = globeFrame(a.view, s.size.w, s.size.h, a.shift);
+      return { sig: `${a.view.lon},${a.view.lat},${f.cx},${f.cy},${f.R}`, k: equivalentZoom(f.R, REF_MAP_CSS) };
     },
   };
   useEffect(
@@ -1823,7 +1842,8 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
     if (s.pointers.size) return;
     // 悬停:主图像素交给 App 写悬停信息;在符号 / 字上显示手指
     const r = props.current.raster;
-    onHover(screenToPixel(s.view, frameOf(s.view, s.size.w, s.size.h), x, y, r.w, r.h));
+    const a = shownAt();
+    onHover(screenToPixel(a.view, globeFrame(a.view, s.size.w, s.size.h, a.shift), x, y, r.w, r.h));
     if (rootRef.current) rootRef.current.style.cursor = labelAt(e.clientX, e.clientY) ? 'pointer' : '';
   };
   const onPointerUp = (e: React.PointerEvent) => {
