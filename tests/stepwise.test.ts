@@ -224,6 +224,51 @@ describe('一步走几年、什么时候停一下', () => {
     expect(withBig.length).toBeGreaterThanOrEqual(500 / 25);
     expect(run(adv()).map((x) => x[0])).toEqual(Array.from({ length: 20 }, (_, i) => 1025 + 25 * i));
   });
+
+  it('出大事也停:前几步就开始了的仗,这一步里才成了大事、或者这一步里亡了国,也算这一步的', () => {
+    const entry = (id: number, kind: string, year: number, importance: 1 | 2 | 3, children?: ChronicleEntry[]) =>
+      ({ id, kind, year, end: year, text: '', tag: '', importance, polities: [], regions: [], settlement: -1, ...(children ? { children } : {}) }) as ChronicleEntry;
+    // 第 990 年开打:走这一步以前还不是大事,这一步里打下的州多了成了大事
+    const grew = entry(1, 'war', 990, 3, [entry(1, 'war', 990, 2), entry(5, 'conquer', 1002, 2)]);
+    const grewBefore = entry(1, 'war', 990, 2, [entry(1, 'war', 990, 2)]);
+    // 第 980 年开打,早就是大事了:这一步里亡了一国 / 这一步里只攻下几州 / 亡国在下一步
+    const fell = entry(2, 'war', 980, 3, [entry(2, 'war', 980, 2), entry(7, 'fall', 1003, 3)]);
+    const quiet = entry(3, 'war', 980, 3, [entry(3, 'war', 980, 2), entry(8, 'conquer', 1001, 2)]);
+    const later = entry(4, 'war', 980, 3, [entry(4, 'war', 980, 2), entry(9, 'fall', 1006, 3)]);
+    const now = [grew, fell, quiet, later];
+    const before = [grewBefore, { ...fell, children: fell.children!.slice(0, 1) }, quiet, { ...later, children: later.children!.slice(0, 1) }];
+    expect(bigEntries(now, 1000, 1005, before)).toEqual([grew, fell]);
+    // 不给走这一步以前的编年史:看不出哪条这一步里才成了大事,只认得出仗里亡了国
+    expect(bigEntries(now, 1000, 1005)).toEqual([fell]);
+    expect(bigEntries(now, 1005, 1010, now)).toEqual([later]);
+    expect(stepPause({ big: true }, 1000, { years: 5, to: 1005, pause: null }, now, before).why).toBe('big');
+    expect(stepPause({ big: true }, 1000, { years: 5, to: 1005, pause: null }, [quiet], [quiet]).why).toBeNull();
+  });
+
+  it('出大事也停,真的一步步推:每一步看这一步里的;推到最后编年史里的头等大事,每一件都在某一步停过', () => {
+    const w = worldOf(7);
+    const a = adv({ big: true, every: 1000 });
+    let play: PlayState = { year: 1000, commands: [] };
+    let civ = playCiv(w, {}, play);
+    let before = fullChronicle(civ);
+    const seen = new Set<number>();
+    while (play.year < 1500) {
+      const from = play.year;
+      const st = nextStep({ ...a, step: 5 }, 1000, from);
+      const r = playTurn(w, civ, {}, play, [], st.years);
+      civ = r.civ;
+      play = r.play;
+      const now = fullChronicle(civ);
+      const p = stepPause(a, from, st, now, before);
+      expect(p.why).toBe(p.big.length ? 'big' : st.pause);
+      for (const e of p.big) seen.add(e.id);
+      before = now;
+    }
+    // 推到第 1500 年时编年史里的头等大事(第 1000 年以后开始的),每一件都在某一步停过
+    const final = bigEntries(fullChronicle(civ), 1000, 1500).filter((e) => e.year >= 1000);
+    expect(final.length).toBeGreaterThan(0);
+    for (const e of final) expect(seen.has(e.id), `${Math.floor(e.year)} ${e.text}`).toBe(true);
+  }, 120_000);
 });
 
 /** 照推进设置从 edits 的进度一步步推到第 to 年(不加干预);每停一下 check 一次 */
@@ -285,7 +330,7 @@ describe('从推演模式第 T 年开始', () => {
       });
       expect(play.year).toBe(3000);
       // 存回推演模式 = 原来那个世界(干预一样、推到第 3000 年);打开和原来那条历史逐字段相等
-      const normal = stepwiseToNormal({ ...se, play });
+      const normal = stepwiseToNormal({ ...se, play })!;
       expect(normal.interventions).toEqual(edits.interventions);
       expect(endYearOf(normal)).toBe(3000);
       same(continueCiv(w, civ, { interventions: normal.interventions, endYear: 3000 }), orig, `seed ${seed}`);
@@ -303,7 +348,7 @@ describe('从推演模式第 T 年开始', () => {
       const kept = edits.interventions.filter((_, i) => i !== 1);
       expect(se.interventions).toEqual(kept);
       const { civ, play } = walkTo(w, se, 3000);
-      const opened = continueCiv(w, civ, { interventions: stepwiseToNormal({ ...se, play }).interventions, endYear: 3000 });
+      const opened = continueCiv(w, civ, { interventions: stepwiseToNormal({ ...se, play })!.interventions, endYear: 3000 });
       same(opened, generateCiv(w, { interventions: kept, endYear: 3000 }), `seed ${seed} 去掉一条`);
       // 去掉的那条那一年以前和原来一模一样;那一年它的史事没了,别的干预照样各有着落
       samePast(opened, orig, later[0].from, `seed ${seed}`);
@@ -339,7 +384,7 @@ describe('存回推演模式', () => {
     }
     expect(play.commands).toHaveLength(1);
     expect(civ.polities.length).toBeGreaterThan(0);
-    const normal = stepwiseToNormal({ ...se, play });
+    const normal = stepwiseToNormal({ ...se, play })!;
     expect(endYearOf(normal)).toBe(60);
     expect(normal.interventions).toEqual(play.commands);
     expect(normal.play).toBeUndefined();
@@ -357,8 +402,10 @@ describe('存回推演模式', () => {
     expect(again.playFrom).toBe(40);
   }, 120_000);
 
-  it('在第 0 年存回推到第 1 年;没在逐年推演的原样返回', () => {
-    expect(endYearOf(stepwiseToNormal({ ...base, play: { year: 0, commands: [] } }))).toBe(1);
+  it('在第 0 年存回推到第 1 年;推过了能推的最后一年的存不回;没在逐年推演的原样返回', () => {
+    expect(endYearOf(stepwiseToNormal({ ...base, play: { year: 0, commands: [] } })!)).toBe(1);
+    expect(endYearOf(stepwiseToNormal({ ...base, play: { year: END_YEAR_MAX, commands: [] } })!)).toBe(END_YEAR_MAX);
+    expect(stepwiseToNormal({ ...base, play: { year: END_YEAR_MAX + 1, commands: [] } })).toBeNull();
     const normal: WorldEdits = { ...base, endYear: 5000 };
     expect(stepwiseToNormal(normal)).toBe(normal);
     expect(stepwiseToNormal({ ...normal, playFrom: 20 })).toEqual(normal);

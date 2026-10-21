@@ -188,7 +188,7 @@ export function stepwiseRun(seed: number) {
       }
 
       // 存回推演模式:普通世界,推到第 1500 年;打开和逐年推演到"现在"一样
-      const normal = stepwiseToNormal({ ...edits, play });
+      const normal = stepwiseToNormal({ ...edits, play })!;
       expect(normal.play).toBeUndefined();
       expect(normal.playFrom).toBeUndefined();
       expect(endYearOf(normal)).toBe(1500);

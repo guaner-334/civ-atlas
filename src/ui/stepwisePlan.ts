@@ -5,8 +5,10 @@
  * - 一步走 step 年,但不跨过下一次该停的那年(正好停在那一年年初):since = 上一次停下来的那一年(开始逐年推演的那年、
  *   每停一下、读档打开时都从"现在"重新数),下一次停在 since 以后第一个 since + k·every(比现在晚的)。
  *   推进设置中途改了,下一步起照新的算(since 不变)。到能推的最后一年(END_YEAR_MAX)停下、不再往下走。
- * - 勾了"出大事也停":这一步走完,这一步的年份里([从, 到),和导播排期一样含头不含尾)出了头等大事就停 ——
- *   分量照导播排期(directorPlan.ts 的 tierOf:亡国、改朝换代、大战、分裂、大崩解、民变、民族消亡)。
+ * - 勾了"出大事也停":这一步([从, 到),和导播排期一样含头不含尾)里出了头等大事就停 ——
+ *   分量照导播排期(directorPlan.ts 的 tierOf:亡国、改朝换代、大战、分裂、大崩解、民变、民族消亡)。算这一步里的:
+ *   这一步里开始的头等大事;前几步就开始了、跨年的条目(打了好几年的仗),这一步里才成了头等大事的(打下的州够多了、
+ *   灭了大国……;要给走这一步以前的编年史才看得出来),或者这一步里有一件头等大事的(仗里亡了国)。
  *   干预、地形大事不算:是作者自己安排的,本来就知道;刚停下来加的干预下一步就生效,算进去的话每加一次干预就又停一次。
  * - 同一步里几样都碰上了,按 到头 > 每隔几年 > 出大事 说。
  */
@@ -44,22 +46,42 @@ export function nextStep(advance: Pick<Advance, 'step' | 'every'>, since: number
   return { years, to, pause: to >= END_YEAR_MAX ? 'end' : to === stop ? 'every' : null };
 }
 
-/** [from, to) 这几年里的头等大事(出大事也停看的那几种;按编年史的先后) */
-export function bigEntries(entries: readonly ChronicleEntry[], from: number, to: number): ChronicleEntry[] {
-  return entries.filter((e) => e.year >= from && e.year < to && e.kind !== 'intervene' && e.kind !== 'upheaval' && tierOf(e) === 'big');
+/** 作者自己安排的(干预、地形大事):出大事也停不算 */
+const own = (e: ChronicleEntry) => e.kind === 'intervene' || e.kind === 'upheaval';
+const big = (e: ChronicleEntry) => !own(e) && tierOf(e) === 'big';
+
+/**
+ * [from, to) 这一步里的头等大事(出大事也停看的那几种;按编年史的先后):这一步里开始的头等大事,
+ * 前几步就开始了、这一步里才成了头等大事的(要给 before = 走这一步以前的编年史;不给就不看这一种),
+ * 前几步就开始了、这一步里有一件头等大事的(列的是整条,比如那场仗)。
+ * entries、before 都是 fullChronicle 那一份(编号是第一条史事的下标,接着推不变)
+ */
+export function bigEntries(entries: readonly ChronicleEntry[], from: number, to: number, before?: readonly ChronicleEntry[]): ChronicleEntry[] {
+  let was: Set<number> | null = null;
+  if (before) {
+    was = new Set();
+    for (const e of before) if (big(e)) was.add(e.id);
+  }
+  return entries.filter((e) => {
+    if (own(e) || e.year >= to) return false;
+    if (e.year >= from) return tierOf(e) === 'big';
+    if (was && big(e) && !was.has(e.id)) return true;
+    return !!e.children?.some((c) => c.year >= from && c.year < to && big(c));
+  });
 }
 
 /**
  * 这一步(从 from 年走到 step.to 年)走完停不停:why = 原因(null = 接着走);big = 这一步里的头等大事(没勾"出大事也停"也列出来)。
- * entries = 走完以后的编年史(fullChronicle 那一份;只看 [from, step.to) 这几年)
+ * entries = 走完以后的编年史,before = 走这一步以前的(fullChronicle 那一份;不给就看不出跨年的条目这一步里才成了大事的)
  */
 export function stepPause(
   advance: Pick<Advance, 'big'>,
   from: number,
   step: StepPlan,
   entries: readonly ChronicleEntry[],
+  before?: readonly ChronicleEntry[],
 ): { why: PauseWhy | null; big: ChronicleEntry[] } {
-  const big = bigEntries(entries, from, step.to);
-  const why: PauseWhy | null = step.pause ?? (advance.big && big.length ? 'big' : null);
-  return { why, big };
+  const list = bigEntries(entries, from, step.to, before);
+  const why: PauseWhy | null = step.pause ?? (advance.big && list.length ? 'big' : null);
+  return { why, big: list };
 }

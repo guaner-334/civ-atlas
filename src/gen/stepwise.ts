@@ -75,13 +75,15 @@ export function startStepwise(edits: WorldEdits, year: number, drop: readonly nu
 /**
  * 存回推演模式:逐年推演中的世界 → 一个普通世界的修改(edits 不改)。干预 = 作者的干预后面接上命令串(playInterventions,先后不变),
  * 推演年数 = play.year(至少 END_YEAR_MIN:在第 0 年存回的推到第 1 年);去掉 play、playFrom,别的修改(含推进设置)照带。
- * 存成新世界还是盖掉原来的由界面定(默认存成新世界)。没在逐年推演的(没有合格的 play)原样返回(有不合格的 play、playFrom 就去掉)
+ * 存成新世界还是盖掉原来的由界面定(默认存成新世界)。没在逐年推演的(没有合格的 play)原样返回(有不合格的 play、playFrom 就去掉)。
+ * 进度推过了 END_YEAR_MAX 的存不回(普通世界最多推到那一年,存回去会丢掉后面的历史)= null;照 ui/stepwisePlan.ts 的 nextStep 走不会走过那一年
  */
-export function stepwiseToNormal(edits: WorldEdits): WorldEdits {
+export function stepwiseToNormal(edits: WorldEdits): WorldEdits | null {
   const play = cleanPlay(edits.play);
   if (!play && edits.play === undefined && edits.playFrom === undefined) return edits;
   const { play: _play, playFrom: _from, endYear, ...rest } = edits;
   if (!play) return { ...rest, ...(endYear !== undefined ? { endYear } : {}) };
+  if (play.year > END_YEAR_MAX) return null;
   const years = cleanEndYear(Math.max(END_YEAR_MIN, play.year));
   return { ...rest, interventions: [...playInterventions(edits.interventions, play)], ...(years !== undefined ? { endYear: years } : {}) };
 }
