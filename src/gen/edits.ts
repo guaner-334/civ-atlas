@@ -177,12 +177,13 @@
  *
  * ## 推演年数
  *
- * WorldEdits.endYear(可选,没有 = END_YEAR_DEFAULT 即 3000 年):历史推到第几年,END_YEAR_DEFAULT–END_YEAR_MAX 的整数年。
+ * WorldEdits.endYear(可选,没有 = END_YEAR_DEFAULT 即 3000 年):历史推到第几年,END_YEAR_MIN–END_YEAR_MAX 的整数年。
  * 推得更久的世界照样从第 0 年推起,前 3000 年和推 3000 年的世界几乎一样;扩张节拍、民族诞生、大宗教创立都按前 3000 年排,
- * 之后只是各国接着兴亡更替。新建世界时选(一格 END_YEAR_STEP 即整千年),当作第一次推到哪;推完以后可以再推 N 年
+ * 之后只是各国接着兴亡更替。新建世界时选(END_YEAR_DEFAULT 起,一格 END_YEAR_STEP 即整千年),当作第一次推到哪;推完以后可以再推 N 年
  * (worker 的 extend,gen/civ/index.ts 的 continueCiv:前面的历史一点不变,只往后长),所以年数不限整千年,到 END_YEAR_MAX 为止。
+ * 逐年推演存回成普通世界(gen/stepwise.ts 的 stepwiseToNormal)推到"现在"那一年,可以不到 3000 年(END_YEAR_MIN 起)。
  * 推到第 T 年再推到第 T' 年,和一次推到第 T' 年结果一样:存档只记推到哪一年,读档照它推(或读原件)得出同一个世界。
- * 3000 年的不写。以前只有整千年(存档、链接里写的都是整千年),照旧读出同一个数。
+ * 3000 年的不写。以前只有 3000 年起的整千年(存档、链接里写的都是),照旧读出同一个数。
  *
  * ## 地名风格
  *
@@ -228,8 +229,27 @@
  * (所以读档、换一台设备都能照"推到哪年 + 命令串"重新推出同一个世界)。
  * 命令串里的先后就是序号:同一年下的几条按先后执行(和干预一样,先下的先生效);from 只增不减、不晚于 year。
  * 命令只能下在"现在"(issueCommands:from 不是 year 的不收,不影响推演)。
- * 读进来的先过 cleanPlay(年份不是正整数 = 没有这一项;命令按 cleanIntervention 清理,晚于 year、比前一条早的丢掉)。
+ * year 可以是 0(从第 0 年起逐年推演、还没走第一步:一件事都还没发生)。
+ * 读进来的先过 cleanPlay(年份不是 0–INTERVENTION_YEAR_MAX 的整数 = 没有这一项;命令按 cleanIntervention 清理,晚于 year、比前一条早的丢掉)。
  * 没在逐年推演的不写,不写时一切和没有这一项一样。
+ *
+ * WorldEdits.playFrom(可选,只跟着 play 走;没有 = 0):这次逐年推演从第几年起(gen/stepwise.ts 的 startStepwise 定;
+ * 界面上写"从第几年起",时间轴、往回看用)。只是记下来,不参与推演(不进配方指纹)。读进来的先过 cleanPlayFrom
+ * (整数、夹到 [0, play.year];没有 play = 不要这一项);0 不写。
+ *
+ * ## 推进设置
+ *
+ * WorldEdits.advance(可选,没有 = 全照默认):逐年推演怎么往下走 —— 只管界面什么时候算下一步、什么时候停,不参与推演(不进配方指纹),
+ * 和 play 无关(没在逐年推演的世界也可以记着,下次逐年推演照它)。每一项都是默认值时不写;读进来的先过 cleanAdvance。
+ *
+ * | 字段      | 意思                                         | 取值                                                      | 默认 |
+ * |-----------|----------------------------------------------|-----------------------------------------------------------|------|
+ * | step      | 一步走几年                                   | 1–ADVANCE_STEP_MAX 的整数(取整、夹回范围)               | 1    |
+ * | every     | 每隔几年停一下(从上一次停下的那年数起)     | 1–END_YEAR_MAX 的整数(取整、夹回范围);常用 10 / 25 / 50 / 100 | 25   |
+ * | big       | 出大事也停(亡国、改朝换代、大战这类,ui/stepwisePlan.ts) | 只认 true                                       | 不停 |
+ * | countdown | 停下以后倒计时几秒再接着走                   | ADVANCE_COUNTDOWNS 里的一个:30 / 60 / 120;0 = 不倒计时(等人点) | 60   |
+ *
+ * 认不出的项(不是数、不在可选的几个里)按默认;多余的字段去掉。都是能原样转成 JSON 的数和布尔值。
  *
  * ## 月份
  *
@@ -446,6 +466,30 @@ export interface WorldEdits {
   months?: number;
   /** 逐年推演的进度(见文件头"逐年推演的进度");没有 = 没在逐年推演 */
   play?: PlayState;
+  /** 这次逐年推演从第几年起(见文件头"逐年推演的进度");只跟着 play 走,没有 = 0 */
+  playFrom?: number;
+  /** 推进设置(见文件头"推进设置");没有 = 全照默认 */
+  advance?: AdvanceSettings;
+}
+
+/** 推进设置(存进修改的样子:默认的项不写;字段见文件头"推进设置") */
+export interface AdvanceSettings {
+  /** 一步走几年(1–ADVANCE_STEP_MAX) */
+  step?: number;
+  /** 每隔几年停一下(1–END_YEAR_MAX) */
+  every?: number;
+  /** 出大事也停 */
+  big?: true;
+  /** 停下以后倒计时几秒(ADVANCE_COUNTDOWNS 里的一个;0 = 不倒计时) */
+  countdown?: number;
+}
+
+/** 推进设置,每一项都填上(没写的照默认;advanceOf 返回这个) */
+export interface Advance {
+  step: number;
+  every: number;
+  big: boolean;
+  countdown: number;
 }
 
 /** 逐年推演的进度(见文件头"逐年推演的进度") */
@@ -456,15 +500,19 @@ export interface PlayState {
   commands: Intervention[];
 }
 
-/** 推演年数:默认、最多、新建世界时选年数的一格(见文件头"推演年数";推完以后再推的年数不限整千年) */
+/**
+ * 推演年数:默认(新建世界时最少也是它)、最多、新建世界时选年数的一格(见文件头"推演年数";推完以后再推的年数不限整千年);
+ * 最少(逐年推演存回成普通世界时推到"现在"那一年,可以不到默认的 3000 年)
+ */
 export const END_YEAR_DEFAULT = 3000;
 export const END_YEAR_MAX = 60000;
 export const END_YEAR_STEP = 1000;
+export const END_YEAR_MIN = 1;
 
-/** 推演年数清理:不是数字 = undefined;取整到年,夹在 END_YEAR_DEFAULT–END_YEAR_MAX;等于默认 = undefined(不写) */
+/** 推演年数清理:不是数字 = undefined;取整到年,夹在 END_YEAR_MIN–END_YEAR_MAX;等于默认 = undefined(不写) */
 export function cleanEndYear(v: unknown): number | undefined {
   if (typeof v !== 'number' || !Number.isFinite(v)) return undefined;
-  const y = Math.min(END_YEAR_MAX, Math.max(END_YEAR_DEFAULT, Math.round(v)));
+  const y = Math.min(END_YEAR_MAX, Math.max(END_YEAR_MIN, Math.round(v)));
   return y === END_YEAR_DEFAULT ? undefined : y;
 }
 
@@ -1233,14 +1281,14 @@ export function sameInterventions(a: readonly Intervention[], b: readonly Interv
 }
 
 /**
- * 逐年推演的进度清理(读档、推演前用;见文件头"逐年推演的进度"):年份不是 1–INTERVENTION_YEAR_MAX 的整数 = undefined(没在逐年推演);
+ * 逐年推演的进度清理(读档、推演前用;见文件头"逐年推演的进度"):年份不是 0–INTERVENTION_YEAR_MAX 的整数 = undefined(没在逐年推演);
  * 命令逐条过 cleanIntervention,不合格的、晚于 year 的、比前一条早的丢掉。全都合格时返回原对象
  */
 export function cleanPlay(raw: unknown): PlayState | undefined {
   if (!raw || typeof raw !== 'object') return undefined;
   const o = raw as Record<string, unknown>;
   const year = o.year;
-  if (typeof year !== 'number' || !Number.isInteger(year) || year < 1 || year > INTERVENTION_YEAR_MAX) return undefined;
+  if (typeof year !== 'number' || !Number.isInteger(year) || year < 0 || year > INTERVENTION_YEAR_MAX) return undefined;
   const commands: Intervention[] = [];
   let same = Array.isArray(o.commands) && Object.keys(o).length === 2;
   for (const x of Array.isArray(o.commands) ? (o.commands as unknown[]) : []) {
@@ -1269,6 +1317,64 @@ export function issueCommands(play: PlayState, commands: readonly unknown[]): { 
 /** 推演用的干预列表:作者的干预后面接上逐年推演时下过的命令(没在逐年推演 = 作者的干预本身) */
 export function playInterventions(interventions: readonly Intervention[], play: PlayState | undefined): readonly Intervention[] {
   return play?.commands.length ? [...interventions, ...play.commands] : interventions;
+}
+
+/** 逐年推演从第几年起的清理(见文件头"逐年推演的进度"):没有 play(或 play 不合格)= undefined;取整、夹到 [0, play.year];0 = undefined(不写) */
+export function cleanPlayFrom(v: unknown, play: unknown): number | undefined {
+  const p = cleanPlay(play);
+  if (!p || typeof v !== 'number' || !Number.isFinite(v)) return undefined;
+  const y = Math.min(p.year, Math.max(0, Math.round(v)));
+  return y > 0 ? y : undefined;
+}
+
+/** 这次逐年推演从第几年起(没写 = 0;没在逐年推演也是 0) */
+export function playFromOf(edits: Pick<WorldEdits, 'play' | 'playFrom'>): number {
+  return cleanPlayFrom(edits.playFrom, edits.play) ?? 0;
+}
+
+/** 推进设置:一步最多走几年 */
+export const ADVANCE_STEP_MAX = 5;
+/** 推进设置:倒计时可选的秒数(0 = 不倒计时,等人点) */
+export const ADVANCE_COUNTDOWNS: readonly number[] = [30, 60, 120, 0];
+/** 推进设置:"每隔几年停一下"常用的几档(界面上的按钮;别的数也认,见 cleanAdvance) */
+export const ADVANCE_EVERY_CHOICES: readonly number[] = [10, 25, 50, 100];
+/** 推进设置的默认值 */
+export const ADVANCE_DEFAULT: Readonly<Advance> = Object.freeze({ step: 1, every: 25, big: false, countdown: 60 });
+
+/** 推进设置清理(读档、存进修改前用;见文件头"推进设置"):认不出的项按默认,默认的项不写;一项都不剩 = undefined。全都合格时返回原对象 */
+export function cleanAdvance(raw: unknown): AdvanceSettings | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const o = raw as Record<string, unknown>;
+  const num = (v: unknown, lo: number, hi: number) => (typeof v === 'number' && Number.isFinite(v) ? Math.min(hi, Math.max(lo, Math.round(v))) : undefined);
+  const out: AdvanceSettings = {};
+  const step = num(o.step, 1, ADVANCE_STEP_MAX);
+  if (step !== undefined && step !== ADVANCE_DEFAULT.step) out.step = step;
+  const every = num(o.every, 1, END_YEAR_MAX);
+  if (every !== undefined && every !== ADVANCE_DEFAULT.every) out.every = every;
+  if (o.big === true) out.big = true;
+  if (typeof o.countdown === 'number' && ADVANCE_COUNTDOWNS.includes(o.countdown) && o.countdown !== ADVANCE_DEFAULT.countdown) out.countdown = o.countdown;
+  const keys = Object.keys(out);
+  if (!keys.length) return undefined;
+  const same = Object.keys(o).length === keys.length && keys.every((k) => o[k] === (out as Record<string, unknown>)[k]);
+  return same ? (raw as AdvanceSettings) : out;
+}
+
+/** 这个世界的推进设置,每一项都填上(没写的、认不出的照默认) */
+export function advanceOf(edits: Pick<WorldEdits, 'advance'>): Advance {
+  const a = cleanAdvance(edits.advance);
+  return {
+    step: a?.step ?? ADVANCE_DEFAULT.step,
+    every: a?.every ?? ADVANCE_DEFAULT.every,
+    big: a?.big ?? ADVANCE_DEFAULT.big,
+    countdown: a?.countdown ?? ADVANCE_DEFAULT.countdown,
+  };
+}
+
+/** 两份推进设置是不是一样(按清理过的比;都没有也算) */
+export function sameAdvance(a: unknown, b: unknown): boolean {
+  const x = advanceOf({ advance: a as AdvanceSettings });
+  const y = advanceOf({ advance: b as AdvanceSettings });
+  return x.step === y.step && x.every === y.every && x.big === y.big && x.countdown === y.countdown;
 }
 
 /** 这条干预牵涉的国家键(a;结盟 / 宣战还有 b;立国没有 —— 新国家的键要推演出来才知道) */

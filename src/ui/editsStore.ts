@@ -8,6 +8,7 @@
  * 撤销 / 重做(⌘Z / ⇧⌘Z,见 undo.ts):改名、改旗、干预、地形大事、作者标记、作者的人物、AI 改写每次都记一步(改之前、改之后两份),只记这次打开网页以后、这个世界上的;
  * 读档、换世界(setEdits / clearEdits)、创建世界(clearEditHistory)清空。地形修改、草图、地名风格、推演年数、拓荒、起源不记:只在新建世界时能改,工具有自己的"撤销一笔"。
  * 纪年、月份也不记:只换年份的写法,在世界设定里随时改回来。文明种子、用的哪张地图在新开历史时定,之后不改(只在第一次推完时补上地图的校验)。
+ * 逐年推演的进度、从第几年起、推进设置也不记(撤销别的时照现在的留着)。
  */
 import { useSyncExternalStore } from 'react';
 import { EMPTY_EDITS, END_YEAR_DEFAULT, MARKS_MAX, cleanCivSeed, cleanEndYear, MARK_REGIONS_TOTAL, cleanIntervention, cleanMark, markRegionTotal, sameMark, markAiName, nextMarkId, type AuthorMark, type Intervention, type TerrainOp, type Upheaval, type WorldEdits } from '../gen/edits';
@@ -169,6 +170,10 @@ export function revertEdits(now: WorldEdits, from: WorldEdits, to: WorldEdits): 
   if (now.map) out.map = now.map;
   if (now.era) out.era = now.era;
   if (now.months !== undefined) out.months = now.months;
+  // 逐年推演的进度、从第几年起、推进设置也不记撤销步(进度只往前走;设置随时能改回来)
+  if (now.play) out.play = now.play;
+  if (now.playFrom !== undefined) out.playFrom = now.playFrom;
+  if (now.advance) out.advance = now.advance;
   if (upheavals.length) out.upheavals = sameUps ? now.upheavals : upheavals;
   if (aiNames && Object.keys(aiNames).length) out.aiNames = aiNames;
   if (marks?.length) out.marks = marks;
