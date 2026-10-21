@@ -6,19 +6,24 @@
  *              电脑上是浮在正中的窗口,手机上从底部升起、几乎占满屏(「开始演绎」贴底)
  *   推进设置   中途改(侧栏「这个故事」):同样三组 + 导播,下一步起照新的走
  *   存回推演模式  存成一个普通世界:默认存成新世界、原来的不动,也能覆盖原来的;存好以后打开它(默认开)
+ *   从这里重新演绎  先问一句:世界回到那一年年初,列出不要了的(那以后演绎出来的历史、那以后加的干预);
+ *              "先把现在这份存回推演模式"(存成一个新世界)默认开、记住上次的选择
  * AdvanceFields(三组推进设置)新建世界第 2 步也用。
  */
 import { useEffect, useMemo, useState } from 'react';
 import type { Civ } from '../gen/civ/types';
-import { ADVANCE_COUNTDOWNS, ADVANCE_EVERY_CHOICES, ADVANCE_STEP_MAX, END_YEAR_MAX, advanceOf, cleanPlay, type Advance } from '../gen/edits';
-import { laterInterventions } from '../gen/stepwise';
+import { ADVANCE_COUNTDOWNS, ADVANCE_EVERY_CHOICES, ADVANCE_STEP_MAX, END_YEAR_MAX, advanceOf, cleanPlay, type Advance, type Intervention } from '../gen/edits';
+import { laterInterventions, rewindStepwise } from '../gen/stepwise';
+import { fullChronicle } from '../gen/civ/religionText';
 import { eraText, spaced, yearAt, yearFull } from '../gen/era';
 import { getEdits, setAdvance, useEdits, useEra } from './editsStore';
 import { getPending } from './pendingStore';
 import { interventionText } from './Interventions';
 import { DirectorSettings } from './Director';
 import { setStepDirectorOn, stepDirectorOn, useDirector } from './directorStore';
-import { getStepwise, openStepDialog, stepwiseActions, useStepwise } from './stepwiseStore';
+import { getStepwise, nextYear, openStepDialog, rewindKeepPref, setRewindKeepPref, stepwiseActions, useStepwise } from './stepwiseStore';
+import { rewindBrief } from './stepwisePlan';
+import { advanceBrief } from './Stepwise';
 import { currentWorld, stepOrigin, useSavesVersion } from './saveStore';
 import { Icon } from './icons';
 import './stepwise.css';
@@ -139,7 +144,7 @@ export function AdvanceFields({ adv, set, phone }: { adv: Advance; set: (a: Adva
   const countWhy = adv.countdown ? (
     <>
       <b>{adv.countdown} 秒</b>：{phone ? '' : '停下'}
-      {cw}后自己接着走，点「好了」提前开。<b>不倒计时</b>：等你点了才走。
+      {cw}后自己接着走，点「接着演绎」提前开。<b>不倒计时</b>：等你点了才走。
     </>
   ) : (
     <>
@@ -503,3 +508,136 @@ function SaveDialog({ phone }: { phone: boolean }) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// 从这里重新演绎:先问一句
+
+export function StepRewindDialog({ phone, civ }: { phone: boolean; civ: Civ | null }) {
+  const s = useStepwise();
+  if (s.dialog?.kind !== 'rewind' || !civ) return null;
+  return <RewindDialog phone={phone} civ={civ} year={s.dialog.year} />;
+}
+
+/** 不要了的干预最多写出几条(再多写"等 N 条") */
+const REWIND_LIST_MAX = 4;
+
+function RewindDialog({ phone, civ, year }: { phone: boolean; civ: Civ; year: number }) {
+  const edits = useEdits();
+  const era = useEra();
+  const s = useStepwise();
+  useSavesVersion();
+  const [keep, setKeep] = useState(rewindKeepPref);
+  const close = () => openStepDialog(null);
+  useDialogKeys(close);
+  const play = cleanPlay(edits.play);
+  const now = play?.year ?? s.now;
+  const T = Math.min(now, Math.max(0, Math.floor(year)));
+  const r = useMemo(() => rewindStepwise(edits, T), [edits, T]);
+  // 不要了的干预:那一年和以后下过的、正在算的那一步带着的、单子里还没交出去的(都在那一年以后生效)
+  const dropped = useMemo((): Intervention[] => {
+    const inflight = s.busy?.commands ?? [];
+    const queued = getPending().flatMap((x) => (x.kind === 'iv' ? [{ ...x.v, from: nextYear(s) } as Intervention] : []));
+    return [...(r?.dropped ?? []), ...inflight, ...queued];
+  }, [r, s]);
+  const brief = useMemo(() => rewindBrief(civ, T, now, fullChronicle(civ)), [civ, T, now]);
+  const adv = advanceOf(edits);
+  const title = currentWorld()?.title || '未命名世界';
+  const keepName = `「${title}（演绎到${spaced(yearAt(now, era))}）」`;
+  const go = () => {
+    setRewindKeepPref(keep);
+    close();
+    stepwiseActions()?.rewind(T, keep);
+  };
+  const years = [...new Set(dropped.map((v) => Math.floor(v.from)))].sort((a, b) => a - b);
+  const ivTexts = dropped.map((v) => eraText(interventionText(civ, v), era));
+  const ivSmall = ivTexts.length > REWIND_LIST_MAX ? `${ivTexts.slice(0, REWIND_LIST_MAX).join('；')}……等 ${ivTexts.length} 条` : ivTexts.join('；');
+  const ivWhen = years.length === 1 ? yearFull(years[0], era) : eraText(`第 ${years[0]}–${years[years.length - 1]} 年`, era);
+  const span = eraText(`第 ${T}–${now} 年`, era);
+  const histSmall = phone
+    ? `${brief.length ? `${brief.slice(0, 2).join('、')}……` : ''}都去掉`
+    : `${brief.length ? `${brief.join('、')}……` : ''}编年史里这一段都去掉`;
+  const lead = `世界回到${yearFull(T, era)}年初，从这里往下重新演绎。这以后演绎出来的不要了：`;
+  const rows = (
+    <div className={`sw-grp sw-drop${phone ? ' white' : ''}`}>
+      <div className="sw-r top" data-rewind="history">
+        <span className="sw-r-main">
+          <span>{phone ? `${span}的历史` : `${span}演绎出来的历史`}</span>
+          <small>{histSmall}</small>
+        </span>
+        <span className="sw-r-side">{now - T} 年</span>
+      </div>
+      {dropped.length > 0 && (
+        <div className="sw-r top" data-rewind="interventions">
+          <span className="sw-r-main">
+            <span>{ivWhen}加的干预</span>
+            <small>{ivSmall}</small>
+          </span>
+          <span className="sw-r-side">{dropped.length} 条</span>
+        </div>
+      )}
+    </div>
+  );
+  const why = phone ? `${yearFull(T, era)}以前的照旧，推进设置也不变。` : `${yearFull(T, era)}以前的照旧，推进设置也不变（${advanceBrief(adv)}）。`;
+  const keepRow = (
+    <div className={`sw-grp${phone ? ' white' : ''}`}>
+      <div className="sw-r top">
+        <span className="sw-r-main">
+          <span>先把现在这份存回推演模式</span>
+          <small>{phone ? `存成新的世界${keepName}` : `存成新的世界${keepName}，以后能打开看、往回改、接着推`}</small>
+        </span>
+        <button className={`sw-sw sw-sw-top${keep ? ' on' : ''}`} role="switch" aria-checked={keep} aria-label="先把现在这份存回推演模式" data-act="rewind-keep" onClick={() => setKeep(!keep)} />
+      </div>
+    </div>
+  );
+  const head = `从${yearFull(T, era)}重新演绎？`;
+  if (phone)
+    return (
+      <>
+        <div className="sw-scrim" onClick={close} />
+        <section className="sw-psheet sw-rewind" role="dialog" aria-label={head} onPointerDown={stop} onClick={stop}>
+          <div className="sw-grip" />
+          <div className="sw-psheet-top">
+            <b>{head}</b>
+          </div>
+          <div className="sw-lead">{lead}</div>
+          <div className="sw-psheet-body">
+            {rows}
+            <div className="sw-why">{why}</div>
+            {keepRow}
+          </div>
+          <div className="sw-psheet-btns">
+            <button className="sw-big" data-act="rewind-cancel" onClick={close}>
+              取消
+            </button>
+            <button className="sw-big pri" data-act="rewind-go" onClick={go}>
+              重新演绎
+            </button>
+          </div>
+        </section>
+      </>
+    );
+  return (
+    <>
+      <div className="sw-scrim" onClick={close} />
+      <div className="sw-dlg-wrap">
+        <div className="sw-dlg sw-rewind-dlg" role="dialog" aria-label={head} onPointerDown={stop} onClick={stop}>
+          <h2>{head}</h2>
+          <p className="sw-lead">{lead}</p>
+          <div className="sw-sec first">
+            {rows}
+            <div className="sw-why">{why}</div>
+          </div>
+          <div className="sw-sec">{keepRow}</div>
+          <div className="sw-foot save">
+            <span className="sw-sp" />
+            <button className="sw-btn2" data-act="rewind-cancel" onClick={close}>
+              取消
+            </button>
+            <button className="sw-btn2 pri" data-act="rewind-go" onClick={go}>
+              从{yearFull(T, era)}重新演绎
+            </button>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}

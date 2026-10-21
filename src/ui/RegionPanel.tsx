@@ -27,7 +27,7 @@ import { cleanName, cultureKey, polityKey, regionKey, type Intervention } from '
 import { useEdits } from './editsStore';
 import { queueIntervention } from './pendingStore';
 import { nextYear, useStepwise } from './stepwiseStore';
-import { StepEffectTime } from './Stepwise';
+import { STEP_LOOK_WHY, StepEffectTime, useStepView } from './Stepwise';
 import { useNarrow } from './device';
 import { habitatScore, habitatWord } from './civDescribe';
 import { MineList, getPolityPick, interventionText, nameAt, regionOrders, setPolityPick } from './Interventions';
@@ -274,6 +274,8 @@ function RegionOrder({ civ, id, year, page, back }: { civ: Civ; id: number; year
   // 逐年推演:只在"现在"干预,生效年份固定是下一步开始的那一年;这州那时归谁按"现在"看
   const sw = useStepwise();
   const step = sw.on;
+  // 往回看以前的一年:只能在"现在"干预
+  const look = useStepView().look;
   const phone = useNarrow();
   const y = step ? nextYear(sw) : yi.y;
   const valid = step || yi.valid;
@@ -308,7 +310,9 @@ function RegionOrder({ civ, id, year, page, back }: { civ: Civ; id: number; year
         : '';
   // 没人住的州:住得了人的也能立国(一支新的民族来这里落脚),住不了人的立不了
   const livable = civ.habitat.suitability[civ.regions.seat[id]] >= HABITABLE_SUIT;
-  const why = !valid
+  const why = step && look !== null
+    ? STEP_LOOK_WHY
+    : !valid
     ? `生效年份要在${spaced(yearSpanAt(0, Math.max(0, Math.ceil(civ.endYear) - 1), era))}之间`
     : !at.peopled && (page !== 'found' || !livable)
       ? page === 'found'

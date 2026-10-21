@@ -6,6 +6,7 @@
  *   laterInterventions 列出这几条,drop 给出不带的(只是那几条不发生;去掉的那条后面的干预在列表里往前挪一位,
  *   史事 intervene 的 war 列跟着变,别的不变)。T 年以前的干预是已经发生的历史,不能去掉。
  * - 带着的干预到了那一年生没生效、没生效为什么(interventionFate):对象到时候已经不在了的不生效,说明原因。
+ * - 从这一年重新演绎(rewindStepwise):逐年推演中倒回以前的某一年,那一年和以后下过的干预不要了,从那里接着走。
  * - 存回推演模式(stepwiseToNormal):"种子 + 到现在为止的干预串"变成一个普通世界的修改 —— 干预 = 作者的干预后面接上一路下过的命令
  *   (先后不变),推演年数 = 现在那一年。打开它(从第 0 年推到那一年)和逐年推演到"现在"一样
  *   (多出来的只是"现在"那一年第一刻的事:逐年推演停在那一刻之前),之后能照普通世界接着再推 N 年(worker 的 extend)。
@@ -21,6 +22,7 @@ import {
   cleanEndYear,
   cleanIntervention,
   cleanPlay,
+  playFromOf,
   playInterventions,
   resolveKey,
   type Intervention,
@@ -70,6 +72,25 @@ export function startStepwise(edits: WorldEdits, year: number, drop: readonly nu
   }) as Intervention[];
   const { play: _play, playFrom: _from, endYear: _end, ...rest } = edits;
   return { ...rest, interventions, play: { year: T, commands: [] }, ...(T > 0 ? { playFrom: T } : {}) };
+}
+
+/**
+ * 从第 year 年重新演绎(倒回;edits 不改):逐年推演中的世界回到第 T 年年初(T = year 取整到那一年,夹到 [0, 现在];
+ * 停在第 T 年 = 那一年年初,和逐年推演停下的那一年一样,这一年的事还没发生),从那里接着一步步往下走。
+ * - 一路下过的干预(命令串)里 T 年和以后才生效的(from ≥ T)一起不要,按先后列在 dropped;T 年以前的照旧
+ * - 作者在推演模式里的干预照带:T 年以后的到那一年照样发生(和从第 T 年开始逐年推演一样)
+ * - T 比这次起演的那一年还早:"从第几年起演绎"改成 T(第 0 年 = 不写);推进设置等别的修改照带
+ * 没在逐年推演(没有合格的进度)= null。倒回以后不加干预时,推出来的和推演模式里带着同样干预推到那一年一模一样
+ */
+export function rewindStepwise(edits: WorldEdits, year: number): { edits: WorldEdits; dropped: Intervention[] } | null {
+  const play = cleanPlay(edits.play);
+  if (!play) return null;
+  const T = Number.isFinite(year) ? Math.min(play.year, Math.max(0, Math.floor(year))) : 0;
+  const keep = play.commands.filter((v) => v.from < T);
+  const dropped = play.commands.filter((v) => v.from >= T);
+  const start = Math.min(playFromOf(edits), T);
+  const { play: _play, playFrom: _from, ...rest } = edits;
+  return { edits: { ...rest, play: { year: T, commands: keep }, ...(start > 0 ? { playFrom: start } : {}) }, dropped };
 }
 
 /**

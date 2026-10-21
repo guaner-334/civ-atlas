@@ -32,10 +32,10 @@ import {
   type WorldEdits,
 } from '../src/gen/edits';
 import { editCount, editsLost, makeSave, parseSave, saveText } from '../src/gen/savefile';
-import { interventionFate, laterInterventions, startStepwise, stepwiseToNormal } from '../src/gen/stepwise';
+import { interventionFate, laterInterventions, rewindStepwise, startStepwise, stepwiseToNormal } from '../src/gen/stepwise';
 import { revertEdits } from '../src/ui/editsStore';
 import { tierOf } from '../src/ui/directorPlan';
-import { bigEntries, nextStep, pauseYear, stepPause } from '../src/ui/stepwisePlan';
+import { bigEntries, nextPage, nextStep, pauseYear, prevPage, stepPage, stepPause } from '../src/ui/stepwisePlan';
 import { authorPlan, same, samePast, worldOf } from './lib/stepwiseRun';
 
 const base: WorldEdits = { names: {}, interventions: [], terrain: [] };
@@ -409,5 +409,86 @@ describe('存回推演模式', () => {
     const normal: WorldEdits = { ...base, endYear: 5000 };
     expect(stepwiseToNormal(normal)).toBe(normal);
     expect(stepwiseToNormal({ ...normal, playFrom: 20 })).toEqual(normal);
+  });
+});
+
+describe('从这一年重新演绎', () => {
+  const A = 'polity:r12#1';
+  const B = 'polity:r34#1';
+  const author: Intervention = { kind: 'protect', a: A, from: 2680 };
+  const c1: Intervention = { kind: 'unity', a: A, from: 2655 };
+  const c2: Intervention = { kind: 'declare', a: A, b: B, from: 2675 };
+  const c3: Intervention = { kind: 'halt', a: B, from: 2690 };
+  const step: WorldEdits = { ...base, interventions: [author], playFrom: 2650, play: { year: 2700, commands: [c1, c2, c3] }, advance: { every: 10 } };
+
+  it('回到第 T 年年初:T 年和以后下过的干预不要了(按先后列出来),以前的照旧;作者的干预、推进设置、起演那年照旧', () => {
+    const r = rewindStepwise(step, 2675)!;
+    expect(r.edits.play).toEqual({ year: 2675, commands: [c1] });
+    expect(r.dropped).toEqual([c2, c3]);
+    expect(r.edits.interventions).toBe(step.interventions);
+    expect(r.edits.advance).toEqual({ every: 10 });
+    expect(playFromOf(r.edits)).toBe(2650);
+    expect(step.play!.commands).toHaveLength(3); // 原来的不改
+    // 年中按那一年算(取整到那一年年初)
+    expect(rewindStepwise(step, 2675.9)!.edits.play).toEqual({ year: 2675, commands: [c1] });
+    expect(rewindStepwise(step, 2676)!.edits.play).toEqual({ year: 2676, commands: [c1, c2] });
+    // 比"现在"晚的夹回"现在"(什么都不丢);不是有限数 = 第 0 年
+    expect(rewindStepwise(step, 9999)!.edits.play).toEqual(step.play);
+    expect(rewindStepwise(step, 9999)!.dropped).toEqual([]);
+    expect(rewindStepwise(step, Number.NaN)!.edits.play).toEqual({ year: 0, commands: [] });
+  });
+
+  it('回到起演那年以前:从第几年起改成那一年(第 0 年不写);干预都不要了,作者的照带;没在逐年推演 = null', () => {
+    const r = rewindStepwise(step, 2600)!;
+    expect(r.edits.play).toEqual({ year: 2600, commands: [] });
+    expect(r.dropped).toEqual([c1, c2, c3]);
+    expect(r.edits.playFrom).toBe(2600);
+    expect(r.edits.interventions).toEqual([author]);
+    expect(laterInterventions(r.edits, 2600).map((x) => x.v)).toEqual([author]);
+    const zero = rewindStepwise(step, 0)!;
+    expect(zero.edits.play).toEqual({ year: 0, commands: [] });
+    expect(zero.edits.playFrom).toBeUndefined();
+    expect(cleanPlay(zero.edits.play)).toEqual({ year: 0, commands: [] });
+    expect(rewindStepwise(base, 10)).toBeNull();
+    expect(rewindStepwise({ ...base, endYear: 3000 }, 10)).toBeNull();
+  });
+});
+
+describe('往回翻:时间轴一段一段', () => {
+  it('停在第 2700 年(这一段 2675–2700):上一段 2650–2675,再往前按每 25 年一段到第 0 年;最后一段回到"现在"这一段', () => {
+    const cur = { from: 2675, to: 2700 };
+    const marks = [2650, 2675];
+    const now = stepPage(2690, cur, marks, 25);
+    expect(now).toEqual({ from: 2675, to: 2700, current: true });
+    expect(stepPage(2700, cur, marks, 25).current).toBe(true);
+    const p1 = prevPage(now, cur, marks, 25)!;
+    expect(p1).toEqual({ from: 2650, to: 2675, current: false });
+    expect(stepPage(2667, cur, marks, 25)).toEqual(p1);
+    const p2 = prevPage(p1, cur, marks, 25)!;
+    expect(p2).toEqual({ from: 2625, to: 2650, current: false });
+    expect(nextPage(p2, cur, marks, 25)).toEqual(p1);
+    expect(nextPage(p1, cur, marks, 25)).toEqual(now);
+    expect(nextPage(now, cur, marks, 25)).toBeNull();
+    // 2650 往回每 25 年一段,正好到第 0 年;第 0 年那一段没有上一段
+    const first = stepPage(3, cur, marks, 25);
+    expect(first).toEqual({ from: 0, to: 25, current: false });
+    expect(prevPage(first, cur, marks, 25)).toBeNull();
+  });
+
+  it('倒回第 2667 年以后(这一段 2667–2692):上一段是 2650–2667;再走过一段,按停过的那几年切开', () => {
+    const cur = { from: 2667, to: 2692 };
+    expect(prevPage(stepPage(2667, cur, [2650, 2667], 25), cur, [2650, 2667], 25)).toEqual({ from: 2650, to: 2667, current: false });
+    expect(stepPage(2649, cur, [2650, 2667], 25)).toEqual({ from: 2625, to: 2650, current: false });
+    const cur2 = { from: 2692, to: 2717 };
+    const marks2 = [2650, 2667, 2692];
+    expect(stepPage(2680, cur2, marks2, 25)).toEqual({ from: 2667, to: 2692, current: false });
+    expect(stepPage(2660, cur2, marks2, 25)).toEqual({ from: 2650, to: 2667, current: false });
+    // 两次停之间隔得比 every 长(读档打开时只知道起演那年):按 every 切,最后一段到这一段开头为止
+    const cur3 = { from: 2690, to: 2715 };
+    expect(stepPage(2685, cur3, [2650], 25)).toEqual({ from: 2675, to: 2690, current: false });
+    expect(stepPage(2660, cur3, [2650], 25)).toEqual({ from: 2650, to: 2675, current: false });
+    // 比第 0 年还早的照第 0 年那一段;起演那年不在第 0 年时,最早一段从第 0 年起
+    expect(stepPage(-5, cur3, [2650], 25).from).toBe(0);
+    expect(stepPage(4, { from: 30, to: 40 }, [10], 25)).toEqual({ from: 0, to: 10, current: false });
   });
 });

@@ -4,10 +4,12 @@
  *   StepwiseEngine   不画东西:播放头在算好的历史里往前走(导播开着按导播的排期,关着按固定速度),
  *                    走进最后算好的那一步时请 App 在后台算下一步;一步走完说该停,播放头走到那里就停下、列出这一段的大事、倒计时
  *   StepTimeline     时间轴只放这一段:"现在"以前实线和事件圆点,以后虚线、尽头一面小旗(到这儿停一下);右边「存回推演模式」。
- *                    手机是胶囊:只放这一段 + 小旗,右边一个速度按钮
- *   StepDock         时间轴上面(宽屏):「下一步生效的干预」单子、在干预时的"第 N 年停着"、停一下时的"这一段的大事"卡片;
- *                    手机上只有单子(收起成一行)
- *   StepReviewSheet  手机停一下时的底部卡片
+ *                    两头「‹ ›」一段一段翻回以前(翻到以前的一段:播放头以后灰色实线,尽头的小旗是灰的)。
+ *                    手机是胶囊:只放这一段 + 小旗,左边「‹」,右边一个速度按钮(翻到以前的一段时换成「›」)
+ *   StepDock         时间轴上面(宽屏):「下一步生效的干预」单子、在干预时的"第 N 年停着"、停一下时的"这一段的大事"卡片、
+ *                    往回看时的"在看第 N 年"(回到现在 / 从这里重新演绎)、刚重新演绎时的"第 N 年停着";
+ *                    手机上是单子(收起成一行)和同样几句的卡片
+ *   StepReviewSheet  手机停一下时的底部卡片(顶上的小横条点了收起)
  *   StepPins         停一下时地图上按先后标出这一段的大事(1、2、3……;正在看的那件带光晕)
  *   StepSideGroup    侧栏 / 手机世界卡片里「这个故事」一组(推进设置、存回推演模式)
  *   StepEffectTime   干预页上的"生效时间:第 N 年年初(下一步)"
@@ -38,11 +40,28 @@ import { getCivTime, pickChronicleEntry, setCivTime, subscribeCivTime, useSelect
 import { useEdits, useEra } from './editsStore';
 import { usePanel } from './panelStore';
 import { getPending, removePending, usePending } from './pendingStore';
-import { STEP_DOT_IMPORTANCE, STEP_RATE, nextStep, pauseYear, reviewItems, stepEase, stepPause, stepRate, type StepReviewItem } from './stepwisePlan';
 import {
+  STEP_DOT_IMPORTANCE,
+  STEP_RATE,
+  nextPage,
+  nextStep,
+  pauseYear,
+  prevPage,
+  reviewItems,
+  stepEase,
+  stepPage,
+  stepPause,
+  stepRate,
+  type StepPage,
+  type StepReviewItem,
+} from './stepwisePlan';
+import {
+  clearFresh,
   enterStop,
+  getSeen,
   getStepwise,
   holdClock,
+  markSeen,
   nextYear,
   openStepDialog,
   passStop,
@@ -50,11 +69,15 @@ import {
   setReviewCur,
   getStepGesture,
   getStepHead,
+  setStepDown,
   setStepHead,
+  setStepPage,
   stepArrived,
   stepSent,
   stepwiseActions,
+  subscribeSeen,
   subscribeStepHead,
+  subscribeStepwise,
   tickClock,
   useStepwise,
   type StepwiseState,
@@ -99,6 +122,86 @@ export function segmentEnd(s: StepwiseState, adv: Advance): number {
   return Math.max(s.now, pauseYear(adv, s.since, Math.max(s.since, s.now - 1)));
 }
 
+/** "现在"这一段(停着 = 停一下的那一段;不然从上一次停下的那年到下一次该停的那年) */
+function currentSegment(s: StepwiseState, adv: Advance): { from: number; to: number } {
+  const from = s.stop ? s.stop.from : s.since;
+  return { from, to: Math.max(from + 1, segmentEnd(s, adv)) };
+}
+
+// ---------------------------------------------------------------------------
+// 往回看:时间轴的年份比放到过的最远处早(拖回去、「‹」翻回去、跳年、点编年史),而且没在放
+
+/** 往回看的那一年(取整;没在往回看 = null) */
+export function stepLookYear(): number | null {
+  const s = getStepwise();
+  if (!s.on) return null;
+  const t = getCivTime();
+  if (t.playing) return null;
+  const y = Math.floor(Math.max(0, Math.min(s.now, t.year ?? s.now)) + 1e-6);
+  return y < Math.floor(getSeen() + 1e-6) ? y : null;
+}
+
+function subscribeView(f: () => void): () => void {
+  const a = subscribeCivTime(f);
+  const b = subscribeSeen(f);
+  const c = subscribeStepwise(f);
+  return () => {
+    a();
+    b();
+    c();
+  };
+}
+
+/**
+ * look = 往回看的那一年(null = 没在往回看);replay = 停一下的时候往回看、点了播放,正在重放演绎过的(放到"现在"停下)。
+ * 年份每帧都变时只在这两样变了才重新渲染
+ */
+export function useStepView(): { look: number | null; replay: boolean } {
+  const key = useSyncExternalStore(subscribeView, () => {
+    const s = getStepwise();
+    const look = stepLookYear();
+    return `${look ?? ''}|${s.on && s.stop && getCivTime().playing ? 1 : 0}`;
+  });
+  const [l, r] = key.split('|');
+  return { look: l === '' ? null : Number(l), replay: r === '1' };
+}
+
+/** 停一下的卡片、地图上的编号点出不出:停着,没在往回看、没在重放,手机上卡片没收起 */
+export function useStepCard(): boolean {
+  return useSyncExternalStore(subscribeView, () => {
+    const s = getStepwise();
+    return !!s.on && !!s.stop && !s.down && stepLookYear() === null && !getCivTime().playing;
+  });
+}
+
+/** 停一下的时候往回看、点了播放,正在重放(导播照样放) */
+export function useStepReplay(): boolean {
+  return useSyncExternalStore(subscribeView, () => {
+    const s = getStepwise();
+    return !!s.on && !!s.stop && getCivTime().playing;
+  });
+}
+
+/** 时间轴上面有"在看第 N 年""第 N 年停着(刚重新演绎)"那一条(导播的字幕条这时让开) */
+export function useStepStrip(): boolean {
+  return useSyncExternalStore(subscribeView, () => {
+    const s = getStepwise();
+    return !!s.on && !getCivTime().playing && (stepLookYear() !== null || s.fresh);
+  });
+}
+
+/** 回到现在:回到往回看之前停的地方(停一下的那一年 / 放到的那一刻),不接着放;倒计时不再走,点「接着演绎」才走 */
+export function backToNow() {
+  const s = getStepwise();
+  setStepPage(null);
+  setCivTime({ year: Math.min(s.now, Math.max(0, getSeen())), playing: false, scrubbing: false, story: false });
+}
+
+/** 从往回看的这一年重新演绎:先问一句 */
+export function askRewind(year: number) {
+  openStepDialog({ kind: 'rewind', year });
+}
+
 // ---------------------------------------------------------------------------
 // 接着演绎(倒计时走完、点按钮、按时间轴的播放)
 
@@ -109,18 +212,25 @@ export function continueStepwise() {
   setCivTime({ year: getStepwise().now, playing: true, scrubbing: false, story: false });
 }
 
-/** 时间轴的播放键、空格:停着看这一段的大事时 = 接着演绎;不然播放 / 暂停 */
+/** 「接着演绎」:停一下的时候 = 接着演绎;刚重新演绎、停着等你的时候 = 从"现在"往下走 */
+export function stepGo() {
+  const s = getStepwise();
+  if (s.stop) return continueStepwise();
+  setStepPage(null);
+  setCivTime({ year: s.now, playing: true, scrubbing: false, story: false });
+}
+
+/** 时间轴的播放键、空格:停着看这一段的大事时 = 接着演绎;往回看时 = 从这一年重放;不然播放 / 暂停 */
 export function stepwiseToggle() {
-  if (getStepwise().stop) return continueStepwise();
+  if (getStepwise().stop && !getCivTime().playing && stepLookYear() === null) return continueStepwise();
   setCivTime({ playing: !getCivTime().playing, story: false, scrubbing: false });
 }
 
-/** ← →:在这一段里往前 / 往后走 dy 年(不过"现在",也不出这一段),停下播放 */
+/** ← →:往前 / 往后走 dy 年(以前的哪一年都能去,不过"现在"),停下播放 */
 export function stepwiseNudge(dy: number) {
   const s = getStepwise();
-  const from = s.stop ? s.stop.from : s.since;
-  const cur = Math.floor(Math.min(s.now, Math.max(from, getCivTime().year ?? s.now)));
-  setCivTime({ year: Math.min(s.now, Math.max(from, cur + dy)), playing: false, story: false, scrubbing: false });
+  const cur = Math.floor(Math.min(s.now, Math.max(0, getCivTime().year ?? s.now)));
+  setCivTime({ year: Math.min(s.now, Math.max(0, cur + dy)), playing: false, story: false, scrubbing: false });
 }
 
 // ---------------------------------------------------------------------------
@@ -234,6 +344,10 @@ export function StepwiseEngine({ world, civ }: { world: World; civ: Civ | null }
         due: s.due?.why ?? null,
         stop: s.stop ? { from: s.stop.from, to: s.stop.to, why: s.stop.why, items: s.stop.items.length } : null,
         clock: s.clock,
+        look: stepLookYear(),
+        seen: getSeen(),
+        fresh: s.fresh,
+        marks: s.marks,
         rate: computed.current,
         stepMs: [...stepMs],
       };
@@ -247,10 +361,22 @@ export function StepwiseEngine({ world, civ }: { world: World; civ: Civ | null }
     if (!s.stop && !getCivTime().playing) setCivTime({ playing: true, story: false, scrubbing: false });
   }, [st.on, d.on]);
 
-  // 往下走
+  // 往下走。往回看以后点了播放:重放演绎过的(导播照样放),放到往回看之前停的地方(停一下的那年 / 放到的那一刻)停下,
+  // 和点「回到现在」一样;重放不改历史,也不请算下一步
   const stopped = !!st.stop;
   useEffect(() => {
-    if (!st.on || !playing || stopped || !world) return;
+    if (!st.on || !playing || !world) return;
+    const s0 = getStepwise();
+    const y0 = Math.min(s0.now, Math.max(0, getCivTime().year ?? s0.now));
+    const replayTo = Math.floor(y0 + 1e-6) < Math.floor(getSeen() + 1e-6) ? Math.min(s0.now, getSeen()) : null;
+    const replay = replayTo !== null;
+    if (stopped && !replay) {
+      setCivTime({ playing: false });
+      return;
+    }
+    if (!replay) clearFresh();
+    /** 放到哪为止:重放 = 往回看之前停的地方;不然 = 算好的"现在" */
+    const end = () => (replayTo !== null ? replayTo : getStepwise().now);
     const dirOn = d.on;
     const fixed = d.pace === 'fixed' || !dirOn;
     const want = fixed ? STEP_RATE[speed] : STEP_RATE[4];
@@ -264,10 +390,10 @@ export function StepwiseEngine({ world, civ }: { world: World; civ: Civ | null }
       const r = rate();
       return directorPlan(world, c, { from, to, entries: fullChronicle(c), focus, pace: fixed ? { mode: 'fixed', rate: r, hold: d.hold } : { mode: 'auto', rate: r, hold: d.hold }, era: era ?? null });
     };
-    /** 从哪年接着走:这一段里时间轴停的那年(编年史里点到这一段以前的事、看完再放,从这一段的开头接着走) */
+    /** 从哪年接着走:时间轴停的那年(往回看以后点播放:从那一年重放到"现在",再接着往下走) */
     const yearNow = () => {
       const s = getStepwise();
-      return Math.min(s.now, Math.max(s.since, getCivTime().year ?? s.now));
+      return Math.min(s.now, Math.max(0, getCivTime().year ?? s.now));
     };
     /** 播放头走进最后算好的那一步了:请算下一步(单子里的干预一起交出去,在"现在"生效) */
     const ask = (y: number) => {
@@ -312,7 +438,7 @@ export function StepwiseEngine({ world, civ }: { world: World; civ: Civ | null }
       last = t;
       if (!getCivTime().playing) return;
       const s = getStepwise();
-      if (!s.on || s.stop) return;
+      if (!s.on || (s.stop && !replay)) return;
       // 用的人正按着地图(拖、捏合、滚轮):先不往下走,松开接着走
       if (getStepGesture()) {
         raf = requestAnimationFrame(frame);
@@ -325,24 +451,30 @@ export function StepwiseEngine({ world, civ }: { world: World; civ: Civ | null }
         shown = cur;
         if (dirOn) directorBegin(make, key, pos);
       }
-      ask(pos);
+      if (!replay) ask(pos);
       const r = rate();
-      // 还在等下一步算出来:快追上了就放慢;后面就是要停的那年了就照常走到
-      const ease = getStepwise().due ? 1 : stepEase(s.now - pos, r);
+      // 还在等下一步算出来:快追上了就放慢;后面就是要停的那年了、在重放算好的就照常走到
+      const ease = replay || getStepwise().due ? 1 : stepEase(s.now - pos, r);
       let exact = false;
       if (dirOn) {
         const p = directorPlanNow();
         if (!p) directorBegin(make, key, pos);
         else if (directorDone() && s.now > p.to + 1e-6) directorFeed(make(p.to), key);
         const yy = directorStep(dt * (directorNarrating() ? 1 : ease));
-        if (yy !== null) pos = Math.min(s.now, yy);
+        if (yy !== null) pos = Math.min(end(), yy);
         exact = directorNarrating();
-      } else pos = Math.min(s.now, pos + dt * r * ease);
+      } else pos = Math.min(end(), pos + dt * r * ease);
       setStepHead(pos);
-      const q = exact || pos >= s.now - 1e-6 ? pos : Math.max(shown ?? -Infinity, Math.floor(pos + 1e-9));
+      markSeen(pos);
+      const q = exact || pos >= end() - 1e-6 ? pos : Math.max(shown ?? -Infinity, Math.floor(pos + 1e-9));
       if (q !== shown) {
         shown = q;
         setCivTime({ year: q });
+      }
+      // 重放到了往回看之前停的地方:停下(停一下的卡片回来,倒计时不再走;导播正在放的那件放完)
+      if (replayTo !== null && pos >= replayTo - 1e-6 && (!dirOn || !directorNarrating())) {
+        setCivTime({ year: replayTo, playing: false });
+        return;
       }
       const at = pos >= getStepwise().now - 1e-6 && (!dirOn || directorDone());
       if (at && getStepwise().due && arrive()) return;
@@ -394,8 +526,16 @@ export function StepwiseEngine({ world, civ }: { world: World; civ: Civ | null }
     if (acting && getStepwise().stop) holdClock('act');
   }, [acting, st.stop]);
 
-  // 开着推进设置 / 存回推演模式的窗口:先停下(存回的就是窗口里写的那一年;倒计时也不走),关上以后刚才在放的接着放
-  const dlg = st.on && (st.dialog?.kind === 'settings' || st.dialog?.kind === 'save');
+  // 停一下的时候往回看:倒计时停住、镜头不再自己一件件飞;「回到现在」以后点「接着演绎」才走
+  const looking = useStepView().look !== null;
+  useEffect(() => {
+    if (!looking || !getStepwise().stop) return;
+    holdClock('user');
+    reviewStop();
+  }, [looking, st.stop]);
+
+  // 开着推进设置 / 存回推演模式 / 重新演绎的窗口:先停下(存回的就是窗口里写的那一年;倒计时也不走),关上以后刚才在放的接着放
+  const dlg = st.on && (st.dialog?.kind === 'settings' || st.dialog?.kind === 'save' || st.dialog?.kind === 'rewind');
   useEffect(() => {
     if (!dlg) return;
     const was = getCivTime().playing;
@@ -435,14 +575,23 @@ export function StepTimeline({ civ, phone, hidden }: { civ: Civ | null; phone: b
   const era = useEra();
   const d = useDirector();
   const { playing, speed } = usePlayState();
+  const view = useStepView();
   const year = useStepYear(st.now);
-  // 地图上画到的那一刻(往下走时一年换一次,讲一件事时停在那件事那一刻):圆点画到这里为止,以后的还没发生
-  const upTo = useSyncExternalStore(subscribeCivTime, () => Math.min(st.now, getCivTime().year ?? st.now));
-  const from = st.stop ? st.stop.from : st.since;
-  const to = Math.max(from + 1, segmentEnd(st, adv));
+  // 放的是哪一段:「‹ ›」翻到的那一段(年份还在里面时),不然年份落在的那一段("现在"这一段 = 只放这一段的时间轴)
+  const cur = currentSegment(st, adv);
+  const kept = st.page !== null ? stepPage(st.page, cur, st.marks, adv.every) : null;
+  const page: StepPage = kept && year >= kept.from && year <= kept.to ? kept : stepPage(year, cur, st.marks, adv.every);
+  const past = !page.current;
+  const from = page.from;
+  const to = page.to;
+  /** 拖时间轴能到哪:以前的一段到它的尽头;"现在"这一段到"现在" */
+  const hi = past ? to : st.now;
+  // 地图上画到的那一刻(往下走时一年换一次,讲一件事时停在那件事那一刻):圆点画到这里为止,以后的还没发生;
+  // 往回看时放到过的都画(都演绎过了)
+  const upTo = useSyncExternalStore(subscribeView, () => (stepLookYear() !== null ? Math.min(st.now, getSeen()) : Math.min(st.now, getCivTime().year ?? st.now)));
   // 一段只有几十年:比整段历史的时间轴细一层,重要度 2 的事也画
   const all = useMemo(() => (civ && civ.viable ? fullChronicle(civ).filter((e) => e.importance >= STEP_DOT_IMPORTANCE) : []), [civ]);
-  const marks = useMemo(() => all.filter((e) => e.year >= from && e.year <= upTo), [all, from, upTo]);
+  const marks = useMemo(() => all.filter((e) => e.year >= from && (past ? e.year < to : e.year <= upTo)), [all, from, to, past, upTo]);
   const track = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
   useLayoutEffect(() => {
@@ -460,7 +609,7 @@ export function StepTimeline({ civ, phone, hidden }: { civ: Civ | null; phone: b
   useEffect(() => {
     const put = () => {
       const s = getStepwise();
-      const y = Math.min(s.now, Math.max(from, getStepHead() ?? getCivTime().year ?? s.now));
+      const y = Math.min(hi, s.now, Math.max(from, getStepHead() ?? getCivTime().year ?? s.now));
       const W = Math.max(0, trackW.current - (phone ? 13 : 16));
       rootRef.current?.style.setProperty('--sx', `${((y - from) / Math.max(1e-9, to - from)) * W}px`);
     };
@@ -471,7 +620,7 @@ export function StepTimeline({ civ, phone, hidden }: { civ: Civ | null; phone: b
       a();
       b();
     };
-  }, [from, to, st.now, width, phone]);
+  }, [from, to, hi, st.now, width, phone]);
   if (!civ || !civ.viable || hidden) return null;
 
   trackW.current = width;
@@ -482,7 +631,7 @@ export function StepTimeline({ civ, phone, hidden }: { civ: Civ | null; phone: b
   const stepLen = Math.max(1, adv.step);
   if (W > 0 && (stepLen / (to - from)) * W >= 4) for (let y = from + stepLen; y < to; y += stepLen) ticks.push(x(y));
   const dots = W > 0 ? stepDots(marks, x, phone ? 8 : 9) : [];
-  const done = st.now >= to;
+  const done = past || st.now >= to;
   const auto = d.on && d.pace === 'auto';
   const toggle = stepwiseToggle;
   const scrubTo = (cx: number, end = false) => {
@@ -490,31 +639,59 @@ export function StepTimeline({ civ, phone, hidden }: { civ: Civ | null; phone: b
     if (!el || W <= 0) return;
     const r = el.getBoundingClientRect();
     const f = Math.min(1, Math.max(0, (cx - r.left) / W));
-    const y = Math.min(st.now, Math.max(from, from + f * (to - from)));
+    const y = Math.min(hi, Math.max(from, from + f * (to - from)));
+    // 拖到这一段的尽头(下一段的开头)也还放这一段
+    setStepPage(past ? from : null);
     setCivTime({ year: y, playing: false, story: false, scrubbing: !end });
   };
-  const toLabel = `${yearAt(to, era)}${st.stop ? ' ' : ''}停一下`;
+  /** 翻到 p 那一段:年份夹进那一段(往前翻停在它的尽头,往后翻停在它的开头),停下播放 */
+  const goPage = (p: StepPage | null) => {
+    if (!p) return;
+    const y0 = getCivTime().year ?? st.now;
+    setStepPage(p.current ? null : p.from);
+    setCivTime({ year: Math.min(p.current ? st.now : p.to, Math.max(p.from, y0)), playing: false, scrubbing: false, story: false });
+  };
+  const prev = prevPage(page, cur, st.marks, adv.every);
+  const next = nextPage(page, cur, st.marks, adv.every);
+  const pager = (dir: 'prev' | 'next') => {
+    const p = dir === 'prev' ? prev : next;
+    return (
+      <button
+        className={`sw-pg${p ? '' : ' off'}`}
+        data-act={dir === 'prev' ? 'step-page-prev' : 'step-page-next'}
+        disabled={!p}
+        aria-label={dir === 'prev' ? '上一段' : '下一段'}
+        title={p ? `${yearShort(p.from, era)}–${yearShort(p.current ? cur.to : p.to, era)}` : undefined}
+        onClick={() => goPage(p)}
+      >
+        <Icon name={dir === 'prev' ? 'back' : 'chevron'} size={phone ? 15 : 16} />
+      </button>
+    );
+  };
+  const toLabel = past ? yearShort(to, era) : `${yearAt(to, era)}${st.stop ? ' ' : ''}停一下`;
+  const lookUp = view.look !== null;
   return (
     <div
       ref={rootRef}
-      className={`civ-timeline timebar dock-inline sw-bar${phone ? ' phone' : ''}`}
+      className={`civ-timeline timebar dock-inline sw-bar${phone ? ' phone' : ''}${past ? ' past' : ''}`}
       data-step-from={from}
       data-step-to={to}
       onPointerDown={stop}
       onClick={stop}
       onDoubleClick={stop}
     >
-      <button className={`tb-play${playing ? ' on' : ''}`} onClick={toggle} aria-label={playing ? '暂停' : st.stop ? '接着演绎' : '播放'} data-act="step-play">
+      <button className={`tb-play${playing ? ' on' : ''}`} onClick={toggle} aria-label={playing ? '暂停' : st.stop && !lookUp ? '接着演绎' : '播放'} data-act="step-play">
         <i aria-hidden="true" />
       </button>
-      <TimelineYear world={baseRegions(civ)} range={{ from, to: st.now }} year={year} end={st.now} era={era} narrow={phone} locked={false} below={false} />
+      <TimelineYear world={baseRegions(civ)} range={{ from: 0, to: st.now }} year={year} end={st.now} era={era} narrow={phone} locked={false} below={false} future />
+      {pager('prev')}
       <div
         ref={track}
         className="sw-track"
         role="slider"
         aria-label="这一段的时间轴"
         aria-valuemin={from}
-        aria-valuemax={st.now}
+        aria-valuemax={hi}
         aria-valuenow={year}
         onPointerDown={(e) => {
           (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
@@ -528,6 +705,8 @@ export function StepTimeline({ civ, phone, hidden }: { civ: Civ | null; phone: b
         {ticks.map((tx, i) => (
           <i key={i} className="sw-tick" style={{ left: tx }} />
         ))}
+        {/* 演绎过的:以前的一段整条灰色实线;往回看"现在"这一段时到放到过的地方 */}
+        {(past || lookUp) && <i className="sw-done" style={{ width: past ? W : x(upTo) }} />}
         <i className="sw-fill" />
         {!done && <i className="sw-future" style={{ left: nowX + (phone ? 11 : 12), width: Math.max(0, W - nowX - (phone ? 11 : 12)) }} />}
         {dots.map((k) => (
@@ -546,7 +725,8 @@ export function StepTimeline({ civ, phone, hidden }: { civ: Civ | null; phone: b
             以后的事还没发生
           </span>
         )}
-        <span className="sw-flag" style={{ left: W }} aria-hidden="true">
+        {/* 尽头一面小旗:到这儿停一下;以前的一段是当时停过的地方(灰的) */}
+        <span className={`sw-flag${past ? ' past' : ''}`} style={{ left: W }} aria-hidden="true">
           <Icon name="flag" size={phone ? 15 : 18} />
         </span>
         {!phone && (
@@ -560,15 +740,21 @@ export function StepTimeline({ civ, phone, hidden }: { civ: Civ | null; phone: b
         <i className="sw-head" />
       </div>
       {phone ? (
-        <button
-          className="tb-speed tb-speed-one"
-          data-act="speed"
-          onClick={() => (d.on ? (auto ? setDirectorPace('fixed', 1) : speed === 1 ? setDirectorPace('fixed', 4) : setDirectorPace('auto')) : setCivTime({ speed: speed === 4 ? 1 : 4 }))}
-        >
-          {auto ? '自动' : `${speed}×`}
-        </button>
+        // 手机:翻到以前的一段时,右边的速度换成「›」(胶囊放不下两样)
+        past ? (
+          pager('next')
+        ) : (
+          <button
+            className="tb-speed tb-speed-one"
+            data-act="speed"
+            onClick={() => (d.on ? (auto ? setDirectorPace('fixed', 1) : speed === 1 ? setDirectorPace('fixed', 4) : setDirectorPace('auto')) : setCivTime({ speed: speed === 4 ? 1 : 4 }))}
+          >
+            {auto ? '自动' : `${speed}×`}
+          </button>
+        )
       ) : (
         <>
+          {pager('next')}
           <span className="tb-speed" role="group" aria-label="播放速度">
             {d.on && (
               <button className={auto ? 'on' : ''} aria-pressed={auto} data-act="speed-auto" onClick={() => setDirectorPace('auto')}>
@@ -720,53 +906,185 @@ function StepQueue({ phone }: { phone: boolean }) {
   );
 }
 
+/** 往回看时时间轴上面那一条:"在看第 2667 年 已经演绎到第 2700 年"、回到现在、从这里重新演绎(手机是一张卡片) */
+function LookNote({ look, phone }: { look: number; phone: boolean }) {
+  const s = useStepwise();
+  const era = useEra();
+  const head = (
+    <>
+      <Icon name="history" size={18} />
+      <b>在看{yearFull(look, era)}</b>
+      <span>已经演绎到{yearFull(s.now, era)}</span>
+    </>
+  );
+  const back = (
+    <button className={phone ? 'sw-big' : 'sw-btn'} data-act="step-now" onClick={backToNow}>
+      回到现在
+    </button>
+  );
+  const redo = (
+    <button className={phone ? 'sw-big pri' : 'sw-btn pri'} data-act="step-rewind" onClick={() => askRewind(look)}>
+      从这里重新演绎
+    </button>
+  );
+  if (phone)
+    return (
+      <div className="sw-note" data-step-look={look} onPointerDown={stop} onClick={stop} onDoubleClick={stop}>
+        <div className="sw-note-t">{head}</div>
+        <div className="sw-note-acts">
+          {back}
+          {redo}
+        </div>
+      </div>
+    );
+  return (
+    <div className="sw-held sw-strip" data-step-look={look} onPointerDown={stop} onClick={stop} onDoubleClick={stop}>
+      {head}
+      {back}
+      {redo}
+    </div>
+  );
+}
+
+/** 刚从某一年重新演绎、停着等你:"第 2667 年停着 从这一年重新演绎,可以先干预"、接着演绎(不倒计时;手机是一张卡片) */
+function FreshNote({ phone }: { phone: boolean }) {
+  const s = useStepwise();
+  const era = useEra();
+  const go = (
+    <button className={phone ? 'sw-big pri' : 'sw-btn pri'} data-act="step-go" onClick={stepGo}>
+      接着演绎
+    </button>
+  );
+  if (phone)
+    return (
+      <div className="sw-note" data-step-fresh={s.now} onPointerDown={stop} onClick={stop} onDoubleClick={stop}>
+        <div className="sw-note-t">
+          <Icon name="timer" size={18} />
+          <b>{yearFull(s.now, era)}停着</b>
+          <span>从这一年重新演绎</span>
+        </div>
+        <div className="sw-note-sub">可以先干预：点地图上的国家。</div>
+        <div className="sw-note-acts">{go}</div>
+      </div>
+    );
+  return (
+    <div className="sw-held sw-strip" data-step-fresh={s.now} onPointerDown={stop} onClick={stop} onDoubleClick={stop}>
+      <Icon name="timer" size={18} />
+      <b>{yearFull(s.now, era)}停着</b>
+      <span>从这一年重新演绎，可以先干预</span>
+      {go}
+    </div>
+  );
+}
+
+/** 手机:停一下的卡片收起来以后,胶囊上面一张小卡片:"第 2700 年停着"、这一段的大事(拉回卡片)、接着演绎 */
+function DownNote() {
+  const s = useStepwise();
+  const era = useEra();
+  const st = s.stop!;
+  return (
+    <div className="sw-note" data-step-down={s.now} onPointerDown={stop} onClick={stop} onDoubleClick={stop}>
+      <div className="sw-note-t">
+        <Icon name="timer" size={18} />
+        <b>{yearFull(s.now, era)}停着</b>
+        <span>{st.why === 'end' ? '已经推到能推的最后一年' : '等你点「接着演绎」'}</span>
+      </div>
+      <div className="sw-note-acts">
+        <button className="sw-big" data-act="step-sheet-up" onClick={() => setStepDown(false)}>
+          这一段的大事
+        </button>
+        {st.why !== 'end' && (
+          <button className="sw-big pri" data-act="step-go" onClick={continueStepwise}>
+            接着演绎
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function StepDock({ phone }: { phone: boolean }) {
   const s = useStepwise();
   const era = useEra();
   const panel = usePanel();
   const { sel } = useSelection();
+  const view = useStepView();
+  const { playing } = usePlayState();
   if (!s.on) return null;
   const acting = !!sel && panel.tab === 'cmd';
-  if (phone)
+  const look = view.look;
+  if (phone) {
+    const note =
+      look !== null ? (
+        <LookNote look={look} phone />
+      ) : s.fresh && !playing && !sel ? (
+        <FreshNote phone />
+      ) : s.stop && s.down && !sel && !view.replay ? (
+        <DownNote />
+      ) : null;
     return (
       <div className="sw-dock phone">
+        {note}
         <StepQueue phone />
+      </div>
+    );
+  }
+  // 往回看、刚重新演绎停着:那一条放在时间轴上面正中
+  const strip = look !== null ? <LookNote look={look} phone={false} /> : s.fresh && !playing && !acting ? <FreshNote phone={false} /> : null;
+  if (strip)
+    return (
+      <div className="sw-dock">
+        <StepQueue phone={false} />
+        <span className="sw-dock-sp" />
+        {strip}
+        <span className="sw-dock-sp" />
       </div>
     );
   return (
     <div className="sw-dock">
       <StepQueue phone={false} />
-      {s.stop && acting && (
+      {(s.stop || s.fresh) && acting && (
         <div className="sw-held" data-act="step-held" onPointerDown={stop} onClick={stop}>
           <Icon name="timer" size={18} />
           <b>{yearFull(s.now, era)}停着</b>
           <span>{s.clock ? '你在干预，倒计时先停下' : '你在干预'}</span>
-          <button className="sw-btn pri" data-act="step-go" onClick={continueStepwise}>
+          <button className="sw-btn pri" data-act="step-go" onClick={stepGo}>
             接着演绎
           </button>
         </div>
       )}
       <span className="sw-dock-sp" />
-      {s.stop && !acting && <ReviewCard s={s} era={era} />}
+      {s.stop && !acting && !view.replay && <ReviewCard s={s} era={era} />}
     </div>
   );
 }
 
-/** 手机停一下:底部卡片(选中了东西时让开,详情卡片在那儿) */
+/** 手机停一下:底部卡片(选中了东西时让开,详情卡片在那儿;往回看、重放时让开;顶上的小横条点了收起,看时间轴、往回翻) */
 export function StepReviewSheet() {
   const s = useStepwise();
   const era = useEra();
   const { sel } = useSelection();
+  const view = useStepView();
   // 卡片拉起来时停着的倒计时照走;选中了东西(在看、在干预):倒计时停住
   useEffect(() => {
     if (sel && getStepwise().stop) holdClock('act');
   }, [sel, s.stop]);
-  if (!s.on || !s.stop || sel) return null;
+  if (!s.on || !s.stop || sel || s.down || view.look !== null || view.replay) return null;
   const st = s.stop;
   return (
     <section className="sw-sheet" role="region" aria-label={stopTitle(st, era)} onPointerDown={stop} onClick={stop} onDoubleClick={stop}>
       <ClockLine s={s} />
-      <div className="sw-grip" />
+      <button
+        className="sw-grip-btn"
+        data-act="step-sheet-down"
+        aria-label="收起，看时间轴"
+        onClick={() => {
+          holdClock('user');
+          setStepDown(true);
+        }}
+      >
+        <i className="sw-grip" />
+      </button>
       <div className="sw-sheet-head">
         <b>{stopTitle(st, era)}</b>
         <Countdown s={s} phone />
@@ -873,6 +1191,18 @@ export function StepSideGroup() {
 export function StepEffectTime({ phone }: { phone: boolean }) {
   const s = useStepwise();
   const era = useEra();
+  const look = useStepView().look;
+  // 往回看时:只能在"现在"干预,想从这一年改得先从这里重新演绎(下面的干预都是灰的)
+  if (look !== null)
+    return (
+      <div className="sw-effect" data-step-effect="look">
+        <span className="sw-effect-k">生效时间</span>
+        <span className="sw-effect-v">
+          <b>在看{yearFull(look, era)}</b>
+        </span>
+        <span className="sw-effect-note">只能在「现在」干预；想从这一年改，点「从这里重新演绎」。</span>
+      </div>
+    );
   return (
     <div className="sw-effect" data-step-effect={nextYear(s)}>
       <span className="sw-effect-k">生效时间</span>
@@ -894,7 +1224,7 @@ export function StepCommandFoot({ onBack }: { onBack: () => void }) {
   const y = nextYear(s);
   const go = () => {
     clearSelection();
-    if (getStepwise().stop) continueStepwise();
+    if (getStepwise().stop || getStepwise().fresh || stepLookYear() !== null) stepGo();
     else setCivTime({ playing: true, story: false, scrubbing: false });
   };
   return (
@@ -935,3 +1265,6 @@ export function StepCommandFoot({ onBack }: { onBack: () => void }) {
 
 /** 这一条干预已经在单子里了(干预页上变淡,写"已在下一步生效的干预里") */
 export const STEP_QUEUED = '已在下一步生效的干预里';
+
+/** 往回看时干预页上的干预都变淡,写这一句 */
+export const STEP_LOOK_WHY = '只能在「现在」干预';

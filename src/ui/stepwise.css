@@ -107,6 +107,52 @@
     0 0 0 0.5px rgba(0, 0, 0, 0.12);
   pointer-events: none;
 }
+/* 往回翻:翻到以前的一段时,播放头以后是灰色实线(都演绎过了);尽头那面停过一下的小旗是灰的 */
+.sw-done {
+  left: 0;
+  top: 22.5px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--btn);
+  pointer-events: none;
+}
+.sw-flag.past {
+  color: var(--ink-3);
+}
+/* 轨道两头「‹ ›」一段一段翻(到头了变淡) */
+.timebar button.sw-pg {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  margin: 0 -5px;
+  padding: 0;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--btn);
+  color: var(--ink);
+}
+.timebar button.sw-pg .icon {
+  stroke-width: 2.2;
+}
+.timebar button.sw-pg:hover {
+  background: var(--hover-bg);
+}
+.timebar button.sw-pg.off,
+.timebar button.sw-pg.off:hover {
+  background: transparent;
+  color: var(--ink-3);
+  cursor: default;
+}
+.sw-bar.phone button.sw-pg {
+  width: 26px;
+  height: 26px;
+  margin: 0 -4px;
+}
+.sw-bar.phone .sw-done {
+  top: 34.5px;
+}
 /* 右边「存回推演模式」 */
 .timebar button.sw-save {
   order: 10;
@@ -179,6 +225,9 @@
 .sw-dock.phone {
   right: 0;
   bottom: calc(100% + 10px);
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
 }
 /* 看不到未来:逐年推演里编年史、详情面板的事件列表只列到"现在"(推演模式里是淡显以后的事;这里后台多算好的那一步也不露出来) */
 .app.step-on .chron-item:has(> .chron-row[data-st='future']),
@@ -187,7 +236,7 @@
   display: none;
 }
 /* 第一次打开的操作提示和时间轴上面这一排在同一个地方:这一排有东西时先收起 */
-.app:has(.sw-review, .sw-held, .sw-queue, .sw-sheet) .first-hint {
+.app:has(.sw-review, .sw-held, .sw-queue, .sw-sheet, .sw-note) .first-hint {
   visibility: hidden;
 }
 /* 手机:单子那一行在胶囊上面,字幕卡再往上让一行 */
@@ -322,6 +371,64 @@
 .sw-held > span {
   font-size: 13px;
   color: var(--ink-2);
+}
+/* 往回看的"在看第 N 年"、刚重新演绎的"第 N 年停着":放在时间轴上面正中,按钮和说明之间多空一点 */
+.sw-strip > span + .sw-btn {
+  margin-left: 6px;
+}
+
+/* 手机:胶囊上面一张卡片(往回看、刚重新演绎停着、停一下的卡片收起以后) */
+.sw-note {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 12px 12px 16px;
+  background: var(--panel);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border-radius: 18px;
+  box-shadow: var(--shadow-panel);
+  color: var(--ink);
+  font-family: var(--font-sans);
+}
+.sw-note-t {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  white-space: nowrap;
+}
+.sw-note-t > .icon {
+  flex: none;
+  color: var(--ink-2);
+}
+.sw-note-t b {
+  flex: none;
+  font-size: 16px;
+}
+.sw-note-t span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 13.5px;
+  color: var(--ink-2);
+}
+.sw-note-sub {
+  margin-top: -4px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.sw-note-acts {
+  display: flex;
+  gap: 10px;
+}
+.sw-note-acts .sw-big {
+  flex: 1;
+  height: 40px;
+  white-space: nowrap;
+}
+.sw-note-acts .sw-big.pri {
+  flex: 1.5;
 }
 
 .sw-btn {
@@ -545,6 +652,18 @@
   background: var(--ink-3);
   opacity: 0.7;
 }
+/* 停一下的卡片顶上的小横条:点了收起(看时间轴、往回翻) */
+.sw-grip-btn {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+.sw-grip-btn .sw-grip {
+  display: block;
+}
 .sw-sheet-head {
   display: flex;
   align-items: baseline;
@@ -758,6 +877,34 @@
   width: 520px;
   padding: 22px 24px 20px;
   margin-top: -104px;
+}
+/* 从这里重新演绎:先问一句(照存回推演模式那张的样子) */
+.sw-dlg.sw-rewind-dlg {
+  width: 540px;
+  padding: 22px 24px 20px;
+  margin-top: -224px;
+}
+.sw-rewind-dlg .sw-sec {
+  margin-top: 14px;
+}
+.sw-rewind-dlg .sw-sec.first {
+  margin-top: 12px;
+}
+.sw-drop .sw-r-side {
+  flex: none;
+  align-self: flex-start;
+  margin-top: 1px;
+  font-size: 13px;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+.sw-r .sw-sw-top {
+  align-self: flex-start;
+  margin-top: 4px;
+}
+.sw-rewind .sw-psheet-body > .sw-why {
+  margin-top: -4px;
+  padding: 0 4px;
 }
 .sw-dlg h2 {
   margin: 0;

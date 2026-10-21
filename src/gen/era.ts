@@ -259,15 +259,17 @@ export interface JumpParse {
 
 /**
  * 输入框里的数字 → 跳到第几年。text 只有数字(最多 6 位);设了纪年时 pre = 前面的小按钮是"名字前",数字是纪年的年数。
- * 空着 = 不跳;纪年填 0 = 不跳(没有 0 年);超出这个世界(0–end)= 提示一句,回车停在最后一年 / 第 0 年
+ * 空着 = 不跳;纪年填 0 = 不跳(没有 0 年);超出这个世界(0–end)= 提示一句,回车停在最后一年 / 第 0 年。
+ * future = 逐年推演(end 是"现在"):比"现在"晚的写"以后的事还没发生",回车停在"现在"
  */
-export function parseJump(text: string, pre: boolean, era: Era | null | undefined, end: number): JumpParse {
+export function parseJump(text: string, pre: boolean, era: Era | null | undefined, end: number, future = false): JumpParse {
   const s = text.trim();
   if (!/^\d{1,6}$/.test(s)) return { year: null, why: null, hint: null };
   const n = Number(s);
   if (era && n < 1) return { year: null, why: noYearZero(era), hint: null };
   const y = era ? worldYear(pre, n, era) : n;
   const last = Math.max(0, Math.floor(end));
+  if (y > last && future) return { year: last, why: '以后的事还没发生', hint: `回车跳到「现在」（${yearFull(last, era)}）` };
   if (y > last) return { year: last, why: `这个世界只推到${yearFull(last, era)}`, hint: `回车跳到最后一年（${yearFull(last, era)}）` };
   if (y < 0) return { year: 0, why: `这个世界从${yearFull(0, era)}开始`, hint: `回车跳到第一年（${yearFull(0, era)}）` };
   return { year: y, why: null, hint: null };
