@@ -194,9 +194,9 @@ if (PerformanceObserver.supportedEntryTypes.includes('longtask'))
   new PerformanceObserver((l) => { for (const e of l.getEntries()) window.__lt.push([e.startTime, e.duration]); }).observe({ type: 'longtask', buffered: true });`;
 
 /**
- * 加一笔(--thumbs):等地图换上、右边的缩略图全部换成新地形,返回这一笔的几样时间(毫秒,从加这一笔算起):
- * shown = 地图换上,thumbs = 缩略图全部换好;maxAll = 这段时间里最长的一个 Long Task,maxAfter = 地图换上以后最长的,
- * blockAfter = 地图换上以后各个 Long Task 超出 50 ms 的部分加起来
+ * 加一笔(--thumbs):等地图换上、右边的缩略图全部换成新地形,再等到这一笔以后 4 秒(存档缩略图这些跟着做的活也做完;
+ * 至少等缩略图换好以后 1 秒),返回这一笔的几样时间(毫秒,从加这一笔算起):shown = 地图换上,thumbs = 缩略图全部换好;
+ * maxAll = 这段时间里最长的一个 Long Task,maxAfter = 地图换上以后最长的,blockAfter = 地图换上以后各个 Long Task 超出 50 ms 的部分加起来
  */
 async function strokeThumbs(p: Page, op: unknown): Promise<Record<string, number>> {
   const prev = await p.evaluate(() => (window as any).__wfTerrain?.id ?? 0);
@@ -235,14 +235,18 @@ async function strokeThumbs(p: Page, op: unknown): Promise<Record<string, number
     THUMB_SEL,
     { timeout: 60000 },
   );
-  await p.waitForTimeout(400);
+  const left = await p.evaluate(() => {
+    const w = window as any;
+    return Math.max(w.__thumbAt + 1000, w.__t0 + 4000) - performance.now();
+  });
+  await p.waitForTimeout(Math.max(0, left) + 100);
   const r = await p.evaluate(() => {
     const w = window as any;
     const t0: number = w.__t0;
     const tr = w.__wfTerrain;
     const shown = tr.shownMs ?? tr.paintedMs;
     const done = w.__thumbAt - t0;
-    const lt = (w.__lt as [number, number][]).filter(([s]) => s >= t0 && s <= w.__thumbAt);
+    const lt = (w.__lt as [number, number][]).filter(([s]) => s >= t0);
     const after = lt.filter(([s]) => s - t0 >= shown - 5);
     return {
       shown,
@@ -252,8 +256,6 @@ async function strokeThumbs(p: Page, op: unknown): Promise<Record<string, number
       blockAfter: after.reduce((a, [, d]) => a + Math.max(0, d - 50), 0),
     };
   });
-  // 像用户涂一笔看一眼再涂
-  await p.waitForTimeout(1200);
   return r;
 }
 
