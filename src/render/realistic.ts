@@ -422,6 +422,45 @@ export function realisticPatchSteps(r1: Raster, r0: Raster, look: SurfaceLook, b
   ];
 }
 
+/**
+ * 整张像素层分几步画(每步一条带子,和 realisticBase 一口气画逐像素相同),最后一步放进缓存:之后 realisticBase 直接拿。
+ * 缓存里已经有这一张的(或放大后现算的一块)= null
+ */
+export function realisticFullSteps(r: Raster, look: SurfaceLook): WorkStep[] | null {
+  if (r.win || bases.some((b) => b.raster === r && b.look === look)) return null;
+  const W = r.w;
+  const H = r.h;
+  const region: PixelBox = { x0: 0, y0: 0, w: W, h: H };
+  const band = Math.max(8, Math.floor(PATCH_BAND_PX / W));
+  let g: MacroGrids | null = null;
+  let cv: AnyCanvas | null = null;
+  let ctx: CanvasRenderingContext2D | null = null;
+  let raw: Uint8ClampedArray | null = null;
+  let y = 0;
+  return [
+    () => void (g = macroGrids(r)),
+    () => {
+      cv = makeCanvas(W, H);
+      ctx = cv.getContext('2d') as CanvasRenderingContext2D;
+      raw = new Uint8ClampedArray(W * H * 4);
+    },
+    () => {
+      const y1 = Math.min(H, y + band);
+      for (const p of realisticBandPixels(r, g!, look, region, y, y1, true)) {
+        ctx!.putImageData(new ImageData(p.px, p.n, y1 - y), p.x, y);
+        for (let yy = 0; yy < y1 - y; yy++) raw!.set(p.raw!.subarray(yy * p.n * 4, (yy + 1) * p.n * 4), ((y + yy) * W + p.x) * 4);
+      }
+      y = y1;
+      return y < H;
+    },
+    () => {
+      // 这几步之间别处已经整张画过一张(切到了写实):用那张
+      if (bases.some((b) => b.raster === r && b.look === look)) return void (cv!.width = cv!.height = 0);
+      adoptBase({ raster: r, look, canvas: cv!, raw, grids: g });
+    },
+  ];
+}
+
 /** 编辑地形后要重画的那块(见 realisticPatchSteps):r0 → r1 两张主图、两张粗网格比出来;没有要重画的 = null */
 export function realisticPatchRegion(box: PixelBox | null, g0: MacroGrids, g1: MacroGrids, W: number, H: number): PixelBox | null {
   return unionBox(box && growBox(box, 3, 3, W, H), gridChange(g0, g1, W, H), W);

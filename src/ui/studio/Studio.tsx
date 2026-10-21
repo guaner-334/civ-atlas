@@ -681,12 +681,21 @@ export function Studio(p: StudioProps) {
     p.requestThumbs(STYLE_IDS);
   };
 
+  /** 摊平着(改地形、照手绘图看平面)换了世界,星球的贴图还没跟着换 */
+  const flatStale = useRef(false);
   useEffect(() => {
     const sc = sceneRef.current;
     const d = p.data;
     if (!glOk || !sc || !d || !p.ready || gone.current) return;
     if (shown.current?.data === d) return;
     const prev = shown.current;
+    // 摊平着看不见星球:贴图等收起平面时再换(整张底图那时多半已经在缩略图那边分小步备好了,贴上只要一下),
+    // 不在每涂一笔以后都当场整张画一遍;右边的缩略图照样做
+    if (prev && wantFlat) {
+      flatStale.current = true;
+      p.requestThumbs(STYLE_IDS);
+      return;
+    }
     const tag = ++tagRef.current;
     if (!upload(sc, tag, 'realistic')) return;
     if (style !== 'realistic') upload(sc, tag, style);
@@ -707,11 +716,18 @@ export function Studio(p: StudioProps) {
       settle();
       return;
     }
+    p.requestThumbs(STYLE_IDS);
+    // 摊平着换的(这会儿收起平面):星球还没露出来,直接换上
+    if (flatStale.current) {
+      flatStale.current = false;
+      sc.showStyle(`${tag}:${style}`);
+      latest();
+      return;
+    }
     // 换了一颗、改了地形慢慢淡入新样子;同一颗调了参数淡得快
     void sc.setStyle(`${tag}:${style}`, prev.seed === p.params.seed && prev.pkey !== pkey ? 450 : 1100).then(latest);
-    p.requestThumbs(STYLE_IDS);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [glOk, p.data, p.ready]);
+  }, [glOk, p.data, p.ready, wantFlat]);
   // 画不了地球仪(只有平面地图)时,看过的星球也照样记
   useEffect(() => {
     if (glOk !== false || !p.data || !p.ready || image || p.base) return;

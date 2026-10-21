@@ -11,7 +11,9 @@
  *
  * 缩略图是当前世界真实画出来的小图:App 给 baseCanvas(画风键)取整张底图(画过的直接从缓存拿,没画过的画一张放进缓存),
  * 政区 / 民族 / 信仰(新建界面用)再叠上文明底图,缩成小图存成 dataURL。当前底图的一张在世界出来后就做;其余的等弹层第一次打开时
- * 一张一张做(每张之间让出主线程),没做好的先显示占位。换世界全部作废;历史重推(干预、改地形)只作废政区、民族、信仰三张。
+ * 一张一张做(每张之间让出主线程),没做好的先显示占位。缓存里还没有的整张底图先分小步画好(ui/thumbPrep.ts,每段十毫秒左右
+ * 就让出主线程;编辑地形后写实、手绘只重画变了的那块),不一口气占住主线程几百毫秒。
+ * 换世界全部作废;历史重推(干预、改地形)只作废政区、民族、信仰三张。
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { World } from '../gen/world';
@@ -41,10 +43,16 @@ import { CivToggles, CultureLegend, FaithLegend } from './CivPanel';
 import './overview.css';
 import { noteDismiss } from './dismissClick';
 import { terrainPatchPending } from './terrainPatch';
+import { baseReady, dropThumbPrep } from './thumbPrep';
 
 /** 缩略图大小(显示时 88×44 左右,按两倍像素做) */
 const TW = 192;
 const TH = 96;
+
+/** 调试字段(检查脚本量缩略图多久换好用):data = 最近在做 / 做完的是哪个世界的,busy = 还有没做完的 */
+function noteThumbs(data: unknown, busy: boolean): void {
+  (window as unknown as { __wfThumbs: unknown }).__wfThumbs = { data, busy };
+}
 
 /** 画风键:手绘 / 写实 / data:某数据图层(和 App 的底图缓存同一套键) */
 export function styleKey(id: MapLayer): string {
@@ -107,27 +115,35 @@ export function useLayerThumbs(src: ThumbSource, current: ThumbId) {
     return url;
   };
 
-  const pump = useCallback(() => {
+  const pump = useCallback((delay = 30) => {
     if (timer.current !== undefined) return;
     const step = () => {
       timer.current = undefined;
-      // 编辑地形后新地图正在后台分小步备着(ui/terrainPatch.ts):缩略图一张要画一两百毫秒,先让地图换上再做
+      // 编辑地形后新地图正在后台分小步备着(ui/terrainPatch.ts):先让地图换上再做
       if (terrainPatchPending()) {
         timer.current = setTimeout(step, 100);
         return;
       }
-      const id = queue.current.shift();
-      if (!id) return;
-      if (!have.current[id]) {
+      const data = srcRef.current.data;
+      const id = queue.current[0];
+      if (!id) return noteThumbs(data, false);
+      noteThumbs(data, true);
+      if (data && !have.current[id]) {
+        // 整张底图缓存里还没有:先在后台分小步备好(ui/thumbPrep.ts),备好了再来;换了世界就不等了(队列也重新排过)
+        const ready = baseReady(thumbKey(id), data.world, data.raster, { alive: () => srcRef.current.data === data, done: () => pump(0) });
+        if (!ready) return;
         const url = make(id);
         if (url) {
           have.current = { ...have.current, [id]: url };
           setThumbs(have.current);
         }
+        dropThumbPrep();
       }
-      if (queue.current.length) timer.current = setTimeout(step, 30);
+      if (queue.current[0] === id) queue.current.shift();
+      if (queue.current.length) timer.current = setTimeout(step, 0);
+      else noteThumbs(data, false);
     };
-    timer.current = setTimeout(step, 30);
+    timer.current = setTimeout(step, delay);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

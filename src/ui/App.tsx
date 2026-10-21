@@ -128,6 +128,7 @@ import { sameMix, type NameMix } from '../gen/names/mix';
 import { cleanFrontier, cleanOrigins, sameFrontier, sameOrigins, type Frontier, type Origins } from '../gen/civ/frontier';
 import type { RasterPatch } from '../gen/rasterPatch';
 import { cancelTerrainPatch, startTerrainPatch, type PatchStats, type PatchView, type PreProjected } from './terrainPatch';
+import { baseReady } from './thumbPrep';
 import { baseRegions, civAtEra, dropComposed, eraData, eraIndex, eraMapsOf, eraReady, eraShown, patchKey, reuseRegions, useEraIndex, withHistory, type EraMaps } from './eras';
 import { sameSketch, type SketchEdit } from '../gen/sketch';
 import { clearEditHistory, clearEdits, getEdits, removeEditsBatch, removeIntervention, removeUpheaval, setEditGate, setEdits, setHistoryGate, undoTerrainOp, useEdits } from './editsStore';
@@ -1770,13 +1771,15 @@ export function App() {
   // 地形是结束那一年的(地形大事以后的那一段)。世界还在生成、按新地形重新生成、按新的干预重推历史、那一段的主图还没铺好时 = null,
   // saveStore 过一会儿再来要
   useEffect(() => {
-    setThumbMaker((id) => {
+    setThumbMaker((id, now) => {
       const t = targetRef.current;
       const b = baseRef.current;
       if (!dataRef.current || !b || fresh.current || regenRef.current || resimRef.current || !t || t.id !== id) return null;
       const kEnd = eraIndex(rawRef.current, null);
       if (!eraReady(eraMapsRef.current, eraPatches.current, kEnd)) return null;
       const d = eraData(b, eraMapsRef.current, eraPatches.current, kEnd);
+      // 整张底图先在后台分小步备好(ui/thumbPrep.ts),不在主线程上一口气画
+      if (!now && !mapsOf(d).has('fantasy') && !baseReady('fantasy', d.world, d.raster)) return null;
       const base = baseCanvas('fantasy', d);
       if (!base) return null;
       const cv = document.createElement('canvas');
@@ -1804,10 +1807,11 @@ export function App() {
       return url;
     });
     // 地图缩略图(我的世界的「地图」页签):实景、第 0 年的地形(地形大事以前),不带国界和地名
-    setMapThumbMaker((id) => {
+    setMapThumbMaker((id, now) => {
       const t = targetRef.current;
       const b = baseRef.current;
       if (!b || fresh.current || regenRef.current || !t || t.id !== id) return null;
+      if (!now && !mapsOf(b).has('realistic') && !baseReady('realistic', b.world, b.raster)) return null;
       const base = baseCanvas('realistic', b);
       if (!base) return null;
       const cv = document.createElement('canvas');

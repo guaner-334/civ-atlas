@@ -122,6 +122,7 @@ export function startTerrainPatch(o: { w0: World; r0: Raster; w1: World; patch: 
   });
   const commit = (prep: number) => {
     if (!r1) r1 = patch ? composeRaster(r0, [patch]) : { ...r0 };
+    links.set(r1, { w0, r0: new WeakRef(r0), box });
     done(r1, { prep, wall: performance.now() - t0, kind: failed ? 'none' : kind, maxStep }, failed ? null : pre);
   };
   if (!detailAsync) {
@@ -131,6 +132,19 @@ export function startTerrainPatch(o: { w0: World; r0: Raster; w1: World; patch: 
   }
   const job = (current = { steps: guarded, i: 0, prep: 0, commit });
   post(() => run(job));
+}
+
+/**
+ * 按块换上的主图是从哪一张、改了哪一块来的(键 = 换上的那张主图):别的画风(图层缩略图)也能照原来那张只重画变了的那块。
+ * 原来那张只弱引用(各画风的缓存还留着它时才用得上;不然整张画),不让一笔一笔的主图连成串留在内存里
+ */
+const links = new WeakMap<Raster, { w0: World; r0: WeakRef<Raster>; box: PixelBox | null }>();
+
+/** r 是按块换上的:原来那张世界、主图(还在内存里的话)和变了的那块;不是 = null */
+export function patchSourceOf(r: Raster): { w0: World; r0: Raster; box: PixelBox | null } | null {
+  const l = links.get(r);
+  const r0 = l?.r0.deref();
+  return l && r0 ? { w0: l.w0, r0, box: l.box } : null;
 }
 
 /** 一段做多少毫秒就让出主线程(同 ui/detailJobs.ts:一帧的一半) */

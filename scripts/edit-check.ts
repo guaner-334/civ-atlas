@@ -10,6 +10,9 @@
  *   --proj=robinson                                   测速时换成弯边投影
  *   --no-check                                       不比像素(量改之前的版本时用:那一版没有比像素要用的调试字段)
  *   npx tsx scripts/edit-check.ts --node [--cells=…]  不开浏览器,在 Node 里一段一段量(见 nodeTimes)
+ *   npx tsx scripts/edit-check.ts --thumbs           右边样式缩略图:种子 7,手绘、经典卫星、细节卫星各涂 5 笔(第一笔不算),量地图换上以后
+ *                                                    主线程一口气最长占住多久(Long Task)、缩略图全部换成新地形用了多久,打印中位数
+ *                                                    (存档缩略图、星球贴图这些涂完以后跟着做的活也算在里面)
  *   WF_URL=http://localhost:5173 npx tsx …           用现成的服务(比如另一份代码起的 dev server)
  * 自动起一个临时 dev server(随机端口)。数字只在同一台机器上前后对比有意义。
  */
@@ -17,8 +20,9 @@ import { chromium, type Page } from 'playwright';
 import { startDevServer } from './lib/devserver';
 
 const args = process.argv.slice(2);
-const timeOnly = args.includes('--time');
-const check = !args.includes('--no-check');
+const thumbsOnly = args.includes('--thumbs');
+const timeOnly = args.includes('--time') || thumbsOnly;
+const check = !args.includes('--no-check') && !thumbsOnly;
 const cells = Number(args.find((a) => a.startsWith('--cells='))?.slice(8) ?? 0) || undefined;
 const timeProj = args.find((a) => a.startsWith('--proj='))?.slice(7);
 
@@ -131,9 +135,17 @@ interface Case {
   seed: number;
   style: 'fantasy' | 'realistic';
   proj?: string;
+  /** 卫星画法(给了就按 map=satellite&sat= 打开;不给 = style=,写实是经典、手绘时卫星记着的是细节) */
+  sat?: string;
 }
 
-const CASES: Case[] = timeOnly
+const CASES: Case[] = thumbsOnly
+  ? [
+      { seed: 7, style: 'fantasy' },
+      { seed: 7, style: 'realistic' },
+      { seed: 7, style: 'realistic', sat: 'detail' },
+    ]
+  : timeOnly
   ? [
       { seed: 7, style: 'fantasy', proj: timeProj },
       { seed: 7, style: 'realistic', proj: timeProj },
@@ -172,6 +184,79 @@ async function stroke(p: Page, op: unknown): Promise<any> {
   // 换上以后等一会儿(文明层、底图缩略图这些各自在后台补画;测速时等它们画完再涂下一笔,像用户涂一笔看一眼再涂)
   await p.waitForTimeout(timeOnly ? 3000 : 300);
   return p.evaluate(() => (window as any).__wfTerrain);
+}
+
+/** 右边样式那几格的缩略图(电脑上;编辑地形时照样摆着) */
+const THUMB_SEL = '.studio .st-opt[data-style] .st-thumb';
+/** 页面一打开就记下所有 Long Task(主线程一口气占住 ≥ 50 ms 的) */
+const LONG_TASKS = `window.__lt = [];
+if (PerformanceObserver.supportedEntryTypes.includes('longtask'))
+  new PerformanceObserver((l) => { for (const e of l.getEntries()) window.__lt.push([e.startTime, e.duration]); }).observe({ type: 'longtask', buffered: true });`;
+
+/**
+ * 加一笔(--thumbs):等地图换上、右边的缩略图全部换成新地形,再等到这一笔以后 4 秒(存档缩略图这些跟着做的活也做完;
+ * 至少等缩略图换好以后 1 秒),返回这一笔的几样时间(毫秒,从加这一笔算起):shown = 地图换上,thumbs = 缩略图全部换好;
+ * maxAll = 这段时间里最长的一个 Long Task,maxAfter = 地图换上以后最长的,blockAfter = 地图换上以后各个 Long Task 超出 50 ms 的部分加起来
+ */
+async function strokeThumbs(p: Page, op: unknown): Promise<Record<string, number>> {
+  const prev = await p.evaluate(() => (window as any).__wfTerrain?.id ?? 0);
+  await p.evaluate(
+    async ({ o, sel }) => {
+      const w = window as any;
+      const els = [...document.querySelectorAll(sel)];
+      w.__thumbSeen = els.map(() => false);
+      w.__thumbObs?.disconnect();
+      w.__thumbObs = new MutationObserver((ms) => {
+        for (const m of ms) {
+          const i = els.indexOf(m.target as Element);
+          if (i >= 0) w.__thumbSeen[i] = true;
+        }
+      });
+      for (const el of els) w.__thumbObs.observe(el, { attributes: true, attributeFilter: ['style'] });
+      w.__thumbAt = undefined;
+      w.__t0 = performance.now();
+      const m = await import('/src/ui/editsStore.ts' as string);
+      m.addTerrainOp(o);
+    },
+    { o: op, sel: THUMB_SEL },
+  );
+  await p.waitForFunction((n) => ((window as any).__wfTerrain?.id ?? 0) > n, prev, { timeout: 60000 });
+  // 缩略图全部换好:有 __wfThumbs 的版本看它(做好的是地图上这个世界的、没有排着的);
+  // 没有的版本(改之前)换世界时先把缩略图全部清空再一张张做:每一格都变过、现在都有图
+  await p.waitForFunction(
+    (sel) => {
+      const w = window as any;
+      const t = w.__wfThumbs;
+      const els = [...document.querySelectorAll(sel)] as HTMLElement[];
+      const ok = t ? t.data === w.__wfMapData().data && !t.busy : els.length > 0 && els.every((el, i) => w.__thumbSeen[i] && el.style.backgroundImage);
+      if (ok) w.__thumbAt ??= performance.now();
+      return ok;
+    },
+    THUMB_SEL,
+    { timeout: 60000 },
+  );
+  const left = await p.evaluate(() => {
+    const w = window as any;
+    return Math.max(w.__thumbAt + 1000, w.__t0 + 4000) - performance.now();
+  });
+  await p.waitForTimeout(Math.max(0, left) + 100);
+  const r = await p.evaluate(() => {
+    const w = window as any;
+    const t0: number = w.__t0;
+    const tr = w.__wfTerrain;
+    const shown = tr.shownMs ?? tr.paintedMs;
+    const done = w.__thumbAt - t0;
+    const lt = (w.__lt as [number, number][]).filter(([s]) => s >= t0);
+    const after = lt.filter(([s]) => s - t0 >= shown - 5);
+    return {
+      shown,
+      thumbs: done,
+      maxAll: Math.max(0, ...lt.map(([, d]) => d)),
+      maxAfter: Math.max(0, ...after.map(([, d]) => d)),
+      blockAfter: after.reduce((a, [, d]) => a + Math.max(0, d - 50), 0),
+    };
+  });
+  return r;
 }
 
 /**
@@ -214,8 +299,10 @@ const COMPARE = `(async () => {
 for (const c of CASES) {
   const page = await browser.newPage({ viewport: { width: 1600, height: 900 } });
   await page.addInitScript('window.__name = (f) => f');
+  if (thumbsOnly) await page.addInitScript(LONG_TASKS);
   page.on('pageerror', (e) => errs.push(`${c.seed} ${c.style}: ${e.message}`));
-  const q = new URLSearchParams({ new: '1', seed: String(c.seed), play: '0', style: c.style, ...(cells ? { cells: String(cells) } : {}) });
+  const look: Record<string, string> = c.sat ? { map: 'satellite', sat: c.sat } : { style: c.style };
+  const q = new URLSearchParams({ new: '1', seed: String(c.seed), play: '0', ...look, ...(cells ? { cells: String(cells) } : {}) });
   await page.goto(`${dev.url}/?${q}`);
   await terrainOn(page);
   if (c.proj) {
@@ -239,7 +326,23 @@ for (const c of CASES) {
         // 海里放火山:侵蚀整个重算,线程整张铺,变的那块够小就照样只交那一块
         { kind: 'volcano', pts: [1205, 577], r: 28, s: 1 },
       ];
-  const label = `${c.seed} ${c.style}${c.proj ? ` ${c.proj}` : ''}`;
+  const label = `${c.seed} ${c.style}${c.sat ? `:${c.sat}` : ''}${c.proj ? ` ${c.proj}` : ''}`;
+  if (thumbsOnly) {
+    // 第一次的缩略图先做好(世界出来以后排着做的那一批)
+    await page.waitForFunction((sel) => {
+      const els = [...document.querySelectorAll(sel)] as HTMLElement[];
+      return els.length > 0 && els.every((el) => el.style.backgroundImage);
+    }, THUMB_SEL, { timeout: 60000 });
+    await page.waitForTimeout(1000);
+    for (let i = 0; i < ops.length; i++) {
+      const t = await strokeThumbs(page, ops[i]);
+      const f = (v: number) => v.toFixed(0);
+      rows.push(`${label} 第 ${i + 1} 笔:地图换上 ${f(t.shown)},缩略图换好 ${f(t.thumbs)} ms;Long Task 最长 ${f(t.maxAll)},地图换上以后最长 ${f(t.maxAfter)}、超出 50 ms 的合计 ${f(t.blockAfter)}`);
+      if (i > 0) for (const [k, v] of Object.entries(t)) (times[`${label} ${k}`] ??= []).push(v);
+    }
+    await page.close();
+    continue;
+  }
   for (let i = 0; i < ops.length; i++) {
     const t = await stroke(page, ops[i]);
     const p = t.patch ? `${t.patch.kind} 备料 ${t.patch.prep.toFixed(0)} / ${t.patch.wall.toFixed(0)} ms,最长一步 ${t.patch.maxStep.toFixed(0)}` : '整张';

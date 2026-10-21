@@ -876,8 +876,12 @@ function saveOf(c: Current, edits: WorldEdits, view: SaveView | null | undefined
   if (c.frozen !== undefined) save.generator = c.frozen;
   return save;
 }
-/** 截缩略图(App 给):画布还没画好这个世界 = null */
-let thumbMaker: ((id: string) => string | null) | null = null;
+/**
+ * 截缩略图(App 给):画布还没画好这个世界 = null(过一会儿再来要)。
+ * now = 只截这一次、不会再来要(要的整张底图还没在后台备好也当场画);没给 = 底图还在后台备着就先 null
+ */
+type ThumbMaker = (id: string, now?: boolean) => string | null;
+let thumbMaker: ThumbMaker | null = null;
 let thumbTimer: ReturnType<typeof setTimeout> | undefined;
 /** 等着的那一张是要重截的(已经有了也截):这个世界的编号 */
 let thumbForce: string | null = null;
@@ -889,19 +893,19 @@ function stopThumb() {
   thumbForce = null;
 }
 
-export function setThumbMaker(f: ((id: string) => string | null) | null) {
+export function setThumbMaker(f: ThumbMaker | null) {
   thumbMaker = f;
 }
 
-/** 截地图缩略图(App 给;见文件头):画布还没画好 = null */
-let mapThumbMaker: ((id: string) => string | null) | null = null;
-export function setMapThumbMaker(f: ((id: string) => string | null) | null) {
+/** 截地图缩略图(App 给;见文件头):画布还没画好 = null;now 同 thumbMaker */
+let mapThumbMaker: ThumbMaker | null = null;
+export function setMapThumbMaker(f: ThumbMaker | null) {
   mapThumbMaker = f;
 }
 
-const take = (f: ((id: string) => string | null) | null, id: string): string | null => {
+const take = (f: ThumbMaker | null, id: string, now = false): string | null => {
   try {
-    return f?.(id) ?? null;
+    return f?.(id, now) ?? null;
   } catch {
     return null;
   }
@@ -1140,8 +1144,8 @@ export function saveCurrentAsMap(): boolean {
     changed();
     return false;
   }
-  const url = take(thumbMaker, c.id);
-  const map = take(mapThumbMaker, c.id);
+  const url = take(thumbMaker, c.id, true);
+  const map = take(mapThumbMaker, c.id, true);
   if (url) put(THUMB + c.id, url);
   if (map) put(MAPTHUMB + c.id, map);
   current = null;
