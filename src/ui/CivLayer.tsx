@@ -45,6 +45,7 @@ import { drawHighlight, drawSelection, drawSelectionLabels } from '../render/civ
 import { getCivHighlight, setCivHighlight, useCivHighlight, useCivShow, useCivTime, useResourceView, useSelection } from './civView';
 import { setMapPlacement } from './mapPick';
 import { mapBoxOf, mirrorCanvas, placeOnScreen, visibleBox, watchMapBox } from './mapWrap';
+import { whenDone } from './holdMark';
 import { nearX } from '../render/common';
 import { labelProjection, projector, type MapProj } from '../render/projection';
 import { DETAIL_K } from '../render/detail';
@@ -467,14 +468,8 @@ export function CivLayer({ world, raster, civ, geo, style, year, view, mp = null
   const fontStyle = style;
   const want = `${fontStyle}|${text}`;
   const [loaded, setLoaded] = useState('');
-  useEffect(() => {
-    if (!text) return;
-    let alive = true;
-    void ensureFonts(fontStyle, text).then(() => alive && setLoaded(want));
-    return () => {
-      alive = false;
-    };
-  }, [fontStyle, text, want]);
+  // 清理函数在模块里建(whenDone):不拉住这一次渲染时的历史,下一回换字以前历史换了也放得掉
+  useEffect(() => (text ? whenDone(ensureFonts(fontStyle, text), () => setLoaded(want)) : undefined), [fontStyle, text, want]);
   // 字体早已加载好(比如切换画风、开关地名)时不必等一帧,直接画
   const fontsOk = loaded === want || (text !== '' && fontsReady(fontStyle, text));
   useEffect(() => patchFeed({ layer: mapLayer, places: geoItems, fontsOk }), [mapLayer, geoItems, fontsOk]);

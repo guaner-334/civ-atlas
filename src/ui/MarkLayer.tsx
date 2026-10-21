@@ -37,6 +37,7 @@ import { bumpOnCivTime, getCivTime, useSelection } from './civView';
 import { useMarkUi, type MarkDraft } from './markStore';
 import { markRegionIds, markShapeOf } from './markInfo';
 import { useAvoidBoxes } from './uiAvoid';
+import { whenDone } from './holdMark';
 import './marks.css';
 
 /** 这一帧的换算(舞台坐标)+ 舞台在屏幕上的位置 + 指纹(视图没变 = 指纹不变) */
@@ -124,14 +125,8 @@ export function MarkLayer({ civ, world, api, hidden, style = 'fantasy' }: { civ:
 
   // 无色标记用地图的字体写:字体文件到了再重画一次(第一次画出来可能是后备字体)
   const plainText = active ? [...(marks ?? []).filter((m) => m.color === 'none').map((m) => m.title), draft?.color === 'none' ? draft.title : ''].join('') : '';
-  useEffect(() => {
-    if (!plainText) return;
-    let alive = true;
-    void ensureFonts(look, plainText).then(() => alive && void state.current.ver++);
-    return () => {
-      alive = false;
-    };
-  }, [plainText, look]);
+  // 清理函数在模块里建(whenDone):不拉住这一次渲染时的历史
+  useEffect(() => (plainText ? whenDone(ensureFonts(look, plainText), () => void state.current.ver++) : undefined), [plainText, look]);
 
   // 放标记、圈州时跟着鼠标
   const followMouse = active && (ui.placing || areaEdit);
