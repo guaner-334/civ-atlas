@@ -155,17 +155,96 @@ export function fantasyPatchSteps(w1: World, r1: Raster, w0: World, r0: Raster, 
       y = y1;
       return y < region.y0 + region.h;
     },
-    () => {
-      // 放进缓存(同 fantasyBase):同一个世界留最近 BASES_KEEP 张
-      if (bases.some((b) => b.raster === r1)) return void (cv!.width = cv!.height = 0);
-      const keep = bases.filter((b) => b.raster.cell === r1.cell).slice(0, BASES_KEEP - 1);
-      for (const b of bases) if (!keep.includes(b)) b.canvas.width = b.canvas.height = 0;
-      base = { raster: r1, canvas: cv!, patch: patch!, sea: sea! };
-      bases = [base, ...keep];
-    },
+    () => adoptBase({ raster: r1, canvas: cv!, patch: patch!, sea: sea! }),
     ...symbolLayerSteps(w1, r1),
   ];
   return steps;
+}
+
+/**
+ * 分步画好整张(图层缩略图用,涂一笔以后不在主线程上一口气画半秒多):像素层(同 fantasyPatchSteps 那块是整张图,
+ * 和 fantasyBase 一口气画逐像素相同)、符号层,画完放进缓存,之后 renderFantasy 直接拿。都在缓存里的(或放大后现算的一块)= null
+ */
+export function fantasyFullSteps(world: World, r: Raster): WorkStep[] | null {
+  if (r.win || (fantasyBaseCached(r) && sym?.raster === r)) return null;
+  const steps: WorkStep[] = [];
+  if (!fantasyBaseCached(r)) {
+    const W = r.w;
+    let cv: AnyCanvas | null = null;
+    const full = fullPixelSteps(world, r, (d, y0, y1) => {
+      cv ??= makeCanvas(W, r.h);
+      (cv.getContext('2d') as CanvasRenderingContext2D).putImageData(new ImageData(d.slice(y0 * W * 4, y1 * W * 4), W, y1 - y0), 0, y0);
+    });
+    steps.push(...full.steps, () => adoptBase({ raster: r, canvas: cv!, patch: full.out!.patch, sea: full.out!.sea }));
+  }
+  steps.push(...symbolLayerSteps(world, r));
+  return steps;
+}
+
+/** 这张主图的像素层在不在缓存里 */
+export function fantasyBaseCached(r: Raster): boolean {
+  return bases.some((b) => b.raster === r);
+}
+
+/** 纯计算(单测用):整张像素层按 fantasyFullSteps 的分步办法一口气做完(不碰画布),返回同 fantasyPixels */
+export function fantasyFullPixels(world: World, r: Raster): ReturnType<typeof fantasyPixels> {
+  const full = fullPixelSteps(world, r, () => {});
+  for (const s of full.steps) while (s(Infinity) === true);
+  const { d, patch, sea } = full.out!;
+  return { px: d, patch, sea };
+}
+
+/**
+ * 整张像素层分几步铺:各个场一条带子一组算(regionFieldSteps,那块 = 整张图),逐像素一步一条带子(paintRegionRows),
+ * 每铺完一条带子调 put。out(第一步才有)= 整张图的 RGBA,墨线盖掉的原色、波纹的场
+ */
+function fullPixelSteps(
+  world: World,
+  r: Raster,
+  put: (d: Uint8ClampedArray, y0: number, y1: number) => void,
+): { steps: WorkStep[]; out: { d: Uint8ClampedArray; patch: InkPatch; sea: SeaFields } | null } {
+  const { w: W, h: H } = r;
+  const region: PixelBox = { x0: 0, y0: 0, w: W, h: H };
+  const band = Math.max(8, Math.floor(PATCH_BAND_PX / W));
+  const res: { steps: WorkStep[]; out: { d: Uint8ClampedArray; patch: InkPatch; sea: SeaFields } | null } = { steps: [], out: null };
+  let calm: Uint8Array | null = null;
+  let ice: IceCoarse | null = null;
+  let f: PixelFields | null = null;
+  let y = 0;
+  res.steps = [
+    () => {
+      res.out = {
+        d: new Uint8ClampedArray(W * H * 4),
+        patch: { coast: new PixelPatch(), lake: new PixelPatch(), sea: new PixelPatch(), iceW: new PixelPatch(), iceI: new PixelPatch() },
+        sea: { dist: new Uint16Array(W * H), fade: new Uint8Array(W * H) },
+      };
+      planOf(world);
+    },
+    () => void (calm = glyphSkirts(world, planOf(world).glyphs, W, H, r.scale)),
+    () => void (ice = iceCoarse(r)),
+    later(() => {
+      const rf = regionFieldSteps(r, region, calm!, ice!, res.out!.patch, res.out!.sea);
+      f = rf.fields;
+      return rf.steps;
+    }),
+    () => {
+      const y1 = Math.min(H, y + band);
+      paintRegionRows(r, res.out!.d, f!, region, y, y1);
+      put(res.out!.d, y, y1);
+      y = y1;
+      return y < H;
+    },
+  ];
+  return res;
+}
+
+/** 新铺好的一张像素层放进缓存(同 fantasyBase:同一个世界留最近 BASES_KEEP 张);这几步之间别处已经铺过这一张的,用那张 */
+function adoptBase(b: Base): void {
+  if (bases.some((x) => x.raster === b.raster)) return void (b.canvas.width = b.canvas.height = 0);
+  const keep = bases.filter((x) => x.raster.cell === b.raster.cell).slice(0, BASES_KEEP - 1);
+  for (const x of bases) if (!keep.includes(x)) x.canvas.width = x.canvas.height = 0;
+  base = b;
+  bases = [b, ...keep];
 }
 
 /** 按块重画的那块和要用的两样(新世界的山符号羽化带、海冰粗网格);见 fantasyPatchRegion */
