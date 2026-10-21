@@ -11,7 +11,30 @@
  * 逐年推演的进度、从第几年起、推进设置也不记(撤销别的时照现在的留着)。
  */
 import { useSyncExternalStore } from 'react';
-import { EMPTY_EDITS, END_YEAR_DEFAULT, MARKS_MAX, cleanCivSeed, cleanEndYear, MARK_REGIONS_TOTAL, cleanIntervention, cleanMark, markRegionTotal, sameMark, markAiName, nextMarkId, type AuthorMark, type Intervention, type TerrainOp, type Upheaval, type WorldEdits } from '../gen/edits';
+import {
+  EMPTY_EDITS,
+  END_YEAR_DEFAULT,
+  MARKS_MAX,
+  cleanAdvance,
+  cleanCivSeed,
+  cleanEndYear,
+  MARK_REGIONS_TOTAL,
+  cleanIntervention,
+  cleanMark,
+  markRegionTotal,
+  sameAdvance,
+  sameMark,
+  markAiName,
+  nextMarkId,
+  type Advance,
+  type AdvanceSettings,
+  type AuthorMark,
+  type Intervention,
+  type PlayState,
+  type TerrainOp,
+  type Upheaval,
+  type WorldEdits,
+} from '../gen/edits';
 import { TERRAIN_MAX_OPS, UPHEAVALS_MAX, cleanTerrainOp, cleanUpheaval } from '../gen/terrainEdits';
 import { SKETCH_MAX_STROKES, cleanSketch, cleanSketchImage, cleanSketchStroke, encodeLayer, sketchCoast, sketchFill, type SketchEdit, type SketchFill, type SketchStroke } from '../gen/sketch';
 import { PLATE_MAX_OPS, cleanPlateImage, cleanPlateOp, type PlateImage, type PlateOp } from '../gen/plateEdits';
@@ -504,6 +527,34 @@ export function setMapSum(sum: string) {
   const map = state.map;
   if (!map || map.sum) return;
   put({ ...state, map: { ...map, sum } }, false);
+}
+
+/**
+ * 推进设置(逐年推演怎么往下走;随时能改,不记撤销步、不改历史):整个交进来,清理过再放进修改(全是默认 = 去掉这一项)。
+ * 格式见 gen/edits.ts 文件头"推进设置"
+ */
+export function setAdvance(a: Partial<Advance> | AdvanceSettings | undefined) {
+  const next = cleanAdvance(a);
+  if (sameAdvance(next, state.advance)) return;
+  const { advance: _old, ...rest } = state;
+  void _old;
+  put(next ? { ...rest, advance: next } : rest, false);
+}
+
+/**
+ * 逐年推演走完一步:进度换成 play(推到哪年 + 一路下过的命令)。不记撤销步(进度只往前走);
+ * App 记着这份历史就是按它推的,不会因为进度变了再重推一遍
+ */
+export function putPlay(play: PlayState) {
+  if (state.play === play) return;
+  put({ ...state, play }, false);
+}
+
+/**
+ * 整个换成 next,不记撤销步、不清撤销记录、不问改历史的那一声(新建的世界选了「演绎」:创建以后换成从第 0 年起逐年推演)
+ */
+export function putEditsQuiet(next: WorldEdits) {
+  put(next, false);
 }
 
 /** 纪年(随时能改,不记撤销步):undefined = 按第几年写,去掉这一项。不合格的(名字空、太长,元年超范围)不改 */

@@ -17,6 +17,7 @@ import { setSheetDrag, setWorldSheet, usePanel } from './panelStore';
 import { VELOCITY_MS, releaseVelocity, worldSnap } from './gestures';
 import { phoneSheet } from './flyTo';
 import { Icon } from './icons';
+import { openStepDialog } from './stepwiseStore';
 import { SearchField, SearchResults, WorldHome, WorldMoreMenu, useSearch, useWorldInfo, type SidebarProps } from './Sidebar';
 
 export type PhoneSheetProps = Omit<SidebarProps, 'inspectorSlot'> & {
@@ -29,7 +30,7 @@ const stop = (e: { stopPropagation(): void }) => e.stopPropagation();
 export function PhoneSheet(p: PhoneSheetProps) {
   const { world: snap } = usePanel();
   const s = useSearch(p.civ);
-  const { title, sub } = useWorldInfo(p.civ, p.data);
+  const { title, sub, step } = useWorldInfo(p.civ, p.data);
   const d = useWorldDrag(snap);
   const full = snap === 'full';
   // 搜索框里有字时卡片拉到顶(结果有地方放;手机键盘弹出来也不挡)
@@ -66,11 +67,18 @@ export function PhoneSheet(p: PhoneSheetProps) {
             <div className="ps-row">
               <button className="ps-title" data-act="overview" onClick={() => openOverview()} title="世界概览:国家、编年史、干预、世界参数">
                 <b className="sb-name">{title}</b>
-                <span className="sb-sub">{sub}</span>
+                {/* 逐年推演:标题旁只写"逐年推演",右边「我的世界」换成「存回推演模式」(「我的世界」在拉开后的那排按钮里) */}
+                <span className="sb-sub">{step ? '逐年推演' : sub}</span>
               </button>
-              <button className="ps-link" data-act="home" onClick={p.onHome} title="我存过的世界、新建世界">
-                我的世界
-              </button>
+              {step ? (
+                <button className="ps-link" data-act="step-save" onClick={() => openStepDialog({ kind: 'save' })}>
+                  存回推演模式
+                </button>
+              ) : (
+                <button className="ps-link" data-act="home" onClick={p.onHome} title="我存过的世界、新建世界">
+                  我的世界
+                </button>
+              )}
             </div>
           )}
         </div>

@@ -40,9 +40,11 @@ import { DEFAULT_PARAMS } from '../../gen/world';
 import type { Civ } from '../../gen/civ/types';
 import type { Raster } from '../../gen/raster';
 import { TITLE_MAX, worldKey } from '../../gen/savefile';
-import { END_YEAR_DEFAULT, cleanCivSeed, cleanEndYear } from '../../gen/edits';
+import { END_YEAR_DEFAULT, advanceOf, cleanCivSeed, cleanEndYear } from '../../gen/edits';
 import type { DraftBase } from '../stageStore';
-import { getEdits, setCivSeed, setEndYear, setFrontier, setOrigins, useEdits } from '../editsStore';
+import { getEdits, setAdvance, setCivSeed, setEndYear, setFrontier, setOrigins, useEdits } from '../editsStore';
+import { AdvanceFields } from '../StepwiseDialogs';
+import { advanceBrief } from '../Stepwise';
 import { cleanOrigins, frontierBrief, terrainChangedCount, terrainValue, type Origins } from '../../gen/civ/frontier';
 import { EXPAND_SLIDER, SPREAD_SLIDER, TERRAIN_SLIDERS, withSpeed, withTerrain, withoutTerrain } from '../frontierUi';
 import { OriginsPage } from './OriginsPage';
@@ -180,8 +182,8 @@ export interface StudioProps {
   onRandomSeed: () => void;
   onParams: (p: WorldParams) => void;
   onTitle: (title: string) => void;
-  /** 确认创建:名字、正中的经度(度,平常的地图从这里接着看);true = 建好了 */
-  onCreate: (title: string, lon: number) => boolean;
+  /** 确认创建:名字、正中的经度(度,平常的地图从这里接着看);step = 选了「演绎」(从第 0 年起逐年推演);true = 建好了 */
+  onCreate: (title: string, lon: number, step?: boolean) => boolean;
   /** 第 1 步「保存地图」:只存地图、回我的世界;存下了 = true */
   onSaveMap: () => boolean;
   /** 在一张地图上打造文明(地图锁着):那张地图是哪个世界的(名字;只存了地图的、那个世界删掉了 = null)、一句简介;新建世界 = undefined */
@@ -302,8 +304,15 @@ export function Studio(p: StudioProps) {
   /** 两步里到了第 2 步「文明」 */
   const [civStep, setCivStep] = useState(false);
   const step2 = locked || (twoStep && civStep);
-  /** 第 2 步里推演年数、拓荒展开着没有 */
+  /** 第 2 步「怎么推」:一口气推完(推演年数)/ 演绎(建好以后从第 0 年起逐年推演,推进设置) */
+  const [how, setHow] = useState<'all' | 'step'>('all');
+  const stepHow = step2 && how === 'step';
+  /** 确认框里的动词;选了演绎时推演年数不算(从第 0 年起一步步往下走) */
+  const verb = stepHow ? '演绎' : '推演';
+  const yearsLocked = !!years && !stepHow;
+  /** 第 2 步里推演年数、推进设置、拓荒展开着没有 */
   const [yearsOpen, setYearsOpen] = useState(false);
+  const [advOpen, setAdvOpen] = useState(false);
   const [frontierOpen, setFrontierOpen] = useState(false);
   /** 一进来用的投影:设过「新建时的默认」就照它(照手绘图的照旧是地球仪) */
   const startProj = useRef<PlanetProjection>((!image && getNewView()?.proj) || 'globe');
@@ -943,7 +952,7 @@ export function Studio(p: StudioProps) {
     else await new Promise((r) => setTimeout(r, reduce ? 0 : 360));
     const lon = sc ? (((((to * 180) / Math.PI + 180) % 360) + 360) % 360) - 180 : flatLon;
     if (target !== getProjection()) setProjection(target);
-    const ok = p.onCreate(name, lon);
+    const ok = p.onCreate(name, lon, stepHow);
     if (!ok) {
       // 没建成(还在生成):回到新建
       gone.current = false;
@@ -991,7 +1000,7 @@ export function Studio(p: StudioProps) {
       : image
         ? '海和陆地照你的图长，山、河、气候由程序补上。'
         : civStep
-          ? '地图定下了。接下来定文明怎么推演，点「开始推演」从第 0 年推起。'
+          ? '地图定下了。接下来定文明怎么推演：一口气推完，或者从第 0 年起演绎。'
           : '按种子随机生成。地图做好了，可以先保存，也可以接着打造文明。';
   const isDefault = (Object.keys(DEFAULT_PARAMS) as (keyof WorldParams)[]).every((k) => k === 'seed' || p.params[k] === DEFAULT_PARAMS[k]) && (twoStep || !edits.frontier);
   const presets = usePresets();
@@ -1267,6 +1276,43 @@ export function Studio(p: StudioProps) {
       )}
     </>
   );
+  /** 怎么推:一口气推完 / 演绎 */
+  const howRow = (
+    <div className="sb-row nw-how" data-act="how">
+      <span className="sb-row-main">
+        <b>怎么推</b>
+      </span>
+      <span className="nw-dseg" role="radiogroup" aria-label="怎么推">
+        <button role="radio" aria-checked={!stepHow} className={stepHow ? '' : 'on'} data-act="how-all" onClick={() => setHow('all')}>
+          一口气推完
+        </button>
+        <button role="radio" aria-checked={stepHow} className={stepHow ? 'on' : ''} data-act="how-step" onClick={() => setHow('step')}>
+          演绎
+        </button>
+      </span>
+    </div>
+  );
+  const adv = advanceOf(edits);
+  /** 选了演绎:推进设置(和逐年推演开始之前的设置同一套,点开原地展开) */
+  const advRow = (
+    <>
+      <button className={`sb-row nw-params${advOpen ? ' open' : ''}`} data-act="advance" aria-expanded={advOpen} disabled={!p.ready} onClick={() => setAdvOpen((o) => !o)}>
+        {!p.phone && <Icon name="sliders" size={ico} className="sb-ico" />}
+        <span className="sb-row-main">
+          <b>推进设置</b>
+        </span>
+        <span className="sb-row-side">{advanceBrief(adv)}</span>
+        <Icon name={advOpen ? 'down' : 'chevron'} size={14} className="sb-chev" />
+      </button>
+      {advOpen && (
+        <div className="nw-sliders nw-adv">
+          {/* 左边面板窄:照手机的排法(分段按钮各占一行) */}
+          <AdvanceFields adv={adv} set={setAdvance} phone />
+
+        </div>
+      )}
+    </>
+  );
   const frontierRow = (
     <>
       <button className={`sb-row nw-params${frontierOpen ? ' open' : ''}`} data-act="frontier" aria-expanded={frontierOpen} disabled={!p.ready} onClick={() => setFrontierOpen((o) => !o)}>
@@ -1307,7 +1353,11 @@ export function Studio(p: StudioProps) {
       {p.phone && <Icon name="lock" size={15} className="nw-lock" />}
     </div>
   );
-  const civNote = <div className="nw-note">文明种子决定民族、国家和名字怎么长出来。同一张地图换一个文明种子，就是另一个文明。</div>;
+  const civNote = stepHow ? (
+    <div className="nw-note">演绎：建好以后从第 0 年起一步一步往下推，导播带你看发生了什么。最早几百年还没有国家，会很快带过。</div>
+  ) : (
+    <div className="nw-note">文明种子决定民族、国家和名字怎么长出来。同一张地图换一个文明种子，就是另一个文明。</div>
+  );
   const leftNote = locked && srcName && <div className="nw-note">{srcName}里的国家、人物、你的干预、标记、改过的名字和地形大事都不带过来。</div>;
   const noCivHint = p.noCiv && <div className="nw-note warn">{image ? '这颗星球长不出文明，多画些陆地试试' : '这颗星球长不出文明，换一颗或调大陆地比例'}</div>;
   const baseRows = base && (
@@ -1435,7 +1485,7 @@ export function Studio(p: StudioProps) {
   );
   const createBtn = (
     <button className="nw-create" data-act="create-world" disabled={p.busy || !p.ready || out > 0 || importing || (image && !applied)} onClick={askCreate}>
-      {base ? '创建新世界' : step2 ? '开始推演' : '创建世界'}
+      {base ? '创建新世界' : step2 ? (stepHow ? '开始演绎' : '开始推演') : '创建世界'}
     </button>
   );
   /** 第 1 步底部:「保存地图」「打造文明 ›」 */
@@ -1564,7 +1614,8 @@ export function Studio(p: StudioProps) {
         <div className="sb-group">
           {p.phone && mapRow}
           {civSeedRow}
-          {yearsRow}
+          {howRow}
+          {stepHow ? advRow : yearsRow}
           {compact ? (
             <button className="sb-row" data-act="civ-more" onClick={() => setSheetFull(true)}>
               <span className="sb-row-main">
@@ -2031,9 +2082,11 @@ export function Studio(p: StudioProps) {
             <div className="st-dlg-ico">
               <Icon name="lock" size={22} />
             </div>
-            <h2 id="st-dlg-title">{step2 ? (nameNow ? `开始推演「${nameNow}」？` : '开始推演这个文明？') : nameNow ? `创建「${nameNow}」？` : '创建这个世界？'}</h2>
+            <h2 id="st-dlg-title">
+              {step2 ? (nameNow ? `开始${verb}「${nameNow}」？` : `开始${verb}这个文明？`) : nameNow ? `创建「${nameNow}」？` : '创建这个世界？'}
+            </h2>
             <p>
-              {step2 ? '开始推演以后' : '创建以后，这颗星球的样子就定下来了'}，下面{LOCK_COUNT[4 + (step2 ? 1 : 0) + (years ? 1 : 0) + (frontier ? 1 : 0) + (originN ? 1 : 0)]}样不能再改：
+              {step2 ? `开始${verb}以后` : '创建以后，这颗星球的样子就定下来了'}，下面{LOCK_COUNT[4 + (step2 ? 1 : 0) + (yearsLocked ? 1 : 0) + (frontier ? 1 : 0) + (originN ? 1 : 0)]}样不能再改：
             </p>
             <div className="sb-group">
               {image ? (
@@ -2075,7 +2128,7 @@ export function Studio(p: StudioProps) {
                   </span>
                 </div>
               )}
-              {years && (
+              {yearsLocked && (
                 <div className="sb-row static">
                   <Icon name="lock" size={16} className="sb-ico" />
                   <span className="sb-row-main">
@@ -2127,13 +2180,13 @@ export function Studio(p: StudioProps) {
                 </span>
               </div>
             </div>
-            <p className="st-dlg-note">世界名、历史和一个个国名地名，{step2 ? '推演' : '创建'}以后随时能改。</p>
+            <p className="st-dlg-note">世界名、历史和一个个国名地名，{step2 ? verb : '创建'}以后随时能改。</p>
             <div className="st-dlg-btns">
               <button className="st-b2" data-act="confirm-back" onClick={() => setConfirm(false)}>
                 再改改
               </button>
               <button className="st-b1" data-act="confirm-create" autoFocus onClick={() => void doCreate()}>
-                {step2 ? '开始推演' : '确认创建'}
+                {step2 ? `开始${verb}` : '确认创建'}
               </button>
             </div>
           </div>

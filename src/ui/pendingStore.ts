@@ -99,6 +99,17 @@ export function clearPending() {
   if (items.length) set([]);
 }
 
+/**
+ * 逐年推演:下一步开始时,单子里的干预一起交出去(生效年份都换成这一步开头的那一年 year,下在"现在"),从单子里拿掉。
+ * 地形大事不在逐年推演里下(不动)
+ */
+export function takeStepCommands(year: number): Intervention[] {
+  const ivs = items.filter((x): x is Pending & { kind: 'iv' } => x.kind === 'iv');
+  if (!ivs.length) return [];
+  set(items.filter((x) => x.kind !== 'iv'));
+  return ivs.map((x) => ({ ...x.v, from: year }) as Intervention);
+}
+
 /** 最近一次全部推演真加上了的几条(App 推完据此给整批的提示和撤销;edits = 加上以后的修改) */
 let batch: { edits: WorldEdits; ivs: Intervention[]; ups: Upheaval[] } | null = null;
 

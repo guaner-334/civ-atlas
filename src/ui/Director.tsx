@@ -44,6 +44,8 @@ import { getCivTime, setCivTime, subscribeCivTime, togglePlayback } from './civV
 import { useEra } from './editsStore';
 import { baseRegions } from './eras';
 import { playRate, replayStart } from './timelineLayout';
+import { getStepwise } from './stepwiseStore';
+import { STEP_RATE } from './stepwisePlan';
 import { polityHistory } from './WorldOverviewCountries';
 import { Icon } from './icons';
 import { MenuItem, PopMenu } from './PopMenu';
@@ -67,13 +69,16 @@ function usePlayState(): { playing: boolean; story: boolean; speed: 1 | 4 } {
 
 let genCount = 0;
 
-/** 导播推进时间轴(off:回放世界形成、导出视频、新建时不放) */
-export function DirectorEngine({ world, civ, off }: { world: World; civ: Civ | null; off: boolean }) {
+/**
+ * 导播推进时间轴(off:回放世界形成、导出视频、新建时不放)。
+ * stepwise = 在逐年推演:历史一步步现算,由 Stepwise.tsx 的 StepwiseEngine 推进(用同一套字幕、镜头),这里不推
+ */
+export function DirectorEngine({ world, civ, off, stepwise }: { world: World; civ: Civ | null; off: boolean; stepwise?: boolean }) {
   const d = useDirector();
   const { playing, story, speed } = usePlayState();
   const era = useEra();
   const has = !!civ && civ.viable && civ.cultures.length > 0;
-  const drive = d.on && !off && has && !story;
+  const drive = d.on && !off && has && !story && !stepwise;
   // 世界、历史、纪年换了:排期重来
   const gen = useMemo(() => ++genCount, [civ, world, era]);
 
@@ -363,8 +368,14 @@ export function DirectorCaption({ phone, civ, hidden }: { phone: boolean; civ: C
 
 const HOLD_NAMES = ['短', '标准', '长'];
 
-function DirectorSettings({ civ, phone }: { civ: Civ | null; phone: boolean }) {
+/**
+ * 导播设置。inline = 放进别的窗口里原地展开(逐年推演开始之前的设置);sw = 开关管的不是现在这一份时换成它
+ * (逐年推演开始之前,改的是逐年推演那一份开关)
+ */
+export function DirectorSettings({ civ, phone, inline, sw }: { civ: Civ | null; phone: boolean; inline?: boolean; sw?: { on: boolean; set: (on: boolean) => void } }) {
   const d = useDirector();
+  const on = sw ? sw.on : d.on;
+  const setOn = sw ? sw.set : setDirectorOn;
   const end = civ?.endYear ?? 0;
   const auto = d.pace === 'auto';
   // 镜头跟着一个国家:这一年还在的国家,鼎盛时大的在前(跟着的那国已经亡了也留在最前面)
@@ -379,12 +390,12 @@ function DirectorSettings({ civ, phone }: { civ: Civ | null; phone: boolean }) {
   }, [civ, year, d.focus]);
   const focusName = d.focus !== null ? choices.find((c) => c.id === d.focus)?.name : undefined;
   return (
-    <div className={`dr-set dr-avoid${phone ? ' dr-sheet phone' : ''}`} role="dialog" aria-label="导播设置" onPointerDown={stop} onClick={stop}>
+    <div className={`dr-set${inline ? ' inline' : ' dr-avoid'}${phone ? ' dr-sheet phone' : ''}`} role={inline ? 'group' : 'dialog'} aria-label="导播设置" onPointerDown={stop} onClick={stop}>
       {phone && <div className="dr-grip" />}
       <div className="dr-set-head">
         导播
         <span className="dr-sp" />
-        <button className={`dr-sw${d.on ? ' on' : ''}`} role="switch" aria-checked={d.on} aria-label="导播" data-act="director-switch" onClick={() => setDirectorOn(!d.on)} />
+        <button className={`dr-sw${on ? ' on' : ''}`} role="switch" aria-checked={on} aria-label="导播" data-act="director-switch" onClick={() => setOn(!on)} />
       </div>
       <div className="dr-set-lead">{phone ? '时间往前走时，镜头自己移到出事的地方，底下一张字幕卡。拖一下地图，镜头就交还给你。' : '时间往前走时，镜头自己移到出事的地方，底下一条字幕。拖一下地图，镜头就交还给你。'}</div>
 
@@ -422,7 +433,9 @@ function DirectorSettings({ civ, phone }: { civ: Civ | null; phone: boolean }) {
           <span className={`dr-radio${auto ? '' : ' on'}`} />
           <span className="dr-set-main">
             <span>固定速度</span>
-            <small>{phone ? '照 1×、4× 走，来不及放的进「略过的」列表' : `照时间轴上的 1×（每秒 ${playRate(1, end)} 年）、4× 走，来不及放的进「略过的」列表`}</small>
+            <small>
+              {phone ? '照 1×、4× 走，来不及放的进「略过的」列表' : `照时间轴上的 1×（每秒 ${inline || getStepwise().on ? STEP_RATE[1] : playRate(1, end)} 年）、4× 走，来不及放的进「略过的」列表`}
+            </small>
           </span>
         </button>
       </div>

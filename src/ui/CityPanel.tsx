@@ -27,6 +27,7 @@ import { spaced, yearAt, yearShort } from '../gen/era';
 import { NameEdit } from './NameEdit';
 import { interventionText, nameAt } from './Interventions';
 import { queueIntervention } from './pendingStore';
+import { nextYear, useStepwise } from './stepwiseStore';
 import { cityEntries, entriesUpTo, ownerSpans, ownersOf, popPeak, popSeries, type OwnerSpan } from './panelData';
 import {
   Act,
@@ -87,8 +88,10 @@ export function CityPanel({ civ, raw, raster, world, id, year, names }: DetailPr
     return P ? <Link to={{ kind: 'polity', id: q }}>{nameAt(P, y)}</Link> : null;
   };
 
-  // 迁都到这里:替当年的主人下"迁都"令(生效年份 = 当前年份;到了结束年份就往前一年)
-  const y = Math.max(0, Math.min(civ.endYear - 1, year));
+  // 迁都到这里:替当年的主人下"迁都"令(生效年份 = 当前年份;到了结束年份就往前一年)。
+  // 逐年推演:只在"现在"下,生效年份 = 下一步开始的那一年(那时的主人按"现在"看)
+  const sw = useStepwise();
+  const y = sw.on ? Math.min(Math.max(0, civ.endYear), year) : Math.max(0, Math.min(civ.endYear - 1, year));
   const moveOwner = (() => {
     if (!(y >= s.founded) || (s.ended !== undefined && y >= s.ended)) return undefined;
     const q = y === year ? own.polity[s.region] : ownersAt(civ, y).polity[s.region];
@@ -108,7 +111,7 @@ export function CityPanel({ civ, raw, raster, world, id, year, names }: DetailPr
             : null;
   const move = () => {
     if (!moveOwner || moveWhy) return;
-    const v: Intervention = { kind: 'move', a: polityKey(civ, moveOwner.id), city: settlementKey(civ, id), from: y };
+    const v: Intervention = { kind: 'move', a: polityKey(civ, moveOwner.id), city: settlementKey(civ, id), from: sw.on ? nextYear(sw) : y };
     // 先进待推演的单子(pendingStore.ts)
     setMsg(queueIntervention(v, interventionText(civ, v), { self: moveOwner.id, target: { kind: 'settlement', id } }));
   };

@@ -458,6 +458,8 @@ interface Meta {
   base?: DraftBase;
   /** 只存了地图、还没有文明(见文件头) */
   map?: boolean;
+  /** 逐年推演:从哪个世界的哪一年开始的(存回推演模式时能选"覆盖原来的";只在这台设备上) */
+  from?: string;
 }
 
 export interface StoredWorld {
@@ -503,6 +505,7 @@ function parseMeta(text: string): Meta {
     const b = v.base as Record<string, unknown> | undefined;
     if (b && typeof b === 'object' && typeof b.id === 'string' && typeof b.title === 'string')
       m.base = { id: b.id, title: cleanTitle(b.title) || '未命名世界', names: Math.max(0, Math.floor(Number(b.names) || 0)), interventions: Math.max(0, Math.floor(Number(b.interventions) || 0)) };
+    if (typeof v.from === 'string' && v.from) m.from = v.from;
     return m;
   } catch {
     return {};
@@ -557,6 +560,7 @@ function writeMeta(id: string, m: Meta): boolean {
   if (m.alive !== undefined) v.alive = m.alive;
   if (m.draft && m.base) v.base = m.base;
   if (m.map && !m.draft) v.map = true;
+  if (m.from) v.from = m.from;
   return put(META + id, JSON.stringify(v));
 }
 
@@ -779,6 +783,51 @@ export function newHistoryWorld(id: string, o: Omit<NewHistoryOptions, 'from'> &
   return nid;
 }
 
+/**
+ * 照正在看的世界另存一个(参数、地形校验、投影、底稿出处照旧;算建好的),修改换成 edits,名字 title。
+ * 逐年推演用:从某一年开始演绎(from = 原来那个世界,存回推演模式时能选覆盖它)、存回推演模式存成新世界(from 不给)。
+ * 原来的不动。返回新编号(没有正在看的世界、存不下、满了 = null)
+ */
+export function saveCurrentAs(edits: WorldEdits, title: string, from?: string): string | null {
+  const c = current;
+  if (!c) return null;
+  if (storedCount() >= MAX_WORLDS) {
+    fullWhy = 'count';
+    return null;
+  }
+  // 照原样打开的旧世界另存出来的:按现在的版本打开、推演(地形校验留空,打开后按生成出来的记上)
+  const save = makeSave(c.params, edits, c.frozen !== undefined ? '' : c.check, cleanTitle(title) || undefined, undefined, currentView(), c.origin);
+  const nid = newWorldId();
+  if (!writeSave(nid, save, { opened: save.savedAt, ...(from && isStored(from) ? { from } : {}) })) return null;
+  changed();
+  return nid;
+}
+
+/** 逐年推演的世界是从哪个世界开始的(那个世界还在、建好了才算;没有 = null) */
+export function stepOrigin(id: string): { id: string; title: string } | null {
+  const from = readMeta(id).from;
+  if (!from || from === id) return null;
+  const w = loadWorld(from);
+  if (!w || w.draft || w.map) return null;
+  return { id: from, title: w.save.title || '未命名世界' };
+}
+
+/**
+ * 盖掉一个存着的世界的修改(存回推演模式时"覆盖原来的"):名字、参数、投影照旧,修改换成 edits。
+ * 正在看的就是它 = 不在这里改(返回 false)。写进去了 = true
+ */
+export function overwriteWorld(id: string, edits: WorldEdits): boolean {
+  if (current?.id === id) return false;
+  const w = loadWorld(id);
+  if (!w || w.draft || w.map) return false;
+  const save = makeSave(w.save.params, edits, w.save.check, w.save.title, undefined, w.save.view, w.save.origin);
+  if (!writeSave(id, save, { ...readMeta(id), opened: save.savedAt })) return false;
+  // 结束那一年现存几国、缩略图都是原来那段历史的:打开时重新数、重截
+  store().remove(THUMB + id);
+  changed();
+  return true;
+}
+
 /** 两份存档是不是同一个世界的同一个样子(参数、修改、名字、底稿出处都相同;投影、存档时间不算) */
 export function sameSave(a: SaveFile, b: SaveFile): boolean {
   return worldKey(a.params) === worldKey(b.params) && (a.title ?? '') === (b.title ?? '') && JSON.stringify(a.edits) === JSON.stringify(b.edits) && sameOrigin(a.origin, b.origin);
@@ -965,7 +1014,7 @@ export function refreshThumb() {
 
 function metaOf(c: Current, opened?: string): Meta {
   const m = readMeta(c.id);
-  return { draft: c.kind === 'draft', opened: opened ?? m.opened, alive: c.alive ?? m.alive, base: c.kind === 'draft' ? c.base : undefined };
+  return { draft: c.kind === 'draft', opened: opened ?? m.opened, alive: c.alive ?? m.alive, base: c.kind === 'draft' ? c.base : undefined, from: m.from };
 }
 
 /** 把当前世界存下来(修改没变就不存;force = 起名、换了投影、刚创建……) */

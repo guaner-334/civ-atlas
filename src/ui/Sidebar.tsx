@@ -7,7 +7,9 @@
  *          搜索框里有字:搜索结果(点一条 = 选中它,地图飞过去)
  *          地图上选中了东西:它的详情(Inspector:国家 / 城 / 地理实体 / 州的面板);打开了地形大事:它的卡片(UpheavalPanel.tsx)
  *          什么都没选:整个世界(WorldHome:信仰(只在信仰图层)、国家按大小排、民族按大小排、最近大事、我的干预(干预和地形大事)、
- *          这颗星球(回放世界形成、地形大事、在这张地图上打造新文明、世界设定;从别人的分享另存来的,最后一行是底稿出处,点了在新标签页打开那个分享链接))
+ *          这颗星球(从这里演绎(逐年推演,从时间轴停的这一年起)、回放世界形成、地形大事、在这张地图上打造新文明、世界设定;
+ *          从别人的分享另存来的,最后一行是底稿出处,点了在新标签页打开那个分享链接))。
+ *          在逐年推演里:副标写"逐年推演,从某某年起演绎","这颗星球"换成"这个故事"(推进设置、存回推演模式,见 Stepwise.tsx)
  * 收起:卡片右上角的侧栏图标 → 卡片往左滑走,左上角留一个小按钮(侧栏图标 + 世界名),点它滑回来;记在浏览器里(sideStore.ts)。
  *       收起时选中了东西,卡片弹出来显示它,取消选中又收回去;收起时搜索框跟着卡片一起收起。
  * 新建世界是另一套界面(studio/Studio.tsx),不用侧栏。
@@ -27,6 +29,9 @@ import { getCivTime, pickChronicleEntry, setResourceView, setSelection, subscrib
 import { eraRows, resourceRows } from './devRows';
 import { useEdits } from './editsStore';
 import { eraLabel, spaced, yearAt, yearFull, yearShort, type Era } from '../gen/era';
+import { playFromOf } from '../gen/edits';
+import { openStepDialog, useStepwiseOn } from './stepwiseStore';
+import { StepSideGroup } from './Stepwise';
 import { openUpheaval, useUpUi } from './upheavalStore';
 import { currentWorld, listWorlds, useSavesVersion } from './saveStore';
 import { mapMates } from './mapGroups';
@@ -226,15 +231,22 @@ export function BackHome({ onClick }: { onClick: () => void }) {
 }
 
 /** 世界名、副标("种子 7,现存 14 国,干预了 2 处") */
-export function useWorldInfo(civ: Civ | null, data: SidebarProps['data']): { title: string; sub: string } {
+export function useWorldInfo(civ: Civ | null, data: SidebarProps['data']): { title: string; sub: string; step: boolean } {
   useSavesVersion();
   const edits = useEdits();
   const year = useYear(civ);
+  const step = useStepwiseOn();
   const alive = civ && civ.viable ? civ.polities.filter((x) => polityAlive(x, year)).length : 0;
   const n = edits.interventions.length;
   const seed = data ? data.world.params.seed : null;
-  const sub = seed === null ? '正在生成' : `种子 ${seed}，${civ ? (civ.viable ? `现存 ${alive} 国` : '没有文明') : '正在推演历史'}${n ? `，干预了 ${n} 处` : ''}`;
-  return { title: currentWorld()?.title || '未命名世界', sub };
+  // 逐年推演:"逐年推演，从 2650 年起演绎"
+  const sub =
+    seed === null
+      ? '正在生成'
+      : step
+        ? `逐年推演，从${spaced(yearAt(playFromOf(edits), edits.era))}起演绎`
+        : `种子 ${seed}，${civ ? (civ.viable ? `现存 ${alive} 国` : '没有文明') : '正在推演历史'}${n ? `，干预了 ${n} 处` : ''}`;
+  return { title: currentWorld()?.title || '未命名世界', sub, step };
 }
 
 /** "更多"菜单:写成史书(「使用 AI 功能」关着时没有)、AI 设置、键盘快捷键(有鼠标时)、问题记录、源代码和两份协议;最底下一行版本号 */
@@ -458,6 +470,8 @@ export function WorldHome(p: Pick<SidebarProps, 'civ' | 'data' | 'params' | 'gen
   const nUp = edits.upheavals?.length ?? 0;
   const nIv = edits.interventions.length + nUp;
   const nTerrain = edits.terrain.length;
+  // 逐年推演:「这颗星球」换成「这个故事」(推进设置、存回推演模式);干预都在「下一步生效的干预」单子里
+  const step = useStepwiseOn();
   // 底稿出处:另存进"我的世界"以后才有(打开别人的分享、还只是看看时不显示;地图下的说明讲了是谁的)
   useSavesVersion();
   const cur = currentWorld();
@@ -616,7 +630,7 @@ export function WorldHome(p: Pick<SidebarProps, 'civ' | 'data' | 'params' | 'gen
           </div>
         </section>
       )}
-      {nIv > 0 && (
+      {nIv > 0 && !step && (
         <section className="sb-sec">
           <div className="sb-group">
             <button className="sb-row" data-act="interventions" onClick={() => openOverview('interventions')}>
@@ -628,64 +642,84 @@ export function WorldHome(p: Pick<SidebarProps, 'civ' | 'data' | 'params' | 'gen
           </div>
         </section>
       )}
-      <section className="sb-sec">
-        <div className="sb-sec-head">
-          <span>这颗星球</span>
-        </div>
-        <div className="sb-group">
-          <button className="sb-row" data-act="replay" disabled={!p.data || p.generating || p.replay.on} onClick={p.onReplay}>
-            <Icon name="replay" size={17} className="sb-ico" />
-            <span className="sb-row-main">
-              <b>{p.replay.on ? (p.replay.ready ? '正在回放' : '正在准备回放') : '回放世界形成'}</b>
-            </span>
-            <Icon name="chevron" size={14} className="sb-chev" />
-          </button>
-          {ok && (
-            <button className="sb-row" data-act="upheaval" disabled={!p.data || p.generating || p.replay.on} onClick={openUpheaval} title="选一年让火山喷发、地震抬升、海水漫进来">
-              <Icon name="terrain" size={17} className="sb-ico" />
+      {step ? (
+        <StepSideGroup />
+      ) : (
+        <section className="sb-sec">
+          <div className="sb-sec-head">
+            <span>这颗星球</span>
+          </div>
+          <div className="sb-group">
+            {ok && (
+              <button
+                className="sb-row"
+                data-act="step-from"
+                disabled={!p.data || p.generating || p.replay.on}
+                onClick={() => openStepDialog({ kind: 'start', year })}
+                title="从时间轴现在停的这一年起，世界一步一步自己往下推"
+              >
+                <Icon name="book" size={17} className="sb-ico" />
+                <span className="sb-row-main">
+                  <b>从这里演绎</b>
+                </span>
+                <span className="sb-row-side">{yearFull(year, era)}</span>
+                <Icon name="chevron" size={14} className="sb-chev" />
+              </button>
+            )}
+            <button className="sb-row" data-act="replay" disabled={!p.data || p.generating || p.replay.on} onClick={p.onReplay}>
+              <Icon name="replay" size={17} className="sb-ico" />
               <span className="sb-row-main">
-                <b>地形大事</b>
+                <b>{p.replay.on ? (p.replay.ready ? '正在回放' : '正在准备回放') : '回放世界形成'}</b>
               </span>
-              <span className="sb-row-side">{nUp ? `${nUp} 件` : '还没有'}</span>
               <Icon name="chevron" size={14} className="sb-chev" />
             </button>
-          )}
-          {!!mates && (
-            <button className="sb-row" data-act="side-new-civ" disabled={p.generating || p.replay.on} onClick={() => curId && startNewCiv(curId)} title="用这张地图一开始的样子，换一个文明种子从第 0 年推演">
-              <Icon name="map" size={17} className="sb-ico" />
+            {ok && (
+              <button className="sb-row" data-act="upheaval" disabled={!p.data || p.generating || p.replay.on} onClick={openUpheaval} title="选一年让火山喷发、地震抬升、海水漫进来">
+                <Icon name="terrain" size={17} className="sb-ico" />
+                <span className="sb-row-main">
+                  <b>地形大事</b>
+                </span>
+                <span className="sb-row-side">{nUp ? `${nUp} 件` : '还没有'}</span>
+                <Icon name="chevron" size={14} className="sb-chev" />
+              </button>
+            )}
+            {!!mates && (
+              <button className="sb-row" data-act="side-new-civ" disabled={p.generating || p.replay.on} onClick={() => curId && startNewCiv(curId)} title="用这张地图一开始的样子，换一个文明种子从第 0 年推演">
+                <Icon name="map" size={17} className="sb-ico" />
+                <span className="sb-row-main">
+                  <b>在这张地图上打造新文明</b>
+                </span>
+                <span className="sb-row-side">已有 {mates} 个</span>
+                <Icon name="chevron" size={14} className="sb-chev" />
+              </button>
+            )}
+            <button className="sb-row" data-act="genesis" onClick={() => openOverview('genesis')} title="创建时定下的种子、参数、地形，还有纪年">
+              <Icon name="lock" size={17} className="sb-ico" />
               <span className="sb-row-main">
-                <b>在这张地图上打造新文明</b>
+                <b>世界设定</b>
               </span>
-              <span className="sb-row-side">已有 {mates} 个</span>
+              <span className="sb-row-side">
+                种子 {p.params.seed}
+                {nTerrain ? `，地形改过 ${nTerrain} 处` : ''}
+                {era ? `，${eraLabel(era)}` : ''}
+              </span>
               <Icon name="chevron" size={14} className="sb-chev" />
             </button>
-          )}
-          <button className="sb-row" data-act="genesis" onClick={() => openOverview('genesis')} title="创建时定下的种子、参数、地形，还有纪年">
-            <Icon name="lock" size={17} className="sb-ico" />
-            <span className="sb-row-main">
-              <b>世界设定</b>
-            </span>
-            <span className="sb-row-side">
-              种子 {p.params.seed}
-              {nTerrain ? `，地形改过 ${nTerrain} 处` : ''}
-              {era ? `，${eraLabel(era)}` : ''}
-            </span>
-            <Icon name="chevron" size={14} className="sb-chev" />
-          </button>
-          {origin && (
-            <a className="sb-row" data-act="origin" href={origin.url} target="_blank" rel="noreferrer noopener" title="打开底稿的分享链接">
-              <Icon name="link" size={17} className="sb-ico" />
-              <span className="sb-row-main">
-                <b>底稿来自</b>
-              </span>
-              <span className="sb-row-side sb-origin">
-                {origin.by ? `${origin.by}的` : ''}「{origin.title || '未命名世界'}」
-              </span>
-              <Icon name="chevron" size={14} className="sb-chev" />
-            </a>
-          )}
-        </div>
-      </section>
+            {origin && (
+              <a className="sb-row" data-act="origin" href={origin.url} target="_blank" rel="noreferrer noopener" title="打开底稿的分享链接">
+                <Icon name="link" size={17} className="sb-ico" />
+                <span className="sb-row-main">
+                  <b>底稿来自</b>
+                </span>
+                <span className="sb-row-side sb-origin">
+                  {origin.by ? `${origin.by}的` : ''}「{origin.title || '未命名世界'}」
+                </span>
+                <Icon name="chevron" size={14} className="sb-chev" />
+              </a>
+            )}
+          </div>
+        </section>
+      )}
     </div>
   );
 }

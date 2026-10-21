@@ -26,6 +26,9 @@ import { faithAt } from '../gen/civ/religion';
 import { cleanName, cultureKey, polityKey, regionKey, type Intervention } from '../gen/edits';
 import { useEdits } from './editsStore';
 import { queueIntervention } from './pendingStore';
+import { nextYear, useStepwise } from './stepwiseStore';
+import { StepEffectTime } from './Stepwise';
+import { useNarrow } from './device';
 import { habitatScore, habitatWord } from './civDescribe';
 import { MineList, getPolityPick, interventionText, nameAt, regionOrders, setPolityPick } from './Interventions';
 import { NameEdit } from './NameEdit';
@@ -266,8 +269,15 @@ function RegionOrder({ civ, id, year, page, back }: { civ: Civ; id: number; year
   const [msg, setMsg] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [forever, setForever] = useState(false);
-  const yi = useYearInput(year, 0, Math.max(0, civ.endYear - 1), () => setMsg(null));
-  const { y, valid, era } = yi;
+  const yi = useYearInput(year, 0, Math.max(0, Math.ceil(civ.endYear) - 1), () => setMsg(null));
+  const { era } = yi;
+  // 逐年推演:只在"现在"干预,生效年份固定是下一步开始的那一年;这州那时归谁按"现在"看
+  const sw = useStepwise();
+  const step = sw.on;
+  const phone = useNarrow();
+  const y = step ? nextYear(sw) : yi.y;
+  const valid = step || yi.valid;
+  const yv = step ? Math.min(y, civ.endYear) : y;
   // 离开这一页(返回、选了别的东西):在地图上选到一半的收起
   useEffect(
     () => () => {
@@ -279,12 +289,12 @@ function RegionOrder({ civ, id, year, page, back }: { civ: Civ; id: number; year
   const at = useMemo(() => {
     const size = new Map<number, number>();
     const near = new Set<number>();
-    const o = ownersAt(civ, y);
+    const o = ownersAt(civ, yv);
     const reg = civ.regions;
     for (let r = 0; r < reg.count; r++) if (o.polity[r] >= 0) size.set(o.polity[r], (size.get(o.polity[r]) ?? 0) + 1);
     for (let k = reg.adjStart[id]; k < reg.adjStart[id + 1]; k++) if (o.polity[reg.adj[k]] >= 0) near.add(o.polity[reg.adj[k]]);
     return { owner: o.polity[id], peopled: o.culture[id] >= 0, size, near };
-  }, [civ, id, y]);
+  }, [civ, id, yv]);
   const others = useMemo(() => civ.polities.filter((q) => q.id !== at.owner && polityAlive(q, y) && (at.size.get(q.id) ?? 0) > 0).map((q) => q.id), [civ, y, at]);
   const R = regionLabel(civ, id);
   const O = at.owner >= 0 ? civ.polities[at.owner] : undefined;
@@ -293,13 +303,13 @@ function RegionOrder({ civ, id, year, page, back }: { civ: Civ; id: number; year
     ? ''
     : (at.size.get(O.id) ?? 0) <= 1
       ? `,${nameAt(O, y)}只有这一州,会就此亡国`
-      : civ.settlements[capitalAt(O, y)]?.region === id
+      : civ.settlements[capitalAt(O, yv)]?.region === id
         ? `,这里是${nameAt(O, y)}的国都,它会迁都`
         : '';
   // 没人住的州:住得了人的也能立国(一支新的民族来这里落脚),住不了人的立不了
   const livable = civ.habitat.suitability[civ.regions.seat[id]] >= HABITABLE_SUIT;
   const why = !valid
-    ? `生效年份要在${spaced(yearSpanAt(0, Math.max(0, civ.endYear - 1), era))}之间`
+    ? `生效年份要在${spaced(yearSpanAt(0, Math.max(0, Math.ceil(civ.endYear) - 1), era))}之间`
     : !at.peopled && (page !== 'found' || !livable)
       ? page === 'found'
         ? `这里是${BIOMES[civ.regions.biome[id]]?.name ?? '荒地'}，住不了人，立不了国`
@@ -328,7 +338,7 @@ function RegionOrder({ civ, id, year, page, back }: { civ: Civ; id: number; year
   const pick = () => {
     setMsg(null);
     // 地图停在生效那一年:看到的国界、可选的国家和干预用的是同一年
-    jumpTo(y);
+    jumpTo(step ? Math.min(y, sw.now) : y);
     setPolityPick({
       prompt: `选择${R}要划给的国家`,
       sub: `${yearAt(y, era)}起生效`,
@@ -344,7 +354,7 @@ function RegionOrder({ civ, id, year, page, back }: { civ: Civ; id: number; year
   return (
     <>
       <div className="cp-body">
-        <YearStepper yi={yi} />
+        {step ? <StepEffectTime phone={phone} /> : <YearStepper yi={yi} />}
         <div className="cp-form">
           <span className="cp-form-title">{page === 'found' ? '在这里立国' : '划给…'}</span>
           {page === 'found' ? (

@@ -9,12 +9,19 @@
  * 不可用的命令变淡,说明换成原因。下的令先进待推演的单子(pendingStore.ts,单子在时间轴上面,PendingTray.tsx),已经在单子里的变淡、写"已在待推演里";
  * 单子里有令时底部多一个「全部推演(N 条)」。推演时面板先藏起,顶部提示条"正在重新推演 X–3000 年",推完"有鹰王朝禁止扩张,已从 X 年起重新推演"带撤销,
  * 面板回到信息页,从 X 年接着放(App.tsx、TargetPlates.tsx)。命令的数据和推演沿用 editsStore / gen/edits 的干预。
+ *
+ * 逐年推演(Stepwise.tsx):只在"现在"干预 —— 生效年份换成"第 N 年年初(下一步)"一块,不能加减;按钮写「加入」,
+ * 加的进「下一步生效的干预」(同一个单子),下一步开始时一起生效,没有「全部推演」;单子里有的写"已在下一步生效的干预里"。
+ * 手机底部多一行"已加几条干预"(点开看每一条,能删)和「接着演绎」。
  */
 import { useMemo, useState } from 'react';
 import type { Civ } from '../gen/civ/types';
 import { capitalAt, polityAlive, populationAt } from '../gen/civ/growth';
 import { ownersAt, type Owners } from '../gen/civ/timeline';
-import { polityKey, settlementKey, type Intervention, type InterventionKind } from '../gen/edits';
+import { END_YEAR_MAX, cleanPlay, playInterventions, polityKey, settlementKey, type Intervention, type InterventionKind } from '../gen/edits';
+import { useNarrow } from './device';
+import { nextYear, useStepwise } from './stepwiseStore';
+import { STEP_QUEUED, StepCommandFoot, StepEffectTime } from './Stepwise';
 import { useEdits } from './editsStore';
 import { cityStands, defaultYear, interventionText, nameAt, neighborsAt, polityOrders, setPolityPick, type PolityPick } from './Interventions';
 import { setPanelTab } from './panelStore';
@@ -39,32 +46,42 @@ const CMDS: { k: Cmd; name: string; desc: string; pick: boolean }[] = [
 export function CommandPage({ civ, id, year }: { civ: Civ; id: number; year: number }) {
   const edits = useEdits();
   const pending = usePending();
+  const phone = useNarrow();
+  // 逐年推演:只在"现在"干预,生效年份固定是下一步开始的那一年(不能加减),下的令进「下一步生效的干预」
+  const sw = useStepwise();
+  const step = sw.on;
   const p = civ.polities[id];
   const key = polityKey(civ, id);
-  // 生效年份的范围:立国那年 … 亡国前一年(至多结束年份前一年)
+  // 生效年份的范围:立国那年 … 亡国前一年(至多结束年份前一年;逐年推演的历史停在某一年年初之前,结束年份不是整数,按整年算)
   const lo = Math.ceil(p.founded);
-  const hi = Math.max(lo, Math.min(civ.endYear - 1, p.ended !== undefined ? Math.ceil(p.ended) - 1 : civ.endYear - 1));
+  const last = Math.ceil(civ.endYear) - 1;
+  const hi = Math.max(lo, Math.min(last, p.ended !== undefined ? Math.ceil(p.ended) - 1 : last));
   const [msg, setMsg] = useState<string | null>(null);
   const yi = useYearInput(defaultYear(p, year), lo, hi, () => setMsg(null));
-  const { y, valid, era } = yi;
-  // 持续到:一直有效 / 到某一年(截止那年不含,所以至少是生效年份的下一年)
+  const { era } = yi;
+  const y = step ? nextYear(sw) : yi.y;
+  const valid = step || yi.valid;
+  /** 看国土、邻国、城用哪一年(逐年推演的下一步还没算出来:按"现在"看) */
+  const yv = step ? Math.min(y, civ.endYear) : y;
+  // 持续到:一直有效 / 到某一年(截止那年不含,所以至少是生效年份的下一年;逐年推演里没有上限)
   const [limited, setLimited] = useState(false);
-  const ui = useYearInput(y + 100, Math.min(y + 1, civ.endYear), civ.endYear, () => setMsg(null));
+  const ui = useYearInput(y + 100, step ? y + 1 : Math.min(y + 1, civ.endYear), step ? END_YEAR_MAX : civ.endYear, () => setMsg(null));
   const timed = (k: Cmd) => k === 'protect' || k === 'halt' || k === 'ally';
   const until = limited ? { until: ui.y } : {};
 
   const alive = polityAlive(p, y);
-  const { size, near } = useMemo(() => neighborsAt(civ, id, y), [civ, id, y]);
+  const { size, near } = useMemo(() => neighborsAt(civ, id, yv), [civ, id, yv]);
   const others = useMemo(() => civ.polities.filter((q) => q.id !== id && polityAlive(q, y) && (size.get(q.id) ?? 0) > 0).map((q) => q.id), [civ, id, y, size]);
   // 迁都的候选:那一年本国国土里还在的、不是国都的城
   const cities = useMemo(() => {
     if (!alive) return [];
-    owners = ownersAt(civ, y, owners);
+    owners = ownersAt(civ, yv, owners);
     const own = owners.polity;
-    const cap = capitalAt(p, y);
-    return civ.settlements.filter((s) => s.id !== cap && own[s.region] === id && cityStands(civ, s.id, y) && populationAt(s, y) > 0).map((s) => s.id);
-  }, [civ, id, p, y, alive]);
-  const orders = polityOrders(civ, id, edits.interventions);
+    const cap = capitalAt(p, yv);
+    return civ.settlements.filter((s) => s.id !== cap && own[s.region] === id && cityStands(civ, s.id, yv) && populationAt(s, yv) > 0).map((s) => s.id);
+  }, [civ, id, p, yv, alive]);
+  // 逐年推演里一路下过的干预也算(和作者的干预接在一起推,civ.interventions 也是这样排的)
+  const orders = polityOrders(civ, id, step ? playInterventions(edits.interventions, cleanPlay(edits.play)) : edits.interventions);
   // 下过同一种命令(有截止年份的,到期以后可以再下)
   const has = (kind: InterventionKind) =>
     orders.some(({ v }) => v.kind === kind && v.kind !== 'found' && v.a === key && !('until' in v && v.until !== undefined && y >= v.until));
@@ -80,7 +97,7 @@ export function CommandPage({ civ, id, year }: { civ: Civ; id: number; year: num
     if (!alive) return y < p.founded ? `${yearAt(y, era)}还没立国` : `${yearAt(y, era)}已亡`;
     if (timed(k) && limited && !ui.valid) return `持续到的年份要在${spaced(yearSpanAt(ui.lo, ui.hi, era))}之间`;
     if ((k === 'protect' || k === 'unity' || k === 'halt') && has(k)) return '已经下过这条命令';
-    if ((k === 'protect' || k === 'unity' || k === 'halt') && queued(k)) return '已在待推演里';
+    if ((k === 'protect' || k === 'unity' || k === 'halt') && queued(k)) return step ? STEP_QUEUED : '已在待推演里';
     if (k === 'ally' && !others.length) return '该年没有别的国家';
     if (k === 'declare' && !near.size) return '该年没有相邻的国家';
     if (k === 'move' && !cities.length) return '该年本国没有别的城市';
@@ -137,15 +154,15 @@ export function CommandPage({ civ, id, year }: { civ: Civ; id: number; year: num
         },
       };
     }
-    // 地图停在生效那一年:看到的国界、可选的对象和命令用的是同一年
-    setCivTime({ year: y, playing: false, scrubbing: false, story: false });
+    // 地图停在生效那一年:看到的国界、可选的对象和命令用的是同一年(逐年推演:停在"现在")
+    setCivTime({ year: step ? Math.min(y, sw.now) : y, playing: false, scrubbing: false, story: false });
     setPolityPick(pk);
   };
 
   return (
     <>
       <div className="cp-body">
-        <YearStepper yi={yi} then={valid && alive && name !== shown ? `${yearAt(y, era)}时它叫${name}。` : undefined} />
+        {step ? <StepEffectTime phone={phone} /> : <YearStepper yi={yi} then={valid && alive && name !== shown ? `${yearAt(y, era)}时它叫${name}。` : undefined} />}
         <div className="cp-from cp-until">
           <div className="cp-until-head">
             <span className="cp-k">持续到</span>
@@ -185,13 +202,25 @@ export function CommandPage({ civ, id, year }: { civ: Civ; id: number; year: num
                   <span className="cp-cmd-name">{c.name}</span>
                   <span className="cp-cmd-desc">{off ?? c.desc}</span>
                 </span>
-                {!off && <span className="cp-cmd-go">{c.pick ? '选择对象 ›' : '加入待推演'}</span>}
+                {!off && <span className="cp-cmd-go">{c.pick ? '选择对象 ›' : step ? '加入' : '加入待推演'}</span>}
               </button>
             );
           })}
         </div>
         {msg && <div className="cp-msg">{msg}</div>}
       </div>
+      {step ? (
+        // 逐年推演:没有「全部推演」,单子里的到下一步自己生效。手机底部写已加几条,能「接着演绎」
+        phone ? (
+          <StepCommandFoot onBack={() => setPanelTab('info')} />
+        ) : (
+          <div className="cp-foot">
+            <button className="cp-btn wide" data-act="back" onClick={() => setPanelTab('info')}>
+              返回
+            </button>
+          </div>
+        )
+      ) : (
       <div className={`cp-foot${pending.length ? ' cp-grid2' : ''}`}>
         <button className={`cp-btn${pending.length ? '' : ' wide'}`} data-act="back" onClick={() => setPanelTab('info')}>
           返回
@@ -202,6 +231,7 @@ export function CommandPage({ civ, id, year }: { civ: Civ; id: number; year: num
           </button>
         )}
       </div>
+      )}
     </>
   );
 }
