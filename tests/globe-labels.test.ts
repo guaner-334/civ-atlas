@@ -5,11 +5,14 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { rasterize, type Raster } from '../src/gen/raster';
 import { generateCiv, type Civ } from '../src/gen/civ';
-import { civLabelItems, civMapLayer, labelSurface } from '../src/render/civ/labels';
+import { civLabelItems, civMapLayer, labelSurface, placeLabelItems } from '../src/render/civ/labels';
 import { CIV_SHOW_DEFAULT, type CivDrawParams } from '../src/render/civ/overlay';
 import { placeMap, placedMarkBox, pathToCanvas } from '../src/render/labels/draw';
 import { Polyline, glyphBox } from '../src/render/labels/layout';
 import { GLYPH_MIN_D, MARK_MIN_D, globeLabelView, globeToCanvas, isQuickLabel, overviewFloor, visibleMarks } from '../src/render/globeLabels';
+import { LEFT_W, RIGHT_W, TILT, fitPose } from '../src/ui/studio/layout';
+import { planetGlobeLabelView } from '../src/ui/studio/planetLabels';
+import type { StillPose } from '../src/ui/studio/scene';
 
 let world: World;
 let raster: Raster;
@@ -214,4 +217,56 @@ describe('地球仪文字:手机上球小', () => {
       }
     });
   }
+});
+
+describe('新建界面的星球:手机上球小', () => {
+  // 手机竖屏 390 × 844,底部卡片让出 244:星球半径 = 宽 × 0.42,等效缩放不到 1 倍。电脑 1600 × 900,两边面板让出 LEFT_W、RIGHT_W
+  const PW = 390;
+  const PH = 844;
+  const pose = (lon: number, phone: boolean): StillPose => {
+    const box = phone ? { x: 0, y: 0, w: PW, h: PH - 244 } : { x: LEFT_W, y: 0, w: 1600 - LEFT_W - RIGHT_W, h: 900 };
+    const f = fitPose('globe', box, { phone });
+    return { proj: 'globe', lon: lon * D, lat: TILT, k: f.k, cx: f.cx, cy: f.cy, w: phone ? PW : 1600, h: phone ? PH : 900 };
+  };
+  /** 不托底的视图(原来的排法) */
+  const raw = (p: StillPose) =>
+    globeLabelView({ view: { lon: p.lon, lat: p.lat, k: 1 }, w: p.w, h: p.h, dpr: DPR, worldW: world.width, worldH: world.height, surface: labelSurface(world, raster, 1), frame: { cx: p.cx, cy: p.cy, R: p.k } });
+
+  for (const lon of [0, 115, -60]) {
+    it(`正中经度 ${lon}:手机上有地名、不重叠(不托底时一个都没有),字号不比电脑上的大`, () => {
+      const surf = labelSurface(world, raster, 1);
+      const items = placeLabelItems(civ.places, 'realistic');
+      const p = pose(lon, true);
+      const r = raw(p);
+      expect(r.k).toBeLessThan(0.92);
+      expect(placeMap(items, [], r).labels.length).toBe(0);
+      const lv = planetGlobeLabelView(p, DPR, world.width, world.height, surf);
+      expect(lv.k).toBe(1);
+      expect(lv.mapCss).toBeCloseTo(r.mapCss * r.k, 9);
+      const placed = placeMap(items, [], lv);
+      expect(placed.labels.length).toBeGreaterThan(3);
+      const boxes: { text: string; b: number[] }[] = [];
+      for (const l of placed.labels) for (const g of l.glyphs) boxes.push({ text: l.item.text, b: glyphBox(g, l.px, 0) });
+      for (let i = 0; i < boxes.length; i++)
+        for (let j = i + 1; j < boxes.length; j++)
+          if (boxes[i].text !== boxes[j].text) expect(overlap(boxes[i].b, boxes[j].b), `${boxes[i].text} × ${boxes[j].text}`).toBe(false);
+      // 字号:同一条在电脑上(大球)排出来的不比这里小
+      const desk = planetGlobeLabelView(pose(lon, false), DPR, world.width, world.height, surf);
+      const deskPx = new Map(placeMap(items, [], desk).labels.map((l) => [l.item.text, l.px]));
+      for (const l of placed.labels) {
+        const d = deskPx.get(l.item.text);
+        if (d !== undefined) expect(l.px, l.item.text).toBeLessThanOrEqual(d + 1e-6);
+      }
+    });
+  }
+
+  it('电脑上星球大(等效缩放 ≥ 1 倍):和原来一样排', () => {
+    const p = pose(115, false);
+    const r = raw(p);
+    expect(r.k).toBeGreaterThan(1);
+    const lv = planetGlobeLabelView(p, DPR, world.width, world.height, r.surface);
+    expect(lv.k).toBe(r.k);
+    expect(lv.mapCss).toBe(r.mapCss);
+    expect(lv.globe).toEqual(r.globe);
+  });
 });
