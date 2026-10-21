@@ -159,6 +159,17 @@ export function globeLabelView(o: GlobeLabelInput): GlobeLabelView {
   };
 }
 
+/**
+ * 球小到等效缩放不到 1 倍时(手机上:半径 = 舞台短边 × GLOBE_FILL,390 宽的屏幕上等效缩放只有 0.8 左右),
+ * 和平面主图一样按"缩放 1 倍、地图显示得窄一些"来排:全图就有的地名、城镇符号照样出现(不然门槛一个都过不去),
+ * 字号、符号大小跟着显示宽度缩小(和主图同一个算法,最小字号照旧托底;国名按世界单位定字号,正好和球上的国土一样大)。
+ * 等效缩放 ≥ 1 时原样返回
+ */
+export function overviewFloor(lv: GlobeLabelView): GlobeLabelView {
+  if (!(lv.k < 1)) return lv;
+  return { ...lv, k: 1, mapCss: lv.mapCss * lv.k };
+}
+
 /** 每个字的不透明度:靠近球边缘(视线擦着球面)的淡出 */
 export function globeGlyphAlpha(lv: GlobeLabelView): (g: Glyph) => number {
   const g0 = lv.globe;

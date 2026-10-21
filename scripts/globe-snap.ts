@@ -7,6 +7,7 @@
  *   --cpu:用 CPU 画法(没有 WebGL2 时的退路)
  *   --sel=名字:每个视图先选中球上写着这个名字的东西(国家、城、山河……),看选中的描边
  *   --panel:和 --sel 一起用:详情面板留着、截整页(看面板打开时球心左移)
+ *   --device=390x844:按手机截(这么大的视口、触屏、两倍像素密度;手机布局)
  *   --gpu:用本机显卡(macOS 上走 Metal);默认是无头浏览器的软件渲染(SwiftShader),慢很多
  *   --bench:每个视图再量转动时每帧耗时(等显卡画完):"停着"= 每帧都排全部文字(最慢),"拖着"= 只排大字(真拖动时就是这样);
  *           overlay = 球上面那层(矢量线 + 文字)的耗时,place = 其中排文字,verts = 矢量线描了多少个点(中位数)
@@ -20,12 +21,15 @@ const flags = new Set(process.argv.slice(2).filter((a) => a.startsWith('--')));
 const query = `${args[0] ?? 'seed=7'}&view=globe${flags.has('--cpu') ? '&globe=cpu' : ''}`;
 const out = args[1] ?? 'snaps/globe.png';
 const views = args.slice(2).map((s) => s.split(',').map(Number));
+const device = /^--device=(\d+)x(\d+)$/.exec([...flags].find((f) => f.startsWith('--device=')) ?? '');
 
 const dev = await startDevServer();
 const browser = await chromium.launch({
   args: flags.has('--gpu') ? ['--use-angle=metal', '--enable-gpu', '--ignore-gpu-blocklist'] : ['--enable-unsafe-swiftshader'],
 });
-const page = await browser.newPage({ viewport: { width: 1500, height: 900 }, deviceScaleFactor: 2 });
+const page = device
+  ? await browser.newPage({ viewport: { width: Number(device[1]), height: Number(device[2]) }, deviceScaleFactor: 2, isMobile: true, hasTouch: true })
+  : await browser.newPage({ viewport: { width: 1500, height: 900 }, deviceScaleFactor: 2 });
 const logs: string[] = [];
 page.on('console', (m) => (m.type() === 'error' || m.type() === 'warning') && logs.push(`[${m.type()}] ${m.text()}`));
 page.on('pageerror', (e) => logs.push(`[pageerror] ${e.message}`));
