@@ -425,6 +425,7 @@
 .sw-note-acts .sw-big {
   flex: 1;
   height: 40px;
+  white-space: nowrap;
 }
 .sw-note-acts .sw-big.pri {
   flex: 1.5;

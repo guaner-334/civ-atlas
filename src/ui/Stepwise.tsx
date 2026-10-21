@@ -991,7 +991,7 @@ function DownNote() {
       </div>
       <div className="sw-note-acts">
         <button className="sw-big" data-act="step-sheet-up" onClick={() => setStepDown(false)}>
-          {stopTitle(st, era)}
+          这一段的大事
         </button>
         {st.why !== 'end' && (
           <button className="sw-big pri" data-act="step-go" onClick={continueStepwise}>
