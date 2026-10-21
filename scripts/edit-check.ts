@@ -10,8 +10,9 @@
  *   --proj=robinson                                   测速时换成弯边投影
  *   --no-check                                       不比像素(量改之前的版本时用:那一版没有比像素要用的调试字段)
  *   npx tsx scripts/edit-check.ts --node [--cells=…]  不开浏览器,在 Node 里一段一段量(见 nodeTimes)
- *   npx tsx scripts/edit-check.ts --thumbs           右边样式缩略图:种子 7,实景 + 地形样式各涂 5 笔(第一笔不算),量地图换上以后
+ *   npx tsx scripts/edit-check.ts --thumbs           右边样式缩略图:种子 7,手绘、经典卫星、细节卫星各涂 5 笔(第一笔不算),量地图换上以后
  *                                                    主线程一口气最长占住多久(Long Task)、缩略图全部换成新地形用了多久,打印中位数
+ *                                                    (存档缩略图、星球贴图这些涂完以后跟着做的活也算在里面)
  *   WF_URL=http://localhost:5173 npx tsx …           用现成的服务(比如另一份代码起的 dev server)
  * 自动起一个临时 dev server(随机端口)。数字只在同一台机器上前后对比有意义。
  */
