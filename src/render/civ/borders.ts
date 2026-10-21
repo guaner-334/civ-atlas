@@ -537,18 +537,20 @@ interface BandScratch {
 }
 /**
  * 草稿数组按大小留一份(整图那么大时三个加起来 20 MB):连着画(播放、拖时间轴)时接着用,不每次新开。
- * 只弱引用着:闲下来浏览器回收内存时照样收走,下次用时再开一份(新开的 stamp 全是 0,和接着用的结果一样)
+ * 闲了 BAND_IDLE_MS 没再用就放掉,下次用时再开一份(新开的 stamp 全是 0,只读本次打过记号的格子,和接着用的结果一样)
  */
-const bandScratch = new Map<number, BandScratch | WeakRef<BandScratch>>();
-const canWeak = typeof WeakRef !== 'undefined';
+const bandScratch = new Map<number, BandScratch>();
+const BAND_IDLE_MS = 5000;
+let bandIdle: ReturnType<typeof setTimeout> | undefined;
 
 function bandScratchOf(N: number): BandScratch {
-  const hit = bandScratch.get(N);
-  const sc = canWeak && hit instanceof WeakRef ? hit.deref() : (hit as BandScratch | undefined);
-  if (sc) return sc;
-  const fresh: BandScratch = { best: new Float32Array(N), lab: new Int16Array(N), stamp: new Int32Array(N), s: 0 };
-  bandScratch.set(N, canWeak ? new WeakRef(fresh) : fresh);
-  return fresh;
+  clearTimeout(bandIdle);
+  bandIdle = setTimeout(() => bandScratch.clear(), BAND_IDLE_MS);
+  // Node(单测、压力测试)里不让这个计时器拖住进程
+  (bandIdle as unknown as { unref?: () => void }).unref?.();
+  let sc = bandScratch.get(N);
+  if (!sc) bandScratch.set(N, (sc = { best: new Float32Array(N), lab: new Int16Array(N), stamp: new Int32Array(N), s: 0 }));
+  return sc;
 }
 
 /** 按原样保留(线的断头外面) */
