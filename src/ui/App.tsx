@@ -3,8 +3,8 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { createPortal, flushSync } from 'react-dom';
 import { DEFAULT_PARAMS, type World, type WorldParams } from '../gen/world';
 import type { Raster } from '../gen/raster';
-import { renderRealistic } from '../render/realistic';
-import { adoptPlan, renderFantasy } from '../render/fantasy';
+import { dropRealisticBasesExcept, renderRealistic } from '../render/realistic';
+import { adoptPlan, dropFantasyBasesExcept, renderFantasy } from '../render/fantasy';
 import { DETAIL_K } from '../render/detail';
 import { TerrainDetail } from './TerrainDetail';
 import { MapDecor } from './MapDecor';
@@ -155,7 +155,7 @@ import { multisetDiff } from '../gen/util';
 import { sameMix, type NameMix } from '../gen/names/mix';
 import { cleanFrontier, cleanOrigins, sameFrontier, sameOrigins, type Frontier, type Origins } from '../gen/civ/frontier';
 import type { RasterPatch } from '../gen/rasterPatch';
-import { cancelTerrainPatch, startTerrainPatch, type PatchStats, type PatchView, type PreProjected } from './terrainPatch';
+import { cancelTerrainPatch, patchSourceOf, startTerrainPatch, type PatchStats, type PatchView, type PreProjected } from './terrainPatch';
 import { baseReady } from './thumbPrep';
 import { baseRegions, civAtEra, dropComposed, eraData, eraIndex, eraMapsOf, eraReady, eraShown, patchKey, reuseRegions, useEraIndex, withHistory, type EraMaps } from './eras';
 import { sameSketch, type SketchEdit } from '../gen/sketch';
@@ -1258,6 +1258,10 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
             // 换了世界:各段的主图补丁都作废
             eraPatches.current.clear();
             dropComposed();
+            // 换了主图:各画风缓存里别的主图的像素层连旧主图现在就放掉,不等下次画那种画风(按块换上的留着它是从哪张改来的)
+            const keepBases = [raster, patchSourceOf(raster)?.r0];
+            dropRealisticBasesExcept(keepBases);
+            dropFantasyBasesExcept(keepBases);
             baseRef.current = { world: m.world, raster };
             baseKeyRef.current = m.baseKey;
             editedRef.current = regenRef.current?.id === m.id ? baseRef.current : null;

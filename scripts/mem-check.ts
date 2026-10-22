@@ -4,8 +4,10 @@
  *   pnpm build && npx tsx scripts/mem-check.ts               全部场景,量 dist/
  *   npx tsx scripts/mem-check.ts --dist=别的目录               量另一份构建(比如改之前的那份),和这份对比
  *   --only=new36k,edit20                                     只跑这几个场景   --out=snaps/mem.json  原始数据
+ *   --every=150                                              操作期间多少毫秒取一次(默认 300;短的峰值取得到,取样本身也占一点)
  *
- * 场景:new36k / new200k 新建世界(3.6 万 / 20 万地块);edit20 编辑地形连涂 20 笔;open 打开一个世界;play 播放时间轴 45 秒;
+ * 场景:new36k / new200k 新建世界(3.6 万 / 20 万地块);edit20 编辑地形连涂 20 笔(陆地笔,星球照草图重新长;另打每一笔里的峰值);
+ * edit20h 同上,换到「高度」页用抬高笔涂(按块重铺、按块换上);open 打开一个世界;play 播放时间轴 45 秒;
  * director 导播 45 秒;globe 地球仪开关 3 次(每次转几下);globezoom 打开地球仪放大到 2.4 倍、5 倍;export 导出地图图片 1 倍、2 倍;switch5 回我的世界新建并创建,连换 5 个世界;
  * stepui 逐年推演的界面:世界卡片里「从这里演绎」,照默认设置往下走 60 秒(停下来就点「接着演绎」);
  * stepwise50 逐年推演走 50 步(一步 20 年;只量后台线程这一头:在空白首页里另开一个生成线程,按逐年推演的请求一步步走)。
@@ -31,6 +33,8 @@ const opt = (k: string) => args.find((a) => a.startsWith(`--${k}=`))?.slice(k.le
 const DIST = path.resolve(opt('dist') ?? 'dist');
 const ONLY = opt('only')?.split(',');
 const OUT = opt('out');
+/** 操作期间多少毫秒取一次样 */
+const EVERY = Number(opt('every')) || 300;
 const MB = 1024 * 1024;
 const mb = (n: number | undefined) => (n === undefined ? '—' : (n / MB).toFixed(0));
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -223,6 +227,14 @@ interface Keys {
   canvas: number;
   renderer?: number;
   gpu?: number;
+  /** 各路分开的 JS(页面叫 main,线程按脚本名 + 序号;不算进峰值那几项) */
+  by?: Record<string, number>;
+}
+
+/** 操作期间的一次取样(t = 取样的时刻,Date.now()) */
+interface Trace {
+  t: number;
+  k: Keys;
 }
 
 interface Rig {
@@ -248,13 +260,15 @@ async function openRig(url: string): Promise<Rig> {
     const ids = [...cdp.sessions.keys()];
     const heaps = await Promise.all(ids.map((s) => cdp.heap(s)));
     const cens = await Promise.all(ids.map((s) => cdp.census(s)));
-    const k: Keys = { mainJs: 0, workers: 0, canvas: 0 };
+    const k: Keys = { mainJs: 0, workers: 0, canvas: 0, by: {} };
     ids.forEach((s, i) => {
       const h = heaps[i];
       const sz = h ? h.used + h.backing : 0;
       if (s === cdp.page) k.mainJs = sz;
       else k.workers += sz;
       k.canvas += cens[i];
+      const name = cdp.sessions.get(s);
+      if (name) k.by![name] = sz;
     });
     if (withProc) {
       const info = await cdp.send('SystemInfo.getProcessInfo');
@@ -343,13 +357,24 @@ interface Row {
   rest: Partial<Keys>;
   marks: [string, Keys][];
   note?: string;
+  /** 各路(页面、每个线程)各自的 JS 峰值 */
+  peakBy?: Record<string, number>;
+  /** 场景自己记的明细(比如连涂每一笔的峰值) */
+  detail?: unknown;
 }
 const rows: Row[] = [];
 const port = await freePort();
 const server = await preview({ build: { outDir: DIST }, preview: { port, strictPort: true, host: '127.0.0.1' }, logLevel: 'error' });
 const base = `http://127.0.0.1:${port}`;
 
-async function scenario(name: string, query: string, body: (rig: Rig, mark: (label: string) => Promise<void>) => Promise<string | void>) {
+/** 场景里能用的:mark 收一次垃圾记一下回落;trace = 操作期间的每次取样(按时间先后,场景拿来算一段时间里的峰值);detail 记进 --out */
+interface Ctx {
+  mark: (label: string) => Promise<void>;
+  trace: Trace[];
+  detail: (v: unknown) => void;
+}
+
+async function scenario(name: string, query: string, body: (rig: Rig, mark: Ctx['mark'], ctx: Ctx) => Promise<string | void>) {
   if (ONLY && !ONLY.includes(name)) return;
   const t0 = Date.now();
   let rig: Rig | null = null;
@@ -359,32 +384,46 @@ async function scenario(name: string, query: string, body: (rig: Rig, mark: (lab
   try {
     rig = await openRig(`${base}/?${query}`);
     const r = rig;
-    // 操作期间每 300 ms 取一次(每三次带上进程内存),记各项峰值
+    // 操作期间每 EVERY 毫秒(默认 300)取一次(每三次带上进程内存),记各项峰值
     const peak: Partial<Keys> = {};
+    const peakBy: Record<string, number> = {};
+    const trace: Trace[] = [];
     loop = (async () => {
       for (let n = 0; !stop; n++) {
         const t = Date.now();
         try {
           const k = await r.sample(n % 3 === 0);
-          for (const [key, v] of Object.entries(k) as [keyof Keys, number | undefined][]) if (v !== undefined) peak[key] = Math.max(peak[key] ?? 0, v);
+          trace.push({ t, k });
+          for (const [key, v] of Object.entries(k)) if (typeof v === 'number') peak[key as 'mainJs'] = Math.max(peak[key as 'mainJs'] ?? 0, v);
+          for (const [key, v] of Object.entries(k.by ?? {})) peakBy[key] = Math.max(peakBy[key] ?? 0, v);
         } catch {
           /* 页面在换 */
         }
-        await sleep(Math.max(0, 300 - (Date.now() - t)));
+        await sleep(Math.max(0, EVERY - (Date.now() - t)));
       }
     })();
     const marks: [string, Keys][] = [];
     const mark = async (label: string) => {
       const k = await settled(r);
       marks.push([label, k]);
-      console.log(`    ${name} ${label}: ${fmt(k)}`);
+      const by = Object.entries(k.by ?? {})
+        .filter(([n]) => n !== 'main')
+        .sort(([a], [b]) => (a < b ? -1 : 1))
+        .map(([n, v]) => `${n} ${mb(v)}`)
+        .join(' ');
+      console.log(`    ${name} ${label}: ${fmt(k)}${by ? `(${by})` : ''}`);
     };
-    const note = await body(rig, mark);
+    let detail: unknown;
+    const note = await body(rig, mark, { mark, trace, detail: (v) => (detail = v) });
     stop = true;
     await loop;
     const rest = await settled(rig);
-    rows.push({ name, peak, rest, marks, note: note || undefined });
-    console.log(`${name}(${((Date.now() - t0) / 1000).toFixed(0)} s)${note ? ' ' + note : ''}\n  峰值 ${fmt(peak)}\n  回落 ${fmt(rest)}`);
+    rows.push({ name, peak, rest, marks, note: note || undefined, peakBy, detail });
+    const by = Object.entries(peakBy)
+      .sort(([a], [b]) => (a < b ? -1 : 1))
+      .map(([k, v]) => `${k} ${mb(v)}`)
+      .join(' ');
+    console.log(`${name}(${((Date.now() - t0) / 1000).toFixed(0)} s)${note ? ' ' + note : ''}\n  峰值 ${fmt(peak)}\n  回落 ${fmt(rest)}\n  各路 JS 峰值 ${by}`);
   } catch (e) {
     const msg = (e as Error).message.split('\n')[0];
     console.log(`${name} 出错:${msg}`);
@@ -401,7 +440,8 @@ await scenario('new36k', 'new=1&seed=7&play=0', async (rig) => {
   await sleep(12000);
 });
 
-await scenario('edit20', 'new=1&seed=7&play=0', async (rig, mark) => {
+/** 编辑地形连涂 20 笔;height = 换到「高度」页用抬高笔涂(多半按块重铺、按块换上),不然用默认的陆地笔(星球照草图重新长,多半整张重铺) */
+const editStrokes = (name: string, height: boolean) => async (rig: Rig, mark: Ctx['mark'], ctx: Ctx) => {
   const p = rig.page;
   await ready(rig);
   await sleep(8000);
@@ -413,17 +453,39 @@ await scenario('edit20', 'new=1&seed=7&play=0', async (rig, mark) => {
   await p.locator('.tp').waitFor({ timeout: 10000 });
   await p.locator('.app.studio-flat').waitFor({ timeout: 15000 });
   await sleep(800);
+  if (height) {
+    await p.evaluate(() => (document.querySelector('[data-act=terrain-page] [data-v=height]') as HTMLElement).click());
+    await p.locator('.tp-tile.on[data-tool=lift]').waitFor({ timeout: 5000 });
+    await sleep(400);
+  }
   const box = (await p.locator('main.stage').boundingBox())!;
   const top = await p.evaluate(() => document.querySelector('.st-sheet')?.getBoundingClientRect().top ?? innerHeight);
   const y0 = box.y + 80;
   const y1 = Math.min(box.y + box.height, top) - 40;
   let done = 0;
+  let patched = 0;
   const shown: number[] = [];
+  // 每一笔里的峰值:页面主线程、所有线程加起来、各路分开;再按这一笔的几段分开(松手时刻起算,时刻取自 __wfTerrain):
+  // 生成 = 松手到线程交回来,换上 = 交回来到地图换上,之后 = 换上以后 1.5 秒
+  type Peak = { main: number; workers: number; by: Record<string, number> };
+  const peakIn = (a: number, b: number): Peak => {
+    const s: Peak = { main: 0, workers: 0, by: {} };
+    for (const { t: at, k } of ctx.trace) {
+      if (at < a || at > b) continue;
+      s.main = Math.max(s.main, k.mainJs);
+      s.workers = Math.max(s.workers, k.workers);
+      for (const [n, v] of Object.entries(k.by ?? {})) s.by[n] = Math.max(s.by[n] ?? 0, v);
+    }
+    return s;
+  };
+  const strokes: (Peak & { ms?: number; gen?: Peak; swap?: Peak; after?: Peak })[] = [];
   for (let i = 0; i < 20; i++) {
     const prev = await p.evaluate(() => (window as any).__wfTerrain?.id ?? 0);
     const y = y0 + ((y1 - y0) * ((i * 7) % 20)) / 20;
     const x = 60 + ((i * 53) % 260);
+    const ts = Date.now();
     await touchDrag(rig, line(x, y, x + 50, y + 12));
+    const up = Date.now();
     const ok = await p
       .waitForFunction((n) => ((window as any).__wfTerrain?.id ?? 0) > n, prev, { timeout: 60000 })
       .then(() => true)
@@ -432,11 +494,31 @@ await scenario('edit20', 'new=1&seed=7&play=0', async (rig, mark) => {
     await sleep(1500);
     const t = await p.evaluate(() => (window as any).__wfTerrain);
     if (ok && i > 0 && t?.shownMs !== undefined) shown.push(t.shownMs);
+    if (ok && t?.patch) patched++;
+    const te = Date.now();
+    const s = { ...peakIn(ts, te), ms: ok ? t?.shownMs : undefined };
+    if (ok && t?.gotMs !== undefined && t?.shownMs !== undefined) {
+      Object.assign(s, { gen: peakIn(ts, up + t.gotMs), swap: peakIn(up + t.gotMs, up + t.shownMs), after: peakIn(up + t.shownMs, te) });
+    }
+    strokes.push(s);
     if ((i + 1) % 5 === 0) await mark(`第 ${i + 1} 笔`);
   }
-  const med = [...shown].sort((a, b) => a - b)[Math.floor(shown.length / 2)];
-  return `换上 ${done} / 20 笔;涂完到地图换上 中位 ${med?.toFixed(0)} ms`;
-});
+  ctx.detail({ strokes });
+  const midOf = (a: number[]) => [...a].sort((p, q) => p - q)[Math.floor(a.length / 2)];
+  const rest = strokes.slice(1);
+  console.log(`    ${name} 每一笔的峰值(JS 主 / 线程,MB):${strokes.map((s) => `${mb(s.main)}/${mb(s.workers)}`).join(' ')}`);
+  console.log(`    ${name} 第 2–20 笔峰值中位:JS 主 ${mb(midOf(rest.map((s) => s.main)))} 线程 ${mb(midOf(rest.map((s) => s.workers)))}`);
+  for (const [k, label] of [['gen', '生成'], ['swap', '换上'], ['after', '之后']] as const) {
+    const ps = rest.map((s) => s[k]).filter((x): x is Peak => !!x);
+    if (!ps.length) continue;
+    const names = [...new Set(ps.flatMap((x) => Object.keys(x.by)))].sort();
+    console.log(`    ${name} ${label}那段峰值中位:JS 主 ${mb(midOf(ps.map((x) => x.main)))} 线程 ${mb(midOf(ps.map((x) => x.workers)))}(${names.map((n) => `${n} ${mb(midOf(ps.map((x) => x.by[n] ?? 0)))}`).join(' ')})`);
+  }
+  const med = midOf(shown);
+  return `换上 ${done} / 20 笔(按块换上 ${patched} 笔);涂完到地图换上 中位 ${med?.toFixed(0)} ms`;
+};
+await scenario('edit20', 'new=1&seed=7&play=0', editStrokes('edit20', false));
+await scenario('edit20h', 'new=1&seed=7&play=0', editStrokes('edit20h', true));
 
 await scenario('new200k', 'new=1&seed=7&play=0&cells=200000', async (rig) => {
   await ready(rig);

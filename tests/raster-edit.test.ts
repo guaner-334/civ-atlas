@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld, type BaseCache, type World } from '../src/gen/world';
 import { finishGully, finishVeins, gullyHeights, rasterizeDeferred, veinsOf, type Raster } from '../src/gen/raster';
 import { rasterizePatch, type RasterKeep } from '../src/gen/rasterEdit';
-import { composeRaster, exactPatch } from '../src/gen/rasterPatch';
+import { composeRaster, cutExact, exactDiff, exactDiffBefore, exactPatch } from '../src/gen/rasterPatch';
 import { boxOfCols, growBox, inBox, unionBox, type PixelBox } from '../src/gen/pixelBox';
 import type { TerrainOp } from '../src/gen/edits';
 
@@ -58,9 +58,11 @@ function landAt(w: World, lo: number, hi: number, yMin = 0, yMax = Infinity): [n
 
 /**
  * 一串笔一笔一笔加上去:每一笔都按块重铺(接着上一笔留下的整张图),和整张重铺逐位比;
- * 交给主线程的补丁(exactPatch)贴到上一张上也要逐位相同
+ * 交给主线程的补丁(exactPatch)贴到上一张上也要逐位相同。
+ * reuse = 按块重铺就地改上一张的数组(后台线程的做法):补丁照改之前记下的那块比(exactDiffBefore),
+ * 和拿改之前的整张(主线程手里那张,这里先拷一份)比出来的逐位相同
  */
-function chain(seed: number, strokes: (w: World) => TerrainOp[]) {
+function chain(seed: number, strokes: (w: World) => TerrainOp[], reuse = false) {
   const params = { ...DEFAULT_PARAMS, seed };
   const cache: BaseCache = { base: null };
   const w0 = generateWorld(params, undefined, [], null, cache);
@@ -72,11 +74,14 @@ function chain(seed: number, strokes: (w: World) => TerrainOp[]) {
   for (const op of strokes(w0)) {
     ops.push(op);
     const w = generateWorld(params, undefined, ops, null, cache);
-    const tried = rasterizePatch(w, keep);
+    const shown = reuse ? structuredClone(keep.raster) : keep.raster;
+    const tried = rasterizePatch(w, keep, undefined, reuse);
     const full = finish(rasterizeDeferred(w, 1));
     if (!tried || !('job' in tried)) {
       log.push(`${op.kind}: 整张`);
       wins.push(null);
+      // 整张铺的一个数也没改
+      if (reuse) expect(rasterDiff(keep.raster, shown), `${op.kind} 整张铺之前没动上一张`).toBe('');
       // 按块不划算:整张铺,三角形覆盖、已经算好的输入接着用,和从头整张铺逐位相同
       const d = rasterizeDeferred(w, 1, undefined, keep.inputs.cover, tried?.whole);
       keep = { raster: finish(d), inputs: d.inputs };
@@ -86,8 +91,12 @@ function chain(seed: number, strokes: (w: World) => TerrainOp[]) {
     const pj = tried;
     const got = finish(pj);
     expect(rasterDiff(got, full), `${op.kind} 按块重铺`).toBe('');
-    const patch = exactPatch(keep.raster, got, pj.win);
-    const composed = composeRaster(keep.raster, patch ? [patch] : []);
+    const patch = exactPatch(shown, got, pj.win);
+    if (reuse) {
+      const d = exactDiffBefore(pj.before!, got, pj.win);
+      expect(d && cutExact(got, d), `${op.kind} 照改之前记下的那块比出的补丁`).toEqual(patch);
+    }
+    const composed = composeRaster(shown, patch ? [patch] : []);
     expect(rasterDiff(composed, full), `${op.kind} 补丁贴上`).toBe('');
     log.push(`${op.kind}: 重铺 ${pj.win ? `${pj.win.x0},${pj.win.y0} ${pj.win.w}×${pj.win.h}` : '无'},补丁 ${patch ? `${patch.w}×${patch.h}` : '无'}`);
     wins.push(pj.win);
@@ -146,5 +155,85 @@ describe('编辑地形 · 按块重铺主图', () => {
       ];
     });
     expect(log.length, log.join(';')).toBe(4);
+  });
+
+  it('种子 2024:按块重铺就地改上一张的数组,结果和补丁跟拷一份再改的逐位相同', { timeout: 300000 }, () => {
+    const { log } = chain(
+      2024,
+      (w) => {
+        const [x, y] = landAt(w, 300, 1500);
+        return [
+          { kind: 'lift', pts: [x, y, x + 10, y], r: 30, s: 0.6 },
+          { kind: 'wet', pts: [x - 20, y], r: 30, s: 1 },
+          // 跨 180° 经线的一笔(改的那块跨过右边接回左边)
+          { kind: 'lower', pts: [2030, 500, 2070, 505], r: 25, s: 1 },
+          { kind: 'volcano', pts: [x + 60, y], r: 20, s: 1 },
+          { kind: 'cold', pts: [x, y], r: 35, s: 1 },
+        ];
+      },
+      true,
+    );
+    expect(log.length, log.join(';')).toBe(5);
+    // 大多数笔按块重铺(就地改),跨 180° 经线的那一笔也是
+    expect(log.filter((l) => l.includes('重铺')).length, log.join(';')).toBeGreaterThanOrEqual(3);
+    expect(log[2], log.join(';')).toMatch(/^lower: 重铺/);
+  });
+});
+
+describe('编辑地形 · 先比出框、再决定拷不拷补丁', () => {
+  /** 一张小主图(各字段随便填,细沟的线一条) */
+  function tiny(seed: number): Raster {
+    const w = 16;
+    const h = 8;
+    const n = w * h;
+    const f = (k: number) => Float32Array.from({ length: n }, (_, i) => ((i * 7 + k * 13 + seed) % 29) - 3);
+    const u = (k: number) => Uint8Array.from({ length: n }, (_, i) => (i * 3 + k) % 5);
+    return {
+      w,
+      h,
+      scale: 1,
+      elev: f(1),
+      temp: f(2),
+      precip: f(3),
+      water: u(1),
+      biome: u(2),
+      cell: Int32Array.from({ length: n }, (_, i) => i >> 2),
+      ice: f(4),
+      iceConc: u(3),
+      iceTone: u(4),
+      gully: f(5),
+      bank: u(5),
+      vein: u(6),
+      veinLines: { off: Int32Array.of(0, 2), x: Float32Array.of(1, 2), y: Float32Array.of(3, 4), a: Float32Array.of(5, 6) },
+      wrap: true,
+    };
+  }
+  const copy = (r: Raster): Raster => structuredClone(r);
+
+  it('exactDiff 的框和 exactPatch 一样;cutExact 拷出来的补丁和 exactPatch 逐位相同', () => {
+    const a = tiny(0);
+    const b = copy(a);
+    b.elev[2 * 16 + 15] += 1;
+    b.biome[5 * 16 + 0] ^= 1;
+    b.vein![7 * 16 + 3] ^= 2;
+    const d = exactDiff(a, b);
+    const p = exactPatch(a, b)!;
+    expect(d && d.box && { x0: d.box.x0, y0: d.box.y0, w: d.box.w, h: d.box.h }).toEqual({ x0: p.x0, y0: p.y0, w: p.w, h: p.h });
+    // 东西相连:第 15 列和第 0 列挨着,框跨过右边接回左边
+    expect(p.x0 + p.w).toBeGreaterThan(16);
+    expect(cutExact(b, d!)).toEqual(p);
+    expect(composeRaster(a, [cutExact(b, d!)]).elev).toEqual(b.elev);
+  });
+
+  it('一个像素也没变:null;只有细沟的线变了:没有框、只带线', () => {
+    const a = tiny(1);
+    expect(exactDiff(a, copy(a))).toBeNull();
+    expect(exactPatch(a, copy(a))).toBeNull();
+    const b = copy(a);
+    b.veinLines!.x[1] += 0.5;
+    const d = exactDiff(a, b)!;
+    expect(d).toEqual({ box: null, lines: true });
+    expect(cutExact(b, d)).toEqual(exactPatch(a, b));
+    expect(cutExact(b, d).w).toBe(0);
   });
 });

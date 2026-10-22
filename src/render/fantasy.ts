@@ -186,6 +186,24 @@ export function fantasyBaseCached(r: Raster): boolean {
   return bases.some((b) => b.raster === r);
 }
 
+/**
+ * 地图换上了一张新的主图(新生成、编辑地形重新生成):缓存里除了 keep 这几张(新的这张;按块换上的另带它是从哪张改来的,
+ * 样式缩略图照那张按块重画)以外的像素层、符号层,连同它们拉着的旧主图,现在就放掉 —— 不等下一次画手绘时才换掉
+ * (那之前旧主图、像素层、波纹的场一直占着)
+ */
+export function dropFantasyBasesExcept(keep: readonly (Raster | null | undefined)[]): void {
+  const kept = bases.filter((b) => keep.includes(b.raster));
+  for (const b of bases) if (!kept.includes(b)) b.canvas.width = b.canvas.height = 0;
+  bases = kept;
+  if (base && !kept.includes(base)) base = null;
+  const other = (x: { raster: Raster } | null) => !!x && !keep.includes(x.raster);
+  for (const c of [sym, noInk, clean, iceFace]) if (other(c)) c!.canvas.width = c!.canvas.height = 0;
+  if (other(sym)) sym = null;
+  if (other(noInk)) noInk = null;
+  if (other(clean)) clean = null;
+  if (other(iceFace)) iceFace = null;
+}
+
 /** 纯计算(单测用):整张像素层按 fantasyFullSteps 的分步办法一口气做完(不碰画布),返回同 fantasyPixels */
 export function fantasyFullPixels(world: World, r: Raster): ReturnType<typeof fantasyPixels> {
   const full = fullPixelSteps(world, r, () => {});
