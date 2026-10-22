@@ -14,6 +14,7 @@ import './timeline.css';
 import './flags.css';
 import './director.css';
 import './stepwise.css';
+import './extend.css';
 import './book.css';
 import './shortcuts.css';
 import './diag.css';

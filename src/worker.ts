@@ -147,12 +147,12 @@ export type WorkerResponse =
   | { type: 'progress'; id: number; stage: string; pct: number }
   /**
    * ms = 线程里花的时间(生成 + 文明 + 铺像素),genMs = 其中生成世界那一步(reused = 前一半是接着上一次的,genMs 只是后一半),
-   * rasterMs = 铺像素(推文明之前那一段,沟壑和细沟不算);
+   * rasterMs = 铺像素(推文明之前那一段,沟壑和细沟不算);civMs = 其中推文明那一步(再推的界面拿它估这台电脑推演要多久;读原件的没有);
    * tempo = 这组参数的扩张节拍(知道的话);eras = 地形大事以后的各段世界(没有大事 = 不给)。
    * 主图:raster = 整张;按块重铺的不带 raster,带 patch(比 from 那张整图变了的那一块,null = 一个像素也没变),见 PatchInput;
    * 按块重铺的另带手绘风的符号规划(plan,render/fantasy.ts 的 planGlyphs:主线程按块重画手绘地图要用,精细度高时要算一两百毫秒,在这里算)
    */
-  | ({ type: 'done'; id: number; world: World; civ: Civ; ms: number; genMs: number; rasterMs: number; reused?: true; tempo?: TempoNote; eras?: EraWorld[]; baseKey: string } & (
+  | ({ type: 'done'; id: number; world: World; civ: Civ; ms: number; genMs: number; rasterMs: number; civMs?: number; reused?: true; tempo?: TempoNote; eras?: EraWorld[]; baseKey: string } & (
       | { raster: Raster; patch?: undefined; from?: undefined }
       | { raster?: undefined; patch: RasterPatch | null; from: string; plan: Plan }
     ))
@@ -614,12 +614,15 @@ async function handle(m: WorkerRequest): Promise<void> {
     prev = null;
     const raster = d.raster;
     const rasterMs = performance.now() - t1;
+    let civMs: number | undefined;
     const civ = await pool.finish(d, () => {
       // 文明骨架(宜居度、州……)只读 World,之后的文明步骤都在 gen/civ/index.ts 里接
       post({ type: 'progress', id: m.id, stage: '文明', pct: 0.95 });
+      const tc = performance.now();
       const c = generateCiv(world, { interventions: m.interventions?.length ? m.interventions : undefined, tempo: tempoOf(m.params, m.terrain, m.sketch, m.civSeed), ...upOpt(steps), ...namesOpt(m.names), ...yearsOpt(m.endYear), ...setupOpt(m), ...playOpt(m), base: baseOf(world, m.civSeed) });
       // 调了民族扩散的,civ.spreadYears 不是节拍(÷ 了倍数);另起文明种子的,州和民族不是这颗星球原来的那一份:都不记
       if (!m.terrain?.length && !m.frontier?.spread && m.civSeed === undefined) rememberTempo(m.params, m.sketch, c.spreadYears !== undefined && c.capNorm !== undefined ? { spread: c.spreadYears, capNorm: c.capNorm } : null);
+      civMs = performance.now() - tc;
       return c;
     });
     const transfer: ArrayBuffer[] = [];
@@ -649,7 +652,7 @@ async function handle(m: WorkerRequest): Promise<void> {
     transfer.push(...civTransferables(civ));
     const cloned = cloneCiv(civ);
     keepCiv(m, m.play, cloned);
-    post({ type: 'done', id: m.id, world: { ...rest, history: [] }, ...map, civ, ms: performance.now() - t0, genMs, rasterMs, ...(reused ? { reused: true as const } : {}), tempo: noteOf(m.params, m.sketch), eras: eraWorlds(steps), baseKey }, transfer);
+    post({ type: 'done', id: m.id, world: { ...rest, history: [] }, ...map, civ, ms: performance.now() - t0, genMs, rasterMs, ...(civMs !== undefined ? { civMs } : {}), ...(reused ? { reused: true as const } : {}), tempo: noteOf(m.params, m.sketch), eras: eraWorlds(steps), baseKey }, transfer);
     queuePatches(m.id, m, steps);
     queueSnapshot(m.id, m, world, steps, cloned);
   } else if (m.type === 'load') {

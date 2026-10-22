@@ -17,6 +17,9 @@
  * - 放哪:dock="bottom"(默认)浮在地图底部一整行;"top" 浮在顶部;
  *   "inline" 不定位,填满父元素(放进别的布局的一行里时用;App 就是这样放进底部那一行的)。
  * - 颜色用主题变量(--ink、--line-strong、--ev-war……,见 timeline.css),没有主题时用浅色默认值。
+ * - 再推 N 年(ExtendYears.tsx):轨道尽头、速度前面一个「再推」(导出视频选段、回放世界形成时不放)。推的时候时间轴马上按推完的长度排,
+ *   第 0 年到原来的结束年份照样能拖、能放,新的一段推好以前拖不进去;正在放的照常放到原来的结束年份停,推好时还在放就接着放进新的一段。
+ *   推完以后刚推的那段垫一道浅蓝(这次打开网页里一直标着,换了世界不标)。
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Civ } from '../gen/civ/types';
@@ -44,6 +47,8 @@ import { STORY_SECONDS, playRate, replayStart } from './timelineLayout';
 import { filmRangeOf, getFilm, setFilmRange, useFilm } from './filmStore';
 import { filmClock, lengthText } from './filmPlan';
 import { setDirectorPace, useDirector } from './directorStore';
+import { useExtend } from './extendStore';
+import { ExtendButton, busyNote } from './ExtendYears';
 import './timeline.css';
 
 export interface CivTimelineProps {
@@ -72,6 +77,12 @@ export function CivTimeline({ civ, hidden, dock = 'bottom', directorOff }: CivTi
   const end = civ?.endYear ?? 0;
   const year = Math.min(end, Math.max(0, t.year ?? end));
   const [rootRef, compat] = useThemeCompat();
+  // 再推:推的时候时间轴按推完的长度排(axis),推完以后刚推的那段标出来
+  const ext = useExtend();
+  const busy = ext.busy && ext.busy.from === end && film.mode !== 'video' ? ext.busy : null;
+  const axis = busy ? busy.to : end;
+  const grow = useMemo(() => (busy ? { from: busy.from, at: busy.slow ? null : busy.year, note: narrow ? undefined : busyNote(busy, era) } : undefined), [busy, narrow, era]);
+  const fresh = !busy && ext.fresh && ext.fresh.to === end ? ext.fresh.from : undefined;
 
   // 换了新世界:回到结束年份(第一次拿到文明时保留网址里的 civYear)。
   // 按州(地理)认世界:改名(阶段 4)只换 civ 对象、州还是同一份,时间轴不动;
@@ -145,7 +156,9 @@ export function CivTimeline({ civ, hidden, dock = 'bottom', directorOff }: CivTi
     year < firstPolity
       ? '人类登场:各民族从发源地出发,一年年向外扩散,沿途建起村镇'
       : '列国并起:城市长大,人口够多的城立国,国家向外扩张、升格';
-  const p = Math.min(1, year / Math.max(1, end));
+  const p = Math.min(1, year / Math.max(1, axis));
+  // 「再推」:导出视频选段时、接着回放世界形成放文明时不放(和 1× / 4× 一样)
+  const extendOn = !span && !t.story;
   return (
     <>
       {t.story && t.playing && (
@@ -221,14 +234,18 @@ export function CivTimeline({ civ, hidden, dock = 'bottom', directorOff }: CivTi
             ))}
           </span>
         )}
+        {extendOn && <ExtendButton end={end} phone={narrow} />}
         <TimelineMarks
           entries={marks}
-          end={end}
+          end={axis}
           dock={dock}
           year={n}
           era={era}
           small={narrow}
           range={span ? { from: span.from, to: span.to, onRange: (from, to) => setFilmRange({ from, to }, end), labels: narrow, locked } : undefined}
+          limit={busy ? end : undefined}
+          grow={grow}
+          fresh={span ? undefined : fresh}
         />
       </div>
     </>
