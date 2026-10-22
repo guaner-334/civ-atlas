@@ -703,9 +703,18 @@ function findSeas(world: World, ctx: Ctx, names: Namers): Place[] {
   const paths: Float32Array[] = [];
   /** 补上的名字(不是独立的一片海)重要度低一档 */
   const filled = new Set<number>();
-  // 名额满了以后:c 是没改过时的一片海(refSeas)那一处、而且那片海还没有已经找到的海认领 —— 别处新冒出来的海不把远处原有的海挤掉
+  // 名额满了以后:c 是没改过时的一片海(refSeas)那一处、而且那片海还没有已经找到的海认领(一对一,和 pairUp 一样认)——
+  // 别处新冒出来的海不把远处原有的海挤掉
   const sameSea = (c: number, r: NameRef) => samePlace('sea', mesh.width, mesh.x[c], mesh.y[c], dist[c], r);
-  const keepsRef = (c: number) => refSeas.some((r) => sameSea(c, r) && !picked.some((p) => sameSea(p, r)));
+  let claimed: { n: number; got: Set<number> } = { n: -1, got: new Set() };
+  const keepsRef = (c: number) => {
+    if (!refSeas.some((r) => sameSea(c, r))) return false;
+    if (claimed.n !== picked.length) {
+      const anchors = picked.map((p) => ({ kind: 'sea' as const, x: mesh.x[p], y: mesh.y[p], size: dist[p] }));
+      claimed = { n: picked.length, got: new Set(pairUp(mesh.width, refSeas, anchors).map(([i]) => i)) };
+    }
+    return refSeas.some((r, i) => !claimed.got.has(i) && sameSea(c, r));
+  };
   for (const c of order) {
     if (picked.length >= SEA.max) {
       if (!refSeas.length) break;
@@ -864,7 +873,7 @@ function findMountains(world: World, ctx: Ctx, ns: Namers): Place[] {
 
 /**
  * 名额:按排好的先后取前 max 个。改过地形的世界(ctx.ref 里有这一类)名额以外的,没改过时那里就有一处同类地方、
- * 而且前面取到的都不是那一处的,也留下 —— 别处新冒出来的(新岛、新山、新河)不把远处原有的挤掉。
+ * 而且前面取到的都不是那一处的(一对一,和 pairUp 一样认),也留下 —— 别处新冒出来的(新岛、新山、新河)不把远处原有的挤掉。
  * at = 这一个的锚点(世界坐标)和大小(Place.size),要用时才算
  */
 function withinQuota<T>(list: readonly T[], max: number, kind: Kind, world: World, ctx: Ctx, at: (t: T) => { x: number; y: number; size: number }): T[] {
@@ -872,15 +881,21 @@ function withinQuota<T>(list: readonly T[], max: number, kind: Kind, world: Worl
   const refs = ctx.ref?.filter((r) => r.kind === kind) ?? [];
   if (!refs.length || list.length <= max) return out;
   const W = world.mesh.width;
-  const claimed = refs.map((r) =>
-    out.some((t) => {
-      const a = at(t);
-      return samePlace(kind, W, a.x, a.y, a.size, r);
-    }),
-  );
+  const claimed = refs.map(() => false);
+  for (const [i] of pairUp(
+    W,
+    refs,
+    out.map((t) => ({ kind, ...at(t) })),
+  ))
+    claimed[i] = true;
   for (let k = max; k < list.length && claimed.includes(false); k++) {
     const a = at(list[k]);
-    const j = refs.findIndex((r, i) => !claimed[i] && samePlace(kind, W, a.x, a.y, a.size, r));
+    // 名额外的这一个认最近的、还没被认领的那一处
+    let j = -1;
+    for (let i = 0; i < refs.length; i++) {
+      if (claimed[i] || !samePlace(kind, W, a.x, a.y, a.size, refs[i])) continue;
+      if (j < 0 || anchorDist(W, a, refs[i]) < anchorDist(W, a, refs[j])) j = i;
+    }
     if (j < 0) continue;
     claimed[j] = true;
     out.push(list[k]);

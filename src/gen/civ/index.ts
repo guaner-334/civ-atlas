@@ -154,12 +154,12 @@ function rememberRef(key: string, ref: readonly NameRef[]): void {
 /**
  * 改过地形的世界里,山海湖岛的地名照着沿用的那一份(places.ts 的 PlaceNaming.ref):没改过地形(不带地形修改、不带草图)的
  * 同一颗星球、同样的文明设定起出来的地名。改地形以后历史重推,远处民族的分布和语感会变,按当地民族起的地名也会跟着换 ——
- * 照着它起,没改到的地方名字不变。没改过地形的世界 = undefined(照常起名)。
+ * 照着它起,没改到的地方名字不变。没改过地形的世界、CivParams.placeRef = false(照原样打开的旧版本世界)= undefined(照常起名)。
  * 要多生成一遍没改过的星球、推到第 0 年(地名和推到哪一年无关,tests/names-stable.test.ts 钉住);
  * 按设定记着最近几份,没改过地形的世界推完时顺手记下(新建世界以后头一次改地形就不用再生成)
  */
 function nameRefOf(world: World, s: RefSetup): readonly NameRef[] | undefined {
-  if (!edited(world)) return undefined;
+  if (!edited(world) || s.p.placeRef === false) return undefined;
   const key = refKeyOf(world.params, s);
   let ref = refMemo.get(key);
   if (!ref) {

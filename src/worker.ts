@@ -389,6 +389,12 @@ async function heldCiv(m: CivRecipe, play: PlayState | undefined): Promise<Civ |
 /** 推文明时带的地形大事(没有 = 不带,和不加这一项逐字节一样) */
 const upOpt = (steps: Step[]) => (steps.length ? { upheavals: steps } : {});
 
+/**
+ * 照原样打开的旧世界(frozen)重推时:山海湖岛的地名不照"没改过地形的星球"起 —— 按现在的版本生成的那一颗不一定是它原来的
+ * (gen/civ 的 CivParams.placeRef)
+ */
+const frozenOpt = (m: Pick<CivInput, 'params' | 'terrain' | 'sketch'>) => (frozen?.key === keyOf(m.params, m.terrain, m.sketch) ? { placeRef: false as const } : {});
+
 /** 各段的世界交给主线程:不带网格、回放快照 */
 function eraWorlds(steps: Step[]): EraWorld[] | undefined {
   if (!steps.length) return undefined;
@@ -719,7 +725,7 @@ async function handle(m: WorkerRequest): Promise<void> {
     const t0 = performance.now();
     const world = worldOf(m.params, m.terrain, m.sketch);
     const steps = stepsOf(m.params, m.terrain, m.sketch, m.upheavals);
-    const params = { interventions: m.interventions, tempo: tempoOf(m.params, m.terrain, m.sketch, m.civSeed), ...upOpt(steps), ...namesOpt(m.names), ...yearsOpt(m.endYear), ...setupOpt(m) };
+    const params = { interventions: m.interventions, tempo: tempoOf(m.params, m.terrain, m.sketch, m.civSeed), ...upOpt(steps), ...namesOpt(m.names), ...yearsOpt(m.endYear), ...setupOpt(m), ...frozenOpt(m) };
     // 只调大了推演年数(别的都没变):从记着的那份接着推(和从第 0 年推一样;接不上的 continueCiv 自己从第 0 年推)
     const base = m.type === 'resim' && !m.play ? await heldCiv(m, undefined) : null;
     const civ =
@@ -739,7 +745,7 @@ async function handle(m: WorkerRequest): Promise<void> {
     const t0 = performance.now();
     const world = worldOf(m.params, m.terrain, m.sketch);
     const steps = stepsOf(m.params, m.terrain, m.sketch, m.upheavals);
-    const params = { interventions: m.interventions, tempo: tempoOf(m.params, m.terrain, m.sketch, m.civSeed), ...upOpt(steps), ...namesOpt(m.names), ...yearsOpt(m.endYear), ...setupOpt(m) };
+    const params = { interventions: m.interventions, tempo: tempoOf(m.params, m.terrain, m.sketch, m.civSeed), ...upOpt(steps), ...namesOpt(m.names), ...yearsOpt(m.endYear), ...setupOpt(m), ...frozenOpt(m) };
     // 上一步的结果对不上这份进度(线程被重开过、换了世界):先从第 0 年推到这一步年初
     const from = (await heldCiv(m, m.play)) ?? generateCiv(world, { ...params, ...playOpt(m), base: baseOf(world, m.civSeed) });
     const out = playTurn(world, from, { ...params, ...memoOpt(world, m.civSeed) }, m.play, m.commands, m.years);
@@ -759,7 +765,7 @@ async function handle(m: WorkerRequest): Promise<void> {
     const to = cleanEndYear(m.to) ?? END_YEAR_DEFAULT;
     const world = worldOf(m.params, m.terrain, m.sketch);
     const steps = stepsOf(m.params, m.terrain, m.sketch, m.upheavals);
-    const params = { interventions: m.interventions, tempo: tempoOf(m.params, m.terrain, m.sketch, m.civSeed), ...upOpt(steps), ...namesOpt(m.names), ...yearsOpt(cleanEndYear(to)), ...setupOpt(m) };
+    const params = { interventions: m.interventions, tempo: tempoOf(m.params, m.terrain, m.sketch, m.civSeed), ...upOpt(steps), ...namesOpt(m.names), ...yearsOpt(cleanEndYear(to)), ...setupOpt(m), ...frozenOpt(m) };
     const base = await heldCiv(m, undefined);
     // 后面排着会换掉这份历史的请求,或者叫停这一次的:不推了
     const stop = () => fg.some((r) => r.type === 'generate' || r.type === 'load' || r.type === 'resim' || r.type === 'turn' || r.type === 'extend' || (r.type === 'extendStop' && r.xid >= m.xid));
