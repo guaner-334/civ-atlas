@@ -330,13 +330,14 @@ export const TimelineMarks = memo(function TimelineMarks({ entries, end, dock, y
         </>
       )}
       {growFrom !== null && width > 0 && <GrowTrack from={growFrom} at={grow!.at} end={end} width={width} />}
+      <i className="tb-prog" />
+      {marks}
+      {/* 写在圆点上面(字宽的时候垫着底色,盖住底下的圆点),播放头下面 */}
       {growFrom !== null && grow!.note && (
         <span ref={noteRef} className="tb-grow-note" style={{ visibility: 'hidden' }}>
           {grow!.note}
         </span>
       )}
-      <i className="tb-prog" />
-      {marks}
       {range && width > 0 && (
         <>
           <i
