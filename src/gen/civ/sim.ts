@@ -6,6 +6,8 @@
  *   再处理航海时代、发展度、看王朝、新君即位、迁都后重看边地(按国家号,见 earlyOrder),再处理别的事件(按预约先后),最后处理民族、国家的到达
  *   (按"民族先、国家后,再按州号、民族 / 国家号"排,见 arrivalOrder)。头尾这两类和预约先后无关 —— 接着推时它们是
  *   按日志重新预约 / 重放的,预约先后和一口气推完时不一样,同一刻撞上了也要按同样的次序处理。
+ *   中间那一类(看邻国、看内政、下一仗、建城、立国……)接着推时由各层补上,补的时候说明一口气推时它是哪一刻预约的
+ *   (schedule 的 booked),fromCiv 按预约的时刻排好先后再放进事件堆:同一刻撞上的几件,先后和一口气推完一样。
  * - **州的版本号**:州的归属(任何一层)一变就 +1。事件预约时记下州 a 的版本号,弹出时对不上就是过期了,
  *   直接丢掉 —— 不用去堆里找、删事件。哪些类型要核对版本号,见 EVENT_INFO。
  * - **唯一改归属的入口** setOwner(层, 州, 新值, 原因):写变化日志、版本号 +1、通知这一层的监听者
@@ -283,6 +285,42 @@ function earlyOrder(kind: number, b: number): number {
   return 3 + b * 3 + i;
 }
 
+/** schedule 的 booked:一口气推时在装各层的时候(第 0 年的事件处理之前)就预约了的事件 */
+export const BOOKED_AT_START = -1;
+
+/** 预约链最多记几层(见 bookChain) */
+const BOOK_DEPTH = 3;
+
+/**
+ * 隔一阵子一次的事件(看邻国、看内政、看年景、下一仗……)第 k 次的预约链,给 schedule 的 booked:
+ * 第 k 次是第 k − 1 次那一刻预约的,第 k − 1 次又是第 k − 2 次那一刻预约的……第 0 次是 first 那一刻(立国、宣战、开头……)预约的。
+ * at(j) = 第 j 次的时刻。两件事预约的那一刻相同(上一次也撞在同一刻)时,按上一次是哪一刻预约的定先后,和一口气推完一样
+ */
+export function bookChain(k: number, at: (j: number) => number, first: number): number[] {
+  const out: number[] = [];
+  for (let j = k - 1; j >= -1 && out.length < BOOK_DEPTH; j--) out.push(j >= 0 ? quantize(at(j)) : first);
+  return out;
+}
+
+/** 接着推时攒着的一件事件(见 CivSim.releaseHeld):tick = 时刻(1/256 年为单位),booked = 预约链(同样的单位),i = 补上的先后 */
+interface HeldEvent {
+  tick: number;
+  kind: number;
+  a: number;
+  b: number;
+  ver: number;
+  booked: number[];
+  sub: number;
+  i: number;
+}
+
+/** 两条预约链比先后:一层层比,比到短的那条用完还一样 = 0 */
+function compareChain(x: readonly number[], y: readonly number[]): number {
+  const n = Math.min(x.length, y.length);
+  for (let i = 0; i < n; i++) if (x[i] !== y[i]) return x[i] - y[i];
+  return 0;
+}
+
 /** 把时间取整到引擎的精度(1/256 年)。引擎里所有事件时间、日志年份都是这样的值 */
 export function quantize(t: number): number {
   return Math.round(t * TICKS_PER_YEAR) / TICKS_PER_YEAR;
@@ -394,6 +432,14 @@ export class CivSim {
   private evCount = 0;
   private free: number[] = [];
   private seq = 0;
+  /** 接着推时各层补上的、同一刻里按预约先后排的事件(fromCiv 补完以后按一口气推时的预约先后放进事件堆,见 releaseHeld);平常 = null */
+  private held: HeldEvent[] | null = null;
+  /**
+   * 早先的接法(地形大事那一刻接着推时用,见 index.ts):补上的事件同一刻里按补的先后排、当过国都的城不再补它的立国、
+   * 有过城的州不再补定居时预约的建城。
+   * 带地形大事的世界一直是这样推出来的,沿用它,同一个种子的这类世界不变
+   */
+  legacy = false;
 
   private handlers: (EventHandler | undefined)[] = [];
   private watch = new Uint8Array(256);
@@ -413,10 +459,12 @@ export class CivSim {
    * 由 Civ 数据重建推演状态(各层归属、版本号、日志、检查点),再让各层重建待发生的事件,
    * 然后就能从 civ.endYear 接着推:sim.run(更晚的年份)。不需要保存事件堆,阶段 4 的存档也只存 Civ。
    * interventions = 接着推时带着的干预(阶段 4;默认 = 这份历史推出来时带着的 civ.interventions):
-   * 已经过了的只影响之后的决定(规则),还没到的补上它们的事件。后面可以接上几条比 civ.endYear 晚的(逐年推演时下的新命令,civ/play.ts)
+   * 已经过了的只影响之后的决定(规则),还没到的补上它们的事件。后面可以接上几条比 civ.endYear 晚的(逐年推演时下的新命令,civ/play.ts)。
+   * first = 最先预约的事件(地形大事);legacy = 早先的接法(见 CivSim.legacy;地形大事那一刻接着推时用)
    */
-  static fromCiv(world: World, civ: Civ, interventions: readonly Intervention[] = civ.interventions ?? [], first?: (sim: CivSim) => void): CivSim {
+  static fromCiv(world: World, civ: Civ, interventions: readonly Intervention[] = civ.interventions ?? [], first?: (sim: CivSim) => void, legacy = false): CivSim {
     const sim = new CivSim(civ.regions.count);
+    sim.legacy = legacy;
     sim.owners[Layer.Culture].set(civ.culture);
     sim.owners[Layer.Polity].set(civ.polity);
     sim.log = LogBuffer.from(civ.log);
@@ -433,6 +481,9 @@ export class CivSim {
       // 地形大事(first)、干预的事件最先预约(和 generateCiv 一样:同一刻里地形大事最先,干预只排在新君即位、迁都后重看边地后面)
       first?.(sim);
       const iv = scheduleInterventions(sim, civ.seed, interventions, true);
+      // 各层补上的"按预约先后排"的事件先攒着,补完按一口气推时预约的时刻排好再放进事件堆(见 schedule 的 booked)。
+      // 干预在一口气推时最先预约(generateCiv 里装各层之前),这里也在攒之前直接放进去,同一刻里排在补上的事件前面
+      if (!legacy) sim.held = [];
       // 地形大事以后补备的新民族(干预立国用):国家那一层也要认得它们(民族表接在后面)
       const extra = resumeCultures(sim, world, civ, interventions);
       resumePolities(sim, world, extra.length ? { ...civ, cultures: [...civ.cultures, ...extra] } : civ, iv);
@@ -446,8 +497,21 @@ export class CivSim {
       resumeUnrest(sim, world, civ);
       resumePlague(sim, world, civ);
       if (iv) resumeInterventions(sim, iv);
+      sim.releaseHeld();
     }
     return sim;
+  }
+
+  /**
+   * 接着推时攒着的事件按一口气推时的预约先后放进事件堆:同一时刻的几件,先按预约链(预约的时刻;一样的再看预约它的那件事是哪一刻预约的……),
+   * 还一样的按 sub(同一刻立的几国:按国家号,一国的几件挨在一起),最后按补上的先后(各层的先后和 generateCiv 里装各层的先后一样)
+   */
+  private releaseHeld(): void {
+    const held = this.held;
+    this.held = null;
+    if (!held) return;
+    held.sort((x, y) => x.tick - y.tick || compareChain(x.booked, y.booked) || x.sub - y.sub || x.i - y.i);
+    for (const e of held) this.push(e.tick, e.kind, e.a, e.b, e.ver);
   }
 
   /** 登记某类事件的处理函数。watch 不给就按 EVENT_INFO 表 */
@@ -464,11 +528,25 @@ export class CivSim {
   /**
    * 预约一个事件。t 早于现在(或 floor)就按现在(floor)算;取整到 1/256 年;超出 65536 年或不是有限数就不预约。
    * 要核对版本号的类型,记下州 a 此刻的版本号。
+   * booked、sub 只在接着推(fromCiv 里各层补事件)时用:一口气推完时这件事是哪一刻预约的(装各层时就预约的 = BOOKED_AT_START;
+   * 隔一阵子一次的事件给预约链,见 bookChain),同一刻预约的几件按 sub、再按补上的先后排(见 releaseHeld)。推演中途预约的不用给(就是现在)
    */
-  schedule(t: number, kind: number, a: number, b: number): void {
+  schedule(t: number, kind: number, a: number, b: number, booked: number | readonly number[] = BOOKED_AT_START, sub = 0): void {
     if (!(t < Infinity)) return; // Infinity / NaN
     const tick = Math.round(Math.max(t, this.now, this.floor) * TICKS_PER_YEAR);
     if (tick >= MAX_TICK) return;
+    const ver = this.watch[kind] && a >= 0 && a < this.R ? this.version[a] : -1;
+    // 接着推时补的、同一刻里按预约先后排的事件:先攒着(见 releaseHeld)
+    if (this.held && earlyOrder(kind, b) < 0 && arrivalOrder(kind, a, b) < 0) {
+      const chain = typeof booked === 'number' ? [booked] : booked;
+      this.held.push({ tick, kind, a, b, ver, booked: chain.map((y) => Math.round(y * TICKS_PER_YEAR)), sub, i: this.held.length });
+      return;
+    }
+    this.push(tick, kind, a, b, ver);
+  }
+
+  /** 放进事件堆(tick = 取整好的时刻;ver = 州 a 此刻的版本号,不核对 = −1) */
+  private push(tick: number, kind: number, a: number, b: number, ver: number): void {
     if (EARLY_SPAN + this.seq >= SEQ_SPAN) throw new Error('CivSim:事件太多(超过 2^28 个)');
     let id: number;
     if (this.free.length) id = this.free.pop()!;
@@ -480,7 +558,7 @@ export class CivSim {
     this.evKind[id] = kind;
     this.evA[id] = a;
     this.evB[id] = b;
-    this.evVer[id] = this.watch[kind] && a >= 0 && a < this.R ? this.version[a] : -1;
+    this.evVer[id] = ver;
     const early = earlyOrder(kind, b);
     const order = arrivalOrder(kind, a, b);
     this.heap.push(id, tick * TICK_SPAN + (early >= 0 ? early : order >= 0 ? SEQ_SPAN + order : EARLY_SPAN + this.seq++));

@@ -54,7 +54,7 @@ import { MinHeap } from '../util';
 import { geometryOf, type Geometry } from '../geometry';
 import { AdjKind, Layer, type AnnalCause, type Civ, type Polity, type Year } from './types';
 import { fexp, flog, keyed, keyed4, subSeed } from './rand';
-import { Ev, quantize, type CivSim } from './sim';
+import { BOOKED_AT_START, bookChain, Ev, quantize, type CivSim } from './sim';
 import { addPolity, canCross, coreOf, endPolity, foundingYear, moveCapital, polityModelOf, sailsOcean, type PolityModel } from './polities';
 import { warModelOf, type WarModel } from './wars';
 import { capacityAt, capitalAt, populationAt } from './growth';
@@ -819,21 +819,23 @@ export function resumePolitics(sim: CivSim, world: World, civ: Civ): void {
   for (const p of pm.polities) if (p.restores !== undefined) pol.restored.add(p.restores);
   hook(sim, pol);
 
+  // 补上的事件说明一口气推时是哪一刻预约的(上一次看的那一刻;第一次看内政是立国那一刻,第一次看复国是亡国那一刻,第一次看部落地带是开头)
   const now = sim.now;
   for (const p of pm.polities) {
     if (p.ended === undefined) {
       let k = 0;
       while (quantize(checkTime(pol, p.id, k)) <= now) k++;
-      sim.schedule(checkTime(pol, p.id, k), Ev.PoliticsCheck, k, p.id);
+      sim.schedule(checkTime(pol, p.id, k), Ev.PoliticsCheck, k, p.id, bookChain(k, (j) => checkTime(pol, p.id, j), p.founded), k > 0 ? 0 : p.id);
     } else if (restorable(pol, p)) {
       let k = 0;
-      while (k < RESTORE_TRIES && quantize(restoreTime(pol, p.id, p.ended, k)) <= now) k++;
-      if (k < RESTORE_TRIES) sim.schedule(restoreTime(pol, p.id, p.ended, k), Ev.RestoreCheck, k, p.id);
+      const ended = p.ended;
+      while (k < RESTORE_TRIES && quantize(restoreTime(pol, p.id, ended, k)) <= now) k++;
+      if (k < RESTORE_TRIES) sim.schedule(restoreTime(pol, p.id, ended, k), Ev.RestoreCheck, k, p.id, bookChain(k, (j) => restoreTime(pol, p.id, ended, j), ended));
     }
   }
   let k = 0;
   while (quantize(tribalTime(pol, k)) <= now) k++;
-  sim.schedule(tribalTime(pol, k), Ev.TribalCheck, k, 0);
+  sim.schedule(tribalTime(pol, k), Ev.TribalCheck, k, 0, bookChain(k, (j) => tribalTime(pol, j), BOOKED_AT_START));
 }
 
 // ---------------------------------------------------------------------------

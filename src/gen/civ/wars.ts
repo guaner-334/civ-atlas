@@ -55,7 +55,7 @@
 import type { World } from '../world';
 import { AdjKind, Layer, type AnnalCause, type Civ, type Polity, type Year } from './types';
 import { fexp, flog, fpow, keyed, keyed4, subSeed } from './rand';
-import { Ev, quantize, type CivSim } from './sim';
+import { bookChain, Ev, quantize, type CivSim } from './sim';
 import { canCross, coreOf, endPolity, moveCapital, polityModelOf, rulerOf, type PolityModel } from './polities';
 import { capitalAt, populationAt } from './growth';
 import type { InterventionModel } from './interventions';
@@ -744,22 +744,24 @@ export function resumeWars(sim: CivSim, _world: World, civ: Civ): void {
   installWars(sim, pm, wm);
 
   const now = sim.now;
-  // 在世的国家:下一次看邻国
+  // 在世的国家:下一次看邻国(上一次看的那一刻预约的;第一次是立国那一刻)
   for (const p of pm.polities) {
     if (p.ended !== undefined) continue;
     let k = 0;
     while (quantize(checkTime(wm, p.id, k)) <= now) k++;
-    sim.schedule(checkTime(wm, p.id, k), Ev.WarCheck, k, p.id);
+    sim.schedule(checkTime(wm, p.id, k), Ev.WarCheck, k, p.id, bookChain(k, (j) => checkTime(wm, p.id, j), p.founded), k > 0 ? 0 : p.id);
   }
-  // 还在打的仗:下一仗(和推演时一样逐仗累加、逐仗取整)
+  // 还在打的仗:下一仗(和推演时一样逐仗累加、逐仗取整;上一仗那一刻预约的,第一仗是宣战那一刻)
   for (const w of wm.active) {
     let i = 0;
+    const times = [w.start];
     let t = quantize(w.start + gapOf(wm, w, 0));
     while (t <= now) {
       i++;
+      times.push(t);
       t = quantize(t + gapOf(wm, w, i));
     }
-    sim.schedule(t, Ev.Campaign, i, w.id);
+    sim.schedule(t, Ev.Campaign, i, w.id, times.slice(-3).reverse());
   }
 }
 

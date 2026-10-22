@@ -10,6 +10,7 @@
  * 地形大事:半路整颗星球沉入海中、整片抬成陆地、五件最大最强的火山(有同一年的、第 1 年和第 2999 年的),
  * 各段的州和那时的地形对得上,大事以后的城、国家、信仰、编年史照样合法。
  * 推演年数:推到最久(60000 年,有一组再叠一件地形大事),史事、国都、人口、信仰照样合法,名字里不冒数字。
+ * 接着推:14 组随机自查(逐年推演随机推、随机下命令,和一口气推完逐字段相等,见 scripts/lib/resumeFuzz.ts);不一样也退出码 1。
  */
 import { generateWorld, DEFAULT_PARAMS } from '../src/gen/world';
 import { rasterize } from '../src/gen/raster';
@@ -37,6 +38,7 @@ import { upheavalSteps } from '../src/gen/civ/upheaval';
 import { buildChronicle } from '../src/gen/civ/chronicle';
 import { LAYER_W, LAYER_H, encodeLayer, sketchGrid, type SketchEdit, type SketchKind } from '../src/gen/sketch';
 import { PLATE_IMAGE_MAX, type PlateEdit, type PlateOp } from '../src/gen/plateEdits';
+import { fuzzResume, type FuzzCase } from './lib/resumeFuzz';
 
 /** 发展度:有文明就有;快照的年份递增、最后一份是结束那年,没有算坏的能力和物产;物产 0–3 档,眼下能用的不超过底子;大事的年份有序、时代、物产和国家编号在范围内 */
 function devBad(civ: ReturnType<typeof generateCiv>): number {
@@ -503,5 +505,24 @@ for (const [seed, ups] of [
     `{"推演年数":${END_YEAR_MAX}}`, 'seed', seed, ups.length ? '带一件地形大事' : '',
     `文明 ${Math.round(ms)}ms 国家 ${civ.polities.length}(在世 ${civ.polities.filter((p) => p.ended === undefined).length})城镇 ${civ.settlements.length} 人物 ${civ.people?.length ?? 0} 纪事 ${ch.length}`,
     cn ? `NaN! ${cn}` : '',
+  );
+}
+
+// ---- 接着推和一口气推完一样(随机自查,scripts/lib/resumeFuzz.ts):逐年推演一步随机推 1–60 年、每停一下随机下各种命令,
+// 推到第 3000 年,和带着同样的命令一口气推完逐字段比(默认参数 10 个种子、自定义参数 2 个、小世界 2 个;单测里另跑 3 个推到第 2000 年) ----
+const FUZZ: FuzzCase[] = [
+  ...[1, 3, 5, 7, 11, 12, 31, 42, 99, 2024].map((seed) => ({ seed, to: 3000 })),
+  ...[6, 23].map((seed) => ({ seed, to: 3000, params: { polities: 12, cultures: 8, pace: 1.3 } })),
+  ...[8, 77].map((seed) => ({ seed, to: 3000, cells: 12000 })),
+];
+for (const c of FUZZ) {
+  if (!mine()) continue;
+  const t0 = performance.now();
+  const r = fuzzResume(c);
+  if (r.diff) process.exitCode = 1;
+  console.log(
+    `{"接着推随机自查":${JSON.stringify({ ...(c.params ?? {}), ...(c.cells ? { cells: c.cells } : {}) })}}`, 'seed', c.seed,
+    `${Math.round(performance.now() - t0)}ms 推了 ${r.steps} 步 命令 ${r.commands} 条 作者的干预 ${r.author} 条`,
+    r.diff ? `和一口气推完不一样!\n${r.diff}` : '逐字段一致',
   );
 }

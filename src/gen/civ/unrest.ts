@@ -49,7 +49,7 @@ import type { World } from '../world';
 import { AdjKind, Layer, type Civ, type Polity, type Year } from './types';
 import { Biome } from '../biomes';
 import { fexp, keyed, keyed4, subSeed } from './rand';
-import { Ev, quantize, type CivSim } from './sim';
+import { BOOKED_AT_START, bookChain, Ev, quantize, type CivSim } from './sim';
 import { polityModelOf, type PolityModel } from './polities';
 import { warModelOf, type War, type WarModel } from './wars';
 import { politicsModelOf, type PoliticsModel } from './politics';
@@ -597,7 +597,8 @@ export function resumeUnrest(sim: CivSim, _world: World, civ: Civ): void {
   hook(sim, um);
   let k = 0;
   while (quantize(famineTime(um, k)) <= sim.now) k++;
-  sim.schedule(famineTime(um, k), Ev.FamineCheck, k, 0);
+  // 一口气推时上一次看年景那一刻预约的(第一次是开头)
+  sim.schedule(famineTime(um, k), Ev.FamineCheck, k, 0, bookChain(k, (j) => famineTime(um, j), BOOKED_AT_START));
 }
 
 // ---------------------------------------------------------------------------

@@ -1193,23 +1193,27 @@ export function resumePolities(sim: CivSim, world: World, civ: Civ, iv?: Interve
       cur[r] = v;
     }
   }
-  // 还没建城的州(城被毁了的州不算:重建由 cities.ts 管)
+  // 建城:住得了人的州在定居那一刻预约过,还没到的补上。州里已经有城(或有过城、后来被毁了)的照样补:到时州里有城就建不成,
+  // 城被毁了、还没重建的就建一座新城,和一口气推完一样(立国干预在没人住的州先来一支新民族、当场建城,城没过几年就被毁,就会这样)。
+  // 地形大事那一刻接着推(sim.legacy)用早先的接法:有过城的州不补(重建由 cities.ts 管)
   const hadCity = new Uint8Array(R);
   for (const s of m.settlements) hadCity[s.region] = 1;
   // 按定居的先后预约(一口气推完时是定居那一刻预约的):同一刻建两座城的,先后和一口气推完一样
   const toFound: number[] = [];
   for (let r = 0; r < R; r++) {
-    if (culture[r] < 0 || hadCity[r] || !T.habitable[r] || !(settled[r] < Infinity)) continue;
+    if (culture[r] < 0 || !T.habitable[r] || !(settled[r] < Infinity)) continue;
+    if (sim.legacy ? hadCity[r] : quantize(settled[r] + foundDelay(m, r)) <= now) continue;
     toFound.push(r);
   }
   toFound.sort((x, y) => settledAt[x] - settledAt[y]);
-  for (const r of toFound) sim.schedule(settled[r] + foundDelay(m, r), Ev.SettlementFound, r, 0);
-  // 还没到立国年份的城(当过国都的不算:立国过了,或是迁都迁来的 —— 那一州早归了国家,立国事件触发时本来也立不成;
-  // 被毁的城也不算:立国事件触发时立不成)
+  for (const r of toFound) sim.schedule(settled[r] + foundDelay(m, r), Ev.SettlementFound, r, 0, settled[r]);
+  // 还没到立国年份的城(建城那一刻预约的)。当过国都的照样补:迁都迁来的城、立国干预 / 边缘立国用的城,自己的立国还在后头,
+  // 那时那一州要是又没了国家(原来的国家亡了、散回部落……)、离别的国都也够远,就照原定的年份立国,和一口气推完一样。
+  // 被毁的城不补(立国事件触发时立不成)。地形大事那一刻接着推(sim.legacy)用早先的接法:当过国都的不补
   for (const s of m.settlements) {
-    if (s.capitalFrom !== undefined || s.ended !== undefined) continue;
+    if (s.ended !== undefined || (sim.legacy && s.capitalFrom !== undefined)) continue;
     const tf = foundingYear(s);
-    if (tf < Infinity && quantize(tf) > now) sim.schedule(tf, Ev.PolityFound, s.region, s.id);
+    if (tf < Infinity && quantize(tf) > now) sim.schedule(tf, Ev.PolityFound, s.region, s.id, s.founded);
   }
   // "国家到达":按日志重放。预约那一刻的国都 = 在那一刻之前(不含同一时刻)最近的一次迁都后的国都,见 distFor
   const distAt = (pid: number, y: number): Float32Array => {
