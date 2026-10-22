@@ -172,6 +172,7 @@ import { replayStart } from './timelineLayout';
 import {
   checkWarning,
   cleanCamera,
+  cleanMoment,
   cleanSignature,
   cleanTitle,
   decodeMomentHash,
@@ -181,6 +182,7 @@ import {
   isContourKind,
   isMomentHash,
   isShareHash,
+  momentYearMax,
   PARAM_RANGE,
   parseSave,
   resolveMoment,
@@ -2564,8 +2566,8 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
     setSharedFor(own && OLD_SITE === null ? null : { id, short: !!short, by, own });
     const origin: SaveOrigin | null = short ? { ...(by ? { by } : {}), title: sv.title ?? '', url: shortLink(short.code) } : null;
     // 打开网页时、地址栏里贴的分享链接:浏览器已经记了这一步,换成这个世界
-    // 打开时看哪:长链接在存档里;短链接在链接的 # 后面
-    const moment = sv.moment ?? short?.moment ?? null;
+    // 打开时看哪:长链接在存档里(读档时清理过);短链接在链接的 # 后面,按取到的存档再清理一次(年份超出这个世界的历史就不要)
+    const moment = sv.moment ?? (short?.moment ? cleanMoment(short.moment, momentYearMax(sv.edits)) : null);
     openTarget({ id, kind: 'visit', params: sv.params, edits: sv.edits, saved: sv.edits, title: sv.title, view: sv.view ?? null, from: 'link', save: sv, warnings: r.warnings, shareCode: short?.code, origin, moment }, 'replace');
   };
   /** 分享短链接:去服务器取存档(不用登录);停了、打不开就显示那一页 */
@@ -4048,8 +4050,8 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
   const momentRef = useRef<(withSelection: boolean) => MomentNow | null>(() => null);
   momentRef.current = (withSelection) => {
     const c = civ;
-    // 助手"先在地图上看看"时,地图上是试推演的历史,存档里还是原来的:不带这一刻(年份、国家对不上)
-    if (!c || !c.viable || !shownRaw || previewRaw || !dataRef.current || getStage().stage !== 'world') return null;
+    // 助手"先在地图上看看"时,地图上是试推演的历史,存档里还是原来的;正在重推历史时,地图上还是旧的那份:都不带这一刻(年份、国家对不上)
+    if (!c || !c.viable || !shownRaw || previewRaw || resimInfo.current || !dataRef.current || getStage().stage !== 'world') return null;
     const year = Math.min(c.endYear, Math.max(0, getCivTime().year ?? c.endYear));
     const moment: SaveMoment = { year };
     let name: string | null = null;
