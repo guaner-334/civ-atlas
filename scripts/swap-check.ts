@@ -3,14 +3,14 @@
  * 推演年数改成要量的长度,再分别量三种换上:
  *   - 再推 N 年:从「长度 − 500」年再推 500 年,推好换上
  *   - 干预重推:在这段历史中间保护一个国家,重推完换上
- *   - 打开存档:刷新网页,读存着的这个世界
+ *   - 打开存档:刷新网页,打开存着的这个世界(先按存着的推演年数推出历史换上,再带上那条干预重推、换上)
  * 每种从下命令(刷新)起,到换上以后再过 3 秒,打印这段时间里最长的一个 Long Task 和超出 50 ms 的部分加起来。
  * 开始之前先给第 0 号国家改个名(编年史要按改过的名字写);每种换上以后核对:界面用的编年史和在这一页上从头重算的逐条一样。
  *
  *   npx tsx scripts/swap-check.ts                       默认:3000、13000、60000 年,电脑
  *   --years=3000,13000                                  只量这几种长度
  *   --phone                                             手机:390×844 的触屏视口,CPU 减速 4 倍
- *   --profile                                           顺带记 CPU 剖面,打印换上那段时间里自身耗时最多的函数
+ *   --profile                                           顺带记 CPU 剖面,打印换上那段时间里主线程上算编年史共用了多久、自身耗时最多的函数
  *   --dump=out.json                                     把每种换上以后界面用的编年史(全部条目)写进这个文件(改前改后比对用)
  *   WF_URL=http://localhost:5173 npx tsx …              用现成的服务
  * 自动起一个临时 dev server(随机端口)。数字只在同一台机器上前后对比有意义。
@@ -202,6 +202,17 @@ for (const L of LENGTHS) {
   await page.reload();
   await waitReady(page);
   const got = await endYear(page);
+  // 等存着的那条干预也套上(重推完换上)
+  await page.evaluate(async () => ((window as any).__swapEd = await import('/src/ui/editsStore.ts' as string)));
+  await page.waitForFunction(
+    () => {
+      const w = window as any;
+      const full = w.__swapFs.getFilmSource()?.full;
+      return !!full && (full.interventions?.length ?? 0) === w.__swapEd.getEdits().interventions.length;
+    },
+    null,
+    { timeout: LONG_WAIT },
+  );
   await page.waitForTimeout(SETTLE);
   rows.push(`${L} 年  打开存档  ${fmt(stat(await ltSince(page, 0)))}${got === L ? '' : `(读回来的是 ${got} 年;网址 ${url})`}`);
   console.log(rows.at(-1));
