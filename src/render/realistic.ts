@@ -370,6 +370,23 @@ function adoptBase(b: Base): void {
   bases = [b, ...keep];
 }
 
+/**
+ * 地图换上了一张新的主图(新生成、编辑地形重新生成):缓存里除了 keep 这几张(新的这张;按块换上的另带它是从哪张改来的,
+ * 样式缩略图照那张按块重画)以外的像素层,连同它们拉着的旧主图,现在就放掉 —— 不等下一次画写实时才挤掉
+ * (那之前旧主图连同它的像素层一直占着;编辑地形连涂时一笔一张)
+ */
+export function dropRealisticBasesExcept(keep: readonly (Raster | null | undefined)[]): void {
+  const kept = bases.filter((b) => keep.includes(b.raster));
+  for (const b of bases) if (!kept.includes(b)) b.canvas.width = b.canvas.height = 0;
+  bases = kept;
+  if (base && !kept.includes(base)) base = null;
+  if (shoreCache && !keep.includes(shoreCache.raster)) {
+    shoreCache.water.width = shoreCache.water.height = shoreCache.land.width = shoreCache.land.height = 0;
+    shoreCache = null;
+  }
+  if (landPathCache && !keep.includes(landPathCache.raster)) landPathCache = null;
+}
+
 /** 一条带子每步重画多少个像素(约一两帧的活) */
 const PATCH_BAND_PX = 120000;
 

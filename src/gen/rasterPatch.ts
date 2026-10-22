@@ -98,6 +98,21 @@ function cutPatch(b: Raster, box: PixelBox, lines: boolean): RasterPatch {
  * 一个像素、一条线也没变 = null
  */
 export function exactPatch(a: Raster, b: Raster, win?: PixelBox | null): RasterPatch | null {
+  const d = exactDiff(a, b, win);
+  return d && cutExact(b, d);
+}
+
+/** exactPatch 比出来的:变了的框(只有细沟的线变了 = null)、细沟的线变没变 */
+export interface ExactDiff {
+  box: PixelBox | null;
+  lines: boolean;
+}
+
+/**
+ * exactPatch 的前一半:只比、不拷(参数同 exactPatch;一个像素、一条线也没变 = null)。
+ * 先看框有多大再决定交不交补丁(太大就整张交)时用,不白拷一份几十 MB 的补丁
+ */
+export function exactDiff(a: Raster, b: Raster, win?: PixelBox | null): ExactDiff | null {
   const W = b.w;
   const H = b.h;
   if (a.w !== W || a.h !== H) throw new Error('主图大小不一样');
@@ -141,8 +156,98 @@ export function exactPatch(a: Raster, b: Raster, win?: PixelBox | null): RasterP
   else if (a.vein || b.vein) throw new Error('主图的 vein 一份有一份没有');
   const v = b.veinLines;
   const linesChanged = !!v && !sameLines(a.veinLines, v);
-  if (y1 < 0) return linesChanged ? { W, H, x0: 0, y0: 0, w: 0, h: 0, f32: {}, u8: {}, veins: copyLines(v!) } : null;
-  return cutPatch(b, boxOfCols(col, y0, y1)!, linesChanged);
+  if (y1 < 0) return linesChanged ? { box: null, lines: true } : null;
+  return { box: boxOfCols(col, y0, y1)!, lines: linesChanged };
+}
+
+/**
+ * 一张主图就地改之前的样子:框里各字段的原样(cutPatch 的格式;没给框 = 一个像素也不改)、整张的细沟和细沟的线(这两样改的时候换成新数组,
+ * 原来的不动)。编辑地形按块重铺时直接改上一张主图的数组(不另拷一整张,见 gen/rasterEdit.ts 的 rasterizePatch),比补丁时拿它当上一张
+ */
+export interface RasterBefore {
+  W: number;
+  H: number;
+  box: RasterPatch | null;
+  vein?: Uint8Array;
+  veinLines?: DrainLines;
+}
+
+/** r 就地改之前:记下框里的原样、细沟 */
+export function rasterBefore(r: Raster, box: PixelBox | null): RasterBefore {
+  return { W: r.w, H: r.h, box: box && cutPatch(r, box, false), vein: r.vein, veinLines: r.veinLines };
+}
+
+/**
+ * 同 exactDiff,上一张是就地改之前记下的样子(rasterBefore;框得盖住 win):win 里逐位比,细沟整张比、细沟的线比。
+ * 结果和拿改之前的整张主图做 exactDiff 一样
+ */
+export function exactDiffBefore(a: RasterBefore, b: Raster, win: PixelBox | null): ExactDiff | null {
+  const W = b.w;
+  const H = b.h;
+  if (a.W !== W || a.H !== H) throw new Error('主图大小不一样');
+  const col = new Uint8Array(W);
+  let y0 = H;
+  let y1 = -1;
+  if (win) {
+    const p = a.box;
+    // 框盖住 win:行在里面,列从框的左边起算(东西相连)也在里面;框占满整圈就都在
+    const dx = p ? (win.x0 - p.x0 + W) % W : 0;
+    if (!p || win.y0 < p.y0 || win.y0 + win.h > p.y0 + p.h || (p.w < W && dx + win.w > p.w)) throw new Error('改之前记下的那块没盖住要比的框');
+    const spans = boxSpans(win, W);
+    const scan = (s: ArrayLike<number>, q: ArrayLike<number>) => {
+      for (let y = win.y0; y < win.y0 + win.h; y++) {
+        const row = y * W;
+        const prow = (y - p.y0) * p.w;
+        for (const [s0, e0] of spans) {
+          for (let x = s0; x < e0; x++) {
+            const d = x - p.x0;
+            if (s[prow + (d < 0 ? d + W : d)] === q[row + x]) continue;
+            col[x] = 1;
+            if (y < y0) y0 = y;
+            if (y > y1) y1 = y;
+          }
+        }
+      }
+    };
+    const bits = (x: Float32Array) => new Int32Array(x.buffer, x.byteOffset, x.length);
+    for (const k of F32) {
+      const s = p.f32[k];
+      const q = b[k];
+      if (!s && !q) continue;
+      if (!s || !q) throw new Error(`主图的 ${k} 一份有一份没有`);
+      scan(bits(s), bits(q));
+    }
+    for (const k of U8) {
+      if (k === 'vein') continue;
+      const s = p.u8[k];
+      const q = b[k];
+      if (!s && !q) continue;
+      if (!s || !q) throw new Error(`主图的 ${k} 一份有一份没有`);
+      scan(s, q);
+    }
+  }
+  // 细沟整张比(就地改的时候换成了新数组,原来的那份原样留着)
+  if (a.vein && b.vein) {
+    for (let y = 0; y < H; y++) {
+      const row = y * W;
+      for (let x = 0; x < W; x++) {
+        if (a.vein[row + x] === b.vein[row + x]) continue;
+        col[x] = 1;
+        if (y < y0) y0 = y;
+        if (y > y1) y1 = y;
+      }
+    }
+  } else if (a.vein || b.vein) throw new Error('主图的 vein 一份有一份没有');
+  const v = b.veinLines;
+  const linesChanged = !!v && !sameLines(a.veinLines, v);
+  if (y1 < 0) return linesChanged ? { box: null, lines: true } : null;
+  return { box: boxOfCols(col, y0, y1)!, lines: linesChanged };
+}
+
+/** exactPatch 的后一半:照 exactDiff 比出来的,从 b 上拷出补丁 */
+export function cutExact(b: Raster, d: ExactDiff): RasterPatch {
+  if (!d.box) return { W: b.w, H: b.h, x0: 0, y0: 0, w: 0, h: 0, f32: {}, u8: {}, veins: copyLines(b.veinLines!) };
+  return cutPatch(b, d.box, d.lines);
 }
 
 function copyLines(v: DrainLines): DrainLines {

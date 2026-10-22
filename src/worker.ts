@@ -41,7 +41,7 @@ import { sketchGrid, type SketchEdit } from './gen/sketch';
 import { mergeUpheavals, previewUpheaval, type UpheavalPreview, type UpheavalStep } from './gen/civ/upheaval';
 import { computeHabitat } from './gen/civ/habitat';
 import { buildRegions, reshapeRegions } from './gen/civ/regions';
-import { diffRaster, exactPatch, patchTransferables, type RasterPatch } from './gen/rasterPatch';
+import { cutExact, diffRaster, exactDiff, exactDiffBefore, patchTransferables, type RasterPatch } from './gen/rasterPatch';
 import { rasterizePatch, type RasterKeep } from './gen/rasterEdit';
 import { planGlyphs, type Plan } from './render/fantasy';
 import type { NameMix } from './gen/names';
@@ -191,22 +191,34 @@ let kept: { key: string; keep: RasterKeep } | null = null;
 /** 整张铺的(变得多)也比一比:变的那块不到整张图的这么多,就只交那一块(主线程按块重画还是划算) */
 const PATCH_SEND = 0.7;
 
-/** 主图各数组拷一份(整张交给主线程时数组 transfer 走了,线程里留的是这一份) */
-function copyRaster(r: Raster): Raster {
+/**
+ * 主图各数组拷一份(整张交给主线程时数组 transfer 走了,线程里留的是这一份)。
+ * into = 一张用不着了的同样大的主图(编辑地形时上一笔留着的那张,比完补丁就没用了):拷进它的数组里,不另开一整张
+ * (和 r 共用的数组除外:r 的要交出去,只能另拷)
+ */
+function copyRaster(r: Raster, into?: Raster | null): Raster {
+  const cp = <T extends Float32Array | Uint8Array | Int32Array>(a: T, b: T | undefined): T => {
+    if (b && b !== a && b.constructor === a.constructor && b.length === a.length && b.buffer !== a.buffer && b.byteLength === b.buffer.byteLength) {
+      b.set(a);
+      return b;
+    }
+    return a.slice() as T;
+  };
+  const o = into && into.w === r.w && into.h === r.h ? into : null;
   return {
     ...r,
-    elev: r.elev.slice(),
-    temp: r.temp.slice(),
-    precip: r.precip.slice(),
-    water: r.water.slice(),
-    biome: r.biome.slice(),
-    cell: r.cell.slice(),
-    ice: r.ice.slice(),
-    iceConc: r.iceConc.slice(),
-    iceTone: r.iceTone.slice(),
-    gully: r.gully?.slice(),
-    bank: r.bank?.slice(),
-    vein: r.vein?.slice(),
+    elev: cp(r.elev, o?.elev),
+    temp: cp(r.temp, o?.temp),
+    precip: cp(r.precip, o?.precip),
+    water: cp(r.water, o?.water),
+    biome: cp(r.biome, o?.biome),
+    cell: cp(r.cell, o?.cell),
+    ice: cp(r.ice, o?.ice),
+    iceConc: cp(r.iceConc, o?.iceConc),
+    iceTone: cp(r.iceTone, o?.iceTone),
+    gully: r.gully && cp(r.gully, o?.gully),
+    bank: r.bank && cp(r.bank, o?.bank),
+    vein: r.vein && cp(r.vein, o?.vein),
     veinLines: r.veinLines && { off: r.veinLines.off.slice(), x: r.veinLines.x.slice(), y: r.veinLines.y.slice(), a: r.veinLines.a.slice() },
   };
 }
@@ -608,16 +620,20 @@ async function handle(m: WorkerRequest): Promise<void> {
     const t1 = performance.now();
     let prev = m.keep && m.from !== undefined && m.scale === 1 && kept?.key === m.from ? kept : null;
     const cover = kept?.keep.inputs.cover;
-    if (!m.keep) kept = null;
+    // 留着的整图对不上这次的(主线程地图上那张不是它):不拿它比,整张交;它的数组下面留一份拷贝时接着用
+    let spare = !prev && m.keep ? (kept?.keep.raster ?? null) : null;
+    // 留着的这份先放掉:按块重铺就地改它的数组,改到一半出了错,下一笔也不会接着用改了一半的那张
+    kept = null;
     pool.prepare(world, m.scale);
-    const tried = prev ? rasterizePatch(world, prev.keep) : null;
+    // 按块重铺直接改上一张整图的数组(不另拷一整张;改之前那块的样子记在 before 里,比补丁时用)
+    const tried = prev ? rasterizePatch(world, prev.keep, undefined, true) : null;
     const pj = tried && 'job' in tried ? tried : null;
+    // 上一张铺像素的输入比完了(覆盖表已经接到这一份里):只留下比补丁要用的整图,别的先放掉 ——
+    // 要整张铺的,铺之前就放(铺的时候、推文明的时候不和新的一份同时占着)
+    let old = prev && { key: prev.key, raster: prev.keep.raster };
+    prev = null;
     // 要重铺的那块太大(比如海里放火山,侵蚀整个重算):整张铺,已经算好的输入接着用
     const d = pj ?? rasterizeDeferred(world, m.scale, undefined, cover, tried && 'whole' in tried ? tried.whole : undefined);
-    // 上一张铺像素的输入比完了(覆盖表已经接到这一份里):只留下比补丁要用的整图,别的先放掉,推文明的时候不白占着
-    const old = prev && { key: prev.key, raster: prev.keep.raster };
-    if (prev && kept === prev) kept = null;
-    prev = null;
     const raster = d.raster;
     const rasterMs = performance.now() - t1;
     let civMs: number | undefined;
@@ -638,21 +654,29 @@ async function handle(m: WorkerRequest): Promise<void> {
     const baseKey = keyOf(m.params, m.terrain, m.sketch);
     let map: { raster: Raster } | { patch: RasterPatch | null; from: string; plan: Plan };
     // 主线程有那张整图:只交回变了的那一块(逐位比),主线程按块重画;整张留在线程里,下一笔接着用。
-    // 按块重铺的只在重铺的那块里比;整张铺的(变得多)整张比,变的那块不到 PATCH_SEND 张图也照样只交那一块
-    const patch = old && m.scale === 1 ? exactPatch(old.raster, raster, pj ? pj.win : undefined) : undefined;
-    const send = old && patch !== undefined && (pj || !patch || patch.w * patch.h <= PATCH_SEND * raster.w * raster.h);
-    if (old && send) {
+    // 按块重铺的只在重铺的那块里比;整张铺的(变得多)整张比,变的那块不到 PATCH_SEND 张图也照样只交那一块。
+    // 先只比出框:太大、要整张交的,不白拷一份补丁。按块重铺的上一张已经就地改了:拿改之前记下的那块比
+    const diff = old && m.scale === 1 ? (pj?.before ? exactDiffBefore(pj.before, raster, pj.win) : exactDiff(old.raster, raster, pj ? pj.win : undefined)) : undefined;
+    const send = !!old && diff !== undefined && (!!pj || !diff?.box || diff.box.w * diff.box.h <= PATCH_SEND * raster.w * raster.h);
+    const from = old?.key;
+    // 比完了,上一张整图用不着了:按块的这次不再拉着它(它的数组就是这一张的);整张交的这次留拷贝时拷进它的数组
+    if (!pj) spare ??= old?.raster ?? null;
+    old = null;
+    if (send && from !== undefined) {
+      spare = null;
+      const patch = diff ? cutExact(raster, diff) : null;
       if (patch) transfer.push(...patchTransferables(patch));
       const plan = planGlyphs(world);
       transfer.push(plan.forest.buffer as ArrayBuffer);
-      map = { patch: patch ?? null, from: old.key, plan };
+      map = { patch, from, plan };
     } else {
       const vl = raster.veinLines!;
       transfer.push(...[raster.elev, raster.temp, raster.precip, raster.water, raster.biome, raster.cell, raster.ice, raster.iceConc, raster.iceTone, raster.gully!, raster.bank!, raster.vein!, vl.off, vl.x, vl.y, vl.a].map((a) => a.buffer as ArrayBuffer));
       map = { raster };
     }
-    // 整张交出去的数组 transfer 走了,留的是一份拷贝
-    if (m.keep && m.scale === 1) kept = { key: baseKey, keep: { raster: 'patch' in map ? raster : copyRaster(raster), inputs: d.inputs } };
+    // 整张交出去的数组 transfer 走了,留的是一份拷贝(拷进上一张用不着了的整图的数组里,不另开一整张)
+    if (m.keep && m.scale === 1) kept = { key: baseKey, keep: { raster: 'patch' in map ? raster : copyRaster(raster, spare), inputs: d.inputs } };
+    spare = null;
     // 地形大事的补丁要和这张整图比:直接用留着的这一份,不用再铺一遍
     if (kept?.key === baseKey) rasters.set(baseKey, kept.keep.raster);
     transfer.push(...civTransferables(civ));
