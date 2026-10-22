@@ -147,13 +147,18 @@ export function loadScreenScript(files: LoadFile[]): string {
       d.head.appendChild(e);
       return e;
     }
-    function go() {
-      if (--left > 0) return;
+    // 入口代码一跑就要往 #root 里放东西:页面还没读到 <body> 的(页面本身还在路上、文件都在缓存里),等页面读完再放
+    function put() {
       js.forEach(function (u) {
         add('script', '', u).onerror = function () {
           w.__ld.fail();
         };
       });
+    }
+    function go() {
+      if (--left > 0) return;
+      if (d.readyState == 'loading') d.addEventListener('DOMContentLoaded', put);
+      else put();
     }
     js.forEach(function (u) {
       add('link', 'modulepreload', u);

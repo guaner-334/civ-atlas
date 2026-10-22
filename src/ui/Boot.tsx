@@ -9,7 +9,7 @@
  *                                               下好就挂上 App,和以前一样按网址打开;加载画面一直留到 App 挂上
  *
  * 主程序没下载成功(网断了、网站刚更新过旧文件不在了):要用到它的时候重新下载一次,还不行就刷新页面;
- * 刚刷新过、不能再刷的,加载画面(还在的话)换成「重新加载」。
+ * 刚刷新过、不能再刷的,加载画面(还在的话)换成「重新加载」;首页上点了的不再等,顶上一条带「重新加载」的提示(HomeShell.tsx)。
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { HomeShell } from './HomeShell';
@@ -39,18 +39,19 @@ function loadApp(): Promise<AppModule> {
 
 const RELOAD_KEY = 'civ-atlas:boot-reload';
 /**
- * 主程序下载不下来:刷新页面重来(网站更新过、旧文件不在了,刷新拿到新的)。半分钟里只刷一次,网断着时不会一直刷;
- * 不刷的时候加载画面(还在的话)换成「重新加载」,让人自己点
+ * 主程序下载不下来:刷新页面重来(网站更新过、旧文件不在了,刷新拿到新的)。半分钟里只刷一次,网断着时不会一直刷。
+ * 返回刷没刷(不刷的时候由叫的地方给人一个「重新加载」)
  */
-function reloadOnce() {
+function reloadOnce(): boolean {
   try {
     const last = Number(sessionStorage.getItem(RELOAD_KEY));
-    if (Number.isFinite(last) && Date.now() - last < 30_000) return loadScreenFail();
+    if (Number.isFinite(last) && Date.now() - last < 30_000) return false;
     sessionStorage.setItem(RELOAD_KEY, String(Date.now()));
   } catch {
-    return loadScreenFail();
+    return false;
   }
   location.reload();
+  return true;
 }
 
 /** 首页要的图最多等这么久(哪张图卡住了也不一直等着不下主程序) */
@@ -89,18 +90,26 @@ export function Boot() {
     }, HOME_WAIT);
   }, [home]);
 
-  // 要用 App 了(不是首页的直接用;首页上要离开这一页了)、主程序还没有:下载(首页上每点一下都再试),不行就刷新页面
+  // 要用 App 了(不是首页的直接用;首页上要离开这一页了)、主程序还没有:下载(首页上每点一下都再试),不行就刷新页面。
+  // 刷新也不行(刚刷过、浏览器不让记):加载画面还在的换成「重新加载」;首页上不再等(按钮、卡片回到原样),顶上给一条带「重新加载」的提示
+  const [failed, setFailed] = useState(0);
   useEffect(() => {
     if (start === undefined || app) return;
     let live = true;
     loadApp().then(
       (m) => live && setApp(m),
-      () => live && reloadOnce(),
+      () => {
+        if (!live || reloadOnce()) return;
+        loadScreenFail();
+        if (!home) return;
+        setStart(undefined);
+        setFailed((n) => n + 1);
+      },
     );
     return () => {
       live = false;
     };
-  }, [start, app]);
+  }, [start, app, home]);
 
   // undefined = 不走了(主程序还没下好时,新建弹窗里点了「开始」又点「取消」)
   const onLeave = useCallback((s: HomeStart | null | undefined) => {
@@ -109,5 +118,5 @@ export function Boot() {
   }, []);
 
   if (app && leaving) return <app.App fromHome={start ?? undefined} />;
-  return home ? <HomeShell onLeave={onLeave} /> : null;
+  return home ? <HomeShell onLeave={onLeave} loadFailed={failed} /> : null;
 }

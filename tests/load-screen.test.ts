@@ -59,7 +59,7 @@ interface El {
 }
 
 /** 在假的页面里跑加载画面那一段;返回能看、能拨的几样 */
-function boot(o: { search?: string; hash?: string; state?: unknown; files?: LoadFile[]; script?: string; noFetch?: boolean; noSearchParams?: boolean; late?: boolean } = {}) {
+function boot(o: { search?: string; hash?: string; state?: unknown; files?: LoadFile[]; script?: string; noFetch?: boolean; noSearchParams?: boolean; late?: boolean; parsing?: boolean } = {}) {
   const downloads = new Map<string, ReturnType<typeof download>>();
   const fetched: string[] = [];
   const head: El[] = [];
@@ -67,6 +67,8 @@ function boot(o: { search?: string; hash?: string; state?: unknown; files?: Load
   let removed = false;
   /** 那一块在 <body> 里,那一段代码在 <head> 里先跑:late = 跑的时候那一块还没出来 */
   let attached = !o.late;
+  /** parsing = 页面还没读完(document.readyState 是 loading) */
+  const loaded: (() => void)[] = [];
   const msg = {
     html: '',
     em: null as { textContent: string } | null,
@@ -104,6 +106,8 @@ function boot(o: { search?: string; hash?: string; state?: unknown; files?: Load
   const location = { search: o.search ?? '', hash: o.hash ?? '', reload: vi.fn() };
   const env = {
     document: {
+      readyState: o.parsing ? 'loading' : 'interactive',
+      addEventListener: (type: string, f: () => void) => type === 'DOMContentLoaded' && loaded.push(f),
       documentElement: { classList: { add: (c: string) => htmlClass.add(c), remove: (c: string) => htmlClass.delete(c) } },
       getElementById: (id: string) => (id === 'ld' && attached ? ld : null),
       createElement: (tag: string) => ({ tag }) as El,
@@ -134,6 +138,8 @@ function boot(o: { search?: string; hash?: string; state?: unknown; files?: Load
     attach: () => {
       attached = true;
     },
+    /** 页面读完了(DOMContentLoaded) */
+    parsed: () => loaded.splice(0).forEach((f) => f()),
     /** url 这个文件再下 n 字节 */
     push: (url: string, n: number) => downloads.get(url)!.push(n),
     end: (url: string) => downloads.get(url)!.end(),
@@ -183,6 +189,17 @@ describe('加载画面:下载、进度、交给浏览器', () => {
     expect(p.removed).toBe(false);
     await vi.advanceTimersByTimeAsync(300);
     expect(p.removed).toBe(true);
+  });
+
+  it('页面还没读完(文件都从缓存里来得很快):等读完了再跑入口代码,免得 #root 还没有', async () => {
+    const p = boot({ parsing: true });
+    await flush();
+    for (const u of [JS, CSS]) p.end(u);
+    await flush();
+    p.head[1].onload!();
+    expect(p.tags()).not.toContain(`script ${JS}`);
+    p.parsed();
+    expect(p.tags()).toContain(`script ${JS}`);
   });
 
   it('样式表没下成也照样跑入口代码', async () => {

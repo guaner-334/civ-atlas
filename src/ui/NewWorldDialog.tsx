@@ -245,7 +245,8 @@ export function NewWorldDialog(p: NewWorldDialogProps) {
   }, []);
 
   // 把图拖进窗口:第 2 步照手绘图时收下(别处松手不当成打开存档)
-  const dropOk = step === 2 && mode === 'image';
+  // 点了「开始」在等地图程序的:图已经交出去了,不再换
+  const dropOk = step === 2 && mode === 'image' && !p.wait;
   const onDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();

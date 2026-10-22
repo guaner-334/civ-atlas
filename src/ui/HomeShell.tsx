@@ -12,7 +12,7 @@
  *
  * 和 App 一样在这里也做的:云同步、AI 接入(开了就一直开着,App 挂上以后接着用)、页面缩放的拦截、⌘S 不弹浏览器的"存储网页"。
  */
-import { useCallback, useEffect, useLayoutEffect, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { MyWorlds } from './MyWorlds';
 import { NewWorldDialog } from './NewWorldDialog';
 import { AccountHost, setGoHome } from './AccountDialogs';
@@ -36,6 +36,8 @@ import { useAppPercent } from './loadScreen';
 
 /** 打开存档文件、等主程序下完时顶上那条提示 */
 const WAIT_TOAST = 'home-wait';
+/** 主程序下载不下来、也没法自动刷新重来时那条提示 */
+const FAIL_TOAST = 'home-load-failed';
 
 /**
  * null = 不带要做的事(按后退 / 前进、贴了分享链接):App 照这时的网址打开;
@@ -43,7 +45,8 @@ const WAIT_TOAST = 'home-wait';
  */
 export type LeaveHome = (start: HomeStart | null | undefined) => void;
 
-export function HomeShell({ onLeave }: { onLeave: LeaveHome }) {
+/** loadFailed:主程序第几次没下载成功、也没法刷新页面重来(Boot.tsx;0 = 没有) */
+export function HomeShell({ onLeave, loadFailed = 0 }: { onLeave: LeaveHome; loadFailed?: number }) {
   // 和 App 一开始一样:在我的世界这一步(云同步、账号窗按它决定做什么)、左边的卡片不算收起;
   // 底图和填色照网址(首页的网址里没有图层,就是默认的手绘 + 国家;App.tsx 的 readUrl 和一开始那段)
   const [view] = useState(() => {
@@ -73,16 +76,33 @@ export function HomeShell({ onLeave }: { onLeave: LeaveHome }) {
   const pct = useAppPercent(!!waiting);
   const leave = useCallback(
     (s: HomeStart) => {
+      clearToast(FAIL_TOAST);
       setWaiting(s);
       onLeave(s);
     },
     [onLeave],
   );
-  /** 不走了(新建弹窗里点了「取消」、提示条上点了「取消」) */
+  const waitRef = useRef(waiting);
+  waitRef.current = waiting;
+  /** 不走了(新建弹窗里点了「取消」、提示条上点了「取消」):已经交出去、还没人接的那张图扔掉 */
   const stay = useCallback(() => {
+    const w = waitRef.current;
+    if (w?.kind === 'dialog' && w.start.picture) URL.revokeObjectURL(w.start.picture.url);
     setWaiting(null);
     onLeave(undefined);
   }, [onLeave]);
+  // 主程序下载不下来、也没法自动刷新重来:不再等(按钮、卡片回到原样,再点一下会重新下载),顶上一条出错的提示带「重新加载」
+  useEffect(() => {
+    if (!loadFailed) return;
+    setWaiting(null);
+    showToast({
+      id: FAIL_TOAST,
+      kind: 'error',
+      text: '地图程序没能下载完',
+      more: ['网络断了，或者网站刚更新过，重新加载试试'],
+      action: { label: '重新加载', act: 'home-reload', onClick: () => location.reload() },
+    });
+  }, [loadFailed]);
   // 打开存档文件、拖文件进来:顶上一条提示,说下了多少、下好就打开,能取消
   const fileWait = waiting?.kind === 'text' ? waiting : null;
   useEffect(() => {
