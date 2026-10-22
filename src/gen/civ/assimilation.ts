@@ -51,7 +51,7 @@ import { MinHeap } from '../util';
 import { geometryOf, type Geometry } from '../geometry';
 import { AdjKind, Layer, type Civ, type Culture, type MigrationDir, type Polity, type Year } from './types';
 import { fexp, keyed, keyed4, subSeed } from './rand';
-import { Ev, quantize, type CivSim } from './sim';
+import { BOOKED_AT_START, Ev, quantize, type CivSim } from './sim';
 import { addCulture, cultureModelOf } from './cultures';
 import { polityModelOf, type PolityModel } from './polities';
 import { warModelOf, type WarModel } from './wars';
@@ -619,19 +619,20 @@ export function resumeAssimilation(sim: CivSim, world: World, civ: Civ): void {
   for (let r = 0; r < culture.length; r++) if (culture[r] >= 0) am.count[culture[r]]++;
   hook(sim, am);
 
+  // 补上的事件说明一口气推时是哪一刻预约的(上一次看的那一刻;第一次看民族是立国那一刻,第一次看孤地、看分化是开头)
   const now = sim.now;
   for (const p of pm.polities) {
     if (p.ended !== undefined) continue;
     let k = 0;
     while (quantize(checkTime(am, p.id, k)) <= now) k++;
-    sim.schedule(checkTime(am, p.id, k), Ev.CultureCheck, k, p.id);
+    sim.schedule(checkTime(am, p.id, k), Ev.CultureCheck, k, p.id, k > 0 ? quantize(checkTime(am, p.id, k - 1)) : p.founded, k > 0 ? 0 : p.id);
   }
   let k = 0;
   while (quantize(enclaveTime(am, k)) <= now) k++;
-  sim.schedule(enclaveTime(am, k), Ev.EnclaveCheck, k, 0);
+  sim.schedule(enclaveTime(am, k), Ev.EnclaveCheck, k, 0, k > 0 ? quantize(enclaveTime(am, k - 1)) : BOOKED_AT_START);
   k = 0;
   while (quantize(divergeTime(am, k)) <= now) k++;
-  sim.schedule(divergeTime(am, k), Ev.DivergeCheck, k, 0);
+  sim.schedule(divergeTime(am, k), Ev.DivergeCheck, k, 0, k > 0 ? quantize(divergeTime(am, k - 1)) : BOOKED_AT_START);
 }
 
 // ---------------------------------------------------------------------------

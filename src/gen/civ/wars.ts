@@ -744,22 +744,24 @@ export function resumeWars(sim: CivSim, _world: World, civ: Civ): void {
   installWars(sim, pm, wm);
 
   const now = sim.now;
-  // 在世的国家:下一次看邻国
+  // 在世的国家:下一次看邻国(上一次看的那一刻预约的;第一次是立国那一刻)
   for (const p of pm.polities) {
     if (p.ended !== undefined) continue;
     let k = 0;
     while (quantize(checkTime(wm, p.id, k)) <= now) k++;
-    sim.schedule(checkTime(wm, p.id, k), Ev.WarCheck, k, p.id);
+    sim.schedule(checkTime(wm, p.id, k), Ev.WarCheck, k, p.id, k > 0 ? quantize(checkTime(wm, p.id, k - 1)) : p.founded, k > 0 ? 0 : p.id);
   }
-  // 还在打的仗:下一仗(和推演时一样逐仗累加、逐仗取整)
+  // 还在打的仗:下一仗(和推演时一样逐仗累加、逐仗取整;上一仗那一刻预约的,第一仗是宣战那一刻)
   for (const w of wm.active) {
     let i = 0;
+    let prev = w.start;
     let t = quantize(w.start + gapOf(wm, w, 0));
     while (t <= now) {
       i++;
+      prev = t;
       t = quantize(t + gapOf(wm, w, i));
     }
-    sim.schedule(t, Ev.Campaign, i, w.id);
+    sim.schedule(t, Ev.Campaign, i, w.id, prev);
   }
 }
 

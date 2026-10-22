@@ -575,7 +575,8 @@ export function resumeDiplomacy(sim: CivSim, _world: World, civ: Civ): void {
     if (p.ended !== undefined) continue;
     let k = 0;
     while (quantize(checkTime(dm, p.id, k)) <= now) k++;
-    sim.schedule(checkTime(dm, p.id, k), Ev.DiplomacyCheck, k, p.id);
+    // 一口气推时上一次看邦交那一刻预约的(第一次是立国那一刻)
+    sim.schedule(checkTime(dm, p.id, k), Ev.DiplomacyCheck, k, p.id, k > 0 ? quantize(checkTime(dm, p.id, k - 1)) : p.founded, k > 0 ? 0 : p.id);
   }
 }
 

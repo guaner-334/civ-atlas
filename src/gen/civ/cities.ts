@@ -258,15 +258,16 @@ export function resumeCities(sim: CivSim, world: World, civ: Civ): void {
       const n = rebuildTries(cm, s);
       let k = 0;
       while (k < n && quantize(rebuildTime(cm, s, k)) <= now) k++;
-      if (k < n) sim.schedule(rebuildTime(cm, s, k), Ev.CityRebuild, k, s.id);
+      // 一口气推时上一次看重建那一刻预约的(第一次是毁城那一刻)
+      if (k < n) sim.schedule(rebuildTime(cm, s, k), Ev.CityRebuild, k, s.id, k > 0 ? quantize(rebuildTime(cm, s, k - 1)) : s.ended);
     }
-    // 失去国都之位、还没到看旧都的时候
+    // 失去国都之位、还没到看旧都的时候(失去国都之位那一刻预约的)
     const spans = s.capitalSpans;
     if (spans) {
       spans.forEach((sp, k) => {
         if (sp.until === undefined) return;
         const tt = declineTime(cm, s, k, sp.until);
-        if (quantize(tt) > now) sim.schedule(tt, Ev.CityDecline, k, s.id);
+        if (quantize(tt) > now) sim.schedule(tt, Ev.CityDecline, k, s.id, sp.until);
       });
     }
   }
