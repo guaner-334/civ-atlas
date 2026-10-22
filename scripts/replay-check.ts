@@ -5830,8 +5830,14 @@ for (const style of ['realistic', 'fantasy']) {
   await gp.waitForFunction(() => (window as any).__wfGlobe?.ready, null, { timeout: 60000 });
   await gp.waitForTimeout(1000);
   await gp.evaluate(() => (window as any).__wfGlobeSet(20, 20, 2.4));
-  await gp.waitForTimeout(1500);
-  const asked = await gp.locator('.toast [data-act=globe-hd]').count();
+  // 没有显卡的机器上地球仪画得慢,放大以后要过一会儿才去看贴图够不够清楚:等那一条出来(最多 30 秒)
+  const asked = await gp
+    .locator('.toast [data-act=globe-hd]')
+    .waitFor({ timeout: 30000 })
+    .then(
+      () => 1,
+      () => 0,
+    );
   const g1 = await G();
   await gp.tap('.toast [data-act=globe-hd]').catch(() => {});
   const got = await gp.waitForFunction(() => (window as any).__wfGlobe?.tier === 2, null, { timeout: 90000 }).then(() => true, () => false);
