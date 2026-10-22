@@ -1,6 +1,6 @@
 /**
- * 回放导出(视频、竖版长图)的面板状态:开着哪一个、选项、正在导出到哪一帧。
- * 导出菜单里点「回放视频」「竖版长图」打开,左边面板(手机:底部卡片)换成导出的选项,地图上压暗、出预览或框。
+ * 回放导出(视频、故事长图)的面板状态:开着哪一个、选项、正在导出到哪一帧。
+ * 导出菜单里点「回放视频」「故事长图」打开,左边面板(手机:底部卡片)换成导出的选项,地图上压暗、出预览或框。
  * 视频导出本身(一帧一帧画、编码、下载)也在这里跑:面板、地图上的预览、时间轴都读同一份状态。
  */
 import { useSyncExternalStore } from 'react';
@@ -49,6 +49,10 @@ export interface FilmUi {
   seconds: FilmSeconds;
   captions: boolean;
   cards: boolean;
+  /** 片尾卡片上带不带"用「文明与地图」推演生成"和网址(片头片尾关着时不管用) */
+  url: boolean;
+  /** 预览停在片尾那一帧(刚拨了片尾网址的开关;拖时间轴、改别的选项回到那一年的样子) */
+  peek: boolean;
   /** 标题:null = 用世界名 */
   title: string | null;
   /** 上面的标题、拖出来的年份是哪个世界的(换了世界再打开回到默认) */
@@ -68,6 +72,8 @@ const INIT: FilmUi = {
   seconds: 60,
   captions: true,
   cards: true,
+  url: true,
+  peek: false,
   title: null,
   world: null,
   run: null,
@@ -80,8 +86,12 @@ const emit = () => subs.forEach((f) => f());
 
 export const getFilm = () => state;
 
+/** 改了这几样以外的选项(画面、时长、标题……):预览不再停在片尾那一帧 */
+const PEEK_KEEP: ReadonlySet<string> = new Set(['peek', 'url', 'sheetH', 'run', 'world', 'phone', 'mode']);
+
 export function setFilm(patch: Partial<FilmUi>) {
-  state = { ...state, ...patch };
+  const unpeek = state.peek && !('peek' in patch) && Object.keys(patch).some((k) => !PEEK_KEEP.has(k));
+  state = { ...state, ...patch, ...(unpeek ? { peek: false } : {}) };
   emit();
 }
 
@@ -106,7 +116,7 @@ export function openFilm(mode: FilmMode, phone: boolean) {
   if (mode === 'video' && getGlobeOn()) setGlobeOn(false);
   const world = currentWorld()?.id ?? null;
   const fresh = world !== state.world ? { world, title: null, rangeKind: 'polities' as const, range: null } : {};
-  state = { ...state, ...fresh, mode, phone, shape: phone ? 'port' : 'land', run: null };
+  state = { ...state, ...fresh, mode, phone, shape: phone ? 'port' : 'land', run: null, peek: false };
   emit();
   // 时间轴移到选的那一段里
   const src = getFilmSource();
@@ -185,6 +195,7 @@ export function filmSetup(src: FilmSource, look: { style: CivStyle; layer: Layer
     seconds: s.seconds,
     captions: s.captions,
     cards: s.cards,
+    url: s.url,
     title: filmTitleOf(),
     style: look.style,
     layer: look.layer,

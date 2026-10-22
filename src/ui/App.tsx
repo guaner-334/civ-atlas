@@ -861,9 +861,9 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
     [data, civ, edits.flags, flagPreview, flagGeo],
   );
   useLayoutEffect(() => setFlagView(flagView), [flagView]);
-  // 导出回放视频 / 竖版长图:左边面板(手机:底部卡片)换成导出的选项
+  // 导出回放视频 / 故事长图:左边面板(手机:底部卡片)换成导出的选项
   const filmUi = useFilm();
-  // 回放导出(视频、竖版长图)按年份取那一段的世界、主图、历史(filmSource.ts);和地图上一样,那一段的主图还没铺好先用前一段
+  // 回放导出(视频、故事长图)按年份取那一段的世界、主图、历史(filmSource.ts);和地图上一样,那一段的主图还没铺好先用前一段
   // (预览这样凑合;导出等 ready 了再拍)
   useLayoutEffect(() => {
     const raw = previewRaw ?? rawCiv;
@@ -5326,7 +5326,7 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
       </main>
       {/* 导出回放视频:地图压暗、中间的预览,或者地图上的框(FilmStage.tsx) */}
       {filmOn && filmUi.mode === 'video' && <FilmStage phone={narrow} style={style} layer={layer} look={terrainLook} />}
-      {/* 竖版长图:地图压暗、中间的长图预览和右边一条全貌(手机整屏是预览;LongStage.tsx) */}
+      {/* 故事长图:地图压暗、中间的长图预览和右边一条全貌(手机整屏是预览;LongStage.tsx) */}
       {filmOn && filmUi.mode === 'long' && <LongStage phone={narrow} style={style} layer={layer} look={terrainLook} />}
       {/* 选干预目标 / 推演中:压暗地图、浮出名牌;选中国家:国都的圆环(TargetPlates.tsx) */}
       {data && world && <TargetLayer civ={civ} world={data.world} toClient={globeOn ? globeToClient : worldToClient} resim={resim} generating={!!progress} labelAt={labelAt} />}

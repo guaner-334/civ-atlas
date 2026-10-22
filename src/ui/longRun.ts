@@ -1,16 +1,19 @@
 /**
- * 竖版长图画出来:按选项写内容(longPlan.ts)、排版(render/longImage.ts),每一张疆域图交给 MapShot 按长图里的大小拍
+ * 故事长图画出来:按选项写内容(longPlan.ts)、排版(render/longImage.ts),每一张地图交给 MapShot 按长图里的大小拍
  * (整个世界:字比屏幕上大一点,国名放得下;一国:裁到那一国、描红边,像在手机上放大看那一国),
  * 拼成一整张(或切成 3:4 的几页),压成 JPEG。
  *
- * 拍好的地图按"画法 + 年份 + 哪一国"记住:改标题、大事列不列这类不用重画地图的,预览马上变;
+ * 拍好的地图按"画法 + 年份 + 哪一国"记住:改标题、每段几件这类不用重画地图的,预览马上变;
  * 换范围、换画风这类要重拍的,预览上写"正在画疆域图,第几张,共几张"。
+ * 世界写过 AI 史书的,每段配上史书里那一章开头的一段(longBookOf 挑哪一部;史书写完以后又改了世界的不放)。
  */
 import type { ChronicleEntry } from '../gen/civ/chronicle';
 import type { Civ } from '../gen/civ/types';
 import { fullChronicle } from '../gen/civ/religionText';
 import { ownersAt } from '../gen/civ/timeline';
 import { fileBaseName } from '../gen/savefile';
+import { historyNoteStatus, listHistoryNotes } from '../ai/history';
+import { loadScope } from '../ai/prompts/history';
 import { flagSvg } from '../render/flag/flagSvg';
 import { highlightBox } from '../render/civ/highlight';
 import { MapShot, type ShotArea, type ShotScene } from '../render/shot';
@@ -21,8 +24,9 @@ import { filmMajors } from './filmStore';
 import { flagOf, getFlags } from './flagStore';
 import { currentWorld } from './saveStore';
 import { getEdits } from './editsStore';
+import { bookTitleText } from './bookStore';
 import { getLong, setLong } from './longStore';
-import { defaultPolity, longDoc, longFileName, polityLastYear, type LongDoc, type LongMap } from './longPlan';
+import { bookChapters, defaultPolity, longDoc, longFileName, polityLastYear, type LongBook, type LongDoc, type LongMap } from './longPlan';
 import { polityNameAt } from './searchIndex';
 import { showToast } from './toastStore';
 
@@ -62,17 +66,58 @@ export function longTitleOf(full: Civ, seed: number): string {
   return t ?? longDefaultTitle(full, seed);
 }
 
+/** 这个世界写过的 AI 史书,这一次能不能用:没有 / 写完以后又改了世界(对不上,不放)/ 能用 */
+export type LongBookState = { kind: 'none' } | { kind: 'stale'; name: string } | { kind: 'ok'; name: string; book: LongBook };
+
+const NO_BOOK: LongBookState = { kind: 'none' };
+const bookCache = new WeakMap<Civ, Map<string, LongBookState>>();
+
+/**
+ * 长图用哪一部 AI 史书:整个世界 = 最近写的那部通史;一国 = 这一国的国史(最近写的),没有就用通史。
+ * 史书和现在的历史对不上(写完以后改了名字、干预、改地形重推)= stale,不放
+ */
+export function longBookOf(full: Civ, polity: number | null): LongBookState {
+  const world = currentWorld();
+  if (!world) return NO_BOOK;
+  const notes = listHistoryNotes(world.id);
+  const own =
+    polity === null
+      ? undefined
+      : notes.find((n) => {
+          if (n.book.scope.kind !== 'polity') return false;
+          const sc = loadScope(full, n.book.scope);
+          return sc?.kind === 'polity' && sc.polity === polity;
+        });
+  const note = own ?? notes.find((n) => n.book.scope.kind === 'world');
+  if (!note) return NO_BOOK;
+  const era = getEdits().era;
+  const key = `${note.key}|${note.createdAt}|${world.title ?? ''}|${JSON.stringify(era ?? null)}`;
+  let m = bookCache.get(full);
+  if (!m) bookCache.set(full, (m = new Map()));
+  let v = m.get(key);
+  if (!v) {
+    const name = bookTitleText(note.book.title, note.book.scope, world.title, era);
+    v = historyNoteStatus(full, note).stale ? { kind: 'stale', name } : { kind: 'ok', name, book: { name, chapters: bookChapters(note.text, note.book.range) } };
+    m.set(key, v);
+  }
+  return v;
+}
+
 /** 按现在的选项写长图的内容 */
 export function longDocOf(src: FilmSource): LongDoc {
   const full = src.full;
   const s = getLong();
   const seed = src.at(full.endYear).world.params.seed;
   const p = s.scope === 'one' ? longPolity(full) : null;
+  const bk = s.ai ? longBookOf(full, p) : NO_BOOK;
   return longDoc(full, longEntries(full), filmMajors(full), {
     scope: p !== null ? 'one' : 'world',
     polity: p ?? -1,
+    segments: s.segs,
+    per: s.per === 'all' ? Infinity : s.per,
     maps: s.maps,
-    events: s.events,
+    brand: s.brand,
+    book: bk.kind === 'ok' ? bk.book : null,
     title: longTitleOf(full, seed).trim() || longDefaultTitle(full, seed),
     worldTitle: currentWorld()?.title?.trim() ?? '',
     seed,
@@ -181,6 +226,8 @@ export interface LongResult {
   blobs: Blob[] | null;
   /** 文件名(不带 .jpg 的前半截) */
   base: string;
+  /** 一段多少年(面板上那句说明) */
+  span: number;
 }
 
 let result: LongResult | null = null;
@@ -276,7 +323,7 @@ async function renderLongRun(my: number, src: FilmSource, look: LongLook, lookKe
   });
   freeResult();
   const base = fileBaseName({ title: doc.title, seed: src.at(src.full.endYear).world.params.seed });
-  result = { lay, canvas, pages, pageCanvases, blobs: null, base };
+  result = { lay, canvas, pages, pageCanvases, blobs: null, base, span: doc.span };
   setLong({ busy: null, ver: getLong().ver + 1 });
   // 压成 JPEG(打字改标题时等停下来再压)
   window.clearTimeout(encodeTimer);
