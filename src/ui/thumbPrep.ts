@@ -70,6 +70,8 @@ interface Job {
   /** 还要不要(都不要了就不做了;没给的 = 一直要,直到同一种底图换了一张要备的) */
   alive: (() => boolean)[];
   done: (() => void)[];
+  /** 没备完就不做了(等着要的都不要了) */
+  gone: (() => void)[];
 }
 let queue: Job[] = [];
 /** 已经排了下一段 */
@@ -82,21 +84,25 @@ const SLICE = 12;
 
 /**
  * 画风键 key、这张主图的整张底图能不能当场取(缓存里已经有了、备好了,或者备的时候出了错只能当场画):能 = true;
- * 不能就排进后台去备(同一张排着的不再排),备好了调 done,返回 false。alive:还要不要(不要了就不做了,done 也不调)
+ * 不能就排进后台去备(同一张排着的不再排),备好了调 done,返回 false。alive:还要不要(不要了就不做了,done 也不调,
+ * 改调 gone;过后还要,再来问一次就重新排)
  */
-export function baseReady(key: string, world: World, raster: Raster, o: { done?: () => void; alive?: () => boolean } = {}): boolean {
+export function baseReady(key: string, world: World, raster: Raster, o: { done?: () => void; alive?: () => boolean; gone?: () => void } = {}): boolean {
   if (failed.get(raster)?.has(key)) return true;
   let job = queue.find((j) => j.key === key && j.raster === raster);
   if (!job) {
     const steps = thumbPrepSteps(key, world, raster);
     if (!steps.length) return true;
     // 同一种底图换了一张要备的(又涂了一笔):前一张没人等着要的就不做了
-    queue = queue.filter((j) => j.key !== key || j.alive.some((f) => f()));
-    job = { key, raster, steps, i: 0, alive: [], done: [] };
+    const drop = queue.filter((j) => j.key === key && !j.alive.some((f) => f()));
+    queue = queue.filter((j) => !drop.includes(j));
+    job = { key, raster, steps, i: 0, alive: [], done: [], gone: [] };
     queue.push(job);
+    for (const j of drop) for (const f of j.gone) f();
   }
   if (o.alive) job.alive.push(o.alive);
   if (o.done) job.done.push(o.done);
+  if (o.gone) job.gone.push(o.gone);
   schedule();
   return false;
 }
@@ -140,9 +146,10 @@ function run(): void {
   const deadline = performance.now() + SLICE;
   while (queue.length && performance.now() < deadline) {
     const job = queue[0];
-    // 等着要的都不要了(换了世界):不做了
+    // 等着要的都不要了(换了世界、又开始涂):不做了
     if (job.alive.length && !job.alive.some((f) => f())) {
       queue.shift();
+      for (const f of job.gone) f();
       continue;
     }
     try {

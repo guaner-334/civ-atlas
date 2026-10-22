@@ -5804,6 +5804,45 @@ for (const style of ['realistic', 'fantasy']) {
   if (!phone || phone.n !== fresh.length || !phone.inView) errs.push(`测试版新功能(手机):点「更多」最底下一行没换成卡片(${JSON.stringify(phone)})`);
 }
 
+// 手机上的大图和高清贴图(多占三四百 MB 内存):导出选 4096×2048 时清晰度下面多一行后果,选回 2048×1024 就没了;
+// 地球仪放大到要铺高清贴图时先不铺,顶上问一句,点「换高清」才铺
+{
+  const mc = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+  const ep = await mc.newPage();
+  ep.on('pageerror', (e) => errs.push(`手机导出大图:${e.message}`));
+  await ep.goto(`${dev.url}/?seed=7`);
+  await ep.waitForFunction(() => (window as any).__wf?.ready, null, { timeout: 60000 });
+  await ep.tap('[data-act=world-sheet]');
+  await ep.waitForTimeout(600);
+  await ep.tap('.ps-tiles .export-btn');
+  const warn = async () => ep.locator('[data-act=export-big-warn]').count();
+  const w1 = await warn();
+  await ep.tap('.export-scale button:nth-child(2)');
+  const w2 = await warn();
+  const wText = (await ep.locator('[data-act=export-big-warn]').textContent().catch(() => '')) ?? '';
+  await ep.tap('.export-scale button:nth-child(1)');
+  const w3 = await warn();
+  await ep.close();
+  const gp = await mc.newPage();
+  gp.on('pageerror', (e) => errs.push(`手机地球仪高清贴图:${e.message}`));
+  const G = () => gp.evaluate(() => (window as any).__wfGlobe);
+  await gp.goto(`${dev.url}/?seed=7&style=realistic&view=globe`);
+  await gp.waitForFunction(() => (window as any).__wfGlobe?.ready, null, { timeout: 60000 });
+  await gp.waitForTimeout(1000);
+  await gp.evaluate(() => (window as any).__wfGlobeSet(20, 20, 2.4));
+  await gp.waitForTimeout(1500);
+  const asked = await gp.locator('.toast [data-act=globe-hd]').count();
+  const g1 = await G();
+  await gp.tap('.toast [data-act=globe-hd]').catch(() => {});
+  const got = await gp.waitForFunction(() => (window as any).__wfGlobe?.tier === 2, null, { timeout: 90000 }).then(() => true, () => false);
+  const g2 = await G();
+  await mc.close();
+  console.log(`手机大图:导出提示 2048 ${w1} 行、4096 ${w2} 行、选回 ${w3} 行;地球仪放大问了 ${asked} 次,问的时候起过 ${g1?.hdStarted} 次高清,点了以后换上 ${got}(起过 ${g2?.hdStarted} 次)`);
+  if (w1 || w2 !== 1 || w3 || !wText.includes('手机上可能闪退')) errs.push(`手机导出:选 4096×2048 时清晰度下面那行后果不对(${w1} / ${w2} / ${w3},「${wText}」)`);
+  if (asked !== 1 || g1?.hdStarted !== 0) errs.push(`手机地球仪:放大时没有先问「换高清」,或者没问就铺了(问了 ${asked} 次,起过 ${g1?.hdStarted} 次)`);
+  if (!got || g2?.hdStarted !== 1) errs.push('手机地球仪:点了「换高清」没有换上高清贴图');
+}
+
 console.log('errors:', errs);
 await browser.close();
 await dev.close();

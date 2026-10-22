@@ -252,6 +252,14 @@ button.ivq-title {
 .toast-mark.ok {
   background: var(--ok);
 }
+/* 地球仪问要不要换高清(小字有两行):圆点对着第一行;小字在逗号处折行 */
+.toast[data-toast='globe-hd-ask'] .toast-mark {
+  align-self: flex-start;
+  margin-top: 8px;
+}
+.toast[data-toast='globe-hd-ask'] .toast-more {
+  word-break: keep-all;
+}
 .toast-text {
   display: flex;
   flex-direction: column;
@@ -899,6 +907,25 @@ button.primary:hover {
   padding: 4px 10px;
   font-size: 12px;
   font-variant-numeric: tabular-nums;
+}
+/* 手机上选了 4096×2048:清晰度下面一行后果(橙字,占满一行) */
+.export-scale:has(.export-warn) {
+  flex-wrap: wrap;
+  row-gap: 6px;
+  padding-bottom: 7px;
+}
+.export-warn {
+  flex-basis: 100%;
+  display: flex;
+  gap: 6px;
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--warn);
+}
+.export-warn .icon {
+  flex: none;
+  margin-top: 2px;
 }
 /* "AI 起的名字:带上 / 换回原名"(世界里有 AI 起的名字时才有)、"作者标记:带上 / 不带"(有标记时才有) */
 .export-ainames,

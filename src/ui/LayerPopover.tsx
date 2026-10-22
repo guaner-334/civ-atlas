@@ -14,6 +14,9 @@
  * 一张一张做(每张之间让出主线程),没做好的先显示占位。缓存里还没有的整张底图先分小步画好(ui/thumbPrep.ts,每段十毫秒左右
  * 就让出主线程;编辑地形后写实、手绘只重画变了的那块),不一口气占住主线程几百毫秒。
  * 换世界全部作废;历史重推(干预、改地形)只作废政区、民族、信仰三张。
+ * 编辑地形(按新地形重新生成)不作废:缩略图照旧显示涂之前的(小图上一笔几乎看不出来,也不一闪一闪地变成占位),
+ * 新地形换上地图以后停 THUMB_QUIET 毫秒没再涂,才一张张悄悄换成新的;正在涂、正在按新地形重新生成时都先不做(做了也是旧地形的),
+ * 连着涂基本不重画 —— 每张都要先画一整张底图,连着涂时一起画是内存冲高的大头。
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { World } from '../gen/world';
@@ -44,10 +47,13 @@ import './overview.css';
 import { noteDismiss } from './dismissClick';
 import { terrainPatchPending } from './terrainPatch';
 import { baseReady, dropThumbPrep } from './thumbPrep';
+import { terrainStroking } from './TerrainTools';
 
 /** 缩略图大小(显示时 88×44 左右,按两倍像素做) */
 const TW = 192;
 const TH = 96;
+/** 编辑地形:新地形换上地图以后停多久没再涂,才重画缩略图(毫秒) */
+export const THUMB_QUIET = 1500;
 
 /**
  * 调试字段(检查脚本量缩略图多久换好用):data = 最近在做 / 做完的是哪个世界的,busy = 还有没做完的。
@@ -82,6 +88,13 @@ export interface ThumbSource {
   civ: Civ | null;
   /** 取某画风的整张底图(等距圆柱,和 raster 一样大);取不到 = null */
   baseCanvas: (key: string) => HTMLCanvasElement | null;
+  /**
+   * 最近一次编辑地形(按新地形重新生成)换上的世界(和 App 的 baseData 同一个对象;之后换了别的世界 = null)。
+   * 换上它时缩略图不作废,留着涂之前的,停一会儿再重画
+   */
+  edited?: object | null;
+  /** 正在按新地形重新生成(先不重画缩略图:画出来也是旧地形的) */
+  busy?: boolean;
 }
 
 /** 缩略图:当前底图的先做,其余的按需排队做 */
@@ -126,26 +139,51 @@ export function useLayerThumbs(src: ThumbSource, current: ThumbId) {
     return url;
   };
 
+  /** 留着的旧图(编辑地形以前的):照旧显示,轮到了再重画 */
+  const stale = useRef(new Set<ThumbId>());
+  /** 编辑地形换上新地形以后,到这一刻(performance.now)之前先不重画 */
+  const quietUntil = useRef(0);
+  /** 正在涂、正在按新地形重新生成:先不做(做了也是旧地形的) */
+  const held = () => terrainStroking() || !!srcRef.current.busy;
+  /** 还要等多少毫秒才接着做(0 = 现在就做) */
+  const waitFor = (): number => {
+    // 编辑地形后新地图正在后台分小步备着(ui/terrainPatch.ts):先让地图换上再做
+    if (terrainPatchPending()) return 100;
+    const now = performance.now();
+    // 停笔多久从停下来那一刻重新算(又开始涂了就重新计时)
+    if (held()) {
+      quietUntil.current = Math.max(quietUntil.current, now + THUMB_QUIET);
+      return 100;
+    }
+    return Math.max(0, quietUntil.current - now);
+  };
+
   const pump = useCallback((delay = 30) => {
     if (timer.current !== undefined) return;
     const step = () => {
       timer.current = undefined;
-      // 编辑地形后新地图正在后台分小步备着(ui/terrainPatch.ts):先让地图换上再做
-      if (terrainPatchPending()) {
-        timer.current = setTimeout(step, 100);
-        return;
-      }
       const data = srcRef.current.data;
       const id = queue.current[0];
       if (!id) return noteThumbs(data, false);
       noteThumbs(data, true);
-      if (data && !have.current[id]) {
-        // 整张底图缓存里还没有:先在后台分小步备好(ui/thumbPrep.ts),备好了再来;换了世界就不等了(队列也重新排过)
-        const ready = baseReady(thumbKey(id), data.world, data.raster, { alive: () => srcRef.current.data === data, done: () => pump(0) });
+      const wait = waitFor();
+      if (wait > 0) {
+        timer.current = setTimeout(step, wait);
+        return;
+      }
+      if (data && (!have.current[id] || stale.current.has(id))) {
+        // 整张底图缓存里还没有:先在后台分小步备好(ui/thumbPrep.ts),备好了再来;
+        // 换了世界、又开始涂就不等了(备了一半的不要,轮到时重新备)
+        const ready = baseReady(thumbKey(id), data.world, data.raster, {
+          alive: () => srcRef.current.data === data && !held(),
+          done: () => pump(0),
+          gone: () => pump(0),
+        });
         if (!ready) return;
         const url = make(id);
         if (url) {
           have.current = { ...have.current, [id]: url };
+          stale.current.delete(id);
           setThumbs(have.current);
         }
         dropThumbPrep();
@@ -163,41 +201,56 @@ export function useLayerThumbs(src: ThumbSource, current: ThumbId) {
   const reset = useCallback(() => {
     queue.current = [];
     have.current = {};
+    stale.current.clear();
     haveFor.current = srcRef.current.data;
     setThumbs({});
   }, []);
+  /** 已经认过的那一次编辑地形的结果(同一次只认一回:之后同一个地形换段这类还是全部作废) */
+  const editSeen = useRef<object | null>(null);
+  /** 地图上换了世界:编辑地形换上的新地形,做好的留着(记成过时,停够了再重画);别的全部作废 */
+  const renew = useCallback(() => {
+    const { data, edited = null } = srcRef.current;
+    const keep = !!data && !!haveFor.current && !!edited && edited !== editSeen.current;
+    editSeen.current = edited;
+    if (!keep) return reset();
+    queue.current = [];
+    haveFor.current = data;
+    for (const id of Object.keys(have.current) as ThumbId[]) stale.current.add(id);
+    quietUntil.current = performance.now() + THUMB_QUIET;
+  }, [reset]);
 
-  /** 把这几张排进队(已有的、已排着的跳过) */
+  /** 把这几张排进队(已有的、已排着的跳过;留着的旧图照样排) */
   const request = useCallback(
     (ids: ThumbId[]) => {
-      // 子组件的 effect 比下面换世界的 effect 先跑:这时缓存还是上一个世界的,先作废再排
-      if (haveFor.current !== srcRef.current.data) reset();
-      for (const id of ids) if (!have.current[id] && !queue.current.includes(id)) queue.current.push(id);
+      // 子组件的 effect 比下面换世界的 effect 先跑:这时缓存还是上一个世界的,先作废(或记成过时)再排
+      if (haveFor.current !== srcRef.current.data) renew();
+      for (const id of ids) if ((!have.current[id] || stale.current.has(id)) && !queue.current.includes(id)) queue.current.push(id);
       pump();
     },
-    [pump, reset],
+    [pump, renew],
   );
 
-  // 换世界:全部作废(request 已经作废过就不再清,不然刚排上的又没了);文明重推:政区、民族、信仰作废
+  // 换世界:全部作废(request 已经作废过就不再清,不然刚排上的又没了);编辑地形:留着旧的;文明重推:政区、民族、信仰作废
   const { data, civ } = src;
   useEffect(() => {
-    if (haveFor.current !== data) reset();
-  }, [data, reset]);
+    if (haveFor.current !== data) renew();
+  }, [data, renew]);
   const civSeen = useRef<Civ | null>(null);
   useEffect(() => {
     if (civSeen.current && civSeen.current !== civ) {
       const next = { ...have.current };
-      delete next.political;
-      delete next.cultures;
-      delete next.faith;
+      for (const id of ['political', 'cultures', 'faith'] as const) {
+        delete next[id];
+        stale.current.delete(id);
+      }
       have.current = next;
       setThumbs(next);
     }
     civSeen.current = civ;
   }, [civ]);
-  // 当前底图的缩略图(底图按钮上用):世界出来、画好以后过一会儿做
+  // 当前底图的缩略图(底图按钮上用):世界出来、画好以后过一会儿做(编辑地形留着的旧图同样重画,停够了才做)
   useEffect(() => {
-    if (!data || thumbs[current]) return;
+    if (!data || (thumbs[current] && !stale.current.has(current))) return;
     const t = setTimeout(() => request([current]), 700);
     return () => clearTimeout(t);
   }, [data, civ, current, thumbs, request]);
