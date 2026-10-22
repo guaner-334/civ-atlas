@@ -99,7 +99,7 @@ function ranked(n: Map<number, number>): [number, number][] {
 }
 
 /** 一国最后的年份:亡了 = 亡国前一刻;还在 = 最后一年 */
-export function polityLastYear(civ: Civ, p: Polity): number {
+export function polityLastYear(civ: Pick<Civ, 'endYear'>, p: Polity): number {
   return p.ended !== undefined ? Math.max(p.founded, Math.min(civ.endYear, p.ended - 1 / 512)) : civ.endYear;
 }
 
