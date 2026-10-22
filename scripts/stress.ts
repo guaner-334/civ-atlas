@@ -175,6 +175,9 @@ for (const c of cases) {
     const grid = sketchGrid(sketch);
     // 改过地形的世界要原来星球(参数 + 草图)的扩张节拍:和 worker 一样事先记下(新建时先生成的就是没改的星球),不算进耗时
     const tempo = terrain ? (planetTempo({ ...DEFAULT_PARAMS, ...pc, seed }, undefined, grid) ?? null) : undefined;
+    // 改过地形 / 画过草图的世界,山海湖岛的地名照没改过的星球起(gen/civ/index.ts 的 nameRefOf):worker 里新建时先推的就是没改的星球,
+    // 那时已经记下了;这里也先推一遍没改的星球(推到第 0 年就够),不算进耗时
+    if (terrain || grid) generateCiv(generateWorld({ ...DEFAULT_PARAMS, ...pc, seed }), { endYear: 0 });
     const t0 = performance.now();
     const w = generateWorld({ ...DEFAULT_PARAMS, ...pc, seed }, undefined, terrain, grid);
     const t1 = performance.now();
