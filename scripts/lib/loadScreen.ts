@@ -57,7 +57,8 @@ export const LOAD_STYLE =
   '#ld button.go{background:var(--a);color:#fff}' +
   '#ld.out{opacity:0;pointer-events:none}' +
   '@media (max-width:600px){#ld svg{width:56px;height:56px}#ld b{font-size:20px}#ld i{width:160px}#ld small{font-size:13px}#ld button{height:40px;padding:0 20px;font-size:15px}}' +
-  '@media (prefers-reduced-motion:reduce){#ld,#ld>*,#ld s{transition:none;animation:none}}';
+  // 减少动态效果:不淡入淡出、进度条不滑;图标和字照样等 0.4 秒再出来(一下子出来,网快的照样只看到底色)
+  '@media (prefers-reduced-motion:reduce){#ld,#ld s{transition:none}#ld>*{animation-duration:0s}}';
 
 /**
  * 加载画面那一块:网站图标(就是 public/favicon.svg,里面的 id 换个前缀免得和页面上的撞)、网站名、进度条、慢了以后的说明。
