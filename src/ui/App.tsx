@@ -4037,14 +4037,19 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
     if (sel && !sameSelection(sel, getSelection().sel)) {
       momentCam.current = rm.camera ?? null;
       setSelection(sel);
-    } else if (rm.camera) flyCamera(rm.camera);
+      return;
+    }
+    // 分享的人那时没选中东西(或者对不上):这边原来选着的也收起来(地址栏里又贴了一个链接、还是这张图时会留着)
+    if (!sel) clearSelection();
+    if (rm.camera) flyCamera(rm.camera);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, rawCiv, box.w, stageSize.w, resim, momentTick]);
   /** 复制分享链接时的"这一刻":时间轴那一年、选中的国家或州(withSelection)、镜头 */
   const momentRef = useRef<(withSelection: boolean) => MomentNow | null>(() => null);
   momentRef.current = (withSelection) => {
     const c = civ;
-    if (!c || !c.viable || !shownRaw || !dataRef.current || getStage().stage !== 'world') return null;
+    // 助手"先在地图上看看"时,地图上是试推演的历史,存档里还是原来的:不带这一刻(年份、国家对不上)
+    if (!c || !c.viable || !shownRaw || previewRaw || !dataRef.current || getStage().stage !== 'world') return null;
     const year = Math.min(c.endYear, Math.max(0, getCivTime().year ?? c.endYear));
     const moment: SaveMoment = { year };
     let name: string | null = null;

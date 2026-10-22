@@ -106,7 +106,7 @@ export const LONG_HINT = '链接较长，可能打不开，建议存成文件';
 
 /**
  * 分享链接的网址部分:种子、参数、图层……照当前网址,带上生成器版本;去掉只在这个浏览器里有意义的世界编号、
- * 别人的分享短链接的码(那个分享停了,链接就打不开了)。
+ * 别人的分享短链接的码(那个分享停了,链接就打不开了)、看哪一年(civYear=;停在哪一年由「停在这一刻」管)。
  * 网址带的版本比这个页面新(页面是旧的,还没刷新)就照留,别人打开还知道是新版本的世界
  */
 export function shareBase(): string {
@@ -114,6 +114,7 @@ export function shareBase(): string {
   q.delete('w');
   q.delete('new');
   q.delete('s');
+  q.delete('civYear');
   const g = Number(q.get(GEN_KEY));
   if (!(Number.isInteger(g) && g > GENERATOR_VERSION)) q.set(GEN_KEY, String(GENERATOR_VERSION));
   const s = q.toString();

@@ -12,7 +12,8 @@
  *            底下一句说进去以后这些都还能改
  *
  * 朋友的预设链接(presetLink.ts)打开的:直接到第 2 步(随机生成),参数照链接填好;第 2 步标题下面那句换成一条浅蓝
- * "朋友分享的预设「…」，参数已经照它填好",右边「存进我的预设…」(打开「存成预设」小窗,名字先填好;不点不存)。
+ * "朋友分享的预设「…」，参数已经照它填好",右边「存进我的预设…」(打开「存成预设」小窗,名字先填好;存的是分享来的那一套,
+ * 弹窗里后来改过的不算;不点不存)。
  *
  * 点「开始」才交给 App(存下没建完的世界、进新建界面;照图的把读好的图交过去,进去直接是第 1 步「认出海陆」)。
  * 首页上点的「开始」、地图程序还没下完(wait):按钮变成转圈 +「准备中」,旁边一句下了多少,下好就自动开始;
@@ -551,8 +552,8 @@ export function NewWorldDialog(p: NewWorldDialogProps) {
     p.shared &&
     createPortal(
       <SavePreset
-        params={params}
-        endYear={years}
+        params={{ ...p.shared.params, seed: p.shared.seed ?? params.seed }}
+        endYear={p.shared.endYear}
         initial={{ name: p.shared.name, withSeed: p.shared.seed !== undefined }}
         onSaved={() => setKept(true)}
         onClose={() => setKeepOpen(false)}
