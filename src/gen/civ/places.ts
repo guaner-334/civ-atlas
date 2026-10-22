@@ -22,7 +22,8 @@
  *
  * **改过地形的世界沿用没改过时的地名**(PlaceNaming.ref):改地形以后历史重推,远处民族的分布、语感也会跟着变,
  * 按当地民族起的名字就会跟着换;所以同一处地方(同一类、锚点离得够近)照没改过地形的同一颗星球上的名字,
- * 只有新冒出来、挪得太远的地方才照常起名。
+ * 只有新冒出来、挪得太远的地方才照常起名。显示档也照着:同一处地方、大小差不多的,不低于没改过时
+ * (山、河的显示档按排在第几取,别处涂出一道大山、多出一条长河,远处的山名、河名不因此从总览里退下去)。
  *
  * Place.rank:1 = 总览就显示;2 = 放大到约 1.8 倍显示;3 = 放大到约 3 倍显示(见 render/civ/labels.ts)。
  */
@@ -61,6 +62,8 @@ export interface NameRef {
   y: number;
   /** Place.size */
   size: number;
+  /** Place.rank(显示档) */
+  rank: number;
   name: string;
   latin?: string;
   /** 按哪种语感起的(海 = '');起名的那个民族发源州的治所地块(-1 = 没有) */
@@ -78,6 +81,7 @@ export function nameRefs(world: World, places: readonly Place[], cultures: reado
       x: x[p.cell!],
       y: y[p.cell!],
       size: p.size ?? 0,
+      rank: p.rank,
       name: p.name,
       style: cu?.style ?? '',
       hearth: cu && cu.hearth >= 0 ? regions.seat[cu.hearth] : -1,
@@ -470,8 +474,10 @@ function nameAll(ns: Namers): void {
  * 照着沿用(PlaceNaming.ref):找到的地理实体里和 ref 是同一处地方的(pairUp),名字、拉丁原形照 ref,先占上
  * (稳定键照旧按现在的锚点地块:和以前一样,存档里用户改过的名字照样套得上)。
  * 民族:现在还有同一处发源、语感也一样的民族就记它,不然当地(计划中的疆域)的民族语感一样就记当地的,都不是 = -1(名字是沿用下来的,不算哪个民族起的)。
+ * 显示档:大小(Place.size)不小于 ref 的 KEEP_RANK_SIZE 倍的,显示档不低于 ref 的(只往上提,不往下压)。
  * 配上的从待起名里拿掉,剩下的由 nameAll 照常起名(撞上沿用的名字就换下一个候选)
  */
+const KEEP_RANK_SIZE = 0.8;
 function inherit(world: World, regions: Regions, naming: PlaceNaming, ns: Namers, ref: readonly NameRef[]): void {
   const { x, y } = world.mesh;
   const next = ns.pending.map(({ p }) => ({ kind: p.kind, x: x[p.cell!], y: y[p.cell!], size: p.size ?? 0 }));
@@ -482,6 +488,7 @@ function inherit(world: World, regions: Regions, naming: PlaceNaming, ns: Namers
     const { p } = ns.pending[j];
     p.name = r.name;
     if (r.latin !== undefined) p.latin = r.latin;
+    if (r.rank < p.rank && (p.size ?? 0) >= r.size * KEEP_RANK_SIZE) p.rank = r.rank;
     let cu = -1;
     if (r.style && cultures) {
       const same = cultures.find((c) => c.style === r.style && c.hearth >= 0 && regions.seat[c.hearth] === r.hearth);

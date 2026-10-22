@@ -327,6 +327,13 @@
  *  25:改过地形(地形修改或草图)的世界,山海湖岛的地名同一处地方沿用没改过地形时的那一份(civ/index.ts 的 nameRefOf):
  *      改一处以后历史重推,远处民族的分布、语感会变,地名不再跟着换;各类地名的名额满了,也不把没改过时就有的挤掉(places.ts 的 withinQuota)。
  *      没改地形的世界和 24 逐字节相同;改过地形的世界地形、历史不变,默认的地名换了。
+ *  26:改过地形(地形修改或草图)的世界,侵蚀高度换算成米时远处照没改地形的同一颗星球的"最高峰"(world.ts 的 planetOf),
+ *      草图涂过的地方照这个世界自己的、往外几圈平滑过渡;山名、山峰符号的门槛("最高海拔")也照那颗星球的。
+ *      沿用没改过时的地名时显示档也不低于没改过时(civ/places.ts 的 inherit)。
+ *      涂一道高山,远处的山不再跟着变矮、山名不再消失(也不再从总览里退下去)。带地形大事的世界,大事那一刻接着推也和一口气推完一样
+ *      (当过国都的城照样补立国、定居时预约的建城照样补、同一刻撞上的几件按预约先后排;civ/sim.ts 的 fromCiv)。
+ *      没改地形、没有地形大事的世界和 25 逐字节相同;改过地形的世界地形有局部变化(画过草图的变得多)、历史重新推演,
+ *      带地形大事的世界历史重新推演(大事以后的地形也可能有一点变化)。
  */
 import type { Civ, Culture, Faith, Person, Place, Polity, Regions, RulerLeanings, Settlement } from './civ/types';
 import type { AuthorCharacter } from './characters';
@@ -338,7 +345,7 @@ import type { Era } from './era';
 import type { Frontier, Origins } from './civ/frontier';
 
 /** 生成器版本:生成算法有改动、同种子会得到不同世界时加一(存档读档时核对);加一时在 GENERATOR_CHANGES 里补一条 */
-export const GENERATOR_VERSION = 25;
+export const GENERATOR_VERSION = 26;
 
 /**
  * 一版生成器的改动有多大(从小到大):打开旧存档、旧链接时,按跨过的几版里最大的那一种说清变了什么(savefile.ts 的 versionNote)
@@ -352,8 +359,11 @@ export const GENERATOR_VERSION = 25;
  */
 export type GeneratorChange = 'names' | 'chronicle' | 'routes' | 'history' | 'climate' | 'terrain' | 'planet';
 
-/** 每一版(加到这个号时)改了什么;edited = 只有改过地形的世界变了,没改地形的和上一版一样 */
-export const GENERATOR_CHANGES: Readonly<Record<number, { change: GeneratorChange; edited?: true }>> = {
+/**
+ * 每一版(加到这个号时)改了什么;edited = 只有改过地形(地形修改、草图)的世界变了,没改地形的和上一版一样;
+ * upheavals = (和 edited 一起给)带地形大事、没改过地形的世界也变了,按这种改动说
+ */
+export const GENERATOR_CHANGES: Readonly<Record<number, { change: GeneratorChange; edited?: true; upheavals?: GeneratorChange }>> = {
   2: { change: 'names' },
   3: { change: 'terrain' },
   4: { change: 'planet' },
@@ -378,6 +388,7 @@ export const GENERATOR_CHANGES: Readonly<Record<number, { change: GeneratorChang
   23: { change: 'history' },
   24: { change: 'routes' },
   25: { change: 'names', edited: true },
+  26: { change: 'terrain', edited: true, upheavals: 'terrain' },
 };
 
 /** 干预的种类(见文件头的表) */

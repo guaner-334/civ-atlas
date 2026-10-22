@@ -91,6 +91,12 @@ export interface Tectonics {
    * 随意发挥、没画草图 = 不给
    */
   sketched?: Uint8Array;
+  /**
+   * 草图改过的地块(画了草图才有):涂过的、山地 / 丘陵 / 高原笔晕开到的、海陆被草图改了的。
+   * 值 2 = 草图涂上去以前是陆地,1 = 以前是海,0 = 没改过。world.ts 换算海拔取"最高峰"时跳过它们(和改地形改过的地块一样),
+   * 涂一道山不把全世界别处的山压矮
+   */
+  sketchTouched?: Uint8Array;
   /** 作者关掉了"板块相撞时造山"(world.ts 换算海拔时"最高峰"同样加下限,平地不被拉成高山);开着 = 不给 */
   noOrogeny?: true;
 }
@@ -865,7 +871,10 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
   let skHills: Float32Array | null = null;
   let skPlat: Float32Array | null = null;
   let sk: Uint8Array | null = null;
+  /** 草图涂上去以前的海陆(画了草图才记;下面凿通 / 填平封闭内海以后就是不画草图时的海陆) */
+  let landPre: Uint8Array | null = null;
   if (sketchPainted(sketch)) {
+    landPre = land.slice();
     // 每个地块在扭过的位置上取草图的值
     sk = new Uint8Array(n);
     const cp = clamp(sketch.coast, 0, 1);
@@ -964,6 +973,17 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
   }
   connectInlandSeas(mesh, land, protect, !!sketch?.noNewLand);
   dropDetached();
+  // 草图改过的地块:涂过的、山地 / 丘陵 / 高原晕开到的、海陆和不画草图时不一样的
+  // (不画草图时的海陆 = 草图涂上去以前的海陆照样凿通 / 填平封闭内海;挨着涂过的地方没被填平的内海、不长新陆地时沉回海里的都算)
+  let sketchTouched: Uint8Array | null = null;
+  if (sk && landPre) {
+    connectInlandSeas(mesh, landPre, null, false);
+    sketchTouched = new Uint8Array(n);
+    for (let i = 0; i < n; i++) {
+      const hit = sk[i] !== SKETCH_NONE || land[i] !== landPre[i] || (skMtn !== null && skMtn[i] > 0) || (skHills !== null && skHills[i] > 0) || (skPlat !== null && skPlat[i] > 0);
+      if (hit) sketchTouched[i] = landPre[i] ? 2 : 1;
+    }
+  }
 
   // ---- 5. 海底深度 ----
   const coastSrc: number[] = [];
@@ -1092,6 +1112,7 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
     uplift,
     plateau,
     ...(fixed ? { sketched: fixed } : {}),
+    ...(sketchTouched ? { sketchTouched } : {}),
     ...(orogeny ? {} : { noOrogeny: true as const }),
   };
 }

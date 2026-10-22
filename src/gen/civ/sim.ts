@@ -434,12 +434,6 @@ export class CivSim {
   private seq = 0;
   /** 接着推时各层补上的、同一刻里按预约先后排的事件(fromCiv 补完以后按一口气推时的预约先后放进事件堆,见 releaseHeld);平常 = null */
   private held: HeldEvent[] | null = null;
-  /**
-   * 早先的接法(地形大事那一刻接着推时用,见 index.ts):补上的事件同一刻里按补的先后排、当过国都的城不再补它的立国、
-   * 有过城的州不再补定居时预约的建城。
-   * 带地形大事的世界一直是这样推出来的,沿用它,同一个种子的这类世界不变
-   */
-  legacy = false;
 
   private handlers: (EventHandler | undefined)[] = [];
   private watch = new Uint8Array(256);
@@ -460,11 +454,10 @@ export class CivSim {
    * 然后就能从 civ.endYear 接着推:sim.run(更晚的年份)。不需要保存事件堆,阶段 4 的存档也只存 Civ。
    * interventions = 接着推时带着的干预(阶段 4;默认 = 这份历史推出来时带着的 civ.interventions):
    * 已经过了的只影响之后的决定(规则),还没到的补上它们的事件。后面可以接上几条比 civ.endYear 晚的(逐年推演时下的新命令,civ/play.ts)。
-   * first = 最先预约的事件(地形大事);legacy = 早先的接法(见 CivSim.legacy;地形大事那一刻接着推时用)
+   * first = 最先预约的事件(地形大事那一刻接着推时:大事本身)
    */
-  static fromCiv(world: World, civ: Civ, interventions: readonly Intervention[] = civ.interventions ?? [], first?: (sim: CivSim) => void, legacy = false): CivSim {
+  static fromCiv(world: World, civ: Civ, interventions: readonly Intervention[] = civ.interventions ?? [], first?: (sim: CivSim) => void): CivSim {
     const sim = new CivSim(civ.regions.count);
-    sim.legacy = legacy;
     sim.owners[Layer.Culture].set(civ.culture);
     sim.owners[Layer.Polity].set(civ.polity);
     sim.log = LogBuffer.from(civ.log);
@@ -483,7 +476,7 @@ export class CivSim {
       const iv = scheduleInterventions(sim, civ.seed, interventions, true);
       // 各层补上的"按预约先后排"的事件先攒着,补完按一口气推时预约的时刻排好再放进事件堆(见 schedule 的 booked)。
       // 干预在一口气推时最先预约(generateCiv 里装各层之前),这里也在攒之前直接放进去,同一刻里排在补上的事件前面
-      if (!legacy) sim.held = [];
+      sim.held = [];
       // 地形大事以后补备的新民族(干预立国用):国家那一层也要认得它们(民族表接在后面)
       const extra = resumeCultures(sim, world, civ, interventions);
       resumePolities(sim, world, extra.length ? { ...civ, cultures: [...civ.cultures, ...extra] } : civ, iv);

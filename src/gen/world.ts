@@ -8,9 +8,10 @@
  * 火山、山脉、抬起 / 沉下在侵蚀之前改抬升场和海陆,湖在"随机洼地"那一步挖;之后照常侵蚀、排水、算气候。
  * 作者画过草图(新建世界时「画大陆和海」,sketch = gen/sketch.ts 的 sketchGrid 涂成的格子图)时,在板块定海陆那一步照草图改
  * (tectonics.ts 的 4b 步),山地格加抬升;草图里改过板块(plates)的,在板块那一步套上(tectonics.ts 的 2b 步);地形修改再套在草图长出来的星球上。
+ * 改过地形的世界换算成米时远处照没改地形的同一颗星球(planetOf),改一处不把别处的山压矮。
  * 没有地形修改、没有草图时结果逐字节不变。
  */
-import { buildMesh, type Mesh } from './mesh';
+import { blurField, buildMesh, type Mesh } from './mesh';
 import { buildTectonics, type Tectonics } from './tectonics';
 import { erode, drainage, accumulate } from './erosion';
 import { computeClimate, type ClimateParams } from './climate';
@@ -53,6 +54,8 @@ const LAKE_ISLET = 6;
 /** 草图只补细节 / 完全照画时"最高峰"下限里普通世界高山的抬升:REF_FLOOR_U + REF_FLOOR_MTN_U × 山地参数(和 tectonics.ts 里碰撞带的山同一量级) */
 const REF_FLOOR_U = 0.13;
 const REF_FLOOR_MTN_U = 1.65;
+/** 草图涂过的地方换算成米的比例往外过渡几圈(growTerrain 的 blend):几圈以外和没画草图的同一颗星球一样 */
+const BLEND_PASSES = 4;
 
 /** 年均温低于这个(°C)的陆地是冰盖(和 biomes.ts 的冰原同一条线):雪不化成河 */
 export const ICE_SHEET_T = -9;
@@ -104,6 +107,10 @@ export interface World {
   rivers: River[];
   /** 侵蚀过程快照(米),用于"看世界长出来"回放 */
   history: Float32Array[];
+  /**
+   * 最高海拔(米),山名、山峰符号的门槛按它定:陆地的最高处;改过地形、画了草图的世界(草图改了板块的除外)
+   * 照没改地形的同一颗星球的,在一处堆高、把最高的山压平都不改别处的门槛
+   */
   maxElevation: number;
   /** 作者放的火山(阶段 4 改地形):每座的峰顶地块,手绘风画火山符号;没有 = 空 */
   volcanoes: number[];
@@ -135,8 +142,15 @@ export interface TerrainBase {
   history: Float32Array[];
   /** 侵蚀之前改过的地块(applyTerrainTectonics 的 touched) */
   touched: Uint8Array | null;
+  /**
+   * 陆地最高处(米):改过地形的世界(侵蚀之前的地形修改、草图;草图改了板块的除外)= 没改地形的同一颗星球的(planetOf),
+   * 不然 = 这一半自己的。改过地形、只用了高度笔的世界的最高海拔(World.maxElevation)照它
+   */
+  peak: number;
   /** 海拔 60 米以上的陆地块数(太大的湖按它定) */
   highLand: number;
+  /** 侵蚀高度换算成米时每一次用的"最高峰"(按先后;没改地形的世界记下的给改过地形的同一颗星球用,见 planetOf) */
+  refs: number[];
 }
 /** 记着上一次生成的前一半(worker 里一个世界一份) */
 export interface BaseCache {
@@ -157,15 +171,52 @@ const sameSketchGrid = (a: Sketch | null, b: Sketch | null) =>
     a.grid.length === b.grid.length &&
     a.grid.every((v, i) => v === b.grid[i]));
 
+/** 没改地形的星球:换算成米用的"最高峰"(TerrainBase.refs)、陆地最高处(TerrainBase.peak) */
+interface Planet {
+  refs: number[];
+  peak: number;
+}
+/** 按参数记最近几颗(planetOf) */
+const planetMemo = new Map<string, Planet>();
+const PLANET_MEMO = 4;
+
+/** 陆地最高处(米;没有陆地 = 0) */
+function landPeak(land: Uint8Array, elevation: Float32Array): number {
+  let m = 0;
+  for (let i = 0; i < land.length; i++) if (land[i] && elevation[i] > m) m = elevation[i];
+  return m;
+}
+
+/**
+ * 同样的参数、没改地形(没有地形修改、没画草图)的那颗星球:侵蚀高度换算成米时每一次用的"最高峰"(TerrainBase.refs)、
+ * 陆地最高处。改过地形的世界远处照它换算(growTerrain),和这颗星球逐位一样高,最高海拔也照它;
+ * 按参数记着,编辑地形时涂第二笔起不再重算。mesh = 改过地形的世界已经撒好的地块(同样的参数撒出来的一样,省得再撒一遍)
+ */
+function planetOf(p: WorldParams, mesh: Mesh, climateP: ClimateParams): Planet {
+  const key = baseKeyOf(p, []);
+  let planet = planetMemo.get(key);
+  if (planet) {
+    planetMemo.delete(key);
+  } else {
+    const b = growTerrain(p, null, [], climateP, () => {}, key, mesh);
+    planet = { refs: b.refs, peak: b.peak };
+    if (planetMemo.size >= PLANET_MEMO) planetMemo.delete(planetMemo.keys().next().value!);
+  }
+  planetMemo.set(key, planet);
+  return planet;
+}
+
 /** 前一半(见 TerrainBase):ops 只给侵蚀之前套的那几种 */
-function growTerrain(p: WorldParams, sk: Sketch | null, ops: readonly TerrainOp[], climateP: ClimateParams, progress: Progress, key: string): TerrainBase {
+function growTerrain(p: WorldParams, sk: Sketch | null, ops: readonly TerrainOp[], climateP: ClimateParams, progress: Progress, key: string, meshIn?: Mesh): TerrainBase {
   const W = MAP_W;
   const H = MAP_H;
 
   progress('撒下地块', 0.02);
   const spacing = sphereSpacing(W, p.cells);
-  const mesh = buildMesh(W, H, spacing, mulberry32(subSeed(p.seed, 'mesh')));
+  const mesh = meshIn ?? buildMesh(W, H, spacing, mulberry32(subSeed(p.seed, 'mesh')));
   const { n } = mesh;
+  /** 改过地形(侵蚀之前的地形修改、草图;草图改了板块的不算 —— 整颗星球都变了,照它自己的换算) */
+  const edited = (ops.length > 0 || !!sk) && !sk?.plates;
   const geo = geometryOf(mesh);
 
   progress('板块漂移', 0.12);
@@ -177,6 +228,19 @@ function growTerrain(p: WorldParams, sk: Sketch | null, ops: readonly TerrainOp[
   /** 改过的地块里原来是陆地的有几块(换算成米时当作排在最低处,见 toMeters) */
   let touchedLand = 0;
   if (touched && land0) for (let i = 0; i < n; i++) if (touched[i] && land0[i]) touchedLand++;
+  // 草图改过的地块(tect.sketchTouched)
+  const skTouched = tect.sketchTouched;
+  // 改过地形的世界换算成米:远处照没改地形的同一颗星球的"最高峰"(planet),草图涂过的地方照这个世界自己的(和以前一样,
+  // 涂的高山不会高得离谱),中间几圈平滑过渡(blend:涂过的 1,往外几圈降到 0)。涂一道山,远处的山不跟着变矮
+  const planet = edited ? planetOf(p, mesh, climateP) : null;
+  let blend: Float32Array | null = null;
+  if (planet && skTouched) {
+    const f = new Float32Array(n);
+    for (let i = 0; i < n; i++) if (skTouched[i]) f[i] = 1;
+    const b = blurField(mesh, f, BLEND_PASSES);
+    blend = new Float32Array(n);
+    for (let i = 0; i < n; i++) blend[i] = f[i] ? 1 : smoothstep(0, 0.5, b[i]);
+  }
 
   // ---- 侵蚀 ----
   const h = new Float32Array(n);
@@ -212,6 +276,20 @@ function growTerrain(p: WorldParams, sk: Sketch | null, ops: readonly TerrainOp[
     const ref = vals[Math.max(0, Math.min(m - 1, Math.floor((m + skip) * 0.997) - skip))] || 1;
     return tect.sketched || tect.noOrogeny ? Math.max(ref, reliefFloor(hh)) : ref;
   };
+  /** 每一次换算用的"最高峰"(按先后记下;没改地形的世界记下的就是这颗星球的,改过地形的世界远处照它换算,见 planetOf) */
+  const refs: number[] = [];
+  /**
+   * 第几次换算的比例(侵蚀高度 × 它 = 米):own = 照这个世界自己的"最高峰",far = 远处的(没改地形 = own;改过地形 = 没改地形的同一颗星球那一次的)。
+   * 每个地块的比例 = far 往 own 按 blend 过渡(scaleAt)
+   */
+  const scaleOf = (hh: Float32Array, pk: number) => {
+    const ref = refOf(hh);
+    const c = refs.length;
+    refs.push(ref);
+    const own = pk / ref;
+    return { own, far: planet && c < planet.refs.length ? pk / planet.refs[c] : own };
+  };
+  const scaleAt = (s: { own: number; far: number }, i: number) => (blend ? s.far + (s.own - s.far) * blend[i] : s.far);
   /**
    * 草图只补细节 / 完全照画、或者关掉了板块相撞时造山时"最高峰"的下限:涂过的地方抬升很低,涂满了陆地、别处没有程序的山时,
    * 第 99.7% 那一名就是平地,换算会把平地拉成几千米的高山。下限 = 有山的世界里最高峰大约有多高:
@@ -229,7 +307,7 @@ function growTerrain(p: WorldParams, sk: Sketch | null, ops: readonly TerrainOp[
    * 侵蚀高度 → 米。pk = 这一刻的"最高峰"(回放时从矮到高长);高原底座(base,米)按同样的进度一起长高
    */
   const toMeters = (hh: Float32Array, pk: number, base: Float32Array = plateau) => {
-    const s = pk / refOf(hh);
+    const sc = scaleOf(hh, pk);
     const knee = pk * 0.85;
     const grow = pk / peak;
     const out = new Float32Array(n);
@@ -239,7 +317,7 @@ function growTerrain(p: WorldParams, sk: Sketch | null, ops: readonly TerrainOp[
         continue;
       }
       // 超过"膝点"的极高峰压缩一半:避免出现离谱的万米高峰
-      const e = hh[i] * s + base[i] * grow;
+      const e = hh[i] * scaleAt(sc, i) + base[i] * grow;
       out[i] = e > knee ? knee + (e - knee) * 0.45 : e;
     }
     return out;
@@ -277,13 +355,16 @@ function growTerrain(p: WorldParams, sk: Sketch | null, ops: readonly TerrainOp[
   // 沿水流往下游,底座不高于上游(加上地形本身的落差)—— 底座不会把河堵成一串湖;
   // 从低地流进高原的河在高原上切出一道峡谷。只看上游,改地形时远处不受影响
   const flow = drainage(mesh, land, h, 1e-5);
-  const sFinal = peak / refOf(h);
+  const sFinal = scaleOf(h, peak);
   const base = plateau.slice();
   for (let a = flow.orderLen - 1; a >= 0; a--) {
     const i = flow.order[a];
     const r = flow.receiver[i];
     if (r < 0 || !land[r]) continue;
-    const lim = base[i] + (flow.filled[i] - flow.filled[r]) * sFinal;
+    // 草图涂过的地方往外过渡的那几圈,上下游换算成米的比例不一样:各按各的(比例一样时照原来的算法,逐位不变)
+    const si = scaleAt(sFinal, i);
+    const sr = scaleAt(sFinal, r);
+    const lim = si === sr ? base[i] + (flow.filled[i] - flow.filled[r]) * si : base[i] + flow.filled[i] * si - flow.filled[r] * sr;
     if (base[r] > lim) base[r] = lim;
   }
   // 回放帧补上同样的峡谷(每帧的底座长到了那一刻的比例 histGrow)
@@ -331,7 +412,8 @@ function growTerrain(p: WorldParams, sk: Sketch | null, ops: readonly TerrainOp[
       elevation[i] -= depth * Math.exp(-geo.near2(i, c, r3) / (r * r));
     }
   }
-  return { key, sketch: sk && { ...sk, grid: sk.grid.slice() }, mesh, tect, elevation, history, touched, highLand };
+  const top = planet ? planet.peak : landPeak(land, elevation);
+  return { key, sketch: sk && { ...sk, grid: sk.grid.slice() }, mesh, tect, elevation, history, touched, peak: top, highLand, refs };
 }
 
 /**
@@ -543,11 +625,11 @@ export function generateWorld(params: WorldParams, progress: Progress = () => {}
   // ---- 生物群落 ----
   progress('生物群落', 0.9);
   const biome = new Uint8Array(n);
-  let maxElevation = 0;
-  for (let i = 0; i < n; i++) {
-    biome[i] = classifyBiome(clim.temperature[i], clim.precipitation[i], water[i], seaIce[i]);
-    if (land[i] && elevation[i] > maxElevation) maxElevation = elevation[i];
-  }
+  for (let i = 0; i < n; i++) biome[i] = classifyBiome(clim.temperature[i], clim.precipitation[i], water[i], seaIce[i]);
+  // 最高海拔(山名、山峰符号的门槛按它定):改过地形、画了草图的世界(草图改了板块的除外)照没改地形的同一颗星球的
+  // (TerrainBase.peak;后一半只挖湖、填洼地、把海平面以下的垫平,陆地最高处不变),涂一道高山、放一座大火山、
+  // 用高度笔堆高、把最高的山压平都不改远处山名、山峰符号的门槛
+  const maxElevation = (ops.length > 0 || sk) && !sk?.plates ? base.peak : landPeak(land, elevation);
 
   return {
     params: p,
