@@ -353,6 +353,8 @@ function finishCiv(x: Finish): Civ {
     log,
     regionCount: fin.regions.count,
     ...(facts.length ? { upheavals: facts } : {}),
+    // 生效了的即位(作者立的君主)、作者下令的仗由史事 intervene + 干预列表认(和推演里同一份在位表)
+    ...(x.interventions ? { interventions: x.interventions } : {}),
   }); // ⑥ people.ts(君主、统帅、宗室、名臣)
 
   const civ: Civ = {

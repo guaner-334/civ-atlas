@@ -111,7 +111,7 @@ export function stepwiseToNormal(edits: WorldEdits): WorldEdits | null {
 
 /**
  * 一条干预在这份历史里怎么样了:'later' = 还没到那一年(from 比 civ.endYear 晚);'done' = 生效了;
- * 'void' = 到了那一年但没生效,why = 原因("那一年某国已亡""某国第 812 年才立国""新历史里没有这个国家"……)。
+ * 'void' = 到了那一年但没生效,why = 原因("那一年某国已亡""某国第 812 年才立国""新历史里没有这个国家";即位还有"他第 1520 年才出生"……)。
  * annal = 它那条史事 intervene 在 civ.annals 里的下标(对象不在、连史事都没记 = −1)。i = 在 civ.interventions 里的下标
  */
 export type InterventionFate = { state: 'later' } | { state: 'done'; annal: number } | { state: 'void'; annal: number; why: string };

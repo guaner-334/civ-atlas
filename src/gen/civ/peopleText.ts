@@ -246,9 +246,12 @@ export function rulerFateWord(civ: Civ, x: Person): string {
     case 'merged':
       return '国并入他国';
     case 'retired':
-      return '任满';
+      // 作者立的君主到期下台(生死归人物卡管)
+      return x.author !== undefined && p.lineage !== 'republic' ? '退位' : '任满';
     case 'battle':
       return '战死';
+    case 'yielded':
+      return '让位';
   }
 }
 

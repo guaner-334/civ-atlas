@@ -850,6 +850,17 @@ function interveneStory(civ: Civ, e: Annal, id: number): IvStory {
       if (cu && cu.pioneer === e.war && cu.hearth === e.region && cu.born === y) return done(`${R}本无人居,${cu.name}人徙居于此,立国,号${A}${seat}`);
       return done(e.b >= 0 ? `${R}脱${B}自立,号${A}${seat}` : `${R}立国,号${A}${seat}`);
     }
+    case 'crown': {
+      const who = authorName(civ, v.char);
+      if (e.b === -3) return fail(`欲立${who}为${A}之主,然${A}已亡`, `那一年${A}已亡`);
+      if (e.b === -2) return fail(`欲立${who}为${A}之主,然其人尚未出生`, `他第 ${v.born} 年才出生`);
+      // 同一刻后面又给这国立了作者的人物(哪怕是同一个人):后立的顶替先立的(rulers.ts),先立的那条算没即位
+      for (let k = id + 1; k < civ.annals.length && civ.annals[k].year === y; k++) {
+        const n = civ.annals[k];
+        if (n.kind === 'intervene' && n.a === e.a && n.b === -1 && civ.interventions?.[n.war]?.kind === 'crown') return fail(`欲立${who}为${A}之主,然同时又另立他人`, '同一年又给这国立了别的人物');
+      }
+      return done(`${who}即${A}君位`);
+    }
     case 'move': {
       const city = cityName(civ, e.settlement);
       if (!city) return fail(`${A}欲迁都,然其城尚未建起`, '那一年还没有这座城');
@@ -869,6 +880,19 @@ function interveneStory(civ: Civ, e: Annal, id: number): IvStory {
     default:
       return done(A);
   }
+}
+
+/**
+ * 作者的人物叫什么:套过人物卡的历史(gen/characters.ts 的 applyCharacters)里有名字(Civ.authorNames,或他即位后的人物);
+ * 没套过 = "作者的人物"
+ */
+function authorName(civ: Civ, char: number): string {
+  return civ.authorNames?.[char] || civ.people?.find((x) => x.author === char && x.name)?.name || '作者的人物';
+}
+
+/** 干预"即位"立的那位君主(作者的人物;第 e 条史事那一刻在国家 e.a 即位的) */
+function crownedAt(ix: PeopleIndex | null, e: Annal, char: number): Person | null {
+  return ix?.rulers[e.a]?.find((x) => x.author === char && x.from === e.year) ?? null;
 }
 
 /** 这条史事(立国的 found、迁都的 capital)是紧跟在干预后面、由它引起的:编年史并进干预那一条,不另列 */
@@ -1154,9 +1178,13 @@ function simpleEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
       const story = interveneStory(civ, e, id);
       const x = base(e, id, story.text, 3, [e.a, e.b], [e.region]);
       // 干预立的国:立国那条并进了这一条,开国之君也写在这里
-      const who = story.ok && civ.interventions?.[e.war]?.kind === 'found' && e.a >= 0 ? founderOf(ctx.ix, e.a, 0) : null;
-      if (who) x.text += `,奉${who.name}为主`;
-      return withPeople(x, who);
+      const v = civ.interventions?.[e.war];
+      const who = story.ok && v?.kind === 'found' && e.a >= 0 ? founderOf(ctx.ix, e.a, 0) : null;
+      // 同一刻接着立了作者的人物为君的,开国之君就是他(写在即位那一条)
+      if (who && who.author === undefined) x.text += `,奉${who.name}为主`;
+      // 即位:记上作者立的那位君主
+      const crowned = story.ok && v?.kind === 'crown' ? crownedAt(ctx.ix, e, v.char) : null;
+      return withPeople(x, who && who.author === undefined ? who : null, crowned);
     }
     default:
       return base(e, id, `${pn(civ, e.a, y)}有事`, 1, [e.a], []);
@@ -2323,7 +2351,11 @@ export function reignEntries(civ: Civ): ChronicleEntry[] {
       const minis: Person[] = [];
       let text: string;
       if (p.lineage === 'republic') text = `${ref}任满,${x.name}继任`;
-      else {
+      else if (prev.author !== undefined) {
+        // 作者立的君主到期退位(生死归人物卡管),继他之位的不连成他的儿子
+        const then = p.eastern && (p.lineage === 'khanate' || tier <= 0) ? `${x.name}继为${p.lineage === 'khanate' && tier > 0 ? '可汗' : '首领'}` : p.eastern ? `${x.name}即位${x.title ? `,是为${x.title}` : ''}` : `${rulerShort(civ, x)}即位`;
+        text = `${ref}退位${span};${then}`;
+      } else {
         const [died, killed] = deathWord(p, tier);
         const k = kinOf(civ, prev, x);
         const kin = !k ? '宗室' : k !== '子' ? `其${k}` : p.eastern && p.lineage !== 'khanate' && tier >= 3 ? '太子' : p.eastern && p.lineage !== 'khanate' && tier === 2 ? '世子' : '其子';

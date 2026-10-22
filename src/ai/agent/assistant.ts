@@ -289,6 +289,7 @@ const IV_WORD: Record<Intervention['kind'], string> = {
   move: '迁都',
   cede: '划州',
   found: '立国',
+  crown: '立作者的人物为君主',
 };
 
 function ivWord(civ: Civ, v: Intervention, a: number, b: number): string {
