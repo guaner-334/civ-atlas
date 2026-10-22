@@ -223,12 +223,13 @@ export function UpheavalPanel({ civ, world, phone }: { civ: Civ; world: World; p
     }
   };
   const yearId = useId();
-  // 预览:这几笔、那一年的地形一变就让后台算一遍(已有 / 正在算的不再发)
+  // 预览:这几笔、那一年的地形一变就让后台算一遍(已有 / 正在算的不再发)。那一年的地形按修改里现在的大事算,
+  // 键和发给后台的是同一份(刚加了一件、重推还没完时也是新的那份)
   const sig = previewSig(ui.ops, edits.upheavals, year);
   useEffect(() => {
-    const h = setTimeout(() => requestUpPreview(sig, year, ui.ops), 120);
+    const h = setTimeout(() => requestUpPreview(sig, year, ui.ops, edits.upheavals), 120);
     return () => clearTimeout(h);
-  }, [sig, year, ui.ops]);
+  }, [sig, year, ui.ops, edits.upheavals]);
   const result = pv.result && pv.result.sig === sig ? pv.result : null;
   const sum = useMemo(() => (result && ui.ops.length ? summarize(civ, world, result, year, ui.ops) : null), [result, civ, world, year, ui.ops]);
   // 已有的加上待推演单子里的

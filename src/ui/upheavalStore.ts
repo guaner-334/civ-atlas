@@ -227,15 +227,18 @@ export function useUpPreview(): UpPreviewState {
   );
 }
 
-/** App 登记的:把一次预览发给后台线程(pid = 第几次;year = 哪一年;ops = 这几笔) */
-type Runner = (pid: number, year: number, ops: TerrainOp[]) => void;
+/**
+ * App 登记的:把一次预览发给后台线程(pid = 第几次;year = 哪一年;ops = 这几笔;
+ * ups = 那一年的地形按哪几件大事算 —— 和预览的键是同一份,结果记在这个键下才对得上)
+ */
+type Runner = (pid: number, year: number, ops: TerrainOp[], ups: readonly Upheaval[] | undefined) => void;
 let runner: Runner | null = null;
 export function setUpRunner(f: Runner | null) {
   runner = f;
 }
 
-/** 要看 sig(几笔 + 那一年在第几段)这一次的结果:已经有了 / 正在算就不再发 */
-export function requestUpPreview(sig: string, year: number, ops: TerrainOp[]) {
+/** 要看 sig(几笔 + 那一年在第几段;按 ups 这几件大事算的)这一次的结果:已经有了 / 正在算就不再发 */
+export function requestUpPreview(sig: string, year: number, ops: TerrainOp[], ups: readonly Upheaval[] | undefined) {
   if (!ops.length) {
     if (pv.sig || pv.result) setPv({ sig: '', busy: false, result: null });
     return;
@@ -243,7 +246,7 @@ export function requestUpPreview(sig: string, year: number, ops: TerrainOp[]) {
   if (sig === pv.sig) return;
   if (pv.result?.sig === sig) return setPv({ ...pv, sig, busy: false });
   setPv({ ...pv, sig, busy: true });
-  runner?.(++pid, year, ops);
+  runner?.(++pid, year, ops, ups);
 }
 
 /** 后台线程算好了:是最新的一次才收 */
