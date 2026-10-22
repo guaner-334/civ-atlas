@@ -581,12 +581,16 @@ function stepDots(list: readonly ChronicleEntry[], x: (y: number) => number, gap
 }
 
 /**
- * 选中的国家在这一段里的那一截(和整段历史的时间轴同一个样子):一道国色(到这一段的尽头;还在的到 upTo 为止)、
- * 立国在这一段里的话那头一颗绿点;宽屏写"2391 立国""2837 亡"(在这一段里的才写)。这一段里没有它 = null
+ * 选中的国家在这一段里的那一截(和整段历史的时间轴同一个样子):一道国色(到 upTo 为止)、
+ * 立国在这一段里的话那头一颗绿点;宽屏写"2391 立国""2837 亡"(在这一段里的才写)。这一段里没有它 = null。
+ * upTo 和圆点一样:"现在"这一段 = 地图上画到的那一刻(以后的立国、亡国还没发生,不提前露出来);
+ * 以前的一段 = 它的尽头,不含尽头那一年(那一年的事算下一段的,和圆点一样,不两边都画)
  */
-function stepLife(civ: Civ, id: number, from: number, upTo: number, x: (y: number) => number, W: number, phone: boolean, era: Era | null | undefined) {
+function stepLife(civ: Civ, id: number, from: number, upTo: number, past: boolean, x: (y: number) => number, W: number, phone: boolean, era: Era | null | undefined) {
   const p = civ.polities[id];
   if (!p) return null;
+  const inside = (y: number) => (past ? y < upTo : y <= upTo);
+  if (!inside(p.founded)) return null;
   const a0 = Math.max(p.founded, from);
   const b0 = Math.min(p.ended ?? upTo, upTo);
   if (!(b0 >= a0)) return null;
@@ -594,7 +598,7 @@ function stepLife(civ: Civ, id: number, from: number, upTo: number, x: (y: numbe
   const b = x(b0);
   const [r, g, bl] = p.color;
   const foundIn = p.founded >= from;
-  const endIn = p.ended !== undefined && p.ended <= upTo;
+  const endIn = p.ended !== undefined && inside(p.ended);
   let found: LifeLabel | null = null;
   let end: LifeLabel | null = null;
   const fa = `${rulerLabel(p.founded, era)} 立国`;
@@ -695,7 +699,7 @@ export function StepTimeline({ civ, phone, hidden }: { civ: Civ | null; phone: b
   const stepLen = Math.max(1, adv.step);
   if (W > 0 && (stepLen / (to - from)) * W >= 4) for (let y = from + stepLen; y < to; y += stepLen) ticks.push(x(y));
   const dots = W > 0 ? stepDots(marks, x, phone ? 8 : 9) : [];
-  const life = W > 0 && lifeId !== null ? stepLife(civ, lifeId, from, past ? to : Math.min(st.now, to), x, W, phone, era) : null;
+  const life = W > 0 && lifeId !== null ? stepLife(civ, lifeId, from, past ? to : Math.min(upTo, to), past, x, W, phone, era) : null;
   const done = past || st.now >= to;
   const auto = d.on && d.pace === 'auto';
   const toggle = stepwiseToggle;
