@@ -2201,6 +2201,14 @@ function introduce(civ: Civ, list: ChronicleEntry[], told: ReadonlyMap<Chronicle
 
 const cache = new WeakMap<Civ, ChronicleEntry[]>();
 
+/**
+ * 别处已经替这份 civ 算好的编年史(后台线程按同样的历史、同样的改名算的,和 buildChronicle(civ) 逐条一样):记进缓存,不再重算。
+ * 已经算过的不换
+ */
+export function primeChronicle(civ: Civ, entries: ChronicleEntry[]) {
+  if (!cache.has(civ)) cache.set(civ, entries);
+}
+
 /** civ.annals → 编年史条目(按年份排好;同一年按发生先后)。按 civ 缓存 */
 export function buildChronicle(civ: Civ): ChronicleEntry[] {
   const hit = cache.get(civ);
