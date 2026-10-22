@@ -383,6 +383,43 @@
 .mw-ver {
   margin-left: auto;
 }
+/* 备案号(没有号码时不出现,见 beian.ts):那排小字的正中,左右的链接、版本号不动,页脚不加高;
+   窗口窄到快碰上左边的链接时挪到下一行居中(再并排一个备案号的话这个宽度约 950)。
+   手机上最底下单独一行(.solo),只有备案号 */
+.mw-foot {
+  position: relative;
+}
+.mw-beian {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 18px;
+  white-space: nowrap;
+}
+.mw-foot.solo {
+  justify-content: center;
+}
+.mw-foot.solo .mw-beian {
+  position: static;
+  transform: none;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px 16px;
+}
+@media (max-width: 750px) {
+  .mw-foot {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+  .mw-foot .mw-beian {
+    position: static;
+    order: 9;
+    flex-basis: 100%;
+    justify-content: center;
+    transform: none;
+  }
+}
 
 /* ---- 一个都没有:中间一颗慢慢转的星球、一段话、「新建世界」大按钮 ---- */
 .mw-empty {

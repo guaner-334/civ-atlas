@@ -21,6 +21,8 @@ import { createPortal } from 'react-dom';
 import { Icon } from './icons';
 import { PRIVACY_URL, SOURCE_URL, TERMS_URL } from './links';
 import { APP_VERSION } from './version';
+import { BeianLinks } from './BeianLinks';
+import { BEIAN } from './beian';
 import { when } from './worldParts';
 import { copyText } from './clipboard';
 import { currentUnsaved, currentWorld, isStored, keepWorld, listWorlds, loadWorld, notify, useSavesVersion } from './saveStore';
@@ -1109,7 +1111,13 @@ export function ShareGone({ phone, state, onHome, onNew }: { phone: boolean; sta
           <a href={TERMS_URL} target="_blank" rel="noreferrer">
             用户协议
           </a>
+          <BeianLinks className="mw-beian" />
           <span className="mw-ver">版本 {APP_VERSION}</span>
+        </footer>
+      )}
+      {phone && state !== 'loading' && BEIAN.length > 0 && (
+        <footer className="mw-foot solo">
+          <BeianLinks className="mw-beian" />
         </footer>
       )}
     </div>

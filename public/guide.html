@@ -182,6 +182,22 @@
       .msg {
         color: var(--ink-2);
       }
+      /* 备案号:最底下居中一行(构建时写进来,没有号码就没有这一行) */
+      .beian {
+        margin: 8px 0 0;
+        padding: 0 16px 28px;
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 4px 18px;
+        font-size: 12px;
+      }
+      .beian a {
+        color: var(--ink-3);
+      }
+      .beian a:hover {
+        color: var(--ink-2);
+      }
       @media (max-width: 760px) {
         html {
           scroll-padding-top: 56px;
@@ -212,6 +228,10 @@
         h1 {
           font-size: 30px;
         }
+        .beian {
+          margin-top: 0;
+          padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+        }
       }
     </style>
   </head>
@@ -227,6 +247,7 @@
         <p class="msg" id="msg">正在读取教程……</p>
       </article>
     </div>
+    <!--beian-->
     <script>
       (function () {
         var doc = document.getElementById('doc');

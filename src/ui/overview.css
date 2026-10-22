@@ -222,6 +222,18 @@
   margin-left: auto;
   color: var(--ink-3);
 }
+/* 备案号(有号码时,电脑上):那排的正中,左右不动 */
+.ov-about {
+  position: relative;
+}
+.ov-beian {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 18px;
+  white-space: nowrap;
+}
 
 /* ---- 国家页、民族页:表格(列宽各自写在 --ov-cols;屏幕窄了先藏小柱图,再藏国都 / 分自、主体民族) ---- */
 /* 国家:国旗 名称 存续 州 人口 疆域 国都 主体民族 国教 时代 外交 */
