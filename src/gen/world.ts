@@ -361,7 +361,10 @@ function growTerrain(p: WorldParams, sk: Sketch | null, ops: readonly TerrainOp[
     const i = flow.order[a];
     const r = flow.receiver[i];
     if (r < 0 || !land[r]) continue;
-    const lim = base[i] + (flow.filled[i] - flow.filled[r]) * scaleAt(sFinal, i);
+    // 草图涂过的地方往外过渡的那几圈,上下游换算成米的比例不一样:各按各的(比例一样时照原来的算法,逐位不变)
+    const si = scaleAt(sFinal, i);
+    const sr = scaleAt(sFinal, r);
+    const lim = si === sr ? base[i] + (flow.filled[i] - flow.filled[r]) * si : base[i] + flow.filled[i] * si - flow.filled[r] * sr;
     if (base[r] > lim) base[r] = lim;
   }
   // 回放帧补上同样的峡谷(每帧的底座长到了那一刻的比例 histGrow)

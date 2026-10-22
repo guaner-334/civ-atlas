@@ -388,7 +388,7 @@ export const GENERATOR_CHANGES: Readonly<Record<number, { change: GeneratorChang
   23: { change: 'history' },
   24: { change: 'routes' },
   25: { change: 'names', edited: true },
-  26: { change: 'terrain', edited: true, upheavals: 'history' },
+  26: { change: 'terrain', edited: true, upheavals: 'terrain' },
 };
 
 /** 干预的种类(见文件头的表) */
