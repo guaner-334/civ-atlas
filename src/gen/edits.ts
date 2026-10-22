@@ -324,6 +324,9 @@
  *      只看每样东西出现以前的历史,推到 T1 再接着推和一口气推完一样;疆域、兴亡不变,名字、配色、人物编号、道路、信仰的传播换了一遍。
  *  24:航线不通到遗址(civ/routes.ts、polities.ts 的 ruinGaps):推演里走过的航线,登岸处的城被毁、还没在原址重建(或再没重建)的那些年不画,
  *      重建以后照原路重新画。地形、历史不变,只有航线变了。
+ *  25:改过地形(地形修改或草图)的世界,山海湖岛的地名同一处地方沿用没改过地形时的那一份(civ/index.ts 的 nameRefOf):
+ *      改一处以后历史重推,远处民族的分布、语感会变,地名不再跟着换;各类地名的名额满了,也不把没改过时就有的挤掉(places.ts 的 withinQuota)。
+ *      没改地形的世界和 24 逐字节相同;改过地形的世界地形、历史不变,默认的地名换了。
  */
 import type { Civ, Culture, Faith, Person, Place, Polity, Regions, RulerLeanings, Settlement } from './civ/types';
 import type { AuthorCharacter } from './characters';
@@ -335,7 +338,7 @@ import type { Era } from './era';
 import type { Frontier, Origins } from './civ/frontier';
 
 /** 生成器版本:生成算法有改动、同种子会得到不同世界时加一(存档读档时核对);加一时在 GENERATOR_CHANGES 里补一条 */
-export const GENERATOR_VERSION = 24;
+export const GENERATOR_VERSION = 25;
 
 /**
  * 一版生成器的改动有多大(从小到大):打开旧存档、旧链接时,按跨过的几版里最大的那一种说清变了什么(savefile.ts 的 versionNote)
@@ -374,6 +377,7 @@ export const GENERATOR_CHANGES: Readonly<Record<number, { change: GeneratorChang
   22: { change: 'history' },
   23: { change: 'history' },
   24: { change: 'routes' },
+  25: { change: 'names', edited: true },
 };
 
 /** 干预的种类(见文件头的表) */

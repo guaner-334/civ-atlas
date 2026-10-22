@@ -13,6 +13,7 @@
  *
  * 阶段 4 干预(params.interventions,interventions.ts):带着干预从第 0 年整段重推;干预年份之前和不干预时逐字节一致。
  * 阶段 4 改地形(world.terrain):扩张节拍、城的人口折算按没改地形时的同一颗星球定(planetTempo),只有改动附近的历史跟着地形变。
+ * 改过地形(地形修改或草图)的世界,山海湖岛的地名同一处地方沿用没改过时的(nameRefOf):重推以后远处民族的语感变了,地名也不跟着换。
  *
  * 随机数一律从 subSeed(seed, 'civ-…') 取(见 rand.ts),不用 Math.random。seed 是文明种子(params.civSeed):
  * 没给 = 地图种子(world.params.seed),和加这一项以前逐字节一样;给了 = 同一张地图上另一段历史(州、民族、国家、名字……都另起)。
@@ -26,7 +27,7 @@ import { CivSim, quantize } from './sim';
 import { BIRTH_SPAN, cultureKey, cultureModelOf, finishCultures, installCultures, planCultures } from './cultures';
 import { buildRoutes, usedLanes } from './routes';
 import { capacityNorm, finishPolities, installPolities, planPolities, polityModelOf, routeCities, ruinGaps } from './polities';
-import { findPlaces, keepPlaceNames } from './places';
+import { findPlaces, keepPlaceNames, nameRefs, type NameRef } from './places';
 import { installWars } from './wars';
 import { installPolitics } from './politics';
 import { installDynasty } from './dynasty';
@@ -47,7 +48,7 @@ import { finishDevelopment, installDevelopment } from './development';
 import { installUnrest } from './unrest';
 import { installPlague } from './plague';
 import { cleanMix, type NameMix } from '../names';
-import { cleanFrontier, cleanOrigins, type Frontier } from './frontier';
+import { cleanFrontier, cleanOrigins, type Frontier, type Origins } from './frontier';
 
 export * from './types';
 
@@ -120,6 +121,67 @@ function copyArrays<T extends object>(o: T): T {
   return out as T;
 }
 
+/** 改过地形:带地形修改或草图(草图只改了板块的也算) */
+const edited = (world: World) => !!world.terrain?.length || !!world.sketch;
+
+/** 文明这边定"谁住在哪、按什么语感起名"的几项设定(地名照着沿用的那一份按它们算,见 nameRefOf) */
+interface RefSetup {
+  p: CivParams;
+  mix?: NameMix;
+  frontier?: Frontier;
+  origins?: Origins;
+}
+
+/**
+ * 地名照着沿用的那一份按什么认:世界参数 + 文明种子、地名风格、每州面积、民族数、扩张快慢、诞生跨度、拓荒、起源。
+ * 推演年数、干预、地形大事、国家数不算:地名只看计划中的疆域和各民族的语感(和推到哪一年无关),干预立国来的民族不在计划中的疆域里
+ */
+function refKeyOf(params: WorldParams, s: RefSetup): string {
+  const { p } = s;
+  const entries = Object.entries(params).sort(([a], [b]) => (a < b ? -1 : 1));
+  return JSON.stringify([entries, p.civSeed ?? null, s.mix ?? null, p.regionArea, p.cultures, p.pace, p.birthSpan ?? null, s.frontier ?? null, s.origins ?? null]);
+}
+
+/** 记着的几份(按 refKeyOf;最近用过的在后面) */
+const refMemo = new Map<string, readonly NameRef[]>();
+const REF_KEEP = 4;
+function rememberRef(key: string, ref: readonly NameRef[]): void {
+  refMemo.delete(key);
+  refMemo.set(key, ref);
+  if (refMemo.size > REF_KEEP) refMemo.delete(refMemo.keys().next().value!);
+}
+
+/**
+ * 改过地形的世界里,山海湖岛的地名照着沿用的那一份(places.ts 的 PlaceNaming.ref):没改过地形(不带地形修改、不带草图)的
+ * 同一颗星球、同样的文明设定起出来的地名。改地形以后历史重推,远处民族的分布和语感会变,按当地民族起的地名也会跟着换 ——
+ * 照着它起,没改到的地方名字不变。没改过地形的世界、CivParams.placeRef = false(照原样打开的旧版本世界)= undefined(照常起名)。
+ * 要多生成一遍没改过的星球、推到第 0 年(地名和推到哪一年无关,tests/names-stable.test.ts 钉住);
+ * 按设定记着最近几份,没改过地形的世界推完时顺手记下(新建世界以后头一次改地形就不用再生成)
+ */
+function nameRefOf(world: World, s: RefSetup): readonly NameRef[] | undefined {
+  if (!edited(world) || s.p.placeRef === false) return undefined;
+  const key = refKeyOf(world.params, s);
+  let ref = refMemo.get(key);
+  if (!ref) {
+    const { p, mix, frontier, origins } = s;
+    const w0 = generateWorld(world.params);
+    const c0 = generateCiv(w0, {
+      endYear: 0,
+      regionArea: p.regionArea,
+      cultures: p.cultures,
+      pace: p.pace,
+      ...(p.birthSpan !== undefined ? { birthSpan: p.birthSpan } : {}),
+      ...(p.civSeed !== undefined ? { civSeed: p.civSeed } : {}),
+      ...(mix ? { names: mix } : {}),
+      ...(frontier ? { frontier } : {}),
+      ...(origins ? { origins } : {}),
+    });
+    ref = nameRefs(w0, c0.places, c0.cultures, c0.regions);
+  }
+  rememberRef(key, ref);
+  return ref;
+}
+
 export function generateCiv(world: World, params: Partial<CivParams> = {}, progress: Progress = () => {}): Civ {
   const p: CivParams = { ...DEFAULT_CIV_PARAMS, ...params };
   const n = world.mesh.n;
@@ -190,7 +252,9 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
     branch.run(p.endYear);
     // 起名只读这一段的分支,不影响之后的推演
     const b = pinNames(pins!, eraWorld, branch, k ? ups[k - 1].year : -Infinity, u.year, k === 0, mix, iv?.list);
-    const eraPlaces = findPlaces(eraWorld, before, { cultures: b.cultures, culture: b.planned, names: mix, seed });
+    // 第一段:改过地形的世界照没改过时的地名(nameRefOf);之后各段沿用前一段的
+    const eraRef = k ? undefined : nameRefOf(eraWorld, { p, mix, frontier, origins });
+    const eraPlaces = findPlaces(eraWorld, before, { cultures: b.cultures, culture: b.planned, names: mix, seed, ...(eraRef ? { ref: eraRef } : {}) });
     if (k) keepPlaceNames(eraWorld, eras[k - 1].places, eraPlaces);
     const eraLanes = usedLanes(before, branch.result().log, b.cultures, k ? ups[k - 1].year : -Infinity);
     const eraRoutes = buildRoutes(eraWorld, eraHabitat, before, {
@@ -230,7 +294,7 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
     pm1.cultures = m1.cultures; // 接着推时两层各复制了一份民族表:起城名、国名要用起好名的那份
     fin = { sim: s1, model: m1, pm: pm1, world: u.world, habitat: h1, regions: r1 };
   }
-  return finishCiv({ fin, p, seed, viable, mix, frontier, interventions: iv?.list, model, pm, pins, eras, facts, progress });
+  return finishCiv({ fin, p, seed, viable, mix, frontier, origins, interventions: iv?.list, model, pm, pins, eras, facts, progress });
 }
 
 /**
@@ -298,7 +362,7 @@ export function startContinue(world: World, civ: Civ, params: Partial<CivParams>
       const pm = polityModelOf(sim)!;
       pm.cultures = model.cultures; // 接着推时两层各复制了一份民族表:起城名、国名要用起好名的那份
       const fin = { sim, model, pm, world, habitat: civ.habitat, regions: model.terrain.regions };
-      return finishCiv({ fin, p, seed, viable: true, mix: civ.names, frontier: civ.frontier, interventions: list.length ? list : undefined, model, pm, eras: [], facts: [], progress });
+      return finishCiv({ fin, p, seed, viable: true, mix: civ.names, frontier: civ.frontier, origins: cleanOrigins(p.origins), interventions: list.length ? list : undefined, model, pm, eras: [], facts: [], progress });
     },
   };
 }
@@ -318,6 +382,8 @@ interface Finish {
   viable: boolean;
   mix?: NameMix;
   frontier?: Frontier;
+  /** 自选的起源(清理过;地名照着沿用的那一份按它算,见 nameRefOf) */
+  origins?: Origins;
   interventions?: readonly Intervention[];
   /** 第一段的两层模型(标定的扩张节拍、人口折算、国家的节拍按它记) */
   model: CultureModel | null;
@@ -347,9 +413,14 @@ function finishCiv(x: Finish): Civ {
         ruins: ruinGaps(settlements),
       })
     : [];
-  const places: Place[] = findPlaces(fin.world, fin.regions, { cultures, culture: planned, names: mix, seed }); // ⑤ places.ts(山海湖岛是地理,不看 viable)
+  // ⑤ places.ts(山海湖岛是地理,不看 viable):改过地形的世界同一处地方照没改过时的地名(nameRefOf)
+  const setup: RefSetup = { p, mix, frontier, origins: x.origins };
+  const ref = eras.length ? undefined : nameRefOf(fin.world, setup);
+  const places: Place[] = findPlaces(fin.world, fin.regions, { cultures, culture: planned, names: mix, seed, ...(ref ? { ref } : {}) });
   // 地形大事以后:同一处地方沿用大事以前的地名
   if (eras.length) keepPlaceNames(fin.world, eras[eras.length - 1].places, places);
+  // 没改过地形、没有干预和地形大事的:这就是改地形以后要照着沿用的那一份,记下(nameRefOf)
+  if (!edited(fin.world) && !x.interventions?.length && !eras.length) rememberRef(refKeyOf(fin.world.params, setup), nameRefs(fin.world, places, cultures, fin.regions));
   const people = buildPeople({
     seed,
     endYear: p.endYear,

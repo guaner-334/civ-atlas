@@ -20,6 +20,10 @@
  * **地名语感**:还没有民族数据时,整个世界按种子挑一种语感;传入 cultures + culture(各州的民族)后,
  * 按地名所在州的民族语感起名(海洋一律用中性的叫法,culture = -1)。
  *
+ * **改过地形的世界沿用没改过时的地名**(PlaceNaming.ref):改地形以后历史重推,远处民族的分布、语感也会跟着变,
+ * 按当地民族起的名字就会跟着换;所以同一处地方(同一类、锚点离得够近)照没改过地形的同一颗星球上的名字,
+ * 只有新冒出来、挪得太远的地方才照常起名。
+ *
  * Place.rank:1 = 总览就显示;2 = 放大到约 1.8 倍显示;3 = 放大到约 3 倍显示(见 render/civ/labels.ts)。
  */
 import type { World } from '../world';
@@ -40,6 +44,47 @@ export interface PlaceNaming {
   names?: NameMix;
   /** 文明种子(CivParams.civSeed):地名跟着民族起,也从它取;不给 = 地图种子 */
   seed?: number;
+  /**
+   * 照着沿用的地名(改过地形的世界:没改过地形的同一颗星球上起好的那一份,见 civ/index.ts 的 nameRefOf):
+   * 同一处地方(同一类、锚点离得够近,和 keepPlaceNames 一样认)直接用它的名字,其余的照常起名、不和它们撞。不给 = 都照常起名
+   */
+  ref?: readonly NameRef[];
+}
+
+/**
+ * 一个起好的地名,留着给改过地形的世界照着用(PlaceNaming.ref):只记认"同一处地方"和沿用名字要的几样,不拉住整份世界、历史
+ */
+export interface NameRef {
+  kind: Kind;
+  /** 锚点(世界坐标) */
+  x: number;
+  y: number;
+  /** Place.size */
+  size: number;
+  name: string;
+  latin?: string;
+  /** 按哪种语感起的(海 = '');起名的那个民族发源州的治所地块(-1 = 没有) */
+  style: string;
+  hearth: number;
+}
+
+/** 一份起好的地名(world 是起名时的世界,civ 的 places、cultures、regions)→ 留给照着用的 NameRef */
+export function nameRefs(world: World, places: readonly Place[], cultures: readonly Culture[], regions: Regions): NameRef[] {
+  const { x, y } = world.mesh;
+  return places.map((p) => {
+    const cu = p.culture >= 0 ? cultures[p.culture] : undefined;
+    const r: NameRef = {
+      kind: p.kind,
+      x: x[p.cell!],
+      y: y[p.cell!],
+      size: p.size ?? 0,
+      name: p.name,
+      style: cu?.style ?? '',
+      hearth: cu && cu.hearth >= 0 ? regions.seat[cu.hearth] : -1,
+    };
+    if (p.latin !== undefined) r.latin = p.latin;
+    return r;
+  });
 }
 
 type Kind = Place['kind'];
@@ -102,6 +147,7 @@ export function findPlaces(world: World, regions: Regions, naming: PlaceNaming =
   const n = mesh.n;
   if (n === 0) return [];
   const ctx = makeContext(world);
+  if (naming.ref?.length) ctx.ref = naming.ref;
   const namers = makeNamers(naming.seed ?? world.params.seed, regions, naming);
 
   const out: Place[] = [];
@@ -112,6 +158,7 @@ export function findPlaces(world: World, regions: Regions, naming: PlaceNaming =
   out.push(...findLakes(world, ctx, namers));
   out.push(...findIslands(world, ctx, namers));
   out.push(...findDeserts(world, ctx, namers));
+  if (naming.ref?.length) inherit(world, regions, naming, namers, naming.ref);
   nameAll(namers);
   // 跨 180° 经线的标注路径整条挪到中点落在地图里
   for (const p of out) ctx.geo.centerPath(p.path);
@@ -131,6 +178,8 @@ interface Ctx {
   /** 世界坐标点所在的地块(连续查,见 Geometry.locator) */
   nearest: (x: number, y: number) => number;
   geo: Geometry;
+  /** 照着沿用的地名(PlaceNaming.ref;改过地形的世界才有):各类的名额满了也留下没改过时就有的那几处(withinQuota) */
+  ref?: readonly NameRef[];
 }
 
 function makeContext(world: World): Ctx {
@@ -417,6 +466,35 @@ function nameAll(ns: Namers): void {
   ns.pending.length = 0;
 }
 
+/**
+ * 照着沿用(PlaceNaming.ref):找到的地理实体里和 ref 是同一处地方的(pairUp),名字、拉丁原形照 ref,先占上
+ * (稳定键照旧按现在的锚点地块:和以前一样,存档里用户改过的名字照样套得上)。
+ * 民族:现在还有同一处发源、语感也一样的民族就记它,不然当地(计划中的疆域)的民族语感一样就记当地的,都不是 = -1(名字是沿用下来的,不算哪个民族起的)。
+ * 配上的从待起名里拿掉,剩下的由 nameAll 照常起名(撞上沿用的名字就换下一个候选)
+ */
+function inherit(world: World, regions: Regions, naming: PlaceNaming, ns: Namers, ref: readonly NameRef[]): void {
+  const { x, y } = world.mesh;
+  const next = ns.pending.map(({ p }) => ({ kind: p.kind, x: x[p.cell!], y: y[p.cell!], size: p.size ?? 0 }));
+  const { cultures } = naming;
+  const done = new Set<number>();
+  for (const [i, j] of pairUp(world.mesh.width, ref, next)) {
+    const r = ref[i];
+    const { p } = ns.pending[j];
+    p.name = r.name;
+    if (r.latin !== undefined) p.latin = r.latin;
+    let cu = -1;
+    if (r.style && cultures) {
+      const same = cultures.find((c) => c.style === r.style && c.hearth >= 0 && regions.seat[c.hearth] === r.hearth);
+      const here = ns.at(p.cell!).culture;
+      cu = same ? same.id : here >= 0 && cultures[here].style === r.style ? here : -1;
+    }
+    p.culture = cu;
+    ns.used.add(r.name);
+    done.add(j);
+  }
+  ns.pending = ns.pending.filter((_, j) => !done.has(j));
+}
+
 /** 世界种子挑一种语感(没人住的地方、没有民族数据时用它);names = 整个世界的地名风格,按份数挑 */
 export function worldNameStyle(seed: number, names?: NameMix): string {
   const rng = mulberry32(subSeed(seed, 'civ-places-style'));
@@ -572,6 +650,8 @@ function findSeas(world: World, ctx: Ctx, names: Namers): Place[] {
   const { mesh, water, seaIce } = world;
   const { n } = mesh;
   const { geo } = ctx;
+  /** 照着沿用的海名(改过地形的世界):名额(SEA.max)满了以后,没改过时那里有一片海、还没有找到的海认它的,照样收 */
+  const refSeas = ctx.ref?.filter((r) => r.kind === 'sea') ?? [];
   // 开阔水面:海,没结冰
   const open = new Uint8Array(n);
   for (let i = 0; i < n; i++) open[i] = water[i] === 1 && seaIce[i] < 0.5 ? 1 : 0;
@@ -623,8 +703,23 @@ function findSeas(world: World, ctx: Ctx, names: Namers): Place[] {
   const paths: Float32Array[] = [];
   /** 补上的名字(不是独立的一片海)重要度低一档 */
   const filled = new Set<number>();
+  // 名额满了以后:c 是没改过时的一片海(refSeas)那一处、而且那片海还没有已经找到的海认领(一对一,和 pairUp 一样认)——
+  // 别处新冒出来的海不把远处原有的海挤掉
+  const sameSea = (c: number, r: NameRef) => samePlace('sea', mesh.width, mesh.x[c], mesh.y[c], dist[c], r);
+  let claimed: { n: number; got: Set<number> } = { n: -1, got: new Set() };
+  const keepsRef = (c: number) => {
+    if (!refSeas.some((r) => sameSea(c, r))) return false;
+    if (claimed.n !== picked.length) {
+      const anchors = picked.map((p) => ({ kind: 'sea' as const, x: mesh.x[p], y: mesh.y[p], size: dist[p] }));
+      claimed = { n: picked.length, got: new Set(pairUp(mesh.width, refSeas, anchors).map(([i]) => i)) };
+    }
+    return refSeas.some((r, i) => !claimed.got.has(i) && sameSea(c, r));
+  };
   for (const c of order) {
-    if (picked.length >= SEA.max) break;
+    if (picked.length >= SEA.max) {
+      if (!refSeas.length) break;
+      if (!keepsRef(c)) continue;
+    }
     let near = false;
     for (const p of picked) {
       const need = SEA.separation * dist[p];
@@ -640,7 +735,8 @@ function findSeas(world: World, ctx: Ctx, names: Namers): Place[] {
   // 大洋很大时,离已有海名很远的开阔水面再补一个名字(像太平洋里的珊瑚海)。
   // "很远"既看中心之间,也看到已有海名那一行字的距离:一条长水道已经被一行竖排的字占满,就不再补
   for (const c of order) {
-    if (picked.length >= SEA.max || dist[c] < SEA.fillR) break;
+    if (dist[c] < SEA.fillR || (picked.length >= SEA.max && !refSeas.length)) break;
+    if (picked.length >= SEA.max && !keepsRef(c)) continue;
     let far = true;
     const ch = geo.chart(c);
     for (let i = 0; i < picked.length && far; i++) {
@@ -734,8 +830,11 @@ function findMountains(world: World, ctx: Ctx, ns: Namers): Place[] {
   }
   pieces.sort((a, b) => b.mass - a.mass || a.cells[0] - b.cells[0]);
 
-  const out: Place[] = [];
-  pieces.slice(0, MOUNTAIN.max).forEach((m, i) => {
+  /** 一段山的标注路径、大小、锚点(算过的记着) */
+  const labels = new Map<(typeof pieces)[number], { path: Float32Array; size: number; anchor: number }>();
+  const labelOf = (m: (typeof pieces)[number]) => {
+    let l = labels.get(m);
+    if (l) return l;
     const ax = principalAxis(world, m.cells, w);
     const elong = ax.s1 / Math.max(1e-6, ax.s2);
     let path: Float32Array;
@@ -755,11 +854,52 @@ function findMountains(world: World, ctx: Ctx, ns: Namers): Place[] {
       path = pathOf(mc, [cx - half, cy, cx, cy, cx + half, cy]);
       size = half * 2;
     }
-    const rank = i < MOUNTAIN.tier1 && m.area >= MOUNTAIN.tier1Area ? 1 : m.area >= MOUNTAIN.tier2Area ? 2 : 3;
     const mid = (path.length >> 2) << 1;
-    const anchor = ctx.nearest(path[mid], path[mid + 1]);
+    labels.set(m, (l = { path, size, anchor: ctx.nearest(path[mid], path[mid + 1]) }));
+    return l;
+  };
+
+  const out: Place[] = [];
+  withinQuota(pieces, MOUNTAIN.max, 'mountains', world, ctx, (m) => {
+    const l = labelOf(m);
+    return { x: mesh.x[l.anchor], y: mesh.y[l.anchor], size: l.size };
+  }).forEach((m, i) => {
+    const { path, size, anchor } = labelOf(m);
+    const rank = i < MOUNTAIN.tier1 && m.area >= MOUNTAIN.tier1Area ? 1 : m.area >= MOUNTAIN.tier2Area ? 2 : 3;
     out.push(later(ns, place('mountains', UNNAMED, path, rank, size, anchor), { t: 'direct', from: 'mountain' }));
   });
+  return out;
+}
+
+/**
+ * 名额:按排好的先后取前 max 个。改过地形的世界(ctx.ref 里有这一类)名额以外的,没改过时那里就有一处同类地方、
+ * 而且前面取到的都不是那一处的(一对一,和 pairUp 一样认),也留下 —— 别处新冒出来的(新岛、新山、新河)不把远处原有的挤掉。
+ * at = 这一个的锚点(世界坐标)和大小(Place.size),要用时才算
+ */
+function withinQuota<T>(list: readonly T[], max: number, kind: Kind, world: World, ctx: Ctx, at: (t: T) => { x: number; y: number; size: number }): T[] {
+  const out = list.slice(0, max);
+  const refs = ctx.ref?.filter((r) => r.kind === kind) ?? [];
+  if (!refs.length || list.length <= max) return out;
+  const W = world.mesh.width;
+  const claimed = refs.map(() => false);
+  for (const [i] of pairUp(
+    W,
+    refs,
+    out.map((t) => ({ kind, ...at(t) })),
+  ))
+    claimed[i] = true;
+  for (let k = max; k < list.length && claimed.includes(false); k++) {
+    const a = at(list[k]);
+    // 名额外的这一个认最近的、还没被认领的那一处
+    let j = -1;
+    for (let i = 0; i < refs.length; i++) {
+      if (claimed[i] || !samePlace(kind, W, a.x, a.y, a.size, refs[i])) continue;
+      if (j < 0 || anchorDist(W, a, refs[i]) < anchorDist(W, a, refs[j])) j = i;
+    }
+    if (j < 0) continue;
+    claimed[j] = true;
+    out.push(list[k]);
+  }
   return out;
 }
 
@@ -900,9 +1040,13 @@ function findRivers(world: World, ctx: Ctx, ns: Namers): Place[] {
     chains.push({ nodes: c, peak, len });
   }
   chains.sort((a, b) => b.peak - a.peak || a.nodes[0] - b.nodes[0]);
-  const picked = chains.filter((c) => c.len >= RIVER.minLen * ctx.sp).slice(0, RIVER.max);
+  const long = chains.filter((c) => c.len >= RIVER.minLen * ctx.sp);
 
-  return picked.map((ch, i) => {
+  /** 一条河的标注路径、锚点(河道中点的地块)、半河宽(算过的记着) */
+  const labels = new Map<(typeof chains)[number], { path: Float32Array; mid: number; halfW: number }>();
+  const labelOf = (ch: (typeof chains)[number]) => {
+    let l = labels.get(ch);
+    if (l) return l;
     const m = ch.nodes.length;
     // 在局部平面上平滑两遍
     const at = ch.nodes[m >> 1];
@@ -925,14 +1069,30 @@ function findRivers(world: World, ctx: Ctx, ns: Namers): Place[] {
       path[k * 2] = plane.toX(xs[k], ys[k]);
       path[k * 2 + 1] = plane.toY(xs[k], ys[k]);
     }
-    const rank = i < RIVER.tier1 ? 1 : i < RIVER.tier1 + RIVER.tier2 ? 2 : 3;
     // size = 河口附近的半河宽(世界单位):标注要让开这么宽
     const t = Math.min(1, Math.sqrt(Math.max(0, ch.peak - world.riverThreshold) / RIVER_W.fluxRef));
     const halfW = (RIVER_W.minW + (RIVER_W.maxW - RIVER_W.minW) * t) / 2;
     const mid = ctx.nearest(plane.toX(xs[m >> 1], ys[m >> 1]), plane.toY(xs[m >> 1], ys[m >> 1]));
+    labels.set(ch, (l = { path, mid, halfW }));
+    return l;
+  };
+
+  const { x, y } = world.mesh;
+  return withinQuota(long, RIVER.max, 'river', world, ctx, (ch) => {
+    const l = labelOf(ch);
+    return { x: x[l.mid], y: y[l.mid], size: l.halfW };
+  }).map((ch, i) => {
+    const { path, mid, halfW } = labelOf(ch);
+    const rank = i < RIVER.tier1 ? 1 : i < RIVER.tier1 + RIVER.tier2 ? 2 : 3;
     return later(ns, place('river', UNNAMED, path, rank, halfW, mid), { t: 'direct', from: 'river' });
   });
 }
+
+/** 一片(湖、岛、荒漠)的锚点和大小:离边缘最远的一点、等面积圆的半径(和 Place.cell、Place.size 一样;名额用) */
+const blobAt = (world: World, ctx: Ctx, dist: Float32Array) => (c: { cells: number[]; area: number }) => {
+  const a = argmax(c.cells, dist);
+  return { x: world.mesh.x[a], y: world.mesh.y[a], size: Math.sqrt((c.area * ctx.cellA) / Math.PI) };
+};
 
 // ---------------------------------------------------------------------------
 // 湖泊 / 岛屿 / 荒漠:连通片 + 离边缘最远的一点
@@ -942,11 +1102,11 @@ function findLakes(world: World, ctx: Ctx, ns: Namers): Place[] {
   const lake = new Uint8Array(n);
   for (let i = 0; i < n; i++) lake[i] = world.water[i] === 2 && world.biome[i] !== Biome.Ice ? 1 : 0;
   const dist = distanceField(world, ctx, lake);
-  const comps = components(world, lake)
+  const all = components(world, lake)
     .map((cells) => ({ cells, area: sumArea(ctx, cells) / ctx.cellA }))
     .filter((c) => c.area >= LAKE.minArea)
-    .sort((a, b) => b.area - a.area || a.cells[0] - b.cells[0])
-    .slice(0, LAKE.max);
+    .sort((a, b) => b.area - a.area || a.cells[0] - b.cells[0]);
+  const comps = withinQuota(all, LAKE.max, 'lake', world, ctx, blobAt(world, ctx, dist));
   return comps.map((c, i) => {
     const a = argmax(c.cells, dist);
     const rank = (i < 2 && c.area >= LAKE.tier1Area) || (i < LAKE.top && c.area >= LAKE.topArea) ? 1 : c.area >= LAKE.tier2Area ? 2 : 3;
@@ -963,12 +1123,10 @@ function findIslands(world: World, ctx: Ctx, ns: Namers): Place[] {
   if (!all.length) return [];
   const largest = Math.max(...all.map((c) => c.area));
   const maxArea = Math.min(ISLAND.maxArea, largest * ISLAND.maxFracOfLargest);
-  const comps = all
-    .filter((c) => c.area >= ISLAND.minArea && c.area <= maxArea)
-    .sort((a, b) => b.area - a.area || a.cells[0] - b.cells[0])
-    .slice(0, ISLAND.max);
-  if (!comps.length) return [];
+  const islands = all.filter((c) => c.area >= ISLAND.minArea && c.area <= maxArea).sort((a, b) => b.area - a.area || a.cells[0] - b.cells[0]);
+  if (!islands.length) return [];
   const dist = distanceField(world, ctx, land);
+  const comps = withinQuota(islands, ISLAND.max, 'island', world, ctx, blobAt(world, ctx, dist));
   return comps.map((c, i) => {
     const a = argmax(c.cells, dist);
     const rank = c.area >= ISLAND.tier1Area || (i < ISLAND.top && c.area >= ISLAND.topArea) ? 1 : c.area >= ISLAND.tier2Area ? 2 : 3;
@@ -987,13 +1145,13 @@ function findDeserts(world: World, ctx: Ctx, ns: Namers): Place[] {
     const b = world.biome[i];
     desert[i] = world.water[i] === 0 && (b === Biome.HotDesert || b === Biome.TemperateDesert || b === Biome.ColdDesert) ? 1 : 0;
   }
-  const comps = components(world, desert)
+  const all = components(world, desert)
     .map((cells) => ({ cells, area: sumArea(ctx, cells) / ctx.cellA }))
     .filter((c) => c.area >= DESERT.minArea)
-    .sort((a, b) => b.area - a.area || a.cells[0] - b.cells[0])
-    .slice(0, DESERT.max);
-  if (!comps.length) return [];
+    .sort((a, b) => b.area - a.area || a.cells[0] - b.cells[0]);
+  if (!all.length) return [];
   const dist = distanceField(world, ctx, desert);
+  const comps = withinQuota(all, DESERT.max, 'desert', world, ctx, blobAt(world, ctx, dist));
   return comps.map((c) => {
     const a = argmax(c.cells, dist);
     // 主要是哪种荒漠
@@ -1060,36 +1218,15 @@ function axisPath(ctx: Ctx, dist: Float32Array, a: number, ax: Axis, r: number, 
  * 新冒出来的(新岛、新海湾)保留新起的名字,和原有的重名就在后面找一个没用过的。配上的稳定键沿用原来那一处的(Place.keyCell)。就地改 next。
  */
 export function keepPlaceNames(world: World, prev: readonly Place[], next: Place[]): void {
-  const geo = geometryOf(world.mesh);
   const { x, y } = world.mesh;
-  const anchor = (p: Place): [number, number] => {
-    if (p.cell !== undefined && p.cell >= 0) return [x[p.cell], y[p.cell]];
+  const anchor = (p: Place): PlaceAnchor => {
+    if (p.cell !== undefined && p.cell >= 0) return { kind: p.kind, x: x[p.cell], y: y[p.cell], size: p.size ?? 0 };
     const n = p.path.length >> 1;
     const m = n >> 1;
-    return [p.path[2 * m], p.path[2 * m + 1]];
+    return { kind: p.kind, x: p.path[2 * m], y: p.path[2 * m + 1], size: p.size ?? 0 };
   };
-  const W = world.mesh.width;
-  const dist = (a: [number, number], b: [number, number]) => {
-    let dx = Math.abs(a[0] - b[0]);
-    if (dx > W / 2) dx = W - dx;
-    return Math.hypot(dx, a[1] - b[1]);
-  };
-  void geo;
-  const pairs: { d: number; i: number; j: number }[] = [];
-  next.forEach((q, j) => {
-    prev.forEach((p, i) => {
-      if (p.kind !== q.kind) return;
-      const d = dist(anchor(p), anchor(q));
-      const lim = q.kind === 'mountains' || q.kind === 'river' ? 40 : Math.max(20, 1.2 * Math.max(p.size ?? 0, q.size ?? 0));
-      if (d <= lim) pairs.push({ d, i, j });
-    });
-  });
-  pairs.sort((a, b) => a.d - b.d || a.i - b.i || a.j - b.j);
-  const usedP = new Set<number>();
   const usedN = new Set<number>();
-  for (const { i, j } of pairs) {
-    if (usedP.has(i) || usedN.has(j)) continue;
-    usedP.add(i);
+  for (const [i, j] of pairUp(world.mesh.width, prev.map(anchor), next.map(anchor))) {
     usedN.add(j);
     const p = prev[i];
     const q = next[j];
@@ -1108,4 +1245,53 @@ export function keepPlaceNames(world: World, prev: readonly Place[], next: Place
     q.name = name;
     taken.add(name);
   });
+}
+
+/** 认"同一处地方"用的:种类、锚点(世界坐标)、大小(Place.size) */
+interface PlaceAnchor {
+  kind: Kind;
+  x: number;
+  y: number;
+  size: number;
+}
+
+/** 两个锚点离多远(世界坐标;东西方向绕一圈取近的那边) */
+function anchorDist(width: number, a: { x: number; y: number }, b: { x: number; y: number }): number {
+  let dx = Math.abs(a.x - b.x);
+  if (dx > width / 2) dx = width - dx;
+  return Math.hypot(dx, a.y - b.y);
+}
+
+/** 锚点离多近算同一处:山、河 40(按标注路径挨得多近);海、湖、岛、荒漠按两边较大的那个的大小 */
+const sameLimit = (kind: Kind, a: number, b: number) => (kind === 'mountains' || kind === 'river' ? 40 : Math.max(20, 1.2 * Math.max(a, b)));
+
+/** 锚点在 (x, y)、大小 size 的一处 kind 和 r 是不是同一处地方(同一类、锚点够近) */
+function samePlace(kind: Kind, width: number, x: number, y: number, size: number, r: PlaceAnchor): boolean {
+  return r.kind === kind && anchorDist(width, { x, y }, r) <= sameLimit(kind, size, r.size);
+}
+
+/**
+ * 两份地名里哪些是同一处地方:同一类、锚点离得够近(海、湖、岛、荒漠按大小,山、河按标注路径挨得多近),从最近的一对起配,
+ * 一处只配一次。返回配上的 [prev 下标, next 下标],按配的先后(近的在前)
+ */
+function pairUp(width: number, prev: readonly PlaceAnchor[], next: readonly PlaceAnchor[]): [number, number][] {
+  const pairs: { d: number; i: number; j: number }[] = [];
+  next.forEach((q, j) => {
+    prev.forEach((p, i) => {
+      if (p.kind !== q.kind) return;
+      const d = anchorDist(width, p, q);
+      if (d <= sameLimit(q.kind, p.size, q.size)) pairs.push({ d, i, j });
+    });
+  });
+  pairs.sort((a, b) => a.d - b.d || a.i - b.i || a.j - b.j);
+  const usedP = new Set<number>();
+  const usedN = new Set<number>();
+  const out: [number, number][] = [];
+  for (const { i, j } of pairs) {
+    if (usedP.has(i) || usedN.has(j)) continue;
+    usedP.add(i);
+    usedN.add(j);
+    out.push([i, j]);
+  }
+  return out;
 }
