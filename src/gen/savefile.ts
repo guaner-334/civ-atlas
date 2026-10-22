@@ -400,28 +400,46 @@ const CHANGE_RANK: GeneratorChange[] = ['names', 'chronicle', 'routes', 'history
 export const NEWER_NOTE = '来自更新的版本，刷新页面换到最新版再看';
 
 /**
- * 从第 from 版生成器到现在,同样的种子、参数(改没改过地形)生成出来的世界变了什么:跨过的几版里最大的那种改动。
+ * 这个世界改过什么(看哪几版生成器动了它):terrain = 改过地形(地形修改、草图),upheavals = 带地形大事。
+ * 只给一个布尔 = 改没改过地形(没有地形大事)
+ */
+export type EditedWorld = boolean | { terrain: boolean; upheavals: boolean };
+
+/** 世界的修改里改过什么(versionNote 的第二个参数) */
+export function editedWorld(edits: Partial<Pick<WorldEdits, 'terrain' | 'sketch' | 'upheavals'>>): { terrain: boolean; upheavals: boolean } {
+  return { terrain: (edits.terrain?.length ?? 0) > 0 || !!edits.sketch, upheavals: (edits.upheavals?.length ?? 0) > 0 };
+}
+
+/**
+ * 从第 from 版生成器到现在,同样的种子、参数(改没改过地形、有没有地形大事)生成出来的世界变了什么:跨过的几版里最大的那种改动。
  * 一样 = null(比如只动了改过地形的世界的那一版,这个世界没改地形);比现在新 = 'newer';
  * 认不出的旧版本(没记版本号、不是整数、表里没有的)按整颗星球重新生成算
  */
-function changeSince(from: number, terrainEdited: boolean): GeneratorChange | 'newer' | null {
+function changeSince(from: number, edited: EditedWorld): GeneratorChange | 'newer' | null {
   if (from === GENERATOR_VERSION) return null;
   // 不是整数的版本号(手改过、坏了的存档)认不出,不管比现在大还是小,都按整颗星球重新生成算
   if (!Number.isInteger(from)) return 'planet';
   if (from > GENERATOR_VERSION) return 'newer';
+  const terrain = typeof edited === 'boolean' ? edited : edited.terrain;
+  const upheavals = typeof edited === 'boolean' ? false : edited.upheavals;
   let top = -1;
   for (let v = Math.max(1, from) + 1; v <= GENERATOR_VERSION; v++) {
     const c = GENERATOR_CHANGES[v];
-    const rank = c ? CHANGE_RANK.indexOf(c.change) : CHANGE_RANK.length - 1;
-    if (c?.edited && !terrainEdited) continue;
+    let change: GeneratorChange | undefined = c?.change;
+    // 只动了改过地形(或带地形大事)的世界的那一版:这个世界两样都不沾就跳过
+    if (c?.edited && !terrain) {
+      if (!(upheavals && c.upheavals)) continue;
+      change = c.upheavals;
+    }
+    const rank = change ? CHANGE_RANK.indexOf(change) : CHANGE_RANK.length - 1;
     top = Math.max(top, rank);
   }
   return top < 0 ? null : CHANGE_RANK[top];
 }
 
 /** 打开旧存档、旧链接时说清变了什么(见 changeSince);一样 = null;比现在新 = NEWER_NOTE */
-export function versionNote(from: number, terrainEdited: boolean): string | null {
-  const c = changeSince(from, terrainEdited);
+export function versionNote(from: number, edited: EditedWorld): string | null {
+  const c = changeSince(from, edited);
   return c === null ? null : c === 'newer' ? NEWER_NOTE : `来自旧版本：${CHANGE_TEXT[c]}`;
 }
 
@@ -842,7 +860,7 @@ export function parseSave(text: string): ParseResult {
   // 推进设置:认不出的项按默认
   const advance = cleanAdvance(E.advance);
   if (E.advance !== undefined && !sameAdvanceRaw(E.advance, advance)) warnings.push('推进设置里有认不出来的项,已按默认读');
-  const note = versionNote(generator, terrain.length > 0 || !!sketch);
+  const note = versionNote(generator, { terrain: terrain.length > 0 || !!sketch, upheavals: upheavals.length > 0 });
   if (note) warnings.splice(noteAt, 0, note);
 
   const save: SaveFile = {

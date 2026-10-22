@@ -188,6 +188,7 @@ import {
   parseSave,
   resolveMoment,
   versionNote,
+  editedWorld,
   worldCheck,
   worldKey,
   type ParseResult,
@@ -2503,7 +2504,7 @@ ${s.image.cells}` : null);
     }
     if (frozenBroken.current === t.id) more.push('原样的存档读不出来，按新版打开了');
     frozenBroken.current = null;
-    const note = frozen !== undefined ? null : versionNote(save.generator, (save.edits.terrain?.length ?? 0) > 0 || !!save.edits.sketch);
+    const note = frozen !== undefined ? null : versionNote(save.generator, editedWorld(save.edits));
     // 从文件、分享链接打开的,这句已经在读档的警告里
     if (note && (t.from === 'stored' || t.from === 'restore')) more.push(note);
     // 世界变了样(有"来自旧版本"这一句)才放「看原样」;旧网站里来自更新版本的放「到最新版打开」

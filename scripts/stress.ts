@@ -10,7 +10,7 @@
  * 地形大事:半路整颗星球沉入海中、整片抬成陆地、五件最大最强的火山(有同一年的、第 1 年和第 2999 年的),
  * 各段的州和那时的地形对得上,大事以后的城、国家、信仰、编年史照样合法。
  * 推演年数:推到最久(60000 年,有一组再叠一件地形大事),史事、国都、人口、信仰照样合法,名字里不冒数字。
- * 接着推:14 组随机自查(逐年推演随机推、随机下命令,和一口气推完逐字段相等,见 scripts/lib/resumeFuzz.ts);不一样也退出码 1。
+ * 接着推:14 组随机自查(逐年推演随机推、随机下命令,和一口气推完逐字段相等,见 scripts/lib/resumeFuzz.ts);\n * 带地形大事的世界 6 组(大事那一刻接着推和一口气推完一样);不一样也退出码 1。
  */
 import { generateWorld, DEFAULT_PARAMS } from '../src/gen/world';
 import { rasterize } from '../src/gen/raster';
@@ -38,7 +38,7 @@ import { upheavalSteps } from '../src/gen/civ/upheaval';
 import { buildChronicle } from '../src/gen/civ/chronicle';
 import { LAYER_W, LAYER_H, encodeLayer, sketchGrid, type SketchEdit, type SketchKind } from '../src/gen/sketch';
 import { PLATE_IMAGE_MAX, type PlateEdit, type PlateOp } from '../src/gen/plateEdits';
-import { fuzzResume, type FuzzCase } from './lib/resumeFuzz';
+import { fuzzResume, fuzzUpheavalResume, type FuzzCase } from './lib/resumeFuzz';
 
 /** 发展度:有文明就有;快照的年份递增、最后一份是结束那年,没有算坏的能力和物产;物产 0–3 档,眼下能用的不超过底子;大事的年份有序、时代、物产和国家编号在范围内 */
 function devBad(civ: ReturnType<typeof generateCiv>): number {
@@ -527,5 +527,19 @@ for (const c of FUZZ) {
     `{"接着推随机自查":${JSON.stringify({ ...(c.params ?? {}), ...(c.cells ? { cells: c.cells } : {}) })}}`, 'seed', c.seed,
     `${Math.round(performance.now() - t0)}ms 推了 ${r.steps} 步 命令 ${r.commands} 条 作者的干预 ${r.author} 条`,
     r.diff ? `和一口气推完不一样!\n${r.diff}` : '逐字段一致',
+  );
+}
+
+// ---- 带地形大事的世界:大事那一刻接着推和一口气推完一样(scripts/lib/resumeFuzz.ts 的 fuzzUpheavalResume):
+// 随机几年各放一件不改海陆的大事,带着作者的干预和随机命令,和没有大事时逐项比(单测里另跑几个种子) ----
+for (const seed of [2, 4, 9, 13, 27, 64]) {
+  if (!mine()) continue;
+  const t0 = performance.now();
+  const r = fuzzUpheavalResume(seed);
+  if (r.diff) process.exitCode = 1;
+  console.log(
+    '{"大事那一刻接着推随机自查":{}}', 'seed', seed,
+    `${Math.round(performance.now() - t0)}ms 大事 ${r.years.join('、')} 年 命令 ${r.commands} 条`,
+    r.diff ? `和一口气推完不一样!\n${r.diff}` : '逐项一致',
   );
 }

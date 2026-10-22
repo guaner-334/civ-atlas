@@ -247,8 +247,8 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
     // 名字、配色、这一段的地名和道路:照"没有这件大事、照原样推到底"的那份历史(大事之前和它一模一样,见 NamePins)
     const same = partialCiv(fin.sim, fin.model!, fin.pm!, eraHabitat, before, seed, iv, frontier);
     same.upheavals = facts.slice(); // 早先几件大事的经过:分支里也认得出沉过海的城址(见下面 half.upheavals)
-    // 地形大事那一刻的两次接着推用早先的接法(CivSim.legacy):同一个种子、同样的大事,世界不变
-    const branch = CivSim.fromCiv(eraWorld, same, same.interventions ?? [], undefined, true);
+    // 接着推和一口气推完一样(CivSim.fromCiv):这一支和"没有这件大事、照原样推到底"一模一样
+    const branch = CivSim.fromCiv(eraWorld, same, same.interventions ?? []);
     branch.run(p.endYear);
     // 起名只读这一段的分支,不影响之后的推演
     const b = pinNames(pins!, eraWorld, branch, k ? ups[k - 1].year : -Infinity, u.year, k === 0, mix, iv?.list);
@@ -285,7 +285,6 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
         s.floor = u.year;
         scheduleUpheaval(s, k, u.year);
       },
-      true,
     );
     installUpheaval(s1, k, u, impact, fact, fin.world);
     s1.run(k + 1 < ups.length ? ups[k + 1].year - 1 / 256 : p.endYear);

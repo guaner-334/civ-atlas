@@ -8,9 +8,11 @@
  * 随机数一律从 subSeed(种子, …) 取,同一个种子每次下一样的命令、停在一样的年份。
  */
 import { isDeepStrictEqual } from 'node:util';
-import { generateWorld, DEFAULT_PARAMS, type World } from '../../src/gen/world';
+import { generateWorld, DEFAULT_PARAMS, MAP_H, type World } from '../../src/gen/world';
 import { generateCiv, type Civ, type CivParams } from '../../src/gen/civ';
 import { playCiv, playStop, playTurn } from '../../src/gen/civ/play';
+import { upheavalSteps } from '../../src/gen/civ/upheaval';
+import { UPHEAVALS_MAX } from '../../src/gen/terrainEdits';
 import { mulberry32, subSeed } from '../../src/gen/civ/rand';
 import { capitalAt } from '../../src/gen/civ/growth';
 import { polityKey, regionKey, settlementKey, type Intervention, type InterventionKind, type PlayState } from '../../src/gen/edits';
@@ -187,6 +189,68 @@ export function civDiff(a: Civ, b: Civ): string | null {
     }
   }
   return lines.join('\n');
+}
+
+/** 离陆地最远的一处深海(地图中间一带;世界坐标):在那里"沉下去"一点不改海陆 */
+function deepSea(w: World): number[] {
+  const { n, adjStart, adj, x, y } = w.mesh;
+  const dist = new Int32Array(n).fill(-1);
+  const q: number[] = [];
+  for (let i = 0; i < n; i++) if (w.water[i] === 0) (dist[i] = 0), q.push(i);
+  for (let h = 0; h < q.length; h++) for (let k = adjStart[q[h]]; k < adjStart[q[h] + 1]; k++) if (dist[adj[k]] < 0) (dist[adj[k]] = dist[q[h]] + 1), q.push(adj[k]);
+  let best = -1;
+  for (let i = 0; i < n; i++) if (Math.abs(y[i] - MAP_H / 2) < 300 && (best < 0 || dist[i] > dist[best])) best = i;
+  return [Math.round(x[best]), Math.round(y[best])];
+}
+
+/** 带地形大事的一组随机自查的结果:大事在哪几年、下了几条命令;和没有大事时不一样的地方(没有 = null) */
+export interface UpheavalFuzzResult {
+  years: number[];
+  commands: number;
+  diff: string | null;
+}
+
+/**
+ * 带地形大事的世界,大事那一刻接着推(gen/civ/index.ts:推到大事前一刻,套上新地形接着推)和一口气推完一样:
+ * 随机挑 count 个年份(默认界面上的上限;可以多放,多停几次)各放一件不改海陆的大事(离陆地最远的深海里沉一下),带着作者的干预和随机几年下的命令(同 fuzzOrders),
+ * 推完以后的日志、史事(大事那几条除外)、各州归属、检查点和没有大事、一口气推完的逐项相等。
+ * 大事那一刻要从各层补事件(补立国、补建城、同一刻撞上的几件按预约先后排),补得不对历史就会分叉
+ */
+export function fuzzUpheavalResume(seed: number, count = UPHEAVALS_MAX): UpheavalFuzzResult {
+  const w = fuzzWorld(seed);
+  const rnd = mulberry32(subSeed(seed, 'resume-fuzz:upheavals'));
+  const interventions = authorPlan(generateCiv(w, { endYear: AUTHOR_TO }));
+  // 随机几年下的命令(对象按推到那一年的历史挑)
+  const orderYears = [...new Set(Array.from({ length: 4 }, () => between(rnd, 100, 2800)))].sort((a, b) => a - b);
+  for (const T of orderYears) interventions.push(...fuzzOrders(generateCiv(w, { interventions: interventions.slice(), endYear: playStop(T) }), T));
+  const years = new Set<number>();
+  while (years.size < count) years.add(between(rnd, 20, 2980));
+  const ys = [...years].sort((a, b) => a - b);
+  const at = deepSea(w);
+  const steps = upheavalSteps(w.params, [], null, ys.map((year) => ({ year, ops: [{ kind: 'sink', pts: at, r: 6, s: 0.3 }] })));
+  const result = (diff: string | null): UpheavalFuzzResult => ({ years: ys, commands: interventions.length, diff });
+  if (steps.some((s) => !isDeepStrictEqual(s.world.water, w.water))) return result('大事改了海陆,比不了');
+  const one = generateCiv(w, { interventions });
+  const up = generateCiv(w, { interventions, upheavals: steps });
+  const pick = (c: Civ) => ({
+    log: c.log,
+    annals: c.annals.filter((e) => e.kind !== 'upheaval'),
+    culture: c.culture,
+    polity: c.polity,
+    checkpoints: c.checkpoints,
+  });
+  const a = pick(up);
+  const b = pick(one);
+  const bad = (Object.keys(a) as (keyof typeof a)[]).filter((k) => !isDeepStrictEqual(a[k], b[k]));
+  if (!bad.length) return result(null);
+  const lines = [`不一样:${bad.join('、')}`];
+  for (let i = 0; i < Math.max(a.annals.length, b.annals.length); i++) {
+    if (!isDeepStrictEqual(a.annals[i], b.annals[i])) {
+      lines.push(`史事第 ${i} 条:有大事 ${JSON.stringify(a.annals[i])},没有大事 ${JSON.stringify(b.annals[i])}`);
+      break;
+    }
+  }
+  return result(lines.join('\n'));
 }
 
 /** 跑一组随机自查(见文件头) */
