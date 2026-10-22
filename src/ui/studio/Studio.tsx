@@ -191,6 +191,17 @@ export interface StudioProps {
   mapFrom?: { title: string | null; brief: string };
   /** 正在生成(换了种子、调了参数、改了地形):创建不了 */
   busy: boolean;
+  /**
+   * 编辑地形以后正在补推历史、起地名(编辑地形时不推历史,收起时补推):按钮照常能点(接着在后台起),
+   * 确认创建以后等它起好再建
+   */
+  naming: boolean;
+  /** 编辑地形时不推历史:正在编辑(还没收起)或正在补推,历史一会儿就有 */
+  later: boolean;
+  /** 补推的地名刚起好(星球上的地名淡入快一点) */
+  namesIn: boolean;
+  /** 照手绘图新建在第 2 步「用笔修改」点了「创建世界」:当作离开这一步(App 补推历史、起地名) */
+  onLeaveTerrain: () => void;
   /** 世界出来了(不在生成) */
   ready: boolean;
   noCiv: boolean;
@@ -884,6 +895,7 @@ export function Studio(p: StudioProps) {
     if (name !== p.title) p.onTitle(name);
   };
   const askCreate = () => {
+    p.onLeaveTerrain();
     commitName();
     mixFlush.current?.();
     setDrawer(null);
@@ -939,6 +951,8 @@ export function Studio(p: StudioProps) {
   };
   const doCreate = async () => {
     setConfirm(false);
+    // 编辑地形以后还在补推历史、起地名(照手绘图新建点「创建世界」时才开始的):等它起好再建(顶上提示条写着进度)
+    while (pRef.current.naming) await new Promise((r) => setTimeout(r, 50));
     const sc = glOk ? sceneRef.current : null;
     // 建好以后平常的地图用哪种投影:这里选的平面投影;选的是地球仪就回到进来之前的平面投影
     const target: MapProjection = proj === 'globe' ? prevFlat.current : proj;
@@ -1026,7 +1040,8 @@ export function Studio(p: StudioProps) {
     if (!base && c.seed && c.seed !== p.params.seed) p.onSeed(c.seed, { ...c.params, seed: c.seed });
     else p.onParams({ ...c.params, seed: p.params.seed });
   };
-  const canAsk = p.ready && !!p.civ && !!p.raw;
+  // 编辑地形时还没推的历史(收起编辑地形就补推):照常能点(助手那一栏等历史推好了再出来)
+  const canAsk = p.ready && ((!!p.civ && !!p.raw) || p.later);
   const ico = p.phone ? 18 : 17;
   const peek = !image && p.phone && !sheetFull && !tool.on;
 
@@ -2005,7 +2020,7 @@ export function Studio(p: StudioProps) {
     <div ref={rootRef} className={cls} data-theme="dark" data-hold={hold} style={p.phone ? ({ '--sheet-h': `${sheetH}px` } as React.CSSProperties) : undefined}>
       <div ref={glowRef} className="st-glow" aria-hidden="true" />
       <canvas ref={glRef} className="st-gl" aria-label="这颗星球" />
-      <canvas ref={labRef} className={`st-labels${labOn && !tool.on && !out && glOk ? ' on' : ''}`} aria-hidden="true" />
+      <canvas ref={labRef} className={`st-labels${labOn && !tool.on && !out && glOk ? ' on' : ''}${p.namesIn ? ' names-in' : ''}`} aria-hidden="true" />
       <canvas ref={markRef} className={`st-labels st-marks${markOn && astShown && !tool.on && !out && glOk ? ' on' : ''}`} data-marks={markOn && astShown ? marks.length : 0} aria-hidden="true" />
       {pins}
       {(drawer || styOpen) && (

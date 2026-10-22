@@ -735,6 +735,7 @@ function aliveAtEnd(civ: Civ): number {
 const WORK_LABEL: Partial<Record<WorkerRequest['type'], string>> = {
   generate: '生成世界',
   resim: '推演历史',
+  civOnly: '推演历史',
   history: '回放世界形成',
   trial: '助手试推演',
   upPreview: '预览地形大事',
@@ -1119,6 +1120,35 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
   const preProj = useRef<PreProjected | null>(null);
   /** 正在进行的"按新地形重新生成"是一次 AI 改写 / 撤销改写(生成完说"已按你说的改写",带撤销) */
   const regenNote = useRef<RewriteNote | null>(null);
+  /**
+   * 编辑地形时不起名:新建世界里编辑地形(照手绘图新建是第 2 步「用笔修改」),涂了第一笔起到收起编辑地形(点「完成」「保存地图」「打造文明 ›」,
+   * 照手绘图的去第 3 步、点「创建世界」)为止,按新地形重新生成只换地形、不推历史(线程的 skipCiv),地图上不标地名;
+   * 收起时补推一次历史、起地名(civOnly,和一起推的逐字节一样)。null = 不在这一段里;tip = 这一段里提示过"地名等点「完成」以后再起"了
+   */
+  const namesHold = useRef<{ tip: boolean } | null>(null);
+  /** 同 namesHold(画面用:这一段里地图上不标地名) */
+  const [namesHeld, setNamesHeld] = useState(false);
+  /** 地图上这个世界还没推历史(编辑地形时生成的,rawCiv = null),要补推 */
+  const civLater = useRef(false);
+  /** 正在补推历史、起地名:nid = 第几次补推(线程交回的只认这一次)、t0 = 发出去的时刻 */
+  const naming = useRef<{ nid: number; t0: number } | null>(null);
+  const namingSeq = useRef(0);
+  /** 补推的进度(提示条"正在起地名"的进度条;null = 没在补推) */
+  const [namingPct, setNamingPct] = useState<number | null>(null);
+  /** 上一次推历史用了多久(毫秒;估补推的进度用) */
+  const civMsLast = useRef<number | null>(null);
+  /** 补推完、地名刚换上(那一次的编号;淡入完 = 0):地图上的字淡入 */
+  const [namesIn, setNamesIn] = useState(0);
+  /** 这次"已按新地形重新生成"多写一行"地名等点「完成」以后再起"(每段编辑只在第一笔换上后写) */
+  const holdTip = useRef(false);
+  /** 编辑地形时不起名的这一段、要补推的历史、正在补推的都不算了(换了世界) */
+  const endNamesHold = () => {
+    namesHold.current = null;
+    setNamesHeld(false);
+    civLater.current = false;
+    naming.current = null;
+    setNamingPct(null);
+  };
   /** 地图上现在这个世界带着的地形修改(覆盖层据此标出还在生成的那几处) */
   const [shownTerrain, setShownTerrain] = useState<readonly TerrainOp[]>(EMPTY_EDITS.terrain);
   const [shownSketch, setShownSketch] = useState<SketchEdit | undefined>(undefined);
@@ -1254,7 +1284,10 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
             // 读原件来的、只算了后一半的(编辑地形接着上一次)不算生成速度
             if (!frozenLoad.current && !m.reused) noteGenSpeed(m.world.params.cells, m.genMs, m.ms);
             // 推文明那一步用了多久:「再推」的弹层拿它估这台电脑再推几年要多久
-            if (m.civMs) noteExtendSpeed(0, m.civ.endYear, m.civMs);
+            if (m.civMs && m.civ) {
+              noteExtendSpeed(0, m.civ.endYear, m.civMs);
+              civMsLast.current = m.civMs;
+            }
             // 换了世界:各段的主图补丁都作废
             eraPatches.current.clear();
             dropComposed();
@@ -1269,12 +1302,14 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
             setEraMaps(m.eras ? eraMapsOf(m.world, m.baseKey, m.eras) : null);
             rawUps.current = genUps.current;
             setRawCiv(m.civ);
+            // 编辑地形时生成的(没推历史):收起编辑地形时补推
+            civLater.current = !m.civ;
             setProgress(null);
             const rg = regenRef.current;
             if (rg && rg.id === m.id) terrainDoneRef.current(m.world, m.civ, m.ms);
             else {
               fresh.current = false;
-              readyRef.current(m.world, m.civ);
+              if (m.civ) readyRef.current(m.world, m.civ);
             }
           };
           if (m.raster) {
@@ -1303,6 +1338,8 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
         } else if (m.type === 'civ') {
           if (m.seq !== resimSeq.current) return; // 又下了新的干预,等最新的那一次
           applyResimRef.current(m.civ, m.ms, m.eras, m.baseKey);
+        } else if (m.type === 'civOnly') {
+          namesDoneRef.current(m.nid, m.civ, m.civMs);
         } else if (m.type === 'turn') {
           applyTurnRef.current(m.civ, m.play, m.rejected, m.eras, m.baseKey);
         } else if (m.type === 'extendProgress') {
@@ -1883,6 +1920,8 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
       genSketch.current = t.edits.sketch;
       fresh.current = true;
       regenRef.current = null;
+      // 换了世界:编辑地形时不起名的那一段、要补推的历史都不算了(新世界带着历史生成)
+      endNamesHold();
       setTerrainStatus({ busy: false });
       setShownTerrain(terrain);
       setShownSketch(t.edits.sketch);
@@ -2035,6 +2074,20 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
     const id = ++reqId.current;
     const interventions = getEdits().interventions;
     const ups = getEdits().upheavals;
+    // 编辑地形时不起名(namesHold):新建世界里开着编辑地形涂了一笔,就进这一段,地图上的地名先收起来;
+    // 这一段里只换地形、不推历史(照手绘图新建换了张图长出星球不算一笔)
+    const img = (s?: SketchEdit) => (s?.image ? `${s.image.name}
+${s.image.cells}` : null);
+    if (!namesHold.current && getTerrainTool().on && getStage().stage === 'draft' && img(sk) === img(genSketch.current)) {
+      namesHold.current = { tip: false };
+      setNamesHeld(true);
+    }
+    const skipCiv = !!namesHold.current;
+    // 正在补推的历史是上一个地形的:作废(线程那边被新的生成顶掉)
+    if (naming.current) {
+      naming.current = null;
+      setNamingPct(null);
+    }
     genTerrain.current = t;
     genSketch.current = sk;
     civEdits.current = interventions;
@@ -2058,8 +2111,55 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
     if (getChronicle().polity !== null) setChronicle({ polity: null });
     if (getPeople().polity !== null) setPeople({ polity: null });
     // 线程还留着地图上那张整图(baseKeyRef):只重铺、只交回变了的那块
-    send({ type: 'generate', id, params: genParams.current, scale: 1, terrain: [...t], sketch: sk, interventions: [...interventions], ...upsOpt(ups), ...namesOpt(civNames.current), ...yearsOpt(civYears.current), ...setupOpt(civSetup.current), keep: getStage().stage === 'draft', ...(baseKeyRef.current ? { from: baseKeyRef.current } : {}) });
+    send({ type: 'generate', id, params: genParams.current, scale: 1, terrain: [...t], sketch: sk, interventions: [...interventions], ...upsOpt(ups), ...namesOpt(civNames.current), ...yearsOpt(civYears.current), ...setupOpt(civSetup.current), keep: getStage().stage === 'draft', ...(baseKeyRef.current ? { from: baseKeyRef.current } : {}), ...(skipCiv ? { skipCiv: true as const } : {}) });
   }, [edits.terrain, edits.sketch, baseData, send]);
+
+  /** 补推地图上这个世界的历史、起地名(编辑地形时生成的没推历史):带着和生成时一样的干预、地形大事、地名风格、推演年数、拓荒、起源 */
+  const startNames = () => {
+    const p = genParams.current;
+    if (!civLater.current || naming.current || fresh.current || !p) return;
+    const nid = ++namingSeq.current;
+    naming.current = { nid, t0: performance.now() };
+    setNamingPct(0);
+    send({ type: 'civOnly', id: reqId.current, nid, params: p, terrain: [...genTerrain.current], sketch: genSketch.current, interventions: [...civEdits.current], ...upsOpt(civUps.current), ...namesOpt(civNames.current), ...yearsOpt(civYears.current), ...setupOpt(civSetup.current) });
+  };
+  const startNamesRef = useRef(startNames);
+  startNamesRef.current = startNames;
+  /** 收起编辑地形(点「完成」……):不起名的这一段结束,地图上的世界没推历史就补推、起地名 */
+  const releaseNames = () => {
+    if (!namesHold.current) return;
+    namesHold.current = null;
+    // 还在按新地形重新生成:换上以后接着补推(terrainDoneRef);这期间地图上还是涂之前的历史,照旧不标地名
+    const rg = regenRef.current;
+    if (rg && rg.arrived === undefined) return;
+    setNamesHeld(false);
+    startNames();
+  };
+  const releaseNamesRef = useRef(releaseNames);
+  releaseNamesRef.current = releaseNames;
+  useEffect(() => {
+    if (!terrainTool.on) releaseNamesRef.current();
+  }, [terrainTool.on]);
+  /** 补推好了:换上(地名淡入);对不上的改名、没生效的干预(以别的世界为底稿新建时带着的)照旧说一句 */
+  const namesDone = (nid: number, civ: Civ, civMs: number) => {
+    if (naming.current?.nid !== nid) return;
+    naming.current = null;
+    civLater.current = false;
+    civMsLast.current = civMs;
+    noteExtendSpeed(0, civ.endYear, civMs);
+    const b = baseRef.current;
+    lastReady.current = b ? { world: b.world, civ } : null;
+    setRawCiv(civ);
+    setNamingPct(null);
+    setNamesIn(nid);
+    const e = getEdits();
+    const lostNames = Object.keys(e.names).filter((k) => !resolveKey(civ, k)).length;
+    const lostInterventions = (civ.interventions ?? []).filter((_, i) => !interventionOutcome(civ, i).ok).length;
+    const lost = [lostNames ? `${lostNames} 处改名` : '', lostInterventions ? `${lostInterventions} 条干预` : ''].filter(Boolean);
+    if (lost.length) showToast({ id: 'terrain', kind: 'warn', text: '已按新地形重新生成', more: [`${lost.join('、')}暂未生效`] });
+  };
+  const namesDoneRef = useRef(namesDone);
+  namesDoneRef.current = namesDone;
 
   // ---- 干预(阶段 4)、地形大事:干预列表或地形大事一变,就在后台带着新的重推文明(地形不动;变了的那一年以前和原来一样) ----
   useEffect(() => {
@@ -2103,6 +2203,14 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
     if (!fresh.current) civYears.current = endYear;
     if (!fresh.current) civSetup.current = setup;
     if (!fresh.current) civPlay.current = play;
+    // 地图上这个世界还没推历史(编辑地形时生成的):不重推,补推时带着新的一起推(正在补推的这就按新的重来)
+    if (civLater.current) {
+      const rg = regenRef.current;
+      if (namesHold.current || (rg && rg.arrived === undefined)) return;
+      naming.current = null;
+      startNamesRef.current();
+      return;
+    }
     const seq = ++resimSeq.current;
     // 只多了一条 = 新下的干预 / 新加的大事;只少了一条 = 撤销(读档、自动恢复套上的不算,不提示)
     const quiet = namesOnly || (list === restoredIv.current && ups === restoredUps.current);
@@ -2169,21 +2277,31 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
    * 按新地形重新生成完(阶段 4 改地形):记下新的地形校验(自动存的存档跟着改);
    * 数一数改名、干预有几处在新历史里对不上(面板里提示"暂未生效")
    */
-  const terrainDoneRef = useRef<(world: World, civ: Civ, ms: number) => void>(() => {});
-  terrainDoneRef.current = (world: World, rc: Civ, ms: number) => {
+  const terrainDoneRef = useRef<(world: World, civ: Civ | null, ms: number) => void>(() => {});
+  terrainDoneRef.current = (world: World, rc: Civ | null, ms: number) => {
     const rg = regenRef.current;
     if (!rg) return;
     rg.workerMs = ms;
     rg.arrived = performance.now() - rg.t0;
-    lastReady.current = { world, civ: rc };
+    // 没推历史的(编辑地形时不起名):补推完再记
+    lastReady.current = rc ? { world, civ: rc } : null;
     setShownTerrain(rg.terrain);
     setShownSketch(rg.sketch);
     const e = getEdits();
     if (sameTerrain(e.terrain, rg.terrain) && sameSketch(e.sketch, rg.sketch)) updateCheck(worldCheck(world));
-    const lostNames = Object.keys(e.names).filter((k) => !resolveKey(rc, k)).length;
+    const lostNames = rc ? Object.keys(e.names).filter((k) => !resolveKey(rc, k)).length : 0;
     // 干预:和世界概览"我的干预"页一个口径(这份历史带着哪些干预推的、哪几条没生效,见 chronicle.ts 的 interventionOutcome)
-    const lostInterventions = (rc.interventions ?? []).filter((_, i) => !interventionOutcome(rc, i).ok).length;
+    const lostInterventions = rc ? (rc.interventions ?? []).filter((_, i) => !interventionOutcome(rc, i).ok).length : 0;
+    // 不起名的这一段里第一笔换上:提示条多一行"地名等点「完成」以后再起"
+    const hold = namesHold.current;
+    holdTip.current = !rc && !!hold && !hold.tip;
+    if (hold && !rc) hold.tip = true;
     setTerrainStatus({ busy: false, last: { ms: rg.arrived, lostNames, lostInterventions } });
+    // 编辑地形已经收起了(还没换上就点了「完成」):地图上可以标地名了;没推历史的接着补推
+    if (!hold) {
+      setNamesHeld(false);
+      if (!rc) startNamesRef.current();
+    }
   };
   // 重新生成的世界画到地图上以后,记下"从改地形到地图更新"用了多久(冒烟检查用)
   useEffect(() => {
@@ -2231,7 +2349,7 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
     setThumbMaker((id, now) => {
       const t = targetRef.current;
       const b = baseRef.current;
-      if (!dataRef.current || !b || fresh.current || regenRef.current || resimRef.current || !t || t.id !== id) return null;
+      if (!dataRef.current || !b || fresh.current || regenRef.current || resimRef.current || civLater.current || !t || t.id !== id) return null;
       const kEnd = eraIndex(rawRef.current, null);
       if (!eraReady(eraMapsRef.current, eraPatches.current, kEnd)) return null;
       const d = eraData(b, eraMapsRef.current, eraPatches.current, kEnd);
@@ -2708,7 +2826,7 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
     const t = draftNow();
     const cur = currentWorld();
     // 还在生成、在重推带过来的干预、在放这颗星球的形成:等它完
-    if (!t || !cur || cur.id !== t.id || fresh.current || regenRef.current || resim || replayOn) return false;
+    if (!t || !cur || cur.id !== t.id || fresh.current || regenRef.current || civLater.current || resim || replayOn) return false;
     const clean = cleanTitle(title) || undefined;
     if ((clean ?? '') !== (cur.title ?? '')) renameWorld(t.id, clean ?? '');
     // 记成预设里的「上次用的」(不含种子)
@@ -2775,6 +2893,8 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
   };
   /** 新建第 1 步点了「保存地图」:只存地图(没有文明),回到我的世界的「地图」页签、选中它。存下了 = true */
   const saveMap = (): boolean => {
+    // 编辑地形时没起的地名接着在后台起(不等它)
+    releaseNames();
     const t = draftNow();
     const cur = currentWorld();
     if (!t || !cur || cur.id !== t.id || fresh.current || regenRef.current) return false;
@@ -4975,8 +5095,34 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
       });
       return;
     }
-    showToast({ id: 'terrain', kind: lost.length ? 'warn' : 'ok', text: '已按新地形重新生成', more });
+    const tip = holdTip.current;
+    holdTip.current = false;
+    // 补推历史、起地名已经开始了(还没换上就收起了编辑地形):不再说重新生成好了,看"正在起地名"
+    if (naming.current) return;
+    showToast({ id: 'terrain', kind: lost.length ? 'warn' : 'ok', text: '已按新地形重新生成', more: tip ? [...(more ?? []), '地名等点「完成」以后再起'] : more });
   }, [terrainLast]);
+  // 编辑地形以后补推历史、起地名:顶上"正在起地名",进度条按上一次推历史用的时间估;起好收起
+  const namingOn = namingPct !== null;
+  useEffect(() => {
+    if (!namingOn) return;
+    const cells = genParams.current?.cells ?? 36000;
+    const est = Math.max(200, civMsLast.current ?? 500 * Math.pow(Math.max(1, cells / 36000), 0.6));
+    const t = setInterval(() => {
+      const n = naming.current;
+      if (n) setNamingPct(Math.min(0.95, (performance.now() - n.t0) / (est * 1.15)));
+    }, 100);
+    return () => clearInterval(t);
+  }, [namingOn]);
+  useEffect(() => {
+    if (namingPct === null) return clearToast('names');
+    clearToast('terrain');
+    showToast({ id: 'names', kind: 'progress', text: '正在起地名', more: ['按新地形起山河湖海的名字'], progress: namingPct });
+  }, [namingPct]);
+  // 地名刚起好:地图上的字淡入(见 app.css 的 .screen-layer.names-in;星球上的等卷成星球、停稳才排,多留一会儿),淡完摘掉
+  useEffect(() => {
+    if (!namesIn) return;
+    return cancelTimeout(setTimeout(() => setNamesIn(0), 1200));
+  }, [namesIn]);
 
   // 推演出来没有文明(宜居的陆地太少):建好的世界说一句(新建时卡片上写,可以换一颗)
   const noCiv = !!rawCiv && !rawCiv.viable;
@@ -4988,7 +5134,7 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
 
   const civReady = !!civ && civ.viable;
   /** 正在重推 / 按新地形重新生成 / 生成新世界:助手这时发不了话、确认单也不能执行 */
-  const worldBusy = !!resim || terrainStatus.busy || !!progress;
+  const worldBusy = !!resim || terrainStatus.busy || !!progress || namingPct !== null;
   // 助手:换了世界、世界建好了,对话跟着换;离开建好的世界(回我的世界、新建)不再看试推演。
   // 打开另一个参数、地形、名字都一样的存档时历史原样复用,所以还要跟着世界的 id(存档一变 App 就重新渲染)
   const worldId = currentWorld()?.id ?? null;
@@ -5175,6 +5321,10 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
       mapFrom={draftMapFrom}
       // 以它为底稿新建、调过参数:带过来的干预要等重推完(不然创建时截的缩略图、放的历史是没干预的)
       busy={!!progress || !!resim}
+      naming={namingPct !== null}
+      later={namesHeld || namingPct !== null}
+      namesIn={!!namesIn}
+      onLeaveTerrain={releaseNames}
       ready={!!data && !progress}
       noCiv={noCiv}
       data={data}
@@ -5270,11 +5420,11 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
           {data && <MapDecor world={data.world} style={style} ink={contourStyle} view={view} mp={mp} />}
         </div>
         {/* 放大后的文明细节层(CivLayer 放进来):盖住下面的地形,在文明底图那一层地图框之下 */}
-        <div className="screen-layer" ref={setCivDetailHost} style={screenStyle} />
+        <div className={`screen-layer${namesIn ? ' names-in' : ''}`} ref={setCivDetailHost} style={screenStyle} />
         <div className="canvas-wrap-upper" data-hold={hold} style={wrapStyle}>
           <div className="map-box-upper" data-hold={hold} style={{ width: box.w, height: box.h }}>
             {data && (
-              <CivLayer world={data.world} raster={data.raster} civ={civ} geo={shownRaw} style={style} view={view} mp={mp} labelsHost={labelsHost} detailHost={civDetailHost} flags={flagView} />
+              <CivLayer world={data.world} raster={data.raster} civ={namesHeld ? null : civ} geo={namesHeld ? null : shownRaw} style={style} view={view} mp={mp} labelsHost={labelsHost} detailHost={civDetailHost} flags={flagView} />
             )}
             <canvas ref={overlayRef} className={`overlay ${replayOn && replay ? 'show' : ''}`} />
             <canvas ref={overlayCopyRef} className={`overlay wrap-copy ${replayOn && replay ? 'show' : ''}`} />
@@ -5286,7 +5436,7 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
           </div>
         </div>
         {/* 文字层(CivLayer 放进来);回放世界形成时、认图时、照手绘图新建看原图或认出来的时藏起来(回放画面盖住文明层,字也不露出来;认图时只看图) */}
-        <div className="screen-layer" ref={setLabelsHost} style={(replayOn && replay) || importing || (draft && sourceView.show !== 'grown') ? { ...screenStyle, display: 'none' } : screenStyle} />
+        <div className={`screen-layer${namesIn ? ' names-in' : ''}`} ref={setLabelsHost} style={(replayOn && replay) || importing || (draft && sourceView.show !== 'grown') ? { ...screenStyle, display: 'none' } : screenStyle} />
         {/* 地形大事:涂的地方、会变的地块、会没了的城盖在地名上面(和地图一起缩放) */}
         {data && !curved && upOn && (
           <div className="canvas-wrap-upper" data-hold={hold} style={wrapStyle}>
