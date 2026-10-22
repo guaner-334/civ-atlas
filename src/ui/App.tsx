@@ -60,7 +60,7 @@ import type { Civ } from '../gen/civ/types';
 import { CivLayer } from './CivLayer';
 import { CivTimeline } from './CivTimeline';
 import { ExtendDock, ExtendPop, ExtendSheet } from './ExtendYears';
-import { extendProgress, noteExtendSpeed, resetExtend, setExtendBusy, setExtendFresh, setExtendOpen, setExtendRunner } from './extendStore';
+import { extendProgress, getExtend, noteExtendSpeed, resetExtend, setExtendBusy, setExtendFresh, setExtendOpen, setExtendRunner } from './extendStore';
 import { EventPins, type WorldToClient } from './EventPins';
 import { DirectorCaption, DirectorEngine, DirectorPanels, DirectorPin } from './Director';
 import { directorHandBack, setDirectorMode, useDirectorFly, useDirectorOn } from './directorStore';
@@ -994,9 +994,12 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
    * 再推 N 年(ExtendYears.tsx):正在推的这一次(第几次、从第 from 年推到第 to 年;没在推 = null)、第几次了;
    * 推完以后提示条上「撤销」要换回去的那一份(推之前的历史 before、推好的 after;提示条收起就放掉)
    */
-  const extendRef = useRef<{ xid: number; from: number; to: number; t0: number } | null>(null);
+  const extendRef = useRef<{ xid: number; from: number; to: number; t0: number; endYear: number | undefined } | null>(null);
   const extendSeq = useRef(0);
-  const extendUndo = useRef<{ before: Civ; after: Civ; from: number; timer: number } | null>(null);
+  const extendUndo = useRef<{ before: Civ; after: Civ; from: number; endYear: number | undefined; timer: number } | null>(null);
+  /** 地图上正看着助手的"先看看"(还没执行的历史):这时不再推(推的是底下真的那个世界) */
+  const previewOn = useRef(false);
+  previewOn.current = !!previewRaw;
   /** 最近一次请求的文明带的拓荒、起源(默认 = undefined) */
   const civSetup = useRef<CivSetup | undefined>(undefined);
   /**
@@ -1695,12 +1698,14 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
     noteExtendSpeed(civUps.current?.length ? 0 : x.from, to, ms);
     // 先记下推到哪年,修改里的推演年数跟着换时不再重推一遍
     civYears.current = cleanEndYear(to);
+    // 播放头停在原处:推的时候放到了原来的结束年份(停在"现在")的,钉在那一年(不然换上以后"现在"成了新的结尾)
+    if (getCivTime().year === null) setCivTime({ year: x.from });
     setRawCiv(civ);
     setEndYear(to);
     setExtendFresh({ from: x.from, to });
     refreshThumb();
     dropExtendUndo();
-    extendUndo.current = { before: old, after: civ, from: x.from, timer: window.setTimeout(dropExtendUndo, EXTEND_UNDO_MS) };
+    extendUndo.current = { before: old, after: civ, from: x.from, endYear: x.endYear, timer: window.setTimeout(dropExtendUndo, EXTEND_UNDO_MS) };
     // 提示条等新的历史画上去以后再出(新添几件大事要数整段编年史,时间轴那时已经算好了,不再算一遍)
     extendDone.current = { xid, from: x.from, to, ms, t0: x.t0, arrived: performance.now() - x.t0 };
   };
@@ -1758,8 +1763,8 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
       setRawCiv(u.before);
       refreshThumb();
     }
-    // 推完以后又改过别的(干预……):只把推演年数改回去,照常重推
-    setEndYear(u.from);
+    // 推完以后又改过别的(干预……):只把推演年数改回去,照常重推。修改里原来没写推演年数的(3000 年)照样不写
+    setEndYear(u.endYear);
   };
   const undoExtendRef = useRef(undoExtend);
   undoExtendRef.current = undoExtend;
@@ -1769,14 +1774,14 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
       start: (years) => {
         const p = genParams.current;
         const raw = rawRef.current;
-        if (!p || !raw || fresh.current || extendRef.current || getStepwise().on || cleanPlay(getEdits().play)) return;
+        if (!p || !raw || fresh.current || extendRef.current || previewOn.current || getStepwise().on || cleanPlay(getEdits().play)) return;
         const from = raw.endYear;
         const to = extendedEndYear(from, years);
         if (!(to > from)) return;
         // 照原样打开的旧世界:推演要用新版的规则,先问要不要另存一份(在那一份上推)
         if (askHistory({ ...getEdits(), endYear: to })) return;
         const xid = ++extendSeq.current;
-        extendRef.current = { xid, from, to, t0: performance.now() };
+        extendRef.current = { xid, from, to, t0: performance.now(), endYear: getEdits().endYear };
         clearToast('extend-done');
         dropExtendUndo();
         // 停在"现在"(结束年份)的播放头钉在这一年:时间轴变长以后还停在原处
@@ -1801,8 +1806,15 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
       stop: () => {
         const x = extendRef.current;
         if (!x) return;
+        const b = getExtend().busy;
         extendRef.current = null;
         setExtendBusy(null);
+        // 从第 0 年整段推的(有地形大事、线程被重开过:一直没有分段进度)中途停不下来:线程手上只剩这一件活时换一个新的线程
+        // (手上的世界下次用到时按参数重算),不然要等它整段推完才空出来
+        if (b?.xid === x.xid && b.year === null && busyRef.current === 1) {
+          idleWorker(true);
+          return;
+        }
         // 叫停不算一件活(线程不回音):直接发
         workerRef.current?.postMessage({ type: 'extendStop', id: reqId.current, xid: x.xid } satisfies WorkerRequest);
       },
@@ -4872,7 +4884,7 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
   const stepReplay = useStepReplay();
   const stepQuiet = (stepStopped && !stepReplay) || stepStrip;
   /** 时间轴上有「再推」:推演模式里有文明时(逐年推演、导出视频、回放世界形成、新建时没有;藏起来时弹层跟着收起) */
-  const extendShown = !!(data && world && !draft && !home && !stepOn && !replayOn && !filmOn && civ?.viable && civ.cultures.length);
+  const extendShown = !!(data && world && !draft && !home && !stepOn && !replayOn && !filmOn && !previewRaw && civ?.viable && civ.cultures.length);
   useEffect(() => {
     if (!extendShown) setExtendOpen(false);
   }, [extendShown]);
@@ -5215,7 +5227,7 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
       {/* 底部:时间轴(宽屏是卡片右边那一块底下的胶囊;手机是浮在底部卡片上面的胶囊);新建时还没有历史,不放 */}
       <div className="bottom-row">
         <div className="bottom-tl">
-          {data && world && (stepOn ? <StepTimeline civ={civ} phone={narrow} hidden={replayOn} /> : <CivTimeline civ={civ} hidden={replayOn} dock="inline" directorOff={directorOff} />)}
+          {data && world && (stepOn ? <StepTimeline civ={civ} phone={narrow} hidden={replayOn} /> : <CivTimeline civ={civ} hidden={replayOn} dock="inline" directorOff={directorOff} extendOff={!extendShown} />)}
         </div>
         {/* 待推演的单子:浮在时间轴上面(逐年推演里换成「下一步生效的干预」、停着的提示、这一段的大事) */}
         {data && world && !stepOn && <PendingTray phone={narrow} hidden={replayOn || draft} />}

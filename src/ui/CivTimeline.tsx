@@ -59,9 +59,11 @@ export interface CivTimelineProps {
   dock?: 'top' | 'bottom' | 'inline';
   /** 导播停用(回放世界形成、导出视频、新建):开着也照平常播放,没有「自动」 */
   directorOff?: boolean;
+  /** 不放「再推」(地图上看着助手"先看看"的历史时:推的会是底下真的那个世界) */
+  extendOff?: boolean;
 }
 
-export function CivTimeline({ civ, hidden, dock = 'bottom', directorOff }: CivTimelineProps) {
+export function CivTimeline({ civ, hidden, dock = 'bottom', directorOff, extendOff }: CivTimelineProps) {
   const t = useCivTime();
   const dir = useDirector();
   const dirOn = dir.on && !directorOff;
@@ -158,7 +160,7 @@ export function CivTimeline({ civ, hidden, dock = 'bottom', directorOff }: CivTi
       : '列国并起:城市长大,人口够多的城立国,国家向外扩张、升格';
   const p = Math.min(1, year / Math.max(1, axis));
   // 「再推」:导出视频选段时、接着回放世界形成放文明时不放(和 1× / 4× 一样)
-  const extendOn = !span && !t.story;
+  const extendOn = !span && !t.story && !extendOff;
   return (
     <>
       {t.story && t.playing && (
