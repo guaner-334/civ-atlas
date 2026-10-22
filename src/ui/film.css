@@ -318,6 +318,22 @@
   justify-content: space-between;
   font-size: 14px;
 }
+/* 一行三个开关(大事字幕、片头片尾、片尾网址):字和开关挨着,三组左右撑开 */
+.film-two.three {
+  justify-content: space-between;
+}
+.film-two.three > div {
+  flex: none;
+  gap: 7px;
+}
+/* 用不了的一行(片头片尾关着时的片尾网址) */
+.film-lbl.off,
+.film-two > div.off {
+  opacity: 0.45;
+}
+.film-sw:disabled {
+  cursor: default;
+}
 
 /* ---- 地图上:压暗、预览 / 框、画面大小、提示条 ---- */
 .film-stage {

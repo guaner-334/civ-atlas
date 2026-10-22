@@ -557,8 +557,8 @@ export function ExportMenu({ data, civ: shown, plain, style, layer, look = 'clas
               openFilm('long', narrow);
             }}
           >
-            <b>竖版长图</b>
-            <span>疆域变迁和大事年表，拼成一张长图</span>
+            <b>故事长图</b>
+            <span>按时代分段：那时的地图和几件大事，拼成长图</span>
           </button>
           <div className="export-hr" />
           <div className="export-scale">

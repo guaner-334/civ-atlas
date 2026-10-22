@@ -1,25 +1,52 @@
 /**
  * 故事长图的骨架(纯计算,不碰 DOM、不改世界):一段历史分成几段,每段从哪年到哪年、挑哪几件大事、配哪一年的地图。
- * 写成什么字、怎么排版由界面那边接(和竖版长图同一套排版);这里只管"分段 + 挑事 + 定地图年份"。
+ * 写成什么字在 longPlan.ts、怎么排版在 render/longImage.ts;这里只管"分段 + 挑事 + 定地图年份"。
  *
  * - 分段:和导出的编年史一样按整数年份分节(chronicleEraYears:三千年每 500 年一节),节的边界对齐到一节年数的整数倍。
  *   整个世界:从第一个国家立国那一节起(之前还没有国家,地图上是空的),到最后一年;一国:从立国那年到亡国那年(还在 = 最后一年),
  *   一节多长按这一国存续的年数算(同一套分法),享国不久的国家也能分成几段。
  *   段数超过上限:一节放长一档(STRIP_SPANS:50、100、200、250、500、1000、2000、5000……)再分,直到不超过上限。
  * - 挑大事:整个世界 = 编年史"大事"(回放视频的字幕、导出编年史的"大事"同一份);一国 = 和这一国有关、重要度 2 起、
- *   不算君主继位(竖版长图一国版的 polityEntries)。每段按分量(timelineLayout 的 entryWeight,回放字幕、导播挑事用的同一个)
+ *   不算君主继位(polityEntries)。每段按分量(timelineLayout 的 entryWeight,回放字幕、导播挑事用的同一个)
  *   从重到轻挑;一样重的先挑牵涉的国家大的(事发那年其中最大的一国有几个州:大国改朝换代、大国之间的战争先上),再按年份先后;
  *   挑出来的照编年史里的先后排。
- * - 地图:每段最后一年年末那一刻(和竖版长图一样);一国亡了 = 亡国前一刻(polityLastYear)。开头那张 = 最后一年(一国:最后一刻)。
+ * - 地图:每段最后一年年末那一刻;一国亡了 = 亡国前一刻(polityLastYear)。开头那张 = 最后一年(一国:最后一刻)。
  *   最后一段的地图就是开头那张,放不放由排版决定。
  * - 还没有国家的世界:没有段(只有开头那张图)。
  *
  * 同一个世界、同样的选项永远得到同样的结果(不用随机数,排序都有确定的先后)。
  */
-import type { Civ } from '../gen/civ/types';
-import { chronicleEraYears, type ChronicleEntry } from '../gen/civ/chronicle';
-import { polityEntries, polityLastYear, regionCounts } from './longPlan';
+import type { Civ, Polity } from '../gen/civ/types';
+import { chronicleEraYears, filterChronicle, type ChronicleEntry } from '../gen/civ/chronicle';
+import { ownersAt } from '../gen/civ/timeline';
 import { entryWeight } from './timelineLayout';
+
+/** 某年各州归哪国(到最后一年 = civ.polity) */
+function ownersOf(civ: Civ, year: number): Int32Array | Int16Array | number[] {
+  return year >= civ.endYear ? civ.polity : ownersAt(civ, year).polity;
+}
+
+/** 某年各国有几个州(没有州的不在里面) */
+export function regionCounts(civ: Civ, year: number): Map<number, number> {
+  const own = ownersOf(civ, year);
+  const R = Math.min(civ.regions.count, own.length);
+  const n = new Map<number, number>();
+  for (let r = 0; r < R; r++) {
+    const p = own[r];
+    if (p >= 0) n.set(p, (n.get(p) ?? 0) + 1);
+  }
+  return n;
+}
+
+/** 一国最后的年份:亡了 = 亡国前一刻;还在 = 最后一年 */
+export function polityLastYear(civ: Pick<Civ, 'endYear'>, p: Polity): number {
+  return p.ended !== undefined ? Math.max(p.founded, Math.min(civ.endYear, p.ended - 1 / 512)) : civ.endYear;
+}
+
+/** 一国版列的大事:和这一国有关、不算小事(重要度 2 起),不列每一次君主继位 */
+export function polityEntries(all: readonly ChronicleEntry[], polity: number): ChronicleEntry[] {
+  return filterChronicle(all, { polity }).filter((e) => e.kind !== 'reign' && e.importance >= 2);
+}
 
 /** 段数超过上限时一节放长到哪几档(前几档和导出编年史一节的年数一样) */
 export const STRIP_SPANS: readonly number[] = [50, 100, 200, 250, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000];
@@ -155,7 +182,7 @@ export function storyStrip(
   if (p && p.founded <= civ.endYear) {
     const f = Math.floor(p.founded);
     const lastY = polityLastYear(civ, p);
-    // 亡国那一年:地图拍亡国前一刻,但最后一段和大事写到亡国那年(和竖版长图一国版一样)
+    // 亡国那一年:地图拍亡国前一刻,但最后一段和大事写到亡国那年
     const E = p.ended !== undefined && p.ended <= civ.endYear ? Math.max(f, Math.floor(p.ended)) : Math.floor(lastY);
     const span = stripSpan(f, f, E, civ.endYear, chronicleEraYears(E - f), opt.maxSegments);
     const secs = stripSections(f, f, E, span, civ.endYear);

@@ -1,5 +1,5 @@
 /**
- * 拍一张地图:回放导出的视频每一帧、竖版长图里的疆域图都用它。按给定的范围、按输出的像素重新画 —— 不是把屏幕放大。
+ * 拍一张地图:回放导出的视频每一帧、故事长图里的疆域图都用它。按给定的范围、按输出的像素重新画 —— 不是把屏幕放大。
  *
  *   整张地图(whole):和"地图图片"导出同一套画法(render/export.ts):主图大小的地形、文明底图、经纬网 / 纸边 / 外框罗盘
  *        三层叠好再缩放到输出大小;地名、国名、城镇符号、战线、作者标记按输出大小重新排(地图按 输出宽 / dpr 个 CSS 像素宽显示)。
@@ -91,7 +91,7 @@ export class MapShot {
   /** 文明底图的草稿(整张地图:主图大小;一块:输出大小) */
   private civC: AnyCanvas | null = null;
   private cache: DetailCache | null = null;
-  /** 一块:选中一国的描边(竖版长图的一国版) */
+  /** 一块:选中一国的描边(故事长图的一国版) */
   private selC: AnyCanvas | null = null;
   private selCache: DetailCache | null = null;
   /** 地理名(不随年份变,只算一次) */

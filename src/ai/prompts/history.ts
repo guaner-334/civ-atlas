@@ -541,7 +541,7 @@ function chapterName(i: number, unit: '章' | '卷' = '章'): string {
 }
 
 /** 纪传体的篇名:"本纪·大衍" / "世家·萨布斯坦王国" / "列传" */
-function partName(s: HistorySection): string {
+export function partName(s: HistorySection): string {
   if (s.part === 'lives') return s.name ? `列传·${s.name}` : '列传';
   return `${s.part === 'house' ? '世家' : '本纪'}·${s.name ?? ''}`;
 }
