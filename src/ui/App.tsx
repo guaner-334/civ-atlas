@@ -2129,10 +2129,10 @@ ${s.image.cells}` : null);
   const releaseNames = () => {
     if (!namesHold.current) return;
     namesHold.current = null;
-    setNamesHeld(false);
-    // 还在按新地形重新生成:换上以后接着补推(terrainDoneRef)
+    // 还在按新地形重新生成:换上以后接着补推(terrainDoneRef);这期间地图上还是涂之前的历史,照旧不标地名
     const rg = regenRef.current;
     if (rg && rg.arrived === undefined) return;
+    setNamesHeld(false);
     startNames();
   };
   const releaseNamesRef = useRef(releaseNames);
@@ -2297,8 +2297,11 @@ ${s.image.cells}` : null);
     holdTip.current = !rc && !!hold && !hold.tip;
     if (hold && !rc) hold.tip = true;
     setTerrainStatus({ busy: false, last: { ms: rg.arrived, lostNames, lostInterventions } });
-    // 没推历史、编辑地形已经收起了(还没换上就点了「完成」):接着补推
-    if (!rc && !hold) startNamesRef.current();
+    // 编辑地形已经收起了(还没换上就点了「完成」):地图上可以标地名了;没推历史的接着补推
+    if (!hold) {
+      setNamesHeld(false);
+      if (!rc) startNamesRef.current();
+    }
   };
   // 重新生成的世界画到地图上以后,记下"从改地形到地图更新"用了多久(冒烟检查用)
   useEffect(() => {

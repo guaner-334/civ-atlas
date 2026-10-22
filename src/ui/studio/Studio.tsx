@@ -952,7 +952,7 @@ export function Studio(p: StudioProps) {
   const doCreate = async () => {
     setConfirm(false);
     // 编辑地形以后还在补推历史、起地名(照手绘图新建点「创建世界」时才开始的):等它起好再建(顶上提示条写着进度)
-    for (let i = 0; pRef.current.naming && i < 300; i++) await new Promise((r) => setTimeout(r, 50));
+    while (pRef.current.naming) await new Promise((r) => setTimeout(r, 50));
     const sc = glOk ? sceneRef.current : null;
     // 建好以后平常的地图用哪种投影:这里选的平面投影;选的是地球仪就回到进来之前的平面投影
     const target: MapProjection = proj === 'globe' ? prevFlat.current : proj;
