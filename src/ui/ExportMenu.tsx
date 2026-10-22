@@ -25,6 +25,7 @@ import { rasterize, type Raster } from '../gen/raster';
 import type { Civ } from '../gen/civ/types';
 import { chronicleDocument } from '../gen/civ/chronicle';
 import { fullChronicle } from '../gen/civ/religionText';
+import { chronicleInSlices } from './chronicleHandoff';
 import { AZGAAR_SEA_GRAY, heightmapNote, type HeightmapBits } from '../gen/heightmap';
 import { isGradientLegend } from '../render/dataLegend';
 import { LAYERS, type LayerId } from '../render/layers';
@@ -388,11 +389,9 @@ export function ExportMenu({ data, civ: shown, plain, style, layer, look = 'clas
     // 文件名、图例、编年史里的年份照作者的纪年写(文件名里不带空格:"第1650年""公元前850年")
     const era = getEdits().era;
     const fileYear = yearFull(yi, era).replace(/ /g, '');
-    const markItems = withMarks && civ && ok ? markItemsAt(civ, world, marks, yi) : [];
     // 正选着的作者人物(填写中的不算)
     const sel = getSelection().sel;
     const who = sel?.kind === 'character' ? getEdits().characters?.find((c) => c.id === sel.id) : undefined;
-    const trail = who && civ && ok ? characterTrail(civ, world, raster, who, yi, { kind: 'view' }) : null;
     const what: Record<Job, string> = {
       map: `地图图片(${scale}×)`,
       mapjpg: `地图图片 JPEG(${scale}×)`,
@@ -404,6 +403,10 @@ export function ExportMenu({ data, civ: shown, plain, style, layer, look = 'clas
       globe: '地球仪这一面',
     };
     setStatus({ kind: 'busy', text: `正在导出${what[job]}` });
+    // 换回原名的那份历史还没算过编年史(标记、编年史要用):在主线程上分小块算好(长历史一口气算要好几百毫秒,界面那么久不动)
+    if (civ && job !== 'height16' && job !== 'height8') await chronicleInSlices(civ);
+    const markItems = withMarks && civ && ok ? markItemsAt(civ, world, marks, yi) : [];
+    const trail = who && civ && ok ? characterTrail(civ, world, raster, who, yi, { kind: 'view' }) : null;
     // 无色标记用地图的字体写:画地图、地球仪的先把字体加载好(先显示在导出,等字体时不能再点一次)
     const plain = markItems.length && (job === 'map' || job === 'mapjpg' || job === 'globe') ? plainMarkChars(marks) : '';
     if (plain) await ensureFonts(markStyle(style), plain, 15000);

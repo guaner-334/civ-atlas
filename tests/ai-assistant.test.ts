@@ -14,6 +14,8 @@ import { compareTrial, type Fate, type FateChange, type TrialDiff } from '../src
 import { fateShort, stepsSummary, trialView } from '../src/ai/agent/assistant';
 import { bordersAt, nameAt } from '../src/ai/prompts/rewrite';
 import { ownersAt } from '../src/gen/civ/timeline';
+import { fullChronicleCached } from '../src/gen/civ/religionText';
+import { namedHistory } from '../src/ui/chronicleHandoff';
 import { addIntervention, clearEdits, getEdits, setEditGate, setEdits, setName } from '../src/ui/editsStore';
 import { takeRewriteNote } from '../src/ui/rewriteStore';
 import { redoLastEdit, undoLastEdit } from '../src/ui/undo';
@@ -241,11 +243,13 @@ describe('助手面板', () => {
     expect(applyBlock(t, {})).toBeNull();
     expect(applyBlock(t, { busy: true })).toBe('世界正在重推，推完再执行');
 
-    // 先在地图上看看:确认单附带的那一次就是这一批,不用再推
+    // 先在地图上看看:确认单附带的那一次就是这一批,不用再推;它的编年史分小块算好了才换上(换上以后不用再算)
     expect(previewBlock(t, {})).toBeNull();
     expect(previewProposal(id, {})).toBeNull();
+    await vi.waitFor(() => expect(getAssistant().preview?.raw).toBeTruthy(), { timeout: 10000 });
     expect(runs).toBe(2);
     const shown = getAssistant().preview!;
+    expect(fullChronicleCached(namedHistory(shown.raw!, shown.names))).toBe(true);
     expect(shown.turn).toBe(id);
     expect(shown.raw).not.toBe(civ);
     expect(shown.raw!.endYear).toBe(civ.endYear);

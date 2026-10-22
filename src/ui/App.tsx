@@ -158,7 +158,7 @@ import type { RasterPatch } from '../gen/rasterPatch';
 import { cancelTerrainPatch, patchSourceOf, startTerrainPatch, type PatchStats, type PatchView, type PreProjected } from './terrainPatch';
 import { baseReady } from './thumbPrep';
 import { baseRegions, civAtEra, dropComposed, eraData, eraIndex, eraMapsOf, eraReady, eraShown, patchKey, reuseRegions, useEraIndex, withHistory, type EraMaps } from './eras';
-import { adoptChronicle, dropChronicleParts, namedHistory, takeChroniclePart } from './chronicleHandoff';
+import { adoptChronicle, dropChronicleParts, namedHistory, takeChroniclePart, useNamedHistory } from './chronicleHandoff';
 import { sameSketch, type SketchEdit } from '../gen/sketch';
 import { askHistory, clearEditHistory, clearEdits, getEdits, putEditsQuiet, putPlay, removeEditsBatch, removeIntervention, removeUpheaval, setEditGate, setEdits, setEndYear, setHistoryGate, undoTerrainOp, useEdits } from './editsStore';
 import { eraText, spaced, yearAt, yearFull } from '../gen/era';
@@ -833,9 +833,15 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
   const eraK = useMemo(() => eraShown(eraMaps, eraPatches.current, eraWant), [eraMaps, patchVer, eraWant]);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- patchVer:后台交来新的补丁时重拼
   const data = useMemo(() => (baseData ? eraData(baseData, eraMaps, eraPatches.current, eraK) : null), [baseData, eraMaps, patchVer, eraK]);
-  /** 整段历史(最后一段的州、地名,套上改名):编年史这类按它算(见 Civ.history);后台线程按同样的改名算好了编年史的直接用(chronicleHandoff.ts) */
-  const realFull = useMemo(() => (rawCiv ? namedHistory(rawCiv, edits.names) : null), [rawCiv, edits.names]);
-  const previewFull = useMemo(() => (previewRaw ? applyNames(previewRaw, preview!.names) : null), [previewRaw, preview?.names]);
+  /**
+   * 整段历史(最后一段的州、地名,套上改名):编年史这类按它算(见 Civ.history);后台线程按同样的改名算好了编年史的直接用。
+   * 改了名、编年史还在分小块算的时候,先照旧显示改名以前的样子,算好再换上(chronicleHandoff.ts);realNames = 现在套着的那份改名
+   */
+  const realNamed = useNamedHistory(rawCiv, edits.names);
+  const realFull = realNamed?.full ?? null;
+  const realNames = realNamed?.names ?? edits.names;
+  // 试推演的编年史在换上之前已经分小块算好了(assistantStore.ts 的 showPreview)
+  const previewFull = useMemo(() => (previewRaw ? namedHistory(previewRaw, preview!.names) : null), [previewRaw, preview?.names]);
   /** 地图上那一段的历史:那一段的州、地名、道路,套上改名;更早一段时挂上整段历史 */
   const eraView = (raw: Civ, full: Civ, names: Record<string, string>) => {
     const e = civAtEra(raw, eraK);
@@ -843,7 +849,7 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
   };
   /** 现在这个世界的历史(时间轴那一段的) */
   // eslint-disable-next-line react-hooks/exhaustive-deps -- eraView 只用到 eraK
-  const realCiv = useMemo(() => (rawCiv && realFull ? eraView(rawCiv, realFull, edits.names) : null), [rawCiv, realFull, eraK, edits.names]);
+  const realCiv = useMemo(() => (rawCiv && realFull ? eraView(rawCiv, realFull, realNames) : null), [rawCiv, realFull, eraK, realNames]);
   const shownRaw = useMemo(() => {
     const r = previewRaw ?? rawCiv;
     return r ? civAtEra(r, eraK) : null;
@@ -856,8 +862,8 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
   const flagGeo = useMemo(() => {
     const r = previewRaw ?? rawCiv;
     if (!r?.eras?.length || !baseData) return undefined;
-    return { world: baseData.world, civ: applyNames(civAtEra(r, 0), previewRaw ? preview!.names : edits.names) };
-  }, [previewRaw, rawCiv, baseData, preview?.names, edits.names]);
+    return { world: baseData.world, civ: applyNames(civAtEra(r, 0), previewRaw ? preview!.names : realNames) };
+  }, [previewRaw, rawCiv, baseData, preview?.names, realNames]);
   const flagView = useMemo(
     () =>
       data && civ && civ.viable && civ.habitat.suitability.length === data.world.mesh.n ? makeFlagView(data.world, civ, edits.flags, flagPreview, flagGeo) : null,
@@ -872,7 +878,7 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
     const raw = previewRaw ?? rawCiv;
     const full = previewFull ?? realFull;
     if (!baseData || !raw || !full) return setFilmSource(null);
-    const names = previewRaw ? preview!.names : edits.names;
+    const names = previewRaw ? preview!.names : realNames;
     const civs = new Map<number, Civ>();
     const lastK = eraIndex(raw, full.endYear);
     setFilmSource({
@@ -888,7 +894,7 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
       },
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- patchVer:后台交来新的补丁时换一份(各段的主图跟着补上)
-  }, [baseData, eraMaps, patchVer, previewRaw, rawCiv, previewFull, realFull, edits.names, preview?.names]);
+  }, [baseData, eraMaps, patchVer, previewRaw, rawCiv, previewFull, realFull, realNames, preview?.names]);
   // 导出时"换回原名"用的:AI 起的名字换回原来的(没有 AI 起的名字、助手"先看看"时 = null,导出菜单不问)
   const plainCiv = useMemo(
     () => (rawCiv && !previewRaw && aiNameKeys(edits).length ? applyNames(civAtEra(rawCiv, eraK), namesWithoutAi(edits)) : null),
@@ -1003,6 +1009,10 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
     return () => setDiagContext(() => ({}));
   }, []);
   const reqId = useRef(0);
+  // 改了名告诉后台线程(不排队、没有回音):正在推的那一次推完,编年史按现在的改名算,换上时不用再算一遍
+  useEffect(() => {
+    workerRef.current?.postMessage({ type: 'renames', id: reqId.current, names: edits.names } satisfies WorkerRequest);
+  }, [edits.names]);
   /**
    * 照原样打开的旧世界(读存着的原件,不重新生成):正在读的是哪个世界、建它的生成器版本;
    * 原件读不出来、改成按新版生成的是哪个世界(提示条上说一句)。见 resultStore.frozenResult / worker 的 load

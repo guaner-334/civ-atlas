@@ -9,7 +9,7 @@ import type { Civ, Faith, FaithEvent, FaithEventKind, FaithForm, Year } from './
 import { polityName } from './growth';
 import { ownersAt, type Owners } from './timeline';
 import { rulerRef } from './peopleText';
-import { buildChronicle, mergeChronicle, type ChronicleEntry, type Importance } from './chronicle';
+import { chronicleCached, chronicleSteps, mergeChronicle, runSteps, type ChronicleEntry, type Importance } from './chronicle';
 import { faithCounts, faithRoot, FOLK_COLOR } from './religion';
 import { developmentEntries } from './developmentText';
 import { yearAt, type Era } from '../era';
@@ -71,6 +71,11 @@ const entryCache = new WeakMap<Civ, ChronicleEntry[]>();
  * id = 史事条数 + 人物数 + 第几件(不和史事、继位的 id 撞)。没有信仰 = 空数组。按 civ 缓存
  */
 export function faithEntries(civ: Civ): ChronicleEntry[] {
+  return entryCache.get(civ) ?? runSteps(faithSteps(civ));
+}
+
+/** 同 faithEntries,分成小步(同 chronicle.ts 的 chronicleSteps) */
+function* faithSteps(civ: Civ): Generator<void, ChronicleEntry[]> {
   const hit = entryCache.get(civ);
   if (hit) return hit;
   const out: ChronicleEntry[] = [];
@@ -79,7 +84,9 @@ export function faithEntries(civ: Civ): ChronicleEntry[] {
     const n0 = (civ.annals?.length ?? 0) + (civ.people?.length ?? 0);
     let own: Owners | undefined;
     let ownYear = NaN;
-    rel.events.forEach((e, i) => {
+    for (let i = 0; i < rel.events.length; i++) {
+      if (i % 64 === 63) yield;
+      const e = rel.events[i];
       let importance: Importance = 1;
       if (e.kind === 'found' || e.kind === 'schism') importance = 3;
       else if (e.kind === 'state') {
@@ -102,9 +109,12 @@ export function faithEntries(civ: Civ): ChronicleEntry[] {
         people: e.ruler !== undefined ? [e.ruler] : undefined,
         faith: e.faith,
       });
-    });
+    }
+    yield;
     out.sort((a, b) => a.year - b.year || a.id - b.id);
   }
+  const again = entryCache.get(civ);
+  if (again) return again;
   entryCache.set(civ, out);
   return out;
 }
@@ -117,11 +127,34 @@ const fullCache = new WeakMap<Civ, ChronicleEntry[]>();
  */
 export function fullChronicle(civ: Civ): ChronicleEntry[] {
   if (civ.history) return fullChronicle(civ.history);
+  return fullCache.get(civ) ?? runSteps(fullChronicleSteps(civ));
+}
+
+/**
+ * 同 fullChronicle,分成许多小步(chronicle.ts 的 chronicleSteps):界面可以一块一块地算,块与块之间让出主线程。
+ * 走完和 fullChronicle 的结果逐条一样,记进同样的缓存(其中 buildChronicle 的那份也记下)
+ */
+export function* fullChronicleSteps(civ: Civ): Generator<void, ChronicleEntry[]> {
+  if (civ.history) return yield* fullChronicleSteps(civ.history);
   const hit = fullCache.get(civ);
   if (hit) return hit;
-  const out = mergeChronicle(mergeChronicle(buildChronicle(civ), faithEntries(civ)), developmentEntries(civ));
+  const build = yield* chronicleSteps(civ);
+  yield;
+  const faith = yield* faithSteps(civ);
+  yield;
+  const merged = mergeChronicle(build, faith);
+  yield;
+  const out = mergeChronicle(merged, developmentEntries(civ));
+  const again = fullCache.get(civ);
+  if (again) return again;
   fullCache.set(civ, out);
   return out;
+}
+
+/** fullChronicle(civ) 已经算过(或别处替它算好了):编年史面板、时间轴这些现在用它不用再算 */
+export function fullChronicleCached(civ: Civ): boolean {
+  const c = civ.history ?? civ;
+  return fullCache.has(c) && chronicleCached(c);
 }
 
 /** 同 primeChronicle(chronicle.ts):别处替这份 civ 算好的 fullChronicle(civ) 记进缓存;挂着整段历史的、已经算过的不记 */

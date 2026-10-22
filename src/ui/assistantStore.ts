@@ -58,6 +58,8 @@ import { setCivTime, setSelection, type MapSelection } from './civView';
 import { requestFly } from './panelStore';
 import { showToast } from './toastStore';
 import { noteRewrite } from './rewriteStore';
+import { namedHistory, prepareChronicle } from './chronicleHandoff';
+import { fullChronicleCached } from '../gen/civ/religionText';
 
 // ---------------------------------------------------------------------------
 // 状态
@@ -712,7 +714,10 @@ export function previewProposal(id: number, now: { busy?: boolean }): string | n
 
 let previewCtrl: AbortController | null = null;
 
-/** 地图换成这一轮勾着的几条的试推演(确认单附带的那一次就是这一批 = 直接用,否则在后台再推一遍) */
+/**
+ * 地图换成这一轮勾着的几条的试推演(确认单附带的那一次就是这一批 = 直接用,否则在后台再推一遍)。
+ * 换上之前先把试推演的编年史分小块算好(chronicleHandoff.ts;长历史一口气算要好几百毫秒,界面那么久不动),算的时候照旧是"还在推"的样子
+ */
 function showPreview(id: number) {
   const t = state.turns.find((x) => x.id === id);
   if (!t || !runner) return;
@@ -722,18 +727,23 @@ function showPreview(id: number) {
   const sig = ivSig(edits.interventions);
   const names = edits.names;
   const cached = trialRaw.get(id);
-  if (cached && cached.sig === sig) {
-    set({ ...state, preview: { turn: id, raw: cached.raw, names } });
-    return;
-  }
   set({ ...state, preview: { turn: id, raw: null, names } });
   const c = new AbortController();
   previewCtrl = c;
+  const show = (raw: Civ) => {
+    const done = () => {
+      if (!c.signal.aborted && state.preview?.turn === id) set({ ...state, preview: { turn: id, raw, names } });
+    };
+    const full = namedHistory(raw, names);
+    if (fullChronicleCached(full)) return done();
+    void prepareChronicle(raw, names, full, c.signal).then((ok) => ok && done());
+  };
+  if (cached && cached.sig === sig) return show(cached.raw);
   runner(edits.interventions as Intervention[], c.signal).then(
     (raw) => {
       if (c.signal.aborted || state.preview?.turn !== id) return;
       trialRaw.set(id, { sig, raw });
-      set({ ...state, preview: { turn: id, raw, names } });
+      show(raw);
     },
     () => {
       if (!c.signal.aborted && state.preview?.turn === id) set({ ...state, preview: null });
