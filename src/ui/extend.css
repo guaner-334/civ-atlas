@@ -1,0 +1,451 @@
+/*
+ * 再推 N 年(ExtendYears.tsx):时间轴尽头的「再推」、选几年的弹层(电脑)/ 底部卡片(手机)、手机推的时候的小卡片。
+ * 时间轴上新的一段、刚推的那段在 timeline.css。颜色、圆角、阴影都是 theme.css 的变量。
+ */
+
+/* ---- 时间轴尽头的按钮:电脑「＋ 再推」(和 1× / 4× 一样高,浅蓝底主色字),在轨道和速度中间 ---- */
+.timebar button.xt-btn {
+  flex: none;
+  order: 8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  width: 64px;
+  height: 25px;
+  padding: 0 10px 0 7px;
+  border-radius: var(--r-btn);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font: 600 12.5px/1 var(--font-sans);
+  white-space: nowrap;
+  text-shadow: none;
+}
+.timebar button.xt-btn .icon {
+  flex: none;
+  stroke-width: 2.2;
+}
+.timebar button.xt-btn:hover {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+}
+/* 弹层开着 */
+.timebar button.xt-btn.open,
+.timebar button.xt-btn.open:hover {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+/* 推的时候:进度圈 +「停下」 */
+.timebar button.xt-btn.busy {
+  gap: 5px;
+  background: var(--btn);
+  color: var(--ink);
+}
+.timebar button.xt-btn.busy:hover {
+  background: var(--hover-bg);
+}
+/* 推到第 60000 年:灰掉 */
+.timebar button.xt-btn.max,
+.timebar button.xt-btn.max:hover {
+  background: var(--btn);
+  color: var(--ink-3);
+  cursor: default;
+}
+
+/* 手机:胶囊里轨道尽头、「1×」前面的小圆钮「＋」 */
+.timebar button.xt-btn.phone {
+  order: 9;
+  width: 28px;
+  height: 28px;
+  margin: 0 -2px;
+  padding: 0;
+  border-radius: 50%;
+}
+.timebar button.xt-btn.phone .icon {
+  stroke-width: 2.4;
+}
+.timebar button.xt-btn.phone.busy,
+.timebar button.xt-btn.phone.busy:hover {
+  position: relative;
+  background: transparent;
+}
+
+/* 进度圈(像下载 App 时按钮原地变成的那个圈):灰圈底 + 主色弧;没有分段进度、收尾时一直转 */
+.xt-ring {
+  --w: 2.5px;
+  position: relative;
+  flex: none;
+  display: block;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: conic-gradient(var(--accent) calc(var(--p, 0) * 1turn), rgba(118, 118, 128, 0.22) 0);
+  -webkit-mask: radial-gradient(circle closest-side, transparent calc(100% - var(--w)), #000 calc(100% - var(--w) + 0.5px));
+  mask: radial-gradient(circle closest-side, transparent calc(100% - var(--w)), #000 calc(100% - var(--w) + 0.5px));
+}
+.xt-ring.spin {
+  animation: xt-spin 0.9s linear infinite;
+}
+@keyframes xt-spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+.xt-btn.phone .xt-ring {
+  --w: 3px;
+  width: 26px;
+  height: 26px;
+}
+/* 手机的圈里一个方块 = 停 */
+.xt-sq {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  margin: -4px 0 0 -4px;
+  border-radius: 1.5px;
+  background: var(--accent);
+}
+
+/* ---- 选几年:电脑的弹层、手机的底部卡片共用的零件 ---- */
+.xt-pop,
+.xt-sheet {
+  color: var(--ink);
+  font-family: var(--font-sans);
+  text-shadow: none;
+  white-space: normal;
+  cursor: default;
+}
+.xt-sp {
+  flex: 1;
+}
+.xt-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.xt-head h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+.xt-head em {
+  font-style: normal;
+  font-size: 12.5px;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+.xt-lead {
+  margin-top: -6px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--ink-2);
+}
+/* 分段按钮(和导播设置的一样) */
+.xt-seg {
+  display: flex;
+  padding: 2px;
+  border-radius: var(--r-btn);
+  background: var(--btn);
+}
+.xt-seg button {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink-2);
+  font: 400 13px/1.4 var(--font-sans);
+  white-space: nowrap;
+  text-align: center;
+  cursor: pointer;
+}
+.xt-seg button.on {
+  background: var(--panel-solid);
+  color: var(--ink);
+  font-weight: 600;
+  box-shadow: 0 0 0 1px var(--line);
+}
+/* 自己填:「再推 [ ] 年」+ 还能再推几年 */
+.xt-own {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+}
+.xt-in {
+  width: 96px;
+  height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--line-strong);
+  color: var(--ink);
+  font: 400 14px var(--font-sans);
+  font-variant-numeric: tabular-nums;
+  outline: none;
+}
+.xt-in:focus {
+  box-shadow:
+    0 0 0 1px var(--accent),
+    0 0 0 3.5px var(--accent-soft);
+}
+.xt-room {
+  font-size: 12.5px;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+/* 填多了:数字和那句话变红 */
+.xt-own.over .xt-in {
+  color: var(--err);
+}
+.xt-own.over .xt-room {
+  color: var(--err);
+}
+/* 底下那一格:推到第几年、大约多久、推的时候怎样 */
+.xt-res {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: 0 0 0 0.5px var(--line);
+}
+.xt-res-top {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.xt-res-top b {
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.xt-res-top b.dim {
+  font-weight: 400;
+  color: var(--ink-2);
+}
+.xt-res-top em {
+  font-style: normal;
+  font-size: 12.5px;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.xt-why {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--ink-2);
+}
+.xt-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+}
+.xt-b {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 30px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: var(--r-btn);
+  background: var(--btn);
+  color: var(--ink);
+  font: 500 13px/1 var(--font-sans);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.xt-b:hover {
+  background: var(--hover-bg);
+  filter: brightness(0.97);
+}
+.xt-b.pri {
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+.xt-b.pri:hover {
+  background: var(--accent-hover);
+  filter: none;
+}
+.xt-b:disabled,
+.xt-b:disabled:hover {
+  opacity: 0.4;
+  cursor: default;
+  filter: none;
+}
+.xt-b:focus-visible,
+.xt-seg button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* ---- 电脑:「再推」按钮上面的弹层(小三角对着按钮;位置在 ExtendYears.tsx 里按按钮摆) ---- */
+.bottom-row:has(.xt-pop) {
+  z-index: 5;
+}
+.xt-pop {
+  position: absolute;
+  z-index: 6;
+  width: 376px;
+  max-width: calc(100vw - 28px);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 15px 16px 16px;
+  background: color-mix(in srgb, var(--panel-solid) 96%, transparent);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border-radius: var(--r-panel);
+  box-shadow: var(--shadow-float);
+}
+.xt-caret {
+  position: absolute;
+  right: calc(55px - 7px);
+  bottom: -7px;
+  width: 14px;
+  height: 14px;
+  transform: rotate(45deg);
+  background: color-mix(in srgb, var(--panel-solid) 96%, transparent);
+  box-shadow: 1px 1px 0 0 rgba(0, 0, 0, 0.08);
+  pointer-events: none;
+}
+
+/* ---- 手机:从底下拉起的卡片(和导播设置的手机卡片一个样子) ---- */
+.xt-sheet {
+  position: absolute;
+  left: var(--safe-l, 0px);
+  right: var(--safe-r, 0px);
+  bottom: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 86%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 16px calc(26px + var(--safe-b, 0px));
+  background: var(--panel-solid);
+  border-radius: 18px 18px 0 0;
+  box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.14);
+  animation: xt-up 0.22s cubic-bezier(0.33, 1, 0.68, 1);
+}
+@keyframes xt-up {
+  from {
+    transform: translateY(40px);
+    opacity: 0;
+  }
+}
+.xt-grip {
+  flex: none;
+  width: 36px;
+  height: 5px;
+  margin: 6px auto 4px;
+  border-radius: 3px;
+  background: var(--ink-3);
+  opacity: 0.7;
+}
+.xt-sheet-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.xt-sheet .xt-head h3 {
+  font-size: 20px;
+  font-weight: 700;
+}
+.xt-sheet .xt-head em {
+  font-size: 13px;
+}
+.xt-sheet .xt-lead {
+  margin-top: 0;
+  font-size: 14px;
+}
+.xt-seg.phone button {
+  padding: 8px 0;
+  font-size: 14.5px;
+}
+.xt-own.phone {
+  font-size: 15px;
+}
+.xt-own.phone .xt-in {
+  width: 110px;
+  height: 38px;
+  font-size: 17px;
+}
+.xt-sheet .xt-res {
+  gap: 4px;
+  padding: 12px 14px;
+}
+.xt-sheet .xt-res-top b {
+  font-size: 17px;
+}
+.xt-sheet .xt-why {
+  font-size: 13px;
+}
+.xt-foot.phone {
+  gap: 10px;
+}
+.xt-b.big {
+  flex: 1;
+  height: 44px;
+  border-radius: 12px;
+  font-size: 16px;
+}
+.xt-b.big.pri {
+  flex: 1.4;
+}
+
+/* ---- 手机推的时候:胶囊上面一张小卡片「再推 500 年 / 正在推,到第 3240 年」+「停下」 ---- */
+.xt-dock {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 10px);
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 58px;
+  padding: 0 10px 0 16px;
+  background: var(--panel);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border-radius: 16px;
+  box-shadow: var(--shadow-panel);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  text-shadow: none;
+}
+.xt-dock-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 8px 0;
+}
+.xt-dock-text b {
+  font-size: 14.5px;
+  font-weight: 600;
+}
+.xt-dock-text span {
+  font-size: 13px;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+.xt-dock-text span b {
+  font-size: inherit;
+  color: var(--accent);
+}
+.xt-b.dock {
+  flex: none;
+  height: 36px;
+  padding: 0 16px;
+  font-size: 14.5px;
+}

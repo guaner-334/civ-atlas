@@ -211,14 +211,20 @@ export function replayStart(end: number): number {
 /** 写字的大格可选几年一格(从小到大挑第一个让字不超过七个的) */
 const RULER_STEPS = [1000, 2000, 5000, 10000, 20000];
 
+/** 刻度字:11 像素的数字一个约多宽(像素);整格的字居中写、结尾的字靠右写,两个字中间至少空 RULER_GAP */
+const RULER_DIGIT = 6.2;
+const RULER_GAP = 8;
+
 /**
  * 时间轴的刻度尺:major 年一个写字的大格,major / 2 一个中格,major / 10 一个小格,从 origin 那年数起(没设纪年 = 第 0 年);
- * labels = 写字的年份(0、每个大格,最后一定写结束年份;最后一个大格离结束太近就不写它,免得字挤在一起)。
+ * labels = 写字的年份(0、每个大格,最后一定写结束年份;最后一个大格和结束年份的字挤在一起就不写它)。
  * 3000 年的世界 = 每 100 年一小格、500 年一中格、1000 年写字(和原来一样)。
+ * 挤不挤:给了轨道宽 width(像素)按字真占的地方算 —— 再推以后的 3500 年照样写 3000(你接着推的那一年),
+ * 3100 年才省掉 3000;没给宽度按年数算,离结尾不到半个大格的不写。
  * 设了纪年:格子对准元年,字写在元年、元年以前整大格("前2000")、以后整大格("1000",公元 1000 年)和两头;
  * 离两头不到半个大格的不写
  */
-export function rulerOf(end: number, era?: Era | null): { major: number; minor: number; mid: number; origin: number; labels: number[] } {
+export function rulerOf(end: number, era?: Era | null, width?: number): { major: number; minor: number; mid: number; origin: number; labels: number[] } {
   const major = RULER_STEPS.find((m) => end / m <= 6) ?? RULER_STEPS[RULER_STEPS.length - 1];
   const labels: number[] = [];
   if (era) {
@@ -237,7 +243,11 @@ export function rulerOf(end: number, era?: Era | null): { major: number; minor: 
   for (let y = 0; y <= end; y += major) labels.push(y);
   if (end % major !== 0) {
     const last = labels[labels.length - 1];
-    if (last > 0 && end - last <= major / 2) labels.pop();
+    const crowded =
+      width && width > 0
+        ? (last / end) * width + (String(last).length * RULER_DIGIT) / 2 + RULER_GAP > width - String(end).length * RULER_DIGIT
+        : end - last <= major / 2;
+    if (last > 0 && crowded) labels.pop();
     labels.push(end);
   }
   return { major, minor: major / 10, mid: major / 2, origin: 0, labels };

@@ -3527,6 +3527,57 @@ for (const style of ['realistic', 'fantasy']) {
   await sp.close();
 }
 
+// 再推 N 年:时间轴尽头「再推」→ 弹层选 100 年 → 推好:时间轴到第 3100 年(刻度只写 3100,3000 挨得太近省掉)、播放头停在原来的第 3000 年、
+// 刚推的那段标出来、顶上提示条「已推到第 3100 年」;提示条上「撤销」→ 和推之前一模一样。推的时候点「停下」→ 什么都不留
+{
+  const xp = await browser.newPage({ viewport: { width: 1400, height: 820 } });
+  xp.on('pageerror', (e) => errs.push(`[再推] ${e.message}`));
+  xp.on('console', (m) => m.type() === 'error' && errs.push(`[再推] ${m.text()}`));
+  await xp.goto(`${dev.url}/?seed=7&style=fantasy`);
+  await xp.waitForFunction(() => (window as any).__wfCiv?.ready, null, { timeout: 60000 });
+  const sum = () => xp.evaluate(() => JSON.stringify((window as any).__wfCivSum?.(1e9) ?? null));
+  const s0 = await sum();
+  await xp.click('.timebar [data-act=extend]');
+  const pop = await xp.locator('.xt-pop').isVisible().catch(() => false);
+  const def = await xp.locator('.xt-seg button.on').innerText().catch(() => '');
+  await xp.click('[data-act=extend-100]');
+  await xp.click('[data-act=extend-go]');
+  const done = await xp.waitForSelector('[data-toast=extend-done]', { timeout: 30000 }).then(() => true, () => false);
+  const s1 = (await xp.evaluate(() => (window as any).__wfCivSum?.(1e9))) as { endYear: number } | null;
+  const head = await xp.locator('.timebar .tb-year').innerText().catch(() => '');
+  const labels = await xp.locator('.timebar .tb-label').allInnerTexts();
+  const fresh = await xp.locator('.timebar .tb-fresh').count();
+  const toast = await xp.locator('[data-toast=extend-done]').innerText().catch(() => '');
+  await xp.click('[data-act=extend-undo]').catch(() => {});
+  await xp.waitForTimeout(500);
+  const s2 = await sum();
+  const fresh2 = await xp.locator('.timebar .tb-fresh').count();
+  // 停下:推到第 60000 年要好一会儿,推的时候点「停下」
+  await xp.click('.timebar [data-act=extend]');
+  await xp.click('[data-act=extend-own]');
+  await xp.fill('[data-act=extend-years]', '57000');
+  await xp.click('[data-act=extend-go]');
+  const busy = await xp.waitForSelector('.timebar .xt-btn.busy', { timeout: 5000 }).then(() => true, () => false);
+  await xp.click('[data-act=extend-stop]').catch(() => {});
+  await xp.waitForTimeout(1500);
+  const s3 = await sum();
+  const toast3 = await xp.locator('[data-toast=extend-done]').count();
+  const idle = await xp.locator('.timebar [data-act=extend]:not(.busy)').count();
+  console.log(
+    `再推:弹层 ${pop}(默认「${def}」);推 100 年 ${done ? '推好了' : '没推好'} → 第 ${s1?.endYear} 年,播放头「${head}」,刻度 ${labels.join('/')},刚推的那段 ${fresh};` +
+      `提示条「${toast.replace(/\n/g, ' ')}」;撤销以后和推之前一样 ${s2 === s0}(标记 ${fresh2});推的时候停下 ${busy}:和推之前一样 ${s3 === s0}、没有提示条 ${!toast3}、按钮回来 ${idle}`,
+  );
+  if (!pop || def !== '500 年') errs.push(`再推:点「再推」没弹出选几年的弹层 / 默认不是 500 年(${def})`);
+  if (!done || s1?.endYear !== 3100) errs.push(`再推:推 100 年没推到第 3100 年(${s1?.endYear})`);
+  if (head !== '第 3000 年') errs.push(`再推:推完播放头没停在原来的第 3000 年(${head})`);
+  if (labels.join('/') !== '0/1000/2000/3100') errs.push(`再推:3100 年的刻度字不对(${labels.join('/')})`);
+  if (fresh !== 1) errs.push('再推:刚推的那段没标出来');
+  if (!toast.includes('已推到第 3100 年') || !toast.includes('从第 3000 年接着看') || !toast.includes('撤销')) errs.push(`再推:提示条不对(${toast})`);
+  if (s2 !== s0 || fresh2) errs.push('再推:撤销以后和推之前不一样');
+  if (!busy || s3 !== s0 || toast3 || idle !== 1) errs.push('再推:推的时候点停下,世界没回到推之前 / 还出了提示条');
+  await xp.close();
+}
+
 // 助手(不联网):右上「助手」开关右边的面板,地图那一块往左让;"更多"菜单里不再有改写。没设置 AI 时一行说明 + 五句按这个世界写的例子、
 // 底部"设置 AI",照样能发(这一轮报"还没有设置 AI")。测试用假 AI(时间轴在 2000 年):说一句要改的 → 查、试推演、列确认单(附试推演的结果),做完的几步收成一行 →
 // "先在地图上看看":地图上方的提示条,"回到现在"收起 → "执行 N 条":后台重推,提示条"已按你说的改写"(带撤销)、侧栏顶上"干预了 N 处",

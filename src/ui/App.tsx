@@ -59,6 +59,8 @@ import type { EraWorld, TempoNote, WorkerRequest, WorkerResponse } from '../work
 import type { Civ } from '../gen/civ/types';
 import { CivLayer } from './CivLayer';
 import { CivTimeline } from './CivTimeline';
+import { ExtendDock, ExtendPop, ExtendSheet } from './ExtendYears';
+import { extendProgress, getExtend, noteExtendSpeed, resetExtend, setExtendBusy, setExtendFresh, setExtendOpen, setExtendRunner } from './extendStore';
 import { EventPins, type WorldToClient } from './EventPins';
 import { DirectorCaption, DirectorEngine, DirectorPanels, DirectorPin } from './Director';
 import { directorHandBack, setDirectorMode, useDirectorFly, useDirectorOn } from './directorStore';
@@ -127,6 +129,7 @@ import {
   cleanCivSeed,
   cleanEndYear,
   cleanPlay,
+  extendedEndYear,
   faithKey,
   keySeats,
   namesWithoutAi,
@@ -154,7 +157,7 @@ import { cancelTerrainPatch, startTerrainPatch, type PatchStats, type PatchView,
 import { baseReady } from './thumbPrep';
 import { baseRegions, civAtEra, dropComposed, eraData, eraIndex, eraMapsOf, eraReady, eraShown, patchKey, reuseRegions, useEraIndex, withHistory, type EraMaps } from './eras';
 import { sameSketch, type SketchEdit } from '../gen/sketch';
-import { clearEditHistory, clearEdits, getEdits, putEditsQuiet, putPlay, removeEditsBatch, removeIntervention, removeUpheaval, setEditGate, setEdits, setHistoryGate, undoTerrainOp, useEdits } from './editsStore';
+import { askHistory, clearEditHistory, clearEdits, getEdits, putEditsQuiet, putPlay, removeEditsBatch, removeIntervention, removeUpheaval, setEditGate, setEdits, setEndYear, setHistoryGate, undoTerrainOp, useEdits } from './editsStore';
 import { eraText, spaced, yearAt, yearFull } from '../gen/era';
 import { redoLastEdit, undoLastEdit } from './undo';
 import { useShortcuts } from './useShortcuts';
@@ -256,7 +259,8 @@ import { createPinchGuard, createWheelReader, inGesturePinch, setGesturePinch, w
 import { mapTextBoxes, pickLabelAt } from './mapPick';
 import { ownersAt } from '../gen/civ/timeline';
 import { faithAt } from '../gen/civ/religion';
-import { interventionOutcome } from '../gen/civ/chronicle';
+import { filterChronicle, interventionOutcome } from '../gen/civ/chronicle';
+import { fullChronicle } from '../gen/civ/religionText';
 import { takeRewriteNote, type RewriteNote } from './rewriteStore';
 import { AssistantPanel, PreviewBanner } from './Assistant';
 import { astRoom, closeAssistant, useAstOpen } from './astPanel';
@@ -663,6 +667,9 @@ function storyOk(): boolean {
 const PATCH_KEEP = 24;
 /** 同一个世界画好的整张图留几张(地形大事前后各一张;见下面的 mapsOf) */
 const MAP_KEEP = 2;
+/** 再推好了的提示条停多久(和加干预以后的一样);推之前那一份(撤销用)多留一会儿再放掉 */
+const EXTEND_TOAST_MS = 7000;
+const EXTEND_UNDO_MS = EXTEND_TOAST_MS + 1000;
 
 /** 请求里带的地形大事(没有 = 不带) */
 const upsOpt = (u: readonly Upheaval[] | undefined) => (u?.length ? { upheavals: [...u] } : {});
@@ -983,6 +990,16 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
   const civNames = useRef<NameMix | undefined>(undefined);
   /** 最近一次请求的文明推到第几年(3000 = undefined) */
   const civYears = useRef<number | undefined>(undefined);
+  /**
+   * 再推 N 年(ExtendYears.tsx):正在推的这一次(第几次、从第 from 年推到第 to 年;没在推 = null)、第几次了;
+   * 推完以后提示条上「撤销」要换回去的那一份(推之前的历史 before、推好的 after;提示条收起就放掉)
+   */
+  const extendRef = useRef<{ xid: number; from: number; to: number; t0: number; endYear: number | undefined } | null>(null);
+  const extendSeq = useRef(0);
+  const extendUndo = useRef<{ before: Civ; after: Civ; from: number; endYear: number | undefined; timer: number } | null>(null);
+  /** 地图上正看着助手的"先看看"(还没执行的历史):这时不再推(推的是底下真的那个世界) */
+  const previewOn = useRef(false);
+  previewOn.current = !!previewRaw;
   /** 最近一次请求的文明带的拓荒、起源(默认 = undefined) */
   const civSetup = useRef<CivSetup | undefined>(undefined);
   /**
@@ -1141,8 +1158,8 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
       w.onmessage = (e: MessageEvent<WorkerResponse>) => {
         const m = e.data;
         if (workerRef.current !== w) return; // 已被换掉的线程
-        // 主图补丁、原件是后台自己排的活,不算一件回音
-        if (m.type !== 'progress' && m.type !== 'eraPatch' && m.type !== 'snapshot') {
+        // 主图补丁、原件是后台自己排的活,不算一件回音(再推的进度也不算:推完 / 停下才算)
+        if (m.type !== 'progress' && m.type !== 'eraPatch' && m.type !== 'snapshot' && m.type !== 'extendProgress') {
           busyRef.current = Math.max(0, busyRef.current - 1);
           if (!busyRef.current) {
             workLabel.current = null;
@@ -1199,6 +1216,8 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
           const finish = (raster: Raster) => {
             // 读原件来的、只算了后一半的(编辑地形接着上一次)不算生成速度
             if (!frozenLoad.current && !m.reused) noteGenSpeed(m.world.params.cells, m.genMs, m.ms);
+            // 推文明那一步用了多久:「再推」的弹层拿它估这台电脑再推几年要多久
+            if (m.civMs) noteExtendSpeed(0, m.civ.endYear, m.civMs);
             // 换了世界:各段的主图补丁都作废
             eraPatches.current.clear();
             dropComposed();
@@ -1244,6 +1263,15 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
           applyResimRef.current(m.civ, m.ms, m.eras, m.baseKey);
         } else if (m.type === 'turn') {
           applyTurnRef.current(m.civ, m.play, m.rejected, m.eras, m.baseKey);
+        } else if (m.type === 'extendProgress') {
+          if (extendRef.current?.xid === m.xid) extendProgress(m.xid, m.year, m.pct);
+        } else if (m.type === 'extended') {
+          applyExtendedRef.current(m.xid, m.civ, m.to, m.ms, m.eras, m.baseKey);
+        } else if (m.type === 'extendStopped') {
+          if (extendRef.current?.xid === m.xid) {
+            extendRef.current = null;
+            setExtendBusy(null);
+          }
         }
       };
       workerRef.current = w;
@@ -1253,6 +1281,11 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
   }, []);
   const send = useCallback(
     (req: WorkerRequest) => {
+      // 换了世界、读档、重推、逐年推演走一步:正在再推的那一次线程会自己停下(推了一半的不要),界面上跟着收起
+      if (extendRef.current && (req.type === 'generate' || req.type === 'load' || req.type === 'resim' || req.type === 'turn')) {
+        extendRef.current = null;
+        setExtendBusy(null);
+      }
       const w = idleWorker(req.type === 'generate' || req.type === 'load');
       if (req.type === 'generate') genSent.current = req;
       // 又要了一个新世界:还在后台备着换上的那一次已经过时了(线程交回的旧结果本来也不认)
@@ -1638,6 +1671,157 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
   const applyTurnRef = useRef(applyTurn);
   applyTurnRef.current = applyTurn;
 
+  /**
+   * 再推 N 年推好了(worker 的 extend):前面的历史一点没变,州、宜居度沿用,选中的东西编号不变;
+   * 推演年数存进修改(存档、自动存、分享链接都记着推到哪),播放头停在原处。
+   * 顶上提示条「从第 N 年接着看」(从原来的结束年份按现在的速度往后放,导播开着就导播放)、「撤销」(换回推之前那一份)
+   */
+  const applyExtended = (xid: number, next: Civ, to: number, ms: number, eras: EraWorld[] | undefined, baseKey: string) => {
+    const x = extendRef.current;
+    const old = rawRef.current;
+    if (!x || x.xid !== xid || !old) return;
+    // 用的人正按着地图(拖、捏合、滚轮):松开再换上(换历史要重画整张地图、重排时间轴,拖着的时候会卡一下)
+    if (getStepGesture()) {
+      onStepGestureEnd(() => applyExtendedRef.current(xid, next, to, ms, eras, baseKey));
+      return;
+    }
+    extendRef.current = null;
+    setExtendBusy(null);
+    const sameUps = sameUpheavals(civUps.current, rawUps.current);
+    const civ: Civ = reuseRegions(old, next, sameUps, true);
+    rawUps.current = civUps.current;
+    const base = baseRef.current;
+    const cur = eraMapsRef.current;
+    if (!eras?.length || !base) setEraMaps(null);
+    else if (!cur || cur.baseKey !== baseKey || cur.keys.join('|') !== eras.map((e) => e.key).join('|')) setEraMaps(eraMapsOf(base.world, baseKey, eras));
+    // 有地形大事的世界是从第 0 年整段推的
+    noteExtendSpeed(civUps.current?.length ? 0 : x.from, to, ms);
+    // 先记下推到哪年,修改里的推演年数跟着换时不再重推一遍
+    civYears.current = cleanEndYear(to);
+    // 播放头停在原处:推的时候放到了原来的结束年份(停在"现在")的,钉在那一年(不然换上以后"现在"成了新的结尾)
+    if (getCivTime().year === null) setCivTime({ year: x.from });
+    setRawCiv(civ);
+    setEndYear(to);
+    setExtendFresh({ from: x.from, to });
+    refreshThumb();
+    dropExtendUndo();
+    extendUndo.current = { before: old, after: civ, from: x.from, endYear: x.endYear, timer: window.setTimeout(dropExtendUndo, EXTEND_UNDO_MS) };
+    // 提示条等新的历史画上去以后再出(新添几件大事要数整段编年史,时间轴那时已经算好了,不再算一遍)
+    extendDone.current = { xid, from: x.from, to, ms, t0: x.t0, arrived: performance.now() - x.t0 };
+  };
+  const applyExtendedRef = useRef(applyExtended);
+  applyExtendedRef.current = applyExtended;
+  /** 刚推好、提示条还没出的那一次 */
+  const extendDone = useRef<{ xid: number; from: number; to: number; ms: number; t0: number; arrived: number } | null>(null);
+  useEffect(() => {
+    const d = extendDone.current;
+    if (!d || !realCiv || realCiv.endYear !== d.to) return;
+    extendDone.current = null;
+    // 新添几件大事(和时间轴上默认画的"大事"同一个口径)
+    const fresh = filterChronicle(fullChronicle(realCiv), { major: true, polity: null }).filter((e) => e.year > d.from).length;
+    const era = getEdits().era;
+    showToast({
+      id: 'extend-done',
+      kind: 'ok',
+      dot: true,
+      text: `已推到${yearFull(d.to, era)}`,
+      more: [`新添 ${fresh} 件大事`],
+      actions: [
+        {
+          label: narrowRef.current ? '接着看' : `从${yearFull(d.from, era)}接着看`,
+          primary: true,
+          act: 'extend-watch',
+          onClick: () => {
+            clearToast('extend-done');
+            setCivTime({ year: d.from, playing: true, scrubbing: false, story: false });
+          },
+        },
+        { label: '撤销', act: 'extend-undo', onClick: () => undoExtendRef.current() },
+      ],
+      ttl: EXTEND_TOAST_MS,
+    });
+    (window as unknown as { __wfExtend: unknown }).__wfExtend = { xid: d.xid, from: d.from, to: d.to, workerMs: d.ms, arrivedMs: d.arrived, shownMs: performance.now() - d.t0, fresh };
+  }, [realCiv]);
+  /** 提示条收起以后不能撤销了:推之前那一份放掉 */
+  const dropExtendUndo = () => {
+    const u = extendUndo.current;
+    if (u) clearTimeout(u.timer);
+    extendUndo.current = null;
+  };
+  /** 提示条上的「撤销」:回到推之前 —— 历史换回推之前那一份(一模一样),推演年数改回去 */
+  const undoExtend = () => {
+    clearToast('extend-done');
+    const u = extendUndo.current;
+    dropExtendUndo();
+    if (!u || extendRef.current) return;
+    setExtendFresh(null);
+    const t = getCivTime();
+    if (t.year !== null && t.year > u.from) setCivTime({ year: u.from, playing: false, scrubbing: false, story: false });
+    if (rawRef.current === u.after) {
+      civYears.current = cleanEndYear(u.from);
+      remapSelection(u.after, u.before);
+      setRawCiv(u.before);
+      refreshThumb();
+    }
+    // 推完以后又改过别的(干预……):只把推演年数改回去,照常重推。修改里原来没写推演年数的(3000 年)照样不写
+    setEndYear(u.endYear);
+  };
+  const undoExtendRef = useRef(undoExtend);
+  undoExtendRef.current = undoExtend;
+  // 「再推」:接到后台线程上(ExtendYears.tsx 调 extendStart / extendStop)
+  useEffect(() => {
+    setExtendRunner({
+      start: (years) => {
+        const p = genParams.current;
+        const raw = rawRef.current;
+        if (!p || !raw || fresh.current || extendRef.current || previewOn.current || getStepwise().on || cleanPlay(getEdits().play)) return;
+        const from = raw.endYear;
+        const to = extendedEndYear(from, years);
+        if (!(to > from)) return;
+        // 照原样打开的旧世界:推演要用新版的规则,先问要不要另存一份(在那一份上推)
+        if (askHistory({ ...getEdits(), endYear: to })) return;
+        const xid = ++extendSeq.current;
+        extendRef.current = { xid, from, to, t0: performance.now(), endYear: getEdits().endYear };
+        clearToast('extend-done');
+        dropExtendUndo();
+        // 停在"现在"(结束年份)的播放头钉在这一年:时间轴变长以后还停在原处
+        if (getCivTime().year === null) setCivTime({ year: from });
+        setExtendFresh(null);
+        setExtendBusy({ xid, from, to, year: null, pct: 0, slow: !!civUps.current?.length });
+        send({
+          type: 'extend',
+          id: reqId.current,
+          xid,
+          to,
+          params: p,
+          terrain: [...genTerrain.current],
+          sketch: genSketch.current,
+          interventions: [...civEdits.current],
+          ...upsOpt(civUps.current),
+          ...namesOpt(civNames.current),
+          ...setupOpt(civSetup.current),
+          have: [...eraPatches.current.keys()],
+        });
+      },
+      stop: () => {
+        const x = extendRef.current;
+        if (!x) return;
+        const b = getExtend().busy;
+        extendRef.current = null;
+        setExtendBusy(null);
+        // 从第 0 年整段推的(有地形大事、线程被重开过:一直没有分段进度)中途停不下来:线程手上只剩这一件活时换一个新的线程
+        // (手上的世界下次用到时按参数重算),不然要等它整段推完才空出来
+        if (b?.xid === x.xid && b.year === null && busyRef.current === 1) {
+          idleWorker(true);
+          return;
+        }
+        // 叫停不算一件活(线程不回音):直接发
+        workerRef.current?.postMessage({ type: 'extendStop', id: reqId.current, xid: x.xid } satisfies WorkerRequest);
+      },
+    });
+    return () => setExtendRunner(null);
+  }, [send]);
+
   // ---- 生成 ----
   /** 按 t 的参数、地形修改生成世界;生成完(readyRef)套上 t 的修改 */
   const generate = useCallback(
@@ -1704,6 +1888,12 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
       resimSeq.current++;
       resimInfo.current = null;
       setResim(null);
+      // 再推:正在推的不要了,弹层收起,刚推的那段不标,旧世界的「撤销」作废
+      extendRef.current = null;
+      extendDone.current = null;
+      resetExtend();
+      dropExtendUndo();
+      clearToast('extend-done');
       setPolityPick(null);
       clearEdits();
       clearSelection();
@@ -4693,6 +4883,11 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
   const stepStrip = useStepStrip() && stepOn;
   const stepReplay = useStepReplay();
   const stepQuiet = (stepStopped && !stepReplay) || stepStrip;
+  /** 时间轴上有「再推」:推演模式里有文明时(逐年推演、导出视频、回放世界形成、新建时没有;藏起来时弹层跟着收起) */
+  const extendShown = !!(data && world && !draft && !home && !stepOn && !replayOn && !filmOn && !previewRaw && civ?.viable && civ.cultures.length);
+  useEffect(() => {
+    if (!extendShown) setExtendOpen(false);
+  }, [extendShown]);
   const curWorld = currentWorld();
   // 离开这个世界(回首页、去新建、浏览器前进后退换了一个世界),或者助手"先看看"的历史进来、退出(预览条上的"回到现在"):
   // 导出面板关掉,正在导出的视频取消(不然会接着拍已经不在屏幕上的那一份历史)
@@ -5032,17 +5227,21 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
       {/* 底部:时间轴(宽屏是卡片右边那一块底下的胶囊;手机是浮在底部卡片上面的胶囊);新建时还没有历史,不放 */}
       <div className="bottom-row">
         <div className="bottom-tl">
-          {data && world && (stepOn ? <StepTimeline civ={civ} phone={narrow} hidden={replayOn} /> : <CivTimeline civ={civ} hidden={replayOn} dock="inline" directorOff={directorOff} />)}
+          {data && world && (stepOn ? <StepTimeline civ={civ} phone={narrow} hidden={replayOn} /> : <CivTimeline civ={civ} hidden={replayOn} dock="inline" directorOff={directorOff} extendOff={!extendShown} />)}
         </div>
         {/* 待推演的单子:浮在时间轴上面(逐年推演里换成「下一步生效的干预」、停着的提示、这一段的大事) */}
         {data && world && !stepOn && <PendingTray phone={narrow} hidden={replayOn || draft} />}
         {data && world && stepOn && <StepDock phone={narrow} />}
         {/* 导播的字幕条:浮在时间轴上面 */}
         {data && world && <DirectorCaption phone={narrow} civ={civ} hidden={directorOff || stepQuiet} />}
+        {/* 再推 N 年:电脑是「再推」上面的弹层,手机推的时候胶囊上面一张小卡片 */}
+        {data && world && civ && !narrow && <ExtendPop end={civ.endYear} hidden={!extendShown} />}
+        {data && world && narrow && <ExtendDock hidden={!extendShown} />}
       </div>
       {/* 导播:推进时间轴(不画东西;逐年推演时由 StepwiseEngine 推)、右上「导播略过的」(手机是拉起的卡片)、手机的导播设置 */}
       {data && world && <DirectorEngine world={data.world} civ={civ} off={directorOff} stepwise={stepWorld} />}
       {data && world && <DirectorPanels phone={narrow} civ={civ} hidden={directorOff} />}
+      {data && world && civ && narrow && <ExtendSheet end={civ.endYear} hidden={!extendShown} />}
       {/* 逐年推演:往下走(不画东西)、手机停一下时的卡片、开始之前 / 推进设置 / 存回推演模式的窗口 */}
       {data && world && stepWorld && <StepwiseEngine world={data.world} civ={civ} />}
       {data && world && narrow && stepCard && <StepReviewSheet />}

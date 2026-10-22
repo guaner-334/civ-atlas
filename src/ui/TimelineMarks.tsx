@@ -11,8 +11,10 @@
  *   手机上点一下同时弹出提示,约三秒后收起。
  * - 键盘:← → 前后 10 年(按住 Shift 100 年),Home / End 到头 / 到尾。
  * - 只在换世界 / 换筛选 / 轨道宽度变了时重排。
+ * - 再推 N 年(ExtendYears.tsx):推的时候(grow)轨道按推完的长度排,新的一段推好了的浅蓝、没推到的虚线,上面一行字;
+ *   这时只能拖到推之前的结束年份(limit)。推完以后刚推的那段(fresh)底下垫一道浅蓝、起点一条细线。
  */
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import type { ChronicleEntry } from '../gen/civ/chronicle';
 import { eraText, yearFull, yearShort, type Era } from '../gen/era';
 import { useMonths } from './editsStore';
@@ -57,11 +59,20 @@ export interface TimelineMarksProps {
   range?: TimelineRange;
   /** 手机上的小号(把手窄一点) */
   small?: boolean;
+  /** 最多拖到哪一年(再推的时候 = 推之前的结束年份;不给 = end) */
+  limit?: number;
+  /** 正在再推:新的一段从第 from 年起,推演推到第 at 年(还没回报 = null);note = 上面那行字(不给 = 不写) */
+  grow?: { from: number; at: number | null; note?: ReactNode };
+  /** 刚推的那段从第几年起(垫一道浅蓝、起点一条细线;不给 = 不标) */
+  fresh?: number;
 }
+
+/** 正在再推那段上面的字:离轨道两头至少这么远(像素) */
+const NOTE_PAD = 2;
 
 type Tip = Diamond & { pinned?: boolean };
 
-export const TimelineMarks = memo(function TimelineMarks({ entries, end, dock, year, era, range, small }: TimelineMarksProps) {
+export const TimelineMarks = memo(function TimelineMarks({ entries, end, dock, year, era, range, small, limit, grow, fresh }: TimelineMarksProps) {
   const ref = useRef<HTMLDivElement>(null);
   const months = useMonths();
   const tipRef = useRef<HTMLDivElement>(null);
@@ -114,8 +125,9 @@ export const TimelineMarks = memo(function TimelineMarks({ entries, end, dock, y
   };
   const localX = (cx: number) => cx - ref.current!.getBoundingClientRect().left;
   const yearAt = (cx: number) => Math.round(Math.min(1, Math.max(0, localX(cx) / Math.max(1, width))) * end);
-  // 导出回放视频时只在选的那一段里拖
-  const clampYear = (y: number) => (range ? Math.min(range.to, Math.max(range.from, y)) : y);
+  // 导出回放视频时只在选的那一段里拖;再推的时候拖到推之前的结束年份为止(新的一段推好以前进不去)
+  const top = limit ?? end;
+  const clampYear = (y: number) => (range ? Math.min(range.to, Math.max(range.from, y)) : Math.min(top, y));
   const scrub = (cx: number) => setCivTime({ year: clampYear(yearAt(cx)), playing: false, story: false, scrubbing: true });
   /** 按在哪个把手上(框两头各 pad 宽,左右各多认几像素) */
   const handleAt = (lx: number): 'from' | 'to' | undefined => {
@@ -193,9 +205,9 @@ export const TimelineMarks = memo(function TimelineMarks({ entries, end, dock, y
     if (range?.locked) return;
     const step = Math.round((e.shiftKey ? 100 : 10) * timeScale(end));
     const lo = range ? range.from : 0;
-    const hi = range ? range.to : end;
+    const hi = range ? range.to : top;
     const go = (dy: number) => {
-      if (!range) return stepYear(end, dy);
+      if (!range) return stepYear(top, dy);
       const cur = Math.floor(Math.min(hi, Math.max(lo, getCivTime().year ?? hi)));
       setCivTime({ year: Math.min(hi, Math.max(lo, cur + dy)), playing: false, story: false });
     };
@@ -208,9 +220,10 @@ export const TimelineMarks = memo(function TimelineMarks({ entries, end, dock, y
 
   // 刻度、字、菱形、"令":只在排版变了时重新生成(播放时每年重新渲染一次,只改读屏用的年份)
   const hot = tip?.lead;
+  const growFrom = grow ? Math.min(end, Math.max(0, grow.from)) : null;
   const static_ = useMemo(() => {
     const ticks: ReactElement[] = [];
-    const { major, minor, mid, origin, labels } = rulerOf(end, era);
+    const { major, minor, mid, origin, labels } = rulerOf(end, era, width);
     if (end > 0) {
       // 格子从 origin(元年;没设纪年 = 第 0 年)数起
       const first = origin - Math.floor(origin / minor) * minor;
@@ -220,18 +233,36 @@ export const TimelineMarks = memo(function TimelineMarks({ entries, end, dock, y
         ticks.push(<i key={y} className={`tb-tick${cls}`} style={{ left: `${(y / end) * 100}%` }} />);
       }
     }
+    // 正在再推:新的那一段先不画底线(画推好的浅蓝、没推到的虚线),结尾的字变淡(还没推到)
     return (
       <>
-        <i className="tb-base" />
+        <i className="tb-base" style={growFrom !== null ? { right: 'auto', width: `${(growFrom / Math.max(1, end)) * 100}%` } : undefined} />
         {ticks}
         {labels.map((y, i) => (
-          <span key={y} className={`tb-label${i === 0 ? ' first' : y === end ? ' last' : ''}`} style={{ left: `${(y / Math.max(1, end)) * 100}%` }}>
+          <span
+            key={y}
+            className={`tb-label${i === 0 ? ' first' : y === end ? ' last' : ''}${growFrom !== null && y === end && i > 0 ? ' dim' : ''}`}
+            style={{ left: `${(y / Math.max(1, end)) * 100}%` }}
+          >
             {rulerLabel(y, era)}
           </span>
         ))}
       </>
     );
-  }, [end, era]);
+  }, [end, era, width, growFrom]);
+  // 再推那段上面的字:居中在新的那一段上,不出轨道两头(量了字宽再摆);比新的那一段宽(压到原来那段的圆点上)时垫一层底色
+  const noteRef = useRef<HTMLSpanElement>(null);
+  const noteText = grow?.note;
+  useLayoutEffect(() => {
+    const el = noteRef.current;
+    if (!el || growFrom === null || !width) return;
+    const a = (growFrom / Math.max(1, end)) * width;
+    el.classList.remove('over');
+    if (el.offsetWidth > width - a + NOTE_PAD * 2) el.classList.add('over');
+    const w = el.offsetWidth;
+    el.style.left = `${Math.max(NOTE_PAD, Math.min(width - NOTE_PAD - w, (a + width) / 2 - w / 2))}px`;
+    el.style.visibility = 'visible';
+  }, [noteText, growFrom, width, end]);
   const marks = useMemo(
     () => (
       <>
@@ -281,7 +312,7 @@ export const TimelineMarks = memo(function TimelineMarks({ entries, end, dock, y
       tabIndex={0}
       aria-label="年份"
       aria-valuemin={range ? range.from : 0}
-      aria-valuemax={range ? range.to : end}
+      aria-valuemax={range ? range.to : top}
       aria-valuenow={year}
       aria-valuetext={yearFull(year, era)}
       onPointerDown={onDown}
@@ -292,8 +323,21 @@ export const TimelineMarks = memo(function TimelineMarks({ entries, end, dock, y
       onKeyDown={onKey}
     >
       {static_}
+      {fresh !== undefined && growFrom === null && width > 0 && fresh > 0 && fresh < end && (
+        <>
+          <i className="tb-fresh" style={{ left: (fresh / end) * width - 2, width: width - (fresh / end) * width + 4 }} />
+          <i className="tb-seam" style={{ left: (fresh / end) * width }} />
+        </>
+      )}
+      {growFrom !== null && width > 0 && <GrowTrack from={growFrom} at={grow!.at} end={end} width={width} />}
       <i className="tb-prog" />
       {marks}
+      {/* 写在圆点上面(字宽的时候垫着底色,盖住底下的圆点),播放头下面 */}
+      {growFrom !== null && grow!.note && (
+        <span ref={noteRef} className="tb-grow-note" style={{ visibility: 'hidden' }}>
+          {grow!.note}
+        </span>
+      )}
       {range && width > 0 && (
         <>
           <i
@@ -360,3 +404,15 @@ export const TimelineMarks = memo(function TimelineMarks({ entries, end, dock, y
     </div>
   );
 });
+
+/** 正在再推的那一段:推好了的浅蓝(像播放条上"已缓冲"的那截,跟着推到哪年长),还没推到的虚线 */
+function GrowTrack({ from, at, end, width }: { from: number; at: number | null; end: number; width: number }) {
+  const a = (from / end) * width;
+  const b = at === null ? a : (Math.min(end, Math.max(from, at)) / end) * width;
+  return (
+    <>
+      <i className="tb-grow-done" style={{ left: a, width: b - a }} />
+      <i className="tb-grow-todo" style={{ left: b + 3, width: Math.max(0, width - b - 3) }} />
+    </>
+  );
+}
