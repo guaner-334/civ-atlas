@@ -35,6 +35,14 @@ describe('网页图标写进页面', () => {
     expect(out).toContain('<link rel="apple-touch-icon" href="apple-touch-icon.png" />');
   });
 
+  it('写成 /favicon.ico、./favicon.svg 的也认', () => {
+    for (const href of ['/favicon.ico', './favicon.svg']) {
+      const tag = inlineIcons(`<link rel="icon" href="${href}" />`, fromPublic);
+      const b64 = /base64,([^"]+)"/.exec(tag)![1];
+      expect(Buffer.from(b64, 'base64').equals(fromPublic(href.replace(/^\.?\//, '')))).toBe(true);
+    }
+  });
+
   it('已经是 data: 的不动;指向别处的报错', () => {
     const inline = '<link rel="icon" href="data:image/svg+xml,<svg/>" />';
     expect(inlineIcons(inline, fromPublic)).toBe(inline);

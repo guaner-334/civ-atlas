@@ -24,14 +24,17 @@ export function inlineIcons(html: string, read: (file: string) => Uint8Array): s
   return html.replace(ICON_LINK, (tag) => {
     const href = /\bhref="([^"]*)"/.exec(tag)?.[1];
     if (href?.startsWith('data:')) return tag;
-    const m = href ? /^(?:\.\/)?([\w.-]+)\.(svg|ico|png)$/.exec(href) : null;
-    if (!m) throw new Error(`网页图标 ${tag} 写不进页面:只认同一目录下的 .svg / .ico / .png 文件`);
+    const m = href ? /^(?:\.?\/)?([\w.-]+)\.(svg|ico|png)$/.exec(href) : null;
+    if (!m) throw new Error(`网页图标 ${tag} 写不进页面:只认 public 目录最上一层的 .svg / .ico / .png 文件`);
     const data = Buffer.from(read(`${m[1]}.${m[2]}`)).toString('base64');
     return tag.replace(`href="${href}"`, `href="data:${TYPES[m[2]]};base64,${data}"`);
   });
 }
 
-/** Vite 插件:开发和构建时都把 index.html 里的图标换成 data: 网址,文件从 public 目录取 */
+/**
+ * Vite 插件:开发和构建时都把 index.html 里的图标换成 data: 网址,文件从 public 目录取。
+ * 排在 Vite 自己处理页面之前(order: 'pre'):开发时 Vite 会把指向 public 的网址改写成 /favicon.ico 这样
+ */
 export function inlineIconsPlugin(): Plugin {
   let publicDir = '';
   return {
@@ -39,8 +42,9 @@ export function inlineIconsPlugin(): Plugin {
     configResolved(c) {
       publicDir = c.publicDir;
     },
-    transformIndexHtml(html) {
-      return inlineIcons(html, (file) => readFileSync(join(publicDir, file)));
+    transformIndexHtml: {
+      order: 'pre',
+      handler: (html) => inlineIcons(html, (file) => readFileSync(join(publicDir, file))),
     },
   };
 }
