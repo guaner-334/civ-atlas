@@ -51,7 +51,7 @@ import { MinHeap } from '../util';
 import { geometryOf, type Geometry } from '../geometry';
 import { AdjKind, Layer, type Civ, type Culture, type MigrationDir, type Polity, type Year } from './types';
 import { fexp, keyed, keyed4, subSeed } from './rand';
-import { BOOKED_AT_START, Ev, quantize, type CivSim } from './sim';
+import { BOOKED_AT_START, bookChain, Ev, quantize, type CivSim } from './sim';
 import { addCulture, cultureModelOf } from './cultures';
 import { polityModelOf, type PolityModel } from './polities';
 import { warModelOf, type WarModel } from './wars';
@@ -625,14 +625,14 @@ export function resumeAssimilation(sim: CivSim, world: World, civ: Civ): void {
     if (p.ended !== undefined) continue;
     let k = 0;
     while (quantize(checkTime(am, p.id, k)) <= now) k++;
-    sim.schedule(checkTime(am, p.id, k), Ev.CultureCheck, k, p.id, k > 0 ? quantize(checkTime(am, p.id, k - 1)) : p.founded, k > 0 ? 0 : p.id);
+    sim.schedule(checkTime(am, p.id, k), Ev.CultureCheck, k, p.id, bookChain(k, (j) => checkTime(am, p.id, j), p.founded), k > 0 ? 0 : p.id);
   }
   let k = 0;
   while (quantize(enclaveTime(am, k)) <= now) k++;
-  sim.schedule(enclaveTime(am, k), Ev.EnclaveCheck, k, 0, k > 0 ? quantize(enclaveTime(am, k - 1)) : BOOKED_AT_START);
+  sim.schedule(enclaveTime(am, k), Ev.EnclaveCheck, k, 0, bookChain(k, (j) => enclaveTime(am, j), BOOKED_AT_START));
   k = 0;
   while (quantize(divergeTime(am, k)) <= now) k++;
-  sim.schedule(divergeTime(am, k), Ev.DivergeCheck, k, 0, k > 0 ? quantize(divergeTime(am, k - 1)) : BOOKED_AT_START);
+  sim.schedule(divergeTime(am, k), Ev.DivergeCheck, k, 0, bookChain(k, (j) => divergeTime(am, j), BOOKED_AT_START));
 }
 
 // ---------------------------------------------------------------------------

@@ -42,7 +42,7 @@ import type { World } from '../world';
 import { resolveKey } from '../edits';
 import { Layer, type Annal, type Civ, type Year } from './types';
 import { fpow, keyed, keyed4, subSeed } from './rand';
-import { Ev, quantize, type CivSim } from './sim';
+import { bookChain, Ev, quantize, type CivSim } from './sim';
 import { canCross, endPolity, polityModelOf, rulerOf, type PolityModel } from './polities';
 import { polityBorders, warModelOf, type War, type WarModel } from './wars';
 import { capitalAt, polityAlive, populationAt } from './growth';
@@ -576,7 +576,7 @@ export function resumeDiplomacy(sim: CivSim, _world: World, civ: Civ): void {
     let k = 0;
     while (quantize(checkTime(dm, p.id, k)) <= now) k++;
     // 一口气推时上一次看邦交那一刻预约的(第一次是立国那一刻)
-    sim.schedule(checkTime(dm, p.id, k), Ev.DiplomacyCheck, k, p.id, k > 0 ? quantize(checkTime(dm, p.id, k - 1)) : p.founded, k > 0 ? 0 : p.id);
+    sim.schedule(checkTime(dm, p.id, k), Ev.DiplomacyCheck, k, p.id, bookChain(k, (j) => checkTime(dm, p.id, j), p.founded), k > 0 ? 0 : p.id);
   }
 }
 

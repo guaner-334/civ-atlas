@@ -288,16 +288,37 @@ function earlyOrder(kind: number, b: number): number {
 /** schedule 的 booked:一口气推时在装各层的时候(第 0 年的事件处理之前)就预约了的事件 */
 export const BOOKED_AT_START = -1;
 
-/** 接着推时攒着的一件事件(见 CivSim.releaseHeld):tick = 时刻(1/256 年为单位),booked = 一口气推时预约的时刻(同样的单位),i = 补上的先后 */
+/** 预约链最多记几层(见 bookChain) */
+const BOOK_DEPTH = 3;
+
+/**
+ * 隔一阵子一次的事件(看邻国、看内政、看年景、下一仗……)第 k 次的预约链,给 schedule 的 booked:
+ * 第 k 次是第 k − 1 次那一刻预约的,第 k − 1 次又是第 k − 2 次那一刻预约的……第 0 次是 first 那一刻(立国、宣战、开头……)预约的。
+ * at(j) = 第 j 次的时刻。两件事预约的那一刻相同(上一次也撞在同一刻)时,按上一次是哪一刻预约的定先后,和一口气推完一样
+ */
+export function bookChain(k: number, at: (j: number) => number, first: number): number[] {
+  const out: number[] = [];
+  for (let j = k - 1; j >= -1 && out.length < BOOK_DEPTH; j--) out.push(j >= 0 ? quantize(at(j)) : first);
+  return out;
+}
+
+/** 接着推时攒着的一件事件(见 CivSim.releaseHeld):tick = 时刻(1/256 年为单位),booked = 预约链(同样的单位),i = 补上的先后 */
 interface HeldEvent {
   tick: number;
   kind: number;
   a: number;
   b: number;
   ver: number;
-  booked: number;
+  booked: number[];
   sub: number;
   i: number;
+}
+
+/** 两条预约链比先后:一层层比,比到短的那条用完还一样 = 0 */
+function compareChain(x: readonly number[], y: readonly number[]): number {
+  const n = Math.min(x.length, y.length);
+  for (let i = 0; i < n; i++) if (x[i] !== y[i]) return x[i] - y[i];
+  return 0;
 }
 
 /** 把时间取整到引擎的精度(1/256 年)。引擎里所有事件时间、日志年份都是这样的值 */
@@ -482,14 +503,14 @@ export class CivSim {
   }
 
   /**
-   * 接着推时攒着的事件按一口气推时的预约先后放进事件堆:同一时刻的几件,先按预约的时刻(booked),
-   * 同一刻预约的再按 sub(同一刻立的几国:按国家号,一国的几件挨在一起),最后按补上的先后(各层的先后和 generateCiv 里装各层的先后一样)
+   * 接着推时攒着的事件按一口气推时的预约先后放进事件堆:同一时刻的几件,先按预约链(预约的时刻;一样的再看预约它的那件事是哪一刻预约的……),
+   * 还一样的按 sub(同一刻立的几国:按国家号,一国的几件挨在一起),最后按补上的先后(各层的先后和 generateCiv 里装各层的先后一样)
    */
   private releaseHeld(): void {
     const held = this.held;
     this.held = null;
     if (!held) return;
-    held.sort((x, y) => x.tick - y.tick || x.booked - y.booked || x.sub - y.sub || x.i - y.i);
+    held.sort((x, y) => x.tick - y.tick || compareChain(x.booked, y.booked) || x.sub - y.sub || x.i - y.i);
     for (const e of held) this.push(e.tick, e.kind, e.a, e.b, e.ver);
   }
 
@@ -507,17 +528,18 @@ export class CivSim {
   /**
    * 预约一个事件。t 早于现在(或 floor)就按现在(floor)算;取整到 1/256 年;超出 65536 年或不是有限数就不预约。
    * 要核对版本号的类型,记下州 a 此刻的版本号。
-   * booked、sub 只在接着推(fromCiv 里各层补事件)时用:一口气推完时这件事是哪一刻预约的(装各层时就预约的 = BOOKED_AT_START),
-   * 同一刻预约的几件按 sub、再按补上的先后排(见 releaseHeld)。推演中途预约的不用给(就是现在)
+   * booked、sub 只在接着推(fromCiv 里各层补事件)时用:一口气推完时这件事是哪一刻预约的(装各层时就预约的 = BOOKED_AT_START;
+   * 隔一阵子一次的事件给预约链,见 bookChain),同一刻预约的几件按 sub、再按补上的先后排(见 releaseHeld)。推演中途预约的不用给(就是现在)
    */
-  schedule(t: number, kind: number, a: number, b: number, booked: number = BOOKED_AT_START, sub = 0): void {
+  schedule(t: number, kind: number, a: number, b: number, booked: number | readonly number[] = BOOKED_AT_START, sub = 0): void {
     if (!(t < Infinity)) return; // Infinity / NaN
     const tick = Math.round(Math.max(t, this.now, this.floor) * TICKS_PER_YEAR);
     if (tick >= MAX_TICK) return;
     const ver = this.watch[kind] && a >= 0 && a < this.R ? this.version[a] : -1;
     // 接着推时补的、同一刻里按预约先后排的事件:先攒着(见 releaseHeld)
     if (this.held && earlyOrder(kind, b) < 0 && arrivalOrder(kind, a, b) < 0) {
-      this.held.push({ tick, kind, a, b, ver, booked: Math.round(booked * TICKS_PER_YEAR), sub, i: this.held.length });
+      const chain = typeof booked === 'number' ? [booked] : booked;
+      this.held.push({ tick, kind, a, b, ver, booked: chain.map((y) => Math.round(y * TICKS_PER_YEAR)), sub, i: this.held.length });
       return;
     }
     this.push(tick, kind, a, b, ver);
