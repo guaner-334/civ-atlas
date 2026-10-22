@@ -121,6 +121,22 @@
       footer a:not(.back) {
         color: var(--ink-2);
       }
+      /* 备案号:页脚下面居中一行(构建时写进来,没有号码就没有这一行) */
+      .beian {
+        margin: 14px 0 0;
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 4px 18px;
+        font-size: 13px;
+      }
+      .beian a {
+        color: var(--ink-2);
+        text-decoration: none;
+      }
+      .beian a:hover {
+        text-decoration: underline;
+      }
       @media (max-width: 760px) {
         main {
           padding: 24px 16px calc(24px + env(safe-area-inset-bottom, 0px));
@@ -136,7 +152,8 @@
         .lead {
           padding: 12px 14px;
         }
-        footer a {
+        footer a,
+        .beian a {
           display: inline-block;
           padding: 6px 0;
         }
@@ -218,6 +235,7 @@
         <a href="./terms.html">用户协议</a>
         <a href="https://github.com/guaner-334/civ-atlas" target="_blank" rel="noreferrer">源代码</a>
       </footer>
+      <!--beian-->
     </main>
   </body>
 </html>

@@ -44,6 +44,8 @@ import { TitleInput, when } from './worldParts';
 import { GUIDE_URL, PRIVACY_URL, SOURCE_URL, TERMS_URL } from './links';
 import { ContactLink } from './ContactLink';
 import { VersionText } from './VersionNews';
+import { BeianLinks } from './BeianLinks';
+import { BEIAN } from './beian';
 import { HomeGlobe } from './studio/HomeGlobe';
 import { OldSiteBadge } from './OldSiteBadge';
 import { BETA_SITE, OLD_SITE } from './oldSite';
@@ -352,7 +354,13 @@ export function MyWorlds({ phone, onOpen: openWorld, onNew, onOpenText, onNewCiv
             用户协议
           </a>
           <ContactLink />
+          <BeianLinks className="mw-beian" />
           <VersionText className="mw-ver" />
+        </footer>
+      )}
+      {phone && BEIAN.length > 0 && (
+        <footer className="mw-foot solo">
+          <BeianLinks className="mw-beian" />
         </footer>
       )}
     </div>

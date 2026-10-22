@@ -539,6 +539,22 @@ a.sb-row {
   color: var(--ink-3);
   user-select: text;
 }
+/* 版本号下面的备案号(VersionNews.tsx 的 VersionMenuFoot):和版本号一样的小字,一个号一行 */
+.pm-foot.pm-beian {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding-top: 0;
+  padding-bottom: 4px;
+}
+.pm-beian a {
+  color: inherit;
+  text-decoration: none;
+}
+.pm-beian a:hover {
+  color: var(--ink-2);
+  text-decoration: underline;
+}
 
 /* ==== 时代 / 物产图层的列表(Sidebar.tsx 的 WorldHome、ResourceList;手机世界卡片共用) ==== */
 /* 列表下面一段说明 */

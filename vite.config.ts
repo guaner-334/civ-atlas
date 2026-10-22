@@ -9,7 +9,9 @@ import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import { fakeAiMiddleware } from './scripts/lib/fakeAiServer';
 import { inlineIconsPlugin } from './scripts/lib/inlineIcons';
+import { beianPagesPlugin } from './scripts/lib/beian';
 import { loadScreenPlugin } from './scripts/lib/loadScreen';
+import { beianRecords } from './src/ui/beian';
 import { SOURCE_URL } from './src/ui/links';
 import { WHATS_NEW } from './src/ui/whatsNew';
 import { ShardSequencer } from './tests/lib/shardSequencer';
@@ -27,6 +29,13 @@ function buildCommit(): string {
 
 /** 构建那天(北京时间,2026-10-11):测试网站多出来的功能预计哪天更新到正式网站,从这天算(src/ui/betaNews.ts) */
 const BUILD_DAY = new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10);
+
+/**
+ * 网站备案号:环境变量 ICP_BEIAN(网站的发布流程从仓库变量传进来)。没设 = 哪里都不挂(src/ui/beian.ts):
+ * 页面上的那几处、加载画面、public/ 下的隐私政策、用户协议、使用教程
+ */
+const ICP_BEIAN = process.env.ICP_BEIAN?.trim() ?? '';
+const BEIAN = beianRecords(ICP_BEIAN);
 
 /**
  * 打包出来的每个 JS 文件开头的署名:作品名、版本、版权、许可证、源代码地址(`/*!` 开头的注释压缩时会保留)。
@@ -83,8 +92,8 @@ function precompress(): Plugin {
 
 export default defineConfig({
   base: './',
-  // 界面上显示的版本号(src/ui/version.ts)、构建那天(src/ui/betaNews.ts)
-  define: { __APP_VERSION__: JSON.stringify(pkg.version), __BUILD_DAY__: JSON.stringify(BUILD_DAY) },
+  // 界面上显示的版本号(src/ui/version.ts)、构建那天(src/ui/betaNews.ts)、备案号(src/ui/beian.ts)
+  define: { __APP_VERSION__: JSON.stringify(pkg.version), __BUILD_DAY__: JSON.stringify(BUILD_DAY), __ICP_BEIAN__: JSON.stringify(ICP_BEIAN) },
   plugins: [
     react(),
     // 浏览器标签上的图标写进页面(data: 网址):拖地图、换图层改网址时,浏览器不再一遍遍去要图标(scripts/lib/inlineIcons.ts)
@@ -113,7 +122,9 @@ export default defineConfig({
     },
     // 加载画面(scripts/lib/loadScreen.ts):第一次打开时先出网站图标、名字和一条真的进度条,页面的代码、样式表由它数着下好再交给浏览器;
     // 打开的不是首页时主程序也一起下
-    loadScreenPlugin(),
+    loadScreenPlugin(BEIAN),
+    // 隐私政策、用户协议、使用教程(public/ 下的静态页)最底下的备案号:构建完写进去(scripts/lib/beian.ts)
+    beianPagesPlugin(BEIAN),
     // 开发时的假网站服务器(账号、云同步、分享、我们的 AI;接口约定见 src/ai/providers/official.ts、src/account/cloud.ts 文件头):
     // 网址加 aiServer=fake 使用;正式构建里没有。分享短链接 /s/<码> 照正式网站的做法转到 /?s=<码>(开发时带上 aiServer=fake)
     {

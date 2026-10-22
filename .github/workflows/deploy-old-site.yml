@@ -100,6 +100,7 @@ jobs:
           VITE_AI_SERVER: ''
           VITE_OLD_SITE: ${{ steps.check.outputs.ver }}
           VITE_OLD_UNTIL: ${{ steps.input.outputs.until }}
+          ICP_BEIAN: ${{ vars.ICP_BEIAN }}
         run: pnpm build
       - name: 确认没有和主站共用的存储名,加上不收录、补结尾斜杠
         env:

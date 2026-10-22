@@ -25,7 +25,9 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { transformWithEsbuild, type HtmlTagDescriptor, type Plugin } from 'vite';
+import type { BeianRecord } from '../../src/ui/beian';
 import { HARMLESS } from '../../src/ui/homeStart';
+import { beianLinks } from './beian';
 import { DATA_BASES, MAIN_BASES, MAP_LAYERS, baseDark, isBaseId, mapViewFromUrl } from '../../src/ui/mapLayers';
 
 /**
@@ -40,11 +42,11 @@ const FILES_VAR = '__ldFiles';
 
 /** 加载画面的样式(写在 <head> 里;手机 = 窗口窄于 600) */
 export const LOAD_STYLE =
-  '#ld{--b:#f5f5f7;--i:#1d1d1f;--i2:#6e6e73;--ln:rgba(60,60,67,.16);--a:#007aff;--bt:rgba(118,118,128,.12);' +
+  '#ld{--b:#f5f5f7;--i:#1d1d1f;--i2:#6e6e73;--i3:#aeaeb2;--ln:rgba(60,60,67,.16);--a:#007aff;--bt:rgba(118,118,128,.12);' +
   'position:fixed;top:0;right:0;bottom:0;left:0;z-index:2147483000;display:flex;flex-direction:column;align-items:center;justify-content:center;' +
   'padding:0 24px 6vh;background:var(--b);color:var(--i);text-align:center;transition:opacity .2s ease-out;' +
   'font:14px/1.5 -apple-system,BlinkMacSystemFont,"PingFang SC","Noto Sans SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;-webkit-font-smoothing:antialiased}' +
-  '.ld-dk #ld{--b:#1c1c1e;--i:#f5f5f7;--i2:#a1a1a6;--ln:rgba(255,255,255,.14);--a:#0a84ff;--bt:rgba(118,118,128,.26)}' +
+  '.ld-dk #ld{--b:#1c1c1e;--i:#f5f5f7;--i2:#a1a1a6;--i3:#6e6e73;--ln:rgba(255,255,255,.14);--a:#0a84ff;--bt:rgba(118,118,128,.26)}' +
   '#ld>*{animation:ld .3s .4s both}@keyframes ld{from{opacity:0}}' +
   '#ld svg{width:64px;height:64px}' +
   '#ld b{margin-top:16px;font-size:22px;font-weight:700;letter-spacing:.5px;line-height:1.3}' +
@@ -56,15 +58,20 @@ export const LOAD_STYLE =
   '#ld button{display:block;margin:14px auto 0;height:32px;padding:0 14px;border:0;border-radius:8px;background:var(--bt);color:var(--i);font:inherit;font-weight:500;cursor:pointer}' +
   '#ld button.go{background:var(--a);color:#fff}' +
   '#ld.out{opacity:0;pointer-events:none}' +
+  // 备案号:最底下正中,和首页底部那一行同一个位置、同样的字(src/ui/worlds.css 的 .mw-foot;首页窄于 760 是手机布局,离底多 2 像素加底部横条)
+  '#ld footer{position:absolute;left:0;right:0;bottom:22px;display:flex;flex-wrap:wrap;justify-content:center;gap:4px 18px;padding:0 16px;font-size:12px;line-height:1.45;white-space:nowrap}' +
+  '#ld footer a{color:var(--i3);text-decoration:none}#ld footer a:hover{color:var(--i2);text-decoration:underline}' +
+  '@media (max-width:760px){#ld footer{bottom:calc(24px + env(safe-area-inset-bottom,0px));gap:4px 16px}}' +
   '@media (max-width:600px){#ld svg{width:56px;height:56px}#ld b{font-size:20px}#ld i{width:160px}#ld small{font-size:13px}#ld button{height:40px;padding:0 20px;font-size:15px}}' +
   // 减少动态效果:不淡入淡出、进度条不滑;图标和字照样等 0.4 秒再出来(一下子出来,网快的照样只看到底色)
   '@media (prefers-reduced-motion:reduce){#ld,#ld s{transition:none}#ld>*{animation-duration:0s}}';
 
 /**
  * 加载画面那一块:网站图标(就是 public/favicon.svg,里面的 id 换个前缀免得和页面上的撞)、网站名、进度条、慢了以后的说明。
- * 说明那一段一开始就留好高度,字出来时上面的图标、名字不跳
+ * 说明那一段一开始就留好高度,字出来时上面的图标、名字不跳。
+ * 有备案号时(src/ui/beian.ts)最底下再一行,和图标、名字一起淡入;没有就不加
  */
-export function loadScreenMarkup(faviconSvg: string): string {
+export function loadScreenMarkup(faviconSvg: string, beian: BeianRecord[] = []): string {
   const svg = faviconSvg
     .trim()
     .replace(/\s+xmlns="[^"]*"/, '')
@@ -73,7 +80,8 @@ export function loadScreenMarkup(faviconSvg: string): string {
     .replace(/#ffffff\b/gi, '#fff')
     .replace(/^<svg\b/, '<svg aria-hidden="true"');
   if (!/^<svg\b[^>]*>[\s\S]*<\/svg>$/.test(svg)) throw new Error('public/favicon.svg 不像一个 <svg>,加载画面上的图标画不出来');
-  return `${svg}<b>文明与地图</b><i role="progressbar" aria-label="正在载入"><s></s></i><p aria-live="polite"></p>`;
+  const foot = beian.length ? `<footer>${beianLinks(beian)}</footer>` : '';
+  return `${svg}<b>文明与地图</b><i role="progressbar" aria-label="正在载入"><s></s></i><p aria-live="polite"></p>${foot}`;
 }
 
 /** 深色底图:网址里 map= 是这几种(新链接) */
@@ -325,9 +333,9 @@ type Bundle = Record<string, { type: 'chunk'; code: string; isDynamicEntry: bool
  * 把构建好的页面改成先出加载画面:去掉 Vite 写进去的入口代码、样式表(改由加载画面数着下好再放上),
  * 文件清单(连同主程序那一份)、样式、那一块、那一段代码写进去。bundle = 构建结果(查每个文件多大)。
  * 样式和那一段代码紧跟在 <title> 后面(网站图标写进页面以后有好几 KB,放在它们前面,线路很慢时也能早一点开始下载),
- * 那一块放在 <body> 最前面
+ * 那一块放在 <body> 最前面。beian = 要挂的备案号(src/ui/beian.ts;没有就不挂)
  */
-export async function withLoadScreen(html: string, bundle: Bundle, faviconSvg: string, minify = true): Promise<{ html: string; tags: HtmlTagDescriptor[] }> {
+export async function withLoadScreen(html: string, bundle: Bundle, faviconSvg: string, minify = true, beian: BeianRecord[] = []): Promise<{ html: string; tags: HtmlTagDescriptor[] }> {
   const files: LoadFile[] = [];
   const sizeOf = (url: string, kind: LoadFile[3]): LoadFile => {
     const f = bundle[url.replace(/^\.?\//, '')];
@@ -354,12 +362,12 @@ export async function withLoadScreen(html: string, bundle: Bundle, faviconSvg: s
   const at = title + '</title>'.length;
   return {
     html: `${rest.slice(0, at)}\n    <style>${LOAD_STYLE}</style>\n    <script>${js}</script>${rest.slice(at)}`,
-    tags: [{ tag: 'div', attrs: { id: 'ld' }, children: loadScreenMarkup(faviconSvg), injectTo: 'body-prepend' }],
+    tags: [{ tag: 'div', attrs: { id: 'ld' }, children: loadScreenMarkup(faviconSvg, beian), injectTo: 'body-prepend' }],
   };
 }
 
 /** Vite 插件:构建时把加载画面写进 index.html(开发时不写,页面照旧直接跑代码) */
-export function loadScreenPlugin(): Plugin {
+export function loadScreenPlugin(beian: BeianRecord[] = []): Plugin {
   let publicDir = '';
   return {
     name: 'load-screen',
@@ -369,7 +377,7 @@ export function loadScreenPlugin(): Plugin {
     },
     transformIndexHtml: {
       order: 'post',
-      handler: (html, ctx) => withLoadScreen(html, (ctx.bundle ?? {}) as unknown as Bundle, readFileSync(join(publicDir, 'favicon.svg'), 'utf8')),
+      handler: (html, ctx) => withLoadScreen(html, (ctx.bundle ?? {}) as unknown as Bundle, readFileSync(join(publicDir, 'favicon.svg'), 'utf8'), true, beian),
     },
   };
 }

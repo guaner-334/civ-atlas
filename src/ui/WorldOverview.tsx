@@ -34,6 +34,7 @@ import { ContactLink } from './ContactLink';
 import { useNarrow } from './device';
 import { Icon } from './icons';
 import { VersionText } from './VersionNews';
+import { BeianLinks } from './BeianLinks';
 import { TitleInput } from './worldParts';
 import './overview.css';
 
@@ -129,7 +130,8 @@ const ABOUT = [
 ];
 
 /**
- * 底部一行小字:源代码、隐私政策、用户协议(新标签页打开)、联系我们(配了交流群才有;手机上在「更多」菜单里),最右边是版本号
+ * 底部一行小字:源代码、隐私政策、用户协议(新标签页打开)、联系我们(配了交流群才有;手机上在「更多」菜单里),
+ * 正中是备案号(有号码时;手机上那排已经占满,在「更多」菜单里),最右边是版本号
  */
 function AboutLinks() {
   const narrow = useNarrow();
@@ -141,6 +143,7 @@ function AboutLinks() {
         </a>
       ))}
       {!narrow && <ContactLink />}
+      {!narrow && <BeianLinks className="ov-beian" />}
       <VersionText className="ov-ver" />
     </footer>
   );

@@ -4,7 +4,8 @@
  *   VersionText      底部一行小字最右边的版本号(我的世界、世界概览):后面一个小蓝点。鼠标移上去(或用键盘移到它上面)
  *                    上面出一张小卡片,移开收起;触屏点一下出、点外面收起
  *   VersionMenuFoot  「更多」菜单最底下一行(世界里、新建世界):版本号、小蓝点,右边「测试版新功能 ›」。
- *                    鼠标移上去,卡片出在菜单旁边(像子菜单);触屏点一下,整个菜单换成这张卡片
+ *                    鼠标移上去,卡片出在菜单旁边(像子菜单);触屏点一下,整个菜单换成这张卡片。
+ *                    有备案号时(beian.ts)下面再一行
  *
  * 小卡片挂在 body 下、按版本号的位置摆;滚动、改窗口大小、按 Esc、版本号所在的画面关掉时收起。样子在 betaNews.css。
  */
@@ -15,6 +16,7 @@ import { useCoarse } from './device';
 import { Icon } from './icons';
 import { usePopMenuPanel } from './PopMenu';
 import { APP_VERSION } from './version';
+import { BeianLinks } from './BeianLinks';
 import './betaNews.css';
 
 /** 离版本号(菜单)多远、离窗口边多远 */
@@ -224,8 +226,17 @@ export function VersionText({ className }: { className: string }) {
   );
 }
 
-/** 「更多」菜单最底下一行 */
+/** 「更多」菜单最底下:版本号那一行,有备案号时下面再一行(beian.ts;一个号一行) */
 export function VersionMenuFoot() {
+  return (
+    <>
+      <VersionMenuRow />
+      <BeianLinks className="pm-foot pm-beian" />
+    </>
+  );
+}
+
+function VersionMenuRow() {
   const n = useBetaNews();
   const panel = usePopMenuPanel();
   const row = useRef<HTMLButtonElement>(null);

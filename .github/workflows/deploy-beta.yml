@@ -62,6 +62,7 @@ jobs:
         env:
           VITE_AI_SERVER: ''
           VITE_BETA_SITE: '1'
+          ICP_BEIAN: ${{ vars.ICP_BEIAN }}
         run: pnpm build
       - name: 确认没有和正式网站共用的存储名,加上不收录、补结尾斜杠
         run: |
