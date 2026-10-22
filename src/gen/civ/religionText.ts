@@ -124,6 +124,11 @@ export function fullChronicle(civ: Civ): ChronicleEntry[] {
   return out;
 }
 
+/** 同 primeChronicle(chronicle.ts):别处替这份 civ 算好的 fullChronicle(civ) 记进缓存;挂着整段历史的、已经算过的不记 */
+export function primeFullChronicle(civ: Civ, entries: ChronicleEntry[]) {
+  if (!civ.history && !fullCache.has(civ)) fullCache.set(civ, entries);
+}
+
 /** 侧栏、图例里的一行:大教 / 教派(id = 信仰编号)或合成一行的民间信仰(id = −1) */
 export interface FaithRow {
   id: number;

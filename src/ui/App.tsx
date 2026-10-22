@@ -158,6 +158,7 @@ import type { RasterPatch } from '../gen/rasterPatch';
 import { cancelTerrainPatch, patchSourceOf, startTerrainPatch, type PatchStats, type PatchView, type PreProjected } from './terrainPatch';
 import { baseReady } from './thumbPrep';
 import { baseRegions, civAtEra, dropComposed, eraData, eraIndex, eraMapsOf, eraReady, eraShown, patchKey, reuseRegions, useEraIndex, withHistory, type EraMaps } from './eras';
+import { adoptChronicle, dropChronicleParts, namedHistory, takeChroniclePart } from './chronicleHandoff';
 import { sameSketch, type SketchEdit } from '../gen/sketch';
 import { askHistory, clearEditHistory, clearEdits, getEdits, putEditsQuiet, putPlay, removeEditsBatch, removeIntervention, removeUpheaval, setEditGate, setEdits, setEndYear, setHistoryGate, undoTerrainOp, useEdits } from './editsStore';
 import { eraText, spaced, yearAt, yearFull } from '../gen/era';
@@ -831,8 +832,8 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
   const eraK = useMemo(() => eraShown(eraMaps, eraPatches.current, eraWant), [eraMaps, patchVer, eraWant]);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- patchVer:后台交来新的补丁时重拼
   const data = useMemo(() => (baseData ? eraData(baseData, eraMaps, eraPatches.current, eraK) : null), [baseData, eraMaps, patchVer, eraK]);
-  /** 整段历史(最后一段的州、地名,套上改名):编年史这类按它算(见 Civ.history) */
-  const realFull = useMemo(() => (rawCiv ? applyNames(rawCiv, edits.names) : null), [rawCiv, edits.names]);
+  /** 整段历史(最后一段的州、地名,套上改名):编年史这类按它算(见 Civ.history);后台线程按同样的改名算好了编年史的直接用(chronicleHandoff.ts) */
+  const realFull = useMemo(() => (rawCiv ? namedHistory(rawCiv, edits.names) : null), [rawCiv, edits.names]);
   const previewFull = useMemo(() => (previewRaw ? applyNames(previewRaw, preview!.names) : null), [previewRaw, preview?.names]);
   /** 地图上那一段的历史:那一段的州、地名、道路,套上改名;更早一段时挂上整段历史 */
   const eraView = (raw: Civ, full: Civ, names: Record<string, string>) => {
@@ -1219,14 +1220,15 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
     }
     if (!workerRef.current) {
       const w = new Worker(WORKER_URL, { type: 'module' });
+      dropChronicleParts();
       w.onerror = (e) => {
         if (workerRef.current === w) recordWorkerError(e, '生成世界的线程');
       };
       w.onmessage = (e: MessageEvent<WorkerResponse>) => {
         const m = e.data;
         if (workerRef.current !== w) return; // 已被换掉的线程
-        // 主图补丁、原件是后台自己排的活,不算一件回音(再推的进度也不算:推完 / 停下才算)
-        if (m.type !== 'progress' && m.type !== 'eraPatch' && m.type !== 'snapshot' && m.type !== 'extendProgress') {
+        // 主图补丁、原件是后台自己排的活,不算一件回音(再推的进度、先交的编年史也不算:推完 / 停下才算)
+        if (m.type !== 'progress' && m.type !== 'eraPatch' && m.type !== 'snapshot' && m.type !== 'extendProgress' && m.type !== 'chronicle') {
           busyRef.current = Math.max(0, busyRef.current - 1);
           if (!busyRef.current) {
             workLabel.current = null;
@@ -1242,6 +1244,9 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
           return;
         }
         if (m.id !== reqId.current) return; // 过时的请求(上一个世界的)
+        // 交历史之前先交的编年史:收着,交历史的那条到了一起记下(换上时不在主线程上整段重算)
+        if (m.type === 'chronicle') return void takeChroniclePart(m);
+        if (m.type === 'done' || m.type === 'civ' || m.type === 'civOnly' || m.type === 'turn' || m.type === 'extended') adoptChronicle(m.civ, m.chron);
         if (m.type === 'eraPatch') {
           // 一段的主图补丁:记下,地图那一段换上(eras.ts);最多留 PATCH_KEEP 块,先丢最早的(现在这份历史要用的不丢;
           // 丢了的以后又要用,下一次推演时线程看 have 里没有会重新铺)
@@ -1373,7 +1378,9 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
       // 问题记录:意外关闭时记下线程在忙什么
       workLabel.current = WORK_LABEL[req.type] ?? workLabel.current;
       diagBeat();
-      w.postMessage(req.type === 'history' || req.type === 'upPreview' || !tempoNote.current ? req : { ...req, tempo: tempoNote.current });
+      // 交回历史的请求带上现在的改名:线程先交套上它的编年史(打开世界时那两种自己带着存档里的改名;试推演不换上,不用)
+      const named = (req.type === 'generate' || req.type === 'civOnly' || req.type === 'resim' || req.type === 'turn' || req.type === 'extend') && !req.renames ? { ...req, renames: getEdits().names } : req;
+      w.postMessage(named.type === 'history' || named.type === 'upPreview' || !tempoNote.current ? named : { ...named, tempo: tempoNote.current });
     },
     [idleWorker],
   );
@@ -1935,7 +1942,7 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
       civSetup.current = setupFor(t.kind === 'draft', t.edits);
       storyAfterYears.current = null;
       // 新建的世界能编辑地形:线程留着整张主图,第一笔就能只重铺变了的那块
-      const req: WorkerRequest = { type: 'generate', id, params: p, scale: 1, terrain: [...terrain], sketch: t.edits.sketch, ...namesOpt(t.edits.nameMix), ...yearsOpt(civYears.current), ...setupOpt(civSetup.current), ...(t.kind === 'draft' ? { keep: true } : {}) };
+      const req: WorkerRequest = { type: 'generate', id, params: p, scale: 1, terrain: [...terrain], sketch: t.edits.sketch, ...namesOpt(t.edits.nameMix), ...yearsOpt(civYears.current), ...setupOpt(civSetup.current), ...(t.kind === 'draft' ? { keep: true } : {}), renames: t.edits.names };
       frozenLoad.current = null;
       genReq.current = null;
       const save = oldStored(t);
@@ -1957,7 +1964,7 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
           const play = cleanPlay(t.edits.play);
           civPlay.current = play;
           // 带上进度:线程按它记下这份历史,下一步从这里接着推(不从第 0 年重推)
-          send({ type: 'load', id, params: p, scale: 1, parts: r.parts, terrain: [...terrain], sketch: t.edits.sketch, ...upsOpt(t.edits.upheavals), interventions: [...t.edits.interventions], ...namesOpt(t.edits.nameMix), ...yearsOpt(civYears.current), ...setupOpt(civSetup.current), ...(play ? { play } : {}) });
+          send({ type: 'load', id, params: p, scale: 1, parts: r.parts, terrain: [...terrain], sketch: t.edits.sketch, ...upsOpt(t.edits.upheavals), interventions: [...t.edits.interventions], ...namesOpt(t.edits.nameMix), ...yearsOpt(civYears.current), ...setupOpt(civSetup.current), ...(play ? { play } : {}), renames: t.edits.names });
         });
       } else send(req);
       loadedFrozen.current = false;
