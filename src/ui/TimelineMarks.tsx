@@ -12,7 +12,8 @@
  * - 手机(small):点一下不跳年份,胶囊上面升起一张卡片列出这一处的每一件(能往下滑);点卡片里的一行才跳到那一年、地图上闪出事发地;
  *   点 ×、点地图(这一下不再当成地图上的单击)、拖时间轴收起。
  * - 合并进来的几件里有新国家立起来(立国、自立、复国、大崩解分出来的、饥民起事立的),点本身的颜色又不是立国的:上面叠一颗小绿点。
- * - 选中了国家(life):从它立国到亡(还在 = 到头)铺一道它的国色,立国那头一颗绿点;宽屏写"2391 立国""2837 亡";和它无关的圆点变淡。
+ * - 选中了国家(life):从它立国到亡(还在 = 到头)铺一道它的国色,立国那头一颗绿点;宽屏写"2391 立国""2837 亡";和它无关的圆点变淡,
+ *   这时不叠小绿点(它的立国已经有一颗大绿点,别的点里叠的是别国的立国)。
  * - 键盘:← → 前后 10 年(按住 Shift 100 年),Home / End 到头 / 到尾。
  * - 只在换世界 / 换筛选 / 轨道宽度变了时重排。
  * - 再推 N 年(ExtendYears.tsx):推的时候(grow)轨道按推完的长度排,新的一段推好了的浅蓝、没推到的虚线,上面一行字;
@@ -32,7 +33,6 @@ import {
   evYears,
   hidesFounding,
   hitDiamonds,
-  labelSpan,
   layoutDiamonds,
   lifeLabels,
   rulerLabel,
@@ -378,7 +378,7 @@ export const TimelineMarks = memo(function TimelineMarks({ entries, end, dock, y
     el.style.left = `${Math.max(NOTE_PAD, Math.min(width - NOTE_PAD - w, (a + width) / 2 - w / 2))}px`;
     el.style.visibility = 'visible';
   }, [noteText, growFrom, width, end]);
-  // 选中的国家:一道国色(基线底下,播放头以下)、立国那头的绿点和两头的字(圆点上面);cover = 两头的字占的地方(那里不叠小绿点)
+  // 选中的国家:一道国色(基线底下,播放头以下)、立国那头的绿点和两头的字(圆点上面)
   const lifeEls = useMemo(() => {
     if (!life || range || !(width > 0) || !(end > 0)) return null;
     const X = (y: number) => (Math.min(end, Math.max(0, y)) / end) * width;
@@ -393,15 +393,10 @@ export const TimelineMarks = memo(function TimelineMarks({ entries, end, dock, y
       />
     );
     let labs: ReactNode = null;
-    const cover: [number, number][] = [];
     if (!small) {
       const fa = `${rulerLabel(life.founded, era)} 立国`;
       const fb = life.ended !== null ? `${rulerLabel(life.ended, era)} 亡` : '';
-      const wa = textWidth(fa, LIFE_FONT, LIFE_PAD);
-      const wb = textWidth(fb, LIFE_FONT, LIFE_PAD);
-      const L = lifeLabels(a, life.ended !== null ? b : null, wa, wb, width);
-      cover.push(labelSpan(L.found, wa));
-      if (L.end) cover.push(labelSpan(L.end, wb));
+      const L = lifeLabels(a, life.ended !== null ? b : null, textWidth(fa, LIFE_FONT, LIFE_PAD), textWidth(fb, LIFE_FONT, LIFE_PAD), width);
       labs = (
         <>
           <span className={`tb-life-lab ${L.found.align}`} style={{ left: L.found.x }}>
@@ -417,7 +412,6 @@ export const TimelineMarks = memo(function TimelineMarks({ entries, end, dock, y
     }
     return {
       band,
-      cover,
       top: (
         <>
           <i className="tb-life-found" style={{ left: a }} />
@@ -434,8 +428,8 @@ export const TimelineMarks = memo(function TimelineMarks({ entries, end, dock, y
         {layout.marks.map((d) => {
           const dim = lifeId !== null && !d.items.some((e) => entryInvolves(e, lifeId));
           const state = `${hot === d.lead ? ' on' : ''}${range && (d.lead.year < range.from || d.lead.year > range.to + 1) ? ' out' : ''}${dim ? ' dim' : ''}`;
-          // 里面有新国家立起来、颜色又不是立国的:上面叠一颗绿点(选中国家时:和它无关的、压在"立国""亡"那两个字底下的不叠)
-          const up = hidesFounding(d) && !dim && !lifeEls?.cover.some(([l, r]) => d.x > l - 3 && d.x < r + 3);
+          // 里面有新国家立起来、颜色又不是立国的:上面叠一颗绿点(选中了国家时不叠:它的立国另有一颗大绿点,别的点里叠的是别国的立国)
+          const up = lifeId === null && hidesFounding(d);
           return (
             <Fragment key={`m${d.lead.id}`}>
               <i className={`tb-mark${d.items.length > 1 ? ' many' : ''}${state}`} data-ev={evType(d.lead)} data-year={Math.floor(d.lead.year)} data-n={d.items.length} style={{ left: d.x }} />
@@ -467,7 +461,7 @@ export const TimelineMarks = memo(function TimelineMarks({ entries, end, dock, y
         ))}
       </>
     ),
-    [layout, hot, width, range?.from, range?.to, lifeId, lifeEls],
+    [layout, hot, width, range?.from, range?.to, lifeId],
   );
 
   /** 提示、卡片里一条纪事底下列的:大崩解分出来的每一国(编年史里那一条展开的几行) */

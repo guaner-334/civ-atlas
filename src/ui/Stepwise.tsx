@@ -82,7 +82,7 @@ import {
   useStepwise,
   type StepwiseState,
 } from './stepwiseStore';
-import { LIFE_FONT, LIFE_PAD, bringsState, entryWeight, evType, labelSpan, lifeLabels, rulerLabel, textWidth, type LifeLabel } from './timelineLayout';
+import { LIFE_FONT, LIFE_PAD, bringsState, entryWeight, evType, lifeLabels, rulerLabel, textWidth, type LifeLabel } from './timelineLayout';
 import { TimelineYear } from './JumpYear';
 import { baseRegions } from './eras';
 import { Icon } from './icons';
@@ -582,8 +582,7 @@ function stepDots(list: readonly ChronicleEntry[], x: (y: number) => number, gap
 
 /**
  * 选中的国家在这一段里的那一截(和整段历史的时间轴同一个样子):一道国色(到这一段的尽头;还在的到 upTo 为止)、
- * 立国在这一段里的话那头一颗绿点;宽屏写"2391 立国""2837 亡"(在这一段里的才写)。这一段里没有它 = null;
- * cover = 字占的地方(那里不叠小绿点)
+ * 立国在这一段里的话那头一颗绿点;宽屏写"2391 立国""2837 亡"(在这一段里的才写)。这一段里没有它 = null
  */
 function stepLife(civ: Civ, id: number, from: number, upTo: number, x: (y: number) => number, W: number, phone: boolean, era: Era | null | undefined) {
   const p = civ.polities[id];
@@ -596,7 +595,6 @@ function stepLife(civ: Civ, id: number, from: number, upTo: number, x: (y: numbe
   const [r, g, bl] = p.color;
   const foundIn = p.founded >= from;
   const endIn = p.ended !== undefined && p.ended <= upTo;
-  const cover: [number, number][] = [];
   let found: LifeLabel | null = null;
   let end: LifeLabel | null = null;
   const fa = `${rulerLabel(p.founded, era)} 立国`;
@@ -605,10 +603,7 @@ function stepLife(civ: Civ, id: number, from: number, upTo: number, x: (y: numbe
   const wb = textWidth(fb, LIFE_FONT, LIFE_PAD);
   if (!phone && foundIn) ({ found, end } = lifeLabels(a, endIn ? b : null, wa, wb, W));
   else if (!phone && endIn) end = lifeLabels(b, null, wb, 0, W).found;
-  if (found) cover.push(labelSpan(found, wa));
-  if (end) cover.push(labelSpan(end, wb));
   return {
-    cover,
     band: (
       <i
         className="tb-life"
@@ -782,9 +777,9 @@ export function StepTimeline({ civ, phone, hidden }: { civ: Civ | null; phone: b
         <i className="sw-fill" />
         {!done && <i className="sw-future" style={{ left: nowX + (phone ? 11 : 12), width: Math.max(0, W - nowX - (phone ? 11 : 12)) }} />}
         {dots.map((k) => {
-          // 选中了国家:和它无关的变淡(上面不叠绿点)
+          // 选中了国家:和它无关的变淡,不叠小绿点(和整段历史的时间轴一样)
           const dim = lifeId !== null && !k.all.some((e) => entryInvolves(e, lifeId));
-          const f = !dim && k.found && !life?.cover.some(([l, r]) => k.px > l - 3 && k.px < r + 3) ? k.found : undefined;
+          const f = lifeId === null ? k.found : undefined;
           return (
             <Fragment key={k.e.id}>
               <button
