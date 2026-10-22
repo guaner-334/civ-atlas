@@ -8,6 +8,7 @@ import type { Plugin } from 'vite';
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import { fakeAiMiddleware } from './scripts/lib/fakeAiServer';
+import { inlineIconsPlugin } from './scripts/lib/inlineIcons';
 import { SOURCE_URL } from './src/ui/links';
 import { WHATS_NEW } from './src/ui/whatsNew';
 import { bootScript } from './src/ui/homeStart';
@@ -86,6 +87,8 @@ export default defineConfig({
   define: { __APP_VERSION__: JSON.stringify(pkg.version), __BUILD_DAY__: JSON.stringify(BUILD_DAY) },
   plugins: [
     react(),
+    // 浏览器标签上的图标写进页面(data: 网址):拖地图、换图层改网址时,浏览器不再一遍遍去要图标(scripts/lib/inlineIcons.ts)
+    inlineIconsPlugin(),
     // 新功能清单连同构建那天写成网站上的 whats-new.json:正式网站和测试网站互相读,版本号上列出测试网站多出来的(src/ui/betaNews.ts)
     {
       name: 'whats-new',
