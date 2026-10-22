@@ -314,6 +314,8 @@ export interface Place {
  *   立国:a = 新国家(**−1 = 州里没人住,没立成**),b = 原主(新国从哪国分出来;−1 = 部落地带),region = 州,settlement = 新国都
  *   迁都:a = 国家,b = 城所在州此刻的主人(**= a 才迁得成**;−1 = 部落地带;−2 = 城已毁),region / settlement = 那座城所在州 / 那座城
  *     (新历史里还没有这座城 = −1 / −1)
+ *   即位:a = 国家,b = −1(**即位了**)/ −2(这个人物那一年还没出生,没即位)/ −3(那一年这国已亡,没即位),
+ *     region / settlement = A 当时的国都所在州 / 国都(作者的君主见 Civ.people 里 author 是那个人物、即位年份是这一年的那位)
  *   宣战的干预打成了,紧跟在它后面(同一刻)记一条 war;没有 = 没打成(两国不接壤 / 已在交战 / 有一方已亡)。
  *   结盟时两国正在交战、不许扩张的国家正在打它挑起的仗,紧跟着记议和(peace)。
  *   立国紧跟着记一条 found(新国家;编年史并进干预那一条),原主的国都在这州就再记原主迁都(capital,war = −1)或亡国(fall,b = 新国家);
@@ -473,6 +475,11 @@ export interface Civ {
    * 没有干预 = 不给。CivSim.fromCiv 接着推时默认带着它
    */
   interventions?: Intervention[];
+  /**
+   * 作者的人物叫什么(gen/characters.ts 的 applyCharacters 写入:人物编号 → 名字;只有带"即位"干预的历史才有)。
+   * 编年史写"某某即某国君位"、没即位成的原因时用;生成的 Civ 里没有
+   */
+  authorNames?: Record<number, string>;
   /**
    * 用户改过的州名(阶段 4,gen/edits.ts 的 applyNames 写入;下标 = 州编号,空串 = 用 regions.name)。
    * 不改 regions 本身:画国土、国界的缓存按 civ.regions 存,改州名不用重画
@@ -715,6 +722,12 @@ export interface Person {
   /** 君主的倾向(扩张、好战、重商,各 0–100,见 rulers.ts;推演里扩张、议和、称臣、亲征看它);将领、宗室不给 */
   leanings?: RulerLeanings;
   /**
+   * 作者的人物(干预"即位"立的君主,见 gen/edits.ts):作者人物的编号(AuthorCharacter.id)。
+   * 这样的君主 name 是空串(界面按编号填上人物卡的名字,见 gen/characters.ts 的 applyCharacters)、born 照干预里写的、
+   * 不写 died(生死归人物卡管)、没有称号;别的人物不给
+   */
+  author?: number;
+  /**
    * 君主的称号(去世以后才有;还在位 = 空串):东方 = 庙号("太祖""世宗")或谥号 + 爵("穆公""庄王",亡国之君"哀帝");
    * 西幻 = 同名君主的序数("三世")或"大帝"。称呼的写法见 peopleText.ts
    */
@@ -775,10 +788,13 @@ export interface PersonCommand {
 /**
  * 人物的结局:
  * - 君主:died 寿终、murdered 遇弑、deposed 被权臣所废(改朝换代)、overthrown 新朝起兵、死于兵乱、
- *   fell 亡国殉国、surrendered 亡国出降、fled 亡国出奔(国家瓦解也算)、merged 国并入他国(归附)、retired 共和国执政官任满
+ *   fell 亡国殉国、surrendered 亡国出降、fled 亡国出奔(国家瓦解也算)、merged 国并入他国(归附)、retired 共和国执政官任满、
+ *   yielded 让位给作者立的君主(干预"即位")
+ *   作者立的君主(Person.author):到期下台写 retired(退位),在位时改朝换代写 deposed,亡国只写 surrendered / fled,
+ *   被后来作者立的君主取代写 yielded
  * - 统帅:died 寿终、battle 战死
  */
-export type PersonFate = 'died' | 'murdered' | 'deposed' | 'overthrown' | 'fell' | 'surrendered' | 'fled' | 'merged' | 'retired' | 'battle';
+export type PersonFate = 'died' | 'murdered' | 'deposed' | 'overthrown' | 'fell' | 'surrendered' | 'fled' | 'merged' | 'retired' | 'battle' | 'yielded';
 
 /**
  * 君主的倾向(rulers.ts):各 0–100,50 是寻常,越高越容易做对应的事 ——
@@ -792,8 +808,11 @@ export interface RulerLeanings {
   trade: number;
 }
 
-/** 君主怎么即位的:found 立国、rebel 叛离自立(分裂)、restore 复国(故国王室之后)、usurp 权臣篡位、rise 起兵代之(改朝换代)、heir 继位 */
-export type RulerRise = 'found' | 'rebel' | 'restore' | 'usurp' | 'rise' | 'heir';
+/**
+ * 君主怎么即位的:found 立国、rebel 叛离自立(分裂)、restore 复国(故国王室之后)、usurp 权臣篡位、rise 起兵代之(改朝换代)、heir 继位、
+ * crown 作者立的(干预"即位",Person.author 是那个人物)
+ */
+export type RulerRise = 'found' | 'rebel' | 'restore' | 'usurp' | 'rise' | 'heir' | 'crown';
 
 /**
  * 一颗星球(没改地形)定下的、改过地形的世界沿用的两个数(index.ts 的 planetTempo):

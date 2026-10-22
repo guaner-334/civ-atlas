@@ -44,7 +44,7 @@ import { RESHAPE_RAMP, SETTLEMENT_RANKS, capacityAt, capitalAt, portAt, portSinc
 import { namePolities, nameSettlements, type RestoreDirection } from './naming';
 import type { RouteCity } from './routes';
 import type { InterventionModel } from './interventions';
-import { reignAt, reignBook, reignStart, rulerBase, type LeaningEffect, type Reign } from './rulers';
+import { crownsFrom, reignAt, reignBook, reignStart, rulerBase, type Crown, type LeaningEffect, type Reign } from './rulers';
 
 // ---- 调参(以截图效果为准) ----
 /** 州有人定居后,过这么多年建城(随机) */
@@ -195,6 +195,11 @@ export interface PolityModel {
   rAt: Map<number, number>;
   /** 国家 → 已经预约过君主交接(Ev.Reign)了 */
   reigned: boolean[];
+  /**
+   * 国家 → 作者立的君主(干预"即位"生效了的,按先后;rulers.ts 的 Crown)。在位表按它排(bookOf);
+   * 接着推时由史事推出来(rulers.ts 的 crownsFrom),不存进 Civ
+   */
+  crowns: Map<number, Crown[]>;
 }
 
 /** 升序数组里的位置(第一个 ≥ r 的下标) */
@@ -420,9 +425,14 @@ function stepYearsWith(m: PolityModel, p: Polity, k: number, b: number, dist: Fl
   );
 }
 
+/** 国家 pid 的在位表(rulers.ts),排到 t 时在位的那一位;带上这国作者立的君主(PolityModel.crowns) */
+function bookOf(m: PolityModel, pid: number, t: Year): readonly Reign[] {
+  return reignBook(m.rbase, m.rtag[pid], m.polities[pid], t, m.crowns.get(pid));
+}
+
 /** 国家 pid 在 t 这一刻在位的君主(rulers.ts 的在位表;改朝换代那一刻还算旧君) */
 export function rulerOf(m: PolityModel, pid: number, t: Year): Reign {
-  return reignAt(m.rbase, m.rtag[pid], m.polities[pid], t);
+  return reignAt(m.rbase, m.rtag[pid], m.polities[pid], t, m.crowns.get(pid));
 }
 
 /**
@@ -496,11 +506,31 @@ function widens(prev: Reign, cur: Reign): boolean {
 
 /** 预约国家 pid 的下一次君主交接:在位表里第 k 位开始"在位"的那一刻(rulers.ts 的 reignStart) */
 function scheduleReign(sim: CivSim, m: PolityModel, pid: number, k: number, t: Year) {
-  let list = reignBook(m.rbase, m.rtag[pid], m.polities[pid], t);
+  let list = bookOf(m, pid, t);
   // 在位表只排到此刻在位的那一位:下一位从他不被打断时让位的那一年起
-  if (!list[k] && list[k - 1]) list = reignBook(m.rbase, m.rtag[pid], m.polities[pid], list[k - 1].natural);
+  if (!list[k] && list[k - 1]) list = bookOf(m, pid, list[k - 1].natural);
   const r = list[k];
   if (r) sim.schedule(reignStart(r), Ev.Reign, k, pid);
+}
+
+/**
+ * 作者的人物此刻即位(干预"即位",interventions.ts 在生效那一刻调用;c.t = 此刻):登记进 PolityModel.crowns,在位表跟着重排
+ * (rulers.ts:此刻在位的那一位让位,他从下一刻起在位),预约他的即位(Ev.Reign;门槛比上一位低就从现有国土往外重新看一遍,见 widens)。
+ * 他的位次在下一刻本来就有交接预约着的(顶替同一刻改朝换代的新君、同一刻先立的作者君主,或原来那一位正好在下一刻交接),不重复预约。
+ * 原来预约的下一位的交接到时对不上(在位表重排了),丢掉
+ */
+export function crownRuler(sim: CivSim, m: PolityModel, pid: number, c: Crown): void {
+  const at = c.t + 1 / 256;
+  const before = bookOf(m, pid, at);
+  let list = m.crowns.get(pid);
+  if (!list) m.crowns.set(pid, (list = []));
+  list.push(c);
+  const after = bookOf(m, pid, at);
+  let k = after.length - 1;
+  while (k >= 0 && after[k].crown !== c) k--;
+  if (k < 0) return; // 不该发生
+  const t = reignStart(after[k]);
+  if (!(before[k] && reignStart(before[k]) === t)) sim.schedule(t, Ev.Reign, k, pid);
 }
 
 /**
@@ -509,7 +539,7 @@ function scheduleReign(sim: CivSim, m: PolityModel, pid: number, k: number, t: Y
  */
 export function dynastyReign(sim: CivSim, m: PolityModel, pid: number, t: Year): void {
   const p = m.polities[pid];
-  const list = reignBook(m.rbase, m.rtag[pid], p, t + 1 / 256);
+  const list = bookOf(m, pid, t + 1 / 256);
   const dyn = (p.dynasties?.length ?? 1) - 1;
   for (let k = list.length - 1; k >= 0; k--) {
     if (list[k].dynasty === dyn && list[k].j === 0) {
@@ -756,6 +786,7 @@ function emptyModel(T: CultureTerrain, cultures: Culture[], seed: number, port: 
     rtag: [],
     rAt: new Map(),
     reigned: [],
+    crowns: new Map(),
   };
 }
 
@@ -872,7 +903,7 @@ export function installPolities(sim: CivSim, m: PolityModel): void {
   sim.on(Ev.Reign, (k, pid, t) => {
     const p = m.polities[pid];
     if (!p || p.ended !== undefined) return;
-    const list = reignBook(m.rbase, m.rtag[pid], p, t);
+    const list = bookOf(m, pid, t);
     // 改朝换代以后在位表重排了:旧君原来预约的交接对不上,丢掉(新朝的另有预约,见 dynastyReign)
     if (!list[k] || reignStart(list[k]) !== t) return;
     scheduleReign(sim, m, pid, k + 1, t);
@@ -1096,6 +1127,8 @@ export function resumePolities(sim: CivSim, world: World, civ: Civ, iv?: Interve
     capitals: (p.capitals ?? [{ year: p.founded, settlement: p.capital }]).map((c) => ({ ...c })),
     ...(p.dynasties ? { dynasties: p.dynasties.map((d) => ({ ...d })) } : {}),
   }));
+  // 作者立的君主(干预"即位"):生效了的由史事推出来,在位表照它排(和推演时一样)
+  m.crowns = crownsFrom(civ.annals, iv?.list);
   // 州里现在的城(被毁的不算:阶段 3 城市兴衰,毁了还没重建的州没有城)
   for (const s of m.settlements) if (s.ended === undefined) m.cityOf[s.region] = s.id;
   // 位置锚:按编号(= 建城 / 立国先后)数"这州第几个",和推演时一样
@@ -1204,7 +1237,7 @@ export function resumePolities(sim: CivSim, world: World, civ: Civ, iv?: Interve
   };
   // 从现有国土往外重新预约(respread)的时刻,按先后:
   // - 阶段 4 干预"不许扩张"已经到期的:到期那一刻这国从当时的国土(州号升序)往外预约
-  // - 门槛比上一位低的新君即位的那一刻(Ev.Reign;在位表由立国、改朝换代的年份算出来,见 rulers.ts)
+  // - 门槛比上一位低的新君即位的那一刻(Ev.Reign;在位表由立国、改朝换代的年份和作者立的君主算出来,见 rulers.ts)
   // - 迁都的下一刻(Ev.Respread;迁都记在 Polity.capitals)
   // 后两种在引擎里排在同一刻别的事件前面,只在地形大事、看王朝后面(sim.ts 的 earlyOrder;看王朝不改归属),所以这里在同一刻的日志之前重放,
   // 同一刻有地形大事的,在大事改归属的那几条日志之后
@@ -1212,7 +1245,7 @@ export function resumePolities(sim: CivSim, world: World, civ: Civ, iv?: Interve
   const ends: { t: number; key?: string; pid: number; prev?: LeaningEffect }[] = iv ? iv.haltEndsUpTo(now).map((e) => ({ t: e.t, key: e.key, pid: -1 })) : [];
   for (const p of m.polities) {
     const until = Math.min(p.ended ?? Infinity, now);
-    const list = reignBook(m.rbase, m.rtag[p.id], p, until);
+    const list = bookOf(m, p.id, until);
     for (let k = 1; k < list.length; k++) {
       const t = reignStart(list[k]);
       if (t > until) break;
@@ -1271,7 +1304,7 @@ export function resumePolities(sim: CivSim, world: World, civ: Civ, iv?: Interve
     if (p.ended !== undefined) continue;
     // 立国那一条(capitals[0])不是迁都,推演里没有预约(分裂出来的国家正好在此刻立国时会多出一次)
     for (const c of p.capitals!.slice(1)) if (c.year + 1 / 256 > now) sim.schedule(c.year + 1 / 256, Ev.Respread, 0, p.id);
-    const list = reignBook(m.rbase, m.rtag[p.id], p, now);
+    const list = bookOf(m, p.id, now);
     const last = list.length - 1;
     if (reignStart(list[last]) > now) sim.schedule(reignStart(list[last]), Ev.Reign, last, p.id);
     else scheduleReign(sim, m, p.id, last + 1, now);

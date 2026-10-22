@@ -67,6 +67,13 @@
  * | `found`   | 立国     | region = 州                       | 这一年年初以这州的城为国都立一个新国家(州里没城就先建城;民族 = 当地民族;州原来有主的,算从原主分出来) | name:国名(国名词根,同改名) |
  * | `move`    | 迁都     | a = 国家,city = 城                | 这一年年初迁都到这座城(城要在 a 的国土里、没被毁) | —                            |
  * | `halt`    | 不许扩张 | a = 国家                          | 从这一年起不进无主的州、不主动宣战、不援盟、不并小国;那一刻它挑起的战争当即议和。被打时照常防守、反攻夺回自己的州 | until:到这一年止(不含;不给 = 一直) |
+ * | `crown`   | 即位     | a = 国家,char = 作者人物的编号,born = 他的生年,leanings = 他的倾向 | 这一年年初作者的人物成为这国君主:此刻在位的那位让位,他按自己的倾向在位;他下台后照常有人继位(这国那年已亡 / 他还没出生 = 不生效) | until:这一年年初下台(不含;不给 = 按寻常君主的在位年数,最多活到 88 岁) |
+ *
+ * 即位(crown)的几样字段都抄进干预,不在推演时去读人物卡:"种子 + 干预串"自己就推得出同一个世界(读档、换设备都一样)。
+ * char 是作者人物的编号(AuthorCharacter.id,1–1e9 的整数);born、until 是年份(同 from 的清理);
+ * leanings 是开拓 / 好战 / 发展 / 重商(expand / war / develop / trade)四项,各 0–100 的整数(取整夹回范围,缺的补 50)。
+ * 推演里他从 from 那一刻的下一刻(1/256 年后)起按自己的倾向算 —— 同一刻里先发生的事照原来的君主算,接着推时才对得上
+ * (和改朝换代的新君一样,见 civ/rulers.ts)。他在位时这国强制宣战(declare)的仗由他亲征。
  *
  * 立国出来的新国家也有稳定键:`polity:c{州的治所地块}#{n}`(n = 新历史里这州之前立过几国;干预年份之前的历史不变,所以 n 是定的),
  * 和别的国家一样能改名、能被别的干预引用。
@@ -173,7 +180,7 @@
  *
  * WorldEdits.characters(可选,没有 = 一个也没有):作者放进这个世界的自己的人物 —— 名字、生卒、出生地、国家、身份、简介、
  * 一生的几段经历(每段可以勾上推演里的事和人)、亲友。和作者标记一样只是记下来:不改变世界、不参与推演、和生成器版本无关。
- * 字段、上限、怎么清理见 characters.ts。
+ * 字段、上限、怎么清理见 characters.ts。要让他进推演用干预"即位"(crown,见"干预"那一节):生年、倾向抄进干预,推演只看干预。
  *
  * ## 推演年数
  *
@@ -318,7 +325,7 @@
  *  24:航线不通到遗址(civ/routes.ts、polities.ts 的 ruinGaps):推演里走过的航线,登岸处的城被毁、还没在原址重建(或再没重建)的那些年不画,
  *      重建以后照原路重新画。地形、历史不变,只有航线变了。
  */
-import type { Civ, Culture, Faith, Person, Place, Polity, Regions, Settlement } from './civ/types';
+import type { Civ, Culture, Faith, Person, Place, Polity, Regions, RulerLeanings, Settlement } from './civ/types';
 import type { AuthorCharacter } from './characters';
 import { polityRootAt } from './civ/growth';
 import { TERRAIN_H, TERRAIN_W } from './terrainEdits';
@@ -370,7 +377,7 @@ export const GENERATOR_CHANGES: Readonly<Record<number, { change: GeneratorChang
 };
 
 /** 干预的种类(见文件头的表) */
-export type InterventionKind = 'protect' | 'ally' | 'declare' | 'unity' | 'cede' | 'found' | 'move' | 'halt';
+export type InterventionKind = 'protect' | 'ally' | 'declare' | 'unity' | 'cede' | 'found' | 'move' | 'halt' | 'crown';
 
 /** 一条干预(字段、年份语义见文件头的表;a、b 是国家的稳定键 `polity:…`,region 是州键 `region:…`,city 是城键 `settlement:…`) */
 export type Intervention =
@@ -381,7 +388,8 @@ export type Intervention =
   | { kind: 'cede'; a: string; region: string; from: number; permanent?: true }
   | { kind: 'found'; region: string; from: number; name?: string }
   | { kind: 'move'; a: string; city: string; from: number }
-  | { kind: 'halt'; a: string; from: number; until?: number };
+  | { kind: 'halt'; a: string; from: number; until?: number }
+  | { kind: 'crown'; a: string; char: number; from: number; born: number; until?: number; leanings: RulerLeanings };
 
 /** 地形修改的种类(见文件头"地形修改"的表) */
 export type TerrainKind =
@@ -1202,7 +1210,24 @@ function folkRenamed(civ: Civ, f: Faith, cultures: readonly Culture[]): string |
 /** 干预年份的上限(推演引擎能预约的最远时刻) */
 export const INTERVENTION_YEAR_MAX = 65535;
 
-const INTERVENTION_KINDS: readonly InterventionKind[] = ['protect', 'ally', 'declare', 'unity', 'cede', 'found', 'move', 'halt'];
+const INTERVENTION_KINDS: readonly InterventionKind[] = ['protect', 'ally', 'declare', 'unity', 'cede', 'found', 'move', 'halt', 'crown'];
+
+/** 即位(crown)的作者人物编号最大到几(和 characters.ts 的编号一样) */
+const CROWN_CHAR_MAX = 1e9;
+/** 君主倾向的四项(和 civ/rulers.ts 的 LEANINGS 一样;这里不引推演代码) */
+const LEANING_KEYS = ['expand', 'war', 'develop', 'trade'] as const;
+
+/** 即位的倾向:四项各取整夹到 0–100,缺的、不是数的补 50,多余的去掉。本来就合格的原样返回(同一个对象) */
+function cleanLeanings(x: unknown): RulerLeanings {
+  const o = x && typeof x === 'object' && !Array.isArray(x) ? (x as Record<string, unknown>) : {};
+  const out = {} as RulerLeanings;
+  for (const k of LEANING_KEYS) {
+    const v = o[k];
+    out[k] = typeof v === 'number' && Number.isFinite(v) ? Math.min(100, Math.max(0, Math.round(v))) : 50;
+  }
+  const same = Object.keys(o).length === LEANING_KEYS.length && LEANING_KEYS.every((k) => o[k] === out[k]);
+  return same ? (o as unknown as RulerLeanings) : out;
+}
 
 /** 键的格式(新旧两种都认:`polity:c4567#0` / 旧的 `polity:r123#0`,见文件头"稳定键") */
 export const isPolityKey = (k: unknown): k is string => typeof k === 'string' && /^polity:(r-?\d{1,7}|c\d{1,7})#\d{1,5}$/.test(k);
@@ -1215,7 +1240,8 @@ export const yearOf = (y: unknown): number | null =>
 /**
  * 清理一份干预列表(推演前、读档时用):种类不认识、键的格式不对、年份不是有限数、两国是同一国的丢掉;
  * 年份取整、夹到 [0, INTERVENTION_YEAR_MAX];until 不晚于 from 的当作没给;立国的国名按改名的规矩清理(空 = 不给);
- * 划州的 permanent 只认 true;多余的字段去掉。全都合格时返回原数组(同一个对象)
+ * 划州的 permanent 只认 true;即位的 char 要是 1–1e9 的整数、born 要是有限数(按年份清理),四项倾向取整夹到 0–100、缺的补 50;
+ * 多余的字段去掉。全都合格时返回原数组(同一个对象)
  */
 export function cleanInterventions(list: readonly unknown[] | null | undefined): Intervention[] {
   if (!Array.isArray(list)) return [];
@@ -1258,6 +1284,13 @@ export function cleanIntervention(x: unknown): Intervention | null {
     } else if (kind === 'move') {
       if (!isCityKey(o.city)) return null;
       v = { kind, a, city: o.city, from };
+    } else if (kind === 'crown') {
+      const char = o.char;
+      const born = yearOf(o.born);
+      if (typeof char !== 'number' || !Number.isInteger(char) || char < 1 || char > CROWN_CHAR_MAX || born === null) return null;
+      const until = untilOf();
+      const leanings = cleanLeanings(o.leanings);
+      v = until !== null ? { kind, a, char, from, born, until, leanings } : { kind, a, char, from, born, leanings };
     } else {
       if (!isPolityKey(o.b) || o.b === a) return null;
       if (kind === 'declare') v = { kind, a, b: o.b, from };
@@ -1377,7 +1410,7 @@ export function sameAdvance(a: unknown, b: unknown): boolean {
   return x.step === y.step && x.every === y.every && x.big === y.big && x.countdown === y.countdown;
 }
 
-/** 这条干预牵涉的国家键(a;结盟 / 宣战还有 b;立国没有 —— 新国家的键要推演出来才知道) */
+/** 这条干预牵涉的国家键(a;结盟 / 宣战还有 b;立国没有 —— 新国家的键要推演出来才知道;即位 = 他即位的那国) */
 export function interventionKeys(v: Intervention): string[] {
   if (v.kind === 'found') return [];
   return v.kind === 'ally' || v.kind === 'declare' ? [v.a, v.b] : [v.a];

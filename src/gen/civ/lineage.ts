@@ -101,7 +101,8 @@ export function buildLineage(
       const X: Node = { p: r, born: r.born, died: r.died ?? Infinity, kids: [] };
       nodes.set(r, X);
       const prev = list[k - 1];
-      if (!prev || r.rise !== 'heir' || (prev.dynasty ?? 0) !== (r.dynasty ?? 0)) continue;
+      // 作者立的君主(Person.author)不连父子:他自己不算谁的儿子,继他之位的也不硬说是他的儿子
+      if (!prev || r.rise !== 'heir' || (prev.dynasty ?? 0) !== (r.dynasty ?? 0) || prev.author !== undefined) continue;
       const PV = nodes.get(prev)!;
       const gap = r.born - prev.born;
       const from = r.from ?? r.born;

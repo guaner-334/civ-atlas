@@ -190,7 +190,14 @@ export function interventionText(civ: Civ, v: Intervention, i = -1, a?: string):
       return `${A}迁都${cityKeyName(civ, v.city)}`;
     case 'halt':
       return `${A}:禁止扩张${v.until !== undefined ? `(至第 ${v.until} 年)` : ''}`;
+    case 'crown':
+      return `${authorName(civ, v.char)}即${A}君位${v.until !== undefined ? `(至第 ${v.until} 年)` : ''}`;
   }
+}
+
+/** 作者的人物在这份历史里叫什么(套过 applyCharacters 的历史里有名字;没有 = "作者的人物") */
+function authorName(civ: Civ, char: number): string {
+  return civ.people?.find((x) => x.author === char && x.name)?.name || '作者的人物';
 }
 
 /**

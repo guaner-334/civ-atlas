@@ -36,13 +36,17 @@
  *   不许扩张 halt    polities.ts 的"国家到达"不去(不进无主的州);wars.ts 看邻国时不宣战、不援盟;politics.ts 不合并别国;
  *                   from 那一刻它挑起的(它是攻方的)战争当即议和。被打时照常防守、反攻夺回自己的州(守方的反攻本来就只打丢掉的州)。
  *                   有 until 的:until 那一刻(Ev.HaltEnd,同一刻里比干预事件还早)从现有国土重新预约扩张(polities.ts 的 respread)
+ *   即位   crown     from 那一刻作者的人物成为 a 的君主:a 那时已亡 / 他还没出生 = 不生效(史事照记,b 列写原因);
+ *                   生效了在位表跟着改(polities.ts 的 crownRuler、rulers.ts):此刻在位的那一位让位,他从下一刻起按自己的倾向
+ *                   扩张、打仗、议和,在位到 until(不给 = 寻常君主的在位年数)、改朝换代或亡国,之后照常继位。
+ *                   他在位时 a 的强制宣战由他亲征(people.ts 排统帅时)
  *
  * 每条干预在 from 那一刻记一条史事 intervene(字段见 types.ts 的 AnnalKind;A 的键指不到就不记),编年史写"【干预】……"。
  * 紧跟着记它引起的事:宣战的 war(盟国、宗藩之间开战,war 前面先记盟约 / 宗藩之分断了的 unally / defect,见 diplomacy.ts)、结盟 / 不许扩张引起的 peace、立国的 found、迁都的 capital、原主国迁都的 capital / 亡国的 fall。
  *
  * **不存内存状态**:Civ + 干预列表就能接着推(CivSim.fromCiv(world, civ, 干预列表)):规则本来就只看列表和当时的归属,
  *   还没到 from / until 的事件由 scheduleInterventions 按"比现在晚"补上;已经过去的"不许扩张到期"那一刻预约的扩张,
- *   由 resumePolities 按日志重放补上(haltEndsUpTo)。
+ *   由 resumePolities 按日志重放补上(haltEndsUpTo);已经生效的即位由 resumePolities 按史事 intervene 推出来(rulers.ts 的 crownsFrom)。
  *   逐年推演(play.ts)停在第 T 年年初的前一刻,在列表后面接上 from = T 的新命令:比现在晚,和别的还没到的干预一样补上事件,
  *   同一刻里照样排在别的事件前面、按列表先后 —— 所以停下来下命令接着推,和带着同样的命令一口气推完一样。纯计算,不碰 DOM。
  */
@@ -50,7 +54,8 @@ import { cleanInterventions, keyByRegion, regionOfKey, type Intervention } from 
 import { Layer, type Polity } from './types';
 import { subSeed } from './rand';
 import { Ev, quantize, type CivSim } from './sim';
-import { addPolity, endPolity, foundCity, moveCapital, polityModelOf, respread, type PolityModel } from './polities';
+import { addPolity, crownRuler, endPolity, foundCity, moveCapital, polityModelOf, respread, type PolityModel } from './polities';
+import { crownOf } from './rulers';
 import { bestCapital, polityBorders, warModelOf } from './wars';
 import { capitalAt } from './growth';
 import { REBUILD_GROWTH } from './cities';
@@ -61,6 +66,7 @@ type Halt = Extract<Intervention, { kind: 'halt' }>;
 type Cede = Extract<Intervention, { kind: 'cede' }>;
 type Found = Extract<Intervention, { kind: 'found' }>;
 type Move = Extract<Intervention, { kind: 'move' }>;
+type CrownIv = Extract<Intervention, { kind: 'crown' }>;
 
 /** 推演里的干预:清理过的列表 + 键 → 编号的解析 + 各机制查询用的规则 */
 export class InterventionModel {
@@ -387,6 +393,14 @@ export function installInterventions(sim: CivSim, iv: InterventionModel): void {
     sim.record('capital', { a, region: s.region, settlement: sid });
   };
 
+  /** 即位:作者的人物此刻成为 a 的君主(b 列:−1 即位了 / −2 他还没出生 / −3 a 已亡) */
+  const crown = (v: CrownIv, i: number, a: number, t: number) => {
+    const sid = capitalAt(pm.polities[a], t);
+    const b = !alive(a) ? -3 : v.born > t ? -2 : -1;
+    sim.record('intervene', { a, b, region: S[sid]?.region ?? -1, settlement: sid, war: i });
+    if (b === -1) crownRuler(sim, pm, a, crownOf(v, t, i));
+  };
+
   sim.on(Ev.Intervene, (i, _b, t) => {
     const v = iv.list[i];
     if (!v) return;
@@ -402,6 +416,10 @@ export function installInterventions(sim: CivSim, iv: InterventionModel): void {
     }
     if (v.kind === 'move') {
       move(v, i, a, t);
+      return;
+    }
+    if (v.kind === 'crown') {
+      crown(v, i, a, t);
       return;
     }
     const b = v.kind === 'ally' || v.kind === 'declare' ? iv.resolve(v.b) : -1;

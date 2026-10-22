@@ -335,3 +335,30 @@ export function stopAt(c: Pick<AuthorCharacter, 'born' | 'died'>, stops: readonl
 
 /** 年份上限(和作者标记、干预一样) */
 export const CHAR_YEAR_MAX = INTERVENTION_YEAR_MAX;
+
+// ---------------------------------------------------------------------------
+// 推演里的作者君主
+
+/** 干预"即位"立的君主在人物卡里找不到时(人物删掉了)叫这个 */
+export const AUTHOR_RULER_DEFAULT = '作者的人物';
+
+/**
+ * 套上作者人物的名字(干预"即位"立的君主,Person.author):按编号把人物卡上的名字填进推演人物的 name
+ * (找不到 = AUTHOR_RULER_DEFAULT),再记一份"编号 → 名字"进 Civ.authorNames(编年史写没即位成的原因时用)。
+ * 返回新的 Civ(原 Civ 不改);没有作者立的君主、也没有即位干预时返回原对象。界面在套完改名(edits.ts 的 applyNames)之后调用
+ */
+export function applyCharacters(civ: Civ, characters: readonly AuthorCharacter[] | undefined): Civ {
+  const people = civ.people;
+  const chars = new Set<number>();
+  for (const v of civ.interventions ?? []) if (v.kind === 'crown') chars.add(v.char);
+  if (people) for (const x of people) if (x.author !== undefined) chars.add(x.author);
+  if (!chars.size) return civ;
+  const byId = new Map<number, string>();
+  for (const c of characters ?? []) byId.set(c.id, c.name);
+  const nameOf = (id: number) => byId.get(id) || AUTHOR_RULER_DEFAULT;
+  const authorNames: Record<number, string> = {};
+  for (const id of chars) authorNames[id] = nameOf(id);
+  const out: Civ = { ...civ, authorNames };
+  if (people?.some((x) => x.author !== undefined)) out.people = people.map((x) => (x.author !== undefined && x.name !== nameOf(x.author) ? { ...x, name: nameOf(x.author) } : x));
+  return out;
+}

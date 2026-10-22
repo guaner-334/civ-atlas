@@ -602,6 +602,8 @@ function ivText(civ: Civ, v: Intervention): string {
       return `${reg(v.region)} 划给 ${id(v.a, 'polity', 'P')}${v.permanent ? '(永久)' : ''}`;
     case 'found':
       return `在 ${reg(v.region)} 立国${v.name ? `(号${v.name})` : ''}`;
+    case 'crown':
+      return `${id(v.a, 'polity', 'P')} 立作者的人物为君主${until(v.until)}`;
   }
 }
 
@@ -1416,6 +1418,7 @@ const KIND_LABEL: Record<Intervention['kind'], string> = {
   move: '迁都',
   cede: '划州',
   found: '立国',
+  crown: '立作者的人物为君主',
 };
 
 // ---------------------------------------------------------------------------
