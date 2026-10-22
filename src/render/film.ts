@@ -48,6 +48,8 @@ export interface FilmLook {
   range: string;
   captions: boolean;
   cards: boolean;
+  /** 片尾卡片上带不带"用「文明与地图」推演生成"和网址(关掉只留标题和架空声明) */
+  url: boolean;
   /** 横屏字幕(captionSlots 排好的)、竖屏下一栏用的全部大事 */
   slots: readonly CaptionSlot[];
   events: readonly FilmEvent[];
@@ -323,11 +325,11 @@ function drawTitleCard(ctx: Ctx, look: FilmLook, which: 'intro' | 'outro', W: nu
   const rows: { text: string; size: number; weight: number; color: string; top: number }[] = [];
   if (look.title) rows.push({ text: look.title, size: S.b, weight: 700, color: INK, top: 0 });
   if (which === 'intro') rows.push({ text: look.range, size: look.title ? S.span : S.b * 0.6, weight: look.title ? 400 : 700, color: look.title ? INK2 : INK, top: look.title ? S.spanTop : 0 });
-  else {
+  else if (look.url) {
     rows.push({ text: OUTRO_MADE, size: S.span, weight: 400, color: INK2, top: look.title ? S.spanTop : 0 });
     rows.push({ text: OUTRO_URL, size: S.url, weight: 600, color: INK, top: S.urlTop });
     rows.push({ text: OUTRO_NOTE, size: S.note, weight: 400, color: INK3, top: S.noteTop });
-  }
+  } else rows.push({ text: OUTRO_NOTE, size: S.note, weight: 400, color: INK3, top: look.title ? S.spanTop : 0 });
   // 标题太长(最多 40 个字):字号缩小到放得下,再小就截断加"…",卡片不超出画面
   const maxW = land ? 1920 - 2 * 120 - 2 * S.padX : 1080 - 2 * 60 - 2 * S.padX;
   for (const r of rows) {

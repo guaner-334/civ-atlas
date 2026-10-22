@@ -1,5 +1,5 @@
 /**
- * 竖版长图的预览。宽屏:地图整个压暗,中间一张长图(可以上下滚着看),右边一条整张的缩略、框出现在看到哪(点、拖它跳过去);
+ * 故事长图的预览。宽屏:地图整个压暗,中间一张长图(可以上下滚着看),右边一条整张的缩略、框出现在看到哪(点、拖它跳过去);
  * 手机:整屏是长图预览,手指上下划着看。切成 3:4 时一页一页分开排,右上角写第几张。
  *
  * 选项、画风这些一变就按新的重画(longRun.ts 的 renderLong):要重拍疆域图时预览蒙一层白,中间写画到第几张;
@@ -18,6 +18,7 @@ import { useFilmSource, type FilmSource } from './filmSource';
 import { filmSetup } from './filmStore';
 import { disposeLong, longResult, renderLong, type LongLook } from './longRun';
 import { useLong } from './longStore';
+import { useNotesVersion } from '../ai/library';
 import { LONG_W, PAGE_H } from '../render/longImage';
 import './long.css';
 
@@ -72,6 +73,8 @@ export function LongStage({ phone, style, layer, look }: LongStageProps) {
   const center = useMapCenter();
   const { marks, era } = useEdits();
   const flags = useFlags();
+  // 写了、删了 AI 史书:AI 段落跟着换
+  const notesVer = useNotesVersion();
   const pvRef = useRef<HTMLDivElement>(null);
   const stripRef = useRef<HTMLCanvasElement>(null);
   const [room, setRoom] = useState<ReturnType<typeof measure> | null>(null);
@@ -95,7 +98,7 @@ export function LongStage({ phone, style, layer, look }: LongStageProps) {
       font: setup.font,
     };
     void renderLong(src, ll, lookKey(src, ll, marks, flags)).catch((e) => console.error('长图画不出来', e));
-  }, [src, style, layer, look, show, resView, proj, grat, center, marks, era, flags, s.scope, s.polity, s.maps, s.events, s.split, s.title]);
+  }, [src, style, layer, look, show, resView, proj, grat, center, marks, era, flags, notesVer, s.scope, s.polity, s.segs, s.per, s.maps, s.ai, s.brand, s.split, s.title]);
   // 关掉面板:画好的图放掉
   useEffect(() => () => disposeLong(), []);
 
@@ -136,14 +139,14 @@ export function LongStage({ phone, style, layer, look }: LongStageProps) {
     setScroll({ top: el.scrollTop, h: el.scrollHeight, view: el.clientHeight });
   }, [res, s.ver, room?.pv.w]);
 
-  // 右边那一条:整张缩小(切开时一页一页,73 像素宽、页间 6 像素);太长放不下就再缩窄一点
+  // 右边那一条:整张缩小(最宽 60 像素;切开时一页一页,73 像素宽、页间 6 像素);太长放不下就再缩窄一点
   const miniGap = 6;
   const nPages = res?.pages?.length ?? 0;
   let miniW = 0;
   if (room && res) {
     miniW = nPages
       ? Math.min(73, ((room.strip.h - (nPages - 1) * miniGap) / nPages) * (LONG_W / PAGE_H))
-      : Math.min(room.strip.w, room.strip.h * (LONG_W / res.lay.h));
+      : Math.min(60, room.strip.w, room.strip.h * (LONG_W / res.lay.h));
     miniW = Math.max(8, Math.floor(miniW));
   }
   const pageMiniH = nPages ? (miniW * PAGE_H) / LONG_W : 0;

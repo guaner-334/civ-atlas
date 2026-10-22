@@ -363,7 +363,7 @@
   padding-bottom: calc(16px + var(--safe-b, 0px));
 }
 .long-sheet .film-lbl > b {
-  width: 34px;
+  width: 64px;
 }
 .long-prow {
   height: 34px;

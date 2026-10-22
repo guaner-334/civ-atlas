@@ -51,6 +51,8 @@ export interface FilmSetup {
   seconds: number;
   captions: boolean;
   cards: boolean;
+  /** 片尾卡片上带不带"用「文明与地图」推演生成"和网址 */
+  url: boolean;
   title: string;
   style: CivStyle;
   layer: LayerId;
@@ -162,6 +164,7 @@ export class FilmRenderer {
       range: rangeText(setup.range, setup.era),
       captions: setup.captions,
       cards: setup.cards,
+      url: setup.url,
       slots: setup.captions && setup.shape === 'land' ? captionSlots(events, clock, setup.era) : [],
       events,
       font: setup.font,

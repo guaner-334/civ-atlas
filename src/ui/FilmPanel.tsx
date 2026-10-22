@@ -1,6 +1,8 @@
 /**
  * 导出回放视频的面板。宽屏:替换左边侧栏的一张卡片(位置、大小和侧栏一样);手机:底部一张小卡片,只放最常用的几样
- * (画面、拍哪里、时长、字幕和片头片尾两个开关),标题用世界名。
+ * (画面、拍哪里、时长、大事字幕 / 片头片尾 / 片尾网址三个开关),标题用世界名。
+ * 片尾网址:片尾卡片上"用「文明与地图」推演生成"和网址那两行(关掉只留标题和架空声明);片头片尾关着时它灰掉。
+ * 拨这个开关时预览换成片尾那一帧,看得出它管哪几行字(拖时间轴回到那一年的样子)。
  *
  * 选项改了,地图上的预览(FilmStage.tsx)、时间轴上的一段(CivTimeline.tsx)跟着变;点「导出视频」一帧一帧画、编码
  * (filmStore.ts 的 runFilm),面板里换成进度和「取消」;做完自动下载(手机上能分享的,提示条上点「存到相册」)。
@@ -61,8 +63,9 @@ export function Seg<T extends string | number>({ value, items, onPick, act, off 
   );
 }
 
-function Switch({ on, onFlip, label, act }: { on: boolean; onFlip: () => void; label: string; act: string }) {
-  return <button className={`film-sw${on ? ' on' : ''}`} role="switch" aria-checked={on} aria-label={label} data-act={act} onClick={onFlip} />;
+/** 开关;off = 这时候用不了(灰掉,点了没反应) */
+export function Switch({ on, onFlip, label, act, off }: { on: boolean; onFlip: () => void; label: string; act: string; off?: boolean }) {
+  return <button className={`film-sw${on ? ' on' : ''}`} role="switch" aria-checked={on} aria-label={label} data-act={act} disabled={off} onClick={onFlip} />;
 }
 
 const SHAPES = [
@@ -146,7 +149,7 @@ export function FilmPanel({ phone, style, layer, look }: FilmPanelProps) {
   const warn = ok === false && (
     <div className="film-warn">
       <b>这个浏览器导不了视频</b>
-      <span>换新版的 Chrome、Edge 或 Safari 再试。竖版长图不受影响。</span>
+      <span>换新版的 Chrome、Edge 或 Safari 再试。故事长图不受影响。</span>
     </div>
   );
   const stop = (e: { stopPropagation(): void }) => e.stopPropagation();
@@ -179,14 +182,18 @@ export function FilmPanel({ phone, style, layer, look }: FilmPanelProps) {
             <Seg value={s.shape} items={SHAPES} act="film-shape" onPick={(v) => setFilm({ shape: v })} />
             <Seg value={s.area} items={AREAS} act="film-area" onPick={(v) => setFilm({ area: v })} />
             <Seg value={s.seconds} items={LENGTHS} act="film-len" onPick={(v) => setFilm({ seconds: v })} />
-            <div className="film-two">
+            <div className="film-two three">
               <div>
                 大事字幕
                 <Switch on={s.captions} label="大事字幕" act="film-captions" onFlip={() => setFilm({ captions: !s.captions })} />
               </div>
               <div>
                 片头片尾
-                <Switch on={s.cards} label="片头片尾" act="film-cards" onFlip={() => setFilm({ cards: !s.cards })} />
+                <Switch on={s.cards} label="片头片尾" act="film-cards" onFlip={() => setFilm({ cards: !s.cards, peek: false })} />
+              </div>
+              <div className={s.cards ? '' : 'off'}>
+                片尾网址
+                <Switch on={s.url} off={!s.cards} label="片尾网址" act="film-url" onFlip={() => setFilm({ url: !s.url, peek: true })} />
               </div>
             </div>
             {warn}
@@ -252,8 +259,15 @@ export function FilmPanel({ phone, style, layer, look }: FilmPanelProps) {
         <div className="film-lbl">
           <b>片头片尾</b>
           <span className="sp" />
-          <Switch on={s.cards} label="片头片尾" act="film-cards" onFlip={() => !busy && setFilm({ cards: !s.cards })} />
+          <Switch on={s.cards} label="片头片尾" act="film-cards" onFlip={() => !busy && setFilm({ cards: !s.cards, peek: false })} />
         </div>
+        <div className="film-line" />
+        <div className={`film-lbl${s.cards ? '' : ' off'}`}>
+          <b>片尾网址</b>
+          <span className="sp" />
+          <Switch on={s.url} off={!s.cards} label="片尾网址" act="film-url" onFlip={() => !busy && setFilm({ url: !s.url, peek: true })} />
+        </div>
+        <div className="film-line" />
         <div className="film-lbl">
           <b>标题</b>
           <input
@@ -265,7 +279,7 @@ export function FilmPanel({ phone, style, layer, look }: FilmPanelProps) {
             onChange={(e) => setFilm({ title: e.target.value })}
           />
         </div>
-        <div className="film-hint">片头写标题和年份；片尾写「用文明与地图推演生成」和网址</div>
+        <div className="film-hint">片头写标题和年份；片尾写标题、“用「文明与地图」推演生成”和网址。关掉「片尾网址」只留标题和“模拟生成的架空世界”</div>
       </div>
       {!busy && ok !== false && (
         <div className="film-fine">

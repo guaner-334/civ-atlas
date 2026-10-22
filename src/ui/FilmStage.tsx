@@ -18,7 +18,7 @@ import { useMapCenter } from './mapWrap';
 import { useGraticuleLines, useProjection } from './projection';
 import { getFilmViewport, useFilmSource } from './filmSource';
 import { FilmRenderer } from './filmRun';
-import { filmLiveCanvas, filmMajors, filmRangeOf, filmSetup, holeRegion, setFilmHole, useFilm } from './filmStore';
+import { filmLiveCanvas, filmMajors, filmRangeOf, filmSetup, getFilm, holeRegion, setFilm, setFilmHole, useFilm } from './filmStore';
 import { filmSize } from './filmPlan';
 import { yearFull } from '../gen/era';
 
@@ -134,6 +134,16 @@ export function FilmStage({ phone, style, layer, look }: FilmStageProps) {
   const full = src?.full ?? null;
   const range = full ? filmRangeOf(full) : null;
   const year = full && range ? Math.min(range.to, Math.max(range.from, Math.floor(t.year ?? full.endYear))) : 0;
+  // 刚拨了片尾网址的开关:预览停在片尾那一帧;拖时间轴就回到那一年
+  const peek = s.peek && s.cards && !!range;
+  const lastYear = useRef(year);
+  useEffect(() => {
+    if (lastYear.current === year) return;
+    lastYear.current = year;
+    if (getFilm().peek) setFilm({ peek: false });
+  }, [year]);
+  /** 预览画哪一帧、那一帧是哪一年 */
+  const frameAt = (r: FilmRenderer, y: number): [number, number] => (peek && range ? [r.clock.frames - 1, range.to] : [r.frameOf(y), y]);
 
   // 预览用的画法:选项、画风、图层、地名开关、投影变了重开一个
   const renderer = useMemo(() => {
@@ -141,7 +151,7 @@ export function FilmStage({ phone, style, layer, look }: FilmStageProps) {
     const region = whole ? undefined : holeRegion();
     return new FilmRenderer(src, filmSetup(src, { style, layer, surface: look }, region), filmMajors(src.full));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [src, s.mode, s.shape, s.area, s.rangeKind, s.range, s.seconds, s.captions, s.cards, s.title, style, layer, look, show, resView, proj, grat, center, marks, era, whole ? '' : vkey, box?.w]);
+  }, [src, s.mode, s.shape, s.area, s.rangeKind, s.range, s.seconds, s.captions, s.cards, s.url, s.title, style, layer, look, show, resView, proj, grat, center, marks, era, whole ? '' : vkey, box?.w]);
   useEffect(() => () => renderer?.dispose(), [renderer]);
 
   // 整张地图:预览按年份重画(一帧要 0.1 秒多;拖时间轴时只画最新的那一年,选项改了用新的画法)
@@ -149,6 +159,8 @@ export function FilmStage({ phone, style, layer, look }: FilmStageProps) {
   const busy = useRef(false);
   const latest = useRef(renderer);
   latest.current = renderer;
+  const peekRef = useRef(frameAt);
+  peekRef.current = frameAt;
   useEffect(() => {
     if (!renderer || run || !whole) return;
     want.current = year;
@@ -162,7 +174,8 @@ export function FilmStage({ phone, style, layer, look }: FilmStageProps) {
           const r = latest.current;
           const ctx = pvRef.current?.getContext('2d');
           if (!r || !ctx) break;
-          await r.draw(ctx, r.frameOf(y), y);
+          const [f, fy] = peekRef.current(r, y);
+          await r.draw(ctx, f, fy);
         }
       } catch (e) {
         console.error('预览画不出来', e);
@@ -170,7 +183,7 @@ export function FilmStage({ phone, style, layer, look }: FilmStageProps) {
         busy.current = false;
       }
     })();
-  }, [renderer, year, run, whole]);
+  }, [renderer, year, run, whole, peek]);
 
   // 框里这一块:框里盖一层字(地图透出来)
   useEffect(() => {
@@ -180,9 +193,10 @@ export function FilmStage({ phone, style, layer, look }: FilmStageProps) {
     if (!cv || !ctx) return;
     ctx.save();
     ctx.setTransform(cv.width / film.w, 0, 0, cv.height / film.h, 0, 0);
-    drawFilmFrame(ctx, renderer.look, renderer.frameOf(year), null);
+    drawFilmFrame(ctx, renderer.look, frameAt(renderer, year)[0], null);
     ctx.restore();
-  }, [renderer, year, run, whole, film.w, film.h, box?.w, box?.h]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [renderer, year, run, whole, peek, film.w, film.h, box?.w, box?.h]);
 
   // 导出时:预览换成正在编码的那一帧
   useEffect(() => {
