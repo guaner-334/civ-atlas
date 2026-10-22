@@ -192,8 +192,8 @@ export interface StudioProps {
   /** 正在生成(换了种子、调了参数、改了地形):创建不了 */
   busy: boolean;
   /**
-   * 编辑地形以后正在补推历史、起地名(编辑地形时不推历史,收起时补推):「保存地图」「打造文明 ›」照常能点(接着在后台起),
-   * 「创建世界」要等它
+   * 编辑地形以后正在补推历史、起地名(编辑地形时不推历史,收起时补推):按钮照常能点(接着在后台起),
+   * 确认创建以后等它起好再建
    */
   naming: boolean;
   /** 编辑地形时不推历史:正在编辑(还没收起)或正在补推,历史一会儿就有 */
@@ -1513,7 +1513,7 @@ export function Studio(p: StudioProps) {
     </button>
   );
   const createBtn = (
-    <button className="nw-create" data-act="create-world" disabled={p.busy || p.naming || !p.ready || out > 0 || importing || (image && !applied)} onClick={askCreate}>
+    <button className="nw-create" data-act="create-world" disabled={p.busy || !p.ready || out > 0 || importing || (image && !applied)} onClick={askCreate}>
       {base ? '创建新世界' : step2 ? (stepHow ? '开始演绎' : '开始推演') : '创建世界'}
     </button>
   );
