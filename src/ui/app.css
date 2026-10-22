@@ -1248,6 +1248,20 @@ button.primary:hover {
   top: 0;
   transform-origin: 0 0;
 }
+/* 编辑地形以后补起的地名(收起编辑地形时才起):淡入 */
+.screen-layer.names-in canvas {
+  animation: names-in 0.2s ease-out;
+}
+@keyframes names-in {
+  from {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .screen-layer.names-in canvas {
+    animation: none;
+  }
+}
 .caption {
   position: absolute;
   left: 50%;

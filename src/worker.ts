@@ -104,9 +104,15 @@ interface PatchInput {
 export type WorkerRequest =
   /**
    * 生成世界。terrain = 地形修改(不给 = 没改);sketch = 草图(不给 = 没画);interventions = 推文明时带上的干预(改地形重新生成时用;不给 = 没有);
-   * tempo = 主线程记着的扩张节拍(星球对不上就不用)
+   * tempo = 主线程记着的扩张节拍(星球对不上就不用);skipCiv = 只生成地形、铺像素,不推文明(编辑地形时:交回的 done 不带历史,
+   * 收起编辑地形以后用 civOnly 补推)
    */
-  | ({ type: 'generate'; id: number; scale: number; interventions?: Intervention[] } & CivInput & PatchInput)
+  | ({ type: 'generate'; id: number; scale: number; interventions?: Intervention[]; skipCiv?: true } & CivInput & PatchInput)
+  /**
+   * 补推上一次 skipCiv 生成的世界的文明:世界是线程手上那一个(线程被重开过就按参数重新生成),推法和 generate 里一模一样
+   * (同样的输入 = 同一份历史、同样的地名)。nid = 第几次补推(主线程只认最新的)
+   */
+  | ({ type: 'civOnly'; id: number; nid: number; interventions?: Intervention[] } & CivInput)
   /** 回放帧。带上参数:线程被重开过、手里没有这个世界时,按参数重新生成(同参数 = 同世界) */
   | { type: 'history'; id: number; params: WorldParams; terrain?: TerrainOp[]; sketch?: SketchEdit }
   /**
@@ -150,15 +156,18 @@ export type WorkerResponse =
    * rasterMs = 铺像素(推文明之前那一段,沟壑和细沟不算);civMs = 其中推文明那一步(再推的界面拿它估这台电脑推演要多久;读原件的没有);
    * tempo = 这组参数的扩张节拍(知道的话);eras = 地形大事以后的各段世界(没有大事 = 不给)。
    * 主图:raster = 整张;按块重铺的不带 raster,带 patch(比 from 那张整图变了的那一块,null = 一个像素也没变),见 PatchInput;
-   * 按块重铺的另带手绘风的符号规划(plan,render/fantasy.ts 的 planGlyphs:主线程按块重画手绘地图要用,精细度高时要算一两百毫秒,在这里算)
+   * 按块重铺的另带手绘风的符号规划(plan,render/fantasy.ts 的 planGlyphs:主线程按块重画手绘地图要用,精细度高时要算一两百毫秒,在这里算)。
+   * civ = null:请求带了 skipCiv,没推文明
    */
-  | ({ type: 'done'; id: number; world: World; civ: Civ; ms: number; genMs: number; rasterMs: number; civMs?: number; reused?: true; tempo?: TempoNote; eras?: EraWorld[]; baseKey: string } & (
+  | ({ type: 'done'; id: number; world: World; civ: Civ | null; ms: number; genMs: number; rasterMs: number; civMs?: number; reused?: true; tempo?: TempoNote; eras?: EraWorld[]; baseKey: string } & (
       | { raster: Raster; patch?: undefined; from?: undefined }
       | { raster?: undefined; patch: RasterPatch | null; from: string; plan: Plan }
     ))
   | ({ type: 'history'; id: number } & HistoryFrames)
   /** 重推好的文明;ms = 线程里花的时间(含按参数重新生成世界);tempo、eras 同 done */
   | { type: 'civ'; id: number; seq: number; civ: Civ; ms: number; tempo?: TempoNote; eras?: EraWorld[]; baseKey: string }
+  /** 补推好的文明(civOnly);ms 同 civ,civMs = 其中推文明那一步;tempo、eras 同 done */
+  | { type: 'civOnly'; id: number; nid: number; civ: Civ; ms: number; civMs: number; tempo?: TempoNote; eras?: EraWorld[]; baseKey: string }
   /** 逐年推演一步的结果:推到下一步年初的历史、新的进度(play)、没收下的命令(rejected);ms、tempo、eras 同 civ */
   | { type: 'turn'; id: number; civ: Civ; play: PlayState; rejected: unknown[]; ms: number; tempo?: TempoNote; eras?: EraWorld[]; baseKey: string }
   /**
@@ -407,6 +416,17 @@ const upOpt = (steps: Step[]) => (steps.length ? { upheavals: steps } : {});
  */
 const frozenOpt = (m: Pick<CivInput, 'params' | 'terrain' | 'sketch'>) => (frozen?.key === keyOf(m.params, m.terrain, m.sketch) ? { placeRef: false as const } : {});
 
+/**
+ * 生成世界时推这个世界的文明(generate 和补推的 civOnly 共用这一份,同样的输入 = 同一份历史)。
+ * 没改过地形、没调民族扩散、没另起文明种子的,顺手记下这颗星球的扩张节拍(见 tempos)
+ */
+function civOf(world: World, m: CivInput & { interventions?: Intervention[] }, steps: Step[]): Civ {
+  const c = generateCiv(world, { interventions: m.interventions?.length ? m.interventions : undefined, tempo: tempoOf(m.params, m.terrain, m.sketch, m.civSeed), ...upOpt(steps), ...namesOpt(m.names), ...yearsOpt(m.endYear), ...setupOpt(m), ...playOpt(m), base: baseOf(world, m.civSeed) });
+  // 调了民族扩散的,civ.spreadYears 不是节拍(÷ 了倍数);另起文明种子的,州和民族不是这颗星球原来的那一份:都不记
+  if (!m.terrain?.length && !m.frontier?.spread && m.civSeed === undefined) rememberTempo(m.params, m.sketch, c.spreadYears !== undefined && c.capNorm !== undefined ? { spread: c.spreadYears, capNorm: c.capNorm } : null);
+  return c;
+}
+
 /** 各段的世界交给主线程:不带网格、回放快照 */
 function eraWorlds(steps: Step[]): EraWorld[] | undefined {
   if (!steps.length) return undefined;
@@ -637,16 +657,17 @@ async function handle(m: WorkerRequest): Promise<void> {
     const raster = d.raster;
     const rasterMs = performance.now() - t1;
     let civMs: number | undefined;
-    const civ = await pool.finish(d, () => {
-      // 文明骨架(宜居度、州……)只读 World,之后的文明步骤都在 gen/civ/index.ts 里接
-      post({ type: 'progress', id: m.id, stage: '文明', pct: 0.95 });
-      const tc = performance.now();
-      const c = generateCiv(world, { interventions: m.interventions?.length ? m.interventions : undefined, tempo: tempoOf(m.params, m.terrain, m.sketch, m.civSeed), ...upOpt(steps), ...namesOpt(m.names), ...yearsOpt(m.endYear), ...setupOpt(m), ...playOpt(m), base: baseOf(world, m.civSeed) });
-      // 调了民族扩散的,civ.spreadYears 不是节拍(÷ 了倍数);另起文明种子的,州和民族不是这颗星球原来的那一份:都不记
-      if (!m.terrain?.length && !m.frontier?.spread && m.civSeed === undefined) rememberTempo(m.params, m.sketch, c.spreadYears !== undefined && c.capNorm !== undefined ? { spread: c.spreadYears, capNorm: c.capNorm } : null);
-      civMs = performance.now() - tc;
-      return c;
-    });
+    // 编辑地形时(skipCiv)不推文明:等帮手线程把沟和山脊算完就交回,文明等收起编辑地形以后补推(civOnly)
+    const civ = m.skipCiv
+      ? await pool.finish(d).then(() => null)
+      : await pool.finish(d, () => {
+          // 文明骨架(宜居度、州……)只读 World,之后的文明步骤都在 gen/civ/index.ts 里接
+          post({ type: 'progress', id: m.id, stage: '文明', pct: 0.95 });
+          const tc = performance.now();
+          const c = civOf(world, m, steps);
+          civMs = performance.now() - tc;
+          return c;
+        });
     const transfer: ArrayBuffer[] = [];
     // 回放快照体积大且主线程用不上,不随世界一起发送
     const { history: _history, ...rest } = world;
@@ -679,11 +700,24 @@ async function handle(m: WorkerRequest): Promise<void> {
     spare = null;
     // 地形大事的补丁要和这张整图比:直接用留着的这一份,不用再铺一遍
     if (kept?.key === baseKey) rasters.set(baseKey, kept.keep.raster);
-    transfer.push(...civTransferables(civ));
-    const cloned = cloneCiv(civ);
+    if (civ) transfer.push(...civTransferables(civ));
+    // 没推文明的:记着的上一份历史是别的地形的,放掉;原件等补推完再打
+    const cloned = civ && cloneCiv(civ);
     keepCiv(m, m.play, cloned);
     post({ type: 'done', id: m.id, world: { ...rest, history: [] }, ...map, civ, ms: performance.now() - t0, genMs, rasterMs, ...(civMs !== undefined ? { civMs } : {}), ...(reused ? { reused: true as const } : {}), tempo: noteOf(m.params, m.sketch), eras: eraWorlds(steps), baseKey }, transfer);
     queuePatches(m.id, m, steps);
+    queueSnapshot(m.id, m, world, steps, cloned);
+  } else if (m.type === 'civOnly') {
+    // 补推 skipCiv 生成的那个世界的文明(和 generate 里那一步同一个推法);地形大事的补丁 generate 时已经排过,不再排
+    const t0 = performance.now();
+    const world = worldOf(m.params, m.terrain, m.sketch);
+    const steps = stepsOf(m.params, m.terrain, m.sketch, m.upheavals);
+    const tc = performance.now();
+    const civ = civOf(world, m, steps);
+    const civMs = performance.now() - tc;
+    const cloned = cloneCiv(civ);
+    keepCiv(m, m.play, cloned);
+    post({ type: 'civOnly', id: m.id, nid: m.nid, civ, ms: performance.now() - t0, civMs, tempo: noteOf(m.params, m.sketch), eras: eraWorlds(steps), baseKey: keyOf(m.params, m.terrain, m.sketch) }, civTransferables(civ));
     queueSnapshot(m.id, m, world, steps, cloned);
   } else if (m.type === 'load') {
     bg.length = 0;
