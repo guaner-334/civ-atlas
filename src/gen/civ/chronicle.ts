@@ -854,6 +854,8 @@ function interveneStory(civ: Civ, e: Annal, id: number): IvStory {
       const who = authorName(civ, v.char);
       if (e.b === -3) return fail(`欲立${who}为${A}之主,然${A}已亡`, `那一年${A}已亡`);
       if (e.b === -2) return fail(`欲立${who}为${A}之主,然其人尚未出生`, `他第 ${v.born} 年才出生`);
+      // 同一刻给这国又立了别的作者人物:后立的顶替先立的(rulers.ts),先立的那条算没即位
+      if (civ.people?.length && !civ.people.some((x) => x.author === v.char && x.polity === e.a && x.from === y)) return fail(`欲立${who}为${A}之主,然同时又另立他人`, '同一年又给这国立了别的人物');
       return done(`${who}即${A}君位`);
     }
     case 'move': {

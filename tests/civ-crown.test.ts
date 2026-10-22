@@ -185,6 +185,16 @@ describe.each([7, 2024])('即位 · seed=%i', (seed) => {
     same(continueCiv(w, at, { interventions: list, endYear: T + 200 }), one, '从 T 接着推');
   }, 300_000);
 
+  it('同一年给同一国先后立两位:后一位顶替前一位,前一位那条算没即位', () => {
+    const w = world(seed);
+    const base = baseOf(seed);
+    const A = polityKey(base, biggestAt(base, T));
+    const civ = generateCiv(w, { interventions: [crown(A, T), crown(A, T, { char: 2 })], endYear: T + 50 });
+    expect(authorsOf(civ).map((x) => [x.author, x.from])).toEqual([[2, T]]);
+    expect(interventionFate(civ, 0)).toMatchObject({ state: 'void', why: '同一年又给这国立了别的人物' });
+    expect(interventionFate(civ, 1).state).toBe('done');
+  }, 120_000);
+
   it('他在位时亡国 / 改朝换代:那一刻下台(出降、出奔 / 被废),不写卒年', () => {
     const w = world(seed);
     const base = baseOf(seed);
