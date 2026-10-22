@@ -368,10 +368,11 @@ export function buildPeople(civ: PeopleInput): Person[] {
       };
       // 好战的君主亲征(越好战越常亲征)
       const ruler = rulerAt(rulers[pid], t);
-      if (ruler) {
-        // 作者立的君主在位时,作者下令打的仗(强制宣战,这国是攻方)一律由他亲征;同一年先宣战、后立他的不算
-        const c = crownBy.get(ruler);
-        if (x === 0 && s === 0 && c && forced.has(w.id) && (ruler.from! < t || (ivAnnal.get(c.iv) ?? Infinity) < w.decl)) {
+      // 作者立的君主即位那一刻,排在立他以前的事(同一年先下的宣战)他还没即位:不由他领兵
+      const c = ruler && crownBy.get(ruler);
+      if (ruler && (!c || ruler.from! < t || (ivAnnal.get(c.iv) ?? Infinity) < idx)) {
+        // 作者立的君主在位时,作者下令打的仗(强制宣战,这国是攻方)一律由他亲征
+        if (x === 0 && s === 0 && c && forced.has(w.id)) {
           cur[s] = { p: ruler, careerEnd: ruler.until ?? Infinity, cmd: command(ruler), general: false, keep: busyRuler.get(ruler) };
           busyRuler.set(ruler, Infinity);
           return;

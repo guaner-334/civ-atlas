@@ -273,11 +273,13 @@ describe.each([7, 2024])('即位 · seed=%i', (seed) => {
     const all = buildChronicle(civ);
     expect(all.find((e) => e.year === T && e.text.includes('亲征'))?.text ?? '').toContain('林小满');
     expect(all.find((e) => e.kind === 'intervene' && e.year === T)?.text).toMatch(/^【干预】林小满即.+君位$/);
-    // 同一年先宣战、后立他:那场仗不是他下令的,照常(好战 0 的君主不亲征)
-    const late = generateCiv(w, { interventions: [list[1], list[0]], endYear: T + 60 });
+    // 同一年先宣战、后立他:那场仗打起来时他还没即位,不由他领兵(好战 100 的也不)
+    const late = generateCiv(w, { interventions: [list[1], { ...(list[0] as CrownIv), leanings: BOLD }], endYear: T + 60 });
     const war2 = late.annals.find((e) => e.year === T && e.kind === 'war' && e.a === pid && e.b === foe);
     expect(war2).toBeDefined();
-    expect(authorsOf(late)[0].commands ?? []).not.toContainEqual(expect.objectContaining({ war: war2!.war }));
+    const decl = late.annals.indexOf(war2!);
+    // 开战那一刻不是他(之后他即了位,仗打到一半换他领兵照常可以)
+    expect((authorsOf(late)[0].commands ?? []).filter((m) => m.war === war2!.war && m.first <= decl)).toEqual([]);
   }, 120_000);
 
   it('逐年推演:第 T 年停下下即位命令、接着推,和带着同样的命令一口气推完一样;倒回 T 以前这条去掉,从 T 以前开始时它照样带着', () => {
