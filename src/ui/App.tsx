@@ -807,7 +807,7 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
     if (r?.ok) pickSharedPreset(r.preset);
     return r;
   })[0];
-  const [newDlg, setNewDlg] = useState<{ init?: NewWorldInit; shared?: SharedPreset } | null>(() =>
+  const [newDlg, setNewDlg] = useState<{ init?: NewWorldInit; shared?: SharedPreset; stamp?: number } | null>(() =>
     route.dialog ? { init: route.dialog } : presetLink?.ok && route.stage === 'home' ? presetDialog(presetLink.preset) : null,
   );
   /** 生成出来的世界和主图(地形大事以前的;地图上画的是 data:时间轴那一段的) */
@@ -1971,8 +1971,8 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
         if (sameScreen(getNav(), at)) openShareRef.current(r, undefined, own);
       });
     }
-    // 短链接后面的"打开时看哪"、朋友的预设链接:先把 # 那段从地址栏去掉(刷新不会再来一遍)
-    if (init.moment || init.preset) navUrl(location.pathname + location.search);
+    // 朋友的预设链接:先把 # 那段从地址栏去掉(刷新不会再来一遍)。短链接后面的"打开时看哪"等取到存档再去掉(没取到、刷新重来时还在)
+    if (init.preset) navUrl(location.pathname + location.search);
     if (presetLink) presetOpened(presetLink);
     // 邀请链接:弹出登录窗(已经登录了就算了)
     if (invited && serverBase() && !getSession()) openLogin();
@@ -1991,7 +1991,8 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
         const r = decodePresetHash(h);
         if (r.ok) {
           if (getStage().stage !== 'home') showHomeRef.current();
-          setNewDlg(presetDialog(r.preset));
+          // 新开一个弹窗(开着的那个里填的东西不留)
+          setNewDlg({ ...presetDialog(r.preset), stamp: performance.now() });
         }
         presetOpened(r);
         return;
@@ -2582,9 +2583,10 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
         const p = parseSave(JSON.stringify(r.save));
         if (!p.ok) return setLanding({ error: briefError(p.error) });
         setLanding(null);
-        // 短链接后面带的"打开时看哪"只在打开网页时那一次用(按后退、前进再取的照平常打开)
+        // 短链接后面带的"打开时看哪"只在打开网页时那一次用(按后退、前进再取的照平常打开);用了就从地址栏去掉
         const moment = shortMoment.current;
         shortMoment.current = null;
+        if (moment && isMomentHash(location.hash)) navUrl(location.pathname + location.search);
         openShareRef.current(p, { code, by: r.by, moment });
       })
       .catch((e) => {
@@ -4027,7 +4029,8 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
   useEffect(() => {
     const pm = pendingMoment.current;
     // 带着干预、逐年推演的进度的世界:生成完还要重推一次(resimInfo),推完再停(逐年推演的推完会把时间轴放到"现在")
-    if (!pm || !data || !rawCiv || !box.w || !stageSize.w || resimInfo.current) return;
+    // 正在回放世界形成:放完再停(放完会接着放文明,停的那一年要在它后面设)
+    if (!pm || !data || !rawCiv || !box.w || !stageSize.w || resimInfo.current || replayOn) return;
     pendingMoment.current = null;
     if (currentWorld()?.id !== pm.id) return;
     // 对到这个世界上:年份超出这段历史、国家或州找不到(生成器换了版本)的那一样不管;有地形大事的按那一年那一段的州认
@@ -4045,7 +4048,7 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
     if (!sel) clearSelection();
     if (rm.camera) flyCamera(rm.camera);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, rawCiv, box.w, stageSize.w, resim, momentTick]);
+  }, [data, rawCiv, box.w, stageSize.w, resim, momentTick, replayOn]);
   /** 复制分享链接时的"这一刻":时间轴那一年、选中的国家或州(withSelection)、镜头 */
   const momentRef = useRef<(withSelection: boolean) => MomentNow | null>(() => null);
   momentRef.current = (withSelection) => {
@@ -5481,7 +5484,7 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
       <ShortcutsHost />
       <DiagHost />
       <TipLayer />
-      {newDlg && home && <NewWorldDialog phone={narrow} init={newDlg.init} shared={newDlg.shared} randomSeed={randomSeedValue} onCancel={cancelDialog} onStart={startFromDialog} />}
+      {newDlg && home && <NewWorldDialog key={newDlg.stamp ?? 0} phone={narrow} init={newDlg.init} shared={newDlg.shared} randomSeed={randomSeedValue} onCancel={cancelDialog} onStart={startFromDialog} />}
       {dropping && (
         <div className="drop-hint">
           <div>{dropping === 'image' ? '松手导入这张图' : '松手打开存档(.json)'}</div>
