@@ -203,6 +203,15 @@ export function NewWorldDialog(p: NewWorldDialogProps) {
   useEffect(() => {
     for (const el of sheetRef.current?.querySelectorAll('.nd-preset, .nd-scroll, .nd-pbody') ?? []) el.toggleAttribute('inert', waiting);
   }, [waiting]);
+  // 没等到(地图程序下载失败,弹窗回到能改的样子):图还没人接,仍归这个弹窗管,关掉时照常扔掉
+  const waited = useRef(false);
+  useEffect(() => {
+    if (waiting) waited.current = true;
+    else if (waited.current) {
+      waited.current = false;
+      given.current = false;
+    }
+  }, [waiting]);
 
   const commitSeed = () => {
     const n = Math.floor(Number(seedText));
