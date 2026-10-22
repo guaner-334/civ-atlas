@@ -195,9 +195,9 @@ export function interventionText(civ: Civ, v: Intervention, i = -1, a?: string):
   }
 }
 
-/** 作者的人物在这份历史里叫什么(套过 applyCharacters 的历史里有名字;没有 = "作者的人物") */
+/** 作者的人物在这份历史里叫什么(套过 applyCharacters 的历史里有名字,没即位成的也有;没套过 = "作者的人物") */
 function authorName(civ: Civ, char: number): string {
-  return civ.people?.find((x) => x.author === char && x.name)?.name || '作者的人物';
+  return civ.authorNames?.[char] || civ.people?.find((x) => x.author === char && x.name)?.name || '作者的人物';
 }
 
 /**

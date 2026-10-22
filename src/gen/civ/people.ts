@@ -34,7 +34,7 @@ import { personNamers } from './naming';
 import { annexedRemnants, capitalAt, polityTierAt } from './growth';
 import { buildLineage } from './lineage';
 import { buildOfficials } from './officials';
-import { K_RULER, MAX_AGE, U_AGE, crownsFrom, leaningEffect, reignBook, rulerBase, rulerTags } from './rulers';
+import { K_RULER, MAX_AGE, U_AGE, crownsFrom, leaningEffect, reignBook, rulerBase, rulerTags, type Crown } from './rulers';
 
 // ---- 调参 ----
 // 即位的年纪、在位年数、执政官任期、一生最多多少岁在 rulers.ts(推演里也要知道谁在位)
@@ -204,6 +204,11 @@ export function buildPeople(civ: PeopleInput): Person[] {
   // 作者立的君主(干预"即位"):和推演里同一份,在位表照它排(rulers.ts);作者强制宣战打起来的仗
   const crowns = crownsFrom(civ.annals, civ.interventions);
   const forced = forcedWars(civ.annals, civ.interventions);
+  /** 第几条干预 → 它那条史事 intervene 的下标(同一年先宣战、后即位的仗不算他下令的) */
+  const ivAnnal = new Map<number, number>();
+  civ.annals.forEach((e, i) => e.kind === 'intervene' && ivAnnal.set(e.war, i));
+  /** 作者立的君主 → 立他的那一条(Crown) */
+  const crownBy = new Map<Person, Crown>();
   const namerOf = personNamers(civ.seed);
   const styleOf = (p: Polity) => cultures[p.culture]?.style || 'kingdom';
   const rulers: Person[][] = polities.map(() => []);
@@ -255,6 +260,7 @@ export function buildPeople(civ: PeopleInput): Person[] {
         if (r.crown) {
           const person: Person = { id: -1, role: 'ruler', polity: p.id, name: '', born: r.crown.born, from, dynasty: i, rise: 'crown', leanings: { ...r.crown.leanings }, author: r.crown.char };
           list.push(person);
+          crownBy.set(person, r.crown);
           if (r.cut !== undefined) {
             // 又被后来作者立的君主取代
             person.until = r.cut;
@@ -363,8 +369,9 @@ export function buildPeople(civ: PeopleInput): Person[] {
       // 好战的君主亲征(越好战越常亲征)
       const ruler = rulerAt(rulers[pid], t);
       if (ruler) {
-        // 作者立的君主在位时,作者下令打的仗(强制宣战,这国是攻方)一律由他亲征
-        if (x === 0 && s === 0 && ruler.author !== undefined && forced.has(w.id)) {
+        // 作者立的君主在位时,作者下令打的仗(强制宣战,这国是攻方)一律由他亲征;同一年先宣战、后立他的不算
+        const c = crownBy.get(ruler);
+        if (x === 0 && s === 0 && c && forced.has(w.id) && (ruler.from! < t || (ivAnnal.get(c.iv) ?? Infinity) < w.decl)) {
           cur[s] = { p: ruler, careerEnd: ruler.until ?? Infinity, cmd: command(ruler), general: false, keep: busyRuler.get(ruler) };
           busyRuler.set(ruler, Infinity);
           return;

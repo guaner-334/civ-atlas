@@ -22,7 +22,7 @@
  *
  * **作者立的君主**(干预"即位",gen/edits.ts 的 crown;Crown):第 T 年年初作者的人物成为这国君主 ——
  *   - 此刻在位的那一位到 T 为止(让位,Reign.cut = T),作者的君主占在位表的下一个位次(不取年纪、倾向的随机数;
- *     倾向照干预里写的,在位到干预的 until,不给就按这个位次的在位年数随机数算、最多活到 MAX_AGE 岁),
+ *     倾向照干预里写的,在位到干预的 until,不给就按这个位次的在位年数随机数算、到 MAX_AGE 岁为止,至少一年),
  *     他下台以后照常一位接一位往下排(所以他之后的人换了一批,T 以前一个不变)。
  *   - 推演里他从 T 的下一刻(1/256 年后)起才算"在位"(reignStart),和新朝的第一位一样:同一刻里先发生的事
  *     (同一年先下的立国、划州干预,刚交接的新君……)照原来那一位的倾向算,接着推(fromCiv)按日志重放时也一样。
@@ -224,7 +224,10 @@ export function crownsFrom(annals: readonly Annal[], list: readonly Intervention
   return out;
 }
 
-/** 作者立的君主在位到哪一刻(不被打断时):干预的 until;不给 = 第 k 位的在位年数随机数(同 reignStep),一生不超过 MAX_AGE 岁 */
+/**
+ * 作者立的君主在位到哪一刻(不被打断时):干预的 until;不给 = 第 k 位的在位年数随机数(同 reignStep),到 MAX_AGE 岁为止 ——
+ * 即位时已年近(或过了)MAX_AGE 岁的至少在位一年(和寻常君主的规矩一样;要别的年份就在干预里写 until)
+ */
 function crownNatural(base: number, tag: number, k: number, from: Year, c: Crown, lineage: PolityLineage | undefined): Year {
   if (c.until !== undefined) return q(c.until);
   const u = keyed4(base, tag, k, U_REIGN, K_RULER);
