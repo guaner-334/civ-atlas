@@ -1,12 +1,15 @@
 /**
  * 打开网页:先下载、先放出来的只有这一小份,主程序(App.tsx 和它用到的地图、推演、编辑地形、助手、导出……)单独一个文件。
+ * 这一小份还没下好时先是页面里的加载画面(网站图标、名字、进度条;scripts/lib/loadScreen.ts),下面挂上了它就淡出。
  *
- *   就停在我的世界(homeStart.ts 的 plainHome)  先放首页(HomeShell.tsx);首页要的下好以后在后台下载主程序,再顺带下好新建弹窗的图、生成世界的线程。
- *                                               在首页点了要离开这一页的事,等主程序下好(多半早就下好了)把 App 挂上、接着做那一件
- *   别的(打开某个世界、分享链接、新建……)      主程序和这一小份同时开始下载(index.html 里最先跑的那一段,见 homeStart.ts 的 bootScript),
- *                                               下好就挂上 App,和以前一样按网址打开
+ *   就停在我的世界(homeStart.ts 的 plainHome)  先放首页(HomeShell.tsx),加载画面淡出;首页要的下好以后在后台下载主程序,
+ *                                               再顺带下好新建弹窗的图、生成世界的线程。在首页点了要离开这一页的事,
+ *                                               等主程序下好(多半早就下好了)把 App 挂上、接着做那一件(没下好时在点的地方说下了多少)
+ *   别的(打开某个世界、分享链接、新建……)      主程序和这一小份同时开始下载(加载画面那一段一起数着下),
+ *                                               下好就挂上 App,和以前一样按网址打开;加载画面一直留到 App 挂上
  *
- * 主程序没下载成功(网断了、网站刚更新过旧文件不在了):要用到它的时候重新下载一次,还不行就刷新页面。
+ * 主程序没下载成功(网断了、网站刚更新过旧文件不在了):要用到它的时候重新下载一次,还不行就刷新页面;
+ * 刚刷新过、不能再刷的,加载画面(还在的话)换成「重新加载」。
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { HomeShell } from './HomeShell';
@@ -14,28 +17,38 @@ import { plainHome, type HomeStart } from './homeStart';
 import { warmNewWorldPictures } from './NewWorldDialog';
 import { prefetchWorker } from './workerUrl';
 import { afterHomeLoad } from './homeLoad';
+import { downloadApp, loadScreenDone, loadScreenFail } from './loadScreen';
 
 type AppModule = typeof import('./App');
 
 let loading: Promise<AppModule> | null = null;
-/** 下载主程序(只下一次;失败了下次再叫时重来) */
+/**
+ * 下载主程序(只下一次;失败了下次再叫时重来)。先由加载画面那一段数着下好(下了多少给首页上显示),
+ * 再 import() 从浏览器缓存里拿;数不了的、没数成的照样 import(),由浏览器自己下
+ */
 function loadApp(): Promise<AppModule> {
-  loading ??= import('./App').catch((e: unknown) => {
-    loading = null;
-    throw e;
-  });
+  loading ??= downloadApp()
+    .catch(() => {})
+    .then(() => import('./App'))
+    .catch((e: unknown) => {
+      loading = null;
+      throw e;
+    });
   return loading;
 }
 
 const RELOAD_KEY = 'civ-atlas:boot-reload';
-/** 主程序下载不下来:刷新页面重来(网站更新过、旧文件不在了,刷新拿到新的)。半分钟里只刷一次,网断着时不会一直刷 */
+/**
+ * 主程序下载不下来:刷新页面重来(网站更新过、旧文件不在了,刷新拿到新的)。半分钟里只刷一次,网断着时不会一直刷;
+ * 不刷的时候加载画面(还在的话)换成「重新加载」,让人自己点
+ */
 function reloadOnce() {
   try {
     const last = Number(sessionStorage.getItem(RELOAD_KEY));
-    if (Number.isFinite(last) && Date.now() - last < 30_000) return;
+    if (Number.isFinite(last) && Date.now() - last < 30_000) return loadScreenFail();
     sessionStorage.setItem(RELOAD_KEY, String(Date.now()));
   } catch {
-    return;
+    return loadScreenFail();
   }
   location.reload();
 }
@@ -45,7 +58,7 @@ const HOME_WAIT = 10_000;
 
 /** 打开网页时就停在我的世界(只看一次) */
 const HOME = plainHome();
-// 不是首页:马上要用主程序(页面里最先跑的那一段已经让它和这一份一起在下了,见 homeStart.ts 的 bootScript)
+// 不是首页:马上要用主程序(加载画面那一段已经让它和这一份一起在下了,这里接着它下的那一份)
 if (!HOME) loadApp().catch(() => {});
 
 export function Boot() {
@@ -56,6 +69,11 @@ export function Boot() {
   const leaving = start !== undefined;
   /** 首页上已经点了要离开的事(后台下好主程序时就不再顺带下生成线程) */
   const leftRef = useRef(false);
+  /** 页面上有东西了(首页,或者 App 挂上了):加载画面淡出 */
+  const shown = home || (!!app && leaving);
+  useEffect(() => {
+    if (shown) loadScreenDone();
+  }, [shown]);
 
   // 首页:首页要的图(第一次来时那颗星球)下好以后,在后台下载主程序,再下新建弹窗的两张图、生成世界的线程(一样一样来,先要用的先到)。
   // 主程序没下成功不要紧,真要用时再下(见下面)

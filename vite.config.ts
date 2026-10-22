@@ -9,9 +9,9 @@ import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import { fakeAiMiddleware } from './scripts/lib/fakeAiServer';
 import { inlineIconsPlugin } from './scripts/lib/inlineIcons';
+import { loadScreenPlugin } from './scripts/lib/loadScreen';
 import { SOURCE_URL } from './src/ui/links';
 import { WHATS_NEW } from './src/ui/whatsNew';
-import { bootScript } from './src/ui/homeStart';
 import { ShardSequencer } from './tests/lib/shardSequencer';
 
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as { version: string; license: string };
@@ -111,19 +111,9 @@ export default defineConfig({
         }
       },
     },
-    // 页面里最先跑的一小段(src/ui/homeStart.ts 的 bootScript):打开的不是首页时,主程序(App)和页面的代码同时开始下载
-    {
-      name: 'boot-script',
-      apply: 'build',
-      transformIndexHtml: {
-        order: 'post',
-        handler(_html, ctx) {
-          const app = Object.values(ctx.bundle ?? {}).find((c) => c.type === 'chunk' && c.isDynamicEntry && c.name === 'App');
-          if (!app) throw new Error('构建结果里没找到主程序(App)那一份,src/ui/Boot.tsx 的写法可能改过');
-          return [{ tag: 'script', children: bootScript(`./${app.fileName}`), injectTo: 'head' }];
-        },
-      },
-    },
+    // 加载画面(scripts/lib/loadScreen.ts):第一次打开时先出网站图标、名字和一条真的进度条,页面的代码、样式表由它数着下好再交给浏览器;
+    // 打开的不是首页时主程序也一起下
+    loadScreenPlugin(),
     // 开发时的假网站服务器(账号、云同步、分享、我们的 AI;接口约定见 src/ai/providers/official.ts、src/account/cloud.ts 文件头):
     // 网址加 aiServer=fake 使用;正式构建里没有。分享短链接 /s/<码> 照正式网站的做法转到 /?s=<码>(开发时带上 aiServer=fake)
     {

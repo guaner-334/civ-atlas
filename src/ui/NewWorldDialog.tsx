@@ -12,6 +12,8 @@
  *            底下一句说进去以后这些都还能改
  *
  * 点「开始」才交给 App(存下没建完的世界、进新建界面;照图的把读好的图交过去,进去直接是第 1 步「认出海陆」)。
+ * 首页上点的「开始」、地图程序还没下完(wait):按钮变成转圈 +「准备中」,旁边一句下了多少,下好就自动开始;
+ * 这时参数先改不了、「上一步」点不了,「取消」照常(不打开了)。
  * 「取消」、Esc、点窗口外面:什么都不留下(读好的图也扔掉)。
  * 电脑上是浮在页面正中的窗口(第 2 步比窗口高时:标题和底部按钮不动,中间一段自己滚,上下各一条细线隔开);
  * 手机上从底部升起、几乎占满屏:顶上一排(取消 / 上一步、标题、第几步),底部一个大按钮。
@@ -57,6 +59,8 @@ export interface NewWorldDialogProps {
   randomSeed: () => number;
   onCancel: () => void;
   onStart: (s: NewWorldStart) => void;
+  /** 点了「开始」、地图程序还没下完:下了百分之几(null = 不知道) */
+  wait?: { pct: number | null };
 }
 
 const PIC_RANDOM = `${import.meta.env.BASE_URL}new-random.jpg`;
@@ -193,6 +197,12 @@ export function NewWorldDialog(p: NewWorldDialogProps) {
   };
   const fileRef = useRef<HTMLInputElement>(null);
   const pick = () => fileRef.current?.click();
+  // 等地图程序时参数先改不了(点「开始」时已经定了)
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const waiting = !!p.wait;
+  useEffect(() => {
+    for (const el of sheetRef.current?.querySelectorAll('.nd-preset, .nd-scroll, .nd-pbody') ?? []) el.toggleAttribute('inert', waiting);
+  }, [waiting]);
 
   const commitSeed = () => {
     const n = Math.floor(Number(seedText));
@@ -508,10 +518,21 @@ export function NewWorldDialog(p: NewWorldDialogProps) {
     </div>
   );
 
-  const startBtn = (
+  const startBtn = p.wait ? (
+    <button className="nd-btn b1 wait" data-act="dlg-start" aria-disabled="true">
+      <i className="spin nd-spin" aria-hidden="true" />
+      准备中
+    </button>
+  ) : (
     <button className="nd-btn b1" data-act={step === 1 ? 'dlg-next' : 'dlg-start'} disabled={step === 2 && !canStart} autoFocus onClick={() => (step === 1 ? next() : start())}>
       {step === 1 ? '下一步' : '开始'}
     </button>
+  );
+  /** 等地图程序时按钮旁边那一句 */
+  const waitSay = p.wait && (
+    <span className="nd-wait">
+      {p.wait.pct === null ? '地图程序还在下载，下好就自动开始' : `地图程序还在下载（${p.wait.pct}%），下好就自动开始`}
+    </span>
   );
   const file = (
     <input
@@ -530,14 +551,14 @@ export function NewWorldDialog(p: NewWorldDialogProps) {
   return (
     <div className="nd-scrim" onPointerDown={stop} onClick={p.onCancel} onDragOver={onDragOver} onDragLeave={() => setOver(false)} onDrop={onDrop} onWheel={stop}>
       {p.phone ? (
-        <div className="nd-psheet" role="dialog" aria-modal="true" aria-label={title} data-step={step} data-mode={mode} onClick={stop}>
+        <div ref={sheetRef} className="nd-psheet" role="dialog" aria-modal="true" aria-label={title} data-step={step} data-mode={mode} onClick={stop}>
           <div className="nd-pnav">
             {step === 1 ? (
               <button className="nd-pl" data-act="dlg-cancel" onClick={p.onCancel}>
                 取消
               </button>
             ) : (
-              <button className="nd-pl" data-act="dlg-back" onClick={() => setStep(1)}>
+              <button className="nd-pl" data-act="dlg-back" disabled={waiting} onClick={() => setStep(1)}>
                 <Icon name="back" size={18} />
                 上一步
               </button>
@@ -556,11 +577,15 @@ export function NewWorldDialog(p: NewWorldDialogProps) {
             {step === 1 && <p className="nd-sub">{sub}</p>}
             {step === 1 ? cards : paramsBody}
           </div>
-          <div className="nd-pfoot">{startBtn}</div>
+          <div className="nd-pfoot">
+            {waitSay}
+            {startBtn}
+          </div>
           {file}
         </div>
       ) : (
         <div
+          ref={sheetRef}
           className={`nd-sheet${step === 2 ? ' tall' : ''}`}
           role="dialog"
           aria-modal="true"
@@ -587,9 +612,9 @@ export function NewWorldDialog(p: NewWorldDialogProps) {
             <button className="nd-btn b2" data-act="dlg-cancel" onClick={p.onCancel}>
               取消
             </button>
-            <span className="nd-sp" />
+            {waitSay || <span className="nd-sp" />}
             {step === 2 && (
-              <button className="nd-btn b2" data-act="dlg-back" onClick={() => setStep(1)}>
+              <button className="nd-btn b2" data-act="dlg-back" disabled={waiting} onClick={() => setStep(1)}>
                 上一步
               </button>
             )}

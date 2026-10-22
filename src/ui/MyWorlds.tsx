@@ -22,6 +22,9 @@
  *   文明     一个文明一张卡片(就是原来的我的世界);"···"菜单里多一项「在这张地图上打造新文明」
  * 手机上页签铺满一行,地图两列,展开的那块里文明一行一个,底下一个大的「打造新文明」。
  *
+ * 刚打开网站、地图程序还没下完时点了打开(opening,见 HomeShell.tsx):点的那张卡片蒙一层浅白、正中一个下载进度圈,
+ * 下面那行字换成"正在打开,地图程序已下载 62%"(手机卡片窄,省掉"地图程序");点的是「打造新文明」按钮的,按钮转圈 +「准备中」。
+ *
  * 存、读、列都在 saveStore.ts;打开一个世界(生成 + 套上修改)由 App 做。一个都没有时也停在这一页
  * (刚才那个世界存不进浏览器、只在页面里的,标题下有「全部存成文件」)。
  */
@@ -79,6 +82,43 @@ export interface MyWorldsProps {
   onOpenText: (text: string, fileName?: string) => void;
   /** 在这个世界(或只存了地图的那一份)的地图上打造新文明 */
   onNewCiv: (id: string) => void;
+  /** 点了打开(或打造新文明)、地图程序还没下完:哪一个、下了百分之几(null = 不知道) */
+  opening?: { id: string; pct: number | null } | null;
+}
+
+/** 正在等地图程序的那一处:下了百分之几(null = 不知道) */
+type Wait = { pct: number | null };
+/** 点的是卡片(打开、菜单里打造新文明)还是展开那块里的「打造新文明」按钮 */
+type WaitAt = 'card' | 'btn';
+type WaitOf = (id: string, at: WaitAt) => Wait | undefined;
+
+/** 卡片上那行字:正在打开、地图程序下了多少(手机卡片窄,省掉"地图程序") */
+function openLine(pct: number | null, phone: boolean): string {
+  if (pct === null) return phone ? '正在打开，还在下载' : '正在打开，地图程序还在下载';
+  return phone ? `正在打开，已下载 ${pct}%` : `正在打开，地图程序已下载 ${pct}%`;
+}
+
+/** 缩略图正中的下载进度圈(像应用商店下载时的圈);不知道下了多少时转圈 */
+function OpenRing({ pct }: { pct: number | null }) {
+  const len = 2 * Math.PI * 13;
+  return (
+    <span className={`mw-ring${pct === null ? ' busy' : ''}`} role="progressbar" aria-label="正在打开" aria-valuenow={pct ?? undefined}>
+      <svg viewBox="0 0 32 32" aria-hidden="true">
+        <circle className="bg" cx="16" cy="16" r="13" />
+        <circle className="fg" cx="16" cy="16" r="13" strokeDasharray={len} strokeDashoffset={len * (1 - (pct ?? 25) / 100)} />
+      </svg>
+    </span>
+  );
+}
+
+/** 「打造新文明」按钮等地图程序时:转圈 +「准备中」 */
+function WaitLabel() {
+  return (
+    <>
+      <i className="spin mw-spin" aria-hidden="true" />
+      准备中
+    </>
+  );
 }
 
 /** 卡片第二行:"种子 7，现存 13 国" / "种子 1009，还在新建" / 逐年推演的 "种子 7，演绎到第 2675 年" */
@@ -91,7 +131,7 @@ function worldLine(w: StoredWorld): string {
   return w.alive ? `${seed}，现存 ${w.alive} 国` : `${seed}，没有文明`;
 }
 
-export function MyWorlds({ phone, onOpen, onNew, onOpenText, onNewCiv }: MyWorldsProps) {
+export function MyWorlds({ phone, onOpen: openWorld, onNew, onOpenText, onNewCiv: newCiv, opening }: MyWorldsProps) {
   const v = useSavesVersion();
   const list = useMemo(() => listWorlds(), [v]);
   const groups = useMemo(() => mapGroups(list), [list]);
@@ -102,6 +142,17 @@ export function MyWorlds({ phone, onOpen, onNew, onOpenText, onNewCiv }: MyWorld
   const [menu, setMenu] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
   const keep = persistent();
+  /** 最近点的是哪一个、点在哪(等地图程序时在那里显示下了多少) */
+  const [clicked, setClicked] = useState<{ id: string; at: WaitAt } | null>(null);
+  const onOpen = (id: string) => {
+    setClicked({ id, at: 'card' });
+    openWorld(id);
+  };
+  const onNewCiv = (id: string, at: WaitAt = 'card') => {
+    setClicked({ id, at });
+    newCiv(id);
+  };
+  const waitOf: WaitOf = (id, at) => (opening && opening.id === id && clicked?.id === id && clicked.at === at ? { pct: opening.pct } : undefined);
 
   const pickFile = () => fileRef.current?.click();
   const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -256,7 +307,7 @@ export function MyWorlds({ phone, onOpen, onNew, onOpenText, onNewCiv }: MyWorld
           </button>
         </div>
       )}
-      {!empty && tab === 'maps' && <MapGrid groups={groups} phone={phone} pick={pick} onPick={(k) => setView({ pick: k })} onOpen={onOpen} onNewCiv={onNewCiv} />}
+      {!empty && tab === 'maps' && <MapGrid groups={groups} phone={phone} pick={pick} onPick={(k) => setView({ pick: k })} onOpen={onOpen} onNewCiv={onNewCiv} waitOf={waitOf} />}
       {!empty && tab === 'civs' && !civs.length && <p className="mw-none">还没有文明。到「地图」里选一张地图打造文明，或者新建世界。</p>}
       {!empty && tab === 'civs' && civs.length > 0 && (
         <div className="mw-grid" role="list">
@@ -273,6 +324,7 @@ export function MyWorlds({ phone, onOpen, onNew, onOpenText, onNewCiv }: MyWorld
               onNewCiv={() => onNewCiv(w.id)}
               sync={syncOf(w.id)}
               loggedIn={!!session}
+              wait={waitOf(w.id, 'card')}
             />
           ))}
         </div>
@@ -331,6 +383,7 @@ function WorldCard({
   onNewCiv,
   sync,
   loggedIn,
+  wait,
 }: {
   w: StoredWorld;
   phone: boolean;
@@ -342,6 +395,8 @@ function WorldCard({
   onNewCiv: () => void;
   sync: 'sync' | 'off' | null;
   loggedIn: boolean;
+  /** 点了打开、地图程序还没下完 */
+  wait?: Wait;
 }) {
   const root = useRef<HTMLDivElement>(null);
   /** 长按:按下的计时器;长按开了菜单以后,松手那一下的点击不算打开 */
@@ -418,14 +473,15 @@ function WorldCard({
         onPointerCancel={cancelPress}
         title={w.draft ? '接着建这个世界' : '打开这个世界'}
       >
-        <span className="mw-thumb" style={w.thumb ? { backgroundImage: `url(${w.thumb})` } : undefined}>
+        <span className={`mw-thumb${wait ? ' wait' : ''}`} style={w.thumb ? { backgroundImage: `url(${w.thumb})` } : undefined}>
           {w.draft && <span className="mw-tag">没建完</span>}
           {!w.draft && w.save.edits.play && <span className="mw-tag">逐年推演</span>}
+          {wait && <OpenRing pct={wait.pct} />}
         </span>
         {phone ? (
           <span className="mw-meta">
             {!renaming && <b className="mw-name">{name}</b>}
-            <span className="mw-line">{worldLine(w)}</span>
+            <span className="mw-line">{wait ? openLine(wait.pct, true) : worldLine(w)}</span>
             {sync ? <SyncTime st={sync} /> : <span className="mw-time">{when(w.at)}</span>}
           </span>
         ) : (
@@ -434,7 +490,7 @@ function WorldCard({
               {!renaming && <b className="mw-name">{name}</b>}
               {sync ? <SyncTime st={sync} /> : <span className="mw-time">{when(w.at)}</span>}
             </span>
-            <span className="mw-line">{worldLine(w)}</span>
+            <span className="mw-line">{wait ? openLine(wait.pct, false) : worldLine(w)}</span>
           </span>
         )}
       </button>
@@ -553,13 +609,15 @@ function MapGrid({
   onPick,
   onOpen,
   onNewCiv,
+  waitOf,
 }: {
   groups: MapGroup[];
   phone: boolean;
   pick: string | null;
   onPick: (key: string | null) => void;
   onOpen: (id: string) => void;
-  onNewCiv: (id: string) => void;
+  onNewCiv: (id: string, at?: WaitAt) => void;
+  waitOf: WaitOf;
 }) {
   const grid = useRef<HTMLDivElement>(null);
   const [cols, setCols] = useState(phone ? 2 : 4);
@@ -592,7 +650,7 @@ function MapGrid({
               </span>
             </button>
           </div>
-          {i === at && <MapPanel g={groups[sel]} col={sel % cols} cols={cols} phone={phone} onOpen={onOpen} onNewCiv={onNewCiv} loggedIn={!!session} />}
+          {i === at && <MapPanel g={groups[sel]} col={sel % cols} cols={cols} phone={phone} onOpen={onOpen} onNewCiv={onNewCiv} waitOf={waitOf} loggedIn={!!session} />}
         </Fragment>
       ))}
     </div>
@@ -600,7 +658,25 @@ function MapGrid({
 }
 
 /** 选中的地图下面展开的那块 */
-function MapPanel({ g, col, cols, phone, onOpen, onNewCiv, loggedIn }: { g: MapGroup; col: number; cols: number; phone: boolean; onOpen: (id: string) => void; onNewCiv: (id: string) => void; loggedIn: boolean }) {
+function MapPanel({
+  g,
+  col,
+  cols,
+  phone,
+  onOpen,
+  onNewCiv,
+  waitOf,
+  loggedIn,
+}: {
+  g: MapGroup;
+  col: number;
+  cols: number;
+  phone: boolean;
+  onOpen: (id: string) => void;
+  onNewCiv: (id: string, at?: WaitAt) => void;
+  waitOf: WaitOf;
+  loggedIn: boolean;
+}) {
   const n = g.civs.length;
   // 在哪个世界的地图上打造:地图那一份 / 最早那个世界 / 最近的一个建好的文明(都是同一张地图;没建完的不算)
   const from = g.head.id;
@@ -616,9 +692,15 @@ function MapPanel({ g, col, cols, phone, onOpen, onNewCiv, loggedIn }: { g: MapG
         </div>
         <p className="mw-panel-txt">打造文明会在这张地图上从第 0 年推演：民族、国家、城都从头长出来。地图本身不再变。</p>
         <div className="mw-panel-acts">
-          <button className={`mw-btn blue${phone ? ' wide' : ''}`} data-act="map-new-civ" onClick={() => onNewCiv(from)}>
-            <Icon name="plus" size={16} />
-            打造文明
+          <button className={`mw-btn blue${phone ? ' wide' : ''}${waitOf(from, 'btn') ? ' wait' : ''}`} data-act="map-new-civ" onClick={() => onNewCiv(from, 'btn')}>
+            {waitOf(from, 'btn') ? (
+              <WaitLabel />
+            ) : (
+              <>
+                <Icon name="plus" size={16} />
+                打造文明
+              </>
+            )}
           </button>
           <button className={`mw-btn${phone ? ' wide' : ''}`} data-act="map-delete" onClick={() => removeWorld(from, mapName(g.head), loggedIn)}>
             删除这张地图
@@ -628,9 +710,15 @@ function MapPanel({ g, col, cols, phone, onOpen, onNewCiv, loggedIn }: { g: MapG
     );
   }
   const add = src && (
-    <button className={`mw-btn blue${phone ? ' wide' : ''}`} data-act="map-new-civ" onClick={() => onNewCiv(src)}>
-      <Icon name="plus" size={16} />
-      打造新文明
+    <button className={`mw-btn blue${phone ? ' wide' : ''}${waitOf(src, 'btn') ? ' wait' : ''}`} data-act="map-new-civ" onClick={() => onNewCiv(src, 'btn')}>
+      {waitOf(src, 'btn') ? (
+        <WaitLabel />
+      ) : (
+        <>
+          <Icon name="plus" size={16} />
+          打造新文明
+        </>
+      )}
     </button>
   );
   return (
@@ -643,35 +731,44 @@ function MapPanel({ g, col, cols, phone, onOpen, onNewCiv, loggedIn }: { g: MapG
       </div>
       {phone ? (
         <div className="mw-panel-list" role="list">
-          {g.civs.map((w) => (
-            <button key={w.id} className="mw-civ-row" role="listitem" data-id={w.id} data-act="open-world" onClick={() => onOpen(w.id)}>
-              <span className="mw-civ-th" style={w.thumb ? { backgroundImage: `url(${w.thumb})` } : undefined} />
-              <span className="mw-civ-meta">
-                <b>{civName(w)}</b>
-                <span>{civLine(w)}</span>
-              </span>
-              <Icon name="chevron" size={14} className="mw-civ-chev" />
-            </button>
-          ))}
+          {g.civs.map((w) => {
+            const wait = waitOf(w.id, 'card');
+            return (
+              <button key={w.id} className="mw-civ-row" role="listitem" data-id={w.id} data-act="open-world" onClick={() => onOpen(w.id)}>
+                <span className={`mw-civ-th${wait ? ' wait' : ''}`} style={w.thumb ? { backgroundImage: `url(${w.thumb})` } : undefined}>
+                  {wait && <OpenRing pct={wait.pct} />}
+                </span>
+                <span className="mw-civ-meta">
+                  <b>{civName(w)}</b>
+                  <span>{wait ? openLine(wait.pct, true) : civLine(w)}</span>
+                </span>
+                <Icon name="chevron" size={14} className="mw-civ-chev" />
+              </button>
+            );
+          })}
         </div>
       ) : (
         <div className="mw-panel-grid" role="list">
-          {g.civs.map((w) => (
-            <div key={w.id} className={`mw-card${w.draft ? ' draft' : ''}`} role="listitem" data-id={w.id}>
-              <button className="mw-open" data-act="open-world" onClick={() => onOpen(w.id)} title={w.draft ? '接着建这个文明' : '打开这个文明'}>
-                <span className="mw-thumb" style={w.thumb ? { backgroundImage: `url(${w.thumb})` } : undefined}>
-                  {w.draft && <span className="mw-tag">没建完</span>}
-                </span>
-                <span className="mw-meta">
-                  <span className="mw-row1">
-                    <b className="mw-name">{civName(w)}</b>
-                    <span className="mw-time">{when(w.at)}</span>
+          {g.civs.map((w) => {
+            const wait = waitOf(w.id, 'card');
+            return (
+              <div key={w.id} className={`mw-card${w.draft ? ' draft' : ''}`} role="listitem" data-id={w.id}>
+                <button className="mw-open" data-act="open-world" onClick={() => onOpen(w.id)} title={w.draft ? '接着建这个文明' : '打开这个文明'}>
+                  <span className={`mw-thumb${wait ? ' wait' : ''}`} style={w.thumb ? { backgroundImage: `url(${w.thumb})` } : undefined}>
+                    {w.draft && <span className="mw-tag">没建完</span>}
+                    {wait && <OpenRing pct={wait.pct} />}
                   </span>
-                  <span className="mw-line">{civLine(w)}</span>
-                </span>
-              </button>
-            </div>
-          ))}
+                  <span className="mw-meta">
+                    <span className="mw-row1">
+                      <b className="mw-name">{civName(w)}</b>
+                      <span className="mw-time">{when(w.at)}</span>
+                    </span>
+                    <span className="mw-line">{wait ? openLine(wait.pct, false) : civLine(w)}</span>
+                  </span>
+                </button>
+              </div>
+            );
+          })}
         </div>
       )}
       {phone && add}

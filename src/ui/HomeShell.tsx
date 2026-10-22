@@ -5,17 +5,19 @@
  *
  * 要离开这一页的事(打开一个世界、新建弹窗里点「开始」、打开存档文件、在一张地图上打造新文明)交给 App:
  * onLeave 把这一件交出去,Boot.tsx 等主程序下好、把 App 挂上,App 接着做(见 App 的 fromHome)。
+ * 主程序还没下完时在点的地方说下了多少:「开始」变成转圈 +「准备中」、旁边一句;世界卡片上一个进度圈;
+ * 打开存档文件、拖文件进来没有按钮可转圈,顶上一条提示(带「取消」)。下好了这一页就换成 App。
  * 按浏览器的后退 / 前进、地址栏里贴了分享链接(只有 # 不同,页面不刷新)也交给 App:它照这时的网址打开,和刷新一样
  * (这一页先记成我的世界那一步,贴的分享链接记成新的一步,和 App 记的一样,打开以后按后退回得到首页)。
  *
  * 和 App 一样在这里也做的:云同步、AI 接入(开了就一直开着,App 挂上以后接着用)、页面缩放的拦截、⌘S 不弹浏览器的"存储网页"。
  */
-import { useEffect, useLayoutEffect, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useState } from 'react';
 import { MyWorlds } from './MyWorlds';
 import { NewWorldDialog } from './NewWorldDialog';
 import { AccountHost, setGoHome } from './AccountDialogs';
 import { AiSettingsHost } from './AiSettings';
-import { ToastBar } from './Toast';
+import { ToastBar, clearToast, showToast } from './Toast';
 import { TipLayer } from './Tips';
 import { useNarrow } from './device';
 import { notify } from './saveStore';
@@ -30,6 +32,10 @@ import { setupAi } from '../ai/setup';
 import { isShareHash } from '../gen/savefile';
 import { randomSeedValue, type HomeStart } from './homeStart';
 import { isNavState, navAdopt, navMark } from './nav';
+import { useAppPercent } from './loadScreen';
+
+/** 打开存档文件、等主程序下完时顶上那条提示 */
+const WAIT_TOAST = 'home-wait';
 
 /**
  * null = 不带要做的事(按后退 / 前进、贴了分享链接):App 照这时的网址打开;
@@ -61,6 +67,39 @@ export function HomeShell({ onLeave }: { onLeave: LeaveHome }) {
   }, [theme]);
   const [newDlg, setNewDlg] = useState(false);
   const [dropping, setDropping] = useState(false);
+  /** 已经点了要离开这一页的那一件、主程序还没下好(下好了这一页就换成 App) */
+  const [waiting, setWaiting] = useState<HomeStart | null>(null);
+  /** 主程序下了百分之几(null = 不知道;没在等的时候不跟着变) */
+  const pct = useAppPercent(!!waiting);
+  const leave = useCallback(
+    (s: HomeStart) => {
+      setWaiting(s);
+      onLeave(s);
+    },
+    [onLeave],
+  );
+  /** 不走了(新建弹窗里点了「取消」、提示条上点了「取消」) */
+  const stay = useCallback(() => {
+    setWaiting(null);
+    onLeave(undefined);
+  }, [onLeave]);
+  // 打开存档文件、拖文件进来:顶上一条提示,说下了多少、下好就打开,能取消
+  const fileWait = waiting?.kind === 'text' ? waiting : null;
+  useEffect(() => {
+    if (!fileWait) return;
+    showToast({
+      id: WAIT_TOAST,
+      kind: 'progress',
+      text: '正在载入地图程序',
+      more: [pct === null ? '网络有点慢' : `网络有点慢，已下载 ${pct}%`, `下好就自动打开${fileWait.fileName ? ` ${fileWait.fileName}` : '存档'}`],
+      ...(pct === null ? {} : { progress: pct / 100 }),
+      action: { label: '取消', act: 'home-wait-cancel', onClick: stay },
+    });
+  }, [fileWait, pct, stay]);
+  useEffect(() => {
+    if (!fileWait) return;
+    return () => clearToast(WAIT_TOAST);
+  }, [fileWait]);
 
   useEffect(() => {
     // AI 接入、云同步:开了就一直开着,App 挂上以后接着用这一份(App 里再开一次什么都不做),换过去时同步不断
@@ -125,7 +164,7 @@ export function HomeShell({ onLeave }: { onLeave: LeaveHome }) {
     const f = e.dataTransfer.files[0];
     if (!f) return;
     f.text().then(
-      (text) => onLeave({ kind: 'text', text, fileName: f.name }),
+      (text) => leave({ kind: 'text', text, fileName: f.name }),
       () => notify({ kind: 'error', text: `打不开 ${f.name}`, more: ['读不了这个文件'] }),
     );
   };
@@ -143,10 +182,11 @@ export function HomeShell({ onLeave }: { onLeave: LeaveHome }) {
     >
       <MyWorlds
         phone={narrow}
-        onOpen={(id) => onLeave({ kind: 'open', id })}
+        onOpen={(id) => leave({ kind: 'open', id })}
         onNew={() => setNewDlg(true)}
-        onOpenText={(text, fileName) => onLeave({ kind: 'text', text, fileName })}
-        onNewCiv={(id) => onLeave({ kind: 'newCiv', id })}
+        onOpenText={(text, fileName) => leave({ kind: 'text', text, fileName })}
+        onNewCiv={(id) => leave({ kind: 'newCiv', id })}
+        opening={waiting && (waiting.kind === 'open' || waiting.kind === 'newCiv') ? { id: waiting.id, pct } : null}
       />
       <ToastBar />
       <AiSettingsHost />
@@ -158,9 +198,10 @@ export function HomeShell({ onLeave }: { onLeave: LeaveHome }) {
           randomSeed={randomSeedValue}
           onCancel={() => {
             setNewDlg(false);
-            onLeave(undefined);
+            stay();
           }}
-          onStart={(start) => onLeave({ kind: 'dialog', start })}
+          onStart={(start) => leave({ kind: 'dialog', start })}
+          wait={waiting?.kind === 'dialog' ? { pct } : undefined}
         />
       )}
       {dropping && (

@@ -5562,6 +5562,45 @@ for (const style of ['realistic', 'fantasy']) {
         built.push(`${f} ${r.status()}`);
         if (r.status() !== 200 || !body.includes(want)) errs.push(`链接:构建后的 ${f} 打不开(${r.status()})`);
       }
+      // 加载画面(scripts/lib/loadScreen.ts,只在构建出的页面里有):页面的代码、样式表由它下好再交给浏览器;
+      // 首页 / 打开的世界挂上以后它淡出拿掉,样式表已经放上
+      const lctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+      try {
+        const lp = await lctx.newPage();
+        const lerrs: string[] = [];
+        lp.on('pageerror', (e) => lerrs.push(e.message));
+        const shown = async (ready: () => Promise<unknown>) => {
+          const ok = await ready().then(
+            () => true,
+            () => false,
+          );
+          const gone = await lp
+            .locator('#ld')
+            .waitFor({ state: 'detached', timeout: 5000 })
+            .then(
+              () => true,
+              () => false,
+            );
+          const css = await lp.evaluate(() => [...document.styleSheets].some((s) => /\/assets\/index-[\w-]+\.css$/.test(s.href ?? '')));
+          return { ok, gone, css };
+        };
+        await lp.goto(`${base}/`);
+        const home = await shown(() => lp.locator('.mw').waitFor({ timeout: 30000 }));
+        await lp.goto(`${base}/?seed=7`);
+        const world = await shown(() => lp.waitForFunction(() => (window as any).__wf?.ready, null, { timeout: 60000 }));
+        built.push(`加载画面:首页 ${JSON.stringify(home)}、打开世界 ${JSON.stringify(world)}`);
+        for (const [what, r] of [
+          ['首页', home],
+          ['打开世界', world],
+        ] as const) {
+          if (!r.ok) errs.push(`加载画面:构建出的页面${what}没出来`);
+          if (!r.gone) errs.push(`加载画面:${what}出来以后加载画面没拿掉`);
+          if (!r.css) errs.push(`加载画面:${what}出来时样式表没放上`);
+        }
+        if (lerrs.length) errs.push(`加载画面:构建出的页面报错(${lerrs.join(';')})`);
+      } finally {
+        await lctx.close();
+      }
     } finally {
       await srv.close();
     }
