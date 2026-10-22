@@ -74,7 +74,31 @@ describe('预设', () => {
     store[KEY] = JSON.stringify({ list: [{ id: 'x', name: '改坏的', params: { cells: 1e9, hardness: 0, plates: -5 } }] });
     expect((await fresh()).getPresets().list[0].params).toMatchObject({ cells: 200000, hardness: 0.3, plates: 2 });
     store[KEY] = '{坏了';
-    expect((await fresh()).getPresets()).toEqual({ list: [], last: null, chosen: 'default' });
+    expect((await fresh()).getPresets()).toEqual({ list: [], last: null, chosen: 'default', shared: null });
+  });
+
+  it('朋友分享来的预设:选上它、名字和参数照它、不存进浏览器;刷新以后还是原来选的那个', async () => {
+    const m = await fresh();
+    const mine = m.savePreset('寒冷群岛', { ...DEFAULT_PARAMS, seed: 5730, temperature: -8 }, true);
+    const shared = { name: '两块完整大陆', params: { ...m.strip(DEFAULT_PARAMS), landFraction: 0.4, continents: 2 } };
+    m.pickSharedPreset(shared);
+    const s = m.getPresets();
+    expect(s.chosen).toBe('shared');
+    expect(m.choiceName(s, 'shared')).toBe('两块完整大陆');
+    expect(m.choiceParams(s, 'shared')).toEqual({ params: shared.params, seed: undefined, endYear: undefined });
+    expect(m.sameAsChoice(s, 'shared', { ...DEFAULT_PARAMS, seed: 99, landFraction: 0.4, continents: 2 }, undefined)).toBe(true);
+    expect([...m.changedKeys(s, 'shared', { ...DEFAULT_PARAMS, seed: 99, landFraction: 0.5, continents: 2 })]).toEqual(['landFraction']);
+    // 浏览器里记的:没有分享的那一套,"上次选的"还是自己的那个
+    expect(JSON.parse(store[KEY]).shared).toBeUndefined();
+    expect(JSON.parse(store[KEY]).chosen).toBe(mine);
+    expect(JSON.parse(store[KEY]).list).toHaveLength(1);
+    expect((await fresh()).getPresets()).toMatchObject({ chosen: mine, shared: null });
+    // 带了种子的:种子跟着;存进自己的预设以后选的是存下的那个
+    m.pickSharedPreset({ ...shared, seed: 925418, endYear: 6000 });
+    expect(m.choiceParams(m.getPresets(), 'shared')).toMatchObject({ seed: 925418, endYear: 6000 });
+    const kept = m.savePreset('两块完整大陆', { ...DEFAULT_PARAMS, ...shared.params, seed: 925418 }, true, 6000);
+    expect(m.getPresets().chosen).toBe(kept);
+    expect(m.getPresets().list.find((p) => p.id === kept)).toMatchObject({ seed: 925418, endYear: 6000 });
   });
 });
 

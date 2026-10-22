@@ -103,6 +103,8 @@ import {
   pausePlayback,
   playFrom,
   prepareCivReplay,
+  sameSelection,
+  startAutoplay,
   resetCivTime,
   setChronicle,
   setCivTime,
@@ -169,20 +171,29 @@ import { openSaveMenu } from './SaveMenu';
 import { replayStart } from './timelineLayout';
 import {
   checkWarning,
+  cleanCamera,
+  cleanMoment,
   cleanSignature,
   cleanTitle,
+  decodeMomentHash,
   decodeShare,
   editCount,
   GEN_KEY,
   isContourKind,
+  isMomentHash,
   isShareHash,
+  momentYearMax,
   PARAM_RANGE,
   parseSave,
+  resolveMoment,
   versionNote,
   worldCheck,
   worldKey,
   type ParseResult,
+  type ResolvedMoment,
+  type SaveCamera,
   type SaveFile,
+  type SaveMoment,
   type SaveOrigin,
   type SaveView,
 } from '../gen/savefile';
@@ -231,12 +242,14 @@ import {
 } from './saveStore';
 import { getStage, setStage, useStage, type DraftBase, type Stage } from './stageStore';
 import { setNewCivHandler, setOpenWorldHandler } from './newCivAction';
-import { polityAlive } from '../gen/civ/growth';
+import { polityAlive, polityName } from '../gen/civ/growth';
 import { CIV_SHOW_OFF, drawCivOverlay } from '../render/civ/overlay';
 import { getPolityPick, interventionActorThen, interventionDoneText, setPickHover, setPolityPick, usePolityPick } from './Interventions';
 import { Inspector } from './Inspector';
 import { TargetLayer } from './TargetPlates';
-import { FLY_MS, animProgress, curvedFly, easeOutCubic, flatFly, freeArea, markFocus, personKey, pointsFocus, resolvePersonKey, selectionFocus, selectionKey, sideRoom, phoneFree, type FlyGoal, type Focus } from './flyTo';
+import { FLY_MS, animProgress, curvedFly, easeOutCubic, flatFly, freeArea, markFocus, personKey, pointsFocus, resolvePersonKey, selectionFocus, selectionKey, shownYearOf, sideRoom, phoneFree, type FlyGoal, type Focus } from './flyTo';
+import { setMomentSource, type MomentNow } from './shareMoment';
+import { decodePresetHash, isPresetHash, type PresetLinkResult } from './presetLink';
 import { MarkLayer, markHitAt, markPinAt, markPinTip, type MarkApi } from './MarkLayer';
 import { cancelDraft, getMarkUi, newMarkDraft, patchDraft, resetMarkUi, setMarkDragging, stopPlacing, toggleDraftRegion, useMarkUi } from './markStore';
 import { markHover, markSpot, ownerName } from './markInfo';
@@ -339,7 +352,7 @@ import { LongStage } from './LongStage';
 import { noteGenSpeed } from './genSpeed';
 import { cancelTimeout, holdMark } from './holdMark';
 import { getNewView } from './newViewStore';
-import { rememberLast } from './presetStore';
+import { pickSharedPreset, rememberLast, type SharedPreset } from './presetStore';
 import { diagBeat, recordWorkerError, setDiagContext } from '../diag/watch';
 
 type Replay = { w: number; h: number; frames: Uint8ClampedArray[]; mya: number[]; idx: number };
@@ -370,8 +383,11 @@ function readUrl() {
   }
   // 分享链接:# 后面是整份存档(gen/savefile.ts 的 encodeShare)
   const share = isShareHash(location.hash) ? location.hash : null;
-  // 分享短链接(网站/s/<码> 转过来的 ?s=<码>):存档在服务器上,打开时去取
+  // 分享短链接(网站/s/<码> 转过来的 ?s=<码>):存档在服务器上,打开时去取;# 后面可以带着"打开时看哪"(#at=…,不经服务器)
   const shortShare = q.get('s');
+  const moment = shortShare !== null && isMomentHash(location.hash) ? decodeMomentHash(location.hash) : null;
+  // 朋友的预设链接(#preset=…,ui/presetLink.ts):打开就是填好参数的新建弹窗
+  const preset = isPresetHash(location.hash) ? location.hash : null;
   // 投影、中央经线(改了就写进网址,刷新、复制网址都还在)
   // 地球仪以前写的是 view=globe,照样认
   const pq = q.get('proj') ?? (q.get('view') === 'globe' ? 'globe' : null);
@@ -391,7 +407,7 @@ function readUrl() {
   // 推演年数(years=):新建中、还没存下的世界(new=)刷新、后退回来还记得弹窗里开的年数
   const yq = q.get('years');
   const years = yq === null ? undefined : cleanEndYear(Number(yq));
-  return { params, style, layer, surface, sat, mapView, share, shortShare, proj, lon, grat, iso, gen, years };
+  return { params, style, layer, surface, sat, mapView, share, shortShare, moment, preset, proj, lon, grat, iso, gen, years };
 }
 
 /**
@@ -435,6 +451,8 @@ interface Target {
   warnings?: string[];
   /** 从分享短链接打开的:它的码(还没存进我的世界时留在网址里,刷新再取一次,看到分享的人最新的改动) */
   shareCode?: string;
+  /** 分享链接带着的"打开时看哪"(停在哪一年、选中什么、镜头;gen/savefile.ts 的 SaveMoment) */
+  moment?: SaveMoment | null;
   /** 底稿出处(存档里带着的;打开别人的分享短链接时是那个链接,改了另存时写进去) */
   origin?: SaveOrigin | null;
   /** 新建时选的照手绘图生成(还没照图长出星球时靠它认;存下以后看草图里有没有那张图) */
@@ -534,6 +552,11 @@ function visitTarget(params: WorldParams, gen: number | null = null): Target {
   return gen === null ? t : { ...t, from: 'url', gen };
 }
 
+/** 朋友的预设链接打开的新建弹窗:第 2 步(随机生成),参数照链接填好;没带种子的随机给一个 */
+function presetDialog(p: SharedPreset): { init: NewWorldInit; shared: SharedPreset } {
+  return { init: { mode: 'random', params: { ...p.params, seed: p.seed ?? randomSeedValue() }, step: 2, endYear: p.endYear }, shared: p };
+}
+
 /**
  * 打开网页时去哪(只算一次):
  *   分享短链接(s=)    → 先是一页空白,去服务器取存档;取到了打开那个世界,停了显示"这个分享已经停止了"
@@ -544,7 +567,8 @@ function visitTarget(params: WorldParams, gen: number | null = null): Target {
  *   new=1             → 新建(网址里的种子、参数)
  *   new=image         → 我的世界 + 新建弹窗停在照手绘图选图那一步(照图新建还没长出星球时刷新)
  *   带种子的网址       → 直接看这个世界(改版前存过的就回到那个存档)
- *   都没有             → 我的世界(第一次来是空的那一页:一颗地球、一句话、「新建世界」;点了才生成星球)
+ *   都没有             → 我的世界(第一次来是空的那一页:一颗地球、一句话、「新建世界」;点了才生成星球);
+ *                        # 后面是朋友的预设链接(#preset=)时,上面开着新建弹窗第 2 步、参数照链接填好(presetDialog)
  */
 function firstRoute(init: ReturnType<typeof readUrl>): { stage: Stage; target: Target | null; gone?: string; dialog?: NewWorldInit } {
   const q = new URLSearchParams(location.search);
@@ -777,7 +801,15 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
   /** 新建中的名字(卡片上的输入框;打开没建完的世界时是它存的名字) */
   const [draftTitle, setDraftTitle] = useState(route.target?.kind === 'draft' ? (route.target.title ?? '') : '');
   /** 「新建世界」弹窗:开着没有、从哪一步开始(刷新了照手绘图还没长出星球的新建:停在它选图那一步) */
-  const [newDlg, setNewDlg] = useState<{ init?: NewWorldInit } | null>(route.dialog ? { init: route.dialog } : null);
+  /** 打开网页时的朋友的预设链接(#preset=…):解开的结果(没有 = null) */
+  const presetLink = useState(() => {
+    const r = init.preset ? decodePresetHash(init.preset) : null;
+    if (r?.ok) pickSharedPreset(r.preset);
+    return r;
+  })[0];
+  const [newDlg, setNewDlg] = useState<{ init?: NewWorldInit; shared?: SharedPreset; stamp?: number } | null>(() =>
+    route.dialog ? { init: route.dialog } : presetLink?.ok && route.stage === 'home' ? presetDialog(presetLink.preset) : null,
+  );
   /** 生成出来的世界和主图(地形大事以前的;地图上画的是 data:时间轴那一段的) */
   const [baseData, setData] = useState<{ world: World; raster: Raster } | null>(null);
   /** 地形大事以后各段的世界(后台线程交来的;没有大事 = null)、各段主图的补丁(后台慢慢铺好交来;eras.ts) */
@@ -922,8 +954,11 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
   const trashView = useTrashView();
   /** 分享短链接:正在取 / 停了 / 打不开(取到了 = null) */
   const [landing, setLanding] = useState<'loading' | 'gone' | { error: string } | null>(route.stage === 'home' && init.shortShare !== null && !init.share ? 'loading' : null);
-  /** 打开别人分享的世界:地图下那条说明(这个世界的编号;点了"知道了"、改了存进我的世界以后不再显示) */
-  const [sharedFor, setSharedFor] = useState<{ id: string; short: boolean; by: string; own: boolean } | null>(null);
+  /**
+   * 打开别人分享的世界:地图下那条说明(这个世界的编号;点了"知道了"、改了存进我的世界以后不再显示)。
+   * at = 链接带着"这一刻"、打开停在了那里:说明开头说清停在哪一年、选中的哪国(点了「从头放」就不再说)
+   */
+  const [sharedFor, setSharedFor] = useState<{ id: string; short: boolean; by: string; own: boolean; at?: { year: number; sel: ResolvedMoment['selected'] | null } | null } | null>(null);
   const touchRef = useRef(() => {});
   touchRef.current = () => {
     if (getStage().stage !== 'world') return;
@@ -1936,6 +1971,9 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
         if (sameScreen(getNav(), at)) openShareRef.current(r, undefined, own);
       });
     }
+    // 朋友的预设链接:先把 # 那段从地址栏去掉(刷新不会再来一遍)。短链接后面的"打开时看哪"等取到存档再去掉(没取到、刷新重来时还在)
+    if (init.preset) navUrl(location.pathname + location.search);
+    if (presetLink) presetOpened(presetLink);
     // 邀请链接:弹出登录窗(已经登录了就算了)
     if (invited && serverBase() && !getSession()) openLogin();
     if (route.target) generate(route.target);
@@ -1946,6 +1984,19 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
     // 页面开着时又粘贴了一个只有 # 不同的分享链接(浏览器不刷新页面)
     const onHash = () => {
       const h = location.hash;
+      // 页面开着时又粘贴了朋友的预设链接:回到我的世界,打开填好参数的新建弹窗
+      if (isPresetHash(h)) {
+        navAdopt(navInfo(getStage().stage, targetRef.current));
+        navUrl(location.pathname + location.search);
+        const r = decodePresetHash(h);
+        if (r.ok) {
+          if (getStage().stage !== 'home') showHomeRef.current();
+          // 新开一个弹窗(开着的那个里填的东西不留)
+          setNewDlg({ ...presetDialog(r.preset), stamp: performance.now() });
+        }
+        presetOpened(r);
+        return;
+      }
       if (!isShareHash(h)) {
         // 地址栏里自己加了别的 #:浏览器记了一步、这个网站没记过,也记成一步(不然收起卡片退回去时会落到它上面)
         if (!isNavState(history.state)) navAdopt(navInfo(getStage().stage, targetRef.current));
@@ -2286,6 +2337,14 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
     }
     attachWorld({ id: t.id, params: world.params, check, kind: t.kind, title: t.title, saved: t.saved ?? edits, view: t.view ?? undefined, pristine: t.pristine, base: t.base, origin: t.origin, original, frozen });
     if (t.kind !== 'draft') setWorldStats(aliveAtEnd(rc));
+    // 分享链接带着"这一刻":画面出来、带着的干预和逐年推演的进度重推完以后,停到那一年、选中、镜头飞过去(见 pendingMoment);
+    // 停在某一年就不再自动播放
+    if (t.from === 'link' && t.moment) {
+      if (t.moment.year !== undefined) takeAutoplay();
+      pendingMoment.current = { id: t.id, moment: t.moment };
+      // 打开的就是正在看的这张图(地址栏里又贴了一个分享链接):画面不会再变一次,也要停过去
+      setMomentTick((n) => n + 1);
+    }
     const save = t.save;
     // 刚另存的新版:说一声另存好了(原来那一份照原样留着)
     const copy = savedCopy.current?.id === t.id ? savedCopy.current : null;
@@ -2494,7 +2553,7 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
    * 短链接(short):改了另存时写明底稿出处(署名、这时的世界名、这个链接);长链接里没有分享人,不写。
    * own:最新版和旧网站之间交过来的自己的世界:最新版里不出"别人分享给你的世界"那条说明(旧网站上那条换成旧网站的说法,照常出)
    */
-  const openShare = (r: ParseResult, short?: { code: string; by?: string }, own = false) => {
+  const openShare = (r: ParseResult, short?: { code: string; by?: string; moment?: SaveMoment | null }, own = false) => {
     if (!r.ok) {
       const msg = briefError(r.error);
       // 世界还在生成:等生成完再说(生成时提示条上是进度)
@@ -2508,7 +2567,9 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
     setSharedFor(own && OLD_SITE === null ? null : { id, short: !!short, by, own });
     const origin: SaveOrigin | null = short ? { ...(by ? { by } : {}), title: sv.title ?? '', url: shortLink(short.code) } : null;
     // 打开网页时、地址栏里贴的分享链接:浏览器已经记了这一步,换成这个世界
-    openTarget({ id, kind: 'visit', params: sv.params, edits: sv.edits, saved: sv.edits, title: sv.title, view: sv.view ?? null, from: 'link', save: sv, warnings: r.warnings, shareCode: short?.code, origin }, 'replace');
+    // 打开时看哪:长链接在存档里(读档时清理过);短链接在链接的 # 后面,按取到的存档再清理一次(年份超出这个世界的历史就不要)
+    const moment = sv.moment ?? (short?.moment ? cleanMoment(short.moment, momentYearMax(sv.edits)) : null);
+    openTarget({ id, kind: 'visit', params: sv.params, edits: sv.edits, saved: sv.edits, title: sv.title, view: sv.view ?? null, from: 'link', save: sv, warnings: r.warnings, shareCode: short?.code, origin, moment }, 'replace');
   };
   /** 分享短链接:去服务器取存档(不用登录);停了、打不开就显示那一页 */
   const openShortShare = (code: string, still?: () => boolean) => {
@@ -2522,7 +2583,11 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
         const p = parseSave(JSON.stringify(r.save));
         if (!p.ok) return setLanding({ error: briefError(p.error) });
         setLanding(null);
-        openShareRef.current(p, { code, by: r.by });
+        // 短链接后面带的"打开时看哪"只在打开网页时那一次用(按后退、前进再取的照平常打开);用了就从地址栏去掉
+        const moment = shortMoment.current;
+        shortMoment.current = null;
+        if (moment && isMomentHash(location.hash)) navUrl(location.pathname + location.search);
+        openShareRef.current(p, { code, by: r.by, moment });
       })
       .catch((e) => {
         if (still && !still()) return;
@@ -2533,6 +2598,14 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
   };
   const openShareRef = useRef(openShare);
   openShareRef.current = openShare;
+  /** 打开网页时短链接后面带的"打开时看哪"(取到存档时用掉) */
+  const shortMoment = useRef<SaveMoment | null>(init.moment);
+  /** 朋友的预设链接解开以后:选上分享来的那一套(不存);打不开的说一声(照常停在我的世界),有个别参数不对的也说一声 */
+  const presetOpened = (r: PresetLinkResult) => {
+    if (!r.ok) return notify({ kind: 'error', text: '打不开这个预设链接', more: [r.error] });
+    pickSharedPreset(r.preset);
+    if (r.warnings.length) notify({ kind: 'warn', text: `已打开朋友分享的预设「${r.preset.name}」`, more: r.warnings });
+  };
   /** 新建世界(我的世界右上、第一次来、分享停了的那一页):先弹窗选怎么生成、定基础参数 */
   const startDraft = () => setNewDlg({});
   /** 弹窗里点了「取消」:什么都不留下(刷新回来的照图新建,网址里的 new=image 也去掉,再刷新不再弹) */
@@ -3896,11 +3969,121 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
   const flyRef = useRef(flyNow);
   flyRef.current = flyNow;
   useEffect(() => () => stopFly(), []);
+
+  // ---- 分享链接的"这一刻"(shareMoment.tsx、gen/savefile.ts 的 SaveMoment):复制时取下现在的,打开时照它停好 ----
+  /**
+   * 现在的镜头:看得见的那一块(宽屏让开侧栏;手机让开底部卡片和胶囊,见 flyTo.ts 的 freeArea)正中的经纬度,
+   * 放大倍数按宽度算(整圈经线正好占满画面的宽 = 1;电脑发给手机,横着看到的差不多一样宽)。地球仪:球心的经纬度、它自己的倍数
+   */
+  const cameraNow = (): SaveCamera | null => {
+    if (getGlobeOn()) {
+      const c = globeApi.current?.camera();
+      return c ? cleanCamera({ lon: c.lon, lat: c.lat, zoom: c.k }) : null;
+    }
+    const el = stageRef.current;
+    const g = geo.current;
+    if (!el || !g.bw || !dataRef.current) return null;
+    const b: StageBox = { sw: el.clientWidth, sh: el.clientHeight, bw: g.bw, bh: g.bh, padB: g.padB };
+    const [l, t, r, btm] = freeArea(b, panelOpenRef.current);
+    const v = viewRef.current;
+    let [x, y] = stageToWorld((l + r) / 2, (t + btm) / 2, v, b, g.W, g.H);
+    const m = mpRef.current;
+    if (m) {
+      const u = unprojectWorld(m, x, y);
+      [x, y] = u ?? [xOfLon(getMapCenter(), g.W), g.H / 2];
+    }
+    return cleanCamera({ lon: lonOfX(x, g.W), lat: 90 - (y / g.H) * 180, zoom: (v.k * g.bw) / b.sw });
+  };
+  /** 镜头飞到分享的人那时的样子(倍数换算成这块屏幕的,夹在能放的范围里);地球仪还没出来就等它出来 */
+  const flyCamera = (cam: SaveCamera, tries = 0) => {
+    stopFly();
+    const el = stageRef.current;
+    if (!data || !el || !box.w || replayOn) return;
+    if (getGlobeOn()) {
+      const api = globeApi.current;
+      if (api?.viewSig()) return api.flyTo(cam.lon, cam.lat, cam.zoom);
+      if (tries < 120) requestAnimationFrame(() => flyCameraRef.current(cam, tries + 1));
+      return;
+    }
+    const b: StageBox = { sw: el.clientWidth, sh: el.clientHeight, bw: box.w, bh: box.h, padB: geo.current.padB };
+    const W = data.world.width;
+    const H = data.world.height;
+    const x = xOfLon(cam.lon, W);
+    const y = ((90 - cam.lat) / 180) * H;
+    const goal: FlyGoal = { focus: { box: null, x, y, lon: cam.lon, lat: cam.lat }, kind: 'polity', zoom: Math.min(12, Math.max(1, (cam.zoom * b.sw) / b.bw)) };
+    const area = freeArea(b, panelOpenRef.current);
+    const m = mpRef.current;
+    const flat = m ? null : flatFly(viewRef.current, b, W, H, goal, area);
+    const step = m ? curvedFly(viewRef.current, b, m, (lon) => curvedProj(getProjection(), lon, W, H) ?? m, goal, area) : flat && ((e: number) => ({ v: flat(e), lon: null }));
+    if (step) runFly(step, !!m);
+  };
+  const flyCameraRef = useRef(flyCamera);
+  flyCameraRef.current = flyCamera;
+  const panelOpenRef = useRef(panelOpen);
+  panelOpenRef.current = panelOpen;
+  /** 打开带"这一刻"的分享链接:要停到的那一刻(画面出来、历史重推完以后用掉) */
+  const pendingMoment = useRef<{ id: string; moment: SaveMoment } | null>(null);
+  const [momentTick, setMomentTick] = useState(0);
+  /** 照"这一刻"选中时,选中以后镜头飞到这里(不按选中的国家另飞) */
+  const momentCam = useRef<SaveCamera | null>(null);
+  useEffect(() => {
+    const pm = pendingMoment.current;
+    // 带着干预、逐年推演的进度的世界:生成完还要重推一次(resimInfo),推完再停(逐年推演的推完会把时间轴放到"现在")
+    // 正在回放世界形成:放完再停(放完会接着放文明,停的那一年要在它后面设)
+    if (!pm || !data || !rawCiv || !box.w || !stageSize.w || resimInfo.current || replayOn) return;
+    pendingMoment.current = null;
+    if (currentWorld()?.id !== pm.id) return;
+    // 对到这个世界上:年份超出这段历史、国家或州找不到(生成器换了版本)的那一样不管;有地形大事的按那一年那一段的州认
+    const y = pm.moment.year;
+    const rm = resolveMoment(y !== undefined && rawCiv.eras?.length ? civAtEra(rawCiv, eraIndex(rawCiv, Math.min(y, rawCiv.endYear))) : rawCiv, pm.moment);
+    setSharedFor((s) => (s && s.id === pm.id ? { ...s, at: rm.year !== undefined ? { year: rm.year, sel: rm.selected ?? null } : null } : s));
+    if (rm.year !== undefined) setCivTime({ year: rm.year, playing: false, scrubbing: false, story: false });
+    const sel: MapSelection | null = rm.selected ?? null;
+    if (sel && !sameSelection(sel, getSelection().sel)) {
+      momentCam.current = rm.camera ?? null;
+      setSelection(sel);
+      return;
+    }
+    // 分享的人那时没选中东西(或者对不上):这边原来选着的也收起来(地址栏里又贴了一个链接、还是这张图时会留着)
+    if (!sel) clearSelection();
+    if (rm.camera) flyCamera(rm.camera);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, rawCiv, box.w, stageSize.w, resim, momentTick, replayOn]);
+  /** 复制分享链接时的"这一刻":时间轴那一年、选中的国家或州(withSelection)、镜头 */
+  const momentRef = useRef<(withSelection: boolean) => MomentNow | null>(() => null);
+  momentRef.current = (withSelection) => {
+    const c = civ;
+    // 助手"先在地图上看看"时,地图上是试推演的历史,存档里还是原来的;正在重推历史时,地图上还是旧的那份:都不带这一刻(年份、国家对不上)
+    if (!c || !c.viable || !shownRaw || previewRaw || resimInfo.current || !dataRef.current || getStage().stage !== 'world') return null;
+    const year = Math.min(c.endYear, Math.max(0, getCivTime().year ?? c.endYear));
+    const moment: SaveMoment = { year };
+    let name: string | null = null;
+    const sel = withSelection ? getSelection().sel : null;
+    if (sel && (sel.kind === 'polity' || sel.kind === 'region')) {
+      const key = selectionKey(shownRaw, sel);
+      const p = sel.kind === 'polity' ? c.polities[sel.id] : null;
+      if (key) {
+        moment.selected = key;
+        name = p ? polityName(p, shownYearOf(p, year, c.endYear)) : regionLabel(c, sel.id);
+      }
+    }
+    const camera = cameraNow();
+    if (camera) moment.camera = camera;
+    return { moment, year: yearFull(year, getEdits().era), name };
+  };
+  useEffect(() => {
+    setMomentSource((withSelection) => momentRef.current(withSelection));
+    return () => setMomentSource(null);
+  }, []);
   // 按稳定键认"选中的是不是换了":重推历史后编号变了、还是同一个东西,不再飞
   const selStable = shownRaw && selState.sel ? selectionKey(shownRaw, selState.sel) : '';
   useEffect(() => {
     if (!selStable) return;
     pausePlayback();
+    // 打开带"这一刻"的分享链接时的选中:镜头照分享的人的,不按选中的国家另飞
+    const cam = momentCam.current;
+    momentCam.current = null;
+    if (cam) return flyCameraRef.current(cam);
     flyRef.current('sel');
   }, [selStable]);
   const flyReq = panelUi.fly;
@@ -4904,6 +5087,23 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
   }, [filmWorld, previewRaw]);
   /** 打开别人分享的世界、还没改过:地图下那条说明代替第一次打开的操作提示 */
   const sharedOn = world && !!data && !!sharedFor && curWorld?.id === sharedFor.id && curWorld.kind === 'visit' && !terrainTool.on;
+  // 停在那一刻的说法:"第 1500 年，有桑皇朝"(国名、州名按那一年的;设了纪年的按纪年)
+  const sharedAt = (() => {
+    const a = sharedFor?.at;
+    if (!a || !civ) return null;
+    const sel = a.sel;
+    const p = sel?.kind === 'polity' ? civ.polities[sel.id] : null;
+    const name = p ? polityName(p, shownYearOf(p, a.year, civ.endYear)) : sel?.kind === 'region' && sel.id < civ.regions.count ? regionLabel(civ, sel.id) : null;
+    return `${yearFull(a.year, edits.era)}${name ? `，${name}` : ''}`;
+  })();
+  /** 「从头放」:不停在这一刻了,和不带这一刻的链接打开时一样 —— 不选中、地图回到整张,从结束前一段起自动播放 */
+  const replayShared = () => {
+    setSharedFor((s) => (s ? { ...s, at: null } : s));
+    clearSelection();
+    if (getGlobeOn()) globeApi.current?.reset();
+    else flyRef.current('home');
+    if (civ) startAutoplay(replayStart(civ.endYear));
+  };
   const layerProps = {
     base: mapBase,
     fill: mapFill,
@@ -5229,7 +5429,11 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
         marking={markable ? markPlacing : undefined}
         director={!directorOff}
       />
-      {sharedOn ? <SharedHint phone={narrow} short={sharedFor.short} by={sharedFor.by} own={sharedFor.own} onOk={() => setSharedFor(null)} /> : <FirstHint show={hintOn && !!data && world && !terrainTool.on && !upOn} touch={coarse} />}
+      {sharedOn ? (
+        <SharedHint phone={narrow} short={sharedFor.short} by={sharedFor.by} own={sharedFor.own} at={sharedAt} onReplay={replayShared} onOk={() => setSharedFor(null)} />
+      ) : (
+        <FirstHint show={hintOn && !!data && world && !terrainTool.on && !upOn} touch={coarse} />
+      )}
       {world && !narrow && <UpheavalHint />}
       {/* 底部:时间轴(宽屏是卡片右边那一块底下的胶囊;手机是浮在底部卡片上面的胶囊);新建时还没有历史,不放 */}
       <div className="bottom-row">
@@ -5280,7 +5484,7 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
       <ShortcutsHost />
       <DiagHost />
       <TipLayer />
-      {newDlg && home && <NewWorldDialog phone={narrow} init={newDlg.init} randomSeed={randomSeedValue} onCancel={cancelDialog} onStart={startFromDialog} />}
+      {newDlg && home && <NewWorldDialog key={newDlg.stamp ?? 0} phone={narrow} init={newDlg.init} shared={newDlg.shared} randomSeed={randomSeedValue} onCancel={cancelDialog} onStart={startFromDialog} />}
       {dropping && (
         <div className="drop-hint">
           <div>{dropping === 'image' ? '松手导入这张图' : '松手打开存档(.json)'}</div>

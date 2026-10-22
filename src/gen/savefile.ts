@@ -68,7 +68,8 @@
  * - moment:打开时看哪(可选,只在分享里带;见下面 SaveMoment),
  *   `{ "year": 1500, "selected": "polity:c32577#0", "camera": { "lon": 112.4, "lat": 31.25, "zoom": 2.5 } }`:
  *   别人打开分享链接时,时间轴停在第 year 年、选中 selected(国家或州的稳定键,见 edits.ts 文件头"稳定键")、
- *   画面正中对着经纬度 (lon, lat)、放大 zoom 倍(平面地图 1 = 整张图正好放下;地球仪是它自己的倍数)。三样都可以没有,
+ *   画面正中对着经纬度 (lon, lat)、放大 zoom 倍(平面地图按宽度算:1 = 整圈经线正好占满画面的宽,
+ *   同一个倍数在电脑和手机上横着看到的一样宽;地球仪是它自己的倍数)。三样都可以没有,
  *   没有的那样照平常打开。不改变世界本身(和种子、参数、修改无关),所以不进"我的世界"的自动存档(makeSave 不写它)。
  *   读档时过 cleanMoment:年份不是 0 到这个世界推到的那年(逐年推演的是"现在"那年)、键的样子不对、经纬度和倍数不是数的,
  *   那一样去掉,不提示(只是打开时的位置);旧链接没有这个字段 = 照平常打开。键在这个世界里找不到(国家不存在)由
@@ -128,7 +129,7 @@ export interface SaveMoment {
   camera?: SaveCamera;
 }
 
-/** 镜头:画面正中对着的经纬度(度)、放大倍数(平面地图 1 = 整张图正好放下;地球仪是它自己的倍数) */
+/** 镜头:画面正中对着的经纬度(度)、放大倍数(平面地图 1 = 整圈经线正好占满画面的宽;地球仪是它自己的倍数) */
 export interface SaveCamera {
   lon: number;
   lat: number;
@@ -257,8 +258,11 @@ export function cleanOrigin(raw: unknown): SaveOrigin | null {
 
 /** 打开时选中的东西:国家、州的稳定键(新旧两种写法都认,见 edits.ts 文件头"稳定键";以后要放开城、人物再加) */
 const MOMENT_KEY = /^(?:polity:(?:r-?\d{1,7}|c\d{1,7})#\d{1,5}|region:[rc]\d{1,7})$/;
-/** 镜头放大倍数的范围(平面地图 1–12 倍、地球仪 0.55–8 倍都在里面;界面再按投影夹一次) */
-export const CAMERA_ZOOM_RANGE: readonly [number, number] = [0.5, 12];
+/**
+ * 镜头放大倍数的范围:平面地图按宽度算,手机竖屏放到最大约 50 倍(电脑约 12 倍),地球仪 0.55–8 倍,都在里面;
+ * 界面再按投影、屏幕夹一次
+ */
+export const CAMERA_ZOOM_RANGE: readonly [number, number] = [0.5, 64];
 /** 留到千分之一(年份、经纬度、倍数);同一个数清理两次结果不变 */
 const round3 = (v: number) => Math.round(v * 1000) / 1000;
 
@@ -324,6 +328,49 @@ export function resolveMoment(civ: Civ, moment: SaveMoment | null | undefined): 
   }
   if (moment.camera) out.camera = { ...moment.camera };
   return out;
+}
+
+/**
+ * 分享短链接(网站/s/<码>,存档在服务器上)后面带的"打开时看哪":和长链接一样放在 # 后面,浏览器不发给服务器,
+ * 每次复制的链接各带各的那一刻。`#at=1500&p=c32577.0&cam=112.4,31.25,2.5`:
+ * at = 年份(可以空着)、p = 选中的国家(稳定键去掉 "polity:",# 换成 .)、r = 选中的州(去掉 "region:")、cam = 经度,纬度,倍数
+ */
+export const MOMENT_HASH_KEY = 'at';
+
+/** "打开时看哪" → 短链接后面的 # 那段(清理过;一样都不剩 = '') */
+export function momentHash(moment: SaveMoment | null | undefined): string {
+  const m = moment ? cleanMoment(moment) : null;
+  if (!m) return '';
+  const parts = [`${MOMENT_HASH_KEY}=${m.year ?? ''}`];
+  if (m.selected) {
+    const p = /^polity:(.+)#(\d+)$/.exec(m.selected);
+    parts.push(p ? `p=${p[1]}.${p[2]}` : `r=${m.selected.slice('region:'.length)}`);
+  }
+  if (m.camera) parts.push(`cam=${m.camera.lon},${m.camera.lat},${m.camera.zoom}`);
+  return `#${parts.join('&')}`;
+}
+
+/** 网址的 # 那段是不是短链接带的"打开时看哪"(#at=…) */
+export function isMomentHash(hash: string): boolean {
+  return typeof hash === 'string' && new RegExp(`^#?${MOMENT_HASH_KEY}=`).test(hash.trim());
+}
+
+/** 短链接后面的 # 那段 → "打开时看哪"(过 cleanMoment;不像样的那一样去掉;不是这种 # 或一样都不剩 = null) */
+export function decodeMomentHash(hash: string, maxYear: number = END_YEAR_MAX): SaveMoment | null {
+  if (!isMomentHash(hash)) return null;
+  const q = new URLSearchParams(hash.trim().replace(/^#/, '').replace(/\s+/g, ''));
+  const raw: Record<string, unknown> = {};
+  const y = q.get(MOMENT_HASH_KEY);
+  if (y) raw.year = Number(y);
+  const p = q.get('p');
+  const r = q.get('r');
+  if (p) {
+    const i = p.lastIndexOf('.');
+    if (i > 0) raw.selected = `polity:${p.slice(0, i)}#${p.slice(i + 1)}`;
+  } else if (r) raw.selected = `region:${r}`;
+  const cam = q.get('cam')?.split(',');
+  if (cam?.length === 3 && cam.every((s) => s.trim() !== '')) raw.camera = { lon: Number(cam[0]), lat: Number(cam[1]), zoom: Number(cam[2]) };
+  return cleanMoment(raw, maxYear);
 }
 
 /** 两份投影设置是不是一样(中央经线差不到 0.01° 算一样;经纬网有一份没记就不比) */

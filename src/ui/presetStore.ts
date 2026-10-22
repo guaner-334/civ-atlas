@@ -4,8 +4,9 @@
  *   默认      DEFAULT_PARAMS(种子照旧随机)
  *   上次用的  上一次点「创建世界」时的参数(不含种子),记着那次建的世界叫什么
  *   自己存的  「存成预设…」存下的:陆地、大陆、气候、精细度、推演年数;种子只有勾了「连种子一起存」才存。最多 30 个
+ *   分享的    打开朋友的预设链接(presetLink.ts)带来的那一套:不自动存,点「存进我的预设…」才存;只在这次打开的页面里有
  *
- * 另外记着上次选的是哪个(下次打开弹窗停在它上面)。
+ * 另外记着上次选的是哪个(下次打开弹窗停在它上面;选的是分享的那一套时记的还是之前那个)。
  * 都存在这个浏览器里(和存档一样换电脑带不走);浏览器不让存(隐私模式)就只在这次打开的页面里有效。
  */
 import { useSyncExternalStore } from 'react';
@@ -33,13 +34,18 @@ export interface LastUsed {
   title: string;
 }
 
-/** 选的是哪个:默认 / 上次用的 / 自己存的那个的 id */
-export type PresetChoice = 'default' | 'last' | string;
+/** 选的是哪个:默认 / 上次用的 / 分享的 / 自己存的那个的 id */
+export type PresetChoice = 'default' | 'last' | 'shared' | string;
+
+/** 朋友分享来的预设(没存进自己的预设,没有 id) */
+export type SharedPreset = Omit<Preset, 'id'>;
 
 export interface PresetState {
   list: Preset[];
   last: LastUsed | null;
   chosen: PresetChoice;
+  /** 打开预设链接带来的那一套(不存进浏览器;没有 = null) */
+  shared: SharedPreset | null;
 }
 
 export const MAX_PRESETS = 30;
@@ -62,7 +68,7 @@ function cleanParams(x: unknown): PresetParams {
 const posInt = (v: unknown) => (typeof v === 'number' && Number.isInteger(v) && v > 0 ? v : undefined);
 
 function load(): PresetState {
-  const empty: PresetState = { list: [], last: null, chosen: 'default' };
+  const empty: PresetState = { list: [], last: null, chosen: 'default', shared: null };
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return empty;
@@ -94,7 +100,7 @@ function load(): PresetState {
         : null;
     let chosen = typeof o.chosen === 'string' ? o.chosen : 'default';
     if (chosen === 'last' ? !last : chosen !== 'default' && !list.some((p) => p.id === chosen)) chosen = 'default';
-    return { list: list.slice(0, MAX_PRESETS), last, chosen };
+    return { list: list.slice(0, MAX_PRESETS), last, chosen, shared: null };
   } catch {
     return empty;
   }
@@ -104,10 +110,17 @@ let state: PresetState | null = null;
 const subs = new Set<() => void>();
 const get = () => (state ??= load());
 
+/** 浏览器里记着的"上次选的"(选了分享的那一套时不换:它不存进浏览器) */
+let keptChoice: PresetChoice | null = null;
+
 function set(next: PresetState) {
+  const was = state;
   state = next;
+  if (next.chosen !== 'shared') keptChoice = next.chosen;
+  else if (keptChoice === null) keptChoice = was && was.chosen !== 'shared' ? was.chosen : 'default';
   try {
-    localStorage.setItem(KEY, JSON.stringify(next));
+    const { shared: _shared, ...rest } = next;
+    localStorage.setItem(KEY, JSON.stringify({ ...rest, chosen: keptChoice }));
   } catch {
     /* 隐私模式、存满了:只管这一次 */
   }
@@ -135,6 +148,7 @@ export const strip = (p: WorldParams): PresetParams => {
 /** 选的那个预设的参数(没有 = 默认) */
 export function choiceParams(s: PresetState, c: PresetChoice): { params: PresetParams; seed?: number; endYear?: number } {
   if (c === 'last' && s.last) return { params: s.last.params, endYear: s.last.endYear };
+  if (c === 'shared' && s.shared) return { params: s.shared.params, seed: s.shared.seed, endYear: s.shared.endYear };
   const p = s.list.find((x) => x.id === c);
   if (p) return { params: p.params, seed: p.seed, endYear: p.endYear };
   return { params: strip(DEFAULT_PARAMS) };
@@ -143,6 +157,7 @@ export function choiceParams(s: PresetState, c: PresetChoice): { params: PresetP
 /** 选的那个预设叫什么 */
 export function choiceName(s: PresetState, c: PresetChoice): string {
   if (c === 'last' && s.last) return '上次用的';
+  if (c === 'shared' && s.shared) return s.shared.name;
   return s.list.find((x) => x.id === c)?.name ?? '默认';
 }
 
@@ -150,6 +165,11 @@ export function choiceName(s: PresetState, c: PresetChoice): string {
 export function choosePreset(c: PresetChoice) {
   const s = get();
   if (s.chosen !== c) set({ ...s, chosen: c });
+}
+
+/** 打开了朋友的预设链接:选上分享来的这一套(不存进自己的预设;再打开一个链接换成新的那套) */
+export function pickSharedPreset(p: SharedPreset) {
+  set({ ...get(), shared: p, chosen: 'shared' });
 }
 
 /** 存成预设:同名的换掉;多了扔掉最旧的。返回新的 id */
