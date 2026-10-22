@@ -11,6 +11,9 @@
  *            随机生成的不列「拓荒」「历史」(先只做地图,这两样在新建界面第 2 步「打造文明」里定)。
  *            底下一句说进去以后这些都还能改
  *
+ * 朋友的预设链接(presetLink.ts)打开的:直接到第 2 步(随机生成),参数照链接填好;第 2 步标题下面那句换成一条浅蓝
+ * "朋友分享的预设「…」，参数已经照它填好",右边「存进我的预设…」(打开「存成预设」小窗,名字先填好;不点不存)。
+ *
  * 点「开始」才交给 App(存下没建完的世界、进新建界面;照图的把读好的图交过去,进去直接是第 1 步「认出海陆」)。
  * 首页上点的「开始」、地图程序还没下完(wait):按钮变成转圈 +「准备中」,旁边一句下了多少,下好就自动开始;
  * 这时参数先改不了、「上一步」点不了,「取消」照常(不打开了)。
@@ -22,8 +25,9 @@ import { Fragment, useEffect, useRef, useState } from 'react';
 import type { WorldParams } from '../gen/world';
 import { CONT_SLIDERS, SLIDERS, YEARS_NOTE, YEARS_ON, YEARS_SLIDER, YEARS_SWITCH, contBrief, type SliderLike } from './genesisSliders';
 import { CONT_RESET, ContinentSeg, ParamField, rangeFill } from './ParamField';
-import { PresetPicker, type PresetPick } from './PresetPicker';
-import { changedKeys, choiceParams, getPresets, usePresets } from './presetStore';
+import { createPortal } from 'react-dom';
+import { PresetPicker, SavePreset, type PresetPick } from './PresetPicker';
+import { changedKeys, choiceParams, getPresets, usePresets, type SharedPreset } from './presetStore';
 import { terrainChangedCount, type Frontier } from '../gen/civ/frontier';
 import { EXPAND_SLIDER, SPREAD_SLIDER, TERRAIN_SLIDERS, terrainValue, withSpeed, withTerrain, withoutTerrain } from './frontierUi';
 import { isImageFile, loadImage, type LoadedImage } from './imageFile';
@@ -55,6 +59,8 @@ export interface NewWorldInit {
 export interface NewWorldDialogProps {
   phone: boolean;
   init?: NewWorldInit;
+  /** 打开朋友的预设链接来的:分享的那一套(第 2 步顶上一条说明 +「存进我的预设…」) */
+  shared?: SharedPreset;
   /** 随机一个种子 */
   randomSeed: () => number;
   onCancel: () => void;
@@ -224,6 +230,9 @@ export function NewWorldDialog(p: NewWorldDialogProps) {
     setSeedText(String(seed));
     setParams((q) => ({ ...q, seed }));
   };
+  /** 朋友分享的预设:「存进我的预设…」的小窗开着没有、存过没有 */
+  const [keepOpen, setKeepOpen] = useState(false);
+  const [kept, setKept] = useState(false);
   const canStart = mode === 'random' || !!picture;
   const start = () => {
     if (!canStart) return;
@@ -521,6 +530,35 @@ export function NewWorldDialog(p: NewWorldDialogProps) {
       )}
     </>
   );
+  // 朋友分享的预设(第 2 步):一条浅蓝说明 +「存进我的预设…」(存过以后换成一句"已存好")
+  const sharedBar = p.shared && step === 2 && (
+    <div className="nd-shared" data-testid="shared-preset">
+      <Icon name="info" size={17} />
+      <span className="nd-shared-tx">
+        朋友分享的预设「{p.shared.name}」{p.phone ? <br /> : '，'}参数已经照它填好
+      </span>
+      {kept ? (
+        <span className="nd-shared-done">已存好</span>
+      ) : (
+        <button className="nd-shared-btn" data-act="shared-preset-keep" onClick={() => setKeepOpen(true)}>
+          存进我的预设…
+        </button>
+      )}
+    </div>
+  );
+  const keepDlg =
+    keepOpen &&
+    p.shared &&
+    createPortal(
+      <SavePreset
+        params={params}
+        endYear={years}
+        initial={{ name: p.shared.name, withSeed: p.shared.seed !== undefined }}
+        onSaved={() => setKept(true)}
+        onClose={() => setKeepOpen(false)}
+      />,
+      document.body,
+    );
   const presetRow = (
     <div className="ps-row nd-preset">
       <span className="ps-l">预设</span>
@@ -582,6 +620,7 @@ export function NewWorldDialog(p: NewWorldDialogProps) {
               </button>
             )}
           </div>
+          {sharedBar}
           {step === 2 && presetRow}
           <div className="nd-pbody">
             {step === 1 && <p className="nd-sub">{sub}</p>}
@@ -592,6 +631,7 @@ export function NewWorldDialog(p: NewWorldDialogProps) {
             {startBtn}
           </div>
           {file}
+          {keepDlg}
         </div>
       ) : (
         <div
@@ -608,7 +648,7 @@ export function NewWorldDialog(p: NewWorldDialogProps) {
             <h2 id="nd-title">{title}</h2>
             <span className="nd-step">第 {step} 步，共 2 步</span>
           </div>
-          <p className="nd-sub">{sub}</p>
+          {sharedBar || <p className="nd-sub">{sub}</p>}
           {step === 1 ? (
             cards
           ) : (
@@ -631,6 +671,7 @@ export function NewWorldDialog(p: NewWorldDialogProps) {
             {startBtn}
           </div>
           {file}
+          {keepDlg}
         </div>
       )}
     </div>

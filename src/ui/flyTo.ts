@@ -206,6 +206,8 @@ export function pointsFocus(world: World, pts: readonly (readonly [number, numbe
 export interface FlyGoal {
   focus: Focus | null;
   kind: MapSelection['kind'] | 'home';
+  /** 放大到正好这么多倍(打开分享链接时照分享的人的镜头);不给 = 按种类定 */
+  zoom?: number;
 }
 
 /** 窄屏(手机)顶上留给提示条的一截(和 phone.css 的 --top-room 一致,刘海另算;右上的按钮竖着排在右边,不占这一截) */
@@ -250,6 +252,7 @@ export function freeArea(b: StageBox, panel: boolean): [number, number, number, 
  * 城至少 2 倍;州、地理实体(海、山、河……)缩放不变;已经放得更大的不缩小
  */
 function goalZoom(goal: FlyGoal, k0: number, fit: number): number {
+  if (goal.zoom !== undefined) return goal.zoom;
   switch (goal.kind) {
     case 'home':
       return 1;
@@ -264,7 +267,7 @@ function goalZoom(goal: FlyGoal, k0: number, fit: number): number {
 }
 
 /** 州、地理实体、作者标记只平移:已经在看得见的地方(不在面板底下、不贴边)就不动 */
-const panOnly = (goal: FlyGoal) => goal.kind === 'region' || goal.kind === 'place' || goal.kind === 'mark';
+const panOnly = (goal: FlyGoal) => goal.zoom === undefined && (goal.kind === 'region' || goal.kind === 'place' || goal.kind === 'mark');
 const inside = (x: number, y: number, [l, t, r, b]: [number, number, number, number]) => x >= l + 60 && x <= r - 60 && y >= t + 30 && y <= b - 30;
 
 /**

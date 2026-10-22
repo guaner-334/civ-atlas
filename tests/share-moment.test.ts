@@ -11,10 +11,13 @@ import {
   CAMERA_ZOOM_RANGE,
   cleanCamera,
   cleanMoment,
+  decodeMomentHash,
   decodeShare,
   encodeShare,
   hasShareData,
+  isMomentHash,
   makeSave,
+  momentHash,
   momentYearMax,
   parseSave,
   resolveMoment,
@@ -199,4 +202,38 @@ describe('打开时看哪:坏字段安全忽略', () => {
     expect(resolveMoment(civ, { year: civ.endYear + 5 })).toEqual({});
     expect(resolveMoment(null as never, undefined)).toEqual({});
   }, 60_000);
+});
+
+describe('短链接后面带的"打开时看哪"(#at=…)', () => {
+  it('写成 # 那段、读回来逐字段相等;只写有的那几样', () => {
+    const m: SaveMoment = { year: 1500.25, selected: 'polity:c32577#0', camera: { lon: 112.4, lat: -31.25, zoom: 2.5 } };
+    const h = momentHash(m);
+    expect(h).toBe('#at=1500.25&p=c32577.0&cam=112.4,-31.25,2.5');
+    expect(isMomentHash(h)).toBe(true);
+    expect(decodeMomentHash(h)).toEqual(m);
+    expect(decodeMomentHash(momentHash({ year: 1500, selected: 'region:c8123' }))).toEqual({ year: 1500, selected: 'region:c8123' });
+    expect(decodeMomentHash(momentHash({ selected: 'polity:r-12#3' }))).toEqual({ selected: 'polity:r-12#3' });
+    expect(momentHash({ camera: { lon: 1, lat: 2, zoom: 3 } })).toBe('#at=&cam=1,2,3');
+    expect(decodeMomentHash('#at=&cam=1,2,3')).toEqual({ camera: { lon: 1, lat: 2, zoom: 3 } });
+    // 没有东西 / 不是这种 # 那段
+    expect(momentHash(null)).toBe('');
+    expect(momentHash({})).toBe('');
+    expect(isMomentHash('#share=abc')).toBe(false);
+    expect(decodeMomentHash('#preset=1')).toBeNull();
+    expect(decodeMomentHash('')).toBeNull();
+  });
+
+  it('写坏的那一样去掉:年份超出、键不对、镜头不是三个数;倍数夹在范围里', () => {
+    expect(decodeMomentHash('#at=99999&p=c1.0')).toEqual({ selected: 'polity:c1#0' });
+    expect(decodeMomentHash('#at=abc&r=c5')).toEqual({ selected: 'region:c5' });
+    expect(decodeMomentHash('#at=1500&p=c1&cam=1,2')).toEqual({ year: 1500 });
+    expect(decodeMomentHash('#at=1500&r=x1&cam=1,,3')).toEqual({ year: 1500 });
+    expect(decodeMomentHash('#at=&cam=a,b,c')).toBeNull();
+    expect(decodeMomentHash('#at=1500&cam=0,0,9999')).toEqual({ year: 1500, camera: { lon: 0, lat: 0, zoom: CAMERA_ZOOM_RANGE[1] } });
+    // 聊天软件折过行(多出空白)照样认
+    expect(decodeMomentHash('#at=1500&p=c1.0&ca\nm=1,2,3')).toEqual({ year: 1500, selected: 'polity:c1#0', camera: { lon: 1, lat: 2, zoom: 3 } });
+    // 推到 12000 年的世界才认第 9000 年
+    expect(decodeMomentHash('#at=9000')).toEqual({ year: 9000 });
+    expect(decodeMomentHash('#at=9000', 3000)).toBeNull();
+  });
 });

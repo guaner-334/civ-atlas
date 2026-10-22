@@ -101,6 +101,62 @@
   line-height: 1.55;
   color: var(--ink-2);
 }
+/* 打开朋友的预设链接:第 2 步标题下面那句换成一条浅蓝说明(颜色照底部的 .nd-info),右边「存进我的预设…」 */
+.nd-shared {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 34px;
+  box-sizing: border-box;
+  margin: 4px 0 1px;
+  padding: 3px 4px 3px 14px;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+.nd-shared > .icon {
+  flex: none;
+  color: var(--accent);
+}
+.nd-shared-tx {
+  flex: 1;
+  min-width: 0;
+}
+.nd-scrim .nd-shared-btn {
+  flex: none;
+  height: 26px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 0 0 0.5px var(--line);
+  color: var(--link);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.nd-scrim .nd-shared-btn:hover {
+  background: var(--hover-bg);
+}
+.nd-shared-done {
+  flex: none;
+  padding: 0 10px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+/* 手机:顶上那一排下面一条,字折成两行,按钮高一点 */
+.nd-psheet > .nd-shared {
+  margin: 10px 16px 4px;
+  min-height: 58px;
+  padding: 0 10px 0 14px;
+  line-height: 1.45;
+}
+.nd-psheet .nd-shared-btn {
+  height: 28px;
+}
 
 /* ---- 第 1 步:两张带图的卡片 ---- */
 .nd-cards {

@@ -3,7 +3,8 @@
  *
  * 信息页(按时间轴当前那一年;没立国 = 立国那年的样子,已亡 = 亡国前的样子):
  *   顶部  颜色块、国名(可改,输入时预览国号变迁)、"国家，1045 年立国"、关闭
- *   按钮  干预历史(主操作;窄屏点了底部抽屉展开)/ 设为中心 / 改名 / 更多(在编年史中查看、让 AI 写国史、让 AI 讲名字由来;
+ *   按钮  干预历史(主操作;窄屏点了底部抽屉展开)/ 设为中心 / 改名 / 更多(复制分享链接(停在这一年、选中这国、地图照现在的样子;
+ *         手机上去「存档」要先关掉这张卡片,所以放在这里)、在编年史中查看、让 AI 写国史、让 AI 讲名字由来;
  *         有主体民族时还有讲它的族名由来、给它起族名)
  *   概况  国都、君主(这一年在位的那位,点了看他;共和国写"执政")、疆域(历年州数的小柱图,和概览"国家"表同一份)、
  *         人口(境内各州的总人口:城 + 乡村)、主体民族、国教(可点,"某年起";没有写"没有")、
@@ -30,7 +31,7 @@ import { filterChronicle, polityChronicle } from '../gen/civ/chronicle';
 import { fullChronicle } from '../gen/civ/religionText';
 import { stateFaithAt } from '../gen/civ/religion';
 import { dynastyKey, polityKey } from '../gen/edits';
-import { spaced, yearAt, yearShort, yearShortAt, yearSpan, yearSpanAt } from '../gen/era';
+import { spaced, yearAt, yearFull, yearShort, yearShortAt, yearSpan, yearSpanAt } from '../gen/era';
 import { useEra } from './editsStore';
 import { setCivTime, setSelection } from './civView';
 import { peopleIndex, rulerAt } from '../gen/civ/peopleInfo';
@@ -48,6 +49,7 @@ import { openLineage, openOverview, openPeople } from './overviewStore';
 import { Act, Acts, AiBox, AiSuggestLink, CenterAct, EventList, Link, MoreAct, PanelHead, Row, Spark, Stats, SubLine, rgb, useRevealAi } from './panelParts';
 import { AiMenuItem, MenuItem, MenuSep } from './PopMenu';
 import { Icon } from './icons';
+import { copyMomentLink } from './shareMoment';
 import { useAiOn } from '../ai/client';
 import { FlagIcon } from './Flag';
 import { FlagPanel } from './FlagPanel';
@@ -265,6 +267,9 @@ function InfoPage({ civ, raw, raster, world, id, year, p, shared }: CountryPanel
           改名
         </Act>
         <MoreAct>
+          <MenuItem icon={<Icon name="link" size={16} />} act="share-moment-link" note={`停在${yearFull(year, era)}`} onClick={() => void copyMomentLink()}>
+            复制分享链接
+          </MenuItem>
           <MenuItem icon={<Icon name="scroll" size={16} />} act="chronicle" disabled={!allCount} onClick={() => openOverview('chronicle', { polity: id, major: false })}>
             在编年史中查看
           </MenuItem>

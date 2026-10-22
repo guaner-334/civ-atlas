@@ -2322,6 +2322,8 @@ for (const style of ['realistic', 'fantasy']) {
   await ready();
   const bar = new URLSearchParams(await p.evaluate(() => location.search)).get('gen');
   await p.click('.save-btn');
+  // 不带"这一刻"(取消勾选「停在这一刻」):没改过的世界就是普通链接
+  await p.locator('.save-menu [data-act=share-moment]').uncheck();
   await p.click('[data-act=share-link]');
   const plain = await p.waitForFunction(() => (window as any).__wfShare, null, { timeout: 10000 }).then((h) => h.jsonValue() as Promise<{ url: string; withData: boolean }>, () => null);
   const linkGen = plain ? new URL(plain.url).searchParams.get('gen') : null;
@@ -2358,6 +2360,92 @@ for (const style of ['realistic', 'fantasy']) {
   const draftBar = new URLSearchParams(await p.evaluate(() => location.search));
   if (draftBar.get('new') !== '1' || draftBar.has('gen')) errs.push(`版本号:新建中的网址不该带 gen(${draftBar})`);
   await ctx.close();
+}
+
+// 分享链接带上"这一刻":第 1500 年选中一国、复制(「停在这一刻」默认勾着)→ 另一个浏览器打开停在第 1500 年、那一国选中、镜头一样,
+// 地图下的说明开头说停在哪,「从头放」以后不再选中;国家卡片「更多」里的「复制分享链接」也带着这一国。
+// 朋友的预设链接:打开就是新建弹窗第 2 步、参数照链接填好,顶上一条说明 +「存进我的预设…」;坏了的链接提示、照常停在我的世界
+{
+  const ctxA = await browser.newContext({ viewport: { width: 1400, height: 820 }, permissions: ['clipboard-read', 'clipboard-write'] });
+  const ctxB = await browser.newContext({ viewport: { width: 1400, height: 820 } });
+  const a = await ctxA.newPage();
+  const b = await ctxB.newPage();
+  for (const p of [a, b]) p.on('pageerror', (e) => errs.push(`这一刻:${e.message}`));
+  const ready = (p: Page) => p.waitForFunction(() => (window as any).__wf?.ready, null, { timeout: 60000 });
+  await a.goto(`${dev.url}/?seed=7&civYear=1500&civ=polities`);
+  await ready(a);
+  await a.waitForTimeout(300);
+  const pol = ((await a.evaluate('window.__wfPickables()')) as { kind: string; id: number }[]).find((x) => x.kind === 'polity');
+  let link: { url: string; moment?: { year?: number; selected?: string; camera?: unknown } } | null = null;
+  let menuLink: { moment?: { selected?: string } } | null = null;
+  let menuNote = '';
+  let opened: { sel?: { kind: string; id: number }; k?: number; hint?: string; year?: string } = {};
+  let sharerK = 0;
+  let replayed = '';
+  if (pol) {
+    await a.evaluate((id) => (window as any).__wfSelect('polity', id), pol.id);
+    await a.waitForTimeout(1200);
+    sharerK = await a.evaluate(() => (window as any).__wfView.k);
+    await a.click('.save-btn');
+    menuNote = (await a.locator('.save-menu .save-moment').textContent().catch(() => '')) ?? '';
+    await a.click('[data-act=share-link]');
+    link = await a.waitForFunction(() => (window as any).__wfShare, null, { timeout: 10000 }).then((h) => h.jsonValue(), () => null);
+    await a.evaluate(() => delete (window as any).__wfShare);
+    await a.click('.inspector [data-act=more]');
+    await a.click('[data-act=share-moment-link]');
+    menuLink = await a.waitForFunction(() => (window as any).__wfShare, null, { timeout: 10000 }).then((h) => h.jsonValue(), () => null);
+    if (link) {
+      await b.goto(link.url);
+      await ready(b);
+      await b.waitForTimeout(1500);
+      opened = await b.evaluate(() => ({
+        sel: (window as any).__wfSelection,
+        k: (window as any).__wfView?.k,
+        hint: document.querySelector('.shared-hint')?.textContent ?? '',
+        year: document.querySelector('.civ-timeline')?.textContent ?? '',
+      }));
+      await b.click('[data-act=shared-replay]').catch(() => {});
+      await b.waitForTimeout(500);
+      replayed = `${await b.locator('.shared-hint').textContent().catch(() => '')}|${await b.locator('.inspector .cp').count()}`;
+    }
+  }
+  console.log(
+    `这一刻:菜单「${menuNote}」,链接 ${link?.url.length ?? '-'} 字 ${JSON.stringify(link?.moment)};更多菜单 ${JSON.stringify(menuLink?.moment)};` +
+      `打开 选中 ${JSON.stringify(opened.sel)} 倍数 ${opened.k?.toFixed(2)}(分享时 ${sharerK.toFixed(2)}),说明「${opened.hint}」;从头放以后「${replayed}」`,
+  );
+  if (!pol) errs.push('这一刻:没找到国家');
+  else {
+    if (!menuNote.includes('停在这一刻') || !menuNote.includes('第 1500 年')) errs.push(`这一刻:存档菜单里没写停在第 1500 年(${menuNote})`);
+    if (link?.moment?.year !== 1500 || !link.moment.selected?.startsWith('polity:') || !link.moment.camera) errs.push(`这一刻:复制的链接没带这一刻(${JSON.stringify(link?.moment)})`);
+    if (menuLink?.moment?.selected !== link?.moment?.selected) errs.push('这一刻:国家卡片「更多」复制的链接没带这一国');
+    if (opened.sel?.kind !== 'polity' || opened.sel.id !== pol.id) errs.push(`这一刻:打开后没选中那一国(${JSON.stringify(opened.sel)})`);
+    if (!opened.year?.includes('1500')) errs.push(`这一刻:打开后时间轴不在第 1500 年(${opened.year})`);
+    if (!opened.k || Math.abs(opened.k - sharerK) > 0.05) errs.push(`这一刻:打开后镜头的放大倍数不一样(${opened.k} / ${sharerK})`);
+    if (!opened.hint?.includes('停在对方分享时看的那一刻：第 1500 年')) errs.push(`这一刻:说明没写停在哪(${opened.hint})`);
+    if (replayed.includes('停在') || !replayed.endsWith('|0')) errs.push(`这一刻:「从头放」以后还停着(${replayed})`);
+  }
+  // 朋友的预设链接
+  await b.goto(`${dev.url}/#preset=1&name=${encodeURIComponent('两块完整大陆')}&landFraction=0.4&continents=2&gather=0.5`);
+  await b.locator('.nd-sheet').waitFor({ timeout: 30000 }).catch(() => {});
+  const pre = await b.evaluate(() => ({
+    step: document.querySelector('.nd-sheet')?.getAttribute('data-step'),
+    bar: document.querySelector('[data-testid=shared-preset]')?.textContent ?? '',
+    pop: document.querySelector('.nd-sheet [data-act=preset]')?.textContent ?? '',
+    land: (document.querySelector('.nd-sheet [data-param=landFraction] input[type=range]') as HTMLInputElement | null)?.value,
+    hash: location.hash,
+  }));
+  await b.click('[data-act=shared-preset-keep]').catch(() => {});
+  await b.click('[data-act=preset-save-ok]').catch(() => {});
+  const kept = await b.evaluate(() => JSON.parse(localStorage.getItem('wenming-ditu:presets') ?? '{}').list?.map((x: { name: string }) => x.name) ?? []);
+  await b.goto(`${dev.url}/#preset=1&name=x&landFraction=0.4%`);
+  await b.waitForTimeout(2500);
+  const broken = await toastText(b, 'save', 8000);
+  console.log(`预设链接:第 ${pre.step} 步,「${pre.bar}」,预设「${pre.pop}」,陆地 ${pre.land},# 去掉 ${!pre.hash};存进我的预设 ${JSON.stringify(kept)};坏链接「${broken}」`);
+  if (pre.step !== '2' || !pre.bar.includes('朋友分享的预设「两块完整大陆」') || !pre.pop.includes('分享的') || pre.land !== '0.4' || pre.hash) errs.push(`预设链接:打开后不是填好参数的新建弹窗(${JSON.stringify(pre)})`);
+  if (!kept.includes('两块完整大陆')) errs.push('预设链接:「存进我的预设…」没存上');
+  if (!broken.includes('预设链接不完整')) errs.push(`预设链接:坏了的链接提示不对(${broken})`);
+  await ctxA.close();
+  await ctxB.close();
 }
 
 // 看原样:有旧网站的那一版(FIRST_OLD_SITE 起、比现在旧)建的世界,打开时提示条上有「看原样」,存档菜单里也有一行;

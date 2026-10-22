@@ -189,12 +189,14 @@ export interface GlobeApi {
   /** 刚才那一下按下以后拖动过(拖过就不算单击) */
   dragged(): boolean;
   /**
-   * 转到某经纬度(度;纬度不给 = 不变),约 0.6 秒。转到的地方落在球心 —— 宽屏上球心在侧栏卡片右边那一块的正中
+   * 转到某经纬度(度;纬度不给 = 不变;放大倍数 k 不给 = 不变),约 0.6 秒。转到的地方落在球心 —— 宽屏上球心在侧栏卡片右边那一块的正中
    * (见 GlobeProps.leftRoom)
    */
-  flyTo(lon: number, lat?: number): void;
+  flyTo(lon: number, lat?: number, k?: number): void;
   /** 视图中心的经度(度) */
   centerLon(): number;
+  /** 镜头:球心对着的经纬度(度)、放大倍数(地球仪自己的倍数;分享链接带上"这一刻"时用) */
+  camera(): { lon: number; lat: number; k: number };
   /** 回正:北在上、赤道居中、整个球(和双击一样;手指点两下时 App 调它) */
   reset(): void;
   /**
@@ -1712,8 +1714,9 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
     pixelAt,
     labelAt,
     dragged: () => s.moved,
-    flyTo: (lon, lat) => flyTo(lon, lat),
+    flyTo: (lon, lat, k) => flyTo(lon, lat, k),
     centerLon: () => s.view.lon / D,
+    camera: () => ({ lon: s.view.lon / D, lat: s.view.lat / D, k: s.view.k }),
     reset: () => reset(),
     zoomBy: (f, cx, cy, live) => zoomBy(f, cx, cy, live),
     worldToClient,
