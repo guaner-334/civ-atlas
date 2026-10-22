@@ -110,7 +110,7 @@ async function topFunctions(cdp: CDPSession, n = 12): Promise<string[]> {
   for (let i = 0; i < p.samples.length; i++) {
     for (let id: number | undefined = p.samples[i]; id !== undefined; id = parent.get(id)) {
       if (CHRON.has(byId.get(id).callFrame.functionName)) {
-        chron += (dt[i + 1] ?? 0) / 1000;
+        chron += (dt[i] ?? 0) / 1000;
         break;
       }
     }
@@ -120,7 +120,7 @@ async function topFunctions(cdp: CDPSession, n = 12): Promise<string[]> {
     const cf = node.callFrame;
     if (cf.functionName === '(idle)' || cf.functionName === '(program)') continue;
     const key = `${cf.functionName || '(anon)'} ${cf.url.replace(/^.*\/src\//, 'src/').replace(/\?.*$/, '')}:${cf.lineNumber + 1}`;
-    self.set(key, (self.get(key) ?? 0) + (dt[i + 1] ?? 0) / 1000);
+    self.set(key, (self.get(key) ?? 0) + (dt[i] ?? 0) / 1000);
   }
   return [`主线程上算编年史共 ${chron.toFixed(0)} ms`, ...[...self].sort((a, b) => b[1] - a[1]).slice(0, n).map(([k, v]) => `${v.toFixed(0).padStart(6)} ms  ${k}`)];
 }

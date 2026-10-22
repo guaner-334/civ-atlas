@@ -257,6 +257,14 @@ function postChronicle(id: number, civ: Civ, renames: Record<string, string> | u
   for (const p of chronicleParts(civ, renames ?? {}, key)) post({ type: 'chronicle', id, ...p }, [p.build.buffer as ArrayBuffer]);
   return key;
 }
+/**
+ * 同 postChronicle,先让一下(这期间到了的消息排进来):已经排着会换掉这份历史的请求(superseded)时,主线程不会换上它,
+ * 编年史就不算了(返回 undefined),好早点去推新的那一次
+ */
+async function postChronicleUnlessSuperseded(id: number, civ: Civ, renames: Record<string, string> | undefined, superseded: () => boolean): Promise<number | undefined> {
+  await new Promise((r) => setTimeout(r, 0));
+  return superseded() ? undefined : postChronicle(id, civ, renames);
+}
 
 /**
  * 各颗星球(参数 + 草图,没改地形)的扩张节拍和城的人口折算(gen/civ 的 planetTempo;null = 长不出文明):改过地形的世界推文明时要用。
@@ -821,8 +829,9 @@ async function handle(m: WorkerRequest): Promise<void> {
     if (m.type === 'resim') {
       const cloned = cloneCiv(civ);
       keepCiv(m, m.play, cloned);
-      const chron = postChronicle(m.id, civ, m.renames);
-      post({ type: 'civ', id: m.id, seq: m.seq, civ, chron, ms, tempo, eras: eraWorlds(steps), baseKey: keyOf(m.params, m.terrain, m.sketch) }, civTransferables(civ));
+      // 主线程只换上最新的一次重推;换了世界的也不换
+      const chron = await postChronicleUnlessSuperseded(m.id, civ, m.renames, () => fg.some((r) => r.type === 'generate' || r.type === 'load' || r.type === 'resim'));
+      post({ type: 'civ', id: m.id, seq: m.seq, civ, ...(chron !== undefined ? { chron } : {}), ms, tempo, eras: eraWorlds(steps), baseKey: keyOf(m.params, m.terrain, m.sketch) }, civTransferables(civ));
       queuePatches(m.id, m, steps);
       queueSnapshot(m.id, m, world, steps, cloned);
     } else post({ type: 'trial', id: m.id, tid: m.tid, civ, ms, tempo }, civTransferables(civ));
@@ -867,8 +876,8 @@ async function handle(m: WorkerRequest): Promise<void> {
     const ms = performance.now() - t0;
     const cloned = cloneCiv(civ);
     keepCiv(m, undefined, cloned);
-    const chron = postChronicle(m.id, civ, m.renames);
-    post({ type: 'extended', id: m.id, xid: m.xid, civ, chron, to, ms, tempo: noteOf(m.params, m.sketch), eras: eraWorlds(steps), baseKey: keyOf(m.params, m.terrain, m.sketch) }, civTransferables(civ));
+    const chron = await postChronicleUnlessSuperseded(m.id, civ, m.renames, stop);
+    post({ type: 'extended', id: m.id, xid: m.xid, civ, ...(chron !== undefined ? { chron } : {}), to, ms, tempo: noteOf(m.params, m.sketch), eras: eraWorlds(steps), baseKey: keyOf(m.params, m.terrain, m.sketch) }, civTransferables(civ));
     queuePatches(m.id, m, steps);
     queueSnapshot(m.id, { ...m, endYear: to }, world, steps, cloned);
   } else if (m.type === 'extendStop') {
