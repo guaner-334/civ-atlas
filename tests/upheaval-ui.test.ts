@@ -12,7 +12,9 @@ import {
   closeUpheaval,
   getUpUi,
   openUpheaval,
+  requestUpPreview,
   setUpKind,
+  setUpRunner,
   setUpSize,
   undoUpOp,
   upCancel,
@@ -29,6 +31,7 @@ import { baseRegions, civAtEra, dropComposed, eraData, eraIndex, eraReady, eraSh
 import type { Raster } from '../src/gen/raster';
 import type { World } from '../src/gen/world';
 import type { Civ } from '../src/gen/civ/types';
+import type { TerrainOp, Upheaval } from '../src/gen/edits';
 
 const SINK = { kind: 'sink' as const, pts: [100, 100, 140, 110], r: 20, s: 1.1 };
 const VOLC = { kind: 'volcano' as const, pts: [300, 200], r: 30, s: 1.1 };
@@ -167,6 +170,24 @@ describe('地形大事 · 卡片和地图上的笔', () => {
     expect(upheavalName({ ops: [SINK, SINK] })).toBe('海水漫进来');
     expect(upheavalName({ ops: [VOLC] })).toBe('火山喷发');
     expect(upheavalName({ ops: [SINK, VOLC] })).toBe('地形大事');
+  });
+
+  it('"会怎么样"发给后台的大事和预览的键是同一份:刚加了一件、重推还没完时也按新的那份算,不拿旧历史的结果记在新键下', () => {
+    const sent: { year: number; ops: TerrainOp[]; ups: readonly Upheaval[] | undefined }[] = [];
+    setUpRunner((_pid, year, ops, ups) => sent.push({ year, ops, ups }));
+    try {
+      upClick([300, 200]);
+      const ops = getUpUi().ops;
+      // 修改里刚加了第 500 年的一件(地图上还是加之前那份历史):键按它算,发给后台的也得是它
+      const ups = [{ year: 500, ops: [SINK] }];
+      requestUpPreview('有第 500 年那件', 1500, ops, ups);
+      expect(sent).toEqual([{ year: 1500, ops, ups }]);
+      // 又撤销了那件:换了键,按撤销以后的(一件没有)再算
+      requestUpPreview('一件没有', 1500, ops, undefined);
+      expect(sent[1]).toEqual({ year: 1500, ops, ups: undefined });
+    } finally {
+      setUpRunner(null);
+    }
   });
 });
 
