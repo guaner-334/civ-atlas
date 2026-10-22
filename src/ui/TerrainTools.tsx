@@ -347,6 +347,10 @@ function setDraft(s: Draft) {
   draftNow = { ...s, alt: s.alt ?? draftNow.alt, tip: s.tip };
   draftSubs.forEach((f) => f());
 }
+/** 正在画一笔(按着还没松开;拖板块的箭头也算):别的不急的活(样式缩略图)先等着 */
+export function terrainStroking(): boolean {
+  return draftNow.draft !== null || !!draftNow.tip;
+}
 function useDraft(): Draft {
   return useSyncExternalStore(
     (f) => (draftSubs.add(f), () => draftSubs.delete(f)),

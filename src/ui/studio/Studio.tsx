@@ -362,6 +362,13 @@ export function Studio(p: StudioProps) {
   const [styOpen, setStyOpen] = useState(false);
   /** 地图摊成平面:改地形的时候;照手绘图的平时也是(切到地球仪才卷起来) */
   const wantFlat = tool.on || (image && imgFlat);
+  /**
+   * 样式列表摊开着没有:电脑上右边一直摊开;手机上点开「样式」、照手绘图点开样式那一栏才摊开。
+   * 编辑地形时列表收着:每停一次笔只重画按钮上那一张(每张缩略图都要先画一整张底图),其余的摊开时再画
+   * (实景那张的整张底图收起平面时星球要用,顺手备好,点「完成」时不用当场画);别的时候照旧几张都做(点开列表时已经做好了)
+   */
+  const listOpen = image ? styOpen : !p.phone || drawer === 'style';
+  const wantThumbs = () => p.requestThumbs(listOpen || !tool.on ? STYLE_IDS : style === 'realistic' ? [style] : [style, 'realistic']);
 
   // ---- 设定(和原来的新建卡片一样) ----
   const [paramsOpen, setParamsOpen] = useState(false);
@@ -652,7 +659,7 @@ export function Studio(p: StudioProps) {
 
   // 没有 WebGL:右边样式的缩略图照样要做
   useEffect(() => {
-    if (glOk === false && p.ready) p.requestThumbs(STYLE_IDS);
+    if (glOk === false && p.ready) wantThumbs();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [glOk, p.ready, p.data]);
 
@@ -689,7 +696,7 @@ export function Studio(p: StudioProps) {
       sc.spin = first === 'globe';
       sc.setFlatBack(first);
     }
-    p.requestThumbs(STYLE_IDS);
+    wantThumbs();
   };
 
   /** 摊平着(改地形、照手绘图看平面)换了世界,星球的贴图还没跟着换 */
@@ -701,10 +708,10 @@ export function Studio(p: StudioProps) {
     if (shown.current?.mark === holdMark(d)) return;
     const prev = shown.current;
     // 摊平着看不见星球:贴图等收起平面时再换(整张底图那时多半已经在缩略图那边分小步备好了,贴上只要一下),
-    // 不在每涂一笔以后都当场整张画一遍;右边的缩略图照样做
+    // 不在每涂一笔以后都当场整张画一遍;右边的缩略图照样做(编辑地形时停笔一会儿才做,见 LayerPopover.tsx 的 useLayerThumbs)
     if (prev && wantFlat) {
       flatStale.current = true;
-      p.requestThumbs(STYLE_IDS);
+      wantThumbs();
       return;
     }
     const tag = ++tagRef.current;
@@ -727,7 +734,7 @@ export function Studio(p: StudioProps) {
       settle();
       return;
     }
-    p.requestThumbs(STYLE_IDS);
+    wantThumbs();
     // 摊平着换的(这会儿收起平面):星球还没露出来,直接换上
     if (flatStale.current) {
       flatStale.current = false;
@@ -739,6 +746,11 @@ export function Studio(p: StudioProps) {
     void sc.setStyle(`${tag}:${style}`, prev.seed === p.params.seed && prev.pkey !== pkey ? 450 : 1100).then(latest);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [glOk, p.data, p.ready, wantFlat]);
+  // 样式列表摊开了(手机点开「样式」):收着时没做的几张现在做(第一颗星球出来以前不抢在它前面)
+  useEffect(() => {
+    if (listOpen && p.ready && (shown.current || glOk === false)) p.requestThumbs(STYLE_IDS);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listOpen]);
   // 画不了地球仪(只有平面地图)时,看过的星球也照样记
   useEffect(() => {
     if (glOk !== false || !p.data || !p.ready || image || p.base) return;

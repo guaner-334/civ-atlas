@@ -1126,6 +1126,8 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
   dataRef.current = data;
   /** 生成出来的世界(地形大事以前的;线程回调里用) */
   const baseRef = useRef(baseData);
+  /** 最近一次编辑地形(按新地形重新生成)换上的那一份(就是 baseRef 那个对象;之后换了别的世界 = null):样式缩略图先留着旧的 */
+  const editedRef = useRef<object | null>(null);
   const eraMapsRef = useRef(eraMaps);
   eraMapsRef.current = eraMaps;
   /** 弯边投影:当前投影 + 中心放进地图平面(等距圆柱 = null,照原来的办法画) */
@@ -1223,6 +1225,7 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
             dropComposed();
             baseRef.current = { world: m.world, raster };
             baseKeyRef.current = m.baseKey;
+            editedRef.current = regenRef.current?.id === m.id ? baseRef.current : null;
             setData(baseRef.current);
             setEraMaps(m.eras ? eraMapsOf(m.world, m.baseKey, m.eras) : null);
             rawUps.current = genUps.current;
@@ -3143,7 +3146,11 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
     return c;
   }, []);
   // 缩略图和地图画同一段:时间轴在地形大事以前时,底图是那一段的,州也要用那一段的(shownRaw)
-  const { thumbs, request: requestThumbs } = useLayerThumbs({ data, civ: shownRaw, baseCanvas }, baseThumb(mapBase, satLook));
+  // 编辑地形换上的新地形:缩略图先留着涂之前的,停笔一会儿再重画;正在按新地形重新生成时先不画
+  const { thumbs, request: requestThumbs } = useLayerThumbs(
+    { data, civ: shownRaw, baseCanvas, edited: editedRef.current, busy: !!progress?.regen },
+    baseThumb(mapBase, satLook),
+  );
   /** 正在画的底图(缩略图上转圈;画好之前地图先留着原来的) */
   const [pendingBase, setPendingBase] = useState<{ base: BaseId; sat: SatLook } | null>(null);
   const pickTok = useRef(0);

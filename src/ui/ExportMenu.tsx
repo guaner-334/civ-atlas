@@ -12,6 +12,7 @@
  *
  * 重活在后台线程(src/exportWorker.ts,每次导出临时开一个)里做,界面不卡;主线程只画文字(要用页面里加载好的字体)、编码 PNG。
  * 用的是 App 当前显示的 civ(套过改名等修改的那份),不重新生成。
+ * 手机布局下选了 4096×2048:清晰度下面多一行橙字,说大图要多占三四百 MB 内存、手机上可能闪退,建议在电脑上导出(照样能导)。
  * 世界里有从 AI 起名里挑的名字时,清晰度下面多一行"AI 起的名字:带上 / 换回原名":换回原名 = 地图、图例、编年史用 App 给的 plain
  * (AI 起的名字换回挑之前的,见 gen/edits.ts 的 namesWithoutAi)。
  * 有作者标记时再多一行"作者标记:带上 / 不带"(默认带上):地图图片、地球仪这一面画上那一年有的标记(都写名字,见 render/marks.ts)。
@@ -56,6 +57,7 @@ import { fileBaseName, type ContourKind } from '../gen/savefile';
 import { currentWorld } from './saveStore';
 import { openFilm } from './filmStore';
 import { useNarrow } from './device';
+import { Icon } from './icons';
 
 type Job = 'map' | 'mapjpg' | 'height16' | 'height8' | 'md' | 'txt' | 'legend' | 'globe';
 
@@ -333,6 +335,18 @@ export function ExportMenu({ data, civ: shown, plain, style, layer, look = 'clas
   const globeOn = useGlobeOn();
   const narrow = useNarrow();
   const rootRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  /** 手机上选了大图、清晰度下面多出一行时卡片定住的高度(多出来的往下滚,不往上顶住上面的按钮);收起菜单就不定了 */
+  const [menuH, setMenuH] = useState<number | null>(null);
+  useEffect(() => {
+    if (!open) setMenuH(null);
+  }, [open]);
+  const pickScale = (s: ExportScale) => {
+    const el = menuRef.current;
+    if (narrow && el && s === 2 && scale === 1) setMenuH(el.offsetHeight);
+    else if (s === 1) setMenuH(null);
+    setScale(s);
+  };
 
   // 点菜单外面就收起(在捕获阶段听:地图上的按钮条拦了冒泡,点旁边的按钮照样收起)
   useEffect(() => {
@@ -518,7 +532,7 @@ export function ExportMenu({ data, civ: shown, plain, style, layer, look = 'clas
         )}
       </button>
       {open && (
-        <div className="export-menu" role="menu">
+        <div className="export-menu" role="menu" ref={menuRef} style={menuH ? { height: menuH } : undefined}>
           {/* 回放导出:点了左边面板(手机:底部卡片)换成导出的选项 */}
           <button
             className="export-item go"
@@ -551,12 +565,23 @@ export function ExportMenu({ data, civ: shown, plain, style, layer, look = 'clas
             <span>清晰度</span>
             <div className="seg">
               {([1, 2] as const).map((s) => (
-                <button key={s} className={scale === s ? 'on' : ''} onClick={() => setScale(s)} title={s === 2 ? '重新铺两倍像素,文字按两倍密度重画;适合打印、放大看' : undefined}>
+                <button key={s} className={scale === s ? 'on' : ''} onClick={() => pickScale(s)} title={s === 2 ? '重新铺两倍像素,文字按两倍密度重画;适合打印、放大看' : undefined}>
                   {/* 按钮上只写像素大小;"两倍"的意思在鼠标停上去的说明里 */}
                   {(data?.world.width ?? 2048) * s}×{(data?.world.height ?? 1024) * s}
                 </button>
               ))}
             </div>
+            {/* 手机上选了大图:后果写在选的地方(照样能导;内存大的手机导得出来) */}
+            {narrow && scale === 2 && (
+              <p className="export-warn" data-act="export-big-warn">
+                <Icon name="warn" size={14} />
+                <span>
+                  大图要多占三四百 MB 内存，手机上可能闪退。
+                  <br />
+                  要打印、放大看，建议在电脑上导出。
+                </span>
+              </p>
+            )}
           </div>
           {plain && (
             <div className="export-scale export-ainames">

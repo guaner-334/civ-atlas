@@ -7,7 +7,9 @@
  *     着色器按"光从屏幕左上方来"重新打光,两极不会光从背后来 —— 这张要重算整张图的明暗,后台线程画(globeWorker.ts),
  *     画好之前先用主图那张;数据图层直接用主图那张。
  *     放大到 1.5 倍以上、贴图不够清楚时,后台线程按两倍像素重铺一张换上。缩放 1 倍、换画风、换世界都不会自己去铺高清的;
- *     铺好的缩回去以后留着,换画风再换回来直接用,换世界才扔
+ *     铺好的缩回去以后留着,换画风再换回来直接用,换世界才扔。
+ *     手机布局下不自己去铺(铺的那一下要多占三四百 MB 内存,内存小的手机上网页会被系统关掉重开):放大到要铺的时候顶上问一句,
+ *     点「换高清」才铺,这次打开网页一直记着(之后和电脑上一样自己铺);点 ✕ 就算了。每次打开地球仪最多问一次
  *   - 文明贴图:国土 / 民族色块(还有宜居度、州界细线、城址这几个调试图层),这里自己画一张(drawCivFill,不含国界和道路),
  *     时间轴一动就重画、重新上传(手绘风停着时水彩按地球仪贴图的林块让位);选中的国家 / 州的罩染也是自己画的一张(不含描边)
  *   - 高亮层(编年史闪烁):罩染自己画一张,描边、圆圈每帧画成矢量(见下)
@@ -25,7 +27,7 @@
  *
  * 交互:拖动旋转(松手有惯性)、滚轮 / 双指缩放、双击回正(北在上、赤道居中、整个球);球上不放按钮 ——
  * 经纬网在图层与投影弹层里开关,"导出地球仪这一面"在导出菜单里(exportGlobeView);
- * 状态(没有 WebGL2、高清贴图加载得慢)用顶部提示条。
+ * 状态(没有 WebGL2、高清贴图加载得慢、手机上问要不要换高清)用顶部提示条。
  * 单击由 App 统一处理(和主图同一套选中逻辑),这里提供"屏幕点 → 主图像素""点到了哪个符号 / 字""世界坐标 → 屏幕"(GlobeApi)。
  * 右侧的国家面板打开时球心往左挪半个面板宽(0.6 秒过渡),转到的国家落在去掉面板后的可见区域正中。
  *
@@ -70,6 +72,7 @@ import {
 import { getCivFeed, subscribeCivFeed } from './CivLayer';
 import { getProjection, lastFlatProjection, setProjection, useGraticuleLines, useProjection } from './projection';
 import { clearToast, showToast } from './toastStore';
+import { isNarrow } from './device';
 import { getMapCenter, publishMapCenter } from './mapWrap';
 import { animProgress } from './flyTo';
 import { drawSettlementMarks, type SettlementMarkInfo } from '../render/civ/settlements';
@@ -356,6 +359,8 @@ const FLASH: [number, number][] = [
 const FLASH_MS = 2200;
 /** 高清贴图最多留几张(每张 4096×2048,约 32 MB;换画风再换回来不用重铺) */
 const HD_CACHE = 3;
+/** 手机布局下点过「换高清」(这次打开网页一直记着:之后放大就和电脑上一样自己铺) */
+let hdOnPhone = false;
 
 function flashAt(t: number): number {
   for (let i = 1; i < FLASH.length; i++) {
@@ -787,7 +792,7 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
      * 高清贴图:这个世界里已经铺好的(按画风 / 图层存,缩回去、换画风再换回来都留着,换世界才扔)、
      * 正在铺的是哪一张、铺失败过的、一共起过几次后台线程
      */
-    hd: { world: null as World | null, cache: new Map<string, HdTexture>(), pending: null as string | null, failed: new Set<string>(), started: 0 },
+    hd: { world: null as World | null, cache: new Map<string, HdTexture>(), pending: null as string | null, failed: new Set<string>(), started: 0, asked: false },
     /** 后台画好的、主图那么大的地球仪贴图(写实风;按画风存,换世界才扔)、画失败过的 */
     lo: { cache: new Map<string, HdTexture>(), failed: new Set<string>(), started: 0 },
     cpuSrc: { terrain: null as RgbaImage | null, civ: null as RgbaImage | null, sel: null as RgbaImage | null, replay: null as RgbaImage | null },
@@ -1172,7 +1177,31 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
       maxTexture: gl.maxTextureSize,
       hdWidth: p.terrain.width * 2,
     });
-    if (want) texWorker(2);
+    if (!want) return;
+    // 手机布局:先问一句(每次打开地球仪最多问一次),点了「换高清」才铺
+    if (isNarrow() && !hdOnPhone) return askHd();
+    texWorker(2);
+  };
+  /** 手机上问要不要换高清贴图:点「换高清」= 这次打开网页都照常铺;点 ✕ 这次打开地球仪不再问 */
+  const askHd = () => {
+    if (s.hd.asked) return;
+    s.hd.asked = true;
+    showToast({
+      id: 'globe-hd-ask',
+      kind: 'info',
+      text: '放大以后贴图不够清楚',
+      more: ['要多占三四百 MB 内存，手机上可能闪退'],
+      dismissible: true,
+      action: {
+        label: '换高清',
+        act: 'globe-hd',
+        onClick: () => {
+          hdOnPhone = true;
+          clearToast('globe-hd-ask');
+          invalidate();
+        },
+      },
+    });
   };
   /** 写实风:还在用主图那张(烤好了明暗)时,后台画地球仪用的那张(不打光 + 坡度) */
   const maybeGlobeTex = () => {
@@ -2015,6 +2044,8 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
       clearToast('globe-hd');
     };
   }, [hiLoading]);
+  // 关了地球仪:问要不要换高清的那条跟着收起
+  useEffect(() => () => clearToast('globe-hd-ask'), []);
 
   return (
     <div

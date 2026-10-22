@@ -6,7 +6,7 @@
  *   --only=new36k,edit20                                     只跑这几个场景   --out=snaps/mem.json  原始数据
  *
  * 场景:new36k / new200k 新建世界(3.6 万 / 20 万地块);edit20 编辑地形连涂 20 笔;open 打开一个世界;play 播放时间轴 45 秒;
- * director 导播 45 秒;globe 地球仪开关 3 次(每次转几下);export 导出地图图片 1 倍、2 倍;switch5 回我的世界新建并创建,连换 5 个世界;
+ * director 导播 45 秒;globe 地球仪开关 3 次(每次转几下);globezoom 打开地球仪放大到 2.4 倍、5 倍;export 导出地图图片 1 倍、2 倍;switch5 回我的世界新建并创建,连换 5 个世界;
  * stepui 逐年推演的界面:世界卡片里「从这里演绎」,照默认设置往下走 60 秒(停下来就点「接着演绎」);
  * stepwise50 逐年推演走 50 步(一步 20 年;只量后台线程这一头:在空白首页里另开一个生成线程,按逐年推演的请求一步步走)。
  *
@@ -490,6 +490,26 @@ await scenario('globe', 'seed=7&play=0', async (rig, mark) => {
     await sleep(3000);
     await mark(`第 ${c} 次回到平面`);
   }
+});
+
+await scenario('globezoom', 'seed=7&play=0', async (rig, mark) => {
+  const p = rig.page;
+  await civReady(rig);
+  await sleep(5000);
+  await mark('地球仪前');
+  await p.tap('[data-act=globe]');
+  await p.waitForFunction(() => (window as any).__wfGlobe?.ready, null, { timeout: 60000 });
+  await sleep(3000);
+  await mark('打开地球仪');
+  // 放大到 2.4 倍、再到 5 倍,各停一会儿(主图那张不够清楚:以前自己去铺高清贴图)
+  for (const k of [2.4, 5]) {
+    await p.evaluate((k) => (window as any).__wfGlobeSet(20, 20, k), k);
+    await sleep(12000);
+    await mark(`放大 ${k} 倍`);
+  }
+  const g = await p.evaluate(() => (window as any).__wfGlobe);
+  const ask = await p.locator('.toast [data-act=globe-hd]').count();
+  return `贴图第 ${g?.tier} 档,起过 ${g?.hdStarted} 次高清;顶上${ask ? '问了「换高清」' : '没有问'}`;
 });
 
 await scenario('export', 'seed=7&play=0', async (rig, mark) => {
