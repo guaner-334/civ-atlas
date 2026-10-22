@@ -12,8 +12,8 @@ import type { Civ } from '../gen/civ/types';
 import { fullChronicle } from '../gen/civ/religionText';
 import { ownersAt } from '../gen/civ/timeline';
 import { fileBaseName } from '../gen/savefile';
-import { historyNoteStatus, listHistoryNotes } from '../ai/history';
-import { loadScope } from '../ai/prompts/history';
+import { historyNoteStatus, listHistoryNotes, type HistoryNote } from '../ai/history';
+import { buildHistoryPrompts, loadScope, partName, type HistoryScope } from '../ai/prompts/history';
 import { flagSvg } from '../render/flag/flagSvg';
 import { highlightBox } from '../render/civ/highlight';
 import { MapShot, type ShotArea, type ShotScene } from '../render/shot';
@@ -26,7 +26,7 @@ import { currentWorld } from './saveStore';
 import { getEdits } from './editsStore';
 import { bookTitleText } from './bookStore';
 import { getLong, setLong } from './longStore';
-import { bookChapters, defaultPolity, longDoc, longFileName, polityLastYear, type LongBook, type LongDoc, type LongMap } from './longPlan';
+import { bookChapters, defaultPolity, longDoc, longFileName, polityLastYear, type BookSection, type LongBook, type LongDoc, type LongMap } from './longPlan';
 import { polityNameAt } from './searchIndex';
 import { showToast } from './toastStore';
 
@@ -97,10 +97,27 @@ export function longBookOf(full: Civ, polity: number | null): LongBookState {
   let v = m.get(key);
   if (!v) {
     const name = bookTitleText(note.book.title, note.book.scope, world.title, era);
-    v = historyNoteStatus(full, note).stale ? { kind: 'stale', name } : { kind: 'ok', name, book: { name, chapters: bookChapters(note.text, note.book.range) } };
+    const st = historyNoteStatus(full, note);
+    v = st.stale || !st.scope ? { kind: 'stale', name } : { kind: 'ok', name, book: { name, chapters: bookChapters(note.text, note.book.range, bookSections(full, st.scope, note)) } };
     m.set(key, v);
   }
   return v;
+}
+
+/**
+ * 写这部史书时怎么分的章 / 篇(历史对得上时,照同样的选项再分一次结果一样):纪传体的"## 本纪·大定"标题里没有年份,靠它对上
+ */
+function bookSections(full: Civ, scope: HistoryScope, note: HistoryNote): BookSection[] {
+  try {
+    return buildHistoryPrompts(full, { scope, style: note.book.style, length: note.book.length }).sections.map((s) => ({
+      from: s.from,
+      to: s.to,
+      label: s.part ? partName(s) : undefined,
+      skip: s.part === 'lives',
+    }));
+  } catch {
+    return [];
+  }
 }
 
 /** 按现在的选项写长图的内容 */

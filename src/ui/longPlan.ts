@@ -41,6 +41,16 @@ export interface BookChapter {
   text: string;
 }
 
+/** 写这部史书时分的章 / 篇(纪传体的篇名不带年份,靠它对上年份) */
+export interface BookSection {
+  from: number;
+  to: number;
+  /** 纪传体的篇名:"本纪·大定" / "世家·萨布斯坦王国" / "列传";按时间分章的没有 */
+  label?: string;
+  /** 列传:写人的,不按年份放进长图 */
+  skip?: boolean;
+}
+
 export interface LongOptions {
   scope: LongScope;
   /** 一国版:哪一国 */
@@ -170,8 +180,10 @@ const BEFORE_NOTE = '此前各民族从发源地向外扩散，还没有国家';
 // ---------------------------------------------------------------------------
 // AI 写的段落
 
-/** 章标题末尾的年份:"(第 0—1045 年)""（1045-1536）" */
-const CH_YEARS = /\s*[(（]\s*(?:第\s*)?(\d+)\s*(?:年)?\s*[—–\-~至到]+\s*(?:第\s*)?(\d+)\s*年?\s*[)）]\s*$/;
+/** 章标题末尾的年份:"(第 0—1045 年)""（1045-1536）""(第 1200 年)" */
+const CH_YEARS = /\s*[(（]\s*(?:第\s*)?(\d+)\s*(?:年)?\s*(?:[—–\-~至到]+\s*(?:第\s*)?(\d+)\s*年?\s*)?[)）]\s*$/;
+/** 列传:写人的,不按年份放进长图 */
+const CH_LIVES = /^列传/;
 const CH_NUM = /^(第[一二三四五六七八九十百零〇两\d]+[章卷篇回]|卷[一二三四五六七八九十百零〇\d]+)/;
 const CH_PART = /^(本纪|世家)\s*[·・:：]\s*(.+)$/;
 
@@ -184,32 +196,39 @@ function chapterLabel(head: string): string {
 }
 
 /**
- * 史书正文(Markdown)分成章:"## 第三章 群雄并起(第 1500—1999 年)"这样带年份的标题算一章,取它下面的第一段。
- * 没写年份的标题(列传、书名)不算;整部书没有分章(短篇)= 整部算一章,年份按 range("第 0—3000 年")
+ * 史书正文(Markdown)分成章,取每章标题下面的第一段:
+ * - "## 第三章 群雄并起(第 1500—1999 年)"这样标题带年份的,年份照标题;
+ * - 不带年份的(纪传体的"## 本纪·大定")按写书时的分章 sections 对上年份:先按篇名对,对不上而标题和分章一样多时按第几个对;
+ * - 列传写的是人,不放;
+ * - 一章也没对上(短篇不分章、标题都没年份)= 整部书第一段(列传里的不算)算一章,年份按 range("第 0—3000 年")
  */
-export function bookChapters(text: string, range = ''): BookChapter[] {
+export function bookChapters(text: string, range = '', sections: readonly BookSection[] = []): BookChapter[] {
+  const lines = text
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean);
+  const heads = lines.filter((l) => /^##(?!#)/.test(l)).length;
   const out: BookChapter[] = [];
   let cur: BookChapter | null = null;
-  let headed = false;
-  let lead = '';
-  for (const raw of text.split('\n')) {
-    const line = raw.trim();
-    if (!line) continue;
+  let lives = false;
+  let k = -1;
+  let first = '';
+  for (const line of lines) {
     const h = /^(#{1,6})\s*(.*)$/.exec(line);
     if (h) {
       if (h[1].length > 2) continue;
+      if (h[1].length === 2) k++;
       const body = h[2].replace(/\*\*/g, '').trim();
       const ym = CH_YEARS.exec(body);
-      if (ym) {
-        headed = true;
-        cur = { from: Number(ym[1]), to: Number(ym[2]), label: chapterLabel(body.slice(0, ym.index).trim()), text: '' };
-        if (cur.to >= cur.from) out.push(cur);
-        else cur = null;
-      } else if (h[1].length === 2) {
-        // 不带年份的一章(列传……):它下面的不算进上一章
-        headed = true;
-        cur = null;
-      }
+      const label = chapterLabel((ym ? body.slice(0, ym.index) : body).trim());
+      if (h[1].length === 1 && !ym) continue; // 书名
+      const sec = sections.find((s) => s.label !== undefined && s.label === label) ?? (heads === sections.length ? sections[k] : undefined);
+      lives = CH_LIVES.test(label) || !!sec?.skip;
+      cur = null;
+      if (lives) continue;
+      const from = ym ? Number(ym[1]) : sec?.from;
+      const to = ym ? Number(ym[2] ?? ym[1]) : sec?.to;
+      if (from !== undefined && to !== undefined && to >= from) out.push((cur = { from, to, label, text: '' }));
       continue;
     }
     if (/^(-{3,}|\*{3,}|_{3,})$/.test(line)) continue;
@@ -218,16 +237,14 @@ export function bookChapters(text: string, range = ''): BookChapter[] {
       .replace(/^[-*·]\s+/, '')
       .replace(/\*\*/g, '')
       .trim();
-    if (!para) continue;
-    if (cur) {
-      if (!cur.text) cur.text = para;
-    } else if (!headed && !lead) lead = para;
+    if (!para || lives) continue;
+    if (!first) first = para;
+    if (cur && !cur.text) cur.text = para;
   }
-  if (!headed && lead) {
-    const m = /(\d+)\D+(\d+)/.exec(range);
-    if (m) return [{ from: Number(m[1]), to: Number(m[2]), label: '', text: lead }];
-  }
-  return out.filter((c) => c.text);
+  const ok = out.filter((c) => c.text);
+  if (ok.length || !first) return ok;
+  const m = /(\d+)(?:\D+(\d+))?/.exec(range);
+  return m ? [{ from: Number(m[1]), to: Number(m[2] ?? m[1]), label: '', text: first }] : [];
 }
 
 /** 一段太长就截短:在 max 个字以内最后一个句号处断开;没有句号就截断加"……" */

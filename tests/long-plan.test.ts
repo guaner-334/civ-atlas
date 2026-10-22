@@ -9,6 +9,7 @@ import { filterChronicle } from '../src/gen/civ/chronicle';
 import { fullChronicle } from '../src/gen/civ/religionText';
 import { generateCiv } from '../src/gen/civ';
 import { DEFAULT_PARAMS, generateWorld } from '../src/gen/world';
+import { buildHistoryPrompts, partName } from '../src/ai/prompts/history';
 import {
   bookChapters,
   defaultPolity,
@@ -19,6 +20,7 @@ import {
   placeChapters,
   polityEntries,
   regionCounts,
+  type BookSection,
   type LongBook,
   type LongDoc,
   type LongOptions,
@@ -207,6 +209,26 @@ describe('AI 写的段落', () => {
     // 没分章的短篇:整部算一章
     expect(bookChapters('# 九州通史\n\n天下初开。\n\n后来。', '第 0—3000 年')).toEqual([{ from: 0, to: 3000, label: '', text: '天下初开。' }]);
     expect(bookChapters('## 本纪·大定王朝(第 588—3000 年)\n\n大定起于凤州。')[0].label).toBe('本纪·大定王朝');
+    expect(bookChapters('## 第四章 一年之变(第 1200 年)\n\n这一年。')).toEqual([{ from: 1200, to: 1200, label: '第四章', text: '这一年。' }]);
+  });
+
+  it('纪传体:篇名不带年份,按写书时的分篇对上年份;列传不放;一篇也对不上 = 整部第一段', () => {
+    const secs = buildHistoryPrompts(civ, { scope: { kind: 'world' }, style: 'biography', length: 'k10' }).sections;
+    const parts = secs.filter((s) => s.part !== 'lives');
+    expect(parts.length).toBeGreaterThan(1);
+    const text = secs.map((s, i) => `## ${partName(s)}\n\n${s.part === 'lives' ? '### 某某传\n\n某某者,凤州人也。' : `第 ${i} 篇开头。`}\n\n后文。`).join('\n\n');
+    const sections: BookSection[] = secs.map((s) => ({ from: s.from, to: s.to, label: s.part ? partName(s) : undefined, skip: s.part === 'lives' }));
+    expect(bookChapters(text, '第 0—3000 年', sections)).toEqual(
+      parts.map((s) => ({ from: s.from, to: s.to, label: partName(s), text: `第 ${secs.indexOf(s)} 篇开头。` })),
+    );
+    // 篇名写走了样(没有"·"),篇数对得上:按第几篇对
+    const loose = text.replace(/## (本纪|世家)·/g, '## $1 ');
+    expect(bookChapters(loose, '第 0—3000 年', sections).map((c) => [c.from, c.to])).toEqual(parts.map((s) => [s.from, s.to]));
+    // 短篇不分篇(先本纪、再列传):整部的第一段,列传里的不算
+    expect(bookChapters('## 本纪·大定\n\n大定起于凤州。\n\n## 列传\n\n### 某某传\n\n某某者。', '第 588—3000 年', [{ from: 588, to: 3000 }])).toEqual([
+      { from: 588, to: 3000, label: '', text: '大定起于凤州。' },
+    ]);
+    expect(bookChapters('## 列传\n\n### 某某传\n\n某某者。', '第 0—3000 年')).toEqual([]);
   });
 
   it('一章放在它开始的那一段;比第一段开始得早的放第一段;一段里开始了几章只放最先的', () => {
