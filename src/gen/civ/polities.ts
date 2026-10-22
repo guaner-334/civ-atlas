@@ -1193,13 +1193,16 @@ export function resumePolities(sim: CivSim, world: World, civ: Civ, iv?: Interve
       cur[r] = v;
     }
   }
-  // 还没建城的州(城被毁了的州不算:重建由 cities.ts 管)
+  // 建城:住得了人的州在定居那一刻预约过,还没到的补上。州里已经有城(或有过城、后来被毁了)的照样补:到时州里有城就建不成,
+  // 城被毁了、还没重建的就建一座新城,和一口气推完一样(立国干预在没人住的州先来一支新民族、当场建城,城没过几年就被毁,就会这样)。
+  // 地形大事那一刻接着推(sim.legacy)用早先的接法:有过城的州不补(重建由 cities.ts 管)
   const hadCity = new Uint8Array(R);
   for (const s of m.settlements) hadCity[s.region] = 1;
   // 按定居的先后预约(一口气推完时是定居那一刻预约的):同一刻建两座城的,先后和一口气推完一样
   const toFound: number[] = [];
   for (let r = 0; r < R; r++) {
-    if (culture[r] < 0 || hadCity[r] || !T.habitable[r] || !(settled[r] < Infinity)) continue;
+    if (culture[r] < 0 || !T.habitable[r] || !(settled[r] < Infinity)) continue;
+    if (sim.legacy ? hadCity[r] : quantize(settled[r] + foundDelay(m, r)) <= now) continue;
     toFound.push(r);
   }
   toFound.sort((x, y) => settledAt[x] - settledAt[y]);
