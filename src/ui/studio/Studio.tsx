@@ -198,6 +198,8 @@ export interface StudioProps {
   naming: boolean;
   /** 编辑地形时不推历史:正在编辑(还没收起)或正在补推,历史一会儿就有 */
   later: boolean;
+  /** 补推的地名刚起好(星球上的地名淡入快一点) */
+  namesIn: boolean;
   /** 照手绘图新建在第 2 步「用笔修改」点了「创建世界」:当作离开这一步(App 补推历史、起地名) */
   onLeaveTerrain: () => void;
   /** 世界出来了(不在生成) */
@@ -2018,7 +2020,7 @@ export function Studio(p: StudioProps) {
     <div ref={rootRef} className={cls} data-theme="dark" data-hold={hold} style={p.phone ? ({ '--sheet-h': `${sheetH}px` } as React.CSSProperties) : undefined}>
       <div ref={glowRef} className="st-glow" aria-hidden="true" />
       <canvas ref={glRef} className="st-gl" aria-label="这颗星球" />
-      <canvas ref={labRef} className={`st-labels${labOn && !tool.on && !out && glOk ? ' on' : ''}`} aria-hidden="true" />
+      <canvas ref={labRef} className={`st-labels${labOn && !tool.on && !out && glOk ? ' on' : ''}${p.namesIn ? ' names-in' : ''}`} aria-hidden="true" />
       <canvas ref={markRef} className={`st-labels st-marks${markOn && astShown && !tool.on && !out && glOk ? ' on' : ''}`} data-marks={markOn && astShown ? marks.length : 0} aria-hidden="true" />
       {pins}
       {(drawer || styOpen) && (

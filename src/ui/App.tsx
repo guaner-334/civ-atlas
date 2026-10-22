@@ -5115,10 +5115,10 @@ ${s.image.cells}` : null);
     clearToast('terrain');
     showToast({ id: 'names', kind: 'progress', text: '正在起地名', more: ['按新地形起山河湖海的名字'], progress: namingPct });
   }, [namingPct]);
-  // 地名刚起好:地图上的字淡入(见 app.css 的 .screen-layer.names-in),淡完摘掉
+  // 地名刚起好:地图上的字淡入(见 app.css 的 .screen-layer.names-in;星球上的等卷成星球、停稳才排,多留一会儿),淡完摘掉
   useEffect(() => {
     if (!namesIn) return;
-    return cancelTimeout(setTimeout(() => setNamesIn(0), 400));
+    return cancelTimeout(setTimeout(() => setNamesIn(0), 1200));
   }, [namesIn]);
 
   // 推演出来没有文明(宜居的陆地太少):建好的世界说一句(新建时卡片上写,可以换一颗)
@@ -5320,6 +5320,7 @@ ${s.image.cells}` : null);
       busy={!!progress || !!resim}
       naming={namingPct !== null}
       later={namesHeld || namingPct !== null}
+      namesIn={!!namesIn}
       onLeaveTerrain={releaseNames}
       ready={!!data && !progress}
       noCiv={noCiv}

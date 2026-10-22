@@ -1159,6 +1159,15 @@
   opacity: 1;
   transition: opacity 0.3s ease;
 }
+/* 编辑地形以后补起的地名(收起编辑地形时才起):淡入快一点;减少动态效果时直接换上 */
+.st-labels.on.names-in {
+  transition-duration: 0.2s;
+}
+@media (prefers-reduced-motion: reduce) {
+  .st-labels.names-in {
+    transition: none;
+  }
+}
 
 /* ---- 照手绘图新建(.st-image):左边图片那一行和三步(SketchSteps.tsx)、地图上方的切换条、电脑上地图下边的提示 ---- */
 /* 组和组之间比随机生成那页的分区挨得近 */
