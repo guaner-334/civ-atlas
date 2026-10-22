@@ -2,6 +2,7 @@
  * 首页下载量检查:npx tsx scripts/first-load.ts [构建目录,默认 dist](先 pnpm build)
  *
  * 打开网站时浏览器先要下载的:页面本身、它直接引用的代码(入口和入口静态 import 的几份)、样式。
+ * 页面里的加载画面先数着把它们下好再交给浏览器(scripts/lib/loadScreen.ts),要下的写在那一段的文件清单里,从那里读。
  * 主程序(地图、推演、编辑地形、助手、导出……)单独一个文件,首页出来以后才在后台下载(src/ui/Boot.tsx),不算在这里;
  * 首页那颗星球的图第一次来才下,也另列。
  * 每个文件写原大小、gzip(9 级)和 brotli(11 级)压过的大小;网站服务器发预先压好的文件时,下载的就是后两种之一。
@@ -13,6 +14,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join, posix } from 'node:path';
 import { brotliCompressSync, constants, gzipSync } from 'node:zlib';
+import { loadFilesIn } from './lib/loadScreen';
 
 /** 首页的代码 + 样式,gzip 压过以后的上限(KB)。2026-10 拆开主程序后是 240 KB 左右,留了一点余量 */
 const LIMIT_KB = 270;
@@ -34,12 +36,15 @@ function sizeOf(file: string): Size {
   return { file, raw: buf.length, gz: Math.min(gz, buf.length), br: Math.min(br, buf.length) };
 }
 
-/** 页面里直接引用的代码、样式(入口、modulepreload、样式表) */
+/** 页面里直接引用的代码、样式(入口、modulepreload、样式表;加载画面文件清单里主程序以外的几样) */
 const refs = new Set<string>();
 for (const m of html.matchAll(/<(?:script|link)\b[^>]*?(?:src|href)="\.?\/?([^"]+\.(?:js|css))"[^>]*>/g)) refs.add(m[1]);
-const entry = [...html.matchAll(/<script\b[^>]*type="module"[^>]*src="\.?\/?([^"]+\.js)"/g)].map((m) => m[1]);
+const listed = loadFilesIn(html) ?? [];
+const strip = (u: string) => u.replace(/^\.?\//, '');
+for (const f of listed) if (f[3] !== 3) refs.add(strip(f[0]));
+const entry = [...[...html.matchAll(/<script\b[^>]*type="module"[^>]*src="\.?\/?([^"]+\.js)"/g)].map((m) => m[1]), ...listed.filter((f) => f[3] === 1).map((f) => strip(f[0]))];
 if (!entry.length) {
-  console.error('index.html 里没找到入口代码(<script type="module" src=...>),构建的写法可能改过');
+  console.error('index.html 里没找到入口代码(<script type="module" src=...>,或加载画面文件清单里的入口),构建的写法可能改过');
   process.exit(1);
 }
 /** 入口静态 import 的代码(压缩后的写法:import"./x.js"、from"./x.js";动态的 import("./x.js") 不算) */

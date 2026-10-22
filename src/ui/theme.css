@@ -14,6 +14,9 @@
  *   --ev-war 战争 / --ev-dynasty 改朝 / --ev-found 立国 / --ev-empire 称帝 / --ev-assim 同化 / --ev-faith 宗教 / --ev-era 时代 / --ev-calamity 灾异
  *   --halo 地图上文字的描边(text-shadow 的值)
  * 另有几项辅助值(--hover-bg 文字按钮悬停底、--field 输入框底、阴影、字体)。
+ *
+ * 第一次打开时的加载画面(scripts/lib/loadScreen.ts)在这份样式下好之前就要画出来,用不了这里的变量,
+ * 底色、字色、主色、线、按钮底照这里抄了一份:改这几样时那边一起改。
  */
 :root,
 [data-theme='light'] {
