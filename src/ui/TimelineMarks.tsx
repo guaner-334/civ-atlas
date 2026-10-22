@@ -6,23 +6,53 @@
  *
  * - 拖动 / 点空处:时间轴跳到那一年(暂停)。点菱形或"令""变":和在编年史里点那一条一样(civView.ts 的 pickChronicleEntry:
  *   跳到那一年、地图上闪出事发地、必要时平移地图)。
- * - 悬停菱形出提示(类型、年份、纪事);挤在一起合并成的菱形,提示里列出每一件,点哪一行就跳到哪一件。
- *   单独一件地形大事的"变":提示是两行(第一行"1600 年 · 地形大事",第二行纪事)。
- *   手机上点一下同时弹出提示,约三秒后收起。
+ * - 悬停菱形出提示(类型、年份、纪事);挤在一起合并成的菱形,提示里列出每一件(不限件数,太长了提示里往下滚),点哪一行就跳到哪一件;
+ *   大崩解那一条底下一国一行列出分出来的国家。单独一件地形大事的"变":提示是两行(第一行"1600 年 · 地形大事",第二行纪事)。
+ *   宽屏上用手指点一下:跳过去,同时弹出提示,约三秒后收起。
+ * - 手机(small):点一下不跳年份,胶囊上面升起一张卡片列出这一处的每一件(能往下滑);点卡片里的一行才跳到那一年、地图上闪出事发地;
+ *   点 ×、点地图(这一下不再当成地图上的单击)、拖时间轴收起。
+ * - 合并进来的几件里有新国家立起来(立国、自立、复国、大崩解分出来的、饥民起事立的),点本身的颜色又不是立国的:上面叠一颗小绿点。
+ * - 选中了国家(life):从它立国到亡(还在 = 到头)铺一道它的国色,立国那头一颗绿点;宽屏写"2391 立国""2837 亡";和它无关的圆点变淡。
  * - 键盘:← → 前后 10 年(按住 Shift 100 年),Home / End 到头 / 到尾。
  * - 只在换世界 / 换筛选 / 轨道宽度变了时重排。
  * - 再推 N 年(ExtendYears.tsx):推的时候(grow)轨道按推完的长度排,新的一段推好了的浅蓝、没推到的虚线,上面一行字;
  *   这时只能拖到推之前的结束年份(limit)。推完以后刚推的那段(fresh)底下垫一道浅蓝、起点一条细线。
  */
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
-import type { ChronicleEntry } from '../gen/civ/chronicle';
-import { eraText, yearFull, yearShort, type Era } from '../gen/era';
+import { Fragment, memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
+import { entryInvolves, type ChronicleEntry } from '../gen/civ/chronicle';
+import { eraText, yearAt, yearFull, yearShort, yearSpanAt, type Era } from '../gen/era';
 import { useMonths } from './editsStore';
 import { getCivTime, pickChronicleEntry, setCivTime, stepYear } from './civView';
-import { evLabel, evText, evType, evYears, hitDiamonds, layoutDiamonds, rulerLabel, rulerOf, timeScale, type Diamond } from './timelineLayout';
+import {
+  LIFE_FONT,
+  LIFE_PAD,
+  evLabel,
+  evText,
+  evType,
+  evYears,
+  hidesFounding,
+  hitDiamonds,
+  labelSpan,
+  layoutDiamonds,
+  lifeLabels,
+  rulerLabel,
+  rulerOf,
+  textWidth,
+  timeScale,
+  type Diamond,
+} from './timelineLayout';
+import { openOverview } from './overviewStore';
+import { noteDismiss } from './dismissClick';
+import { Icon } from './icons';
 
-/** 提示最多列几件 */
-const TIP_ROWS = 5;
+/** 提示最高多少(像素,约 8 行;再多在提示里往下滚) */
+const TIP_MAX_H = 300;
+/** 手机卡片里列表最高多少(像素;胶囊上面放不下时再矮一些,至少 LIST_MIN_H) */
+const LIST_MAX_H = 352;
+const LIST_MIN_H = 120;
+/** 手机卡片离胶囊、离屏幕两边多远(像素) */
+const CARD_GAP = 5;
+const CARD_SIDE = 8;
 /** 指针在这条线以上(像素,轨道里)按下才算点菱形 / "令";以下是拖动年份 */
 const MARK_ROW = 22;
 /** 按下后移动超过这么多(像素)算拖动 */
@@ -57,7 +87,7 @@ export interface TimelineMarksProps {
   era?: Era;
   /** 导出回放视频时选的一段 */
   range?: TimelineRange;
-  /** 手机上的小号(把手窄一点) */
+  /** 手机上的小号:把手窄一点;点圆点先列出卡片、不跳年份;选中国家时两头不写字 */
   small?: boolean;
   /** 最多拖到哪一年(再推的时候 = 推之前的结束年份;不给 = end) */
   limit?: number;
@@ -65,6 +95,16 @@ export interface TimelineMarksProps {
   grow?: { from: number; at: number | null; note?: ReactNode };
   /** 刚推的那段从第几年起(垫一道浅蓝、起点一条细线;不给 = 不标) */
   fresh?: number;
+  /** 选中的国家:标出它的一生(不给 = 没选国家) */
+  life?: TimelineLife;
+}
+
+/** 选中的国家:哪一国、哪年立国、哪年亡(还在 = null)、国色 */
+export interface TimelineLife {
+  polity: number;
+  founded: number;
+  ended: number | null;
+  color: readonly [number, number, number];
 }
 
 /** 正在再推那段上面的字:离轨道两头至少这么远(像素) */
@@ -72,12 +112,19 @@ const NOTE_PAD = 2;
 
 type Tip = Diamond & { pinned?: boolean };
 
-export const TimelineMarks = memo(function TimelineMarks({ entries, end, dock, year, era, range, small, limit, grow, fresh }: TimelineMarksProps) {
+export const TimelineMarks = memo(function TimelineMarks({ entries, end, dock, year, era, range, small, limit, grow, fresh, life }: TimelineMarksProps) {
   const ref = useRef<HTMLDivElement>(null);
   const months = useMonths();
   const tipRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
   const [tip, setTip] = useState<Tip | null>(null);
+  // 手机:点开的那一处(卡片)、卡片里点过的那一行
+  const [card, setCard] = useState<Diamond | null>(null);
+  const [picked, setPicked] = useState<ChronicleEntry | null>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const [listMore, setListMore] = useState(false);
+  const [listEnd, setListEnd] = useState(false);
   const hideTimer = useRef(0);
   const press = useRef<{ x: number; id: number; hit: Diamond | null; drag: boolean; touch: boolean; handle?: 'from' | 'to' } | null>(null);
   const rangeRef = useRef(range);
@@ -96,11 +143,14 @@ export const TimelineMarks = memo(function TimelineMarks({ entries, end, dock, y
 
   const layout = useMemo(() => layoutDiamonds(entries, end, width), [entries, end, width]);
 
-  // 换世界 / 换筛选:收起提示
-  useEffect(() => setTip(null), [layout]);
+  // 换世界 / 换筛选:收起提示、卡片
+  useEffect(() => {
+    setTip(null);
+    setCard(null);
+  }, [layout]);
   useEffect(() => () => clearTimeout(hideTimer.current), []);
 
-  // 提示放在时间轴外面(底部时朝上、顶部时朝下),左右不出地图
+  // 提示放在时间轴外面(底部时朝上、顶部时朝下),左右不出地图;件数多了不高过 TIP_MAX_H,也不出地图(在提示里往下滚)
   useLayoutEffect(() => {
     const el = tipRef.current;
     const track = ref.current;
@@ -108,6 +158,11 @@ export const TimelineMarks = memo(function TimelineMarks({ entries, end, dock, y
     const bar = (track.closest('.timebar') ?? track).getBoundingClientRect();
     const stage = (track.closest('.stage') ?? document.body).getBoundingClientRect();
     const L = track.getBoundingClientRect();
+    if (el.classList.contains('tb-tip')) {
+      const room = dock === 'top' ? stage.bottom - 8 - bar.bottom - 6 : bar.top - 6 - stage.top - 8;
+      el.style.maxHeight = `${Math.max(120, Math.min(TIP_MAX_H, room))}px`;
+      el.scrollTop = 0;
+    }
     const r = el.getBoundingClientRect();
     // 地形大事的小提示贴着「变」字:从它左边一点起,紧挨在它上面(顶部时在下面)
     const mark = el.classList.contains('up-tip') ? track.querySelector('.up-mark.on')?.getBoundingClientRect() : undefined;
@@ -117,6 +172,46 @@ export const TimelineMarks = memo(function TimelineMarks({ entries, end, dock, y
     el.style.top = `${top - L.top}px`;
     el.style.visibility = 'visible';
   }, [tip, dock]);
+
+  // 手机卡片:比胶囊左右各宽一点,底边贴着胶囊上沿;列表最高 LIST_MAX_H,往上不超过右上角那一列按钮的顶(没有就离屏幕顶 12 像素)
+  useLayoutEffect(() => {
+    const el = cardRef.current;
+    const list = listRef.current;
+    const track = ref.current;
+    if (!el || !list || !track || !card) return;
+    const place = () => {
+      const bar = (track.closest('.timebar') ?? track).getBoundingClientRect();
+      const app = track.closest('.app');
+      const btns = app?.querySelector('.phone-btns')?.getBoundingClientRect();
+      const top0 = btns && btns.height > 0 ? btns.top : (app ?? document.body).getBoundingClientRect().top + 12;
+      const L = track.getBoundingClientRect();
+      list.style.maxHeight = '';
+      const rest = el.offsetHeight - list.offsetHeight;
+      list.style.maxHeight = `${Math.max(LIST_MIN_H, Math.min(LIST_MAX_H, bar.top - CARD_GAP - top0 - rest))}px`;
+      el.style.left = `${bar.left - (CARD_SIDE - 4) - L.left}px`;
+      el.style.width = `${bar.width + (CARD_SIDE - 4) * 2}px`;
+      el.style.top = `${bar.top - CARD_GAP - el.offsetHeight - L.top}px`;
+      el.style.visibility = 'visible';
+      setListMore(list.scrollHeight > list.clientHeight + 1);
+    };
+    list.scrollTop = 0;
+    setListEnd(false);
+    place();
+    window.addEventListener('resize', place);
+    return () => window.removeEventListener('resize', place);
+  }, [card]);
+
+  // 手机卡片开着:点卡片和时间轴以外的地方(地图、别的按钮)收起;按在地图上的这一下只收起卡片,不再当成地图上的单击
+  useEffect(() => {
+    if (!card) return;
+    const down = (e: PointerEvent) => {
+      if (ref.current?.contains(e.target as Node)) return;
+      noteDismiss(e);
+      setCard(null);
+    };
+    window.addEventListener('pointerdown', down, true);
+    return () => window.removeEventListener('pointerdown', down, true);
+  }, [card]);
 
   const keep = () => clearTimeout(hideTimer.current);
   const hideSoon = (ms: number) => {
@@ -149,7 +244,7 @@ export const TimelineMarks = memo(function TimelineMarks({ entries, end, dock, y
     if (h === 'from') r.onRange(Math.max(0, Math.min(y, r.to - min)), r.to);
     else r.onRange(r.from, Math.min(end, Math.max(y, r.from + min)));
   };
-  const inTip = (e: React.SyntheticEvent) => !!tipRef.current?.contains(e.target as Node);
+  const inTip = (e: React.SyntheticEvent) => !!tipRef.current?.contains(e.target as Node) || !!cardRef.current?.contains(e.target as Node);
 
   const onDown = (e: React.PointerEvent) => {
     if (e.button !== 0 || inTip(e) || range?.locked) return;
@@ -164,7 +259,10 @@ export const TimelineMarks = memo(function TimelineMarks({ entries, end, dock, y
       /* 没有这个指针 */
     }
     if (handle) setTip(null);
-    else if (!hit) scrub(e.clientX);
+    else if (!hit) {
+      setCard(null);
+      scrub(e.clientX);
+    }
   };
   const onMove = (e: React.PointerEvent) => {
     const pr = press.current;
@@ -176,12 +274,14 @@ export const TimelineMarks = memo(function TimelineMarks({ entries, end, dock, y
       }
       if (pr.drag || !pr.hit) {
         setTip(null);
+        setCard(null);
         scrub(e.clientX);
       }
       return;
     }
     if (inTip(e)) return keep();
-    if (e.pointerType === 'touch' || range) return;
+    // 手机上不悬停(点了出卡片)
+    if (e.pointerType === 'touch' || range || small) return;
     const h = hitDiamonds(layout, localX(e.clientX));
     if (h) {
       keep();
@@ -194,11 +294,23 @@ export const TimelineMarks = memo(function TimelineMarks({ entries, end, dock, y
     press.current = null;
     setCivTime({ scrubbing: false });
     if (pr.hit && !pr.drag) {
+      // 手机:先在卡片里列出这一处的每一件,不跳年份(点卡片里的一行才跳)
+      if (small) {
+        setTip(null);
+        setPicked(null);
+        setCard(pr.hit);
+        return;
+      }
       pickChronicleEntry(pr.hit.lead);
-      // 手机上没有悬停:点一下同时弹出提示,三秒后收起
+      // 宽屏上用手指点:没有悬停,点一下同时弹出提示,三秒后收起
       setTip({ ...pr.hit, pinned: pr.touch });
       if (pr.touch) hideSoon(3000);
     }
+  };
+  /** 卡片里点一行:跳到那一年、地图上闪出事发地;卡片留着,这一行标成选中 */
+  const goRow = (e: ChronicleEntry) => {
+    pickChronicleEntry(e);
+    setPicked(e);
   };
   const onKey = (e: React.KeyboardEvent) => {
     // 一次走 10 年(按住 Shift 100 年);推得更久的世界按比例放大。导出视频时只在选的那一段里走,导出中不动
@@ -214,12 +326,15 @@ export const TimelineMarks = memo(function TimelineMarks({ entries, end, dock, y
     if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') go(-step);
     else if (e.key === 'ArrowRight' || e.key === 'ArrowUp') go(step);
     else if (e.key === 'Home' || e.key === 'End') setCivTime({ year: e.key === 'Home' ? lo : hi, playing: false, story: false });
-    else return;
+    else if (e.key === 'Escape' && (tip || card)) {
+      setTip(null);
+      setCard(null);
+    } else return;
     e.preventDefault();
   };
 
   // 刻度、字、菱形、"令":只在排版变了时重新生成(播放时每年重新渲染一次,只改读屏用的年份)
-  const hot = tip?.lead;
+  const hot = (tip ?? card)?.lead;
   const growFrom = grow ? Math.min(end, Math.max(0, grow.from)) : null;
   const static_ = useMemo(() => {
     const ticks: ReactElement[] = [];
@@ -263,19 +378,71 @@ export const TimelineMarks = memo(function TimelineMarks({ entries, end, dock, y
     el.style.left = `${Math.max(NOTE_PAD, Math.min(width - NOTE_PAD - w, (a + width) / 2 - w / 2))}px`;
     el.style.visibility = 'visible';
   }, [noteText, growFrom, width, end]);
+  // 选中的国家:一道国色(基线底下,播放头以下)、立国那头的绿点和两头的字(圆点上面);cover = 两头的字占的地方(那里不叠小绿点)
+  const lifeEls = useMemo(() => {
+    if (!life || range || !(width > 0) || !(end > 0)) return null;
+    const X = (y: number) => (Math.min(end, Math.max(0, y)) / end) * width;
+    const a = X(life.founded);
+    const b = X(life.ended ?? top);
+    const [r, g, bl] = life.color;
+    const band = (
+      <i
+        className="tb-life"
+        data-polity={life.polity}
+        style={{ left: a, width: Math.max(3, b - a), background: `rgba(${r}, ${g}, ${bl}, 0.55)`, boxShadow: `inset 0 0 0 1px rgba(${r}, ${g}, ${bl}, 0.9)` }}
+      />
+    );
+    let labs: ReactNode = null;
+    const cover: [number, number][] = [];
+    if (!small) {
+      const fa = `${rulerLabel(life.founded, era)} 立国`;
+      const fb = life.ended !== null ? `${rulerLabel(life.ended, era)} 亡` : '';
+      const wa = textWidth(fa, LIFE_FONT, LIFE_PAD);
+      const wb = textWidth(fb, LIFE_FONT, LIFE_PAD);
+      const L = lifeLabels(a, life.ended !== null ? b : null, wa, wb, width);
+      cover.push(labelSpan(L.found, wa));
+      if (L.end) cover.push(labelSpan(L.end, wb));
+      labs = (
+        <>
+          <span className={`tb-life-lab ${L.found.align}`} style={{ left: L.found.x }}>
+            {fa}
+          </span>
+          {L.end && (
+            <span className={`tb-life-lab gone ${L.end.align}`} style={{ left: L.end.x }}>
+              {fb}
+            </span>
+          )}
+        </>
+      );
+    }
+    return {
+      band,
+      cover,
+      top: (
+        <>
+          <i className="tb-life-found" style={{ left: a }} />
+          {labs}
+        </>
+      ),
+    };
+  }, [life, range, width, end, top, small, era]);
+
+  const lifeId = life && !range ? life.polity : null;
   const marks = useMemo(
     () => (
       <>
-        {layout.marks.map((d) => (
-          <i
-            key={`m${d.lead.id}`}
-            className={`tb-mark${d.items.length > 1 ? ' many' : ''}${hot === d.lead ? ' on' : ''}${range && (d.lead.year < range.from || d.lead.year > range.to + 1) ? ' out' : ''}`}
-            data-ev={evType(d.lead)}
-            data-year={Math.floor(d.lead.year)}
-            data-n={d.items.length}
-            style={{ left: d.x }}
-          />
-        ))}
+        {layout.marks.map((d) => {
+          const dim = lifeId !== null && !d.items.some((e) => entryInvolves(e, lifeId));
+          const state = `${hot === d.lead ? ' on' : ''}${range && (d.lead.year < range.from || d.lead.year > range.to + 1) ? ' out' : ''}${dim ? ' dim' : ''}`;
+          // 里面有新国家立起来、颜色又不是立国的:上面叠一颗绿点(选中国家时:和它无关的、压在"立国""亡"那两个字底下的不叠)
+          const up = hidesFounding(d) && !dim && !lifeEls?.cover.some(([l, r]) => d.x > l - 3 && d.x < r + 3);
+          return (
+            <Fragment key={`m${d.lead.id}`}>
+              <i className={`tb-mark${d.items.length > 1 ? ' many' : ''}${state}`} data-ev={evType(d.lead)} data-year={Math.floor(d.lead.year)} data-n={d.items.length} style={{ left: d.x }} />
+              {up && <i className={`tb-mark-up${state}`} data-ev="found" data-year={Math.floor(d.lead.year)} style={{ left: d.x }} />}
+            </Fragment>
+          );
+        })}
         {layout.orders.map((d) => (
           <i
             key={`o${d.lead.id}`}
@@ -300,10 +467,12 @@ export const TimelineMarks = memo(function TimelineMarks({ entries, end, dock, y
         ))}
       </>
     ),
-    [layout, hot, width, range?.from, range?.to],
+    [layout, hot, width, range?.from, range?.to, lifeId, lifeEls],
   );
 
-  const more = tip ? tip.items.length - TIP_ROWS : 0;
+  /** 提示、卡片里一条纪事底下列的:大崩解分出来的每一国(编年史里那一条展开的几行) */
+  const subRows = (e: ChronicleEntry) => (e.kind === 'collapse' ? (e.children ?? []) : []);
+  const cardCur = card ? (picked ?? card.lead) : null;
   return (
     <div
       ref={ref}
@@ -331,7 +500,9 @@ export const TimelineMarks = memo(function TimelineMarks({ entries, end, dock, y
       )}
       {growFrom !== null && width > 0 && <GrowTrack from={growFrom} at={grow!.at} end={end} width={width} />}
       <i className="tb-prog" />
+      {lifeEls?.band}
       {marks}
+      {lifeEls?.top}
       {/* 写在圆点上面(字宽的时候垫着底色,盖住底下的圆点),播放头下面 */}
       {growFrom !== null && grow!.note && (
         <span ref={noteRef} className="tb-grow-note" style={{ visibility: 'hidden' }}>
@@ -383,27 +554,100 @@ export const TimelineMarks = memo(function TimelineMarks({ entries, end, dock, y
           onPointerEnter={keep}
           onPointerLeave={() => !tip.pinned && hideSoon(220)}
         >
-          {tip.items.slice(0, TIP_ROWS).map((e) => (
+          {tip.items.map((e) => (
+            <Fragment key={e.id}>
+              <div
+                className={`tb-tip-row${e === tip.lead ? ' lead' : ''}`}
+                data-ev={evType(e)}
+                onClick={() => {
+                  pickChronicleEntry(e);
+                  setTip({ ...tip, lead: e });
+                }}
+              >
+                <b className="tb-ev">{evLabel(e)}</b>
+                <span className="tb-tip-year">{evYears(e, era, months)}</span>
+                <span className="tb-tip-text">{eraText(evText(e), era)}</span>
+              </div>
+              {subRows(e).map((c) => (
+                <div
+                  key={`c${c.id}`}
+                  className={`tb-tip-row sub${c === tip.lead ? ' lead' : ''}`}
+                  data-ev={evType(c)}
+                  onClick={() => {
+                    pickChronicleEntry(c);
+                    setTip({ ...tip, lead: c });
+                  }}
+                >
+                  <b className="tb-ev">{evLabel(c)}</b>
+                  <span className="tb-tip-text">{eraText(evText(c), era)}</span>
+                </div>
+              ))}
+            </Fragment>
+          ))}
+        </div>
+      )}
+      {card && (
+        <div ref={cardRef} className="tb-card" role="dialog" aria-label={`${cardTitle(card, era)},${card.items.length} 件`} style={{ visibility: 'hidden' }} onPointerDown={(e) => e.stopPropagation()}>
+          <div className="tb-card-head">
+            <b>{cardTitle(card, era)}</b>
+            <em>{card.items.length} 件</em>
+            <span className="tb-card-sp" />
+            <button className="tb-card-x" aria-label="收起" data-act="timeline-card-close" onClick={() => setCard(null)}>
+              <Icon name="close" size={15} />
+            </button>
+          </div>
+          <div className={`tb-card-body${listMore && !listEnd ? ' more' : ''}`}>
             <div
-              key={e.id}
-              className={`tb-tip-row${e === tip.lead ? ' lead' : ''}`}
-              data-ev={evType(e)}
-              onClick={() => {
-                pickChronicleEntry(e);
-                setTip({ ...tip, lead: e });
+              ref={listRef}
+              className="tb-card-list"
+              onScroll={(e) => {
+                const el = e.currentTarget;
+                setListEnd(el.scrollTop + el.clientHeight >= el.scrollHeight - 2);
               }}
             >
-              <b className="tb-ev">{evLabel(e)}</b>
-              <span className="tb-tip-year">{evYears(e, era, months)}</span>
-              <span className="tb-tip-text">{eraText(evText(e), era)}</span>
+              {card.items.map((e) => (
+                <Fragment key={e.id}>
+                  <div className={`tb-card-row${e === cardCur ? ' cur' : ''}`} data-ev={evType(e)} data-year={Math.floor(e.year)} onClick={() => goRow(e)}>
+                    <span className="tb-card-y">{yearShort(e.year, era)}</span>
+                    <b className="tb-ev">{evLabel(e)}</b>
+                    <span className="tb-card-x2">{eraText(evText(e), era)}</span>
+                  </div>
+                  {subRows(e).map((c) => (
+                    <div key={`c${c.id}`} className={`tb-card-row sub${c === cardCur ? ' cur' : ''}`} data-ev={evType(c)} onClick={() => goRow(c)}>
+                      <b className="tb-ev">{evLabel(c)}</b>
+                      <span className="tb-card-x2">{eraText(evText(c), era)}</span>
+                    </div>
+                  ))}
+                </Fragment>
+              ))}
             </div>
-          ))}
-          {more > 0 && <div className="tb-tip-more">这里还有 {more} 件,打开编年史看全部</div>}
+          </div>
+          <div className="tb-card-foot">
+            <span>{listMore ? `往下滑看全部 ${card.items.length} 件` : ''}</span>
+            <button
+              className="tb-card-link"
+              data-act="timeline-card-chronicle"
+              onClick={() => {
+                openOverview('chronicle', { at: (cardCur ?? card.lead).year });
+                setCard(null);
+              }}
+            >
+              <Icon name="book" size={15} />
+              编年史
+            </button>
+          </div>
         </div>
       )}
     </div>
   );
 });
+
+/** 手机卡片的标题:"2759–2980 年"(只有一件、或都在同一年:"2759 年") */
+function cardTitle(d: Diamond, era?: Era): string {
+  const a = d.items[0].year;
+  const b = d.items[d.items.length - 1].year;
+  return Math.floor(b) > Math.floor(a) ? yearSpanAt(a, b, era) : yearAt(a, era);
+}
 
 /** 正在再推的那一段:推好了的浅蓝(像播放条上"已缓冲"的那截,跟着推到哪年长),还没推到的虚线 */
 function GrowTrack({ from, at, end, width }: { from: number; at: number | null; end: number; width: number }) {

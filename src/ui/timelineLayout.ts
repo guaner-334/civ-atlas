@@ -11,6 +11,8 @@
  *   卡片上的类型名按一字标签细分("攻占""迁都"……)。
  * - 刻度:每条纪事一个小菱形(战争画在开战那年);挨得太近(DIAMOND_GAP 像素以内)合并成一个,
  *   颜色取其中分量最重的那一件,悬停列出每一件。干预单独一种"令"标记、地形大事一种"变"标记,不和菱形合并。
+ *   合并进来的有新国家立起来(bringsState)、点本身又不是立国的颜色:上面叠一颗小绿点(hidesFounding),立国不会被盖住。
+ * - 选中国家时两头的字("2391 立国""2837 亡")怎么摆:lifeLabels。
  * - 刻度尺(rulerOf):3000 年的世界每 100 年一小格、1000 年写字;推得更久的放大大格(2000 / 5000 / 10000 年),字不超过七个。
  *   设了纪年的刻度对准元年:字写在元年和它前后整千年(整大格)的地方("前2000""元年""1000"),两头写起止,离两头太近的不写。
  * - 播放:推得比 3000 年久的世界,播放速度、自动播放放的那一段、方向键一次走的年数跟着年数放大(放完整段的时间不变)。
@@ -341,6 +343,60 @@ export function layoutDiamonds(entries: readonly ChronicleEntry[], end: number, 
   }
   flush();
   return { marks, orders, shifts };
+}
+
+/**
+ * 这一条里有没有新国家立起来:立国、分裂自立、复国、饥民起事立的国、大崩解时分出来的几国(崩解那一条下面有自立的子条目)。
+ * 藩属绝贡自立(defect)不算:那个国家早就有了
+ */
+export function bringsState(e: Pick<ChronicleEntry, 'kind' | 'children'>): boolean {
+  if (e.kind === 'found' || e.kind === 'split' || e.kind === 'revolt') return true;
+  return e.kind === 'collapse' && !!e.children?.some((c) => c.kind === 'split');
+}
+
+/** 这个点上面要不要叠一颗立国的绿点:合并进来的里有新国家立起来,点本身的颜色又不是立国的 */
+export function hidesFounding(d: Diamond): boolean {
+  return evType(d.lead) !== 'found' && d.items.some(bringsState);
+}
+
+/** 选中国家那一道两头的字:写在哪(像素,轨道左端 = 0)、怎么对齐(mid = 字的中间对准,start = 字从这里往右写,end = 字写到这里为止) */
+export interface LifeLabel {
+  x: number;
+  align: 'mid' | 'start' | 'end';
+}
+
+/** 两个字之间至少空这么多(像素) */
+const LIFE_LABEL_GAP = 6;
+/** 两头的字:字号、左右留白加起来(像素,和 timeline.css 的 .tb-life-lab 一致) */
+export const LIFE_FONT = 11.5;
+export const LIFE_PAD = 8;
+
+/** 一个字占的地方 [左, 右](像素;w = 字宽) */
+export function labelSpan(l: LifeLabel, w: number): [number, number] {
+  return l.align === 'mid' ? [l.x - w / 2, l.x + w / 2] : l.align === 'start' ? [l.x, l.x + w] : [l.x - w, l.x];
+}
+
+/**
+ * 选中国家时,时间轴上立国那头("2391 立国")和亡的那头("2837 亡")的字怎么摆:
+ * 平常字的中间对准那一年;出了轨道两头就往里挂;两个字挤在一起时立国的往左挂、亡的往右挂,还挤(或往外挂出了轨道)就只写立国。
+ * a / b = 立国 / 亡那一年在轨道上的位置(还在 = null),wa / wb = 两个字的宽,width = 轨道宽
+ */
+export function lifeLabels(a: number, b: number | null, wa: number, wb: number, width: number): { found: LifeLabel; end: LifeLabel | null } {
+  const fit = (x: number, w: number): LifeLabel['align'] => (x - w / 2 < 0 ? 'start' : x + w / 2 > width ? 'end' : 'mid');
+  const found: LifeLabel = { x: a, align: fit(a, wa) };
+  if (b === null) return { found, end: null };
+  const end: LifeLabel = { x: b, align: fit(b, wb) };
+  if (labelSpan(found, wa)[1] + LIFE_LABEL_GAP <= labelSpan(end, wb)[0]) return { found, end };
+  // 立国的写到那一年为止、亡的从那一年写起:两个字一左一右,不会叠
+  if (a - wa >= 0 && b + wb <= width) return { found: { x: a, align: 'end' }, end: { x: b, align: 'start' } };
+  return { found, end: null };
+}
+
+/** 估一行字有多宽(像素):数字、字母按半个字多一点,空格三分之一,汉字一个字;pad = 左右留白加起来 */
+export function textWidth(s: string, size: number, pad = 0): number {
+  let w = 0;
+  for (const c of s) w += c === ' ' ? size * 0.3 : /[\x00-\x7f]/.test(c) ? size * 0.6 : size;
+  return w + pad;
 }
 
 /**

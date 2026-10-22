@@ -192,6 +192,32 @@
   height: 6px;
   margin-left: -3px;
 }
+/* 挤掉的里有新国家立起来:圆点上面叠一颗小绿点;选中了国家:和它无关的圆点变淡(和整段历史的时间轴一样,见 timeline.css) */
+.timebar .sw-track > .sw-dot.up {
+  top: 2.5px;
+  width: 6px;
+  height: 6px;
+  margin-left: -3px;
+}
+.timebar.sw-bar.phone .sw-track > .sw-dot.up {
+  top: 15.5px;
+}
+.timebar .sw-track > .sw-dot.dim {
+  opacity: 0.28;
+}
+/* 选中的国家:国色那一道在实线底下(压着一步一格的刻度),立国的绿点对准圆点那一行 */
+.sw-track > .tb-life {
+  top: 28px;
+}
+.sw-track > .tb-life-found {
+  top: 8.25px;
+}
+.sw-bar.phone .sw-track > .tb-life {
+  top: 40px;
+}
+.sw-bar.phone .sw-track > .tb-life-found {
+  top: 21px;
+}
 .sw-bar.phone .sw-flag {
   top: 17px;
 }

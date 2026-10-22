@@ -14,10 +14,10 @@
  *   StepSideGroup    侧栏 / 手机世界卡片里「这个故事」一组(推进设置、存回推演模式)
  *   StepEffectTime   干预页上的"生效时间:第 N 年年初(下一步)"
  */
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type MutableRefObject } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type MutableRefObject } from 'react';
 import type { Civ } from '../gen/civ/types';
 import type { World } from '../gen/world';
-import type { ChronicleEntry } from '../gen/civ/chronicle';
+import { entryInvolves, type ChronicleEntry } from '../gen/civ/chronicle';
 import { fullChronicle } from '../gen/civ/religionText';
 import { advanceOf, type Advance, type Intervention } from '../gen/edits';
 import { eraText, yearAt, yearFull, yearShort, type Era } from '../gen/era';
@@ -82,7 +82,7 @@ import {
   useStepwise,
   type StepwiseState,
 } from './stepwiseStore';
-import { entryWeight, evType } from './timelineLayout';
+import { LIFE_FONT, LIFE_PAD, bringsState, entryWeight, evType, labelSpan, lifeLabels, rulerLabel, textWidth, type LifeLabel } from './timelineLayout';
 import { TimelineYear } from './JumpYear';
 import { baseRegions } from './eras';
 import { Icon } from './icons';
@@ -559,20 +559,79 @@ export function StepwiseEngine({ world, civ }: { world: World; civ: Civ | null }
 // ---------------------------------------------------------------------------
 // 时间轴
 
-/** 圆点挤在一起(间距小于 gap 像素)时留分量重的 */
-function stepDots(list: readonly ChronicleEntry[], x: (y: number) => number, gap: number): { px: number; e: ChronicleEntry }[] {
-  const kept: { px: number; w: number; e: ChronicleEntry }[] = [];
+/**
+ * 圆点挤在一起(间距小于 gap 像素)时留分量重的;all = 挤在这一处的每一件。
+ * 留下的那件不是立国、挤掉的里有新国家立起来:found = 那一件(圆点上面叠一颗小绿点,点它看那一件)
+ */
+function stepDots(list: readonly ChronicleEntry[], x: (y: number) => number, gap: number): { px: number; e: ChronicleEntry; all: ChronicleEntry[]; found?: ChronicleEntry }[] {
+  const kept: { px: number; w: number; e: ChronicleEntry; all: ChronicleEntry[]; found?: ChronicleEntry }[] = [];
   for (const e of list) {
     const px = x(e.year);
     const w = entryWeight(e);
     const prev = kept[kept.length - 1];
     if (prev && px - prev.px < gap) {
+      prev.all.push(e);
       if (w > prev.w) Object.assign(prev, { px, w, e });
       continue;
     }
-    kept.push({ px, w, e });
+    kept.push({ px, w, e, all: [e] });
   }
+  for (const k of kept) if (evType(k.e) !== 'found') k.found = k.all.find(bringsState);
   return kept;
+}
+
+/**
+ * 选中的国家在这一段里的那一截(和整段历史的时间轴同一个样子):一道国色(到这一段的尽头;还在的到 upTo 为止)、
+ * 立国在这一段里的话那头一颗绿点;宽屏写"2391 立国""2837 亡"(在这一段里的才写)。这一段里没有它 = null;
+ * cover = 字占的地方(那里不叠小绿点)
+ */
+function stepLife(civ: Civ, id: number, from: number, upTo: number, x: (y: number) => number, W: number, phone: boolean, era: Era | null | undefined) {
+  const p = civ.polities[id];
+  if (!p) return null;
+  const a0 = Math.max(p.founded, from);
+  const b0 = Math.min(p.ended ?? upTo, upTo);
+  if (!(b0 >= a0)) return null;
+  const a = x(a0);
+  const b = x(b0);
+  const [r, g, bl] = p.color;
+  const foundIn = p.founded >= from;
+  const endIn = p.ended !== undefined && p.ended <= upTo;
+  const cover: [number, number][] = [];
+  let found: LifeLabel | null = null;
+  let end: LifeLabel | null = null;
+  const fa = `${rulerLabel(p.founded, era)} 立国`;
+  const fb = endIn ? `${rulerLabel(p.ended!, era)} 亡` : '';
+  const wa = textWidth(fa, LIFE_FONT, LIFE_PAD);
+  const wb = textWidth(fb, LIFE_FONT, LIFE_PAD);
+  if (!phone && foundIn) ({ found, end } = lifeLabels(a, endIn ? b : null, wa, wb, W));
+  else if (!phone && endIn) end = lifeLabels(b, null, wb, 0, W).found;
+  if (found) cover.push(labelSpan(found, wa));
+  if (end) cover.push(labelSpan(end, wb));
+  return {
+    cover,
+    band: (
+      <i
+        className="tb-life"
+        data-polity={id}
+        style={{ left: a, width: Math.max(3, b - a), background: `rgba(${r}, ${g}, ${bl}, 0.55)`, boxShadow: `inset 0 0 0 1px rgba(${r}, ${g}, ${bl}, 0.9)` }}
+      />
+    ),
+    top: (
+      <>
+        {foundIn && <i className="tb-life-found" style={{ left: a }} />}
+        {found && (
+          <span className={`tb-life-lab ${found.align}`} style={{ left: found.x }}>
+            {fa}
+          </span>
+        )}
+        {end && (
+          <span className={`tb-life-lab gone ${end.align}`} style={{ left: end.x }}>
+            {fb}
+          </span>
+        )}
+      </>
+    ),
+  };
 }
 
 export function StepTimeline({ civ, phone, hidden }: { civ: Civ | null; phone: boolean; hidden?: boolean }) {
@@ -599,6 +658,9 @@ export function StepTimeline({ civ, phone, hidden }: { civ: Civ | null; phone: b
   // 一段只有几十年:比整段历史的时间轴细一层,重要度 2 的事也画
   const all = useMemo(() => (civ && civ.viable ? fullChronicle(civ).filter((e) => e.importance >= STEP_DOT_IMPORTANCE) : []), [civ]);
   const marks = useMemo(() => all.filter((e) => e.year >= from && (past ? e.year < to : e.year <= upTo)), [all, from, to, past, upTo]);
+  // 选中了国家:和整段历史的时间轴一样标出它的一生(这一段里的那一截)
+  const picked = useSelection().sel;
+  const lifeId = picked?.kind === 'polity' ? picked.id : null;
   const track = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
   useLayoutEffect(() => {
@@ -638,6 +700,7 @@ export function StepTimeline({ civ, phone, hidden }: { civ: Civ | null; phone: b
   const stepLen = Math.max(1, adv.step);
   if (W > 0 && (stepLen / (to - from)) * W >= 4) for (let y = from + stepLen; y < to; y += stepLen) ticks.push(x(y));
   const dots = W > 0 ? stepDots(marks, x, phone ? 8 : 9) : [];
+  const life = W > 0 && lifeId !== null ? stepLife(civ, lifeId, from, past ? to : Math.min(st.now, to), x, W, phone, era) : null;
   const done = past || st.now >= to;
   const auto = d.on && d.pace === 'auto';
   const toggle = stepwiseToggle;
@@ -710,6 +773,7 @@ export function StepTimeline({ civ, phone, hidden }: { civ: Civ | null; phone: b
         }}
         onPointerUp={(e) => scrubTo(e.clientX, true)}
       >
+        {life?.band}
         {ticks.map((tx, i) => (
           <i key={i} className="sw-tick" style={{ left: tx }} />
         ))}
@@ -717,17 +781,35 @@ export function StepTimeline({ civ, phone, hidden }: { civ: Civ | null; phone: b
         {(past || lookUp) && <i className="sw-done" style={{ width: past ? W : x(upTo) }} />}
         <i className="sw-fill" />
         {!done && <i className="sw-future" style={{ left: nowX + (phone ? 11 : 12), width: Math.max(0, W - nowX - (phone ? 11 : 12)) }} />}
-        {dots.map((k) => (
-          <button
-            key={k.e.id}
-            className="sw-dot"
-            data-ev={evType(k.e)}
-            style={{ left: k.px }}
-            aria-label={`${yearShort(k.e.year, era)} ${eraText(k.e.text, era)}`}
-            onPointerDown={stop}
-            onClick={() => pickChronicleEntry(k.e)}
-          />
-        ))}
+        {dots.map((k) => {
+          // 选中了国家:和它无关的变淡(上面不叠绿点)
+          const dim = lifeId !== null && !k.all.some((e) => entryInvolves(e, lifeId));
+          const f = !dim && k.found && !life?.cover.some(([l, r]) => k.px > l - 3 && k.px < r + 3) ? k.found : undefined;
+          return (
+            <Fragment key={k.e.id}>
+              <button
+                className={`sw-dot${dim ? ' dim' : ''}`}
+                data-ev={evType(k.e)}
+                style={{ left: k.px }}
+                aria-label={`${yearShort(k.e.year, era)} ${eraText(k.e.text, era)}`}
+                onPointerDown={stop}
+                onClick={() => pickChronicleEntry(k.e)}
+              />
+              {/* 挤掉的里有新国家立起来:上面叠一颗小绿点,点它看那一件 */}
+              {f && (
+                <button
+                  className="sw-dot up"
+                  data-ev="found"
+                  style={{ left: k.px }}
+                  aria-label={`${yearShort(f.year, era)} ${eraText(f.text, era)}`}
+                  onPointerDown={stop}
+                  onClick={() => pickChronicleEntry(f)}
+                />
+              )}
+            </Fragment>
+          );
+        })}
+        {life?.top}
         {!phone && !done && W - nowX > 260 && (
           <span className="sw-fut-note" style={{ left: (nowX + W) / 2 }}>
             以后的事还没发生

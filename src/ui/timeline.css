@@ -537,6 +537,65 @@
 .tb-mark.on {
   transform: scale(1.6);
 }
+/* 合并的点里有新国家立起来、点本身又不是立国的颜色:上面叠一颗绿点(和底下的点一起放大、一起变淡) */
+.tb-mark-up {
+  top: 2.5px;
+  width: 6px;
+  height: 6px;
+  margin-left: -3px;
+  border-radius: 50%;
+  background: var(--c);
+  transition: transform 0.12s;
+  pointer-events: none;
+}
+.tb-mark-up.on {
+  transform: scale(1.6);
+}
+/* 选中了国家:和它无关的点变淡(上面不叠绿点) */
+.tb-mark.dim {
+  opacity: 0.28;
+}
+
+/* ---- 选中的国家:从立国到亡一道它的国色(基线底下;颜色在行内给)、立国那头一颗绿点、两头写年份(手机不写) ---- */
+.tb-life {
+  top: 29px;
+  height: 5px;
+  border-radius: 3px;
+  pointer-events: none;
+}
+.tb-life-found {
+  top: 7px;
+  width: 10px;
+  height: 10px;
+  margin-left: -5px;
+  border-radius: 50%;
+  background: var(--ev-found, #2e9a58);
+  box-shadow:
+    0 0 0 2px var(--surface, #fff),
+    0 1px 3px rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+}
+.tb-life-lab {
+  position: absolute;
+  top: -7px;
+  padding: 1px 4px;
+  font: 600 11.5px/1.1 var(--tb-sans);
+  color: var(--ev-found, #2e9a58);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  text-shadow: none;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+.tb-life-lab.start {
+  transform: none;
+}
+.tb-life-lab.end {
+  transform: translateX(-100%);
+}
+.tb-life-lab.gone {
+  color: var(--ink-2, #6e6e73);
+}
 .tb-order {
   top: 4px;
   width: 2px;
@@ -592,6 +651,10 @@
   box-shadow: var(--shadow-float, 0 14px 36px rgba(0, 0, 0, 0.22));
   text-shadow: none;
   cursor: default;
+  /* 件数多了在提示里往下滚(最高多少在 TimelineMarks.tsx 里按地图上面还有多少地方算) */
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
 }
 .tb-tip-row {
   display: grid;
@@ -612,10 +675,148 @@
   color: var(--ink-2, #65594a);
   white-space: nowrap;
 }
-.tb-tip-more {
-  padding: 4px 12px 2px;
-  font-size: 12px;
-  color: var(--ink-2, #65594a);
+/* 大崩解那一条底下:分出来的每一国一行(不写年份,缩进到正文那一列) */
+.tb-tip-row.sub {
+  grid-template-columns: auto 1fr;
+  padding: 3px 12px 3px 34px;
+  font-size: 12.5px;
+}
+
+/* ---- 手机:点时间轴上的圆点,胶囊上面升起一张卡片,列出这一处的每一件(位置在 TimelineMarks.tsx 里算) ---- */
+.bottom-row:has(.tb-card) {
+  z-index: 6;
+}
+.tb-card {
+  position: absolute;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  border-radius: 18px;
+  overflow: hidden;
+  background: var(--panel-solid, #f5f5f7);
+  box-shadow: var(--shadow-float, 0 10px 40px rgba(0, 0, 0, 0.2));
+  color: var(--ink, #1d1d1f);
+  font-family: var(--font-sans);
+  text-shadow: none;
+  cursor: default;
+}
+.tb-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 12px 8px 16px;
+  font-size: 16px;
+  font-weight: 600;
+}
+.tb-card-head b {
+  font-weight: 600;
+  white-space: nowrap;
+}
+.tb-card-head em {
+  font-style: normal;
+  font-size: 13.5px;
+  font-weight: 400;
+  color: var(--ink-2, #6e6e73);
+  white-space: nowrap;
+}
+.tb-card-sp {
+  flex: 1;
+}
+.timebar button.tb-card-x {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--btn, rgba(118, 118, 128, 0.12));
+  color: var(--ink, #1d1d1f);
+}
+/* 列表下面还有:底边一层渐变(滑到底就去掉) */
+.tb-card-body {
+  position: relative;
+  min-height: 0;
+}
+.tb-card-body.more::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 40px;
+  background: linear-gradient(color-mix(in srgb, var(--panel-solid, #f5f5f7) 0%, transparent), var(--panel-solid, #f5f5f7));
+  pointer-events: none;
+}
+.tb-card-list {
+  max-height: 352px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+}
+.tb-card-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 9px 16px;
+  font-size: 14px;
+  line-height: 1.45;
+  border-top: 0.5px solid var(--line, rgba(60, 60, 67, 0.16));
+  cursor: pointer;
+}
+.tb-card-row.cur {
+  background: var(--accent-soft, rgba(0, 122, 255, 0.12));
+}
+@media (hover: hover) {
+  .tb-card-row:not(.cur):hover {
+    background: rgba(128, 128, 128, 0.08);
+  }
+}
+.tb-card-y {
+  flex: none;
+  min-width: 36px;
+  color: var(--ink-2, #6e6e73);
+  font-variant-numeric: tabular-nums;
+}
+.tb-card-row .tb-ev {
+  flex: none;
+  padding-top: 1px;
+}
+.tb-card-x2 {
+  flex: 1;
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+/* 大崩解分出来的每一国:不写年份,缩进到类型那一列 */
+.tb-card-row.sub {
+  padding: 4px 16px 6px 60px;
+  border-top: 0;
+  font-size: 13px;
+}
+.tb-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px 10px 16px;
+  border-top: 0.5px solid var(--line, rgba(60, 60, 67, 0.16));
+  font-size: 12.5px;
+  color: var(--ink-2, #6e6e73);
+}
+.timebar button.tb-card-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 4px;
+  border-radius: var(--r-btn, 8px);
+  color: var(--link, #007aff);
+  font: 500 13px/1 var(--font-sans);
+  white-space: nowrap;
 }
 
 
@@ -715,7 +916,8 @@
 .tb-track.film .tb-prog {
   display: none;
 }
-.tb-mark.out {
+.tb-mark.out,
+.tb-mark-up.out {
   opacity: 0.3;
 }
 .tb-ph {

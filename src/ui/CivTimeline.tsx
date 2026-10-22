@@ -14,6 +14,7 @@
  * - 年份存在 civView.ts 里,地图(CivLayer)、图层弹层的民族图例和悬停信息(civDescribe)都读它。
  * - 刻度、菱形、"令"、悬停提示、拖动 / 点击在 TimelineMarks.tsx;播放头和进度按 CSS 变量 --p 画,播放时刻度不重新渲染。
  *   刻度用的纪事和编年史列出的一致:默认"大事",编年史切到"全部"或只看某国时,刻度跟着变。
+ *   选中了国家(详情面板开着):时间轴上标出它从立国到亡的一道国色,立国那头一颗绿点(它的立国不在大事里也画);关掉面板就恢复。
  * - 放哪:dock="bottom"(默认)浮在地图底部一整行;"top" 浮在顶部;
  *   "inline" 不定位,填满父元素(放进别的布局的一行里时用;App 就是这样放进底部那一行的)。
  * - 颜色用主题变量(--ink、--line-strong、--ev-war……,见 timeline.css),没有主题时用浅色默认值。
@@ -36,8 +37,9 @@ import {
   togglePlayback,
   useChronicle,
   useCivTime,
+  useSelection,
 } from './civView';
-import { TimelineMarks } from './TimelineMarks';
+import { TimelineMarks, type TimelineLife } from './TimelineMarks';
 import { TimelineYear } from './JumpYear';
 import { baseRegions } from './eras';
 import { useNarrow } from './device';
@@ -107,6 +109,13 @@ export function CivTimeline({ civ, hidden, dock = 'bottom', directorOff, extendO
   // 刻度用的纪事:和编年史面板列出的一致(fullChronicle 按 civ 缓存;只在换世界 / 换筛选时重算,播放时不变)
   const all = useMemo(() => (has ? fullChronicle(civ) : []), [civ, has]);
   const marks = useMemo(() => filterChronicle(all, { major: chron.major, polity: chron.polity }), [all, chron.major, chron.polity]);
+  // 选中了国家(点地图、侧栏、搜索、编年史里的国名):时间轴上标出它的一生
+  const sel = useSelection().sel;
+  const lifeOf = sel?.kind === 'polity' ? sel.id : null;
+  const life = useMemo<TimelineLife | undefined>(() => {
+    const p = lifeOf !== null && has ? civ?.polities[lifeOf] : undefined;
+    return p && lifeOf !== null ? { polity: lifeOf, founded: p.founded, ended: p.ended ?? null, color: p.color } : undefined;
+  }, [civ, has, lifeOf]);
 
   // 播放:每帧按真实流逝的时间推进年份(导出视频的时长、片头片尾、年份变了,关掉面板,都按新的速度和终点接着放)
   useEffect(() => {
@@ -248,6 +257,7 @@ export function CivTimeline({ civ, hidden, dock = 'bottom', directorOff, extendO
           limit={busy ? end : undefined}
           grow={grow}
           fresh={span ? undefined : fresh}
+          life={life}
         />
       </div>
     </>
