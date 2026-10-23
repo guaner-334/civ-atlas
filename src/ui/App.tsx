@@ -156,7 +156,7 @@ import { sameMix, type NameMix } from '../gen/names/mix';
 import { cleanFrontier, cleanOrigins, sameFrontier, sameOrigins, type Frontier, type Origins } from '../gen/civ/frontier';
 import type { RasterPatch } from '../gen/rasterPatch';
 import { cancelTerrainPatch, patchSourceOf, startTerrainFull, startTerrainPatch, type PatchStats, type PatchView, type PreProjected } from './terrainPatch';
-import { baseReady, thumbPrepSteps } from './thumbPrep';
+import { baseReady, overlayReady, thumbPrepSteps } from './thumbPrep';
 import { baseRegions, civAtEra, dropComposed, eraData, eraIndex, eraMapsOf, eraReady, eraShown, patchKey, reuseRegions, useEraIndex, withHistory, type EraMaps } from './eras';
 import { adoptChronicle, dropChronicleParts, namedHistory, takeChroniclePart, useNamedHistory } from './chronicleHandoff';
 import { sameSketch, type SketchEdit } from '../gen/sketch';
@@ -247,7 +247,7 @@ import {
 import { getStage, setStage, useStage, type DraftBase, type Stage } from './stageStore';
 import { setNewCivHandler, setOpenWorldHandler } from './newCivAction';
 import { polityAlive, polityName } from '../gen/civ/growth';
-import { CIV_SHOW_OFF, drawCivOverlay } from '../render/civ/overlay';
+import { CIV_SHOW_OFF, civOverlaySteps, drawCivOverlay, type CivDrawParams } from '../render/civ/overlay';
 import { getPolityPick, interventionActorThen, interventionDoneText, setPickHover, setPolityPick, usePolityPick } from './Interventions';
 import { Inspector } from './Inspector';
 import { TargetLayer } from './TargetPlates';
@@ -2423,6 +2423,14 @@ ${s.image.cells}` : null);
       const d = eraData(b, eraMapsRef.current, eraPatches.current, kEnd);
       // 整张底图先在后台分小步备好(ui/thumbPrep.ts),不在主线程上一口气画
       if (!now && !mapsOf(d).has('fantasy') && !baseReady('fantasy', d.world, d.raster)) return null;
+      const rc = rawRef.current;
+      const kind = currentWorld()?.kind;
+      const cp: CivDrawParams | null =
+        kind !== 'draft' && rc && rc.viable && rc.habitat.suitability.length === d.world.mesh.n
+          ? { world: d.world, raster: d.raster, civ: rc, style: 'fantasy', year: rc.endYear, show: { ...CIV_SHOW_OFF, polities: true }, thumb: true }
+          : null;
+      // 国家色块、国界也先在后台分小步备好
+      if (!now && cp && !overlayReady(cp.civ, cp.raster, () => civOverlaySteps(cp))) return null;
       const base = baseCanvas('fantasy', d);
       if (!base) return null;
       const cv = document.createElement('canvas');
@@ -2432,15 +2440,13 @@ ${s.image.cells}` : null);
       if (!x) return null;
       x.imageSmoothingQuality = 'high';
       x.drawImage(base, 0, 0, cv.width, cv.height);
-      const rc = rawRef.current;
-      const kind = currentWorld()?.kind;
-      if (kind !== 'draft' && rc && rc.viable && rc.habitat.suitability.length === d.world.mesh.n) {
+      if (cp) {
         const ov = document.createElement('canvas');
         ov.width = d.raster.w;
         ov.height = d.raster.h;
         const octx = ov.getContext('2d');
         if (octx) {
-          drawCivOverlay(octx, { world: d.world, raster: d.raster, civ: rc, style: 'fantasy', year: rc.endYear, show: { ...CIV_SHOW_OFF, polities: true } });
+          drawCivOverlay(octx, cp);
           x.drawImage(ov, 0, 0, cv.width, cv.height);
         }
         ov.width = ov.height = 0;

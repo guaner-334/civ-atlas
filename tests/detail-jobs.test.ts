@@ -24,6 +24,34 @@ describe('细节层分帧备料', () => {
     expect(log).toEqual(['a 新备料', 'b 备料', 'a 新画', 'b 画']);
   });
 
+  it('alone 的活自己备好就交,不等别的层;别的层照旧一起等', async () => {
+    const log: string[] = [];
+    let n = 0;
+    // 一步 3 毫秒、12 步:要分好几段
+    const slow = () => {
+      const t = performance.now();
+      while (performance.now() - t < 3);
+      return ++n < 12;
+    };
+    submitDetailJob('fast', [() => void log.push('fast 备料')], () => log.push('fast 画'));
+    let slowAtSwap = -1;
+    submitDetailJob(
+      'swap',
+      [() => void log.push('swap 备料')],
+      () => {
+        log.push('swap 交');
+        slowAtSwap = n;
+      },
+      { alone: true },
+    );
+    submitDetailJob('slow', [slow], () => log.push('slow 画'));
+    await until(() => !detailJobPending('slow'));
+    // swap 交的时候 slow 还没备好;fast 等着和 slow 一起画
+    expect(slowAtSwap).toBeGreaterThanOrEqual(0);
+    expect(slowAtSwap).toBeLessThan(12);
+    expect(log).toEqual(['fast 备料', 'swap 备料', 'swap 交', 'fast 画', 'slow 画']);
+  });
+
   it('一段只做一会儿:长活分好几段做完(中间让出主线程)', async () => {
     let m = 0;
     const busy = () => {

@@ -5,6 +5,7 @@ import { macroGrids, realisticBandPixels, realisticBase, realisticFullSteps, rea
 import { fantasyFullPixels, fantasyPixels } from '../src/render/fantasy';
 import { prepareLayer, renderLayer, hasPreparedLayer, type LayerId } from '../src/render/layers';
 import type { WorkStep } from '../src/render/common';
+import { overlayReady } from '../src/ui/thumbPrep';
 
 /**
  * Node 里没有画布:只存像素的假画布(putImageData 照脏矩形写、同样大的画布贴画布照抄),
@@ -146,5 +147,26 @@ describe('缩略图的底图分小步画', () => {
       expect(hasPreparedLayer(r, layer), '贴完就丢').toBe(false);
       expect(pre.width).toBe(0);
     }
+  });
+});
+
+describe('缩略图上叠的东西也排进同一队', () => {
+  it('overlayReady:排进去分步做,做完才算备好;换了一份,前一份还没轮到的就不做了', async () => {
+    const r = {} as Raster;
+    const a = {};
+    const b = {};
+    const made: string[] = [];
+    const make = (tag: string) => (): WorkStep[] => {
+      made.push(tag);
+      let n = 0;
+      return [() => ++n < 3, () => void made.push(`${tag} 做完`)];
+    };
+    expect(overlayReady(a, r, make('a'))).toBe(false);
+    expect(overlayReady(b, r, make('b'))).toBe(false);
+    for (let i = 0; i < 400 && !overlayReady(b, r, make('b 又要')); i++) await new Promise((f) => setTimeout(f, 5));
+    expect(overlayReady(b, r, make('b 再要'))).toBe(true);
+    expect(made).toEqual(['b', 'b 做完']);
+    // 换了一张栅格:要重新备
+    expect(overlayReady(b, {} as Raster, make('b 新栅格'))).toBe(false);
   });
 });

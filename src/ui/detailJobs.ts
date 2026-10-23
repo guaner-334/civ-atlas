@@ -37,6 +37,8 @@ interface Job {
   i: number;
   commit: (st: JobStats) => void;
   stats: JobStats;
+  /** 自己备好就交(不等别的层,见 submitDetailJob) */
+  alone: boolean;
 }
 
 const jobs = new Map<string, Job>();
@@ -68,10 +70,12 @@ function kick() {
 
 /**
  * 交一份活:owner 是哪一层(同一层的旧活作废);steps 依次做,做完一步才做下一步;
- * 所有在等的活都备好了,依次调各自的 commit(在同一个任务里)
+ * 所有在等的活都备好了,依次调各自的 commit(在同一个任务里)。
+ * alone = 和细节层换上的时机无关的活(换上新的历史时文明层的备料):和别的活一起分段做,自己备好就交,不等别的层
+ * (拖动、飞过去的时候细节层的活一直在换新的,一起等就要等到停下来)
  */
-export function submitDetailJob(owner: string, steps: WorkStep[], commit: (st: JobStats) => void): void {
-  jobs.set(owner, { steps, i: 0, commit, stats: { prep: 0, slices: 0 } });
+export function submitDetailJob(owner: string, steps: WorkStep[], commit: (st: JobStats) => void, o: { alone?: boolean } = {}): void {
+  jobs.set(owner, { steps, i: 0, commit, stats: { prep: 0, slices: 0 }, alone: !!o.alone });
   kick();
 }
 
@@ -138,6 +142,12 @@ function step(deadline: number) {
     // 备料出错:这一批都不画了(各层下次重画时重新交活),错误照常报出去
     jobs.clear();
     throw e;
+  }
+  // 自己备好就交的
+  for (const [owner, job] of [...jobs]) {
+    if (!job.alone || job.i < job.steps.length) continue;
+    jobs.delete(owner);
+    job.commit(job.stats);
   }
   for (const job of jobs.values()) {
     if (job.i < job.steps.length) {

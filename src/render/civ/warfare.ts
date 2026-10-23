@@ -458,9 +458,18 @@ function makeCanvas(w: number, h: number): AnyCanvas {
  * 范围按半分辨率的像素算(和编年史高亮一样),斜线按全分辨率画;州没变就用上次画好的
  */
 export function drawWarHatch(ctx: CanvasRenderingContext2D, p: CivDrawParams): void {
-  if (!warsShown(p)) return;
+  const canvas = warHatchCanvas(p);
+  if (!canvas) return;
+  const { w, h, scale: S } = p.raster;
+  if (p.proj) reprojectImage(ctx, canvas, w, h, p.proj.mp, { s: S, ox: 0, oy: 0 });
+  else ctx.drawImage(canvas, 0, 0);
+}
+
+/** 易手的州的斜线画好的那张(raster.w × raster.h,按 civ 缓存;州没变就用上次画好的);不画 = null */
+export function warHatchCanvas(p: CivDrawParams): AnyCanvas | null {
+  if (!warsShown(p)) return null;
   const { taken } = warScene(p.civ, p.year);
-  if (!taken.length) return;
+  if (!taken.length) return null;
   const { raster, civ, world } = p;
   const { w, h, scale: S } = raster;
   const key = `${p.style}|${taken.join(',')}`;
@@ -503,6 +512,5 @@ export function drawWarHatch(ctx: CanvasRenderingContext2D, p: CivDrawParams): v
     hit = { raster, key, canvas };
     hatchCache.set(civ, hit);
   }
-  if (p.proj) reprojectImage(ctx, hit.canvas, w, h, p.proj.mp, { s: S, ox: 0, oy: 0 });
-  else ctx.drawImage(hit.canvas, 0, 0);
+  return hit.canvas;
 }

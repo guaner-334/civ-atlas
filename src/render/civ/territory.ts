@@ -26,7 +26,7 @@ import { Layer } from '../../gen/civ/types';
 import { ownersAt, recentChanges, type Owners } from '../../gen/civ/timeline';
 import type { Mesh } from '../../gen/mesh';
 import { hash2, type WorkStep } from '../common';
-import { bandLabels, borderLines, type SidedLine } from './borders';
+import { bandLabels, bandLabelsStep, borderLines, type SidedLine } from './borders';
 import { meshWrap } from './lines';
 import { fantasyGlobeInkMask, fantasyInkMask, fantasyInkProj, fantasyWholeProjPrep, inkFromPixels, type InkMask } from '../fantasy';
 import { coastBlocks, KEEP, landCover, nearestCellPixel, nearestSide, type DetailGrid, type SegIndex } from './zoomGrid';
@@ -121,10 +121,16 @@ function grain(): Float32Array {
  * 给了 weak 就把这些借来的像素记成 1(它们的归属不可靠,按界线重新判时放宽范围,见 bandLabels)
  */
 export function pixelRegions(mesh: Mesh, raster: Raster, regionOf: Int32Array, weak?: Uint8Array): Int16Array {
-  const { w, h, cell, water } = raster;
-  const out = new Int16Array(w * h);
+  const out = new Int16Array(raster.w * raster.h);
+  pixelRows(mesh, raster, regionOf, out, weak, 0, out.length);
+  return out;
+}
+
+/** pixelRegions 的第 k0 到第 k1 个像素之前(逐像素各看各的:分几次做和一次做完一样) */
+function pixelRows(mesh: Mesh, raster: Raster, regionOf: Int32Array, out: Int16Array, weak: Uint8Array | undefined, k0: number, k1: number): void {
+  const { cell, water } = raster;
   const { adjStart, adj } = mesh;
-  for (let k = 0; k < w * h; k++) {
+  for (let k = k0; k < k1; k++) {
     if (water[k] !== 0) {
       out[k] = -1;
       continue;
@@ -137,7 +143,6 @@ export function pixelRegions(mesh: Mesh, raster: Raster, regionOf: Int32Array, w
     }
     out[k] = r;
   }
-  return out;
 }
 
 export interface WashInput {
@@ -194,11 +199,17 @@ export interface EdgeField {
 
 const scratch = new Map<string, EdgeField>();
 
-/**
- * 算离边界的距离(见 EdgeField)。out 给了且大小对就写进它,否则按大小用一份共用的草稿(下一次同样大小的调用会覆盖)
- */
-export function edgeField(inp: WashInput, out?: EdgeField | null): EdgeField {
-  const { w, h, f, pixRegion, owner, label: lab } = inp;
+/** 算离边界的距离要用的尺寸和输出(edgeField 一口气算完、edgeFieldSteps 分段算共用) */
+interface EdgeRun {
+  inp: WashInput;
+  sc: EdgeField;
+  W: number;
+  H: number;
+  GW0: number;
+}
+
+function edgeRun(inp: WashInput, out?: EdgeField | null): EdgeRun {
+  const { w, h, f } = inp;
   const W = Math.ceil(w / f);
   const H = Math.ceil(h / f);
   const G = 2 * f;
@@ -218,11 +229,16 @@ export function edgeField(inp: WashInput, out?: EdgeField | null): EdgeField {
     sc = s0;
   }
   sc.PAD = PAD;
-  const { label, dist } = sc;
+  return { inp, sc, W, H, GW0 };
+}
 
-  // ---- 粗网格上的归属 ----
+/** 粗网格上的归属(第 gy0 行到第 gy1 行之前) */
+function edgeLabels(e: EdgeRun, gy0: number, gy1: number): void {
+  const { w, h, pixRegion, owner, label: lab } = e.inp;
+  const { W, H, GW0 } = e;
+  const { G, GW, PAD, label } = e.sc;
   const half = G >> 1;
-  for (let gy = 0; gy < GH; gy++) {
+  for (let gy = gy0; gy < gy1; gy++) {
     const py = Math.min(h - 1, gy * G + half);
     const wy = Math.min(H - 1, gy * 2 + 1);
     for (let gx = 0; gx < GW; gx++) {
@@ -238,9 +254,14 @@ export function edgeField(inp: WashInput, out?: EdgeField | null): EdgeField {
       label[gy * GW + gx] = r < 0 ? WATER : owner[r];
     }
   }
-  // ---- 离边界的距离(粗网格单位):两块不同归属的陆地相邻处为 0 ----
-  const INF = 1e6;
-  for (let gy = 0; gy < GH; gy++) {
+}
+
+const EDGE_INF = 1e6;
+
+/** 离边界的距离的起点:两块不同归属的陆地相邻处为 0.5,别处无穷远(要等 edgeLabels 全做完) */
+function edgeSeeds(e: EdgeRun, gy0: number, gy1: number): void {
+  const { GW, GH, label, dist } = e.sc;
+  for (let gy = gy0; gy < gy1; gy++) {
     for (let gx = 0; gx < GW; gx++) {
       const k = gy * GW + gx;
       const l = label[k];
@@ -253,11 +274,16 @@ export function edgeField(inp: WashInput, out?: EdgeField | null): EdgeField {
         src =
           (a !== l && a !== WATER) || (b !== l && b !== WATER) || (c !== l && c !== WATER) || (d !== l && d !== WATER);
       }
-      dist[k] = src ? 0.5 : INF;
+      dist[k] = src ? 0.5 : EDGE_INF;
     }
   }
+}
+
+/** 倒角距离从上往下的一遍(第 gy0 行到第 gy1 行之前,要按行序做) */
+function edgeDown(e: EdgeRun, gy0: number, gy1: number): void {
+  const { GW, dist } = e.sc;
   const D = Math.SQRT2;
-  for (let gy = 0; gy < GH; gy++) {
+  for (let gy = gy0; gy < gy1; gy++) {
     for (let gx = 0; gx < GW; gx++) {
       const k = gy * GW + gx;
       let v = dist[k];
@@ -270,7 +296,13 @@ export function edgeField(inp: WashInput, out?: EdgeField | null): EdgeField {
       dist[k] = v;
     }
   }
-  for (let gy = GH - 1; gy >= 0; gy--) {
+}
+
+/** 倒角距离从下往上的一遍(第 gy1 − 1 行往上到第 gy0 行,要按行序做) */
+function edgeUp(e: EdgeRun, gy0: number, gy1: number): void {
+  const { GW, GH, dist } = e.sc;
+  const D = Math.SQRT2;
+  for (let gy = gy1 - 1; gy >= gy0; gy--) {
     for (let gx = GW - 1; gx >= 0; gx--) {
       const k = gy * GW + gx;
       let v = dist[k];
@@ -283,7 +315,53 @@ export function edgeField(inp: WashInput, out?: EdgeField | null): EdgeField {
       dist[k] = v;
     }
   }
-  return sc;
+}
+
+/**
+ * 算离边界的距离(见 EdgeField)。out 给了且大小对就写进它,否则按大小用一份共用的草稿(下一次同样大小的调用会覆盖)
+ */
+export function edgeField(inp: WashInput, out?: EdgeField | null): EdgeField {
+  const e = edgeRun(inp, out);
+  const GH = e.sc.GH;
+  edgeLabels(e, 0, GH);
+  edgeSeeds(e, 0, GH);
+  edgeDown(e, 0, GH);
+  edgeUp(e, 0, GH);
+  return e.sc;
+}
+
+/**
+ * 和 edgeField 一样,拆成几步(每步按行分段做,做到 deadline 就停,下一次接着做);out 必须给(结果写进它)。
+ * 分几次做完和一口气做完逐位一样(每一遍都按原来的行序)
+ */
+function edgeFieldSteps(inp: WashInput, out: EdgeField): { steps: WorkStep[]; field: () => EdgeField } {
+  let e: EdgeRun | null = null;
+  const run = () => (e ??= edgeRun(inp, out));
+  const GH = Math.ceil(inp.h / (2 * inp.f));
+  return {
+    steps: [
+      rowSlices(GH, (a, b) => edgeLabels(run(), a, b)),
+      rowSlices(GH, (a, b) => edgeSeeds(run(), a, b)),
+      rowSlices(GH, (a, b) => edgeDown(run(), a, b)),
+      // 从下往上:第 i 段做倒数那几行
+      rowSlices(GH, (a, b) => edgeUp(run(), GH - b, GH - a)),
+    ],
+    field: () => run().sc,
+  };
+}
+
+/** 按行分段做的一步:每次做 ROWS 行就看一眼钟,到 deadline 就停(返回 true = 还没做完) */
+function rowSlices(n: number, rows: (a: number, b: number) => void, ROWS = 8): WorkStep {
+  let y = 0;
+  return (deadline) => {
+    while (y < n) {
+      const b = Math.min(n, y + ROWS);
+      rows(y, b);
+      y = b;
+      if (performance.now() >= deadline) break;
+    }
+    return y < n;
+  };
 }
 
 /** 浓淡查表(按全分辨率像素距离,步长 1/4 像素):不透明度 0–1 */
@@ -310,10 +388,15 @@ export function washLut(style: CivStyle, polity: boolean, faith = false): Float3
  * 离边界的距离在更粗一倍的网格上算(两遍倒角距离,见 edgeField),再双线性插值。
  */
 export function washPixels(inp: WashInput, out: Uint8ClampedArray): void {
+  const edge = inp.edge ?? edgeField(inp);
+  washRows(inp, edge, out, 0, Math.ceil(inp.h / inp.f));
+}
+
+/** washPixels 的第 y0 行到第 y1 行之前(每行只看自己:分几次画完和一次画完逐字节一样) */
+function washRows(inp: WashInput, edge: EdgeField, out: Uint8ClampedArray, y0: number, y1: number): void {
   const { w, h, f, pixRegion, owner, colors, fade, style, label: lab, polity, ink } = inp;
   const W = Math.ceil(w / f);
-  const H = Math.ceil(h / f);
-  const { G, GW, GH, PAD, dist } = inp.edge ?? edgeField(inp);
+  const { G, GW, GH, PAD, dist } = edge;
 
   // ---- 浓淡查表(按全分辨率像素距离,步长 1/4 像素) ----
   const paint = style === 'fantasy';
@@ -326,7 +409,7 @@ export function washPixels(inp: WashInput, out: Uint8ClampedArray): void {
   // ---- 逐像素上色 ----
   const off = f >> 1;
   const inv = f / G;
-  for (let y = 0; y < H; y++) {
+  for (let y = y0; y < y1; y++) {
     const py = Math.min(h - 1, y * f + off);
     const gyf = Math.max(0, (y + 0.5) * inv - 0.5);
     const gy0 = Math.min(GH - 1, Math.floor(gyf));
@@ -685,9 +768,28 @@ export function labelImage(
 ): Int16Array {
   const W = Math.ceil(w / f);
   const H = Math.ceil(h / f);
-  const off = f >> 1;
   const wk = weak ? weakScratch(W * H) : null;
-  for (let y = 0; y < H; y++) {
+  labelRows(w, h, f, pixRegion, owner, out, weak, wk, 0, H);
+  if (lines) bandLabels(out, W, H, f, scale, lines, wrap, wk);
+  return out;
+}
+
+/** labelImage 按州归属铺的那一遍(第 y0 行到第 y1 行之前);wk = 借来的像素记号(工作分辨率,不要就不给) */
+function labelRows(
+  w: number,
+  h: number,
+  f: number,
+  pixRegion: Int16Array,
+  owner: Int16Array,
+  out: Int16Array,
+  weak: Uint8Array | null,
+  wk: Uint8Array | null,
+  y0: number,
+  y1: number,
+): void {
+  const W = Math.ceil(w / f);
+  const off = f >> 1;
+  for (let y = y0; y < y1; y++) {
     const row = Math.min(h - 1, y * f + off) * w;
     for (let x = 0; x < W; x++) {
       const k = row + Math.min(w - 1, x * f + off);
@@ -696,8 +798,6 @@ export function labelImage(
       if (wk) wk[y * W + x] = weak![k];
     }
   }
-  if (lines) bandLabels(out, W, H, f, scale, lines, wrap, wk);
-  return out;
 }
 
 const weakScratches = new Map<number, Uint8Array>();
@@ -739,6 +839,21 @@ interface Cache {
 }
 const caches = new WeakMap<Civ, Cache>();
 
+/**
+ * 像素 → 州(连同哪些像素的州是借来的)只看州的划分和这张栅格:按州的划分缓存(每份州留最近一张栅格的)。
+ * 换上一段新的历史(再推、重推、试推演……)时州照旧沿用(ui/eras.ts 的 reuseRegions),这一份不用重算
+ */
+const regionPixCache = new WeakMap<Civ['regions'], { raster: Raster; pix: Int16Array; weak: Uint8Array }>();
+
+function regionPix(mesh: Mesh, raster: Raster, regions: Civ['regions']): { pix: Int16Array; weak: Uint8Array } {
+  const hit = regionPixCache.get(regions);
+  if (hit && hit.raster === raster) return hit;
+  const weak = new Uint8Array(raster.w * raster.h);
+  const out = { raster, pix: pixelRegions(mesh, raster, regions.of, weak), weak };
+  regionPixCache.set(regions, out);
+  return out;
+}
+
 function lookOf(list: { color: [number, number, number] }[], R: number): LayerLook {
   const colors = new Uint8Array(Math.max(1, list.length) * 3);
   list.forEach((e, i) => colors.set(e.color, i * 3));
@@ -752,12 +867,11 @@ function cacheOf(p: CivDrawParams): Cache {
     const R = civ.regions.count;
     // 信仰、时代图层换出来的 Civ 和原来的州一样:像素 → 州(连同借来的像素)借原来那一份
     const base = faithBase(civ) ?? eraBase(civ);
-    const from = base ? cacheOf({ world, raster, civ: base } as CivDrawParams) : null;
-    const weak = from ? from.weak : new Uint8Array(raster.w * raster.h);
+    const from = base ? cacheOf({ world, raster, civ: base } as CivDrawParams) : regionPix(world.mesh, raster, civ.regions);
     c = {
       raster,
-      pix: from ? from.pix : pixelRegions(world.mesh, raster, civ.regions.of, weak),
-      weak,
+      pix: from.pix,
+      weak: from.weak,
       own: { culture: new Int16Array(R), polity: new Int16Array(R) },
       looks: [lookOf(civ.cultures, R), lookOf(civ.polities, R)],
       bufs: new Map(),
@@ -768,9 +882,9 @@ function cacheOf(p: CivDrawParams): Cache {
   return c;
 }
 
-/** 像素 → 州(全分辨率,水 = −1;按 civ 缓存,和色块用的是同一份) */
+/** 像素 → 州(全分辨率,水 = −1;按州的划分缓存,和色块用的是同一份) */
 export function regionPixels(world: CivDrawParams['world'], raster: Raster, civ: Civ): Int16Array {
-  return cacheOf({ world, raster, civ } as CivDrawParams).pix;
+  return regionPix(world.mesh, raster, civ.regions).pix;
 }
 
 /** slot:同样大小的画布分开存几份(地球仪按自己的让位遮罩画的那份单独一份,不和主图的抢) */
@@ -843,61 +957,175 @@ function faithParams(p: CivDrawParams): CivDrawParams | null {
   return { ...p, civ: faithCiv(p.civ), show: { ...p.show, cultures: true, faiths: false } };
 }
 
+/** washFields 的缓存键:层 + 年份 + 画风(信仰 / 时代图层再加选中的信仰) */
+function fieldsKey(p0: CivDrawParams, fp: CivDrawParams | null, layer: Layer): string {
+  return `${layer}|${p0.year}|${p0.style}${fp ? `|${p0.faithFocus ?? ''}` : ''}`;
+}
+
+/** 这一年这一层的归属、渐入系数(都是拷贝,不怕别处改) */
+function fieldOwners(p: CivDrawParams, c: Cache, layer: Layer) {
+  const own = ownersAt(p.civ, p.year, c.own);
+  const owner = Int16Array.from(layer === Layer.Culture ? own.culture : own.polity);
+  const look = c.looks[layer];
+  const fade = Float32Array.from(fadeIn(p.civ, p.year, look.since, look.fade, layer));
+  let fading = false;
+  for (let r = 0; r < fade.length && !fading; r++) fading = fade[r] < 1;
+  return { owner, fade, fading, look };
+}
+
+/** 颜色:国土的藩属往宗主的颜色靠(vassals.ts);信仰 / 时代图层用信仰 / 时代的颜色 */
+function fieldColors(p0: CivDrawParams, fp: CivDrawParams | null, p: CivDrawParams, layer: Layer, look: LayerLook): Uint8Array {
+  return fp ? (eraBase(fp.civ) ? eraColors() : faithColors(p0.civ, p0.faithFocus)) : layer === Layer.Polity ? vassalColors(look.colors, vassalTies(p.civ, p.year)) : look.colors;
+}
+
+const noEdge = (): EdgeField => ({ G: 0, GW: 0, GH: 0, PAD: 0, label: new Int16Array(0), dist: new Float32Array(0) });
+
 export function washFields(p0: CivDrawParams, f: number): WashFields | null {
   const fp = faithParams(p0);
   const p = fp ?? p0;
   const layer = washLayer(p);
   if (layer === null) return null;
-  const { civ, raster } = p;
+  const { raster } = p;
   const c = cacheOf(p);
-  const key = `${layer}|${p.year}|${p.style}${fp ? `|${p0.faithFocus ?? ''}` : ''}`;
+  const key = fieldsKey(p0, fp, layer);
   const old = c.fields.get(f);
   if (old?.key === key) return old;
   const W = Math.ceil(raster.w / f);
   const H = Math.ceil(raster.h / f);
-  const own = ownersAt(civ, p.year, c.own);
-  const owner = Int16Array.from(layer === Layer.Culture ? own.culture : own.polity);
-  const look = c.looks[layer];
-  const fade = Float32Array.from(fadeIn(civ, p.year, look.since, look.fade, layer));
-  let fading = false;
-  for (let r = 0; r < fade.length && !fading; r++) fading = fade[r] < 1;
+  const { owner, fade, fading, look } = fieldOwners(p, c, layer);
   const wrap = meshWrap(p.world.mesh);
   const lines = borderLines(p, layer);
   const label = old && old.label.length === W * H ? old.label : new Int16Array(W * H);
   labelImage(raster.w, raster.h, f, raster.scale, c.pix, owner, lines, label, wrap, c.weak);
-  const edge = edgeField({ w: raster.w, h: raster.h, f, pixRegion: c.pix, owner, colors: look.colors, style: p.style, label, wrap: wrap > 0 }, old?.edge ?? {
-    G: 0,
-    GW: 0,
-    GH: 0,
-    PAD: 0,
-    label: new Int16Array(0),
-    dist: new Float32Array(0),
-  });
-  // 国土:藩属往宗主的颜色靠(vassals.ts)
-  const colors = fp ? (eraBase(fp.civ) ? eraColors() : faithColors(p0.civ, p0.faithFocus)) : layer === Layer.Polity ? vassalColors(look.colors, vassalTies(civ, p.year)) : look.colors;
+  const edge = edgeField({ w: raster.w, h: raster.h, f, pixRegion: c.pix, owner, colors: look.colors, style: p.style, label, wrap: wrap > 0 }, old?.edge ?? noEdge());
+  const colors = fieldColors(p0, fp, p, layer, look);
   const out: WashFields = { key, layer, f, label, W, H, edge, owner, fade, fading, colors, lines, polity: layer === Layer.Polity, pix: c.pix, faith: !!fp };
   c.fields.set(f, out);
   return out;
 }
 
-/** 手绘风:符号"让位"遮罩(每张地图算一次,之后每帧直接用) */
-function inkOf(p: CivDrawParams): InkMask | null {
-  return p.style === 'fantasy' ? fantasyInkMask(p.world, p.raster, SYM_FOREST, SYM_PAPER) : null;
+/** 分段备料时用的:像素 → 州按行分段算好,记进按州的划分的缓存(regionPix 同一份;已经有了就不算) */
+function regionPixSteps(mesh: Mesh, raster: Raster, regions: Civ['regions']): WorkStep[] {
+  const hit = regionPixCache.get(regions);
+  if (hit && hit.raster === raster) return [];
+  const { w, h } = raster;
+  const weak = new Uint8Array(w * h);
+  const pix = new Int16Array(w * h);
+  return [
+    rowSlices(h, (a, b) => pixelRows(mesh, raster, regions.of, pix, weak, a * w, b * w)),
+    () => {
+      const now = regionPixCache.get(regions);
+      if (!now || now.raster !== raster) regionPixCache.set(regions, { raster, pix, weak });
+    },
+  ];
 }
 
-export function drawTerritory(ctx: CanvasRenderingContext2D, p0: CivDrawParams): void {
+/**
+ * 和 washFields 一样的结果,拆成一小步一小步(换上新的历史时在后台分段备好,见 territorySteps)。
+ * 中间结果都放在自己新开的数组里,算完也先不记进缓存(fields() 取;install() 才记):
+ * 分段做的中途别处同步画了别的年份、别的历史,都碰不到这几个数组(缓存里的那份会被下一次同步计算就地改写)。
+ * 缓存里本来就是这一份的不算(fields() = null)
+ */
+function washFieldsSteps(p0: CivDrawParams, f: number): { steps: WorkStep[]; fields: () => WashFields | null; install: () => void } {
+  interface St {
+    fp: CivDrawParams | null;
+    p: CivDrawParams;
+    layer: Layer;
+    c: Cache;
+    key: string;
+    W: number;
+    H: number;
+    own: ReturnType<typeof fieldOwners>;
+    wrap: number;
+    lines: SidedLine[];
+    label: Int16Array;
+    wk: Uint8Array;
+    edge: ReturnType<typeof edgeFieldSteps> | null;
+    out: WashFields | null;
+  }
+  let st: St | null = null;
+  let labelStep: WorkStep | null = null;
+  let bandStep: WorkStep | null = null;
+  // 离边界的距离:等归属图做好再按它算
+  const edgeOf = (s: St) =>
+    (s.edge ??= edgeFieldSteps(
+      { w: s.p.raster.w, h: s.p.raster.h, f, pixRegion: s.c.pix, owner: s.own.owner, colors: s.own.look.colors, style: s.p.style, label: s.label, wrap: s.wrap > 0 },
+      noEdge(),
+    ));
+  const live = (step: (s: St, deadline: number) => boolean | void): WorkStep => (deadline) => (st ? step(st, deadline) : false);
+  const raster = p0.raster;
+  const H = Math.ceil(raster.h / f);
+  const steps: WorkStep[] = [
+    ...regionPixSteps(p0.world.mesh, raster, p0.civ.regions),
+    () => {
+      const fp = faithParams(p0);
+      const p = fp ?? p0;
+      const layer = washLayer(p);
+      if (layer === null) return;
+      const c = cacheOf(p);
+      const key = fieldsKey(p0, fp, layer);
+      if (c.fields.get(f)?.key === key) return;
+      const W = Math.ceil(raster.w / f);
+      st = { fp, p, layer, c, key, W, H, own: fieldOwners(p, c, layer), wrap: meshWrap(p.world.mesh), lines: [], label: new Int16Array(W * H), wk: new Uint8Array(W * H), edge: null, out: null };
+    },
+    live((s) => void (s.lines = borderLines(s.p, s.layer))),
+    live((s, deadline) => (labelStep ??= rowSlices(H, (a, b) => labelRows(raster.w, raster.h, f, s.c.pix, s.own.owner, s.label, s.c.weak, s.wk, a, b)))(deadline)),
+    live((s, deadline) => (bandStep ??= bandLabelsStep(s.label, s.W, s.H, f, raster.scale, () => s.lines, s.wrap, () => s.wk))(deadline)),
+    ...[0, 1, 2, 3].map((i) => live((s, deadline) => edgeOf(s).steps[i](deadline))),
+    live((s) => {
+      s.out = {
+        key: s.key,
+        layer: s.layer,
+        f,
+        label: s.label,
+        W: s.W,
+        H: s.H,
+        edge: edgeOf(s).field(),
+        owner: s.own.owner,
+        fade: s.own.fade,
+        fading: s.own.fading,
+        colors: fieldColors(p0, s.fp, s.p, s.layer, s.own.look),
+        lines: s.lines,
+        polity: s.layer === Layer.Polity,
+        pix: s.c.pix,
+        faith: !!s.fp,
+      };
+    }),
+  ];
+  return {
+    steps,
+    fields: () => st?.out ?? null,
+    install: () => {
+      const s = st;
+      if (s?.out && s.c.fields.get(f)?.key !== s.key) s.c.fields.set(f, s.out);
+    },
+  };
+}
+
+/** 一份 WashFields 的拷贝(数组都另开):缓存里那份会被下一次同步计算就地改写,分段用的时候用拷贝 */
+function copyFields(fl: WashFields): WashFields {
+  return { ...fl, label: fl.label.slice(), edge: { ...fl.edge, label: fl.edge.label.slice(), dist: fl.edge.dist.slice() } };
+}
+
+/** 存档缩略图那份色块画布在 bufs 里的编号(加在工作分辨率上;地球仪的那份是 +10) */
+const THUMB_SLOT = 20;
+
+/** 色块画在哪块画布上、缓存键(drawTerritory 和分段的 territorySteps 共用);这一帧不铺色块 = null */
+function washTarget(p0: CivDrawParams) {
   const fp = faithParams(p0);
   const p = fp ?? p0;
   const layer = washLayer(p);
-  if (layer === null) return;
-  const { civ, raster } = p;
+  if (layer === null) return null;
   const c = cacheOf(p);
   const f = p.fast ? 2 : 1;
   // 地球仪的文明贴图 · 手绘:按地球仪贴图的符号层让位(单独一份画布,不和主图的抢)
   const globeInk = !!p.globeInk && p.style === 'fantasy' && !p.proj;
-  const b = bufOf(c, f, globeInk ? f + 10 : f);
   // 弯边投影 · 手绘:符号遮罩按投影后的符号层合成,色块本身不乘遮罩
   const projInk = !!p.proj && p.style === 'fantasy';
+  const key = `${layer}|${p.year}|${p.style}|${projInk ? 1 : 0}${fp ? `|${p0.faithFocus ?? ''}` : ''}`;
+  // 存档缩略图:主图那份正好是这一张就直接用,不然单独一份(画完放掉,见 CivDrawParams.thumb)
+  const slot = globeInk ? f + 10 : p.thumb && c.bufs.get(f)?.key !== key ? f + THUMB_SLOT : f;
+  const b = bufOf(c, f, slot);
   if (projInk && !b.keep) {
     const W = b.img.width;
     const H = b.img.height;
@@ -906,29 +1134,89 @@ export function drawTerritory(ctx: CanvasRenderingContext2D, p0: CivDrawParams):
       canvas: typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(W, H) : Object.assign(document.createElement('canvas'), { width: W, height: H }),
     };
   }
-  const key = `${layer}|${p.year}|${p.style}|${projInk ? 1 : 0}${fp ? `|${p0.faithFocus ?? ''}` : ''}`;
+  return { p, c, f, globeInk, projInk, b, key };
+}
+
+/** 逐像素上色的输入 */
+function washInput(t: NonNullable<ReturnType<typeof washTarget>>, fl: WashFields, keepOut: Uint8ClampedArray | undefined): WashInput {
+  const { p, c, f, projInk, globeInk } = t;
+  return {
+    w: p.raster.w,
+    h: p.raster.h,
+    f,
+    pixRegion: c.pix,
+    owner: fl.owner,
+    colors: fl.colors,
+    fade: fl.fade,
+    style: p.style,
+    label: fl.label,
+    polity: fl.polity,
+    faith: fl.faith,
+    ink: projInk ? null : globeInk ? fantasyGlobeInkMask(p.world, p.raster, SYM_FOREST, SYM_PAPER) : inkOf(p),
+    wrap: fl.edge.PAD > 0,
+    keepOut,
+    edge: fl.edge,
+  };
+}
+
+/**
+ * drawTerritory 贴色块之前要做的(归属图、离边界的距离、逐像素上色、贴进色块画布),拆成一小步一小步:
+ * 做完以后 drawTerritory 直接贴上,和当场一口气画逐像素一样。用的都是自己新开的数组和图,做完才一起换进缓存
+ * (中途别处同步画了别的年份也互不干扰)。已经备好的(缓存里就是这一份)什么也不做;地球仪的文明贴图不走这里
+ */
+export function territorySteps(p0: CivDrawParams): WorkStep[] {
+  if (p0.globeInk) return [];
+  const f = p0.fast ? 2 : 1;
+  const wf = washFieldsSteps(p0, f);
+  // 存档缩略图(结束那一年)算出的归属图不换进缓存:缓存里留着主图那一年的
+  const install = () => {
+    if (!p0.thumb) wf.install();
+  };
+  let job: { t: NonNullable<ReturnType<typeof washTarget>>; inp: WashInput; img: ImageData; keep: ImageData | null; rows: WorkStep } | null = null;
+  return [
+    ...wf.steps,
+    () => {
+      const t = washTarget(p0);
+      if (!t || t.b.key === t.key) return install();
+      const fp = faithParams(p0);
+      const now = t.c.fields.get(f);
+      const fl = wf.fields() ?? (now && now.key === fieldsKey(p0, fp, washLayer(fp ?? p0)!) ? copyFields(now) : null);
+      if (!fl) return;
+      const img = new ImageData(t.b.img.width, t.b.img.height);
+      const keep = t.projInk ? new ImageData(img.width, img.height) : null;
+      const inp = washInput(t, fl, keep?.data);
+      job = { t, inp, img, keep, rows: rowSlices(img.height, (a, b) => washRows(inp, fl.edge, img.data, a, b)) };
+    },
+    (deadline) => (job ? job.rows(deadline) : false),
+    () => {
+      if (!job) return;
+      const { t, img, keep } = job;
+      job = null;
+      install();
+      if (t.b.key === t.key) return;
+      (t.b.canvas.getContext('2d') as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D).putImageData(img, 0, 0);
+      t.b.img = img;
+      if (keep && t.b.keep) {
+        (t.b.keep.canvas.getContext('2d') as CanvasRenderingContext2D).putImageData(keep, 0, 0);
+        t.b.keep.img = keep;
+      }
+      t.b.key = t.key;
+    },
+  ];
+}
+
+/** 手绘风:符号"让位"遮罩(每张地图算一次,之后每帧直接用) */
+function inkOf(p: CivDrawParams): InkMask | null {
+  return p.style === 'fantasy' ? fantasyInkMask(p.world, p.raster, SYM_FOREST, SYM_PAPER) : null;
+}
+
+export function drawTerritory(ctx: CanvasRenderingContext2D, p0: CivDrawParams): void {
+  const t = washTarget(p0);
+  if (!t) return;
+  const { p, b, projInk, key, f } = t;
   if (b.key !== key) {
     const fl = washFields(p0, f)!;
-    washPixels(
-      {
-        w: raster.w,
-        h: raster.h,
-        f,
-        pixRegion: c.pix,
-        owner: fl.owner,
-        colors: fl.colors,
-        fade: fl.fade,
-        style: p.style,
-        label: fl.label,
-        polity: fl.polity,
-        faith: fl.faith,
-        ink: projInk ? null : globeInk ? fantasyGlobeInkMask(p.world, p.raster, SYM_FOREST, SYM_PAPER) : inkOf(p),
-        wrap: fl.edge.PAD > 0,
-        keepOut: projInk ? b.keep!.img.data : undefined,
-        edge: fl.edge,
-      },
-      b.img.data,
-    );
+    washPixels(washInput(t, fl, projInk ? b.keep!.img.data : undefined), b.img.data);
     const bctx = b.canvas.getContext('2d') as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
     bctx.putImageData(b.img, 0, 0);
     if (projInk) (b.keep!.canvas.getContext('2d') as CanvasRenderingContext2D).putImageData(b.keep!.img, 0, 0);
@@ -940,8 +1228,9 @@ export function drawTerritory(ctx: CanvasRenderingContext2D, p0: CivDrawParams):
   }
   ctx.save();
   ctx.imageSmoothingEnabled = true;
-  ctx.drawImage(b.canvas, 0, 0, raster.w, raster.h);
+  ctx.drawImage(b.canvas, 0, 0, p.raster.w, p.raster.h);
   ctx.restore();
+  if (p.thumb) t.c.bufs.delete(f + THUMB_SLOT);
 }
 
 /** 合成用的几张地图平面大小的草稿画布(按大小留一套) */
