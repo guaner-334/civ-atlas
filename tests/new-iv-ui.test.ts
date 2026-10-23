@@ -93,6 +93,10 @@ describe('让人物去世、改倾向', () => {
     expect(personIvWhy(civ, x, lo - 1)).toMatch(/才即位$/);
     expect(personIvWhy(civ, x, hi + 1)).toMatch(/已不在位$|已卒$|还没推到$/);
     expect(rulerOnThrone(x, T)).toBe(true);
+    // 逐年推演:下在推过的历史后面(那时还在位的)不按历史推到哪年卡
+    const now = base().people!.find((p) => p.role === 'ruler' && p.until === undefined && p.died === undefined)!;
+    expect(personIvWhy(base(), now, Math.ceil(base().endYear))).toMatch(/还没推到$/);
+    expect(personIvWhy(base(), now, Math.ceil(base().endYear), true)).toBeNull();
     expect(rulerOnThrone(x, lo - 1)).toBe(false);
     expect(deathNote(civ, x, undefined)).toMatch(new RegExp(`^他 ${Math.floor(x.from!)} 年即位，(原定 \\d+ 年|在位至今).*。之前的历史不变。$`));
     expect(rulerEndText(civ, x, undefined)).toMatch(/^原定 \d+ 年|^在位至今$/);

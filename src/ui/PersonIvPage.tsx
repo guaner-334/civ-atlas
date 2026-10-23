@@ -53,7 +53,8 @@ export function PersonIvPage({ civ, x, year, kind, onBack }: { civ: Civ; x: Pers
     if (!pkey) return '推演里认不出这个人，改不了';
     if (!step && lo > hi) return eraText(personIvWhy(civ, x, Math.ceil(civ.endYear)) ?? '没有能下的年份', era);
     if (!step && !yi.valid) return `${kind === 'death' ? '去世' : '改倾向'}的年份要在${spaced(yearSpanAt(lo, hi, era))}之间`;
-    const w = personIvWhy(civ, x, y);
+    // 逐年推演:下在下一步开头(已经推过的历史后面),只看他那时还在不在台上
+    const w = personIvWhy(civ, x, y, step);
     return w ? eraText(w, era) : null;
   })();
   const same = kind === 'temper' && LEANING_KEYS.every((k) => lean[k] === base[k]);

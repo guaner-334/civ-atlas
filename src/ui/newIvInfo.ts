@@ -34,9 +34,12 @@ export function destroyQueueText(A: string, n: number, B: string | null): string
 // ---------------------------------------------------------------------------
 // 让人物去世、改君主倾向
 
-/** 能让他去世 / 改倾向的整数年份 lo…hi(lo > hi = 一年都不行);历史推到哪年为止也算上 */
-export function personIvRange(civ: Civ, x: Person): { lo: number; hi: number } {
-  const last = Math.ceil(civ.endYear) - 1;
+/**
+ * 能让他去世 / 改倾向的整数年份 lo…hi(lo > hi = 一年都不行);历史推到哪年为止也算上。
+ * open = 逐年推演:下在"现在"(下一步开头,在已经推过的历史后面),不按历史推到哪年卡,只看他那时还在不在、在不在台上
+ */
+export function personIvRange(civ: Civ, x: Person, open = false): { lo: number; hi: number } {
+  const last = open ? Infinity : Math.ceil(civ.endYear) - 1;
   const before = (t: number | undefined) => (t === undefined ? last : Math.min(last, Math.ceil(t) - 1));
   if (x.role === 'ruler') {
     if (x.from === undefined) return { lo: 1, hi: 0 };
@@ -49,9 +52,9 @@ export function personIvRange(civ: Civ, x: Person): { lo: number; hi: number } {
   return { lo: Math.max(Math.floor(from) + 1, Math.ceil(x.born)), hi };
 }
 
-/** y 年让他去世 / 改倾向为什么不行(行 = null;说法同推演里没生效的原因) */
-export function personIvWhy(civ: Civ, x: Person, y: number): string | null {
-  const { lo, hi } = personIvRange(civ, x);
+/** y 年让他去世 / 改倾向为什么不行(行 = null;说法同推演里没生效的原因;open 同 personIvRange) */
+export function personIvWhy(civ: Civ, x: Person, y: number, open = false): string | null {
+  const { lo, hi } = personIvRange(civ, x, open);
   if (y >= lo && y <= hi) return null;
   if (x.died !== undefined && x.died <= y) return `第 ${Math.floor(x.died)} 年他已卒`;
   if (x.role === 'ruler') {

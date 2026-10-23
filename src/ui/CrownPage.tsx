@@ -136,7 +136,9 @@ export function CrownPage({
   // 等下台:那时在位的那位(他原定哪年下台 = 即位那年)
   const curP = chosen ?? (aliveIds.has(home) ? home : null);
   const cur = after && mode === 'have' && curP !== null && aliveIds.has(curP) ? rulerAt(civ, curP, yv) : null;
-  const start = cur?.until !== undefined ? Math.ceil(cur.until) : y;
+  // 即位那一刻(等下台:那位原定下台的那一刻,可能不在整年上)、能填的退位年份从它的下一个整年起
+  const startT = cur?.until ?? y;
+  const start = Math.ceil(startT);
   // 到某一年退位:最晚卒年前一年(到卒年那一年 = 「到卒年」那一项,说法也不同)
   const untilHi = c.died !== undefined ? c.died - 1 : INTERVENTION_YEAR_MAX;
   const ui = useYearInput(Math.min(untilHi, start + 30), start + 1, untilHi, clear);
@@ -232,7 +234,7 @@ export function CrownPage({
     if (why) return;
     saveLean();
     // 到某一年退位:记下是作者填的退位年份(以后把卒年改成同一年,说法照旧是"退位")
-    const end = until !== undefined && until > start ? (byYear ? { until, abdicate: true as const } : { until }) : {};
+    const end = until !== undefined && until > startT ? (byYear ? { until, abdicate: true as const } : { until }) : {};
     const base = { kind: 'crown' as const, char: c.id, from: y, born: c.born, leanings: { ...lean }, ...end };
     if (mode === 'have') {
       const v: Intervention = after ? { ...base, a: polityKey(civ, P!.id), after: true } : { ...base, a: polityKey(civ, P!.id) };
