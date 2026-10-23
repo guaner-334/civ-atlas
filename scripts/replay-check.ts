@@ -192,6 +192,35 @@ const openFile = async (p: Page, file: string) => {
 /** 某一点的完整读数:群落 / 海拔(水深)/ 气温降水 / 经纬度板块 / 国家 · 最近城市 / 民族 / 州(一行一条,用 " / " 连起来) */
 const probe = (p: Page, x: number, y: number) =>
   p.evaluate(([cx, cy]) => (((window as any).__wfProbe?.(cx, cy) ?? []) as string[]).join(' / '), [x, y]);
+/**
+ * 等地图停稳:镜头不动了(点选后飞过去、滚轮缩放都停下,视图连着 300 毫秒、至少 6 帧没变),放大后的地形、文明细节层也在后台备好了。
+ * 量"按下去 → 画出来"多快、看拖动时细节层藏没藏之前先等它:不然量进去的是还在飞、还在备料的那一段,
+ * 慢的机器上时快时慢(镜头飞一次 0.6 秒,人点完城再去改名、放大后再拖,本来就在这之后)。
+ * 只看时间不够:机器卡住几百毫秒再醒过来的那一帧,视图还没来得及更新,看着也"没变";要连着几帧都没变才算。
+ * 返回等了多久(毫秒),最多等 timeout
+ */
+const mapSettled = (p: Page = page, timeout = 15000) =>
+  p.evaluate(`new Promise((res) => {
+    const w = window;
+    const t0 = performance.now();
+    let last = '';
+    let since = t0;
+    let frames = 0;
+    const tick = () => {
+      const now = performance.now();
+      const v = w.__wfView;
+      const key = v ? [v.k, v.x, v.y, v.lon].join() : '';
+      if (key !== last) {
+        last = key;
+        since = now;
+        frames = 0;
+      } else frames++;
+      const busy = (w.__wfDetail && w.__wfDetail.pending) || (w.__wfCivDetail && w.__wfCivDetail.pending);
+      if ((now - since >= 300 && frames >= 6 && !busy) || now - t0 > ${timeout}) res(now - t0);
+      else requestAnimationFrame(tick);
+    };
+    tick();
+  })`) as Promise<number>;
 /** 下的令先进待推演的单子:点「全部推演」(国家干预页底部的,没有就点时间轴上面单子里的;手机上轻点) */
 const pushOrders = async (p: Page, tap = false) => {
   await p.waitForTimeout(150);
@@ -1862,6 +1891,7 @@ for (const style of ['realistic', 'fantasy']) {
   let reset = false;
   let closed = false;
   let renameMs = NaN;
+  let settleMs = NaN;
   let exportNew = false;
   if (city && mark) {
     await page.mouse.click(mark.x, mark.y);
@@ -1871,6 +1901,8 @@ for (const style of ['realistic', 'fantasy']) {
       .catch(() => '');
     await page.click('.inspector .ins-name');
     await page.fill('.inspector .ins-edit input', '饕餮城');
+    // 点城以后地图飞过去、放大后的细节层在后台备料:等停稳再量(不然量进去的是飞行和备料,慢的机器上一次一个样)
+    settleMs = await mapSettled();
     // 在页面里计时:按回车 → 地图文字层画出新名字
     renameMs = (await page.evaluate(`(async () => {
       const w = window;
@@ -1911,7 +1943,7 @@ for (const style of ['realistic', 'fantasy']) {
   }
   console.log(
     `点选:拖动后面板 ${dragSel} 个、双击后 ${dblSel} 个;点「${city?.text}」→ 面板「${panel.replace(/\n/g, ' ').slice(0, 40)}…」;` +
-      `改名 → 地图上的字变了 ${renamed}(${renameMs.toFixed(1)} ms),悬停「${hoverNew.replace(/\n/g, ' ')}」;导出的编年史里有新名字 ${exportNew};恢复默认 ${reset};Esc 关面板 ${closed}`,
+      `改名 → 地图上的字变了 ${renamed}(${renameMs.toFixed(1)} ms;按回车前等地图停稳 ${settleMs.toFixed(0)} ms),悬停「${hoverNew.replace(/\n/g, ' ')}」;导出的编年史里有新名字 ${exportNew};恢复默认 ${reset};Esc 关面板 ${closed}`,
   );
   if (dragSel) errs.push('拖动地图误触发了选中');
   if (dblSel) errs.push('双击(复位视图)后留下了选中');
@@ -4416,21 +4448,31 @@ for (const style of ['realistic', 'fantasy']) {
     await page.mouse.wheel(0, -200);
     await page.waitForTimeout(30);
   }
-  await page.waitForTimeout(400);
+  // 放大后两层细节层在后台备料:等画上去了再拖(慢的机器上备得久,还没画上去时拖,头几步本来就是放大的整图,不是拖动把它藏了)
+  const zoomSettleMs = await mapSettled();
   const kz = (await view()).k;
+  const zoomedOn = await page.evaluate(() => [!!(window as any).__wfDetail?.on, !!(window as any).__wfCivDetail?.on]);
+  if (!zoomedOn[0] || !zoomedOn[1]) errs.push(`投影:罗宾森放大到 ${kz.toFixed(1)} 倍、停稳以后细节层没有画上去(地形 ${zoomedOn[0]}、文明 ${zoomedOn[1]})`);
   let dHidden = 0;
   let dSlid = 0;
   let cHidden = 0;
+  /** 哪几步藏起来了(d = 地形细节层,c = 文明细节层) */
+  const hidAt: string[] = [];
   await page.mouse.down();
   for (let s = 1; s <= 15; s++) {
     await page.mouse.move(mb.x + mb.width * (0.5 - (0.2 * s) / 15), mb.y + mb.height * 0.5);
     await page.waitForTimeout(16);
     const d = await page.evaluate(() => ({ ...(window as any).__wfDetail, shown: (document.querySelector('canvas.detail') as HTMLElement).style.display !== 'none' }));
-    if (!d.on || !d.shown) dHidden++;
-    else if (d.slide) dSlid++;
+    if (!d.on || !d.shown) {
+      dHidden++;
+      hidAt.push(`d${s}`);
+    } else if (d.slide) dSlid++;
     // 文明细节层跟着一起平移,不藏起来
     const c = await page.evaluate(() => ({ ...(window as any).__wfCivDetail, shown: (document.querySelector('canvas.civ-detail') as HTMLElement).style.display !== 'none' }));
-    if (!c.on || !c.shown) cHidden++;
+    if (!c.on || !c.shown) {
+      cHidden++;
+      hidAt.push(`c${s}`);
+    }
   }
   await page.mouse.up();
   await page.waitForTimeout(400);
@@ -4440,7 +4482,10 @@ for (const style of ['realistic', 'fantasy']) {
     .catch(() => {});
   const dEnd = await page.evaluate(() => (window as any).__wfDetail);
   const lonEnd = (await view()).lon;
-  console.log(`罗宾森放大 ${kz.toFixed(1)} 倍左右拖:15 步里细节层藏起来 ${dHidden} 次、整块平移 ${dSlid} 次(文明细节层藏起来 ${cHidden} 次);松手后按 ${dEnd?.lon?.toFixed(1)}°(中央经线 ${lonEnd.toFixed(1)}°)重画`);
+  console.log(
+    `罗宾森放大 ${kz.toFixed(1)} 倍(等细节层画上 ${zoomSettleMs.toFixed(0)} ms)左右拖:15 步里细节层藏起来 ${dHidden} 次、整块平移 ${dSlid} 次(文明细节层藏起来 ${cHidden} 次${hidAt.length ? `;藏在 ${hidAt.join(' ')}` : ''});` +
+      `松手后按 ${dEnd?.lon?.toFixed(1)}°(中央经线 ${lonEnd.toFixed(1)}°)重画`,
+  );
   if (dHidden) errs.push('投影:罗宾森放大后左右拖动时细节层藏起来了(露出放大的整图,发糊)');
   if (cHidden) errs.push('投影:罗宾森放大后左右拖动时文明细节层藏起来了(露出放大的文明底图,发糊)');
   if (!dSlid) errs.push('投影:罗宾森放大后左右拖动时细节层没有跟着平移');
