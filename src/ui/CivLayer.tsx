@@ -42,7 +42,21 @@ import { drawWarfare, warFront, warsShown } from '../render/civ/warfare';
 import { drawPlacedLabels, placeMap, placedMarkBox, toCanvas, type LabelItem, type LabelView, type Placement } from '../render/labels/draw';
 import { ensureFonts, fontsReady, preloadFonts } from '../render/labels/fonts';
 import { drawHighlight, drawSelection, drawSelectionLabels } from '../render/civ/highlight';
-import { getCivHighlight, setCivHighlight, useCivHighlight, useCivShow, useCivTime, useResourceView, useSelection, type MapSelection } from './civView';
+import {
+  getCivHighlight,
+  getCivShow,
+  getCivTime,
+  getSelection,
+  setCivHighlight,
+  useCivHighlight,
+  useCivShow,
+  useCivTime,
+  useResourceView,
+  useSelection,
+  type MapSelection,
+} from './civView';
+import { primePolityField, territoryGrid } from '../render/labels/polity';
+import { polityNamesOn } from '../render/civ/show';
 import { faithKey, personKey, placeKeyOf, polityKey, resolveKey, resolvePersonKey, settlementKey } from '../gen/edits';
 import { setMapPlacement } from './mapPick';
 import { mapBoxOf, mirrorCanvas, placeOnScreen, visibleBox, watchMapBox } from './mapWrap';
@@ -157,6 +171,46 @@ function fitsWorld(world: World, civ: Civ | null, base: Civ | null | undefined):
 
 /** 换上新的历史以前在后台分小步备料的活名(detailJobs.ts) */
 const CIV_SWAP_JOB = 'civ-swap';
+
+/**
+ * 打开世界(打开存档、刷新、换世界、新建……):世界交回来以后、地图换上以前,文明层第一次要画的
+ * (色块、国界、道路、战事、瘟疫,弯边投影 · 手绘的符号遮罩,战线,国名要用的国土场)拆成一小步一小步,
+ * 和地图一起在后台备好(ui/terrainPatch.ts 的 startTerrainFull),换上那一下只是把备好的贴上、描线,不用当场一口气算。
+ * 换上时画哪一年、哪些开关、哪种画风和投影,按这一刻的猜(和这一层换上时取的一样:时间轴、开关、选中的信仰);
+ * 换上以前这几样变了,换上时照旧当场画 —— 画出来一样,只是没省下。
+ * 备料出了错:剩下的不备了(不连累地图那几步),换上时照常当场画,错误照常报出去
+ */
+export function civOpenSteps(o: { world: World; raster: Raster; civ: Civ; style: CivStyle; mp: MapProj | null }): WorkStep[] {
+  const { world, raster, civ, style, mp } = o;
+  if (!fitsWorld(world, civ, civ)) return [];
+  const t = getCivTime();
+  // 回放 / 拖时间轴时这一层每帧当场画半分辨率的,不用备
+  if (t.playing || t.scrubbing) return [];
+  const show = getCivShow();
+  const year = t.year ?? civ.endYear;
+  const p: CivDrawParams = { world, raster, civ, style, year, show, fast: false, faithFocus: show.faiths ? faithFocusOf(getSelection().sel) : null };
+  const pp: CivDrawParams = mp ? { ...p, proj: projector(mp) } : p;
+  const steps: WorkStep[] = [
+    ...civOverlaySteps(pp),
+    ...civProjPrep(pp),
+    () => void (warsShown(p) && warFront(p)),
+    // 国名要用的国土栅格、国土场各一步(弯边投影的国名按投影后的国土拟合,另算)
+    () => void (!mp && polityNamesOn(show) && territoryGrid(world, raster, civ)),
+    () => void (!mp && polityNamesOn(show) && primePolityField(world, raster, civ, year)),
+  ];
+  let failed = false;
+  return steps.map((s): WorkStep => (deadline) => {
+    if (failed) return;
+    try {
+      return s(deadline);
+    } catch (e) {
+      failed = true;
+      setTimeout(() => {
+        throw e;
+      });
+    }
+  });
+}
 
 /**
  * 选中的东西从新的历史(civ、地名在 base 上)的编号换成还画着的那份(was、wasBase)里的,按稳定键;指不到 = null。
