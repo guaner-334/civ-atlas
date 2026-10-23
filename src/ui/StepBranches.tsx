@@ -340,9 +340,11 @@ export function StepBranches({ civ }: { civ: Civ | null }) {
   const all = useMemo(() => branchList(edits), [edits]);
   const [editing, setEditing] = useState<number | null>(null);
   const cur = all.find((b) => b.current);
-  // 在用的这支的最后一件大事按地图上这份历史写;切换中修改里已经是切到的那一支,地图上还是原来那支:那一支用它切走时记下的
+  // 在用的这支的最后一件大事按地图上这份历史写;切换中修改里已经换成切到的那一支(moved)、地图上还是原来那支:那一支用它切走时记下的
+  // (正在算的那一步先算完再切,等的那一会儿修改里还是原来那支)
+  const moved = !!sw && cur?.id === sw.to;
   const now = cur?.year ?? 0;
-  const live = useMemo(() => (civ && !sw ? branchNote(civ, now) : undefined), [civ, now, sw]);
+  const live = useMemo(() => (civ && !moved ? branchNote(civ, now) : undefined), [civ, now, moved]);
   if (all.length < 2) return null;
   const onId = sw ? sw.from : cur?.id;
   return (
@@ -359,7 +361,7 @@ export function StepBranches({ civ }: { civ: Civ | null }) {
             all={all}
             on={b.id === onId}
             sw={sw}
-            last={b.current ? (sw ? sw.last : live) : b.last}
+            last={b.current ? (moved ? sw?.last : live) : b.last}
             editing={editing === b.id}
             setEditing={setEditing}
             era={era}

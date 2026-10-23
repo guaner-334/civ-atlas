@@ -80,6 +80,7 @@ import {
   stepWheel,
   stepwiseActions,
   branchSwitching,
+  subscribeStepwise,
   useStepwiseOn,
   useStepwiseStopped,
 } from './stepwiseStore';
@@ -751,6 +752,26 @@ const WORK_LABEL: Partial<Record<WorkerRequest['type'], string>> = {
   upPreview: '预览地形大事',
 };
 
+/** 逐年推演切到了别的一支:from = 原来那支的编号,fromRef / toRef = 两支在句子里的叫法,year = 切到的那一支的"现在" */
+interface SwitchNote {
+  from: number;
+  fromRef: string;
+  toRef: string;
+  year: number;
+}
+/** 切到别的一支了(停在那一支的"现在"):说一声,带「切回」原来那支 */
+function switchedToast(sw: SwitchNote) {
+  showToast({
+    id: 'step-switched',
+    kind: 'ok',
+    text: `已切到${sw.toRef}，${yearFull(sw.year, getEdits().era)}`,
+    action: { label: `切回${sw.fromRef}`, act: 'step-switch-back', onClick: () => stepwiseActions()?.switchBranch(sw.from) },
+    ttl: 8000,
+  });
+}
+/** 切支线的时候,修改里已经是切到的那一支,地图、面板上还是原来那支:先不许下令、改名(用的键可能指到那一支里别的东西) */
+const SWITCH_EDIT_BLOCK = '正在切到别的一支，切完再改';
+
 /** fromHome:打开网站时先出来的首页(HomeShell.tsx)上点了要离开首页的事,挂上以后接着做(见 Boot.tsx) */
 export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
   const init = useMemo(readUrl, []);
@@ -1091,7 +1112,7 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
    * 正在切到别的一支(按那一支的进度从第 0 年重推):推好以后照常进逐年推演、停在那一支的"现在",
    * 顶上提示"已切到某一支"带「切回」原来那支。from = 原来那支的编号,year = 切到的那一支走到的那年
    */
-  const switchNote = useRef<{ from: number; fromRef: string; toRef: string; year: number } | null>(null);
+  const switchNote = useRef<SwitchNote | null>(null);
   /** 下一次重推时顶上提示条换成这一句(切支线时写切到哪一支);用一次就清掉 */
   const resimText = useRef<string | null>(null);
   /** 刚创建的世界要接着往后推:推完再从第 0 年放一遍历史(true = 要放) */
@@ -1486,7 +1507,25 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
   // 逐年推演:算一步(worker 的 turn)、从推演模式某一年开始、存回推演模式、重新演绎、切支线
   useEffect(() => {
     /**
-     * 原来那一支要留下的样子(重新演绎、切走时):正在算的那一步带走的、单子里还没交出去的干预,
+     * 重新演绎、切支线:正在算的那一步先等它算完、换上(或者没算成),再做 fn。这样原来那一支照它真走到的样子留下,
+     * 交回来的那一步也不会落到另一支上;单子里还没交出去的干预本来就在下一步开头生效,正好是那时的"现在"。
+     * 没在算 = 马上做;已经在等 = 这次不算;等的时候换了世界、不在逐年推演了 = 不做
+     */
+    let waiting = false;
+    const afterStep = (fn: () => void) => {
+      if (!getStepwise().busy) return fn();
+      if (waiting) return;
+      waiting = true;
+      const off = subscribeStepwise(() => {
+        const t = getStepwise();
+        if (t.on && t.busy) return;
+        off();
+        waiting = false;
+        if (t.on) fn();
+      });
+    };
+    /**
+     * 原来那一支要留下的样子(重新演绎、切走时):单子里还没交出去的干预(和万一还在算的那一步带走的)
      * 都当作在"现在"下的(在那一年年初生效,同存回推演模式)。没在逐年推演 = null
      */
     const keptBranch = (): WorldEdits | null => {
@@ -1563,39 +1602,53 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
         showToast({ id: 'step-saved', kind: 'ok', dot: true, text: `已存回推演模式「${title}」`, more: ['这个故事照样留着，在「我的世界」里随时能打开那一个'], ttl: 6000 });
       },
       rewind: (year, name) => {
-        const e0 = keptBranch();
-        const play = e0 && cleanPlay(e0.play);
-        // 原来那条原样留成一支(记下它的最后一件大事),从那一年另开一支、切过去
-        const r = e0 && play && rewindBranch(e0, year, name, branchNote(rawRef.current, play.year));
-        if (!play || !r || !r.edits.play) return notify({ kind: 'error', text: '没能从这一年重新演绎', more: ['另开的支太多了'] });
-        const T = r.edits.play.year;
-        rewindNote.current = { year: T };
-        dropPending();
-        // 进度换成那一年年初(App 照它从第 0 年推到那一年;正在算的那一步交回来时对不上,不要)
-        putEditsQuiet(r.edits);
-        rewoundTo(playFromOf(r.edits), T);
-        setCivTime({ year: T, playing: false, scrubbing: false, story: false });
+        setCivTime({ playing: false });
+        afterStep(() => {
+          const e0 = keptBranch();
+          const play = e0 && cleanPlay(e0.play);
+          // 原来那条原样留成一支(记下它的最后一件大事),从那一年另开一支、切过去
+          const r = e0 && play && rewindBranch(e0, year, name, branchNote(rawRef.current, play.year));
+          if (!play || !r || !r.edits.play) return notify({ kind: 'error', text: '没能从这一年重新演绎', more: ['另开的支太多了'] });
+          const T = r.edits.play.year;
+          rewindNote.current = { year: T };
+          dropPending();
+          // 进度换成那一年年初(App 照它从第 0 年推到那一年)
+          putEditsQuiet(r.edits);
+          rewoundTo(playFromOf(r.edits), T);
+          setCivTime({ year: T, playing: false, scrubbing: false, story: false });
+        });
       },
       switchBranch: (id) => {
         const s = getStepwise();
-        const e0 = keptBranch();
-        const play = e0 && cleanPlay(e0.play);
-        const all = e0 ? branchList(e0) : [];
+        const all = branchList(getEdits());
         const cur = all.find((b) => b.current);
         const to = all.find((b) => b.id === id && !b.current);
         // 正在切、正在重推 / 生成(地图上的历史还不是这一支的)时不切
-        if (s.switching || resimInfo.current || regenRef.current || !e0 || !play || !cur || !to) return;
-        const next = switchBranch(e0, id, branchNote(rawRef.current, play.year));
-        if (!next || !next.play) return;
-        // 地图先留着原来那支(照样能拖能点),在后台照那一支从第 0 年推到它走到的那一年,推完换上、停在那一年
+        if (!s.on || s.switching || resimInfo.current || regenRef.current || !cur || !to) return;
+        // 那一行先转起圈来(别的行、下令先不能点),停下;正在算的那一步算完再切
         branchSwitching({ to: id, from: cur.id, ...(to.last ? { last: to.last } : {}) });
-        switchNote.current = { from: cur.id, fromRef: branchRef(cur), toRef: branchRef(to), year: next.play.year };
-        resimText.current = `正在切到${branchRef(to)}：从头推到${spaced(yearAt(next.play.year, e0.era))}`;
         stepAuto.current = false;
         rewindNote.current = null;
         setCivTime({ playing: false });
-        dropPending();
-        putEditsQuiet(next);
+        afterStep(() => {
+          const e0 = keptBranch();
+          const play = e0 && cleanPlay(e0.play);
+          const next = e0 && play && !resimInfo.current && !regenRef.current ? switchBranch(e0, id, branchNote(rawRef.current, play.year)) : null;
+          if (!e0 || !next?.play) return branchSwitching(null);
+          dropPending();
+          const note: SwitchNote = { from: cur.id, fromRef: branchRef(cur), toRef: branchRef(to), year: next.play.year };
+          // 两支走到的一模一样(另开以后原样走回了同一年):地图上这份历史就是它的,不用重推,直接换上
+          if (JSON.stringify(next.play) === JSON.stringify(civPlay.current ?? null)) {
+            putEditsQuiet(next);
+            enterStepwise(playFromOf(next), next.play.year);
+            setCivTime({ year: next.play.year, playing: false, scrubbing: false, story: false });
+            return switchedToast(note);
+          }
+          // 地图先留着原来那支(照样能拖),在后台照那一支从第 0 年推到它走到的那一年,推完换上、停在那一年
+          switchNote.current = note;
+          resimText.current = `正在切到${branchRef(to)}：从头推到${spaced(yearAt(next.play.year, e0.era))}`;
+          putEditsQuiet(next);
+        });
       },
     });
     return () => setStepwiseActions(null);
@@ -1826,16 +1879,7 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
       // 刚切到别的一支:停在那一支的"现在",说一声,带「切回」原来那支
       const sw = switchNote.current;
       switchNote.current = null;
-      if (sw && sw.year === play.year) {
-        const era = getEdits().era;
-        showToast({
-          id: 'step-switched',
-          kind: 'ok',
-          text: `已切到${sw.toRef}，${yearFull(sw.year, era)}`,
-          action: { label: `切回${sw.fromRef}`, act: 'step-switch-back', onClick: () => stepwiseActions()?.switchBranch(sw.from) },
-          ttl: 8000,
-        });
-      }
+      if (sw && sw.year === play.year) switchedToast(sw);
     }
     // 刚创建的世界接着往后推完了:缩略图按推完的样子重截,该放历史的从第 0 年放一遍
     if (info?.years && !play) {
@@ -5307,6 +5351,22 @@ ${s.image.cells}` : null);
     setEditGate((keys) => (keys.every((k) => sameInBoth(real, sim, k)) ? null : PREVIEW_EDIT_BLOCK));
     return () => setEditGate(null);
   }, [rawCiv, previewRaw]);
+  // 逐年推演切支线的时候:面板里还是原来那支的历史,先不许下令、改名(逐年推演里不试推演,和上面那个不会同时挂着)
+  useEffect(() => {
+    let on = false;
+    const sync = () => {
+      const want = !!getStepwise().switching;
+      if (want === on) return;
+      on = want;
+      setEditGate(want ? () => SWITCH_EDIT_BLOCK : null);
+    };
+    sync();
+    const off = subscribeStepwise(sync);
+    return () => {
+      off();
+      if (on) setEditGate(null);
+    };
+  }, []);
   // 在地图上看试推演 / 回到现在:选中的东西按稳定键换到另一份历史里;刚开始看时没选东西,选上关注的那个国家
   const prevPreview = useRef<Civ | null>(null);
   useLayoutEffect(() => {
