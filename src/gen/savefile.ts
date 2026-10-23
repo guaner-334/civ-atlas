@@ -57,6 +57,10 @@
  *   没在逐年推演时不写。读档时过 cleanPlay:年份不对的当没在逐年推演、不合格的命令丢掉,提示一句。读回来按"推到哪年 + 命令串"重新推出同一刻(civ/play.ts 的 playCiv)
  * - edits.playFrom(可选):这次逐年推演从第几年起(edits.ts 文件头"逐年推演的进度"),`2650`;没在逐年推演、从第 0 年起的不写。
  *   读档时过 cleanPlayFrom:取整、夹到 [0, play.year],没有 play 的去掉(不提示:只是记录)
+ * - edits.branches(可选):逐年推演另开的几支(edits.ts 文件头"支线"),当前这一支照旧在 play、playFrom 里,
+ *   `{ "id": 3, "name": "北伐", "list": [{ "id": 1, "from": 2660, "year": 2700, "commands": [{ "kind": "unity", "a": "polity:c4567#0", "from": 2660 }] }] }`;
+ *   每支只记从哪年起和当前这一支不一样、那以后的命令。只有当前这一支时不写。读档时过 cleanBranches:没有 play 的去掉,
+ *   不合格的那一支去掉,提示一句。只认识 play 的版本读到这一项会跳过,看到的是当前这一支
  * - edits.advance(可选):推进设置(edits.ts 文件头"推进设置"),`{ "step": 5, "every": 50, "big": true, "countdown": 0 }`;都是默认时不写。
  *   读档时过 cleanAdvance:认不出的项按默认,提示一句
  * - view:看这个世界用的投影和中央经线(`{ "projection": "robinson", "center": 120 }`,可选)。
@@ -80,7 +84,7 @@
 import type { World } from './world';
 import { DEFAULT_PARAMS, type WorldParams } from './params';
 import { cleanMix, sameMix } from './names/mix';
-import { END_YEAR_MAX, GENERATOR_CHANGES, GENERATOR_VERSION, MARKS_MAX, MARK_REGIONS_TOTAL, NAME_MAX, aiNameKeys, cleanCivSeed, cleanEndYear, cleanMapRef, cleanMark, cleanPlay, cleanPlayFrom, cleanAdvance, advanceOf, sameAdvance, endYearOf, freeMarkId, resolveKey, type AdvanceSettings, type AiNameMark, type AuthorMark, type GeneratorChange, type Intervention, type TerrainOp, type Upheaval, type WorldEdits } from './edits';
+import { END_YEAR_MAX, GENERATOR_CHANGES, GENERATOR_VERSION, MARKS_MAX, MARK_REGIONS_TOTAL, NAME_MAX, aiNameKeys, cleanCivSeed, cleanEndYear, cleanMapRef, cleanMark, cleanPlay, cleanPlayFrom, cleanBranches, branchPlay, cleanAdvance, advanceOf, sameAdvance, endYearOf, freeMarkId, resolveKey, type AdvanceSettings, type AiNameMark, type AuthorMark, type GeneratorChange, type Intervention, type PlayBranches, type TerrainOp, type Upheaval, type WorldEdits } from './edits';
 import type { Civ } from './civ/types';
 import { TERRAIN_MAX_OPS, UPHEAVALS_MAX, UPHEAVAL_KINDS, UPHEAVAL_OPS_MAX, cleanTerrainOp, cleanUpheaval } from './terrainEdits';
 import { SKETCH_MAX_STROKES, cleanSketch, cleanSketchStroke, type SketchEdit } from './sketch';
@@ -502,7 +506,7 @@ export function worldKey(params: WorldParams): string {
     .join('&');
 }
 
-/** 改了几处:改名条数 + 干预条数 + 地形修改处数 + 草图(画了算一处)+ 地形大事件数 + 作者标记个数 + 改过的旗面数 + 作者的人物个数 + 地名风格、推演年数、拓荒、起源、文明种子、纪年、月份、逐年推演进度(各算一处)*/
+/** 改了几处:改名条数 + 干预条数 + 地形修改处数 + 草图(画了算一处)+ 地形大事件数 + 作者标记个数 + 改过的旗面数 + 作者的人物个数 + 地名风格、推演年数、拓荒、起源、文明种子、纪年、月份、逐年推演进度(各算一处)+ 逐年推演另开的几支(每支一处)*/
 export function editCount(edits: WorldEdits): number {
   return (
     Object.keys(edits.names).length +
@@ -520,7 +524,8 @@ export function editCount(edits: WorldEdits): number {
     (cleanCivSeed(edits.civSeed) !== undefined ? 1 : 0) +
     (cleanEra(edits.era) ? 1 : 0) +
     (cleanMonths(edits.months) !== undefined ? 1 : 0) +
-    (cleanPlay(edits.play) ? 1 : 0)
+    (cleanPlay(edits.play) ? 1 : 0) +
+    (cleanBranches(edits.branches, edits.play)?.list.length ?? 0)
   );
 }
 
@@ -600,6 +605,8 @@ export function makeSave(
   if (play) save.edits.play = { year: play.year, commands: play.commands.map((x) => ({ ...x })) };
   const playFrom = cleanPlayFrom(edits.playFrom, play);
   if (playFrom !== undefined) save.edits.playFrom = playFrom;
+  const branches = cleanBranches(edits.branches, play);
+  if (branches) save.edits.branches = copyBranches(branches);
   const advance = cleanAdvance(edits.advance);
   if (advance) save.edits.advance = { ...advance };
   const t = cleanTitle(title);
@@ -609,6 +616,11 @@ export function makeSave(
   const o = origin ? cleanOrigin(origin) : null;
   if (o) save.origin = o;
   return save;
+}
+
+/** 复制支线(之后改原来的不影响存档) */
+function copyBranches(bs: PlayBranches): PlayBranches {
+  return { ...bs, list: bs.list.map((b) => ({ ...b, commands: b.commands.map((x) => ({ ...x })) })) };
 }
 
 /** 复制一个标记(之后改原来的不影响存档) */
@@ -857,6 +869,12 @@ export function parseSave(text: string): ParseResult {
     else if (play.commands.length < raw) warnings.push(`逐年推演的进度里有 ${raw - play.commands.length} 条命令格式不对,已跳过`);
   }
   const playFrom = cleanPlayFrom(E.playFrom, play);
+  // 支线:跟着进度走(没有进度的不要,不另提示);不合格的那一支去掉
+  const branches = cleanBranches(E.branches, play);
+  if (E.branches !== undefined && play && branches !== E.branches) {
+    const n = isObj(E.branches) && Array.isArray(E.branches.list) ? E.branches.list.length - (branches?.list.length ?? 0) : 0;
+    warnings.push(n > 0 ? `逐年推演的支线里有 ${n} 支认不出来,已跳过` : '逐年推演的支线里有认不出来的地方,已按认得出的读');
+  }
   // 推进设置:认不出的项按默认
   const advance = cleanAdvance(E.advance);
   if (E.advance !== undefined && !sameAdvanceRaw(E.advance, advance)) warnings.push('推进设置里有认不出来的项,已按默认读');
@@ -889,6 +907,7 @@ export function parseSave(text: string): ParseResult {
       ...(months !== undefined ? { months } : {}),
       ...(play ? { play } : {}),
       ...(playFrom !== undefined ? { playFrom } : {}),
+      ...(branches ? { branches } : {}),
       ...(advance ? { advance } : {}),
     },
     check: typeof raw.check === 'string' ? raw.check.slice(0, 64) : '',
@@ -1134,6 +1153,15 @@ export async function decodeShare(hash: string): Promise<ParseResult> {
   return { ok: false, error: '链接里的数据不是「文明与地图」的世界(可能被改动过),请让对方重新复制一次链接' };
 }
 
+/** 逐年推演的每一支(连当前这一支)完整的进度和起演那年,写成字符串(比较用;名字、编号不算) */
+function branchKeys(edits: WorldEdits): string[] {
+  const cur = cleanPlay(edits.play);
+  if (!cur) return [];
+  const key = (p: { year: number; commands: Intervention[] }, from: number) => JSON.stringify([p.year, p.commands, from]);
+  const list = cleanBranches(edits.branches, cur)?.list ?? [];
+  return [key(cur, cleanPlayFrom(edits.playFrom, cur) ?? 0), ...list.map((b) => key(branchPlay(cur, b), b.playFrom ?? 0))];
+}
+
 /**
  * 换成 incoming 的修改,会丢掉 local 里的几处:改名(同一个键 incoming 没有或名字不同)、干预(incoming 里没有的)、
  * 世界名(两边都起了名、名字不同);以后加的字段(地形修改……)按"数组的项 / 对象的键"逐个比
@@ -1141,6 +1169,8 @@ export async function decodeShare(hash: string): Promise<ParseResult> {
 export function editsLost(local: SaveFile, incoming: SaveFile): number {
   const L = local.edits as unknown as Record<string, unknown>;
   const I = incoming.edits as unknown as Record<string, unknown>;
+  // 逐年推演另开过支(哪一边都算):进度和另开的几支一起按"每一支完整的进度"比,不管哪一支是当前的
+  const forked = !!(cleanBranches(local.edits.branches, local.edits.play) || cleanBranches(incoming.edits.branches, incoming.edits.play));
   let n = 0;
   for (const [k, lv] of Object.entries(L)) {
     // AI 起名的记号跟着改名走,丢没丢已经按改名算过了;用的哪张地图只是记录(第一次推完才补上校验),不算修改
@@ -1172,7 +1202,12 @@ export function editsLost(local: SaveFile, incoming: SaveFile): number {
       if (!sameAdvance(lv, iv)) n++;
       continue;
     }
-    if (k === 'playFrom') continue;
+    if (k === 'playFrom' || k === 'branches') continue;
+    if (k === 'play' && forked) {
+      const has = new Set(branchKeys(incoming.edits));
+      n += branchKeys(local.edits).filter((x) => !has.has(x)).length;
+      continue;
+    }
     if (Array.isArray(lv)) {
       const has = new Set(Array.isArray(iv) ? iv.map((x) => JSON.stringify(x)) : []);
       n += lv.filter((x) => !has.has(JSON.stringify(x))).length;

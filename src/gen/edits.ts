@@ -244,6 +244,38 @@
  * 界面上写"从第几年起",时间轴、往回看用)。只是记下来,不参与推演(不进配方指纹)。读进来的先过 cleanPlayFrom
  * (整数、夹到 [0, play.year];没有 play = 不要这一项);0 不写。
  *
+ * ## 支线
+ *
+ * WorldEdits.branches(可选,只跟着 play 走;没有 = 只有当前这一支):逐年推演里另开的几支,都在同一个世界里。
+ * 当前这一支照旧是 play / playFrom(推演只看它);不在用的几支记在 list 里,每支只记"从第几年起和当前这一支不一样 + 那以后下过的命令",
+ * 存档几乎不变大。只是记下来,不交给推演、不进配方指纹;切到哪一支 = 把那一支换成 play / playFrom,照它从第 0 年重新推出来
+ * (gen/stepwise.ts 的 switchBranch)。别的修改(改名、作者的干预、标记、地形……)几支共用。
+ *
+ * | 字段 | 意思                                   | 取值                                         |
+ * |------|----------------------------------------|----------------------------------------------|
+ * | id   | 当前这一支的编号                       | 1–BRANCH_ID_MAX 的整数                       |
+ * | name | 当前这一支的名字(可选)               | 同下面一支的 name                            |
+ * | list | 不在用的几支(PlayBranch,见下)       | 数组                                         |
+ *
+ * list 里的一支(PlayBranch):
+ *
+ * | 字段     | 意思                                                                 | 取值                                                    |
+ * |----------|----------------------------------------------------------------------|---------------------------------------------------------|
+ * | id       | 编号:几支(连当前这一支)各不相同;另开一支取最大的加一,界面按它排先后、认是哪一支 | 1–BRANCH_ID_MAX 的整数                  |
+ * | name     | 名字(可选;没有 = 界面自己写)                                      | 去掉控制字符和首尾空白,最多 BRANCH_NAME_MAX 个字       |
+ * | from     | 从第几年起和当前这一支不一样:第 from 年以前下过的命令就是当前这一支命令串里早于这一年的那几条(不另记) | 0–当前这一支的 play.year 的整数 |
+ * | year     | 走到第几年年初(同 play.year)                                       | from–INTERVENTION_YEAR_MAX 的整数                       |
+ * | commands | 第 from 年和以后下过的命令(格式同 play.commands)                    | from 只增不减、都在 [from, year] 里                      |
+ * | playFrom | 这一支从第几年起演绎(同 WorldEdits.playFrom)                       | 取整、夹到 [0, year];0 不写                             |
+ * | last     | 切走时这一支的最后一件大事(可选,只用来在列表里显示)              | 同 name,最多 BRANCH_NOTE_MAX 个字                      |
+ *
+ * 一支完整的进度 = { year, commands: 当前这一支命令串里早于 from 的几条 + commands }(gen/stepwise.ts 的 branchPlay)。
+ * from 不晚于当前这一支走到的那年,所以当前这一支往下走、在"现在"下的命令(from = play.year ≥ 那一支的 from)不会混进别的几支;
+ * 当前这一支的过去变了(从这一年重新演绎、切到别的一支)时,别的几支跟着换记法(from 往前挪、命令补上),完整的进度不变。
+ * 读进来的先过 cleanBranches:没有 play = 不要这一项;编号不合格、重复的换一个新编号;year、from 不合格的那一支去掉,命令按 cleanPlay 的规矩清理;
+ * from 晚于当前这一支走到的那年的,改记成从那一年起(完整的进度不变)。list 是空的、当前这一支没起名、编号是 1 时不写。
+ * 存回推演模式只存当前这一支(stepwiseToNormal 去掉这一项);只认识 play 的版本读这样的存档,看到的就是当前这一支。
+ *
  * ## 推进设置
  *
  * WorldEdits.advance(可选,没有 = 全照默认):逐年推演怎么往下走 —— 只管界面什么时候算下一步、什么时候停,不参与推演(不进配方指纹),
@@ -491,8 +523,38 @@ export interface WorldEdits {
   play?: PlayState;
   /** 这次逐年推演从第几年起(见文件头"逐年推演的进度");只跟着 play 走,没有 = 0 */
   playFrom?: number;
+  /** 逐年推演另开的几支(见文件头"支线");只跟着 play 走,没有 = 只有当前这一支 */
+  branches?: PlayBranches;
   /** 推进设置(见文件头"推进设置");没有 = 全照默认 */
   advance?: AdvanceSettings;
+}
+
+/** 逐年推演另开的几支(见文件头"支线"):当前这一支的编号、名字,不在用的几支 */
+export interface PlayBranches {
+  /** 当前这一支(play)的编号 */
+  id: number;
+  /** 当前这一支的名字;没有 = 没起名 */
+  name?: string;
+  /** 不在用的几支 */
+  list: PlayBranch[];
+}
+
+/** 不在用的一支(见文件头"支线"):从第几年起和当前这一支不一样 + 那以后下过的命令 */
+export interface PlayBranch {
+  /** 编号(几支各不相同) */
+  id: number;
+  /** 名字;没有 = 没起名 */
+  name?: string;
+  /** 从第几年起和当前这一支不一样(这一年以前的命令和当前这一支一样,不另记) */
+  from: number;
+  /** 走到第几年年初 */
+  year: number;
+  /** 第 from 年和以后下过的命令 */
+  commands: Intervention[];
+  /** 这一支从第几年起演绎;没有 = 0 */
+  playFrom?: number;
+  /** 切走时的最后一件大事(列表里显示);没有 = 没记 */
+  last?: string;
 }
 
 /** 推进设置(存进修改的样子:默认的项不写;字段见文件头"推进设置") */
@@ -1393,6 +1455,97 @@ export function cleanPlayFrom(v: unknown, play: unknown): number | undefined {
 /** 这次逐年推演从第几年起(没写 = 0;没在逐年推演也是 0) */
 export function playFromOf(edits: Pick<WorldEdits, 'play' | 'playFrom'>): number {
   return cleanPlayFrom(edits.playFrom, edits.play) ?? 0;
+}
+
+/** 支线:编号最大是几 */
+export const BRANCH_ID_MAX = 1_000_000;
+/** 支线:名字最多几个字 */
+export const BRANCH_NAME_MAX = 16;
+/** 支线:切走时记下的最后一件大事最多几个字 */
+export const BRANCH_NOTE_MAX = 40;
+
+const isBranchId = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= BRANCH_ID_MAX;
+
+/** 支线的名字、最后一件大事:去掉控制字符、首尾空白,连着的空白并成一个,超过 max 个字截断(不是字符串 = 空) */
+function cleanBranchText(raw: unknown, max: number): string {
+  if (typeof raw !== 'string') return '';
+  // eslint-disable-next-line no-control-regex
+  const s = raw.replace(/[\u0000-\u001f\u007f]/g, '').replace(/\s+/g, ' ').trim();
+  const cs = [...s];
+  return cs.length > max ? cs.slice(0, max).join('').trimEnd() : s;
+}
+
+/** 支线的名字清理(见文件头"支线"):空 = 没起名 */
+export const cleanBranchName = (raw: unknown): string => cleanBranchText(raw, BRANCH_NAME_MAX);
+/** 支线切走时记下的最后一件大事清理:空 = 没记 */
+export const cleanBranchNote = (raw: unknown): string => cleanBranchText(raw, BRANCH_NOTE_MAX);
+
+/**
+ * 不在用的一支的清理(cur = 清理过的当前这一支的进度):year、from 不是合格的整数(from 晚于 year 也算)= null;
+ * 命令照 cleanPlay 的规矩、只收 [from, year] 里的;from 晚于 cur.year 的改记成从 cur.year 起。编号不合格 = 0(由 cleanBranches 换新的)
+ */
+function cleanBranch(x: unknown, cur: PlayState): PlayBranch | null {
+  if (!x || typeof x !== 'object' || Array.isArray(x)) return null;
+  const o = x as Record<string, unknown>;
+  const { year, from } = o;
+  if (typeof year !== 'number' || !Number.isInteger(year) || year < 0 || year > INTERVENTION_YEAR_MAX) return null;
+  if (typeof from !== 'number' || !Number.isInteger(from) || from < 0 || from > year) return null;
+  let commands: Intervention[] = [];
+  for (const c of Array.isArray(o.commands) ? (o.commands as unknown[]) : []) {
+    const v = cleanIntervention(c);
+    if (v && v.from >= from && v.from <= year && (!commands.length || v.from >= commands[commands.length - 1].from)) commands.push(v);
+  }
+  // 晚于当前这一支走到的那年:完整的进度 = 当前这一支的命令全都在前面(都早于 from),改记成从 cur.year 起,补上当前这一支在那一年下的
+  let at = from;
+  if (from > cur.year) {
+    at = cur.year;
+    commands = [...cur.commands.filter((v) => v.from >= at), ...commands];
+  }
+  const name = cleanBranchName(o.name);
+  const last = cleanBranchNote(o.last);
+  const pf = typeof o.playFrom === 'number' && Number.isFinite(o.playFrom) ? Math.min(year, Math.max(0, Math.round(o.playFrom))) : 0;
+  return {
+    id: isBranchId(o.id) ? o.id : 0,
+    ...(name ? { name } : {}),
+    from: at,
+    year,
+    commands,
+    ...(pf > 0 ? { playFrom: pf } : {}),
+    ...(last ? { last } : {}),
+  };
+}
+
+/** 一支完整的进度(见文件头"支线"):当前这一支(cur)命令串里早于 from 的几条 + 这一支自己的 */
+export function branchPlay(cur: PlayState, b: Pick<PlayBranch, 'from' | 'year' | 'commands'>): PlayState {
+  return { year: b.year, commands: [...cur.commands.filter((v) => v.from < b.from), ...b.commands] };
+}
+
+/**
+ * 支线的清理(读档、存档前用;见文件头"支线"):play 不合格 = undefined;编号不合格、重复的换成最大的加一(按先后);
+ * 不合格的那一支去掉;list 是空的、当前这一支没起名、编号是 1 = undefined(不写)。全都合格时返回原对象
+ */
+export function cleanBranches(raw: unknown, play: unknown): PlayBranches | undefined {
+  const cur = cleanPlay(play);
+  if (!cur || !raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const o = raw as Record<string, unknown>;
+  const id = isBranchId(o.id) ? o.id : 1;
+  const name = cleanBranchName(o.name);
+  const list: PlayBranch[] = [];
+  for (const x of Array.isArray(o.list) ? (o.list as unknown[]) : []) {
+    const b = cleanBranch(x, cur);
+    if (b) list.push(b);
+  }
+  // 编号:当前这一支先占着;不合格、和前面重复的,按先后换成最大的加一
+  const used = new Set([id]);
+  let top = list.reduce((m, b) => Math.max(m, b.id), id);
+  for (const b of list) {
+    if (b.id && !used.has(b.id)) used.add(b.id);
+    else if (top < BRANCH_ID_MAX) used.add((b.id = ++top));
+    else b.id = 0;
+  }
+  const out: PlayBranches = { id, ...(name ? { name } : {}), list: list.filter((b) => b.id) };
+  if (!out.list.length && !name && id === 1) return undefined;
+  return JSON.stringify(out) === JSON.stringify(raw) ? (raw as PlayBranches) : out;
 }
 
 /** 推进设置:一步最多走几年 */
