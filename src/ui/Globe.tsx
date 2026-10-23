@@ -1578,7 +1578,7 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
           s.cpuWant = key;
           if (s.cpuShown?.key !== key) {
             pushCpuSources(pool);
-            pool.request({ view: s.view, f, look, w: cw, h: ch, idle: !busy, tag: { key, view: s.view, shift: s.shift, full: q === 1, w, h, dpr } });
+            pool.request({ view: s.view, f, dpr: dpr * q, look, w: cw, h: ch, idle: !busy, tag: { key, view: s.view, shift: s.shift, full: q === 1, w, h, dpr } });
           }
         }
         cpuWait = s.cpuShown?.key !== key;
@@ -1592,7 +1592,7 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
           if (!s.cpuImg || s.cpuImg.width !== cw || s.cpuImg.height !== ch) s.cpuImg = ctx.createImageData(cw, ch);
           const img = s.cpuImg;
           const src = cpuSrcNow();
-          renderGlobeCpu({ w: cw, h: ch, data: img.data }, s.view, f, look, {
+          renderGlobeCpu({ w: cw, h: ch, data: img.data }, s.view, f, dpr * q, look, {
             terrain: src.terrain,
             civ: src.civ,
             sel: src.sel,
@@ -2167,7 +2167,7 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
       } else {
         const img = octx.createImageData(W, H);
         const src = cpuSrcNow();
-        renderGlobeCpu({ w: W, h: H, data: img.data }, s.view, frameOf(s.view, W, H, sc), look, { ...src, replay: s.replayMix > 0 ? src.replay : null });
+        renderGlobeCpu({ w: W, h: H, data: img.data }, s.view, frameOf(s.view, W, H, sc), sc, look, { ...src, replay: s.replayMix > 0 ? src.replay : null });
         octx.putImageData(img, 0, 0);
       }
       const ov = document.createElement('canvas');
