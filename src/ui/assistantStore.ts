@@ -734,7 +734,8 @@ function showPreview(id: number) {
     const done = () => {
       if (!c.signal.aborted && state.preview?.turn === id) set({ ...state, preview: { turn: id, raw, names } });
     };
-    const full = namedHistory(raw, names);
+    // 套上作者人物的名字(和 App.tsx 换上试推演时一样):编年史的缓存按套了哪些名字认
+    const full = namedHistory(raw, names, getEdits().characters);
     if (fullChronicleCached(full)) return done();
     void prepareChronicle(raw, names, full, c.signal).then((ok) => ok && done());
   };

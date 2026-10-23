@@ -41,6 +41,14 @@ describe('让作者的人物即位 · 另立一国', () => {
     expect(key).toBe(polityKey(after, made));
     expect(resolveKey(after, key!)).toEqual({ kind: 'polity', id: made });
     expect(foundedPolityKey(civ, 'region:nope', T)).toBeNull();
+    // 同一州单子里还有一条更早的立国(还没推演):新国是这州的下一个
+    const two = generateCiv(world(), { interventions: [{ kind: 'found', region: rk, from: T - 50 }, { kind: 'found', region: rk, from: T }] });
+    const made2 = two.annals.filter((e) => e.kind === 'intervene').map((e) => e.a);
+    expect(made2.length).toBe(2);
+    expect(foundedPolityKey(civ, rk, T - 50)).toBe(polityKey(two, made2[0]));
+    expect(made2[1]).toBeGreaterThanOrEqual(0);
+    expect(foundedPolityKey(civ, rk, T, 1)).toBe(polityKey(two, made2[1]));
+    expect(foundedPolityKey(civ, rk, T)).not.toBe(polityKey(two, made2[1]));
   }, 120_000);
 
   it('那一年还在的国家:有国土的才列,大的在前,写州数和那年在位的君主', () => {

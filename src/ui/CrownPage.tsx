@@ -102,7 +102,9 @@ export function CrownPage({ civ, raster, world, year, c, onBack }: { civ: Civ; r
   const [polName, setPolName] = useState('');
   // 到哪年下台:到卒年 / 到某一年(人物没写卒年:照寻常君主算)
   const [byYear, setByYear] = useState(false);
-  const ui = useYearInput(Math.min(c.died ?? Infinity, y + 30), y + 1, c.died ?? INTERVENTION_YEAR_MAX, clear);
+  // 到某一年退位:最晚卒年前一年(到卒年那一年 = 「到卒年」那一项,说法也不同)
+  const untilHi = c.died !== undefined ? c.died - 1 : INTERVENTION_YEAR_MAX;
+  const ui = useYearInput(Math.min(untilHi, y + 30), y + 1, untilHi, clear);
   // 性格:和人物卡上的同一份,松手就存进人物卡
   const [lean, setLean] = useState<RulerLeanings>(() => characterLeanings(c));
   const leanRef = useRef(lean);
@@ -200,7 +202,9 @@ export function CrownPage({ civ, raster, world, year, c, onBack }: { civ: Civ; r
       const rk = regionKey(civ, reg!);
       const n = cleanName('polity', polName);
       const f: Intervention = n ? { kind: 'found', region: rk, from: y, name: n } : { kind: 'found', region: rk, from: y };
-      const a = foundedPolityKey(civ, rk, y);
+      // 单子里已经有这州更早(或同一年先下)的立国:推演后那国排在前面,新国是这州的下一个
+      const earlier = getPending().filter((p) => p.kind === 'iv' && p.v.kind === 'found' && p.v.region === rk && p.v.from <= y).length;
+      const a = foundedPolityKey(civ, rk, y, earlier);
       if (!a) return setMsg('这一州立不了国');
       const e1 = queueIntervention(f, interventionText(civ, f));
       if (e1) return setMsg(e1);
