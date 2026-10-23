@@ -174,7 +174,7 @@ export function FollowPlate({ civ, phone }: { civ: Civ; phone: boolean }) {
   );
 }
 
-/** 他不在了:"燕溟死于兵乱(1477–1529,享年 51)→ 接着看江寒星(继位的,大辰皇帝,38 岁)" */
+/** 他不在了:"燕溟死于兵乱(1477–1529,享年 51)→ 接着看江寒星(继位的,大辰皇帝,37 岁)" */
 function HandPlate({ civ, prev, next, year, era, phone }: { civ: Civ; prev: Person; next: FollowTarget | null; year: number; era: Era | null | undefined; phone: boolean }) {
   const end = personEnd(prev);
   const pName = personName(civ, prev);
