@@ -72,6 +72,8 @@ export interface SidebarProps {
   onReplay: () => void;
   /** 回到"我的世界" */
   onHome: () => void;
+  /** 返回那一处写什么(不给 = "我的世界";从作品墙打开的作品是"作品墙",onHome 回作品墙) */
+  homeLabel?: string;
   /** 详情面板放进来的空位(面板只挂一份,由 App 挪到这里;见 App 的 inspectorHost) */
   inspectorSlot: (el: HTMLElement | null) => void;
 }
@@ -105,7 +107,7 @@ export function Sidebar(p: SidebarProps) {
         onClick={stop}
       >
         <header className="sb-head">
-          <BackHome onClick={p.onHome} />
+          <BackHome onClick={p.onHome} label={p.homeLabel} />
           <button className="sb-collapse" data-act="side-collapse" aria-label="收起侧栏" data-tip="收起侧栏" data-tip-key="side" data-tip-side="left" onClick={collapseSide}>
             <Icon name="sidebar" size={19} />
           </button>
@@ -222,11 +224,11 @@ export function SearchField({ s, onFocus }: { s: SearchState; onFocus?: () => vo
 // 顶上:回到我的世界、世界名、存档、更多
 
 /** 卡片左上"‹ 我的世界" */
-export function BackHome({ onClick }: { onClick: () => void }) {
+export function BackHome({ onClick, label }: { onClick: () => void; label?: string }) {
   return (
-    <button className="nw-back" data-act="home" onClick={onClick}>
+    <button className="nw-back" data-act={label ? 'gallery-back' : 'home'} onClick={onClick}>
       <Icon name="back" size={18} />
-      我的世界
+      {label ?? '我的世界'}
     </button>
   );
 }
@@ -710,7 +712,7 @@ export function WorldHome(p: Pick<SidebarProps, 'civ' | 'data' | 'params' | 'gen
               <Icon name="chevron" size={14} className="sb-chev" />
             </button>
             {origin && (
-              <a className="sb-row" data-act="origin" href={origin.url} target="_blank" rel="noreferrer noopener" title="打开底稿的分享链接">
+              <a className="sb-row" data-act="origin" href={origin.url} target="_blank" rel="noreferrer noopener" title={origin.gallery ? '打开作品墙上的这个作品' : '打开底稿的分享链接'}>
                 <Icon name="link" size={17} className="sb-ico" />
                 <span className="sb-row-main">
                   <b>底稿来自</b>

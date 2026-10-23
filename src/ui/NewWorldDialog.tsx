@@ -536,7 +536,8 @@ export function NewWorldDialog(p: NewWorldDialogProps) {
     <div className="nd-shared" data-testid="shared-preset">
       <Icon name="info" size={17} />
       <span className="nd-shared-tx">
-        朋友分享的预设「{p.shared.name}」{p.phone ? <br /> : '，'}参数已经照它填好
+        {p.shared.gallery ? `作品墙上${p.shared.gallery.by ? `${p.shared.gallery.by}的` : '的'}「${p.shared.name}」` : `朋友分享的预设「${p.shared.name}」`}
+        {p.phone ? <br /> : '，'}参数已经照它填好
       </span>
       {kept ? (
         <span className="nd-shared-done">已存好</span>
