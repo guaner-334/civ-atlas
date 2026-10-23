@@ -4,7 +4,8 @@
  *
  * 看的时候
  *   顶部  头像(Portrait.tsx;按编号挑,他的国家定服饰,年龄跟时间轴;右下角「换一张」)、名字、"作者的人物，2490–2561 年"
- *   按钮  出生那年(主操作:时间轴跳到生年)/ 编辑 / 即位…(卡片换成让他即位那一页,CrownPage.tsx)/ 更多(复制生平、设为中心、删除人物;删了提示条上能撤销)
+ *   按钮  出生那年(主操作:时间轴跳到生年)/ 编辑 / 即位…(卡片换成让他即位那一页,CrownPage.tsx)/ 更多(复制生平、设为中心、删除人物;删了提示条上能撤销;
+ *         当过君主的先问一句:连他的即位一起去掉 / 只删人物,CrownAsk.tsx)
  *   简介  作者写的那几句
  *   概况  年龄(跟时间轴:"22 岁"、"还没出生"、"已故，享年 71 岁")、身份、国家(那年在位的君主;他自己在位写"他在位")、出生地、亲友
  *   君位  让他即位过才有(crownInfo.ts):待推演 / 下一步生效的写一行;生效了写在位、前任(让位)、继任(继他之位)、下台、亲征,
@@ -17,6 +18,7 @@
  * 填的时候(新建、编辑)
  *   名字输入框、生卒(各带"用第 N 年")、出生地(点地图挑,「换一处」「去掉」)、国家(默认跟着出生地)、身份、性格(四条滑条)、颜色、简介、
  *   一生(一行一段,点了改;「加一段经历」)、亲友(点了改;「加亲友」)、底部 取消 / 完成
+ *   (当过君主的改了生卒、性格,点「完成」先问一句:他的即位一起改 / 只改人物卡,CrownAsk.tsx)
  *   加一段经历:年份(算好几岁)、经历、在哪(点地图;「去掉」清掉)、勾推演里那几年那一处的事和人;底部 取消 / 加上
  *   加亲友:关系(随便写)、是谁(自己的人物或推演里的人,能搜);底部 取消 / 加上
  */
@@ -30,7 +32,7 @@ import { LEANING_KEYS, LEANING_TEXT, personName, rulerFateWord } from '../gen/ci
 import { commandFoes, rulerAt, rulerNeighbors } from '../gen/civ/peopleInfo';
 import { hasLineage } from '../gen/civ/lineageInfo';
 import type { Person, RulerLeanings } from '../gen/civ/types';
-import { MARK_COLORS, polityKey, type MarkColor } from '../gen/edits';
+import { MARK_COLORS, polityKey, type Intervention, type MarkColor } from '../gen/edits';
 import {
   CHARACTERS_MAX,
   CHAR_NAME_DEFAULT,
@@ -58,6 +60,7 @@ import {
   cancelDraft,
   cancelSub,
   draftAsCharacter,
+  draftEdited,
   draftProblem,
   editCharacterDraft,
   escapeCharacter,
@@ -105,9 +108,10 @@ import { pointsFocus } from './flyTo';
 import { requestMapCenter } from './mapWrap';
 import { openLineage, openOverview } from './overviewStore';
 import { setSheet } from './panelStore';
-import { usePending } from './pendingStore';
+import { getPending, removePending, usePending } from './pendingStore';
 import { useStepwise } from './stepwiseStore';
-import { characterCrowns, newReignName, type CrownState } from './crownInfo';
+import { characterCrowns, crownDeleteAsk, crownEditAsk, crownToDeath, newReignName, noteCrownResim, type CrownAsk, type CrownState } from './crownInfo';
+import { CrownAskDialog } from './CrownAsk';
 import { CrownPage, LeanSliders } from './CrownPage';
 import { foesLine, personEvents } from './PersonPanel';
 import { clearToast, showToast } from './toastStore';
@@ -126,10 +130,10 @@ const AROUND_MAX = 8;
 /** 加亲友时最多列几个人 */
 const KIN_LIST_MAX = 12;
 
-/** 圆形头像:名字的第一个字 + 人物的颜色(不传图片) */
-export function CharAvatar({ c, size }: { c: Pick<AuthorCharacter, 'name' | 'color'>; size: number }) {
+/** 圆形头像:名字的第一个字 + 人物的颜色(不传图片);cls = 再加的 class(推演里作者立的君主名字前的小头像:cr-av) */
+export function CharAvatar({ c, size, cls }: { c: Pick<AuthorCharacter, 'name' | 'color'>; size: number; cls?: string }) {
   return (
-    <span className="oc-av" style={{ '--s': `${size}px`, background: MARK_HEX[c.color] } as CSSProperties} aria-hidden="true">
+    <span className={cls ? `oc-av ${cls}` : 'oc-av'} style={{ '--s': `${size}px`, background: MARK_HEX[c.color] } as CSSProperties} aria-hidden="true">
       {[...(c.name.trim() || CHAR_NAME_DEFAULT)][0]}
     </span>
   );
@@ -224,11 +228,35 @@ function CharView({ civ, raster, world, year, c, chars }: CharacterPanelProps & 
     showToast({ id: 'oc-copy', kind: 'ok', text: `已复制「${c.name}」的生平`, ttl: 1600 });
   };
   const canCrown = civ.viable && civ.polities.length > 0;
-  const del = () => {
+  /** 删当过君主的人物:先问一句(连他的即位一起去掉 / 只删人物) */
+  const [asking, setAsking] = useState<CrownAsk | null>(null);
+  /** 删掉;ivs = 干预列表一起换成这个(连即位一起去掉) */
+  const remove = (ask: CrownAsk | null) => {
     const at = (getEdits().characters ?? []).findIndex((x) => x.id === c.id);
-    const gone = removeCharacter(c.id);
+    const before = getEdits().interventions;
+    const gone = removeCharacter(c.id, ask?.ivs);
     if (!gone) return;
+    // 单子里还没推演的他的即位:人物没了,一起拿掉
+    for (const p of getPending()) if (p.kind === 'iv' && p.v.kind === 'crown' && p.v.char === c.id) removePending(p.id);
     clearSelection();
+    const undo = () => {
+      // 连即位一起去掉的:去掉的那几条放回原来的位置(之后又改过的干预照旧)
+      let ivs: Intervention[] | undefined;
+      if (ask) {
+        const now = getEdits().interventions;
+        const has = new Set(now.map((v) => JSON.stringify(v)));
+        ivs = now.slice();
+        before.forEach((v, i) => {
+          if (v.kind === 'crown' && v.char === gone.id && !has.has(JSON.stringify(v))) ivs!.splice(Math.min(i, ivs!.length), 0, v);
+        });
+      }
+      const id = restoreCharacter(gone, at, ivs);
+      if (id > 0) setSelection({ kind: 'character', id });
+      else if (id < 0 && (getEdits().characters?.length ?? 0) >= CHARACTERS_MAX)
+        showToast({ id: 'oc-restore', kind: 'warn', text: `作者的人物已经有 ${CHARACTERS_MAX} 个了，放不回去`, ttl: 4000 });
+    };
+    // 连即位一起去掉:要重新推演,推完的提示条上写、带撤销(推的时候提示条换成进度,这里先不出)
+    if (ask) return noteCrownResim(getEdits(), ask.done, undo);
     showToast({
       id: 'oc',
       kind: 'ok',
@@ -238,12 +266,15 @@ function CharView({ civ, raster, world, year, c, chars }: CharacterPanelProps & 
         act: 'character-restore',
         onClick: () => {
           clearToast('oc');
-          const id = restoreCharacter(gone, at);
-          if (id > 0) setSelection({ kind: 'character', id });
-          else showToast({ id: 'oc-restore', kind: 'warn', text: `作者的人物已经有 ${CHARACTERS_MAX} 个了，放不回去`, ttl: 4000 });
+          undo();
         },
       },
     });
+  };
+  const del = () => {
+    const ask = crownDeleteAsk(civ, getEdits().interventions, c, era);
+    if (ask) setAsking(ask);
+    else remove(null);
   };
 
   // 概况
@@ -432,6 +463,18 @@ function CharView({ civ, raster, world, year, c, chars }: CharacterPanelProps & 
 
   return (
     <div className="cp pp oc-card" data-character={c.id}>
+      {asking && (
+        <CrownAskDialog
+          ask={asking}
+          go="删除"
+          danger
+          onPick={(yes) => {
+            setAsking(null);
+            remove(yes ? asking : null);
+          }}
+          onClose={() => setAsking(null)}
+        />
+      )}
       {head}
       <Acts>
         <Act icon="history" primary act="character-year" onClick={() => jumpTo(c.born)} title={`时间轴跳到${spaced(yearAt(c.born, era))}`}>
@@ -588,11 +631,11 @@ function CrownSec({ civ, c, st, era }: { civ: Civ; c: AuthorCharacter; st: Crown
         </div>
       </section>
     );
-  return <ReignSec civ={civ} c={c} x={st.x} until={st.v.until} era={era} />;
+  return <ReignSec civ={civ} c={c} x={st.x} until={st.v.until} toDeath={crownToDeath(st.v, c.died)} era={era} />;
 }
 
 /** 生效了:在位、前任、继任、下台、亲征(学维基百科君主信息框的"在位 / 前任 / 继任");下台比原定早时黄字、下面一段说清楚 */
-function ReignSec({ civ, c, x, until: planned, era }: { civ: Civ; c: AuthorCharacter; x: Person; until: number | undefined; era: Era | undefined }) {
+function ReignSec({ civ, c, x, until: planned, toDeath, era }: { civ: Civ; c: AuthorCharacter; x: Person; until: number | undefined; toDeath: boolean; era: Era | undefined }) {
   const p = civ.polities[x.polity];
   const from = x.from ?? x.born;
   const u = x.until;
@@ -628,7 +671,7 @@ function ReignSec({ civ, c, x, until: planned, era }: { civ: Civ; c: AuthorChara
     }
     const gap = planned !== undefined ? planned - Math.floor(u) : 0;
     if (x.fate !== 'retired' && gap >= 1 && down) {
-      const plan = c.died !== undefined && planned === c.died ? `原定到${spaced(yearAt(planned, era))}卒时下台` : `原定到${spaced(yearAt(planned!, era))}退位`;
+      const plan = toDeath ? `原定到${spaced(yearAt(planned!, era))}卒时下台` : `原定到${spaced(yearAt(planned!, era))}退位`;
       const what =
         x.fate === 'deposed'
           ? next && newName
@@ -767,8 +810,21 @@ function CharEdit({ civ, raster, world, year, draft: d, picking }: CharacterPane
   }, []);
   const born = parseYear(d.bornText);
   const bornYear = born === null || Number.isNaN(born) ? year : born;
+  // 改了生卒、性格,他当过君主(即位抄着这几样):先问一句要不要一起改
+  const [asking, setAsking] = useState<CrownAsk | null>(null);
   const done = () => {
-    if (!problem) finishDraft();
+    if (problem) return;
+    const old = chars.find((x) => x.id === d.id);
+    const next = old ? draftEdited(d, old) : null;
+    const ask = old && next ? crownEditAsk(civ, getEdits().interventions, old, next, era) : null;
+    if (ask) setAsking(ask);
+    else finishDraft();
+  };
+  const answer = (yes: boolean) => {
+    const ask = asking!;
+    setAsking(null);
+    if (!yes) return void finishDraft();
+    if (finishDraft(ask.ivs) > 0) noteCrownResim(getEdits(), ask.done);
   };
   const yearRow = (k: string, key: 'bornText' | 'diedText', placeholder?: string) => (
     <div className="cp-from-row">
@@ -806,6 +862,7 @@ function CharEdit({ civ, raster, world, year, draft: d, picking }: CharacterPane
 
   return (
     <div className="cp pp mk-card mk-editing oc-card oc-editing" data-character={d.id} onKeyDown={onEsc}>
+      {asking && <CrownAskDialog ask={asking} go="好" onPick={answer} onClose={() => setAsking(null)} />}
       <PanelHead icon={<CharAvatar c={d} size={38} />}>
         <div className="ins-edit big">
           <input

@@ -10,40 +10,51 @@
  * 单子里有令时底部多一个「全部推演(N 条)」。推演时面板先藏起,顶部提示条"正在重新推演 X–3000 年",推完"有鹰王朝禁止扩张,已从 X 年起重新推演"带撤销,
  * 面板回到信息页,从 X 年接着放(App.tsx、TargetPlates.tsx)。命令的数据和推演沿用 editsStore / gen/edits 的干预。
  *
+ * 最后一条「立作者的人物为君主」(选人 ›):卡片换成选人那一页 —— 只列那一年在世的作者人物(头像、生卒、那年几岁、身份),不在世的放下面、变淡、
+ * 写原因;点一位进让他即位那一页(CrownPage.tsx,和人物卡「即位…」同一页,国家先选好、年份是这里的生效年份);一个都没有时写明要什么样的人物、
+ * 「新建人物」直接开新建(国家填好)。
+ *
  * 逐年推演(Stepwise.tsx):只在"现在"干预 —— 生效年份换成"第 N 年年初(下一步)"一块,不能加减;按钮写「加入」,
  * 加的进「下一步生效的干预」(同一个单子),下一步开始时一起生效,没有「全部推演」;单子里有的写"已在下一步生效的干预里"。
  * 手机底部多一行"已加几条干预"(点开看每一条,能删)和「接着演绎」。往回看以前的一年时干预都变淡(从那一年改要先「从这里重新演绎」)。
  */
 import { useMemo, useState } from 'react';
 import type { Civ } from '../gen/civ/types';
+import type { Raster } from '../gen/raster';
+import type { World } from '../gen/world';
 import { capitalAt, polityAlive, populationAt } from '../gen/civ/growth';
 import { ownersAt, type Owners } from '../gen/civ/timeline';
 import { END_YEAR_MAX, cleanPlay, playInterventions, polityKey, settlementKey, type Intervention, type InterventionKind } from '../gen/edits';
 import { useNarrow } from './device';
 import { nextYear, useStepwise } from './stepwiseStore';
 import { STEP_LOOK_WHY, STEP_QUEUED, StepCommandFoot, StepEffectTime, useStepView } from './Stepwise';
-import { useEdits } from './editsStore';
+import { useEdits, useEra } from './editsStore';
 import { cityStands, defaultYear, interventionText, nameAt, neighborsAt, polityOrders, setPolityPick, type PolityPick } from './Interventions';
 import { setPanelTab } from './panelStore';
 import { pendingInterventions, pushPending, queueIntervention, usePending } from './pendingStore';
 import { setCivTime } from './civView';
 import { YearRow, YearStepper, useYearInput } from './panelParts';
-import { spaced, yearAt, yearSpanAt } from '../gen/era';
+import { spaced, yearAt, yearFull, yearSpanAt } from '../gen/era';
+import { CrownPage } from './CrownPage';
+import { CharAvatar } from './CharacterPanel';
+import { newCharacterDraft } from './characterStore';
+import type { AuthorCharacter } from '../gen/characters';
 
 let owners: Owners | undefined;
 
-type Cmd = 'protect' | 'unity' | 'halt' | 'ally' | 'declare' | 'move';
+type Cmd = 'protect' | 'unity' | 'halt' | 'ally' | 'declare' | 'move' | 'crown';
 
-const CMDS: { k: Cmd; name: string; desc: string; pick: boolean }[] = [
+const CMDS: { k: Cmd; name: string; desc: string; pick: boolean; go?: string }[] = [
   { k: 'protect', name: '保护', desc: '该国不会被灭亡', pick: false },
   { k: 'unity', name: '禁止分裂', desc: '该国不会分裂出新国家', pick: false },
   { k: 'halt', name: '禁止扩张', desc: '不再主动扩张,被打时仍会夺回失地', pick: false },
   { k: 'ally', name: '结盟', desc: '选择一个国家,两国不再交战', pick: true },
   { k: 'declare', name: '宣战', desc: '选择一个相邻国家', pick: true },
   { k: 'move', name: '迁都', desc: '选择本国的一座城市', pick: true },
+  { k: 'crown', name: '立作者的人物为君主', desc: '选一位那年在世的作者人物，从这年起当这国君主', pick: true, go: '选人 ›' },
 ];
 
-export function CommandPage({ civ, id, year }: { civ: Civ; id: number; year: number }) {
+export function CommandPage({ civ, raster, world, id, year }: { civ: Civ; raster: Raster | null; world: World; id: number; year: number }) {
   const edits = useEdits();
   const pending = usePending();
   const phone = useNarrow();
@@ -59,6 +70,8 @@ export function CommandPage({ civ, id, year }: { civ: Civ; id: number; year: num
   const last = Math.ceil(civ.endYear) - 1;
   const hi = Math.max(lo, Math.min(last, p.ended !== undefined ? Math.ceil(p.ended) - 1 : last));
   const [msg, setMsg] = useState<string | null>(null);
+  // 立作者的人物为君主:选人那一页('pick')/ 选好了谁(人物编号:让他即位那一页)
+  const [crown, setCrown] = useState<'pick' | number | null>(null);
   const yi = useYearInput(defaultYear(p, year), lo, hi, () => setMsg(null));
   const { era } = yi;
   const y = step ? nextYear(sw) : yi.y;
@@ -116,6 +129,10 @@ export function CommandPage({ civ, id, year }: { civ: Civ; id: number; year: num
 
   const run = (k: Cmd) => {
     setMsg(null);
+    if (k === 'crown') {
+      setCrown('pick');
+      return;
+    }
     if (k === 'protect' || k === 'halt') {
       setMsg(order({ kind: k, a: key, from: y, ...until }, null));
       return;
@@ -162,6 +179,11 @@ export function CommandPage({ civ, id, year }: { civ: Civ; id: number; year: num
     setPolityPick(pk);
   };
 
+  const who = typeof crown === 'number' ? edits.characters?.find((c) => c.id === crown) : undefined;
+  if (who)
+    return <CrownPage civ={civ} raster={raster} world={world} year={y} c={who} polity={id} onBack={() => setCrown('pick')} onDone={() => setCrown(null)} />;
+  if (crown !== null) return <CrownPick civ={civ} id={id} y={y} step={step} phone={phone} chars={edits.characters ?? []} onPick={setCrown} onBack={() => setCrown(null)} />;
+
   return (
     <>
       <div className="cp-body">
@@ -205,7 +227,7 @@ export function CommandPage({ civ, id, year }: { civ: Civ; id: number; year: num
                   <span className="cp-cmd-name">{c.name}</span>
                   <span className="cp-cmd-desc">{off ?? c.desc}</span>
                 </span>
-                {!off && <span className="cp-cmd-go">{c.pick ? '选择对象 ›' : step ? '加入' : '加入待推演'}</span>}
+                {!off && <span className="cp-cmd-go">{c.go ?? (c.pick ? '选择对象 ›' : step ? '加入' : '加入待推演')}</span>}
               </button>
             );
           })}
@@ -235,6 +257,119 @@ export function CommandPage({ civ, id, year }: { civ: Civ; id: number; year: num
         )}
       </div>
       )}
+    </>
+  );
+}
+
+/**
+ * 立作者的人物为君主:选人。只列 y 那一年在世的作者人物(头像、生卒、那年几岁、身份;点了 onPick),不在世的放下面、变淡、写原因;
+ * 一个都没有:写明要什么样的人物,「新建人物」直接开新建(国家填好,生年先填 y 之前 30 年)
+ */
+function CrownPick({
+  civ,
+  id,
+  y,
+  step,
+  phone,
+  chars,
+  onPick,
+  onBack,
+}: {
+  civ: Civ;
+  id: number;
+  y: number;
+  step: boolean;
+  phone: boolean;
+  chars: readonly AuthorCharacter[];
+  onPick: (id: number) => void;
+  onBack: () => void;
+}) {
+  const era = useEra();
+  const name = nameAt(civ.polities[id], y);
+  const live = (c: AuthorCharacter) => c.born <= y && (c.died === undefined || y < c.died);
+  const alive = chars.filter(live);
+  const gone = chars.filter((c) => !live(c));
+  const life = (c: AuthorCharacter) => (c.died !== undefined ? yearSpanAt(c.born, c.died, era) : `${yearAt(c.born, era)}生`);
+  const add = () => newCharacterDraft({ polity: polityKey(civ, id), year: Math.max(0, y - 30) });
+  const onKey = (e: React.KeyboardEvent) => {
+    if (e.key !== 'Escape') return;
+    e.stopPropagation();
+    onBack();
+  };
+  return (
+    <>
+      <div className="cp-body" data-crown="pick" onKeyDown={onKey}>
+        {step ? (
+          <StepEffectTime phone={phone} />
+        ) : (
+          <div className="cp-from">
+            <span className="cp-k">生效年份</span>
+            <div className="cp-from-row">
+              <span className="cp-year cr-year">{yearAt(y, era)}</span>
+            </div>
+          </div>
+        )}
+        <section className="cp-sec">
+          <div className="cp-sec-head cp-events-head">
+            <span>立谁为{name}君主</span>
+            {alive.length > 0 && <span className="cp-num-note">只列那年在世的</span>}
+          </div>
+          {alive.length > 0 ? (
+            <div className="oc-rows oc-people">
+              {alive.map((c) => (
+                <button key={c.id} className="oc-person cr-polity" data-character={c.id} onClick={() => onPick(c.id)}>
+                  <CharAvatar c={c} size={26} />
+                  <span className="oc-txt">
+                    <b>{c.name}</b>
+                    <span>
+                      {life(c)}，那年 {Math.floor(y - c.born)} 岁{c.role ? `，${c.role}` : ''}
+                    </span>
+                  </span>
+                  <span className="cr-check">›</span>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="cr-empty" data-crown="empty">
+              <b>{yearFull(y, era)}没有在世的作者人物</b>
+              新建一个人物，生年早于{spaced(yearAt(y, era))}、卒年晚于{spaced(yearAt(y, era))}（或不填），就能让他即位。
+              <br />
+              <button className="cp-btn primary" data-act="crown-new-character" onClick={add}>
+                新建人物
+              </button>
+            </div>
+          )}
+        </section>
+        {gone.length > 0 && (
+          <section className="cp-sec">
+            <div className="cp-sec-head">那年不在世</div>
+            <div className="oc-rows oc-people cr-off">
+              {gone.map((c) => (
+                <div key={c.id} className="oc-person cr-polity" data-character={c.id}>
+                  <CharAvatar c={c} size={26} />
+                  <span className="oc-txt">
+                    <b>{c.name}</b>
+                    <span>
+                      {life(c)}，{y < c.born ? '那年还没出生' : '那年已去世'}
+                    </span>
+                  </span>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+        {alive.length > 0 && <div className="cp-note cr-pick-note">点一位，接着填到哪年下台和性格（和人物卡上「即位…」是同一页）。</div>}
+      </div>
+      <div className={`cp-foot${alive.length ? ' mk-foot' : ''}`}>
+        <button className={`cp-btn${alive.length ? '' : ' wide'}`} data-act="crown-pick-back" onClick={onBack}>
+          返回
+        </button>
+        {alive.length > 0 && (
+          <button className="cp-btn" data-act="crown-new-character" onClick={add}>
+            新建人物
+          </button>
+        )}
+      </div>
     </>
   );
 }

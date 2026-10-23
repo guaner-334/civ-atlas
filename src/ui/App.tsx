@@ -261,7 +261,7 @@ import { CharacterLayer, characterPinAt, characterPinTip } from './CharacterLaye
 import { draftAsCharacter, escapeCharacter, getCharUi, parseYear as parseCharYear, pickPlace, resetCharacterUi, stopPicking, useCharUi } from './characterStore';
 import { characterHover, placeOf, whereOfCity, whereOfRegion } from './characterInfo';
 import { applyCharacters, lifeStops, type Where } from '../gen/characters';
-import { crownDoneText } from './crownInfo';
+import { crownDoneText, takeCrownResim, type CrownResimNote } from './crownInfo';
 import { regionLabel } from '../gen/civ/display';
 import { NAME_ZOOM } from '../render/marks';
 import { collapseSide, expandSide, getSide, setSideHold, useSide } from './sideStore';
@@ -1103,6 +1103,8 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
     removed?: Intervention;
     /** 这次重推是待推演的单子一次加了几条(干预、地形大事;推完提示"N 条命令已生效",撤销一次撤掉整批) */
     batch?: { ivs: Intervention[]; ups: Upheaval[] };
+    /** 这次重推是改 / 删人物时他的即位跟着改了(推完提示"林小满的即位跟着改了；已从 N 年起重新推演";删人物的带撤销) */
+    crown?: CrownResimNote;
     /** 这次重推是新加了一件地形大事 / 撤销了一件 */
     upAdded?: Upheaval;
     upRemoved?: Upheaval;
@@ -1684,6 +1686,22 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
         } else {
           showToast({ id: 'resim-done', kind: 'ok', text: info.left ? `已撤销改写,从${spaced(at(y))}起重新推演` : `已撤销改写,${at(y)}之后恢复原历史`, ttl: 4000 });
         }
+      } else if (info.crown) {
+        const undo = info.crown.undo;
+        showToast({
+          id: 'resim-done',
+          kind: 'ok',
+          text: `${info.crown.text}；已从${spaced(at(y))}起重新推演`,
+          action: undo && {
+            label: '撤销',
+            act: 'character-restore',
+            onClick: () => {
+              clearToast('resim-done');
+              undo();
+            },
+          },
+          ttl: 7000,
+        });
       } else if (info.batch) {
         // 待推演的单子一次推完:几条没生效(两国不接壤、州里没人住……)的原因在概览"我的干预"页
         const { ivs, ups } = info.batch;
@@ -2285,12 +2303,22 @@ ${s.image.cells}` : null);
     const upAdded = !quiet && one && upNow.length === upBefore.length + 1 ? upChanged[0] : undefined;
     const upRemoved = !quiet && one && upNow.length === upBefore.length - 1 ? upChanged[0] : undefined;
     const note = takeRewriteNote(getEdits()) ?? undefined;
+    const crown = takeCrownResim(getEdits()) ?? undefined;
     // 待推演的单子一次加了几条(pendingStore 记着真加上了的那几条)
     const pushed = takePendingBatch(getEdits());
     const batch = !quiet && !note && pushed && pushed.ivs.length + pushed.ups.length > 1 ? pushed : undefined;
     // 逐年推演:推到"现在"就停(提示条上写推到哪一年);别的照旧
     const stepOnly = !!play && !samePlay && sameInterventions(list, before) && sameUpheavals(ups, civUps.current);
-    resimInfo.current = { seq, year: stepOnly ? 0 : year, t0: performance.now(), added, removed, upAdded, upRemoved, batch, left: list.length + upNow.length, quiet: quiet || stepOnly, note, years: yearsOnly || setupOnly };
+    resimInfo.current = {
+      seq,
+      year: stepOnly ? 0 : year,
+      t0: performance.now(),
+      ...(crown ? { crown } : { added, removed, upAdded, upRemoved, batch }),
+      left: list.length + upNow.length,
+      quiet: quiet || stepOnly,
+      note,
+      years: yearsOnly || setupOnly,
+    };
     setResim({ year: stepOnly ? 0 : year, end: play ? play.year : newEnd });
     send({
       type: 'resim',
