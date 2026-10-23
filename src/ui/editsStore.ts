@@ -193,9 +193,10 @@ export function revertEdits(now: WorldEdits, from: WorldEdits, to: WorldEdits): 
   if (now.map) out.map = now.map;
   if (now.era) out.era = now.era;
   if (now.months !== undefined) out.months = now.months;
-  // 逐年推演的进度、从第几年起、推进设置也不记撤销步(进度只往前走;设置随时能改回来)
+  // 逐年推演的进度、从第几年起、另开的几支、推进设置也不记撤销步(进度只往前走;设置随时能改回来)
   if (now.play) out.play = now.play;
   if (now.playFrom !== undefined) out.playFrom = now.playFrom;
+  if (now.branches) out.branches = now.branches;
   if (now.advance) out.advance = now.advance;
   if (upheavals.length) out.upheavals = sameUps ? now.upheavals : upheavals;
   if (aiNames && Object.keys(aiNames).length) out.aiNames = aiNames;
