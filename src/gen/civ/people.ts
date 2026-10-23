@@ -27,14 +27,14 @@
  * 干预某一年之前的历史不变,那之前已经下台的君主(名字、生卒、在位年份)、打完的仗的统帅也不变
  * (称号、编号可能变:日后多了一位同名的国王,前面那位就要编"一世")。名字按民族的语感取(naming.ts 的 personNamers)。纯计算,不碰 DOM。
  */
-import type { Annal, Civ, Person, PersonCommand, PersonFate, Polity, RulerRise, Year } from './types';
-import type { Intervention } from '../edits';
+import type { Annal, Civ, Person, PersonCommand, PersonFate, Polity, RulerLeanings, RulerRise, Year } from './types';
+import { parsePersonKey, type Intervention } from '../edits';
 import { keyed4, subSeed } from './rand';
 import { personNamers } from './naming';
 import { annexedRemnants, capitalAt, polityTierAt } from './growth';
 import { buildLineage } from './lineage';
 import { buildOfficials } from './officials';
-import { K_RULER, MAX_AGE, U_AGE, crownsFrom, leaningEffect, reignBook, rulerBase, rulerTags, type Crown } from './rulers';
+import { IV_PEOPLE, K_RULER, MAX_AGE, U_AGE, actsFrom, leaningEffect, reignBook, rulerBase, rulerTags, type Crown, type Reign } from './rulers';
 import { policiesFrom, policyEffect, segAt } from './policy';
 
 // ---- 调参 ----
@@ -196,14 +196,82 @@ const ENDED: ReadonlySet<PersonFate> = new Set(['deposed', 'overthrown', 'fell',
  * 先排君主(按国家编号、即位先后),再按战争先后排统帅,最后是世系里补出来的没即位的宗室(lineage.ts);下标 = Person.id
  */
 export function buildPeople(civ: PeopleInput): Person[] {
+  // 作者让将领、名臣去世(干预 death;推演里不管,b = IV_PEOPLE):按先后一条条找到那个人,带上前面几条重排一遍
+  // (前面的人提早去世,后面的将领可能换了人;那一刻以前的人物都不变,所以按那一刻的人物找)
+  const asks = killAsks(civ);
+  let kills: Kills = new Map();
+  let r = peopleOnce(civ, kills);
+  for (const k of asks) {
+    const x = findPerson(r.people, k);
+    const id = x && r.ids.get(x);
+    if (!x || !id || kills.has(id)) continue;
+    const from = x.role === 'general' ? x.commands?.[0]?.from : x.from;
+    // 那一刻在世、出过道才算;名臣还要在朝(已经致仕、罢官、随故朝去职的不算)
+    if (from === undefined || from > k.t || (x.died !== undefined && x.died <= k.t)) continue;
+    if (x.role === 'minister' && (from === k.t || (x.until !== undefined && x.until <= k.t))) continue;
+    kills = new Map(kills).set(id, { t: k.t, iv: k.iv });
+    r = peopleOnce(civ, kills);
+  }
+  return r.people;
+}
+
+/** 作者让将领、名臣去世:身份(将领 g国家:第几位,名臣 m国家:第几朝:slot)→ 那一刻、第几条干预 */
+type Kills = ReadonlyMap<string, { t: Year; iv: number }>;
+
+interface KillAsk {
+  t: Year;
+  iv: number;
+  /** 国家(史事 intervene 的 a)、身份、名字、生年(取整)、同名同年生的第几位 */
+  pid: number;
+  role: 'general' | 'minister';
+  name: string;
+  born: number;
+  n: number;
+}
+
+/** 史事里"让将领、名臣去世"的几条(按先后) */
+function killAsks(civ: PeopleInput): KillAsk[] {
+  const list = civ.interventions;
+  if (!list?.length) return [];
+  const out: KillAsk[] = [];
+  for (const e of civ.annals) {
+    if (e.kind !== 'intervene' || e.b !== IV_PEOPLE) continue;
+    const v = list[e.war];
+    if (v?.kind !== 'death') continue;
+    const k = parsePersonKey(v.person);
+    if (!k || (k.role !== 'general' && k.role !== 'minister')) continue;
+    out.push({ t: e.year, iv: e.war, pid: e.a, role: k.role, name: k.name, born: k.born, n: k.n });
+  }
+  return out;
+}
+
+/** 按人物键的几样(同 edits.ts 的 personKey:同一国、同身份、同名、同年生的按编号先后数第几位)找人 */
+function findPerson(people: readonly Person[], k: KillAsk): Person | undefined {
+  let n = 0;
+  for (const x of people) {
+    if (x.polity !== k.pid || x.role !== k.role || x.name !== k.name || Math.round(x.born) !== k.born) continue;
+    if (n++ === k.n) return x;
+  }
+  return undefined;
+}
+
+/** 君主 x 在 t 这一刻的倾向(作者改过的:t 以前最后一次改的) */
+function leaningsOf(x: Person, t: Year): RulerLeanings {
+  const ms = x.moods;
+  if (ms) for (let i = ms.length - 1; i >= 0; i--) if (ms[i].year < t) return ms[i].leanings;
+  return x.leanings!;
+}
+
+function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Map<Person, string> } {
   const { polities, settlements, cultures, endYear } = civ;
-  if (!polities.length) return [];
+  const ids = new Map<Person, string>();
+  if (!polities.length) return { people: [], ids };
   const base = rulerBase(civ.seed);
   // 位置锚和推演里一样(rulers.ts):推演按它定"哪一位在位、倾向是多少"
   const tag = rulerTags(polities, (sid) => settlements[sid]?.cell ?? -1);
   const facts = factsOf(civ);
   // 作者立的君主(干预"即位"):和推演里同一份,在位表照它排(rulers.ts);作者强制宣战打起来的仗
-  const crowns = crownsFrom(civ.annals, civ.interventions);
+  const acts = actsFrom(civ.annals, civ.interventions);
   const forced = forcedWars(civ.annals, civ.interventions);
   // 国家方针(policy.ts):亲征的机会照君主倾向加上方针的胆量算,和推演里同一份
   const policies = policiesFrom(civ.annals, civ.interventions);
@@ -215,6 +283,8 @@ export function buildPeople(civ: PeopleInput): Person[] {
   const namerOf = personNamers(civ.seed);
   const styleOf = (p: Polity) => cultures[p.culture]?.style || 'kingdom';
   const rulers: Person[][] = polities.map(() => []);
+  /** 作者让他去世、改过倾向的君主(一国排完再补上,见下) */
+  const marks: [Person, Reign][] = [];
   /** 每国每一朝君主用过的名字(西幻:继位的君主沿用) */
   const pools: string[][][] = polities.map(() => []);
 
@@ -227,7 +297,7 @@ export function buildPeople(civ: PeopleInput): Person[] {
     const end = p.ended ?? endYear;
     const list = rulers[p.id];
     // 在位表:和推演里同一份(rulers.ts;带作者立的君主),排到结束那一刻
-    const book = reignBook(base, tag[p.id], p, end, crowns.get(p.id));
+    const book = reignBook(base, tag[p.id], p, end, acts.get(p.id));
     let n = 0;
     let surname = '';
     for (let i = 0; i < segs.length; i++) {
@@ -256,8 +326,8 @@ export function buildPeople(civ: PeopleInput): Person[] {
       // 这一朝的君主,一位接一位(在位表里第 i 朝的那几位;即位的年纪、在位年数、倾向和推演里同一份)
       while (n < book.length && book[n].dynasty === i) {
         const r = book[n++];
-        // 同一刻刚即位就让位给作者立的君主(在位 0 天):不列
-        if (r.cut !== undefined && r.cut === r.from) continue;
+        // 同一刻刚即位就让位给作者立的君主(在位 0 天):不列(作者让他去世的照列)
+        if (r.cut !== undefined && r.cut === r.from && !r.death) continue;
         const { k, j, from, natural } = r;
         // 作者立的君主:名字由界面按人物卡填(characters.ts 的 applyCharacters),生年照干预,不写卒年、称号
         if (r.crown) {
@@ -289,6 +359,7 @@ export function buildPeople(civ: PeopleInput): Person[] {
         // 名字
         person.name = rulerName(namer, tag[p.id], k, j, surname, usedGiven, pool, R, republic, heirOf && pools[fallen!.id], list[list.length - 1]?.name);
         list.push(person);
+        if (r.death || r.moods) marks.push([person, r]);
         if (r.cut !== undefined) {
           // 让位给作者立的君主
           person.until = r.cut;
@@ -334,6 +405,18 @@ export function buildPeople(civ: PeopleInput): Person[] {
         break;
       }
     }
+    // 作者让他去世(那一刻下台的也照这一刻卒)、改过他的倾向(下台以前的几次)
+    for (const [x, r] of marks) {
+      if (r.death) {
+        x.died = r.death.t;
+        x.killed = r.death.iv;
+        if (x.fate === 'yielded' || x.fate === 'retired' || x.fate === 'murdered') x.fate = 'died';
+        x.until ??= r.death.t;
+      }
+      const ms = r.moods?.filter((m) => m.t < (x.until ?? Infinity));
+      if (ms?.length) x.moods = ms.map((m) => ({ year: m.t, leanings: { ...m.leanings }, iv: m.iv }));
+    }
+    marks.length = 0;
     titleRulers(p, list, f, base, tag[p.id]);
   }
 
@@ -383,7 +466,8 @@ export function buildPeople(civ: PeopleInput): Person[] {
         const age = t - ruler.born;
         const free = (busyRuler.get(ruler) ?? -Infinity) <= t;
         const seg = policies.size ? segAt(policies.get(pid), t) : null;
-        const lead = (seg ? policyEffect(ruler.leanings!, seg.v) : leaningEffect(ruler.leanings!)).lead;
+        const ls = leaningsOf(ruler, t);
+        const lead = (seg ? policyEffect(ls, seg.v) : leaningEffect(ls)).lead;
         if (free && P.lineage !== 'republic' && age >= LEAD_AGE[0] && age <= LEAD_AGE[1] && wr(x * 2 + s, U_LEAD) < LEAD * lead) {
           cur[s] = { p: ruler, careerEnd: ruler.until ?? Infinity, cmd: command(ruler), general: false };
           busyRuler.set(ruler, Infinity);
@@ -397,10 +481,16 @@ export function buildPeople(civ: PeopleInput): Person[] {
         const gi = list.length;
         const G = (use: number) => keyed4(base, tag[pid], gi, use, K_GENERAL);
         const born = q(t - lerp(GENERAL_AGE, G(U_AGE)));
-        const life = q(born + lerp(GENERAL_LIFE, Math.pow(G(U_LIFE), 0.8)));
+        let life = q(born + lerp(GENERAL_LIFE, Math.pow(G(U_LIFE), 0.8)));
+        // 作者让他去世:到那一刻为止(他后来该领的仗换人)
+        const id = `g${pid}:${gi}`;
+        const kill = kills.get(id);
+        if (kill && kill.t < life) life = kill.t;
         const careerEnd = Math.min(life, q(born + lerp(RETIRE, G(U_RETIRE))));
         const namer = namerOf(styleOf(P));
         const person: Person = { id: -1, role: 'general', polity: pid, name: '', born };
+        ids.set(person, id);
+        if (kill && life === kill.t) person.killed = kill.iv;
         genName.set(person, (a) => namer.surname(tag[pid], 1, gi, a) + namer.given(tag[pid], 1, gi, a));
         if (life <= endYear) {
           person.died = life;
@@ -449,7 +539,7 @@ export function buildPeople(civ: PeopleInput): Person[] {
   const { ministers, fixups, nameAt, finish } = civ.log
     ? buildOfficials(
         { seed: civ.seed, endYear, polities, settlements, annals: civ.annals, upheavals: civ.upheavals, log: civ.log, regionCount: civ.regionCount ?? 0 },
-        { tag, rulers, styleOf, namerOf: (p) => namerOf(styleOf(p)) },
+        { tag, rulers, styleOf, namerOf: (p) => namerOf(styleOf(p)), kills, ids },
         generals,
       )
     : { ministers: [], fixups: [], nameAt: new Map<Person, (a: number) => string>(), finish: () => {} };
@@ -477,7 +567,7 @@ export function buildPeople(civ: PeopleInput): Person[] {
   out.forEach((p, i) => (p.id = i));
   for (const [x, f] of parentOf) x.parent = f.id;
   for (const [d, x] of fixups) d.person = x.id;
-  return out;
+  return { people: out, ids };
 }
 
 /**

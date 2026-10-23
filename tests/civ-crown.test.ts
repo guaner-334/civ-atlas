@@ -327,7 +327,7 @@ describe('即位 · 在位表(rulers.ts)', () => {
   const base = rulerBase(7);
   const tag = 123456;
   const leanings = { expand: 90, war: 10, develop: 50, trade: 50 };
-  const c = (t: number, o: Partial<Crown> = {}): Crown => ({ t, born: t - 20, leanings, char: 1, iv: 0, ...o });
+  const c = (t: number, o: Partial<Crown> = {}): Crown => ({ kind: 'crown', t, born: t - 20, leanings, char: 1, iv: 0, ...o });
 
   it('同一刻改朝换代:他当新朝的第一位(顶替,不留在位 0 天的新君)', () => {
     const p: ReignPolity = { founded: 100, kind: 'river', lineage: 'realm', dynasties: [{ year: 100, name: '', seat: 0 }, { year: 400, name: '', seat: 0 }] };

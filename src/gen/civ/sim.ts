@@ -488,7 +488,7 @@ export class CivSim {
       resumeDiplomacy(sim, world, civ);
       resumeDevelopment(sim, world, civ);
       resumeUnrest(sim, world, civ);
-      resumePlague(sim, world, civ);
+      resumePlague(sim, world, civ, iv?.list);
       if (iv) resumeInterventions(sim, iv);
       sim.releaseHeld();
     }
@@ -605,6 +605,7 @@ export class CivSim {
     if (f.via !== undefined) e.via = f.via;
     if (f.cause !== undefined) e.cause = f.cause;
     if (f.foe !== undefined) e.foe = f.foe;
+    if (f.n !== undefined) e.n = f.n;
     this.annals.push(e);
   }
 

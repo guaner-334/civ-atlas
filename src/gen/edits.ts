@@ -69,6 +69,10 @@
  * | `halt`    | 不许扩张 | a = 国家                          | 从这一年起不进无主的州、不主动宣战、不援盟、不并小国;那一刻它挑起的战争当即议和。被打时照常防守、反攻夺回自己的州 | until:到这一年止(不含;不给 = 一直) |
  * | `crown`   | 即位     | a = 国家,char = 作者人物的编号,born = 他的生年,leanings = 他的倾向 | 这一年年初作者的人物成为这国君主:此刻在位的那位让位,他按自己的倾向在位;他下台后照常有人继位(这国那年已亡 / 他还没出生 = 不生效) | until:这一年年初下台(不含;不给 = 按寻常君主的在位年数,到 88 岁为止,至少一年);abdicate: true = until 是作者填的退位年份(推演不看,只管说法:没有 = 到卒年) |
  * | `policy`  | 方针     | a = 国家;war 打仗胆量、expand 开拓、coast 沿海(负 = 偏内陆)、peace 和谈底线(各 −50…50 的整数,不给 = 0 = 照君主的倾向);foes 仇国、friends 亲国(国家键,各最多 3 国);focus 发展重点(production / transport / information / administration / mobilization);preset 是一键选的哪一种(expand 扩张 / hold 守成 / trade 商贸 / peace 和平发展,只管说法) | 从这一年起这国照方针走,直到这国的下一条方针换掉它(什么都不给 = 罢方针,照君主的倾向;这国那年已亡 = 不生效) | — |
+ * | `destroy` | 灭国     | a = 国家                          | 这一年年初这国亡:国土并入 b,或散成无主的部落地带(邻国照规矩慢慢扩进去);它打着的仗全部结束(这国那年已亡 = 不生效) | b:并入哪一国(不给 = 散成无主;b 那年已亡 = 改成散成无主) |
+ * | `death`   | 让人物去世 | a = 国家,person = 人物键(君主、将领、名臣) | 这一年年初他去世。君主:此刻在位的是他才生效,下一位从下一刻起照常继位(他之后的君主全换一批);将领、名臣:只改人物和编年史,不改历史(他那年已不在世、还没出道,名臣已去职 = 不生效) | — |
+ * | `temper`  | 改君主倾向 | a = 国家,person = 人物键(君主),leanings = 新的倾向 | 这一年年初起此刻在位的这位君主照新的倾向,到他下台为止(此刻在位的不是他 = 不生效) | — |
+ * | `disaster`| 天灾     | type = plague 瘟疫(city = 从哪座城起)/ famine 饥荒(a = 一国,或 regions = 几州)/ quake 地震水旱(region = 哪一处,连同附近一圈州);level = 1 轻 / 2 中 / 3 重 | 这一年年初受灾的城人口掉一截(城里约死一成半 / 三成 / 五成),几十年慢慢长回来,其间国内更动荡;瘟疫照瘟疫的规矩往外传(那年已在闹瘟疫 = 并进那一场)。不改地形 | — |
  *
  * 即位(crown)的几样字段都抄进干预,不在推演时去读人物卡:"种子 + 干预串"自己就推得出同一个世界(读档、换设备都一样)。
  * char 是作者人物的编号(AuthorCharacter.id,1–1e9 的整数);born、until 是年份(同 from 的清理);
@@ -80,6 +84,12 @@
  * 和谈底线再加在"打多久、想拿几州、肯不肯称臣"用的好战上;各自夹回 0–100。仇国先打、不和它结盟;亲国不打、结盟先找它、它挨打时更肯出兵;
  * 发展重点那一样能力长得快一些、别的略慢。推演里从 from 那一刻的下一刻(1/256 年后)起照新方针算,和即位一样(同一刻里先发生的事照旧)。
  * 清理:滑条取整夹到 −50…50,0 去掉;亲、仇去重、去掉格式不对的和 a 自己,同时在两边的只算仇,各留前 3 个,空的去掉;preset、focus 不认识的去掉。
+ *
+ * 即位(crown)可以带 after: true = 等此刻(from 那一年年初)在位的那位君主下台再即位:他到期驾崩 / 退位、或被作者让他去世时由作者的人物继位
+ * (年份到时才定;那位先因改朝换代、亡国、被作者另立的君主取代而下台 = 不生效)。旧存档没有这个字段,照旧。
+ * 让人物去世(death)、改君主倾向(temper)用人物键(personKey)认人,键里的国家要是 a;推演里按"国家 + 生年 + 此刻在位"认君主
+ * (作者立的君主不在此列:他的生死、性格归人物卡管)。同一年同一位君主又去世又改倾向:去世为准。
+ * 天灾(disaster)只给它那一种用的字段(瘟疫 city、饥荒 a 或 regions(最多 DISASTER_REGIONS_MAX 州,去重)、地震水旱 region),别的去掉。
  *
  * 立国出来的新国家也有稳定键:`polity:c{州的治所地块}#{n}`(n = 新历史里这州之前立过几国;干预年份之前的历史不变,所以 n 是定的),
  * 和别的国家一样能改名、能被别的干预引用。
@@ -442,7 +452,21 @@ export const GENERATOR_CHANGES: Readonly<Record<number, { change: GeneratorChang
 };
 
 /** 干预的种类(见文件头的表) */
-export type InterventionKind = 'protect' | 'ally' | 'declare' | 'unity' | 'cede' | 'found' | 'move' | 'halt' | 'crown' | 'policy';
+export type InterventionKind = 'protect' | 'ally' | 'declare' | 'unity' | 'cede' | 'found' | 'move' | 'halt' | 'crown' | 'policy' | 'destroy' | 'death' | 'temper' | 'disaster';
+
+/** 天灾的种类:瘟疫、饥荒、地震水旱 */
+export const DISASTER_TYPES = ['plague', 'famine', 'quake'] as const;
+export type DisasterType = (typeof DISASTER_TYPES)[number];
+/** 天灾的种类怎么叫 */
+export const DISASTER_NAMES: Record<DisasterType, string> = { plague: '瘟疫', famine: '饥荒', quake: '地震水旱' };
+/** 天灾的轻重:1 轻 / 2 中 / 3 重 */
+export type DisasterLevel = 1 | 2 | 3;
+/** 轻重怎么叫(下标 = DisasterLevel) */
+export const DISASTER_LEVEL_NAMES = ['', '轻', '中', '重'] as const;
+/** 饥荒最多选几州 */
+export const DISASTER_REGIONS_MAX = 64;
+/** 让人物去世能认哪几种人(改倾向只认君主) */
+export const DEATH_ROLES = ['ruler', 'general', 'minister'] as const;
 
 /** 方针的几种现成的(一键选;各自把旋钮填成什么见 civ/policy.ts 的 POLICY_PRESETS) */
 export const POLICY_PRESETS_KEYS = ['expand', 'hold', 'trade', 'peace'] as const;
@@ -467,7 +491,11 @@ export type Intervention =
   | { kind: 'found'; region: string; from: number; name?: string }
   | { kind: 'move'; a: string; city: string; from: number }
   | { kind: 'halt'; a: string; from: number; until?: number }
-  | { kind: 'crown'; a: string; char: number; from: number; born: number; until?: number; abdicate?: true; leanings: RulerLeanings }
+  | { kind: 'crown'; a: string; char: number; from: number; born: number; until?: number; abdicate?: true; after?: true; leanings: RulerLeanings }
+  | { kind: 'destroy'; a: string; from: number; b?: string }
+  | { kind: 'death'; a: string; person: string; from: number }
+  | { kind: 'temper'; a: string; person: string; from: number; leanings: RulerLeanings }
+  | { kind: 'disaster'; type: DisasterType; level: DisasterLevel; from: number; city?: string; a?: string; regions?: string[]; region?: string }
   | {
       kind: 'policy';
       a: string;
@@ -1362,7 +1390,45 @@ function folkRenamed(civ: Civ, f: Faith, cultures: readonly Culture[]): string |
 /** 干预年份的上限(推演引擎能预约的最远时刻) */
 export const INTERVENTION_YEAR_MAX = 65535;
 
-const INTERVENTION_KINDS: readonly InterventionKind[] = ['protect', 'ally', 'declare', 'unity', 'cede', 'found', 'move', 'halt', 'crown', 'policy'];
+const INTERVENTION_KINDS: readonly InterventionKind[] = ['protect', 'ally', 'declare', 'unity', 'cede', 'found', 'move', 'halt', 'crown', 'policy', 'destroy', 'death', 'temper', 'disaster'];
+
+/** 人物键的几段(格式见 personKey):国家键、身份、生成时的名字、生年(取整)、同名同年的第几个(0 起);格式不对 = null */
+export interface PersonKeyParts {
+  polity: string;
+  role: Person['role'];
+  name: string;
+  born: number;
+  n: number;
+}
+
+const PERSON_KEY = /^person:(polity:(?:r-?\d{1,7}|c\d{1,7})#\d{1,5})\|(ruler|general|prince|minister)\|([^|]*)\|(-?\d{1,6})(?:#(\d{1,5}))?$/;
+
+/** 拆开人物键(personKey 的反过来) */
+export function parsePersonKey(key: unknown): PersonKeyParts | null {
+  if (typeof key !== 'string') return null;
+  const m = PERSON_KEY.exec(key);
+  if (!m) return null;
+  return { polity: m[1], role: m[2] as Person['role'], name: m[3], born: Number(m[4]), n: m[5] ? Number(m[5]) : 0 };
+}
+
+/** 天灾的轻重:1–3 的整数(别的 = null) */
+const levelOf = (x: unknown): DisasterLevel | null => (x === 1 || x === 2 || x === 3 ? x : null);
+
+/** 天灾(disaster):只留那一种用的字段;饥荒给了国家就不要州(州去重、去掉格式不对的、最多 DISASTER_REGIONS_MAX 个,一个都没有 = 不合格) */
+function cleanDisaster(o: Record<string, unknown>, from: number): Intervention | null {
+  const type = o.type as DisasterType;
+  const level = levelOf(o.level);
+  if (!(DISASTER_TYPES as readonly unknown[]).includes(type) || level === null) return null;
+  if (type === 'plague') return isCityKey(o.city) ? { kind: 'disaster', type, level, from, city: o.city } : null;
+  if (type === 'quake') return isRegionKey(o.region) ? { kind: 'disaster', type, level, from, region: o.region } : null;
+  if (isPolityKey(o.a)) return { kind: 'disaster', type, level, from, a: o.a };
+  if (!Array.isArray(o.regions)) return null;
+  const rs: string[] = [];
+  for (const k of o.regions) if (isRegionKey(k) && !rs.includes(k) && rs.length < DISASTER_REGIONS_MAX) rs.push(k);
+  if (!rs.length) return null;
+  const regions = rs.length === o.regions.length && rs.every((k, i) => k === (o.regions as unknown[])[i]) ? (o.regions as string[]) : rs;
+  return { kind: 'disaster', type, level, from, regions };
+}
 
 /** 即位(crown)的作者人物编号最大到几(和 characters.ts 的编号一样) */
 const CROWN_CHAR_MAX = 1e9;
@@ -1452,6 +1518,10 @@ export function cleanIntervention(x: unknown): Intervention | null {
     if (!isRegionKey(o.region)) return null;
     const name = typeof o.name === 'string' ? cleanName('polity', o.name) : '';
     v = name ? { kind, region: o.region, from, name } : { kind, region: o.region, from };
+  } else if (kind === 'disaster') {
+    const d = cleanDisaster(o, from);
+    if (!d) return null;
+    v = d;
   } else {
     if (!isPolityKey(o.a)) return null;
     const a = o.a;
@@ -1471,9 +1541,23 @@ export function cleanIntervention(x: unknown): Intervention | null {
       if (typeof char !== 'number' || !Number.isInteger(char) || char < 1 || char > CROWN_CHAR_MAX || born === null) return null;
       const until = untilOf();
       const leanings = cleanLeanings(o.leanings);
-      v = until !== null ? (o.abdicate === true ? { kind, a, char, from, born, until, abdicate: true, leanings } : { kind, a, char, from, born, until, leanings }) : { kind, a, char, from, born, leanings };
+      // 字段的先后照旧(until、abdicate 在 leanings 前面),after 接在 leanings 前面
+      const after = o.after === true ? ({ after: true } as const) : {};
+      v =
+        until !== null
+          ? o.abdicate === true
+            ? { kind, a, char, from, born, until, abdicate: true, ...after, leanings }
+            : { kind, a, char, from, born, until, ...after, leanings }
+          : { kind, a, char, from, born, ...after, leanings };
     } else if (kind === 'policy') {
       v = cleanPolicy(o, a, from);
+    } else if (kind === 'destroy') {
+      v = isPolityKey(o.b) && o.b !== a ? { kind, a, from, b: o.b } : { kind, a, from };
+    } else if (kind === 'death' || kind === 'temper') {
+      const p = parsePersonKey(o.person);
+      if (!p || p.polity !== a || !(kind === 'temper' ? p.role === 'ruler' : (DEATH_ROLES as readonly string[]).includes(p.role))) return null;
+      const person = o.person as string;
+      v = kind === 'temper' ? { kind, a, person, from, leanings: cleanLeanings(o.leanings) } : { kind, a, person, from };
     } else {
       if (!isPolityKey(o.b) || o.b === a) return null;
       if (kind === 'declare') v = { kind, a, b: o.b, from };
@@ -1713,9 +1797,14 @@ export function sameFollow(a: unknown, b: unknown): boolean {
   return x?.kind === y?.kind && x?.key === y?.key;
 }
 
-/** 这条干预牵涉的国家键(a;结盟 / 宣战还有 b;立国没有 —— 新国家的键要推演出来才知道;即位 = 他即位的那国) */
+/**
+ * 这条干预牵涉的国家键(a;结盟 / 宣战还有 b,灭国并入的那国也算;立国没有 —— 新国家的键要推演出来才知道;即位 = 他即位的那国;
+ * 天灾只有选了一国闹饥荒的才有)
+ */
 export function interventionKeys(v: Intervention): string[] {
   if (v.kind === 'found') return [];
+  if (v.kind === 'disaster') return v.a ? [v.a] : [];
+  if (v.kind === 'destroy') return v.b ? [v.a, v.b] : [v.a];
   return v.kind === 'ally' || v.kind === 'declare' ? [v.a, v.b] : [v.a];
 }
 

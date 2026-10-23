@@ -3,10 +3,11 @@
  * 编年史、地图上的疫区、统计都用它;只读 Civ,不碰推演引擎(界面里用不会把推演代码带进来)。
  */
 import type { Civ, Year } from './types';
+import { PLAGUE_IV } from './calamity';
 
 /** 一场瘟疫 */
 export interface PlagueSpan {
-  /** 第几场(史事 plague 的 war 列) */
+  /** 第几场(史事 plague 的 war 列;作者下的 = PLAGUE_IV + 干预下标) */
   id: number;
   great: boolean;
   /** 起疫、最后一年染上的时刻 */
@@ -28,6 +29,16 @@ export function plagueSpans(civ: Civ): PlagueSpan[] {
   const byId = new Map<number, PlagueSpan>();
   const out: PlagueSpan[] = [];
   A.forEach((e, i) => {
+    // 作者下的瘟疫(干预"天灾",b = 1:起了一场新的):起疫那城在部落地带时没有 plague 那一条,按干预那一条起这一场
+    if (e.kind === 'intervene' && e.b === 1) {
+      const v = civ.interventions?.[e.war];
+      if (v?.kind === 'disaster' && v.type === 'plague' && !byId.has(PLAGUE_IV + e.war)) {
+        const s: PlagueSpan = { id: PLAGUE_IV + e.war, great: false, start: e.year, end: e.year, annals: [], hits: [] };
+        byId.set(s.id, s);
+        out.push(s);
+      }
+      return;
+    }
     if (e.kind !== 'plague') return;
     let s = byId.get(e.war);
     if (!s) {
