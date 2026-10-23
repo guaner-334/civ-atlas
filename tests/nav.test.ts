@@ -3,7 +3,7 @@
  * 浏览器的 history.go 是过一会儿才到的(popstate),假的也一样:flush() 才到。
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { _resetNav, getNav, navAdopt, navBack, navLayer, navMark, navPushEarly, navReplace, navSettled, navTitle, navTo, navUrl, startNav, type NavHooks, type NavLayer, type NavState } from '../src/ui/nav';
+import { _resetNav, getNav, navAdopt, navBack, navLayer, navMark, navPushEarly, navReplace, navSettled, navTitle, navTo, navUrl, startNav, tidyUrl, type NavHooks, type NavLayer, type NavState } from '../src/ui/nav';
 
 class FakeHistory {
   list: { state: unknown; url: string }[] = [{ state: null, url: '/' }];
@@ -434,5 +434,58 @@ describe('首页先出来、主程序还没挂上时(navMark)', () => {
     expect(at()).toMatchObject({ idx: 1, page: 'gallery', prev: true });
     h.back();
     expect(a.log).toEqual(['后退:home']);
+  });
+
+  it('首页上点开作品墙上的作品:先记一步、网址换成 ?gallery=<编号>;主程序挂上以后照网址打开它,不多记一步', () => {
+    navMark({ page: 'home' });
+    navPushEarly({ page: 'gallery' }, '/?gallery');
+    navPushEarly({ page: 'gallery', id: 'k7qm2xpa' }, '/?gallery=k7qm2xpa');
+    expect(h.list.map((e) => e.url)).toEqual(['/', '/?gallery', '/?gallery=k7qm2xpa']);
+    const a = app();
+    startNav({ page: 'gallery', id: 'k7qm2xpa' }, a.hooks);
+    navTo({ page: 'gallery', id: 'k7qm2xpa' });
+    expect(h.list).toHaveLength(3);
+    h.back();
+    expect(a.log).toEqual(['后退:gallery']);
+  });
+
+  it('开着新建参数作品(navReplace):这一步换成那个作品,不多记一步', () => {
+    navMark({ page: 'home' });
+    navPushEarly({ page: 'gallery' }, '/?gallery');
+    navReplace({ page: 'gallery', id: 'k7qm2xpa' });
+    navUrl('/?gallery=k7qm2xpa');
+    expect(h.list).toHaveLength(2);
+    expect(h.list[1]).toMatchObject({ url: '/?gallery=k7qm2xpa', state: { idx: 1, page: 'gallery', id: 'k7qm2xpa' } });
+  });
+});
+
+describe('地址栏里贴了作品墙的地址(#gallery)', () => {
+  it('App 开着:浏览器记的那一步直接记成作品墙,换过去时只改这一步,按一次后退回到原来的世界', () => {
+    const a = app();
+    startNav({ page: 'world', id: 'A' }, a.hooks);
+    h.pushState(null, '', '/#gallery=k7qm2xpa');
+    navAdopt({ page: 'gallery', id: 'k7qm2xpa' });
+    navUrl('/?gallery=k7qm2xpa');
+    navTo({ page: 'gallery', id: 'k7qm2xpa' });
+    expect(h.list).toHaveLength(2);
+    expect(at()).toMatchObject({ idx: 1, page: 'gallery', id: 'k7qm2xpa' });
+    h.back();
+    expect(a.log).toEqual(['后退:world A']);
+  });
+});
+
+describe('作品墙那一页的网址写成 ?gallery', () => {
+  it('URLSearchParams 写出来的 gallery= 改回不带等号的;带编号的、别的参数不动', () => {
+    expect(tidyUrl('?gallery=')).toBe('?gallery');
+    expect(tidyUrl('/?map=sat&gallery=')).toBe('/?map=sat&gallery');
+    expect(tidyUrl('/?gallery=&lon=20')).toBe('/?gallery&lon=20');
+    expect(tidyUrl('/?gallery=k7qm2xpa')).toBe('/?gallery=k7qm2xpa');
+    expect(tidyUrl('/?mygallery=&seed=7')).toBe('/?mygallery=&seed=7');
+  });
+
+  it('换图层、投影时写进去的 ?gallery= 在地址栏里还是 ?gallery', () => {
+    navMark({ page: 'gallery' });
+    navUrl(`?${new URLSearchParams('gallery&proj=robinson')}`);
+    expect(h.list[0].url).toBe('?gallery&proj=robinson');
   });
 });

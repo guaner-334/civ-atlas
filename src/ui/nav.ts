@@ -170,7 +170,7 @@ export function navMark(first: NavInfo): void {
 export function navPushEarly(info: NavInfo, url: string): void {
   const was = W().history.state;
   const s = pageOf(info, isNavState(was) ? was.idx + 1 : 1, true);
-  W().history.pushState(s, '', url);
+  W().history.pushState(s, '', tidyUrl(url));
   for (const k of [...entries.keys()]) if (k > s.idx) entries.delete(k);
   remember(s);
   here = W().location.href;
@@ -181,10 +181,18 @@ export function getNav(): NavState | null {
   return cur;
 }
 
+/**
+ * 作品墙那一页的网址是不带等号的 ?gallery。各处拿 URLSearchParams 改网址(换图层、投影、地图上写的名字……)时会写成 gallery=,
+ * 写进地址栏之前改回来(两种写法打开的是同一页)
+ */
+export function tidyUrl(url: string): string {
+  return url.replace(/([?&])gallery=(?=[&#]|$)/, '$1gallery');
+}
+
 /** 只换网址(种子、图层、投影……),这一步记的东西不动 */
 export function navUrl(url: string) {
   const h = W().history;
-  h.replaceState(h.state, '', url);
+  h.replaceState(h.state, '', tidyUrl(url));
   here = W().location.href;
 }
 
@@ -324,7 +332,7 @@ function onPop(e: PopStateEvent) {
   const now = W().location.href;
   const sameWorld = s.page === 'world' && cur.page === 'world' && s.id === cur.id;
   if (here && here !== now) {
-    const u = sameWorld ? here : hooks.url ? hooks.url(here, now) : now;
+    const u = tidyUrl(sameWorld ? here : hooks.url ? hooks.url(here, now) : now);
     if (u !== now) W().history.replaceState(s, '', u);
   }
   here = W().location.href;

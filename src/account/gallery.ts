@@ -140,6 +140,28 @@ export function isWorkGone(e: unknown): boolean {
   return e instanceof ServerError && (e.code === 'gallery-gone' || e.status === 410 || e.status === 404);
 }
 
+/**
+ * 网址里的作品墙:?gallery = 作品墙那一页('');?gallery=<作品编号> = 打开那个作品;# 后面写的(#gallery、#gallery=<编号>)一样认。
+ * 没有 = null;编号认不出的照样给(打开时说已经撤下)
+ */
+export function galleryOfUrl(q: URLSearchParams, hash: string): string | null {
+  const v = q.get('gallery');
+  if (v !== null) return v.trim().slice(0, 40);
+  const m = /^#gallery(?:=([^&#]*))?$/.exec(hash);
+  return m ? (m[1] ?? '').slice(0, 40) : null;
+}
+
+/**
+ * 作品墙那一页(id = '')/ 一个作品在地址栏里的网址:路径 + 原来的 ?… 去掉 drop 里的几样和旧的 gallery,最后接上 gallery(=编号);
+ * # 后面的不要。作品墙那一页写成不带等号的 ?gallery
+ */
+export function galleryHref(pathname: string, search: string, id: string, drop: readonly string[] = []): string {
+  const q = new URLSearchParams(search);
+  for (const k of [...drop, 'gallery']) q.delete(k);
+  const rest = q.toString();
+  return `${pathname}?${rest ? `${rest}&` : ''}gallery${id ? `=${encodeURIComponent(id)}` : ''}`;
+}
+
 /** 封面的地址(没有服务器 = '') */
 export function coverUrl(id: string): string {
   const base = serverBase();

@@ -169,6 +169,15 @@ export function choiceName(s: PresetState, c: PresetChoice): string {
   return s.list.find((x) => x.id === c)?.name ?? '默认';
 }
 
+/**
+ * 新建弹窗里点「开始」时还选着作品墙上的那一套(shared = 弹窗打开时带来的那一套):那个作品(新的世界出处写它);
+ * 换成了默认、上次用的、自己的预设 = null(参数不是那个作品的了,出处不写它)
+ */
+export function chosenGallery(s: PresetState, shared: SharedPreset | null | undefined): SharedPreset['gallery'] | null {
+  const g = shared?.gallery;
+  return g && s.chosen === 'shared' && s.shared?.gallery?.id === g.id ? g : null;
+}
+
 /** 记下选了哪个 */
 export function choosePreset(c: PresetChoice) {
   const s = get();

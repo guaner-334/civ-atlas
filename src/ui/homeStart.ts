@@ -32,6 +32,14 @@ export function randomSeedValue(): number {
 }
 
 /**
+ * 帮手模式:作品墙的后台上架作品时在看不见的框里打开网站(?gallery-helper=1),让网站画封面、列名字(ui/helperProtocol.ts)。
+ * 不出界面、不存东西,主程序下好以后只听后台的消息
+ */
+export function galleryHelperMode(search: string = location.search): boolean {
+  return new URLSearchParams(search).get('gallery-helper') === '1';
+}
+
+/**
  * 网址里有也不碍事的几样(不换打开哪一页、首页长什么样,App 挂上以后照网址自己接着用):
  * lon=(地图正中的经线;从世界回到首页时网址里留着它)、play=(创建后放不放历史)、ai=mock / aiServer=fake(测试用的假 AI、假服务器)
  */
