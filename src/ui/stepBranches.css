@@ -112,8 +112,9 @@
   background: var(--hover-bg);
   color: var(--ink);
 }
+/* 切换中先不能点(样子不变,只是转圈的光标) */
 .br-more:disabled {
-  opacity: 0.4;
+  cursor: progress;
 }
 .br-note {
   padding: 0 4px;
@@ -199,7 +200,10 @@
   color: inherit;
 }
 
-/* ---- 删掉一支之前问的那一句 ---- */
+/* ---- 删掉一支之前问的那一句(照存回推演模式那张的样子,在正中) ---- */
+.sw-dlg.sw-save-dlg.br-del-dlg {
+  margin-top: 0;
+}
 .br-side {
   font-size: 13px;
   color: var(--ink-2);
@@ -244,7 +248,10 @@
   line-height: 1.5;
 }
 
-/* ---- 存回推演模式:最上面一行写明存的是在用的这一支 ---- */
+/* ---- 存回推演模式:最上面一行写明存的是在用的这一支(多了一行,窗口往上挪一点,不压住停一下的卡片) ---- */
+.sw-dlg.sw-save-dlg.br-has-branch {
+  margin-top: -180px;
+}
 .br-save-ic {
   flex: none;
   display: grid;

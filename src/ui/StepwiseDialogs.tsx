@@ -507,7 +507,7 @@ function SaveDialog({ phone }: { phone: boolean }) {
     <>
       <div className="sw-scrim" onClick={close} />
       <div className="sw-dlg-wrap">
-        <div className="sw-dlg sw-save-dlg" role="dialog" aria-label="存回推演模式" onPointerDown={stop} onClick={stop}>
+        <div className={`sw-dlg sw-save-dlg${branchRow ? ' br-has-branch' : ''}`} role="dialog" aria-label="存回推演模式" onPointerDown={stop} onClick={stop}>
           <h2>存回推演模式</h2>
           <p className="sw-lead">{lead}</p>
           {branchRow && <div className="sw-sec first">{branchRow}</div>}

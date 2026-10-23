@@ -140,7 +140,8 @@ function BranchMenu({ anchor, items, onClose }: { anchor: HTMLElement; items: re
     };
   }, [anchor, onClose]);
   return createPortal(
-    <div className="pm-menu br-menu" ref={ref} role="menu" style={at ? { left: at.left, top: at.top } : { visibility: 'hidden' }}>
+    // 挂在 body 上,React 里的点击照样冒泡到那一行(点一行 = 切过去):在这里拦住
+    <div className="pm-menu br-menu" ref={ref} role="menu" style={at ? { left: at.left, top: at.top } : { visibility: 'hidden' }} onClick={(e) => e.stopPropagation()}>
       {items.map((x, i) =>
         x.sep ? (
           <hr key={i} className="pm-sep" />
@@ -287,7 +288,6 @@ function BranchRow({
       role="button"
       tabIndex={on ? -1 : 0}
       aria-current={on || undefined}
-      aria-disabled={on || !!sw || undefined}
       data-branch={b.id}
       data-act={on ? undefined : 'branch-go'}
       onClick={go}
@@ -417,10 +417,11 @@ function DeleteDialog({ phone, civ, id }: { phone: boolean; civ: Civ; id: number
       ? `这一支从${yearFull(b.playFrom, era)}起演绎，演到${spaced(yearFull(b.year, era))}。`
       : `这一支${parent ? `从${branchRef(parent)}的` : ''}${yearFull(b.forkAt, era)}分出，演到${spaced(yearFull(b.year, era))}。`;
   const cmds = ownCommands(b);
-  const texts = cmds.map((v) => eraText(interventionText(civ, v), era));
+  const texts = cmds.map((v) => `${yearShortAt(v.from, era)}${eraText(interventionText(civ, v), era)}`);
   const ivSmall = texts.length > DELETE_LIST_MAX ? `${texts.slice(0, DELETE_LIST_MAX).join('；')}……等 ${texts.length} 条` : texts.join('；');
   const note = b.last ? splitNote(b.last, era) : null;
-  const histSmall = `${note ? `${note.y !== null ? yearShortAt(note.y, era) : ''}${note.text}……` : ''}编年史里这一段`;
+  // 最后一件大事(去掉开头的【干预】这类小标签)
+  const histSmall = `${note ? `${note.y !== null ? yearShortAt(note.y, era) : ''}${note.text.replace(/^【[^】]*】/, '')}……` : ''}编年史里这一段`;
   const why = `删了找不回来。别的${cnCount(all.length - 1)}支照旧${parent ? `；${branchRef(parent)}${yearFull(b.forkAt!, era)}以前的事本来就在它自己那里，不受影响` : ''}。`;
   const rows = (
     <div className={`sw-grp${phone ? ' white' : ''}`}>
@@ -444,7 +445,7 @@ function DeleteDialog({ phone, civ, id }: { phone: boolean; civ: Civ; id: number
       )}
     </div>
   );
-  const head = `删掉${branchRef(b)}？`;
+  const head = `删掉「${branchLabel(b)}」？`;
   const hasRows = b.year > a || cmds.length > 0;
   if (phone)
     return (
