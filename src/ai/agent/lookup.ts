@@ -410,15 +410,24 @@ export function lookupPeople(ctx: LookupContext, a: Record<string, unknown>): Lo
   const roleOk = (x: Person) => !role || role === x.role;
   /** 第 Y 年里领过兵(哪一次领兵和这一年有重叠;卸任那一刻不算) */
   const commanding = (x: Person, Y: number) => (x.commands ?? []).some((c) => c.from < Y + 1 && c.until > Y);
+  // from / to:只看这几年
+  const from = given(a.from) ? yearArg(civ, a.from, 0) : -Infinity;
+  const to = given(a.to) ? yearArg(civ, a.to, end) : Infinity;
+  const range = Number.isFinite(from) || Number.isFinite(to) ? `第 ${Number.isFinite(from) ? from : 0}—${Number.isFinite(to) ? to : end} 年` : '';
   /** 只看那一年在世的(给了 year)/ 那几年在世过的(给了 from、to)作者的人物 */
-  const charsWhen = (list: readonly AuthorCharacter[]) => {
-    const from = given(a.from) ? yearArg(civ, a.from, 0) : -Infinity;
-    const to = given(a.to) ? yearArg(civ, a.to, end) : Infinity;
-    return list.filter((c) => (Yarg < 0 || characterAge(c, Yarg).state === 'alive') && c.born <= to && (c.died ?? Infinity) >= from);
+  const charsWhen = (list: readonly AuthorCharacter[]) =>
+    list.filter((c) => (Yarg < 0 || characterAge(c, Yarg).state === 'alive') && c.born <= to && (c.died ?? Infinity) >= from);
+  /**
+   * 这几年里在台上过(年份按整年比:即位、卸任可能在一年当中):君主在位、名臣在朝、将领领兵,卸任那一刻起不算;
+   * 宗室按生卒,卒年那一年还算在世(和"那一年在世的宗室"一样)
+   */
+  const activeIn = (x: Person) => {
+    if (x.role === 'prince') return F(x.born) <= to && (x.died ?? Infinity) >= from;
+    const s = personSpan(x);
+    return F(s.from) <= to && (s.until ?? Infinity) > from;
   };
   /** 说"那一年 / 那几年在世的" */
-  const charsWhenText = () =>
-    Yarg >= 0 ? `第 ${Yarg} 年在世的` : given(a.from) || given(a.to) ? `第 ${given(a.from) ? yearArg(civ, a.from, 0) : 0}—${given(a.to) ? yearArg(civ, a.to, end) : end} 年在世过的` : '';
+  const charsWhenText = () => (Yarg >= 0 ? `第 ${Yarg} 年在世的` : range ? `${range}在世过的` : '');
   const out: string[] = [];
   const hintNarrow = '用 country、year、role 或 limit 缩小范围';
 
@@ -526,11 +535,6 @@ export function lookupPeople(ctx: LookupContext, a: Record<string, unknown>): Lo
       return { result: fitLines(out, LOOKUP_MAX, hintNarrow), summary };
     }
     // 历代(或 from / to 这几年里的)
-    const from = given(a.from) ? yearArg(civ, a.from, 0) : -Infinity;
-    const to = given(a.to) ? yearArg(civ, a.to, end) : Infinity;
-    // 年份按整年比(即位、卸任可能在一年当中)
-    const inRange = (s: number, u: number | null) => F(s) <= to && (u ?? Infinity) > from;
-    const range = Number.isFinite(from) || Number.isFinite(to) ? `第 ${Number.isFinite(from) ? from : 0}—${Number.isFinite(to) ? to : end} 年` : '';
     if (Yarg >= 0 && !polityAlive(p, Yarg) && role !== 'author')
       out.push(`${head}。第 ${Yarg} 年它${Yarg < p.founded ? '还没立国' : '已经亡了'},下面列它的历代人物。`);
     else out.push(head);
@@ -548,18 +552,13 @@ export function lookupPeople(ctx: LookupContext, a: Record<string, unknown>): Lo
           : role === 'general'
             ? ix.generals[id]
             : people.filter((x) => x.role === 'prince' && x.polity === id).sort((x, y) => x.born - y.born || x.id - y.id);
-      const hit = list.filter((x) => {
-        // 宗室按生卒:卒年那一年还算在世(和"那一年在世的宗室"一样);名臣、将领按在朝、领兵,卸任那一刻起不算
-        if (x.role === 'prince') return F(x.born) <= to && (x.died ?? Infinity) >= from;
-        const s = personSpan(x);
-        return inRange(s.from, s.until);
-      });
+      const hit = list.filter(activeIn);
       const shown = hit.slice(0, limit);
       out.push(`${range}${ROLE_NAME[role]} 共 ${hit.length} 位${shown.length < hit.length ? `,列前 ${shown.length} 位(用 from、to 看后面的)` : ''}:`);
       for (const x of shown) out.push(`- ${personLine(x, hit.length <= DETAIL_MAX)}`);
       return { result: fitLines(out, LOOKUP_MAX, '用 from、to 缩小年份范围'), summary: `${ROLE_NAME[role]} ${hit.length} 位` };
     }
-    const rulers = ix.rulers[id].filter((x) => inRange(x.from ?? x.born, x.until ?? null));
+    const rulers = ix.rulers[id].filter(activeIn);
     // 太多的列最早的一半和最近的一半,中间的用 from、to 查
     const cut = rulers.length > limit;
     const early = cut ? rulers.slice(0, Math.ceil(limit / 2)) : rulers;
@@ -619,6 +618,16 @@ export function lookupPeople(ctx: LookupContext, a: Record<string, unknown>): Lo
       out.push(`- P${p.id} ${nameAt(p, Y)}(${size.get(p.id)} 州):${who}`);
     }
     return { result: fitLines(out, LOOKUP_MAX, hintNarrow), summary: `${alive.length} 国的君主` };
+  }
+
+  // ---- 只给了身份(君主、将领、名臣、宗室;可加 from、to):全世界这一种人,最近的在前 ----
+  if (role && role !== 'author') {
+    if (!people.length) return { result: '推演里没有人物(这颗星球没有长出文明)。', summary: '没有人物' };
+    const list = people.filter((x) => x.role === role && activeIn(x)).sort((x, y) => personSpan(y).from - personSpan(x).from || x.id - y.id);
+    const shown = list.slice(0, limit);
+    out.push(`推演里${range}的${ROLE_NAME[role]} 共 ${list.length} 位${shown.length < list.length ? `,列最近的 ${shown.length} 位(用 country、year 或 from、to 缩小)` : ''}:`);
+    for (const x of shown) out.push(`- ${personLine(x, list.length <= DETAIL_MAX)}`);
+    return { result: fitLines(out, LOOKUP_MAX, hintNarrow), summary: `${ROLE_NAME[role]} ${list.length} 位` };
   }
 
   // ---- 什么都没给(或只要作者的人物):作者的人物 + 推演里的名人 ----

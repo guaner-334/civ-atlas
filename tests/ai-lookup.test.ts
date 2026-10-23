@@ -243,6 +243,16 @@ describe.each(worlds)('种子 $seed', (w) => {
     }
   });
 
+  it('只给身份:列全世界这一种人(最近的在前),不拿作者的人物、名人充数', () => {
+    const ms = (civ.people ?? []).filter((x) => x.role === 'minister');
+    const r = lookupPeople(ctx, { role: 'minister' });
+    expect(r.summary).toBe(`名臣 ${ms.length} 位`);
+    expect(r.result.split('\n')[0]).toContain(`推演里的名臣 共 ${ms.length} 位`);
+    expect(r.result).not.toContain('作者的人物');
+    const latest = [...ms].sort((x, y) => y.from! - x.from! || x.id - y.id)[0];
+    expect(r.result.split('\n')[1]).toContain(`名臣 ${latest.name}`);
+  });
+
   it('只圈到湖面:说是湖泊,不说成海洋', () => {
     const lake = world.water.indexOf(2);
     if (lake < 0) return;
