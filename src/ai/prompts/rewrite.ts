@@ -181,7 +181,7 @@ function shoreRegion(world: World, of: ArrayLike<number>, count: number, cell: n
 }
 
 /** 离 [经度, 纬度] 最近的地块(没有 = −1) */
-function nearestCell(world: World, p: readonly [number, number]): number {
+export function nearestCell(world: World, p: readonly [number, number]): number {
   const m = world.mesh;
   const [x, y] = toWorld(p[0], p[1]);
   // 先在主图上粗找(经度差按纬度缩),再按球面距离精排前几个
