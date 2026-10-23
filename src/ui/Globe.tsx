@@ -73,6 +73,9 @@ import { getCivFeed, subscribeCivFeed } from './CivLayer';
 import { getProjection, lastFlatProjection, setProjection, useGraticuleLines, useProjection } from './projection';
 import { clearToast, showToast } from './toastStore';
 import { isNarrow } from './device';
+import { getCloudPrefs, useCloudPrefs } from './cloudPrefs';
+import { CLOUD_H, CLOUD_W, wetFromPrecip } from '../render/clouds';
+import type { CloudResponse } from '../cloudWorker';
 import { getMapCenter, publishMapCenter } from './mapWrap';
 import { animProgress } from './flyTo';
 import { drawSettlementMarks, type SettlementMarkInfo } from '../render/civ/settlements';
@@ -312,6 +315,9 @@ interface GlobeDebug {
   cpuFull: boolean;
   cpuPending: boolean;
   cpuMs: number;
+  /** 云(写实风):off = 没开 / 没有显卡画法,baking = 后台在画云图,ready = 已传上显卡;画云图用了多少毫秒 */
+  cloud: 'off' | 'baking' | 'ready';
+  cloudMs: number;
 }
 
 /** CPU 画法的贴图槽位 */
@@ -842,6 +848,16 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
     hlA: 0,
     /** 下一帧先不画(选中刚换,让面板先上屏) */
     hold: false,
+    /**
+     * 云(写实风,见 render/clouds.ts):key = 画云图时用的降水图(换了世界重画)、pending = 后台正在画、data = 画好等着上传的云图、
+     * uploaded = 已传上显卡的那份、mix = 浓淡渐入(0–1)、rot = 云层比地面多转的角度、at = 上一次推进 rot 的时刻(毫秒)
+     */
+    cloud: { key: null as unknown, pending: false, data: null as Uint8Array | null, uploaded: null as Uint8Array | null, mix: 0, rot: 0, at: 0, failed: false, ms: 0 },
+    /** 云飘动时只重画显卡那一层(不动文字和矢量线):上一帧的画法参数、下一次重画的时刻、最后一次有人操作的时刻、重画的定时循环 */
+    lastGl: null as { cw: number; ch: number; dpr: number; look: GlobeLook } | null,
+    driftAt: 0,
+    lastInput: 0,
+    driftRaf: 0,
   }).current;
 
   // 最新的 props(帧回调里读)
@@ -857,6 +873,108 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
 
   const invalidate = () => {
     if (!s.raf) s.raf = requestAnimationFrame(tick);
+  };
+
+  // ---- 云(写实风) ----
+  /** 云层比地面多转的速度:一圈约 25 分钟,肉眼看是缓缓漂移 */
+  const CLOUD_SPIN = (2 * Math.PI) / 1500;
+  /** 久没人操作(三分钟)就不再重画,省电;一动又接上 */
+  const DRIFT_IDLE_MS = 180000;
+  /**
+   * 推进云的状态:浓淡渐入渐出、云层转角。返回还要不要接着画(渐变没完、或者在飘)。
+   * 云图要后台画(约一秒):换了世界、云图还没有时在这里开线程,画好下一帧传上显卡
+   */
+  const cloudStep = (now: number, busy: boolean): boolean => {
+    const p = props.current;
+    const c = s.cloud;
+    const pr = getCloudPrefs();
+    const want = !!s.gl && p.style === 'realistic' && pr.on;
+    if (want && !busy && !c.failed && c.key !== p.world.precipitation && !c.pending) {
+      c.key = p.world.precipitation;
+      c.pending = true;
+      const key = c.key;
+      try {
+        const wk = new Worker(new URL('../cloudWorker.ts', import.meta.url), { type: 'module' });
+        const done = () => {
+          wk.terminate();
+          c.pending = false;
+        };
+        wk.onmessage = (e: MessageEvent<CloudResponse>) => {
+          done();
+          const r = e.data;
+          if (!r.ok) {
+            c.failed = true;
+            console.warn('地球仪的云图没画出来:', r.error);
+            return;
+          }
+          // 画的这段时间里换了世界:作废(下一帧按新世界重画)
+          if (props.current.world.precipitation !== key) {
+            c.key = null;
+            invalidate();
+            return;
+          }
+          c.data = r.data;
+          c.ms = r.ms;
+          invalidate();
+        };
+        wk.onerror = () => {
+          done();
+          c.failed = true;
+        };
+        const r = p.raster;
+        wk.postMessage({ seed: p.world.params.seed, wet: wetFromPrecip(r.precip, r.w, r.h) });
+      } catch {
+        c.pending = false;
+        c.failed = true;
+      }
+    }
+    if (c.data && s.gl && c.uploaded !== c.data) {
+      s.debug.upload.cloud = s.gl.upload('cloud', { w: CLOUD_W, h: CLOUD_H, data: c.data, gray: true });
+      c.uploaded = c.data;
+    }
+    const target = want && c.uploaded ? 1 : 0;
+    let more = false;
+    if (c.mix !== target) {
+      c.mix = target > c.mix ? Math.min(1, c.mix + 0.04) : Math.max(0, c.mix - 0.06);
+      more = true;
+    }
+    const dt = c.at ? Math.min(0.1, Math.max(0, (now - c.at) / 1000)) : 0;
+    c.at = now;
+    if (pr.drift && c.mix > 0) {
+      c.rot += dt * CLOUD_SPIN;
+      if (c.rot > 2 * Math.PI) c.rot -= 2 * Math.PI;
+    }
+    return more;
+  };
+  /** 这一帧云的画法(没有云 = undefined);放大了、铺着国家 / 民族 / 信仰 / 时代色块时淡一些 */
+  const cloudLook = (now: number, busy = false): GlobeLook['clouds'] => {
+    const c = s.cloud;
+    const p = props.current;
+    if (!s.gl || p.style !== 'realistic' || c.mix <= 0 || !c.uploaded) return undefined;
+    const kz = Math.min(1, Math.max(0, (s.view.k - 1.4) / 2.1));
+    const zoomFade = 1 - 0.6 * kz * kz * (3 - 2 * kz);
+    const fill = p.show.polities || p.show.cultures || p.show.faiths || p.show.eras ? 0.5 : 1;
+    return { opacity: c.mix * zoomFade * fill, rot: c.rot, t: now / 1000, detail: busy && isNarrow() ? 0 : 1 };
+  };
+  /** 云在飘、而且这会儿值得重画 */
+  const drifting = (now: number) => {
+    const pr = getCloudPrefs();
+    return !!s.gl && props.current.style === 'realistic' && pr.on && pr.drift && s.cloud.mix > 0 && !document.hidden && now - s.lastInput < DRIFT_IDLE_MS;
+  };
+  /** 飘动的重画循环:只重画显卡那一层(球上的字和线不动),最多每秒 30 帧;转动、飞行时由 tick 自己画 */
+  const driftTick = (now: number) => {
+    s.driftRaf = 0;
+    if (!drifting(now)) return;
+    s.driftRaf = requestAnimationFrame(driftTick);
+    if (s.raf || !s.gl || !s.lastGl || now - s.driftAt < 32) return;
+    s.driftAt = now;
+    cloudStep(now, true);
+    const g = s.lastGl;
+    s.gl.render(s.view, frameOf(s.view, g.cw, g.ch, g.dpr), g.dpr, { ...g.look, clouds: cloudLook(now) });
+  };
+  const startDrift = () => {
+    s.lastInput = performance.now();
+    if (!s.driftRaf && drifting(s.lastInput)) s.driftRaf = requestAnimationFrame(driftTick);
   };
 
   // ---- CPU 画法(没有 WebGL2):后台线程分段画,画好整张换上 ----
@@ -1387,6 +1505,8 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
     const look: GlobeLook = { style: p.style, relief: s.relief, weights: reliefWeights(p.look), graticule: p.graticule, hl: hlA, replay: s.replayMix };
     const { w, h, dpr } = s.size;
     const busy = !!(s.drag || s.fly || s.inertia || s.pinch || s.shiftAnim) || now - s.wheelAt < SETTLE_MS;
+    if (cloudStep(now, busy)) more = true;
+    look.clouds = cloudLook(now, busy);
     /** CPU 画法:这一帧换上了后台画好的底图;还在等后台画现在这个视角的(上面那层先不动,和屏幕上的底图对齐) */
     let presented = false;
     let cpuWait = false;
@@ -1411,6 +1531,7 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
         cvs.height = ch;
       }
       s.gl.render(s.view, frameOf(s.view, cw, ch, dpr * q), dpr * q, look);
+      s.lastGl = { cw, ch, dpr: dpr * q, look };
     } else {
       // CPU:动着的时候降一半分辨率,停下来再画一遍全分辨率。平时交给后台线程分段画,画好整张换上
       // (主线程不再被逐像素计算占住;球上面那层跟着换上的那张的视角画,不和底图错开);后台线程用不了时当场画
@@ -1543,6 +1664,8 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
       cpuFull: !!s.cpuShown?.full,
       cpuPending: !s.gl && (cpuWait || !!s.cpuReady || !!s.cpuPool?.busy),
       cpuMs: s.cpuMs,
+      cloud: s.cloud.uploaded ? 'ready' : s.cloud.pending || (!!s.gl && p.style === 'realistic' && getCloudPrefs().on && !s.cloud.failed) ? 'baking' : 'off',
+      cloudMs: s.cloud.ms,
     };
     (window as unknown as { __wfGlobe: GlobeDebug }).__wfGlobe = dbg;
     if (!busy) {
@@ -1550,6 +1673,8 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
       maybeGlobeTex();
     }
     if (more) invalidate();
+    // 云在飘:停下来以后由飘动循环只重画显卡那一层
+    if (!s.driftRaf && drifting(now)) s.driftRaf = requestAnimationFrame(driftTick);
   };
 
   // ---- 建立画法、画布大小 ----
@@ -1572,6 +1697,7 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
         // 显卡重置:重新建一个(贴图全部重新上传)
         s.gl = GlobeGL.create(cvs);
         s.uploaded = { terrainKey: undefined, civ: -1, sel: -1, hl: -1, replay: null, water: null };
+        s.cloud.uploaded = null;
         s.selTex.key = null;
         s.hlTex.key = null;
         setCpu(!s.gl);
@@ -1605,6 +1731,8 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
       s.cpuPool?.dispose();
       s.cpuPool = null;
       s.cpuReady = null;
+      cancelAnimationFrame(s.driftRaf);
+      s.driftRaf = 0;
       s.gl?.dispose();
       for (const c of [s.hd.cache, s.lo.cache]) {
         for (const b of c.values()) b.bitmap.close();
@@ -1626,6 +1754,26 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sel]);
   useEffect(invalidate, [terrain, terrainKey, replay, raster, graticule, style, look, civ, geo, sel, show, leftRoom, rightRoom, hl, faithFocus, resView]);
+  // 云的开关、飘不飘变了:重画,飘动循环接上
+  const cloudPrefs = useCloudPrefs();
+  useEffect(() => {
+    invalidate();
+    startDrift();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cloudPrefs]);
+  // 有人操作:飘动循环接着跑(三分钟没人动就停,见 DRIFT_IDLE_MS)
+  useEffect(() => {
+    const on = () => startDrift();
+    const evs = ['pointerdown', 'pointermove', 'wheel', 'keydown', 'touchstart'] as const;
+    for (const e of evs) window.addEventListener(e, on, { passive: true });
+    document.addEventListener('visibilitychange', on);
+    startDrift();
+    return () => {
+      for (const e of evs) window.removeEventListener(e, on);
+      document.removeEventListener('visibilitychange', on);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   useEffect(() => subscribeCivFeed(invalidate), []);
   // 时间轴一动:文明贴图、国界道路的矢量线换成那一年的
   useEffect(() => subscribeCivTime(invalidate), []);
@@ -1969,7 +2117,7 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
       out.width = W;
       out.height = H;
       const octx = out.getContext('2d')!;
-      const look: GlobeLook = { style: p.style, relief: s.relief, weights: reliefWeights(p.look), graticule: p.graticule, hl: 0, replay: s.replayMix };
+      const look: GlobeLook = { style: p.style, relief: s.relief, weights: reliefWeights(p.look), graticule: p.graticule, hl: 0, replay: s.replayMix, clouds: cloudLook(performance.now()) };
       if (s.gl) {
         const ow = cvs.width;
         const oh = cvs.height;
