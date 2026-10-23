@@ -167,6 +167,21 @@ interface LabelsDebug {
 /** 弯边投影停下来以后文明底图按投影重画(后台分小步)的活名 */
 const CIV_PROJ_JOB = 'proj-civ';
 
+/** 配角名(不是跟着填色的那种名字):拖时间轴、回放停下以后再等这么久才排上,再用这么久淡入 */
+const SIDE_SETTLE_MS = 300;
+const SIDE_FADE_MS = 220;
+
+/** 停稳:still 变成 true 以后再过 ms 毫秒才算停稳(变 false 是马上) */
+function useSettled(still: boolean, ms: number): boolean {
+  const [settled, setSettled] = useState(still);
+  useEffect(() => {
+    if (!still) return setSettled(false);
+    const h = window.setTimeout(() => setSettled(true), ms);
+    return () => window.clearTimeout(h);
+  }, [still, ms]);
+  return still && settled;
+}
+
 /** moving 变成 false 以后再等一个任务才变 false(变 true 是马上) */
 function useLateStop(moving: boolean): boolean {
   const [late, setLate] = useState(moving);
@@ -462,7 +477,17 @@ export function CivLayer({ world, raster, civ, geo, style, year, view, mp = null
   const geoItems = useMemo(() => (labelParams ? civLabelItems(labelParams) : []), [labelParams]);
   // 弯边投影:国名按投影后的国土拟合;拖动中心时(moving)先用世界坐标拟合的那一份投过去,停下来再按新中心拟合
   const fitMp = mp && !moving ? mp : null;
-  const mapLayer = useMemo(() => (mapParams ? civMapLayer(mapParams, { fast, proj: fitMp }) : null), [mapParams, fast, fitMp]);
+  // 配角名(如民族填色上的国名、国家填色上的族名):拖时间轴、回放时先收起,停稳 0.3 秒后再排上、淡入(主角名一直在)
+  const sides = useSettled(!fast, SIDE_SETTLE_MS);
+  const mapLayer = useMemo(() => (mapParams ? civMapLayer(mapParams, { fast, proj: fitMp, sides }) : null), [mapParams, fast, fitMp, sides]);
+  // 配角名这一次是从收起到排上的:从这一刻起淡入(刚打开、只是换了开关时直接画)
+  const sideFadeFrom = useRef(0);
+  const sidesBefore = useRef(sides);
+  useLayoutEffect(() => {
+    if (sides && !sidesBefore.current) sideFadeFrom.current = performance.now();
+    sidesBefore.current = sides;
+  }, [sides]);
+  const [fadeTick, setFadeTick] = useState(0);
   const extras = useMemo(() => (labelParams ? labelViewExtras(labelParams) : null), [labelParams]);
   const text = useMemo(() => (ok && civ ? civLabelChars(civ) : ''), [ok, civ]);
   const fontStyle = style;
@@ -576,7 +601,10 @@ export function CivLayer({ world, raster, civ, geo, style, year, view, mp = null
           }
         : undefined;
     drawSettlementMarks(ctx, placed.marks, style, capFlags);
-    drawPlacedLabels(ctx, placed.labels, lv);
+    // 配角名淡入中:按过了多久调淡,下一帧再画(排版用上面缓存的,不重排)
+    const fade = mapLayer?.sides.size && sideFadeFrom.current ? Math.min(1, (performance.now() - sideFadeFrom.current) / SIDE_FADE_MS) : 1;
+    const fading = fade < 1 && placed.labels.some((l) => mapLayer!.sides.has(l.item));
+    drawPlacedLabels(ctx, fading ? placed.labels.map((l) => (mapLayer!.sides.has(l.item) ? { ...l, alpha: l.alpha * fade } : l)) : placed.labels, lv);
     // 信仰图层:圣城符号右上方一个这个教颜色的小圆点(符号没排上时按城的位置;压在界面下面的不画)
     if (params?.show.faiths && base) {
       const cx = (W / 2 - lv.ox) / lv.scale;
@@ -602,7 +630,7 @@ export function CivLayer({ world, raster, civ, geo, style, year, view, mp = null
       ready: true,
       drawn: placed.labels.length,
       marks: placed.marks.length,
-      polities: placed.labels.filter((l) => l.item.sizeWorld !== undefined).length,
+      polities: placed.labels.filter((l) => l.item.pick?.kind === 'polity').length,
       year: params?.year ?? 0,
       fast: !!fast,
       ms: performance.now() - t0,
@@ -616,7 +644,10 @@ export function CivLayer({ world, raster, civ, geo, style, year, view, mp = null
       lon: mp?.lon0,
       fitted: !!fitMp,
     };
-  }, [geoItems, mapLayer, extras, fontsOk, fontStyle, style, text, view, tick, params, fast, sel, civ, world, mp, fitMp, avoid, labelsHost, flags, flagImages, badges, resView]);
+    if (!fading) return;
+    const h = requestAnimationFrame(() => setFadeTick((n) => n + 1));
+    return () => cancelAnimationFrame(h);
+  }, [geoItems, mapLayer, extras, fontsOk, fontStyle, style, text, view, tick, params, fast, sel, civ, world, mp, fitMp, avoid, labelsHost, flags, flagImages, badges, resView, fadeTick]);
 
   return (
     <>
