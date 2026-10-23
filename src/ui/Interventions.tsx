@@ -19,7 +19,8 @@ import { polityAlive, polityName } from '../gen/civ/growth';
 import { regionLabel } from '../gen/civ/display';
 import { ownersAt, type Owners } from '../gen/civ/timeline';
 import { cleanIntervention, keyCells, polityKey, regionKey, regionOfKey, resolveKey, type Intervention } from '../gen/edits';
-import { removeIntervention, useEra } from './editsStore';
+import { getEdits, removeIntervention, useEra } from './editsStore';
+import { crownLine } from './crownInfo';
 import { eraText, yearShort } from '../gen/era';
 
 // ---------------------------------------------------------------------------
@@ -32,14 +33,18 @@ export interface PolityPick {
   sub?: string;
   /** 从哪里发起(`polity:3` / `region:12`;面板换了对象时据此收起) */
   source: string;
-  /** 要点的是国家(默认)还是城 */
-  target?: 'polity' | 'settlement';
+  /** 要点的是国家(默认)、城还是州(州:地图上不浮名牌,点到哪州算哪州) */
+  target?: 'polity' | 'settlement' | 'region';
   /** 点到了国家 / 城 id:合格 = 下令、返回 null;不合格 = 返回原因(如"两国不接壤,无法宣战") */
   accept: (id: number) => string | null;
   /** 上一次点的不合格的原因 */
   msg?: string;
   /** 本国(名牌、悬停写"本国") */
   self?: number;
+  /** 本国名牌上的小字(默认"本国";让作者的人物即位时写"他的国家") */
+  selfNote?: string;
+  /** 本国也能点(让作者的人物即位:他自己的国家也能选) */
+  selfPick?: boolean;
   /** 可选的对象(国家 / 城的编号):地图上浮出它们的名牌,悬停写"点击选择" */
   eligible?: ReadonlySet<number>;
   /** 相邻的国家(名牌上写"相邻") */
@@ -75,7 +80,7 @@ export function usePolityPick(): PolityPick | null {
 
 /** 选目标时鼠标下的对象对不对:'ok' 可选 / 'self' 本国 / 'no' 不可选 */
 export function pickVerdict(p: PolityPick, id: number): 'ok' | 'self' | 'no' {
-  if (id >= 0 && p.self === id && (p.target ?? 'polity') === 'polity') return 'self';
+  if (id >= 0 && p.self === id && (p.target ?? 'polity') === 'polity') return p.selfPick ? 'ok' : 'self';
   if (id >= 0 && p.eligible?.has(id)) return 'ok';
   return 'no';
 }
@@ -191,7 +196,8 @@ export function interventionText(civ: Civ, v: Intervention, i = -1, a?: string):
     case 'halt':
       return `${A}:禁止扩张${v.until !== undefined ? `(至第 ${v.until} 年)` : ''}`;
     case 'crown':
-      return `${authorName(civ, v.char)}即${A}君位${v.until !== undefined ? `(至第 ${v.until} 年)` : ''}`;
+      // "林小满即有桑皇朝君位，1530 年退位" / "……，到 1541 年卒"(下台年份就是人物卡上的卒年)
+      return crownLine(authorName(civ, v.char), A, v.until, getEdits().characters?.find((c) => c.id === v.char)?.died, getEdits().era);
   }
 }
 

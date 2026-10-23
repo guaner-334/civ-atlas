@@ -1,23 +1,23 @@
 /**
- * 族名的摆法:一族在地图上住的那几片,各自在最宽处排一行字 —— 和国名同一套拟合(polity.ts:国土栅格 → 离界距离 →
- * 最难到达点发放射线 → 字号从大往小试,横排或竖排)。区别是按「片」排:
+ * 族名、教名、时代名的摆法:一组(一族、一个教、一个时代)在地图上占的那几片,各自在最宽处排一行字 ——
+ * 和国名同一套拟合(polity.ts:国土栅格 → 离界距离 → 最难到达点发放射线 → 字号从大往小试,横排或竖排)。区别是按「片」排:
  *
- *   片 = 国土栅格上属于同一族、上下左右连成一块的格子(隔着海、湖不算连着;东西相连的世界跨过左右边也算连着)。
- *   一族分成好几片时,州数最多的那片总写;别的片至少 minPiece 州才写(1–3 州的碎片不写,悬停照样看得到)。
+ *   片 = 国土栅格上属于同一组、上下左右连成一块的格子(隔着海、湖不算连着;东西相连的世界跨过左右边也算连着)。
+ *   一组分成好几片时,州数最多的那片总写;别的片至少 minPiece 州才写(更碎的不写,悬停照样看得到)。
  *   哪几片在总览里写、哪几片放大才出来,由调用方按州数和字号定(render/civ/labels.ts)。
  *
- * 纯计算(不碰画布),世界坐标(弯边投影下是地图平面坐标,planar)。同一份归属(日志下标)、同一批名字只算一次。
+ * 每州属于哪一组由调用方给(GroupSource:族 = 民族填色那份归属,教 = 信仰填色那份,时代 = 时代填色每 20 年取一次的那份)。
+ * 纯计算(不碰画布),世界坐标(弯边投影下是地图平面坐标,planar)。同一份归属(stamp)、同一批名字只算一次。
  */
 import type { World } from '../../gen/world';
 import type { Raster } from '../../gen/raster';
-import type { ChangeLog, Civ, Year } from '../../gen/civ/types';
-import { logIndexAfter, ownersAt, type Owners } from '../../gen/civ/timeline';
+import type { Civ } from '../../gen/civ/types';
 import type { MapProj } from '../projection';
 import { fitShape, maxNameCss, projectedTerritoryGrid, territoryField, territoryGrid, type OwnerGrid, type TerritoryField, type TerritoryGrid } from './polity';
 
 /** 一片的名字摆法 */
 export interface GroupLabel {
-  /** 哪一组(族的编号) */
+  /** 哪一组(族 / 教 / 时代的编号) */
   id: number;
   text: string;
   /** 路径(x,y,x,y…):直线,或拐角抹圆的两段 */
@@ -40,24 +40,25 @@ export interface GroupLabelOptions {
   refCss: number;
   /** 除了最大那片,至少几州的片才写 */
   minPiece: number;
-  /** 字号上限(CSS 像素);不给 = 按州数(和国名一样 12–26) */
+  /** 字号上限(CSS 像素):按州数(和国名一样 12–26)乘 scale(不给 = 1),再不超过 maxCss */
+  scale?: number;
   maxCss?: number;
   /** 弯边投影:在投影后的栅格里拟合(见 polity.ts 的 PolityLabelOptions.proj) */
   proj?: MapProj;
 }
 
-/** 哪种名字:现在只有族名(以后的教名、时代名也走这里) */
-export type GroupKind = 'culture';
+/** 哪种名字:族名、教名、时代名 */
+export type GroupKind = 'culture' | 'faith' | 'era';
 
-let ownScratch: Owners | undefined;
-
-/** 某一年每州属于哪一组(−1 = 没有)。族:和民族填色同一份归属(ownersAt) */
-function groupsAt(kind: GroupKind, civ: Civ, year: Year): Int16Array {
-  switch (kind) {
-    case 'culture':
-      ownScratch = ownersAt(civ, year, ownScratch);
-      return ownScratch.culture;
-  }
+/** 某一年每州属于哪一组 */
+export interface GroupSource {
+  kind: GroupKind;
+  /** 归属从哪份数据来(核对用的栅格按它缓存:数据换了就重算) */
+  data: object;
+  /** 这一年的归属是第几版:同一种名字、同一份数据、同一个 stamp = 同一份归属,直接用上次的结果 */
+  stamp: number;
+  /** 每州属于哪一组(−1 = 没有)。只在调用当下读,可以是复用的数组 */
+  of: () => Int16Array;
 }
 
 interface Cached {
@@ -71,45 +72,42 @@ interface Cached {
 const cache = new WeakMap<Civ, Map<string, Cached>>();
 
 /**
- * 某一年某种名字的全部摆法(每组的每一片)。nameOf 返回 null 的组不写。
- * 归属没变(日志下标相同)、名字没变(同一个 civ)时直接用上次的结果
+ * 某一年某种名字的全部摆法(每组的每一片)。nameOf 返回 null 的组不写(如民间信仰)。
+ * 归属没变(stamp 相同)、名字没变(同一个 civ)时直接用上次的结果
  */
 export function groupLabels(
   world: World,
   raster: Raster,
   civ: Civ,
-  year: Year,
-  kind: GroupKind,
+  src: GroupSource,
   nameOf: (id: number) => string | null,
   opt: GroupLabelOptions,
 ): GroupLabel[] {
-  const idx = logIndexAfter(civ.log, year);
   const mp = opt.proj;
-  const key = `${idx}|${opt.refCss}|${opt.minPiece}|${opt.maxCss ?? ''}|${raster.w}|${mp?.key ?? ''}`;
+  const key = `${src.stamp}|${opt.refCss}|${opt.minPiece}|${opt.scale ?? 1}|${opt.maxCss ?? ''}|${raster.w}|${mp?.key ?? ''}`;
   let byKind = cache.get(civ);
   if (!byKind) cache.set(civ, (byKind = new Map()));
-  const slot = `${kind}|${mp ? 'proj' : 'world'}`;
+  const slot = `${src.kind}|${mp ? 'proj' : 'world'}`;
   const hit = byKind.get(slot);
   if (hit && hit.key === key) return hit.labels;
   const grid = mp ? projectedTerritoryGrid(world, raster, civ, mp) : territoryGrid(world, raster, civ);
-  const field = territoryField(grid, groupsAt(kind, civ, year));
+  const field = territoryField(grid, src.of());
   const labels = fitPieces(field, civ.regions.count, nameOf, opt, mp ? mp.W : world.width);
   if (mp) for (const l of labels) l.planar = true;
   byKind.set(slot, { key, labels });
   return labels;
 }
 
-const ownerCache = new WeakMap<ChangeLog, Map<GroupKind, { idx: number; grid: TerritoryGrid; f: OwnerGrid }>>();
+const ownerCache = new WeakMap<object, Map<GroupKind, { stamp: number; grid: TerritoryGrid; f: OwnerGrid }>>();
 
 /** 某一年每格属于哪一组(世界坐标的栅格,不算离界距离):核对名字的每个字落没落在这一组当年的地盘上 */
-export function groupOwnerGrid(world: World, raster: Raster, civ: Civ, year: Year, kind: GroupKind): OwnerGrid {
+export function groupOwnerGrid(world: World, raster: Raster, civ: Civ, src: GroupSource): OwnerGrid {
   const grid = territoryGrid(world, raster, civ);
-  const idx = logIndexAfter(civ.log, year);
-  let byKind = ownerCache.get(civ.log);
-  if (!byKind) ownerCache.set(civ.log, (byKind = new Map()));
-  const hit = byKind.get(kind);
-  if (hit && hit.idx === idx && hit.grid === grid) return hit.f;
-  const of = groupsAt(kind, civ, year);
+  let byKind = ownerCache.get(src.data);
+  if (!byKind) ownerCache.set(src.data, (byKind = new Map()));
+  const hit = byKind.get(src.kind);
+  if (hit && hit.stamp === src.stamp && hit.grid === grid) return hit.f;
+  const of = src.of();
   const N = grid.gw * grid.gh;
   const owner = new Int16Array(N);
   for (let i = 0; i < N; i++) {
@@ -117,7 +115,7 @@ export function groupOwnerGrid(world: World, raster: Raster, civ: Civ, year: Yea
     owner[i] = r >= 0 ? of[r] : -1;
   }
   const f = { grid, owner };
-  byKind.set(kind, { idx, grid, f });
+  byKind.set(src.kind, { stamp: src.stamp, grid, f });
   return f;
 }
 
@@ -196,7 +194,7 @@ export function fitPieces(field: TerritoryField, regionCount: number, nameOf: (i
     const mainRegions = ps[0].regions;
     ps.forEach((pc, i) => {
       if (i > 0 && pc.regions < opt.minPiece) return;
-      const maxCss = Math.min(opt.maxCss ?? Infinity, maxNameCss(pc.regions));
+      const maxCss = Math.min(opt.maxCss ?? Infinity, maxNameCss(pc.regions) * (opt.scale ?? 1));
       const sizes: number[] = [];
       for (let c = maxCss; c >= MIN_FIT_CSS; c *= 0.92) sizes.push(c * worldPerCss);
       const f = fitShape(field, id, pc.deep, n, sizes, maxCss * worldPerCss * 14);

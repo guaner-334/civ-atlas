@@ -92,7 +92,7 @@ function kidsLine(civ: Civ, list: readonly Person[], max = 6): { node: ReactNode
 }
 
 /** 伐 / 抗哪国(国名能点)+ 年份 */
-function foesLine(civ: Civ, foes: readonly Foe[], era: Era | undefined): { node: ReactNode; text: string } {
+export function foesLine(civ: Civ, foes: readonly Foe[], era: Era | undefined): { node: ReactNode; text: string } {
   return {
     node: foes.map((f, i) => (
       <Fragment key={i}>
@@ -516,7 +516,7 @@ function personRow(k: string, civ: Civ, y: Person, note: string): Line {
 }
 
 /** 在位时 / 在朝时 / 领兵时的事(按先后) */
-function personEvents(civ: Civ, x: Person): ChronicleEntry[] {
+export function personEvents(civ: Civ, x: Person): ChronicleEntry[] {
   const all = polityEntries(civ, x.polity);
   const eps = 1e-6;
   if (x.role === 'ruler' || x.role === 'minister') {

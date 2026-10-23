@@ -41,11 +41,13 @@ const ROUTE_LEGEND: { name: string; dash?: string; width: number }[] = [
 const NAME_TOGGLES: { kind: CivNameKind; name: string }[] = [
   { kind: 'polities', name: '国名' },
   { kind: 'cultures', name: '族名' },
+  { kind: 'faiths', name: '教名' },
+  { kind: 'eras', name: '时代名' },
 ];
 
 /**
  * 「地图上写」:填色说明下面一行,地图上写哪些名字(每种填色各记各的,换填色时按那种填色记着的勾好;
- * 没勾过的按默认:国家、信仰、时代写国名,民族写族名,不填都不写)
+ * 没勾过的按默认:国家、信仰、时代写国名,民族写族名,信仰写教名,时代写时代名,不填都不写)
  */
 export function NameToggles() {
   const show = useCivShow();

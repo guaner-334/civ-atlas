@@ -194,6 +194,8 @@ export function hoverInfo(p: {
 /** 选目标时鼠标下的对象(国家 / 城)和"点击选择 / 不可选 / 本国";鼠标下没有这类对象 = null */
 function pickTarget(civ: Civ, pk: PolityPick, label: LabelPick | null, cell: number, year: number): HoverInfo | null {
   const r = cell < civ.regions.of.length ? civ.regions.of[cell] : -1;
+  // 选州(另立一国):点到哪州算哪州,合不合格点了再说
+  if (pk.target === 'region') return r >= 0 ? { name: regionLabel(civ, r), sub: VERDICT_TEXT.ok, pick: -1 } : null;
   if (pk.target === 'settlement') {
     let sid = label?.kind === 'settlement' ? label.id : -1;
     if (sid < 0 && r >= 0) sid = civ.settlements.find((s) => s.region === r && s.founded <= year && (s.ended === undefined || s.ended > year))?.id ?? -1;

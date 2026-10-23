@@ -4,14 +4,18 @@
  *
  * 看的时候
  *   顶部  头像(Portrait.tsx;按编号挑,他的国家定服饰,年龄跟时间轴;右下角「换一张」)、名字、"作者的人物，2490–2561 年"
- *   按钮  出生那年(主操作:时间轴跳到生年)/ 编辑 / 复制生平 / 更多(设为中心、删除人物;删了提示条上能撤销)
+ *   按钮  出生那年(主操作:时间轴跳到生年)/ 编辑 / 即位…(卡片换成让他即位那一页,CrownPage.tsx)/ 更多(复制生平、设为中心、删除人物;删了提示条上能撤销)
  *   简介  作者写的那几句
- *   概况  年龄(跟时间轴:"22 岁"、"还没出生"、"已故，享年 71 岁")、身份、国家(那年在位的君主)、出生地、亲友
+ *   概况  年龄(跟时间轴:"22 岁"、"还没出生"、"已故，享年 71 岁")、身份、国家(那年在位的君主;他自己在位写"他在位")、出生地、亲友
+ *   君位  让他即位过才有(crownInfo.ts):待推演 / 下一步生效的写一行;生效了写在位、前任(让位)、继任(继他之位)、下台、亲征,
+ *         下台和原定的不一样(被废、亡国)黄字、下面一段说清楚,右上「世系图」;没生效写原因,右上「去掉这条即位」
+ *   性格  开拓、好战、发展、重商四项(样子同推演君主卡片的「倾向」),右上「改」进编辑
+ *   在位时  他当君主那几年这国的事(同推演君主卡片)
  *   一生  经历按先后,每条下面写那年几岁、在哪、勾上的推演里的事;时间轴那一年画一条"现在"线,以后的变淡;点一条跳到那一年
  *   这些年身边的事  他在世那些年他的国家的事、换君主、他去过的州的事(当前那年前后最多 8 条),后面「在编年史中查看」
  *
  * 填的时候(新建、编辑)
- *   名字输入框、生卒(各带"用第 N 年")、出生地(点地图挑,「换一处」「去掉」)、国家(默认跟着出生地)、身份、颜色、简介、
+ *   名字输入框、生卒(各带"用第 N 年")、出生地(点地图挑,「换一处」「去掉」)、国家(默认跟着出生地)、身份、性格(四条滑条)、颜色、简介、
  *   一生(一行一段,点了改;「加一段经历」)、亲友(点了改;「加亲友」)、底部 取消 / 完成
  *   加一段经历:年份(算好几岁)、经历、在哪(点地图;「去掉」清掉)、勾推演里那几年那一处的事和人;底部 取消 / 加上
  *   加亲友:关系(随便写)、是谁(自己的人物或推演里的人,能搜);底部 取消 / 加上
@@ -22,8 +26,10 @@ import type { Raster } from '../gen/raster';
 import type { World } from '../gen/world';
 import { polityName } from '../gen/civ/growth';
 import { regionLabel } from '../gen/civ/display';
-import { personName } from '../gen/civ/peopleText';
-import { rulerAt } from '../gen/civ/peopleInfo';
+import { LEANING_KEYS, LEANING_TEXT, personName, rulerFateWord } from '../gen/civ/peopleText';
+import { commandFoes, rulerAt, rulerNeighbors } from '../gen/civ/peopleInfo';
+import { hasLineage } from '../gen/civ/lineageInfo';
+import type { Person, RulerLeanings } from '../gen/civ/types';
 import { MARK_COLORS, polityKey, type MarkColor } from '../gen/edits';
 import {
   CHARACTERS_MAX,
@@ -35,6 +41,7 @@ import {
   KIN_REL_MAX,
   LIFE_TEXT_MAX,
   characterAge,
+  characterLeanings,
   lifeInOrder,
   lifeStops,
   personKey,
@@ -42,10 +49,10 @@ import {
   type AuthorCharacter,
 } from '../gen/characters';
 import { MARK_HEX } from '../render/marks';
-import { getEdits, removeCharacter, restoreCharacter, updateCharacter, useEdits, useEra } from './editsStore';
+import { getEdits, removeCharacter, removeIntervention, restoreCharacter, updateCharacter, useEdits, useEra } from './editsStore';
 import { characterPortrait } from '../gen/portrait';
 import { PortraitView } from './Portrait';
-import { eraText, spaced, yearAt, yearFull, yearShort } from '../gen/era';
+import { eraText, spaced, yearAt, yearFull, yearShort, yearSpanAt, type Era } from '../gen/era';
 import { clearSelection, pickChronicleEntry, setSelection, type MapSelection } from './civView';
 import {
   cancelDraft,
@@ -96,10 +103,16 @@ import {
 } from './characterInfo';
 import { pointsFocus } from './flyTo';
 import { requestMapCenter } from './mapWrap';
-import { openOverview } from './overviewStore';
+import { openLineage, openOverview } from './overviewStore';
+import { setSheet } from './panelStore';
+import { usePending } from './pendingStore';
+import { useStepwise } from './stepwiseStore';
+import { characterCrowns, newReignName, type CrownState } from './crownInfo';
+import { CrownPage, LeanSliders } from './CrownPage';
+import { foesLine, personEvents } from './PersonPanel';
 import { clearToast, showToast } from './toastStore';
 import { evLabel, evText, evType } from './timelineLayout';
-import { Act, Acts, EntryText, EraYearInput, Link, MoreAct, PanelHead, Row, Stats, SubLine, copyText, jumpTo } from './panelParts';
+import { Act, Acts, EntryText, EraYearInput, EventList, Link, MoreAct, PanelHead, Row, Stats, SubLine, copyText, jumpTo } from './panelParts';
 import { MenuItem } from './PopMenu';
 import { Icon } from './icons';
 import './characters.css';
@@ -184,8 +197,13 @@ function PlaceLink({ pl, span }: { pl: CharPlace; span?: boolean }) {
 // 看的时候
 
 function CharView({ civ, raster, world, year, c, chars }: CharacterPanelProps & { c: AuthorCharacter; chars: readonly AuthorCharacter[] }) {
-  const [copied, setCopied] = useState(false);
+  /** 卡片换成让他即位那一页 */
+  const [crowning, setCrowning] = useState(false);
   const era = useEra();
+  const edits = useEdits();
+  const pending = usePending();
+  const step = useStepwise().on;
+  const crowns = useMemo(() => characterCrowns(civ, c.id, pending, edits.interventions, step, era), [civ, c.id, pending, edits.interventions, step, era]);
   const polity = useMemo(() => characterPolity(civ, world, raster, c), [civ, world, raster, c]);
   const ptAge = Math.floor((c.died !== undefined ? Math.min(year, c.died) : year) - c.born);
   const portrait = useMemo(() => characterPortrait(civ, c, polity, c.born + ptAge), [civ, c, polity, ptAge]);
@@ -203,9 +221,9 @@ function CharView({ civ, raster, world, year, c, chars }: CharacterPanelProps & 
     const text = characterCopyText(civ, world, raster, c, chars, era);
     (window as unknown as { __wfCharText: string }).__wfCharText = text;
     await copyText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1600);
+    showToast({ id: 'oc-copy', kind: 'ok', text: `已复制「${c.name}」的生平`, ttl: 1600 });
   };
+  const canCrown = civ.viable && civ.polities.length > 0;
   const del = () => {
     const at = (getEdits().characters ?? []).findIndex((x) => x.id === c.id);
     const gone = removeCharacter(c.id);
@@ -257,7 +275,7 @@ function CharView({ civ, raster, world, year, c, chars }: CharacterPanelProps & 
       node: (
         <>
           <Link to={{ kind: 'polity', id: polity }}>{polityName(p, y)}</Link>
-          {ruler && <em className="cp-num-note">{personName(civ, ruler)}在位</em>}
+          {ruler && <em className="cp-num-note">{ruler.author === c.id ? '他在位' : `${personName(civ, ruler)}在位`}</em>}
         </>
       ),
     });
@@ -371,8 +389,7 @@ function CharView({ civ, raster, world, year, c, chars }: CharacterPanelProps & 
     );
   }
 
-  return (
-    <div className="cp pp oc-card" data-character={c.id}>
+  const head = (
       <PanelHead
         icon={
           portrait ? (
@@ -403,6 +420,19 @@ function CharView({ civ, raster, world, year, c, chars }: CharacterPanelProps & 
         </div>
         <SubLine parts={[`作者的人物，${lifeYears(c, era)}`]} />
       </PanelHead>
+  );
+  if (crowning)
+    return (
+      <div className="cp pp oc-card oc-editing" data-character={c.id} data-oc-page="crown">
+        {head}
+        <CrownPage civ={civ} raster={raster} world={world} year={year} c={c} onBack={() => setCrowning(false)} />
+      </div>
+    );
+  const done = crowns.filter((x): x is Extract<CrownState, { kind: 'done' }> => x.kind === 'done');
+
+  return (
+    <div className="cp pp oc-card" data-character={c.id}>
+      {head}
       <Acts>
         <Act icon="history" primary act="character-year" onClick={() => jumpTo(c.born)} title={`时间轴跳到${spaced(yearAt(c.born, era))}`}>
           出生那年
@@ -410,10 +440,21 @@ function CharView({ civ, raster, world, year, c, chars }: CharacterPanelProps & 
         <Act icon="rename" act="character-edit" onClick={() => editCharacterDraft(c)}>
           编辑
         </Act>
-        <Act icon="copy" act="character-copy" onClick={() => void copy()}>
-          {copied ? '已复制' : '复制生平'}
+        <Act
+          icon="crown"
+          act="character-crown"
+          disabled={!canCrown}
+          onClick={() => {
+            setCrowning(true);
+            setSheet('full');
+          }}
+        >
+          即位…
         </Act>
         <MoreAct>
+          <MenuItem icon={<Icon name="copy" size={16} />} act="character-copy" onClick={() => void copy()}>
+            复制生平
+          </MenuItem>
           <MenuItem icon={<Icon name="center" size={16} />} act="set-center" disabled={!focus} onClick={() => focus && requestMapCenter(focus.lon)}>
             设为中心
           </MenuItem>
@@ -436,6 +477,27 @@ function CharView({ civ, raster, world, year, c, chars }: CharacterPanelProps & 
             </Row>
           ))}
         </Stats>
+        {crowns.map((st, i) => (
+          <CrownSec key={i} civ={civ} c={c} st={st} era={era} />
+        ))}
+        {/* 性格:填过才显示(编辑里、让他即位那一页拖过滑条);没填过的人物照旧不多这一块 */}
+        {c.leanings && <LeanRead l={characterLeanings(c)} onEdit={() => editCharacterDraft(c)} />}
+        {done.map((st, i) => (
+          <EventList
+            key={i}
+            civ={civ}
+            self={st.x.id}
+            title="在位时"
+            upTo={personEvents(civ, st.x)}
+            limit={12}
+            empty="这几年本国无事可记"
+            more={
+              <button className="ins-link cp-more" data-act="character-reign-chronicle" onClick={() => openOverview('chronicle', { polity: st.x.polity, major: false, at: st.x.until ?? civ.endYear })}>
+                在编年史中查看
+              </button>
+            }
+          />
+        ))}
         {life.length > 0 && (
           <section className="cp-sec cp-events" data-oc="life">
             <div className="cp-sec-head cp-events-head">
@@ -459,6 +521,172 @@ function CharView({ civ, raster, world, year, c, chars }: CharacterPanelProps & 
         )}
       </div>
     </div>
+  );
+}
+
+/** 性格:一项一行(名字、灰色细条、数值),下面一句说明;右上「改」进编辑 */
+function LeanRead({ l, onEdit }: { l: RulerLeanings; onEdit: () => void }) {
+  return (
+    <section className="cp-sec cp-events" data-sec="character-leanings">
+      <div className="cp-sec-head cp-events-head">
+        <span>性格</span>
+        <button className="ins-link cp-more" data-act="character-leanings-edit" onClick={onEdit}>
+          改
+        </button>
+      </div>
+      <div className="cp-group">
+        {LEANING_KEYS.map((k) => (
+          <div key={k} className="pp-lean" data-leaning={k}>
+            <div className="pp-lean-top">
+              <span className="pp-lean-k">{LEANING_TEXT[k].name}</span>
+              <span className="pp-lean-bar" aria-hidden="true">
+                <i style={{ width: `${l[k]}%` }} />
+              </span>
+              <span className="pp-lean-num">{l[k]}</span>
+            </div>
+            <div className="pp-lean-note">
+              {LEANING_TEXT[k].note}
+              {k === 'develop' && <span className="cr-idle">推演里暂不起作用</span>}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/** 他的一条即位(「君位」一块):待推演 / 下一步生效、生效了、没生效 */
+function CrownSec({ civ, c, st, era }: { civ: Civ; c: AuthorCharacter; st: CrownState; era: Era | undefined }) {
+  const when = (v: { from: number }, step: boolean) => `${yearFull(v.from, era)}${step ? '年初' : ''}`;
+  if (st.kind === 'queued')
+    return (
+      <section className="cp-sec" data-crown-state={st.step ? 'next' : 'pending'}>
+        <div className="cp-sec-head">君位</div>
+        <div className="cp-grid cp-stats">
+          <Row k="即位">
+            {when(st.v, st.step)}即{st.A}君位<em className="cr-pending">{st.step ? '下一步生效' : '待推演'}</em>
+          </Row>
+        </div>
+      </section>
+    );
+  if (st.kind === 'void')
+    return (
+      <section className="cp-sec" data-crown-state="void">
+        <div className="cp-sec-head cp-events-head">
+          <span>君位</span>
+          {st.at >= 0 && (
+            <button className="ins-link cp-more" data-act="crown-remove" onClick={() => removeIntervention(st.at)}>
+              去掉这条即位
+            </button>
+          )}
+        </div>
+        <div className="cp-grid cp-stats">
+          <Row k="即位">
+            {when(st.v, false)}即{st.A}君位<em className="cr-fail">没生效</em>
+          </Row>
+          <div className="cr-note">{st.why}，推演里没有这位君主。改年份或换一国，点「即位…」重新下一条。</div>
+        </div>
+      </section>
+    );
+  return <ReignSec civ={civ} c={c} x={st.x} until={st.v.until} era={era} />;
+}
+
+/** 生效了:在位、前任、继任、下台、亲征(学维基百科君主信息框的"在位 / 前任 / 继任");下台比原定早时黄字、下面一段说清楚 */
+function ReignSec({ civ, c, x, until: planned, era }: { civ: Civ; c: AuthorCharacter; x: Person; until: number | undefined; era: Era | undefined }) {
+  const p = civ.polities[x.polity];
+  const from = x.from ?? x.born;
+  const u = x.until;
+  const { prev, next } = rulerNeighbors(civ, x);
+  const sameDyn = (a: Person, b: Person) => (a.dynasty ?? 0) === (b.dynasty ?? 0);
+  // 改朝换代以后新朝的称呼:东方"国号大辰",西幻"卡诺王朝"(没起名 = 不写)
+  const reign = next && !sameDyn(x, next) ? newReignName(p, next.dynasty ?? 0) : { name: '', eastern: true };
+  const newName = reign.name;
+  const A = polityName(p, from);
+  const foes = commandFoes(civ, x);
+  // 下台:退位 / 被废 / 出降 / 出奔 / 归附 / 让位;比原定早的黄字
+  let down: { word: string; note: string } | null = null;
+  let warn = '';
+  if (u !== undefined) {
+    const at = yearAt(Math.floor(u), era);
+    switch (x.fate) {
+      case 'retired':
+        down = { word: rulerFateWord(civ, x), note: planned !== undefined && Math.floor(u) === planned ? `${at}，照你定的` : at };
+        break;
+      case 'deposed':
+        down = { word: '被废', note: `${at}，改朝换代` };
+        break;
+      case 'surrendered':
+      case 'fled':
+      case 'merged':
+        down = { word: x.fate === 'surrendered' ? '出降' : x.fate === 'fled' ? '出奔' : '归附', note: `${at}，${polityName(p, u - 1 / 512)}亡` };
+        break;
+      case 'yielded':
+        down = { word: '让位', note: at };
+        break;
+      default:
+        down = x.fate ? { word: rulerFateWord(civ, x), note: at } : null;
+    }
+    const gap = planned !== undefined ? planned - Math.floor(u) : 0;
+    if (x.fate !== 'retired' && gap >= 1 && down) {
+      const plan = c.died !== undefined && planned === c.died ? `原定到${spaced(yearAt(planned, era))}卒时下台` : `原定到${spaced(yearAt(planned!, era))}退位`;
+      const what =
+        x.fate === 'deposed'
+          ? next && newName
+            ? `${next.name}入主、${reign.eastern ? `改国号${newName}` : `${newName}兴`}，他被废`
+            : '改朝换代，他被废'
+          : x.fate === 'yielded'
+            ? `又立了${next ? personName(civ, next) : '别的人物'}，他让位`
+            : `${polityName(p, u - 1 / 512)}亡，他${down.word}`;
+      const tail = c.died !== undefined ? `卒年照你写的${spaced(yearAt(c.died, era))}不变。` : '';
+      warn = `${plan}；推演里${spaced(at)}${what}，比原定早 ${gap} 年。${tail}`;
+    }
+  }
+  const n = u !== undefined ? Math.floor(u) - Math.floor(from) : 0;
+  return (
+    <section className="cp-sec" data-crown-state="done">
+      <div className="cp-sec-head cp-events-head">
+        <span>君位</span>
+        {hasLineage(civ, x.polity) && (
+          <button className="ins-link cp-more" data-act="crown-lineage" onClick={() => openLineage(x.polity, { dynasty: x.dynasty ?? 0, focus: x.id })}>
+            世系图
+          </button>
+        )}
+      </div>
+      <div className="cp-grid cp-stats">
+        <Row k="在位">
+          <Link to={{ kind: 'polity', id: p.id }}>{A}</Link>
+          {'\u00a0'}
+          {u !== undefined ? (
+            <>
+              {yearSpanAt(from, u, era)}
+              <em className="cp-num-note">{n >= 1 ? `${n} 年` : '不足一年'}</em>
+            </>
+          ) : (
+            `${yearAt(from, era)}即位，在位至今`
+          )}
+        </Row>
+        {prev && (
+          <Row k="前任">
+            <Link to={{ kind: 'person', id: prev.id }}>{personName(civ, prev)}</Link>
+            {prev.fate === 'yielded' && <em className="cp-num-note">让位</em>}
+          </Row>
+        )}
+        {next && (
+          <Row k="继任">
+            <Link to={{ kind: 'person', id: next.id }}>{personName(civ, next)}</Link>
+            <em className="cp-num-note">{sameDyn(x, next) ? '继他之位' : newName ? (reign.eastern ? `改朝换代，国号${newName}` : `王室更迭，${newName}`) : '新朝'}</em>
+          </Row>
+        )}
+        {down && (
+          <Row k="下台" className={warn ? 'cr-warn' : undefined}>
+            {down.word}
+            <em className="cp-num-note">{down.note}</em>
+          </Row>
+        )}
+        {foes.length > 0 && <Row k="亲征">{foesLine(civ, foes, era).node}</Row>}
+        {warn && <div className="cr-note">{warn}</div>}
+      </div>
+    </section>
   );
 }
 
@@ -625,6 +853,13 @@ function CharEdit({ civ, raster, world, year, draft: d, picking }: CharacterPane
         <section className="cp-sec">
           <div className="cp-sec-head">身份</div>
           <input className="oc-field" value={d.role} maxLength={CHAR_ROLE_MAX} placeholder="比如：剑客、商人、书记官" aria-label="身份" data-oc="role" onChange={(e) => patchDraft({ role: e.target.value })} />
+        </section>
+        <section className="cp-sec" data-oc="leanings">
+          <div className="cp-sec-head">性格</div>
+          <div className="cp-form cr-leans cr-leans-edit">
+            <LeanSliders value={d.leanings ?? characterLeanings({})} onChange={(l) => patchDraft({ leanings: l })} />
+          </div>
+          <div className="cp-note">四项 0–100，没动过就是 50。让他即位时带进推演。</div>
         </section>
         <section className="cp-sec">
           <div className="cp-sec-head">颜色</div>

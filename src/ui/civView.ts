@@ -5,9 +5,10 @@
  * 网址参数(截图脚本用):
  *   civ=habitat,regions,sites,routes,cultures,polities,faiths,eras,resources,wars,plague   直接打开对应显示;前面加减号是关掉,
  *                                               如 civ=-labels 关掉默认打开的地名、civ=-wars 关掉默认打开的战事;
- *                                               「地图上写」国名、族名按填色各记各的:civ=polityNames.cultures(民族填色上写国名)、
+ *                                               「地图上写」国名、族名、教名、时代名按填色各记各的:civ=polityNames.cultures(民族填色上写国名)、
  *                                               civ=-polityNames.polities(国家填色上不写)、civ=cultureNames.polities(国家填色上写族名)、
- *                                               civ=-cultureNames.cultures(民族填色上不写族名);不带填色 = 网址里那种填色的
+ *                                               civ=-cultureNames.cultures(民族填色上不写族名)、civ=faithNames.polities(国家填色上写教名)、
+ *                                               civ=-eraNames.eras(时代填色上不写时代名);不带填色 = 网址里那种填色的
  *   civYear=1200                                时间轴停在第 1200 年(不给 = 结束年份);给了就不自动播放
  *   chron=1 / chron=all                         打开世界概览的编年史页(1 = 只看大事,all = 全部)
  *   play=0 / play=1                             打开网页时不自动播放 / 自动播放
@@ -19,8 +20,8 @@ import { mapViewFromUrl } from './mapLayers';
 import { navUrl } from './nav';
 import type { ChronicleEntry } from '../gen/civ/chronicle';
 
-/** 网址 civ= 里「地图上写」的那几项(国名 polityNames、族名 cultureNames),后面可以跟 .填色 */
-const NAME_KEY: Record<CivNameKind, string> = { polities: 'polityNames', cultures: 'cultureNames' };
+/** 网址 civ= 里「地图上写」的那几项(国名 polityNames、族名 cultureNames、教名 faithNames、时代名 eraNames),后面可以跟 .填色 */
+const NAME_KEY: Record<CivNameKind, string> = { polities: 'polityNames', cultures: 'cultureNames', faiths: 'faithNames', eras: 'eraNames' };
 const NAME_TOKEN = new RegExp(`^(${CIV_NAME_KINDS.map((k) => NAME_KEY[k]).join('|')})(\\.(${CIV_FILLS.join('|')}))?$`);
 const kindOfKey = (key: string): CivNameKind => CIV_NAME_KINDS.find((k) => NAME_KEY[k] === key) ?? 'polities';
 
@@ -40,7 +41,7 @@ export function civShowFromQuery(q: URLSearchParams): CivShow {
     if (NAME_TOKEN.test(k)) names.push(raw);
     else if (k in s && k !== 'names') (s as unknown as Record<string, boolean>)[k] = !off;
   }
-  // 「地图上写」:polityNames.cultures = 民族填色上写国名,-polityNames.polities = 国家填色上不写,族名(cultureNames)同样;
+  // 「地图上写」:polityNames.cultures = 民族填色上写国名,-polityNames.polities = 国家填色上不写,族名(cultureNames)、教名(faithNames)、时代名(eraNames)同样;
   // 不带填色的(polityNames / -cultureNames)算网址里那种填色的
   if (names.length) {
     const urlFill = mapViewFromUrl(q)?.fill ?? civFillOf(s);
@@ -119,7 +120,7 @@ export function useCivShow(): CivShow {
   return show.use();
 }
 
-/** 「地图上写」勾 / 不勾国名、族名:记在现在这种填色上(每种填色各记各的),写进网址 */
+/** 「地图上写」勾 / 不勾国名、族名、教名、时代名:记在现在这种填色上(每种填色各记各的),写进网址 */
 export function setNamesShown(kind: CivNameKind, on: boolean) {
   const s = show.get();
   const fill = civFillOf(s);
@@ -408,7 +409,14 @@ export function getSelection(): SelectionState {
 }
 
 /** 选中一个东西;side 不给 = 面板留在原来那一边。选中新的东西(看详情)时暂停播放 */
+/** 选中前换一个目标(App.tsx 设:推演里作者的人物当的君主 → 打开作者的人物卡) */
+let redirect: ((sel: MapSelection) => MapSelection) | null = null;
+export function setSelectionRedirect(f: ((sel: MapSelection) => MapSelection) | null) {
+  redirect = f;
+}
+
 export function setSelection(sel: MapSelection | null, side?: 'left' | 'right') {
+  if (sel && redirect) sel = redirect(sel);
   if (sel && !sameSelection(sel, selection.get().sel)) pausePlayback();
   selection.set(side ? { sel, side } : { sel });
 }

@@ -413,3 +413,182 @@
 .cpanel .oc-checks.era .oc-check:not(.who) {
   grid-template-columns: 22px 4.4em 1fr;
 }
+
+/* ---- 让他即位(CrownPage.tsx)、人物卡上的性格和君位 ---- */
+/* 卡片换成让他即位那一页:正文、底部按钮照卡片的排法 */
+.cr-page {
+  display: contents;
+}
+/* 和 .cp-head + .cp-body 一样(这一页的正文隔着一层 .cr-page) */
+.cp-head + .cr-page > .cp-body {
+  padding-top: 12px;
+}
+/* 性格里"发展"后面的小灰标 */
+.cr-idle {
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--btn);
+  color: var(--ink-2);
+  font-size: 11px;
+}
+.cr-form .cp-form {
+  margin-top: 10px;
+}
+.cr-form > .cp-from:first-child {
+  margin-top: 2px;
+}
+/* 国家的颜色圆点 */
+.cr-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-right: 7px;
+  vertical-align: 0;
+  box-shadow: 0 0 0 1.5px #fff, 0 0 0 2px rgba(0, 0, 0, 0.12);
+}
+.cr-dot.lg {
+  width: 14px;
+  height: 14px;
+  margin: 0 4px 0 2px;
+  flex: none;
+}
+.cr-after {
+  margin-left: 4px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.cr-ttl em {
+  margin-left: 8px;
+  font: 400 12px var(--font-sans);
+  color: var(--ink-2);
+  font-style: normal;
+}
+/* 性格四条滑条 */
+.cr-leans {
+  display: flex;
+  flex-direction: column;
+}
+.cp-form.cr-leans-edit {
+  margin: 0;
+}
+.cr-lean {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 30px;
+  font-size: 14px;
+}
+.cr-lean-k {
+  flex: none;
+  width: 34px;
+  color: var(--ink);
+}
+.cr-range {
+  flex: 1;
+  display: flex;
+  align-items: center;
+}
+.cr-range input {
+  --fill: 50%;
+  flex: 1;
+  min-width: 0;
+  height: 18px;
+  margin: 0;
+  background: transparent;
+  -webkit-appearance: none;
+  appearance: none;
+  cursor: pointer;
+}
+.cr-range input::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(to right, var(--accent) var(--fill), rgba(60, 60, 67, 0.22) var(--fill));
+}
+.cr-range input::-moz-range-track {
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(60, 60, 67, 0.22);
+}
+.cr-range input::-moz-range-progress {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+.cr-range input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  margin-top: -7px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0.5px 2px rgba(0, 0, 0, 0.35);
+}
+.cr-range input::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border: 0;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0.5px 2px rgba(0, 0, 0, 0.35);
+}
+.cr-range input:focus-visible {
+  outline: 2px solid var(--accent-soft);
+  outline-offset: 2px;
+}
+.cr-lean-num {
+  flex: none;
+  width: 24px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+.cr-lean-note {
+  margin: -4px 0 4px 44px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+/* 换一国的列表 */
+.cr-polity {
+  width: 100%;
+}
+.cr-polity .oc-txt span {
+  color: var(--ink-2);
+}
+.cr-check {
+  margin-left: auto;
+  color: var(--accent);
+  font-weight: 600;
+  padding-right: 4px;
+}
+/* 君位:下台比原定早(黄字)、待推演 / 下一步生效 / 没生效的标、下面一段说明 */
+.cpanel .cr-warn {
+  color: var(--warn);
+}
+.cr-pending,
+.cr-fail {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 5px;
+  font: 500 11.5px/18px var(--font-sans);
+  font-style: normal;
+  vertical-align: 1px;
+}
+.cr-pending {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.cr-fail {
+  background: rgba(185, 124, 12, 0.14);
+  color: var(--warn);
+}
+.cr-note {
+  grid-column: 1 / -1;
+  padding: 8px 12px 10px;
+  border-top: 0.5px solid var(--line);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink-2);
+}

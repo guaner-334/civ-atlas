@@ -47,6 +47,25 @@ export function eraLevelsAt(civ: Civ, year: Year, own?: Owners, out?: Float32Arr
   return res;
 }
 
+/** 时代图层在这一年用的是哪一年取的时代:每 ERA_STEP 年取一次,最后一次在结束年份(和 eraCiv 的取法一样) */
+export function eraSampleYear(civ: Civ, year: Year): Year {
+  if (year >= civ.endYear) return civ.endYear;
+  return Math.max(0, Math.floor(year / ERA_STEP) * ERA_STEP);
+}
+
+let own: Owners | undefined;
+let lvAt: Float32Array | undefined;
+/** 某年各州是第几个时代(0 = 石器 … 8 = 未来;没人住 = −1),和时代图层的色块同一份(按 eraSampleYear 取)。out 可复用 */
+export function erasAt(civ: Civ, year: Year, out?: Int16Array): Int16Array {
+  const R = civ.regions.count;
+  const res = out && out.length === R ? out : new Int16Array(R);
+  const y = eraSampleYear(civ, year);
+  own = ownersAt(civ, y, own);
+  lvAt = eraLevelsAt(civ, y, own, lvAt);
+  for (let r = 0; r < R; r++) res[r] = lvAt[r] < 0 ? -1 : Math.min(ERAS.length - 1, Math.floor(lvAt[r]));
+  return res;
+}
+
 /**
  * 把时代换进"民族"那一层的 Civ(只给画色块用):民族列表换成九个时代(颜色 = ERA_COLORS),
  * 日志和检查点里民族那一层换成各州的时代(每 ERA_STEP 年取一次);国家那一层、州、城一样不变。按 civ 缓存

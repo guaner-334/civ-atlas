@@ -184,7 +184,7 @@ export function TargetLayer({ civ, world, toClient, resim, generating, labelAt }
       const p = civ.polities[id];
       const a = anchors.get(id);
       if (!p || !a) return;
-      const note = self ? '本国' : pick?.near?.has(id) ? '相邻' : '';
+      const note = self ? (pick?.selfNote ?? '本国') : pick?.near?.has(id) ? '相邻' : '';
       out.push({ key: `p${id}`, kind: 'polity', id, text: nameAt(p, year), note, color: rgb(p.color), self, rank: self ? -1 : -a.n, x: a.x, y: a.y });
     };
     if (pick) {
@@ -292,7 +292,7 @@ export function TargetLayer({ civ, world, toClient, resim, generating, labelAt }
     const was = prevPick.current;
     prevPick.current = pick;
     if (!was && pick) {
-      if (pick.target !== 'settlement') requestFly('home');
+      if ((pick.target ?? 'polity') === 'polity') requestFly('home');
     } else if (was && !pick && !getPanel().run && getSelection().sel) requestFly('sel');
   }, [pick]);
 
@@ -388,10 +388,10 @@ export function TargetLayer({ civ, world, toClient, resim, generating, labelAt }
               data-kind={p.kind}
               data-id={p.id}
               style={{ visibility: 'hidden' }}
-              disabled={!pick || p.self}
-              onPointerEnter={() => pick && !p.self && setPickHover(p.id)}
+              disabled={!pick || (p.self && !pick.selfPick)}
+              onPointerEnter={() => pick && (!p.self || pick.selfPick) && setPickHover(p.id)}
               onPointerLeave={() => pick && setPickHover(-1)}
-              onClick={() => !p.self && choose(p.id)}
+              onClick={() => (!p.self || pick?.selfPick) && choose(p.id)}
             >
               <i className="tp-sw" style={{ background: p.color }} />
               <span className="tp-name">{p.text}</span>

@@ -109,6 +109,7 @@ const PATHS = {
   close: <path d="M6 6l12 12M18 6L6 18" />,
   chevron: <path d="M9 6l6 6-6 6" />,
   flag: <path d="M6 21V4M6 4h11l-2 4 2 4H6" />,
+  crown: <path d="M4 19h16M5 16 4 7l4.5 3.5L12 5l3.5 5.5L20 7l-1 9z" />,
   city: <path d="M4 20V10l5-3v13M9 20V5l6 3v12M15 20v-8l5 2v6M3 20h18" />,
   sparkle: <path d="M12 4l1.8 4.6L18.5 10l-4.7 1.6L12 16l-1.8-4.4L5.5 10l4.7-1.4z" />,
   scroll: (
