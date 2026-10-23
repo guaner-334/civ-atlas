@@ -13,7 +13,7 @@
  *   · 岛 12 / 11 / 10.5 · 国都 13.5 · 大城 12 · 城 11.5 · 河、湖 11.5 / 11 / 10.5 · 镇、村 10.5
  * 显示门槛:rank 1 总览就显示;rank 2 放大到 1.8 倍;rank 3 放大到 3 倍。城镇见 labels/settlements.ts。
  */
-import type { Civ, Place } from '../../gen/civ/types';
+import type { Civ, Place, Year } from '../../gen/civ/types';
 import type { World } from '../../gen/world';
 import type { Raster } from '../../gen/raster';
 import { capitalAt, polityAlive, polityAllTitles } from '../../gen/civ/growth';
@@ -29,8 +29,11 @@ import type { CivDrawParams, CivStyle } from './overlay';
 import { nearX, wrapOf } from '../common';
 import type { MapProj } from '../projection';
 import type { Candidate } from '../labels/layout';
-import { groupLabels, groupOwnerGrid } from '../labels/groups';
-import { cultureNamesLead, cultureNamesOn, polityNamesLead, polityNamesOn } from './show';
+import { groupLabels, groupOwnerGrid, type GroupSource } from '../labels/groups';
+import { namesLead, namesOn, polityNamesLead, polityNamesOn, type CivNameKind } from './show';
+import { logIndexAfter, ownersAt, type Owners } from '../../gen/civ/timeline';
+import { faithAt } from '../../gen/civ/religion';
+import { ERA_COLORS, eraName, eraSampleYear, erasAt } from './era';
 
 const MIN_ZOOM = [1, 1, 1.8, 3];
 
@@ -273,7 +276,7 @@ const POLITY_TRACKING: [number, number] = [0.5, 2.4];
 
 const clamp255 = (v: number) => Math.max(0, Math.min(255, Math.round(v)));
 /** 本国颜色往墨色里调:国名带一点本国的颜色,又足够深、认得清 */
-function inkOf(c: [number, number, number], ink: [number, number, number], t: number, alpha: number): string {
+function inkOf(c: readonly [number, number, number], ink: [number, number, number], t: number, alpha: number): string {
   return `rgba(${clamp255(c[0] * (1 - t) + ink[0] * t)},${clamp255(c[1] * (1 - t) + ink[1] * t)},${clamp255(c[2] * (1 - t) + ink[2] * t)},${alpha})`;
 }
 
@@ -310,20 +313,80 @@ function sideLook(style: CivStyle): Look {
     : { color: 'rgba(66, 62, 58, 0.82)', weight: 500, halo: { color: 'rgba(255, 255, 255, 0.66)', width: 2 } };
 }
 
-/** 族名:斜体(向右倾约 11°,和写实底图上河湖名的斜度一样)、疏排 */
-const CULTURE_SLANT = 0.2;
-const CULTURE_TRACKING: [number, number] = [0.6, 2.4];
-/** 一族分成好几片时,除了最大那片,至少几州的片才写(1–3 州的碎片不写,悬停照样看得到是哪族) */
-const PIECE_MIN_REGIONS = 4;
+/** 按「片」排的几种名字(labels/groups.ts):族名、教名、时代名 */
+type GroupNameKind = Exclude<CivNameKind, 'polities'>;
+const GROUP_NAME_KINDS: readonly GroupNameKind[] = ['cultures', 'faiths', 'eras'];
 /**
- * 一族的小片:州数不到最大那片的 PIECE_SMALL,放大到 PIECE_ZOOM 倍才写;字号拟合出来不到 PIECE_MIN_CSS(CSS 像素)的,
+ * 各自的排法。slant:族名斜体(向右倾约 11°,和写实底图上河湖名的斜度一样),教名、时代名正体;tracking:字距(字宽的倍数)。
+ * 字号上限:按片的州数(和国名一样 12–26)乘 scale、不超过 maxCss —— 教名小一点,时代名再小一些(一个时代的片常常很大,铺满了太抢)。
+ * minPiece:一组分成好几片时,除了最大那片,至少几州的片才写(族、教 4 州,时代 8 州;更碎的不写,悬停照样看得到)
+ */
+const GROUP_NAMES: Record<GroupNameKind, { slant: number; tracking: [number, number]; scale: number; maxCss?: number; minPiece: number }> = {
+  cultures: { slant: 0.2, tracking: [0.6, 2.4], scale: 1, minPiece: 4 },
+  faiths: { slant: 0, tracking: [0.4, 1.8], scale: 0.92, maxCss: 22, minPiece: 4 },
+  eras: { slant: 0, tracking: [0.3, 1.4], scale: 0.7, maxCss: 17, minPiece: 8 },
+};
+/**
+ * 一组的小片:州数不到最大那片的 PIECE_SMALL,放大到 PIECE_ZOOM 倍才写;字号拟合出来不到 PIECE_MIN_CSS(CSS 像素)的,
  * 放大到字长到这么大再写(字号不随片的大小无限变小,太小的片宁可等放大)
  */
 const PIECE_SMALL = 0.4;
 const PIECE_ZOOM = 2;
 const PIECE_MIN_CSS = 13;
-/** 族名当主角(民族填色):带本族颜色(比国名多带一点),手绘不加粗、纸色光晕,别的底图加粗、白光晕 */
-function cultureLook(style: CivStyle, c: [number, number, number]): Look {
+
+/** 日志里第一条年份 > year 的下标(信仰日志:下标一样 = 各州信的教一样) */
+function indexAfter(log: { size: number; year: Float32Array }, year: Year): number {
+  let lo = 0;
+  let hi = log.size;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (log.year[mid] <= year) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
+let ownScratch: Owners | undefined;
+let faithScratch: Int16Array | undefined;
+let eraScratch: Int16Array | undefined;
+/**
+ * 某一年每州属于哪一组,和对应的填色同一份数据:族 = 民族填色的归属;教 = 信仰填色的(大教、教派、各族的民间信仰各是一组);
+ * 时代 = 时代填色每 20 年取一次的那份。没有这份数据(没算信仰 / 时代)= null
+ */
+function groupSource(kind: GroupNameKind, civ: Civ, year: Year): GroupSource | null {
+  switch (kind) {
+    case 'cultures':
+      return { kind: 'culture', data: civ.log, stamp: logIndexAfter(civ.log, year), of: () => (ownScratch = ownersAt(civ, year, ownScratch)).culture };
+    case 'faiths': {
+      const rel = civ.religion;
+      if (!rel) return null;
+      return { kind: 'faith', data: rel.log, stamp: indexAfter(rel.log, year), of: () => (faithScratch = faithAt(civ, year, faithScratch)) };
+    }
+    case 'eras':
+      if (!civ.development) return null;
+      return { kind: 'era', data: civ.log, stamp: eraSampleYear(civ, year), of: () => (eraScratch = erasAt(civ, year, eraScratch)) };
+  }
+}
+
+/** 这一组写什么、带什么颜色(null = 不写:民间信仰,或没有这一组) */
+function groupName(kind: GroupNameKind, civ: Civ, id: number): { text: string; color: readonly [number, number, number] } | null {
+  switch (kind) {
+    case 'cultures': {
+      const c = civ.cultures[id];
+      return c ? { text: cultureLabel(c), color: c.color } : null;
+    }
+    case 'faiths': {
+      // 民间信仰(各族的祖灵、旧神,图例里合成一行)不写名字;大教、教派各写各的,用自己的颜色
+      const f = civ.religion?.faiths[id];
+      return f && f.kind !== 'folk' ? { text: f.name, color: f.color } : null;
+    }
+    case 'eras':
+      return id >= 0 && id < ERA_COLORS.length ? { text: eraName(id), color: ERA_COLORS[id] } : null;
+  }
+}
+
+/** 族名、教名、时代名当主角(跟着填色):带本色(比国名多带一点),手绘不加粗、纸色光晕,别的底图加粗、白光晕 */
+function groupLook(style: CivStyle, c: readonly [number, number, number]): Look {
   return style === 'fantasy'
     ? { color: inkOf(c, [56, 30, 18], 0.58, 0.96), weight: 500, halo: { color: 'rgba(241, 230, 201, 0.86)', width: 2.5 } }
     : { color: inkOf(c, [30, 22, 18], 0.52, 0.96), weight: 700, halo: { color: 'rgba(255, 255, 255, 0.7)', width: 2.2 } };
@@ -377,7 +440,7 @@ const RUIN_NAME_PRIORITY = [15, 22, 40, 50];
 /** 遗址名的写法:"古揽霄城"(字体子集里有的字) */
 export const RUIN_PREFIX = '古';
 
-/** 视口层上随年份变的东西:国名、族名、城名(文字)和城镇符号 */
+/** 视口层上随年份变的东西:国名、族名、教名、时代名、城名(文字)和城镇符号 */
 export interface CivMapLayer {
   items: LabelItem[];
   marks: (LabelMark & SettlementMarkInfo)[];
@@ -386,12 +449,13 @@ export interface CivMapLayer {
 }
 
 /**
- * 这一年的国名、族名、城名、城镇符号。
+ * 这一年的国名、族名、教名、时代名、城名、城镇符号。
  * 国名:「地图上写」勾了国名时(没勾过按填色的默认:国家、信仰、时代填色写);国家填色上是主角(大字、带本国颜色),
- * 别的填色上是配角(小一号、灰墨)。族名:勾了族名时(默认民族填色写);民族填色上是主角(斜体、带本族颜色),
- * 别的填色上是配角(小一号、灰墨,照旧斜体)。城镇符号和城名:"国家"或"道路"打开时。和"地名"开关无关。
+ * 别的填色上是配角(小一号、灰墨)。族名、教名、时代名:勾了时(默认民族填色写族名、信仰填色写教名、时代填色写时代名);
+ * 跟着填色的那种是主角(带本色;族名斜体),别的填色上是配角(小一号、灰墨,族名照旧斜体)。
+ * 城镇符号和城名:"国家"或"道路"打开时。和"地名"开关无关。
  * fast(回放 / 拖时间轴):城名只排国都和大城的(城一建起、一升级名字就出来),城、镇、村的名字停下来再补上 ——
- * 放大地图时回放,每帧也不用排几百个小地名;主角名(国名、族名)每 20 年重新拟合一次,不会每帧抖动。
+ * 放大地图时回放,每帧也不用排几百个小地名;主角名每 20 年重新拟合一次,不会每帧抖动。
  * sides:写不写配角名(不给 = 不是 fast 就写);拖时间轴、回放时配角名先收起,停稳了再出来(界面上停稳 0.3 秒后淡入)
  */
 export function civMapLayer(p: CivDrawParams, opt: { fast?: boolean; proj?: MapProj | null; sides?: boolean } = {}): CivMapLayer {
@@ -469,20 +533,27 @@ export function civMapLayer(p: CivDrawParams, opt: { fast?: boolean; proj?: MapP
       polityItemOfCapital.set(capitalAt(pol, p.year), item);
     }
   }
-  const cultureLead = cultureNamesLead(p.show);
-  if (cultureNamesOn(p.show) && civ.cultures.length && (cultureLead || sidesOn)) {
-    // 族名:一族住的每一片各自拟合(labels/groups.ts);和国名一样回放时每 20 年重排一次,每个字按当年这一族的地盘核对
-    const labels = groupLabels(world, raster, civ, fitYear, 'culture', (id) => (civ.cultures[id] ? cultureLabel(civ.cultures[id]) : null), {
+  for (const kind of GROUP_NAME_KINDS) {
+    const lead = namesLead(p.show, kind);
+    if (!namesOn(p.show, kind) || !(lead || sidesOn)) continue;
+    const fitSrc = groupSource(kind, civ, fitYear);
+    const nowSrc = groupSource(kind, civ, p.year);
+    if (!fitSrc || !nowSrc) continue;
+    // 族名、教名、时代名:一组占的每一片各自拟合(labels/groups.ts);和国名一样回放时每 20 年重排一次,每个字按当年这一组的地盘核对
+    const T = GROUP_NAMES[kind];
+    const labels = groupLabels(world, raster, civ, fitSrc, (id) => groupName(kind, civ, id)?.text ?? null, {
       refCss: REF_MAP_CSS,
-      minPiece: PIECE_MIN_REGIONS,
+      minPiece: T.minPiece,
+      scale: T.scale,
+      maxCss: T.maxCss,
       proj: opt.proj ?? undefined,
     });
-    const field = groupOwnerGrid(world, raster, civ, p.year, 'culture');
+    const field = groupOwnerGrid(world, raster, civ, nowSrc);
     const cssPerWorld = REF_MAP_CSS / world.width;
     for (const l of labels) {
       const id = l.id;
-      const look = cultureLead ? cultureLook(style, civ.cultures[id].color) : sideLook(style);
-      const tracking = cultureLead ? CULTURE_TRACKING : SIDE_TRACKING;
+      const look = lead ? groupLook(style, groupName(kind, civ, id)!.color) : sideLook(style);
+      const tracking = lead ? T.tracking : SIDE_TRACKING;
       // 小片(不是最大那片):州数不到最大那片四成的放大到 2 倍才写;字小的放大到 13 号再写
       // (按当主角的字号算:当配角时也在同一个倍数出来)
       const minZoom = l.main
@@ -494,17 +565,17 @@ export function civMapLayer(p: CivDrawParams, opt: { fast?: boolean; proj?: MapP
         path: l.path,
         layout: 'curve',
         size: 0,
-        sizeWorld: cultureLead ? l.size : Math.min(l.size * SIDE_SCALE, SIDE_MAX_CSS / cssPerWorld),
+        sizeWorld: lead ? l.size : Math.min(l.size * SIDE_SCALE, SIDE_MAX_CSS / cssPerWorld),
         grow: POLITY_GROW,
         tracking,
         minZoom,
-        // 主角:最大那片和国名一样(大族先放),小片排在国都名之前;配角:国都名之后、城镇符号之前,小片再靠后一点
-        priority: cultureLead ? (l.main ? 101 + Math.min(4.9, Math.log2(1 + l.regions) * 0.7) : 100.6 + grade) : SIDE_PRIORITY - (l.main ? 0 : 0.08) + grade,
+        // 主角:最大那片和国名一样(大的先放),小片排在国都名之前;配角:国都名之后、城镇符号之前,小片再靠后一点
+        priority: lead ? (l.main ? 101 + Math.min(4.9, Math.log2(1 + l.regions) * 0.7) : 100.6 + grade) : SIDE_PRIORITY - (l.main ? 0 : 0.08) + grade,
         family,
         weight: look.weight,
         color: look.color,
         halo: look.halo,
-        slant: CULTURE_SLANT,
+        slant: T.slant || undefined,
         area:
           fitYear === p.year
             ? (wx, wy) => ownerAtPoint(field, wx, wy) === id
@@ -516,15 +587,15 @@ export function civMapLayer(p: CivDrawParams, opt: { fast?: boolean; proj?: MapP
                 ownerAtPoint(field, wx, wy + LOST_MARGIN) === id,
         place: (px, view) => {
           const gen = () => polityCandidates(l.text, l.path, px, tracking, view, l.vertical, MIN_LABEL_PX * view.dpr, !!l.planar);
-          return cultureLead ? gen() : sideShift(gen, px, l.vertical);
+          return lead ? gen() : sideShift(gen, px, l.vertical);
         },
         planar: !!l.planar,
         tolerance: 0.1,
-        space: cultureLead ? 0.35 : SIDE_SPACE,
+        space: lead ? 0.35 : SIDE_SPACE,
         territory: true,
       };
       items.push(item);
-      if (!cultureLead) sides.add(item);
+      if (!lead) sides.add(item);
     }
   }
   if ((p.show.polities || p.show.routes) && civ.settlements.length) {
@@ -613,7 +684,7 @@ export function civMapLayer(p: CivDrawParams, opt: { fast?: boolean; proj?: MapP
   return { items, marks, sides };
 }
 
-/** 这个文明的地图文字可能用到的所有字(地理名 + 各国历朝各档国号 + 族名 + 城名):字体一次加载好,回放时不用再等 */
+/** 这个文明的地图文字可能用到的所有字(地理名 + 各国历朝各档国号 + 族名、教名、时代名 + 城名):字体一次加载好,回放时不用再等 */
 export function civLabelChars(civ: Civ): string {
   const set = new Set<string>();
   const add = (s: string) => {
@@ -623,6 +694,8 @@ export function civLabelChars(civ: Civ): string {
   for (let r = 0; r < civ.regions.count; r++) if (regionNamed(civ, r)) add(regionLabel(civ, r));
   for (const p of civ.polities) for (const t of polityAllTitles(p)) add(t);
   for (const c of civ.cultures) add(cultureLabel(c));
+  for (const f of civ.religion?.faiths ?? []) if (f.kind !== 'folk') add(f.name);
+  for (let i = 0; i < ERA_COLORS.length; i++) add(eraName(i));
   for (const s of civ.settlements) add(s.name);
   add(RUIN_PREFIX);
   return [...set].sort().join('');

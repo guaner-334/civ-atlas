@@ -46,11 +46,15 @@ export interface CivNames {
   polities?: boolean;
   /** 族名 */
   cultures?: boolean;
+  /** 教名(大教和教派;民间信仰不写) */
+  faiths?: boolean;
+  /** 时代名 */
+  eras?: boolean;
 }
 
-/** 「地图上写」那一行的几种名字 */
+/** 「地图上写」那一行的几种名字(和跟着它当主角的填色同名:国名 ↔ 国家填色,族名 ↔ 民族填色……) */
 export type CivNameKind = keyof CivNames;
-export const CIV_NAME_KINDS: readonly CivNameKind[] = ['polities', 'cultures'];
+export const CIV_NAME_KINDS: readonly CivNameKind[] = ['polities', 'cultures', 'faiths', 'eras'];
 
 /** 开关算哪种填色(先看信仰、时代,再看国家、再看民族) */
 export function civFillOf(show: { polities: boolean; cultures: boolean; faiths?: boolean; eras?: boolean }): CivFill {
@@ -62,11 +66,16 @@ export function civFillOf(show: { polities: boolean; cultures: boolean; faiths?:
 }
 
 /**
- * 这种填色默认写哪些名字:国家、信仰、时代填色写国名(信仰、时代上是小一号的灰字),民族填色写族名;
- * 不填色时都不写
+ * 这种填色默认写哪些名字:国家、信仰、时代填色写国名(信仰、时代上是小一号的灰字),民族填色写族名,
+ * 信仰填色写教名,时代填色写时代名;不填色时都不写
  */
 export function namesDefault(fill: CivFill): Required<CivNames> {
-  return { polities: fill === 'polities' || fill === 'faiths' || fill === 'eras', cultures: fill === 'cultures' };
+  return {
+    polities: fill === 'polities' || fill === 'faiths' || fill === 'eras',
+    cultures: fill === 'cultures',
+    faiths: fill === 'faiths',
+    eras: fill === 'eras',
+  };
 }
 
 /**
@@ -93,9 +102,19 @@ export function cultureNamesLead(show: CivShow): boolean {
   return civFillOf(show) === 'cultures';
 }
 
-/** 「地图上写」里这种名字勾没勾着 */
+/** 「地图上写」里这种名字勾没勾着:这种填色勾过就照勾的,没勾过按默认(namesDefault;国名见 polityNamesOn) */
 export function namesOn(show: CivShow, kind: CivNameKind): boolean {
-  return kind === 'polities' ? polityNamesOn(show) : cultureNamesOn(show);
+  if (kind === 'polities') return polityNamesOn(show);
+  const fill = civFillOf(show);
+  return show.names?.[fill]?.[kind] ?? namesDefault(fill)[kind];
+}
+
+/**
+ * 这种名字是不是主角:跟着填色的那种名字是主角(国家填色上的国名、民族填色上的族名、信仰填色上的教名、时代填色上的时代名),
+ * 大字、带本色;别的都是配角(小一号、灰墨)
+ */
+export function namesLead(show: CivShow, kind: CivNameKind): boolean {
+  return civFillOf(show) === kind;
 }
 
 export const CIV_SHOW_OFF: CivShow = {

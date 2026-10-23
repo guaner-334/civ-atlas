@@ -24,6 +24,8 @@ import { pixelRegions } from '../src/render/civ/territory';
 import { markBox, MIN_LABEL_PX, placeMap, REF_MAP_CSS, type LabelItem, type LabelView, type Placement } from '../src/render/labels/draw';
 import { GRID, polityLabels, territoryField } from '../src/render/labels/polity';
 import { pieces } from '../src/render/labels/groups';
+import { faithAt } from '../src/gen/civ/religion';
+import { eraCiv, erasAt } from '../src/render/civ/era';
 import { glyphBox } from '../src/render/labels/layout';
 import { NAME_MIN_ZOOM, SYMBOL_MIN_ZOOM } from '../src/render/labels/settlements';
 
@@ -443,7 +445,8 @@ describe('地图上写国名:开关、主角和配角', () => {
 describe('地图上写族名:开关、主角和配角、一族几片', () => {
   const at = (c: Case, s: Partial<CivDrawParams['show']>, year = c.civ.endYear): CivDrawParams => ({ ...paramsOf(c, 'fantasy', year), show: { ...CIV_SHOW_DEFAULT, ...s } });
   type Opt = Parameters<typeof civMapLayer>[1];
-  const cultureItems = (p: CivDrawParams, opt?: Opt) => civMapLayer(p, opt).items.filter((i) => i.territory);
+  // 族名(教名、时代名也是 territory,信仰、时代填色默认写它们)
+  const cultureItems = (p: CivDrawParams, opt?: Opt) => civMapLayer(p, opt).items.filter((i) => i.territory && i.text.endsWith('族'));
   const polityItems = (p: CivDrawParams, opt?: Opt) => civMapLayer(p, opt).items.filter((i) => i.pick?.kind === 'polity');
   it('民族填色默认写族名、能关掉;别的填色默认不写、勾上才写;写的是「某某族」', () => {
     for (const c of cases.values()) {
@@ -556,6 +559,135 @@ describe('地图上写族名:开关、主角和配角、一族几片', () => {
     for (const c of cases.values()) {
       const chars = civLabelChars(c.civ);
       for (const cu of c.civ.cultures) for (const ch of `${cu.name}族`) expect(chars).toContain(ch);
+    }
+  });
+});
+
+describe('地图上写教名、时代名:开关、主角和配角、跟着年份变', () => {
+  const at = (c: Case, s: Partial<CivDrawParams['show']>, year = c.civ.endYear): CivDrawParams => ({ ...paramsOf(c, 'fantasy', year), show: { ...CIV_SHOW_DEFAULT, ...s } });
+  type Opt = Parameters<typeof civMapLayer>[1];
+  const groupItems = (p: CivDrawParams, opt?: Opt) => civMapLayer(p, opt).items.filter((i) => i.territory);
+  const polityItems = (p: CivDrawParams, opt?: Opt) => civMapLayer(p, opt).items.filter((i) => i.pick?.kind === 'polity');
+  const FAITH = { polities: true, faiths: true };
+  const ERA = { polities: true, eras: true };
+  const faithNames = (c: Case) => new Set(c.civ.religion!.faiths.filter((f) => f.kind !== 'folk').map((f) => f.name));
+  const ERA_NAMES = ['石器', '青铜', '铁器', '中古', '火药', '工业', '电气', '信息', '未来'].map((e) => `${e}时代`);
+  it('信仰填色默认写教名、时代填色默认写时代名,能关掉;别的填色默认不写、勾上才写', () => {
+    for (const c of cases.values()) {
+      const faith = groupItems(at(c, FAITH));
+      const era = groupItems(at(c, ERA));
+      expect(new Set(faith.map((i) => i.text)).size).toBeGreaterThan(3);
+      expect(new Set(era.map((i) => i.text)).size).toBeGreaterThan(2);
+      for (const i of faith) expect(faithNames(c).has(i.text), i.text).toBe(true);
+      for (const i of era) expect(ERA_NAMES, i.text).toContain(i.text);
+      expect(groupItems(at(c, { ...FAITH, names: { faiths: { faiths: false } } }))).toHaveLength(0);
+      expect(groupItems(at(c, { ...ERA, names: { eras: { eras: false } } }))).toHaveLength(0);
+      for (const s of [{ polities: true }, { cultures: true }, {}]) expect(groupItems(at(c, s)).every((i) => i.text.endsWith('族'))).toBe(true);
+      // 国家填色、不填色勾上也写(配角)
+      expect(groupItems(at(c, { polities: true, names: { polities: { faiths: true } } })).map((i) => i.text)).toEqual(faith.map((i) => i.text));
+      expect(groupItems(at(c, { names: { none: { eras: true } } })).map((i) => i.text)).toEqual(era.map((i) => i.text));
+    }
+  });
+  it('民间信仰不写;还没有大教的年份信仰填色上只有国名;教派当一个教写、用自己的颜色', () => {
+    let sects = 0;
+    for (const c of cases.values()) {
+      const rel = c.civ.religion!;
+      const first = Math.min(...rel.faiths.filter((f) => f.kind === 'great').map((f) => f.founded ?? 0));
+      expect(groupItems(at(c, FAITH, first - 1))).toHaveLength(0);
+      expect(polityItems(at(c, FAITH, first - 1)).length).toBeGreaterThan(3);
+      const items = groupItems(at(c, FAITH));
+      for (const f of rel.faiths.filter((f) => f.kind === 'folk')) expect(items.some((i) => i.text === f.name)).toBe(false);
+      for (const f of rel.faiths.filter((f) => f.kind === 'sect')) {
+        const mine = items.filter((i) => i.text === f.name);
+        const parent = items.filter((i) => i.text === rel.faiths[f.parent!].name);
+        if (!mine.length || !parent.length) continue;
+        sects++;
+        expect(mine[0].color).not.toBe(parent[0].color);
+      }
+    }
+    expect(sects).toBeGreaterThan(0);
+  });
+  it('主角:正体、带本色,教名最大 22 号、时代名最大 17 号;配角:主角的七成、最大 15 号,灰墨', () => {
+    for (const c of cases.values()) {
+      for (const [lead, side, max] of [
+        [FAITH, { polities: true, names: { polities: { faiths: true } } }, 22],
+        [ERA, { polities: true, names: { polities: { eras: true } } }, 17],
+      ] as const) {
+        const L = groupItems(at(c, lead));
+        for (const i of L) {
+          expect(i.slant).toBeUndefined();
+          expect(i.priority).toBeGreaterThan(100.5);
+          expect((i.sizeWorld! * REF_MAP_CSS) / c.world.width).toBeLessThanOrEqual(max + 1e-6);
+        }
+        expect(new Set(L.map((i) => i.color)).size).toBeGreaterThan(1);
+        const S = groupItems(at(c, side));
+        expect(S.map((i) => i.text)).toEqual(L.map((i) => i.text));
+        S.forEach((i, n) => {
+          expect(i.sizeWorld!).toBeCloseTo(Math.min(L[n].sizeWorld! * 0.7, (15 * c.world.width) / REF_MAP_CSS), 6);
+          expect(i.priority).toBeGreaterThan(100);
+          expect(i.priority).toBeLessThan(100.5);
+          expect(i.minZoom).toBe(L[n].minZoom);
+        });
+        expect(new Set(S.map((i) => i.color)).size).toBe(1);
+      }
+    }
+  });
+  it('时代名跟着时代填色每 20 年取一次的时代走:同一档里的年份名字一样;归属和时代填色(eraCiv)同一份', () => {
+    for (const c of cases.values()) {
+      const key = (y: number) => groupItems(at(c, ERA, y)).map((i) => `${i.text}@${Array.from(i.path, (v) => v.toFixed(2)).join(',')}`);
+      expect(key(1901).length).toBeGreaterThan(0);
+      expect(key(1919)).toEqual(key(1901));
+      const view = eraCiv(c.civ);
+      for (const y of [0, 517, 1500, 1919, 2311, c.civ.endYear]) expect([...erasAt(c.civ, y)]).toEqual([...ownersAt(view, y).culture]);
+    }
+  });
+  it('拖时间轴、回放(fast):信仰、时代填色上主角名照写,国名(配角)先收起', () => {
+    for (const c of cases.values()) {
+      const y = 2313;
+      for (const s of [FAITH, ERA]) {
+        expect(groupItems(at(c, s, y), { fast: true }).length).toBeGreaterThan(2);
+        expect(polityItems(at(c, s, y), { fast: true })).toHaveLength(0);
+        const layer = civMapLayer(at(c, s, y));
+        const sides = layer.items.filter((i) => layer.sides.has(i));
+        expect(sides.length).toBeGreaterThan(3);
+        expect(sides.every((i) => i.pick?.kind === 'polity')).toBe(true);
+      }
+    }
+  });
+  it('信仰、时代填色:教名、时代名和别的字、符号零重叠,每个字落在这一组当年的地盘上', () => {
+    for (const c of cases.values()) {
+      const rel = c.civ.religion!;
+      const kinds: [Partial<CivDrawParams['show']>, Int16Array, (t: string) => number][] = [
+        [FAITH, faithAt(c.civ, c.civ.endYear), (t) => rel.faiths.findIndex((f) => f.name === t && f.kind !== 'folk')],
+        [ERA, erasAt(c.civ, c.civ.endYear), (t) => ERA_NAMES.indexOf(t)],
+      ];
+      for (const [s, own, idOf] of kinds) {
+        for (const k of [1, 2]) {
+          const p = at(c, { ...s, labels: true });
+          const layer = civMapLayer(p);
+          const view = viewOf(c, 'fantasy', k);
+          const placed = placeMap(civLabelItems(p).concat(layer.items), layer.marks, view);
+          const boxes = placed.labels.flatMap((pl, n) => pl.glyphs.map((g) => ({ n, b: glyphBox(g, pl.px, 0) })));
+          let names = 0;
+          placed.labels.forEach((pl, n) => {
+            if (!pl.item.territory) return;
+            names++;
+            const id = idOf(pl.item.text);
+            for (const g of pl.glyphs) {
+              const b = glyphBox(g, pl.px, 0);
+              for (const o of boxes) if (o.n !== n) expect(overlap(o.b, b), `${pl.item.text}(k=${k})`).toBe(false);
+              expect(inTerritory(c, (g.x - view.ox) / view.scale, (g.y - view.oy) / view.scale, own, id), `${pl.item.text} 的「${g.ch}」出了地盘(k=${k})`).toBe(true);
+            }
+          });
+          if (k === 1) expect(names).toBeGreaterThan(2);
+        }
+      }
+    }
+  });
+  it('教名、时代名用到的字都在地图字体要加载的字表里', () => {
+    for (const c of cases.values()) {
+      const chars = civLabelChars(c.civ);
+      for (const t of [...faithNames(c), ...ERA_NAMES]) for (const ch of t) expect(chars).toContain(ch);
     }
   });
 });
