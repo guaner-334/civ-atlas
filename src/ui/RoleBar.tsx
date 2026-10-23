@@ -4,7 +4,7 @@
  *   手机  [旗] 演 大澜王朝 | 扩张 [改方针] [造物主]            (屏幕顶上,右边那竖排按钮左边)
  * 方针写单子里的(还没生效)或者"现在"照的;「改方针」= 选中这国、卡片换成方针页;「切回造物主」= 不演了(导播关注的是它就放开)。
  * 提示条、选目标、正在推演时让开(都在顶上正中)。开始演绎时挑好的那一国,逐年推演的世界打开以后在这里认上去、导播关注它;
- * 打开一个演着某国的世界(刷新也算)时导播同样先关注它。
+ * 打开一个演着某国的世界(刷新也算)时,导播还没跟着谁(存档里记着的)就先关注它。正跟着一个人(自己挑的)时都不动。
  */
 import { useEffect } from 'react';
 import type { Civ } from '../gen/civ/types';
@@ -16,7 +16,7 @@ import { usePanel } from './panelStore';
 import { usePending } from './pendingStore';
 import { useStepwise } from './stepwiseStore';
 import { useToast } from './toastStore';
-import { getDirector, setDirectorFocus } from './directorStore';
+import { getDirectorFollow, setDirectorFollow } from './directorStore';
 import { pendingPolicy, policyAt, policyLabel, rolePolity } from './policyInfo';
 import { bindArmedRole, getRole, setRole, useRole } from './roleStore';
 import { currentWorld } from './saveStore';
@@ -30,8 +30,20 @@ let focusedWorld: string | null = null;
 
 /** 切回造物主(导播关注的是演的那国就放开) */
 export function roleOff(id: number) {
+  const k = getRole();
   setRole(null);
-  if (id >= 0 && getDirector().focus === id) setDirectorFocus(null);
+  const f = getDirectorFollow();
+  if (id >= 0 && k && f?.kind === 'polity' && f.key === k) setDirectorFollow(null);
+}
+
+/**
+ * 演一国时导播跟着它(key = 那国的 polityKey)。正跟着一个人(自己挑的)不动;
+ * onlyIfUnset:导播已经跟着别的(存档里记着的)也不动 —— 打开一个世界时用
+ */
+export function followRolePolity(key: string, onlyIfUnset = false) {
+  const f = getDirectorFollow();
+  if (f?.kind === 'person' || (onlyIfUnset && f)) return;
+  setDirectorFollow({ kind: 'polity', key });
 }
 
 export function RoleBar({ civ, phone }: { civ: Civ; phone: boolean }) {
@@ -43,7 +55,7 @@ export function RoleBar({ civ, phone }: { civ: Civ; phone: boolean }) {
   const pending = usePending();
   const flags = useFlags();
   // 开始演绎时挑好的那一国:逐年推演的世界打开了就认上去;打开一个演着某国的世界(刷新、从我的世界打开):
-  // 导播默认关注它(每个世界打开时一次,之后换成看全世界的照用户的)
+  // 导播还没跟着谁就先关注它(每个世界打开时一次,之后换成看全世界的照用户的)
   useEffect(() => {
     if (!s.on) return;
     const bound = bindArmedRole();
@@ -52,7 +64,7 @@ export function RoleBar({ civ, phone }: { civ: Civ; phone: boolean }) {
     focusedWorld = w;
     const k = bound === undefined ? getRole() : bound;
     const id = k ? rolePolity(civ, k) : -1;
-    if (id >= 0) setDirectorFocus(id);
+    if (id >= 0) followRolePolity(polityKey(civ, id), bound === undefined);
   }, [s.on, civ]);
   const id = rolePolity(civ, role);
   if (!s.on || id < 0 || toast || pick || run) return null;

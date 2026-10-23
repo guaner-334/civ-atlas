@@ -96,6 +96,7 @@ export function Act({
   act,
   ain,
   disabled,
+  pressed,
   title,
   onClick,
 }: {
@@ -106,11 +107,13 @@ export function Act({
   /** 名字由来 / AI 起名的按钮(data-ain) */
   ain?: string;
   disabled?: boolean;
+  /** 开关一类的按钮:按下了(人物卡的「关注他 / 不关注」);不给 = 不是开关 */
+  pressed?: boolean;
   title?: string;
   onClick: () => void;
 }) {
   return (
-    <button className={`cp-act${primary ? ' primary' : ''}`} data-act={act} data-ain={ain} disabled={disabled} title={title} onClick={onClick}>
+    <button className={`cp-act${primary ? ' primary' : ''}${pressed ? ' on' : ''}`} data-act={act} data-ain={ain} disabled={disabled} aria-pressed={pressed} title={title} onClick={onClick}>
       <Icon name={icon} size={19} />
       <span>{children}</span>
     </button>

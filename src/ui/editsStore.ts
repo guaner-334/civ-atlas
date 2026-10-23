@@ -8,7 +8,7 @@
  * 撤销 / 重做(⌘Z / ⇧⌘Z,见 undo.ts):改名、改旗、干预、地形大事、作者标记、作者的人物、AI 改写每次都记一步(改之前、改之后两份),只记这次打开网页以后、这个世界上的;
  * 读档、换世界(setEdits / clearEdits)、创建世界(clearEditHistory)清空。地形修改、草图、地名风格、推演年数、拓荒、起源不记:只在新建世界时能改,工具有自己的"撤销一笔"。
  * 纪年、月份也不记:只换年份的写法,在世界设定里随时改回来。文明种子、用的哪张地图在新开历史时定,之后不改(只在第一次推完时补上地图的校验)。
- * 逐年推演的进度、从第几年起、推进设置也不记(撤销别的时照现在的留着)。
+ * 逐年推演的进度、从第几年起、推进设置、导播跟着谁也不记(撤销别的时照现在的留着)。
  */
 import { useSyncExternalStore } from 'react';
 import {
@@ -16,6 +16,7 @@ import {
   END_YEAR_DEFAULT,
   MARKS_MAX,
   cleanAdvance,
+  cleanFollow,
   cleanCivSeed,
   cleanEndYear,
   MARK_REGIONS_TOTAL,
@@ -23,12 +24,14 @@ import {
   cleanMark,
   markRegionTotal,
   sameAdvance,
+  sameFollow,
   sameMark,
   markAiName,
   nextMarkId,
   type Advance,
   type AdvanceSettings,
   type AuthorMark,
+  type FollowRef,
   type Intervention,
   type PlayState,
   type TerrainOp,
@@ -198,6 +201,8 @@ export function revertEdits(now: WorldEdits, from: WorldEdits, to: WorldEdits): 
   if (now.playFrom !== undefined) out.playFrom = now.playFrom;
   if (now.branches) out.branches = now.branches;
   if (now.advance) out.advance = now.advance;
+  // 导播跟着谁只管看,不记撤销步,照现在的留着
+  if (now.follow) out.follow = now.follow;
   if (upheavals.length) out.upheavals = sameUps ? now.upheavals : upheavals;
   if (aiNames && Object.keys(aiNames).length) out.aiNames = aiNames;
   if (marks?.length) out.marks = marks;
@@ -540,6 +545,18 @@ export function setAdvance(a: Partial<Advance> | AdvanceSettings | undefined) {
   const { advance: _old, ...rest } = state;
   void _old;
   put(next ? { ...rest, advance: next } : rest, false);
+}
+
+/**
+ * 导播跟着谁(随时能改,不记撤销步、不改历史):null = 全世界的大事。不合格的(种类不对、键不是对应种类的)当 null。
+ * 格式见 gen/edits.ts 文件头"导播跟着谁"
+ */
+export function setFollow(f: FollowRef | null) {
+  const next = f ? cleanFollow(f) : undefined;
+  if (sameFollow(next, state.follow)) return;
+  const { follow: _old, ...rest } = state;
+  void _old;
+  put(next ? { ...rest, follow: { kind: next.kind, key: next.key } } : rest, false);
 }
 
 /**

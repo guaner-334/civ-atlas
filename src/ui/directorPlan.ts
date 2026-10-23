@@ -7,7 +7,8 @@
  * - 排哪件:
  *   没有关注对象 = 全世界的大事(编年史"大事",重要度 3);
  *   关注一国 = 和这国有关的事(重要度 ≥ 2,可调)+ 别国的头等大事;
- *   关注一人 = 写到他的事 + 他那一国在他在世(君主在位、名臣在朝)时的大事 + 别国的头等大事。
+ *   关注一人 = 写到他的事 + 他那一国在他在台上(君主在位、将领领兵、名臣在朝)时的大事 + 别国的头等大事;
+ *     接着跟(relay)= 他不在了以后接着跟下一位(followInfo.ts:君主跟继任的,将领、名臣回到他的国家),每一段照那一段跟的排。
  *   因为关注对象没排进来的别国大事进"略过的"(focus)。
  * - 停多久:头等大事(亡国、改朝换代、大战、分裂、大崩解、民变、民族消亡、干预、地形大事 —— 分量 ≥ 35)字幕停 3 秒,
  *   其余大事 2 秒,小事 1.2 秒,再乘"一件事停多久"的系数(短 0.5、标准 1、长 2)。每一段开头镜头先飞 0.6 秒(和选中东西时一样)。
@@ -25,7 +26,8 @@
  * - 同样的输入每次排得一样:不用随机数,排序都有确定的先后(分量、年份、编号)。
  */
 import { MAJOR, entryInvolves, type ChronicleEntry } from '../gen/civ/chronicle';
-import type { Civ } from '../gen/civ/types';
+import type { Civ, Person } from '../gen/civ/types';
+import { personSpan } from '../gen/civ/peopleInfo';
 import type { World } from '../gen/world';
 import { capitalAt } from '../gen/civ/growth';
 import { regionLabel } from '../gen/civ/display';
@@ -34,6 +36,7 @@ import { nearX } from '../render/common';
 import { eventOver, filmEvents, type FilmEvent } from './filmPlan';
 import { entrySpot, entryWeight, evLabel, playRate, type EntrySpot, type EvType } from './timelineLayout';
 import type { Focus } from './flyTo';
+import { followLegs } from './followInfo';
 
 // ---------------------------------------------------------------------------
 // 规则里的数
@@ -79,6 +82,8 @@ export interface DirectorFocus {
   min?: 1 | 2 | 3;
   /** 别国的事:'big' = 头等大事照放(默认);'none' = 只放和关注对象有关的,别国的大事都进"略过的" */
   others?: 'big' | 'none';
+  /** 关注一人:他去世 / 下台以后接着跟下一位(君主跟继任的,将领、名臣回到他的国家;见 followInfo.ts 的 followLegs) */
+  relay?: boolean;
 }
 
 export interface DirectorPace {
@@ -220,7 +225,7 @@ export function directorPlan(world: World, civ: Civ, input: DirectorInput): Dire
   const ctx = shotCtx(world, civ);
 
   // 1. 年份范围里的事,按关注对象挑
-  const focus = focuser(civ, input.focus ?? null);
+  const focus = focuser(civ, input.focus ?? null, to);
   const last = to >= end;
   const inRange = (y: number) => y >= from && (y < to || (last && y <= to));
   const take: { e: ChronicleEntry; tier: DirectorTier; skip: boolean }[] = [];
@@ -317,25 +322,48 @@ export function tierOf(e: ChronicleEntry): DirectorTier {
   return entryWeight(e) >= BIG_WEIGHT ? 'big' : 'major';
 }
 
-/** 关注对象:哪些事和它有关、别国的事怎么办;对不上 = null(按没有关注对象排) */
-function focuser(civ: Civ, f: DirectorFocus | null): { related: (e: ChronicleEntry) => boolean; others: 'big' | 'none' } | null {
+/** 关注对象:哪些事和它有关、别国的事怎么办;对不上 = null(按没有关注对象排)。to = 排到哪年(接着跟的几段排到这年) */
+function focuser(civ: Civ, f: DirectorFocus | null, to: number): { related: (e: ChronicleEntry) => boolean; others: 'big' | 'none' } | null {
   if (!f || !finite(f.id)) return null;
   const others = f.others === 'none' ? 'none' : 'big';
   if (f.kind === 'polity') {
     if (!civ.polities[f.id]) return null;
-    const min = f.min ?? 2;
-    return { others, related: (e) => e.importance >= min && entryInvolves(e, f.id) };
+    return { others, related: polityRelated(f.id, f.min ?? 2) };
   }
   const p = civ.people?.[f.id];
   if (!p || p.id !== f.id) return null;
   const min = f.min ?? MAJOR;
-  const a = p.from ?? p.born;
-  const b = p.until ?? p.died ?? Infinity;
-  const mentions = (x: ChronicleEntry) => !!x.people?.includes(p.id);
+  if (!f.relay) return { others, related: personRelated(p, min) };
+  // 接着跟:按年份落在哪一段,照那一段跟的排;写到这一路上哪一位的事(在他那一段前后一年里)也算
+  const legs = followLegs(civ, { kind: 'person', id: p.id }, to).map((l) => {
+    const t = l.target;
+    const x = t?.kind === 'person' ? civ.people?.[t.id] : undefined;
+    const related = x ? personRelated(x, min) : t?.kind === 'polity' ? polityRelated(t.id, 2) : (e: ChronicleEntry) => e.importance >= MAJOR;
+    return { from: l.from, to: l.to, x, related };
+  });
+  const mentionsAny = (e: ChronicleEntry) => legs.some((l) => l.x && e.year >= l.from - 1 && e.year <= l.to + 1 && mentions(e, l.x.id));
   return {
     others,
-    related: (e) => mentions(e) || !!e.children?.some(mentions) || (e.importance >= min && e.year >= a && e.year <= b && entryInvolves(e, p.polity)),
+    related: (e) => {
+      let i = legs.length - 1;
+      while (i > 0 && e.year < legs[i].from) i--;
+      return legs[i].related(e) || mentionsAny(e);
+    },
   };
+}
+
+/** 写到这个人(正文或合进来的几条里) */
+const mentions = (e: ChronicleEntry, id: number) => !!e.people?.includes(id) || !!e.children?.some((c) => !!c.people?.includes(id));
+
+/** 关注一国:和这国有关、重要度不低于 min */
+const polityRelated = (id: number, min: number) => (e: ChronicleEntry) => e.importance >= min && entryInvolves(e, id);
+
+/** 关注一人:写到他的事 + 他在台上那些年(君主在位、将领领兵、名臣在朝)他那一国重要度不低于 min 的事 */
+function personRelated(p: Person, min: number): (e: ChronicleEntry) => boolean {
+  const span = personSpan(p);
+  const a = span.from;
+  const b = span.until ?? p.died ?? Infinity;
+  return (e) => mentions(e, p.id) || (e.importance >= min && e.year >= a && e.year <= b && entryInvolves(e, p.polity));
 }
 
 // ---------------------------------------------------------------------------
