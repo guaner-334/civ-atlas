@@ -3,7 +3,9 @@
  * (历史用推演出来的原样,不过 applyNames;服务器拿它对出作者改的名字原来叫什么)。纯计算,单测直接调。
  *
  * 那一年看得到的:
- *   国名     那年存在的国家(那年的全称);朝代名:这些国家到那年为止的各朝(东方第一朝就是国名,不另列)
+ *   国名     那年存在的国家(那年的全称,键 = 国家);东方国家改朝换代以后,那年的全称用的是那一朝的国号(键 = 那一朝),
+ *            立国时那一朝的国名另列一条(键 = 国家:改国名改的是它)
+ *   朝代名   这些国家到那年为止的各朝(东方第一朝就是国名、东方当朝就是国名,不另列)
  *   族名     那年还在的民族;教名:那年以前创立的信仰(大教的创教者另列一个人名)
  *   城名     那年以前建的城(毁了的还留着遗址,照样列);州名:全部的州(州和历史无关)
  *   地名     那年的山河湖海岛(地形大事以后按那一段的)
@@ -11,15 +13,16 @@
  * 先后照上面(人名最多,放在最后),最多 TEXTS_MAX 条。key 是和存档里改名同一套的稳定键(gen/edits.ts)。
  *
  * 还有:后台交来的作品(存档、新建参数)读成要交给后台线程生成的那一个(helperJob;galleryHelper.ts 拿去生成、画封面)。
+ * 作者改的名字不带;干预"立国"里作者起的国名也不带(那是作者写的字,后台另外列),生成出来的是这个国家本来会叫的名字。
  */
-import type { Civ, Person, Place } from '../gen/civ/types';
+import type { Civ, Person, Place, Polity } from '../gen/civ/types';
 import type { WorkerRequest } from '../worker';
-import { cleanCivSeed, cleanEndYear, cleanPlay, cultureKey, dynastyKey, faithKey, personKey, placeKeyOf, polityKey, regionKey, settlementKey } from '../gen/edits';
+import { cleanCivSeed, cleanEndYear, cleanPlay, cultureKey, type Intervention, dynastyKey, faithKey, personKey, placeKeyOf, polityKey, regionKey, settlementKey } from '../gen/edits';
 import { cleanFrontier, cleanOrigins } from '../gen/civ/frontier';
 import { parseSave } from '../gen/savefile';
 import { DEFAULT_PARAMS, type WorldParams } from '../gen/params';
 import { decodePresetHash } from './presetLink';
-import { polityAlive, polityName } from '../gen/civ/growth';
+import { dynastyAt, polityAlive, polityName } from '../gen/civ/growth';
 import { cultureLabel, regionLabel } from '../gen/civ/display';
 import { generalRole, ministerRole, princeRole, rulerRole } from '../gen/civ/peopleText';
 import { personArt } from '../gen/civ/officialText';
@@ -34,6 +37,15 @@ export interface HelperJob {
   input: Omit<Extract<WorkerRequest, { type: 'generate' }>, 'type' | 'id'>;
   moment?: { year?: number } | null;
   lon?: number;
+}
+
+/** 干预"立国"里作者起的国名去掉(其余照旧) */
+function withoutFoundNames(list: readonly Intervention[]): Intervention[] {
+  return list.map((x) => {
+    if (x.kind !== 'found' || x.name === undefined) return x;
+    const { name: _, ...rest } = x;
+    return rest;
+  });
 }
 
 /** 后台交来的作品 → 要生成的那一个;存档、新建参数读不出来 = 抛出给管理员看的中文 */
@@ -53,13 +65,14 @@ export function helperJob(r: RenderRequest): HelperJob {
   const frontier = cleanFrontier(e.frontier);
   const origins = cleanOrigins(e.origins);
   const civSeed = cleanCivSeed(e.civSeed);
-  const play = cleanPlay(e.play);
+  const played = cleanPlay(e.play);
+  const play = played && { ...played, commands: withoutFoundNames(played.commands) };
   const input: HelperJob['input'] = {
     params: sv.params,
     scale: 1,
     terrain: [...e.terrain],
     ...(e.sketch ? { sketch: e.sketch } : {}),
-    interventions: [...e.interventions],
+    interventions: withoutFoundNames(e.interventions),
     ...(e.upheavals?.length ? { upheavals: [...e.upheavals] } : {}),
     ...(e.nameMix ? { names: e.nameMix } : {}),
     ...(endYear ? { endYear } : {}),
@@ -108,11 +121,26 @@ export function helperTexts(civ: Civ, year: number, geo: Civ = civ): HelperText[
   const full = () => out.length >= TEXTS_MAX;
   const S = civ.settlements;
   const alive = civ.viable ? civ.polities.filter((p) => polityAlive(p, year)) : [];
-  for (const p of alive) out.push({ cat: '国名', text: polityName(p, year), key: polityKey(civ, p.id), where: '国家' });
+  /** 东方国家那年是第几朝(全称用这一朝的国号);西幻的国名不随朝代变 = 0 */
+  const eastAt = (p: Polity) => {
+    const d = p.eastern && p.dynasties && p.dynasties.length > 1 ? dynastyAt(p, year) : undefined;
+    return d ? Math.max(0, p.dynasties!.indexOf(d)) : 0;
+  };
   for (const p of alive) {
     const now = polityName(p, year);
+    const di = eastAt(p);
+    if (!di) {
+      out.push({ cat: '国名', text: now, key: polityKey(civ, p.id), where: '国家' });
+      continue;
+    }
+    out.push({ cat: '国名', text: now, key: dynastyKey(civ, p.id, di), where: '国家' });
+    out.push({ cat: '国名', text: polityName(p, p.founded), key: polityKey(civ, p.id), where: `${now}立国时的国名` });
+  }
+  for (const p of alive) {
+    const now = polityName(p, year);
+    const di = eastAt(p);
     (p.dynasties ?? []).forEach((d, i) => {
-      if (d.year > year || !d.name || (i === 0 && p.eastern)) return;
+      if (d.year > year || !d.name || (p.eastern && (i === 0 || i === di))) return;
       out.push({ cat: '朝代名', text: p.eastern ? d.name : `${d.name}王朝`, key: dynastyKey(civ, p.id, i), where: `${now}的第 ${i + 1} 朝` });
     });
   }

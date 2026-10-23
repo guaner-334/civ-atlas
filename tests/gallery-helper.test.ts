@@ -5,8 +5,8 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld } from '../src/gen/world';
 import { generateCiv } from '../src/gen/civ';
-import { polityAlive, polityName } from '../src/gen/civ/growth';
-import { EMPTY_EDITS, GENERATOR_VERSION, applyNames, cultureKey, personKey, polityKey, regionKey, settlementKey } from '../src/gen/edits';
+import { dynastyAt, polityAlive, polityName } from '../src/gen/civ/growth';
+import { EMPTY_EDITS, GENERATOR_VERSION, applyNames, cultureKey, dynastyKey, personKey, polityKey, regionKey, settlementKey } from '../src/gen/edits';
 import { makeSave } from '../src/gen/savefile';
 import {
   MSG_READY,
@@ -167,6 +167,13 @@ describe('帮手列的名字和几样数', () => {
     expect(job.input.endYear).toBe(3200);
     expect(job.moment).toEqual({ year });
     expect(job.lon).toBe(40);
+    // 干预"立国"里作者起的国名不带(逐年推演下的命令也一样),别的照旧
+    const found = { kind: 'found' as const, region: regionKey(raw, 0), from: 1200, name: '作者国' };
+    const withFound = makeSave({ ...DEFAULT_PARAMS, seed: 7 }, { ...EMPTY_EDITS, interventions: [found], play: { year: 1500, commands: [{ ...found, from: 1300 }] } }, 'c7');
+    const fj = helperJob({ id: 'c', kind: 'world', save: withFound });
+    expect(fj.input.interventions).toEqual([{ kind: 'found', region: found.region, from: 1200 }]);
+    expect(fj.input.play?.commands).toEqual([{ kind: 'found', region: found.region, from: 1300 }]);
+    expect(JSON.stringify(fj.input)).not.toContain('作者国');
     // 地图作品:不停在哪年、中央经线 0°(封面贴在地球仪上)
     const map = helperJob({ id: 'b', kind: 'map', save: { ...save, moment: { year } } });
     expect(map.moment).toBeUndefined();
@@ -187,8 +194,22 @@ describe('帮手列的名字和几样数', () => {
   it('那一年看得到的名字:国名、城名、州名、族名、人名……带着和改名同一套的稳定键', () => {
     const texts = helperTexts(raw, year);
     const by = (cat: string) => texts.filter((t) => t.cat === cat);
-    expect(by('国名').map((t) => t.text)).toEqual(alive.map((p) => polityName(p, year)));
-    expect(by('国名')[0].key).toBe(polityKey(raw, p0.id));
+    // 每个现存的国家都列了那年的全称
+    for (const p of alive) expect(by('国名').some((t) => t.text === polityName(p, year))).toBe(true);
+    for (const p of alive) {
+      const d = p.eastern && p.dynasties && p.dynasties.length > 1 ? dynastyAt(p, year) : undefined;
+      const di = d ? p.dynasties!.indexOf(d) : 0;
+      const mine = by('国名').filter((t) => t.key === polityKey(raw, p.id) || t.key?.startsWith(`dynasty:${polityKey(raw, p.id).slice(7)}/`));
+      if (!di) expect(mine).toEqual([{ cat: '国名', text: polityName(p, year), key: polityKey(raw, p.id), where: '国家' }]);
+      else {
+        // 东方改朝换代以后:那年的全称跟着当朝的键,国家的键列立国时那一朝的国名
+        expect(mine.find((t) => t.key === dynastyKey(raw, p.id, di))?.text).toBe(polityName(p, year));
+        expect(mine.find((t) => t.key === polityKey(raw, p.id))?.text).toBe(polityName(p, p.founded));
+      }
+    }
+    // 键不重复
+    const keys = texts.filter((t) => t.key).map((t) => t.key);
+    expect(new Set(keys).size).toBe(keys.length);
     expect(by('城名').find((t) => t.key === settlementKey(raw, s0.id))?.text).toBe(s0.name);
     // 还没建的城不列
     const later = raw.settlements.find((s) => s.founded > year);
