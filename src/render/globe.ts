@@ -889,6 +889,11 @@ export function renderGlobeCpu(out: RgbaImage, view: GlobeView, f: GlobeFrame, l
   const overlays = [src.civ, src.sel].filter((x): x is RgbaImage => !!x && x.w > 1);
   const rp = look.replay > 0 && src.replay && src.replay.w > 1 ? src.replay : null;
   const L: Vec3 = [-0.4575, 0.5083, 0.7295];
+  const LXY = Math.hypot(L[0], L[1]);
+  const smoothstep = (a: number, b: number, x: number): number => {
+    const k = clamp((x - a) / (b - a), 0, 1);
+    return k * k * (3 - 2 * k);
+  };
   const rgb: Vec3 = [0, 0, 0];
   const sample = (img: RgbaImage, s: number, t: number, bilinear: boolean): number => {
     const fx = s * img.w - 0.5;
@@ -926,11 +931,17 @@ export function renderGlobeCpu(out: RgbaImage, view: GlobeView, f: GlobeFrame, l
       const u = (x + 0.5 - f.cx) / f.R;
       const t = (f.cy - y - 0.5) / f.R;
       const r = Math.sqrt(u * u + t * t);
+      // 屏幕上朝光的一侧有多亮(着色器里 smoothstep(-0.15, 0.85, ·))
+      const sideLit = smoothstep(-0.15, 0.85, r > 1e-9 ? (u * L[0] + t * L[1]) / (r * LXY) : 0);
       let br = bg[0];
       let bgG = bg[1];
       let bb = bg[2];
       if (r > 1 && look.style !== 'fantasy') {
-        const g = Math.exp(-(r - 1) * (look.style === 'realistic' ? 11 : 18)) * (look.style === 'realistic' ? 0.85 : 1);
+        // 写实风:大气光晕只在朝光的一侧(同着色器 background)
+        const g =
+          look.style === 'realistic'
+            ? (Math.exp(-(r - 1) * 38) * 0.5 + Math.exp(-(r - 1) * 13) * 0.1) * sideLit
+            : Math.exp(-(r - 1) * 18);
         br += glow[0] * g;
         bgG += glow[1] * g;
         bb += glow[2] * g;
@@ -978,17 +989,25 @@ export function renderGlobeCpu(out: RgbaImage, view: GlobeView, f: GlobeFrame, l
       const diff = Math.max(0, uu * L[0] + tt * L[1] + ww * L[2]);
       const rim = 1 - ww;
       let sh: number;
-      if (look.style === 'realistic') sh = 0.5 + 0.62 * diff;
+      // 写实风同着色器:背光面压暗到约两成,分界线是一条渐变(CPU 画法不画云)
+      const ndl = uu * L[0] + tt * L[1] + ww * L[2];
+      if (look.style === 'realistic') sh = 0.2 + 0.82 * smoothstep(0, 0.75, ndl);
       else if (look.style === 'fantasy') sh = (0.84 + 0.22 * diff) * (1 - 0.35 * rim * rim);
       else sh = 0.72 + 0.36 * diff;
       cr *= sh;
       cg *= sh;
       cb *= sh;
       if (look.style === 'realistic') {
-        const a = Math.pow(rim, 2.6) * 0.62;
-        cr += (128 - cr) * a;
-        cg += (173 - cg) * a;
-        cb += (245 - cb) * a;
+        // 大气:只有被照亮的那一侧球边有一圈蓝
+        const a = Math.pow(rim, 2.6) * 0.62 * smoothstep(-0.05, 0.55, ndl);
+        cr += (107 - cr) * a;
+        cg += (168 - cg) * a;
+        cb += (255 - cb) * a;
+        // 球的边缘(被照亮的一侧)一条细亮线
+        const ea = smoothstep(0, 1, 1 - (Math.abs(r - 1) * f.R) / 1.3) * 0.6 * sideLit;
+        cr += (179 - cr) * ea;
+        cg += (219 - cg) * ea;
+        cb += (255 - cb) * ea;
       }
       data[o] = br + (cr - br) * cover;
       data[o + 1] = bgG + (cg - bgG) * cover;
