@@ -12,6 +12,8 @@ import { FONT_FILES } from '../src/render/labels/fonts';
 import { DEFAULT_PARAMS, generateWorld } from '../src/gen/world';
 import { generateCiv } from '../src/gen/civ';
 import { easternTitles, POLITY_FORMS, polityAllTitles, polityRoots } from '../src/gen/civ/growth';
+import { EAST_WORDS } from '../src/gen/civ/religion';
+import { ERAS } from '../src/gen/civ/development';
 
 const FONT_DIR = path.join('public', 'fonts');
 const CHARSET = new Set(labelCharset());
@@ -52,7 +54,7 @@ describe('地图文字的字体子集', () => {
     expect([...missing].join('')).toBe('');
   });
 
-  it('地理实体的名字(海、山、河、湖、岛、荒漠)、国名(历朝各档国号的全称和简称)、城名都在字表里', () => {
+  it('地理实体的名字(海、山、河、湖、岛、荒漠)、国名(历朝各档国号的全称和简称)、城名、教名都在字表里', () => {
     const missing = new Set<string>();
     let renamed = 0;
     for (const seed of [7, 2024, 3, 99]) {
@@ -64,6 +66,8 @@ describe('地图文字的字体子集', () => {
       // 改朝换代后的国号(阶段 3 王朝更替)也在内
       renamed += civ.polities.filter((p) => polityRoots(p).length > 1).length;
       for (const p of civ.polities) texts.push(...polityAllTitles(p));
+      // 教名(大教、教派;民间信仰不上地图)
+      for (const f of civ.religion?.faiths ?? []) if (f.kind !== 'folk') texts.push(f.name);
       for (const t of texts) for (const c of t) if (!CHARSET.has(c)) missing.add(c);
     }
     expect(renamed).toBeGreaterThan(0);
@@ -78,6 +82,15 @@ describe('地图文字的字体子集', () => {
       for (const root of ['昌', '大安', '景辰']) for (const t of easternTitles(root, l)) for (const c of t) if (!CHARSET.has(c)) missing.add(c);
     }
     for (const c of '部汗邦共和帝王朝皇国大') if (!CHARSET.has(c)) missing.add(c);
+    expect([...missing].join('')).toBe('');
+  });
+
+  it('教名(东方大教的用字和通名、教派的方位)、九个时代的全称都在字表里', () => {
+    const missing = new Set<string>();
+    const texts = ERAS.map((e) => `${e}时代`);
+    for (const w of EAST_WORDS) for (const tail of ['教', '宗', '道']) texts.push(`${w}${tail}`);
+    for (const d of '东南西北') texts.push(`${d}派`, `${d}宗`);
+    for (const t of texts) for (const c of t) if (!CHARSET.has(c)) missing.add(c);
     expect([...missing].join('')).toBe('');
   });
 });

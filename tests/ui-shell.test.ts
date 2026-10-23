@@ -22,7 +22,7 @@ import {
   writeMapView,
   type FillId,
 } from '../src/ui/mapLayers';
-import { CIV_SHOW_DEFAULT, cultureNamesLead, cultureNamesOn, namesOn, polityNamesLead, polityNamesOn, type CivShow } from '../src/render/civ/show';
+import { CIV_SHOW_DEFAULT, cultureNamesLead, cultureNamesOn, namesLead, namesOn, polityNamesLead, polityNamesOn, type CivShow } from '../src/render/civ/show';
 import { _resetToasts, clearToast, getToast, peekToast, showToast } from '../src/ui/toastStore';
 import { closeOverview, getOverview, openOverview } from '../src/ui/overviewStore';
 import { civShowFromQuery, clearSelection, getChronicle, getSelection, namesUrl, setChronicle, setSelection } from '../src/ui/civView';
@@ -212,6 +212,39 @@ describe('地图上写族名(每种填色各记各的)', () => {
     expect(back.names).toEqual(names);
     expect(civShowFromQuery(q('fill=polities&civ=cultureNames')).names).toEqual({ polities: { cultures: true } });
     expect(civShowFromQuery(q('fill=cultures&civ=-cultureNames,polityNames')).names).toEqual({ cultures: { cultures: false, polities: true } });
+  });
+});
+
+describe('地图上写教名、时代名(每种填色各记各的)', () => {
+  const q = (s: string) => new URLSearchParams(s);
+  const at = (fill: FillId, names?: CivShow['names']): CivShow => ({ ...CIV_SHOW_DEFAULT, ...fillShow(fill), names });
+  const FILLS = ['polities', 'cultures', 'faiths', 'eras', 'none'] as const;
+  it('没勾过按填色的默认:信仰填色写教名、时代填色写时代名,别的不写;跟着填色的那种是主角', () => {
+    expect(FILLS.map((f) => namesOn(at(f), 'faiths'))).toEqual([false, false, true, false, false]);
+    expect(FILLS.map((f) => namesOn(at(f), 'eras'))).toEqual([false, false, false, true, false]);
+    expect(FILLS.map((f) => namesLead(at(f), 'faiths'))).toEqual([false, false, true, false, false]);
+    expect(FILLS.map((f) => namesLead(at(f), 'eras'))).toEqual([false, false, false, true, false]);
+    // 信仰、时代填色上国名照写(配角)
+    expect(namesOn(at('faiths'), 'polities')).toBe(true);
+    expect(namesLead(at('faiths'), 'polities')).toBe(false);
+  });
+  it('四种名字各记各的,换填色不跟着变', () => {
+    const names = { polities: { faiths: true }, faiths: { faiths: false }, eras: { polities: false } };
+    expect(namesOn(at('polities', names), 'faiths')).toBe(true);
+    expect(namesOn(at('polities', names), 'eras')).toBe(false);
+    expect(namesOn(at('faiths', names), 'faiths')).toBe(false);
+    expect(namesOn(at('faiths', names), 'polities')).toBe(true);
+    expect(namesOn(at('eras', names), 'eras')).toBe(true);
+    expect(namesOn(at('eras', names), 'polities')).toBe(false);
+  });
+  it('写进网址 civ=(faithNames.填色、eraNames.填色):只写和默认不一样的;写完再读回来一样', () => {
+    const w = (s: string, names: CivShow['names'], fill: FillId) => namesUrl(q(s), names, fill).toString();
+    expect(w('seed=7&fill=faiths', { faiths: { faiths: false } }, 'faiths')).toBe('seed=7&fill=faiths&civ=-faithNames.faiths');
+    expect(w('seed=7&fill=eras', { eras: { eras: true } }, 'eras')).toBe('seed=7&fill=eras');
+    expect(w('seed=7&fill=polities', { polities: { eras: true } }, 'polities')).toBe('seed=7&fill=polities&civ=eraNames.polities');
+    const names = { polities: { faiths: true, eras: true }, faiths: { faiths: false, polities: false }, eras: { eras: false } };
+    expect(civShowFromQuery(namesUrl(q('seed=7&fill=eras&civ=-wars'), names, 'eras')).names).toEqual(names);
+    expect(civShowFromQuery(q('fill=faiths&civ=-faithNames,eraNames')).names).toEqual({ faiths: { faiths: false, eras: true } });
   });
 });
 

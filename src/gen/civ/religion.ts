@@ -70,7 +70,7 @@ export const GREAT_COLORS: readonly [number, number, number][] = [
 export const FOLK_COLOR: [number, number, number] = [214, 207, 192];
 
 /** 东方语感的教名用字(避开现实里有的教名、宗派名) */
-const EAST_WORDS = ['玄晖', '澄元', '照冥', '衡一', '昭虚', '守素', '含光', '归穹'];
+export const EAST_WORDS = ['玄晖', '澄元', '照冥', '衡一', '昭虚', '守素', '含光', '归穹'];
 /** 民族的生计 → 创出的大教可能是哪几类 */
 const FORM_BY_KIND: Record<string, FaithForm[]> = {
   river: ['一神', '二元'],
