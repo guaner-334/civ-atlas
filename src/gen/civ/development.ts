@@ -28,6 +28,8 @@
  *     · 太平和城:进火药以后本州近年少战乱、有长到镇的城;
  *     · 地理:进工业以后要沿海(有港口)、有大河或是平原。
  *   - 动员不单独长:跟着生产和行政走(游牧民族另高一截)。
+ *   - 国家方针的发展重点(policy.ts):定了的国家治下各州,挑中的那一样自己长 × FOCUS_UP,别的 × FOCUS_DOWN;
+ *     挑动员的,动员的目标多 FOCUS_MOB。一步(20 年)里换了方针的按各段管了多久折算。没有方针的国家不变。
  *   - 没人住的州不长;刚有人住的州带着邻居的本事来(取最高邻居的 SETTLE_CARRY)。
  *
  * **时代** = 生产、运输、信息、行政四样的"偏短板"平均(调和平均,见 eraLevel):整数部分是哪个时代,小数部分是走到这个时代的几成。
@@ -56,6 +58,7 @@ import { GROWTH_A, capitalAt, populationAt, ruralCapacity } from './growth';
 import { fexp, keyed, subSeed } from './rand';
 import { Ev, type CivSim } from './sim';
 import { grantSail, polityModelOf, type PolityModel } from './polities';
+import { FOCUS_DOWN, FOCUS_MOB, FOCUS_UP, focusIndex, segAt, type PolicySeg } from './policy';
 import { cultureModelOf } from './cultures';
 
 /** 物产(下标就是 Development.resources 里的第几样) */
@@ -526,6 +529,34 @@ function tierNow(titles: { year: Year; tier: number }[] | undefined): number {
   return titles?.length ? Math.max(0, titles[titles.length - 1].tier) : 0;
 }
 
+/**
+ * 国家方针的发展重点在 (t0, y] 这一步里的折算(各段方针从定下的下一刻起管,见 policy.ts):
+ * 前四样"自己长"的倍数(挑中的 FOCUS_UP、别的 FOCUS_DOWN、没挑 1,按各段管了多久加权平均)、挑动员的时间占几成(第 5 个数)。
+ * 这一步里一直没挑发展重点 = null
+ */
+function focusShare(segs: readonly PolicySeg[], t0: Year, y: Year): number[] | null {
+  const dt = y - t0;
+  const out = [0, 0, 0, 0, 0];
+  let any = false;
+  // 这一步开头照的那一段,再加上这一步里定下的各段(t0 < seg.t < y),各管到下一段定下为止
+  let from = t0;
+  let f = focusIndex(segAt(segs, t0 + 1 / 256));
+  const add = (until: number) => {
+    const w = (until - from) / dt;
+    if (f >= 0) any = true;
+    for (let c = 0; c < 4; c++) out[c] += w * (f < 0 ? 1 : c === f ? FOCUS_UP : FOCUS_DOWN);
+    if (f === Cap.Mobilization) out[4] += w;
+  };
+  for (const s of segs) {
+    if (!(s.t > t0 && s.t < y)) continue;
+    add(s.t);
+    from = s.t;
+    f = focusIndex(segAt(segs, s.t + 1 / 256));
+  }
+  add(y);
+  return any ? out : null;
+}
+
 /** 算一步(第 y 年;见文件头) */
 function tick(sim: CivSim, d: DevModel, y: Year): void {
   const pm = d.pm;
@@ -558,6 +589,17 @@ function tick(sim: CivSim, d: DevModel, y: Year): void {
     if (q.ended !== undefined || !pm.size[p]) continue;
     const cap = S[capitalAt(q, Infinity)];
     if (cap && cap.region < R && ownP[cap.region] === p) capR[p] = cap.region;
+  }
+  // 国家方针的发展重点(policy.ts):这一步(上一步到 y)里各国前四样"自己长"的倍数、挑动员的时间占几成,
+  // 按这段时间里各段方针管了多久折算(年中换了方针的,前后各算各的)。没有方针的世界 = null,什么都不变
+  let focus: Float64Array | null = null;
+  if (dt > 0) {
+    for (const [p, segs] of pm.policies) {
+      const mul = focusShare(segs, d.last, y);
+      if (!mul) continue;
+      focus ??= new Float64Array(P * CAP_COUNT).fill(NaN);
+      focus.set(mul, p * CAP_COUNT);
+    }
   }
   const { adjStart, adj, adjKind } = reg;
   const drive = new Float64Array(4);
@@ -639,10 +681,12 @@ function tick(sim: CivSim, d: DevModel, y: Year): void {
         return true;
       };
       const e = E[r];
+      const fo = focus && p >= 0 && !Number.isNaN(focus[p * CAP_COUNT]) ? p * CAP_COUNT : -1;
       for (let c = 0; c < 4; c++) {
         const v = cur[o + c];
         const lvl = Math.min(ERA_YEARS.length - 1, Math.floor(v));
         let grow = (drive[c] * peace) / ERA_YEARS[lvl];
+        if (fo >= 0) grow *= focus![fo + c];
         let got = learn[c];
         if (v > e + OVERSHOOT) grow *= OVERSHOOT_SLOW;
         if (v > e + OVERSHOOT_LEARN) got *= OVERSHOOT_SLOW;
@@ -657,7 +701,8 @@ function tick(sim: CivSim, d: DevModel, y: Year): void {
       }
       // 动员:跟着生产和行政走
       const nomad = cultures[ownC[r]]?.kind === 'nomad';
-      const target = 0.5 * (next[o + Cap.Production] + next[o + Cap.Administration]) + (nomad ? 0.7 : 0) + (polity ? 0.15 : 0);
+      let target = 0.5 * (next[o + Cap.Production] + next[o + Cap.Administration]) + (nomad ? 0.7 : 0) + (polity ? 0.15 : 0);
+      if (fo >= 0) target += FOCUS_MOB * focus![fo + Cap.Mobilization];
       const m = cur[o + Cap.Mobilization];
       next[o + Cap.Mobilization] = Math.min(LEVEL_MAX, m + (target - m) * Math.min(1, 0.01 * dt));
     }

@@ -278,7 +278,7 @@ import { setFlatGeomSource, useStudioFlat } from './studio/studioStore';
 import { MyWorlds, showMapInWorlds } from './MyWorlds';
 import { GalleryPage, WorkGone, workWho } from './Gallery';
 import { MapWorkView, WorkBar } from './GalleryWork';
-import { fetchWork, isWorkGone, isWorkId, loadGallery, workLink, type GalleryItem, type GalleryWork } from '../account/gallery';
+import { fetchWork, galleryHref, galleryOfUrl, isWorkGone, isWorkId, loadGallery, workLink, type GalleryItem, type GalleryWork } from '../account/gallery';
 import { mapBriefOf } from './mapGroups';
 import { NARROW_MAX, useCoarse, useNarrow } from './device';
 import { isDoubleTap, pinchStep, type Pt, type Tap } from './gestures';
@@ -367,7 +367,7 @@ import { LongStage } from './LongStage';
 import { noteGenSpeed } from './genSpeed';
 import { cancelTimeout, holdMark } from './holdMark';
 import { getNewView } from './newViewStore';
-import { pickSharedPreset, rememberLast, type SharedPreset } from './presetStore';
+import { chosenGallery, getPresets, pickSharedPreset, rememberLast, type SharedPreset } from './presetStore';
 import { diagBeat, recordWorkerError, setDiagContext } from '../diag/watch';
 
 type Replay = { w: number; h: number; frames: Uint8ClampedArray[]; mya: number[]; idx: number };
@@ -427,23 +427,9 @@ function readUrl() {
   return { params, style, layer, surface, sat, mapView, share, shortShare, moment, preset, gallery, proj, lon, grat, iso, gen, years };
 }
 
-/**
- * 网址里的作品墙:?gallery = 作品墙那一页('');?gallery=<作品编号> = 打开那个作品;# 后面写的(#gallery、#gallery=<编号>)一样认。
- * 没有 = null;编号认不出的照样给(打开时说已经撤下)
- */
-function galleryOfUrl(q: URLSearchParams, hash: string): string | null {
-  const v = q.get('gallery');
-  if (v !== null) return v.trim().slice(0, 40);
-  const m = /^#gallery(?:=([^&#]*))?$/.exec(hash);
-  return m ? (m[1] ?? '').slice(0, 40) : null;
-}
-
 /** 作品墙那一页(id = '')/ 一个作品的网址:世界的种子、参数这些去掉,图层、投影这些看法留着 */
 function writeGalleryUrl(id: string) {
-  const q = new URLSearchParams(location.search);
-  for (const k of [...HOME_DROP, 'gallery']) q.delete(k);
-  const rest = q.toString();
-  navUrl(`${location.pathname}?${rest ? `${rest}&` : ''}gallery${id ? `=${encodeURIComponent(id)}` : ''}`);
+  navUrl(galleryHref(location.pathname, location.search, id, HOME_DROP));
 }
 
 /**
@@ -820,6 +806,9 @@ function switchedToast(sw: SwitchNote) {
 }
 /** 切支线的时候,修改里已经是切到的那一支,地图、面板上还是原来那支:先不许下令、改名(用的键可能指到那一支里别的东西) */
 const SWITCH_EDIT_BLOCK = '正在切到别的一支，切完再改';
+
+// 帮手模式(作品墙的后台在看不见的框里打开网站画封面、列名字):和主程序同一份下载,用到的地图、推演代码不另下(Boot.tsx 叫)
+export { startGalleryHelper } from './galleryHelper';
 
 /** fromHome:打开网站时先出来的首页(HomeShell.tsx)上点了要离开首页的事,挂上以后接着做(见 Boot.tsx) */
 export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
@@ -2281,10 +2270,11 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
         presetOpened(r);
         return;
       }
-      // 页面开着时又贴了作品墙的地址(#gallery、#gallery=<编号>):到作品墙那一页 / 打开那个作品
+      // 页面开着时又贴了作品墙的地址(#gallery、#gallery=<编号>):到作品墙那一页 / 打开那个作品。
+      // 浏览器为这个 # 记的那一步直接记成作品墙的,下面换过去时只改这一步(不再多记一步,按一次后退就回到原来的画面)
       const gid = galleryOfUrl(new URLSearchParams(), h);
       if (gid !== null) {
-        navAdopt(navInfo(getStage().stage, targetRef.current));
+        navAdopt({ page: 'gallery', ...(gid ? { id: gid } : {}) });
         navUrl(location.pathname + location.search);
         if (gid) wallRef.current.open(gid);
         else wallRef.current.list();
@@ -3090,8 +3080,8 @@ ${s.image.cells}` : null);
    * (照手绘图的新建界面一进来就打开改地形工具,认图在它上面)
    */
   const startFromDialog = (s: NewWorldStart) => {
-    // 作品墙上新建参数作品「用这套参数新建」打开的弹窗:新的世界出处写这个作品(和另存世界作品一样)
-    const g = newDlg?.shared?.gallery;
+    // 作品墙上新建参数作品「用这套参数新建」打开的弹窗:新的世界出处写这个作品(和另存世界作品一样);换成了别的预设就不写
+    const g = chosenGallery(getPresets(), newDlg?.shared);
     setNewDlg(null);
     const plain = draftTarget(s.params, null, yearsEdits(s.endYear, s.frontier));
     const d = g?.id && isWorkId(g.id) ? { ...plain, origin: workOrigin({ id: g.id, by: g.by, title: g.title ?? '' }) } : plain;
@@ -3306,8 +3296,12 @@ ${s.image.cells}` : null);
     if (s.kind === 'open') openStored(s.id);
     else if (s.kind === 'text') openText(s.text, s.fileName);
     else if (s.kind === 'newCiv') startNewCiv(s.id);
-    else if (s.kind === 'gallery') showGallery();
-    else if (s.kind === 'work') openWork(s.id);
+    // 作品墙那一页、作品:首页上已经把网址换成了它,上面照网址已经打开了(再开一次会把开着的新建参数作品关掉、多取一次)
+    else if (s.kind === 'gallery') {
+      if (init.gallery === null) showGallery();
+    } else if (s.kind === 'work') {
+      if (init.gallery !== s.id) openWork(s.id);
+    }
     else if (s.kind === 'preset') takePresetWork(s.preset);
     else startFromDialog(s.start);
     // 只在挂上时做一次

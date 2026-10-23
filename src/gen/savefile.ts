@@ -199,6 +199,9 @@ export function cleanView(raw: unknown): SaveView | null {
 
 /** 署名最长几个字 */
 export const SIGNATURE_MAX = 20;
+/** 来自作品墙的出处:作品名、署名最长几个字(和作品墙上一样长,见 account/gallery.ts;比世界名、分享的署名长) */
+export const GALLERY_TITLE_MAX = 60;
+export const GALLERY_BY_MAX = 40;
 
 /** 看不见、但组合表情和连写离不开的字符:零宽连接(👩‍💻)、零宽不连接、各种变体选择(❤️、蒙古文的)、表情旗帜里的标签 */
 const JOINERS = /[\u200C\u200D\p{Variation_Selector}\u{E0020}-\u{E007F}]/u;
@@ -212,7 +215,7 @@ export const SIGNATURE_UNITS = 320;
  * 署名:去掉控制字符和别的看不见的字符(换行、制表这类算空白;零宽空格、改文字方向的都去掉,组合表情要用的留着)、首尾空白,
  * 开头的组合用字符去掉,连续空白并成一个,超长截断(按看到的字数,另外总长不超过 SIGNATURE_UNITS);空(只剩组合用的字符也算)= 没署名
  */
-export function cleanSignature(raw: unknown): string {
+export function cleanSignature(raw: unknown, max: number = SIGNATURE_MAX): string {
   if (typeof raw !== 'string') return '';
   const s = raw
     .replace(/[\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}]/gu, (c) => (/\s/.test(c) ? ' ' : JOINERS.test(c) ? c : ''))
@@ -223,7 +226,7 @@ export function cleanSignature(raw: unknown): string {
   let n = 0;
   // 只分前面够用的一段(超出总长的反正放不下)
   for (const g of graphemes(s.slice(0, SIGNATURE_UNITS + 1))) {
-    if (n >= SIGNATURE_MAX || t.length + g.length > SIGNATURE_UNITS) break;
+    if (n >= max || t.length + g.length > SIGNATURE_UNITS) break;
     t += g;
     n++;
   }
@@ -270,7 +273,7 @@ function isGalleryLink(url: string, id: string): boolean {
 
 /**
  * 整理底稿出处:链接不像分享短链接的不要(界面上它是一个能点的链接);
- * 来自作品墙的(带作品编号):链接得是那个作品的地址
+ * 来自作品墙的(带作品编号):链接得是那个作品的地址,作品名、署名按作品墙上的长度留(GALLERY_TITLE_MAX、GALLERY_BY_MAX)
  */
 export function cleanOrigin(raw: unknown): SaveOrigin | null {
   if (!isObj(raw)) return null;
@@ -280,10 +283,11 @@ export function cleanOrigin(raw: unknown): SaveOrigin | null {
   if (gallery !== undefined) {
     if (typeof gallery !== 'string' || !GALLERY_ID.test(gallery) || !isGalleryLink(url, gallery)) return null;
   } else if (!isShareLink(url)) return null;
-  const o: SaveOrigin = { title: cleanTitle(raw.title), url };
-  const by = cleanSignature(raw.by);
+  const wall = typeof gallery === 'string';
+  const o: SaveOrigin = { title: cleanTitle(raw.title, wall ? GALLERY_TITLE_MAX : TITLE_MAX), url };
+  const by = cleanSignature(raw.by, wall ? GALLERY_BY_MAX : SIGNATURE_MAX);
   if (by) o.by = by;
-  if (typeof gallery === 'string') o.gallery = gallery;
+  if (wall) o.gallery = gallery;
   return o;
 }
 
@@ -556,13 +560,13 @@ export function editCount(edits: WorldEdits): number {
   );
 }
 
-/** 世界名:去掉控制字符、首尾空白,超长截断;空 = 没起名 */
-export function cleanTitle(raw: unknown): string {
+/** 世界名:去掉控制字符、首尾空白,超长截断(max 个字,默认 TITLE_MAX);空 = 没起名 */
+export function cleanTitle(raw: unknown, max: number = TITLE_MAX): string {
   if (typeof raw !== 'string') return '';
   // eslint-disable-next-line no-control-regex
   const s = raw.replace(/[\u0000-\u001f\u007f]/g, '').replace(/\s+/g, ' ').trim();
   const cs = [...s];
-  return cs.length > TITLE_MAX ? cs.slice(0, TITLE_MAX).join('') : s;
+  return cs.length > max ? cs.slice(0, max).join('') : s;
 }
 
 /** 生成一份存档(params 按固定顺序复制;修改复制一份,之后改原来的不影响存档)。view = 当前的投影和中央经线;origin = 底稿出处 */

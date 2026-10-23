@@ -604,6 +604,8 @@ function ivText(civ: Civ, v: Intervention): string {
       return `在 ${reg(v.region)} 立国${v.name ? `(号${v.name})` : ''}`;
     case 'crown':
       return `${id(v.a, 'polity', 'P')} 立作者的人物为君主${until(v.until)}`;
+    case 'policy':
+      return `${id(v.a, 'polity', 'P')} 定方针`;
   }
 }
 
@@ -1419,6 +1421,7 @@ const KIND_LABEL: Record<Intervention['kind'], string> = {
   cede: '划州',
   found: '立国',
   crown: '立作者的人物为君主',
+  policy: '定方针',
 };
 
 // ---------------------------------------------------------------------------

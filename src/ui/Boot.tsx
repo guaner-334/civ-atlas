@@ -8,6 +8,8 @@
  *   别的(打开某个世界、分享链接、新建……)      主程序和这一小份同时开始下载(加载画面那一段一起数着下),
  *                                               下好就挂上 App,和以前一样按网址打开;加载画面一直留到 App 挂上
  *
+ * 帮手模式(?gallery-helper=1,作品墙的后台在看不见的框里打开网站):不放首页、不挂 App,主程序下好以后只听后台的消息(bootHelper)。
+ *
  * 主程序没下载成功(网断了、网站刚更新过旧文件不在了):要用到它的时候重新下载一次,还不行就刷新页面;
  * 刚刷新过、不能再刷的,加载画面(还在的话)换成「重新加载」;首页上点了的不再等,顶上一条带「重新加载」的提示(HomeShell.tsx)。
  */
@@ -61,6 +63,18 @@ const HOME_WAIT = 10_000;
 const HOME = plainHome();
 // 不是首页:马上要用主程序(加载画面那一段已经让它和这一份一起在下了,这里接着它下的那一份)
 if (!HOME) loadApp().catch(() => {});
+
+/**
+ * 帮手模式:加载画面收起,下载主程序(和平常同一份),下好就开始听后台的消息(ui/galleryHelper.ts)。
+ * 下载不下来不做别的:后台等不到"准备好了",自己会说网站还没准备好
+ */
+export function bootHelper(): void {
+  loadScreenDone();
+  loadApp().then(
+    (m) => m.startGalleryHelper(),
+    () => {},
+  );
+}
 
 export function Boot() {
   const home = HOME;

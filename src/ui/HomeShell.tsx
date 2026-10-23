@@ -8,6 +8,8 @@
  * 主程序还没下完时在点的地方说下了多少:「开始」变成转圈 +「准备中」、旁边一句;世界卡片上一个进度圈;
  * 打开存档文件、拖文件进来没有按钮可转圈,顶上一条提示(带「取消」)。下好了这一页就换成 App。
  * 点了「作品墙」:这里先放出作品墙那一页(不用等主程序),App 挂上以后接着放它的那一页;在这一页上点的作品同样交给 App。
+ * 作品墙那一页、点开的作品、开着的新建参数作品都先写进网址、记成一步(和 App 里一样),App 照网址接着打开,
+ * 下好之前刷新、复制地址、按后退也对得上。地址栏里贴了作品墙的地址(#gallery、#gallery=<编号>)和点了一样。
  * 按浏览器的后退 / 前进、地址栏里贴了分享链接(只有 # 不同,页面不刷新)也交给 App:它照这时的网址打开,和刷新一样
  * (这一页先记成我的世界那一步,贴的分享链接记成新的一步,和 App 记的一样,打开以后按后退回得到首页)。
  *
@@ -33,7 +35,8 @@ import { startSync } from '../account/sync';
 import { setupAi } from '../ai/setup';
 import { isShareHash } from '../gen/savefile';
 import { randomSeedValue, type HomeStart } from './homeStart';
-import { isNavState, navAdopt, navMark, navPushEarly } from './nav';
+import { isNavState, navAdopt, navMark, navPushEarly, navReplace, navUrl } from './nav';
+import { galleryHref, galleryOfUrl } from '../account/gallery';
 import { useAppPercent } from './loadScreen';
 
 /** 打开存档文件、等主程序下完时顶上那条提示 */
@@ -93,12 +96,27 @@ export function HomeShell({ onLeave, loadFailed = 0 }: { onLeave: LeaveHome; loa
   const showWall = useCallback(() => {
     setWallUp(true);
     // 网址和浏览器的一步先记上:主程序下好以后 App 照网址接着放作品墙那一页,下好之前刷新、复制地址、按后退也对得上
-    const q = new URLSearchParams(location.search);
-    q.delete('gallery');
-    const rest = q.toString();
-    navPushEarly({ page: 'gallery' }, `${location.pathname}?${rest ? `${rest}&` : ''}gallery`);
+    navPushEarly({ page: 'gallery' }, galleryHref(location.pathname, location.search, ''));
     leave({ kind: 'gallery' });
   }, [leave]);
+  /** 在作品墙那一页上点开一个世界、地图作品:网址先换成它、记一步(和 App 里一样),交给 App 去取 */
+  const openWork = useCallback(
+    (id: string) => {
+      navPushEarly({ page: 'gallery', id }, galleryHref(location.pathname, location.search, id));
+      leave({ kind: 'work', id });
+    },
+    [leave],
+  );
+  /** 地址栏里贴了作品墙的地址(浏览器记的那一步 = 作品墙):网址换成 ?gallery 的写法,放出作品墙那一页 / 交给 App 去取那个作品 */
+  const pastedWall = (id: string) => {
+    if (!isNavState(history.state)) navAdopt({ page: 'gallery', ...(id ? { id } : {}) });
+    navUrl(galleryHref(location.pathname, location.search, id));
+    if (id) return leave({ kind: 'work', id });
+    setWallUp(true);
+    leave({ kind: 'gallery' });
+  };
+  const pastedRef = useRef(pastedWall);
+  pastedRef.current = pastedWall;
   /** 不走了(新建弹窗里点了「取消」、提示条上点了「取消」):已经交出去、还没人接的那张图扔掉 */
   const stay = useCallback(() => {
     const w = waitRef.current;
@@ -156,8 +174,11 @@ export function HomeShell({ onLeave, loadFailed = 0 }: { onLeave: LeaveHome; loa
       }
       onLeave(null);
     };
-    // 地址栏里自己加了 #:浏览器记了一步、这个网站没记过,也记成一步(和 App 一样);贴的是分享链接,交给 App 照网址打开
+    // 地址栏里自己加了 #:浏览器记了一步、这个网站没记过,也记成一步(和 App 一样);贴的是分享链接,交给 App 照网址打开;
+    // 贴的是作品墙的地址,和点了一样
     const onHash = () => {
+      const gid = galleryOfUrl(new URLSearchParams(), location.hash);
+      if (gid !== null) return pastedRef.current(gid);
       if (!isNavState(history.state)) navAdopt({ page: 'home' });
       if (isShareHash(location.hash)) onLeave(null);
     };
@@ -229,8 +250,13 @@ export function HomeShell({ onLeave, loadFailed = 0 }: { onLeave: LeaveHome; loa
         <GalleryPage
           phone={narrow}
           onHome={() => history.back()}
-          onOpen={(w) => leave({ kind: 'work', id: w.id })}
+          onOpen={(w) => openWork(w.id)}
           onPreset={(preset) => leave({ kind: 'preset', preset })}
+          onPresetShown={(id) => {
+            // 开着的新建参数作品写进网址(和 App 里一样;不算一步):主程序下好以后照网址接着开着它
+            navReplace({ page: 'gallery', ...(id ? { id } : {}) });
+            navUrl(galleryHref(location.pathname, location.search, id ?? ''));
+          }}
         />
       ) : (
         <MyWorlds
@@ -241,7 +267,7 @@ export function HomeShell({ onLeave, loadFailed = 0 }: { onLeave: LeaveHome; loa
           onNewCiv={(id) => leave({ kind: 'newCiv', id })}
           opening={waiting && (waiting.kind === 'open' || waiting.kind === 'newCiv') ? { id: waiting.id, pct } : null}
           onGallery={showWall}
-          onOpenWork={(w) => leave({ kind: 'work', id: w.id })}
+          onOpenWork={(w) => openWork(w.id)}
         />
       )}
       <ToastBar />
