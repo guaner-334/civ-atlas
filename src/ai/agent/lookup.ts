@@ -150,12 +150,17 @@ export function regionOf(civ: Civ, v: unknown): number {
   return -1;
 }
 
+/** 一串数:数组,或写成字符串的("[10, 20]""10,20");别的、里面有不是数的 = null */
+function numsArg(v: unknown): number[] | null {
+  const xs = Array.isArray(v) ? v.map((x) => (typeof x === 'string' && x.trim() ? Number(x) : typeof x === 'number' ? x : NaN)) : typeof v === 'string' ? (v.match(/-?\d+(?:\.\d+)?/g) ?? []).map(Number) : null;
+  return xs && xs.length && xs.every(Number.isFinite) ? xs : null;
+}
+
 /** [经度, 纬度] → 规整过的点;不是两个数 = null */
 function lonLatArg(v: unknown): [number, number] | null {
-  if (!Array.isArray(v) || v.length < 2) return null;
-  const lon = Number(v[0]);
-  const lat = Number(v[1]);
-  if (!Number.isFinite(lon) || !Number.isFinite(lat)) return null;
+  const xs = numsArg(v);
+  if (!xs || xs.length !== 2) return null;
+  const [lon, lat] = xs;
   return [((((lon + 180) % 360) + 360) % 360) - 180, Math.max(-90, Math.min(90, lat))];
 }
 
@@ -402,6 +407,17 @@ export function lookupPeople(ctx: LookupContext, a: Record<string, unknown>): Lo
   };
 
   const roleOk = (x: Person) => !role || role === x.role;
+  /** 第 Y 年里领过兵(哪一次领兵和这一年有重叠;卸任那一刻不算) */
+  const commanding = (x: Person, Y: number) => (x.commands ?? []).some((c) => c.from < Y + 1 && c.until > Y);
+  /** 只看那一年在世的(给了 year)/ 那几年在世过的(给了 from、to)作者的人物 */
+  const charsWhen = (list: readonly AuthorCharacter[]) => {
+    const from = given(a.from) ? yearArg(civ, a.from, 0) : -Infinity;
+    const to = given(a.to) ? yearArg(civ, a.to, end) : Infinity;
+    return list.filter((c) => (Yarg < 0 || characterAge(c, Yarg).state === 'alive') && c.born <= to && (c.died ?? Infinity) >= from);
+  };
+  /** 说"那一年 / 那几年在世的" */
+  const charsWhenText = () =>
+    Yarg >= 0 ? `第 ${Yarg} 年在世的` : given(a.from) || given(a.to) ? `第 ${given(a.from) ? yearArg(civ, a.from, 0) : 0}—${given(a.to) ? yearArg(civ, a.to, end) : end} 年在世过的` : '';
   const out: string[] = [];
   const hintNarrow = '用 country、year、role 或 limit 缩小范围';
 
@@ -412,21 +428,27 @@ export function lookupPeople(ctx: LookupContext, a: Record<string, unknown>): Lo
     if (given(a.country) && cid < 0) return { result: `找不到国家「${String(a.country)}」;请用材料里的编号(P3 这样)`, summary: '没找到' };
     type Hit = { exact: boolean; order: number; year: number; c?: AuthorCharacter; x?: Person };
     const hits: Hit[] = [];
+    /** 列了的作者的人物(他即位当的君主不再另列一个:人物那一行已经写了在推演里即位) */
+    const listed = new Set<number>();
     if (!role || role === 'author') {
       for (const c of chars) {
-        if (!c.name.includes(name)) continue;
+        const n = nameArg(c.name);
+        if (!n.includes(name)) continue;
         if (cid >= 0 && charPolity(c) !== cid) continue;
-        hits.push({ exact: c.name === name, order: 0, year: c.born, c });
+        hits.push({ exact: n === name, order: 0, year: c.born, c });
+        listed.add(c.id);
       }
     }
     if (role !== 'author') {
       const ORDER: Record<Person['role'], number> = { ruler: 1, minister: 2, general: 3, prince: 4 };
       for (const x of people) {
         if (!roleOk(x) || (cid >= 0 && x.polity !== cid)) continue;
+        if (x.author !== undefined && listed.has(x.author)) continue;
         const names = [x.name, personName(civ, x), x.courtesy ?? '', x.defaultName ?? ''];
         if (x.role === 'ruler') names.push(rulerRef(civ, x, x.until !== undefined ? x.until - 1 / 512 : civ.endYear));
-        if (!names.some((n) => n && n.includes(name))) continue;
-        hits.push({ exact: names.includes(name), order: ORDER[x.role], year: personSpan(x).from, x });
+        const ns = names.map(nameArg).filter(Boolean);
+        if (!ns.some((n) => n.includes(name))) continue;
+        hits.push({ exact: ns.includes(name), order: ORDER[x.role], year: personSpan(x).from, x });
       }
     }
     hits.sort((p, q) => Number(q.exact) - Number(p.exact) || p.order - q.order || p.year - q.year);
@@ -482,7 +504,7 @@ export function lookupPeople(ctx: LookupContext, a: Record<string, unknown>): Lo
         if (role === 'minister') summary = `在朝的名臣 ${ms.length} 位`;
       }
       if (!role || role === 'general') {
-        const gs = ix.generals[id].filter((x) => (x.commands ?? []).some((c) => c.from <= Y && Y <= c.until));
+        const gs = ix.generals[id].filter((x) => commanding(x, Y));
         out.push(gs.length ? `这一年领兵的将领 ${gs.length} 位:` : '这一年没有领兵的将领。');
         for (const x of gs.slice(0, limit)) out.push(`- ${personLine(x, false)}`);
         if (role === 'general') summary = `领兵的将领 ${gs.length} 位`;
@@ -506,15 +528,17 @@ export function lookupPeople(ctx: LookupContext, a: Record<string, unknown>): Lo
     const from = given(a.from) ? yearArg(civ, a.from, 0) : -Infinity;
     const to = given(a.to) ? yearArg(civ, a.to, end) : Infinity;
     // 年份按整年比(即位、卸任可能在一年当中)
-    const inRange = (s: number, u: number | null) => F(s) <= to && (u ?? Infinity) >= from;
+    const inRange = (s: number, u: number | null) => F(s) <= to && (u ?? Infinity) > from;
     const range = Number.isFinite(from) || Number.isFinite(to) ? `第 ${Number.isFinite(from) ? from : 0}—${Number.isFinite(to) ? to : end} 年` : '';
     if (Yarg >= 0 && !polityAlive(p, Yarg) && role !== 'author')
       out.push(`${head}。第 ${Yarg} 年它${Yarg < p.founded ? '还没立国' : '已经亡了'},下面列它的历代人物。`);
     else out.push(head);
     if (role === 'author') {
-      out.push(myChars.length ? `作者的人物 ${myChars.length} 个(国家写的这一国,或生在这一国):` : '这国没有作者的人物。');
-      for (const c of myChars.slice(0, limit)) out.push(`- ${charLine(c, myChars.length <= DETAIL_MAX)}`);
-      return { result: fitLines(out, LOOKUP_MAX, hintNarrow), summary: `作者的人物 ${myChars.length} 个` };
+      const when = charsWhenText();
+      const cs = charsWhen(myChars);
+      out.push(cs.length ? `${when}作者的人物 ${cs.length} 个(国家写的这一国,或生在这一国):` : `这国没有${when}作者的人物。`);
+      for (const c of cs.slice(0, limit)) out.push(`- ${charLine(c, cs.length <= DETAIL_MAX)}`);
+      return { result: fitLines(out, LOOKUP_MAX, hintNarrow), summary: `作者的人物 ${cs.length} 个` };
     }
     if (role && role !== 'ruler') {
       const list =
@@ -574,7 +598,7 @@ export function lookupPeople(ctx: LookupContext, a: Record<string, unknown>): Lo
         role === 'minister'
           ? ix.ministers[p.id].filter((x) => (x.from ?? x.born) <= Y && (x.until === undefined || Y < x.until))
           : role === 'general'
-            ? ix.generals[p.id].filter((x) => (x.commands ?? []).some((c) => c.from <= Y && Y <= c.until))
+            ? ix.generals[p.id].filter((x) => commanding(x, Y))
             : people.filter((x) => x.role === 'prince' && x.polity === p.id && x.born <= Y && (x.died === undefined || Y <= x.died)),
       );
       const shown = list.slice(0, limit);
@@ -595,8 +619,12 @@ export function lookupPeople(ctx: LookupContext, a: Record<string, unknown>): Lo
   }
 
   // ---- 什么都没给(或只要作者的人物):作者的人物 + 推演里的名人 ----
-  out.push(chars.length ? `作者的人物 ${chars.length} 个${chars.length > limit ? `,列前 ${limit} 个` : ''}:` : '作者还没有建人物。');
-  for (const c of chars.slice(0, limit)) out.push(`- ${charLine(c, chars.length <= DETAIL_MAX)}`);
+  const when = charsWhenText();
+  const cs = charsWhen(chars);
+  out.push(
+    cs.length ? `${when}作者的人物 ${cs.length} 个${cs.length > limit ? `,列前 ${limit} 个` : ''}:` : chars.length ? `没有${when}作者的人物(一共建了 ${chars.length} 个)。` : '作者还没有建人物。',
+  );
+  for (const c of cs.slice(0, limit)) out.push(`- ${charLine(c, cs.length <= DETAIL_MAX)}`);
   if (role !== 'author') {
     if (!people.length) out.push('推演里没有人物(这颗星球没有长出文明)。');
     else {
@@ -614,7 +642,7 @@ export function lookupPeople(ctx: LookupContext, a: Record<string, unknown>): Lo
       }
     }
   }
-  return { result: fitLines(out, LOOKUP_MAX, hintNarrow), summary: `作者的人物 ${chars.length} 个` };
+  return { result: fitLines(out, LOOKUP_MAX, hintNarrow), summary: `作者的人物 ${cs.length} 个` };
 }
 
 // ---------------------------------------------------------------------------
@@ -653,7 +681,7 @@ export function landLabel(ctx: LookupContext, a: Record<string, unknown>): strin
     const km = Number(a.radius);
     return `查地块：${ll(at)}${km > 0 ? ` 周围 ${Math.round(Math.min(RADIUS_MAX, km))} 公里` : ''}`;
   }
-  if (Array.isArray(a.box)) return '查地块：地图上的一片';
+  if (given(a.box)) return '查地块：地图上的一片';
   return '查地块：整个世界';
 }
 
@@ -710,18 +738,19 @@ export function lookupLand(ctx: LookupContext, a: Record<string, unknown>): Look
     for (let r = 0; r < R.count; r++) if (R.landmass[r] === id) rs.push(r);
     if (!rs.length) return { result: `找不到陆块「${String(a.landmass)}」;请用材料里的编号(L0 这样)`, summary: '没找到' };
     area = { head: `L${id}${id === 0 ? ' 最大的大陆' : ''}(${rs.length} 州)`, cells: regionCells(civ, rs), year: Y, whole: true };
-  } else if (lonLatArg(a.at)) {
-    const at = lonLatArg(a.at)!;
+  } else if (given(a.at)) {
+    // 给了却写错的不当作没给(不然会把整个世界的数当成那一处的)
+    const at = lonLatArg(a.at);
+    if (!at) return { result: 'at 要写成 [经度, 纬度](两个数)', summary: '参数不对' };
     const km = Math.min(RADIUS_MAX, Math.max(0, Number(a.radius) || 0));
     if (!(km > 0)) return cellReport(ctx, at, Y);
     const cs: number[] = [];
     for (let c = 0; c < mesh.n; c++) if (distKm(at, cellLL(world, c)) <= km) cs.push(c);
     if (!cs.length) return cellReport(ctx, at, Y);
     area = { head: `${ll(at)} 周围 ${Math.round(km)} 公里`, cells: Int32Array.from(cs), year: Y, whole: false };
-  } else if (Array.isArray(a.box)) {
-    const b = a.box.map(Number);
-    if (b.length < 4 || b.slice(0, 4).some((v) => !Number.isFinite(v)))
-      return { result: 'box 要写成 [西边的经度, 南边的纬度, 东边的经度, 北边的纬度]', summary: '参数不对' };
+  } else if (given(a.box)) {
+    const b = numsArg(a.box);
+    if (!b || b.length !== 4) return { result: 'box 要写成 [西边的经度, 南边的纬度, 东边的经度, 北边的纬度](四个数)', summary: '参数不对' };
     const wrap = (v: number) => ((((v + 180) % 360) + 360) % 360) - 180;
     // 东西跨满一圈 = 所有经度;东边写 180 的不折成 −180
     const round = Math.abs(b[2] - b[0]) >= 360;
@@ -932,7 +961,6 @@ function areaReport(ctx: LookupContext, area: Area, owners: (y: number) => Owner
           let rich = 0;
           let used = 0;
           for (const r of regs) {
-            if (frac(r) < 0.5) continue;
             const lv = dev.resources[r * RESOURCE_COUNT + k];
             if (!lv) continue;
             has++;
@@ -941,7 +969,14 @@ function areaReport(ctx: LookupContext, area: Area, owners: (y: number) => Owner
           }
           if (has) items.push(`${RESOURCES[k]} ${has} 州(多 ${rich},在用 ${used})`);
         }
-        out.push(items.length ? `物产(有这样物产的州数;多 = 储量多的,在用 = 第 ${Y} 年已发现、还能用的):${items.join('、')}` : '物产:这一片没有什么物产。');
+        // 物产按州记:框选、圈选只盖到一州的一部分时,也算这一州(说明一句)
+        const partial = !area.whole && regs.some((r) => frac(r) < 1);
+        const scope = partial ? `这一片盖到的 ${regs.length} 州(有的只盖到一部分)里` : '';
+        out.push(
+          items.length
+            ? `物产(${scope}有这样物产的州数;多 = 储量多的,在用 = 第 ${Y} 年已发现、还能用的):${items.join('、')}`
+            : `物产:${scope || '这一片'}没有什么物产。`,
+        );
       }
     }
   } else if (civ.viable && land) out.push('这一片的陆地不属于任何一州(太小或住不了人)。');

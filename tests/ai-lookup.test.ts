@@ -201,12 +201,81 @@ describe.each(worlds)('种子 $seed', (w) => {
     expect(lookupLand(ctx, { box: [-180, -90, 180, 90] }).result).toContain(`经度 全部、纬度 -90 ~ 90 这一片\n地块 ${world.mesh.n} 块`);
   });
 
+  it('列某几年的君主:卸任那一年起不再算(和"那一年谁在位"一个算法)', () => {
+    const rs = peopleIndex(civ).rulers[big];
+    for (const x of rs.slice(1, 6)) {
+      const y = F(x.from!);
+      const want = rs.filter((r) => F(r.from!) <= y && (r.until ?? Infinity) > y).length;
+      expect(lookupPeople(ctx, { country: `P${big}`, from: y, to: y }).result).toContain(`历代君主 共 ${want} 位`);
+    }
+  });
+
+  it('作者的人物按年份筛:那一年还没出生、已故的不列;名字里有空格也找得到', () => {
+    const later = character(civ, big, { id: 2, name: 'Jean Luc', born: 2500, died: 2560, kin: [] });
+    const c2: LookupContext = { ...ctx, edits: { ...ctx.edits, characters: [...ctx.edits.characters!, later] } };
+    for (const a of [{ country: `P${big}`, role: 'author', year: Y }, { role: 'author', year: Y }]) {
+      const r = lookupPeople(c2, a).result;
+      expect(r).toContain('林小满');
+      expect(r).not.toContain('Jean Luc');
+    }
+    expect(lookupPeople(c2, { role: 'author', from: 2510, to: 2520 }).result).toContain('Jean Luc');
+    expect(lookupPeople(c2, { name: 'Jean Luc' }).summary).toBe('找到 1 人');
+    expect(lookupPeople(c2, { name: 'JeanLuc' }).summary).toBe('找到 1 人');
+  });
+
+  it('框选、圈选只盖到州的一部分时,物产照样按盖到的州说', () => {
+    const cap = civ.settlements[civ.polities[big].capital];
+    const dev = civ.development!;
+    expect(Array.from(dev.resources.slice(cap.region * 11, cap.region * 11 + 11)).some((v) => v > 0)).toBe(true);
+    const r = lookupLand(ctx, { at: toLonLat(world.mesh.x[cap.cell], world.mesh.y[cap.cell]), radius: 60 });
+    expect(r.result).toMatch(/物产\(/);
+    expect(r.result).not.toContain('没有什么物产');
+  });
+
+  it('at、box 给了却写错:说参数不对,不拿整个世界充数;写成字符串的数也认', () => {
+    for (const a of [{ at: 'abc' }, { at: [1] }, { at: [1, 'x'] }, { box: 'x' }, { box: [1, 2, 3] }]) {
+      const r = lookupLand(ctx, a);
+      expect(r.summary).toBe('参数不对');
+      expect(r.result).not.toContain('整个世界');
+    }
+    expect(lookupLand(ctx, { at: '10, 20' }).result).toContain('(10, 20) 最近的地块');
+    expect(lookupLand(ctx, { box: '[-30, -20, 40, 40]' }).result).toContain('经度 -30 ~ 40、纬度 -20 ~ 40 这一片');
+  });
+
   it('找不到的照实说,不编', () => {
     expect(lookupPeople(ctx, { name: '查无此人甲乙' }).result).toContain('没有名字里带「查无此人甲乙」');
     expect(lookupPeople(ctx, { country: 'P99999' }).result).toContain('找不到国家');
     expect(lookupLand(ctx, { region: '查无此州甲乙' }).result).toContain('找不到州');
     expect(lookupLand(ctx, { landmass: 'L9999' }).result).toContain('找不到陆块');
     expect(lookupLand(ctx, { box: [1, 2] }).result).toContain('box 要写成');
+  });
+});
+
+describe('作者的人物即位以后', () => {
+  const w = worlds[0];
+  const big = biggest(w.civ, Y);
+  const crown = { kind: 'crown' as const, a: polityKey(w.civ, big), char: 1, from: 2001, born: 1980, leanings: { expand: 40, war: 20, develop: 80, trade: 60 } };
+  let ctx: LookupContext;
+  beforeAll(() => {
+    const civ = generateCiv(w.world, { interventions: [crown] });
+    const base = ctxOf(w);
+    ctx = { ...base, civ, edits: { ...base.edits, interventions: [crown] } };
+  }, 120_000);
+
+  it('按名字找只列一次(人物那一行写了在推演里即位);只找君主时找到他当的君主', () => {
+    const r = lookupPeople(ctx, { name: '林小满' });
+    expect(r.summary).toBe('找到 1 人');
+    expect(r.result).toMatch(/在推演里即位:.+\(P\d+\),第 2001—\d+ 年/);
+    const k = lookupPeople(ctx, { name: '林小满', role: 'ruler' });
+    expect(k.summary).toBe('找到 1 人');
+    expect(k.result).toContain('君主 林小满');
+    expect(k.result).toContain('是作者的人物(即位命令立的)');
+  });
+
+  it('那一年在位的就是他,卒年照人物卡', () => {
+    const r = lookupPeople(ctx, { country: `P${big}`, year: 2005 });
+    expect(r.summary).toBe('第 2005 年在位的是林小满');
+    expect(r.result).toContain('生卒 第 1980—2040 年');
   });
 });
 
