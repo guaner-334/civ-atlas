@@ -315,7 +315,7 @@ interface GlobeDebug {
   cpuFull: boolean;
   cpuPending: boolean;
   cpuMs: number;
-  /** 云(写实风):off = 没开 / 没有显卡画法,baking = 后台在画云图,ready = 已传上显卡;画云图用了多少毫秒 */
+  /** 云(卫星底图):off = 没开 / 不是卫星底图 / 没有显卡画法,baking = 后台在画云图或正在淡入,ready = 这个世界的云已全部显出来;画云图用了多少毫秒 */
   cloud: 'off' | 'baking' | 'ready';
   cloudMs: number;
 }
@@ -849,10 +849,25 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
     /** 下一帧先不画(选中刚换,让面板先上屏) */
     hold: false,
     /**
-     * 云(写实风,见 render/clouds.ts):key = 画云图时用的降水图(换了世界重画)、pending = 后台正在画、data = 画好等着上传的云图、
-     * uploaded = 已传上显卡的那份、mix = 浓淡渐入(0–1)、rot = 云层比地面多转的角度、at = 上一次推进 rot 的时刻(毫秒)
+     * 云(卫星底图,见 render/clouds.ts):key = 正在画 / 画过的云图对应的降水图(换了世界重画)、pending = 后台正在画、
+     * data / dataKey = 画好等着上传的云图和它的降水图、uploaded / upKey = 已传上显卡的那份和它的降水图(换了世界先淡出旧云,淡完再换上新的)、
+     * mix = 浓淡渐入(0–1)、rot = 云层比地面多转的角度、t = 边缘花纹变形用的秒数(只在飘的时候走,静止的云一帧帧完全一样)、
+     * at = 上一次推进的时刻(毫秒)、failedKey = 画失败的那份降水图(只对那个世界不再重试)
      */
-    cloud: { key: null as unknown, pending: false, data: null as Uint8Array | null, uploaded: null as Uint8Array | null, mix: 0, rot: 0, at: 0, failed: false, ms: 0 },
+    cloud: {
+      key: null as unknown,
+      pending: false,
+      data: null as Uint8Array | null,
+      dataKey: null as unknown,
+      uploaded: null as Uint8Array | null,
+      upKey: null as unknown,
+      mix: 0,
+      rot: 0,
+      t: 0,
+      at: 0,
+      failedKey: null as unknown,
+      ms: 0,
+    },
     /** 云飘动时只重画显卡那一层(不动文字和矢量线):上一帧的画法参数、下一次重画的时刻、最后一次有人操作的时刻、重画的定时循环 */
     lastGl: null as { cw: number; ch: number; dpr: number; look: GlobeLook } | null,
     driftAt: 0,
@@ -880,6 +895,11 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
   const CLOUD_SPIN = (2 * Math.PI) / 1500;
   /** 久没人操作(三分钟)就不再重画,省电;一动又接上 */
   const DRIFT_IDLE_MS = 180000;
+  /** 这会儿该不该有云:显卡画法、卫星底图(经典 / 细节 / 简化;地理图、白模不画)、图层里开着 */
+  const cloudWanted = () => {
+    const p = props.current;
+    return !!s.gl && p.style === 'realistic' && p.look !== 'geo' && p.look !== 'blank' && getCloudPrefs().on;
+  };
   /**
    * 推进云的状态:浓淡渐入渐出、云层转角。返回还要不要接着画(渐变没完、或者在飘)。
    * 云图要后台画(约一秒):换了世界、云图还没有时在这里开线程,画好下一帧传上显卡
@@ -888,8 +908,8 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
     const p = props.current;
     const c = s.cloud;
     const pr = getCloudPrefs();
-    const want = !!s.gl && p.style === 'realistic' && pr.on;
-    if (want && !busy && !c.failed && c.key !== p.world.precipitation && !c.pending) {
+    const want = cloudWanted();
+    if (want && !busy && c.failedKey !== p.world.precipitation && c.key !== p.world.precipitation && !c.pending) {
       c.key = p.world.precipitation;
       c.pending = true;
       const key = c.key;
@@ -902,37 +922,41 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
         wk.onmessage = (e: MessageEvent<CloudResponse>) => {
           done();
           const r = e.data;
-          if (!r.ok) {
-            c.failed = true;
-            console.warn('地球仪的云图没画出来:', r.error);
-            return;
-          }
-          // 画的这段时间里换了世界:作废(下一帧按新世界重画)
+          // 画的这段时间里换了世界:作废(下一帧按新世界重画),成败都不算
           if (props.current.world.precipitation !== key) {
             c.key = null;
             invalidate();
             return;
           }
+          if (!r.ok) {
+            c.failedKey = key;
+            console.warn('地球仪的云图没画出来:', r.error);
+            return;
+          }
           c.data = r.data;
+          c.dataKey = key;
           c.ms = r.ms;
           invalidate();
         };
         wk.onerror = () => {
           done();
-          c.failed = true;
+          if (props.current.world.precipitation === key) c.failedKey = key;
+          else c.key = null;
         };
         const r = p.raster;
         wk.postMessage({ seed: p.world.params.seed, wet: wetFromPrecip(r.precip, r.w, r.h) });
       } catch {
         c.pending = false;
-        c.failed = true;
+        c.failedKey = key;
       }
     }
-    if (c.data && s.gl && c.uploaded !== c.data) {
+    // 旧世界的云还看得见时先淡出,淡完再换上新云图
+    if (c.data && s.gl && c.uploaded !== c.data && (!c.uploaded || c.mix <= 0)) {
       s.debug.upload.cloud = s.gl.upload('cloud', { w: CLOUD_W, h: CLOUD_H, data: c.data, gray: true });
       c.uploaded = c.data;
+      c.upKey = c.dataKey;
     }
-    const target = want && c.uploaded ? 1 : 0;
+    const target = want && c.uploaded && c.upKey === p.world.precipitation ? 1 : 0;
     let more = false;
     if (c.mix !== target) {
       c.mix = target > c.mix ? Math.min(1, c.mix + 0.04) : Math.max(0, c.mix - 0.06);
@@ -943,23 +967,23 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
     if (pr.drift && c.mix > 0) {
       c.rot += dt * CLOUD_SPIN;
       if (c.rot > 2 * Math.PI) c.rot -= 2 * Math.PI;
+      c.t += dt;
     }
     return more;
   };
   /** 这一帧云的画法(没有云 = undefined);放大了、铺着国家 / 民族 / 信仰 / 时代色块时淡一些 */
-  const cloudLook = (now: number, busy = false): GlobeLook['clouds'] => {
+  const cloudLook = (busy = false): GlobeLook['clouds'] => {
     const c = s.cloud;
     const p = props.current;
     if (!s.gl || p.style !== 'realistic' || c.mix <= 0 || !c.uploaded) return undefined;
     const kz = Math.min(1, Math.max(0, (s.view.k - 1.4) / 2.1));
     const zoomFade = 1 - 0.6 * kz * kz * (3 - 2 * kz);
     const fill = p.show.polities || p.show.cultures || p.show.faiths || p.show.eras ? 0.5 : 1;
-    return { opacity: c.mix * zoomFade * fill, rot: c.rot, t: now / 1000, detail: busy && isNarrow() ? 0 : 1 };
+    return { opacity: c.mix * zoomFade * fill, rot: c.rot, t: c.t, detail: busy && isNarrow() ? 0 : 1 };
   };
   /** 云在飘、而且这会儿值得重画 */
   const drifting = (now: number) => {
-    const pr = getCloudPrefs();
-    return !!s.gl && props.current.style === 'realistic' && pr.on && pr.drift && s.cloud.mix > 0 && !document.hidden && now - s.lastInput < DRIFT_IDLE_MS;
+    return cloudWanted() && getCloudPrefs().drift && s.cloud.mix > 0 && !document.hidden && now - s.lastInput < DRIFT_IDLE_MS;
   };
   /** 飘动的重画循环:只重画显卡那一层(球上的字和线不动),最多每秒 30 帧;转动、飞行时由 tick 自己画 */
   const driftTick = (now: number) => {
@@ -970,7 +994,7 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
     s.driftAt = now;
     cloudStep(now, true);
     const g = s.lastGl;
-    s.gl.render(s.view, frameOf(s.view, g.cw, g.ch, g.dpr), g.dpr, { ...g.look, clouds: cloudLook(now) });
+    s.gl.render(s.view, frameOf(s.view, g.cw, g.ch, g.dpr), g.dpr, { ...g.look, clouds: cloudLook() });
   };
   const startDrift = () => {
     s.lastInput = performance.now();
@@ -1506,7 +1530,7 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
     const { w, h, dpr } = s.size;
     const busy = !!(s.drag || s.fly || s.inertia || s.pinch || s.shiftAnim) || now - s.wheelAt < SETTLE_MS;
     if (cloudStep(now, busy)) more = true;
-    look.clouds = cloudLook(now, busy);
+    look.clouds = cloudLook(busy);
     /** CPU 画法:这一帧换上了后台画好的底图;还在等后台画现在这个视角的(上面那层先不动,和屏幕上的底图对齐) */
     let presented = false;
     let cpuWait = false;
@@ -1664,7 +1688,7 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
       cpuFull: !!s.cpuShown?.full,
       cpuPending: !s.gl && (cpuWait || !!s.cpuReady || !!s.cpuPool?.busy),
       cpuMs: s.cpuMs,
-      cloud: s.cloud.uploaded ? 'ready' : s.cloud.pending || (!!s.gl && p.style === 'realistic' && getCloudPrefs().on && !s.cloud.failed) ? 'baking' : 'off',
+      cloud: s.cloud.uploaded && s.cloud.upKey === p.world.precipitation && s.cloud.mix >= 1 ? 'ready' : cloudWanted() && s.cloud.failedKey !== p.world.precipitation ? 'baking' : 'off',
       cloudMs: s.cloud.ms,
     };
     (window as unknown as { __wfGlobe: GlobeDebug }).__wfGlobe = dbg;
@@ -1698,6 +1722,7 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
         s.gl = GlobeGL.create(cvs);
         s.uploaded = { terrainKey: undefined, civ: -1, sel: -1, hl: -1, replay: null, water: null };
         s.cloud.uploaded = null;
+        s.cloud.upKey = null;
         s.selTex.key = null;
         s.hlTex.key = null;
         setCpu(!s.gl);
@@ -2117,7 +2142,7 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
       out.width = W;
       out.height = H;
       const octx = out.getContext('2d')!;
-      const look: GlobeLook = { style: p.style, relief: s.relief, weights: reliefWeights(p.look), graticule: p.graticule, hl: 0, replay: s.replayMix, clouds: cloudLook(performance.now()) };
+      const look: GlobeLook = { style: p.style, relief: s.relief, weights: reliefWeights(p.look), graticule: p.graticule, hl: 0, replay: s.replayMix, clouds: cloudLook() };
       if (s.gl) {
         const ow = cvs.width;
         const oh = cvs.height;
