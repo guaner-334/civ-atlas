@@ -230,12 +230,12 @@ const UPRIGHT_SIZES = [0.86, 0.74, 0.62];
 const UPRIGHT_AT = [0.5, 0.36, 0.64, 0.22, 0.78];
 
 /**
- * 地球仪上的国名:沿国土拟合的路径排(和主图一样)之外,再多几个"横排、紧一点、小一两档"的摆法 ——
+ * 地球仪上的国名(族名同样):沿国土拟合的路径排(和主图一样)之外,再多几个"横排、紧一点、小一两档"的摆法 ——
  * 国名是按主图(等距圆柱)上的国土拟合的,到了球上高纬度的国家变窄、靠近球边缘的国家被压扁,
  * 原来的字距、字号常常排不下;多给几个摆法,照样要求每个字落在本国国土上(placeMap 按 area 核对)
  */
 export function globePolityItem(it: LabelItem): LabelItem {
-  if (it.pick?.kind !== 'polity' || !it.place) return it;
+  if ((it.pick?.kind !== 'polity' && !it.territory) || !it.place) return it;
   let g = polityItems.get(it);
   if (!g) {
     const orig = it.place;
@@ -273,12 +273,12 @@ function uprightRows(it: LabelItem, px0: number, view: LabelView): Candidate[] {
 }
 
 /**
- * 转动 / 拖时间轴时只排的"大字":国名、大洋和海(总览级的)、国都和大城的名字 ——
+ * 转动 / 拖时间轴时只排的"大字":国名、族名、大洋和海(总览级的)、国都和大城的名字 ——
  * 山名、河名、湖名、岛名、小城名停下来约 0.15 秒后再排(排得多、要查地面,拖动时每帧都排会卡)
  */
 export function isQuickLabel(it: LabelItem): boolean {
   const pk = it.pick?.kind;
-  if (pk === 'polity') return true;
+  if (pk === 'polity' || it.territory) return true;
   if (pk === 'settlement') return it.priority >= 89;
   if (pk === 'place') return it.layout === 'line' && it.on === SURFACE.sea && it.minZoom <= 1;
   return false;

@@ -22,7 +22,7 @@ import {
   writeMapView,
   type FillId,
 } from '../src/ui/mapLayers';
-import { CIV_SHOW_DEFAULT, polityNamesLead, polityNamesOn, type CivShow } from '../src/render/civ/show';
+import { CIV_SHOW_DEFAULT, cultureNamesLead, cultureNamesOn, namesOn, polityNamesLead, polityNamesOn, type CivShow } from '../src/render/civ/show';
 import { _resetToasts, clearToast, getToast, peekToast, showToast } from '../src/ui/toastStore';
 import { closeOverview, getOverview, openOverview } from '../src/ui/overviewStore';
 import { civShowFromQuery, clearSelection, getChronicle, getSelection, namesUrl, setChronicle, setSelection } from '../src/ui/civView';
@@ -181,6 +181,37 @@ describe('地图上写国名(每种填色各记各的)', () => {
     expect(civShowFromQuery(q('civ=-polityNames')).names).toEqual({ none: { polities: false } });
     expect(civShowFromQuery(q('civ=polities,-polityNames')).names).toEqual({ polities: { polities: false } });
     expect(civShowFromQuery(q('civ=polityNames.bogus,names')).names).toBeUndefined();
+  });
+});
+
+describe('地图上写族名(每种填色各记各的)', () => {
+  const q = (s: string) => new URLSearchParams(s);
+  const at = (fill: FillId, names?: CivShow['names']): CivShow => ({ ...CIV_SHOW_DEFAULT, ...fillShow(fill), names });
+  it('没勾过按填色的默认:民族填色写,别的不写;民族填色上是主角', () => {
+    expect((['polities', 'cultures', 'faiths', 'eras', 'none'] as const).map((f) => cultureNamesOn(at(f)))).toEqual([false, true, false, false, false]);
+    expect((['polities', 'cultures', 'faiths', 'eras', 'none'] as const).map((f) => cultureNamesLead(at(f)))).toEqual([false, true, false, false, false]);
+    expect(namesOn(at('cultures'), 'cultures')).toBe(true);
+    expect(namesOn(at('cultures'), 'polities')).toBe(false);
+  });
+  it('国名、族名各记各的,换填色不跟着变', () => {
+    const names = { polities: { cultures: true }, cultures: { cultures: false, polities: true } };
+    expect(cultureNamesOn(at('polities', names))).toBe(true);
+    expect(polityNamesOn(at('polities', names))).toBe(true);
+    expect(cultureNamesOn(at('cultures', names))).toBe(false);
+    expect(polityNamesOn(at('cultures', names))).toBe(true);
+    expect(cultureNamesOn(at('faiths', names))).toBe(false);
+  });
+  it('写进网址 civ=(cultureNames.填色):只写和默认不一样的;写完再读回来一样;不带填色的算网址里那种填色的', () => {
+    const w = (s: string, names: CivShow['names'], fill: FillId) => namesUrl(q(s), names, fill).toString();
+    expect(w('seed=7&fill=cultures', { cultures: { cultures: false } }, 'cultures')).toBe('seed=7&fill=cultures&civ=-cultureNames.cultures');
+    expect(w('seed=7&fill=cultures', { cultures: { cultures: true } }, 'cultures')).toBe('seed=7&fill=cultures');
+    expect(w('seed=7', { polities: { cultures: true } }, 'polities')).toBe('seed=7&civ=cultureNames.polities&fill=polities');
+    const names = { polities: { polities: false, cultures: true }, cultures: { polities: true, cultures: false } };
+    const back = civShowFromQuery(namesUrl(q('seed=7&fill=cultures&civ=-wars'), names, 'cultures'));
+    expect(back.wars).toBe(false);
+    expect(back.names).toEqual(names);
+    expect(civShowFromQuery(q('fill=polities&civ=cultureNames')).names).toEqual({ polities: { cultures: true } });
+    expect(civShowFromQuery(q('fill=cultures&civ=-cultureNames,polityNames')).names).toEqual({ cultures: { cultures: false, polities: true } });
   });
 });
 

@@ -17,8 +17,8 @@ import { ownersAt, type Owners } from '../gen/civ/timeline';
 import { faithRows } from '../gen/civ/religionText';
 import { yearFull } from '../gen/era';
 import { useEra } from './editsStore';
-import { getCivTime, setCivShow, setPolityNames, subscribeCivTime, useCivShow } from './civView';
-import { polityNamesOn } from '../render/civ/show';
+import { getCivTime, setCivShow, setNamesShown, subscribeCivTime, useCivShow } from './civView';
+import { namesOn, type CivNameKind } from '../render/civ/show';
 
 const TOGGLES: { key: Exclude<keyof CivShow, 'polities' | 'cultures' | 'faiths' | 'eras' | 'names'>; name: string; hint: string }[] = [
   { key: 'labels', name: '地名', hint: '海洋、山脉、大河、湖泊、大岛、荒漠的名字;放大地图显示更多' },
@@ -38,22 +38,31 @@ const ROUTE_LEGEND: { name: string; dash?: string; width: number }[] = [
   { name: '航线', dash: '0.1 3.5', width: 2 },
 ];
 
+const NAME_TOGGLES: { kind: CivNameKind; name: string }[] = [
+  { kind: 'polities', name: '国名' },
+  { kind: 'cultures', name: '族名' },
+];
+
 /**
  * 「地图上写」:填色说明下面一行,地图上写哪些名字(每种填色各记各的,换填色时按那种填色记着的勾好;
- * 没勾过的按默认:国家、信仰、时代写国名,民族、不填不写)
+ * 没勾过的按默认:国家、信仰、时代写国名,民族写族名,不填都不写)
  */
 export function NameToggles() {
   const show = useCivShow();
-  const on = polityNamesOn(show);
   return (
     <div className="lp-names" role="group" aria-label="地图上写">
       <span className="lp-names-k">地图上写</span>
-      <button className={`lp-tog${on ? ' on' : ''}`} role="checkbox" aria-checked={on} data-names="polities" onClick={() => setPolityNames(!on)}>
-        <span className="lp-box" aria-hidden="true">
-          {on ? '✓' : ''}
-        </span>
-        国名
-      </button>
+      {NAME_TOGGLES.map(({ kind, name }) => {
+        const on = namesOn(show, kind);
+        return (
+          <button key={kind} className={`lp-tog${on ? ' on' : ''}`} role="checkbox" aria-checked={on} data-names={kind} onClick={() => setNamesShown(kind, !on)}>
+            <span className="lp-box" aria-hidden="true">
+              {on ? '✓' : ''}
+            </span>
+            {name}
+          </button>
+        );
+      })}
     </div>
   );
 }
