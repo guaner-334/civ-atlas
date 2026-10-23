@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld, type BaseCache, type World } from '../src/gen/world';
 import { finishGully, finishVeins, gullyHeights, rasterizeDeferred, veinsOf, type Raster } from '../src/gen/raster';
 import { rasterizePatch, type RasterKeep } from '../src/gen/rasterEdit';
-import { composeRaster, cutExact, exactDiff, exactDiffBefore, exactPatch } from '../src/gen/rasterPatch';
+import { applyPatch, composeRaster, cutExact, exactDiff, exactDiffBefore, exactPatch } from '../src/gen/rasterPatch';
 import { boxOfCols, growBox, inBox, unionBox, type PixelBox } from '../src/gen/pixelBox';
 import type { TerrainOp } from '../src/gen/edits';
 
@@ -177,6 +177,79 @@ describe('编辑地形 · 按块重铺主图', () => {
     // 大多数笔按块重铺(就地改),跨 180° 经线的那一笔也是
     expect(log.filter((l) => l.includes('重铺')).length, log.join(';')).toBeGreaterThanOrEqual(3);
     expect(log[2], log.join(';')).toMatch(/^lower: 重铺/);
+  });
+});
+
+/**
+ * 后台线程按块重铺了一笔(就地改上一张),还没交出去就来了新的一笔:改的那块改回原样(applyPatch 改之前记下的那块),
+ * 留着的输入换成这一笔的、改回去的那块记进 dirty(at = 'before' 沟壑还没算就改回去,'after' 算完了才改回去;
+ * whole = 这一笔是整张铺的,上一张没动,整张记进 dirty)。下一笔接着按块重铺:和整张重铺逐位相同,
+ * 补丁贴到主线程手里那张(改之前的)上也逐位相同
+ */
+function giveUpThenNext(seed: number, strokes: (w: World) => [TerrainOp, TerrainOp], at: 'before' | 'after' | 'whole') {
+  const params = { ...DEFAULT_PARAMS, seed };
+  const cache: BaseCache = { base: null };
+  const w0 = generateWorld(params, undefined, [], null, cache);
+  const d0 = rasterizeDeferred(w0, 1);
+  const r0 = finish(d0);
+  const shown = structuredClone(r0);
+  const [a, b] = strokes(w0);
+  const w1 = generateWorld(params, undefined, [a], null, cache);
+  let keep: RasterKeep;
+  if (at === 'whole') {
+    const d1 = rasterizeDeferred(w1, 1, undefined, d0.inputs.cover);
+    finish(d1);
+    keep = { raster: r0, inputs: d1.inputs, dirty: { x0: 0, y0: 0, w: r0.w, h: r0.h } };
+  } else {
+    const t1 = rasterizePatch(w1, { raster: r0, inputs: d0.inputs }, undefined, true);
+    if (!t1 || !('job' in t1)) throw new Error('第一笔没按块重铺');
+    if (at === 'after') finish(t1);
+    if (t1.before?.box) applyPatch(r0, t1.before.box);
+    expect(rasterDiff(r0, shown), '改回原样').toBe('');
+    keep = { raster: r0, inputs: t1.inputs, dirty: t1.before?.box ?? null };
+  }
+  const w2 = generateWorld(params, undefined, [a, b], null, cache);
+  const full = finish(rasterizeDeferred(w2, 1));
+  const t2 = rasterizePatch(w2, keep, undefined, true);
+  if (at === 'whole') {
+    expect(t2 && 'whole' in t2, '整张记进 dirty:下一笔整张铺').toBe(true);
+    const d2 = rasterizeDeferred(w2, 1, undefined, keep.inputs.cover, t2 && 'whole' in t2 ? t2.whole : undefined);
+    const got = finish(d2);
+    expect(rasterDiff(got, full), '整张铺').toBe('');
+    const d = exactDiff(r0, got);
+    expect(rasterDiff(composeRaster(shown, d ? [cutExact(got, d)] : []), full), '补丁贴上').toBe('');
+    return;
+  }
+  if (!t2 || !('job' in t2)) throw new Error('第二笔没按块重铺');
+  const got = finish(t2);
+  expect(rasterDiff(got, full), '按块重铺').toBe('');
+  const d = exactDiffBefore(t2.before!, got, t2.win);
+  expect(rasterDiff(composeRaster(shown, d ? [cutExact(got, d)] : []), full), '补丁贴上').toBe('');
+}
+
+describe('编辑地形 · 上一笔改回原样以后接着按块重铺', () => {
+  const near = (w: World): [TerrainOp, TerrainOp] => {
+    const [x, y] = landAt(w, 200, 900);
+    return [
+      { kind: 'lift', pts: [x, y, x + 10, y], r: 30, s: 0.6 },
+      { kind: 'lift', pts: [x + 6, y, x + 16, y], r: 30, s: 0.6 },
+    ];
+  };
+  const far = (w: World): [TerrainOp, TerrainOp] => {
+    const [x, y] = landAt(w, 200, 900);
+    return [
+      { kind: 'wet', pts: [x, y], r: 30, s: 1 },
+      // 跨 180° 经线、离第一笔很远
+      { kind: 'lower', pts: [2030, 500, 2070, 505], r: 25, s: 1 },
+    ];
+  };
+  it('种子 7:沟壑算完才改回去 / 还没算就改回去;第二笔挨着第一笔', { timeout: 300000 }, () => {
+    giveUpThenNext(7, near, 'after');
+    giveUpThenNext(7, near, 'before');
+  });
+  it('种子 2024:第二笔离得很远(跨 180° 经线);第一笔是整张铺的', { timeout: 300000 }, () => {
+    giveUpThenNext(2024, far, 'after');
+    giveUpThenNext(2024, near, 'whole');
   });
 });
 

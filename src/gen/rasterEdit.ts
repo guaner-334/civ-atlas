@@ -32,7 +32,7 @@ import {
 } from './raster';
 import type { VeinJob } from './pixelDrain';
 import { seaIcePixels } from './seaice';
-import { boxOfCols, boxSpans, growBox, inBox, type PixelBox } from './pixelBox';
+import { boxOfCols, boxSpans, growBox, inBox, unionBox, type PixelBox } from './pixelBox';
 import { rasterBefore, type RasterBefore } from './rasterPatch';
 import { subSeed } from './util';
 
@@ -41,6 +41,11 @@ export interface RasterKeep {
   /** 铺好的整张主图(1 倍,沟壑、细沟都在) */
   raster: Raster;
   inputs: RasterInputs;
+  /**
+   * 这块里主图还是更早那张的样子、和 inputs 对不上(后台线程按块重铺了一笔,还没交出去就来了新的一笔,改的那块又改回原样;
+   * 见 worker.ts 的 giveUp):下一笔比输入时这块当作变了,一起重铺。不给 = 主图和 inputs 是同一个世界的
+   */
+  dirty?: PixelBox | null;
 }
 
 /** 按块重铺的结果:沟壑(只有 W2 里的像素)、细沟(整张)还没算,交给帮手线程(同 rasterizeDeferred) */
@@ -74,7 +79,7 @@ export function rasterizePatch(world: World, prev: RasterKeep, maxFrac = 0.5, re
   const cover0 = prev.inputs.cover;
   if (!coverFits(cover0, world.mesh, W, H)) return null;
   const inputs = rasterInputs(world, cover0, prev.inputs);
-  const changed = inputChange(prev.inputs, inputs, W, H);
+  const changed = unionBox(inputChange(prev.inputs, inputs, W, H), prev.dirty ?? null, W);
   const seed = world.params.seed;
   const { g } = cover0;
   // 要重铺的几块:逐像素结果可能变的(S1)、去碎点以后的(W2)、逐像素多铺的一圈(W3)
