@@ -8,6 +8,7 @@
  *     自己没在打仗(帝国级的大国可以两线作战)、上次议和过了 REST 年,就在接壤的邻国里挑一个最"值得打"的:
  *       赔率 = WAR_ODDS × 扩张性 × 边境胜算^LOCAL_EXP × 异族 FOREIGN × 收复失地 × 小国 PREY_ODDS × 边界长短
  *       挑好了打谁,开不开战再乘此刻在位君主的好战倍数(rulers.ts:越好战越容易开战)
+ *       国家方针(policy.ts):倍数是君主倾向加上方针的;亲国不打,仇国的赔率 × FOE_ODDS(先打它)
  *       动荡(unrest.ts):邻国大乱的格外招人(趁虚而入),自己国内乱也更想对外开战(转移矛盾)
  *       边境胜算 = 对方边境上各州的胜率(和打仗时一样按局部国力算)的平均,换成"胜率 ÷ 败率":
  *       强国的边远处照样可能打不过近处的小国 —— 被夺去的州过些年又被夺回来,前线有来有回
@@ -56,7 +57,8 @@ import type { World } from '../world';
 import { AdjKind, Layer, type AnnalCause, type Civ, type Polity, type Year } from './types';
 import { fexp, flog, fpow, keyed, keyed4, subSeed } from './rand';
 import { bookChain, Ev, quantize, type CivSim } from './sim';
-import { canCross, coreOf, endPolity, moveCapital, polityModelOf, rulerOf, type PolityModel } from './polities';
+import { befriends, canCross, coreOf, effOf, endPolity, moveCapital, picks, policyAt, polityModelOf, type PolityModel } from './polities';
+import { FOE_ODDS, FRIEND_JOIN } from './policy';
 import { capitalAt, populationAt } from './growth';
 import type { InterventionModel } from './interventions';
 import type { DiplomacyModel } from './diplomacy';
@@ -549,9 +551,10 @@ export function installWars(sim: CivSim, pm: PolityModel, wm: WarModel = newMode
     const iv = wm.iv;
     if (iv && ally < 0) {
       for (const z of iv.alliesOf(y, t)) {
-        if (z === x || pm.polities[z].ended !== undefined || iv.allied(z, x, t) || wm.dm?.friendly(z, x) || iv.halted(z, t)) continue;
+        if (z === x || pm.polities[z].ended !== undefined || iv.allied(z, x, t) || wm.dm?.friendly(z, x) || iv.halted(z, t) || befriends(pm, z, x, t)) continue;
         if (wm.active.some((v) => (v.a === z && v.b === x) || (v.a === x && v.b === z)) || !borders(z, x)) continue;
-        if (keyed4(iv.base, pm.ptag[z], pm.ptag[x], Math.round(t * 256), U_ALLY) >= ALLY_JOIN) continue;
+        // 国家方针:z 把 y 当亲国的更肯出兵(policy.ts)
+        if (keyed4(iv.base, pm.ptag[z], pm.ptag[x], Math.round(t * 256), U_ALLY) >= (befriends(pm, z, y, t) ? Math.max(ALLY_JOIN, FRIEND_JOIN) : ALLY_JOIN)) continue;
         declare(z, x, t, y, 'ally');
       }
     }
@@ -594,6 +597,8 @@ export function installWars(sim: CivSim, pm: PolityModel, wm: WarModel = newMode
     if (!border.size) return;
     const pow = powers(t, [p, ...border.keys()]);
     const dm = wm.dm;
+    // 国家方针(policy.ts):亲国不打,仇国先打(没有方针 = null)
+    const pol = pm.policies.size ? policyAt(pm, p, t) : null;
     let target = -1;
     let odds = 0;
     let traitor = false;
@@ -606,6 +611,7 @@ export function installWars(sim: CivSim, pm: PolityModel, wm: WarModel = newMode
       if (qw.length >= MAX_WARS || qw.some((v) => v.a === p || v.b === p)) continue;
       // 阶段 4 干预:不打盟国;不许灭的国家只剩几州时没什么可打的
       if (wm.iv && (wm.iv.allied(p, q, t) || (pm.size[q] <= PROTECT_KEEP && wm.iv.protects(q, t)))) continue;
+      if (pol && picks(pm, pol.friends, q)) continue;
       // 邦交:不打宗主、藩属、同一个宗主的藩属;盟国只在结盟够久、共御的强邻已不足为患时才可能背盟去打
       let betray = false;
       if (dm) {
@@ -627,6 +633,7 @@ export function installWars(sim: CivSim, pm: PolityModel, wm: WarModel = newMode
       if (betray) o *= dm!.betrayOdds;
       // 邻国大乱:趁虚而入
       if (wm.unrest) o *= 1 + PREY_UNREST * Math.max(0, wm.unrest(q, t) - PREY_CALM);
+      if (pol && picks(pm, pol.foes, q)) o *= FOE_ODDS;
       if (o > odds) {
         odds = o;
         target = q;
@@ -634,8 +641,8 @@ export function installWars(sim: CivSim, pm: PolityModel, wm: WarModel = newMode
       }
     }
     if (target < 0) return;
-    // 越好战的君主越容易开战;国内越乱越想对外开战转移矛盾
-    odds *= rulerOf(pm, p, t).eff.declare;
+    // 越好战的君主越容易开战(加上方针的打仗胆量);国内越乱越想对外开战转移矛盾
+    odds *= effOf(pm, p, t).declare;
     if (wm.unrest) odds *= 1 + DIVERT * wm.unrest(p, t);
     if (keyed(wm.base, pm.ptag[p], k, U_DECLARE) >= odds / (1 + odds)) return;
     if (traitor) {
@@ -690,8 +697,8 @@ export function installWars(sim: CivSim, pm: PolityModel, wm: WarModel = newMode
     if (wm.sue?.(w, i, t, pow, defCapital)) return;
     // 议和?
     const last = w.takes.length ? w.takes[w.takes.length - 1].year : w.start;
-    // 攻方此刻在位的君主:越好战越不轻易罢兵、想多拿几州,好战低的打不了多久就想议和(rulers.ts)
-    const eff = rulerOf(pm, w.a, t).eff;
+    // 攻方此刻在位的君主:越好战越不轻易罢兵、想多拿几州,好战低的打不了多久就想议和(rulers.ts;加上方针的胆量、和谈底线)
+    const eff = effOf(pm, w.a, t);
     let peace = t - w.start >= lengthOf(wm, w) * eff.war || t - last >= STALL;
     // 讨伐民变:不到厌战(REVOLT_LENGTH 倍的年限)不罢兵,直到一方亡(讨平,或攻破都城)
     if (wm.revolt?.(w)) peace = t - w.start >= REVOLT_LENGTH * lengthOf(wm, w) * eff.war;
