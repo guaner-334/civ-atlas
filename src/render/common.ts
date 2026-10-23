@@ -309,6 +309,16 @@ export type PrepStep = () => void;
  */
 export type WorkStep = (deadline: number) => boolean | void;
 
+/**
+ * 画布上记着还没真正画出来的笔画(浏览器攒着,第一次拿它当图贴的时候才一口气画):现在就让它画出来
+ * (贴到一个 1×1 的画布上;内容不变)。后台分步备料时用,免得攒到换上那一下才画
+ */
+export function flushCanvas(c: OffscreenCanvas | HTMLCanvasElement | null): void {
+  if (!c) return;
+  const t = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(1, 1) : typeof document !== 'undefined' ? Object.assign(document.createElement('canvas'), { width: 1, height: 1 }) : null;
+  (t?.getContext('2d') as CanvasRenderingContext2D | null | undefined)?.drawImage(c, 0, 0, 1, 1);
+}
+
 /** 铺进地形图(整张图、缩放 1 倍)的矢量层变换 */
 export const bakedView = (scale: number): VecView => ({ s: scale, ox: 0, oy: 0, k: 1 });
 

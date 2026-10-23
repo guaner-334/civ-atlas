@@ -454,15 +454,49 @@ function makeCanvas(w: number, h: number): AnyCanvas {
 }
 
 /**
+ * 铺满整张图的斜线(还没按州裁):只看栅格和画风,每张栅格、每种画风画一次;每一年的斜线图从它原样贴过来再按州裁,
+ * 和每次重描一遍逐像素一样(整张斜线是这张图里最费时的一步)
+ */
+const stripesCache = new WeakMap<object, { style: CivDrawParams['style']; canvas: AnyCanvas }>();
+function stripesOf(raster: CivDrawParams['raster'], style: CivDrawParams['style']): AnyCanvas {
+  const hit = stripesCache.get(raster);
+  if (hit && hit.style === style) return hit.canvas;
+  const { w, h, scale: S } = raster;
+  const canvas = hit ? hit.canvas : makeCanvas(w, h);
+  const sx = canvas.getContext('2d') as CanvasRenderingContext2D;
+  sx.clearRect(0, 0, w, h);
+  sx.strokeStyle = warLook(style).hatch;
+  sx.lineWidth = WAR_SIZE.hatch * S;
+  const gap = WAR_SIZE.hatchGap * S;
+  sx.beginPath();
+  for (let x = -h; x < w; x += gap) {
+    sx.moveTo(x, h);
+    sx.lineTo(x + h, 0);
+  }
+  sx.stroke();
+  stripesCache.set(raster, { style, canvas });
+  return canvas;
+}
+
+/**
  * 易手的州画斜线(和国土色块一样是"面",画布 = raster.w × raster.h;弯边投影按行重投影)。
  * 范围按半分辨率的像素算(和编年史高亮一样),斜线按全分辨率画;州没变就用上次画好的
  */
 export function drawWarHatch(ctx: CanvasRenderingContext2D, p: CivDrawParams): void {
-  if (!warsShown(p)) return;
+  const canvas = warHatchCanvas(p);
+  if (!canvas) return;
+  const { w, h, scale: S } = p.raster;
+  if (p.proj) reprojectImage(ctx, canvas, w, h, p.proj.mp, { s: S, ox: 0, oy: 0 });
+  else ctx.drawImage(canvas, 0, 0);
+}
+
+/** 易手的州的斜线画好的那张(raster.w × raster.h,按 civ 缓存;州没变就用上次画好的);不画 = null */
+export function warHatchCanvas(p: CivDrawParams): AnyCanvas | null {
+  if (!warsShown(p)) return null;
   const { taken } = warScene(p.civ, p.year);
-  if (!taken.length) return;
+  if (!taken.length) return null;
   const { raster, civ, world } = p;
-  const { w, h, scale: S } = raster;
+  const { w, h } = raster;
   const key = `${p.style}|${taken.join(',')}`;
   let hit = hatchCache.get(civ);
   if (!hit || hit.raster !== raster || hit.key !== key) {
@@ -487,15 +521,7 @@ export function drawWarHatch(ctx: CanvasRenderingContext2D, p: CivDrawParams): v
     const hx = canvas.getContext('2d') as CanvasRenderingContext2D;
     hx.globalCompositeOperation = 'source-over';
     hx.clearRect(0, 0, w, h);
-    hx.strokeStyle = warLook(p.style).hatch;
-    hx.lineWidth = WAR_SIZE.hatch * S;
-    const gap = WAR_SIZE.hatchGap * S;
-    hx.beginPath();
-    for (let x = -h; x < w; x += gap) {
-      hx.moveTo(x, h);
-      hx.lineTo(x + h, 0);
-    }
-    hx.stroke();
+    hx.drawImage(stripesOf(raster, p.style), 0, 0);
     hx.globalCompositeOperation = 'destination-in';
     hx.imageSmoothingEnabled = true;
     hx.drawImage(mask, 0, 0, w, h);
@@ -503,6 +529,5 @@ export function drawWarHatch(ctx: CanvasRenderingContext2D, p: CivDrawParams): v
     hit = { raster, key, canvas };
     hatchCache.set(civ, hit);
   }
-  if (p.proj) reprojectImage(ctx, hit.canvas, w, h, p.proj.mp, { s: S, ox: 0, oy: 0 });
-  else ctx.drawImage(hit.canvas, 0, 0);
+  return hit.canvas;
 }
