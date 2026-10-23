@@ -4,10 +4,11 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setServerForTest } from '../src/account/server';
-import { fetchWork, getGallery, isWorkGone, loadGallery, reportWork, resetGalleryForTest, wasReported, workLink, type GalleryItem } from '../src/account/gallery';
+import { fetchWork, galleryHref, galleryOfUrl, getGallery, isWorkGone, loadGallery, reportWork, resetGalleryForTest, wasReported, workLink, type GalleryItem } from '../src/account/gallery';
 import { DEFAULT_PARAMS } from '../src/gen/world';
 import { EMPTY_EDITS, type WorldEdits } from '../src/gen/edits';
-import { cleanOrigin, makeSave, parseSave, saveText, worldKey, type SaveOrigin } from '../src/gen/savefile';
+import { GALLERY_BY_MAX, GALLERY_TITLE_MAX, SIGNATURE_MAX, TITLE_MAX, cleanOrigin, makeSave, parseSave, saveText, worldKey, type SaveOrigin } from '../src/gen/savefile';
+import { chosenGallery, type PresetState, type SharedPreset } from '../src/ui/presetStore';
 import * as saveStore from '../src/ui/saveStore';
 import { clearEdits, setEdits, setName } from '../src/ui/editsStore';
 
@@ -237,6 +238,22 @@ describe('拿来用:出处、存档', () => {
     expect(cleanOrigin({ title: 't', url: 'https://atlas.example.com/s/k7Qm2xPa' })).toEqual({ title: 't', url: 'https://atlas.example.com/s/k7Qm2xPa' });
   });
 
+  it('作品名、署名按作品墙上的长度留(60 / 40 字),存档往返不截短;分享来的照旧按世界名、署名的上限', () => {
+    const title = '长'.repeat(GALLERY_TITLE_MAX);
+    const by = '名'.repeat(GALLERY_BY_MAX);
+    expect(GALLERY_TITLE_MAX).toBeGreaterThan(TITLE_MAX);
+    expect(GALLERY_BY_MAX).toBeGreaterThan(SIGNATURE_MAX);
+    const origin: SaveOrigin = { by, title, url: workLink('k7qm2xpa'), gallery: 'k7qm2xpa' };
+    expect(cleanOrigin(origin)).toEqual(origin);
+    const r = parseSave(saveText(makeSave({ ...DEFAULT_PARAMS, seed: 7 }, EDITS, 'c7', '', undefined, null, origin)));
+    expect(r.ok && r.save.origin).toEqual(origin);
+    // 再长的照作品墙的上限截
+    expect(cleanOrigin({ ...origin, title: title + '多', by: by + '多' })).toEqual(origin);
+    const share = cleanOrigin({ by, title, url: 'https://atlas.example.com/s/k7Qm2xPa' });
+    expect([...share!.title].length).toBe(TITLE_MAX);
+    expect([...share!.by!].length).toBe(SIGNATURE_MAX);
+  });
+
   it('世界作品另存一份 / 改了自动另存:参数、修改和作品的存档一模一样,出处写作品', async () => {
     g.localStorage = new FakeStorage();
     saveStore._resetForTest();
@@ -283,5 +300,36 @@ describe('拿来用:出处、存档', () => {
     setEdits(EMPTY_EDITS);
     saveStore.attachWorld({ id: 'wgallery002', params, check: 'c5730', kind: 'draft', saved: EMPTY_EDITS, origin: share });
     expect(saveStore.currentWorld()?.origin).toBeUndefined();
+  });
+});
+
+describe('新建参数作品「用这套参数新建」的出处', () => {
+  const work: SharedPreset = { name: '两块完整大陆', params: { ...DEFAULT_PARAMS }, gallery: { by: '砚山', id: 'pkd2k3m4', title: '两块完整大陆' } };
+  const state = (chosen: string, shared: SharedPreset | null = work): PresetState => ({ list: [], last: null, chosen, shared });
+
+  it('还选着作品墙上的那一套:出处写这个作品', () => {
+    expect(chosenGallery(state('shared'), work)).toEqual(work.gallery);
+  });
+
+  it('换成了默认、上次用的、自己的预设再点「开始」:出处不写这个作品', () => {
+    expect(chosenGallery(state('default'), work)).toBeNull();
+    expect(chosenGallery(state('last'), work)).toBeNull();
+    expect(chosenGallery(state('p123'), work)).toBeNull();
+    // 选着的分享预设是后来打开的另一个链接
+    expect(chosenGallery(state('shared', { name: '朋友的', params: work.params }), work)).toBeNull();
+    // 朋友的预设链接打开的弹窗本来就没有作品
+    expect(chosenGallery(state('shared'), { name: '朋友的', params: work.params })).toBeNull();
+  });
+});
+
+describe('作品墙的网址', () => {
+  it('?gallery、?gallery=<编号>、#gallery、#gallery=<编号> 都认;写回地址栏时去掉 # 和要去掉的参数', () => {
+    expect(galleryOfUrl(new URLSearchParams('gallery'), '')).toBe('');
+    expect(galleryOfUrl(new URLSearchParams('gallery=k7qm2xpa'), '')).toBe('k7qm2xpa');
+    expect(galleryOfUrl(new URLSearchParams(), '#gallery')).toBe('');
+    expect(galleryOfUrl(new URLSearchParams(), '#gallery=k7qm2xpa')).toBe('k7qm2xpa');
+    expect(galleryOfUrl(new URLSearchParams('seed=7'), '#share=x')).toBeNull();
+    expect(galleryHref('/', '?map=sat&gallery=', '')).toBe('/?map=sat&gallery');
+    expect(galleryHref('/beta/', '?seed=7&map=sat', 'k7qm2xpa', ['seed'])).toBe('/beta/?map=sat&gallery=k7qm2xpa');
   });
 });
