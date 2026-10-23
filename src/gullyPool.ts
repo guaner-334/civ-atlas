@@ -74,11 +74,12 @@ export class GullyPool {
 
   /**
    * 铺好的主图(rasterizeDeferred 的结果)把沟壑、细沟算完叠回去:沟壑分段交给帮手,细沟交给第一个帮手;
-   * 本线程同时做 during(推文明;没有 = 本线程也领一段沟壑)。返回 during 的结果。结果和 rasterize 一样
+   * 本线程同时做 during(推文明;没有 = 本线程也领一段沟壑)。返回 during 的结果。结果和 rasterize 一样。
+   * idle:本线程自己那段做完、等帮手的时候顺手做的(不影响结果;没有帮手时最后做)
    */
-  finish<T>(d: Deferred, during: () => T): Promise<T>;
-  finish(d: Deferred): Promise<undefined>;
-  async finish<T>(d: Deferred, during?: () => T): Promise<T | undefined> {
+  finish<T>(d: Deferred, during: () => T, idle?: () => void): Promise<T>;
+  finish(d: Deferred, during?: undefined, idle?: () => void): Promise<undefined>;
+  async finish<T>(d: Deferred, during?: () => T, idle?: () => void): Promise<T | undefined> {
     const { job, veins: vj, raster } = d;
     const hs = this.helpers.slice();
     const n = job.n;
@@ -86,6 +87,7 @@ export class GullyPool {
       const result = during?.();
       finishGully(raster, job, gullyHeights(job, 0, n));
       finishVeins(raster, veinsOf(vj));
+      idle?.();
       return result;
     }
     // 细沟先发(第一个帮手先算它,再算它那段沟壑;它那段少分一些,各线程差不多同时算完)
@@ -98,6 +100,7 @@ export class GullyPool {
     await new Promise((r) => setTimeout(r, 0));
     const result = during?.();
     const mine = during ? null : gullyHeights(job, cut(k - 1), n);
+    idle?.();
     const outs = await Promise.all(parts);
     const heights = new Float32Array(n);
     outs.forEach((o, i) => heights.set(o ?? gullyHeights(job, cut(i), cut(i + 1)), cut(i)));

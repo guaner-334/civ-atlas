@@ -38,11 +38,11 @@
  */
 import { blurField, type Mesh } from './mesh';
 import { MinHeap, smoothstep, subSeed, mulberry32, clamp, hypot2, keyed } from './util';
-import { geometryOf } from './geometry';
+import { geometryOf, type PlateMotion, type SurfaceNoise } from './geometry';
 import { connectInlandSeas } from './inlandSea';
 import { round24 } from './civ/rand';
 import { SKETCH_HILLS, SKETCH_ISLES, SKETCH_LAND, SKETCH_MOUNTAIN, SKETCH_NONE, SKETCH_PLATEAU, SKETCH_SHELF, decodeLayer, sketchAt, sketchPainted, type Sketch } from './sketch';
-import { PLATE_IMAGE_MAX, applyPlateImage, applyPlateOps, type PlateState } from './plateEdits';
+import { PLATE_IMAGE_MAX, applyPlateImage, applyPlateOps, type PlateEdit, type PlateState } from './plateEdits';
 
 export interface TectonicParams {
   seed: number;
@@ -515,9 +515,51 @@ const SK_ISLES_SCALE = 20;
 const SK_ISLES_T = 0.25;
 
 /**
- * sketch:作者的草图(sketch.ts)。没有 / 全是 0 = 和不给一样(结果逐字节不变)
+ * 第 1–4 步(板块、边界、陆地场)的结果:只由网格、参数、作者改的板块(草图的 plates)定,草图涂的笔在第 4b 步才套上。
+ * 编辑地形时每涂一笔草图都要重新生成,这一段一笔一笔都一样:记着上一次的(frameOf),第 4b 步起在海陆、地壳底色的副本上接着算,
+ * 结果和从头算逐位相同。记着的数组之后只读不写(海陆、地壳底色除外,它们每次拷一份)
  */
-export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | null): Tectonics {
+interface Frame {
+  plate: Int16Array;
+  P: number;
+  vxOut: Float32Array;
+  vyOut: Float32Array;
+  motion: PlateMotion;
+  plateContinental: Uint8Array;
+  convergence: Float32Array;
+  conv: DistanceField;
+  div: DistanceField;
+  sideOf: (i: number) => number;
+  divSources: number[];
+  hot: Float32Array;
+  /** 地壳底色、海陆(第 4 步按目标陆地比例取完阈值):第 4b 步起只在副本上改 */
+  B: Float32Array;
+  land: Uint8Array;
+  rugN: SurfaceNoise;
+  coastF: SurfaceNoise;
+  fs: number;
+  fc: number;
+  ramp: number;
+  thin: (w: number) => number;
+  soft: number;
+  softW: number;
+}
+type DistanceField = ReturnType<typeof distanceField>;
+
+/** 上一次的第 1–4 步(网格对象 + 参数 + 板块改动对得上才用) */
+let frameMemo: { mesh: Mesh; key: string; frame: Frame } | null = null;
+
+function frameOf(mesh: Mesh, p: TectonicParams, pe: PlateEdit | undefined): Frame {
+  const key = JSON.stringify([Object.entries(p).sort(([a], [b]) => (a < b ? -1 : 1)), pe ?? null]);
+  if (frameMemo && frameMemo.mesh === mesh && frameMemo.key === key) return frameMemo.frame;
+  frameMemo = null;
+  const frame = buildFrame(mesh, p, pe);
+  frameMemo = { mesh, key, frame };
+  return frame;
+}
+
+/** 第 1–4 步(见 Frame) */
+function buildFrame(mesh: Mesh, p: TectonicParams, pe: PlateEdit | undefined): Frame {
   const { n, adjStart, adj, width: W, spacing } = mesh;
   const geo = geometryOf(mesh);
   const rng = mulberry32(subSeed(p.seed, 'plates'));
@@ -658,7 +700,6 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
   let vyOut = plateVy;
   let dens = density;
   let motion = motion0;
-  const pe = sketch?.plates;
   const peImage = pe?.image ? decodeLayer(pe.image.cells, PLATE_IMAGE_MAX) : null;
   if (pe && (pe.ops.length || peImage)) {
     const st: PlateState = { plate, count: plateCount, omega: Array.from(motion0.omega), density: Array.from(density), spin: Array.from(spin), crust, touched: new Set() };
@@ -863,6 +904,22 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
   const threshold = sorted[Math.floor((1 - clamp(p.landFraction, 0.02, 0.95)) * (n - 1))];
   const land = new Uint8Array(n);
   for (let i = 0; i < n; i++) land[i] = L[i] > threshold ? 1 : 0;
+  return { plate, P, vxOut, vyOut, motion, plateContinental, convergence, conv, div, sideOf, divSources, hot, B, land, rugN, coastF, fs, fc, ramp, thin, soft, softW };
+}
+
+/**
+ * sketch:作者的草图(sketch.ts)。没有 / 全是 0 = 和不给一样(结果逐字节不变)
+ */
+export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | null): Tectonics {
+  const { n, adjStart, adj, width: W } = mesh;
+  const geo = geometryOf(mesh);
+  const pe = sketch?.plates;
+  const fr = frameOf(mesh, p, pe);
+  const { plate, P, vxOut, vyOut, motion, plateContinental, convergence, conv, div, sideOf, divSources, hot, rugN, coastF, fs, fc, ramp, thin, soft, softW } = fr;
+  // 草图要改海陆、地壳底色:在副本上改(第 1–4 步记着的不动)
+  const land = fr.land.slice();
+  const B = fr.B.slice();
+  const q = [0, 0];
 
   // ---- 4b. 作者的草图 ----
   // 涂过的地块照草图定海陆:离草图边界远的定死,边界附近由同一套海岸噪声决定往哪边弯(海岸不是笔刷的圆边);

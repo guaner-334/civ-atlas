@@ -993,6 +993,11 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
   const trialSeq = useRef(0);
   /** 发给当前线程、还没回音的活(生成世界 / 回放帧 / 重推文明)有几件 */
   const busyRef = useRef(0);
+  /**
+   * 其中线程能半路放下的(编辑地形时只换地形、不推历史的生成):后面来了新的世界,线程自己不算完它(回音 aborted),
+   * 只有这种活在忙时换世界不用关掉线程重开(记着的网格、板块、整图都还在)
+   */
+  const softRef = useRef(new Set<number>());
   /** 线程在忙什么(问题记录用;闲下来 = null) */
   const workLabel = useRef<string | null>(null);
   const layerRef = useRef(layer);
@@ -1218,10 +1223,11 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
   // 线程一次只能算一个世界。连续改参数时,与其排队把每个中间世界都算完,
   // 不如直接终止还在忙的旧线程、另开一个(启动只要几十毫秒),只算最后一次。
   // 回放帧、重推文明这些短活不打断线程,排在后面(打断了,线程手上的世界就没了,得按参数重新生成,反而更慢)。
+  // 编辑地形时只换地形的生成(skipCiv)也不关线程:线程自己半路放下它(见 worker.ts 文件头),记着的网格、整图留给新的一笔。
   /** 线程回报的扩张节拍(改过地形的世界推文明要用):下次生成、重推时带回去,线程被重开过也不用多生成一遍原来的地形 */
   const tempoNote = useRef<TempoNote | null>(null);
   const idleWorker = useCallback((abort: boolean) => {
-    if (abort && workerRef.current && busyRef.current > 0) {
+    if (abort && workerRef.current && busyRef.current > softRef.current.size) {
       workerRef.current.terminate();
       workerRef.current = null;
       // 线程上排着的试推演(助手)一起作废
@@ -1244,7 +1250,10 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
             workLabel.current = null;
             diagBeat();
           }
+          if (m.type === 'done' || m.type === 'aborted') softRef.current.delete(m.id);
         }
+        // 半路放下的生成(被新的一笔顶掉了):只是一声回音
+        if (m.type === 'aborted') return;
         if ((m.type === 'done' || m.type === 'civ' || m.type === 'trial') && m.tempo) tempoNote.current = m.tempo;
         if (m.type === 'trial') {
           // 试推演(助手):交给等着它的那一次;世界换了的话助手那边已经停下,结果没人要
@@ -1370,6 +1379,7 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
       };
       workerRef.current = w;
       busyRef.current = 0;
+      softRef.current.clear();
     }
     return workerRef.current;
   }, []);
@@ -1382,6 +1392,7 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
       }
       const w = idleWorker(req.type === 'generate' || req.type === 'load');
       if (req.type === 'generate') genSent.current = req;
+      if (req.type === 'generate' && req.skipCiv) softRef.current.add(req.id);
       // 又要了一个新世界:还在后台备着换上的那一次已经过时了(线程交回的旧结果本来也不认)
       if (req.type === 'generate' || req.type === 'load') cancelTerrainPatch();
       busyRef.current++;

@@ -13,7 +13,7 @@
  */
 import { blurField, buildMesh, type Mesh } from './mesh';
 import { buildTectonics, type Tectonics } from './tectonics';
-import { erode, drainage, accumulate } from './erosion';
+import { erodeSteps, drainage, accumulate } from './erosion';
 import { computeClimate, type ClimateParams } from './climate';
 import { classifyBiome } from './biomes';
 import { computeSeaIce } from './seaice';
@@ -192,13 +192,13 @@ function landPeak(land: Uint8Array, elevation: Float32Array): number {
  * 陆地最高处。改过地形的世界远处照它换算(growTerrain),和这颗星球逐位一样高,最高海拔也照它;
  * 按参数记着,编辑地形时涂第二笔起不再重算。mesh = 改过地形的世界已经撒好的地块(同样的参数撒出来的一样,省得再撒一遍)
  */
-function planetOf(p: WorldParams, mesh: Mesh, climateP: ClimateParams): Planet {
+function* planetOf(p: WorldParams, mesh: Mesh, climateP: ClimateParams): Generator<void, Planet> {
   const key = baseKeyOf(p, []);
   let planet = planetMemo.get(key);
   if (planet) {
     planetMemo.delete(key);
   } else {
-    const b = growTerrain(p, null, [], climateP, () => {}, key, mesh);
+    const b = yield* growTerrain(p, null, [], climateP, () => {}, key, mesh);
     planet = { refs: b.refs, peak: b.peak };
     if (planetMemo.size >= PLANET_MEMO) planetMemo.delete(planetMemo.keys().next().value!);
   }
@@ -206,21 +206,37 @@ function planetOf(p: WorldParams, mesh: Mesh, climateP: ClimateParams): Planet {
   return planet;
 }
 
-/** 前一半(见 TerrainBase):ops 只给侵蚀之前套的那几种 */
-function growTerrain(p: WorldParams, sk: Sketch | null, ops: readonly TerrainOp[], climateP: ClimateParams, progress: Progress, key: string, meshIn?: Mesh): TerrainBase {
+/**
+ * 上一次撒的地块(网格只由地图大小、地块间距、种子定):编辑地形时每涂一笔草图都要从网格起重新生成,
+ * 同一张网格接着用(连同按网格记着的几何、气候、铺像素的缓存),不再每笔重撒一遍。网格建好以后只读不写
+ */
+let meshMemo: { key: string; mesh: Mesh } | null = null;
+function meshOf(W: number, H: number, spacing: number, seed: number): Mesh {
+  const key = `${W}|${H}|${spacing}|${seed}`;
+  if (meshMemo?.key === key) return meshMemo.mesh;
+  meshMemo = null;
+  const mesh = buildMesh(W, H, spacing, mulberry32(subSeed(seed, 'mesh')));
+  meshMemo = { key, mesh };
+  return mesh;
+}
+
+/** 前一半(见 TerrainBase):ops 只给侵蚀之前套的那几种。一段一段算,段与段之间停一下(见 generateWorldSteps) */
+function* growTerrain(p: WorldParams, sk: Sketch | null, ops: readonly TerrainOp[], climateP: ClimateParams, progress: Progress, key: string, meshIn?: Mesh): Generator<void, TerrainBase> {
   const W = MAP_W;
   const H = MAP_H;
 
   progress('撒下地块', 0.02);
   const spacing = sphereSpacing(W, p.cells);
-  const mesh = meshIn ?? buildMesh(W, H, spacing, mulberry32(subSeed(p.seed, 'mesh')));
+  const mesh = meshIn ?? meshOf(W, H, spacing, p.seed);
   const { n } = mesh;
   /** 改过地形(侵蚀之前的地形修改、草图;草图改了板块的不算 —— 整颗星球都变了,照它自己的换算) */
   const edited = (ops.length > 0 || !!sk) && !sk?.plates;
   const geo = geometryOf(mesh);
+  yield;
 
   progress('板块漂移', 0.12);
   const tect = buildTectonics(mesh, p, sk);
+  yield;
   // 改地形:火山、山脉、抬起 / 沉下 —— 侵蚀之前改抬升场和海陆(touched = 改过的地块)
   const land0 = ops.length ? tect.land.slice() : null;
   const touched = ops.length ? applyTerrainTectonics(mesh, tect, ops, p.seed) : null;
@@ -232,7 +248,7 @@ function growTerrain(p: WorldParams, sk: Sketch | null, ops: readonly TerrainOp[
   const skTouched = tect.sketchTouched;
   // 改过地形的世界换算成米:远处照没改地形的同一颗星球的"最高峰"(planet),草图涂过的地方照这个世界自己的(和以前一样,
   // 涂的高山不会高得离谱),中间几圈平滑过渡(blend:涂过的 1,往外几圈降到 0)。涂一道山,远处的山不跟着变矮
-  const planet = edited ? planetOf(p, mesh, climateP) : null;
+  const planet = edited ? yield* planetOf(p, mesh, climateP) : null;
   let blend: Float32Array | null = null;
   if (planet && skTouched) {
     const f = new Float32Array(n);
@@ -327,13 +343,14 @@ function growTerrain(p: WorldParams, sk: Sketch | null, ops: readonly TerrainOp[
   const proxy = new Float32Array(n);
   for (let i = 0; i < n; i++) proxy[i] = land[i] ? uplift[i] * 2500 + plateau[i] : oceanDepth[i];
   let rain = rainWeight(proxy);
+  yield;
 
   const STEPS = 36;
   const history: Float32Array[] = [];
   const histGrow: number[] = [];
   const erosionP = { steps: STEPS / 2, dt: 0.9, K: 1, m: 0.5 };
   progress('造山与侵蚀', 0.2);
-  erode(mesh, land, h, uplift, rain, erosionP, (s) => {
+  yield* erodeSteps(mesh, land, h, uplift, rain, erosionP, (s) => {
     progress('造山与侵蚀', 0.2 + (0.35 * s) / STEPS);
     if (s % 3 === 0) {
       const g = ((s + 1) / STEPS) ** 0.5;
@@ -342,7 +359,8 @@ function growTerrain(p: WorldParams, sk: Sketch | null, ops: readonly TerrainOp[
     }
   });
   rain = rainWeight(toMeters(h, peak));
-  erode(mesh, land, h, uplift, rain, erosionP, (s) => {
+  yield;
+  yield* erodeSteps(mesh, land, h, uplift, rain, erosionP, (s) => {
     progress('造山与侵蚀', 0.2 + (0.35 * (s + STEPS / 2)) / STEPS);
     if (s % 3 === 0) {
       const g = ((s + 1 + STEPS / 2) / STEPS) ** 0.5;
@@ -377,6 +395,7 @@ function growTerrain(p: WorldParams, sk: Sketch | null, ops: readonly TerrainOp[
   }
   const elevation = toMeters(h, peak, base);
   history.push(elevation.slice());
+  yield;
 
   // ---- 湖泊:裂谷下陷 + 少量冰川 / 构造洼地 ----
   progress('湖泊与水系', 0.62);
@@ -421,6 +440,19 @@ function growTerrain(p: WorldParams, sk: Sketch | null, ops: readonly TerrainOp[
  * cache:记着上一次的前一半(见 TerrainBase);参数、草图、侵蚀之前的地形修改都没变时跳过网格、板块、侵蚀
  */
 export function generateWorld(params: WorldParams, progress: Progress = () => {}, terrain?: readonly TerrainOp[], sketch?: Sketch | null, cache?: BaseCache): World {
+  const it = generateWorldSteps(params, progress, terrain, sketch, cache);
+  for (;;) {
+    const r = it.next();
+    if (r.done) return r.value;
+  }
+}
+
+/**
+ * 同 generateWorld,一段一段算:每段(板块、侵蚀的每一步、气候……)算完停一下(yield),调用方可以在停下的时候先干别的、
+ * 或者不接着算了(后台线程编辑地形时新的一笔来了,上一笔不用算完)。接着算到底和 generateWorld 一模一样;
+ * 中途不算了,记着的东西(cache 里的前一半等)要么还是原来的、要么是算完了的一份,不会是算了一半的
+ */
+export function* generateWorldSteps(params: WorldParams, progress: Progress = () => {}, terrain?: readonly TerrainOp[], sketch?: Sketch | null, cache?: BaseCache): Generator<void, World> {
   const p = { ...DEFAULT_PARAMS, ...params };
   // 地形修改 + 地形大事(upheaval.ts 生成大事以后的世界时接在后面)
   const ops = cleanTerrainOps(terrain ?? [], TERRAIN_MAX_OPS + UPHEAVALS_MAX * UPHEAVAL_OPS_MAX);
@@ -440,8 +472,13 @@ export function generateWorld(params: WorldParams, progress: Progress = () => {}
     base = had;
     progress('湖泊与水系', 0.62);
   } else {
-    base = growTerrain(p, sk, shapes, climateP, progress, key);
+    base = yield* growTerrain(p, sk, shapes, climateP, progress, key);
     if (cache) cache.base = base;
+  }
+  // 没改地形的星球:记下它的"最高峰"(planetOf 要的就是这一份),之后编辑地形涂第一笔不用再生成一遍这颗星球
+  if (!sk && !shapes.length && !planetMemo.has(key)) {
+    if (planetMemo.size >= PLANET_MEMO) planetMemo.delete(planetMemo.keys().next().value!);
+    planetMemo.set(key, { refs: base.refs, peak: base.peak });
   }
   const { mesh, touched, highLand } = base;
   const { n } = mesh;
@@ -577,6 +614,7 @@ export function generateWorld(params: WorldParams, progress: Progress = () => {}
   }
 
   // ---- 最终气候 ----
+  yield;
   progress('风与降水', 0.72);
   const currents = computeCurrents(mesh, water);
   const clim = computeClimate(mesh, elevation, water, climateP, currents, true);
@@ -585,6 +623,7 @@ export function generateWorld(params: WorldParams, progress: Progress = () => {}
   const seaIce = computeSeaIce(mesh, elevation, water, clim.temperature, clim.windX, clim.windY, p.seed);
 
   // ---- 水系 ----
+  yield;
   progress('河流', 0.82);
   const route = drainage(mesh, land, elevation, 1e-3);
   const runoff = new Float32Array(n);
