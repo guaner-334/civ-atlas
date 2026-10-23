@@ -178,16 +178,13 @@ export function PolicyPage({ civ, id, year, from }: { civ: Civ; id: number; year
 
   const go = () => {
     if (why || same) return;
-    // 单子里这国原来的方针换成这一条;改回和推过的历史里一样的,只把单子里的拿掉
+    // 单子里这国原来的方针换成这一条(新的加上了才拿掉旧的:加不了时单子不变);改回和推过的历史里一样的,只把单子里的拿掉
     const old = getPending().filter((x) => x.kind === 'iv' && x.v.kind === 'policy' && x.v.a === key);
-    old.forEach((x) => removePending(x.id));
     if (!(old.length && samePolicy(v, inForce))) {
       const err = queueIntervention(v, policyQueueText(civ, v, shown), { self: id, target: null, shown });
-      if (err) {
-        for (const x of old) if (x.kind === 'iv') queueIntervention(x.v, x.text, x.run);
-        return setMsg(err);
-      }
+      if (err) return setMsg(err);
     }
+    old.forEach((x) => removePending(x.id));
     closeCmdPage();
   };
 

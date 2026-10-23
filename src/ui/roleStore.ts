@@ -5,7 +5,7 @@
  *   演一国  认领一国(记它的稳定键):只管它 —— 别国卡片上的干预入口变灰、写一句"切回造物主才能改";导播默认关注它;
  *           顶上常驻一条"演 某国 · 方针 扩张 · 改方针 · 切回造物主"。不记分、不设限,随时能切回造物主
  *
- * 只认当前这个世界(记着是哪个世界认领的;换了世界、离开逐年推演就不算了);记在浏览器里,刷新以后还在。
+ * 按世界分开记(世界编号 → 演的那一国;换了世界、离开逐年推演就不算了,回到那个世界又是它);记在浏览器里,刷新以后还在。
  * 开始演绎时还没有那个世界(另存出来以后才打开):先记下要演哪国(armRole),进了逐年推演再认到新世界上(bindArmedRole)。
  * 纯状态,不碰 DOM(浏览器存储读写失败就只记在这次打开的页面里)。
  */
@@ -13,25 +13,26 @@ import { useSyncExternalStore } from 'react';
 import { currentWorld } from './saveStore';
 
 const KEY = 'wenming-ditu:play-role';
+/** 最多记这么多个世界(多了先丢最早认领的) */
+const KEEP = 50;
 
-interface Role {
-  /** 哪个世界认领的 */
-  world: string;
-  /** 演的那一国(国家的稳定键) */
-  polity: string;
-}
+/** 世界编号 → 演的那一国(国家的稳定键);先后 = 认领的先后 */
+type Roles = Record<string, string>;
 
-function load(): Role | null {
+function load(): Roles {
   try {
     const raw = localStorage.getItem(KEY);
-    const o = raw ? (JSON.parse(raw) as Partial<Role>) : null;
-    return o && typeof o.world === 'string' && typeof o.polity === 'string' ? { world: o.world, polity: o.polity } : null;
+    const o = raw ? (JSON.parse(raw) as unknown) : null;
+    if (!o || typeof o !== 'object' || Array.isArray(o)) return {};
+    const out: Roles = {};
+    for (const [w, k] of Object.entries(o as Record<string, unknown>)) if (typeof k === 'string') out[w] = k;
+    return out;
   } catch {
-    return null;
+    return {};
   }
 }
 
-let role: Role | null = typeof window !== 'undefined' ? load() : null;
+let roles: Roles = typeof window !== 'undefined' ? load() : {};
 /** 开始演绎时挑好的那一国(还没有新世界);undefined = 没有要认的 */
 let armed: { polity: string | null; from: string } | undefined;
 let version = 0;
@@ -44,25 +45,28 @@ function emit() {
 
 function save() {
   try {
-    if (role) localStorage.setItem(KEY, JSON.stringify(role));
+    if (Object.keys(roles).length) localStorage.setItem(KEY, JSON.stringify(roles));
     else localStorage.removeItem(KEY);
   } catch {
     // 存不进浏览器:这次打开的页面里照样记着
   }
 }
 
-/** 现在演的那一国(稳定键;造物主 / 不是这个世界认领的 = null) */
+/** 现在演的那一国(稳定键;造物主 / 没有打开的世界 = null) */
 export function getRole(): string | null {
   const w = currentWorld()?.id;
-  return role && w && role.world === w ? role.polity : null;
+  return (w && roles[w]) || null;
 }
 
-/** 认领一国(polity = 稳定键)/ 切回造物主(null) */
+/** 当前这个世界认领一国(polity = 稳定键)/ 切回造物主(null);别的世界记的不动 */
 export function setRole(polity: string | null) {
   const w = currentWorld()?.id;
-  const next = polity && w ? { world: w, polity } : null;
-  if (JSON.stringify(next) === JSON.stringify(role)) return;
-  role = next;
+  if (!w || (roles[w] ?? null) === polity) return;
+  const { [w]: _old, ...rest } = roles;
+  void _old;
+  roles = polity ? { ...rest, [w]: polity } : rest;
+  const ws = Object.keys(roles);
+  if (ws.length > KEEP) for (const x of ws.slice(0, ws.length - KEEP)) delete roles[x];
   save();
   emit();
 }
@@ -96,7 +100,7 @@ export function useRole(): string | null {
 
 /** 测试用 */
 export function _resetRole() {
-  role = null;
+  roles = {};
   armed = undefined;
   emit();
 }

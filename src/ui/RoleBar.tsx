@@ -3,7 +3,8 @@
  *   电脑  [旗] 演 大澜王朝 | 方针 扩张 [改方针] [切回造物主]   (工具栏下面正中)
  *   手机  [旗] 演 大澜王朝 | 扩张 [改方针] [造物主]            (屏幕顶上,右边那竖排按钮左边)
  * 方针写单子里的(还没生效)或者"现在"照的;「改方针」= 选中这国、卡片换成方针页;「切回造物主」= 不演了(导播关注的是它就放开)。
- * 提示条、选目标、正在推演时让开(都在顶上正中)。开始演绎时挑好的那一国,逐年推演的世界打开以后在这里认上去、导播关注它。
+ * 提示条、选目标、正在推演时让开(都在顶上正中)。开始演绎时挑好的那一国,逐年推演的世界打开以后在这里认上去、导播关注它;
+ * 打开一个演着某国的世界(刷新也算)时导播同样先关注它。
  */
 import { useEffect } from 'react';
 import type { Civ } from '../gen/civ/types';
@@ -17,11 +18,15 @@ import { useStepwise } from './stepwiseStore';
 import { useToast } from './toastStore';
 import { getDirector, setDirectorFocus } from './directorStore';
 import { pendingPolicy, policyAt, policyLabel, rolePolity } from './policyInfo';
-import { bindArmedRole, setRole, useRole } from './roleStore';
+import { bindArmedRole, getRole, setRole, useRole } from './roleStore';
+import { currentWorld } from './saveStore';
 import { openPolicyPage } from './PolicyPage';
 import './policy.css';
 
 const stop = (e: { stopPropagation(): void }) => e.stopPropagation();
+
+/** 导播已经按演的那国关注过的世界(每个世界打开时只设一次) */
+let focusedWorld: string | null = null;
 
 /** 切回造物主(导播关注的是演的那国就放开) */
 export function roleOff(id: number) {
@@ -37,10 +42,15 @@ export function RoleBar({ civ, phone }: { civ: Civ; phone: boolean }) {
   const { run } = usePanel();
   const pending = usePending();
   const flags = useFlags();
-  // 开始演绎时挑好的那一国:逐年推演的世界打开了就认上去,导播关注它
+  // 开始演绎时挑好的那一国:逐年推演的世界打开了就认上去;打开一个演着某国的世界(刷新、从我的世界打开):
+  // 导播默认关注它(每个世界打开时一次,之后换成看全世界的照用户的)
   useEffect(() => {
     if (!s.on) return;
-    const k = bindArmedRole();
+    const bound = bindArmedRole();
+    const w = currentWorld()?.id ?? null;
+    if (bound === undefined && w === focusedWorld) return;
+    focusedWorld = w;
+    const k = bound === undefined ? getRole() : bound;
     const id = k ? rolePolity(civ, k) : -1;
     if (id >= 0) setDirectorFocus(id);
   }, [s.on, civ]);
