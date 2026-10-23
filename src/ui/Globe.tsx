@@ -1570,8 +1570,9 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
       const pool = s.cpuSync ? null : cpuPool();
       if (pool) {
         presented = presentCpu(cvs);
-        // 底图只和视角、球心挪动、分辨率、画风、回放帧淡入、贴图有关(高亮闪烁、经纬网在上面那层画)
-        const key = [s.view.lon, s.view.lat, s.view.k, s.shift, cw, ch, p.style, s.replayMix, s.cpuSrcVer].join();
+        // 底图只和视角、球心挪动、分辨率、清晰度、画风、回放帧淡入、贴图有关(高亮闪烁、经纬网在上面那层画)。
+        // 清晰度单算:浏览器缩放时画布像素可能不变而清晰度变了,球边细亮线的宽度、球心挪动的像素数跟着变
+        const key = [s.view.lon, s.view.lat, s.view.k, s.shift, cw, ch, dpr * q, p.style, s.replayMix, s.cpuSrcVer].join();
         // 贴图换了(时间轴放着、回放)而后台还在画上一张:等它画完再把最新的贴图交过去,不每帧都拷一遍
         const srcWait = pool.busy && CPU_SLOTS.some((k) => s.cpuDirty[k]);
         if (key !== s.cpuWant && !srcWait) {
