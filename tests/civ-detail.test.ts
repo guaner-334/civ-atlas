@@ -278,3 +278,40 @@ describe('分几段备料(后台分帧画细节层)', () => {
     expect(Buffer.from(many.imgs.get('sel')!.data).equals(Buffer.from(a))).toBe(true);
   });
 });
+
+describe('回放:国土没有易手的年份', () => {
+  it('归属图、离边界的距离照搬上一年的,和重算逐像素一样;渐入按这一年', () => {
+    const base = polityParams('fantasy');
+    const at = (year: number): CivDrawParams => ({ ...base, year });
+    const own = (year: number) => washFields(at(year), 1)!.owner.slice();
+    const same = (x: Int16Array, y: Int16Array) => x.length === y.length && x.every((v, i) => v === y[i]);
+    const end = base.civ.endYear;
+    // 相邻两年 a、b 归属一样;再找一年 c 和它们不一样
+    let pair: [number, number] | null = null;
+    let prev = own(end);
+    for (let y = end - 1; y > end - 600 && !pair; y--) {
+      const o = own(y);
+      if (same(o, prev)) pair = [y + 1, y];
+      prev = o;
+    }
+    expect(pair).not.toBeNull();
+    const [a, b] = pair!;
+    const ownB = own(b);
+    let c = -1;
+    for (let y = b - 1; y > b - 600 && c < 0; y--) if (!same(own(y), ownB)) c = y;
+    expect(c).toBeGreaterThanOrEqual(0);
+    // 重算的那份:上一份是 c(归属不一样),一定从头算
+    washFields(at(c), 1);
+    const fresh = washFields(at(b), 1)!;
+    const want = { label: fresh.label.slice(), edgeLabel: fresh.edge.label.slice(), dist: fresh.edge.dist.slice(), fade: fresh.fade.slice() };
+    // 照搬的那份:先算 a,再算 b
+    washFields(at(c), 1);
+    const fa = washFields(at(a), 1)!;
+    const fb = washFields(at(b), 1)!;
+    expect(fb.key).not.toBe(fa.key);
+    expect(Buffer.from(fb.label.buffer).equals(Buffer.from(want.label.buffer))).toBe(true);
+    expect(Buffer.from(fb.edge.label.buffer).equals(Buffer.from(want.edgeLabel.buffer))).toBe(true);
+    expect(Buffer.from(fb.edge.dist.buffer).equals(Buffer.from(want.dist.buffer))).toBe(true);
+    expect(Buffer.from(fb.fade.buffer).equals(Buffer.from(want.fade.buffer))).toBe(true);
+  });
+});
