@@ -193,9 +193,11 @@ const openFile = async (p: Page, file: string) => {
 const probe = (p: Page, x: number, y: number) =>
   p.evaluate(([cx, cy]) => (((window as any).__wfProbe?.(cx, cy) ?? []) as string[]).join(' / '), [x, y]);
 /**
- * 等地图停稳:镜头不动了(点选后飞过去、滚轮缩放都停下,视图连着 300 毫秒没变),放大后的地形、文明细节层也在后台备好了。
+ * 等地图停稳:镜头不动了(点选后飞过去、滚轮缩放都停下,视图连着 300 毫秒、至少 6 帧没变),放大后的地形、文明细节层也在后台备好了。
  * 量"按下去 → 画出来"多快、看拖动时细节层藏没藏之前先等它:不然量进去的是还在飞、还在备料的那一段,
- * 慢的机器上时快时慢(镜头飞一次 0.6 秒,人点完城再去改名、放大后再拖,本来就在这之后)。返回等了多久(毫秒),最多等 timeout
+ * 慢的机器上时快时慢(镜头飞一次 0.6 秒,人点完城再去改名、放大后再拖,本来就在这之后)。
+ * 只看时间不够:机器卡住几百毫秒再醒过来的那一帧,视图还没来得及更新,看着也"没变";要连着几帧都没变才算。
+ * 返回等了多久(毫秒),最多等 timeout
  */
 const mapSettled = (p: Page = page, timeout = 15000) =>
   p.evaluate(`new Promise((res) => {
@@ -203,6 +205,7 @@ const mapSettled = (p: Page = page, timeout = 15000) =>
     const t0 = performance.now();
     let last = '';
     let since = t0;
+    let frames = 0;
     const tick = () => {
       const now = performance.now();
       const v = w.__wfView;
@@ -210,9 +213,10 @@ const mapSettled = (p: Page = page, timeout = 15000) =>
       if (key !== last) {
         last = key;
         since = now;
-      }
+        frames = 0;
+      } else frames++;
       const busy = (w.__wfDetail && w.__wfDetail.pending) || (w.__wfCivDetail && w.__wfCivDetail.pending);
-      if ((now - since >= 300 && !busy) || now - t0 > ${timeout}) res(now - t0);
+      if ((now - since >= 300 && frames >= 6 && !busy) || now - t0 > ${timeout}) res(now - t0);
       else requestAnimationFrame(tick);
     };
     tick();
