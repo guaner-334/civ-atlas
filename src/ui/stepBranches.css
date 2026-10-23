@@ -1,0 +1,256 @@
+/* 逐年推演的支线(StepBranches.tsx):侧栏 / 手机世界卡片「支线」一组、「…」菜单、删掉之前问的那一句;
+   从这一年重新演绎、存回推演模式两个窗口里新加的几行(StepwiseDialogs.tsx) */
+
+/* ---- 「支线」一组 ---- */
+.br-sec .sb-sec-head em {
+  font-style: normal;
+  font-weight: 400;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.sb-row.br-row {
+  position: relative;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 9px 8px 9px 12px;
+  cursor: pointer;
+}
+.sb-row.br-row.on,
+.sb-row.br-row.on:hover {
+  background: var(--accent-soft);
+  cursor: default;
+}
+/* 切换中:别的行先不能点 */
+.sb-row.br-row.wait {
+  cursor: progress;
+}
+.sb-row.br-row.wait:not(.on):hover {
+  background: transparent;
+}
+.sb-row.br-row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+/* 圆点:在用的这支 = 选中的单选钮 */
+.br-dot {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin-top: 3px;
+  border-radius: 50%;
+  border: 1.6px solid var(--ink-3);
+  box-sizing: border-box;
+}
+.br-row.on .br-dot {
+  border: 4px solid var(--accent);
+  background: var(--surface);
+}
+.br-row .sb-row-main {
+  gap: 1px;
+}
+.br-row .sb-row-main b {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  font-size: 14.5px;
+}
+.br-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* "在这支"小标签 */
+.br-row .sb-row-main b em {
+  flex: none;
+  font-style: normal;
+  font-weight: 500;
+  font-size: 11.5px;
+  line-height: 18px;
+  padding: 0 5px;
+  border-radius: 5px;
+  color: var(--accent);
+  background: var(--surface);
+}
+.br-row .sb-row-main small {
+  white-space: normal;
+  line-height: 1.45;
+}
+/* 最后一件大事:年份 + 一行正文(长了省略) */
+.br-row .sb-row-main small.br-last {
+  display: flex;
+  gap: 6px;
+  white-space: nowrap;
+}
+.br-last span {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+.br-last i {
+  min-width: 0;
+  font-style: normal;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* 行尾「…」 */
+.br-more {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin-top: -3px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ink-2);
+}
+.br-more.on,
+.br-more:hover:not(:disabled) {
+  background: var(--hover-bg);
+  color: var(--ink);
+}
+.br-more:disabled {
+  opacity: 0.4;
+}
+.br-note {
+  padding: 0 4px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--ink-2);
+}
+/* 就地改名 */
+.br-edit {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  height: 28px;
+  margin: -3px 0 2px -6px;
+  padding: 0 6px;
+  border: 1.5px solid var(--accent);
+  border-radius: 6px;
+  background: var(--surface);
+  font: 600 14.5px var(--font-sans);
+  color: var(--ink);
+  outline: none;
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.br-row .sb-row-main small.br-edit-hint {
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+/* 切换中:那一行转圈 + 底下一条进度 */
+.br-row .sb-row-main b em.br-busy {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.br-spin {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 2px solid var(--accent-soft);
+  border-top-color: var(--accent);
+  box-sizing: border-box;
+  animation: br-spin 0.8s linear infinite;
+}
+@keyframes br-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.br-bar {
+  position: absolute;
+  left: 34px;
+  right: 12px;
+  bottom: 4px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--accent-soft);
+  overflow: hidden;
+}
+.br-bar i {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  border-radius: 2px;
+  background: var(--accent);
+  transition: width 0.2s linear;
+}
+
+/* ---- 「…」菜单(样子同 PopMenu;挂在 body 上,位置由组件算) ---- */
+.pm-menu.br-menu {
+  position: fixed;
+  z-index: 50;
+  font-family: var(--font-sans);
+}
+.br-menu .pm-item.danger,
+.br-menu .pm-item.danger .icon {
+  color: var(--err);
+}
+.br-menu .pm-item.danger:hover:not(:disabled) {
+  background: var(--err);
+  color: #fff;
+}
+.br-menu .pm-item.danger:hover:not(:disabled) .icon {
+  color: inherit;
+}
+
+/* ---- 删掉一支之前问的那一句 ---- */
+.br-side {
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.sw-btn2.pri.br-danger,
+.sw-big.pri.br-danger {
+  background: var(--err);
+  color: #fff;
+}
+.sw-btn2.pri.br-danger:hover {
+  background: var(--err);
+  filter: brightness(0.94);
+}
+
+/* ---- 从这一年重新演绎:原来那条"留着"、新的一支的名字、左下一句 ---- */
+.sw-r-side.br-keep {
+  color: var(--accent);
+}
+.br-name-in {
+  flex: none;
+  align-self: center;
+  width: 150px;
+  height: 30px;
+  box-sizing: border-box;
+  padding: 0 9px;
+  border: 0.5px solid var(--line-strong);
+  border-radius: 7px;
+  background: var(--surface);
+  font: 14px var(--font-sans);
+  color: var(--ink);
+}
+.br-name-in:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.sw-psheet .br-name-in {
+  width: 120px;
+}
+.sw-foot .sw-foot-note.br-foot-note {
+  flex: 1;
+  line-height: 1.5;
+}
+
+/* ---- 存回推演模式:最上面一行写明存的是在用的这一支 ---- */
+.br-save-ic {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  margin-top: 1px;
+  color: var(--accent);
+}
