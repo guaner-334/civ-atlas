@@ -2,7 +2,8 @@
  * 图层面板:宽屏是右上按钮条最后的「底图」按钮(小图 + 底图名),手机是右上竖排的图层图标;点开:
  *   底图   四张缩略图(手绘、卫星、地理图、白模);选卫星时下面一行「卫星画法 经典 | 细节」;一行说明
  *   数据底图  生态、高程、板块、气温 / 降水、气候、洋流(选了它,上面四张都不亮)
- *   填色   不填 / 国家 / 民族 / 信仰 / 时代(按钮条前几段也是它);一行说明;民族、信仰下面是色块列表。任何底图都能配任何填色
+ *   填色   不填 / 国家 / 民族 / 信仰 / 时代(按钮条前几段也是它);一行说明;「地图上写」国名(CivPanel.tsx 的 NameToggles,
+ *          每种填色各记各的);民族、信仰下面是色块列表。任何底图都能配任何填色
  *   叠加   地名、州、城址、道路、战事、宜居度、物产(CivPanel.tsx 的 CivToggles);经纬网(间隔 10° / 15° / 30°);
  *          等值线(等高线 / 等温线 / 等降水线选一种,画在 ContourLayer.tsx)
  *   投影   一行,点开是投影列表和中央经线(ProjectionPanel.tsx 的 ProjectionSection)
@@ -42,7 +43,7 @@ import { GraticuleSteps, ProjectionSection, projectionName } from './ProjectionP
 import { setContourKind, setGraticule, useContourKind, useGraticule, useProjection } from './projection';
 import type { ContourKind } from '../gen/savefile';
 import { getCivTime } from './civView';
-import { CivToggles, CultureLegend, FaithLegend } from './CivPanel';
+import { CivToggles, CultureLegend, FaithLegend, NameToggles } from './CivPanel';
 import './overview.css';
 import { noteDismiss } from './dismissClick';
 import { terrainPatchPending } from './terrainPatch';
@@ -379,6 +380,7 @@ export function LayerPopover({ base, fill, sat, civ = null, onBase, onFill, onSa
             ))}
           </div>
           <div className="lp-hint">{FILLS.find((f) => f.id === fill)!.hint}</div>
+          <NameToggles />
           {fill === 'cultures' && <CultureLegend civ={civ} />}
           {fill === 'faiths' && <FaithLegend civ={civ} />}
           <div className="lp-line" />

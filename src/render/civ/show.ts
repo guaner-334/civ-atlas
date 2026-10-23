@@ -29,6 +29,48 @@ export interface CivShow {
   wars: boolean;
   /** 瘟疫:正在闹、疫过不久的州铺墨点(plague.ts);要开着"国家"才画(默认打开) */
   plague: boolean;
+  /**
+   * 地图上写哪些名字(图层面板填色下面「地图上写」那一行),每种填色各记各的;
+   * 没有 / 这种填色没勾过 = 按这种填色的默认(namesDefault)
+   */
+  names?: Partial<Record<CivFill, CivNames>>;
+}
+
+/** 填色:哪种颜色铺满底图(图层面板「填色」那一排) */
+export type CivFill = 'none' | 'polities' | 'cultures' | 'faiths' | 'eras';
+export const CIV_FILLS: readonly CivFill[] = ['none', 'polities', 'cultures', 'faiths', 'eras'];
+
+/** 地图上写哪些名字(不给 = 按填色的默认) */
+export interface CivNames {
+  /** 国名 */
+  polities?: boolean;
+}
+
+/** 开关算哪种填色(先看信仰、时代,再看国家、再看民族) */
+export function civFillOf(show: { polities: boolean; cultures: boolean; faiths?: boolean; eras?: boolean }): CivFill {
+  if (show.faiths) return 'faiths';
+  if (show.eras) return 'eras';
+  if (show.polities) return 'polities';
+  if (show.cultures) return 'cultures';
+  return 'none';
+}
+
+/** 这种填色默认写哪些名字:国家、信仰、时代填色写国名(信仰、时代上是小一号的灰字),民族、不填不写 */
+export function namesDefault(fill: CivFill): Required<CivNames> {
+  return { polities: fill === 'polities' || fill === 'faiths' || fill === 'eras' };
+}
+
+/**
+ * 地图上写不写国名:这种填色勾过就照勾的;没勾过按默认 —— 开着国家就写
+ * (国家、信仰、时代填色都开着国家;只开了信仰、没开国家的旧链接照旧不写)
+ */
+export function polityNamesOn(show: CivShow): boolean {
+  return show.names?.[civFillOf(show)]?.polities ?? show.polities;
+}
+
+/** 国名是不是主角(国家填色:大字、带本国颜色);别的填色上写的国名是配角(小一号、灰墨) */
+export function polityNamesLead(show: CivShow): boolean {
+  return civFillOf(show) === 'polities';
 }
 
 export const CIV_SHOW_OFF: CivShow = {
