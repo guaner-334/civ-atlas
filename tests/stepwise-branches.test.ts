@@ -11,7 +11,7 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS } from '../src/gen/world';
 import { BRANCH_NAME_MAX, cleanBranches, issueCommands, playFromOf, type Intervention, type PlayState, type WorldEdits } from '../src/gen/edits';
-import { editsLost, makeSave, parseSave, saveText } from '../src/gen/savefile';
+import { editCount, editsLost, makeSave, parseSave, saveText } from '../src/gen/savefile';
 import { branchList, branchPlay, deleteBranch, forkBranch, renameBranch, rewindStepwise, startStepwise, stepwiseToNormal, switchBranch } from '../src/gen/stepwise';
 import { revertEdits } from '../src/ui/editsStore';
 
@@ -296,11 +296,19 @@ describe('清理、存档', () => {
     expect(noPlay.ok && noPlay.warnings).toEqual([]);
   });
 
-  it('换成别处的修改会丢掉几支:按另开的几支逐支数', () => {
+  it('改了几处:另开的每一支算一处;换成别处的修改会丢掉几支:按每一支完整的进度逐支数,哪一支是当前的不算', () => {
     const e = forkBranch(forkBranch(e0, 450)!.edits, 500)!.edits;
+    expect(editCount(e)).toBe(editCount(e0) + 2);
     const a = makeSave(params, e, 'x');
     expect(editsLost(a, makeSave(params, e, 'x'))).toBe(0);
     expect(editsLost(a, makeSave(params, deleteBranch(e, 2)!, 'x'))).toBe(1);
     expect(editsLost(a, makeSave(params, e0, 'x'))).toBe(2);
+    // 只是切到了另一支、改了名:几支都还在
+    expect(editsLost(a, makeSave(params, renameBranch(switchBranch(e, 2)!, 3, '东征')!, 'x'))).toBe(0);
+    // 这边没另开过,那边另开了:当前这一支还在,不丢
+    expect(editsLost(makeSave(params, e0, 'x'), a)).toBe(0);
+    // 那边当前这一支往下走了一步:这边当前这一支(停在第 700 年那份)算丢了一支
+    const moved = { ...e, play: { year: 720, commands: cur.commands } };
+    expect(editsLost(a, makeSave(params, moved, 'x'))).toBe(1);
   });
 });

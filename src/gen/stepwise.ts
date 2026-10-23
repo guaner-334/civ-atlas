@@ -24,6 +24,7 @@ import { polityName } from './civ/growth';
 import {
   BRANCH_ID_MAX,
   END_YEAR_MAX,
+  branchPlay,
   END_YEAR_MIN,
   cleanEndYear,
   cleanIntervention,
@@ -127,10 +128,8 @@ export function stepwiseToNormal(edits: WorldEdits): WorldEdits | null {
 // ---------------------------------------------------------------------------
 // 支线(格式见 edits.ts 文件头"支线")
 
-/** 一支完整的进度:当前这一支(cur)命令串里早于 from 的几条 + 这一支自己的 */
-export function branchPlay(cur: PlayState, b: Pick<PlayBranch, 'from' | 'year' | 'commands'>): PlayState {
-  return { year: b.year, commands: [...cur.commands.filter((v) => v.from < b.from), ...b.commands] };
-}
+/** 一支完整的进度(edits.ts):当前这一支命令串里早于 from 的几条 + 这一支自己的 */
+export { branchPlay };
 
 /**
  * 当前这一支换了(cur → 新的进度,两份在第 F 年以前的命令一样):别的几支换成相对新进度的记法 ——

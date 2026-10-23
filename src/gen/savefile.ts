@@ -84,7 +84,7 @@
 import type { World } from './world';
 import { DEFAULT_PARAMS, type WorldParams } from './params';
 import { cleanMix, sameMix } from './names/mix';
-import { END_YEAR_MAX, GENERATOR_CHANGES, GENERATOR_VERSION, MARKS_MAX, MARK_REGIONS_TOTAL, NAME_MAX, aiNameKeys, cleanCivSeed, cleanEndYear, cleanMapRef, cleanMark, cleanPlay, cleanPlayFrom, cleanBranches, cleanAdvance, advanceOf, sameAdvance, endYearOf, freeMarkId, resolveKey, type AdvanceSettings, type AiNameMark, type AuthorMark, type GeneratorChange, type Intervention, type PlayBranches, type TerrainOp, type Upheaval, type WorldEdits } from './edits';
+import { END_YEAR_MAX, GENERATOR_CHANGES, GENERATOR_VERSION, MARKS_MAX, MARK_REGIONS_TOTAL, NAME_MAX, aiNameKeys, cleanCivSeed, cleanEndYear, cleanMapRef, cleanMark, cleanPlay, cleanPlayFrom, cleanBranches, branchPlay, cleanAdvance, advanceOf, sameAdvance, endYearOf, freeMarkId, resolveKey, type AdvanceSettings, type AiNameMark, type AuthorMark, type GeneratorChange, type Intervention, type PlayBranches, type TerrainOp, type Upheaval, type WorldEdits } from './edits';
 import type { Civ } from './civ/types';
 import { TERRAIN_MAX_OPS, UPHEAVALS_MAX, UPHEAVAL_KINDS, UPHEAVAL_OPS_MAX, cleanTerrainOp, cleanUpheaval } from './terrainEdits';
 import { SKETCH_MAX_STROKES, cleanSketch, cleanSketchStroke, type SketchEdit } from './sketch';
@@ -506,7 +506,7 @@ export function worldKey(params: WorldParams): string {
     .join('&');
 }
 
-/** 改了几处:改名条数 + 干预条数 + 地形修改处数 + 草图(画了算一处)+ 地形大事件数 + 作者标记个数 + 改过的旗面数 + 作者的人物个数 + 地名风格、推演年数、拓荒、起源、文明种子、纪年、月份、逐年推演进度(各算一处)*/
+/** 改了几处:改名条数 + 干预条数 + 地形修改处数 + 草图(画了算一处)+ 地形大事件数 + 作者标记个数 + 改过的旗面数 + 作者的人物个数 + 地名风格、推演年数、拓荒、起源、文明种子、纪年、月份、逐年推演进度(各算一处)+ 逐年推演另开的几支(每支一处)*/
 export function editCount(edits: WorldEdits): number {
   return (
     Object.keys(edits.names).length +
@@ -524,7 +524,8 @@ export function editCount(edits: WorldEdits): number {
     (cleanCivSeed(edits.civSeed) !== undefined ? 1 : 0) +
     (cleanEra(edits.era) ? 1 : 0) +
     (cleanMonths(edits.months) !== undefined ? 1 : 0) +
-    (cleanPlay(edits.play) ? 1 : 0)
+    (cleanPlay(edits.play) ? 1 : 0) +
+    (cleanBranches(edits.branches, edits.play)?.list.length ?? 0)
   );
 }
 
@@ -1152,6 +1153,15 @@ export async function decodeShare(hash: string): Promise<ParseResult> {
   return { ok: false, error: '链接里的数据不是「文明与地图」的世界(可能被改动过),请让对方重新复制一次链接' };
 }
 
+/** 逐年推演的每一支(连当前这一支)完整的进度和起演那年,写成字符串(比较用;名字、编号不算) */
+function branchKeys(edits: WorldEdits): string[] {
+  const cur = cleanPlay(edits.play);
+  if (!cur) return [];
+  const key = (p: { year: number; commands: Intervention[] }, from: number) => JSON.stringify([p.year, p.commands, from]);
+  const list = cleanBranches(edits.branches, cur)?.list ?? [];
+  return [key(cur, cleanPlayFrom(edits.playFrom, cur) ?? 0), ...list.map((b) => key(branchPlay(cur, b), b.playFrom ?? 0))];
+}
+
 /**
  * 换成 incoming 的修改,会丢掉 local 里的几处:改名(同一个键 incoming 没有或名字不同)、干预(incoming 里没有的)、
  * 世界名(两边都起了名、名字不同);以后加的字段(地形修改……)按"数组的项 / 对象的键"逐个比
@@ -1159,6 +1169,8 @@ export async function decodeShare(hash: string): Promise<ParseResult> {
 export function editsLost(local: SaveFile, incoming: SaveFile): number {
   const L = local.edits as unknown as Record<string, unknown>;
   const I = incoming.edits as unknown as Record<string, unknown>;
+  // 逐年推演另开过支(哪一边都算):进度和另开的几支一起按"每一支完整的进度"比,不管哪一支是当前的
+  const forked = !!(cleanBranches(local.edits.branches, local.edits.play) || cleanBranches(incoming.edits.branches, incoming.edits.play));
   let n = 0;
   for (const [k, lv] of Object.entries(L)) {
     // AI 起名的记号跟着改名走,丢没丢已经按改名算过了;用的哪张地图只是记录(第一次推完才补上校验),不算修改
@@ -1190,11 +1202,10 @@ export function editsLost(local: SaveFile, incoming: SaveFile): number {
       if (!sameAdvance(lv, iv)) n++;
       continue;
     }
-    if (k === 'playFrom') continue;
-    // 支线:当前这一支已经按进度算过了,另开的几支逐支比(当前这一支的名字、编号不算)
-    if (k === 'branches') {
-      const has = new Set((cleanBranches(iv, I.play)?.list ?? []).map((b) => JSON.stringify(b)));
-      n += (cleanBranches(lv, L.play)?.list ?? []).filter((b) => !has.has(JSON.stringify(b))).length;
+    if (k === 'playFrom' || k === 'branches') continue;
+    if (k === 'play' && forked) {
+      const has = new Set(branchKeys(incoming.edits));
+      n += branchKeys(local.edits).filter((x) => !has.has(x)).length;
       continue;
     }
     if (Array.isArray(lv)) {

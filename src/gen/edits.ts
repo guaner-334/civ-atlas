@@ -1515,6 +1515,11 @@ function cleanBranch(x: unknown, cur: PlayState): PlayBranch | null {
   };
 }
 
+/** 一支完整的进度(见文件头"支线"):当前这一支(cur)命令串里早于 from 的几条 + 这一支自己的 */
+export function branchPlay(cur: PlayState, b: Pick<PlayBranch, 'from' | 'year' | 'commands'>): PlayState {
+  return { year: b.year, commands: [...cur.commands.filter((v) => v.from < b.from), ...b.commands] };
+}
+
 /**
  * 支线的清理(读档、存档前用;见文件头"支线"):play 不合格 = undefined;编号不合格、重复的换成最大的加一(按先后);
  * 不合格的那一支去掉;list 是空的、当前这一支没起名、编号是 1 = undefined(不写)。全都合格时返回原对象
