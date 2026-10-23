@@ -67,7 +67,7 @@
  * | `found`   | 立国     | region = 州                       | 这一年年初以这州的城为国都立一个新国家(州里没城就先建城;民族 = 当地民族;州原来有主的,算从原主分出来) | name:国名(国名词根,同改名) |
  * | `move`    | 迁都     | a = 国家,city = 城                | 这一年年初迁都到这座城(城要在 a 的国土里、没被毁) | —                            |
  * | `halt`    | 不许扩张 | a = 国家                          | 从这一年起不进无主的州、不主动宣战、不援盟、不并小国;那一刻它挑起的战争当即议和。被打时照常防守、反攻夺回自己的州 | until:到这一年止(不含;不给 = 一直) |
- * | `crown`   | 即位     | a = 国家,char = 作者人物的编号,born = 他的生年,leanings = 他的倾向 | 这一年年初作者的人物成为这国君主:此刻在位的那位让位,他按自己的倾向在位;他下台后照常有人继位(这国那年已亡 / 他还没出生 = 不生效) | until:这一年年初下台(不含;不给 = 按寻常君主的在位年数,到 88 岁为止,至少一年) |
+ * | `crown`   | 即位     | a = 国家,char = 作者人物的编号,born = 他的生年,leanings = 他的倾向 | 这一年年初作者的人物成为这国君主:此刻在位的那位让位,他按自己的倾向在位;他下台后照常有人继位(这国那年已亡 / 他还没出生 = 不生效) | until:这一年年初下台(不含;不给 = 按寻常君主的在位年数,到 88 岁为止,至少一年);abdicate: true = until 是作者填的退位年份(推演不看,只管说法:没有 = 到卒年) |
  *
  * 即位(crown)的几样字段都抄进干预,不在推演时去读人物卡:"种子 + 干预串"自己就推得出同一个世界(读档、换设备都一样)。
  * char 是作者人物的编号(AuthorCharacter.id,1–1e9 的整数);born、until 是年份(同 from 的清理);
@@ -404,7 +404,7 @@ export type Intervention =
   | { kind: 'found'; region: string; from: number; name?: string }
   | { kind: 'move'; a: string; city: string; from: number }
   | { kind: 'halt'; a: string; from: number; until?: number }
-  | { kind: 'crown'; a: string; char: number; from: number; born: number; until?: number; leanings: RulerLeanings };
+  | { kind: 'crown'; a: string; char: number; from: number; born: number; until?: number; abdicate?: true; leanings: RulerLeanings };
 
 /** 地形修改的种类(见文件头"地形修改"的表) */
 export type TerrainKind =
@@ -1320,7 +1320,7 @@ export function cleanIntervention(x: unknown): Intervention | null {
       if (typeof char !== 'number' || !Number.isInteger(char) || char < 1 || char > CROWN_CHAR_MAX || born === null) return null;
       const until = untilOf();
       const leanings = cleanLeanings(o.leanings);
-      v = until !== null ? { kind, a, char, from, born, until, leanings } : { kind, a, char, from, born, leanings };
+      v = until !== null ? (o.abdicate === true ? { kind, a, char, from, born, until, abdicate: true, leanings } : { kind, a, char, from, born, until, leanings }) : { kind, a, char, from, born, leanings };
     } else {
       if (!isPolityKey(o.b) || o.b === a) return null;
       if (kind === 'declare') v = { kind, a, b: o.b, from };

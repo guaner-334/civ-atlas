@@ -310,7 +310,7 @@ export function PeoplePage({ civ, data }: { civ: Civ | null; data: { world: Worl
       </div>
       {tree ? (
         <div className="chron-list lg-box">
-          <PeopleLineage civ={civ} polity={polity!} dynasty={view.dynasty} focus={view.focus} year={year} />
+          <PeopleLineage civ={civ} polity={polity!} dynasty={view.dynasty} focus={view.focus} year={year} place={data} />
         </div>
       ) : (
       <div className="chron-list" ref={listRef}>

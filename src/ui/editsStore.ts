@@ -852,10 +852,11 @@ export function restoreMark(m: AuthorMark, at: number): number {
 /** 这次打开以后删掉过的人物编号:新人物不用(放回去时还能用原编号,撤销、亲友都对得上) */
 const retiredCharacterIds = new Set<number>();
 
-/** 把人物换成 list(空 = 去掉这个字段),记一步 */
-function commitCharacters(list: AuthorCharacter[]) {
+/** 把人物换成 list(空 = 去掉这个字段),记一步;ivs = 干预列表一起换(改 / 删人物时他的即位跟着改,只记一步、只重推一次)。返回改没改 */
+function commitCharacters(list: AuthorCharacter[], ivs?: Intervention[]): boolean {
   const { characters: _, ...rest } = state;
-  commitEdits(list.length ? { ...rest, characters: list } : rest);
+  const next = ivs ? { ...rest, interventions: ivs } : rest;
+  return commitEdits(list.length ? { ...next, characters: list } : next);
 }
 
 /** 加一个人物(清理过的;编号按用过的最大的 + 1 重新给,见 nextCharacterId)。返回新人物的编号;不合格、已经有 CHARACTERS_MAX 个 = −1 */
@@ -868,39 +869,51 @@ export function addCharacter(c: Omit<AuthorCharacter, 'id'>): number {
   return id;
 }
 
-/** 改一个人物(整个换成 c,编号不变;找不到、不合格、没变 = 不动)。返回改没改 */
-export function updateCharacter(c: AuthorCharacter): boolean {
+/**
+ * 改一个人物(整个换成 c,编号不变;找不到、不合格、没变 = 不动)。返回改没改。
+ * ivs = 干预列表一起换成这个(他的即位跟着改:crownInfo.ts 的 crownEditAsk);改历史被拦下 = 都不改
+ */
+export function updateCharacter(c: AuthorCharacter, ivs?: Intervention[]): boolean {
   const list = state.characters ?? [];
   const i = list.findIndex((x) => x.id === c.id);
   const x = cleanCharacter(c);
-  if (i < 0 || !x || sameCharacter(x, list[i])) return false;
-  commitCharacters(list.map((y, j) => (j === i ? x : y)));
-  return true;
+  if (i < 0 || !x || (!ivs && sameCharacter(x, list[i]))) return false;
+  return commitCharacters(
+    list.map((y, j) => (j === i ? x : y)),
+    ivs,
+  );
 }
 
-/** 删一个人物(找不到 = 不动;别的人物亲友里的他留着,界面上不列)。返回删掉的那个 */
-export function removeCharacter(id: number): AuthorCharacter | null {
+/** 删一个人物(找不到 = 不动;别的人物亲友里的他留着,界面上不列)。返回删掉的那个;ivs = 干预列表一起换(连他的即位一起去掉) */
+export function removeCharacter(id: number, ivs?: Intervention[]): AuthorCharacter | null {
   const list = state.characters ?? [];
   const c = list.find((x) => x.id === id);
   if (!c) return null;
+  if (!commitCharacters(
+    list.filter((x) => x !== c),
+    ivs,
+  ))
+    return null;
   retiredCharacterIds.add(c.id);
-  commitCharacters(list.filter((x) => x !== c));
   return c;
 }
 
-/** 把删掉的人物放回去(删除提示条上的"撤销"):编号已经被占了 = 换一个新编号;at = 放回列表里的位置。返回编号,放不回去 = −1 */
-export function restoreCharacter(c: AuthorCharacter, at: number): number {
+/**
+ * 把删掉的人物放回去(删除提示条上的"撤销"):编号已经被占了 = 换一个新编号;at = 放回列表里的位置。返回编号,放不回去 = −1。
+ * ivs = 干预列表一起换(连即位一起去掉的,即位放回去)
+ */
+export function restoreCharacter(c: AuthorCharacter, at: number, ivs?: Intervention[]): number {
   const list = state.characters ?? [];
   const same = list.find((x) => x.id === c.id);
-  if (same && sameCharacter(same, c)) return c.id;
+  if (same && sameCharacter(same, c)) return !ivs || commitCharacters(list, ivs) ? c.id : -1;
   if (list.length >= CHARACTERS_MAX) return -1;
   const id = same ? nextCharacterId(list, retiredCharacterIds) : c.id;
   const x = cleanCharacter({ ...c, id });
   if (!x) return -1;
   const next = list.slice();
   next.splice(Math.min(Math.max(0, at), next.length), 0, x);
-  commitCharacters(next);
-  return id;
+  // 换了新编号:即位里记的是原来的编号,对不上了,不放回去
+  return commitCharacters(next, id === c.id ? ivs : undefined) ? id : -1;
 }
 
 /** 换了新世界:修改一律作废 */

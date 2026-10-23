@@ -5,15 +5,18 @@
  * - 一条即位的说法(单子、「我的干预」、提示条):退位 / 到卒年 / 没写卒年
  * - 人物卡上他的即位:待推演 / 下一步生效、生效了、没生效(写原因)
  * - 改朝换代以后新朝的称呼:东方"国号大辰",西幻"卡诺王朝"
+ * - 改人物的卒年、生年、性格,删人物时问的那一句(一起改 / 只改人物卡;连即位一起去掉 / 只删人物);世系图里他那一棵、接他位那一棵上面写什么
  */
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
 import { ownersAt } from '../src/gen/civ/timeline';
 import { polityName } from '../src/gen/civ/growth';
-import { foundedPolityKey, polityKey, regionKey, resolveKey, type Intervention } from '../src/gen/edits';
+import { cleanIntervention, foundedPolityKey, polityKey, regionKey, resolveKey, type Intervention } from '../src/gen/edits';
 import { CHAR_LEANING_DEFAULT, characterLeanings, cleanCharacter } from '../src/gen/characters';
-import { alivePolities, characterCrowns, crownDoneText, crownLine, newReignName } from '../src/ui/crownInfo';
+import { alivePolities, characterCrowns, crownDeleteAsk, crownDoneText, crownEditAsk, crownLine, newReignName } from '../src/ui/crownInfo';
+import { peopleIndex } from '../src/gen/civ/peopleInfo';
+import { dynastyRows, layoutDynasty, lineageText, treeLabel } from '../src/gen/civ/lineageInfo';
 import type { Pending } from '../src/ui/pendingStore';
 
 const seed = 7;
@@ -74,10 +77,21 @@ describe('让作者的人物即位 · 性格', () => {
 
 describe('让作者的人物即位 · 说法', () => {
   it('填了退位年份 / 到卒年 / 人物没写卒年', () => {
-    expect(crownLine('林小满', '有桑皇朝', 1530, 1541, undefined)).toBe('林小满即有桑皇朝君位，1530 年退位');
-    expect(crownLine('林小满', '有桑皇朝', 1541, 1541, undefined)).toBe('林小满即有桑皇朝君位，到 1541 年卒');
-    expect(crownLine('林小满', '有桑皇朝', undefined, undefined, undefined)).toBe('林小满即有桑皇朝君位');
+    expect(crownLine('林小满', '有桑皇朝', { until: 1530, abdicate: true }, 1541, undefined)).toBe('林小满即有桑皇朝君位，1530 年退位');
+    expect(crownLine('林小满', '有桑皇朝', { until: 1541 }, 1541, undefined)).toBe('林小满即有桑皇朝君位，到 1541 年卒');
+    expect(crownLine('林小满', '有桑皇朝', {}, undefined, undefined)).toBe('林小满即有桑皇朝君位');
+    // 填了退位年份,后来把卒年改成同一年:照旧是"退位"(以前的存档没有 abdicate:和卒年一样 = 到卒年)
+    expect(crownLine('林小满', '有桑皇朝', { until: 1530, abdicate: true }, 1530, undefined)).toBe('林小满即有桑皇朝君位，1530 年退位');
+    expect(crownLine('林小满', '有桑皇朝', { until: 1530 }, 1541, undefined)).toBe('林小满即有桑皇朝君位，1530 年退位');
   });
+
+  it('干预里的 abdicate:有下台年份才留,只认 true', () => {
+    const k = polityKey(base(), 2);
+    const v = crown(k, 1500, { until: 1530, abdicate: true });
+    expect(cleanIntervention(v)).toBe(v);
+    expect(cleanIntervention({ ...v, until: undefined })).toEqual(crown(k, 1500));
+    expect(cleanIntervention({ ...v, abdicate: 1 })).toEqual(crown(k, 1500, { until: 1530 }));
+  }, 120_000);
 
   it('改朝换代以后新朝的称呼:东方写国号简称,西幻写王朝;没起名 = 空串', () => {
     const civ = base();
@@ -126,5 +140,87 @@ describe('让作者的人物即位 · 人物卡上他的即位', () => {
     const f = crownDoneText(civ, bad, 1, chars, undefined);
     expect(f.ok).toBe(false);
     expect(f.text.startsWith(`苏晚没能即位：第 ${T + 10} 年`)).toBe(true);
+  }, 120_000);
+});
+
+describe('让作者的人物即位 · 改人物、删人物时问一句;世系图', () => {
+  // 种子 7:林小满 1500 年即有桑皇朝(第 2 国)君位,填了 1530 年退位;卒年 1541
+  const T = 1500;
+  const LIN = { id: 1, name: '林小满', born: 1468, died: 1541, color: 'red' as const, leanings: LEAN };
+  let made: { civ: Civ; ivs: Intervention[]; A: string } | null = null;
+  const setup = () => {
+    if (made) return made;
+    const key = polityKey(base(), 2);
+    const ivs: Intervention[] = [crown(key, T, { born: 1468, until: 1530, abdicate: true })];
+    const civ = generateCiv(world(), { interventions: ivs });
+    return (made = { civ, ivs, A: polityName(civ.polities[2], T) });
+  };
+
+  it('卒年改得比退位那年早:默认一起改(到卒年下台),只改人物卡照旧当到退位那年', () => {
+    const { civ, ivs, A } = setup();
+    const ask = crownEditAsk(civ, ivs, LIN, { ...LIN, died: 1525 }, undefined)!;
+    expect(ask.title).toBe('要一起改他的即位吗？');
+    expect(ask.lead).toBe(`林小满当过${A}的君主（1500 年即位，1530 年退位）。卒年改成 1525 年，比退位那年早。`);
+    expect(ask.yes).toEqual(['一起改：到 1525 年卒时下台', '从第 1500 年起重新推演；之后照常有人继位']);
+    expect(ask.no).toEqual(['只改人物卡', '推演里他照旧当到 1530 年，和卒年对不上']);
+    expect(ask.ivs).toEqual([crown(polityKey(civ, 2), T, { born: 1468, until: 1525 })]);
+    expect(crownLine('林小满', A, ask.ivs[0] as CrownIv, 1525, undefined)).toBe(`林小满即${A}君位，到 1525 年卒`);
+    // 卒年改晚了:填的退位年份照旧,不用问;只改了名字、身份:不用问
+    expect(crownEditAsk(civ, ivs, LIN, { ...LIN, died: 1560 }, undefined)).toBeNull();
+    expect(crownEditAsk(civ, ivs, LIN, { ...LIN, name: '林大满', role: '边将' }, undefined)).toBeNull();
+    // 填了 1530 年退位,卒年改成 1530:不用问,说法照旧是退位
+    expect(crownEditAsk(civ, ivs, LIN, { ...LIN, died: 1530 }, undefined)).toBeNull();
+    expect(crownLine('林小满', A, ivs[0] as CrownIv, 1530, undefined)).toBe(`林小满即${A}君位，1530 年退位`);
+  }, 120_000);
+
+  it('到卒年的即位跟着新卒年;卒年早到即位以前 = 去掉这条;生年、性格照新的抄进去', () => {
+    const { civ, ivs } = setup();
+    // 到卒年(没填退位年份):这份历史要按它推
+    const { abdicate: _, ...v0 } = ivs[0] as CrownIv;
+    const toDeath: Intervention[] = [{ ...v0, until: 1541 }];
+    const civ2 = generateCiv(world(), { interventions: toDeath });
+    const later = crownEditAsk(civ2, toDeath, LIN, { ...LIN, died: 1550 }, undefined)!;
+    expect((later.ivs[0] as CrownIv).until).toBe(1550);
+    expect(later.yes[0]).toBe('一起改：到 1550 年卒时下台');
+    expect(later.lead.endsWith('（1500 年即位，到 1541 年卒）。卒年改成 1550 年。')).toBe(true);
+    const gone = crownEditAsk(civ, ivs, LIN, { ...LIN, died: 1490 }, undefined)!;
+    expect(gone.ivs).toEqual([]);
+    expect(gone.yes[0]).toBe('一起改：去掉这条即位');
+    expect(gone.lead.endsWith('卒年改成 1490 年，在即位那年之前。')).toBe(true);
+    const lean = { expand: 10, war: 20, develop: 30, trade: 40 };
+    const both = crownEditAsk(civ, ivs, LIN, { ...LIN, born: 1470, leanings: lean }, undefined)!;
+    expect(both.ivs[0]).toMatchObject({ born: 1470, leanings: lean, until: 1530, abdicate: true });
+    expect(both.yes).toEqual(['一起改', '从第 1500 年起重新推演；推演里他的年纪跟着改']);
+    expect(both.no[1]).toBe('推演里他的年纪照旧，和生年对不上');
+    expect(crownEditAsk(civ, ivs, LIN, { ...LIN, leanings: lean }, undefined)!.no[1]).toBe('推演里他照旧按原来的性格行事');
+    // 别人的即位不动
+    expect(crownEditAsk(civ, ivs, { ...LIN, id: 2 }, { ...LIN, id: 2, died: 1490 }, undefined)).toBeNull();
+  }, 120_000);
+
+  it('删当过君主的人物:问连即位一起去掉还是只删人物;没当过的不问', () => {
+    const { civ, ivs, A } = setup();
+    const ask = crownDeleteAsk(civ, ivs, LIN, undefined)!;
+    expect(ask.title).toBe('删除人物「林小满」');
+    expect(ask.lead).toBe(`他当过${A}的君主（1500–1530 年）。`);
+    expect(ask.yes).toEqual(['连他的即位一起去掉', `从第 1500 年起重新推演，${A}照原来的历史走`]);
+    expect(ask.no).toEqual(['只删人物，君位留着', '推演里那位君主改叫「作者的人物」，历史不变']);
+    expect(ask.ivs).toEqual([]);
+    expect(ask.done).toBe('已删除人物「林小满」和他的即位');
+    expect(crownDeleteAsk(civ, ivs, { ...LIN, id: 2 }, undefined)).toBeNull();
+  }, 120_000);
+
+  it('世系图:他单独一棵写"作者立的君主",接他位的那一棵写"继他之位"', () => {
+    const { civ } = setup();
+    const me = peopleIndex(civ).rulers[2].find((r) => r.author === 1)!;
+    expect(me).toBeTruthy();
+    const row = dynastyRows(civ, 2).find((r) => r.rulers.includes(me))!;
+    const trees = layoutDynasty(civ, row);
+    const i = trees.findIndex((t) => t.nodes.some((n) => n.p === me));
+    expect(treeLabel(row, trees, i)).toBe(i === 0 ? '' : '作者立的君主');
+    const next = row.rulers[row.rulers.indexOf(me) + 1];
+    const j = trees.findIndex((t) => t.nodes.some((n) => n.p === next));
+    if (j === i + 1) expect(treeLabel(row, trees, j)).toBe('继他之位');
+    expect(treeLabel(row, trees, 0)).toBe('');
+    expect(lineageText(civ, 2)).toContain('作者立的君主');
   }, 120_000);
 });

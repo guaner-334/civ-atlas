@@ -6,7 +6,8 @@
  *         / "大景丞相，2501–2537 年在朝" / "大景宗室，2428–2467"(没即位的宗室:世系图里补上的父辈)
  *   按钮  即位那年 / 出征那年 / 入仕那年(主操作:时间轴跳过去;宗室换成「世系图」)、编年史(这国的编年史,滚到他在台上那段)、
  *         复制生平(纯文字,写设定用;带上「生平」那一段)、更多(加一个和他有关的作者人物:亲友里先填上他)
- *   概况  君主:事迹(名人才有)、国家、生卒、在位、前任、继任(后面的小字是亲属,和编年史的"其子 / 其侄"同一个算法:按世系)、
+ *   概况  君主:事迹(名人才有)、国家、生卒、在位、前任、继任(后面的小字是亲属,和编年史的"其子 / 其侄"同一个算法:按世系;
+ *         作者立的君主:名字前面是作者人物的圆头像,小字写「作者的人物」,点了开作者的人物卡;让位给他的,结局写"让位 给某某")、
  *         父亲、子嗣(世系图里有的人,没即位的写"未即位")、结局、亲征、将领(在位时本国领兵的)、名臣(在位时在朝的);
  *         右上「世系图」打开这国的世系图,停在他那一朝、圈出他。共和国写"在任""执政",没有父亲、子嗣、世系图
  *         将领:事迹、国家、字号、籍贯、生卒、官职、历任、领兵(伐谁 / 抗谁)、效力(那几年在位的君主)、对手(同一场仗对面的统帅)、结局
@@ -30,11 +31,12 @@ import { personKey } from '../gen/characters';
 import { personPortrait, portraitMood } from '../gen/portrait';
 import { PortraitView } from './Portrait';
 import { openLineage, openOverview } from './overviewStore';
-import { useEdits } from './editsStore';
+import { getEdits, useEdits } from './editsStore';
 import { eraText, spaced, yearAt, yearShort, yearSpan, yearSpanAt, type Era } from '../gen/era';
 import { newCharacterDraft } from './characterStore';
 import { charactersOfPerson } from './characterInfo';
-import { CharacterRefs } from './CharacterPanel';
+import { CharAvatar, CharacterRefs } from './CharacterPanel';
+import type { AuthorCharacter } from '../gen/characters';
 import { MenuItem } from './PopMenu';
 import { Icon } from './icons';
 import { NameEdit } from './NameEdit';
@@ -452,19 +454,25 @@ function rulerLines(civ: Civ, x: Person, out: Line[], foes: Foe[], era: Era | un
     out.push({ k: consul ? '在任' : '在位', node: t, text: t });
   }
   const { prev, next } = rulerNeighbors(civ, x);
-  // 亲属:同一朝、继位的才写(和编年史的"其子 / 其侄"一致,连不上的是"宗室");换了朝代写"前朝 / 新朝"
+  // 亲属:同一朝、继位的才写(和编年史的"其子 / 其侄"一致,连不上的是"宗室");换了朝代写"前朝 / 新朝";作者立的君主写"作者的人物"
   const sameDyn = (a: Person, b: Person) => (a.dynasty ?? 0) === (b.dynasty ?? 0);
   if (prev) {
-    const note = consul ? '' : !sameDyn(prev, x) ? '前朝' : x.rise === 'heir' ? kinOf(civ, x, prev) || '宗室' : '';
-    out.push(personRow('前任', civ, prev, note));
+    const ac = authorOf(prev);
+    const note = ac ? '作者的人物' : consul ? '' : !sameDyn(prev, x) ? '前朝' : x.rise === 'heir' ? kinOf(civ, x, prev) || '宗室' : '';
+    out.push(personRow('前任', civ, prev, note, ac));
   }
   if (next) {
-    const note = consul ? '' : !sameDyn(x, next) ? '新朝' : next.rise === 'heir' ? kinOf(civ, x, next) || '宗室' : '';
-    out.push(personRow('继任', civ, next, note));
+    const ac = authorOf(next);
+    const note = ac ? '作者的人物' : consul ? '' : !sameDyn(x, next) ? '新朝' : next.rise === 'heir' ? kinOf(civ, x, next) || '宗室' : '';
+    out.push(personRow('继任', civ, next, note, ac));
   }
   if (!consul) kinLines(civ, x, out);
   const fate = rulerFateWord(civ, x);
-  if (fate) {
+  if (fate && x.fate === 'yielded' && next) {
+    // 让位给作者立的君主:后面写给谁
+    const to = `给${personName(civ, next)}`;
+    out.push({ k: '结局', node: <>{fate}<em className="cp-num-note">{to}</em></>, text: fate + to });
+  } else if (fate) {
     // 失位以后又活了些年(被废、出奔……)的,写上卒年
     const later = x.died !== undefined && x.until !== undefined && x.died - x.until >= 1 ? `，${yearAt(x.died, era)}卒` : '';
     out.push({ k: '结局', node: fate + later, text: fate + later });
@@ -500,13 +508,19 @@ function generalLines(civ: Civ, x: Person, out: Line[], foes: Foe[], era: Era | 
   if (fate) out.push({ k: '结局', node: fate, text: fate });
 }
 
-/** 前任 / 继任:人名能点,后面小字写亲属 */
-function personRow(k: string, civ: Civ, y: Person, note: string): Line {
+/** 推演里作者立的君主:作者的人物卡(删掉了 = null) */
+function authorOf(p: Person): AuthorCharacter | null {
+  return p.author !== undefined ? (getEdits().characters?.find((c) => c.id === p.author) ?? null) : null;
+}
+
+/** 前任 / 继任:人名能点,后面小字写亲属;ac = 作者立的君主,名字前面放他的圆头像 */
+function personRow(k: string, civ: Civ, y: Person, note: string, ac?: AuthorCharacter | null): Line {
   const n = personName(civ, y);
   return {
     k,
     node: (
       <>
+        {ac && <CharAvatar c={ac} size={18} cls="cr-av" />}
         <Link to={{ kind: 'person', id: y.id }}>{n}</Link>
         {note && <em className="cp-num-note">{note}</em>}
       </>
