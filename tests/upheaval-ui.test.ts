@@ -5,6 +5,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { addUpheaval, clearEdits, getEdits, removeUpheaval } from '../src/ui/editsStore';
 import { redoLastEdit, undoLastEdit } from '../src/ui/undo';
+import { getCivTime, setCivTime } from '../src/ui/civView';
 import { UPHEAVALS_MAX, UPHEAVAL_OPS_MAX } from '../src/gen/terrainEdits';
 import {
   UP_SIZE,
@@ -16,6 +17,7 @@ import {
   setUpKind,
   setUpRunner,
   setUpSize,
+  timelineAfterResim,
   undoUpOp,
   upCancel,
   upClick,
@@ -188,6 +190,22 @@ describe('地形大事 · 卡片和地图上的笔', () => {
     } finally {
       setUpRunner(null);
     }
+  });
+
+  it('重推完:卡片开着时时间轴不动、停下播放(卡片挪到别的年份也停在那一年);卡片关着时从生效年份接着放', () => {
+    // 加完第 1000 年那件,卡片还在 1000 年
+    setCivTime({ year: 1000, playing: false, story: false });
+    timelineAfterResim(1000);
+    expect(getCivTime()).toMatchObject({ year: 1000, playing: false });
+    // 加完以后把卡片挪到 1500 年放另一座(期间点过播放也一样停下):重推完留在 1500 年,不跳回 1000 年
+    setCivTime({ year: 1500, playing: true });
+    timelineAfterResim(1000);
+    expect(getCivTime()).toMatchObject({ year: 1500, playing: false });
+    // 卡片关着:跳到大事那一年按 1× 放
+    closeUpheaval();
+    timelineAfterResim(1000);
+    expect(getCivTime()).toMatchObject({ year: 1000, playing: true, speed: 1 });
+    setCivTime({ playing: false });
   });
 });
 

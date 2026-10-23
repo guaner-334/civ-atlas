@@ -101,7 +101,6 @@ import {
   useCivStory,
   getSelection,
   pausePlayback,
-  playFrom,
   prepareCivReplay,
   sameSelection,
   startAutoplay,
@@ -339,7 +338,7 @@ import { SourceLayer, beginImport, isImageFile, startImport, useImportOn, useSou
 import { NewWorldDialog, type NewWorldInit, type NewWorldMode, type NewWorldStart } from './NewWorldDialog';
 import { randomSeedValue, type HomeStart } from './homeStart';
 import { WORKER_URL } from './workerUrl';
-import { closeUpheaval, getUpUi, setUpRunner, takeUpPreview, undoUpOp, upCancel, upClick, upDown, upMove, upUp, upheavalName, useUpUi } from './upheavalStore';
+import { closeUpheaval, getUpUi, setUpRunner, takeUpPreview, timelineAfterResim, undoUpOp, upCancel, upClick, upDown, upMove, upUp, upheavalName, useUpUi } from './upheavalStore';
 import { UpheavalHint, UpheavalOverlay } from './UpheavalPanel';
 import { PendingTray } from './PendingTray';
 import { getPending, removePending, takePendingBatch } from './pendingStore';
@@ -1589,7 +1588,7 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
   }, [shownRaw]);
   /**
    * 重推好的文明换上去(阶段 4 干预):州、宜居度沿用原来那一份(地理没变;时间轴、地图按它认"还是同一个世界"),
-   * 选中的东西、编年史的国家筛选按稳定键换成新历史里的编号(指不到就取消),时间轴停在干预那一年
+   * 选中的东西、编年史的国家筛选按稳定键换成新历史里的编号(指不到就取消),时间轴从干预那一年接着放(地形大事卡片开着时不动)
    */
   const applyResim = (next: Civ, workerMs: number, eras: EraWorld[] | undefined, baseKey: string) => {
     const old = rawRef.current;
@@ -1608,7 +1607,8 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
     if (info) {
       info.workerMs = workerMs;
       info.arrived = performance.now() - info.t0;
-      if (!info.quiet) playFrom(Math.min(civ.endYear, Math.max(0, info.year)));
+      // 平常从生效年份起接着放;地形大事卡片开着时时间轴不动、停下播放(upheavalStore.ts 的 timelineAfterResim)
+      if (!info.quiet) timelineAfterResim(Math.min(civ.endYear, Math.max(0, info.year)));
       // 已生效(停 7 秒,带撤销)/ 已撤销(停 4 秒)
       const y = Math.max(0, Math.floor(info.year));
       // 年份照作者的纪年写:"从 1650 年起" / "从公元前 850 年起"

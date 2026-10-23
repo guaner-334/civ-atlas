@@ -10,7 +10,7 @@
  * - 1× = 每秒 20 年,4× = 每秒 80 年;推得比 3000 年久的世界,速度和"结束年份前 400 年"都按年数放大(60000 年 = 20 倍,
  *   timelineLayout.ts 的 timeScale)。"回放世界形成"放完地质接着放文明时(story),从第 0 年用 15 秒放完一遍,
  *   这时自动打开"民族"和"国家",顶部显示"人类登场 / 列国并起"的说明。
- * - 干预重推完,App 调 playFrom(生效年份) 从那一年接着放;选中国家等看详情时暂停(civView.ts 的 setSelection)。
+ * - 干预重推完从生效年份接着放(地形大事卡片开着时不动,upheavalStore.ts 的 timelineAfterResim);选中国家等看详情时暂停(civView.ts 的 setSelection)。
  * - 年份存在 civView.ts 里,地图(CivLayer)、图层弹层的民族图例和悬停信息(civDescribe)都读它。
  * - 刻度、菱形、"令"、悬停提示、拖动 / 点击在 TimelineMarks.tsx;播放头和进度按 CSS 变量 --p 画,播放时刻度不重新渲染。
  *   刻度用的纪事和编年史列出的一致:默认"大事",编年史切到"全部"或只看某国时,刻度跟着变。

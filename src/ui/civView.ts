@@ -207,7 +207,7 @@ export function bumpOnCivTime(r: { current: { ver: number } }): () => void {
   return time.subscribe(() => void r.current.ver++);
 }
 
-/** 从某一年起按 1× 播放(干预重推完,App 从生效年份接着放) */
+/** 从某一年起按 1× 播放(干预重推完从生效年份接着放,见 upheavalStore.ts 的 timelineAfterResim;自动播放) */
 export function playFrom(year: number) {
   time.set({ year: Math.max(0, year), playing: true, scrubbing: false, story: false, speed: 1 });
 }
