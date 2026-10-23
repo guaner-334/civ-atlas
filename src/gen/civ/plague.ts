@@ -328,7 +328,8 @@ export function resumePlague(sim: CivSim, _world: World, civ: Civ, list: readonl
     const hit = new Uint8Array(R);
     // 起疫后第几年(已经过去的最后一年)
     const g = Math.floor(sim.now - t0 + 1e-9);
-    // 作者并进来的州(年份、州):起疫以后、第 g 年那一刻以后的接着往外传;正好在第 g 年(g ≥ 1)那一刻并进来的,那一刻传开时已经传过了
+    // 作者并进来的州(年份、州):最后一次传开(第 g 年那一刻)以后并进来的接着往外传 —— 同一刻的传开排在干预前面(sim.ts 的 earlyOrder),
+    // 正好在那一刻并进来的也算;更早并进来的,那一刻传开时已经传过了
     const merged = new Set<string>();
     for (const e of A) {
       if (e.kind !== 'intervene' || e.year < t0 || e.year > sim.now || e.b !== 2) continue;
@@ -342,7 +343,7 @@ export function resumePlague(sim: CivSim, _world: World, civ: Civ, list: readonl
         if (x.cause !== 'plague' || x.year < t0 || x.year > sim.now) continue;
         hit[s.region] = 1;
         const mine = merged.has(`${x.year}:${s.region}`);
-        if (mine ? x.year > t0 + g || (g === 0 && x.year === t0) : x.year === t0 + g) front.add(s.region);
+        if (mine ? x.year >= t0 + g : x.year === t0 + g) front.add(s.region);
       }
     }
     const fr = [...front].sort((a, b) => a - b);

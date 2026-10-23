@@ -336,6 +336,24 @@ describe.each([7, 2024])('新干预 · seed=%i', (seed) => {
     expect(ivLines(quake, T)[0].text).toMatch(/一带(地震|大水|大旱).+死者十之一二$/);
   }, 180_000);
 
+  it('瘟疫接连几年下:并进正在传的那一场(同一刻那一场也在往外传),从哪一刻接着推都和一口气推完一样', () => {
+    const w = world(seed);
+    const base = baseOf(seed);
+    const [pid, nb] = pairAt(base, T);
+    const city = (p: number) => settlementKey(base, capitalAt(base.polities[p], T));
+    const list: Intervention[] = [
+      { kind: 'disaster', type: 'plague', level: 3, from: T, city: city(pid) },
+      { kind: 'disaster', type: 'plague', level: 2, from: T + 1, city: city(nb) },
+      { kind: 'disaster', type: 'plague', level: 1, from: T + 2, city: city(pid) },
+    ];
+    const full = generateCiv(w, { interventions: list, endYear: T + 30 });
+    expect(full.annals.filter((e) => e.kind === 'intervene').map((e) => e.b)).toContain(2);
+    for (const from of [T, playStop(T + 1), T + 1, playStop(T + 2), T + 2, T + 3]) {
+      const head = generateCiv(w, { interventions: list, endYear: from });
+      same(continueCiv(w, head, { interventions: list, endYear: T + 30 }), full, `从 ${from} 接着推`);
+    }
+  }, 120_000);
+
   it('天灾:那座城已毁 / 那一带没人住 = 不生效(历史和不下一样,写原因)', () => {
     const w = world(seed);
     const base = baseOf(seed);
