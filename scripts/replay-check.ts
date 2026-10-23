@@ -673,7 +673,8 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
   if (!copied.startsWith('钦宗沈昀\n大霄皇帝') || !copied.includes('在位时：')) errs.push(`人物:复制生平不对(${copied.slice(0, 60)})`);
   if (
     leanRows !== 4 ||
-    !/^倾向 开拓\s*\d+ 更愿意开垦偏远贫瘠的土地 好战\s*\d+ 更容易发动战争且更难停止 发展\s*\d+ 更重视领地内的建设 重商\s*\d+ 偏向沿海/.test(leans) ||
+    // 那年在位的君主:倾向右上多一个「改」
+    !/^倾向 (?:改 )?开拓\s*\d+ 更愿意开垦偏远贫瘠的土地 好战\s*\d+ 更容易发动战争且更难停止 发展\s*\d+ 更重视领地内的建设 重商\s*\d+ 偏向沿海/.test(leans) ||
     !/\n倾向：开拓 \d+，好战 \d+，发展 \d+，重商 \d+\n/.test(copied)
   )
     errs.push(`人物:君主卡片的倾向不对(${leanRows} 行;${leans.slice(0, 80)};复制里 ${/倾向：.*/.exec(copied)?.[0]})`);
