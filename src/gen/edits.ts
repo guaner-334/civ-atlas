@@ -68,12 +68,18 @@
  * | `move`    | 迁都     | a = 国家,city = 城                | 这一年年初迁都到这座城(城要在 a 的国土里、没被毁) | —                            |
  * | `halt`    | 不许扩张 | a = 国家                          | 从这一年起不进无主的州、不主动宣战、不援盟、不并小国;那一刻它挑起的战争当即议和。被打时照常防守、反攻夺回自己的州 | until:到这一年止(不含;不给 = 一直) |
  * | `crown`   | 即位     | a = 国家,char = 作者人物的编号,born = 他的生年,leanings = 他的倾向 | 这一年年初作者的人物成为这国君主:此刻在位的那位让位,他按自己的倾向在位;他下台后照常有人继位(这国那年已亡 / 他还没出生 = 不生效) | until:这一年年初下台(不含;不给 = 按寻常君主的在位年数,到 88 岁为止,至少一年);abdicate: true = until 是作者填的退位年份(推演不看,只管说法:没有 = 到卒年) |
+ * | `policy`  | 方针     | a = 国家;war 打仗胆量、expand 开拓、coast 沿海(负 = 偏内陆)、peace 和谈底线(各 −50…50 的整数,不给 = 0 = 照君主的倾向);foes 仇国、friends 亲国(国家键,各最多 3 国);focus 发展重点(production / transport / information / administration / mobilization);preset 是一键选的哪一种(expand 扩张 / hold 守成 / trade 商贸 / peace 和平发展,只管说法) | 从这一年起这国照方针走,直到这国的下一条方针换掉它(什么都不给 = 罢方针,照君主的倾向;这国那年已亡 = 不生效) | — |
  *
  * 即位(crown)的几样字段都抄进干预,不在推演时去读人物卡:"种子 + 干预串"自己就推得出同一个世界(读档、换设备都一样)。
  * char 是作者人物的编号(AuthorCharacter.id,1–1e9 的整数);born、until 是年份(同 from 的清理);
  * leanings 是开拓 / 好战 / 发展 / 重商(expand / war / develop / trade)四项,各 0–100 的整数(取整夹回范围,缺的补 50)。
  * 推演里他从 from 那一刻的下一刻(1/256 年后)起按自己的倾向算 —— 同一刻里先发生的事照原来的君主算,接着推时才对得上
  * (和改朝换代的新君一样,见 civ/rulers.ts)。他在位时这国强制宣战(declare)的仗由他亲征。
+ *
+ * 方针(policy)加减在此刻在位君主的倾向上(civ/policy.ts):胆量加在好战上(管开战、亲征,也管打多久),开拓加在开拓上,沿海加在重商上,
+ * 和谈底线再加在"打多久、想拿几州、肯不肯称臣"用的好战上;各自夹回 0–100。仇国先打、不和它结盟;亲国不打、结盟先找它、它挨打时更肯出兵;
+ * 发展重点那一样能力长得快一些、别的略慢。推演里从 from 那一刻的下一刻(1/256 年后)起照新方针算,和即位一样(同一刻里先发生的事照旧)。
+ * 清理:滑条取整夹到 −50…50,0 去掉;亲、仇去重、去掉格式不对的和 a 自己,同时在两边的只算仇,各留前 3 个,空的去掉;preset、focus 不认识的去掉。
  *
  * 立国出来的新国家也有稳定键:`polity:c{州的治所地块}#{n}`(n = 新历史里这州之前立过几国;干预年份之前的历史不变,所以 n 是定的),
  * 和别的国家一样能改名、能被别的干预引用。
@@ -424,7 +430,20 @@ export const GENERATOR_CHANGES: Readonly<Record<number, { change: GeneratorChang
 };
 
 /** 干预的种类(见文件头的表) */
-export type InterventionKind = 'protect' | 'ally' | 'declare' | 'unity' | 'cede' | 'found' | 'move' | 'halt' | 'crown';
+export type InterventionKind = 'protect' | 'ally' | 'declare' | 'unity' | 'cede' | 'found' | 'move' | 'halt' | 'crown' | 'policy';
+
+/** 方针的几种现成的(一键选;各自把旋钮填成什么见 civ/policy.ts 的 POLICY_PRESETS) */
+export const POLICY_PRESETS_KEYS = ['expand', 'hold', 'trade', 'peace'] as const;
+export type PolicyPreset = (typeof POLICY_PRESETS_KEYS)[number];
+/** 方针的四个滑条(各 −POLICY_KNOB_MAX…+POLICY_KNOB_MAX 的整数,0 = 照君主的倾向不加不减) */
+export const POLICY_KNOBS = ['war', 'expand', 'coast', 'peace'] as const;
+export type PolicyKnob = (typeof POLICY_KNOBS)[number];
+export const POLICY_KNOB_MAX = 50;
+/** 方针的发展重点(发展度的前五种能力,次序同 civ/development.ts 的 CAPS) */
+export const POLICY_FOCI = ['production', 'transport', 'information', 'administration', 'mobilization'] as const;
+export type PolicyFocus = (typeof POLICY_FOCI)[number];
+/** 亲、仇各最多几国 */
+export const POLICY_PICK_MAX = 3;
 
 /** 一条干预(字段、年份语义见文件头的表;a、b 是国家的稳定键 `polity:…`,region 是州键 `region:…`,city 是城键 `settlement:…`) */
 export type Intervention =
@@ -436,7 +455,20 @@ export type Intervention =
   | { kind: 'found'; region: string; from: number; name?: string }
   | { kind: 'move'; a: string; city: string; from: number }
   | { kind: 'halt'; a: string; from: number; until?: number }
-  | { kind: 'crown'; a: string; char: number; from: number; born: number; until?: number; abdicate?: true; leanings: RulerLeanings };
+  | { kind: 'crown'; a: string; char: number; from: number; born: number; until?: number; abdicate?: true; leanings: RulerLeanings }
+  | {
+      kind: 'policy';
+      a: string;
+      from: number;
+      preset?: PolicyPreset;
+      war?: number;
+      expand?: number;
+      coast?: number;
+      peace?: number;
+      foes?: string[];
+      friends?: string[];
+      focus?: PolicyFocus;
+    };
 
 /** 地形修改的种类(见文件头"地形修改"的表) */
 export type TerrainKind =
@@ -1302,7 +1334,7 @@ function folkRenamed(civ: Civ, f: Faith, cultures: readonly Culture[]): string |
 /** 干预年份的上限(推演引擎能预约的最远时刻) */
 export const INTERVENTION_YEAR_MAX = 65535;
 
-const INTERVENTION_KINDS: readonly InterventionKind[] = ['protect', 'ally', 'declare', 'unity', 'cede', 'found', 'move', 'halt', 'crown'];
+const INTERVENTION_KINDS: readonly InterventionKind[] = ['protect', 'ally', 'declare', 'unity', 'cede', 'found', 'move', 'halt', 'crown', 'policy'];
 
 /** 即位(crown)的作者人物编号最大到几(和 characters.ts 的编号一样) */
 const CROWN_CHAR_MAX = 1e9;
@@ -1321,6 +1353,35 @@ function cleanLeanings(x: unknown): RulerLeanings {
   return same ? (o as unknown as RulerLeanings) : out;
 }
 
+/**
+ * 方针的亲、仇:国家键去重,去掉格式不对的、a 自己和 drop 里的(同时在亲、仇两边的只算仇),留前 POLICY_PICK_MAX 个;
+ * 空 = undefined。和原来一样时原样返回(同一个数组)
+ */
+function cleanPicks(x: unknown, a: string, drop: readonly string[] = []): string[] | undefined {
+  if (!Array.isArray(x)) return undefined;
+  const out: string[] = [];
+  for (const k of x) if (isPolityKey(k) && k !== a && !drop.includes(k) && !out.includes(k) && out.length < POLICY_PICK_MAX) out.push(k);
+  if (!out.length) return undefined;
+  return out.length === x.length && out.every((k, i) => k === x[i]) ? (x as string[]) : out;
+}
+
+/** 方针(policy):滑条取整夹到 ±POLICY_KNOB_MAX、0 去掉;亲仇见 cleanPicks;preset、focus 不认识的去掉(见文件头的表) */
+function cleanPolicy(o: Record<string, unknown>, a: string, from: number): Intervention {
+  const v: Extract<Intervention, { kind: 'policy' }> = { kind: 'policy', a, from };
+  if ((POLICY_PRESETS_KEYS as readonly unknown[]).includes(o.preset)) v.preset = o.preset as PolicyPreset;
+  for (const k of POLICY_KNOBS) {
+    const x = o[k];
+    const n = typeof x === 'number' && Number.isFinite(x) ? Math.min(POLICY_KNOB_MAX, Math.max(-POLICY_KNOB_MAX, Math.round(x))) : 0;
+    if (n !== 0) v[k] = n;
+  }
+  const foes = cleanPicks(o.foes, a);
+  if (foes) v.foes = foes;
+  const friends = cleanPicks(o.friends, a, foes);
+  if (friends) v.friends = friends;
+  if ((POLICY_FOCI as readonly unknown[]).includes(o.focus)) v.focus = o.focus as PolicyFocus;
+  return v;
+}
+
 /** 键的格式(新旧两种都认:`polity:c4567#0` / 旧的 `polity:r123#0`,见文件头"稳定键") */
 export const isPolityKey = (k: unknown): k is string => typeof k === 'string' && /^polity:(r-?\d{1,7}|c\d{1,7})#\d{1,5}$/.test(k);
 export const isRegionKey = (k: unknown): k is string => typeof k === 'string' && REGION_KEY.test(k);
@@ -1332,7 +1393,7 @@ export const yearOf = (y: unknown): number | null =>
 /**
  * 清理一份干预列表(推演前、读档时用):种类不认识、键的格式不对、年份不是有限数、两国是同一国的丢掉;
  * 年份取整、夹到 [0, INTERVENTION_YEAR_MAX];until 不晚于 from 的当作没给;立国的国名按改名的规矩清理(空 = 不给);
- * 划州的 permanent 只认 true;即位的 char 要是 1–1e9 的整数、born 要是有限数(按年份清理),四项倾向取整夹到 0–100、缺的补 50;
+ * 划州的 permanent 只认 true;即位的 char 要是 1–1e9 的整数、born 要是有限数(按年份清理),四项倾向取整夹到 0–100、缺的补 50;方针见 cleanPolicy;
  * 多余的字段去掉。全都合格时返回原数组(同一个对象)
  */
 export function cleanInterventions(list: readonly unknown[] | null | undefined): Intervention[] {
@@ -1383,6 +1444,8 @@ export function cleanIntervention(x: unknown): Intervention | null {
       const until = untilOf();
       const leanings = cleanLeanings(o.leanings);
       v = until !== null ? (o.abdicate === true ? { kind, a, char, from, born, until, abdicate: true, leanings } : { kind, a, char, from, born, until, leanings }) : { kind, a, char, from, born, leanings };
+    } else if (kind === 'policy') {
+      v = cleanPolicy(o, a, from);
     } else {
       if (!isPolityKey(o.b) || o.b === a) return null;
       if (kind === 'declare') v = { kind, a, b: o.b, from };

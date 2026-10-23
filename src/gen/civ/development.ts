@@ -28,6 +28,8 @@
  *     · 太平和城:进火药以后本州近年少战乱、有长到镇的城;
  *     · 地理:进工业以后要沿海(有港口)、有大河或是平原。
  *   - 动员不单独长:跟着生产和行政走(游牧民族另高一截)。
+ *   - 国家方针的发展重点(policy.ts):定了的国家治下各州,挑中的那一样自己长 × FOCUS_UP,别的 × FOCUS_DOWN;
+ *     挑动员的,动员的目标多 FOCUS_MOB。没有方针的国家不变。
  *   - 没人住的州不长;刚有人住的州带着邻居的本事来(取最高邻居的 SETTLE_CARRY)。
  *
  * **时代** = 生产、运输、信息、行政四样的"偏短板"平均(调和平均,见 eraLevel):整数部分是哪个时代,小数部分是走到这个时代的几成。
@@ -56,6 +58,7 @@ import { GROWTH_A, capitalAt, populationAt, ruralCapacity } from './growth';
 import { fexp, keyed, subSeed } from './rand';
 import { Ev, type CivSim } from './sim';
 import { grantSail, polityModelOf, type PolityModel } from './polities';
+import { FOCUS_DOWN, FOCUS_MOB, FOCUS_UP, focusIndex, segAt } from './policy';
 import { cultureModelOf } from './cultures';
 
 /** 物产(下标就是 Development.resources 里的第几样) */
@@ -559,6 +562,14 @@ function tick(sim: CivSim, d: DevModel, y: Year): void {
     const cap = S[capitalAt(q, Infinity)];
     if (cap && cap.region < R && ownP[cap.region] === p) capR[p] = cap.region;
   }
+  // 国家方针的发展重点(policy.ts):各国挑的是第几样能力(−1 = 没挑;没有方针的世界 = null,什么都不变)
+  let focus: Int8Array | null = null;
+  for (const [p, segs] of pm.policies) {
+    const f = focusIndex(segAt(segs, y));
+    if (f < 0) continue;
+    focus ??= new Int8Array(P).fill(-1);
+    focus[p] = f;
+  }
   const { adjStart, adj, adjKind } = reg;
   const drive = new Float64Array(4);
   const learn = new Float64Array(4);
@@ -639,10 +650,12 @@ function tick(sim: CivSim, d: DevModel, y: Year): void {
         return true;
       };
       const e = E[r];
+      const fc = focus && p >= 0 ? focus[p] : -1;
       for (let c = 0; c < 4; c++) {
         const v = cur[o + c];
         const lvl = Math.min(ERA_YEARS.length - 1, Math.floor(v));
         let grow = (drive[c] * peace) / ERA_YEARS[lvl];
+        if (fc >= 0) grow *= c === fc ? FOCUS_UP : FOCUS_DOWN;
         let got = learn[c];
         if (v > e + OVERSHOOT) grow *= OVERSHOOT_SLOW;
         if (v > e + OVERSHOOT_LEARN) got *= OVERSHOOT_SLOW;
@@ -657,7 +670,8 @@ function tick(sim: CivSim, d: DevModel, y: Year): void {
       }
       // 动员:跟着生产和行政走
       const nomad = cultures[ownC[r]]?.kind === 'nomad';
-      const target = 0.5 * (next[o + Cap.Production] + next[o + Cap.Administration]) + (nomad ? 0.7 : 0) + (polity ? 0.15 : 0);
+      let target = 0.5 * (next[o + Cap.Production] + next[o + Cap.Administration]) + (nomad ? 0.7 : 0) + (polity ? 0.15 : 0);
+      if (fc === Cap.Mobilization) target += FOCUS_MOB;
       const m = cur[o + Cap.Mobilization];
       next[o + Cap.Mobilization] = Math.min(LEVEL_MAX, m + (target - m) * Math.min(1, 0.01 * dt));
     }

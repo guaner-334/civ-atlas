@@ -76,6 +76,7 @@ const LEANING_BIAS: Record<'default' | 'nomad' | 'sea' | 'republic', RulerLeanin
  * - 好战:宣战的赔率 × e^(WAR_DECLARE·x好战);一场仗最多打多少年 × e^(WAR_LENGTH·x好战);想拿的州数 + round(WAR_GOAL·x好战);
  *   打得很惨时奉表称臣的机会 × e^(-WAR_SUE·x好战);亲征的机会 × (好战 - 50) / LEAD_SPAN(夹到 0–1)
  * - 发展:还不影响推演
+ * settle = 算"打多久、想拿几州、肯不肯称臣"用的好战(不给 = 好战本身;国家方针的和谈底线加在这上面,见 policy.ts)
  */
 const EXPAND_WORTH = 0.6;
 const TRADE_COAST = 0.5;
@@ -104,17 +105,19 @@ export interface LeaningEffect {
   lead: number;
 }
 
-export function leaningEffect(l: RulerLeanings): LeaningEffect {
+export function leaningEffect(l: RulerLeanings, settle = l.war): LeaningEffect {
   const e = (l.expand - 50) / 50;
   const w = (l.war - 50) / 50;
   const c = (l.trade - 50) / 50;
+  // 打多久、想拿几州、肯不肯称臣:寻常君主就是好战;方针的和谈底线另加在这一份上(policy.ts)
+  const s = (settle - 50) / 50;
   return {
     worth: fexp(-EXPAND_WORTH * e + TRADE_INLAND * c),
     coast: fexp(-EXPAND_WORTH * e - TRADE_COAST * c),
     declare: fexp(WAR_DECLARE * w),
-    war: fexp(WAR_LENGTH * w),
-    goal: Math.round(WAR_GOAL * w),
-    sue: fexp(-WAR_SUE * w),
+    war: fexp(WAR_LENGTH * s),
+    goal: Math.round(WAR_GOAL * s),
+    sue: fexp(-WAR_SUE * s),
     lead: Math.min(1, Math.max(0, (l.war - 50) / LEAD_SPAN)),
   };
 }

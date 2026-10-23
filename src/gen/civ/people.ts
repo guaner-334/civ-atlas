@@ -35,6 +35,7 @@ import { annexedRemnants, capitalAt, polityTierAt } from './growth';
 import { buildLineage } from './lineage';
 import { buildOfficials } from './officials';
 import { K_RULER, MAX_AGE, U_AGE, crownsFrom, leaningEffect, reignBook, rulerBase, rulerTags, type Crown } from './rulers';
+import { policiesFrom, policyEffect, segAt } from './policy';
 
 // ---- 调参 ----
 // 即位的年纪、在位年数、执政官任期、一生最多多少岁在 rulers.ts(推演里也要知道谁在位)
@@ -204,6 +205,8 @@ export function buildPeople(civ: PeopleInput): Person[] {
   // 作者立的君主(干预"即位"):和推演里同一份,在位表照它排(rulers.ts);作者强制宣战打起来的仗
   const crowns = crownsFrom(civ.annals, civ.interventions);
   const forced = forcedWars(civ.annals, civ.interventions);
+  // 国家方针(policy.ts):亲征的机会照君主倾向加上方针的胆量算,和推演里同一份
+  const policies = policiesFrom(civ.annals, civ.interventions);
   /** 第几条干预 → 它那条史事 intervene 的下标(同一年先宣战、后即位的仗不算他下令的) */
   const ivAnnal = new Map<number, number>();
   civ.annals.forEach((e, i) => e.kind === 'intervene' && ivAnnal.set(e.war, i));
@@ -379,7 +382,9 @@ export function buildPeople(civ: PeopleInput): Person[] {
         }
         const age = t - ruler.born;
         const free = (busyRuler.get(ruler) ?? -Infinity) <= t;
-        if (free && P.lineage !== 'republic' && age >= LEAD_AGE[0] && age <= LEAD_AGE[1] && wr(x * 2 + s, U_LEAD) < LEAD * leaningEffect(ruler.leanings!).lead) {
+        const seg = policies.size ? segAt(policies.get(pid), t) : null;
+        const lead = (seg ? policyEffect(ruler.leanings!, seg.v) : leaningEffect(ruler.leanings!)).lead;
+        if (free && P.lineage !== 'republic' && age >= LEAD_AGE[0] && age <= LEAD_AGE[1] && wr(x * 2 + s, U_LEAD) < LEAD * lead) {
           cur[s] = { p: ruler, careerEnd: ruler.until ?? Infinity, cmd: command(ruler), general: false };
           busyRuler.set(ruler, Infinity);
           return;

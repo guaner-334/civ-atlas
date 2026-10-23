@@ -45,6 +45,7 @@ import { namePolities, nameSettlements, type RestoreDirection } from './naming';
 import type { RouteCity } from './routes';
 import type { InterventionModel } from './interventions';
 import { crownsFrom, reignAt, reignBook, reignStart, rulerBase, type Crown, type LeaningEffect, type Reign } from './rulers';
+import { POLICY_RESPREAD, policiesFrom, policySeg, segAt, segEffect, type PolicyIv, type PolicySeg } from './policy';
 
 // ---- 调参(以截图效果为准) ----
 /** 州有人定居后,过这么多年建城(随机) */
@@ -200,6 +201,11 @@ export interface PolityModel {
    * 接着推时由史事推出来(rulers.ts 的 crownsFrom),不存进 Civ
    */
   crowns: Map<number, Crown[]>;
+  /**
+   * 国家 → 方针(干预"方针"生效了的,按先后;policy.ts 的 PolicySeg)。扩张算账、打仗、议和、邦交、发展度照它和君主的倾向一起算(effOf);
+   * 接着推时由史事推出来(policy.ts 的 policiesFrom),不存进 Civ
+   */
+  policies: Map<number, PolicySeg[]>;
 }
 
 /** 升序数组里的位置(第一个 ≥ r 的下标) */
@@ -435,6 +441,57 @@ export function rulerOf(m: PolityModel, pid: number, t: Year): Reign {
   return reignAt(m.rbase, m.rtag[pid], m.polities[pid], t, m.crowns.get(pid));
 }
 
+/** 国家 pid 在 t 这一刻照的方针(policy.ts:t 以前定的最后一条;没有 / 罢了 = null) */
+export function policyAt(m: PolityModel, pid: number, t: Year): PolicyIv | null {
+  return segAt(m.policies.get(pid), t)?.v ?? null;
+}
+
+/** 君主 r 在国家 pid 此刻(t)的方针下的倍数(没有方针 = 他自己的,r.eff) */
+export function effFor(m: PolityModel, pid: number, r: Reign, t: Year): LeaningEffect {
+  return segEffect(segAt(m.policies.get(pid), t), r);
+}
+
+/** 国家 pid 在 t 这一刻做决定用的倍数:在位君主的倾向加上方针(policy.ts;没有方针 = 君主的) */
+export function effOf(m: PolityModel, pid: number, t: Year): LeaningEffect {
+  return effFor(m, pid, rulerOf(m, pid, t), t);
+}
+
+/** 方针里的国家键(亲、仇)有没有指着 q(键要用时才解析,见 interventions.ts 的 resolve) */
+export function picks(m: PolityModel, keys: readonly string[] | undefined, q: number): boolean {
+  if (!keys || !m.iv) return false;
+  for (const k of keys) if (m.iv.resolve(k) === q) return true;
+  return false;
+}
+
+/** 国家 p 此刻的方针把 q 当亲国(不主动打它;没有方针 = false) */
+export function befriends(m: PolityModel, p: number, q: number, t: Year): boolean {
+  return m.policies.size > 0 && picks(m, policyAt(m, p, t)?.friends, q);
+}
+
+/** 国家 p 此刻的方针把 q 当仇国(没有方针 = false) */
+export function hates(m: PolityModel, p: number, q: number, t: Year): boolean {
+  return m.policies.size > 0 && picks(m, policyAt(m, p, t)?.foes, q);
+}
+
+/**
+ * 国家 pid 此刻定了方针(干预"方针",interventions.ts 在生效那一刻调用;t = 此刻):登记进 PolityModel.policies,下一刻起照它算。
+ * 下一刻预约一次 Ev.Respread(a = POLICY_RESPREAD):那时门槛比原来低了就从现有国土往外重新看一遍(同一刻同一国定了几条只预约一次)
+ */
+export function setPolicy(sim: CivSim, m: PolityModel, pid: number, v: PolicyIv, iv: number, t: Year): void {
+  let list = m.policies.get(pid);
+  if (!list) m.policies.set(pid, (list = []));
+  const first = !list.length || list[list.length - 1].t < t;
+  list.push(policySeg(v, t, iv));
+  if (first) sim.schedule(t + 1 / 256, Ev.Respread, POLICY_RESPREAD, pid);
+}
+
+/** 定了方针的下一刻(t):此刻在位的君主在新旧方针下比一比,门槛放低了的返回旧方针下的倍数(只补新方针才肯去的州);没放低 = null */
+function policyWidens(m: PolityModel, pid: number, t: Year): LeaningEffect | null {
+  const r = rulerOf(m, pid, t);
+  const prev = effFor(m, pid, r, t - 1 / 256);
+  return widens(prev, effFor(m, pid, r, t)) ? prev : null;
+}
+
 /**
  * 扩张算账:国家 p 在 t 这一刻值不值得去州 b(见 WORTH)。dist = 离国都的路程表,cb = 州 b 的民族,owner = 此刻各州的国家。
  * 由当时在位的君主定:扩张高的不太计较,扩张低的只要富庶、离国都近的地方,重商高的看重沿海、大河、港口
@@ -494,14 +551,14 @@ function reachYears(m: PolityModel, sim: CivSim, p: Polity, k: number, b: number
   const dist = distFor(m, p.id, sim.now);
   const cb = sim.owners[Layer.Culture][b];
   const owner = sim.owners[Layer.Polity];
-  if (!wants(m, owner, p, b, dist, cb, rulerOf(m, p.id, sim.now).eff)) return Infinity;
+  if (!wants(m, owner, p, b, dist, cb, effOf(m, p.id, sim.now))) return Infinity;
   if (prev && wants(m, owner, p, b, dist, cb, prev)) return Infinity;
   return stepYearsWith(m, p, k, b, dist, cb, sim.now);
 }
 
-/** 新君即位以后,原来不值得去的地方会不会有一些值得去了(门槛放低了) */
-function widens(prev: Reign, cur: Reign): boolean {
-  return cur.eff.worth < prev.eff.worth || cur.eff.coast < prev.eff.coast;
+/** 新君即位、定了方针以后,原来不值得去的地方会不会有一些值得去了(门槛放低了) */
+function widens(prev: LeaningEffect, cur: LeaningEffect): boolean {
+  return cur.worth < prev.worth || cur.coast < prev.coast;
 }
 
 /** 预约国家 pid 的下一次君主交接:在位表里第 k 位开始"在位"的那一刻(rulers.ts 的 reignStart) */
@@ -787,6 +844,7 @@ function emptyModel(T: CultureTerrain, cultures: Culture[], seed: number, port: 
     rAt: new Map(),
     reigned: [],
     crowns: new Map(),
+    policies: new Map(),
   };
 }
 
@@ -907,13 +965,23 @@ export function installPolities(sim: CivSim, m: PolityModel): void {
     // 改朝换代以后在位表重排了:旧君原来预约的交接对不上,丢掉(新朝的另有预约,见 dynastyReign)
     if (!list[k] || reignStart(list[k]) !== t) return;
     scheduleReign(sim, m, pid, k + 1, t);
-    if (k > 0 && widens(list[k - 1], list[k])) respread(sim, m, pid, list[k - 1].eff);
+    if (k > 0) {
+      // 和此刻的方针一起算(没有方针 = 两位君主自己的倍数)
+      const prev = effFor(m, pid, list[k - 1], t);
+      if (widens(prev, effFor(m, pid, list[k], t))) respread(sim, m, pid, prev);
+    }
   });
 
-  // 迁都的下一刻(见 moveCapital):按新国都的路程从现有国土往外重新预约
-  sim.on(Ev.Respread, (_a, pid) => {
+  // 迁都的下一刻(见 moveCapital):按新国都的路程从现有国土往外重新预约;
+  // 定了方针的下一刻(a = POLICY_RESPREAD,见 setPolicy):门槛放低了才重新预约(只补新方针才肯去的州)
+  sim.on(Ev.Respread, (a, pid, t) => {
     const p = m.polities[pid];
     if (!p || p.ended !== undefined) return;
+    if (a === POLICY_RESPREAD) {
+      const prev = policyWidens(m, pid, t);
+      if (prev) respread(sim, m, pid, prev);
+      return;
+    }
     respread(sim, m, pid);
   });
 
@@ -1129,6 +1197,8 @@ export function resumePolities(sim: CivSim, world: World, civ: Civ, iv?: Interve
   }));
   // 作者立的君主(干预"即位"):生效了的由史事推出来,在位表照它排(和推演时一样)
   m.crowns = crownsFrom(civ.annals, iv?.list);
+  // 国家方针:生效了的由史事推出来(和推演时一样,下一刻起算)
+  m.policies = policiesFrom(civ.annals, iv?.list);
   // 州里现在的城(被毁的不算:阶段 3 城市兴衰,毁了还没重建的州没有城)
   for (const s of m.settlements) if (s.ended === undefined) m.cityOf[s.region] = s.id;
   // 位置锚:按编号(= 建城 / 立国先后)数"这州第几个",和推演时一样
@@ -1231,7 +1301,7 @@ export function resumePolities(sim: CivSim, world: World, civ: Civ, iv?: Interve
     if (lastLog[j] > i || polity[j] >= 0) return;
     // 扩张算账:当时在位的君主、当时的四邻(po 是那一刻的归属),和推演时一样
     const dist = distAt(pid, y);
-    if (!wants(m, po, m.polities[pid], j, dist, cu[j], rulerOf(m, pid, y).eff)) return;
+    if (!wants(m, po, m.polities[pid], j, dist, cu[j], effOf(m, pid, y))) return;
     // 新君即位时重新预约的:上一位就肯去的不重复预约(见 reachYears)
     if (prev && wants(m, po, m.polities[pid], j, dist, cu[j], prev)) return;
     const dt = stepYearsWith(m, m.polities[pid], k, j, dist, cu[j], y);
@@ -1251,7 +1321,18 @@ export function resumePolities(sim: CivSim, world: World, civ: Civ, iv?: Interve
     for (let k = 1; k < list.length; k++) {
       const t = reignStart(list[k]);
       if (t > until) break;
-      if (widens(list[k - 1], list[k])) ends.push({ t, pid: p.id, prev: list[k - 1].eff });
+      const prev = effFor(m, p.id, list[k - 1], t);
+      if (widens(prev, effFor(m, p.id, list[k], t))) ends.push({ t, pid: p.id, prev });
+    }
+    // 定了方针的下一刻:门槛放低了的(同一刻同一国定了几条只算一次,见 setPolicy)
+    const segs = m.policies.get(p.id);
+    if (segs) {
+      for (let i = 0; i < segs.length; i++) {
+        const t = segs[i].t + 1 / 256;
+        if (t > until || (i > 0 && segs[i - 1].t === segs[i].t)) continue;
+        const prev = policyWidens(m, p.id, t);
+        if (prev) ends.push({ t, pid: p.id, prev });
+      }
     }
     const caps = p.capitals!;
     for (let i = 1; i < caps.length; i++) if (caps[i].year + 1 / 256 <= until) ends.push({ t: caps[i].year + 1 / 256, pid: p.id });
@@ -1301,11 +1382,15 @@ export function resumePolities(sim: CivSim, world: World, civ: Civ, iv?: Interve
   }
   if (ei < ends.length) retrigger(log.size - 1, Infinity);
   for (const e of pend) sim.schedule(e.t, Ev.PolityArrive, e.j, e.pid);
-  // 在世的国家:下一次君主交接(此刻刚改朝换代的,新朝第一位下一刻即位);此刻刚迁都的,下一刻重新预约扩张
+  // 在世的国家:下一次君主交接(此刻刚改朝换代的,新朝第一位下一刻即位);此刻刚迁都、刚定了方针的,下一刻重新预约扩张
   for (const p of m.polities) {
     if (p.ended !== undefined) continue;
     // 立国那一条(capitals[0])不是迁都,推演里没有预约(分裂出来的国家正好在此刻立国时会多出一次)
     for (const c of p.capitals!.slice(1)) if (c.year + 1 / 256 > now) sim.schedule(c.year + 1 / 256, Ev.Respread, 0, p.id);
+    // 此刻刚定了方针的:下一刻比一比门槛(见 setPolicy;同一刻定了几条也只预约一次)
+    const segs = m.policies.get(p.id);
+    const seg = segs?.[segs.length - 1];
+    if (seg && seg.t + 1 / 256 > now) sim.schedule(seg.t + 1 / 256, Ev.Respread, POLICY_RESPREAD, p.id);
     const list = bookOf(m, p.id, now);
     const last = list.length - 1;
     if (reignStart(list[last]) > now) sim.schedule(reignStart(list[last]), Ev.Reign, last, p.id);
