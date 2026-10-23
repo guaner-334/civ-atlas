@@ -5,6 +5,9 @@
  *   npx tsx scripts/mem-check.ts --dist=别的目录               量另一份构建(比如改之前的那份),和这份对比
  *   --only=new36k,edit20                                     只跑这几个场景   --out=snaps/mem.json  原始数据
  *   --every=150                                              操作期间多少毫秒取一次(默认 300;短的峰值取得到,取样本身也占一点)
+ *   --query=detail=sync                                      网址另加参数(detail=sync:换上新地图之前不分小步备、当场一口气画,对比用)
+ * 主线程一口气忙的时候取不了样(取样要主线程回话):一口气做完的活,只记得到做完以后还没回收的那部分;分小步做的,做到一半正在用的也记得到。
+ * 拿这两种办法比"JS 主"的峰值时记着这一点,同时看渲染进程那一项(系统看到的,不用主线程回话)
  *
  * 场景:new36k / new200k 新建世界(3.6 万 / 20 万地块);edit20 编辑地形连涂 20 笔(陆地笔,星球照草图重新长;另打每一笔里的峰值、主线程长任务);
  * edit20h 同上,换到「高度」页用抬高笔涂(按块重铺、按块换上);open 打开一个世界;play 播放时间轴 45 秒;
@@ -35,6 +38,8 @@ const ONLY = opt('only')?.split(',');
 const OUT = opt('out');
 /** 操作期间多少毫秒取一次样 */
 const EVERY = Number(opt('every')) || 300;
+/** 网址另加的参数 */
+const QUERY = opt('query');
 const MB = 1024 * 1024;
 const mb = (n: number | undefined) => (n === undefined ? '—' : (n / MB).toFixed(0));
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -392,7 +397,7 @@ async function scenario(name: string, query: string, body: (rig: Rig, mark: Ctx[
   let stop = false;
   let loop: Promise<void> | null = null;
   try {
-    rig = await openRig(`${base}/?${query}`);
+    rig = await openRig(`${base}/?${query}${QUERY ? `&${QUERY}` : ''}`);
     const r = rig;
     // 操作期间每 EVERY 毫秒(默认 300)取一次(每三次带上进程内存),记各项峰值
     const peak: Partial<Keys> = {};

@@ -4,6 +4,7 @@
  * 弯边投影把按投影重画的整张图也画好 —— 都分小步在后台做(同 ui/detailJobs.ts 的分帧),每步几毫秒到几十毫秒;地图上先留着原来那张,
  * 备好了一次换上(done)。和整张交回来、整张重画逐像素相同;按块做不了的(缓存里没有原来那张的像素层、数据底图……)
  * 换上以后照旧整张画。
+ * 整张交回来的新主图(打开世界、换世界、刷新……)也一样:先分小步把现在这种底图的整张图备进缓存再换上(startTerrainFull)。
  */
 import type { World } from '../gen/world';
 import type { Raster } from '../gen/raster';
@@ -67,7 +68,6 @@ export function startTerrainPatch(o: { w0: World; r0: Raster; w1: World; patch: 
   let r1: Raster | null = null;
   let kind: PatchStats['kind'] = 'none';
   const box: PixelBox | null = patch && patch.w > 0 ? { x0: patch.x0, y0: patch.y0, w: patch.w, h: patch.h } : null;
-  let failed = false;
   const steps: WorkStep[] = [
     // 贴补丁:原来那张复制一份再贴(各段地形大事的主图、缓存都还认着原来那张)
     () => void (r1 = patch ? composeRaster(r0, [patch]) : { ...r0 }),
@@ -85,28 +85,61 @@ export function startTerrainPatch(o: { w0: World; r0: Raster; w1: World; patch: 
       return null;
     }),
     // 弯边投影:像素层按块重画好了,就把按投影重画的整张图也在后台画好(同 presentTerrain 停着时的那一版),换上时直接贴
-    later(() => {
-      const mp = view.mp;
-      if (!mp || kind === 'none') return null;
-      const W = r1!.w;
-      const H = r1!.h;
-      const cv = document.createElement('canvas');
-      let ctx: CanvasRenderingContext2D | null = null;
-      const get = () => {
-        if (ctx) return ctx;
-        cv.width = W;
-        cv.height = H;
-        ctx = cv.getContext('2d');
-        if (!ctx) return null;
-        ctx.fillStyle = pageColor(kind);
-        ctx.fillRect(0, 0, W, H);
-        return ctx;
-      };
-      return [...terrainProjWholeSteps(get, w1, r1!, kind, mp, view.look), () => void (ctx && (pre = { raster: r1!, key: mp.key, style: kind as PreProjected['style'], look: view.look, canvas: cv }))];
-    }),
+    later(() => projWholeSteps(w1, r1!, kind, view, (p) => (pre = p))),
   ];
   let pre: PreProjected | null = null;
-  // 哪一步出了错:剩下的不做了,照样换上(到时候按原来的办法整张画)
+  startJob(steps, '按块重画地图出错,改成整张画', (prep, maxStep, failed) => {
+    if (!r1) r1 = patch ? composeRaster(r0, [patch]) : { ...r0 };
+    links.set(r1, { w0, r0: new WeakRef(r0), box });
+    done(r1, { prep, wall: performance.now() - t0, kind: failed ? 'none' : kind, maxStep }, failed ? null : pre);
+  });
+}
+
+/** 弯边投影下按投影重画整张地形图的几步(画到一张新画布上,画完记进 got);等距圆柱、数据底图 = null */
+function projWholeSteps(world: World, raster: Raster, kind: PatchStats['kind'], view: PatchView, got: (pre: PreProjected) => void): WorkStep[] | null {
+  const mp = view.mp;
+  if (!mp || kind === 'none') return null;
+  const W = raster.w;
+  const H = raster.h;
+  const cv = document.createElement('canvas');
+  let ctx: CanvasRenderingContext2D | null = null;
+  const get = () => {
+    if (ctx) return ctx;
+    cv.width = W;
+    cv.height = H;
+    ctx = cv.getContext('2d');
+    if (!ctx) return null;
+    ctx.fillStyle = pageColor(kind);
+    ctx.fillRect(0, 0, W, H);
+    return ctx;
+  };
+  return [...terrainProjWholeSteps(get, world, raster, kind, mp, view.look), () => void (ctx && got({ raster, key: mp.key, style: kind as PreProjected['style'], look: view.look, canvas: cv }))];
+}
+
+/**
+ * 换上一张整张交回来的新主图(打开世界、换世界、刷新、新建、编辑地形整张重铺的那一笔):现在这种底图的整张图
+ * (prep = 调用的这边排好的几步,见 ui/thumbPrep.ts 的 thumbPrepSteps:手绘的像素层和符号层、写实的像素层、数据底图那一张)、
+ * 弯边投影按投影重画的整张图,都先分小步在后台画进各画风的缓存(和换上那一下一口气整张画逐像素相同),备好了再换上(done),
+ * 不在换上那一下在主线程上一口气画半秒到几秒。备的时候地图上照旧(加载画面、原来那张);新的一次(或 cancelTerrainPatch)顶掉这次,done 不调
+ */
+export function startTerrainFull(o: { world: World; raster: Raster; view: PatchView; prep: WorkStep[] }, done: (st: PatchStats, pre: PreProjected | null) => void): void {
+  const { world, raster, view } = o;
+  const t0 = performance.now();
+  const kind: PatchStats['kind'] = view.style === 'realistic' || view.style === 'fantasy' ? view.style : 'none';
+  let pre: PreProjected | null = null;
+  const steps: WorkStep[] = [...o.prep, later(() => projWholeSteps(world, raster, kind, view, (p) => (pre = p)))];
+  startJob(steps, '备地图出错,改成换上时整张画', (prep, maxStep, failed) => {
+    if (failed && pre) pre.canvas.width = pre.canvas.height = 0;
+    done({ prep, wall: performance.now() - t0, kind: failed ? 'none' : kind, maxStep }, failed ? null : pre);
+  });
+}
+
+/**
+ * 分小步做 steps(每段 SLICE 毫秒就让出主线程),做完调 commit(各步加起来的毫秒、最长的一步、有没有哪一步出错)。
+ * 哪一步出了错:剩下的不做了,照样 commit(到时候按原来的办法整张画)。新的一次顶掉旧的
+ */
+function startJob(steps: WorkStep[], errText: string, commit: (prep: number, maxStep: number, failed: boolean) => void): void {
+  let failed = false;
   let maxStep = 0;
   const guarded = steps.map<WorkStep>((s) => (deadline) => {
     if (failed) return;
@@ -115,22 +148,19 @@ export function startTerrainPatch(o: { w0: World; r0: Raster; w1: World; patch: 
       return s(deadline);
     } catch (e) {
       failed = true;
-      console.error('按块重画地图出错,改成整张画', e);
+      console.error(errText, e);
     } finally {
       maxStep = Math.max(maxStep, performance.now() - t);
     }
   });
-  const commit = (prep: number) => {
-    if (!r1) r1 = patch ? composeRaster(r0, [patch]) : { ...r0 };
-    links.set(r1, { w0, r0: new WeakRef(r0), box });
-    done(r1, { prep, wall: performance.now() - t0, kind: failed ? 'none' : kind, maxStep }, failed ? null : pre);
-  };
+  const fin = (prep: number) => commit(prep, maxStep, failed);
   if (!detailAsync) {
+    const t0 = performance.now();
     for (const s of guarded) while (s(Infinity) === true);
-    commit(performance.now() - t0);
+    fin(performance.now() - t0);
     return;
   }
-  const job = (current = { steps: guarded, i: 0, prep: 0, commit });
+  const job = (current = { steps: guarded, i: 0, prep: 0, commit: fin });
   post(() => run(job));
 }
 
@@ -169,6 +199,8 @@ function run(job: Job): void {
   const deadline = t + SLICE;
   while (job.i < job.steps.length) {
     if (job.steps[job.i](deadline) !== true) job.i++;
+    // 这一步做的时候来了新的一次(或者不要了):这次到此为止
+    if (current !== job) return;
     if (performance.now() >= deadline) break;
   }
   job.prep += performance.now() - t;

@@ -155,8 +155,8 @@ import { multisetDiff } from '../gen/util';
 import { sameMix, type NameMix } from '../gen/names/mix';
 import { cleanFrontier, cleanOrigins, sameFrontier, sameOrigins, type Frontier, type Origins } from '../gen/civ/frontier';
 import type { RasterPatch } from '../gen/rasterPatch';
-import { cancelTerrainPatch, patchSourceOf, startTerrainPatch, type PatchStats, type PatchView, type PreProjected } from './terrainPatch';
-import { baseReady } from './thumbPrep';
+import { cancelTerrainPatch, patchSourceOf, startTerrainFull, startTerrainPatch, type PatchStats, type PatchView, type PreProjected } from './terrainPatch';
+import { baseReady, thumbPrepSteps } from './thumbPrep';
 import { baseRegions, civAtEra, dropComposed, eraData, eraIndex, eraMapsOf, eraReady, eraShown, patchKey, reuseRegions, useEraIndex, withHistory, type EraMaps } from './eras';
 import { adoptChronicle, dropChronicleParts, namedHistory, takeChroniclePart, useNamedHistory } from './chronicleHandoff';
 import { sameSketch, type SketchEdit } from '../gen/sketch';
@@ -1235,6 +1235,9 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
   /** 地图现在怎么画(编辑地形按块换上时,线程回调里看这一份决定重画哪种像素层) */
   const drawView = useRef<PatchView>({ style, look: surface, mp });
   drawView.current = { style, look: surface, mp };
+  /** 地图现在这种底图在缓存里的键(baseKeyOf):整张交回来的新主图换上之前,先在后台把这一张备好 */
+  const drawKey = useRef(baseKeyOf(style, layer, surface));
+  drawKey.current = baseKeyOf(style, layer, surface);
 
   // ---- 后台线程 ----
   // 线程一次只能算一个世界。连续改参数时,与其排队把每个中间世界都算完,
@@ -1329,8 +1332,9 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
               noteExtendSpeed(0, m.civ.endYear, m.civMs);
               civMsLast.current = m.civMs;
             }
-            // 换了世界:各段的主图补丁都作废
-            eraPatches.current.clear();
+            // 换了世界:别的世界的各段主图补丁都作废(这个世界的几段在备地图的时候可能已经先到了,留着)
+            const chain = new Set((m.eras ?? []).map((e, i, a) => patchKey(i ? a[i - 1].key : m.baseKey, e.key)));
+            for (const k of [...eraPatches.current.keys()]) if (!chain.has(k)) eraPatches.current.delete(k);
             dropComposed();
             // 换了主图:各画风缓存里别的主图的像素层连旧主图现在就放掉,不等下次画那种画风(按块换上的留着它是从哪张改来的)
             const keepBases = [raster, patchSourceOf(raster)?.r0];
@@ -1354,8 +1358,17 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
             }
           };
           if (m.raster) {
-            cancelTerrainPatch();
-            finish(m.raster);
+            // 整张交回来的(打开世界、换世界、刷新、新建……):现在这种底图的整张图先分小步在后台备好再换上,
+            // 不在换上那一下在主线程上一口气画半秒到几秒;备的时候加载画面照旧
+            const raster = m.raster;
+            // 线程算好的手绘符号规划(推了文明的才带)
+            if (m.plan) adoptPlan(m.world, m.plan);
+            startTerrainFull({ world: m.world, raster, view: drawView.current, prep: thumbPrepSteps(drawKey.current, m.world, raster) }, (st, pre) => {
+              if (m.id !== reqId.current) return;
+              (window as unknown as { __wfOpenPrep: unknown }).__wfOpenPrep = st;
+              preProj.current = pre;
+              finish(raster);
+            });
           } else {
             // 编辑地形按块重铺的:只带回变了的那块,贴到地图上那张整图上;按块重画的像素层分小步备好再一次换上
             const b = baseRef.current;

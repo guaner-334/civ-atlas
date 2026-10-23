@@ -172,11 +172,12 @@ export type WorkerResponse =
    * rasterMs = 铺像素(推文明之前那一段,沟壑和细沟不算);civMs = 其中推文明那一步(再推的界面拿它估这台电脑推演要多久;读原件的没有);
    * tempo = 这组参数的扩张节拍(知道的话);eras = 地形大事以后的各段世界(没有大事 = 不给)。
    * 主图:raster = 整张;按块重铺的不带 raster,带 patch(比 from 那张整图变了的那一块,null = 一个像素也没变),见 PatchInput;
-   * 按块重铺的另带手绘风的符号规划(plan,render/fantasy.ts 的 planGlyphs:主线程按块重画手绘地图要用,精细度高时要算一两百毫秒,在这里算)。
+   * 按块重铺的另带手绘风的符号规划(plan,render/fantasy.ts 的 planGlyphs:主线程按块重画手绘地图要用,精细度高时要算一两百毫秒,在这里算);
+   * 整张交的推了文明的(打开世界、新建)也带(等帮手算沟壑的工夫里算好):主线程换上之前备手绘地图、缩略图都要用。
    * civ = null:请求带了 skipCiv,没推文明
    */
   | ({ type: 'done'; id: number; world: World; civ: Civ | null; chron?: number; ms: number; genMs: number; rasterMs: number; civMs?: number; reused?: true; tempo?: TempoNote; eras?: EraWorld[]; baseKey: string } & (
-      | { raster: Raster; patch?: undefined; from?: undefined }
+      | { raster: Raster; patch?: undefined; from?: undefined; plan?: Plan }
       | { raster?: undefined; patch: RasterPatch | null; from: string; plan: Plan }
     ))
   | ({ type: 'history'; id: number } & HistoryFrames)
@@ -767,14 +768,19 @@ async function handle(m: Queued): Promise<void> {
     let plan: Plan | undefined;
     const civ = m.skipCiv
       ? await pool.finish(d, undefined, pj && old ? () => void (plan = planGlyphs(world)) : undefined).then(() => null)
-      : await pool.finish(d, () => {
-          // 文明骨架(宜居度、州……)只读 World,之后的文明步骤都在 gen/civ/index.ts 里接
-          post({ type: 'progress', id: m.id, stage: '文明', pct: 0.95 });
-          const tc = performance.now();
-          const c = civOf(world, m, steps);
-          civMs = performance.now() - tc;
-          return c;
-        });
+      : await pool.finish(
+          d,
+          () => {
+            // 文明骨架(宜居度、州……)只读 World,之后的文明步骤都在 gen/civ/index.ts 里接
+            post({ type: 'progress', id: m.id, stage: '文明', pct: 0.95 });
+            const tc = performance.now();
+            const c = civOf(world, m, steps);
+            civMs = performance.now() - tc;
+            return c;
+          },
+          // 手绘风的符号规划:主线程换上之前备地图要用(200k 地块要算一百多毫秒),等帮手的工夫里先算好
+          () => void (plan = planGlyphs(world)),
+        );
     if (giveUp()) return;
     const transfer: ArrayBuffer[] = [];
     // 回放快照体积大且主线程用不上,不随世界一起发送
@@ -801,7 +807,8 @@ async function handle(m: Queued): Promise<void> {
     } else {
       const vl = raster.veinLines!;
       transfer.push(...[raster.elev, raster.temp, raster.precip, raster.water, raster.biome, raster.cell, raster.ice, raster.iceConc, raster.iceTone, raster.gully!, raster.bank!, raster.vein!, vl.off, vl.x, vl.y, vl.a].map((a) => a.buffer as ArrayBuffer));
-      map = { raster };
+      if (plan) transfer.push(plan.forest.buffer as ArrayBuffer);
+      map = plan ? { raster, plan } : { raster };
     }
     // 整张交出去的数组 transfer 走了,留的是一份拷贝(拷进上一张用不着了的整图的数组里,不另开一整张)
     if (m.keep && m.scale === 1) kept = { key: baseKey, keep: { raster: 'patch' in map ? raster : copyRaster(raster, spare), inputs: d.inputs } };
@@ -879,16 +886,19 @@ async function handle(m: Queued): Promise<void> {
     const d = rasterizeDeferred(world, m.scale);
     const raster = d.raster;
     const rasterMs = performance.now() - t1;
-    await pool.finish(d);
+    // 手绘风的符号规划同 generate:等帮手的工夫里先算好,一起交
+    let plan: Plan | undefined;
+    await pool.finish(d, undefined, () => void (plan = planGlyphs(world)));
     const vl = raster.veinLines!;
     const transfer = [raster.elev, raster.temp, raster.precip, raster.water, raster.biome, raster.cell, raster.ice, raster.iceConc, raster.iceTone, raster.gully!, raster.bank!, raster.vein!, vl.off, vl.x, vl.y, vl.a].map((a) => a.buffer);
+    if (plan) transfer.push(plan.forest.buffer as ArrayBuffer);
     transfer.push(...civTransferables(civ));
     // 历史那一块原件留着(读出来的那份交给主线程了):接着推时再读
     const civPart = m.parts.find((x) => x.name === 'civ');
     held = civPart ? { key: heldKey(m, m.play), part: civPart } : null;
     const ms = performance.now() - t0;
     const chron = await postChronicle(m.id, civ, m.renames);
-    post({ type: 'done', id: m.id, world: { ...world, history: [] }, raster, civ, chron, ms, genMs, rasterMs, eras: eraWorlds(steps), baseKey }, transfer);
+    post({ type: 'done', id: m.id, world: { ...world, history: [] }, raster, ...(plan ? { plan } : {}), civ, chron, ms, genMs, rasterMs, eras: eraWorlds(steps), baseKey }, transfer);
     queuePatches(m.id, m, steps);
   } else if (m.type === 'history') {
     const h = buildHistoryFrames(formationOf(m.params, m.terrain, m.sketch));
