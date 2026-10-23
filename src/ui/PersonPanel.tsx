@@ -43,6 +43,12 @@ import { Icon } from './icons';
 import { NameEdit } from './NameEdit';
 import { FollowAct } from './Follow';
 import { Act, Acts, EntryText, EventList, Link, MoreAct, PanelHead, Row, Stats, SubLine, copyText, jumpTo, rgb, type DetailProps } from './panelParts';
+import { leanRows, peaceRow, policyLabel, roleLock, rulerPolicy } from './policyInfo';
+import { openPolicyPage } from './PolicyPage';
+import { nameAt } from './Interventions';
+import { useRole } from './roleStore';
+import { setSelection } from './civView';
+import './policy.css';
 
 const F = Math.floor;
 
@@ -265,7 +271,7 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
             </Row>
           ))}
         </Stats>
-        {ruler && x.leanings && <Leanings l={x.leanings} />}
+        {ruler && x.leanings && <Leanings civ={civ} x={x} l={x.leanings} year={year} />}
         {bio && (
           <section className="cp-sec">
             <div className="cp-sec-head">生平</div>
@@ -295,24 +301,64 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
   );
 }
 
-/** 君主的倾向:一项一行(名字、细条、数值),下面一句说明 */
-function Leanings({ l }: { l: RulerLeanings }) {
+/**
+ * 君主的倾向:一项一行(名字、细条、数值),下面一句说明。
+ * 他在位时国家定了方针(时间轴那一年,夹在他在位的年份里):右上"大澜王朝方针：扩张"(点了进那国的方针页);
+ * 方针管到的那几项细条后面接一截蓝色、数写成"53＋25＝78",说明后面接"；方针「扩张」让他往外占";拧了和谈底线的多一行"和谈"
+ */
+function Leanings({ civ, x, l, year }: { civ: Civ; x: Person; l: RulerLeanings; year: number }) {
+  const v = rulerPolicy(civ, x, year);
+  const rows = leanRows(l, v);
+  const peace = peaceRow(v);
+  const locked = !!roleLock(civ, useRole(), x.polity);
+  const P = civ.polities[x.polity];
+  const head = v && P && (
+    <button className="ins-link cp-more" data-act="person-policy" onClick={() => (locked ? setSelection({ kind: 'polity', id: x.polity }) : openPolicyPage(civ, x.polity))}>
+      {nameAt(P, Math.min(Math.max(year, x.from ?? year), (x.until ?? civ.endYear) - 1 / 256))}方针：{policyLabel(v)}
+    </button>
+  );
   return (
     <section className="cp-sec" data-sec="leanings">
-      <div className="cp-sec-head">倾向</div>
+      <div className={`cp-sec-head${head ? ' cp-events-head' : ''}`}>
+        <span>倾向</span>
+        {head}
+      </div>
       <div className="cp-group">
-        {LEANING_KEYS.map((k) => (
-          <div key={k} className="pp-lean" data-leaning={k}>
+        {rows.map((r) => (
+          <div key={r.k} className="pp-lean" data-leaning={r.k} data-policy-add={r.add || undefined}>
             <div className="pp-lean-top">
-              <span className="pp-lean-k">{LEANING_TEXT[k].name}</span>
-              <span className="pp-lean-bar" aria-hidden="true">
-                <i style={{ width: `${l[k]}%` }} />
+              <span className="pp-lean-k">{LEANING_TEXT[r.k].name}</span>
+              <span className={`pp-lean-bar${r.add ? ' pol-bar' : ''}`} aria-hidden="true">
+                <i style={{ width: `${r.add < 0 ? r.actual : r.base}%` }} />
+                {r.add > 0 && <i className="pol-add-bar" style={{ left: `${r.base}%`, width: `${r.actual - r.base}%` }} />}
+                {r.add < 0 && <i className="pol-cut-bar" style={{ left: `${r.actual}%`, width: `${r.base - r.actual}%` }} />}
               </span>
-              <span className="pp-lean-num">{l[k]}</span>
+              {r.add ? (
+                <span className="pp-lean-num pol-wide">
+                  <span className="pol-calc">
+                    {r.base}
+                    {r.add > 0 ? '＋' : '−'}
+                    {Math.abs(r.add)}＝<b>{r.actual}</b>
+                  </span>
+                </span>
+              ) : (
+                <span className="pp-lean-num">{r.base}</span>
+              )}
             </div>
-            <div className="pp-lean-note">{LEANING_TEXT[k].note}</div>
+            <div className="pp-lean-note">
+              {LEANING_TEXT[r.k].note}
+              {r.why}
+            </div>
           </div>
         ))}
+        {peace && (
+          <div className="pp-lean" data-leaning="peace">
+            <div className="pp-lean-top">
+              <span className="pp-lean-k">和谈</span>
+              <span className="pol-peace">{peace}</span>
+            </div>
+          </div>
+        )}
       </div>
     </section>
   );

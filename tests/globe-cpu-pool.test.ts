@@ -46,7 +46,7 @@ class FakeWorker {
     const n = m.w * m.rows * 4;
     if (m.buf && m.buf.byteLength === n) this.reused++;
     const buf = m.buf && m.buf.byteLength === n ? m.buf : new ArrayBuffer(n);
-    renderGlobeCpu({ w: m.w, h: m.rows, data: new Uint8ClampedArray(buf) }, m.view, m.f, m.look, this.vers.get(m.ver)!, m.y0);
+    renderGlobeCpu({ w: m.w, h: m.rows, data: new Uint8ClampedArray(buf) }, m.view, m.f, m.dpr, m.look, this.vers.get(m.ver)!, m.y0);
     this.onmessage?.({ data: { job: m.job, y0: m.y0, rows: m.rows, buf } });
     return true;
   }
@@ -69,7 +69,7 @@ const look: GlobeLook = { style: 'realistic', graticule: 0, hl: 0, replay: 0 };
 
 function spec(lon: number, idle: boolean, w = 300, h = 200) {
   const view: GlobeView = { lon, lat: 0.2, k: 1.2 };
-  return { view, f: globeFrame(view, w, h), look, w, h, idle, tag: lon };
+  return { view, f: globeFrame(view, w, h), dpr: 2, look, w, h, idle, tag: lon };
 }
 
 function joined(fr: CpuFrame<number>): Uint8ClampedArray {
@@ -100,7 +100,7 @@ describe('地球仪 CPU 画法分段画', () => {
     const fr = frames[0];
     expect(fr.bands.length).toBeGreaterThan(3);
     const whole = new Uint8ClampedArray(fr.w * fr.h * 4);
-    renderGlobeCpu({ w: fr.w, h: fr.h, data: whole }, s.view, s.f, look, { terrain });
+    renderGlobeCpu({ w: fr.w, h: fr.h, data: whole }, s.view, s.f, s.dpr, look, { terrain });
     expect(joined(fr)).toEqual(whole);
     // 换上以后还回去:下一帧同样大小的段接着用这些缓冲
     pool.recycle(fr);
@@ -147,7 +147,7 @@ describe('地球仪 CPU 画法分段画', () => {
     const fb = frames.find((f) => f.tag === 2)!;
     const ref = (s: typeof a, t: typeof terrain) => {
       const out = new Uint8ClampedArray(s.w * s.h * 4);
-      renderGlobeCpu({ w: s.w, h: s.h, data: out }, s.view, s.f, look, { terrain: t });
+      renderGlobeCpu({ w: s.w, h: s.h, data: out }, s.view, s.f, s.dpr, look, { terrain: t });
       return out;
     };
     expect(joined(fa)).toEqual(ref(a, terrain));

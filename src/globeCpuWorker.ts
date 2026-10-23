@@ -28,6 +28,8 @@ export interface GlobeCpuRowsMsg {
   ver: number;
   view: GlobeView;
   f: GlobeFrame;
+  /** 画布像素 / CSS 像素 */
+  dpr: number;
   look: GlobeLook;
   w: number;
   y0: number;
@@ -64,7 +66,7 @@ self.onmessage = (e: MessageEvent<GlobeCpuMsg>) => {
   const n = m.w * m.rows * 4;
   const buf = m.buf && m.buf.byteLength === n ? m.buf : new ArrayBuffer(n);
   const src = vers.get(m.ver) ?? vers.get(last) ?? EMPTY;
-  renderGlobeCpu({ w: m.w, h: m.rows, data: new Uint8ClampedArray(buf) }, m.view, m.f, m.look, src, m.y0);
+  renderGlobeCpu({ w: m.w, h: m.rows, data: new Uint8ClampedArray(buf) }, m.view, m.f, m.dpr, m.look, src, m.y0);
   const res: GlobeCpuRows = { job: m.job, y0: m.y0, rows: m.rows, buf };
   self.postMessage(res, { transfer: [buf] });
 };

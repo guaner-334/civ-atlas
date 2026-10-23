@@ -21,7 +21,8 @@ import { ownersAt, type Owners } from '../gen/civ/timeline';
 import { cleanIntervention, keyCells, polityKey, regionKey, regionOfKey, resolveKey, type Intervention } from '../gen/edits';
 import { getEdits, removeIntervention, useEra } from './editsStore';
 import { crownLine } from './crownInfo';
-import { emptyPolicy, policyName } from '../gen/civ/policy';
+import { POLICY_PRESET_NAMES, emptyPolicy, policyName, type PolicyIv } from '../gen/civ/policy';
+import { policyKnobsText } from './policyInfo';
 import { eraText, yearShort } from '../gen/era';
 
 // ---------------------------------------------------------------------------
@@ -52,6 +53,15 @@ export interface PolityPick {
   near?: ReadonlySet<number>;
   /** 按哪一年的国土摆名牌 */
   year?: number;
+  /**
+   * 一次点好几个(方针的亲、仇):点了合格的不收起,接着点(accept 自己换上新的一份 pick:提示、已选的);
+   * 收起要点「取消」/ Esc
+   */
+  keep?: boolean;
+  /** 已经选上的(名牌反色) */
+  on?: ReadonlySet<number>;
+  /** 名牌后面多一个小字("仇 ✓""亲") */
+  marks?: ReadonlyMap<number, string>;
 }
 
 let pick: PolityPick | null = null;
@@ -77,6 +87,15 @@ export function usePolityPick(): PolityPick | null {
     getPolityPick,
     getPolityPick,
   );
+}
+
+/**
+ * 点了一个对象以后(名牌、地图上):不合格 = 提示条换成原因;合格 = 收起(keep 的不收起,accept 已经换上了新的一份)。
+ * pk = 点的时候的那一份,err = accept 的结果
+ */
+export function finishPick(pk: PolityPick, err: string | null) {
+  if (err) setPolityPick({ ...(getPolityPick() ?? pk), msg: err });
+  else if (!pk.keep) setPolityPick(null);
 }
 
 /** 选目标时鼠标下的对象对不对:'ok' 可选 / 'self' 本国 / 'no' 不可选 */
@@ -199,10 +218,17 @@ export function interventionText(civ: Civ, v: Intervention, i = -1, a?: string):
     case 'crown':
       // "林小满即有桑皇朝君位，1530 年退位" / "……，到 1541 年卒"(下台年份就是人物卡上的卒年)
       return crownLine(authorName(civ, v.char), A, v, getEdits().characters?.find((c) => c.id === v.char)?.died, getEdits().era);
-    case 'policy':
-      return emptyPolicy(v) ? `${A}:不再定方针(照君主性格)` : `${A}:方针「${policyName(v) || '亲仇'}」`;
+    case 'policy': {
+      // "大澜王朝:方针「扩张」";细调过 / 自定的带上拧过的几项("「我的干预」里看得到旋钮的数")
+      if (emptyPolicy(v)) return `${A}:不再定方针(照君主性格)`;
+      const name = policyName(v);
+      return `${A}:方针「${name || '只定亲仇'}」${name && tweakedOrCustom(v) ? `（${policyKnobsText(v)}）` : ''}`;
+    }
   }
 }
+
+/** 方针拧过旋钮(一键选的细调过,或者没从一键选起) */
+const tweakedOrCustom = (v: PolicyIv) => policyName(v) !== (v.preset ? POLICY_PRESET_NAMES[v.preset] : '');
 
 /** 作者的人物在这份历史里叫什么(套过 applyCharacters 的历史里有名字,没即位成的也有;没套过 = "作者的人物") */
 function authorName(civ: Civ, char: number): string {
