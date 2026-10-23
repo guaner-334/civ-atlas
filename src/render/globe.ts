@@ -413,17 +413,24 @@ float cloudMacro(vec3 p, float lod) {
   vec2 st = vec2((atan(q.y, q.x) + PI) / (2.0 * PI), (0.5 * PI - asin(clamp(q.z, -1.0, 1.0))) / PI);
   return textureLod(uCloud, st, lod).r;
 }
-// 边缘的细碎:三层噪声,放大了也不糊;只加在云的边缘(云图量很小的地方不加,免得晴空里冒出碎云)
-float cloudEdge(vec3 q) {
-  vec3 w = q * 56.0 + vec3(uCloudP.z * 0.04, 0.0, uCloudP.z * 0.025);
+// 边缘的细碎:几层噪声,越放大加得越多(fp = 一个像素在单位球上多宽),一直细到两三个像素,放大了也不糊;
+// 只加在云的边缘(云图量很小的地方不加,免得晴空里冒出碎云)
+float cloudEdge(vec3 q, float fp) {
+  // 南北方向花纹更密:云顺着风(东西向)拉长一点
+  vec3 w = q * vec3(56.0, 56.0, 96.0) + vec3(uCloudP.z * 0.04, 0.0, uCloudP.z * 0.025);
+  float f = 56.0;
   float a = 0.5;
   float sum = 0.0;
-  for (int i = 0; i < 3; i++) {
-    sum += a * vnoise3(w);
+  for (int i = 0; i < 6; i++) {
+    // 这一层的花纹比三个像素还细就不加了(最后一层渐隐,缩放时不跳)
+    float k = i < 2 ? 1.0 : 1.0 - smoothstep(0.12, 0.3, f * fp);
+    if (k <= 0.0) break;
+    sum += a * k * (vnoise3(w) - 0.5);
     w = w * 2.1 + vec3(3.7, 1.3, 5.1);
+    f *= 2.1;
     a *= 0.5;
   }
-  return sum / 0.875;
+  return 0.5 + sum / 0.875;
 }
 
 // 光在屏幕上固定:左上前方(和主图"光从西北来"一致)
@@ -562,7 +569,7 @@ void main() {
         // 云:云图(大形状)+ 边缘细碎;云厚处纯白,云自己有轻微明暗,云影落在地面,昼夜分界附近带一点暖色
         vec3 q = cloudFrame(p);
         float m = textureGrad(uCloud, vec2(st.x - uCloudP.y / (2.0 * PI), st.y), gx, gy).r;
-        float n = uCloudP.w > 0.01 ? cloudEdge(q) : 0.5;
+        float n = uCloudP.w > 0.01 ? cloudEdge(q, max(length(dpu), length(dpv)) / uR) : 0.5;
         float amp = 0.42 * uCloudP.w * smoothstep(0.02, 0.2, m);
         float mm = m + (n - 0.5) * amp;
         float edge = smoothstep(0.10, 0.34, mm);
@@ -572,7 +579,7 @@ void main() {
         float cl = cloudMacro(normalize(p + Lt * 0.006), 0.5);
         c *= 1.0 - 0.34 * cs * (1.0 - 0.7 * edge) * uCloudP.x;
         float warm = smoothstep(0.0, 0.10, ndl) * (1.0 - smoothstep(0.10, 0.34, ndl));
-        float shade = clamp(0.76 + 0.30 * thick + (m - cl) * 1.1, 0.62, 1.1);
+        float shade = clamp(0.88 + 0.16 * thick + (m - cl) * 0.5, 0.8, 1.06);
         vec3 cc = mix(vec3(0.97, 0.98, 1.0) * shade, vec3(1.0, 0.70, 0.48), warm * 0.55);
         ca = clamp(edge * (0.5 + 0.5 * thick) * (0.92 + 0.08 * rim), 0.0, 0.97) * uCloudP.x;
         c = mix(c, cc, ca);

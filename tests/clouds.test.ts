@@ -43,8 +43,8 @@ describe('云图(render/clouds.ts)', () => {
     expect(cy.filter((k) => k.sgn > 0).length).toBe(3);
     for (const k of cy) {
       const lat = (Math.asin(k.c[2]) * 180) / Math.PI;
-      expect(Math.abs(lat)).toBeGreaterThan(39);
-      expect(Math.abs(lat)).toBeLessThan(59);
+      expect(Math.abs(lat)).toBeGreaterThan(37);
+      expect(Math.abs(lat)).toBeLessThan(61);
       expect(Math.sign(lat)).toBe(k.sgn);
     }
   });

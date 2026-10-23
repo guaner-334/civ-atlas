@@ -77,15 +77,21 @@ const smoothstep = (a: number, b: number, x: number) => {
   return t * t * (3 - 2 * t);
 };
 
-/** 一个气旋:单位向量中心、转向(+1 北半球逆时针、−1 南半球顺时针)、强度、大小(弧度²,越大云盘越宽) */
+/**
+ * 一个气旋(中纬度的温带气旋):单位向量中心、转向(+1 北半球逆时针、−1 南半球顺时针)、强度(中心转多少弧度)、大小(弧度²,越大云盘越宽)、
+ * 当地朝东 / 朝北的单位向量(画"逗号"尾巴的冷锋用)、冷锋强度 0–1
+ */
 export interface Cyclone {
   c: [number, number, number];
   sgn: number;
   str: number;
   r: number;
+  e: [number, number, number];
+  n: [number, number, number];
+  front: number;
 }
 
-/** 按种子定气旋:南北半球各三个,纬度 40°–58°,经度大致均分再各抖一点 */
+/** 按种子定气旋:南北半球各三个,纬度 38°–60°,经度大致均分再各抖一点;大小、强弱各不相同,不排成一模一样的一串 */
 export function cyclonesOf(seed: number): Cyclone[] {
   const rng = mulberry32(subSeed(seed, 'cloud-cyclones'));
   const out: Cyclone[] = [];
@@ -93,21 +99,33 @@ export function cyclonesOf(seed: number): Cyclone[] {
     const lon0 = rng() * Math.PI * 2;
     for (let k = 0; k < 3; k++) {
       const lon = lon0 + (k * Math.PI * 2) / 3 + (rng() - 0.5) * 0.9;
-      const lat = hemi * ((40 + rng() * 18) * Math.PI) / 180;
-      out.push({ c: [Math.cos(lat) * Math.cos(lon), Math.cos(lat) * Math.sin(lon), Math.sin(lat)], sgn: hemi, str: 2.4 + rng() * 0.8, r: 0.06 + rng() * 0.05 });
+      const lat = hemi * ((38 + rng() * 22) * Math.PI) / 180;
+      const cl = Math.cos(lat);
+      const sl = Math.sin(lat);
+      const co = Math.cos(lon);
+      const si = Math.sin(lon);
+      out.push({
+        c: [cl * co, cl * si, sl],
+        sgn: hemi,
+        str: 2.0 + rng() * 0.9,
+        r: 0.05 + rng() * 0.06,
+        e: [-si, co, 0],
+        n: [-sl * co, -sl * si, cl],
+        front: 0.55 + rng() * 0.45,
+      });
     }
   }
   return out;
 }
 
-/** 绕各个气旋中心把点转一转(越靠近中心转得越多),云图上的云就卷成了螺旋 */
-function twist(p: [number, number, number], cy: readonly Cyclone[]): [number, number, number] {
+/** 绕各个气旋中心把点转一转(越靠近中心转得越多,f = 转的比例),云图上的云就卷成了螺旋 */
+function twist(p: [number, number, number], cy: readonly Cyclone[], f = 1): [number, number, number] {
   let [x, y, z] = p;
   for (const k of cy) {
     const [cx, cyy, cz] = k.c;
     const dot = Math.min(1, Math.max(-1, x * cx + y * cyy + z * cz));
     const a = Math.acos(dot);
-    const th = k.sgn * k.str * Math.exp(-(a * a) / k.r);
+    const th = f * k.sgn * k.str * Math.exp(-(a * a) / k.r);
     if (Math.abs(th) < 1e-3) continue;
     const co = Math.cos(th);
     const si = Math.sin(th);
@@ -123,32 +141,57 @@ function twist(p: [number, number, number], cy: readonly Cyclone[]): [number, nu
   return [x, y, z];
 }
 
+/**
+ * 气旋的云:中心一团,外面一条螺旋云带往外卷开(北半球往外顺时针、南半球逆时针),朝赤道那边拖得更长 —— 卫星云图上"逗号"的头和尾巴。
+ * 云带是宽宽的一整条,细碎由噪声去打散(p = 单位球上的点,不卷)
+ */
+function spiral(p: [number, number, number], cy: readonly Cyclone[]): number {
+  let sum = 0;
+  for (const k of cy) {
+    const dc = p[0] * k.c[0] + p[1] * k.c[1] + p[2] * k.c[2];
+    if (dc < 0.6) continue;
+    // 当地平面上的坐标(弧度):x 朝东,y 朝极地
+    const x = p[0] * k.e[0] + p[1] * k.e[1] + p[2] * k.e[2];
+    const y = k.sgn * (p[0] * k.n[0] + p[1] * k.n[1] + p[2] * k.n[2]);
+    const a = Math.max(1e-4, Math.hypot(x, y));
+    const R = Math.sqrt(k.r) * 1.6 * (1 + smoothstep(0, -0.3, y));
+    const env = smoothstep(0.01, 0.05, a) * Math.exp(-((a / R) ** 2)) * (1 - smoothstep(0.5, 0.9, a));
+    // 对数螺线;k.str 顺便当云带的起始角,每个气旋朝向不同
+    const psi = Math.atan2(y, x) + 1.8 * Math.log(a) + k.str;
+    // 云带之间是晴空(干舌),所以减掉一点:螺旋才看得出来
+    const arm = (Math.pow(0.5 + 0.5 * Math.cos(psi), 1.6) - 0.32) * env;
+    const head = Math.exp(-((a / (0.25 * Math.sqrt(k.r))) ** 2)) * 0.7;
+    sum += (arm + head) * k.front;
+  }
+  return Math.max(-1, Math.min(1, sum));
+}
+
 /** 某一点(单位球上)的云量 0–1;wet = 这一点的干湿 0–1(0.5 = 平均) */
 export function cloudDensity(p: [number, number, number], seed: number, cy: readonly Cyclone[], wet = 0.5): number {
   const s = subSeed(seed, 'cloud-noise') | 0;
   const lat = Math.asin(Math.min(1, Math.max(-1, p[2])));
   const al = Math.abs(lat);
   // 纬向云量:赤道一条带、25° 一带少云、55° 一带风暴路径
-  const prof = 0.3 * Math.exp(-(((al / 0.13) ** 2))) + 0.34 * Math.exp(-((((al - 0.95) / 0.28) ** 2))) - 0.24 * Math.exp(-((((al - 0.46) / 0.14) ** 2)));
+  const prof = 0.3 * Math.exp(-(((al / 0.13) ** 2))) + 0.3 * Math.exp(-((((al - 0.95) / 0.28) ** 2))) - 0.24 * Math.exp(-((((al - 0.46) / 0.14) ** 2)));
+  // 大形状、中等的云团卷进气旋,细碎的不卷 —— 细碎的也卷进去会被拉成一道道细丝,像梳过的头发
   const t = twist(p, cy);
-  const wx = fbm3(t[0] * 3 + 3, t[1] * 3 + 3, t[2] * 3 + 3, s + 1, 3) - 0.5;
-  const wy = fbm3(t[0] * 3 + 11, t[1] * 3 + 11, t[2] * 3 + 11, s + 2, 3) - 0.5;
-  const wz = fbm3(t[0] * 3 + 23, t[1] * 3 + 23, t[2] * 3 + 23, s + 3, 3) - 0.5;
-  const qx = t[0] + wx * 0.16;
-  const qy = t[1] + wy * 0.16;
-  const qz = t[2] + wz * 0.16;
-  const big = fbm3(qx * 2.4 + 41, qy * 2.4 + 41, qz * 3.6 + 41, s + 4, 3);
-  const body = fbm3(qx * 7, qy * 7, qz * 9, s + 5, 4);
-  const fine = fbm3(qx * 30, qy * 30, qz * 30, s + 6, 2);
+  const th = twist(p, cy, 0.85);
+  const wx = fbm3(p[0] * 3 + 3, p[1] * 3 + 3, p[2] * 3 + 3, s + 1, 3) - 0.5;
+  const wy = fbm3(p[0] * 3 + 11, p[1] * 3 + 11, p[2] * 3 + 11, s + 2, 3) - 0.5;
+  const wz = fbm3(p[0] * 3 + 23, p[1] * 3 + 23, p[2] * 3 + 23, s + 3, 3) - 0.5;
+  const big = fbm3((t[0] + wx * 0.16) * 2.4 + 41, (t[1] + wy * 0.16) * 2.4 + 41, (t[2] + wz * 0.16) * 3.6 + 41, s + 4, 3);
+  const body = fbm3((th[0] + wx * 0.16) * 7, (th[1] + wy * 0.16) * 7, (th[2] + wz * 0.16) * 12, s + 5, 3);
+  const fine = fbm3((p[0] + wx * 0.05) * 26, (p[1] + wy * 0.05) * 26, (p[2] + wz * 0.05) * 46, s + 6, 2);
+  const cm = spiral(p, cy);
   // 这个世界的降水:雨多的地方云多、干旱的地方云少
-  const cov = 0.46 * big + 0.3 * body + 0.24 * fine + 0.55 * prof + 0.45 * (wet - 0.5) - 0.04;
+  const cov = 0.38 * big + 0.28 * body + 0.2 * fine + 0.5 * prof + 0.45 * (wet - 0.5) + cm * (0.2 + 0.4 * body) + 0.0;
   // 厚度:云边缘一道窄坡,往里越来越厚(云图保留云里面的明暗,着色器据此画云的立体感)
-  const main = smoothstep(0.45, 0.72, cov) * (0.78 + 0.22 * fine);
-  // 信风带零散的小积云
-  const sc = smoothstep(0.78, 0.92, fbm3(t[0] * 22 + 77, t[1] * 22 + 77, t[2] * 30 + 77, s + 7, 2) * 0.6 + fine * 0.4 + 0.15 * (1 - prof));
+  const main = smoothstep(0.45, 0.72, cov) * (0.82 + 0.18 * fine);
+  // 信风带零散的小积云:淡淡一层碎纹,不是一颗颗白点
+  const sc = smoothstep(0.7, 0.95, fbm3(p[0] * 18 + 77, p[1] * 18 + 77, p[2] * 24 + 77, s + 7, 3) * 0.7 + fine * 0.3 + 0.12 * (1 - prof));
   // 卷云:顺纬线拉长的薄丝
   const ci = smoothstep(0.66, 0.82, fbm3(p[0] * 3 + 5, p[1] * 3 + 5, p[2] * 14 + 5, s + 8, 3)) * 0.3;
-  return Math.min(1, Math.max(main, sc * 0.4, ci));
+  return Math.min(1, Math.max(main, sc * 0.25, ci));
 }
 
 /**
