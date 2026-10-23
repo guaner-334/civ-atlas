@@ -12,7 +12,7 @@ import type { World } from '../../gen/world';
 import type { Raster } from '../../gen/raster';
 import type { Civ, Year } from '../../gen/civ/types';
 import { ownersAt } from '../../gen/civ/timeline';
-import { pixelRegions } from './territory';
+import { regionPixels } from './territory';
 import { mergeChains, regionChains, type SidedLine } from './borders';
 import { addToPath, chaikin, meshWrap, unwrapLine, type Polyline } from './lines';
 import { nearX, wrapShifts } from '../common';
@@ -87,15 +87,9 @@ export function highlightBox(world: World, civ: Civ, marks: Uint8Array): [number
   return x0 <= x1 ? [x0, y0, x1, y1] : null;
 }
 
-const pixCache = new WeakMap<Civ, { raster: Raster; pix: Int16Array }>();
-
-/** 每个像素属于哪个州(territory.ts 的 pixelRegions,按 civ + raster 缓存;战事的斜线也用) */
+/** 每个像素属于哪个州(territory.ts 的 regionPixels,按州的划分 + raster 缓存,和色块用的是同一份;战事的斜线也用) */
 export function pixOf(world: World, raster: Raster, civ: Civ): Int16Array {
-  const hit = pixCache.get(civ);
-  if (hit && hit.raster === raster) return hit.pix;
-  const pix = pixelRegions(world.mesh, raster, civ.regions.of);
-  pixCache.set(civ, { raster, pix });
-  return pix;
+  return regionPixels(world, raster, civ);
 }
 
 export type RGBA = [number, number, number, number];

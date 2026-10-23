@@ -162,9 +162,18 @@ function zoneKey(z: Float32Array): string {
 
 /** 整张图的疫区墨点(画布 = raster.w × raster.h;弯边投影按行重投影) */
 export function drawPlague(ctx: CanvasRenderingContext2D, p: CivDrawParams): void {
-  if (!plagueShown(p)) return;
+  const canvas = plagueCanvas(p);
+  if (!canvas) return;
+  const { w, h, scale: S } = p.raster;
+  if (p.proj) reprojectImage(ctx, canvas, w, h, p.proj.mp, { s: S, ox: 0, oy: 0 });
+  else ctx.drawImage(canvas, 0, 0);
+}
+
+/** 疫区墨点画好的那张(raster.w × raster.h,按 civ 缓存;疫区一样就用上次画好的);不画 = null */
+export function plagueCanvas(p: CivDrawParams): AnyCanvas | null {
+  if (!plagueShown(p)) return null;
   const z = plagueZone(p.civ, p.year);
-  if (!z) return;
+  if (!z) return null;
   const { raster, civ, world } = p;
   const { w, h, scale: S } = raster;
   const key = `${p.style}|${zoneKey(z)}`;
@@ -188,8 +197,7 @@ export function drawPlague(ctx: CanvasRenderingContext2D, p: CivDrawParams): voi
     hit = { raster, key, canvas };
     canvasCache.set(civ, hit);
   }
-  if (p.proj) reprojectImage(ctx, hit.canvas, w, h, p.proj.mp, { s: S, ox: 0, oy: 0 });
-  else ctx.drawImage(hit.canvas, 0, 0);
+  return hit.canvas;
 }
 
 /** 放大后的细节层:按 cull 那一块画点(点距、点大小 × pen);弯边投影逐点投影。坐标是"地图平面 × S" */

@@ -19,13 +19,15 @@
 import type { World } from '../../gen/world';
 import type { Raster } from '../../gen/raster';
 import type { Civ, Year } from '../../gen/civ/types';
+import { Layer } from '../../gen/civ/types';
 import { drawHabitat, drawRegionLines, drawSites } from './debug';
-import { drawTerritory } from './territory';
-import { drawBorders } from './borders';
-import { drawRoutes } from './routes';
-import { drawWarHatch } from './warfare';
-import { drawPlague } from './plague';
+import { drawTerritory, territorySteps } from './territory';
+import { borderLines, drawBorders } from './borders';
+import { drawRoutes, routeLines } from './routes';
+import { drawWarHatch, warHatchCanvas, warScene, warsShown, warSpans } from './warfare';
+import { drawPlague, plagueCanvas, plagueShown, plagueZone } from './plague';
 import { clipOutline, type Projector } from '../projection';
+import { flushCanvas, type WorkStep } from '../common';
 import type { CivShow } from './show';
 
 export type CivStyle = 'realistic' | 'fantasy' | 'data';
@@ -71,6 +73,11 @@ export interface CivDrawParams {
   cull?: readonly [number, number, number, number];
   /** 信仰图层:选中的信仰(宗教卡片开着),别的信仰变淡;不给 = 都是原色 */
   faithFocus?: number | null;
+  /**
+   * 存档缩略图(App 的 thumbMaker,画结束那一年):色块、国界另存一份,不挤掉主图那一年正在用的;
+   * 色块那张画完就放掉(缩略图一个世界截一次)
+   */
+  thumb?: boolean;
 }
 
 export function drawCivOverlay(ctx: CanvasRenderingContext2D, p: CivDrawParams) {
@@ -87,6 +94,25 @@ export function drawCivOverlay(ctx: CanvasRenderingContext2D, p: CivDrawParams) 
   drawRoutes(ctx, p);
   if (p.show.sites) drawSites(ctx, p);
   ctx.restore();
+}
+
+/**
+ * drawCivOverlay 头一回画一份历史(换上再推、重推、试推演、打开存档推出来的历史)时要现算的东西,拆成一小步一小步:
+ * 色块(territory.ts 的 territorySteps,按行分段)、国界、道路、战事的斜线、瘟疫的墨点各一步(斜线、墨点画好就让浏览器当下画出来)。
+ * 都做完以后 drawCivOverlay 只是把备好的贴上、描线,和当场一口气画逐像素一样;已经备好的步骤什么也不做
+ */
+export function civOverlaySteps(p: CivDrawParams): WorkStep[] {
+  return [
+    ...territorySteps(p),
+    () => void (p.show.polities && p.civ.polities.length && borderLines(p, Layer.Polity)),
+    () => void (p.show.routes && p.civ.routes.length && routeLines(p.world.mesh, p.civ, p.year)),
+    () => void (warsShown(p) && warSpans(p.civ)),
+    () => void (warsShown(p) && warScene(p.civ, p.year)),
+    // 斜线、墨点画好以后当下就让浏览器画出来(不然攒到换上那一下贴的时候才画)
+    () => void flushCanvas(warHatchCanvas(p)),
+    () => void (plagueShown(p) && plagueZone(p.civ, p.year)),
+    () => void flushCanvas(plagueCanvas(p)),
+  ];
 }
 
 /**

@@ -5,6 +5,7 @@
  *   写实、手绘   编辑地形按块换上的那一张、原来那张的像素层还在缓存里:只重画变了的那块(和地图本身按块重画同一套,
  *               见 ui/terrainPatch.ts);不然整张分步画。都和一口气整张画逐像素相同
  *   数据图层     整张分步画(render/layers.ts 的 prepareLayer),画完下一次 renderLayer 直接贴上
+ *   国家色块     存档缩略图上叠的(结束那一年的色块、国界;overlayReady):分步备好,当场画时只是贴上、描线
  * 纯粹是把活拆小:缩略图看起来和原来一样。所有要备的排成一队,一张一张做,每段十毫秒左右就让出主线程。
  */
 import type { World } from '../gen/world';
@@ -65,6 +66,8 @@ function later(make: () => WorkStep[] | null): WorkStep {
 interface Job {
   key: string;
   raster: Raster;
+  /** 叠在缩略图上的那一份是给谁的(overlayReady;底图的没有) */
+  who?: object;
   steps: WorkStep[];
   i: number;
   /** 还要不要(都不要了就不做了;没给的 = 一直要,直到同一种底图换了一张要备的) */
@@ -106,6 +109,26 @@ export function baseReady(key: string, world: World, raster: Raster, o: { done?:
   schedule();
   return false;
 }
+
+/** 叠在缩略图上的东西已经备好了的(给谁的 → 哪张栅格) */
+const overlayDone = new WeakMap<object, Raster>();
+
+/**
+ * 叠在缩略图上的东西(存档缩略图上结束那一年的国家色块)也排进同一队分小步备:who 是给谁的(那一段历史),
+ * make 等轮到它才调、给出要做的几步。备好了(或者备的时候出了错,只能当场画)= true,之后当场画就只是贴一下;
+ * 不然排进去(同一份排着的不再排;换了一份,前一份没备完的就不做了),返回 false
+ */
+export function overlayReady(who: object, raster: Raster, make: () => WorkStep[]): boolean {
+  if (overlayDone.get(who) === raster) return true;
+  if (!queue.some((j) => j.who === who && j.raster === raster)) {
+    queue = queue.filter((j) => j.key !== OVERLAY);
+    const job: Job = { key: OVERLAY, raster, who, steps: [later(make)], i: 0, alive: [], done: [() => overlayDone.set(who, raster)], gone: [] };
+    queue.push(job);
+  }
+  schedule();
+  return false;
+}
+const OVERLAY = 'overlay';
 
 /** 备好的整张数据图层没被用上(缓存里本来就有这一张)就丢掉,不占着显存 */
 export function dropThumbPrep(): void {
@@ -156,9 +179,12 @@ function run(): void {
       if (job.steps[job.i](deadline) !== true) job.i++;
     } catch (e) {
       console.error('缩略图的底图没备好,改成当场整张画', e);
-      let s = failed.get(job.raster);
-      if (!s) failed.set(job.raster, (s = new Set()));
-      s.add(job.key);
+      if (job.who) overlayDone.set(job.who, job.raster);
+      else {
+        let s = failed.get(job.raster);
+        if (!s) failed.set(job.raster, (s = new Set()));
+        s.add(job.key);
+      }
       job.i = job.steps.length;
     }
     if (job.i < job.steps.length) continue;
