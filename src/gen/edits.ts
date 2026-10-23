@@ -300,6 +300,14 @@
  *
  * 认不出的项(不是数、不在可选的几个里)按默认;多余的字段去掉。都是能原样转成 JSON 的数和布尔值。
  *
+ * ## 导播跟着谁
+ *
+ * WorldEdits.follow(可选,没有 = 全世界的大事):导播的镜头跟着一个国家或一个人 —— `{ kind: 'polity' | 'person', key }`,
+ * key 是那个国家 / 人物的稳定键(polityKey / personKey),往前推、重推以后按键找回(人物编号会变)。
+ * 跟一个人时,他去世 / 下台以后导播接着跟下一位(君主跟继任的,将领、名臣回到他的国家;见 ui/followInfo.ts),这里记的还是最初选的那个人。
+ * 只管导播讲谁、镜头去哪,不参与推演(不进配方指纹)、不记撤销步;推演模式、逐年推演都用它,存回推演模式也带着。
+ * 读进来的先过 cleanFollow:种类不对、键不是对应种类的稳定键(`polity:`、`person:` 开头,不超过 FOLLOW_KEY_MAX 个字)= 不要这一项。
+ *
  * ## 月份
  *
  * WorldEdits.months(可选,没有 = 一年 12 个月):编年史、地图上的事件卡片、时间轴提示写到哪一月 ——
@@ -563,6 +571,14 @@ export interface WorldEdits {
   branches?: PlayBranches;
   /** 推进设置(见文件头"推进设置");没有 = 全照默认 */
   advance?: AdvanceSettings;
+  /** 导播跟着谁(见文件头"导播跟着谁");没有 = 全世界的大事 */
+  follow?: FollowRef;
+}
+
+/** 导播跟着的国家 / 人物(按稳定键记;见文件头"导播跟着谁") */
+export interface FollowRef {
+  kind: 'polity' | 'person';
+  key: string;
 }
 
 /** 逐年推演另开的几支(见文件头"支线"):当前这一支的编号、名字,不在用的几支 */
@@ -1675,6 +1691,26 @@ export function sameAdvance(a: unknown, b: unknown): boolean {
   const x = advanceOf({ advance: a as AdvanceSettings });
   const y = advanceOf({ advance: b as AdvanceSettings });
   return x.step === y.step && x.every === y.every && x.big === y.big && x.countdown === y.countdown;
+}
+
+/** 导播跟着谁:稳定键最长几个字(人物键 = 国家键 + 身份 + 名字 + 生年,名字再长也够) */
+export const FOLLOW_KEY_MAX = 300;
+
+/** 导播跟着谁清理(读档、存进修改前用;见文件头"导播跟着谁"):不合格 = undefined;合格时返回原对象(多余的字段去掉) */
+export function cleanFollow(raw: unknown): FollowRef | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const o = raw as Record<string, unknown>;
+  const kind = o.kind;
+  const key = o.key;
+  if ((kind !== 'polity' && kind !== 'person') || typeof key !== 'string' || key.length > FOLLOW_KEY_MAX || !key.startsWith(`${kind}:`) || key.length <= kind.length + 1) return undefined;
+  return Object.keys(o).length === 2 ? (raw as FollowRef) : { kind, key };
+}
+
+/** 两份"导播跟着谁"是不是一样(按清理过的比;都没有也算) */
+export function sameFollow(a: unknown, b: unknown): boolean {
+  const x = cleanFollow(a);
+  const y = cleanFollow(b);
+  return x?.kind === y?.kind && x?.key === y?.key;
 }
 
 /** 这条干预牵涉的国家键(a;结盟 / 宣战还有 b;立国没有 —— 新国家的键要推演出来才知道;即位 = 他即位的那国) */

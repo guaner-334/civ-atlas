@@ -63,6 +63,8 @@
  *   不合格的那一支去掉,提示一句。只认识 play 的版本读到这一项会跳过,看到的是当前这一支
  * - edits.advance(可选):推进设置(edits.ts 文件头"推进设置"),`{ "step": 5, "every": 50, "big": true, "countdown": 0 }`;都是默认时不写。
  *   读档时过 cleanAdvance:认不出的项按默认,提示一句
+ * - edits.follow(可选):导播跟着谁(edits.ts 文件头"导播跟着谁"),`{ "kind": "person", "key": "person:polity:c4567#0|general|燕鸾澈|1470" }`;
+ *   全世界的大事时不写。读档时过 cleanFollow:认不出的当没有,提示一句。不算修改(改了几处、换成别处的存档丢了几处都不数它)
  * - view:看这个世界用的投影和中央经线(`{ "projection": "robinson", "center": 120 }`,可选)。
  *   投影名原样存(render/projection.ts 的 ProjectionId,或 "globe"),认不出的由界面当成等距圆柱;
  *   旧存档没有这个字段 = 等距圆柱、中央经线 0°
@@ -86,7 +88,7 @@
 import type { World } from './world';
 import { DEFAULT_PARAMS, type WorldParams } from './params';
 import { cleanMix, sameMix } from './names/mix';
-import { END_YEAR_MAX, GENERATOR_CHANGES, GENERATOR_VERSION, MARKS_MAX, MARK_REGIONS_TOTAL, NAME_MAX, aiNameKeys, cleanCivSeed, cleanEndYear, cleanMapRef, cleanMark, cleanPlay, cleanPlayFrom, cleanBranches, branchPlay, cleanAdvance, advanceOf, sameAdvance, endYearOf, freeMarkId, resolveKey, type AdvanceSettings, type AiNameMark, type AuthorMark, type GeneratorChange, type Intervention, type PlayBranches, type TerrainOp, type Upheaval, type WorldEdits } from './edits';
+import { END_YEAR_MAX, GENERATOR_CHANGES, GENERATOR_VERSION, MARKS_MAX, MARK_REGIONS_TOTAL, NAME_MAX, aiNameKeys, cleanCivSeed, cleanEndYear, cleanMapRef, cleanMark, cleanPlay, cleanPlayFrom, cleanBranches, branchPlay, cleanAdvance, advanceOf, sameAdvance, cleanFollow, endYearOf, freeMarkId, resolveKey, type AdvanceSettings, type AiNameMark, type AuthorMark, type GeneratorChange, type Intervention, type PlayBranches, type TerrainOp, type Upheaval, type WorldEdits } from './edits';
 import type { Civ } from './civ/types';
 import { TERRAIN_MAX_OPS, UPHEAVALS_MAX, UPHEAVAL_KINDS, UPHEAVAL_OPS_MAX, cleanTerrainOp, cleanUpheaval } from './terrainEdits';
 import { SKETCH_MAX_STROKES, cleanSketch, cleanSketchStroke, type SketchEdit } from './sketch';
@@ -640,6 +642,8 @@ export function makeSave(
   if (branches) save.edits.branches = copyBranches(branches);
   const advance = cleanAdvance(edits.advance);
   if (advance) save.edits.advance = { ...advance };
+  const follow = cleanFollow(edits.follow);
+  if (follow) save.edits.follow = { kind: follow.kind, key: follow.key };
   const t = cleanTitle(title);
   if (t) save.title = t;
   const v = view ? cleanView(view) : null;
@@ -909,6 +913,9 @@ export function parseSave(text: string): ParseResult {
   // 推进设置:认不出的项按默认
   const advance = cleanAdvance(E.advance);
   if (E.advance !== undefined && !sameAdvanceRaw(E.advance, advance)) warnings.push('推进设置里有认不出来的项,已按默认读');
+  // 导播跟着谁:认不出的当没有(镜头跟着全世界的大事)
+  const follow = cleanFollow(E.follow);
+  if (E.follow !== undefined && !follow) warnings.push('导播跟着谁认不出来,已按全世界的大事读');
   const note = versionNote(generator, { terrain: terrain.length > 0 || !!sketch, upheavals: upheavals.length > 0 });
   if (note) warnings.splice(noteAt, 0, note);
 
@@ -940,6 +947,7 @@ export function parseSave(text: string): ParseResult {
       ...(playFrom !== undefined ? { playFrom } : {}),
       ...(branches ? { branches } : {}),
       ...(advance ? { advance } : {}),
+      ...(follow ? { follow: { kind: follow.kind, key: follow.key } } : {}),
     },
     check: typeof raw.check === 'string' ? raw.check.slice(0, 64) : '',
     savedAt: typeof raw.savedAt === 'string' && !Number.isNaN(Date.parse(raw.savedAt)) ? raw.savedAt : '',
@@ -1204,8 +1212,8 @@ export function editsLost(local: SaveFile, incoming: SaveFile): number {
   const forked = !!(cleanBranches(local.edits.branches, local.edits.play) || cleanBranches(incoming.edits.branches, incoming.edits.play));
   let n = 0;
   for (const [k, lv] of Object.entries(L)) {
-    // AI 起名的记号跟着改名走,丢没丢已经按改名算过了;用的哪张地图只是记录(第一次推完才补上校验),不算修改
-    if (k === 'aiNames' || k === 'map') continue;
+    // AI 起名的记号跟着改名走,丢没丢已经按改名算过了;用的哪张地图只是记录(第一次推完才补上校验)、导播跟着谁只管看,不算修改
+    if (k === 'aiNames' || k === 'map' || k === 'follow') continue;
     const iv = I[k];
     // 地名风格、拓荒、起源、纪年整个算一处
     if (k === 'nameMix') {

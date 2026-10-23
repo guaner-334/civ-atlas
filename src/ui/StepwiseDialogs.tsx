@@ -20,8 +20,8 @@ import { eraText, spaced, yearAt, yearFull } from '../gen/era';
 import { getEdits, setAdvance, useEdits, useEra } from './editsStore';
 import { getPending } from './pendingStore';
 import { interventionText } from './Interventions';
-import { DirectorSettings } from './Director';
-import { setStepDirectorOn, stepDirectorOn, useDirector } from './directorStore';
+import { DirectorSettings, followName } from './Director';
+import { setStepDirectorOn, stepDirectorOn, useDirector, useDirectorFollow } from './directorStore';
 import { getStepwise, nextYear, openStepDialog, stepwiseActions, useStepwise } from './stepwiseStore';
 import { branchLabel, branchSpan } from './StepBranches';
 import { rewindBrief } from './stepwisePlan';
@@ -234,8 +234,9 @@ export function AdvanceFields({ adv, set, phone }: { adv: Advance; set: (a: Adva
 /** 导播一行:"镜头跟着全世界的大事，事少快、事多慢";点了原地展开导播设置 */
 function DirectorRow({ civ, phone, on, setOn }: { civ: Civ | null; phone: boolean; on: boolean; setOn: (on: boolean) => void }) {
   const d = useDirector();
+  const follow = useDirectorFollow();
   const [open, setOpen] = useState(false);
-  const who = d.focus !== null && civ?.polities[d.focus] ? civ.polities[d.focus].name : null;
+  const who = civ ? followName(civ, follow) : null;
   const brief = !on ? '关着：照固定速度往下走，不放字幕' : `${phone ? '' : '镜头'}跟着${who ?? '全世界的大事'}，${d.pace === 'auto' ? '事少快、事多慢' : '照 1×、4× 走'}`;
   return (
     <>

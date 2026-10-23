@@ -2,7 +2,8 @@
  * 导播:时间轴播放时,镜头自己移到出事的地方、事发地一个圆环 + 名牌、底下一条字幕(编年史原句)。
  * 排哪件、停多久、镜头去哪是 directorPlan.ts 的纯计算;这里管开关、设置和"放到哪了",界面在 Director.tsx。
  *
- * - 开关、节奏(自动 / 固定速度)、一件事停多久记在浏览器里,默认关;镜头跟着的国家只管这个世界(换世界清掉)。
+ * - 开关、节奏(自动 / 固定速度)、一件事停多久记在浏览器里,默认关;镜头跟着谁(一个国家 / 一个人)记在这个世界的修改里
+ *   (gen/edits.ts 文件头"导播跟着谁",按稳定键;换世界跟着换,存档带着),找回、接着跟下一位见 followInfo.ts。
  * - 开着时由 Director.tsx 的 DirectorEngine 推进时间轴(CivTimeline 自己的播放这时不走):年份按排期的时钟走,
  *   到一段事上请地图飞过去(useDirectorFly → App),字幕条和地图上的标记显示正在放的这一件。
  *   这一段放完,字幕最多再留 DIRECTOR_LINGER 秒(下一段先到就换)。
@@ -16,6 +17,8 @@ import { directorAt, directorNext, directorYear, type DirectorCaption, type Dire
 // 逐年推演(Stepwise.tsx)也用这里:历史一步步算出来,排期一份份接着放(directorFeed / directorStep),开关另记一份(setDirectorMode)
 import type { Focus } from './flyTo';
 import { getCivTime, pausePlayback, setCivTime, type CivTime, type PlaySpeed } from './civView';
+import { getEdits, setFollow, subscribeEdits } from './editsStore';
+import type { FollowRef } from '../gen/edits';
 
 /** 一段放完以后,字幕在下一段来之前最多再留几秒 */
 export const DIRECTOR_LINGER = 2;
@@ -43,8 +46,6 @@ export interface DirectorState {
   pace: PaceMode;
   /** 一件事停多久的系数(HOLD_STEPS 之一) */
   hold: number;
-  /** 镜头跟着的国家(Polity.id);null = 全世界的大事 */
-  focus: number | null;
   shown: DirectorShown | null;
   /** 停着等你:字幕还在,镜头归你 */
   held: boolean;
@@ -54,6 +55,8 @@ export interface DirectorState {
   folded: boolean;
   /** 开着的弹层:设置(宽屏是字幕条上面的弹层,手机是底部卡片)/ 手机上拉起的略过列表 */
   panel: 'settings' | 'list' | null;
+  /** 设置里正在选跟哪个人(「一个人」、名牌上的「换人」点开的选人列表) */
+  picking: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -97,7 +100,7 @@ function save() {
 // ---------------------------------------------------------------------------
 // 共享状态
 
-let S: DirectorState = { ...load(), focus: null, shown: null, held: false, list: [], folded: false, panel: null };
+let S: DirectorState = { ...load(), shown: null, held: false, list: [], folded: false, panel: null, picking: false };
 const subs = new Set<() => void>();
 const subscribe = (f: () => void) => {
   subs.add(f);
@@ -503,12 +506,33 @@ export function setDirectorHold(hold: number) {
   save();
 }
 
-export function setDirectorFocus(focus: number | null) {
-  patch({ focus });
+// ---- 镜头跟着谁(记在这个世界的修改里;找回、接着跟下一位见 followInfo.ts) ----
+
+/** 镜头跟着谁;null = 全世界的大事 */
+export function getDirectorFollow(): FollowRef | null {
+  return getEdits().follow ?? null;
+}
+
+export function useDirectorFollow(): FollowRef | null {
+  return useSyncExternalStore(
+    (f) => subscribeEdits(f),
+    getDirectorFollow,
+    getDirectorFollow,
+  );
+}
+
+/** 改镜头跟着谁(不记撤销步、不改历史) */
+export function setDirectorFollow(f: FollowRef | null) {
+  setFollow(f);
 }
 
 export function setDirectorPanel(panel: DirectorState['panel']) {
   patch({ panel });
+}
+
+/** 设置里换成选人列表(true)/ 回到设置(false) */
+export function setDirectorPicking(picking: boolean) {
+  patch({ picking });
 }
 
 export function setDirectorFolded(folded: boolean) {

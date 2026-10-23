@@ -5,7 +5,8 @@
  *   顶部  头像(Portrait.tsx:眨眼、呼吸,按那一年的事换表情;去世以后成了画像)、称呼("圣宗柳玄""阿尔德里克三世""楚尧")、"大景皇帝，2485–2519 年在位" / "大景将领，2478–2509 年领兵"
  *         / "大景丞相，2501–2537 年在朝" / "大景宗室，2428–2467"(没即位的宗室:世系图里补上的父辈)
  *   按钮  即位那年 / 出征那年 / 入仕那年(主操作:时间轴跳过去;宗室换成「世系图」)、编年史(这国的编年史,滚到他在台上那段)、
- *         复制生平(纯文字,写设定用;带上「生平」那一段)、更多(加一个和他有关的作者人物:亲友里先填上他)
+ *         复制生平(纯文字,写设定用;带上「生平」那一段)、关注他(导播只讲他这一辈子,镜头跟着他;正跟着他时是「不关注」;宗室没有,
+ *         见 Follow.tsx)、更多(加一个和他有关的作者人物:亲友里先填上他)
  *   概况  君主:事迹(名人才有)、国家、生卒、在位、前任、继任(后面的小字是亲属,和编年史的"其子 / 其侄"同一个算法:按世系;
  *         作者立的君主:名字前面是作者人物的圆头像,小字写「作者的人物」,点了开作者的人物卡;让位给他的,结局写"让位 给某某")、
  *         父亲、子嗣(世系图里有的人,没即位的写"未即位")、结局、亲征、将领(在位时本国领兵的)、名臣(在位时在朝的);
@@ -40,6 +41,7 @@ import type { AuthorCharacter } from '../gen/characters';
 import { MenuItem } from './PopMenu';
 import { Icon } from './icons';
 import { NameEdit } from './NameEdit';
+import { FollowAct } from './Follow';
 import { Act, Acts, EntryText, EventList, Link, MoreAct, PanelHead, Row, Stats, SubLine, copyText, jumpTo, rgb, type DetailProps } from './panelParts';
 
 const F = Math.floor;
@@ -233,6 +235,7 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
         <Act icon="copy" act="person-copy" onClick={() => void copy()}>
           {copied ? '已复制' : '复制生平'}
         </Act>
+        {!prince && <FollowAct civ={civ} x={x} year={year} />}
         <MoreAct>
           {nameKey && (
             <MenuItem icon={<Icon name="rename" size={16} />} act="person-rename" onClick={() => setRenaming(true)}>

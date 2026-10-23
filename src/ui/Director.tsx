@@ -9,6 +9,9 @@
  *                    手机:略过几件、下一件、「⋯」(全部跳过、导播设置),正文最多两行。
  *                    停着等你时:"你在看地图,导播停在这件事上" +「回到导播」
  *   DirectorPanels   宽屏右上「导播略过的」列表(有才出现,能收起、清空);手机上拉起的略过列表、导播设置(底部卡片)
+ *
+ * 镜头跟着一个人时,字幕条正上方多一块名牌(Follow.tsx 的 FollowPlate;没有字幕时名牌在字幕条的位置),
+ * 导播设置「镜头跟着」多一段「一个人」(他那一行、选人列表也在 Follow.tsx)
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore, type MutableRefObject, type ReactNode } from 'react';
 import type { Civ } from '../gen/civ/types';
@@ -30,16 +33,21 @@ import {
   directorStopped,
   directorTimeMoved,
   getDirectorYear,
-  setDirectorFocus,
   setDirectorFolded,
+  setDirectorFollow,
   setDirectorHold,
   setDirectorOn,
   setDirectorPace,
   setDirectorPanel,
+  setDirectorPicking,
   subscribeDirectorProgress,
   takeDirectorStart,
   useDirector,
+  useDirectorFollow,
 } from './directorStore';
+import { directorFocusOf, followAt, followRefOf, resolveFollow } from './followInfo';
+import { FollowPick, FollowPicker, FollowPlate } from './Follow';
+import { personName } from '../gen/civ/peopleText';
 import { getCivTime, setCivTime, subscribeCivTime, togglePlayback } from './civView';
 import { useEra } from './editsStore';
 import { baseRegions } from './eras';
@@ -81,12 +89,15 @@ export function DirectorEngine({ world, civ, off, stepwise }: { world: World; ci
   const drive = d.on && !off && has && !story && !stepwise;
   // 世界、历史、纪年换了:排期重来
   const gen = useMemo(() => ++genCount, [civ, world, era]);
+  // 镜头跟着谁(记在这个世界的修改里,按稳定键在这份历史里找回)
+  const follow = useDirectorFollow();
+  const fk = follow ? `${follow.kind}:${follow.key}` : '';
+  const focus = useMemo(() => (civ ? directorFocusOf(civ, follow) : null), [civ, follow]);
 
-  // 换了世界(按第一件地形大事以前的州认;改名、重推不算):字幕、列表、关注的国家都清掉
+  // 换了世界(按第一件地形大事以前的州认;改名、重推不算):字幕、列表清掉(跟着谁跟着世界走,不用清)
   const regions = civ ? baseRegions(civ) : null;
   useEffect(() => {
     directorReset();
-    setDirectorFocus(null);
   }, [regions]);
   // 停用了(回放世界形成、导出视频……):收起字幕
   useEffect(() => {
@@ -103,9 +114,8 @@ export function DirectorEngine({ world, civ, off, stepwise }: { world: World; ci
   useEffect(() => {
     if (!drive || !playing || !civ) return;
     const end = civ.endYear;
-    const focus = d.focus !== null ? { kind: 'polity' as const, id: d.focus, others: 'none' as const } : null;
     const pace = d.pace === 'fixed' ? { mode: 'fixed' as const, rate: playRate(speed, end), hold: d.hold } : { mode: 'auto' as const, hold: d.hold };
-    const key = `${gen}|${d.pace}|${d.pace === 'fixed' ? speed : ''}|${d.hold}|${d.focus ?? ''}`;
+    const key = `${gen}|${d.pace}|${d.pace === 'fixed' ? speed : ''}|${d.hold}|${fk}`;
     const entries = fullChronicle(civ);
     const make = (from: number) => directorPlan(world, civ, { from, to: end, entries, focus, pace, era: era ?? null });
     const yearNow = () => Math.min(end, Math.max(0, getCivTime().year ?? end));
@@ -132,7 +142,7 @@ export function DirectorEngine({ world, civ, off, stepwise }: { world: World; ci
       cancelAnimationFrame(raf);
       directorStopped();
     };
-  }, [drive, playing, civ, world, era, gen, speed, d.pace, d.hold, d.focus]);
+  }, [drive, playing, civ, world, era, gen, speed, d.pace, d.hold, fk, focus]);
 
   return null;
 }
@@ -271,7 +281,17 @@ export function DirectorCaption({ phone, civ, hidden }: { phone: boolean; civ: C
       window.removeEventListener('keydown', onKey, true);
     };
   }, [settings]);
-  if (hidden || !d.on || !d.shown) return null;
+  // 跟着一个人:字幕条正上方的名牌(没有字幕时名牌照样在,字幕条的位置)
+  const follow = useDirectorFollow();
+  const plate = !hidden && d.on && civ && follow?.kind === 'person' ? <FollowPlate civ={civ} phone={phone} /> : null;
+  if (hidden || !d.on || (!d.shown && !plate)) return null;
+  if (!d.shown)
+    return (
+      <div ref={wrap} className={`dr-capwrap dr-avoid${phone ? ' phone' : ''}`} onPointerDown={stop} onClick={stop} onDoubleClick={stop}>
+        {settings && <DirectorSettings civ={civ} phone={false} />}
+        {plate}
+      </div>
+    );
   const { cap, left, next } = d.shown;
   const held = d.held;
   const n = d.list.length;
@@ -343,6 +363,7 @@ export function DirectorCaption({ phone, civ, hidden }: { phone: boolean; civ: C
   return (
     <div ref={wrap} className={`dr-capwrap dr-avoid${phone ? ' phone' : ''}`} onPointerDown={stop} onClick={stop} onDoubleClick={stop}>
       {settings && <DirectorSettings civ={civ} phone={false} />}
+      {plate}
       <div className={`dr-cap${held ? ' held' : ''}`} data-ev={cap.type} data-entry={cap.entry.id} role="status" aria-live="polite">
         <i className="dr-deco" aria-hidden="true">
           {!held && (
@@ -378,19 +399,36 @@ export function DirectorSettings({ civ, phone, inline, sw }: { civ: Civ | null; 
   const setOn = sw ? sw.set : setDirectorOn;
   const end = civ?.endYear ?? 0;
   const auto = d.pace === 'auto';
+  // 镜头跟着谁:一个国家按键找回编号;一个人(他那一行、选人列表见 Follow.tsx)
+  const follow = useDirectorFollow();
+  const focus = civ && follow?.kind === 'polity' ? (resolveFollow(civ, follow)?.id ?? null) : null;
+  const people = !!civ?.viable && !!civ.people?.length;
+  // 关上设置时选人列表也收起
+  useEffect(() => () => setDirectorPicking(false), []);
   // 镜头跟着一个国家:这一年还在的国家,鼎盛时大的在前(跟着的那国已经亡了也留在最前面)
   const year = Math.floor(Math.min(end, Math.max(0, getCivTime().year ?? end)));
+  // 跟一个人:岁数、在位第几年按这一刻算(逐年推演的历史推到"现在"前一点点,取整会少一年)
+  const at = Math.min(end, Math.max(0, getCivTime().year ?? end));
   const choices = useMemo(() => {
     if (!civ || !civ.viable) return [];
     const peak = polityHistory(civ).peak;
     return civ.polities
-      .filter((p) => p.id === d.focus || (p.founded <= year && (p.ended === undefined || p.ended > year)))
-      .sort((a, b) => (b.id === d.focus ? 1 : 0) - (a.id === d.focus ? 1 : 0) || peak[b.id] - peak[a.id] || a.id - b.id)
+      .filter((p) => p.id === focus || (p.founded <= year && (p.ended === undefined || p.ended > year)))
+      .sort((a, b) => (b.id === focus ? 1 : 0) - (a.id === focus ? 1 : 0) || peak[b.id] - peak[a.id] || a.id - b.id)
       .map((p) => ({ id: p.id, name: polityName(p, Math.min(year, p.ended !== undefined ? p.ended - 1 : year)) }));
-  }, [civ, year, d.focus]);
-  const focusName = d.focus !== null ? choices.find((c) => c.id === d.focus)?.name : undefined;
+  }, [civ, year, focus]);
+  const focusName = focus !== null ? choices.find((c) => c.id === focus)?.name : undefined;
+  const cls = `dr-set${inline ? ' inline' : ' dr-avoid'}${phone ? ' dr-sheet phone' : ''}`;
+  if (d.picking && civ && people)
+    return (
+      <div className={`${cls} picking`} role={inline ? 'group' : 'dialog'} aria-label="选一个人" onPointerDown={stop} onClick={stop}>
+        {phone && <div className="dr-grip" />}
+        <FollowPicker civ={civ} year={at} />
+      </div>
+    );
+  const kind = follow?.kind ?? null;
   return (
-    <div className={`dr-set${inline ? ' inline' : ' dr-avoid'}${phone ? ' dr-sheet phone' : ''}`} role={inline ? 'group' : 'dialog'} aria-label="导播设置" onPointerDown={stop} onClick={stop}>
+    <div className={cls} role={inline ? 'group' : 'dialog'} aria-label="导播设置" onPointerDown={stop} onClick={stop}>
       {phone && <div className="dr-grip" />}
       <div className="dr-set-head">
         导播
@@ -401,12 +439,17 @@ export function DirectorSettings({ civ, phone, inline, sw }: { civ: Civ | null; 
 
       <div className="dr-set-sec">镜头跟着</div>
       <div className="dr-seg">
-        <button className={d.focus === null ? 'on' : ''} aria-pressed={d.focus === null} data-act="director-world" onClick={() => setDirectorFocus(null)}>
+        <button className={kind === null ? 'on' : ''} aria-pressed={kind === null} data-act="director-world" onClick={() => setDirectorFollow(null)}>
           全世界的大事
         </button>
-        <label className={d.focus !== null ? 'on' : ''}>
-          <span>{focusName ?? '一个国家'}</span>
-          <select aria-label="镜头跟着哪一国" data-act="director-polity" value={d.focus ?? ''} onChange={(e) => setDirectorFocus(e.target.value === '' ? null : Number(e.target.value))}>
+        <label className={kind === 'polity' ? 'on' : ''}>
+          <span>{(kind === 'polity' && focusName) || '一个国家'}</span>
+          <select
+            aria-label="镜头跟着哪一国"
+            data-act="director-polity"
+            value={focus ?? ''}
+            onChange={(e) => civ && setDirectorFollow(e.target.value === '' ? null : followRefOf(civ, { kind: 'polity', id: Number(e.target.value) }))}
+          >
             <option value="" disabled>
               选一个国家
             </option>
@@ -417,8 +460,20 @@ export function DirectorSettings({ civ, phone, inline, sw }: { civ: Civ | null; 
             ))}
           </select>
         </label>
+        {people && (
+          <button className={kind === 'person' ? 'on' : ''} aria-pressed={kind === 'person'} data-act="director-person" onClick={() => setDirectorPicking(true)}>
+            一个人
+          </button>
+        )}
       </div>
-      {!phone && <div className="dr-set-why">选一个国家：只放它的事，镜头跟着它；别国的事进「略过的」列表。</div>}
+      {kind === 'person' && civ && <FollowPick civ={civ} year={at} />}
+      {!phone && (
+        <div className="dr-set-why">
+          {kind === 'person'
+            ? '选一个人：只讲他这一辈子 —— 他在位、领兵、在朝时的事，镜头跟着他（君主跟着国都和他亲征的仗，将领跟着他打的仗，名臣跟着他经手的事）。他去世或下台以后，君主接着看继任的，将领、名臣回到他的国家。'
+            : '选一个国家：只放它的事，镜头跟着它；别国的事进「略过的」列表。'}
+        </div>
+      )}
 
       <div className="dr-set-sec">节奏</div>
       <div className="dr-set-grp" role="radiogroup" aria-label="节奏">
@@ -468,8 +523,18 @@ function SkipRow({ s, era, phone }: { s: DirectorSkip; era: Era | null | undefin
   );
 }
 
+/** 镜头跟着的国家 / 人这一年叫什么(一个人:他不在了就是接着跟的那位;全世界的大事 = null) */
+export function followName(civ: Civ, follow: ReturnType<typeof useDirectorFollow>): string | null {
+  const year = Math.min(civ.endYear, Math.max(0, getCivTime().year ?? civ.endYear));
+  const t = follow ? followAt(civ, resolveFollow(civ, follow), year).target : null;
+  if (t?.kind === 'person') return civ.people?.[t.id] ? personName(civ, civ.people[t.id]) : null;
+  const p = t?.kind === 'polity' ? civ.polities[t.id] : undefined;
+  return p ? polityName(p, Math.min(year, p.ended !== undefined ? p.ended - 1 : year)) : null;
+}
+
 export function DirectorPanels({ phone, civ, hidden }: { phone: boolean; civ: Civ | null; hidden?: boolean }) {
   const d = useDirector();
+  const follow = useDirectorFollow();
   const era = useEra();
   const { speed } = usePlayState();
   const sheet = useRef<HTMLDivElement>(null);
@@ -512,9 +577,11 @@ export function DirectorPanels({ phone, civ, hidden }: { phone: boolean; civ: Ci
     );
   }
   if (!n) return null;
-  const who = d.focus !== null && civ?.polities[d.focus] ? polityName(civ.polities[d.focus], Math.floor(Math.min(civ.endYear, getCivTime().year ?? civ.endYear))) : null;
+  const who = civ ? followName(civ, follow) : null;
   const note = who
-    ? `只放${who}的事，别国的事和来不及放的放在这里。点一条，镜头飞过去。`
+    ? follow?.kind === 'person'
+      ? `只讲${who}这一辈子的事，别的事和来不及放的放在这里。点一条，镜头飞过去。`
+      : `只放${who}的事，别国的事和来不及放的放在这里。点一条，镜头飞过去。`
     : d.pace === 'fixed'
       ? `${speed}× 时来不及一件件放，导播只放大事，其余的放在这里。点一条，镜头飞过去。`
       : '事多时导播只放大事，其余的放在这里。点一条，镜头飞过去。';
