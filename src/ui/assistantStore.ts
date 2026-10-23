@@ -50,7 +50,7 @@ import {
   takenNames,
   type NameTarget,
 } from '../ai/prompts/names';
-import type { HistoryLength, HistoryScope, HistoryStyle } from '../ai/prompts/history';
+import { HISTORY_LENGTHS, type HistoryLength, type HistoryScope, type HistoryStyle } from '../ai/prompts/history';
 import { bookHow, getBook, startBook } from './bookStore';
 import { askHistory, commitEdits, getEdits, historyDiffers, revertEdits, setName, subscribeEdits } from './editsStore';
 import { currentWorld } from './saveStore';
@@ -515,7 +515,10 @@ function uiTools(ctx: AskContext, turn: number, ui: { book: AsStep['book'] | nul
       const j = getBook().job!;
       ui.book = { id: j.id, key: j.key, title: j.title };
       const how = bookHow(j);
-      return { result: `开始写《${j.title}》(${how})。写好会放进「成书」,作者不用等;现在用一句话告诉作者。`, summary: how };
+      // 史事少的(短命小国、没什么事的年代)篇幅按史事降了:让助手把原因告诉作者,别只报一个变小的字数
+      const want = HISTORY_LENGTHS[length].chars;
+      const short = j.chars < want ? `这段历史的史事不多,篇幅按史事从约 ${want} 字降到了约 ${j.chars} 字(硬写那么长只能凑),告诉作者这个原因;` : '';
+      return { result: `开始写《${j.title}》(${how})。写好会放进「成书」,作者不用等;${short}现在用一句话告诉作者。`, summary: how };
     },
   };
 

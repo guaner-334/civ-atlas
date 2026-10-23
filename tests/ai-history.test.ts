@@ -14,8 +14,12 @@ import { recentCallsInMemory, setActiveProvider, setMockResponder } from '../src
 import {
   HISTORY_LENGTHS,
   NAME_FLAVOR,
+  SERVE_AGE,
   SYSTEM_PROMPT,
+  battleLines,
   buildHistoryPrompts,
+  charCap,
+  usedPhrases,
   estimateTokens,
   PREV_CONTEXT,
   historyFingerprint,
@@ -267,6 +271,181 @@ describe('AI 写史书:材料', () => {
     expect(Object.keys(NAME_FLAVOR)).toHaveLength(NAME_STYLES.length);
     expect(estimateTokens('大昌享国三百年')).toBe(Math.ceil(7 * 0.85));
     expect(estimateTokens('abc')).toBe(1);
+  });
+});
+
+describe('AI 写史书:列传的人物、开头和"史臣曰"、篇幅', () => {
+  const civ2024 = generateCiv(generateWorld({ ...DEFAULT_PARAMS, seed: 2024 }));
+  const BIO: HistoryOptions = { scope: { kind: 'world' }, style: 'biography', length: 'k10' };
+  /** 列传那一次调用的写作要求和〔人物〕一节 */
+  const livesOf = (c: Civ, o: HistoryOptions) => {
+    const p = buildHistoryPrompts(c, o);
+    const k = p.sections.findIndex((s) => s.part === 'lives');
+    const body = p.calls[k].body;
+    const at = body.indexOf('〔人物〕');
+    return { head: p.calls[k].head, block: body.slice(at, body.indexOf('〔编年史〕', at)) };
+  };
+  const BATTLE = /:(.+?)(?:\((.+?)\))?攻,(.+?)(?:\((.+?)\))?守 → (.+?)(攻下|守住)/;
+
+  it('列传的材料里列出统帅、名臣:每一仗都写明谁攻、谁守、结果,结果和攻守对得上', () => {
+    for (const c of [civ, civ2024]) {
+      const { head, block } = livesOf(c, BIO);
+      expect(block).toMatch(/^〔人物〕/);
+      expect(head).toContain('优先给〔人物〕里的人立传');
+      expect(head).toContain('谁攻、谁守、谁胜都不能改');
+      const battles = block.split('\n').filter((l) => l.startsWith('  - 第'));
+      expect(battles.length).toBeGreaterThan(5);
+      for (const l of battles) {
+        const m = BATTLE.exec(l);
+        expect(m, l).toBeTruthy();
+        const [, atk, , def, , winner, how] = m!;
+        expect(winner, l).toBe(how === '攻下' ? atk : def);
+      }
+    }
+    // 一次写完的纪传体(短篇)也带上
+    const short = buildHistoryPrompts(civ, { scope: { kind: 'world' }, style: 'biography', length: 'k3' });
+    expect(short.calls[0].body).toContain('〔人物〕');
+    // 别的文体不带
+    expect(buildHistoryPrompts(civ, { scope: { kind: 'world' }, style: 'annals', length: 'k10' }).calls.some((x) => x.body.includes('〔人物〕'))).toBe(false);
+  });
+
+  it('逐仗的攻守照推演:这位统帅守住的仗写在守方、守住,攻下的写在攻方、攻下', () => {
+    let held = 0;
+    let took = 0;
+    for (const x of (civ.people ?? []).filter((p) => p.role === 'general' && p.commands?.length).slice(0, 60)) {
+      const lines = battleLines(civ, x);
+      for (const c of x.commands!) {
+        for (let i = c.first; i <= c.last; i++) {
+          const e = civ.annals[i];
+          if (e.war !== c.war) continue;
+          if (e.kind === 'battle' && e.b === x.polity) {
+            expect(lines.some((l) => l.includes(`(${x.name})守`) && l.includes('守住')), x.name).toBe(true);
+            held++;
+          }
+          if (e.kind === 'conquer' && e.a === x.polity) {
+            expect(lines.some((l) => l.includes(`(${x.name})攻`) && l.includes('攻下')), x.name).toBe(true);
+            took++;
+          }
+        }
+      }
+    }
+    expect(held).toBeGreaterThan(0);
+    expect(took).toBeGreaterThan(0);
+  });
+
+  it('生卒年:列的每个人生卒合理,写明哪年以后才能出仕;打的仗都在这之后、卒年之前', () => {
+    for (const c of [civ, civ2024]) {
+      const people = livesOf(c, BIO).block.split('\n- ').slice(1);
+      expect(people.length).toBeGreaterThan(2);
+      for (const p of people) {
+        const [first, ...rest] = p.split('\n');
+        const m = /生于第 (\d+) 年,(?:卒于第 (\d+) 年\((?:寿终|战死)\)|到第 (\d+) 年还在世);第 (\d+) 年以后才能出仕、领兵/.exec(first);
+        expect(m, first).toBeTruthy();
+        const born = +m![1];
+        const died = +(m![2] ?? m![3]);
+        expect(+m![4]).toBe(born + SERVE_AGE);
+        expect(died - born, first).toBeGreaterThan(SERVE_AGE);
+        expect(died - born, first).toBeLessThan(100);
+        for (const l of rest) {
+          const y = /第 (\d+)(?:—(\d+))? 年/.exec(l);
+          if (!y) continue;
+          expect(+y[1], l).toBeGreaterThanOrEqual(born + SERVE_AGE);
+          expect(+(y[2] ?? y[1]), l).toBeLessThanOrEqual(died);
+        }
+      }
+    }
+  });
+
+  it('分段的列传:人物只列这一段里打的仗,不把后面的事提前写', () => {
+    const p = buildHistoryPrompts(civ, { scope: { kind: 'world' }, style: 'biography', length: 'k30' });
+    const lives = p.sections.map((s, i) => ({ s, i })).filter(({ s }) => s.part === 'lives' && s.name);
+    expect(lives.length).toBeGreaterThan(1);
+    let n = 0;
+    for (const { s, i } of lives) {
+      const body = p.calls[i].body;
+      const at = body.indexOf('〔人物〕');
+      if (at < 0) continue;
+      for (const l of body.slice(at, body.indexOf('〔编年史〕', at)).split('\n').filter((x) => x.startsWith('  - 第'))) {
+        const y = /第 (\d+)(?:—(\d+))? 年/.exec(l)!;
+        expect(+y[1], l).toBeGreaterThanOrEqual(Math.floor(s.from));
+        expect(+(y[2] ?? y[1]), l).toBeLessThanOrEqual(s.to);
+        n++;
+      }
+    }
+    expect(n).toBeGreaterThan(0);
+  });
+
+  it('第二篇起:写作要求后面列出前文用过的开头和"史臣曰",明说别再用;第一篇没有;列传的体例开头不算', () => {
+    const p = buildHistoryPrompts(civ, BIO);
+    const prev = [
+      '## 本纪·甲国',
+      '',
+      '甲国之族,肇兴于北原,地多寒,民尚武。第 120 年,甲国立。',
+      '',
+      '史臣曰:甲国之兴,非恃甲兵之利,实赖民志之凝。',
+      '',
+      '## 世家·乙国',
+      '乙族,肇兴于南泽。',
+      '### 史臣曰',
+      '',
+      '乙国之存,非恃艨艟之坚,实赖契约之信。',
+      '',
+      '## 列传',
+      '### 某甲传',
+      '某甲,字子昭,凤州人也。',
+      '**史臣曰**:某甲之死,国失其将。',
+    ].join('\n');
+    expect(historyMessages(p, 0)[1].content).not.toContain('〔前文用过的开头');
+    const u = historyMessages(p, 1, prev)[1].content;
+    expect(u).toContain('〔前文用过的开头和"史臣曰"〕');
+    expect(u).toContain('不要再用这些句式');
+    expect(u).toContain('- 开头:「甲国之族,肇兴于北原,地多寒,民尚武。」');
+    expect(u).toContain('- 开头:「乙族,肇兴于南泽。」');
+    expect(u).toContain('- 史臣曰:「甲国之兴,非恃甲兵之利,实赖民志之凝。」');
+    expect(u).toContain('- 史臣曰:「乙国之存,非恃艨艟之坚,实赖契约之信。」');
+    expect(u).toContain('- 史臣曰:「某甲之死,国失其将。」');
+    expect(u).not.toContain('- 开头:「某甲');
+    expect(usedPhrases(prev)).toEqual({
+      openings: ['甲国之族,肇兴于北原,地多寒,民尚武。', '乙族,肇兴于南泽。'],
+      verdicts: ['甲国之兴,非恃甲兵之利,实赖民志之凝。', '乙国之存,非恃艨艟之坚,实赖契约之信。', '某甲之死,国失其将。'],
+    });
+    // 全角的冒号、句号也认
+    expect(usedPhrases('### 史臣曰：\n\n丙国之亡,亡于内争。其后不振。').verdicts).toEqual(['丙国之亡,亡于内争。']);
+    expect(usedPhrases('**史臣曰**：丁国之盛,盛于通商！').verdicts).toEqual(['丁国之盛,盛于通商！']);
+    // 前文太长、前几篇在〔前文〕里截掉了,开头和"史臣曰"照样摘出来
+    const long = `${prev}\n\n${'正文。'.repeat(PREV_CONTEXT)}`;
+    expect(historyMessages(p, 1, long)[1].content).toContain('「甲国之族,肇兴于北原,地多寒,民尚武。」');
+  });
+
+  it('每一篇(章)指定不同的开头写法和"史臣曰"的角度;"非恃……实赖……"点名禁掉;编年体卷首不罗列各国疆域', () => {
+    const p = buildHistoryPrompts(civ, BIO);
+    const angles = p.calls.map((c) => /- 开头和评语:(.*)/.exec(c.head)?.[1] ?? '');
+    expect(angles.every(Boolean)).toBe(true);
+    const opens = angles.map((a) => /这一篇开头(.+?)(?:;|$)/.exec(a)?.[1]).filter(Boolean);
+    expect(opens.length).toBeGreaterThan(1);
+    expect(new Set(opens).size).toBe(opens.length);
+    const verdicts = angles.map((a) => /"史臣曰"(.+)$/.exec(a)?.[1]);
+    expect(new Set(verdicts).size).toBe(verdicts.length);
+    for (const c of p.calls) expect(c.head).toContain('非恃……实赖……');
+    const a = buildHistoryPrompts(civ, { scope: { kind: 'era', from: 1600, to: 2400 }, style: 'annals', length: 'k10' });
+    expect(a.calls.length).toBeGreaterThan(1);
+    for (const c of a.calls.slice(1)) expect(c.head).toContain('不要先把天下各国的疆域、国都罗列一遍');
+    // 一次写完、分几章的:各章开头换着写
+    expect(buildHistoryPrompts(civ, { scope: { kind: 'world' }, style: 'classic', length: 'medium' }).calls[0].head).toContain('各章的开头换着写法');
+    // 白话没有"史臣曰"
+    const plain = buildHistoryPrompts(civ, { scope: { kind: 'world' }, style: 'plain', length: 'k10' });
+    for (const c of plain.calls) expect(/- 开头和评语:.*/.exec(c.head)?.[0] ?? '').not.toContain('史臣曰');
+  });
+
+  it('篇幅:一千字以上给区间(不再说"宁可略短"),短篇只给上限;战事细节算进史事的分量', () => {
+    for (const c of buildHistoryPrompts(civ, BIO).calls) {
+      expect(c.head).toContain(`约 ${c.chars} 字(正文的中文字数,写到 ${Math.round((c.chars * 0.9) / 50) * 50}—${Math.round((c.chars * 1.1) / 50) * 50} 字之间`);
+      expect(c.head).not.toContain('宁可略短');
+    }
+    expect(buildHistoryPrompts(civ, { scope: { kind: 'world' }, style: 'classic', length: 'short' }).calls[0].head).toContain('宁可略短');
+    const wars = buildChronicle(civ).filter((e) => (e.children?.length ?? 0) >= 4);
+    expect(wars.length).toBeGreaterThan(0);
+    expect(charCap(wars)).toBeGreaterThan(charCap(wars.map((e) => ({ ...e, children: undefined }))));
   });
 });
 

@@ -12,13 +12,24 @@ import { applyNames } from '../src/gen/edits';
 import { polityName, portAt } from '../src/gen/civ/growth';
 import { aiChat, setActiveProvider, setMockResponder } from '../src/ai/client';
 import { AiError, type AiRequest } from '../src/ai/types';
+import { WESTERN_STYLES } from '../src/gen/names/western';
+import { transcribe } from '../src/gen/names/transcribe';
+import { ownersAt } from '../src/gen/civ/timeline';
 import {
+  EXPLAIN_CHARS,
+  FIXED_LATIN,
   SEA_GUIDE,
   STYLE_GUIDES,
   SUGGEST_SHOW,
+  WESTERN_TR,
   cleanExplanation,
   defaultName,
   explainRequest,
+  explainScan,
+  explainTooLong,
+  latinForm,
+  regionOwnerRuns,
+  shortenRequest,
   isMockReply,
   mockSuggestions,
   nameInfo,
@@ -290,6 +301,143 @@ describe('释名 / 起名的材料(seed 7)', () => {
       expect(placePortStamp(moved, target!, raster)).toBe(before);
       expect(noteStale(moved, target!, newNote, raster)).toBe(false);
     }
+  });
+});
+
+describe('名字由来:拉丁原形、归属、字数', () => {
+  /** 一种西幻语感里写成"ton=顿"的固定译法部件(中文 → 第一种拉丁写法) */
+  const fixedParts = (style: unknown): Map<string, string> => {
+    const out = new Map<string, string>();
+    const walk = (v: unknown) => {
+      if (!v || typeof v !== 'object') return;
+      const o = v as Record<string, unknown>;
+      if (typeof o.l === 'string' && typeof o.zh === 'string' && !out.has(o.zh)) out.set(o.zh, o.l);
+      for (const x of Object.values(o)) walk(x);
+    };
+    walk(style);
+    return out;
+  };
+
+  it('音译规则、固定译法和起名器一致', () => {
+    expect(Object.keys(WESTERN_TR).sort()).toEqual(WESTERN_STYLES.map((s) => s.id).sort());
+    let n = 0;
+    for (const s of WESTERN_STYLES) {
+      expect(WESTERN_TR[s.id]).toEqual(s.tr);
+      const want = fixedParts(s);
+      const got = FIXED_LATIN[s.id] ?? new Map();
+      expect([...got.keys()].sort(), s.id).toEqual([...want.keys()].sort());
+      for (const [zh, l] of want) expect(got.get(zh), `${s.id} ${zh}`).toBe(l);
+      n += want.size;
+    }
+    expect(n).toBeGreaterThan(50);
+  });
+
+  it('西幻的国名、城名、族名倒推出拉丁原形,正着音译回去和中文名一致;东方、边塞不给', () => {
+    for (const seed of [7, 2024]) {
+      const civ = seed === 7 ? raw : generateCiv(generateWorld({ ...DEFAULT_PARAMS, seed }));
+      const names: [string, string][] = [];
+      for (const p of civ.polities) if (!p.eastern) names.push([p.name, civ.cultures[p.culture].style]);
+      for (const s of civ.settlements) names.push([s.name, civ.cultures[s.culture].style]);
+      for (const c of civ.cultures) names.push([c.name, c.style]);
+      let west = 0;
+      let got = 0;
+      for (const [name, style] of names) {
+        const f = latinForm(name, style);
+        if (styleGuide(style)?.family !== 'western') {
+          expect(f).toBeNull();
+          continue;
+        }
+        west++;
+        if (!f) continue;
+        got++;
+        expect(f.latin).toMatch(/^[A-Z][a-z]+$/);
+        // 没用固定译法、没去掉意译字的,正着音译回去一字不差
+        const core = [...name].slice(f.dropped.length && name.startsWith(f.dropped[0]) ? 1 : 0).join('');
+        const fixed = [...(FIXED_LATIN[style]?.keys() ?? [])].some((z) => core.endsWith(z) || core.startsWith(z));
+        if (!fixed && !f.dropped.length) expect(transcribe(f.latin, WESTERN_TR[style])).toBe(name);
+      }
+      expect(west).toBeGreaterThan(100);
+      expect(got / west).toBeGreaterThan(0.97);
+    }
+    // AI 拼错过的两个(哈尔米尔 → Hālmeria,尼梅亚 → Nimel'thar):读音对得上
+    expect(latinForm('哈尔米尔', 'kingdom')!.latin).toMatch(/^Halm/);
+    expect(latinForm('尼梅亚', 'elven')!.latin).toBe('Nimea');
+    // 固定译法的词尾整块认
+    expect(latinForm('克尔顿', 'kingdom')!.latin).toBe('Kelton');
+    expect(latinForm('卡斯特维尔', 'kingdom')!.latin).toMatch(/ville$/);
+    expect(latinForm('新奥利亚', 'imperial')).toEqual({ latin: 'Olia', dropped: ['新'] });
+    // 两个字的通名整个去掉
+    expect(latinForm('奥利亚渡口', 'imperial')).toEqual({ latin: 'Olia', dropped: ['渡口'] });
+    expect(latinForm('新奥利亚港', 'imperial')).toEqual({ latin: 'Olia', dropped: ['新', '港'] });
+  });
+
+  it('材料:西幻的国家、城写上拉丁原形;东方的不写;扫现实词时"拉丁"两个字不算材料、拼写算', () => {
+    const wp = raw.polities.find((p) => !p.eastern && latinForm(p.name, raw.cultures[p.culture].style))!;
+    const mp = nameMaterial(raw, { kind: 'polity', id: wp.id }, raster)!;
+    const f = latinForm(wp.name, raw.cultures[wp.culture].style)!;
+    expect(userText(explainRequest(mp))).toContain(`拉丁字母原形:${f.latin}`);
+    expect(systemText(explainRequest(mp))).toContain('就用那个拼写');
+    const mc = nameMaterial(raw, { kind: 'settlement', id: westCity.id }, raster)!;
+    const fc = latinForm(westCity.name, raw.cultures[westCity.culture].style);
+    if (fc) expect(mc.nameNote).toContain(fc.latin);
+    const scan = explainScan(mp);
+    expect(scan.material).toContain(f.latin);
+    expect(scan.material).not.toContain('拉丁');
+    const me = nameMaterial(raw, { kind: 'polity', id: eastPolity.id }, raster)!;
+    expect(me.nameNote).not.toContain('拉丁');
+  });
+
+  it('城的归属变迁一次不漏:和逐年看的一致,写明共易主几次;没易过主的写"没有易过主"', () => {
+    let changed = 0;
+    let still = 0;
+    for (const s of raw.settlements.slice(0, 60)) {
+      const to = s.ended ?? raw.endYear;
+      const runs = regionOwnerRuns(raw, s.region, s.founded, to);
+      // 每一段的主人和那一刻的归属一致,相邻两段不同
+      for (let k = 0; k < runs.length; k++) {
+        expect(ownersAt(raw, runs[k].year).polity[s.region]).toBe(runs[k].polity);
+        if (k) expect(runs[k].polity).not.toBe(runs[k - 1].polity);
+      }
+      // 逐年看:易主的次数不会比日志里的少
+      let flips = 0;
+      let last = ownersAt(raw, s.founded).polity[s.region];
+      for (let y = Math.ceil(s.founded); y <= to; y++) {
+        const q = ownersAt(raw, y).polity[s.region];
+        if (q !== last) flips++;
+        last = q;
+      }
+      expect(runs.length - 1).toBeGreaterThanOrEqual(flips);
+      const line = nameMaterial(raw, { kind: 'settlement', id: s.id })!.history.find((x) => x.startsWith('归属变迁(一次不漏)'))!;
+      expect(line).toBeTruthy();
+      if (runs.length > 1) {
+        changed++;
+        expect(line).toContain(`共易主 ${runs.length - 1} 次`);
+      } else {
+        still++;
+        expect(line).toContain('没有易过主');
+      }
+    }
+    expect(changed).toBeGreaterThan(0);
+    expect(still + changed).toBe(60);
+    // 州、山河的是抽看的,标明;写法要求里说清楚只照归属变迁写、抽看的不说次数
+    const m = nameMaterial(raw, { kind: 'region', id: westCity.region }, raster)!;
+    expect(m.history.join('\n')).toContain('归属变迁(按年代抽看)');
+    expect(systemText(explainRequest(m))).toMatch(/不要说出易主的次数/);
+  });
+
+  it('字数:要求写短一截(上限写明);写超了能让 AI 压一次', () => {
+    const m = nameMaterial(raw, { kind: 'settlement', id: westCity.id }, raster)!;
+    const sys = systemText(explainRequest(m));
+    expect(sys).toContain(`${EXPLAIN_CHARS.min}–${EXPLAIN_CHARS.max} 字`);
+    expect(sys).toContain(`不要超过 ${EXPLAIN_CHARS.cap} 字`);
+    expect(EXPLAIN_CHARS.cap).toBeLessThan(EXPLAIN_CHARS.hard);
+    const long = '甲'.repeat(EXPLAIN_CHARS.hard + 1);
+    expect(explainTooLong(long)).toBe(true);
+    expect(explainTooLong('甲'.repeat(EXPLAIN_CHARS.hard))).toBe(false);
+    const req = shortenRequest(long, m);
+    expect(req.feature).toBe('释名');
+    expect(userText(req)).toContain(long);
+    expect(systemText(req)).toContain(`绝不超过 ${EXPLAIN_CHARS.cap} 字`);
   });
 });
 
