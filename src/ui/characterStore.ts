@@ -8,6 +8,7 @@
  *   挑的时候点地图:城镇符号、城名 = 那座城,陆地 = 那一州,海上 = 那一点(App 按 pickPlace 交过来);顶部提示条能取消(Esc)
  */
 import { useSyncExternalStore } from 'react';
+import type { RulerLeanings } from '../gen/civ/types';
 import { MARK_COLORS, type MarkColor } from '../gen/edits';
 import {
   CHARACTERS_MAX,
@@ -64,6 +65,8 @@ export interface CharDraft {
   note: string;
   life: LifeEntry[];
   kin: KinEntry[];
+  /** 性格(没动过 = null:存的时候不写,四项都按 50 算) */
+  leanings: RulerLeanings | null;
   /** 正在填的小表:一段经历 / 一个亲友 */
   sub: { kind: 'life'; d: LifeDraft } | { kind: 'kin'; d: KinDraft } | null;
 }
@@ -133,6 +136,7 @@ export function newCharacterDraft(init: { birthplace?: Where; kin?: KinEntry[]; 
       note: '',
       life: [],
       kin: init.kin ?? [],
+      leanings: null,
       sub: null,
     },
     picking: init.birthplace ? null : 'birth',
@@ -155,6 +159,7 @@ export function editCharacterDraft(c: AuthorCharacter) {
       note: c.note ?? '',
       life: (c.life ?? []).map((e) => ({ ...e })),
       kin: (c.kin ?? []).map((k) => ({ ...k })),
+      leanings: c.leanings ? { ...c.leanings } : null,
       sub: null,
     },
     picking: null,
@@ -193,6 +198,7 @@ export function draftCharacterData(d: CharDraft): Omit<AuthorCharacter, 'id'> | 
   if (d.note.trim()) c.note = d.note;
   if (d.life.length) c.life = d.life.map((e) => ({ ...e }));
   if (d.kin.length) c.kin = d.kin.map((k) => ({ ...k }));
+  if (d.leanings) c.leanings = { ...d.leanings };
   return c;
 }
 
@@ -213,6 +219,7 @@ export function draftAsCharacter(d: CharDraft, fallback: number): AuthorCharacte
     note: d.note,
     life: d.life,
     kin: d.kin,
+    leanings: d.leanings ?? undefined,
   };
   return { ...(cleanCharacter(raw) ?? { id: raw.id, name: raw.name, color: d.color, born: b }), id: d.id };
 }

@@ -408,7 +408,14 @@ export function getSelection(): SelectionState {
 }
 
 /** 选中一个东西;side 不给 = 面板留在原来那一边。选中新的东西(看详情)时暂停播放 */
+/** 选中前换一个目标(App.tsx 设:推演里作者的人物当的君主 → 打开作者的人物卡) */
+let redirect: ((sel: MapSelection) => MapSelection) | null = null;
+export function setSelectionRedirect(f: ((sel: MapSelection) => MapSelection) | null) {
+  redirect = f;
+}
+
 export function setSelection(sel: MapSelection | null, side?: 'left' | 'right') {
+  if (sel && redirect) sel = redirect(sel);
   if (sel && !sameSelection(sel, selection.get().sel)) pausePlayback();
   selection.set(side ? { sel, side } : { sel });
 }
