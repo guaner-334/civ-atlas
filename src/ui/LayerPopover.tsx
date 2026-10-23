@@ -41,7 +41,7 @@ import {
 import { Icon } from './icons';
 import { GraticuleSteps, ProjectionSection, projectionName } from './ProjectionPanel';
 import { setContourKind, setGraticule, useContourKind, useGraticule, useProjection } from './projection';
-import { setCloudPrefs, useCloudPrefs } from './cloudPrefs';
+import { setCloudPrefs, useCloudGpu, useCloudPrefs } from './cloudPrefs';
 import type { ContourKind } from '../gen/savefile';
 import { getCivTime } from './civView';
 import { CivToggles, CultureLegend, FaithLegend, NameToggles } from './CivPanel';
@@ -470,11 +470,13 @@ function ContourRow({ globe }: { globe: boolean }) {
 }
 
 /** 云层一行:左边开关,右边 静止 / 飘动(关着时灰掉,点一档顺手打开);只有卫星底图的地球仪上画云,别处整行灰掉 */
-function CloudRow({ active }: { active: boolean }) {
+function CloudRow({ active: shown }: { active: boolean }) {
   const { on, drift } = useCloudPrefs();
+  const gpu = useCloudGpu();
+  const active = shown && gpu;
   const lit = on && active;
   return (
-    <div className={`lp-grat lp-iso${active ? '' : ' disabled'}`} title={active ? undefined : '卫星底图的地球仪上才有云'}>
+    <div className={`lp-grat lp-iso${active ? '' : ' disabled'}`} title={active ? undefined : shown ? '这台设备上的地球仪是简化画法,画不了云' : '卫星底图的地球仪上才有云'}>
       <button className={`lp-check lp-tog${lit ? ' on' : ''}`} role="checkbox" aria-checked={lit} data-act="clouds" disabled={!active} onClick={() => setCloudPrefs({ on: !on })}>
         <span className="lp-box" aria-hidden="true">
           {lit ? '✓' : ''}

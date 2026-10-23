@@ -73,7 +73,7 @@ import { getCivFeed, subscribeCivFeed } from './CivLayer';
 import { getProjection, lastFlatProjection, setProjection, useGraticuleLines, useProjection } from './projection';
 import { clearToast, showToast } from './toastStore';
 import { isNarrow } from './device';
-import { getCloudPrefs, useCloudPrefs } from './cloudPrefs';
+import { getCloudPrefs, setCloudGpu, useCloudPrefs } from './cloudPrefs';
 import { CLOUD_H, CLOUD_W, wetFromPrecip } from '../render/clouds';
 import type { CloudResponse } from '../cloudWorker';
 import { getMapCenter, publishMapCenter } from './mapWrap';
@@ -867,6 +867,8 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
       at: 0,
       failedKey: null as unknown,
       ms: 0,
+      /** 正在画云图的后台线程(地球仪关掉时停掉它) */
+      worker: null as Worker | null,
     },
     /** 云飘动时只重画显卡那一层(不动文字和矢量线):上一帧的画法参数、下一次重画的时刻、最后一次有人操作的时刻、重画的定时循环 */
     lastGl: null as { cw: number; ch: number; dpr: number; look: GlobeLook } | null,
@@ -915,8 +917,10 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
       const key = c.key;
       try {
         const wk = new Worker(new URL('../cloudWorker.ts', import.meta.url), { type: 'module' });
+        c.worker = wk;
         const done = () => {
           wk.terminate();
+          if (c.worker === wk) c.worker = null;
           c.pending = false;
         };
         wk.onmessage = (e: MessageEvent<CloudResponse>) => {
@@ -1758,6 +1762,9 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
       s.cpuReady = null;
       cancelAnimationFrame(s.driftRaf);
       s.driftRaf = 0;
+      s.cloud.worker?.terminate();
+      s.cloud.worker = null;
+      s.cloud.pending = false;
       s.gl?.dispose();
       for (const c of [s.hd.cache, s.lo.cache]) {
         for (const b of c.values()) b.bitmap.close();
@@ -1781,6 +1788,11 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
   useEffect(invalidate, [terrain, terrainKey, replay, raster, graticule, style, look, civ, geo, sel, show, leftRoom, rightRoom, hl, faithFocus, resView]);
   // 云的开关、飘不飘变了:重画,飘动循环接上
   const cloudPrefs = useCloudPrefs();
+  // CPU 画法画不了云:图层面板的「云层」跟着变灰;地球仪关掉后恢复
+  useEffect(() => {
+    setCloudGpu(!cpu);
+    return () => setCloudGpu(true);
+  }, [cpu]);
   useEffect(() => {
     invalidate();
     startDrift();

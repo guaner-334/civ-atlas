@@ -45,6 +45,27 @@ export function setCloudPrefs(patch: Partial<CloudPrefs>): void {
   for (const f of subs) f();
 }
 
+/** 地球仪这会儿能不能画云:没有 WebGL2、退回 CPU 画法时不能(图层面板的「云层」一行跟着变灰) */
+let gpu = true;
+const getCloudGpu = () => gpu;
+
+export function setCloudGpu(v: boolean): void {
+  if (v === gpu) return;
+  gpu = v;
+  for (const f of subs) f();
+}
+
+export function useCloudGpu(): boolean {
+  return useSyncExternalStore(
+    (f) => {
+      subs.add(f);
+      return () => subs.delete(f);
+    },
+    getCloudGpu,
+    getCloudGpu,
+  );
+}
+
 export function useCloudPrefs(): CloudPrefs {
   return useSyncExternalStore(
     (f) => {
