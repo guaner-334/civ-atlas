@@ -200,11 +200,12 @@ function roleArg(v: unknown): RoleArg | null {
   const s = v.trim();
   const hit = ROLES.find((r) => r === s || ROLE_NAME[r] === s);
   if (hit) return hit;
+  // 宗室先认("王子""皇子"里也有"王""皇")
+  if (/宗室|王子|皇子|太子|公子/.test(s)) return 'prince';
+  if (/作者/.test(s)) return 'author';
   if (/君|帝|王|执政/.test(s)) return 'ruler';
   if (/将/.test(s)) return 'general';
   if (/臣|相/.test(s)) return 'minister';
-  if (/宗室|王子/.test(s)) return 'prince';
-  if (/作者/.test(s)) return 'author';
   return null;
 }
 
@@ -548,6 +549,8 @@ export function lookupPeople(ctx: LookupContext, a: Record<string, unknown>): Lo
             ? ix.generals[id]
             : people.filter((x) => x.role === 'prince' && x.polity === id).sort((x, y) => x.born - y.born || x.id - y.id);
       const hit = list.filter((x) => {
+        // 宗室按生卒:卒年那一年还算在世(和"那一年在世的宗室"一样);名臣、将领按在朝、领兵,卸任那一刻起不算
+        if (x.role === 'prince') return F(x.born) <= to && (x.died ?? Infinity) >= from;
         const s = personSpan(x);
         return inRange(s.from, s.until);
       });
@@ -984,6 +987,8 @@ function areaReport(ctx: LookupContext, area: Area, owners: (y: number) => Owner
 
   const summary = land
     ? `平均海拔 ${Math.round(eSum / wLand / 10) * 10} 米，年均 ${f1(t.s / wT)}°C，年降水 ${Math.round(p.s / wT / 10) * 10} 毫米`
-    : `海洋，平均水深 ${Math.round(dSum / (wSea || 1) / 10) * 10} 米`;
+    : wSea > 0
+      ? `海洋，平均水深 ${Math.round(dSum / wSea / 10) * 10} 米`
+      : '湖泊';
   return { result: fitLines(out, LOOKUP_MAX, '换小一点的范围再查'), summary };
 }

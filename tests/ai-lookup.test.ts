@@ -232,6 +232,25 @@ describe.each(worlds)('种子 $seed', (w) => {
     expect(r.result).not.toContain('没有什么物产');
   });
 
+  it('宗室:"王子"认作宗室;按年份列时卒年那一年还算', () => {
+    const r = lookupPeople(ctx, { country: `P${big}`, role: '王子' });
+    expect(r.result).toMatch(/宗室 共 \d+ 位/);
+    const princes = (civ.people ?? []).filter((x) => x.role === 'prince' && x.polity === big && x.died !== undefined);
+    for (const x of princes.slice(0, 3)) {
+      const y = F(x.died!);
+      const want = princes.filter((p) => F(p.born) <= y && p.died! >= y).length + (civ.people ?? []).filter((p) => p.role === 'prince' && p.polity === big && p.died === undefined && F(p.born) <= y).length;
+      expect(lookupPeople(ctx, { country: `P${big}`, role: 'prince', from: y, to: y, limit: 60 }).result).toContain(`宗室 共 ${want} 位`);
+    }
+  });
+
+  it('只圈到湖面:说是湖泊,不说成海洋', () => {
+    const lake = world.water.indexOf(2);
+    if (lake < 0) return;
+    const r = lookupLand(ctx, { at: toLonLat(world.mesh.x[lake], world.mesh.y[lake]), radius: 1 });
+    expect(r.result).toContain('湖泊 100%');
+    expect(r.summary).toBe('湖泊');
+  });
+
   it('at、box 给了却写错:说参数不对,不拿整个世界充数;写成字符串的数也认', () => {
     for (const a of [{ at: 'abc' }, { at: [1] }, { at: [1, 'x'] }, { box: 'x' }, { box: [1, 2, 3] }]) {
       const r = lookupLand(ctx, a);
