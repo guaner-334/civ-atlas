@@ -21,6 +21,7 @@ import './diag.css';
 import './tips.css';
 import './portrait.css';
 import './characters.css';
+import './policy.css';
 import './upheaval.css';
 import './marks.css';
 import './params.css';

@@ -17,7 +17,7 @@ import type { World } from '../gen/world';
 import { capitalAt, polityAlive } from '../gen/civ/growth';
 import { ownersAt } from '../gen/civ/timeline';
 import { getSelection, useCivTime, useSelection } from './civView';
-import { getPolityPick, nameAt, setPickHover, setPolityPick, usePickHover, usePolityPick } from './Interventions';
+import { finishPick, getPolityPick, nameAt, setPickHover, setPolityPick, usePickHover, usePolityPick } from './Interventions';
 import { endRun, getPanel, requestFly, setPanelTab, setSheet, usePanel } from './panelStore';
 import { clearToast, showToast } from './toastStore';
 import { isCoarse } from './device';
@@ -51,6 +51,8 @@ interface Plate {
   id: number;
   text: string;
   note: string;
+  /** 后面多一个小字(方针选亲、仇时的"仇 ✓""亲") */
+  mark?: string;
   color: string;
   /** 本国 / 现在的国都:主色底 */
   self: boolean;
@@ -185,7 +187,7 @@ export function TargetLayer({ civ, world, toClient, resim, generating, labelAt }
       const a = anchors.get(id);
       if (!p || !a) return;
       const note = self ? (pick?.selfNote ?? '本国') : pick?.near?.has(id) ? '相邻' : '';
-      out.push({ key: `p${id}`, kind: 'polity', id, text: nameAt(p, year), note, color: rgb(p.color), self, rank: self ? -1 : -a.n, x: a.x, y: a.y });
+      out.push({ key: `p${id}`, kind: 'polity', id, text: nameAt(p, year), note, mark: pick?.marks?.get(id), color: rgb(p.color), self, rank: self ? -1 : -a.n, x: a.x, y: a.y });
     };
     if (pick) {
       if (pick.self !== undefined) add(pick.self, true);
@@ -366,8 +368,7 @@ export function TargetLayer({ civ, world, toClient, resim, generating, labelAt }
   const choose = (id: number) => {
     const pk = getPolityPick();
     if (!pk) return;
-    const err = pk.accept(id);
-    setPolityPick(err ? { ...pk, msg: err } : null);
+    finishPick(pk, pk.accept(id));
   };
 
   const dim = !!pick || !!run;
@@ -384,7 +385,7 @@ export function TargetLayer({ civ, world, toClient, resim, generating, labelAt }
                 if (el) plateEls.current.set(p.key, el);
                 else plateEls.current.delete(p.key);
               }}
-              className={`tp-plate${p.self ? ' self' : ''}${!p.self && (hover === p.id || run?.target?.id === p.id) ? ' on' : ''}`}
+              className={`tp-plate${p.self ? ' self' : ''}${!p.self && (hover === p.id || run?.target?.id === p.id || pick?.on?.has(p.id)) ? ' on' : ''}`}
               data-kind={p.kind}
               data-id={p.id}
               style={{ visibility: 'hidden' }}
@@ -396,6 +397,7 @@ export function TargetLayer({ civ, world, toClient, resim, generating, labelAt }
               <i className="tp-sw" style={{ background: p.color }} />
               <span className="tp-name">{p.text}</span>
               {p.note && <span className="tp-note">{p.note}</span>}
+              {p.mark && <span className="tp-note">{p.mark}</span>}
             </button>
           ))}
         </div>
