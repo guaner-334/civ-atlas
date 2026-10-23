@@ -7,17 +7,19 @@
  * - 材料(nameMaterial):和时间轴拖到哪一年无关,讲的是它的一生 ——
  *   语感(12 种,见 STYLE_GUIDES:中式讲字义典故、西幻讲拟造的词源)、地理(位置、地貌、气候、临近的山川)、
  *   历史(建城 / 立国年份、国号变迁、国都、兴衰、归属变迁、编年史里和它有关的几条)、同一语感的其他名字(给 AI 找语感)
- * - 释名:explainRequest → 100–250 字的"名字由来"(流式);起名:suggestRequest(json: true)→ parseSuggestions
+ * - 释名:explainRequest → 120–180 字的"名字由来"(流式;写超了用 shortenRequest 压一次);起名:suggestRequest(json: true)→ parseSuggestions
  * - 过时检查:nameStamp 只由年份、地块等数字拼成(不含任何名字),历史改写 / 改地形后会变,改名不会变;
  *   释名存下时记着当时的名字和 stamp,界面据此标"写于改名前""写于历史改写前"
  *
- * 不引起名器(gen/names)和推演代码,免得主线程打包地名词库:语感的说明在本文件里另写一份(单测核对和起名器一致)。
+ * 不引起名器(gen/names)和推演代码,免得主线程打包地名词库:语感的说明、西幻各语感的音译规则在本文件里另写一份(单测核对和起名器一致);
+ * 只引音译表(gen/names/transcribe,一张小表),用来倒推音译名字的拉丁字母原形。
  */
-import type { Civ, Place, Polity } from '../../gen/civ/types';
+import { Layer, type Civ, type Place, type Polity } from '../../gen/civ/types';
 import type { Raster } from '../../gen/raster';
 import { BIOMES } from '../../gen/biomes';
 import { mulberry32, subSeed } from '../../gen/util';
 import { pickStyle, type NameMix } from '../../gen/names/mix';
+import { transcribe, type TranscribeOptions } from '../../gen/names/transcribe';
 import { KIND_INFO, cultureLabel, regionLabel, regionNamed } from '../../gen/civ/display';
 import {
   SETTLEMENT_RANKS,
@@ -30,7 +32,7 @@ import {
   portAt,
   settlementRank,
 } from '../../gen/civ/growth';
-import { ownersAt, type Owners } from '../../gen/civ/timeline';
+import { logIndexAfter, ownersAt, type Owners } from '../../gen/civ/timeline';
 import { MAJOR, buildChronicle, cnNumber, type ChronicleEntry } from '../../gen/civ/chronicle';
 import { NAME_MAX, cleanName, cultureKey, dynastyKey, placeKeyOf, polityKey, regionKey, settlementKey, type KeyKind } from '../../gen/edits';
 import { habitatScore, habitatWord } from '../../ui/civDescribe';
@@ -223,6 +225,217 @@ export function styleGuide(id: string | undefined): StyleGuide | null {
 export function worldStyleId(seed: number, names?: NameMix): string {
   const rng = mulberry32(subSeed(seed, 'civ-places-style'));
   return pickStyle(names, rng());
+}
+
+// ---------------------------------------------------------------------------
+// 音译名字的拉丁字母原形(按中文读音还原)
+//
+// 西幻语感的国名、城名、族名、州名是从拟造的拉丁字母串音译来的,但生成时只留了中文(山河湖海才带着原形)。
+// 让 AI 自己拼,常拼出读音对不上的词(哈尔米尔 → Hālmeria,尼梅亚 → Nimel'thar)。这里按生成器的音译规则
+// 倒推一个拼写:逐字找能音译成这个字的音节,拼起来再正着音译一遍,和中文名一字不差才用
+
+/** 西幻各语感的音译规则(和 gen/names/western.ts 里 WESTERN_STYLES 的 tr 一致,单测核对;抄一份,免得把地名词库打进页面的包) */
+export const WESTERN_TR: Record<string, TranscribeOptions> = {
+  imperial: {},
+  kingdom: {},
+  nordic: { jAsY: true },
+  slavic: {
+    jAsY: true,
+    table: { be: '别', de: '杰', te: '捷', ne: '涅', le: '列', re: '列', se: '谢', di: '季', ti: '季', cha: '恰', e: '叶', ye: '叶' },
+  },
+  hellenic: {},
+  desert: { table: { me: '麦', ha: '哈', kha: '哈', ai: '艾' } },
+  steppe: { table: { ka: '喀', te: '铁', mu: '木' } },
+  elven: { table: { e: '艾', the: '瑟', se: '瑟', si: '希', thi: '希', ai: '艾', lai: '莱', lin: '琳' } },
+};
+
+const TR_ONSETS = ['', 'b', 'p', 'd', 't', 'g', 'k', 'f', 'v', 's', 'z', 'sh', 'ch', 'j', 'm', 'n', 'l', 'r', 'h', 'th', 'kh', 'y', 'w', 'ts'];
+/** 韵母按这个先后试:同一个字两种读法都行时(维 = ve / vi)取前面的 */
+const TR_VOWELS = ['a', 'i', 'o', 'u', 'e', 'ai', 'au', 'an', 'in', 'on', 'en', 'un', 'ang', 'ong'];
+/**
+ * 各语感固定译法的词根、词尾(和 gen/names/western.ts 各语感里写成"ton=顿"的部件一致,单测核对):
+ * 它们不按音译表译,倒推时整块认
+ */
+const FIXED_PARTS: Record<string, string> = {
+  kingdom:
+    'land=兰 mere=米尔 dell=戴尔 ton=顿 ford=福德 wick=威克 bury=伯里 ville=维尔 mont=蒙特 bourg=堡 field=菲尔德 stead=斯特德 worth=沃思 ' +
+    'gate=盖特 mouth=茅斯 chester=切斯特 dale=代尔 more=莫尔 by=比 port=港 haven=黑文 well=韦尔 bridge=布里奇 wood=伍德 brook=布鲁克 ' +
+    'castle=卡斯尔 holt=霍尔特 ley=利 shire=郡 mark=马克 moor=莫尔 wold=沃尔德',
+  nordic: 'heim=海姆 gard=加德 land=兰 mark=马克 rike=里克 vik=维克 holm=霍尔姆 by=比 stad=斯塔德 havn=港 borg=堡 sund=松德 nes=内斯 dal=达尔 fjord=峡湾',
+  slavic: 'grad=格勒 gorod=哥罗德',
+  hellenic: 'polis=波利斯',
+  desert: 'stan=斯坦 kand=坎德 shahr=沙赫尔',
+  steppe:
+    'kara=喀拉 ak=阿克 kok=科克 sary=萨热 kyzyl=克孜勒 altan=阿勒坦 ulaan=乌兰 khokh=呼和 tsagaan=查干 khar=哈尔 shar=沙尔 temir=铁木尔 ' +
+    'bayan=巴彦 mongon=孟根 tengri=腾格里 ikh=伊克 ongon=翁贡 arslan=阿尔斯兰 bori=博热 boz=博孜 tash=塔什 kum=库姆 ay=阿依 yulduz=尤勒都斯 ' +
+    'tegin=特勤 batur=巴图尔 shira=西拉 nomin=诺敏 sain=赛音 bugha=布哈 altyn=阿勒屯 erdene=额尔德尼 mergen=莫日根 khatun=可敦 khot=浩特 ' +
+    'balik=八里 kent=肯特 sumu=苏木 bulak=布拉克 bazar=巴扎 kurgan=库尔干 ordu=斡鲁朵 tag=塔格 ula=乌拉 tengis=腾吉斯 dalai=达来 gol=郭勒 ' +
+    'su=苏 muren=木伦 darya=达里雅 tal=塔拉 gobi=戈壁 dala=达拉 bulun=布伦',
+  elven: 'duin=杜因',
+};
+/** 各语感的固定译法:中文 → 拉丁(长的在前;同一个中文有两种写法的取第一种) */
+export const FIXED_LATIN: Readonly<Record<string, ReadonlyMap<string, string>>> = Object.fromEntries(
+  Object.entries(FIXED_PARTS).map(([id, spec]) => [
+    id,
+    new Map(
+      spec
+        .split(' ')
+        .map((t) => t.split('=') as [string, string])
+        .map(([l, zh]) => [zh, l] as [string, string])
+        .filter(([zh], i, xs) => xs.findIndex((x) => x[0] === zh) === i)
+        .sort((x, y) => [...y[0]].length - [...x[0]].length),
+    ),
+  ]),
+);
+/** 意译的前缀(复国的"新某",方位)/ 通名(城、州、地形),作者改的名字里常有,不在拉丁原形里 */
+const ZH_PREFIX = '新老旧北南东西上下';
+const ZH_GENERIC = '堡港城郡谷山河湖海岛镇关州原川泽渡口寨岭峡湾';
+/** 倒推时一段最多试多少种拼法 */
+const LATIN_TRIES = 4000;
+
+interface Chunks {
+  /** 带元音的音节(ka、lan) */
+  cv: string[];
+  /** 单独成字的辅音(k 克、l 尔) */
+  lone: string[];
+}
+const chunkCache = new Map<TranscribeOptions, Map<string, Chunks>>();
+/** 每个汉字能由哪些拉丁音节音译出来(按音译规则正着算一遍;短的在前) */
+function chunkMap(tr: TranscribeOptions): Map<string, Chunks> {
+  const hit = chunkCache.get(tr);
+  if (hit) return hit;
+  const m = new Map<string, Chunks>();
+  const add = (chunk: string, lone: boolean) => {
+    let zh = '';
+    try {
+      zh = transcribe(chunk, tr);
+    } catch {
+      return;
+    }
+    if ([...zh].length !== 1) return;
+    const c = m.get(zh) ?? { cv: [], lone: [] };
+    const l = lone ? c.lone : c.cv;
+    if (!l.includes(chunk)) l.push(chunk);
+    m.set(zh, c);
+  };
+  for (const v of TR_VOWELS) for (const o of TR_ONSETS) add(o + v, false);
+  for (const o of TR_ONSETS) if (o) add(o, true);
+  for (const c of m.values()) c.cv.sort((a, b) => a.length - b.length);
+  // 要看前后文的几种(单独音译时出不来):ia / ea 的 a 读"亚"(Aldoria 阿尔多里亚)、ion / eon 读"昂"(Falion 法利昂)、
+  // l / r 前的 v、f 读"弗"(Vladimir 弗拉基米尔)
+  const extra = (zh: string, cv: string[], lone: string[] = []) => {
+    const c = m.get(zh) ?? { cv: [], lone: [] };
+    c.cv.unshift(...cv.filter((x) => !c.cv.includes(x)));
+    c.lone.unshift(...lone.filter((x) => !c.lone.includes(x)));
+    m.set(zh, c);
+  };
+  extra('亚', ['a']);
+  extra('昂', ['on']);
+  extra('弗', [], ['v', 'f']);
+  chunkCache.set(tr, m);
+  return m;
+}
+
+/**
+ * 一段汉字倒推成拉丁字母(小写;正着音译回去一字不差);倒推不出 = ''。
+ * 词中先试带元音的音节,词尾(atEnd = 这一段在整个名字的末尾)先试单独的辅音(哈米德 → Hamid,不是 Hamide;词尾的"尔"先试 r)
+ */
+function reverseRun(zh: string, tr: TranscribeOptions, atEnd = true): string {
+  const chars = [...zh];
+  if (!chars.length) return '';
+  const m = chunkMap(tr);
+  const opts = chars.map((ch, k) => {
+    const c = m.get(ch);
+    if (!c) return [];
+    if (k < chars.length - 1) return [...c.cv, ...c.lone];
+    if (!atEnd) return [...c.cv, ...c.lone];
+    const lone = [...c.lone].sort((a, b) => (a === 'r' ? -1 : b === 'r' ? 1 : 0));
+    return [...lone, ...c.cv];
+  });
+  if (opts.some((o) => !o.length)) return '';
+  let tries = 0;
+  const pick: string[] = [];
+  const dfs = (k: number): string => {
+    if (k === chars.length) {
+      tries++;
+      const latin = pick.join('');
+      try {
+        return transcribe(latin, tr) === zh ? latin : '';
+      } catch {
+        return '';
+      }
+    }
+    for (const c of opts[k]) {
+      if (tries >= LATIN_TRIES) return '';
+      pick.push(c);
+      const r = dfs(k + 1);
+      pick.pop();
+      if (r) return r;
+    }
+    return '';
+  };
+  return dfs(0);
+}
+
+/**
+ * 整个名字倒推(小写):先认这一语感固定译法的词尾、词头(-顿、-维尔、喀拉-;起名器就是这样拼的,讲法提示也按这些词尾讲),
+ * 其余按音译表;都不行再整串按音译表
+ */
+function reverseName(zh: string, tr: TranscribeOptions, fixed: ReadonlyMap<string, string>): string {
+  const cs = [...zh];
+  const fixedHead = (x: string): string => {
+    const xs = [...x];
+    for (const [z, l] of fixed) {
+      const n = [...z].length;
+      if (xs.length > n && xs.slice(0, n).join('') === z) {
+        const tail = reverseRun(xs.slice(n).join(''), tr, false) || fixed.get(xs.slice(n).join('')) || '';
+        if (tail) return l + tail;
+      }
+    }
+    return '';
+  };
+  for (const [z, l] of fixed) {
+    const n = [...z].length;
+    if (cs.length <= n || cs.slice(-n).join('') !== z) continue;
+    const rest = cs.slice(0, -n).join('');
+    const head = fixed.get(rest) || reverseRun(rest, tr, false) || fixedHead(rest);
+    if (head) return head + l;
+  }
+  for (const [z, l] of fixed) {
+    const n = [...z].length;
+    if (cs.length <= n || cs.slice(0, n).join('') !== z) continue;
+    const tail = reverseRun(cs.slice(n).join(''), tr);
+    if (tail) return l + tail;
+  }
+  return reverseRun(zh, tr);
+}
+
+/**
+ * 西幻语感的名字倒推拉丁字母原形:整个名字倒推不出时,去掉意译的前缀("新")、通名("城""郡")再试。
+ * 不是西幻语感(东方、边塞)、名字太短、名字里有音译表外的字 = null
+ */
+export function latinForm(name: string, styleId: string | undefined): { latin: string; dropped: string } | null {
+  const tr = styleId ? WESTERN_TR[styleId] : undefined;
+  const cs = [...(name ?? '')];
+  if (!tr || cs.length < 2) return null;
+  const tries: [number, number][] = [[0, 0]];
+  if (ZH_PREFIX.includes(cs[0])) tries.push([1, 0]);
+  if (ZH_GENERIC.includes(cs[cs.length - 1])) tries.push([0, 1]);
+  if (ZH_PREFIX.includes(cs[0]) && ZH_GENERIC.includes(cs[cs.length - 1])) tries.push([1, 1]);
+  for (const [a, b] of tries) {
+    if (cs.length - a - b < 2) continue;
+    const latin = reverseName(cs.slice(a, cs.length - b).join(''), tr, FIXED_LATIN[styleId!] ?? new Map());
+    if (latin) return { latin: latin[0].toUpperCase() + latin.slice(1), dropped: [...cs.slice(0, a), ...cs.slice(cs.length - b)].join('') };
+  }
+  return null;
+}
+
+/** 材料里"说明"的拉丁原形一句;倒推不出 = '' */
+function latinNote(name: string, styleId: string | undefined): string {
+  const f = latinForm(name, styleId);
+  if (!f) return '';
+  const drop = f.dropped ? `;"${[...f.dropped].join('""')}"是意译的,不在原形里` : '';
+  return `拉丁字母原形:${f.latin}(按中文读音还原${drop};讲词源就照这个拼写拆词根、词尾,不要改动字母,也不要另拼一个读音不同的词)`;
 }
 
 // ---------------------------------------------------------------------------
@@ -684,6 +897,44 @@ function ownershipText(civ: Civ, regions: readonly number[], from = 0): string {
   return out.join(' → ');
 }
 
+/** 一次易主:哪一年起归谁(−1 = 部落地带 / 无人) */
+interface OwnerRun {
+  year: number;
+  polity: number;
+}
+
+/** 一州 from—to 年间的历任主人,照变化日志逐条看,一次不漏(同一个主人连着的并成一段) */
+export function regionOwnerRuns(civ: Civ, r: number, from: number, to: number): OwnerRun[] {
+  const out: OwnerRun[] = [{ year: from, polity: ownersAt(civ, from).polity[r] }];
+  const log = civ.log;
+  for (let i = logIndexAfter(log, from); i < log.size && log.year[i] <= to; i++) {
+    if (log.region[i] !== r || log.layer[i] !== Layer.Polity) continue;
+    const v = log.value[i];
+    if (v === out[out.length - 1].polity) continue;
+    out.push({ year: log.year[i], polity: v });
+  }
+  return out;
+}
+
+/**
+ * 城的归属变迁,一次不漏:"第 131 年起一直属大渊王朝,没有易过主" / "第 120 年 大昌 → 第 900 年 部落地带 → ……(共易主 3 次)"。
+ * 国名用这一段最后的国号;太多就写头尾几段。只给抽样的归属时,模型会自己编"易主二十余次"
+ */
+function settlementOwners(civ: Civ, r: number, from: number, to: number): string {
+  if (!(r >= 0 && r < civ.regions.count)) return '';
+  const runs = regionOwnerRuns(civ, r, from, to);
+  const label = (k: number) => {
+    const q = civ.polities[runs[k].polity];
+    if (!q) return '部落地带';
+    const until = Math.min(k + 1 < runs.length ? runs[k + 1].year : to, q.ended ?? Infinity, civ.endYear) - 1 / 512;
+    return polityName(q, Math.max(runs[k].year, q.founded, until)) || q.name;
+  };
+  if (runs.length === 1) return `${yearText(runs[0].year)}起一直${civ.polities[runs[0].polity] ? `属${label(0)}` : '是部落地带'},没有易过主`;
+  const rows = runs.map((x, k) => `${yearText(x.year)} ${label(k)}`);
+  const list = rows.length > 10 ? [...rows.slice(0, 4), '……', ...rows.slice(-4)] : rows;
+  return `${list.join(' → ')}(共易主 ${runs.length - 1} 次)`;
+}
+
 /**
  * 编年史里和它有关的几条(重要的先挑,再按年份排):"第 312 年 ……"。
  * pick 返回要写的那一条(可以是折叠条目里的子条目)和它的分量(越大越先挑);不要 = null
@@ -835,6 +1086,10 @@ export function nameMaterial(civ: Civ, t: NameTarget, raster?: Raster | null): N
     const d = p.dynasties;
     nameNote = `"${info.name}"是国名本身,国号随国土大小自动变化:${titleForms(p, info.name)}`;
     if (di > 0) nameNote = `这是这个国家第 ${di + 1} 朝的国号;${nameNote}`;
+    if (!p.eastern) {
+      const ln = latinNote(info.name, styleOf(p.culture));
+      if (ln) nameNote += `;${ln}`;
+    }
     people = peopleText(civ, p.culture, '主体民族:');
     const cap = S[p.capital];
     if (cap) geography.push(`立国时的国都 ${cap.name}:${siteText(g, cap.cell, { coastal: civ.habitat.coastDist[cap.cell] === 1 })}`);
@@ -892,6 +1147,7 @@ export function nameMaterial(civ: Civ, t: NameTarget, raster?: Raster | null): N
   } else if (t.kind === 'settlement') {
     const s = S[t.id];
     people = peopleText(civ, s.culture, '建城的民族:');
+    nameNote = latinNote(info.name, styleOf(s.culture));
     // 地理按最后一段地形写;地形大事改过港口的,写明建城时怎样、哪年变的
     const port = portAt(s, Infinity);
     const coastal = port || civ.habitat.coastDist[s.cell] === 1;
@@ -931,8 +1187,8 @@ export function nameMaterial(civ: Civ, t: NameTarget, raster?: Raster | null): N
           .join(';')}`,
       );
     }
-    const own = ownershipText(civ, [s.region], s.founded);
-    if (own) history.push(`归属变迁:${own}`);
+    const own = settlementOwners(civ, s.region, s.founded, s.ended ?? civ.endYear);
+    if (own) history.push(`归属变迁(一次不漏):${own}`);
     const rebuiltAs = S.find((x) => x.rebuilds === s.id);
     if (s.ended !== undefined) history.push(`${yearText(s.ended)}毁弃${rebuiltAs ? `,${yearText(rebuiltAs.founded)}故址上重建为${rebuiltAs.name}` : ''}`);
     else history.push(`到${yearText(civ.endYear)}仍在`);
@@ -957,6 +1213,7 @@ export function nameMaterial(civ: Civ, t: NameTarget, raster?: Raster | null): N
   } else if (t.kind === 'place') {
     const p = civ.places[t.id];
     if (p.latin) nameNote = `拉丁字母原形:${p.latin}${p.kind === 'lake' || p.kind === 'island' || p.kind === 'desert' ? '(借用的是附近别的名字的原形,仅供参考)' : '(中文名由它音译)'}`;
+    else if (p.kind !== 'sea') nameNote = latinNote(info.name, info.style?.id);
     people =
       p.kind === 'sea'
         ? '海洋用这个世界通行的中文叫法,不带哪个民族的语感'
@@ -993,7 +1250,7 @@ export function nameMaterial(civ: Civ, t: NameTarget, raster?: Raster | null): N
     if (along) geography.push(`${p.kind === 'river' ? '沿河' : p.kind === 'sea' ? '沿岸的港口' : p.kind === 'lake' ? '湖边' : p.kind === 'mountains' ? '山下' : '附近'}的城:${along}`);
     if (p.kind !== 'sea') {
       const own = ownershipText(civ, regs);
-      if (own) history.push(`${p.kind === 'river' ? '流经' : '所在'}之地归属变迁:${own}`);
+      if (own) history.push(`${p.kind === 'river' ? '流经' : '所在'}之地归属变迁(按年代抽看):${own}`);
     }
     const set = new Set(regs);
     chronicle = set.size ? chronicleLines(civ, (e) => (e.importance >= MAJOR && e.regions.some((r) => set.has(r)) ? { e, rank: e.importance } : null), 5) : [];
@@ -1009,6 +1266,7 @@ export function nameMaterial(civ: Civ, t: NameTarget, raster?: Raster | null): N
   } else if (t.kind === 'culture') {
     const cu = cus[t.id];
     people = `类型:${KIND_INFO[cu.kind].name}民族(${KIND_INFO[cu.kind].hint})`;
+    nameNote = latinNote(info.name, cu.style);
     const seat = civ.regions.seat[cu.hearth];
     geography.push(`发源地 ${regionLabel(civ, cu.hearth)}:${siteText(g, seat, { coastal: civ.habitat.coastDist[seat] === 1 })}`);
     const pk = peaks(civ).culture[cu.id];
@@ -1045,13 +1303,14 @@ export function nameMaterial(civ: Civ, t: NameTarget, raster?: Raster | null): N
     const seat = civ.regions.seat[r];
     const c = civ.culture[r];
     people = c >= 0 ? peopleText(civ, c, '按') + '的语感起名(推演结束时住在这里的民族)' : '无人居住';
+    if (info.name) nameNote = latinNote(info.name, info.style?.id);
     geography.push(siteText(g, seat, { coastal: civ.habitat.coastDist[seat] === 1 }));
     const sc = habitatScore(civ.habitat.suitability[seat]);
     geography.push(`宜居度 ${sc}(${habitatWord(sc)})`);
     const cities = citiesIn(civ, r);
     if (cities) history.push(`州里的城:${cities}`);
     const own = ownershipText(civ, [r]);
-    if (own) history.push(`归属变迁:${own}`);
+    if (own) history.push(`归属变迁(按年代抽看):${own}`);
     chronicle = chronicleLines(civ, (e) => (e.importance >= 2 && e.regions.includes(r) ? { e, rank: e.importance } : null), 5);
     // 同族住的州在前,再补同语感的
     const st = styleOf(c);
@@ -1152,8 +1411,11 @@ export function materialText(m: NameMaterial, opts: { chronicle?: number } = {})
   return lines.join('\n');
 }
 
-/** 释名的字数:模型普遍写超(要 100–250 字时实测 290–370 字),所以要求写得比界面能放下的略短,上限写明白 */
-export const EXPLAIN_CHARS = { min: 120, max: 200, hard: 230 };
+/**
+ * 释名的字数:模型普遍写超(要 100–250 字时实测 290–370 字;要 120–200、不超过 230 字时实测 224–256 字),
+ * 所以要求写得比界面能放下的短一截:要 min–max 字、说"不要超过 cap 字";写出来超过 hard 字就让 AI 压一次(shortenRequest)
+ */
+export const EXPLAIN_CHARS = { min: 120, max: 180, cap: 200, hard: 230 };
 
 const EXPLAIN_HEAD = `你是一个架空世界的"地名考"执笔人,为中文原创世界(OC)的作者解释地图上一个名字的含义和由来。`;
 
@@ -1162,7 +1424,8 @@ const EXPLAIN_EASTERN = `   · 这是一个中文名字:逐字讲字义(本义�
    · 可以引一处古诗文或典籍(最多一处),必须确定真实存在、作者和篇名都对;拿不准就不引。`;
 
 /** 音译名字怎么讲(西幻语感;边塞的音译名也按这个讲) */
-const EXPLAIN_WESTERN = `   · 这个名字是从这个世界的某种语言音译来的。给出拟造的原文拼写(拉丁字母),拼写要和中文译名的读音对得上(按常见音译习惯,"萨利亚"对 Saliya / Saria,不要另起一个读音不同的词);
+const EXPLAIN_WESTERN = `   · 这个名字是从这个世界的某种语言音译来的。给出拟造的原文拼写(拉丁字母):材料"说明"里给了拉丁字母原形的,就用那个拼写(一个字母都不要改);
+     没给的才自己拼,拼写要和中文译名的读音对得上(按常见音译习惯,"萨利亚"对 Saliya / Saria,不要另起一个读音不同的词)。
      拆成词根、词缀,讲每部分在当地语言里的意思。这是虚构的词源,自洽即可。
    · 只说"当地的古语""某族的语言",不要提现实中的任何语言、民族和现实中的词,也不要引用现实里的诗文典籍。`;
 
@@ -1180,11 +1443,12 @@ export function explainSystem(style: StyleGuide | null): string {
   return `${EXPLAIN_HEAD}
 
 写法:
-1. 一段 ${EXPLAIN_CHARS.min}–${EXPLAIN_CHARS.max} 字的中文正文(不要超过 ${EXPLAIN_CHARS.hard} 字):不分段、不加标题、不列要点,不用 Markdown。
+1. 一段 ${EXPLAIN_CHARS.min}–${EXPLAIN_CHARS.max} 字的中文正文(拉丁字母也算字,不要超过 ${EXPLAIN_CHARS.cap} 字):不分段、不加标题、不列要点,不用 Markdown。
 2. 先讲名字本身:
 ${how}
 3. 再把名字和材料里的地理、历史接上:为什么这个地方会被这样叫,或者后人怎样附会它的意思(国势盛衰、迁都、改朝换代、城破重建……)。
 4. 只用材料里给出的事实(年份、国名、城名、民族、事件),不要编造材料里没有的战争、人物、年份,年份和事件要对上号(哪一年发生的什么照材料写);
+   易主几次、先后归过哪些国家,只照材料里的"归属变迁"写;标着"按年代抽看"的不全,不要说出易主的次数,也不要自己估"易主十余次"之类的数。
    可以加民间传说、别称,但要写明"相传""一说""当地人说"。
 5. 年份一律写"第 N 年"(这个世界的纪年),不要换算成公元或年号。
 6. 语气像地方志、地名辞典里的条目,文雅但好懂,不要堆砌辞藻。材料里的"仙侠风""精灵风"之类是给你的风格提示,不要写进正文。直接写正文,不要开场白。`;
@@ -1204,16 +1468,48 @@ export function explainRequest(m: NameMaterial): AiRequest {
   return { feature: '释名', title: `${m.info.shown} · ${m.info.kindLabel}`, messages, temperature: 0.8, maxTokens: 800 };
 }
 
+/** 正文的字数(不算空白;拉丁字母、标点都算) */
+export function explainLength(text: string): number {
+  return text.replace(/\s/g, '').length;
+}
+
+/** 名字由来写超了(超过 EXPLAIN_CHARS.hard 字):界面让 AI 压一次 */
+export function explainTooLong(text: string): boolean {
+  return explainLength(text) > EXPLAIN_CHARS.hard;
+}
+
+/** 把写超了的名字由来压到 cap 字以内:只删,不改事实、不加内容,拉丁字母拼写照旧 */
+export function shortenRequest(text: string, m: NameMaterial): AiRequest {
+  const system =
+    `你是地名辞典的编辑。把作者给的一段"名字由来"压缩到 ${EXPLAIN_CHARS.max} 字左右(拉丁字母也算字,绝不超过 ${EXPLAIN_CHARS.cap} 字):` +
+    '只删减、合并句子,不改年份、名字和事实,不加新内容,拉丁字母拼写一个字母都不改;仍是一段,不加标题,不用 Markdown。只输出改好的正文。';
+  return {
+    feature: '释名',
+    title: `${m.info.shown} · ${m.info.kindLabel} · 压缩字数`,
+    messages: [
+      { role: 'system', content: system },
+      { role: 'user', content: `现在 ${explainLength(text)} 字:\n\n${text}` },
+    ],
+    temperature: 0.3,
+    maxTokens: 600,
+  };
+}
+
 /**
  * 名字由来写完扫现实词的规矩(realWords.ts),和 explainSystem 的讲法对应:中式名字可以引一处古诗文,
  * 音译名字可以有拟造的拉丁字母拼写,边塞风(和不知道语感的)两种都有。
- * 世界自己的材料里有的词不算;写法要求和语感说明不算材料(里面有"公元""拉丁""中世纪"这类提到现实的字眼)
+ * 世界自己的材料里有的词不算;写法要求、语感说明和"拉丁字母原形"这几个字不算材料(里面有"公元""拉丁""中世纪"这类提到现实的字眼),
+ * 原形的拼写本身算
  */
 export function explainScan(m: NameMaterial): ScanOptions {
   const style = m.info.style;
   const mixed = !style || style.id === 'frontier';
   return {
-    material: materialText(m).split('\n').filter((l) => !l.startsWith('语感:')).join('\n'),
+    material: materialText(m)
+      .split('\n')
+      .filter((l) => !l.startsWith('语感:'))
+      .map((l) => l.replace(/拉丁字母原形:([^(;\n]*)\([^)]*\)/g, '$1'))
+      .join('\n'),
     allowClassics: mixed || style.family === 'eastern',
     allowSpelling: mixed || style.family === 'western',
   };
