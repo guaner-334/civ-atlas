@@ -132,8 +132,9 @@ export interface ErosionParams {
 /**
  * 在 h 上原地做 steps 步侵蚀。海洋 cell 不动(海平面 = 侵蚀基准面)。
  * rain:每个 cell 的相对降水,决定汇水量(干旱区侵蚀弱 → 高原更完整)。
+ * 每走完一步停一下(yield):后台线程在两步之间看看有没有新的活(见 world.ts 的 generateWorldSteps)
  */
-export function erode(
+export function* erodeSteps(
   mesh: Mesh,
   land: Uint8Array,
   h: Float32Array,
@@ -141,24 +142,31 @@ export function erode(
   rain: Float32Array,
   p: ErosionParams,
   onStep?: (step: number) => void,
-) {
-  const { n, spacing } = mesh;
-  const geo = geometryOf(mesh);
-  const A = new Float32Array(n);
+): Generator<void, void> {
+  const A = new Float32Array(mesh.n);
   let d: Drainage | undefined;
   for (let s = 0; s < p.steps; s++) {
-    d = drainage(mesh, land, h, 1e-5, d);
-    accumulate(d, land, rain, A);
-    const { order, orderLen, receiver } = d;
-    for (let a = 0; a < orderLen; a++) {
-      const i = order[a];
-      const r = receiver[i];
-      if (r < 0) continue;
-      const hr = land[r] ? h[r] : 0;
-      const dist = geo.dist(r, i) / spacing;
-      const F = (p.K * p.dt * Math.pow(A[i], p.m)) / dist;
-      h[i] = (h[i] + p.dt * uplift[i] + F * hr) / (1 + F);
-    }
+    d = erodeStep(mesh, land, h, uplift, rain, p, A, d);
     onStep?.(s);
+    yield;
   }
+}
+
+/** 侵蚀的一步(d = 上一步的排水,数组接着用) */
+function erodeStep(mesh: Mesh, land: Uint8Array, h: Float32Array, uplift: Float32Array, rain: Float32Array, p: ErosionParams, A: Float32Array, d0: Drainage | undefined): Drainage {
+  const { spacing } = mesh;
+  const geo = geometryOf(mesh);
+  const d = drainage(mesh, land, h, 1e-5, d0);
+  accumulate(d, land, rain, A);
+  const { order, orderLen, receiver } = d;
+  for (let a = 0; a < orderLen; a++) {
+    const i = order[a];
+    const r = receiver[i];
+    if (r < 0) continue;
+    const hr = land[r] ? h[r] : 0;
+    const dist = geo.dist(r, i) / spacing;
+    const F = (p.K * p.dt * Math.pow(A[i], p.m)) / dist;
+    h[i] = (h[i] + p.dt * uplift[i] + F * hr) / (1 + F);
+  }
+  return d;
 }

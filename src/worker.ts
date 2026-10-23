@@ -4,6 +4,8 @@
  * 铺像素里最慢的沟和山脊分给几个帮手线程(gullyPool.ts;核多的电脑最多 3 个),和推文明同时算。
  * 主线程要生成新世界时如果本线程还在忙,会直接 terminate() 再开一个新的;
  * 回放帧、重推文明这些短活不打断,排在后面(消息按先后处理)。每个线程只需要把手头的活按顺序干完。
+ * 例外是编辑地形时只换地形、不推历史的生成(skipCiv):主线程不关线程,这边生成时一段一段算、每隔一会儿让一下,
+ * 后面排上了新的世界就半路放下(回音 aborted),记着的网格、板块、前一半、整图都留着给新的一笔用。
  *
  * 改地形(阶段 4):世界 = 参数 + 草图(sketch)+ 地形修改(terrain)。改了地形、画了草图就带着它们重新 generate(连同当时的干预一起推文明);
  * 回放帧、重推文明也带着它们,线程被重开过时按"参数 + 草图 + 地形修改"重新生成(同样的输入 = 同一个世界)。
@@ -30,7 +32,7 @@
  * 来了新的再推、重推、生成、读档、逐年推演的一步,或者叫停(extendStop),这次就不推了(extendStopped)。
  * 只把推演年数调大的重推(resim)也从记着的历史接着推。结果都和从第 0 年一口气推到那一年一样。
  */
-import { generateWorld, type BaseCache, type World, type WorldParams } from './gen/world';
+import { generateWorld, generateWorldSteps, type BaseCache, type World, type WorldParams } from './gen/world';
 import { dropGullyBuffers, rasterizeDeferred, type Raster } from './gen/raster';
 import { GullyPool } from './gullyPool';
 import { buildHistoryFrames, type HistoryFrames } from './gen/history';
@@ -41,7 +43,8 @@ import { sketchGrid, type SketchEdit } from './gen/sketch';
 import { mergeUpheavals, previewUpheaval, type UpheavalPreview, type UpheavalStep } from './gen/civ/upheaval';
 import { computeHabitat } from './gen/civ/habitat';
 import { buildRegions, reshapeRegions } from './gen/civ/regions';
-import { cutExact, diffRaster, exactDiff, exactDiffBefore, patchTransferables, type RasterPatch } from './gen/rasterPatch';
+import { applyPatch, cutExact, diffRaster, exactDiff, exactDiffBefore, patchTransferables, type RasterPatch } from './gen/rasterPatch';
+import { unionBox } from './gen/pixelBox';
 import { rasterizePatch, type RasterKeep } from './gen/rasterEdit';
 import { planGlyphs, type Plan } from './render/fantasy';
 import type { NameMix } from './gen/names';
@@ -201,7 +204,9 @@ export type WorkerResponse =
   /** 这次生成 / 重推的原件(后台打好的) */
   | { type: 'snapshot'; id: number; snapshot: Snapshot }
   /** 原件读不出来(坏了、对不上):主线程改成按存档生成 */
-  | { type: 'loadFailed'; id: number };
+  | { type: 'loadFailed'; id: number }
+  /** 这次生成没算完就不算了:后面已经排着新的世界(编辑地形连着涂,新的一笔顶掉上一笔)。只是一声回音,主线程不用管 */
+  | { type: 'aborted'; id: number };
 
 /** 上一个生成的世界(含回放快照),回放时直接用 */
 let last: { key: string; world: World } | null = null;
@@ -657,6 +662,38 @@ async function pump() {
   }
 }
 
+/** 后面排着新的世界(生成、打开):手上这次生成不用算完了 */
+const superseded = () => fg.some((r) => r.type === 'generate' || r.type === 'load');
+
+/** 让一下(排到下一个任务再接着算),这期间到了的消息先排进 fg。用 MessageChannel:没有 setTimeout(0) 连着用时的 4 毫秒下限 */
+const slice = new MessageChannel();
+const slices: (() => void)[] = [];
+slice.port1.onmessage = () => slices.shift()?.();
+const yieldTask = () =>
+  new Promise<void>((r) => {
+    slices.push(r);
+    slice.port2.postMessage(0);
+  });
+/** 生成世界时最多连着算多久就让一下(毫秒) */
+const GEN_SLICE = 25;
+
+/**
+ * 生成世界(参数同 generateWorld),一段一段算,每隔 GEN_SLICE 毫秒让一下;让的时候后面排上了新的世界就不算了(null)。
+ * 算完的结果和 generateWorld 一模一样
+ */
+async function generateUnlessSuperseded(...args: Parameters<typeof generateWorld>): Promise<World | null> {
+  const it = generateWorldSteps(...args);
+  let t = performance.now();
+  for (;;) {
+    const r = it.next();
+    if (r.done) return r.value;
+    if (performance.now() - t < GEN_SLICE) continue;
+    await yieldTask();
+    if (superseded()) return null;
+    t = performance.now();
+  }
+}
+
 /** 逐年推演走完一步以后过多久(没有下一步了)才打这一份原件(毫秒);等着的那一次 */
 const TURN_SNAPSHOT_IDLE = 2500;
 let turnSnap: ReturnType<typeof setTimeout> | undefined;
@@ -666,6 +703,8 @@ async function handle(m: Queued): Promise<void> {
   if (m.type !== 'history' && m.type !== 'upPreview' && m.type !== 'extendStop' && m.type !== 'trial' && m.type !== 'release') clearTimeout(turnSnap);
   if (m.type !== 'history' && m.type !== 'upPreview' && m.type !== 'extendStop' && m.type !== 'release') takeTempo(m.params, m.sketch, m.tempo);
   if (m.type === 'generate') {
+    // 后面已经排着新的世界(编辑地形连着涂了几笔):这一次不用算了
+    if (superseded()) return void post({ type: 'aborted', id: m.id });
     // 换了世界:后台排着的补丁和记着的整图、推文明的底子都作废
     bg.length = 0;
     rasters.clear();
@@ -676,16 +715,20 @@ async function handle(m: Queued): Promise<void> {
     await pool.up;
     const t0 = performance.now();
     const had = baseCache.base;
-    const world = generateWorld(m.params, (stage, pct) => post({ type: 'progress', id: m.id, stage, pct }), m.terrain, sketchGrid(m.sketch), baseCache);
+    // 一段一段算,中间让一下:新的一笔来了就不算了(线程不用关掉重开,记着的网格、板块、前一半、整图都还在)
+    const world = await generateUnlessSuperseded(m.params, (stage, pct) => post({ type: 'progress', id: m.id, stage, pct }), m.terrain, sketchGrid(m.sketch), baseCache);
+    if (!world) return void post({ type: 'aborted', id: m.id });
     const reused = !!had && baseCache.base === had;
     last = { key: keyOf(m.params, m.terrain, m.sketch), world };
     const steps = stepsOf(m.params, m.terrain, m.sketch, m.upheavals, (k, n) => post({ type: 'progress', id: m.id, stage: '地形大事', pct: 0.9 + (0.03 * k) / n }));
     const genMs = performance.now() - t0;
+    if (superseded()) return void post({ type: 'aborted', id: m.id });
     // 先铺像素(山坡上的沟和山脊、细沟交给帮手线程),同时推文明。
     // 编辑地形:主线程地图上那张整图线程里还留着,就只重铺变了的那块(gen/rasterEdit.ts)
     post({ type: 'progress', id: m.id, stage: '铺展地图', pct: 0.93 });
     const t1 = performance.now();
     let prev = m.keep && m.from !== undefined && m.scale === 1 && kept?.key === m.from ? kept : null;
+    const dirty0 = prev?.keep.dirty ?? null;
     const cover = kept?.keep.inputs.cover;
     // 留着的整图对不上这次的(主线程地图上那张不是它):不拿它比,整张交;它的数组下面留一份拷贝时接着用
     let spare = !prev && m.keep ? (kept?.keep.raster ?? null) : null;
@@ -703,10 +746,27 @@ async function handle(m: Queued): Promise<void> {
     const d = pj ?? rasterizeDeferred(world, m.scale, undefined, cover, tried && 'whole' in tried ? tried.whole : undefined);
     const raster = d.raster;
     const rasterMs = performance.now() - t1;
+    /**
+     * 编辑地形时(skipCiv)铺完(或算完沟壑)以后新的一笔已经排上了:这次不交了,线程留着的整图回到主线程地图上那张(old)的样子 ——
+     * 就地改的那块改回原样;和这次的输入对不上的那块记进 dirty(下一笔一起重铺)。下一笔照样只重铺、只交回变了的那块
+     */
+    const giveUp = (): boolean => {
+      if (!m.skipCiv || !old || !superseded()) return false;
+      const r0 = old.raster;
+      if (pj) {
+        if (pj.before?.box) applyPatch(r0, pj.before.box);
+        kept = { key: old.key, keep: { raster: r0, inputs: d.inputs, dirty: unionBox(dirty0, pj.before?.box ?? null, r0.w) } };
+      } else kept = { key: old.key, keep: { raster: r0, inputs: d.inputs, dirty: { x0: 0, y0: 0, w: r0.w, h: r0.h } } };
+      post({ type: 'aborted', id: m.id });
+      return true;
+    };
+    if (giveUp()) return;
     let civMs: number | undefined;
     // 编辑地形时(skipCiv)不推文明:等帮手线程把沟和山脊算完就交回,文明等收起编辑地形以后补推(civOnly)
+    // 手绘风的符号规划(按块换上时交给主线程):按块重铺的,等帮手算细沟的工夫里先算好(精细度高时一两百毫秒,不占等的时间)
+    let plan: Plan | undefined;
     const civ = m.skipCiv
-      ? await pool.finish(d).then(() => null)
+      ? await pool.finish(d, undefined, pj && old ? () => void (plan = planGlyphs(world)) : undefined).then(() => null)
       : await pool.finish(d, () => {
           // 文明骨架(宜居度、州……)只读 World,之后的文明步骤都在 gen/civ/index.ts 里接
           post({ type: 'progress', id: m.id, stage: '文明', pct: 0.95 });
@@ -715,6 +775,7 @@ async function handle(m: Queued): Promise<void> {
           civMs = performance.now() - tc;
           return c;
         });
+    if (giveUp()) return;
     const transfer: ArrayBuffer[] = [];
     // 回放快照体积大且主线程用不上,不随世界一起发送
     const { history: _history, ...rest } = world;
@@ -734,7 +795,7 @@ async function handle(m: Queued): Promise<void> {
       spare = null;
       const patch = diff ? cutExact(raster, diff) : null;
       if (patch) transfer.push(...patchTransferables(patch));
-      const plan = planGlyphs(world);
+      plan ??= planGlyphs(world);
       transfer.push(plan.forest.buffer as ArrayBuffer);
       map = { patch, from, plan };
     } else {
