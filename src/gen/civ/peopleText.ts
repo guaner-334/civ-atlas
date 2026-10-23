@@ -271,3 +271,10 @@ export const LEANING_KEYS = Object.keys(LEANING_TEXT) as (keyof RulerLeanings)[]
 export function leaningsText(l: RulerLeanings): string {
   return LEANING_KEYS.map((k) => `${LEANING_TEXT[k].name} ${l[k]}`).join('，');
 }
+
+/** 改过的倾向:"开拓 53→78、好战 50→20"(只写变了的;不知道原来的 = "开拓 78、好战 20";都没变 = 空串) */
+export function leaningsChange(from: RulerLeanings | undefined, to: RulerLeanings): string {
+  return LEANING_KEYS.filter((k) => !from || from[k] !== to[k])
+    .map((k) => `${LEANING_TEXT[k].name} ${from ? `${from[k]}→` : ''}${to[k]}`)
+    .join('、');
+}

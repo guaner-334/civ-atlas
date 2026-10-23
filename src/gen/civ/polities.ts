@@ -44,7 +44,7 @@ import { RESHAPE_RAMP, SETTLEMENT_RANKS, capacityAt, capitalAt, portAt, portSinc
 import { namePolities, nameSettlements, type RestoreDirection } from './naming';
 import type { RouteCity } from './routes';
 import type { InterventionModel } from './interventions';
-import { crownsFrom, reignAt, reignBook, reignStart, rulerBase, type Crown, type LeaningEffect, type Reign } from './rulers';
+import { actsFrom, leaningsAt, reignAt, reignBook, reignStart, rulerBase, type LeaningEffect, type Reign, type RulerAct } from './rulers';
 import { POLICY_RESPREAD, policiesFrom, policySeg, segAt, segEffect, type PolicyIv, type PolicySeg } from './policy';
 
 // ---- 调参(以截图效果为准) ----
@@ -197,10 +197,12 @@ export interface PolityModel {
   /** 国家 → 已经预约过君主交接(Ev.Reign)了 */
   reigned: boolean[];
   /**
-   * 国家 → 作者立的君主(干预"即位"生效了的,按先后;rulers.ts 的 Crown)。在位表按它排(bookOf);
-   * 接着推时由史事推出来(rulers.ts 的 crownsFrom),不存进 Civ
+   * 国家 → 改在位表的干预(即位、让君主去世、改君主倾向生效了的,按先后;rulers.ts 的 RulerAct)。在位表按它排(bookOf);
+   * 接着推时由史事推出来(rulers.ts 的 actsFrom),不存进 Civ
    */
-  crowns: Map<number, Crown[]>;
+  acts: Map<number, RulerAct[]>;
+  /** 国家 → 最近一次预约"定了方针 / 改了君主倾向的下一刻看门槛"(Ev.Respread,a = POLICY_RESPREAD)是哪一刻定的(同一刻只预约一次) */
+  retune: Map<number, Year>;
   /**
    * 国家 → 方针(干预"方针"生效了的,按先后;policy.ts 的 PolicySeg)。扩张算账、打仗、议和、邦交、发展度照它和君主的倾向一起算(effOf);
    * 接着推时由史事推出来(policy.ts 的 policiesFrom),不存进 Civ
@@ -431,14 +433,14 @@ function stepYearsWith(m: PolityModel, p: Polity, k: number, b: number, dist: Fl
   );
 }
 
-/** 国家 pid 的在位表(rulers.ts),排到 t 时在位的那一位;带上这国作者立的君主(PolityModel.crowns) */
-function bookOf(m: PolityModel, pid: number, t: Year): readonly Reign[] {
-  return reignBook(m.rbase, m.rtag[pid], m.polities[pid], t, m.crowns.get(pid));
+/** 国家 pid 的在位表(rulers.ts),排到 t 时在位的那一位;带上这国改在位表的干预(PolityModel.acts) */
+export function bookOf(m: PolityModel, pid: number, t: Year): readonly Reign[] {
+  return reignBook(m.rbase, m.rtag[pid], m.polities[pid], t, m.acts.get(pid));
 }
 
 /** 国家 pid 在 t 这一刻在位的君主(rulers.ts 的在位表;改朝换代那一刻还算旧君) */
 export function rulerOf(m: PolityModel, pid: number, t: Year): Reign {
-  return reignAt(m.rbase, m.rtag[pid], m.polities[pid], t, m.crowns.get(pid));
+  return reignAt(m.rbase, m.rtag[pid], m.polities[pid], t, m.acts.get(pid));
 }
 
 /** 国家 pid 在 t 这一刻照的方针(policy.ts:t 以前定的最后一条;没有 / 罢了 = null) */
@@ -446,9 +448,9 @@ export function policyAt(m: PolityModel, pid: number, t: Year): PolicyIv | null 
   return segAt(m.policies.get(pid), t)?.v ?? null;
 }
 
-/** 君主 r 在国家 pid 此刻(t)的方针下的倍数(没有方针 = 他自己的,r.eff) */
+/** 君主 r 在国家 pid 此刻(t)的方针下的倍数(没有方针 = 他自己的,r.eff;作者改过他的倾向的按此刻的,见 rulers.ts 的 leaningsAt) */
 export function effFor(m: PolityModel, pid: number, r: Reign, t: Year): LeaningEffect {
-  return segEffect(segAt(m.policies.get(pid), t), r);
+  return segEffect(segAt(m.policies.get(pid), t), r.moods ? leaningsAt(r, t) : r);
 }
 
 /** 国家 pid 在 t 这一刻做决定用的倍数:在位君主的倾向加上方针(policy.ts;没有方针 = 君主的) */
@@ -480,9 +482,24 @@ export function hates(m: PolityModel, p: number, q: number, t: Year): boolean {
 export function setPolicy(sim: CivSim, m: PolityModel, pid: number, v: PolicyIv, iv: number, t: Year): void {
   let list = m.policies.get(pid);
   if (!list) m.policies.set(pid, (list = []));
-  const first = !list.length || list[list.length - 1].t < t;
   list.push(policySeg(v, t, iv));
-  if (first) sim.schedule(t + 1 / 256, Ev.Respread, POLICY_RESPREAD, pid);
+  retune(sim, m, pid, t);
+}
+
+/** 定了方针、改了君主倾向:下一刻预约一次 Ev.Respread(a = POLICY_RESPREAD;同一刻同一国只预约一次,见 PolityModel.retune) */
+function retune(sim: CivSim, m: PolityModel, pid: number, t: Year): void {
+  if (m.retune.get(pid) === t) return;
+  m.retune.set(pid, t);
+  sim.schedule(t + 1 / 256, Ev.Respread, POLICY_RESPREAD, pid);
+}
+
+/** 国家 pid 定方针、改君主倾向的那几刻(按先后,不重复;接着推时重放"下一刻看门槛"用) */
+function retuneTimes(m: PolityModel, pid: number): Year[] {
+  const out: Year[] = [];
+  for (const s of m.policies.get(pid) ?? []) out.push(s.t);
+  for (const c of m.acts.get(pid) ?? []) if (c.kind === 'temper') out.push(c.t);
+  out.sort((a, b) => a - b);
+  return out.filter((t, i) => i === 0 || out[i - 1] !== t);
 }
 
 /**
@@ -573,21 +590,35 @@ function scheduleReign(sim: CivSim, m: PolityModel, pid: number, k: number, t: Y
 }
 
 /**
- * 作者的人物此刻即位(干预"即位",interventions.ts 在生效那一刻调用;c.t = 此刻):登记进 PolityModel.crowns,在位表跟着重排
- * (rulers.ts:此刻在位的那一位让位,他从下一刻起在位),预约他的即位(Ev.Reign;门槛比上一位低就从现有国土往外重新看一遍,见 widens)。
- * 他的位次在下一刻本来就有交接预约着的(顶替同一刻改朝换代的新君、同一刻先立的作者君主,或原来那一位正好在下一刻交接),不重复预约。
+ * 改在位表的干预此刻生效(interventions.ts 在生效那一刻调用;c.t = 此刻):登记进 PolityModel.acts,在位表跟着重排(rulers.ts)。
+ * - 即位:作者的人物从下一刻起在位,预约他的即位(Ev.Reign;门槛比上一位低就从现有国土往外重新看一遍,见 widens)。
+ *   他的位次在下一刻本来就有交接预约着的(顶替同一刻改朝换代的新君、同一刻先立的作者君主,或原来那一位正好在下一刻交接),不重复预约
+ * - 让君主去世:下一位从下一刻起在位,同样预约他的即位
+ * - 等下台再即位:不另预约 —— 在位的那位到期下台时原来预约的交接就是作者的人物(他从那一刻起在位,见 reignStart);
+ *   那位先被让他去世,由去世那一条预约
+ * - 改君主倾向:下一刻看一眼门槛(和定方针一样,见 retune)
  * 原来预约的下一位的交接到时对不上(在位表重排了),丢掉
  */
-export function crownRuler(sim: CivSim, m: PolityModel, pid: number, c: Crown): void {
+export function rulerAct(sim: CivSim, m: PolityModel, pid: number, c: RulerAct): void {
   const at = c.t + 1 / 256;
   const before = bookOf(m, pid, at);
-  let list = m.crowns.get(pid);
-  if (!list) m.crowns.set(pid, (list = []));
+  let list = m.acts.get(pid);
+  if (!list) m.acts.set(pid, (list = []));
   list.push(c);
+  if (c.kind === 'temper') {
+    retune(sim, m, pid, c.t);
+    return;
+  }
+  if (c.kind === 'crown' && c.after) return;
   const after = bookOf(m, pid, at);
   let k = after.length - 1;
-  while (k >= 0 && after[k].crown !== c) k--;
-  if (k < 0) return; // 不该发生
+  if (c.kind === 'crown') while (k >= 0 && after[k].crown !== c) k--;
+  else {
+    // 去世的那位(落在前一位身上的只记一笔,不换人)的下一位
+    while (k >= 0 && !(after[k].death?.iv === c.iv && after[k].cut === c.t)) k--;
+    if (k >= 0) k++;
+  }
+  if (k < 0 || !after[k]) return;
   const t = reignStart(after[k]);
   if (!(before[k] && reignStart(before[k]) === t)) sim.schedule(t, Ev.Reign, k, pid);
 }
@@ -845,7 +876,8 @@ function emptyModel(T: CultureTerrain, cultures: Culture[], seed: number, port: 
     rtag: [],
     rAt: new Map(),
     reigned: [],
-    crowns: new Map(),
+    acts: new Map(),
+    retune: new Map(),
     policies: new Map(),
   };
 }
@@ -960,13 +992,25 @@ export function installPolities(sim: CivSim, m: PolityModel): void {
   });
 
   // 新君即位(rulers.ts):门槛比上一位低的(比如扩张高的接了扩张低的),从现有国土往外重新看一遍边上的部落地带;预约下一位
+  /** 国家 → 上一次办的、前一位被作者让他去世的交接是哪一刻(同一刻又改朝换代:两边各预约了一次,只办一次) */
+  const killedHandover = new Map<number, Year>();
   sim.on(Ev.Reign, (k, pid, t) => {
     const p = m.polities[pid];
     if (!p || p.ended !== undefined) return;
     const list = bookOf(m, pid, t);
     // 改朝换代以后在位表重排了:旧君原来预约的交接对不上,丢掉(新朝的另有预约,见 dynastyReign)
     if (!list[k] || reignStart(list[k]) !== t) return;
+    if (k > 0 && list[k - 1].death) {
+      if (killedHandover.get(pid) === t) return;
+      killedHandover.set(pid, t);
+    }
     scheduleReign(sim, m, pid, k + 1, t);
+    // 等前一位下台再即位的作者人物:这一刻即位,记一条史事(登记那一条 b = −6 在下令的那一年)
+    const c = list[k].crown;
+    if (c?.after) {
+      const sid = capitalAt(p, t);
+      sim.record('intervene', { a: pid, b: -1, region: m.settlements[sid]?.region ?? -1, settlement: sid, war: c.iv });
+    }
     if (k > 0) {
       // 和方针一起算:上一位在上一刻的方针下 → 这一位在此刻的方针下(同一刻刚定了方针的,比的是原来的方针;没有方针 = 两位君主自己的倍数)
       const prev = effFor(m, pid, list[k - 1], t - 1 / 256);
@@ -1023,6 +1067,26 @@ function spreadFrom(sim: CivSim, m: PolityModel, r: number, pid: number, t: numb
     if (culture[j] < 0 || polity[j] >= 0) continue;
     const dt = reachYears(m, sim, p, k, j, prev);
     if (dt < Infinity) sim.schedule(t + dt, Ev.PolityArrive, j, pid);
+  }
+}
+
+/**
+ * 刚散成无主的州 rs(干预"灭国"散成无主,interventions.ts;按州号升序):接壤的国家预约"国家到达"(和州刚有人定居时一样),
+ * 这片地方慢慢被邻国扩进去。接着推时 resumePolities 按日志重放(归属变成 −1、原因 Ev.Cede 的那几条)
+ */
+export function reopen(sim: CivSim, m: PolityModel, rs: readonly number[]): void {
+  const reg = m.terrain.regions;
+  const culture = sim.owners[Layer.Culture];
+  const polity = sim.owners[Layer.Polity];
+  for (const r of rs) {
+    if (culture[r] < 0 || polity[r] >= 0) continue;
+    for (let q = reg.adjStart[r]; q < reg.adjStart[r + 1]; q++) {
+      const j = reg.adj[q];
+      const pid = polity[j];
+      if (pid < 0) continue;
+      const dt = reachYears(m, sim, m.polities[pid], edgeTo(reg, j, r), r);
+      if (dt < Infinity) sim.schedule(sim.now + dt, Ev.PolityArrive, r, pid);
+    }
   }
 }
 
@@ -1197,8 +1261,8 @@ export function resumePolities(sim: CivSim, world: World, civ: Civ, iv?: Interve
     capitals: (p.capitals ?? [{ year: p.founded, settlement: p.capital }]).map((c) => ({ ...c })),
     ...(p.dynasties ? { dynasties: p.dynasties.map((d) => ({ ...d })) } : {}),
   }));
-  // 作者立的君主(干预"即位"):生效了的由史事推出来,在位表照它排(和推演时一样)
-  m.crowns = crownsFrom(civ.annals, iv?.list);
+  // 作者立的君主、让君主去世、改君主倾向:生效了的由史事推出来,在位表照它排(和推演时一样)
+  m.acts = actsFrom(civ.annals, iv?.list);
   // 国家方针:生效了的由史事推出来(和推演时一样,下一刻起算)
   m.policies = policiesFrom(civ.annals, iv?.list);
   // 州里现在的城(被毁的不算:阶段 3 城市兴衰,毁了还没重建的州没有城)
@@ -1326,15 +1390,12 @@ export function resumePolities(sim: CivSim, world: World, civ: Civ, iv?: Interve
       const prev = effFor(m, p.id, list[k - 1], t - 1 / 256);
       if (widens(prev, effFor(m, p.id, list[k], t))) ends.push({ t, pid: p.id, prev });
     }
-    // 定了方针的下一刻:门槛放低了的(同一刻同一国定了几条只算一次,见 setPolicy)
-    const segs = m.policies.get(p.id);
-    if (segs) {
-      for (let i = 0; i < segs.length; i++) {
-        const t = segs[i].t + 1 / 256;
-        if (t > until || (i > 0 && segs[i - 1].t === segs[i].t)) continue;
-        const prev = policyWidens(m, p.id, t);
-        if (prev) ends.push({ t, pid: p.id, prev });
-      }
+    // 定了方针、改了君主倾向的下一刻:门槛放低了的(同一刻同一国定了几条只算一次,见 retune)
+    for (const t0 of retuneTimes(m, p.id)) {
+      const t = t0 + 1 / 256;
+      if (t > until) continue;
+      const prev = policyWidens(m, p.id, t);
+      if (prev) ends.push({ t, pid: p.id, prev });
     }
     const caps = p.capitals!;
     for (let i = 1; i < caps.length; i++) if (caps[i].year + 1 / 256 <= until) ends.push({ t: caps[i].year + 1 / 256, pid: p.id });
@@ -1375,7 +1436,16 @@ export function resumePolities(sim: CivSim, world: World, civ: Civ, iv?: Interve
       }
     } else {
       po[r] = v;
-      if (v < 0) continue;
+      if (v < 0) {
+        // 干预"灭国"散成无主的州:接壤的国家预约到达(见 reopen;灭掉的那国这一刻已亡,还没散完的州不算)
+        if (log.cause[i] === Ev.Cede && cu[r] >= 0) {
+          for (let q = reg.adjStart[r]; q < reg.adjStart[r + 1]; q++) {
+            const pid = po[reg.adj[q]];
+            if (pid >= 0 && !((m.polities[pid].ended ?? Infinity) <= y)) add(i, pid, edgeTo(reg, reg.adj[q], r), r, y);
+          }
+        }
+        continue;
+      }
       for (let k = reg.adjStart[r]; k < reg.adjStart[r + 1]; k++) {
         const j = reg.adj[k];
         if (cu[j] >= 0 && po[j] < 0) add(i, v, k, j, y);
@@ -1389,10 +1459,13 @@ export function resumePolities(sim: CivSim, world: World, civ: Civ, iv?: Interve
     if (p.ended !== undefined) continue;
     // 立国那一条(capitals[0])不是迁都,推演里没有预约(分裂出来的国家正好在此刻立国时会多出一次)
     for (const c of p.capitals!.slice(1)) if (c.year + 1 / 256 > now) sim.schedule(c.year + 1 / 256, Ev.Respread, 0, p.id);
-    // 此刻刚定了方针的:下一刻比一比门槛(见 setPolicy;同一刻定了几条也只预约一次)
-    const segs = m.policies.get(p.id);
-    const seg = segs?.[segs.length - 1];
-    if (seg && seg.t + 1 / 256 > now) sim.schedule(seg.t + 1 / 256, Ev.Respread, POLICY_RESPREAD, p.id);
+    // 此刻刚定了方针、改了君主倾向的:下一刻比一比门槛(见 retune;同一刻定了几条也只预约一次)
+    const tunes = retuneTimes(m, p.id);
+    const tune = tunes[tunes.length - 1];
+    if (tune !== undefined && tune + 1 / 256 > now) {
+      m.retune.set(p.id, tune);
+      sim.schedule(tune + 1 / 256, Ev.Respread, POLICY_RESPREAD, p.id);
+    }
     const list = bookOf(m, p.id, now);
     const last = list.length - 1;
     if (reignStart(list[last]) > now) sim.schedule(reignStart(list[last]), Ev.Reign, last, p.id);

@@ -11,7 +11,7 @@ import type { World } from '../gen/world';
 import { interventionOutcome } from '../gen/civ/chronicle';
 import { fullChronicle } from '../gen/civ/religionText';
 import { polityAlive, polityName, populationAt } from '../gen/civ/growth';
-import { cleanIntervention, keyCells, regionOfKey, type Intervention, type Upheaval } from '../gen/edits';
+import { cleanIntervention, keyCells, regionOfKey, resolvePersonKey, type Intervention, type Upheaval } from '../gen/edits';
 import { interventionText, polityIdOf } from './Interventions';
 import { removeIntervention, removeUpheaval, useEdits } from './editsStore';
 import { pickChronicleEntry, setCivTime, setSelection, type MapSelection } from './civView';
@@ -38,7 +38,7 @@ function civIndexes(civ: Civ, list: readonly unknown[]): number[] {
 function whyNot(civ: Civ, v: Intervention, i: number): string | null {
   const r = interventionOutcome(civ, i);
   if (r.annal >= 0) return r.ok ? null : (r.why ?? '没有生效');
-  if (v.kind === 'found') return '没有推演到这一条';
+  if (v.kind === 'found' || !v.a) return '没有推演到这一条';
   const id = polityIdOf(civ, v.a);
   if (id < 0) return '新历史里没有这个国家';
   const p = civ.polities[id];
@@ -55,6 +55,19 @@ function targetOf(civ: Civ, v: Intervention, i: number): MapSelection | null {
   if (v.kind === 'found' || v.kind === 'cede') {
     const r = regionOfKey(v.region, keyCells(civ.regions));
     return r >= 0 && r < civ.regions.count ? { kind: 'region', id: r } : null;
+  }
+  // 天灾:起疫的城、地震水旱那一处、饥荒的国家(选的几州:第一州)
+  if (v.kind === 'disaster' && !v.a) {
+    const e = i >= 0 ? civ.annals.find((x) => x.kind === 'intervene' && x.war === i) : undefined;
+    if (e && e.settlement >= 0 && v.type === 'plague') return { kind: 'settlement', id: e.settlement };
+    const r = e && e.region >= 0 ? e.region : regionOfKey(v.region ?? v.regions?.[0] ?? '', keyCells(civ.regions));
+    return r >= 0 && r < civ.regions.count ? { kind: 'region', id: r } : null;
+  }
+  if (!v.a) return null;
+  // 让人物去世、改君主倾向:那个人(新历史里没有他 = 他的国家)
+  if (v.kind === 'death' || v.kind === 'temper') {
+    const x = resolvePersonKey(civ, v.person);
+    if (x >= 0) return { kind: 'person', id: x };
   }
   const id = polityIdOf(civ, v.a);
   return id >= 0 ? { kind: 'polity', id } : null;

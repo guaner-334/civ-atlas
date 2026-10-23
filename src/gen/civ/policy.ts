@@ -86,8 +86,8 @@ export interface PolicySeg {
   t: Year;
   v: PolicyIv;
   iv: number;
-  /** 各位君主在这段方针下的倍数(按"国家 + 这一段 + 这一位"缓存:rulerOf 在扩张算账里调用很频繁) */
-  memo: WeakMap<Reign, LeaningEffect>;
+  /** 各位君主在这段方针下的倍数(按"国家 + 这一段 + 这一位(作者改过倾向的按改过的那一份)"缓存:rulerOf 在扩张算账里调用很频繁) */
+  memo: WeakMap<object, LeaningEffect>;
 }
 
 export function policySeg(v: PolicyIv, t: Year, iv: number): PolicySeg {
@@ -101,8 +101,8 @@ export function segAt(segs: readonly PolicySeg[] | undefined, t: Year): PolicySe
   return null;
 }
 
-/** 君主 r 在这段方针下的倍数(没有方针 / 没拧滑条 = 他自己的) */
-export function segEffect(seg: PolicySeg | null, r: Reign): LeaningEffect {
+/** 君主 r(此刻的倾向,见 rulers.ts 的 leaningsAt)在这段方针下的倍数(没有方针 / 没拧滑条 = 他自己的) */
+export function segEffect(seg: PolicySeg | null, r: Pick<Reign, 'leanings' | 'eff'>): LeaningEffect {
   if (!seg || !knobbed(seg.v)) return r.eff;
   let e = seg.memo.get(r);
   if (!e) seg.memo.set(r, (e = policyEffect(r.leanings, seg.v)));
