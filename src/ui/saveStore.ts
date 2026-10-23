@@ -841,7 +841,7 @@ export function sameSave(a: SaveFile, b: SaveFile): boolean {
 /** 两个底稿出处是不是一样(都没有也算) */
 export function sameOrigin(a: SaveFile['origin'], b: SaveFile['origin']): boolean {
   if (!a || !b) return !a && !b;
-  return (a.by ?? '') === (b.by ?? '') && a.title === b.title && a.url === b.url;
+  return (a.by ?? '') === (b.by ?? '') && a.title === b.title && a.url === b.url && (a.gallery ?? '') === (b.gallery ?? '');
 }
 
 /**

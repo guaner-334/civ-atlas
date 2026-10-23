@@ -1,7 +1,7 @@
 /**
  * 浏览器的后退、前进:每看一个画面记一步(history.pushState),按后退回到上一个画面,前进再走回来。
  *
- *   算一步   我的世界、新建世界(换一次种子算一步)、某个世界;
+ *   算一步   我的世界、新建世界(换一次种子算一步)、某个世界、作品墙那一页、作品墙上的一个作品(地图作品、取的时候);
  *            世界里每打开一张卡片(国家、城、人物、山河、州、信仰、标记)、世界概览、史书也算一步
  *   不算     拖地图、缩放、拖时间轴、换图层、换投影、概览里换页(照旧只改网址,见 navUrl;按后退 / 前进时图层、投影照现在的,见 NavHooks.url)
  *
@@ -15,7 +15,11 @@
  * 纯状态 + history,不碰 React;单测里换一个假的 history(tests/nav.test.ts)。
  */
 
-export type NavPage = 'home' | 'draft' | 'world';
+/** gallery = 作品墙那一页(id 是作品编号时:打开作品墙上的那个作品,地图作品、取的时候、撤下了的那一页) */
+export type NavPage = 'home' | 'draft' | 'world' | 'gallery';
+
+/** 这一步不是一个世界(没有要记下的世界) */
+const noWorld = (p: NavPage) => p === 'home' || p === 'gallery';
 
 /** 选中的东西:种类、编号,和稳定键(重推历史以后编号变了还认得出;见 flyTo.ts 的 selectionKey) */
 export interface NavSel {
@@ -202,7 +206,7 @@ export function navReplace(info: NavInfo) {
 export function navAdopt(info: NavInfo) {
   if (!cur) return;
   // 要离开的这个画面:和按后退离开一样,让 App 记下没存着的世界(退回来时照原样打开)
-  if (hooks && cur.page !== 'home') hooks.describe();
+  if (hooks && !noWorld(cur.page)) hooks.describe();
   const s = pageOf(info, cur.idx + 1, true);
   W().history.replaceState(s, '', W().location.href);
   here = W().location.href;
@@ -228,7 +232,7 @@ export function navBack(info: NavInfo): boolean {
 
 /** 要离开这个画面了:记下它的名字、存没存着 */
 function leave() {
-  if (!cur || !hooks || cur.page === 'home') return;
+  if (!cur || !hooks || noWorld(cur.page)) return;
   const d = hooks.describe();
   replace({ ...cur, ...(d.title ? { title: d.title } : {}), ...(d.stored !== undefined ? { stored: d.stored } : {}) });
 }
@@ -282,7 +286,7 @@ function withLayer(s: NavState, layer: NavLayer): NavState {
 
 /** 正在看的世界改了名:这一步记的名字跟着改(退回来、刷新时发现删掉了,提示里是现在的名字) */
 export function navTitle(id: string, title: string | undefined) {
-  if (!cur || cur.page === 'home' || cur.id !== id || (cur.title ?? '') === (title ?? '')) return;
+  if (!cur || noWorld(cur.page) || cur.id !== id || (cur.title ?? '') === (title ?? '')) return;
   const s: NavState = { ...cur };
   if (title) s.title = title;
   else delete s.title;
@@ -328,7 +332,7 @@ function onPop(e: PopStateEvent) {
   const same = s.page === 'world' && from.page === 'world' && s.id === from.id;
   if (!same) {
     // 要离开的这个画面:让 App 记下没存着的世界(再前进回来时照原样打开);浏览器已经换到了 to 这一步,离开的那一步记的东西不改
-    if (from.page !== 'home') hooks.describe();
+    if (!noWorld(from.page)) hooks.describe();
     routing = true;
     let r: void | 'skip';
     try {

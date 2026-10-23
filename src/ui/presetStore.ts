@@ -37,8 +37,13 @@ export interface LastUsed {
 /** 选的是哪个:默认 / 上次用的 / 分享的 / 自己存的那个的 id */
 export type PresetChoice = 'default' | 'last' | 'shared' | string;
 
-/** 朋友分享来的预设(没存进自己的预设,没有 id) */
-export type SharedPreset = Omit<Preset, 'id'>;
+/** 朋友分享来的预设(没存进自己的预设,没有 id);gallery = 来自作品墙上的新建参数作品(by:作品的署名) */
+export type SharedPreset = Omit<Preset, 'id'> & { gallery?: { by: string } };
+
+/** 分享来的这一套在预设菜单里名字后面带的那几个字:作品墙上的写署名,朋友分享的写"分享的" */
+export function sharedNote(p: SharedPreset): string {
+  return p.gallery ? p.gallery.by || '作品墙' : '分享的';
+}
 
 export interface PresetState {
   list: Preset[];

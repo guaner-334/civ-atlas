@@ -54,7 +54,7 @@ interface Tween {
   done: () => void;
 }
 
-type Num = 'mix' | 's' | 'boxT' | 'markA' | 'lon' | 'tilt';
+type Num = 'mix' | 's' | 'boxT' | 'markA' | 'lon' | 'tilt' | 'zoom';
 
 /** 按下松开挪了不到几像素、不到多少毫秒算点了一下 */
 const TAP_PX = 6;
@@ -93,6 +93,8 @@ export class StudioScene {
   tilt = 0;
   spin = false;
   markA = 0;
+  /** 放大倍数(新建界面一直是 1;作品墙上看地图作品时的 + −) */
+  zoom = 1;
   /** 照手绘图那一页:地图上方留出切换条、下方留出一句提示(见 layout.ts 的 fitPose) */
   bar = false;
   /** 两边、底下让出多少(面板、手机的底部卡片) */
@@ -243,7 +245,7 @@ export class StudioScene {
     const m = (this.projA === 'globe' ? 1 - s : 0) + (this.projB === 'globe' ? s : 0);
     const ha = (projExtent(this.projA).h / 2) * pa.k;
     const hb = (projExtent(this.projB).h / 2) * pb.k;
-    return { ...p, m, hh: ha + (hb - ha) * s };
+    return { ...p, k: p.k * this.zoom, m, hh: (ha + (hb - ha) * s) * this.zoom };
   }
 
   // ---- 每帧 ----
