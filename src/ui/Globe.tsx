@@ -1570,15 +1570,16 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
       const pool = s.cpuSync ? null : cpuPool();
       if (pool) {
         presented = presentCpu(cvs);
-        // 底图只和视角、球心挪动、分辨率、画风、回放帧淡入、贴图有关(高亮闪烁、经纬网在上面那层画)
-        const key = [s.view.lon, s.view.lat, s.view.k, s.shift, cw, ch, p.style, s.replayMix, s.cpuSrcVer].join();
+        // 底图只和视角、球心挪动、分辨率、清晰度、画风、回放帧淡入、贴图有关(高亮闪烁、经纬网在上面那层画)。
+        // 清晰度单算:浏览器缩放时画布像素可能不变而清晰度变了,球边细亮线的宽度、球心挪动的像素数跟着变
+        const key = [s.view.lon, s.view.lat, s.view.k, s.shift, cw, ch, dpr * q, p.style, s.replayMix, s.cpuSrcVer].join();
         // 贴图换了(时间轴放着、回放)而后台还在画上一张:等它画完再把最新的贴图交过去,不每帧都拷一遍
         const srcWait = pool.busy && CPU_SLOTS.some((k) => s.cpuDirty[k]);
         if (key !== s.cpuWant && !srcWait) {
           s.cpuWant = key;
           if (s.cpuShown?.key !== key) {
             pushCpuSources(pool);
-            pool.request({ view: s.view, f, look, w: cw, h: ch, idle: !busy, tag: { key, view: s.view, shift: s.shift, full: q === 1, w, h, dpr } });
+            pool.request({ view: s.view, f, dpr: dpr * q, look, w: cw, h: ch, idle: !busy, tag: { key, view: s.view, shift: s.shift, full: q === 1, w, h, dpr } });
           }
         }
         cpuWait = s.cpuShown?.key !== key;
@@ -1592,7 +1593,7 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
           if (!s.cpuImg || s.cpuImg.width !== cw || s.cpuImg.height !== ch) s.cpuImg = ctx.createImageData(cw, ch);
           const img = s.cpuImg;
           const src = cpuSrcNow();
-          renderGlobeCpu({ w: cw, h: ch, data: img.data }, s.view, f, look, {
+          renderGlobeCpu({ w: cw, h: ch, data: img.data }, s.view, f, dpr * q, look, {
             terrain: src.terrain,
             civ: src.civ,
             sel: src.sel,
@@ -2167,7 +2168,7 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
       } else {
         const img = octx.createImageData(W, H);
         const src = cpuSrcNow();
-        renderGlobeCpu({ w: W, h: H, data: img.data }, s.view, frameOf(s.view, W, H, sc), look, { ...src, replay: s.replayMix > 0 ? src.replay : null });
+        renderGlobeCpu({ w: W, h: H, data: img.data }, s.view, frameOf(s.view, W, H, sc), sc, look, { ...src, replay: s.replayMix > 0 ? src.replay : null });
         octx.putImageData(img, 0, 0);
       }
       const ov = document.createElement('canvas');

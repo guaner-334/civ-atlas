@@ -878,10 +878,14 @@ const hexRgb = (h: string): Vec3 => [parseInt(h.slice(1, 3), 16), parseInt(h.sli
 /**
  * 在 CPU 上画一帧到 out(画布像素)。经纬网、外框由调用方另画(见 graticuleLines)。
  * y0 = out 的第一行是整帧的第几行:分几段(几个后台线程)画同一帧时,每段只画 out.h 行,f 照旧是整帧的球;
- * 每个像素的算法和整帧一次画完完全一样,拼起来逐像素一致
+ * 每个像素的算法和整帧一次画完完全一样,拼起来逐像素一致。
+ * dpr = 画布像素 / CSS 像素(同 GlobeGl.render;拖动时降分辨率就跟着变小),球边细亮线的宽度按它算
  */
-export function renderGlobeCpu(out: RgbaImage, view: GlobeView, f: GlobeFrame, look: GlobeLook, src: CpuSources, y0 = 0): void {
+export function renderGlobeCpu(out: RgbaImage, view: GlobeView, f: GlobeFrame, dpr: number, look: GlobeLook, src: CpuSources, y0 = 0): void {
   const { w, h, data } = out;
+  const realistic = look.style === 'realistic';
+  /** 球边细亮线的半宽(画布像素):同着色器 1.3 * uDpr */
+  const edgeW = 1.3 * dpr;
   const { c, e, n } = globeBasis(view.lon, view.lat);
   const bg = hexRgb(GLOBE_BG[look.style]);
   const glow: Vec3 = look.style === 'fantasy' ? [0, 0, 0] : look.style === 'realistic' ? [72, 132, 255] : [26, 30, 38];
@@ -931,17 +935,14 @@ export function renderGlobeCpu(out: RgbaImage, view: GlobeView, f: GlobeFrame, l
       const u = (x + 0.5 - f.cx) / f.R;
       const t = (f.cy - y - 0.5) / f.R;
       const r = Math.sqrt(u * u + t * t);
-      // 屏幕上朝光的一侧有多亮(着色器里 smoothstep(-0.15, 0.85, ·))
-      const sideLit = smoothstep(-0.15, 0.85, r > 1e-9 ? (u * L[0] + t * L[1]) / (r * LXY) : 0);
+      // 屏幕上朝光的一侧有多亮(着色器里 smoothstep(-0.15, 0.85, ·));只有写实风的大气光、球边细亮线用它
+      const sideLit = realistic ? smoothstep(-0.15, 0.85, r > 1e-9 ? (u * L[0] + t * L[1]) / (r * LXY) : 0) : 0;
       let br = bg[0];
       let bgG = bg[1];
       let bb = bg[2];
       if (r > 1 && look.style !== 'fantasy') {
         // 写实风:大气光晕只在朝光的一侧(同着色器 background)
-        const g =
-          look.style === 'realistic'
-            ? (Math.exp(-(r - 1) * 38) * 0.5 + Math.exp(-(r - 1) * 13) * 0.1) * sideLit
-            : Math.exp(-(r - 1) * 18);
+        const g = realistic ? (Math.exp(-(r - 1) * 38) * 0.5 + Math.exp(-(r - 1) * 13) * 0.1) * sideLit : Math.exp(-(r - 1) * 18);
         br += glow[0] * g;
         bgG += glow[1] * g;
         bb += glow[2] * g;
@@ -991,27 +992,33 @@ export function renderGlobeCpu(out: RgbaImage, view: GlobeView, f: GlobeFrame, l
       let sh: number;
       // 写实风同着色器:背光面压暗到约两成,分界线是一条渐变(CPU 画法不画云)
       const ndl = uu * L[0] + tt * L[1] + ww * L[2];
-      if (look.style === 'realistic') sh = 0.2 + 0.82 * smoothstep(0, 0.75, ndl);
+      if (realistic) sh = 0.2 + 0.82 * smoothstep(0, 0.75, ndl);
       else if (look.style === 'fantasy') sh = (0.84 + 0.22 * diff) * (1 - 0.35 * rim * rim);
       else sh = 0.72 + 0.36 * diff;
       cr *= sh;
       cg *= sh;
       cb *= sh;
-      if (look.style === 'realistic') {
+      if (realistic) {
         // 大气:只有被照亮的那一侧球边有一圈蓝
         const a = Math.pow(rim, 2.6) * 0.62 * smoothstep(-0.05, 0.55, ndl);
         cr += (107 - cr) * a;
         cg += (168 - cg) * a;
         cb += (255 - cb) * a;
-        // 球的边缘(被照亮的一侧)一条细亮线
-        const ea = smoothstep(0, 1, 1 - (Math.abs(r - 1) * f.R) / 1.3) * 0.6 * sideLit;
-        cr += (179 - cr) * ea;
-        cg += (219 - cg) * ea;
-        cb += (255 - cb) * ea;
       }
-      data[o] = br + (cr - br) * cover;
-      data[o + 1] = bgG + (cg - bgG) * cover;
-      data[o + 2] = bb + (cb - bb) * cover;
+      let or = br + (cr - br) * cover;
+      let og = bgG + (cg - bgG) * cover;
+      let ob = bb + (cb - bb) * cover;
+      if (realistic) {
+        // 球的边缘(被照亮的一侧)一条细亮线:同着色器,盖在球和背景混好之后(最外那圈半盖着的像素也是整条线的亮度);
+        // 1 − smoothstep(0, edgeW, d) 写成 smoothstep(0, 1, 1 − d / edgeW),两者相等
+        const ea = smoothstep(0, 1, 1 - (Math.abs(r - 1) * f.R) / edgeW) * 0.6 * sideLit;
+        or += (179 - or) * ea;
+        og += (219 - og) * ea;
+        ob += (255 - ob) * ea;
+      }
+      data[o] = or;
+      data[o + 1] = og;
+      data[o + 2] = ob;
       data[o + 3] = 255;
     }
   }
