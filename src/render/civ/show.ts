@@ -44,7 +44,13 @@ export const CIV_FILLS: readonly CivFill[] = ['none', 'polities', 'cultures', 'f
 export interface CivNames {
   /** 国名 */
   polities?: boolean;
+  /** 族名 */
+  cultures?: boolean;
 }
+
+/** 「地图上写」那一行的几种名字 */
+export type CivNameKind = keyof CivNames;
+export const CIV_NAME_KINDS: readonly CivNameKind[] = ['polities', 'cultures'];
 
 /** 开关算哪种填色(先看信仰、时代,再看国家、再看民族) */
 export function civFillOf(show: { polities: boolean; cultures: boolean; faiths?: boolean; eras?: boolean }): CivFill {
@@ -55,9 +61,12 @@ export function civFillOf(show: { polities: boolean; cultures: boolean; faiths?:
   return 'none';
 }
 
-/** 这种填色默认写哪些名字:国家、信仰、时代填色写国名(信仰、时代上是小一号的灰字),民族、不填不写 */
+/**
+ * 这种填色默认写哪些名字:国家、信仰、时代填色写国名(信仰、时代上是小一号的灰字),民族填色写族名;
+ * 不填色时都不写
+ */
 export function namesDefault(fill: CivFill): Required<CivNames> {
-  return { polities: fill === 'polities' || fill === 'faiths' || fill === 'eras' };
+  return { polities: fill === 'polities' || fill === 'faiths' || fill === 'eras', cultures: fill === 'cultures' };
 }
 
 /**
@@ -71,6 +80,22 @@ export function polityNamesOn(show: CivShow): boolean {
 /** 国名是不是主角(国家填色:大字、带本国颜色);别的填色上写的国名是配角(小一号、灰墨) */
 export function polityNamesLead(show: CivShow): boolean {
   return civFillOf(show) === 'polities';
+}
+
+/** 地图上写不写族名:这种填色勾过就照勾的;没勾过按默认 —— 民族填色写,别的填色不写 */
+export function cultureNamesOn(show: CivShow): boolean {
+  const fill = civFillOf(show);
+  return show.names?.[fill]?.cultures ?? namesDefault(fill).cultures;
+}
+
+/** 族名是不是主角(民族填色:大字、带本族颜色);别的填色上写的族名是配角(小一号、灰墨,照旧斜体) */
+export function cultureNamesLead(show: CivShow): boolean {
+  return civFillOf(show) === 'cultures';
+}
+
+/** 「地图上写」里这种名字勾没勾着 */
+export function namesOn(show: CivShow, kind: CivNameKind): boolean {
+  return kind === 'polities' ? polityNamesOn(show) : cultureNamesOn(show);
 }
 
 export const CIV_SHOW_OFF: CivShow = {

@@ -18,11 +18,12 @@ import {
   polityTitles,
   POLITY_FORMS,
 } from '../src/gen/civ/growth';
-import { civLabelItems, civMapLayer, labelViewExtras } from '../src/render/civ/labels';
+import { civLabelChars, civLabelItems, civMapLayer, labelViewExtras } from '../src/render/civ/labels';
 import { CIV_SHOW_DEFAULT, type CivDrawParams, type CivStyle } from '../src/render/civ/overlay';
 import { pixelRegions } from '../src/render/civ/territory';
-import { markBox, MIN_LABEL_PX, placeMap, REF_MAP_CSS, type LabelView, type Placement } from '../src/render/labels/draw';
-import { GRID, polityLabels } from '../src/render/labels/polity';
+import { markBox, MIN_LABEL_PX, placeMap, REF_MAP_CSS, type LabelItem, type LabelView, type Placement } from '../src/render/labels/draw';
+import { GRID, polityLabels, territoryField } from '../src/render/labels/polity';
+import { pieces } from '../src/render/labels/groups';
 import { glyphBox } from '../src/render/labels/layout';
 import { NAME_MIN_ZOOM, SYMBOL_MIN_ZOOM } from '../src/render/labels/settlements';
 
@@ -435,6 +436,126 @@ describe('地图上写国名:开关、主角和配角', () => {
         }
         if (k === 1) expect(placed.labels.filter((pl) => pl.item.pick?.kind === 'polity').length).toBeGreaterThan(3);
       }
+    }
+  });
+});
+
+describe('地图上写族名:开关、主角和配角、一族几片', () => {
+  const at = (c: Case, s: Partial<CivDrawParams['show']>, year = c.civ.endYear): CivDrawParams => ({ ...paramsOf(c, 'fantasy', year), show: { ...CIV_SHOW_DEFAULT, ...s } });
+  type Opt = Parameters<typeof civMapLayer>[1];
+  const cultureItems = (p: CivDrawParams, opt?: Opt) => civMapLayer(p, opt).items.filter((i) => i.territory);
+  const polityItems = (p: CivDrawParams, opt?: Opt) => civMapLayer(p, opt).items.filter((i) => i.pick?.kind === 'polity');
+  it('民族填色默认写族名、能关掉;别的填色默认不写、勾上才写;写的是「某某族」', () => {
+    for (const c of cases.values()) {
+      const on = cultureItems(at(c, { cultures: true }));
+      expect(new Set(on.map((i) => i.text)).size).toBeGreaterThan(5);
+      for (const i of on) expect(i.text.endsWith('族')).toBe(true);
+      expect(cultureItems(at(c, { cultures: true, names: { cultures: { cultures: false } } }))).toHaveLength(0);
+      for (const s of [{ polities: true }, { polities: true, faiths: true }, { polities: true, eras: true }, {}]) expect(cultureItems(at(c, s))).toHaveLength(0);
+      expect(cultureItems(at(c, { polities: true, names: { polities: { cultures: true } } })).length).toBe(on.length);
+      // 不填色时勾上也能写
+      expect(cultureItems(at(c, { names: { none: { cultures: true } } })).length).toBe(on.length);
+    }
+  });
+  it('民族填色上的族名是主角:斜体、带本族颜色;别的填色上是配角:主角的七成、最大 15 号,灰墨,照旧斜体', () => {
+    for (const c of cases.values()) {
+      const lead = cultureItems(at(c, { cultures: true }));
+      for (const i of lead) {
+        expect(i.slant).toBeCloseTo(0.2, 6);
+        expect(i.priority).toBeGreaterThan(100.5);
+      }
+      // 每族最大那片和国名一样排在国都名之后、大多数山名之前
+      expect(lead.filter((i) => i.priority > 101).length).toBe(new Set(lead.map((i) => i.text)).size);
+      expect(new Set(lead.map((i) => i.color)).size).toBeGreaterThan(3);
+      const side = cultureItems(at(c, { polities: true, names: { polities: { cultures: true } } }));
+      expect(side.map((i) => i.text)).toEqual(lead.map((i) => i.text));
+      side.forEach((i, n) => {
+        expect(i.sizeWorld!).toBeCloseTo(Math.min(lead[n].sizeWorld! * 0.7, (15 * c.world.width) / REF_MAP_CSS), 6);
+        expect(i.slant).toBeCloseTo(0.2, 6);
+        expect(i.priority).toBeGreaterThan(100);
+        expect(i.priority).toBeLessThan(100.5);
+        expect(i.minZoom).toBe(lead[n].minZoom);
+      });
+      expect(new Set(side.map((i) => i.color)).size).toBe(1);
+    }
+  });
+  it('一族几片:还在的族都写;最大那片总览就写,别的片放大到一定倍数才出来', () => {
+    let multi = 0;
+    for (const c of cases.values()) {
+      const lead = cultureItems(at(c, { cultures: true }));
+      const byText = new Map<string, LabelItem[]>();
+      for (const i of lead) byText.set(i.text, [...(byText.get(i.text) ?? []), i]);
+      const alive = new Set([...ownersAt(c.civ, c.civ.endYear).culture].filter((k) => k >= 0));
+      expect(byText.size).toBe(alive.size);
+      for (const items of byText.values()) {
+        expect(items.filter((i) => i.minZoom === 1 && i.priority > 101)).toHaveLength(1);
+        if (items.length > 1) multi++;
+      }
+    }
+    // 海边民族散在几处海岸:够大的片各写一次
+    expect(multi).toBeGreaterThan(0);
+  });
+  it('拖时间轴、回放(fast):主角名照写(每 20 年一档拟合),配角名(国名、族名)都先收起;sides 给了照它', () => {
+    for (const c of cases.values()) {
+      const y = 1913;
+      expect(cultureItems(at(c, { cultures: true }, y), { fast: true }).length).toBeGreaterThan(3);
+      expect(polityItems(at(c, { polities: true }, y), { fast: true }).length).toBeGreaterThan(3);
+      expect(polityItems(at(c, { cultures: true, names: { cultures: { polities: true } } }, y), { fast: true })).toHaveLength(0);
+      expect(polityItems(at(c, { polities: true, faiths: true }, y), { fast: true })).toHaveLength(0);
+      expect(cultureItems(at(c, { polities: true, names: { polities: { cultures: true } } }, y), { fast: true })).toHaveLength(0);
+      // 停下来但还没停稳(sides: false):配角照样收着;停稳以后都在,配角记在 sides 里
+      expect(polityItems(at(c, { polities: true, faiths: true }, y), { sides: false })).toHaveLength(0);
+      const layer = civMapLayer(at(c, { cultures: true, names: { cultures: { polities: true } } }, y));
+      const sides = layer.items.filter((i) => layer.sides.has(i));
+      expect(sides.length).toBeGreaterThan(3);
+      expect(sides.every((i) => i.pick?.kind === 'polity')).toBe(true);
+    }
+  });
+  it('民族填色 + 国名:族名和别的字、符号零重叠,每个字落在这一族当年的地盘上', () => {
+    for (const c of cases.values()) {
+      const own = ownersAt(c.civ, c.civ.endYear).culture;
+      for (const k of [1, 2, 4]) {
+        const p = at(c, { cultures: true, labels: true, names: { cultures: { polities: true } } });
+        const layer = civMapLayer(p);
+        const view = viewOf(c, 'fantasy', k);
+        const placed = placeMap(civLabelItems(p).concat(layer.items), layer.marks, view);
+        const boxes = placed.labels.flatMap((pl, n) => pl.glyphs.map((g) => ({ n, b: glyphBox(g, pl.px, 0) })));
+        let names = 0;
+        placed.labels.forEach((pl, n) => {
+          if (!pl.item.territory) return;
+          names++;
+          const id = c.civ.cultures.findIndex((cu) => `${cu.name}族` === pl.item.text);
+          for (const g of pl.glyphs) {
+            const b = glyphBox(g, pl.px, 0);
+            for (const o of boxes) if (o.n !== n) expect(overlap(o.b, b), `${pl.item.text}(k=${k})`).toBe(false);
+            expect(inTerritory(c, (g.x - view.ox) / view.scale, (g.y - view.oy) / view.scale, own, id), `${pl.item.text} 的「${g.ch}」出了地盘(k=${k})`).toBe(true);
+          }
+        });
+        if (k === 1) expect(names).toBeGreaterThan(5);
+      }
+    }
+  });
+  it('片:上下左右连成一块的算一片(隔着水不算连着,东西相连的世界跨过左右边也算连着),州数按不同的州数', () => {
+    // 6 × 3 的小栅格,每格一个州;A = 0,B = 1,. = 水
+    const rows = ['AA..BA', 'A....A', '..AA..'];
+    const region = new Int16Array(18).fill(-1);
+    const of = new Int16Array(18).fill(-1);
+    rows.join('').split('').forEach((ch, i) => {
+      if (ch === '.') return;
+      region[i] = i;
+      of[i] = ch === 'A' ? 0 : 1;
+    });
+    const sizes = (wrap: boolean) =>
+      pieces(territoryField({ G: 4, gw: 6, gh: 3, region, wrap }, of), 18)
+        .map((p) => `${p.id}:${p.regions}`)
+        .sort();
+    expect(sizes(true)).toEqual(['0:2', '0:5', '1:1']);
+    expect(sizes(false)).toEqual(['0:2', '0:2', '0:3', '1:1']);
+  });
+  it('族名用到的字都在地图字体要加载的字表里', () => {
+    for (const c of cases.values()) {
+      const chars = civLabelChars(c.civ);
+      for (const cu of c.civ.cultures) for (const ch of `${cu.name}族`) expect(chars).toContain(ch);
     }
   });
 });
