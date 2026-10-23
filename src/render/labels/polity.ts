@@ -509,15 +509,7 @@ export function polityLabels(world: World, raster: Raster, civ: Civ, year: Year,
   const mp = opt.proj;
   if (mp) return projectedPolityLabels(world, raster, civ, year, opt, mp, idx, tiers);
   const key = `${idx}|${tiers}|${opt.refCss}|${raster.w}`;
-  const grid = territoryGrid(world, raster, civ);
-  // 归属只看日志下标:同一个下标 = 同样的国土。国土只看日志和州,按 civ.log 存(改了名的 civ 共用);
-  // 国名的摆法和名字有关(字数),按 civ 存
-  let fc = fieldCache.get(civ.log);
-  if (!fc || fc.idx !== idx || fc.grid !== grid) {
-    ownScratch = ownersAt(civ, year, ownScratch);
-    fc = { idx, grid, field: territoryField(grid, ownScratch.polity), count: countRegions(ownScratch.polity, civ.polities.length) };
-    fieldCache.set(civ.log, fc);
-  }
+  const fc = territoryFieldOf(world, raster, civ, year, idx);
   const hit = cache.get(civ);
   if (hit && hit.key === key) return { labels: hit.labels, field: fc.field };
   const { x: mx, y: my } = world.mesh;
@@ -531,6 +523,29 @@ export function polityLabels(world: World, raster: Raster, civ: Civ, year: Year,
 }
 
 const fieldCache = new WeakMap<ChangeLog, { idx: number; grid: TerritoryGrid; field: TerritoryField; count: Int32Array }>();
+
+/**
+ * 这一年(idx = 日志下标)的国土场和各国州数。归属只看日志下标:同一个下标 = 同样的国土。
+ * 国土只看日志和州,按 civ.log 存(改了名的 civ 共用);国名的摆法和名字有关(字数),在 polityLabels 里按 civ 存
+ */
+function territoryFieldOf(world: World, raster: Raster, civ: Civ, year: Year, idx: number) {
+  const grid = territoryGrid(world, raster, civ);
+  let fc = fieldCache.get(civ.log);
+  if (!fc || fc.idx !== idx || fc.grid !== grid) {
+    ownScratch = ownersAt(civ, year, ownScratch);
+    fc = { idx, grid, field: territoryField(grid, ownScratch.polity), count: countRegions(ownScratch.polity, civ.polities.length) };
+    fieldCache.set(civ.log, fc);
+  }
+  return fc;
+}
+
+/**
+ * 先把某一年的国土场算好记下(等距圆柱的;和 polityLabels 算的同一份):文明层换上以前在后台备料时用,
+ * 换上时套了改名的 civ 排国名直接用它。国名的摆法和名字有关,不在这里算
+ */
+export function primePolityField(world: World, raster: Raster, civ: Civ, year: Year): void {
+  if (civ.polities.length) territoryFieldOf(world, raster, civ, year, logIndexAfter(civ.log, year));
+}
 const projFieldCache = new WeakMap<ChangeLog, { idx: number; grid: TerritoryGrid; field: TerritoryField; count: Int32Array }>();
 const projGrids = new WeakMap<Civ['regions'], { raster: Raster; key: string; grid: TerritoryGrid }>();
 

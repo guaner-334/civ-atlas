@@ -20,6 +20,7 @@ import type { Polyline } from './lines';
 import type { CivDrawParams, CivStyle } from './overlay';
 import { toCanvas, type LabelView } from '../labels/draw';
 import { clipOutline, projectLinePts, reprojectImage, type Projector } from '../projection';
+import { flushCanvas } from '../common';
 
 // ---------------------------------------------------------------------------
 // 1. 数据:按史事整理每一场战争
@@ -476,6 +477,15 @@ function stripesOf(raster: CivDrawParams['raster'], style: CivDrawParams['style'
   sx.stroke();
   stripesCache.set(raster, { style, canvas });
   return canvas;
+}
+
+/**
+ * 整张斜线(stripesOf)单独一步备好、当下让浏览器描出来(这一年有易手的州、斜线开着才描;已经有了就什么也不做):
+ * 刚打开的世界还没有这一张,不单独备的话,它和这一年的斜线图挤在同一步里描(没有显卡加速的机器上合起来几十毫秒)。
+ * 整张一次描(分块描,抗锯齿的边会差一点点)
+ */
+export function warStripesPrep(p: CivDrawParams): void {
+  if (warsShown(p) && warScene(p.civ, p.year).taken.length) flushCanvas(stripesOf(p.raster, p.style));
 }
 
 /**

@@ -29,6 +29,7 @@ import { renderRealistic } from '../render/realistic';
 import { GLOBE_DEFAULT_LAT, globeFrame, renderGlobeCpu, worldToLonLat } from '../render/globe';
 import { helperCounts, helperJob, helperTexts, type HelperJob } from './helperWork';
 import { helperOrigin, listenHelper, type HelperHost, type Rendered, type RenderRequest } from './helperProtocol';
+import { CivPartInbox } from '../civParts';
 
 /** 封面的大小、上限 */
 const COVER_W = 1200;
@@ -56,6 +57,7 @@ function generate(job: HelperJob): Promise<Generated> {
   return new Promise((resolve, reject) => {
     const w = new Worker(WORKER_URL, { type: 'module' });
     const patches = new Map<string, RasterPatch | null>();
+    const parts = new CivPartInbox();
     let out: Generated | null = null;
     const waiters = new Set<() => void>();
     const fail = (why: string) => {
@@ -66,6 +68,9 @@ function generate(job: HelperJob): Promise<Generated> {
     w.onmessage = (ev: MessageEvent<WorkerResponse>) => {
       const m = ev.data;
       if (m.id !== 1) return;
+      // 交历史之前先交的几段(src/civParts.ts):收着,交历史的那条到了拼回去
+      if (m.type === 'civPart') return void parts.take(m);
+      if ('split' in m && m.split) parts.join(m.civ!, m.split);
       if (m.type === 'eraPatch') {
         patches.set(patchKey(m.prev, m.key), m.patch);
         for (const f of [...waiters]) f();
