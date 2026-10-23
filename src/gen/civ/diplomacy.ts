@@ -18,7 +18,7 @@
  *   战争里(wars.ts 调这里挂上的回调):
  *   - 宣战时(WarModel.onDeclare):守方的盟国(和攻方接壤、没在和攻方打、手上的仗没打满)有 PACT_JOIN 的机会援盟参战,
  *     不来就是坐视不救,盟约就此断了(unally,cause = abandon);守方的宗主(和攻方接壤)有 RESCUE 的机会发兵来救。
- *     盟国的方针把守方当亲国的,援盟的机会是 FRIEND_JOIN(policy.ts)。
+ *     盟国的方针把守方当亲国的,援盟的机会是 FRIEND_JOIN;当仇国的不救(盟约断了);把攻方当亲国的不出兵(policy.ts)。
  *     援盟、救藩参战的不再连锁。
  *   - 每一仗之后(WarModel.sue):守方打得很惨(丢了国都,或丢了 SUE_FRAC 以上国土)、攻方国力是它 SUE_RATIO 倍以上
  *     (守方在位的君主好战越低越肯称臣、越高越宁可打下去,rulers.ts),
@@ -527,9 +527,9 @@ export function installDiplomacy(sim: CivSim, pm: PolityModel, dm: DiplomacyMode
   /** x 向 y 宣战(不是援盟)之后:y 的盟国援盟 / 坐视不救,y 的宗主发兵来救 */
   wm.onDeclare = (w: War, x: number, y: number, t: number) => {
     for (const z of dm.alliesOf(y)) {
-      // 国家方针(policy.ts):z 把攻方当亲国的不出兵(盟约不断),把守方当亲国的更肯出兵
+      // 国家方针(policy.ts):z 把攻方当亲国的不出兵(盟约不断);把守方当亲国的更肯出兵,当仇国的不救(盟约就此断了)
       if (z === x || !alive(z) || friendly(z, x, t) || befriends(pm, z, x, t) || fighting(z, x) || halted(z, t) || busy(z) || !borders(z, x)) continue;
-      const join = befriends(pm, z, y, t) ? FRIEND_JOIN : PACT_JOIN;
+      const join = hates(pm, z, y, t) ? 0 : befriends(pm, z, y, t) ? FRIEND_JOIN : PACT_JOIN;
       if (keyed4(dm.base, pm.ptag[z], pm.ptag[x], Math.round(t * 256), U_JOIN) < join) wm.declare!(z, x, t, y, 'ally');
       else record('unally', { a: z, b: y, war: w.id, cause: 'abandon' });
     }

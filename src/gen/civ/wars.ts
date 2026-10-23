@@ -58,7 +58,7 @@ import { AdjKind, Layer, type AnnalCause, type Civ, type Polity, type Year } fro
 import { fexp, flog, fpow, keyed, keyed4, subSeed } from './rand';
 import { bookChain, Ev, quantize, type CivSim } from './sim';
 import { befriends, canCross, coreOf, effOf, endPolity, moveCapital, picks, policyAt, polityModelOf, type PolityModel } from './polities';
-import { FOE_ODDS } from './policy';
+import { FOE_ODDS, FRIEND_JOIN } from './policy';
 import { capitalAt, populationAt } from './growth';
 import type { InterventionModel } from './interventions';
 import type { DiplomacyModel } from './diplomacy';
@@ -553,7 +553,8 @@ export function installWars(sim: CivSim, pm: PolityModel, wm: WarModel = newMode
       for (const z of iv.alliesOf(y, t)) {
         if (z === x || pm.polities[z].ended !== undefined || iv.allied(z, x, t) || wm.dm?.friendly(z, x) || iv.halted(z, t) || befriends(pm, z, x, t)) continue;
         if (wm.active.some((v) => (v.a === z && v.b === x) || (v.a === x && v.b === z)) || !borders(z, x)) continue;
-        if (keyed4(iv.base, pm.ptag[z], pm.ptag[x], Math.round(t * 256), U_ALLY) >= ALLY_JOIN) continue;
+        // 国家方针:z 把 y 当亲国的更肯出兵(policy.ts)
+        if (keyed4(iv.base, pm.ptag[z], pm.ptag[x], Math.round(t * 256), U_ALLY) >= (befriends(pm, z, y, t) ? Math.max(ALLY_JOIN, FRIEND_JOIN) : ALLY_JOIN)) continue;
         declare(z, x, t, y, 'ally');
       }
     }

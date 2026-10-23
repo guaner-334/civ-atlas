@@ -485,11 +485,13 @@ export function setPolicy(sim: CivSim, m: PolityModel, pid: number, v: PolicyIv,
   if (first) sim.schedule(t + 1 / 256, Ev.Respread, POLICY_RESPREAD, pid);
 }
 
-/** 定了方针的下一刻(t):此刻在位的君主在新旧方针下比一比,门槛放低了的返回旧方针下的倍数(只补新方针才肯去的州);没放低 = null */
+/**
+ * 定了方针的下一刻(t):上一刻(原来的君主、原来的方针)和此刻比一比,门槛放低了的返回上一刻的倍数(只补此刻才肯去的州);没放低 = null。
+ * 同一刻新君即位的,两边比的都是"原来的君主 + 原来的方针"(见 Ev.Reign),不会两头都当别人补过了
+ */
 function policyWidens(m: PolityModel, pid: number, t: Year): LeaningEffect | null {
-  const r = rulerOf(m, pid, t);
-  const prev = effFor(m, pid, r, t - 1 / 256);
-  return widens(prev, effFor(m, pid, r, t)) ? prev : null;
+  const prev = effOf(m, pid, t - 1 / 256);
+  return widens(prev, effOf(m, pid, t)) ? prev : null;
 }
 
 /**
@@ -966,8 +968,8 @@ export function installPolities(sim: CivSim, m: PolityModel): void {
     if (!list[k] || reignStart(list[k]) !== t) return;
     scheduleReign(sim, m, pid, k + 1, t);
     if (k > 0) {
-      // 和此刻的方针一起算(没有方针 = 两位君主自己的倍数)
-      const prev = effFor(m, pid, list[k - 1], t);
+      // 和方针一起算:上一位在上一刻的方针下 → 这一位在此刻的方针下(同一刻刚定了方针的,比的是原来的方针;没有方针 = 两位君主自己的倍数)
+      const prev = effFor(m, pid, list[k - 1], t - 1 / 256);
       if (widens(prev, effFor(m, pid, list[k], t))) respread(sim, m, pid, prev);
     }
   });
@@ -1321,7 +1323,7 @@ export function resumePolities(sim: CivSim, world: World, civ: Civ, iv?: Interve
     for (let k = 1; k < list.length; k++) {
       const t = reignStart(list[k]);
       if (t > until) break;
-      const prev = effFor(m, p.id, list[k - 1], t);
+      const prev = effFor(m, p.id, list[k - 1], t - 1 / 256);
       if (widens(prev, effFor(m, p.id, list[k], t))) ends.push({ t, pid: p.id, prev });
     }
     // 定了方针的下一刻:门槛放低了的(同一刻同一国定了几条只算一次,见 setPolicy)
