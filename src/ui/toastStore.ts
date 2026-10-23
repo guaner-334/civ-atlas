@@ -133,6 +133,12 @@ export function useToastOpen(id: string, act?: string): boolean {
   return useSyncExternalStore((f) => (subs.add(f), () => subs.delete(f)), has, has);
 }
 
+/** 某个来源那条的进度(不管是不是正在显示;没有这一条、没给进度 = null)。只在进度变了时重画 */
+export function useToastProgress(id: string): number | null {
+  const get = () => list.find((x) => x.id === id)?.progress ?? null;
+  return useSyncExternalStore((f) => (subs.add(f), () => subs.delete(f)), get, get);
+}
+
 /** 单测用 */
 export function _resetToasts() {
   for (const id of [...timers.keys()]) stopTimer(id);

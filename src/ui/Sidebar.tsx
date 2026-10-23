@@ -32,6 +32,7 @@ import { eraLabel, spaced, yearAt, yearFull, yearShort, type Era } from '../gen/
 import { playFromOf } from '../gen/edits';
 import { openStepDialog, useStepwiseOn } from './stepwiseStore';
 import { StepSideGroup } from './Stepwise';
+import { StepBranches } from './StepBranches';
 import { openUpheaval, useUpUi } from './upheavalStore';
 import { currentWorld, listWorlds, useSavesVersion } from './saveStore';
 import { mapMates } from './mapGroups';
@@ -645,7 +646,10 @@ export function WorldHome(p: Pick<SidebarProps, 'civ' | 'data' | 'params' | 'gen
         </section>
       )}
       {step ? (
-        <StepSideGroup />
+        <>
+          <StepSideGroup />
+          <StepBranches civ={civ} />
+        </>
       ) : (
         <section className="sb-sec">
           <div className="sb-sec-head">

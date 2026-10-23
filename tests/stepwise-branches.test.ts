@@ -12,7 +12,7 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS } from '../src/gen/world';
 import { BRANCH_NAME_MAX, cleanBranches, issueCommands, playFromOf, type Intervention, type PlayState, type WorldEdits } from '../src/gen/edits';
 import { editCount, editsLost, makeSave, parseSave, saveText } from '../src/gen/savefile';
-import { branchList, branchPlay, deleteBranch, forkBranch, renameBranch, rewindStepwise, startStepwise, stepwiseToNormal, switchBranch } from '../src/gen/stepwise';
+import { branchList, branchPlay, deleteBranch, forkBranch, renameBranch, rewindBranch, rewindStepwise, startStepwise, stepwiseToNormal, switchBranch } from '../src/gen/stepwise';
 import { revertEdits } from '../src/ui/editsStore';
 
 const base: WorldEdits = { names: {}, interventions: [], terrain: [] };
@@ -43,10 +43,11 @@ describe('另开一支、切换、改名、删掉', () => {
     expect(f.edits.play).toBe(cur);
     expect(f.edits.playFrom).toBe(300);
     expect(f.edits.advance).toEqual({ step: 5 });
-    expect(f.edits.branches).toEqual({ id: 1, list: [{ id: 2, from: 450, year: 450, commands: [], playFrom: 300 }] });
+    // 记着是第 450 年从当前这一支(编号 1)分出的
+    expect(f.edits.branches).toEqual({ id: 1, list: [{ id: 2, from: 450, year: 450, commands: [], playFrom: 300, forkOf: 1, forkAt: 450 }] });
     // 从起演那年以前另开:那一支从那一年起演;第 0 年不写
-    expect(forkBranch(e0, 200)!.edits.branches!.list[0]).toEqual({ id: 2, from: 200, year: 200, commands: [], playFrom: 200 });
-    expect(forkBranch(e0, -5)!.edits.branches!.list[0]).toEqual({ id: 2, from: 0, year: 0, commands: [] });
+    expect(forkBranch(e0, 200)!.edits.branches!.list[0]).toEqual({ id: 2, from: 200, year: 200, commands: [], playFrom: 200, forkOf: 1, forkAt: 200 });
+    expect(forkBranch(e0, -5)!.edits.branches!.list[0]).toEqual({ id: 2, from: 0, year: 0, commands: [], forkOf: 1, forkAt: 0 });
     expect(forkBranch(e0, NaN)!.edits.branches!.list[0].from).toBe(0);
     expect(forkBranch(e0, 9999)!.edits.branches!.list[0]).toMatchObject({ from: 700, year: 700 });
     // 名字清理过
@@ -63,17 +64,18 @@ describe('另开一支、切换、改名、删掉', () => {
     expect(s.play).toEqual({ year: 450, commands: [c300, c400, c400b] });
     expect(s.playFrom).toBe(300);
     expect(s.advance).toEqual({ step: 5 });
-    expect(s.branches).toEqual({ id: 2, list: [{ id: 1, from: 450, year: 700, commands: [c500, c650], playFrom: 300, last: '北方大旱' }] });
+    // 当前这一支记着从哪分出(跟着它走)
+    expect(s.branches).toEqual({ id: 2, forkOf: 1, forkAt: 450, list: [{ id: 1, from: 450, year: 700, commands: [c500, c650], playFrom: 300, last: '北方大旱' }] });
     // 列表:按编号排,完整的进度
     expect(branchList(s)).toEqual([
       { id: 1, current: false, from: 450, year: 700, playFrom: 300, play: cur, last: '北方大旱' },
-      { id: 2, current: true, year: 450, playFrom: 300, play: s.play },
+      { id: 2, current: true, year: 450, playFrom: 300, play: s.play, forkOf: 1, forkAt: 450 },
     ]);
     // 切回来:和原来一样(只有当前这一支、编号 1 = 不写支线 —— 这里还留着另开的那一支)
     const back = switchBranch(s, 1)!;
     expect(back.play).toEqual(cur);
     expect(back.playFrom).toBe(300);
-    expect(back.branches).toEqual({ id: 1, list: [{ id: 2, from: 450, year: 450, commands: [], playFrom: 300 }] });
+    expect(back.branches).toEqual({ id: 1, list: [{ id: 2, from: 450, year: 450, commands: [], playFrom: 300, forkOf: 1, forkAt: 450 }] });
     // 已经是当前这一支 = 原样;没有这一支 = null
     expect(switchBranch(s, 2)).toBe(s);
     expect(switchBranch(s, 9)).toBeNull();
@@ -82,7 +84,7 @@ describe('另开一支、切换、改名、删掉', () => {
   it('改名(当前这一支也行,空 = 去掉名字);删掉(当前这一支不能删);删到只剩当前这一支、没起名、编号 1 = 不写', () => {
     const f = forkBranch(e0, 450)!;
     const named = renameBranch(renameBranch(f.edits, 2, '南迁')!, 1, '原来那条')!;
-    expect(named.branches).toEqual({ id: 1, name: '原来那条', list: [{ id: 2, name: '南迁', from: 450, year: 450, commands: [], playFrom: 300 }] });
+    expect(named.branches).toEqual({ id: 1, name: '原来那条', list: [{ id: 2, name: '南迁', from: 450, year: 450, commands: [], playFrom: 300, forkOf: 1, forkAt: 450 }] });
     expect(renameBranch(named, 2, '一'.repeat(40))!.branches!.list[0].name).toBe('一'.repeat(BRANCH_NAME_MAX));
     expect(renameBranch(named, 2, '  ')!.branches!.list[0]).not.toHaveProperty('name');
     expect(renameBranch(named, 9, '无')).toBeNull();
@@ -93,9 +95,38 @@ describe('另开一支、切换、改名、删掉', () => {
     const plain = deleteBranch(f.edits, 2)!;
     expect('branches' in plain).toBe(false);
     expect(plain.play).toBe(cur);
-    // 切走以后当前这一支的编号不是 1:只剩它也写着编号
+    // 切走以后当前这一支的编号不是 1:只剩它也写着编号(从哪分出也照记,分出它的那一支删掉了)
     const s = switchBranch(f.edits, 2)!;
-    expect(deleteBranch(s, 1)!.branches).toEqual({ id: 2, list: [] });
+    expect(deleteBranch(s, 1)!.branches).toEqual({ id: 2, forkOf: 1, forkAt: 450, list: [] });
+    // 给当前这一支改名不丢"从哪分出"
+    expect(renameBranch(s, 2, '南迁')!.branches).toMatchObject({ id: 2, name: '南迁', forkOf: 1, forkAt: 450 });
+  });
+
+  it('重新演绎、原来那条留成一支(rewindBranch):进度同 rewindStepwise;原来那条原样在列表里,切回去和没倒回过一样', () => {
+    const r = rewindBranch(e0, 450.4, '北伐', '1 北方大旱')!;
+    const old = rewindStepwise(e0, 450)!;
+    expect([r.id, r.kept]).toEqual([2, 1]);
+    expect(r.edits.play).toEqual(old.edits.play);
+    expect(r.edits.playFrom).toBe(old.edits.playFrom);
+    expect(r.edits.advance).toEqual({ step: 5 });
+    expect(branchList(r.edits)).toEqual([
+      { id: 1, current: false, from: 450, year: 700, playFrom: 300, play: cur, last: '1 北方大旱' },
+      { id: 2, name: '北伐', current: true, year: 450, playFrom: 300, play: old.edits.play, forkOf: 1, forkAt: 450 },
+    ]);
+    // 切回原来那条:进度、起演那年逐字节一样
+    const back = switchBranch(r.edits, 1)!;
+    expect(JSON.stringify(back.play)).toBe(JSON.stringify(cur));
+    expect(playFromOf(back)).toBe(300);
+    // 名字空 = 没起名;再从新的一支往回重新演绎:第 3 支从第 2 支分出
+    const r2 = rewindBranch(r.edits, 400)!;
+    expect(r2.id).toBe(3);
+    expect(r2.kept).toBe(2);
+    expect(branchList(r2.edits).find((b) => b.id === 3)).toMatchObject({ current: true, forkOf: 2, forkAt: 400, year: 400 });
+    expect(branchList(r2.edits).find((b) => b.id === 3)).not.toHaveProperty('name');
+    // 存档往返:几支、从哪分出都在
+    expect(roundTrip(r2.edits).branches).toEqual(r2.edits.branches);
+    // 没在逐年推演 = null
+    expect(rewindBranch(base, 10)).toBeNull();
   });
 
   it('从这一年重新演绎:别的几支照旧留着,完整的进度不变;存回推演模式、从推演模式重新开始不带支线', () => {
@@ -114,6 +145,8 @@ describe('另开一支、切换、改名、删掉', () => {
     expect(after.get(1)).toEqual(before.get(1));
     expect(after.get(2)).toEqual(before.get(2));
     expect(r.edits.branches!.list.every((b) => b.from <= 420)).toBe(true);
+    // 当前这一支是第 600 年分出的,倒回到第 420 年:改记成第 420 年分出
+    expect(r.edits.branches).toMatchObject({ id: 3, forkOf: 2, forkAt: 420 });
     // 存回推演模式:只存当前这一支
     const normal = stepwiseToNormal(e)!;
     expect('branches' in normal).toBe(false);
@@ -261,6 +294,32 @@ describe('清理、存档', () => {
     const fixed = cleanBranches(late, short)!;
     expect(fixed.list[0]).toEqual({ id: 2, from: 400, year: 500, commands: [c400, c400b, c500] });
     expect(branchPlay(short, fixed.list[0])).toEqual(branchPlay(short, late.list[0]));
+    // 从哪分出:合格的原样;forkAt 不是 [0, year] 里的整数 = 两项都去掉;只有 forkOf = 去掉;forkOf 不合格只去掉它(别的不受影响)
+    const forked = { id: 2, forkOf: 1, forkAt: 450, list: [{ id: 1, from: 450, year: 700, commands: [c500, c650] }, { id: 3, from: 450, year: 600, commands: [], forkOf: 2, forkAt: 520 }] };
+    expect(cleanBranches(forked, cur)).toBe(forked);
+    const badFork = cleanBranches(
+      {
+        id: 2,
+        forkOf: 1,
+        forkAt: 701, // 晚于当前这一支走到的那年
+        list: [
+          { id: 1, from: 450, year: 700, commands: [], forkOf: 3 }, // 只有 forkOf
+          { id: 3, from: 450, year: 600, commands: [], forkOf: 'x', forkAt: 520 },
+          { id: 4, from: 450, year: 600, commands: [], forkOf: 2, forkAt: 1.5 },
+        ],
+      },
+      cur,
+    )!;
+    expect(badFork).toEqual({
+      id: 2,
+      list: [
+        { id: 1, from: 450, year: 700, commands: [] },
+        { id: 3, from: 450, year: 600, commands: [], forkAt: 520 },
+        { id: 4, from: 450, year: 600, commands: [] },
+      ],
+    });
+    // 只有当前这一支、编号 1,但记着从哪分出:照写
+    expect(cleanBranches({ id: 1, forkAt: 300, list: [] }, cur)).toEqual({ id: 1, forkAt: 300, list: [] });
   });
 
   it('存档往返一样;存档里的 play 是当前这一支完整的进度;旧存档没有这一项照旧;认不出的那一支跳过、提示一句;没有进度的不要', () => {
