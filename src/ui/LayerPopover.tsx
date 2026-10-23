@@ -5,7 +5,7 @@
  *   填色   不填 / 国家 / 民族 / 信仰 / 时代(按钮条前几段也是它);一行说明;「地图上写」国名、族名、教名、时代名(CivPanel.tsx 的 NameToggles,
  *          每种填色各记各的);民族、信仰下面是色块列表。任何底图都能配任何填色
  *   叠加   地名、州、城址、道路、战事、宜居度、物产(CivPanel.tsx 的 CivToggles);经纬网(间隔 10° / 15° / 30°);
- *          等值线(等高线 / 等温线 / 等降水线选一种,画在 ContourLayer.tsx)
+ *          等值线(等高线 / 等温线 / 等降水线选一种,画在 ContourLayer.tsx);云层(卫星底图的地球仪上,静止 / 飘动,默认都开)
  *   投影   一行,点开是投影列表和中央经线(ProjectionPanel.tsx 的 ProjectionSection)
  * 点底图、填色都不收起(看着换);点外面(包括旁边的按钮)、Esc 收起。窄屏(手机):弹层是从底部升起的抽屉。
  * 换到还没画过的底图:那张缩略图上转小圈,地图先留着原来的,画好一下子换过去(App 的 pickBase)。
@@ -41,6 +41,7 @@ import {
 import { Icon } from './icons';
 import { GraticuleSteps, ProjectionSection, projectionName } from './ProjectionPanel';
 import { setContourKind, setGraticule, useContourKind, useGraticule, useProjection } from './projection';
+import { setCloudPrefs, useCloudGpu, useCloudPrefs } from './cloudPrefs';
 import type { ContourKind } from '../gen/savefile';
 import { getCivTime } from './civView';
 import { CivToggles, CultureLegend, FaithLegend, NameToggles } from './CivPanel';
@@ -389,6 +390,7 @@ export function LayerPopover({ base, fill, sat, civ = null, onBase, onFill, onSa
             <CivToggles />
             <GraticuleRow />
             <ContourRow globe={proj === 'globe'} />
+            <CloudRow active={proj === 'globe' && base === 'satellite'} />
           </div>
           <div className="lp-line" />
           <ProjectionRow />
@@ -459,6 +461,34 @@ function ContourRow({ globe }: { globe: boolean }) {
       <span className={`grat-seg${on ? '' : ' off'}`} role="radiogroup" aria-label="等值线种类">
         {CONTOUR_TABS.map((t) => (
           <button key={t.id} className={t.id === shown ? 'on' : undefined} role="radio" aria-checked={t.id === shown} data-iso={t.id} disabled={globe} onClick={() => setContourKind(t.id)}>
+            {t.name}
+          </button>
+        ))}
+      </span>
+    </div>
+  );
+}
+
+/** 云层一行:左边开关,右边 静止 / 飘动(关着时灰掉,点一档顺手打开);只有卫星底图的地球仪上画云,别处整行灰掉 */
+function CloudRow({ active: shown }: { active: boolean }) {
+  const { on, drift } = useCloudPrefs();
+  const gpu = useCloudGpu();
+  const active = shown && gpu;
+  const lit = on && active;
+  return (
+    <div className={`lp-grat lp-iso${active ? '' : ' disabled'}`} title={active ? undefined : shown ? '这台设备上的地球仪是简化画法,画不了云' : '卫星底图的地球仪上才有云'}>
+      <button className={`lp-check lp-tog${lit ? ' on' : ''}`} role="checkbox" aria-checked={lit} data-act="clouds" disabled={!active} onClick={() => setCloudPrefs({ on: !on })}>
+        <span className="lp-box" aria-hidden="true">
+          {lit ? '✓' : ''}
+        </span>
+        云层
+      </button>
+      <span className={`grat-seg${lit ? '' : ' off'}`} role="radiogroup" aria-label="云的动静">
+        {[
+          { v: false, name: '静止' },
+          { v: true, name: '飘动' },
+        ].map((t) => (
+          <button key={t.name} className={t.v === drift ? 'on' : undefined} role="radio" aria-checked={t.v === drift} data-drift={t.v ? 'on' : 'off'} disabled={!active} onClick={() => setCloudPrefs({ on: true, drift: t.v })}>
             {t.name}
           </button>
         ))}

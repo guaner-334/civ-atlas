@@ -5,6 +5,7 @@
  *   放大到主图那张贴图不够清楚时会等高清贴图换上再截(最多 30 秒)。
  *   --stage:截整个地图区域(带时间轴、按钮);默认只截地球仪。
  *   --cpu:用 CPU 画法(没有 WebGL2 时的退路)
+ *   写实风默认画云且固定一帧(网址 clouds=1);要看没有云的样子加 clouds=0
  *   --sel=名字:每个视图先选中球上写着这个名字的东西(国家、城、山河……),看选中的描边
  *   --panel:和 --sel 一起用:详情面板留着、截整页(看面板打开时球心左移)
  *   --device=390x844:按手机截(这么大的视口、触屏、两倍像素密度;手机布局)
@@ -18,7 +19,7 @@ import { startDevServer } from './lib/devserver';
 
 const args = process.argv.slice(2).filter((a) => !a.startsWith('--'));
 const flags = new Set(process.argv.slice(2).filter((a) => a.startsWith('--')));
-const query = `${args[0] ?? 'seed=7'}&view=globe${flags.has('--cpu') ? '&globe=cpu' : ''}`;
+const query = `${args[0] ?? 'seed=7'}&view=globe${flags.has('--cpu') ? '&globe=cpu' : ''}${/(^|&)clouds=/.test(args[0] ?? '') ? '' : '&clouds=1'}`;
 const out = args[1] ?? 'snaps/globe.png';
 const views = args.slice(2).map((s) => s.split(',').map(Number));
 const device = /^--device=(\d+)x(\d+)$/.exec([...flags].find((f) => f.startsWith('--device=')) ?? '');
@@ -39,7 +40,9 @@ await page.waitForFunction(() => (window as any).__wfGlobe?.ready, null, { timeo
 if (/(^|&)civ=/.test(query)) await page.waitForFunction(() => (window as any).__wfCiv?.ready, null, { timeout: 30000 }).catch(() => {});
 // 写实风的地球仪贴图(不打光 + 坡度)在后台画,换上之前是主图那张:等它换上(数据图层、CPU 画法一直是主图那张)
 await page.waitForFunction(() => { const g = (window as any).__wfGlobe; return g.tex === 'globe' || g.style === 'data' || g.renderer === 'cpu'; }, null, { timeout: 30000 }).catch(() => console.log('  地球仪贴图没换上'));
-await page.waitForTimeout(600);
+// 写实风的云图在后台画(约一秒),换上以后再截
+await page.waitForFunction(() => (window as any).__wfGlobe.cloud !== 'baking', null, { timeout: 30000 }).catch(() => console.log('  云图没换上'));
+await page.waitForTimeout(1200);
 console.log('ready after', Date.now() - t0, 'ms', JSON.stringify(await page.evaluate(() => { const g = (window as any).__wfGlobe; return { renderer: g.renderer, gpu: g.gpu, openMs: g.openMs, upload: g.upload }; })));
 const shots = views.length ? views : [null];
 for (let i = 0; i < shots.length; i++) {
