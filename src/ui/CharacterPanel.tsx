@@ -108,7 +108,7 @@ import { pointsFocus } from './flyTo';
 import { requestMapCenter } from './mapWrap';
 import { openLineage, openOverview } from './overviewStore';
 import { setSheet } from './panelStore';
-import { getPending, removePending, usePending } from './pendingStore';
+import { getPending, queueIntervention, removePending, usePending, type Pending } from './pendingStore';
 import { useStepwise } from './stepwiseStore';
 import { characterCrowns, crownDeleteAsk, crownEditAsk, crownToDeath, newReignName, noteCrownResim, type CrownAsk, type CrownState } from './crownInfo';
 import { CrownAskDialog } from './CrownAsk';
@@ -236,8 +236,9 @@ function CharView({ civ, raster, world, year, c, chars }: CharacterPanelProps & 
     const before = getEdits().interventions;
     const gone = removeCharacter(c.id, ask?.ivs);
     if (!gone) return;
-    // 单子里还没推演的他的即位:人物没了,一起拿掉
-    for (const p of getPending()) if (p.kind === 'iv' && p.v.kind === 'crown' && p.v.char === c.id) removePending(p.id);
+    // 单子里还没推演的他的即位:人物没了,一起拿掉(撤销时放回单子)
+    const queued = getPending().filter((p): p is Pending & { kind: 'iv' } => p.kind === 'iv' && p.v.kind === 'crown' && p.v.char === c.id);
+    for (const p of queued) removePending(p.id);
     clearSelection();
     const undo = () => {
       // 连即位一起去掉的:去掉的那几条放回原来的位置(之后又改过的干预照旧)
@@ -251,6 +252,8 @@ function CharView({ civ, raster, world, year, c, chars }: CharacterPanelProps & 
         });
       }
       const id = restoreCharacter(gone, at, ivs);
+      // 编号没变才放回单子(换了新编号,即位里记的编号对不上)
+      if (id === gone.id) for (const p of queued) queueIntervention(p.v, p.text, p.run);
       if (id > 0) setSelection({ kind: 'character', id });
       else if (id < 0 && (getEdits().characters?.length ?? 0) >= CHARACTERS_MAX)
         showToast({ id: 'oc-restore', kind: 'warn', text: `作者的人物已经有 ${CHARACTERS_MAX} 个了，放不回去`, ttl: 4000 });
