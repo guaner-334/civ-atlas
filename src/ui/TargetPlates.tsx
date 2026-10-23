@@ -37,8 +37,8 @@ export interface TargetLayerProps {
   /** App 的"世界坐标 → 屏幕坐标"(平面地图 / 地球仪;算不出、在球背面 = null) */
   toClient: MutableRefObject<WorldToClient | null>;
   /** 正在后台重推历史(干预列表变了):从哪一年起 */
-  /** 正在重推:从哪一年起变、推到哪一年(不给 = 这份历史的结束年份) */
-  resim: { year: number; end?: number } | null;
+  /** 正在重推:从哪一年起变、推到哪一年(不给 = 这份历史的结束年份);text = 提示条上换一句话(切支线时写切到哪一支) */
+  resim: { year: number; end?: number; text?: string } | null;
   /** 正在生成世界(它的进度条优先) */
   generating: boolean;
   /** 屏幕上这一点压着地图上的哪个字 / 城镇符号(平面地图:文字层;地球仪:球上的文字);国都旁的字躲开它们 */
@@ -323,7 +323,7 @@ export function TargetLayer({ civ, world, toClient, resim, generating, labelAt }
     const show = () => {
       if (!generating) {
         const f = Math.min(0.94, (performance.now() - t0) / expect);
-        showToast({ id: 'resim', kind: 'progress', text: `正在重新推演${spaced(yearSpanAt(Math.max(0, Math.floor(resim.year)), Math.floor(endYear), currentEra()))}`, progress: f });
+        showToast({ id: 'resim', kind: 'progress', text: resim.text ?? `正在重新推演${spaced(yearSpanAt(Math.max(0, Math.floor(resim.year)), Math.floor(endYear), currentEra()))}`, progress: f });
       }
       timer = window.setTimeout(show, 60);
     };

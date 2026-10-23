@@ -5,15 +5,16 @@
  *              导播一行(「改」原地展开导播设置);推演模式里这一年以后下过的干预,默认都勾着(到那一年照样发生),能逐条去掉。
  *              电脑上是浮在正中的窗口,手机上从底部升起、几乎占满屏(「开始演绎」贴底)
  *   推进设置   中途改(侧栏「这个故事」):同样三组 + 导播,下一步起照新的走
- *   存回推演模式  存成一个普通世界:默认存成新世界、原来的不动,也能覆盖原来的;存好以后打开它(默认开)
- *   从这里重新演绎  先问一句:世界回到那一年年初,列出不要了的(那以后演绎出来的历史、那以后加的干预);
- *              "先把现在这份存回推演模式"(存成一个新世界)默认开、记住上次的选择
+ *   存回推演模式  存成一个普通世界:默认存成新世界、原来的不动,也能覆盖原来的;存好以后打开它(默认开)。
+ *              另开过支的,最上面一行写明存的是在用的这一支,另外几支不跟着存
+ *   从这里重新演绎  先问一句:世界回到那一年年初,从这里往下另开一支;原来那条(那以后演绎出来的历史、那以后加的干预)
+ *              原样留在在用的这一支里,侧栏「支线」里随时切回去;新的一支的名字可以先起(不改 = "第 N 支")
  * AdvanceFields(三组推进设置)新建世界第 2 步也用。
  */
 import { useEffect, useMemo, useState } from 'react';
 import type { Civ } from '../gen/civ/types';
-import { ADVANCE_COUNTDOWNS, ADVANCE_EVERY_CHOICES, ADVANCE_STEP_MAX, END_YEAR_MAX, advanceOf, cleanPlay, type Advance, type Intervention } from '../gen/edits';
-import { laterInterventions, rewindStepwise } from '../gen/stepwise';
+import { ADVANCE_COUNTDOWNS, ADVANCE_EVERY_CHOICES, ADVANCE_STEP_MAX, BRANCH_NAME_MAX, END_YEAR_MAX, advanceOf, cleanPlay, type Advance, type Intervention } from '../gen/edits';
+import { branchList, laterInterventions, rewindStepwise } from '../gen/stepwise';
 import { fullChronicle } from '../gen/civ/religionText';
 import { eraText, spaced, yearAt, yearFull } from '../gen/era';
 import { getEdits, setAdvance, useEdits, useEra } from './editsStore';
@@ -21,7 +22,8 @@ import { getPending } from './pendingStore';
 import { interventionText } from './Interventions';
 import { DirectorSettings } from './Director';
 import { setStepDirectorOn, stepDirectorOn, useDirector } from './directorStore';
-import { getStepwise, nextYear, openStepDialog, rewindKeepPref, setRewindKeepPref, stepwiseActions, useStepwise } from './stepwiseStore';
+import { getStepwise, nextYear, openStepDialog, stepwiseActions, useStepwise } from './stepwiseStore';
+import { branchLabel, branchSpan } from './StepBranches';
 import { rewindBrief } from './stepwisePlan';
 import { advanceBrief } from './Stepwise';
 import { currentWorld, stepOrigin, useSavesVersion } from './saveStore';
@@ -419,6 +421,25 @@ function SaveDialog({ phone }: { phone: boolean }) {
   const now = play?.year ?? getStepwise().now;
   const n = (play?.commands.length ?? 0) + getPending().filter((x) => x.kind === 'iv').length;
   const lead = `把这个故事存成一个普通世界：${eraText(`第 0–${now} 年`, era)}的历史${n ? `，连同故事里加的 ${n} 条干预` : ''}。存好以后照样看编年史、写史书，回到任一年改了重推，导出地图、编年史和视频，以后还能接着往后推。`;
+  // 另开过支:最上面一行写明存的是在用的这一支,另外几支不跟着存
+  const branches = useMemo(() => branchList(edits), [edits]);
+  const curBranch = branches.find((b) => b.current);
+  const branchRow =
+    branches.length > 1 && curBranch ? (
+      <div className={`sw-grp${phone ? ' white' : ''}`} data-save-branch>
+        <div className="sw-r top">
+          <span className="br-save-ic">
+            <Icon name="branch" size={18} />
+          </span>
+          <span className="sw-r-main">
+            <span>存的是在用的这一支：{branchLabel(curBranch)}</span>
+            <small>
+              {branchSpan(curBranch, branches, era, true)}。另外 {branches.length - 1} 支不跟着存，还留在这个故事里；想存哪一支，先切过去再存。
+            </small>
+          </span>
+        </div>
+      </div>
+    ) : null;
   const go = () => {
     close();
     stepwiseActions()?.saveBack(asNew || !origin, open);
@@ -467,6 +488,7 @@ function SaveDialog({ phone }: { phone: boolean }) {
           </div>
           <div className="sw-lead">{lead}</div>
           <div className="sw-psheet-body">
+            {branchRow}
             {radios}
             {openRow}
           </div>
@@ -485,10 +507,11 @@ function SaveDialog({ phone }: { phone: boolean }) {
     <>
       <div className="sw-scrim" onClick={close} />
       <div className="sw-dlg-wrap">
-        <div className="sw-dlg sw-save-dlg" role="dialog" aria-label="存回推演模式" onPointerDown={stop} onClick={stop}>
+        <div className={`sw-dlg sw-save-dlg${branchRow ? ' br-has-branch' : ''}`} role="dialog" aria-label="存回推演模式" onPointerDown={stop} onClick={stop}>
           <h2>存回推演模式</h2>
           <p className="sw-lead">{lead}</p>
-          <div className="sw-sec first">{radios}</div>
+          {branchRow && <div className="sw-sec first">{branchRow}</div>}
+          <div className={`sw-sec${branchRow ? '' : ' first'}`}>{radios}</div>
           <div className="sw-sec">
             {openRow}
             <div className="sw-why">故事本身照样留在「我的世界」里，随时回来接着演绎。</div>
@@ -524,8 +547,11 @@ function RewindDialog({ phone, civ, year }: { phone: boolean; civ: Civ; year: nu
   const edits = useEdits();
   const era = useEra();
   const s = useStepwise();
-  useSavesVersion();
-  const [keep, setKeep] = useState(rewindKeepPref);
+  // 原来那条留在哪一支(在用的这支)、新的一支默认叫什么(编号 = 最大的加一,没改 = 不起名)
+  const branches = useMemo(() => branchList(edits), [edits]);
+  const keepIn = branchLabel(branches.find((b) => b.current) ?? { id: 1 });
+  const newLabel = `第 ${branches.reduce((m, b) => Math.max(m, b.id), 0) + 1} 支`;
+  const [name, setName] = useState(newLabel);
   const close = () => openStepDialog(null);
   useDialogKeys(close);
   const play = cleanPlay(edits.play);
@@ -540,12 +566,10 @@ function RewindDialog({ phone, civ, year }: { phone: boolean; civ: Civ; year: nu
   }, [r, s]);
   const brief = useMemo(() => rewindBrief(civ, T, now, fullChronicle(civ)), [civ, T, now]);
   const adv = advanceOf(edits);
-  const title = currentWorld()?.title || '未命名世界';
-  const keepName = `「${title}（演绎到${spaced(yearAt(now, era))}）」`;
   const go = () => {
-    setRewindKeepPref(keep);
     close();
-    stepwiseActions()?.rewind(T, keep);
+    const v = name.trim();
+    stepwiseActions()?.rewind(T, v === newLabel ? '' : v);
   };
   const years = [...new Set(dropped.map((v) => Math.floor(v.from)))].sort((a, b) => a - b);
   const ivTexts = dropped.map((v) => eraText(interventionText(civ, v), era));
@@ -553,9 +577,11 @@ function RewindDialog({ phone, civ, year }: { phone: boolean; civ: Civ; year: nu
   const ivWhen = years.length === 1 ? yearFull(years[0], era) : eraText(`第 ${years[0]}–${years[years.length - 1]} 年`, era);
   const span = eraText(`第 ${T}–${now} 年`, era);
   const histSmall = phone
-    ? `${brief.length ? `${brief.slice(0, 2).join('、')}……` : ''}都去掉`
-    : `${brief.length ? `${brief.join('、')}……` : ''}编年史里这一段都去掉`;
-  const lead = `世界回到${yearFull(T, era)}年初，从这里往下重新演绎。这以后演绎出来的不要了：`;
+    ? `${brief.length ? `${brief.slice(0, 2).join('、')}……` : ''}留在「${keepIn}」里`
+    : `${brief.length ? `${brief.join('、')}……` : ''}都留在「${keepIn}」里`;
+  const lead = phone
+    ? `世界回到${yearFull(T, era)}年初，从这里往下另开一支。原来那条原样留着，随时切回去：`
+    : `世界回到${yearFull(T, era)}年初，从这里往下另开一支。原来那条原样留着，在侧栏「支线」里随时切回去：`;
   const rows = (
     <div className={`sw-grp sw-drop${phone ? ' white' : ''}`}>
       <div className="sw-r top" data-rewind="history">
@@ -563,7 +589,7 @@ function RewindDialog({ phone, civ, year }: { phone: boolean; civ: Civ; year: nu
           <span>{phone ? `${span}的历史` : `${span}演绎出来的历史`}</span>
           <small>{histSmall}</small>
         </span>
-        <span className="sw-r-side">{now - T} 年</span>
+        <span className="sw-r-side br-keep">留着</span>
       </div>
       {dropped.length > 0 && (
         <div className="sw-r top" data-rewind="interventions">
@@ -577,14 +603,27 @@ function RewindDialog({ phone, civ, year }: { phone: boolean; civ: Civ; year: nu
     </div>
   );
   const why = phone ? `${yearFull(T, era)}以前的照旧，推进设置也不变。` : `${yearFull(T, era)}以前的照旧，推进设置也不变（${advanceBrief(adv)}）。`;
-  const keepRow = (
+  const nameField = (
+    <input
+      className="br-name-in"
+      value={name}
+      maxLength={BRANCH_NAME_MAX}
+      aria-label="新的一支的名字"
+      data-act="rewind-name"
+      onChange={(e) => setName(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') go();
+      }}
+    />
+  );
+  const nameRow = (
     <div className={`sw-grp${phone ? ' white' : ''}`}>
-      <div className="sw-r top">
+      <div className="sw-r">
         <span className="sw-r-main">
-          <span>先把现在这份存回推演模式</span>
-          <small>{phone ? `存成新的世界${keepName}` : `存成新的世界${keepName}，以后能打开看、往回改、接着推`}</small>
+          <span>{phone ? '新的一支叫' : '名字'}</span>
+          <small>{phone ? '以后在「支线」里也能改' : '可以不改，以后在「支线」里也能改'}</small>
         </span>
-        <button className={`sw-sw sw-sw-top${keep ? ' on' : ''}`} role="switch" aria-checked={keep} aria-label="先把现在这份存回推演模式" data-act="rewind-keep" onClick={() => setKeep(!keep)} />
+        {nameField}
       </div>
     </div>
   );
@@ -602,7 +641,7 @@ function RewindDialog({ phone, civ, year }: { phone: boolean; civ: Civ; year: nu
           <div className="sw-psheet-body">
             {rows}
             <div className="sw-why">{why}</div>
-            {keepRow}
+            {nameRow}
           </div>
           <div className="sw-psheet-btns">
             <button className="sw-big" data-act="rewind-cancel" onClick={close}>
@@ -626,9 +665,12 @@ function RewindDialog({ phone, civ, year }: { phone: boolean; civ: Civ; year: nu
             {rows}
             <div className="sw-why">{why}</div>
           </div>
-          <div className="sw-sec">{keepRow}</div>
+          <div className="sw-sec">
+            <div className="sw-sec-head">新的一支</div>
+            {nameRow}
+          </div>
           <div className="sw-foot save">
-            <span className="sw-sp" />
+            <span className="sw-foot-note br-foot-note">要存成单独的世界：「支线」里那一支的「存回推演模式」</span>
             <button className="sw-btn2" data-act="rewind-cancel" onClick={close}>
               取消
             </button>

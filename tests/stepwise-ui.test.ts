@@ -28,9 +28,10 @@ import {
   getStepwise,
   holdClock,
   nextYear,
+  openStepDialog,
   passStop,
   resumeFromStop,
-  rewindKeepPref,
+  branchSwitching,
   rewoundTo,
   saveBackEdits,
   stepArrived,
@@ -125,12 +126,20 @@ describe('这一段的状态', () => {
     expect(getStepwise().marks).toEqual([]);
     passStop(2665);
     expect(getStepwise().marks).toEqual([2665]);
+    // 切到别的一支:算的时候记着切到哪一支;推完换上(= 打开那一支)就不在切了
+    branchSwitching({ to: 3, from: 1 });
+    expect(getStepwise().switching).toEqual({ to: 3, from: 1 });
+    // 切的时候不问重新演绎(地图上还是原来那支),别的窗口照开
+    openStepDialog({ kind: 'rewind', year: 2600 });
+    expect(getStepwise().dialog).toBe(null);
+    openStepDialog({ kind: 'save' });
+    expect(getStepwise().dialog).toEqual({ kind: 'save' });
+    openStepDialog(null);
     // 打开别的逐年推演的世界:从头来
     enterStepwise(100, 300);
     expect(getStepwise().marks).toEqual([100]);
     expect(getStepwise().fresh).toBe(false);
-    // "先把现在这份存回推演模式"默认开(浏览器里记不了的时候也是)
-    expect(rewindKeepPref()).toBe(true);
+    expect(getStepwise().switching).toBe(null);
   });
 });
 

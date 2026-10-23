@@ -292,6 +292,17 @@ const PATHS = {
   list: <path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01" />,
   play: <path d="M8 5.5l10 6.5-10 6.5z" />,
   up: <path d="M6 15l6-6 6 6" />,
+  /** 支线:一条主干分出一支 */
+  branch: (
+    <>
+      <circle cx="6.5" cy="5.5" r="2" />
+      <circle cx="6.5" cy="18.5" r="2" />
+      <circle cx="17.5" cy="6.5" r="2" />
+      <path d="M6.5 7.5v9M17.5 8.5c0 4.5-11 3.5-11 8" />
+    </>
+  ),
+  /** 切到另一支:来回两个箭头 */
+  swap: <path d="M7 7h11l-3-3M17 17H6l3 3" />,
 } satisfies Record<string, ReactNode>;
 
 export type IconName = keyof typeof PATHS;

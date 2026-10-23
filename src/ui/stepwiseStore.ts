@@ -11,8 +11,10 @@
  * - 干预:国家 / 州 / 城的干预先进单子(pendingStore.ts,和推演模式的待推演是同一个单子),下一步开始时一起交给 worker,
  *   生效年份 = 下一步从哪年起(nextYear)。打开干预页时倒计时停住,点「接着演绎」再走。
  * - 往回看:时间轴两头「‹ ›」一段一段翻(page、marks;怎么切段见 stepwisePlan.ts 的 stepPage),拖、跳年、点编年史也能回到以前任一年;
- *   比放到过的最远处(seen)早就是在往回看,倒计时停住。从那一年重新演绎(App 的 rewind):那一年和以后的不要了,
- *   "现在"回到那一年,停着等点「接着演绎」(fresh),这一段从那一年数起。
+ *   比放到过的最远处(seen)早就是在往回看,倒计时停住。从那一年重新演绎(App 的 rewind):原来那条原样留成一支,
+ *   "现在"回到那一年(另开的新一支),停着等点「接着演绎」(fresh),这一段从那一年数起。
+ * - 支线(侧栏「支线」,StepBranches.tsx):切到别的一支(App 的 switchBranch)照那一支从第 0 年重推,算的时候 switching 记着切到哪一支,
+ *   地图还是原来那支、照样能拖能点;推完换上,停在那一支的"现在"。
  *
  * 不碰 DOM;算一步、存回推演模式、从某一年开始由 App 实现(setStepwiseActions)。
  */
@@ -48,7 +50,9 @@ export type StepDialog =
   /** 存回推演模式 */
   | { kind: 'save' }
   /** 从第 year 年重新演绎之前先问一句 */
-  | { kind: 'rewind'; year: number };
+  | { kind: 'rewind'; year: number }
+  /** 删掉编号 id 的那一支之前先问一句 */
+  | { kind: 'branch-delete'; id: number };
 
 export interface StepwiseState {
   /** 当前世界在逐年推演 */
@@ -77,9 +81,21 @@ export interface StepwiseState {
   fresh: boolean;
   /** 手机:停一下的卡片收起来了(看时间轴、往回翻);点"这一段的大事"拉回来 */
   down: boolean;
+  /**
+   * 正在切到哪一支(照它从第 0 年重推,推完换上;修改里已经换成那一支,地图上还是原来那支):to = 切到的那一支,
+   * from = 原来那支(列表里照旧标"在这支"),last = 切到的那一支记着的最后一件大事。没在切 = null
+   */
+  switching: StepSwitch | null;
 }
 
-const INIT: StepwiseState = { on: false, start: 0, since: 0, now: 0, busy: null, due: null, stop: null, cur: -1, clock: null, dialog: null, page: null, marks: [], fresh: false, down: false };
+/** 正在切到别的一支(StepwiseState.switching) */
+export interface StepSwitch {
+  to: number;
+  from: number;
+  last?: string;
+}
+
+const INIT: StepwiseState = { on: false, start: 0, since: 0, now: 0, busy: null, due: null, stop: null, cur: -1, clock: null, dialog: null, page: null, marks: [], fresh: false, down: false, switching: null };
 
 let S: StepwiseState = INIT;
 const subs = new Set<() => void>();
@@ -217,10 +233,12 @@ export interface StepwiseActions {
    * 另存一个世界、打开它(推进设置只写进新的那个,原来的世界不动)
    */
   start(year: number, drop: readonly number[], adv: Advance): void;
-  /** 存回推演模式:asNew = 存成新世界(不然覆盖原来那个);open = 存好以后打开它 */
+  /** 存回推演模式(只存当前这一支):asNew = 存成新世界(不然覆盖原来那个);open = 存好以后打开它 */
   saveBack(asNew: boolean, open: boolean): void;
-  /** 从第 year 年重新演绎(那一年和以后的不要了;keep = 先把现在这份存回推演模式,存成一个新世界) */
-  rewind(year: number, keep: boolean): void;
+  /** 从第 year 年重新演绎:原来那条原样留成一支,从那一年另开一支(名字 name,空 = 没起名)、切过去 */
+  rewind(year: number, name: string): void;
+  /** 切到编号 id 的那一支(在后台照它从第 0 年重推,推完换上) */
+  switchBranch(id: number): void;
 }
 
 let actions: StepwiseActions | null = null;
@@ -244,9 +262,14 @@ export function leaveStepwise() {
  * 开着的开始设置、存回的窗口照留(换世界由 leaveStepwise 收)
  */
 export function enterStepwise(start: number, now: number) {
-  const dialog = S.dialog?.kind === 'start' || S.dialog?.kind === 'rewind' ? null : S.dialog;
-  patch({ on: true, start, since: now, now, busy: null, due: null, stop: null, cur: -1, clock: null, dialog, page: null, marks: [start], fresh: false, down: false });
+  const dialog = S.dialog?.kind === 'start' || S.dialog?.kind === 'rewind' || S.dialog?.kind === 'branch-delete' ? null : S.dialog;
+  patch({ on: true, start, since: now, now, busy: null, due: null, stop: null, cur: -1, clock: null, dialog, page: null, marks: [start], fresh: false, down: false, switching: null });
   putSeen(now);
+}
+
+/** 开始切到别的一支 / 没切成(null);切成了由 enterStepwise 收 */
+export function branchSwitching(s: StepSwitch | null) {
+  patch({ switching: s });
 }
 
 /**
@@ -256,7 +279,7 @@ export function enterStepwise(start: number, now: number) {
  */
 export function rewoundTo(start: number, year: number) {
   const marks = [...new Set([...S.marks, start])].filter((m) => m >= start && m < year).sort((a, b) => a - b);
-  patch({ on: true, start, since: year, now: year, busy: null, due: null, stop: null, cur: -1, clock: null, dialog: null, page: null, marks, fresh: true, down: false });
+  patch({ on: true, start, since: year, now: year, busy: null, due: null, stop: null, cur: -1, clock: null, dialog: null, page: null, marks, fresh: true, down: false, switching: null });
   putSeen(year);
 }
 
@@ -351,6 +374,8 @@ export function holdClock(why: 'user' | 'act') {
 // 弹窗
 
 export function openStepDialog(d: StepDialog | null) {
+  // 切支线的时候不问重新演绎:地图、时间轴上还是原来那支,修改里已经是切到的那一支(切完就能点)
+  if (d?.kind === 'rewind' && S.switching) return;
   patch({ dialog: d });
 }
 
@@ -368,25 +393,6 @@ export function saveBackEdits(edits: WorldEdits, queued: readonly Intervention[]
   if (!play) return null;
   const now = queued.map((v) => ({ ...v, from: play.year }) as Intervention);
   return stepwiseToNormal(now.length ? { ...edits, play: issueCommands(play, now).play } : edits);
-}
-
-// ---------------------------------------------------------------------------
-// 从这一年重新演绎时"先把现在这份存回推演模式"开不开:默认开,记住上次的选择(记在浏览器里)
-
-const KEEP_KEY = 'wenming-ditu:rewind-keep';
-export function rewindKeepPref(): boolean {
-  try {
-    return localStorage.getItem(KEEP_KEY) !== '0';
-  } catch {
-    return true;
-  }
-}
-export function setRewindKeepPref(on: boolean) {
-  try {
-    localStorage.setItem(KEEP_KEY, on ? '1' : '0');
-  } catch {
-    /* 隐私模式:只管这一次 */
-  }
 }
 
 /** 单测用 */

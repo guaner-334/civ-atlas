@@ -78,10 +78,14 @@ import {
   setStepwiseActions,
   stepLost,
   stepWheel,
+  stepwiseActions,
+  branchSwitching,
+  subscribeStepwise,
   useStepwiseOn,
   useStepwiseStopped,
 } from './stepwiseStore';
-import { rewindStepwise, startStepwise } from '../gen/stepwise';
+import { branchList, rewindBranch, startStepwise, switchBranch } from '../gen/stepwise';
+import { StepBranchDeleteDialog, branchNote, branchRef } from './StepBranches';
 import { HistoryBook } from './HistoryBook';
 import { AiSettingsHost } from './AiSettings';
 import { AccountHost, ShareGone, SharedHint, closeTrash, openLogin, setGoHome, useTrashView } from './AccountDialogs';
@@ -133,6 +137,7 @@ import {
   cleanPlay,
   extendedEndYear,
   faithKey,
+  issueCommands,
   keySeats,
   namesWithoutAi,
   newHistoryEdits,
@@ -782,6 +787,26 @@ const WORK_LABEL: Partial<Record<WorkerRequest['type'], string>> = {
   upPreview: '预览地形大事',
 };
 
+/** 逐年推演切到了别的一支:from = 原来那支的编号,fromRef / toRef = 两支在句子里的叫法,year = 切到的那一支的"现在" */
+interface SwitchNote {
+  from: number;
+  fromRef: string;
+  toRef: string;
+  year: number;
+}
+/** 切到别的一支了(停在那一支的"现在"):说一声,带「切回」原来那支 */
+function switchedToast(sw: SwitchNote) {
+  showToast({
+    id: 'step-switched',
+    kind: 'ok',
+    text: `已切到${sw.toRef}，${yearFull(sw.year, getEdits().era)}`,
+    action: { label: `切回${sw.fromRef}`, act: 'step-switch-back', onClick: () => stepwiseActions()?.switchBranch(sw.from) },
+    ttl: 8000,
+  });
+}
+/** 切支线的时候,修改里已经是切到的那一支,地图、面板上还是原来那支:先不许下令、改名(用的键可能指到那一支里别的东西) */
+const SWITCH_EDIT_BLOCK = '正在切到别的一支，切完再改';
+
 // 帮手模式(作品墙的后台在看不见的框里打开网站画封面、列名字):和主程序同一份下载,用到的地图、推演代码不另下(Boot.tsx 叫)
 export { startGalleryHelper } from './galleryHelper';
 
@@ -1128,9 +1153,16 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
   const stepAuto = useRef(false);
   /**
    * 刚从某一年重新演绎、正按新的进度推到那一年(界面已经换成停在那一年):推好以后不再从头进逐年推演(停着等「接着演绎」,
-   * 推的时候点了播放的接着走),顶上提示"已回到第 N 年"(先存了一份的写存成了哪个世界)
+   * 推的时候点了播放的接着走),顶上提示"已回到第 N 年"
    */
-  const rewindNote = useRef<{ year: number; now: number; saved: { id: string; title: string } | null } | null>(null);
+  const rewindNote = useRef<{ year: number } | null>(null);
+  /**
+   * 正在切到别的一支(按那一支的进度从第 0 年重推):推好以后照常进逐年推演、停在那一支的"现在",
+   * 顶上提示"已切到某一支"带「切回」原来那支。from = 原来那支的编号,year = 切到的那一支走到的那年
+   */
+  const switchNote = useRef<SwitchNote | null>(null);
+  /** 下一次重推时顶上提示条换成这一句(切支线时写切到哪一支);用一次就清掉 */
+  const resimText = useRef<string | null>(null);
   /** 刚创建的世界要接着往后推:推完再从第 0 年放一遍历史(true = 要放) */
   const storyAfterYears = useRef<boolean | null>(null);
   const rawUps = useRef<readonly Upheaval[] | undefined>(undefined);
@@ -1165,7 +1197,7 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
     years?: boolean;
   } | null>(null);
   /** 正在重推:从哪一年起变、推到哪一年(进度提示条上写) */
-  const [resim, setResim] = useState<{ year: number; end?: number } | null>(null);
+  const [resim, setResim] = useState<{ year: number; end?: number; text?: string } | null>(null);
   /** 正在按新的干预重推历史(缩略图等推完再截) */
   const resimRef = useRef(false);
   resimRef.current = !!resim;
@@ -1520,8 +1552,42 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
     );
     return () => setTrialRunner(null);
   }, [send]);
-  // 逐年推演:算一步(worker 的 turn)、从推演模式某一年开始、存回推演模式
+  // 逐年推演:算一步(worker 的 turn)、从推演模式某一年开始、存回推演模式、重新演绎、切支线
   useEffect(() => {
+    /**
+     * 重新演绎、切支线:正在算的那一步先等它算完、换上(或者没算成),再做 fn。这样原来那一支照它真走到的样子留下,
+     * 交回来的那一步也不会落到另一支上;单子里还没交出去的干预本来就在下一步开头生效,正好是那时的"现在"。
+     * 没在算 = 马上做;等的时候换了世界、不在逐年推演了 = 不做。一次只等一件(waiting 的时候两个动作都先不接)
+     */
+    let waiting = false;
+    const afterStep = (fn: () => void) => {
+      if (!getStepwise().busy) return fn();
+      if (waiting) return;
+      waiting = true;
+      const off = subscribeStepwise(() => {
+        const t = getStepwise();
+        if (t.on && t.busy) return;
+        off();
+        waiting = false;
+        if (t.on) fn();
+      });
+    };
+    /**
+     * 原来那一支要留下的样子(重新演绎、切走时):单子里还没交出去的干预(和万一还在算的那一步带走的)
+     * 都当作在"现在"下的(在那一年年初生效,同存回推演模式)。没在逐年推演 = null
+     */
+    const keptBranch = (): WorldEdits | null => {
+      const e0 = getEdits();
+      const play = cleanPlay(e0.play);
+      if (!play) return null;
+      const later = [...(getStepwise().busy?.commands ?? []), ...getPending().flatMap((x) => (x.kind === 'iv' ? [x.v] : []))];
+      const now = later.map((v) => ({ ...v, from: play.year }) as Intervention);
+      return now.length ? { ...e0, play: issueCommands(play, now).play } : e0;
+    };
+    /** 单子里还没交出去的干预已经记进原来那一支:从单子里拿掉 */
+    const dropPending = () => {
+      for (const x of getPending()) if (x.kind === 'iv') removePending(x.id);
+    };
     setStepwiseActions({
       turn: (years, commands) => {
         const p = genParams.current;
@@ -1583,32 +1649,57 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
         if (open) return openStoredRef.current(id);
         showToast({ id: 'step-saved', kind: 'ok', dot: true, text: `已存回推演模式「${title}」`, more: ['这个故事照样留着，在「我的世界」里随时能打开那一个'], ttl: 6000 });
       },
-      rewind: (year, keep) => {
-        const cur = currentWorld();
-        const e0 = getEdits();
-        const play = cleanPlay(e0.play);
-        const r = rewindStepwise(e0, year);
-        if (!cur || !play || !r || !r.edits.play) return;
-        const T = r.edits.play.year;
-        // 先把现在这份存回推演模式(存成新世界,原来演绎到哪、一路加的干预都在;正在算的那一步、单子里的当作在"现在"下的)
-        let saved: { id: string; title: string } | null = null;
-        if (keep) {
-          const inflight = getStepwise().busy?.commands ?? [];
-          const normal = saveBackEdits(e0, [...inflight, ...getPending().flatMap((x) => (x.kind === 'iv' ? [x.v] : []))]);
-          if (!normal) return notify({ kind: 'error', text: '没能先存一份', more: ['推得太远了，普通世界最多推到第 60000 年'] });
-          const want = `${cur.title || '未命名世界'}（演绎到${spaced(yearAt(play.year, e0.era))}）`;
-          const title = listWorlds().some((w) => w.save.title === want) ? nextTitle(want) : want;
-          const id = saveCurrentAs(normal, title);
-          if (!id) return notify({ kind: 'error', text: '没能先存一份', more: [storageFullWhy()] });
-          saved = { id, title };
-        }
-        // 单子里还没交出去的干预在"现在"以后生效:一起不要
-        for (const x of getPending()) if (x.kind === 'iv') removePending(x.id);
-        rewindNote.current = { year: T, now: play.year, saved };
-        // 进度换成那一年年初(App 照它从第 0 年推到那一年;正在算的那一步交回来时对不上,不要)
-        putEditsQuiet(r.edits);
-        rewoundTo(playFromOf(r.edits), T);
-        setCivTime({ year: T, playing: false, scrubbing: false, story: false });
+      rewind: (year, name) => {
+        // 正在切支线:地图、时间轴上还是原来那支,修改里已经是切到的那一支,这时另开会从切到的那一支分出去
+        // (切的时候问重新演绎的窗口本来就不开,见 openStepDialog);已经在等着做别的:这次不做
+        if (getStepwise().switching || waiting) return;
+        setCivTime({ playing: false });
+        afterStep(() => {
+          const e0 = keptBranch();
+          const play = e0 && cleanPlay(e0.play);
+          // 原来那条原样留成一支(记下它的最后一件大事),从那一年另开一支、切过去
+          const r = e0 && play && rewindBranch(e0, year, name, branchNote(rawRef.current, play.year));
+          if (!play || !r || !r.edits.play) return notify({ kind: 'error', text: '没能从这一年重新演绎', more: ['另开的支太多了'] });
+          const T = r.edits.play.year;
+          rewindNote.current = { year: T };
+          dropPending();
+          // 进度换成那一年年初(App 照它从第 0 年推到那一年)
+          putEditsQuiet(r.edits);
+          rewoundTo(playFromOf(r.edits), T);
+          setCivTime({ year: T, playing: false, scrubbing: false, story: false });
+        });
+      },
+      switchBranch: (id) => {
+        const s = getStepwise();
+        const all = branchList(getEdits());
+        const cur = all.find((b) => b.current);
+        const to = all.find((b) => b.id === id && !b.current);
+        // 正在切、等着重新演绎、正在重推 / 生成(地图上的历史还不是这一支的)时不切
+        if (!s.on || s.switching || waiting || resimInfo.current || regenRef.current || !cur || !to) return;
+        // 那一行先转起圈来(别的行、下令先不能点),停下;正在算的那一步算完再切
+        branchSwitching({ to: id, from: cur.id, ...(to.last ? { last: to.last } : {}) });
+        stepAuto.current = false;
+        rewindNote.current = null;
+        setCivTime({ playing: false });
+        afterStep(() => {
+          const e0 = keptBranch();
+          const play = e0 && cleanPlay(e0.play);
+          const next = e0 && play && !resimInfo.current && !regenRef.current ? switchBranch(e0, id, branchNote(rawRef.current, play.year)) : null;
+          if (!e0 || !next?.play) return branchSwitching(null);
+          dropPending();
+          const note: SwitchNote = { from: cur.id, fromRef: branchRef(cur), toRef: branchRef(to), year: next.play.year };
+          // 两支走到的一模一样(另开以后原样走回了同一年):地图上这份历史就是它的,不用重推,直接换上
+          if (JSON.stringify(next.play) === JSON.stringify(civPlay.current ?? null)) {
+            putEditsQuiet(next);
+            enterStepwise(playFromOf(next), next.play.year);
+            setCivTime({ year: next.play.year, playing: false, scrubbing: false, story: false });
+            return switchedToast(note);
+          }
+          // 地图先留着原来那支(照样能拖),在后台照那一支从第 0 年推到它走到的那一年,推完换上、停在那一年
+          switchNote.current = note;
+          resimText.current = `正在切到${branchRef(to)}：从头推到${spaced(yearAt(next.play.year, e0.era))}`;
+          putEditsQuiet(next);
+        });
       },
     });
     return () => setStepwiseActions(null);
@@ -1830,14 +1921,16 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
         kind: 'ok',
         dot: true,
         text: `已回到${yearFull(rw.year, era)}`,
-        more: rw.saved ? [narrowRef.current ? '原来那份另存了一个世界，在「我的世界」里' : `原来演绎到${spaced(yearAt(rw.now, era))}的那份，存成了「${rw.saved.title}」`] : undefined,
-        action: rw.saved && !narrowRef.current ? { label: '打开', act: 'step-rewound-open', onClick: () => openStoredRef.current(rw.saved!.id) } : undefined,
         ttl: 7000,
       });
     } else if (play && cleanPlay(getEdits().play)) {
       enterStepwise(playFromOf(getEdits()), play.year);
       setCivTime({ year: play.year, playing: stepAuto.current, scrubbing: false, story: false });
       stepAuto.current = false;
+      // 刚切到别的一支:停在那一支的"现在",说一声,带「切回」原来那支
+      const sw = switchNote.current;
+      switchNote.current = null;
+      if (sw && sw.year === play.year) switchedToast(sw);
     }
     // 刚创建的世界接着往后推完了:缩略图按推完的样子重截,该放历史的从第 0 年放一遍
     if (info?.years && !play) {
@@ -2093,6 +2186,8 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
       // 换世界:改名、干预、选中都属于旧世界,一起作废(先停掉旧世界的自动存,清空不算"改回默认";新世界先按"没有干预、没有地形大事"生成)
       detachWorld();
       leaveStepwise();
+      switchNote.current = null;
+      resimText.current = null;
       civEdits.current = EMPTY_EDITS.interventions;
       civUps.current = genUps.current = undefined;
       civPlay.current = undefined;
@@ -2382,7 +2477,10 @@ ${s.image.cells}` : null);
       note,
       years: yearsOnly || setupOnly,
     };
-    setResim({ year: stepOnly ? 0 : year, end: play ? play.year : newEnd });
+    // 切支线:提示条写切到哪一支(只用这一次)
+    const text = stepOnly && resimText.current ? resimText.current : undefined;
+    resimText.current = null;
+    setResim({ year: stepOnly ? 0 : year, end: play ? play.year : newEnd, ...(text ? { text } : {}) });
     send({
       type: 'resim',
       id: reqId.current,
@@ -5429,6 +5527,22 @@ ${s.image.cells}` : null);
     setEditGate((keys) => (keys.every((k) => sameInBoth(real, sim, k)) ? null : PREVIEW_EDIT_BLOCK));
     return () => setEditGate(null);
   }, [rawCiv, previewRaw]);
+  // 逐年推演切支线的时候:面板里还是原来那支的历史,先不许下令、改名(逐年推演里不试推演,和上面那个不会同时挂着)
+  useEffect(() => {
+    let on = false;
+    const sync = () => {
+      const want = !!getStepwise().switching;
+      if (want === on) return;
+      on = want;
+      setEditGate(want ? () => SWITCH_EDIT_BLOCK : null);
+    };
+    sync();
+    const off = subscribeStepwise(sync);
+    return () => {
+      off();
+      if (on) setEditGate(null);
+    };
+  }, []);
   // 在地图上看试推演 / 回到现在:选中的东西按稳定键换到另一份历史里;刚开始看时没选东西,选上关注的那个国家
   const prevPreview = useRef<Civ | null>(null);
   useLayoutEffect(() => {
@@ -5917,6 +6031,7 @@ ${s.image.cells}` : null);
       {data && world && <StepStartDialog phone={narrow} civ={civ} />}
       {data && world && stepOn && <StepSaveDialog phone={narrow} />}
       {data && world && stepOn && <StepRewindDialog phone={narrow} civ={civ} />}
+      {data && world && stepOn && <StepBranchDeleteDialog phone={narrow} civ={civ} />}
       {/* 详情面板:窄屏是从屏幕底升起的卡片(在这儿的空位里),宽屏在侧栏里(见上面的 inspectorHost) */}
       {data && world && createPortal(<Inspector civ={civ} raw={shownRaw} raster={data.raster} world={data.world} />, inspectorHost)}
       {narrow && world && <div className="inspector-slot" ref={inspectorSlot} />}
