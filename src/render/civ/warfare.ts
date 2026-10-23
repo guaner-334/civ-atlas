@@ -448,7 +448,10 @@ export function drawWarfare(ctx: CanvasRenderingContext2D, p: CivDrawParams, lv:
 // 3. 易手的州:斜线(画在文明底图 / 地球仪的文明贴图上)
 
 type AnyCanvas = OffscreenCanvas | HTMLCanvasElement;
-const hatchCache = new WeakMap<Civ, { raster: unknown; key: string; canvas: AnyCanvas }>();
+/** box = 斜线图上不透明的像素都在这个框里(画布像素 [x0, x1) × [y0, y1));没有不透明的 = null */
+const hatchCache = new WeakMap<Civ, { raster: unknown; key: string; canvas: AnyCanvas; box: [number, number, number, number] | null }>();
+/** 半分辨率的范围放大到全分辨率时(平滑插值)往外渗的像素,框四周留这么宽 */
+const HATCH_BOX_PAD = 8;
 
 function makeCanvas(w: number, h: number): AnyCanvas {
   return typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(w, h) : Object.assign(document.createElement('canvas'), { width: w, height: h });
@@ -496,8 +499,14 @@ export function drawWarHatch(ctx: CanvasRenderingContext2D, p: CivDrawParams): v
   const canvas = warHatchCanvas(p);
   if (!canvas) return;
   const { w, h, scale: S } = p.raster;
-  if (p.proj) reprojectImage(ctx, canvas, w, h, p.proj.mp, { s: S, ox: 0, oy: 0 });
-  else ctx.drawImage(canvas, 0, 0);
+  if (p.proj) return reprojectImage(ctx, canvas, w, h, p.proj.mp, { s: S, ox: 0, oy: 0 });
+  // 只贴有斜线的那一框(框外全透明,贴上去什么也不变):回放时每帧都贴,整张图那么大的一次贴图在没有显卡加速的机器上很慢
+  const box = hatchCache.get(p.civ)?.box;
+  if (box === null) return;
+  if (box && ctx.getTransform().isIdentity) {
+    const [x0, y0, x1, y1] = box;
+    ctx.drawImage(canvas, x0, y0, x1 - x0, y1 - y0, x0, y0, x1 - x0, y1 - y0);
+  } else ctx.drawImage(canvas, 0, 0);
 }
 
 /** 易手的州的斜线画好的那张(raster.w × raster.h,按 civ 缓存;州没变就用上次画好的);不画 = null */
@@ -518,13 +527,27 @@ export function warHatchCanvas(p: CivDrawParams): AnyCanvas | null {
     const H = Math.ceil(h / f);
     const img = new ImageData(W, H);
     const d = img.data;
+    let bx0 = W;
+    let by0 = H;
+    let bx1 = -1;
+    let by1 = -1;
     for (let y = 0; y < H; y++) {
       const row = Math.min(h - 1, y * f + 1) * w;
       for (let x = 0; x < W; x++) {
         const r = pix[row + Math.min(w - 1, x * f + 1)];
-        if (r >= 0 && set[r]) d[(y * W + x) * 4 + 3] = 255;
+        if (r >= 0 && set[r]) {
+          d[(y * W + x) * 4 + 3] = 255;
+          if (x < bx0) bx0 = x;
+          if (x > bx1) bx1 = x;
+          if (y < by0) by0 = y;
+          by1 = y;
+        }
       }
     }
+    const box: [number, number, number, number] | null =
+      bx1 < 0
+        ? null
+        : [Math.max(0, bx0 * f - HATCH_BOX_PAD), Math.max(0, by0 * f - HATCH_BOX_PAD), Math.min(w, (bx1 + 1) * f + HATCH_BOX_PAD), Math.min(h, (by1 + 1) * f + HATCH_BOX_PAD)];
     const mask = makeCanvas(W, H);
     (mask.getContext('2d') as CanvasRenderingContext2D).putImageData(img, 0, 0);
     const canvas = hit && hit.raster === raster ? hit.canvas : makeCanvas(w, h);
@@ -536,7 +559,7 @@ export function warHatchCanvas(p: CivDrawParams): AnyCanvas | null {
     hx.imageSmoothingEnabled = true;
     hx.drawImage(mask, 0, 0, w, h);
     hx.globalCompositeOperation = 'source-over';
-    hit = { raster, key, canvas };
+    hit = { raster, key, canvas, box };
     hatchCache.set(civ, hit);
   }
   return hit.canvas;
