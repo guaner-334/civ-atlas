@@ -1509,7 +1509,7 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
     /**
      * 重新演绎、切支线:正在算的那一步先等它算完、换上(或者没算成),再做 fn。这样原来那一支照它真走到的样子留下,
      * 交回来的那一步也不会落到另一支上;单子里还没交出去的干预本来就在下一步开头生效,正好是那时的"现在"。
-     * 没在算 = 马上做;已经在等 = 这次不算;等的时候换了世界、不在逐年推演了 = 不做
+     * 没在算 = 马上做;等的时候换了世界、不在逐年推演了 = 不做。一次只等一件(waiting 的时候两个动作都先不接)
      */
     let waiting = false;
     const afterStep = (fn: () => void) => {
@@ -1602,6 +1602,9 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
         showToast({ id: 'step-saved', kind: 'ok', dot: true, text: `已存回推演模式「${title}」`, more: ['这个故事照样留着，在「我的世界」里随时能打开那一个'], ttl: 6000 });
       },
       rewind: (year, name) => {
+        // 正在切支线:地图、时间轴上还是原来那支,修改里已经是切到的那一支,这时另开会从切到的那一支分出去
+        // (切的时候问重新演绎的窗口本来就不开,见 openStepDialog);已经在等着做别的:这次不做
+        if (getStepwise().switching || waiting) return;
         setCivTime({ playing: false });
         afterStep(() => {
           const e0 = keptBranch();
@@ -1623,8 +1626,8 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
         const all = branchList(getEdits());
         const cur = all.find((b) => b.current);
         const to = all.find((b) => b.id === id && !b.current);
-        // 正在切、正在重推 / 生成(地图上的历史还不是这一支的)时不切
-        if (!s.on || s.switching || resimInfo.current || regenRef.current || !cur || !to) return;
+        // 正在切、等着重新演绎、正在重推 / 生成(地图上的历史还不是这一支的)时不切
+        if (!s.on || s.switching || waiting || resimInfo.current || regenRef.current || !cur || !to) return;
         // 那一行先转起圈来(别的行、下令先不能点),停下;正在算的那一步算完再切
         branchSwitching({ to: id, from: cur.id, ...(to.last ? { last: to.last } : {}) });
         stepAuto.current = false;

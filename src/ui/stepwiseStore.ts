@@ -374,6 +374,8 @@ export function holdClock(why: 'user' | 'act') {
 // 弹窗
 
 export function openStepDialog(d: StepDialog | null) {
+  // 切支线的时候不问重新演绎:地图、时间轴上还是原来那支,修改里已经是切到的那一支(切完就能点)
+  if (d?.kind === 'rewind' && S.switching) return;
   patch({ dialog: d });
 }
 
