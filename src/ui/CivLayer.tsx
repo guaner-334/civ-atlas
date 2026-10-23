@@ -42,7 +42,8 @@ import { drawWarfare, warFront, warsShown } from '../render/civ/warfare';
 import { drawPlacedLabels, placeMap, placedMarkBox, toCanvas, type LabelItem, type LabelView, type Placement } from '../render/labels/draw';
 import { ensureFonts, fontsReady, preloadFonts } from '../render/labels/fonts';
 import { drawHighlight, drawSelection, drawSelectionLabels } from '../render/civ/highlight';
-import { getCivHighlight, setCivHighlight, useCivHighlight, useCivShow, useCivTime, useResourceView, useSelection } from './civView';
+import { getCivHighlight, setCivHighlight, useCivHighlight, useCivShow, useCivTime, useResourceView, useSelection, type MapSelection } from './civView';
+import { faithKey, personKey, placeKeyOf, polityKey, resolveKey, resolvePersonKey, settlementKey } from '../gen/edits';
 import { setMapPlacement } from './mapPick';
 import { mapBoxOf, mirrorCanvas, placeOnScreen, visibleBox, watchMapBox } from './mapWrap';
 import { whenDone } from './holdMark';
@@ -156,6 +157,32 @@ function fitsWorld(world: World, civ: Civ | null, base: Civ | null | undefined):
 
 /** 换上新的历史以前在后台分小步备料的活名(detailJobs.ts) */
 const CIV_SWAP_JOB = 'civ-swap';
+
+/**
+ * 选中的东西从新的历史(civ、地名在 base 上)的编号换成还画着的那份(was、wasBase)里的,按稳定键;指不到 = null。
+ * 换上新的历史以前用:选中的编号已经按新的历史换好了,这一层还画着原来那份
+ */
+function selectionIn(sel: MapSelection | null, civ: Civ, base: Civ, was: Civ, wasBase: Civ): MapSelection | null {
+  if (!sel) return null;
+  if (sel.kind === 'person') {
+    const id = civ.people?.[sel.id] ? resolvePersonKey(was, personKey(civ, sel.id)) : -1;
+    return id >= 0 ? { kind: 'person', id } : null;
+  }
+  const key =
+    sel.kind === 'polity' && civ.polities[sel.id]
+      ? polityKey(civ, sel.id)
+      : sel.kind === 'settlement' && civ.settlements[sel.id]
+        ? settlementKey(civ, sel.id)
+        : sel.kind === 'faith' && civ.religion?.faiths[sel.id]
+          ? faithKey(civ, sel.id)
+          : sel.kind === 'place' && base.places[sel.id]
+            ? placeKeyOf(base, sel.id)
+            : null;
+  // 州(两份历史的州是同一份)、作者的标记和人物:编号不变
+  if (key === null) return sel.kind === 'region' || sel.kind === 'mark' || sel.kind === 'character' ? sel : null;
+  const r = resolveKey(sel.kind === 'place' ? wasBase : was, key);
+  return r && r.kind === sel.kind ? ({ kind: sel.kind, id: r.id } as MapSelection) : null;
+}
 
 /**
  * 国名、族名、城名和城镇符号(civMapLayer):按 civ 记最近一次的。换上新的历史以前在后台先排好,换上时直接用;
@@ -289,10 +316,16 @@ export function CivLayer({ world, raster, civ: civIn, geo: geoIn, style, year, v
   const detailHl = useRef<HTMLCanvasElement>(null);
   const [detailOn, setDetailOn] = useState(false);
   const hl = useCivHighlight();
-  const { sel: picked } = useSelection();
+  const { sel: pickedIn } = useSelection();
+  // 备的时候选中的东西按还画着的那份历史的编号画(备料按新的历史的编号)
+  const picked = useMemo(
+    () => (hold && civ && wasBase ? selectionIn(pickedIn, civIn!, incoming!, civ, wasBase) : pickedIn),
+    [hold, pickedIn, civIn, incoming, civ, wasBase],
+  );
   // 选中人物:地图上亮出他的国家;选中一种信仰:圈它的城,信仰图层上别的信仰变淡(selectionOnMap、faithFocus)
   const sel = useMemo(() => selectionOnMap(civ, picked), [civ, picked]);
   const faithFocus = faithFocusOf(picked);
+  const faithFocusIn = faithFocusOf(pickedIn);
   const mpRef = useRef(mp);
   mpRef.current = mp;
   const show = useCivShow();
@@ -586,7 +619,7 @@ export function CivLayer({ world, raster, civ: civIn, geo: geoIn, style, year, v
   const curved = !!mp;
   useEffect(() => {
     if (!target || !civIn) return;
-    const p: CivDrawParams = { world, raster, civ: target, style, year: y ?? target.endYear, show, fast: false, faithFocus: show.faiths ? faithFocus : null };
+    const p: CivDrawParams = { world, raster, civ: target, style, year: y ?? target.endYear, show, fast: false, faithFocus: show.faiths ? faithFocusIn : null };
     const named: CivDrawParams = { ...p, civ: civIn };
     const mp0 = mpRef.current;
     // 弯边投影 · 手绘:符号遮罩按投影重算的那几步(按这一刻的投影;停着的时候缓存里本来就有,什么也不做)
@@ -633,7 +666,7 @@ export function CivLayer({ world, raster, civ: civIn, geo: geoIn, style, year, v
     );
     return () => cancelDetailJob(CIV_SWAP_JOB);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 投影只看弯不弯(中心、大小在做到那一步时取当时的)
-  }, [target, civIn, world, raster, style, y, show, faithFocus, curved]);
+  }, [target, civIn, world, raster, style, y, show, faithFocusIn, curved]);
 
   // 地图框大小变了(窗口缩放)也要重画
   const [tick, setTick] = useState(0);

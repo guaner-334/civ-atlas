@@ -555,8 +555,12 @@ function bandScratchOf(N: number): BandScratch {
   // Node(单测、压力测试)里不让这个计时器拖住进程
   (bandIdle as unknown as { unref?: () => void }).unref?.();
   let sc = bandScratch.get(N);
-  if (!sc) bandScratch.set(N, (sc = { best: new Float32Array(N), lab: new Int16Array(N), stamp: new Int32Array(N), s: 0 }));
+  if (!sc) bandScratch.set(N, (sc = newScratch(N)));
   return sc;
+}
+
+function newScratch(N: number): BandScratch {
+  return { best: new Float32Array(N), lab: new Int16Array(N), stamp: new Int32Array(N), s: 0 };
 }
 
 /** 按原样保留(线的断头外面) */
@@ -588,7 +592,8 @@ export function bandLabels(
 
 /**
  * 和 bandLabels 一样,分段做(一条线一条线地判,到 deadline 就停,下一次接着判;判完才改写 label)。
- * 草稿数组是按大小共用的:中途别处同步判了一次(用过了这份草稿),就从第一条线重新判 —— 结果和一口气判完逐位一样
+ * 草稿数组是按大小共用的:中途别处用过了这份草稿(同步判了一次,或者另一份分段在判 —— 比如存档缩略图和换上新的历史同时在备),
+ * 就改用自己的一份草稿、从第一条线重新判(两份分段的活轮流抢同一份,会谁都判不完)—— 结果和一口气判完逐位一样
  */
 export function bandLabelsStep(
   label: Int16Array,
@@ -601,12 +606,17 @@ export function bandLabelsStep(
   weak: () => Uint8Array | null,
 ): WorkStep {
   let r: BandRun | null = null;
+  /** 自己的一份草稿(共用的那份中途被别处用过以后才开) */
+  let own: BandScratch | null = null;
   let i = 0;
   return (deadline) => {
     const ls = lines();
-    if (r && (bandScratchOf(W * H) !== r.sc || r.sc.s !== r.st)) r = null;
+    if (r && !own && (bandScratchOf(W * H) !== r.sc || r.sc.s !== r.st)) {
+      own = newScratch(W * H);
+      r = null;
+    }
     if (!r) {
-      r = bandRun(label, W, H, f, scale, wrap, weak());
+      r = bandRun(label, W, H, f, scale, wrap, weak(), own ?? bandScratchOf(W * H));
       i = 0;
     }
     while (i < ls.length) {
@@ -632,8 +642,7 @@ interface BandRun {
   touched: number[];
 }
 
-function bandRun(label: Int16Array, W: number, H: number, f: number, scale: number, wrap: number, weak: Uint8Array | null): BandRun {
-  const sc = bandScratchOf(W * H);
+function bandRun(label: Int16Array, W: number, H: number, f: number, scale: number, wrap: number, weak: Uint8Array | null, sc = bandScratchOf(W * H)): BandRun {
   return { label, W, H, f, scale, wrap, weak, sc, st: ++sc.s, touched: [] };
 }
 
