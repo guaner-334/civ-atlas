@@ -19,8 +19,14 @@
  *     国力(wars.ts 按城的人口算)随之下降,仗打不动;染疫的州多了国家更动荡(unrest.ts 的 PLAGUE_W)。
  *     每一年一国治下染疫的几州记一条史事 plague(部落地带不记;war 列 = 第几场瘟疫,大瘟疫 cause = great)。
  *
+ * **作者下的瘟疫**(干预"天灾"的瘟疫,disaster.ts 调用 PlagueModel.strike):从指定的城起疫,这一场是第 PLAGUE_IV + 干预下标 场,
+ *   起疫那城死 IV_LOSS[轻重],之后照上面的规矩传开(毒力 × IV_SPREAD[轻重],传到的城死 IV_LOSS × 0.6–1);不会是大瘟疫。
+ *   那年已有一场在传:不另起,那城并进正在传的那一场(这一年染上 / 再染一次,死 IV_LOSS[轻重]),下一年跟着往外传。
+ *   这一刻起 GAP 年内不再自己起疫(和自己起疫一样)。
+ *
  * **不存内存状态**:正在传的那一场由史事和城镇表重建(resumePlague):同一时刻只有一场瘟疫在传(见 GAP),
- * 起疫那年以后、cause = plague 的折损就是这一场染疫的州,最后一年的那几州接着往外传。
+ * 起疫那年以后、cause = plague 的折损就是这一场染疫的州,最后一年的那几州接着往外传
+ * (作者并进来的那几州按史事 intervene 认:并进来以后还没传过一年的接着往外传,同一刻刚传过的不算)。
  * 随机数:keyed(subSeed(seed, 'civ-plague'), 第几场 / 州的治所…, 用途),和处理顺序无关。纯计算,不碰 DOM。
  */
 import type { World } from '../world';
@@ -30,6 +36,8 @@ import { Ev, quantize, type CivSim } from './sim';
 import { polityModelOf, sailsOcean, type PolityModel } from './polities';
 import { unrestModelOf } from './unrest';
 import { populationAt } from './growth';
+import { IV_LOSS, PLAGUE_IV } from './calamity';
+import type { DisasterLevel, Intervention } from '../edits';
 
 // ---- 调参(以 20 个种子的统计为准) ----
 /** 看疫情:第一次在哪一年,之后每隔多少年 */
@@ -61,6 +69,9 @@ const GAP = GREAT_YEARS + 2;
 const LOSS: readonly [number, number] = [0.08, 0.2];
 const GREAT_LOSS: readonly [number, number] = [0.24, 0.38];
 
+/** 作者下的瘟疫:传开的几率倍数(轻 / 中 / 重) */
+const IV_SPREAD: readonly number[] = [0, 0.7, 1, 1.3];
+
 // 随机数用途编号
 const U_T = 1;
 const U_ORIGIN = 3;
@@ -78,6 +89,8 @@ interface Outbreak {
   /** 起疫的时刻 */
   t0: Year;
   great: boolean;
+  /** 作者下的瘟疫的轻重(1–3;自己起的 = 0) */
+  level: number;
   /** 这一场染过的州 */
   hit: Uint8Array;
   /** 上一年刚染疫的州(按州号排) */
@@ -91,6 +104,11 @@ export interface PlagueModel {
   now: Outbreak | null;
   /** 上一场起疫的时刻(没有 = −Infinity) */
   last: Year;
+  /**
+   * 作者下的瘟疫(干预"天灾",第 iv 条):从州 r 的城起疫;那年已有一场在传就并进那一场。
+   * 返回 1 = 起了一场新的,2 = 并进了正在传的那一场(hook 时挂上)
+   */
+  strike?: (r: number, level: DisasterLevel, iv: number, t: Year) => 1 | 2;
 }
 
 const models = new WeakMap<CivSim, PlagueModel>();
@@ -103,6 +121,12 @@ export function plagueModelOf(sim: CivSim): PlagueModel | undefined {
 /** 第 k 次看疫情的时刻 */
 function checkTime(base: number, k: number): number {
   return PLAGUE_FIRST + PLAGUE_EVERY * (k + 0.2 + 0.6 * keyed(base, k, 0, U_T));
+}
+
+/** 作者下的瘟疫传到的城死几成:IV_LOSS[轻重] × 0.6–1(随机),不超过 0.5 */
+function ivLossOf(base: number, k: number, tag: number, level: number): number {
+  const x = IV_LOSS[level] * (0.6 + 0.4 * keyed4(base, k, tag, 0, U_LOSS));
+  return Math.round(Math.min(0.5, x) * 1000) / 1000;
 }
 
 /** 染疫的城死几成:基数随机;人口过 ORIGIN_MIN 的大城人挤死得多(最多 × 1.25),港口再 × 1.1;不超过 0.5 */
@@ -142,14 +166,15 @@ function hook(sim: CivSim, pl: PlagueModel): void {
     return s.ended === undefined && t >= s.founded ? sid : -1;
   };
 
-  /** 这一年染上疫的几州:各城记折损;一国一条史事 */
-  const infect = (ob: Outbreak, list: number[], t: number): void => {
+  /** 这一年染上疫的几州:各城记折损(fixed = 作者下的,城里死这么多);一国一条史事 */
+  const infect = (ob: Outbreak, list: number[], t: number, fixed?: number): void => {
     const per = new Map<number, [number, number][]>();
     for (const r of list) {
       ob.hit[r] = 1;
       const sid = pm.cityOf[r];
       const s = pm.settlements[sid];
-      const loss = lossOf(base, ob.k, reg.seat[r], ob.great, populationAt(s, t), !!pm.port[r]);
+      const loss =
+        fixed ?? (ob.level ? ivLossOf(base, ob.k, reg.seat[r], ob.level) : lossOf(base, ob.k, reg.seat[r], ob.great, populationAt(s, t), !!pm.port[r]));
       (s.sacks ??= []).push({ year: t, loss, cause: 'plague' });
       const p = owner[r];
       if (p < 0) continue;
@@ -202,7 +227,7 @@ function hook(sim: CivSim, pl: PlagueModel): void {
     }
     if (r0 < 0) return;
     const sail = !!pm.port[r0] && sailsOcean(pm, pm.polities[owner[r0]], t);
-    const ob: Outbreak = { k, t0: t, great: sail && keyed(base, k, 1, U_GREAT) < GREAT_ODDS, hit: new Uint8Array(R), front: [] };
+    const ob: Outbreak = { k, t0: t, great: sail && keyed(base, k, 1, U_GREAT) < GREAT_ODDS, level: 0, hit: new Uint8Array(R), front: [] };
     pl.now = ob;
     pl.last = t;
     infect(ob, [r0], t);
@@ -213,7 +238,7 @@ function hook(sim: CivSim, pl: PlagueModel): void {
   sim.on(Ev.PlagueStep, (k, g, t) => {
     const ob = pl.now;
     if (!ob || ob.k !== k) return;
-    const vir = ob.great ? GREAT_SPREAD * GREAT_DECAY ** g : SPREAD * DECAY ** g;
+    const vir = ob.great ? GREAT_SPREAD * GREAT_DECAY ** g : SPREAD * (ob.level ? IV_SPREAD[ob.level] : 1) * DECAY ** g;
     const add: number[] = [];
     for (const r of ob.front) {
       // 染上以后城毁了的:乡下还有人,照常往外传(按没人烟算,传得慢)
@@ -238,6 +263,26 @@ function hook(sim: CivSim, pl: PlagueModel): void {
     else ob.front = [];
     next(ob, g);
   });
+
+  // ---- 作者下的瘟疫 ----
+  pl.strike = (r, level, iv, t) => {
+    const loss = IV_LOSS[level];
+    const ob = pl.now;
+    if (ob) {
+      // 并进正在传的那一场:这城这一年染上(染过的再染一次),下一年跟着往外传
+      const front = ob.front;
+      infect(ob, [r], t, loss);
+      ob.front = front.includes(r) ? front : [...front, r].sort((a, b) => a - b);
+      return 2;
+    }
+    const k = PLAGUE_IV + iv;
+    const nb: Outbreak = { k, t0: t, great: false, level, hit: new Uint8Array(R), front: [] };
+    pl.now = nb;
+    pl.last = t;
+    infect(nb, [r], t, loss);
+    next(nb, 0);
+    return 1;
+  };
 }
 
 /**
@@ -245,40 +290,65 @@ function hook(sim: CivSim, pl: PlagueModel): void {
  * 最后一场瘟疫(史事 plague 的 war 列)还在传的话,从城镇表里 cause = plague 的折损找回它染过的州和最后一年染上的几州;
  * 再算出下一次看疫情,补进引擎。
  */
-export function resumePlague(sim: CivSim, _world: World, civ: Civ): void {
+export function resumePlague(sim: CivSim, _world: World, civ: Civ, list: readonly Intervention[] = civ.interventions ?? []): void {
   const pm = polityModelOf(sim);
   if (!pm) return;
   const pl: PlagueModel = { pm, base: subSeed(civ.seed, 'civ-plague'), now: null, last: -Infinity };
   const A = civ.annals;
+  // 最后一场:史事 plague 的最后一条是第几场;作者下的(起疫那城可能在部落地带,没有 plague 那一条)按史事 intervene(b = 1:起了一场新的)认。
+  // 两场不会同时在传,起得晚的就是最后一场
   let last = -1;
+  let t0 = -Infinity;
   for (let i = A.length - 1; i >= 0; i--) {
     if (A[i].kind === 'plague') {
       last = A[i].war;
       break;
     }
   }
+  const ivStart = (k: number) => A.find((e) => e.kind === 'intervene' && e.war === k - PLAGUE_IV && e.b === 1)?.year;
+  if (last >= PLAGUE_IV) t0 = ivStart(last) ?? -Infinity;
+  else if (last >= 0) t0 = A.find((e) => e.kind === 'plague' && e.war === last)!.year;
+  for (let i = A.length - 1; i >= 0; i--) {
+    const e = A[i];
+    if (e.kind !== 'intervene' || e.b !== 1 || e.year <= t0) continue;
+    const w = list[e.war];
+    if (w?.kind !== 'disaster' || w.type !== 'plague') continue;
+    last = PLAGUE_IV + e.war;
+    t0 = e.year;
+    break;
+  }
   hook(sim, pl);
-  if (last >= 0) {
-    const first = A.find((e) => e.kind === 'plague' && e.war === last)!;
-    const t0 = first.year;
+  if (last >= 0 && t0 > -Infinity) {
     pl.last = t0;
-    const great = first.cause === 'great';
+    const great = last < PLAGUE_IV && A.find((e) => e.kind === 'plague' && e.war === last)?.cause === 'great';
+    // 作者下的那一场:轻重照那条干预
+    const v = last >= PLAGUE_IV ? list[last - PLAGUE_IV] : undefined;
+    const level = v?.kind === 'disaster' ? v.level : last >= PLAGUE_IV ? 2 : 0;
     const R = pm.terrain.R;
     const hit = new Uint8Array(R);
     // 起疫后第几年(已经过去的最后一年)
     const g = Math.floor(sim.now - t0 + 1e-9);
-    const front: number[] = [];
+    // 作者并进来的州(年份、州):最后一次传开(第 g 年那一刻)以后并进来的接着往外传 —— 同一刻的传开排在干预前面(sim.ts 的 earlyOrder),
+    // 正好在那一刻并进来的也算;更早并进来的,那一刻传开时已经传过了
+    const merged = new Set<string>();
+    for (const e of A) {
+      if (e.kind !== 'intervene' || e.year < t0 || e.year > sim.now || e.b !== 2) continue;
+      const w = list[e.war];
+      if (w?.kind === 'disaster' && w.type === 'plague') merged.add(`${e.year}:${e.region}`);
+    }
+    const front = new Set<number>();
     for (const s of pm.settlements) {
       if (!s.sacks) continue;
       for (const x of s.sacks) {
         if (x.cause !== 'plague' || x.year < t0 || x.year > sim.now) continue;
         hit[s.region] = 1;
-        if (x.year === t0 + g) front.push(s.region);
+        const mine = merged.has(`${x.year}:${s.region}`);
+        if (mine ? x.year >= t0 + g : x.year === t0 + g) front.add(s.region);
       }
     }
-    front.sort((a, b) => a - b);
-    if (front.length && g < (great ? GREAT_YEARS : MAX_YEARS)) {
-      pl.now = { k: last, t0, great, hit, front };
+    const fr = [...front].sort((a, b) => a - b);
+    if (fr.length && g < (great ? GREAT_YEARS : MAX_YEARS)) {
+      pl.now = { k: last, t0, great, level, hit, front: fr };
       sim.schedule(t0 + g + 1, Ev.PlagueStep, last, g + 1);
     }
   }

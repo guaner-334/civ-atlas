@@ -57,7 +57,8 @@ import { LAYERS, renderLayer, type LayerId } from '../render/layers';
 import { Legend } from './Legend';
 import type { EraWorld, TempoNote, WorkerRequest, WorkerResponse } from '../worker';
 import type { Civ } from '../gen/civ/types';
-import { CivLayer } from './CivLayer';
+import { CivLayer, civOpenSteps } from './CivLayer';
+import { CivPartInbox } from '../civParts';
 import { CivTimeline } from './CivTimeline';
 import { ExtendDock, ExtendPop, ExtendSheet } from './ExtendYears';
 import { extendProgress, getExtend, noteExtendSpeed, resetExtend, setExtendBusy, setExtendFresh, setExtendOpen, setExtendRunner } from './extendStore';
@@ -737,6 +738,8 @@ function storyOk(): boolean {
 
 /** 主线程最多留多少块各段的主图补丁(换了地形大事、撤销回去时用得上;先丢最早的) */
 const PATCH_KEEP = 24;
+/** 后台线程交历史之前先交的几段(src/civParts.ts);换了线程就清掉 */
+const civParts = new CivPartInbox();
 /** 同一个世界画好的整张图留几张(地形大事前后各一张;见下面的 mapsOf) */
 const MAP_KEEP = 2;
 /** 再推好了的提示条停多久(和加干预以后的一样);推之前那一份(撤销用)多留一会儿再放掉 */
@@ -1341,12 +1344,16 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
     if (!workerRef.current) {
       const w = new Worker(WORKER_URL, { type: 'module' });
       dropChronicleParts();
+      civParts.drop();
       w.onerror = (e) => {
         if (workerRef.current === w) recordWorkerError(e, '生成世界的线程');
       };
       w.onmessage = (e: MessageEvent<WorkerResponse>) => {
         const m = e.data;
         if (workerRef.current !== w) return; // 已被换掉的线程
+        // 交历史之前先交的几段历史(条数多的列表,src/civParts.ts):收着;交历史的那条到了先拼回去,别处拿到的都是整份
+        if (m.type === 'civPart') return void civParts.take(m);
+        if ('split' in m && m.split) civParts.join(m.civ!, m.split);
         // 主图补丁、原件是后台自己排的活,不算一件回音(再推的进度、先交的编年史也不算:推完 / 停下才算)
         if (m.type !== 'progress' && m.type !== 'eraPatch' && m.type !== 'snapshot' && m.type !== 'extendProgress' && m.type !== 'chronicle') {
           busyRef.current = Math.max(0, busyRef.current - 1);
@@ -1447,7 +1454,11 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
             const raster = m.raster;
             // 线程算好的手绘符号规划(推了文明的才带)
             if (m.plan) adoptPlan(m.world, m.plan);
-            startTerrainFull({ world: m.world, raster, view: drawView.current, prep: thumbPrepSteps(drawKey.current, m.world, raster) }, (st, pre) => {
+            // 文明层第一次要画的也一起备好,和地图一起换上(有地形大事、换上时画的那一段的主图要拼的,先不备,换上时当场画)
+            const view = drawView.current;
+            const eraK = m.civ ? eraShown(m.eras ? eraMapsOf(m.world, m.baseKey, m.eras) : null, eraPatches.current, eraIndex(m.civ, getCivTime().year)) : -1;
+            const civPrep = m.civ && eraK === 0 ? civOpenSteps({ world: m.world, raster, civ: civAtEra(m.civ, 0), style: view.style as Style, mp: view.mp }) : [];
+            startTerrainFull({ world: m.world, raster, view, prep: [...thumbPrepSteps(drawKey.current, m.world, raster), ...civPrep] }, (st, pre) => {
               if (m.id !== reqId.current) return;
               (window as unknown as { __wfOpenPrep: unknown }).__wfOpenPrep = st;
               preProj.current = pre;

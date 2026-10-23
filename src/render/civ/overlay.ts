@@ -24,7 +24,7 @@ import { drawHabitat, drawRegionLines, drawSites } from './debug';
 import { drawTerritory, territorySteps } from './territory';
 import { borderLines, drawBorders } from './borders';
 import { drawRoutes, routeLines } from './routes';
-import { drawWarHatch, warHatchCanvas, warScene, warsShown, warSpans } from './warfare';
+import { drawWarHatch, warHatchCanvas, warScene, warsShown, warSpans, warStripesPrep } from './warfare';
 import { drawPlague, plagueCanvas, plagueShown, plagueZone } from './plague';
 import { clipOutline, type Projector } from '../projection';
 import { flushCanvas, type WorkStep } from '../common';
@@ -108,6 +108,8 @@ export function civOverlaySteps(p: CivDrawParams): WorkStep[] {
     () => void (p.show.routes && p.civ.routes.length && routeLines(p.world.mesh, p.civ, p.year)),
     () => void (warsShown(p) && warSpans(p.civ)),
     () => void (warsShown(p) && warScene(p.civ, p.year)),
+    // 整张斜线底图(每张栅格一张;刚打开的世界还没有)单独一步
+    () => warStripesPrep(p),
     // 斜线、墨点画好以后当下就让浏览器画出来(不然攒到换上那一下贴的时候才画)
     () => void flushCanvas(warHatchCanvas(p)),
     () => void (plagueShown(p) && plagueZone(p.civ, p.year)),

@@ -30,8 +30,12 @@
  *     就是"在位 0 天"(cut = from),人物里不列(people.ts)。
  *   - 那一刻在位的还没真正在位(同一刻改朝换代的新朝第一位、同一刻先立的作者君主):作者的君主直接顶替他(同一个位次)。
  *   - 他在位时改朝换代、亡国,他就在那一刻下台,和寻常君主一样。
- *   生效了的即位推演里登记在 PolityModel.crowns(polities.ts 的 crownRuler);不存进 Civ:接着推、排人物时由史事 intervene
- *   和干预列表推出来(crownsFrom)。在位表按"作者的君主有哪几位"缓存(登记了新的就重排)。
+ *   - 带 after 的(等此刻在位的那位下台再即位):他到期下台、被作者让他去世时由作者的人物继位,从那一刻起(到期下台的不另隔一刻)。
+ * **作者让君主去世、改君主倾向**(干预 death / temper,只对推演里生成的君主):去世 —— 此刻在位的那位到 T 为止,下一位从 T 起照常排
+ *   (reignStep 取年纪、在位年数、倾向,从 T 的下一刻起才算在位),他之后的君主全换一批,T 以前一个不变;
+ *   改倾向 —— 此刻在位的那位从 T 的下一刻起照新的倾向(Reign.moods,leaningsAt 按时刻取),到他下台为止,位次、在位年数都不变。
+ *   生效了的即位、去世、改倾向推演里登记在 PolityModel.acts(polities.ts 的 rulerAct);不存进 Civ:接着推、排人物时由史事 intervene
+ *   和干预列表推出来(actsFrom)。在位表按"有哪几条"缓存(登记了新的就重排)。
  *
  * 随机数:keyed4(subSeed(seed, 'civ-people'), 国家的位置锚, 第几位, 用途, 0),和 people.ts 同一套(位置锚 = 立国时国都的地块
  * + 这块地上第几个立国,见 rulerTags)。纯计算,不碰 DOM。
@@ -184,9 +188,10 @@ export function reignStep(
   return { age: A, natural: q(from + L), leanings };
 }
 
-/** 作者立的君主(干预"即位"生效了的一条;推演里登记在 PolityModel.crowns,接着推、排人物时由 crownsFrom 推出来) */
+/** 作者立的君主(干预"即位"生效了的一条;推演里登记在 PolityModel.acts,接着推、排人物时由 actsFrom 推出来) */
 export interface Crown {
-  /** 即位的那一刻(第 from 年年初) */
+  kind: 'crown';
+  /** 即位的那一刻(第 from 年年初);after 的 = 登记的那一刻(真正即位在 t 那一刻在位的那位下台时) */
   t: Year;
   /** 在位到哪一年年初(干预的 until);不给 = 按寻常君主的在位年数 */
   until?: Year;
@@ -197,29 +202,66 @@ export interface Crown {
   char: number;
   /** 第几条干预(Civ.interventions 的下标) */
   iv: number;
+  /** 等 t 那一刻在位的那位下台再即位(干预"即位"的 after) */
+  after?: true;
 }
+
+/** 作者让君主去世(干预"让人物去世"生效了的一条):t 那一刻在位的那位到 t 为止,下一位从下一刻起照常继位 */
+export interface RulerDeath {
+  kind: 'death';
+  t: Year;
+  iv: number;
+}
+
+/** 作者改君主的倾向(干预"改君主倾向"生效了的一条):t 那一刻在位的那位从下一刻起照 leanings,到他下台为止 */
+export interface RulerTemper {
+  kind: 'temper';
+  t: Year;
+  iv: number;
+  leanings: RulerLeanings;
+}
+
+/** 改在位表的干预(生效了的,按生效先后):即位、让君主去世、改君主倾向 */
+export type RulerAct = Crown | RulerDeath | RulerTemper;
+
+/**
+ * 史事 intervene 的 b 列(即位、让人物去世、改君主倾向;interventions.ts 记,编年史、actsFrom 读):
+ * −1 生效了 / −2 他还没出生(即位)/ −3 那一年这国已亡 / −4 此刻在位的不是他(让人物去世、改倾向)/
+ * −5 将领、名臣去世(推演里不管,人物那边按卒年、去职年份定)/ −6 等此刻在位的那位下台再即位(登记了;真即位时另记一条 −1)
+ */
+export const IV_NOT_HIM = -4;
+export const IV_PEOPLE = -5;
+export const IV_WAIT = -6;
 
 type CrownIntervention = Extract<Intervention, { kind: 'crown' }>;
 
-/** 一条生效了的即位干预(第 iv 条,t 那一刻生效)→ Crown */
+/** 一条生效了的即位干预(第 iv 条,t 那一刻生效 / 登记)→ Crown */
 export function crownOf(v: CrownIntervention, t: Year, iv: number): Crown {
-  const c: Crown = { t, born: v.born, leanings: v.leanings, char: v.char, iv };
+  const c: Crown = { kind: 'crown', t, born: v.born, leanings: v.leanings, char: v.char, iv };
   if (v.until !== undefined) c.until = v.until;
+  if (v.after) c.after = true;
   return c;
 }
 
 /**
- * 史事里生效了的即位(intervene,b = −1,那一条干预是 crown)→ 国家编号 → 作者的君主(按生效先后)。
+ * 史事里生效了的即位、让君主去世、改君主倾向(intervene;等下台再即位的认登记那一条 b = −6,别的认 b = −1)→ 国家编号 → 按生效先后。
  * list = 推出这份历史时带着的干预(史事 intervene 的 war 列是它的下标)
  */
-export function crownsFrom(annals: readonly Annal[], list: readonly Intervention[] | null | undefined): Map<number, Crown[]> {
-  const out = new Map<number, Crown[]>();
+export function actsFrom(annals: readonly Annal[], list: readonly Intervention[] | null | undefined): Map<number, RulerAct[]> {
+  const out = new Map<number, RulerAct[]>();
   if (!list?.length) return out;
   for (const e of annals) {
-    if (e.kind !== 'intervene' || e.b !== -1 || e.a < 0) continue;
+    if (e.kind !== 'intervene' || e.a < 0) continue;
     const v = list[e.war];
-    if (v?.kind !== 'crown') continue;
-    const c = crownOf(v, e.year, e.war);
+    let c: RulerAct | null = null;
+    if (v?.kind === 'crown') {
+      if (e.b === (v.after ? IV_WAIT : -1)) c = crownOf(v, e.year, e.war);
+    } else if (v?.kind === 'death') {
+      if (e.b === -1) c = { kind: 'death', t: e.year, iv: e.war };
+    } else if (v?.kind === 'temper') {
+      if (e.b === -1) c = { kind: 'temper', t: e.year, iv: e.war, leanings: v.leanings };
+    }
+    if (!c) continue;
     const at = out.get(e.a);
     if (at) at.push(c);
     else out.set(e.a, [c]);
@@ -229,10 +271,11 @@ export function crownsFrom(annals: readonly Annal[], list: readonly Intervention
 
 /**
  * 作者立的君主在位到哪一刻(不被打断时):干预的 until;不给 = 第 k 位的在位年数随机数(同 reignStep),到 MAX_AGE 岁为止 ——
- * 即位时已年近(或过了)MAX_AGE 岁的至少在位一年(和寻常君主的规矩一样;要别的年份就在干预里写 until)
+ * 即位时已年近(或过了)MAX_AGE 岁的至少在位一年(和寻常君主的规矩一样;要别的年份就在干预里写 until)。
+ * 等前一位下台再即位的,到即位时 until 已经过了的当作没给
  */
 function crownNatural(base: number, tag: number, k: number, from: Year, c: Crown, lineage: PolityLineage | undefined): Year {
-  if (c.until !== undefined) return q(c.until);
+  if (c.until !== undefined && q(c.until) > from) return q(c.until);
   const u = keyed4(base, tag, k, U_REIGN, K_RULER);
   let L = lineage === 'republic' ? lerp(TERM, u) : 1 + REIGN_MAX * fpow(u, REIGN_EXP);
   const age = from - c.born;
@@ -259,8 +302,31 @@ export interface Reign {
   eff: LeaningEffect;
   /** 作者立的君主(干预"即位";age 是即位时的岁数,倾向照干预里写的);寻常君主不给 */
   crown?: Crown;
-  /** 被作者立的君主取代(让位)的那一刻;= from 是在位 0 天(同一刻刚即位就让位,人物里不列);没被取代 = 不给 */
+  /** 被作者立的君主取代(让位)、被作者让他去世的那一刻;= from 是在位 0 天(同一刻刚即位就让位,人物里不列);没被取代 = 不给 */
   cut?: Year;
+  /** 作者让他去世(干预"让人物去世"):那一刻、第几条干预 */
+  death?: { t: Year; iv: number };
+  /** 作者改过他的倾向(干预"改君主倾向",按先后):t 那一刻改的,下一刻起照新的 leanings、eff;他原来的照旧在 leanings、eff */
+  moods?: Mood[];
+  /** 等他下台再即位的作者人物(干预"即位"带 after;他到期下台、被作者让他去世时由这位继位) */
+  heir?: Crown;
+  /** 从即位的下一刻起才算在位(前一位被作者让他去世:同一刻里先发生的事照前一位算) */
+  late?: true;
+}
+
+/** 改过的倾向 */
+export interface Mood {
+  t: Year;
+  iv: number;
+  leanings: RulerLeanings;
+  eff: LeaningEffect;
+}
+
+/** 君主 r 在 t 这一刻的倾向(作者改过的:t 以前最后一次改的;没改过 = 他原来的) */
+export function leaningsAt(r: Reign, t: Year): Pick<Reign, 'leanings' | 'eff'> {
+  const ms = r.moods;
+  if (ms) for (let i = ms.length - 1; i >= 0; i--) if (ms[i].t < t) return ms[i];
+  return r;
 }
 
 /**
@@ -270,75 +336,107 @@ export interface Reign {
 interface Book {
   tag: number;
   dyn: number;
-  /** 排的时候有哪几位作者立的君主(按先后;和传进来的逐个比,不一样就重排) */
-  crowns: readonly Crown[];
+  /** 排的时候有哪几条改在位表的干预(按先后;和传进来的逐个比,不一样就重排) */
+  acts: readonly RulerAct[];
   reigns: Reign[];
-  /** 下一位:第几朝、这一朝第几位、即位年份 */
+  /** 下一位:第几朝、这一朝第几位、即位年份;等前一位下台再即位的作者人物 */
   i: number;
   j: number;
   from: Year;
-  /** 下一位还没排进去的作者君主(crowns 的下标) */
+  heir: Crown | null;
+  /** 下一条还没排进去的干预(acts 的下标) */
   ci: number;
 }
 const books = new WeakMap<ReignPolity, Book>();
-const NO_CROWNS: readonly Crown[] = [];
+const NO_ACTS: readonly RulerAct[] = [];
 
-const sameCrowns = (a: readonly Crown[], b: readonly Crown[]) => a.length === b.length && a.every((c, i) => c === b[i]);
+const sameActs = (a: readonly RulerAct[], b: readonly RulerAct[]) => a.length === b.length && a.every((c, i) => c === b[i]);
 
 /**
  * 国家 p(位置锚 tag)的在位表,保证排到 t 时在位的那一位(和他之后不被打断时的下一位的即位年份)。
- * crowns = 这国作者立的君主(按生效先后;推演里是 PolityModel.crowns,排人物时由 crownsFrom 推出来);没有 = 和以前一样
+ * acts = 这国改在位表的干预(按生效先后;推演里是 PolityModel.acts,排人物时由 actsFrom 推出来);没有 = 和以前一样。
+ * 每一条都落在它那一刻在位的那位身上(那一刻的下一位还没真正在位的 —— 同一刻改朝换代的新朝第一位、同一刻先立的作者君主、
+ * 前一位同一刻刚去世的继位者 —— 落在前一位身上):
+ *   即位:在位的到那一刻让位,作者的人物占下一个位次;下一位还没真正在位的由作者的人物直接顶替(同一个位次)
+ *   等下台再即位:记在他身上(heir),他到期下台、被作者让他去世时由作者的人物继位;改朝换代、亡国、被另立的作者君主取代 = 落空
+ *   让他去世:他到那一刻为止(cut、death),下一位(或等着的作者人物)从那一刻即位、下一刻起才算在位(late);
+ *     落在前一位身上的(他那一刻本来就下台了)只记 death
+ *   改倾向:记在他身上(moods),下一刻起照新的;落在前一位身上的不起作用
  */
-export function reignBook(base: number, tag: number, p: ReignPolity, t: Year, crowns: readonly Crown[] = NO_CROWNS): readonly Reign[] {
+export function reignBook(base: number, tag: number, p: ReignPolity, t: Year, acts: readonly RulerAct[] = NO_ACTS): readonly Reign[] {
   const segs = p.dynasties?.length ? p.dynasties : null;
   const dyn = segs ? segs.length : 1;
   let b = books.get(p);
-  if (!b || b.dyn !== dyn || b.tag !== tag || !sameCrowns(b.crowns, crowns)) {
-    b = { tag, dyn, crowns: crowns.length ? crowns.slice() : NO_CROWNS, reigns: [], i: 0, j: 0, from: p.founded, ci: 0 };
+  if (!b || b.dyn !== dyn || b.tag !== tag || !sameActs(b.acts, acts)) {
+    b = { tag, dyn, acts: acts.length ? acts.slice() : NO_ACTS, reigns: [], i: 0, j: 0, from: p.founded, heir: null, ci: 0 };
     books.set(p, b);
   }
   /** 第 i 朝到哪一刻为止(最后一朝 = 不断) */
   const segEnd = (i: number) => (i + 1 < dyn ? segs![i + 1].year : Infinity);
+  /** 寻常的第 k 位(这一朝第 j 位)从 from 即位 */
+  const regular = (k: number, dynasty: number, j: number, from: Year): Reign => {
+    const s = reignStep(base, tag, k, j, from, p.lineage, p.kind);
+    return { k, dynasty, j, from, age: s.age, natural: s.natural, leanings: s.leanings, eff: leaningEffect(s.leanings) };
+  };
+  /** 作者的人物(c)做第 k 位(这一朝第 j 位),从 from 即位 */
+  const author = (c: Crown, k: number, dynasty: number, j: number, from: Year): Reign => ({
+    k,
+    dynasty,
+    j,
+    from,
+    age: from - c.born,
+    natural: crownNatural(base, tag, k, from, c, p.lineage),
+    leanings: c.leanings,
+    eff: leaningEffect(c.leanings),
+    crown: c,
+  });
   const L = b.reigns;
   // 一位接一位排(前面几朝整朝排完),最后一朝排到 natural > t
   while (true) {
     const last = L[L.length - 1];
     if (last && last.dynasty === dyn - 1 && last.natural > t) break;
     const k = L.length;
-    const s = reignStep(base, tag, k, b.j, b.from, p.lineage, p.kind);
-    L.push({ k, dynasty: b.i, j: b.j, from: b.from, age: s.age, natural: s.natural, leanings: s.leanings, eff: leaningEffect(s.leanings) });
-    // 作者立的君主:此刻那一位还没真正在位的(新朝第一位、同一刻先立的作者君主)直接顶替,在位的到那一刻让位(见文件头)
-    for (let c = b.crowns[b.ci]; c; c = b.crowns[b.ci]) {
+    L.push(b.heir ? author(b.heir, k, b.i, b.j, b.from) : regular(k, b.i, b.j, b.from));
+    b.heir = null;
+    // 改在位表的干预(见上)
+    for (let c = b.acts[b.ci]; c; c = b.acts[b.ci]) {
       const cur = L[L.length - 1];
       if (c.t < cur.from) {
         b.ci++; // 不该发生(立国以前、排过了头):不管它
         continue;
       }
-      const author = (k2: number, j2: number): Reign => ({
-        k: k2,
-        dynasty: cur.dynasty,
-        j: j2,
-        from: c.t,
-        age: c.t - c.born,
-        natural: crownNatural(base, tag, k2, c.t, c, p.lineage),
-        leanings: c.leanings,
-        eff: leaningEffect(c.leanings),
-        crown: c,
-      });
-      if (c.t === cur.from && reignStart(cur) > cur.from) L[L.length - 1] = author(cur.k, cur.j);
-      else if (c.t < Math.min(cur.natural, segEnd(cur.dynasty))) {
-        cur.cut = c.t;
-        L.push(author(cur.k + 1, cur.j + 1));
-      } else break;
+      const early = c.t === cur.from && reignStart(cur) > cur.from;
+      if (!early && c.t >= Math.min(cur.natural, segEnd(cur.dynasty))) break;
+      if (c.kind === 'crown' && !c.after) {
+        if (early) L[L.length - 1] = author(c, cur.k, cur.dynasty, cur.j, c.t);
+        else {
+          cur.cut = c.t;
+          L.push(author(c, cur.k + 1, cur.dynasty, cur.j + 1, c.t));
+        }
+      } else if (c.kind === 'death') {
+        const prev = L[L.length - 2];
+        if (early) {
+          if (prev && !prev.death) prev.death = { t: c.t, iv: c.iv };
+        } else {
+          cur.cut = c.t;
+          cur.death = { t: c.t, iv: c.iv };
+          const next = cur.heir ? author(cur.heir, cur.k + 1, cur.dynasty, cur.j + 1, c.t) : regular(cur.k + 1, cur.dynasty, cur.j + 1, c.t);
+          next.late = true;
+          L.push(next);
+        }
+      } else if (c.kind === 'temper') {
+        if (!early) (cur.moods ??= []).push({ t: c.t, iv: c.iv, leanings: c.leanings, eff: leaningEffect(c.leanings) });
+      } else if (!early) cur.heir = c;
       b.ci++;
     }
-    // 下一位:这一朝里接着排,或者这一朝到头了,下一朝的第一位
+    // 下一位:这一朝里接着排(等着他下台的作者人物先上),或者这一朝到头了,下一朝的第一位
     const cur = L[L.length - 1];
     const end = segEnd(cur.dynasty);
     if (cur.natural < end) {
       b.i = cur.dynasty;
       b.j = cur.j + 1;
       b.from = cur.natural;
+      b.heir = cur.heir ?? null;
     } else {
       b.i = cur.dynasty + 1;
       b.j = 0;
@@ -349,15 +447,20 @@ export function reignBook(base: number, tag: number, p: ReignPolity, t: Year, cr
 }
 
 /**
- * 这一位从哪一刻起算"在位"(推演里):新朝的第一位从改朝换代的下一刻起、作者立的君主从即位的下一刻起(见文件头),
- * 其余从即位那一刻
+ * 这一位从哪一刻起算"在位"(推演里):新朝的第一位从改朝换代的下一刻起、作者立的君主从即位的下一刻起(见文件头)、
+ * 前一位被作者让他去世的从即位的下一刻起;其余从即位那一刻(等前一位到期下台再即位的作者人物也是)
  */
 export function reignStart(r: Reign): Year {
-  return (r.j === 0 && r.dynasty > 0) || r.crown ? r.from + 1 / TICK : r.from;
+  return (r.j === 0 && r.dynasty > 0) || (r.crown && !r.crown.after) || r.late ? r.from + 1 / TICK : r.from;
+}
+
+/** 这一位的生年(和 people.ts 排出来的 Person.born 一样;人物键里取整的就是它) */
+export function reignBorn(r: Reign): Year {
+  return r.crown ? r.crown.born : q(r.from - r.age);
 }
 
 /** 推演里 t 这一刻在位的君主(下标 = Reign.k);t 早于立国 = 第一位 */
-export function reignAt(base: number, tag: number, p: ReignPolity, t: Year, crowns: readonly Crown[] = NO_CROWNS): Reign {
+export function reignAt(base: number, tag: number, p: ReignPolity, t: Year, crowns: readonly RulerAct[] = NO_ACTS): Reign {
   const list = reignBook(base, tag, p, t, crowns);
   let lo = 0;
   let hi = list.length - 1;

@@ -27,6 +27,7 @@ import { KM_PER_UNIT } from '../../gen/civ/geo';
 import { eraNote } from '../../gen/era';
 import {
   cleanIntervention,
+  DISASTER_LEVEL_NAMES,
   cleanName,
   cultureKey,
   dynastyKey,
@@ -606,6 +607,18 @@ function ivText(civ: Civ, v: Intervention): string {
       return `${id(v.a, 'polity', 'P')} 立作者的人物为君主${until(v.until)}`;
     case 'policy':
       return `${id(v.a, 'polity', 'P')} 定方针`;
+    case 'destroy':
+      return `${id(v.a, 'polity', 'P')} 灭国,${v.b ? `国土并入 ${id(v.b, 'polity', 'P')}` : '国土散成无主'}`;
+    case 'death':
+      return `${id(v.a, 'polity', 'P')} 的人物去世`;
+    case 'temper':
+      return `${id(v.a, 'polity', 'P')} 的君主改倾向`;
+    case 'disaster': {
+      const lv = DISASTER_LEVEL_NAMES[v.level];
+      if (v.type === 'plague') return `从 ${id(v.city ?? '', 'settlement', 'C')} 起瘟疫(${lv})`;
+      if (v.type === 'quake') return `${reg(v.region ?? '')} 一带地震水旱(${lv})`;
+      return `${v.a ? id(v.a, 'polity', 'P') : (v.regions ?? []).map(reg).join('、')} 饥荒(${lv})`;
+    }
   }
 }
 
@@ -1422,6 +1435,10 @@ const KIND_LABEL: Record<Intervention['kind'], string> = {
   found: '立国',
   crown: '立作者的人物为君主',
   policy: '定方针',
+  destroy: '灭国',
+  death: '让人物去世',
+  temper: '改君主倾向',
+  disaster: '降天灾',
 };
 
 // ---------------------------------------------------------------------------

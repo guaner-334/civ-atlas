@@ -150,9 +150,10 @@ export interface Settlement {
   capitalSpans?: { from: Year; until?: Year; polity: number }[];
   /**
    * 阶段 3 城市兴衰:被洗劫(按先后)。loss = 当时人口折损的比例(0..1),之后按 SACK_RECOVER 年慢慢恢复(见 growth.ts)。
-   * 饥荒(unrest.ts)、瘟疫(plague.ts)也记在这里(cause = famine / plague):人口一样掉一截、慢慢长回来
+   * 饥荒(unrest.ts)、瘟疫(plague.ts)也记在这里(cause = famine / plague):人口一样掉一截、慢慢长回来;
+   * 作者下的天灾(干预 disaster,disaster.ts)里饥荒记 famine、瘟疫记 plague、地震水旱记 quake
    */
-  sacks?: { year: Year; loss: number; cause?: 'famine' | 'plague' }[];
+  sacks?: { year: Year; loss: number; cause?: 'famine' | 'plague' | 'quake' }[];
   /**
    * 阶段 3 城市兴衰:这座城是在哪座被毁的城(Settlement id)的故址上重建的(同一州、同一地块)。
    * 同族重建沿用旧名;换了民族的另起新名。不是重建的 = 不给
@@ -320,7 +321,14 @@ export interface Place {
  *   结盟时两国正在交战、不许扩张的国家正在打它挑起的仗,紧跟着记议和(peace)。
  *   立国紧跟着记一条 found(新国家;编年史并进干预那一条),原主的国都在这州就再记原主迁都(capital,war = −1)或亡国(fall,b = 新国家);
  *   划州同样(原主迁都 / 亡国);迁都迁成了紧跟着记一条 capital(war = −1;编年史并进干预那一条)。
- *   国家 A 的键指不到(新历史里没有这国 / 那一刻还没立国)就不记(立国除外:立国一定记)。
+ *   方针:a = 国家,b = −1(定了)/ −3(那一年这国已亡)。
+ *   灭国:a = 国家,b = 并入的国家(−1 = 散成无主;−3 = 那一年这国已亡,没灭成),region / settlement = A 当时的国都所在州 / 国都;
+ *     紧跟着记 fall(b 同上;散成无主 = −1)
+ *   即位(等此刻在位的那位下台再即位):下令那一年记 b = −6(登记了),真即位的那一刻另记一条 b = −1(同一条干预)
+ *   让人物去世 / 改君主倾向:a = 国家,b = −1(生效了)/ −3(那一年这国已亡)/ −4(此刻在位的不是他)/ −5(将领、名臣:推演里不管,
+ *     生没生效看人物的 killed),region / settlement = A 当时的国都所在州 / 国都
+ *   天灾:见 disaster.ts(b = 受灾的州数,瘟疫 1 = 起了一场新的 / 2 = 并进正在传的那一场,0 = 没生效);紧跟着记它引起的 plague / famine
+ *   国家 A 的键指不到(新历史里没有这国 / 那一刻还没立国)就不记(立国、天灾除外:立国一定记;天灾只有饥荒选的那国指不到时不记)。
  * battle(人物与战役,wars.ts 的战役):每一仗都算过胜负,打下来的记 conquer,没打下来的(攻方败退、守方反攻没夺回)记一条 battle;
  *   攻方从哪种边打过去记在 Annal.via。不改归属,只是让编年史写得出"某某之战"。
  * upheaval 之后紧跟着(同一刻)记这件大事的后果:sunk(没了的城,国都在前)、迁都(capital,war = −1)、亡国(fall,b = −2),
@@ -374,7 +382,7 @@ export type AnnalKind =
  *   collapse:大崩解里自立的那几块(史事 split 的 cause);great:大瘟疫(史事 plague 的 cause);
  *   lapse 盟约渐废 / abandon 坐视不救 / vassal 一方称臣
  */
-export type AnnalCause = 'expand' | 'claim' | 'chaos' | 'prey' | 'betray' | 'punish' | 'ally' | 'rescue' | 'lapse' | 'abandon' | 'vassal' | 'quell' | 'collapse' | 'great';
+export type AnnalCause = 'expand' | 'claim' | 'chaos' | 'prey' | 'betray' | 'punish' | 'ally' | 'rescue' | 'lapse' | 'abandon' | 'vassal' | 'quell' | 'collapse' | 'great' | 'quake';
 
 /**
  * 一条史事(阶段 3):推演里各事件处理函数用 CivSim.record 往 Civ.annals 里记,编年史(界面上的事件列表)只读它。
@@ -394,6 +402,8 @@ export interface Annal {
   cause?: AnnalCause;
   /** 结盟(alliance)才有:共御的强邻(−1 = 没有) */
   foe?: number;
+  /** 干预灭国(intervene,灭成了)才有:亡时国土几州 */
+  n?: number;
 }
 
 /** 变化日志里的"哪一层" */
@@ -719,8 +729,12 @@ export interface Person {
   dynasty?: number;
   /** 君主:怎么即位的 */
   rise?: RulerRise;
-  /** 君主的倾向(扩张、好战、重商,各 0–100,见 rulers.ts;推演里扩张、议和、称臣、亲征看它);将领、宗室不给 */
+  /** 君主的倾向(扩张、好战、重商,各 0–100,见 rulers.ts;推演里扩张、议和、称臣、亲征看它);将领、宗室不给。作者改过的,这里是他原来的 */
   leanings?: RulerLeanings;
+  /** 作者改过他的倾向(干预"改君主倾向",按先后):year 那一年年初改的,下一刻起照 leanings;iv = 第几条干预。没改过 = 不给 */
+  moods?: { year: Year; leanings: RulerLeanings; iv: number }[];
+  /** 作者让他去世(干预"让人物去世"):第几条干预;卒年 = died。君主改了历史,将领、名臣只改人物(他后来该领的仗、该经手的事换了人) */
+  killed?: number;
   /**
    * 作者的人物(干预"即位"立的君主,见 gen/edits.ts):作者人物的编号(AuthorCharacter.id)。
    * 这样的君主 name 是空串(界面按编号填上人物卡的名字,见 gen/characters.ts 的 applyCharacters)、born 照干预里写的、
