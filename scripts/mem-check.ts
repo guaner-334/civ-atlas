@@ -6,7 +6,7 @@
  *   --only=new36k,edit20                                     只跑这几个场景   --out=snaps/mem.json  原始数据
  *   --every=150                                              操作期间多少毫秒取一次(默认 300;短的峰值取得到,取样本身也占一点)
  *
- * 场景:new36k / new200k 新建世界(3.6 万 / 20 万地块);edit20 编辑地形连涂 20 笔(陆地笔,星球照草图重新长;另打每一笔里的峰值);
+ * 场景:new36k / new200k 新建世界(3.6 万 / 20 万地块);edit20 编辑地形连涂 20 笔(陆地笔,星球照草图重新长;另打每一笔里的峰值、主线程长任务);
  * edit20h 同上,换到「高度」页用抬高笔涂(按块重铺、按块换上);open 打开一个世界;play 播放时间轴 45 秒;
  * director 导播 45 秒;globe 地球仪开关 3 次(每次转几下);globezoom 打开地球仪放大到 2.4 倍、5 倍;export 导出地图图片 1 倍、2 倍;switch5 回我的世界新建并创建,连换 5 个世界;
  * stepui 逐年推演的界面:世界卡片里「从这里演绎」,照默认设置往下走 60 秒(停下来就点「接着演绎」);
@@ -69,6 +69,15 @@ const CENSUS = `(() => {
     for (const set of [cvs, bms]) for (const r of set) { const c = r.deref(); if (!c) set.delete(r); else n += c.width * c.height * 4; }
     return n;
   };
+})();`;
+
+/** 页面里注入:记下主线程的长任务(一次占住主线程超过 50 ms 的),[开始时刻(和 Date.now 同一个钟), 多长 ms] */
+const LONG = `(() => {
+  if (self.__memLong || typeof document === 'undefined' || typeof PerformanceObserver === 'undefined') return;
+  const a = (self.__memLong = []);
+  try {
+    new PerformanceObserver((l) => { for (const e of l.getEntries()) a.push([performance.timeOrigin + e.startTime, e.duration]); }).observe({ type: 'longtask', buffered: true });
+  } catch {}
 })();`;
 
 // ---------------------------------------------------------------------------
@@ -251,6 +260,7 @@ async function openRig(url: string): Promise<Rig> {
   const browser = await chromium.launch({ args: [`--remote-debugging-port=${port}`] });
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true });
   await ctx.addInitScript(CENSUS);
+  await ctx.addInitScript(LONG);
   const page = await ctx.newPage();
   await page.goto('about:blank');
   const cdp = await Cdp.connect(port);
@@ -478,7 +488,8 @@ const editStrokes = (name: string, height: boolean) => async (rig: Rig, mark: Ct
     }
     return s;
   };
-  const strokes: (Peak & { ms?: number; gen?: Peak; swap?: Peak; after?: Peak })[] = [];
+  const strokes: (Peak & { ms?: number; gen?: Peak; swap?: Peak; after?: Peak; long?: { n: number; sum: number; max: number } })[] = [];
+  const spans: [number, number][] = [];
   for (let i = 0; i < 20; i++) {
     const prev = await p.evaluate(() => (window as any).__wfTerrain?.id ?? 0);
     const y = y0 + ((y1 - y0) * ((i * 7) % 20)) / 20;
@@ -497,15 +508,27 @@ const editStrokes = (name: string, height: boolean) => async (rig: Rig, mark: Ct
     if (ok && t?.patch) patched++;
     const te = Date.now();
     const s = { ...peakIn(ts, te), ms: ok ? t?.shownMs : undefined };
+    spans.push([ts, te]);
     if (ok && t?.gotMs !== undefined && t?.shownMs !== undefined) {
       Object.assign(s, { gen: peakIn(ts, up + t.gotMs), swap: peakIn(up + t.gotMs, up + t.shownMs), after: peakIn(up + t.shownMs, te) });
     }
     strokes.push(s);
     if ((i + 1) % 5 === 0) await mark(`第 ${i + 1} 笔`);
   }
+  // 主线程长任务:每一笔(松手前开始拖起,到换上以后 1.5 秒)里有几次、加起来多久、最长一次
+  const longs: [number, number][] = await p.evaluate(() => (self as any).__memLong ?? []);
+  strokes.forEach((s, i) => {
+    const [a, b] = spans[i];
+    const ds = longs.filter(([t]) => t >= a && t <= b).map(([, d]) => d);
+    s.long = { n: ds.length, sum: ds.reduce((x, y) => x + y, 0), max: Math.max(0, ...ds) };
+  });
   ctx.detail({ strokes });
   const midOf = (a: number[]) => [...a].sort((p, q) => p - q)[Math.floor(a.length / 2)];
   const rest = strokes.slice(1);
+  const ls = rest.map((s) => s.long!);
+  console.log(
+    `    ${name} 主线程长任务(第 2–20 笔):共 ${ls.reduce((x, l) => x + l.n, 0)} 次、合计 ${ls.reduce((x, l) => x + l.sum, 0).toFixed(0)} ms、最长 ${Math.max(0, ...ls.map((l) => l.max)).toFixed(0)} ms;每笔合计中位 ${midOf(ls.map((l) => l.sum)).toFixed(0)} ms`,
+  );
   console.log(`    ${name} 每一笔的峰值(JS 主 / 线程,MB):${strokes.map((s) => `${mb(s.main)}/${mb(s.workers)}`).join(' ')}`);
   console.log(`    ${name} 第 2–20 笔峰值中位:JS 主 ${mb(midOf(rest.map((s) => s.main)))} 线程 ${mb(midOf(rest.map((s) => s.workers)))}`);
   for (const [k, label] of [['gen', '生成'], ['swap', '换上'], ['after', '之后']] as const) {
