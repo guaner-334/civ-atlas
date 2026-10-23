@@ -1004,15 +1004,21 @@ export function renderGlobeCpu(out: RgbaImage, view: GlobeView, f: GlobeFrame, d
         cr += (107 - cr) * a;
         cg += (168 - cg) * a;
         cb += (255 - cb) * a;
-        // 球的边缘(被照亮的一侧)一条细亮线;1 − smoothstep(0, edgeW, d) 写成 smoothstep(0, 1, 1 − d / edgeW),两者相等
-        const ea = smoothstep(0, 1, 1 - (Math.abs(r - 1) * f.R) / edgeW) * 0.6 * sideLit;
-        cr += (179 - cr) * ea;
-        cg += (219 - cg) * ea;
-        cb += (255 - cb) * ea;
       }
-      data[o] = br + (cr - br) * cover;
-      data[o + 1] = bgG + (cg - bgG) * cover;
-      data[o + 2] = bb + (cb - bb) * cover;
+      let or = br + (cr - br) * cover;
+      let og = bgG + (cg - bgG) * cover;
+      let ob = bb + (cb - bb) * cover;
+      if (realistic) {
+        // 球的边缘(被照亮的一侧)一条细亮线:同着色器,盖在球和背景混好之后(最外那圈半盖着的像素也是整条线的亮度);
+        // 1 − smoothstep(0, edgeW, d) 写成 smoothstep(0, 1, 1 − d / edgeW),两者相等
+        const ea = smoothstep(0, 1, 1 - (Math.abs(r - 1) * f.R) / edgeW) * 0.6 * sideLit;
+        or += (179 - or) * ea;
+        og += (219 - og) * ea;
+        ob += (255 - ob) * ea;
+      }
+      data[o] = or;
+      data[o + 1] = og;
+      data[o + 2] = ob;
       data[o + 3] = 255;
     }
   }
