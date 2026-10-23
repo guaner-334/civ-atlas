@@ -11,6 +11,7 @@
  */
 import type { LayerId as DataLayer } from '../render/layers';
 import type { SurfaceLook } from '../render/surface';
+import { civFillOf, type CivFill } from '../render/civ/show';
 
 export type Style = 'realistic' | 'fantasy' | 'data';
 
@@ -190,7 +191,7 @@ export function baseLook(base: BaseId, sat: SatLook): { style: Style; data?: Dat
   return { style: 'data', data: base };
 }
 
-export type FillId = 'none' | 'polities' | 'cultures' | 'faiths' | 'eras';
+export type FillId = CivFill;
 
 export const FILLS: { id: FillId; name: string; hint: string }[] = [
   { id: 'none', name: '不填', hint: '只看底图，不铺颜色' },
@@ -208,13 +209,7 @@ export function isFillId(x: unknown): x is FillId {
 }
 
 /** 文明层开关算哪种填色(先看信仰、时代,再看国家、再看民族) */
-export function fillOf(show: { polities: boolean; cultures: boolean; faiths?: boolean; eras?: boolean }): FillId {
-  if (show.faiths) return 'faiths';
-  if (show.eras) return 'eras';
-  if (show.polities) return 'polities';
-  if (show.cultures) return 'cultures';
-  return 'none';
-}
+export const fillOf: (show: { polities: boolean; cultures: boolean; faiths?: boolean; eras?: boolean }) => FillId = civFillOf;
 
 /** 填色对应的文明层开关(信仰、时代留着国界;不碰物产等叠加开关) */
 export function fillShow(id: FillId): { polities: boolean; cultures: boolean; faiths: boolean; eras: boolean } {

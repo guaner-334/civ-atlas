@@ -28,6 +28,8 @@ import { RUIN, SYMBOL_BOX, SYMBOL_GROW, ruinsAt, settlementsAt, type SettlementM
 import type { CivDrawParams, CivStyle } from './overlay';
 import { nearX, wrapOf } from '../common';
 import type { MapProj } from '../projection';
+import type { Candidate } from '../labels/layout';
+import { polityNamesLead, polityNamesOn } from './show';
 
 const MIN_ZOOM = [1, 1, 1.8, 3];
 
@@ -277,6 +279,36 @@ function inkOf(c: [number, number, number], ink: [number, number, number], t: nu
 /** 国名越小越要清楚:0 = 大字(≥ 18 CSS 像素),1 = 最小的字 */
 const smallness = (css: number) => Math.max(0, Math.min(1, (18 - css) / 7));
 
+/**
+ * 配角名(不是跟着填色的那种名字,如信仰、时代、民族填色上写的国名):小一号(主角的七成,最大 15 CSS 像素)、
+ * 灰墨不带颜色、字距收紧;排在国都名之后、城镇符号之前(排在符号之后几乎放不上);四周多留白(两个字宽),
+ * 不和别的大字排成一行、读成一个名字
+ */
+const SIDE_SCALE = 0.7;
+const SIDE_MAX_CSS = 15;
+const SIDE_PRIORITY = 100.1;
+const SIDE_SPACE = 2;
+const SIDE_TRACKING: [number, number] = [0.3, 1.1];
+/** 配角名先试正中,再往上下(竖排的往左右)挪开一两个字高:正中多半已经有别的大字 */
+const SIDE_SHIFTS = [0, 1.9, -1.9, 3, -3, 4.2, -4.2];
+function* sideShift(gen: () => Iterable<Candidate>, px: number, vertical = false): Generator<Candidate> {
+  for (const s of SIDE_SHIFTS) {
+    for (const c of gen()) {
+      if (!s) yield c;
+      else {
+        const d = s * (c.px ?? px);
+        yield { ...c, glyphs: c.glyphs.map((g) => (vertical ? { ...g, x: g.x + d } : { ...g, y: g.y + d })) };
+      }
+    }
+  }
+}
+/** 配角名一律灰墨(手绘:纸色光晕;别的底图:白光晕),不加粗 */
+function sideLook(style: CivStyle): Look {
+  return style === 'fantasy'
+    ? { color: 'rgba(96, 82, 68, 0.88)', weight: 500, halo: { color: 'rgba(241, 230, 201, 0.82)', width: 2.2 } }
+    : { color: 'rgba(66, 62, 58, 0.82)', weight: 500, halo: { color: 'rgba(255, 255, 255, 0.66)', width: 2 } };
+}
+
 /** 国名、城名的颜色 / 光晕 / 字重。国名带一点本国的颜色;字越小颜色越深、光晕越浓 */
 function civLooks(style: CivStyle) {
   if (style === 'fantasy') {
@@ -333,7 +365,8 @@ export interface CivMapLayer {
 
 /**
  * 这一年的国名、城名、城镇符号。
- * 国名:"国家"打开时;城镇符号和城名:"国家"或"道路"打开时。和"地名"开关无关。
+ * 国名:「地图上写」勾了国名时(没勾过按填色的默认:国家、信仰、时代填色写);国家填色上是主角(大字、带本国颜色),
+ * 别的填色上是配角(小一号、灰墨)。城镇符号和城名:"国家"或"道路"打开时。和"地名"开关无关。
  * fast(回放 / 拖时间轴):城名只排国都和大城的(城一建起、一升级名字就出来),城、镇、村的名字停下来再补上 ——
  * 放大地图时回放,每帧也不用排几百个小地名;国名每 20 年重新拟合一次,不会每帧抖动
  */
@@ -345,7 +378,8 @@ export function civMapLayer(p: CivDrawParams, opt: { fast?: boolean; proj?: MapP
   const family = style === 'fantasy' ? FONT_FANTASY : FONT_REALISTIC;
   // 国都 → 国名那一条(国名给自家国都名留位置)
   const polityItemOfCapital = new Map<number, LabelItem>();
-  if (p.show.polities && civ.polities.length) {
+  const lead = polityNamesLead(p.show);
+  if (polityNamesOn(p.show) && civ.polities.length) {
     // 回放 / 拖时间轴时国名每 FAST_STEP 年才重新拟合一次:国土几乎每帧都在变,每帧重排国名会一直抖。
     // 阶段 3 有了战争,国土会缩小、国家会灭亡,早几年拟合的位置不一定还在国土里:
     // 当年已经灭亡的国家不写;国名的每个字按"当年"的国土核对(落在已经丢掉的土地上的摆法筛掉,都不行就先不写,下次重排再出来)
@@ -357,19 +391,20 @@ export function civMapLayer(p: CivDrawParams, opt: { fast?: boolean; proj?: MapP
     for (const l of labels) {
       const pol = civ.polities[l.polity];
       if (!polityAlive(pol, p.year)) continue;
-      const look = looks.polity(pol.color, (l.size * REF_MAP_CSS) / world.width);
+      const look = lead ? looks.polity(pol.color, (l.size * REF_MAP_CSS) / world.width) : sideLook(style);
+      const tracking = lead ? POLITY_TRACKING : SIDE_TRACKING;
       const id = l.polity;
       const item: LabelItem = {
         text: l.text,
         path: l.path,
         layout: 'curve',
         size: 0,
-        sizeWorld: l.size,
+        sizeWorld: lead ? l.size : Math.min(l.size * SIDE_SCALE, (SIDE_MAX_CSS * world.width) / REF_MAP_CSS),
         grow: POLITY_GROW,
-        tracking: POLITY_TRACKING,
+        tracking,
         minZoom: 1,
-        // 国名排在国都、国都名之后,大多数山名之前;大国先放
-        priority: 101 + Math.min(4.9, Math.log2(1 + l.regions) * 0.7),
+        // 国名排在国都、国都名之后,大多数山名之前;大国先放。配角排在国都名之后、城镇符号之前
+        priority: lead ? 101 + Math.min(4.9, Math.log2(1 + l.regions) * 0.7) : SIDE_PRIORITY + Math.min(0.35, Math.log2(1 + l.regions) * 0.05),
         family,
         weight: look.weight,
         color: look.color,
@@ -388,15 +423,18 @@ export function civMapLayer(p: CivDrawParams, opt: { fast?: boolean; proj?: MapP
         place: function* (px, view) {
           const min = MIN_LABEL_PX * view.dpr;
           const planar = !!l.planar;
-          yield* polityCandidates(l.text, l.path, px, POLITY_TRACKING, view, l.vertical, min, planar);
-          if (!l.alt) return;
-          // 备选路径绕开国都;字号按它自己拟合的大小(相对主路径)换算
-          const f = l.alt.size / l.size;
-          for (const c of polityCandidates(l.text, l.alt.path, Math.max(min, px * f), POLITY_TRACKING, view, l.alt.vertical, min, planar)) yield { ...c, px: c.px ?? Math.max(min, px * f) };
+          const gen = function* () {
+            yield* polityCandidates(l.text, l.path, px, tracking, view, l.vertical, min, planar);
+            if (!l.alt) return;
+            // 备选路径绕开国都;字号按它自己拟合的大小(相对主路径)换算
+            const f = l.alt.size / l.size;
+            for (const c of polityCandidates(l.text, l.alt.path, Math.max(min, px * f), tracking, view, l.alt.vertical, min, planar)) yield { ...c, px: c.px ?? Math.max(min, px * f) };
+          };
+          yield* lead ? gen() : sideShift(gen, px, l.vertical);
         },
         planar: !!l.planar,
         tolerance: 0.1,
-        space: 0.35,
+        space: lead ? 0.35 : SIDE_SPACE,
         pick: { kind: 'polity', id },
       };
       items.push(item);

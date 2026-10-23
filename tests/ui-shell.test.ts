@@ -20,10 +20,12 @@ import {
   layerShow,
   mapViewFromUrl,
   writeMapView,
+  type FillId,
 } from '../src/ui/mapLayers';
+import { CIV_SHOW_DEFAULT, polityNamesLead, polityNamesOn, type CivShow } from '../src/render/civ/show';
 import { _resetToasts, clearToast, getToast, peekToast, showToast } from '../src/ui/toastStore';
 import { closeOverview, getOverview, openOverview } from '../src/ui/overviewStore';
-import { clearSelection, getChronicle, getSelection, setChronicle, setSelection } from '../src/ui/civView';
+import { civShowFromQuery, clearSelection, getChronicle, getSelection, namesUrl, setChronicle, setSelection } from '../src/ui/civView';
 import { collapseSide, expandSide, getSide, setSideHold } from '../src/ui/sideStore';
 import { FLY_MS, animProgress, easeOutCubic, flatFly, sideRoom } from '../src/ui/flyTo';
 
@@ -134,6 +136,51 @@ describe('底图 × 填色', () => {
       expect(back?.fill).toBe(v.fill);
       if (v.base === 'satellite') expect(back?.sat).toBe(v.sat);
     }
+  });
+});
+
+describe('地图上写国名(每种填色各记各的)', () => {
+  const q = (s: string) => new URLSearchParams(s);
+  const at = (fill: FillId, names?: CivShow['names']): CivShow => ({ ...CIV_SHOW_DEFAULT, ...fillShow(fill), names });
+  it('没勾过按填色的默认:国家、信仰、时代写,民族、不填不写;国家填色上是主角,别的是配角', () => {
+    expect((['polities', 'cultures', 'faiths', 'eras', 'none'] as const).map((f) => polityNamesOn(at(f)))).toEqual([true, false, true, true, false]);
+    expect(polityNamesLead(at('polities'))).toBe(true);
+    expect(polityNamesLead(at('faiths'))).toBe(false);
+    expect(polityNamesLead(at('eras'))).toBe(false);
+    expect(polityNamesLead(at('cultures'))).toBe(false);
+    // 只开了信仰、没开国家的旧链接照旧不写
+    expect(polityNamesOn({ ...CIV_SHOW_DEFAULT, faiths: true })).toBe(false);
+  });
+  it('勾的记在那种填色上,换到别的填色不跟着变', () => {
+    const names = { polities: { polities: false }, cultures: { polities: true } };
+    expect(polityNamesOn(at('polities', names))).toBe(false);
+    expect(polityNamesOn(at('cultures', names))).toBe(true);
+    expect(polityNamesOn(at('faiths', names))).toBe(true);
+    expect(polityNamesOn(at('none', names))).toBe(false);
+  });
+  it('写进网址 civ=:只写和默认不一样的;没写填色时把现在的填色写上;写完再读回来一样', () => {
+    const w = (s: string, names: CivShow['names'], fill: FillId) => namesUrl(q(s), names, fill).toString();
+    expect(w('seed=7', { polities: { polities: false } }, 'polities')).toBe('seed=7&civ=-polityNames.polities&fill=polities');
+    expect(w('seed=7&fill=cultures', { cultures: { polities: true } }, 'cultures')).toBe('seed=7&fill=cultures&civ=polityNames.cultures');
+    // 勾回默认:civ= 里那一项去掉,别的开关留着
+    expect(w('seed=7&civ=-labels,polityNames.cultures&fill=cultures', { cultures: { polities: false } }, 'cultures')).toBe('seed=7&civ=-labels&fill=cultures');
+    expect(w('seed=7&fill=faiths', { faiths: { polities: true } }, 'faiths')).toBe('seed=7&fill=faiths');
+    const names = { polities: { polities: false }, cultures: { polities: true }, eras: { polities: false } };
+    const url = namesUrl(q('seed=7&map=satellite&fill=eras&civ=-wars'), names, 'eras');
+    const back = civShowFromQuery(url);
+    expect(back.wars).toBe(false);
+    expect(back.names).toEqual(names);
+    expect(mapViewFromUrl(url)?.fill).toBe('eras');
+    // 只带 civ= 的网址按旧链接读:写了填色才不会变成不填
+    expect(mapViewFromUrl(namesUrl(q('seed=7'), { polities: { polities: false } }, 'polities'))?.fill).toBe('polities');
+    // 换填色时 writeMapView 不动这几项
+    expect(civShowFromQuery(writeMapView(url, { base: 'fantasy', fill: 'cultures', sat: 'detail' })).names).toEqual(names);
+  });
+  it('网址里不带填色的 polityNames / -polityNames 算网址里那种填色的', () => {
+    expect(civShowFromQuery(q('fill=cultures&civ=polityNames')).names).toEqual({ cultures: { polities: true } });
+    expect(civShowFromQuery(q('civ=-polityNames')).names).toEqual({ none: { polities: false } });
+    expect(civShowFromQuery(q('civ=polities,-polityNames')).names).toEqual({ polities: { polities: false } });
+    expect(civShowFromQuery(q('civ=polityNames.bogus,names')).names).toBeUndefined();
   });
 });
 

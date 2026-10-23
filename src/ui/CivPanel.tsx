@@ -17,9 +17,10 @@ import { ownersAt, type Owners } from '../gen/civ/timeline';
 import { faithRows } from '../gen/civ/religionText';
 import { yearFull } from '../gen/era';
 import { useEra } from './editsStore';
-import { getCivTime, setCivShow, subscribeCivTime, useCivShow } from './civView';
+import { getCivTime, setCivShow, setPolityNames, subscribeCivTime, useCivShow } from './civView';
+import { polityNamesOn } from '../render/civ/show';
 
-const TOGGLES: { key: Exclude<keyof CivShow, 'polities' | 'cultures' | 'faiths' | 'eras'>; name: string; hint: string }[] = [
+const TOGGLES: { key: Exclude<keyof CivShow, 'polities' | 'cultures' | 'faiths' | 'eras' | 'names'>; name: string; hint: string }[] = [
   { key: 'labels', name: '地名', hint: '海洋、山脉、大河、湖泊、大岛、荒漠的名字;放大地图显示更多' },
   { key: 'regions', name: '州', hint: '按山脊、大河自然划分的地区,是文明扩张的基本单位' },
   { key: 'sites', name: '城址', hint: '每州最宜居的一块地;圆点越大,这一州能养活的人越多' },
@@ -36,6 +37,26 @@ const ROUTE_LEGEND: { name: string; dash?: string; width: number }[] = [
   { name: '小路', dash: '3 2.5', width: 1.3 },
   { name: '航线', dash: '0.1 3.5', width: 2 },
 ];
+
+/**
+ * 「地图上写」:填色说明下面一行,地图上写哪些名字(每种填色各记各的,换填色时按那种填色记着的勾好;
+ * 没勾过的按默认:国家、信仰、时代写国名,民族、不填不写)
+ */
+export function NameToggles() {
+  const show = useCivShow();
+  const on = polityNamesOn(show);
+  return (
+    <div className="lp-names" role="group" aria-label="地图上写">
+      <span className="lp-names-k">地图上写</span>
+      <button className={`lp-tog${on ? ' on' : ''}`} role="checkbox" aria-checked={on} data-names="polities" onClick={() => setPolityNames(!on)}>
+        <span className="lp-box" aria-hidden="true">
+          {on ? '✓' : ''}
+        </span>
+        国名
+      </button>
+    </div>
+  );
+}
 
 export function CivToggles() {
   const show = useCivShow();

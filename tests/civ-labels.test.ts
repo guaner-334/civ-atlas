@@ -381,3 +381,60 @@ describe('国名、城名标注与城镇符号(视口文字层)', () => {
     expect(sig(place(fresh(), 'realistic', 2400, 1).placed)).toBe(sig(a));
   });
 });
+
+describe('地图上写国名:开关、主角和配角', () => {
+  const at = (c: Case, s: Partial<CivDrawParams['show']>): CivDrawParams => ({ ...paramsOf(c, 'fantasy', c.civ.endYear), show: { ...CIV_SHOW_DEFAULT, ...s } });
+  const polityItems = (p: CivDrawParams) => civMapLayer(p).items.filter((i) => i.pick?.kind === 'polity');
+  it('国家填色能关掉国名(城镇照旧);民族填色默认不写、勾上才写', () => {
+    for (const c of cases.values()) {
+      expect(polityItems(at(c, { polities: true })).length).toBeGreaterThan(5);
+      const off = at(c, { polities: true, names: { polities: { polities: false } } });
+      expect(polityItems(off)).toHaveLength(0);
+      expect(civMapLayer(off).marks.length).toBeGreaterThan(0);
+      expect(polityItems(at(c, { cultures: true }))).toHaveLength(0);
+      expect(polityItems(at(c, { cultures: true, names: { cultures: { polities: true } } })).length).toBeGreaterThan(5);
+      // 记在国家填色上的不影响民族填色
+      expect(polityItems(at(c, { cultures: true, names: { polities: { polities: true } } }))).toHaveLength(0);
+    }
+  });
+  it('信仰、时代、民族填色上的国名是配角:主角的七成、最大 15 号,灰墨,排在国都名之后、城镇符号之前', () => {
+    for (const c of cases.values()) {
+      const lead = new Map(polityItems(at(c, { polities: true })).map((i) => [i.text, i]));
+      for (const s of [{ polities: true, faiths: true }, { polities: true, eras: true }, { cultures: true, names: { cultures: { polities: true } } }]) {
+        const side = polityItems(at(c, s));
+        expect(side.length).toBe(lead.size);
+        for (const i of side) {
+          const l = lead.get(i.text)!;
+          expect(i.sizeWorld!).toBeCloseTo(Math.min(l.sizeWorld! * 0.7, (15 * c.world.width) / REF_MAP_CSS), 6);
+          expect(i.color).not.toBe(l.color);
+          expect(i.priority).toBeGreaterThan(100);
+          expect(i.priority).toBeLessThan(100.5);
+          expect(l.priority).toBeGreaterThan(101);
+        }
+        // 配角国名一个颜色(不带本国颜色)
+        expect(new Set(side.map((i) => i.color)).size).toBe(1);
+      }
+    }
+  });
+  it('信仰填色:配角国名和别的字、符号零重叠,缩放 1 倍时国名照样写得出来', () => {
+    for (const c of cases.values()) {
+      for (const k of [1, 2]) {
+        const p = at(c, { polities: true, faiths: true, routes: true, labels: true });
+        const layer = civMapLayer(p);
+        const view = viewOf(c, 'fantasy', k);
+        const placed = placeMap(civLabelItems(p).concat(layer.items), layer.marks, view);
+        const boxes = placed.labels.flatMap((pl) => pl.glyphs.map((g) => ({ text: pl.item.text, b: glyphBox(g, pl.px, 0) })));
+        const marks = placed.marks.map((m) => markBox(m.mark, view));
+        for (const pl of placed.labels) {
+          if (pl.item.pick?.kind !== 'polity') continue;
+          for (const g of pl.glyphs) {
+            const b = glyphBox(g, pl.px, 0);
+            for (const o of boxes) if (o.text !== pl.item.text) expect(overlap(o.b, b), `${pl.item.text} × ${o.text}(k=${k})`).toBe(false);
+            for (const m of marks) expect(overlap(m, b), `${pl.item.text} 压了符号(k=${k})`).toBe(false);
+          }
+        }
+        if (k === 1) expect(placed.labels.filter((pl) => pl.item.pick?.kind === 'polity').length).toBeGreaterThan(3);
+      }
+    }
+  });
+});
