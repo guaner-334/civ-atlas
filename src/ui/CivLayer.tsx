@@ -49,7 +49,7 @@ import { whenDone } from './holdMark';
 import { nearX } from '../render/common';
 import { labelProjection, projector, type MapProj } from '../render/projection';
 import { DETAIL_K } from '../render/detail';
-import { ProjLayer, useMapMoving } from './projection';
+import { ProjLayer, useMapMoving, useProjection } from './projection';
 import { useAvoidBoxes } from './uiAvoid';
 import { CivDetail } from './CivDetail';
 import { drawHolyDot, holyCities } from '../render/civ/faith';
@@ -250,7 +250,8 @@ export function CivLayer({ world, raster, civ: civIn, geo: geoIn, style, year, v
   const fast = time.playing || time.scrubbing;
   const y = year ?? time.year;
   // ---- 换上一段新的历史(再推、重推、试推演、打开存档……):这一层要画的先在后台分小步备好,备好了再一起换上 ----
-  // 备的时候这一层(底图、文字、选中层、细节层、地球仪借的)照旧是原来那份;回放 / 拖时间轴时、世界换了时不等,当场画
+  // 备的时候这一层(底图、文字、选中层、细节层)照旧是原来那份;回放 / 拖时间轴时、世界换了时不等,当场画;
+  // 开着地球仪时也不等(地球仪自己按新的历史画国界、贴图借这一层的,一起换才不会一半新一半旧)
   const shown = useRef<Shown | null>(null);
   /** 备好了的那份历史(底图用的 civ) */
   const prepared = useRef<Civ | null>(null);
@@ -258,9 +259,11 @@ export function CivLayer({ world, raster, civ: civIn, geo: geoIn, style, year, v
   const incoming = geoIn ?? civIn;
   const was = shown.current;
   const wasBase = was ? (was.geo ?? was.civ) : null;
+  const globeOn = useProjection() === 'globe';
   const hold =
     detailAsync &&
     !fast &&
+    !globeOn &&
     !!was &&
     !!wasBase &&
     !!incoming &&
@@ -606,9 +609,22 @@ export function CivLayer({ world, raster, civ: civIn, geo: geoIn, style, year, v
       },
       () => void labelCharsOf(civIn),
     ];
+    // 备料出了错(比如手机上画布内存不够):不再等,放开换上(换上时照常当场画),错误照常报出去
+    let failed = false;
+    const guarded = steps.map((s): WorkStep => (deadline) => {
+      if (failed) return;
+      try {
+        return s(deadline);
+      } catch (e) {
+        failed = true;
+        setTimeout(() => {
+          throw e;
+        });
+      }
+    });
     submitDetailJob(
       CIV_SWAP_JOB,
-      steps,
+      guarded,
       () => {
         prepared.current = target;
         setPrepTick((n) => n + 1);
