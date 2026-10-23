@@ -920,6 +920,39 @@ describe('浏览器存储(saveStore)', () => {
     }
   });
 
+  it('编辑地形:地形变了以后缩略图截到了、地图缩略图过一会儿才截到,收起编辑地形时不再重截', () => {
+    vi.useRealTimers();
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout', 'performance'] });
+    tick();
+    let n = 0;
+    let m = 0;
+    let mapBusy = true;
+    saveStore.setThumbMaker(() => `data:image/jpeg;base64,T${++n}`);
+    saveStore.setMapThumbMaker(() => (mapBusy ? null : `data:image/jpeg;base64,M${++m}`));
+    try {
+      const id = openWorld(7, { kind: 'draft', pristine: true });
+      saveStore.setThumbEditing(true);
+      setEdits({ ...getEdits(), terrain: [{ kind: 'volcano', pts: [100, 100], r: 28, s: 1 }] as unknown as WorldEdits['terrain'] });
+      vi.advanceTimersByTime(1500);
+      saveStore.updateCheck('c1');
+      vi.advanceTimersByTime(saveStore.THUMB_EDIT_QUIET + 100);
+      expect([n, m]).toEqual([1, 0]);
+      // 地图缩略图再试时截到了(缩略图不再重截)
+      mapBusy = false;
+      vi.advanceTimersByTime(800);
+      expect([n, m]).toEqual([1, 1]);
+      expect([saveStore.loadWorld(id)?.thumb, saveStore.loadWorld(id)?.mapThumb]).toEqual(['data:image/jpeg;base64,T1', 'data:image/jpeg;base64,M1']);
+      // 两张都是新地形的了:收起编辑地形、flushThumb 都不再截
+      saveStore.setThumbEditing(false);
+      saveStore.flushThumb();
+      vi.advanceTimersByTime(10_000);
+      expect([n, m]).toEqual([1, 1]);
+    } finally {
+      saveStore.setThumbMaker(null);
+      saveStore.setMapThumbMaker(null);
+    }
+  });
+
   it('回到我的世界、又点开下面一直开着的那个:记一下最近打开,排到前面', () => {
     const a = openWorld(7, { title: '苍澜界' });
     tick();

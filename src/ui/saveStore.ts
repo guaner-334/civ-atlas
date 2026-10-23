@@ -939,9 +939,10 @@ let thumbMaker: ThumbMaker | null = null;
 let thumbTimer: ReturnType<typeof setTimeout> | undefined;
 /**
  * 等着截的那一张:哪个世界、force = 要重截(已经有了也截)、第几次试;
- * mapDone = 地图缩略图这一轮已经截好了,只差缩略图(再试时不再截地图缩略图)
+ * thumbDone / mapDone = 缩略图 / 地图缩略图这一轮已经截好了,再试时只截还差的那张
  */
-let pending: { id: string; force: boolean; tries: number; mapDone?: boolean } | null = null;
+let pending: ({ id: string; force: boolean; tries: number } & Done) | null = null;
+type Done = { thumbDone?: boolean; mapDone?: boolean };
 /** 截一张之前至少等多久(毫秒;画布这时可能还没画好) */
 const THUMB_DELAY = 700;
 /** 编辑地形:地形停了多久没再变(涂了一笔、按新地形重新生成完)才截(毫秒) */
@@ -977,7 +978,7 @@ export function setThumbEditing(on: boolean) {
   thumbEditing = on;
   if (on) return;
   const c = current;
-  if (c && thumbOld === c.id) scheduleThumb(c.id, true, 0, pending?.id === c.id && !!pending.mapDone);
+  if (c && thumbOld === c.id) scheduleThumb(c.id, true, 0, pending?.id === c.id ? { thumbDone: pending.thumbDone, mapDone: pending.mapDone } : {});
   else if (pending) armThumb();
 }
 
@@ -1017,13 +1018,16 @@ export function currentSave(): SaveFile | null {
   return saveOf(current, getEdits(), currentView());
 }
 
-/** 过一会儿截一张缩略图(画布这时可能还没画好这个世界,截不到就再等等);force = 已经有了也重截 */
-function scheduleThumb(id: string, force = false, tries = 0, mapDone = false) {
+/**
+ * 过一会儿截一张缩略图(画布这时可能还没画好这个世界,截不到就再等等);force = 已经有了也重截。
+ * tries、done 是再试时带着的(第几次、这一轮哪张已经截好了)
+ */
+function scheduleThumb(id: string, force = false, tries = 0, done: Done = {}) {
   // 等着重截的不被随后一次普通的盖掉
   if (pending?.id === id && pending.force) force = true;
   stopThumb();
   if (tries > 40) return;
-  pending = { id, force, tries, mapDone };
+  pending = { id, force, tries, ...done };
   armThumb();
 }
 
@@ -1049,7 +1053,7 @@ function shootThumb(now: boolean) {
   const { id, force, tries } = p;
   const kv = store();
   if (current?.id !== id || !kv.get(PREFIX + id)) return;
-  const wantThumb = force || !kv.get(THUMB + id);
+  const wantThumb = !p.thumbDone && (force || !kv.get(THUMB + id));
   const wantMap = !!mapThumbMaker && !p.mapDone && (force || !kv.get(MAPTHUMB + id));
   if (!wantThumb && !wantMap) return;
   const url = wantThumb ? take(thumbMaker, id, now) : null;
@@ -1057,13 +1061,15 @@ function shootThumb(now: boolean) {
   const a = !!url && put(THUMB + id, url);
   const b = !!map && put(MAPTHUMB + id, map);
   if (a || b) changed();
-  if (force && a && (b || !wantMap) && thumbOld === id) thumbOld = null;
-  // 地图缩略图这一轮截好了的,再试时只截缩略图
-  if (wantThumb && !url) return scheduleThumb(id, force, tries + 1, p.mapDone || b);
+  const done = { thumbDone: !!p.thumbDone || a, mapDone: !!p.mapDone || b };
+  // 地形变了以后的两张都截到了
+  if (force && thumbOld === id && done.thumbDone && (done.mapDone || !mapThumbMaker)) thumbOld = null;
+  // 再试时只截还差的那张
+  if (wantThumb && !url) return scheduleThumb(id, force, tries + 1, done);
   if (wantMap && !map) {
     // 只差地图缩略图:旧的那张(地形变了以前的)不留,下一次补上
     kv.remove(MAPTHUMB + id);
-    scheduleThumb(id, false, tries + 1);
+    scheduleThumb(id, force, tries + 1, done);
   }
 }
 
