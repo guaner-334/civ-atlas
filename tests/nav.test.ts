@@ -3,7 +3,7 @@
  * 浏览器的 history.go 是过一会儿才到的(popstate),假的也一样:flush() 才到。
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { _resetNav, getNav, navAdopt, navBack, navLayer, navMark, navReplace, navSettled, navTitle, navTo, navUrl, startNav, type NavHooks, type NavLayer, type NavState } from '../src/ui/nav';
+import { _resetNav, getNav, navAdopt, navBack, navLayer, navMark, navPushEarly, navReplace, navSettled, navTitle, navTo, navUrl, startNav, type NavHooks, type NavLayer, type NavState } from '../src/ui/nav';
 
 class FakeHistory {
   list: { state: unknown; url: string }[] = [{ state: null, url: '/' }];
@@ -419,5 +419,20 @@ describe('首页先出来、主程序还没挂上时(navMark)', () => {
     h.replaceState({ wf: 1, idx: 3, page: 'home', bare: 3, prev: true }, '', '/');
     navMark({ page: 'home' });
     expect(h.list[0].state).toMatchObject({ idx: 3, page: 'home', prev: true });
+  });
+
+  it('首页上点了「作品墙」(navPushEarly):记新的一步、换网址;主程序挂上以后接着用这一步,按后退回到首页', () => {
+    navMark({ page: 'home' });
+    navPushEarly({ page: 'gallery' }, '/?gallery');
+    expect(h.list.map((e) => e.url)).toEqual(['/', '/?gallery']);
+    expect(h.list[1].state).toMatchObject({ wf: 1, idx: 1, page: 'gallery', prev: true });
+    // 主程序挂上:照网址还是作品墙那一页,不多记一步
+    const a = app();
+    startNav({ page: 'gallery' }, a.hooks);
+    navTo({ page: 'gallery' });
+    expect(h.list).toHaveLength(2);
+    expect(at()).toMatchObject({ idx: 1, page: 'gallery', prev: true });
+    h.back();
+    expect(a.log).toEqual(['后退:home']);
   });
 });

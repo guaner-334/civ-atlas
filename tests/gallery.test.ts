@@ -267,4 +267,21 @@ describe('拿来用:出处、存档', () => {
     setName('polity:c1#0', '大定');
     expect(saveStore.loadWorld(id)?.save.origin).toEqual(origin);
   });
+
+  it('新建参数作品「用这套参数新建」:新建中的世界带着作品的出处,「保存地图」存下的那份也带着;别的新建照旧没有出处', () => {
+    g.localStorage = new FakeStorage();
+    saveStore._resetForTest();
+    const origin: SaveOrigin = { by: '砚山', title: '两块完整大陆', url: workLink('pkd2k3m4'), gallery: 'pkd2k3m4' };
+    const params = { ...DEFAULT_PARAMS, seed: 5730, landFraction: 0.4, continents: 2 };
+    setEdits(EMPTY_EDITS);
+    saveStore.attachWorld({ id: 'wgallery001', params, check: 'c5730', kind: 'draft', saved: EMPTY_EDITS, origin });
+    expect(saveStore.currentWorld()?.origin).toEqual(origin);
+    expect(saveStore.saveCurrentAsMap()).toBe(true);
+    expect(saveStore.loadWorld('wgallery001')?.save.origin).toEqual(origin);
+    // 分享链接的出处不跟着新建(只有在那个世界的地图上打造文明时才跟着)
+    const share: SaveOrigin = { title: '苍澜界', url: 'https://example.com/s/k7Qm2xPa' };
+    setEdits(EMPTY_EDITS);
+    saveStore.attachWorld({ id: 'wgallery002', params, check: 'c5730', kind: 'draft', saved: EMPTY_EDITS, origin: share });
+    expect(saveStore.currentWorld()?.origin).toBeUndefined();
+  });
 });

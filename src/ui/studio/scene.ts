@@ -355,8 +355,9 @@ export class StudioScene {
     if (id === this.projB && this.s >= 1 && !this.poseB) return Promise.resolve();
     // 正变到一半又换:从变到一半的样子接着变(按现在的位置记成 A 的姿势)
     if (this.s < 1) {
+      // pose() 已经乘过放大倍数,记成姿势时除掉(画的时候会再乘)
       const p = this.pose();
-      this.poseA = { k: p.k, cx: p.cx, cy: p.cy };
+      this.poseA = { k: p.k / this.zoom, cx: p.cx, cy: p.cy };
       this.projA = this.s < 0.5 ? this.projA : this.projB;
     } else {
       this.poseA = this.poseB;
@@ -433,7 +434,7 @@ export class StudioScene {
       this.showProj('equirect');
     }
     const p = this.pose();
-    this.poseA = { k: p.k, cx: p.cx, cy: p.cy };
+    this.poseA = { k: p.k / this.zoom, cx: p.cx, cy: p.cy };
     this.projA = this.s < 0.5 ? this.projA : this.projB;
     this.projB = proj;
     this.poseB = pose;

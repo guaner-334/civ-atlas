@@ -271,7 +271,8 @@ import { closeOverview, getPeople, setPeople, useOverview } from './overviewStor
 import { STUDIO_STYLES, Studio } from './studio/Studio';
 import { setFlatGeomSource, useStudioFlat } from './studio/studioStore';
 import { MyWorlds, showMapInWorlds } from './MyWorlds';
-import { GalleryPage, MapWorkView, WorkBar, WorkGone, workWho } from './Gallery';
+import { GalleryPage, WorkGone, workWho } from './Gallery';
+import { MapWorkView, WorkBar } from './GalleryWork';
 import { fetchWork, isWorkGone, isWorkId, loadGallery, workLink, type GalleryItem, type GalleryWork } from '../account/gallery';
 import { mapBriefOf } from './mapGroups';
 import { NARROW_MAX, useCoarse, useNarrow } from './device';
@@ -450,7 +451,7 @@ function writeGalleryUrl(id: string) {
 type WallView = { kind: 'list'; preset?: GalleryItem } | { kind: 'work'; id: string; state: 'loading' | 'gone' | { error: string } } | { kind: 'map'; work: GalleryItem };
 
 /** 作品墙上的作品另存时写进存档的出处:作品的署名、作品名、作品的网址 */
-function workOrigin(w: GalleryWork): SaveOrigin {
+function workOrigin(w: Pick<GalleryWork, 'id' | 'by' | 'title'>): SaveOrigin {
   return { ...(w.by ? { by: w.by } : {}), title: w.title, url: workLink(w.id), gallery: w.id };
 }
 
@@ -2985,8 +2986,11 @@ ${s.image.cells}` : null);
    * (照手绘图的新建界面一进来就打开改地形工具,认图在它上面)
    */
   const startFromDialog = (s: NewWorldStart) => {
+    // 作品墙上新建参数作品「用这套参数新建」打开的弹窗:新的世界出处写这个作品(和另存世界作品一样)
+    const g = newDlg?.shared?.gallery;
     setNewDlg(null);
-    const d = draftTarget(s.params, null, yearsEdits(s.endYear, s.frontier));
+    const plain = draftTarget(s.params, null, yearsEdits(s.endYear, s.frontier));
+    const d = g?.id && isWorkId(g.id) ? { ...plain, origin: workOrigin({ id: g.id, by: g.by, title: g.title ?? '' }) } : plain;
     if (s.mode === 'random') return openTarget(d);
     openTarget({ ...d, mode: 'image' });
     if (s.picture) beginImport(s.picture);

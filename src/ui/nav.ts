@@ -163,6 +163,19 @@ export function navMark(first: NavInfo): void {
   here = W().location.href;
 }
 
+/**
+ * App 还没挂上时换到一个新画面(首页上点了「作品墙」,HomeShell.tsx):记新的一步、换成它的网址。
+ * App 挂上以后照网址打开同一个画面,startNav 接着用这一步(刷新、复制地址、按后退都对得上)
+ */
+export function navPushEarly(info: NavInfo, url: string): void {
+  const was = W().history.state;
+  const s = pageOf(info, isNavState(was) ? was.idx + 1 : 1, true);
+  W().history.pushState(s, '', url);
+  for (const k of [...entries.keys()]) if (k > s.idx) entries.delete(k);
+  remember(s);
+  here = W().location.href;
+}
+
 /** 现在这一步(单测、App 判断用) */
 export function getNav(): NavState | null {
   return cur;
