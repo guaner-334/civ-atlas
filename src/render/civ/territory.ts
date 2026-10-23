@@ -1175,6 +1175,8 @@ export function territorySteps(p0: CivDrawParams): WorkStep[] {
   let job: { t: NonNullable<ReturnType<typeof washTarget>>; inp: WashInput; img: ImageData; keep: ImageData | null; rows: WorkStep } | null = null;
   return [
     ...wf.steps,
+    // 手绘风符号"让位"的遮罩(每张地图算一次;刚打开的世界还没有):单独一步
+    () => void (p0.style === 'fantasy' && !p0.proj && washLayer(faithParams(p0) ?? p0) !== null && inkOf(p0)),
     () => {
       const t = washTarget(p0);
       if (!t || t.b.key === t.key) return install();

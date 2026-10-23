@@ -327,10 +327,11 @@ export function setEditGate(f: ((keys: string[]) => string | null) | null) {
 export function editBlock(keys: readonly string[]): string | null {
   return gate ? gate(keys.filter(Boolean)) : null;
 }
-/** 一条干预点到的键(国家、对方、城、州) */
+/** 一条干预点到的键(国家、对方、城、州;饥荒选的几州) */
 export function interventionKeys(v: Intervention): string[] {
   const o = v as Partial<Record<'a' | 'b' | 'city' | 'region', string>>;
-  return [o.a, o.b, o.city, o.region].filter((k): k is string => typeof k === 'string');
+  const regions = v.kind === 'disaster' ? (v.regions ?? []) : [];
+  return [o.a, o.b, o.city, o.region, ...regions].filter((k): k is string => typeof k === 'string');
 }
 
 /**

@@ -42,6 +42,14 @@
  *                   他在位时 a 的强制宣战由他亲征(people.ts 排统帅时)
  *   方针   policy    from 那一刻 a 定方针(polities.ts 的 setPolicy;a 那时已亡 = 不生效,b 列 −3,生效了 −1),下一刻起照方针和君主的倾向一起算,
  *                   直到 a 的下一条方针(什么都没定的 = 罢方针)。怎么加减、亲仇和发展重点管什么见 policy.ts
+ *   即位带 after     from 那一刻登记(b 列 −6),此刻在位的那位到期下台、被作者让他去世时作者的人物继位(rulers.ts;那一刻 polities.ts 另记一条 b = −1)
+ *   灭国   destroy   from 那一刻 a 亡:国土一并归 b(b 那时已亡 / 指不到 / 没给 = 散成无主,接壤各国照规矩预约扩进去,polities.ts 的 reopen),
+ *                   它打着的仗全部结束(和划州里亡国一样记 fall)。a 那时已亡 = 不生效(b 列 −3)。和"不许灭"撞上:灭国当刻就灭,不许灭只管打仗、合并
+ *   让人物去世 death  君主:from 那一刻在位的是他(按人物键里的生年认;作者立的君主不算)才生效,在位表跟着改(rulers.ts:他到此刻为止,
+ *                   下一位从下一刻起照常继位);将领、名臣:推演里只记一笔(b 列 −5),人物那边按卒年换人(people.ts、officials.ts)
+ *   改君主倾向 temper from 那一刻在位的是他才生效(同一刻已被让他去世、已让位的不算),下一刻起照新的倾向,到他下台为止(rulers.ts 的 moods);
+ *                   门槛放低了的,下一刻从现有国土往外重新看一遍(和定方针一样)
+ *   天灾   disaster  瘟疫、饥荒、地震水旱:受灾的城人口掉一截,国内更动荡,不改地形(disaster.ts)
  *
  * 每条干预在 from 那一刻记一条史事 intervene(字段见 types.ts 的 AnnalKind;A 的键指不到就不记),编年史写"【干预】……"。
  * 紧跟着记它引起的事:宣战的 war(盟国、宗藩之间开战,war 前面先记盟约 / 宗藩之分断了的 unally / defect,见 diplomacy.ts)、结盟 / 不许扩张引起的 peace、立国的 found、迁都的 capital、原主国迁都的 capital / 亡国的 fall。
@@ -52,12 +60,13 @@
  *   逐年推演(play.ts)停在第 T 年年初的前一刻,在列表后面接上 from = T 的新命令:比现在晚,和别的还没到的干预一样补上事件,
  *   同一刻里照样排在别的事件前面、按列表先后 —— 所以停下来下命令接着推,和带着同样的命令一口气推完一样。纯计算,不碰 DOM。
  */
-import { cleanInterventions, keyByRegion, regionOfKey, type Intervention } from '../edits';
+import { cleanInterventions, keyByRegion, parsePersonKey, regionOfKey, type Intervention } from '../edits';
 import { Layer, type Polity } from './types';
 import { subSeed } from './rand';
 import { Ev, quantize, type CivSim } from './sim';
-import { addPolity, crownRuler, endPolity, foundCity, moveCapital, polityModelOf, respread, setPolicy, type PolityModel } from './polities';
-import { crownOf } from './rulers';
+import { addPolity, endPolity, foundCity, moveCapital, polityModelOf, reopen, respread, rulerAct, rulerOf, setPolicy, type PolityModel } from './polities';
+import { IV_NOT_HIM, IV_PEOPLE, IV_WAIT, crownOf, reignBorn } from './rulers';
+import { strikeDisaster } from './disaster';
 import { bestCapital, polityBorders, warModelOf } from './wars';
 import { capitalAt } from './growth';
 import { REBUILD_GROWTH } from './cities';
@@ -70,6 +79,8 @@ type Found = Extract<Intervention, { kind: 'found' }>;
 type Move = Extract<Intervention, { kind: 'move' }>;
 type CrownIv = Extract<Intervention, { kind: 'crown' }>;
 type PolicyIv = Extract<Intervention, { kind: 'policy' }>;
+type DestroyIv = Extract<Intervention, { kind: 'destroy' }>;
+type PersonIv = Extract<Intervention, { kind: 'death' | 'temper' }>;
 
 /** 推演里的干预:清理过的列表 + 键 → 编号的解析 + 各机制查询用的规则 */
 export class InterventionModel {
@@ -396,12 +407,53 @@ export function installInterventions(sim: CivSim, iv: InterventionModel): void {
     sim.record('capital', { a, region: s.region, settlement: sid });
   };
 
-  /** 即位:作者的人物此刻成为 a 的君主(b 列:−1 即位了 / −2 他还没出生 / −3 a 已亡) */
+  /** 即位:作者的人物此刻成为 a 的君主(b 列:−1 即位了 / −2 他还没出生 / −3 a 已亡 / −6 等此刻在位的那位下台再即位,登记了) */
   const crown = (v: CrownIv, i: number, a: number, t: number) => {
     const sid = capitalAt(pm.polities[a], t);
-    const b = !alive(a) ? -3 : v.born > t ? -2 : -1;
+    const b = !alive(a) ? -3 : v.born > t ? -2 : v.after ? IV_WAIT : -1;
     sim.record('intervene', { a, b, region: S[sid]?.region ?? -1, settlement: sid, war: i });
-    if (b === -1) crownRuler(sim, pm, a, crownOf(v, t, i));
+    if (b === -1 || b === IV_WAIT) rulerAct(sim, pm, a, crownOf(v, t, i));
+  };
+
+  /** 灭国:a 此刻亡,国土并入 b 或散成无主(b 列:并入的国家 / −1 散成无主 / −3 a 已亡) */
+  const destroy = (v: DestroyIv, i: number, a: number, t: number) => {
+    const sid = capitalAt(pm.polities[a], t);
+    const r = S[sid]?.region ?? -1;
+    if (!alive(a)) {
+      sim.record('intervene', { a, b: -3, region: r, settlement: sid, war: i });
+      return;
+    }
+    const to = v.b !== undefined ? iv.resolve(v.b) : -1;
+    const by = to >= 0 && to !== a && alive(to) ? to : -1;
+    const lands = pm.lands[a].slice();
+    sim.record('intervene', { a, b: by, region: r, settlement: sid, war: i, n: lands.length });
+    for (const q of lands) sim.setOwner(Layer.Polity, q, by, Ev.Cede);
+    endPolity(pm, a, t);
+    fallen(a, r, t, by);
+    if (by < 0) reopen(sim, pm, lands);
+  };
+
+  /**
+   * 让人物去世 / 改君主倾向(b 列:−1 生效了 / −3 a 已亡 / −4 此刻在位的不是他 / −5 将领、名臣,推演里不管)。
+   * 君主按"此刻在位、不是作者立的、生年对得上人物键"认;去世的已经被让他去世过的不算,改倾向的已经下台(同一刻被让他去世、让位)的不算
+   */
+  const person = (v: PersonIv, i: number, a: number, t: number) => {
+    const sid = capitalAt(pm.polities[a], t);
+    const at = { a, region: S[sid]?.region ?? -1, settlement: sid, war: i };
+    const who = parsePersonKey(v.person);
+    if (!who || who.role !== 'ruler') {
+      sim.record('intervene', { ...at, b: IV_PEOPLE });
+      return;
+    }
+    if (!alive(a)) {
+      sim.record('intervene', { ...at, b: -3 });
+      return;
+    }
+    const r = rulerOf(pm, a, t);
+    const him = !r.crown && Math.round(reignBorn(r)) === who.born && (v.kind === 'death' ? !r.death : r.cut === undefined);
+    sim.record('intervene', { ...at, b: him ? -1 : IV_NOT_HIM });
+    if (!him) return;
+    rulerAct(sim, pm, a, v.kind === 'death' ? { kind: 'death', t, iv: i } : { kind: 'temper', t, iv: i, leanings: v.leanings });
   };
 
   /** 方针:a 此刻定方针(b 列:−1 生效了 / −3 a 已亡) */
@@ -417,6 +469,10 @@ export function installInterventions(sim: CivSim, iv: InterventionModel): void {
     if (!v) return;
     if (v.kind === 'found') {
       found(v, i, t);
+      return;
+    }
+    if (v.kind === 'disaster') {
+      strikeDisaster(sim, iv, v, i, t);
       return;
     }
     const a = iv.resolve(v.a);
@@ -435,6 +491,14 @@ export function installInterventions(sim: CivSim, iv: InterventionModel): void {
     }
     if (v.kind === 'policy') {
       policy(v, i, a, t);
+      return;
+    }
+    if (v.kind === 'destroy') {
+      destroy(v, i, a, t);
+      return;
+    }
+    if (v.kind === 'death' || v.kind === 'temper') {
+      person(v, i, a, t);
       return;
     }
     const b = v.kind === 'ally' || v.kind === 'declare' ? iv.resolve(v.b) : -1;

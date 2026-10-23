@@ -52,6 +52,7 @@ import type { Frontier, Origins } from './gen/civ/frontier';
 import { SNAPSHOT_FORMAT, makePart, readPart, recipeKey, recipeText, type Recipe, type Snapshot, type SnapshotPart } from './gen/snapshot';
 import { playStop, playTurn } from './gen/civ/play';
 import { chronicleParts, type ChroniclePart } from './chronicleParts';
+import { splitCiv, type CivPart, type CivSplit } from './civParts';
 
 /**
  * 一组参数 + 草图(没改地形的星球)的扩张节拍和城的人口折算(gen/civ 的 planetTempo;null = 长不出文明),key = 这颗星球在线程里的键。
@@ -168,6 +169,11 @@ export type WorkerResponse =
    */
   | ({ type: 'chronicle'; id: number } & ChroniclePart)
   /**
+   * 下一条交历史的消息(done、civ、civOnly、turn、extended、trial)那份历史里条数多的几个列表,切成段先交(src/civParts.ts);
+   * 交历史的那条带着同一个编号(split),那几个列表在它里面是空的,收齐拼回去才能用
+   */
+  | ({ type: 'civPart'; id: number } & CivPart)
+  /**
    * ms = 线程里花的时间(生成 + 文明 + 铺像素),genMs = 其中生成世界那一步(reused = 前一半是接着上一次的,genMs 只是后一半),
    * rasterMs = 铺像素(推文明之前那一段,沟壑和细沟不算);civMs = 其中推文明那一步(再推的界面拿它估这台电脑推演要多久;读原件的没有);
    * tempo = 这组参数的扩张节拍(知道的话);eras = 地形大事以后的各段世界(没有大事 = 不给)。
@@ -176,28 +182,28 @@ export type WorkerResponse =
    * 整张交的推了文明的(打开世界、新建)也带(等帮手算沟壑的工夫里算好):主线程换上之前备手绘地图、缩略图都要用。
    * civ = null:请求带了 skipCiv,没推文明
    */
-  | ({ type: 'done'; id: number; world: World; civ: Civ | null; chron?: number; ms: number; genMs: number; rasterMs: number; civMs?: number; reused?: true; tempo?: TempoNote; eras?: EraWorld[]; baseKey: string } & (
+  | ({ type: 'done'; id: number; world: World; civ: Civ | null; split?: CivSplit; chron?: number; ms: number; genMs: number; rasterMs: number; civMs?: number; reused?: true; tempo?: TempoNote; eras?: EraWorld[]; baseKey: string } & (
       | { raster: Raster; patch?: undefined; from?: undefined; plan?: Plan }
       | { raster?: undefined; patch: RasterPatch | null; from: string; plan: Plan }
     ))
   | ({ type: 'history'; id: number } & HistoryFrames)
   /** 重推好的文明;ms = 线程里花的时间(含按参数重新生成世界);tempo、eras 同 done */
-  | { type: 'civ'; id: number; seq: number; civ: Civ; chron?: number; ms: number; tempo?: TempoNote; eras?: EraWorld[]; baseKey: string }
+  | { type: 'civ'; id: number; seq: number; civ: Civ; split?: CivSplit; chron?: number; ms: number; tempo?: TempoNote; eras?: EraWorld[]; baseKey: string }
   /** 补推好的文明(civOnly);ms 同 civ,civMs = 其中推文明那一步;tempo、eras 同 done */
-  | { type: 'civOnly'; id: number; nid: number; civ: Civ; chron?: number; ms: number; civMs: number; tempo?: TempoNote; eras?: EraWorld[]; baseKey: string }
+  | { type: 'civOnly'; id: number; nid: number; civ: Civ; split?: CivSplit; chron?: number; ms: number; civMs: number; tempo?: TempoNote; eras?: EraWorld[]; baseKey: string }
   /** 逐年推演一步的结果:推到下一步年初的历史、新的进度(play)、没收下的命令(rejected);ms、tempo、eras 同 civ */
-  | { type: 'turn'; id: number; civ: Civ; chron?: number; play: PlayState; rejected: unknown[]; ms: number; tempo?: TempoNote; eras?: EraWorld[]; baseKey: string }
+  | { type: 'turn'; id: number; civ: Civ; split?: CivSplit; chron?: number; play: PlayState; rejected: unknown[]; ms: number; tempo?: TempoNote; eras?: EraWorld[]; baseKey: string }
   /**
    * 再推的进度:推演已经推到第 year 年,整体进度 pct(0–1,只增不减)。开始时交一次(year = 推好的那年,pct = 0);
    * 推演那一步推完(year = to)以后还有推完以后的整理(起名、人物、道路……),pct 在那时停一会儿(3000→4000 年约停在 0.4)
    */
   | { type: 'extendProgress'; id: number; xid: number; year: number; pct: number }
   /** 再推好了:推到第 to 年的整段历史(civ.endYear = to);ms(线程里花的时间)、tempo、eras 同 civ */
-  | { type: 'extended'; id: number; xid: number; civ: Civ; chron?: number; to: number; ms: number; tempo?: TempoNote; eras?: EraWorld[]; baseKey: string }
+  | { type: 'extended'; id: number; xid: number; civ: Civ; split?: CivSplit; chron?: number; to: number; ms: number; tempo?: TempoNote; eras?: EraWorld[]; baseKey: string }
   /** 这次再推没推完就停了(被新请求顶掉、被叫停):世界还是原来的样子 */
   | { type: 'extendStopped'; id: number; xid: number }
   /** 试推演的结果;tempo 同 done */
-  | { type: 'trial'; id: number; tid: number; civ: Civ; ms: number; tempo?: TempoNote }
+  | { type: 'trial'; id: number; tid: number; civ: Civ; split?: CivSplit; ms: number; tempo?: TempoNote }
   /** 一段的主图补丁:key 这一段比 prev 那一段(原来的世界或上一件大事以后)变了的那一块;null = 看不出变化 */
   | { type: 'eraPatch'; id: number; key: string; prev: string; patch: RasterPatch | null }
   /** 地形大事的预览;water = 加上这几笔以后各地块的海陆(0 陆地 / 1 海 / 2 湖) */
@@ -256,6 +262,21 @@ const keyOf = (p: WorldParams, terrain?: readonly TerrainOp[], sketch?: SketchEd
   JSON.stringify([Object.entries(p).sort(([a], [b]) => (a < b ? -1 : 1)), terrain ?? [], sketch ?? null]);
 
 const post = (m: WorkerResponse, transfer: Transferable[] = []) => self.postMessage(m, { transfer });
+
+/** 交出去的历史切段编号到几了 */
+let splitSeq = 0;
+/**
+ * 交历史的消息:历史里条数多的几个列表先切成段一条一条交(src/civParts.ts;主线程每段单独拆包,不在这一条上一口气拆整份),
+ * 这一条带着编号、那几个列表是空的。短的历史不切,原样交
+ */
+function postCiv(m: Extract<WorkerResponse, { split?: CivSplit }>, transfer: Transferable[]) {
+  if (!m.civ) return post(m, transfer);
+  const key = ++splitSeq;
+  const { parts, civ } = splitCiv(m.civ, key);
+  if (!parts.length) return post(m, transfer);
+  for (const p of parts) post({ type: 'civPart', id: m.id, ...p });
+  post({ ...m, civ, split: { key, parts: parts.length } } as WorkerResponse, transfer);
+}
 
 /** 交出去的编年史编号到几了 */
 let chronSeq = 0;
@@ -821,7 +842,7 @@ async function handle(m: Queued): Promise<void> {
     keepCiv(m, m.play, cloned);
     const ms = performance.now() - t0;
     const chron = civ ? await postChronicle(m.id, civ, m.renames) : undefined;
-    post({ type: 'done', id: m.id, world: { ...rest, history: [] }, ...map, civ, ...(chron !== undefined ? { chron } : {}), ms, genMs, rasterMs, ...(civMs !== undefined ? { civMs } : {}), ...(reused ? { reused: true as const } : {}), tempo: noteOf(m.params, m.sketch), eras: eraWorlds(steps), baseKey }, transfer);
+    postCiv({ type: 'done', id: m.id, world: { ...rest, history: [] }, ...map, civ, ...(chron !== undefined ? { chron } : {}), ms, genMs, rasterMs, ...(civMs !== undefined ? { civMs } : {}), ...(reused ? { reused: true as const } : {}), tempo: noteOf(m.params, m.sketch), eras: eraWorlds(steps), baseKey }, transfer);
     queuePatches(m.id, m, steps);
     queueSnapshot(m.id, m, world, steps, cloned);
   } else if (m.type === 'civOnly') {
@@ -836,7 +857,7 @@ async function handle(m: Queued): Promise<void> {
     keepCiv(m, m.play, cloned);
     const ms = performance.now() - t0;
     const chron = await postChronicle(m.id, civ, m.renames);
-    post({ type: 'civOnly', id: m.id, nid: m.nid, civ, chron, ms, civMs, tempo: noteOf(m.params, m.sketch), eras: eraWorlds(steps), baseKey: keyOf(m.params, m.terrain, m.sketch) }, civTransferables(civ));
+    postCiv({ type: 'civOnly', id: m.id, nid: m.nid, civ, chron, ms, civMs, tempo: noteOf(m.params, m.sketch), eras: eraWorlds(steps), baseKey: keyOf(m.params, m.terrain, m.sketch) }, civTransferables(civ));
     queueSnapshot(m.id, m, world, steps, cloned);
   } else if (m.type === 'load') {
     bg.length = 0;
@@ -898,7 +919,7 @@ async function handle(m: Queued): Promise<void> {
     held = civPart ? { key: heldKey(m, m.play), part: civPart } : null;
     const ms = performance.now() - t0;
     const chron = await postChronicle(m.id, civ, m.renames);
-    post({ type: 'done', id: m.id, world: { ...world, history: [] }, raster, ...(plan ? { plan } : {}), civ, chron, ms, genMs, rasterMs, eras: eraWorlds(steps), baseKey }, transfer);
+    postCiv({ type: 'done', id: m.id, world: { ...world, history: [] }, raster, ...(plan ? { plan } : {}), civ, chron, ms, genMs, rasterMs, eras: eraWorlds(steps), baseKey }, transfer);
     queuePatches(m.id, m, steps);
   } else if (m.type === 'history') {
     const h = buildHistoryFrames(formationOf(m.params, m.terrain, m.sketch));
@@ -921,10 +942,10 @@ async function handle(m: Queued): Promise<void> {
       keepCiv(m, m.play, cloned);
       // 主线程只换上最新的一次重推;换了世界的也不换
       const chron = await postChronicleUnlessSuperseded(m.id, civ, m.renames, () => fg.some((r) => r.type === 'generate' || r.type === 'load' || r.type === 'resim'));
-      post({ type: 'civ', id: m.id, seq: m.seq, civ, ...(chron !== undefined ? { chron } : {}), ms, tempo, eras: eraWorlds(steps), baseKey: keyOf(m.params, m.terrain, m.sketch) }, civTransferables(civ));
+      postCiv({ type: 'civ', id: m.id, seq: m.seq, civ, ...(chron !== undefined ? { chron } : {}), ms, tempo, eras: eraWorlds(steps), baseKey: keyOf(m.params, m.terrain, m.sketch) }, civTransferables(civ));
       queuePatches(m.id, m, steps);
       queueSnapshot(m.id, m, world, steps, cloned);
-    } else post({ type: 'trial', id: m.id, tid: m.tid, civ, ms, tempo }, civTransferables(civ));
+    } else postCiv({ type: 'trial', id: m.id, tid: m.tid, civ, ms, tempo }, civTransferables(civ));
   } else if (m.type === 'turn') {
     const t0 = performance.now();
     const world = worldOf(m.params, m.terrain, m.sketch);
@@ -937,7 +958,7 @@ async function handle(m: Queued): Promise<void> {
     const cloned = cloneCiv(out.civ);
     keepCiv(m, out.play, cloned);
     const chron = await postChronicle(m.id, out.civ, m.renames);
-    post({ type: 'turn', id: m.id, civ: out.civ, chron, play: out.play, rejected: out.rejected, ms, tempo: noteOf(m.params, m.sketch), eras: eraWorlds(steps), baseKey: keyOf(m.params, m.terrain, m.sketch) }, civTransferables(out.civ));
+    postCiv({ type: 'turn', id: m.id, civ: out.civ, chron, play: out.play, rejected: out.rejected, ms, tempo: noteOf(m.params, m.sketch), eras: eraWorlds(steps), baseKey: keyOf(m.params, m.terrain, m.sketch) }, civTransferables(out.civ));
     queuePatches(m.id, m, steps);
     // 原件很大,打一份要好一会儿:一步接一步往下走的时候不每一步都打(会拖慢下一步),停下来一阵子没有下一步了才打最后这一份
     clearTimeout(turnSnap);
@@ -967,7 +988,7 @@ async function handle(m: Queued): Promise<void> {
     const cloned = cloneCiv(civ);
     keepCiv(m, undefined, cloned);
     const chron = await postChronicleUnlessSuperseded(m.id, civ, m.renames, stop);
-    post({ type: 'extended', id: m.id, xid: m.xid, civ, ...(chron !== undefined ? { chron } : {}), to, ms, tempo: noteOf(m.params, m.sketch), eras: eraWorlds(steps), baseKey: keyOf(m.params, m.terrain, m.sketch) }, civTransferables(civ));
+    postCiv({ type: 'extended', id: m.id, xid: m.xid, civ, ...(chron !== undefined ? { chron } : {}), to, ms, tempo: noteOf(m.params, m.sketch), eras: eraWorlds(steps), baseKey: keyOf(m.params, m.terrain, m.sketch) }, civTransferables(civ));
     queuePatches(m.id, m, steps);
     queueSnapshot(m.id, { ...m, endYear: to }, world, steps, cloned);
   } else if (m.type === 'extendStop') {
