@@ -209,6 +209,7 @@ import {
   currentWorld,
   deleteWorld,
   detachWorld,
+  flushThumb,
   importSave,
   isStored,
   isWorldId,
@@ -231,6 +232,7 @@ import {
   stepOrigin,
   setMapThumbMaker,
   setReopenHandler,
+  setThumbEditing,
   setThumbMaker,
   setWorldStats,
   startAutoSave,
@@ -331,6 +333,7 @@ import {
   terrainMove,
   terrainUp,
   terrainCancel,
+  terrainStroking,
   useTerrainTool,
   type TerrainStatus,
 } from './TerrainTools';
@@ -1935,6 +1938,8 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
   /** 按 t 的参数、地形修改生成世界;生成完(readyRef)套上 t 的修改 */
   const generate = useCallback(
     (t: Target) => {
+      // 原来那个世界等着截的缩略图(编辑地形停笔没多久)先截下来,换走以后就截不到了
+      flushThumb();
       targetRef.current = t;
       const p = t.params;
       const id = ++reqId.current;
@@ -2167,6 +2172,8 @@ ${s.image.cells}` : null);
   const releaseNamesRef = useRef(releaseNames);
   releaseNamesRef.current = releaseNames;
   useEffect(() => {
+    // 存档缩略图:编辑地形开着时连着涂不截,收起时等着的那一张不再等
+    setThumbEditing(terrainTool.on);
     if (!terrainTool.on) releaseNamesRef.current();
   }, [terrainTool.on]);
   /** 补推好了:换上(地名淡入);对不上的改名、没生效的干预(以别的世界为底稿新建时带着的)照旧说一句 */
@@ -2373,12 +2380,15 @@ ${s.image.cells}` : null);
   }, [aiOn]);
   // 缩略图("我的世界"的卡片、存档菜单):手绘风的地形 480×240;建好的世界叠上结束那一年的国家色块(和正在看哪个图层、哪一年无关)。
   // 地形是结束那一年的(地形大事以后的那一段)。世界还在生成、按新地形重新生成、按新的干预重推历史、那一段的主图还没铺好时 = null,
-  // saveStore 过一会儿再来要
+  // saveStore 过一会儿再来要;编辑地形正涂着(手指、鼠标按着)也先不截。
+  // 还没补推历史(编辑地形时生成的):新建中、没有地形大事的不叠国家、地形就是第 0 年的,不再等的那一次(now)照样截
   useEffect(() => {
     setThumbMaker((id, now) => {
       const t = targetRef.current;
       const b = baseRef.current;
-      if (!dataRef.current || !b || fresh.current || regenRef.current || resimRef.current || civLater.current || !t || t.id !== id) return null;
+      if (!dataRef.current || !b || fresh.current || regenRef.current || resimRef.current || !t || t.id !== id) return null;
+      if (!now && terrainStroking()) return null;
+      if (civLater.current && !(now && currentWorld()?.kind === 'draft' && !getEdits().upheavals?.length)) return null;
       const kEnd = eraIndex(rawRef.current, null);
       if (!eraReady(eraMapsRef.current, eraPatches.current, kEnd)) return null;
       const d = eraData(b, eraMapsRef.current, eraPatches.current, kEnd);
@@ -2415,6 +2425,7 @@ ${s.image.cells}` : null);
       const t = targetRef.current;
       const b = baseRef.current;
       if (!b || fresh.current || regenRef.current || !t || t.id !== id) return null;
+      if (!now && terrainStroking()) return null;
       if (!now && !mapsOf(b).has('realistic') && !baseReady('realistic', b.world, b.raster)) return null;
       const base = baseCanvas('realistic', b);
       if (!base) return null;
@@ -2627,6 +2638,8 @@ ${s.image.cells}` : null);
    * 直接换上它的修改;正在生成的就是它:等生成完;否则按它的参数生成
    */
   const openTarget = (t: Target, step: 'push' | 'replace' = 'push') => {
+    // 原来那个世界等着截的缩略图先截下来(同 generate)
+    flushThumb();
     const info = navInfo(t.kind === 'draft' ? 'draft' : 'world', t);
     if (step === 'push') navTo(info);
     else navReplace(info);

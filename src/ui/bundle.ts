@@ -31,6 +31,7 @@ import {
   currentUnsaved,
   currentWorld,
   fillMissing,
+  flushThumb,
   listWorlds,
   newWorldId,
   notify,
@@ -304,6 +305,8 @@ function download(text: string, name: string) {
 
 /** 「我的世界」里点「全部存成文件」 */
 export function downloadAll() {
+  // 正开着的世界等着截的缩略图(编辑地形停笔没多久)先截下来
+  flushThumb();
   const b = bundleText();
   if (!b) return notify({ kind: 'error', text: '「我的世界」里还没有世界' });
   if (b.tooBig) return notify({ kind: 'error', text: '没能存成文件', more: ['世界太多、太大，一个文件放不下'] });

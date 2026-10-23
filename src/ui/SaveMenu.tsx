@@ -17,7 +17,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { SHARE_WARN_LENGTH, editCount, saveFileName, saveText, type SaveFile } from '../gen/savefile';
 import { useEdits } from './editsStore';
-import { addFileSaver, currentOriginal, currentSave, currentWorld, loadWorld, notify, persistent, storageFullWhy, storageIsFull, useSavesVersion } from './saveStore';
+import { addFileSaver, currentOriginal, currentSave, currentWorld, flushThumb, loadWorld, notify, persistent, storageFullWhy, storageIsFull, useSavesVersion } from './saveStore';
 import { oldSiteFor, openOriginal } from './oldSite';
 import { Icon } from './icons';
 import { noteDismiss } from './dismissClick';
@@ -116,6 +116,10 @@ export function SaveMenu({ ready, icon }: SaveMenuProps) {
   const session = useSession();
   const syncView = useSyncView();
   const synced = useMemo(() => (open && session && cur && curStored ? worldSync(cur.id) : null), [open, session, cur, curStored, syncView]);
+  // 菜单里的缩略图:等着截的(编辑地形停笔没多久)不再等
+  useEffect(() => {
+    if (open) flushThumb();
+  }, [open]);
 
   // 点菜单外面就收起(在捕获阶段听:地图上的按钮条拦了冒泡,点旁边的按钮照样收起)
   useEffect(() => {
