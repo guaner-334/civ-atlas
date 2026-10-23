@@ -741,6 +741,21 @@ export function polityKey(civ: Civ, id: number): string {
   return keyIndex(civ).polity[id];
 }
 
+/**
+ * 干预"立国"(第 year 年在州 region 立国)立出来的那个国家的稳定键:立国以前就要用(同一年给新国下即位这类干预)。
+ * 和 polityKey 同一个算法 —— 国都所在州 + 这州第几个立国;civ 是立国以前那段历史一样的任何一份(year 以前立的国家照它数)。
+ * 州键不对 = null
+ */
+export function foundedPolityKey(civ: Civ, region: string, year: number): string | null {
+  const seat = keySeats(civ.regions);
+  const r = regionOfKey(region, keyCells(civ.regions));
+  if (r < 0 || r >= seat.length) return null;
+  const S = civ.settlements;
+  let n = 0;
+  for (const p of civ.polities) if (p.founded < year && S[p.capital]?.region === r) n++;
+  return `polity:c${seat[r]}#${n}`;
+}
+
 export function settlementKey(civ: Civ, id: number): string {
   return keyIndex(civ).settlement[id];
 }

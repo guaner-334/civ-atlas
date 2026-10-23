@@ -110,6 +110,7 @@ import {
   takeAutoplay,
   setCivShow,
   setSelection,
+  setSelectionRedirect,
   startCivReplay,
   stepYear,
   togglePlayback,
@@ -257,7 +258,8 @@ import { markHover, markSpot, ownerName } from './markInfo';
 import { CharacterLayer, characterPinAt, characterPinTip } from './CharacterLayer';
 import { draftAsCharacter, escapeCharacter, getCharUi, parseYear as parseCharYear, pickPlace, resetCharacterUi, stopPicking, useCharUi } from './characterStore';
 import { characterHover, placeOf, whereOfCity, whereOfRegion } from './characterInfo';
-import { lifeStops, type Where } from '../gen/characters';
+import { applyCharacters, lifeStops, type Where } from '../gen/characters';
+import { crownDoneText } from './crownInfo';
 import { regionLabel } from '../gen/civ/display';
 import { NAME_ZOOM } from '../render/marks';
 import { collapseSide, expandSide, getSide, setSideHold, useSide } from './sideStore';
@@ -836,11 +838,12 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
    * 整段历史(最后一段的州、地名,套上改名):编年史这类按它算(见 Civ.history);后台线程按同样的改名算好了编年史的直接用。
    * 改了名、编年史还在分小块算的时候,先照旧显示改名以前的样子,算好再换上(chronicleHandoff.ts);realNames = 现在套着的那份改名
    */
-  const realNamed = useNamedHistory(rawCiv, edits.names);
+  // 作者立的君主(干预"即位")套上人物卡上的名字
+  const realNamed = useNamedHistory(rawCiv, edits.names, edits.characters);
   const realFull = realNamed?.full ?? null;
   const realNames = realNamed?.names ?? edits.names;
   // 试推演的编年史在换上之前已经分小块算好了(assistantStore.ts 的 showPreview)
-  const previewFull = useMemo(() => (previewRaw ? namedHistory(previewRaw, preview!.names) : null), [previewRaw, preview?.names]);
+  const previewFull = useMemo(() => (previewRaw ? namedHistory(previewRaw, preview!.names, getEdits().characters) : null), [previewRaw, preview?.names]);
   /** 地图上那一段的历史:那一段的州、地名、道路,套上改名;更早一段时挂上整段历史 */
   const eraView = (raw: Civ, full: Civ, names: Record<string, string>) => {
     const e = civAtEra(raw, eraK);
@@ -855,6 +858,17 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
   }, [previewRaw, rawCiv, eraK]);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- eraView 只用到 eraK
   const civ = useMemo(() => (previewRaw && previewFull ? eraView(previewRaw, previewFull, preview!.names) : realCiv), [previewRaw, previewFull, eraK, preview?.names, realCiv]);
+  // 推演里作者的人物当的君主(编年史、世系图、国家卡片里点他的名字):打开作者的人物卡;人物卡删掉了照旧开推演人物卡
+  const civForRedirect = useRef(civ);
+  civForRedirect.current = civ;
+  useLayoutEffect(() => {
+    setSelectionRedirect((sel) => {
+      if (sel.kind !== 'person') return sel;
+      const a = civForRedirect.current?.people?.[sel.id]?.author;
+      return a !== undefined && getEdits().characters?.some((c) => c.id === a) ? { kind: 'character', id: a } : sel;
+    });
+    return () => setSelectionRedirect(null);
+  }, []);
   // 国旗(flagStore.ts):所有国家历代的旗,套上作者改过的和「换一面」「自己改」正在预览的那一面;历史和世界对不上(正在重新生成)时先不算。
   // 有地形大事的按第一件以前的地形配(拖时间轴跨过大事旗不跟着变,那以前的旗和没有大事时一样)
   const flagPreview = useFlagPreview();
@@ -1672,11 +1686,13 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
         const run = getPanel().run;
         const shown = run && run.from === v.from ? run.shown : undefined;
         const then = interventionActorThen(named, v);
+        // 即位:写人物的名字、到哪年下台;没即位成(那年国已亡、他还没出生……)黄色,写原因
+        const crowned = v.kind === 'crown' ? crownDoneText(applyCharacters(named, getEdits().characters), v, idx, getEdits().characters, era) : null;
         showToast({
           id: 'resim-done',
-          kind: 'ok',
-          text: `${eraText(interventionDoneText(named, v, idx, shown), era)},已从${spaced(at(y))}起重新推演`,
-          more: shown && then && then !== shown ? [`${at(v.from)}时它叫${then}`] : undefined,
+          kind: crowned && !crowned.ok ? 'warn' : 'ok',
+          text: crowned ? `${crowned.text}；已从${spaced(at(y))}起重新推演` : `${eraText(interventionDoneText(named, v, idx, shown), era)},已从${spaced(at(y))}起重新推演`,
+          more: !crowned && shown && then && then !== shown ? [`${at(v.from)}时它叫${then}`] : undefined,
           action: {
             label: '撤销',
             onClick: () => {
@@ -4778,8 +4794,9 @@ ${s.image.cells}` : null);
     const pk = getPolityPick();
     if (pk) {
       const city = pk.target === 'settlement';
-      const id = city ? settlementAtClick(e.clientX, e.clientY) : polityAtClick(e.clientX, e.clientY);
-      const err = id >= 0 ? pk.accept(id) : city ? '这里没有城,点一座城的符号或城名' : '这里没有国家,点一个国家的国土或国名';
+      const region = pk.target === 'region';
+      const id = city ? settlementAtClick(e.clientX, e.clientY) : region ? regionAtClient(e.clientX, e.clientY) : polityAtClick(e.clientX, e.clientY);
+      const err = id >= 0 ? pk.accept(id) : city ? '这里没有城,点一座城的符号或城名' : region ? '这里不是陆地,点一个州' : '这里没有国家,点一个国家的国土或国名';
       setPolityPick(err ? { ...pk, msg: err } : null);
       return;
     }
