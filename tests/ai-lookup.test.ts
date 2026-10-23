@@ -6,7 +6,8 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { generateCiv } from '../src/gen/civ';
 import type { Civ } from '../src/gen/civ/types';
-import { MARK_COLORS, personKey, polityKey, settlementKey, type WorldEdits } from '../src/gen/edits';
+import { MARK_COLORS, personKey, polityKey, settlementKey, type Upheaval, type WorldEdits } from '../src/gen/edits';
+import { upheavalSteps } from '../src/gen/civ/upheaval';
 import type { AuthorCharacter } from '../src/gen/characters';
 import { ownersAt } from '../src/gen/civ/timeline';
 import { polityAlive, populationLabel, regionPopulationAt } from '../src/gen/civ/growth';
@@ -253,6 +254,31 @@ describe.each(worlds)('种子 $seed', (w) => {
     expect(r.result.split('\n')[1]).toContain(`名臣 ${latest.name}`);
   });
 
+  it('将领按年份列:两次领兵中间没领兵的那几年不算', () => {
+    const covers = (x: { commands?: { from: number; until: number }[] }, g: number) => (x.commands ?? []).some((c) => F(c.from) <= g && c.until > g);
+    let hit: { polity: number; g: number; name: string } | undefined;
+    for (const x of civ.people ?? []) {
+      if (x.role !== 'general') continue;
+      const cs = x.commands ?? [];
+      for (let i = 1; i < cs.length && !hit; i++) {
+        const g = Math.ceil(cs[i - 1].until);
+        if (g < F(cs[i].from) && !covers(x, g)) hit = { polity: x.polity, g, name: x.name };
+      }
+      if (hit) break;
+    }
+    if (!hit) return;
+    const gens = peopleIndex(civ).generals[hit.polity];
+    const want = gens.filter((x) => covers(x, hit!.g)).length;
+    const r = lookupPeople(ctx, { country: `P${hit.polity}`, role: 'general', from: hit.g, to: hit.g, limit: 60 }).result;
+    expect(r).toContain(`将领 共 ${want} 位`);
+  });
+
+  it('年份写成认不出的字:按现在这一年,不按第 0 年', () => {
+    const now = lookupPeople(ctx, { country: `P${big}`, year: ctx.year }).result;
+    expect(lookupPeople(ctx, { country: `P${big}`, year: 'unknown' }).result).toBe(now);
+    expect(lookupPeople(ctx, { country: `P${big}`, year: `第 ${ctx.year} 年` }).result).toBe(now);
+  });
+
   it('只圈到湖面:说是湖泊,不说成海洋', () => {
     const lake = world.water.indexOf(2);
     if (lake < 0) return;
@@ -305,6 +331,37 @@ describe('作者的人物即位以后', () => {
     const r = lookupPeople(ctx, { country: `P${big}`, year: 2005 });
     expect(r.summary).toBe('第 2005 年在位的是林小满');
     expect(r.result).toContain('生卒 第 1980—2040 年');
+  });
+});
+
+describe('地形大事前后', () => {
+  // 种子 7 第 1600 年海水漫进来(和 civ-upheaval.test.ts 的 FLOOD 同一件)
+  const FLOOD: Upheaval = { year: 1600, ops: [{ kind: 'sink', pts: [1850, 520, 1930, 530, 1903, 469], r: 40, s: 1.1 }] };
+  let ctx: LookupContext;
+  beforeAll(() => {
+    const steps = upheavalSteps({ ...DEFAULT_PARAMS, seed: 7 }, [], null, [FLOOD]);
+    const civ = generateCiv(worlds[0].world, { upheavals: steps });
+    ctx = { world: steps[steps.length - 1].world, civ, year: 2000, edits: { names: {}, interventions: [], terrain: [] } };
+  }, 120_000);
+
+  it('大事以前的年份按那时的州;整个没进水里的州说没有地块,不出 NaN', () => {
+    const f = ctx.civ.upheavals![0];
+    const gone = f.drowned[0] ?? f.shrunk[0];
+    expect(gone).toBeGreaterThanOrEqual(0);
+    const before = lookupLand(ctx, { region: `R${gone}`, year: 1500 });
+    expect(before.result).toContain('第 1500 年在一次地形大事以前');
+    expect(before.result).toMatch(/地块 \d+ 块/);
+    expect(before.result).toMatch(/物产.第 1500 年/);
+    // 后来没进水里的地,那时照样有人
+    expect(before.result).toContain('人口(第 1500 年)');
+    const after = lookupLand(ctx, { region: `R${gone}`, year: 2000 });
+    expect(after.result).not.toContain('地形大事以前');
+    if (f.drowned.length) expect(after.summary).toBe('没有地块');
+    for (const a of [{ year: 1500 }, { year: 2000 }, { country: 'P0', year: 1500 }, { landmass: 'L0', year: 1500 }, { region: `R${gone}`, year: 1599 }]) {
+      const r = lookupLand(ctx, a);
+      expect(r.result).not.toContain('NaN');
+      expect(r.summary).not.toContain('NaN');
+    }
   });
 });
 

@@ -16,7 +16,7 @@
  * 交给模型的字数不超过 LOOKUP_MAX:超了按行截掉后面的,末尾写明截掉了几行、怎么缩小范围。
  */
 import type { World } from '../../gen/world';
-import type { Civ, Person, Polity } from '../../gen/civ/types';
+import type { Civ, Person, Polity, Regions } from '../../gen/civ/types';
 import { BIOMES } from '../../gen/biomes';
 import { regionLabel, regionNamed } from '../../gen/civ/display';
 import { polityAlive, polityRoots, polityTitleChain, populationAt, populationLabel, regionPopulationAt } from '../../gen/civ/growth';
@@ -114,9 +114,10 @@ export function polityOf(civ: Civ, v: unknown): number {
   return part ? part.id : -1;
 }
 
-/** 年份参数 → 整数年(超出范围的夹到 0..endYear);没给 = fallback */
+/** 年份参数 → 整数年(超出范围的夹到 0..endYear);没给、看不懂的("unknown""第十二年")= fallback */
 export function yearArg(civ: Civ, v: unknown, fallback: number): number {
-  const n = typeof v === 'number' ? v : typeof v === 'string' ? Number(v.replace(/[^\d.-]/g, '')) : NaN;
+  const digits = typeof v === 'string' ? v.replace(/[^\d.-]/g, '') : '';
+  const n = typeof v === 'number' ? v : digits ? Number(digits) : NaN;
   const y = Number.isFinite(n) ? n : fallback;
   return Math.max(0, Math.min(Math.floor(civ.endYear), Math.floor(y)));
 }
@@ -423,6 +424,8 @@ export function lookupPeople(ctx: LookupContext, a: Record<string, unknown>): Lo
    */
   const activeIn = (x: Person) => {
     if (x.role === 'prince') return F(x.born) <= to && (x.died ?? Infinity) >= from;
+    // 将领一次次领兵之间可能隔着好些年:要有一次领兵落在这几年里
+    if (x.role === 'general') return (x.commands ?? []).some((c) => F(c.from) <= to && c.until > from);
     const s = personSpan(x);
     return F(s.from) <= to && (s.until ?? Infinity) > from;
   };
@@ -666,6 +669,8 @@ interface Area {
   head: string;
   /** 这一片的地块(null = 整个世界) */
   cells: Int32Array | null;
+  /** 那一年的州(地形大事以前按那时的划法;不是 civ.regions = 那一年在某次地形大事以前) */
+  regions: Regions;
   /** 按哪一年说人口、归属、物产 */
   year: number;
   /** 整州整州选的(州、国家、陆块、整个世界):不用按地块折算人口 */
@@ -697,9 +702,14 @@ export function landLabel(ctx: LookupContext, a: Record<string, unknown>): strin
   return '查地块：整个世界';
 }
 
+/** 第 y 年那一段地形里的州(地形大事以前的段见 Civ.eras;州的编号各段一样,地块也是同一套) */
+function regionsAt(civ: Civ, y: number): Regions {
+  for (const e of civ.eras ?? []) if (y < e.until) return e.regions;
+  return civ.regions;
+}
+
 /** 州 → 地块 */
-function regionCells(civ: Civ, regions: readonly number[]): Int32Array {
-  const R = civ.regions;
+function regionCells(R: Regions, regions: readonly number[]): Int32Array {
   let n = 0;
   for (const r of regions) n += R.cellStart[r + 1] - R.cellStart[r];
   const out = new Int32Array(n);
@@ -714,22 +724,25 @@ export function lookupLand(ctx: LookupContext, a: Record<string, unknown>): Look
   const mesh = world.mesh;
   const owners = ownersCache(civ);
   const Y = yearArg(civ, a.year, ctx.year);
-  const R = civ.regions;
+  /** 那一年的州(地形大事以前按那时的划法) */
+  const R = regionsAt(civ, Y);
 
   // ---- 一片是哪些地块 ----
   let area: Area;
   if (given(a.region)) {
     const r = regionOf(civ, a.region);
     if (r < 0) return { result: `找不到州「${String(a.region)}」;请用材料里的编号(R45 这样)、州名或城名;没有名字的地方用 at 给经纬度`, summary: '没找到' };
-    area = { head: `R${r} ${regionLabel(civ, r)}`, cells: regionCells(civ, [r]), year: Y, whole: true, region: r };
+    if (r >= R.count) return { result: `R${r} ${regionLabel(civ, r)} 第 ${Y} 年还没有(是后来地形大事里冒出来的陆地)。`, summary: '没有地块' };
+    area = { head: `R${r} ${regionLabel(civ, r)}`, cells: regionCells(R, [r]), regions: R, year: Y, whole: true, region: r };
   } else if (given(a.country)) {
     const id = polityOf(civ, a.country);
     if (id < 0) return { result: `找不到国家「${String(a.country)}」;请用材料里的编号(P3 这样)`, summary: '没找到' };
     const p = civ.polities[id];
     const mine = (y: number) => {
       const own = owners(y).polity;
+      const n = regionsAt(civ, y).count;
       const rs: number[] = [];
-      for (let r = 0; r < own.length && r < R.count; r++) if (own[r] === id) rs.push(r);
+      for (let r = 0; r < own.length && r < n; r++) if (own[r] === id) rs.push(r);
       return rs;
     };
     let y = Y;
@@ -742,14 +755,15 @@ export function lookupLand(ctx: LookupContext, a: Record<string, unknown>): Look
       note = `(第 ${Y} 年它${Y < p.founded ? '还没立国' : '已经亡了'},按第 ${y} 年算)`;
     }
     if (!rs.length) return { result: `P${id} ${nameAt(p, Y)} 在第 ${Y} 年前后没有国土。`, summary: '没有国土' };
-    area = { head: `P${id} ${nameAt(p, y)} 第 ${y} 年的国土${note}:${rs.length} 州`, cells: regionCells(civ, rs), year: y, whole: true, polity: id };
+    const Ry = regionsAt(civ, y);
+    area = { head: `P${id} ${nameAt(p, y)} 第 ${y} 年的国土${note}:${rs.length} 州`, cells: regionCells(Ry, rs), regions: Ry, year: y, whole: true, polity: id };
   } else if (given(a.landmass)) {
     const m = /^[Ll]?(\d{1,4})$/.exec(String(a.landmass).trim());
     const id = m ? Number(m[1]) : -1;
     const rs: number[] = [];
     for (let r = 0; r < R.count; r++) if (R.landmass[r] === id) rs.push(r);
     if (!rs.length) return { result: `找不到陆块「${String(a.landmass)}」;请用材料里的编号(L0 这样)`, summary: '没找到' };
-    area = { head: `L${id}${id === 0 ? ' 最大的大陆' : ''}(${rs.length} 州)`, cells: regionCells(civ, rs), year: Y, whole: true };
+    area = { head: `L${id}${id === 0 ? ' 最大的大陆' : ''}(${rs.length} 州)`, cells: regionCells(R, rs), regions: R, year: Y, whole: true };
   } else if (given(a.at)) {
     // 给了却写错的不当作没给(不然会把整个世界的数当成那一处的)
     const at = lonLatArg(a.at);
@@ -759,7 +773,7 @@ export function lookupLand(ctx: LookupContext, a: Record<string, unknown>): Look
     const cs: number[] = [];
     for (let c = 0; c < mesh.n; c++) if (distKm(at, cellLL(world, c)) <= km) cs.push(c);
     if (!cs.length) return cellReport(ctx, at, Y);
-    area = { head: `${ll(at)} 周围 ${Math.round(km)} 公里`, cells: Int32Array.from(cs), year: Y, whole: false };
+    area = { head: `${ll(at)} 周围 ${Math.round(km)} 公里`, cells: Int32Array.from(cs), regions: R, year: Y, whole: false };
   } else if (given(a.box)) {
     const b = numsArg(a.box);
     if (!b || b.length !== 4) return { result: 'box 要写成 [西边的经度, 南边的纬度, 东边的经度, 北边的纬度](四个数)', summary: '参数不对' };
@@ -779,9 +793,9 @@ export function lookupLand(ctx: LookupContext, a: Record<string, unknown>): Look
     const lonText = round ? '经度 全部' : `经度 ${f1(west)} ~ ${f1(east)}${west > east ? '(跨 180° 经线)' : ''}`;
     const head = `${lonText}、纬度 ${f1(south)} ~ ${f1(north)} 这一片`;
     if (!cs.length) return { result: `${head}里没有地块(框太小了),框大一点,或者用 at 查一点。`, summary: '没有地块' };
-    area = { head, cells: Int32Array.from(cs), year: Y, whole: false };
+    area = { head, cells: Int32Array.from(cs), regions: R, year: Y, whole: false };
   } else {
-    area = { head: '整个世界', cells: null, year: Y, whole: true };
+    area = { head: '整个世界', cells: null, regions: R, year: Y, whole: true };
   }
   return areaReport(ctx, area, owners);
 }
@@ -800,7 +814,7 @@ function cellReport(ctx: LookupContext, at: [number, number], Y: number): Lookup
     `${ll(at)} 最近的地块 ${ll(cellLL(world, c))}:${kind} · ${height} · 年均气温 ${f1(world.temperature[c])}°C · 年降水 ${Math.round(world.precipitation[c])} 毫米 · 地形 ${BIOMES[world.biome[c]]?.name ?? '未知'}` +
       (w === 1 && world.seaIce[c] >= 0.5 ? ' · 结着海冰' : ''),
   );
-  const r = w === 0 ? civ.regions.of[c] : -1;
+  const r = w === 0 ? regionsAt(civ, Y).of[c] : -1;
   if (r >= 0) {
     const o = civ.viable ? (Y >= civ.endYear ? civ.polity : ownersAt(civ, Y).polity)[r] : -1;
     out.push(
@@ -817,10 +831,17 @@ function cellReport(ctx: LookupContext, at: [number, number], Y: number): Lookup
 function areaReport(ctx: LookupContext, area: Area, owners: (y: number) => Owners): LookupResult {
   const { world, civ } = ctx;
   const { mesh, elevation, water, temperature, precipitation, biome } = world;
-  const R = civ.regions;
+  const R = area.regions;
+  /** 那一年在某次地形大事以前:州按那时划,地形的数只有现在的 */
+  const early = R !== civ.regions;
   const Y = area.year;
   const n = area.cells ? area.cells.length : mesh.n;
   const cellAt = (i: number) => (area.cells ? area.cells[i] : i);
+  if (!n)
+    return {
+      result: `${area.head}:没有地块${area.region !== undefined ? '(这一州在地形大事里整个没进了水里)' : ''}。`,
+      summary: '没有地块',
+    };
 
   // ---- 按面积加权(地图上的地块按纬度 cos 折实际面积) ----
   let wAll = 0;
@@ -866,19 +887,23 @@ function areaReport(ctx: LookupContext, area: Area, owners: (y: number) => Owner
       }
       add(tLand, t, w);
       add(pLand, p, w);
-      const r = R.of[c];
-      if (r >= 0 && r < R.count) inRegion.set(r, (inRegion.get(r) ?? 0) + 1);
     } else if (water[c] === 1) {
       wSea += w;
       dSum += -elevation[c] * w;
       if (-elevation[c] > dMax) dMax = -elevation[c];
     } else wLake += w;
+    // 州按那一年的划法:大事以前是陆地、后来没进水里的地块也算它那州的
+    if (water[c] === 0 || early) {
+      const r = R.of[c];
+      if (r >= 0 && r < R.count) inRegion.set(r, (inRegion.get(r) ?? 0) + 1);
+    }
   }
   const pc = (v: number) => {
     const x = (v / (wAll || 1)) * 100;
     return x > 0 && x < 1 ? '不到 1%' : `${Math.round(x)}%`;
   };
   const out: string[] = [area.head];
+  if (early) out.push(`第 ${Y} 年在一次地形大事以前:州、国土按那时的划法;海拔、气温、降水、地形只有现在的数(大事以后的样子)。`);
   const kinds = [wLand ? `陆地 ${pc(wLand)}` : '', wSea ? `海洋 ${pc(wSea)}` : '', wLake ? `湖泊 ${pc(wLake)}` : ''].filter(Boolean);
   out.push(`地块 ${n} 块(按面积:${kinds.join('、')})`);
   const land = wLand > 0;
@@ -956,7 +981,25 @@ function areaReport(ctx: LookupContext, area: Area, owners: (y: number) => Owner
     if (dev && dev.resources.length >= R.count * RESOURCE_COUNT) {
       const use = resourcesAt(dev, Y);
       const LV = ['', '少', '中', '多'];
-      if (area.region !== undefined) {
+      const inUse = (r: number, k: number) => use[r * RESOURCE_COUNT + k] > 0.05;
+      if (early) {
+        // 储量按最后一次地形大事以后的地形记,那时的没有:只说那一年在用的(快照里有)
+        const why = '那时在地形大事以前,储量没有记';
+        if (area.region !== undefined) {
+          const r = area.region;
+          const items: string[] = [];
+          for (let k = 0; k < RESOURCE_COUNT; k++)
+            if (inUse(r, k)) items.push(`${RESOURCES[k]}(约${LV[Math.min(3, Math.max(1, Math.round(use[r * RESOURCE_COUNT + k])))]})`);
+          out.push(items.length ? `物产(第 ${Y} 年在用的;${why}):${items.join('、')}` : `物产:第 ${Y} 年这一州没有在用的物产(${why})。`);
+        } else {
+          const items: string[] = [];
+          for (let k = 0; k < RESOURCE_COUNT; k++) {
+            const used = regs.filter((r) => inUse(r, k)).length;
+            if (used) items.push(`${RESOURCES[k]} ${used} 州`);
+          }
+          out.push(items.length ? `物产(第 ${Y} 年在用这样物产的州数;${why}):${items.join('、')}` : `物产:第 ${Y} 年这一片没有在用的物产(${why})。`);
+        }
+      } else if (area.region !== undefined) {
         const r = area.region;
         const items: string[] = [];
         for (let k = 0; k < RESOURCE_COUNT; k++) {
