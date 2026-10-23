@@ -206,7 +206,9 @@ export function buildPeople(civ: PeopleInput): Person[] {
     const id = x && r.ids.get(x);
     if (!x || !id || kills.has(id)) continue;
     const from = x.role === 'general' ? x.commands?.[0]?.from : x.from;
-    if (from === undefined || from > k.t || (x.role === 'minister' && from === k.t) || (x.died !== undefined && x.died <= k.t)) continue;
+    // 那一刻在世、出过道才算;名臣还要在朝(已经致仕、罢官、随故朝去职的不算)
+    if (from === undefined || from > k.t || (x.died !== undefined && x.died <= k.t)) continue;
+    if (x.role === 'minister' && (from === k.t || (x.until !== undefined && x.until <= k.t))) continue;
     kills = new Map(kills).set(id, { t: k.t, iv: k.iv });
     r = peopleOnce(civ, kills);
   }

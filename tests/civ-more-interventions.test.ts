@@ -17,6 +17,7 @@ import { buildChronicle } from '../src/gen/civ/chronicle';
 import { capitalAt } from '../src/gen/civ/growth';
 import { rulerAt } from '../src/gen/civ/peopleInfo';
 import { IV_LOSS, PLAGUE_IV, quakeRing } from '../src/gen/civ/calamity';
+import { plagueSpans } from '../src/gen/civ/plagueSpans';
 import { playCiv, playStop, playTurn } from '../src/gen/civ/play';
 import { interventionFate } from '../src/gen/stepwise';
 import { cleanIntervention, cleanInterventions, personKey, polityKey, regionKey, resolvePersonKey, settlementKey, type Intervention } from '../src/gen/edits';
@@ -250,6 +251,13 @@ describe.each([7, 2024])('新干预 · seed=%i', (seed) => {
       const c2 = generateCiv(w, { interventions: [{ kind: 'death', a: polityKey(base, dead.polity), person: personKey(base, dead.id), from: Y }] });
       expect(c2.people!.some((p) => p.killed !== undefined), role).toBe(false);
       expect(interventionFate(c2, 0), role).toMatchObject({ state: 'void', why: expect.stringMatching(/已卒$/) });
+      // 名臣已经去职(还在世):不生效
+      const left = role === 'minister' ? base.people!.find((p) => p.role === role && p.until !== undefined && p.until < Y && (p.died === undefined || p.died > Y + 1)) : undefined;
+      if (left) {
+        const c3 = generateCiv(w, { interventions: [{ kind: 'death', a: polityKey(base, left.polity), person: personKey(base, left.id), from: Y }] });
+        expect(c3.people!.some((p) => p.killed !== undefined)).toBe(false);
+        expect(interventionFate(c3, 0)).toMatchObject({ state: 'void', why: expect.stringMatching(/已去职$/) });
+      }
     }
   }, 240_000);
 
@@ -317,6 +325,16 @@ describe.each([7, 2024])('新干预 · seed=%i', (seed) => {
     expect(civ.annals[k + 1]).toMatchObject({ year: T, kind: 'plague', war: PLAGUE_IV });
     expect(civ.settlements[cap].sacks).toContainEqual({ year: T, loss: IV_LOSS[3], cause: 'plague' });
     expect(ivLines(civ, T)[0].text).toMatch(/大疫,死者十之五$/);
+    expect(plagueSpans(civ).find((x) => x.id === PLAGUE_IV)).toMatchObject({ start: T });
+    // 起疫那城在部落地带(没有史事 plague):照样算一场,城的折损归它
+    const own = ownersAt(base, T);
+    const wild = base.settlements.find((s) => s.ended === undefined && s.founded < T && own.polity[s.region] < 0 && own.culture[s.region] >= 0);
+    if (wild) {
+      const c3 = generateCiv(w, { interventions: [{ kind: 'disaster', type: 'plague', level: 2, from: T, city: settlementKey(base, wild.id) }], endYear: T + 40 });
+      const span = plagueSpans(c3).find((x) => x.id === PLAGUE_IV);
+      expect(span).toMatchObject({ start: T });
+      expect(span!.hits[0]).toMatchObject({ settlement: wild.id, year: T, loss: IV_LOSS[2] });
+    }
 
     const fam = generateCiv(w, { interventions: [{ kind: 'disaster', type: 'famine', level: 2, from: T, a: polityKey(base, pid) }], endYear: T + 40 });
     const fk = fam.annals.findIndex((e) => e.kind === 'intervene');

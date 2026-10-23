@@ -966,6 +966,7 @@ function personStory(civ: Civ, e: Annal, v: Extract<Intervention, { kind: 'death
   }
   const from = who.role === 'general' ? who.commands?.[0]?.from : who.from;
   const step = who.role === 'general' ? '领兵' : '入仕';
+  if (who.role === 'minister' && who.until !== undefined && who.until <= y) return fail(`欲${verb}于${who.name},然其人已去职`, `第 ${Math.floor(who.until)} 年他已去职`);
   if (from === undefined || from >= y) return fail(`欲${verb}于${who.name},然其人尚未出仕`, from !== undefined ? `他第 ${Math.floor(from)} 年才${step}` : `他那时还没${step}`);
   return fail(`欲${verb}于${who.name},未成`, '没有生效');
 }
