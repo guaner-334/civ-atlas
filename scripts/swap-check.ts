@@ -125,6 +125,7 @@ async function toYears(page: Page, y: number) {
     m.setEndYear(v);
   }, y);
   await page.waitForFunction((v) => (window as any).__swapFs.getFilmSource()?.full?.endYear === v, y, { timeout: LONG_WAIT });
+  await civShown(page);
   await page.waitForTimeout(SETTLE);
 }
 
@@ -302,13 +303,14 @@ async function openWorld(seed: number, y: number, query = '') {
   return { page, cdp };
 }
 
-/** 量一种:下命令(act),等地图上换好(done),再过 3 秒;打印最长的 Long Task(和从下命令到换好用了多久) */
+/** 量一种:下命令(act),等地图上换好(done,文明层真的换上),再过 3 秒;打印最长的 Long Task(和从下命令到换好用了多久) */
 async function measure(page: Page, cdp: CDPSession, label: string, act: () => Promise<unknown>, done: () => Promise<unknown>, lag = true) {
   const t0 = await now(page);
   await startProfile(cdp);
   await act();
   await done();
-  if (lag) await civShown(page);
+  // 文明层在后台备料的话,等它换上再开始数那 3 秒(备料、换上那一下都算在里面)
+  await civShown(page);
   const t1 = await now(page);
   await page.waitForTimeout(SETTLE);
   rows.push(`${label}  ${fmt(stat(await ltSince(page, t0)))}${lag ? `,${Math.round(t1 - t0)} ms 后换好` : ''}`);

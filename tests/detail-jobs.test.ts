@@ -52,6 +52,31 @@ describe('细节层分帧备料', () => {
     expect(log).toEqual(['fast 备料', 'swap 备料', 'swap 交', 'fast 画', 'slow 画']);
   });
 
+  it('还没备好的 alone 活也不拦着别的层一起画', async () => {
+    const log: string[] = [];
+    let n = 0;
+    const slow = () => {
+      const t = performance.now();
+      while (performance.now() - t < 3);
+      return ++n < 12;
+    };
+    let swapAtLayers = -1;
+    submitDetailJob('swap', [slow], () => log.push('swap 交'), { alone: true });
+    submitDetailJob('a', [() => void log.push('a 备料')], () => log.push('a 画'));
+    submitDetailJob(
+      'b',
+      [() => void log.push('b 备料')],
+      () => {
+        log.push('b 画');
+        swapAtLayers = n;
+      },
+    );
+    await until(() => !detailJobPending('swap'));
+    expect(swapAtLayers).toBeGreaterThanOrEqual(0);
+    expect(swapAtLayers).toBeLessThan(12);
+    expect(log).toEqual(['a 备料', 'b 备料', 'a 画', 'b 画', 'swap 交']);
+  });
+
   it('一段只做一会儿:长活分好几段做完(中间让出主线程)', async () => {
     let m = 0;
     const busy = () => {

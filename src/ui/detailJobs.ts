@@ -125,9 +125,14 @@ function run() {
 }
 
 /** 做到 deadline;都备好了就一起画,没备好就等下一段 */
+/** 这一段先做 alone 的活还是先做细节层的(一段一换:谁都不会因为排在后面一直轮不到) */
+let aloneFirst = false;
+
 function step(deadline: number) {
+  aloneFirst = !aloneFirst;
+  const order = [...jobs.values()].sort((a, b) => (a.alone === b.alone ? 0 : a.alone === aloneFirst ? -1 : 1));
   try {
-    for (const job of jobs.values()) {
+    for (const job of order) {
       if (job.i >= job.steps.length) continue;
       const t0 = performance.now();
       job.stats.slices++;
@@ -149,15 +154,14 @@ function step(deadline: number) {
     jobs.delete(owner);
     job.commit(job.stats);
   }
-  for (const job of jobs.values()) {
-    if (job.i < job.steps.length) {
-      kick();
-      return;
-    }
+  // 别的层:都备好了才一起画(还没备好的 alone 活不拦着它们)
+  const layers = [...jobs].filter(([, job]) => !job.alone);
+  const ready = layers.every(([, job]) => job.i >= job.steps.length);
+  if (ready) {
+    for (const [owner] of layers) jobs.delete(owner);
+    for (const [, job] of layers) job.commit(job.stats);
   }
-  const all = [...jobs.values()];
-  jobs.clear();
-  for (const job of all) job.commit(job.stats);
+  if (jobs.size) kick();
 }
 
 /**

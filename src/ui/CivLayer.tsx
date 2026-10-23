@@ -576,18 +576,34 @@ export function CivLayer({ world, raster, civ: civIn, geo: geoIn, style, year, v
   useEffect(() => patchFeed({ layer: mapLayer, places: geoItems, fontsOk }), [mapLayer, geoItems, fontsOk]);
 
   // 换上新的历史:后台分小步备好底图(色块、国界、道路、战事、瘟疫)、国名城名、战线、要等的字,备好了再换上(见上面的 hold)
-  // 地图在动(拖动、飞过去)、配角名收起没有:做到排字那一步时按当时的(这两样变了不用从头备;对不上的换上时当场排)
+  // 地图在动(拖动、飞过去)、配角名收起没有、弯边投影的中心:做到那一步时按当时的(这几样变了不用从头备;对不上的换上时当场算)
   const target = hold ? incoming : null;
   const textOpt = useRef({ moving, sides });
   textOpt.current = { moving, sides };
+  const curved = !!mp;
   useEffect(() => {
     if (!target || !civIn) return;
     const p: CivDrawParams = { world, raster, civ: target, style, year: y ?? target.endYear, show, fast: false, faithFocus: show.faiths ? faithFocus : null };
     const named: CivDrawParams = { ...p, civ: civIn };
+    const mp0 = mpRef.current;
+    // 弯边投影 · 手绘:符号遮罩按投影重算的那几步(按这一刻的投影;停着的时候缓存里本来就有,什么也不做)
+    let projSteps: WorkStep[] | null = null;
+    let pi = 0;
+    const projPrep: WorkStep = (deadline) => {
+      const cur = mpRef.current;
+      projSteps ??= cur ? civProjPrep({ ...p, proj: projector(cur) }) : [];
+      if (pi < projSteps.length && projSteps[pi](deadline) !== true) pi++;
+      return pi < projSteps.length;
+    };
     const steps: WorkStep[] = [
-      ...civOverlaySteps(mp ? { ...p, proj: projector(mp) } : p),
+      // 色块只看是不是弯边投影(手绘按投影后的符号层让位,另存一份),和中心在哪无关
+      ...civOverlaySteps(mp0 ? { ...p, proj: projector(mp0) } : p),
+      projPrep,
       () => void (warsShown(p) && warFront(p)),
-      () => void mapLayerOf(named, { fast: false, proj: mp && !textOpt.current.moving ? mp : null, sides: textOpt.current.sides }),
+      () => {
+        const cur = mpRef.current;
+        mapLayerOf(named, { fast: false, proj: cur && !textOpt.current.moving ? cur : null, sides: textOpt.current.sides });
+      },
       () => void labelCharsOf(civIn),
     ];
     submitDetailJob(
@@ -600,7 +616,8 @@ export function CivLayer({ world, raster, civ: civIn, geo: geoIn, style, year, v
       { alone: true },
     );
     return () => cancelDetailJob(CIV_SWAP_JOB);
-  }, [target, civIn, world, raster, style, y, show, faithFocus, mp]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 投影只看弯不弯(中心、大小在做到那一步时取当时的)
+  }, [target, civIn, world, raster, style, y, show, faithFocus, curved]);
 
   // 地图框大小变了(窗口缩放)也要重画
   const [tick, setTick] = useState(0);
