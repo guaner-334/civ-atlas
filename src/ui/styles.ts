@@ -29,6 +29,7 @@ import './contact.css';
 import './betaNews.css';
 import './overview.css';
 import './worlds.css';
+import './gallery.css';
 import './studio/studio.css';
 import './states.css';
 import './sidebar.css';

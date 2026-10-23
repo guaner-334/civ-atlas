@@ -68,6 +68,8 @@
  *   旧存档没有这个字段 = 等距圆柱、中央经线 0°
  * - origin:底稿出处(可选)。打开别人的分享短链接、改了另存进自己的"我的世界"时记下:分享的人填的署名(可以没有)、
  *   那时的世界名、分享链接(`{ "by": "明月", "title": "苍澜界", "url": "https://…/s/k7Qm2xPa" }`)。
+ *   来自作品墙的多一个作品编号,署名、名字是作品的,链接是那个作品的地址
+ *   (`{ "by": "砚山", "title": "金阳洋两岸", "url": "https://…/?gallery=k7qm2xpa", "gallery": "k7qm2xpa" }`;旧存档没有这一项,照常打开)。
  *   跟着世界走(存成文件、同步、再分享都带着);别人再从这一份另存,记的是直接的来源,不往上追
  * - moment:打开时看哪(可选,只在分享里带;见下面 SaveMoment),
  *   `{ "year": 1500, "selected": "polity:c32577#0", "camera": { "lon": 112.4, "lat": 31.25, "zoom": 2.5 } }`:
@@ -142,12 +144,14 @@ export interface SaveCamera {
 
 /** 底稿出处 */
 export interface SaveOrigin {
-  /** 分享的人填的署名;没填 = 没有 */
+  /** 分享的人填的署名(来自作品墙的:作品的署名);没填 = 没有 */
   by?: string;
-  /** 另存那时的世界名(没起名 = 空) */
+  /** 另存那时的世界名(没起名 = 空;来自作品墙的:作品名) */
   title: string;
-  /** 分享链接(网站地址/s/<码>) */
+  /** 分享链接(网站地址/s/<码>);来自作品墙的:那个作品的地址(网站地址/?gallery=<编号>) */
   url: string;
+  /** 来自作品墙的哪个作品(作品编号);分享链接来的没有 */
+  gallery?: string;
 }
 
 /** 投影 + 中央经线 + 经纬网 + 等值线(存进存档、分享链接) */
@@ -249,14 +253,37 @@ function isShareLink(url: string): boolean {
   return (u.protocol === 'https:' || u.protocol === 'http:') && !u.username && !u.password && !u.search && !u.hash && ORIGIN_PATH.test(u.pathname) && u.href === url;
 }
 
-/** 整理底稿出处:链接不像分享短链接的不要(界面上它是一个能点的链接) */
+/** 作品墙的作品编号:8 位小写字母和数字(去掉了容易看错的 i、l、o、0、1) */
+const GALLERY_ID = /^[a-hjkmnp-z2-9]{8}$/;
+
+/** 是不是作品墙上那个作品的地址:http(s)://网站地址/?gallery=<编号>(网站可以在子目录里),不带账号密码、别的参数、# 后的部分 */
+function isGalleryLink(url: string, id: string): boolean {
+  if (url.length > 300 || !ORIGIN_CHARS.test(url)) return false;
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return false;
+  }
+  return (u.protocol === 'https:' || u.protocol === 'http:') && !u.username && !u.password && !u.hash && u.search === `?gallery=${id}` && u.pathname.endsWith('/') && u.href === url;
+}
+
+/**
+ * 整理底稿出处:链接不像分享短链接的不要(界面上它是一个能点的链接);
+ * 来自作品墙的(带作品编号):链接得是那个作品的地址
+ */
 export function cleanOrigin(raw: unknown): SaveOrigin | null {
   if (!isObj(raw)) return null;
   const url = raw.url;
-  if (typeof url !== 'string' || !isShareLink(url)) return null;
+  const gallery = raw.gallery;
+  if (typeof url !== 'string') return null;
+  if (gallery !== undefined) {
+    if (typeof gallery !== 'string' || !GALLERY_ID.test(gallery) || !isGalleryLink(url, gallery)) return null;
+  } else if (!isShareLink(url)) return null;
   const o: SaveOrigin = { title: cleanTitle(raw.title), url };
   const by = cleanSignature(raw.by);
   if (by) o.by = by;
+  if (typeof gallery === 'string') o.gallery = gallery;
   return o;
 }
 
