@@ -77,6 +77,28 @@ describe('细节层分帧备料', () => {
     expect(log).toEqual(['a 备料', 'b 备料', 'a 画', 'b 画', 'swap 交']);
   });
 
+  it('别的层备料出错:那一批不画,alone 的活照常做完交上', async () => {
+    const log: string[] = [];
+    submitDetailJob('swap', [() => void log.push('swap 备料')], () => log.push('swap 交'), { alone: true });
+    submitDetailJob('ok', [() => void log.push('ok 备料')], () => log.push('ok 画'));
+    submitDetailJob(
+      'bad',
+      [
+        () => {
+          throw new Error('坏了');
+        },
+      ],
+      () => log.push('bad 画'),
+    );
+    expect(() => flushDetailJobs()).toThrow('坏了');
+    await until(() => !detailJobPending('swap'));
+    expect(detailJobPending('ok')).toBe(false);
+    expect(detailJobPending('bad')).toBe(false);
+    expect(log).toContain('swap 交');
+    expect(log).not.toContain('ok 画');
+    expect(log).not.toContain('bad 画');
+  });
+
   it('一段只做一会儿:长活分好几段做完(中间让出主线程)', async () => {
     let m = 0;
     const busy = () => {

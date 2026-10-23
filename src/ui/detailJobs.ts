@@ -131,9 +131,11 @@ let aloneFirst = false;
 function step(deadline: number) {
   aloneFirst = !aloneFirst;
   const order = [...jobs.values()].sort((a, b) => (a.alone === b.alone ? 0 : a.alone === aloneFirst ? -1 : 1));
+  let cur: Job | null = null;
   try {
     for (const job of order) {
       if (job.i >= job.steps.length) continue;
+      cur = job;
       const t0 = performance.now();
       job.stats.slices++;
       while (job.i < job.steps.length) {
@@ -144,8 +146,9 @@ function step(deadline: number) {
       if (performance.now() >= deadline) break;
     }
   } catch (e) {
-    // 备料出错:这一批都不画了(各层下次重画时重新交活),错误照常报出去
-    jobs.clear();
+    // 备料出错:这一批都不画了(各层下次重画时重新交活),错误照常报出去;别的 alone 活和这一批无关,照常接着做
+    for (const [owner, job] of [...jobs]) if (!job.alone || job === cur) jobs.delete(owner);
+    if (jobs.size) kick();
     throw e;
   }
   // 自己备好就交的

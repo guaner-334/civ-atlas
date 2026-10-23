@@ -184,6 +184,16 @@ function selectionIn(sel: MapSelection | null, civ: Civ, base: Civ, was: Civ, wa
   return r && r.kind === sel.kind ? ({ kind: sel.kind, id: r.id } as MapSelection) : null;
 }
 
+/** 同上,编年史高亮的国家(指不到的去掉) */
+function politiesIn(ids: number[], civ: Civ, was: Civ): number[] {
+  const out: number[] = [];
+  for (const id of ids) {
+    const r = civ.polities[id] ? resolveKey(was, polityKey(civ, id)) : null;
+    if (r && r.kind === 'polity') out.push(r.id);
+  }
+  return out;
+}
+
 /**
  * 国名、族名、城名和城镇符号(civMapLayer):按 civ 记最近一次的。换上新的历史以前在后台先排好,换上时直接用;
  * 参数(年份、开关、画风、投影……)一样才用
@@ -315,7 +325,14 @@ export function CivLayer({ world, raster, civ: civIn, geo: geoIn, style, year, v
   // 文明细节层的高亮画布(闪烁动画和上面的高亮层一起放);细节层盖住时上面几张不用重画
   const detailHl = useRef<HTMLCanvasElement>(null);
   const [detailOn, setDetailOn] = useState(false);
-  const hl = useCivHighlight();
+  const hlIn = useCivHighlight();
+  // 备的时候点的编年史(编年史已经是新的历史了)高亮的国家按还画着的那份历史的编号画;开始备以前点的本来就是那份的
+  const hlFrom = useRef(0);
+  if (!hold) hlFrom.current = hlIn?.stamp ?? 0;
+  const hl = useMemo(
+    () => (hold && civ && hlIn && hlIn.stamp > hlFrom.current && hlIn.polities.length ? { ...hlIn, polities: politiesIn(hlIn.polities, civIn!, civ) } : hlIn),
+    [hold, hlIn, civIn, civ],
+  );
   const { sel: pickedIn } = useSelection();
   // 备的时候选中的东西按还画着的那份历史的编号画(备料按新的历史的编号)
   const picked = useMemo(
