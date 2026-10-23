@@ -10,6 +10,8 @@
  *   到哪年下台    到卒年(N 年)| 到某一年(−10 [年份] +10,后面写"退位，在位 N 年");人物没写卒年时第一项照寻常君主算
  *   性格          四条滑条,和人物卡上的是同一份(松手就存进人物卡)
  *   底部          返回 / 加入待推演(另立一国写"(2 条)";逐年推演写「加入」)
+ * 国家干预页「立作者的人物为君主」选人进来的也是这一页(CommandPage.tsx):卡片顶上是国家,国家先选好、即位年份是那里的生效年份。
+ * "到某一年"退位的,干预里记 abdicate(以后把卒年改成同一年,说法照旧是"退位")
  */
 import { Fragment, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import type { Civ, RulerLeanings } from '../gen/civ/types';
@@ -67,7 +69,29 @@ export function LeanSliders({ value, onChange, onCommit }: { value: RulerLeaning
 
 type Mode = 'have' | 'new';
 
-export function CrownPage({ civ, raster, world, year, c, onBack }: { civ: Civ; raster: Raster | null; world: World; year: number; c: AuthorCharacter; onBack: () => void }) {
+/**
+ * polity = 先选好的国家(国家干预页「立作者的人物为君主」选人进来的:默认当这国的君主,不用人物卡上他的国家);
+ * onDone = 加进单子以后(不给 = 同返回)
+ */
+export function CrownPage({
+  civ,
+  raster,
+  world,
+  year,
+  c,
+  polity,
+  onBack,
+  onDone,
+}: {
+  civ: Civ;
+  raster: Raster | null;
+  world: World;
+  year: number;
+  c: AuthorCharacter;
+  polity?: number;
+  onBack: () => void;
+  onDone?: () => void;
+}) {
   const era = useEra();
   const phone = useNarrow();
   const sw = useStepwise();
@@ -89,7 +113,7 @@ export function CrownPage({ civ, raster, world, year, c, onBack }: { civ: Civ; r
   const home = useMemo(() => characterPolity(civ, world, raster, c), [civ, world, raster, c]);
   const alive = useMemo(() => alivePolities(civ, yv), [civ, yv]);
   const aliveIds = useMemo(() => new Set(alive.map((x) => x.id)), [alive]);
-  const [chosen, setChosen] = useState<number | null>(null);
+  const [chosen, setChosen] = useState<number | null>(polity ?? null);
   const pid = chosen ?? (aliveIds.has(home) ? home : null);
   const P = pid !== null ? civ.polities[pid] : undefined;
   const pAlive = !!P && aliveIds.has(P.id);
@@ -192,11 +216,12 @@ export function CrownPage({ civ, raster, world, year, c, onBack }: { civ: Civ; r
   const go = () => {
     if (why) return;
     saveLean();
-    const base = { kind: 'crown' as const, char: c.id, from: y, born: c.born, leanings: { ...lean }, ...(until !== undefined && until > y ? { until } : {}) };
-    const tail = until !== undefined && until > y ? until : undefined;
+    // 到某一年退位:记下是作者填的退位年份(以后把卒年改成同一年,说法照旧是"退位")
+    const end = until !== undefined && until > y ? (byYear ? { until, abdicate: true as const } : { until }) : {};
+    const base = { kind: 'crown' as const, char: c.id, from: y, born: c.born, leanings: { ...lean }, ...end };
     if (mode === 'have') {
       const v: Intervention = { ...base, a: polityKey(civ, P!.id) };
-      const err = queueIntervention(v, crownLine(c.name, nameAt(P!, y), tail, c.died, era), { self: P!.id, target: null, shown: nameAt(P!, y) });
+      const err = queueIntervention(v, crownLine(c.name, nameAt(P!, y), end, c.died, era), { self: P!.id, target: null, shown: nameAt(P!, y) });
       if (err) return setMsg(err);
     } else {
       const rk = regionKey(civ, reg!);
@@ -208,7 +233,7 @@ export function CrownPage({ civ, raster, world, year, c, onBack }: { civ: Civ; r
       if (!a) return setMsg('这一州立不了国');
       const e1 = queueIntervention(f, interventionText(civ, f));
       if (e1) return setMsg(e1);
-      const e2 = queueIntervention({ ...base, a }, crownLine(c.name, n || NEW_POLITY, tail, c.died, era));
+      const e2 = queueIntervention({ ...base, a }, crownLine(c.name, n || NEW_POLITY, end, c.died, era));
       if (e2) {
         // 即位那条加不上:立国那条也拿掉
         const lastOne = getPending().at(-1);
@@ -216,7 +241,7 @@ export function CrownPage({ civ, raster, world, year, c, onBack }: { civ: Civ; r
         return setMsg(e2);
       }
     }
-    onBack();
+    (onDone ?? onBack)();
   };
 
   // 另立一国那一州里最大的城(写"某城一带")
@@ -359,7 +384,7 @@ export function CrownPage({ civ, raster, world, year, c, onBack }: { civ: Civ; r
                 <span className="cp-note">
                   {before && P ? `那年${P.lineage === 'republic' ? '执政' : '在位'}的是${personName(civ, before)}，他让位给${c.name}。` : ''}
                   {!P && home >= 0 ? `人物卡上他的国家${yearAt(y, era)}不在了，点「换一国」选一个。` : ''}
-                  {`${yearFull(y, era)}还在的 ${alive.length} 国都能选，默认是人物卡上他的国家。`}
+                  {`${yearFull(y, era)}还在的 ${alive.length} 国都能选${polity !== undefined ? '。' : '，默认是人物卡上他的国家。'}`}
                 </span>
               </>
             )

@@ -592,3 +592,64 @@
   line-height: 1.5;
   color: var(--ink-2);
 }
+
+/* ---- 国家干预页「立作者的人物为君主」选人(CommandPage.tsx 的 CrownPick) ---- */
+/* 生效年份:只写这一年,不能加减(在干预页上改) */
+.cr-year {
+  font-weight: 600;
+}
+/* 一个都没有:灰底一块,写明要什么样的人物,下面「新建人物」 */
+.cr-empty {
+  margin: 6px 14px;
+  padding: 18px 14px;
+  border-radius: 10px;
+  background: var(--btn);
+  font-size: 14px;
+  color: var(--ink-2);
+  line-height: 1.55;
+}
+.cr-empty b {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--ink);
+  font-weight: 500;
+}
+.cpanel .cr-empty .cp-btn {
+  margin-top: 12px;
+}
+/* 那年不在世的:变淡,点不了 */
+.cr-off {
+  opacity: 0.5;
+}
+.cpanel .cr-off .oc-person {
+  cursor: default;
+}
+.cpanel .cr-off .oc-person:hover {
+  background: none;
+}
+.cr-pick-note {
+  margin: 6px 18px;
+}
+
+/* ---- 推演里作者立的君主(历代君主、前任 / 继任、世系图) ---- */
+/* 名字前面的小圆头像(他的颜色、名字第一个字) */
+.oc-av.cr-av {
+  font-size: calc(var(--s) * 0.58);
+}
+.cp-stats .oc-av.cr-av {
+  margin-right: 5px;
+  vertical-align: -3px;
+}
+/* 世系图里他的头像(PeopleLineage.tsx):描一圈他的颜色 */
+.lg-node.cr-author .pt {
+  box-shadow: 0 0 0 2px var(--ring);
+}
+
+/* ---- 改人物、删人物时问的那一句(CrownAsk.tsx):删除的主按钮是红的 ---- */
+.sw-btn2.pri.danger,
+.sw-big.pri.danger {
+  background: var(--err);
+}
+.sw-btn2.pri.danger:hover {
+  background: color-mix(in srgb, var(--err) 86%, #000);
+}

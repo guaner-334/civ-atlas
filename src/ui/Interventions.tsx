@@ -197,7 +197,7 @@ export function interventionText(civ: Civ, v: Intervention, i = -1, a?: string):
       return `${A}:禁止扩张${v.until !== undefined ? `(至第 ${v.until} 年)` : ''}`;
     case 'crown':
       // "林小满即有桑皇朝君位，1530 年退位" / "……，到 1541 年卒"(下台年份就是人物卡上的卒年)
-      return crownLine(authorName(civ, v.char), A, v.until, getEdits().characters?.find((c) => c.id === v.char)?.died, getEdits().era);
+      return crownLine(authorName(civ, v.char), A, v, getEdits().characters?.find((c) => c.id === v.char)?.died, getEdits().era);
   }
 }
 

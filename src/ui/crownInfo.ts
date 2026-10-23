@@ -4,6 +4,9 @@
  *
  * 一条即位的说法:"林小满即有桑皇朝君位，1530 年退位"(填了退位年份)/ "……，到 1541 年卒"(到卒年)/ "林小满即有桑皇朝君位"(人物没写卒年:
  * 在位多久照寻常君主算)。人物卡上他的即位有四种样子:待推演 / 下一步生效(还在单子里)、生效了(推演里他当了君主)、没生效(写原因)。
+ *
+ * 改人物的生卒、性格,删人物时问的那一句(crownEditAsk / crownDeleteAsk,CrownAsk.tsx 弹出来):他的即位抄着生年、倾向、下台年份,
+ * 人物卡改了,干预要不要跟着改(默认一起改 / 连即位一起去掉,重新推演)。
  */
 import type { Civ, Person, Polity } from '../gen/civ/types';
 import { dynastyTitle, polityAlive, polityName, polityShortTitle, polityTierAt, polityTitles } from '../gen/civ/growth';
@@ -11,9 +14,9 @@ import { ownersAt } from '../gen/civ/timeline';
 import { peopleIndex, rulerAt } from '../gen/civ/peopleInfo';
 import { personName } from '../gen/civ/peopleText';
 import { interventionFate } from '../gen/stepwise';
-import { cleanIntervention, resolveKey, type Intervention } from '../gen/edits';
-import { AUTHOR_RULER_DEFAULT, type AuthorCharacter } from '../gen/characters';
-import { eraText, spaced, yearAt, type Era } from '../gen/era';
+import { cleanIntervention, resolveKey, type Intervention, type WorldEdits } from '../gen/edits';
+import { AUTHOR_RULER_DEFAULT, characterLeanings, type AuthorCharacter } from '../gen/characters';
+import { eraText, spaced, yearAt, yearFull, yearSpanAt, type Era } from '../gen/era';
 import type { Pending } from './pendingStore';
 
 export type CrownIv = Extract<Intervention, { kind: 'crown' }>;
@@ -27,15 +30,26 @@ function nameAt(p: Polity, year: number): string {
   return polityName(p, y) || p.name || '某国';
 }
 
+/** 一条即位的下台年份:until(没有 = 照寻常君主);abdicate = 作者填的退位年份 */
+type CrownUntil = { until?: number; abdicate?: true };
+
+/**
+ * 这条即位是不是"到卒年":下台那年就是人物卡上的卒年,而且不是作者填的退位年份
+ * (填了退位年份以后又把卒年改成同一年,照旧是"退位")
+ */
+export function crownToDeath(v: CrownUntil, died: number | undefined): boolean {
+  return v.until !== undefined && died !== undefined && v.until === died && !v.abdicate;
+}
+
 /** 即位那一行的尾巴:"，1530 年退位" / "，到 1541 年卒" / ""(没给下台年份) */
-export function crownTail(until: number | undefined, died: number | undefined, era: Era | undefined): string {
-  if (until === undefined) return '';
-  return died !== undefined && until === died ? `，到${spaced(yearAt(until, era))}卒` : `，${yearAt(until, era)}退位`;
+export function crownTail(v: CrownUntil, died: number | undefined, era: Era | undefined): string {
+  if (v.until === undefined) return '';
+  return crownToDeath(v, died) ? `，到${spaced(yearAt(v.until, era))}卒` : `，${yearAt(v.until, era)}退位`;
 }
 
 /** 一条即位的说法:"林小满即有桑皇朝君位，1530 年退位";who = 人物的名字,A = 国名 */
-export function crownLine(who: string, A: string, until: number | undefined, died: number | undefined, era: Era | undefined): string {
-  return `${who}即${A}君位${crownTail(until, died, era)}`;
+export function crownLine(who: string, A: string, v: CrownUntil, died: number | undefined, era: Era | undefined): string {
+  return `${who}即${A}君位${crownTail(v, died, era)}`;
 }
 
 /** 作者的人物叫什么:人物卡上的名字;人物删掉了 = 这份历史里记的(没有 = "作者的人物") */
@@ -143,5 +157,168 @@ export function crownDoneText(civ: Civ, v: CrownIv, i: number, chars: readonly A
     const why = f.why.startsWith('那一年') ? `第 ${v.from} 年${f.why.slice(3)}` : f.why;
     return { ok: false, text: `${who}没能即位：${eraText(why, era)}` };
   }
-  return { ok: true, text: crownLine(who, A, v.until, died, era) };
+  return { ok: true, text: crownLine(who, A, v, died, era) };
+}
+
+// ---------------------------------------------------------------------------
+// 改人物、删人物时问一句
+
+/** 他在作者的干预列表里的一条即位:at = 第几条,x = 推演里的他(没生效 = null),A = 那年的国名 */
+interface CrownAt {
+  at: number;
+  v: CrownIv;
+  x: Person | null;
+  A: string;
+}
+
+/** 人物 id 在作者的干预列表 ivs 里的即位(这份历史里推过的;逐年推演里下的不在列表里,不算) */
+function crownsIn(civ: Civ, id: number, ivs: readonly Intervention[], era: Era | undefined): CrownAt[] {
+  return characterCrowns(civ, id, [], ivs, false, era).flatMap((st): CrownAt[] => {
+    if (st.kind === 'queued') return [];
+    const at = st.kind === 'void' ? st.at : ivs.findIndex((x) => JSON.stringify(cleanIntervention(x)) === JSON.stringify(st.v));
+    const v = ivs[at];
+    if (at < 0 || v?.kind !== 'crown') return [];
+    return [{ at, v, x: st.kind === 'done' ? st.x : null, A: st.kind === 'done' ? nameAt(civ.polities[st.x.polity], st.v.from) : st.A }];
+  });
+}
+
+/** 问的那一句:标题、一段说明、两个选项(各一行字 + 一行小字);选第一项以后的干预列表、推完提示条上的话 */
+export interface CrownAsk {
+  title: string;
+  lead: string;
+  yes: [string, string];
+  no: [string, string];
+  /** 选第一项(一起改 / 连即位一起去掉)以后作者的干预列表 */
+  ivs: Intervention[];
+  /** 推完的提示条:"林小满的即位跟着改了" */
+  done: string;
+}
+
+/**
+ * 编辑人物点「完成」:改了生年、卒年、性格,他的即位(抄着这几样)要不要一起改。没有要改的 = null(直接存)。
+ *   卒年:到卒年的即位跟着到新的卒年;填了退位年份、比新卒年晚的改成到卒年下台;没写下台年份、推演里在位过了新卒年的也到卒年;
+ *         卒年早到即位那年(或更早)的,这条即位去掉;卒年去掉了,到卒年的改回照寻常君主
+ *   生年、性格:照新的抄进去
+ */
+export function crownEditAsk(civ: Civ, ivs: readonly Intervention[], old: AuthorCharacter, next: AuthorCharacter, era: Era | undefined): CrownAsk | null {
+  const born = next.born !== old.born;
+  const lean = JSON.stringify(characterLeanings(next)) !== JSON.stringify(characterLeanings(old));
+  const died = next.died !== old.died;
+  if (!born && !lean && !died) return null;
+  const list = crownsIn(civ, old.id, ivs, era);
+  const out: (Intervention | null)[] = ivs.slice();
+  let first: CrownAt | null = null;
+  let gone = false;
+  let moved = false;
+  for (const e of list) {
+    const v = e.v;
+    if (died && next.died !== undefined && next.died <= v.from) {
+      out[e.at] = null;
+      first ??= e;
+      gone = true;
+      continue;
+    }
+    let w: CrownIv = { ...v };
+    if (born) w.born = next.born;
+    if (lean) w.leanings = characterLeanings(next);
+    if (died) {
+      // 没写下台年份:推演里在位到哪年(还在位 = 一直;没生效 = 不管)
+      const end = v.until ?? (e.x ? (e.x.until ?? Infinity) : undefined);
+      const toDeath = crownToDeath(v, old.died);
+      if (next.died !== undefined && (toDeath || (end !== undefined && end > next.died))) {
+        const { abdicate: _, ...rest } = w;
+        w = { ...rest, until: next.died };
+      } else if (next.died === undefined && toDeath) {
+        const { until: _, abdicate: __, ...rest } = w;
+        w = rest;
+      }
+      if (w.until !== v.until) moved = true;
+    }
+    if (JSON.stringify(w) === JSON.stringify(v)) continue;
+    out[e.at] = w;
+    first ??= e;
+  }
+  if (!first) return null;
+  const e = first;
+  const name = next.name;
+  const from = Math.min(...list.filter((x) => out[x.at] !== x.v).map((x) => x.v.from));
+  const lead = e.x
+    ? `${name}当过${e.A}的君主（${yearAt(e.v.from, era)}即位${crownTail(e.v, old.died, era)}）。`
+    : `${name}有一条即位没生效（${yearAt(e.v.from, era)}即${e.A}君位）。`;
+  const what: string[] = [];
+  if (died)
+    what.push(
+      next.died === undefined
+        ? '卒年去掉了'
+        : `卒年改成${spaced(yearAt(next.died, era))}${gone ? '，在即位那年之前' : e.v.until !== undefined && !crownToDeath(e.v, old.died) && next.died < e.v.until ? '，比退位那年早' : ''}`,
+    );
+  if (born) what.push(`生年改成${spaced(yearAt(next.born, era))}`);
+  if (lean) what.push('性格改了');
+  const redo = `从${yearFull(from, era)}起重新推演`;
+  const yes: [string, string] = gone
+    ? ['一起改：去掉这条即位', `${redo}，${e.A}照原来的历史走`]
+    : moved
+      ? [next.died !== undefined ? `一起改：到${spaced(yearAt(next.died, era))}卒时下台` : '一起改：在位多久照寻常君主算', `${redo}；之后照常有人继位`]
+      : ['一起改', `${redo}；${born ? '推演里他的年纪跟着改' : '他在位时照新的性格行事'}`];
+  const no: [string, string] = [
+    '只改人物卡',
+    gone || moved
+      ? e.v.until !== undefined
+        ? `推演里他照旧当到${spaced(yearAt(e.v.until, era))}，和卒年对不上`
+        : '推演里他照旧在位，和卒年对不上'
+      : born
+        ? '推演里他的年纪照旧，和生年对不上'
+        : '推演里他照旧按原来的性格行事',
+  ];
+  return {
+    title: '要一起改他的即位吗？',
+    lead: lead + what.join('，') + '。',
+    yes,
+    no,
+    ivs: out.filter((x): x is Intervention => x !== null),
+    done: gone ? `${name}的即位去掉了` : `${name}的即位跟着改了`,
+  };
+}
+
+/**
+ * 删人物:当过君主的(推演里即位了)先问 —— 连他的即位一起去掉(重新推演),还是只删人物(推演里那位君主改叫"作者的人物",历史不变)。
+ * 没当过 = null(直接删);去掉的时候没生效的即位也一起去掉
+ */
+export function crownDeleteAsk(civ: Civ, ivs: readonly Intervention[], c: AuthorCharacter, era: Era | undefined): CrownAsk | null {
+  const list = crownsIn(civ, c.id, ivs, era);
+  const done = list.filter((e) => e.x);
+  if (!done.length) return null;
+  const span = (e: CrownAt) => {
+    const f = e.x!.from ?? e.v.from;
+    return e.x!.until !== undefined ? yearSpanAt(f, e.x!.until, era) : `${yearAt(f, era)}起`;
+  };
+  const As = [...new Set(done.map((e) => e.A))];
+  const lead = As.length === 1 ? `他当过${As[0]}的君主（${done.map(span).join('、')}）。` : `他当过${done.map((e) => `${e.A}（${span(e)}）`).join('、')}的君主。`;
+  const drop = new Set(list.map((e) => e.at));
+  const from = Math.min(...list.map((e) => e.v.from));
+  return {
+    title: `删除人物「${c.name}」`,
+    lead,
+    yes: ['连他的即位一起去掉', `从${yearFull(from, era)}起重新推演，${As.join('、')}照原来的历史走`],
+    no: ['只删人物，君位留着', `推演里那位君主改叫「${AUTHOR_RULER_DEFAULT}」，历史不变`],
+    ivs: ivs.filter((_, i) => !drop.has(i)),
+    done: `已删除人物「${c.name}」和他的即位`,
+  };
+}
+
+/** 推完的提示条:一句话;undo = 提示条上的「撤销」(删人物连即位一起去掉的:人物、即位都放回去) */
+export interface CrownResimNote {
+  text: string;
+  undo?: () => void;
+}
+/** 刚才因为问的那一句改了干预(App 推完据此写提示条;edits = 改了以后的修改,取一次就没了) */
+let resimNote: (CrownResimNote & { edits: WorldEdits }) | null = null;
+export function noteCrownResim(edits: WorldEdits, text: string, undo?: () => void) {
+  resimNote = { edits, text, undo };
+}
+export function takeCrownResim(edits: WorldEdits): CrownResimNote | null {
+  if (!resimNote || resimNote.edits !== edits) return null;
+  const { text, undo } = resimNote;
+  resimNote = null;
+  return { text, undo };
 }

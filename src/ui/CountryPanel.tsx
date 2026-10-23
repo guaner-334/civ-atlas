@@ -10,6 +10,7 @@
  *         人口(境内各州的总人口:城 + 乡村)、主体民族、国教(可点,"某年起";没有写"没有")、
  *         宗主("某年起称臣")/ 藩属 / 盟国(可点,名字后面是哪年称臣、结盟;有才写)、邻国(可点),来历 / 结局 / 历任国都(有才写)
  *   历代君主  当前这位和前后各两位(新的在上;遇弑、被废这类结局写在名字后面),点一行看这个人;
+ *             作者立的君主(让作者的人物即位):名字前面是他的圆头像,后面写「作者的人物」,点了开作者的人物卡;
  *         "全部 N 位"打开概览的人物页、只看这国的君主;"世系图"(不是共和国才有)打开这国的世系图,停在时间轴那一年的那一朝
  *   朝代  改朝换代过才有:一朝一行(新的在上),当前那一朝标"当前";点一行 = 时间轴跳到它开始的那年
  *   大事  到当前年份为止最近 5 条(可点:跳到那一年,地图上闪出事发地);"全部 N 件"打开概览的编年史页、只看这国的"全部"
@@ -32,7 +33,8 @@ import { fullChronicle } from '../gen/civ/religionText';
 import { stateFaithAt } from '../gen/civ/religion';
 import { dynastyKey, polityKey } from '../gen/edits';
 import { spaced, yearAt, yearFull, yearShort, yearShortAt, yearSpan, yearSpanAt } from '../gen/era';
-import { useEra } from './editsStore';
+import { useEdits, useEra } from './editsStore';
+import { CharAvatar } from './CharacterPanel';
 import { setCivTime, setSelection } from './civView';
 import { peopleIndex, rulerAt } from '../gen/civ/peopleInfo';
 import { isConsul, personName, rulerFateWord } from '../gen/civ/peopleText';
@@ -102,7 +104,7 @@ export function CountryPanel(props: CountryPanelProps) {
   return (
     <div className="cp" data-polity={id} data-tab={tab}>
       <CountryHead {...props} shared={shared} />
-      {tab === 'cmd' ? <CommandPage civ={civ} id={id} year={year} /> : <InfoPage {...props} p={p} shared={shared} />}
+      {tab === 'cmd' ? <CommandPage civ={civ} raster={raster} world={props.world} id={id} year={year} /> : <InfoPage {...props} p={p} shared={shared} />}
     </div>
   );
 }
@@ -461,6 +463,7 @@ function InfoPage({ civ, raw, raster, world, id, year, p, shared }: CountryPanel
 /** 历代君主:当前这位(这一年在位的;没有 = 这一年之前最近的一位)和前后各两位,新的在上 */
 function RulerList({ civ, id, year }: { civ: Civ; id: number; year: number }) {
   const era = useEra();
+  const chars = useEdits().characters;
   const rs = peopleIndex(civ).rulers[id] ?? [];
   if (!rs.length) return null;
   let k = 0;
@@ -488,10 +491,14 @@ function RulerList({ civ, id, year }: { civ: Civ; id: number; year: number }) {
         {near.map((r) => {
           const on = r === cur;
           const fate = r.fate && r.fate !== 'died' && r.fate !== 'retired' ? rulerFateWord(civ, r) : '';
+          // 作者立的君主(人物卡删掉了:名字就是"作者的人物",不再加头像和小字)
+          const ac = r.author !== undefined ? chars?.find((c) => c.id === r.author) : undefined;
           return (
             <button key={r.id} className={`cp-dyn-row${on ? ' on' : ''}`} data-person={r.id} onClick={() => setSelection({ kind: 'person', id: r.id })}>
               <span className="cp-dyn-name">
+                {ac && <CharAvatar c={ac} size={18} cls="cr-av" />}
                 {personName(civ, r)}
+                {ac && <em className="cp-num-note">作者的人物</em>}
                 {on && <em className="cp-badge">当前</em>}
                 {fate && <em className="cp-num-note">{fate}</em>}
               </span>

@@ -147,6 +147,20 @@ export interface LineageTree {
   distant: boolean;
 }
 
+/**
+ * 一棵树上面写的那一行:第一棵(开国那一支)不写 = '';作者立的君主(让作者的人物即位,连不上谁,单独一棵)= "作者立的君主";
+ * 紧跟在他那一棵后面、里面有接他位的那位 = "继他之位";别的远支 = "宗室远支"
+ */
+export function treeLabel(row: DynastyRow, trees: readonly LineageTree[], i: number): string {
+  const t = trees[i];
+  if (!t?.distant) return '';
+  if (t.nodes.some((n) => n.p.author !== undefined)) return '作者立的君主';
+  const a = trees[i - 1]?.nodes.find((n) => n.p.author !== undefined)?.p;
+  const k = a ? row.rulers.indexOf(a) : -1;
+  const next = k >= 0 ? row.rulers[k + 1] : undefined;
+  return next && t.nodes.some((n) => n.p === next) ? '继他之位' : '宗室远支';
+}
+
 /** 一朝排成几棵树:第一棵是开国那一支,远支按即位先后跟在后面 */
 export function layoutDynasty(civ: Civ, row: DynastyRow): LineageTree[] {
   const members = dynastyMembers(civ, row);
@@ -212,8 +226,10 @@ export function lineageText(civ: Civ, polity: number, era?: Era): string {
   const out: string[] = [];
   rows.forEach((row, i) => {
     out.push(`${row.name}(${dynastyNote(civ, rows, i, era)})`);
-    for (const t of layoutDynasty(civ, row)) {
-      if (t.distant) out.push('宗室远支');
+    const trees = layoutDynasty(civ, row);
+    trees.forEach((t, ti) => {
+      const label = treeLabel(row, trees, ti);
+      if (label) out.push(label);
       const inTree = new Set(t.nodes.map((n) => n.p));
       const walk = (x: Person, depth: number) => {
         const pad = '  '.repeat(depth);
@@ -228,7 +244,7 @@ export function lineageText(civ: Civ, polity: number, era?: Era): string {
       };
       const root = t.nodes.find((n) => n.depth === 0);
       if (root) walk(root.p, 0);
-    }
+    });
     const end = dynastyEnd(civ, rows, i, era);
     if (end) out.push(end);
     out.push('');
