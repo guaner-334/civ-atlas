@@ -181,7 +181,7 @@ function shoreRegion(world: World, of: ArrayLike<number>, count: number, cell: n
 }
 
 /** 离 [经度, 纬度] 最近的地块(没有 = −1) */
-function nearestCell(world: World, p: readonly [number, number]): number {
+export function nearestCell(world: World, p: readonly [number, number]): number {
   const m = world.mesh;
   const [x, y] = toWorld(p[0], p[1]);
   // 先在主图上粗找(经度差按纬度缩),再按球面距离精排前几个
@@ -604,6 +604,8 @@ function ivText(civ: Civ, v: Intervention): string {
       return `在 ${reg(v.region)} 立国${v.name ? `(号${v.name})` : ''}`;
     case 'crown':
       return `${id(v.a, 'polity', 'P')} 立作者的人物为君主${until(v.until)}`;
+    case 'policy':
+      return `${id(v.a, 'polity', 'P')} 定方针`;
   }
 }
 
@@ -1419,6 +1421,7 @@ const KIND_LABEL: Record<Intervention['kind'], string> = {
   cede: '划州',
   found: '立国',
   crown: '立作者的人物为君主',
+  policy: '定方针',
 };
 
 // ---------------------------------------------------------------------------

@@ -1,0 +1,1083 @@
+/*
+ * 作品墙(Gallery.tsx)。页面外框、卡片、页签照「我的世界」(worlds.css 的 .mw、.mw-thumb、.mw-tag、.mw-seg),
+ * 弹窗、单选照账号窗口(account.css 的 .acct-*),「拿来用」菜单照 sidebar.css 的 .pm-menu,整页的提示照「分享停了」那一页。
+ *
+ *   .gl       作品墙那一页(外层同时是 .mw):左上「‹ 我的世界」,标题、一句话、右上「怎么上作品墙」;精选 / 挑战 / 全部作品
+ *   .gl-fe    「我的世界」空页面下面的一排精选
+ *   .gw-bar   打开一个作品时地图左上那一条(毛玻璃,照地图上的面板;在 .corner-tl 里)
+ *   .gw-map   地图作品:整屏太空底 + 星球
+ */
+
+/* ==== 作品墙那一页 ==== */
+.mw.gl {
+  padding-top: 22px;
+}
+.mw.gl.mw-phone {
+  padding-top: calc(14px + var(--safe-t, 0px));
+}
+.gl-top {
+  flex: none;
+}
+.gl-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.mw-phone .gl-row {
+  height: 34px;
+}
+.mw .gl-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: -4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.mw .gl-back:hover {
+  text-decoration: underline;
+}
+.gl-head {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  margin-top: 8px;
+}
+.gl-head .mw-heading {
+  flex: 1;
+  min-width: 0;
+}
+.mw-phone .gl-head {
+  margin-top: 0;
+}
+.gl-body {
+  flex: none;
+}
+
+/* 一节的标题:大字 + 旁边灰色小字(右边可以放页签、链接) */
+.gl-sec-h {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 30px 0 14px;
+}
+.gl-sec-h h2 {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 650;
+}
+.gl-sec-h small {
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.gl-sp {
+  flex: 1;
+}
+.mw-phone .gl-sec-h {
+  margin: 22px 0 10px;
+}
+.mw-phone .gl-sec-h h2 {
+  font-size: 18px;
+}
+
+/* 页签(在「全部作品」标题右边;手机上铺满一行,在标题下面) */
+.mw .gl-sec-h .gl-seg {
+  align-self: center;
+  margin-top: 0;
+}
+.mw-phone .gl-seg {
+  margin: 0 0 14px;
+}
+.mw-phone .gl-seg button {
+  padding: 0 4px;
+  font-size: 14.5px;
+}
+.gl-none {
+  margin: 0;
+  padding: 6px 0 32px;
+  font-size: 13.5px;
+  color: var(--ink-2);
+}
+
+/* ---- 作品卡 ---- */
+.gl-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 30px 32px;
+}
+@media (max-width: 1200px) {
+  .gl-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+@media (max-width: 900px) {
+  .gl-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.mw-phone .gl-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px 12px;
+}
+.mw .gl-card {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+  -webkit-touch-callout: none;
+}
+.gl-card.ghost {
+  cursor: default;
+}
+.gl-cover {
+  position: relative;
+  display: block;
+  aspect-ratio: 2 / 1;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--btn) center / cover no-repeat;
+  box-shadow:
+    0 0 0 0.5px rgba(0, 0, 0, 0.14),
+    0 2px 8px rgba(0, 0, 0, 0.08);
+}
+/* 新建参数的封面是一颗星球:黑底,放大一点让球大些 */
+.gl-cover.planet {
+  background-color: #03050a;
+  background-size: auto 116%;
+  background-position: center;
+}
+.gl-card:hover .gl-cover {
+  box-shadow:
+    0 0 0 0.5px rgba(0, 0, 0, 0.18),
+    0 4px 14px rgba(0, 0, 0, 0.14);
+}
+.gl-card:focus-visible {
+  outline: 0;
+}
+.gl-card:focus-visible .gl-cover {
+  box-shadow: 0 0 0 3px var(--accent);
+}
+.mw-phone .gl-cover {
+  border-radius: 8px;
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.14);
+}
+.gl-tag {
+  position: absolute;
+  left: 8px;
+  top: 8px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.1);
+  color: #1d1d1f;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+.mw-phone .gl-tag {
+  left: 6px;
+  top: 6px;
+  padding: 1px 6px;
+  border-radius: 5px;
+  font-size: 11px;
+}
+.gl-meta {
+  display: flex;
+  flex-direction: column;
+  margin-top: 10px;
+  min-width: 0;
+}
+.gl-row1 {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.gl-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 15px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gl-at {
+  flex: none;
+  font-size: 12.5px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+.gl-by {
+  margin-top: 1px;
+  font-size: 13px;
+  color: var(--ink-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gl-blurb {
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--ink);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.gl-note {
+  margin-top: 8px;
+  padding-left: 10px;
+  border-left: 2px solid var(--line-strong);
+  font-size: 13.5px;
+  color: var(--ink);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.mw-phone .gl-meta {
+  margin-top: 7px;
+}
+.mw-phone .gl-name {
+  font-size: 14.5px;
+  line-height: 19px;
+}
+.mw-phone .gl-by {
+  font-size: 12px;
+  line-height: 17px;
+}
+.mw-phone .gl-blurb {
+  margin-top: 2px;
+  font-size: 12.5px;
+  line-height: 17px;
+}
+.gl-card.mini .gl-meta {
+  margin-top: 7px;
+}
+.gl-card.mini .gl-name {
+  font-size: 13.5px;
+}
+.gl-card.mini .gl-by {
+  font-size: 12px;
+}
+.gl-card.ghost .gl-cover {
+  box-shadow: none;
+  background: var(--btn);
+}
+.gl-bar {
+  display: block;
+  height: 11px;
+  margin: 5px 0 3px;
+  border-radius: 4px;
+  background: var(--btn);
+}
+
+/* 手机上的精选:一行横着滑,露出下一张的一点 */
+.gl-scroll {
+  display: flex;
+  gap: 12px;
+  margin-right: calc(-16px - var(--safe-r, 0px));
+  padding-right: 16px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+}
+.gl-scroll::-webkit-scrollbar {
+  display: none;
+}
+.gl-scroll > .gl-card {
+  flex: none;
+  width: min(292px, 78vw);
+  scroll-snap-align: start;
+}
+
+/* ---- 挑战(白底一块,照侧栏分组) ---- */
+.gl-chal {
+  display: flex;
+  gap: 28px;
+  padding: 18px 20px;
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: 0 0 0 0.5px var(--line);
+}
+.gl-chal + .gl-chal {
+  margin-top: 14px;
+}
+.gl-chal-l {
+  width: 520px;
+  max-width: 42%;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.gl-chal-l h3 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 650;
+}
+.gl-chal-l p {
+  margin: 0;
+  font-size: 13.5px;
+  color: var(--ink-2);
+}
+.gl-due {
+  align-self: flex-start;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--btn);
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ink);
+}
+.gl-chal-n {
+  margin-top: auto;
+  padding-top: 6px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.gl-chal-r {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+}
+.gl-chal-r > .gl-card {
+  width: 200px;
+}
+.gl-chal.ghost {
+  min-height: 168px;
+}
+.gl-chal.ghost .gl-chal-l .gl-bar {
+  height: 12px;
+  margin: 6px 0;
+}
+.mw-phone .gl-chal {
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+}
+.mw-phone .gl-chal-l {
+  width: auto;
+  max-width: none;
+}
+.mw-phone .gl-chal-l p {
+  font-size: 13px;
+}
+.mw-phone .gl-chal-r {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.mw-phone .gl-chal-r > .gl-card {
+  width: auto;
+}
+.mw-phone .gl-chal-r .gl-name {
+  font-size: 12.5px;
+}
+
+/* ---- 整页的提示(取不到、还没有作品):照「分享停了」 ---- */
+/* 占满页头和页脚之间,内容放正中(页脚自己的 margin-top:auto 就不再分走空白) */
+.gl-note-box {
+  flex: 1 0 auto;
+  margin: 0 auto;
+  width: 460px;
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  gap: 10px;
+  padding: 24px 0;
+}
+.gl-note-box h2 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+}
+.gl-note-box p {
+  margin: 0;
+  font-size: 14px;
+  color: var(--ink-2);
+}
+.mw .mw-btn.gl-lg {
+  height: 40px;
+  padding: 0 14px;
+  border-radius: 9px;
+  font-size: 14px;
+}
+
+/* ==== 「我的世界」右上的入口 ==== */
+/* 手机:账号按钮在左,其余的靠右挤在一起 */
+.mw-phone .mw-bar.has-acct > .mw-acct {
+  margin-right: auto;
+}
+/* 手机上账号、作品墙都在时,使用教程只留图标(圆的) */
+.mw .mw-btn.round.ic {
+  width: 34px;
+  padding: 0;
+  justify-content: center;
+}
+
+/* ==== 「我的世界」空页面下面的精选 ==== */
+.mw-empty.with-fe {
+  flex: none;
+  justify-content: flex-start;
+  margin-top: 0;
+  padding: 10px 0 0;
+  color: var(--ink);
+}
+.mw-empty.with-fe .mw-globe {
+  margin-bottom: 18px;
+}
+.mw-empty.with-fe p {
+  margin: 8px 0 18px;
+}
+.mw .mw-empty.with-fe .mw-or {
+  margin-top: 8px;
+}
+.mw .mw-empty.with-fe .mw-note {
+  margin-top: 6px;
+}
+.gl-fe {
+  flex: none;
+  margin-top: 54px;
+}
+.gl-fe .gl-sec-h {
+  margin: 0 0 12px;
+}
+.gl-fe .gl-sec-h h2 {
+  font-size: 17px;
+}
+.gl-fe .gl-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 24px 28px;
+}
+.mw .gl-more {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.mw .gl-more:hover {
+  text-decoration: underline;
+}
+.mw-phone .mw-empty.with-fe {
+  padding-top: 18px;
+}
+.mw-phone .mw-empty.with-fe .mw-globe {
+  margin-bottom: 12px;
+}
+.mw-phone .mw-empty.with-fe h2 {
+  font-size: 21px;
+}
+.mw-phone .mw-empty.with-fe p {
+  margin: 6px 0 14px;
+  font-size: 14px;
+  line-height: 1.55;
+}
+.mw-phone .mw-empty.with-fe .mw-or {
+  margin-top: 6px;
+  font-size: 14px;
+}
+.mw-phone .gl-fe {
+  margin-top: 26px;
+}
+.mw-phone .gl-fe .gl-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px 12px;
+}
+.mw-phone .gl-fe .gl-more {
+  font-size: 13.5px;
+}
+
+/* ==== 弹窗:怎么上作品墙、新建参数作品 ==== */
+.gl-three .acct-gr {
+  align-items: flex-start;
+  min-height: 38px;
+  font-size: 13.5px !important;
+}
+.gl-three .acct-gr b {
+  flex: none;
+  width: 92px;
+  font-weight: 600;
+}
+.gl-three .acct-gr span {
+  color: var(--ink-2);
+}
+.gl-h3 {
+  margin: 6px 0 -6px;
+  font-size: 14px;
+  font-weight: 650;
+}
+.gl-ol {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13.5px;
+  color: var(--ink);
+}
+.gl-ol li::marker {
+  color: var(--ink-3);
+}
+.gl-howto .acct-body {
+  gap: 12px;
+}
+
+.gl-pdlg {
+  overflow: hidden;
+}
+.gl-pcover {
+  position: relative;
+  height: 230px;
+  background: #03050a center / auto 118% no-repeat;
+  border-radius: 14px 14px 0 0;
+}
+.gl-pdlg.sheet .gl-pcover {
+  height: 180px;
+}
+.gl-pcover .acct-x {
+  position: absolute;
+  right: 14px;
+  top: 14px;
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff !important;
+}
+.gl-pdlg .acct-head {
+  padding-top: 16px;
+}
+.gl-pdlg .acct-body {
+  gap: 12px;
+}
+.gl-who {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: -2px;
+  font-size: 13.5px;
+  color: var(--ink-2);
+}
+.gl-who .gl-tag {
+  position: static;
+  box-shadow: inset 0 0 0 0.5px var(--line);
+  background: var(--btn);
+  color: var(--ink);
+}
+.gl-pblurb {
+  font-size: 13.5px;
+  color: var(--ink);
+}
+.gl-pp {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+.gl-pp .acct-gr {
+  min-height: 36px;
+  padding: 7px 12px;
+  font-size: 13.5px !important;
+}
+.gl-pp .acct-gr:nth-child(odd) {
+  border-right: 0.5px solid var(--line);
+}
+.gl-pp .acct-gr:nth-last-child(-n + 2) {
+  border-bottom: 0;
+}
+.gl-pp .k {
+  flex: 1;
+  color: var(--ink);
+}
+.gl-pp .v {
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+.gl-pp.ghost .gl-bar {
+  margin: 0;
+}
+.acct-btn.gl-ghost {
+  background: transparent;
+  color: var(--ink-2);
+}
+.acct-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* ==== 打开一个作品时地图左上那一条 ==== */
+.gw-bar {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  width: max-content;
+  max-width: 486px;
+  padding: 11px 12px 11px 14px;
+  border-radius: 12px;
+  background: var(--panel);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  box-shadow: var(--shadow-panel);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.45;
+  text-shadow: none;
+  pointer-events: auto;
+  cursor: default;
+}
+.gw-bar button {
+  font: inherit;
+}
+.gw-tx {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.gw-1 {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  white-space: nowrap;
+}
+.gw-1 b {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 15px;
+  font-weight: 650;
+}
+.gw-1 span:not(.gw-pill) {
+  font-size: 13px;
+  color: var(--ink-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.gw-pill {
+  flex: none;
+  align-self: center;
+  padding: 1px 7px;
+  border-radius: 5px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+.gw-2 {
+  font-size: 13px;
+  color: var(--ink-2);
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.gw-by {
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+.gw-acts {
+  flex: none;
+  display: flex;
+  gap: 8px;
+  align-self: center;
+}
+.gw-btn {
+  height: 32px;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--btn);
+  color: var(--ink);
+  font-size: 13.5px !important;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.gw-btn:hover:not(:disabled) {
+  filter: brightness(0.94);
+}
+.gw-btn.blue {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.gw-btn.blue:hover,
+.gw-btn.blue.on {
+  background: var(--accent-hover);
+  filter: none;
+}
+.gw-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+/* 地图作品:「‹ 作品墙」在这一条最左边,右边一道细线隔开 */
+.gw-back {
+  flex: none;
+  align-self: center;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-right: 2px;
+  padding: 0 12px 0 0;
+  border: 0;
+  border-right: 0.5px solid var(--line);
+  background: none;
+  color: var(--accent);
+  font-size: 13.5px !important;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.gw-bar.map {
+  max-width: min(720px, calc(100vw - 28px));
+}
+
+/* 「拿来用」菜单(照 .pm-menu) */
+.gw-menu {
+  position: absolute;
+  z-index: 20;
+  width: 340px;
+  padding: 5px;
+  border-radius: 10px;
+  background: var(--panel);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  box-shadow: var(--shadow-float);
+  display: flex;
+  flex-direction: column;
+  animation: pm-in 0.12s ease-out;
+}
+.gw-mi {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  width: 100%;
+  min-height: 32px;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink);
+  font-size: 14px !important;
+  text-align: left;
+  cursor: pointer;
+}
+.gw-mi .icon {
+  margin-top: 1px;
+}
+.gw-mi > span {
+  display: flex;
+  flex-direction: column;
+}
+.gw-mi b {
+  font-weight: 400;
+}
+.gw-mi small {
+  font-size: 12px;
+  color: var(--ink-2);
+}
+.gw-mi:hover,
+.gw-mi:focus-visible {
+  outline: 0;
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.gw-mi:hover small,
+.gw-mi:focus-visible small {
+  color: rgba(255, 255, 255, 0.85);
+}
+.gw-menu hr {
+  border: 0;
+  border-top: 0.5px solid var(--line);
+  margin: 4px 8px;
+}
+.gw-foot {
+  padding: 4px 9px 4px 36px;
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+
+/* 在地图左上(.corner-tl 里):电脑贴着侧栏右边、离顶 14;手机让出右边那一列按钮 */
+.app.has-side .corner-tl:has(> .gw-bar) {
+  top: 14px;
+}
+.app.phone .corner-tl:has(> .gw-bar) {
+  left: calc(10px + var(--safe-l, 0px));
+  top: calc(10px + var(--safe-t, 0px));
+  max-width: none;
+}
+.gw-bar.phone {
+  width: calc(100vw - 74px - var(--safe-l, 0px) - var(--safe-r, 0px));
+  max-width: none;
+  gap: 10px;
+  padding: 9px 10px 9px 12px;
+}
+.gw-bar.phone .gw-2 {
+  font-size: 12.5px;
+  display: block;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.gw-bar.phone .gw-acts {
+  gap: 6px;
+}
+.gw-bar.phone .gw-btn {
+  height: 30px;
+  padding: 0 10px;
+  font-size: 13px !important;
+}
+.gw-bar.phone .gw-btn.ic {
+  width: 30px;
+  padding: 0;
+}
+.gw-bar.phone .gw-back {
+  padding-right: 8px;
+}
+
+/* 手机「拿来用」:从下面升起,两行大按钮 */
+.gw-big .acct-gr {
+  min-height: 62px;
+  gap: 12px;
+  color: var(--ink);
+}
+.gw-big .acct-gr > span {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.gw-big .acct-gr b {
+  font-size: 16px;
+  font-weight: 500;
+}
+.gw-big .acct-gr small {
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+.gw-big .acct-gr > .icon.gw-chev {
+  color: var(--ink-3);
+}
+
+/* 举报 */
+.gw-rds {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.gw-report .acct-radio {
+  padding: 9px 12px;
+}
+.acct-dlg.sheet.gw-report .acct-radio b {
+  font-size: 15px;
+}
+.gw-ok {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 8px;
+  padding: 28px 28px 4px;
+}
+.gw-ok-ic {
+  width: 56px;
+  height: 56px;
+  margin-bottom: 4px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(46, 154, 88, 0.14);
+  color: var(--ok);
+}
+.gw-ok h2 {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 700;
+}
+.gw-ok p {
+  font-size: 13.5px;
+  color: var(--ink-2);
+}
+.gw-ok .acct-small {
+  margin-top: 6px;
+}
+.acct-btn.gw-wide {
+  flex: 1;
+}
+
+/* ==== 地图作品:整屏太空底 + 星球(和新建界面第一步一样) ==== */
+.gw-map {
+  position: fixed;
+  inset: 0;
+  z-index: 28;
+  overflow: hidden;
+  background:
+    radial-gradient(1px 1px at 23px 41px, rgba(255, 255, 255, 0.55), transparent),
+    radial-gradient(1px 1px at 97px 133px, rgba(255, 255, 255, 0.35), transparent),
+    radial-gradient(1.2px 1.2px at 151px 19px, rgba(255, 255, 255, 0.5), transparent),
+    radial-gradient(1px 1px at 61px 181px, rgba(255, 255, 255, 0.3), transparent),
+    radial-gradient(1px 1px at 189px 87px, rgba(255, 255, 255, 0.4), transparent) 0 0 / 211px 211px,
+    radial-gradient(1px 1px at 47px 211px, rgba(255, 255, 255, 0.3), transparent),
+    radial-gradient(1.3px 1.3px at 233px 59px, rgba(255, 255, 255, 0.45), transparent),
+    radial-gradient(1px 1px at 141px 263px, rgba(255, 255, 255, 0.28), transparent) 0 0 / 293px 293px,
+    radial-gradient(ellipse 70% 70% at 55% 48%, #0d1119 0%, #070a10 55%, #05070b 100%);
+  background-color: #05070b;
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.45;
+}
+.gw-cv {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  cursor: grab;
+  touch-action: none;
+}
+.gw-cv.dragging {
+  cursor: grabbing;
+}
+.gw-glow {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  border-radius: 50%;
+  opacity: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    circle,
+    rgba(70, 140, 255, 0) 52%,
+    rgba(110, 175, 255, 0.55) 55.5%,
+    rgba(70, 140, 255, 0.22) 58.5%,
+    rgba(60, 120, 255, 0.07) 63%,
+    rgba(60, 120, 255, 0) 70%
+  );
+}
+.gw-plain {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: min(92vw, 160vh);
+  aspect-ratio: 2 / 1;
+  transform: translate(-50%, -50%);
+  background: center / contain no-repeat;
+}
+.gw-map > .gw-bar {
+  position: absolute;
+  left: 14px;
+  top: 14px;
+  z-index: 2;
+}
+.gw-map.phone > .gw-bar {
+  left: calc(10px + var(--safe-l, 0px));
+  top: calc(10px + var(--safe-t, 0px));
+  width: calc(100vw - 20px - var(--safe-l, 0px) - var(--safe-r, 0px));
+}
+.gw-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 26px;
+  z-index: 2;
+  transform: translateX(-50%);
+  max-width: calc(100% - 32px);
+  padding: 7px 14px;
+  border-radius: 16px;
+  background: var(--panel);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  box-shadow: var(--shadow-panel);
+  font-size: 13px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.gw-map.phone .gw-hint {
+  bottom: calc(24px + var(--safe-b, 0px));
+  white-space: normal;
+  text-align: center;
+}
+.gw-ctl {
+  position: absolute;
+  right: 14px;
+  bottom: 26px;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+.gw-map.phone .gw-ctl {
+  right: calc(12px + var(--safe-r, 0px));
+  bottom: calc(72px + var(--safe-b, 0px));
+}
+.gw-glass {
+  background: var(--panel);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  box-shadow: var(--shadow-panel);
+  border-radius: 10px;
+}
+button.gw-glass {
+  height: 36px;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.gw-zoom {
+  width: 36px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.gw-zoom button {
+  height: 36px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+}
+.gw-zoom button + button {
+  border-top: 0.5px solid var(--line);
+}
+button.gw-glass:hover,
+.gw-zoom button:hover {
+  background-color: var(--hover-bg);
+}

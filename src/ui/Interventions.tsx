@@ -21,6 +21,7 @@ import { ownersAt, type Owners } from '../gen/civ/timeline';
 import { cleanIntervention, keyCells, polityKey, regionKey, regionOfKey, resolveKey, type Intervention } from '../gen/edits';
 import { getEdits, removeIntervention, useEra } from './editsStore';
 import { crownLine } from './crownInfo';
+import { emptyPolicy, policyName } from '../gen/civ/policy';
 import { eraText, yearShort } from '../gen/era';
 
 // ---------------------------------------------------------------------------
@@ -198,6 +199,8 @@ export function interventionText(civ: Civ, v: Intervention, i = -1, a?: string):
     case 'crown':
       // "林小满即有桑皇朝君位，1530 年退位" / "……，到 1541 年卒"(下台年份就是人物卡上的卒年)
       return crownLine(authorName(civ, v.char), A, v, getEdits().characters?.find((c) => c.id === v.char)?.died, getEdits().era);
+    case 'policy':
+      return emptyPolicy(v) ? `${A}:不再定方针(照君主性格)` : `${A}:方针「${policyName(v) || '亲仇'}」`;
   }
 }
 

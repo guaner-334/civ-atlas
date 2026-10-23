@@ -85,6 +85,8 @@ import { ownersAt } from './timeline';
 import { plagueSpans } from './plagueSpans';
 import { ageAt, generalRef, kinOf, rulerBare, rulerRef, rulerShort } from './peopleText';
 import { eraText, monthTail, type Era } from '../era';
+import { resolveKey } from '../edits';
+import { emptyPolicy, policyName, type PolicyIv } from './policy';
 
 /** 重要度:3 最重要 */
 export type Importance = 1 | 2 | 3;
@@ -861,6 +863,11 @@ function interveneStory(civ: Civ, e: Annal, id: number): IvStory {
       }
       return done(`${who}即${A}君位`);
     }
+    case 'policy': {
+      if (e.b === -3) return fail(`欲定${A}方针,然${A}已亡`, `那一年${A}已亡`);
+      if (emptyPolicy(v)) return done(`${A}罢方针,凡事听君主`);
+      return done(`${A}${hadPolicy(civ, e, id) ? '改定' : '定'}方针${policyTail(civ, v, y)}`);
+    }
     case 'move': {
       const city = cityName(civ, e.settlement);
       if (!city) return fail(`${A}欲迁都,然其城尚未建起`, '那一年还没有这座城');
@@ -880,6 +887,32 @@ function interveneStory(civ: Civ, e: Annal, id: number): IvStory {
     default:
       return done(A);
   }
+}
+
+/** 这条方针之前这国已经照着别的方针(生效了、不是罢方针的):编年史写"改定方针" */
+function hadPolicy(civ: Civ, e: Annal, id: number): boolean {
+  for (let k = id - 1; k >= 0; k--) {
+    const n = civ.annals[k];
+    if (n.kind !== 'intervene' || n.a !== e.a || n.b !== -1) continue;
+    const v = civ.interventions?.[n.war];
+    if (v?.kind === 'policy') return !emptyPolicy(v);
+  }
+  return false;
+}
+
+/** 方针在编年史里的后半句:":扩张(细调过),仇莱尼多尔王国,亲温兹汗国"(没定名字、只挑了亲仇的不写名字;旋钮的数不写) */
+function policyTail(civ: Civ, v: PolicyIv, y: Year): string {
+  const name = policyName(v);
+  const who = (keys: readonly string[] | undefined) =>
+    (keys ?? [])
+      .map((k) => {
+        const r = resolveKey(civ, k);
+        return r?.kind === 'polity' ? pn(civ, r.id, y) : '';
+      })
+      .filter(Boolean)
+      .join('、');
+  const parts = [name, who(v.foes) && `仇${who(v.foes)}`, who(v.friends) && `亲${who(v.friends)}`].filter(Boolean);
+  return parts.length ? `:${parts.join(',')}` : '';
 }
 
 /**

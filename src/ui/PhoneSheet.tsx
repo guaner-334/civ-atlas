@@ -75,8 +75,8 @@ export function PhoneSheet(p: PhoneSheetProps) {
                   存回推演模式
                 </button>
               ) : (
-                <button className="ps-link" data-act="home" onClick={p.onHome} title="我存过的世界、新建世界">
-                  我的世界
+                <button className="ps-link" data-act={p.homeLabel ? 'gallery-back' : 'home'} onClick={p.onHome} title={p.homeLabel ? undefined : '我存过的世界、新建世界'}>
+                  {p.homeLabel ?? '我的世界'}
                 </button>
               )}
             </div>
@@ -105,9 +105,9 @@ export function PhoneSheet(p: PhoneSheetProps) {
                   </div>
                 )}
                 <div className="ps-tiles">
-                  <button className="ps-tile" data-act="home" onClick={p.onHome} title="我存过的世界、新建世界">
-                    <Icon name="grid" size={20} />
-                    我的世界
+                  <button className="ps-tile" data-act={p.homeLabel ? 'gallery-back' : 'home'} onClick={p.onHome} title={p.homeLabel ? undefined : '我存过的世界、新建世界'}>
+                    <Icon name={p.homeLabel ? 'image' : 'grid'} size={20} />
+                    {p.homeLabel ?? '我的世界'}
                   </button>
                   <SaveMenu ready={ready} icon={<Icon name="save" size={20} />} />
                   <ExportMenu {...p.exp} icon={<Icon name="export" size={20} />} />

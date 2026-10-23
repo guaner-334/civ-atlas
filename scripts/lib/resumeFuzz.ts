@@ -15,7 +15,8 @@ import { upheavalSteps } from '../../src/gen/civ/upheaval';
 import { UPHEAVALS_MAX } from '../../src/gen/terrainEdits';
 import { mulberry32, subSeed } from '../../src/gen/civ/rand';
 import { capitalAt } from '../../src/gen/civ/growth';
-import { polityKey, regionKey, settlementKey, type Intervention, type InterventionKind, type PlayState } from '../../src/gen/edits';
+import { POLICY_FOCI, POLICY_PRESETS_KEYS, cleanIntervention, polityKey, regionKey, settlementKey, type Intervention, type InterventionKind, type PlayState } from '../../src/gen/edits';
+import { POLICY_PRESETS } from '../../src/gen/civ/policy';
 
 type Rng = () => number;
 
@@ -83,9 +84,38 @@ export function fuzzOrders(civ: Civ, T: number): Intervention[] {
     const until = rnd() < 0.5 ? T + between(rnd, 1, 80) : undefined;
     return { kind: 'crown', a, char: between(rnd, 1, 999), from: T, born, ...(until !== undefined ? { until } : {}), leanings: { expand: L(), war: L(), develop: L(), trade: L() } };
   };
+  /** 接壤的国家(方针的亲、仇多半挑它们,挑得上才起作用) */
+  const neighbors = (pid: number) => {
+    const reg = civ.regions;
+    const out = new Set<number>();
+    for (const r of lands(pid)) for (let k = reg.adjStart[r]; k < reg.adjStart[r + 1]; k++) if (civ.polity[reg.adj[k]] >= 0 && civ.polity[reg.adj[k]] !== pid) out.add(civ.polity[reg.adj[k]]);
+    return [...out].sort((x, y) => x - y);
+  };
+  /** 方针:一键选的 / 随手拧的旋钮,挑几个亲、仇和发展重点;也有罢方针的 */
+  const policy = (A: number, a: string): Intervention => {
+    const v: Extract<Intervention, { kind: 'policy' }> = { kind: 'policy', a, from: T };
+    if (rnd() < 0.15) return v;
+    if (rnd() < 0.5) {
+      const k = pick(rnd, [...POLICY_PRESETS_KEYS]);
+      Object.assign(v, POLICY_PRESETS[k], { preset: k });
+    } else for (const k of ['war', 'expand', 'coast', 'peace'] as const) if (rnd() < 0.6) v[k] = between(rnd, -50, 50);
+    const near = neighbors(A);
+    const keys = () => {
+      const out: string[] = [];
+      for (let j = between(rnd, 0, 3); j > 0; j--) {
+        const q = near.length && rnd() < 0.8 ? pick(rnd, near) : anyPolity()?.id;
+        if (q !== undefined) out.push(polityKey(civ, q));
+      }
+      return out;
+    };
+    v.foes = keys();
+    v.friends = keys();
+    if (rnd() < 0.4) v.focus = pick(rnd, [...POLICY_FOCI]);
+    return cleanIntervention(v)!;
+  };
   for (let i = 0; i < n; i++) {
     const A = anyPolity();
-    const kinds: InterventionKind[] = A ? ['declare', 'ally', 'move', 'move', 'cede', 'cede', 'found', 'found', 'halt', 'protect', 'unity', 'crown', 'crown'] : ['found'];
+    const kinds: InterventionKind[] = A ? ['declare', 'ally', 'move', 'move', 'cede', 'cede', 'found', 'found', 'halt', 'protect', 'unity', 'crown', 'crown', 'policy', 'policy'] : ['found'];
     const kind = pick(rnd, kinds);
     const others = alive.filter((p) => p !== A);
     const B = others.length && rnd() < 0.9 ? pick(rnd, others) : anyPolity();
@@ -98,6 +128,7 @@ export function fuzzOrders(civ: Civ, T: number): Intervention[] {
     } else if (kind === 'halt' || kind === 'protect') {
       out.push(rnd() < 0.3 ? { kind, a, from: T } : { kind, a, from: T, until: T + between(rnd, 1, 80) });
     } else if (kind === 'unity') out.push({ kind, a, from: T });
+    else if (kind === 'policy') out.push(policy(A!.id, a));
     else if (kind === 'crown') out.push(crown(a));
     else if (kind === 'move') {
       // 多半迁到本国的另一座城;也有迁到别国的城、已毁的城(迁不成)

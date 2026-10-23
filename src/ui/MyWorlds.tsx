@@ -2,13 +2,15 @@
  * 「我的世界」:浏览器里存着的世界,一个一张卡片(缩略图、名字、种子和现存几国、最近打开的时间),最近的在前。
  * 有存档的人进站先到这一页;世界卡片顶上"‹ 我的世界"回到这里。样子照常见的文稿列表(浅灰底、缩略图网格、名字和日期在图下面)。
  *
- *   右上     使用教程(新标签页打开 public/guide.html;一个世界都没有时也在)、打开存档文件(也可以把 .json 拖进页面)、新建世界;有网站服务器时再加账号按钮(没登录是「登录」,登录了是名字;手机在左上)
+ *   右上     作品墙(服务器开了作品墙才有,见 Gallery.tsx)、使用教程(新标签页打开 public/guide.html;一个世界都没有时也在)、打开存档文件(也可以把 .json 拖进页面)、新建世界;
+ *            有网站服务器时再加账号按钮(没登录是「登录」,登录了是名字;手机在左上,这时有作品墙的话使用教程只留图标)
  *   卡片     点一下打开;"没建完"的(还在新建)点开接着建
  *            右上"···"(电脑悬停时出现;手机长按卡片)= 改名、复制一份、存成文件、删除(点两下确认)。没建完的只有改名、删除
  *   底部     源代码、隐私政策、用户协议、联系我们(配了交流群才有,见 ContactLink.tsx)、版本号(手机上不放,在世界卡片的"更多"里)
  * 手机:两列卡片,使用教程、新建世界在右上(一个都没有时使用教程在标题右边),打开存档文件在列表下面。
  * 一个都没有(第一次来)时:中间一颗慢慢自转的星球、一段话说清能做什么、「新建世界」大按钮,下面"或者打开存档文件",
  * 最下面一行小字说不用登录、做出来的世界归自己(和用户协议「你创作的东西归你」同一个说法)。
+ * 作品墙上有本月精选时,这一块往上收(星球小一圈),下面一排四张精选(手机两列,那段话换成三行的短说法、不放小字)。
  *
  * 标题下那句话:没登录的说清楚世界只存在这个浏览器里、清理浏览器数据会一起删掉;后面跟蓝字「全部存成文件」
  * (所有世界存成一个文件,「打开存档文件」选它全部放回来,见 bundle.ts;一个世界都没有、也没有只在页面里的时不出现)。
@@ -52,6 +54,8 @@ import { BETA_SITE, OLD_SITE } from './oldSite';
 import { civName, mapBrief, mapGroups, mapLine, mapName, type MapGroup } from './mapGroups';
 import { cleanPlay } from '../gen/edits';
 import { yearFull } from '../gen/era';
+import { loadGallery, useGallery, type GalleryWork } from '../account/gallery';
+import { GalleryFeatured } from './Gallery';
 import './worlds.css';
 
 /** 我的世界看的是哪个页签、「地图」里选中了哪张(组的编号);回到这一页照旧 */
@@ -86,6 +90,10 @@ export interface MyWorldsProps {
   onNewCiv: (id: string) => void;
   /** 点了打开(或打造新文明)、地图程序还没下完:哪一个、下了百分之几(null = 不知道) */
   opening?: { id: string; pct: number | null } | null;
+  /** 去作品墙那一页(不给 = 不放入口) */
+  onGallery?: () => void;
+  /** 点开空页面上的一张精选 */
+  onOpenWork?: (w: GalleryWork) => void;
 }
 
 /** 正在等地图程序的那一处:下了百分之几(null = 不知道) */
@@ -133,7 +141,7 @@ function worldLine(w: StoredWorld): string {
   return w.alive ? `${seed}，现存 ${w.alive} 国` : `${seed}，没有文明`;
 }
 
-export function MyWorlds({ phone, onOpen: openWorld, onNew, onOpenText, onNewCiv: newCiv, opening }: MyWorldsProps) {
+export function MyWorlds({ phone, onOpen: openWorld, onNew, onOpenText, onNewCiv: newCiv, opening, onGallery, onOpenWork }: MyWorldsProps) {
   const v = useSavesVersion();
   const list = useMemo(() => listWorlds(), [v]);
   const groups = useMemo(() => mapGroups(list), [list]);
@@ -173,6 +181,14 @@ export function MyWorlds({ phone, onOpen: openWorld, onNew, onOpenText, onNewCiv
   const trash = useTrashView();
   const n = list.length;
   const empty = n === 0;
+  // 作品墙:服务器开了才有入口(取到过列表);空页面上有本月精选时放一排
+  const gallery = useGallery();
+  const wallOk = !!onGallery;
+  useEffect(() => {
+    if (wallOk) loadGallery();
+  }, [wallOk]);
+  const wall = onGallery ? gallery.list : null;
+  const feOn = !!wall && empty && !!onOpenWork && wall.featured.some((f) => wall.works.some((w) => w.id === f.id));
   // 没登录:世界只在这个浏览器里,清理浏览器数据就没了 —— 直说,后面跟「全部存成文件」;登录了存在账号里,不再提醒。
   // 旧网站、测试网站(oldSite.ts):这里的世界和最新版 / 正式版的各存各的,说清楚(顶上还有「旧版」「测试版」标记)
   const sub = !keep
@@ -219,11 +235,27 @@ export function MyWorlds({ phone, onOpen: openWorld, onNew, onOpenText, onNewCiv
     !session ? null : !syncable(id) || sync.failed.has(id) ? 'off' : sync.busy.has(id) ? 'sync' : null;
   if (trash && session) return <TrashPage phone={phone} />;
   // 使用教程:新标签页打开一页文字说明(public/guide.html),地图这边不动
+  // 手机上同时有账号按钮和作品墙时一排放不下:使用教程只留图标
+  const guideIc = phone && !!wall && !!acctBtn;
   const guideBtn = (
-    <a className={`mw-btn${phone ? ' round' : ''}`} href={GUIDE_URL} target="_blank" rel="noreferrer" data-link="guide">
+    <a
+      className={`mw-btn${phone ? ' round' : ''}${guideIc ? ' ic' : ''}`}
+      href={GUIDE_URL}
+      target="_blank"
+      rel="noreferrer"
+      data-link="guide"
+      aria-label={guideIc ? '使用教程' : undefined}
+      title={guideIc ? '使用教程' : undefined}
+    >
       <Icon name="book" size={16} />
-      使用教程
+      {!guideIc && '使用教程'}
     </a>
+  );
+  const wallBtn = !!wall && (
+    <button className={`mw-btn${phone ? ' round' : ''}`} data-act="gallery" onClick={onGallery}>
+      <Icon name="image" size={16} />
+      作品墙
+    </button>
   );
 
   return (
@@ -231,8 +263,9 @@ export function MyWorlds({ phone, onOpen: openWorld, onNew, onOpenText, onNewCiv
       <input ref={fileRef} type="file" accept=".json,application/json" hidden onChange={onFile} data-testid="save-file-input" />
       <header className="mw-top">
         {phone && (
-          <div className={`mw-bar${server ? ' has-acct' : ''}${empty && !acctBtn ? ' solo' : ''}`}>
+          <div className={`mw-bar${server ? ' has-acct' : ''}${empty && !acctBtn && !wallBtn ? ' solo' : ''}`}>
             {acctBtn}
+            {wallBtn}
             {guideBtn}
             {!empty && (
               <button className="mw-btn blue round" data-act="new-world" onClick={onNew}>
@@ -254,6 +287,7 @@ export function MyWorlds({ phone, onOpen: openWorld, onNew, onOpenText, onNewCiv
         {/* 一个都没有时,打开存档、新建在中间的大按钮那里;右上只剩使用教程和账号 */}
         {!phone && (
           <div className="mw-acts">
+            {wallBtn}
             {guideBtn}
             {!empty && (
               <>
@@ -277,15 +311,23 @@ export function MyWorlds({ phone, onOpen: openWorld, onNew, onOpenText, onNewCiv
         )}
       </header>
       {empty && (
-        <div className="mw-empty">
-          <HomeGlobe size={phone ? 150 : 188} />
+        <div className={`mw-empty${feOn ? ' with-fe' : ''}`}>
+          <HomeGlobe size={feOn ? (phone ? 104 : 150) : phone ? 150 : 188} />
           <h2>还没有世界</h2>
-          <p>
-            <span>打造一颗独属于你的星球，</span>
-            <span>它有大陆、海洋、气候、洋流……</span>
-            <span>还有城市、文明、种族……</span>
-            <span>以及在你引导下推演出来的历史。</span>
-          </p>
+          {feOn && phone ? (
+            <p>
+              <span>打造一颗独属于你的星球，</span>
+              <span>有大陆、海洋、气候，还有城市、文明、种族，</span>
+              <span>以及在你引导下推演出来的历史。</span>
+            </p>
+          ) : (
+            <p>
+              <span>打造一颗独属于你的星球，</span>
+              <span>它有大陆、海洋、气候、洋流……</span>
+              <span>还有城市、文明、种族……</span>
+              <span>以及在你引导下推演出来的历史。</span>
+            </p>
+          )}
           <button className="mw-btn blue big" data-act="new-world" onClick={onNew}>
             <Icon name="plus" size={18} />
             新建世界
@@ -293,12 +335,15 @@ export function MyWorlds({ phone, onOpen: openWorld, onNew, onOpenText, onNewCiv
           <button className="mw-or" data-act="open-file" onClick={pickFile}>
             或者打开存档文件
           </button>
-          <p className="mw-note">
-            <span>无需登录。</span>
-            <span>做出来的世界归你，我们不主张任何权利。</span>
-          </p>
+          {!(feOn && phone) && (
+            <p className="mw-note">
+              <span>无需登录。</span>
+              <span>做出来的世界归你，我们不主张任何权利。</span>
+            </p>
+          )}
         </div>
       )}
+      {feOn && <GalleryFeatured phone={phone} onOpen={onOpenWork!} onGallery={onGallery!} />}
       {!empty && (
         <div className="mw-seg" role="tablist" aria-label="看地图还是文明">
           <button role="tab" aria-selected={tab === 'maps'} className={tab === 'maps' ? 'on' : ''} data-tab="maps" onClick={() => setView({ tab: 'maps' })}>

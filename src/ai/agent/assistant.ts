@@ -7,6 +7,8 @@
  * - country:一个国家的来龙去脉(国号、国都、国土消长、结局、相关大事)
  * - chronicle:编年史(按年份、国家筛)
  * - situation:某一年的格局(在世的国家、国土、邻国、正在打的仗)
+ * - people:人物(作者的人物和推演里的君主、将领、名臣;按名字找、按国家 + 年份列,见 ./lookup.ts)
+ * - land:一片地方的地块数据汇总(海拔、气温、降水、地形、人口、物产;见 ./lookup.ts)
  * - try_edits:按一批修改在后台重推一遍,和现在比(不动作者的世界;次数有限)
  * - propose_edits:把修改列给作者确认(和改写同一套核对;能试推演的顺带附上和现在比的结果)
  *
@@ -38,6 +40,8 @@ import {
 } from '../prompts/rewrite';
 import type { AiMessage, AiRequest, AiToolCall, AiUsage } from '../types';
 import { looksUnfinished, runAgent, type AgentEvent, type AgentStep, type AgentTool } from './loop';
+import { landLabel, lookupLand, lookupPeople, peopleLabel, polityOf, yearArg } from './lookup';
+import { regionLabel, regionNamed } from '../../gen/civ/display';
 import { compareTrial, noteDeclares, sameFate, trialText, trialUnchanged, type Fate, type FateChange, type TrialDiff, type TrialEvent } from './trial';
 
 /** 调用记录里的功能名 */
@@ -142,7 +146,7 @@ export interface AssistantResult {
 
 export const ASSISTANT_SYSTEM = [
   '你是「文明与地图」里的助手。这是一颗虚构的星球:地形由板块、侵蚀、气候生成,历史从第 0 年按规则推演到最后一年。',
-  '作者会问这个世界的事,或者说想怎么改它。你可以用工具查资料(country、chronicle、situation)、在后台试推演(try_edits)、把修改列给作者确认(propose_edits);' +
+  '作者会问这个世界的事,或者说想怎么改它。你可以用工具查资料(country、chronicle、situation、people、land)、在后台试推演(try_edits)、把修改列给作者确认(propose_edits);' +
     '有的地方还给了写史书、起名、在地图上打开这些工具,照工具说明用。',
   '',
   '## 怎么做',
@@ -156,8 +160,16 @@ export const ASSISTANT_SYSTEM = [
   '5. 说完一件事就停:列了确认单以后,用两三句话说结论,照试推演的数字说:作者关心的国家结果怎样;别的国家里变化最大的一两个(副作用,比如谁变小了、谁没亡、谁亡得更早);' +
     '确认单上不合格的条目执行不了,要说出来,不要说成可行;做不到的部分说一句。确认单要作者点了执行才生效:说"会""打算",不要说"已经改了""已放置"。不要再问作者要不要执行。',
   '   要列确认单就调用 propose_edits,不要只在话里写"列出确认单"。',
-  '6. 回给作者的话说名字,不说编号(P3、C12、L0 这些只在工具里用),也不说 protect、found 这些英文种类名和 country、chronicle、situation 这些工具名;全部用中文,简短,不用 Markdown 标题和表格。',
+  '6. 回给作者的话说名字,不说编号(P3、C12、L0 这些只在工具里用),也不说 protect、found 这些英文种类名和 country、chronicle、situation、people、land 这些工具名;' +
+    '全部用中文,简短,不用 Markdown 标题和表格。',
   '   直接称作者为"你",不要说"作者"。做不到的部分只说真做不到的;列进确认单的修改不要再说成做不到。',
+  '',
+  '## 查人物、查地块(只读,不改世界)',
+  '- people:人物。作者的人物(人物卡上的生卒、身份、性格、经历、亲友、即位)和推演里的君主、将领、名臣(在位 / 生卒年、所属国家、倾向)。' +
+    '按名字找(name);按国家列历代君主(country,role 换成名臣、将领);country 加 year 看那一年谁在位、在位第几年、谁在朝、谁领兵;只给 year 看那年各国的君主。',
+  '- land:一片地方的地块数据汇总:海拔、年均气温、年降水、地形占比、人口、城、归属、物产。一片可以是一州(region,也可以给城)、一国某年的国土(country + year)、' +
+    '一块陆地(landmass)、经纬度一点(at;加 radius 公里 = 周围一圈)、经纬度一框(box),什么都不给 = 整个世界;给的是平均、最低最高、占比。',
+  '- 作者问到人物(谁在位、在位多少年、某人的生平性格),或者某地多高、多冷、多雨、什么地形、多少人、出什么物产,先用这两个查,数字照查到的说。',
   '',
   '## 编号',
   '材料和工具结果里的 P3(国家)、C12(城)、R45(州)、E2(民族)、M7(山河湖海)、L0(陆块)是现在这份历史里的编号,修改里只能用这些编号。',
@@ -222,32 +234,8 @@ export function assistantMessages(ctx: AssistantContext, history: readonly Assis
 // ---------------------------------------------------------------------------
 // 查资料的小工具
 
-/** "P3" / "3" / 3 / 国名 → 国家编号;找不到 = −1 */
-export function polityOf(civ: Civ, v: unknown): number {
-  const P = civ.polities;
-  if (typeof v === 'number') return Number.isInteger(v) && v >= 0 && v < P.length ? v : -1;
-  if (typeof v !== 'string') return -1;
-  const s = v.trim();
-  const m = /^[Pp]?(\d{1,5})$/.exec(s);
-  if (m) {
-    const id = Number(m[1]);
-    return id < P.length ? id : -1;
-  }
-  if ([...s].length < 1) return -1;
-  // 按名字找:全称(各个国号)、词根;同名的挑立国早的
-  const hit = (p: (typeof P)[number]) => polityTitleChain(p).split(' → ').includes(s) || polityRoots(p).includes(s) || p.name === s;
-  const exact = P.find(hit);
-  if (exact) return exact.id;
-  const part = P.find((p) => polityTitleChain(p).includes(s));
-  return part ? part.id : -1;
-}
-
-/** 年份参数 → 整数年(超出范围的夹到 0..endYear);没给 = fallback */
-function yearArg(civ: Civ, v: unknown, fallback: number): number {
-  const n = typeof v === 'number' ? v : typeof v === 'string' ? Number(v.replace(/[^\d.-]/g, '')) : NaN;
-  const y = Number.isFinite(n) ? n : fallback;
-  return Math.max(0, Math.min(Math.floor(civ.endYear), Math.floor(y)));
-}
+// "P3" / 国名 → 国家编号(和查人物、查地块共用,写在 ./lookup.ts)
+export { polityOf };
 
 /** 第 y 年各国几州 */
 function sizesAt(civ: Civ, y: number): Map<number, number> {
@@ -290,6 +278,7 @@ const IV_WORD: Record<Intervention['kind'], string> = {
   cede: '划州',
   found: '立国',
   crown: '立作者的人物为君主',
+  policy: '定方针',
 };
 
 function ivWord(civ: Civ, v: Intervention, a: number, b: number): string {
@@ -522,12 +511,19 @@ function queryWords(s: Pick<AgentStep, 'tool' | 'label'>): string {
   if (s.tool === 'country' && m) return `查了${m[1]}`;
   if (s.tool === 'chronicle') return m ? `查了${m[1]}的编年史` : '查了编年史';
   if (s.tool === 'situation') return s.label.replace(/^查/, '查了');
+  // "查人物：李昭" → "查了李昭";"查第 1200 年各国的君主" → "查了第 1200 年各国的君主"
+  if (s.tool === 'people') return s.label.startsWith('查人物：') ? `查了${s.label.slice(4)}` : s.label.replace(/^查/, '查了');
+  // "查地块：某州" → "查了某州的地形气候"
+  if (s.tool === 'land') return s.label.startsWith('查地块：') ? `查了${s.label.slice(4)}的地形气候` : '查了地形气候';
   return '查了 1 次';
 }
 
+/** 查资料的工具(做完以后那一行算作"查了几次") */
+const QUERY_TOOLS = new Set(['country', 'chronicle', 'situation', 'people', 'land']);
+
 /** 做过的几步收成一句话(做完以后那一行):"查了 2 次，试推演 3 次" */
 export function stepsSummary(steps: readonly Pick<AgentStep, 'tool' | 'state' | 'label' | 'summary'>[]): string {
-  const queries = steps.filter((s) => s.tool === 'country' || s.tool === 'chronicle' || s.tool === 'situation');
+  const queries = steps.filter((s) => QUERY_TOOLS.has(s.tool));
   const query = queries.length;
   const tries = steps.filter((s) => s.tool === 'try_edits' && s.state === 'ok').length;
   /** 查过的国家(后面说到它就叫"它") */
@@ -540,7 +536,7 @@ export function stepsSummary(steps: readonly Pick<AgentStep, 'tool' | 'state' | 
   else if (query) parts.push(`查了 ${query} 次`);
   if (tries) parts.push(`试推演 ${tries} 次`);
   for (const st of steps) {
-    if (st.tool === 'country' || st.tool === 'chronicle' || st.tool === 'situation' || st.tool === 'try_edits' || st.tool === 'propose_edits' || st.state !== 'ok') continue;
+    if (QUERY_TOOLS.has(st.tool) || st.tool === 'try_edits' || st.tool === 'propose_edits' || st.state !== 'ok') continue;
     const w = st.summary ?? st.label;
     // "在地图上打开了奈雷亚国(，时间轴拨到第 N 年)" → "在地图上打开了它…"
     const opened = `在地图上打开了${who}`;
@@ -792,6 +788,56 @@ export function assistantTools(
     },
   };
 
+  const lctx = { world: ctx.world, civ, year: ctx.year, edits: ctx.edits };
+
+  const people: AgentTool = {
+    def: {
+      name: 'people',
+      description:
+        '查人物:作者的人物(人物卡上的生卒、身份、性格、经历、亲友、即位)和推演里的君主、将领、名臣、宗室(在位 / 生卒年、所属国家、倾向)。' +
+        '给 name 按名字找;给 country 列这国的历代君主(role 换成名臣、将领),加 year 看那一年谁在位、谁在朝、谁领兵;只给 year 看那年各国的君主;' +
+        '什么都不给 = 作者的人物和推演里的名人。只读,不改世界。',
+      parameters: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: '名字(本名、称号、字都行,可以只写几个字)' },
+          country: { type: 'string', description: '国家编号(如 P3),或国名' },
+          year: { type: 'integer', description: '哪一年' },
+          from: { type: 'integer', description: '列历代时从哪一年(含)' },
+          to: { type: 'integer', description: '列历代时到哪一年(含)' },
+          role: { type: 'string', enum: ['ruler', 'general', 'minister', 'prince', 'author'], description: '只看君主 / 将领 / 名臣 / 宗室 / 作者的人物' },
+          limit: { type: 'integer', description: '最多列几个,默认 30' },
+        },
+      },
+    },
+    label: (a) => peopleLabel(lctx, a),
+    run: (a) => lookupPeople(lctx, a),
+  };
+
+  const land: AgentTool = {
+    def: {
+      name: 'land',
+      description:
+        '查一片地方的地块数据汇总:海拔、年均气温、年降水、地形(群落)占比、人口、城、归属、物产,给平均、最低最高、占比。' +
+        '一片可以是:一州(region)、一国某年的国土(country,可加 year)、一块陆地(landmass)、经纬度一点(at;加 radius 公里 = 周围一圈)、' +
+        '经纬度一框(box);什么都不给 = 整个世界。只给一种。只读,不改世界。',
+      parameters: {
+        type: 'object',
+        properties: {
+          region: { type: 'string', description: '州的编号(如 R45)、州名;也可以给城(C12 或城名),查城所在的州' },
+          country: { type: 'string', description: '国家编号(如 P3)或国名:这国在 year 那一年的全部国土' },
+          landmass: { type: 'string', description: '陆块编号,如 L0' },
+          at: { type: 'array', items: { type: 'number' }, description: '[经度, 纬度]' },
+          radius: { type: 'number', description: '和 at 一起:周围多少公里(不给 = 只看离那一点最近的一块地)' },
+          box: { type: 'array', items: { type: 'number' }, description: '[西边的经度, 南边的纬度, 东边的经度, 北边的纬度]' },
+          year: { type: 'integer', description: '人口、归属、物产按哪一年(默认时间轴的年份)' },
+        },
+      },
+    },
+    label: (a) => landLabel(lctx, a),
+    run: (a) => lookupLand(lctx, a),
+  };
+
   const tryEdits: AgentTool = {
     def: {
       name: 'try_edits',
@@ -884,7 +930,7 @@ export function assistantTools(
   };
 
   // 还在新建:只能改地形,地形不能试推演(给了试推演,模型会先绕一圈再忘了列单)
-  return [country, chronicle, situation, ...(ctx.lock === 'history' ? [] : [tryEdits]), propose];
+  return [country, chronicle, situation, people, land, ...(ctx.lock === 'history' ? [] : [tryEdits]), propose];
 }
 
 /** 列完确认单以后交代 AI 怎么收尾:回答要和作者看到的确认单对得上(说主角的结果,也说副作用和执行不了的) */
@@ -1028,8 +1074,25 @@ function namedPolity(civ: Civ, ask: string): number {
   return best;
 }
 
+/** 话里点了名的州(最长的名字优先;两个字以上);没点名 = −1 */
+function namedRegion(civ: Civ, ask: string): number {
+  let best = -1;
+  let len = 0;
+  for (let r = 0; r < civ.regions.count; r++) {
+    if (!regionNamed(civ, r)) continue;
+    const n = regionLabel(civ, r);
+    const l = [...n].length;
+    if (l >= 2 && l > len && ask.includes(n)) {
+      best = r;
+      len = l;
+    }
+  }
+  return best;
+}
+
 /**
  * 假 AI 的固定步骤(不理解话的意思,只看字眼):
+ * - 问人物("君主""在位""将领"……):查这国那一年的人物 → 回一句话;问地形气候("海拔""气温""物产"……):查点了名的州或这国的国土 → 回一句话
  * - 问句("？""为什么""怎么"……):查国家 → 在地图上打开它(有这个工具时)→ 回一段话
  * - 说到史书:查国家 → 写史书;说到名字:起名
  * - 其余当作要改:查国家 → 查那一年的格局 → 试推演"保护" → 试推演"保护 + 和邻国结盟" → 列确认单 → 回一句话
@@ -1060,6 +1123,17 @@ export function mockAssistant(ctx: AssistantContext): (req: AiRequest) => MockTu
     if (id < 0) id = civ.polities.filter((p) => p.ended !== undefined).sort((a, b) => b.ended! - b.founded - (a.ended! - a.founded) || a.id - b.id)[0]?.id ?? 0;
     const p = civ.polities[id];
     const P = `P${id}`;
+    const Y = Math.floor(Math.min(civ.endYear, Math.max(0, ctx.year)));
+    // 问人物:查这国那一年的人物;问地形气候:查点了名的州(没点名就查这国的国土)
+    if (question && tools.has('people') && /君主|皇帝|国王|在位|将领|名臣|人物/.test(ask)) {
+      if (round === 0) return call('people', { country: P, year: Y });
+      return say(`查了${nameAt(p, Y)}第 ${Y} 年的人物。这是一段固定的示例回答,不代表真实效果。`);
+    }
+    if (question && tools.has('land') && /海拔|气温|降水|物产|气候|多高|多冷|多热/.test(ask)) {
+      const r = namedRegion(civ, ask);
+      if (round === 0) return call('land', r >= 0 ? { region: `R${r}` } : { country: P, year: Y });
+      return say(`查了${r >= 0 ? regionLabel(civ, r) : nameAt(p, Y)}的地形气候。这是一段固定的示例回答,不代表真实效果。`);
+    }
     if (question) {
       if (round === 0) return call('country', { country: P });
       if (round === 1 && tools.has('show')) return call('show', { target: P });
