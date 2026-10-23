@@ -89,6 +89,11 @@ export const GLYPH_TIERS = [1, 2, 3.5, 6];
 const PATCH_BAND_PX = 100000;
 /** 按块重画要用的场,一条带子多少个像素算一组 */
 const FIELD_BAND_PX = 150000;
+/**
+ * 整张分步铺(fantasyFullSteps:打开世界换上之前、缩略图)逐像素一步铺多少个像素:比按块重画的带子窄一半,
+ * 手机(慢四倍)上一步也在几十毫秒以内
+ */
+const FULL_BAND_PX = 50000;
 /** 离海岸多远以内,离陆地 / 离海的距离还影响颜色(波纹最远 15 格,浓度到这里已经小到连浮点数的最后一位都改不动) */
 const SHORE_REACH = 22;
 
@@ -223,7 +228,7 @@ function fullPixelSteps(
 ): { steps: WorkStep[]; out: { d: Uint8ClampedArray; patch: InkPatch; sea: SeaFields } | null } {
   const { w: W, h: H } = r;
   const region: PixelBox = { x0: 0, y0: 0, w: W, h: H };
-  const band = Math.max(8, Math.floor(PATCH_BAND_PX / W));
+  const band = Math.max(8, Math.floor(FULL_BAND_PX / W));
   const res: { steps: WorkStep[]; out: { d: Uint8ClampedArray; patch: InkPatch; sea: SeaFields } | null } = { steps: [], out: null };
   let calm: Uint8Array | null = null;
   let ice: IceCoarse | null = null;

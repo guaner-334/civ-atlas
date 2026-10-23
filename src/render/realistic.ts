@@ -389,6 +389,11 @@ export function dropRealisticBasesExcept(keep: readonly (Raster | null | undefin
 
 /** 一条带子每步重画多少个像素(约一两帧的活) */
 const PATCH_BAND_PX = 120000;
+/**
+ * 整张分步画(realisticFullSteps:打开世界换上之前、缩略图)一条带子多少个像素:窄一半,手机(慢四倍)上一步也在几十毫秒左右
+ * (每条带子上下各多画 WINDOW_PAD 行,带子窄了多画的比例大一点)
+ */
+const FULL_BAND_PX = 60000;
 
 /**
  * 编辑地形后按块重画像素层(地形、海、冰、晕渲,不含河):r1 是 r0 贴上一块主图补丁得来的,两张只在 box 里不一样
@@ -448,7 +453,7 @@ export function realisticFullSteps(r: Raster, look: SurfaceLook): WorkStep[] | n
   const W = r.w;
   const H = r.h;
   const region: PixelBox = { x0: 0, y0: 0, w: W, h: H };
-  const band = Math.max(8, Math.floor(PATCH_BAND_PX / W));
+  const band = Math.max(8, Math.floor(FULL_BAND_PX / W));
   let g: MacroGrids | null = null;
   let cv: AnyCanvas | null = null;
   let ctx: CanvasRenderingContext2D | null = null;
