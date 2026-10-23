@@ -257,6 +257,7 @@ import { polityAlive, polityName } from '../gen/civ/growth';
 import { CIV_SHOW_OFF, civOverlaySteps, drawCivOverlay, type CivDrawParams } from '../render/civ/overlay';
 import { finishPick, getPolityPick, interventionActorThen, interventionDoneText, setPickHover, setPolityPick, usePolityPick } from './Interventions';
 import { policyDoneText } from './policyInfo';
+import { newIvDoneText } from './newIvInfo';
 import { RoleBar } from './RoleBar';
 import { Inspector } from './Inspector';
 import { TargetLayer } from './TargetPlates';
@@ -270,7 +271,7 @@ import { CharacterLayer, characterPinAt, characterPinTip } from './CharacterLaye
 import { draftAsCharacter, escapeCharacter, getCharUi, parseYear as parseCharYear, pickPlace, resetCharacterUi, stopPicking, useCharUi } from './characterStore';
 import { characterHover, placeOf, whereOfCity, whereOfRegion } from './characterInfo';
 import { applyCharacters, lifeStops, type Where } from '../gen/characters';
-import { crownDoneText, takeCrownResim, type CrownResimNote } from './crownInfo';
+import { crownDoneText, crownWho, takeCrownResim, type CrownResimNote } from './crownInfo';
 import { regionLabel } from '../gen/civ/display';
 import { NAME_ZOOM } from '../render/marks';
 import { collapseSide, expandSide, getSide, setSideHold, useSide } from './sideStore';
@@ -1885,16 +1886,22 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
         const then = interventionActorThen(named, v);
         // 即位:写人物的名字、到哪年下台;没即位成(那年国已亡、他还没出生……)黄色,写原因
         // 方针:"大澜王朝定方针「扩张」",没生效的黄色写原因(同即位)
+        // 灭国、让人物去世、改倾向、等下台再即位:"东定国亡，13 州并入大定";将领、名臣去世历史不变,写"历史不变",不写重新推演
+        const chars = getEdits().characters;
         const crowned =
-          v.kind === 'crown'
-            ? crownDoneText(applyCharacters(named, getEdits().characters), v, idx, getEdits().characters, era)
+          v.kind === 'crown' && !v.after
+            ? crownDoneText(applyCharacters(named, chars), v, idx, chars, era)
             : v.kind === 'policy'
               ? policyDoneText(named, v, idx, shown ?? then ?? '', era)
-              : null;
+              : newIvDoneText(v.kind === 'crown' ? applyCharacters(named, chars) : named, v, idx, shown ?? then ?? '', era, v.kind === 'crown' ? crownWho(named, v.char, chars) : '');
         showToast({
           id: 'resim-done',
           kind: crowned && !crowned.ok ? 'warn' : 'ok',
-          text: crowned ? `${crowned.text}；已从${spaced(at(y))}起重新推演` : `${eraText(interventionDoneText(named, v, idx, shown), era)},已从${spaced(at(y))}起重新推演`,
+          text: crowned
+            ? crowned.ok && 'same' in crowned && crowned.same
+              ? crowned.text
+              : `${crowned.text}；已从${spaced(at(y))}起重新推演`
+            : `${eraText(interventionDoneText(named, v, idx, shown), era)},已从${spaced(at(y))}起重新推演`,
           more: !crowned && shown && then && then !== shown ? [`${at(v.from)}时它叫${then}`] : undefined,
           action: {
             label: '撤销',

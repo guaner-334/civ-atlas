@@ -2,7 +2,7 @@
  * 国家面板的界面状态(和 civView.ts 一样的小 store):
  *
  *   tab     面板在信息页还是干预页(换了选中的东西回到信息页;选目标取消后回到干预页)
- *   page    干预页换上的填写页(卡片换页,不弹窗):方针页(PolicyPage.tsx);以后的新干预(灭国、天灾……)也加在 CmdPage 里。
+ *   page    干预页换上的填写页(卡片换页,不弹窗):方针页(PolicyPage.tsx)、灭国页(DestroyPage.tsx)。
  *           back = 「返回」回到哪一页(从信息页「方针」一行进来的回信息页,从干预页进来的回干预页)
  *   run     从面板下的令正在推演:面板先藏起,地图压暗、只留本国和对象的名牌,不接受点击;推演完面板回到信息页,App 从生效年份接着放
  *   fly     让 App 把地图飞到选中的东西('sel')或缩回整张图('home');stamp 每次都不同
@@ -18,7 +18,7 @@ import type { SheetSnap, WorldSnap } from './gestures';
 export type PanelTab = 'info' | 'cmd';
 
 /** 干预页换上的填写页;year = 打开时的生效年份(没有 = 时间轴那一年) */
-export type CmdPage = { kind: 'policy'; back: PanelTab; year?: number };
+export type CmdPage = { kind: 'policy' | 'destroy'; back: PanelTab; year?: number };
 
 export interface IvRun {
   /** 下令的国家(这份历史里的编号) */
