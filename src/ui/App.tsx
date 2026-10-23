@@ -1514,6 +1514,7 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
             setEraMaps(maps);
             // 备好的是第几段:换上以后时间轴要的那一段要是还没备(备的时候又到了补丁),先画备好的这段,另一段在后台备好再换(eraK)
             eraAt.current = openK === null ? null : { maps, base: baseRef.current, k: openK };
+            eraWarm.current = null;
             rawUps.current = genUps.current;
             setRawCiv(m.civ);
             // 编辑地形时生成的(没推历史):收起编辑地形时补推

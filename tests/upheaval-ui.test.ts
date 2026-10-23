@@ -29,7 +29,7 @@ import {
 } from '../src/ui/upheavalStore';
 import { bandOutline, cellShapes } from '../src/ui/upheavalShapes';
 import { composeRaster, diffRaster, type RasterPatch } from '../src/gen/rasterPatch';
-import { baseRegions, civAtEra, dropComposed, eraData, eraIndex, eraReady, eraShown, patchKey, reuseRegions, type EraMaps } from '../src/ui/eras';
+import { baseRegions, civAtEra, composedOf, dropComposed, eraData, eraIndex, eraReady, eraShown, patchKey, peekEraData, reuseRegions, type EraMaps } from '../src/ui/eras';
 import type { Raster } from '../src/gen/raster';
 import type { World } from '../src/gen/world';
 import type { Civ } from '../src/gen/civ/types';
@@ -381,5 +381,26 @@ describe('地形大事 · 地图跟着时间轴换段', () => {
     expect(eraShown(maps, patches, 2)).toBe(2);
     expect(eraReady(maps, patches, 2)).toBe(true);
     expect(eraReady(null, patches, 2)).toBe(true);
+  });
+
+  it('不当场拼的取法:要拼、还没拼的段 = null,拼好了和 eraData 是同一个对象;换世界时照新原主图拼好的留着', () => {
+    dropComposed();
+    const base = { world: { id: 0 } as unknown as World, raster: raster(8, 4) };
+    const maps: EraMaps = { baseKey: 'k0', keys: ['k1'], worlds: [{ id: 1 }] as unknown as World[] };
+    const patches = new Map<string, RasterPatch | null>();
+    expect(peekEraData(base, maps, patches, 1)).toBe(base);
+    const c = { ...base.raster, water: base.raster.water.slice() };
+    c.water[5] = 1;
+    patches.set(patchKey('k0', 'k1'), diffRaster(base.raster, c));
+    expect(peekEraData(base, maps, patches, 1)).toBeNull();
+    const d = eraData(base, maps, patches, 1);
+    expect(peekEraData(base, maps, patches, 1)).toBe(d);
+    expect(composedOf(base.raster)).toEqual([d.raster]);
+    // 留着照这张原主图拼的;别的原主图拼的放掉
+    dropComposed(base.raster);
+    expect(peekEraData(base, maps, patches, 1)).toBe(d);
+    dropComposed(raster(8, 4));
+    expect(peekEraData(base, maps, patches, 1)).toBeNull();
+    expect(composedOf(base.raster)).toEqual([]);
   });
 });
