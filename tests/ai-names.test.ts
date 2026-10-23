@@ -352,9 +352,9 @@ describe('名字由来:拉丁原形、归属、字数', () => {
         got++;
         expect(f.latin).toMatch(/^[A-Z][a-z]+$/);
         // 没用固定译法、没去掉意译字的,正着音译回去一字不差
-        const core = [...name].slice(f.dropped && name.startsWith(f.dropped[0]) ? 1 : 0).join('');
+        const core = [...name].slice(f.dropped.length && name.startsWith(f.dropped[0]) ? 1 : 0).join('');
         const fixed = [...(FIXED_LATIN[style]?.keys() ?? [])].some((z) => core.endsWith(z) || core.startsWith(z));
-        if (!fixed && !f.dropped) expect(transcribe(f.latin, WESTERN_TR[style])).toBe(name);
+        if (!fixed && !f.dropped.length) expect(transcribe(f.latin, WESTERN_TR[style])).toBe(name);
       }
       expect(west).toBeGreaterThan(100);
       expect(got / west).toBeGreaterThan(0.97);
@@ -365,7 +365,10 @@ describe('名字由来:拉丁原形、归属、字数', () => {
     // 固定译法的词尾整块认
     expect(latinForm('克尔顿', 'kingdom')!.latin).toBe('Kelton');
     expect(latinForm('卡斯特维尔', 'kingdom')!.latin).toMatch(/ville$/);
-    expect(latinForm('新奥利亚', 'imperial')).toEqual({ latin: 'Olia', dropped: '新' });
+    expect(latinForm('新奥利亚', 'imperial')).toEqual({ latin: 'Olia', dropped: ['新'] });
+    // 两个字的通名整个去掉
+    expect(latinForm('奥利亚渡口', 'imperial')).toEqual({ latin: 'Olia', dropped: ['渡口'] });
+    expect(latinForm('新奥利亚港', 'imperial')).toEqual({ latin: 'Olia', dropped: ['新', '港'] });
   });
 
   it('材料:西幻的国家、城写上拉丁原形;东方的不写;扫现实词时"拉丁"两个字不算材料、拼写算', () => {

@@ -220,12 +220,14 @@ export function useAiName({ civ, raw, raster, target, compact, lazy, what }: AiN
       const req = explainRequest(m);
       const r = await aiChat(req, { signal: c.signal, onDelta: (_, full) => patch(k, { live: full }) });
       // 扫一遍现实里的词(真实的语言、典籍、人物……),命中的句子让 AI 改一次
-      let text = await fixRealWords(cleanExplanation(r.text), { ...explainScan(m), feature: req.feature, title: req.title, signal: c.signal });
+      const scan = { ...explainScan(m), feature: req.feature, title: req.title, signal: c.signal };
+      let text = await fixRealWords(cleanExplanation(r.text), scan);
       if (!text) throw new AiError('bad-response', 'AI 没有写出内容,再试一次');
-      // 写超了字数:让 AI 压一次(压不成就留着原文)
+      // 写超了字数:让 AI 压一次(压不成就留着原文);压出来的再扫一遍现实里的词
       if (explainTooLong(text)) {
         try {
-          const s = cleanExplanation((await aiChat(shortenRequest(text, m), { signal: c.signal })).text);
+          const short = cleanExplanation((await aiChat(shortenRequest(text, m), { signal: c.signal })).text);
+          const s = short ? await fixRealWords(short, scan) : '';
           if (s && s.length < text.length) text = s;
         } catch (e) {
           if (e instanceof AiError && e.code === 'aborted') throw e;

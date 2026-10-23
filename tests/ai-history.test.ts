@@ -356,6 +356,25 @@ describe('AI 写史书:列传的人物、开头和"史臣曰"、篇幅', () => {
     }
   });
 
+  it('分段的列传:人物只列这一段里打的仗,不把后面的事提前写', () => {
+    const p = buildHistoryPrompts(civ, { scope: { kind: 'world' }, style: 'biography', length: 'k30' });
+    const lives = p.sections.map((s, i) => ({ s, i })).filter(({ s }) => s.part === 'lives' && s.name);
+    expect(lives.length).toBeGreaterThan(1);
+    let n = 0;
+    for (const { s, i } of lives) {
+      const body = p.calls[i].body;
+      const at = body.indexOf('〔人物〕');
+      if (at < 0) continue;
+      for (const l of body.slice(at, body.indexOf('〔编年史〕', at)).split('\n').filter((x) => x.startsWith('  - 第'))) {
+        const y = /第 (\d+)(?:—(\d+))? 年/.exec(l)!;
+        expect(+y[1], l).toBeGreaterThanOrEqual(Math.floor(s.from));
+        expect(+(y[2] ?? y[1]), l).toBeLessThanOrEqual(s.to);
+        n++;
+      }
+    }
+    expect(n).toBeGreaterThan(0);
+  });
+
   it('第二篇起:写作要求后面列出前文用过的开头和"史臣曰",明说别再用;第一篇没有;列传的体例开头不算', () => {
     const p = buildHistoryPrompts(civ, BIO);
     const prev = [
@@ -390,6 +409,9 @@ describe('AI 写史书:列传的人物、开头和"史臣曰"、篇幅', () => {
       openings: ['甲国之族,肇兴于北原,地多寒,民尚武。', '乙族,肇兴于南泽。'],
       verdicts: ['甲国之兴,非恃甲兵之利,实赖民志之凝。', '乙国之存,非恃艨艟之坚,实赖契约之信。', '某甲之死,国失其将。'],
     });
+    // 全角的冒号、句号也认
+    expect(usedPhrases('### 史臣曰：\n\n丙国之亡,亡于内争。其后不振。').verdicts).toEqual(['丙国之亡,亡于内争。']);
+    expect(usedPhrases('**史臣曰**：丁国之盛,盛于通商！').verdicts).toEqual(['丁国之盛,盛于通商！']);
     // 前文太长、前几篇在〔前文〕里截掉了,开头和"史臣曰"照样摘出来
     const long = `${prev}\n\n${'正文。'.repeat(PREV_CONTEXT)}`;
     expect(historyMessages(p, 1, long)[1].content).toContain('「甲国之族,肇兴于北原,地多寒,民尚武。」');

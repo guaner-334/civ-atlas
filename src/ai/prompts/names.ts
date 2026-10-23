@@ -289,7 +289,7 @@ export const FIXED_LATIN: Readonly<Record<string, ReadonlyMap<string, string>>> 
 );
 /** 意译的前缀(复国的"新某",方位)/ 通名(城、州、地形),作者改的名字里常有,不在拉丁原形里 */
 const ZH_PREFIX = '新老旧北南东西上下';
-const ZH_GENERIC = '堡港城郡谷山河湖海岛镇关州原川泽渡口寨岭峡湾';
+const ZH_GENERIC = ['渡口', '峡湾', ...'堡港城郡谷山河湖海岛镇关州原川泽渡口寨岭峡湾'];
 /** 倒推时一段最多试多少种拼法 */
 const LATIN_TRIES = 4000;
 
@@ -414,18 +414,25 @@ function reverseName(zh: string, tr: TranscribeOptions, fixed: ReadonlyMap<strin
  * 西幻语感的名字倒推拉丁字母原形:整个名字倒推不出时,去掉意译的前缀("新")、通名("城""郡")再试。
  * 不是西幻语感(东方、边塞)、名字太短、名字里有音译表外的字 = null
  */
-export function latinForm(name: string, styleId: string | undefined): { latin: string; dropped: string } | null {
+export function latinForm(name: string, styleId: string | undefined): { latin: string; dropped: string[] } | null {
   const tr = styleId ? WESTERN_TR[styleId] : undefined;
   const cs = [...(name ?? '')];
   if (!tr || cs.length < 2) return null;
+  // 通名可以是两个字("渡口""峡湾"),整个去掉
+  const pre = ZH_PREFIX.includes(cs[0]) ? 1 : 0;
+  const gen = ZH_GENERIC.find((g) => name.endsWith(g));
+  const suf = gen ? [...gen].length : 0;
   const tries: [number, number][] = [[0, 0]];
-  if (ZH_PREFIX.includes(cs[0])) tries.push([1, 0]);
-  if (ZH_GENERIC.includes(cs[cs.length - 1])) tries.push([0, 1]);
-  if (ZH_PREFIX.includes(cs[0]) && ZH_GENERIC.includes(cs[cs.length - 1])) tries.push([1, 1]);
+  if (pre) tries.push([pre, 0]);
+  if (suf) tries.push([0, suf]);
+  if (pre && suf) tries.push([pre, suf]);
   for (const [a, b] of tries) {
     if (cs.length - a - b < 2) continue;
     const latin = reverseName(cs.slice(a, cs.length - b).join(''), tr, FIXED_LATIN[styleId!] ?? new Map());
-    if (latin) return { latin: latin[0].toUpperCase() + latin.slice(1), dropped: [...cs.slice(0, a), ...cs.slice(cs.length - b)].join('') };
+    if (latin) {
+      const dropped = [cs.slice(0, a).join(''), cs.slice(cs.length - b).join('')].filter(Boolean);
+      return { latin: latin[0].toUpperCase() + latin.slice(1), dropped };
+    }
   }
   return null;
 }
@@ -434,7 +441,7 @@ export function latinForm(name: string, styleId: string | undefined): { latin: s
 function latinNote(name: string, styleId: string | undefined): string {
   const f = latinForm(name, styleId);
   if (!f) return '';
-  const drop = f.dropped ? `;"${[...f.dropped].join('""')}"是意译的,不在原形里` : '';
+  const drop = f.dropped.length ? `;"${f.dropped.join('""')}"是意译的,不在原形里` : '';
   return `拉丁字母原形:${f.latin}(按中文读音还原${drop};讲词源就照这个拼写拆词根、词尾,不要改动字母,也不要另拼一个读音不同的词)`;
 }
 

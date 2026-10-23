@@ -1016,7 +1016,7 @@ function commanderAt(civ: Civ, war: number, side: number, i: number): Person | n
  * 一个人领兵打过的仗,一行一段:"第 1538 年 尼索尼亚之战:大定(郭继泰)攻,奥利亚王国(某某)守 → 大定攻下尼索尼亚"。
  * 同一场战争里两边统帅不变、接连攻下的几州并成一行("→ 大定攻下甲、乙等五州");同一处接连没打下来的几仗并成一行("(三次)… 皆不克")
  */
-export function battleLines(civ: Civ, x: Person): string[] {
+export function battleLines(civ: Civ, x: Person, from: Year = -Infinity, to: Year = Infinity): string[] {
   const A = civ.annals;
   const wars = peopleIndex(civ).wars;
   const pn = (q: number, y: Year) => (civ.polities[q] ? nameAt(civ, civ.polities[q], y) : '');
@@ -1049,6 +1049,7 @@ export function battleLines(civ: Civ, x: Person): string[] {
     for (let i = Math.max(0, c.first); i <= c.last && i < A.length; i++) {
       const e = A[i];
       if (e.war !== c.war || (e.kind !== 'conquer' && e.kind !== 'battle') || ceded.has(i)) continue;
+      if (Y(e.year) < from || Y(e.year) > to) continue;
       const as = e.a === decl.a ? 0 : e.a === decl.b ? 1 : -1;
       if (as < 0 || e.b < 0) continue;
       const y = e.year;
@@ -1104,6 +1105,9 @@ function livesPeople(civ: Civ, from: Year, to: Year, mentioned: Map<number, numb
     if (x.role !== 'general' && x.role !== 'minister') continue;
     if (x.author !== undefined || !civ.polities[x.polity]) continue;
     if (Y(x.born) > to || Y(x.died ?? end) < from) continue;
+    // 分段的列传只看这一段里的事:这一段里没领过兵(没经手过大事)的不挑
+    if (x.role === 'general' && x.commands?.length && !x.commands.some((c) => Y(civ.annals[c.last]?.year ?? -1) >= from && Y(civ.annals[c.first]?.year ?? Infinity) <= to)) continue;
+    if (x.role === 'minister' && x.deeds?.length && !x.deeds.some((d) => Y(d.year) >= from && Y(d.year) <= to)) continue;
     const m = mentioned.get(x.id) ?? 0;
     if (subject >= 0 && x.polity !== subject && !m) continue;
     let score = 4 * m;
@@ -1134,11 +1138,11 @@ function livesPeopleText(civ: Civ, from: Year, to: Year, picked: Set<ChronicleEn
   for (const x of livesPeople(civ, from, to, mentioned, subject, max)) {
     out.push(personHead(civ, x));
     if (x.role === 'minister') {
-      const deeds = deedsShort(civ, x);
+      const deeds = deedsShort(civ, { ...x, deeds: x.deeds?.filter((d) => Y(d.year) >= from && Y(d.year) <= to) });
       out.push(`  - 在朝第 ${Y(x.from ?? x.born)}—${Y(x.until ?? civ.endYear)} 年${deeds ? `;${deeds}` : ''}`);
       continue;
     }
-    const bs = battleLines(civ, x);
+    const bs = battleLines(civ, x, from, to);
     for (const b of bs.slice(0, LIVES_BATTLES)) out.push(`  - ${b}`);
     if (bs.length > LIVES_BATTLES) out.push(`  - (另有${count(bs.length - LIVES_BATTLES)}仗从略)`);
   }
@@ -1607,12 +1611,12 @@ export function buildHistoryPrompts(civ: Civ, opts: HistoryOptions): HistoryProm
 const USED_CHARS = 60;
 const USED_MAX = 8;
 /** "史臣曰"一类评语的开头("**史臣曰**:""### 史臣曰""太史公曰") */
-const VERDICT_HEAD = /^(?:#{1,6}\s*)?[*_]*\s*(?:史臣曰|太史公曰|论曰|赞曰)\s*[*_]*\s*[::,,]?\s*[*_]*\s*/;
+const VERDICT_HEAD = /^(?:#{1,6}\s*)?[*_]*\s*(?:史臣曰|太史公曰|论曰|赞曰)\s*[*_]*\s*[:,：，、]?\s*[*_]*\s*/;
 
 /** 去掉 Markdown 记号,取第一句(到句号、问号、叹号为止),太长截断 */
 function firstSentence(line: string, max = USED_CHARS): string {
   const t = line.replace(/[*_`>]/g, '').replace(/^\s*[-+]\s+/, '').trim();
-  const m = /^.*?[。!?!?]/.exec(t);
+  const m = /^.*?[。!?！？]/.exec(t);
   const s = (m ? m[0] : t).trim();
   return [...s].length > max ? `${[...s].slice(0, max).join('')}……` : s;
 }
@@ -1634,7 +1638,7 @@ export function usedPhrases(text: string): { openings: string[]; verdicts: strin
     if (VERDICT_HEAD.test(l)) {
       let rest = l.replace(VERDICT_HEAD, '').trim();
       // 标题单独一行("### 史臣曰"、"**史臣曰**"):评语在下面那一段
-      if (!rest.replace(/[*_::]/g, '').trim()) {
+      if (!rest.replace(/[*_:：]/g, '').trim()) {
         let j = k + 1;
         while (j < lines.length && !lines[j]) j++;
         rest = j < lines.length && !lines[j].startsWith('#') ? lines[j] : '';
