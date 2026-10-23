@@ -27,7 +27,7 @@ import { drawRoutes, routeLines } from './routes';
 import { drawWarHatch, warHatchCanvas, warScene, warsShown, warSpans } from './warfare';
 import { drawPlague, plagueCanvas, plagueShown, plagueZone } from './plague';
 import { clipOutline, type Projector } from '../projection';
-import type { WorkStep } from '../common';
+import { flushCanvas, type WorkStep } from '../common';
 import type { CivShow } from './show';
 
 export type CivStyle = 'realistic' | 'fantasy' | 'data';
@@ -98,7 +98,7 @@ export function drawCivOverlay(ctx: CanvasRenderingContext2D, p: CivDrawParams) 
 
 /**
  * drawCivOverlay 头一回画一份历史(换上再推、重推、试推演、打开存档推出来的历史)时要现算的东西,拆成一小步一小步:
- * 色块(territory.ts 的 territorySteps,按行分段)、国界、道路、战事的斜线、瘟疫的墨点各一步。
+ * 色块(territory.ts 的 territorySteps,按行分段)、国界、道路、战事的斜线、瘟疫的墨点各一步(斜线、墨点画好就让浏览器当下画出来)。
  * 都做完以后 drawCivOverlay 只是把备好的贴上、描线,和当场一口气画逐像素一样;已经备好的步骤什么也不做
  */
 export function civOverlaySteps(p: CivDrawParams): WorkStep[] {
@@ -108,9 +108,10 @@ export function civOverlaySteps(p: CivDrawParams): WorkStep[] {
     () => void (p.show.routes && p.civ.routes.length && routeLines(p.world.mesh, p.civ, p.year)),
     () => void (warsShown(p) && warSpans(p.civ)),
     () => void (warsShown(p) && warScene(p.civ, p.year)),
-    () => void warHatchCanvas(p),
+    // 斜线、墨点画好以后当下就让浏览器画出来(不然攒到换上那一下贴的时候才画)
+    () => void flushCanvas(warHatchCanvas(p)),
     () => void (plagueShown(p) && plagueZone(p.civ, p.year)),
-    () => void plagueCanvas(p),
+    () => void flushCanvas(plagueCanvas(p)),
   ];
 }
 
