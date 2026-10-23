@@ -54,7 +54,7 @@ interface Tween {
   done: () => void;
 }
 
-type Num = 'mix' | 's' | 'boxT' | 'markA' | 'lon' | 'tilt';
+type Num = 'mix' | 's' | 'boxT' | 'markA' | 'lon' | 'tilt' | 'zoom';
 
 /** 按下松开挪了不到几像素、不到多少毫秒算点了一下 */
 const TAP_PX = 6;
@@ -93,6 +93,8 @@ export class StudioScene {
   tilt = 0;
   spin = false;
   markA = 0;
+  /** 放大倍数(新建界面一直是 1;作品墙上看地图作品时的 + −) */
+  zoom = 1;
   /** 照手绘图那一页:地图上方留出切换条、下方留出一句提示(见 layout.ts 的 fitPose) */
   bar = false;
   /** 两边、底下让出多少(面板、手机的底部卡片) */
@@ -243,7 +245,7 @@ export class StudioScene {
     const m = (this.projA === 'globe' ? 1 - s : 0) + (this.projB === 'globe' ? s : 0);
     const ha = (projExtent(this.projA).h / 2) * pa.k;
     const hb = (projExtent(this.projB).h / 2) * pb.k;
-    return { ...p, m, hh: ha + (hb - ha) * s };
+    return { ...p, k: p.k * this.zoom, m, hh: (ha + (hb - ha) * s) * this.zoom };
   }
 
   // ---- 每帧 ----
@@ -353,8 +355,9 @@ export class StudioScene {
     if (id === this.projB && this.s >= 1 && !this.poseB) return Promise.resolve();
     // 正变到一半又换:从变到一半的样子接着变(按现在的位置记成 A 的姿势)
     if (this.s < 1) {
+      // pose() 已经乘过放大倍数,记成姿势时除掉(画的时候会再乘)
       const p = this.pose();
-      this.poseA = { k: p.k, cx: p.cx, cy: p.cy };
+      this.poseA = { k: p.k / this.zoom, cx: p.cx, cy: p.cy };
       this.projA = this.s < 0.5 ? this.projA : this.projB;
     } else {
       this.poseA = this.poseB;
@@ -431,7 +434,7 @@ export class StudioScene {
       this.showProj('equirect');
     }
     const p = this.pose();
-    this.poseA = { k: p.k, cx: p.cx, cy: p.cy };
+    this.poseA = { k: p.k / this.zoom, cx: p.cx, cy: p.cy };
     this.projA = this.s < 0.5 ? this.projA : this.projB;
     this.projB = proj;
     this.poseB = pose;

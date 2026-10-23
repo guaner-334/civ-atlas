@@ -33,23 +33,24 @@ import { createPortal } from 'react-dom';
 import type { World } from '../gen/world';
 import type { Raster } from '../gen/raster';
 import type { Civ, Year } from '../gen/civ/types';
-import { drawCivOverlay, type CivDrawParams, type CivStyle, type CivViewport } from '../render/civ/overlay';
+import { civOverlaySteps, drawCivOverlay, type CivDrawParams, type CivStyle, type CivViewport } from '../render/civ/overlay';
 import { civProjPrep } from '../render/civ/territory';
-import { detailAsync } from './detailJobs';
+import { cancelDetailJob, detailAsync, submitDetailJob, type WorkStep } from './detailJobs';
 import { civLabelChars, civLabelItems, civMapLayer, labelViewExtras, reserveCanvasBoxes, type CivMapLayer } from '../render/civ/labels';
 import { drawSettlementMarks, type CapitalFlags } from '../render/civ/settlements';
-import { drawWarfare, warsShown } from '../render/civ/warfare';
+import { drawWarfare, warFront, warsShown } from '../render/civ/warfare';
 import { drawPlacedLabels, placeMap, placedMarkBox, toCanvas, type LabelItem, type LabelView, type Placement } from '../render/labels/draw';
 import { ensureFonts, fontsReady, preloadFonts } from '../render/labels/fonts';
 import { drawHighlight, drawSelection, drawSelectionLabels } from '../render/civ/highlight';
-import { getCivHighlight, setCivHighlight, useCivHighlight, useCivShow, useCivTime, useResourceView, useSelection } from './civView';
+import { getCivHighlight, setCivHighlight, useCivHighlight, useCivShow, useCivTime, useResourceView, useSelection, type MapSelection } from './civView';
+import { faithKey, personKey, placeKeyOf, polityKey, resolveKey, resolvePersonKey, settlementKey } from '../gen/edits';
 import { setMapPlacement } from './mapPick';
 import { mapBoxOf, mirrorCanvas, placeOnScreen, visibleBox, watchMapBox } from './mapWrap';
 import { whenDone } from './holdMark';
 import { nearX } from '../render/common';
 import { labelProjection, projector, type MapProj } from '../render/projection';
 import { DETAIL_K } from '../render/detail';
-import { ProjLayer, useMapMoving } from './projection';
+import { ProjLayer, useMapMoving, useProjection } from './projection';
 import { useAvoidBoxes } from './uiAvoid';
 import { CivDetail } from './CivDetail';
 import { drawHolyDot, holyCities } from '../render/civ/faith';
@@ -140,6 +141,93 @@ export interface CivLayerProps {
 
 const VIEW_1: CivViewport = { k: 1, x: 0, y: 0 };
 
+/** 这一层现在画的是哪份历史(换上新的历史、还在后台备的时候照旧画它) */
+interface Shown {
+  civ: Civ | null;
+  geo: Civ | null | undefined;
+  flags: FlagView | null;
+  world: World;
+  raster: Raster;
+}
+
+/** 世界和文明是同一次生成的(地块数对得上、州是同一份)才画 */
+function fitsWorld(world: World, civ: Civ | null, base: Civ | null | undefined): boolean {
+  return !!civ && !!base && base.habitat.suitability.length === world.mesh.n && base.regions === civ.regions;
+}
+
+/** 换上新的历史以前在后台分小步备料的活名(detailJobs.ts) */
+const CIV_SWAP_JOB = 'civ-swap';
+
+/**
+ * 选中的东西从新的历史(civ、地名在 base 上)的编号换成还画着的那份(was、wasBase)里的,按稳定键;指不到 = null。
+ * 换上新的历史以前用:选中的编号已经按新的历史换好了,这一层还画着原来那份
+ */
+function selectionIn(sel: MapSelection | null, civ: Civ, base: Civ, was: Civ, wasBase: Civ): MapSelection | null {
+  if (!sel) return null;
+  if (sel.kind === 'person') {
+    const id = civ.people?.[sel.id] ? resolvePersonKey(was, personKey(civ, sel.id)) : -1;
+    return id >= 0 ? { kind: 'person', id } : null;
+  }
+  const key =
+    sel.kind === 'polity' && civ.polities[sel.id]
+      ? polityKey(civ, sel.id)
+      : sel.kind === 'settlement' && civ.settlements[sel.id]
+        ? settlementKey(civ, sel.id)
+        : sel.kind === 'faith' && civ.religion?.faiths[sel.id]
+          ? faithKey(civ, sel.id)
+          : sel.kind === 'place' && base.places[sel.id]
+            ? placeKeyOf(base, sel.id)
+            : null;
+  // 州(两份历史的州是同一份)、作者的标记和人物:编号不变
+  if (key === null) return sel.kind === 'region' || sel.kind === 'mark' || sel.kind === 'character' ? sel : null;
+  const r = resolveKey(sel.kind === 'place' ? wasBase : was, key);
+  return r && r.kind === sel.kind ? ({ kind: sel.kind, id: r.id } as MapSelection) : null;
+}
+
+/** 同上,编年史高亮的国家(指不到的去掉) */
+function politiesIn(ids: number[], civ: Civ, was: Civ): number[] {
+  const out: number[] = [];
+  for (const id of ids) {
+    const r = civ.polities[id] ? resolveKey(was, polityKey(civ, id)) : null;
+    if (r && r.kind === 'polity') out.push(r.id);
+  }
+  return out;
+}
+
+/**
+ * 国名、族名、城名和城镇符号(civMapLayer):按 civ 记最近一次的。换上新的历史以前在后台先排好,换上时直接用;
+ * 参数(年份、开关、画风、投影……)一样才用
+ */
+const mapLayerMemo = new WeakMap<Civ, { p: CivDrawParams; fast: boolean; proj: MapProj | null; sides: boolean; layer: CivMapLayer }>();
+function mapLayerOf(p: CivDrawParams, opt: { fast: boolean; proj: MapProj | null; sides: boolean }): CivMapLayer {
+  const hit = mapLayerMemo.get(p.civ);
+  const q = hit?.p;
+  if (
+    hit &&
+    q &&
+    hit.fast === opt.fast &&
+    hit.proj === opt.proj &&
+    hit.sides === opt.sides &&
+    q.world === p.world &&
+    q.raster === p.raster &&
+    q.style === p.style &&
+    q.year === p.year &&
+    q.show === p.show
+  )
+    return hit.layer;
+  const layer = civMapLayer(p, opt);
+  mapLayerMemo.set(p.civ, { p, ...opt, layer });
+  return layer;
+}
+
+/** 这个文明的地图文字可能用到的字(civLabelChars,按 civ 记下) */
+const charsMemo = new WeakMap<Civ, string>();
+function labelCharsOf(civ: Civ): string {
+  let s = charsMemo.get(civ);
+  if (s === undefined) charsMemo.set(civ, (s = civLabelChars(civ)));
+  return s;
+}
+
 interface LabelsDebug {
   ready: boolean;
   drawn: number;
@@ -193,7 +281,39 @@ function useLateStop(moving: boolean): boolean {
   return moving || late;
 }
 
-export function CivLayer({ world, raster, civ, geo, style, year, view, mp = null, labelsHost = null, detailHost = null, flags = null }: CivLayerProps) {
+export function CivLayer({ world, raster, civ: civIn, geo: geoIn, style, year, view, mp = null, labelsHost = null, detailHost = null, flags: flagsIn = null }: CivLayerProps) {
+  // 时间轴:画哪一年;回放 / 拖动时色块用半分辨率
+  const time = useCivTime();
+  const fast = time.playing || time.scrubbing;
+  const y = year ?? time.year;
+  // ---- 换上一段新的历史(再推、重推、试推演、打开存档……):这一层要画的先在后台分小步备好,备好了再一起换上 ----
+  // 备的时候这一层(底图、文字、选中层、细节层)照旧是原来那份;回放 / 拖时间轴时、世界换了时不等,当场画;
+  // 开着地球仪时也不等(地球仪自己按新的历史画国界、贴图借这一层的,一起换才不会一半新一半旧)
+  const shown = useRef<Shown | null>(null);
+  /** 备好了的那份历史(底图用的 civ) */
+  const prepared = useRef<Civ | null>(null);
+  const [, setPrepTick] = useState(0);
+  const incoming = geoIn ?? civIn;
+  const was = shown.current;
+  const wasBase = was ? (was.geo ?? was.civ) : null;
+  const globeOn = useProjection() === 'globe';
+  const hold =
+    detailAsync &&
+    !fast &&
+    !globeOn &&
+    !!was &&
+    !!wasBase &&
+    !!incoming &&
+    !!civIn &&
+    incoming !== wasBase &&
+    prepared.current !== incoming &&
+    was.world === world &&
+    was.raster === raster &&
+    fitsWorld(world, civIn, incoming);
+  if (!hold) shown.current = { civ: civIn, geo: geoIn, flags: flagsIn, world, raster };
+  const civ = hold ? was!.civ : civIn;
+  const geo = hold ? was!.geo : geoIn;
+  const flags = hold ? was!.flags : flagsIn;
   const ref = useRef<HTMLCanvasElement>(null);
   const textRef = useRef<HTMLCanvasElement>(null);
   const hlRef = useRef<HTMLCanvasElement>(null);
@@ -205,22 +325,31 @@ export function CivLayer({ world, raster, civ, geo, style, year, view, mp = null
   // 文明细节层的高亮画布(闪烁动画和上面的高亮层一起放);细节层盖住时上面几张不用重画
   const detailHl = useRef<HTMLCanvasElement>(null);
   const [detailOn, setDetailOn] = useState(false);
-  const hl = useCivHighlight();
-  const { sel: picked } = useSelection();
+  const hlIn = useCivHighlight();
+  // 备的时候点的编年史(编年史已经是新的历史了)高亮的国家按还画着的那份历史的编号画;开始备以前点的本来就是那份的
+  const hlFrom = useRef(0);
+  if (!hold) hlFrom.current = hlIn?.stamp ?? 0;
+  const hl = useMemo(
+    () => (hold && civ && hlIn && hlIn.stamp > hlFrom.current && hlIn.polities.length ? { ...hlIn, polities: politiesIn(hlIn.polities, civIn!, civ) } : hlIn),
+    [hold, hlIn, civIn, civ],
+  );
+  const { sel: pickedIn } = useSelection();
+  // 备的时候选中的东西按还画着的那份历史的编号画(备料按新的历史的编号)
+  const picked = useMemo(
+    () => (hold && civ && wasBase ? selectionIn(pickedIn, civIn!, incoming!, civ, wasBase) : pickedIn),
+    [hold, pickedIn, civIn, incoming, civ, wasBase],
+  );
   // 选中人物:地图上亮出他的国家;选中一种信仰:圈它的城,信仰图层上别的信仰变淡(selectionOnMap、faithFocus)
   const sel = useMemo(() => selectionOnMap(civ, picked), [civ, picked]);
   const faithFocus = faithFocusOf(picked);
+  const faithFocusIn = faithFocusOf(pickedIn);
   const mpRef = useRef(mp);
   mpRef.current = mp;
   const show = useCivShow();
-  // 时间轴:画哪一年;回放 / 拖动时色块用半分辨率
-  const time = useCivTime();
-  const fast = time.playing || time.scrubbing;
-  const y = year ?? time.year;
 
   // 世界和文明必须是同一次生成的(地块数对得上)才画
   const base = geo ?? civ;
-  const ok = !!civ && !!base && base.habitat.suitability.length === world.mesh.n && base.regions === civ.regions;
+  const ok = fitsWorld(world, civ, base);
   // 底图(国土、国界、道路……)用原始 civ:改名不重画
   const params = useMemo<CivDrawParams | null>(
     () => (ok && base ? { world, raster, civ: base, style, year: y ?? base.endYear, show, fast, faithFocus: show.faiths ? faithFocus : null } : null),
@@ -479,7 +608,7 @@ export function CivLayer({ world, raster, civ, geo, style, year, view, mp = null
   const fitMp = mp && !moving ? mp : null;
   // 配角名(如民族填色上的国名、国家填色上的族名):拖时间轴、回放时先收起,停稳 0.3 秒后再排上、淡入(主角名一直在)
   const sides = useSettled(!fast, SIDE_SETTLE_MS);
-  const mapLayer = useMemo(() => (mapParams ? civMapLayer(mapParams, { fast, proj: fitMp, sides }) : null), [mapParams, fast, fitMp, sides]);
+  const mapLayer = useMemo(() => (mapParams ? mapLayerOf(mapParams, { fast, proj: fitMp, sides }) : null), [mapParams, fast, fitMp, sides]);
   // 配角名这一次是从收起到排上的:从这一刻起淡入(刚打开、只是换了开关时直接画)
   const sideFadeFrom = useRef(0);
   const sidesBefore = useRef(sides);
@@ -489,7 +618,7 @@ export function CivLayer({ world, raster, civ, geo, style, year, view, mp = null
   }, [sides]);
   const [fadeTick, setFadeTick] = useState(0);
   const extras = useMemo(() => (labelParams ? labelViewExtras(labelParams) : null), [labelParams]);
-  const text = useMemo(() => (ok && civ ? civLabelChars(civ) : ''), [ok, civ]);
+  const text = useMemo(() => (ok && civ ? labelCharsOf(civ) : ''), [ok, civ]);
   const fontStyle = style;
   const want = `${fontStyle}|${text}`;
   const [loaded, setLoaded] = useState('');
@@ -498,6 +627,63 @@ export function CivLayer({ world, raster, civ, geo, style, year, view, mp = null
   // 字体早已加载好(比如切换画风、开关地名)时不必等一帧,直接画
   const fontsOk = loaded === want || (text !== '' && fontsReady(fontStyle, text));
   useEffect(() => patchFeed({ layer: mapLayer, places: geoItems, fontsOk }), [mapLayer, geoItems, fontsOk]);
+
+  // 换上新的历史:后台分小步备好底图(色块、国界、道路、战事、瘟疫)、国名城名、战线、要等的字,备好了再换上(见上面的 hold)
+  // 地图在动(拖动、飞过去)、配角名收起没有、弯边投影的中心:做到那一步时按当时的(这几样变了不用从头备;对不上的换上时当场算)
+  const target = hold ? incoming : null;
+  const textOpt = useRef({ moving, sides });
+  textOpt.current = { moving, sides };
+  const curved = !!mp;
+  useEffect(() => {
+    if (!target || !civIn) return;
+    const p: CivDrawParams = { world, raster, civ: target, style, year: y ?? target.endYear, show, fast: false, faithFocus: show.faiths ? faithFocusIn : null };
+    const named: CivDrawParams = { ...p, civ: civIn };
+    const mp0 = mpRef.current;
+    // 弯边投影 · 手绘:符号遮罩按投影重算的那几步(按这一刻的投影;停着的时候缓存里本来就有,什么也不做)
+    let projSteps: WorkStep[] | null = null;
+    let pi = 0;
+    const projPrep: WorkStep = (deadline) => {
+      const cur = mpRef.current;
+      projSteps ??= cur ? civProjPrep({ ...p, proj: projector(cur) }) : [];
+      if (pi < projSteps.length && projSteps[pi](deadline) !== true) pi++;
+      return pi < projSteps.length;
+    };
+    const steps: WorkStep[] = [
+      // 色块只看是不是弯边投影(手绘按投影后的符号层让位,另存一份),和中心在哪无关
+      ...civOverlaySteps(mp0 ? { ...p, proj: projector(mp0) } : p),
+      projPrep,
+      () => void (warsShown(p) && warFront(p)),
+      () => {
+        const cur = mpRef.current;
+        mapLayerOf(named, { fast: false, proj: cur && !textOpt.current.moving ? cur : null, sides: textOpt.current.sides });
+      },
+      () => void labelCharsOf(civIn),
+    ];
+    // 备料出了错(比如手机上画布内存不够):不再等,放开换上(换上时照常当场画),错误照常报出去
+    let failed = false;
+    const guarded = steps.map((s): WorkStep => (deadline) => {
+      if (failed) return;
+      try {
+        return s(deadline);
+      } catch (e) {
+        failed = true;
+        setTimeout(() => {
+          throw e;
+        });
+      }
+    });
+    submitDetailJob(
+      CIV_SWAP_JOB,
+      guarded,
+      () => {
+        prepared.current = target;
+        setPrepTick((n) => n + 1);
+      },
+      { alone: true },
+    );
+    return () => cancelDetailJob(CIV_SWAP_JOB);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 投影只看弯不弯(中心、大小在做到那一步时取当时的)
+  }, [target, civIn, world, raster, style, y, show, faithFocusIn, curved]);
 
   // 地图框大小变了(窗口缩放)也要重画
   const [tick, setTick] = useState(0);

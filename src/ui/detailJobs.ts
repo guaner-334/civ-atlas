@@ -37,6 +37,8 @@ interface Job {
   i: number;
   commit: (st: JobStats) => void;
   stats: JobStats;
+  /** 自己备好就交(不等别的层,见 submitDetailJob) */
+  alone: boolean;
 }
 
 const jobs = new Map<string, Job>();
@@ -68,10 +70,12 @@ function kick() {
 
 /**
  * 交一份活:owner 是哪一层(同一层的旧活作废);steps 依次做,做完一步才做下一步;
- * 所有在等的活都备好了,依次调各自的 commit(在同一个任务里)
+ * 所有在等的活都备好了,依次调各自的 commit(在同一个任务里)。
+ * alone = 和细节层换上的时机无关的活(换上新的历史时文明层的备料):和别的活一起分段做,自己备好就交,不等别的层
+ * (拖动、飞过去的时候细节层的活一直在换新的,一起等就要等到停下来)
  */
-export function submitDetailJob(owner: string, steps: WorkStep[], commit: (st: JobStats) => void): void {
-  jobs.set(owner, { steps, i: 0, commit, stats: { prep: 0, slices: 0 } });
+export function submitDetailJob(owner: string, steps: WorkStep[], commit: (st: JobStats) => void, o: { alone?: boolean } = {}): void {
+  jobs.set(owner, { steps, i: 0, commit, stats: { prep: 0, slices: 0 }, alone: !!o.alone });
   kick();
 }
 
@@ -121,10 +125,17 @@ function run() {
 }
 
 /** 做到 deadline;都备好了就一起画,没备好就等下一段 */
+/** 这一段先做 alone 的活还是先做细节层的(一段一换:谁都不会因为排在后面一直轮不到) */
+let aloneFirst = false;
+
 function step(deadline: number) {
+  aloneFirst = !aloneFirst;
+  const order = [...jobs.values()].sort((a, b) => (a.alone === b.alone ? 0 : a.alone === aloneFirst ? -1 : 1));
+  let cur: Job | null = null;
   try {
-    for (const job of jobs.values()) {
+    for (const job of order) {
       if (job.i >= job.steps.length) continue;
+      cur = job;
       const t0 = performance.now();
       job.stats.slices++;
       while (job.i < job.steps.length) {
@@ -135,19 +146,25 @@ function step(deadline: number) {
       if (performance.now() >= deadline) break;
     }
   } catch (e) {
-    // 备料出错:这一批都不画了(各层下次重画时重新交活),错误照常报出去
-    jobs.clear();
+    // 备料出错:这一批都不画了(各层下次重画时重新交活),错误照常报出去;别的 alone 活和这一批无关,照常接着做
+    for (const [owner, job] of [...jobs]) if (!job.alone || job === cur) jobs.delete(owner);
+    if (jobs.size) kick();
     throw e;
   }
-  for (const job of jobs.values()) {
-    if (job.i < job.steps.length) {
-      kick();
-      return;
-    }
+  // 自己备好就交的
+  for (const [owner, job] of [...jobs]) {
+    if (!job.alone || job.i < job.steps.length) continue;
+    jobs.delete(owner);
+    job.commit(job.stats);
   }
-  const all = [...jobs.values()];
-  jobs.clear();
-  for (const job of all) job.commit(job.stats);
+  // 别的层:都备好了才一起画(还没备好的 alone 活不拦着它们)
+  const layers = [...jobs].filter(([, job]) => !job.alone);
+  const ready = layers.every(([, job]) => job.i >= job.steps.length);
+  if (ready) {
+    for (const [owner] of layers) jobs.delete(owner);
+    for (const [, job] of layers) job.commit(job.stats);
+  }
+  if (jobs.size) kick();
 }
 
 /**

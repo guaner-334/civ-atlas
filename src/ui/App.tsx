@@ -156,7 +156,7 @@ import { sameMix, type NameMix } from '../gen/names/mix';
 import { cleanFrontier, cleanOrigins, sameFrontier, sameOrigins, type Frontier, type Origins } from '../gen/civ/frontier';
 import type { RasterPatch } from '../gen/rasterPatch';
 import { cancelTerrainPatch, patchSourceOf, startTerrainFull, startTerrainPatch, type PatchStats, type PatchView, type PreProjected } from './terrainPatch';
-import { baseReady, thumbPrepSteps } from './thumbPrep';
+import { baseReady, overlayReady, thumbPrepSteps } from './thumbPrep';
 import { baseRegions, civAtEra, dropComposed, eraData, eraIndex, eraMapsOf, eraReady, eraShown, patchKey, reuseRegions, useEraIndex, withHistory, type EraMaps } from './eras';
 import { adoptChronicle, dropChronicleParts, namedHistory, takeChroniclePart, useNamedHistory } from './chronicleHandoff';
 import { sameSketch, type SketchEdit } from '../gen/sketch';
@@ -214,6 +214,7 @@ import {
   importSave,
   isStored,
   isWorldId,
+  keepWorld,
   legacyWorld,
   listWorlds,
   loadWorld,
@@ -247,7 +248,7 @@ import {
 import { getStage, setStage, useStage, type DraftBase, type Stage } from './stageStore';
 import { setNewCivHandler, setOpenWorldHandler } from './newCivAction';
 import { polityAlive, polityName } from '../gen/civ/growth';
-import { CIV_SHOW_OFF, drawCivOverlay } from '../render/civ/overlay';
+import { CIV_SHOW_OFF, civOverlaySteps, drawCivOverlay, type CivDrawParams } from '../render/civ/overlay';
 import { getPolityPick, interventionActorThen, interventionDoneText, setPickHover, setPolityPick, usePolityPick } from './Interventions';
 import { Inspector } from './Inspector';
 import { TargetLayer } from './TargetPlates';
@@ -270,6 +271,9 @@ import { closeOverview, getPeople, setPeople, useOverview } from './overviewStor
 import { STUDIO_STYLES, Studio } from './studio/Studio';
 import { setFlatGeomSource, useStudioFlat } from './studio/studioStore';
 import { MyWorlds, showMapInWorlds } from './MyWorlds';
+import { GalleryPage, WorkGone, workWho } from './Gallery';
+import { MapWorkView, WorkBar } from './GalleryWork';
+import { fetchWork, isWorkGone, isWorkId, loadGallery, workLink, type GalleryItem, type GalleryWork } from '../account/gallery';
 import { mapBriefOf } from './mapGroups';
 import { NARROW_MAX, useCoarse, useNarrow } from './device';
 import { isDoubleTap, pinchStep, type Pt, type Tap } from './gestures';
@@ -394,6 +398,8 @@ function readUrl() {
   const moment = shortShare !== null && isMomentHash(location.hash) ? decodeMomentHash(location.hash) : null;
   // 朋友的预设链接(#preset=…,ui/presetLink.ts):打开就是填好参数的新建弹窗
   const preset = isPresetHash(location.hash) ? location.hash : null;
+  // 作品墙(Gallery.tsx):作品墙那一页 / 打开一个作品
+  const gallery = galleryOfUrl(q, location.hash);
   // 投影、中央经线(改了就写进网址,刷新、复制网址都还在)
   // 地球仪以前写的是 view=globe,照样认
   const pq = q.get('proj') ?? (q.get('view') === 'globe' ? 'globe' : null);
@@ -413,7 +419,40 @@ function readUrl() {
   // 推演年数(years=):新建中、还没存下的世界(new=)刷新、后退回来还记得弹窗里开的年数
   const yq = q.get('years');
   const years = yq === null ? undefined : cleanEndYear(Number(yq));
-  return { params, style, layer, surface, sat, mapView, share, shortShare, moment, preset, proj, lon, grat, iso, gen, years };
+  return { params, style, layer, surface, sat, mapView, share, shortShare, moment, preset, gallery, proj, lon, grat, iso, gen, years };
+}
+
+/**
+ * 网址里的作品墙:?gallery = 作品墙那一页('');?gallery=<作品编号> = 打开那个作品;# 后面写的(#gallery、#gallery=<编号>)一样认。
+ * 没有 = null;编号认不出的照样给(打开时说已经撤下)
+ */
+function galleryOfUrl(q: URLSearchParams, hash: string): string | null {
+  const v = q.get('gallery');
+  if (v !== null) return v.trim().slice(0, 40);
+  const m = /^#gallery(?:=([^&#]*))?$/.exec(hash);
+  return m ? (m[1] ?? '').slice(0, 40) : null;
+}
+
+/** 作品墙那一页(id = '')/ 一个作品的网址:世界的种子、参数这些去掉,图层、投影这些看法留着 */
+function writeGalleryUrl(id: string) {
+  const q = new URLSearchParams(location.search);
+  for (const k of [...HOME_DROP, 'gallery']) q.delete(k);
+  const rest = q.toString();
+  navUrl(`${location.pathname}?${rest ? `${rest}&` : ''}gallery${id ? `=${encodeURIComponent(id)}` : ''}`);
+}
+
+/**
+ * 作品墙盖在我的世界的位置上(和分享停了那一页一样):
+ *   list  作品墙那一页(preset = 开着的新建参数作品,打开它的网址时)
+ *   work  打开一个作品的网址:正在取 / 撤下了 / 取不到
+ *   map   地图作品:整屏一颗星球
+ * 世界作品打开就是平常的世界(只是看看,左上一条写作品;见 workFor)
+ */
+type WallView = { kind: 'list'; preset?: GalleryItem } | { kind: 'work'; id: string; state: 'loading' | 'gone' | { error: string } } | { kind: 'map'; work: GalleryItem };
+
+/** 作品墙上的作品另存时写进存档的出处:作品的署名、作品名、作品的网址 */
+function workOrigin(w: Pick<GalleryWork, 'id' | 'by' | 'title'>): SaveOrigin {
+  return { ...(w.by ? { by: w.by } : {}), title: w.title, url: workLink(w.id), gallery: w.id };
 }
 
 /**
@@ -457,6 +496,8 @@ interface Target {
   warnings?: string[];
   /** 从分享短链接打开的:它的码(还没存进我的世界时留在网址里,刷新再取一次,看到分享的人最新的改动) */
   shareCode?: string;
+  /** 从作品墙打开的世界作品:作品编号(还没存进我的世界时留在网址里,刷新再取一次) */
+  gallery?: string;
   /** 分享链接带着的"打开时看哪"(停在哪一年、选中什么、镜头;gen/savefile.ts 的 SaveMoment) */
   moment?: SaveMoment | null;
   /** 底稿出处(存档里带着的;打开别人的分享短链接时是那个链接,改了另存时写进去) */
@@ -566,6 +607,7 @@ function presetDialog(p: SharedPreset): { init: NewWorldInit; shared: SharedPres
 /**
  * 打开网页时去哪(只算一次):
  *   分享短链接(s=)    → 先是一页空白,去服务器取存档;取到了打开那个世界,停了显示"这个分享已经停止了"
+ *   作品墙(gallery=)  → 作品墙那一页;带作品编号的先是一页空白,取到了打开那个作品,撤下了显示"这个作品已经撤下了"
  *   分享链接(#)       → 那个世界(先按网址生成,解开以后套上修改)
  *   w=世界编号(存着)   → 这个世界(没建完的回到新建);
  *                        这一步记的就是这个世界(刷新、按后退 / 前进从别的网址回来),现在不在了(在别的页面里删掉了)
@@ -579,6 +621,8 @@ function presetDialog(p: SharedPreset): { init: NewWorldInit; shared: SharedPres
 function firstRoute(init: ReturnType<typeof readUrl>): { stage: Stage; target: Target | null; gone?: string; dialog?: NewWorldInit } {
   const q = new URLSearchParams(location.search);
   if (init.shortShare !== null && !init.share) return { stage: 'home', target: null };
+  // 作品墙那一页、作品的网址(世界作品只是看看、还没存下时刷新,网址里也是它):先停在我的世界的位置,去服务器取
+  if (init.gallery !== null && !init.share) return { stage: 'home', target: null };
   if (init.share) return { stage: 'world', target: visitTarget(init.params) };
   const w = q.get('w');
   const stored = isWorldId(w) ? loadWorld(w) : null;
@@ -657,9 +701,11 @@ function writeWorldUrl(t: Target) {
   q.delete('w');
   q.delete('new');
   q.delete('s');
+  q.delete('gallery');
   q.delete(OWN_KEY);
-  // 分享短链接打开的、还没存进我的世界:码留在网址里(刷新再取一次)
+  // 分享短链接、作品墙打开的、还没存进我的世界:码 / 作品编号留在网址里(刷新再取一次)
   if (t.shareCode && t.kind === 'visit' && !isStored(t.id)) q.set('s', t.shareCode);
+  if (t.gallery && t.kind === 'visit' && !isStored(t.id)) q.set('gallery', t.gallery);
   // 存着的记录还是换参数之前的(新建中换了种子、参数,正在生成):先不指向它,存好了再换成 w=
   const w = isStored(t.id) ? loadWorld(t.id) : null;
   if (w && worldKey(w.save.params) === worldKey(t.params)) q.set('w', t.id);
@@ -677,10 +723,13 @@ function writeWorldUrl(t: Target) {
   if (next !== location.search) navUrl(next);
 }
 
-/** 回到"我的世界":网址里去掉这个世界(种子、参数、编号、年份……),留着图层、投影这些看法 */
+/** 回到"我的世界"时网址里去掉的:这个世界(种子、参数、编号、年份……) */
+const HOME_DROP = [...Object.keys(DEFAULT_PARAMS), 'w', 'new', 'years', 's', GEN_KEY, 'civYear', 'play', 'chron'];
+
+/** 回到"我的世界":网址里去掉这个世界(种子、参数、编号、年份……)、作品墙,留着图层、投影这些看法 */
 function writeHomeUrl() {
   const q = new URLSearchParams(location.search);
-  for (const k of [...Object.keys(DEFAULT_PARAMS), 'w', 'new', 'years', 's', GEN_KEY, 'civYear', 'play', 'chron']) q.delete(k);
+  for (const k of [...HOME_DROP, 'gallery']) q.delete(k);
   const rest = q.toString();
   navUrl(rest ? `?${rest}` : location.pathname);
 }
@@ -979,6 +1028,16 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
   const trashView = useTrashView();
   /** 分享短链接:正在取 / 停了 / 打不开(取到了 = null) */
   const [landing, setLanding] = useState<'loading' | 'gone' | { error: string } | null>(route.stage === 'home' && init.shortShare !== null && !init.share ? 'loading' : null);
+  /** 作品墙那一页 / 正在打开的作品 / 地图作品(见 WallView;不在作品墙 = null) */
+  const [wall, setWall] = useState<WallView | null>(() =>
+    route.stage !== 'home' || init.gallery === null || landing ? null : init.gallery ? { kind: 'work', id: init.gallery, state: 'loading' } : { kind: 'list' },
+  );
+  /** 换了画面就作废还在取的作品(取回来时对一下) */
+  const wallSeq = useRef(0);
+  /** 这一页里打开过的世界作品:世界编号 → 作品(按后退 / 前进回到它时,左上那一条照旧) */
+  const workItems = useRef(new Map<string, GalleryItem>());
+  /** 正在看的世界是从作品墙打开的世界作品:那个世界的编号和作品(地图左上那一条;回作品墙、换了世界就不放) */
+  const [workFor, setWorkFor] = useState<{ id: string; work: GalleryItem } | null>(null);
   /**
    * 打开别人分享的世界:地图下那条说明(这个世界的编号;点了"知道了"、改了存进我的世界以后不再显示)。
    * at = 链接带着"这一刻"、打开停在了那里:说明开头说清停在哪一年、选中的哪国(点了「从头放」就不再说)
@@ -2074,7 +2133,7 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
     // 邀请链接(invite=):记下邀请码,从网址里去掉(在记第一步之前去掉,按后退时不会再带回来)
     const invited = takeInviteFromUrl();
     // 浏览器的后退、前进:这一页记成第一步,之后每换一个画面记一步(nav.ts)
-    const stopNav = startNav(navInfo(route.stage, route.target), {
+    const stopNav = startNav(wall ? { page: 'gallery', ...(wall.kind === 'work' ? { id: wall.id } : {}) } : navInfo(route.stage, route.target), {
       route: (to, from, dir) => navRef.current.route(to, from, dir),
       describe: () => navRef.current.describe(),
       settled: () => navRef.current.settled(),
@@ -2103,6 +2162,11 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
     if (invited && serverBase() && !getSession()) openLogin();
     if (route.target) generate(route.target);
     else if (landing === 'loading') openShortShare(init.shortShare ?? '');
+    // 作品墙:网址换成 ?gallery(=编号)的写法(# 后面写的也换过来);带编号的去取那个作品
+    else if (wall) {
+      if (wall.kind === 'work') openWork(wall.id);
+      else writeGalleryUrl('');
+    }
     // 刷新回来的照图新建(new=image)留着,弹窗点了「开始」或「取消」才换掉,再刷新还能回到弹窗
     else if (!route.dialog) writeHomeUrl();
     if (route.gone !== undefined) goneToast(route.gone);
@@ -2120,6 +2184,15 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
           setNewDlg({ ...presetDialog(r.preset), stamp: performance.now() });
         }
         presetOpened(r);
+        return;
+      }
+      // 页面开着时又贴了作品墙的地址(#gallery、#gallery=<编号>):到作品墙那一页 / 打开那个作品
+      const gid = galleryOfUrl(new URLSearchParams(), h);
+      if (gid !== null) {
+        navAdopt(navInfo(getStage().stage, targetRef.current));
+        navUrl(location.pathname + location.search);
+        if (gid) wallRef.current.open(gid);
+        else wallRef.current.list();
         return;
       }
       if (!isShareHash(h)) {
@@ -2451,6 +2524,14 @@ ${s.image.cells}` : null);
       const d = eraData(b, eraMapsRef.current, eraPatches.current, kEnd);
       // 整张底图先在后台分小步备好(ui/thumbPrep.ts),不在主线程上一口气画
       if (!now && !mapsOf(d).has('fantasy') && !baseReady('fantasy', d.world, d.raster)) return null;
+      const rc = rawRef.current;
+      const kind = currentWorld()?.kind;
+      const cp: CivDrawParams | null =
+        kind !== 'draft' && rc && rc.viable && rc.habitat.suitability.length === d.world.mesh.n
+          ? { world: d.world, raster: d.raster, civ: rc, style: 'fantasy', year: rc.endYear, show: { ...CIV_SHOW_OFF, polities: true }, thumb: true }
+          : null;
+      // 国家色块、国界也先在后台分小步备好
+      if (!now && cp && !overlayReady(cp.civ, cp.raster, () => civOverlaySteps(cp))) return null;
       const base = baseCanvas('fantasy', d);
       if (!base) return null;
       const cv = document.createElement('canvas');
@@ -2460,15 +2541,13 @@ ${s.image.cells}` : null);
       if (!x) return null;
       x.imageSmoothingQuality = 'high';
       x.drawImage(base, 0, 0, cv.width, cv.height);
-      const rc = rawRef.current;
-      const kind = currentWorld()?.kind;
-      if (kind !== 'draft' && rc && rc.viable && rc.habitat.suitability.length === d.world.mesh.n) {
+      if (cp) {
         const ov = document.createElement('canvas');
         ov.width = d.raster.w;
         ov.height = d.raster.h;
         const octx = ov.getContext('2d');
         if (octx) {
-          drawCivOverlay(octx, { world: d.world, raster: d.raster, civ: rc, style: 'fantasy', year: rc.endYear, show: { ...CIV_SHOW_OFF, polities: true } });
+          drawCivOverlay(octx, cp);
           x.drawImage(ov, 0, 0, cv.width, cv.height);
         }
         ov.width = ov.height = 0;
@@ -2828,6 +2907,79 @@ ${s.image.cells}` : null);
     pickSharedPreset(r.preset);
     if (r.warnings.length) notify({ kind: 'warn', text: `已打开朋友分享的预设「${r.preset.name}」`, more: r.warnings });
   };
+  /** 换到作品墙的一页(盖在我的世界的位置上):停下正在放的,网址换成作品墙的 */
+  const enterWall = (v: WallView, id: string) => {
+    wallSeq.current++;
+    pausePlayback();
+    setReplayOn(false);
+    setLanding(null);
+    setWorkFor(null);
+    enterStage('home');
+    setWall(v);
+    writeGalleryUrl(id);
+  };
+  /** 去作品墙那一页(我的世界右上、空页面的精选、作品左上的「‹ 作品墙」、撤下了的那一页) */
+  const showGallery = () => {
+    navTo({ page: 'gallery' });
+    enterWall({ kind: 'list' }, '');
+  };
+  /**
+   * 打开作品墙上的一个作品(作品墙上点的、我的世界空页面上的精选、作品的网址):先是一页空白,去服务器取;
+   * 世界作品打开那个世界(只是看看),地图作品整屏一颗星球,新建参数作品在作品墙那一页上弹窗;撤下了、没有这个编号整页说"已经撤下了"
+   */
+  const openWork = (id: string) => {
+    navTo({ page: 'gallery', id });
+    enterWall({ kind: 'work', id, state: 'loading' }, id);
+    const my = wallSeq.current;
+    if (!isWorkId(id) || !serverBase()) return setWall({ kind: 'work', id, state: 'gone' });
+    fetchWork(id).then(
+      (it) => {
+        if (my !== wallSeq.current) return;
+        if (it.kind === 'world') return openWorkWorld(it);
+        setWall(it.kind === 'map' ? { kind: 'map', work: it } : { kind: 'list', preset: it });
+      },
+      (e: unknown) => {
+        if (my !== wallSeq.current) return;
+        const gone = isWorkGone(e);
+        setWall({ kind: 'work', id, state: gone ? 'gone' : { error: e instanceof ServerError && e.code === 'network' ? '连不上服务器，请检查网络后再试。' : e instanceof Error ? e.message : String(e) } });
+        // 作品墙上的卡片跟着去掉
+        if (gone) loadGallery(true);
+      },
+    );
+  };
+  /** 打开世界作品:和打开分享链接一样,别人的世界先只是看看,改了才另存进我的世界(出处写作品) */
+  const openWorkWorld = (it: GalleryItem) => {
+    const p = parseSave(JSON.stringify(it.save ?? null));
+    if (!p.ok) return setWall({ kind: 'work', id: it.id, state: { error: briefError(p.error) } });
+    const sv = p.save;
+    const id = newWorldId();
+    setWall(null);
+    setSharedFor(null);
+    setWorkFor({ id, work: it });
+    workItems.current.set(id, it);
+    openTarget(
+      { id, kind: 'visit', params: sv.params, edits: sv.edits, saved: sv.edits, title: it.title || sv.title, view: sv.view ?? null, from: 'link', save: sv, warnings: p.warnings, gallery: it.id, origin: workOrigin(it), moment: sv.moment ?? null },
+      'replace',
+    );
+  };
+  /** 世界作品「另存一份接着改」:存进我的世界(出处已经写着),网址换成它的编号 */
+  const keepWork = () => {
+    const c = currentWorld();
+    const t = targetRef.current;
+    if (!c || !t || !workFor || c.id !== workFor.id) return;
+    if (c.kind === 'visit') keepWorld(c.id);
+    if (!isStored(c.id)) return notify({ kind: 'error', text: '没能另存', more: [storageFullWhy()] });
+    writeWorldUrl(t);
+    showToast({ id: 'save', kind: 'ok', text: `已存进我的世界「${c.title || workFor.work.title || '未命名世界'}」`, more: [`出处写着${workWho(workFor.work)}`] });
+  };
+  /** 新建参数作品「用这套参数新建」:回到我的世界,新建弹窗第 2 步照它填好(不自动存进自己的预设) */
+  const takePresetWork = (p: SharedPreset) => {
+    showHome();
+    pickSharedPreset(p);
+    setNewDlg({ ...presetDialog(p), stamp: performance.now() });
+  };
+  const wallRef = useRef({ open: openWork, list: showGallery });
+  wallRef.current = { open: openWork, list: showGallery };
   /** 新建世界(我的世界右上、第一次来、分享停了的那一页):先弹窗选怎么生成、定基础参数 */
   const startDraft = () => setNewDlg({});
   /** 弹窗里点了「取消」:什么都不留下(刷新回来的照图新建,网址里的 new=image 也去掉,再刷新不再弹) */
@@ -2840,8 +2992,11 @@ ${s.image.cells}` : null);
    * (照手绘图的新建界面一进来就打开改地形工具,认图在它上面)
    */
   const startFromDialog = (s: NewWorldStart) => {
+    // 作品墙上新建参数作品「用这套参数新建」打开的弹窗:新的世界出处写这个作品(和另存世界作品一样)
+    const g = newDlg?.shared?.gallery;
     setNewDlg(null);
-    const d = draftTarget(s.params, null, yearsEdits(s.endYear, s.frontier));
+    const plain = draftTarget(s.params, null, yearsEdits(s.endYear, s.frontier));
+    const d = g?.id && isWorkId(g.id) ? { ...plain, origin: workOrigin({ id: g.id, by: g.by, title: g.title ?? '' }) } : plain;
     if (s.mode === 'random') return openTarget(d);
     openTarget({ ...d, mode: 'image' });
     if (s.picture) beginImport(s.picture);
@@ -3013,14 +3168,28 @@ ${s.image.cells}` : null);
   const startNewCiv = (id: string) => {
     const w = loadWorld(id);
     if (!w || w.draft) return notify({ kind: 'error', text: '打不开这张地图', more: ['可能已在别的页面里删掉了'] });
-    const edits = newHistoryEdits(w.save.edits, { civSeed: randomSeedValue(), from: id, sum: w.save.edits.map?.sum });
-    const title = w.map ? undefined : nextTitle(w.save.title || '未命名世界');
-    const mapCheck = w.save.generator < GENERATOR_VERSION && w.save.check ? w.save.check : undefined;
+    newCivOn(w.save, id, w.map ? undefined : nextTitle(w.save.title || '未命名世界'), w.save.origin ?? null);
+  };
+  /**
+   * 在一份存档的地图上打造新文明(见 startNewCiv)。from = 地图出自哪(我的世界里的编号;作品墙上的作品是 gallery:<作品编号>),
+   * 同一张地图上打造的文明在我的世界的「地图」里排在一起
+   */
+  const newCivOn = (save: SaveFile, from: string, title: string | undefined, origin: SaveOrigin | null) => {
+    const edits = newHistoryEdits(save.edits, { civSeed: randomSeedValue(), from, sum: save.edits.map?.sum });
+    const mapCheck = save.generator < GENERATOR_VERSION && save.check ? save.check : undefined;
     setNewDlg(null);
     // 一开始就存成没建完的(刷新、后退再前进都回得来;地图出自哪个世界、文明种子都在存档里),底稿出处跟着;什么都没动就返回,这一份删掉
-    const d = draftTarget(w.save.params, null, edits, title);
+    const d = draftTarget(save.params, null, edits, title);
     derivedRef.current = { id: d.id, sig: draftSig(d.params, d.edits, d.title) };
-    openTarget({ ...d, pristine: false, origin: w.save.origin ?? null, mapCheck });
+    openTarget({ ...d, pristine: false, origin, mapCheck });
+  };
+  /** 作品墙上的世界 / 地图作品「用这张地图打造(新)文明」:地形照搬,文明和历史从头推演;出处写作品 */
+  const newCivOnWork = (it: GalleryItem) => {
+    const p = parseSave(JSON.stringify(it.save ?? null));
+    if (!p.ok) return notify({ kind: 'error', text: '打不开这张地图', more: [briefError(p.error)] });
+    setWall(null);
+    setWorkFor(null);
+    newCivOn(p.save, `gallery:${it.id}`, it.kind === 'map' ? undefined : nextTitle(it.title || p.save.title || '未命名世界'), workOrigin(it));
   };
   const startNewCivRef = useRef(startNewCiv);
   startNewCivRef.current = startNewCiv;
@@ -3039,6 +3208,9 @@ ${s.image.cells}` : null);
     if (s.kind === 'open') openStored(s.id);
     else if (s.kind === 'text') openText(s.text, s.fileName);
     else if (s.kind === 'newCiv') startNewCiv(s.id);
+    else if (s.kind === 'gallery') showGallery();
+    else if (s.kind === 'work') openWork(s.id);
+    else if (s.kind === 'preset') takePresetWork(s.preset);
     else startFromDialog(s.start);
     // 只在挂上时做一次
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -3061,6 +3233,9 @@ ${s.image.cells}` : null);
     pausePlayback();
     setReplayOn(false);
     enterStage('home');
+    wallSeq.current++;
+    setWall(null);
+    setWorkFor(null);
     writeHomeUrl();
   };
   const goHome = showHome;
@@ -3214,6 +3389,13 @@ ${s.image.cells}` : null);
     closeHistoryBook();
     closeBookReader();
     if (to.page === 'home') return showHome();
+    // 作品墙那一页、一个作品(取的时候换了画面,取回来不再打开)
+    if (to.page === 'gallery') return to.id ? openWork(to.id) : showGallery();
+    wallSeq.current++;
+    setWall(null);
+    // 回到从作品墙打开的世界作品:左上那一条照旧
+    const wi = to.page === 'world' && to.id ? workItems.current.get(to.id) : undefined;
+    setWorkFor(wi && to.id ? { id: to.id, work: wi } : null);
     const back = dir < 0;
     const skip = (): void | 'skip' => (back && to.prev ? 'skip' : showHome());
     const url = readUrl();
@@ -3271,6 +3453,9 @@ ${s.image.cells}` : null);
       setLanding('loading');
       return openShortShare(code, () => sameScreen(getNav(), to));
     }
+    // 从作品墙打开、还没存下的世界作品(刷新过,手上没有这个世界):和打开作品的网址一样再取一次
+    const gid = q.get('gallery');
+    if (gid) return openWork(gid);
     if (q.has('seed')) return openTarget({ ...visitTarget(url.params, url.gen), id: to.id ?? newWorldId() });
     return showHome();
   };
@@ -5338,6 +5523,9 @@ ${s.image.cells}` : null);
   }, [filmWorld, previewRaw]);
   /** 打开别人分享的世界、还没改过:地图下那条说明代替第一次打开的操作提示 */
   const sharedOn = world && !!data && !!sharedFor && curWorld?.id === sharedFor.id && curWorld.kind === 'visit' && !terrainTool.on;
+  /** 从作品墙打开的世界作品:地图左上那一条(改了自动另存以后也还在;回作品墙、换了世界就不放),侧栏左上的返回换成「‹ 作品墙」 */
+  const workOn = world && !draft && !!workFor && curWorld?.id === workFor.id && !filmOn;
+  const workBar = workOn && workFor && <WorkBar phone={narrow} work={workFor.work} onSaveCopy={keepWork} onNewCiv={() => newCivOnWork(workFor.work)} />;
   // 停在那一刻的说法:"第 1500 年，有桑皇朝"(国名、州名按那一年的;设了纪年的按纪年)
   const sharedAt = (() => {
     const a = sharedFor?.at;
@@ -5606,8 +5794,25 @@ ${s.image.cells}` : null);
               startDraft();
             }}
           />
+        ) : wall?.kind === 'list' ? (
+          <GalleryPage
+            phone={narrow}
+            onHome={goHome}
+            onOpen={(w) => openWork(w.id)}
+            onPreset={takePresetWork}
+            preset={wall.preset}
+            onPresetShown={(id) => {
+              // 开着的新建参数作品写进网址(刷新、复制网址还是它);不算一步
+              navReplace({ page: 'gallery', ...(id ? { id } : {}) });
+              writeGalleryUrl(id ?? '');
+            }}
+          />
+        ) : wall?.kind === 'map' ? (
+          <MapWorkView phone={narrow} work={wall.work} onBack={showGallery} onNewCiv={() => newCivOnWork(wall.work)} />
+        ) : wall?.kind === 'work' ? (
+          <WorkGone phone={narrow} state={wall.state} onHome={goHome} onGallery={showGallery} onRetry={() => openWork(wall.id)} />
         ) : (
-          <MyWorlds phone={narrow} onOpen={openStored} onNew={startDraft} onOpenText={openText} onNewCiv={startNewCiv} />
+          <MyWorlds phone={narrow} onOpen={openStored} onNew={startDraft} onOpenText={openText} onNewCiv={startNewCiv} onGallery={showGallery} onOpenWork={(w) => openWork(w.id)} />
         )
       ) : narrow ? (
         <>
@@ -5625,13 +5830,15 @@ ${s.image.cells}` : null);
                 generating={!!progress}
                 replay={{ on: replayOn, ready: !!replay }}
                 onReplay={startReplay}
-                onHome={goHome}
+                onHome={workOn ? showGallery : goHome}
+                homeLabel={workOn ? '作品墙' : undefined}
                 exp={{ data, civ, plain: plainCiv, style, layer, look: terrainLook }}
               />
           )}
           {!draft && !filmOn && <PhoneButtons layers={layerProps} globeOn={globeOn} onToggleGlobe={toggleGlobe} marking={markable ? markPlacing : undefined} director={!directorOff} />}
-          {!draft && (OLD_SITE !== null || BETA_SITE || style === 'data' || contourOn) && (
+          {!draft && (OLD_SITE !== null || BETA_SITE || style === 'data' || contourOn || workOn) && (
             <div className="corner-tl">
+              {workBar}
               <OldSiteBadge />
               {(style === 'data' || contourOn) && <Legend layer={style === 'data' ? layer : null} contours={contourOn ? contourKind : null} ink={contourInkNow} zoom={view.k} />}
             </div>
@@ -5651,13 +5858,15 @@ ${s.image.cells}` : null);
               generating={!!progress}
               replay={{ on: replayOn, ready: !!replay }}
               onReplay={startReplay}
-              onHome={goHome}
+              onHome={workOn ? showGallery : goHome}
+              homeLabel={workOn ? '作品墙' : undefined}
               inspectorSlot={inspectorSlot}
             />
           )}
           {!draft && <MapBar civ={civ} layers={layerProps} exp={{ data, civ, plain: plainCiv, style, layer, look: terrainLook }} />}
-          {!draft && (OLD_SITE !== null || BETA_SITE || ((style === 'data' || contourOn) && !terrainTool.on)) && (
+          {!draft && (OLD_SITE !== null || BETA_SITE || workOn || ((style === 'data' || contourOn) && !terrainTool.on)) && (
             <div className="corner-tl">
+              {workBar}
               <OldSiteBadge />
               {(style === 'data' || contourOn) && !terrainTool.on && <Legend layer={style === 'data' ? layer : null} contours={contourOn ? contourKind : null} ink={contourInkNow} zoom={view.k} />}
             </div>
