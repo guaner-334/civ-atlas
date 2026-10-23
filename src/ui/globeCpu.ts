@@ -24,6 +24,8 @@ const IN_FLIGHT = 3;
 export interface CpuJobSpec<T> {
   view: GlobeView;
   f: GlobeFrame;
+  /** 画布像素 / CSS 像素 */
+  dpr: number;
   look: GlobeLook;
   w: number;
   h: number;
@@ -195,7 +197,7 @@ export class GlobeCpuPool<T> {
     const { spec } = job;
     const rows = Math.min(spec.h - job.next, Math.max(1, Math.ceil(BAND_PX / spec.w)));
     const buf = this.take(spec.w * rows * 4);
-    const msg: GlobeCpuRowsMsg = { type: 'rows', job: job.id, ver: job.ver, view: spec.view, f: spec.f, look: spec.look, w: spec.w, y0: job.next, rows, buf };
+    const msg: GlobeCpuRowsMsg = { type: 'rows', job: job.id, ver: job.ver, view: spec.view, f: spec.f, dpr: spec.dpr, look: spec.look, w: spec.w, y0: job.next, rows, buf };
     try {
       slot.w.postMessage(msg, buf ? { transfer: [buf] } : undefined);
     } catch {

@@ -17,7 +17,7 @@ import type { World } from '../gen/world';
 import { capitalAt, polityAlive } from '../gen/civ/growth';
 import { ownersAt } from '../gen/civ/timeline';
 import { getSelection, useCivTime, useSelection } from './civView';
-import { getPolityPick, nameAt, setPickHover, setPolityPick, usePickHover, usePolityPick } from './Interventions';
+import { finishPick, getPolityPick, nameAt, setPickHover, setPolityPick, usePickHover, usePolityPick } from './Interventions';
 import { endRun, getPanel, requestFly, setPanelTab, setSheet, usePanel } from './panelStore';
 import { clearToast, showToast } from './toastStore';
 import { isCoarse } from './device';
@@ -37,8 +37,8 @@ export interface TargetLayerProps {
   /** App 的"世界坐标 → 屏幕坐标"(平面地图 / 地球仪;算不出、在球背面 = null) */
   toClient: MutableRefObject<WorldToClient | null>;
   /** 正在后台重推历史(干预列表变了):从哪一年起 */
-  /** 正在重推:从哪一年起变、推到哪一年(不给 = 这份历史的结束年份) */
-  resim: { year: number; end?: number } | null;
+  /** 正在重推:从哪一年起变、推到哪一年(不给 = 这份历史的结束年份);text = 提示条上换一句话(切支线时写切到哪一支) */
+  resim: { year: number; end?: number; text?: string } | null;
   /** 正在生成世界(它的进度条优先) */
   generating: boolean;
   /** 屏幕上这一点压着地图上的哪个字 / 城镇符号(平面地图:文字层;地球仪:球上的文字);国都旁的字躲开它们 */
@@ -51,6 +51,8 @@ interface Plate {
   id: number;
   text: string;
   note: string;
+  /** 后面多一个小字(方针选亲、仇时的"仇 ✓""亲") */
+  mark?: string;
   color: string;
   /** 本国 / 现在的国都:主色底 */
   self: boolean;
@@ -185,7 +187,7 @@ export function TargetLayer({ civ, world, toClient, resim, generating, labelAt }
       const a = anchors.get(id);
       if (!p || !a) return;
       const note = self ? (pick?.selfNote ?? '本国') : pick?.near?.has(id) ? '相邻' : '';
-      out.push({ key: `p${id}`, kind: 'polity', id, text: nameAt(p, year), note, color: rgb(p.color), self, rank: self ? -1 : -a.n, x: a.x, y: a.y });
+      out.push({ key: `p${id}`, kind: 'polity', id, text: nameAt(p, year), note, mark: pick?.marks?.get(id), color: rgb(p.color), self, rank: self ? -1 : -a.n, x: a.x, y: a.y });
     };
     if (pick) {
       if (pick.self !== undefined) add(pick.self, true);
@@ -323,7 +325,7 @@ export function TargetLayer({ civ, world, toClient, resim, generating, labelAt }
     const show = () => {
       if (!generating) {
         const f = Math.min(0.94, (performance.now() - t0) / expect);
-        showToast({ id: 'resim', kind: 'progress', text: `正在重新推演${spaced(yearSpanAt(Math.max(0, Math.floor(resim.year)), Math.floor(endYear), currentEra()))}`, progress: f });
+        showToast({ id: 'resim', kind: 'progress', text: resim.text ?? `正在重新推演${spaced(yearSpanAt(Math.max(0, Math.floor(resim.year)), Math.floor(endYear), currentEra()))}`, progress: f });
       }
       timer = window.setTimeout(show, 60);
     };
@@ -366,8 +368,7 @@ export function TargetLayer({ civ, world, toClient, resim, generating, labelAt }
   const choose = (id: number) => {
     const pk = getPolityPick();
     if (!pk) return;
-    const err = pk.accept(id);
-    setPolityPick(err ? { ...pk, msg: err } : null);
+    finishPick(pk, pk.accept(id));
   };
 
   const dim = !!pick || !!run;
@@ -384,7 +385,7 @@ export function TargetLayer({ civ, world, toClient, resim, generating, labelAt }
                 if (el) plateEls.current.set(p.key, el);
                 else plateEls.current.delete(p.key);
               }}
-              className={`tp-plate${p.self ? ' self' : ''}${!p.self && (hover === p.id || run?.target?.id === p.id) ? ' on' : ''}`}
+              className={`tp-plate${p.self ? ' self' : ''}${!p.self && (hover === p.id || run?.target?.id === p.id || pick?.on?.has(p.id)) ? ' on' : ''}`}
               data-kind={p.kind}
               data-id={p.id}
               style={{ visibility: 'hidden' }}
@@ -396,6 +397,7 @@ export function TargetLayer({ civ, world, toClient, resim, generating, labelAt }
               <i className="tp-sw" style={{ background: p.color }} />
               <span className="tp-name">{p.text}</span>
               {p.note && <span className="tp-note">{p.note}</span>}
+              {p.mark && <span className="tp-note">{p.mark}</span>}
             </button>
           ))}
         </div>

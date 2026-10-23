@@ -9,7 +9,7 @@
  *          什么都没选:整个世界(WorldHome:信仰(只在信仰图层)、国家按大小排、民族按大小排、最近大事、我的干预(干预和地形大事)、
  *          这颗星球(从这里演绎(逐年推演,从时间轴停的这一年起)、回放世界形成、地形大事、在这张地图上打造新文明、世界设定;
  *          从别人的分享另存来的,最后一行是底稿出处,点了在新标签页打开那个分享链接))。
- *          在逐年推演里:副标写"逐年推演,从某某年起演绎","这颗星球"换成"这个故事"(推进设置、存回推演模式,见 Stepwise.tsx)
+ *          在逐年推演里:副标写"逐年推演,从某某年起演绎"(演一国时"逐年推演,演某国"),"这颗星球"换成"这个故事"(推进设置、存回推演模式,见 Stepwise.tsx)
  * 收起:卡片右上角的侧栏图标 → 卡片往左滑走,左上角留一个小按钮(侧栏图标 + 世界名),点它滑回来;记在浏览器里(sideStore.ts)。
  *       收起时选中了东西,卡片弹出来显示它,取消选中又收回去;收起时搜索框跟着卡片一起收起。
  * 新建世界是另一套界面(studio/Studio.tsx),不用侧栏。
@@ -32,6 +32,7 @@ import { eraLabel, spaced, yearAt, yearFull, yearShort, type Era } from '../gen/
 import { playFromOf } from '../gen/edits';
 import { openStepDialog, useStepwiseOn } from './stepwiseStore';
 import { StepSideGroup } from './Stepwise';
+import { StepBranches } from './StepBranches';
 import { openUpheaval, useUpUi } from './upheavalStore';
 import { currentWorld, listWorlds, useSavesVersion } from './saveStore';
 import { mapMates } from './mapGroups';
@@ -55,6 +56,9 @@ import { openDiag } from './DiagDialog';
 import { EntryText, jumpTo, rgb } from './panelParts';
 import { collapseSide, expandSide, useSide } from './sideStore';
 import { PolityFlag } from './Flag';
+import { useRole } from './roleStore';
+import { rolePolity } from './policyInfo';
+import { nameAt } from './Interventions';
 import './sidebar.css';
 
 export interface SidebarProps {
@@ -241,12 +245,16 @@ export function useWorldInfo(civ: Civ | null, data: SidebarProps['data']): { tit
   const alive = civ && civ.viable ? civ.polities.filter((x) => polityAlive(x, year)).length : 0;
   const n = edits.interventions.length;
   const seed = data ? data.world.params.seed : null;
-  // 逐年推演:"逐年推演，从 2650 年起演绎"
+  // 逐年推演:"逐年推演，从 2650 年起演绎";演一国时"逐年推演，演大澜王朝"(roleStore.ts)
+  const role = useRole();
+  const me = step && civ ? rolePolity(civ, role) : -1;
   const sub =
     seed === null
       ? '正在生成'
       : step
-        ? `逐年推演，从${spaced(yearAt(playFromOf(edits), edits.era))}起演绎`
+        ? me >= 0 && civ
+          ? `逐年推演，演${nameAt(civ.polities[me], Math.min(civ.endYear, year))}`
+          : `逐年推演，从${spaced(yearAt(playFromOf(edits), edits.era))}起演绎`
         : `种子 ${seed}，${civ ? (civ.viable ? `现存 ${alive} 国` : '没有文明') : '正在推演历史'}${n ? `，干预了 ${n} 处` : ''}`;
   return { title: currentWorld()?.title || '未命名世界', sub, step };
 }
@@ -645,7 +653,10 @@ export function WorldHome(p: Pick<SidebarProps, 'civ' | 'data' | 'params' | 'gen
         </section>
       )}
       {step ? (
-        <StepSideGroup />
+        <>
+          <StepSideGroup />
+          <StepBranches civ={civ} />
+        </>
       ) : (
         <section className="sb-sec">
           <div className="sb-sec-head">

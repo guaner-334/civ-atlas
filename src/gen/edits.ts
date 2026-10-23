@@ -261,6 +261,7 @@
  * |------|----------------------------------------|----------------------------------------------|
  * | id   | 当前这一支的编号                       | 1–BRANCH_ID_MAX 的整数                       |
  * | name | 当前这一支的名字(可选)               | 同下面一支的 name                            |
+ * | forkOf, forkAt | 当前这一支从哪一支、第几年分出(可选) | 同下面一支的 forkOf、forkAt(forkAt 不晚于 play.year) |
  * | list | 不在用的几支(PlayBranch,见下)       | 数组                                         |
  *
  * list 里的一支(PlayBranch):
@@ -274,12 +275,15 @@
  * | commands | 第 from 年和以后下过的命令(格式同 play.commands)                    | from 只增不减、都在 [from, year] 里                      |
  * | playFrom | 这一支从第几年起演绎(同 WorldEdits.playFrom)                       | 取整、夹到 [0, year];0 不写                             |
  * | last     | 切走时这一支的最后一件大事(可选,只用来在列表里显示)              | 同 name,最多 BRANCH_NOTE_MAX 个字                      |
+ * | forkAt   | 第几年分出来的(可选,只用来在列表里显示"第几年从哪一支分出";最早的那一支没有) | 0–year 的整数                       |
+ * | forkOf   | 从哪一支分出来的编号(可选,有 forkAt 才有;那一支删掉了也照记)     | 1–BRANCH_ID_MAX 的整数                                  |
  *
  * 一支完整的进度 = { year, commands: 当前这一支命令串里早于 from 的几条 + commands }(gen/stepwise.ts 的 branchPlay)。
  * from 不晚于当前这一支走到的那年,所以当前这一支往下走、在"现在"下的命令(from = play.year ≥ 那一支的 from)不会混进别的几支;
  * 当前这一支的过去变了(从这一年重新演绎、切到别的一支)时,别的几支跟着换记法(from 往前挪、命令补上),完整的进度不变。
  * 读进来的先过 cleanBranches:没有 play = 不要这一项;编号不合格、重复的换一个新编号;year、from 不合格的那一支去掉,命令按 cleanPlay 的规矩清理;
- * from 晚于当前这一支走到的那年的,改记成从那一年起(完整的进度不变)。list 是空的、当前这一支没起名、编号是 1 时不写。
+ * from 晚于当前这一支走到的那年的,改记成从那一年起(完整的进度不变);forkAt、forkOf 不合格的去掉(不影响别的)。
+ * list 是空的、当前这一支没起名、没记从哪分出、编号是 1 时不写。
  * 存回推演模式只存当前这一支(stepwiseToNormal 去掉这一项);只认识 play 的版本读这样的存档,看到的就是当前这一支。
  *
  * ## 推进设置
@@ -295,6 +299,14 @@
  * | countdown | 停下以后倒计时几秒再接着走                   | ADVANCE_COUNTDOWNS 里的一个:30 / 60 / 120;0 = 不倒计时(等人点) | 60   |
  *
  * 认不出的项(不是数、不在可选的几个里)按默认;多余的字段去掉。都是能原样转成 JSON 的数和布尔值。
+ *
+ * ## 导播跟着谁
+ *
+ * WorldEdits.follow(可选,没有 = 全世界的大事):导播的镜头跟着一个国家或一个人 —— `{ kind: 'polity' | 'person', key }`,
+ * key 是那个国家 / 人物的稳定键(polityKey / personKey),往前推、重推以后按键找回(人物编号会变)。
+ * 跟一个人时,他去世 / 下台以后导播接着跟下一位(君主跟继任的,将领、名臣回到他的国家;见 ui/followInfo.ts),这里记的还是最初选的那个人。
+ * 只管导播讲谁、镜头去哪,不参与推演(不进配方指纹)、不记撤销步;推演模式、逐年推演都用它,存回推演模式也带着。
+ * 读进来的先过 cleanFollow:种类不对、键不是对应种类的稳定键(`polity:`、`person:` 开头,不超过 FOLLOW_KEY_MAX 个字)= 不要这一项。
  *
  * ## 月份
  *
@@ -559,6 +571,14 @@ export interface WorldEdits {
   branches?: PlayBranches;
   /** 推进设置(见文件头"推进设置");没有 = 全照默认 */
   advance?: AdvanceSettings;
+  /** 导播跟着谁(见文件头"导播跟着谁");没有 = 全世界的大事 */
+  follow?: FollowRef;
+}
+
+/** 导播跟着的国家 / 人物(按稳定键记;见文件头"导播跟着谁") */
+export interface FollowRef {
+  kind: 'polity' | 'person';
+  key: string;
 }
 
 /** 逐年推演另开的几支(见文件头"支线"):当前这一支的编号、名字,不在用的几支 */
@@ -567,6 +587,10 @@ export interface PlayBranches {
   id: number;
   /** 当前这一支的名字;没有 = 没起名 */
   name?: string;
+  /** 当前这一支从哪一支分出来的编号;没有 = 没记 */
+  forkOf?: number;
+  /** 当前这一支第几年分出来的;没有 = 最早的那一支 */
+  forkAt?: number;
   /** 不在用的几支 */
   list: PlayBranch[];
 }
@@ -587,6 +611,10 @@ export interface PlayBranch {
   playFrom?: number;
   /** 切走时的最后一件大事(列表里显示);没有 = 没记 */
   last?: string;
+  /** 从哪一支分出来的编号;没有 = 没记 */
+  forkOf?: number;
+  /** 第几年分出来的;没有 = 最早的那一支 */
+  forkAt?: number;
 }
 
 /** 推进设置(存进修改的样子:默认的项不写;字段见文件头"推进设置") */
@@ -1575,7 +1603,15 @@ function cleanBranch(x: unknown, cur: PlayState): PlayBranch | null {
     commands,
     ...(pf > 0 ? { playFrom: pf } : {}),
     ...(last ? { last } : {}),
+    ...cleanFork(o, year),
   };
+}
+
+/** 从哪一支、第几年分出(见文件头"支线"):forkAt 是 [0, year] 里的整数才要;forkOf 是合格的编号、又有 forkAt 才要 */
+function cleanFork(o: Record<string, unknown>, year: number): Pick<PlayBranch, 'forkOf' | 'forkAt'> {
+  const at = o.forkAt;
+  if (typeof at !== 'number' || !Number.isInteger(at) || at < 0 || at > year) return {};
+  return { ...(isBranchId(o.forkOf) ? { forkOf: o.forkOf } : {}), forkAt: at };
 }
 
 /** 一支完整的进度(见文件头"支线"):当前这一支(cur)命令串里早于 from 的几条 + 这一支自己的 */
@@ -1585,7 +1621,7 @@ export function branchPlay(cur: PlayState, b: Pick<PlayBranch, 'from' | 'year' |
 
 /**
  * 支线的清理(读档、存档前用;见文件头"支线"):play 不合格 = undefined;编号不合格、重复的换成最大的加一(按先后);
- * 不合格的那一支去掉;list 是空的、当前这一支没起名、编号是 1 = undefined(不写)。全都合格时返回原对象
+ * 不合格的那一支去掉;list 是空的、当前这一支没起名、没记从哪分出、编号是 1 = undefined(不写)。全都合格时返回原对象
  */
 export function cleanBranches(raw: unknown, play: unknown): PlayBranches | undefined {
   const cur = cleanPlay(play);
@@ -1606,8 +1642,9 @@ export function cleanBranches(raw: unknown, play: unknown): PlayBranches | undef
     else if (top < BRANCH_ID_MAX) used.add((b.id = ++top));
     else b.id = 0;
   }
-  const out: PlayBranches = { id, ...(name ? { name } : {}), list: list.filter((b) => b.id) };
-  if (!out.list.length && !name && id === 1) return undefined;
+  const fork = cleanFork(o, cur.year);
+  const out: PlayBranches = { id, ...(name ? { name } : {}), ...fork, list: list.filter((b) => b.id) };
+  if (!out.list.length && !name && fork.forkAt === undefined && id === 1) return undefined;
   return JSON.stringify(out) === JSON.stringify(raw) ? (raw as PlayBranches) : out;
 }
 
@@ -1654,6 +1691,26 @@ export function sameAdvance(a: unknown, b: unknown): boolean {
   const x = advanceOf({ advance: a as AdvanceSettings });
   const y = advanceOf({ advance: b as AdvanceSettings });
   return x.step === y.step && x.every === y.every && x.big === y.big && x.countdown === y.countdown;
+}
+
+/** 导播跟着谁:稳定键最长几个字(人物键 = 国家键 + 身份 + 名字 + 生年,名字再长也够) */
+export const FOLLOW_KEY_MAX = 300;
+
+/** 导播跟着谁清理(读档、存进修改前用;见文件头"导播跟着谁"):不合格 = undefined;合格时返回原对象(多余的字段去掉) */
+export function cleanFollow(raw: unknown): FollowRef | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const o = raw as Record<string, unknown>;
+  const kind = o.kind;
+  const key = o.key;
+  if ((kind !== 'polity' && kind !== 'person') || typeof key !== 'string' || key.length > FOLLOW_KEY_MAX || !key.startsWith(`${kind}:`) || key.length <= kind.length + 1) return undefined;
+  return Object.keys(o).length === 2 ? (raw as FollowRef) : { kind, key };
+}
+
+/** 两份"导播跟着谁"是不是一样(按清理过的比;都没有也算) */
+export function sameFollow(a: unknown, b: unknown): boolean {
+  const x = cleanFollow(a);
+  const y = cleanFollow(b);
+  return x?.kind === y?.kind && x?.key === y?.key;
 }
 
 /** 这条干预牵涉的国家键(a;结盟 / 宣战还有 b;立国没有 —— 新国家的键要推演出来才知道;即位 = 他即位的那国) */

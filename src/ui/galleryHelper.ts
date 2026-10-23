@@ -161,7 +161,7 @@ function planetCover(world: World, raster: Raster): HTMLCanvasElement {
   const o = ctxOf(out);
   const img = o.createImageData(COVER_W, COVER_H);
   const view = { lon: landiestLon(raster, world.width, world.height), lat: GLOBE_DEFAULT_LAT, k: 1 };
-  renderGlobeCpu({ w: COVER_W, h: COVER_H, data: img.data }, view, globeFrame(view, COVER_W, COVER_H), { style: 'realistic', graticule: 0, hl: 0, replay: 0 }, { terrain: { w: src.width, h: src.height, data: src.data } });
+  renderGlobeCpu({ w: COVER_W, h: COVER_H, data: img.data }, view, globeFrame(view, COVER_W, COVER_H), 1, { style: 'realistic', graticule: 0, hl: 0, replay: 0 }, { terrain: { w: src.width, h: src.height, data: src.data } });
   o.putImageData(img, 0, 0);
   return out;
 }

@@ -6,7 +6,8 @@
  *   laterInterventions 列出这几条,drop 给出不带的(只是那几条不发生;去掉的那条后面的干预在列表里往前挪一位,
  *   史事 intervene 的 war 列跟着变,别的不变)。T 年以前的干预是已经发生的历史,不能去掉。
  * - 带着的干预到了那一年生没生效、没生效为什么(interventionFate):对象到时候已经不在了的不生效,说明原因。
- * - 从这一年重新演绎(rewindStepwise):逐年推演中倒回以前的某一年,那一年和以后下过的干预不要了,从那里接着走。
+ * - 从这一年重新演绎(rewindStepwise):逐年推演中倒回以前的某一年,那一年和以后下过的干预不要了,从那里接着走;
+ *   界面用的是 rewindBranch:原来那条留成一支(另开一支、切过去),不丢。
  * - 存回推演模式(stepwiseToNormal):"种子 + 到现在为止的干预串"变成一个普通世界的修改 —— 干预 = 作者的干预后面接上一路下过的命令
  *   (先后不变),推演年数 = 现在那一年。打开它(从第 0 年推到那一年)和逐年推演到"现在"一样
  *   (多出来的只是"现在"那一年第一刻的事:逐年推演停在那一刻之前),之后能照普通世界接着再推 N 年(worker 的 extend)。
@@ -106,7 +107,9 @@ export function rewindStepwise(edits: WorldEdits, year: number): { edits: WorldE
   const { play: _play, playFrom: _from, branches, ...rest } = edits;
   const bs = cleanBranches(branches, play);
   const next: WorldEdits = { ...rest, play: { year: T, commands: keep }, ...(start > 0 ? { playFrom: start } : {}) };
-  return { edits: bs ? withBranches(next, { ...bs, list: rebase(bs.list, play, T) }) : next, dropped };
+  // 倒回到这一支分出来以前:改记成从这一年分出(这一年以前和分出它的那一支一样)
+  const fork = bs && bs.forkAt !== undefined && bs.forkAt > T ? { forkAt: T } : {};
+  return { edits: bs ? withBranches(next, { ...bs, ...fork, list: rebase(bs.list, play, T) }) : next, dropped };
 }
 
 /**
@@ -139,10 +142,15 @@ function rebase(list: readonly PlayBranch[], cur: PlayState, F: number): PlayBra
   return list.map((b) => (b.from <= F ? b : { ...b, from: F, commands: branchPlay(cur, b).commands.filter((v) => v.from >= F) }));
 }
 
-/** 放回修改里(edits 不改):list 是空的、当前这一支没起名、编号是 1 = 去掉这一项 */
+/** 放回修改里(edits 不改):list 是空的、当前这一支没起名、没记从哪分出、编号是 1 = 去掉这一项 */
 function withBranches(edits: WorldEdits, bs: PlayBranches): WorldEdits {
   const { branches: _old, ...rest } = edits;
-  return !bs.list.length && !bs.name && bs.id === 1 ? rest : { ...rest, branches: bs };
+  return !bs.list.length && !bs.name && bs.forkAt === undefined && bs.id === 1 ? rest : { ...rest, branches: bs };
+}
+
+/** 一支从哪一支、第几年分出(没记的不写) */
+function forkOf(b: Pick<PlayBranch, 'forkOf' | 'forkAt'>): Pick<PlayBranch, 'forkOf' | 'forkAt'> {
+  return { ...(b.forkOf !== undefined ? { forkOf: b.forkOf } : {}), ...(b.forkAt !== undefined ? { forkAt: b.forkAt } : {}) };
 }
 
 /** 当前这一支的进度和清理过的支线(没另开过 = 只有当前这一支,编号 1);没在逐年推演 = null */
@@ -170,6 +178,10 @@ export interface BranchInfo {
   play: PlayState;
   /** 切走时记下的最后一件大事(当前这一支没有:由界面按现在的历史写) */
   last?: string;
+  /** 从哪一支分出来的编号(那一支可能已经删掉了);没有 = 没记 */
+  forkOf?: number;
+  /** 第几年分出来的;没有 = 最早的那一支 */
+  forkAt?: number;
 }
 
 /** 所有的支(连当前这一支),按编号排(= 另开的先后)。没在逐年推演 = [] */
@@ -178,7 +190,7 @@ export function branchList(edits: WorldEdits): BranchInfo[] {
   if (!r) return [];
   const { cur, bs } = r;
   const out: BranchInfo[] = [
-    { id: bs.id, ...(bs.name ? { name: bs.name } : {}), current: true, year: cur.year, playFrom: playFromOf(edits), play: cur },
+    { id: bs.id, ...(bs.name ? { name: bs.name } : {}), current: true, year: cur.year, playFrom: playFromOf(edits), play: cur, ...forkOf(bs) },
     ...bs.list.map((b) => ({
       id: b.id,
       ...(b.name ? { name: b.name } : {}),
@@ -188,6 +200,7 @@ export function branchList(edits: WorldEdits): BranchInfo[] {
       playFrom: b.playFrom ?? 0,
       play: branchPlay(cur, b),
       ...(b.last ? { last: b.last } : {}),
+      ...forkOf(b),
     })),
   ];
   return out.sort((a, b) => a.id - b.id);
@@ -195,7 +208,8 @@ export function branchList(edits: WorldEdits): BranchInfo[] {
 
 /**
  * 从第 year 年另开一支(edits 不改):只记一笔 —— 新的一支停在第 T 年年初,T 年以前和当前这一支一样,还没下命令;
- * 不切过去,不用重推。T = year 取整到那一年,夹到 [0, 现在];从第几年起演绎 = 当前这一支的和 T 里早的那个(同 rewindStepwise)。
+ * 不切过去,不用重推。T = year 取整到那一年,夹到 [0, 现在];从第几年起演绎 = 当前这一支的和 T 里早的那个(同 rewindStepwise);
+ * 记下它是第 T 年从当前这一支分出的(列表里显示)。
  * 返回新的修改和新的一支的编号(最大的加一);没在逐年推演、编号用完了 = null。要从那一年接着演绎,再 switchBranch 过去
  */
 export function forkBranch(edits: WorldEdits, year: number, name?: string): { edits: WorldEdits; id: number } | null {
@@ -207,8 +221,21 @@ export function forkBranch(edits: WorldEdits, year: number, name?: string): { ed
   if (id > BRANCH_ID_MAX) return null;
   const nm = cleanBranchName(name);
   const start = Math.min(playFromOf(edits), T);
-  const b: PlayBranch = { id, ...(nm ? { name: nm } : {}), from: T, year: T, commands: [], ...(start > 0 ? { playFrom: start } : {}) };
+  const b: PlayBranch = { id, ...(nm ? { name: nm } : {}), from: T, year: T, commands: [], ...(start > 0 ? { playFrom: start } : {}), forkOf: bs.id, forkAt: T };
   return { edits: withBranches(edits, { ...bs, list: [...bs.list, b] }), id };
+}
+
+/**
+ * 从第 year 年重新演绎、原来那条留成一支(edits 不改):从那一年另开一支(名字 name)、切过去,原来那条记下 last 留在列表里。
+ * 进度、从第几年起和 rewindStepwise 一样;原来那条完整的进度原样留着,切回去和没倒回过一样。
+ * 返回新的修改、新的一支和原来那条的编号;没在逐年推演、编号用完了 = null
+ */
+export function rewindBranch(edits: WorldEdits, year: number, name?: string, last?: string): { edits: WorldEdits; id: number; kept: number } | null {
+  const r = branchesOf(edits);
+  const f = r && forkBranch(edits, year, name);
+  if (!r || !f) return null;
+  const e = switchBranch(f.edits, f.id, last);
+  return e ? { edits: e, id: f.id, kept: r.bs.id } : null;
 }
 
 /**
@@ -234,11 +261,12 @@ export function switchBranch(edits: WorldEdits, id: number, last?: string): Worl
     commands: cur.commands.filter((v) => v.from >= F),
     ...(from > 0 ? { playFrom: from } : {}),
     ...(note ? { last: note } : {}),
+    ...forkOf(bs),
   };
   const list = [...rebase(bs.list.filter((x) => x !== b), cur, F), old].sort((x, y) => x.id - y.id);
   const { play: _play, playFrom: _from, ...rest } = edits;
   const next: WorldEdits = { ...rest, play: branchPlay(cur, b), ...(b.playFrom ? { playFrom: b.playFrom } : {}) };
-  return withBranches(next, { id: b.id, ...(b.name ? { name: b.name } : {}), list });
+  return withBranches(next, { id: b.id, ...(b.name ? { name: b.name } : {}), ...forkOf(b), list });
 }
 
 /** 给编号 id 的那一支(当前这一支也行)改名(edits 不改):名字清理过,空 = 去掉名字。没有这一支、没在逐年推演 = null */
@@ -247,7 +275,7 @@ export function renameBranch(edits: WorldEdits, id: number, name: string): World
   if (!r) return null;
   const { bs } = r;
   const nm = cleanBranchName(name);
-  if (id === bs.id) return withBranches(edits, { id, ...(nm ? { name: nm } : {}), list: bs.list });
+  if (id === bs.id) return withBranches(edits, { id, ...(nm ? { name: nm } : {}), ...forkOf(bs), list: bs.list });
   const i = bs.list.findIndex((x) => x.id === id);
   if (i < 0) return null;
   const { id: _id, name: _name, ...o } = bs.list[i];

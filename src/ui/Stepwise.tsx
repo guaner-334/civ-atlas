@@ -22,6 +22,7 @@ import { fullChronicle } from '../gen/civ/religionText';
 import { advanceOf, type Advance, type Intervention } from '../gen/edits';
 import { eraText, yearAt, yearFull, yearShort, type Era } from '../gen/era';
 import { directorPlan, type DirectorPlan, type DirectorShot } from './directorPlan';
+import { directorFocusOf } from './followInfo';
 import {
   directorBegin,
   directorDone,
@@ -333,6 +334,8 @@ export function StepwiseEngine({ world, civ }: { world: World; civ: Civ | null }
   const advRef = useRef(adv);
   advRef.current = adv;
   const d = useDirector();
+  // 镜头跟着谁(按稳定键;每一步历史换了,人物编号会变,排期时在那一份历史里找回)
+  const follow = edits.follow ?? null;
   const { playing, speed } = usePlayState();
   const era = useEra();
   const panel = usePanel();
@@ -387,14 +390,14 @@ export function StepwiseEngine({ world, civ }: { world: World; civ: Civ | null }
     const dirOn = d.on;
     const fixed = d.pace === 'fixed' || !dirOn;
     const want = fixed ? STEP_RATE[speed] : STEP_RATE[4];
-    const focus = d.focus !== null ? { kind: 'polity' as const, id: d.focus, others: 'none' as const } : null;
-    const key = `${gen}|${d.pace}|${speed}|${d.hold}|${d.focus ?? ''}`;
+    const key = `${gen}|${d.pace}|${speed}|${d.hold}|${follow ? `${follow.kind}:${follow.key}` : ''}`;
     const rate = () => stepRate(want, computed.current);
     /** 从 from 年排到算好的最后一年 */
     const make = (from: number): DirectorPlan => {
       const c = civRef.current!;
       const to = Math.max(from, getStepwise().now);
       const r = rate();
+      const focus = directorFocusOf(c, follow);
       return directorPlan(world, c, { from, to, entries: fullChronicle(c), focus, pace: fixed ? { mode: 'fixed', rate: r, hold: d.hold } : { mode: 'auto', rate: r, hold: d.hold }, era: era ?? null });
     };
     /** 从哪年接着走:时间轴停的那年(往回看以后点播放:从那一年重放到"现在",再接着往下走) */
@@ -495,7 +498,7 @@ export function StepwiseEngine({ world, civ }: { world: World; civ: Civ | null }
       if (getCivTime().year === shown && shown !== pos && !getStepwise().stop) setCivTime({ year: pos });
       if (dirOn) directorStopped();
     };
-  }, [st.on, playing, stopped, world, gen, era, d.on, d.pace, d.hold, d.focus, speed]);
+  }, [st.on, playing, stopped, world, gen, era, d.on, d.pace, d.hold, follow, speed]);
 
   // 停一下:镜头先拉远看全部,再一件件飞过去(导播关着不自己飞,点一件才飞);用的人动了地图就不再自己飞
   useEffect(() => {
