@@ -25,6 +25,7 @@ import { rasterize, type Raster } from '../gen/raster';
 import type { Civ } from '../gen/civ/types';
 import { chronicleDocument } from '../gen/civ/chronicle';
 import { fullChronicle } from '../gen/civ/religionText';
+import { chronicleInSlices } from './chronicleHandoff';
 import { AZGAAR_SEA_GRAY, heightmapNote, type HeightmapBits } from '../gen/heightmap';
 import { isGradientLegend } from '../render/dataLegend';
 import { LAYERS, type LayerId } from '../render/layers';
@@ -471,6 +472,8 @@ export function ExportMenu({ data, civ: shown, plain, style, layer, look = 'clas
         });
       } else if (job === 'md' || job === 'txt') {
         if (!civ) throw new Error('文明还没推演完');
+        // 换回原名的那份历史还没算过编年史:在主线程上分小块算好(长历史一口气算要好几百毫秒,界面那么久不动)
+        await chronicleInSlices(civ);
         const name = `${base}-编年史.${job === 'md' ? 'md' : 'txt'}`;
         const text = chronicleDocument(civ, { format: job, seed: seedN, params, entries: fullChronicle(civ), era, months: monthsOf(getEdits().months) });
         const blob = new Blob([text], { type: job === 'md' ? 'text/markdown;charset=utf-8' : 'text/plain;charset=utf-8' });

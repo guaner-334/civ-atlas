@@ -990,16 +990,84 @@ function warReason(civ: Civ, e: Annal, id: number): string {
 }
 
 /**
- * 收复故土的战争想夺回哪几州:开战前(第 id 条史事之前)最近一次易手是"守方从攻方手里拿去"的州
- * (攻占、议和割让都记成 conquer),开战那一年还在守方手里(后来分裂、被并、划走的不算),按人口上限从大到小
+ * 史事数组的索引:"第 id 条史事之前"的几种查询(收复故土想夺回哪几州、某国此刻在和谁交战)不用每次从头翻一遍史事。
+ * 从头翻的话,历史越长、要查的战争越多,两样一乘,几万年的历史要算好几秒。
+ * 按史事数组记(套改名、沿用州出来的新对象共用同一个数组);数组长度变了就重建
  */
-function claimsOf(civ: Civ, atk: number, def: number, id: number, year: Year): number[] {
-  const last = new Map<number, Annal>();
+interface AnnalIndex {
+  n: number;
+  /** 有州的攻占(conquer):史事的 a(拿去的一方)→ b(丢掉的一方)→ 下标(从小到大) */
+  conquer: Map<number, Map<number, number[]>>;
+  /** 有州的攻占:下标 → 同一州下一次攻占的下标(没有 = Infinity) */
+  nextConquer: Map<number, number>;
+  /** 每国(含 −1)相关的开战、议和,按下标从小到大:[下标, 战争编号, 对手(议和 = NaN)] 三个一组 */
+  wars: Map<number, number[]>;
+}
+
+const annalIndexCache = new WeakMap<readonly Annal[], AnnalIndex>();
+
+function annalIndex(A: readonly Annal[]): AnnalIndex {
+  const hit = annalIndexCache.get(A);
+  if (hit && hit.n === A.length) return hit;
+  const conquer = new Map<number, Map<number, number[]>>();
+  const nextConquer = new Map<number, number>();
+  const lastAt = new Map<number, number>();
+  const wars = new Map<number, number[]>();
+  /** 战争编号 → 打过这场仗的国(到这一条为止) */
+  const sides = new Map<number, number[]>();
+  const push = (p: number, i: number, war: number, foe: number) => {
+    let l = wars.get(p);
+    if (!l) wars.set(p, (l = []));
+    l.push(i, war, foe);
+  };
+  for (let i = 0; i < A.length; i++) {
+    const e = A[i];
+    if (e.kind === 'conquer' && e.region >= 0) {
+      let byB = conquer.get(e.a);
+      if (!byB) conquer.set(e.a, (byB = new Map()));
+      let l = byB.get(e.b);
+      if (!l) byB.set(e.b, (l = []));
+      l.push(i);
+      const prev = lastAt.get(e.region);
+      if (prev !== undefined) nextConquer.set(prev, i);
+      nextConquer.set(i, Infinity);
+      lastAt.set(e.region, i);
+    } else if (e.kind === 'war') {
+      push(e.a, i, e.war, e.b);
+      if (e.b !== e.a) push(e.b, i, e.war, e.a);
+      let s = sides.get(e.war);
+      if (!s) sides.set(e.war, (s = []));
+      if (!s.includes(e.a)) s.push(e.a);
+      if (!s.includes(e.b)) s.push(e.b);
+    } else if (e.kind === 'peace') {
+      for (const p of sides.get(e.war) ?? []) push(p, i, e.war, NaN);
+    }
+  }
+  const ix = { n: A.length, conquer, nextConquer, wars };
+  annalIndexCache.set(A, ix);
+  return ix;
+}
+
+/**
+ * 收复故土的战争想夺回哪几州:开战前(第 id 条史事之前)最近一次易手是"守方从攻方手里拿去"的州
+ * (攻占、议和割让都记成 conquer),开战那一年还在守方手里(后来分裂、被并、划走的不算),按人口上限从大到小。导出给测试核对索引
+ */
+export function claimsOf(civ: Civ, atk: number, def: number, id: number, year: Year): number[] {
   const A = civ.annals;
-  for (let i = 0; i < id && i < A.length; i++) if (A[i].kind === 'conquer' && A[i].region >= 0) last.set(A[i].region, A[i]);
-  const own = ownersAt(civ, year).polity;
+  const ix = annalIndex(A);
+  const end = Math.min(id, A.length);
   const out: number[] = [];
-  for (const [r, e] of last) if (e.a === def && e.b === atk && own[r] === def) out.push(r);
+  // 守方从攻方手里拿去的那几次里,是那一州在开战前最后一次易手的
+  const list = ix.conquer.get(def)?.get(atk);
+  if (list) {
+    let own: Int16Array | null = null;
+    for (const i of list) {
+      if (i >= end) break;
+      if (ix.nextConquer.get(i)! < end) continue;
+      own ??= ownersAt(civ, year).polity;
+      if (own[A[i].region] === def) out.push(A[i].region);
+    }
+  }
   const cap = civ.regions.capacity;
   return out.sort((a, b) => cap[b] - cap[a] || a - b);
 }
@@ -1219,17 +1287,25 @@ function minTier(civ: Civ, a: number, b: number, y: Year): number {
   return A && B ? Math.min(polityTierAt(A, y), polityTierAt(B, y)) : -1;
 }
 
+/**
+ * 第 id 条史事之前,p 打过的仗里还没议和的那几场的对手,按开战先后(同一场仗又记了一次开战的,对手换成后来那个、次序不变)。
+ * 只翻这国相关的开战、议和(annalIndex)。导出给测试核对索引
+ */
+export function openFoes(civ: Civ, p: number, id: number): number[] {
+  const open = new Map<number, number>();
+  const list = annalIndex(civ.annals).wars.get(p) ?? [];
+  for (let k = 0; k < list.length && list[k] < id; k += 3) {
+    if (Number.isNaN(list[k + 2])) open.delete(list[k + 1]);
+    else open.set(list[k + 1], list[k + 2]);
+  }
+  return [...open.values()];
+}
+
 /** 某国此刻(第 id 条史事之前)的乱象:"与索拉特交兵" / "易代之乱" / "新失国都";没有 = 空串 */
 function troubleOf(civ: Civ, p: number, id: number, except = -1): string {
   const A = civ.annals;
   const y = id < A.length ? A[id].year : civ.endYear;
-  const open = new Map<number, number>();
-  for (let i = 0; i < id && i < A.length; i++) {
-    const e = A[i];
-    if (e.kind === 'war' && (e.a === p || e.b === p)) open.set(e.war, e.a === p ? e.b : e.a);
-    else if (e.kind === 'peace') open.delete(e.war);
-  }
-  const foes = [...open.values()].filter((q) => q !== except);
+  const foes = openFoes(civ, p, id).filter((q) => q !== except);
   if (foes.length) return `与${pn(civ, foes[foes.length - 1], y)}交兵`;
   const P = polityOf(civ, p);
   const d = P?.dynasties;
@@ -2135,16 +2211,18 @@ function firstMention(text: string, mine: string[], others: string[]): { at: num
  * 只看"大事"也读得懂:按先后翻大事,每个国家第一次出现、它的来历(立国 / 分裂 / 复国)不在大事里的,名字后面带一句来历:
  * "艾莱斯国(第 1850 年立国)"、"塔提特汗国(第 2082 年叛哈尔提亚王国自立)"、"新塔提特汗国(第 2455 年脱哈尔提亚帝国复国)";
  * 改朝换代换了国号(东方小一些的国家改朝换代不是大事)、新国号在大事里第一次出现的:"伊罗汗国(原居兰汗国)"。
- * 只改大事的正文(全部里也是这一条,多一句来历不碍事)
+ * 只改大事的正文(全部里也是这一条,多一句来历不碍事)。分成小步(同 chronicleSteps)
  */
-function introduce(civ: Civ, list: ChronicleEntry[], told: ReadonlyMap<ChronicleEntry, number>): void {
+function* introduce(civ: Civ, list: ChronicleEntry[], told: ReadonlyMap<ChronicleEntry, number>): Generator<void, void> {
   const A = civ.annals;
   // 每个国家的来历(立国 / 分裂 / 复国那条史事)
   const origin = new Map<number, Annal>();
   for (const e of A) if ((e.kind === 'found' || e.kind === 'split' || e.kind === 'revolt') && e.a >= 0 && !origin.has(e.a)) origin.set(e.a, e);
   /** 国家 → 大事里最近一次出现时的国号词根 */
   const shown = new Map<number, string>();
+  let n = 0;
   for (const e of list) {
+    if (++n % 512 === 0) yield;
     if (e.importance < MAJOR) continue;
     const y = e.year;
     const pids = e.polities.filter((id) => polityOf(civ, id));
@@ -2209,8 +2287,29 @@ export function primeChronicle(civ: Civ, entries: ChronicleEntry[]) {
   if (!cache.has(civ)) cache.set(civ, entries);
 }
 
+/** 这份 civ 的编年史已经算过(或别处替它算好了) */
+export function chronicleCached(civ: Civ): boolean {
+  return cache.has(civ);
+}
+
+/** 一步一步走完(同步) */
+export function runSteps<T>(g: Generator<void, T>): T {
+  for (;;) {
+    const r = g.next();
+    if (r.done) return r.value;
+  }
+}
+
 /** civ.annals → 编年史条目(按年份排好;同一年按发生先后)。按 civ 缓存 */
 export function buildChronicle(civ: Civ): ChronicleEntry[] {
+  return cache.get(civ) ?? runSteps(chronicleSteps(civ));
+}
+
+/**
+ * 同 buildChronicle,分成许多小步(每一步不到一毫秒):界面可以一块一块地算,块与块之间让出主线程(src/ui/chronicleHandoff.ts)。
+ * 走完和 buildChronicle 的结果逐条一样,记进同一个缓存;走的中途别处已经算好了的,用先算好的那份
+ */
+export function* chronicleSteps(civ: Civ): Generator<void, ChronicleEntry[]> {
   const hit = cache.get(civ);
   if (hit) return hit;
   const A = civ.annals ?? [];
@@ -2218,7 +2317,10 @@ export function buildChronicle(civ: Civ): ChronicleEntry[] {
   for (const e of A) if (e.kind === 'split' && e.a >= 0 && e.b >= 0) splitFrom.set(e.a, e.b);
   const quell = new Map<number, number>();
   for (const e of A) if (e.kind === 'war' && e.cause === 'quell') quell.set(e.war, e.b);
-  const ctx: Ctx = { civ, titleUsed: new Map(), retake: retakes(A), splitFrom, flight: new Map(), ix: peopleOf(civ), quell };
+  const retake = retakes(A);
+  yield;
+  const ctx: Ctx = { civ, titleUsed: new Map(), retake, splitFrom, flight: new Map(), ix: peopleOf(civ), quell };
+  yield;
   const out: ChronicleEntry[] = [];
   const wars = new Map<number, number[]>();
   const plagues = new Map<number, number[]>();
@@ -2233,7 +2335,11 @@ export function buildChronicle(civ: Civ): ChronicleEntry[] {
     if (e.kind === 'split' && e.a >= 0) splitOf.add(e.a);
     if (e.kind === 'merge' && e.b >= 0) mergedAt.add(`${e.b}|${e.year}`);
   }
+  yield;
+  /** 走了几条:每走一段停一步 */
+  let n = 0;
   for (let i = 0; i < A.length; i++) {
+    if (++n % 128 === 0) yield;
     const e = A[i];
     // 地形大事:那一刻的后果(城没了、迁都、亡于天灾)并进大事那一条
     if (e.kind === 'upheaval') {
@@ -2305,14 +2411,32 @@ export function buildChronicle(civ: Civ): ChronicleEntry[] {
     }
     out.push(simpleEntry(ctx, e, i));
   }
-  for (const ids of wars.values()) out.push(A[ids[0]].kind === 'revolt' ? revoltEntry(ctx, ids) : warEntry(ctx, ids));
-  for (const ids of plagues.values()) out.push(plagueEntry(ctx, ids));
+  for (const ids of wars.values()) {
+    if (++n % 8 === 0) yield;
+    out.push(A[ids[0]].kind === 'revolt' ? revoltEntry(ctx, ids) : warEntry(ctx, ids));
+  }
+  for (const ids of plagues.values()) {
+    if (++n % 32 === 0) yield;
+    out.push(plagueEntry(ctx, ids));
+  }
+  yield;
   tribalEntries(ctx, tribal, out);
+  yield;
   const dirUsed = new Map<number, number>();
-  for (const ids of waves.values()) out.push(migrationEntry(ctx, ids, dirUsed));
+  for (const ids of waves.values()) {
+    if (++n % 32 === 0) yield;
+    out.push(migrationEntry(ctx, ids, dirUsed));
+  }
+  yield;
   assimEntries(ctx, assim, out);
+  yield;
   out.sort((a, b) => a.year - b.year || a.id - b.id);
-  introduce(civ, out, combine(ctx, out));
+  yield;
+  const told = combine(ctx, out);
+  yield;
+  yield* introduce(civ, out, told);
+  const again = cache.get(civ);
+  if (again) return again;
   cache.set(civ, out);
   return out;
 }

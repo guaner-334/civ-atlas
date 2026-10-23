@@ -149,6 +149,11 @@ export type WorkerRequest =
    * (主线程直接发,不算一件活)
    */
   | { type: 'release'; id: number }
+  /**
+   * 用户改了名(gen/edits.ts 的 WorldEdits.names;id = 这个世界的请求编号):不排队,收到就记下。之后交历史之前先交的编年史
+   * 按它算(同一个世界的;比发请求时带的 renames 新),推的时候改了名,换上时就不用再算一遍。没有回音(主线程直接发,不算一件活)
+   */
+  | { type: 'renames'; id: number; names: Record<string, string> }
   /** 地形大事的预览:upheavals = 已经有的大事,在 year 那一年再加上 ops 会怎么样;pid = 第几次预览(主线程只认最新的) */
   | { type: 'upPreview'; id: number; pid: number; params: WorldParams; terrain?: TerrainOp[]; sketch?: SketchEdit; upheavals?: Upheaval[]; civSeed?: number; year: number; ops: TerrainOp[] };
 
@@ -248,22 +253,32 @@ const post = (m: WorkerResponse, transfer: Transferable[] = []) => self.postMess
 
 /** 交出去的编年史编号到几了 */
 let chronSeq = 0;
+/** 主线程最近一次告诉的改名(renames 消息) */
+let renamesNow: { id: number; names: Record<string, string> } | null = null;
 /**
  * 这份历史(交历史之前,数组还没 transfer 走)套上改名的编年史:分块先交给主线程(src/chronicleParts.ts),返回编号(交历史时带上)。
- * 长历史的编年史要算好几秒,在这里算,主线程换上时不用再整段算
+ * 长历史的编年史要算好一会儿,在这里算,主线程换上时不用再整段算。改名用主线程最近告诉的(同一个世界的),没有就用请求带的
  */
-function postChronicle(id: number, civ: Civ, renames: Record<string, string> | undefined): number {
+function chronicleNow(id: number, civ: Civ, renames: Record<string, string> | undefined): number {
   const key = ++chronSeq;
-  for (const p of chronicleParts(civ, renames ?? {}, key)) post({ type: 'chronicle', id, ...p }, [p.build.buffer as ArrayBuffer]);
+  const names = renamesNow?.id === id ? renamesNow.names : (renames ?? {});
+  for (const p of chronicleParts(civ, names, key)) post({ type: 'chronicle', id, ...p }, [p.build.buffer as ArrayBuffer]);
   return key;
 }
+/** 让一下:这期间到了的消息排进来(推的时候改了名的,记下最新的改名) */
+const tick = () => new Promise((r) => setTimeout(r, 0));
+/** 同 chronicleNow,先让一下 */
+async function postChronicle(id: number, civ: Civ, renames: Record<string, string> | undefined): Promise<number> {
+  await tick();
+  return chronicleNow(id, civ, renames);
+}
 /**
- * 同 postChronicle,先让一下(这期间到了的消息排进来):已经排着会换掉这份历史的请求(superseded)时,主线程不会换上它,
+ * 同 postChronicle:让一下以后,已经排着会换掉这份历史的请求(superseded)时,主线程不会换上它,
  * 编年史就不算了(返回 undefined),好早点去推新的那一次
  */
 async function postChronicleUnlessSuperseded(id: number, civ: Civ, renames: Record<string, string> | undefined, superseded: () => boolean): Promise<number | undefined> {
-  await new Promise((r) => setTimeout(r, 0));
-  return superseded() ? undefined : postChronicle(id, civ, renames);
+  await tick();
+  return superseded() ? undefined : chronicleNow(id, civ, renames);
 }
 
 /**
@@ -598,14 +613,18 @@ function queueSnapshot(id: number, m: CivInput & { interventions?: Intervention[
 // 帮手线程(gullyPool.ts):整张主图的沟和山脊分给它们算,本线程同时推文明。开线程时就起好
 const pool = new GullyPool();
 
+/** 排队处理的消息(改名不排队,见 onmessage) */
+type Queued = Exclude<WorkerRequest, { type: 'renames' }>;
 /**
  * 消息按先后一件件处理(生成要等帮手线程,等的时候后面来的消息排着,不插进来);
  * 后台的活(各段主图)排在所有消息后面,每做完一件先看有没有新消息
  */
-const fg: WorkerRequest[] = [];
+const fg: Queued[] = [];
 const bg: (() => Promise<void>)[] = [];
 let running = false;
 self.onmessage = (e: MessageEvent<WorkerRequest>) => {
+  // 改名不排队:在推的那一次推完要按它算编年史
+  if (e.data.type === 'renames') return void (renamesNow = { id: e.data.id, names: e.data.names });
   fg.push(e.data);
   void pump();
 };
@@ -642,7 +661,7 @@ async function pump() {
 const TURN_SNAPSHOT_IDLE = 2500;
 let turnSnap: ReturnType<typeof setTimeout> | undefined;
 
-async function handle(m: WorkerRequest): Promise<void> {
+async function handle(m: Queued): Promise<void> {
   // 有了新的活:逐年推演上一步等着打的原件不要了(新的一步、换了世界、重推会各自再排)
   if (m.type !== 'history' && m.type !== 'upPreview' && m.type !== 'extendStop' && m.type !== 'trial' && m.type !== 'release') clearTimeout(turnSnap);
   if (m.type !== 'history' && m.type !== 'upPreview' && m.type !== 'extendStop' && m.type !== 'release') takeTempo(m.params, m.sketch, m.tempo);
@@ -733,7 +752,7 @@ async function handle(m: WorkerRequest): Promise<void> {
     const cloned = civ && cloneCiv(civ);
     keepCiv(m, m.play, cloned);
     const ms = performance.now() - t0;
-    const chron = civ ? postChronicle(m.id, civ, m.renames) : undefined;
+    const chron = civ ? await postChronicle(m.id, civ, m.renames) : undefined;
     post({ type: 'done', id: m.id, world: { ...rest, history: [] }, ...map, civ, ...(chron !== undefined ? { chron } : {}), ms, genMs, rasterMs, ...(civMs !== undefined ? { civMs } : {}), ...(reused ? { reused: true as const } : {}), tempo: noteOf(m.params, m.sketch), eras: eraWorlds(steps), baseKey }, transfer);
     queuePatches(m.id, m, steps);
     queueSnapshot(m.id, m, world, steps, cloned);
@@ -748,7 +767,7 @@ async function handle(m: WorkerRequest): Promise<void> {
     const cloned = cloneCiv(civ);
     keepCiv(m, m.play, cloned);
     const ms = performance.now() - t0;
-    const chron = postChronicle(m.id, civ, m.renames);
+    const chron = await postChronicle(m.id, civ, m.renames);
     post({ type: 'civOnly', id: m.id, nid: m.nid, civ, chron, ms, civMs, tempo: noteOf(m.params, m.sketch), eras: eraWorlds(steps), baseKey: keyOf(m.params, m.terrain, m.sketch) }, civTransferables(civ));
     queueSnapshot(m.id, m, world, steps, cloned);
   } else if (m.type === 'load') {
@@ -807,7 +826,7 @@ async function handle(m: WorkerRequest): Promise<void> {
     const civPart = m.parts.find((x) => x.name === 'civ');
     held = civPart ? { key: heldKey(m, m.play), part: civPart } : null;
     const ms = performance.now() - t0;
-    const chron = postChronicle(m.id, civ, m.renames);
+    const chron = await postChronicle(m.id, civ, m.renames);
     post({ type: 'done', id: m.id, world: { ...world, history: [] }, raster, civ, chron, ms, genMs, rasterMs, eras: eraWorlds(steps), baseKey }, transfer);
     queuePatches(m.id, m, steps);
   } else if (m.type === 'history') {
@@ -846,7 +865,7 @@ async function handle(m: WorkerRequest): Promise<void> {
     const ms = performance.now() - t0;
     const cloned = cloneCiv(out.civ);
     keepCiv(m, out.play, cloned);
-    const chron = postChronicle(m.id, out.civ, m.renames);
+    const chron = await postChronicle(m.id, out.civ, m.renames);
     post({ type: 'turn', id: m.id, civ: out.civ, chron, play: out.play, rejected: out.rejected, ms, tempo: noteOf(m.params, m.sketch), eras: eraWorlds(steps), baseKey: keyOf(m.params, m.terrain, m.sketch) }, civTransferables(out.civ));
     queuePatches(m.id, m, steps);
     // 原件很大,打一份要好一会儿:一步接一步往下走的时候不每一步都打(会拖慢下一步),停下来一阵子没有下一步了才打最后这一份
