@@ -39,7 +39,7 @@ import { CharacterPanel } from './CharacterPanel';
 import { useCharUi } from './characterStore';
 import { useUpUi } from './upheavalStore';
 import { UpheavalPanel } from './UpheavalPanel';
-import { setPanelTab, setSheet, setSheetDrag, usePanel } from './panelStore';
+import { openCmdPage, setPanelTab, setSheet, setSheetDrag, takeCmdPage, usePanel } from './panelStore';
 import { ownersOf } from './panelData';
 import { phoneSheet, selectionKey } from './flyTo';
 import { useNarrow } from './device';
@@ -61,8 +61,11 @@ export function useSelectionReset(raw: Civ | null, onReset?: () => void) {
   useLayoutEffect(() => {
     if (lastShown === stable) return;
     lastShown = stable;
-    setPanelTab('info');
-    setSheet('half');
+    // 点了别处的「改方针」这类入口:换了选中的东西以后直接打开那一页
+    const page = takeCmdPage(stable);
+    if (page) openCmdPage(page);
+    else setPanelTab('info');
+    setSheet(page ? 'full' : 'half');
     onReset?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stable]);

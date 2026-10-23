@@ -1,10 +1,11 @@
 /**
  * 逐年推演的几个窗口(状态在 stepwiseStore.ts 的 dialog):
  *
- *   开始之前   推演模式里点「从这里演绎」:每一步多长、多久停一下(出大事也停)、倒计时,每组下面一句写清选了会怎样;
+ *   开始之前   推演模式里点「从这里演绎」:你是(造物主 / 演一国,演一国挑哪国,见 roleStore.ts)、
+ *              每一步多长、多久停一下(出大事也停)、倒计时,每组下面一句写清选了会怎样;
  *              导播一行(「改」原地展开导播设置);推演模式里这一年以后下过的干预,默认都勾着(到那一年照样发生),能逐条去掉。
  *              电脑上是浮在正中的窗口,手机上从底部升起、几乎占满屏(「开始演绎」贴底)
- *   推进设置   中途改(侧栏「这个故事」):同样三组 + 导播,下一步起照新的走
+ *   推进设置   中途改(侧栏「这个故事」):你是 + 同样三组 + 导播,下一步起照新的走
  *   存回推演模式  存成一个普通世界:默认存成新世界、原来的不动,也能覆盖原来的;存好以后打开它(默认开)。
  *              另开过支的,最上面一行写明存的是在用的这一支,另外几支不跟着存
  *   从这里重新演绎  先问一句:世界回到那一年年初,从这里往下另开一支;原来那条(那以后演绎出来的历史、那以后加的干预)
@@ -21,14 +22,24 @@ import { getEdits, setAdvance, useEdits, useEra } from './editsStore';
 import { getPending } from './pendingStore';
 import { interventionText } from './Interventions';
 import { DirectorSettings } from './Director';
-import { setStepDirectorOn, stepDirectorOn, useDirector } from './directorStore';
+import { setDirectorFocus, setStepDirectorOn, stepDirectorOn, useDirector } from './directorStore';
 import { getStepwise, nextYear, openStepDialog, stepwiseActions, useStepwise } from './stepwiseStore';
 import { branchLabel, branchSpan } from './StepBranches';
 import { rewindBrief } from './stepwisePlan';
 import { advanceBrief } from './Stepwise';
 import { currentWorld, stepOrigin, useSavesVersion } from './saveStore';
 import { Icon } from './icons';
+import { polityKey } from '../gen/edits';
+import { alivePolities } from './crownInfo';
+import { nameAt } from './Interventions';
+import { getSelection } from './civView';
+import { FlagIcon } from './Flag';
+import { flagOf, useFlags } from './flagStore';
+import { rolePolity } from './policyInfo';
+import { armRole, setRole, useRole } from './roleStore';
+import { roleOff } from './RoleBar';
 import './stepwise.css';
+import './policy.css';
 
 const stop = (e: { stopPropagation(): void }) => e.stopPropagation();
 
@@ -253,6 +264,128 @@ function DirectorRow({ civ, phone, on, setOn }: { civ: Civ | null; phone: boolea
 }
 
 // ---------------------------------------------------------------------------
+// 你是:造物主 / 演一国
+
+const ROLE_SEG = [
+  { v: 'god', label: '造物主' },
+  { v: 'one', label: '演一国' },
+] as const;
+
+/** 「你是」这一组的选择:mode = 造物主 / 演一国,who = 演哪一国(这份历史里的编号) */
+interface RoleChoice {
+  mode: 'god' | 'one';
+  who: number;
+}
+
+/** 开始演绎 / 推进设置里「你是」一组:身份(造物主 | 演一国)、演哪一国(「换一国 ›」列出那年还在的国家,大的在前) */
+function RoleFields({ civ, year, value, set, phone }: { civ: Civ; year: number; value: RoleChoice; set: (c: RoleChoice) => void; phone: boolean }) {
+  const flags = useFlags();
+  const [list, setList] = useState(false);
+  const alive = useMemo(() => alivePolities(civ, year), [civ, year]);
+  const P = civ.polities[value.who];
+  const name = P ? nameAt(P, year) : '';
+  const flag = P ? flagOf(flags, P.id, year) : null;
+  const seg = (
+    <Seg
+      items={[...ROLE_SEG]}
+      value={value.mode}
+      wide={phone}
+      act="role"
+      onPick={(v) => {
+        set({ ...value, mode: v });
+        if (v === 'god') setList(false);
+      }}
+    />
+  );
+  const whoRow = value.mode === 'one' && (
+    <div className="sw-r" data-role-who={value.who}>
+      <span className="sw-r-main">演哪一国</span>
+      <span className="role-pick">
+        {flag && (
+          <span className="role-flag">
+            <FlagIcon spec={flag.spec} w={24} />
+          </span>
+        )}
+        {name}
+        <button data-act="role-list" aria-expanded={list} onClick={() => setList(!list)}>
+          {list ? '收起' : '换一国 ›'}
+        </button>
+      </span>
+    </div>
+  );
+  const listRows = value.mode === 'one' && list && (
+    <div className="role-list">
+      {alive.map((x) => (
+        <button
+          key={x.id}
+          className="sw-r"
+          data-role-polity={x.id}
+          onClick={() => {
+            set({ ...value, who: x.id });
+            setList(false);
+          }}
+        >
+          <span className="sw-r-main">
+            <i className="cr-dot" style={{ background: `rgb(${civ.polities[x.id].color.join(',')})` }} />
+            {x.name}
+            <small>{x.regions} 州</small>
+          </span>
+          {x.id === value.who && <Icon name="check" size={14} />}
+        </button>
+      ))}
+    </div>
+  );
+  const why = (
+    <div className="sw-why">
+      <b>演一国</b>：只管{name || '你挑的那一国'} —— 它的方针、干预你来定，别国照推演自己走；导播默认跟着它。不记分、不设限，随时能切回造物主。<b>造物主</b>
+      ：照现在这样，哪国都能改。
+    </div>
+  );
+  if (phone)
+    return (
+      <>
+        <div className="sw-sh">
+          你是<em>随时能换</em>
+        </div>
+        <div className="sw-pad">{seg}</div>
+        {whoRow && (
+          <div className="sw-grp white sw-gap">
+            {whoRow}
+            {listRows}
+          </div>
+        )}
+        {why}
+      </>
+    );
+  return (
+    <div className="sw-sec" data-sec="role">
+      <div className="sw-sec-head">
+        你是<em>随时能换</em>
+      </div>
+      <div className="sw-grp">
+        <div className="sw-r">
+          <span className="sw-r-main">身份</span>
+          {seg}
+        </div>
+        {whoRow}
+        {listRows}
+      </div>
+      {why}
+    </div>
+  );
+}
+
+/** 「你是」一开始选什么:推进设置 = 现在演的那国;开始演绎 = 造物主,演哪一国默认选中的国家(没选中 = 那年最大的) */
+function initialRole(civ: Civ, year: number, role: string | null, start: boolean): RoleChoice {
+  const now = rolePolity(civ, role);
+  if (!start && now >= 0) return { mode: 'one', who: now };
+  const sel = getSelection().sel;
+  const alive = alivePolities(civ, year);
+  const picked = sel?.kind === 'polity' && alive.some((x) => x.id === sel.id) ? sel.id : (alive[0]?.id ?? -1);
+  return { mode: 'god', who: picked };
+}
+
+// ---------------------------------------------------------------------------
 // 开始之前 / 推进设置
 
 function useDialogKeys(close: () => void) {
@@ -280,6 +413,11 @@ function AdvanceDialog({ phone, civ, start }: { phone: boolean; civ: Civ; start:
   const era = useEra();
   const [adv, setAdv] = useState<Advance>(() => advanceOf(getEdits()));
   const [dirOn, setDirOn] = useState(stepDirectorOn);
+  // 你是:造物主 / 演一国(开始演绎:看的是开始那年;中途改:看"现在")
+  const role = useRole();
+  const roleYear = start ?? Math.min(civ.endYear, getStepwise().now);
+  const [as, setAs] = useState<RoleChoice>(() => initialRole(civ, roleYear, role, start !== null));
+  const asOk = as.mode === 'one' && !!civ.polities[as.who];
   const later = useMemo(() => (start !== null ? laterInterventions(edits, start) : []), [edits, start]);
   const [drop, setDrop] = useState<ReadonlySet<number>>(new Set());
   const close = () => openStepDialog(null);
@@ -289,6 +427,15 @@ function AdvanceDialog({ phone, civ, start }: { phone: boolean; civ: Civ; start:
     if (start === null) setAdvance(adv);
     setStepDirectorOn(dirOn);
     close();
+    // 演一国:开始演绎时先记下,新世界打开以后再认上去(RoleBar.tsx);中途改的直接换,导播跟着关注它
+    const key = asOk ? polityKey(civ, as.who) : null;
+    if (start !== null) armRole(key);
+    else if (key) {
+      if (key !== role) {
+        setRole(key);
+        setDirectorFocus(as.who);
+      }
+    } else if (role) roleOff(rolePolity(civ, role));
     if (start !== null) stepwiseActions()?.start(start, [...drop], adv);
   };
   const title = start !== null ? `从${yearFull(start, era)}开始演绎` : '推进设置';
@@ -351,6 +498,7 @@ function AdvanceDialog({ phone, civ, start }: { phone: boolean; civ: Civ; start:
           </div>
           <div className="sw-lead">{lead}</div>
           <div className="sw-psheet-body">
+            <RoleFields civ={civ} year={roleYear} value={as} set={setAs} phone />
             <AdvanceFields adv={adv} set={setAdv} phone />
             <div className="sw-sh">导播</div>
             <DirectorRow civ={civ} phone on={dirOn} setOn={setDirOn} />
@@ -371,6 +519,7 @@ function AdvanceDialog({ phone, civ, start }: { phone: boolean; civ: Civ; start:
         <div className="sw-dlg sw-start" role="dialog" aria-label={title} onPointerDown={stop} onClick={stop}>
           <h2>{title}</h2>
           <p className="sw-lead">{lead}</p>
+          <RoleFields civ={civ} year={roleYear} value={as} set={setAs} phone={false} />
           <AdvanceFields adv={adv} set={setAdv} phone={false} />
           <div className="sw-sec">
             <div className="sw-sec-head">导播</div>

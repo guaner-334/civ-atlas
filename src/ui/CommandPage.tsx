@@ -1,5 +1,5 @@
 /**
- * 国家面板的干预页:生效年份(−100 −10 [年份] +10,默认 = 时间轴当前那一年)+ 持续到 + 六条命令。
+ * 国家面板的干预页:生效年份(−100 −10 [年份] +10,默认 = 时间轴当前那一年)+ 持续到 + 方针 + 六条命令。
  *
  *   持续到  一直有效 | 到某一年(−100 −10 [年份] +10 +100,默认 = 生效年份 + 100);只管保护、禁止扩张、结盟,到这一年止(不含)
  *
@@ -9,6 +9,8 @@
  * 不可用的命令变淡,说明换成原因。下的令先进待推演的单子(pendingStore.ts,单子在时间轴上面,PendingTray.tsx),已经在单子里的变淡、写"已在待推演里";
  * 单子里有令时底部多一个「全部推演(N 条)」。推演时面板先藏起,顶部提示条"正在重新推演 X–3000 年",推完"有鹰王朝禁止扩张,已从 X 年起重新推演"带撤销,
  * 面板回到信息页,从 X 年接着放(App.tsx、TargetPlates.tsx)。命令的数据和推演沿用 editsStore / gen/edits 的干预。
+ *
+ * 最上面一条「方针」(选方针 ›):卡片换成方针那一页(PolicyPage.tsx),生效年份带过去。
  *
  * 最后一条「立作者的人物为君主」(选人 ›):卡片换成选人那一页 —— 只列那一年在世的作者人物(头像、生卒、那年几岁、身份),不在世的放下面、变淡、
  * 写原因;点一位进让他即位那一页(CrownPage.tsx,和人物卡「即位…」同一页,国家先选好、年份是这里的生效年份);一个都没有时写明要什么样的人物、
@@ -30,7 +32,7 @@ import { nextYear, useStepwise } from './stepwiseStore';
 import { STEP_LOOK_WHY, STEP_QUEUED, StepCommandFoot, StepEffectTime, useStepView } from './Stepwise';
 import { useEdits, useEra } from './editsStore';
 import { cityStands, defaultYear, interventionText, nameAt, neighborsAt, polityOrders, setPolityPick, type PolityPick } from './Interventions';
-import { setPanelTab } from './panelStore';
+import { openCmdPage, setPanelTab } from './panelStore';
 import { pendingInterventions, pushPending, queueIntervention, usePending } from './pendingStore';
 import { setCivTime } from './civView';
 import { YearRow, YearStepper, useYearInput } from './panelParts';
@@ -42,9 +44,10 @@ import type { AuthorCharacter } from '../gen/characters';
 
 let owners: Owners | undefined;
 
-type Cmd = 'protect' | 'unity' | 'halt' | 'ally' | 'declare' | 'move' | 'crown';
+type Cmd = 'policy' | 'protect' | 'unity' | 'halt' | 'ally' | 'declare' | 'move' | 'crown';
 
 const CMDS: { k: Cmd; name: string; desc: string; pick: boolean; go?: string }[] = [
+  { k: 'policy', name: '方针', desc: '这国从这年起照方针自己走，直到换下一条', pick: true, go: '选方针 ›' },
   { k: 'protect', name: '保护', desc: '该国不会被灭亡', pick: false },
   { k: 'unity', name: '禁止分裂', desc: '该国不会分裂出新国家', pick: false },
   { k: 'halt', name: '禁止扩张', desc: '不再主动扩张,被打时仍会夺回失地', pick: false },
@@ -131,6 +134,11 @@ export function CommandPage({ civ, raster, world, id, year }: { civ: Civ; raster
     setMsg(null);
     if (k === 'crown') {
       setCrown('pick');
+      return;
+    }
+    // 方针:卡片换成方针那一页(生效年份带过去,返回回到这里)
+    if (k === 'policy') {
+      openCmdPage({ kind: 'policy', back: 'cmd', year: y });
       return;
     }
     if (k === 'protect' || k === 'halt') {

@@ -1,12 +1,15 @@
 /**
- * 国家面板(宽屏在左边侧栏里,窄屏是底部抽屉),两页 —— 信息页(这里)和干预页(CommandPage.tsx)。
+ * 国家面板(宽屏在左边侧栏里,窄屏是底部抽屉),两页 —— 信息页(这里)和干预页(CommandPage.tsx;
+ * 干预页里点「方针」或者概况里点「方针」一行,换成方针页 PolicyPage.tsx)。
+ * 逐年推演里演一国(roleStore.ts)时看别国:「干预历史」变灰,按钮下面一句"你在演某国,只管自己的国家",点「切回造物主」就能改。
  *
  * 信息页(按时间轴当前那一年;没立国 = 立国那年的样子,已亡 = 亡国前的样子):
  *   顶部  颜色块、国名(可改,输入时预览国号变迁)、"国家，1045 年立国"、关闭
  *   按钮  干预历史(主操作;窄屏点了底部抽屉展开)/ 设为中心 / 改名 / 更多(复制分享链接(停在这一年、选中这国、地图照现在的样子;
  *         手机上去「存档」要先关掉这张卡片,所以放在这里)、在编年史中查看、让 AI 写国史、让 AI 讲名字由来;
  *         有主体民族时还有讲它的族名由来、给它起族名)
- *   概况  国都、君主(这一年在位的那位,点了看他;共和国写"执政")、疆域(历年州数的小柱图,和概览"国家"表同一份)、
+ *   概况  国都、君主(这一年在位的那位,点了看他;共和国写"执政")、方针(这一年照的方针,"某年起";写进待推演单子的标"待推演";
+ *         点了开方针页)、疆域(历年州数的小柱图,和概览"国家"表同一份)、
  *         人口(境内各州的总人口:城 + 乡村)、主体民族、国教(可点,"某年起";没有写"没有")、
  *         宗主("某年起称臣")/ 藩属 / 盟国(可点,名字后面是哪年称臣、结盟;有才写)、邻国(可点),来历 / 结局 / 历任国都(有才写)
  *   历代君主  当前这位和前后各两位(新的在上;遇弑、被废这类结局写在名字后面),点一行看这个人;
@@ -41,10 +44,16 @@ import { isConsul, personName, rulerFateWord } from '../gen/civ/peopleText';
 import type { AiName } from './AiNamePanel';
 import { openHistoryBook } from './HistoryBook';
 import { NameEdit } from './NameEdit';
-import { neighborsAt } from './Interventions';
+import { nameAt, neighborsAt } from './Interventions';
 import { polityTies } from '../gen/civ/diplomacy';
 import { CommandPage } from './CommandPage';
-import { setPanelTab, setSheet, usePanel } from './panelStore';
+import { openCmdPage, setPanelTab, setSheet, usePanel } from './panelStore';
+import { PolicyPage } from './PolicyPage';
+import { policyRow, roleLock } from './policyInfo';
+import { useRole } from './roleStore';
+import { roleOff } from './RoleBar';
+import { usePending, type Pending } from './pendingStore';
+import { useStepwiseOn } from './stepwiseStore';
 import { shownYearOf } from './flyTo';
 import { SPARK_N, polityHistory } from './WorldOverviewCountries';
 import { openLineage, openOverview, openPeople } from './overviewStore';
@@ -91,9 +100,11 @@ export interface CountryPanelProps {
 }
 
 export function CountryPanel(props: CountryPanelProps) {
-  const { tab } = usePanel();
+  const { tab, page } = usePanel();
   const { civ, raw, raster, id, year } = props;
   const p = civ.polities[id];
+  // 演一国时别国:干预入口变灰,只看信息页
+  const lock = roleLock(civ, useRole(), id);
   // 改名的开关、AI 释名 / 起名:标题(改名、AI 起名)和信息页(名字由来的框、底部按钮)共用一份
   const d = p.dynasties;
   const di = p.eastern && d && d.length >= 2 ? dynastyIndexAt(p, shownYearOf(p, year, civ.endYear)) : 0;
@@ -104,7 +115,15 @@ export function CountryPanel(props: CountryPanelProps) {
   return (
     <div className="cp" data-polity={id} data-tab={tab}>
       <CountryHead {...props} shared={shared} />
-      {tab === 'cmd' ? <CommandPage civ={civ} raster={raster} world={props.world} id={id} year={year} /> : <InfoPage {...props} p={p} shared={shared} />}
+      {tab === 'cmd' && !lock ? (
+        page?.kind === 'policy' ? (
+          <PolicyPage key={id} civ={civ} id={id} year={year} from={page.year} />
+        ) : (
+          <CommandPage civ={civ} raster={raster} world={props.world} id={id} year={year} />
+        )
+      ) : (
+        <InfoPage {...props} p={p} shared={shared} lock={lock?.me ?? -1} />
+      )}
     </div>
   );
 }
@@ -197,8 +216,11 @@ function CountryHead({ civ, raw, id, year, names, shared }: CountryPanelProps & 
   );
 }
 
-function InfoPage({ civ, raw, raster, world, id, year, p, shared }: CountryPanelProps & { p: Polity; shared: Shared }) {
+/** lock = 演一国时演的那一国(看的是别国:干预入口变灰、写一句;没在演 / 就是它 = −1) */
+function InfoPage({ civ, raw, raster, world, id, year, p, shared, lock }: CountryPanelProps & { p: Polity; shared: Shared; lock: number }) {
   const era = useEra();
+  const pending = usePending();
+  const step = useStepwiseOn();
   const { ai } = shared;
   const aiOn = useAiOn();
   const shownYear = shownYearOf(p, year, civ.endYear);
@@ -261,7 +283,7 @@ function InfoPage({ civ, raw, raster, world, id, year, p, shared }: CountryPanel
   return (
     <>
       <Acts>
-        <Act icon="intervene" primary act="intervene" onClick={() => (setPanelTab('cmd'), setSheet('full'))}>
+        <Act icon="intervene" primary={lock < 0} act="intervene" disabled={lock >= 0} onClick={() => (setPanelTab('cmd'), setSheet('full'))}>
           干预历史
         </Act>
         <CenterAct world={world} civ={civ} sel={{ kind: 'polity', id }} year={shownYear} />
@@ -294,6 +316,15 @@ function InfoPage({ civ, raw, raster, world, id, year, p, shared }: CountryPanel
           )}
         </MoreAct>
       </Acts>
+      {lock >= 0 && (
+        <div className="pol-lock" data-role-lock={lock}>
+          你在演{nameAt(civ.polities[lock], shownYear)}，只管自己的国家。要改{polityName(p, shownYear)}，
+          <button data-act="role-off" onClick={() => roleOff(lock)}>
+            切回造物主
+          </button>
+          。
+        </div>
+      )}
       <div className="cp-body">
         <Stats items={[]}>
           <Row k="国都">{cap ? <Link to={{ kind: 'settlement', id: cap.id }}>{cap.name}</Link> : <span className="cp-none">无</span>}</Row>
@@ -306,6 +337,7 @@ function InfoPage({ civ, raw, raster, world, id, year, p, shared }: CountryPanel
               </em>
             </Row>
           )}
+          {alive && <PolicyRow civ={civ} id={id} year={shownYear} pending={pending} step={step} locked={lock >= 0} />}
           <Row k="疆域" className="cp-terr">
             <Spark
               title={`历年州数(最多时 ${maxN} 州)`}
@@ -457,6 +489,27 @@ function InfoPage({ civ, raw, raster, world, id, year, p, shared }: CountryPanel
         <AiBox ai={folkAi.ai} aiRef={folkAi.aiRef} />
       </div>
     </>
+  );
+}
+
+/**
+ * 概况「方针」一行(君主下面):"照君主性格 没定方针" / "扩张 1500 年起" / 单子里的"扩张 待推演"(逐年推演"下一步生效");
+ * 点了进方针页(演一国时的别国:只写不点)
+ */
+function PolicyRow({ civ, id, year, pending, step, locked }: { civ: Civ; id: number; year: number; pending: readonly Pending[]; step: boolean; locked: boolean }) {
+  const era = useEra();
+  const r = policyRow(civ, id, year, pending, step, era);
+  return (
+    <Row k="方针">
+      {locked ? (
+        r.name
+      ) : (
+        <button className="ins-link" data-act="policy" onClick={() => (openCmdPage({ kind: 'policy', back: 'info' }), setSheet('full'))}>
+          {r.name}
+        </button>
+      )}
+      {r.tag ? <em className="cr-pending">{r.tag}</em> : <em className="cp-num-note pol-row-note">{r.note}</em>}
+    </Row>
   );
 }
 

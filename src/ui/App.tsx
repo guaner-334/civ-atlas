@@ -254,7 +254,9 @@ import { getStage, setStage, useStage, type DraftBase, type Stage } from './stag
 import { setNewCivHandler, setOpenWorldHandler } from './newCivAction';
 import { polityAlive, polityName } from '../gen/civ/growth';
 import { CIV_SHOW_OFF, civOverlaySteps, drawCivOverlay, type CivDrawParams } from '../render/civ/overlay';
-import { getPolityPick, interventionActorThen, interventionDoneText, setPickHover, setPolityPick, usePolityPick } from './Interventions';
+import { finishPick, getPolityPick, interventionActorThen, interventionDoneText, setPickHover, setPolityPick, usePolityPick } from './Interventions';
+import { policyDoneText } from './policyInfo';
+import { RoleBar } from './RoleBar';
 import { Inspector } from './Inspector';
 import { TargetLayer } from './TargetPlates';
 import { FLY_MS, animProgress, curvedFly, easeOutCubic, flatFly, freeArea, markFocus, personKey, pointsFocus, resolvePersonKey, selectionFocus, selectionKey, shownYearOf, sideRoom, phoneFree, type FlyGoal, type Focus } from './flyTo';
@@ -1871,7 +1873,13 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
         const shown = run && run.from === v.from ? run.shown : undefined;
         const then = interventionActorThen(named, v);
         // 即位:写人物的名字、到哪年下台;没即位成(那年国已亡、他还没出生……)黄色,写原因
-        const crowned = v.kind === 'crown' ? crownDoneText(applyCharacters(named, getEdits().characters), v, idx, getEdits().characters, era) : null;
+        // 方针:"大澜王朝定方针「扩张」",没生效的黄色写原因(同即位)
+        const crowned =
+          v.kind === 'crown'
+            ? crownDoneText(applyCharacters(named, getEdits().characters), v, idx, getEdits().characters, era)
+            : v.kind === 'policy'
+              ? policyDoneText(named, v, idx, shown ?? then ?? '', era)
+              : null;
         showToast({
           id: 'resim-done',
           kind: crowned && !crowned.ok ? 'warn' : 'ok',
@@ -5139,7 +5147,7 @@ ${s.image.cells}` : null);
       const region = pk.target === 'region';
       const id = city ? settlementAtClick(e.clientX, e.clientY) : region ? regionAtClient(e.clientX, e.clientY) : polityAtClick(e.clientX, e.clientY);
       const err = id >= 0 ? pk.accept(id) : city ? '这里没有城,点一座城的符号或城名' : region ? '这里不是陆地,点一个州' : '这里没有国家,点一个国家的国土或国名';
-      setPolityPick(err ? { ...pk, msg: err } : null);
+      finishPick(pk, err);
       return;
     }
     beforeClick.current = getSelection().sel;
@@ -5990,6 +5998,8 @@ ${s.image.cells}` : null);
       {world && <PreviewBanner busy={worldBusy} phone={narrow} />}
       {/* 顶部居中:提示条(同一时间只有一条) */}
       <ToastBar />
+      {/* 逐年推演里演一国:顶上常驻的方针条(提示条出来时让开) */}
+      {data && world && civ && <RoleBar civ={civ} phone={narrow} />}
       {/* 右下(时间轴上方):地球 / 平面、放大、缩小。触屏不放 + −(用双指捏合);窄屏整个不放(地球在右上竖排的按钮里) */}
       <MapControls
         globeOn={globeOn}
