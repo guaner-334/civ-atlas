@@ -5,6 +5,7 @@
  * 纯函数和类型,不碰 React。
  */
 import type { NewWorldStart } from './NewWorldDialog';
+import type { SharedPreset } from './presetStore';
 
 /**
  * 首页上点了要离开这一页的东西,交给 App 接着做(App 挂上以后照常做这一件,和一开始就在 App 里点的一样):
@@ -12,12 +13,18 @@ import type { NewWorldStart } from './NewWorldDialog';
  *   text    打开存档文件(选的、拖进页面的;文件名用在出错的提示里)
  *   newCiv  在这张地图上打造新文明
  *   dialog  「新建世界」弹窗里点了「开始」
+ *   gallery 去作品墙那一页(主程序没下好时这里先放出那一页,见 HomeShell.tsx)
+ *   work    打开作品墙上的一个作品
+ *   preset  作品墙上的新建参数作品点了「用这套参数新建」
  */
 export type HomeStart =
   | { kind: 'open'; id: string }
   | { kind: 'text'; text: string; fileName?: string }
   | { kind: 'newCiv'; id: string }
-  | { kind: 'dialog'; start: NewWorldStart };
+  | { kind: 'dialog'; start: NewWorldStart }
+  | { kind: 'gallery' }
+  | { kind: 'work'; id: string }
+  | { kind: 'preset'; preset: SharedPreset };
 
 /** 随机一个种子(新建世界、"换一颗") */
 export function randomSeedValue(): number {

@@ -841,7 +841,7 @@ export function sameSave(a: SaveFile, b: SaveFile): boolean {
 /** 两个底稿出处是不是一样(都没有也算) */
 export function sameOrigin(a: SaveFile['origin'], b: SaveFile['origin']): boolean {
   if (!a || !b) return !a && !b;
-  return (a.by ?? '') === (b.by ?? '') && a.title === b.title && a.url === b.url;
+  return (a.by ?? '') === (b.by ?? '') && a.title === b.title && a.url === b.url && (a.gallery ?? '') === (b.gallery ?? '');
 }
 
 /**
@@ -1200,8 +1200,9 @@ export function attachWorld(spec: AttachSpec) {
     base: spec.kind === 'draft' ? (spec.base ?? undefined) : undefined,
     saved: spec.saved,
     savedView: withGraticule(spec.view ?? prev?.view ?? DEFAULT_VIEW),
-    // 新建中的没有底稿出处;在别的世界的地图上打造的文明例外:地图出自那里,出处跟着(建好以后侧栏照样写)
-    origin: spec.kind === 'draft' && !spec.saved?.map?.from ? undefined : (cleanOrigin(spec.origin) ?? undefined),
+    // 新建中的没有底稿出处;两种例外,出处跟着(建好以后侧栏照样写):在别的世界的地图上打造的文明(地图出自那里)、
+    // 照作品墙上的新建参数作品新建的(参数出自那里)
+    origin: spec.kind === 'draft' && !spec.saved?.map?.from && !spec.origin?.gallery ? undefined : (cleanOrigin(spec.origin) ?? undefined),
     original: spec.kind === 'draft' || !spec.original || spec.original.generator >= GENERATOR_VERSION ? undefined : spec.original,
     frozen: spec.kind === 'created' && spec.frozen !== undefined && spec.frozen < GENERATOR_VERSION ? spec.frozen : undefined,
   };
@@ -1265,7 +1266,8 @@ export function saveCurrentAsMap(): boolean {
   if (!c || c.kind !== 'draft' || c.gone) return false;
   const e = getEdits();
   const edits: WorldEdits = { names: {}, interventions: [], terrain: e.terrain, ...(e.sketch ? { sketch: e.sketch } : {}) };
-  const save = makeSave(c.params, edits, c.check, undefined, undefined, currentView());
+  // 出处跟着(照作品墙上的新建参数作品新建的:地图出自那套参数)
+  const save = makeSave(c.params, edits, c.check, undefined, undefined, currentView(), c.origin);
   const prev = store().get(PREFIX + c.id);
   if (!writeSave(c.id, save, { map: true, opened: save.savedAt })) {
     // 存档换成了只有地图的、本地信息却没写上:放回原来那份(还是没建完的,名字、文明的设定都在)

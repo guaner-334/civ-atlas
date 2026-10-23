@@ -31,6 +31,7 @@ import {
   renamePreset,
   sameAsChoice,
   savePreset,
+  sharedNote,
   strip,
   usePresets,
   type PresetChoice,
@@ -139,7 +140,7 @@ export function PresetPicker({
       >
         <span>
           {choiceName(st, st.chosen)}
-          {st.chosen === 'shared' && <i className="sh">（分享的）</i>}
+          {st.chosen === 'shared' && st.shared && <i className="sh">（{sharedNote(st.shared)}）</i>}
           {changed && <i>（改过）</i>}
         </span>
         {updown}
@@ -224,7 +225,7 @@ function PresetMenu({
       >
         {st.shared && (
           <>
-            {item('shared', st.shared.name, '分享的')}
+            {item('shared', st.shared.name, sharedNote(st.shared))}
             <div className="sep" />
           </>
         )}

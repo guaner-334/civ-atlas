@@ -7,6 +7,7 @@
  * onLeave 把这一件交出去,Boot.tsx 等主程序下好、把 App 挂上,App 接着做(见 App 的 fromHome)。
  * 主程序还没下完时在点的地方说下了多少:「开始」变成转圈 +「准备中」、旁边一句;世界卡片上一个进度圈;
  * 打开存档文件、拖文件进来没有按钮可转圈,顶上一条提示(带「取消」)。下好了这一页就换成 App。
+ * 点了「作品墙」:这里先放出作品墙那一页(不用等主程序),App 挂上以后接着放它的那一页;在这一页上点的作品同样交给 App。
  * 按浏览器的后退 / 前进、地址栏里贴了分享链接(只有 # 不同,页面不刷新)也交给 App:它照这时的网址打开,和刷新一样
  * (这一页先记成我的世界那一步,贴的分享链接记成新的一步,和 App 记的一样,打开以后按后退回得到首页)。
  *
@@ -14,6 +15,7 @@
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { MyWorlds } from './MyWorlds';
+import { GalleryPage } from './Gallery';
 import { NewWorldDialog } from './NewWorldDialog';
 import { AccountHost, setGoHome } from './AccountDialogs';
 import { AiSettingsHost } from './AiSettings';
@@ -31,7 +33,7 @@ import { startSync } from '../account/sync';
 import { setupAi } from '../ai/setup';
 import { isShareHash } from '../gen/savefile';
 import { randomSeedValue, type HomeStart } from './homeStart';
-import { isNavState, navAdopt, navMark } from './nav';
+import { isNavState, navAdopt, navMark, navPushEarly } from './nav';
 import { useAppPercent } from './loadScreen';
 
 /** 打开存档文件、等主程序下完时顶上那条提示 */
@@ -84,6 +86,19 @@ export function HomeShell({ onLeave, loadFailed = 0 }: { onLeave: LeaveHome; loa
   );
   const waitRef = useRef(waiting);
   waitRef.current = waiting;
+  /** 点了「作品墙」:先放出作品墙那一页 */
+  const [wallUp, setWallUp] = useState(false);
+  const wallUpRef = useRef(false);
+  wallUpRef.current = wallUp;
+  const showWall = useCallback(() => {
+    setWallUp(true);
+    // 网址和浏览器的一步先记上:主程序下好以后 App 照网址接着放作品墙那一页,下好之前刷新、复制地址、按后退也对得上
+    const q = new URLSearchParams(location.search);
+    q.delete('gallery');
+    const rest = q.toString();
+    navPushEarly({ page: 'gallery' }, `${location.pathname}?${rest ? `${rest}&` : ''}gallery`);
+    leave({ kind: 'gallery' });
+  }, [leave]);
   /** 不走了(新建弹窗里点了「取消」、提示条上点了「取消」):已经交出去、还没人接的那张图扔掉 */
   const stay = useCallback(() => {
     const w = waitRef.current;
@@ -91,6 +106,8 @@ export function HomeShell({ onLeave, loadFailed = 0 }: { onLeave: LeaveHome; loa
     setWaiting(null);
     onLeave(undefined);
   }, [onLeave]);
+  const stayRef = useRef(stay);
+  stayRef.current = stay;
   // 主程序下载不下来、也没法自动刷新重来:不再等(按钮、卡片回到原样,再点一下会重新下载),顶上一条出错的提示带「重新加载」
   useEffect(() => {
     if (!loadFailed) return;
@@ -129,8 +146,16 @@ export function HomeShell({ onLeave, loadFailed = 0 }: { onLeave: LeaveHome; loa
     setGoHome(() => {});
     // 浏览器的后退、前进:这一页先记成我的世界那一步(和 App 一样;App 挂上以后接着记)
     navMark({ page: 'home' });
-    // 按后退 / 前进到了这个网站记的另一步:交给 App 照网址打开
-    const onPop = () => onLeave(null);
+    // 按后退 / 前进到了这个网站记的另一步:交给 App 照网址打开。
+    // 作品墙那一页退回我的世界(按后退、点「‹ 我的世界」)就留在这一页,不用等主程序
+    const onPop = () => {
+      if (wallUpRef.current && isNavState(history.state) && history.state.page === 'home') {
+        setWallUp(false);
+        stayRef.current();
+        return;
+      }
+      onLeave(null);
+    };
     // 地址栏里自己加了 #:浏览器记了一步、这个网站没记过,也记成一步(和 App 一样);贴的是分享链接,交给 App 照网址打开
     const onHash = () => {
       if (!isNavState(history.state)) navAdopt({ page: 'home' });
@@ -200,14 +225,25 @@ export function HomeShell({ onLeave, loadFailed = 0 }: { onLeave: LeaveHome; loa
       onDragLeave={onDragLeave}
       onDrop={onDrop}
     >
-      <MyWorlds
-        phone={narrow}
-        onOpen={(id) => leave({ kind: 'open', id })}
-        onNew={() => setNewDlg(true)}
-        onOpenText={(text, fileName) => leave({ kind: 'text', text, fileName })}
-        onNewCiv={(id) => leave({ kind: 'newCiv', id })}
-        opening={waiting && (waiting.kind === 'open' || waiting.kind === 'newCiv') ? { id: waiting.id, pct } : null}
-      />
+      {wallUp ? (
+        <GalleryPage
+          phone={narrow}
+          onHome={() => history.back()}
+          onOpen={(w) => leave({ kind: 'work', id: w.id })}
+          onPreset={(preset) => leave({ kind: 'preset', preset })}
+        />
+      ) : (
+        <MyWorlds
+          phone={narrow}
+          onOpen={(id) => leave({ kind: 'open', id })}
+          onNew={() => setNewDlg(true)}
+          onOpenText={(text, fileName) => leave({ kind: 'text', text, fileName })}
+          onNewCiv={(id) => leave({ kind: 'newCiv', id })}
+          opening={waiting && (waiting.kind === 'open' || waiting.kind === 'newCiv') ? { id: waiting.id, pct } : null}
+          onGallery={showWall}
+          onOpenWork={(w) => leave({ kind: 'work', id: w.id })}
+        />
+      )}
       <ToastBar />
       <AiSettingsHost />
       <AccountHost phone={narrow} />
