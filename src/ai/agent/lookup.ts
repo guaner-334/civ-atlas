@@ -490,9 +490,12 @@ export function lookupPeople(ctx: LookupContext, a: Record<string, unknown>): Lo
       const Y = Yarg;
       out.push(`${head};第 ${Y} 年:`);
       let summary = '';
+      /** 在位的君主是作者的人物即位当的:下面在世的作者的人物不再列他 */
+      let crowned: number | undefined;
       if (!role || role === 'ruler') {
         const x = rulerAt(civ, id, Y);
         if (x) {
+          crowned = x.author;
           out.push(`在位的:${personLine(x, true, Y)}`);
           summary = `第 ${Y} 年在位的是${personName(civ, x)}`;
           const rs = ix.rulers[id];
@@ -529,7 +532,7 @@ export function lookupPeople(ctx: LookupContext, a: Record<string, unknown>): Lo
         summary = `宗室 ${ps.length} 位`;
       }
       if (!role) {
-        const alive = myChars.filter((c) => characterAge(c, Y).state === 'alive');
+        const alive = myChars.filter((c) => c.id !== crowned && characterAge(c, Y).state === 'alive');
         if (alive.length) {
           out.push(`这国那年在世的作者的人物 ${alive.length} 个:`);
           for (const c of alive.slice(0, limit)) out.push(`- ${charLine(c, false)}`);
@@ -915,11 +918,11 @@ function areaReport(ctx: LookupContext, area: Area, owners: (y: number) => Owner
   const on = land && (wSea > 0 || wLake > 0) ? '(陆地)' : '';
   out.push(`年均气温${on}:平均 ${f1(t.s / wT)}°C,最低 ${f1(t.lo)}°C,最高 ${f1(t.hi)}°C`);
   out.push(`年降水${on}:平均 ${Math.round(p.s / wT / 10) * 10} 毫米,最少 ${Math.round(p.lo)} 毫米,最多 ${Math.round(p.hi)} 毫米`);
-  const bs = [...bio.keys()]
-    .filter((b) => bio[b] > 0)
-    .sort((x, y) => bio[y] - bio[x] || x - y)
-    .slice(0, 7)
-    .map((b) => `${BIOMES[b].name} ${pc(bio[b])}`);
+  const bAll = [...bio.keys()].filter((b) => bio[b] > 0).sort((x, y) => bio[y] - bio[x] || x - y);
+  const bs = bAll.slice(0, 7).map((b) => `${BIOMES[b].name} ${pc(bio[b])}`);
+  // 排不进前七的合成一项,占比加起来还是一百
+  const rest = bAll.slice(7);
+  if (rest.length) bs.push(`另有 ${rest.map((b) => BIOMES[b].name).join('、')} 共 ${pc(rest.reduce((s, b) => s + bio[b], 0))}`);
   out.push(`地形(按面积):${bs.join('、')}`);
 
   // ---- 文明:人口、城、归属、物产 ----

@@ -196,6 +196,8 @@ describe.each(worlds)('种子 $seed', (w) => {
       const r = lookupLand(ctx, a);
       expect(r.result.length).toBeLessThanOrEqual(LOOKUP_MAX);
       expect(Math.abs(shareSum(r.result) - 100)).toBeLessThanOrEqual(2);
+      // 地形排不进前七的合成"另有……",加起来也是一百
+      expect(Math.abs(shareSum(r.result, '地形(按面积)') - 100)).toBeLessThanOrEqual(5);
     }
     expect(lookupLand(ctx, {}).result).toMatch(new RegExp(`^整个世界\\n地块 ${world.mesh.n} 块`));
     // 一框框满全世界 = 整个世界
@@ -331,6 +333,9 @@ describe('作者的人物即位以后', () => {
     const r = lookupPeople(ctx, { country: `P${big}`, year: 2005 });
     expect(r.summary).toBe('第 2005 年在位的是林小满');
     expect(r.result).toContain('生卒 第 1980—2040 年');
+    // 在位那一行已经是他,不再当"在世的作者的人物"列第二遍
+    expect(r.result).not.toContain('那年在世的作者的人物');
+    expect(r.result.match(/林小满/g)!.length).toBeLessThanOrEqual(lookupPeople(ctx, { country: `P${big}`, year: 2005, role: 'ruler' }).result.match(/林小满/g)!.length);
   });
 });
 
