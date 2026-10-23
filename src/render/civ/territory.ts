@@ -947,6 +947,15 @@ export interface WashFields {
   pix: Int16Array;
   /** 信仰图层(浓一点) */
   faith: boolean;
+  /** 除了归属和界线,归属图、离边界的距离还看哪几样(层 + 画风);和上一份一样、归属和界线也没变就照搬(见 washFields) */
+  shape: string;
+}
+
+/** 两份归属一样(回放时大多数帧国土没有易手) */
+function sameOwners(a: Int16Array, b: Int16Array): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
 }
 
 /** 信仰 / 时代图层:换成把信仰 / 时代换进民族那一层的参数(faithCiv、eraCiv);都不是 = null */
@@ -995,11 +1004,19 @@ export function washFields(p0: CivDrawParams, f: number): WashFields | null {
   const { owner, fade, fading, look } = fieldOwners(p, c, layer);
   const wrap = meshWrap(p.world.mesh);
   const lines = borderLines(p, layer);
+  const shape = `${layer}|${p.style}`;
+  // 归属图、离边界的距离只看归属、界线、像素 → 州和层、画风:这几样和上一份一样(回放时多数帧没有州易手,
+  // 年份往前走只改渐入系数和藩属的颜色)就照搬上一份的,只换渐入和颜色,和重算逐像素一样
+  if (old && old.shape === shape && old.W === W && old.H === H && old.pix === c.pix && old.lines === lines && sameOwners(old.owner, owner)) {
+    const out: WashFields = { ...old, key, owner, fade, fading, colors: fieldColors(p0, fp, p, layer, look), faith: !!fp };
+    c.fields.set(f, out);
+    return out;
+  }
   const label = old && old.label.length === W * H ? old.label : new Int16Array(W * H);
   labelImage(raster.w, raster.h, f, raster.scale, c.pix, owner, lines, label, wrap, c.weak);
   const edge = edgeField({ w: raster.w, h: raster.h, f, pixRegion: c.pix, owner, colors: look.colors, style: p.style, label, wrap: wrap > 0 }, old?.edge ?? noEdge());
   const colors = fieldColors(p0, fp, p, layer, look);
-  const out: WashFields = { key, layer, f, label, W, H, edge, owner, fade, fading, colors, lines, polity: layer === Layer.Polity, pix: c.pix, faith: !!fp };
+  const out: WashFields = { key, layer, f, label, W, H, edge, owner, fade, fading, colors, lines, polity: layer === Layer.Polity, pix: c.pix, faith: !!fp, shape };
   c.fields.set(f, out);
   return out;
 }
@@ -1089,6 +1106,7 @@ function washFieldsSteps(p0: CivDrawParams, f: number): { steps: WorkStep[]; fie
         polity: s.layer === Layer.Polity,
         pix: s.c.pix,
         faith: !!s.fp,
+        shape: `${s.layer}|${s.p.style}`,
       };
     }),
   ];
