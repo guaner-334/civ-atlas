@@ -16,6 +16,8 @@
  * 写原因;点一位进让他即位那一页(CrownPage.tsx,和人物卡「即位…」同一页,国家先选好、年份是这里的生效年份);一个都没有时写明要什么样的人物、
  * 「新建人物」直接开新建(国家填好)。
  *
+ * 「灭国」(选去向 ›):卡片换成灭国那一页(DestroyPage.tsx),生效年份带过去。
+ *
  * 逐年推演(Stepwise.tsx):只在"现在"干预 —— 生效年份换成"第 N 年年初(下一步)"一块,不能加减;按钮写「加入」,
  * 加的进「下一步生效的干预」(同一个单子),下一步开始时一起生效,没有「全部推演」;单子里有的写"已在下一步生效的干预里"。
  * 手机底部多一行"已加几条干预"(点开看每一条,能删)和「接着演绎」。往回看以前的一年时干预都变淡(从那一年改要先「从这里重新演绎」)。
@@ -44,7 +46,7 @@ import type { AuthorCharacter } from '../gen/characters';
 
 let owners: Owners | undefined;
 
-type Cmd = 'policy' | 'protect' | 'unity' | 'halt' | 'ally' | 'declare' | 'move' | 'crown';
+type Cmd = 'policy' | 'protect' | 'unity' | 'halt' | 'ally' | 'declare' | 'move' | 'crown' | 'destroy';
 
 const CMDS: { k: Cmd; name: string; desc: string; pick: boolean; go?: string }[] = [
   { k: 'policy', name: '方针', desc: '这国从这年起照方针自己走，直到换下一条', pick: true, go: '选方针 ›' },
@@ -55,6 +57,7 @@ const CMDS: { k: Cmd; name: string; desc: string; pick: boolean; go?: string }[]
   { k: 'declare', name: '宣战', desc: '选择一个相邻国家', pick: true },
   { k: 'move', name: '迁都', desc: '选择本国的一座城市', pick: true },
   { k: 'crown', name: '立作者的人物为君主', desc: '选一位那年在世的作者人物，从这年起当这国君主', pick: true, go: '选人 ›' },
+  { k: 'destroy', name: '灭国', desc: '这年让它亡国，国土并入一国或散成无主', pick: true, go: '选去向 ›' },
 ];
 
 export function CommandPage({ civ, raster, world, id, year }: { civ: Civ; raster: Raster | null; world: World; id: number; year: number }) {
@@ -116,7 +119,7 @@ export function CommandPage({ civ, raster, world, id, year }: { civ: Civ; raster
     if (!alive) return y < p.founded ? `${yearAt(y, era)}还没立国` : `${yearAt(y, era)}已亡`;
     if (timed(k) && limited && !ui.valid) return `持续到的年份要在${spaced(yearSpanAt(ui.lo, ui.hi, era))}之间`;
     if ((k === 'protect' || k === 'unity' || k === 'halt') && has(k)) return '已经下过这条命令';
-    if ((k === 'protect' || k === 'unity' || k === 'halt') && queued(k)) return step ? STEP_QUEUED : '已在待推演里';
+    if ((k === 'protect' || k === 'unity' || k === 'halt' || k === 'destroy') && queued(k)) return step ? STEP_QUEUED : '已在待推演里';
     if (k === 'ally' && !others.length) return '该年没有别的国家';
     if (k === 'declare' && !near.size) return '该年没有相邻的国家';
     if (k === 'move' && !cities.length) return '该年本国没有别的城市';
@@ -137,8 +140,8 @@ export function CommandPage({ civ, raster, world, id, year }: { civ: Civ; raster
       return;
     }
     // 方针:卡片换成方针那一页(生效年份带过去,返回回到这里)
-    if (k === 'policy') {
-      openCmdPage({ kind: 'policy', back: 'cmd', year: y });
+    if (k === 'policy' || k === 'destroy') {
+      openCmdPage({ kind: k, back: 'cmd', year: y });
       return;
     }
     if (k === 'protect' || k === 'halt') {

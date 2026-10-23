@@ -266,7 +266,7 @@ export function interventionText(civ: Civ, v: Intervention, i = -1, a?: string):
         // "顾长安即有桑皇朝君位,等高宗鸿喾下台"
         const pid = polityIdOf(civ, v.a);
         const cur = pid >= 0 ? rulerAt(civ, pid, v.from) : null;
-        return `${authorName(civ, v.char)}即${A}君位,等${cur ? personName(civ, cur) : '在位的君主'}下台`;
+        return `${authorName(civ, v.char)}即${A}君位，等${cur ? personName(civ, cur) : '在位的君主'}下台`;
       }
       // "林小满即有桑皇朝君位，1530 年退位" / "……，到 1541 年卒"(下台年份就是人物卡上的卒年)
       return crownLine(authorName(civ, v.char), A, v, getEdits().characters?.find((c) => c.id === v.char)?.died, getEdits().era);
@@ -278,16 +278,16 @@ export function interventionText(civ: Civ, v: Intervention, i = -1, a?: string):
       return `${A}:方针「${name || '只定亲仇'}」${name && tweakedOrCustom(v) ? `（${policyKnobsText(v)}）` : ''}`;
     }
     case 'destroy': {
-      if (!v.b) return `${A}:灭国,散成无主`;
+      if (!v.b) return `${A}:灭国，散成无主`;
       const n = ivAnnal(civ, i)?.n;
-      return `${A}:灭国,${n ? `${n} 州` : ''}并入${keyName(civ, v.b, v.from)}`;
+      return `${A}:灭国，${n ? `${n} 州` : ''}并入${keyName(civ, v.b, v.from)}`;
     }
     case 'death':
-      return `${personKeyName(civ, v.person)}:去世${parsePersonKey(v.person)?.role === 'ruler' ? '' : '(只改人物和编年史)'}`;
+      return `${personKeyName(civ, v.person)}:去世${parsePersonKey(v.person)?.role === 'ruler' ? '' : '（只改人物和编年史）'}`;
     case 'temper': {
       const x = personOfKey(civ, v.person);
       const change = leaningsChange(x?.leanings, v.leanings);
-      return `${personKeyName(civ, v.person)}:改倾向${change ? `,${change}` : ''},到他下台`;
+      return `${personKeyName(civ, v.person)}:改倾向${change ? `，${change}` : ''}，到他下台`;
     }
   }
 }
