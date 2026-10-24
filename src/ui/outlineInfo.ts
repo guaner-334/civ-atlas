@@ -554,7 +554,8 @@ export function plotText(p: Plot): string {
 /** 地图上的小牌子立在哪个地块(城 / 州的治所 / 国家那时的国都;说不出地方 = −1) */
 export function plotCell(o: OutlineCtx, p: Plot, r: PlotReview | undefined): number {
   const civ = o.civ;
-  const year = r?.year ?? p.year;
+  // 推过了 = 落定的那年;没推过 = 情节的年份(跟着前一条的按估的,和点过去、时间轴上的记号一样)
+  const year = r && r.status !== 'failed' ? r.year : plotWindow(o, p).at;
   const city = (k: string | undefined) => {
     const q = k ? resolveKey(civ, k) : null;
     return q?.kind === 'settlement' ? (civ.settlements[q.id]?.cell ?? -1) : -1;

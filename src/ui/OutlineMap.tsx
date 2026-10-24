@@ -191,9 +191,12 @@ export function tickGroups<T extends { year: number; n: number }>(ticks: readonl
   return out;
 }
 
-/** 一组里点一下看哪一条:正看着其中一条 = 它的下一条(轮着),不然第一条 */
-export function nextInGroup<T extends { on: boolean }>(items: readonly T[]): T {
-  const i = items.findIndex((t) => t.on);
+/**
+ * 一组里点一下看哪一条:正看着其中一条 = 它的下一条(轮着);没在看(那一条在地图上选不了东西)= 上次在这一组点到的那条的下一条;都没有 = 第一条
+ */
+export function nextInGroup<T extends { id: number; on: boolean }>(items: readonly T[], last?: number | null): T {
+  let i = items.findIndex((t) => t.on);
+  if (i < 0 && last != null) i = items.findIndex((t) => t.id === last);
   return items[i < 0 ? 0 : (i + 1) % items.length];
 }
 
@@ -203,6 +206,8 @@ export function nextInGroup<T extends { on: boolean }>(items: readonly T[]): T {
  */
 export function PlotTicks({ ticks, end, width, below }: { ticks: readonly PlotTick[]; end: number; width: number; below: boolean }) {
   const [hot, setHot] = useState<number | null>(null);
+  // 合成一颗的那几条上次点到哪一条(轮着看)
+  const last = useRef<number | null>(null);
   if (width <= 0 || end <= 0) return null;
   const x = (y: number) => (Math.min(end, Math.max(0, y)) / end) * width;
   const groups = tickGroups(ticks, x);
@@ -221,7 +226,11 @@ export function PlotTicks({ ticks, end, width, below }: { ticks: readonly PlotTi
             style={{ left: g.x }}
             onPointerEnter={(e) => e.buttons === 0 && setHot(g.items[0].id)}
             onPointerLeave={() => setHot((h) => (h === g.items[0].id ? null : h))}
-            onClick={() => nextInGroup(g.items).pick()}
+            onClick={() => {
+              const t = nextInGroup(g.items, last.current);
+              last.current = t.id;
+              t.pick();
+            }}
           >
             {on && <b>{on.n}</b>}
           </span>

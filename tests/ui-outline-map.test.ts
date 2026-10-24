@@ -61,7 +61,7 @@ describe('在看哪一条', () => {
 });
 
 describe('时间轴上的记号', () => {
-  const t = (n: number, year: number, on = false) => ({ n, year, on });
+  const t = (n: number, year: number, on = false) => ({ id: n, n, year, on });
   it('挨得太近(不到 10 像素)的合成一颗,按年份排', () => {
     const g = tickGroups([t(3, 1500), t(1, 1000), t(2, 1000), t(4, 1503)], (y) => y / 2);
     expect(g.map((x) => x.items.map((i) => i.n))).toEqual([[1, 2], [3, 4]]);
@@ -71,5 +71,8 @@ describe('时间轴上的记号', () => {
     expect(nextInGroup([t(1, 0), t(2, 0)]).n).toBe(1);
     expect(nextInGroup([t(1, 0, true), t(2, 0)]).n).toBe(2);
     expect(nextInGroup([t(1, 0), t(2, 0, true)]).n).toBe(1);
+    // 点到的那条在地图上选不了东西(没在看):照上次点到的接着轮
+    expect(nextInGroup([t(1, 0), t(2, 0), t(3, 0)], 1).n).toBe(2);
+    expect(nextInGroup([t(1, 0), t(2, 0)], 9).n).toBe(1);
   });
 });
