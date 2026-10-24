@@ -13,6 +13,7 @@
  * 国家、州、城一律按稳定键记(gen/edits.ts);显示的名字按当前这份历史解析。
  */
 import { useSyncExternalStore } from 'react';
+import type { ToastAction } from './toastStore';
 import type { Civ, Polity } from '../gen/civ/types';
 import { canCross } from '../gen/civ/polities';
 import { polityAlive, polityName } from '../gen/civ/growth';
@@ -77,6 +78,8 @@ export interface PolityPick {
   on?: ReadonlySet<number>;
   /** 名牌后面多一个小字("仇 ✓""亲") */
   marks?: ReadonlyMap<number, string>;
+  /** 提示条上「取消」前面另加的按钮(大纲圈州:「存成作者标记」「好了」) */
+  actions?: ToastAction[];
 }
 
 let pick: PolityPick | null = null;

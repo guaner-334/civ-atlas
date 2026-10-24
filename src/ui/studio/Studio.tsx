@@ -183,8 +183,11 @@ export interface StudioProps {
   onRandomSeed: () => void;
   onParams: (p: WorldParams) => void;
   onTitle: (title: string) => void;
-  /** 确认创建:名字、正中的经度(度,平常的地图从这里接着看);step = 选了「演绎」(从第 0 年起逐年推演);true = 建好了 */
-  onCreate: (title: string, lon: number, step?: boolean) => boolean;
+  /**
+   * 确认创建:名字、正中的经度(度,平常的地图从这里接着看);how = 选了「演绎」(step:从第 0 年起逐年推演)/「照大纲」(outline:建好以后先打开大纲);
+   * true = 建好了
+   */
+  onCreate: (title: string, lon: number, how?: 'step' | 'outline') => boolean;
   /** 第 1 步「保存地图」:只存地图、回我的世界;存下了 = true */
   onSaveMap: () => boolean;
   /** 在一张地图上打造文明(地图锁着):那张地图是哪个世界的(名字;只存了地图的、那个世界删掉了 = null)、一句简介;新建世界 = undefined */
@@ -316,9 +319,10 @@ export function Studio(p: StudioProps) {
   /** 两步里到了第 2 步「文明」 */
   const [civStep, setCivStep] = useState(false);
   const step2 = locked || (twoStep && civStep);
-  /** 第 2 步「怎么推」:一口气推完(推演年数)/ 演绎(建好以后从第 0 年起逐年推演,推进设置) */
-  const [how, setHow] = useState<'all' | 'step'>('all');
+  /** 第 2 步「怎么推」:一口气推完(推演年数)/ 演绎(建好以后从第 0 年起逐年推演,推进设置)/ 照大纲(照常推完,建好以后先打开大纲) */
+  const [how, setHow] = useState<'all' | 'step' | 'outline'>('all');
   const stepHow = step2 && how === 'step';
+  const outlineHow = step2 && how === 'outline';
   /** 确认框里的动词;选了演绎时推演年数不算(从第 0 年起一步步往下走) */
   const verb = stepHow ? '演绎' : '推演';
   const yearsLocked = !!years && !stepHow;
@@ -980,7 +984,7 @@ export function Studio(p: StudioProps) {
     else await new Promise((r) => setTimeout(r, reduce ? 0 : 360));
     const lon = sc ? (((((to * 180) / Math.PI + 180) % 360) + 360) % 360) - 180 : flatLon;
     if (target !== getProjection()) setProjection(target);
-    const ok = p.onCreate(name, lon, stepHow);
+    const ok = p.onCreate(name, lon, stepHow ? 'step' : outlineHow ? 'outline' : undefined);
     if (!ok) {
       // 没建成(还在生成):回到新建
       gone.current = false;
@@ -1312,15 +1316,20 @@ export function Studio(p: StudioProps) {
         <b>怎么推</b>
       </span>
       <span className="nw-dseg" role="radiogroup" aria-label="怎么推">
-        <button role="radio" aria-checked={!stepHow} className={stepHow ? '' : 'on'} data-act="how-all" onClick={() => setHow('all')}>
+        <button role="radio" aria-checked={!stepHow && !outlineHow} className={stepHow || outlineHow ? '' : 'on'} data-act="how-all" onClick={() => setHow('all')}>
           一口气推完
         </button>
         <button role="radio" aria-checked={stepHow} className={stepHow ? 'on' : ''} data-act="how-step" onClick={() => setHow('step')}>
           演绎
         </button>
+        <button role="radio" aria-checked={outlineHow} className={outlineHow ? 'on' : ''} data-act="how-outline" onClick={() => setHow('outline')}>
+          照大纲
+        </button>
       </span>
     </div>
   );
+  /** 选了照大纲:一句说明(放在「怎么推」下面) */
+  const outlineNote = outlineHow && <div className="nw-note nw-how-note">建好以后先打开「大纲」：一条条写下故事里的大事，写完点「照大纲推演」。地形、民族、国家起源照常生成，大纲只决定后面的历史怎么走。</div>;
   const adv = advanceOf(edits);
   /** 选了演绎:推进设置(和逐年推演开始之前的设置同一套,点开原地展开) */
   const advRow = (
@@ -1514,7 +1523,7 @@ export function Studio(p: StudioProps) {
   );
   const createBtn = (
     <button className="nw-create" data-act="create-world" disabled={p.busy || !p.ready || out > 0 || importing || (image && !applied)} onClick={askCreate}>
-      {base ? '创建新世界' : step2 ? (stepHow ? '开始演绎' : '开始推演') : '创建世界'}
+      {base ? '创建新世界' : step2 ? (stepHow ? '开始演绎' : outlineHow ? '建好，先写大纲' : '开始推演') : '创建世界'}
     </button>
   );
   /** 第 1 步底部:「保存地图」「打造文明 ›」 */
@@ -1644,6 +1653,7 @@ export function Studio(p: StudioProps) {
           {p.phone && mapRow}
           {civSeedRow}
           {howRow}
+          {outlineNote}
           {stepHow ? advRow : yearsRow}
           {compact ? (
             <button className="sb-row" data-act="civ-more" onClick={() => setSheetFull(true)}>

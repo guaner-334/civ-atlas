@@ -310,8 +310,8 @@ export function TargetLayer({ civ, world, toClient, resim, generating, labelAt }
         kind: 'info',
         text: pick.msg ?? pick.prompt,
         more: [pick.msg ? pick.prompt : (pick.sub ?? '')].filter(Boolean),
-        // 触屏上没有 Esc 键
-        action: { label: isCoarse() ? '取消' : '取消 · Esc', onClick: () => setPolityPick(null) },
+        // 触屏上没有 Esc 键;另加的按钮(大纲圈州的「好了」)放在「取消」前面
+        actions: [...(pick.actions ?? []), { label: isCoarse() ? '取消' : '取消 · Esc', onClick: () => setPolityPick(null) }],
       });
     else clearToast('pick');
   }, [pick, resim, generating]);
