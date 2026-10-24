@@ -6,6 +6,7 @@
  *              一张表:把手(拖动排序)、第几条、时间、谁、发生什么、你写的那句、结果(推过了写明怎么样)、「⋯」(在上面 / 下面加一条、复制、删除)
  *              还没推过:点一行 = 编这一行(右边滑出一栏,OutlineEditor.tsx);推过了:点一行 = 到地图上那一年、那个地方看(「⋯」里改这一条)
  * 手机(OutlinePhone):不要概览的头和页签,整页是大纲 ——「‹ 世界」「大纲 N 条」「+」,一条一张卡片,底下「照大纲推演」;编一条换成整页。
+ *              推过了点一张卡片到地图上看,卡片右边一支笔改这一条。
  * 在地图上点东西(编一行时)的那一会儿概览收起,点完、取消回到这一页(useOutlinePickReturn)。
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -15,7 +16,7 @@ import { ownersAt } from '../gen/civ/timeline';
 import { yearAt, eraText, yearShort } from '../gen/era';
 import type { Intervention, Plot, PlotReview, PlotStatus } from '../gen/edits';
 import { useEdits } from './editsStore';
-import { getCivTime } from './civView';
+import { getCivHighlight, getCivTime, setCivHighlight } from './civView';
 import { closeOverview, openOverview } from './overviewStore';
 import { editPlot, setOutlineFilter, startOutline, stopOutline, useOutlineUi } from './outlineStore';
 import { usePolityPick, interventionText, nameAt } from './Interventions';
@@ -34,7 +35,10 @@ export function useOutlinePickReturn() {
   useEffect(() => {
     const prev = was.current;
     was.current = pk;
-    if (prev?.source === OUTLINE_PICK && pk?.source !== OUTLINE_PICK) openOverview('outline');
+    if (prev?.source !== OUTLINE_PICK || pk?.source === OUTLINE_PICK) return;
+    // 圈州时涂着的州(一直亮着的那种):「好了」、取消、按 Esc 都收掉
+    if (getCivHighlight()?.steady) setCivHighlight(null);
+    openOverview('outline');
   }, [pk]);
 }
 
@@ -413,8 +417,17 @@ export function OutlinePhone({ civ }: { civ: Civ | null }) {
                 const r = byId.get(p.id);
                 const [w1, w2] = whatCell(o, p);
                 const y = r && r.status !== 'failed' && r.status !== 'story' ? r.year : p.year;
+                const open = () => (reviewed ? goToPlot(o, p, r) : editPlot({ ...p }));
                 return (
-                  <button key={p.id} className="ol-crow" data-plot={p.id} onClick={() => (reviewed ? goToPlot(o, p, r) : editPlot({ ...p }))}>
+                  <div
+                    key={p.id}
+                    className="ol-crow"
+                    role="button"
+                    tabIndex={0}
+                    data-plot={p.id}
+                    onClick={open}
+                    onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), open())}
+                  >
                     <span className="y">{yearShort(y, era)}</span>
                     <span className="m">
                       <b>{p.text || plotLine(p)}</b>
@@ -429,7 +442,22 @@ export function OutlinePhone({ civ }: { civ: Civ | null }) {
                         </>
                       )}
                     </span>
-                  </button>
+                    {/* 推过了点一条是到地图上看;改这一条(删也在里面)点右边的笔 */}
+                    {reviewed && (
+                      <button
+                        className="ol-ic ed"
+                        data-act="outline-card-edit"
+                        aria-label="改这一条"
+                        title="改这一条"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          editPlot({ ...p });
+                        }}
+                      >
+                        <Icon name="pen" size={15} />
+                      </button>
+                    )}
+                  </div>
                 );
               })}
             </div>

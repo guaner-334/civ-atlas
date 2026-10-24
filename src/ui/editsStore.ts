@@ -22,6 +22,7 @@ import {
   MARK_REGIONS_TOTAL,
   cleanIntervention,
   cleanMark,
+  OUTLINE_PLOTS_MAX,
   cleanOutline,
   markRegionTotal,
   sameAdvance,
@@ -946,11 +947,16 @@ export function restoreCharacter(c: AuthorCharacter, at: number, ivs?: Intervent
 // ---- 大纲(格式见 gen/edits.ts 文件头"大纲") ----
 
 /**
- * 大纲换成 plots(清理过;一条不剩 = 去掉这一项),记一步。上一次照大纲推演的批改跟着去掉(改了大纲,批改对不上了;
+ * 大纲换成 plots(清理过;一条不剩 = 去掉这一项;超过 OUTLINE_PLOTS_MAX 条不收),记一步。上一次照大纲推演的批改跟着去掉(改了大纲,批改对不上了;
  * 硬改出来的干预留着,下次照大纲推演时重新算)。ivs = 干预列表一起换(删一条情节时连它硬改出来的那几条一起去掉)。
  * 改历史被拦下 = false
  */
 export function setOutlinePlots(plots: readonly Plot[], ivs?: Intervention[]): boolean {
+  // 满了还加(加一条、复制):不收,说一声(不然读进来时的清理会悄悄丢掉最后一条)
+  if (plots.length > OUTLINE_PLOTS_MAX) {
+    showToast({ id: 'outline-max', kind: 'warn', text: `大纲最多 ${OUTLINE_PLOTS_MAX} 条`, more: ['删掉几条再加'] });
+    return false;
+  }
   const { outline: _old, ...rest } = state;
   void _old;
   const o = cleanOutline({ plots });

@@ -1188,7 +1188,7 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
    * 照大纲推演(概览「大纲」页、侧栏「大纲」一组):正在推的这一次(第几次、推的那一份大纲、作者自己的干预;没在推 = null)、第几次了。
    * 推的时候改了大纲(界面先叫停)、下了别的干预(线程看到重推请求就不推了):推好的不换上
    */
-  const outlineRef = useRef<{ oid: number; plots: Plot[]; own: Intervention[]; t0: number } | null>(null);
+  const outlineRef = useRef<{ oid: number; plots: Plot[]; own: Intervention[]; marks: string; characters: string; t0: number } | null>(null);
   const outlineSeq = useRef(0);
   /** 照大纲推演收起(推完、停下、被顶掉):进度和提示条一起收 */
   const endOutline = () => {
@@ -2292,7 +2292,7 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
   outlineProgressRef.current = outlineProgress;
   /**
    * 照大纲推演好了:干预串(作者的 + 硬改出来的)、批改记进修改(一步,⌘Z 回到推之前),整段历史直接换上(不再重推一遍);
-   * 推的时候大纲、作者自己的干预变了:不换上(那边会照新的重推)
+   * 推的时候大纲、作者自己的干预、标记、人物变了:不换上(批改是照推之前那一份算的;大纲、干预变了那边会照新的重推)
    */
   const applyOutlined = (oid: number, next: Civ, ivs: Intervention[], review: PlotReview[], ms: number, eras: EraWorld[] | undefined, baseKey: string) => {
     const o = outlineRef.current;
@@ -2304,6 +2304,10 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
     endOutline();
     const e = getEdits();
     if (JSON.stringify(e.outline?.plots ?? null) !== JSON.stringify(o.plots) || !sameInterventions(ownInterventions(e.interventions), o.own)) return;
+    if (JSON.stringify(e.marks ?? null) !== o.marks || JSON.stringify(e.characters ?? null) !== o.characters) {
+      showToast({ id: 'outline-done', kind: 'warn', text: '推的时候改了标记或人物，结果没换上', more: ['再点一次「照大纲推演」'], ttl: 7000 });
+      return;
+    }
     // 先记下这串干预推好了,修改换上时不再重推
     const before = civEdits.current;
     civEdits.current = ivs;
@@ -2343,7 +2347,7 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
         if (askHistory(e)) return;
         const oid = ++outlineSeq.current;
         const own = ownInterventions(e.interventions);
-        outlineRef.current = { oid, plots, own, t0: performance.now() };
+        outlineRef.current = { oid, plots, own, marks: JSON.stringify(e.marks ?? null), characters: JSON.stringify(e.characters ?? null), t0: performance.now() };
         clearToast('outline-done');
         outlineProgress(oid, 0, plots.length, [], undefined);
         send({

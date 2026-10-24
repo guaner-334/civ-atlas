@@ -836,6 +836,10 @@ select.ol-in {
 .ol-crow.on {
   background: var(--accent-soft);
 }
+.ol-crow .ol-ic.ed {
+  flex: none;
+  margin: -3px -4px 0 0;
+}
 .ol-ph .ol-line .side.wide {
   display: none;
 }

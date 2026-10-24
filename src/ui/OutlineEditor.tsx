@@ -193,8 +193,7 @@ export function OutlineEditor({ civ, phone }: { civ: Civ; phone?: boolean }) {
     const next = plots.slice();
     if (fresh) next.splice(n - 1, 0, plot);
     else next[idx] = plot;
-    setOutlinePlots(next);
-    return true;
+    return setOutlinePlots(next);
   };
   const done = () => {
     if (!changed) return closeEdit();
