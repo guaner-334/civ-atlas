@@ -16,6 +16,7 @@
  *   这时不叠小绿点(它的立国已经有一颗大绿点,别的点里叠的是别国的立国)。
  * - 键盘:← → 前后 10 年(按住 Shift 100 年),Home / End 到头 / 到尾。
  * - 只在换世界 / 换筛选 / 轨道宽度变了时重排。
+ * - 大纲的情节(OutlineMap.tsx 的 PlotTicks):基线上每条一颗小菱形,颜色按批改的章;悬停出小卡,点一下 = 在大纲里点那一条。
  * - 再推 N 年(ExtendYears.tsx):推的时候(grow)轨道按推完的长度排,新的一段推好了的浅蓝、没推到的虚线,上面一行字;
  *   这时只能拖到推之前的结束年份(limit)。推完以后刚推的那段(fresh)底下垫一道浅蓝、起点一条细线。
  */
@@ -44,6 +45,7 @@ import {
 import { openOverview } from './overviewStore';
 import { noteDismiss } from './dismissClick';
 import { Icon } from './icons';
+import { PlotTicks, type PlotTick } from './OutlineMap';
 
 /** 提示最高多少(像素,约 8 行;再多在提示里往下滚) */
 const TIP_MAX_H = 300;
@@ -97,6 +99,8 @@ export interface TimelineMarksProps {
   fresh?: number;
   /** 选中的国家:标出它的一生(不给 = 没选国家) */
   life?: TimelineLife;
+  /** 大纲的情节:压在基线上的记号(不给 = 没有大纲) */
+  plots?: readonly PlotTick[];
 }
 
 /** 选中的国家:哪一国、哪年立国、哪年亡(还在 = null)、国色 */
@@ -112,7 +116,7 @@ const NOTE_PAD = 2;
 
 type Tip = Diamond & { pinned?: boolean };
 
-export const TimelineMarks = memo(function TimelineMarks({ entries, end, dock, year, era, range, small, limit, grow, fresh, life }: TimelineMarksProps) {
+export const TimelineMarks = memo(function TimelineMarks({ entries, end, dock, year, era, range, small, limit, grow, fresh, life, plots }: TimelineMarksProps) {
   const ref = useRef<HTMLDivElement>(null);
   const months = useMonths();
   const tipRef = useRef<HTMLDivElement>(null);
@@ -248,6 +252,8 @@ export const TimelineMarks = memo(function TimelineMarks({ entries, end, dock, y
 
   const onDown = (e: React.PointerEvent) => {
     if (e.button !== 0 || inTip(e) || range?.locked) return;
+    // 大纲情节的记号:点它自己(OutlineMap.tsx),不拖年份
+    if ((e.target as Element).closest?.('.ol-tick')) return;
     const r = ref.current!.getBoundingClientRect();
     const handle = handleAt(e.clientX - r.left);
     const hit = !handle && !range && e.clientY - r.top < MARK_ROW ? hitDiamonds(layout, e.clientX - r.left) : null;
@@ -280,6 +286,11 @@ export const TimelineMarks = memo(function TimelineMarks({ entries, end, dock, y
       return;
     }
     if (inTip(e)) return keep();
+    // 指着大纲情节的记号:它自己出小卡,纪事的提示收起
+    if ((e.target as Element).closest?.('.ol-tick')) {
+      if (tip && !tip.pinned) setTip(null);
+      return;
+    }
     // 手机上不悬停(点了出卡片)
     if (e.pointerType === 'touch' || range || small) return;
     const h = hitDiamonds(layout, localX(e.clientX));
@@ -494,6 +505,7 @@ export const TimelineMarks = memo(function TimelineMarks({ entries, end, dock, y
       )}
       {growFrom !== null && width > 0 && <GrowTrack from={growFrom} at={grow!.at} end={end} width={width} />}
       <i className="tb-prog" />
+      {plots && growFrom === null && <PlotTicks ticks={plots} end={end} width={width} below={dock === 'top'} />}
       {lifeEls?.band}
       {marks}
       {lifeEls?.top}

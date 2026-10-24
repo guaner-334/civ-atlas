@@ -15,22 +15,26 @@
  */
 import type { World } from '../gen/world';
 import type { Raster } from '../gen/raster';
-import type { PrepStep, VecView, WorkStep } from './common';
+import { drawParts, type DrawPart, type PrepStep, type VecView, type WorkStep } from './common';
 import {
   drawFantasyCoasts,
-  drawFantasyIce,
-  drawFantasySeaLines,
-  drawFantasyVectors,
   fantasyBaseClean,
   fantasyBaseNoInk,
   fantasyDetailPrep,
+  fantasyCoastParts,
+  fantasyIceParts,
   fantasyProjPrep,
+  fantasySeaLineParts,
   fantasySymbolLayerProj,
+  fantasyVectorParts,
   fantasyWholeProjPrep,
 } from './fantasy';
-import { drawRealisticRivers, drawRealisticShores, realisticBase, realisticDetailPrep } from './realistic';
+import { drawRealisticRivers, realisticBase, realisticDetailPrep, realisticShoreParts } from './realistic';
 import { clipOutline, projector, reprojectImage, type MapProj } from './projection';
 import type { SurfaceLook } from './surface';
+
+/** 细节层分几下画时,手绘风的像素层一下贴多少画布像素(一条横带) */
+const BASE_BAND_PX = 4e6;
 
 /** 放大到几倍以上才启用细节层(以下直接看铺进地形图的那一份;两者在这附近画出来一样大) */
 export const DETAIL_K = 1.2;
@@ -42,22 +46,46 @@ export type DetailStyle = 'realistic' | 'fantasy';
  * creeks = false:写实风不画小溪(上面盖着现算的块,块里有);look = 写实风的画法(surface.ts)
  */
 export function drawTerrainDetail(ctx: CanvasRenderingContext2D, world: World, raster: Raster, style: DetailStyle, v: VecView, creeks = true, look: SurfaceLook = 'classic') {
-  if (style === 'realistic') {
-    drawRealisticShores(ctx, raster, v, look);
-    drawRealisticRivers(ctx, world, raster, v, creeks, look);
-    return;
-  }
-  // 像素层按视口变换放大贴上(和地形图被 CSS 放大时一样是双线性插值;放大用不着更贵的高质量缩放)
+  drawParts(ctx, terrainDetailParts(world, raster, style, v, creeks, look));
+}
+
+/**
+ * drawTerrainDetail 分几下画(见 common.ts 的 DrawPart;依次画完和 drawTerrainDetail 逐像素一样):
+ * 手绘 —— 像素层一下,排线、每圈波纹各一下,冰面、背光边、冰缘各一下,湖岸、海岸各一下,林块几格一下,河一下,符号一下;
+ * 写实 —— 水、陆两份各一下,河一下。
+ * split = 要分在几个任务里画(没有显卡加速时):手绘的像素层再按横带分几下贴(在 CPU 上画逐像素一样;
+ * 显卡上按横带裁着贴,插值会差一点,所以只在分开画时才切)。
+ * 都要在第一次画用的缓存备好以后再画(terrainDetailPrep)
+ */
+export function terrainDetailParts(world: World, raster: Raster, style: DetailStyle, v: VecView, creeks = true, look: SurfaceLook = 'classic', split = false): DrawPart[] {
+  if (style === 'realistic') return [...realisticShoreParts(raster, v, look), (ctx) => drawRealisticRivers(ctx, world, raster, v, creeks, look)];
+  // 像素层按视口变换放大贴上(和地形图被 CSS 放大时一样是双线性插值;放大用不着更贵的高质量缩放)。
+  // 分开画时分几下贴:每一下裁在一条横带里(带的边在像素边上)
   const ps = v.s / raster.scale;
-  ctx.save();
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = 'low';
-  ctx.drawImage(fantasyBaseClean(world, raster), v.ox, v.oy, raster.w * ps, raster.h * ps);
-  ctx.restore();
-  drawFantasySeaLines(ctx, world, raster, v);
-  drawFantasyIce(ctx, world, raster, v);
-  drawFantasyCoasts(ctx, raster, v);
-  drawFantasyVectors(ctx, world, v);
+  let row = 0;
+  return [
+    (ctx) => {
+      const cw = ctx.canvas.width;
+      const ch = ctx.canvas.height;
+      const r1 = split ? Math.min(ch, row + Math.max(64, Math.ceil(BASE_BAND_PX / cw))) : ch;
+      ctx.save();
+      if (split) {
+        const band = new Path2D();
+        band.rect(0, row, cw, r1 - row);
+        ctx.clip(band);
+      }
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'low';
+      ctx.drawImage(fantasyBaseClean(world, raster), v.ox, v.oy, raster.w * ps, raster.h * ps);
+      ctx.restore();
+      row = r1;
+      return row < ch;
+    },
+    ...fantasySeaLineParts(world, raster, v),
+    ...fantasyIceParts(world, raster, v),
+    ...fantasyCoastParts(raster, v),
+    ...fantasyVectorParts(world, v),
+  ];
 }
 
 /**
@@ -126,23 +154,44 @@ export function terrainProjWholeSteps(ctx: () => CanvasRenderingContext2D | null
  * 不清空画布,外轮廓外面不画
  */
 export function drawTerrainProjected(ctx: CanvasRenderingContext2D, world: World, raster: Raster, style: DetailStyle, mp: MapProj, v: { s: number; ox: number; oy: number; k: number }, look: SurfaceLook = 'classic'): void {
-  const fantasy = style === 'fantasy';
   const whole = v.k <= 1 && v.ox === 0 && v.oy === 0 && Math.abs(v.s - raster.scale) < 1e-9 && ctx.canvas.width === raster.w && ctx.canvas.height === raster.h;
+  drawParts(ctx, terrainProjectedParts(world, raster, style, mp, v, look, whole));
+}
+
+/** 弯边投影里面按行重投影时,分几下画的每一下铺多少行画布 */
+const PROJ_ROWS = 256;
+
+/**
+ * drawTerrainProjected 分几下画(见 common.ts 的 DrawPart;依次画完和 drawTerrainProjected 逐像素一样):
+ * 面一下(split = 要分在几个任务里画时按画布行每 PROJ_ROWS 行一下;写实风放大后的一块视口:水、陆两份各一下),
+ * 裁外轮廓一下,线和符号同 terrainDetailParts 各一下,最后撤掉裁剪。
+ * whole = 整张地形图、缩放 1 倍(同 drawTerrainProjected 里的判断)
+ */
+export function terrainProjectedParts(world: World, raster: Raster, style: DetailStyle, mp: MapProj, v: { s: number; ox: number; oy: number; k: number }, look: SurfaceLook = 'classic', whole = false, split = false): DrawPart[] {
+  const fantasy = style === 'fantasy';
   const pv = { ...v, proj: projector(mp) };
+  const parts: DrawPart[] = [];
   if (fantasy || whole) {
-    const base = !fantasy ? realisticBase(raster, look) : whole ? fantasyBaseNoInk(world, raster) : fantasyBaseClean(world, raster);
-    reprojectImage(ctx, base, raster.w, raster.h, mp, v, whole ? 'medium' : 'low');
-  } else drawRealisticShores(ctx, raster, pv, look);
-  ctx.save();
-  clipOutline(ctx, mp, v);
+    const base = () => (!fantasy ? realisticBase(raster, look) : whole ? fantasyBaseNoInk(world, raster) : fantasyBaseClean(world, raster));
+    let row = 0;
+    parts.push((ctx) => {
+      if (!split) return void reprojectImage(ctx, base(), raster.w, raster.h, mp, v, whole ? 'medium' : 'low');
+      const r1 = row + PROJ_ROWS;
+      reprojectImage(ctx, base(), raster.w, raster.h, mp, v, whole ? 'medium' : 'low', [row, r1]);
+      row = r1;
+      return row < ctx.canvas.height;
+    });
+  } else parts.push(...realisticShoreParts(raster, pv, look));
+  parts.push((ctx) => {
+    ctx.save();
+    clipOutline(ctx, mp, v);
+  });
   if (fantasy) {
-    if (!whole) {
-      drawFantasySeaLines(ctx, world, raster, pv);
-      drawFantasyIce(ctx, world, raster, pv);
-    }
-    drawFantasyCoasts(ctx, raster, pv);
-    if (whole) ctx.drawImage(fantasySymbolLayerProj(world, raster, mp), 0, 0);
-    else drawFantasyVectors(ctx, world, pv);
-  } else drawRealisticRivers(ctx, world, raster, pv, true, look);
-  ctx.restore();
+    if (!whole) parts.push(...fantasySeaLineParts(world, raster, pv), ...fantasyIceParts(world, raster, pv));
+    parts.push(...fantasyCoastParts(raster, pv));
+    if (whole) parts.push((ctx) => ctx.drawImage(fantasySymbolLayerProj(world, raster, mp), 0, 0));
+    else parts.push(...fantasyVectorParts(world, pv));
+  } else parts.push((ctx) => drawRealisticRivers(ctx, world, raster, pv, true, look));
+  parts.push((ctx) => ctx.restore());
+  return parts;
 }

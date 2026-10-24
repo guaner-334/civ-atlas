@@ -18,9 +18,10 @@ import { loadFilesIn } from './lib/loadScreen';
 
 /**
  * 首页的代码 + 样式,gzip 压过以后的上限(KB)。2026-10 拆开主程序后是 240 KB 左右,留了一点余量;
- * 存档里加了大纲以后调到 272:首页的「我的世界」要读存档,读存档时认大纲、把不合格式的情节挑出去的那段代码跟着进了首页(约 2 KB)
+ * 存档里加了大纲以后调到 272:首页的「我的世界」要读存档,读存档时认大纲、把不合格式的情节挑出去的那段代码跟着进了首页(约 2 KB);
+ * 大纲有了界面以后调到 276:样式不拆、一个文件跟首页一起下(src/ui/styles.ts),大纲页、编一行、侧栏一组的样式多了约 3–4 KB
  */
-const LIMIT_KB = 272;
+const LIMIT_KB = 276;
 
 const dist = process.argv[2] ?? 'dist';
 const html = readFileSync(join(dist, 'index.html'), 'utf8');

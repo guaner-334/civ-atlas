@@ -51,7 +51,8 @@
  *   划州"【干预】瑞州自大渭划归大昌,永为大昌之土";立国"【干预】瑞州脱大渭自立,号瑞国,都于瑞城"(紧跟着的 found 并进这一条);
  *   迁都"【干预】大昌自汾城迁都瑞城"(紧跟着的 capital 并进这一条);不许扩张"【干预】大昌自此止戈息兵,不再开疆拓土"。
  *   没生效的写原因("…,然其地无人居住""…,然瑞城属大渭");界面上的干预列表也用它(interventionOutcome)。标签"干",一律是大事。
- *   照大纲硬改出来的(干预带 plot,gen/edits.ts 文件头"大纲")前面标【照大纲】,别的写法一样:"【照大纲】大昌向索拉特宣战"。
+ *   照大纲硬改出来的(干预带 plot,gen/edits.ts 文件头"大纲")前面标【照大纲】,别的写法一样:"【照大纲】大昌向索拉特宣战";
+ *   同一条情节同一刻划给同一国的几州并成一条:"【照大纲】瑞州、汾州、雪西三州划归大昌"。
  *   援盟参战的战争(史事 war 的 settlement 列 = 盟国)写"索拉特应大昌之约伐某国"。
  * - **名臣**(Person.deeds):经手的事写上他(官职按那一年):议和"大景王朝遣礼部尚书百里青与萨尔斯坦帝国议和"
  *   (对方的使臣写在对方国名后面);称王称帝"…,丞相某某劝进"(西幻"…,首相某某力主其事");幼主即位"…,时年 11 岁,丞相某某辅政"
@@ -88,7 +89,7 @@ import { ageAt, generalRef, kinOf, ministerRole, rulerBare, rulerRef, rulerShort
 import { eraText, monthTail, type Era } from '../era';
 import { parsePersonKey, resolveKey, resolvePersonKey, type Intervention } from '../edits';
 import { emptyPolicy, policyName, type PolicyIv } from './policy';
-import { IV_NOT_HIM, IV_PEOPLE, IV_WAIT } from './rulers';
+import { IV_NOT_HIM, IV_PEOPLE, IV_PROTECTED, IV_WAIT } from './rulers';
 import { IV_TOLL, PLAGUE_IV, quakeWord } from './calamity';
 
 /** 重要度:3 最重要 */
@@ -880,6 +881,7 @@ function interveneStory(civ: Civ, e: Annal, id: number): IvStory {
     }
     case 'destroy': {
       if (e.b === -3) return fail(`欲灭${A},然${A}已亡`, `那一年${A}已亡`);
+      if (e.b === IV_PROTECTED) return fail(`欲灭${A},然又有令保${A}不亡`, `那一年${A}受后下的「保护」护着`);
       const n = e.n ? `${cnNumber(e.n)}州` : '其地';
       return done(e.b >= 0 ? `${A}亡,${n}并入${B}` : `${A}亡,${n}散为无主之地`);
     }
@@ -1048,6 +1050,24 @@ function authorName(civ: Civ, char: number): string {
 function crownedAt(ix: PeopleIndex | null, e: Annal, char: number): Person | null {
   // 前一位被作者让他去世、等着的作者人物接位的:即位那一刻的下一刻才记史事
   return ix?.rulers[e.a]?.find((x) => x.author === char && x.from !== undefined && e.year - x.from >= 0 && e.year - x.from <= 1 / 256) ?? null;
+}
+
+/** 第 i 条史事是照大纲硬改的划州、生效了:同一条情节、同一刻、划给同一国的并成一条用的键(不是 = '') */
+function plotCedeKey(civ: Civ, i: number): string {
+  const e = civ.annals[i];
+  if (!e || e.kind !== 'intervene') return '';
+  const v = civ.interventions?.[e.war];
+  if (v?.kind !== 'cede' || v.plot === undefined || !interveneStory(civ, e, i).ok) return '';
+  return `${v.plot}|${e.a}|${e.year}`;
+}
+
+/** 从第 i 条起接连几条照大纲划给同一国的州(第 i 条不是 = []) */
+function plotCedeRun(civ: Civ, i: number): number[] {
+  const k = plotCedeKey(civ, i);
+  if (!k) return [];
+  const out = [i];
+  while (plotCedeKey(civ, out[out.length - 1] + 1) === k) out.push(out[out.length - 1] + 1);
+  return out;
 }
 
 /**
@@ -1416,6 +1436,12 @@ function simpleEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
     case 'defect':
       return diplomacyEntry(ctx, e, id);
     case 'intervene': {
+      // 照大纲同一刻划给同一国的几州:并成一条
+      const run = plotCedeRun(civ, id);
+      if (run.length > 1) {
+        const rs = run.map((j) => civ.annals[j].region);
+        return base(e, id, `【照大纲】${regionNames(civ, rs)}划归${pn(civ, e.a, y)}`, 3, [e.a, ...run.map((j) => civ.annals[j].b)], rs);
+      }
       const story = interveneStory(civ, e, id);
       const x = base(e, id, story.text, 3, [e.a, e.b], [e.region]);
       // 干预立的国:立国那条并进了这一条,开国之君也写在这里
@@ -2580,6 +2606,8 @@ export function* chronicleSteps(civ: Civ): Generator<void, ChronicleEntry[]> {
     if (e.kind === 'found' && splitOf.has(e.a)) continue;
     // 干预引起的立国、迁都并进干预那一条
     if ((e.kind === 'found' || e.kind === 'capital' || e.kind === 'fall' || e.kind === 'famine') && foldedIntoIntervene(civ, i)) continue;
+    // 照大纲划给同一国的几州并进头一条
+    if (e.kind === 'intervene' && i > 0 && plotCedeKey(civ, i) && plotCedeKey(civ, i - 1) === plotCedeKey(civ, i)) continue;
     // 即位(等在位的那位下台):登记的那一条不列,真即位时另有一条
     if (e.kind === 'intervene' && e.b === IV_WAIT && civ.interventions?.[e.war]?.kind === 'crown') continue;
     if (e.kind === 'fall' && e.b < 0 && mergedAt.has(`${e.a}|${e.year}`)) continue;

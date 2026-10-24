@@ -6,7 +6,7 @@
  *   下面   三选一 ——
  *          搜索框里有字:搜索结果(点一条 = 选中它,地图飞过去)
  *          地图上选中了东西:它的详情(Inspector:国家 / 城 / 地理实体 / 州的面板);打开了地形大事:它的卡片(UpheavalPanel.tsx)
- *          什么都没选:整个世界(WorldHome:信仰(只在信仰图层)、国家按大小排、民族按大小排、最近大事、我的干预(干预和地形大事)、
+ *          什么都没选:整个世界(WorldHome:大纲(OutlineSide.tsx;逐年推演里不放)、信仰(只在信仰图层)、国家按大小排、民族按大小排、最近大事、我的干预(干预和地形大事)、
  *          这颗星球(从这里演绎(逐年推演,从时间轴停的这一年起)、回放世界形成、地形大事、在这张地图上打造新文明、世界设定;
  *          从别人的分享另存来的,最后一行是底稿出处,点了在新标签页打开那个分享链接))。
  *          在逐年推演里:副标写"逐年推演,从某某年起演绎"(演一国时"逐年推演,演某国"),"这颗星球"换成"这个故事"(推进设置、存回推演模式,见 Stepwise.tsx)
@@ -49,6 +49,7 @@ import { AiMenuItem, AiSettingsItem, MenuItem, MenuSep, PopMenu } from './PopMen
 import { GUIDE_URL, PRIVACY_URL, SOURCE_URL, TERMS_URL } from './links';
 import { ContactMenuItem } from './ContactLink';
 import { VersionMenuFoot } from './VersionNews';
+import { PlayQualityItem } from './PlayQualityMenu';
 import { useCoarse } from './device';
 import { keyLabel } from './shortcuts';
 import { openShortcuts } from './ShortcutsDialog';
@@ -59,6 +60,8 @@ import { PolityFlag } from './Flag';
 import { useRole } from './roleStore';
 import { rolePolity } from './policyInfo';
 import { nameAt } from './Interventions';
+import { OutlineSide } from './OutlineSide';
+import { interventionRows } from './outlineInfo';
 import './sidebar.css';
 
 export interface SidebarProps {
@@ -243,7 +246,7 @@ export function useWorldInfo(civ: Civ | null, data: SidebarProps['data']): { tit
   const year = useYear(civ);
   const step = useStepwiseOn();
   const alive = civ && civ.viable ? civ.polities.filter((x) => polityAlive(x, year)).length : 0;
-  const n = edits.interventions.length;
+  const n = interventionRows(edits.interventions);
   const seed = data ? data.world.params.seed : null;
   // 逐年推演:"逐年推演，从 2650 年起演绎";演一国时"逐年推演，演大澜王朝"(roleStore.ts)
   const role = useRole();
@@ -259,7 +262,7 @@ export function useWorldInfo(civ: Civ | null, data: SidebarProps['data']): { tit
   return { title: currentWorld()?.title || '未命名世界', sub, step };
 }
 
-/** "更多"菜单:写成史书(「使用 AI 功能」关着时没有)、AI 设置、键盘快捷键(有鼠标时)、问题记录、源代码和两份协议;最底下一行版本号 */
+/** "更多"菜单:写成史书(「使用 AI 功能」关着时没有)、AI 设置、播放画面、键盘快捷键(有鼠标时)、问题记录、源代码和两份协议;最底下一行版本号 */
 export function WorldMoreMenu({
   civ,
   onBook,
@@ -287,6 +290,7 @@ export function WorldMoreMenu({
         把历史写成史书
       </AiMenuItem>
       <AiSettingsItem onClick={() => openAiSettings()} />
+      <PlayQualityItem />
       <MenuSep />
       <MenuItem icon={<Icon name="help" size={16} />} href={GUIDE_URL} act="guide">
         使用教程
@@ -476,9 +480,9 @@ export function WorldHome(p: Pick<SidebarProps, 'civ' | 'data' | 'params' | 'gen
   const resOn = show.resources && ok && !!civ!.development;
   const k = countUpTo(entries, year);
   const recent = entries.slice(Math.max(0, k - RECENT_N), k).reverse();
-  // 我的干预:干预和地形大事一起数(概览"我的干预"页列在一起)
+  // 我的干预:干预和地形大事一起数(概览"我的干预"页列在一起;照大纲硬改的一条情节算一处)
   const nUp = edits.upheavals?.length ?? 0;
-  const nIv = edits.interventions.length + nUp;
+  const nIv = interventionRows(edits.interventions) + nUp;
   const nTerrain = edits.terrain.length;
   // 逐年推演:「这颗星球」换成「这个故事」(推进设置、存回推演模式);干预都在「下一步生效的干预」单子里
   const step = useStepwiseOn();
@@ -538,6 +542,7 @@ export function WorldHome(p: Pick<SidebarProps, 'civ' | 'data' | 'params' | 'gen
           <p className="sb-note">颜色是每州此刻所处的时代。拖时间轴看各地一步步往前走；悬停一州看它走了几成。</p>
         </section>
       )}
+      {ok && !step && <OutlineSide civ={civ} era={era} />}
       {resOn && <ResourceList civ={civ!} year={year} era={era} />}
       {ok && !resOn && (
         <section className="sb-sec">

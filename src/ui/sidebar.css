@@ -556,6 +556,97 @@ a.sb-row {
   text-decoration: underline;
 }
 
+/* 「更多」菜单里「播放画面」那一行和点开的卡片(PlayQualityMenu.tsx) */
+.pq-row .pq-chev {
+  color: var(--ink-3);
+  margin-left: -4px;
+}
+.pm-item.pq-row:hover .pq-chev {
+  color: inherit;
+  opacity: 0.85;
+}
+.pm-menu.pm-panel:has(> .pq) {
+  width: 304px;
+}
+.psheet .pm-menu.pm-panel:has(> .pq) {
+  width: 318px;
+}
+.pq {
+  padding: 5px;
+  white-space: normal;
+}
+.pq-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 4px 6px;
+}
+.pq-head b {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.pq-back {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink-2);
+}
+.pq-opt {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  width: 100%;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+}
+/* 触屏点过以后不留着悬停的底色 */
+@media (hover: hover) {
+  .pq-back:hover,
+  .pq-opt:hover {
+    background: var(--hover-bg);
+  }
+}
+.pq-opt .icon {
+  flex: none;
+  margin-top: 2px;
+  color: var(--accent);
+  visibility: hidden;
+}
+.pq-opt.on .icon {
+  visibility: visible;
+}
+.pq-opt span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.pq-opt b {
+  font-size: 14px;
+  font-weight: 400;
+}
+.pq-opt small {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--ink-2);
+}
+.pq-foot {
+  padding: 4px 9px 5px 34px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--ink-3);
+}
+
 /* ==== 时代 / 物产图层的列表(Sidebar.tsx 的 WorldHome、ResourceList;手机世界卡片共用) ==== */
 /* 列表下面一段说明 */
 .sb-note {

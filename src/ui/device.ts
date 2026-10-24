@@ -68,3 +68,22 @@ export function safeInsets(): { t: number; b: number } {
   const cs = getComputedStyle(insetProbe);
   return { t: parseFloat(cs.paddingTop) || 0, b: parseFloat(cs.paddingBottom) || 0 };
 }
+
+let gpuless: boolean | null = null;
+
+/**
+ * 画布有没有用上显卡加速:拿不到不慢的 WebGL(浏览器关了硬件加速、显卡被禁用时都是这样)就算没有 ——
+ * 这时画布的光栅化、合成都在主线程上,一大张画布要画几十到几百毫秒。页面上第一次要用时试一次
+ */
+export function noGpu(): boolean {
+  if (gpuless === null) {
+    try {
+      const gl = document.createElement('canvas').getContext('webgl', { failIfMajorPerformanceCaveat: true });
+      gpuless = !gl;
+      gl?.getExtension('WEBGL_lose_context')?.loseContext();
+    } catch {
+      gpuless = false;
+    }
+  }
+  return gpuless;
+}

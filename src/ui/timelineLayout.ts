@@ -132,9 +132,9 @@ export function evLabel(e: Pick<ChronicleEntry, 'tag' | 'kind' | 'text'>): strin
   return TAG_LABEL[e.tag] ?? '纪事';
 }
 
-/** 正文(干预的"【干预】"前缀去掉:类型名已经写了) */
+/** 正文(干预的"【干预】"前缀去掉:类型名已经写了;照大纲硬改的留着【照大纲】,和自己下的干预分得开) */
 export function evText(e: Pick<ChronicleEntry, 'text'>): string {
-  return e.text.replace(/^【(?:干预|照大纲)】/, '');
+  return e.text.replace(/^【干预】/, '');
 }
 
 /**

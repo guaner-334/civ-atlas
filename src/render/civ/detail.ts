@@ -17,9 +17,9 @@
 import type { World } from '../../gen/world';
 import type { Raster } from '../../gen/raster';
 import type { Civ, Year } from '../../gen/civ/types';
-import { drawFantasyVectors, fantasyVectorLayers, glyphScale, GLYPH_K0 } from '../fantasy';
+import { drawFantasyVectors, fantasyVectorParts, glyphScale, GLYPH_K0 } from '../fantasy';
 import { clipOutline, projector, reprojectImage, relShifts } from '../projection';
-import { nearX, type WorkStep } from '../common';
+import { drawParts, nearX, type DrawPart, type WorkStep } from '../common';
 import { drawBorders, mergeChains, regionChains, BAND, type SidedLine } from './borders';
 import { drawRoutes } from './routes';
 import { drawPlagueDetail } from './plague';
@@ -111,21 +111,39 @@ function imgOf(cache: DetailCache, slot: Slot, g: DetailGrid): ImageData {
   return img;
 }
 
-/** 草稿里算好的工作格贴到画布上(按 step 放大,双线性 —— 边是一两个像素的抗锯齿,不是方块) */
-function blit(ctx: CanvasRenderingContext2D, cache: DetailCache, img: ImageData, g: DetailGrid) {
+/**
+ * 草稿里算好的工作格贴到画布上(按 step 放大,双线性 —— 边是一两个像素的抗锯齿,不是方块)。
+ * band = 只贴画布的第 band[0] 到 band[1] − 1 行(分几下贴,第一下从第 0 行起;在 CPU 上画和一口气贴逐像素一样)
+ */
+function blit(ctx: CanvasRenderingContext2D, cache: DetailCache, img: ImageData, g: DetailGrid, band?: [number, number]) {
   let cv = cache.canvas;
   if (!cv || cv.width !== g.gw || cv.height !== g.gh) {
     if (cv) cv.width = cv.height = 0;
     cv = cache.canvas = makeCanvas(g.gw, g.gh);
   }
-  (cv.getContext('2d') as CanvasRenderingContext2D).putImageData(img, 0, 0);
+  // 分几下贴的后几下:中间这张草稿画布没被别的贴图换掉就不用再铺
+  if (!band || band[0] === 0 || putOf.get(cv) !== img) {
+    (cv.getContext('2d') as CanvasRenderingContext2D).putImageData(img, 0, 0);
+    putOf.set(cv, img);
+  }
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
+  if (band) {
+    const clip = new Path2D();
+    clip.rect(0, band[0], ctx.canvas.width, band[1] - band[0]);
+    ctx.clip(clip);
+  }
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'low';
   ctx.drawImage(cv, 0, 0, g.gw * g.step, g.gh * g.step);
   ctx.restore();
 }
+
+/** 草稿画布上现在铺的是哪一份草稿(blit) */
+const putOf = new WeakMap<object, ImageData>();
+
+/** 底图分几下画时,色块一下贴多少画布像素(一条横带) */
+const BLIT_BAND_PX = 4e6;
 
 /**
  * 细节层的一张画布分两半画:steps 备料(纯计算、离屏画布,可以分几段、隔几帧做完,不碰这张画布),
@@ -134,6 +152,11 @@ function blit(ctx: CanvasRenderingContext2D, cache: DetailCache, img: ImageData,
 export interface DetailPlan<T> {
   steps: WorkStep[];
   draw: (ctx: CanvasRenderingContext2D) => T;
+  /**
+   * draw 分几下画(没有显卡加速时分在几个任务里画,见 ui/detailJobs.ts 的 paintInParts;依次画完和 draw 逐像素一样,
+   * 画完 result() 是 draw 的返回值)。没有的一次画完
+   */
+  parts?: () => { parts: DrawPart[]; result: () => T };
 }
 
 /** 备料一口气做完,马上画 */
@@ -300,16 +323,17 @@ const INK_ROWS = 64;
  * 返回的 WorkStep 一次做一小步,返回 true = 还没做完
  */
 function inkWork(cache: DetailCache, v: CivDetailView, step: number, world: World): WorkStep {
-  let todo: (() => void)[] | null = null;
+  let todo: (() => boolean | void)[] | null = null;
   let k = 0;
   return () => {
     todo ??= cache.inks.has(step) ? [] : inkTodo(cache, v, step, world);
-    if (k < todo.length) todo[k++]();
+    // 一小步返回 true = 这一小步还没做完,下次接着做
+    if (k < todo.length && todo[k]() !== true) k++;
     return k < todo.length;
   };
 }
 
-function inkTodo(cache: DetailCache, v: CivDetailView, step: number, world: World): (() => void)[] {
+function inkTodo(cache: DetailCache, v: CivDetailView, step: number, world: World): (() => boolean | void)[] {
   const ms = Math.max(1, Math.round(INK_CSS * v.dpr));
   const g = gridOf(cache, v, step, world);
   if (step < ms) {
@@ -331,15 +355,16 @@ function inkTodo(cache: DetailCache, v: CivDetailView, step: number, world: Worl
     todo.push(() => void cache.inks.set(step, { hard, soft }));
     return todo;
   }
-  // 同 inkOf:按细节层同样的缩放画符号层(三样各一步;每一样都裁在同样的范围里,和一口气画完逐像素一样)
+  // 同 inkOf:按细节层同样的缩放画符号层(林块几格一步、河流一步、符号一步;每一步都裁在同样的范围里,和一口气画完逐像素一样)。
+  // 每一步画完读回一个像素:这张画布在 CPU 上画,一读就当下画出来,不攒到最后读整张时一口气画
   let cv: HTMLCanvasElement | OffscreenCanvas | null = null;
   let ctx: CanvasRenderingContext2D | null = null;
   const vs = { s: v.s / step, ox: v.ox / step, oy: v.oy / step, k: v.k };
   /** 每一段:裁在哪(画之前调)、按哪个视图画 */
-  const parts: [(c: CanvasRenderingContext2D) => void, ((c: CanvasRenderingContext2D) => void)[]][] = [];
+  const parts: [(c: CanvasRenderingContext2D) => void, DrawPart[]][] = [];
   if (v.mp) {
     const mp = v.mp;
-    parts.push([(c) => clipOutline(c, mp, vs), fantasyVectorLayers(world, { ...vs, proj: projector(mp) })]);
+    parts.push([(c) => clipOutline(c, mp, vs), fantasyVectorParts(world, { ...vs, proj: projector(mp) })]);
   } else {
     // 跨过主图右边(180° 经线)的那一块:左右两段各画一遍,各自裁在自己那一段里(同 inkOf)
     const W = world.width;
@@ -357,24 +382,25 @@ function inkTodo(cache: DetailCache, v: CivDetailView, step: number, world: Worl
               c.clip();
             }
           : () => {};
-      parts.push([clip, fantasyVectorLayers(world, { ...vs, ox: vs.ox + sh })]);
+      parts.push([clip, fantasyVectorParts(world, { ...vs, ox: vs.ox + sh })]);
     }
   }
-  const todo: (() => void)[] = [
+  const todo: (() => boolean | void)[] = [
     () => {
       cv = makeCanvas(g.gw, g.gh);
       ctx = cv.getContext('2d', { willReadFrequently: true }) as CanvasRenderingContext2D;
     },
   ];
   for (let layer = 0; layer < 3; layer++)
-    todo.push(() => {
-      for (const [clip, layers] of parts) {
+    for (const [clip, layers] of parts)
+      todo.push(() => {
         ctx!.save();
         clip(ctx!);
-        layers[layer](ctx!);
+        const more = layers[layer](ctx!) === true;
         ctx!.restore();
-      }
-    });
+        ctx!.getImageData(0, 0, 1, 1);
+        return more;
+      });
   todo.push(() => {
     cache.inks.set(step, inkFromSymbols(ctx!.getImageData(0, 0, g.gw, g.gh).data, g.gw * g.gh));
     cv!.width = cv!.height = 0;
@@ -443,39 +469,55 @@ export function planCivDetail(p: CivDrawParams, v: CivDetailView, step: number, 
     }),
     timed('wash', wash),
   ];
+  /** 画的那几下:清空 + 热力图一下,色块一下(split:按横带分几下),线一下 */
+  const partsOf = (split: boolean): DrawPart[] => {
+    let row = 0;
+    return [
+      (ctx) => {
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.clearRect(0, 0, v.cw, v.ch);
+        // 1. 宜居度热力图(本来就是平滑的场,直接放大贴上)
+        if (p.show.habitat) {
+          const heat = habitatCanvas(p);
+          ctx.save();
+          ctx.imageSmoothingEnabled = true;
+          if (v.mp) reprojectImage(ctx, heat, raster.w, raster.h, v.mp, v, 'low');
+          else eachPart(ctx, v, world, S, () => ctx.drawImage(heat, 0, 0, raster.w, raster.h));
+          ctx.restore();
+        }
+      },
+      // 2. 色块
+      (ctx) => {
+        if (!img) return;
+        const t1 = performance.now();
+        const ch = ctx.canvas.height;
+        const r1 = split ? Math.min(ch, row + Math.max(64, Math.ceil(BLIT_BAND_PX / ctx.canvas.width))) : ch;
+        blit(ctx, cache, img, g!, split ? [row, r1] : undefined);
+        row = r1;
+        t.wash += performance.now() - t1;
+        return row < ch;
+      },
+      // 3. 州界、国界、道路、城址(矢量线,线宽 × pen)
+      (ctx) => {
+        const t2 = performance.now();
+        const pj = v.mp ? projector(v.mp) : null;
+        eachPart(ctx, v, world, S, (cull) => {
+          const q: CivDrawParams = { ...p, proj: pj, pen, cull };
+          drawPlagueDetail(ctx, q);
+          if (q.show.regions) drawRegionLines(ctx, q);
+          drawBorders(ctx, q);
+          drawRoutes(ctx, q);
+          if (q.show.sites) drawSites(ctx, q);
+        });
+        t.lines = performance.now() - t2;
+      },
+    ];
+  };
   const draw = (ctx: CanvasRenderingContext2D) => {
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, v.cw, v.ch);
-    // 1. 宜居度热力图(本来就是平滑的场,直接放大贴上)
-    if (p.show.habitat) {
-      const heat = habitatCanvas(p);
-      ctx.save();
-      ctx.imageSmoothingEnabled = true;
-      if (v.mp) reprojectImage(ctx, heat, raster.w, raster.h, v.mp, v, 'low');
-      else eachPart(ctx, v, world, S, () => ctx.drawImage(heat, 0, 0, raster.w, raster.h));
-      ctx.restore();
-    }
-    // 2. 色块
-    if (img) {
-      const t1 = performance.now();
-      blit(ctx, cache, img, g!);
-      t.wash += performance.now() - t1;
-    }
-    // 3. 州界、国界、道路、城址(矢量线,线宽 × pen)
-    const t2 = performance.now();
-    const pj = v.mp ? projector(v.mp) : null;
-    eachPart(ctx, v, world, S, (cull) => {
-      const q: CivDrawParams = { ...p, proj: pj, pen, cull };
-      drawPlagueDetail(ctx, q);
-      if (q.show.regions) drawRegionLines(ctx, q);
-      drawBorders(ctx, q);
-      drawRoutes(ctx, q);
-      if (q.show.sites) drawSites(ctx, q);
-    });
-    t.lines = performance.now() - t2;
+    drawParts(ctx, partsOf(false));
     return t;
   };
-  return { steps, draw };
+  return { steps, draw, parts: () => ({ parts: partsOf(true), result: () => t }) };
 }
 
 // ---------------------------------------------------------------------------

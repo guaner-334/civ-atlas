@@ -1,5 +1,7 @@
 /**
- * 世界概览的"我的干预"页:所有干预按下达先后列出 —— "2940 年起 · 大昌:保护 · 撤销"(一次性的灭国、去世、改倾向、天灾……年份不写"起");
+ * 世界概览的"我的干预"页。照大纲推演硬改过的世界分两组:上面「照大纲」(照大纲推演时硬改的,一条情节一行,标「硬改」,
+ * 不能单独撤销;右边「大纲第 N 条 ›」回到大纲页),下面「我下的」。没有硬改的就一组,不加组头。
+ * 所有干预按下达先后列出 —— "2940 年起 · 大昌:保护 · 撤销"(一次性的灭国、去世、改倾向、天灾……年份不写"起");
  * 后面接着地形大事(按添加的先后)—— "1600 年 · 海水漫进来:揽霞城一带,10 座城沉没 · 撤销"。
  * 新历史里没生效的干预写明原因(国家没出现、那一年它还没立国……,见 chronicle.ts 的 interventionOutcome)。
  * 点正文 = 收起概览、时间轴跳到那一年、选中那个国家 / 州(地形大事:和在编年史里点那一条一样);
@@ -11,14 +13,17 @@ import type { World } from '../gen/world';
 import { interventionOutcome } from '../gen/civ/chronicle';
 import { fullChronicle } from '../gen/civ/religionText';
 import { polityAlive, polityName, populationAt } from '../gen/civ/growth';
-import { cleanIntervention, keyCells, regionOfKey, resolvePersonKey, type Intervention, type Upheaval } from '../gen/edits';
-import { interventionText, polityIdOf } from './Interventions';
+import { cleanIntervention, keyCells, regionOfKey, resolvePersonKey, resolveKey, type Intervention, type Upheaval } from '../gen/edits';
+import { regionName } from './outlineInfo';
+import { interventionText, nameAt, polityIdOf } from './Interventions';
 import { onceOnly } from './newIvInfo';
 import { removeIntervention, removeUpheaval, useEdits } from './editsStore';
 import { pickChronicleEntry, setCivTime, setSelection, type MapSelection } from './civView';
-import { closeOverview } from './overviewStore';
+import { closeOverview, setOverviewTab } from './overviewStore';
+import { setOutlineFilter } from './outlineStore';
 import { upheavalName } from './upheavalStore';
 import { eraText, yearShortAt } from '../gen/era';
+import './outline.css';
 
 /**
  * editsStore 里的干预(可能夹着认不出的)→ 每一条在这份历史的 Civ.interventions 里是第几条
@@ -189,10 +194,80 @@ export function InterventionsPage({ civ, world, busy }: { civ: Civ | null; world
   // 这份历史是按现在的列表推出来的(认不出的除外),才能按下标核对哪条生效了
   const ci = civIndexes(civ, list);
   const same = ci.filter((c) => c >= 0).length === (civ.interventions?.length ?? 0) && ci.every((c, i) => c >= 0 || !cleanIntervention(list[i]));
+  // 照大纲硬改出来的:按情节分成一行一行(情节在大纲里的先后)
+  const plotIds = edits.outline?.plots.map((p) => p.id) ?? [];
+  const hard = new Map<number, number[]>();
+  list.forEach((raw, i) => {
+    const v = cleanIntervention(raw);
+    if (v?.plot === undefined) return;
+    hard.set(v.plot, [...(hard.get(v.plot) ?? []), i]);
+  });
+  const hardRows = [...hard.entries()].sort((a, b) => (plotIds.indexOf(a[0]) + 1 || 1e9) - (plotIds.indexOf(b[0]) + 1 || 1e9));
+  const hardText = (ix: number[]): string => {
+    const vs = ix.map((i) => cleanIntervention(list[i])!);
+    const cedes = vs.flatMap((v) => (v.kind === 'cede' ? [v] : []));
+    if (vs.length > 1 && cedes.length === vs.length && cedes.every((v) => v.a === cedes[0].a)) {
+      const names = cedes.slice(0, 3).map((v) => regionName(civ, v.region));
+      const to = resolveKey(civ, cedes[0].a);
+      const B = to?.kind === 'polity' ? nameAt(civ.polities[to.id], cedes[0].from) : '那国';
+      return `${names.join('、')}${vs.length > 3 ? ' 等' : ''} ${vs.length} 州划归${B}`;
+    }
+    return vs.map((v, k) => interventionText(civ, v, same ? ci[ix[k]] : -1)).join('；');
+  };
+  const groups = hardRows.length > 0;
   return (
     <div className="ov-ivs">
+      {groups && (
+        <div className="ov-iv-grp" data-testid="iv-outline">
+          <div className="ov-iv-head">
+            <b>照大纲</b>
+            <small>照大纲推演时硬改的；要改，改大纲里那一条，再照大纲推演</small>
+          </div>
+          {hardRows.map(([id, ix]) => {
+            const v = cleanIntervention(list[ix[0]])!;
+            const target = same ? targetOf(civ, v, ci[ix[0]]) : null;
+            const no = plotIds.indexOf(id) + 1;
+            const from = Math.min(...ix.map((i) => cleanIntervention(list[i])!.from));
+            return (
+              <div key={`p${id}`} className="ov-iv hard" data-plot={id}>
+                <span className="ov-iv-year">{yearShortAt(from, era)}</span>
+                <button
+                  className="ov-iv-text"
+                  onClick={() => {
+                    closeOverview();
+                    setCivTime({ year: from, playing: false, scrubbing: false, story: false });
+                    if (target) setSelection(target);
+                  }}
+                  title="时间轴跳到这一年,在地图上选中它"
+                >
+                  {eraText(hardText(ix), era)}
+                  <span className="ol-st forced ov-iv-tag">硬改</span>
+                </button>
+                {no > 0 && (
+                  <button
+                    className="ov-link"
+                    data-act="iv-plot"
+                    onClick={() => {
+                      setOutlineFilter('all');
+                      setOverviewTab('outline');
+                    }}
+                  >
+                    大纲第 {no} 条 ›
+                  </button>
+                )}
+              </div>
+            );
+          })}
+          {list.some((raw) => cleanIntervention(raw)?.plot === undefined) && (
+            <div className="ov-iv-head">
+              <b>我下的</b>
+            </div>
+          )}
+        </div>
+      )}
       {list.map((raw, i) => {
         const v = cleanIntervention(raw);
+        if (v?.plot !== undefined) return null;
         const undo = (
           <button className="ov-link ov-undo" data-act="iv-undo" onClick={() => removeIntervention(i)} title="撤销这条干预(之后的历史重新推演)">
             撤销
