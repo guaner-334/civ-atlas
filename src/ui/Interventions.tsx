@@ -195,9 +195,9 @@ const personKeyName = (civ: Civ, key: string): string => {
 /** 第 i 条干预在这份历史里的史事 intervene(没有 = undefined) */
 const ivAnnal = (civ: Civ, i: number) => (i >= 0 ? civ.annals.find((x) => x.kind === 'intervene' && x.war === i) : undefined);
 
-/** 天灾的说法:"星邑:瘟疫(重)""有桑皇朝:饥荒(轻)""翼门之野等 4 州:饥荒(轻)""翼门之野一带:地震(中),8 州受灾" */
+/** 天灾的说法:"星邑:瘟疫（重）""有桑皇朝:饥荒（轻）""翼门之野等 4 州:饥荒（轻）""翼门之野一带:地震（中），8 州受灾"(地震写大水 / 大旱看那一处的地形) */
 function disasterText(civ: Civ, v: Extract<Intervention, { kind: 'disaster' }>, i: number, a?: string): string {
-  const lv = `(${DISASTER_LEVEL_NAMES[v.level]})`;
+  const lv = `（${DISASTER_LEVEL_NAMES[v.level]}）`;
   if (v.type === 'plague') return `${cityKeyName(civ, v.city ?? '')}:${DISASTER_NAMES.plague}${lv}`;
   if (v.type === 'famine') {
     if (v.a) return `${a ?? keyName(civ, v.a, v.from)}:${DISASTER_NAMES.famine}${lv}`;
@@ -207,7 +207,7 @@ function disasterText(civ: Civ, v: Extract<Intervention, { kind: 'disaster' }>, 
   const r = regionOfKey(v.region ?? '', keyCells(civ.regions));
   const e = ivAnnal(civ, i);
   const word = r >= 0 && r < civ.regions.count ? quakeWord(civ.regions, r) : '地震';
-  return `${regionKeyName(civ, v.region ?? '')}一带:${word}${lv}${e && e.b > 0 ? `,${e.b} 州受灾` : ''}`;
+  return `${regionKeyName(civ, v.region ?? '')}一带:${word}${lv}${e && e.b > 0 ? `，${e.b} 州受灾` : ''}`;
 }
 
 /** 第 i 条干预(Civ.interventions 的下标)是"立国"、在这份历史里立成了:立出来的国家(没有 = −1) */
