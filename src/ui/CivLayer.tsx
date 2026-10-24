@@ -67,6 +67,7 @@ import { DETAIL_K } from '../render/detail';
 import { ProjLayer, useMapMoving, useProjection } from './projection';
 import { useAvoidBoxes } from './uiAvoid';
 import { CivDetail } from './CivDetail';
+import { playSmooth, useDrawnYear, usePlayQuality } from './playQuality';
 import { drawHolyDot, holyCities } from '../render/civ/faith';
 import { drawResourceLayer, resourceBadges } from '../render/civ/resources';
 import { faithFocusOf, selectionOnMap } from './faithSelection';
@@ -341,10 +342,11 @@ function useLateStop(moving: boolean): boolean {
 }
 
 export function CivLayer({ world, raster, civ: civIn, geo: geoIn, style, year, view, mp = null, labelsHost = null, detailHost = null, flags: flagsIn = null }: CivLayerProps) {
-  // 时间轴:画哪一年;回放 / 拖动时色块用半分辨率
+  // 时间轴:画哪一年;回放 / 拖动时色块用半分辨率。流畅优先地播放时画的那一年隔一会儿才换(playQuality.ts)
   const time = useCivTime();
   const fast = time.playing || time.scrubbing;
-  const y = year ?? time.year;
+  const smooth = playSmooth(usePlayQuality());
+  const y = useDrawnYear(year ?? time.year, smooth && time.playing && !time.scrubbing);
   // ---- 换上一段新的历史(再推、重推、试推演、打开存档……):这一层要画的先在后台分小步备好,备好了再一起换上 ----
   // 备的时候这一层(底图、文字、选中层、细节层)照旧是原来那份;回放 / 拖时间轴时、世界换了时不等,当场画;
   // 开着地球仪时也不等(地球仪自己按新的历史画国界、贴图借这一层的,一起换才不会一半新一半旧)

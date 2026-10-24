@@ -43,7 +43,7 @@ export function galleryHelperMode(search: string = location.search): boolean {
  * 网址里有也不碍事的几样(不换打开哪一页、首页长什么样,App 挂上以后照网址自己接着用):
  * lon=(地图正中的经线;从世界回到首页时网址里留着它)、play=(创建后放不放历史)、ai=mock / aiServer=fake(测试用的假 AI、假服务器)
  */
-export const HARMLESS = ['lon', 'play', 'ai', 'aiServer'];
+export const HARMLESS = ['lon', 'play', 'playq', 'ai', 'aiServer'];
 
 /**
  * 打开网页时就停在我的世界、不带别的事:网址后面没有别的(没有世界、分享、新建、邀请、图层投影这些),

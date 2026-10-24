@@ -49,6 +49,7 @@ import { AiMenuItem, AiSettingsItem, MenuItem, MenuSep, PopMenu } from './PopMen
 import { GUIDE_URL, PRIVACY_URL, SOURCE_URL, TERMS_URL } from './links';
 import { ContactMenuItem } from './ContactLink';
 import { VersionMenuFoot } from './VersionNews';
+import { PlayQualityItem } from './PlayQualityMenu';
 import { useCoarse } from './device';
 import { keyLabel } from './shortcuts';
 import { openShortcuts } from './ShortcutsDialog';
@@ -259,7 +260,7 @@ export function useWorldInfo(civ: Civ | null, data: SidebarProps['data']): { tit
   return { title: currentWorld()?.title || '未命名世界', sub, step };
 }
 
-/** "更多"菜单:写成史书(「使用 AI 功能」关着时没有)、AI 设置、键盘快捷键(有鼠标时)、问题记录、源代码和两份协议;最底下一行版本号 */
+/** "更多"菜单:写成史书(「使用 AI 功能」关着时没有)、AI 设置、播放画面、键盘快捷键(有鼠标时)、问题记录、源代码和两份协议;最底下一行版本号 */
 export function WorldMoreMenu({
   civ,
   onBook,
@@ -287,6 +288,7 @@ export function WorldMoreMenu({
         把历史写成史书
       </AiMenuItem>
       <AiSettingsItem onClick={() => openAiSettings()} />
+      <PlayQualityItem />
       <MenuSep />
       <MenuItem icon={<Icon name="help" size={16} />} href={GUIDE_URL} act="guide">
         使用教程
