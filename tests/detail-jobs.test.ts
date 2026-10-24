@@ -119,6 +119,36 @@ describe('细节层分帧备料', () => {
     expect(other).toBeGreaterThan(0);
   });
 
+  it('画了一下的一步:这一段到此为止(下一下放到下一段);等不及时照样当下画完', async () => {
+    const log: string[] = [];
+    let more = 0;
+    const steps = [
+      () => void log.push('备料'),
+      () => {
+        log.push('画 1');
+        return 'painted' as const;
+      },
+      () => {
+        log.push('画 2');
+        return ++more < 3 ? ('painting' as const) : ('painted' as const);
+      },
+      () => void log.push('收尾'),
+    ];
+    let stats: { prep: number; slices: number } | null = null;
+    submitDetailJob('a', steps, (st) => (stats = st));
+    await until(() => !!stats);
+    expect(log).toEqual(['备料', '画 1', '画 2', '画 2', '画 2', '收尾']);
+    // 备料 + 画 1 一段,画 2 三下各一段,收尾一段
+    expect(stats!.slices).toBe(5);
+    log.length = 0;
+    more = 0;
+    stats = null;
+    submitDetailJob('a', steps, (st) => (stats = st));
+    flushDetailJobs();
+    expect(log).toEqual(['备料', '画 1', '画 2', '画 2', '画 2', '收尾']);
+    expect(stats!.slices).toBe(1);
+  });
+
   it('不要了的活不画;等不及时剩下的当下做完、马上画', async () => {
     const log: string[] = [];
     submitDetailJob('a', [() => void log.push('a 备料')], () => log.push('a 画'));
