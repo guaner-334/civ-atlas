@@ -274,7 +274,7 @@ function layoutCurved(W: number, H: number, v: MapView, b: StageBox, mp: MapProj
       else texts.push({ text, x: x + 3, y: rowY - 4, ax: 0, ay: 1, eq, out: false });
     }
   }
-  for (let lat = 90 - latEvery; lat > -90; lat -= latEvery) {
+  for (let lat = latEvery * Math.floor(89.999 / latEvery); lat > -90; lat -= latEvery) {
     if (Math.abs(lat) > latMax + 1e-9) continue;
     const phi = lat * DEG;
     const y = at(0, H / 2 - s * def.y(phi))[1];
