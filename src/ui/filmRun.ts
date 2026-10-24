@@ -25,10 +25,12 @@ import {
   filmClock,
   filmEvents,
   filmSize,
+  outlineEvents,
   rangeText,
   yearFrame,
   type FilmArea,
   type FilmClock,
+  type FilmPlot,
   type FilmRange,
   type FilmShape,
 } from './filmPlan';
@@ -50,6 +52,8 @@ export interface FilmSetup {
   range: FilmRange;
   seconds: number;
   captions: boolean;
+  /** 字幕按大纲:照大纲推演推过的情节(不给 = 字幕写大事) */
+  plots?: readonly FilmPlot[];
   cards: boolean;
   /** 片尾卡片上带不带"用「文明与地图」推演生成"和网址 */
   url: boolean;
@@ -155,7 +159,8 @@ export class FilmRenderer {
         return f(e);
       };
     }
-    const events = filmEvents(majors, setup.range, keep, setup.era);
+    const majorEvents = filmEvents(majors, setup.range, keep, setup.era);
+    const events = setup.plots ? outlineEvents(majorEvents, setup.plots, setup.range) : majorEvents;
     this.look = {
       shape: setup.shape,
       area: setup.area,

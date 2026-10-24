@@ -23,6 +23,8 @@
  *     每段在那件事发生的那一刻出字幕(镜头提前 0.6 秒起飞),段和段不重叠,撞了最多往后挪 1 秒;
  *     分量重的先排,排不下的只留这段分量最重的那件再试,还不行进"略过的"(time)。
  * - 年份范围含头不含尾([from, to)),整段排到世界最后一年时最后一年也算:一步一步往下排时同一件事不会排两次。
+ * - 照大纲放(给了 plots:照大纲推演推过的情节,做不到的不给):每条情节单独一段,大字是作者写的那句、小字是编年史里对上的那一条
+ *   (对上的那条不再另放),停得和头等大事一样久,不略过、不和别的合成一段;情节之间只放头等大事,其余进"略过的"(crowd)。
  * - 同样的输入每次排得一样:不用随机数,排序都有确定的先后(分量、年份、编号)。
  */
 import { MAJOR, entryInvolves, type ChronicleEntry } from '../gen/civ/chronicle';
@@ -74,6 +76,25 @@ export const SHOT_ZOOM_MAX = 3;
 /** 头等大事 / 其余大事 / 小事 */
 export type DirectorTier = 'big' | 'major' | 'minor';
 
+/** 照大纲放的一条情节 */
+export interface DirectorPlot {
+  /** 情节编号、第几条(1 起)、一共几条 */
+  id: number;
+  n: number;
+  total: number;
+  /** 落在哪一年(推过的落定那年;只讲故事 = 情节的年份) */
+  year: number;
+  /** 作者写的那句(没写 = 发生什么) */
+  text: string;
+  /** 编年史里对上的那一条(照着发生了的那件事 / 硬改的那一条;只讲故事、对不上 = null):小字写它,镜头去它的事发地 */
+  entry: ChronicleEntry | null;
+  /** 对不上编年史时镜头去哪个地块(说不出地方 = −1:镜头不动) */
+  cell: number;
+}
+
+/** 情节的分量:比哪件大事都重(自动节奏给了时长时最后才略过,固定速度先排) */
+export const PLOT_WEIGHT = 1000;
+
 export interface DirectorFocus {
   /** 关注一国(Polity.id)/ 一人(Person.id) */
   kind: 'polity' | 'person';
@@ -111,6 +132,8 @@ export interface DirectorInput {
   pace: DirectorPace;
   /** 纪年(字幕的年份、正文里的"第 N 年"照它写) */
   era?: Era | null;
+  /** 照大纲放:情节(按大纲的先后;没有 / 空 = 不照大纲) */
+  plots?: readonly DirectorPlot[];
 }
 
 // ---------------------------------------------------------------------------
@@ -130,8 +153,8 @@ export interface DirectorShot extends Focus {
 /** 一件事的字幕和标注 */
 export interface DirectorCaption {
   entry: ChronicleEntry;
-  /** 事件类型(配色)和类型名("改朝""战争"……) */
-  type: EvType;
+  /** 事件类型(配色)和类型名("改朝""战争"……;照大纲放的情节 = 'outline'、"大纲") */
+  type: EvType | 'outline';
   typeName: string;
   /** 字幕上的年份("第 2655 年";多年的战争刚开打 "第 2562 年起")和正文(编年史原句;多年的战争只写开头一句) */
   label: string;
@@ -142,6 +165,8 @@ export interface DirectorCaption {
   /** 事发地(世界坐标,地图上的圆环画在这)和地名(城名 / 州名 / 那一国的国都名);找不到 = null / '' */
   pin: [number, number] | null;
   place: string;
+  /** 照大纲放的情节:第几条、一共几条;sub = 小字(编年史里对上的那一条,没有 = '') */
+  plot?: { id: number; n: number; total: number; sub: string };
 }
 
 /** 一段里的一件:字幕从第 at 秒出现,停 hold 秒 */
@@ -228,9 +253,13 @@ export function directorPlan(world: World, civ: Civ, input: DirectorInput): Dire
   const focus = focuser(civ, input.focus ?? null, to);
   const last = to >= end;
   const inRange = (y: number) => y >= from && (y < to || (last && y <= to));
+  const plots = (input.plots ?? []).filter((p) => inRange(p.year));
+  const outline = !!input.plots?.length;
+  // 照大纲放:对上情节的那几条不另放
+  const told = new Set(plots.flatMap((p) => (p.entry ? [p.entry.id] : [])));
   const take: { e: ChronicleEntry; tier: DirectorTier; skip: boolean }[] = [];
   for (const e of input.entries) {
-    if (!inRange(e.year)) continue;
+    if (!inRange(e.year) || told.has(e.id)) continue;
     const major = e.importance >= MAJOR;
     if (!focus) {
       if (major) take.push({ e, tier: tierOf(e), skip: false });
@@ -247,8 +276,11 @@ export function directorPlan(world: World, civ: Civ, input: DirectorInput): Dire
   for (const x of take) {
     const c = candOf(ctx, x.e, texts.get(x.e.id)!, x.tier, factor, era);
     if (x.skip) skip(c, 'focus');
+    // 照大纲放:情节之间只放头等大事
+    else if (outline && x.tier !== 'big') skip(c, 'crowd');
     else items.push(c);
   }
+  for (const p of plots) items.push(plotCand(ctx, p, factor, era));
   items.sort(byTime);
 
   // 2. 自动节奏:事太多时只留分量重的;给了可用时长,放不下的先略过分量轻的
@@ -416,7 +448,49 @@ function candOf(ctx: ShotCtx, e: ChronicleEntry, f: FilmEvent, tier: DirectorTie
 }
 
 function captionOf(c: Cand): DirectorCaption {
-  return { entry: c.entry, type: c.type, typeName: c.typeName, label: c.label, text: c.text, tier: c.tier, weight: c.weight, pin: c.pin, place: c.place };
+  const cap: DirectorCaption = { entry: c.entry, type: c.type, typeName: c.typeName, label: c.label, text: c.text, tier: c.tier, weight: c.weight, pin: c.pin, place: c.place };
+  if (c.plot) cap.plot = c.plot;
+  return cap;
+}
+
+/**
+ * 一条情节:字幕的大字是作者写的那句,小字是编年史里对上的那一条;镜头、事发地照对上的那一条(对不上 = 情节说的那个地块)。
+ * 字幕挂在一条自己的条目上(编号 −1 − 情节编号,不和编年史的撞;年份是情节落定的那年)
+ */
+function plotCand(ctx: ShotCtx, p: DirectorPlot, factor: number, era: Era | null): Cand {
+  const { world, civ } = ctx;
+  const m = p.entry;
+  const f = m ? filmEvents([m], ALL_YEARS, undefined, era)[0] : undefined;
+  const entry: ChronicleEntry = {
+    id: -1 - p.id,
+    kind: m?.kind ?? 'intervene',
+    year: p.year,
+    end: p.year,
+    text: p.text,
+    tag: '纲',
+    importance: MAJOR,
+    polities: m?.polities ?? [],
+    regions: m?.regions ?? [],
+    settlement: m?.settlement ?? -1,
+  };
+  const spot = m ? entrySpot(world, civ, m) : null;
+  const cell = spot ? spot.cell : p.cell;
+  const pin: [number, number] | null = cell >= 0 && cell < world.mesh.x.length ? [world.mesh.x[cell], world.mesh.y[cell]] : null;
+  return {
+    entry,
+    type: 'outline',
+    typeName: '大纲',
+    label: yearFull(Math.floor(p.year), era),
+    text: p.text,
+    tier: 'big',
+    weight: PLOT_WEIGHT,
+    pin,
+    place: spot && m ? placeName(civ, spot, m.year) : '',
+    hold: DIRECTOR_HOLD.big * factor,
+    spot,
+    box: pin ? (m ? footprint(ctx, m, pin) : grow([pin[0], pin[1], pin[0], pin[1]], SHOT_SPAN * ctx.unit)) : null,
+    plot: { id: p.id, n: p.n, total: p.total, sub: f ? (eventOver(f, f.year) ? f.text : f.head) : '' },
+  };
 }
 
 /** 地名:城名 / 州名 / 那一国那一年的国都名 */
@@ -544,7 +618,7 @@ function mergeGroups(ctx: ShotCtx, items: readonly Cand[]): Cand[][] {
   const groups: Cand[][] = [];
   for (const c of items) {
     const g = groups[groups.length - 1];
-    if (g && g.length < MERGE_MAX && c.entry.year - g[g.length - 1].entry.year <= MERGE_YEARS && samePlace(g[0], c, reach, ctx.W)) g.push(c);
+    if (g && g.length < MERGE_MAX && !c.plot && !g[0].plot && c.entry.year - g[g.length - 1].entry.year <= MERGE_YEARS && samePlace(g[0], c, reach, ctx.W)) g.push(c);
     else groups.push([c]);
   }
   return groups;

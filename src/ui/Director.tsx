@@ -10,6 +10,9 @@
  *                    停着等你时:"你在看地图,导播停在这件事上" +「回到导播」
  *   DirectorPanels   宽屏右上「导播略过的」列表(有才出现,能收起、清空);手机上拉起的略过列表、导播设置(底部卡片)
  *
+ * 照大纲放(世界照大纲推演推过):情节的字幕大字是作者写的那句、小字编年史里对上的那一条;宽屏字幕条上面一块「照大纲放 第 3 / 10 条」
+ * 和一排小格子(两条之间写"第 4 条之后",字幕条上写下一条情节在哪年),× 不照大纲放;手机写进字幕条("第 3 / 10 条")。
+ *
  * 镜头跟着一个人时,字幕条正上方多一块名牌(Follow.tsx 的 FollowPlate;没有字幕时名牌在字幕条的位置),
  * 导播设置「镜头跟着」多一段「一个人」(他那一行、选人列表也在 Follow.tsx)
  */
@@ -39,6 +42,7 @@ import {
   setDirectorOn,
   setDirectorPace,
   setDirectorPanel,
+  setDirectorOutline,
   setDirectorPicking,
   subscribeDirectorProgress,
   takeDirectorStart,
@@ -57,6 +61,8 @@ import { STEP_RATE } from './stepwisePlan';
 import { polityHistory } from './WorldOverviewCountries';
 import { Icon } from './icons';
 import { MenuItem, PopMenu } from './PopMenu';
+import { useOutlineCtx } from './OutlineSide';
+import { directorPlots, type OutlineCtx } from './outlineInfo';
 import type { WorldToClient } from './EventPins';
 import './timeline.css';
 import './director.css';
@@ -93,6 +99,10 @@ export function DirectorEngine({ world, civ, off, stepwise }: { world: World; ci
   const follow = useDirectorFollow();
   const fk = follow ? `${follow.kind}:${follow.key}` : '';
   const focus = useMemo(() => (civ ? directorFocusOf(civ, follow) : null), [civ, follow]);
+  // 照大纲放:推过的大纲(改了大纲、再推一次:排期重来)
+  const o = useOutlineCtx(civ);
+  const byOutline = d.outline && !!o?.review?.length;
+  const og = useMemo(() => ++genCount, [o]);
 
   // 换了世界(按第一件地形大事以前的州认;改名、重推不算):字幕、列表清掉(跟着谁跟着世界走,不用清)
   const regions = civ ? baseRegions(civ) : null;
@@ -115,9 +125,10 @@ export function DirectorEngine({ world, civ, off, stepwise }: { world: World; ci
     if (!drive || !playing || !civ) return;
     const end = civ.endYear;
     const pace = d.pace === 'fixed' ? { mode: 'fixed' as const, rate: playRate(speed, end), hold: d.hold } : { mode: 'auto' as const, hold: d.hold };
-    const key = `${gen}|${d.pace}|${d.pace === 'fixed' ? speed : ''}|${d.hold}|${fk}`;
+    const key = `${gen}|${d.pace}|${d.pace === 'fixed' ? speed : ''}|${d.hold}|${fk}|${byOutline ? og : ''}`;
     const entries = fullChronicle(civ);
-    const make = (from: number) => directorPlan(world, civ, { from, to: end, entries, focus, pace, era: era ?? null });
+    const plots = byOutline && o ? directorPlots(o, entries) : undefined;
+    const make = (from: number) => directorPlan(world, civ, { from, to: end, entries, focus, pace, era: era ?? null, plots });
     const yearNow = () => Math.min(end, Math.max(0, getCivTime().year ?? end));
     directorBegin(make, key, yearNow());
     let last = performance.now();
@@ -142,7 +153,7 @@ export function DirectorEngine({ world, civ, off, stepwise }: { world: World; ci
       cancelAnimationFrame(raf);
       directorStopped();
     };
-  }, [drive, playing, civ, world, era, gen, speed, d.pace, d.hold, fk, focus]);
+  }, [drive, playing, civ, world, era, gen, speed, d.pace, d.hold, fk, focus, byOutline, og, o]);
 
   return null;
 }
@@ -284,6 +295,9 @@ export function DirectorCaption({ phone, civ, hidden }: { phone: boolean; civ: C
   // 跟着一个人:字幕条正上方的名牌(没有字幕时名牌照样在,字幕条的位置)
   const follow = useDirectorFollow();
   const plate = !hidden && d.on && civ && follow?.kind === 'person' ? <FollowPlate civ={civ} phone={phone} /> : null;
+  // 照大纲放:第几条、下一条情节在哪年
+  const o = useOutlineCtx(civ);
+  const plots = useMemo(() => (d.outline && o?.review?.length ? o.plots.flatMap((p, i) => playedPlot(o, p.id, i)) : []), [d.outline, o]);
   if (hidden || !d.on || (!d.shown && !plate)) return null;
   if (!d.shown)
     return (
@@ -294,6 +308,8 @@ export function DirectorCaption({ phone, civ, hidden }: { phone: boolean; civ: C
     );
   const { cap, left, next } = d.shown;
   const held = d.held;
+  const pl = cap.plot;
+  const nextPlot = plots.length && !pl ? plots.find((p) => p.year > cap.entry.year) : undefined;
   const n = d.list.length;
   const resume = (
     <button className="dr-btn pri" data-act="director-resume" onClick={directorResume}>
@@ -312,7 +328,9 @@ export function DirectorCaption({ phone, civ, hidden }: { phone: boolean; civ: C
     const chip = n > 0 && (
       <button className="dr-chip" data-act="director-skipped" onClick={() => setDirectorPanel('list')}>
         <Icon name="list" size={13} />
-        略过 {n} 件
+        {/* 情节那条的头上要写"第 3/10 条"和年份,挤:只写"略过 1" */}
+        略过 {n}
+        {cap.plot ? '' : ' 件'}
       </button>
     );
     acts = held ? (
@@ -364,7 +382,8 @@ export function DirectorCaption({ phone, civ, hidden }: { phone: boolean; civ: C
     <div ref={wrap} className={`dr-capwrap dr-avoid${phone ? ' phone' : ''}`} onPointerDown={stop} onClick={stop} onDoubleClick={stop}>
       {settings && <DirectorSettings civ={civ} phone={false} />}
       {plate}
-      <div className={`dr-cap${held ? ' held' : ''}`} data-ev={cap.type} data-entry={cap.entry.id} role="status" aria-live="polite">
+      {!phone && plots.length > 0 && <OutlinePlate plots={plots} cap={cap} />}
+      <div className={`dr-cap${held ? ' held' : ''}${pl ? ' plot' : ''}`} data-ev={cap.type} data-entry={cap.entry.id} role="status" aria-live="polite">
         <i className="dr-deco" aria-hidden="true">
           {!held && (
             <b className="dr-prog">
@@ -374,12 +393,53 @@ export function DirectorCaption({ phone, civ, hidden }: { phone: boolean; civ: C
         </i>
         <div className="dr-head">
           <b className="dr-tag">{cap.typeName}</b>
-          <span className="dr-year">{capYear(cap, era)}</span>
+          {pl && phone ? (
+            <span className="dr-year fit">{`第 ${pl.n}/${pl.total} 条 ${capYear(cap, era)}`}</span>
+          ) : (
+            <>
+              {pl && <span className="dr-year">{`第 ${pl.n} 条`}</span>}
+              <span className="dr-year">{capYear(cap, era)}</span>
+            </>
+          )}
           <span className="dr-sp" />
+          {nextPlot && !phone && !held && <span className="dr-nextplot">{`下一条情节：第 ${nextPlot.n} 条，${yearAt(Math.floor(nextPlot.year), era)}`}</span>}
           {acts}
         </div>
         <div className="dr-text">{cap.text}</div>
+        {pl?.sub && <div className="dr-sub">{pl.sub}</div>}
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 照大纲放:字幕条上面一块
+
+/** 照大纲放的一条:推过、不是做不到的(第几条、落在哪年) */
+function playedPlot(o: OutlineCtx, id: number, i: number): { n: number; year: number }[] {
+  const r = o.review?.find((x) => x.id === id);
+  if (!r || r.status === 'failed') return [];
+  return [{ n: i + 1, year: r.status === 'story' ? o.plots[i].year : r.year }];
+}
+
+/** "照大纲放 第 3 / 10 条"(在两条之间:"第 4 条之后"),一排小格子标出放到第几条;× = 不照大纲放 */
+function OutlinePlate({ plots, cap }: { plots: readonly { n: number; year: number }[]; cap: DirectorCaption }) {
+  const total = cap.plot?.total ?? plots.reduce((m, p) => Math.max(m, p.n), 0);
+  const now = cap.plot?.n ?? null;
+  const after = now === null ? [...plots].reverse().find((p) => p.year <= cap.entry.year) : undefined;
+  const at = now ?? after?.n ?? 0;
+  return (
+    <div className="dr-olplate" data-act="director-outline">
+      <b>照大纲放</b>
+      <small>{now !== null ? `第 ${now} / ${total} 条` : after ? `第 ${after.n} 条之后` : '第 1 条之前'}</small>
+      <span className="dr-oldots" aria-hidden="true">
+        {Array.from({ length: total }, (_, i) => (
+          <i key={i} className={i + 1 < at || (now === null && i + 1 === at) ? 'done' : i + 1 === now ? 'now' : ''} />
+        ))}
+      </span>
+      <button className="dr-olx" aria-label="不照大纲放" title="不照大纲放，照常放大事" data-act="director-outline-off" onClick={() => setDirectorOutline(false)}>
+        <Icon name="close" size={13} />
+      </button>
     </div>
   );
 }

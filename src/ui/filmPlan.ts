@@ -9,6 +9,8 @@
  *   多年的战争出字幕时还没打完,写"第 2562 年起"和开头一句(由头和出兵),不写得失。
  * - 竖屏下面那一栏:放到的那一年为止最近的几条大事,新的在上;战争打完以前写"2562 起"和开头一句,打完了写"2478—2514"和全文。
  * - 设了纪年(gen/era.ts)的世界,年份、字幕正文里的"第 N 年"都照纪年写("公元前 850 年""前 850 起")。
+ * - 字幕按大纲(outlineEvents):照大纲推演推过的每条情节一条字幕,写作者写的那句,比哪件大事都先排;
+ *   编年史里对上情节的那件不再另放,情节之间只放头等大事(和导播照大纲放一样稀)。
  */
 import type { ChronicleEntry } from '../gen/civ/chronicle';
 import type { Civ } from '../gen/civ/types';
@@ -131,6 +133,8 @@ export interface FilmEvent {
   text: string;
   head: string;
   weight: number;
+  /** 大纲里的一条情节(text = 作者写的那句) */
+  plot?: boolean;
 }
 
 /**
@@ -156,6 +160,47 @@ export function filmEvents(majors: readonly ChronicleEntry[], range: FilmRange, 
     });
   }
   return out.sort((a, b) => a.year - b.year || a.id - b.id);
+}
+
+/** 字幕按大纲时的一条情节:落在哪一年、作者写的那句、编年史里对上的那件(对不上 = null) */
+export interface FilmPlot {
+  id: number;
+  year: number;
+  text: string;
+  entry: number | null;
+}
+
+/** 情节的分量:比哪件大事都重(字幕先排它) */
+export const FILM_PLOT_WEIGHT = 1000;
+/** 字幕按大纲时,情节之间留哪些大事:分量够得上头等大事的(和导播的头等大事一个门槛) */
+export const OUTLINE_KEEP_WEIGHT = 35;
+
+/**
+ * 字幕按大纲:这一段年份里的情节(编号 −1 − 情节编号,不和编年史撞)+ 情节之间的头等大事(对上情节的那件不另放),按年份排
+ */
+export function outlineEvents(events: readonly FilmEvent[], plots: readonly FilmPlot[], range: FilmRange): FilmEvent[] {
+  const told = new Set(plots.flatMap((p) => (p.entry === null ? [] : [p.entry])));
+  const out = events.filter((e) => !told.has(e.id) && e.weight >= OUTLINE_KEEP_WEIGHT);
+  for (const p of plots) {
+    const year = Math.floor(p.year);
+    if (year < range.from || year > range.to) continue;
+    const text = cnPunct(p.text);
+    out.push({ id: -1 - p.id, type: 'order', year, end: year, ongoing: false, text, head: text, weight: FILM_PLOT_WEIGHT, plot: true });
+  }
+  return out.sort((a, b) => a.year - b.year || a.id - b.id);
+}
+
+/** 字幕按大纲时的年份:第一条情节前 20 年到最后一条情节后 20 年(夹在世界的年份里;没有情节 = null) */
+export const OUTLINE_PAD = 20;
+export function outlineRange(plots: readonly Pick<FilmPlot, 'year'>[], end: number): FilmRange | null {
+  if (!plots.length) return null;
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (const p of plots) {
+    lo = Math.min(lo, Math.floor(p.year));
+    hi = Math.max(hi, Math.floor(p.year));
+  }
+  return clampRange({ from: lo - OUTLINE_PAD, to: hi + OUTLINE_PAD }, end);
 }
 
 /** 到第 year 年这件事打完了没有(一年里的事 = 打完了) */

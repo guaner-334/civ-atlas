@@ -27,6 +27,8 @@ import {
   type PlotStatus,
 } from '../gen/edits';
 import type { AuthorCharacter } from '../gen/characters';
+import { entryInvolves, type ChronicleEntry } from '../gen/civ/chronicle';
+import type { DirectorPlot } from './directorPlan';
 import { nameAt } from './Interventions';
 import { yearAt, type Era } from '../gen/era';
 
@@ -595,4 +597,66 @@ export function plotCell(o: OutlineCtx, p: Plot, r: PlotReview | undefined): num
     default:
       return pol(p.a);
   }
+}
+
+// ---------------------------------------------------------------------------
+// 导播照大纲放
+
+/** 照着发生了的情节,编年史里先找哪几种(找不到再看那一年和它有关的别的大事) */
+const PLOT_ENTRY_KINDS: Partial<Record<PlotKind, readonly string[]>> = {
+  fall: ['fall', 'conquer', 'merge'],
+  war: ['war'],
+  submit: ['submit', 'war'],
+  ally: ['alliance'],
+  peace: ['peace', 'war'],
+  found: ['found'],
+  split: ['split', 'found', 'revolt'],
+  dynasty: ['dynasty'],
+  capital: ['capital'],
+  revolt: ['revolt'],
+  collapse: ['collapse'],
+  hold: ['war', 'conquer'],
+  disaster: ['plague', 'famine', 'upheaval', 'intervene'],
+};
+
+/**
+ * 导播照大纲放的情节(按大纲的先后):推过的、不是做不到的;编年史里对上的那一条 ——
+ * 硬改的 = 照这条情节下的那条干预;照着发生了的 = 落定那年、和它说的国家有关的那件(种类对得上的先);只讲故事不对
+ */
+export function directorPlots(o: OutlineCtx, entries: readonly ChronicleEntry[]): DirectorPlot[] {
+  const out: DirectorPlot[] = [];
+  o.plots.forEach((p, i) => {
+    const r = o.review?.find((x) => x.id === p.id);
+    if (!r || r.status === 'failed') return;
+    const year = r.status === 'story' ? p.year : r.year;
+    out.push({
+      id: p.id,
+      n: i + 1,
+      total: o.plots.length,
+      year,
+      text: p.text || PLOT_KIND_INFO[p.kind].name,
+      entry: r.status === 'story' ? null : plotEntry(o, p, r, entries),
+      cell: plotCell(o, p, r),
+    });
+  });
+  return out;
+}
+
+function plotEntry(o: OutlineCtx, p: Plot, r: PlotReview, entries: readonly ChronicleEntry[]): ChronicleEntry | null {
+  const civ = o.civ;
+  if (r.status === 'forced')
+    return entries.find((e) => e.kind === 'intervene' && civ.interventions?.[civ.annals[e.id]?.war ?? -1]?.plot === p.id) ?? null;
+  const y = Math.floor(r.year);
+  const pol = r.polity ? (resolveKey(civ, r.polity)?.kind === 'polity' ? resolveKey(civ, r.polity)!.id : -1) : plotPolityId(o, p.a);
+  const kinds = PLOT_ENTRY_KINDS[p.kind] ?? [];
+  let best: ChronicleEntry | null = null;
+  let score = -1;
+  for (const e of entries) {
+    if (Math.floor(e.year) !== y || e.importance < 2) continue;
+    if (pol >= 0 && !entryInvolves(e, pol)) continue;
+    const k = kinds.indexOf(e.kind);
+    const sc = (k >= 0 ? 100 - k * 10 : 0) + e.importance;
+    if (sc > score) [best, score] = [e, sc];
+  }
+  return best;
 }
