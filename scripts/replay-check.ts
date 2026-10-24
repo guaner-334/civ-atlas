@@ -2887,8 +2887,8 @@ for (const style of ['realistic', 'fantasy']) {
     hiddenWhilePicking = (await insHidden(page));
     const tgt = allyPlates.filter((p) => !p.self).sort((a, b) => Math.abs(a.x - vp.width / 2) - Math.abs(b.x - vp.width / 2))[0];
     if (tgt) {
-      // 悬停在这国的国土上(名牌四周绕几圈找):悬停卡片写"点击选择",名牌反色
-      search: for (const r of [30, 50, 80, 120])
+      // 悬停在这国的国土上(名牌四周绕几圈找,一州的小岛国从贴着名牌找起):悬停卡片写"点击选择",名牌反色
+      search: for (const r of [12, 20, 30, 50, 80, 120])
         for (let a = 0; a < 8; a++) {
           await page.mouse.move(tgt.x + r * Math.cos((a * Math.PI) / 4), tgt.y + r * Math.sin((a * Math.PI) / 4));
           await page.waitForTimeout(80);
