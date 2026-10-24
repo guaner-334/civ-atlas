@@ -4,6 +4,7 @@
  * - 事发州(浓):暖橙色罩染 + 亮金色描边;事发地在屏幕上很小时外面再套一个金色圆圈;
  *   相关国家的国土(淡):写实风一层米白 + 白色描边,手绘风朱砂描边;两国相接处也描一道(看得出谁是谁)。
  *   描边外面垫一道反差色,在浅色羊皮纸、深色森林上都看得清。
+ *   一直亮着的(steady:天灾页先把受灾的州涂出来):罩染同事发州,外框只描一道细橙线,不垫深色、不发光。
  * - 罩染按像素(Raster.cell → 州),半分辨率再放大,边缘略柔;描边沿州界(borders.ts 的链,平滑后)。
  *   州界的链只描"陆地 — 陆地"之间,海岸那一侧靠罩染看出来。
  * - 画在单独一张和地图一样大的画布上(CivLayer 的 canvas.civ-hl),闪烁用 CSS 动画(改不透明度),不重画。
@@ -26,7 +27,12 @@ export interface CivHighlight {
   /** 相关国家:画它们在 year 这一年的国土(淡) */
   polities: readonly number[];
   year: Year;
+  /** 一直亮着的预览(不闪):事发州的外框只描一道细橙线(STEADY_LINE) */
+  steady?: boolean;
 }
+
+/** 一直亮着的预览,事发州外框:颜色、线宽(世界单位) */
+const STEADY_LINE = { color: 'rgba(255,122,0,0.95)', width: 2.2 };
 
 /** 每州的标记:2 = 事发州,1 = 相关国家的国土,0 = 不亮 */
 export function highlightMarks(civ: Civ, h: CivHighlight): Uint8Array {
@@ -219,15 +225,21 @@ export function drawHighlight(
     const strong = new Int32Array(R);
     for (let r = 0; r < R; r++) strong[r] = marks[r] === 2 ? 1 : 0;
     const pa = path(mergeChains(rc, strong));
-    ctx.strokeStyle = 'rgba(40,12,0,0.7)';
-    ctx.lineWidth = 8 * S;
-    ctx.stroke(pa);
-    ctx.shadowColor = 'rgba(255,190,60,0.95)';
-    ctx.shadowBlur = 8 * S;
-    ctx.strokeStyle = 'rgba(255,200,70,1)';
-    ctx.lineWidth = 3.8 * S;
-    ctx.stroke(pa);
-    ctx.shadowBlur = 0;
+    if (hl.steady) {
+      ctx.strokeStyle = STEADY_LINE.color;
+      ctx.lineWidth = STEADY_LINE.width * S;
+      ctx.stroke(pa);
+    } else {
+      ctx.strokeStyle = 'rgba(40,12,0,0.7)';
+      ctx.lineWidth = 8 * S;
+      ctx.stroke(pa);
+      ctx.shadowColor = 'rgba(255,190,60,0.95)';
+      ctx.shadowBlur = 8 * S;
+      ctx.strokeStyle = 'rgba(255,200,70,1)';
+      ctx.lineWidth = 3.8 * S;
+      ctx.stroke(pa);
+      ctx.shadowBlur = 0;
+    }
   }
   // 事发地(没有事发州就是相关国家)在屏幕上很小:外面套一个圆圈。圆圈按屏幕大小定,放大后不会大得离谱
   const b = highlightBox(world, civ, marks);
@@ -302,7 +314,8 @@ export function highlightStrokes(world: World, civ: Civ, hl: CivHighlight, style
     const strong = new Int32Array(marks.length);
     for (let r = 0; r < marks.length; r++) strong[r] = marks[r] === 2 ? 1 : 0;
     const lines = smooth(mergeChains(rc, strong));
-    out.push({ lines, color: 'rgba(40,12,0,0.7)', width: 8 }, { lines, color: 'rgba(255,200,70,1)', width: 3.8, blur: 8, glow: 'rgba(255,190,60,0.95)' });
+    if (hl.steady) out.push({ lines, ...STEADY_LINE });
+    else out.push({ lines, color: 'rgba(40,12,0,0.7)', width: 8 }, { lines, color: 'rgba(255,200,70,1)', width: 3.8, blur: 8, glow: 'rgba(255,190,60,0.95)' });
   }
   return { strokes: out, ring };
 }

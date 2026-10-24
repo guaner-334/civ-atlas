@@ -2,8 +2,10 @@
  * 州的面板(和国家面板同一套样子,零件见 panelParts.tsx),按时间轴当前那一年:
  *
  *   顶部  颜色块(当年所属国)、州名(可改)、"州，属 大昌，第 12 州"(没有国家 = "无主之地")、关闭
- *   按钮  在这里立国(主操作)/ 划给… / 改名 / 更多(在这里加标记 / 在这里加人物、设为中心、让 AI 讲名字由来)(每个面板只有一个主操作,和国家面板一样)
- *   概况  主体民族(族名可改)、宜居度、人口(州里的总人口 = 治所的城 + 乡村,growth.ts 的 regionPopulationAt;一州同一时刻最多一座城)、信仰(可点)、州里的城(可点;故城标出来)、地貌、
+ *   按钮  在这里立国(主操作)/ 划给… / 改名 / 更多(天灾… / 在这里加标记 / 在这里加人物、设为中心、让 AI 讲名字由来)(每个面板只有一个主操作,和国家面板一样)
+ *         「天灾…」换成天灾那一页(DisasterPage.tsx,默认这一州)
+ *   概况  主体民族(族名可改)、宜居度、人口(州里的总人口 = 治所的城 + 乡村,growth.ts 的 regionPopulationAt;一州同一时刻最多一座城;
+ *         作者下的天灾以后还没长回来:"约 45 万人 ~~64 万人~~ 1500 年地震",newIvInfo.ts 的 regionDisasterMark)、信仰(可点)、州里的城(可点;故城标出来)、地貌、
  *         民族(族名由来 / 起族名)、来历(分化出来的民族:哪年从哪族分出,母族可点;母族已消亡的不可点)
  *   作者的人物  生在这里、经历写在这里的作者人物(没有就不显示)
  *   历任归属 按时长分段的色条,点一段跳到它开始的那年
@@ -41,6 +43,8 @@ import { newCharacterDraft } from './characterStore';
 import { charactersAt, whereOfRegion } from './characterInfo';
 import { CharacterRefs } from './CharacterPanel';
 import { cultureRegion } from './searchIndex';
+import { DisasterPage } from './DisasterPage';
+import { regionDisasterMark } from './newIvInfo';
 import { entriesUpTo, firstOwned, ownerSpans, ownersOf, regionEntries } from './panelData';
 import {
   Act,
@@ -66,7 +70,15 @@ import {
   useYearInput,
 } from './panelParts';
 
-type Page = 'found' | 'cede';
+type Page = 'found' | 'cede' | 'disaster';
+
+/**
+ * 演一国时州卡片上的干预(天灾…)变不变灰、灰了写什么:现在先不变灰(州卡片的「在这里立国」「划给…」也都不变灰)。
+ * 要变灰时只改这一处,比如这州那年的主人不是演的那国就返回 ROLE_LOCK_NOTE(roleLock、useRole 见 policyInfo.ts、roleStore.ts)
+ */
+function regionIvLock(_civ: Civ, _region: number, _year: number): string | null {
+  return null;
+}
 
 export function RegionPanel(props: DetailProps) {
   const { civ, raw, raster, world, id, year, names } = props;
@@ -77,6 +89,7 @@ export function RegionPanel(props: DetailProps) {
   const po = civ.polities[own.polity[id]];
   const named = regionNamed(civ, id);
   const canAct = civ.viable && civ.polities.length > 0;
+  const lock = regionIvLock(civ, id, year);
   return (
     <div className="cp" data-region={id} data-page={page ?? 'info'}>
       <PanelHead color={po ? rgb(po.color) : undefined}>
@@ -108,7 +121,9 @@ export function RegionPanel(props: DetailProps) {
           ]}
         />
       </PanelHead>
-      {page && canAct ? (
+      {page === 'disaster' && canAct ? (
+        <DisasterPage key={id} civ={civ} region={id} year={year} onBack={() => setPage(null)} />
+      ) : page && canAct ? (
         <RegionOrder civ={civ} id={id} year={year} page={page} back={() => setPage(null)} />
       ) : (
         <>
@@ -129,6 +144,17 @@ export function RegionPanel(props: DetailProps) {
               改名
             </Act>
             <MoreAct>
+              {canAct && (
+                <MenuItem
+                  icon={<Icon name="close" size={16} className="iv-blank" />}
+                  act="region-disaster"
+                  disabled={!!lock}
+                  note={lock ?? undefined}
+                  onClick={() => (setPage('disaster'), setSheet('full'))}
+                >
+                  天灾…
+                </MenuItem>
+              )}
               <MenuItem icon={<Icon name="pin" size={16} />} act="add-mark" onClick={() => newMarkDraft({ regions: [regionKey(civ, id)], year })}>
                 在这里加标记
               </MenuItem>
@@ -165,6 +191,8 @@ function RegionInfo({ civ, raw, raster, world, id, year, names, ai, aiRef }: Det
   const score = habitatScore(civ.habitat.suitability[civ.regions.seat[id]]);
   const cities = civ.settlements.filter((s) => s.region === id && s.founded <= year);
   const pop = regionPopulationAt(civ, id, year);
+  // 作者下的天灾以后还没长回来:现在的数后面写划掉的原数、哪年什么灾
+  const hurt = useMemo(() => regionDisasterMark(civ, id, year), [civ, id, year]);
   const first = firstOwned(civ, id);
   const spans = useMemo(() => (first === null ? [] : ownerSpans(civ, id, first, civ.endYear)), [civ, id, first]);
   const upTo = entriesUpTo(regionEntries(civ, id), year);
@@ -193,7 +221,23 @@ function RegionInfo({ civ, raw, raster, world, id, year, names, ai, aiRef }: Det
             ),
           },
           { k: '宜居度', v: score, note: habitatWord(score) },
-          { k: '人口', v: pop > 0 ? populationLabel(pop) : '—' },
+          {
+            k: '人口',
+            v:
+              pop > 0 ? (
+                hurt ? (
+                  <>
+                    {populationLabel(pop)}
+                    <span className="iv-was">{populationLabel(hurt.was).replace(/^约 /, '')}</span>
+                  </>
+                ) : (
+                  populationLabel(pop)
+                )
+              ) : (
+                '—'
+              ),
+            note: pop > 0 && hurt ? `${yearAt(hurt.when, edits.era)}${hurt.word}` : undefined,
+          },
         ]}
       >
         {civ.religion && (
