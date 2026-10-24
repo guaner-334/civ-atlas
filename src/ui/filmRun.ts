@@ -160,7 +160,15 @@ export class FilmRenderer {
       };
     }
     const majorEvents = filmEvents(majors, setup.range, keep, setup.era);
-    const events = setup.plots ? outlineEvents(majorEvents, setup.plots, setup.range) : majorEvents;
+    // 拍框里一块:情节也只写框里的(对上编年史的照那件看;没对上的照它在的那块地看;说不出地方的照写)
+    const plotKeep = (p: FilmPlot) => {
+      if (!keep) return true;
+      if (p.entry) return keep(p.entry);
+      if (p.cell < 0) return true;
+      const r = src.at(p.year).geo.regions.of[p.cell] ?? -1;
+      return r >= 0 && keep({ id: -1, kind: 'intervene', year: p.year, end: p.year, text: '', tag: '', importance: 3, polities: [], regions: [r], settlement: -1 });
+    };
+    const events = setup.plots ? outlineEvents(majorEvents, setup.plots.filter(plotKeep), setup.range) : majorEvents;
     this.look = {
       shape: setup.shape,
       area: setup.area,

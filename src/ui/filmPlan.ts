@@ -162,12 +162,13 @@ export function filmEvents(majors: readonly ChronicleEntry[], range: FilmRange, 
   return out.sort((a, b) => a.year - b.year || a.id - b.id);
 }
 
-/** 字幕按大纲时的一条情节:落在哪一年、作者写的那句、编年史里对上的那件(对不上 = null) */
+/** 字幕按大纲时的一条情节:落在哪一年、作者写的那句、编年史里对上的那件(对不上 = null)、在哪个地块(说不出 = −1) */
 export interface FilmPlot {
   id: number;
   year: number;
   text: string;
-  entry: number | null;
+  entry: ChronicleEntry | null;
+  cell: number;
 }
 
 /** 情节的分量:比哪件大事都重(字幕先排它) */
@@ -179,7 +180,7 @@ export const OUTLINE_KEEP_WEIGHT = 35;
  * 字幕按大纲:这一段年份里的情节(编号 −1 − 情节编号,不和编年史撞)+ 情节之间的头等大事(对上情节的那件不另放),按年份排
  */
 export function outlineEvents(events: readonly FilmEvent[], plots: readonly FilmPlot[], range: FilmRange): FilmEvent[] {
-  const told = new Set(plots.flatMap((p) => (p.entry === null ? [] : [p.entry])));
+  const told = new Set(plots.flatMap((p) => (p.entry ? [p.entry.id] : [])));
   const out = events.filter((e) => !told.has(e.id) && e.weight >= OUTLINE_KEEP_WEIGHT);
   for (const p of plots) {
     const year = Math.floor(p.year);
@@ -230,11 +231,13 @@ export function captionSlots(events: readonly FilmEvent[], c: FilmClock, era?: E
   const free = (f0: number) => taken.every((s) => f0 + hold <= s.f0 || f0 >= s.f1);
   for (const ev of order) {
     const at = yearFrame(c, ev.year);
+    // 大纲的情节一条不丢:撞了一直往后挪到放得下(放到最后才发生的往前挪多少都行)
+    const reach = ev.plot ? hi : shift;
     // 放到最后才发生的:往前挪到放得下(也最多挪 0.6 秒)
     const first = Math.min(at, hi - hold);
-    if (at - first > shift) continue;
+    if (at - first > reach) continue;
     let f0 = -1;
-    for (let d = 0; d <= shift; d++) {
+    for (let d = 0; d <= reach; d++) {
       const f = first + d;
       if (f + hold > hi) break;
       if (free(f)) {

@@ -419,7 +419,7 @@ export function DirectorCaption({ phone, civ, hidden }: { phone: boolean; civ: C
 function playedPlot(o: OutlineCtx, id: number, i: number): { n: number; year: number }[] {
   const r = o.review?.find((x) => x.id === id);
   if (!r || r.status === 'failed') return [];
-  return [{ n: i + 1, year: r.status === 'story' ? o.plots[i].year : r.year }];
+  return [{ n: i + 1, year: r.year }];
 }
 
 /** "照大纲放 第 3 / 10 条"(在两条之间:"第 4 条之后"),一排小格子标出放到第几条;× = 不照大纲放 */

@@ -177,12 +177,15 @@ export function setFilmCapBy(capBy: FilmUi['capBy']) {
   keepYearInRange();
 }
 
+/** 一条情节都没有(大纲改过、批改作废了)= 照常写大事 */
+const nonEmpty = <T>(a: T[]): T[] | undefined => (a.length ? a : undefined);
+
 /** 字幕按大纲用的情节:照大纲推演推过的、不是做不到的(没大纲、没推过 = 空) */
 export function filmPlots(full: Civ): FilmPlot[] {
   const { outline, marks, characters } = getEdits();
   if (!outline?.plots.length || !outline.review?.length) return [];
   const o: OutlineCtx = { civ: full, plots: outline.plots, review: outline.review, marks, characters };
-  return directorPlots(o, fullChronicle(full)).map((p) => ({ id: p.id, year: p.year, text: p.text, entry: p.entry?.id ?? null }));
+  return directorPlots(o, fullChronicle(full)).map((p) => ({ id: p.id, year: p.year, text: p.text, entry: p.entry, cell: p.cell }));
 }
 
 /** 标题:没改过 = 世界名 */
@@ -216,7 +219,7 @@ export function filmSetup(src: FilmSource, look: { style: CivStyle; layer: Layer
     range: filmRangeOf(src.full),
     seconds: s.seconds,
     captions: s.captions,
-    plots: s.capBy === 'outline' && !s.phone ? filmPlots(src.full) : undefined,
+    plots: s.capBy === 'outline' && !s.phone ? nonEmpty(filmPlots(src.full)) : undefined,
     cards: s.cards,
     url: s.url,
     title: filmTitleOf(),

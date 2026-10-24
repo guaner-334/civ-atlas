@@ -628,7 +628,8 @@ export function directorPlots(o: OutlineCtx, entries: readonly ChronicleEntry[])
   o.plots.forEach((p, i) => {
     const r = o.review?.find((x) => x.id === p.id);
     if (!r || r.status === 'failed') return;
-    const year = r.status === 'story' ? p.year : r.year;
+    // 只讲故事的也用照大纲推演排定的那年(跟着前一条的,按前一条落定的年份算)
+    const year = r.year;
     out.push({
       id: p.id,
       n: i + 1,
@@ -652,7 +653,9 @@ function plotEntry(o: OutlineCtx, p: Plot, r: PlotReview, entries: readonly Chro
   let best: ChronicleEntry | null = null;
   let score = -1;
   for (const e of entries) {
-    if (Math.floor(e.year) !== y || e.importance < 2) continue;
+    // 打完的仗、仗里的称臣并进那场战争的一条(从开打那年记):讲和、称臣的那年对上它打完的那年也算
+    const folded = e.kind === 'war' && (p.kind === 'peace' || p.kind === 'submit') && Math.floor(e.end) === y;
+    if ((Math.floor(e.year) !== y && !folded) || e.importance < 2) continue;
     if (pol >= 0 && !entryInvolves(e, pol)) continue;
     const k = kinds.indexOf(e.kind);
     const sc = (k >= 0 ? 100 - k * 10 : 0) + e.importance;
