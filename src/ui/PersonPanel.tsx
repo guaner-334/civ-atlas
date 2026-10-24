@@ -6,7 +6,9 @@
  *         / "大景丞相，2501–2537 年在朝" / "大景宗室，2428–2467"(没即位的宗室:世系图里补上的父辈)
  *   按钮  即位那年 / 出征那年 / 入仕那年(主操作:时间轴跳过去;宗室换成「世系图」)、编年史(这国的编年史,滚到他在台上那段)、
  *         复制生平(纯文字,写设定用;带上「生平」那一段)、关注他(导播只讲他这一辈子,镜头跟着他;正跟着他时是「不关注」;宗室没有,
- *         见 Follow.tsx)、更多(加一个和他有关的作者人物:亲友里先填上他)
+ *         见 Follow.tsx)、更多(加一个和他有关的作者人物:亲友里先填上他)。
+ *         「更多」最上面:让他去世…(那年在位的君主、将领、名臣)、改他的倾向…(那年在位的君主),点了卡片换成那一页(PersonIvPage.tsx);
+ *         演一国时别国的人这两项变灰,写"切回造物主才能改别国"
  *   概况  君主:事迹(名人才有)、国家、生卒、在位、前任、继任(后面的小字是亲属,和编年史的"其子 / 其侄"同一个算法:按世系;
  *         作者立的君主:名字前面是作者人物的圆头像,小字写「作者的人物」,点了开作者的人物卡;让位给他的,结局写"让位 给某某")、
  *         父亲、子嗣(世系图里有的人,没即位的写"未即位")、结局、亲征、将领(在位时本国领兵的)、名臣(在位时在朝的);
@@ -15,7 +17,8 @@
  *         名臣:事迹(经手的事)、国家、字号、籍贯、生卒、官职(做到最高的那个官和任期)、历任(之前的官和年份)、效力、结局
  *         宗室:国家、生卒、父亲、子嗣
  *         (字号:西幻、汗国这类名字没有姓的不起字号,这一行不出)
- *   倾向  君主、执政官才有:开拓、好战、发展、重商一项一行(名字、灰色细条、0–100 的数值),下面一句说明
+ *   倾向  君主、执政官才有:开拓、好战、发展、重商一项一行(名字、灰色细条、0–100 的数值),下面一句说明;
+ *         那年在位的君主右上多一个「改」(同「更多」里的改他的倾向);改过倾向的右上写"1500 年起改过",点了看原来的
  *   生平  将领、名臣的一段生平(officialText.ts 的 personBio);写到的君主是蓝字
  *   作者的人物  亲友里有他、经历里勾了他的作者人物(characterInfo.ts 的 charactersOfPerson),没有就不显示
  *   在位时 / 领兵时 / 在朝时  他在台上那几年本国的事(将领 = 他经手的那几仗),新的在上;点一条跳到那一年
@@ -32,8 +35,8 @@ import { personKey } from '../gen/characters';
 import { personPortrait, portraitMood } from '../gen/portrait';
 import { PortraitView } from './Portrait';
 import { openLineage, openOverview } from './overviewStore';
-import { getEdits, useEdits } from './editsStore';
-import { eraText, spaced, yearAt, yearShort, yearSpan, yearSpanAt, type Era } from '../gen/era';
+import { getEdits, useEdits, useEra } from './editsStore';
+import { eraText, spaced, yearAt, yearShort, yearShortAt, yearSpan, yearSpanAt, type Era } from '../gen/era';
 import { newCharacterDraft } from './characterStore';
 import { charactersOfPerson } from './characterInfo';
 import { CharAvatar, CharacterRefs } from './CharacterPanel';
@@ -48,7 +51,13 @@ import { openPolicyPage } from './PolicyPage';
 import { nameAt } from './Interventions';
 import { useRole } from './roleStore';
 import { setSelection } from './civView';
+import { PersonIvPage, type PersonIvKind } from './PersonIvPage';
+import { leaningsThen, moodSince, personIvRange, rulerOnThrone } from './newIvInfo';
 import './policy.css';
+import './newIv.css';
+
+/** 演一国时别国的人:干预入口变灰,写这一句 */
+const ROLE_LOCK_NOTE = '切回造物主才能改别国';
 
 const F = Math.floor;
 
@@ -148,7 +157,17 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
   const age = x ? Math.floor((x.died !== undefined ? Math.min(year, x.died) : year) - x.born) : 0;
   const portrait = useMemo(() => (x ? personPortrait(civ, x.id, x.born + age) : null), [civ, x, age]);
   const mood = useMemo(() => (x ? portraitMood(civ, x, year) : undefined), [civ, x, year]);
+  // 卡片换上的填写页(让他去世 / 改他的倾向);换了人就回到卡片
+  const [ivPage, setIvPage] = useState<{ id: number; kind: PersonIvKind } | null>(null);
+  const role = useRole();
   if (!x || !p) return null;
+  const page = ivPage?.id === id ? ivPage.kind : null;
+  // 演一国时别国的人:让他去世、改倾向变灰
+  const locked = !!roleLock(civ, role, x.polity);
+  // 让他去世:那年在位的君主(作者立的去人物卡改卒年)、还能下的将领名臣;改倾向:那年在位的君主
+  const onThrone = rulerOnThrone(x, year);
+  const range = personIvRange(civ, x);
+  const canDie = x.killed === undefined && (x.role === 'ruler' ? onThrone : (x.role === 'general' || x.role === 'minister') && range.lo <= range.hi);
   const ruler = x.role === 'ruler';
   const prince = x.role === 'prince';
   const minister = x.role === 'minister';
@@ -187,8 +206,7 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
     setTimeout(() => setCopied(false), 1600);
   };
 
-  return (
-    <div className="cp pp" data-person={id}>
+  const headEl = (
       <PanelHead
         color={rgb(p.color)}
         icon={
@@ -225,6 +243,18 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
         )}
         <SubLine parts={[sub]} />
       </PanelHead>
+  );
+  if (page)
+    return (
+      <div className="cp pp" data-person={id} data-pp-page={page}>
+        {headEl}
+        <PersonIvPage key={`${id}-${page}`} civ={civ} x={x} year={year} kind={page} onBack={() => setIvPage(null)} />
+      </div>
+    );
+
+  return (
+    <div className="cp pp" data-person={id}>
+      {headEl}
       <Acts>
         {prince ? (
           <Act icon="lineage" primary act="person-lineage" onClick={lineage} title="看这一朝的世系图">
@@ -243,6 +273,16 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
         </Act>
         {!prince && <FollowAct civ={civ} x={x} year={year} />}
         <MoreAct>
+          {canDie && (
+            <MenuItem icon={<Icon name="close" size={16} className="iv-blank" />} act="person-death" disabled={locked} note={locked ? ROLE_LOCK_NOTE : undefined} onClick={() => setIvPage({ id, kind: 'death' })}>
+              让他去世…
+            </MenuItem>
+          )}
+          {onThrone && (
+            <MenuItem icon={<Icon name="close" size={16} className="iv-blank" />} act="person-temper" disabled={locked} note={locked ? ROLE_LOCK_NOTE : undefined} onClick={() => setIvPage({ id, kind: 'temper' })}>
+              改他的倾向…
+            </MenuItem>
+          )}
           {nameKey && (
             <MenuItem icon={<Icon name="rename" size={16} />} act="person-rename" onClick={() => setRenaming(true)}>
               改名
@@ -271,7 +311,7 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
             </Row>
           ))}
         </Stats>
-        {ruler && x.leanings && <Leanings civ={civ} x={x} l={x.leanings} year={year} />}
+        {ruler && x.leanings && <Leanings civ={civ} x={x} l={x.leanings} year={year} onEdit={onThrone ? () => setIvPage({ id, kind: 'temper' }) : undefined} locked={locked} />}
         {bio && (
           <section className="cp-sec">
             <div className="cp-sec-head">生平</div>
@@ -306,17 +346,38 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
  * 他在位时国家定了方针(时间轴那一年,夹在他在位的年份里):右上"大澜王朝方针：扩张"(点了进那国的方针页);
  * 方针管到的那几项细条后面接一截蓝色、数写成"53＋25＝78",说明后面接"；方针「扩张」让他往外占";拧了和谈底线的多一行"和谈"
  */
-function Leanings({ civ, x, l, year }: { civ: Civ; x: Person; l: RulerLeanings; year: number }) {
+function Leanings({ civ, x, l, year, onEdit, locked }: { civ: Civ; x: Person; l: RulerLeanings; year: number; onEdit?: () => void; locked: boolean }) {
+  const era = useEra();
   const v = rulerPolicy(civ, x, year);
-  const rows = leanRows(l, v);
+  // 改过倾向的:照时间轴那一年的(在位以前看即位时的);点"某年起改过"看原来的
+  const t = Math.min(Math.max(year, x.from ?? year), (x.until ?? civ.endYear) - 1 / 256);
+  const since = moodSince(x, t);
+  const [orig, setOrig] = useState(false);
+  const shownL = since !== null && !orig ? (leaningsThen(x, t) ?? l) : l;
+  const rows = leanRows(shownL, v);
   const peace = peaceRow(v);
-  const locked = !!roleLock(civ, useRole(), x.polity);
   const P = civ.polities[x.polity];
-  const head = v && P && (
+  const pol = v && P && (
     <button className="ins-link cp-more" data-act="person-policy" onClick={() => (locked ? setSelection({ kind: 'polity', id: x.polity }) : openPolicyPage(civ, x.polity))}>
-      {nameAt(P, Math.min(Math.max(year, x.from ?? year), (x.until ?? civ.endYear) - 1 / 256))}方针：{policyLabel(v)}
+      {nameAt(P, t)}方针：{policyLabel(v)}
     </button>
   );
+  const head =
+    pol || since !== null || onEdit ? (
+      <span className="iv-head-acts">
+        {pol}
+        {since !== null && (
+          <button className="ins-link cp-more" data-act="person-mood" aria-pressed={orig} onClick={() => setOrig(!orig)} title={orig ? '看改过的' : '看原来的'}>
+            {orig ? '原来的（点了看改过的）' : `${yearShortAt(since, era)}起改过`}
+          </button>
+        )}
+        {onEdit && (
+          <button className="ins-link cp-more" data-act="person-temper-edit" disabled={locked} title={locked ? ROLE_LOCK_NOTE : '改他的倾向'} onClick={onEdit}>
+            改
+          </button>
+        )}
+      </span>
+    ) : null;
   return (
     <section className="cp-sec" data-sec="leanings">
       <div className={`cp-sec-head${head ? ' cp-events-head' : ''}`}>
@@ -455,7 +516,7 @@ function ministerLines(civ: Civ, x: Person, out: Line[], era: Era | undefined) {
   const until = x.until ?? civ.endYear;
   const served = peopleIndex(civ).rulers[x.polity].filter((r) => (r.from ?? Infinity) < until && (r.until ?? Infinity) > from);
   if (served.length) out.push({ k: '效力', ...peopleLine(civ, served) });
-  const fate = ministerFate(civ, x, era);
+  const fate = x.killed !== undefined && x.died !== undefined ? `${yearAt(x.died, era)}卒（干预）` : ministerFate(civ, x, era);
   if (fate) out.push({ k: '结局', node: fate, text: fate });
 }
 
@@ -517,7 +578,10 @@ function rulerLines(civ: Civ, x: Person, out: Line[], foes: Foe[], era: Era | un
   }
   if (!consul) kinLines(civ, x, out);
   const fate = rulerFateWord(civ, x);
-  if (fate && x.fate === 'yielded' && next) {
+  if (x.killed !== undefined && x.died !== undefined) {
+    const t = `${yearAt(x.died, era)}去世（干预）`;
+    out.push({ k: '结局', node: t, text: t });
+  } else if (fate && x.fate === 'yielded' && next) {
     // 让位给作者立的君主:后面写给谁
     const to = `给${personName(civ, next)}`;
     out.push({ k: '结局', node: <>{fate}<em className="cp-num-note">{to}</em></>, text: fate + to });
@@ -552,7 +616,8 @@ function generalLines(civ: Civ, x: Person, out: Line[], foes: Foe[], era: Era | 
   if (foesP.length) out.push({ k: '对手', ...peopleLine(civ, foesP) });
   const last = cs.length ? cs[cs.length - 1].until : x.born;
   let fate = '';
-  if (x.fate === 'battle') fate = x.died !== undefined ? `战死，${yearAt(x.died, era)}` : '战死';
+  if (x.killed !== undefined && x.died !== undefined) fate = `${yearAt(x.died, era)}卒（干预）`;
+  else if (x.fate === 'battle') fate = x.died !== undefined ? `战死，${yearAt(x.died, era)}` : '战死';
   else if (x.died !== undefined) fate = x.died - last >= 1 ? `卸甲，${yearAt(x.died, era)}卒` : `${yearAt(x.died, era)}卒于军中`;
   if (fate) out.push({ k: '结局', node: fate, text: fate });
 }

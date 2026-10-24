@@ -1,5 +1,5 @@
 /**
- * 世界概览的"我的干预"页:所有干预按下达先后列出 —— "2940 年起 · 大昌:保护 · 撤销";
+ * 世界概览的"我的干预"页:所有干预按下达先后列出 —— "2940 年起 · 大昌:保护 · 撤销"(一次性的灭国、去世、改倾向、天灾……年份不写"起");
  * 后面接着地形大事(按添加的先后)—— "1600 年 · 海水漫进来:揽霞城一带,10 座城沉没 · 撤销"。
  * 新历史里没生效的干预写明原因(国家没出现、那一年它还没立国……,见 chronicle.ts 的 interventionOutcome)。
  * 点正文 = 收起概览、时间轴跳到那一年、选中那个国家 / 州(地形大事:和在编年史里点那一条一样);
@@ -13,6 +13,7 @@ import { fullChronicle } from '../gen/civ/religionText';
 import { polityAlive, polityName, populationAt } from '../gen/civ/growth';
 import { cleanIntervention, keyCells, regionOfKey, resolvePersonKey, type Intervention, type Upheaval } from '../gen/edits';
 import { interventionText, polityIdOf } from './Interventions';
+import { onceOnly } from './newIvInfo';
 import { removeIntervention, removeUpheaval, useEdits } from './editsStore';
 import { pickChronicleEntry, setCivTime, setSelection, type MapSelection } from './civView';
 import { closeOverview } from './overviewStore';
@@ -210,7 +211,10 @@ export function InterventionsPage({ civ, world, busy }: { civ: Civ | null; world
         const target = same ? targetOf(civ, v, idx) : null;
         return (
           <div key={i} className={`ov-iv${why ? ' off' : ''}`}>
-            <span className="ov-iv-year">{yearShortAt(v.from, era)}起</span>
+            <span className="ov-iv-year">
+              {yearShortAt(v.from, era)}
+              {onceOnly(v) ? '' : '起'}
+            </span>
             <button
               className="ov-iv-text"
               onClick={() => {
