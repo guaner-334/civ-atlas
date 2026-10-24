@@ -89,6 +89,15 @@ describe('导播照大纲放:情节对上编年史里哪一件', () => {
     expect(directorPlots(o, [other, hit])[0].entry).toBe(hit);
     expect(directorPlots(o, [other])[0].entry).toBeNull();
   });
+  it('天灾:种类、地方都对上才算 —— 饥荒说的那几州,别处同一年更大的瘟疫、饥荒都不算', () => {
+    const [r0, r1] = [0, 1].map((i) => civ.settlements[i].region);
+    const ev = (id: number, kind: ChronicleEntry['kind'], region: number, importance: ChronicleEntry['importance']): ChronicleEntry => ({ id, kind, year, end: year, text: '', tag: '灾', importance, polities: [], regions: [region], settlement: -1 });
+    const p: Plot = { id: 9, kind: 'disaster', type: 'famine', year, regions: [regionKey(civ, r0)] };
+    const o: OutlineCtx = { civ, plots: [p], review: [{ id: 9, status: 'natural', year }] };
+    const hit = ev(3, 'famine', r0, 2);
+    expect(directorPlots(o, [ev(1, 'plague', r0, 3), ev(2, 'famine', r1, 3), hit])[0].entry).toBe(hit);
+    expect(directorPlots(o, [ev(1, 'plague', r0, 3), ev(2, 'famine', r1, 3)])[0].entry).toBeNull();
+  });
   it('人死了:只认写到这个人的那件,同一年别的大事不算', () => {
     const P = civ.people!.find((x) => x.died !== undefined)!;
     const y = Math.floor(P.died!);

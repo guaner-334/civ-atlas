@@ -180,11 +180,13 @@ export const OUTLINE_KEEP_WEIGHT = 35;
  * 字幕按大纲:这一段年份里的情节(plots 按大纲的先后;编号是负的,不和编年史撞,按大纲的先后从小到大:同一年的几条照大纲的先后放)+ 情节之间的头等大事(对上情节的那件不另放),按年份排
  */
 export function outlineEvents(events: readonly FilmEvent[], plots: readonly FilmPlot[], range: FilmRange): FilmEvent[] {
-  const told = new Set(plots.flatMap((p) => (p.entry ? [p.entry.id] : [])));
+  const inRange = (p: FilmPlot) => Math.floor(p.year) >= range.from && Math.floor(p.year) <= range.to;
+  // 对上情节的那件不另放(只看这一段里放得出的情节)
+  const told = new Set(plots.flatMap((p) => (p.entry && inRange(p) ? [p.entry.id] : [])));
   const out = events.filter((e) => !told.has(e.id) && e.weight >= OUTLINE_KEEP_WEIGHT);
   plots.forEach((p, i) => {
     const year = Math.floor(p.year);
-    if (year < range.from || year > range.to) return;
+    if (!inRange(p)) return;
     const text = cnPunct(p.text);
     out.push({ id: i - plots.length, type: 'order', year, end: year, ongoing: false, text, head: text, weight: FILM_PLOT_WEIGHT, plot: true });
   });

@@ -10,6 +10,7 @@ import { generateCiv } from '../src/gen/civ';
 import { DEFAULT_PARAMS, generateWorld } from '../src/gen/world';
 import type { Era } from '../src/gen/era';
 import { FLY_MS } from '../src/ui/flyTo';
+import { filmEvents } from '../src/ui/filmPlan';
 import { entryAnchor, entrySpot, entryWeight } from '../src/ui/timelineLayout';
 import {
   CROWD_MAX,
@@ -393,6 +394,13 @@ describe('照大纲放', () => {
       const caps = plan([big(1200, { settlement: C })], { plots, pace }).segments.flatMap((s) => s.items).filter((c) => c.plot);
       expect(caps.map((c) => c.plot!.n)).toEqual([1, 2, 3]);
     }
+  });
+  it('讲和对上一场打了几年的仗:小字写打完的那句,不是开打那句', () => {
+    const w = entry('war', 1300, '第 1300 年开战,第 1305 年讲和', { end: 1305, tag: '战', head: '第 1300 年开战' });
+    const f = filmEvents([w], { from: 0, to: 3000 })[0];
+    expect(f.text).not.toBe(f.head);
+    const pc = plan([big(1200, { settlement: C })], { plots: [plot(1, 1305, w)] }).segments.flatMap((s) => s.items).find((c) => c.plot)!;
+    expect(pc.plot!.sub).toBe(f.text);
   });
   it('范围外的情节不排;没给情节和原来一样', () => {
     const es = [big(1200), mid(1500, { settlement: C })];

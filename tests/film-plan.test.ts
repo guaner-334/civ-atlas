@@ -182,6 +182,13 @@ describe('字幕按大纲', () => {
     expect(slots.map((x) => x.text)).toEqual(['第 1 条', '第 2 条', '第 3 条']);
     for (let i = 1; i < slots.length; i++) expect(slots[i].f0).toBeGreaterThanOrEqual(slots[i - 1].f1);
   });
+  it('情节在这一段外面:对上它的那件照样放', () => {
+    const range = { from: 999, to: 1002 };
+    const w = entry('war', 1000, '打了五年', { end: 1005, importance: 3 });
+    const evs = filmEvents([w], range).map((e) => ({ ...e, weight: OUTLINE_KEEP_WEIGHT }));
+    const out = outlineEvents(evs, [{ id: 1, year: 1005, text: '讲和', entry: w, cell: -1 }], range);
+    expect(out.map((e) => e.id)).toEqual([w.id]);
+  });
   it('同一年的几条照大纲的先后放(不看情节编号)', () => {
     const range = { from: 980, to: 1021 };
     const plots = [5, 2, 9].map((id, i) => ({ id, year: 1000, text: `第 ${i + 1} 条`, entry: null, cell: -1 }));

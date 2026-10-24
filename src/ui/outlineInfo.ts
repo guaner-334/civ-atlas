@@ -28,6 +28,7 @@ import {
 } from '../gen/edits';
 import type { AuthorCharacter } from '../gen/characters';
 import { entryInvolves, type ChronicleEntry } from '../gen/civ/chronicle';
+import { ownersAt } from '../gen/civ/timeline';
 import type { DirectorPlot } from './directorPlan';
 import { nameAt } from './Interventions';
 import { yearAt, type Era } from '../gen/era';
@@ -657,6 +658,9 @@ function plotEntry(o: OutlineCtx, p: Plot, r: PlotReview, entries: readonly Chro
   // 人死了:只认写到这个人的那件(说不出是谁 = 对不上)
   const who = p.kind === 'death' ? (p.person ? resolvePersonKey(civ, p.person) : -1) : null;
   if (who !== null && who < 0) return null;
+  // 天灾:种类、地方都得对上(说不出地方 = 对不上)
+  const sky = p.kind === 'disaster' ? disasterMatch(o, p, y) : null;
+  if (p.kind === 'disaster' && !sky) return null;
   const kinds = PLOT_ENTRY_KINDS[p.kind] ?? [];
   let best: ChronicleEntry | null = null;
   let score = -1;
@@ -666,10 +670,40 @@ function plotEntry(o: OutlineCtx, p: Plot, r: PlotReview, entries: readonly Chro
     if ((Math.floor(e.year) !== y && !folded) || e.importance < 2) continue;
     if (pol >= 0 && !entryInvolves(e, pol)) continue;
     if (other >= 0 && !entryInvolves(e, other)) continue;
+    if (sky && !sky(e)) continue;
     if (who !== null && !e.people?.includes(who) && !e.children?.some((c) => c.people?.includes(who))) continue;
     const k = kinds.indexOf(e.kind);
     const sc = (k >= 0 ? 100 - k * 10 : 0) + e.importance;
     if (sc > score) [best, score] = [e, sc];
   }
   return best;
+}
+
+/**
+ * 天灾情节对得上哪几件:瘟疫 = 那座城、它所在的州或那州的主人(作者下的瘟疫记在下令那条);饥荒 = 那国(上面按国家筛),
+ * 或那几州、它们的主人;地震水旱 = 下令那条记的那一处。说不出地方 = null
+ */
+function disasterMatch(o: OutlineCtx, p: Plot, y: number): ((e: ChronicleEntry) => boolean) | null {
+  const civ = o.civ;
+  const idOf = (k: string | undefined, kind: string) => {
+    const r = k ? resolveKey(civ, k) : null;
+    return r?.kind === kind ? r.id : -1;
+  };
+  const owner = ownersAt(civ, y).polity;
+  const near = (rs: readonly number[]) => (e: ChronicleEntry) => e.regions.some((r) => rs.includes(r)) || rs.some((r) => owner[r] >= 0 && entryInvolves(e, owner[r]));
+  if (p.type === 'plague') {
+    const c = idOf(p.city, 'settlement');
+    if (c < 0) return null;
+    const at = near([civ.settlements[c].region]);
+    return (e) => (e.kind === 'plague' || e.kind === 'intervene') && (e.settlement === c || at(e));
+  }
+  if (p.type === 'quake') {
+    const r = idOf(p.region, 'region');
+    return r < 0 ? null : (e) => e.kind === 'intervene' && e.regions.includes(r);
+  }
+  if (p.a !== undefined) return (e) => e.kind === 'famine';
+  const rs = (p.regions ?? []).map((k) => idOf(k, 'region')).filter((r) => r >= 0);
+  if (!rs.length) return null;
+  const at = near(rs);
+  return (e) => e.kind === 'famine' && at(e);
 }

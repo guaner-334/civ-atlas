@@ -489,7 +489,7 @@ function plotCand(ctx: ShotCtx, p: DirectorPlot, factor: number, era: Era | null
     hold: DIRECTOR_HOLD.big * factor,
     spot,
     box: pin ? (m ? footprint(ctx, m, pin) : grow([pin[0], pin[1], pin[0], pin[1]], SHOT_SPAN * ctx.unit)) : null,
-    plot: { id: p.id, n: p.n, total: p.total, sub: f ? (eventOver(f, f.year) ? f.text : f.head) : '' },
+    plot: { id: p.id, n: p.n, total: p.total, sub: f ? (eventOver(f, p.year) ? f.text : f.head) : '' },
   };
 }
 
