@@ -45,7 +45,6 @@ import {
   cleanOutline,
   keyCells,
   ownInterventions,
-  basePolicy,
   parsePersonKey,
   polityKey,
   regionKey,
@@ -60,6 +59,7 @@ import {
   type PlotReview,
 } from './edits';
 import { characterLeanings, type AuthorCharacter } from './characters';
+import { emptyPolicy, policiesFrom, type PolicyIv } from './civ/policy';
 
 /** 照大纲推演的输入 */
 export interface OutlineInput {
@@ -814,27 +814,48 @@ function targets(at: GuideAt, p: Plot, variant: number, s: number): GuideOne[] |
 /** 方针的旋钮加上 d,夹回 ±POLICY_KNOB_MAX */
 const knob = (x: number | undefined, d: number | undefined) => Math.max(-POLICY_KNOB_MAX, Math.min(POLICY_KNOB_MAX, (x ?? 0) + (d ?? 0)));
 
+/** 一国第 G 年起引之前真在照的、作者定的方针(那一刻的历史里生效了的,跳过顺着引出来的;没有 / 罢了 = null) */
+function heldPolicy(S: Civ, a: string, G: number): PolicyIv | null {
+  const r = resolveKey(S, a);
+  const segs = r?.kind === 'polity' ? policiesFrom(S.annals, S.interventions).get(r.id) : undefined;
+  for (let i = (segs?.length ?? 0) - 1; i >= 0; i--) {
+    const v = segs![i].v;
+    if (segs![i].t < G && !v.guide) return emptyPolicy(v) ? null : v;
+  }
+  return null;
+}
+
 /**
- * 一版引法的干预:每国在第 G 年定一条方针(那国当时自己的方针加上这版的加减,仇国、亲国添进去),
- * 第 E 年换回那时它自己的方针(G、E 之间它自己又定过方针的不用换:那条会盖掉引的这条)。都带 plot、guide
+ * 一版引法的干预列表:每国在第 G 年定一条方针(那国当时真在照的自己的方针加上这版的加减,仇国、亲国添进去),
+ * 第 E 年换回它(G、E 之间作者给它定过方针的不用换:那条会盖掉引的这条)。都带 plot、guide。
+ * 前面情节引同一国、换回的那一刻落在 (G, E] 里的:那条挪到第 E 年当这次的换回(不然它会提前盖掉这次引的;
+ * 原地改、不删,干预的下标不变。改了前面的,接不上快照,那一版从第 0 年推,结果一样,只是慢)
  */
-function guideList(list: readonly Intervention[], who: readonly GuideOne[], p: Plot, G: number, E: number): Intervention[] {
-  const out: Intervention[] = [];
+function guideList(S: Civ, list: readonly Intervention[], who: readonly GuideOne[], p: Plot, G: number, E: number): Intervention[] {
+  const add: Intervention[] = [];
   const tag = { plot: p.id, guide: true as const };
+  const ours = new Set(who.map((g) => g.a));
+  const moved = new Set<string>();
+  const out = list.map((x) => {
+    if (x.kind !== 'policy' || !x.guide || !ours.has(x.a) || !(x.from > G && x.from <= E)) return x;
+    moved.add(x.a);
+    return { ...x, from: E };
+  });
   for (const g of who) {
-    const base = basePolicy(list, g.a, G);
+    const base = heldPolicy(S, g.a, G);
     const foes = [...(g.foes ?? []), ...(base?.foes ?? []).filter((k) => !g.friends?.includes(k))];
     const friends = [...(g.friends ?? []), ...(base?.friends ?? []).filter((k) => !g.foes?.includes(k))];
     const v: Record<string, unknown> = { kind: 'policy', a: g.a, from: G, war: knob(base?.war, g.war), expand: knob(base?.expand, g.expand), coast: base?.coast, peace: knob(base?.peace, g.peace), foes, friends, focus: base?.focus, ...tag };
     const c = cleanIntervention(v);
-    if (c) out.push(c);
-    const later = list.some((x) => x.kind === 'policy' && x.a === g.a && !x.guide && x.from > G && x.from <= E);
-    if (later) continue;
-    const back = basePolicy(list, g.a, E);
-    const r = cleanIntervention(back ? { ...back, preset: undefined, from: E, ...tag, ...(back.preset ? { preset: back.preset } : {}) } : { kind: 'policy', a: g.a, from: E, ...tag });
-    if (r) out.push(r);
+    if (c) add.push(c);
+    if (moved.has(g.a) || list.some((x) => x.kind === 'policy' && x.a === g.a && !x.guide && x.from > G && x.from <= E)) continue;
+    const { plot: _p, guide: _g, ...back } = base ?? { kind: 'policy' as const, a: g.a, from: E };
+    void _p;
+    void _g;
+    const r = cleanIntervention({ ...back, from: E, ...tag });
+    if (r) add.push(r);
   }
-  return out;
+  return add.length ? [...out, ...add] : [];
 }
 
 /**
@@ -875,11 +896,11 @@ async function guide(ctx: Ctx, st: State, pick: Pick): Promise<{ list: Intervent
     const g = atOf(plan.lead);
     const who = g && targets(g, p, plan.variant, plan.s);
     if (!g || !who) continue;
-    const ivs = guideList(st.list, who, p, g.G, E);
-    if (!ivs.length) continue;
+    const list = guideList(g.S, st.list, who, p, g.G, E);
+    if (!list.length) continue;
     n++;
     ctx.stage?.(p.id, null, { n, of });
-    const tl: State = { ...st, snaps: st.snaps.slice(), list: [...st.list, ...ivs] };
+    const tl: State = { ...st, snaps: st.snaps.slice(), list };
     const C = advance(ctx, tl, playStop(hi + 1), false);
     const found = happened(ctx, C, p, refsOf(ctx, C, p, st.done), lo, hi);
     if (found) return { list: tl.list, snaps: tl.snaps, civ: C, found };
