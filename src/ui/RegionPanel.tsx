@@ -4,6 +4,7 @@
  *   顶部  颜色块(当年所属国)、州名(可改)、"州，属 大昌，第 12 州"(没有国家 = "无主之地")、关闭
  *   按钮  在这里立国(主操作)/ 划给… / 改名 / 更多(天灾… / 在这里加标记 / 在这里加人物、设为中心、让 AI 讲名字由来)(每个面板只有一个主操作,和国家面板一样)
  *         「天灾…」换成天灾那一页(DisasterPage.tsx,默认这一州)
+ *         演一国时别国的州:在这里立国、划给…、天灾…变灰,按钮下面写一句(和别国的国家卡片一样,RoleBar.tsx 的 RoleLockNote)
  *   概况  主体民族(族名可改)、宜居度、人口(州里的总人口 = 治所的城 + 乡村,growth.ts 的 regionPopulationAt;一州同一时刻最多一座城;
  *         作者下的天灾以后还没长回来:"约 45 万人 ~~64 万人~~ 1500 年地震",newIvInfo.ts 的 regionDisasterMark)、信仰(可点)、州里的城(可点;故城标出来)、地貌、
  *         民族(族名由来 / 起族名)、来历(分化出来的民族:哪年从哪族分出,母族可点;母族已消亡的不可点)
@@ -31,6 +32,9 @@ import { queueIntervention } from './pendingStore';
 import { nextYear, useStepwise } from './stepwiseStore';
 import { STEP_LOOK_WHY, StepEffectTime, useStepView } from './Stepwise';
 import { useNarrow } from './device';
+import { roleLock } from './policyInfo';
+import { useRole } from './roleStore';
+import { ROLE_LOCK_NOTE, RoleLockNote } from './RoleBar';
 import { habitatScore, habitatWord } from './civDescribe';
 import { MineList, getPolityPick, interventionText, nameAt, regionOrders, setPolityPick } from './Interventions';
 import { NameEdit } from './NameEdit';
@@ -72,14 +76,6 @@ import {
 
 type Page = 'found' | 'cede' | 'disaster';
 
-/**
- * 演一国时州卡片上的干预(天灾…)变不变灰、灰了写什么:现在先不变灰(州卡片的「在这里立国」「划给…」也都不变灰)。
- * 要变灰时只改这一处,比如这州那年的主人不是演的那国就返回 ROLE_LOCK_NOTE(roleLock、useRole 见 policyInfo.ts、roleStore.ts)
- */
-function regionIvLock(_civ: Civ, _region: number, _year: number): string | null {
-  return null;
-}
-
 export function RegionPanel(props: DetailProps) {
   const { civ, raw, raster, world, id, year, names } = props;
   const [page, setPage] = useState<Page | null>(null);
@@ -89,7 +85,8 @@ export function RegionPanel(props: DetailProps) {
   const po = civ.polities[own.polity[id]];
   const named = regionNamed(civ, id);
   const canAct = civ.viable && civ.polities.length > 0;
-  const lock = regionIvLock(civ, id, year);
+  // 演一国时别国的州:在这里立国、划给…变灰(无主之地、自己的州照常)
+  const lock = po ? roleLock(civ, useRole(), po.id) : null;
   return (
     <div className="cp" data-region={id} data-page={page ?? 'info'}>
       <PanelHead color={po ? rgb(po.color) : undefined}>
@@ -121,19 +118,19 @@ export function RegionPanel(props: DetailProps) {
           ]}
         />
       </PanelHead>
-      {page === 'disaster' && canAct ? (
+      {page === 'disaster' && canAct && !lock ? (
         <DisasterPage key={id} civ={civ} region={id} year={year} onBack={() => setPage(null)} />
-      ) : page && canAct ? (
+      ) : page && canAct && !lock ? (
         <RegionOrder civ={civ} id={id} year={year} page={page} back={() => setPage(null)} />
       ) : (
         <>
           <Acts>
             {canAct ? (
               <>
-                <Act icon="flag" primary act="found" onClick={() => (setPage('found'), setSheet('full'))}>
+                <Act icon="flag" primary={!lock} act="found" disabled={!!lock} title={lock ? ROLE_LOCK_NOTE : undefined} onClick={() => (setPage('found'), setSheet('full'))}>
                   在这里立国
                 </Act>
-                <Act icon="map" act="cede" onClick={() => (setPage('cede'), setSheet('full'))}>
+                <Act icon="map" act="cede" disabled={!!lock} title={lock ? ROLE_LOCK_NOTE : undefined} onClick={() => (setPage('cede'), setSheet('full'))}>
                   划给…
                 </Act>
               </>
@@ -149,7 +146,7 @@ export function RegionPanel(props: DetailProps) {
                   icon={<Icon name="close" size={16} className="iv-blank" />}
                   act="region-disaster"
                   disabled={!!lock}
-                  note={lock ?? undefined}
+                  note={lock ? ROLE_LOCK_NOTE : undefined}
                   onClick={() => (setPage('disaster'), setSheet('full'))}
                 >
                   天灾…
@@ -167,6 +164,7 @@ export function RegionPanel(props: DetailProps) {
               </AiMenuItem>
             </MoreAct>
           </Acts>
+          {lock && canAct && <RoleLockNote civ={civ} me={lock.me} who={polityName(po, year)} year={year} />}
           <RegionInfo {...props} ai={ai} aiRef={aiRef} />
         </>
       )}

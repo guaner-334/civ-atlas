@@ -28,6 +28,22 @@ const stop = (e: { stopPropagation(): void }) => e.stopPropagation();
 /** 导播已经按演的那国关注过的世界(每个世界打开时只设一次) */
 let focusedWorld: string | null = null;
 
+/** 演一国时别国的干预入口变灰,悬停 / 菜单里写的那一句 */
+export const ROLE_LOCK_NOTE = '切回造物主才能改别国';
+
+/** 演一国时别国的国家 / 州 / 城卡片上那一句(me = 演的那国,who = 卡片上的这国) */
+export function RoleLockNote({ civ, me, who, year }: { civ: Civ; me: number; who: string; year: number }) {
+  return (
+    <div className="pol-lock" data-role-lock={me}>
+      你在演{nameAt(civ.polities[me], year)}，只管自己的国家。要改{who}，
+      <button data-act="role-off" onClick={() => roleOff(me)}>
+        切回造物主
+      </button>
+      。
+    </div>
+  );
+}
+
 /** 切回造物主(导播关注的是演的那国就放开) */
 export function roleOff(id: number) {
   const k = getRole();

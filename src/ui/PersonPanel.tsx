@@ -50,14 +50,12 @@ import { leanRows, peaceRow, policyLabel, roleLock, rulerPolicy } from './policy
 import { openPolicyPage } from './PolicyPage';
 import { nameAt } from './Interventions';
 import { useRole } from './roleStore';
+import { ROLE_LOCK_NOTE } from './RoleBar';
 import { setSelection } from './civView';
 import { PersonIvPage, type PersonIvKind } from './PersonIvPage';
 import { leaningsThen, moodSince, personIvRange, rulerOnThrone } from './newIvInfo';
 import './policy.css';
 import './newIv.css';
-
-/** 演一国时别国的人:干预入口变灰,写这一句 */
-const ROLE_LOCK_NOTE = '切回造物主才能改别国';
 
 const F = Math.floor;
 
