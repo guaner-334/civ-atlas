@@ -323,6 +323,11 @@ export interface Continuation {
   advance(untilYear: number): void;
   /** 推到 to(还没推到的接着推完),整理成 Civ(起名、配色、人物、道路、信仰);只调一次 */
   finish(): Civ;
+  /**
+   * 推到 to,不整理:只够查史事、归属和再接着推的一份历史(还没起名;地名、道路、人物、信仰是空的)。
+   * 从它接着推(continueCiv / startContinue)和从整理过的同一刻接着推结果一样。和 finish 二选一,只调一次
+   */
+  partial(): Civ;
 }
 
 /**
@@ -362,6 +367,18 @@ export function startContinue(world: World, civ: Civ, params: Partial<CivParams>
       pm.cultures = model.cultures; // 接着推时两层各复制了一份民族表:起城名、国名要用起好名的那份
       const fin = { sim, model, pm, world, habitat: civ.habitat, regions: model.terrain.regions };
       return finishCiv({ fin, p, seed, viable: true, mix: civ.names, frontier: civ.frontier, origins: cleanOrigins(p.origins), interventions: list.length ? list : undefined, model, pm, eras: [], facts: [], progress });
+    },
+    partial() {
+      if (done) throw new Error('startContinue:已经整理完了');
+      if (to > sim.now) sim.run(to);
+      done = true;
+      const model = cultureModelOf(sim)!;
+      const pm = polityModelOf(sim)!;
+      pm.cultures = model.cultures;
+      const out = partialCiv(sim, model, pm, civ.habitat, model.terrain.regions, seed, null, civ.frontier);
+      if (list.length) out.interventions = list.slice();
+      if (civ.names) out.names = civ.names;
+      return out;
     },
   };
 }

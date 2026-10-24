@@ -31,6 +31,10 @@
  * 和原件用同一份复制),从它接着推;推演那一步分段推,每段之间报进度(extendProgress)、先让新到的消息排进来:
  * 来了新的再推、重推、生成、读档、逐年推演的一步,或者叫停(extendStop),这次就不推了(extendStopped)。
  * 只把推演年数调大的重推(resim)也从记着的历史接着推。结果都和从第 0 年一口气推到那一年一样。
+ *
+ * 照大纲推演(outline,gen/outline.ts):照常推、逐条查情节,没发生的硬改,每查完一条报进度(outlineProgress)、先让新到的消息排进来;
+ * 来了新的推演请求或叫停(outlineStop)就不推了(outlineStopped)。推完交整段历史和新的干预串(outlined),结果和带着这串干预从第 0 年推完一样。
+ * 每一步的样子记在线程里(outlineCache),改了后面几条情节再推时,前面没改的不重算;换世界时放掉。
  */
 import { generateWorld, generateWorldSteps, type BaseCache, type World, type WorldParams } from './gen/world';
 import { dropGullyBuffers, rasterizeDeferred, type Raster } from './gen/raster';
@@ -38,7 +42,9 @@ import { GullyPool } from './gullyPool';
 import { buildHistoryFrames, type HistoryFrames } from './gen/history';
 import { DEFAULT_CIV_PARAMS, civBase, continueCiv, generateCiv, civTransferables, planetTempo, type Civ, type CivBase, type PlanetTempo, type Regions } from './gen/civ';
 import { extendCiv } from './gen/civ/extend';
-import { END_YEAR_DEFAULT, GENERATOR_VERSION, cleanEndYear, playInterventions, type Intervention, type PlayState, type TerrainOp, type Upheaval } from './gen/edits';
+import { END_YEAR_DEFAULT, GENERATOR_VERSION, cleanEndYear, ownInterventions, playInterventions, type AuthorMark, type Intervention, type PlayState, type PlotReview, type TerrainOp, type Upheaval } from './gen/edits';
+import { runOutline, type OutlineCache } from './gen/outline';
+import type { AuthorCharacter } from './gen/characters';
 import { sketchGrid, type SketchEdit } from './gen/sketch';
 import { mergeUpheavals, previewUpheaval, type UpheavalPreview, type UpheavalStep } from './gen/civ/upheaval';
 import { computeHabitat } from './gen/civ/habitat';
@@ -149,6 +155,15 @@ export type WorkerRequest =
   /** 叫停再推:xid 和它以前的再推都不推了(在推的停下,排着的不推);没在推就什么也不做 */
   | { type: 'extendStop'; id: number; xid: number }
   /**
+   * 照大纲推演(gen/outline.ts 的 runOutline):plots = 大纲的情节;interventions = 这个世界现在的干预(上一次照大纲硬改出来的那几条先去掉再重新算);
+   * characters、marks = 作者的人物、标记(即位、一片地方要读)。其余各项和推这个世界时一样(逐年推演中的世界不用这个)。
+   * oid = 第几次照大纲推演(主线程只认最新的)。推的时候每查完一条交 outlineProgress;推完交 outlined(随后照常排原件 snapshot,配方里的干预是新的那一串);
+   * 被顶掉、叫停交 outlineStopped。上一次照大纲推演每一步的样子记在线程里:前面几条情节没改,就从第一条改了的那条接着算
+   */
+  | ({ type: 'outline'; id: number; oid: number; plots: unknown[]; interventions?: Intervention[]; characters?: AuthorCharacter[]; marks?: AuthorMark[] } & Omit<CivInput, 'play'>)
+  /** 叫停照大纲推演:oid 和它以前的都不推了;没在推就什么也不做 */
+  | { type: 'outlineStop'; id: number; oid: number }
+  /**
    * 不再编辑地形了(新建的世界建好了,地形锁住):编辑地形时留着的整张主图和铺像素的输入放掉。没有回音
    * (主线程直接发,不算一件活)
    */
@@ -202,6 +217,15 @@ export type WorkerResponse =
   | { type: 'extended'; id: number; xid: number; civ: Civ; split?: CivSplit; chron?: number; to: number; ms: number; tempo?: TempoNote; eras?: EraWorld[]; baseKey: string }
   /** 这次再推没推完就停了(被新请求顶掉、被叫停):世界还是原来的样子 */
   | { type: 'extendStopped'; id: number; xid: number }
+  /** 照大纲推演的进度:查完了 done 条(一共 total 条),到现在的批改(按查的先后) */
+  | { type: 'outlineProgress'; id: number; oid: number; done: number; total: number; review: PlotReview[] }
+  /**
+   * 照大纲推演好了:整段历史、新的干预串(作者的干预 + 硬改出来的,带 plot)、每条情节的批改(按情节的先后);
+   * ms(线程里花的时间)、tempo、eras 同 civ
+   */
+  | { type: 'outlined'; id: number; oid: number; civ: Civ; split?: CivSplit; chron?: number; interventions: Intervention[]; review: PlotReview[]; ms: number; tempo?: TempoNote; eras?: EraWorld[]; baseKey: string }
+  /** 这次照大纲推演没推完就停了(被新请求顶掉、被叫停):世界还是原来的样子 */
+  | { type: 'outlineStopped'; id: number; oid: number }
   /** 试推演的结果;tempo 同 done */
   | { type: 'trial'; id: number; tid: number; civ: Civ; split?: CivSplit; ms: number; tempo?: TempoNote }
   /** 一段的主图补丁:key 这一段比 prev 那一段(原来的世界或上一件大事以后)变了的那一块;null = 看不出变化 */
@@ -454,6 +478,8 @@ type CivRecipe = Omit<CivInput, 'endYear' | 'play'> & { interventions?: Interven
  * 照原样打开的旧世界另记(键前加 frozen:,地形和按现在的版本生成的不一样)
  */
 let held: { key: string; civ?: Civ; part?: SnapshotPart } | null = null;
+/** 上一次照大纲推演每一步的样子(gen/outline.ts 的 OutlineCache):改了几条情节再推时,前面没改的直接用 */
+let outlineCache: OutlineCache | null = null;
 function heldKey(m: CivRecipe, play: PlayState | undefined): string {
   const r: Recipe = { params: m.params, terrain: m.terrain, sketch: m.sketch, interventions: m.interventions, upheavals: m.upheavals, names: m.names, frontier: m.frontier, origins: m.origins, civSeed: m.civSeed, play };
   return `${frozen?.key === keyOf(m.params, m.terrain, m.sketch) ? 'frozen:' : ''}${recipeText(r)}`;
@@ -722,8 +748,8 @@ let turnSnap: ReturnType<typeof setTimeout> | undefined;
 
 async function handle(m: Queued): Promise<void> {
   // 有了新的活:逐年推演上一步等着打的原件不要了(新的一步、换了世界、重推会各自再排)
-  if (m.type !== 'history' && m.type !== 'upPreview' && m.type !== 'extendStop' && m.type !== 'trial' && m.type !== 'release') clearTimeout(turnSnap);
-  if (m.type !== 'history' && m.type !== 'upPreview' && m.type !== 'extendStop' && m.type !== 'release') takeTempo(m.params, m.sketch, m.tempo);
+  if (m.type !== 'history' && m.type !== 'upPreview' && m.type !== 'extendStop' && m.type !== 'outlineStop' && m.type !== 'trial' && m.type !== 'release') clearTimeout(turnSnap);
+  if (m.type !== 'history' && m.type !== 'upPreview' && m.type !== 'extendStop' && m.type !== 'outlineStop' && m.type !== 'release') takeTempo(m.params, m.sketch, m.tempo);
   if (m.type === 'generate') {
     // 后面已经排着新的世界(编辑地形连着涂了几笔):这一次不用算了
     if (superseded()) return void post({ type: 'aborted', id: m.id });
@@ -731,6 +757,7 @@ async function handle(m: Queued): Promise<void> {
     bg.length = 0;
     rasters.clear();
     civMemo = null;
+    outlineCache = null;
     // 刚才是照原样读进来的旧世界:州的划分是按旧地形算的,同样的键这回要按新生成的重算
     if (frozen) regionsMemo.clear();
     frozen = null;
@@ -863,6 +890,7 @@ async function handle(m: Queued): Promise<void> {
     bg.length = 0;
     rasters.clear();
     civMemo = null;
+    outlineCache = null;
     // 州的划分按读进来的旧地形重算,不沿用按新版生成时记下的
     regionsMemo.clear();
     frozen = null;
@@ -991,6 +1019,44 @@ async function handle(m: Queued): Promise<void> {
     postCiv({ type: 'extended', id: m.id, xid: m.xid, civ, ...(chron !== undefined ? { chron } : {}), to, ms, tempo: noteOf(m.params, m.sketch), eras: eraWorlds(steps), baseKey: keyOf(m.params, m.terrain, m.sketch) }, civTransferables(civ));
     queuePatches(m.id, m, steps);
     queueSnapshot(m.id, { ...m, endYear: to }, world, steps, cloned);
+  } else if (m.type === 'outline') {
+    const t0 = performance.now();
+    const world = worldOf(m.params, m.terrain, m.sketch);
+    const steps = stepsOf(m.params, m.terrain, m.sketch, m.upheavals);
+    const own = ownInterventions(m.interventions ?? []);
+    const params = { tempo: tempoOf(m.params, m.terrain, m.sketch, m.civSeed), ...upOpt(steps), ...namesOpt(m.names), ...yearsOpt(m.endYear), ...setupOpt(m), ...frozenOpt(m), base: baseOf(world, m.civSeed) };
+    // 后面排着会换掉这份历史的请求,或者叫停这一次的:不推了
+    const stop = () => fg.some((r) => r.type === 'generate' || r.type === 'load' || r.type === 'resim' || r.type === 'turn' || r.type === 'extend' || r.type === 'outline' || (r.type === 'outlineStop' && r.oid >= m.oid));
+    // 这个世界、这组参数的键(不算干预、推演年数:runOutline 自己加上作者的干预、人物、标记)
+    const key = heldKey({ ...m, interventions: undefined }, undefined);
+    const out = await runOutline(
+      world,
+      params,
+      { plots: m.plots, interventions: own, characters: m.characters, marks: m.marks },
+      {
+        progress: (done, total, review) => post({ type: 'outlineProgress', id: m.id, oid: m.oid, done, total, review: review.slice() }),
+        pause: () => new Promise((r) => setTimeout(r, 0)),
+        stop,
+        cache: outlineCache,
+        key,
+      },
+    );
+    if (!out) {
+      post({ type: 'outlineStopped', id: m.id, oid: m.oid });
+      return;
+    }
+    outlineCache = out.cache;
+    const civ = out.civ;
+    const ms = performance.now() - t0;
+    const done = { ...m, interventions: out.interventions };
+    const cloned = cloneCiv(civ);
+    keepCiv(done, undefined, cloned);
+    const chron = await postChronicleUnlessSuperseded(m.id, civ, m.renames, stop);
+    postCiv({ type: 'outlined', id: m.id, oid: m.oid, civ, ...(chron !== undefined ? { chron } : {}), interventions: out.interventions, review: out.review, ms, tempo: noteOf(m.params, m.sketch), eras: eraWorlds(steps), baseKey: keyOf(m.params, m.terrain, m.sketch) }, civTransferables(civ));
+    queuePatches(m.id, m, steps);
+    queueSnapshot(m.id, done, world, steps, cloned);
+  } else if (m.type === 'outlineStop') {
+    // 只在照大纲推演的时候有用(每查完一条看排着的消息);这时候没在推,什么也不做
   } else if (m.type === 'extendStop') {
     // 只在再推的时候有用(推的那几段之间看排着的消息);这时候没在推,什么也不做
   } else if (m.type === 'release') {

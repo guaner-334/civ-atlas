@@ -198,7 +198,7 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
     const out = [name, sub, ...lines.map((l) => `${l.k}：${l.text}`)];
     if (ruler && x.leanings) out.push(`倾向：${leaningsText(x.leanings)}`);
     if (bio) out.push('', `生平：${bio}`);
-    if (events.length) out.push('', `${head}：`, ...events.map((e) => `${yearShort(e.year, era)} ${eraText(e.text.replace(/^【干预】/, ''), era)}`));
+    if (events.length) out.push('', `${head}：`, ...events.map((e) => `${yearShort(e.year, era)} ${eraText(e.text.replace(/^【(?:干预|照大纲)】/, ''), era)}`));
     const text = out.join('\n');
     (window as unknown as { __wfPersonText: string }).__wfPersonText = text;
     await copyText(text);

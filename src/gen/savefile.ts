@@ -65,6 +65,9 @@
  *   读档时过 cleanAdvance:认不出的项按默认,提示一句
  * - edits.follow(可选):导播跟着谁(edits.ts 文件头"导播跟着谁"),`{ "kind": "person", "key": "person:polity:c4567#0|general|燕鸾澈|1470" }`;
  *   全世界的大事时不写。读档时过 cleanFollow:认不出的当没有,提示一句。不算修改(改了几处、换成别处的存档丢了几处都不数它)
+ * - edits.outline(可选):大纲(edits.ts 文件头"大纲"),`{ "plots": [{ "id": 1, "kind": "war", "year": 1520, "a": "polity:c4567#0", "b": "polity:c8123#0", "text": "北燕伐南梁" }],
+ *   "review": [{ "id": 1, "status": "forced", "year": 1520 }] }`;没写大纲时不写。读档时过 cleanOutline:格式不对的情节跳过,提示一句。
+ *   照大纲硬改出来的干预在 edits.interventions 里(带 plot),和别的干预一样存
  * - view:看这个世界用的投影和中央经线(`{ "projection": "robinson", "center": 120 }`,可选)。
  *   投影名原样存(render/projection.ts 的 ProjectionId,或 "globe"),认不出的由界面当成等距圆柱;
  *   旧存档没有这个字段 = 等距圆柱、中央经线 0°
@@ -88,7 +91,7 @@
 import type { World } from './world';
 import { DEFAULT_PARAMS, type WorldParams } from './params';
 import { cleanMix, sameMix } from './names/mix';
-import { END_YEAR_MAX, GENERATOR_CHANGES, GENERATOR_VERSION, MARKS_MAX, MARK_REGIONS_TOTAL, NAME_MAX, aiNameKeys, cleanCivSeed, cleanEndYear, cleanMapRef, cleanMark, cleanPlay, cleanPlayFrom, cleanBranches, branchPlay, cleanAdvance, advanceOf, sameAdvance, cleanFollow, endYearOf, freeMarkId, resolveKey, type AdvanceSettings, type AiNameMark, type AuthorMark, type GeneratorChange, type Intervention, type PlayBranches, type TerrainOp, type Upheaval, type WorldEdits } from './edits';
+import { END_YEAR_MAX, GENERATOR_CHANGES, GENERATOR_VERSION, MARKS_MAX, MARK_REGIONS_TOTAL, NAME_MAX, aiNameKeys, cleanCivSeed, cleanEndYear, cleanMapRef, cleanMark, cleanPlay, cleanPlayFrom, cleanBranches, branchPlay, cleanAdvance, advanceOf, sameAdvance, cleanFollow, cleanOutline, endYearOf, freeMarkId, resolveKey, type AdvanceSettings, type AiNameMark, type AuthorMark, type GeneratorChange, type Intervention, type Outline, type PlayBranches, type TerrainOp, type Upheaval, type WorldEdits } from './edits';
 import type { Civ } from './civ/types';
 import { TERRAIN_MAX_OPS, UPHEAVALS_MAX, UPHEAVAL_KINDS, UPHEAVAL_OPS_MAX, cleanTerrainOp, cleanUpheaval } from './terrainEdits';
 import { SKETCH_MAX_STROKES, cleanSketch, cleanSketchStroke, type SketchEdit } from './sketch';
@@ -644,6 +647,8 @@ export function makeSave(
   if (advance) save.edits.advance = { ...advance };
   const follow = cleanFollow(edits.follow);
   if (follow) save.edits.follow = { kind: follow.kind, key: follow.key };
+  const outline = cleanOutline(edits.outline);
+  if (outline) save.edits.outline = JSON.parse(JSON.stringify(outline)) as Outline;
   const t = cleanTitle(title);
   if (t) save.title = t;
   const v = view ? cleanView(view) : null;
@@ -916,6 +921,13 @@ export function parseSave(text: string): ParseResult {
   // 导播跟着谁:认不出的当没有(镜头跟着全世界的大事)
   const follow = cleanFollow(E.follow);
   if (E.follow !== undefined && !follow) warnings.push('导播跟着谁认不出来,已按全世界的大事读');
+  // 大纲:格式不对的情节跳过
+  const outline = cleanOutline(E.outline);
+  if (E.outline !== undefined) {
+    const raw = isObj(E.outline) && Array.isArray(E.outline.plots) ? E.outline.plots.length : 0;
+    if (!outline && raw) warnings.push('大纲认不出来,已跳过');
+    else if (outline && outline.plots.length < raw) warnings.push(`大纲里有 ${raw - outline.plots.length} 条情节格式不对,已跳过`);
+  }
   const note = versionNote(generator, { terrain: terrain.length > 0 || !!sketch, upheavals: upheavals.length > 0 });
   if (note) warnings.splice(noteAt, 0, note);
 
@@ -948,6 +960,7 @@ export function parseSave(text: string): ParseResult {
       ...(branches ? { branches } : {}),
       ...(advance ? { advance } : {}),
       ...(follow ? { follow: { kind: follow.kind, key: follow.key } } : {}),
+      ...(outline ? { outline } : {}),
     },
     check: typeof raw.check === 'string' ? raw.check.slice(0, 64) : '',
     savedAt: typeof raw.savedAt === 'string' && !Number.isNaN(Date.parse(raw.savedAt)) ? raw.savedAt : '',
