@@ -14,6 +14,7 @@
  * 刚刷新过、不能再刷的,加载画面(还在的话)换成「重新加载」;首页上点了的不再等,顶上一条带「重新加载」的提示(HomeShell.tsx)。
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { AnnouncementHost } from './Announcement';
 import { HomeShell } from './HomeShell';
 import { plainHome, type HomeStart } from './homeStart';
 import { warmNewWorldPictures } from './NewWorldDialog';
@@ -131,6 +132,12 @@ export function Boot() {
     setStart(s);
   }, []);
 
-  if (app && leaving) return <app.App fromHome={start ?? undefined} />;
-  return home ? <HomeShell onLeave={onLeave} loadFailed={failed} /> : null;
+  const page = app && leaving ? <app.App fromHome={start ?? undefined} /> : home ? <HomeShell onLeave={onLeave} loadFailed={failed} /> : null;
+  return (
+    <>
+      {page}
+      {/* 网站公告:页面出来以后再弹(加载画面盖着时不开始倒数) */}
+      <AnnouncementHost ready={shown} />
+    </>
+  );
 }
