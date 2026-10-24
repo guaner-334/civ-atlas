@@ -8,7 +8,7 @@
  * 隔几条写一个(随缩放变):相邻两个字之间放得下才每条都写 —— 经度要隔开"字号 × 3 + 12"像素("120°W" 最宽),
  * 纬度要隔开"字号 + 6"像素;放不下就隔一条、两条写,只取整齐的倍数(LABEL_MULTS),0° 一定写。
  *
- * 只管经纬线横平竖直的投影:等距圆柱(mp = null,东西相连)和墨卡托(外轮廓是长方形)。
+ * 投影:等距圆柱(mp = null,东西相连)、墨卡托(外轮廓是长方形)按经纬线横平竖直算;弯边投影(罗宾森、自然地球、摩尔魏德)见 layoutCurved。
  * 纯计算,不碰 DOM。
  */
 import type { MapProj } from '../render/projection';
@@ -92,7 +92,7 @@ const DEG = Math.PI / 180;
 
 /**
  * 算出要写的字和刻度。W、H = 世界大小;v、b = 地图视图和舞台;mp = 墨卡托(null = 等距圆柱);step = 每隔几度。
- * 弯边投影(罗宾森这类)不归这里管,返回 null
+ * 弯边投影交给 layoutCurved
  */
 export function layoutGratLabels(W: number, H: number, v: MapView, b: StageBox, mp: MapProj | null, step: number, spec: GratSpec): GratLayout | null {
   if (!(step > 0) || !b.sw || !b.sh || !b.bw || !b.bh) return null;
