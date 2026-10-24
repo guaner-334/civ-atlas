@@ -422,6 +422,9 @@ function playedPlot(o: OutlineCtx, id: number, i: number): { n: number; year: nu
   return [{ n: i + 1, year: r.year }];
 }
 
+/** 小格子最多几个(大纲长了只标放到的那一段) */
+const OUTLINE_DOTS_MAX = 20;
+
 /** "照大纲放 第 3 / 10 条"(在两条之间:"第 4 条之后"),一排小格子标出放到第几条;× = 不照大纲放 */
 function OutlinePlate({ plots, cap }: { plots: readonly { n: number; year: number }[]; cap: DirectorCaption }) {
   const total = cap.plot?.total ?? plots.reduce((m, p) => Math.max(m, p.n), 0);
@@ -433,9 +436,10 @@ function OutlinePlate({ plots, cap }: { plots: readonly { n: number; year: numbe
       <b>照大纲放</b>
       <small>{now !== null ? `第 ${now} / ${total} 条` : after ? `第 ${after.n} 条之后` : '第 1 条之前'}</small>
       <span className="dr-oldots" aria-hidden="true">
-        {Array.from({ length: total }, (_, i) => (
-          <i key={i} className={i + 1 < at || (now === null && i + 1 === at) ? 'done' : i + 1 === now ? 'now' : ''} />
-        ))}
+        {Array.from({ length: Math.min(total, OUTLINE_DOTS_MAX) }, (_, k) => {
+          const i = k + Math.max(0, Math.min(total - OUTLINE_DOTS_MAX, at - 1 - OUTLINE_DOTS_MAX / 2));
+          return <i key={i} className={i + 1 < at || (now === null && i + 1 === at) ? 'done' : i + 1 === now ? 'now' : ''} />;
+        })}
       </span>
       <button className="dr-olx" aria-label="不照大纲放" title="不照大纲放，照常放大事" data-act="director-outline-off" onClick={() => setDirectorOutline(false)}>
         <Icon name="close" size={13} />
