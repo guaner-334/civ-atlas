@@ -9,6 +9,7 @@
  * - 平时选中国家(或这国的人物):国都画一个直径 24 的主色圆环,旁边写"竹影城（国都）" —— 默认写在圆环下面,压着地图上的字(国名、城名、地名)
  *   就换到上面 / 右边 / 左边……挑一处不压字的(地图停稳了再挑,拖动、飞行时跟着圆环走)。
  * - 天灾页的预览(地图上涂出受灾的州,civView 的一直亮着的高亮):那一片旁边一块白底橙字的小牌子"翼门之野一带 8 州"。
+ * - 从大纲点一条过来看:那件事在哪立一块小牌子(OutlineMap.tsx 的 PlotPin)。
  * - 名牌、圆环每帧按"世界坐标 → 屏幕坐标"重新摆(平移、缩放、左右无限拖动、弯边投影、地球仪都对;转到球背面的不显示);
  *   名牌互相压着时,小国的先让开或藏起来。
  */
@@ -29,6 +30,7 @@ import type { LabelPick } from './mapPick';
 import './countryPanel.css';
 import { spaced, yearSpanAt } from '../gen/era';
 import { currentEra } from './editsStore';
+import { PlotPin } from './OutlineMap';
 
 const rgb = (c: readonly number[]) => `rgb(${c.join(',')})`;
 
@@ -415,6 +417,7 @@ export function TargetLayer({ civ, world, toClient, resim, generating, labelAt }
         </div>
       )}
       {tag && <MapTag text={tag.text} x={world.mesh.x[tag.cell]} y={world.mesh.y[tag.cell]} toClient={toClient} />}
+      {!pick && <PlotPin civ={civ} world={world} toClient={toClient} />}
     </>
   );
 }

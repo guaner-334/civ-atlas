@@ -12,12 +12,12 @@ import type { Civ } from '../gen/civ/types';
 import { keyCells, regionOfKey, resolveKey, resolvePersonKey, type PlotReview, type PlotStatus, type Plot } from '../gen/edits';
 import { yearShort, eraText, type Era } from '../gen/era';
 import { useEdits } from './editsStore';
-import { setCivTime, setSelection, type MapSelection } from './civView';
+import { getSelection, setCivTime, setSelection, type MapSelection } from './civView';
 import { closeOverview, openOverview } from './overviewStore';
-import { startOutline, useOutlineUi, type OutlineRun } from './outlineStore';
+import { setOutlineFocus, startOutline, useOutlineUi, type OutlineRun } from './outlineStore';
 import type { ToastInput } from './toastStore';
 import { Icon, type IconName } from './icons';
-import { PLOT_KIND_INFO, STATUS_NAMES, countsText, plotNo, plotPolityId, plotWindow, reviewCounts, stageText, type OutlineCtx } from './outlineInfo';
+import { PLOT_KIND_INFO, STATUS_NAMES, plotText, countsText, plotNo, plotPolityId, plotWindow, reviewCounts, stageText, type OutlineCtx } from './outlineInfo';
 import './outline.css';
 
 /** 侧栏里最多列几条(多了写"还有 N 条") */
@@ -45,9 +45,7 @@ export function PlotRunTag() {
 }
 
 /** 一条情节在列表里写什么:作者写的那句(去掉句末的句号),没写 = 发生什么 */
-export function plotLine(p: Plot): string {
-  return p.text ? p.text.replace(/[。.]$/, '') : PLOT_KIND_INFO[p.kind].name;
-}
+export const plotLine = plotText;
 
 /** 大纲的说法要用的:这份历史、大纲、批改(推着的时候用推到现在的那一份)、作者的标记和人物 */
 export function useOutlineCtx(civ: Civ | null): OutlineCtx | null {
@@ -58,13 +56,19 @@ export function useOutlineCtx(civ: Civ | null): OutlineCtx | null {
   return useMemo(() => (civ && plots ? { civ, plots, review, marks: edits.marks, characters: edits.characters } : null), [civ, plots, review, edits.marks, edits.characters]);
 }
 
-/** 点一条:地图上看它说的那件事 —— 跳到那一年(推过了 = 落定的那年),选中它说的国家(立起来的国家)/ 州 / 城 */
+/**
+ * 点一条:地图上看它说的那件事 —— 跳到那一年(推过了 = 落定的那年),选中它说的国家(立起来的国家;亡国 = 并了它的那国)/ 州 / 城
+ * (说不出选什么的留着现在选中的),记下从大纲点过来的是哪一条(卡片顶上一条、地图上的小牌子)
+ */
 export function goToPlot(o: OutlineCtx, p: Plot, r: PlotReview | undefined) {
   const year = r && r.status !== 'failed' ? r.year : plotWindow(o, p).at;
   closeOverview();
   setCivTime({ year: Math.min(o.civ.endYear, Math.max(0, year)), playing: false, scrubbing: false, story: false });
-  const sel = plotTarget(o, p, r);
-  if (sel) setSelection(sel);
+  const want = plotTarget(o, p, r);
+  if (want) setSelection(want);
+  // 选中时可能换成别的(作者的人物当了君主 = 选中那个人物):记下真选中的
+  const sel = getSelection().sel;
+  setOutlineFocus(sel ? { plot: p.id, sel } : null);
 }
 
 /** 一条情节在地图上选中什么(没有可选的 = null) */
@@ -82,6 +86,9 @@ export function plotTarget(o: OutlineCtx, p: Plot, r: PlotReview | undefined): M
     const c = resolveKey(civ, p.city);
     if (c?.kind === 'settlement') return { kind: 'settlement', id: c.id };
   }
+  // 亡国:选中并了它的那国(亡了的国家地图上已经没有了)
+  const b = p.kind === 'fall' ? plotPolityId(o, p.b) : -1;
+  if (b >= 0) return { kind: 'polity', id: b };
   const a = plotPolityId(o, p.a);
   if (a >= 0 && p.kind !== 'split') return { kind: 'polity', id: a };
   const key = p.region ?? p.regions?.[0];

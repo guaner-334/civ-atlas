@@ -6,12 +6,14 @@
  *   界面调 startOutline / stopOutline。
  * - edit:正在编的那一条(概览「大纲」页右边滑出的一栏;手机整页)。草稿放在这里,不放在组件里:在地图上点、圈州时概览先收起,回来接着编。
  * - filter:大纲页上方按结果筛(全部 / 照着发生了 / 硬改的 / 做不到 / 只讲故事)。
- * - focus:从大纲点过来看的那一条(情节编号)。
+ * - focus:从大纲点过来看的那一条(情节编号)和点过来时选中的东西:选中的还是它,卡片顶上一条「‹ 大纲 第 N 条」、地图上一块小牌子、
+ *   时间轴上那一条的记号放大写号;换选了别的、取消选中就不看了。
  * 不碰 DOM,单测直接测。
  */
 import { useSyncExternalStore } from 'react';
 import { PLOT_ID_MAX, type Plot, type PlotKind, type PlotReview, type PlotStatus } from '../gen/edits';
 import { onEditsReset } from './editsStore';
+import type { MapSelection } from './civView';
 
 /** 正在照大纲推演的这一次 */
 export interface OutlineRun {
@@ -39,11 +41,17 @@ export type PlotDraft = Omit<Plot, 'kind'> & { kind?: PlotKind; pickA?: string }
 
 export type OutlineFilter = PlotStatus | 'all';
 
+/** 从大纲点过来看的那一条:情节编号、点过来时选中的东西 */
+export interface OutlineFocus {
+  plot: number;
+  sel: MapSelection;
+}
+
 export interface OutlineState {
   run: OutlineRun | null;
   edit: OutlineEdit | null;
   filter: OutlineFilter;
-  focus: number | null;
+  focus: OutlineFocus | null;
 }
 
 let S: OutlineState = { run: null, edit: null, filter: 'all', focus: null };
@@ -115,9 +123,11 @@ export function setOutlineFilter(filter: OutlineFilter) {
 }
 
 /** 从大纲点过来看的那一条(null = 不看了) */
-export function setOutlineFocus(focus: number | null) {
+export function setOutlineFocus(focus: OutlineFocus | null) {
   if (S.focus !== focus) patch({ focus });
 }
+/** 现在选中的还是点过来时选的那个 */
+export const focusHolds = (f: OutlineFocus | null, sel: MapSelection | null): f is OutlineFocus => !!f && !!sel && f.sel.kind === sel.kind && f.sel.id === sel.id;
 
 /** 新情节的编号:用过的最大的 + 1(满了从 1 起找空的) */
 export function nextPlotId(plots: readonly Pick<Plot, 'id'>[]): number {
