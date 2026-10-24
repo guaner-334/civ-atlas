@@ -17,8 +17,9 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
-# 几项检查在几台机器上同时跑,总时长 ≈ 最慢的那项(冒烟)。
-# 类型检查、单测、压力、构建原来挤在一项里要 17–21 分钟,现在分开:单测分 4 份、压力测试分 2 份,每项几分钟
+# 几项检查在几台机器上同时跑,总时长 ≈ 最慢的那项。
+# 类型检查、单测、压力、构建原来挤在一项里要 17–21 分钟,现在分开:单测分 4 份、压力测试分 2 份,每项几分钟;
+# 冒烟从头跑到尾要 25–36 分钟,分 4 份同时跑
 jobs:
   # 每天的兜底:最近一天 main 上有没有代码改动(文档不算)
   changed:
@@ -109,13 +110,18 @@ jobs:
         env:
           STRESS_PART: ${{ matrix.part }}
 
+  # 冒烟分 4 份同时跑(各段按先后归份,见 scripts/replay-check.ts 的 PART_STARTS)
   smoke:
-    name: 冒烟
+    name: 冒烟 ${{ matrix.part }}
     needs: changed
     if: ${{ !cancelled() && (github.event_name != 'schedule' || needs.changed.outputs.any == 'true') }}
     runs-on: ubuntu-latest
-    # 冒烟本身在 GitHub 的机器上要二十多分钟(加上装依赖、浏览器),留足余量
-    timeout-minutes: 45
+    # 平常每份六七分钟(从头跑到尾要二十五分钟以上),留足余量
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        part: ['1/4', '2/4', '3/4', '4/4']
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -137,8 +143,10 @@ jobs:
       - name: 安装无头浏览器(缓存未命中时)
         if: steps.pw-cache.outputs.cache-hit != 'true'
         run: pnpm exec playwright install --with-deps --only-shell chromium
-      - name: 冒烟测试(页面加载 / 回放 / 悬停 / 各界面流程)
+      - name: 冒烟测试(页面加载 / 回放 / 悬停 / 各界面流程,第 ${{ matrix.part }} 份)
         run: pnpm smoke
+        env:
+          SMOKE_PART: ${{ matrix.part }}
 
   visual:
     name: 画面回归
