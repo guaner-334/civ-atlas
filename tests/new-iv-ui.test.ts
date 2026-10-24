@@ -10,7 +10,8 @@ import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
 import { ownersAt } from '../src/gen/civ/timeline';
 import { capitalAt, regionPopulationAt } from '../src/gen/civ/growth';
-import { quakeRing } from '../src/gen/civ/calamity';
+import { PLAGUE_IV, quakeRing } from '../src/gen/civ/calamity';
+import { plagueSpans } from '../src/gen/civ/plagueSpans';
 import { regionLabel } from '../src/gen/civ/display';
 import { personKey, polityKey, regionKey, settlementKey, type Intervention } from '../src/gen/edits';
 import type { Person } from '../src/gen/civ/types';
@@ -221,6 +222,11 @@ describe('天灾', () => {
     const quake: Intervention = { kind: 'disaster', type: 'quake', level: 2, from: T, region: regionKey(base0, r) };
     const c1 = generateCiv(world(), { interventions: [plague], endYear: T + 20 });
     expect(newIvDoneText(c1, plague, 0, '', undefined)!.text).toMatch(new RegExp(`^${city}大疫（重）(，并进了 \\d+ 年起的那场大疫)?$`));
+    // 起了新的一场时,传到别的州的那几州卡片上也写"瘟疫"
+    const span = plagueSpans(c1).find((s) => s.id === PLAGUE_IV);
+    const far = span?.hits.find((h) => h.region !== r && h.loss >= 0.1);
+    expect(far).toBeDefined();
+    expect(regionDisasterMark(c1, far!.region, far!.year)?.word).toBe('瘟疫');
     const c2 = generateCiv(world(), { interventions: [famine], endYear: T + 20 });
     expect(newIvDoneText(c2, famine, 0, A, undefined)).toEqual({ ok: true, text: `${A}大饥（轻）` });
     const c3 = generateCiv(world(), { interventions: [quake], endYear: T + 200 });

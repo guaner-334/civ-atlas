@@ -296,10 +296,15 @@ function ivDisasters(civ: Civ): { v: DisasterIv; e: Annal }[] {
 /** 城里这一次折损是不是作者下的天灾落在州 r 上的(是 = 叫什么灾:瘟疫 / 饥荒 / 地震 / 大水 / 大旱;不是 = null) */
 function sackWord(civ: Civ, r: number, x: { year: Year; cause?: string }): string | null {
   for (const { v, e } of ivDisasters(civ)) {
-    if (v.from !== x.year) continue;
     if (v.type === 'plague') {
-      if (x.cause === 'plague' && e.region === r) return DISASTER_NAMES.plague;
-    } else if (v.type === 'quake') {
+      if (x.cause !== 'plague') continue;
+      if (v.from === x.year && e.region === r) return DISASTER_NAMES.plague;
+      // 起了新的一场(b = 1):后来传到别的州的也算这次天灾
+      if (e.b === 1 && plagueSpans(civ).find((s) => s.id === PLAGUE_IV + e.war)?.hits.some((h) => h.region === r && h.year === x.year)) return DISASTER_NAMES.plague;
+      continue;
+    }
+    if (v.from !== x.year) continue;
+    if (v.type === 'quake') {
       if (x.cause === 'quake' && quakeRing(civ.regions, e.region).includes(r)) return quakeWord(civ.regions, e.region);
     } else if (x.cause === 'famine') {
       const mine = v.a ? ownersAt(civ, x.year).polity[r] === e.a : (v.regions ?? []).some((k) => regionOf(civ, k) === r);
