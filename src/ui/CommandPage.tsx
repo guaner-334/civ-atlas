@@ -17,6 +17,7 @@
  * 「新建人物」直接开新建(国家填好)。
  *
  * 「灭国」(选去向 ›):卡片换成灭国那一页(DestroyPage.tsx),生效年份带过去。
+ * 「天灾」(选种类 ›):卡片换成天灾那一页(DisasterPage.tsx,州卡片「更多」里也能进),生效年份带过去。
  *
  * 逐年推演(Stepwise.tsx):只在"现在"干预 —— 生效年份换成"第 N 年年初(下一步)"一块,不能加减;按钮写「加入」,
  * 加的进「下一步生效的干预」(同一个单子),下一步开始时一起生效,没有「全部推演」;单子里有的写"已在下一步生效的干预里"。
@@ -46,7 +47,7 @@ import type { AuthorCharacter } from '../gen/characters';
 
 let owners: Owners | undefined;
 
-type Cmd = 'policy' | 'protect' | 'unity' | 'halt' | 'ally' | 'declare' | 'move' | 'crown' | 'destroy';
+type Cmd = 'policy' | 'protect' | 'unity' | 'halt' | 'ally' | 'declare' | 'move' | 'crown' | 'destroy' | 'disaster';
 
 const CMDS: { k: Cmd; name: string; desc: string; pick: boolean; go?: string }[] = [
   { k: 'policy', name: '方针', desc: '这国从这年起照方针自己走，直到换下一条', pick: true, go: '选方针 ›' },
@@ -58,6 +59,7 @@ const CMDS: { k: Cmd; name: string; desc: string; pick: boolean; go?: string }[]
   { k: 'move', name: '迁都', desc: '选择本国的一座城市', pick: true },
   { k: 'crown', name: '立作者的人物为君主', desc: '选一位那年在世的作者人物，从这年起当这国君主', pick: true, go: '选人 ›' },
   { k: 'destroy', name: '灭国', desc: '这年让它亡国，国土并入一国或散成无主', pick: true, go: '选去向 ›' },
+  { k: 'disaster', name: '天灾', desc: '瘟疫、饥荒、地震水旱，人口锐减', pick: true, go: '选种类 ›' },
 ];
 
 export function CommandPage({ civ, raster, world, id, year }: { civ: Civ; raster: Raster | null; world: World; id: number; year: number }) {
@@ -139,8 +141,8 @@ export function CommandPage({ civ, raster, world, id, year }: { civ: Civ; raster
       setCrown('pick');
       return;
     }
-    // 方针:卡片换成方针那一页(生效年份带过去,返回回到这里)
-    if (k === 'policy' || k === 'destroy') {
+    // 方针、灭国、天灾:卡片换成那一页(生效年份带过去,返回回到这里)
+    if (k === 'policy' || k === 'destroy' || k === 'disaster') {
       openCmdPage({ kind: k, back: 'cmd', year: y });
       return;
     }

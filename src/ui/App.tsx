@@ -121,6 +121,8 @@ import {
   togglePlayback,
   useChronicle,
   useCivHighlight,
+  getCivHighlight,
+  setCivHighlight,
   useChroniclePick,
   useCivShow,
   useSelection,
@@ -258,7 +260,7 @@ import { polityAlive, polityName } from '../gen/civ/growth';
 import { CIV_SHOW_OFF, civOverlaySteps, drawCivOverlay, type CivDrawParams } from '../render/civ/overlay';
 import { finishPick, getPolityPick, interventionActorThen, interventionDoneText, setPickHover, setPolityPick, usePolityPick } from './Interventions';
 import { policyDoneText } from './policyInfo';
-import { newIvDoneText } from './newIvInfo';
+import { disasterDoneArea, newIvDoneText } from './newIvInfo';
 import { RoleBar } from './RoleBar';
 import { Inspector } from './Inspector';
 import { TargetLayer } from './TargetPlates';
@@ -2005,6 +2007,13 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
           },
           ttl: 7000,
         });
+        // 天灾:提示条开着时,受灾的州在地图上淡淡涂着(地图转过去),提示条收起时一起收起
+        const hit = v.kind === 'disaster' && crowned?.ok ? disasterDoneArea(named, v) : [];
+        if (hit.length) {
+          setCivHighlight({ regions: hit, polities: [], year: v.from, steady: true, faint: true });
+          const st = getCivHighlight()?.stamp;
+          window.setTimeout(() => getCivHighlight()?.stamp === st && setCivHighlight(null), 7000);
+        }
       } else if (info.upAdded) {
         const u = info.upAdded;
         showToast({

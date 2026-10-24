@@ -4,6 +4,7 @@
  *   顶部  颜色块(当年所属国)、城名(可改)、"城，1045 年建城，属 大昌"(毁了 = "故城"、写毁于哪年)、关闭
  *   按钮  迁都到这里(主操作:替所属国下"迁都"令,生效年份 = 当前年份,和国家干预页同一套流程:先进待推演的单子)/ 设为中心 / 改名 /
  *         更多(在这里加标记 / 在这里加人物、看所属国家、让 AI 讲名字由来)
+ *         演一国时别国的城:迁都到这里变灰,按钮下面写一句(和别国的国家卡片一样)
  *   概况  级别(都城 / 大城 / 城 / 镇 / 村;故城)、人口、做过国都(次数或"未曾")、所在州(可点)、建城时的民族、
  *         做国都的年份段、故址(重建)
  *   作者的人物  生在这里、经历写在这里的作者人物(characterInfo.ts 的 charactersAt),没有就不显示
@@ -29,6 +30,9 @@ import { interventionText, nameAt } from './Interventions';
 import { queueIntervention } from './pendingStore';
 import { nextYear, useStepwise } from './stepwiseStore';
 import { STEP_LOOK_WHY, useStepView } from './Stepwise';
+import { roleLock } from './policyInfo';
+import { useRole } from './roleStore';
+import { ROLE_LOCK_NOTE, RoleLockNote } from './RoleBar';
 import { cityEntries, entriesUpTo, ownerSpans, ownersOf, popPeak, popSeries, type OwnerSpan } from './panelData';
 import {
   Act,
@@ -102,8 +106,13 @@ export function CityPanel({ civ, raw, raster, world, id, year, names }: DetailPr
     return P && polityAlive(P, y) ? P : undefined;
   })();
   const look = useStepView().look;
+  // 演一国时别国的城:迁都到这里变灰
+  const role = useRole();
+  const lock = moveOwner ? roleLock(civ, role, moveOwner.id) : null;
   const moveWhy = sw.on && look !== null
     ? STEP_LOOK_WHY
+    : lock
+    ? ROLE_LOCK_NOTE
     : !then.built
     ? '还没建城'
     : then.ruined
@@ -147,7 +156,7 @@ export function CityPanel({ civ, raw, raster, world, id, year, names }: DetailPr
         />
       </PanelHead>
       <Acts>
-        <Act icon="flag" primary act="move-here" disabled={!!moveWhy} title={moveWhy ?? `${nameAt(moveOwner!, y)}迁都到这里,${yearAt(from, era)}起生效`} onClick={move}>
+        <Act icon="flag" primary={!lock} act="move-here" disabled={!!moveWhy} title={moveWhy ?? `${nameAt(moveOwner!, y)}迁都到这里,${yearAt(from, era)}起生效`} onClick={move}>
           迁都到这里
         </Act>
         <CenterAct world={world} civ={civ} sel={{ kind: 'settlement', id }} year={year} />
@@ -169,6 +178,7 @@ export function CityPanel({ civ, raw, raster, world, id, year, names }: DetailPr
           </AiMenuItem>
         </MoreAct>
       </Acts>
+      {lock && moveOwner && <RoleLockNote civ={civ} me={lock.me} who={nameAt(moveOwner, y)} year={year} />}
       {msg && <div className="cp-msg">{msg}</div>}
       <div className="cp-body">
         <Stats

@@ -50,14 +50,12 @@ import { leanRows, peaceRow, policyLabel, roleLock, rulerPolicy } from './policy
 import { openPolicyPage } from './PolicyPage';
 import { nameAt } from './Interventions';
 import { useRole } from './roleStore';
+import { ROLE_LOCK_NOTE } from './RoleBar';
 import { setSelection } from './civView';
 import { PersonIvPage, type PersonIvKind } from './PersonIvPage';
 import { leaningsThen, moodSince, personIvRange, rulerOnThrone } from './newIvInfo';
 import './policy.css';
 import './newIv.css';
-
-/** 演一国时别国的人:干预入口变灰,写这一句 */
-const ROLE_LOCK_NOTE = '切回造物主才能改别国';
 
 const F = Math.floor;
 
@@ -198,7 +196,7 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
     const out = [name, sub, ...lines.map((l) => `${l.k}：${l.text}`)];
     if (ruler && x.leanings) out.push(`倾向：${leaningsText(x.leanings)}`);
     if (bio) out.push('', `生平：${bio}`);
-    if (events.length) out.push('', `${head}：`, ...events.map((e) => `${yearShort(e.year, era)} ${eraText(e.text.replace(/^【干预】/, ''), era)}`));
+    if (events.length) out.push('', `${head}：`, ...events.map((e) => `${yearShort(e.year, era)} ${eraText(e.text.replace(/^【(?:干预|照大纲)】/, ''), era)}`));
     const text = out.join('\n');
     (window as unknown as { __wfPersonText: string }).__wfPersonText = text;
     await copyText(text);

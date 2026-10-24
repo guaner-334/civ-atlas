@@ -134,7 +134,7 @@ export function evLabel(e: Pick<ChronicleEntry, 'tag' | 'kind' | 'text'>): strin
 
 /** 正文(干预的"【干预】"前缀去掉:类型名已经写了) */
 export function evText(e: Pick<ChronicleEntry, 'text'>): string {
-  return e.text.replace(/^【干预】/, '');
+  return e.text.replace(/^【(?:干预|照大纲)】/, '');
 }
 
 /**

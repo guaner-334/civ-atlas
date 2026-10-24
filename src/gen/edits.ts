@@ -198,6 +198,56 @@
  * 一生的几段经历(每段可以勾上推演里的事和人)、亲友。和作者标记一样只是记下来:不改变世界、不参与推演、和生成器版本无关。
  * 字段、上限、怎么清理见 characters.ts。要让他进推演用干预"即位"(crown,见"干预"那一节):生年、倾向抄进干预,推演只看干预。
  *
+ * ## 大纲
+ *
+ * WorldEdits.outline(可选,没有 = 没写大纲):作者先有的故事,一条条"情节"(哪一年、谁、发生什么、作者写的那句话)。
+ * 大纲本身和作者标记一样只是记下来:不进推演、不进配方指纹、和生成器版本无关。「照大纲推演」(gen/outline.ts 的 runOutline)
+ * 先照常推,按情节的年份先后逐条查:自然发生了就算;没发生、能直接让它发生的,在那一年**硬改** —— 下几条普通干预(带 plot = 这条情节的编号),
+ * 从那一年接着推(前面的历史不变);做不到的写明原因。硬改出来的干预记进 WorldEdits.interventions(接在作者自己的干预后面),
+ * 存档、分享照"种子 + 干预串"推出同一个世界;改了大纲再照大纲推演时,先去掉带 plot 的那几条再重新算。
+ *
+ * | 字段     | 意思                                                                                                   |
+ * |----------|--------------------------------------------------------------------------------------------------------|
+ * | id       | 编号:这份大纲里不重复的正整数(1–PLOT_ID_MAX;干预的 plot、别的情节的 after 和 `plot:编号` 按它认)       |
+ * | kind     | 发生什么(下表)                                                                                       |
+ * | year     | 哪一年(整数年,0–INTERVENTION_YEAR_MAX);前后 span 年里发生都算(span 不给 = PLOT_SPAN_DEFAULT,0–PLOT_SPAN_MAX) |
+ * | after    | 可选:在第几条情节(编号,要排在这一条前面)发生之后 span 年内(给了就不看 year,"国王死后十年内")          |
+ * | text     | 作者写的那句话(导播的字幕;PLOT_TEXT_MAX 个字以内,可以没有)                                           |
+ * | a, b     | 国家:稳定键 `polity:…`,或 `plot:编号` = 那一条立国 / 分裂情节立起来的那一国                             |
+ * | region   | 州键(立国、分裂的那一州;地震水旱的那一处)                                                            |
+ * | regions / mark | 一片地方:几个州键(最多 PLOT_REGIONS_MAX 个),或作者标记的编号(圈的几州;钉的一个点 = 那一点所在的州) |
+ * | city     | 城键(迁都迁到哪;瘟疫从哪座城起)                                                                      |
+ * | person   | 人物键(去世的那一位:君主、将领、名臣;国家看键里的那一国)                                             |
+ * | char     | 作者人物的编号(即位的那一位;生年、性格照人物卡)                                                       |
+ *
+ * | kind       | 情节           | 要的字段                   | 怎么查(那几年的史事、归属)                         | 没发生时怎么硬改                     |
+ * |------------|----------------|----------------------------|------------------------------------------------------|--------------------------------------|
+ * | `found`    | 立国           | region(name 可选:国名)    | 那州有立国 / 分裂 / 民变立起新国家                   | 立国 found(州里没人住 = 做不到)     |
+ * | `fall`     | 亡国           | a(b 可选:亡于哪国)        | a 灭亡或被并(亡于 b)                                | 灭国 destroy(并入 b)                |
+ * | `hold`     | 占据一片地方   | a,regions 或 mark          | 有一年年底那片地方有人住的州全归 a                   | 缺的州逐个划州 cede                  |
+ * | `war`      | 开战           | a 攻 b                     | a 向 b 宣战                                          | 宣战 declare                         |
+ * | `ally`     | 结盟           | a,b                        | 两国结盟,或那几年两国在盟                           | 结盟 ally(OUTLINE_ALLY_YEARS 年)    |
+ * | `capital`  | 迁都           | a,city                     | a 迁都到那座城                                       | 迁都 move                            |
+ * | `death`    | 去世           | person(how 可选:murdered 遇弑 / battle 战死) | 他死在那几年(遇弑、战死看结局) | 让人物去世 death(只能写成"去世")   |
+ * | `crown`    | 作者的人物即位 | a,char                     | 他即 a 的君位                                        | 即位 crown                           |
+ * | `split`    | 分裂 / 独立    | region(a 可选:从哪国分出) | 那州起事自立(从 a 分出)                             | 立国 found(那州要在 a 手里)         |
+ * | `disaster` | 天灾           | type、level(1–3,不给 = 2);瘟疫 city / 饥荒 a 或 regions / 地震水旱 region | 那里闹了那种灾 | 天灾 disaster            |
+ * | `submit`   | 称臣           | a 向 b 称臣                | a 称臣于 b,或那几年 a 是 b 的藩属                   | 推演里还不能直接让它发生(只查)     |
+ * | `peace`    | 议和           | a,b                        | 两国议和                                             | 同上                                 |
+ * | `dynasty`  | 改朝换代       | a                          | a 改朝换代                                           | 同上                                 |
+ * | `revolt`   | 民变           | a                          | a 治下饥民起事                                       | 同上                                 |
+ * | `collapse` | 大崩解         | a                          | a 一下子散成几块                                     | 同上                                 |
+ * | `story`    | 只讲故事       | (可选:a、region、city、person、mark 当镜头去哪)  | 不查                                       | 不改                                 |
+ *
+ * 逐条查的先后:按年份(after 的按它跟着的那条落在哪年),同一年按列表先后。硬改的年份不早于已经查过的情节落定的那年的下一年
+ * (前面查过的不会被后面的硬改推翻);落不进前后 span 年的,标"做不到"(前面的情节已经把这段时间定下了)。
+ * 前面硬改以后历史变了、这条要的国家 / 人物没了的,也标"做不到"、写明原因(不自动保它)。
+ *
+ * Outline.review(可选):上一次照大纲推演的批改,每条情节一项(PlotReview:照着发生了 natural / 硬改的 forced / 做不到 failed /
+ * 只讲故事 story,落在哪一年,做不到的原因,立起来的国家)。只是记下来;改了大纲以后界面去掉它,再照大纲推演时重新算。
+ * 读进来的先过 cleanOutline(格式不对的情节丢掉,编号重复的换一个新编号,最多 OUTLINE_PLOTS_MAX 条;after 指不到前面的去掉;
+ * 批改里指不到情节的去掉)。一条情节也没有的不写。
+ *
  * ## 推演年数
  *
  * WorldEdits.endYear(可选,没有 = END_YEAR_DEFAULT 即 3000 年):历史推到第几年,END_YEAR_MIN–END_YEAR_MAX 的整数年。
@@ -486,8 +536,11 @@ export type PolicyFocus = (typeof POLICY_FOCI)[number];
 /** 亲、仇各最多几国 */
 export const POLICY_PICK_MAX = 3;
 
-/** 一条干预(字段、年份语义见文件头的表;a、b 是国家的稳定键 `polity:…`,region 是州键 `region:…`,city 是城键 `settlement:…`) */
-export type Intervention =
+/**
+ * 一条干预(字段、年份语义见文件头的表;a、b 是国家的稳定键 `polity:…`,region 是州键 `region:…`,city 是城键 `settlement:…`)。
+ * 照大纲推演硬改出来的多一个 plot = 哪一条情节(Plot.id,见文件头"大纲");推演不看它,只管说法和"改了大纲再推时先去掉"
+ */
+export type Intervention = (
   | { kind: 'protect'; a: string; from: number; until?: number }
   | { kind: 'ally'; a: string; b: string; from: number; until?: number }
   | { kind: 'declare'; a: string; b: string; from: number }
@@ -513,7 +566,8 @@ export type Intervention =
       foes?: string[];
       friends?: string[];
       focus?: PolicyFocus;
-    };
+    }
+) & { plot?: number };
 
 /** 地形修改的种类(见文件头"地形修改"的表) */
 export type TerrainKind =
@@ -606,6 +660,8 @@ export interface WorldEdits {
   advance?: AdvanceSettings;
   /** 导播跟着谁(见文件头"导播跟着谁");没有 = 全世界的大事 */
   follow?: FollowRef;
+  /** 大纲(见文件头"大纲");没有 = 没写大纲 */
+  outline?: Outline;
 }
 
 /** 导播跟着的国家 / 人物(按稳定键记;见文件头"导播跟着谁") */
@@ -1572,6 +1628,8 @@ export function cleanIntervention(x: unknown): Intervention | null {
       }
     }
   }
+  // 照大纲硬改出来的:记着哪一条情节(编号不合格 = 当作者自己下的)
+  if (isPlotId(o.plot)) v = { ...v, plot: o.plot };
   const keys = Object.keys(o);
   const w = v as Record<string, unknown>;
   const clean = keys.length === Object.keys(v).length && keys.every((k) => o[k] === w[k]);
@@ -1962,4 +2020,299 @@ export function cleanMarks(list: readonly unknown[] | null | undefined): AuthorM
     out.push(m);
   }
   return same ? (list as AuthorMark[]) : out;
+}
+
+// ---------------------------------------------------------------------------
+// 大纲
+
+/** 一份大纲最多几条情节 */
+export const OUTLINE_PLOTS_MAX = 200;
+/** 情节编号最大是几 */
+export const PLOT_ID_MAX = 1e9;
+/** 情节前后几年算数:不给时 */
+export const PLOT_SPAN_DEFAULT = 10;
+/** 前后最多几年 */
+export const PLOT_SPAN_MAX = 500;
+/** 作者的那句话最多几个字 */
+export const PLOT_TEXT_MAX = 200;
+/** 一片地方最多圈几州 */
+export const PLOT_REGIONS_MAX = 500;
+/** 硬改的结盟管多少年 */
+export const OUTLINE_ALLY_YEARS = 60;
+
+export const PLOT_KINDS = ['found', 'fall', 'hold', 'war', 'ally', 'capital', 'death', 'crown', 'split', 'disaster', 'submit', 'peace', 'dynasty', 'revolt', 'collapse', 'story'] as const;
+export type PlotKind = (typeof PLOT_KINDS)[number];
+/** 推演里还不能直接让它发生的几种(只查不改) */
+export const PLOT_CHECK_ONLY: readonly PlotKind[] = ['submit', 'peace', 'dynasty', 'revolt', 'collapse'];
+
+/** 情节里的国家:稳定键,或 `plot:编号`(那一条立国 / 分裂情节立起来的国家) */
+export type PlotPolity = string;
+
+/** 一条情节(字段见文件头"大纲") */
+export interface Plot {
+  id: number;
+  kind: PlotKind;
+  year: number;
+  span?: number;
+  after?: number;
+  text?: string;
+  a?: PlotPolity;
+  b?: PlotPolity;
+  region?: string;
+  regions?: string[];
+  mark?: number;
+  city?: string;
+  person?: string;
+  how?: 'murdered' | 'battle';
+  char?: number;
+  name?: string;
+  type?: DisasterType;
+  level?: DisasterLevel;
+}
+
+/** 批改的章:照着发生了 / 硬改的 / 做不到 / 只讲故事 */
+export const PLOT_STATUSES = ['natural', 'forced', 'failed', 'story'] as const;
+export type PlotStatus = (typeof PLOT_STATUSES)[number];
+
+/**
+ * 做不到的原因:
+ *   notYet 那年这国还没立国(或这段历史里没有它)/ gone 那年这国已亡 / missing 找不到(城、人物、作者的人物、一片地方)/
+ *   empty 那里没人住 / notOwned 那州、那城不在这国手里 / ruined 城已毁 / border 两国不接壤 / atWar 两国已在交战 /
+ *   dead 那年他已不在世 / unborn 那年他还没出生 / notReigning 那年他不在位 / unsupported 推演里还不能直接让它发生 /
+ *   crowded 前面的情节已经把这段时间定下了 / beyond 年份超出了推演年数 / refFailed 它跟着的那条情节没立起国家 / noEffect 硬改了也没成
+ */
+export const PLOT_REASONS = ['notYet', 'gone', 'missing', 'empty', 'notOwned', 'ruined', 'border', 'atWar', 'dead', 'unborn', 'notReigning', 'unsupported', 'crowded', 'beyond', 'refFailed', 'noEffect'] as const;
+export type PlotReason = (typeof PLOT_REASONS)[number];
+
+/** 一条情节的批改 */
+export interface PlotReview {
+  /** 哪一条情节(Plot.id) */
+  id: number;
+  status: PlotStatus;
+  /** 落在哪一年:发生的那年 / 硬改的那年;做不到、只讲故事 = 情节本来的那年 */
+  year: number;
+  /** 做不到的原因 */
+  reason?: PlotReason;
+  /** 原因说的是哪一国 / 哪一位(a、b;不分的不给) */
+  who?: 'a' | 'b';
+  /** 立国、分裂立起来的国家(稳定键;别的情节的 `plot:编号` 指它) */
+  polity?: string;
+  /** 硬改的去世只能写成"去世"(作者写的是遇弑、战死) */
+  asDeath?: true;
+}
+
+/** 大纲(见文件头"大纲") */
+export interface Outline {
+  plots: Plot[];
+  /** 上一次照大纲推演的批改(按情节的先后;没推过 = 不给) */
+  review?: PlotReview[];
+}
+
+const isPlotId = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= PLOT_ID_MAX;
+/** 情节里的国家:稳定键或 `plot:编号` */
+export const isPlotPolity = (k: unknown): k is string => isPolityKey(k) || (typeof k === 'string' && /^plot:\d{1,10}$/.test(k) && isPlotId(Number(k.slice(5))));
+
+/** 作者的那句话:去掉换行以外的控制字符、首尾空白,超长截断 */
+export function cleanPlotText(raw: unknown): string {
+  if (typeof raw !== 'string') return '';
+  // eslint-disable-next-line no-control-regex
+  const s = raw.replace(/\r\n?/g, '\n').replace(/[\u0000-\u0009\u000b-\u001f\u007f]/g, '').trim();
+  const cs = [...s];
+  return cs.length > PLOT_TEXT_MAX ? cs.slice(0, PLOT_TEXT_MAX).join('').trimEnd() : s;
+}
+
+/** 每种情节要哪几个字段(story 的都可选) */
+const PLOT_NEEDS: Record<PlotKind, readonly (keyof Plot)[]> = {
+  found: ['region'],
+  fall: ['a'],
+  hold: ['a'],
+  war: ['a', 'b'],
+  ally: ['a', 'b'],
+  capital: ['a', 'city'],
+  death: ['person'],
+  crown: ['a', 'char'],
+  split: ['region'],
+  disaster: ['type'],
+  submit: ['a', 'b'],
+  peace: ['a', 'b'],
+  dynasty: ['a'],
+  revolt: ['a'],
+  collapse: ['a'],
+  story: [],
+};
+/** 每种情节可选的字段 */
+const PLOT_OPTIONAL: Record<PlotKind, readonly (keyof Plot)[]> = {
+  found: ['name'],
+  fall: ['b'],
+  hold: ['regions', 'mark'],
+  war: [],
+  ally: [],
+  capital: [],
+  death: ['how'],
+  crown: [],
+  split: ['a'],
+  disaster: ['level', 'city', 'a', 'regions', 'region'],
+  submit: [],
+  peace: [],
+  dynasty: [],
+  revolt: [],
+  collapse: [],
+  story: ['a', 'region', 'city', 'person', 'mark'],
+};
+
+/** 一个字段的值清理(不合格 = undefined) */
+function plotField(k: keyof Plot, v: unknown): unknown {
+  switch (k) {
+    case 'a':
+    case 'b':
+      return isPlotPolity(v) ? v : undefined;
+    case 'region':
+      return isRegionKey(v) ? v : undefined;
+    case 'city':
+      return isCityKey(v) ? v : undefined;
+    case 'person':
+      return parsePersonKey(v) ? v : undefined;
+    case 'mark':
+      return typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= MARK_ID_MAX ? v : undefined;
+    case 'char':
+      return typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= CROWN_CHAR_MAX ? v : undefined;
+    case 'how':
+      return v === 'murdered' || v === 'battle' ? v : undefined;
+    case 'name': {
+      const n = typeof v === 'string' ? cleanName('polity', v) : '';
+      return n || undefined;
+    }
+    case 'type':
+      return (DISASTER_TYPES as readonly unknown[]).includes(v) ? v : undefined;
+    case 'level':
+      return levelOf(v) ?? undefined;
+    case 'regions': {
+      if (!Array.isArray(v)) return undefined;
+      const out: string[] = [];
+      for (const r of v) if (isRegionKey(r) && !out.includes(r) && out.length < PLOT_REGIONS_MAX) out.push(r);
+      return out.length ? out : undefined;
+    }
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * 清理一条情节(规则见文件头"大纲"):编号、种类、年份不合格,或缺这种情节要的字段 = null;
+ * 年份取整夹回范围;span 取整夹到 0–PLOT_SPAN_MAX(等于默认的不写);after 只认合格的编号(指不指得到由 cleanOutline 查);
+ * 这种情节用不上的字段去掉;天灾按种类只留那一种用的地方(瘟疫 city、饥荒 a 或 regions、地震水旱 region),缺了 = null;
+ * 占据一片地方要有 regions 或 mark(都给了按 regions)。本来就合格的原样返回(同一个对象)
+ */
+export function cleanPlot(x: unknown): Plot | null {
+  if (!x || typeof x !== 'object') return null;
+  const o = x as Record<string, unknown>;
+  const kind = o.kind as PlotKind;
+  const year = yearOf(o.year);
+  if (!isPlotId(o.id) || !PLOT_KINDS.includes(kind) || year === null) return null;
+  const v: Plot = { id: o.id, kind, year };
+  if (typeof o.span === 'number' && Number.isFinite(o.span)) {
+    const span = Math.min(PLOT_SPAN_MAX, Math.max(0, Math.round(o.span)));
+    if (span !== PLOT_SPAN_DEFAULT) v.span = span;
+  }
+  if (isPlotId(o.after) && o.after !== o.id) v.after = o.after;
+  const text = cleanPlotText(o.text);
+  if (text) v.text = text;
+  const w = v as unknown as Record<string, unknown>;
+  for (const k of PLOT_NEEDS[kind]) {
+    const c = plotField(k, o[k]);
+    if (c === undefined) return null;
+    w[k] = c;
+  }
+  for (const k of PLOT_OPTIONAL[kind]) {
+    const c = plotField(k, o[k]);
+    if (c !== undefined) w[k] = c;
+  }
+  if (kind === 'hold') {
+    if (v.regions) delete v.mark;
+    else if (v.mark === undefined) return null;
+  }
+  if ((kind === 'war' || kind === 'ally' || kind === 'submit' || kind === 'peace' || kind === 'fall') && v.b !== undefined && v.b === v.a) {
+    if (kind === 'fall') delete v.b;
+    else return null;
+  }
+  if (kind === 'disaster') {
+    const keep = v.type === 'plague' ? ['city'] : v.type === 'quake' ? ['region'] : v.a ? ['a'] : ['regions'];
+    for (const k of ['city', 'a', 'regions', 'region'] as const) if (!keep.includes(k)) delete v[k];
+    if (!keep.every((k) => w[k] !== undefined)) return null;
+  }
+  const keys = Object.keys(o);
+  const same = (p: unknown, q: unknown) => p === q || (Array.isArray(p) && Array.isArray(q) && p.length === q.length && p.every((t, i) => t === q[i]));
+  const clean = keys.length === Object.keys(v).length && keys.every((k) => same(o[k], w[k]));
+  return clean ? (x as Plot) : v;
+}
+
+/** 清理一条批改;不合格 = null */
+function cleanReview(x: unknown, ids: ReadonlySet<number>): PlotReview | null {
+  if (!x || typeof x !== 'object') return null;
+  const o = x as Record<string, unknown>;
+  const year = yearOf(o.year);
+  if (!isPlotId(o.id) || !ids.has(o.id) || !PLOT_STATUSES.includes(o.status as PlotStatus) || year === null) return null;
+  const r: PlotReview = { id: o.id, status: o.status as PlotStatus, year };
+  if (r.status === 'failed' && PLOT_REASONS.includes(o.reason as PlotReason)) r.reason = o.reason as PlotReason;
+  if (r.reason && (o.who === 'a' || o.who === 'b')) r.who = o.who;
+  if ((r.status === 'natural' || r.status === 'forced') && isPolityKey(o.polity)) r.polity = o.polity;
+  if (r.status === 'forced' && o.asDeath === true) r.asDeath = true;
+  return r;
+}
+
+/**
+ * 清理大纲(读档、照大纲推演前用;规则见文件头"大纲"):一条情节也没有 = undefined。
+ * 编号重复的换一个新编号(现有最大的 + 1);after 指的不是排在前面的情节的去掉;批改只留指得到情节的(每条情节一项,按情节的先后)。
+ * 全都合格时返回原对象
+ */
+export function cleanOutline(raw: unknown): Outline | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const o = raw as Record<string, unknown>;
+  if (!Array.isArray(o.plots)) return undefined;
+  let same = Object.keys(o).every((k) => k === 'plots' || k === 'review');
+  const used = new Set<number>();
+  let max = 0;
+  const cleaned = (o.plots as unknown[]).map((x) => cleanPlot(x));
+  for (const p of cleaned) if (p && p.id > max) max = p.id;
+  const plots: Plot[] = [];
+  const ids = new Set<number>();
+  for (let i = 0; i < cleaned.length; i++) {
+    let p = plots.length < OUTLINE_PLOTS_MAX ? cleaned[i] : null;
+    if (!p) {
+      same = false;
+      continue;
+    }
+    if (ids.has(p.id)) {
+      p = { ...p, id: freeMarkId(used, max) };
+      max = Math.max(max, p.id);
+    }
+    used.add(p.id);
+    if (p.after !== undefined && !ids.has(p.after)) {
+      const { after: _after, ...rest } = p;
+      void _after;
+      p = rest;
+    }
+    ids.add(p.id);
+    if (p !== o.plots[i]) same = false;
+    plots.push(p);
+  }
+  if (!plots.length) return undefined;
+  let review: PlotReview[] | undefined;
+  if (Array.isArray(o.review)) {
+    const by = new Map<number, PlotReview>();
+    for (const x of o.review as unknown[]) {
+      const r = cleanReview(x, ids);
+      if (r && !by.has(r.id)) by.set(r.id, r);
+    }
+    review = plots.flatMap((p) => by.get(p.id) ?? []);
+    const raw = o.review as unknown[];
+    if (review.length !== raw.length || review.some((r, i) => JSON.stringify(r) !== JSON.stringify(raw[i]))) same = false;
+    if (!review.length) review = undefined;
+  } else if (o.review !== undefined) same = false;
+  return same ? (raw as Outline) : { plots, ...(review ? { review } : {}) };
+}
+
+/** 作者自己下的干预(去掉照大纲硬改出来的那几条) */
+export function ownInterventions(list: readonly Intervention[]): Intervention[] {
+  return list.filter((v) => v.plot === undefined);
 }

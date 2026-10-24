@@ -51,6 +51,7 @@
  *   划州"【干预】瑞州自大渭划归大昌,永为大昌之土";立国"【干预】瑞州脱大渭自立,号瑞国,都于瑞城"(紧跟着的 found 并进这一条);
  *   迁都"【干预】大昌自汾城迁都瑞城"(紧跟着的 capital 并进这一条);不许扩张"【干预】大昌自此止戈息兵,不再开疆拓土"。
  *   没生效的写原因("…,然其地无人居住""…,然瑞城属大渭");界面上的干预列表也用它(interventionOutcome)。标签"干",一律是大事。
+ *   照大纲硬改出来的(干预带 plot,gen/edits.ts 文件头"大纲")前面标【照大纲】,别的写法一样:"【照大纲】大昌向索拉特宣战"。
  *   援盟参战的战争(史事 war 的 settlement 列 = 盟国)写"索拉特应大昌之约伐某国"。
  * - **名臣**(Person.deeds):经手的事写上他(官职按那一年):议和"大景王朝遣礼部尚书百里青与萨尔斯坦帝国议和"
  *   (对方的使臣写在对方国名后面);称王称帝"…,丞相某某劝进"(西幻"…,首相某某力主其事");幼主即位"…,时年 11 岁,丞相某某辅政"
@@ -790,8 +791,10 @@ function interveneStory(civ: Civ, e: Annal, id: number): IvStory {
     const q = polityOf(civ, p);
     return !!q && q.ended !== undefined && q.ended <= y;
   };
-  const fail = (text: string, why: string): IvStory => ({ text: `【干预】${text}`, ok: false, why });
-  const done = (text: string): IvStory => ({ text: `【干预】${text}`, ok: true });
+  // 照大纲硬改出来的(gen/edits.ts 文件头"大纲")标【照大纲】
+  const tag = v?.plot !== undefined ? '【照大纲】' : '【干预】';
+  const fail = (text: string, why: string): IvStory => ({ text: `${tag}${text}`, ok: false, why });
+  const done = (text: string): IvStory => ({ text: `${tag}${text}`, ok: true });
   /** 紧跟在这条干预后面(同一刻)的史事 */
   const next = (k = 1) => {
     const n = civ.annals[id + k];

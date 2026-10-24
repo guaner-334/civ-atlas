@@ -1,6 +1,7 @@
 /**
  * 国家面板(宽屏在左边侧栏里,窄屏是底部抽屉),两页 —— 信息页(这里)和干预页(CommandPage.tsx;
- * 干预页里点「方针」或者概况里点「方针」一行,换成方针页 PolicyPage.tsx;点「灭国」换成灭国页 DestroyPage.tsx)。
+ * 干预页里点「方针」或者概况里点「方针」一行,换成方针页 PolicyPage.tsx;点「灭国」换成灭国页 DestroyPage.tsx;
+ * 点「天灾」换成天灾页 DisasterPage.tsx)。
  * 逐年推演里演一国(roleStore.ts)时看别国:「干预历史」变灰,按钮下面一句"你在演某国,只管自己的国家",点「切回造物主」就能改。
  *
  * 信息页(按时间轴当前那一年;没立国 = 立国那年的样子,已亡 = 亡国前的样子):
@@ -44,15 +45,16 @@ import { isConsul, personName, rulerFateWord } from '../gen/civ/peopleText';
 import type { AiName } from './AiNamePanel';
 import { openHistoryBook } from './HistoryBook';
 import { NameEdit } from './NameEdit';
-import { nameAt, neighborsAt } from './Interventions';
+import { neighborsAt } from './Interventions';
 import { polityTies } from '../gen/civ/diplomacy';
 import { CommandPage } from './CommandPage';
 import { openCmdPage, setPanelTab, setSheet, usePanel } from './panelStore';
 import { PolicyPage } from './PolicyPage';
 import { DestroyPage } from './DestroyPage';
+import { DisasterPage } from './DisasterPage';
 import { policyRow, roleLock } from './policyInfo';
 import { useRole } from './roleStore';
-import { roleOff } from './RoleBar';
+import { RoleLockNote } from './RoleBar';
 import { usePending, type Pending } from './pendingStore';
 import { useStepwiseOn } from './stepwiseStore';
 import { shownYearOf } from './flyTo';
@@ -121,6 +123,8 @@ export function CountryPanel(props: CountryPanelProps) {
           <PolicyPage key={id} civ={civ} id={id} year={year} from={page.year} />
         ) : page?.kind === 'destroy' ? (
           <DestroyPage key={id} civ={civ} id={id} year={year} from={page.year} />
+        ) : page?.kind === 'disaster' ? (
+          <DisasterPage key={id} civ={civ} polity={id} year={year} from={page.year} />
         ) : (
           <CommandPage civ={civ} raster={raster} world={props.world} id={id} year={year} />
         )
@@ -319,15 +323,7 @@ function InfoPage({ civ, raw, raster, world, id, year, p, shared, lock }: Countr
           )}
         </MoreAct>
       </Acts>
-      {lock >= 0 && (
-        <div className="pol-lock" data-role-lock={lock}>
-          你在演{nameAt(civ.polities[lock], shownYear)}，只管自己的国家。要改{polityName(p, shownYear)}，
-          <button data-act="role-off" onClick={() => roleOff(lock)}>
-            切回造物主
-          </button>
-          。
-        </div>
-      )}
+      {lock >= 0 && <RoleLockNote civ={civ} me={lock} who={polityName(p, shownYear)} year={shownYear} />}
       <div className="cp-body">
         <Stats items={[]}>
           <Row k="国都">{cap ? <Link to={{ kind: 'settlement', id: cap.id }}>{cap.name}</Link> : <span className="cp-none">无</span>}</Row>

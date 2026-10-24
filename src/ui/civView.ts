@@ -327,12 +327,17 @@ export function toggleChroniclePolity(id: number) {
 /**
  * 地图高亮(点编年史的一条):事发的州(浓)、相关国家那一年的国土(淡),闪约两秒。
  * stamp 每次点都不同 —— 同一条点两次也重新闪、重新把地图平移过去。
+ * steady = 不闪、一直亮着,直到换掉或清掉(天灾页先把受灾的州涂出来,DisasterPage.tsx;天灾推完提示条开着时淡淡涂着,faint);
+ * tag = 地图上那一片旁边的小牌子("翼门之野一带 8 州"),摆在地块 cell 下面(TargetPlates.tsx)
  */
 export interface CivHighlightState {
   regions: number[];
   polities: number[];
   year: number;
   stamp: number;
+  steady?: boolean;
+  faint?: boolean;
+  tag?: { text: string; cell: number };
 }
 
 const highlight = store<{ h: CivHighlightState | null }>({ h: null });

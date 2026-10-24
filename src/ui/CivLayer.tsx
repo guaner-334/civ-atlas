@@ -10,7 +10,7 @@
  *    底下先画战事的战线和双剑(render/civ/warfare.ts,不参与避让)。
  *    回放 / 拖时间轴时城名只排国都和大城的,每帧更快;停下来就补上城、镇、村的名字。
  *
- * 3. 高亮层(canvas.civ-hl,阶段 3 编年史):点编年史的一条,事发的州、相关国家的国土闪约两秒
+ * 3. 高亮层(canvas.civ-hl,阶段 3 编年史):点编年史的一条,事发的州、相关国家的国土闪约两秒;天灾页的预览(受灾的州)一直亮着
  *    (render/civ/highlight.ts 画一次,闪烁是 Web Animations 改不透明度,不重画)。夹在底图和文字层之间,地名不被盖住。
  * 4. 选中层(canvas.civ-sel,阶段 4 点选):选中的国家(当年的国土)/ 州淡淡罩染 + 细描边,选中的大河、山脉一道淡光;常亮。
  *    选中的城画一圈细环、选中的东西的名字底下垫一层光晕 —— 这两样画在文字层上。
@@ -84,6 +84,11 @@ const FLASH: Keyframe[] = [
   { opacity: 0 },
 ];
 const FLASH_MS = 2200;
+/** 一直亮着的高亮(天灾页的预览):淡入 */
+const HOLD: Keyframe[] = [{ opacity: 0 }, { opacity: 1 }];
+/** 淡淡涂着(天灾推完、提示条开着时) */
+const HOLD_FAINT: Keyframe[] = [{ opacity: 0 }, { opacity: 0.5 }];
+const HOLD_MS = 200;
 
 // 页面一打开就开始下载字体,和生成世界同时进行
 preloadFonts();
@@ -580,24 +585,22 @@ export function CivLayer({ world, raster, civ: civIn, geo: geoIn, style, year, v
     const marks = drawHighlight(ctx, world, raster, base, hl, style, view?.k ?? 1, m ? projector(m) : null);
     let lit = 0;
     for (const m of marks) if (m) lit++;
-    for (const a of cv.getAnimations?.() ?? []) a.cancel();
-    const anim = cv.animate?.(FLASH, { duration: FLASH_MS, easing: 'ease-in-out', fill: 'forwards' });
+    // 闪约两秒;steady(天灾页的预览)淡入以后一直亮着
+    const play = (el: HTMLCanvasElement) => {
+      for (const a of el.getAnimations?.() ?? []) a.cancel();
+      return el.animate?.(hl.steady ? (hl.faint ? HOLD_FAINT : HOLD) : FLASH, { duration: hl.steady ? HOLD_MS : FLASH_MS, easing: 'ease-in-out', fill: 'forwards' });
+    };
+    const anim = play(cv);
     // 细节层的高亮(放大后画的是它)一起闪
     const dh = detailHl.current;
-    if (dh) {
-      for (const a of dh.getAnimations?.() ?? []) a.cancel();
-      dh.animate?.(FLASH, { duration: FLASH_MS, easing: 'ease-in-out', fill: 'forwards' });
-    }
+    if (dh) play(dh);
     mirrorCanvas(copy, cv, !m);
     // 地球仪借用的是等距圆柱那一张(弯边投影时这张是投影过的,地球仪也不在)
     if (!m) patchFeed({ hl: cv, hlVer: feed.hlVer + 1, hlStamp: hl.stamp });
-    if (copy && !m) {
-      for (const a of copy.getAnimations?.() ?? []) a.cancel();
-      copy.animate?.(FLASH, { duration: FLASH_MS, easing: 'ease-in-out', fill: 'forwards' });
-    }
-    // 闪完就把高亮清掉(之后切画风、换年份不会再闪一次)
+    if (copy && !m) play(copy);
+    // 闪完就把高亮清掉(之后切画风、换年份不会再闪一次);一直亮着的由打开它的那一页清掉
     const stamp = hl.stamp;
-    if (anim) anim.onfinish = () => getCivHighlight()?.stamp === stamp && setCivHighlight(null);
+    if (anim && !hl.steady) anim.onfinish = () => getCivHighlight()?.stamp === stamp && setCivHighlight(null);
     (window as unknown as { __wfHighlight: unknown }).__wfHighlight = { stamp, lit, year: hl.year, ms: performance.now() - t0 };
     // 画风切换时不重画(闪过就算了);只跟着新的高亮、新的世界走(换成 / 换回弯边投影时按新的办法重画)
     // eslint-disable-next-line react-hooks/exhaustive-deps

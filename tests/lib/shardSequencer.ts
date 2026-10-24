@@ -31,6 +31,7 @@ const SECONDS: Record<string, number> = {
   'civ-cities': 50,
   'civ-play': 49,
   'civ-resume-fuzz': 45,
+  outline: 45,
   'civ-resume': 39,
   contours: 38,
   'civ-diplomacy': 37,

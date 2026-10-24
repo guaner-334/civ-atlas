@@ -1373,6 +1373,27 @@
   text-shadow: var(--halo);
 }
 
+/* 天灾页的预览:受灾那一片旁边的小牌子"翼门之野一带 8 州"(白底橙字,摆在那个地块下面) */
+.tp-tag {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 2;
+  padding: 3px 9px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: var(--shadow-label);
+  font: 500 13px/1.4 var(--font-sans);
+  color: #b04a00;
+  white-space: nowrap;
+  pointer-events: none;
+  will-change: transform;
+}
+[data-theme='dark'] .tp-tag {
+  background: rgba(36, 32, 28, 0.92);
+  color: #ffa45c;
+}
+
 /* ---- 窄屏(手机):面板是从屏幕底升起的卡片(Inspector.tsx),时间轴胶囊浮在它上面;半屏 / 拉到顶的位置见 phone.css 的 --sheet-half / --sheet-full ---- */
 .sheet-grip {
   display: none;

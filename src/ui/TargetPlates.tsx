@@ -8,6 +8,7 @@
  *   推完:面板留着、回到信息页;选对象时缩回了整张图的,地图飞回这个国家(App 从生效年份接着放,提示"…,已从 X 年起重新推演"带撤销)。
  * - 平时选中国家(或这国的人物):国都画一个直径 24 的主色圆环,旁边写"竹影城（国都）" —— 默认写在圆环下面,压着地图上的字(国名、城名、地名)
  *   就换到上面 / 右边 / 左边……挑一处不压字的(地图停稳了再挑,拖动、飞行时跟着圆环走)。
+ * - 天灾页的预览(地图上涂出受灾的州,civView 的一直亮着的高亮):那一片旁边一块白底橙字的小牌子"翼门之野一带 8 州"。
  * - 名牌、圆环每帧按"世界坐标 → 屏幕坐标"重新摆(平移、缩放、左右无限拖动、弯边投影、地球仪都对;转到球背面的不显示);
  *   名牌互相压着时,小国的先让开或藏起来。
  */
@@ -16,7 +17,7 @@ import type { Civ } from '../gen/civ/types';
 import type { World } from '../gen/world';
 import { capitalAt, polityAlive } from '../gen/civ/growth';
 import { ownersAt } from '../gen/civ/timeline';
-import { getSelection, useCivTime, useSelection } from './civView';
+import { getSelection, useCivHighlight, useCivTime, useSelection } from './civView';
 import { finishPick, getPolityPick, nameAt, setPickHover, setPolityPick, usePickHover, usePolityPick } from './Interventions';
 import { endRun, getPanel, requestFly, setPanelTab, setSheet, usePanel } from './panelStore';
 import { clearToast, showToast } from './toastStore';
@@ -156,6 +157,9 @@ export function TargetLayer({ civ, world, toClient, resim, generating, labelAt }
   const sel = useMemo(() => mapTarget(civ, picked), [civ, picked]);
   const t = useCivTime();
   const ok = !!civ && civ.viable;
+  // 天灾页的预览:受灾那一片旁边的小牌子
+  const hl = useCivHighlight();
+  const tag = ok && !run && hl?.steady && hl.tag && hl.tag.cell >= 0 && hl.tag.cell < world.mesh.n ? hl.tag : null;
 
   // ---- 名牌:选目标时 = 可选的对象(+ 本国);推演中 = 本国 + 对象 ----
   const plates = useMemo((): Plate[] => {
@@ -410,7 +414,32 @@ export function TargetLayer({ civ, world, toClient, resim, generating, labelAt }
           </span>
         </div>
       )}
+      {tag && <MapTag text={tag.text} x={world.mesh.x[tag.cell]} y={world.mesh.y[tag.cell]} toClient={toClient} />}
     </>
+  );
+}
+
+/** 天灾页的预览:受灾那一片旁边的小牌子("翼门之野一带 8 州"),摆在那个地块下面一点,每帧跟着地图走(转到球背面的不显示) */
+function MapTag({ text, x, y, toClient }: { text: string; x: number; y: number; toClient: MutableRefObject<WorldToClient | null> }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    let raf = 0;
+    const tick = () => {
+      const el = ref.current;
+      const at = toClient.current?.(x, y) ?? null;
+      if (el) {
+        el.style.visibility = at ? '' : 'hidden';
+        if (at) el.style.transform = `translate(${Math.round(at[0] - el.offsetWidth / 2)}px, ${Math.round(at[1] + 16)}px)`;
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [x, y, toClient]);
+  return (
+    <div ref={ref} className="tp-tag" style={{ visibility: 'hidden' }} aria-hidden="true">
+      {text}
+    </div>
   );
 }
 
