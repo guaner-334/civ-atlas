@@ -1,4 +1,4 @@
-import { dataLegend, type ClimateLegend, type GradientLegend } from '../render/dataLegend';
+import { atlasLegend, dataLegend, type BandsLegend, type ClimateLegend, type GradientLegend } from '../render/dataLegend';
 import { contourNote, type ContourKind } from '../render/contours';
 import type { LayerId } from '../render/layers';
 import type { RGB } from '../render/common';
@@ -52,6 +52,54 @@ function ClimateKeys({ spec }: { spec: ClimateLegend }) {
   );
 }
 
+/** 地理图的海拔色标:一档一档的层色 + 刻度;电脑上再加标题和下面一行符号,手机上只留色条和几个刻度 */
+function Bands({ spec, phone }: { spec: BandsLegend; phone: boolean }) {
+  const n = spec.colors.length;
+  const ticks = phone ? spec.phoneTicks : spec.ticks;
+  const dot = css(spec.dots);
+  return (
+    <div className="bands">
+      {!phone && (
+        <div className="lg-title">
+          {spec.title} <span>{spec.subtitle}</span>
+        </div>
+      )}
+      <div className="bar">
+        {spec.colors.map((c, i) => (
+          <i key={i} style={{ background: css(c) }} />
+        ))}
+      </div>
+      <div className="ticks">
+        {ticks.map((t) => (
+          <span key={t.at} style={{ left: `${(t.at / n) * 100}%` }}>
+            {t.label}
+          </span>
+        ))}
+      </div>
+      {!phone && (
+        <div className="keys">
+          {spec.keys.map((k) => (
+            <span key={k.name}>
+              <i
+                className={k.kind}
+                style={{
+                  background:
+                    k.kind === 'line'
+                      ? spec.river
+                      : k.kind === 'dots'
+                        ? `radial-gradient(circle at 30% 35%, ${dot} 1.2px, transparent 1.6px), radial-gradient(circle at 75% 70%, ${dot} 1.2px, transparent 1.6px), ${css(k.color)}`
+                        : css(k.color),
+                }}
+              />
+              {k.name}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** 等值线的说明:细线、粗线的线样 + 单位和间隔 */
 function ContourKey({ kind, ink, zoom }: { kind: ContourKind; ink: string; zoom: number }) {
   return (
@@ -68,13 +116,21 @@ function ContourKey({ kind, ink, zoom }: { kind: ContourKind; ink: string; zoom:
 }
 
 /**
- * 地图左上角的图例:数据图层的色阶 / 色块(layer = null:不是数据图层,只有等值线的说明);
- * 开着等值线时下面加一行线的说明(contours = 哪种线,ink = 线的颜色,zoom = 放大倍数)
+ * 地图左上角的图例:数据图层的色阶 / 色块(layer = null:不是数据图层,只有等值线的说明;'atlas' = 地理图的海拔色标,
+ * phone = 手机上缩成一条);开着等值线时下面加一行线的说明(contours = 哪种线,ink = 线的颜色,zoom = 放大倍数)
  */
-export function Legend({ layer, contours = null, ink = '#333', zoom = 1 }: { layer: LayerId | null; contours?: ContourKind | null; ink?: string; zoom?: number }) {
+export function Legend({ layer, contours = null, ink = '#333', zoom = 1, phone = false }: { layer: LayerId | 'atlas' | null; contours?: ContourKind | null; ink?: string; zoom?: number; phone?: boolean }) {
   const key = contours ? <ContourKey kind={contours} ink={ink} zoom={zoom} /> : null;
   if (!layer)
     return key ? <div className="legend">{key}</div> : null;
+  if (layer === 'atlas')
+    return (
+      <div className={`legend atlas${phone ? ' phone' : ''}`}>
+        <Bands spec={atlasLegend()} phone={phone} />
+        {key && <div className="lg-sep" />}
+        {key}
+      </div>
+    );
   const spec = dataLegend(layer);
   let body;
   if (spec.kind === 'climate') body = <ClimateKeys spec={spec} />;

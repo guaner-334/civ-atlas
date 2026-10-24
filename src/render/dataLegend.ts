@@ -8,6 +8,7 @@ import { BIOMES } from '../gen/biomes';
 import { CLIMATE_CLASSES } from '../gen/koppen';
 import { CURRENT_RAMP, ELEV_RAMP, PRECIP_RAMP, TEMP_RAMP, type LayerId } from './layers';
 import type { RGB } from './common';
+import { ATLAS_RIVER, ATLAS_SEA, ATLAS_SEA_EDGES, HYPSO, HYPSO_ARID, HYPSO_EDGES, HYPSO_SNOW, STIPPLE } from './atlasColors';
 
 const hexRGB = (s: string): RGB => [parseInt(s.slice(1, 3), 16), parseInt(s.slice(3, 5), 16), parseInt(s.slice(5, 7), 16)];
 
@@ -127,4 +128,49 @@ export function dataLegendText(layer: LayerId): string {
   else if (l.kind === 'keys') s += l.keys.map((k) => k.name).join('');
   else s += l.subtitle + l.note + l.groups.map((g) => g.name + g.classes.map((c) => c.code + c.name + c.short).join('')).join('');
   return s;
+}
+
+/** 地理图的海拔色标:一档一档(和地图上的层色一样),刻度写在档与档的分界上 */
+export interface BandsLegend {
+  title: string;
+  subtitle: string;
+  /** 从最深的海到最高的山,每档一个颜色 */
+  colors: RGB[];
+  /** 刻度:写在第 at 档的左边界上 */
+  ticks: { at: number; label: string }[];
+  /** 手机上缩短的那一条只写这几个刻度(最后一个带单位) */
+  phoneTicks: { at: number; label: string }[];
+  /** 色标下面一行:干旱低地、沙漠(点)、冰雪、河流 */
+  keys: { name: string; color: RGB; kind: 'box' | 'dots' | 'line' }[];
+  dots: RGB;
+  river: string;
+}
+
+/** 分界(米)→ 第几档的左边界:海由深到浅 8 档,接着陆地由低到高 8 档 */
+function bandAt(m: number): number {
+  const sea = ATLAS_SEA_EDGES.indexOf(m);
+  if (sea >= 0) return sea + 1;
+  if (m === 0) return ATLAS_SEA.length;
+  return ATLAS_SEA.length + HYPSO_EDGES.indexOf(m) + 1;
+}
+
+const minus = (m: number) => (m < 0 ? `−${-m}` : `${m}`);
+
+/** 地理图左上角的海拔色标 */
+export function atlasLegend(): BandsLegend {
+  return {
+    title: '海拔',
+    subtitle: '米,海里是水深',
+    colors: [...ATLAS_SEA, ...HYPSO],
+    ticks: [-6000, -3000, -1000, 0, 500, 2000, 5000].map((m) => ({ at: bandAt(m), label: minus(m) })),
+    phoneTicks: [-3000, 0, 2000, 5000].map((m, i, a) => ({ at: bandAt(m), label: i === a.length - 1 ? `${m} 米` : minus(m) })),
+    keys: [
+      { name: '干旱低地', color: HYPSO_ARID, kind: 'box' },
+      { name: '沙漠', color: HYPSO_ARID, kind: 'dots' },
+      { name: '冰雪', color: HYPSO_SNOW, kind: 'box' },
+      { name: '河流', color: [0, 0, 0], kind: 'line' },
+    ],
+    dots: STIPPLE,
+    river: ATLAS_RIVER,
+  };
 }

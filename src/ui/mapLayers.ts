@@ -123,7 +123,7 @@ export function layerFromUrl(q: URLSearchParams): MapLayer | null {
 //   物产 = 手绘 + 不填 + 物产,实景 = 卫星(经典)+ 不填,生态 / 高程…… = 对应数据底图 + 不填。
 
 /** 写实画法的名字(卫星的两种画法、地理图、白模) */
-export const LOOK_NAMES: Record<SurfaceLook, string> = { classic: '经典卫星', detail: '卫星', geo: '地理图', blank: '白模', simple: '简化卫星' };
+export const LOOK_NAMES: Record<SurfaceLook, string> = { classic: '经典卫星', detail: '卫星', geo: '地理图', geoMute: '地理图', blank: '白模', simple: '简化卫星' };
 
 /** 卫星的两种画法 */
 export type SatLook = 'classic' | 'detail' | 'simple';
@@ -139,7 +139,7 @@ export type BaseId = MainBase | DataLayer;
 export const MAIN_BASES: { id: MainBase; name: string; hint: string }[] = [
   { id: 'fantasy', name: '手绘', hint: '手绘地图的画法' },
   { id: 'satellite', name: '卫星', hint: '像从太空看：海面安静，陆地是自然色' },
-  { id: 'geo', name: '地理图', hint: '地区颜色分明，山脉、河流、海盆好认' },
+  { id: 'geo', name: '地理图', hint: '像地图册：按海拔分层上色，平原、高原、山地、海深一眼看出' },
   { id: 'blank', name: '白模', hint: '海陆平涂、不画起伏，像一张世界地图' },
 ];
 /** 数据底图(两行,四个一行) */
@@ -158,7 +158,13 @@ export function isBaseId(x: unknown): x is BaseId {
 export function baseOf(style: Style, data: DataLayer, look: SurfaceLook): BaseId {
   if (style === 'fantasy') return 'fantasy';
   if (style === 'data') return DATA_BASES.includes(data) ? data : 'biomes';
+  if (look === 'geoMute') return 'geo';
   return look === 'geo' || look === 'blank' ? look : 'satellite';
+}
+
+/** 地图上实际铺哪一份:地理图上叠了国家 / 民族 / 信仰 / 时代颜色时用褪色的那一份(颜色让给填色),别的照旧 */
+export function paintLook(look: SurfaceLook, fill: FillId): SurfaceLook {
+  return look === 'geo' && fill !== 'none' ? 'geoMute' : look;
 }
 
 /** 底图的名字(顶栏底图按钮上写的;卫星按画法写「经典卫星」或「卫星」) */
@@ -176,10 +182,10 @@ export function baseHint(base: BaseId, sat: SatLook): string {
   return m ? m.hint : `看一种数据：${layerDef(base as MapLayer).name}；国家颜色照样能叠上去`;
 }
 
-/** 底图用深色界面:卫星、地理图;数据底图里的高程、降水 */
+/** 底图用深色界面:卫星;数据底图里的高程、降水(地理图、白模、手绘底子浅,用浅色界面) */
 export function baseDark(base: BaseId): boolean {
-  if (base === 'satellite' || base === 'geo') return true;
-  if (base === 'fantasy' || base === 'blank') return false;
+  if (base === 'satellite') return true;
+  if (base === 'fantasy' || base === 'blank' || base === 'geo') return false;
   return layerDef(base as MapLayer).dark;
 }
 
