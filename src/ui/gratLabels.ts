@@ -12,7 +12,7 @@
  * 纯计算,不碰 DOM。
  */
 import type { MapProj } from '../render/projection';
-import { worldToStage, windowSpan, type MapView, type StageBox } from './mapWrap';
+import { stageToWorld, worldToStage, windowSpan, type MapView, type StageBox } from './mapWrap';
 
 /** 每隔几度的网格,字挤不下时隔几条写一条:只取这些倍数(10° 跳成每 20° / 30° / 60°,15° 跳成每 30° / 60° / 90°,30° 跳成每 60° / 90°) */
 export const LABEL_MULTS: Record<number, number[]> = { 10: [1, 2, 3, 6], 15: [1, 2, 4, 6], 30: [1, 2, 3] };
@@ -96,7 +96,7 @@ const DEG = Math.PI / 180;
  */
 export function layoutGratLabels(W: number, H: number, v: MapView, b: StageBox, mp: MapProj | null, step: number, spec: GratSpec): GratLayout | null {
   if (!(step > 0) || !b.sw || !b.sh || !b.bw || !b.bh) return null;
-  if (mp && mp.def.id !== 'mercator') return null;
+  if (mp && mp.def.id !== 'mercator') return mp.def.id === 'equirect' ? null : layoutCurved(W, H, v, b, mp, step, spec);
   const at = (wx: number, wy: number) => worldToStage(wx, wy, v, b, W, H);
   // 地图看得见的那一块(舞台坐标)
   let l: number, r: number, t: number, bt: number;
@@ -215,4 +215,81 @@ export function layoutGratLabels(W: number, H: number, v: MapView, b: StageBox, 
     }
   }
   return { texts, ticks, lonEvery, latEvery };
+}
+
+/**
+ * 弯边投影(罗宾森、自然地球、摩尔魏德:纬线是水平直线,经线是弯的)上写在地图里:
+ *   - 纬度:贴着左边写在纬线上面;这条纬线的左端(外轮廓)露在看得见的地方、外面放得下字时,写在轮廓外面紧挨着线头(纸质地图册的写法)
+ *   - 经度:写在每条经线和下边相交的地方;外轮廓的下边露出来时写在下边外面(摩尔魏德的经线在极点汇成一点,改写在赤道下面)
+ */
+function layoutCurved(W: number, H: number, v: MapView, b: StageBox, mp: MapProj, step: number, spec: GratSpec): GratLayout | null {
+  const { def, s } = mp;
+  const at = (mx: number, my: number) => worldToStage(mx, my, v, b, W, H);
+  const myOf = (Y: number) => stageToWorld(0, Y, v, b, W, H)[1];
+  const phiAt = (Y: number) => {
+    const yp = Math.max(-mp.yMax, Math.min(mp.yMax, (H / 2 - myOf(Y)) / s));
+    return def.phi(yp);
+  };
+  const xAt = (lamDeg: number, phi: number) => at(W / 2 + s * def.kx(phi) * lamDeg * DEG, 0)[0];
+  const outTop = at(0, H / 2 - s * mp.yMax)[1];
+  const outBottom = at(0, H / 2 + s * mp.yMax)[1];
+  let l = 0;
+  let r = b.sw;
+  let t = Math.max(0, outTop);
+  let bt = Math.min(b.sh, outBottom);
+  if (spec.area) {
+    l = Math.max(l, spec.area[0]);
+    t = Math.max(t, spec.area[1]);
+    r = Math.min(r, spec.area[2]);
+    bt = Math.min(bt, spec.area[3]);
+  }
+  if (r - l < 1 || bt - t < 1) return null;
+  const fs = spec.fs;
+  const sx = (v.k * b.bw) / W;
+  const sy = (v.k * b.bh) / H;
+  const texts: GratText[] = [];
+  const latMax = def.latMax / DEG;
+  const latEvery = labelEvery(step, (deg) => sy * s * def.y(deg * DEG), fs + 6);
+  // 经度写在哪一行:外轮廓下边露出来了 → 写在下边外面(摩尔魏德:赤道下面);没露出来 → 看得见的下边
+  const edgeShown = outBottom <= bt + 0.5;
+  const poleLine = def.kx(def.latMax) > 0.2;
+  const rowY = !edgeShown ? bt : poleLine ? outBottom : at(0, H / 2)[1];
+  const rowPhi = !edgeShown ? phiAt(bt) : poleLine ? -def.latMax : 0;
+  const lonEvery = labelEvery(step, (deg) => sx * s * def.kx(rowPhi) * deg * DEG, fs * 3 + 12);
+  for (let lon = -180; lon < 180; lon += lonEvery) {
+    const t0 = (lon - mp.lon0 + 180) / 360;
+    const rel = (t0 - Math.floor(t0)) * 360 - 180;
+    const rels = rel <= -180 + 1e-9 ? [-180, 180] : [rel];
+    for (const rl of rels) {
+      const x = xAt(rl, rowPhi);
+      if (x < l - 0.5 || x > r + 0.5) continue;
+      const text = lonText(lon);
+      const eq = Math.round(lon) === 0;
+      if (edgeShown && poleLine) {
+        texts.push({ text, x, y: rowY + 7, ax: 0.5, ay: 0, eq, out: false });
+        continue;
+      }
+      if (x + 3 + fs * 3 > Math.min(r, spec.lonInRight ?? Infinity)) continue;
+      if (edgeShown) texts.push({ text, x: x + 3, y: rowY + 4, ax: 0, ay: 0, eq, out: false });
+      else texts.push({ text, x: x + 3, y: rowY - 4, ax: 0, ay: 1, eq, out: false });
+    }
+  }
+  for (let lat = 90 - latEvery; lat > -90; lat -= latEvery) {
+    if (Math.abs(lat) > latMax + 1e-9) continue;
+    const phi = lat * DEG;
+    const y = at(0, H / 2 - s * def.y(phi))[1];
+    if (y < t + fs + 4 || y > bt - (edgeShown ? 0 : fs * 2 + 4)) continue;
+    const xL = xAt(-180, phi);
+    const xR = xAt(180, phi);
+    const text = latText(lat);
+    const eq = Math.round(lat) === 0;
+    const w = text.length * 0.6 * fs;
+    if (xL - 7 - w >= l) texts.push({ text, x: xL - 7, y, ax: 1, ay: 0.5, eq, out: false });
+    else {
+      const x = Math.max(l, xL) + 4;
+      if (x + w > Math.min(r, xR)) continue;
+      texts.push({ text, x, y: y - 2, ax: 0, ay: 1, eq, out: false });
+    }
+  }
+  return { texts, ticks: [], lonEvery, latEvery };
 }

@@ -119,12 +119,49 @@ describe('主地图(写在地图里)', () => {
     }
     expect(g.ticks).toHaveLength(0);
   });
-  it('墨卡托:纬线按投影摆,画不到的高纬度不写;弯边投影不归它管', () => {
+  it('墨卡托:纬线按投影摆,画不到的高纬度不写', () => {
     const mp = mapProj('mercator', 0, W, H);
     const g = layoutGratLabels(W, H, { k: 1, x: (main.sw * 0) / 2, y: 0 }, main, mp, 30, spec)!;
     expect(g).not.toBeNull();
     const lat = g.texts.filter((t) => /[NS]$/.test(t.text));
     expect(lat.map((t) => t.text)).not.toContain('90°N');
-    expect(layoutGratLabels(W, H, { k: 1, x: 0, y: 0 }, main, mapProj('robinson', 0, W, H), 30, spec)).toBeNull();
+  });
+});
+
+describe('弯边投影(罗宾森、自然地球、摩尔魏德)', () => {
+  const main: StageBox = { sw: 1600, sh: 900, bw: 1800, bh: 900 };
+  const spec: GratSpec = { fs: 11, area: [386, 64, 1600, 796], lonInRight: 1504, lon: [{ side: 'bottom', out: false }], lat: [{ side: 'left', out: false }] };
+  const lonDeg = (t: string) => (t === '180°' ? 180 : t === '0°' ? 0 : Number(t.slice(0, -2)) * (t.endsWith('W') ? -1 : 1));
+  for (const id of ['robinson', 'naturalEarth', 'mollweide'] as const) {
+    it(`${id}:轮廓藏在侧栏和时间轴底下时,纬度贴着侧栏右边、经度写在弯的经线和下边相交的地方`, () => {
+      const mp = mapProj(id, 0, W, H);
+      const v = { k: 1, x: (main.sw * (1 - 1)) / 2 - (main.bw - main.sw) / 2, y: 0 };
+      const g = layoutGratLabels(W, H, v, main, mp, 30, spec)!;
+      expect(g).not.toBeNull();
+      const lat = g.texts.filter((t) => t.x === 390);
+      expect(lat.length).toBeGreaterThan(0);
+      const lon = g.texts.filter((t) => t.y === 792);
+      expect(lon.length).toBeGreaterThan(0);
+      // 经度字的左边紧挨着那条经线在下边那一行的位置
+      const my = ((792 + 4 - v.y) / v.k - (main.sh - main.bh) / 2) / main.bh * H;
+      const phi = mp.def.phi((H / 2 - my) / mp.s);
+      for (const t of lon) {
+        const x = worldToStage(W / 2 + mp.s * mp.def.kx(phi) * lonDeg(t.text) * (Math.PI / 180), 0, v, main, W, H)[0];
+        expect(Math.abs(t.x - 3 - x)).toBeLessThan(1e-6);
+      }
+    });
+  }
+  it('很宽的窗口、侧栏收起:轮廓左端露出来,纬度写在轮廓外面紧挨着线头', () => {
+    const wide: StageBox = { sw: 2200, sh: 900, bw: 2200, bh: 1100 };
+    const mp = mapProj('robinson', 0, W, H);
+    const v = { k: 1, x: 0, y: 0 };
+    const g = layoutGratLabels(W, H, v, wide, mp, 30, { ...spec, area: [0, 64, 2200, 796] })!;
+    const outside = g.texts.filter((t) => t.ax === 1 && t.ay === 0.5);
+    expect(outside.map((t) => t.text)).toContain('0°');
+    for (const t of outside) {
+      const lat = t.text === '0°' ? 0 : Number(t.text.slice(0, -2)) * (t.text.endsWith('S') ? -1 : 1);
+      const xL = worldToStage(W / 2 - mp.s * mp.def.kx(lat * (Math.PI / 180)) * Math.PI, 0, v, wide, W, H)[0];
+      expect(t.x).toBeCloseTo(xL - 7, 6);
+    }
   });
 });
