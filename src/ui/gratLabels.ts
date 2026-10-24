@@ -191,8 +191,8 @@ export function layoutGratLabels(W: number, H: number, v: MapView, b: StageBox, 
       }
     }
   }
-  // 纬度(从北往南)
-  for (let lat = 90 - latEvery; lat > -90; lat -= latEvery) {
+  // 纬度(从北往南;从 0° 起算的整倍数,隔几条写一个时赤道照样写)
+  for (let lat = latEvery * Math.floor(89.999 / latEvery); lat > -90; lat -= latEvery) {
     const y = latY(lat);
     if (!Number.isFinite(y) || y < t - 0.5 || y > bt + 0.5) continue;
     const text = latText(lat);

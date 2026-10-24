@@ -86,6 +86,11 @@ describe('字和刻度对着线', () => {
     expect(lat.map((t) => t.text)).toEqual(['60°N', '30°N', '0°', '30°S', '60°S']);
     for (const t of lat) expect(t.x).toBe(4);
   });
+  it('隔一条写一个时从 0° 起算:每隔 10° 的网格写成 60°N、40°N、20°N、0°……', () => {
+    const g = layoutGratLabels(W, H, { k: 1, x: 0, y: 0 }, phone, null, 10, phoneSpec)!;
+    expect(g.latEvery).toBe(20);
+    expect(g.texts.filter((t) => !t.out).map((t) => t.text)).toEqual(['60°N', '40°N', '20°N', '0°', '20°S', '40°S', '60°S', '80°S']);
+  });
   it('框外的字不出窗口:贴边的字往里挪,刻度照样对着线', () => {
     const v = { k: 1, x: 0, y: 0 };
     const spec = { ...phoneSpec, outX: [-14, 376] as [number, number] };
