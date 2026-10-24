@@ -52,8 +52,8 @@ export function thumbPrepSteps(key: string, world: World, raster: Raster): WorkS
   return [];
 }
 
-/** 一组到第一次调的时候才排的步骤(排的那一下接着做第一步):之后每调一次做一步,还有没做完的返回 true */
-function later(make: () => WorkStep[] | null): WorkStep {
+/** 一组到第一次调的时候才排的步骤(排的那一下接着做第一步):之后每调一次做一步,还有没做完的返回 true(App 打开世界时也用) */
+export function later(make: () => WorkStep[] | null): WorkStep {
   let list: WorkStep[] | null = null;
   let i = 0;
   return (deadline) => {

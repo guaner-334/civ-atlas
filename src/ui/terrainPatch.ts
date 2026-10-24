@@ -122,12 +122,22 @@ function projWholeSteps(world: World, raster: Raster, kind: PatchStats['kind'], 
  * 弯边投影按投影重画的整张图,都先分小步在后台画进各画风的缓存(和换上那一下一口气整张画逐像素相同),备好了再换上(done),
  * 不在换上那一下在主线程上一口气画半秒到几秒。备的时候地图上照旧(加载画面、原来那张);新的一次(或 cancelTerrainPatch)顶掉这次,done 不调
  */
-export function startTerrainFull(o: { world: World; raster: Raster; view: PatchView; prep: WorkStep[] }, done: (st: PatchStats, pre: PreProjected | null) => void): void {
-  const { world, raster, view } = o;
+export function startTerrainFull(
+  o: { world: World; raster: Raster; view: PatchView; prep: WorkStep[]; shown?: () => { world: World; raster: Raster } },
+  done: (st: PatchStats, pre: PreProjected | null) => void,
+): void {
+  const { view } = o;
   const t0 = performance.now();
   const kind: PatchStats['kind'] = view.style === 'realistic' || view.style === 'fantasy' ? view.style : 'none';
   let pre: PreProjected | null = null;
-  const steps: WorkStep[] = [...o.prep, later(() => projWholeSteps(world, raster, kind, view, (p) => (pre = p)))];
+  // shown:换上时画的不是这张主图(有地形大事、换上那一段的主图在 prep 里才拼好):按投影重画的那张照它画
+  const steps: WorkStep[] = [
+    ...o.prep,
+    later(() => {
+      const d = o.shown?.() ?? o;
+      return projWholeSteps(d.world, d.raster, kind, view, (p) => (pre = p));
+    }),
+  ];
   startJob(steps, '备地图出错,改成换上时整张画', (prep, maxStep, failed) => {
     if (failed && pre) pre.canvas.width = pre.canvas.height = 0;
     done({ prep, wall: performance.now() - t0, kind: failed ? 'none' : kind, maxStep }, failed ? null : pre);

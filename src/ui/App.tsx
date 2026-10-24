@@ -3,14 +3,14 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { createPortal, flushSync } from 'react-dom';
 import { DEFAULT_PARAMS, type World, type WorldParams } from '../gen/world';
 import type { Raster } from '../gen/raster';
-import { dropRealisticBasesExcept, renderRealistic } from '../render/realistic';
+import { dropRealisticBasesExcept, realisticRiverSteps, renderRealistic } from '../render/realistic';
 import { adoptPlan, dropFantasyBasesExcept, renderFantasy } from '../render/fantasy';
 import { DETAIL_K } from '../render/detail';
 import { TerrainDetail } from './TerrainDetail';
 import { MapDecor } from './MapDecor';
 import { ContourLayer } from './ContourLayer';
 import { contourInk } from '../render/contours';
-import { nearX, wrapOf } from '../render/common';
+import { dropPreparedRivers, nearX, wrapOf } from '../render/common';
 import {
   centerX,
   clampCurved,
@@ -162,8 +162,9 @@ import { sameMix, type NameMix } from '../gen/names/mix';
 import { cleanFrontier, cleanOrigins, sameFrontier, sameOrigins, type Frontier, type Origins } from '../gen/civ/frontier';
 import type { RasterPatch } from '../gen/rasterPatch';
 import { cancelTerrainPatch, patchSourceOf, startTerrainFull, startTerrainPatch, type PatchStats, type PatchView, type PreProjected } from './terrainPatch';
-import { baseReady, overlayReady, thumbPrepSteps } from './thumbPrep';
-import { baseRegions, civAtEra, dropComposed, eraData, eraIndex, eraMapsOf, eraReady, eraShown, patchKey, reuseRegions, useEraIndex, withHistory, type EraMaps } from './eras';
+import { baseReady, later, overlayReady, thumbPrepSteps } from './thumbPrep';
+import { cancelDetailJob, submitDetailJob, type WorkStep } from './detailJobs';
+import { baseRegions, civAtEra, composedOf, dropComposed, eraData, peekEraData, eraIndex, eraMapsOf, eraReady, eraShown, patchKey, reuseRegions, useEraIndex, withHistory, type EraMaps } from './eras';
 import { adoptChronicle, dropChronicleParts, namedHistory, takeChroniclePart, useNamedHistory } from './chronicleHandoff';
 import { sameSketch, type SketchEdit } from '../gen/sketch';
 import { askHistory, clearEditHistory, clearEdits, getEdits, putEditsQuiet, putPlay, removeEditsBatch, removeIntervention, removeUpheaval, setEditGate, setEdits, setEndYear, setHistoryGate, undoTerrainOp, useEdits } from './editsStore';
@@ -743,6 +744,8 @@ const PATCH_KEEP = 24;
 const civParts = new CivPartInbox();
 /** 同一个世界画好的整张图留几张(地形大事前后各一张;见下面的 mapsOf) */
 const MAP_KEEP = 2;
+/** 时间轴换段前在后台备那一段的地图的活名(detailJobs.ts) */
+const ERA_WARM_JOB = 'era-warm';
 /** 再推好了的提示条停多久(和加干预以后的一样);推之前那一份(撤销用)多留一会儿再放掉 */
 const EXTEND_TOAST_MS = 7000;
 const EXTEND_UNDO_MS = EXTEND_TOAST_MS + 1000;
@@ -901,9 +904,34 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
   const previewRaw = preview?.raw ?? null;
   /** 时间轴现在在第几段(地形大事以后,地图、州、地名、道路跟着换;eras.ts) */
   const eraWant = useEraIndex(previewRaw ?? rawCiv);
-  /** 地图上实际画的那一段:那一段的主图还在后台铺时,先画前面铺好了的那一段(历史、世界、主图三样对得上) */
+  /** 地图该画的那一段:那一段的主图还在后台铺时,先是前面铺好了的那一段(历史、世界、主图三样对得上) */
   // eslint-disable-next-line react-hooks/exhaustive-deps -- patchVer:后台交来新的补丁时重算
-  const eraK = useMemo(() => eraShown(eraMaps, eraPatches.current, eraWant), [eraMaps, patchVer, eraWant]);
+  const eraNext = useMemo(() => eraShown(eraMaps, eraPatches.current, eraWant), [eraMaps, patchVer, eraWant]);
+  /** 地图上画着的是哪个世界(原主图那一份)、哪份各段世界的第几段 */
+  const eraAt = useRef<{ maps: EraMaps | null; base: object | null; k: number } | null>(null);
+  /** 换段前在后台备好了的那一段(世界和主图那一份)、按哪种底图备的 */
+  const eraWarm = useRef<{ data: object; key: string } | null>(null);
+  /** 地图缓存里有没有这一段的这种底图(渲染那里填上;有就直接换,不用备) */
+  const eraCached = useRef<(d: object, key: string) => boolean>(() => false);
+  const [warmVer, setWarmVer] = useState(0);
+  const warmKey = baseKeyOf(style, layer, surface);
+  /**
+   * 地图上实际画的那一段:换段(补丁刚到、拖时间轴跨过大事)时,那一段的整张底图、河、文明层先在后台分小步备好再换过去
+   * (见下面的 ERA_WARM_JOB),不在换上那一下整张画;备的时候照旧画原来那一段(历史、世界、主图三样对得上)
+   */
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- patchVer:后台交来新的补丁时重算;warmVer:备好了
+  const eraK = useMemo(() => {
+    const at = eraAt.current;
+    const prev = at && at.maps === eraMaps && at.base === baseData ? at.k : null;
+    if (prev === null || prev === eraNext || !baseData) return eraNext;
+    // 那一段的主图还没拼:没备好(拼也在后台备的那几步里)
+    const d = peekEraData(baseData, eraMaps, eraPatches.current, eraNext);
+    const w = eraWarm.current;
+    return d && ((w && w.data === d && w.key === warmKey) || eraCached.current(d, warmKey)) ? eraNext : prev;
+  }, [eraMaps, patchVer, eraNext, baseData, warmVer, warmKey]);
+  useLayoutEffect(() => {
+    eraAt.current = { maps: eraMaps, base: baseData, k: eraK };
+  }, [eraMaps, baseData, eraK]);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- patchVer:后台交来新的补丁时重拼
   const data = useMemo(() => (baseData ? eraData(baseData, eraMaps, eraPatches.current, eraK) : null), [baseData, eraMaps, patchVer, eraK]);
   /**
@@ -1326,6 +1354,49 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
   /** 地图现在这种底图在缓存里的键(baseKeyOf):整张交回来的新主图换上之前,先在后台把这一张备好 */
   const drawKey = useRef(baseKeyOf(style, layer, surface));
   drawKey.current = baseKeyOf(style, layer, surface);
+  // 换段:要换过去的那一段的整张底图(这种底图)、写实 / 卫星画风整张图上的河、文明层第一次要画的,在后台分小步备好,
+  // 备好了 eraK 再换过去(和换上那一下一口气整张画逐像素相同)。又要换到别的段(接着拖时间轴、又到了补丁)就顶掉重备
+  useEffect(() => {
+    if (!baseData || eraK === eraNext) return;
+    const k = eraNext;
+    const raw = previewRaw ?? rawCiv;
+    const view = drawView.current;
+    const key = warmKey;
+    let d: { world: World; raster: Raster } | null = null;
+    const steps: WorkStep[] = [
+      // 拼那一段的主图(补丁贴到原主图的复制品上)
+      () => void (d = eraData(baseData, eraMaps, eraPatches.current, k)),
+      later(() => [
+        ...thumbPrepSteps(key, d!.world, d!.raster),
+        ...(view.style === 'realistic' ? realisticRiverSteps(d!.world, d!.raster, view.look) : []),
+        ...(raw ? civOpenSteps({ world: d!.world, raster: d!.raster, civ: civAtEra(raw, k), style: view.style as Style, mp: view.mp }) : []),
+      ]),
+    ];
+    // 备料出了错:不再等,换过去(换上时照常当场画),错误照常报出去
+    let failed = false;
+    const guarded = steps.map((s): WorkStep => (deadline) => {
+      if (failed) return;
+      try {
+        return s(deadline);
+      } catch (e) {
+        failed = true;
+        setTimeout(() => {
+          throw e;
+        });
+      }
+    });
+    submitDetailJob(
+      ERA_WARM_JOB,
+      guarded,
+      () => {
+        eraWarm.current = { data: d ?? eraData(baseData, eraMaps, eraPatches.current, k), key };
+        setWarmVer((n) => n + 1);
+      },
+      { alone: true },
+    );
+    return () => cancelDetailJob(ERA_WARM_JOB);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- patchVer:补丁变了要换的那一段的主图跟着变;previewRaw / rawCiv 只在换段时取
+  }, [baseData, eraMaps, patchVer, eraK, eraNext, warmKey]);
 
   // ---- 后台线程 ----
   // 线程一次只能算一个世界。连续改参数时,与其排队把每个中间世界都算完,
@@ -1416,6 +1487,10 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
             rg0.got = performance.now() - rg0.t0;
             rg0.rasterMs = m.rasterMs;
           }
+          // 各段的世界(有地形大事的;换上时 setEraMaps 用同一份:备好的那一段的世界、拼好的主图对得上)
+          const maps = m.eras ? eraMapsOf(m.world, m.baseKey, m.eras) : null;
+          /** 换上时画第几段(打开世界时备好了的那一段;按块换上的 = null,换上时照常定) */
+          let openK: number | null = null;
           const finish = (raster: Raster) => {
             // 读原件来的、只算了后一半的(编辑地形接着上一次)不算生成速度
             if (!frozenLoad.current && !m.reused) noteGenSpeed(m.world.params.cells, m.genMs, m.ms);
@@ -1427,16 +1502,20 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
             // 换了世界:别的世界的各段主图补丁都作废(这个世界的几段在备地图的时候可能已经先到了,留着)
             const chain = new Set((m.eras ?? []).map((e, i, a) => patchKey(i ? a[i - 1].key : m.baseKey, e.key)));
             for (const k of [...eraPatches.current.keys()]) if (!chain.has(k)) eraPatches.current.delete(k);
-            dropComposed();
-            // 换了主图:各画风缓存里别的主图的像素层连旧主图现在就放掉,不等下次画那种画风(按块换上的留着它是从哪张改来的)
-            const keepBases = [raster, patchSourceOf(raster)?.r0];
+            dropComposed(raster);
+            // 换了主图:各画风缓存里别的主图的像素层连旧主图现在就放掉,不等下次画那种画风(按块换上的留着它是从哪张改来的;
+            // 打开时拼好、备好了的那一段的主图也留着)
+            const keepBases = [raster, patchSourceOf(raster)?.r0, ...composedOf(raster)];
             dropRealisticBasesExcept(keepBases);
             dropFantasyBasesExcept(keepBases);
             baseRef.current = { world: m.world, raster };
             baseKeyRef.current = m.baseKey;
             editedRef.current = regenRef.current?.id === m.id ? baseRef.current : null;
             setData(baseRef.current);
-            setEraMaps(m.eras ? eraMapsOf(m.world, m.baseKey, m.eras) : null);
+            setEraMaps(maps);
+            // 备好的是第几段:换上以后时间轴要的那一段要是还没备(备的时候又到了补丁),先画备好的这段,另一段在后台备好再换(eraK)
+            eraAt.current = openK === null ? null : { maps, base: baseRef.current, k: openK };
+            eraWarm.current = null;
             rawUps.current = genUps.current;
             setRawCiv(m.civ);
             // 编辑地形时生成的(没推历史):收起编辑地形时补推
@@ -1455,11 +1534,21 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
             const raster = m.raster;
             // 线程算好的手绘符号规划(推了文明的才带)
             if (m.plan) adoptPlan(m.world, m.plan);
-            // 文明层第一次要画的也一起备好,和地图一起换上(有地形大事、换上时画的那一段的主图要拼的,先不备,换上时当场画)
+            // 换上时画的那一段:有地形大事、时间轴在大事以后、那一段的主图补丁已经在手里的,是拼好的那张(拼也放在后台的一步里)。
+            // 那一段的整张底图、写实 / 卫星画风整张图上的河(矢量,换上时描)、文明层第一次要画的,都一起备好,和地图一起换上
             const view = drawView.current;
-            const eraK = m.civ ? eraShown(m.eras ? eraMapsOf(m.world, m.baseKey, m.eras) : null, eraPatches.current, eraIndex(m.civ, getCivTime().year)) : -1;
-            const civPrep = m.civ && eraK === 0 ? civOpenSteps({ world: m.world, raster, civ: civAtEra(m.civ, 0), style: view.style as Style, mp: view.mp }) : [];
-            startTerrainFull({ world: m.world, raster, view, prep: [...thumbPrepSteps(drawKey.current, m.world, raster), ...civPrep] }, (st, pre) => {
+            const civ0 = m.civ;
+            const k = civ0 ? eraShown(maps, eraPatches.current, eraIndex(civ0, getCivTime().year)) : 0;
+            openK = k;
+            const base = { world: m.world, raster };
+            const stepsFor = (d: { world: World; raster: Raster }) => [
+              ...thumbPrepSteps(drawKey.current, d.world, d.raster),
+              ...(view.style === 'realistic' ? realisticRiverSteps(d.world, d.raster, view.look) : []),
+              ...(civ0 ? civOpenSteps({ world: d.world, raster: d.raster, civ: civAtEra(civ0, k), style: view.style as Style, mp: view.mp }) : []),
+            ];
+            let shown = base;
+            const prep = k > 0 ? [() => void (shown = eraData(base, maps, eraPatches.current, k)), later(() => stepsFor(shown))] : stepsFor(base);
+            startTerrainFull({ world: m.world, raster, view, prep, shown: () => shown }, (st, pre) => {
               if (m.id !== reqId.current) return;
               (window as unknown as { __wfOpenPrep: unknown }).__wfOpenPrep = st;
               preProj.current = pre;
@@ -1520,7 +1609,10 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
       if (req.type === 'generate') genSent.current = req;
       if (req.type === 'generate' && req.skipCiv) softRef.current.add(req.id);
       // 又要了一个新世界:还在后台备着换上的那一次已经过时了(线程交回的旧结果本来也不认)
-      if (req.type === 'generate' || req.type === 'load') cancelTerrainPatch();
+      if (req.type === 'generate' || req.type === 'load') {
+        cancelTerrainPatch();
+        dropPreparedRivers();
+      }
       busyRef.current++;
       // 问题记录:意外关闭时记下线程在忙什么
       workLabel.current = WORK_LABEL[req.type] ?? workLabel.current;
@@ -3644,6 +3736,7 @@ ${s.image.cells}` : null);
     cacheRef.current = [{ data: d, base, maps }, ...keep];
     return maps;
   };
+  eraCached.current = (d, key) => !!cacheRef.current.find((e) => e.data === d)?.maps.has(key);
   /** 弯边投影:地形图(缓存里的等距圆柱原图)按投影铺到屏幕上 */
   const terrainProj = useRef(new ProjLayer());
   /** 上次画的是哪个世界、哪种画风 / 图层(弯边投影下只改中心时只重铺,不算"画了新的一张") */
@@ -3700,6 +3793,7 @@ ${s.image.cells}` : null);
       w.__wfProj = { proj: mp.def.id, lon: mp.lon0, ms: performance.now() - t1, pending: terrainRefining() };
       if (fresh) w.__wf = { ready: true, renderMs: performance.now() - t0, style, layer, proj: mp.def.id };
       noteShown();
+      dropPreparedRivers(raster.water);
       return;
     }
     terrainProj.current.release();
@@ -3720,6 +3814,8 @@ ${s.image.cells}` : null);
     mirrorCanvas(canvasCopyRef.current, cv, true);
     (window as unknown as { __wf: unknown }).__wf = { ready: true, renderMs, style, layer };
     noteShown();
+    // 给这张图后台描好的河没用上(换上前换了画风、缓存里本来就有):放掉
+    dropPreparedRivers(raster.water);
   }, [data, style, layer, surface, terrainLook, mp, projMoving, terrainCovered]);
 
   /**

@@ -197,7 +197,24 @@ export function eraData(base: { world: World; raster: Raster }, maps: EraMaps | 
   return pair(world, hit.raster);
 }
 
-/** 换了世界:拼好的主图都不要了 */
-export function dropComposed() {
-  composed.clear();
+/** 同 eraData,只是那一段的主图要拼、还没拼好(没在缓存里)时 = null(不当场拼) */
+export function peekEraData(base: { world: World; raster: Raster }, maps: EraMaps | null, patches: ReadonlyMap<string, RasterPatch | null>, k: number): { world: World; raster: Raster } | null {
+  if (!maps || k <= 0) return base;
+  const { list, sig, n } = chainOf(maps, patches, Math.min(k, maps.worlds.length));
+  if (!n) return base;
+  if (!list.length) return pair(maps.worlds[n - 1], base.raster);
+  const hit = composed.get(sig);
+  return hit && hit.base === base.raster ? pair(maps.worlds[n - 1], hit.raster) : null;
+}
+
+/**
+ * 换了世界:拼好的主图都不要了。keep = 新世界的原主图:照它拼好的留着(打开世界时已经拼好、在后台备好了要换上的那一段)
+ */
+export function dropComposed(keep?: Raster) {
+  for (const [k, v] of [...composed]) if (v.base !== keep) composed.delete(k);
+}
+
+/** 照这张原主图拼好、还留着的各段主图 */
+export function composedOf(base: Raster): Raster[] {
+  return [...composed.values()].filter((v) => v.base === base).map((v) => v.raster);
 }

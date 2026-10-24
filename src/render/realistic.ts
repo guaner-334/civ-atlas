@@ -14,6 +14,7 @@ import {
   boxBlurWrap,
   cylinderNoise,
   drawRivers,
+  riverNetworkSteps,
   hexRGB,
   hillshade,
   mix,
@@ -26,6 +27,7 @@ import {
   type PrepStep,
   type WorkStep,
   type RGB,
+  type RiverOptions,
   type RiverStyle,
   type VecView,
 } from './common';
@@ -597,7 +599,11 @@ function riversOf(world: World, k: number): World['rivers'] {
  */
 export function drawRealisticRivers(ctx: CanvasRenderingContext2D, world: World, r: Raster, v: VecView, creeks = true, look: SurfaceLook = 'classic') {
   const style = realisticRiverStyle(v.k, world.riverThreshold, look);
-  drawRivers(ctx, creeks ? riversOf(world, v.k) : world.rivers, { ...v, wrap: wrapOf(world) }, world.riverThreshold, style, {
+  drawRivers(ctx, creeks ? riversOf(world, v.k) : world.rivers, { ...v, wrap: wrapOf(world) }, world.riverThreshold, style, riverOpts(r, style, look));
+}
+
+function riverOpts(r: Raster, style: RiverStyle, look: SurfaceLook): RiverOptions {
+  return {
     water: r.water,
     w: r.w,
     h: r.h,
@@ -607,7 +613,17 @@ export function drawRealisticRivers(ctx: CanvasRenderingContext2D, world: World,
     bank: { color: MATERIALS[look].river.bank, width: 0.45 * (style.thin ?? 1) },
     mouthFlare: 1.5,
     widthPower: 0.65,
-  });
+  };
+}
+
+/**
+ * 整张图(renderRealistic)上的河先在后台分几步描好(common.ts 的 riverNetworkSteps):换上时 renderRealistic
+ * 直接把描好的叠上,和当场画逐像素一样。打开世界时和像素层一起备
+ */
+export function realisticRiverSteps(world: World, r: Raster, look: SurfaceLook = 'classic'): WorkStep[] {
+  const v = bakedView(r.scale);
+  const style = realisticRiverStyle(v.k, world.riverThreshold, look);
+  return riverNetworkSteps(r.w, r.h, riversOf(world, v.k), { ...v, wrap: wrapOf(world) }, world.riverThreshold, style, riverOpts(r, style, look));
 }
 
 // ---------------------------------------------------------------------------
