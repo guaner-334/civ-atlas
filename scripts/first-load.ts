@@ -16,8 +16,11 @@ import { dirname, join, posix } from 'node:path';
 import { brotliCompressSync, constants, gzipSync } from 'node:zlib';
 import { loadFilesIn } from './lib/loadScreen';
 
-/** 首页的代码 + 样式,gzip 压过以后的上限(KB)。2026-10 拆开主程序后是 240 KB 左右,留了一点余量 */
-const LIMIT_KB = 270;
+/**
+ * 首页的代码 + 样式,gzip 压过以后的上限(KB)。2026-10 拆开主程序后是 240 KB 左右,留了一点余量;
+ * 存档里加了大纲以后调到 272:首页的「我的世界」要读存档,读存档时认大纲、把不合格式的情节挑出去的那段代码跟着进了首页(约 2 KB)
+ */
+const LIMIT_KB = 272;
 
 const dist = process.argv[2] ?? 'dist';
 const html = readFileSync(join(dist, 'index.html'), 'utf8');
