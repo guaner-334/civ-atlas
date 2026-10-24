@@ -223,11 +223,16 @@ function hook(sim: CivSim, um: UnrestModel): void {
     const N = pm.size[pid];
     if (!(N > 0)) return 0;
     const dist = pm.capDist[pid];
+    // 边远:有"中央管到什么程度"(control.ts)时按路程和行政能力算(行政越强,远处越不算边远)
+    const cm = pol.control;
     let far = 0;
     let foreign = 0;
     for (const r of pm.lands[pid]) {
-      const d = dist[r];
-      far += d < Infinity ? Math.min(4, d / REACH) : 4;
+      if (cm) far += cm.remote(pid, r, t);
+      else {
+        const d = dist[r];
+        far += d < Infinity ? Math.min(4, d / REACH) : 4;
+      }
       if (culture[r] !== P.culture) foreign++;
     }
     let u = pol.strain!(P, t);
@@ -358,7 +363,7 @@ function hook(sim: CivSim, um: UnrestModel): void {
     const pid = P.id;
     const N = pm.size[pid];
     if (P.ended !== undefined || N < REVOLT_STATE || rebelNow(pid) || wm.iv?.unites(pid, t)) return false;
-    const u = unrest(P, t);
+    const u = pol.unrest!(P, t); // 挂了 control.ts 时含割据那一项
     const odds = REVOLT_ODDS * fexp(REVOLT_K * (u - REVOLT_U0)) * Math.min(1, list.length / 3);
     if (keyed(um.base, pm.ptag[pid], k, U_REVOLT) >= odds / (1 + odds)) return false;
     const capR = pm.settlements[capitalAt(P, t)].region;
@@ -444,7 +449,7 @@ function hook(sim: CivSim, um: UnrestModel): void {
     if (wm.iv?.unites(pid, t)) return false; // 阶段 4 干预"禁止分裂"
     const share = landShare(pid);
     if (share < HEG_GATE) return false;
-    const u = unrest(P, t) + HEG_W * Math.min(1, Math.max(0, (share - HEG_0) / HEG_SPAN));
+    const u = pol.unrest!(P, t) + HEG_W * Math.min(1, Math.max(0, (share - HEG_0) / HEG_SPAN));
     const odds = COLLAPSE_ODDS * fexp(COLLAPSE_K * (u - COLLAPSE_U0));
     if (keyed(um.base, pm.ptag[pid], k, U_COLLAPSE) >= odds / (1 + odds)) return false;
     return collapse(P, k, t);

@@ -324,15 +324,17 @@ export function installDiplomacy(sim: CivSim, pm: PolityModel, dm: DiplomacyMode
   const borders = (x: number, y: number) => polityBorders(pm, owner, x, y, sim.now);
   const capRegion = (p: number, t: number) => pm.settlements[capitalAt(pm.polities[p], t)].region;
   const halted = (p: number, t: number) => !!wm.iv?.halted(p, t);
-  /** 国力:城镇人口之和(千人;至少 1)× 军力系数,和 wars.ts 一样按州号顺序加。一次看邦交里记住算过的(这期间归属不变) */
+  /** 国力:城镇人口之和(千人;至少 1;按出兵的几成打折)× 军力系数,和 wars.ts 一样按州号顺序加。一次看邦交里记住算过的(这期间归属不变) */
   const powMemo = new Map<number, number>();
   const powerOf = (p: number, t: number): number => {
     const hit = powMemo.get(p);
     if (hit !== undefined) return hit;
     let sum = 0;
+    // 管不到的州出兵打折、割据的州不出兵(control.ts,和 wars.ts 一样)
+    const lv = wm.levy?.(p, t);
     for (const r of pm.lands[p]) {
       const c = pm.cityOf[r];
-      if (c >= 0) sum += populationAt(pm.settlements[c], t);
+      if (c >= 0) sum += lv ? populationAt(pm.settlements[c], t) * lv(r) : populationAt(pm.settlements[c], t);
     }
     const v = Math.max(1, sum) * (pm.military?.[p] ?? 1);
     powMemo.set(p, v);
