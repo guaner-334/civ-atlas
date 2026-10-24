@@ -3,7 +3,7 @@
  * 「知道了」先灰着倒数 3 秒,这期间关不掉(点旁边、按 Esc 都不关);倒数完点「知道了」或按 Esc 关掉。
  * 带链接的多一个「查看详情」,新标签页打开,公告不关。字多时正文里面上下滑,按钮一直在底下。
  *
- * 这个文件有公告时才下载(announcement.ts 的 AnnouncementHost),首页先下的那一份里只有读 announcement.json 的几行。
+ * 这个文件有公告时才下载(announcement.ts 的 AnnouncementHost)。
  */
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';

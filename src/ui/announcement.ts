@@ -117,8 +117,8 @@ export function useNotice(): Notice | null {
 /** 公告窗口(NoticeDialog.tsx)有公告时才下载 */
 const NoticeDialog = lazy(() => import('./NoticeDialog'));
 
-/** 挂在 Boot 里;ready = 页面已经出来了(加载画面收起以后才弹、才开始倒数) */
-export function AnnouncementHost({ ready }: { ready: boolean }) {
+/** 挂在 Boot 里,页面出来以后(加载画面收起)才挂上:这时才读公告、才弹 */
+export function AnnouncementHost() {
   const n = useNotice();
-  return ready && n ? createElement(Suspense, { fallback: null }, createElement(NoticeDialog, { notice: n })) : null;
+  return n ? createElement(Suspense, { fallback: null }, createElement(NoticeDialog, { notice: n })) : null;
 }

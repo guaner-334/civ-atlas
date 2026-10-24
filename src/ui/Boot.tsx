@@ -13,8 +13,7 @@
  * 主程序没下载成功(网断了、网站刚更新过旧文件不在了):要用到它的时候重新下载一次,还不行就刷新页面;
  * 刚刷新过、不能再刷的,加载画面(还在的话)换成「重新加载」;首页上点了的不再等,顶上一条带「重新加载」的提示(HomeShell.tsx)。
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { AnnouncementHost } from './announcement';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { HomeShell } from './HomeShell';
 import { plainHome, type HomeStart } from './homeStart';
 import { warmNewWorldPictures } from './NewWorldDialog';
@@ -23,6 +22,9 @@ import { afterHomeLoad } from './homeLoad';
 import { downloadApp, loadScreenDone, loadScreenFail } from './loadScreen';
 
 type AppModule = typeof import('./App');
+
+/** 网站公告(announcement.ts):页面出来以后才下载、去读有没有公告,不占首页先下的那一份 */
+const AnnouncementHost = lazy(() => import('./announcement').then((m) => ({ default: m.AnnouncementHost })));
 
 let loading: Promise<AppModule> | null = null;
 /**
@@ -136,8 +138,12 @@ export function Boot() {
   return (
     <>
       {page}
-      {/* 网站公告:页面出来以后再弹(加载画面盖着时不开始倒数) */}
-      <AnnouncementHost ready={shown} />
+      {/* 网站公告:页面出来以后再读、再弹(加载画面盖着时不开始倒数) */}
+      {shown && (
+        <Suspense fallback={null}>
+          <AnnouncementHost />
+        </Suspense>
+      )}
     </>
   );
 }
