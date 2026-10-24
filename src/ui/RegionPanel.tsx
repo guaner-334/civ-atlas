@@ -86,7 +86,8 @@ export function RegionPanel(props: DetailProps) {
   const named = regionNamed(civ, id);
   const canAct = civ.viable && civ.polities.length > 0;
   // 演一国时别国的州:在这里立国、划给…变灰(无主之地、自己的州照常)
-  const lock = po ? roleLock(civ, useRole(), po.id) : null;
+  const role = useRole();
+  const lock = po ? roleLock(civ, role, po.id) : null;
   return (
     <div className="cp" data-region={id} data-page={page ?? 'info'}>
       <PanelHead color={po ? rgb(po.color) : undefined}>
