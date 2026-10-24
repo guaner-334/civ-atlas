@@ -16,6 +16,7 @@
  * 开关:地址里带 detail=sync 就不分帧(和以前一样,当下画完);默认分帧
  */
 import type { WorkStep } from '../render/common';
+import { noGpu } from './device';
 
 export type { WorkStep };
 
@@ -35,18 +36,12 @@ export const detailAsync: boolean = (() => {
 })();
 
 /**
- * 细节层画在藏着的那张上时分不分几下画(见文件头):没有显卡加速(拿不到不慢的 WebGL,
- * 浏览器关了硬件加速、显卡被禁用时都是这样)就分。页面上第一次要用时试一次;地址带 detail=parts 总是分(测试用)
+ * 细节层画在藏着的那张上时分不分几下画(见文件头):没有显卡加速(device.ts 的 noGpu)就分。页面上第一次要用时试一次;地址带 detail=parts 总是分(测试用)
  */
 export function paintInParts(): boolean {
   if (inParts === null) {
     try {
-      if (new URLSearchParams(location.search).get('detail') === 'parts') inParts = true;
-      else {
-        const gl = document.createElement('canvas').getContext('webgl', { failIfMajorPerformanceCaveat: true });
-        inParts = !gl;
-        gl?.getExtension('WEBGL_lose_context')?.loseContext();
-      }
+      inParts = new URLSearchParams(location.search).get('detail') === 'parts' || noGpu();
     } catch {
       inParts = false;
     }
