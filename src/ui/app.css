@@ -1195,6 +1195,46 @@ button.primary:hover {
 .stage:active {
   cursor: grabbing;
 }
+/* 经纬网的度数(GratLabels.tsx):和舞台一样大一样位置的一层,框外的字伸到舞台外面 */
+.grat-labels {
+  position: absolute;
+  z-index: 2;
+  pointer-events: none;
+  font-family: var(--font-sans);
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.grat-labels > * {
+  position: absolute;
+}
+.grat-labels > i {
+  background: var(--line-strong);
+}
+.grat-labels > .out {
+  color: var(--ink-2);
+}
+.grat-labels > .out.eq {
+  color: var(--ink);
+}
+.grat-labels > .light {
+  color: rgba(58, 45, 34, 0.86);
+  text-shadow:
+    0 0 2px rgba(247, 242, 231, 1),
+    0 0 2px rgba(247, 242, 231, 1),
+    0 0 6px rgba(247, 242, 231, 0.9);
+}
+.grat-labels > .realistic {
+  color: rgba(242, 246, 250, 0.96);
+  text-shadow:
+    0 0 2px rgba(0, 0, 0, 0.95),
+    0 0 3px rgba(0, 0, 0, 0.8),
+    0 0 8px rgba(0, 0, 0, 0.55);
+}
+.grat-labels > .eq {
+  font-weight: 600;
+}
 .canvas-wrap,
 .canvas-wrap-upper {
   position: absolute;

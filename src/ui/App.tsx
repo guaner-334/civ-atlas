@@ -8,6 +8,8 @@ import { adoptPlan, dropFantasyBasesExcept, renderFantasy } from '../render/fant
 import { DETAIL_K } from '../render/detail';
 import { TerrainDetail } from './TerrainDetail';
 import { MapDecor } from './MapDecor';
+import { GratLabels } from './GratLabels';
+import type { GratSpec } from './gratLabels';
 import { ContourLayer } from './ContourLayer';
 import { contourInk } from '../render/contours';
 import { dropPreparedRivers, nearX, wrapOf } from '../render/common';
@@ -5870,6 +5872,25 @@ ${s.image.cells}` : null);
   );
   // 摊平改地形时舞台摆在新建界面中间那块
   const fr = studioOn ? studioFlat?.rect : undefined;
+  // 经纬网的度数写在哪(地球仪、回放、导出预览、首页时不写;新建世界只在摊平改地形时写,弯边投影先不写)
+  const gratSpec: GratSpec | null = (() => {
+    if (!graticule || globeOn || home || filmOn || (replayOn && replay)) return null;
+    const fs = narrow ? 10 : 11;
+    if (fr) {
+      if (curved) return null;
+      // 框外的字不出窗口
+      const outX: [number, number] = [-fr.x, window.innerWidth - fr.x];
+      if (narrow) return { fs, outX, lon: [{ side: 'bottom', out: true }], lat: [{ side: 'left', out: false }] };
+      // 照手绘图新建:框上边紧挨切换条,经度只写下边
+      const top = draftModeOf(targetRef.current) === 'image' ? [] : [{ side: 'top' as const, out: true }];
+      return { fs, outX, lon: [...top, { side: 'bottom', out: true }], lat: [{ side: 'left', out: true }, { side: 'right', out: true }] };
+    }
+    if (studioOn) return null;
+    const [, top, right, bottom] = freeArea(sb, panelOpen);
+    // 电脑:纬度贴着侧栏卡片右边写(卡片收起了贴着屏幕左边),经度让开右下角那一列按钮
+    const left = narrow ? 0 : Math.max(0, sideRoom(sb.sw) - 14);
+    return { fs, area: [left, top, right, bottom], lonInRight: narrow ? undefined : right - 96, lon: [{ side: 'bottom', out: false }], lat: [{ side: 'left', out: false }] };
+  })();
   const stagePos: CSSProperties | undefined = fr && { left: fr.x, top: fr.y, width: fr.w, height: fr.h, right: 'auto', bottom: 'auto' };
   // 两层放大的地图框共用一个变换、按视窗裁;两层屏幕层按同一个视窗裁(见下面的 JSX)
   const wrapStyle: CSSProperties = { transform: `translate(${view.x}px, ${view.y}px) scale(${view.k})`, clipPath: wrapClip(view, sb, wrapW), display: globeOn ? 'none' : undefined };
@@ -6001,6 +6022,10 @@ ${s.image.cells}` : null);
         {/* 作者的人物一生的足迹(选中一个人物时;地球仪上也画):在标记上面 */}
         {data && world && <CharacterLayer civ={civ} world={data.world} raster={data.raster} api={markApi} hidden={replayOn || draft || home} />}
       </main>
+      {/* 经纬网的度数:新建世界摊平改地形时写在框外,平常的世界页写在地图里贴着左边、下边(GratLabels.tsx) */}
+      {data && gratSpec && (
+        <GratLabels W={data.world.width} H={data.world.height} view={view} sb={sb} mp={mp} step={graticule} spec={gratSpec} ink={contourStyle} pos={fr} />
+      )}
       {/* 导出回放视频:地图压暗、中间的预览,或者地图上的框(FilmStage.tsx) */}
       {filmOn && filmUi.mode === 'video' && <FilmStage phone={narrow} style={style} layer={layer} look={terrainLook} />}
       {/* 故事长图:地图压暗、中间的长图预览和右边一条全貌(手机整屏是预览;LongStage.tsx) */}
