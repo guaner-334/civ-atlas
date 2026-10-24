@@ -5872,7 +5872,7 @@ ${s.image.cells}` : null);
   );
   // 摊平改地形时舞台摆在新建界面中间那块
   const fr = studioOn ? studioFlat?.rect : undefined;
-  // 经纬网的度数写在哪(地球仪、回放、导出预览、首页时不写;新建世界只在摊平改地形时写,弯边投影先不写)
+  // 经纬网的度数写在哪(地球仪、回放、导出预览、首页时不写;新建世界只在摊平改地形时写)
   const gratSpec: GratSpec | null = (() => {
     if (!graticule || globeOn || home || filmOn || (replayOn && replay)) return null;
     const fs = narrow ? 10 : 11;
