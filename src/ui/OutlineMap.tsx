@@ -4,7 +4,7 @@
  *   卡片顶上一条    「‹ 大纲」回大纲页;"第 5 条　1700 年前后"、批改的章;上一条 / 下一条(照着点过去)
  *   地图上的小牌子  那件事在哪:圆号(颜色按章)+ 一句话 + 章,立在城 / 州治所 / 国都上,每帧跟着地图走;时间轴拖远了先收起
  *   时间轴上的记号  每条一颗小菱形(颜色按章;没推过 = 灰),正看着的那条换成写着号的圆;悬停出小卡(第几条、时间、章、作者写的那句、结果),
- *                   点一下 = 点那一条
+ *                   点一下 = 点那一条;挨得太近的几条合成一颗,小卡里列出这几条,点一下轮着看
  *
  * 换选了别的、取消选中:不看了(卡片顶条、小牌子收起,时间轴上的号变回菱形)。
  */
@@ -83,7 +83,8 @@ export function PlotPin({ civ, world, toClient }: { civ: Civ | null; world: Worl
   const p = holds && o ? o.plots.find((x) => x.id === focus.plot) : undefined;
   const r = p && o ? reviewOf(o, p.id) : undefined;
   const cell = p && o ? plotCell(o, p, r) : -1;
-  const near = p && o && t.year !== null ? Math.abs(t.year - plotAt(o, p.id)) <= PIN_YEARS : true;
+  // 年份 null = 世界最后一年(放完了停在那)
+  const near = p && o ? Math.abs((t.year ?? o.civ.endYear) - plotAt(o, p.id)) <= PIN_YEARS : false;
   if (!p || !o || cell < 0 || !near) return null;
   const s = r?.status ?? 'todo';
   return (
@@ -174,31 +175,65 @@ export function usePlotTicks(civ: Civ | null): PlotTick[] | undefined {
   }, [o, on, list, era]);
 }
 
-/** 时间轴轨道上的情节记号(TimelineMarks 里,压在基线上);悬停出小卡,below = 小卡朝下弹(时间轴在顶上) */
+/** 两颗记号离得比这近(像素)就合成一颗:悬停列出这几条,点一下轮着看 */
+const TICK_MERGE = 10;
+
+/** 挨得太近的记号合成一组(按位置排好) */
+export function tickGroups<T extends { year: number; n: number }>(ticks: readonly T[], x: (year: number) => number): { x: number; items: T[] }[] {
+  const out: { x: number; items: T[] }[] = [];
+  const sorted = [...ticks].sort((a, b) => a.year - b.year || a.n - b.n);
+  for (const t of sorted) {
+    const at = x(t.year);
+    const g = out[out.length - 1];
+    if (g && at - g.x < TICK_MERGE) g.items.push(t);
+    else out.push({ x: at, items: [t] });
+  }
+  return out;
+}
+
+/** 一组里点一下看哪一条:正看着其中一条 = 它的下一条(轮着),不然第一条 */
+export function nextInGroup<T extends { on: boolean }>(items: readonly T[]): T {
+  const i = items.findIndex((t) => t.on);
+  return items[i < 0 ? 0 : (i + 1) % items.length];
+}
+
+/**
+ * 时间轴轨道上的情节记号(TimelineMarks 里,压在基线上);悬停出小卡,below = 小卡朝下弹(时间轴在顶上)。
+ * 同一年、挨得很近的几条合成一颗:小卡里一条条列出来,点一下轮着看
+ */
 export function PlotTicks({ ticks, end, width, below }: { ticks: readonly PlotTick[]; end: number; width: number; below: boolean }) {
   const [hot, setHot] = useState<number | null>(null);
   if (width <= 0 || end <= 0) return null;
   const x = (y: number) => (Math.min(end, Math.max(0, y)) / end) * width;
-  const tip = ticks.find((t) => t.id === hot);
+  const groups = tickGroups(ticks, x);
+  const tip = groups.find((g) => g.items[0].id === hot);
   const TIP_W = 300;
   return (
     <>
-      {ticks.map((t) => (
-        <span
-          key={t.id}
-          className={`ol-tick ${t.status}${t.on ? ' on' : ''}`}
-          data-plot={t.id}
-          style={{ left: x(t.year) }}
-          onPointerEnter={(e) => e.buttons === 0 && setHot(t.id)}
-          onPointerLeave={() => setHot((h) => (h === t.id ? null : h))}
-          onClick={t.pick}
-        >
-          {t.on && <b>{t.n}</b>}
-        </span>
-      ))}
+      {groups.map((g) => {
+        const on = g.items.find((t) => t.on);
+        const head = on ?? g.items[0];
+        return (
+          <span
+            key={g.items[0].id}
+            className={`ol-tick ${head.status}${on ? ' on' : ''}`}
+            data-plot={g.items.map((t) => t.id).join(' ')}
+            style={{ left: g.x }}
+            onPointerEnter={(e) => e.buttons === 0 && setHot(g.items[0].id)}
+            onPointerLeave={() => setHot((h) => (h === g.items[0].id ? null : h))}
+            onClick={() => nextInGroup(g.items).pick()}
+          >
+            {on && <b>{on.n}</b>}
+          </span>
+        );
+      })}
       {tip && (
-        <div className={`ol-tip${below ? ' below' : ''}`} style={{ left: Math.min(Math.max(0, x(tip.year) - TIP_W / 2), Math.max(0, width - TIP_W)), width: TIP_W }}>
-          {tip.tip}
+        <div className={`ol-tip${below ? ' below' : ''}`} style={{ left: Math.min(Math.max(0, tip.x - TIP_W / 2), Math.max(0, width - TIP_W)), width: TIP_W }}>
+          {tip.items.map((t) => (
+            <div key={t.id} className="ol-tip-one">
+              {t.tip}
+            </div>
+          ))}
         </div>
       )}
     </>

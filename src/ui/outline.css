@@ -1050,3 +1050,8 @@ select.ol-in {
   color: var(--ink-2);
   font-size: 12.5px;
 }
+.ol-tip-one + .ol-tip-one {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 0.5px solid var(--line);
+}

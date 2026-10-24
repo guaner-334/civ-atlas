@@ -9,6 +9,7 @@ import { capitalAt, polityAlive } from '../src/gen/civ/growth';
 import { polityKey, regionKey, settlementKey, type Plot } from '../src/gen/edits';
 import { plotCell, plotHeadline, plotText, type OutlineCtx } from '../src/ui/outlineInfo';
 import { focusHolds } from '../src/ui/outlineStore';
+import { nextInGroup, tickGroups } from '../src/ui/OutlineMap';
 
 const civ = generateCiv(generateWorld({ ...DEFAULT_PARAMS, seed: 7 }));
 const year = 1500;
@@ -56,5 +57,19 @@ describe('在看哪一条', () => {
     expect(focusHolds(f, { kind: 'region', id: 5 })).toBe(false);
     expect(focusHolds(f, null)).toBe(false);
     expect(focusHolds(null, { kind: 'polity', id: 5 })).toBe(false);
+  });
+});
+
+describe('时间轴上的记号', () => {
+  const t = (n: number, year: number, on = false) => ({ n, year, on });
+  it('挨得太近(不到 10 像素)的合成一颗,按年份排', () => {
+    const g = tickGroups([t(3, 1500), t(1, 1000), t(2, 1000), t(4, 1503)], (y) => y / 2);
+    expect(g.map((x) => x.items.map((i) => i.n))).toEqual([[1, 2], [3, 4]]);
+    expect(g[0].x).toBe(500);
+  });
+  it('点一下轮着看:正看着其中一条 = 下一条,看到最后回到第一条', () => {
+    expect(nextInGroup([t(1, 0), t(2, 0)]).n).toBe(1);
+    expect(nextInGroup([t(1, 0, true), t(2, 0)]).n).toBe(2);
+    expect(nextInGroup([t(1, 0), t(2, 0, true)]).n).toBe(1);
   });
 });

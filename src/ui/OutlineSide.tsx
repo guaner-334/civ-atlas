@@ -64,8 +64,10 @@ export function goToPlot(o: OutlineCtx, p: Plot, r: PlotReview | undefined) {
   const year = r && r.status !== 'failed' ? r.year : plotWindow(o, p).at;
   closeOverview();
   setCivTime({ year: Math.min(o.civ.endYear, Math.max(0, year)), playing: false, scrubbing: false, story: false });
-  const sel = plotTarget(o, p, r) ?? getSelection().sel;
-  if (sel) setSelection(sel);
+  const want = plotTarget(o, p, r);
+  if (want) setSelection(want);
+  // 选中时可能换成别的(作者的人物当了君主 = 选中那个人物):记下真选中的
+  const sel = getSelection().sel;
   setOutlineFocus(sel ? { plot: p.id, sel } : null);
 }
 
