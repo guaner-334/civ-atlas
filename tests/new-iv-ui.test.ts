@@ -90,6 +90,12 @@ describe('灭国页', () => {
     const r3 = newIvDoneText(c3, late, 0, '某国', undefined)!;
     expect(r3.ok).toBe(false);
     expect(r3.text).toMatch(/^灭某国没生效：/);
+    // 灭国后面又下了"不许灭"(后下的为准):没生效,写那一年被"保护"护着
+    const keep: Intervention = { kind: 'protect', a: polityKey(base0, id), from: T - 10 };
+    const c4 = generateCiv(world(), { interventions: [loose, keep], endYear: T + 10 });
+    const r4 = newIvDoneText(c4, loose, 0, A, undefined)!;
+    expect(r4.ok).toBe(false);
+    expect(r4.text).toBe(`灭${A}没生效：第 ${T} 年${A}受后下的「保护」护着`);
   });
 });
 

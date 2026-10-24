@@ -227,11 +227,13 @@ export type RulerAct = Crown | RulerDeath | RulerTemper;
 /**
  * 史事 intervene 的 b 列(即位、让人物去世、改君主倾向;interventions.ts 记,编年史、actsFrom 读):
  * −1 生效了 / −2 他还没出生(即位)/ −3 那一年这国已亡 / −4 此刻在位的不是他(让人物去世、改倾向)/
- * −5 将领、名臣去世(推演里不管,人物那边按卒年、去职年份定)/ −6 等此刻在位的那位下台再即位(登记了;真即位时另记一条 −1)
+ * −5 将领、名臣去世(推演里不管,人物那边按卒年、去职年份定)/ −6 等此刻在位的那位下台再即位(登记了;真即位时另记一条 −1)/
+ * −7 灭国:那一刻有排在它后面(后下)的"不许灭"护着这国,没灭(interventions.ts 的 destroy)
  */
 export const IV_NOT_HIM = -4;
 export const IV_PEOPLE = -5;
 export const IV_WAIT = -6;
+export const IV_PROTECTED = -7;
 
 type CrownIntervention = Extract<Intervention, { kind: 'crown' }>;
 
