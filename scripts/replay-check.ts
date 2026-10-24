@@ -2885,16 +2885,22 @@ for (const style of ['realistic', 'fantasy']) {
     kPick = await page.evaluate(() => (window as any).__wfView.k);
     pickToast = await toastText(page, 'pick');
     hiddenWhilePicking = (await insHidden(page));
-    const tgt = allyPlates.filter((p) => !p.self).sort((a, b) => Math.abs(a.x - vp.width / 2) - Math.abs(b.x - vp.width / 2))[0];
-    if (tgt) {
-      // 悬停在这国的国土上(名牌四周绕几圈找,一州的小岛国从贴着名牌找起):悬停卡片写"点击选择",名牌反色
-      search: for (const r of [12, 20, 30, 50, 80, 120])
+    // 悬停在目标国的国土上(名牌四周绕几圈找):悬停卡片写"点击选择",名牌反色。
+    // 离屏幕正中近的先试;名牌离国土远的小岛国找不着,就换下一个
+    const cands = allyPlates.filter((p) => !p.self).sort((a, b) => Math.abs(a.x - vp.width / 2) - Math.abs(b.x - vp.width / 2));
+    let tgt = cands[0];
+    search: for (const c of cands.slice(0, 4))
+      for (const r of [12, 20, 30, 50, 80, 120])
         for (let a = 0; a < 8; a++) {
-          await page.mouse.move(tgt.x + r * Math.cos((a * Math.PI) / 4), tgt.y + r * Math.sin((a * Math.PI) / 4));
+          await page.mouse.move(c.x + r * Math.cos((a * Math.PI) / 4), c.y + r * Math.sin((a * Math.PI) / 4));
           await page.waitForTimeout(80);
           hoverVerdict = (await page.locator('.hover-card').innerText().catch(() => '')).replace(/\n/g, ' ');
-          if (hoverVerdict.includes(tgt.text)) break search;
+          if (hoverVerdict.includes(c.text)) {
+            tgt = c;
+            break search;
+          }
         }
+    if (tgt) {
       await page.mouse.move(tgt.x, tgt.y);
       await page.waitForTimeout(150);
       plateOn = (await plates()).some((p) => p.id === tgt.id && p.on);

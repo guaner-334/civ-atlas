@@ -11,7 +11,7 @@
  *     行政越强,远处的州也管得住。分四档(controlTier):直辖、代管、自治,割据的州另算(见下)。
  *     行政能力也折进原来"离国都多远"的那几项(remote:路程 ÷ (FAR_REACH × 行政折算),行政越强远处越不算远):
  *       分裂的离心力(politics.ts),割据的州再加一截(politics.ts 的 LORD_D):割据久了的地方先起兵;
- *       动荡(unrest.ts)的"边远"一项,每有一处割据再加 LORD_U;
+ *       动荡(unrest.ts)的"边远"一项,每有一处割据再加 LORD_U(分裂、民变、大崩解、打仗都用这同一个动荡);
  *       打仗的国力(wars.ts 的 powers)= Σ 城的人口 × 出兵的几成(管得到几成 + LEVY_0,最多 1;割据的州 0:抗命不出兵)。
  *
  *   **割据**(看内政时,politics.ts 在分裂没成之后调 check):国土至少 MIN_SIZE 州、立国满 MIN_AGE 年的国家,
@@ -20,7 +20,7 @@
  *     割据的地盘(mark,现算):从那座城所在的州往外走陆路 HOPS 州以内、还是这国的、c < HOLD 的州(不含国都;近的先算,最多 DOMAIN_MAX 州)。
  *     名义上照旧归这国:地图上国界不变,只在「中央管到什么程度」图层上看得出来。
  *     割据了结:①那州换了国家(被打下、自立出去)= 就此了结,不另记;②中央收回(reclaim):以后每次看内政,
- *       那州的 c 已回到 HOLD 以上(行政变强、迁都近了)就收回;否则按 RECLAIM_P × 1 ÷ (1 + 动荡) 的机会收回。
+ *       那州的 c 已回到 HOLD 以上(行政变强、迁都近了)、或者国都迁到了那座城,就收回;否则按 RECLAIM_P × 1 ÷ (1 + 动荡) 的机会收回。
  *     割据的州起兵自立的,史事 split 记 cause = warlord(编年史写"割据多年,遂……自立")。
  *
  *   **抗命**(defy):每场战争的第一仗之前(点兵,wars.ts 调 onMuster),交战的一方有割据的地方、地盘里的城人口占全国 DEFY_SHARE 以上,
@@ -37,7 +37,7 @@ import { polityModelOf, type PolityModel } from './polities';
 import { warModelOf, type War, type WarModel } from './wars';
 import { politicsModelOf, type PoliticsModel } from './politics';
 import { Cap, CAP_COUNT, devModelOf, type DevModel } from './development';
-import { capitalAt, populationAt } from './growth';
+import { capacityAt, capitalAt, populationAt } from './growth';
 
 // ---- 调参(以 20 个种子的统计为准,见 scripts/control-stats.ts) ----
 /** 管得到的远近:REACH × (1 + ADMIN_GAIN × 行政能力)(标准路程) */
@@ -231,7 +231,7 @@ function hook(sim: CivSim, seed: number, lords: Warlord[]): ControlModel | undef
     const a = 1 + ADMIN_GAIN * Math.max(0, dev.cur[mCapR * CAP_COUNT + Cap.Administration] || 0);
     mL = REACH * a;
     mScale = a / (1 + ADMIN_GAIN * ADMIN_REF);
-    mCap = pm.settlements[sid].capacity;
+    mCap = capacityAt(pm.settlements[sid], t);
   };
 
   const raw = (p: number, r: number, t: number): number => {
@@ -244,7 +244,7 @@ function hook(sim: CivSim, seed: number, lords: Warlord[]): ControlModel | undef
     const age = t - wm.since[r];
     if (wm.prev[r] >= 0 && wm.prev[r] !== p && age < RECENT) c *= 1 - RECENT_CUT * (1 - age / RECENT);
     const s = pm.cityOf[r];
-    if (s >= 0 && pm.settlements[s].ended === undefined && pm.settlements[s].capacity >= BIG_RATIO * mCap) c *= BIG_CITY;
+    if (s >= 0 && pm.settlements[s].ended === undefined && capacityAt(pm.settlements[s], t) >= BIG_RATIO * mCap) c *= BIG_CITY;
     return c;
   };
 
@@ -272,6 +272,7 @@ function hook(sim: CivSim, seed: number, lords: Warlord[]): ControlModel | undef
   const domain = (w: Warlord, t: number, out?: number[]): void => {
     const P = pm.polities[w.p];
     const capR = capRegion(P, t);
+    if (w.region === capR) return; // 迁都迁到了割据的那座城:不算割据(下次看内政就收回)
     let qt = 0;
     queue[qt++] = w.region;
     mk[w.region] = stamp;
@@ -360,10 +361,12 @@ function hook(sim: CivSim, seed: number, lords: Warlord[]): ControlModel | undef
     const ls = lordsOf(p, t);
     const u = pol.unrest ? pol.unrest(P, t) : 0;
     // 收回
+    const capR = capRegion(P, t);
     for (const w of ls) {
-      if (t - w.start < RECLAIM_AGE) continue;
+      const seat = w.region === capR;
+      if (!seat && t - w.start < RECLAIM_AGE) continue;
       const c = raw(p, w.region, t);
-      if (c >= HOLD || keyed4(cm.base, pm.ptag[p], reg.seat[w.region], k, U_RECLAIM) < RECLAIM_P / (1 + u)) {
+      if (seat || c >= HOLD || keyed4(cm.base, pm.ptag[p], reg.seat[w.region], k, U_RECLAIM) < RECLAIM_P / (1 + u)) {
         w.end = t;
         sim.record('reclaim', { a: p, region: w.region, settlement: w.city, war: Math.round(t - w.start) });
         return true;
@@ -374,7 +377,6 @@ function hook(sim: CivSim, seed: number, lords: Warlord[]): ControlModel | undef
     // 挑管得最松、有城的那州
     stamp++;
     for (const w of ls) domain(w, t);
-    const capR = capRegion(P, t);
     let r0 = -1;
     let c0 = Infinity;
     let s0 = Infinity;
