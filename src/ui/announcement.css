@@ -96,3 +96,6 @@
     flex: 1;
   }
 }
+.nt-card:focus {
+  outline: none;
+}

@@ -20,7 +20,12 @@ export function AnnouncementHost({ ready }: { ready: boolean }) {
 
 function NoticeDialog({ notice }: { notice: Notice }) {
   const [left, setLeft] = useState(NOTICE_WAIT);
+  const cardRef = useRef<HTMLElement>(null);
   const okRef = useRef<HTMLButtonElement>(null);
+  // 弹出时焦点先放到公告上(下面页面里按着焦点的按钮不会被回车、空格点到)
+  useEffect(() => {
+    cardRef.current?.focus();
+  }, []);
   useEffect(() => {
     if (left <= 0) {
       okRef.current?.focus();
@@ -29,10 +34,20 @@ function NoticeDialog({ notice }: { notice: Notice }) {
     const t = setTimeout(() => setLeft((n) => n - 1), 1000);
     return () => clearTimeout(t);
   }, [left]);
-  // 开着的时候按键不传给下面的页面(空格不会播放、方向键不会挪地图);倒数完 Esc 关掉
+  // 开着的时候按键不传给下面的页面(空格不会播放、方向键不会挪地图);Tab 只在公告里的按钮之间转;倒数完 Esc 关掉
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       e.stopPropagation();
+      const card = cardRef.current;
+      if (e.key === 'Tab' && card) {
+        e.preventDefault();
+        const els = [...card.querySelectorAll<HTMLElement>('a[href], button:not(:disabled)')];
+        const i = els.indexOf(document.activeElement as HTMLElement);
+        const n = els.length;
+        const j = i < 0 ? (e.shiftKey ? n - 1 : 0) : (i + (e.shiftKey ? n - 1 : 1)) % n;
+        (n ? els[j] : card).focus();
+        return;
+      }
       if (e.key !== 'Escape') return;
       e.preventDefault();
       if (left <= 0) closeNotice();
@@ -44,7 +59,7 @@ function NoticeDialog({ notice }: { notice: Notice }) {
   const stop = (e: { stopPropagation(): void }) => e.stopPropagation();
   return createPortal(
     <div className="nt-bg" onPointerDown={stop} onWheel={stop} onContextMenu={stop}>
-      <section className="nt-card" role="alertdialog" aria-modal="true" aria-labelledby="nt-title" data-testid="notice">
+      <section ref={cardRef} tabIndex={-1} className="nt-card" role="alertdialog" aria-modal="true" aria-labelledby="nt-title" data-testid="notice">
         <div className="nt-body">
           <h2 id="nt-title">{notice.title}</h2>
           {notice.date && <p className="nt-date">{notice.date}</p>}

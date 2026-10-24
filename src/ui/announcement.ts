@@ -34,14 +34,15 @@ const MAX_TITLE = 40;
 const MAX_BODY = 1000;
 
 const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
+/** 按字截(表情这类占两个 UTF-16 单元的也算一个字,和「更新公告」检查字数的算法一样,不会截出半个字) */
+const cut = (s: string, n: number) => Array.from(s).slice(0, n).join('');
 
 /** 读到的 announcement.json → 公告;没写标题或正文、格式不对 = null(不弹) */
 export function parseNotice(raw: unknown): Notice | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const o = raw as Record<string, unknown>;
-  const title = str(o.title).slice(0, MAX_TITLE);
-  const paras = str(o.body)
-    .slice(0, MAX_BODY)
+  const title = cut(str(o.title), MAX_TITLE);
+  const paras = cut(str(o.body), MAX_BODY)
     .split(/\r?\n/)
     .map((s) => s.trim())
     .filter(Boolean);
@@ -54,7 +55,7 @@ export function parseNotice(raw: unknown): Notice | null {
   }
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(str(o.date));
   const date = m && +m[2] >= 1 && +m[2] <= 12 && +m[3] >= 1 && +m[3] <= 31 ? `${+m[2]} 月 ${+m[3]} 日` : '';
-  const id = str(o.id).slice(0, 64) || `${title}\n${paras.join('\n')}`;
+  const id = cut(str(o.id), 64) || `${title}\n${paras.join('\n')}`;
   return { id, date, title, paras, link };
 }
 

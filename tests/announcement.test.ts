@@ -36,5 +36,8 @@ describe('网站公告', () => {
     const n = parseNotice({ title: '字'.repeat(100), body: '字'.repeat(5000) });
     expect(n?.title.length).toBe(40);
     expect(n?.paras.join('').length).toBe(1000);
+    // 表情按一个字算,不截出半个
+    const e = parseNotice({ title: '😀'.repeat(50), body: '正文' });
+    expect(Array.from(e?.title ?? '')).toEqual(Array(40).fill('😀'));
   });
 });
