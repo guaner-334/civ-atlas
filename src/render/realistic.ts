@@ -31,6 +31,7 @@ import {
   type RiverStyle,
   type VecView,
 } from './common';
+import { drawParts, type DrawPart } from './common';
 import { smoothstep } from '../gen/util';
 import { CREEK_FRAC, creeksOf } from '../gen/creeks';
 import { reprojectImage, type Projector } from './projection';
@@ -946,37 +947,57 @@ const SHORE_MIN_PS = 2.5;
  * 等距圆柱:像素层按视口变换放大贴上(双线性);弯边投影(v.proj):按行重投影(reprojectImage)
  */
 export function drawRealisticShores(ctx: CanvasRenderingContext2D, r: Raster, v: VecView, look: SurfaceLook = 'classic'): void {
+  drawParts(ctx, realisticShoreParts(r, v, look));
+}
+
+/** drawRealisticShores 分两下画:水那一份、裁出来的陆地那一份(画法状态和一口气画时一样;依次画完逐像素一样) */
+export function realisticShoreParts(r: Raster, v: VecView, look: SurfaceLook = 'classic'): DrawPart[] {
   const pj = v.proj;
   const ps = v.s / r.scale;
-  const put = (img: AnyCanvas) => {
+  const put = (ctx: CanvasRenderingContext2D, img: AnyCanvas) => {
     if (pj) reprojectImage(ctx, img, r.w, r.h, pj.mp, v, 'low');
     else ctx.drawImage(img, v.ox, v.oy, r.w * ps, r.h * ps);
   };
-  ctx.save();
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = 'low';
-  if (ps < SHORE_MIN_PS) put(realisticBase(r, look));
-  else {
-    const { water, land } = realisticShoreLayers(r, look);
-    put(water);
-    const cw = ctx.canvas.width;
-    const ch = ctx.canvas.height;
-    const cells = pj ? projectedCells(r, pj, v, cw, ch) : flatCells(r, v, cw, ch);
-    const cols = pj ? null : cells.cols(0)!;
-    if (cols && (cols[1] - cols[0]) * (cells.rows[1] - cells.rows[0]) * 8 > r.w * r.h) {
-      // 等距圆柱、视口里的方格多(放大不到三倍左右):用整张图的那一份(缓存的)按视口变换裁剪,省得每次重画重算几十万个点
-      const m = ctx.getTransform();
-      ctx.transform(ps, 0, 0, ps, v.ox, v.oy);
-      ctx.clip(wholeLandPath(r));
-      ctx.setTransform(m);
-    } else {
-      const path = new Path2D();
-      addLandCells(path, r, cells);
-      ctx.clip(path);
-    }
-    put(land);
-  }
-  ctx.restore();
+  const begin = (ctx: CanvasRenderingContext2D) => {
+    ctx.save();
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'low';
+  };
+  if (ps < SHORE_MIN_PS)
+    return [
+      (ctx) => {
+        begin(ctx);
+        put(ctx, realisticBase(r, look));
+        ctx.restore();
+      },
+    ];
+  return [
+    (ctx) => {
+      begin(ctx);
+      put(ctx, realisticShoreLayers(r, look).water);
+      ctx.restore();
+    },
+    (ctx) => {
+      begin(ctx);
+      const cw = ctx.canvas.width;
+      const ch = ctx.canvas.height;
+      const cells = pj ? projectedCells(r, pj, v, cw, ch) : flatCells(r, v, cw, ch);
+      const cols = pj ? null : cells.cols(0)!;
+      if (cols && (cols[1] - cols[0]) * (cells.rows[1] - cells.rows[0]) * 8 > r.w * r.h) {
+        // 等距圆柱、视口里的方格多(放大不到三倍左右):用整张图的那一份(缓存的)按视口变换裁剪,省得每次重画重算几十万个点
+        const m = ctx.getTransform();
+        ctx.transform(ps, 0, 0, ps, v.ox, v.oy);
+        ctx.clip(wholeLandPath(r));
+        ctx.setTransform(m);
+      } else {
+        const path = new Path2D();
+        addLandCells(path, r, cells);
+        ctx.clip(path);
+      }
+      put(ctx, realisticShoreLayers(r, look).land);
+      ctx.restore();
+    },
+  ];
 }
 
 /**
