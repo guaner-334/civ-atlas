@@ -45,7 +45,7 @@ import { isConsul, personName, rulerFateWord } from '../gen/civ/peopleText';
 import type { AiName } from './AiNamePanel';
 import { openHistoryBook } from './HistoryBook';
 import { NameEdit } from './NameEdit';
-import { nameAt, neighborsAt } from './Interventions';
+import { neighborsAt } from './Interventions';
 import { polityTies } from '../gen/civ/diplomacy';
 import { CommandPage } from './CommandPage';
 import { openCmdPage, setPanelTab, setSheet, usePanel } from './panelStore';
@@ -54,7 +54,7 @@ import { DestroyPage } from './DestroyPage';
 import { DisasterPage } from './DisasterPage';
 import { policyRow, roleLock } from './policyInfo';
 import { useRole } from './roleStore';
-import { roleOff } from './RoleBar';
+import { RoleLockNote } from './RoleBar';
 import { usePending, type Pending } from './pendingStore';
 import { useStepwiseOn } from './stepwiseStore';
 import { shownYearOf } from './flyTo';
@@ -323,15 +323,7 @@ function InfoPage({ civ, raw, raster, world, id, year, p, shared, lock }: Countr
           )}
         </MoreAct>
       </Acts>
-      {lock >= 0 && (
-        <div className="pol-lock" data-role-lock={lock}>
-          你在演{nameAt(civ.polities[lock], shownYear)}，只管自己的国家。要改{polityName(p, shownYear)}，
-          <button data-act="role-off" onClick={() => roleOff(lock)}>
-            切回造物主
-          </button>
-          。
-        </div>
-      )}
+      {lock >= 0 && <RoleLockNote civ={civ} me={lock} who={polityName(p, shownYear)} year={shownYear} />}
       <div className="cp-body">
         <Stats items={[]}>
           <Row k="国都">{cap ? <Link to={{ kind: 'settlement', id: cap.id }}>{cap.name}</Link> : <span className="cp-none">无</span>}</Row>
