@@ -28,6 +28,7 @@ pnpm typecheck             # 类型检查
 pnpm test                  # 单元测试
 pnpm stress                # 极端参数压力测试:出现 NaN 就失败,顺带打印各步耗时
 pnpm smoke                 # 冒烟测试:无头浏览器里加载、回放、悬停、各界面流程
+SMOKE_PART=2/4 pnpm smoke  # 只跑冒烟的第 2 份(PR 检查上分 4 份同时跑)
 pnpm test:visual           # 画面回归:固定种子渲染缩略图,和 tests/visual/baseline/ 里的基准图逐像素比
 pnpm test:visual --update  # 画面是有意改的:用当前画面更新基准图,和代码一起提交
 pnpm build                 # 生产构建(输出到 dist/;文本文件旁边各压一份 .gz、.br)
