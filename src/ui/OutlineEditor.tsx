@@ -87,7 +87,11 @@ function draftFor(d: PlotDraft, kind: PlotKind): PlotDraft {
   const out = { kind } as PlotDraft;
   for (const k of keep) if (d[k] !== undefined) (out as unknown as Record<string, unknown>)[k] = d[k];
   if (kind === 'disaster' && !out.type) out.type = 'famine';
-  if (kind === 'story') delete out.span;
+  // 只讲故事:只按一年(编的时候也只有年份那一格),"在某一条之后"一起去掉
+  if (kind === 'story') {
+    delete out.span;
+    delete out.after;
+  }
   return out;
 }
 
