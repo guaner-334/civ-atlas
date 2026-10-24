@@ -11,7 +11,7 @@ import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { continueCiv, generateCiv, type Civ } from '../src/gen/civ';
 import { CivSim } from '../src/gen/civ/sim';
 import { effOf, polityModelOf, rulerOf } from '../src/gen/civ/polities';
-import { leaningEffect } from '../src/gen/civ/rulers';
+import { IV_PROTECTED, leaningEffect } from '../src/gen/civ/rulers';
 import { ownersAt } from '../src/gen/civ/timeline';
 import { buildChronicle } from '../src/gen/civ/chronicle';
 import { capitalAt } from '../src/gen/civ/growth';
@@ -197,6 +197,33 @@ describe.each([7, 2024])('新干预 · seed=%i', (seed) => {
     expect(civ.annals.find((e) => e.kind === 'intervene')).toMatchObject({ a: gone.id, b: -3 });
     expect(civ.log).toEqual(base.log);
     expect(interventionFate(civ, 0)).toMatchObject({ state: 'void', why: expect.stringMatching(/已亡$/) });
+  }, 120_000);
+
+  it('灭国撞上"不许灭":后下的为准 —— 灭国后面又下了护着那一刻的"不许灭" = 不生效(写原因);"不许灭"先下 / 那一刻还没生效 = 照灭', () => {
+    const w = world(seed);
+    const base = baseOf(seed);
+    const [pid] = pairAt(base, T);
+    const a = polityKey(base, pid);
+    const kill: Intervention = { kind: 'destroy', a, from: T };
+    const keep: Intervention = { kind: 'protect', a, from: T - 20 };
+    const end = T + 60;
+    // 灭国在前、"不许灭"在后:没灭,历史和只下"不许灭"一样
+    const kept = generateCiv(w, { interventions: [kill, keep], endYear: end });
+    const only = generateCiv(w, { interventions: [keep], endYear: end });
+    expect(kept.annals.find((e) => e.kind === 'intervene' && e.war === 0)).toMatchObject({ year: T, a: pid, b: IV_PROTECTED });
+    expect(kept.log).toEqual(only.log);
+    expect(kept.polities[pid].ended).toBe(only.polities[pid].ended);
+    expect(interventionFate(kept, 0)).toMatchObject({ state: 'void', why: expect.stringMatching(/受后下的「保护」护着$/) });
+    expect(ivLines(kept, T).some((x) => /欲灭.+然又有令保.+不亡/.test(x.text))).toBe(true);
+    // "不许灭"在前、灭国在后:照灭
+    const gone = generateCiv(w, { interventions: [keep, kill], endYear: end });
+    expect(gone.annals.find((e) => e.kind === 'intervene' && e.war === 1)).toMatchObject({ year: T, a: pid, b: -1 });
+    expect(gone.polities[pid].ended).toBe(T);
+    // 后下的"不许灭"那一刻已到期 / 还没生效:不算,照灭
+    for (const late of [{ ...keep, until: T - 5 }, { ...keep, from: T + 10 }] as Intervention[]) {
+      const civ = generateCiv(w, { interventions: [kill, late], endYear: end });
+      expect(civ.polities[pid].ended).toBe(T);
+    }
   }, 120_000);
 
   it('让君主去世:他到那一刻为止(卒年 = 那一年),下一位从那一刻即位;编年史写"暴崩 / 暴薨……";不在位的写原因', () => {

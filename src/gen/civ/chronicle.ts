@@ -88,7 +88,7 @@ import { ageAt, generalRef, kinOf, ministerRole, rulerBare, rulerRef, rulerShort
 import { eraText, monthTail, type Era } from '../era';
 import { parsePersonKey, resolveKey, resolvePersonKey, type Intervention } from '../edits';
 import { emptyPolicy, policyName, type PolicyIv } from './policy';
-import { IV_NOT_HIM, IV_PEOPLE, IV_WAIT } from './rulers';
+import { IV_NOT_HIM, IV_PEOPLE, IV_PROTECTED, IV_WAIT } from './rulers';
 import { IV_TOLL, PLAGUE_IV, quakeWord } from './calamity';
 
 /** 重要度:3 最重要 */
@@ -877,6 +877,7 @@ function interveneStory(civ: Civ, e: Annal, id: number): IvStory {
     }
     case 'destroy': {
       if (e.b === -3) return fail(`欲灭${A},然${A}已亡`, `那一年${A}已亡`);
+      if (e.b === IV_PROTECTED) return fail(`欲灭${A},然又有令保${A}不亡`, `那一年${A}受后下的「保护」护着`);
       const n = e.n ? `${cnNumber(e.n)}州` : '其地';
       return done(e.b >= 0 ? `${A}亡,${n}并入${B}` : `${A}亡,${n}散为无主之地`);
     }

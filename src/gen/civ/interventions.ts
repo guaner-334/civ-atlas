@@ -44,7 +44,8 @@
  *                   直到 a 的下一条方针(什么都没定的 = 罢方针)。怎么加减、亲仇和发展重点管什么见 policy.ts
  *   即位带 after     from 那一刻登记(b 列 −6),此刻在位的那位到期下台、被作者让他去世时作者的人物继位(rulers.ts;那一刻 polities.ts 另记一条 b = −1)
  *   灭国   destroy   from 那一刻 a 亡:国土一并归 b(b 那时已亡 / 指不到 / 没给 = 散成无主,接壤各国照规矩预约扩进去,polities.ts 的 reopen),
- *                   它打着的仗全部结束(和划州里亡国一样记 fall)。a 那时已亡 = 不生效(b 列 −3)。和"不许灭"撞上:灭国当刻就灭,不许灭只管打仗、合并
+ *                   它打着的仗全部结束(和划州里亡国一样记 fall)。a 那时已亡 = 不生效(b 列 −3)。和"不许灭"撞上:后下的为准 ——
+ *                   那一刻护着 a 的"不许灭"里有排在这条灭国后面(后下)的 = 不生效(b 列 −7,IV_PROTECTED);都是先下的 = 照灭
  *   让人物去世 death  君主:from 那一刻在位的是他(按人物键里的生年认;作者立的君主不算)才生效,在位表跟着改(rulers.ts:他到此刻为止,
  *                   下一位从下一刻起照常继位);将领、名臣:推演里只记一笔(b 列 −5),人物那边按卒年换人(people.ts、officials.ts)
  *   改君主倾向 temper from 那一刻在位的是他才生效(同一刻已被让他去世、已让位的不算),下一刻起照新的倾向,到他下台为止(rulers.ts 的 moods);
@@ -65,7 +66,7 @@ import { Layer, type Polity } from './types';
 import { subSeed } from './rand';
 import { Ev, quantize, type CivSim } from './sim';
 import { addPolity, endPolity, foundCity, moveCapital, polityModelOf, reopen, respread, rulerAct, rulerOf, setPolicy, type PolityModel } from './polities';
-import { IV_NOT_HIM, IV_PEOPLE, IV_WAIT, crownOf, reignBorn } from './rulers';
+import { IV_NOT_HIM, IV_PEOPLE, IV_PROTECTED, IV_WAIT, crownOf, reignBorn } from './rulers';
 import { strikeDisaster } from './disaster';
 import { bestCapital, polityBorders, warModelOf } from './wars';
 import { capitalAt } from './growth';
@@ -186,6 +187,15 @@ export class InterventionModel {
   /** 国家 p 此刻"不许灭" */
   protects(p: number, t: number): boolean {
     for (const v of this.protectRules) if (t >= v.from && (v.until === undefined || t < v.until) && this.resolve(v.a) === p) return true;
+    return false;
+  }
+
+  /** 时刻 t 护着国家 p 的"不许灭"里,有没有排在第 i 条干预后面的(灭国撞上"不许灭":后下的为准) */
+  protectedAfter(p: number, t: number, i: number): boolean {
+    for (let k = i + 1; k < this.list.length; k++) {
+      const v = this.list[k];
+      if (v.kind === 'protect' && t >= v.from && (v.until === undefined || t < v.until) && this.resolve(v.a) === p) return true;
+    }
     return false;
   }
 
@@ -415,12 +425,12 @@ export function installInterventions(sim: CivSim, iv: InterventionModel): void {
     if (b === -1 || b === IV_WAIT) rulerAct(sim, pm, a, crownOf(v, t, i));
   };
 
-  /** 灭国:a 此刻亡,国土并入 b 或散成无主(b 列:并入的国家 / −1 散成无主 / −3 a 已亡) */
+  /** 灭国:a 此刻亡,国土并入 b 或散成无主(b 列:并入的国家 / −1 散成无主 / −3 a 已亡 / −7 后下的"不许灭"护着它) */
   const destroy = (v: DestroyIv, i: number, a: number, t: number) => {
     const sid = capitalAt(pm.polities[a], t);
     const r = S[sid]?.region ?? -1;
-    if (!alive(a)) {
-      sim.record('intervene', { a, b: -3, region: r, settlement: sid, war: i });
+    if (!alive(a) || iv.protectedAfter(a, t, i)) {
+      sim.record('intervene', { a, b: alive(a) ? IV_PROTECTED : -3, region: r, settlement: sid, war: i });
       return;
     }
     const to = v.b !== undefined ? iv.resolve(v.b) : -1;
