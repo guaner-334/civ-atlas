@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld } from '../src/gen/world';
 import { generateCiv } from '../src/gen/civ';
 import { capitalAt, polityAlive } from '../src/gen/civ/growth';
-import { polityKey, regionKey, settlementKey, type Plot } from '../src/gen/edits';
+import { personKey, polityKey, regionKey, settlementKey, type Plot } from '../src/gen/edits';
 import { directorPlots, plotCell, plotHeadline, plotText, type OutlineCtx } from '../src/ui/outlineInfo';
 import type { ChronicleEntry } from '../src/gen/civ/chronicle';
 import { focusHolds } from '../src/ui/outlineStore';
@@ -88,5 +88,15 @@ describe('导播照大纲放:情节对上编年史里哪一件', () => {
     const o: OutlineCtx = { civ, plots: [p], review: [{ id: 7, status: 'natural', year }] };
     expect(directorPlots(o, [other, hit])[0].entry).toBe(hit);
     expect(directorPlots(o, [other])[0].entry).toBeNull();
+  });
+  it('人死了:只认写到这个人的那件,同一年别的大事不算', () => {
+    const P = civ.people!.find((x) => x.died !== undefined)!;
+    const y = Math.floor(P.died!);
+    const ev = (id: number, people?: number[]): ChronicleEntry => ({ id, kind: 'war', year: y, end: y, text: '', tag: '战', importance: 3, polities: [P.polity], regions: [], settlement: -1, people });
+    const p: Plot = { id: 8, kind: 'death', year: y, person: personKey(civ, P.id) };
+    const o: OutlineCtx = { civ, plots: [p], review: [{ id: 8, status: 'natural', year: y }] };
+    expect(directorPlots(o, [ev(1)])[0].entry).toBeNull();
+    const hit = ev(2, [P.id]);
+    expect(directorPlots(o, [ev(1), hit])[0].entry).toBe(hit);
   });
 });

@@ -387,6 +387,13 @@ describe('照大纲放', () => {
     const caps = p.segments.flatMap((s) => s.items).filter((c) => c.plot);
     expect(caps.map((c) => c.plot!.n)).toEqual([1, 2, 3]);
   });
+  it('固定速度:同一年的几条情节一条不丢,给了时长也不丢', () => {
+    const plots = [plot(1, 1999, null, { n: 1 }), plot(2, 1999, null, { n: 2 }), plot(3, 1999, null, { n: 3 })];
+    for (const pace of [{ mode: 'fixed', rate: 20 }, { mode: 'fixed', rate: 20, seconds: 50 }] as const) {
+      const caps = plan([big(1200, { settlement: C })], { plots, pace }).segments.flatMap((s) => s.items).filter((c) => c.plot);
+      expect(caps.map((c) => c.plot!.n)).toEqual([1, 2, 3]);
+    }
+  });
   it('范围外的情节不排;没给情节和原来一样', () => {
     const es = [big(1200), mid(1500, { settlement: C })];
     expect(plan(es, { plots: [plot(1, 2500, null)] }).segments.some((s) => s.items.some((c) => c.plot))).toBe(false);

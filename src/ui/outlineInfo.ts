@@ -654,6 +654,9 @@ function plotEntry(o: OutlineCtx, p: Plot, r: PlotReview, entries: readonly Chro
   const pol = r.polity ? (resolveKey(civ, r.polity)?.kind === 'polity' ? resolveKey(civ, r.polity)!.id : -1) : plotPolityId(o, p.a);
   // 两国之间的那几种(灭国说了是谁灭的、开战、结盟、称臣、讲和):另一国也得在那件事里
   const other = PLOT_PAIR_KINDS.has(p.kind) ? plotPolityId(o, p.b) : -1;
+  // 人死了:只认写到这个人的那件(说不出是谁 = 对不上)
+  const who = p.kind === 'death' ? (p.person ? resolvePersonKey(civ, p.person) : -1) : null;
+  if (who !== null && who < 0) return null;
   const kinds = PLOT_ENTRY_KINDS[p.kind] ?? [];
   let best: ChronicleEntry | null = null;
   let score = -1;
@@ -663,6 +666,7 @@ function plotEntry(o: OutlineCtx, p: Plot, r: PlotReview, entries: readonly Chro
     if ((Math.floor(e.year) !== y && !folded) || e.importance < 2) continue;
     if (pol >= 0 && !entryInvolves(e, pol)) continue;
     if (other >= 0 && !entryInvolves(e, other)) continue;
+    if (who !== null && !e.people?.includes(who) && !e.children?.some((c) => c.people?.includes(who))) continue;
     const k = kinds.indexOf(e.kind);
     const sc = (k >= 0 ? 100 - k * 10 : 0) + e.importance;
     if (sc > score) [best, score] = [e, sc];

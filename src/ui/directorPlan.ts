@@ -696,7 +696,8 @@ function autoTimes(ctx: ShotCtx, groups: readonly Cand[][], from: number, to: nu
 /**
  * 固定速度:年份一直按 rate 走。每段想在第一件发生的那一刻出字幕(镜头提前 DIRECTOR_FLY 秒起飞),字幕一件接一件、
  * 每件不早于它发生的那一刻;段和段不重叠,撞了最多往后挪 FIXED_SHIFT 秒。分量重的段先排;排不下的只留它分量最重的那件再试一次。
- * exact(给了可用时长):讲不到最后一年放完那一刻的也算排不下;不然最后一段可以讲过头,年份停在最后一年等它讲完
+ * exact(给了可用时长):讲不到最后一年放完那一刻的也算排不下;不然最后一段可以讲过头,年份停在最后一年等它讲完。
+ * 大纲的情节一条不丢:撞了往后挪到放得下为止,讲过头也讲
  */
 function fixedTimes(ctx: ShotCtx, groups: readonly Cand[][], from: number, to: number, rate: number, exact: boolean, onSkip: (c: Cand) => void) {
   const T = (to - from) / rate;
@@ -715,10 +716,11 @@ function fixedTimes(ctx: ShotCtx, groups: readonly Cand[][], from: number, to: n
   const free = (s: number, end: number) => taken.every((p) => end <= p.at || s >= p.end);
   const place = (g: readonly Cand[]): { at: number; times: number[] } | null => {
     const pref = Math.max(0, natural(g[0].entry.year) - DIRECTOR_FLY);
-    const starts = [pref, ...taken.map((p) => p.end).filter((e) => e > pref && e <= pref + FIXED_SHIFT)].sort((a, b) => a - b);
+    const plot = g.some((c) => c.plot);
+    const starts = [pref, ...taken.map((p) => p.end).filter((e) => e > pref && (plot || e <= pref + FIXED_SHIFT))].sort((a, b) => a - b);
     for (const s of starts) {
       const l = layout(g, s);
-      if (exact && l.end > T + 1e-9) break;
+      if (exact && !plot && l.end > T + 1e-9) break;
       if (free(s, l.end)) {
         taken.push({ at: s, end: l.end });
         return { at: s, times: l.times };
