@@ -881,3 +881,172 @@ select.ol-in {
   padding: 8px 12px 10px;
   border-bottom: 1px solid var(--line);
 }
+
+/* ---- 从大纲点一条到地图上:卡片顶上一条、地图上的小牌子、时间轴上的记号(OutlineMap.tsx) ---- */
+.ol-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 10px;
+  padding: 6px 8px 6px 8px;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  font-size: 13px;
+  color: var(--ink);
+}
+.ol-strip .back {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  font-size: 13px;
+}
+.ol-strip-t {
+  display: inline-flex;
+  gap: 12px;
+  white-space: nowrap;
+}
+.ol-strip .sp {
+  flex: 1;
+}
+.ol-strip .ol-ic {
+  width: 24px;
+  height: 24px;
+  background: color-mix(in srgb, var(--panel-solid) 70%, transparent);
+}
+.ol-strip .ol-st {
+  height: 20px;
+  font-size: 12px;
+}
+.ol-pin {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  pointer-events: none;
+}
+.ol-pin .lb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 9px 4px 5px;
+  border-radius: 8px;
+  background: var(--panel-solid);
+  box-shadow: var(--shadow-label);
+  font-size: 13px;
+  color: var(--ink);
+  white-space: nowrap;
+}
+.ol-pin .lb .ol-st {
+  height: 20px;
+  font-size: 12px;
+}
+.ol-pin .num {
+  width: 20px;
+  height: 20px;
+  border-radius: 10px;
+  background: var(--ink-3);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.ol-pin .num.natural,
+.ol-tick.natural {
+  --c: var(--ok);
+}
+.ol-pin .num.forced,
+.ol-tick.forced {
+  --c: var(--warn);
+}
+.ol-pin .num.failed,
+.ol-tick.failed {
+  --c: var(--err);
+}
+.ol-pin .num.natural,
+.ol-pin .num.forced,
+.ol-pin .num.failed {
+  background: var(--c);
+}
+.ol-pin .stem {
+  display: block;
+  width: 2px;
+  height: 10px;
+  background: var(--panel-solid);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+.ol-tick {
+  --c: var(--ink-3);
+  position: absolute;
+  top: 24.5px;
+  z-index: 1;
+  width: 8px;
+  height: 8px;
+  margin: -4px 0 0 -4px;
+  border-radius: 1.5px;
+  transform: rotate(45deg);
+  background: var(--c);
+  box-shadow: 0 0 0 1.5px var(--panel-solid);
+  cursor: pointer;
+}
+.ol-tick.on {
+  width: 21px;
+  height: 21px;
+  margin: -10.5px 0 0 -10.5px;
+  border-radius: 50%;
+  transform: none;
+  box-shadow:
+    0 0 0 2px var(--panel-solid),
+    0 1px 4px rgba(0, 0, 0, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ol-tick b {
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+}
+.ol-tip {
+  position: absolute;
+  bottom: 30px;
+  z-index: 5;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--panel-solid);
+  box-shadow: var(--shadow-float);
+  font-size: 13px;
+  line-height: 1.5;
+  pointer-events: none;
+  text-align: left;
+  white-space: normal;
+}
+.ol-tip.below {
+  bottom: auto;
+  top: 36px;
+}
+.ol-tip .h {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink-2);
+  font-size: 12.5px;
+  margin-bottom: 4px;
+}
+.ol-tip .h .sp {
+  flex: 1;
+}
+.ol-tip .q {
+  font-size: 14px;
+  color: var(--ink);
+  margin-bottom: 4px;
+}
+.ol-tip .r {
+  color: var(--ink-2);
+  font-size: 12.5px;
+}

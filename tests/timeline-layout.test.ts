@@ -79,6 +79,7 @@ describe('事件类型', () => {
     expect(evLabel(entry(1, 'found', { tag: '?' }))).toBe('纪事');
     expect(['臣', '盟', '绝', '背', '叛'].map((tag) => evLabel(entry(1, 'submit', { tag })))).toEqual(['称臣', '结盟', '盟绝', '背盟', '绝贡']);
     expect(evText(entry(1, 'intervene', { text: '【干预】大昌与索拉特结盟' }))).toBe('大昌与索拉特结盟');
+    expect(evText(entry(1, 'intervene', { text: '【照大纲】大昌向索拉特宣战' }))).toBe('【照大纲】大昌向索拉特宣战');
   });
 
   it('年份:单年 / 跨年 / 还没打完', () => {

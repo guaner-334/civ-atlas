@@ -1,12 +1,13 @@
 /**
  * 大纲的说法(界面上各处共用:概览「大纲」页、侧栏「大纲」一组、「我的干预」照大纲一组):
- * 情节的种类、时间、谁、推完怎么查、批改的结果。年份一律写成"第 N 年",显示时按纪年换写法(gen/era.ts 的 eraText)。
+ * 情节的种类、时间、谁、推完怎么查、批改的结果;点一条到地图上时小牌子上的一句、立在哪。年份一律写成"第 N 年",显示时按纪年换写法(gen/era.ts 的 eraText)。
  * 国家、州、城、人物按稳定键在这份历史里解析(格式见 gen/edits.ts 文件头"大纲");`plot:编号` = 那一条立起来的国家(看批改)。
  * 纯计算,不碰 DOM。
  */
 import type { Civ } from '../gen/civ/types';
 import { regionLabel } from '../gen/civ/display';
 import { personName } from '../gen/civ/peopleText';
+import { capitalAt } from '../gen/civ/growth';
 import {
   DISASTER_LEVEL_NAMES,
   DISASTER_NAMES,
@@ -500,4 +501,97 @@ export function interventionRows(list: readonly Intervention[]): number {
     else plots.add(v.plot);
   }
   return n + plots.size;
+}
+
+// ---------------------------------------------------------------------------
+// 地图上看一条(点一条到地图上:地图上的小牌子)
+
+/** 一条情节一句话说出了什么事(地图上的小牌子):"东定国亡，并入大定""大定占据南境" */
+export function plotHeadline(o: OutlineCtx, p: Plot): string {
+  const y = p.year;
+  const A = plotPolityName(o, p.a, y);
+  const B = plotPolityName(o, p.b, y);
+  const R = regionName(o.civ, p.region);
+  switch (p.kind) {
+    case 'fall':
+      return B ? `${A}亡，并入${B}` : `${A}亡`;
+    case 'war':
+      return `${A}攻${B}`;
+    case 'submit':
+      return `${A}向${B}称臣`;
+    case 'ally':
+      return `${A}与${B}结盟`;
+    case 'peace':
+      return `${A}与${B}议和`;
+    case 'hold':
+      return `${A}占据${areaText(o, p).name}`;
+    case 'capital':
+      return `${A}迁都${cityName(o.civ, p.city)}`;
+    case 'dynasty':
+    case 'revolt':
+    case 'collapse':
+      return `${A}${PLOT_KIND_INFO[p.kind].name}`;
+    case 'crown':
+      return `${charName(o, p.char)}即${A}君位`;
+    case 'death':
+      return `${personKeyName(o.civ, p.person)}去世`;
+    case 'found':
+      return p.name ? `${R}立国，号${p.name}` : `${R}立国`;
+    case 'split':
+      return A ? `${R}从${A}分出` : `${R}自立`;
+    case 'disaster':
+      return `${whoLine(o, p)}${DISASTER_NAMES[p.type ?? 'famine']}`;
+    case 'story':
+      return plotText(p);
+  }
+}
+
+/** 作者写的那句(去掉句末的句号),没写 = 发生什么 */
+export function plotText(p: Plot): string {
+  return p.text ? p.text.replace(/[。.]$/, '') : PLOT_KIND_INFO[p.kind].name;
+}
+
+/** 地图上的小牌子立在哪个地块(城 / 州的治所 / 国家那时的国都;说不出地方 = −1) */
+export function plotCell(o: OutlineCtx, p: Plot, r: PlotReview | undefined): number {
+  const civ = o.civ;
+  const year = r?.year ?? p.year;
+  const city = (k: string | undefined) => {
+    const q = k ? resolveKey(civ, k) : null;
+    return q?.kind === 'settlement' ? (civ.settlements[q.id]?.cell ?? -1) : -1;
+  };
+  const seat = (k: string | undefined) => {
+    const reg = k ? regionOfKey(k, keyCells(civ.regions)) : -1;
+    return reg >= 0 && reg < civ.regions.count ? civ.regions.seat[reg] : -1;
+  };
+  const capital = (id: number) => {
+    const q = civ.polities[id];
+    if (!q) return -1;
+    const y = q.ended !== undefined ? Math.min(year, q.ended - 1) : year;
+    return civ.settlements[capitalAt(q, Math.max(q.founded, y))]?.cell ?? -1;
+  };
+  const pol = (k: string | undefined) => capital(plotPolityId(o, k));
+  const first = (...xs: number[]) => xs.find((x) => x >= 0) ?? -1;
+  switch (p.kind) {
+    case 'capital':
+      return first(city(p.city), pol(p.a));
+    case 'found':
+    case 'split':
+      return first(r?.polity ? capital(resolveKey(civ, r.polity)?.id ?? -1) : -1, seat(p.region));
+    case 'hold': {
+      const keys = p.regions ?? o.marks?.find((m) => m.id === p.mark)?.regions ?? [];
+      return first(seat(keys[0]), pol(p.a));
+    }
+    case 'death': {
+      const owner = parsePersonKey(p.person)?.polity;
+      return pol(owner);
+    }
+    case 'crown':
+      return pol(p.a);
+    case 'disaster':
+      return first(city(p.city), seat(p.region), seat(p.regions?.[0]), pol(p.a));
+    case 'story':
+      return first(city(p.city), seat(p.region), pol(p.a), p.person ? pol(parsePersonKey(p.person)?.polity) : -1);
+    default:
+      return pol(p.a);
+  }
 }
