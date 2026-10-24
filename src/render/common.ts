@@ -310,6 +310,17 @@ export type PrepStep = () => void;
 export type WorkStep = (deadline: number) => boolean | void;
 
 /**
+ * 分几下画的一层里的一下:依次画在同一张画布上,一下接一下画完和一口气画完逐像素一样
+ * (画法状态在哪一下设、哪一下用,都和一口气画时一样)。返回 true = 这一下只画了一部分,再调一次接着画
+ */
+export type DrawPart = (ctx: CanvasRenderingContext2D) => boolean | void;
+
+/** 一串 DrawPart 当下依次画完 */
+export function drawParts(ctx: CanvasRenderingContext2D, parts: readonly DrawPart[]): void {
+  for (const part of parts) while (part(ctx) === true);
+}
+
+/**
  * 画布上记着还没真正画出来的笔画(浏览器攒着,第一次拿它当图贴的时候才一口气画):现在就让它画出来
  * (贴到一个 1×1 的画布上;内容不变)。后台分步备料时用,免得攒到换上那一下才画
  */

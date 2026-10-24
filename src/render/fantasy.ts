@@ -36,6 +36,8 @@ import {
   wrapCells,
   wrapOf,
   wrapShifts,
+  drawParts,
+  type DrawPart,
   type PrepStep,
   type WorkStep,
   type RGB,
@@ -915,7 +917,7 @@ function makeCanvas(w: number, h: number): AnyCanvas {
  * v.k 决定细节层级:符号大小按 glyphScale(k),只画出现门槛 ≤ k 的符号;河流按流量分级。
  */
 export function drawFantasyVectors(ctx: CanvasRenderingContext2D, world: World, v: VecView) {
-  for (const layer of fantasyVectorLayers(world, v)) layer(ctx);
+  drawParts(ctx, fantasyVectorParts(world, v));
 }
 
 /**
@@ -923,25 +925,49 @@ export function drawFantasyVectors(ctx: CanvasRenderingContext2D, world: World, 
  * 文明细节层算"让位"遮罩时一样一步画(中间让出主线程)
  */
 export function fantasyVectorLayers(world: World, v: VecView): ((ctx: CanvasRenderingContext2D) => void)[] {
+  // 每次画都现拼一份(林块那一下记着画到哪儿了,不能接着用)
+  return [0, 1, 2].map((i) => (ctx) => void drawParts(ctx, [fantasyVectorParts(world, v)[i]]));
+}
+
+/**
+ * 同 fantasyVectorLayers,林块再分几下画(细节层分几下画完用,见 common.ts 的 DrawPart):
+ * 第一下拼好各格的路径,之后每一下画几格(按估的费事程度凑到 FOREST_PART_COST)
+ */
+export function fantasyVectorParts(world: World, v: VecView): DrawPart[] {
+  let forest: (ctx: CanvasRenderingContext2D) => ForestTiles;
+  let rivers: DrawPart;
+  let symbols: DrawPart;
   if (v.proj) {
     // 弯边投影(按投影重画):这种投影的符号规划;林块、符号在投影后的位置上按屏幕大小画,河逐点投影
     const pj = v.proj;
-    const pp = planOf(world, pj.mp.def.id);
-    return [
-      (ctx) => drawForests(ctx, world, pp.forest, v, v.k > 1 ? 256 : FOREST_TILE, projCells(world, pj)),
-      (ctx) => drawRivers(ctx, world.rivers, v, world.riverThreshold, fantasyRiverStyle(v.k, world.riverThreshold)),
-      (ctx) => drawSymbols(ctx, pp.glyphs, v),
-    ];
+    const pp = () => planOf(world, pj.mp.def.id);
+    forest = (ctx) => forestTiles(ctx.canvas.width, ctx.canvas.height, world, pp().forest, v, v.k > 1 ? 256 : FOREST_TILE, projCells(world, pj));
+    rivers = (ctx) => drawRivers(ctx, world.rivers, v, world.riverThreshold, fantasyRiverStyle(v.k, world.riverThreshold));
+    symbols = (ctx) => drawSymbols(ctx, pp().glyphs, v);
+  } else {
+    // 东西相连:挨着左右边的林块、河、符号在另一边再画一份。图框不画在这里(主图是一整圈星球,不是一页纸;
+    // 纸边、外框画在视窗上,见 ui/MapDecor.tsx、导出)
+    const vw = { ...v, wrap: wrapOf(world) };
+    forest = (ctx) => forestTiles(ctx.canvas.width, ctx.canvas.height, world, planOf(world).forest, vw, v.k > 1 ? 256 : FOREST_TILE);
+    rivers = (ctx) => drawRivers(ctx, world.rivers, vw, world.riverThreshold, fantasyRiverStyle(v.k, world.riverThreshold));
+    symbols = (ctx) => drawSymbols(ctx, planOf(world).glyphs, vw);
   }
-  const plan = planOf(world);
-  // 东西相连:挨着左右边的林块、河、符号在另一边再画一份。图框不画在这里(主图是一整圈星球,不是一页纸;
-  // 纸边、外框画在视窗上,见 ui/MapDecor.tsx、导出)
-  const vw = { ...v, wrap: wrapOf(world) };
-  return [
-    (ctx) => drawForests(ctx, world, plan.forest, vw, v.k > 1 ? 256 : FOREST_TILE),
-    (ctx) => drawRivers(ctx, world.rivers, vw, world.riverThreshold, fantasyRiverStyle(v.k, world.riverThreshold)),
-    (ctx) => drawSymbols(ctx, plan.glyphs, vw),
-  ];
+  let ft: ForestTiles | null = null;
+  let at = 0;
+  const forestPart: DrawPart = (ctx) => {
+    if (!ft) {
+      ft = forest(ctx);
+      return ft.cost.length > 0;
+    }
+    const { cost } = ft;
+    if (at >= cost.length) return false;
+    let b = at + 1;
+    for (let c = cost[at]; b < cost.length && c + cost[b] <= FOREST_PART_COST; b++) c += cost[b];
+    ft.draw(ctx, at, b);
+    at = b;
+    return at < cost.length;
+  };
+  return [forestPart, rivers, symbols];
 }
 
 // ---------------------------------------------------------------------------
@@ -1223,12 +1249,17 @@ const LAKE_LW = 1.05;
  *            东西相连,伸出左右边的段在另一边再画一份
  */
 export function drawFantasyCoasts(ctx: CanvasRenderingContext2D, r: Raster, v: VecView): void {
+  drawParts(ctx, fantasyCoastParts(r, v));
+}
+
+/** drawFantasyCoasts 分两下画(湖岸、海岸各一下;依次画完和 drawFantasyCoasts 逐像素一样) */
+export function fantasyCoastParts(r: Raster, v: VecView): DrawPart[] {
   const gs = glyphScale(v.k);
-  let sea: Path2D;
-  let lake: Path2D;
-  const pj = v.proj;
-  if (pj) ({ sea, lake } = coastPathsOf(r, pj));
-  else {
+  let paths: { sea: Path2D; lake: Path2D } | null = null;
+  const pathsOf = (ctx: CanvasRenderingContext2D) => {
+    if (paths) return paths;
+    const pj = v.proj;
+    if (pj) return (paths = coastPathsOf(r, pj));
     // 抽稀到哪一档:偏差不到 COAST_TOL 个画布像素的最粗一档
     const lod = coastLod(v.s);
     // 画布盖住的世界坐标范围(外加一个线宽)
@@ -1239,20 +1270,19 @@ export function drawFantasyCoasts(ctx: CanvasRenderingContext2D, r: Raster, v: V
     const y1 = (ctx.canvas.height - v.oy) / v.s + pad;
     const W = r.w / r.scale;
     const fc = flatCoastsOf(r);
-    sea = chunkPath(fc.sea, lod, W, x0, y0, x1, y1);
-    lake = chunkPath(fc.lake, lod, W, x0, y0, x1, y1);
-  }
-  ctx.save();
-  ctx.setTransform(v.s, 0, 0, v.s, v.ox, v.oy);
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
-  ctx.strokeStyle = INK_CSS + '0.65)';
-  ctx.lineWidth = LAKE_LW * gs;
-  ctx.stroke(lake);
-  ctx.strokeStyle = INK_CSS + '0.9)';
-  ctx.lineWidth = COAST_LW * gs;
-  ctx.stroke(sea);
-  ctx.restore();
+    return (paths = { sea: chunkPath(fc.sea, lod, W, x0, y0, x1, y1), lake: chunkPath(fc.lake, lod, W, x0, y0, x1, y1) });
+  };
+  const line = (ctx: CanvasRenderingContext2D, path: Path2D, color: string, lw: number) => {
+    ctx.save();
+    ctx.setTransform(v.s, 0, 0, v.s, v.ox, v.oy);
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = color;
+    ctx.lineWidth = lw;
+    ctx.stroke(path);
+    ctx.restore();
+  };
+  return [(ctx) => line(ctx, pathsOf(ctx).lake, INK_CSS + '0.65)', LAKE_LW * gs), (ctx) => line(ctx, pathsOf(ctx).sea, INK_CSS + '0.9)', COAST_LW * gs)];
 }
 
 /** 弯边投影的海岸、湖岸路径(地图平面;每个投影 + 中心一份,只留最近的一份) */
@@ -1790,57 +1820,84 @@ function seaPathsOf(world: World, r: Raster, pj: Projector): NonNullable<typeof 
  *   等距圆柱:世界坐标;东西相连,伸出左右边的在另一边再画一份,浓度图左右平铺
  */
 export function drawFantasySeaLines(ctx: CanvasRenderingContext2D, world: World, r: Raster, v: VecView): void {
-  const sl = seaLinesOf(world, r);
+  drawParts(ctx, fantasySeaLineParts(world, r, v));
+}
+
+/**
+ * drawFantasySeaLines 分几下画:排线一下、每圈波纹一下(每一下的画法状态都和一口气画时描那一笔时一样;
+ * 依次画完和 drawFantasySeaLines 逐像素一样)
+ */
+export function fantasySeaLineParts(world: World, r: Raster, v: VecView): DrawPart[] {
   const S = r.scale;
   const gs = glyphScale(v.k);
-  let chunks: CoastChunks[];
-  let seg: Float32Array;
-  let W: number;
-  let pats: { ripple: CanvasPattern; hatch: CanvasPattern };
-  const pj = v.proj;
-  if (pj) {
-    const sp = seaPathsOf(world, r, pj);
-    sp.pats ??= fadePatterns(ctx, sp.rippleFade, sp.hatchFade, S, 'no-repeat');
-    ({ rings: chunks, hatch: seg, pats } = sp);
-    W = 0;
-  } else {
-    sl.pats ??= fadePatterns(ctx, sl.rippleFade, sl.hatchFade, S, 'repeat');
-    ({ ringChunks: chunks, hatch: seg, pats } = sl);
-    W = r.w / S;
-  }
-  // 抽稀、范围同 drawFantasyCoasts
-  const lod = coastLod(v.s);
-  const pad = RIPPLE_SIG * gs + COAST_LOD[lod];
-  const x0 = -v.ox / v.s - pad;
-  const y0 = -v.oy / v.s - pad;
-  const x1 = (ctx.canvas.width - v.ox) / v.s + pad;
-  const y1 = (ctx.canvas.height - v.oy) / v.s + pad;
-  const rings = chunks.map((c) => chunkPath(c, lod, W, x0, y0, x1, y1));
-  const hatch = new Path2D();
-  forHatchIn(seg, W, x0, y0, x1, y1, (i, dx) => {
-    hatch.moveTo(seg[i * 3] + dx, seg[i * 3 + 2]);
-    hatch.lineTo(seg[i * 3 + 1] + dx, seg[i * 3 + 2]);
-  });
-  ctx.save();
-  ctx.setTransform(v.s, 0, 0, v.s, v.ox, v.oy);
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = 'low';
-  // 排线:一个像素高(放大后按 glyphScale 收)
-  ctx.strokeStyle = pats.hatch;
-  ctx.globalAlpha = HATCH_A;
-  ctx.lineCap = 'butt';
-  ctx.lineWidth = gs / S;
-  ctx.stroke(hatch);
+  let got: { rings: Path2D[]; hatch: Path2D; pats: { ripple: CanvasPattern; hatch: CanvasPattern } } | null = null;
+  const prep = (ctx: CanvasRenderingContext2D) => {
+    if (got) return got;
+    const sl = seaLinesOf(world, r);
+    let chunks: CoastChunks[];
+    let seg: Float32Array;
+    let W: number;
+    let pats: { ripple: CanvasPattern; hatch: CanvasPattern };
+    const pj = v.proj;
+    if (pj) {
+      const sp = seaPathsOf(world, r, pj);
+      sp.pats ??= fadePatterns(ctx, sp.rippleFade, sp.hatchFade, S, 'no-repeat');
+      ({ rings: chunks, hatch: seg, pats } = sp);
+      W = 0;
+    } else {
+      sl.pats ??= fadePatterns(ctx, sl.rippleFade, sl.hatchFade, S, 'repeat');
+      ({ ringChunks: chunks, hatch: seg, pats } = sl);
+      W = r.w / S;
+    }
+    // 抽稀、范围同 drawFantasyCoasts
+    const lod = coastLod(v.s);
+    const pad = RIPPLE_SIG * gs + COAST_LOD[lod];
+    const x0 = -v.ox / v.s - pad;
+    const y0 = -v.oy / v.s - pad;
+    const x1 = (ctx.canvas.width - v.ox) / v.s + pad;
+    const y1 = (ctx.canvas.height - v.oy) / v.s + pad;
+    const rings = chunks.map((c) => chunkPath(c, lod, W, x0, y0, x1, y1));
+    const hatch = new Path2D();
+    forHatchIn(seg, W, x0, y0, x1, y1, (i, dx) => {
+      hatch.moveTo(seg[i * 3] + dx, seg[i * 3 + 2]);
+      hatch.lineTo(seg[i * 3 + 1] + dx, seg[i * 3 + 2]);
+    });
+    return (got = { rings, hatch, pats });
+  };
+  const begin = (ctx: CanvasRenderingContext2D) => {
+    ctx.save();
+    ctx.setTransform(v.s, 0, 0, v.s, v.ox, v.oy);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'low';
+  };
+  const parts: DrawPart[] = [
+    (ctx) => {
+      const { hatch, pats } = prep(ctx);
+      begin(ctx);
+      // 排线:一个像素高(放大后按 glyphScale 收)
+      ctx.strokeStyle = pats.hatch;
+      ctx.globalAlpha = HATCH_A;
+      ctx.lineCap = 'butt';
+      ctx.lineWidth = gs / S;
+      ctx.stroke(hatch);
+      ctx.restore();
+    },
+  ];
   // 波纹:墨量和像素层的高斯剖面一样的实线
-  ctx.strokeStyle = pats.ripple;
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
-  ctx.lineWidth = RIPPLE_SIG * Math.sqrt(Math.PI) * gs;
-  for (let i = 0; i < rings.length; i++) {
-    ctx.globalAlpha = RIPPLE_A[i];
-    ctx.stroke(rings[i]);
-  }
-  ctx.restore();
+  for (let i = 0; i < RIPPLE_D.length; i++)
+    parts.push((ctx) => {
+      const { rings, pats } = prep(ctx);
+      if (i >= rings.length) return;
+      begin(ctx);
+      ctx.strokeStyle = pats.ripple;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.lineWidth = RIPPLE_SIG * Math.sqrt(Math.PI) * gs;
+      ctx.globalAlpha = RIPPLE_A[i];
+      ctx.stroke(rings[i]);
+      ctx.restore();
+    });
+  return parts;
 }
 
 // ---------------------------------------------------------------------------
@@ -2986,71 +3043,103 @@ export function fantasyProjPrep(world: World, r: Raster, mp: MapProj, v: { s: nu
 }
 
 export function drawFantasyIce(ctx: CanvasRenderingContext2D, world: World, r: Raster, v: VecView): void {
-  const g = iceGeoOf(world, r);
-  if (!g) return;
+  drawParts(ctx, fantasyIceParts(world, r, v));
+}
+
+/**
+ * drawFantasyIce 分三下画:冰面、背光边、冰缘墨线(每一下的画法状态都和一口气画时那一笔一样;
+ * 依次画完和 drawFantasyIce 逐像素一样)。没有冰的世界三下都不画
+ */
+export function fantasyIceParts(world: World, r: Raster, v: VecView): DrawPart[] {
   const S = r.scale;
   const gs = glyphScale(v.k);
-  const pj = v.proj;
   const W = r.w / S;
-  const lod = coastLod(v.s);
-  const pad = ICE_LW * gs + COAST_LOD[lod] + 1;
-  const x0 = -v.ox / v.s - pad;
-  const y0 = -v.oy / v.s - pad;
-  const x1 = (ctx.canvas.width - v.ox) / v.s + pad;
-  const y1 = (ctx.canvas.height - v.oy) / v.s + pad;
-  let fill: Path2D;
-  let shade: () => Path2D;
-  let ink: Path2D;
-  let hatch: Path2D | null;
-  let pats: { face: CanvasPattern; ink: CanvasPattern };
-  if (pj) {
-    const p = iceProjIn(world, r, g, pj, v.s, x0, y0, x1, y1);
-    p.pats ??= {
-      face: fadePattern(ctx, p.face.cv, 1 / S, 'no-repeat', p.face.ox, p.face.oy),
-      ink: fadePattern(ctx, p.inkFade.cv, W / g.inkFade.width, 'no-repeat', p.inkFade.ox, p.inkFade.oy),
-    };
-    ({ fill, ink, hatch, pats } = p);
-    shade = p.shade;
-  } else {
+  type Got = { fill: Path2D; shade: () => Path2D; ink: Path2D; hatch: Path2D | null; pats: { face: CanvasPattern; ink: CanvasPattern }; box: [number, number, number, number] };
+  let got: Got | null | undefined;
+  const prep = (ctx: CanvasRenderingContext2D): Got | null => {
+    if (got !== undefined) return got;
+    const g = iceGeoOf(world, r);
+    if (!g) return (got = null);
+    const pj = v.proj;
+    const lod = coastLod(v.s);
+    const pad = ICE_LW * gs + COAST_LOD[lod] + 1;
+    const x0 = -v.ox / v.s - pad;
+    const y0 = -v.oy / v.s - pad;
+    const x1 = (ctx.canvas.width - v.ox) / v.s + pad;
+    const y1 = (ctx.canvas.height - v.oy) / v.s + pad;
+    const box: Got['box'] = [x0, y0, x1, y1];
+    if (pj) {
+      const p = iceProjIn(world, r, g, pj, v.s, x0, y0, x1, y1);
+      p.pats ??= {
+        face: fadePattern(ctx, p.face.cv, 1 / S, 'no-repeat', p.face.ox, p.face.oy),
+        ink: fadePattern(ctx, p.inkFade.cv, W / g.inkFade.width, 'no-repeat', p.inkFade.ox, p.inkFade.oy),
+      };
+      return (got = { fill: p.fill, ink: p.ink, hatch: p.hatch, pats: p.pats, shade: p.shade, box });
+    }
     g.pats ??= {
       face: fadePattern(ctx, fantasyIceFace(world, r), 1 / S, 'repeat-x'),
       ink: fadePattern(ctx, g.inkFade, W / g.inkFade.width, 'repeat'),
     };
-    pats = g.pats;
-    fill = tilePathIn(g.fillT, lod, x0, y0, x1, y1);
-    shade = () => tilePathIn(g.shadeT, lod, x0, y0, x1, y1);
-    ink = chunkPath(g.ink, lod, W, x0, y0, x1, y1);
-    hatch = hatchPathIn(g.hatch, W, x0, y0, x1, y1);
-  }
-  ctx.save();
-  ctx.setTransform(v.s, 0, 0, v.s, v.ox, v.oy);
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = 'low';
-  // 冰面
-  ctx.fillStyle = pats.face;
-  ctx.fill(fill);
-  if (hatch) {
-    // 背光边:冰面里、减去"往西北挪一个背光边宽的冰 + 附近陆地"
+    return (got = {
+      fill: tilePathIn(g.fillT, lod, x0, y0, x1, y1),
+      shade: () => tilePathIn(g.shadeT, lod, x0, y0, x1, y1),
+      ink: chunkPath(g.ink, lod, W, x0, y0, x1, y1),
+      hatch: hatchPathIn(g.hatch, W, x0, y0, x1, y1),
+      pats: g.pats,
+      box,
+    });
+  };
+  const begin = (ctx: CanvasRenderingContext2D) => {
     ctx.save();
-    ctx.clip(fill);
-    const outside = new Path2D();
-    outside.rect(x0, y0, x1 - x0, y1 - y0);
-    outside.addPath(shade());
-    ctx.clip(outside, 'evenodd');
-    ctx.strokeStyle = `rgba(${ICE_SHADOW[0]},${ICE_SHADOW[1]},${ICE_SHADOW[2]},0.42)`;
-    ctx.lineWidth = (0.6 * gs) / S;
-    ctx.lineCap = 'butt';
-    ctx.stroke(hatch);
-    ctx.restore();
-  }
-  // 冰缘墨线
-  ctx.strokeStyle = pats.ink;
-  ctx.globalAlpha = ICE_INK_A;
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
-  ctx.lineWidth = (ICE_LW * gs) / S;
-  ctx.stroke(ink);
-  ctx.restore();
+    ctx.setTransform(v.s, 0, 0, v.s, v.ox, v.oy);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'low';
+  };
+  return [
+    // 冰面
+    (ctx) => {
+      const p = prep(ctx);
+      if (!p) return;
+      begin(ctx);
+      ctx.fillStyle = p.pats.face;
+      ctx.fill(p.fill);
+      ctx.restore();
+    },
+    // 背光边:冰面里、减去"往西北挪一个背光边宽的冰 + 附近陆地"
+    (ctx) => {
+      const p = prep(ctx);
+      if (!p?.hatch) return;
+      const [x0, y0, x1, y1] = p.box;
+      begin(ctx);
+      ctx.fillStyle = p.pats.face;
+      ctx.save();
+      ctx.clip(p.fill);
+      const outside = new Path2D();
+      outside.rect(x0, y0, x1 - x0, y1 - y0);
+      outside.addPath(p.shade());
+      ctx.clip(outside, 'evenodd');
+      ctx.strokeStyle = `rgba(${ICE_SHADOW[0]},${ICE_SHADOW[1]},${ICE_SHADOW[2]},0.42)`;
+      ctx.lineWidth = (0.6 * gs) / S;
+      ctx.lineCap = 'butt';
+      ctx.stroke(p.hatch);
+      ctx.restore();
+      ctx.restore();
+    },
+    // 冰缘墨线
+    (ctx) => {
+      const p = prep(ctx);
+      if (!p) return;
+      begin(ctx);
+      ctx.fillStyle = p.pats.face;
+      ctx.strokeStyle = p.pats.ink;
+      ctx.globalAlpha = ICE_INK_A;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.lineWidth = (ICE_LW * gs) / S;
+      ctx.stroke(p.ink);
+      ctx.restore();
+    },
+  ];
 }
 
 /** 一张图当填色 / 描线的图案:图的一个像素 = 世界(地图平面)px 个单位,左上角在 (ox, oy) */
@@ -4332,6 +4421,12 @@ const FOREST_TILE = 128;
 /** 林块的墨线半宽、阴影排线间距(世界单位,缩放 1 倍时;放大后按 glyphScale 收) */
 const FOREST_LW = 0.55;
 const FOREST_HATCH = 1.7;
+/**
+ * 林块分几下画(fantasyVectorParts)时一格估多费事:每种林子 FOREST_KIND_COST(裁剪、铺满一格的阴影和排线)+ 每个圆、树冠 1;
+ * 一下最多画 FOREST_PART_COST 那么多(没有显卡加速的机器上一下约三四十毫秒)
+ */
+const FOREST_KIND_COST = 40;
+const FOREST_PART_COST = 1200;
 
 /**
  * 林块:扇贝边轮廓 + 平涂树冠色 + 东南侧阴影排线 + 内部一片小树冠。
@@ -4344,6 +4439,21 @@ const FOREST_HATCH = 1.7;
  * 包到球上正好是圆 —— 高纬度的林块、树冠在球上不扁(平面主图不用这个)
  */
 function drawForests(ctx: CanvasRenderingContext2D, world: World, forest: Uint8Array, v: VecView, T: number, pc?: ProjCells, sphere = false) {
+  const ft = forestTiles(ctx.canvas.width, ctx.canvas.height, world, forest, v, T, pc, sphere);
+  ft.draw(ctx, 0, ft.cost.length);
+}
+
+/**
+ * drawForests 拆成两半:先按画布(W × H)的方格拼好每一格的路径,再一格一格画。
+ * draw(ctx, a, b) 画第 a 到 b - 1 格(每一格自成一段,依次分几次画完和一次画完逐像素一样);
+ * cost[i] = 第 i 格大约多费事(这一格里有几种林子、拼进去几个圆和树冠),分几下画时按它分
+ */
+interface ForestTiles {
+  cost: number[];
+  draw: (ctx: CanvasRenderingContext2D, a: number, b: number) => void;
+}
+
+function forestTiles(W: number, H: number, world: World, forest: Uint8Array, v: VecView, T: number, pc?: ProjCells, sphere = false): ForestTiles {
   const { mesh, water } = world;
   const { n, x, y, spacing, adjStart, adj } = mesh;
   const seed = subSeed(world.params.seed, 'glyphs');
@@ -4357,8 +4467,6 @@ function drawForests(ctx: CanvasRenderingContext2D, world: World, forest: Uint8A
   /** 每个内部地块画几棵树冠:全图 1 棵(一部分地块),每升一级多一棵 */
   let crownsPer = 1;
   for (let t = 1; t < GLYPH_TIERS.length; t++) if (v.k >= GLYPH_TIERS[t] * 0.95) crownsPer++;
-  const W = ctx.canvas.width;
-  const H = ctx.canvas.height;
   const tw = Math.ceil(W / T);
   const th = Math.ceil(H / T);
   // 一个地块的林子最远画到中心外多远:针叶尖顶(1.55 × 0.94 个间距)、内部的大圆(1.35),
@@ -4367,7 +4475,8 @@ function drawForests(ctx: CanvasRenderingContext2D, world: World, forest: Uint8A
 
   // 每一格、每种林子一组路径:shape = 每个地块一个小圆(边界上的圆大小、位置随机 → 扇贝边;
   // 内部的圆大一些,保证连成一片不漏纸色),crown* = 内部的树冠
-  type Paths = { shape: Path2D; crowns: Path2D; crownShade: Path2D; crownFill: Path2D };
+  // n = 拼进去几个圆、树冠(分几下画时估这一格多费事)
+  type Paths = { shape: Path2D; crowns: Path2D; crownShade: Path2D; crownFill: Path2D; n: number };
   const tiles = new Map<number, (Paths | null)[]>(); // 格子编号 → [无, 阔叶, 针叶, 雨林]
   const hit: Paths[] = [];
   /** (cx, cy) 处的林子会画到的格子(这种林子的路径组,没有就建);横向够得着的范围 rch × ax */
@@ -4383,7 +4492,7 @@ function drawForests(ctx: CanvasRenderingContext2D, world: World, forest: Uint8A
         let t = tiles.get(key);
         if (!t) tiles.set(key, (t = [null, null, null, null]));
         let g = t[kind];
-        if (!g) t[kind] = g = { shape: new Path2D(), crowns: new Path2D(), crownShade: new Path2D(), crownFill: new Path2D() };
+        if (!g) t[kind] = g = { shape: new Path2D(), crowns: new Path2D(), crownShade: new Path2D(), crownFill: new Path2D(), n: 0 };
         hit.push(g);
       }
     return hit;
@@ -4434,6 +4543,7 @@ function drawForests(ctx: CanvasRenderingContext2D, world: World, forest: Uint8A
       const cx = X + (hash2(i, 2, seed) - 0.5) * spacing * 0.6 * S * sg * ax;
       const cy = Y + (hash2(i, 3, seed) - 0.5) * spacing * 0.6 * S * sg;
       for (const g of tilesNear(cx, cy, kind, rch, ax)) {
+        g.n++;
         if (ax !== 1) {
           if (pointy) addPineTopX(g.shape, cx, cy, R, ax);
           else addEllipse(g.shape, cx, cy, R, ax);
@@ -4444,6 +4554,7 @@ function drawForests(ctx: CanvasRenderingContext2D, world: World, forest: Uint8A
     }
     const gs0 = tilesNear(X, Y, kind, rch, ax);
     for (const g of gs0) {
+      g.n++;
       if (ax !== 1) addEllipse(g.shape, X, Y, spacing * 1.35 * S * sg, ax);
       else addCircle(g.shape, X, Y, spacing * 1.35 * S * sg);
     }
@@ -4458,6 +4569,7 @@ function drawForests(ctx: CanvasRenderingContext2D, world: World, forest: Uint8A
       const rr = spacing * (0.3 + 0.14 * (c === 0 ? h1 : hash2(i, 20 + c, seed))) * gs * S;
       const off = rr * 0.32;
       for (const g of gs0) {
+        g.n++;
         if (ax !== 1) {
           if (pointy) {
             addChevronX(g.crownShade, tx + off * ax, ty + off, rr, ax, true);
@@ -4485,64 +4597,72 @@ function drawForests(ctx: CanvasRenderingContext2D, world: World, forest: Uint8A
 
   // 排线的相位跟着世界坐标走(细节层平移后排线不"游动")
   const phase = v.ox + v.oy;
-  ctx.save();
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
-  for (const [key, t] of tiles) {
-    const X0 = (key % tw) * T;
-    const Y0 = Math.floor(key / tw) * T;
-    const X1 = Math.min(W, X0 + T);
-    const Y1 = Math.min(H, Y0 + T);
-    // 地球仪贴图:往西北的阴影平移量也按这一格的纬度横向拉宽(平面 = 1)
-    const tax = sphere ? sphereStretch(((Y0 + Y1) / 2 - v.oy) / S, world.height) : 1;
+  const list = [...tiles];
+  // 一格大约多费事:每种林子一份(裁剪、整格的阴影和排线)+ 拼进去的圆、树冠
+  const cost = list.map(([, t]) => t.reduce((a, g) => a + (g ? FOREST_KIND_COST + g.n : 0), 0));
+  return { cost, draw };
+
+  function draw(ctx: CanvasRenderingContext2D, a: number, b: number) {
     ctx.save();
-    ctx.beginPath();
-    ctx.rect(X0, Y0, X1 - X0, Y1 - Y0);
-    ctx.clip();
-    for (const kind of [F_BROAD, F_JUNGLE, F_PINE]) {
-      const g = t[kind];
-      if (!g) continue;
-      const canopy = CANOPY[kind];
-      // 1. 轮廓:所有小圆先描一道粗墨线,再用树冠色填满 → 内部的线全被盖住,只剩外圈的扇贝边
-      ctx.strokeStyle = INK_CSS + '0.85)';
-      ctx.lineWidth = lw * 2;
-      ctx.stroke(g.shape);
-      ctx.fillStyle = canopy;
-      ctx.fill(g.shape);
-      // 2. 东南侧阴影:林块内部、且往西北平移后盖不到的一圈 → 背光的边
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    for (let ti = a; ti < b; ti++) {
+      const [key, t] = list[ti];
+      const X0 = (key % tw) * T;
+      const Y0 = Math.floor(key / tw) * T;
+      const X1 = Math.min(W, X0 + T);
+      const Y1 = Math.min(H, Y0 + T);
+      // 地球仪贴图:往西北的阴影平移量也按这一格的纬度横向拉宽(平面 = 1)
+      const tax = sphere ? sphereStretch(((Y0 + Y1) / 2 - v.oy) / S, world.height) : 1;
       ctx.save();
-      ctx.clip(g.shape);
-      ctx.fillStyle = INK_CSS + '0.10)';
-      ctx.fillRect(X0, Y0, X1 - X0, Y1 - Y0);
       ctx.beginPath();
-      // 排线:线 x + y = c(方向"/"),c = 第几条 × 间距 + 相位(整张图一套),每条画满这一格
-      for (let q = Math.ceil((X0 + Y0 - phase) / hatchGap), qEnd = (X1 + Y1 - phase) / hatchGap; q < qEnd; q++) {
-        const c = q * hatchGap + phase;
-        const ax = Math.max(X0 - 2, c - Y1 - 2);
-        const bx = Math.min(X1 + 2, c - Y0 + 2);
-        if (ax >= bx) continue;
-        ctx.moveTo(ax, c - ax);
-        ctx.lineTo(bx, c - bx);
+      ctx.rect(X0, Y0, X1 - X0, Y1 - Y0);
+      ctx.clip();
+      for (const kind of [F_BROAD, F_JUNGLE, F_PINE]) {
+        const g = t[kind];
+        if (!g) continue;
+        const canopy = CANOPY[kind];
+        // 1. 轮廓:所有小圆先描一道粗墨线,再用树冠色填满 → 内部的线全被盖住,只剩外圈的扇贝边
+        ctx.strokeStyle = INK_CSS + '0.85)';
+        ctx.lineWidth = lw * 2;
+        ctx.stroke(g.shape);
+        ctx.fillStyle = canopy;
+        ctx.fill(g.shape);
+        // 2. 东南侧阴影:林块内部、且往西北平移后盖不到的一圈 → 背光的边
+        ctx.save();
+        ctx.clip(g.shape);
+        ctx.fillStyle = INK_CSS + '0.10)';
+        ctx.fillRect(X0, Y0, X1 - X0, Y1 - Y0);
+        ctx.beginPath();
+        // 排线:线 x + y = c(方向"/"),c = 第几条 × 间距 + 相位(整张图一套),每条画满这一格
+        for (let q = Math.ceil((X0 + Y0 - phase) / hatchGap), qEnd = (X1 + Y1 - phase) / hatchGap; q < qEnd; q++) {
+          const c = q * hatchGap + phase;
+          const ax = Math.max(X0 - 2, c - Y1 - 2);
+          const bx = Math.min(X1 + 2, c - Y0 + 2);
+          if (ax >= bx) continue;
+          ctx.moveTo(ax, c - ax);
+          ctx.lineTo(bx, c - bx);
+        }
+        ctx.strokeStyle = INK_CSS + '0.42)';
+        ctx.lineWidth = 0.55 * gs * S;
+        ctx.stroke();
+        ctx.translate(-shadeD * tax, -shadeD);
+        ctx.fillStyle = canopy;
+        ctx.fill(g.shape);
+        ctx.restore();
+        // 3. 内部树冠
+        ctx.fillStyle = INK_CSS + '0.22)';
+        ctx.fill(g.crownShade);
+        ctx.fillStyle = canopy;
+        ctx.fill(g.crownFill);
+        ctx.strokeStyle = INK_CSS + '0.6)';
+        ctx.lineWidth = 0.55 * gs * S;
+        ctx.stroke(g.crowns);
       }
-      ctx.strokeStyle = INK_CSS + '0.42)';
-      ctx.lineWidth = 0.55 * gs * S;
-      ctx.stroke();
-      ctx.translate(-shadeD * tax, -shadeD);
-      ctx.fillStyle = canopy;
-      ctx.fill(g.shape);
       ctx.restore();
-      // 3. 内部树冠
-      ctx.fillStyle = INK_CSS + '0.22)';
-      ctx.fill(g.crownShade);
-      ctx.fillStyle = canopy;
-      ctx.fill(g.crownFill);
-      ctx.strokeStyle = INK_CSS + '0.6)';
-      ctx.lineWidth = 0.55 * gs * S;
-      ctx.stroke(g.crowns);
     }
     ctx.restore();
   }
-  ctx.restore();
 }
 
 /** 地球仪贴图横向拉宽多少(世界 y 处的 1 / cos 纬度;两极附近封顶,极点本身是奇点) */
