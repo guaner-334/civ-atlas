@@ -1,5 +1,5 @@
 /**
- * 网站公告:有要紧的事告诉所有人时(网站要停一会儿、换了交流群……),打开网页就弹出来(Announcement.tsx)。
+ * 网站公告:有要紧的事告诉所有人时(网站要停一会儿、换了交流群……),打开网页就弹出来(NoticeDialog.tsx)。
  *
  * 不写在代码里:网站根目录放一份 announcement.json,打开网页时读一次。发公告、撤公告只换这个文件
  * (.github/workflows/announcement.yml「更新公告」),不用重新构建、发布网站。读不到、格式不对、没写标题和正文
@@ -15,7 +15,7 @@
  *
  * 文件放在网站根目录、不跟着页面所在的目录走:测试网站(/beta/)和正式网站读同一份。
  */
-import { useSyncExternalStore } from 'react';
+import { createElement, lazy, Suspense, useSyncExternalStore } from 'react';
 
 export interface Notice {
   id: string;
@@ -112,4 +112,13 @@ function subscribe(f: () => void) {
 /** 要弹的公告;没有、关过、还没读到 = null */
 export function useNotice(): Notice | null {
   return useSyncExternalStore(subscribe, () => notice, () => null);
+}
+
+/** 公告窗口(NoticeDialog.tsx)有公告时才下载 */
+const NoticeDialog = lazy(() => import('./NoticeDialog'));
+
+/** 挂在 Boot 里;ready = 页面已经出来了(加载画面收起以后才弹、才开始倒数) */
+export function AnnouncementHost({ ready }: { ready: boolean }) {
+  const n = useNotice();
+  return ready && n ? createElement(Suspense, { fallback: null }, createElement(NoticeDialog, { notice: n })) : null;
 }

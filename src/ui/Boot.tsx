@@ -14,7 +14,7 @@
  * 刚刷新过、不能再刷的,加载画面(还在的话)换成「重新加载」;首页上点了的不再等,顶上一条带「重新加载」的提示(HomeShell.tsx)。
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AnnouncementHost } from './Announcement';
+import { AnnouncementHost } from './announcement';
 import { HomeShell } from './HomeShell';
 import { plainHome, type HomeStart } from './homeStart';
 import { warmNewWorldPictures } from './NewWorldDialog';

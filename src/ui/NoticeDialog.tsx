@@ -3,22 +3,17 @@
  * 「知道了」先灰着倒数 3 秒,这期间关不掉(点旁边、按 Esc 都不关);倒数完点「知道了」或按 Esc 关掉。
  * 带链接的多一个「查看详情」,新标签页打开,公告不关。字多时正文里面上下滑,按钮一直在底下。
  *
- *   AnnouncementHost  挂在 Boot 里;ready = 页面已经出来了(加载画面收起以后才弹、才开始倒数)
+ * 这个文件有公告时才下载(announcement.ts 的 AnnouncementHost),首页先下的那一份里只有读 announcement.json 的几行。
  */
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { closeNotice, useNotice, type Notice } from './announcement';
+import { closeNotice, type Notice } from './announcement';
 import './announcement.css';
 
 /** 弹出后多少秒才能关 */
-export const NOTICE_WAIT = 3;
+const NOTICE_WAIT = 3;
 
-export function AnnouncementHost({ ready }: { ready: boolean }) {
-  const notice = useNotice();
-  return ready && notice ? <NoticeDialog notice={notice} /> : null;
-}
-
-function NoticeDialog({ notice }: { notice: Notice }) {
+export default function NoticeDialog({ notice }: { notice: Notice }) {
   const [left, setLeft] = useState(NOTICE_WAIT);
   const cardRef = useRef<HTMLElement>(null);
   const okRef = useRef<HTMLButtonElement>(null);
