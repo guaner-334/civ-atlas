@@ -407,10 +407,15 @@ function happened(ctx: Ctx, civ: Civ, p: Plot, R: Refs, lo: number, hi: number):
       if (a < 0 || b < 0) return null;
       const e = findAnnal(civ, lo, hi, (e) => e.kind === 'alliance' && pair(e));
       if (e) return yearFound(e);
-      // 那几年两国一直在盟(早先结的、作者下令的)
-      if (!polityAlive(civ.polities[a], hi) || !polityAlive(civ.polities[b], hi)) return null;
-      const x = polityTies(civ, a, hi).allies.find((t) => t.id === b);
-      return x ? { year: Math.max(lo, Math.floor(x.since)) } : null;
+      // 那几年里有一阵两国在盟(早先结的、作者下令的;窗口里散了的也算):查窗口头尾两年和作者下令结盟的那几年
+      const at = [lo, hi];
+      for (const v of civ.interventions ?? []) if (v.kind === 'ally' && v.from > lo && v.from <= hi) at.push(Math.ceil(v.from));
+      for (const y of at) {
+        if (!polityAlive(civ.polities[a], y) || !polityAlive(civ.polities[b], y)) continue;
+        const x = polityTies(civ, a, y).allies.find((t) => t.id === b);
+        if (x) return { year: Math.max(lo, Math.floor(x.since)) };
+      }
+      return null;
     }
     case 'capital':
       return a < 0 || R.city < 0 ? null : yearFound(findAnnal(civ, lo, hi, (e) => (e.kind === 'capital' || e.kind === 'dynasty') && e.a === a && e.settlement === R.city));
@@ -458,9 +463,12 @@ function disasterHit(civ: Civ, p: Plot, R: Refs, e: Annal): boolean {
     const r = civ.settlements[R.city].region;
     return e.region === r || ownersAt(civ, e.year).polity[r] === e.a;
   }
-  if (e.kind !== 'famine') return false;
-  if (p.type === 'quake') return e.cause === 'quake' && R.region >= 0 && e.region === R.region;
-  if (e.cause === 'quake') return false;
+  // 地震水旱只有作者下的:看下令那条史事记的那一处(受灾的那几国各记一条 famine,记的是城最大的那一州,不一定是那一处),有州受灾才算
+  if (p.type === 'quake') return R.region >= 0 && e.kind === 'intervene' && e.region === R.region && e.b > 0 && (() => {
+    const v = civ.interventions?.[e.war];
+    return v?.kind === 'disaster' && v.type === 'quake';
+  })();
+  if (e.kind !== 'famine' || e.cause === 'quake') return false;
   if (p.a !== undefined) return R.a >= 0 && e.a === R.a;
   if (!R.area.length) return false;
   if (R.area.includes(e.region)) return true;

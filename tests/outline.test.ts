@@ -5,6 +5,7 @@
  * - 逐条查的先后:硬改的年份不早于前面落定的那年;落不进前后几年的标"前面的情节已经把这段时间定下了";超出推演年数的标出来
  * - 改了一条再推:前面没改的几条直接用上一次的,结果和从头算一样;再推前先去掉上一次硬改出来的干预
  * - 能叫停;存档往返(大纲、批改、硬改出来的干预的 plot 都带着);没大纲的世界配方不变;编年史【照大纲】
+ * - 查得准:窗口里散了的盟也算结盟;硬改的地震水旱按下令的那一处查
  * - 大纲的清理(cleanOutline / cleanPlot)
  */
 import { describe, expect, it } from 'vitest';
@@ -150,6 +151,32 @@ describe('硬改和做不到', () => {
     const forced = out.interventions.filter((v) => v.plot !== undefined);
     for (let i = 1; i < forced.length; i++) expect(forced[i].from).toBeGreaterThan(forced[i - 1].from);
     same(out.civ, generateCiv(w, { interventions: out.interventions }), 'seed 7 先后');
+  }, 120_000);
+});
+
+describe('查得准', () => {
+  it('窗口里散了的盟也算结盟;硬改的地震水旱按下令的那一处查', async () => {
+    const seed = 7;
+    const w = world(seed);
+    const civ = baseCiv(seed);
+    const { a, b } = pairAt(civ, 1500);
+    const A = polityKey(civ, a);
+    const B = polityKey(civ, b);
+    // 作者自己下的结盟 1500–1510 年;情节写 1515 年前后 10 年两国结盟,不用再硬改
+    const own: Intervention[] = [{ kind: 'ally', from: 1500, until: 1510, a: A, b: B }];
+    // 地震水旱的那一处:第 1800 年有城的一州
+    const city = civ.settlements.find((x) => x.founded < 1700 && (x.ended === undefined || x.ended > 1900))!;
+    const center = regionKey(civ, city.region);
+    const plots: Plot[] = [
+      { id: 1, kind: 'ally', year: 1515, a: A, b: B },
+      { id: 2, kind: 'disaster', year: 1800, span: 0, type: 'quake', level: 2, region: center },
+    ];
+    const out = (await runOutline(w, {}, { plots, interventions: own }))!;
+    expect(out.review[0], JSON.stringify(out.review)).toMatchObject({ status: 'natural' });
+    expect(out.review[1], JSON.stringify(out.review)).toMatchObject({ status: 'forced', year: 1800 });
+    expect(out.interventions.filter((v) => v.plot === 1)).toEqual([]);
+    expect(out.interventions.find((v) => v.plot === 2)).toMatchObject({ kind: 'disaster', type: 'quake', region: center, from: 1800 });
+    same(out.civ, generateCiv(w, { interventions: out.interventions }), 'seed 7 查得准');
   }, 120_000);
 });
 
