@@ -192,6 +192,8 @@ export interface GlobeApi {
   labelAt(cx: number, cy: number): LabelPick | null;
   /** 刚才那一下按下以后拖动过(拖过就不算单击) */
   dragged(): boolean;
+  /** 第一帧换上了(之前屏幕上还是平面图,点选、悬停都不算) */
+  ready(): boolean;
   /**
    * 转到某经纬度(度;纬度不给 = 不变;放大倍数 k 不给 = 不变),约 0.6 秒。转到的地方落在球心 —— 宽屏上球心在侧栏卡片右边那一块的正中
    * (见 GlobeProps.leftRoom)
@@ -1884,6 +1886,7 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
 
   // ---- App 用的接口 ----
   const local = (cx: number, cy: number): [number, number] | null => {
+    if (!s.opened) return null;
     const r = rootRef.current?.getBoundingClientRect();
     return r ? [cx - r.left, cy - r.top] : null;
   };
@@ -1948,6 +1951,7 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
     pixelAt,
     labelAt,
     dragged: () => s.moved,
+    ready: () => s.opened,
     flyTo: (lon, lat, k) => flyTo(lon, lat, k),
     centerLon: () => s.view.lon / D,
     camera: () => ({ lon: s.view.lon / D, lat: s.view.lat / D, k: s.view.k }),

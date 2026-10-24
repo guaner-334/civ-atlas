@@ -5347,6 +5347,8 @@ ${s.image.cells}` : null);
     if (t !== e.currentTarget && !t.closest('.canvas-wrap, .globe')) return;
     // 点地图收起菜单的那一下只收起菜单(dismissClick.ts)
     if (tookDismissClick()) return;
+    // 地球仪还在备贴图:屏幕上还是平面图,点了不按看不见的球去选
+    if (getGlobeOn() && !globeApi.current?.ready()) return;
     if ((getGlobeOn() ? globeApi.current?.dragged() : moved.current) || replayOn) return;
     // 导出回放视频时:地图只用来挪、缩放(框住要拍的地方),点了不选东西
     if (getFilm().mode) return;
