@@ -1071,3 +1071,87 @@
 .dr-set.inline .fp-list {
   padding: 4px 0 6px;
 }
+
+/* ---- 照大纲放:情节的字幕(左边那道、类型名用主色,大字是作者写的那句,小字编年史)、字幕条上面一块 ---- */
+[data-ev='outline'] {
+  --c: var(--accent);
+}
+.dr-cap.plot .dr-text {
+  font-size: 18px;
+}
+.dr-sub {
+  padding-right: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dr-capwrap.phone .dr-cap.plot .dr-text {
+  font-size: 16px;
+}
+.dr-nextplot {
+  flex: none;
+  padding: 3px 8px;
+  border-radius: var(--r-tag);
+  background: var(--btn);
+  color: var(--ink-2);
+  font-size: 12.5px;
+}
+.dr-olplate {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 8px;
+  padding: 7px 8px 7px 14px;
+  border-radius: 12px;
+  background: var(--panel-solid);
+  box-shadow: var(--shadow-label);
+  font-size: 13.5px;
+  color: var(--ink);
+  white-space: nowrap;
+}
+.dr-olplate b {
+  font-weight: 600;
+}
+.dr-olplate small {
+  color: var(--ink-2);
+  font-size: 12.5px;
+}
+.dr-oldots {
+  display: inline-flex;
+  gap: 4px;
+}
+.dr-oldots i {
+  display: block;
+  width: 14px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--line);
+}
+.dr-oldots i.done {
+  background: var(--ink-3);
+}
+.dr-oldots i.now {
+  width: 22px;
+  background: var(--accent);
+}
+.dr-olx {
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--btn);
+  color: var(--ink-2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+/* 手机:情节的"第 3 / 10 条 1644 年"放不下时省略,按钮不挤出去 */
+.dr-year.fit {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

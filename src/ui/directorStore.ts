@@ -9,6 +9,7 @@
  *   这一段放完,字幕最多再留 DIRECTOR_LINGER 秒(下一段先到就换)。
  * - 停下(暂停、拖地图、缩放、点地图、选中东西……)时字幕还在:导播停在这件事上等着(held);
  *   「回到导播」、右边的「导播」按钮或时间轴的播放接着放,镜头飞回这一段。
+ * - 世界照大纲推演推过:照大纲放(directorPlan.ts 的 plots),字幕条上面一块「照大纲放 第几 / 几条」,点 × 不照(outline)。
  * - 走过的"略过的"(关注别国 / 事太多 / 来不及放)进列表,新的在上;点一条镜头飞过去、停在那件事上(和拖了地图一样等着)。
  *   拖时间轴跳到别的年份、关掉导播、换世界时清空。
  */
@@ -57,6 +58,8 @@ export interface DirectorState {
   panel: 'settings' | 'list' | null;
   /** 设置里正在选跟哪个人(「一个人」、名牌上的「换人」点开的选人列表) */
   picking: boolean;
+  /** 照大纲放(世界照大纲推演推过时;字幕条上面那一块的 × 关掉,这一次打开网页里不再照大纲) */
+  outline: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -100,7 +103,7 @@ function save() {
 // ---------------------------------------------------------------------------
 // 共享状态
 
-let S: DirectorState = { ...load(), shown: null, held: false, list: [], folded: false, panel: null, picking: false };
+let S: DirectorState = { ...load(), shown: null, held: false, list: [], folded: false, panel: null, picking: false, outline: true };
 const subs = new Set<() => void>();
 const subscribe = (f: () => void) => {
   subs.add(f);
@@ -119,6 +122,11 @@ function patch(p: Partial<DirectorState>) {
 
 export function getDirector(): DirectorState {
   return S;
+}
+
+/** 照大纲放 / 不照(排期从这一年重来) */
+export function setDirectorOutline(outline: boolean) {
+  patch({ outline });
 }
 
 export function useDirector(): DirectorState {
