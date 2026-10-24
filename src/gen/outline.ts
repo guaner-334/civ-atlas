@@ -418,7 +418,10 @@ function happened(ctx: Ctx, civ: Civ, p: Plot, R: Refs, lo: number, hi: number):
       return null;
     }
     case 'capital':
-      return a < 0 || R.city < 0 ? null : yearFound(findAnnal(civ, lo, hi, (e) => (e.kind === 'capital' || e.kind === 'dynasty') && e.a === a && e.settlement === R.city));
+      // 改朝换代的那条也记着国都,没迁也记:那一刻真在那城立了都才算
+      return a < 0 || R.city < 0
+        ? null
+        : yearFound(findAnnal(civ, lo, hi, (e) => e.a === a && e.settlement === R.city && (e.kind === 'capital' || (e.kind === 'dynasty' && !!civ.settlements[R.city].capitalSpans?.some((x) => x.polity === a && x.from === e.year)))));
     case 'death': {
       const id = resolvePersonKey(civ, p.person!);
       const P = id >= 0 ? civ.people?.[id] : undefined;
@@ -440,8 +443,12 @@ function happened(ctx: Ctx, civ: Civ, p: Plot, R: Refs, lo: number, hi: number):
       if (a < 0 || b < 0) return null;
       const e = findAnnal(civ, lo, hi, (e) => e.kind === 'submit' && e.a === a && e.b === b);
       if (e) return yearFound(e);
-      const l = relationsAt(civ, hi).liege.get(a);
-      return l && l.liege === b ? { year: Math.max(lo, Math.floor(l.since)) } : null;
+      // 那几年里有一阵是它的藩属(早先称的臣;窗口里又自立了的也算):查窗口头尾两年
+      for (const y of [lo, hi]) {
+        const l = relationsAt(civ, y).liege.get(a);
+        if (l && l.liege === b) return { year: Math.max(lo, Math.floor(l.since)) };
+      }
+      return null;
     }
     case 'peace':
       return a < 0 || b < 0 ? null : yearFound(findAnnal(civ, lo, hi, (e) => e.kind === 'peace' && pair(e)));
@@ -459,7 +466,13 @@ function happened(ctx: Ctx, civ: Civ, p: Plot, R: Refs, lo: number, hi: number):
 /** 这条史事是不是情节说的那场天灾:瘟疫传到那座城所在的州的主人 / 起在那州;饥荒在那国 / 那几州;地震水旱在那一处 */
 function disasterHit(civ: Civ, p: Plot, R: Refs, e: Annal): boolean {
   if (p.type === 'plague') {
-    if (e.kind !== 'plague' || R.city < 0) return false;
+    if (R.city < 0) return false;
+    // 作者下的瘟疫:下令那条记着那座城、起了疫(城在无主之地时不另记 plague)
+    if (e.kind === 'intervene') return e.settlement === R.city && e.b > 0 && (() => {
+      const v = civ.interventions?.[e.war];
+      return v?.kind === 'disaster' && v.type === 'plague';
+    })();
+    if (e.kind !== 'plague') return false;
     const r = civ.settlements[R.city].region;
     return e.region === r || ownersAt(civ, e.year).polity[r] === e.a;
   }
