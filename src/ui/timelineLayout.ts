@@ -64,6 +64,9 @@ const KIND_TYPE: Readonly<Record<string, EvType>> = {
   revolt: 'calamity',
   collapse: 'calamity',
   plague: 'calamity',
+  warlord: 'calamity',
+  defy: 'calamity',
+  reclaim: 'dynasty',
 };
 
 /** 这条纪事归哪一类(不认识的种类算"改朝":蓝色,和普通链接一样不抢眼) */
@@ -116,6 +119,9 @@ const TAG_LABEL: Readonly<Record<string, string>> = {
   崩: '崩解',
   平: '平定',
   疫: '瘟疫',
+  据: '割据',
+  收: '收回',
+  抗: '抗命',
 };
 
 /** 卡片 / 最近事件 / 提示里的类型名:"战争""改朝""称帝"…… */
@@ -169,6 +175,9 @@ const KIND_WEIGHT: Readonly<Record<string, number>> = {
   collapse: 6,
   revolt: 5,
   famine: 1,
+  warlord: 4,
+  reclaim: 3,
+  defy: 1,
   submit: 4,
   defect: 4,
   alliance: 2,

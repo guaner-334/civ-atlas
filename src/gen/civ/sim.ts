@@ -39,6 +39,7 @@ import { resumeCities } from './cities';
 import { resumeDiplomacy } from './diplomacy';
 import { resumeDevelopment } from './development';
 import { resumeUnrest } from './unrest';
+import { resumeControl } from './control';
 import { resumePlague } from './plague';
 import { resumeInterventions, scheduleInterventions } from './interventions';
 import type { Intervention } from '../edits';
@@ -488,6 +489,7 @@ export class CivSim {
       resumeDiplomacy(sim, world, civ);
       resumeDevelopment(sim, world, civ);
       resumeUnrest(sim, world, civ);
+      resumeControl(sim, civ);
       resumePlague(sim, world, civ, iv?.list);
       if (iv) resumeInterventions(sim, iv);
       sim.releaseHeld();

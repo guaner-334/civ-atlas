@@ -1,0 +1,441 @@
+/**
+ * 中央管到什么程度:每州一个"中央管得到几成"(0–1),地方坐大了会割据(名义上还归这国、实际自己说了算),
+ * 割据的地方打仗时不出兵(抗命),割据久了容易真的自立。
+ * 挂在同一个推演引擎(sim.ts)上,不改归属(真自立还是走 politics.ts 的分裂);发生了什么记进史事(warlord / reclaim / defy)。
+ *
+ * 流程(index.ts 在 installUnrest 之后调用 installControl):
+ *
+ *   **管得到几成**(raw,现算不存):国都所在州 = 1;别的州
+ *       c = 1 ÷ (1 + (离国都的路程 ÷ 管得到的远近)²) × 异族 FOREIGN × 刚被征服(RECENT 年内,随年数淡去)× 当地大城 BIG_CITY
+ *     管得到的远近 = REACH × (1 + ADMIN_GAIN × 国都所在州的行政能力)(发展度,development.ts;行政能力 0–9):
+ *     行政越强,远处的州也管得住。分四档(controlTier):直辖、代管、自治,割据的州另算(见下)。
+ *     行政能力也折进原来"离国都多远"的那几项(remote:路程 ÷ (FAR_REACH × 行政折算),行政越强远处越不算远):
+ *       分裂的离心力(politics.ts),割据的州再加一截(politics.ts 的 LORD_D):割据久了的地方先起兵;
+ *       动荡(unrest.ts)的"边远"一项,每有一处割据再加 LORD_U;
+ *       打仗的国力(wars.ts 的 powers)= Σ 城的人口 × 出兵的几成(管得到几成 + LEVY_0,最多 1;割据的州 0:抗命不出兵)。
+ *
+ *   **割据**(看内政时,politics.ts 在分裂没成之后调 check):国土至少 MIN_SIZE 州、立国满 MIN_AGE 年的国家,
+ *     管得最松(c < WARLORD_C)、有城的那州(不是国都、SETTLE 年没换过国家,离心力加一点随机挑),
+ *     赔率 = ODDS × e^(K × (动荡 + (WARLORD_C − c) × GAP_W − U0)),换成概率;同时最多 MAX_LORDS 处。
+ *     割据的地盘(mark,现算):从那座城所在的州往外走陆路 HOPS 州以内、还是这国的、c < HOLD 的州(不含国都;近的先算,最多 DOMAIN_MAX 州)。
+ *     名义上照旧归这国:地图上国界不变,只在「中央管到什么程度」图层上看得出来。
+ *     割据了结:①那州换了国家(被打下、自立出去)= 就此了结,不另记;②中央收回(reclaim):以后每次看内政,
+ *       那州的 c 已回到 HOLD 以上(行政变强、迁都近了)就收回;否则按 RECLAIM_P × 1 ÷ (1 + 动荡) 的机会收回。
+ *     割据的州起兵自立的,史事 split 记 cause = warlord(编年史写"割据多年,遂……自立")。
+ *
+ *   **抗命**(defy):每场战争的第一仗之前(点兵,wars.ts 调 onMuster),交战的一方有割据的地方、地盘里的城人口占全国 DEFY_SHARE 以上,
+ *     这处割据 DEFY_REST 年内没抗过命,就记一条 defy(拥兵不出)。国力里本来就不算它(见上),这一条只是让编年史写得出来。
+ *
+ * **不存内存状态**:割据由史事重建(resumeControl):warlord 开始;reclaim 了结;那州 SETTLE……换过国家的(wm.since 晚于割据那年)也了结。
+ * 各州管得到几成每 20 年(发展度那一步)存一份快照进 Civ.development.control(给图层用),推演里不读快照。
+ * 随机数:keyed(subSeed(seed, 'civ-control'), 国家锚, 第几次看内政, 用途),和处理顺序无关。纯计算,不碰 DOM。
+ */
+import { Layer, AdjKind, type Civ, type Polity, type Year } from './types';
+import { fexp, keyed, keyed4, subSeed } from './rand';
+import type { CivSim } from './sim';
+import { polityModelOf, type PolityModel } from './polities';
+import { warModelOf, type War, type WarModel } from './wars';
+import { politicsModelOf, type PoliticsModel } from './politics';
+import { Cap, CAP_COUNT, devModelOf, type DevModel } from './development';
+import { capitalAt, populationAt } from './growth';
+
+// ---- 调参(以 20 个种子的统计为准,见 scripts/control-stats.ts) ----
+/** 管得到的远近:REACH × (1 + ADMIN_GAIN × 行政能力)(标准路程) */
+const REACH = 3.3;
+const ADMIN_GAIN = 0.2;
+/** 异族的州、刚被征服的州(RECENT 年内,随年数淡去)、当地有大城(城的人口上限有国都的 BIG_RATIO 以上)打的折 */
+const FOREIGN = 0.6;
+const RECENT = 150;
+const RECENT_CUT = 0.35;
+const BIG_RATIO = 0.5;
+const BIG_CITY = 0.85;
+/** 四档:直辖 ≥ TIER_DIRECT,代管 ≥ TIER_PROXY,再低是自治;割据另算 */
+const TIER_DIRECT = 0.6;
+const TIER_PROXY = 0.35;
+/**
+ * 分裂的离心力、动荡里"离国都远"的那一项:路程 ÷ (FAR_REACH × 行政折算),最多 REMOTE_MAX;
+ * 行政折算 = (1 + ADMIN_GAIN × 行政能力) ÷ (1 + ADMIN_GAIN × ADMIN_REF):行政能力在 ADMIN_REF 时和原来"路程 ÷ 12"一样
+ */
+const FAR_REACH = 12;
+const ADMIN_REF = 1;
+const REMOTE_MAX = 4;
+/** 动荡:每有一处割据加 LORD_U,最多加 LORD_U_MAX */
+const LORD_U = 0.08;
+const LORD_U_MAX = 0.24;
+/** 出兵的几成 = min(1, c + LEVY_0);割据的州 0 */
+const LEVY_0 = 0.45;
+
+/** 割据:国土至少几州、立国满几年;同时最多几处;c 低于 WARLORD_C 的州才会割据;城的人口至少几千人 */
+const MIN_SIZE = 12;
+const MIN_AGE = 100;
+const MAX_LORDS = 3;
+const WARLORD_C = 0.22;
+const MIN_POP = 4;
+/** 起事、并进地盘的州要这么多年没换过国家(和分裂一样) */
+const SETTLE = 30;
+/** 赔率 = ODDS × e^(K × (动荡 + (WARLORD_C − c) × GAP_W − U0)) */
+const ODDS = 0.07;
+const K = 1.5;
+const GAP_W = 3;
+const U0 = 1.2;
+/** 挑哪州:c 越低越先,加一点随机 */
+const JITTER = 0.08;
+/** 地盘:从那州往外走陆路几州以内、c 低于 HOLD 的州 */
+const HOPS = 2;
+const HOLD = 0.45;
+/** 地盘最多几州(近的先算) */
+const DOMAIN_MAX = 8;
+/** 收回:那州的 c 回到 HOLD 以上就收回;不然每次看内政按 RECLAIM_P ÷ (1 + 动荡) 的机会收回;割据满 RECLAIM_AGE 年以前不收 */
+const RECLAIM_P = 0.15;
+const RECLAIM_AGE = 20;
+/** 抗命:地盘里的城人口占全国几成以上才记;同一处这么多年内只记一次 */
+const DEFY_SHARE = 0.06;
+const DEFY_REST = 100;
+
+/** 快照里一州存的数:0 = 不在国家里;1–101 = 1 + 管得到几成 × 100;LORD_BYTE = 割据 */
+export const LORD_BYTE = 200;
+/** 四档的名字(controlTier 的下标) */
+export const CONTROL_TIERS = ['直辖', '代管', '自治', '割据'] as const;
+
+// 随机数用途编号
+const U_PICK = 1;
+const U_RISE = 2;
+const U_RECLAIM = 3;
+
+/** 快照里的一个数是哪一档(0 直辖、1 代管、2 自治、3 割据);0(不在国家里)当自治 */
+export function controlTier(v: number): number {
+  if (v === LORD_BYTE) return 3;
+  const c = (v - 1) / 100;
+  return c >= TIER_DIRECT ? 0 : c >= TIER_PROXY ? 1 : 2;
+}
+
+/** 快照里的一个数 → 管得到几成(0–1;割据 = 0;不在国家里 = NaN) */
+export function controlShare(v: number): number {
+  if (v === 0) return NaN;
+  if (v === LORD_BYTE) return 0;
+  return (v - 1) / 100;
+}
+
+/** 某一年各州的快照(取不晚于这一年的最近一份;没有快照 = null)。不复制,别改 */
+export function controlAt(civ: Pick<Civ, 'development'>, year: Year): Uint8Array | null {
+  const dev = civ.development;
+  const ys = dev?.controlYears;
+  if (!dev?.control || !ys?.length || year < ys[0]) return null;
+  let lo = 0;
+  let hi = ys.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (ys[mid] <= year) lo = mid + 1;
+    else hi = mid;
+  }
+  return dev.control[lo - 1] ?? null;
+}
+
+/** 一处割据 */
+export interface Warlord {
+  /** 名义上的国家 */
+  p: number;
+  /** 起事的那座城所在的州、那座城 */
+  region: number;
+  city: number;
+  /** 割据那年 */
+  start: Year;
+  /** 收回了(那年);没收回 = undefined */
+  end?: Year;
+  /** 最近一次抗命 */
+  defied: Year;
+}
+
+export interface ControlModel {
+  pm: PolityModel;
+  wm: WarModel;
+  pol: PoliticsModel;
+  base: number;
+  /** 所有割据(按先后;了结了的也留着,end 记上) */
+  lords: Warlord[];
+  /** 州 c(0–1),现算 */
+  raw: (p: number, r: number, t: Year) => number;
+  /** 分裂的离心力、动荡里"离国都远"的那一项:路程按行政能力折算(最多 REMOTE_MAX) */
+  remote: (p: number, r: number, t: Year) => number;
+  /** 国家 p 此刻还在的割据 */
+  lordsOf: (p: number, t: Year) => Warlord[];
+  /** 标出国家 p 此刻割据的地盘(inLord(r) 为真);返回有几处 */
+  mark: (p: number, t: Year) => number;
+  inLord: (r: number) => boolean;
+}
+
+const models = new WeakMap<CivSim, ControlModel>();
+
+/** 推演引擎上挂着的模型(测试、统计用) */
+export function controlModelOf(sim: CivSim): ControlModel | undefined {
+  return models.get(sim);
+}
+
+/** 登记(installUnrest 之后调用):挂到分裂、动荡、打仗、发展度那几处 */
+export function installControl(sim: CivSim, seed: number): ControlModel | undefined {
+  return hook(sim, seed, []);
+}
+
+/** 接着推(CivSim.fromCiv,在各层 resume 之后):割据由史事重建 */
+export function resumeControl(sim: CivSim, civ: Civ): void {
+  const lords: Warlord[] = [];
+  /** 同一国、同一州最近起的那一处(以前那州丢过又割据过的,前一处早已了结) */
+  const latest = (p: number, r: number) => {
+    for (let i = lords.length - 1; i >= 0; i--) if (lords[i].p === p && lords[i].region === r) return lords[i];
+    return undefined;
+  };
+  for (const e of civ.annals) {
+    if (e.kind === 'warlord') lords.push({ p: e.a, region: e.region, city: e.settlement, start: e.year, defied: -Infinity });
+    else if (e.kind === 'reclaim') {
+      const w = latest(e.a, e.region);
+      if (w) w.end = e.year;
+    } else if (e.kind === 'defy') {
+      const w = latest(e.a, e.region);
+      if (w) w.defied = e.year;
+    }
+  }
+  hook(sim, civ.seed, lords);
+}
+
+function hook(sim: CivSim, seed: number, lords: Warlord[]): ControlModel | undefined {
+  const pm = polityModelOf(sim);
+  const wm = warModelOf(sim);
+  const pol = politicsModelOf(sim);
+  const dev = devModelOf(sim);
+  if (!pm || !wm || !pol || !dev) return undefined;
+  const reg = pm.terrain.regions;
+  const R = pm.terrain.R;
+  const culture = sim.owners[Layer.Culture];
+  const owner = sim.owners[Layer.Polity];
+
+  const capRegion = (P: Polity, t: number) => pm.settlements[capitalAt(P, t)].region;
+  // 国家 p 此刻的国都所在州、管得到的远近、国都的城的人口上限:同一国、同一刻、国都没换、发展度没走一步时照用上一次的
+  let mp = -1;
+  let mt = NaN;
+  let mcaps = -1;
+  let mdev = NaN;
+  let mCapR = -1;
+  let mL = 1;
+  let mScale = 1;
+  let mCap = 0;
+  const prep = (p: number, t: number): void => {
+    const P = pm.polities[p];
+    const n = P.capitals?.length ?? 0;
+    if (p === mp && t === mt && n === mcaps && dev.last === mdev) return;
+    mp = p;
+    mt = t;
+    mcaps = n;
+    mdev = dev.last;
+    const sid = capitalAt(P, t);
+    mCapR = pm.settlements[sid].region;
+    const a = 1 + ADMIN_GAIN * Math.max(0, dev.cur[mCapR * CAP_COUNT + Cap.Administration] || 0);
+    mL = REACH * a;
+    mScale = a / (1 + ADMIN_GAIN * ADMIN_REF);
+    mCap = pm.settlements[sid].capacity;
+  };
+
+  const raw = (p: number, r: number, t: number): number => {
+    prep(p, t);
+    if (r === mCapR) return 1;
+    const d = pm.capDist[p][r];
+    const x = d < Infinity ? d / mL : 4;
+    let c = 1 / (1 + x * x);
+    if (culture[r] !== pm.polities[p].culture) c *= FOREIGN;
+    const age = t - wm.since[r];
+    if (wm.prev[r] >= 0 && wm.prev[r] !== p && age < RECENT) c *= 1 - RECENT_CUT * (1 - age / RECENT);
+    const s = pm.cityOf[r];
+    if (s >= 0 && pm.settlements[s].ended === undefined && pm.settlements[s].capacity >= BIG_RATIO * mCap) c *= BIG_CITY;
+    return c;
+  };
+
+  const remote = (p: number, r: number, t: number): number => {
+    const d = pm.capDist[p][r];
+    if (!(d < Infinity)) return REMOTE_MAX;
+    prep(p, t);
+    return Math.min(REMOTE_MAX, d / (FAR_REACH * mScale));
+  };
+
+  /** 割据 w 此刻还在不在:没收回、那州还是这国的、割据以后没换过国家 */
+  const alive = (w: Warlord) => w.end === undefined && owner[w.region] === w.p && wm.since[w.region] <= w.start;
+  const lordsOf = (p: number, _t: number): Warlord[] => {
+    const out: Warlord[] = [];
+    for (const w of lords) if (w.p === p && alive(w)) out.push(w);
+    return out;
+  };
+
+  // 地盘的标记(每次 mark 换一个戳)
+  const mk = new Int32Array(R);
+  let stamp = 0;
+  const queue = new Int32Array(R);
+  const hop = new Int32Array(R);
+  /** 割据 w 的地盘标上 stamp(从那州往外走陆路 HOPS 州以内、还是这国的、c < HOLD 的州,不含国都);返回地盘里的州 */
+  const domain = (w: Warlord, t: number, out?: number[]): void => {
+    const P = pm.polities[w.p];
+    const capR = capRegion(P, t);
+    let qt = 0;
+    queue[qt++] = w.region;
+    mk[w.region] = stamp;
+    hop[w.region] = 0;
+    out?.push(w.region);
+    for (let h = 0; h < qt; h++) {
+      const r = queue[h];
+      if (hop[r] >= HOPS) continue;
+      for (let e = reg.adjStart[r]; e < reg.adjStart[r + 1]; e++) {
+        const j = reg.adj[e];
+        const kind = reg.adjKind[e];
+        if (kind === AdjKind.Strait || kind === AdjKind.SeaRoute) continue;
+        if (qt >= DOMAIN_MAX) return;
+        if (mk[j] === stamp || owner[j] !== w.p || j === capR || raw(w.p, j, t) >= HOLD) continue;
+        mk[j] = stamp;
+        hop[j] = hop[r] + 1;
+        queue[qt++] = j;
+        out?.push(j);
+      }
+    }
+  };
+  const mark = (p: number, t: number): number => {
+    stamp++;
+    const ls = lordsOf(p, t);
+    for (const w of ls) domain(w, t);
+    return ls.length;
+  };
+  const inLord = (r: number) => mk[r] === stamp;
+
+  const cm: ControlModel = { pm, wm, pol, base: subSeed(seed, 'civ-control'), lords, raw, remote, lordsOf, mark, inLord };
+  models.set(sim, cm);
+
+  // ---- 挂到分裂(离心力)、动荡、看内政 ----
+  pol.control = cm;
+  pol.lordCheck = (P, k, t) => check(P, k, t);
+
+  // ---- 打仗:出兵的几成、抗命 ----
+  wm.levy = (p, t) => {
+    const lordsN = mark(p, t);
+    return (r: number) => (lordsN && inLord(r) ? 0 : Math.min(1, raw(p, r, t) + LEVY_0));
+  };
+  wm.onMuster = (w: War, t: number) => {
+    for (const x of [w.a, w.b]) {
+      const ls = lordsOf(x, t);
+      if (!ls.length) continue;
+      let total = 0;
+      for (const r of pm.lands[x]) {
+        const c = pm.cityOf[r];
+        if (c >= 0) total += populationAt(pm.settlements[c], t);
+      }
+      for (const l of ls) {
+        if (t - l.defied < DEFY_REST) continue;
+        const rs: number[] = [];
+        stamp++;
+        domain(l, t, rs);
+        let sum = 0;
+        for (const r of rs) {
+          const c = pm.cityOf[r];
+          if (c >= 0) sum += populationAt(pm.settlements[c], t);
+        }
+        if (sum < DEFY_SHARE * total) continue;
+        l.defied = t;
+        sim.record('defy', { a: x, b: x === w.a ? w.b : w.a, region: l.region, settlement: l.city, war: w.id });
+      }
+    }
+  };
+
+  // ---- 发展度那一步:存一份快照 ----
+  dev.afterTick = (y: Year) => {
+    const snap = new Uint8Array(R);
+    const P = pm.polities.length;
+    for (let p = 0; p < P; p++) {
+      if (!(pm.size[p] > 0)) continue;
+      const lordsN = mark(p, y);
+      for (const r of pm.lands[p]) {
+        if (lordsN && inLord(r)) snap[r] = LORD_BYTE;
+        else snap[r] = 1 + Math.round(100 * Math.min(1, Math.max(0, raw(p, r, y))));
+      }
+    }
+    pushSnap(dev, y, snap);
+  };
+
+  /** 看内政时(分裂没成之后):先看收回,再看会不会新起一处割据;出了一件事 = true */
+  const check = (P: Polity, k: number, t: number): boolean => {
+    const p = P.id;
+    const ls = lordsOf(p, t);
+    const u = pol.unrest ? pol.unrest(P, t) : 0;
+    // 收回
+    for (const w of ls) {
+      if (t - w.start < RECLAIM_AGE) continue;
+      const c = raw(p, w.region, t);
+      if (c >= HOLD || keyed4(cm.base, pm.ptag[p], reg.seat[w.region], k, U_RECLAIM) < RECLAIM_P / (1 + u)) {
+        w.end = t;
+        sim.record('reclaim', { a: p, region: w.region, settlement: w.city, war: Math.round(t - w.start) });
+        return true;
+      }
+    }
+    if (pm.size[p] < MIN_SIZE || t - P.founded < MIN_AGE || ls.length >= MAX_LORDS) return false;
+    if (wm.iv?.unites(p, t)) return false; // 阶段 4 干预"禁止分裂":也不割据
+    // 挑管得最松、有城的那州
+    stamp++;
+    for (const w of ls) domain(w, t);
+    const capR = capRegion(P, t);
+    let r0 = -1;
+    let c0 = Infinity;
+    let s0 = Infinity;
+    for (const r of pm.lands[p]) {
+      if (r === capR || mk[r] === stamp) continue;
+      const s = pm.cityOf[r];
+      if (s < 0 || pm.settlements[s].ended !== undefined) continue;
+      if (t - wm.since[r] < SETTLE || wm.iv?.locked(r, t)) continue;
+      const c = raw(p, r, t);
+      if (c >= WARLORD_C) continue;
+      if (populationAt(pm.settlements[s], t) < MIN_POP) continue;
+      const score = c + JITTER * keyed4(cm.base, pm.ptag[p], reg.seat[r], k, U_PICK);
+      if (score < s0) {
+        s0 = score;
+        c0 = c;
+        r0 = r;
+      }
+    }
+    if (r0 < 0) return false;
+    const odds = ODDS * fexp(K * (u + (WARLORD_C - c0) * GAP_W - U0));
+    if (keyed(cm.base, pm.ptag[p], k, U_RISE) >= odds / (1 + odds)) return false;
+    lords.push({ p, region: r0, city: pm.cityOf[r0], start: t, defied: -Infinity });
+    // 地盘有几州(借用 war 列)
+    const rs: number[] = [];
+    stamp++;
+    domain(lords[lords.length - 1], t, rs);
+    sim.record('warlord', { a: p, region: r0, settlement: pm.cityOf[r0], war: rs.length });
+    return true;
+  };
+
+  // 动荡:每有一处割据加一点
+  const baseUnrest = pol.unrest;
+  if (baseUnrest) {
+    pol.unrest = (P, t) => baseUnrest(P, t) + Math.min(LORD_U_MAX, LORD_U * lordsOf(P.id, t).length);
+    wm.unrest = (p, t) => pol.unrest!(pm.polities[p], t);
+  }
+  return cm;
+}
+
+/** 存一份快照(同一年的、更晚的先去掉:接着推时最后一份可能和这一份同年) */
+function pushSnap(dev: DevModel, y: Year, snap: Uint8Array): void {
+  const ys = dev.controlYears;
+  while (ys.length && ys[ys.length - 1] >= y) {
+    ys.pop();
+    dev.control.pop();
+  }
+  ys.push(y);
+  dev.control.push(snap);
+}
+
+/** 统计(scripts、测试用):割据、收回、抗命的次数,割据自立的次数 */
+export function controlStats(civ: Civ): { warlords: number; reclaims: number; defies: number; lordSplits: number } {
+  let warlords = 0;
+  let reclaims = 0;
+  let defies = 0;
+  let lordSplits = 0;
+  for (const e of civ.annals) {
+    if (e.kind === 'warlord') warlords++;
+    else if (e.kind === 'reclaim') reclaims++;
+    else if (e.kind === 'defy') defies++;
+    else if (e.kind === 'split' && e.cause === 'warlord') lordSplits++;
+  }
+  return { warlords, reclaims, defies, lordSplits };
+}

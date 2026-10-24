@@ -440,9 +440,9 @@ export function namePolities(seed: number, polities: Polity[], cultures: Culture
     taken.add(x);
     takenBare.add(bare(x));
   };
-  // 族名:推演前就定了的民族一开始就占上;推演中分化出来的,分出来那一刻起才占
-  for (const cu of cultures) if (cu.parent === undefined) claim(cu.name);
-  const kin = cultures.filter((cu) => cu.parent !== undefined).sort((a, b) => a.born - b.born || a.id - b.id);
+  // 族名:推演前就定了的民族一开始就占上;推演中分化出来的、干预立国时来落脚的,那一刻起才占;备着没用上的不占
+  for (const cu of cultures) if (cu.parent === undefined && cu.pioneer === undefined) claim(cu.name);
+  const kin = cultures.filter((cu) => cu.parent !== undefined || (cu.pioneer !== undefined && !cu.unborn)).sort((a, b) => a.born - b.born || a.id - b.id);
   let nextKin = 0;
   const styleOf = (p: Polity) => cultures[p.culture]?.style || 'kingdom';
   for (const p of polities) {

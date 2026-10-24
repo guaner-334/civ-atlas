@@ -281,7 +281,7 @@ export const INVENTIONS: readonly { name: string; cap: number; level: number; ma
 const SETTLED = 1;
 const LEFT = 2;
 
-interface DevModel {
+export interface DevModel {
   seed: number;
   pm: PolityModel;
   /** 州数(地形大事以后按新的州表补齐) */
@@ -328,6 +328,11 @@ interface DevModel {
   snaps: Uint8Array[];
   avail: Uint8Array[];
   snapYears: Year[];
+  /** 中央管到什么程度的快照(control.ts 每步存一份,见 Development.control) */
+  control: Uint8Array[];
+  controlYears: Year[];
+  /** 每一步算完以后(control.ts 挂上:存一份管到什么程度的快照) */
+  afterTick?: (y: Year) => void;
 }
 
 const models = new WeakMap<CivSim, DevModel>();
@@ -379,6 +384,8 @@ function emptyDev(world: World, pm: PolityModel, seed: number, habitat: Civ['hab
     snaps: [],
     avail: [],
     snapYears: [],
+    control: [],
+    controlYears: [],
   };
 }
 
@@ -440,6 +447,10 @@ export function resumeDevelopment(sim: CivSim, world: World, civ: Civ): void {
     d.snaps = dev.snaps.slice(0, keep).map((x) => padTo(x, R * CAP_COUNT));
     d.avail = dev.avail.slice(0, keep).map((x) => padTo(x, R * RESOURCE_COUNT));
     d.snapYears = dev.snapYears.slice(0, keep);
+    if (dev.control && dev.controlYears) {
+      d.control = dev.control.map((x) => padTo(x, R));
+      d.controlYears = dev.controlYears.slice();
+    }
     pm.military = st.military.slice();
   } else {
     // 没存状态:从下一个整 STEP 年起算,史事从现在起读
@@ -852,6 +863,7 @@ function tick(sim: CivSim, d: DevModel, y: Year): void {
   }
 
   d.last = y;
+  d.afterTick?.(y);
   if (y % SNAP === 0) {
     const s = makeSnap(d);
     d.snaps.push(s.snap);
@@ -961,7 +973,8 @@ export function finishDevelopment(sim: CivSim, endYear: Year): Development | und
     invented: d.invented.slice(),
     military: Array.from(d.pm.military ?? [], (m) => m ?? 1),
   };
-  return { resources: d.resources.slice(), found: d.found.slice(), avail, snaps, snapYears, events, state };
+  const control = d.controlYears.length ? { control: d.control.slice(), controlYears: d.controlYears.slice() } : {};
+  return { resources: d.resources.slice(), found: d.found.slice(), avail, snaps, snapYears, events, state, ...control };
 }
 
 /**

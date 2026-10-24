@@ -846,7 +846,9 @@ describe('编年史 · 真实世界(立国、升格)', () => {
         expect(e.text).toMatch(/^(受.+影响,)?.+建.+(部|城邦),都于.+$/);
         const founder = civ.people!.find((x) => x.role === 'ruler' && x.polity === e.polities[0])!;
         const mentor = civ.polities[e.polities[0]].mentor;
-        expect(e.text.startsWith(`${mentor === undefined ? '' : `受${polityName(civ.polities[mentor], e.year)}影响,`}${founder.name}建`)).toBe(true);
+        // 同名的国家后面带一句"(第几年立国)""(第几年叛某国自立)"区分
+        const by = mentor === undefined ? '' : `受${polityName(civ.polities[mentor], e.year)}(\\([^)]+\\))?影响,`;
+        expect(e.text, e.text).toMatch(new RegExp(`^${by}${founder.name}建`));
         expect(e.people).toEqual([founder.id]);
       }
       // 分裂:"瑞州守将李昭叛大渭自立,号瑞国,都于瑞城";复国:"故昌宗室李昭据瑞州起兵,脱大渭复国,号后昌国,都于瑞城"

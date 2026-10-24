@@ -223,11 +223,16 @@ function hook(sim: CivSim, um: UnrestModel): void {
     const N = pm.size[pid];
     if (!(N > 0)) return 0;
     const dist = pm.capDist[pid];
+    // 边远:有"中央管到什么程度"(control.ts)时按路程和行政能力算(行政越强,远处越不算边远)
+    const cm = pol.control;
     let far = 0;
     let foreign = 0;
     for (const r of pm.lands[pid]) {
-      const d = dist[r];
-      far += d < Infinity ? Math.min(4, d / REACH) : 4;
+      if (cm) far += cm.remote(pid, r, t);
+      else {
+        const d = dist[r];
+        far += d < Infinity ? Math.min(4, d / REACH) : 4;
+      }
       if (culture[r] !== P.culture) foreign++;
     }
     let u = pol.strain!(P, t);

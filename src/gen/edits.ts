@@ -394,6 +394,10 @@
  *      (当过国都的城照样补立国、定居时预约的建城照样补、同一刻撞上的几件按预约先后排;civ/sim.ts 的 fromCiv)。
  *      没改地形、没有地形大事的世界和 25 逐字节相同;改过地形的世界地形有局部变化(画过草图的变得多)、历史重新推演,
  *      带地形大事的世界历史重新推演(大事以后的地形也可能有一点变化)。
+ *  27:中央管到什么程度(civ/control.ts):离国都越远、施政越差、异族越多、刚打下来的州,中央越管不到,分直辖 / 代管 / 自治 / 割据四档;
+ *      管不到的州出兵少(打仗、结盟比的军力跟着变),远州更容易自立;动荡的国家里管得最差的大城,守将可能拥兵自重、割据附近几州
+ *      (名义上仍归这国),割据的州出兵为零、更容易叛离自立,朝廷强了能收回;打仗时割据的守将可能拥兵不出。
+ *      编年史多了割据、收回、抗命三种事。地形不变,历史重新推演。
  */
 import type { Civ, Culture, Faith, Person, Place, Polity, Regions, RulerLeanings, Settlement } from './civ/types';
 import type { AuthorCharacter } from './characters';
@@ -405,7 +409,7 @@ import type { Era } from './era';
 import type { Frontier, Origins } from './civ/frontier';
 
 /** 生成器版本:生成算法有改动、同种子会得到不同世界时加一(存档读档时核对);加一时在 GENERATOR_CHANGES 里补一条 */
-export const GENERATOR_VERSION = 26;
+export const GENERATOR_VERSION = 27;
 
 /**
  * 一版生成器的改动有多大(从小到大):打开旧存档、旧链接时,按跨过的几版里最大的那一种说清变了什么(savefile.ts 的 versionNote)
@@ -449,6 +453,7 @@ export const GENERATOR_CHANGES: Readonly<Record<number, { change: GeneratorChang
   24: { change: 'routes' },
   25: { change: 'names', edited: true },
   26: { change: 'terrain', edited: true, upheavals: 'terrain' },
+  27: { change: 'history' },
 };
 
 /** 干预的种类(见文件头的表) */
