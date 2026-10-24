@@ -330,6 +330,7 @@ import {
   fillShow,
   layerOf,
   layerParts,
+  paintLook,
   mapViewFromUrl,
   writeMapView,
   type BaseId,
@@ -868,6 +869,10 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
   const [surface, setSurface] = useState<SurfaceLook>(start.surface);
   /** 卫星记着的画法(经典 / 细节):换到别的底图再换回卫星还是它 */
   const [satLook, setSatLook] = useState<SatLook>(start.sat);
+  // 填色(不填 / 国家 / 民族 / 信仰 / 时代 = 文明层的开关)
+  const civShow = useCivShow();
+  /** 写实底图实际铺的那一份:地理图上叠了填色时是褪色的那一份(paintLook);缓存的键、画图都按它 */
+  const paintedLook = paintLook(surface, fillOf(civShow));
   const { stage, base: stageBase } = useStage();
   const draft = stage === 'draft';
   const home = stage === 'home';
@@ -918,7 +923,7 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
   /** 地图缓存里有没有这一段的这种底图(渲染那里填上;有就直接换,不用备) */
   const eraCached = useRef<(d: object, key: string) => boolean>(() => false);
   const [warmVer, setWarmVer] = useState(0);
-  const warmKey = baseKeyOf(style, layer, surface);
+  const warmKey = baseKeyOf(style, layer, paintedLook);
   /**
    * 地图上实际画的那一段:换段(补丁刚到、拖时间轴跨过大事)时,那一段的整张底图、河、文明层先在后台分小步备好再换过去
    * (见下面的 ERA_WARM_JOB),不在换上那一下整张画;备的时候照旧画原来那一段(历史、世界、主图三样对得上)
@@ -1040,13 +1045,12 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
     setHoverState(h);
   };
   // ---- 底图(手绘 / 卫星 / 地理图 / 白模 / 数据底图)× 填色(不填 / 国家 / 民族 / 信仰 = 文明层的开关) ----
-  const civShow = useCivShow();
   const mapBase = baseOf(style, layer, surface);
   const mapFill = fillOf(civShow);
   /** 旧的图层名(新建界面的样式、新建时的默认用) */
   const mapLayer = layerOf(style, layer, civShow);
   /** 地形画在写实底图上时用哪种画法(别的画风不看它) */
-  const terrainLook: SurfaceLook = style === 'realistic' ? surface : 'classic';
+  const terrainLook: SurfaceLook = style === 'realistic' ? paintedLook : 'classic';
   const mapViewRef = useRef({ base: mapBase, fill: mapFill, sat: satLook });
   mapViewRef.current = { base: mapBase, fill: mapFill, sat: satLook };
   const theme = studioOn || baseDark(mapBase) ? 'dark' : 'light';
@@ -1323,9 +1327,10 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
   const globeOn = useGlobeOn();
   /** 等值线画不画:新建世界时、地球仪上不画 */
   const contourOn = !!contourKind && !draft && !globeOn;
-  /** 等值线的墨色按哪种底色配:白模底色浅,和浅色的数据底图同一套 */
-  // 等值线、经纬网的墨色:白模是浅底,和数据底图一样用深色线
-  const contourStyle = mapBase === 'blank' ? 'data' : style;
+  /** 地理图:左上角放海拔色标(地球仪上不放) */
+  const atlasOn = mapBase === 'geo' && !globeOn;
+  // 等值线、经纬网的墨色:白模、地理图是浅底,和数据底图一样用深色线
+  const contourStyle = mapBase === 'blank' || mapBase === 'geo' ? 'data' : style;
   const contourInkNow = contourKind ? contourInk(contourKind, contourStyle, baseDark(mapBase)).line : undefined;
   const globeApi = useRef<GlobeApi | null>(null);
   /** 世界坐标 → 屏幕坐标(地图上的事件标签、截图脚本用;下面 __wfWorldToClient 那里定义) */
@@ -1353,11 +1358,11 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
   const mpRef = useRef<MapProj | null>(mp);
   mpRef.current = mp;
   /** 地图现在怎么画(编辑地形按块换上时,线程回调里看这一份决定重画哪种像素层) */
-  const drawView = useRef<PatchView>({ style, look: surface, mp });
-  drawView.current = { style, look: surface, mp };
+  const drawView = useRef<PatchView>({ style, look: paintedLook, mp });
+  drawView.current = { style, look: paintedLook, mp };
   /** 地图现在这种底图在缓存里的键(baseKeyOf):整张交回来的新主图换上之前,先在后台把这一张备好 */
-  const drawKey = useRef(baseKeyOf(style, layer, surface));
-  drawKey.current = baseKeyOf(style, layer, surface);
+  const drawKey = useRef(baseKeyOf(style, layer, paintedLook));
+  drawKey.current = baseKeyOf(style, layer, paintedLook);
   // 换段:要换过去的那一段的整张底图(这种底图)、写实 / 卫星画风整张图上的河、文明层第一次要画的,在后台分小步备好,
   // 备好了 eraK 再换过去(和换上那一下一口气整张画逐像素相同)。又要换到别的段(接着拖时间轴、又到了补丁)就顶掉重备
   useEffect(() => {
@@ -3771,9 +3776,9 @@ ${s.image.cells}` : null);
     if (!cv || !data) return;
     const { world, raster } = data;
     const maps = mapsOf(data);
-    const key = baseKeyOf(style, layer, surface);
+    const key = baseKeyOf(style, layer, paintedLook);
     const render = (ctx: CanvasRenderingContext2D) => {
-      if (style === 'realistic') renderRealistic(ctx, world, raster, surface);
+      if (style === 'realistic') renderRealistic(ctx, world, raster, paintedLook);
       else if (style === 'fantasy') renderFantasy(ctx, world, raster);
       else renderLayer(ctx, world, raster, layer);
     };
@@ -3795,7 +3800,7 @@ ${s.image.cells}` : null);
       const proj = terrainProj.current;
       // 编辑地形后在后台按投影画好的那一版(同一张图、同一个投影和中心、同一种画风和画法)
       const p = preProj.current;
-      const pre = p && p.raster === raster && p.key === mp.key && p.style === style && (style !== 'realistic' || p.look === surface) ? p.canvas : null;
+      const pre = p && p.raster === raster && p.key === mp.key && p.style === style && (style !== 'realistic' || p.look === paintedLook) ? p.canvas : null;
       preProj.current = null;
       presentTerrain(cv, mp, { world, raster, style, look: terrainLook, src, layer: proj, moving: projMoving || terrainCovered, pre });
       if (p) p.canvas.width = p.canvas.height = 0;
@@ -3827,7 +3832,7 @@ ${s.image.cells}` : null);
     noteShown();
     // 给这张图后台描好的河没用上(换上前换了画风、缓存里本来就有):放掉
     dropPreparedRivers(raster.water);
-  }, [data, style, layer, surface, terrainLook, mp, projMoving, terrainCovered]);
+  }, [data, style, layer, paintedLook, terrainLook, mp, projMoving, terrainCovered]);
 
   /**
    * 某画风的整张底图(等距圆柱,和 raster 一样大):缓存里有就直接给,没有就画一张放进缓存(图层缩略图用;之后切过去也不用再画)。
@@ -3869,7 +3874,7 @@ ${s.image.cells}` : null);
     (base: BaseId, sat: SatLook = mapViewRef.current.sat) => {
       const d = dataRef.current;
       const b = baseLook(base, sat);
-      const key = baseKeyOf(b.style, b.data ?? layer, b.look ?? surface);
+      const key = baseKeyOf(b.style, b.data ?? layer, paintLook(b.look ?? surface, mapViewRef.current.fill));
       clearToast('base-fail');
       if (!d || mapsOf(d).has(key)) {
         pickTok.current++;
@@ -6100,11 +6105,11 @@ ${s.image.cells}` : null);
               />
           )}
           {!draft && !filmOn && <PhoneButtons layers={layerProps} globeOn={globeOn} onToggleGlobe={toggleGlobe} marking={markable ? markPlacing : undefined} director={!directorOff} />}
-          {!draft && (OLD_SITE !== null || BETA_SITE || style === 'data' || contourOn || workOn) && (
+          {!draft && (OLD_SITE !== null || BETA_SITE || style === 'data' || atlasOn || contourOn || workOn) && (
             <div className="corner-tl">
               {workBar}
               <OldSiteBadge />
-              {(style === 'data' || contourOn) && <Legend layer={style === 'data' ? layer : null} contours={contourOn ? contourKind : null} ink={contourInkNow} zoom={view.k} />}
+              {(style === 'data' || atlasOn || contourOn) && <Legend layer={style === 'data' ? layer : atlasOn ? 'atlas' : null} contours={contourOn ? contourKind : null} ink={contourInkNow} zoom={view.k} phone />}
             </div>
           )}
         </>
@@ -6128,11 +6133,11 @@ ${s.image.cells}` : null);
             />
           )}
           {!draft && <MapBar civ={civ} layers={layerProps} exp={{ data, civ, plain: plainCiv, style, layer, look: terrainLook }} />}
-          {!draft && (OLD_SITE !== null || BETA_SITE || workOn || ((style === 'data' || contourOn) && !terrainTool.on)) && (
+          {!draft && (OLD_SITE !== null || BETA_SITE || workOn || ((style === 'data' || atlasOn || contourOn) && !terrainTool.on)) && (
             <div className="corner-tl">
               {workBar}
               <OldSiteBadge />
-              {(style === 'data' || contourOn) && !terrainTool.on && <Legend layer={style === 'data' ? layer : null} contours={contourOn ? contourKind : null} ink={contourInkNow} zoom={view.k} />}
+              {(style === 'data' || atlasOn || contourOn) && !terrainTool.on && <Legend layer={style === 'data' ? layer : atlasOn ? 'atlas' : null} contours={contourOn ? contourKind : null} ink={contourInkNow} zoom={view.k} />}
             </div>
           )}
         </>
