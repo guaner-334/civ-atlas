@@ -250,11 +250,19 @@ function layoutCurved(W: number, H: number, v: MapView, b: StageBox, mp: MapProj
   const texts: GratText[] = [];
   const latMax = def.latMax / DEG;
   const latEvery = labelEvery(step, (deg) => sy * s * def.y(deg * DEG), fs + 6);
-  // 经度写在哪一行:外轮廓下边露出来了 → 写在下边外面(摩尔魏德:赤道下面);没露出来 → 看得见的下边
+  // 经度写在哪一行:
+  //   外轮廓下边没露出来 → 看得见的下边(写在它上面);
+  //   露出来了、下边是一条线(罗宾森、自然地球)、下面放得下字 → 写在下边外面,居中对着经线的线头;
+  //   其它(摩尔魏德的经线在极点汇成一点,或下面放不下)→ 看得见的部分里最靠近赤道的那一行(经线在那里分得最开)
   const edgeShown = outBottom <= bt + 0.5;
-  const poleLine = def.kx(def.latMax) > 0.2;
-  const rowY = !edgeShown ? bt : poleLine ? outBottom : at(0, H / 2)[1];
-  const rowPhi = !edgeShown ? phiAt(bt) : poleLine ? -def.latMax : 0;
+  const below = spec.area ? Math.min(spec.area[3], b.sh) : b.sh;
+  const outside = edgeShown && def.kx(def.latMax) > 0.2 && outBottom + 7 + fs <= below;
+  const eqY = at(0, H / 2)[1];
+  const rowY = !edgeShown ? bt : outside ? outBottom : Math.max(t, Math.min(bt, eqY));
+  const rowPhi = outside ? -def.latMax : phiAt(rowY);
+  /** 字写在这一行上面(贴着看得见的下边)还是下面 */
+  const above = !edgeShown || (!outside && rowY >= bt - 0.5);
+  const right = Math.min(r, spec.lonInRight ?? Infinity);
   const lonEvery = labelEvery(step, (deg) => sx * s * def.kx(rowPhi) * deg * DEG, fs * 3 + 12);
   for (let lon = -180; lon < 180; lon += lonEvery) {
     const t0 = (lon - mp.lon0 + 180) / 360;
@@ -265,20 +273,25 @@ function layoutCurved(W: number, H: number, v: MapView, b: StageBox, mp: MapProj
       if (x < l - 0.5 || x > r + 0.5) continue;
       const text = lonText(lon);
       const eq = Math.round(lon) === 0;
-      if (edgeShown && poleLine) {
+      if (outside) {
+        // 居中的字:左右都不出看得见的地方,右下角的按钮让开
+        const half = text.length * 0.3 * fs + 2;
+        if (x - half < l || x + half > right) continue;
         texts.push({ text, x, y: rowY + 7, ax: 0.5, ay: 0, eq, out: false });
         continue;
       }
-      if (x + 3 + fs * 3 > Math.min(r, spec.lonInRight ?? Infinity)) continue;
-      if (edgeShown) texts.push({ text, x: x + 3, y: rowY + 4, ax: 0, ay: 0, eq, out: false });
-      else texts.push({ text, x: x + 3, y: rowY - 4, ax: 0, ay: 1, eq, out: false });
+      if (x + 3 + fs * 3 > right) continue;
+      if (above) texts.push({ text, x: x + 3, y: rowY - 4, ax: 0, ay: 1, eq, out: false });
+      else texts.push({ text, x: x + 3, y: rowY + 4, ax: 0, ay: 0, eq, out: false });
     }
   }
   for (let lat = latEvery * Math.floor(89.999 / latEvery); lat > -90; lat -= latEvery) {
     if (Math.abs(lat) > latMax + 1e-9) continue;
     const phi = lat * DEG;
     const y = at(0, H / 2 - s * def.y(phi))[1];
-    if (y < t + fs + 4 || y > bt - (edgeShown ? 0 : fs * 2 + 4)) continue;
+    // 离上下边太近的不写(让给贴着那条边写的经度)
+    const lonTop = !above && !outside && rowY <= t + 0.5;
+    if (y < t + (lonTop ? fs * 2 + 8 : fs + 4) || y > bt - (above ? fs * 2 + 4 : 0)) continue;
     const xL = xAt(-180, phi);
     const xR = xAt(180, phi);
     const text = latText(lat);

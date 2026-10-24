@@ -164,4 +164,20 @@ describe('弯边投影(罗宾森、自然地球、摩尔魏德)', () => {
       expect(t.x).toBeCloseTo(xL - 7, 6);
     }
   });
+  it('放大往南拖到外轮廓下边露出来:经度的字照样落在看得见的地方,右下角的按钮让开', () => {
+    for (const [id, lon0] of [['mollweide', 0], ['robinson', 10], ['naturalEarth', 0]] as const) {
+      const mp = mapProj(id, lon0, W, H);
+      const v = { k: 4, x: (main.sw * (1 - 4)) / 2, y: -2700 };
+      const g = layoutGratLabels(W, H, v, main, mp, 30, spec)!;
+      expect(g).not.toBeNull();
+      const lon = g.texts.filter((t) => /[EW]$|^180°$/.test(t.text) || (t.text === '0°' && t.ay !== 1) || (t.text === '0°' && t.x !== 390));
+      expect(lon.length).toBeGreaterThan(0);
+      for (const t of lon) {
+        expect(t.y).toBeGreaterThanOrEqual(64);
+        expect(t.y).toBeLessThanOrEqual(796);
+        const w = t.text.length * 0.6 * 11;
+        expect(t.x - t.ax * w + w).toBeLessThanOrEqual(1504 + 3);
+      }
+    }
+  });
 });
