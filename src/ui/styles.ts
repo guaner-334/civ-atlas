@@ -28,7 +28,6 @@ import './marks.css';
 import './params.css';
 import './assistant.css';
 import './contact.css';
-import './announcement.css';
 import './betaNews.css';
 import './overview.css';
 import './worlds.css';

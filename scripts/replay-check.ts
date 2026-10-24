@@ -1,5 +1,5 @@
 /**
- * 冒烟检查:npx tsx scripts/replay-check.ts
+ * 冒烟检查:npx tsx scripts/replay-check.ts(SMOKE_PART=2/4 只跑其中一份,见 PART_STARTS)
  * 界面骨架(左边侧栏 + 地图、右上图层按钮、图层与投影弹层、世界概览浮层、侧栏里的详情面板)、回放、悬停、点选改名、
  * 存档读档分享、导出、干预、改地形、AI、键盘快捷键、人物(人物卡片、历代君主、编年史里的人名、人物页、世系图、搜人名)、作者标记、作者的人物、信仰图层与宗教卡片、东西相连、多种投影、地球仪、宽屏侧栏收起、浏览器的后退和前进;手机布局(390×844 触屏:底部的世界 / 详情卡片、时间轴胶囊、双指捏合)。
  * 宽屏:存档在侧栏顶上,成书、AI 设置在侧栏右上的"更多"里,导出在地图右上;创建时定下的种子、参数、地形在世界概览的"世界设定"页(只能看)
@@ -231,10 +231,44 @@ const pushOrders = async (p: Page, tap = false) => {
 /** 顶部提示条上某个来源的那条(save 存档 / export 导出 / progress 生成……) */
 const toastText = (p: Page, id: string, timeout = 3000) =>
   p.locator(`.toast[data-toast=${id}]`).innerText({ timeout }).then((t) => t.replace(/\n/g, ' '), () => '');
+// 每次画完地图都会换一个新的 window.__wf;先在旧的上做个记号,记号消失 = 画了新的一张
+const wf = () => page.evaluate(() => (window as any).__wf);
+const markWf = () => page.evaluate(() => ((window as any).__wf.mark = 1));
+const waitRedraw = () => page.waitForFunction(() => !(window as any).__wf.mark, null, { timeout: 30000 });
+// 回放每帧耗时的预算:本机约 10–20 ms;CI 的虚拟机慢两三倍,同一段回放在 CI 上 16–40 ms 来回跳,预算放宽到 2 倍
+const REPLAY_BUDGET = process.env.CI ? 60 : 30;
+
+/**
+ * 分几份同时跑:SMOKE_PART=2/4 只跑第 2 份(PR 检查上 4 台机器同时跑,各开各的浏览器);不设就从头跑到尾。
+ * 下面每一段都包在 if (part('段名')) 里,从上往下按顺序归份:PART_STARTS 是第 2、3、4 份打头的那一段,其余的段跟着上一段走,
+ * 所以一份里的先后和从头跑到尾时一样。打头的那段要自己打开页面(page.goto 或新开浏览器页面),不靠前面几段留下的页面和存档。
+ * 按 GitHub 机器上各段的耗时大致均分(每份六七分钟,看 PR 检查日志里每段那行输出的时间);某一份明显变慢了就挪一挪这里的段名。
+ */
+const PART_STARTS = ['点选改名', '搜索', '手机布局'];
+const [PART, PARTS] = (process.env.SMOKE_PART ?? '1/1').split('/').map(Number);
+if (!(PARTS === 1 || PARTS === PART_STARTS.length + 1) || !(PART >= 1 && PART <= PARTS)) {
+  throw new Error(`SMOKE_PART 要写成"第几份/共几份"(共 1 份或 ${PART_STARTS.length + 1} 份),比如 2/${PART_STARTS.length + 1};现在是 ${process.env.SMOKE_PART}`);
+}
+const partNames = new Set<string>();
+const partRan: string[] = [];
+let partNow = 1;
+/** 这一段在不在这次跑的那一份里 */
+const part = (name: string) => {
+  if (partNames.has(name)) throw new Error(`冒烟的段名「${name}」重复了`);
+  partNames.add(name);
+  const i = PART_STARTS.indexOf(name);
+  if (i >= 0) {
+    if (i + 2 !== partNow + 1) throw new Error(`PART_STARTS 里的段要按冒烟里的先后排(「${name}」排错了)`);
+    partNow = i + 2;
+  }
+  const on = PARTS === 1 || partNow === PART;
+  if (on) partRan.push(name);
+  return on;
+};
 // 界面骨架:地图铺满窗口,左边浮着侧栏卡片(世界名 + 副标、搜索框);右上填色分段按钮"国家"亮着、底图按钮写"手绘";第一次打开有操作提示(拖一下就没了);
 // 悬停小卡片(国名 + 州数);右下 + − 缩放;图层面板:缩略图、切到卫星 → 深色主题、网址记下、面板不收;叠加开关(地名……)、民族图例;
 // 世界概览:打开、四个页签、Esc / 点外面收起、国家表点一行 → 概览收起、选中这国;点国家 → 详情在侧栏里(世界首页换成面板)
-{
+if (part('界面骨架')) {
   await page.goto(`${dev.url}/?seed=7`);
   await page.waitForFunction(() => (window as any).__wfLabels?.polities > 0, null, { timeout: 60000 });
   await page.waitForTimeout(300);
@@ -398,7 +432,7 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
 }
 
 // 早年一个国家都没有:侧栏"国家"下说一句为什么、第一个国家哪年立国,不显示"全部 0 国";点"跳到 N 年"时间轴跳过去,列表里有了它
-{
+if (part('早年没有国家')) {
   await page.goto(`${dev.url}/?seed=7&style=fantasy&civYear=300`);
   await page.waitForFunction(() => (window as any).__wfCiv?.ready, null, { timeout: 60000 });
   await page.waitForTimeout(300);
@@ -419,7 +453,7 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
 // 键盘快捷键(电脑上):← → 走 10 年(Shift 100 年)、空格播放 / 暂停(用鼠标点过播放键以后按空格只算一下)、+ − 缩放、1–5 换图层、
 // / 跳进搜索框(在框里打数字不换图层)、? 打开一览(开着时空格不播放,Esc 收起)、Ctrl+S 打开存档菜单(拦下浏览器的"存储网页")、
 // 改名后 Ctrl+Z 撤销、Ctrl+Shift+Z 重做;Ctrl+\ 收起 / 展开左边的卡片(收起着按 / 先展开);按钮的提示框右边写着键;"更多"菜单里有"键盘快捷键"
-{
+if (part('键盘快捷键')) {
   await page.goto(`${dev.url}/?seed=7`);
   await page.waitForFunction(() => (window as any).__wfLabels?.polities > 0, null, { timeout: 60000 });
   await page.waitForTimeout(300);
@@ -572,7 +606,7 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
 // 世界概览的「人物」页(名人 / 君主 / 将领,「全部 N 位」进来停在这国的君主);搜名字第一个是这个人。
 // 例子:种子 7 的第 2740 年,天灵(6 号国)霄朝的钦宗沈昀(前任是他的父亲太宗沈曦翎,
 // 继任是他的孙子顺宗沈冥;在位时有将领景昀泠领兵)
-{
+if (part('人物')) {
   await page.goto(`${dev.url}/?seed=7&civYear=2740`);
   await page.waitForFunction(() => (window as any).__wfLabels?.polities > 0, null, { timeout: 60000 });
   await page.waitForTimeout(300);
@@ -694,7 +728,7 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
 // 作者标记:右下角「标记」→ 顶部提示条"点地图放标记",点城的位置放下 → 填写卡片(名字、年份、说明)→ 完成:地图上有图钉和名字、
 // 卡片是看的样子;悬停图钉 = 小卡片在图钉左上方;撤销 / 重做;往回拖 100 年标记不见了;搜得到;世界概览「标记」页一行,点了打开;
 // 「更多」→ 删除,提示条上「撤销」放回;州卡片「更多」→ 在这里加标记(几个州,地图上有名字牌);导出菜单多一行"作者标记"
-{
+if (part('作者标记')) {
   await page.goto(`${dev.url}/?seed=7&civYear=2512`);
   await page.waitForFunction(() => (window as any).__wfLabels?.polities > 0, null, { timeout: 60000 });
   await page.waitForTimeout(300);
@@ -824,7 +858,7 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
 // 作者的人物:世界概览「人物」→「我的 0」→ 新建人物:提示条"点地图选出生地",点城 → 出生地填上;填名字、生卒、身份 → 加一段经历(点另一座城、
 // 勾推演里的人)→ 完成:卡片是看的样子(年龄、一生),地图上有足迹和头像;悬停头像 = 小卡片;拖到出生前不画头像;撤销 / 重做;搜得到;
 // 「我的」一行,点了打开;勾过的推演人物、出生的城的卡片里有「作者的人物」;城卡片「更多」→ 在这里加人物;「更多」→ 删除,提示条上「撤销」放回
-{
+if (part('作者的人物')) {
   await page.goto(`${dev.url}/?seed=7&civYear=2512`);
   await page.waitForFunction(() => (window as any).__wfLabels?.polities > 0, null, { timeout: 60000 });
   await page.waitForTimeout(300);
@@ -983,7 +1017,7 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
 
 // 信仰图层:按 3 换到"信仰"(网址记下);侧栏列出各教(大教、教派、最后一行民间信仰);悬停陆地显示这里信的教和所属的国;
 // 点陆地打开这里信的教的卡片(类型、信众、大事);点侧栏的一行打开那个教;国家卡片里有"国教"一行
-{
+if (part('信仰图层')) {
   await page.goto(`${dev.url}/?seed=7`);
   await page.waitForFunction(() => (window as any).__wfLabels?.polities > 0, null, { timeout: 60000 });
   await page.waitForTimeout(300);
@@ -1044,96 +1078,93 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
   await page.evaluate(() => localStorage.clear());
 }
 
-await page.goto(`${dev.url}/?seed=7&style=realistic`);
-await page.waitForFunction(() => (window as any).__wf?.ready);
+// 写实风:地名(第一次画就用对字体、放大后重画)、某一点的读数、回放世界形成(地质放完接着放文明)、切回画过的画风不重画
+if (part('写实风回放')) {
+  await page.goto(`${dev.url}/?seed=7&style=realistic`);
+  await page.waitForFunction(() => (window as any).__wf?.ready);
 
-// 地名(默认打开):第一次画字时字体就已经加载好(不闪默认字体),画出来的条数合理;滚轮放大后按新的倍数重画
-const labelsOk = await page
-  .waitForFunction(() => (window as any).__wfLabels?.ready, null, { timeout: 30000 })
-  .then(() => true, () => false);
-const labels = await page.evaluate(() => (window as any).__wfLabels);
-console.log('地名:', JSON.stringify(labels));
-if (!labelsOk || !(labels?.drawn > 5)) errs.push('地名没有画出来');
-if (labels && !labels.firstFontOk) errs.push('第一次画地名时字体还没加载好(会闪一下默认字体)');
-{
-  const box = (await page.locator('.map-box').boundingBox())!;
-  await page.mouse.move(box.x + box.width * 0.7, box.y + box.height * 0.4);
-  await page.mouse.wheel(0, -600);
-  await page.waitForFunction(() => (window as any).__wfLabels?.k > 1.5, null, { timeout: 10000 }).catch(() => {});
-  const z = await page.evaluate(() => (window as any).__wfLabels);
-  console.log('放大后地名:', JSON.stringify(z));
-  if (!(z?.k > 1.5) || !(z?.drawn > 5)) errs.push('放大后地名没有重画');
-  await page.mouse.dblclick(box.x + box.width * 0.5, box.y + box.height * 0.5);
-  await page.waitForTimeout(200);
-}
-await replayClick();
-await page.waitForTimeout(1600);
-await page.screenshot({ path: 'snaps/replay-a.png' });
-await page.waitForTimeout(1600);
-await page.screenshot({ path: 'snaps/replay-b.png' });
-// 某一点的读数(回放时悬停卡片不出来,读数照常)
-await page.mouse.move(900, 400);
-await page.waitForTimeout(300);
-const hover = await probe(page, 900, 400);
-console.log('读数:', hover || '(无)');
-if (!hover.includes('海拔') && !hover.includes('水深')) errs.push('某一点的读数(海拔 / 水深)没有');
-
-// 每次画完地图都会换一个新的 window.__wf;先在旧的上做个记号,记号消失 = 画了新的一张
-const wf = () => page.evaluate(() => (window as any).__wf);
-const markWf = () => page.evaluate(() => ((window as any).__wf.mark = 1));
-const waitRedraw = () => page.waitForFunction(() => !(window as any).__wf.mark, null, { timeout: 30000 });
-// 回放按钮在概览"世界设定"页(点了概览收起);地质放完时字幕从"约 N 百万年前 / 今天"换成文明回放的"第 N 年"
-await page.waitForFunction(() => /第 \d+ 年/.test(document.querySelector('.caption .big')?.textContent ?? ''), null, { timeout: 20000 });
-
-// 地质放完接着放文明:时间轴从第 0 年往后走,色块用半分辨率,每帧耗时(底图 + 国名、城镇符号的文字层)要在预算内
-const civFrames = await page.evaluate(async () => {
-  const w = window as any;
-  const ms: number[] = [];
-  const years: number[] = [];
-  let last: unknown = null;
-  const t0 = performance.now();
-  while (performance.now() - t0 < 2500) {
-    await new Promise((r) => requestAnimationFrame(r));
-    const c = w.__wfCiv;
-    if (c && c !== last && c.fast) {
-      const l = w.__wfLabels;
-      ms.push(c.ms + (l && l.fast && Math.abs(l.year - c.year) < 1e-6 ? l.ms : 0));
-      years.push(c.year);
-    }
-    last = c;
+  // 地名(默认打开):第一次画字时字体就已经加载好(不闪默认字体),画出来的条数合理;滚轮放大后按新的倍数重画
+  const labelsOk = await page
+    .waitForFunction(() => (window as any).__wfLabels?.ready, null, { timeout: 30000 })
+    .then(() => true, () => false);
+  const labels = await page.evaluate(() => (window as any).__wfLabels);
+  console.log('地名:', JSON.stringify(labels));
+  if (!labelsOk || !(labels?.drawn > 5)) errs.push('地名没有画出来');
+  if (labels && !labels.firstFontOk) errs.push('第一次画地名时字体还没加载好(会闪一下默认字体)');
+  {
+    const box = (await page.locator('.map-box').boundingBox())!;
+    await page.mouse.move(box.x + box.width * 0.7, box.y + box.height * 0.4);
+    await page.mouse.wheel(0, -600);
+    await page.waitForFunction(() => (window as any).__wfLabels?.k > 1.5, null, { timeout: 10000 }).catch(() => {});
+    const z = await page.evaluate(() => (window as any).__wfLabels);
+    console.log('放大后地名:', JSON.stringify(z));
+    if (!(z?.k > 1.5) || !(z?.drawn > 5)) errs.push('放大后地名没有重画');
+    await page.mouse.dblclick(box.x + box.width * 0.5, box.y + box.height * 0.5);
+    await page.waitForTimeout(200);
   }
-  return { ms, years, caption: document.querySelector('.caption .big')?.textContent ?? '', bar: !!document.querySelector('.civ-timeline') };
-});
-const sorted = [...civFrames.ms].sort((a, b) => a - b);
-const median = sorted[Math.floor(sorted.length / 2)] ?? NaN;
-console.log(
-  `文明回放:${civFrames.ms.length} 帧,第 ${Math.round(civFrames.years[0] ?? NaN)} → ${Math.round(civFrames.years.at(-1) ?? NaN)} 年,` +
-    `每帧(底图 + 文字层)中位数 ${median.toFixed(1)} ms、最慢 ${(sorted.at(-1) ?? NaN).toFixed(1)} ms;字幕 ${JSON.stringify(civFrames.caption)}`,
-);
-if (civFrames.ms.length < 5 || !(civFrames.years.at(-1)! > civFrames.years[0])) errs.push('地质回放放完后文明回放没有接着放');
-if (!civFrames.bar || !/第 \d+ 年/.test(civFrames.caption)) errs.push('文明回放时没有时间轴 / "第 N 年"字幕');
-// 本机约 10–20 ms;CI 的虚拟机慢两三倍,同一段回放在 CI 上 16–40 ms 来回跳,预算放宽到 2 倍
-const REPLAY_BUDGET = process.env.CI ? 60 : 30;
-if (!(median <= REPLAY_BUDGET)) errs.push(`文明回放每帧太慢(中位数 ${median.toFixed(1)} ms,预算 ${REPLAY_BUDGET} ms)`);
-// 悬停时显示民族名
-await page.mouse.move(1150, 330);
-await page.waitForTimeout(300);
-const civHover = await page.locator('.hover').innerText().catch(() => '');
-console.log('文明回放时悬停:', civHover.replace(/\n/g, ' / ') || '(无)');
+  await replayClick();
+  await page.waitForTimeout(1600);
+  await page.screenshot({ path: 'snaps/replay-a.png' });
+  await page.waitForTimeout(1600);
+  await page.screenshot({ path: 'snaps/replay-b.png' });
+  // 某一点的读数(回放时悬停卡片不出来,读数照常)
+  await page.mouse.move(900, 400);
+  await page.waitForTimeout(300);
+  const hover = await probe(page, 900, 400);
+  console.log('读数:', hover || '(无)');
+  if (!hover.includes('海拔') && !hover.includes('水深')) errs.push('某一点的读数(海拔 / 水深)没有');
 
-// 同一个世界里切回画过的画风:直接贴缓存,不重画
-for (const id of ['terrain', 'realistic', 'terrain']) {
-  await markWf();
-  await pickLayer(page, id);
-  await waitRedraw();
+  // 回放按钮在概览"世界设定"页(点了概览收起);地质放完时字幕从"约 N 百万年前 / 今天"换成文明回放的"第 N 年"
+  await page.waitForFunction(() => /第 \d+ 年/.test(document.querySelector('.caption .big')?.textContent ?? ''), null, { timeout: 20000 });
+
+  // 地质放完接着放文明:时间轴从第 0 年往后走,色块用半分辨率,每帧耗时(底图 + 国名、城镇符号的文字层)要在预算内
+  const civFrames = await page.evaluate(async () => {
+    const w = window as any;
+    const ms: number[] = [];
+    const years: number[] = [];
+    let last: unknown = null;
+    const t0 = performance.now();
+    while (performance.now() - t0 < 2500) {
+      await new Promise((r) => requestAnimationFrame(r));
+      const c = w.__wfCiv;
+      if (c && c !== last && c.fast) {
+        const l = w.__wfLabels;
+        ms.push(c.ms + (l && l.fast && Math.abs(l.year - c.year) < 1e-6 ? l.ms : 0));
+        years.push(c.year);
+      }
+      last = c;
+    }
+    return { ms, years, caption: document.querySelector('.caption .big')?.textContent ?? '', bar: !!document.querySelector('.civ-timeline') };
+  });
+  const sorted = [...civFrames.ms].sort((a, b) => a - b);
+  const median = sorted[Math.floor(sorted.length / 2)] ?? NaN;
+  console.log(
+    `文明回放:${civFrames.ms.length} 帧,第 ${Math.round(civFrames.years[0] ?? NaN)} → ${Math.round(civFrames.years.at(-1) ?? NaN)} 年,` +
+      `每帧(底图 + 文字层)中位数 ${median.toFixed(1)} ms、最慢 ${(sorted.at(-1) ?? NaN).toFixed(1)} ms;字幕 ${JSON.stringify(civFrames.caption)}`,
+  );
+  if (civFrames.ms.length < 5 || !(civFrames.years.at(-1)! > civFrames.years[0])) errs.push('地质回放放完后文明回放没有接着放');
+  if (!civFrames.bar || !/第 \d+ 年/.test(civFrames.caption)) errs.push('文明回放时没有时间轴 / "第 N 年"字幕');
+  if (!(median <= REPLAY_BUDGET)) errs.push(`文明回放每帧太慢(中位数 ${median.toFixed(1)} ms,预算 ${REPLAY_BUDGET} ms)`);
+  // 悬停时显示民族名
+  await page.mouse.move(1150, 330);
+  await page.waitForTimeout(300);
+  const civHover = await page.locator('.hover').innerText().catch(() => '');
+  console.log('文明回放时悬停:', civHover.replace(/\n/g, ' / ') || '(无)');
+
+  // 同一个世界里切回画过的画风:直接贴缓存,不重画
+  for (const id of ['terrain', 'realistic', 'terrain']) {
+    await markWf();
+    await pickLayer(page, id);
+    await waitRedraw();
+  }
+  const cached = await wf();
+  console.log('切回画过的画风 renderMs:', cached.renderMs.toFixed(1));
+  if (!(cached.renderMs < 20)) errs.push(`切回画过的画风仍在重画(renderMs=${cached.renderMs.toFixed(1)})`);
 }
-const cached = await wf();
-console.log('切回画过的画风 renderMs:', cached.renderMs.toFixed(1));
-if (!(cached.renderMs < 20)) errs.push(`切回画过的画风仍在重画(renderMs=${cached.renderMs.toFixed(1)})`);
 
 // 写实风放大到 4 倍左右:地形按屏幕现算一块块(后台线程),停下来以后看得见的块都算好、放上去(淡入完),没有报错;
 // 换到地形图(手绘风)现算的块撤掉;缩回 1 倍细节层关掉
-{
+if (part('写实风放大')) {
   const zp = await browser.newPage({ viewport: { width: 1400, height: 820 } });
   zp.on('pageerror', (e) => errs.push(`放大现算:${e.message}`));
   zp.on('console', (m) => m.type() === 'error' && errs.push(`放大现算:${m.text()}`));
@@ -1217,32 +1248,34 @@ if (!(cached.renderMs < 20)) errs.push(`切回画过的画风仍在重画(render
 
 // 回放中点概览"世界设定"页的"以它为底稿新建…":概览收起,换成新建界面(不弹新建窗口;左边设定:种子锁着,地形、参数带过去);
 // 带着东西、起好了名,一开始就存成没建完的(网址 w=编号,刷新不丢);什么都没动就点返回,这一份删掉
-await replayClick();
-await page.waitForTimeout(1000);
-await openOverview(page, 'genesis');
-await page.click('.ov-seg [data-tab=civ]');
-await page.click('.ov [data-act=draft-from]');
-const fromCard = (await page.locator('.studio .st-left').waitFor({ timeout: 5000 }).then(() => true, () => false)) && !(await page.locator('.nd-scrim').count());
-const fromClosed = !(await page.locator('.ov-root:not([hidden])').count());
-const fromSeed = (await page.locator('.st-left [data-act=seed-locked]').innerText().catch(() => '')).replace(/\n/g, ' ');
-const fromUrl = page.url();
-const fromId = new URL(fromUrl).searchParams.get('w');
-const fromKey = `wenming-ditu:world:${fromId}`;
-const fromStored = !!fromId && (await page.evaluate((k) => localStorage.getItem(k) !== null, fromKey));
-await page.click('.st-left [data-act=back]').catch(() => {});
-await page.locator('.studio').waitFor({ state: 'detached', timeout: 10000 }).catch(() => {});
-const fromLeft = !!fromId && (await page.evaluate((k) => localStorage.getItem(k) !== null, fromKey));
-console.log(`以它为底稿新建:卡片 ${fromCard}、概览收起 ${fromClosed}、种子「${fromSeed}」、网址 ${fromUrl.split('?')[1]}、存下了 ${fromStored};没动就返回后还在 ${fromLeft}`);
-if (!fromCard || !fromClosed) errs.push('点"以它为底稿新建"后没有换成新建界面(或弹了新建窗口) / 概览没收起');
-if (!/种子.*7/.test(fromSeed)) errs.push(`以它为底稿新建:种子应锁着、还是 7(${fromSeed})`);
-if (!fromStored) errs.push(`以它为底稿新建:应一开始就存成没建完的、网址带 w=编号(${fromUrl})`);
-if (fromLeft) errs.push('以它为底稿新建后什么都没动就返回,没建完的那一份没有删掉');
+if (part('以它为底稿新建')) {
+  await replayClick();
+  await page.waitForTimeout(1000);
+  await openOverview(page, 'genesis');
+  await page.click('.ov-seg [data-tab=civ]');
+  await page.click('.ov [data-act=draft-from]');
+  const fromCard = (await page.locator('.studio .st-left').waitFor({ timeout: 5000 }).then(() => true, () => false)) && !(await page.locator('.nd-scrim').count());
+  const fromClosed = !(await page.locator('.ov-root:not([hidden])').count());
+  const fromSeed = (await page.locator('.st-left [data-act=seed-locked]').innerText().catch(() => '')).replace(/\n/g, ' ');
+  const fromUrl = page.url();
+  const fromId = new URL(fromUrl).searchParams.get('w');
+  const fromKey = `wenming-ditu:world:${fromId}`;
+  const fromStored = !!fromId && (await page.evaluate((k) => localStorage.getItem(k) !== null, fromKey));
+  await page.click('.st-left [data-act=back]').catch(() => {});
+  await page.locator('.studio').waitFor({ state: 'detached', timeout: 10000 }).catch(() => {});
+  const fromLeft = !!fromId && (await page.evaluate((k) => localStorage.getItem(k) !== null, fromKey));
+  console.log(`以它为底稿新建:卡片 ${fromCard}、概览收起 ${fromClosed}、种子「${fromSeed}」、网址 ${fromUrl.split('?')[1]}、存下了 ${fromStored};没动就返回后还在 ${fromLeft}`);
+  if (!fromCard || !fromClosed) errs.push('点"以它为底稿新建"后没有换成新建界面(或弹了新建窗口) / 概览没收起');
+  if (!/种子.*7/.test(fromSeed)) errs.push(`以它为底稿新建:种子应锁着、还是 7(${fromSeed})`);
+  if (!fromStored) errs.push(`以它为底稿新建:应一开始就存成没建完的、网址带 w=编号(${fromUrl})`);
+  if (fromLeft) errs.push('以它为底稿新建后什么都没动就返回,没建完的那一份没有删掉');
+}
 
 // 新建界面:进来就是地球仪(不放板块漂移,左边没有「重看星球形成」),左边一句说是按种子随机生成;
 // 「换一颗」:种子、网址换了,生成时顶部提示条上有进度;随机生成的新建拖进图片不导入(提示条说一句)
-await page.goto(`${dev.url}/?new=1&seed=7&style=realistic`);
-await studioReady();
-{
+if (part('新建界面')) {
+  await page.goto(`${dev.url}/?new=1&seed=7&style=realistic`);
+  await studioReady();
   const theme = await page.locator('.app').getAttribute('data-theme');
   const styles = await page.locator('.st-right [data-style]').count();
   const projs = await page.locator('.st-right [data-proj]').count();
@@ -1277,7 +1310,7 @@ await studioReady();
 // 第一次来(什么都没存):先到「我的世界」,中间一颗星球、一段话、「新建世界」;点了先弹窗(第 1 步两种、默认随机生成,
 // 第 2 步种子和参数、说进去还能改;Esc 关掉什么都不留下),「开始」才进新建界面;
 // 「创建世界」先弹确认框(列出种子、世界参数、地形、地名风格四样不能再改),「再改改」关掉、「确认创建」才建好,回到平常的世界页面(浅色、政区)
-{
+if (part('第一次来')) {
   const fctx = await browser.newContext({ viewport: { width: 1400, height: 820 } });
   const fp = await fctx.newPage();
   fp.on('pageerror', (e) => errs.push(`第一次来:${e.message}`));
@@ -1331,7 +1364,7 @@ await studioReady();
 // 新建界面是照图的那一页(左边图片一行和三步,没有右边的样式投影、没有种子和「换一颗」),进来就是第 1 步认图、后两步灰着、创建不了;
 // 在图上点一下海 →「照这样长出星球」→ 第 1 步打勾写着认出来多少、第 2 步(笔)展开、切换条上「长出来的」能点;
 // 确认框里「种子」那行换成「图片」
-{
+if (part('照手绘图新建')) {
   const { PNG } = await import('pngjs');
   const fs = await import('node:fs');
   const os = await import('node:os');
@@ -1402,7 +1435,7 @@ await studioReady();
 }
 
 // 手机新建:第一眼星球整个在底部卡片上面(不是只露一角);创建以后正中看到的是陆地(展开的同时转到陆地最多的那一面)
-{
+if (part('手机新建')) {
   const pctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
   const pp = await pctx.newPage();
   pp.on('pageerror', (e) => errs.push(`手机新建:${e.message}`));
@@ -1436,7 +1469,7 @@ await studioReady();
 // 新建时让助手改(测试用假 AI):左边「地形」里「让助手改」→ 右边的样式和投影换成助手面板;说一句要改的 →
 // 列出改地形的两条(带编号),星球转过去、圈出这两处;勾掉一条,圈跟着少一个;执行 → 按新地形重新生成,左边「地形」写"画了 2 笔",
 // 不放提示条,清单收起、助手里只留一行"已执行 2 条"带撤销;撤销 → 回到"还没改"。打开编辑地形时助手收起;换一颗,对话清掉
-{
+if (part('新建时让助手改')) {
   const actx = await browser.newContext({ viewport: { width: 1600, height: 900 } });
   const ap = await actx.newPage();
   ap.on('pageerror', (e) => errs.push(`新建时让助手改:${e.message}`));
@@ -1502,104 +1535,106 @@ await studioReady();
 }
 
 // 打开"民族"视图:悬停在有人住的地方要显示"XX族"
-await page.goto(`${dev.url}/?seed=7&style=fantasy&civ=cultures`);
-await page.waitForFunction(() => (window as any).__wfCiv?.ready, null, { timeout: 60000 });
-const box = (await page.locator('.map-box canvas').first().boundingBox())!;
-let people = '';
-for (let i = 0; i < 40 && !people; i++) {
-  await page.mouse.move(box.x + box.width * (0.1 + 0.8 * ((i * 0.618) % 1)), box.y + box.height * (0.2 + 0.6 * ((i * 0.382) % 1)));
-  await page.waitForTimeout(40);
-  const t = await page.locator('.hover').innerText().catch(() => '');
-  if (t.includes('族')) people = t;
-}
-console.log('民族视图悬停:', people.replace(/\n/g, ' / ') || '(没找到有人住的地方)');
-if (!people) errs.push('民族视图下悬停没有显示"XX族"');
-if (!(await page.locator('.civ-timeline').isVisible())) errs.push('打开"民族"后没有时间轴');
-
-// 打开"国家"视图:首次绘制文明层(底图 + 国名、城名、城镇符号的文字层)≤ 150 ms;概览的国家页列出这一年的国家;
-// 悬停显示"某国 · 最近城市 某城";从第 1500 年按 4× 接着放,国家、城市随年份变化时每帧(底图 + 文字层)≤ 30 ms。
-// CI 的虚拟机比一般电脑慢两三倍(同一段回放每帧耗时约是本机的 2.5 倍),首次绘制的预算在 CI 上放宽到 2 倍
-const DRAW_BUDGET = process.env.CI ? 300 : 150;
-for (const style of ['realistic', 'fantasy']) {
-  await page.goto(`${dev.url}/?seed=7&style=${style}&civ=polities,routes&civYear=1500`);
+if (part('民族和国家视图')) {
+  await page.goto(`${dev.url}/?seed=7&style=fantasy&civ=cultures`);
   await page.waitForFunction(() => (window as any).__wfCiv?.ready, null, { timeout: 60000 });
-  // 文字层等字体加载好才画;画出国名、城镇符号才算画完
-  await page.waitForFunction(() => (window as any).__wfLabels?.polities > 0, null, { timeout: 30000 }).catch(() => {});
-  const civMs = await page.evaluate(() => (window as any).__wfCiv.ms as number);
-  const lab = await page.evaluate(() => (window as any).__wfLabels);
-  const first = civMs + (lab?.ms ?? NaN);
-  await openOverview(page, 'countries');
-  const nations = await page.locator('.ov-countries .ov-row:not(.dead)').count();
-  await closeOverview();
-  console.log(
-    `国家视图(${style}):首次绘制 ${first.toFixed(1)} ms(底图 ${civMs.toFixed(1)} + 文字层 ${(lab?.ms ?? NaN).toFixed(1)}),` +
-      `国名 ${lab?.polities} 个、城镇符号 ${lab?.marks} 个、文字 ${lab?.drawn} 条,图例 ${nations} 行`,
-  );
-  if (!(first <= DRAW_BUDGET)) errs.push(`国家视图首次绘制太慢(${first.toFixed(1)} ms,预算 ${DRAW_BUDGET} ms)`);
-  if (!(lab?.polities > 0) || !(lab?.marks > 0)) errs.push('国家视图没有画出国名 / 城镇符号');
-  if (nations < 2) errs.push('国家视图的图例没有列出国家');
-  if (style === 'realistic') {
-    let found = '';
-    let card = '';
-    // 先在国名上悬停(国名写在国土上),再在地图上撒点找
-    const spots = ((await page.evaluate('window.__wfPickables()')) as { kind: string; x: number; y: number }[]).filter((p) => p.kind === 'polity');
-    for (let i = 0; i < spots.length + 200 && !found; i++) {
-      if (i < spots.length) await page.mouse.move(spots[i].x, spots[i].y);
-      else await page.mouse.move(box.x + box.width * (0.05 + 0.9 * ((i * 0.618) % 1)), box.y + box.height * (0.1 + 0.8 * ((i * 0.382) % 1)));
-      await page.waitForTimeout(30);
-      const x = i < spots.length ? spots[i].x : box.x + box.width * (0.05 + 0.9 * ((i * 0.618) % 1));
-      const y = i < spots.length ? spots[i].y : box.y + box.height * (0.1 + 0.8 * ((i * 0.382) % 1));
-      const t = (await probe(page, x, y)).replace(/ \/ /g, '\n');
-      // 国名可能是"索拉特王国",也可能是东方的"大昌"、"景辰王朝":只要"某国 · 最近城市",不是部落地带
-      if (/^(?!部落地带).+ · 最近城市/m.test(t)) {
-        found = t;
-        // 悬停小卡片:国名 + 州数
-        card = (await page.locator('.hover-card').innerText().catch(() => '')).replace(/\n/g, ' ');
-      }
-    }
-    console.log('国家视图读数:', found.replace(/\n/g, ' / ') || '(没找到国内的地方)', `;悬停卡片「${card}」`);
-    if (!found) errs.push('国家视图下读数里没有"某国 · 最近城市"');
-    else if (!/\d+ 州/.test(card)) errs.push(`国家视图下悬停卡片没有"国名 N 州"(${card})`);
+  const box = (await page.locator('.map-box canvas').first().boundingBox())!;
+  let people = '';
+  for (let i = 0; i < 40 && !people; i++) {
+    await page.mouse.move(box.x + box.width * (0.1 + 0.8 * ((i * 0.618) % 1)), box.y + box.height * (0.2 + 0.6 * ((i * 0.382) % 1)));
+    await page.waitForTimeout(40);
+    const t = await page.locator('.hover').innerText().catch(() => '');
+    if (t.includes('族')) people = t;
   }
-  await page.mouse.move(5, 5);
-  await page.click('.timebar .tb-speed button:has-text("4×")');
-  await page.click('.timebar button.tb-play');
-  const frames = await page.evaluate(async () => {
-    const w = window as any;
-    const ms: number[] = [];
-    const years: number[] = [];
-    const text: number[] = [];
-    let last: unknown = null;
-    const t0 = performance.now();
-    while (performance.now() - t0 < 2500) {
-      await new Promise((r) => requestAnimationFrame(r));
-      const c = w.__wfCiv;
-      if (c && c !== last && c.fast) {
-        // 这一帧的文字层(国名、城镇符号随年份重画):同一年画的那次
-        const l = w.__wfLabels;
-        const lm = l && l.fast && Math.abs(l.year - c.year) < 1e-6 ? l.ms : 0;
-        ms.push(c.ms + lm);
-        text.push(lm);
-        years.push(c.year);
+  console.log('民族视图悬停:', people.replace(/\n/g, ' / ') || '(没找到有人住的地方)');
+  if (!people) errs.push('民族视图下悬停没有显示"XX族"');
+  if (!(await page.locator('.civ-timeline').isVisible())) errs.push('打开"民族"后没有时间轴');
+
+  // 打开"国家"视图:首次绘制文明层(底图 + 国名、城名、城镇符号的文字层)≤ 150 ms;概览的国家页列出这一年的国家;
+  // 悬停显示"某国 · 最近城市 某城";从第 1500 年按 4× 接着放,国家、城市随年份变化时每帧(底图 + 文字层)≤ 30 ms。
+  // CI 的虚拟机比一般电脑慢两三倍(同一段回放每帧耗时约是本机的 2.5 倍),首次绘制的预算在 CI 上放宽到 2 倍
+  const DRAW_BUDGET = process.env.CI ? 300 : 150;
+  for (const style of ['realistic', 'fantasy']) {
+    await page.goto(`${dev.url}/?seed=7&style=${style}&civ=polities,routes&civYear=1500`);
+    await page.waitForFunction(() => (window as any).__wfCiv?.ready, null, { timeout: 60000 });
+    // 文字层等字体加载好才画;画出国名、城镇符号才算画完
+    await page.waitForFunction(() => (window as any).__wfLabels?.polities > 0, null, { timeout: 30000 }).catch(() => {});
+    const civMs = await page.evaluate(() => (window as any).__wfCiv.ms as number);
+    const lab = await page.evaluate(() => (window as any).__wfLabels);
+    const first = civMs + (lab?.ms ?? NaN);
+    await openOverview(page, 'countries');
+    const nations = await page.locator('.ov-countries .ov-row:not(.dead)').count();
+    await closeOverview();
+    console.log(
+      `国家视图(${style}):首次绘制 ${first.toFixed(1)} ms(底图 ${civMs.toFixed(1)} + 文字层 ${(lab?.ms ?? NaN).toFixed(1)}),` +
+        `国名 ${lab?.polities} 个、城镇符号 ${lab?.marks} 个、文字 ${lab?.drawn} 条,图例 ${nations} 行`,
+    );
+    if (!(first <= DRAW_BUDGET)) errs.push(`国家视图首次绘制太慢(${first.toFixed(1)} ms,预算 ${DRAW_BUDGET} ms)`);
+    if (!(lab?.polities > 0) || !(lab?.marks > 0)) errs.push('国家视图没有画出国名 / 城镇符号');
+    if (nations < 2) errs.push('国家视图的图例没有列出国家');
+    if (style === 'realistic') {
+      let found = '';
+      let card = '';
+      // 先在国名上悬停(国名写在国土上),再在地图上撒点找
+      const spots = ((await page.evaluate('window.__wfPickables()')) as { kind: string; x: number; y: number }[]).filter((p) => p.kind === 'polity');
+      for (let i = 0; i < spots.length + 200 && !found; i++) {
+        if (i < spots.length) await page.mouse.move(spots[i].x, spots[i].y);
+        else await page.mouse.move(box.x + box.width * (0.05 + 0.9 * ((i * 0.618) % 1)), box.y + box.height * (0.1 + 0.8 * ((i * 0.382) % 1)));
+        await page.waitForTimeout(30);
+        const x = i < spots.length ? spots[i].x : box.x + box.width * (0.05 + 0.9 * ((i * 0.618) % 1));
+        const y = i < spots.length ? spots[i].y : box.y + box.height * (0.1 + 0.8 * ((i * 0.382) % 1));
+        const t = (await probe(page, x, y)).replace(/ \/ /g, '\n');
+        // 国名可能是"索拉特王国",也可能是东方的"大昌"、"景辰王朝":只要"某国 · 最近城市",不是部落地带
+        if (/^(?!部落地带).+ · 最近城市/m.test(t)) {
+          found = t;
+          // 悬停小卡片:国名 + 州数
+          card = (await page.locator('.hover-card').innerText().catch(() => '')).replace(/\n/g, ' ');
+        }
       }
-      last = c;
+      console.log('国家视图读数:', found.replace(/\n/g, ' / ') || '(没找到国内的地方)', `;悬停卡片「${card}」`);
+      if (!found) errs.push('国家视图下读数里没有"某国 · 最近城市"');
+      else if (!/\d+ 州/.test(card)) errs.push(`国家视图下悬停卡片没有"国名 N 州"(${card})`);
     }
-    return { ms, years, text };
-  });
-  const fs = [...frames.ms].sort((a, b) => a - b);
-  const med = fs[fs.length >> 1] ?? NaN;
-  const ts = [...frames.text].sort((a, b) => a - b);
-  console.log(
-    `国家视图回放(${style}):${fs.length} 帧,第 ${Math.round(frames.years[0] ?? NaN)} → ${Math.round(frames.years.at(-1) ?? NaN)} 年,` +
-      `每帧(底图 + 文字层)中位数 ${med.toFixed(1)} ms、最慢 ${(fs.at(-1) ?? NaN).toFixed(1)} ms;其中文字层中位数 ${(ts[ts.length >> 1] ?? NaN).toFixed(1)} ms`,
-  );
-  if (fs.length < 5) errs.push('国家视图点播放后没有接着放');
-  if (!(med <= REPLAY_BUDGET)) errs.push(`国家视图回放每帧太慢(中位数 ${med.toFixed(1)} ms,预算 ${REPLAY_BUDGET} ms)`);
+    await page.mouse.move(5, 5);
+    await page.click('.timebar .tb-speed button:has-text("4×")');
+    await page.click('.timebar button.tb-play');
+    const frames = await page.evaluate(async () => {
+      const w = window as any;
+      const ms: number[] = [];
+      const years: number[] = [];
+      const text: number[] = [];
+      let last: unknown = null;
+      const t0 = performance.now();
+      while (performance.now() - t0 < 2500) {
+        await new Promise((r) => requestAnimationFrame(r));
+        const c = w.__wfCiv;
+        if (c && c !== last && c.fast) {
+          // 这一帧的文字层(国名、城镇符号随年份重画):同一年画的那次
+          const l = w.__wfLabels;
+          const lm = l && l.fast && Math.abs(l.year - c.year) < 1e-6 ? l.ms : 0;
+          ms.push(c.ms + lm);
+          text.push(lm);
+          years.push(c.year);
+        }
+        last = c;
+      }
+      return { ms, years, text };
+    });
+    const fs = [...frames.ms].sort((a, b) => a - b);
+    const med = fs[fs.length >> 1] ?? NaN;
+    const ts = [...frames.text].sort((a, b) => a - b);
+    console.log(
+      `国家视图回放(${style}):${fs.length} 帧,第 ${Math.round(frames.years[0] ?? NaN)} → ${Math.round(frames.years.at(-1) ?? NaN)} 年,` +
+        `每帧(底图 + 文字层)中位数 ${med.toFixed(1)} ms、最慢 ${(fs.at(-1) ?? NaN).toFixed(1)} ms;其中文字层中位数 ${(ts[ts.length >> 1] ?? NaN).toFixed(1)} ms`,
+    );
+    if (fs.length < 5) errs.push('国家视图点播放后没有接着放');
+    if (!(med <= REPLAY_BUDGET)) errs.push(`国家视图回放每帧太慢(中位数 ${med.toFixed(1)} ms,预算 ${REPLAY_BUDGET} ms)`);
+  }
 }
 
 // 时间轴:打开网页从第 2600 年起按 1× 自动播放(无头浏览器里默认不播,网址加 play=1);经过大事时事发地出标签、
 // 左下出最近事件;4× 快四倍;放到第 3000 年停下,再点播放从 2600 年重播;点最近事件跳到那一年、地图高亮事发地;点国家暂停
-{
+if (part('时间轴')) {
   const tlState = () =>
     page.evaluate(() => ({
       year: Number(document.querySelector('.timebar .tb-year')?.textContent?.match(/\d+/)?.[0] ?? NaN),
@@ -1693,7 +1728,7 @@ for (const style of ['realistic', 'fantasy']) {
 }
 
 // 编年史(阶段 3):世界概览的编年史页点一条:时间轴跳到那一年并暂停,地图上高亮事发地,还没发生的淡显
-{
+if (part('编年史')) {
   await page.goto(`${dev.url}/?seed=7&style=fantasy&civ=polities`);
   await page.waitForFunction(() => (window as any).__wfCiv?.ready, null, { timeout: 60000 });
   // 时间轴上的大事菱形:有菱形、每 100 年一格刻度;悬停出提示;点一个 → 时间轴跳到那一年、地图上高亮(和点编年史的一条一样)
@@ -1855,7 +1890,7 @@ for (const style of ['realistic', 'fantasy']) {
 }
 
 // 点选 + 改名(阶段 4):拖动地图不选中;点一座城 → 详情面板 → 改名 → 地图上的字、悬停都变了 → 恢复默认 → Esc 关面板
-{
+if (part('点选改名')) {
   await page.goto(`${dev.url}/?seed=7&style=fantasy&civ=polities`);
   await page.waitForFunction(() => (window as any).__wfLabels?.polities > 0, null, { timeout: 60000 });
   await page.waitForTimeout(300);
@@ -1959,7 +1994,7 @@ for (const style of ['realistic', 'fantasy']) {
 }
 // 存档(阶段 4):打开一个种子(只是看看,不存)→ 改一个名字 → 存进"我的世界"、网址换成 w=编号 → 刷新页面 → 名字还在(自动恢复);
 // 存档菜单写着"已自动存";存成文件;回到"我的世界"有这张卡片 → 换一个世界、清掉浏览器里的存档 → 从文件打开 → 名字回来
-{
+if (part('存档')) {
   const labelsHave = (n: string, timeout = 60000) =>
     page.waitForFunction((t) => (window as any).__wfLabels?.texts?.includes(t), n, { timeout }).then(() => true, () => false);
   await page.evaluate(() => localStorage.clear());
@@ -2055,7 +2090,7 @@ for (const style of ['realistic', 'fantasy']) {
 
 // 旧存档的键(阶段 4 远处的历史别乱):浏览器里存着一个旧版本(按"种子 + 参数"当编号、r + 州号的键)的自动存档 →
 // 进站先到"我的世界",列着这个世界(换成了新编号)→ 打开 → 改名照样套上(州名、城名),自动存里的键就地换成了 c 格式(按地块)
-{
+if (part('旧存档的键')) {
   const { worldKey } = await import('../src/gen/savefile');
   const { DEFAULT_PARAMS } = await import('../src/gen/world');
   const params = { ...DEFAULT_PARAMS, seed: 7 };
@@ -2137,7 +2172,7 @@ for (const style of ['realistic', 'fantasy']) {
 }
 // 世界换成球面以前(生成器版本 4 及以前)的存档文件、分享链接:照常打开成同一个种子的球面世界,提示"来自旧版本",
 // 地形修改按经纬度套上(跨 180° 经线的那一笔也行),指不到的改名 / 干预先留着;页面不报错
-{
+if (part('平面时代的存档')) {
   const fs = await import('node:fs');
   const os = await import('node:os');
   const path = await import('node:path');
@@ -2193,7 +2228,7 @@ for (const style of ['realistic', 'fantasy']) {
   await page.evaluate(() => localStorage.clear());
 }
 // 隐私模式(localStorage 一碰就抛错):页面照常能用,改名照样生效,存档菜单里提示"不让存"
-{
+if (part('隐私模式')) {
   const ctx2 = await browser.newContext({ viewport: { width: 1400, height: 820 } });
   await ctx2.addInitScript(() => {
     Object.defineProperty(window, 'localStorage', {
@@ -2238,7 +2273,7 @@ for (const style of ['realistic', 'fantasy']) {
 // 分享链接(阶段 4):改名 → 复制分享链接 → 另一个浏览器(什么都没存)打开这个链接 → 名字在、地址栏的 # 去掉了、地图下面说明"别人分享给你的世界";
 // 那边改成别的名字(存进那边的"我的世界")后再打开链接 → 看到的是链接里的(不问、不覆盖),回"我的世界"打开本地那个还是自己改的名字;
 // 剪贴板用不了 → 存档菜单里一行手动复制
-{
+if (part('分享链接')) {
   type Pick = { kind: string; id: number; text: string; x: number; y: number };
   const has = (p: typeof page, n: string, timeout = 30000) =>
     p.waitForFunction((t) => (window as any).__wfLabels?.texts?.includes(t), n, { timeout }).then(() => true, () => false);
@@ -2346,7 +2381,7 @@ for (const style of ['realistic', 'fantasy']) {
 }
 
 // 没改过的世界:复制出来的普通链接、地址栏都带生成器版本(gen=);打开旧版本时的普通链接,提示条说清变了什么;版本一样不提示
-{
+if (part('生成器版本')) {
   const ctx = await browser.newContext({ viewport: { width: 1400, height: 820 }, permissions: ['clipboard-read', 'clipboard-write'] });
   const p = await ctx.newPage();
   p.on('pageerror', (e) => errs.push(`版本号:${e.message}`));
@@ -2398,7 +2433,7 @@ for (const style of ['realistic', 'fantasy']) {
 // 分享链接带上"这一刻":第 1500 年选中一国、复制(「停在这一刻」默认勾着)→ 另一个浏览器打开停在第 1500 年、那一国选中、镜头一样,
 // 地图下的说明开头说停在哪,「从头放」以后不再选中;国家卡片「更多」里的「复制分享链接」也带着这一国。
 // 朋友的预设链接:打开就是新建弹窗第 2 步、参数照链接填好,顶上一条说明 +「存进我的预设…」;坏了的链接提示、照常停在我的世界
-{
+if (part('分享这一刻')) {
   const ctxA = await browser.newContext({ viewport: { width: 1400, height: 820 }, permissions: ['clipboard-read', 'clipboard-write'] });
   const ctxB = await browser.newContext({ viewport: { width: 1400, height: 820 } });
   const a = await ctxA.newPage();
@@ -2485,7 +2520,7 @@ for (const style of ['realistic', 'fantasy']) {
 // 不过只在这个世界真的变了样(提示"来自旧版本…")时才放 —— 之后几版只改了改过地形的世界的,没改过地形的世界提示条上不放
 // (上一版另拿一个改过地形的世界看提示条上的)。
 // 点了开一个新页面到 /v<那一版>/,带 own=1 和整份存档(# 后面)。没有旧网站的更早版本、现在这一版建的都没有
-{
+if (part('看原样')) {
   const { FIRST_OLD_SITE } = await import('../src/ui/oldSite');
   const { versionNote } = await import('../src/gen/savefile');
   const ctx = await browser.newContext({ viewport: { width: 1400, height: 820 } });
@@ -2555,7 +2590,7 @@ for (const style of ['realistic', 'fantasy']) {
 // 各种状态(统一走顶部提示条,不另开窗口):首次打开世界出来之前只有同色底 + "正在生成世界"的进度(四角先藏着);
 // 导入坏文件 → 提示条报错(打不开 xx.json + 原因);没有干预时概览"我的干预"是一句空状态;
 // 浏览器存储满了 → 提示"没能自动存档"带"存成文件",存档菜单里当前世界那一行也写着
-{
+if (part('各种状态')) {
   const ctx = await browser.newContext({ viewport: { width: 1400, height: 820 } });
   const sp = await ctx.newPage();
   sp.on('pageerror', (e) => errs.push(`各种状态:${e.message}`));
@@ -2627,7 +2662,7 @@ for (const style of ['realistic', 'fantasy']) {
 
 // 干预(阶段 4):点一个后来会亡的国家 → 国家面板"干预历史 → 保护" → 后台重推 → 它到最后都没亡,相关事件里记了一条干预,
 // 时间轴从干预那一年接着放、轨道上多一枚"令";刷新页面恢复这条干预时不打断(无头浏览器里没有自动播放:停着不动)
-{
+if (part('干预保护')) {
   // 找一个"那一年还在、后来会亡"的国家:在 Node 里推一遍同一个世界,挑亡国之前国土最大的那一年,
   // 在地图上点它的国土(按世界坐标换成屏幕坐标;历史换了一遍时不用改这里)
   let Y = 0;
@@ -2810,7 +2845,7 @@ for (const style of ['realistic', 'fantasy']) {
 // → 干预历史 → 干预页(生效年份、十条命令)→ 宣战:只有相邻国家浮出名牌 → Esc 回到干预页 → 结盟:地图压暗、提示条"选择与…结盟的国家"、
 // 悬停名牌反色、悬停国土"点击选择" → 点名牌 → 推演时面板藏起,推完面板还在(回到信息页)、地图飞回这国、"…结盟,已从 N 年起重新推演"带撤销、
 // 从 N 年接着放 → 撤销 →"已撤销"
-{
+if (part('国家面板')) {
   type Plate = { kind: string; id: number; text: string; note: string; x: number; y: number; on: boolean; self: boolean };
   type Pick = { kind: string; id: number; text: string; x: number; y: number };
   const Y = 2600;
@@ -2956,7 +2991,7 @@ for (const style of ['realistic', 'fantasy']) {
 // 编辑地形(新建世界时):陆地笔在大洋中间涂一笔 → 重新生成后那里成了陆地,"画了 1 笔";撤销 → 又是海;重做 → 又是陆地;
 // 海 + 圈起来填满圈住那一片(画的时候地图下边有一句提示)→ 又沉成海;河画一条;关掉"在地图上显示草图"地图上不画草图;
 // 全部清除(点两下)→ "还没画",那里回到原来的海
-{
+if (part('编辑地形')) {
   const ectx = await browser.newContext({ viewport: { width: 1600, height: 900 } });
   const ep = await ectx.newPage();
   ep.on('pageerror', (e) => errs.push(`编辑地形:${e.message}`));
@@ -3049,7 +3084,7 @@ for (const style of ['realistic', 'fantasy']) {
 // 改地形(阶段 4):只在新建世界时能改。新建界面左边点"编辑地形" → 卡片里换成编辑地形的工具、星球摊成平面 → 选火山,在海里点一下放一座 → 后台按新地形重新生成 →
 // 那里成了陆地(悬停显示海拔);撤销 → 又变回海,再放一次;"完成"收起工具;动过的新建世界存下来了,刷新后自动恢复(直接带着地形修改生成);
 // 创建以后没有改地形的入口,概览"世界设定"页写着改过的地形;分享链接在另一个浏览器里打开,地形修改在(也是直接带着修改生成)
-{
+if (part('改地形')) {
   await page.evaluate(() => localStorage.clear());
   await page.goto(`${dev.url}/?new=1&seed=7&style=fantasy`);
   await page.waitForFunction(() => (window as any).__wf?.ready, null, { timeout: 60000 });
@@ -3177,7 +3212,7 @@ for (const style of ['realistic', 'fantasy']) {
 }
 
 // 干预 · 立国:点一个有主的州 → 详情面板"在这里立国"(起名"饕餮")→ 后台重推 → 地图上那一州归了新国家
-{
+if (part('立国')) {
   const Y = 1500;
   await page.evaluate(() => localStorage.clear());
   await page.goto(`${dev.url}/?seed=7&style=fantasy&civ=regions&civYear=${Y}`);
@@ -3291,7 +3326,7 @@ for (const style of ['realistic', 'fantasy']) {
 // 城 / 地理实体 / 州的面板(和国家面板同一套):点一座城 → 城面板(三格、兴衰、历任归属、2×2 按钮)→ "看所属国家"切到国家面板;
 // 点一个地名 → 地理实体面板(改名 / 名字由来 / 起名);点一个州 → 州面板 → "划给…" → 干预页 → "选择国家" → 地图压暗、名牌、
 // 提示条 → 点名牌 → "…划给…,已从 N 年起重新推演"带撤销,州面板里列出这一州的干预 → 撤销 → "已撤销"、列表没了
-{
+if (part('城和州的面板')) {
   type Plate = { kind: string; id: number; text: string; note: string; x: number; y: number; on: boolean; self: boolean };
   type Pick = { kind: string; id: number; text: string; x: number; y: number };
   const Y = 2600;
@@ -3495,7 +3530,7 @@ for (const style of ['realistic', 'fantasy']) {
 // 窗口关上、提示条"还没有设置 AI · 去设置"(打开 AI 设置);窗口里的"AI 设置"打开设置,Esc 只关设置。
 // 测试用假 AI(放慢):开始生成 → 右上"正在撰写《世界通史》"+ 进度条 → "已完成 · 打开" → 阅读页(书名、正文)→
 // 读过就收起;刷新后"已写的史书"里还在,点开能读,删除(点两次)
-{
+if (part('成书')) {
   const hp = await browser.newPage({ viewport: { width: 1400, height: 820 } });
   hp.on('pageerror', (e) => errs.push(`[成书] ${e.message}`));
   hp.on('console', (m) => m.type() === 'error' && errs.push(`[成书] ${m.text()}`));
@@ -3611,7 +3646,7 @@ for (const style of ['realistic', 'fantasy']) {
 
 // 搜索:侧栏顶上的搜索框 → 输入名字,下面换成结果 → 点一条:结果收起、选中它(侧栏里换成面板);Esc 清空;
 // 选中国家后"成书"的"写什么"多出这一国;国家面板"更多"里的"让 AI 写国史"默认写这一国
-{
+if (part('搜索')) {
   const sp = await browser.newPage({ viewport: { width: 1400, height: 820 } });
   sp.on('pageerror', (e) => errs.push(`[搜索] ${e.message}`));
   sp.on('console', (m) => m.type() === 'error' && errs.push(`[搜索] ${m.text()}`));
@@ -3662,7 +3697,7 @@ for (const style of ['realistic', 'fantasy']) {
 
 // 再推 N 年:时间轴尽头「再推」→ 弹层选 100 年 → 推好:时间轴到第 3100 年(刻度只写 3100,3000 挨得太近省掉)、播放头停在原来的第 3000 年、
 // 刚推的那段标出来、顶上提示条「已推到第 3100 年」;提示条上「撤销」→ 和推之前一模一样。推的时候点「停下」→ 什么都不留
-{
+if (part('再推')) {
   const xp = await browser.newPage({ viewport: { width: 1400, height: 820 } });
   xp.on('pageerror', (e) => errs.push(`[再推] ${e.message}`));
   xp.on('console', (m) => m.type() === 'error' && errs.push(`[再推] ${m.text()}`));
@@ -3716,7 +3751,7 @@ for (const style of ['realistic', 'fantasy']) {
 // "先在地图上看看":地图上方的提示条,"回到现在"收起 → "执行 N 条":后台重推,提示条"已按你说的改写"(带撤销)、侧栏顶上"干预了 N 处",
 // 确认单写"已执行" → 提示条上点撤销 → 重推回没有干预、确认单写"已撤销"。问一句 → 地图上选中它;再点「助手」收起、地图回原位。
 // 手机:右上第三个按钮打开拉到顶的卡片;"先在地图上看看"收起卡片,提示条上能直接执行
-{
+if (part('助手')) {
   const rp = await browser.newPage({ viewport: { width: 1400, height: 820 } });
   rp.on('pageerror', (e) => errs.push(`[助手] ${e.message}`));
   rp.on('console', (m) => m.type() === 'error' && errs.push(`[助手] ${m.text()}`));
@@ -3867,7 +3902,7 @@ for (const style of ['realistic', 'fantasy']) {
 }
 
 // AI 设置(阶段 5):打开"AI" → 我们的 AI 显示"内测" → 假 AI(ai=mock,不联网)"测试一下"成功 → 调用记录里有一条、刷新后还在 → 清空
-{
+if (part('AI 设置')) {
   const outside: string[] = [];
   const onReq = (r: { url: () => string }) => /deepseek\.com|aliyuncs\.com/.test(new URL(r.url()).host) && outside.push(r.url());
   page.on('request', onReq);
@@ -3917,7 +3952,7 @@ for (const style of ['realistic', 'fantasy']) {
 
 // AI 释名 / 起名(阶段 5,不联网):没设置 AI 时点"释名" → 一行提示"还没有设置 AI" +"设置 AI"打开设置面板;
 // 测试用假 AI:点一座城 → 释名(写完存下)→ AI 起名 → 选第一个 → 就用这个 → 地图上的城名变了
-{
+if (part('AI 释名')) {
   await page.evaluate(() => localStorage.clear());
   let notSet = '';
   let settingsOpened = false;
@@ -4024,7 +4059,7 @@ for (const style of ['realistic', 'fantasy']) {
 
 // 世界东西相连:左右无限拖动(每帧耗时)、拖一整圈回到原处画面一致、接缝两侧点到同一块地、
 // 编年史跳转走短边、手绘风的外框罗盘画在视窗上、导出按当前视图中心展开
-{
+if (part('东西相连')) {
   const { PNG } = await import('pngjs');
   await page.goto(`${dev.url}/?seed=7&style=fantasy&civ=polities`);
   await page.waitForFunction(() => (window as any).__wfLabels?.polities > 0, null, { timeout: 60000 });
@@ -4283,7 +4318,7 @@ for (const style of ['realistic', 'fantasy']) {
 
 // 放大后的文明细节层:国家视图放大到 8 倍 → 细节层开着,画在不缩放的屏幕层里、画布像素 = 屏幕像素(不在被 CSS 放大的地图框里),
 // 被放大的文明底图藏起来,色块、国界画出来了;放大后回放每帧耗时(回放时按粗一点的格画,停下来补细的);缩回 1 倍细节层关掉、底图回来
-{
+if (part('文明细节层')) {
   await page.goto(`${dev.url}/?seed=7&style=fantasy&civ=polities`);
   await page.waitForFunction(() => (window as any).__wfLabels?.polities > 0, null, { timeout: 60000 });
   await page.waitForTimeout(300);
@@ -4376,7 +4411,7 @@ for (const style of ['realistic', 'fantasy']) {
 
 // 多种投影:弹层里切到罗宾森(切换耗时)→ 点一座城 → 详情是这座城;左右拖 = 转中央经线;弹层里的中央经线滑条;
 // 改中央经线 → 刷新后投影和中心都还在;导出罗宾森图片(尺寸、外轮廓外是底色、里面有图)
-{
+if (part('多种投影')) {
   const { PNG } = await import('pngjs');
   await page.goto(`${dev.url}/?seed=7&style=fantasy&civ=polities`);
   await page.evaluate(() => localStorage.clear());
@@ -4596,7 +4631,7 @@ for (const style of ['realistic', 'fantasy']) {
 
 // 触控板和鼠标滚轮(平面地图):鼠标滚轮一格照旧缩放;触控板捏合跟着手指缩放(Chrome 把捏合报成按着 Ctrl 的滚轮);
 // 触控板两指滑动 = 平移、不缩放;手指在侧栏卡片上捏合,浏览器不放大整个网页
-{
+if (part('触控板')) {
   const tp = await browser.newPage({ viewport: { width: 1400, height: 820 } });
   tp.on('pageerror', (e) => errs.push(`触控板:${e.message}`));
   const cdp = await tp.context().newCDPSession(tp);
@@ -4646,7 +4681,7 @@ for (const style of ['realistic', 'fantasy']) {
 // 3D 地球仪:从平面主图打开的耗时(网址记下 proj=globe)、转动每帧耗时(无头浏览器是软件渲染,量一个上限);拖动转了、拖动不算单击;
 // 悬停有信息;单击一座城 → 详情是这座城;时间轴拖到早年 → 文明层贴图重新上传、球上画面变了;
 // 回放世界形成在球上放;导出菜单里的"导出地球仪这一面"、双击回正;切回平面地图时中心经度接上;没有 WebGL2(globe=cpu)时退回 CPU 画、不白屏
-{
+if (part('地球仪')) {
   const { PNG } = await import('pngjs');
   // 无头浏览器里 WebGL2 走软件渲染(SwiftShader),新版 Chromium 要显式允许
   const gBrowser = await chromium.launch({ args: ['--enable-unsafe-swiftshader'] });
@@ -5043,7 +5078,7 @@ for (const style of ['realistic', 'fantasy']) {
 // 拉到顶后点"改地形" → 卡片收起;
 // 双指捏合 → 地图比例变了;点国家 → 详情卡片升到半屏(胶囊跟上去,国家落在胶囊上方)→ 往上拖拉到顶 → 干预 → 结盟 → 点名牌 → 已生效 → 撤销;
 // 图层抽屉(从底部升起)切到实景;点世界名打开概览,国家列表点一国;搜索框打字(卡片拉到顶)点一条
-{
+if (part('手机布局')) {
   type Pick = { kind: string; id: number; text: string; x: number; y: number };
   type Plate = { kind: string; id: number; text: string; note: string; x: number; y: number; on: boolean; self: boolean };
   const VW = 390;
@@ -5384,7 +5419,7 @@ for (const style of ['realistic', 'fantasy']) {
 // 宽屏侧栏收起:卡片右上角的侧栏图标 → 卡片滑走、左上角留"图标 + 世界名"的小按钮,时间轴拉到最左,地图不动;
 // 收起时选中一个国家卡片弹出来显示它,取消选中又收回去;刷新后还是收起;点小按钮展开;
 // 新建世界不受影响(新建界面左边的设定每次进来都展开着),新建里也能收起、展开
-{
+if (part('侧栏收起')) {
   const ctx = await browser.newContext({ viewport: { width: 1400, height: 820 } });
   const sp = await ctx.newPage();
   sp.on('pageerror', (e) => errs.push(`侧栏收起:${e.message}`));
@@ -5468,7 +5503,7 @@ for (const style of ['realistic', 'fantasy']) {
 // 浏览器的后退、前进:我的世界 → 世界 → 国家卡片 → 卡片里点人名,后退一张张退回来(不换画面)、再后退回我的世界,前进再走回去;
 // 卡片的 Esc = 退回没开卡片的那一步;新建里换一颗,后退换回刚才那颗;创建世界后后退跳过新建那几步;
 // 后退到一个在别的页面里删掉的世界:停在我的世界,提示删掉了
-{
+if (part('后退前进')) {
   const ctx = await browser.newContext({ viewport: { width: 1400, height: 820 } });
   const bp = await ctx.newPage();
   bp.on('pageerror', (e) => errs.push(`后退:${e.message}`));
@@ -5585,7 +5620,7 @@ for (const style of ['realistic', 'fantasy']) {
 
 // 源代码 · 隐私政策 · 用户协议:概览底部三条链接(网址和 src/ui/links.ts 一致、新标签页打开;手机上在屏幕里、点得到);
 // AI 设置里的"隐私政策";构建产物里有 privacy.html、terms.html,能打开(200),页面里的仓库网址和 links.ts 一致
-{
+if (part('链接')) {
   const { SOURCE_URL, PRIVACY_URL, TERMS_URL } = await import('../src/ui/links');
   const want: Record<string, string> = { source: SOURCE_URL, privacy: PRIVACY_URL, terms: TERMS_URL };
   type Link = { id: string; text: string; href: string; abs: string; target: string; box: [number, number, number, number]; hit: boolean };
@@ -5764,7 +5799,7 @@ for (const style of ['realistic', 'fantasy']) {
 // 联系我们:网站根目录的 contact.json(src/ui/contact.ts)。开发服务里没有这个文件 → 哪里都没有「联系我们」;
 // 有了以后:首页底部有,新标签页打开加群链接;鼠标移上去出小卡片(二维码、群名、群号),点「复制」群号进剪贴板、按钮换成「已复制」,
 // 鼠标移开收起;世界概览底部、世界里的「更多」菜单也有;手机上概览底部不放,「更多」里有;格式不对的 contact.json 当没配
-{
+if (part('联系我们')) {
   const CONTACT = { name: '测试交流群', qq: '925687934', url: 'https://qm.qq.com/q/xXrrfGrKso' };
   const cctx = await browser.newContext({ viewport: { width: 1400, height: 820 } });
   await cctx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: dev.url });
@@ -5855,7 +5890,7 @@ for (const style of ['realistic', 'fantasy']) {
 // 开发服务里没有这个文件 → 版本号和以前一样;有了以后:首页右下角版本号后面小蓝点,鼠标移上去上面出小卡片(新功能、预计日期、测试地址),
 // 移开收起;键盘 Tab 进出卡片里的链接;世界概览里开着卡片按后退,卡片跟着收起;
 // 世界里「更多」菜单最底下一行移上去,卡片出在菜单右边;手机上点那一行,菜单换成卡片;两边一样时不出
-{
+if (part('测试版新功能')) {
   const { WHATS_NEW } = await import('../src/ui/whatsNew');
   const { beijingDay, dayText, nextSync } = await import('../src/ui/betaNews');
   const wantWhen = `预计 ${dayText(nextSync('2026-10-12', beijingDay()))}（周日）更新到正式版`;
@@ -5991,7 +6026,7 @@ for (const style of ['realistic', 'fantasy']) {
 
 // 手机上的大图和高清贴图(多占三四百 MB 内存):导出选 4096×2048 时清晰度下面多一行后果,选回 2048×1024 就没了;
 // 地球仪放大到要铺高清贴图时先不铺,顶上问一句,点「换高清」才铺
-{
+if (part('手机大图')) {
   const mc = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
   const ep = await mc.newPage();
   ep.on('pageerror', (e) => errs.push(`手机导出大图:${e.message}`));
@@ -6034,6 +6069,9 @@ for (const style of ['realistic', 'fantasy']) {
   if (!got || g2?.hdStarted !== 1) errs.push('手机地球仪:点了「换高清」没有换上高清贴图');
 }
 
+const lostStarts = PART_STARTS.filter((n) => !partNames.has(n));
+if (lostStarts.length) errs.push(`分份:PART_STARTS 里的段「${lostStarts.join('、')}」找不到了(改了段名要跟着改)`);
+if (PARTS > 1) console.log(`第 ${PART}/${PARTS} 份跑了 ${partRan.length} 段:${partRan.join('、')}`);
 console.log('errors:', errs);
 await browser.close();
 await dev.close();

@@ -27,6 +27,9 @@ import {
   type PlotStatus,
 } from '../gen/edits';
 import type { AuthorCharacter } from '../gen/characters';
+import { entryInvolves, type ChronicleEntry } from '../gen/civ/chronicle';
+import { ownersAt } from '../gen/civ/timeline';
+import type { DirectorPlot } from './directorPlan';
 import { nameAt } from './Interventions';
 import { yearAt, type Era } from '../gen/era';
 
@@ -595,4 +598,112 @@ export function plotCell(o: OutlineCtx, p: Plot, r: PlotReview | undefined): num
     default:
       return pol(p.a);
   }
+}
+
+// ---------------------------------------------------------------------------
+// 导播照大纲放
+
+/** 照着发生了的情节,编年史里先找哪几种(找不到再看那一年和它有关的别的大事) */
+const PLOT_ENTRY_KINDS: Partial<Record<PlotKind, readonly string[]>> = {
+  fall: ['fall', 'conquer', 'merge'],
+  war: ['war'],
+  submit: ['submit', 'war'],
+  ally: ['alliance'],
+  peace: ['peace', 'war'],
+  found: ['found'],
+  split: ['split', 'found', 'revolt'],
+  dynasty: ['dynasty'],
+  capital: ['capital'],
+  revolt: ['revolt'],
+  collapse: ['collapse'],
+  hold: ['war', 'conquer'],
+  disaster: ['plague', 'famine', 'upheaval', 'intervene'],
+};
+
+/** 说的是两国之间的情节(b = 另一国) */
+const PLOT_PAIR_KINDS: ReadonlySet<PlotKind> = new Set(['fall', 'war', 'ally', 'submit', 'peace']);
+
+/**
+ * 导播照大纲放的情节(按大纲的先后):推过的、不是做不到的;编年史里对上的那一条 ——
+ * 硬改的 = 照这条情节下的那条干预;照着发生了的 = 落定那年、和它说的国家有关的那件(种类对得上的先);只讲故事不对
+ */
+export function directorPlots(o: OutlineCtx, entries: readonly ChronicleEntry[]): DirectorPlot[] {
+  const out: DirectorPlot[] = [];
+  o.plots.forEach((p, i) => {
+    const r = o.review?.find((x) => x.id === p.id);
+    if (!r || r.status === 'failed') return;
+    // 只讲故事的也用照大纲推演排定的那年(跟着前一条的,按前一条落定的年份算)
+    const year = r.year;
+    out.push({
+      id: p.id,
+      n: i + 1,
+      total: o.plots.length,
+      year,
+      text: p.text || PLOT_KIND_INFO[p.kind].name,
+      entry: r.status === 'story' ? null : plotEntry(o, p, r, entries),
+      cell: plotCell(o, p, r),
+    });
+  });
+  return out;
+}
+
+function plotEntry(o: OutlineCtx, p: Plot, r: PlotReview, entries: readonly ChronicleEntry[]): ChronicleEntry | null {
+  const civ = o.civ;
+  if (r.status === 'forced')
+    return entries.find((e) => e.kind === 'intervene' && civ.interventions?.[civ.annals[e.id]?.war ?? -1]?.plot === p.id) ?? null;
+  const y = Math.floor(r.year);
+  const pol = r.polity ? (resolveKey(civ, r.polity)?.kind === 'polity' ? resolveKey(civ, r.polity)!.id : -1) : plotPolityId(o, p.a);
+  // 两国之间的那几种(灭国说了是谁灭的、开战、结盟、称臣、讲和):另一国也得在那件事里
+  const other = PLOT_PAIR_KINDS.has(p.kind) ? plotPolityId(o, p.b) : -1;
+  // 人死了:只认写到这个人的那件(说不出是谁 = 对不上)
+  const who = p.kind === 'death' ? (p.person ? resolvePersonKey(civ, p.person) : -1) : null;
+  if (who !== null && who < 0) return null;
+  // 天灾:种类、地方都得对上(说不出地方 = 对不上)
+  const sky = p.kind === 'disaster' ? disasterMatch(o, p, y) : null;
+  if (p.kind === 'disaster' && !sky) return null;
+  const kinds = PLOT_ENTRY_KINDS[p.kind] ?? [];
+  let best: ChronicleEntry | null = null;
+  let score = -1;
+  for (const e of entries) {
+    // 打完的仗、仗里的称臣并进那场战争的一条(从开打那年记):讲和、称臣的那年对上它打完的那年也算
+    const folded = e.kind === 'war' && (p.kind === 'peace' || p.kind === 'submit') && Math.floor(e.end) === y;
+    if ((Math.floor(e.year) !== y && !folded) || e.importance < 2) continue;
+    if (pol >= 0 && !entryInvolves(e, pol)) continue;
+    if (other >= 0 && !entryInvolves(e, other)) continue;
+    if (sky && !sky(e)) continue;
+    if (who !== null && !e.people?.includes(who) && !e.children?.some((c) => c.people?.includes(who))) continue;
+    const k = kinds.indexOf(e.kind);
+    const sc = (k >= 0 ? 100 - k * 10 : 0) + e.importance;
+    if (sc > score) [best, score] = [e, sc];
+  }
+  return best;
+}
+
+/**
+ * 天灾情节对得上哪几件:瘟疫 = 那座城、它所在的州或那州的主人(作者下的瘟疫记在下令那条);饥荒 = 那国(上面按国家筛),
+ * 或那几州、它们的主人;地震水旱 = 下令那条记的那一处。说不出地方 = null
+ */
+function disasterMatch(o: OutlineCtx, p: Plot, y: number): ((e: ChronicleEntry) => boolean) | null {
+  const civ = o.civ;
+  const idOf = (k: string | undefined, kind: string) => {
+    const r = k ? resolveKey(civ, k) : null;
+    return r?.kind === kind ? r.id : -1;
+  };
+  const owner = ownersAt(civ, y).polity;
+  const near = (rs: readonly number[]) => (e: ChronicleEntry) => e.regions.some((r) => rs.includes(r)) || rs.some((r) => owner[r] >= 0 && entryInvolves(e, owner[r]));
+  if (p.type === 'plague') {
+    const c = idOf(p.city, 'settlement');
+    if (c < 0) return null;
+    const at = near([civ.settlements[c].region]);
+    return (e) => (e.kind === 'plague' || e.kind === 'intervene') && (e.settlement === c || at(e));
+  }
+  if (p.type === 'quake') {
+    const r = idOf(p.region, 'region');
+    return r < 0 ? null : (e) => e.kind === 'intervene' && e.regions.includes(r);
+  }
+  if (p.a !== undefined) return (e) => e.kind === 'famine';
+  const rs = (p.regions ?? []).map((k) => idOf(k, 'region')).filter((r) => r >= 0);
+  if (!rs.length) return null;
+  const at = near(rs);
+  return (e) => e.kind === 'famine' && at(e);
 }

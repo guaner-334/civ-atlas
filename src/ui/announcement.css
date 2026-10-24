@@ -1,4 +1,4 @@
-/* 网站公告(NoticeDialog.tsx):照系统的提醒框;遮罩、面板底、圆角、阴影和键盘快捷键一览(shortcuts.css)一样 */
+/* 网站公告(NoticeDialog.tsx;跟着公告窗口有公告时才下载,所以不放进 styles.ts):照系统的提醒框;遮罩、面板底、圆角、阴影和键盘快捷键一览(shortcuts.css)一样 */
 .nt-bg {
   position: fixed;
   inset: 0;
