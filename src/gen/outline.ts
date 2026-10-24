@@ -83,6 +83,8 @@ export interface OutlineHooks {
   progress?: (done: number, total: number, review: readonly PlotReview[]) => void;
   /** 每条之间等一下(worker 里等一个宏任务,好让新到的消息排进来) */
   pause?: () => Promise<void>;
+  /** 开始查一条(fix = null)/ 查完没发生、开始在第 fix 年硬改:哪一条(界面上的进度用) */
+  stage?: (id: number, fix: number | null) => void;
   /** 每条之间(和开始之前)问一次:true = 不推了,返回 null */
   stop?: () => boolean;
   /** 上一次的结果(没有 = 从头算) */
@@ -120,6 +122,7 @@ interface Ctx {
   plots: Plot[];
   characters: readonly AuthorCharacter[];
   marks: readonly AuthorMark[];
+  stage?: OutlineHooks['stage'];
 }
 
 /**
@@ -131,7 +134,7 @@ export async function runOutline(world: World, params: Partial<CivParams>, input
   const plots = cleanOutline({ plots: input.plots })?.plots ?? [];
   const own = ownInterventions(input.interventions.flatMap((v) => cleanIntervention(v) ?? []));
   const endYear = params.endYear ?? END_YEAR_DEFAULT;
-  const ctx: Ctx = { world, params: { ...params, endYear }, endYear, plots, characters: input.characters ?? [], marks: input.marks ?? [] };
+  const ctx: Ctx = { world, params: { ...params, endYear }, endYear, plots, characters: input.characters ?? [], marks: input.marks ?? [], stage: hooks.stage };
   const key = hooks.key === undefined ? null : `${hooks.key}|${JSON.stringify([own, endYear, ctx.characters, ctx.marks])}`;
   const prev = key !== null && hooks.cache?.key === key ? hooks.cache.steps : [];
   const steps: OutlineCache['steps'] = [];
@@ -149,6 +152,7 @@ export async function runOutline(world: World, params: Partial<CivParams>, input
       reused++;
     } else {
       reuse = false;
+      hooks.stage?.(pick.plot.id, null);
       st = step(ctx, st, pick);
     }
     steps.push({ sig, after: st });
@@ -633,6 +637,7 @@ function step(ctx: Ctx, prev: State, pick: Pick): State {
     return c ? [{ ...c, plot: p.id }] : [];
   });
   if (!fixes.length) return fail({ reason: 'noEffect' }, Y);
+  ctx.stage?.(p.id, Y);
   const tried: State = { ...st, list: [...st.list, ...fixes] };
   const C2 = advance(ctx, tried, playStop(hi + 1), people);
   // 硬改的去世只能写成"去世":再查时不看遇弑、战死

@@ -217,8 +217,11 @@ export type WorkerResponse =
   | { type: 'extended'; id: number; xid: number; civ: Civ; split?: CivSplit; chron?: number; to: number; ms: number; tempo?: TempoNote; eras?: EraWorld[]; baseKey: string }
   /** 这次再推没推完就停了(被新请求顶掉、被叫停):世界还是原来的样子 */
   | { type: 'extendStopped'; id: number; xid: number }
-  /** 照大纲推演的进度:查完了 done 条(一共 total 条),到现在的批改(按查的先后) */
-  | { type: 'outlineProgress'; id: number; oid: number; done: number; total: number; review: PlotReview[] }
+  /**
+   * 照大纲推演的进度:查完了 done 条(一共 total 条),到现在的批改(按查的先后);
+   * at = 正在查的那一条(情节编号)、fix = 它没自然发生,正在第几年硬改(还在查 = null)
+   */
+  | { type: 'outlineProgress'; id: number; oid: number; done: number; total: number; review: PlotReview[]; at?: { id: number; fix: number | null } }
   /**
    * 照大纲推演好了:整段历史、新的干预串(作者的干预 + 硬改出来的,带 plot)、每条情节的批改(按情节的先后);
    * ms(线程里花的时间)、tempo、eras 同 civ
@@ -1029,12 +1032,18 @@ async function handle(m: Queued): Promise<void> {
     const stop = () => fg.some((r) => r.type === 'generate' || r.type === 'load' || r.type === 'resim' || r.type === 'turn' || r.type === 'extend' || r.type === 'outline' || (r.type === 'outlineStop' && r.oid >= m.oid));
     // 这个世界、这组参数的键(不算干预、推演年数:runOutline 自己加上作者的干预、人物、标记)
     const key = heldKey({ ...m, interventions: undefined }, undefined);
+    /** 上一次报的进度(正在查哪一条那几声带上它) */
+    let last: { done: number; total: number; review: PlotReview[] } = { done: 0, total: m.plots.length, review: [] };
     const out = await runOutline(
       world,
       params,
       { plots: m.plots, interventions: own, characters: m.characters, marks: m.marks },
       {
-        progress: (done, total, review) => post({ type: 'outlineProgress', id: m.id, oid: m.oid, done, total, review: review.slice() }),
+        progress: (done, total, review) => {
+          last = { done, total, review: review.slice() };
+          post({ type: 'outlineProgress', id: m.id, oid: m.oid, ...last });
+        },
+        stage: (at, fix) => post({ type: 'outlineProgress', id: m.id, oid: m.oid, ...last, at: { id: at, fix } }),
         pause: () => new Promise((r) => setTimeout(r, 0)),
         stop,
         cache: outlineCache,

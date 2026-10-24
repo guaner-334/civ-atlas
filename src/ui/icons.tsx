@@ -292,6 +292,21 @@ const PATHS = {
   list: <path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01" />,
   play: <path d="M8 5.5l10 6.5-10 6.5z" />,
   up: <path d="M6 15l6-6 6 6" />,
+  /** 大纲的批改:硬改的(一支笔)、只讲故事(几行字)、还没推(一个圈) */
+  pen: <path d="M14.5 5.5l4 4L9 19H5v-4z" />,
+  lines: <path d="M6 7h12M6 12h12M6 17h7" />,
+  ring: <circle cx="12" cy="12" r="6" />,
+  /** 拖动排序的把手 */
+  grip: (
+    <>
+      <circle cx="9" cy="6" r="1.2" />
+      <circle cx="15" cy="6" r="1.2" />
+      <circle cx="9" cy="12" r="1.2" />
+      <circle cx="15" cy="12" r="1.2" />
+      <circle cx="9" cy="18" r="1.2" />
+      <circle cx="15" cy="18" r="1.2" />
+    </>
+  ),
   /** 支线:一条主干分出一支 */
   branch: (
     <>

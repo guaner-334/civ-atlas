@@ -144,6 +144,7 @@ import {
   faithKey,
   issueCommands,
   keySeats,
+  ownInterventions,
   namesWithoutAi,
   newHistoryEdits,
   placeKeyOf,
@@ -156,6 +157,8 @@ import {
   upgradeLegacyKeys,
   type Intervention,
   type PlayState,
+  type Plot,
+  type PlotReview,
   type TerrainOp,
   type Upheaval,
   type WorldEdits,
@@ -171,7 +174,7 @@ import { cancelDetailJob, submitDetailJob, type WorkStep } from './detailJobs';
 import { baseRegions, civAtEra, composedOf, dropComposed, eraData, peekEraData, eraIndex, eraMapsOf, eraReady, eraShown, patchKey, reuseRegions, useEraIndex, withHistory, type EraMaps } from './eras';
 import { adoptChronicle, dropChronicleParts, namedHistory, takeChroniclePart, useNamedHistory } from './chronicleHandoff';
 import { sameSketch, type SketchEdit } from '../gen/sketch';
-import { askHistory, clearEditHistory, clearEdits, getEdits, putEditsQuiet, putPlay, removeEditsBatch, removeIntervention, removeUpheaval, setEditGate, setEdits, setEndYear, setHistoryGate, undoTerrainOp, useEdits } from './editsStore';
+import { askHistory, clearEditHistory, clearEdits, getEdits, putEditsQuiet, putOutlineResult, putPlay, removeEditsBatch, removeIntervention, removeUpheaval, setEditGate, setEdits, setEndYear, setHistoryGate, undoTerrainOp, useEdits } from './editsStore';
 import { eraText, spaced, yearAt, yearFull } from '../gen/era';
 import { redoLastEdit, undoLastEdit } from './undo';
 import { useShortcuts } from './useShortcuts';
@@ -281,7 +284,9 @@ import { regionLabel } from '../gen/civ/display';
 import { NAME_ZOOM } from '../render/marks';
 import { collapseSide, expandSide, getSide, setSideHold, useSide } from './sideStore';
 import { getPanel, setSheet, setWorldSheet, usePanel } from './panelStore';
-import { closeOverview, getPeople, setPeople, useOverview } from './overviewStore';
+import { closeOverview, getPeople, openOverview, setPeople, useOverview } from './overviewStore';
+import { setOutlineRun, setOutlineRunner } from './outlineStore';
+import { outlineDoneToast, outlineRunToast } from './OutlineSide';
 import { STUDIO_STYLES, Studio } from './studio/Studio';
 import { setFlatGeomSource, useStudioFlat } from './studio/studioStore';
 import { MyWorlds, showMapInWorlds } from './MyWorlds';
@@ -962,6 +967,9 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
   }, [previewRaw, rawCiv, eraK]);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- eraView 只用到 eraK
   const civ = useMemo(() => (previewRaw && previewFull ? eraView(previewRaw, previewFull, preview!.names) : realCiv), [previewRaw, previewFull, eraK, preview?.names, realCiv]);
+  /** 照大纲推演的提示条上写名字用(套上改名的那一份) */
+  const realCivRef = useRef(realCiv);
+  realCivRef.current = realCiv;
   // 推演里作者的人物当的君主(编年史、世系图、国家卡片里点他的名字):打开作者的人物卡;人物卡删掉了照旧开推演人物卡
   const civForRedirect = useRef(civ);
   civForRedirect.current = civ;
@@ -1176,6 +1184,18 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
    */
   const extendRef = useRef<{ xid: number; from: number; to: number; t0: number; endYear: number | undefined } | null>(null);
   const extendSeq = useRef(0);
+  /**
+   * 照大纲推演(概览「大纲」页、侧栏「大纲」一组):正在推的这一次(第几次、推的那一份大纲、作者自己的干预;没在推 = null)、第几次了。
+   * 推的时候改了大纲(界面先叫停)、下了别的干预(线程看到重推请求就不推了):推好的不换上
+   */
+  const outlineRef = useRef<{ oid: number; plots: Plot[]; own: Intervention[]; t0: number } | null>(null);
+  const outlineSeq = useRef(0);
+  /** 照大纲推演收起(推完、停下、被顶掉):进度和提示条一起收 */
+  const endOutline = () => {
+    outlineRef.current = null;
+    setOutlineRun(null);
+    clearToast('outline');
+  };
   const extendUndo = useRef<{ before: Civ; after: Civ; from: number; endYear: number | undefined; timer: number } | null>(null);
   /** 地图上正看着助手的"先看看"(还没执行的历史):这时不再推(推的是底下真的那个世界) */
   const previewOn = useRef(false);
@@ -1431,7 +1451,7 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
         if (m.type === 'civPart') return void civParts.take(m);
         if ('split' in m && m.split) civParts.join(m.civ!, m.split);
         // 主图补丁、原件是后台自己排的活,不算一件回音(再推的进度、先交的编年史也不算:推完 / 停下才算)
-        if (m.type !== 'progress' && m.type !== 'eraPatch' && m.type !== 'snapshot' && m.type !== 'extendProgress' && m.type !== 'chronicle') {
+        if (m.type !== 'progress' && m.type !== 'eraPatch' && m.type !== 'snapshot' && m.type !== 'extendProgress' && m.type !== 'outlineProgress' && m.type !== 'chronicle') {
           busyRef.current = Math.max(0, busyRef.current - 1);
           if (!busyRef.current) {
             workLabel.current = null;
@@ -1452,7 +1472,7 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
         if (m.id !== reqId.current) return; // 过时的请求(上一个世界的)
         // 交历史之前先交的编年史:收着,交历史的那条到了一起记下(换上时不在主线程上整段重算)
         if (m.type === 'chronicle') return void takeChroniclePart(m);
-        if (m.type === 'done' || m.type === 'civ' || m.type === 'civOnly' || m.type === 'turn' || m.type === 'extended') adoptChronicle(m.civ, m.chron);
+        if (m.type === 'done' || m.type === 'civ' || m.type === 'civOnly' || m.type === 'turn' || m.type === 'extended' || m.type === 'outlined') adoptChronicle(m.civ, m.chron);
         if (m.type === 'eraPatch') {
           // 一段的主图补丁:记下,地图那一段换上(eras.ts);最多留 PATCH_KEEP 块,先丢最早的(现在这份历史要用的不丢;
           // 丢了的以后又要用,下一次推演时线程看 have 里没有会重新铺)
@@ -1594,6 +1614,12 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
             extendRef.current = null;
             setExtendBusy(null);
           }
+        } else if (m.type === 'outlineProgress') {
+          outlineProgressRef.current(m.oid, m.done, m.total, m.review, m.at);
+        } else if (m.type === 'outlined') {
+          applyOutlinedRef.current(m.oid, m.civ, m.interventions, m.review, m.ms, m.eras, m.baseKey);
+        } else if (m.type === 'outlineStopped') {
+          if (outlineRef.current?.oid === m.oid) endOutline();
         }
       };
       workerRef.current = w;
@@ -1609,6 +1635,8 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
         extendRef.current = null;
         setExtendBusy(null);
       }
+      // 照大纲推演同样:线程看到排着的新请求就不推了(交回 outlineStopped),界面上先收起
+      if (outlineRef.current && (req.type === 'generate' || req.type === 'load' || req.type === 'resim' || req.type === 'turn' || req.type === 'extend')) endOutline();
       const w = idleWorker(req.type === 'generate' || req.type === 'load');
       if (req.type === 'generate') genSent.current = req;
       if (req.type === 'generate' && req.skipCiv) softRef.current.add(req.id);
@@ -2249,6 +2277,96 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
       },
     });
     return () => setExtendRunner(null);
+  }, [send]);
+
+  /** 照大纲推演查完一条 / 开始查一条 / 开始硬改:侧栏、大纲页的进度,顶上的提示条 */
+  const outlineProgress = (oid: number, done: number, total: number, review: PlotReview[], at?: { id: number; fix: number | null }) => {
+    const o = outlineRef.current;
+    if (!o || o.oid !== oid) return;
+    const run = { oid, done, total, review, at: at?.id ?? null, fix: at?.fix ?? null };
+    setOutlineRun(run);
+    const c = realCivRef.current;
+    if (c) showToast(outlineRunToast(run, { civ: c, plots: o.plots, review, marks: getEdits().marks, characters: getEdits().characters }, getEdits().era, stopOutlineRun));
+  };
+  const outlineProgressRef = useRef(outlineProgress);
+  outlineProgressRef.current = outlineProgress;
+  /**
+   * 照大纲推演好了:干预串(作者的 + 硬改出来的)、批改记进修改(一步,⌘Z 回到推之前),整段历史直接换上(不再重推一遍);
+   * 推的时候大纲、作者自己的干预变了:不换上(那边会照新的重推)
+   */
+  const applyOutlined = (oid: number, next: Civ, ivs: Intervention[], review: PlotReview[], ms: number, eras: EraWorld[] | undefined, baseKey: string) => {
+    const o = outlineRef.current;
+    if (!o || o.oid !== oid) return;
+    if (getStepGesture()) {
+      onStepGestureEnd(() => applyOutlinedRef.current(oid, next, ivs, review, ms, eras, baseKey));
+      return;
+    }
+    endOutline();
+    const e = getEdits();
+    if (JSON.stringify(e.outline?.plots ?? null) !== JSON.stringify(o.plots) || !sameInterventions(ownInterventions(e.interventions), o.own)) return;
+    // 先记下这串干预推好了,修改换上时不再重推
+    const before = civEdits.current;
+    civEdits.current = ivs;
+    if (!putOutlineResult(o.plots, review, ivs)) {
+      civEdits.current = before;
+      return;
+    }
+    resimInfo.current = null;
+    applyResim(next, ms, eras, baseKey);
+    showToast(outlineDoneToast(review, () => openOverview('outline')));
+  };
+  const applyOutlinedRef = useRef(applyOutlined);
+  applyOutlinedRef.current = applyOutlined;
+  /** 叫停照大纲推演:世界还是推之前那样 */
+  const stopOutlineRun = () => {
+    const o = outlineRef.current;
+    if (!o) return;
+    endOutline();
+    // 叫停不算一件活(线程不回音):直接发
+    workerRef.current?.postMessage({ type: 'outlineStop', id: reqId.current, oid: o.oid } satisfies WorkerRequest);
+  };
+  // 「照大纲推演」:接到后台线程上(大纲页、侧栏调 startOutline / stopOutline)
+  useEffect(() => {
+    setOutlineRunner({
+      start: () => {
+        const p = genParams.current;
+        const raw = rawRef.current;
+        const e = getEdits();
+        const plots = e.outline?.plots;
+        if (!p || !raw || !plots?.length || outlineRef.current || previewOn.current || getStepwise().on || cleanPlay(e.play)) return;
+        // 世界还在生成、在重推、在再推:等它推完
+        if (fresh.current || regenRef.current || civLater.current || resimInfo.current || extendRef.current) {
+          showToast({ id: 'outline', kind: 'info', text: '世界还在推演，推完再照大纲推演', ttl: 4000 });
+          return;
+        }
+        // 照原样打开的旧世界:推演要用新版的规则,先问要不要另存一份(在那一份上推)
+        if (askHistory(e)) return;
+        const oid = ++outlineSeq.current;
+        const own = ownInterventions(e.interventions);
+        outlineRef.current = { oid, plots, own, t0: performance.now() };
+        clearToast('outline-done');
+        outlineProgress(oid, 0, plots.length, [], undefined);
+        send({
+          type: 'outline',
+          id: reqId.current,
+          oid,
+          plots,
+          params: p,
+          terrain: [...genTerrain.current],
+          sketch: genSketch.current,
+          interventions: [...e.interventions],
+          ...(e.characters?.length ? { characters: e.characters } : {}),
+          ...(e.marks?.length ? { marks: e.marks } : {}),
+          ...upsOpt(civUps.current),
+          ...namesOpt(civNames.current),
+          ...yearsOpt(civYears.current),
+          ...setupOpt(civSetup.current),
+          have: [...eraPatches.current.keys()],
+        });
+      },
+      stop: stopOutlineRun,
+    });
+    return () => setOutlineRunner(null);
   }, [send]);
 
   // ---- 生成 ----
@@ -3290,10 +3408,10 @@ ${s.image.cells}` : null);
     else t.pristine = false;
   };
   /**
-   * 创建世界:从此种子、参数、地形锁住;一直存着。从第 0 年起放一遍历史;step = 新建时选了「演绎」:从第 0 年起逐年推演、马上往下走。
-   * 建成了 = true
+   * 创建世界:从此种子、参数、地形锁住;一直存着。从第 0 年起放一遍历史;how = 新建时选了「演绎」(step):从第 0 年起逐年推演、马上往下走;
+   * 选了「照大纲」(outline):不放历史,打开概览的「大纲」页先写大纲。建成了 = true
    */
-  const createWorld = (title: string, step = false): boolean => {
+  const createWorld = (title: string, how?: 'step' | 'outline'): boolean => {
     const t = draftNow();
     const cur = currentWorld();
     // 还在生成、在重推带过来的干预、在放这颗星球的形成:等它完
@@ -3332,13 +3450,18 @@ ${s.image.cells}` : null);
     // 推得比 3000 年久的世界:新建时只推了 3000 年,创建以后接着往后推(重推那段),推完再放;调了拓荒、选了起源的同样创建以后重推
     takeAutoplay();
     // 选了「演绎」:换成从第 0 年起逐年推演(推到第 0 年年初就停,接着一步步往下走),不放一遍历史
-    if (step) {
+    if (how === 'step') {
       storyAfterYears.current = null;
       stepAuto.current = true;
       putEditsQuiet(startStepwise(getEdits(), 0));
       return true;
     }
     const later = cleanEndYear(getEdits().endYear) !== civYears.current || !sameSetup(setupFor(false, getEdits()), civSetup.current);
+    if (how === 'outline') {
+      openOverview('outline');
+      if (getCivTime().year === 0) resetCivTime();
+      return true;
+    }
     if (later) storyAfterYears.current = storyOk();
     if (storyOk() && !later) startCivReplay();
     else if (getCivTime().year === 0) resetCivTime();
@@ -5798,10 +5921,10 @@ ${s.image.cells}` : null);
     disabled: !data,
   };
   /** 新建界面确认创建:建好了就让平常的地图从星球展开时正中的经线接着看(放回 1 倍) */
-  const studioCreate = (title: string, lon: number, step?: boolean): boolean => {
+  const studioCreate = (title: string, lon: number, how?: 'step' | 'outline'): boolean => {
     // 先立刻标上"新建界面正在退场"再清掉草稿:不然新建界面会被拆掉又重装一次,重装时照手绘图的笔又被打开
     flushSync(() => setStudioOut(1));
-    if (!createWorld(title, step)) {
+    if (!createWorld(title, how)) {
       setStudioOut(0);
       return false;
     }
