@@ -132,8 +132,9 @@ export interface PlotTick {
   status: PlotStatus | 'todo';
   /** 正看着的那条 */
   on: boolean;
-  /** 悬停的小卡 */
+  /** 悬停的小卡;brief = 几条合成一颗时列的那一小段(不写结果) */
   tip: ReactNode;
+  brief: ReactNode;
   pick: () => void;
 }
 
@@ -151,6 +152,14 @@ export function usePlotTicks(civ: Civ | null): PlotTick[] | undefined {
       const r = reviewOf(o, p.id);
       const s = r?.status ?? 'todo';
       const res = r ? resultText(o, p, r, list, ivBase(o.civ)) : '';
+      const head = (
+        <div className="h">
+          <span>第 {i + 1} 条</span>
+          <span>{eraText(timeCell(o, p, era)[0], era)}</span>
+          <span className="sp" />
+          <PlotStatusTag s={s} />
+        </div>
+      );
       return {
         id: p.id,
         n: i + 1,
@@ -160,14 +169,15 @@ export function usePlotTicks(civ: Civ | null): PlotTick[] | undefined {
         pick: () => goToPlot(o, p, r),
         tip: (
           <>
-            <div className="h">
-              <span>第 {i + 1} 条</span>
-              <span>{eraText(timeCell(o, p, era)[0], era)}</span>
-              <span className="sp" />
-              <PlotStatusTag s={s} />
-            </div>
+            {head}
             <div className="q">{plotText(p)}</div>
             {res && <div className="r">{eraText(res, era)}</div>}
+          </>
+        ),
+        brief: (
+          <>
+            {head}
+            <div className="q">{plotText(p)}</div>
           </>
         ),
       };
@@ -213,6 +223,8 @@ export function PlotTicks({ ticks, end, width, below }: { ticks: readonly PlotTi
   const groups = tickGroups(ticks, x);
   const tip = groups.find((g) => g.items[0].id === hot);
   const TIP_W = 300;
+  // 合成一颗的几条:小卡最多列这么多条(只写第几条、时间、章、那句话),再多的写"还有几条"
+  const TIP_MAX = 4;
   return (
     <>
       {groups.map((g) => {
@@ -238,11 +250,14 @@ export function PlotTicks({ ticks, end, width, below }: { ticks: readonly PlotTi
       })}
       {tip && (
         <div className={`ol-tip${below ? ' below' : ''}`} style={{ left: Math.min(Math.max(0, tip.x - TIP_W / 2), Math.max(0, width - TIP_W)), width: TIP_W }}>
-          {tip.items.map((t) => (
-            <div key={t.id} className="ol-tip-one">
-              {t.tip}
-            </div>
-          ))}
+          {tip.items.length === 1
+            ? tip.items[0].tip
+            : tip.items.slice(0, TIP_MAX).map((t) => (
+                <div key={t.id} className="ol-tip-one">
+                  {t.brief}
+                </div>
+              ))}
+          {tip.items.length > TIP_MAX && <div className="ol-tip-more">还有 {tip.items.length - TIP_MAX} 条，点记号轮着看</div>}
         </div>
       )}
     </>
