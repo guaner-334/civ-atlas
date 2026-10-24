@@ -25,6 +25,7 @@ import {
   type PlotKind,
   type PlotReview,
   type PlotStatus,
+  guideNotes,
 } from '../gen/edits';
 import type { AuthorCharacter } from '../gen/characters';
 import { entryInvolves, type ChronicleEntry } from '../gen/civ/chronicle';
@@ -61,7 +62,7 @@ export const PLOT_KIND_GROUPS: { head: string; kinds: PlotKind[]; inline?: boole
 ];
 
 /** 批改的章:名字 */
-export const STATUS_NAMES: Record<PlotStatus | 'todo', string> = { natural: '照着发生了', forced: '硬改的', failed: '做不到', story: '只讲故事', todo: '还没推' };
+export const STATUS_NAMES: Record<PlotStatus | 'todo', string> = { natural: '照着发生了', guided: '顺着引了一把', forced: '硬改的', failed: '做不到', story: '只讲故事', todo: '还没推' };
 
 /** 只查不改的几种 */
 export const checkOnly = (k: PlotKind) => PLOT_CHECK_ONLY.includes(k);
@@ -340,6 +341,8 @@ export function resultText(o: OutlineCtx, p: Plot, r: PlotReview | undefined, li
       return `不查不改；导播到第 ${p.year} 年打出这句`;
     case 'natural':
       return `第 ${y} 年${happenedText(o, p, r)}`;
+    case 'guided':
+      return `${guideText(o, list, p.id)}；第 ${y} 年${happenedText(o, p, r)}`;
     case 'forced': {
       const fx = plotFixes(list, p.id).map((i) => list[i]);
       let what: string;
@@ -347,11 +350,35 @@ export function resultText(o: OutlineCtx, p: Plot, r: PlotReview | undefined, li
         const names = fx.slice(0, 3).map((v) => (v.kind === 'cede' ? regionName(o.civ, v.region) : ''));
         what = `把还缺的 ${fx.length} 州（${names.join('、')}${fx.length > 3 ? ' 等' : ''}）划给${A}`;
       } else what = fx.map((v) => fixText(o.civ, v, base)).join('；') || PLOT_KIND_INFO[p.kind].name;
-      return `第 ${y} 年硬改：${what}${r.asDeath ? '（只能写成去世，写不成遇弑、战死）' : ''}`;
+      return `${triedText(r)}第 ${y} 年硬改：${what}${r.asDeath ? '（只能写成去世，写不成遇弑、战死）' : ''}`;
     }
     case 'failed':
-      return `做不到：${failText(o, p, r, A, B)}`;
+      return `${triedText(r)}做不到：${failText(o, p, r, A, B)}`;
   }
+}
+
+/** 先顺着引试过几版没成:"引了 12 版都没成；" */
+const triedText = (r: PlotReview) => (r.tried ? `引了 ${r.tried} 版都没成；` : '');
+
+/** 怎么顺着引的:"第 1650 年起让大定更好战、主攻东定国" */
+function guideText(o: OutlineCtx, list: readonly Intervention[], id: number): string {
+  const gs = guideNotes(list, id);
+  if (!gs.length) return '顺着引了一把';
+  const name = (k: string, y: number) => {
+    const r = resolveKey(o.civ, k);
+    return r?.kind === 'polity' ? nameAt(o.civ.polities[r.id], y) : '那国';
+  };
+  const parts = gs.map((g) => {
+    const how: string[] = [];
+    if (g.war > 0) how.push('更好战');
+    else if (g.war < 0) how.push('更不愿打仗');
+    if (g.expand > 0) how.push('更想开拓');
+    if (g.peace < 0) how.push('更肯议和');
+    if (g.foes.length) how.push(`主攻${g.foes.map((k) => name(k, g.from)).join('、')}`);
+    if (g.friends.length) how.push(`亲近${g.friends.map((k) => name(k, g.from)).join('、')}`);
+    return `${name(g.a, g.from)}${how.join('、')}`;
+  });
+  return `第 ${gs[0].from} 年起让${parts.join('，')}`;
 }
 
 /** 照着发生了的那一句("大定伐奥利亚王国""有桑皇朝亡") */
@@ -443,14 +470,14 @@ export const needsFound = (r: PlotReview | undefined) => r?.status === 'failed' 
 
 /** 批改合计:每种章各几条 */
 export function reviewCounts(review: readonly PlotReview[] | undefined): Record<PlotStatus, number> {
-  const n: Record<PlotStatus, number> = { natural: 0, forced: 0, failed: 0, story: 0 };
+  const n: Record<PlotStatus, number> = { natural: 0, guided: 0, forced: 0, failed: 0, story: 0 };
   for (const r of review ?? []) n[r.status]++;
   return n;
 }
 
-/** 合计的一句:"照着发生了 5 条，硬改 2 条，做不到 2 条" */
+/** 合计的一句:"照着发生了 5 条，硬改 2 条，做不到 2 条"(有顺着引成的才写"顺着引了 1 条") */
 export function countsText(n: Record<PlotStatus, number>, story = false): string {
-  return [`照着发生了 ${n.natural} 条`, `硬改 ${n.forced} 条`, `做不到 ${n.failed} 条`, story ? `只讲故事 ${n.story} 条` : ''].filter(Boolean).join('，');
+  return [`照着发生了 ${n.natural} 条`, n.guided ? `顺着引了 ${n.guided} 条` : '', `硬改 ${n.forced} 条`, `做不到 ${n.failed} 条`, story ? `只讲故事 ${n.story} 条` : ''].filter(Boolean).join('，');
 }
 
 /**
