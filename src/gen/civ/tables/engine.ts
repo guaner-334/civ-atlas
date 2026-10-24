@@ -125,6 +125,8 @@ interface Table {
   /** 正在用的规则(拦下后换成备份) */
   code: CardCode;
   kernels: CardKernels;
+  /** 卡上的规则、备份规则(拦下后换成备份;快照接回拦下以前时换回来) */
+  primary: { code: CardCode; kernels: CardKernels };
   backup: { code: CardCode; kernels: CardKernels } | null;
   cols: number;
   cur: Float64Array;
@@ -141,9 +143,10 @@ interface Table {
   warned: boolean;
   /** 搬家:每条邻边的量、反向边 */
   edgeBuf: Float64Array | null;
-  /** 流向:正在攒的这一段从哪年起、州对州的量;攒好的各段 */
+  /** 流向:正在攒的这一段从哪年起、州对州的量;攒好的各段;这一步刚搬的(护栏查过才并进去) */
   flowStart: number;
   flowOpen: Map<number, number>;
+  flowStage: Map<number, number>;
   flows: FlowWindow[];
   /** 算这张表一共花了多少毫秒 */
   ms: number;
@@ -230,11 +233,15 @@ export class TableEngine {
       }
       const n = this.count(card.unit);
       const cols = colCount(card);
-      const adjN = card.move ? (card.unit === 'tile' ? opts.units.tile!.adj.length : opts.units.region!.adj.length) : 0;
+      // 卡上的规则或备份规则要搬家的,都要邻边的缓冲和反向边
+      const moves = !!(card.move || card.fallback?.move);
+      const adjN = moves ? (card.unit === 'tile' ? opts.units.tile!.adj.length : opts.units.region!.adj.length) : 0;
+      const kernels = buildKernels(code, this.backend);
       const t: Table = {
         card,
         code,
-        kernels: buildKernels(code, this.backend),
+        kernels,
+        primary: { code, kernels },
         backup,
         cols,
         cur: new Float64Array(n * cols).fill(card.off),
@@ -247,13 +254,14 @@ export class TableEngine {
         oscStreak: 0,
         runStreak: 0,
         warned: false,
-        edgeBuf: card.move ? new Float64Array(adjN) : null,
+        edgeBuf: moves ? new Float64Array(adjN) : null,
         flowStart: NaN,
         flowOpen: new Map(),
+        flowStage: new Map(),
         flows: [],
         ms: 0,
       };
-      if (card.move && !this.rev[card.unit]) {
+      if (moves && !this.rev[card.unit]) {
         const u = card.unit === 'tile' ? opts.units.tile! : opts.units.region!;
         const rev = reverseEdges(u.adjStart, u.adj);
         if (!rev) problems.push(`「${card.name}」要搬家,但${card.unit === 'tile' ? '地块' : '州'}的邻接不对称`);
@@ -376,6 +384,8 @@ export class TableEngine {
   start(year: number): void {
     this.started = true;
     this.lastStep = -Infinity;
+    // 开头的值也可能读国这一级的输入表:先按编号表把州 → 国对上
+    this.refreshPolities();
     for (const t of this.order) {
       if (!t.computed) continue;
       t.last = NaN;
@@ -404,9 +414,7 @@ export class TableEngine {
     if (!(year > this.lastStep) || !Number.isInteger(year * 2)) throw new Error(`第 ${year} 年不能算:要比上一步(${this.lastStep})晚,是半年的整数倍`);
     const due = this.order.filter((t) => t.computed && !t.disabled && isDue(t.card.every ?? 1, year));
     this.lastStep = year;
-    if (!due.length) return 0;
-    this.refreshPolities();
-    // avg / total:攒到这一刻(按各表这一步开头的值)
+    // avg / total:攒到这一刻(按各表这一步开头的值;没有表要算的年份也攒,输入表每步都可能变)
     for (const a of this.accs) {
       if (year > a.at) {
         const src = this.table(a.source).cur;
@@ -416,6 +424,8 @@ export class TableEngine {
         a.at = year;
       }
     }
+    if (!due.length) return 0;
+    this.refreshPolities();
     for (const t of due) this.compute(t, year);
     for (const t of due) {
       const x = t.cur;
@@ -510,13 +520,15 @@ export class TableEngine {
       t.code = t.backup.code;
       t.kernels = t.backup.kernels;
       t.oscStreak = 0;
+      t.flowStage.clear();
       bad = this.run(t, t.code, t.kernels, dt, year);
     }
     if (bad) {
       this.report(t, year, bad, 'off');
       t.disabled = true;
       t.next.fill(t.card.off);
-    }
+      t.flowStage.clear();
+    } else if (t.card.flowEvery) this.commitFlows(t, year);
     t.ms += performance.now() - t0;
   }
 
@@ -588,18 +600,11 @@ export class TableEngine {
       for (let q = adjStart[i]; q < adjStart[i + 1]; q++) d += e[rev[q]] - e[q];
       if (d !== 0 || d !== d) next[i * C + c] += d;
     }
-    if (t.card.flowEvery) this.recordFlows(t, c, year, e, adjStart, adj, n);
+    if (t.card.flowEvery) this.recordFlows(t, c, e, adjStart, adj, n);
   }
 
-  /** 流向:按州对州汇总进这一段;到了下一段就把这一段收好 */
-  private recordFlows(t: Table, c: number, year: number, e: Float64Array, adjStart: Int32Array, adj: Int32Array, n: number): void {
-    const every = t.card.flowEvery!;
-    const start = Math.floor(year / every) * every;
-    // year 正好是一段的结尾时算进这一段(这一步是 (year − dt, year])
-    const winStart = year === start ? start - every : start;
-    if (Number.isNaN(t.flowStart)) t.flowStart = winStart;
-    if (winStart > t.flowStart) this.closeFlows(t, t.flowStart + every);
-    if (winStart > t.flowStart) t.flowStart = winStart;
+  /** 流向:这一步搬的按州对州先记下(护栏查过再并进这一段,见 commitFlows) */
+  private recordFlows(t: Table, c: number, e: Float64Array, adjStart: Int32Array, adj: Int32Array, n: number): void {
     const tile = t.card.unit === 'tile';
     const R = this.units.region?.count ?? n;
     const ro = this.regionOf;
@@ -615,9 +620,25 @@ export class TableEngine {
           if (a < 0 || b < 0 || a === b) continue;
         }
         const key = (c * R + a) * R + b;
-        t.flowOpen.set(key, (t.flowOpen.get(key) ?? 0) + v);
+        t.flowStage.set(key, (t.flowStage.get(key) ?? 0) + v);
       }
     }
+  }
+
+  /** 这一步过了护栏:刚搬的并进这一段;到了下一段就把上一段收好 */
+  private commitFlows(t: Table, year: number): void {
+    if (!t.flowStage.size) return;
+    const every = t.card.flowEvery!;
+    const start = Math.floor(year / every) * every;
+    // year 正好是一段的结尾时算进这一段(这一步是 (year − dt, year])
+    const winStart = year === start ? start - every : start;
+    if (Number.isNaN(t.flowStart)) t.flowStart = winStart;
+    if (winStart > t.flowStart) {
+      this.closeFlows(t, t.flowStart + every);
+      t.flowStart = winStart;
+    }
+    for (const [key, v] of t.flowStage) t.flowOpen.set(key, (t.flowOpen.get(key) ?? 0) + v);
+    t.flowStage.clear();
   }
 
   private closeFlows(t: Table, end: number): void {
@@ -741,19 +762,18 @@ export class TableEngine {
       t.next = new Float64Array(t.cur.length);
       t.last = x.last;
       t.disabled = x.disabled;
-      if (x.fallback !== t.fallback) {
-        if (x.fallback && t.backup) {
-          t.code = t.backup.code;
-          t.kernels = t.backup.kernels;
-        } else throw new Error(`快照里 ${t.card.id} 的规则状态接不上`);
-        t.fallback = x.fallback;
-      }
+      if (x.fallback && !t.backup) throw new Error(`快照里 ${t.card.id} 用的是备份规则,这张卡没有备份`);
+      const use = x.fallback ? t.backup! : t.primary;
+      t.code = use.code;
+      t.kernels = use.kernels;
+      t.fallback = x.fallback;
       t.delta = x.delta ? x.delta.slice() : null;
       t.oscStreak = x.oscStreak;
       t.runStreak = x.runStreak;
       t.warned = x.warned;
       t.flowStart = x.flowStart;
       t.flowOpen = new Map(x.flowOpen);
+      t.flowStage.clear();
       t.flows.length = Math.min(t.flows.length, x.flowWindows);
     }
     for (const a of this.accs) {

@@ -447,7 +447,8 @@ export function compileCard(card: TableCard, env: CompileEnv): CardCode {
         const m: Scope = { unit: mu!, kind: 'member', v: 'u', r: 2 };
         code.nIdx = Math.max(code.nIdx, 3);
         code.needs.add(`members.${sc.read.unit}.${mu}`);
-        if (mu === 'tile' && sc.read.unit !== 'region') code.needs.add('regionOf');
+        // 国汇总地块要经过州;全世界汇总直接走所有格
+        if (mu === 'tile' && sc.read.unit === 'polity') code.needs.add('regionOf');
         if (sc.read.unit === 'polity') code.needs.add('polityOf');
         const inner: Scopes = { read: m, inLoop: true };
         if (downFn === 'count') return { k: 'down', fn: downFn, body: null, cond: num(expr(args[0], inner), fn), scope: sc.read, m };

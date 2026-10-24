@@ -399,3 +399,73 @@ describe('快照', () => {
     expect(got.map((w) => Array.from(w.amount))).toEqual(whole.flows('pop').slice(-got.length).map((w) => Array.from(w.amount)));
   });
 });
+
+describe('边角情形', () => {
+  it('开头的值能读国这一级的输入表(开头就按编号表对上州 → 国)', () => {
+    const pv: TableCard = { id: 'pv', name: '国的数', unit: 'polity', input: true, min: 0, max: 1e9, off: 0 };
+    const u = grid();
+    const e = new TableEngine({ seed: 7, cards: [habitat, owner, pv, { id: 'x', name: '甲', unit: 'region', min: 0, max: 1e9, off: 0, init: 'pv', rule: 'x' }], units: u, owner: 'owner' });
+    fill(e, u);
+    e.input('pv').set([42, 7]);
+    e.start(0);
+    expect([e.value('x', 0), e.value('x', 2), e.value('x', u.region!.count - 1)]).toEqual([42, 7, 0]);
+  });
+  it('快照接回拦下以前:换回卡上的规则,和没拦下时一样往下算', () => {
+    const backup: TableCard = { id: 'x', name: '甲', unit: 'region', min: 0, max: 100, off: 0, init: 1, rule: 'x + dt * 0.1' };
+    const broken: TableCard = { ...backup, rule: 'if(year == 3, x / (x - x), x + dt)', fallback: backup };
+    const u = grid();
+    const e = new TableEngine({ seed: 7, cards: [habitat, owner, broken], units: u, owner: 'owner' });
+    fill(e, u);
+    e.start(0);
+    for (const y of [0, 1, 2]) e.step(y);
+    const snap = e.snapshot();
+    for (const y of [3, 4]) e.step(y);
+    expect(e.status('x')).toBe('fallback');
+    e.restore(snap);
+    expect(e.status('x')).toBe('rule');
+    expect(e.incidents).toEqual([]);
+    e.step(3);
+    expect(e.status('x')).toBe('fallback');
+  });
+  it('拦下的那一步搬的不记进流向;只有备份规则搬家也行', () => {
+    const backup: TableCard = { id: 'x', name: '甲', unit: 'region', min: 0, max: 1e9, off: 0, init: 10, rule: 'x', move: '0.1 * x', flowEvery: 1 };
+    const broken: TableCard = { ...backup, rule: 'if(year >= 2, x / (x - x), x)', fallback: { ...backup } };
+    const e = run([broken], yearsTo(1));
+    e.step(2);
+    e.step(3);
+    e.closeAllFlows(3);
+    const w = e.flows('x');
+    // 第 2 年:坏规则那一遍搬的丢掉,只留备份重算的那一遍;各段的量和只用备份算的一样
+    const ref = run([{ ...backup }], yearsTo(3));
+    ref.closeAllFlows(3);
+    expect(w.length).toBe(ref.flows('x').length);
+    expect(w.map((x) => Array.from(x.amount))).toEqual(ref.flows('x').map((x) => Array.from(x.amount)));
+    const onlyBackup: TableCard = { id: 'y', name: '乙', unit: 'region', min: 0, max: 1e9, off: 0, init: 10, rule: 'if(year >= 2, y / (y - y), y)', fallback: { id: 'y', name: '乙', unit: 'region', min: 0, max: 1e9, off: 0, rule: 'y', move: '0.1 * y' } };
+    const f = run([onlyBackup], yearsTo(4));
+    expect(f.status('y')).toBe('fallback');
+    expect(Array.from(f.get('y')).reduce((a, b) => a + b, 0)).toBeCloseTo(10 * grid().region!.count, 6);
+  });
+  it('avg / total 不受别的表算不算影响(没有表要算的年份也攒)', () => {
+    const inp: TableCard = { id: 'v', name: '输入', unit: 'world', input: true, min: 0, max: 1e9, off: 0 };
+    const reader: TableCard = { id: 't', name: '累计', unit: 'world', every: 10, min: 0, max: 1e9, off: 0, rule: 'total(v)' };
+    const other: TableCard = { id: 'o', name: '无关', unit: 'world', min: 0, max: 1e9, off: 0, rule: 'o + 1' };
+    const go = (cards: TableCard[]) => {
+      const e = new TableEngine({ seed: 7, cards: [inp, ...cards], units: {} });
+      e.start(0);
+      for (let y = 0; y <= 10; y++) {
+        e.input('v')[0] = y;
+        e.step(y);
+      }
+      return e.value('t', 0);
+    };
+    expect(go([reader])).toBe(go([reader, other]));
+  });
+  it('只有地块时,全世界也能汇总地块', () => {
+    const u = grid();
+    const e = new TableEngine({ seed: 7, cards: [habitat, { id: 'w', name: '总和', unit: 'world', min: 0, max: 1e9, off: 0, rule: 'sumof(hab)' }], units: { tile: u.tile } });
+    fill(e, u);
+    e.start(0);
+    e.step(0);
+    expect(e.value('w', 0)).toBe(Array.from(e.get('hab')).reduce((a, b) => a + b, 0));
+  });
+});
