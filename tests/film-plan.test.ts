@@ -161,7 +161,7 @@ describe('字幕按大纲', () => {
       ],
       range,
     );
-    expect(out.map((e) => e.id)).toEqual([big.id, -4]);
+    expect(out.map((e) => e.id)).toEqual([big.id, -2]);
     const p = out[1];
     expect(p).toMatchObject({ plot: true, year: 1500, end: 1500, ongoing: false, weight: FILM_PLOT_WEIGHT, text: '大定挥师西进，奥利亚举国震动。' });
     // 和一件大事撞在一起:情节先排,大事往后挪或不放
@@ -181,6 +181,13 @@ describe('字幕按大纲', () => {
     const slots = captionSlots(outlineEvents([], plots, range), clock);
     expect(slots.map((x) => x.text)).toEqual(['第 1 条', '第 2 条', '第 3 条']);
     for (let i = 1; i < slots.length; i++) expect(slots[i].f0).toBeGreaterThanOrEqual(slots[i - 1].f1);
+  });
+  it('同一年的几条照大纲的先后放(不看情节编号)', () => {
+    const range = { from: 980, to: 1021 };
+    const plots = [5, 2, 9].map((id, i) => ({ id, year: 1000, text: `第 ${i + 1} 条`, entry: null, cell: -1 }));
+    expect(outlineEvents([], plots, range).map((e) => e.text)).toEqual(['第 1 条', '第 2 条', '第 3 条']);
+    const slots = captionSlots(outlineEvents([], plots, range), filmClock(range, 30, true));
+    expect(slots.map((x) => x.text)).toEqual(['第 1 条', '第 2 条', '第 3 条']);
   });
   it('年份:第一条情节前 20 年到最后一条后 20 年,夹在世界的年份里', () => {
     expect(outlineRange([{ year: 1378 }, { year: 1940.5 }], 3000)).toEqual({ from: 1358, to: 1960 });

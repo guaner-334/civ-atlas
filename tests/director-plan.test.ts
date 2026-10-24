@@ -364,7 +364,7 @@ describe('照大纲放', () => {
     expect(pc!.hold).toBeCloseTo(DIRECTOR_HOLD.big, 9);
     // 对上的那件不另放;字幕挂在编号为负的条目上
     expect(caps.some((c) => c.entry.id === m.id)).toBe(false);
-    expect(pc!.entry.id).toBe(-2);
+    expect(pc!.entry.id).toBeLessThan(0);
     // 情节不和别的合成一段
     const seg = p.segments.find((s) => s.items.some((c) => c.plot))!;
     expect(seg.items).toHaveLength(1);
@@ -381,6 +381,11 @@ describe('照大纲放', () => {
     expect(pc.plot!.sub).toBe('');
     const cell = civ.settlements[C].cell;
     expect(pc.pin).toEqual([MX[cell], MY[cell]]);
+  });
+  it('同一年的几条照大纲的先后放(不看情节编号)', () => {
+    const p = plan([big(1200, { settlement: C })], { plots: [plot(9, 1300, null, { n: 1 }), plot(4, 1300, null, { n: 2 }), plot(6, 1300, null, { n: 3 })] });
+    const caps = p.segments.flatMap((s) => s.items).filter((c) => c.plot);
+    expect(caps.map((c) => c.plot!.n)).toEqual([1, 2, 3]);
   });
   it('范围外的情节不排;没给情节和原来一样', () => {
     const es = [big(1200), mid(1500, { settlement: C })];

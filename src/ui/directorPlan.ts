@@ -455,14 +455,14 @@ function captionOf(c: Cand): DirectorCaption {
 
 /**
  * 一条情节:字幕的大字是作者写的那句,小字是编年史里对上的那一条;镜头、事发地照对上的那一条(对不上 = 情节说的那个地块)。
- * 字幕挂在一条自己的条目上(编号 −1 − 情节编号,不和编年史的撞;年份是情节落定的那年)
+ * 字幕挂在一条自己的条目上(编号是负的,不和编年史的撞,按大纲的先后从小到大:同一年的几条照大纲的先后放;年份是情节落定的那年)
  */
 function plotCand(ctx: ShotCtx, p: DirectorPlot, factor: number, era: Era | null): Cand {
   const { world, civ } = ctx;
   const m = p.entry;
   const f = m ? filmEvents([m], ALL_YEARS, undefined, era)[0] : undefined;
   const entry: ChronicleEntry = {
-    id: -1 - p.id,
+    id: p.n - p.total - 1,
     kind: m?.kind ?? 'intervene',
     year: p.year,
     end: p.year,

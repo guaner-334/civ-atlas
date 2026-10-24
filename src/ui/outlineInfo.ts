@@ -619,6 +619,9 @@ const PLOT_ENTRY_KINDS: Partial<Record<PlotKind, readonly string[]>> = {
   disaster: ['plague', 'famine', 'upheaval', 'intervene'],
 };
 
+/** 说的是两国之间的情节(b = 另一国) */
+const PLOT_PAIR_KINDS: ReadonlySet<PlotKind> = new Set(['fall', 'war', 'ally', 'submit', 'peace']);
+
 /**
  * 导播照大纲放的情节(按大纲的先后):推过的、不是做不到的;编年史里对上的那一条 ——
  * 硬改的 = 照这条情节下的那条干预;照着发生了的 = 落定那年、和它说的国家有关的那件(种类对得上的先);只讲故事不对
@@ -649,6 +652,8 @@ function plotEntry(o: OutlineCtx, p: Plot, r: PlotReview, entries: readonly Chro
     return entries.find((e) => e.kind === 'intervene' && civ.interventions?.[civ.annals[e.id]?.war ?? -1]?.plot === p.id) ?? null;
   const y = Math.floor(r.year);
   const pol = r.polity ? (resolveKey(civ, r.polity)?.kind === 'polity' ? resolveKey(civ, r.polity)!.id : -1) : plotPolityId(o, p.a);
+  // 两国之间的那几种(灭国说了是谁灭的、开战、结盟、称臣、讲和):另一国也得在那件事里
+  const other = PLOT_PAIR_KINDS.has(p.kind) ? plotPolityId(o, p.b) : -1;
   const kinds = PLOT_ENTRY_KINDS[p.kind] ?? [];
   let best: ChronicleEntry | null = null;
   let score = -1;
@@ -657,6 +662,7 @@ function plotEntry(o: OutlineCtx, p: Plot, r: PlotReview, entries: readonly Chro
     const folded = e.kind === 'war' && (p.kind === 'peace' || p.kind === 'submit') && Math.floor(e.end) === y;
     if ((Math.floor(e.year) !== y && !folded) || e.importance < 2) continue;
     if (pol >= 0 && !entryInvolves(e, pol)) continue;
+    if (other >= 0 && !entryInvolves(e, other)) continue;
     const k = kinds.indexOf(e.kind);
     const sc = (k >= 0 ? 100 - k * 10 : 0) + e.importance;
     if (sc > score) [best, score] = [e, sc];

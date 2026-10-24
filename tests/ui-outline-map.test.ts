@@ -7,7 +7,8 @@ import { DEFAULT_PARAMS, generateWorld } from '../src/gen/world';
 import { generateCiv } from '../src/gen/civ';
 import { capitalAt, polityAlive } from '../src/gen/civ/growth';
 import { polityKey, regionKey, settlementKey, type Plot } from '../src/gen/edits';
-import { plotCell, plotHeadline, plotText, type OutlineCtx } from '../src/ui/outlineInfo';
+import { directorPlots, plotCell, plotHeadline, plotText, type OutlineCtx } from '../src/ui/outlineInfo';
+import type { ChronicleEntry } from '../src/gen/civ/chronicle';
 import { focusHolds } from '../src/ui/outlineStore';
 import { nextInGroup, tickGroups } from '../src/ui/OutlineMap';
 
@@ -74,5 +75,18 @@ describe('时间轴上的记号', () => {
     // 点到的那条在地图上选不了东西(没在看):照上次点到的接着轮
     expect(nextInGroup([t(1, 0), t(2, 0), t(3, 0)], 1).n).toBe(2);
     expect(nextInGroup([t(1, 0), t(2, 0)], 9).n).toBe(1);
+  });
+});
+
+describe('导播照大纲放:情节对上编年史里哪一件', () => {
+  it('两国之间的情节两国都得对上:同一年开了两场仗,对上打的是情节说的那国的', () => {
+    const C = alive[2];
+    const war = (id: number, b: number, importance: ChronicleEntry['importance']): ChronicleEntry => ({ id, kind: 'war', year, end: year + 3, text: '', tag: '战', importance, polities: [A.id, b], regions: [], settlement: -1 });
+    const other = war(1, C.id, 3);
+    const hit = war(2, B.id, 2);
+    const p: Plot = { id: 7, kind: 'war', year, a: polityKey(civ, A.id), b: polityKey(civ, B.id) };
+    const o: OutlineCtx = { civ, plots: [p], review: [{ id: 7, status: 'natural', year }] };
+    expect(directorPlots(o, [other, hit])[0].entry).toBe(hit);
+    expect(directorPlots(o, [other])[0].entry).toBeNull();
   });
 });
