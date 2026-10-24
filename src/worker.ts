@@ -156,11 +156,12 @@ export type WorkerRequest =
   | { type: 'extendStop'; id: number; xid: number }
   /**
    * 照大纲推演(gen/outline.ts 的 runOutline):plots = 大纲的情节;interventions = 这个世界现在的干预(上一次照大纲硬改出来的那几条先去掉再重新算);
-   * characters、marks = 作者的人物、标记(即位、一片地方要读)。其余各项和推这个世界时一样(逐年推演中的世界不用这个)。
-   * oid = 第几次照大纲推演(主线程只认最新的)。推的时候每查完一条交 outlineProgress;推完交 outlined(随后照常排原件 snapshot,配方里的干预是新的那一串);
+   * characters、marks = 作者的人物、标记(即位、一片地方要读);tries = 没自然发生的情节硬改前最多试几版顺着引(不给 = 不引)。
+   * 其余各项和推这个世界时一样(逐年推演中的世界不用这个)。
+   * oid = 第几次照大纲推演(主线程只认最新的)。推的时候每查完一条交 outlineProgress(试引法时 at.trial = 第几版 / 最多几版);推完交 outlined(随后照常排原件 snapshot,配方里的干预是新的那一串);
    * 被顶掉、叫停交 outlineStopped。上一次照大纲推演每一步的样子记在线程里:前面几条情节没改,就从第一条改了的那条接着算
    */
-  | ({ type: 'outline'; id: number; oid: number; plots: unknown[]; interventions?: Intervention[]; characters?: AuthorCharacter[]; marks?: AuthorMark[] } & Omit<CivInput, 'play'>)
+  | ({ type: 'outline'; id: number; oid: number; plots: unknown[]; interventions?: Intervention[]; characters?: AuthorCharacter[]; marks?: AuthorMark[]; tries?: number } & Omit<CivInput, 'play'>)
   /** 叫停照大纲推演:oid 和它以前的都不推了;没在推就什么也不做 */
   | { type: 'outlineStop'; id: number; oid: number }
   /**
@@ -221,7 +222,7 @@ export type WorkerResponse =
    * 照大纲推演的进度:查完了 done 条(一共 total 条),到现在的批改(按查的先后);
    * at = 正在查的那一条(情节编号)、fix = 它没自然发生,正在第几年硬改(还在查 = null)
    */
-  | { type: 'outlineProgress'; id: number; oid: number; done: number; total: number; review: PlotReview[]; at?: { id: number; fix: number | null } }
+  | { type: 'outlineProgress'; id: number; oid: number; done: number; total: number; review: PlotReview[]; at?: { id: number; fix: number | null; trial?: { n: number; of: number } } }
   /**
    * 照大纲推演好了:整段历史、新的干预串(作者的干预 + 硬改出来的,带 plot)、每条情节的批改(按情节的先后);
    * ms(线程里花的时间)、tempo、eras 同 civ
@@ -1037,13 +1038,13 @@ async function handle(m: Queued): Promise<void> {
     const out = await runOutline(
       world,
       params,
-      { plots: m.plots, interventions: own, characters: m.characters, marks: m.marks },
+      { plots: m.plots, interventions: own, characters: m.characters, marks: m.marks, tries: m.tries },
       {
         progress: (done, total, review) => {
           last = { done, total, review: review.slice() };
           post({ type: 'outlineProgress', id: m.id, oid: m.oid, ...last });
         },
-        stage: (at, fix) => post({ type: 'outlineProgress', id: m.id, oid: m.oid, ...last, at: { id: at, fix } }),
+        stage: (at, fix, trial) => post({ type: 'outlineProgress', id: m.id, oid: m.oid, ...last, at: { id: at, fix, ...(trial ? { trial } : {}) } }),
         pause: () => new Promise((r) => setTimeout(r, 0)),
         stop,
         cache: outlineCache,

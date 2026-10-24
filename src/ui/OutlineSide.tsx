@@ -23,7 +23,7 @@ import './outline.css';
 /** 侧栏里最多列几条(多了写"还有 N 条") */
 const SIDE_ROWS = 12;
 
-const STATUS_ICON: Record<PlotStatus | 'todo', IconName> = { natural: 'check', forced: 'pen', failed: 'close', story: 'lines', todo: 'ring' };
+const STATUS_ICON: Record<PlotStatus | 'todo', IconName> = { natural: 'check', guided: 'up', forced: 'pen', failed: 'close', story: 'lines', todo: 'ring' };
 
 /** 批改的章(ic = 只要图标:侧栏) */
 export function PlotStatusTag({ s, ic }: { s: PlotStatus | 'todo'; ic?: boolean }) {
