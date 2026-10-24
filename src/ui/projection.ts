@@ -156,6 +156,11 @@ export class ProjLayer {
     return !this.dirty && this.shown === `${mp.key}|${fill}`;
   }
 
+  /** 显示画布上现在是不是按这个投影重画好的那一版(redraw / refine 贴上的,之后没铺过别的) */
+  redrawn(key: string, fill: PageFill = null): boolean {
+    return this.shown === `redraw|${key}|${fill}`;
+  }
+
   /**
    * 同 redraw,只是分小步在后台画(ui/detailJobs.ts,owner = 活名):显示画布上先留着现在那一版,
    * steps(ctx) 依次画在藏着的那张上(ctx() 第一次调时把它设成 w × h、铺好底色;这份作废了 = null),
@@ -260,12 +265,14 @@ export class ProjLayer {
  * - 数据图层,或者正在左右拖动中心:把等距圆柱的整张地形图(src,符号、河都在里面)整图重投影 ——
  *   拖动时每帧只要几毫秒,停下来再按投影重画。
  * layer = 地形图的 ProjLayer(记着原图和画布上现在是哪一版)。返回用了多少毫秒。
- * pre = 已经按投影重画好的这一版(编辑地形后在后台画好的,见 ui/terrainPatch.ts):直接贴上,不用当下再画
+ * pre = 已经按投影重画好的这一版(编辑地形后在后台画好的,见 ui/terrainPatch.ts):直接贴上,不用当下再画。
+ * swap = 同一张图、同一种画法,只换了投影或中心(换投影、地球仪切回来、滑条改中心):先整图重投影铺上(一次几十毫秒),
+ * 按投影重画在后台分小步备,备好了一次贴上 —— 和拖动中心停下来一样,不在换的那一下整张精画(弱一点的电脑上要卡一两秒)
  */
 export function presentTerrain(
   cv: HTMLCanvasElement,
   mp: MapProj,
-  o: { world: World; raster: Raster; style: string; look?: SurfaceLook; src: HTMLCanvasElement; layer: ProjLayer; moving: boolean; pre?: HTMLCanvasElement | null },
+  o: { world: World; raster: Raster; style: string; look?: SurfaceLook; src: HTMLCanvasElement; layer: ProjLayer; moving: boolean; pre?: HTMLCanvasElement | null; swap?: boolean },
 ): number {
   const { world, raster, style, layer } = o;
   layer.use(o.src);
@@ -275,9 +282,11 @@ export function presentTerrain(
   const pre = o.pre;
   if (pre && pre.width === raster.w && pre.height === raster.h) return layer.redraw(cv, raster.w, raster.h, mp.key, fill, (ctx) => ctx.drawImage(pre, 0, 0), true);
   const draw = (ctx: CanvasRenderingContext2D) => drawTerrainProjected(ctx, world, raster, style as DetailStyle, mp, { s: raster.scale, ox: 0, oy: 0, k: 1 }, o.look);
+  const t0 = performance.now();
+  // 只换了投影或中心:先整图重投影铺上,下面照刚停下来的办法精画
+  if (detailAsync && o.swap && !layer.redrawn(mp.key, fill) && !layer.presenting(mp, fill)) layer.present(cv, mp, fill);
   // 刚停下来(屏幕上是这个中心的整图重投影):按投影重画在后台分小步备,备好了贴上
   if (detailAsync && layer.presenting(mp, fill)) {
-    const t0 = performance.now();
     layer.refine(PROJ_JOB, cv, raster.w, raster.h, mp.key, fill, (ctx) => terrainProjWholeSteps(ctx, world, raster, style as DetailStyle, mp, o.look), draw, (ms, st) => {
       (window as unknown as { __wfProj?: unknown }).__wfProj = { proj: mp.def.id, lon: mp.lon0, ms, prep: st.prep, slices: st.slices };
     });

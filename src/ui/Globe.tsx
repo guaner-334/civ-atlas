@@ -120,6 +120,7 @@ import { MARK_MIN_D, globeGlyphAlpha, globeLabelView, globePolityItem, globeToCa
 import { ALL_FIGHTS_K, drawSwords, swordHalf, warFront, warMarkPoints, warsShown } from '../render/civ/warfare';
 import { drawGlobeGlyphs, globeGlyphSet, placeGlobeGlyphs, type GlobeGlyphSet, type GlobeGlyphView, type PlacedGlobeGlyph } from '../render/globeGlyphs';
 import { fantasyGlobeBase, releaseFantasyGlobeBase } from '../render/fantasy';
+import { cancelDetailJob, detailAsync, submitDetailJob } from './detailJobs';
 import type { LabelPick } from './mapPick';
 import { AVOID_MS, measureAvoid, type Box } from './uiAvoid';
 import type { GlobeTexRequest, GlobeTexResponse } from '../globeWorker';
@@ -239,11 +240,16 @@ export interface GlobeProps {
   apiRef: MutableRefObject<GlobeApi | null>;
   /** 悬停在球上的主图像素(离开 = null) */
   onHover: (p: [number, number] | null) => void;
+  /** 第一帧画好、地球仪露出来了(在这之前平面地图照旧显示着) */
+  onOpened?: () => void;
   /** 左边被侧栏卡片挡住多宽(CSS 像素;没有 = 0):球心往右挪一半,落在剩下那一块的正中(宽度变了约 0.6 秒过渡) */
   leftRoom?: number;
   /** 右边被助手面板挡住多宽(同上,球心往左挪一半) */
   rightRoom?: number;
 }
+
+/** 打开地球仪时的备料(warmSteps)在 detailJobs 里的活名 */
+const WARM_JOB = 'globe-warm';
 
 /** 调试 / 冒烟检查用 */
 interface GlobeDebug {
@@ -732,7 +738,9 @@ const sameKey = (a: readonly unknown[] | null, b: readonly unknown[]) => !!a && 
 
 // ---------------------------------------------------------------------------
 
-export function Globe({ world, raster, civ, geo, style, layer, look = 'classic', terrain, terrainKey, replay, startLon, apiRef, onHover, leftRoom = 0, rightRoom = 0 }: GlobeProps) {
+export function Globe({ world, raster, civ, geo, style, layer, look = 'classic', terrain, terrainKey, replay, startLon, apiRef, onHover, onOpened, leftRoom = 0, rightRoom = 0 }: GlobeProps) {
+  /** 第一帧画好了:之前地球仪藏着(屏幕上还是平面地图,见 warmSteps) */
+  const [shown, setShown] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const glRef = useRef<HTMLCanvasElement>(null);
   const ovRef = useRef<HTMLCanvasElement>(null);
@@ -758,6 +766,8 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
     raf: 0,
     frames: 0,
     opened: false,
+    /** 打开时的备料(warmSteps):'' = 还没开始,'run' = 在后台备,'done' = 备好了(或不用备) */
+    warm: (detailAsync ? '' : 'done') as '' | 'run' | 'done',
     fly: null as { from: GlobeView; to: GlobeView; t0: number; dur: number } | null,
     inertia: null as { vx: number; vy: number; t: number } | null,
     flash: null as { t0: number } | null,
@@ -878,8 +888,8 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
   }).current;
 
   // 最新的 props(帧回调里读)
-  const props = useRef({ world, raster, civ, geo, style, layer, look, terrain, terrainKey, replay, graticule, sel, show, leftRoom, rightRoom, hl, faithFocus, resView });
-  props.current = { world, raster, civ, geo, style, layer, look, terrain, terrainKey, replay, graticule, sel, show, leftRoom, rightRoom, hl, faithFocus, resView };
+  const props = useRef({ world, raster, civ, geo, style, layer, look, terrain, terrainKey, replay, graticule, sel, show, leftRoom, rightRoom, hl, faithFocus, resView, onOpened });
+  props.current = { world, raster, civ, geo, style, layer, look, terrain, terrainKey, replay, graticule, sel, show, leftRoom, rightRoom, hl, faithFocus, resView, onOpened };
 
   /** 左边被侧栏卡片挡住的宽度(画布太窄就不让) */
   const leftOf = () => (s.size.w > 2 * props.current.leftRoom ? props.current.leftRoom : 0);
@@ -1097,6 +1107,50 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
   };
 
   // ---- 贴图 ----
+  /**
+   * 文明贴图:国土色块(不含国界、道路,那两样画成矢量线);年份、开关、画风变了才重画。
+   * 手绘:停着的时候水彩按地球仪贴图的符号让位(林块按纬度拉宽过,山丘不在贴图里;globeTex = 地形用的是地球仪专用的那张);
+   * 回放 / 拖时间轴时和主图共用同一年算好的那份(省一次计算,高纬度林块上的让位略有错位,动着看不出)
+   */
+  const prepCivTex = (globeTex: boolean) => {
+    const p = props.current;
+    const cp = civParamsOf(p);
+    const globeInk = !!cp && !cp.fast && globeTex;
+    const ck = cp ? [cp.world, cp.raster, cp.civ, cp.style, cp.year, cp.show, cp.fast, globeInk, cp.faithFocus] : [p.world];
+    if (!sameKey(s.civTex.key, ck)) {
+      s.civTex.key = ck;
+      const t0 = performance.now();
+      let cv = s.civTex.canvas;
+      if (cp) {
+        if (!cv) cv = s.civTex.canvas = document.createElement('canvas');
+        if (cv.width !== p.raster.w || cv.height !== p.raster.h) {
+          cv.width = p.raster.w;
+          cv.height = p.raster.h;
+        }
+        drawCivFill(cv.getContext('2d')!, { ...cp, globeInk });
+      }
+      s.civTex.ms = performance.now() - t0;
+      s.civTex.ver++;
+    }
+    return cp;
+  };
+
+  /**
+   * 打开地球仪时先备料:地球仪专用的地形贴图、手绘符号、文明贴图在后台分几步画好(ui/detailJobs.ts),都好了再画第一帧 ——
+   * 不在第一帧里一口气画完(弱一点的电脑上要卡一两秒)。备的时候地球仪藏着,屏幕上还是平面地图,照常能拖能点。
+   * 和第一帧当场画的是同一份(都是按键缓存的),猜错了(比如高清贴图的缓存是别的世界的)第一帧照常重画
+   */
+  const warmSteps = (): (() => void)[] => {
+    const p = props.current;
+    const tex = s.hd.world === p.world ? (s.hd.cache.get(hdKey(p)) ?? s.lo.cache.get(hdKey(p))) : undefined;
+    const own = s.gl ? (tex ? p.style !== 'data' : p.style === 'fantasy') : false;
+    const steps: (() => void)[] = [];
+    if (s.gl && !tex && p.style === 'fantasy') steps.push(() => void fantasyGlobeBase(props.current.world, props.current.raster));
+    if (p.style === 'fantasy' && own) steps.push(() => void globeGlyphSet(props.current.world));
+    steps.push(() => void prepCivTex(own));
+    return steps;
+  };
+
   const uploadAll = () => {
     const p = props.current;
     const gl = s.gl;
@@ -1143,27 +1197,7 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
         s.relief = false;
       }
     }
-    // 文明贴图:国土色块(不含国界、道路,那两样画成矢量线);年份、开关、画风变了才重画。
-    // 手绘:停着的时候水彩按地球仪贴图的符号让位(林块按纬度拉宽过,山丘不在贴图里);
-    // 回放 / 拖时间轴时和主图共用同一年算好的那份(省一次计算,高纬度林块上的让位略有错位,动着看不出)
-    const cp = civParamsOf(p);
-    const globeInk = !!cp && !cp.fast && s.tex === 'globe';
-    const ck = cp ? [cp.world, cp.raster, cp.civ, cp.style, cp.year, cp.show, cp.fast, globeInk, cp.faithFocus] : [p.world];
-    if (!sameKey(s.civTex.key, ck)) {
-      s.civTex.key = ck;
-      const t0 = performance.now();
-      let cv = s.civTex.canvas;
-      if (cp) {
-        if (!cv) cv = s.civTex.canvas = document.createElement('canvas');
-        if (cv.width !== p.raster.w || cv.height !== p.raster.h) {
-          cv.width = p.raster.w;
-          cv.height = p.raster.h;
-        }
-        drawCivFill(cv.getContext('2d')!, { ...cp, globeInk });
-      }
-      s.civTex.ms = performance.now() - t0;
-      s.civTex.ver++;
-    }
+    const cp = prepCivTex(s.tex === 'globe');
     if (s.uploaded.civ !== s.civTex.ver) {
       s.uploaded.civ = s.civTex.ver;
       const src = cp ? s.civTex.canvas : null;
@@ -1479,6 +1513,17 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
       s.raf = requestAnimationFrame(tick);
       return;
     }
+    // 第一帧之前先在后台把贴图备好(warmSteps),备好了再接着画
+    if (s.warm !== 'done') {
+      if (s.warm === '') {
+        s.warm = 'run';
+        submitDetailJob(WARM_JOB, warmSteps(), () => {
+          s.warm = 'done';
+          invalidate();
+        }, { alone: true });
+      }
+      return;
+    }
     const t0 = performance.now();
     let more = false;
     if (s.fly) {
@@ -1641,6 +1686,8 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
     if (!s.opened && s.uploaded.terrainKey !== undefined && (s.gl || s.cpuShown)) {
       s.opened = true;
       (s as { openMs?: number }).openMs = t2 - s.t0;
+      setShown(true);
+      p.onOpened?.();
     }
     const places: Record<string, number> = {};
     const civNow = p.civ;
@@ -1756,6 +1803,7 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
       ro.disconnect();
       cancelAnimationFrame(s.raf);
       s.raf = 0;
+      cancelDetailJob(WARM_JOB);
       window.clearTimeout(s.cpuIdle);
       window.clearTimeout(s.wheelIdle);
       s.cpuPool?.dispose();
@@ -2240,7 +2288,7 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
     <div
       ref={rootRef}
       className={`globe globe-${style}`}
-      style={{ background: GLOBE_BG[style], ['--globe-bg' as string]: GLOBE_BG[style] }}
+      style={{ background: GLOBE_BG[style], ['--globe-bg' as string]: GLOBE_BG[style], visibility: shown ? undefined : 'hidden' }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}

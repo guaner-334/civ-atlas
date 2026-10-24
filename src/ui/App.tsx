@@ -1341,6 +1341,9 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
   }, [chronPick]);
   // 3D 地球仪(网址 proj=globe,旧链接的 view=globe 也认 / 地图右下角的按钮):主图藏起来,同一套时间轴、详情面板、选中逻辑
   const globeOn = useGlobeOn();
+  /** 地球仪第一帧画好了(打开时它先在后台备贴图,这之前平面地图照旧显示着) */
+  const [globeShown, setGlobeShown] = useState(false);
+  if (!globeOn && globeShown) setGlobeShown(false);
   /** 等值线画不画:新建世界时、地球仪上不画 */
   const contourOn = !!contourKind && !draft && !globeOn;
   /** 等值线的墨色按哪种底色配:白模底色浅,和浅色的数据底图同一套 */
@@ -3924,7 +3927,7 @@ ${s.image.cells}` : null);
       const p = preProj.current;
       const pre = p && p.raster === raster && p.key === mp.key && p.style === style && (style !== 'realistic' || p.look === surface) ? p.canvas : null;
       preProj.current = null;
-      presentTerrain(cv, mp, { world, raster, style, look: terrainLook, src, layer: proj, moving: projMoving || terrainCovered, pre });
+      presentTerrain(cv, mp, { world, raster, style, look: terrainLook, src, layer: proj, moving: projMoving || terrainCovered, pre, swap: !fresh });
       if (p) p.canvas.width = p.canvas.height = 0;
       mirrorCanvas(canvasCopyRef.current, null, false);
       const w = window as unknown as { __wf: unknown; __wfProj: unknown };
@@ -6020,8 +6023,8 @@ ${s.image.cells}` : null);
   })();
   const stagePos: CSSProperties | undefined = fr && { left: fr.x, top: fr.y, width: fr.w, height: fr.h, right: 'auto', bottom: 'auto' };
   // 两层放大的地图框共用一个变换、按视窗裁;两层屏幕层按同一个视窗裁(见下面的 JSX)
-  const wrapStyle: CSSProperties = { transform: `translate(${view.x}px, ${view.y}px) scale(${view.k})`, clipPath: wrapClip(view, sb, wrapW), display: globeOn ? 'none' : undefined };
-  const screenStyle: CSSProperties = { clipPath: screenClip(view, sb, wrapW), display: globeOn ? 'none' : undefined };
+  const wrapStyle: CSSProperties = { transform: `translate(${view.x}px, ${view.y}px) scale(${view.k})`, clipPath: wrapClip(view, sb, wrapW), display: globeOn && globeShown ? 'none' : undefined };
+  const screenStyle: CSSProperties = { clipPath: screenClip(view, sb, wrapW), display: globeOn && globeShown ? 'none' : undefined };
   // 装着地图各层的容器:换了世界、历史就换个记号,免得容器记着的旧 props 拉住旧世界(见 holdMark.ts)
   const hold = holdMark(data, civ, shownRaw);
   return (
@@ -6140,6 +6143,7 @@ ${s.image.cells}` : null);
             startLon={getMapCenter()}
             apiRef={globeApi}
             onHover={onGlobeHover}
+            onOpened={() => setGlobeShown(true)}
             leftRoom={sideRoom(stageSize.w)}
             rightRoom={astOpen ? astRoom(stageSize.w) : 0}
           />
