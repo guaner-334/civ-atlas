@@ -661,6 +661,12 @@ export interface Development {
    */
   control?: Uint8Array[];
   controlYears?: Year[];
+  /**
+   * 各州的乡村人口(千人;population.ts 的数表):每 RURAL_SNAP(10)年一份,每份 = 州数个数;和 ruralYears 一一对应。
+   * 最后一份是最后算的那一年的(不在整 10 年上时是补的,接着推时去掉);旧版本的历史没有(界面照 S 形曲线现算)
+   */
+  rural?: Float32Array[];
+  ruralYears?: Year[];
   /** 按年份排好 */
   events: DevEvent[];
   /**

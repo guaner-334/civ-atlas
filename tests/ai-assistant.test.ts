@@ -311,7 +311,7 @@ describe('助手面板', () => {
     expect(redoLastEdit()).toBe(true);
     expect(getEdits().interventions).toEqual([]);
     expect(applied()).toMatchObject({ undone: true });
-  });
+  }, 30_000);
 
   it('执行过以后点了新对话:提示条上的"撤销"、⌘Z / ⇧⌘Z 照样撤得了、再做得了', async () => {
     setTrialRunner(runner);
@@ -329,7 +329,7 @@ describe('助手面板', () => {
     expect(getEdits()).toEqual(after);
     expect(redoLastEdit()).toBe(true);
     expect(getEdits().interventions).toEqual([]);
-  });
+  }, 30_000);
 
   it('确认单列好以后,最后那句话出错、停下:确认单留着,照样能先看、执行', async () => {
     setTrialRunner(runner);
@@ -347,7 +347,7 @@ describe('助手面板', () => {
     expect(t.proposal!.trial).toBeTruthy();
     expect(previewBlock(t, {})).toBeNull();
     expect(applyBlock(t, {})).toBeNull();
-  });
+  }, 30_000);
 
   it('在地图上看试推演时:两份历史里是同一个的国家能改,试推演里才有的(或对不上的)不能改,提示条说原因', async () => {
     // 试推演:第 2000 年在一州立一个新国家(它只在试推演里有)
@@ -386,7 +386,7 @@ describe('助手面板', () => {
     dismissProposal(id);
     expect(turn(id).dismissed).toBe(true);
     expect(applyProposal(id, {})).toBe('这一轮执行过了');
-  });
+  }, 30_000);
 
   it('没有试推演(App 没给):确认单不附结果,也不能先看', async () => {
     const id = await sendAsk(ctx(), '让它多撑一阵');

@@ -1,7 +1,7 @@
 /**
  * 逐年推演里从某一年重新演绎(gen/stepwise.ts 的 rewindStepwise;界面在 src/ui/Stepwise.tsx、StepwiseDialogs.tsx):
  * seed 7 推演模式第 2650 年起,照默认推进设置(一步一年、每 25 年停一下)演绎到第 2700 年,
- * 中间加两条干预(第 2660 年大霄王朝禁止分裂、第 2680 年大霄王朝向克萨尼亚国宣战);倒回第 2675 年重新演绎:
+ * 中间加两条干预(第 2660 年大霄王朝禁止分裂、第 2680 年大霄王朝向东定国宣战);倒回第 2675 年重新演绎:
  * - 第 2675 年以后加的那条不要了,以前的那条还在;进度回到第 2675 年年初
  * - 倒回以后的历史和"带着留下的干预从第 0 年推到那一年"逐字段相等,第 2675 年以前和倒回之前一样
  * - 接着一步步演绎到第 2700 年:和带着同样干预从第 0 年一口气推完逐字段相等;不要了的那条没有生效
@@ -54,7 +54,7 @@ describe('seed 7 演绎到第 2700 年,倒回第 2675 年重新演绎', () => {
       }
       if (now === 2680) {
         const xiao = find('大霄');
-        const kang = find('克萨尼亚');
+        const kang = find('东定');
         expect(xiao && kang).toBeTruthy();
         gone = { kind: 'declare', a: polityKey(c, xiao!.id), b: polityKey(c, kang!.id), from: 2680 };
         return [gone];
@@ -92,8 +92,8 @@ describe('seed 7 演绎到第 2700 年,倒回第 2675 年重新演绎', () => {
   it('弹窗里"不要了的历史"列这一段分量最重的几件,一件几个字,按先后', () => {
     const f = first!;
     const brief = rewindBrief(f.civ, 2667, 2700, fullChronicle(f.civ));
-    // 大霄王朝灭克萨尼亚国(干预宣战的那一仗;亡国那条又单列,只算一件)、有鹰代有桂、奥利亚王国灭阿斯托斯国
-    expect(brief).toEqual(['大霄灭克萨尼亚', '有鹰代有桂', '奥利亚灭阿斯托斯']);
+    // 大霄王朝灭新莱米斯国(亡国那条又单列,只算一件)、埃维里亚帝国王室更迭、有鹰代有桂
+    expect(brief).toEqual(['大霄灭新莱米斯', '埃维里亚帝国王室更迭', '有鹰代有桂']);
     // 一件也没有:空
     expect(rewindBrief(f.civ, 2699.9, 2700, fullChronicle(f.civ))).toEqual([]);
   });

@@ -1,7 +1,7 @@
 /**
- * 政局的数表(gen/civ/stateTables.ts):管得到几成、离国都多远、钱粮、动荡(连同压到 0 以上之前的值),
+ * 政局的数表(gen/civ/stateTables.ts):管得到几成、离国都多远、乡村人口(连同搬家)、钱粮、动荡(连同压到 0 以上之前的值),
  * 数表算出来的和照公式直接算的一样(两种跑法都是)。
- * 用一串连着的州、随机填的输入,不用生成世界。
+ * 用一串连着的州(邻边的类型轮着来)、随机填的输入,不用生成世界。
  */
 import { describe, expect, it } from 'vitest';
 import { TableEngine, type Backend } from '../src/gen/civ/tables';
@@ -9,22 +9,27 @@ import { stateCards } from '../src/gen/civ/stateTables';
 import { NEVER } from '../src/gen/civ/devTables';
 import { CONTROL_CONSTS as C, FISCAL_CONSTS as F } from '../src/gen/civ/control';
 import { UNREST_CONSTS as U } from '../src/gen/civ/unrest';
-import { keyed } from '../src/gen/civ/rand';
+import { POP_CONSTS as H } from '../src/gen/civ/population';
+import { fpow, keyed } from '../src/gen/civ/rand';
 
 const R = 40;
 const NP = 5;
+
+/** r 和 r + 1 之间那条邻边的类型(平地、河、山、海峡、远洋航线轮着来) */
+const kindOf = (r: number) => r % 5;
 
 /** 州排成一串(r 和 r ± 1 相邻) */
 function chain() {
   const adjStart = new Int32Array(R + 1);
   const adj: number[] = [];
+  const kind: number[] = [];
   for (let r = 0; r < R; r++) {
     adjStart[r] = adj.length;
-    if (r > 0) adj.push(r - 1);
-    if (r + 1 < R) adj.push(r + 1);
+    if (r > 0) adj.push(r - 1), kind.push(kindOf(r - 1));
+    if (r + 1 < R) adj.push(r + 1), kind.push(kindOf(r));
   }
   adjStart[R] = adj.length;
-  return { count: R, adjStart, adj: Int32Array.from(adj), adjKind: new Uint8Array(adj.length), seat: Int32Array.from({ length: R }, (_, r) => r * 7) };
+  return { count: R, adjStart, adj: Int32Array.from(adj), adjKind: Uint8Array.from(kind), seat: Int32Array.from({ length: R }, (_, r) => r * 7) };
 }
 
 /** 随机的输入(第 k 组):国 4 没有州,州 0、1 没有国家 */
@@ -40,12 +45,15 @@ function inputs(k: number) {
     recent: u(r, 4) < 0.4 ? 200 * u(r, 5) : NEVER,
     big: u(r, 6) < 0.2 ? 1 : 0,
     lord: u(r, 7) < 0.15 ? 1 : 0,
-    rural: 300 * u(r, 8),
     city: u(r, 9) < 0.5 ? 80 * u(r, 10) : 0,
     prod: 6 * u(r, 11),
     move: 6 * u(r, 12),
     port: u(r, 13) < 0.3 ? 1 : 0,
     river: u(r, 14) < 0.3 ? 1 : 0,
+    // 乡村人口上限(州 5–9 一直没人住)、长得多快、兵灾几件
+    ruralCap: r >= 5 && r < 10 ? 0 : 50 + 250 * u(r, 15),
+    ruralRate: 0.002 + 0.03 * u(r, 16),
+    strife: u(r, 17) < 0.3 ? Math.floor(3 * u(r, 18)) : 0,
   }));
   const pol = Array.from({ length: NP }, (_, p) => ({
     admin: 9 * u(100 + p, 1) - 1,
@@ -65,10 +73,67 @@ function inputs(k: number) {
   return { reg, pol };
 }
 
-/** 钱粮里接着上一步的:三样收入(几年算一次)、国库 */
+/** 接着上一步的:三样收入(几年算一次)、国库;开垦了几成、兵祸、乡村人口(每 POP_EVERY 年算一次) */
 interface Ledger {
   income: number[][];
   treasury: number[];
+  farm: number[];
+  strife: number[];
+  rural: number[];
+  /** 乡村人口上一次算是哪一步;一共搬了多少 */
+  popAt: number;
+  moved: number;
+}
+
+/** 乡村人口照 stateTables.ts 文件头的公式算一步(搬家照引擎的写法:一州搬出去的总量不超过它有的);返回一共搬了多少 */
+function ruralStep(x: ReturnType<typeof inputs>, dt: number, led: Ledger): number {
+  const farm = x.reg.map((g, r) => {
+    if (g.ruralCap <= 0) return 0;
+    const f = led.farm[r];
+    return Math.min(1, Math.max(0, f <= 0 ? 1 / (1 + H.GROWTH_A) : f + dt * g.ruralRate * f * (1 - f)));
+  });
+  const strife = x.reg.map((g, r) => Math.min(1, Math.max(0, Math.min(1, led.strife[r] * fpow(H.FADE, dt) + H.HIT * g.strife))));
+  const P = led.rural;
+  const due = x.reg.map((g, r) => g.ruralCap * farm[r]);
+  const next = x.reg.map((_g, r) => {
+    const v = due[r] <= 0 ? 0 : P[r] <= 0 ? due[r] : P[r] + (dt * (due[r] - P[r])) / H.RECOVER;
+    return Math.min(1e9, Math.max(0, v));
+  });
+  const nbs = x.reg.map((_g, r) => [r - 1, r + 1].filter((q) => q >= 0 && q < R && x.reg[q].ruralCap > 0).length);
+  // 每州往左、往右各搬多少
+  const out = x.reg.map(() => [0, 0]);
+  if (dt > 0) {
+    x.reg.forEach((g, r) => {
+      const ns = [r - 1, r + 1];
+      let sum = 0;
+      ns.forEach((q, side) => {
+        if (q < 0 || q >= R) return;
+        const n = x.reg[q];
+        const kind = kindOf(Math.min(r, q));
+        const crowd = P[r] / Math.max(g.ruralCap * farm[r], 1e-9);
+        const there = P[q] / Math.max(n.ruralCap * farm[q], 1e-9);
+        const road = (n.ruralCap <= 0 || kind === 4 ? 0 : kind === 3 ? H.STRAIT_W : kind === 2 ? H.MOUNTAIN_W : 1) * (n.p === g.p ? 1 : H.ABROAD);
+        const v = road * P[r] * (H.MIG * Math.max(0, crowd - there) + (H.FLEE * Math.max(0, strife[r] - strife[q])) / Math.max(1, nbs[r]));
+        out[r][side] = v > 0 ? v * dt : 0;
+        sum += out[r][side];
+      });
+      const have = Math.max(0, Math.min(P[r], next[r]));
+      if (sum > have) for (const side of [0, 1]) out[r][side] *= have / sum;
+    });
+  }
+  const moved = next.map((v, r) => {
+    let d = 0;
+    if (r > 0) d += out[r - 1][1] - out[r][0];
+    if (r + 1 < R) d += out[r + 1][0] - out[r][1];
+    return Math.min(1e9, Math.max(0, d !== 0 ? v + d : v));
+  });
+  led.farm = farm;
+  led.strife = strife;
+  led.rural = moved;
+  // 搬家前后总人口不变
+  const sum = (a: number[]) => a.reduce((t, v) => t + v, 0);
+  expect(sum(moved)).toBeCloseTo(sum(next), 6);
+  return sum(out.map((o) => o[0] + o[1]));
 }
 
 /** 照公式直接算(原来事件层现算的写法;钱粮照 stateTables.ts 文件头的公式) */
@@ -89,12 +154,16 @@ function reference(x: ReturnType<typeof inputs>, k: number, led: Ledger) {
     if (g.dist >= NEVER) return C.REMOTE_MAX;
     return Math.min(C.REMOTE_MAX, g.dist / (C.FAR_REACH * (scale(g.p) / (1 + C.ADMIN_GAIN * C.ADMIN_REF))));
   });
+  if (k % H.POP_EVERY === 0) {
+    led.moved += ruralStep(x, k === 0 ? 0 : k - led.popAt, led);
+    led.popAt = k;
+  }
   if (k % F.FISCAL_EVERY === 0) {
-    led.income = x.reg.map((g) =>
+    led.income = x.reg.map((g, r) =>
       g.p < 0
         ? [0, 0, 0]
         : [
-            g.rural * F.LAND * (1 + F.LAND_PROD * g.prod),
+            led.rural[r] * F.LAND * (1 + F.LAND_PROD * g.prod),
             g.city * F.CRAFT * (1 + F.CRAFT_PROD * g.prod),
             g.city * F.TRADE * (1 + F.TRADE_MOVE * g.move) * (1 + F.PORT_W * g.port + F.RIVER_W * g.river),
           ],
@@ -136,18 +205,19 @@ function reference(x: ReturnType<typeof inputs>, k: number, led: Ledger) {
     return u;
   });
   const unrest = base.map((u, p) => Math.max(0, u) + Math.min(C.LORD_U_MAX, C.LORD_U * x.pol[p].lords));
-  return { ctl, far, base, unrest, broke, treasury: led.treasury.slice() };
+  return { ctl, far, base, unrest, broke, treasury: led.treasury.slice(), rural: led.rural.slice(), farm: led.farm.slice() };
 }
 
 describe('政局的数表', () => {
   for (const backend of ['js', 'closure'] as Backend[]) {
-    it(`管得到几成、离国都多远、钱粮、动荡和照公式直接算的一样(${backend})`, () => {
-      const eng = new TableEngine({ seed: 1, cards: stateCards(C, U, F), units: { region: chain() }, owner: '国', backend });
+    it(`管得到几成、离国都多远、乡村人口、钱粮、动荡和照公式直接算的一样(${backend})`, () => {
+      const eng = new TableEngine({ seed: 1, cards: stateCards(C, U, F, H), units: { region: chain() }, owner: '国', backend });
       eng.setPolities(NP);
       let negative = 0;
       let broke = 0;
       let rich = 0;
-      const led: Ledger = { income: [], treasury: new Array(NP).fill(0) };
+      const zero = () => new Array(R).fill(0);
+      const led: Ledger = { income: [], treasury: new Array(NP).fill(0), farm: zero(), strife: zero(), rural: zero(), popAt: 0, moved: 0 };
       for (let k = 0; k < 12; k++) {
         const x = inputs(k);
         const set = (id: string, f: (i: number) => number) => {
@@ -172,8 +242,11 @@ describe('政局的数表', () => {
         set('战事', (p) => x.pol[p].wars);
         set('纳贡', (p) => x.pol[p].paid);
         set('收贡', (p) => x.pol[p].got);
+        set('乡容', (r) => x.reg[r].ruralCap);
+        set('乡速', (r) => x.reg[r].ruralRate);
+        set('新祸', (r) => x.reg[r].strife);
+        set('有人邻州', (r) => [r - 1, r + 1].filter((q) => q >= 0 && q < R && x.reg[q].ruralCap > 0).length);
         if (k % F.FISCAL_EVERY === 0) {
-          set('乡民', (r) => x.reg[r].rural);
           set('城民', (r) => x.reg[r].city);
           set('生产', (r) => x.reg[r].prod);
           set('运输', (r) => x.reg[r].move);
@@ -190,18 +263,23 @@ describe('政局的数表', () => {
           unrest: [...eng.get('动荡')],
           broke: [...eng.get('窘迫')],
           treasury: [...eng.get('国库')],
+          rural: [...eng.get('乡口')],
+          farm: [...eng.get('垦')],
         };
         if (want.base.some((u) => u < 0)) negative++;
         if (want.broke.some((b) => b > 0)) broke++;
         if (want.treasury.some((t) => t > 0)) rich++;
-        for (const key of ['ctl', 'far', 'base', 'unrest', 'broke', 'treasury'] as const) {
+        for (const key of ['ctl', 'far', 'base', 'unrest', 'broke', 'treasury', 'farm'] as const) {
           want[key].forEach((v, i) => expect(got[key][i], `第 ${k} 组 ${key} ${i}`).toBeCloseTo(v, 12));
         }
+        want.rural.forEach((v, i) => expect(Math.abs(got.rural[i] - v), `第 ${k} 组 乡口 ${i}`).toBeLessThan(1e-9 * (1 + Math.abs(v))));
         // 管得到几成、离国都多远逐位一样(算的先后一样)
         want.ctl.forEach((v, i) => expect(got.ctl[i], `第 ${k} 组 管辖 ${i}`).toBe(v));
         want.far.forEach((v, i) => expect(got.far[i], `第 ${k} 组 边远 ${i}`).toBe(v));
       }
       expect(negative).toBeGreaterThan(0);
+      // 搬过家
+      expect(led.moved).toBeGreaterThan(1);
       // 有国用不足的,也有攒下钱的
       expect(broke).toBeGreaterThan(0);
       expect(rich).toBeGreaterThan(0);

@@ -458,6 +458,8 @@
  *  30:各国有了钱粮(civ/control.ts、stateTables.ts):各州的田赋、工商、市税按人口、生产和运输能力、港口大河算,
  *      管得到几成决定交上来几成(割据的地方不交),藩属向宗主纳贡;养官、打仗花钱,国库攒够几年的用度。
  *      国库空了还入不敷出就是国用不足:动荡加一点、少开战、攻方早罢兵。历史重新推演
+ *  31:乡村人口改成每 5 年算一次的数表(civ/population.ts、stateTables.ts):会搬家(往不挤的邻州去、逃兵灾),
+ *      洗劫、饥荒、瘟疫的折损按表扣、几十年长回来;界面上州、国家的人口读每 10 年一份的快照。田赋、发展度读这张表。历史重新推演
  */
 import type { Civ, Culture, Faith, Person, Place, Polity, Regions, RulerLeanings, Settlement } from './civ/types';
 import type { AuthorCharacter } from './characters';
@@ -469,7 +471,7 @@ import type { Era } from './era';
 import type { Frontier, Origins } from './civ/frontier';
 
 /** 生成器版本:生成算法有改动、同种子会得到不同世界时加一(存档读档时核对);加一时在 GENERATOR_CHANGES 里补一条 */
-export const GENERATOR_VERSION = 30;
+export const GENERATOR_VERSION = 31;
 
 /**
  * 一版生成器的改动有多大(从小到大):打开旧存档、旧链接时,按跨过的几版里最大的那一种说清变了什么(savefile.ts 的 versionNote)
@@ -517,6 +519,7 @@ export const GENERATOR_CHANGES: Readonly<Record<number, { change: GeneratorChang
   28: { change: 'history' },
   29: { change: 'history' },
   30: { change: 'history' },
+  31: { change: 'history' },
 };
 
 /** 干预的种类(见文件头的表) */

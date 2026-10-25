@@ -185,7 +185,7 @@ describe('seed 7 从第 2650 年演绎到第 2700 年', () => {
       }
     }
   };
-  /** 第 2675 年停下时加的两条:大霄王朝向克萨尼亚国宣战、大霄王朝禁止分裂 */
+  /** 第 2675 年停下时加的两条:大霄王朝向东定国宣战、大霄王朝禁止分裂 */
   let added: Intervention[] = [];
 
   it('第 2650–2675 年停下:卡片里列这一段分量重的几件(打仗、灭国、自立、改朝……),按先后,每件有字幕和事发地', () => {
@@ -196,12 +196,13 @@ describe('seed 7 从第 2650 年演绎到第 2700 年', () => {
     expect(items.map((it) => [Math.floor(it.cap.entry.year), it.cap.typeName])).toEqual([
       [2653, '战争'],
       [2654, '灭亡'],
-      [2654, '自立'],
       [2655, '改朝'],
       [2662, '战争'],
       [2664, '改朝'],
       [2666, '灭亡'],
       [2666, '升格'],
+      [2666, '战争'],
+      [2671, '灭亡'],
     ]);
     for (const it of items) {
       expect(entryWeight(it.cap.entry)).toBeGreaterThanOrEqual(REVIEW_WEIGHT);
@@ -209,7 +210,7 @@ describe('seed 7 从第 2650 年演绎到第 2700 年', () => {
       expect(it.cap.pin).not.toBeNull();
     }
     // 打了几年的仗(大定伐大承,第 2662–2666 年):字幕只写开头一句,年份写"起"
-    const war = items[4].cap;
+    const war = items[3].cap;
     expect(war.entry.end).toBeGreaterThan(2666);
     expect(war.label).toBe('第 2662 年起');
     // 这一段里分量没到的几件(重要度 2 的灾异、迁都……)不列
@@ -246,10 +247,10 @@ describe('seed 7 从第 2650 年演绎到第 2700 年', () => {
   });
 
   it('第 2675 年加两条干预、接着演绎到第 2700 年,存回推演模式:普通世界推到第 2700 年,以前的历史一样', () => {
-    // 大霄王朝(第 2655 年起的国号)和相邻的克萨尼亚国
+    // 大霄王朝(第 2655 年起的国号)和相邻的东定国
     const name = (id: number) => polityName(civ.polities[id], 2674.5);
     const xiao = civ.polities.find((p) => p.ended === undefined && name(p.id).includes('大霄'));
-    const kang = civ.polities.find((p) => p.ended === undefined && name(p.id).includes('克萨尼亚'));
+    const kang = civ.polities.find((p) => p.ended === undefined && name(p.id).includes('东定'));
     expect(xiao && kang).toBeTruthy();
     const A = polityKey(civ, xiao!.id);
     added = [
