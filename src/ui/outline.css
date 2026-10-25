@@ -20,6 +20,10 @@
   color: var(--ok);
   background: color-mix(in srgb, var(--ok) 12%, transparent);
 }
+.ol-st.guided {
+  color: var(--link);
+  background: color-mix(in srgb, var(--link) 11%, transparent);
+}
 .ol-st.forced {
   color: var(--warn);
   background: color-mix(in srgb, var(--warn) 13%, transparent);
@@ -109,6 +113,10 @@
   background: var(--accent);
   color: var(--on-accent);
 }
+.ol-btn.primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+  filter: none;
+}
 .ol-btn.small {
   flex: none;
   height: 30px;
@@ -182,6 +190,20 @@
   color: var(--accent);
   margin-top: 1px;
   white-space: normal;
+}
+/* 正在试引法:试到第几版的一道细进度 */
+.ol-row .ol-bar {
+  display: block;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--line);
+  margin-top: 5px;
+  overflow: hidden;
+}
+.ol-row .ol-bar i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
 }
 .ol-sum {
   padding: 6px 4px 0;
@@ -1061,4 +1083,168 @@ select.ol-in {
   border-top: 0.5px solid var(--line);
   color: var(--ink-2);
   font-size: 12.5px;
+}
+
+/* ---- 照大纲推演前先问一下:多认真地试(OutlineRunAsk.tsx;电脑浮在正中,手机一整页) ---- */
+.ol-ask-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(20, 20, 24, 0.34);
+}
+.ol-ask-wrap {
+  position: fixed;
+  inset: 0;
+  z-index: 61;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 14px;
+  pointer-events: none;
+}
+.ol-ask {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 560px;
+  max-width: 100%;
+  max-height: 100%;
+  overflow-y: auto;
+  padding: 20px 22px 18px;
+  background: var(--panel-solid);
+  border-radius: 16px;
+  box-shadow: var(--shadow-float);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  pointer-events: auto;
+}
+.ol-ask h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+.ol-ask .lead {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--ink-2);
+}
+.ol-ask .ft {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+  padding-top: 4px;
+}
+.ol-ask > .ol-note,
+.ol-ask-ph .ol-note {
+  padding: 0 20px;
+  line-height: 1.55;
+}
+.ol-ask-ph {
+  position: fixed;
+  z-index: 61;
+}
+.ol-f {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ol-f > label {
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+.ol-opts {
+  background: var(--surface);
+  border-radius: 10px;
+  box-shadow: 0 0 0 0.5px var(--line);
+}
+.ol-opt {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+}
+.ol-opt:last-child {
+  border-bottom: 0;
+}
+.ol-opt:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.ol-opt .rd {
+  width: 18px;
+  height: 18px;
+  border-radius: 9px;
+  box-shadow: inset 0 0 0 1.5px var(--line-strong);
+  flex: none;
+  margin-top: 1px;
+}
+.ol-opt.on .rd {
+  box-shadow: inset 0 0 0 5px var(--accent);
+}
+.ol-opt .m {
+  flex: 1;
+  min-width: 0;
+}
+.ol-opt .m b {
+  font-weight: 500;
+  font-size: 14.5px;
+}
+.ol-opt .m b em {
+  font-style: normal;
+  font-weight: 400;
+  font-size: 12px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: 4px;
+  padding: 1px 6px;
+  margin-left: 6px;
+  vertical-align: 1px;
+}
+.ol-opt .m small {
+  display: block;
+  font-size: 12.5px;
+  color: var(--ink-2);
+  line-height: 1.5;
+  margin-top: 2px;
+}
+.ol-opt .t {
+  font-size: 13px;
+  color: var(--ink-2);
+  white-space: nowrap;
+  text-align: right;
+  line-height: 1.5;
+}
+.ol-opt .t b {
+  color: var(--ink);
+  font-weight: 500;
+}
+.ol-own {
+  width: 44px;
+  height: 24px;
+  padding: 0 8px;
+  margin: 0 2px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--field);
+  color: var(--ink);
+  font: 14px var(--font-sans);
+  font-variant-numeric: tabular-nums;
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+.ol-own::-webkit-inner-spin-button,
+.ol-own::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.ol-own:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 0;
+}
+.ol-ask-ph .ol-ph-ft .ol-btn {
+  flex: 1;
 }

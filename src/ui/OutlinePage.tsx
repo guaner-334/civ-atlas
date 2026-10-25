@@ -18,7 +18,7 @@ import type { Intervention, Plot, PlotReview, PlotStatus } from '../gen/edits';
 import { useEdits } from './editsStore';
 import { getCivHighlight, getCivTime, setCivHighlight } from './civView';
 import { closeOverview, openOverview } from './overviewStore';
-import { editPlot, setOutlineFilter, startOutline, stopOutline, useOutlineUi } from './outlineStore';
+import { askOutline, editPlot, setOutlineFilter, stopOutline, useOutlineUi } from './outlineStore';
 import { usePolityPick, interventionText, nameAt } from './Interventions';
 import { MenuItem, MenuSep, PopMenu } from './PopMenu';
 import { Icon } from './icons';
@@ -42,7 +42,7 @@ export function useOutlinePickReturn() {
   }, [pk]);
 }
 
-const STATUS_ORDER: PlotStatus[] = ['natural', 'forced', 'failed', 'story'];
+const STATUS_ORDER: PlotStatus[] = ['natural', 'guided', 'forced', 'failed', 'story'];
 
 /** 干预的说法(硬改结果里用) */
 const ivBase = (civ: Civ) => (v: Intervention, i: number) => interventionText(civ, v, i);
@@ -249,7 +249,7 @@ export function OutlinePage({ civ }: { civ: Civ | null }) {
               停下
             </button>
           ) : (
-            <button className="ol-btn small primary" data-act="outline-run" onClick={() => (closeOverview(), startOutline())}>
+            <button className="ol-btn small primary" data-act="outline-run" onClick={askOutline}>
               {review?.length ? '再照大纲推演' : '照大纲推演'}
             </button>
           )}
@@ -471,7 +471,7 @@ export function OutlinePhone({ civ }: { civ: Civ | null }) {
               停下
             </button>
           ) : (
-            <button className={`ol-btn${review?.length ? '' : ' primary'}`} data-act="outline-run" disabled={!civ} onClick={() => (closeOverview(), startOutline())}>
+            <button className={`ol-btn${review?.length ? '' : ' primary'}`} data-act="outline-run" disabled={!civ} onClick={askOutline}>
               {review?.length ? '再照大纲推演' : '照大纲推演'}
             </button>
           )}

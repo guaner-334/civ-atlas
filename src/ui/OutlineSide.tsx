@@ -3,7 +3,8 @@
  *
  *   没写大纲    「先有故事？」一句说明 +「写大纲」(打开概览的「大纲」页)
  *   写好了      每条一行:年份、作者写的那句(没写 = 发生什么),右边批改的章;下面一句和「照大纲推演」(还没推过)/ 合计(推过了)
- *   正在推      查完的打上章,正在查的那条转圈、底下一行"没自然发生，在第 N 年硬改，接着推",后面的写"等着"
+ *   正在推      查完的打上章,正在查的那条转圈、底下一行"没自然发生，在试第 7 / 12 版引法"(和一道进度)/"没自然发生，在第 N 年硬改，接着推",
+ *               后面的写"等着";下面一句"第 5 / 10 条，已定下 4 条"
  * 点一行 = 收起概览、时间轴跳到那一年(推过了 = 落定的那年)、地图上选中它说的国家 / 州 / 城。
  * 照大纲推演的提示条(进度、推完)也在这里拼好,App 接后台线程时调。
  */
@@ -14,7 +15,7 @@ import { yearShort, eraText, type Era } from '../gen/era';
 import { useEdits } from './editsStore';
 import { getSelection, setCivTime, setSelection, type MapSelection } from './civView';
 import { closeOverview, openOverview } from './overviewStore';
-import { setOutlineFocus, startOutline, useOutlineUi, type OutlineRun } from './outlineStore';
+import { askOutline, setOutlineFocus, useOutlineUi, type OutlineRun } from './outlineStore';
 import type { ToastInput } from './toastStore';
 import { Icon, type IconName } from './icons';
 import { PLOT_KIND_INFO, STATUS_NAMES, plotText, countsText, plotNo, plotPolityId, plotWindow, reviewCounts, stageText, type OutlineCtx } from './outlineInfo';
@@ -23,7 +24,7 @@ import './outline.css';
 /** 侧栏里最多列几条(多了写"还有 N 条") */
 const SIDE_ROWS = 12;
 
-const STATUS_ICON: Record<PlotStatus | 'todo', IconName> = { natural: 'check', guided: 'up', forced: 'pen', failed: 'close', story: 'lines', todo: 'ring' };
+const STATUS_ICON: Record<PlotStatus | 'todo', IconName> = { natural: 'check', guided: 'trend', forced: 'pen', failed: 'close', story: 'lines', todo: 'ring' };
 
 /** 批改的章(ic = 只要图标:侧栏) */
 export function PlotStatusTag({ s, ic }: { s: PlotStatus | 'todo'; ic?: boolean }) {
@@ -99,15 +100,25 @@ export function plotTarget(o: OutlineCtx, p: Plot, r: PlotReview | undefined): M
   return a >= 0 ? { kind: 'polity', id: a } : null;
 }
 
-/** 照大纲推演的提示条:"照大纲推演：第 5 / 10 条",正在硬改时底下一句 */
-export function outlineRunToast(run: OutlineRun, o: OutlineCtx, era: Era | undefined, stop: () => void): ToastInput {
+/**
+ * 照大纲推演的提示条:"照大纲推演：第 5 / 10 条",正在硬改时底下一句;
+ * 正在试引法:"照大纲推演：第 5 / 10 条，在试第 7 / 12 版",底下"已定下 4 条；第 5 条没自然发生，试几种引法，挑最轻又成了的"(手机上短些)
+ */
+export function outlineRunToast(run: OutlineRun, o: OutlineCtx, era: Era | undefined, stop: () => void, phone = false): ToastInput {
   const p = run.at !== null ? o.plots.find((x) => x.id === run.at) : undefined;
-  const more = p && run.fix !== null ? [eraText(stageText(o, p, run.fix), era)] : [];
+  const t = p && run.trial;
+  let more = p && run.fix !== null ? [eraText(stageText(o, p, run.fix), era)] : [];
+  if (t) {
+    const why = `第 ${plotNo(o.plots, p.id)} 条没自然发生，试几种引法，挑最轻又成了的`;
+    more = phone ? (run.done ? [`已定下 ${run.done} 条`] : []) : [run.done ? `已定下 ${run.done} 条；${why}` : why];
+  }
+  const head = `照大纲推演：第 ${Math.min(run.total, run.done + 1)} / ${run.total} 条`;
   return {
     id: 'outline',
     kind: 'progress',
-    text: `照大纲推演：第 ${Math.min(run.total, run.done + 1)} / ${run.total} 条`,
-    progress: run.total ? run.done / run.total : 0,
+    text: t ? `${head}，${phone ? '' : '在试'}第 ${t.n} / ${t.of} 版` : head,
+    // 试引法时这一条按试到第几版往前走一点(多半用不满最多几版)
+    progress: run.total ? (run.done + (t ? t.n / (t.of + 1) : 0)) / run.total : 0,
     more,
     action: { label: '取消', act: 'outline-stop', onClick: stop },
   };
@@ -155,7 +166,12 @@ export function OutlineSide({ civ, era }: { civ: Civ | null; era?: Era | null })
   const shown = plots.slice(0, SIDE_ROWS);
   const n = reviewCounts(review);
   let foot: ReactNode;
-  if (run) foot = <div className="ol-sum">第 {Math.min(run.total, run.done + 1)} / {run.total} 条。算的时候地图照样能拖、能点。</div>;
+  if (run)
+    foot = (
+      <div className="ol-sum">
+        第 {Math.min(run.total, run.done + 1)} / {run.total} 条{run.done ? `，已定下 ${run.done} 条` : ''}。算的时候地图照样能拖、能点。
+      </div>
+    );
   else if (review?.length)
     foot = <div className="ol-sum">{countsText(n)}。点一条到地图上看。</div>;
   else
@@ -163,7 +179,7 @@ export function OutlineSide({ civ, era }: { civ: Civ | null; era?: Era | null })
       <>
         <div className="ol-sum">还没照着推演过。地图上现在是照常推出来的历史。</div>
         <div className="ol-acts">
-          <button className="ol-btn primary" data-act="outline-run" disabled={!civ} onClick={startOutline}>
+          <button className="ol-btn primary" data-act="outline-run" disabled={!civ} onClick={askOutline}>
             照大纲推演
           </button>
         </div>
@@ -195,6 +211,16 @@ export function OutlineSide({ civ, era }: { civ: Civ | null; era?: Era | null })
               <span className="ol-t">
                 <span>{plotLine(p)}</span>
                 {now && run.fix !== null && <span className="ol-sub">{eraText(`没自然发生，在第 ${run.fix} 年硬改，接着推`, era)}</span>}
+                {now && run.fix === null && run.trial && (
+                  <>
+                    <span className="ol-sub">
+                      没自然发生，在试第 {run.trial.n} / {run.trial.of} 版引法
+                    </span>
+                    <span className="ol-bar">
+                      <i style={{ width: `${Math.round((run.trial.n / run.trial.of) * 100)}%` }} />
+                    </span>
+                  </>
+                )}
               </span>
               {mark}
             </button>
