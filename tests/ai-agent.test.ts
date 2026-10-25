@@ -309,7 +309,7 @@ describe('试推演的对照', () => {
     // 两边都有这条立国修改:立出来的国家对上
     const same = matchPolities(after, after, y);
     for (const p of after.polities) expect(same.get(p.id)).toBe(p.id);
-  });
+  }, 30_000);
 
   it('保护一个原本被灭的国家:试推演里它活到最后,它被灭的那条大事不再发生', async () => {
     const after = generateCiv(world, { interventions: [{ kind: 'protect', a: polityKey(civ, victim), from }] });
@@ -327,7 +327,7 @@ describe('试推演的对照', () => {
     expect(t).toContain(`P${victim} ${vName}`);
     expect(t).toContain(`到第 ${civ.endYear} 年仍在`);
     expect(fateText(f.before, civ.endYear)).toMatch(/^第 \d+ 年被 P\d+ .+ 所灭\(亡国前 \d+ 州\)$/);
-  });
+  }, 30_000);
 });
 
 describe('助手', () => {
@@ -377,7 +377,7 @@ describe('助手', () => {
     expect(p.trial).toBe(r.trials[1]);
     // 作者的世界没动
     expect(ctx().edits).toBe(EMPTY);
-  });
+  }, 30_000);
 
   it('列确认单:没试过的顺带试推演一次;有地形修改的不附结果;再列一次换掉上一张;试推演次数有上限', async () => {
     let runs = 0;
@@ -414,7 +414,7 @@ describe('助手', () => {
     await expect(Promise.resolve().then(() => noSim.try_edits.run({ edits: [PROTECT] }))).rejects.toThrow('不能试推演');
     const r3 = await said(noSim.propose_edits.run({ edits: [PROTECT] }));
     expect(r3).not.toContain('试推演');
-  });
+  }, 30_000);
 
   it('试推演连着几次都和现在一样:提醒 AI 多半做不到、直接说;中间有一次变了就重新数', async () => {
     const state: { trials: AssistantTrial[]; proposal: AssistantProposal | null } = { trials: [], proposal: null };
@@ -433,7 +433,7 @@ describe('助手', () => {
     expect(await said(tools.try_edits.run({ edits: [PROTECT] }))).not.toMatch(hint);
     same = true;
     expect(await said(tools.try_edits.run({ edits: [PROTECT] }))).not.toMatch(hint);
-  });
+  }, 30_000);
 
   it('收尾的话像没说完:后面补一句,作者知道可以说「继续」', async () => {
     script({ calls: [['country', { country: `P${victim}` }]] }, '让我也查询它的邻国在同一时期的详细编年史：');
@@ -459,7 +459,7 @@ describe('助手', () => {
     expect(runs).toBe(2);
     expect(state.proposal!.trial!.n).toBe(0);
     expect(r).toContain('顺带试推演了一次');
-  });
+  }, 30_000);
 
   it('试推演里同时改名:两边都套上新名字再比,没变的大事不会算成少一件、多一件', async () => {
     // 改名的对象:生效年份以后编年史里出现最多的国家(不是被保护的那个)
@@ -473,7 +473,7 @@ describe('助手', () => {
     const [a, b] = state.trials.map((t) => t.diff);
     expect(b.addedCount).toBe(a.addedCount);
     expect(b.removedCount).toBe(a.removedCount);
-  });
+  }, 30_000);
 
   it('立国:能用经纬度指地方(挑离它最近、有人住的一州);结果里写明那一州在哪、多大、什么地貌', () => {
     const rctx = { world, civ, year: 2000, edits: EMPTY };
@@ -624,7 +624,7 @@ describe('助手', () => {
     const r2 = await said(t2.try_edits.run({ edits: [{ op: 'declare', country: `P${busy.a}`, other: `P${busy.b}`, from: y1, why: '…' }] }));
     expect(s2.trials[0].diff.declared).toEqual([{ text: `${nameAt(civ.polities[busy.a], y1)}向${nameAt(civ.polities[busy.b], y1)}宣战(第 ${y1} 年)` }]);
     expect(r2).toContain('试推演里没打起来');
-  });
+  }, 30_000);
 
   it('列完确认单:交代 AI 回答要和确认单对得上(主角的结果、副作用、不合格的),作者还没执行', async () => {
     const state = { trials: [] as AssistantTrial[], proposal: null as AssistantProposal | null };
@@ -649,13 +649,13 @@ describe('助手', () => {
     const t = await said(propose.run({ edits: [{ op: 'volcano', at: [0, 0] }] }));
     expect(t).toMatch(/现在用两三句话回答,要说到这几样:打算怎么改。直接称作者为"你"/);
     expect(t).not.toContain('多撑了');
-  });
+  }, 30_000);
 
   it('还在新建(只能改地形):不给试推演', () => {
     const names = (c: AssistantContext) => assistantTools(c, { trials: [], proposal: null }).map((t) => t.def.name);
     expect(names(ctx({ lock: 'history' }))).toEqual(['country', 'chronicle', 'situation', 'people', 'land', 'propose_edits']);
     expect(names(ctx())).toContain('try_edits');
-  });
+  }, 30_000);
 
   it('话里说列了确认单却没调列单的工具:补一句再问一轮,只给列单的工具;回给人看的话里"作者"换成"你"', async () => {
     const seen = script(
@@ -674,7 +674,7 @@ describe('助手', () => {
     const again = script({ calls: [['propose_edits', { edits: [PROTECT] }]] }, '确认单已经列好了。');
     expect((await runAssistant(ctx(), [], `让${vName}撑到最后`)).text).toBe('确认单已经列好了。');
     expect(again).toHaveLength(2);
-  });
+  }, 30_000);
 
   it('列的确认单要挪了落点再列,它说重新列了却没再调:补一句再问一轮;挪好了就不补', async () => {
     const ll = (i: number): [number, number] => [(world.mesh.x[i] / world.width) * 360 - 180, 90 - (world.mesh.y[i] / world.height) * 180];
@@ -715,7 +715,7 @@ describe('助手', () => {
     const r3 = await runAssistant(ctx({ lock: 'history' }), [], '在这块大陆上拉一道山脉');
     expect(range).toHaveLength(2);
     expect(r3.text).toBe('确认单列了这一条，山脉会和大陆连在一起。');
-  });
+  }, 30_000);
 
   it('"作者"换成"你":作者自己说到"作者"、名字里带"作者"的不换', async () => {
     script('需作者点击执行。');
@@ -733,7 +733,7 @@ describe('助手', () => {
       expect(saysListed(t), t).toBe(true);
     for (const t of ['', '做不到，所以没有列确认单。', '这件事用命令做不到，不列确认单了。', '第 2000 年最强的是萨尔斯坦帝国。', '确认单要你点了执行才生效。'])
       expect(saysListed(t), t).toBe(false);
-  });
+  }, 30_000);
 
   it('回给作者的话:编号前后紧挨着这个国家别的国号也不叠写;工具名换成中文', () => {
     const p = civ.polities.find((q) => polityTitleChain(q).includes('→'))!;

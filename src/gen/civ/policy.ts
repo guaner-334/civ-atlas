@@ -13,7 +13,7 @@
  *   亲国 —— 不主动打它,结盟时先找它,和它结着盟时它挨打更肯出兵援盟(FRIEND_JOIN)。
  * **发展重点**(development.ts):治下各州挑中的那一样能力"自己长"× FOCUS_UP,别的 × FOCUS_DOWN(发展度 20 年一步,几十年才看得出)。
  * **国力、动荡加减**(只有照大纲顺着引出来的方针带,gen/outline.ts):国力(wars.ts 的 powers、diplomacy.ts 的 powerOf)× (1 + power/100);
- *   动荡(unrest.ts:分裂、大崩解、民变、趁虚而入都看它)+ GUIDE_UNREST × unrest/50,改朝换代的动荡(dynasty.ts)× e^(GUIDE_DYNASTY × unrest/50)。
+ *   动荡(unrest.ts 的数表,control.ts 读的时候加上:分裂、大崩解、民变、趁虚而入都看它)+ GUIDE_UNREST × unrest/50,改朝换代的动荡(dynasty.ts)× e^(GUIDE_DYNASTY × unrest/50)。
  *
  * **从哪一刻起**:from 那一刻(干预事件)登记,下一刻(1/256 年后)起照新方针算 —— 同一刻里先发生的事照旧,
  * 接着推(fromCiv)按史事重放时也一样(和作者立的君主同一个做法,见 rulers.ts)。门槛放低了的,下一刻从现有国土往外重新看一遍

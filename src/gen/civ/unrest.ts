@@ -5,13 +5,15 @@
  *
  * 流程(index.ts 在 installDevelopment 之后调用 installUnrest):
  *
- *   **动荡**(unrestOf):每个国家一个看不见的"乱"值(0 起,一般 0–3),现算不存:
+ *   **动荡**:每个国家一个看不见的"乱"值(0 起,一般 0–3),按国一张数表,每年年初算一次(规则见 stateTables.ts,
+ *     control.ts 建引擎、填输入;年里出的事下一年才算进去):
  *     危机(politics.ts 的 strain:国土大、刚丢了国都 / 迁了都、正在打仗、接连丢州)
- *     + 边远的州多(各州离国都路程的平均,超过 FAR_0 的部分 × FAR_W)+ 异族多(异族州的比例 × FOREIGN_W)
+ *     + 边远的州多(各州离国都多远的平均,按行政能力折算,见 control.ts;超过 FAR_0 的部分 × FAR_W)+ 异族多(异族州的比例 × FOREIGN_W)
  *     + 王朝老了(当朝 AGE_0 年以后渐涨,AGE_SPAN 年涨满 AGE_W;新朝初立 NEW_YEARS 年内反倒减 NEW_W)
  *     + 闹了饥荒(FAMINE_YEARS 年内闹饥荒的州,占国土 FAMINE_FULL 就加满 FAMINE_W)
  *     + 闹了瘟疫(PLAGUE_YEARS 年内染疫的州,占国土 PLAGUE_FULL 就加满 PLAGUE_W;瘟疫见 plague.ts)+ 民变还没平(REVOLT_W)
- *     + 照大纲顺着引的动荡加减(policy.ts 的 GUIDE_UNREST)。
+ *     + 国用不足(钱粮,见 stateTables.ts;FISCAL_W × 窘迫)
+ *     + 照大纲顺着引的动荡加减(policy.ts 的 GUIDE_UNREST;control.ts 读表时加上)。
  *     它让国家更容易分裂(politics.ts 的分裂赔率用它)、更容易被邻国趁虚而入、更想对外开战转移矛盾(wars.ts)、
  *     动荡到顶的大国就会大崩解(见下)。
  *
@@ -51,12 +53,12 @@ import { AdjKind, Layer, type Civ, type Polity, type Year } from './types';
 import { Biome } from '../biomes';
 import { fexp, keyed, keyed4, subSeed } from './rand';
 import { BOOKED_AT_START, bookChain, Ev, quantize, type CivSim } from './sim';
-import { polityModelOf, unrestShiftOf, type PolityModel } from './polities';
-import { GUIDE_UNREST } from './policy';
+import { polityModelOf, type PolityModel } from './polities';
 import { warModelOf, type War, type WarModel } from './wars';
 import { politicsModelOf, type PoliticsModel } from './politics';
 import { devModelOf } from './development';
 import { GROWTH_A, capitalAt, populationAt } from './growth';
+import type { UnrestRuleConsts } from './stateTables';
 
 // ---- 调参(以 20 个种子的统计为准) ----
 /** 动荡:各州离国都的路程 ÷ REACH(最多 4)的平均,超过 FAR_0 的部分 × FAR_W */
@@ -197,6 +199,22 @@ function dynastyStart(p: Polity): Year {
   return d && d.length ? d[d.length - 1].year : p.founded;
 }
 
+/** 动荡的规则用到的常数(stateTables.ts 的「动荡」) */
+export const UNREST_CONSTS: UnrestRuleConsts = { FAR_0, FAR_W, FOREIGN_W, AGE_0, AGE_SPAN, AGE_W, NEW_YEARS, NEW_W, FAMINE_FULL, FAMINE_FULL_MIN, FAMINE_W, PLAGUE_FULL, PLAGUE_W, REVOLT_W };
+
+/** 动荡的输入里归这里管的几样(此刻):当朝几年、近年闹饥荒 / 染疫的州数、在讨伐的民变有几处 */
+export function unrestInputs(um: UnrestModel, P: Polity, t: Year): { age: number; famine: number; plague: number; quell: number } {
+  const pid = P.id;
+  const recent = (l: { year: Year; n: number }[] | undefined, span: number) => {
+    let n = 0;
+    if (l) for (let i = l.length - 1; i >= 0 && t - l[i].year < span; i--) n += l[i].n;
+    return n;
+  };
+  let quell = 0;
+  for (const w of um.wm.active) if (w.a === pid && um.quell.has(w.id)) quell++;
+  return { age: t - dynastyStart(P), famine: recent(um.famines.get(pid), FAMINE_YEARS), plague: recent(um.plagues.get(pid), PLAGUE_YEARS), quell };
+}
+
 // ---------------------------------------------------------------------------
 // 挂到推演引擎上
 
@@ -219,50 +237,7 @@ function hook(sim: CivSim, um: UnrestModel): void {
   const culture = sim.owners[Layer.Culture];
   const owner = sim.owners[Layer.Polity];
 
-  // ---- 动荡 ----
-  const unrest = (P: Polity, t: number): number => {
-    const pid = P.id;
-    const N = pm.size[pid];
-    if (!(N > 0)) return 0;
-    const dist = pm.capDist[pid];
-    // 边远:有"中央管到什么程度"(control.ts)时按路程和行政能力算(行政越强,远处越不算边远)
-    const cm = pol.control;
-    let far = 0;
-    let foreign = 0;
-    for (const r of pm.lands[pid]) {
-      if (cm) far += cm.remote(pid, r, t);
-      else {
-        const d = dist[r];
-        far += d < Infinity ? Math.min(4, d / REACH) : 4;
-      }
-      if (culture[r] !== P.culture) foreign++;
-    }
-    let u = pol.strain!(P, t);
-    u += FAR_W * Math.max(0, far / N - FAR_0);
-    u += (FOREIGN_W * foreign) / N;
-    const age = t - dynastyStart(P);
-    if (age < NEW_YEARS) u -= NEW_W;
-    else u += AGE_W * Math.min(1, Math.max(0, (age - AGE_0) / AGE_SPAN));
-    const fl = um.famines.get(pid);
-    if (fl) {
-      let n = 0;
-      for (let i = fl.length - 1; i >= 0 && t - fl[i].year < FAMINE_YEARS; i--) n += fl[i].n;
-      if (n) u += FAMINE_W * Math.min(1, n / Math.max(FAMINE_FULL_MIN, FAMINE_FULL * N));
-    }
-    const pl = um.plagues.get(pid);
-    if (pl) {
-      let n = 0;
-      for (let i = pl.length - 1; i >= 0 && t - pl[i].year < PLAGUE_YEARS; i--) n += pl[i].n;
-      if (n) u += PLAGUE_W * Math.min(1, n / Math.max(FAMINE_FULL_MIN, PLAGUE_FULL * N));
-    }
-    for (const w of wm.active) if (w.a === pid && um.quell.has(w.id)) u += REVOLT_W;
-    // 照大纲顺着引的动荡加减(policy.ts;没有 = 0)
-    const g = unrestShiftOf(pm, pid, t);
-    if (g) u += GUIDE_UNREST * g;
-    return Math.max(0, u);
-  };
-  pol.unrest = unrest;
-  wm.unrest = (p, t) => unrest(pm.polities[p], t);
+  // ---- 动荡:按国一张数表,每年算一次(规则见 stateTables.ts;control.ts 建引擎、填输入,挂 pol.unrest、wm.unrest) ----
 
   // ---- 讨伐民变:士气、攻破都城 ----
   wm.morale = (w: War, x: number, t: number) => {
@@ -368,7 +343,8 @@ function hook(sim: CivSim, um: UnrestModel): void {
     const pid = P.id;
     const N = pm.size[pid];
     if (P.ended !== undefined || N < REVOLT_STATE || rebelNow(pid) || wm.iv?.unites(pid, t)) return false;
-    const u = pol.unrest!(P, t); // 挂了 control.ts 时含割据那一项
+    // 这次的饥荒表里还没算进去(每年年初才算),先加上
+    const u = pol.unrest!(P, t) + (pol.famineBump?.(P, list.length) ?? 0);
     const odds = REVOLT_ODDS * fexp(REVOLT_K * (u - REVOLT_U0)) * Math.min(1, list.length / 3);
     if (keyed(um.base, pm.ptag[pid], k, U_REVOLT) >= odds / (1 + odds)) return false;
     const capR = pm.settlements[capitalAt(P, t)].region;

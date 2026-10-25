@@ -198,11 +198,13 @@ export interface PoliticsModel {
   merged: Set<number>;
   /**
    * 国家此刻的危机(hook 里填):国土太大、刚丢了国都 / 迁了都、正在打仗、这些年接连丢州。
-   * 动荡(unrest.ts 的 unrestOf)在它上面再加边远、异族、王朝老了、饥荒、民变
+   * 动荡(control.ts 的数表,规则见 stateTables.ts)在它上面再加边远、异族、王朝老了、饥荒、民变、割据
    */
   strain?: (P: Polity, t: Year) => number;
-  /** 动荡(unrest.ts 挂上;没挂 = 只看危机):分裂的"动荡"那一项用它 */
+  /** 动荡(control.ts 挂上,读每年年初算的数表;没挂 = 只看危机):分裂的"动荡"那一项用它 */
   unrest?: (P: Polity, t: Year) => number;
+  /** 这一年里又有 n 州闹了饥荒,动荡再加多少(control.ts 挂上;表里下一年才算进去,民变当时就要算上) */
+  famineBump?: (P: Polity, n: number) => number;
   /** 看内政时最先看的大崩解(unrest.ts 挂上):崩了 = true,这一次看内政就到此为止 */
   crisis?: (P: Polity, k: number, t: Year) => boolean;
   /** 照大纲顺着引时替国家 p 多看一眼内政(installPolitics 填):只看大崩解、分裂(k ≥ LOOK_K,随机数按它取,不接着预约) */
