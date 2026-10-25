@@ -122,7 +122,7 @@ function AskDialog() {
       </div>
     </div>
   );
-  const note = '时间是默认大小的世界、10 条情节估的；算的时候地图照样能拖，随时能取消，已经定下来的几条留着。';
+  const note = phone ? '时间按手机估的。算的时候地图照样能拖，随时能取消，已经定下来的几条留着。' : '时间是默认大小的世界、10 条情节估的；算的时候地图照样能拖，随时能取消，已经定下来的几条留着。';
   const node = phone ? (
     <div className="ol-ph ol-ask-ph" role="dialog" aria-modal="true" aria-label="照大纲推演" data-testid="outline-ask">
       <div className="grab" />
