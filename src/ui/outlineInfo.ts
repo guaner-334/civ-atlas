@@ -360,7 +360,7 @@ export function resultText(o: OutlineCtx, p: Plot, r: PlotReview | undefined, li
 /** 先顺着引试过几版没成:"引了 12 版都没成；" */
 const triedText = (r: PlotReview) => (r.tried ? `引了 ${r.tried} 版都没成；` : '');
 
-/** 怎么顺着引的:"第 1650 年起让大定更好战、主攻东定国" */
+/** 怎么顺着引的:"第 1650 年起让大定更好战、主攻东定国、国力 +20%" */
 function guideText(o: OutlineCtx, list: readonly Intervention[], id: number): string {
   const gs = guideNotes(list, id);
   if (!gs.length) return '顺着引了一把';
@@ -376,6 +376,9 @@ function guideText(o: OutlineCtx, list: readonly Intervention[], id: number): st
     if (g.peace < 0) how.push('更肯议和');
     if (g.foes.length) how.push(`主攻${g.foes.map((k) => name(k, g.from)).join('、')}`);
     if (g.friends.length) how.push(`亲近${g.friends.map((k) => name(k, g.from)).join('、')}`);
+    if (g.power) how.push(`国力 ${g.power > 0 ? '+' : '−'}${Math.abs(g.power)}%`);
+    if (g.unrest > 0) how.push('更动荡');
+    else if (g.unrest < 0) how.push('更安定');
     return `${name(g.a, g.from)}${how.join('、')}`;
   });
   return `第 ${gs[0].from} 年起让${parts.join('，')}`;

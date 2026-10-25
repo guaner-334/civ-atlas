@@ -15,7 +15,7 @@
  *     同一对国家议和后 TRUCE 年内不再开战;对方已经同时在打 MAX_WARS 场仗的不去凑;
  *     分裂 / 复国出来的国家(politics.ts)立国 NEWBORN 年内没人对它宣战(站稳期)。
  *     国力 = 本国城镇人口之和(growth.ts 的 populationAt 现算;城的人口上限随生产能力变)× 军力系数(PolityModel.military,
- *     发展度按国都所在州的动员能力定,有上下限)。
+ *     发展度按国都所在州的动员能力定,有上下限);照大纲顺着引的方针再乘它的国力倍数(policy.ts 的 powerScale)。
  *   宣战 → 每隔 GAP 年打一仗(Ev.Campaign):
  *     攻方挑一个**和自己国土接壤**的敌州打(国土保持成片):被自己围得越多的州越先打(前线齐整,不打出飞地),
  *       其次是离敌国国都近的(直取国都)、好走的(翻山、跨河难打);打下来会把敌国切出一大块(> MAX_CUT 州)的先不打。
@@ -56,8 +56,8 @@
 import type { World } from '../world';
 import { AdjKind, Layer, type AnnalCause, type Civ, type Polity, type Year } from './types';
 import { fexp, flog, fpow, keyed, keyed4, subSeed } from './rand';
-import { bookChain, Ev, quantize, type CivSim } from './sim';
-import { befriends, canCross, coreOf, effOf, endPolity, moveCapital, picks, policyAt, polityModelOf, type PolityModel } from './polities';
+import { bookChain, Ev, LOOK_K, quantize, type CivSim } from './sim';
+import { befriends, canCross, coreOf, effOf, endPolity, moveCapital, picks, policyAt, polityModelOf, powerScaleOf, type PolityModel } from './polities';
 import { FOE_ODDS, FRIEND_JOIN } from './policy';
 import { capitalAt, populationAt } from './growth';
 import type { InterventionModel } from './interventions';
@@ -206,6 +206,8 @@ export interface WarModel {
   sue?: (w: War, i: number, t: Year, pow: Float64Array, capitalFell: boolean) => boolean;
   /** 议和(installWars 填;干预的结盟用:结盟那一刻正在交战的两国当即议和) */
   makePeace?: (w: War, t: Year) => void;
+  /** 照大纲顺着引时替国家 p 多看一眼邻国(installWars 填;k ≥ LOOK_K,随机数按它取,不接着预约) */
+  look?: (p: number, k: number, t: Year) => void;
   /** 动荡(unrest.ts 挂上):国内越乱越想对外开战转移矛盾,邻国也越想趁虚而入 */
   unrest?: (p: number, t: Year) => number;
   /** 士气(unrest.ts 挂上):战争 w 里 x 一方的国力倍数(讨伐民变:起事的饥民初起时声势大,朝廷一方人心不附) */
@@ -315,6 +317,9 @@ export function installWars(sim: CivSim, pm: PolityModel, wm: WarModel = newMode
       }
       // 军力系数(发展度按国都所在州的动员能力定,见 development.ts;没有 = 1)
       pow[p] = Math.max(1, sum) * (pm.military?.[p] ?? 1);
+      // 顺着引的国力加减(policy.ts;没有 = 不乘)
+      const k = powerScaleOf(pm, p, t);
+      if (k !== 1) pow[p] *= k;
     }
     return pow;
   };
@@ -573,10 +578,11 @@ export function installWars(sim: CivSim, pm: PolityModel, wm: WarModel = newMode
   wm.declare = declare;
   wm.makePeace = (w, t) => makePeace(w, t);
 
-  sim.on(Ev.WarCheck, (k, p, t) => {
+  /** 第 k 次看邻国;k ≥ LOOK_K = 照大纲顺着引时多看的一眼(不接着预约下一次,见 interventions.ts 的 Ev.Look) */
+  const warCheck = (k: number, p: number, t: number): void => {
     const P = pm.polities[p];
     if (!P || P.ended !== undefined) return;
-    sim.schedule(checkTime(wm, p, k + 1), Ev.WarCheck, k + 1, p);
+    if (k < LOOK_K) sim.schedule(checkTime(wm, p, k + 1), Ev.WarCheck, k + 1, p);
     // 阶段 4 干预"不许扩张":不主动宣战
     if (wm.iv?.halted(p, t)) return;
     // 正在打仗的不再开新仗(帝国级的大国可以两线作战);刚议和的歇几年
@@ -620,6 +626,8 @@ export function installWars(sim: CivSim, pm: PolityModel, wm: WarModel = newMode
       // 阶段 4 干预:不打盟国;不许灭的国家只剩几州时没什么可打的
       if (wm.iv && (wm.iv.allied(p, q, t) || (pm.size[q] <= PROTECT_KEEP && wm.iv.protects(q, t)))) continue;
       if (pol && picks(pm, pol.friends, q)) continue;
+      // 照大纲顺着引时多看的一眼:只看方针里的仇国(引的就是"打它")
+      if (k >= LOOK_K && pol?.foes?.length && !picks(pm, pol.foes, q)) continue;
       // 邦交:不打宗主、藩属、同一个宗主的藩属;盟国只在结盟够久、共御的强邻已不足为患时才可能背盟去打
       let betray = false;
       if (dm) {
@@ -660,7 +668,9 @@ export function installWars(sim: CivSim, pm: PolityModel, wm: WarModel = newMode
       return;
     }
     declare(p, target, t, -1, causeOf(p, target, t, claims(target)));
-  });
+  };
+  sim.on(Ev.WarCheck, warCheck);
+  wm.look = (p, k, t) => warCheck(k, p, t);
 
   /** p 向 q 开战的由头:收复故土 > 乘乱(q 正和别国交兵、刚丢了国都 / 迁都、刚改朝换代)> 吞并小国 > 争边地 */
   const causeOf = (p: number, q: number, t: number, claimed: number): AnnalCause => {

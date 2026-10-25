@@ -10,7 +10,8 @@
  *     + 边远的州多(各州离国都路程的平均,超过 FAR_0 的部分 × FAR_W)+ 异族多(异族州的比例 × FOREIGN_W)
  *     + 王朝老了(当朝 AGE_0 年以后渐涨,AGE_SPAN 年涨满 AGE_W;新朝初立 NEW_YEARS 年内反倒减 NEW_W)
  *     + 闹了饥荒(FAMINE_YEARS 年内闹饥荒的州,占国土 FAMINE_FULL 就加满 FAMINE_W)
- *     + 闹了瘟疫(PLAGUE_YEARS 年内染疫的州,占国土 PLAGUE_FULL 就加满 PLAGUE_W;瘟疫见 plague.ts)+ 民变还没平(REVOLT_W)。
+ *     + 闹了瘟疫(PLAGUE_YEARS 年内染疫的州,占国土 PLAGUE_FULL 就加满 PLAGUE_W;瘟疫见 plague.ts)+ 民变还没平(REVOLT_W)
+ *     + 照大纲顺着引的动荡加减(policy.ts 的 GUIDE_UNREST)。
  *     它让国家更容易分裂(politics.ts 的分裂赔率用它)、更容易被邻国趁虚而入、更想对外开战转移矛盾(wars.ts)、
  *     动荡到顶的大国就会大崩解(见下)。
  *
@@ -50,7 +51,8 @@ import { AdjKind, Layer, type Civ, type Polity, type Year } from './types';
 import { Biome } from '../biomes';
 import { fexp, keyed, keyed4, subSeed } from './rand';
 import { BOOKED_AT_START, bookChain, Ev, quantize, type CivSim } from './sim';
-import { polityModelOf, type PolityModel } from './polities';
+import { polityModelOf, unrestShiftOf, type PolityModel } from './polities';
+import { GUIDE_UNREST } from './policy';
 import { warModelOf, type War, type WarModel } from './wars';
 import { politicsModelOf, type PoliticsModel } from './politics';
 import { devModelOf } from './development';
@@ -254,6 +256,9 @@ function hook(sim: CivSim, um: UnrestModel): void {
       if (n) u += PLAGUE_W * Math.min(1, n / Math.max(FAMINE_FULL_MIN, PLAGUE_FULL * N));
     }
     for (const w of wm.active) if (w.a === pid && um.quell.has(w.id)) u += REVOLT_W;
+    // 照大纲顺着引的动荡加减(policy.ts;没有 = 0)
+    const g = unrestShiftOf(pm, pid, t);
+    if (g) u += GUIDE_UNREST * g;
     return Math.max(0, u);
   };
   pol.unrest = unrest;

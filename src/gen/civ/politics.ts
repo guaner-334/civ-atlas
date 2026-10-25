@@ -205,6 +205,8 @@ export interface PoliticsModel {
   unrest?: (P: Polity, t: Year) => number;
   /** 看内政时最先看的大崩解(unrest.ts 挂上):崩了 = true,这一次看内政就到此为止 */
   crisis?: (P: Polity, k: number, t: Year) => boolean;
+  /** 照大纲顺着引时替国家 p 多看一眼内政(installPolitics 填):只看大崩解、分裂(k ≥ LOOK_K,随机数按它取,不接着预约) */
+  look?: (p: number, k: number, t: Year) => void;
   /**
    * 州组从 parent 分出去,立新国(国都 sid,起事的州 rising;hook 里填):记一条 kind(split / revolt;split 带 cause),
    * 新国都是某个同族亡国的故都时算复国。州组不用连着国都以外的碎块(要的先用 cutOff 补上)
@@ -645,6 +647,13 @@ function hook(sim: CivSim, pol: PoliticsModel): void {
     moveCapital(pm, pid, sid, t);
     sim.record('capital', { a: pid, region: best, settlement: sid });
     return true;
+  };
+
+  pol.look = (p, k, t) => {
+    const P = pm.polities[p];
+    if (!P || P.ended !== undefined) return;
+    if (pol.crisis?.(P, k, t)) return;
+    if (canSplit(P, t)) trySplit(P, k, t, regionsOf(p));
   };
 
   sim.on(Ev.PoliticsCheck, (k, p, t) => {

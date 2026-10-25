@@ -96,3 +96,69 @@ function fromAnnal(civ: Civ, year: number, rnd: () => number): Omit<Plot, 'id'> 
       return null;
   }
 }
+
+/**
+ * 拼一份"像样的"大纲(scripts/outline-stats.ts 的 plausible):每条都是那一年照理可能、但前后 15 年里没发生的事 ——
+ * 接壤的两国开战、大国吞掉接壤的小国(大三倍以上)、占邻国挨着的一两州、称臣,立国一百五十年以上的大国分裂(某一州自立)、
+ * 大崩解、改朝换代、民变;最多 n 条,年份落在第 900–2800 年、彼此隔开 60 年。按种子定的伪随机
+ */
+export function samplePlausible(civ: Civ, seed: number, n: number): Plot[] {
+  let s = (seed * 2654435761) >>> 0;
+  const rnd = () => (s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 2 ** 32;
+  const plots: Plot[] = [];
+  const { adjStart, adj } = civ.regions;
+  for (let k = 0; k < 400 && plots.length < n; k++) {
+    const year = Math.round(900 + rnd() * 1900);
+    if (plots.some((p) => Math.abs(p.year - year) < 60)) continue;
+    const own = ownersAt(civ, year).polity;
+    const size = new Map<number, number>();
+    const pairs = new Set<string>();
+    own.forEach((o, r) => {
+      if (o < 0) return;
+      size.set(o, (size.get(o) ?? 0) + 1);
+      for (let j = adjStart[r]; j < adjStart[r + 1]; j++) {
+        const q = own[adj[j]];
+        if (q >= 0 && q !== o) pairs.add(`${o},${q}`);
+      }
+    });
+    const kinds: PlotKind[] = ['war', 'fall', 'hold', 'split', 'collapse', 'dynasty', 'submit', 'revolt'];
+    const kind = kinds[Math.floor(rnd() * kinds.length)];
+    const ps = [...pairs].map((x) => x.split(',').map(Number));
+    const id = plots.length + 1;
+    const text = `第 ${id} 条`;
+    const near = (pred: (e: Civ['annals'][number]) => boolean) => civ.annals.some((e) => Math.abs(e.year - year) <= 15 && pred(e));
+    const any = <T>(xs: readonly T[]) => xs[Math.floor(rnd() * xs.length)];
+    if (kind === 'war' || kind === 'submit') {
+      const c = ps.filter(([a, b]) => !near((e) => e.kind === kind && e.a === a && e.b === b));
+      if (!c.length) continue;
+      const [a, b] = any(c);
+      plots.push(kind === 'war' ? { id, kind, year, a: polityKey(civ, a), b: polityKey(civ, b), text } : { id, kind, year, a: polityKey(civ, b), b: polityKey(civ, a), text });
+    } else if (kind === 'hold') {
+      const c = ps.filter(([a, b]) => size.get(a)! >= size.get(b)!);
+      if (!c.length) continue;
+      const [a, b] = any(c);
+      const touching = (r: number) => {
+        for (let j = adjStart[r]; j < adjStart[r + 1]; j++) if (own[adj[j]] === a) return true;
+        return false;
+      };
+      const rs = [...own.keys()].filter((r) => own[r] === b && touching(r)).slice(0, 2);
+      if (!rs.length) continue;
+      plots.push({ id, kind, year, a: polityKey(civ, a), regions: rs.map((r) => regionKey(civ, r)), text });
+    } else if (kind === 'fall') {
+      const c = ps.filter(([a, b]) => size.get(a)! >= 3 * size.get(b)! && !near((e) => e.kind === 'fall' && e.a === b));
+      if (!c.length) continue;
+      const [a, b] = any(c);
+      plots.push({ id, kind, year, a: polityKey(civ, b), b: polityKey(civ, a), text });
+    } else {
+      const big = [...size].filter(([p, m]) => m >= (kind === 'split' ? 15 : kind === 'revolt' ? 8 : 30) && year - civ.polities[p].founded > 150 && polityAlive(civ.polities[p], year));
+      if (!big.length) continue;
+      const [p] = any(big);
+      if (near((e) => e.kind === kind && (kind === 'split' || kind === 'revolt' ? e.b === p : e.a === p))) continue;
+      if (kind === 'split') {
+        const rs = [...own.keys()].filter((r) => own[r] === p && civ.polities[p].capital !== r);
+        plots.push({ id, kind, year, a: polityKey(civ, p), region: regionKey(civ, any(rs)), text });
+      } else plots.push({ id, kind, year, a: polityKey(civ, p), text });
+    }
+  }
+  return plots.sort((x, y) => x.year - y.year).map((p, i) => ({ ...p, id: i + 1, text: `第 ${i + 1} 条` }));
+}
