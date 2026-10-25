@@ -54,7 +54,7 @@ import { TableEngine } from './tables';
 import { NEVER } from './devTables';
 import { stateCards, type ControlRuleConsts, type FiscalRuleConsts } from './stateTables';
 import { UNREST_CONSTS, unrestInputs, unrestModelOf } from './unrest';
-import { POP_CONSTS, POP_TABLES, POP_TILE_TABLES, cellsToTiles, popLayer, popTiles, tilesToCells } from './population';
+import { POP_CONSTS, POP_TABLES, POP_TILE_TABLES, cellsToTiles, popLayer, popTiles, spreadRural, tilesToCells } from './population';
 
 // ---- 调参(以 20 个种子的统计为准,见 scripts/control-stats.ts) ----
 /** 管得到的远近:REACH × (1 + ADMIN_GAIN × 行政能力)(标准路程) */
@@ -649,6 +649,8 @@ function hook(sim: CivSim, seed: number, lords: Warlord[], saved: TablesState | 
         if (back) eng.set(id, back);
       } else eng.set(id, fit(v, eng.get(id).length, id === '国' ? -1 : 0));
     }
+    // 以前按州存的(没有按块的乡村人口):一州的人按宜居分摊到各块
+    if (!(saved.data['乡民'] && cellsToTiles(tiles, N, saved.data['乡民']))) eng.set('乡民', spreadRural(dev, tiles, eng.get('乡口')));
     eng.resume(saved.last);
     started = true;
     last = saved.last;

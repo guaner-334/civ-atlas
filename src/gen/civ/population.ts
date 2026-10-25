@@ -147,6 +147,19 @@ export function popTiles(dev: DevModel): PopTiles {
   return out;
 }
 
+/** 按州的乡村人口按宜居分摊到各块(读以前按州存的存档) */
+export function spreadRural(dev: DevModel, T: PopTiles, perRegion: Float64Array): Float64Array {
+  const reg = dev.pm.terrain.regions;
+  const cap = dev.habitat.capacity;
+  const out = new Float64Array(T.count);
+  for (let k = 0; k < T.count; k++) {
+    const r = T.of[k];
+    const total = reg.capacity[r];
+    out[k] = total > 0 && r < perRegion.length ? (perRegion[r] * cap[T.cell[k]]) / total : 0;
+  }
+  return out;
+}
+
 /** 存档:按块的值摊回世界上的地块(没进表的地块 = off) */
 export function tilesToCells(T: PopTiles, n: number, v: Float64Array, off: number): Float64Array {
   const out = new Float64Array(n).fill(off);
