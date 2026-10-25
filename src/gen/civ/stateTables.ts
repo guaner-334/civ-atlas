@@ -3,7 +3,7 @@
  * 规则用数表的公式语言写(tables/compile.ts),意思见 control.ts、unrest.ts、population.ts 的文件头;
  * 事件层(打仗、分裂、割据、民变、大崩解……)读的是最近一次算出来的值(每年年初算一次,年里的事下一年才算进去)。
  *
- * 一步里的先后(after):管得到几成、离国都多远、开垦了几成、兵祸 → 乡村人口 → 钱粮(应缴、实收 → 岁入、岁出 → 国库 → 窘迫)
+ * 一步里的先后(after):管得到几成、离国都多远、开垦了几成、兵祸 → 挤不挤 → 乡村人口 → 钱粮(应缴、实收 → 岁入、岁出 → 国库 → 窘迫)
  * → 动荡底(读这一步刚算完的离国都多远、窘迫)→ 动荡(压到 0 以上、加上割据)。
  * 输入表(事件层每年填好):国(编号表,州 → 国);各州离国都的路程、是不是国都、是不是异族、被征服了几年、有没有大城、是不是割据的地盘、
  * 乡村人口上限、长得多快、上一步以来的兵灾几件、有几个邻州有人住过;
@@ -96,6 +96,7 @@ export interface PopRuleConsts {
   FLEE: number;
   HIT: number;
   FADE: number;
+  FADE_STEP: number;
   ABROAD: number;
   MOUNTAIN_W: number;
   STRAIT_W: number;
@@ -178,15 +179,16 @@ export function stateCards(c: ControlRuleConsts, u: UnrestRuleConsts, f: FiscalR
   // ---- 乡村人口 ----
   const region = (id: string, name: string, max: number, rule: string, after?: string[]): TableCard => ({ id, name, unit: 'region', every: h.POP_EVERY, min: 0, max, off: 0, builtin: true, consts, rule, ...(after ? { after } : {}) });
   const settle = region('垦', '开垦了几成(0–1)', 1, 'if(乡容 <= 0, 0, if(垦 <= 0, 1 / (1 + GROWTH_A), 垦 + dt * 乡速 * 垦 * (1 - 垦)))');
-  const strife = region('兵祸', '兵祸(0–1)', 1, 'min(1, 兵祸 * FADE ^ dt + HIT * 新祸)');
+  // 每步都隔 POP_EVERY 年(第一步兵祸还是 0),FADE^年数 用算好的 FADE_STEP(逐格算乘方太慢)
+  const strife = region('兵祸', '兵祸(0–1)', 1, 'min(1, 兵祸 * FADE_STEP + HIT * 新祸)');
+  // 挤不挤 = 乡村人口(这一步开头的)÷ 该有的:搬家时每条邻边两头都要,先按州算好
+  const crowd = region('挤', '挤不挤(乡村人口 ÷ 该有的)', 1e30, '乡口 / max(乡容 * 垦, 1e-9)', ['垦']);
   const rural: TableCard = {
-    ...region('乡口', '乡村人口(千人)', 1e9, ['let 该有 = 乡容 * 垦', 'if(该有 <= 0, 0, if(乡口 <= 0, 该有, 乡口 + dt * (该有 - 乡口) / RECOVER))'].join('\n'), ['垦', '兵祸']),
+    ...region('乡口', '乡村人口(千人)', 1e9, ['let 该有 = 乡容 * 垦', 'if(该有 <= 0, 0, if(乡口 <= 0, 该有, 乡口 + dt * (该有 - 乡口) / RECOVER))'].join('\n'), ['垦', '兵祸', '挤']),
     // 往邻州搬:人往不挤的地方去、逃兵灾(这一步开头的值;没人住过的州不去,远洋航线不走)
     move: [
-      'let 挤 = 乡口 / max(乡容 * 垦, 1e-9)',
-      'let 那挤 = nb.乡口 / max(nb.乡容 * nb.垦, 1e-9)',
       'let 路 = if(nb.乡容 <= 0 or edge.kind == 4, 0, if(edge.kind == 3, STRAIT_W, if(edge.kind == 2, MOUNTAIN_W, 1))) * if(nb.国 == 国, 1, ABROAD)',
-      '路 * 乡口 * (MIG * max(0, 挤 - 那挤) + FLEE * max(0, 兵祸 - nb.兵祸) / max(1, 有人邻州))',
+      '路 * 乡口 * (MIG * max(0, 挤 - nb.挤) + FLEE * max(0, 兵祸 - nb.兵祸) / max(1, 有人邻州))',
     ].join('\n'),
   };
 
@@ -243,5 +245,5 @@ export function stateCards(c: ControlRuleConsts, u: UnrestRuleConsts, f: FiscalR
     // 不到 0 按 0 算;每有一处割据再加一点
     rule: 'max(0, 动荡底) + min(LORD_U_MAX, LORD_U * 割据)',
   };
-  return [...inputs, control, remote, settle, strife, rural, ...fiscal, base, unrest];
+  return [...inputs, control, remote, settle, strife, crowd, rural, ...fiscal, base, unrest];
 }

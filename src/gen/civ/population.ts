@@ -23,6 +23,7 @@ import { RURAL_SNAP, ruralTargets, type DevModel } from './development';
 import { GROWTH_A, RURAL_PLAGUE, RURAL_WAR, SACK_RECOVER } from './growth';
 import type { TableEngine } from './tables';
 import type { PopRuleConsts } from './stateTables';
+import { fpow } from './rand';
 
 // ---- 调参(以 20 个种子的统计为准,见 scripts/control-stats.ts) ----
 /** 几年算一步(搬家要算每条邻边,每年算太慢;钱粮每 10 年读一次、快照每 10 年一份,都对得齐) */
@@ -42,7 +43,7 @@ const MOUNTAIN_W = 0.5;
 const STRAIT_W = 0.3;
 
 /** 乡村人口的常数(见 stateTables.ts) */
-export const POP_CONSTS: PopRuleConsts = { GROWTH_A, POP_EVERY, RECOVER, MIG, FLEE, HIT, FADE, ABROAD, MOUNTAIN_W, STRAIT_W };
+export const POP_CONSTS: PopRuleConsts = { GROWTH_A, POP_EVERY, RECOVER, MIG, FLEE, HIT, FADE, FADE_STEP: fpow(FADE, POP_EVERY), ABROAD, MOUNTAIN_W, STRAIT_W };
 
 /** 存档要存的表(接着推时填回) */
 export const POP_TABLES = ['垦', '兵祸', '乡口'] as const;
@@ -91,16 +92,27 @@ export function popLayer(sim: CivSim, pm: PolityModel, dev: DevModel, eng: Table
   dev.ruralNow = () => ({ year: last, data: eng.get('乡口') });
 
   const { adjStart, adj } = pm.terrain.regions;
+  /** 哪些州有人住过(乡村人口上限 > 0):变了才重数有人邻州 */
+  const lived = new Uint8Array(R);
+  let counted = false;
   const prepare = (t: Year): void => {
     if (t % POP_EVERY) return;
     const cap = eng.input('乡容');
     ruralTargets(dev, t, cap, eng.input('乡速'));
     // 逃兵灾分给有人住过的邻州
-    const nbs = eng.input('有人邻州');
+    let changed = !counted;
     for (let r = 0; r < R; r++) {
-      let n = 0;
-      for (let e = adjStart[r]; e < adjStart[r + 1]; e++) if (cap[adj[e]] > 0) n++;
-      nbs[r] = n;
+      const on = cap[r] > 0 ? 1 : 0;
+      if (lived[r] !== on) (lived[r] = on), (changed = true);
+    }
+    if (changed) {
+      const nbs = eng.input('有人邻州');
+      for (let r = 0; r < R; r++) {
+        let n = 0;
+        for (let e = adjStart[r]; e < adjStart[r + 1]; e++) if (lived[adj[e]]) n++;
+        nbs[r] = n;
+      }
+      counted = true;
     }
     const hit = eng.input('新祸').fill(0);
     const S = pm.settlements;

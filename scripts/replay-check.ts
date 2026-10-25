@@ -2775,11 +2775,17 @@ if (part('干预保护')) {
     await page.waitForTimeout(300);
     tl = await page.locator('.timebar .tb-year').innerText().catch(() => '');
     playing = (await page.locator('.timebar .tb-play.on').count()) > 0;
-    // 马上暂停(放得快,晚停几年这国就多出好几件大事,面板只列最近 5 件,干预那条会被挤掉);下面在地图上重新点开这个国家读面板
-    if (playing) await page.click('.timebar button.tb-play');
+    if (playing) await page.click('.timebar button.tb-play'); // 暂停,下面在地图上重新点开这个国家读面板
     orders = await page.locator('.timebar .tb-order').count();
     // 已生效的提示(带撤销)
     ivToast = await toastText(page, 'resim-done');
+    // 放得快,停下时已经过了好些年:这国后来的大事会把干预那条挤出面板(只列最近 5 件),按 ← 一次退 10 年,退到干预那年附近
+    for (let i = 0; i < 20; i++) {
+      const y = Number((await page.locator('.timebar .tb-year').innerText().catch(() => '')).replace(/[^\d]/g, ''));
+      if (!(y > Y + 5)) break;
+      await page.keyboard.press('ArrowLeft');
+      await page.waitForTimeout(150);
+    }
     const again = await reopen();
     // 还活着:没有"结局"一行,小字是"N 年立国"
     aliveAfter = again ? (again.includes('结局') ? `还是亡了(${again.replace(/\n/g, ' ').slice(0, 80)})` : '至今还在') : '';
