@@ -28,6 +28,8 @@ import { getPanel } from './panelStore';
 import { currentEra } from './editsStore';
 import { vassalTies } from '../render/civ/vassals';
 import { ERA_COLORS, eraLevelsAt, eraName } from '../render/civ/era';
+import { CONTROL_COLORS, controlOf, lordOf } from '../render/civ/control';
+import { CONTROL_TIERS } from '../gen/civ/control';
 import { eraOf } from '../gen/civ/development';
 
 export interface HoverInfo {
@@ -94,7 +96,7 @@ export function hoverInfo(p: {
   px: number;
   py: number;
   /** 地图上现在的样子:画风、数据底图、填色(国家 / 民族 / 信仰开不开) */
-  layer: Pick<LayerDef, 'style' | 'data' | 'polities' | 'cultures' | 'faiths' | 'eras'>;
+  layer: Pick<LayerDef, 'style' | 'data' | 'polities' | 'cultures' | 'faiths' | 'eras'> & { control?: boolean };
   /** 鼠标下的城镇符号 / 国名 / 地名 */
   label?: LabelPick | null;
   /** 时间轴当前的年份(null = 结束年份) */
@@ -141,9 +143,15 @@ export function hoverInfo(p: {
       const cu = owners.culture[r] >= 0 ? civ.cultures[owners.culture[r]] : undefined;
       const fa = def.faiths && civ.religion ? civ.religion.faiths[faithsAt(civ, year)[r]] : undefined;
       const lv = def.eras && civ.development && cu ? (levels = eraLevelsAt(civ, year, owners, levels))[r] : -1;
+      // 管辖:州名 + 档位(割据写名义上属哪国)
+      const ctl = def.control && po ? controlOf(civ, year, r) : null;
       if (lv >= 0) {
         const { era, progress } = eraOf(lv);
         info = { color: rgb(ERA_COLORS[era]), name: regionLabel(civ, r), sub: `${eraName(era)} ${Math.floor(progress * 100)}%` };
+      } else if (ctl) {
+        const lord = ctl.tier === 3 ? lordOf(civ, year, r) : null;
+        const nominal = lord && civ.polities[lord.p] ? civ.polities[lord.p] : po!;
+        info = { color: rgb(CONTROL_COLORS[ctl.tier]), name: regionLabel(civ, r), sub: ctl.tier === 3 ? `割据，名义上属${polityName(nominal, year)}` : CONTROL_TIERS[ctl.tier] };
       } else if (fa) info = { color: rgb(fa.color), name: fa.name, sub: po ? polityName(po, year) : '部落地带' };
       else if (def.cultures && !def.polities && cu) info = { color: rgb(cu.color), name: cultureLabel(cu), sub: po ? polityName(po, year) : '部落地带' };
       else if (po) info = polityInfo(civ, po, year, owners);
