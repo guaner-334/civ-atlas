@@ -7,7 +7,7 @@ import { LOAD_STYLE, loadScreenMarkup } from '../scripts/lib/loadScreen';
 import { BeianLinks } from '../src/ui/BeianLinks';
 import { BEIAN, ICP_QUERY_URL, beianRecords } from '../src/ui/beian';
 
-const NO = '闽ICP备2026012563号-3';
+const NO = '京ICP备00000000号-1';
 const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle r="46"/></svg>';
 
 describe('备案号从哪来', () => {
