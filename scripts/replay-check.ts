@@ -2785,10 +2785,11 @@ if (part('干预保护')) {
     orders = await page.locator('.timebar .tb-order').count();
     // 已生效的提示(带撤销)
     ivToast = await toastText(page, 'resim-done');
-    // 放得快,停下时已经过了好些年:这国后来的大事会把干预那条挤出面板(只列最近 5 件),按 ← 一次退 10 年,退到干预那年附近
+    // 放得快,停下时已经过了好些年:这国后来的大事会把干预那条挤出面板(只列最近 5 件),按 ← 一次退 10 年,退到干预那年附近;
+    // 不退到干预那年之前(那时面板里还没有这条)
     for (let i = 0; i < 20; i++) {
       const y = Number((await page.locator('.timebar .tb-year').innerText().catch(() => '')).replace(/[^\d]/g, ''));
-      if (!(y > Y + 5)) break;
+      if (!(y >= Y + 10)) break;
       await page.keyboard.press('ArrowLeft');
       await page.waitForTimeout(150);
     }
