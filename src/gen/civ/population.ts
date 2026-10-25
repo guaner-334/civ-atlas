@@ -178,7 +178,7 @@ export function popLayer(sim: CivSim, pm: PolityModel, dev: DevModel, eng: Table
           cut(r, (k.cause === 'plague' ? RURAL_PLAGUE : RURAL_WAR) * k.loss);
           // 瘟疫、地震水旱不算兵灾(不逃);饥荒、大水、大旱伤地力
           if (k.cause !== 'plague' && k.cause !== 'quake') hit[r]++;
-          if (k.cause === 'famine' || (k.cause === 'quake' && quakeWord(reg, r) !== '地震')) blight[r]++;
+          if (k.cause === 'famine' || (k.cause === 'quake' && quakeWord(reg, k.from ?? r) !== '地震')) blight[r]++;
         }
       }
       if (!ended[i] && s.ended !== undefined && s.ended < t) {
