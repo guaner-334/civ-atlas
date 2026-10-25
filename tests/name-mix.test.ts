@@ -179,10 +179,10 @@ describe('按份数起名(seed 7、2024)', () => {
     }
   });
 
-  // 早早消亡、用的语感又没有别的民族用的,照自动配不到份数,只好换一种(GENERATOR_VERSION 13 的 seed 7 有两个,18 的 seed 1 也有),
-  // 这里挑没有这种民族的 seed 2
-  it('尽量少换(默认大小的 seed 2):照自动配好份数、把沙海调成 0 份,别的民族大多照旧', () => {
-    const world = generateWorld({ ...DEFAULT_PARAMS, seed: 2 });
+  // 早早消亡、用的语感又没有别的民族用的,照自动配不到份数,只好换一种(GENERATOR_VERSION 13 的 seed 7 有两个,18 的 seed 1 也有,
+  // 34 的 seed 2、14 也有),这里挑没有这种民族、又有不少沙海民族的 seed 5
+  it('尽量少换(默认大小的 seed 5):照自动配好份数、把沙海调成 0 份,别的民族大多照旧', () => {
+    const world = generateWorld({ ...DEFAULT_PARAMS, seed: 5 });
     const auto = generateCiv(world);
     const a = areas(auto);
     const total = a.reduce((x, y) => x + y, 0);
@@ -192,7 +192,7 @@ describe('按份数起名(seed 7、2024)', () => {
     // 照自动:每种大约 5% 一份(界面上的「照自动」也这么折)
     const mix: Record<string, number> = {};
     for (const [s, n] of share) if (n > 0) mix[s] = Math.max(1, Math.round(((n / total) * 100) / 5));
-    // 份数按 5% 取整,和自动配的不总是一模一样:20 个种子(1–19、2024)里至少 81% 的民族语感照旧
+    // 份数按 5% 取整,和自动配的不总是一模一样(有上面那种民族的种子会低不少)
     const same = generateCiv(world, { names: mix }).cultures.filter((c, i) => c.style === auto.cultures[i].style).length;
     expect(same / auto.cultures.length).toBeGreaterThanOrEqual(0.8);
     delete mix.desert;

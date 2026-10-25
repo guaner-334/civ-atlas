@@ -16,7 +16,7 @@
  *     行政能力也折进原来"离国都多远"的那几项(remote:路程 ÷ (FAR_REACH × 行政折算),行政越强远处越不算远):
  *       分裂的离心力(politics.ts),割据的州再加一截(politics.ts 的 LORD_D):割据久了的地方先起兵;
  *       动荡(unrest.ts)的"边远"一项,每有一处割据再加 LORD_U(分裂、民变、大崩解、打仗都用这同一个动荡);
- *       打仗的国力(wars.ts 的 powers)= Σ 城的人口 × 出兵的几成(管得到几成 + LEVY_0,最多 1;割据的州 0:抗命不出兵)。
+ *       打仗的国力(政局数表里的国力,stateTables.ts;wars.ts 的 powers 读)= Σ 城的人口 × 出兵的几成(管得到几成 + LEVY_0,最多 1;割据的州 0:抗命不出兵)。
  *
  *   **割据**(看内政时,politics.ts 在分裂没成之后调 check):国土至少 MIN_SIZE 州、立国满 MIN_AGE 年的国家,
  *     管得最松(c < WARLORD_C)、有城的那州(不是国都、SETTLE 年没换过国家,离心力加一点随机挑),
@@ -44,7 +44,7 @@
 import { Layer, AdjKind, type Civ, type Polity, type TablesState, type Year } from './types';
 import { fexp, keyed, keyed4, subSeed } from './rand';
 import { Ev, type CivSim } from './sim';
-import { polityModelOf, unrestShiftOf, type PolityModel } from './polities';
+import { polityModelOf, powerScaleOf, unrestShiftOf, type PolityModel } from './polities';
 import { GUIDE_UNREST } from './policy';
 import { warModelOf, type War, type WarModel } from './wars';
 import { politicsModelOf, type PoliticsModel } from './politics';
@@ -248,7 +248,7 @@ export function resumeControl(sim: CivSim, civ: Civ): void {
 }
 
 /** 政局的数表(管得到几成、离国都多远、动荡;见 stateTables.ts)里归这里管的常数 */
-export const CONTROL_CONSTS: ControlRuleConsts = { REACH, ADMIN_GAIN, FOREIGN, RECENT, RECENT_CUT, BIG_CITY, FAR_REACH, ADMIN_REF, REMOTE_MAX, LORD_U, LORD_U_MAX };
+export const CONTROL_CONSTS: ControlRuleConsts = { REACH, ADMIN_GAIN, FOREIGN, RECENT, RECENT_CUT, BIG_CITY, FAR_REACH, ADMIN_REF, REMOTE_MAX, LORD_U, LORD_U_MAX, LEVY_0 };
 /** 钱粮的常数(见 stateTables.ts) */
 export const FISCAL_CONSTS: FiscalRuleConsts = {
   LAND,
@@ -274,7 +274,7 @@ const STATE_CARDS = stateCards(CONTROL_CONSTS, UNREST_CONSTS, FISCAL_CONSTS, POP
  * 存下来的表(接着推时填回):算出来的几张(三样收入几年才算一次、国库和乡村人口接着上一年的,都得存),和事件层还要读的几张输入表。
  * 岁入、岁出每年重算,不用存(应缴要存:看邻国时读国库攒到几成)
  */
-const SAVED_TABLES = ['国', '饥荒', '州数', '管辖', '边远', ...POP_TABLES, '田赋', '工商', '市税', '税', '应缴', '实收', '国库', '窘迫', '动荡底', '动荡'] as const;
+const SAVED_TABLES = ['国', '饥荒', '州数', '管辖', '边远', ...POP_TABLES, '田赋', '工商', '市税', '税', '应缴', '实收', '国库', '窘迫', '动荡底', '动荡', '国力'] as const;
 
 /**
  * saved:接着推时存档里政局数表的状态(null = 从头推;undefined = 存档里没有,接着推的那一刻现算一次)
@@ -313,15 +313,20 @@ function hook(sim: CivSim, seed: number, lords: Warlord[], saved: TablesState | 
   let tFar = eng.get('边远');
   let tU = eng.get('动荡');
   let tBroke = eng.get('窘迫');
+  let tPow = eng.get('国力');
+  let tSize = eng.input('州数');
+  /** 国力表能不能用(从头推的算过一步了;接着推的存档里有这张表) */
+  let powReady = false;
   /** 算完一步换了新的数组(表是双缓冲的),重新拿 */
   const refresh = () => {
     tCtl = eng.get('管辖');
     tFar = eng.get('边远');
     tU = eng.get('动荡');
     tBroke = eng.get('窘迫');
+    tPow = eng.get('国力');
+    tSize = eng.input('州数');
   };
   const T = pm.terrain;
-  const cityPop = new Float64Array(R);
   // 乡村人口(population.ts):接着推时,存的那一年以前的折损、兵灾算过了
   const pop = popLayer(sim, pm, dev, eng, saved === null ? null : saved && saved.last > -Infinity ? saved.last : Math.floor(sim.now));
   let capR = new Int32Array(0);
@@ -334,13 +339,13 @@ function hook(sim: CivSim, seed: number, lords: Warlord[], saved: TablesState | 
       capR = new Int32Array(NP);
       capCap = new Float64Array(NP);
     }
-    const [admin, crisis, age, famine, plague, quell, lordsN, size] = ['国都行政', '危机', '当朝', '饥荒', '疫病', '平叛', '割据', '州数'].map((id) => eng.input(id));
+    const [admin, crisis, age, famine, plague, quell, lordsN, size, mil, scale] = ['国都行政', '危机', '当朝', '饥荒', '疫病', '平叛', '割据', '州数', '军力', '国力倍数'].map((id) => eng.input(id));
     const lordLand = eng.input('割据州').fill(0);
     for (let p = 0; p < NP; p++) {
       capR[p] = -1;
       const P = pm.polities[p];
       if (!(pm.size[p] > 0)) {
-        admin[p] = crisis[p] = age[p] = famine[p] = plague[p] = quell[p] = lordsN[p] = size[p] = 0;
+        admin[p] = crisis[p] = age[p] = famine[p] = plague[p] = quell[p] = lordsN[p] = size[p] = mil[p] = scale[p] = 0;
         continue;
       }
       const sid = capitalAt(P, t);
@@ -356,6 +361,8 @@ function hook(sim: CivSim, seed: number, lords: Warlord[], saved: TablesState | 
       quell[p] = x.quell;
       lordsN[p] = lordsOf(p, t).length;
       size[p] = pm.size[p];
+      mil[p] = pm.military?.[p] ?? 1;
+      scale[p] = powerScaleOf(pm, p, t);
       if (lordsN[p] && mark(p, t)) for (const r of pm.lands[p]) if (inLord(r)) lordLand[r] = 1;
     }
     // 在打几场仗;贡赋按上一步藩属的实收算
@@ -377,12 +384,11 @@ function hook(sim: CivSim, seed: number, lords: Warlord[], saved: TablesState | 
         got[l] += x;
       }
     }
-    // 三样收入要的各州城的人口、能力:几年填一次(只在那几张表要算的年份填,接着推时也一样;乡村人口读表)
+    // 各州城的人口每年填(国力要);三样收入要的能力、港口大河几年填一次(只在那几张表要算的年份填,接着推时也一样;乡村人口读表)
+    cityPopulationsAt(dev, t, owner, eng.input('城民'));
     if (t % FISCAL_EVERY === 0) {
-      cityPopulationsAt(dev, t, owner, cityPop);
-      const [iCity, iProd, iMove, iPort, iRiver] = ['城民', '生产', '运输', '港口', '大河'].map((id) => eng.input(id));
+      const [iProd, iMove, iPort, iRiver] = ['生产', '运输', '港口', '大河'].map((id) => eng.input(id));
       for (let r = 0; r < R; r++) {
-        iCity[r] = cityPop[r];
         iProd[r] = dev.cur[r * CAP_COUNT + Cap.Production] || 0;
         iMove[r] = dev.cur[r * CAP_COUNT + Cap.Transport] || 0;
         iPort[r] = pm.port[r];
@@ -562,6 +568,8 @@ function hook(sim: CivSim, seed: number, lords: Warlord[], saved: TablesState | 
   wm.unrest = (p, t) => guided(p, t, p < tU.length ? tU[p] : 0);
   // ---- 钱粮:国用不足(窘迫)让宣战少、战事早罢(wars.ts) ----
   wm.broke = (p, _t) => (p < tBroke.length ? tBroke[p] : 0);
+  // ---- 国力(wars.ts、diplomacy.ts):上一步算的;那一步还没有地的国家(这一年里才立的)让那边现算 ----
+  wm.power = (p) => (powReady && p < tPow.length && tSize[p] > 0 ? tPow[p] : -1);
   wm.purse = (p, _t) => {
     if (p >= tBroke.length) return 1;
     const full = RESERVE * eng.value('应缴', p);
@@ -594,6 +602,7 @@ function hook(sim: CivSim, seed: number, lords: Warlord[], saved: TablesState | 
     if (before.length < tBroke.length) before = new Float64Array(tBroke.length);
     before.set(tBroke);
     eng.step(t);
+    powReady = true;
     last = t;
     pop.done(t);
     refresh();
@@ -652,6 +661,8 @@ function hook(sim: CivSim, seed: number, lords: Warlord[], saved: TablesState | 
     // 以前按州存的(没有按块的乡村人口):一州的人按宜居分摊到各块
     if (!(saved.data['乡民'] && cellsToTiles(tiles, N, saved.data['乡民']))) eng.set('乡民', spreadRural(dev, tiles, eng.get('乡口')));
     eng.resume(saved.last);
+    // 以前的存档没存国力:到下一步之前现算
+    powReady = !!saved.data['国力'];
     started = true;
     last = saved.last;
     refresh();
