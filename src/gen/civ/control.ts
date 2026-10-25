@@ -209,7 +209,7 @@ export function resumeControl(sim: CivSim, civ: Civ): void {
 export const CONTROL_CONSTS: ControlRuleConsts = { REACH, ADMIN_GAIN, FOREIGN, RECENT, RECENT_CUT, BIG_CITY, FAR_REACH, ADMIN_REF, REMOTE_MAX, LORD_U, LORD_U_MAX };
 const STATE_CARDS = stateCards(CONTROL_CONSTS, UNREST_CONSTS);
 /** 存下来的表(接着推时填回):算出来的三张,和事件层还要读的几张输入表 */
-const SAVED_TABLES = ['国', '饥荒', '州数', '管辖', '边远', '动荡'] as const;
+const SAVED_TABLES = ['国', '饥荒', '州数', '管辖', '边远', '动荡底', '动荡'] as const;
 
 /**
  * saved:接着推时存档里政局数表的状态(null = 从头推;undefined = 存档里没有,接着推的那一刻现算一次)
@@ -451,7 +451,10 @@ function hook(sim: CivSim, seed: number, lords: Warlord[], saved: TablesState | 
     if (!(N > 0)) return 0;
     const n0 = eng.value('饥荒', p);
     const full = Math.max(UNREST_CONSTS.FAMINE_FULL_MIN, UNREST_CONSTS.FAMINE_FULL * N);
-    return UNREST_CONSTS.FAMINE_W * (Math.min(1, (n0 + n) / full) - Math.min(1, n0 / full));
+    const add = UNREST_CONSTS.FAMINE_W * (Math.min(1, (n0 + n) / full) - Math.min(1, n0 / full));
+    // 压到 0 以上之前加(新朝初立减的那一点先抵掉)
+    const u0 = eng.value('动荡底', p);
+    return Math.max(0, u0 + add) - Math.max(0, u0);
   };
 
   // ---- 每年一步;发展度刚算完的那一年存一份快照(给图层用) ----

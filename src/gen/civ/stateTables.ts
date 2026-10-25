@@ -3,7 +3,7 @@
  * 规则用数表的公式语言写(tables/compile.ts),意思见 control.ts、unrest.ts 的文件头;
  * 事件层(打仗、分裂、割据、民变、大崩解……)读的是最近一次算出来的值(每年年初算一次,年里的事下一年才算进去)。
  *
- * 一步里的先后(after):管得到几成、离国都多远 → 动荡(读这一步刚算完的离国都多远)。
+ * 一步里的先后(after):管得到几成、离国都多远 → 动荡底(读这一步刚算完的离国都多远)→ 动荡(压到 0 以上、加上割据)。
  * 输入表(事件层每年填好):国(编号表,州 → 国);各州离国都的路程、是不是国都、是不是异族、被征服了几年、有没有大城;
  * 各国国都所在州的行政能力、危机、当朝几年、近年闹饥荒 / 染疫的州数、在讨伐的民变、割据几处、有几州。
  */
@@ -104,11 +104,11 @@ export function stateCards(c: ControlRuleConsts, u: UnrestRuleConsts): TableCard
       'if(not has(国), 0, if(路程 >= NEVER, REMOTE_MAX, min(REMOTE_MAX, 路程 / (FAR_REACH * 折算))))',
     ].join('\n'),
   };
-  const unrest: TableCard = {
-    id: '动荡',
-    name: '动荡',
+  const base: TableCard = {
+    id: '动荡底',
+    name: '动荡(压到 0 以上之前、不算割据)',
     unit: 'polity',
-    min: 0,
+    min: -100,
     max: 100,
     off: 0,
     builtin: true,
@@ -122,9 +122,21 @@ export function stateCards(c: ControlRuleConsts, u: UnrestRuleConsts): TableCard
       '  if(饥荒 > 0, FAMINE_W * min(1, 饥荒 / max(FAMINE_FULL_MIN, FAMINE_FULL * N)), 0) +',
       '  if(疫病 > 0, PLAGUE_W * min(1, 疫病 / max(FAMINE_FULL_MIN, PLAGUE_FULL * N)), 0) +',
       '  REVOLT_W * 平叛',
-      // 每有一处割据再加一点
-      'if(N > 0, max(0, u), 0) + min(LORD_U_MAX, LORD_U * 割据)',
+      'if(N > 0, u, 0)',
     ].join('\n'),
   };
-  return [...inputs, control, remote, unrest];
+  const unrest: TableCard = {
+    id: '动荡',
+    name: '动荡',
+    unit: 'polity',
+    min: 0,
+    max: 100,
+    off: 0,
+    builtin: true,
+    after: ['动荡底'],
+    consts,
+    // 不到 0 按 0 算;每有一处割据再加一点
+    rule: 'max(0, 动荡底) + min(LORD_U_MAX, LORD_U * 割据)',
+  };
+  return [...inputs, control, remote, base, unrest];
 }

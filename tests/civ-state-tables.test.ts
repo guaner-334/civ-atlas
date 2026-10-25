@@ -1,5 +1,5 @@
 /**
- * 政局的数表(gen/civ/stateTables.ts):管得到几成、离国都多远、动荡,数表算出来的和照公式直接算的一样(两种跑法都是)。
+ * 政局的数表(gen/civ/stateTables.ts):管得到几成、离国都多远、动荡(连同压到 0 以上之前的值),数表算出来的和照公式直接算的一样(两种跑法都是)。
  * 用一串连着的州、随机填的输入,不用生成世界。
  */
 import { describe, expect, it } from 'vitest';
@@ -41,7 +41,8 @@ function inputs(k: number) {
   }));
   const pol = Array.from({ length: NP }, (_, p) => ({
     admin: 9 * u(100 + p, 1) - 1,
-    crisis: 2 * u(100 + p, 2),
+    // 国 3 隔一组压低一点:动荡压到 0 以上之前是负的
+    crisis: p === 3 && k % 2 === 0 ? -1 : 2 * u(100 + p, 2),
     age: 500 * u(100 + p, 3),
     famine: u(100 + p, 4) < 0.5 ? Math.floor(6 * u(100 + p, 5)) : 0,
     plague: u(100 + p, 6) < 0.5 ? Math.floor(6 * u(100 + p, 7)) : 0,
@@ -70,10 +71,9 @@ function reference(x: ReturnType<typeof inputs>) {
     if (g.dist >= NEVER) return C.REMOTE_MAX;
     return Math.min(C.REMOTE_MAX, g.dist / (C.FAR_REACH * (scale(g.p) / (1 + C.ADMIN_GAIN * C.ADMIN_REF))));
   });
-  const unrest = x.pol.map((q, p) => {
-    const lords = Math.min(C.LORD_U_MAX, C.LORD_U * q.lords);
+  const base = x.pol.map((q, p) => {
     const N = q.size;
-    if (!(N > 0)) return lords;
+    if (!(N > 0)) return 0;
     let sumFar = 0;
     let foreign = 0;
     x.reg.forEach((g, r) => {
@@ -87,9 +87,10 @@ function reference(x: ReturnType<typeof inputs>) {
     if (q.famine) u += U.FAMINE_W * Math.min(1, q.famine / Math.max(U.FAMINE_FULL_MIN, U.FAMINE_FULL * N));
     if (q.plague) u += U.PLAGUE_W * Math.min(1, q.plague / Math.max(U.FAMINE_FULL_MIN, U.PLAGUE_FULL * N));
     u += U.REVOLT_W * q.quell;
-    return Math.max(0, u) + lords;
+    return u;
   });
-  return { ctl, far, unrest };
+  const unrest = base.map((u, p) => Math.max(0, u) + Math.min(C.LORD_U_MAX, C.LORD_U * x.pol[p].lords));
+  return { ctl, far, base, unrest };
 }
 
 describe('政局的数表', () => {
@@ -97,6 +98,7 @@ describe('政局的数表', () => {
     it(`管得到几成、离国都多远、动荡和照公式直接算的一样(${backend})`, () => {
       const eng = new TableEngine({ seed: 1, cards: stateCards(C, U), units: { region: chain() }, owner: '国', backend });
       eng.setPolities(NP);
+      let negative = 0;
       for (let k = 0; k < 6; k++) {
         const x = inputs(k);
         const set = (id: string, f: (i: number) => number) => {
@@ -120,14 +122,16 @@ describe('政局的数表', () => {
         if (k === 0) eng.start(0);
         eng.step(k);
         const want = reference(x);
-        const got = { ctl: [...eng.get('管辖')], far: [...eng.get('边远')], unrest: [...eng.get('动荡')] };
-        for (const key of ['ctl', 'far', 'unrest'] as const) {
+        const got = { ctl: [...eng.get('管辖')], far: [...eng.get('边远')], base: [...eng.get('动荡底')], unrest: [...eng.get('动荡')] };
+        if (want.base.some((u) => u < 0)) negative++;
+        for (const key of ['ctl', 'far', 'base', 'unrest'] as const) {
           want[key].forEach((v, i) => expect(got[key][i], `第 ${k} 组 ${key} ${i}`).toBeCloseTo(v, 12));
         }
         // 管得到几成、离国都多远逐位一样(算的先后一样)
         want.ctl.forEach((v, i) => expect(got.ctl[i], `第 ${k} 组 管辖 ${i}`).toBe(v));
         want.far.forEach((v, i) => expect(got.far[i], `第 ${k} 组 边远 ${i}`).toBe(v));
       }
+      expect(negative).toBeGreaterThan(0);
     });
   }
 });
