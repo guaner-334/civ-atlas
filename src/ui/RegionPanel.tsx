@@ -6,7 +6,8 @@
  *         「天灾…」换成天灾那一页(DisasterPage.tsx,默认这一州)
  *         演一国时别国的州:在这里立国、划给…、天灾…变灰,按钮下面写一句(和别国的国家卡片一样,RoleBar.tsx 的 RoleLockNote)
  *   概况  主体民族(族名可改)、宜居度、人口(州里的总人口 = 治所的城 + 乡村,growth.ts 的 regionPopulationAt;一州同一时刻最多一座城;
- *         作者下的天灾以后还没长回来:"约 45 万人 ~~64 万人~~ 1500 年地震",newIvInfo.ts 的 regionDisasterMark)、信仰(可点)、州里的城(可点;故城标出来)、地貌、
+ *         作者下的天灾以后还没长回来:"约 45 万人 ~~64 万人~~ 1500 年地震",newIvInfo.ts 的 regionDisasterMark)、
+ *         管辖(中央管得到几成 + 档位,"52% 代管";割据写"割据 名义上属某国,某年起";不在国家里的州没有这一行)、信仰(可点)、州里的城(可点;故城标出来)、地貌、
  *         民族(族名由来 / 起族名)、来历(分化出来的民族:哪年从哪族分出,母族可点;母族已消亡的不可点)
  *   作者的人物  生在这里、经历写在这里的作者人物(没有就不显示)
  *   历任归属 按时长分段的色条,点一段跳到它开始的那年
@@ -23,6 +24,8 @@ import type { Civ } from '../gen/civ/types';
 import { BIOMES } from '../gen/biomes';
 import { HABITABLE_SUIT, KIND_INFO, cultureLabel, regionLabel, regionNamed } from '../gen/civ/display';
 import { SETTLEMENT_RANKS, capitalAt, polityAlive, polityName, populationAt, populationLabel, regionPopulationAt, settlementRank } from '../gen/civ/growth';
+import { CONTROL_TIERS } from '../gen/civ/control';
+import { controlOf, lordOf } from '../render/civ/control';
 import { ownersAt } from '../gen/civ/timeline';
 import { spaced, yearAt, yearSpanAt } from '../gen/era';
 import { faithAt } from '../gen/civ/religion';
@@ -198,6 +201,14 @@ function RegionInfo({ civ, raw, raster, world, id, year, names, ai, aiRef }: Det
   const mine = regionOrders(civ, id, edits.interventions);
   const elev = civ.regions.elevation[id];
   const faith = civ.religion?.faiths[faithAt(civ, year)[id]];
+  // 管辖:中央管得到几成 + 档位;割据写名义上属哪国、哪年起(只有在国家里的州)
+  const ctl = controlOf(civ, year, id);
+  const lord = ctl?.tier === 3 ? lordOf(civ, year, id) : null;
+  const ctlItem = !ctl
+    ? []
+    : ctl.tier === 3
+      ? [{ k: '管辖', v: '割据', note: lord && civ.polities[lord.p] ? `名义上属${polityName(civ.polities[lord.p], year)}，${yearAt(lord.start, edits.era)}起` : undefined }]
+      : [{ k: '管辖', v: `${Math.round(ctl.share * 100)}%`, note: CONTROL_TIERS[ctl.tier] }];
   return (
     <div className="cp-body">
       <Stats
@@ -237,6 +248,7 @@ function RegionInfo({ civ, raw, raster, world, id, year, names, ai, aiRef }: Det
               ),
             note: pop > 0 && hurt ? `${yearAt(hurt.when, edits.era)}${hurt.word}` : undefined,
           },
+          ...ctlItem,
         ]}
       >
         {civ.religion && (

@@ -26,7 +26,7 @@ import { ownersAt, type Owners } from '../gen/civ/timeline';
 import { filterChronicle } from '../gen/civ/chronicle';
 import { faithRows, fullChronicle } from '../gen/civ/religionText';
 import { getCivTime, pickChronicleEntry, setResourceView, setSelection, subscribeCivTime, useCivShow, useResourceView, useSelection } from './civView';
-import { eraRows, resourceRows } from './devRows';
+import { controlRows, eraRows, resourceRows } from './devRows';
 import { useEdits } from './editsStore';
 import { eraLabel, spaced, yearAt, yearFull, yearShort, type Era } from '../gen/era';
 import { playFromOf } from '../gen/edits';
@@ -50,7 +50,8 @@ import { GUIDE_URL, PRIVACY_URL, SOURCE_URL, TERMS_URL } from './links';
 import { ContactMenuItem } from './ContactLink';
 import { VersionMenuFoot } from './VersionNews';
 import { PlayQualityItem } from './PlayQualityMenu';
-import { useCoarse } from './device';
+import { useCoarse, useNarrow } from './device';
+import { CONTROL_COLORS } from '../render/civ/control';
 import { keyLabel } from './shortcuts';
 import { openShortcuts } from './ShortcutsDialog';
 import { openDiag } from './DiagDialog';
@@ -477,6 +478,10 @@ export function WorldHome(p: Pick<SidebarProps, 'civ' | 'data' | 'params' | 'gen
   const show = useCivShow();
   const eraOn = show.eras && ok && !!civ!.development;
   const eras = useMemo(() => (eraOn ? eraRows(civ!, year, era) : []), [eraOn, civ, year, era]);
+  // 管辖图层:「国家」上面一组「中央管辖」(四档各几州),再一组「现在的割据」(点一行跳过去)
+  const narrow = useNarrow();
+  const ctlOn = show.control && ok;
+  const ctl = useMemo(() => (ctlOn ? controlRows(civ!, year, era, narrow) : null), [ctlOn, civ, year, era, narrow]);
   const resOn = show.resources && ok && !!civ!.development;
   const k = countUpTo(entries, year);
   const recent = entries.slice(Math.max(0, k - RECENT_N), k).reverse();
@@ -540,6 +545,46 @@ export function WorldHome(p: Pick<SidebarProps, 'civ' | 'data' | 'params' | 'gen
             ))}
           </div>
           <p className="sb-note">颜色是每州此刻所处的时代。拖时间轴看各地一步步往前走；悬停一州看它走了几成。</p>
+        </section>
+      )}
+      {ctl && (
+        <section className="sb-sec">
+          <div className="sb-sec-head">
+            <span>中央管辖</span>
+          </div>
+          <div className="sb-group" data-testid="control">
+            {ctl.tiers.map((t) => (
+              <div key={t.tier} className="sb-row two static" data-tier={t.tier}>
+                <i className="sb-sw" style={{ background: rgb(t.color) }} />
+                <span className="sb-row-main">
+                  <b>{t.name}</b>
+                  <small>{t.sub}</small>
+                </span>
+                <span className="sb-row-side">{t.n} 州</span>
+              </div>
+            ))}
+          </div>
+          {!narrow && <p className="sb-note">离国都越远、异族、刚打下来的地方越管不住；国都一带的行政越强，管得越远。割据的州国界照旧画在原国里。</p>}
+        </section>
+      )}
+      {ctl && ctl.lords.length > 0 && (
+        <section className="sb-sec">
+          <div className="sb-sec-head">
+            <span>现在的割据</span>
+            <span>{ctl.lords.length} 处</span>
+          </div>
+          <div className="sb-group" data-testid="lords">
+            {ctl.lords.map((w) => (
+              <button key={w.region} className="sb-row two" data-region={w.region} onClick={() => setSelection({ kind: 'region', id: w.region })}>
+                <i className="sb-sw" style={{ background: rgb(CONTROL_COLORS[3]) }} />
+                <span className="sb-row-main">
+                  <b>{w.name}</b>
+                  <small>{w.sub}</small>
+                </span>
+                <span className="sb-row-side">{w.years} 年</span>
+              </button>
+            ))}
+          </div>
         </section>
       )}
       {ok && !step && <OutlineSide civ={civ} era={era} />}

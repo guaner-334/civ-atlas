@@ -29,6 +29,8 @@ import { dataLegend, dataLegendText, isGradientLegend, type DataLegend, type Gra
 import { drawCivOverlay, type CivShow, type CivStyle } from './civ/overlay';
 import { RESOURCE_COLORS, drawResourceLayer, resourceTier, type ResourceLook } from './civ/resources';
 import { ERA_COLORS, eraLevelsAt, eraName } from './civ/era';
+import { CONTROL_COLORS, controlTiersAt } from './civ/control';
+import { CONTROL_TIERS } from '../gen/civ/control';
 import { RESOURCES, RESOURCE_COUNT, resourcesAt } from '../gen/civ/development';
 import { civLabelChars, civLabelItems, civMapLayer, labelViewExtras } from './civ/labels';
 import { drawSettlementMarks, SYMBOL_BOX, SYMBOL_GROW, type SettlementKind } from './civ/settlements';
@@ -633,6 +635,18 @@ export function eraLegendRows(civ: Civ, year: Year): LegendRow[] {
   return out;
 }
 
+/** 管辖图层的图例:四档的颜色,这一年各几州(一州都没有的档不列) */
+export function controlLegendRows(civ: Civ, year: Year): LegendRow[] {
+  const t = controlTiersAt(civ, Math.floor(year));
+  const n = new Array<number>(CONTROL_TIERS.length).fill(0);
+  for (let r = 0; r < t.length; r++) if (t[r] >= 0) n[t[r]]++;
+  const out: LegendRow[] = [];
+  CONTROL_TIERS.forEach((name, k) => {
+    if (n[k]) out.push({ color: [...CONTROL_COLORS[k]] as [number, number, number], name, note: `${n[k]} 州` });
+  });
+  return out;
+}
+
 /** 物产图层的图例:十一样物产的颜色,这一年几州能用(哪州都还没发现的不列) */
 export function resourceLegendRows(civ: Civ, year: Year): LegendRow[] {
   const dev = civ.development;
@@ -836,17 +850,20 @@ export async function drawLegend(p: LegendParams, scale: ExportScale): Promise<H
   // 时代图层:地图铺的是时代(国家只画国界),图例列国家(空心框)和时代;物产图层:列物产(不列国家、民族)
   const eraOn = !faithOn && show.eras && !!civ.development;
   const eras = eraOn ? eraLegendRows(civ, y) : [];
+  // 管辖图层:地图铺的是四档(国家只画国界),图例列国家(空心框)和四档
+  const ctlOn = !faithOn && !eraOn && show.control && !!civ.development?.controlYears?.length;
+  const ctls = ctlOn ? controlLegendRows(civ, y) : [];
   const resOn = show.resources && !!civ.development;
   const res = resOn ? resourceLegendRows(civ, y) : [];
-  const wantPol = !resOn && (show.polities || (!data && !show.cultures && !faithOn && !eraOn));
-  const wantCul = !resOn && !faithOn && !eraOn && (show.cultures || (!data && !show.polities));
-  const outline = show.cultures || faithOn || eraOn;
+  const wantPol = !resOn && (show.polities || (!data && !show.cultures && !faithOn && !eraOn && !ctlOn));
+  const wantCul = !resOn && !faithOn && !eraOn && !ctlOn && (show.cultures || (!data && !show.polities));
+  const outline = show.cultures || faithOn || eraOn || ctlOn;
   const withMarks = show.polities || show.routes;
   const withRoutes = show.routes;
 
   const allText =
-    [...rows.polities, ...rows.cultures, ...faiths, ...eras, ...res].map((r) => r.name + r.note).join('') +
-    '图例第年国家民族信仰教派时代物产城镇道路大路小路航线部落地带种子州都' +
+    [...rows.polities, ...rows.cultures, ...faiths, ...eras, ...ctls, ...res].map((r) => r.name + r.note).join('') +
+    '图例第年国家民族信仰教派时代管辖物产城镇道路大路小路航线部落地带种子州都' +
     yearFull(y, p.era) +
     (data ? dataLegendText(p.layer ?? 'biomes') : '');
   await ensureFonts(style, allText, 15000);
@@ -856,12 +873,13 @@ export async function drawLegend(p: LegendParams, scale: ExportScale): Promise<H
   const COL = 300;
   const ROW = 26;
   const HEAD = 34;
-  type Block = { title: string; rows: LegendRow[]; kind: 'pol' | 'cul' | 'faith' | 'era' | 'res' };
+  type Block = { title: string; rows: LegendRow[]; kind: 'pol' | 'cul' | 'faith' | 'era' | 'ctl' | 'res' };
   const blocks: Block[] = [];
   if (wantPol) blocks.push({ title: '国家', rows: rows.polities, kind: 'pol' });
   if (wantCul) blocks.push({ title: '民族', rows: rows.cultures, kind: 'cul' });
   if (faithOn) blocks.push({ title: '信仰', rows: faiths, kind: 'faith' });
   if (eraOn) blocks.push({ title: '时代', rows: eras, kind: 'era' });
+  if (ctlOn) blocks.push({ title: '管辖', rows: ctls, kind: 'ctl' });
   if (resOn) blocks.push({ title: '物产', rows: res, kind: 'res' });
   const most = Math.max(1, ...blocks.map((b) => b.rows.length));
   const cols = most > 14 ? 2 : 1;
