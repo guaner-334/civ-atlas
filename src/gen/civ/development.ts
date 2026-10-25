@@ -345,6 +345,9 @@ export interface DevModel {
   ruralYears: Year[];
   /** 乡村人口此刻的表、上一步算到哪一年(population.ts 挂上) */
   ruralNow?: () => { year: Year; data: Float64Array };
+  /** 世界、地块的宜居度(乡村人口按地块算,population.ts 读) */
+  world: World;
+  habitat: Civ['habitat'];
   /** 各州此刻的地力(0–1,population.ts 挂上;饥荒的赔率读它) */
   soilNow?: () => Float64Array;
   /** 存档时一并存下的政局数表(control.ts 挂上) */
@@ -374,6 +377,8 @@ function emptyDev(world: World, pm: PolityModel, seed: number, habitat: Civ['hab
     seed,
     pm,
     R,
+    world,
+    habitat,
     resources,
     found: new Float64Array(RK).fill(Infinity),
     last: -Infinity,
