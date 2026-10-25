@@ -40,6 +40,7 @@ import {
   useSelection,
 } from './civView';
 import { TimelineMarks, type TimelineLife } from './TimelineMarks';
+import { usePlotTicks } from './OutlineMap';
 import { TimelineYear } from './JumpYear';
 import { baseRegions } from './eras';
 import { useNarrow } from './device';
@@ -73,6 +74,8 @@ export function CivTimeline({ civ, hidden, dock = 'bottom', directorOff, extendO
   const directed = dirOn && !t.story;
   const auto = dirOn && dir.pace === 'auto';
   const narrow = useNarrow();
+  // 大纲的情节:时间轴基线上的记号
+  const plotTicks = usePlotTicks(civ);
   // 导出回放视频时:时间轴上选一段(两头的把手),播放按成片的速度放这一段,右边写片长
   const film = useFilm();
   const chron = useChronicle();
@@ -258,6 +261,7 @@ export function CivTimeline({ civ, hidden, dock = 'bottom', directorOff, extendO
           grow={grow}
           fresh={span ? undefined : fresh}
           life={life}
+          plots={span || narrow ? undefined : plotTicks}
         />
       </div>
     </>

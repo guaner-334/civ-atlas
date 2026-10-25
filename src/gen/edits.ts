@@ -205,6 +205,8 @@
  * 先照常推,按情节的年份先后逐条查:自然发生了就算;没发生、能直接让它发生的,在那一年**硬改** —— 下几条普通干预(带 plot = 这条情节的编号),
  * 从那一年接着推(前面的历史不变);做不到的写明原因。硬改出来的干预记进 WorldEdits.interventions(接在作者自己的干预后面),
  * 存档、分享照"种子 + 干预串"推出同一个世界;改了大纲再照大纲推演时,先去掉带 plot 的那几条再重新算。
+ * 照大纲推演时可以先**顺着引**(gen/outline.ts 文件头"顺着引"):硬改之前,在情节前面几十年给相关的国家定几条方针(带 plot 和 guide = true,
+ * 引到窗口最后一年年底换回原来的方针),试几版,引成了的标「顺着引了一把」;编年史不写它们,国家卡片上的方针也不算它们。
  *
  * | 字段     | 意思                                                                                                   |
  * |----------|--------------------------------------------------------------------------------------------------------|
@@ -243,8 +245,8 @@
  * (前面查过的不会被后面的硬改推翻);落不进前后 span 年的,标"做不到"(前面的情节已经把这段时间定下了)。
  * 前面硬改以后历史变了、这条要的国家 / 人物没了的,也标"做不到"、写明原因(不自动保它)。
  *
- * Outline.review(可选):上一次照大纲推演的批改,每条情节一项(PlotReview:照着发生了 natural / 硬改的 forced / 做不到 failed /
- * 只讲故事 story,落在哪一年,做不到的原因,立起来的国家)。只是记下来;改了大纲以后界面去掉它,再照大纲推演时重新算。
+ * Outline.review(可选):上一次照大纲推演的批改,每条情节一项(PlotReview:照着发生了 natural / 顺着引了一把 guided / 硬改的 forced /
+ * 做不到 failed / 只讲故事 story,落在哪一年,做不到的原因,立起来的国家,硬改的、做不到的先顺着引试了几版 tried)。只是记下来;改了大纲以后界面去掉它,再照大纲推演时重新算。
  * 读进来的先过 cleanOutline(格式不对的情节丢掉,编号重复的换一个新编号,最多 OUTLINE_PLOTS_MAX 条;after 指不到前面的去掉;
  * 批改里指不到情节的去掉)。一条情节也没有的不写。
  *
@@ -533,7 +535,8 @@ export const POLICY_PICK_MAX = 3;
 
 /**
  * 一条干预(字段、年份语义见文件头的表;a、b 是国家的稳定键 `polity:…`,region 是州键 `region:…`,city 是城键 `settlement:…`)。
- * 照大纲推演硬改出来的多一个 plot = 哪一条情节(Plot.id,见文件头"大纲");推演不看它,只管说法和"改了大纲再推时先去掉"
+ * 照大纲推演硬改出来的多一个 plot = 哪一条情节(Plot.id,见文件头"大纲");推演不看它,只管说法和"改了大纲再推时先去掉"。
+ * 顺着引出来的(只有方针)再多一个 guide = true:编年史不写,国家卡片上的方针不算它
  */
 export type Intervention = (
   | { kind: 'protect'; a: string; from: number; until?: number }
@@ -562,7 +565,7 @@ export type Intervention = (
       friends?: string[];
       focus?: PolicyFocus;
     }
-) & { plot?: number };
+) & { plot?: number; guide?: true };
 
 /** 地形修改的种类(见文件头"地形修改"的表) */
 export type TerrainKind =
@@ -1623,8 +1626,8 @@ export function cleanIntervention(x: unknown): Intervention | null {
       }
     }
   }
-  // 照大纲硬改出来的:记着哪一条情节(编号不合格 = 当作者自己下的)
-  if (isPlotId(o.plot)) v = { ...v, plot: o.plot };
+  // 照大纲硬改出来的:记着哪一条情节(编号不合格 = 当作者自己下的);顺着引的方针多记 guide
+  if (isPlotId(o.plot)) v = o.guide === true && v.kind === 'policy' ? { ...v, plot: o.plot, guide: true } : { ...v, plot: o.plot };
   const keys = Object.keys(o);
   const w = v as Record<string, unknown>;
   const clean = keys.length === Object.keys(v).length && keys.every((k) => o[k] === w[k]);
@@ -2034,6 +2037,8 @@ export const PLOT_TEXT_MAX = 200;
 export const PLOT_REGIONS_MAX = 500;
 /** 硬改的结盟管多少年 */
 export const OUTLINE_ALLY_YEARS = 60;
+/** 照大纲推演时每条情节最多试几版引法(gen/outline.ts;界面上"自己填"的上限) */
+export const OUTLINE_TRIES_MAX = 100;
 
 export const PLOT_KINDS = ['found', 'fall', 'hold', 'war', 'ally', 'capital', 'death', 'crown', 'split', 'disaster', 'submit', 'peace', 'dynasty', 'revolt', 'collapse', 'story'] as const;
 export type PlotKind = (typeof PLOT_KINDS)[number];
@@ -2065,8 +2070,8 @@ export interface Plot {
   level?: DisasterLevel;
 }
 
-/** 批改的章:照着发生了 / 硬改的 / 做不到 / 只讲故事 */
-export const PLOT_STATUSES = ['natural', 'forced', 'failed', 'story'] as const;
+/** 批改的章:照着发生了 / 顺着引了一把 / 硬改的 / 做不到 / 只讲故事 */
+export const PLOT_STATUSES = ['natural', 'guided', 'forced', 'failed', 'story'] as const;
 export type PlotStatus = (typeof PLOT_STATUSES)[number];
 
 /**
@@ -2084,7 +2089,7 @@ export interface PlotReview {
   /** 哪一条情节(Plot.id) */
   id: number;
   status: PlotStatus;
-  /** 落在哪一年:发生的那年 / 硬改的那年;做不到、只讲故事 = 情节本来的那年 */
+  /** 落在哪一年:发生的那年(顺着引了一把的也是)/ 硬改的那年;做不到、只讲故事 = 情节本来的那年 */
   year: number;
   /** 做不到的原因 */
   reason?: PlotReason;
@@ -2094,6 +2099,8 @@ export interface PlotReview {
   polity?: string;
   /** 硬改的去世只能写成"去世"(作者写的是遇弑、战死) */
   asDeath?: true;
+  /** 硬改的、做不到的:先顺着引试了几版都没成(没试 = 不给) */
+  tried?: number;
 }
 
 /** 大纲(见文件头"大纲") */
@@ -2250,8 +2257,9 @@ function cleanReview(x: unknown, ids: ReadonlySet<number>): PlotReview | null {
   const r: PlotReview = { id: o.id, status: o.status as PlotStatus, year };
   if (r.status === 'failed' && PLOT_REASONS.includes(o.reason as PlotReason)) r.reason = o.reason as PlotReason;
   if (r.reason && (o.who === 'a' || o.who === 'b')) r.who = o.who;
-  if ((r.status === 'natural' || r.status === 'forced') && isPolityKey(o.polity)) r.polity = o.polity;
+  if ((r.status === 'natural' || r.status === 'guided' || r.status === 'forced') && isPolityKey(o.polity)) r.polity = o.polity;
   if (r.status === 'forced' && o.asDeath === true) r.asDeath = true;
+  if ((r.status === 'forced' || r.status === 'failed') && typeof o.tried === 'number' && Number.isInteger(o.tried) && o.tried >= 1 && o.tried <= OUTLINE_TRIES_MAX) r.tried = o.tried;
   return r;
 }
 
@@ -2305,6 +2313,46 @@ export function cleanOutline(raw: unknown): Outline | undefined {
     if (!review.length) review = undefined;
   } else if (o.review !== undefined) same = false;
   return same ? (raw as Outline) : { plots, ...(review ? { review } : {}) };
+}
+
+/** 一国 t 那一刻照的作者的方针(干预列表里它最后一条 from 不晚于 t、不是顺着引出来的;没有 = null) */
+export function basePolicy(list: readonly Intervention[], a: string, t: number): Extract<Intervention, { kind: 'policy' }> | null {
+  let best: Extract<Intervention, { kind: 'policy' }> | null = null;
+  for (const v of list) if (v.kind === 'policy' && v.a === a && !v.guide && v.from <= t && (!best || v.from >= best.from)) best = v;
+  return best;
+}
+
+/** 照大纲顺着引的一国:哪年起引、比它自己的方针多加减了多少、添了哪些仇国 / 亲国 */
+export interface GuideNote {
+  a: string;
+  from: number;
+  war: number;
+  expand: number;
+  peace: number;
+  foes: string[];
+  friends: string[];
+}
+
+/** 第 id 条情节顺着引的那几国(起引的那几条方针,和作者自己当时的方针比;换回去的那条不算) */
+export function guideNotes(list: readonly Intervention[], id: number): GuideNote[] {
+  const gs = list.filter((v): v is Extract<Intervention, { kind: 'policy' }> => v.kind === 'policy' && v.plot === id && !!v.guide);
+  if (!gs.length) return [];
+  const from = Math.min(...gs.map((v) => v.from));
+  return gs
+    .filter((v) => v.from === from)
+    .map((v) => {
+      const b = basePolicy(list, v.a, from);
+      const had = (k: string, xs: readonly string[] | undefined) => !!xs?.includes(k);
+      return {
+        a: v.a,
+        from,
+        war: (v.war ?? 0) - (b?.war ?? 0),
+        expand: (v.expand ?? 0) - (b?.expand ?? 0),
+        peace: (v.peace ?? 0) - (b?.peace ?? 0),
+        foes: (v.foes ?? []).filter((k) => !had(k, b?.foes)),
+        friends: (v.friends ?? []).filter((k) => !had(k, b?.friends)),
+      };
+    });
 }
 
 /** 作者自己下的干预(去掉照大纲硬改出来的那几条) */

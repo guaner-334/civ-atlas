@@ -10,6 +10,12 @@
  *      再查一遍:成了 = 硬改的,不成 = 做不到(干预不留)
  * 查过的情节落定在某一年(发生的那年 / 硬改的那年),floor = 那一年的下一年:后面的硬改不早于它,前面查过的不会被推翻。
  *
+ * **顺着引**(input.tries > 0 才引;不给 = 照上面直接硬改):②没发生、这种情节能引的(GUIDE_KINDS),先在它前面几十年悄悄给相关的国家定方针
+ * (打仗胆量、开拓、仇国 / 亲国、和谈底线;加在那国当时自己的方针上),引到窗口最后一年年底为止,再换回原来的方针。
+ * 几种引法(从哪年起 × 引多重 × 引谁)按"引得多轻"排(各国加减的量 × 引了几国 × 引了几年,轻的在前),一版版试:
+ * 从起引那一刻(不早于 floor)接着推到窗口最后一年年底再查,头一版查得到的就用它(= 引得最轻的),标「顺着引了一把」;
+ * 最多试 tries 版,都没成才照③硬改(批改记下试了几版)。引出来的方针带 plot 和 guide = true(编年史不写)。
+ *
  * 停下来、接着推都用 civ/index.ts 的 startContinue(各层从 Civ 重建"接下来该发生什么",接着推和一口气推完一样),
  * 中间几步不整理(不起名、不配人物、不修路;partial),最后推到推演年数那一刻才整理一次 —— 所以结果和带着同样的干预从第 0 年一口气推完一样
  * (单测核对)。查"去世"要人物,那一步整理一次。停下来的那几刻(快照)都留着:推到某一刻时从最晚的、还用得上的那一份接着推
@@ -31,6 +37,8 @@ import { nearestCell } from './civ/frontier';
 import {
   END_YEAR_DEFAULT,
   OUTLINE_ALLY_YEARS,
+  OUTLINE_TRIES_MAX,
+  POLICY_KNOB_MAX,
   PLOT_CHECK_ONLY,
   PLOT_SPAN_DEFAULT,
   cleanIntervention,
@@ -46,10 +54,12 @@ import {
   type AuthorMark,
   type Intervention,
   type Plot,
+  type PlotKind,
   type PlotReason,
   type PlotReview,
 } from './edits';
 import { characterLeanings, type AuthorCharacter } from './characters';
+import { emptyPolicy, policiesFrom, type PolicyIv } from './civ/policy';
 
 /** 照大纲推演的输入 */
 export interface OutlineInput {
@@ -61,6 +71,8 @@ export interface OutlineInput {
   characters?: readonly AuthorCharacter[];
   /** 作者标记(一片地方用标记圈的) */
   marks?: readonly AuthorMark[];
+  /** 没自然发生的情节,硬改前最多试几版顺着引(0 / 不给 = 不引,直接硬改;最多 OUTLINE_TRIES_MAX) */
+  tries?: number;
 }
 
 /** 照大纲推演的结果 */
@@ -83,6 +95,10 @@ export interface OutlineHooks {
   progress?: (done: number, total: number, review: readonly PlotReview[]) => void;
   /** 每条之间等一下(worker 里等一个宏任务,好让新到的消息排进来) */
   pause?: () => Promise<void>;
+  /**
+   * 开始查一条(fix = null)/ 查完没发生、开始试第 trial.n 版引法(一共最多 trial.of 版)/ 开始在第 fix 年硬改:哪一条(界面上的进度用)
+   */
+  stage?: (id: number, fix: number | null, trial?: { n: number; of: number }) => void;
   /** 每条之间(和开始之前)问一次:true = 不推了,返回 null */
   stop?: () => boolean;
   /** 上一次的结果(没有 = 从头算) */
@@ -120,6 +136,10 @@ interface Ctx {
   plots: Plot[];
   characters: readonly AuthorCharacter[];
   marks: readonly AuthorMark[];
+  tries: number;
+  stage?: OutlineHooks['stage'];
+  pause?: OutlineHooks['pause'];
+  stop: () => boolean;
 }
 
 /**
@@ -131,8 +151,9 @@ export async function runOutline(world: World, params: Partial<CivParams>, input
   const plots = cleanOutline({ plots: input.plots })?.plots ?? [];
   const own = ownInterventions(input.interventions.flatMap((v) => cleanIntervention(v) ?? []));
   const endYear = params.endYear ?? END_YEAR_DEFAULT;
-  const ctx: Ctx = { world, params: { ...params, endYear }, endYear, plots, characters: input.characters ?? [], marks: input.marks ?? [] };
-  const key = hooks.key === undefined ? null : `${hooks.key}|${JSON.stringify([own, endYear, ctx.characters, ctx.marks])}`;
+  const tries = Math.min(OUTLINE_TRIES_MAX, Math.max(0, Math.floor(input.tries ?? 0) || 0));
+  const ctx: Ctx = { world, params: { ...params, endYear }, endYear, plots, characters: input.characters ?? [], marks: input.marks ?? [], tries, stage: hooks.stage, pause: hooks.pause, stop };
+  const key = hooks.key === undefined ? null : `${hooks.key}|${JSON.stringify([own, endYear, ctx.characters, ctx.marks, tries])}`;
   const prev = key !== null && hooks.cache?.key === key ? hooks.cache.steps : [];
   const steps: OutlineCache['steps'] = [];
   let st: State = { snaps: [], list: own, floor: 0, done: new Map() };
@@ -149,7 +170,10 @@ export async function runOutline(world: World, params: Partial<CivParams>, input
       reused++;
     } else {
       reuse = false;
-      st = step(ctx, st, pick);
+      hooks.stage?.(pick.plot.id, null);
+      const next = await step(ctx, st, pick);
+      if (!next) return null;
+      st = next;
     }
     steps.push({ sig, after: st });
     hooks.progress?.(st.done.size, plots.length, [...st.done.values()]);
@@ -599,13 +623,15 @@ function whyNot(civ: Civ, p: Plot, R: Refs, Y: number): Fail {
   return { reason: 'noEffect' };
 }
 
-/** 查一条情节(必要时硬改),返回查完以后的样子(传进来的不改) */
-function step(ctx: Ctx, prev: State, pick: Pick): State {
+/** 查一条情节(必要时顺着引、硬改),返回查完以后的样子(传进来的不改);中途叫停 = null */
+async function step(ctx: Ctx, prev: State, pick: Pick): Promise<State | null> {
   const st: State = { snaps: prev.snaps.slice(), list: prev.list, floor: prev.floor, done: new Map(prev.done) };
   const { plot: p, lo, hi, at } = pick;
+  /** 顺着引试了几版都没成 */
+  let guides = 0;
   const put = (r: PlotReview) => {
-    st.done.set(p.id, r);
-    if (r.status === 'natural' || r.status === 'forced') st.floor = Math.max(st.floor, r.year + 1);
+    st.done.set(p.id, guides && (r.status === 'forced' || r.status === 'failed') ? { ...r, tried: guides } : r);
+    if (r.status === 'natural' || r.status === 'guided' || r.status === 'forced') st.floor = Math.max(st.floor, r.year + 1);
     st.snaps = prune(st);
     return st;
   };
@@ -621,6 +647,16 @@ function step(ctx: Ctx, prev: State, pick: Pick): State {
   const got = happened(ctx, C, p, R, lo, hi);
   const polity = (civ: Civ, f: Found) => (f.polity !== undefined ? { polity: polityKey(civ, f.polity) } : {});
   if (got) return put({ id: p.id, status: 'natural', year: got.year, ...polity(C, got) });
+  if (ctx.tries > 0 && GUIDE_KINDS.includes(p.kind) && !R.refFailed) {
+    const g = await guide(ctx, st, pick);
+    if (g === null) return null;
+    if (typeof g === 'number') guides = g;
+    else {
+      st.list = g.list;
+      st.snaps = g.snaps;
+      return put({ id: p.id, status: 'guided', year: g.found.year, ...polity(g.civ, g.found) });
+    }
+  }
   if (!S) {
     if (PLOT_CHECK_ONLY.includes(p.kind)) return fail(bothThere(C, p, R, Math.min(Y, hi)) ?? { reason: 'unsupported' });
     return fail({ reason: 'crowded' });
@@ -633,6 +669,7 @@ function step(ctx: Ctx, prev: State, pick: Pick): State {
     return c ? [{ ...c, plot: p.id }] : [];
   });
   if (!fixes.length) return fail({ reason: 'noEffect' }, Y);
+  ctx.stage?.(p.id, Y);
   const tried: State = { ...st, list: [...st.list, ...fixes] };
   const C2 = advance(ctx, tried, playStop(hi + 1), people);
   // 硬改的去世只能写成"去世":再查时不看遇弑、战死
@@ -644,4 +681,231 @@ function step(ctx: Ctx, prev: State, pick: Pick): State {
   }
   st.list = tried.list;
   return put({ id: p.id, status: 'forced', year: got2.year, ...polity(C2, got2), ...(p.kind === 'death' && p.how ? { asDeath: true as const } : {}) });
+}
+
+// ---------------------------------------------------------------------------
+// 顺着引
+
+/** 能顺着引的情节(只用方针):灭国、占地、开战、结盟、称臣、议和 */
+const GUIDE_KINDS: readonly PlotKind[] = ['fall', 'hold', 'war', 'ally', 'submit', 'peace'];
+/** 从窗口头一年往前几年起引(引早了,事会在窗口之前就发生) */
+const GUIDE_LEADS = [0, 10, 25, 50, 80];
+/** 引多重:方针的滑条加减多少(满格 POLICY_KNOB_MAX) */
+const GUIDE_STRENGTHS = [20, 35, 50];
+/** 灭国没说亡于谁:挑几个最大的邻国来引 */
+const GUIDE_NEIGHBORS = 2;
+
+/** 引一国:滑条加减多少、仇国、亲国(国家键) */
+interface GuideOne {
+  a: string;
+  war?: number;
+  expand?: number;
+  peace?: number;
+  foes?: string[];
+  friends?: string[];
+}
+
+/** 一版引法:从哪年起(lead 年前)、多重、引谁(variant = targets 给的第几种)、轻重 */
+interface GuidePlan {
+  lead: number;
+  s: number;
+  variant: number;
+  cost: number;
+}
+
+/** 起引那一刻的样子:那一刻的历史、认出来的国家、起引的年份 */
+interface GuideAt {
+  G: number;
+  S: Civ;
+  R: Refs;
+}
+
+/** 这条情节最多有几种"引谁"(实际几种看起引那一刻,见 targets) */
+const variantsOf = (p: Plot) => (p.kind === 'fall' && p.b === undefined ? GUIDE_NEIGHBORS + 1 : 1);
+
+/** 第 G 年这国最大的几个邻国(按州数) */
+function neighborsOf(S: Civ, a: number, n: number): number[] {
+  const { adjStart, adj, count } = S.regions;
+  const size = new Map<number, number>();
+  const near = new Set<number>();
+  for (let r = 0; r < count; r++) {
+    const o = S.polity[r];
+    if (o >= 0) size.set(o, (size.get(o) ?? 0) + 1);
+    if (o !== a) continue;
+    for (let k = adjStart[r]; k < adjStart[r + 1]; k++) {
+      const q = S.polity[adj[k]];
+      if (q >= 0 && q !== a) near.add(q);
+    }
+  }
+  return [...near].sort((x, y) => size.get(y)! - size.get(x)! || x - y).slice(0, n);
+}
+
+/** 第 G 年 a 的国土挨着这几州(含它自己的)里的一州 */
+function touches(S: Civ, a: number, regions: Iterable<number>): boolean {
+  const { adjStart, adj } = S.regions;
+  for (const r of regions) {
+    if (S.polity[r] === a) return true;
+    for (let k = adjStart[r]; k < adjStart[r + 1]; k++) if (S.polity[adj[k]] === a) return true;
+  }
+  return false;
+}
+
+/** 第 G 年 b 的几州 */
+function regionsOf(S: Civ, b: number): number[] {
+  const out: number[] = [];
+  for (let r = 0; r < S.regions.count; r++) if (S.polity[r] === b) out.push(r);
+  return out;
+}
+
+/** 那片地方第 G 年在谁手里(除了 a,按占的州数,最多 3 国) */
+function holdersOf(S: Civ, a: number, area: readonly number[]): number[] {
+  const n = new Map<number, number>();
+  for (const r of area) {
+    const o = S.polity[r];
+    if (o >= 0 && o !== a) n.set(o, (n.get(o) ?? 0) + 1);
+  }
+  return [...n].sort((x, y) => y[1] - x[1] || x[0] - y[0]).slice(0, 3).map((x) => x[0]);
+}
+
+/** 第 variant 种引法引谁、怎么引(力度 s);这一刻没有这一种 = null */
+function targets(at: GuideAt, p: Plot, variant: number, s: number): GuideOne[] | null {
+  const { S, R } = at;
+  const A = R.aKey!;
+  const B = R.bKey!;
+  const key = (id: number) => polityKey(S, id);
+  // 开战、亡于某国、称臣、议和:两国得接壤(打仗只打邻国);占地:a 得挨着那片地方
+  const near = (x: number, y: number) => touches(S, x, regionsOf(S, y));
+  switch (p.kind) {
+    case 'war':
+      return near(R.a, R.b) ? [{ a: A, war: s, foes: [B] }] : null;
+    case 'fall': {
+      if (p.b !== undefined) return near(R.b, R.a) ? [{ a: B, war: s, expand: s, foes: [A] }] : null;
+      const ns = neighborsOf(S, R.a, GUIDE_NEIGHBORS);
+      const pick = variant < GUIDE_NEIGHBORS ? (ns[variant] !== undefined ? [ns[variant]] : []) : ns.length > 1 ? ns : [];
+      return pick.length ? pick.map((n) => ({ a: key(n), war: s, expand: s, foes: [A] })) : null;
+    }
+    case 'hold': {
+      if (!touches(S, R.a, R.area)) return null;
+      const foes = holdersOf(S, R.a, R.area).map(key);
+      return [{ a: A, war: s, expand: s, ...(foes.length ? { foes } : {}) }];
+    }
+    case 'ally':
+      return [
+        { a: A, friends: [B] },
+        { a: B, friends: [A] },
+      ];
+    case 'submit':
+      if (!near(R.a, R.b)) return null;
+      return [
+        { a: B, war: s, foes: [A] },
+        { a: A, war: -s, peace: -s },
+      ];
+    case 'peace':
+      if (!near(R.a, R.b)) return null;
+      return [
+        { a: A, war: -s, peace: -s },
+        { a: B, war: -s, peace: -s },
+      ];
+    default:
+      return null;
+  }
+}
+
+/** 方针的旋钮加上 d,夹回 ±POLICY_KNOB_MAX */
+const knob = (x: number | undefined, d: number | undefined) => Math.max(-POLICY_KNOB_MAX, Math.min(POLICY_KNOB_MAX, (x ?? 0) + (d ?? 0)));
+
+/** 一国第 G 年起引之前真在照的、作者定的方针(那一刻的历史里生效了的,跳过顺着引出来的;没有 / 罢了 = null) */
+function heldPolicy(S: Civ, a: string, G: number): PolicyIv | null {
+  const r = resolveKey(S, a);
+  const segs = r?.kind === 'polity' ? policiesFrom(S.annals, S.interventions).get(r.id) : undefined;
+  for (let i = (segs?.length ?? 0) - 1; i >= 0; i--) {
+    const v = segs![i].v;
+    if (segs![i].t < G && !v.guide) return emptyPolicy(v) ? null : v;
+  }
+  return null;
+}
+
+/**
+ * 一版引法的干预列表:每国在第 G 年定一条方针(那国当时真在照的自己的方针加上这版的加减,仇国、亲国添进去),
+ * 第 E 年换回它(G、E 之间作者给它定过方针的不用换:那条会盖掉引的这条)。都带 plot、guide。
+ * 前面情节引同一国、换回的那一刻落在 (G, E] 里的:那条挪到第 E 年当这次的换回(不然它会提前盖掉这次引的;
+ * 原地改、不删,干预的下标不变。改了前面的,接不上快照,那一版从第 0 年推,结果一样,只是慢)
+ */
+function guideList(S: Civ, list: readonly Intervention[], who: readonly GuideOne[], p: Plot, G: number, E: number): Intervention[] {
+  const add: Intervention[] = [];
+  const tag = { plot: p.id, guide: true as const };
+  const ours = new Set(who.map((g) => g.a));
+  const moved = new Set<string>();
+  const out = list.map((x) => {
+    if (x.kind !== 'policy' || !x.guide || !ours.has(x.a) || !(x.from > G && x.from <= E)) return x;
+    moved.add(x.a);
+    return { ...x, from: E };
+  });
+  for (const g of who) {
+    const base = heldPolicy(S, g.a, G);
+    const foes = [...(g.foes ?? []), ...(base?.foes ?? []).filter((k) => !g.friends?.includes(k))];
+    const friends = [...(g.friends ?? []), ...(base?.friends ?? []).filter((k) => !g.foes?.includes(k))];
+    const v: Record<string, unknown> = { kind: 'policy', a: g.a, from: G, war: knob(base?.war, g.war), expand: knob(base?.expand, g.expand), coast: base?.coast, peace: knob(base?.peace, g.peace), foes, friends, focus: base?.focus, ...tag };
+    const c = cleanIntervention(v);
+    if (c) add.push(c);
+    if (moved.has(g.a) || list.some((x) => x.kind === 'policy' && x.a === g.a && !x.guide && x.from > G && x.from <= E)) continue;
+    const { plot: _p, guide: _g, ...back } = base ?? { kind: 'policy' as const, a: g.a, from: E };
+    void _p;
+    void _g;
+    const r = cleanIntervention({ ...back, from: E, ...tag });
+    if (r) add.push(r);
+  }
+  return add.length ? [...out, ...add] : [];
+}
+
+/**
+ * 没自然发生的一条情节,一版版试着顺着引(见文件头"顺着引"):成了 = 那一版的干预列表、快照和查到的;
+ * 都没成 = 试了几版(没得试 = 0);中途叫停 = null
+ */
+async function guide(ctx: Ctx, st: State, pick: Pick): Promise<{ list: Intervention[]; snaps: Snap[]; civ: Civ; found: Found } | number | null> {
+  const { plot: p, lo, hi, at } = pick;
+  const E = hi + 1;
+  const plans: GuidePlan[] = [];
+  const leads = new Set<number>();
+  for (const lead of GUIDE_LEADS) {
+    const G = Math.max(lo - lead, st.floor, 0);
+    if (G > hi || leads.has(G)) continue;
+    leads.add(G);
+    const n = variantsOf(p);
+    for (let variant = 0; variant < n; variant++) {
+      const many = p.kind === 'fall' && p.b === undefined && variant === GUIDE_NEIGHBORS ? GUIDE_NEIGHBORS : p.kind === 'ally' || p.kind === 'submit' || p.kind === 'peace' ? 2 : 1;
+      // 结盟只添亲国,不分轻重
+      for (const s of p.kind === 'ally' ? [GUIDE_STRENGTHS[0]] : GUIDE_STRENGTHS) plans.push({ lead: G, s, variant, cost: s * many * (E - G) });
+    }
+  }
+  plans.sort((x, y) => x.cost - y.cost);
+  const of = Math.min(ctx.tries, plans.length);
+  const ats = new Map<number, GuideAt | null>();
+  const atOf = (G: number): GuideAt | null => {
+    if (ats.has(G)) return ats.get(G)!;
+    const S = advance(ctx, st, playStop(G), false);
+    const R = refsOf(ctx, S, p, st.done);
+    const ok = !bothThere(S, p, R, G) && R.aKey !== null && (p.b === undefined || R.bKey !== null) && (p.kind !== 'hold' || R.area.length > 0);
+    const r = ok ? { G, S, R } : null;
+    ats.set(G, r);
+    return r;
+  };
+  let n = 0;
+  for (const plan of plans) {
+    if (n >= of) break;
+    const g = atOf(plan.lead);
+    const who = g && targets(g, p, plan.variant, plan.s);
+    if (!g || !who) continue;
+    const list = guideList(g.S, st.list, who, p, g.G, E);
+    if (!list.length) continue;
+    n++;
+    ctx.stage?.(p.id, null, { n, of });
+    const tl: State = { ...st, snaps: st.snaps.slice(), list };
+    const C = advance(ctx, tl, playStop(hi + 1), false);
+    const found = happened(ctx, C, p, refsOf(ctx, C, p, st.done), lo, hi);
+    if (found) return { list: tl.list, snaps: tl.snaps, civ: C, found };
+    if (ctx.pause) await ctx.pause();
+    if (ctx.stop()) return null;
+  }
+  return n;
 }

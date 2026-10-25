@@ -4,7 +4,7 @@
  * - 硬改:占据一片地方、立国(起名)、灭国、跟着前一条立起来的国家(`plot:编号`);只查不改的几种标"做不到";只讲故事不查
  * - 逐条查的先后:硬改的年份不早于前面落定的那年;落不进前后几年的标"前面的情节已经把这段时间定下了";超出推演年数的标出来
  * - 改了一条再推:前面没改的几条直接用上一次的,结果和从头算一样;再推前先去掉上一次硬改出来的干预
- * - 能叫停;存档往返(大纲、批改、硬改出来的干预的 plot 都带着);没大纲的世界配方不变;编年史【照大纲】
+ * - 能叫停;存档往返(大纲、批改、硬改出来的干预的 plot 都带着);没大纲的世界配方不变;编年史【照大纲】(划给同一国的几州并成一条)
  * - 查得准:窗口里散了的盟也算结盟;硬改的地震水旱按下令的那一处查
  * - 大纲的清理(cleanOutline / cleanPlot)
  */
@@ -123,6 +123,9 @@ describe('硬改和做不到', () => {
     const marked = chron.filter((e) => e.text.startsWith('【照大纲】'));
     expect(marked.length).toBeGreaterThan(0);
     expect(chron.some((e) => e.text.startsWith('【干预】'))).toBe(false);
+    // 占据一片地方硬改划的几州并成一条
+    const cedes = out.interventions.filter((v) => v.plot === 1 && v.kind === 'cede').length;
+    if (cedes > 1) expect(marked.filter((e) => /州划归/.test(e.text) && !e.text.includes('欲')).length).toBe(1);
   }, 120_000);
 
   it('先后:硬改不早于前面落定的那年;落不进窗口的、超出推演年数的标出来', async () => {

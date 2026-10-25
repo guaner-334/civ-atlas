@@ -97,13 +97,16 @@ export function togglePick(d: PolicyDraft, side: 'foes' | 'friends', key: string
 
 const segCache = new WeakMap<Civ, ReturnType<typeof policiesFrom>>();
 
-/** 国家 id 在 t 那一刻照的方针(推过的历史里生效了的;t 那一年定的也算;罢了 / 没定 = null) */
+/**
+ * 国家 id 在 t 那一刻照的方针(推过的历史里生效了的;t 那一年定的也算;罢了 / 没定 = null)。
+ * 照大纲顺着引的不算(引的时候加在它自己的方针上、引完换回去,跳过它们就是它自己的那一条)
+ */
 export function policyAt(civ: Civ, id: number, t: number): PolicyIv | null {
   let m = segCache.get(civ);
   if (!m) segCache.set(civ, (m = policiesFrom(civ.annals, civ.interventions)));
   const segs = m.get(id);
   if (!segs) return null;
-  for (let i = segs.length - 1; i >= 0; i--) if (segs[i].t <= t + 1e-6) return emptyPolicy(segs[i].v) ? null : segs[i].v;
+  for (let i = segs.length - 1; i >= 0; i--) if (segs[i].t <= t + 1e-6 && !segs[i].v.guide) return emptyPolicy(segs[i].v) ? null : segs[i].v;
   return null;
 }
 

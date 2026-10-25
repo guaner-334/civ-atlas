@@ -22,6 +22,8 @@ import {
   MARK_REGIONS_TOTAL,
   cleanIntervention,
   cleanMark,
+  OUTLINE_PLOTS_MAX,
+  cleanOutline,
   markRegionTotal,
   sameAdvance,
   sameFollow,
@@ -33,6 +35,9 @@ import {
   type AuthorMark,
   type FollowRef,
   type Intervention,
+  type Outline,
+  type Plot,
+  type PlotReview,
   type PlayState,
   type TerrainOp,
   type Upheaval,
@@ -182,8 +187,11 @@ export function revertEdits(now: WorldEdits, from: WorldEdits, to: WorldEdits): 
   const marks = moveById(now.marks, from.marks, to.marks);
   const flags = moveMap(now.flags, from.flags, to.flags);
   const characters = moveById(now.characters, from.characters, to.characters);
+  // 大纲:这一步改过大纲、之后没再改过的,换回 to 那样(整份换;之后又改过的不动)
+  const outlineMoved = JSON.stringify(from.outline ?? null) !== JSON.stringify(to.outline ?? null) && JSON.stringify(now.outline ?? null) === JSON.stringify(from.outline ?? null);
+  const outline = outlineMoved ? to.outline : now.outline;
   const sameUps = upheavals === (now.upheavals ?? []) || (!upheavals.length && !now.upheavals);
-  if (names === now.names && aiNames === now.aiNames && interventions === now.interventions && terrain === now.terrain && sameUps && marks === now.marks && flags === now.flags && characters === now.characters)
+  if (names === now.names && aiNames === now.aiNames && interventions === now.interventions && terrain === now.terrain && sameUps && marks === now.marks && flags === now.flags && characters === now.characters && outline === now.outline)
     return now;
   const out: WorldEdits = { names, interventions, terrain };
   // 草图、地名风格、推演年数、拓荒、起源、纪年、月份不记撤销步(见文件头),照现在的留着
@@ -208,6 +216,7 @@ export function revertEdits(now: WorldEdits, from: WorldEdits, to: WorldEdits): 
   if (marks?.length) out.marks = marks;
   if (flags && Object.keys(flags).length) out.flags = flags;
   if (characters?.length) out.characters = characters;
+  if (outline) out.outline = outline;
   return out;
 }
 
@@ -933,6 +942,36 @@ export function restoreCharacter(c: AuthorCharacter, at: number, ivs?: Intervent
   next.splice(Math.min(Math.max(0, at), next.length), 0, x);
   // 换了新编号:即位里记的是原来的编号,对不上了,不放回去
   return commitCharacters(next, id === c.id ? ivs : undefined) ? id : -1;
+}
+
+// ---- 大纲(格式见 gen/edits.ts 文件头"大纲") ----
+
+/**
+ * 大纲换成 plots(清理过;一条不剩 = 去掉这一项;超过 OUTLINE_PLOTS_MAX 条不收),记一步。上一次照大纲推演的批改跟着去掉(改了大纲,批改对不上了;
+ * 硬改出来的干预留着,下次照大纲推演时重新算)。ivs = 干预列表一起换(删一条情节时连它硬改出来的那几条一起去掉)。
+ * 改历史被拦下 = false
+ */
+export function setOutlinePlots(plots: readonly Plot[], ivs?: Intervention[]): boolean {
+  // 满了还加(加一条、复制):不收,说一声(不然读进来时的清理会悄悄丢掉最后一条)
+  if (plots.length > OUTLINE_PLOTS_MAX) {
+    showToast({ id: 'outline-max', kind: 'warn', text: `大纲最多 ${OUTLINE_PLOTS_MAX} 条`, more: ['删掉几条再加'] });
+    return false;
+  }
+  const { outline: _old, ...rest } = state;
+  void _old;
+  const o = cleanOutline({ plots });
+  const next: WorldEdits = ivs ? { ...rest, interventions: ivs } : rest;
+  return commitEdits(o ? { ...next, outline: { plots: o.plots } } : next);
+}
+
+/**
+ * 照大纲推演好了:干预列表(作者的 + 硬改出来的)、批改一起换,记一步(⌘Z 回到推之前)。
+ * plots = 推的时候那一份大纲(推的时候大纲没改过才会走到这里)
+ */
+export function putOutlineResult(plots: readonly Plot[], review: readonly PlotReview[], ivs: Intervention[]): boolean {
+  const o: Outline | undefined = cleanOutline({ plots, review });
+  if (!o) return false;
+  return commitEdits({ ...state, interventions: ivs, outline: o });
 }
 
 /** 换了新世界:修改一律作废 */

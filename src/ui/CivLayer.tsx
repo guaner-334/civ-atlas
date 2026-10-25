@@ -440,6 +440,8 @@ export function CivLayer({ world, raster, civ: civIn, geo: geoIn, style, year, v
   const baseProj = useRef(new ProjLayer());
   const baseDrawn = useRef<unknown>(null);
   const preciseDrawn = useRef<unknown>(null);
+  /** 等距圆柱时画布上画的是哪份参数(换到弯边投影时拿它当原图,不用重画一遍) */
+  const flatDrawn = useRef<unknown>(null);
   const moving = useMapMoving();
   // 停下来以后底图晚一个任务再按投影精画:和地形图的精画、国名重新拟合分在两个任务里,不挤成一次长卡顿
   const baseMoving = useLateStop(moving);
@@ -461,11 +463,23 @@ export function CivLayer({ world, raster, civ: civIn, geo: geoIn, style, year, v
         return;
       }
       const t0 = performance.now();
+      // 刚从等距圆柱换过来、参数没变:画布上那张就是原图,接过来(拖动、换投影都用它)
+      if (flatDrawn.current === params && baseDrawn.current !== params && cv.width === raster.w && cv.height === raster.h) {
+        const src = L.source(raster.w, raster.h);
+        const sctx = src.getContext('2d')!;
+        sctx.clearRect(0, 0, src.width, src.height);
+        sctx.drawImage(cv, 0, 0);
+        baseDrawn.current = params;
+      }
+      flatDrawn.current = null;
       if (!baseMoving && !covered) {
         const fresh = preciseDrawn.current !== params;
         const pj = projector(mp);
         const pp = { ...params, proj: pj };
         const draw = (ctx: CanvasRenderingContext2D) => drawCivOverlay(ctx, pp);
+        // 参数没变、只换了投影或中心(换投影、地球仪切回来、滑条改中心):先整图重投影铺上,下面照刚停下来的办法在后台精画,
+        // 不在换的那一下整张精画(弱一点的电脑上要卡一秒多)
+        if (detailAsync && baseDrawn.current === params && !L.presenting(mp) && !L.redrawn(mp.key)) L.present(cv, mp, null, true);
         // 刚停下来(屏幕上是这份参数、这个中心的整图重投影):按投影重画在后台分小步备,和地形图的一起贴上
         if (detailAsync && baseDrawn.current === params && L.presenting(mp)) {
           const p0 = params;
@@ -536,7 +550,7 @@ export function CivLayer({ world, raster, civ: civIn, geo: geoIn, style, year, v
       if (redraw) w.__wfCiv = { ready: true, ms: performance.now() - t0, show, year: params.year, fast, proj: mp.def.id };
       return;
     }
-    baseDrawn.current = preciseDrawn.current = null;
+    baseDrawn.current = preciseDrawn.current = flatDrawn.current = null;
     baseProj.current.release();
     if (cv.width !== raster.w || cv.height !== raster.h) {
       cv.width = raster.w;
@@ -551,6 +565,7 @@ export function CivLayer({ world, raster, civ: civIn, geo: geoIn, style, year, v
     }
     const t0 = performance.now();
     drawCivOverlay(ctx, params);
+    flatDrawn.current = params;
     patchFeed({ base: cv, baseVer: feed.baseVer + 1 });
     if (copyVisible()) mirrorCanvas(refCopy.current, cv, true);
     else copyStale.current = true;

@@ -444,3 +444,20 @@
 .app.phone .tb-track.film {
   margin-right: 12px;
 }
+
+/* 大事字幕下面的「字幕用 大事 / 按大纲」(照大纲推演推过的世界才有) */
+.film-sub {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-left: 12px;
+}
+.film-sub .film-lbl > b {
+  width: auto;
+}
+.film-sub .film-seg {
+  flex: none;
+}
+.film-sub .film-seg > button {
+  padding: 0 10px;
+}
