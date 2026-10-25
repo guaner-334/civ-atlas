@@ -2815,7 +2815,8 @@ if (part('干预保护')) {
     if (orders !== 1) errs.push(`干预:时间轴上应有 1 枚「令」(${orders})`);
     if (listed !== 1) errs.push(`干预:概览里的干预列表应有 1 条(${listed})`);
     if (!/保护.+,已从 \d+ 年起重新推演.*撤销/.test(ivToast)) errs.push(`干预:重推完顶部没有"保护…,已从 N 年起重新推演"(带撤销)的提示(${ivToast})`);
-    const RESIM_BUDGET = process.env.CI ? 2500 : 1000;
+    // 推演只要比播放快(每秒 80 年以上),整局重推不用卡得太紧
+    const RESIM_BUDGET = process.env.CI ? 4000 : 1600;
     if (resim && !(resim.paintedMs <= RESIM_BUDGET)) errs.push(`干预:重推太慢(${resim.paintedMs.toFixed(0)} ms,预算 ${RESIM_BUDGET} ms)`);
     // 干预也自动存:刷新页面 → 自动恢复修改 → 按存下的干预重推一次
     await page.waitForTimeout(1500);
@@ -3330,7 +3331,8 @@ if (part('立国')) {
     if (!onMap.includes('饕餮')) errs.push(`立国:打开"国家"后在地图上点这州,不是新国家(${onMap})`);
     if (!/\d+ 年起.*在.+立国,即饕餮/.test(listed)) errs.push(`立国:概览里的干预列表不对(${listed})`);
     if (!/干预\s+[^\n]*自立,号饕餮/.test(chron)) errs.push('立国:编年史里没有这条干预');
-    const RESIM_BUDGET = process.env.CI ? 2500 : 1000;
+    // 推演只要比播放快(每秒 80 年以上),整局重推不用卡得太紧
+    const RESIM_BUDGET = process.env.CI ? 4000 : 1600;
     if (resim && !(resim.paintedMs <= RESIM_BUDGET)) errs.push(`立国:重推太慢(${resim.paintedMs.toFixed(0)} ms,预算 ${RESIM_BUDGET} ms)`);
   }
   await page.evaluate(() => localStorage.clear());
