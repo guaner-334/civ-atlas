@@ -51,6 +51,9 @@
  *   改君主倾向 temper from 那一刻在位的是他才生效(同一刻已被让他去世、已让位的不算),下一刻起照新的倾向,到他下台为止(rulers.ts 的 moods);
  *                   门槛放低了的,下一刻从现有国土往外重新看一遍(和定方针一样)
  *   天灾   disaster  瘟疫、饥荒、地震水旱:受灾的城人口掉一截,国内更动荡,不改地形(disaster.ts)
+ *   多看一眼 照大纲顺着引的方针带 look:look.years 每年的年中(Ev.Look,装各层时预约,同一刻里排在干预事件后面)替 a 多看一眼
+ *                   邻国(wars.ts)/ 内政(politics.ts:大崩解、分裂)/ 王朝(dynasty.ts),和寻常那一次一样定,只是不接着预约下一次;
+ *                   那时 a 照的已经不是这条方针(被作者的、别的方针换掉了)= 不看
  *
  * 每条干预在 from 那一刻记一条史事 intervene(字段见 types.ts 的 AnnalKind;A 的键指不到就不记),编年史写"【干预】……"。
  * 紧跟着记它引起的事:宣战的 war(盟国、宗藩之间开战,war 前面先记盟约 / 宗藩之分断了的 unally / defect,见 diplomacy.ts)、结盟 / 不许扩张引起的 peace、立国的 found、迁都的 capital、原主国迁都的 capital / 亡国的 fall。
@@ -61,14 +64,17 @@
  *   逐年推演(play.ts)停在第 T 年年初的前一刻,在列表后面接上 from = T 的新命令:比现在晚,和别的还没到的干预一样补上事件,
  *   同一刻里照样排在别的事件前面、按列表先后 —— 所以停下来下命令接着推,和带着同样的命令一口气推完一样。纯计算,不碰 DOM。
  */
-import { cleanInterventions, keyByRegion, parsePersonKey, regionOfKey, type Intervention } from '../edits';
+import { GUIDE_LOOK_MAX, cleanInterventions, keyByRegion, parsePersonKey, regionOfKey, type Intervention } from '../edits';
 import { Layer, type Polity } from './types';
 import { subSeed } from './rand';
-import { Ev, quantize, type CivSim } from './sim';
+import { Ev, LOOK_K, quantize, type CivSim } from './sim';
 import { addPolity, endPolity, foundCity, moveCapital, polityModelOf, reopen, respread, rulerAct, rulerOf, setPolicy, type PolityModel } from './polities';
 import { IV_NOT_HIM, IV_PEOPLE, IV_PROTECTED, IV_WAIT, crownOf, reignBorn } from './rulers';
 import { strikeDisaster } from './disaster';
+import { segAt } from './policy';
 import { bestCapital, polityBorders, warModelOf } from './wars';
+import { politicsModelOf } from './politics';
+import { dynastyModelOf } from './dynasty';
 import { capitalAt } from './growth';
 import { REBUILD_GROWTH } from './cities';
 import { pioneerArrives } from './cultures';
@@ -290,8 +296,18 @@ export function scheduleInterventions(
   list.forEach((v, i) => {
     if (!resume || quantize(v.from) > sim.now) sim.schedule(v.from, Ev.Intervene, i, 0);
   });
+  // 照大纲顺着引的方针替那国多看的几眼(年中;同一刻里排在干预事件后面)
+  list.forEach((v, i) => {
+    if (v.kind !== 'policy' || !v.look) return;
+    v.look.years.forEach((y, j) => {
+      if (!resume || quantize(y + LOOK_AT) > sim.now) sim.schedule(y + LOOK_AT, Ev.Look, i, j);
+    });
+  });
   return iv;
 }
+
+/** 多看一眼在那一年的什么时候(年中:不和整年份的干预撞在同一刻) */
+const LOOK_AT = 0.5;
 
 /** 登记干预的事件处理,把规则挂到战争模型、城镇国家模型上(installCities / resumeCities 之后调用) */
 export function installInterventions(sim: CivSim, iv: InterventionModel): void {
@@ -533,6 +549,18 @@ export function installInterventions(sim: CivSim, iv: InterventionModel): void {
   });
 
   // 不许扩张到期:从现有国土重新预约扩张(禁令期间的"国家到达"都丢掉了)
+  // 多看一眼:那一刻替那国(键此刻指得到、还在,照的还是这条方针)看一眼邻国 / 内政 / 王朝;随机数按 LOOK_K 往上的"第几次"取
+  sim.on(Ev.Look, (i, j, t) => {
+    const v = iv.list[i];
+    if (v?.kind !== 'policy' || !v.look) return;
+    const p = iv.resolve(v.a);
+    if (p < 0 || !alive(p) || segAt(pm.policies.get(p), t)?.iv !== i) return;
+    const k = LOOK_K + i * GUIDE_LOOK_MAX + j;
+    if (v.look.kind === 'war') wm.look?.(p, k, t);
+    else if (v.look.kind === 'politics') politicsModelOf(sim)?.look?.(p, k, t);
+    else dynastyModelOf(sim)?.look?.(p, k, t);
+  });
+
   sim.on(Ev.HaltEnd, (i) => {
     const v = iv.list[i];
     if (!v || v.kind !== 'halt') return;

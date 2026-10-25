@@ -12,7 +12,8 @@
  *     这一次改朝换代的赔率 = ODDS × e^((当朝年数 − AGE_REF) ÷ AGE_SCALE) × 动荡
  *       —— 王朝越老越容易亡(中国史上的"王朝周期",一朝多在一两百年到三四百年之间);
  *       动荡 = 1 + 正在打仗 C_WAR + 这些年战败失地 C_LOSS(按丢的州数,最多加满)+ 国都失守 / 迁都不久 C_CAPITAL
- *              + 刚有边远之地分裂出去 C_SPLIT + 国势衰微(国土缩到国号那一档门槛的 DECLINE 以下)C_DECLINE。
+ *              + 刚有边远之地分裂出去 C_SPLIT + 国势衰微(国土缩到国号那一档门槛的 DECLINE 以下)C_DECLINE
+ *              再乘照大纲顺着引的动荡加减(policy.ts 的 GUIDE_DYNASTY)。
  *   新朝从哪兴起(王室的根据地):本国本族、SETTLE 年没换过国家的有城之州里挑 ——
  *     按"城的人口 ^ POP_EXP × (1 + 离国都越远越大 FAR_W)"随机挑一处(边远的大城多出割据一方的豪强);
  *     国都本身也在候选里(权臣篡位,COURT 倍权重)。
@@ -34,8 +35,9 @@
 import type { World } from '../world';
 import { Layer, type Civ, type Polity, type Year } from './types';
 import { fexp, fpow, keyed, subSeed } from './rand';
-import { Ev, quantize, type CivSim } from './sim';
-import { dynastyReign, moveCapital, polityModelOf, type PolityModel } from './polities';
+import { Ev, LOOK_K, quantize, type CivSim } from './sim';
+import { dynastyReign, moveCapital, polityModelOf, unrestShiftOf, type PolityModel } from './polities';
+import { GUIDE_DYNASTY } from './policy';
 import { CAPITAL_GRACE, warModelOf, type WarModel } from './wars';
 import { politicsModelOf } from './politics';
 import { TIER_REGIONS, capitalAt, populationAt } from './growth';
@@ -101,6 +103,8 @@ export interface DynastyModel {
   pm: PolityModel;
   wm: WarModel;
   base: number;
+  /** 照大纲顺着引时替国家 p 多看一眼王朝(hook 里填;k ≥ LOOK_K,随机数按它取,不接着预约) */
+  look?: (p: number, k: number, t: Year) => void;
 }
 
 const models = new WeakMap<CivSim, DynastyModel>();
@@ -174,6 +178,9 @@ function hook(sim: CivSim, dm: DynastyModel): void {
     const split = politicsModelOf(sim)?.lastSplit.get(pid);
     if (split !== undefined && t - split < RECENT_SPLIT) u += C_SPLIT;
     if (pm.size[pid] < DECLINE * TIER_REGIONS[Math.max(0, pm.tier[pid])]) u += C_DECLINE;
+    // 照大纲顺着引的动荡加减(policy.ts;没有 = 0)
+    const g = unrestShiftOf(pm, pid, t);
+    if (g) u *= fexp(GUIDE_DYNASTY * g);
     return u;
   };
 
@@ -230,10 +237,11 @@ function hook(sim: CivSim, dm: DynastyModel): void {
     return cand[cand.length - 1];
   };
 
-  sim.on(Ev.DynastyCheck, (k, p, t) => {
+  /** 第 k 次看王朝;k ≥ LOOK_K = 照大纲顺着引时多看的一眼(不接着预约下一次,见 interventions.ts 的 Ev.Look) */
+  const dynastyCheck = (k: number, p: number, t: number): void => {
     const P = pm.polities[p];
     if (!P || P.ended !== undefined) return;
-    sim.schedule(checkTime(dm, p, k + 1), Ev.DynastyCheck, k + 1, p);
+    if (k < LOOK_K) sim.schedule(checkTime(dm, p, k + 1), Ev.DynastyCheck, k + 1, p);
     if (P.lineage === 'republic') return; // 海洋城邦共和一系没有王室
     // 东方 / 西幻(Polity.eastern)推演结束起名时才定,这里一视同仁:同一件事,起名后东方写"改朝换代",西幻写"王室更迭"
     const age = t - dynastyStart(P);
@@ -261,7 +269,9 @@ function hook(sim: CivSim, dm: DynastyModel): void {
     // 君主的在位表跟着重排(rulers.ts):新朝第一位下一刻起在位
     dynastyReign(sim, pm, p, t);
     sim.record('dynasty', { a: p, region: r, settlement: sid });
-  });
+  };
+  sim.on(Ev.DynastyCheck, dynastyCheck);
+  dm.look = (p, k, t) => dynastyCheck(k, p, t);
 }
 
 /**

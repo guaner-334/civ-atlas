@@ -10,8 +10,11 @@
  *      再查一遍:成了 = 硬改的,不成 = 做不到(干预不留)
  * 查过的情节落定在某一年(发生的那年 / 硬改的那年),floor = 那一年的下一年:后面的硬改不早于它,前面查过的不会被推翻。
  *
- * **顺着引**(input.tries > 0 才引;不给 = 照上面直接硬改):②没发生、这种情节能引的(GUIDE_KINDS),先在它前面几十年悄悄给相关的国家定方针
- * (打仗胆量、开拓、仇国 / 亲国、和谈底线;加在那国当时自己的方针上),引到窗口最后一年年底为止,再换回原来的方针。
+ * **顺着引**(input.tries > 0 才引;不给 = 照上面直接硬改):②没发生、这种情节能引的(GUIDE_KINDS),先在它前面几十年悄悄给情节里的国家定方针
+ * (打仗胆量、开拓、仇国 / 亲国、和谈底线,加在那国当时自己的方针上;再加减国力、动荡,见 civ/policy.ts),引到窗口最后一年年底为止,再换回原来的方针。
+ * 看邻国二十几年才一次、看内政四十年一次,窗口里常常一眼都没看,引了也白引:引出来的方针另替动手的那国在窗口里每隔几年多看一眼
+ * (邻国只看仇国;灭国从起引那年就看,得先打几仗),见 civ/interventions.ts 的"多看一眼"。
+ * 只引情节里写到的国家(占地引 a,没说亡于谁的灭国引它最大的几个邻国),挡路的第三国不动。
  * 几种引法(从哪年起 × 引多重 × 引谁)按"引得多轻"排(各国加减的量 × 引了几国 × 引了几年,轻的在前),一版版试:
  * 从起引那一刻(不早于 floor)接着推到窗口最后一年年底再查,头一版查得到的就用它(= 引得最轻的),标「顺着引了一把」;
  * 最多试 tries 版,都没成才照③硬改(批改记下试了几版)。引出来的方针带 plot 和 guide = true(编年史不写)。
@@ -37,6 +40,7 @@ import { nearestCell } from './civ/frontier';
 import {
   END_YEAR_DEFAULT,
   OUTLINE_ALLY_YEARS,
+  GUIDE_LOOK_MAX,
   OUTLINE_TRIES_MAX,
   POLICY_KNOB_MAX,
   PLOT_CHECK_ONLY,
@@ -52,6 +56,7 @@ import {
   resolveKey,
   resolvePersonKey,
   type AuthorMark,
+  type GuideLook,
   type Intervention,
   type Plot,
   type PlotKind,
@@ -686,21 +691,29 @@ async function step(ctx: Ctx, prev: State, pick: Pick): Promise<State | null> {
 // ---------------------------------------------------------------------------
 // 顺着引
 
-/** 能顺着引的情节(只用方针):灭国、占地、开战、结盟、称臣、议和 */
-const GUIDE_KINDS: readonly PlotKind[] = ['fall', 'hold', 'war', 'ally', 'submit', 'peace'];
+/**
+ * 能顺着引的情节:灭国、占地、开战、结盟、称臣、议和(方针 + 国力);改朝换代、民变、大崩解(动荡)。
+ * 分裂不引:说的是某一州自立,动荡只让整个国家更容易分裂,挑哪州起事看离心力(20 个种子里一条也没引成)
+ */
+const GUIDE_KINDS: readonly PlotKind[] = ['fall', 'hold', 'war', 'ally', 'submit', 'peace', 'dynasty', 'revolt', 'collapse'];
 /** 从窗口头一年往前几年起引(引早了,事会在窗口之前就发生) */
 const GUIDE_LEADS = [0, 10, 25, 50, 80];
-/** 引多重:方针的滑条加减多少(满格 POLICY_KNOB_MAX) */
+/** 引多重:方针的滑条加减多少(满格 POLICY_KNOB_MAX);国力加两倍、减一样多(百分数,+40% / −20% 起),动荡加减一样多(满格见 civ/policy.ts 的 GUIDE_UNREST) */
 const GUIDE_STRENGTHS = [20, 35, 50];
+/** 窗口里每隔几年多看一眼(最多 GUIDE_LOOK_MAX 眼,窗口长了拉开) */
+const GUIDE_LOOK_STEP = 5;
 /** 灭国没说亡于谁:挑几个最大的邻国来引 */
 const GUIDE_NEIGHBORS = 2;
 
-/** 引一国:滑条加减多少、仇国、亲国(国家键) */
+/** 引一国:滑条加减多少、国力 / 动荡加减多少、仇国、亲国(国家键) */
 interface GuideOne {
   a: string;
   war?: number;
   expand?: number;
   peace?: number;
+  power?: number;
+  unrest?: number;
+  look?: GuideLook;
   foes?: string[];
   friends?: string[];
 }
@@ -767,9 +780,13 @@ function holdersOf(S: Civ, a: number, area: readonly number[]): number[] {
   return [...n].sort((x, y) => y[1] - x[1] || x[0] - y[0]).slice(0, 3).map((x) => x[0]);
 }
 
-/** 第 variant 种引法引谁、怎么引(力度 s);这一刻没有这一种 = null */
-function targets(at: GuideAt, p: Plot, variant: number, s: number): GuideOne[] | null {
+/**
+ * 第 variant 种引法引谁、怎么引(力度 s;years = 窗口里替动手的那国多看一眼的那几年);这一刻没有这一种 = null。
+ * 打仗的一方多看几眼邻国,大崩解的那国多看几眼内政,改朝换代的多看几眼王朝(称臣看打仗的那一方;结盟、议和、民变不多看)
+ */
+function targets(at: GuideAt, p: Plot, variant: number, s: number, years: number[]): GuideOne[] | null {
   const { S, R } = at;
+  const war: GuideLook = { kind: 'war', years };
   const A = R.aKey!;
   const B = R.bKey!;
   const key = (id: number) => polityKey(S, id);
@@ -777,17 +794,19 @@ function targets(at: GuideAt, p: Plot, variant: number, s: number): GuideOne[] |
   const near = (x: number, y: number) => touches(S, x, regionsOf(S, y));
   switch (p.kind) {
     case 'war':
-      return near(R.a, R.b) ? [{ a: A, war: s, foes: [B] }] : null;
+      return near(R.a, R.b) ? [{ a: A, war: s, power: 2 * s, foes: [B], look: war }] : null;
     case 'fall': {
-      if (p.b !== undefined) return near(R.b, R.a) ? [{ a: B, war: s, expand: s, foes: [A] }] : null;
+      // 亡于谁的那国更强、更想打它;它自己弱下去
+      const weak = { a: A, power: -s };
+      if (p.b !== undefined) return near(R.b, R.a) ? [{ a: B, war: s, expand: s, power: 2 * s, foes: [A], look: war }, weak] : null;
       const ns = neighborsOf(S, R.a, GUIDE_NEIGHBORS);
       const pick = variant < GUIDE_NEIGHBORS ? (ns[variant] !== undefined ? [ns[variant]] : []) : ns.length > 1 ? ns : [];
-      return pick.length ? pick.map((n) => ({ a: key(n), war: s, expand: s, foes: [A] })) : null;
+      return pick.length ? [...pick.map((n) => ({ a: key(n), war: s, expand: s, power: 2 * s, foes: [A], look: war })), weak] : null;
     }
     case 'hold': {
       if (!touches(S, R.a, R.area)) return null;
       const foes = holdersOf(S, R.a, R.area).map(key);
-      return [{ a: A, war: s, expand: s, ...(foes.length ? { foes } : {}) }];
+      return [{ a: A, war: s, expand: s, power: 2 * s, ...(foes.length ? { foes } : {}), look: war }];
     }
     case 'ally':
       return [
@@ -797,8 +816,8 @@ function targets(at: GuideAt, p: Plot, variant: number, s: number): GuideOne[] |
     case 'submit':
       if (!near(R.a, R.b)) return null;
       return [
-        { a: B, war: s, foes: [A] },
-        { a: A, war: -s, peace: -s },
+        { a: B, war: s, power: 2 * s, foes: [A], look: war },
+        { a: A, war: -s, peace: -s, power: -s },
       ];
     case 'peace':
       if (!near(R.a, R.b)) return null;
@@ -806,6 +825,12 @@ function targets(at: GuideAt, p: Plot, variant: number, s: number): GuideOne[] |
         { a: A, war: -s, peace: -s },
         { a: B, war: -s, peace: -s },
       ];
+    case 'collapse':
+      return [{ a: A, unrest: s, look: { kind: 'politics', years } }];
+    case 'dynasty':
+      return [{ a: A, unrest: s, look: { kind: 'dynasty', years } }];
+    case 'revolt':
+      return [{ a: A, unrest: s }];
     default:
       return null;
   }
@@ -845,7 +870,7 @@ function guideList(S: Civ, list: readonly Intervention[], who: readonly GuideOne
     const base = heldPolicy(S, g.a, G);
     const foes = [...(g.foes ?? []), ...(base?.foes ?? []).filter((k) => !g.friends?.includes(k))];
     const friends = [...(g.friends ?? []), ...(base?.friends ?? []).filter((k) => !g.foes?.includes(k))];
-    const v: Record<string, unknown> = { kind: 'policy', a: g.a, from: G, war: knob(base?.war, g.war), expand: knob(base?.expand, g.expand), coast: base?.coast, peace: knob(base?.peace, g.peace), foes, friends, focus: base?.focus, ...tag };
+    const v: Record<string, unknown> = { kind: 'policy', a: g.a, from: G, war: knob(base?.war, g.war), expand: knob(base?.expand, g.expand), coast: base?.coast, peace: knob(base?.peace, g.peace), foes, friends, focus: base?.focus, power: g.power, unrest: g.unrest, look: g.look, ...tag };
     const c = cleanIntervention(v);
     if (c) add.push(c);
     if (moved.has(g.a) || list.some((x) => x.kind === 'policy' && x.a === g.a && !x.guide && x.from > G && x.from <= E)) continue;
@@ -873,13 +898,22 @@ async function guide(ctx: Ctx, st: State, pick: Pick): Promise<{ list: Intervent
     leads.add(G);
     const n = variantsOf(p);
     for (let variant = 0; variant < n; variant++) {
-      const many = p.kind === 'fall' && p.b === undefined && variant === GUIDE_NEIGHBORS ? GUIDE_NEIGHBORS : p.kind === 'ally' || p.kind === 'submit' || p.kind === 'peace' ? 2 : 1;
+      // 引了几国(灭国另把亡的那国削弱)
+      const many = p.kind === 'fall' ? (p.b === undefined && variant === GUIDE_NEIGHBORS ? GUIDE_NEIGHBORS : 1) + 1 : p.kind === 'ally' || p.kind === 'submit' || p.kind === 'peace' ? 2 : 1;
       // 结盟只添亲国,不分轻重
       for (const s of p.kind === 'ally' ? [GUIDE_STRENGTHS[0]] : GUIDE_STRENGTHS) plans.push({ lead: G, s, variant, cost: s * many * (E - G) });
     }
   }
   plans.sort((x, y) => x.cost - y.cost);
   const of = Math.min(ctx.tries, plans.length);
+  // 多看几眼的那几年:窗口里每隔几年一眼;灭国从起引那年就看(得先打几仗才灭得了)
+  const looks = (G: number) => {
+    const from = p.kind === 'fall' ? G : lo;
+    const step = Math.max(GUIDE_LOOK_STEP, Math.ceil((hi - from + 1) / GUIDE_LOOK_MAX));
+    const years: number[] = [];
+    for (let y = from; y <= hi && years.length < GUIDE_LOOK_MAX; y += step) if (y >= G) years.push(y);
+    return years;
+  };
   const ats = new Map<number, GuideAt | null>();
   const atOf = (G: number): GuideAt | null => {
     if (ats.has(G)) return ats.get(G)!;
@@ -894,7 +928,7 @@ async function guide(ctx: Ctx, st: State, pick: Pick): Promise<{ list: Intervent
   for (const plan of plans) {
     if (n >= of) break;
     const g = atOf(plan.lead);
-    const who = g && targets(g, p, plan.variant, plan.s);
+    const who = g && targets(g, p, plan.variant, plan.s, looks(g.G));
     if (!g || !who) continue;
     const list = guideList(g.S, st.list, who, p, g.G, E);
     if (!list.length) continue;

@@ -44,7 +44,8 @@
 import { Layer, AdjKind, type Civ, type Polity, type TablesState, type Year } from './types';
 import { fexp, keyed, keyed4, subSeed } from './rand';
 import { Ev, type CivSim } from './sim';
-import { polityModelOf, type PolityModel } from './polities';
+import { polityModelOf, unrestShiftOf, type PolityModel } from './polities';
+import { GUIDE_UNREST } from './policy';
 import { warModelOf, type War, type WarModel } from './wars';
 import { politicsModelOf, type PoliticsModel } from './politics';
 import { Cap, CAP_COUNT, cityPopulationsAt, devModelOf, type DevModel } from './development';
@@ -545,8 +546,13 @@ function hook(sim: CivSim, seed: number, lords: Warlord[], saved: TablesState | 
   };
 
   // ---- 动荡:读表(这一年里才立的国还没算过 = 0);民变时这次饥荒先加上(表里下一年才算进去) ----
-  pol.unrest = (P, _t) => (P.id < tU.length ? tU[P.id] : 0);
-  wm.unrest = (p, _t) => (p < tU.length ? tU[p] : 0);
+  // 照大纲顺着引的动荡加减(policy.ts)读的时候加上:引的那一刻就算,不等下一年
+  const guided = (p: number, t: number, u: number): number => {
+    const g = unrestShiftOf(pm, p, t);
+    return g ? Math.max(0, u + GUIDE_UNREST * g) : u;
+  };
+  pol.unrest = (P, t) => guided(P.id, t, P.id < tU.length ? tU[P.id] : 0);
+  wm.unrest = (p, t) => guided(p, t, p < tU.length ? tU[p] : 0);
   // ---- 钱粮:国用不足(窘迫)让宣战少、战事早罢(wars.ts) ----
   wm.broke = (p, _t) => (p < tBroke.length ? tBroke[p] : 0);
   wm.purse = (p, _t) => {
