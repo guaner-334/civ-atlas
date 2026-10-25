@@ -205,6 +205,52 @@ describe('引擎', () => {
     const z = run([a, b], [0]);
     expect([z.value('a', 0), z.value('b', 0)]).toEqual([11, 2]);
   });
+  it('after:同一年排在后面算,读到前面刚算完的新值;prev 读这一步开头的值;没写 after 的照旧读开头的值', () => {
+    const a: TableCard = { id: 'a', name: '甲', unit: 'region', min: -1e9, max: 1e9, off: 0, init: 1, rule: 'a + 1' };
+    const b: TableCard = { id: 'b', name: '乙', unit: 'region', min: -1e9, max: 1e9, off: 0, init: 0, rule: 'a * 10 + prev(a)', after: ['a'] };
+    const c: TableCard = { id: 'c', name: '丙', unit: 'region', min: -1e9, max: 1e9, off: 0, init: 0, rule: 'b + a', after: ['b'] };
+    const d: TableCard = { id: 'd', name: '丁', unit: 'region', min: -1e9, max: 1e9, off: 0, init: 0, rule: 'b' };
+    for (const order of [[a, b, c, d], [d, c, b, a]]) {
+      const e = run(order, [0]);
+      // a:1 → 2;b 读新 a、旧 a:2 × 10 + 1;c 在 b 之后(一路往上也在 a 之后):21 + 2;d 没写 after:读开头的 b = 0
+      expect([e.value('a', 1), e.value('b', 1), e.value('c', 1), e.value('d', 1)]).toEqual([2, 21, 23, 0]);
+    }
+  });
+  it('after 写错了说得清:绕成圈、没有这张表、写的是输入表', () => {
+    const t = (id: string, after: string[]): TableCard => ({ id, name: id, unit: 'region', min: 0, max: 1, off: 0, rule: '0', after });
+    expect(() => run([t('a', ['b']), t('b', ['a'])], [0])).toThrow(/绕成了圈/);
+    expect(() => run([t('a', ['zz'])], [0])).toThrow(/没有这张表/);
+    expect(() => run([t('a', ['hab'])], [0])).toThrow(/不是算出来的表/);
+    expect(cardProblems(t('a', ['a'])).join()).toMatch(/不能写自己/);
+  });
+  it('between:每层算完调一次,事件层写进新值,后面的层读到写过的', () => {
+    const a: TableCard = { id: 'a', name: '甲', unit: 'region', min: 0, max: 100, off: 0, init: 1, rule: 'a + 1' };
+    const b: TableCard = { id: 'b', name: '乙', unit: 'region', min: 0, max: 100, off: 0, init: 0, rule: 'a', after: ['a'] };
+    const e = new TableEngine({ seed: 7, cards: [habitat, owner, a, b], units: grid(), owner: 'owner' });
+    fill(e, grid());
+    e.start(0);
+    const seen: string[][] = [];
+    e.step(0, (done) => {
+      seen.push([...done]);
+      if (done.includes('a')) e.write('a', 3, 0, 50);
+    });
+    expect(seen).toEqual([['a'], ['b']]);
+    expect([e.value('b', 3), e.value('b', 2)]).toEqual([50, 2]);
+  });
+  it('set + resume 接上别处存的状态:和一口气算下去一样', () => {
+    const card: TableCard = { id: 'x', name: '甲', unit: 'region', every: 5, min: 0, max: 1e9, off: 0, init: 1, rule: 'x + dt * 0.1 * x + nbmean(nb.x) * 0.01' };
+    const ref = run([card], yearsTo(20, 5));
+    const mid = run([card], yearsTo(10, 5));
+    const e = new TableEngine({ seed: 7, cards: [habitat, owner, card], units: grid(), owner: 'owner' });
+    fill(e, grid());
+    e.start(0);
+    e.set('x', mid.get('x'));
+    e.resume(10);
+    e.step(15);
+    e.step(20);
+    expect(Array.from(e.get('x'))).toEqual(Array.from(ref.get('x')));
+    expect(() => e.set('x', [1, 2])).toThrow(/要 \d+ 个数/);
+  });
   it('跨单位读:地块读所在州、州读所属国(读不到 = off);州汇总地块、国汇总州', () => {
     const u = grid();
     const e = run(
@@ -334,6 +380,33 @@ describe('两种跑法逐位一样', () => {
     for (const c of cards) expect(Array.from(b.get(c.id))).toEqual(Array.from(a.get(c.id)));
     expect(a.incidents).toEqual([]);
   });
+  it('多栏表每栏一条、if 里套邻格函数、after 和 prev 混着读:两种跑法也一样', () => {
+    const many: TableCard[] = [
+      { ...pop },
+      {
+        id: 'ab',
+        name: '本事',
+        unit: 'region',
+        cols: ['产', '运', '学'],
+        min: 0,
+        max: 50,
+        off: 0,
+        init: 1,
+        consts: { K: [0.03, 0.05, 0.02] },
+        rule: {
+          产: 'let 近 = nbmax(nb.ab.产, 0, nb.owner == owner)\nif(近 > ab.产 and dt > 0, ab.产 + (近 - ab.产) * K[col], ab.产 + dt * 0.01)',
+          运: 'ab.运 + dt * if(meanof(pop) > 1 or has(owner), K[col], 0)',
+          学: 'max(ab.学, min(ab.产, ab.运)) + if(nbcount(nb.owner == owner) >= 2, dt * K[col], 0)',
+        },
+        builtin: true,
+      },
+      { id: 'top', name: '最强', unit: 'region', cols: ['产', '运', '学'], after: ['ab'], min: 0, max: 50, off: 0, rule: 'max(ab, top * 0.5) + if(ab > prev(ab.学), 0.001, 0)' },
+    ];
+    const a = run(many, yearsTo(150), 'js');
+    const b = run(many, yearsTo(150), 'closure');
+    for (const c of many) expect(Array.from(b.get(c.id))).toEqual(Array.from(a.get(c.id)));
+    expect(a.incidents).toEqual([]);
+  });
 });
 
 describe('护栏', () => {
@@ -362,6 +435,16 @@ describe('护栏', () => {
     expect(cl.value('x', 1)).toBe(5);
     const half = run([{ id: 'x', name: '压', unit: 'tile', min: 0, max: 5, maxRate: 0.5, off: 0, init: 1, rate: '10' }], yearsTo(4));
     expect(half.value('x', 1)).toBe(1 + 4 * 0.5);
+  });
+  it('自带的规则(builtin)只查不是数:来回震荡不拦;多栏表算出不是数照样拦得下', () => {
+    const osc = run([{ id: 'x', name: '震荡', unit: 'tile', min: -1e9, max: 1e9, off: 0, init: 1, rule: '-1.5 * x', builtin: true }], yearsTo(20));
+    expect(osc.incidents).toEqual([]);
+    expect(osc.status('x')).toBe('rule');
+    for (const backend of ['js', 'closure'] as const) {
+      const bad = run([{ id: 'x', name: '两栏', unit: 'region', cols: ['甲', '乙'], min: 0, max: 10, off: 0, init: 1, rule: { 甲: 'x.甲 + dt', 乙: 'if(year >= 4, x.乙 / (x.乙 - x.乙), x.乙 + dt)' }, builtin: true }], yearsTo(6), backend);
+      expect(bad.incidents[0]).toMatchObject({ table: 'x', year: 4, kind: 'nan', action: 'off' });
+      expect(bad.value('x', 0)).toBe(0);
+    }
   });
   it('一大半格子顶着上限好些步:只提醒一次,不拦', () => {
     const e = run([{ id: 'x', name: '涨', unit: 'tile', min: 0, max: 5, off: 0, init: 1, rate: '1' }], yearsTo(30));

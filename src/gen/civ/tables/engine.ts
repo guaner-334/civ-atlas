@@ -1,17 +1,21 @@
 /**
  * 数表引擎:按登记卡(cards.ts)把一组表一步一步往前算。
  *
- * - **每张表只写自己,可以读任何表**;读到的都是"这一步开头"的值,同一年要算的几张表都算完了才一起换新,先后顺序不影响结果
+ * - **每张表只写自己,可以读任何表**;读到的都是"这一步开头"的值,先后顺序不影响结果。
+ *   例外是卡上写了 after 的:同一年里排在那几张表(和它们的 after,一路往上)之后算,直接写它们的名字读到它们刚算完的新值;
+ *   prev(表) 总是这一步开头的值。按 after 分层:每层算完一起换新,层与层之间事件层可以插一手(step 的 between)
  * - **频率**:第 y 年要算的是 y 是自己频率整数倍的那几张表(频率从 FREQUENCIES 里挑,对得齐)。
  *   第一步的 dt 是 0;之后 dt = 离自己上一次算过了几年。快表读慢表 = 慢表最近一次的值;慢表读快表可以用 avg / total
  * - **护栏**(每张表每算一步查一遍):
  *   · 不是数(NaN、无穷大):这条规则当即拦下,有备份规则的换成备份重算这一步,没有的关掉(等于 off),记一条 incident;
  *   · 超出上下限、一年变得比 maxRate 还多:压回来;一大半格子顶着上限好些步,记一条"越滚越大"的提醒;
  *   · 来回震荡(大批格子一步涨一步跌、而且不见收,连着好几步):和不是数一样拦下
+ *   卡上写了 builtin(自带的规则)的只查不是数。拼成函数的规则在写回时就顺手压上下限、记下第一个不是数的格子,省掉再扫一遍
  * - **搬家(move)**:先按规则算出新值,再按"往每个邻格搬多少"搬:一格搬出去的总量不超过它有的,
  *   搬出的从这格减、加到邻格,总量不变;卡上写了 flowEvery 的,按州对州汇总成流向(地图上画箭头用)
  * - **全 0 跳过**(zeroStays):自己是 0、邻格也全是 0 的格子不算(结果和全算一样)
- * - **快照**:snapshot() 存下此刻所有表和引擎自己的状态,restore() 接上以后和一口气算下去逐位一样
+ * - **快照**:snapshot() 存下此刻所有表和引擎自己的状态,restore() 接上以后和一口气算下去逐位一样;
+ *   别处存的状态(旧存档)用 set() 填回各表、resume() 接上"上一步算到哪一年"
  * - **事件层**:input(id) 拿到输入表、编号表的数组直接填;write(id, …) 把事件的结果写回表(打仗扣人口……)
  *
  * 只用加减乘除和舍入过的超越函数(rand.ts),随机数按"种子、表、位置、年份、栏"取,不同电脑、不同先后都逐位一致。
@@ -150,6 +154,11 @@ interface Table {
   flows: FlowWindow[];
   /** 算这张表一共花了多少毫秒 */
   ms: number;
+  /** 同一年里排第几层(after 里的表都在前面的层);after 一路往上的所有表 */
+  depth: number;
+  anc: Set<string>;
+  /** 这一步已经算完换新了(读它的表要旧值时去 next 里读) */
+  swapped: boolean;
 }
 
 interface Acc {
@@ -260,6 +269,9 @@ export class TableEngine {
         flowStage: new Map(),
         flows: [],
         ms: 0,
+        depth: 0,
+        anc: new Set(),
+        swapped: false,
       };
       if (moves && !this.rev[card.unit]) {
         const u = card.unit === 'tile' ? opts.units.tile! : opts.units.region!;
@@ -271,12 +283,16 @@ export class TableEngine {
       this.order.push(t);
     }
     if (problems.length) throw new TableSetupError(problems);
+    this.layer(problems);
+    const reg = opts.units.region;
+    if (reg && reg.adj.some((j) => j < 0 || j >= reg.count)) problems.push('州的邻接里有不存在的州');
+    if (problems.length) throw new TableSetupError(problems);
     // avg / total 的累计:每张读者表 × 每张被读的表一份
     for (const t of this.order) {
       for (const code of [t.code, t.backup?.code]) {
         if (!code) continue;
         for (const s of code.slots) {
-          if (s.via === 'cur') continue;
+          if (s.via === 'cur' || s.via === 'prev') continue;
           const key = `${t.card.id}<${s.table}`;
           if (this.accs.some((a) => a.key === key)) continue;
           const src = this.tables.get(s.table)!;
@@ -284,6 +300,33 @@ export class TableEngine {
         }
       }
     }
+  }
+
+  /** 按 after 分层(有环、写了不存在或不用算的表算写错);各表 after 一路往上的表 */
+  private layer(problems: string[]): void {
+    const state = new Map<string, 1 | 2>();
+    const visit = (t: Table, path: string[]): void => {
+      const s = state.get(t.card.id);
+      if (s === 2) return;
+      if (s === 1) {
+        problems.push(`after 绕成了圈:${[...path, t.card.id].map((id) => this.tables.get(id)!.card.name).join(' → ')}`);
+        return;
+      }
+      state.set(t.card.id, 1);
+      for (const id of t.card.after ?? []) {
+        const u = this.tables.get(id);
+        if (!u || !u.computed) {
+          problems.push(`「${t.card.name}」的 after 里的 ${id} ${u ? '不是算出来的表' : '没有这张表'}`);
+          continue;
+        }
+        visit(u, [...path, t.card.id]);
+        t.depth = Math.max(t.depth, u.depth + 1);
+        t.anc.add(id);
+        for (const a of u.anc) t.anc.add(a);
+      }
+      state.set(t.card.id, 2);
+    };
+    for (const t of this.order) visit(t, []);
   }
 
   /** 规则要的结构缺了什么(没缺 = null) */
@@ -403,13 +446,34 @@ export class TableEngine {
     }
   }
 
+  /** 把别处存的值填回一张表(格 × 栏,长度要对;不压上下限、不查护栏) */
+  set(id: string, values: ArrayLike<number>): void {
+    const t = this.table(id);
+    if (values.length !== t.cur.length) throw new Error(`${id} 要 ${t.cur.length} 个数,给了 ${values.length} 个`);
+    t.cur.set(values);
+  }
+
+  /** 接着别处存的状态算:上一步算到第 last 年(start、set 之后调;下一步各表的 dt 从 last 算起) */
+  resume(last: number): void {
+    if (!this.started) throw new Error('先 start 再 resume');
+    this.lastStep = last;
+    for (const t of this.order) if (t.computed) t.last = last;
+    for (const a of this.accs) {
+      a.data.fill(0);
+      a.from = a.at = last;
+    }
+  }
+
   /** 第 year 年要算哪几张表 */
   due(year: number): Table['card'][] {
     return this.order.filter((t) => t.computed && !t.disabled && isDue(t.card.every ?? 1, year)).map((t) => t.card);
   }
 
-  /** 算第 year 年(年份是半年的整数倍、比上一步晚);返回这一步算了几张表 */
-  step(year: number): number {
+  /**
+   * 算第 year 年(年份是半年的整数倍、比上一步晚);返回这一步算了几张表。
+   * between:按 after 分的每一层算完换新以后调一次(这一层是哪几张表),事件层在这里 write 的,后面几层读到的就是写过的
+   */
+  step(year: number, between?: (done: readonly string[]) => void): number {
     if (!this.started) throw new Error('先 start 再 step');
     if (!(year > this.lastStep) || !Number.isInteger(year * 2)) throw new Error(`第 ${year} 年不能算:要比上一步(${this.lastStep})晚,是半年的整数倍`);
     const due = this.order.filter((t) => t.computed && !t.disabled && isDue(t.card.every ?? 1, year));
@@ -426,12 +490,23 @@ export class TableEngine {
     }
     if (!due.length) return 0;
     this.refreshPolities();
-    for (const t of due) this.compute(t, year);
-    for (const t of due) {
-      const x = t.cur;
-      t.cur = t.next;
-      t.next = x;
-      t.last = year;
+    const depth = Math.max(...due.map((t) => t.depth));
+    try {
+      for (let d = 0; d <= depth; d++) {
+        const layer = due.filter((t) => t.depth === d);
+        if (!layer.length) continue;
+        for (const t of layer) this.compute(t, year);
+        for (const t of layer) {
+          const x = t.cur;
+          t.cur = t.next;
+          t.next = x;
+          t.last = year;
+          t.swapped = true;
+        }
+        between?.(layer.map((t) => t.card.id));
+      }
+    } finally {
+      for (const t of due) t.swapped = false;
     }
     // 读者表算过了:它的累计从这一刻重新攒
     const ran = new Set(due.map((t) => t.card.id));
@@ -473,8 +548,9 @@ export class TableEngine {
     const span = new Float64Array(code.slots.length);
     code.slots.forEach((s, i) => {
       const src = this.table(s.table);
-      if (s.via === 'cur') {
-        B.push(src.cur);
+      if (s.via === 'cur' || s.via === 'prev') {
+        // 这一步已经换新的表:after 一路往上的读新值,别的(和 prev)读这一步开头的值(换新后在 next 里)
+        B.push(src.swapped && (s.via === 'prev' || !t.anc.has(s.table)) ? src.next : src.cur);
         return;
       }
       const a = this.accs.find((x) => x.reader === t.card.id && x.source === s.table)!;
@@ -540,13 +616,22 @@ export class TableEngine {
     const next = t.next;
     next.set(t.cur);
     const sparse = !!t.card.zeroStays;
-    for (let c = 0; c < C; c++) {
-      const kern = k.cell[c];
-      if (!kern) continue;
-      kern(f, 0, n, c, next, C, sparse ? this.activeMask(t, c) : null);
-    }
-    if (k.move && dt > 0) for (let c = 0; c < C; c++) this.move(t, f, k, c, dt, year, sparse ? this.activeMask(t, c) : null);
-    return this.guard(t, dt, year);
+    // 拼函数的核写的时候已经压了上下限、记下了第一处不是数的(见 compile.ts);每栏都有规则、不搬家、不限每年变多少时护栏就不用再走一遍
+    let bad = -1;
+    const worst = (b: number) => {
+      if (b >= 0 && (bad < 0 || b < bad)) bad = b;
+    };
+    if (k.group && !sparse) worst(k.group(f, 0, n, 0, next, C, null));
+    else
+      for (let c = 0; c < C; c++) {
+        const kern = k.cell[c];
+        if (!kern) continue;
+        worst(kern(f, 0, n, c, next, C, sparse ? this.activeMask(t, c) : null));
+      }
+    const moved = !!k.move && dt > 0;
+    if (moved) for (let c = 0; c < C; c++) this.move(t, f, k, c, dt, year, sparse ? this.activeMask(t, c) : null);
+    const done = k.clamps && !moved && t.card.maxRate === undefined && code.rule.every((r, c) => r || code.rate[c]);
+    return this.guard(t, dt, year, done ? bad : null);
   }
 
   /** 全 0 跳过:第 c 栏自己或邻格不是 0 的格子 */
@@ -661,54 +746,60 @@ export class TableEngine {
     for (const t of this.order) if (t.card.flowEvery && t.flowOpen.size) this.closeFlows(t, year);
   }
 
-  /** 护栏(见文件头):压回上下限和每年变化的上限,查不是数、震荡、越滚越大 */
-  private guard(t: Table, dt: number, year: number): Bad | null {
+  /**
+   * 护栏(见文件头):压回上下限和每年变化的上限,查不是数、震荡、越滚越大。
+   * kernelBad 不是 null = 核已经压过上下限、查过是不是数(第一处不是数的位置;没有 = −1)
+   */
+  private guard(t: Table, dt: number, year: number, kernelBad: number | null): Bad | null {
     const { min, max, maxRate } = t.card;
     const next = t.next;
     const cur = t.cur;
     const N = next.length;
+    let high = 0;
+    const nan = (i: number): Bad => ({ kind: 'nan', index: (i / t.cols) | 0, col: i % t.cols, value: next[i] });
+    if (kernelBad !== null) {
+      if (kernelBad >= 0) return nan(kernelBad);
+    } else {
+      const lim = maxRate !== undefined && dt > 0 ? maxRate * dt : Infinity;
+      // 一遍里查不是数、压回上下限(和每年变化的上限);查到不是数的那一格就停(这一步整个不要了)
+      for (let i = 0; i < N; i++) {
+        let v = next[i];
+        if (v - v !== 0) return nan(i);
+        if (lim !== Infinity) {
+          const o = cur[i];
+          if (v > o + lim) v = o + lim;
+          else if (v < o - lim) v = o - lim;
+        }
+        if (v > max) v = max;
+        else if (v < min) v = min;
+        next[i] = v;
+      }
+    }
+    if (t.card.builtin || !(dt > 0)) return null;
+    // 来回震荡:变了的格子里,这一步和上一步反向、幅度又不见收的占几成(一步步收拢的不算)
+    const delta = (t.delta ??= new Float64Array(N));
+    let changed = 0;
+    let flips = 0;
     for (let i = 0; i < N; i++) {
       const v = next[i];
-      if (!Number.isFinite(v)) return { kind: 'nan', index: (i / t.cols) | 0, col: i % t.cols, value: v };
-    }
-    let high = 0;
-    const lim = maxRate !== undefined && dt > 0 ? maxRate * dt : Infinity;
-    for (let i = 0; i < N; i++) {
-      let v = next[i];
-      if (lim !== Infinity) {
-        const o = cur[i];
-        if (v > o + lim) v = o + lim;
-        else if (v < o - lim) v = o - lim;
-      }
-      if (v > max) v = max;
-      else if (v < min) v = min;
       if (v === max) high++;
-      next[i] = v;
+      let d = v - cur[i];
+      const o = cur[i];
+      if (Math.abs(d) <= OSC_EPS * (1 + Math.abs(o))) d = 0;
+      if (d !== 0) {
+        changed++;
+        const p = delta[i];
+        if ((d > 0 ? p < 0 : p > 0) && Math.abs(d) >= OSC_KEEP * Math.abs(p)) flips++;
+      }
+      delta[i] = d;
     }
-    if (dt > 0) {
-      // 来回震荡:变了的格子里,这一步和上一步反向、幅度又不见收的占几成(一步步收拢的不算)
-      const delta = (t.delta ??= new Float64Array(N));
-      let changed = 0;
-      let flips = 0;
-      for (let i = 0; i < N; i++) {
-        let d = next[i] - cur[i];
-        const o = cur[i];
-        if (Math.abs(d) <= OSC_EPS * (1 + Math.abs(o))) d = 0;
-        if (d !== 0) {
-          changed++;
-          const p = delta[i];
-          if ((d > 0 ? p < 0 : p > 0) && Math.abs(d) >= OSC_KEEP * Math.abs(p)) flips++;
-        }
-        delta[i] = d;
-      }
-      t.oscStreak = changed > 0.01 * N && flips > OSC_SHARE * changed ? t.oscStreak + 1 : 0;
-      if (t.oscStreak >= OSC_STEPS) return { kind: 'oscillate' };
-      // 越滚越大:一大半格子顶着上限(上限不是 0 的表才看)
-      t.runStreak = max !== min && high > RUN_SHARE * N && max > 0 && min < max ? t.runStreak + 1 : 0;
-      if (t.runStreak >= RUN_STEPS && !t.warned) {
-        t.warned = true;
-        this.report(t, year, { kind: 'runaway' }, 'warn');
-      }
+    t.oscStreak = changed > 0.01 * N && flips > OSC_SHARE * changed ? t.oscStreak + 1 : 0;
+    if (t.oscStreak >= OSC_STEPS) return { kind: 'oscillate' };
+    // 越滚越大:一大半格子顶着上限(上限不是 0 的表才看)
+    t.runStreak = max !== min && high > RUN_SHARE * N && max > 0 && min < max ? t.runStreak + 1 : 0;
+    if (t.runStreak >= RUN_STEPS && !t.warned) {
+      t.warned = true;
+      this.report(t, year, { kind: 'runaway' }, 'warn');
     }
     return null;
   }

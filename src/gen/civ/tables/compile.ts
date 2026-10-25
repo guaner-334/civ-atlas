@@ -4,7 +4,7 @@
  * **名字的意思**(一条规则在"这一格"上算;这一格是地块、州、国还是全世界,看卡上的单位):
  * - 表名:这一格在那张表里的值。那张表的单位比这一格粗(地块读州的表、州读国的表)时,读这一格所在的州 / 所属的国;
  *   不在任何州(海)、不归任何国时读那张表的 off。比这一格细的(州读地块的表)不能直接读,要用 sumof 这类函数汇总。
- *   多栏表写 表.栏名 或 表[第几栏];正在算的这张表自己可以只写表名,指正在算的那一栏
+ *   多栏表写 表.栏名 或 表[第几栏];正在算的这张表自己、和它栏名一模一样的表可以只写表名,指正在算的那一栏
  * - 常数:卡上的 consts 和引擎给的全局常数;一串数写成 名字[第几栏](下标取整,超出两头的取两头)
  * - dt:这一步过了几年(第一步是 0);year:这一刻是第几年;col:正在算第几栏(0 起)
  * - 所有表读到的都是"这一步开头"的值:几张表同一年要算时,先后顺序不影响结果
@@ -18,6 +18,7 @@
  * - 往下汇总:sumof、meanof、maxof、minof(式子[, 条件])、countof(条件):式子按比这一格细的单位算
  *   (州里的每个地块、国里的每个州;全世界 = 所有格),式子里直接写的表名都指那一小格
  * - avg(表)、total(表):从这张表上一次算到这一刻,那张表平均是多少 / 每年的量累计了多少(慢表读快表用)
+ * - prev(表):那张表这一步开头的值。只在卡上写了 after(这一步在那张表算完之后算、直接写表名读的是它刚算完的新值)时才和直接写表名不同
  * - rand() 或 rand(整数):0–1 的随机数,由"种子、这张表、这一格的位置、这一年、这一栏"定,和先后顺序无关
  * - 编号表只能比是不是同一个(==、!=)和 has(x)(有没有;−1 = 没有)
  *
@@ -64,7 +65,7 @@ interface Scope {
 /** 一处读表(从 B 的第 slot 份数组里读;via = 当前值 / 平均 / 累计) */
 interface Slot {
   table: string;
-  via: 'cur' | 'avg' | 'total';
+  via: 'cur' | 'avg' | 'total' | 'prev';
 }
 
 type IR =
@@ -138,7 +139,7 @@ const DOWN_FNS: Record<string, 'sum' | 'mean' | 'max' | 'min' | 'count'> = {
   countof: 'count',
 };
 const SPECIALS = new Set(['dt', 'year', 'col', 'nb', 'edge']);
-const RESERVED_FNS = new Set(['if', 'min', 'max', 'clamp', 'pow', 'has', 'rand', 'avg', 'total', ...MATH1, ...Object.keys(NB_FNS), ...Object.keys(DOWN_FNS)]);
+const RESERVED_FNS = new Set(['if', 'min', 'max', 'clamp', 'pow', 'has', 'rand', 'avg', 'total', 'prev', ...MATH1, ...Object.keys(NB_FNS), ...Object.keys(DOWN_FNS)]);
 
 /** 编一张卡;写错了抛 RuleError(带着是哪一部分、哪里错) */
 export function compileCard(card: TableCard, env: CompileEnv): CardCode {
@@ -214,11 +215,13 @@ export function compileCard(card: TableCard, env: CompileEnv): CardCode {
       const n = colCount(t);
       let c: number | IR;
       if (col === null) {
-        if (n > 1 && t.id !== card.id) fail(`「${t.name}」有 ${n} 栏,要写成 ${t.id}.栏名 或 ${t.id}[第几栏]`);
+        // 自己、和自己栏名一样的表:读正在算的那一栏
+        const sameCols = t.id === card.id || (!!t.cols && (card.cols ?? []).join('\u0000') === t.cols.join('\u0000'));
+        if (n > 1 && !sameCols) fail(`「${t.name}」有 ${n} 栏,要写成 ${t.id}.栏名 或 ${t.id}[第几栏]`);
         c = n > 1 ? { k: 'col' } : 0;
       } else c = col;
       if (typeof c !== 'number' && c.k === 'num') c = Math.min(n - 1, Math.max(0, Math.floor(c.v)));
-      if (via !== 'cur' && t.kind === 'id') fail(`「${t.name}」是编号表,不能求平均或累计`);
+      if ((via === 'avg' || via === 'total') && t.kind === 'id') fail(`「${t.name}」是编号表,不能求平均或累计`);
       return { k: 'read', slot: slotOf(t.id, via), scope, to: t.unit, cols: n, col: c, off: t.off, ty: t.kind === 'id' ? 'id' : 'num' };
     };
 
@@ -401,6 +404,13 @@ export function compileCard(card: TableCard, env: CompileEnv): CardCode {
         const r = ref(args[0], sc, fn);
         if (!r) fail(`${fn}(…) 里要写一张表`);
         if (r!.k === 'read' && code.slots[r!.slot].table === card.id) fail(`${fn}(…) 不能求自己`);
+        return r!;
+      }
+      if (fn === 'prev') {
+        arity(1);
+        if (opts.initOnly) fail('开头的值不能用 prev');
+        const r = ref(args[0], sc, 'prev');
+        if (!r) fail('prev(…) 里要写一张表');
         return r!;
       }
       const nbFn = NB_FNS[fn];
@@ -617,8 +627,10 @@ export interface Frame {
  * - cell:对 [lo, hi) 里的每一格(mask 不为空时只算 mask[格] ≠ 0 的),第 col 栏写进 out[格 × stride + col]
  *   (rule 和 rate 合起来:新值 = rule(没有就是旧值)+ dt × rate)
  * - edge:对 [lo, hi) 里每一格的每条邻边 k,写 out[k] = move 的值(还没乘 dt、没压到 ≥ 0)
+ * 拼函数的格子核写的时候顺手压到卡上的上下限里,返回第一个算出不是数(NaN、无穷大)的位置(格 × stride + 栏;没有 = −1),
+ * 引擎就不用再走一遍(CardKernels.clamps);闭包的不压,返回 −1,由引擎查
  */
-export type CellKernel = (f: Frame, lo: number, hi: number, col: number, out: Float64Array, stride: number, mask: Uint8Array | null) => void;
+export type CellKernel = (f: Frame, lo: number, hi: number, col: number, out: Float64Array, stride: number, mask: Uint8Array | null) => number;
 
 /** 能不能拼 JavaScript 函数(网页的安全设置可能不许) */
 let canEval: boolean | undefined;
@@ -639,18 +651,28 @@ export type Backend = 'js' | 'closure';
 export interface CardKernels {
   /** 每栏一个(rule + rate 合起来;两样都没有 = null,这栏不变) */
   cell: (CellKernel | null)[];
+  /**
+   * 多栏表一次算完所有栏(只有拼函数时有;col、mask 不用):每格先算几栏共用的公式里和栏无关的中间量,再一栏一栏算,
+   * 栏号直接写进代码(读第几栏、if(col == …) 当场定下来)。和一栏一栏调 cell 结果逐位一样,只是快
+   */
+  group: CellKernel | null;
+  /** 格子核写的时候已经压了上下限、查了是不是数(拼函数的) */
+  clamps: boolean;
   move: CellKernel | null;
   init: CellKernel | null;
 }
 
 export function buildKernels(code: CardCode, backend: Backend): CardKernels {
   const make = backend === 'js' ? jsKernel : closureKernel;
+  const any = code.rule.some((x) => x) || code.rate.some((x) => x);
+  // 拼函数时多栏表一次算完所有栏;全 0 跳过的表每栏跳过的格子不一样,还是一栏一栏算
+  const group = backend === 'js' && code.cols > 1 && any ? jsKernel(code, { group: true }) : null;
   const cell: (CellKernel | null)[] = [];
   const cache = new Map<string, CellKernel>();
   for (let c = 0; c < code.cols; c++) {
     const r = code.rule[c];
     const q = code.rate[c];
-    if (!r && !q) {
+    if ((!r && !q) || (group && !code.card.zeroStays)) {
       cell.push(null);
       continue;
     }
@@ -662,21 +684,154 @@ export function buildKernels(code: CardCode, backend: Backend): CardKernels {
   }
   return {
     cell,
+    group,
+    clamps: backend === 'js',
     move: code.move ? make(code, { move: code.move }) : null,
     init: code.init ? make(code, { rule: code.init }) : null,
   };
+}
+
+/** 式子里用没用到 slots 里的中间量 */
+function refsLocals(ir: IR, slots: ReadonlySet<number>): boolean {
+  switch (ir.k) {
+    case 'local':
+      return slots.has(ir.slot);
+    case 'carr':
+      return refsLocals(ir.idx, slots);
+    case 'read':
+      return typeof ir.col !== 'number' && refsLocals(ir.col, slots);
+    case 'math':
+      return ir.args.some((a) => refsLocals(a, slots));
+    case 'if':
+      return refsLocals(ir.c, slots) || refsLocals(ir.a, slots) || refsLocals(ir.b, slots);
+    case 'bin':
+      return refsLocals(ir.a, slots) || refsLocals(ir.b, slots);
+    case 'neg':
+    case 'not':
+    case 'has':
+      return refsLocals(ir.a, slots);
+    case 'nb':
+      return [ir.body, ir.start, ir.cond].some((x) => x !== null && refsLocals(x, slots));
+    case 'down':
+      return [ir.body, ir.cond].some((x) => x !== null && refsLocals(x, slots));
+    default:
+      return false;
+  }
+}
+
+/** 式子里用没用到栏号(col、rand,或用到了栏号的中间量) */
+function usesCol(ir: IR, variant: ReadonlySet<number>): boolean {
+  switch (ir.k) {
+    case 'col':
+    case 'rand':
+      return true;
+    case 'local':
+      return variant.has(ir.slot);
+    case 'carr':
+      return usesCol(ir.idx, variant);
+    case 'read':
+      return typeof ir.col !== 'number' && usesCol(ir.col, variant);
+    case 'math':
+      return ir.args.some((a) => usesCol(a, variant));
+    case 'if':
+      return usesCol(ir.c, variant) || usesCol(ir.a, variant) || usesCol(ir.b, variant);
+    case 'bin':
+      return usesCol(ir.a, variant) || usesCol(ir.b, variant);
+    case 'neg':
+    case 'not':
+    case 'has':
+      return usesCol(ir.a, variant);
+    case 'nb':
+      return [ir.body, ir.start, ir.cond].some((x) => x !== null && usesCol(x, variant));
+    case 'down':
+      return [ir.body, ir.cond].some((x) => x !== null && usesCol(x, variant));
+    default:
+      return false;
+  }
+}
+
+/** 栏号定下来以后能当场算出的部分先算掉(和跑起来的运算一样,结果逐位一样) */
+function foldCol(ir: IR, col: number, K: readonly Float64Array[]): IR {
+  const f = (x: IR) => foldCol(x, col, K);
+  const isNum = (x: IR): x is { k: 'num'; v: number } => x.k === 'num';
+  switch (ir.k) {
+    case 'col':
+      return { k: 'num', v: col };
+    case 'carr': {
+      const idx = f(ir.idx);
+      if (isNum(idx)) {
+        const a = K[ir.arr];
+        return { k: 'num', v: a[Math.min(a.length - 1, Math.max(0, Math.floor(idx.v)))] };
+      }
+      return { ...ir, idx };
+    }
+    case 'read': {
+      if (typeof ir.col === 'number') return ir;
+      const c = f(ir.col);
+      return { ...ir, col: isNum(c) ? Math.min(ir.cols - 1, Math.max(0, Math.floor(c.v))) : c };
+    }
+    case 'math': {
+      const args = ir.args.map(f);
+      if (!args.every(isNum)) return { ...ir, args };
+      const v = args.map((a) => (a as { v: number }).v);
+      const m = ir.fn === 'min' ? Math.min(...v) : ir.fn === 'max' ? Math.max(...v) : ir.fn === 'clamp' ? Math.min(Math.max(v[0], v[1]), v[2]) : ir.fn === 'pow' ? fpow(v[0], v[1]) : ir.fn === 'exp' ? fexp(v[0]) : ir.fn === 'log' ? flog(v[0]) : (Math as unknown as Record<string, (x: number) => number>)[ir.fn](v[0]);
+      return { k: 'num', v: m };
+    }
+    case 'if': {
+      const c = f(ir.c);
+      if (isNum(c)) return c.v !== 0 ? f(ir.a) : f(ir.b);
+      return { k: 'if', c, a: f(ir.a), b: f(ir.b) };
+    }
+    case 'bin': {
+      const a = f(ir.a);
+      const b = f(ir.b);
+      if (isNum(a) && isNum(b)) return { k: 'num', v: evalBin(ir.op, a.v, b.v) };
+      // and / or 有一边定下来了:另一边要么不用看,要么就是结果(都是纯计算,不算也一样)
+      if (ir.op === 'and' || ir.op === 'or') {
+        const k = isNum(a) ? a : isNum(b) ? b : null;
+        const other = k === a ? b : a;
+        if (k) {
+          const on = k.v !== 0;
+          if (ir.op === 'and' ? !on : on) return { k: 'num', v: on ? 1 : 0 };
+          return { k: 'bin', op: '!=', a: other, b: { k: 'num', v: 0 } };
+        }
+      }
+      return { ...ir, a, b };
+    }
+    case 'neg': {
+      const a = f(ir.a);
+      return isNum(a) ? { k: 'num', v: -a.v } : { k: 'neg', a };
+    }
+    case 'not': {
+      const a = f(ir.a);
+      return isNum(a) ? { k: 'num', v: a.v === 0 ? 1 : 0 } : { k: 'not', a };
+    }
+    case 'has':
+      return { k: 'has', a: f(ir.a) };
+    case 'nb':
+      return { ...ir, body: ir.body && f(ir.body), start: ir.start && f(ir.start), cond: ir.cond && f(ir.cond) };
+    case 'down':
+      return { ...ir, body: ir.body && f(ir.body), cond: ir.cond && f(ir.cond) };
+    default:
+      return ir;
+  }
 }
 
 interface Parts {
   rule?: Compiled | null;
   rate?: Compiled | null;
   move?: Compiled;
+  /** 一次算完所有栏(见 CardKernels.group) */
+  group?: boolean;
 }
 
 // ---------------------------------------------------------------------------
 // 跑法一:拼成 JavaScript 函数
 
 const UNIT_KEY: Record<Unit, string> = { tile: 't', region: 'r', polity: 'p', world: 'w' };
+
+type KernelFactory = (K: Float64Array[], e: typeof fexp, l: typeof flog, p: typeof fpow, k: typeof keyed) => CellKernel;
+const FACTORIES = new Map<string, KernelFactory>();
 
 function jsKernel(code: CardCode, parts: Parts): CellKernel {
   const head: string[] = [];
@@ -693,6 +848,72 @@ function jsKernel(code: CardCode, parts: Parts): CellKernel {
   need('B', 'f.B');
   for (let s = 0; s < code.slots.length; s++) need(`b${s}`, `B[${s}]`);
   code.carrs.forEach((_, i) => need(`k${i}`, `K[${i}]`));
+
+  /**
+   * 拼出来的代码不分支:if 的两支、and / or 的两边、邻格和汇总里的条件和式子每格都算(都是纯计算,结果和只算用到的一样)。
+   * 浏览器把函数优化成机器码时要知道每一处运算见过什么样的数,没跑过的地方一跑到就得退回去重来;
+   * 每处每格都跑,头几格就全见过了,优化一次就稳(冷启动快好几倍,算的量多一点不要紧)
+   */
+  const temp = (v: string, pre: string[]): string => {
+    const t = fresh('t');
+    pre.push(`const ${t} = ${v};`);
+    return t;
+  };
+  /**
+   * 中间量用到才算:每格开头记成"还没算",第一次用到的地方先算好(没人住的州不算长了多少这类)。
+   * 中间量里面照样不分支,第一次用到以后就全见过了
+   */
+  const letIR = new Map<number, IR>();
+  for (const x of [...code.rule, ...code.rate, code.move, code.init]) if (x) for (const l of x.lets) letIR.set(l.slot, l.ir);
+  /** 栏号定下来时(一次算完所有栏)正在算第几栏 */
+  let fixedCol: number | null = null;
+  const ensured = new WeakMap<string[], Set<number>>();
+  /** 一次算完所有栏时,几栏各走一遍邻格的中间量:合成走一遍(中间量 → 用到它的几栏) */
+  const fused = new Map<number, number[]>();
+  const ensure = (slot: number, pre: string[]) => {
+    let done = ensured.get(pre);
+    if (!done) ensured.set(pre, (done = new Set()));
+    const key = fused.has(slot) ? -1 - slot : slot;
+    if (done.has(key)) return;
+    done.add(key);
+    if (fused.has(slot)) return ensureFused(slot, pre);
+    const ir = letIR.get(slot)!;
+    const inner: string[] = [];
+    const v = emit(fixedCol === null ? ir : foldCol(ir, fixedCol, code.carrs), inner);
+    pre.push(`if (!h${slot}) {`, ...inner, `l${slot} = ${v};`, `h${slot} = true;`, '}');
+  };
+  const declare = (slots: Iterable<number>): string[] => Array.from(slots, (x) => `let l${x} = 0, h${x} = false;`);
+  /** 合成的那一遍:每栏一个累计,邻格走一遍、每个邻格把各栏都算上(各栏共有的那些读数、运算浏览器只算一次) */
+  const ensureFused = (slot: number, pre: string[]) => {
+    const cols = fused.get(slot)!;
+    const keep = fixedCol;
+    const g: string[] = [];
+    const parts = cols.map((c) => {
+      fixedCol = c;
+      const ir = foldCol(letIR.get(slot)!, c, code.carrs) as IR & { k: 'nb' };
+      const acc = fresh('a');
+      const cnt = ir.fn === 'mean' || ((ir.fn === 'max' || ir.fn === 'min') && !ir.start) ? fresh('n') : null;
+      const start = ir.start ? emit(ir.start, g) : null;
+      g.push(`let ${acc} = ${ir.fn === 'max' ? (start ?? '-Infinity') : ir.fn === 'min' ? (start ?? 'Infinity') : '0'};`);
+      if (cnt) g.push(`let ${cnt} = 0;`);
+      return { c, ir, acc, cnt };
+    });
+    const u = parts[0].ir.scope.unit;
+    need(`AS${UNIT_KEY[u]}`, `f.adjStart.${u}`);
+    need(`AJ${UNIT_KEY[u]}`, `f.adj.${u}`);
+    const loop: string[] = [];
+    for (const p of parts) {
+      fixedCol = p.c;
+      loop.push(...gather(p.ir.fn, p.ir.body, p.ir.cond, p.acc, p.cnt, loop));
+    }
+    g.push(`for (let k = AS${UNIT_KEY[u]}[i], ke = AS${UNIT_KEY[u]}[i + 1]; k < ke; k++) {`, `const j = AJ${UNIT_KEY[u]}[k];`, ...loop, '}');
+    for (const p of parts) {
+      const v = p.ir.fn === 'mean' ? `(${p.cnt} > 0 ? ${p.acc} / ${p.cnt} : 0)` : p.cnt ? `(${p.cnt} > 0 ? ${p.acc} : 0)` : p.acc;
+      g.push(`lF${slot}_${p.c} = ${v};`);
+    }
+    fixedCol = keep;
+    pre.push(`if (!hF${slot}) {`, ...g, `hF${slot} = true;`, '}');
+  };
 
   /** scope 那一格读 unit 为 to 的表时的下标(−1 = 读不到) */
   const indexOf = (scope: Scope, to: Unit, pre: string[]): string => {
@@ -711,10 +932,61 @@ function jsKernel(code: CardCode, parts: Parts): CellKernel {
     if (u === 'region' && to === 'polity') {
       need('PO', 'f.polityOf');
       const m = fresh('m');
-      pre.push(`const ${m} = ${x} < 0 ? -1 : PO[${x}];`);
+      // 这一格、邻格、小格自己的编号不会是 −1;从地块查到的州可能是(海)
+      pre.push(x === scope.v ? `const ${m} = PO[${x}];` : `const ${m} = ${x} < 0 ? -1 : PO[${x}];`);
       return m;
     }
     throw new Error(`读不到:${scope.unit} → ${to}`);
+  };
+
+  /** 当条件用(得出 JavaScript 的真假;和"不是 0 就算真"一样) */
+  const cond = (ir: IR, pre: string[]): string => {
+    switch (ir.k) {
+      case 'num':
+        return ir.v !== 0 ? 'true' : 'false';
+      case 'bin':
+        switch (ir.op) {
+          case 'and':
+            return `((${cond(ir.a, pre)} & ${cond(ir.b, pre)}) !== 0)`;
+          case 'or':
+            return `((${cond(ir.a, pre)} | ${cond(ir.b, pre)}) !== 0)`;
+          case '==':
+            return `(${emit(ir.a, pre)} === ${emit(ir.b, pre)})`;
+          case '!=':
+            return `(${emit(ir.a, pre)} !== ${emit(ir.b, pre)})`;
+          case '<':
+          case '<=':
+          case '>':
+          case '>=':
+            return `(${emit(ir.a, pre)} ${ir.op} ${emit(ir.b, pre)})`;
+          default:
+            return `(${emit(ir, pre)} !== 0)`;
+        }
+      case 'not':
+        return `!${cond(ir.a, pre)}`;
+      case 'has':
+        return `(${emit(ir.a, pre)} >= 0)`;
+      default:
+        return `(${emit(ir, pre)} !== 0)`;
+    }
+  };
+
+  /**
+   * 邻格、汇总里每一格的一步:式子和条件都算,条件不成立的不计进去(加的是 0、不比大小)。
+   * 返回要接在 pre 后面的语句(式子、条件自己要先算的已经放进 pre)
+   */
+  const gather = (fn: string, body: IR | null, cnd: IR | null, acc: string, cnt: string | null, pre: string[]): string[] => {
+    const out: string[] = [];
+    const c = cnd ? temp(cond(cnd, pre), pre) : null;
+    const v = body ? temp(emit(body, pre), pre) : null;
+    if (fn === 'count') out.push(c ? `${acc} += ${c} ? 1 : 0;` : `${acc} += 1;`);
+    else if (fn === 'sum' || fn === 'mean') out.push(c ? `${acc} += ${c} ? ${v} : 0;` : `${acc} += ${v};`);
+    else {
+      const gt = temp(`${v} ${fn === 'max' ? '>' : '<'} ${acc}`, out);
+      out.push(c ? `if (${c} && ${gt}) ${acc} = ${v};` : `if (${gt}) ${acc} = ${v};`);
+    }
+    if (cnt) out.push(c ? `${cnt} += ${c} ? 1 : 0;` : `${cnt}++;`);
+    return out;
   };
 
   const emit = (ir: IR, pre: string[]): string => {
@@ -722,7 +994,8 @@ function jsKernel(code: CardCode, parts: Parts): CellKernel {
       case 'num':
         return numLit(ir.v);
       case 'local':
-        return `l${ir.slot}`;
+        ensure(ir.slot, pre);
+        return fused.has(ir.slot) ? `lF${ir.slot}_${fixedCol}` : `l${ir.slot}`;
       case 'dt':
         return 'dt';
       case 'year':
@@ -736,7 +1009,8 @@ function jsKernel(code: CardCode, parts: Parts): CellKernel {
       }
       case 'read': {
         const ix = indexOf(ir.scope, ir.to, pre);
-        const c = typeof ir.col === 'number' ? String(ir.col) : `Math.min(${ir.cols - 1}, Math.max(0, Math.floor(${emit(ir.col, pre)})))`;
+        // 栏号就是正在算的这一栏、两张表栏数一样时,不用再压到范围里
+        const c = typeof ir.col === 'number' ? String(ir.col) : ir.col.k === 'col' && ir.cols === code.cols ? 'col' : `Math.min(${ir.cols - 1}, Math.max(0, Math.floor(${emit(ir.col, pre)})))`;
         const slot = code.slots[ir.slot];
         const at = ir.cols === 1 ? ix : `${ix} * ${ir.cols} + ${c}`;
         let v = `b${ir.slot}[${at}]`;
@@ -769,47 +1043,41 @@ function jsKernel(code: CardCode, parts: Parts): CellKernel {
         }
       }
       case 'if': {
-        // 两支各自要先算的(邻格、汇总)只在用到的那一支里算
+        const c = temp(cond(ir.c, pre), pre);
         const pa: string[] = [];
         const pb: string[] = [];
-        const c = emit(ir.c, pre);
         const a = emit(ir.a, pa);
         const b = emit(ir.b, pb);
-        if (!pa.length && !pb.length) return `(${c} !== 0 ? ${a} : ${b})`;
-        const v = fresh('v');
-        pre.push(`let ${v};`, `if (${c} !== 0) {`, ...pa, `${v} = ${a};`, `} else {`, ...pb, `${v} = ${b};`, `}`);
-        return v;
+        // 有一支要走一遍邻格、汇总的:只算用到的那一支(省得白走一遍);别的两支都先算好再挑(见上)
+        const heavy = (x: string[]) => x.some((l) => l.startsWith('for '));
+        if (heavy(pa) || heavy(pb)) {
+          const v = fresh('v');
+          pre.push(`let ${v};`, `if (${c}) {`, ...pa, `${v} = ${a};`, `} else {`, ...pb, `${v} = ${b};`, `}`);
+          return v;
+        }
+        pre.push(...pa, ...pb);
+        const simple = (x: string) => /^[\w.]+$/.test(x);
+        return `(${c} ? ${simple(a) ? a : temp(a, pre)} : ${simple(b) ? b : temp(b, pre)})`;
       }
       case 'bin': {
-        const a = emit(ir.a, pre);
-        const b = emit(ir.b, pre);
         switch (ir.op) {
           case '^':
-            return `fpow(${a}, ${b})`;
+            return `fpow(${emit(ir.a, pre)}, ${emit(ir.b, pre)})`;
           case '+':
           case '-':
           case '*':
           case '/':
           case '%':
-            return `(${a} ${ir.op} ${b})`;
-          case '==':
-            return `(${a} === ${b} ? 1 : 0)`;
-          case '!=':
-            return `(${a} !== ${b} ? 1 : 0)`;
-          case 'and':
-            return `(${a} !== 0 && ${b} !== 0 ? 1 : 0)`;
-          case 'or':
-            return `(${a} !== 0 || ${b} !== 0 ? 1 : 0)`;
+            return `(${emit(ir.a, pre)} ${ir.op} ${emit(ir.b, pre)})`;
           default:
-            return `(${a} ${ir.op} ${b} ? 1 : 0)`;
+            return `(${cond(ir, pre)} ? 1 : 0)`;
         }
       }
       case 'neg':
         return `(-${emit(ir.a, pre)})`;
       case 'not':
-        return `(${emit(ir.a, pre)} === 0 ? 1 : 0)`;
       case 'has':
-        return `(${emit(ir.a, pre)} >= 0 ? 1 : 0)`;
+        return `(${cond(ir, pre)} ? 1 : 0)`;
       case 'rand': {
         need('SEED', 'f.seed');
         need('YK', 'f.yearKey');
@@ -823,25 +1091,12 @@ function jsKernel(code: CardCode, parts: Parts): CellKernel {
         need(`AJ${UNIT_KEY[u]}`, `f.adj.${u}`);
         const acc = fresh('a');
         const cnt = fresh('n');
-        const inner: string[] = [];
-        const cond = ir.cond ? emit(ir.cond, inner) : null;
-        const bodyPre: string[] = [];
-        const bv = ir.body ? emit(ir.body, bodyPre) : null;
         const start = ir.start ? emit(ir.start, pre) : null;
         const init = ir.fn === 'max' ? (start ?? '-Infinity') : ir.fn === 'min' ? (start ?? 'Infinity') : '0';
         pre.push(`let ${acc} = ${init};`);
         if (ir.fn === 'mean' || ((ir.fn === 'max' || ir.fn === 'min') && !start)) pre.push(`let ${cnt} = 0;`);
-        const loop: string[] = [...inner];
-        const step: string[] = [...bodyPre];
-        if (ir.fn === 'sum' || ir.fn === 'mean') step.push(`${acc} += ${bv};`);
-        else if (ir.fn === 'count') step.push(`${acc} += 1;`);
-        else {
-          const v = fresh('v');
-          step.push(`const ${v} = ${bv};`, `if (${v} ${ir.fn === 'max' ? '>' : '<'} ${acc}) ${acc} = ${v};`);
-        }
-        if (ir.fn === 'mean' || ((ir.fn === 'max' || ir.fn === 'min') && !start)) step.push(`${cnt}++;`);
-        if (cond) loop.push(`if (${cond} !== 0) {`, ...step, '}');
-        else loop.push(...step);
+        const loop: string[] = [];
+        loop.push(...gather(ir.fn, ir.body, ir.cond, acc, ir.fn === 'mean' || ((ir.fn === 'max' || ir.fn === 'min') && !start) ? cnt : null, loop));
         pre.push(`for (let k = AS${UNIT_KEY[u]}[${ir.scope.v}], ke = AS${UNIT_KEY[u]}[${ir.scope.v} + 1]; k < ke; k++) {`, `const j = AJ${UNIT_KEY[u]}[k];`, ...loop, '}');
         if (ir.fn === 'mean') return `(${cnt} > 0 ? ${acc} / ${cnt} : 0)`;
         if ((ir.fn === 'max' || ir.fn === 'min') && !start) return `(${cnt} > 0 ? ${acc} : 0)`;
@@ -850,23 +1105,10 @@ function jsKernel(code: CardCode, parts: Parts): CellKernel {
       case 'down': {
         const acc = fresh('a');
         const cnt = fresh('n');
-        const inner: string[] = [];
-        const cond = ir.cond ? emit(ir.cond, inner) : null;
-        const bodyPre: string[] = [];
-        const bv = ir.body ? emit(ir.body, bodyPre) : null;
         const init = ir.fn === 'max' ? '-Infinity' : ir.fn === 'min' ? 'Infinity' : '0';
         pre.push(`let ${acc} = ${init};`, `let ${cnt} = 0;`);
-        const step: string[] = [...inner];
-        const add: string[] = [...bodyPre];
-        if (ir.fn === 'sum' || ir.fn === 'mean') add.push(`${acc} += ${bv};`);
-        else if (ir.fn === 'count') add.push(`${acc} += 1;`);
-        else {
-          const v = fresh('v');
-          add.push(`const ${v} = ${bv};`, `if (${v} ${ir.fn === 'max' ? '>' : '<'} ${acc}) ${acc} = ${v};`);
-        }
-        add.push(`${cnt}++;`);
-        if (cond) step.push(`if (${cond} !== 0) {`, ...add, '}');
-        else step.push(...add);
+        const step: string[] = [];
+        step.push(...gather(ir.fn, ir.body, ir.cond, acc, cnt, step));
         pre.push(...memberLoop(ir.scope, ir.m.unit, step, need));
         if (ir.fn === 'mean') return `(${cnt} > 0 ? ${acc} / ${cnt} : 0)`;
         if (ir.fn === 'max' || ir.fn === 'min') return `(${cnt} > 0 ? ${acc} : 0)`;
@@ -875,24 +1117,74 @@ function jsKernel(code: CardCode, parts: Parts): CellKernel {
     }
   };
 
-  const block = (c: Compiled, out: string[]): string => {
-    for (const l of c.lets) {
-      const pre: string[] = [];
-      const v = emit(l.ir, pre);
-      out.push(...pre, `const l${l.slot} = ${v};`);
-    }
-    const pre: string[] = [];
-    const v = emit(c.result, pre);
-    out.push(...pre);
+  /** 结果的式子(中间量用到才算;col = 栏号定下来时是第几栏) */
+  const block = (c: Compiled, out: string[], col: number | null = null): string => {
+    fixedCol = col;
+    const v = emit(col === null ? c.result : foldCol(c.result, col, code.carrs), out);
+    fixedCol = null;
     return v;
   };
-
+  const slotsOf = (...xs: (Compiled | null | undefined)[]) => {
+    const out = new Set<number>();
+    for (const x of xs) if (x) for (const l of x.lets) out.add(l.slot);
+    return out;
+  };
   const n = code.card.unit;
   const stride = 'stride';
-  if (parts.move) {
+  /** 写一格:先查是不是数(记下第一处),再压到上下限里(和引擎的护栏一样的比法) */
+  const store = (at: string, v: string): string[] => {
+    const w = fresh('w');
+    const x = fresh('x');
+    const lo = numLit(code.card.min);
+    const hi = numLit(code.card.max);
+    return [
+      `const ${x} = ${at};`,
+      `const ${w} = ${v};`,
+      `if (${w} - ${w} !== 0) {`,
+      `if (bad < 0 || ${x} < bad) bad = ${x};`,
+      `out[${x}] = ${w};`,
+      `} else out[${x}] = ${w} > ${hi} ? ${hi} : ${w} < ${lo} ? ${lo} : ${w};`,
+    ];
+  };
+  if (parts.group) {
+    // 一格一格算,每格里一栏一栏算(栏号写死);几栏共用的公式里和栏无关的中间量每格只算一次
+    const uses = new Map<Compiled, number>();
+    for (let c = 0; c < code.cols; c++) for (const x of [code.rule[c], code.rate[c]]) if (x) uses.set(x, (uses.get(x) ?? 0) + 1);
+    const shared = new Set<number>();
+    for (const [x, cnt] of uses) {
+      if (cnt < 2) continue;
+      const v = new Set<number>();
+      for (const l of x.lets) if (usesCol(l.ir, v)) v.add(l.slot);
+      for (const l of x.lets) if (!v.has(l.slot)) shared.add(l.slot);
+      // 直接就是一个邻格函数、里面只用到和栏无关的中间量的:几栏合成走一遍
+      for (const l of x.lets) {
+        if (!v.has(l.slot) || l.ir.k !== 'nb' || refsLocals(l.ir, v)) continue;
+        const cols: number[] = [];
+        for (let c = 0; c < code.cols; c++) if (code.rule[c] === x || code.rate[c] === x) cols.push(c);
+        fused.set(l.slot, cols);
+      }
+    }
+    // 和栏无关的中间量记在格子这一层(几栏共用),别的每栏一份
+    const inner: string[] = [...declare(shared)];
+    for (const [slot, cols] of fused) inner.push(`let ${cols.map((c) => `lF${slot}_${c} = 0`).join(', ')}, hF${slot} = false;`);
+    for (let c = 0; c < code.cols; c++) {
+      const r = code.rule[c];
+      const q = code.rate[c];
+      if (!r && !q) continue;
+      const blk: string[] = [`const col = ${c};`, ...declare([...slotsOf(r, q)].filter((x) => !shared.has(x) && !fused.has(x)))];
+      let v = r ? block(r, blk, c) : `out[i * ${stride} + ${c}]`;
+      if (q) {
+        const t = fresh('r');
+        blk.push(`const ${t} = ${v};`);
+        v = `${t} + dt * ${block(q, blk, c)}`;
+      }
+      inner.push('{', ...blk, ...store(`i * ${stride} + ${c}`, v), '}');
+    }
+    body.push('for (let i = lo; i < hi; i++) {', ...inner, '}');
+  } else if (parts.move) {
     need(`AS${UNIT_KEY[n]}`, `f.adjStart.${n}`);
     need(`AJ${UNIT_KEY[n]}`, `f.adj.${n}`);
-    const inner: string[] = [];
+    const inner: string[] = [...declare(slotsOf(parts.move))];
     const v = block(parts.move, inner);
     body.push(
       'for (let i = lo; i < hi; i++) {',
@@ -905,20 +1197,24 @@ function jsKernel(code: CardCode, parts: Parts): CellKernel {
       '}',
     );
   } else {
-    const inner: string[] = [];
+    const inner: string[] = [...declare(slotsOf(parts.rule, parts.rate))];
     // 没有 rule 时旧值就是 out 里的(引擎跑核之前把这一步开头的值抄进了 out)
     let v = parts.rule ? block(parts.rule, inner) : `out[i * ${stride} + col]`;
     if (parts.rate) {
       const r = fresh('r');
       inner.push(`const ${r} = ${v};`);
-      const q = block(parts.rate, inner);
-      v = `${r} + dt * ${q}`;
+      v = `${r} + dt * ${block(parts.rate, inner)}`;
     }
-    body.push('for (let i = lo; i < hi; i++) {', 'if (mask !== null && mask[i] === 0) continue;', ...inner, `out[i * ${stride} + col] = ${v};`, '}');
+    body.push('for (let i = lo; i < hi; i++) {', 'if (mask !== null && mask[i] === 0) continue;', ...inner, ...store(`i * ${stride} + col`, v), '}');
   }
-  const src = [...head, 'const dt = f.dt;', 'const year = f.year;', ...body].join('\n');
-  const factory = new Function('K', 'fexp', 'flog', 'fpow', 'keyed', `return function kernel(f, lo, hi, col, out, stride, mask) {\n${src}\n};`);
-  return factory(code.carrs, fexp, flog, fpow, keyed) as CellKernel;
+  const src = [...head, 'const dt = f.dt;', 'const year = f.year;', 'let bad = -1;', ...body, 'return bad;'].join('\n');
+  // 同样的代码只拼一次:几次推演(几个引擎)用同一个函数,浏览器边跑边优化的成果也接着用
+  let factory = FACTORIES.get(src);
+  if (!factory) {
+    factory = new Function('K', 'fexp', 'flog', 'fpow', 'keyed', `return function kernel(f, lo, hi, col, out, stride, mask) {\n${src}\n};`) as KernelFactory;
+    FACTORIES.set(src, factory);
+  }
+  return factory(code.carrs, fexp, flog, fpow, keyed);
 }
 
 /** 往下汇总:scope 那一格里每个 to 单位的小格,跑 step(小格编号在变量 u 里) */
@@ -1240,6 +1536,7 @@ function closureKernel(code: CardCode, parts: Parts): CellKernel {
           out[k] = mv(s);
         }
       }
+      return -1;
     };
   }
   const rule = parts.rule ? block(parts.rule) : null;
@@ -1256,5 +1553,6 @@ function closureKernel(code: CardCode, parts: Parts): CellKernel {
       }
       out[i * stride + col] = v;
     }
+    return -1;
   };
 }
