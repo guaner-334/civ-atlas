@@ -228,6 +228,12 @@ const pushOrders = async (p: Page, tap = false) => {
   const el = (await foot.isVisible().catch(() => false)) ? foot : p.locator('.ivq [data-act=iv-push]');
   await (tap ? el.tap({ timeout: 5000 }) : el.click({ timeout: 5000 })).catch(() => {});
 };
+/**
+ * 悬停卡片现在写的字,没有卡片就是空的。不等卡片出来:挪着鼠标找目标时不少点落在海上、没有卡片,
+ * 用 locator.innerText() 每落空一次要等满 30 秒(GitHub 上「国家面板」一段曾因此多花十几分钟)
+ */
+const hoverText = (p: Page, sel = '.hover-card') =>
+  p.evaluate((s) => (document.querySelector(s) as HTMLElement | null)?.innerText ?? '', sel).then((t) => t.replace(/\n/g, ' '));
 /** 顶部提示条上某个来源的那条(save 存档 / export 导出 / progress 生成……) */
 const toastText = (p: Page, id: string, timeout = 3000) =>
   p.locator(`.toast[data-toast=${id}]`).innerText({ timeout }).then((t) => t.replace(/\n/g, ' '), () => '');
@@ -302,7 +308,7 @@ if (part('界面骨架')) {
   for (let i = 0; i < 80 && !/\d+ 州/.test(card); i++) {
     await page.mouse.move(150 + ((i * 197) % 1000), 160 + ((i * 83) % 460));
     await page.waitForTimeout(25);
-    card = (await page.locator('.hover-card').innerText().catch(() => '')).replace(/\n/g, ' ');
+    card = await hoverText(page);
   }
   // 图层面板:缩略图做出来;切到卫星(面板不收)
   await page.click('[data-act=layers]');
@@ -1039,7 +1045,7 @@ if (part('信仰图层')) {
     const y = 140 + ((i * 83) % (vp.height - 320));
     await page.mouse.move(x, y);
     await page.waitForTimeout(25);
-    card = (await page.locator('.hover-card').innerText().catch(() => '')).replace(/\n/g, ' ');
+    card = await hoverText(page);
     if (names.some((n) => card.startsWith(n)) || /^\S+(祖灵|旧神)/.test(card)) spot = [x, y];
   }
   let panel = '';
@@ -1543,7 +1549,7 @@ if (part('民族和国家视图')) {
   for (let i = 0; i < 40 && !people; i++) {
     await page.mouse.move(box.x + box.width * (0.1 + 0.8 * ((i * 0.618) % 1)), box.y + box.height * (0.2 + 0.6 * ((i * 0.382) % 1)));
     await page.waitForTimeout(40);
-    const t = await page.locator('.hover').innerText().catch(() => '');
+    const t = await hoverText(page, '.hover');
     if (t.includes('族')) people = t;
   }
   console.log('民族视图悬停:', people.replace(/\n/g, ' / ') || '(没找到有人住的地方)');
@@ -2936,7 +2942,7 @@ if (part('国家面板')) {
         for (let a = 0; a < 8; a++) {
           await page.mouse.move(c.x + r * Math.cos((a * Math.PI) / 4), c.y + r * Math.sin((a * Math.PI) / 4));
           await page.waitForTimeout(80);
-          hoverVerdict = (await page.locator('.hover-card').innerText().catch(() => '')).replace(/\n/g, ' ');
+          hoverVerdict = await hoverText(page);
           if (hoverVerdict.includes(c.text)) {
             tgt = c;
             break search;
