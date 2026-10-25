@@ -32,6 +32,8 @@
  *     国库空了还入不敷出 = 国用不足(窘迫 0–1):动荡里加一项(unrest.ts),宣战少、攻方早罢兵(wars.ts 的 broke);
  *     窘迫刚到 NOTE 以上记一条史事 fiscal(同一国 NOTE_REST 年内只记一次;接着推时由史事重建)。
  *
+ *   **乡村人口**(同一张政局的数表,每 5 年一步;population.ts):会搬家、逃兵灾,洗劫、饥荒、瘟疫的折损写回表里;田赋读它。
+ *
  *   **抗命**(defy):每场战争的第一仗之前(点兵,wars.ts 调 onMuster),交战的一方有割据的地方、地盘里的城人口占全国 DEFY_SHARE 以上,
  *     这处割据 DEFY_REST 年内没抗过命,就记一条 defy(拥兵不出)。国力里本来就不算它(见上),这一条只是让编年史写得出来。
  *
@@ -45,12 +47,13 @@ import { Ev, type CivSim } from './sim';
 import { polityModelOf, type PolityModel } from './polities';
 import { warModelOf, type War, type WarModel } from './wars';
 import { politicsModelOf, type PoliticsModel } from './politics';
-import { Cap, CAP_COUNT, devModelOf, populationsAt, type DevModel } from './development';
+import { Cap, CAP_COUNT, cityPopulationsAt, devModelOf, type DevModel } from './development';
 import { capacityAt, capitalAt, populationAt } from './growth';
 import { TableEngine } from './tables';
 import { NEVER } from './devTables';
 import { stateCards, type ControlRuleConsts, type FiscalRuleConsts } from './stateTables';
 import { UNREST_CONSTS, unrestInputs, unrestModelOf } from './unrest';
+import { POP_CONSTS, POP_TABLES, popLayer } from './population';
 
 // ---- 调参(以 20 个种子的统计为准,见 scripts/control-stats.ts) ----
 /** 管得到的远近:REACH × (1 + ADMIN_GAIN × 行政能力)(标准路程) */
@@ -265,12 +268,12 @@ export const FISCAL_CONSTS: FiscalRuleConsts = {
   FISCAL_W,
   FISCAL_EVERY,
 };
-const STATE_CARDS = stateCards(CONTROL_CONSTS, UNREST_CONSTS, FISCAL_CONSTS);
+const STATE_CARDS = stateCards(CONTROL_CONSTS, UNREST_CONSTS, FISCAL_CONSTS, POP_CONSTS);
 /**
- * 存下来的表(接着推时填回):算出来的几张(三样收入几年才算一次、国库接着上一年的,都得存),和事件层还要读的几张输入表。
+ * 存下来的表(接着推时填回):算出来的几张(三样收入几年才算一次、国库和乡村人口接着上一年的,都得存),和事件层还要读的几张输入表。
  * 岁入、岁出每年重算,不用存(应缴要存:看邻国时读国库攒到几成)
  */
-const SAVED_TABLES = ['国', '饥荒', '州数', '管辖', '边远', '田赋', '工商', '市税', '税', '应缴', '实收', '国库', '窘迫', '动荡底', '动荡'] as const;
+const SAVED_TABLES = ['国', '饥荒', '州数', '管辖', '边远', ...POP_TABLES, '田赋', '工商', '市税', '税', '应缴', '实收', '国库', '窘迫', '动荡底', '动荡'] as const;
 
 /**
  * saved:接着推时存档里政局数表的状态(null = 从头推;undefined = 存档里没有,接着推的那一刻现算一次)
@@ -310,8 +313,9 @@ function hook(sim: CivSim, seed: number, lords: Warlord[], saved: TablesState | 
     tBroke = eng.get('窘迫');
   };
   const T = pm.terrain;
-  const rural = new Float64Array(R);
   const cityPop = new Float64Array(R);
+  // 乡村人口(population.ts):接着推时,存的那一年以前的折损、兵灾算过了
+  const pop = popLayer(sim, pm, dev, eng, saved === null ? null : saved && saved.last > -Infinity ? saved.last : Math.floor(sim.now));
   let capR = new Int32Array(0);
   let capCap = new Float64Array(0);
   /** 填输入表:此刻各州的归属、离国都的路程、异族、刚被征服、大城;各国国都所在州的行政能力、危机、当朝几年、近年的饥荒疫病、民变、割据 */
@@ -365,12 +369,11 @@ function hook(sim: CivSim, seed: number, lords: Warlord[], saved: TablesState | 
         got[l] += x;
       }
     }
-    // 三样收入要的各州人口、能力:几年填一次(只在那几张表要算的年份填,接着推时也一样)
+    // 三样收入要的各州城的人口、能力:几年填一次(只在那几张表要算的年份填,接着推时也一样;乡村人口读表)
     if (t % FISCAL_EVERY === 0) {
-      populationsAt(dev, t, owner, rural, cityPop);
-      const [iRural, iCity, iProd, iMove, iPort, iRiver] = ['乡民', '城民', '生产', '运输', '港口', '大河'].map((id) => eng.input(id));
+      cityPopulationsAt(dev, t, owner, cityPop);
+      const [iCity, iProd, iMove, iPort, iRiver] = ['城民', '生产', '运输', '港口', '大河'].map((id) => eng.input(id));
       for (let r = 0; r < R; r++) {
-        iRural[r] = rural[r];
         iCity[r] = cityPop[r];
         iProd[r] = dev.cur[r * CAP_COUNT + Cap.Production] || 0;
         iMove[r] = dev.cur[r * CAP_COUNT + Cap.Transport] || 0;
@@ -574,10 +577,12 @@ function hook(sim: CivSim, seed: number, lords: Warlord[], saved: TablesState | 
       eng.start(t);
       started = true;
     }
+    pop.prepare(t);
     if (before.length < tBroke.length) before = new Float64Array(tBroke.length);
     before.set(tBroke);
     eng.step(t);
     last = t;
+    pop.done(t);
     refresh();
     note(t);
     if (dev.last === t) snapshot(t);

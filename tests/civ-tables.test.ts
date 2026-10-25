@@ -260,6 +260,15 @@ describe('引擎', () => {
     e.step(20);
     expect(Array.from(e.get('x'))).toEqual(Array.from(ref.get('x')));
     expect(() => e.set('x', [1, 2])).toThrow(/要 \d+ 个数/);
+    // 存的那一年没轮到它(上一步算到第 12 年,它最后一次算是第 10 年):下一步的 dt 还是从第 10 年算起
+    const f = new TableEngine({ seed: 7, cards: [habitat, owner, card], units: grid(), owner: 'owner' });
+    fill(f, grid());
+    f.start(0);
+    f.set('x', mid.get('x'));
+    f.resume(12);
+    f.step(15);
+    f.step(20);
+    expect(Array.from(f.get('x'))).toEqual(Array.from(ref.get('x')));
   });
   it('跨单位读:地块读所在州、州读所属国(读不到 = off);州汇总地块、国汇总州', () => {
     const u = grid();

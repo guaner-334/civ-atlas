@@ -58,8 +58,8 @@ import type { World } from '../world';
 import { AdjKind, Layer } from './types';
 import { Biome } from '../biomes';
 import { MAJOR_RIVER } from './habitat';
-import { GROWTH_A, capitalAt, populationAt, ruralCapacity } from './growth';
-import { fexp, keyed, subSeed } from './rand';
+import { capitalAt, populationAt, ruralCapacity } from './growth';
+import { keyed, subSeed } from './rand';
 import { Ev, type CivSim } from './sim';
 import { grantSail, polityModelOf, type PolityModel } from './polities';
 import { FOCUS_DOWN, FOCUS_MOB, FOCUS_UP, focusIndex, segAt, type PolicySeg } from './policy';
@@ -338,6 +338,13 @@ export interface DevModel {
   /** 中央管到什么程度的快照(control.ts 每步存一份,见 Development.control) */
   control: Uint8Array[];
   controlYears: Year[];
+  /** 各州乡村人口上限的底子(不乘生产能力的倍数;用到时算一次) */
+  ruralBase: Float64Array | null;
+  /** 乡村人口的快照(population.ts 每 RURAL_SNAP 年存一份,见 Development.rural) */
+  rural: Float32Array[];
+  ruralYears: Year[];
+  /** 乡村人口此刻的表、上一步算到哪一年(population.ts 挂上) */
+  ruralNow?: () => { year: Year; data: Float64Array };
   /** 存档时一并存下的政局数表(control.ts 挂上) */
   saveTables?: () => TablesState;
   /** 算发展度的数表(挂到推演上时建好,见 devEngine) */
@@ -395,6 +402,9 @@ function emptyDev(world: World, pm: PolityModel, seed: number, habitat: Civ['hab
     snapYears: [],
     control: [],
     controlYears: [],
+    ruralBase: null,
+    rural: [],
+    ruralYears: [],
   };
 }
 
@@ -460,6 +470,14 @@ export function resumeDevelopment(sim: CivSim, world: World, civ: Civ): void {
       d.control = dev.control.map((x) => padTo(x, R));
       d.controlYears = dev.controlYears.slice();
     }
+    // 乡村人口:结束那年补的那份(不在整 RURAL_SNAP 年上)去掉
+    if (dev.rural && dev.ruralYears) {
+      dev.ruralYears.forEach((y, i) => {
+        if (y % RURAL_SNAP) return;
+        d.rural.push(padTo32(dev.rural![i], R));
+        d.ruralYears.push(y);
+      });
+    }
     pm.military = st.military.slice();
   } else {
     // 没存状态:从下一个整 STEP 年起算,史事从现在起读
@@ -484,6 +502,13 @@ export function resumeDevelopment(sim: CivSim, world: World, civ: Civ): void {
 function padTo(a: Uint8Array, n: number): Uint8Array {
   if (a.length >= n) return a.slice();
   const b = new Uint8Array(n);
+  b.set(a);
+  return b;
+}
+
+function padTo32(a: Float32Array, n: number): Float32Array {
+  if (a.length >= n) return a.slice();
+  const b = new Float32Array(n);
   b.set(a);
   return b;
 }
@@ -572,27 +597,37 @@ function cityIn(pm: PolityModel, r: number): Settlement | undefined {
   return s.ended === undefined ? s : undefined;
 }
 
-/** 州 r 第 y 年的乡村人口:和第一座城一起按 S 形曲线长(不算洗劫) */
-function ruralOf(d: DevModel, r: number, y: Year): number {
-  const f = d.firstCity[r];
-  const first = f >= 0 ? d.pm.settlements[f] : undefined;
-  return first && y >= first.founded ? (ruralCapacity(d.pm.terrain.regions, r) * d.capF[r]) / (1 + GROWTH_A * fexp(-first.growth * (y - first.founded))) : 0;
-}
+/** 乡村人口多久存一份快照(年;population.ts 存,界面按前后两份线性插值) */
+export const RURAL_SNAP = 10;
 
 /**
- * 各州第 y 年的乡村人口、城的人口(千人;钱粮用,control.ts),只算 owner[r] ≥ 0 的州(别的填 0)。
- * 先补看一遍新立的城(只补"各州第一座城",不改发展度)
+ * 乡村人口的两样输入(population.ts 每年填):各州乡村人口上限(千人;州的面积 × 宜居 × 随生产能力变的倍数,growth.ts 的 ruralCapacity)、
+ * 长得多快(这州第一座城的增长速度);这州还没建过城(或第一座城 y 年以后才建)= 0。先补看一遍新立的城
  */
-export function populationsAt(d: DevModel, y: Year, owner: ArrayLike<number>, rural: Float64Array, city: Float64Array): void {
+export function ruralTargets(d: DevModel, y: Year, cap: Float64Array, rate: Float64Array): void {
   seeCities(d);
+  const R = d.R;
+  if (!d.ruralBase) {
+    const reg = d.pm.terrain.regions;
+    d.ruralBase = new Float64Array(R);
+    for (let r = 0; r < R && r < reg.count; r++) d.ruralBase[r] = ruralCapacity(reg, r);
+  }
+  const base = d.ruralBase;
+  for (let r = 0; r < R; r++) {
+    const f = d.firstCity[r];
+    const first = f >= 0 ? d.pm.settlements[f] : undefined;
+    if (first && y >= first.founded) {
+      cap[r] = base[r] * d.capF[r];
+      rate[r] = first.growth;
+    } else cap[r] = rate[r] = 0;
+  }
+}
+
+/** 各州第 y 年城的人口(千人;钱粮用,control.ts),只算 owner[r] ≥ 0 的州(别的填 0) */
+export function cityPopulationsAt(d: DevModel, y: Year, owner: ArrayLike<number>, city: Float64Array): void {
   for (let r = 0; r < d.R; r++) {
-    if (owner[r] < 0) {
-      city[r] = rural[r] = 0;
-      continue;
-    }
-    const s = cityIn(d.pm, r);
+    const s = owner[r] >= 0 ? cityIn(d.pm, r) : undefined;
     city[r] = s ? populationAt(s, y) : 0;
-    rural[r] = ruralOf(d, r, y);
   }
 }
 
@@ -601,11 +636,13 @@ function refreshRoads(d: DevModel, y: Year, sim: CivSim) {
   const pm = d.pm;
   const ownC = sim.owners[Layer.Culture];
   const ownP = sim.owners[Layer.Polity];
+  // 乡村人口读 population.ts 的表(这一年那张表还没算:读上一年的)
+  const rural = d.ruralNow?.().data;
   for (let r = 0; r < d.R; r++) {
     if (ownC[r] < 0) continue;
     const s = cityIn(pm, r);
     const cityPop = s ? populationAt(s, y) : 0;
-    const pop = cityPop + ruralOf(d, r, y);
+    const pop = cityPop + (rural && r < rural.length ? rural[r] : 0);
     d.pop[r] = pop / (pop + POP_HALF);
     d.city[r] = cityPop / (cityPop + CITY_HALF);
     d.road[r] = ownP[r] >= 0 && cityPop >= TOWN ? 1 : 0;
@@ -1035,7 +1072,16 @@ export function finishDevelopment(sim: CivSim, endYear: Year): Development | und
     ...(d.saveTables ? { tables: d.saveTables() } : {}),
   };
   const control = d.controlYears.length ? { control: d.control.slice(), controlYears: d.controlYears.slice() } : {};
-  return { resources: d.resources.slice(), found: d.found.slice(), avail, snaps, snapYears, events, state, ...control };
+  // 乡村人口:最后一份不是最后一步算的那年的,补一份那一步的(不在整 RURAL_SNAP 年上;接着推时去掉)
+  const rural = d.rural.slice();
+  const ruralYears = d.ruralYears.slice();
+  const now = d.ruralNow?.();
+  if (now && now.year > -Infinity && !(ruralYears.length && ruralYears[ruralYears.length - 1] >= now.year)) {
+    rural.push(Float32Array.from(now.data));
+    ruralYears.push(now.year);
+  }
+  const pop = ruralYears.length ? { rural, ruralYears } : {};
+  return { resources: d.resources.slice(), found: d.found.slice(), avail, snaps, snapYears, events, state, ...control, ...pop };
 }
 
 /**

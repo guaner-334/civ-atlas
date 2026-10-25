@@ -9,8 +9,10 @@
  *   建城那年人口约是上限的 1/41(几百到几千人的村子);国都的上限再高 CAPITAL_BOOST,在 CAPITAL_RAMP 年里渐渐加上去。
  *   上限还随所在州的生产能力变(Settlement.devCap,发展度推演里每 20 年看一次):石器时代的城小,铁器、中古以后大(devFactorAt)。
  *
- * **州的人口**(regionPopulationAt)= 治所的城 + 乡村。乡村不另存,按州现算(ruralPopulationAt):上限 = 面积 × 每平方公里能养活的人数
- * (按州的平均宜居分,RURAL_*),和州里第一座城一起按同样的 S 形曲线长,城被洗劫 / 被毁时跟着折损一部分。国家的人口 = 境内各州相加。
+ * **州的人口**(regionPopulationAt)= 治所的城 + 乡村。乡村人口是推演里的一张数表(population.ts:会搬家、逃兵灾,死伤后慢慢长回来),
+ * 每 10 年存一份(Civ.development.rural),ruralPopulationAt 按前后两份线性插值;上限 = 面积 × 每平方公里能养活的人数
+ * (按州的平均宜居分,RURAL_*)。旧版本的历史没存,照原来的写法现算:和州里第一座城一起按同样的 S 形曲线长,城被洗劫 / 被毁时跟着折损一部分。
+ * 国家的人口 = 境内各州相加。
  * 城里的人一般占州里的几个百分点;推演(战争的国力、立国、迁都)仍只看城的人口。
  *
  * **城市兴衰**(阶段 3,cities.ts):洗劫后人口大减、之后慢慢恢复(Settlement.sacks);迁都 / 亡国后旧都的国都加成慢慢退掉
@@ -323,12 +325,41 @@ function regionsAt(civ: Pick<Civ, 'regions' | 'eras'>, year: Year): Regions {
   return civ.regions;
 }
 
+/** 算州的人口要用到的(development 没有 = 旧版本的历史,乡村照 S 形曲线现算) */
+export type PopulationCiv = Pick<Civ, 'regions' | 'eras' | 'settlements'> & Partial<Pick<Civ, 'development'>>;
+
 /**
  * 州 r 在第 year 年的乡村人口(千人);这州还没建过城 = 0。
- * 从这州第一次建城那年起,和那座城一样按 S 形曲线长到乡村人口上限(ruralCapacity,按那一段地形里的州算;和城一样乘上随生产能力变的倍数);
- * 州里的城每被洗劫一次、被毁一次,乡村折损城里那一成的 RURAL_WAR,之后按 SACK_RECOVER 慢慢恢复。城毁了乡下的人还在
+ * 推演里存了快照的(Civ.development.rural,每 10 年一份):按前后两份线性插值,最后一份以后照最后一份。
+ * 没存的(旧版本的历史)现算:从这州第一次建城那年起,和那座城一样按 S 形曲线长到乡村人口上限(ruralCapacity,按那一段地形里的州算;
+ * 和城一样乘上随生产能力变的倍数);州里的城每被洗劫一次、被毁一次,乡村折损城里那一成的 RURAL_WAR,之后按 SACK_RECOVER 慢慢恢复。城毁了乡下的人还在
  */
-export function ruralPopulationAt(civ: Pick<Civ, 'regions' | 'eras' | 'settlements'>, r: number, year: Year): number {
+export function ruralPopulationAt(civ: PopulationCiv, r: number, year: Year): number {
+  const snaps = civ.development?.rural;
+  const ys = civ.development?.ruralYears;
+  if (snaps?.length && ys?.length === snaps.length) return snapRural(snaps, ys, r, year);
+  return ruralFormula(civ, r, year);
+}
+
+/** 快照里州 r 第 year 年的乡村人口(前后两份线性插值;第一份以前 = 0,最后一份以后照最后一份) */
+function snapRural(snaps: readonly Float32Array[], ys: readonly Year[], r: number, year: Year): number {
+  if (!(year >= ys[0])) return 0;
+  let lo = 0;
+  let hi = ys.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (ys[mid] <= year) lo = mid + 1;
+    else hi = mid;
+  }
+  const i = lo - 1;
+  const a = r < snaps[i].length ? snaps[i][r] : 0;
+  if (i + 1 >= ys.length) return a;
+  const b = r < snaps[i + 1].length ? snaps[i + 1][r] : 0;
+  return a + ((b - a) * (year - ys[i])) / (ys[i + 1] - ys[i]);
+}
+
+/** 旧版本的历史:乡村人口照 S 形曲线现算(见 ruralPopulationAt) */
+function ruralFormula(civ: Pick<Civ, 'regions' | 'eras' | 'settlements'>, r: number, year: Year): number {
   const chain = regionCities(civ.settlements, r);
   const first = chain[0];
   if (!first || !(year >= first.founded)) return 0;
@@ -367,7 +398,7 @@ export function regionCityAt(civ: Pick<Civ, 'settlements'>, r: number, year: Yea
  * 州 r 在第 year 年的总人口(千人)= 治所的城(populationAt)+ 乡村(ruralPopulationAt)。
  * 面板上州、国家的"人口"都按它算(国家 = 境内各州相加);城自己的人口仍是 populationAt
  */
-export function regionPopulationAt(civ: Pick<Civ, 'regions' | 'eras' | 'settlements'>, r: number, year: Year): number {
+export function regionPopulationAt(civ: PopulationCiv, r: number, year: Year): number {
   const s = regionCityAt(civ, r, year);
   return (s ? populationAt(s, year) : 0) + ruralPopulationAt(civ, r, year);
 }

@@ -185,9 +185,9 @@ describe('人物页 · 几处写法', () => {
     expect(k).toBeLessThan(3);
     expect(hits[k]).toMatchObject({ kind: 'person', id: x!.id, name: '宣宗楚溟', sub: '大渊皇帝，2281–2328' });
     for (const h of hits.slice(0, k)) expect(famousPeople(civ).some((f) => h.kind === 'person' && f.id === h.id)).toBe(true);
-    // 编年史里写他即位的那条:"大渊成宗崩……其孙楚溟即位,是为宣宗,时年 10 岁,丞相裴夜羽辅政" —— 前一位连国名一起切、他和辅政的丞相切名字
+    // 编年史里写他即位的那条:"大渊景宗崩……其孙楚溟即位,是为宣宗,……丞相柳瑶沧辅政" —— 前一位连国名一起切、他和辅政的丞相切名字
     const e = reignEntries(civ).find((r) => r.people?.[1] === x!.id)!;
     const ms = personMentions(civ, e.text, e.people, -1, e.year).filter((m) => m.person !== undefined);
-    expect(ms.map((m) => m.text)).toEqual(['大渊成宗', '楚溟', '裴夜羽']);
+    expect(ms.map((m) => m.text)).toEqual(['大渊景宗', '楚溟', '柳瑶沧']);
   });
 });

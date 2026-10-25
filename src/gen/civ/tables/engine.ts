@@ -453,11 +453,14 @@ export class TableEngine {
     t.cur.set(values);
   }
 
-  /** 接着别处存的状态算:上一步算到第 last 年(start、set 之后调;下一步各表的 dt 从 last 算起) */
+  /**
+   * 接着别处存的状态算:上一步算到第 last 年(start、set 之后调)。下一步各表的 dt 从各自最后一次该算的那年算起
+   * (不晚于 last、是自己频率整数倍的那一年:几年一算的表,last 那年不一定轮到它)
+   */
   resume(last: number): void {
     if (!this.started) throw new Error('先 start 再 resume');
     this.lastStep = last;
-    for (const t of this.order) if (t.computed) t.last = last;
+    for (const t of this.order) if (t.computed) t.last = lastDue(t.card.every ?? 1, last);
     for (const a of this.accs) {
       a.data.fill(0);
       a.from = a.at = last;
@@ -891,6 +894,12 @@ interface Bad {
 }
 
 /** year 是不是 every 的整数倍(按半年一格算,避开小数) */
+/** 不晚于 year、是 every 整数倍的最后一年(年份按半年算) */
+function lastDue(every: number, year: number): number {
+  const e = Math.round(every * 2);
+  return (Math.floor(Math.round(year * 2) / e) * e) / 2;
+}
+
 function isDue(every: number, year: number): boolean {
   const e = Math.round(every * 2);
   const y = Math.round(year * 2);
