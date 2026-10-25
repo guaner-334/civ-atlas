@@ -380,6 +380,17 @@ describe('两种跑法逐位一样', () => {
     for (const c of cards) expect(Array.from(b.get(c.id))).toEqual(Array.from(a.get(c.id)));
     expect(a.incidents).toEqual([]);
   });
+  it('搬家、限每年变多少的表:先搬、先限,再压上下限,两种跑法一样', () => {
+    const cards: TableCard[] = [
+      { id: 'x', name: '满了还搬', unit: 'region', min: 0, max: 10, off: 0, init: 5, rule: 'x + dt * if(meanof(hab) > 20, 10, 0)', move: '5' },
+      { id: 'y', name: '限速', unit: 'tile', min: 0, max: 3, maxRate: 0.5, off: 0, init: 'if(hab > 20, 2.8, 0)', rate: 'hab' },
+    ];
+    for (const years of [yearsTo(1), yearsTo(30)]) {
+      const a = run(cards, years, 'js');
+      const b = run(cards, years, 'closure');
+      for (const c of cards) expect(Array.from(a.get(c.id))).toEqual(Array.from(b.get(c.id)));
+    }
+  });
   it('多栏表每栏一条、if 里套邻格函数、after 和 prev 混着读:两种跑法也一样', () => {
     const many: TableCard[] = [
       { ...pop },

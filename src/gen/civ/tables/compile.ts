@@ -628,7 +628,7 @@ export interface Frame {
  *   (rule 和 rate 合起来:新值 = rule(没有就是旧值)+ dt × rate)
  * - edge:对 [lo, hi) 里每一格的每条邻边 k,写 out[k] = move 的值(还没乘 dt、没压到 ≥ 0)
  * 拼函数的格子核写的时候顺手压到卡上的上下限里,返回第一个算出不是数(NaN、无穷大)的位置(格 × stride + 栏;没有 = −1),
- * 引擎就不用再走一遍(CardKernels.clamps);闭包的不压,返回 −1,由引擎查
+ * 引擎就不用再走一遍(CardKernels.clamps;要搬家、限每年变多少的表不压,由引擎搬完再压);闭包的不压,返回 −1,由引擎查
  */
 export type CellKernel = (f: Frame, lo: number, hi: number, col: number, out: Float64Array, stride: number, mask: Uint8Array | null) => number;
 
@@ -685,10 +685,15 @@ export function buildKernels(code: CardCode, backend: Backend): CardKernels {
   return {
     cell,
     group,
-    clamps: backend === 'js',
+    clamps: backend === 'js' && kernelClamps(code),
     move: code.move ? make(code, { move: code.move }) : null,
     init: code.init ? make(code, { rule: code.init }) : null,
   };
+}
+
+/** 拼函数的格子核写的时候压不压上下限(见 jsKernel 的 store) */
+function kernelClamps(code: CardCode): boolean {
+  return !code.move && code.card.maxRate === undefined;
 }
 
 /** 式子里用没用到 slots 里的中间量 */
@@ -1131,8 +1136,12 @@ function jsKernel(code: CardCode, parts: Parts): CellKernel {
   };
   const n = code.card.unit;
   const stride = 'stride';
-  /** 写一格:先查是不是数(记下第一处),再压到上下限里(和引擎的护栏一样的比法) */
+  /**
+   * 写一格:先查是不是数(记下第一处),再压到上下限里(和引擎的护栏一样的比法)。
+   * 要搬家、限每年变多少的表不在这里压:搬家读的是没压过的新值,压上下限要等搬完、限过变多少以后由引擎做
+   */
   const store = (at: string, v: string): string[] => {
+    if (!kernelClamps(code)) return [`out[${at}] = ${v};`];
     const w = fresh('w');
     const x = fresh('x');
     const lo = numLit(code.card.min);
