@@ -17,6 +17,7 @@ name: 发布正式网站
 # 以上是 Secrets。另有两个 Variable(不是密钥,构建后本来就写在网页里):
 # - VITE_AI_SERVER:账号服务器地址。不配 = 构建出的网站没有登录、云同步、短链接(见 src/account/server.ts)
 # - ICP_BEIAN:网站备案号,挂在页面底部(仓库变量,测试网站、旧版网站的发布也用;见 src/ui/beian.ts)。不配 = 不挂
+# - ICP_BEIAN_SHOW:备案号的总开关,设成 1 才把 ICP_BEIAN 挂上;不设 = 哪里都不显示
 on:
   workflow_dispatch:
     inputs:
@@ -117,7 +118,7 @@ jobs:
       - name: 生产构建
         env:
           VITE_AI_SERVER: ${{ vars.VITE_AI_SERVER }}
-          ICP_BEIAN: ${{ vars.ICP_BEIAN }}
+          ICP_BEIAN: ${{ vars.ICP_BEIAN_SHOW == '1' && vars.ICP_BEIAN || '' }}
         run: pnpm build
       - name: 准备 SSH
         env:
