@@ -19,6 +19,7 @@ import {
   layerParts,
   layerShow,
   mapViewFromUrl,
+  paintLook,
   writeMapView,
   type FillId,
 } from '../src/ui/mapLayers';
@@ -93,11 +94,19 @@ describe('底图 × 填色', () => {
     expect(baseLook('satellite', 'classic')).toEqual({ style: 'realistic', look: 'classic' });
     expect(baseLook('geo', 'classic')).toEqual({ style: 'realistic', look: 'geo' });
   });
-  it('名字、深色界面、缩略图:卫星按画法写「经典卫星」或「卫星」;白模浅色,卫星、地理图深色', () => {
+  it('地理图叠了国家 / 民族 / 信仰 / 时代颜色时铺褪色的那一份,不填时全彩;别的底图不管填色', () => {
+    expect(paintLook('geo', 'none')).toBe('geo');
+    for (const f of ['polities', 'cultures', 'faiths', 'eras'] as const) expect(paintLook('geo', f)).toBe('geoMute');
+    expect(paintLook('detail', 'polities')).toBe('detail');
+    expect(paintLook('blank', 'polities')).toBe('blank');
+    // 褪色的那一份在界面上还是地理图
+    expect(baseOf('realistic', 'biomes', 'geoMute')).toBe('geo');
+  });
+  it('名字、深色界面、缩略图:卫星按画法写「经典卫星」或「卫星」;地理图、白模浅色,卫星深色', () => {
     expect(baseName('satellite', 'classic')).toBe('经典卫星');
     expect(baseName('satellite', 'detail')).toBe('卫星');
     expect(baseName('elevation', 'detail')).toBe('高程');
-    expect([baseDark('satellite'), baseDark('geo'), baseDark('blank'), baseDark('fantasy'), baseDark('elevation'), baseDark('plates')]).toEqual([true, true, false, false, true, false]);
+    expect([baseDark('satellite'), baseDark('geo'), baseDark('blank'), baseDark('fantasy'), baseDark('elevation'), baseDark('plates')]).toEqual([true, false, false, false, true, false]);
     expect(baseThumb('satellite', 'classic')).toBe('realistic');
     expect(baseThumb('satellite', 'detail')).toBe('realistic:detail');
     expect(baseName('satellite', 'simple')).toBe('简化卫星');
@@ -407,5 +416,25 @@ describe('地图飞过去的进度', () => {
     const first = at!(easeOutCubic(animProgress(1000 - 1800, 1000, FLY_MS)));
     expect(first.k).toBeCloseTo(3, 6);
     expect(at!(easeOutCubic(animProgress(1000 + FLY_MS, 1000, FLY_MS))).k).toBeCloseTo(1, 6);
+  });
+});
+
+describe('地理图的海拔色标', () => {
+  it('一档一档和地图上的层色一样多,刻度落在档与档的分界上', async () => {
+    const { atlasLegend } = await import('../src/render/dataLegend');
+    const { ATLAS_SEA, HYPSO } = await import('../src/render/atlasColors');
+    const l = atlasLegend();
+    expect(l.colors.length).toBe(ATLAS_SEA.length + HYPSO.length);
+    // 板子上的位置:16 档里 −6000 在第 1 档左边、0 在第 8 档左边、5000 在第 15 档左边
+    expect(l.ticks.map((t) => [t.label, t.at])).toEqual([
+      ['−6000', 1],
+      ['−3000', 4],
+      ['−1000', 6],
+      ['0', 8],
+      ['500', 10],
+      ['2000', 12],
+      ['5000', 15],
+    ]);
+    expect(l.phoneTicks.map((t) => t.label)).toEqual(['−3000', '0', '2000', '5000 米']);
   });
 });

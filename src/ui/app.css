@@ -1422,6 +1422,61 @@ button.primary:hover {
 .gradient {
   width: 300px;
 }
+/* 地理图的海拔色标:一档一档的层色(手机上缩成一条,只留几个刻度) */
+.legend.atlas.phone {
+  padding: 6px 8px;
+  font-size: 11px;
+}
+.bands {
+  width: 336px;
+}
+.legend.phone .bands {
+  width: 192px;
+}
+.bands .bar {
+  display: flex;
+  height: 10px;
+  border-radius: 3px;
+  overflow: hidden;
+}
+.legend.phone .bands .bar {
+  height: 8px;
+}
+.legend .bands .bar i {
+  flex: 1;
+  width: auto;
+  height: auto;
+  border-radius: 0;
+}
+.bands .ticks {
+  position: relative;
+  height: 16px;
+  font-size: 10px;
+  color: var(--muted);
+}
+.legend.phone .bands .ticks {
+  height: 14px;
+  font-size: 9.5px;
+}
+.bands .ticks span {
+  position: absolute;
+  transform: translateX(-50%);
+  top: 2px;
+  white-space: nowrap;
+}
+.legend .bands .keys {
+  gap: 4px 14px;
+  margin-top: 4px;
+  color: var(--ink-2);
+}
+.legend .bands .keys i {
+  box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.2);
+}
+.legend .bands .keys i.line {
+  height: 3px;
+  border-radius: 1px;
+  box-shadow: none;
+}
 .gradient .bar {
   height: 10px;
   border-radius: 3px;

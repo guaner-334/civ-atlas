@@ -39,6 +39,7 @@ import { boxOfCols, boxSpans, growBox, unionBox, type PixelBox } from '../gen/pi
 import { WINDOW_PAD } from '../gen/rasterWindow';
 import { cutRaster } from '../gen/rasterPatch';
 import type { SurfaceLook } from './surface';
+import { ATLAS_RIVER, ATLAS_SEA, ATLAS_SEA_EDGES, HYPSO, HYPSO_ARID, HYPSO_EDGES, HYPSO_SNOW, STIPPLE } from './atlasColors';
 
 /**
  * 海的颜色(按海底深度):0 ~ −200 米是大陆架(浅、亮),过了坡折很快变深;
@@ -57,28 +58,6 @@ const OCEAN_CLASSIC: [number, RGB][] = [
   [-100, hexRGB('#3b8ab3')],
   [0, hexRGB('#4a99ba')],
 ];
-/** 细节卫星:深海连成一片安静的深蓝,只在大陆架那一窄条变浅 */
-const OCEAN_DETAIL: [number, RGB][] = [
-  [-7000, hexRGB('#06173a')],
-  [-3000, hexRGB('#0a2149')],
-  [-1200, hexRGB('#0d2952')],
-  [-400, hexRGB('#123462')],
-  [-200, hexRGB('#123667')],
-  [-60, hexRGB('#1a4a7c')],
-  [-15, hexRGB('#26618f')],
-  [0, hexRGB('#2f6f9a')],
-];
-/** 地理图:海盆、洋中脊、大陆架分得清,整体更亮、对比低 */
-const OCEAN_GEO: [number, RGB][] = [
-  [-7000, hexRGB('#2a5b8a')],
-  [-5000, hexRGB('#2f6291')],
-  [-3800, hexRGB('#336896')],
-  [-2600, hexRGB('#3b74a2')],
-  [-1500, hexRGB('#4881ad')],
-  [-600, hexRGB('#5a91ba')],
-  [-200, hexRGB('#6fa3c7')],
-  [0, hexRGB('#86b5d3')],
-];
 /** 简化卫星:远洋一片深蓝,只在岸边很窄一条变浅 */
 const OCEAN_SIMPLE: [number, RGB][] = [
   [-7000, hexRGB('#0b2350')],
@@ -88,36 +67,6 @@ const OCEAN_SIMPLE: [number, RGB][] = [
   [-40, hexRGB('#1f4c80')],
   [0, hexRGB('#2c6593')],
 ];
-/** 简化卫星的群落底色:比卫星合成图亮、饱和一点的绿和米黄 */
-const SIMPLE_BIOMES: Partial<Record<Biome, string>> = {
-  [Biome.Tundra]: '#8c8a6a',
-  [Biome.Taiga]: '#3f6236',
-  [Biome.ColdDesert]: '#b9a77f',
-  [Biome.TemperateDesert]: '#d6c08f',
-  [Biome.Steppe]: '#a8a465',
-  [Biome.TemperateForest]: '#4f7a37',
-  [Biome.TemperateRainforest]: '#3d6b33',
-  [Biome.HotDesert]: '#e0c891',
-  [Biome.Savanna]: '#a59b55',
-  [Biome.TropicalDryForest]: '#6d8a3c',
-  [Biome.Rainforest]: '#336a2c',
-  [Biome.Wetland]: '#4e7448',
-};
-/** 地理图的群落底色:地图上常用的环境色(森林绿、草原黄绿、荒漠浅褐),没列的照 BIOMES[].real */
-const GEO_BIOMES: Partial<Record<Biome, string>> = {
-  [Biome.Tundra]: '#a9a88c',
-  [Biome.Taiga]: '#557a57',
-  [Biome.ColdDesert]: '#c2b597',
-  [Biome.TemperateDesert]: '#dcc89c',
-  [Biome.Steppe]: '#c2bf84',
-  [Biome.TemperateForest]: '#6d9558',
-  [Biome.TemperateRainforest]: '#4f8257',
-  [Biome.HotDesert]: '#e8d09e',
-  [Biome.Savanna]: '#cbbd78',
-  [Biome.TropicalDryForest]: '#93a65c',
-  [Biome.Rainforest]: '#427a45',
-  [Biome.Wetland]: '#6e8d6a',
-};
 
 /** 一种画法的全部参数(见 surface.ts);各项的意思见用到它的地方 */
 interface Material {
@@ -159,6 +108,22 @@ interface Material {
   veinK?: number;
   /** 白模:海陆平涂的几种颜色(不打光);null = 照常画 */
   flat: { sea: RGB; shelf: RGB; land: RGB; ice: RGB } | null;
+  /** 陆地怎么上色:biome = 群落调色板(默认);photo = 按植被覆盖度连续上色(卫星照片);hypso = 按海拔分层设色(地图册) */
+  model?: 'biome' | 'photo' | 'hypso';
+  /** 暗面往天空冷色里混多少(默认 SHADOW_COOL;地图册的晕渲是中性灰,= 0) */
+  cool?: number;
+  /** 海岸描一圈线(水那一侧):颜色和浓淡 */
+  coast?: [RGB, number];
+  /** 分层设色的层间描一条细线(浓淡,0 = 不描) */
+  bandLine?: number;
+  /** 荒漠画点状符号(地图册的沙漠符号) */
+  stipple?: boolean;
+  /** 浅暖海(珊瑚礁、浅滩)泛青绿 */
+  reef?: boolean;
+  /** 干旱地方的河岸那一窄条按湿润的颜色画:乘这么多(默认 1;0 = 不画) */
+  ripK?: number;
+  /** 分层设色褪色多少(0–1;叠国家等填色时用,留明暗和层次,颜色让给填色) */
+  mute?: number;
 }
 
 const CLASSIC: Material = {
@@ -192,65 +157,142 @@ const CLASSIC: Material = {
   flat: null,
 };
 
+/** 卫星(细节):远洋一片深蓝,大陆架窄窄一条渐浅(浅暖海另外泛青绿,见 Material.reef) */
+const OCEAN_PHOTO: [number, RGB][] = [
+  [-7000, hexRGB('#06183a')],
+  [-3000, hexRGB('#091f45')],
+  [-1000, hexRGB('#0b244d')],
+  [-200, hexRGB('#0f2d5a')],
+  [-80, hexRGB('#153f6e')],
+  [-30, hexRGB('#1d5683')],
+  [-10, hexRGB('#286c93')],
+  [0, hexRGB('#357d9c')],
+];
+/** 浅暖海(珊瑚礁、浅滩)的青绿 */
+const REEF_C = hexRGB('#3fa3ac');
+/** 地理图:海按深度分层设色(每层一个颜色,层与层之间 5 米过渡) */
+const OCEAN_ATLAS: [number, RGB][] = ATLAS_SEA.flatMap((c, i): [number, RGB][] => {
+  const lo = i === 0 ? -7000 : ATLAS_SEA_EDGES[i - 1] + 5;
+  const hi = i < ATLAS_SEA_EDGES.length ? ATLAS_SEA_EDGES[i] : 0;
+  return [
+    [lo, c],
+    [hi, c],
+  ];
+});
+
+/** 卫星照片的几种地面颜色:浓密植被(热带 / 温带 / 寒带)、草地(暖 / 冷)、裸地(沙、红褐岩、寒漠) */
+const PH_FOREST_TROP = hexRGB('#1f3f18');
+const PH_FOREST_TEMP = hexRGB('#2d4821');
+const PH_FOREST_BOREAL = hexRGB('#25362a');
+const PH_GRASS = hexRGB('#76703f');
+const PH_GRASS_COLD = hexRGB('#62604a');
+const PH_SAND = hexRGB('#d3b07e');
+const PH_SAND_RED = hexRGB('#a98761');
+const PH_SOIL_COLD = hexRGB('#8e8169');
+
+/**
+ * 卫星照片的地面颜色:先按 降水 ÷ 蒸发能力(随气温升高)算植被覆盖度(0–1),在 裸地 → 草地 → 森林 之间连续插值,
+ * 群落不再一类一色;冷的地方植被压低(冻原、寒漠);裸地按大片的岩性纹理(rough,约 −1 ~ 1)分出几块红褐岩漠。
+ * b = 0.5 上下的深浅(纹理、凹凸)
+ */
+function photoColor(t: number, p: number, b: number, rough: number, out: RGB) {
+  const pet = Math.max(260, 360 + 55 * t);
+  const fv = smoothstep(0.1, 0.95, p / pet) * smoothstep(-13, 1, t);
+  const kg = smoothstep(0.02, 0.45, fv);
+  const kf = smoothstep(0.4, 0.95, fv);
+  const kt = t > 12 ? smoothstep(14, 23, t) : smoothstep(-3, 9, t);
+  const kc = smoothstep(-6, 10, t);
+  const kr = smoothstep(-0.8, -0.35, rough);
+  const kb = smoothstep(-2, 12, t);
+  const f0 = t > 12 ? PH_FOREST_TEMP : PH_FOREST_BOREAL;
+  const f1 = t > 12 ? PH_FOREST_TROP : PH_FOREST_TEMP;
+  const k = 0.8 + 0.4 * b;
+  for (let i = 0; i < 3; i++) {
+    const forest = f0[i] + (f1[i] - f0[i]) * kt;
+    const grass = PH_GRASS_COLD[i] + (PH_GRASS[i] - PH_GRASS_COLD[i]) * kc;
+    const warm = PH_SAND_RED[i] + (PH_SAND[i] - PH_SAND_RED[i]) * kr;
+    const bare = PH_SOIL_COLD[i] + (warm - PH_SOIL_COLD[i]) * kb;
+    const c = bare + (grass - bare) * kg;
+    out[i] = (c + (forest - c) * kf) * k;
+  }
+}
+/** 分层设色:海拔 e 在第几层(HYPSO_EDGES) */
+function hypsoBand(e: number): number {
+  let i = 0;
+  while (i < HYPSO_EDGES.length && e >= HYPSO_EDGES[i]) i++;
+  return i;
+}
+
+// 地理图:地图册的画法 —— 陆地按海拔分层设色(低处按干湿混沙黄)+ 中性灰晕渲,海按深度分层,海岸描线,荒漠打点,河蓝而多
+const GEO: Material = {
+  ...CLASSIC,
+  model: 'hypso',
+  cool: 0,
+  coast: [hexRGB('#3f6f98'), 0.7],
+  bandLine: 0.1,
+  stipple: true,
+  ocean: OCEAN_ATLAS,
+  rock: hexRGB('#a08a76'),
+  rockE0: 9000,
+  rockE1: 9001,
+  rockEW: 0,
+  lake: hexRGB('#b4daee'),
+  river: { color: ATLAS_RIVER, minW: 0.55, growW: 1.9, bank: 'rgba(0, 0, 0, 0)' },
+  riverFlux: [0.7, 0.9],
+  detailW: 0.8,
+  macroW: 0.55,
+  seaRelief: 0.14,
+  shadowDepth: 0.42,
+  detailFlat: 0.3,
+  soft0: 0.005,
+  soft1: 0.08,
+  snowFlat: 0.8,
+  texAmpWet: 0,
+  texAmpDry: 0,
+  texCav: 0,
+  valleyDark: 0,
+  veinK: 0,
+};
+
 const MATERIALS: Record<SurfaceLook, Material> = {
   classic: CLASSIC,
-  // 细节卫星:细节晕渲加重、大尺度晕渲减轻(山脉背光面不出大暗块),平原的细节不压平,纹理、群落斑块更强,高原不一律刷成灰岩
+  // 卫星(细节):照片的颜色 —— 植被覆盖度连续上色(沙黄 → 草地 → 深林),海面安静、浅暖海泛青绿,起伏轻,只画大河
   detail: {
     ...CLASSIC,
-    ocean: OCEAN_DETAIL,
-    rock: hexRGB('#857868'),
+    model: 'photo',
+    reef: true,
+    ocean: OCEAN_PHOTO,
+    rock: hexRGB('#7b7062'),
     rockE0: 2600,
     rockE1: 4800,
     rockEW: 0.5,
-    lake: hexRGB('#22609a'),
-    river: { ...CLASSIC.river, color: 'rgb(34, 86, 108)', minW: 0.5, growW: 1.8 },
-    detailW: 1.25,
-    macroW: 0.32,
-    seaRelief: 0.12,
-    shadowDepth: 0.4,
-    detailFlat: 0.4,
+    lake: hexRGB('#16426e'),
+    river: { ...CLASSIC.river, color: 'rgb(28, 64, 92)', minW: 0.45, growW: 1.6, bank: 'rgba(22, 40, 30, 0.2)' },
+    riverFlux: [2.4, 1.4],
+    detailW: 1.0,
+    macroW: 0.3,
+    seaRelief: 0.04,
+    shadowDepth: 0.36,
+    detailFlat: 0.35,
     soft0: 0.005,
     soft1: 0.08,
-    snowFlat: 0.55,
-    texAmpWet: 0.3,
-    texAmpDry: 0.44,
-    texGeo: 0.8,
-    texFine: 0.38,
-    texStreak: 0.2,
-    geoSharp: 7,
-    texCav: 0.2,
-    ecoP: 0.22,
-    valleyDark: 0.2,
-  },
-  // 地理图:海底起伏留着(看得出洋中脊),陆地按植被分区、色带压扁,暗面浅,河多一些、粗一些
-  geo: {
-    ...CLASSIC,
-    ocean: OCEAN_GEO,
-    rock: hexRGB('#a99d8b'),
-    rockE0: 2600,
-    rockE1: 4800,
-    rockEW: 0.5,
-    lake: hexRGB('#5b93bf'),
-    river: { ...CLASSIC.river, color: 'rgb(46, 110, 178)', minW: 0.7, growW: 2.4 },
-    riverFlux: [0.8, 1],
-    detailW: 1.15,
-    macroW: 0.42,
-    seaRelief: 0.55,
-    shadowDepth: 0.34,
-    detailFlat: 0.3,
-    soft0: 0.008,
-    soft1: 0.1,
-    snowFlat: 0.55,
-    biomes: GEO_BIOMES,
-    rampSquash: 0.8,
-    texAmpDry: 0.3,
-    texFine: 0.28,
-    texStreak: 0.15,
+    snowFlat: 0.75,
+    cool: 0.3,
+    texAmpWet: 0.26,
+    texAmpDry: 0.4,
+    texGeo: 0.75,
+    texFine: 0.34,
+    texStreak: 0.18,
     geoSharp: 6,
     texCav: 0.16,
     ecoP: 0.2,
-    valleyDark: 0.16,
+    valleyDark: 0.14,
+    veinK: 0.6,
+    ripK: 0.5,
   },
+  geo: GEO,
+  // 地理图叠国家 / 民族 / 信仰 / 时代颜色时:同一套,陆地的层色褪掉七成(留明暗和层次,颜色让给填色)
+  geoMute: { ...GEO, mute: 0.7 },
   // 白模:不打光,只画大河(浅蓝细线)
   blank: {
     ...CLASSIC,
@@ -261,9 +303,11 @@ const MATERIALS: Record<SurfaceLook, Material> = {
     seaRelief: 0,
     flat: { sea: hexRGB('#c6dbea'), shelf: hexRGB('#d6e6f1'), land: hexRGB('#efece4'), ice: hexRGB('#fbfcfd') },
   },
-  // 简化卫星:颜色大片连续过渡(调色板模糊得更宽、色带深浅压扁)、纹理很轻、起伏淡、海面安静、雪平、只画大河
+  // 简化卫星:和细节同一套照片的颜色,纹理很轻、起伏淡、海面安静、雪平、河更少
   simple: {
     ...CLASSIC,
+    model: 'photo',
+    reef: true,
     ocean: OCEAN_SIMPLE,
     rock: hexRGB('#9a8a74'),
     rockE0: 2800,
@@ -273,6 +317,7 @@ const MATERIALS: Record<SurfaceLook, Material> = {
     river: { ...CLASSIC.river, color: 'rgb(38, 82, 120)', minW: 0.45, growW: 1.5 },
     riverFlux: [3, 1.6],
     veinK: 0,
+    ripK: 0.5,
     detailW: 0.5,
     macroW: 0.3,
     seaRelief: 0.05,
@@ -281,9 +326,6 @@ const MATERIALS: Record<SurfaceLook, Material> = {
     soft0: 0.02,
     soft1: 0.14,
     snowFlat: 0.85,
-    biomes: SIMPLE_BIOMES,
-    rampSquash: 0.35,
-    paletteBlur: 4,
     texAmpWet: 0.12,
     texAmpDry: 0.16,
     texGeo: 0.4,
@@ -941,6 +983,8 @@ function projectedCells(r: Raster, pj: Projector, v: { s: number; ox: number; oy
  * 拼两份(全图几十万个路径点)不划算
  */
 const SHORE_MIN_PS = 2.5;
+/** 放大后按岸线描的海岸线(地图册)有多宽(画布像素;水那一侧露出一半) */
+const COAST_PX = 3;
 
 /**
  * 放大后的实景像素层(细节层):先铺水那一份,再按陆地范围(addLandCells)裁出陆地那一份铺上 —— 岸线按屏幕像素画,不发虚。
@@ -983,15 +1027,27 @@ export function realisticShoreParts(r: Raster, v: VecView, look: SurfaceLook = '
       const ch = ctx.canvas.height;
       const cells = pj ? projectedCells(r, pj, v, cw, ch) : flatCells(r, v, cw, ch);
       const cols = pj ? null : cells.cols(0)!;
+      // 地图册的海岸线:先沿陆地范围描一道(线宽的一半在水那一侧),再铺陆地那一份盖掉陆上的一半 —— 按屏幕像素描,放大多少倍都是一条细线。
+      // 陆地范围是一格一格拼起来的,格与格之间的边也会描上,都在陆地里面,被陆地那一份盖住
+      const coast = MATERIALS[look].coast;
+      const line = (path: Path2D, k: number) => {
+        if (!coast) return;
+        ctx.strokeStyle = `rgba(${coast[0].join(',')},${coast[1]})`;
+        ctx.lineWidth = COAST_PX / k;
+        ctx.lineJoin = 'round';
+        ctx.stroke(path);
+      };
       if (cols && (cols[1] - cols[0]) * (cells.rows[1] - cells.rows[0]) * 8 > r.w * r.h) {
         // 等距圆柱、视口里的方格多(放大不到三倍左右):用整张图的那一份(缓存的)按视口变换裁剪,省得每次重画重算几十万个点
         const m = ctx.getTransform();
         ctx.transform(ps, 0, 0, ps, v.ox, v.oy);
+        line(wholeLandPath(r), ps);
         ctx.clip(wholeLandPath(r));
         ctx.setTransform(m);
       } else {
         const path = new Path2D();
         addLandCells(path, r, cells);
+        line(path, 1);
         ctx.clip(path);
       }
       put(ctx, realisticShoreLayers(r, look).land);
@@ -1015,10 +1071,10 @@ interface GlobeCapture {
 
 /** 坡度编码到 0–255 的上限(再陡按它算) */
 export const SLOPE_MAX = 12;
-/** 着色器里几样晕渲的权重和暗面压暗多少(和这种画法的平面主图一样) */
-export function reliefWeights(look: SurfaceLook = 'classic'): { detail: number; macro: number; sea: number; shadow: number } {
+/** 着色器里几样晕渲的权重、暗面压暗多少、往天空冷色里混多少(和这种画法的平面主图一样) */
+export function reliefWeights(look: SurfaceLook = 'classic'): { detail: number; macro: number; sea: number; shadow: number; cool: number } {
   const m = MATERIALS[look];
-  return { detail: m.detailW, macro: m.macroW, sea: m.seaRelief, shadow: m.shadowDepth };
+  return { detail: m.detailW, macro: m.macroW, sea: m.seaRelief, shadow: m.shadowDepth, cool: m.cool ?? SHADOW_COOL };
 }
 
 /** 坡度 → 一个字节:128 = 平;按平方根压缩(缓坡的精度高,陡坡粗一点) */
@@ -1109,6 +1165,13 @@ function paintRealistic(ctx: CanvasRenderingContext2D, r: Raster, cap?: GlobeCap
   const { detailFlat: DETAIL_FLAT, soft0: SOFT0, soft1: SOFT1, snowFlat: SNOW_FLAT, flat: FLAT } = m;
   const { texAmpWet: TEX_AMP_WET, texAmpDry: TEX_AMP_DRY, texGeo: TEX_GEO, texFine: TEX_FINE, texStreak: TEX_STREAK, geoSharp: GEO_SHARP } = m;
   const { texCav: TEX_CAV, ecoP: ECO_P, valleyDark: VALLEY_DARK } = m;
+  const MODEL = m.model ?? 'biome';
+  const COOL = m.cool ?? SHADOW_COOL;
+  const BAND_LINE = m.bandLine ?? 0;
+  const STIP = !!m.stipple;
+  const REEF = !!m.reef;
+  const MUTE = m.mute ?? 0;
+  const RIP_K = m.ripK ?? 1;
   // 打光用的地面:海拔 + 山坡上的沟和山脊(只管明暗,见 Raster.gully)
   const relief = reliefOf(r);
   // 细节晕渲(沟壑纹理)+ 大尺度晕渲(整条山脉的明暗面)+ 海底晕渲
@@ -1160,7 +1223,7 @@ function paintRealistic(ctx: CanvasRenderingContext2D, r: Raster, cap?: GlobeCap
     // 离河多近:谷底压暗;干旱地方的河岸那一窄条按湿润的颜色画(像沙漠里的尼罗河)
     const bk = bank ? bank[k] / 255 : 0;
     // 离河远的(大多数地方)bk = 0,下面几项都是 0,跳过不算
-    const rip = bk > 0 && dry > 0 ? smoothstep(RIP_B0 + RIP_JAG * fn, RIP_B1, bk) * dry : 0;
+    const rip = bk > 0 && dry > 0 && RIP_K > 0 ? smoothstep(RIP_B0 + RIP_JAG * fn, RIP_B1, bk) * dry * RIP_K : 0;
     // 1. 生物群落底色:按 温度 × 降水 查连续调色板,群落之间自然渐变;交界按纹理打散成一片片(亮处当作干一点)
     const ex = -ECO_P * tx;
     let pp = pk * (1 + ex * (1 + ex * (0.5 + ex / 6))); // e^ex(|ex| 不到 0.3,展开到三次就够)
@@ -1172,10 +1235,29 @@ function paintRealistic(ctx: CanvasRenderingContext2D, r: Raster, cap?: GlobeCap
     // 2. 在这一格的色带上挑深浅:纹理(干旱地方对比更强),再加上凹处(谷)亮、凸处(脊)暗
     const cav = (relief[kl] + relief[kr] + relief[ku] + relief[kd]) * 0.25 - relief[k];
     const tb = 0.5 + (TEX_AMP_WET + (TEX_AMP_DRY - TEX_AMP_WET) * dry) * tx + TEX_CAV * Math.max(-1, Math.min(1, cav / (CAV_REF * pxW))) + (bk > ALLU_B0 ? ALLU_LIGHT * smoothstep(ALLU_B0, ALLU_B1, bk) : 0) + (vn > 0 ? VEIN_LIGHT * smoothstep(0.02, 0.3, vn) * (1 - vc) : 0);
-    paletteColor(lut, temp[k] + ECO_T * tx, pp, tb, col);
+    if (MODEL === 'hypso') {
+      // 分层设色:按海拔挑层;和右、下邻格不在一层的描一条细线(陆地上)
+      const b = hypsoBand(e);
+      const hc = HYPSO[b];
+      const ln = BAND_LINE > 0 && ((water[kr] === 0 && hypsoBand(elev[kr]) !== b) || (water[kd] === 0 && hypsoBand(elev[kd]) !== b)) ? 1 - BAND_LINE : 1;
+      // 低处按干湿混色(Natural Earth 的 cross-blended hypso):干旱的平原、低高原偏沙黄,湿润的照绿;1000 米以上渐渐只看海拔
+      const ak = 0.85 * smoothstep(0.35, 0.95, dry) * (1 - smoothstep(900, 2200, e));
+      col[0] = (hc[0] + (HYPSO_ARID[0] - hc[0]) * ak) * ln;
+      col[1] = (hc[1] + (HYPSO_ARID[1] - hc[1]) * ak) * ln;
+      col[2] = (hc[2] + (HYPSO_ARID[2] - hc[2]) * ak) * ln;
+      if (MUTE > 0) {
+        // 叠填色时褪色:换成按亮度的暖灰(留明暗和层次,颜色让给填色)
+        const yl = 0.3 * col[0] + 0.59 * col[1] + 0.11 * col[2];
+        const g = 120 + yl * 0.55;
+        col[0] += (g - col[0]) * MUTE;
+        col[1] += (g - col[1]) * MUTE;
+        col[2] += (g * 0.97 - col[2]) * MUTE;
+      }
+    } else if (MODEL === 'photo') photoColor(temp[k] + ECO_T * tx, pp, tb, geo.v[px], col);
+    else paletteColor(lut, temp[k] + ECO_T * tx, pp, tb, col);
     // 降水多更深;谷底压暗
     const low = level[k] - relief[k];
-    const v = (1.03 - Math.min(0.12, pk / 25000)) * (low > VALLEY_E0 ? 1 - VALLEY_DARK * smoothstep(VALLEY_E0, VALLEY_E1, low) : 1) * (1 - VEIN_DARK * (m.veinK ?? 1) * vc);
+    const v = MODEL === 'hypso' ? 1 : (1.03 - Math.min(0.12, pk / 25000)) * (low > VALLEY_E0 ? 1 - VALLEY_DARK * smoothstep(VALLEY_E0, VALLEY_E1, low) : 1) * (1 - VEIN_DARK * (m.veinK ?? 1) * vc);
     let cr = col[0] * v;
     let cg = col[1] * v;
     let cb = col[2] * v;
@@ -1184,16 +1266,31 @@ function paintRealistic(ctx: CanvasRenderingContext2D, r: Raster, cap?: GlobeCap
     const gx = (relief[kr] - relief[kl]) * gxk;
     const gy = relief[kd] - relief[ku];
     const steep = Math.sqrt(gx * gx + gy * gy) * slopeZ;
-    const rock = Math.min(0.85, smoothstep(ROCK_E0, ROCK_E1, e) * ROCK_EW + smoothstep(0.9, 2.2, steep) * 0.45);
+    const rock = MODEL === 'hypso' ? 0 : Math.min(0.85, smoothstep(ROCK_E0, ROCK_E1, e) * ROCK_EW + smoothstep(0.9, 2.2, steep) * 0.45);
     cr += (ROCK[0] - cr) * rock;
     cg += (ROCK[1] - cg) * rock;
     cb += (ROCK[2] - cb) * rock;
     // 积雪:按像素温度(已含海拔递减)
     const sn = 0.5 + 0.5 * snowN(px, ty);
     const snow = smoothstep(-2, -7, temp[k] + 3 * (sn - 0.5));
-    cr += (SNOW[0] - cr) * snow;
-    cg += (SNOW[1] - cg) * snow;
-    cb += (SNOW[2] - cb) * snow;
+    const SN = MODEL === 'hypso' ? HYPSO_SNOW : SNOW;
+    cr += (SN[0] - cr) * snow;
+    cg += (SN[1] - cg) * snow;
+    cb += (SN[2] - cb) * snow;
+    // 地图册的沙漠符号:每 5×5 像素一格里随机一个点(按这张图的像素取,放大后点的大小、疏密在屏幕上不变)
+    if (STIP && dry > 0.45 && snow < 0.5) {
+      const gxp = colOf(px);
+      const gyp = wy0 + py;
+      const cx = Math.floor(gxp / 5);
+      const cy = Math.floor(gyp / 5);
+      const ox = gxp - cx * 5 - ((hash2(cx, cy, 77) * 5) | 0);
+      const oy = gyp - cy * 5 - ((hash2(cx, cy, 78) * 5) | 0);
+      if (ox === 0 && oy === 0 && hash2(cx, cy, 79) < smoothstep(0.45, 0.9, dry)) {
+        cr += (STIPPLE[0] - cr) * 0.65;
+        cg += (STIPPLE[1] - cg) * 0.65;
+        cb += (STIPPLE[2] - cb) * 0.65;
+      }
+    }
     col[0] = cr;
     col[1] = cg;
     col[2] = cb;
@@ -1256,6 +1353,13 @@ function paintRealistic(ctx: CanvasRenderingContext2D, r: Raster, cap?: GlobeCap
         col[0] = ocean[oi * 3];
         col[1] = ocean[oi * 3 + 1];
         col[2] = ocean[oi * 3 + 2];
+        // 浅暖海(珊瑚礁、浅滩):不到 40 米深、水暖的地方泛青绿(像巴哈马、大堡礁)
+        if (REEF && e > -40 && temp[k] > 20) {
+          const a = 0.42 * smoothstep(-36, -6, e) * smoothstep(20, 26, temp[k]);
+          col[0] += (REEF_C[0] - col[0]) * a;
+          col[1] += (REEF_C[1] - col[1]) * a;
+          col[2] += (REEF_C[2] - col[2]) * a;
+        }
         c = col;
         // 海底晕渲:只看大尺度(洋中脊、海沟、大陆坡),很淡
         s = 1 + (macro[k] - 1) * SEA_RELIEF;
@@ -1323,7 +1427,7 @@ function paintRealistic(ctx: CanvasRenderingContext2D, r: Raster, cap?: GlobeCap
       } else {
         const a = 1 - Math.exp((s - 1) / SHADOW_DEPTH); // 0..1,软过渡到下限
         f = 1 - SHADOW_DEPTH * a;
-        cool = SHADOW_COOL * a;
+        cool = COOL * a;
       }
       const o = k * 4;
       d[o] = c[0] * f + (SKY_SHADOW[0] - c[0] * f) * cool;
@@ -1332,11 +1436,36 @@ function paintRealistic(ctx: CanvasRenderingContext2D, r: Raster, cap?: GlobeCap
       d[o + 3] = 255;
     }
   }
+  // 抗锯齿之前的那一份不描海岸线:放大后的细节层拿它拼水、陆两份,海岸线另按岸线描(不然放大后是一条发虚的宽带,见 realisticShoreParts)
   const raw = keepRaw ? d.slice() : null;
+  if (m.coast) {
+    coastLine(d, r, m.coast);
+    if (alb) coastLine(alb, r, m.coast);
+  }
   // 3. 水陆交界抗锯齿
   antialiasShores(d, r);
   ctx.putImageData(img, 0, 0);
   return raw;
+}
+
+/** 地图册的海岸线:水那一侧挨着陆地的像素描深一圈(湖也描) */
+function coastLine(d: Uint8ClampedArray, r: Raster, [cc, ca]: [RGB, number]): void {
+  const { w, h, water } = r;
+  for (let py = 0; py < h; py++) {
+    for (let px = 0; px < w; px++) {
+      const k = py * w + px;
+      if (water[k] === 0) continue;
+      const kr = px < w - 1 ? k + 1 : k - w + 1;
+      const kl = px > 0 ? k - 1 : k + w - 1;
+      const kd = py < h - 1 ? k + w : k;
+      const ku = py > 0 ? k - w : k;
+      if (water[kr] !== 0 && water[kl] !== 0 && water[kd] !== 0 && water[ku] !== 0) continue;
+      const o = k * 4;
+      d[o] += (cc[0] - d[o]) * ca;
+      d[o + 1] += (cc[1] - d[o + 1]) * ca;
+      d[o + 2] += (cc[2] - d[o + 2]) * ca;
+    }
+  }
 }
 
 /** 打光用的地面高度:海拔加上沟和山脊(没有就是海拔本身) */

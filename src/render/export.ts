@@ -184,9 +184,9 @@ export function drawMapCiv(ctx: Ctx2D, p: ExportMapParams, makeCanvas: (w: numbe
   cv.width = cv.height = 0;
 }
 
-/** 经纬网、等值线按哪种底色挑墨色:白模是浅底,和数据底图一样用深色线 */
+/** 经纬网、等值线按哪种底色挑墨色:白模、地理图是浅底,和数据底图一样用深色线 */
 export function inkStyle(p: Pick<ExportMapParams, 'style' | 'look'>): string {
-  return p.style === 'realistic' && p.look === 'blank' ? 'data' : p.style;
+  return p.style === 'realistic' && (p.look === 'blank' || p.look === 'geo' || p.look === 'geoMute') ? 'data' : p.style;
 }
 
 /**

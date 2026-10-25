@@ -912,7 +912,7 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
   /** 这会儿该不该有云:显卡画法、卫星底图(经典 / 细节 / 简化;地理图、白模不画)、图层里开着 */
   const cloudWanted = () => {
     const p = props.current;
-    return !!s.gl && p.style === 'realistic' && p.look !== 'geo' && p.look !== 'blank' && getCloudPrefs().on;
+    return !!s.gl && p.style === 'realistic' && p.look !== 'geo' && p.look !== 'geoMute' && p.look !== 'blank' && getCloudPrefs().on;
   };
   /**
    * 推进云的状态:浓淡渐入渐出、云层转角。返回还要不要接着画(渐变没完、或者在飘)。
