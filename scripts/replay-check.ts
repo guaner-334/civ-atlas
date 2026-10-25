@@ -5897,7 +5897,7 @@ if (part('联系我们')) {
 // 移开收起;键盘 Tab 进出卡片里的链接;世界概览里开着卡片按后退,卡片跟着收起;
 // 世界里「更多」菜单最底下一行移上去,卡片出在菜单右边;手机上点那一行,菜单换成卡片;两边一样时不出
 if (part('测试版新功能')) {
-  const { WHATS_NEW } = await import('../src/ui/whatsNew');
+  const WHATS_NEW = (await import('./lib/whatsNew')).readWhatsNew();
   const { beijingDay, dayText, nextSync } = await import('../src/ui/betaNews');
   const wantWhen = `预计 ${dayText(nextSync('2026-10-12', beijingDay()))}（周日）更新到正式版`;
   const fresh = [
