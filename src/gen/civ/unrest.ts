@@ -12,7 +12,8 @@
  *     + 王朝老了(当朝 AGE_0 年以后渐涨,AGE_SPAN 年涨满 AGE_W;新朝初立 NEW_YEARS 年内反倒减 NEW_W)
  *     + 闹了饥荒(FAMINE_YEARS 年内闹饥荒的州,占国土 FAMINE_FULL 就加满 FAMINE_W)
  *     + 闹了瘟疫(PLAGUE_YEARS 年内染疫的州,占国土 PLAGUE_FULL 就加满 PLAGUE_W;瘟疫见 plague.ts)+ 民变还没平(REVOLT_W)
- *     + 国用不足(钱粮,见 stateTables.ts;FISCAL_W × 窘迫)。
+ *     + 国用不足(钱粮,见 stateTables.ts;FISCAL_W × 窘迫)
+ *     + 照大纲顺着引的动荡加减(policy.ts 的 GUIDE_UNREST;control.ts 读表时加上)。
  *     它让国家更容易分裂(politics.ts 的分裂赔率用它)、更容易被邻国趁虚而入、更想对外开战转移矛盾(wars.ts)、
  *     动荡到顶的大国就会大崩解(见下)。
  *

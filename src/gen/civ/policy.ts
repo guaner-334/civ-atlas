@@ -12,6 +12,8 @@
  * **亲、仇**(wars.ts、diplomacy.ts 在做决定的地方查):仇国 —— 看邻国时挑它的赔率 × FOE_ODDS(先打它),不和它结盟;
  *   亲国 —— 不主动打它,结盟时先找它,和它结着盟时它挨打更肯出兵援盟(FRIEND_JOIN)。
  * **发展重点**(development.ts):治下各州挑中的那一样能力"自己长"× FOCUS_UP,别的 × FOCUS_DOWN(发展度 20 年一步,几十年才看得出)。
+ * **国力、动荡加减**(只有照大纲顺着引出来的方针带,gen/outline.ts):国力(wars.ts 的 powers、diplomacy.ts 的 powerOf)× (1 + power/100);
+ *   动荡(unrest.ts 的数表,control.ts 读的时候加上:分裂、大崩解、民变、趁虚而入都看它)+ GUIDE_UNREST × unrest/50,改朝换代的动荡(dynasty.ts)× e^(GUIDE_DYNASTY × unrest/50)。
  *
  * **从哪一刻起**:from 那一刻(干预事件)登记,下一刻(1/256 年后)起照新方针算 —— 同一刻里先发生的事照旧,
  * 接着推(fromCiv)按史事重放时也一样(和作者立的君主同一个做法,见 rulers.ts)。门槛放低了的,下一刻从现有国土往外重新看一遍
@@ -49,6 +51,13 @@ export const FOCUS_UP = 1.6;
 export const FOCUS_DOWN = 0.9;
 export const FOCUS_MOB = 0.3;
 
+/**
+ * 顺着引的动荡加减拧到头(±50)时:动荡加减多少(一般国家 0–3,大崩解的门槛 2.35 上下;看内政 40 年一次,窗口里多半只看一两次,
+ * 得一下子推到门槛上才引得动);改朝换代的动荡(≥ 1)乘 e^(±GUIDE_DYNASTY)(约 × 5 / ÷ 5)
+ */
+export const GUIDE_UNREST = 3;
+export const GUIDE_DYNASTY = 1.6;
+
 /** Ev.Respread 的 a:定了方针的下一刻(门槛放低了才从现有国土往外重新看) */
 export const POLICY_RESPREAD = 1;
 
@@ -56,8 +65,14 @@ const clamp = (x: number) => Math.min(100, Math.max(0, x));
 
 /** 什么都没定(罢方针:照君主的倾向) */
 export function emptyPolicy(v: PolicyIv): boolean {
-  return !v.war && !v.expand && !v.coast && !v.peace && !v.foes?.length && !v.friends?.length && !v.focus;
+  return !v.war && !v.expand && !v.coast && !v.peace && !v.foes?.length && !v.friends?.length && !v.focus && !v.power && !v.unrest;
 }
+
+/** 方针的国力倍数(没加减 = 1) */
+export const powerScale = (v: PolicyIv | null): number => (v?.power ? 1 + v.power / 100 : 1);
+
+/** 方针的动荡加减,−1…1(没加减 = 0) */
+export const unrestShift = (v: PolicyIv | null): number => (v?.unrest ? v.unrest / 50 : 0);
 
 /** 有没有拧滑条(没拧 = 倍数和君主自己的一样) */
 const knobbed = (v: PolicyIv) => !!(v.war || v.expand || v.coast || v.peace);

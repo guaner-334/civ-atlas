@@ -158,6 +158,11 @@ export const enum Ev {
    */
   Upheaval = 33,
   /**
+   * 多看一眼(interventions.ts):a = 第几条干预(照大纲顺着引的方针,带 look),b = 它的第几眼。
+   * 到那一年的年中替那国多看一眼邻国 / 内政 / 王朝(随机数按 LOOK_K 往上的"第几次"取,不接着预约)。装各层时就预约
+   */
+  Look = 34,
+  /**
    * 看邦交(diplomacy.ts;编号 40–44):a = 立国后第几次看(按年份段编号),b = 国家。
    * 国家隔几十年看一眼:藩属要不要自立、宗主收不收藩属的国土、盟约废不废、畏不畏强邻(称臣 / 结盟)
    */
@@ -231,6 +236,7 @@ export const EVENT_INFO: EventInfo[] = [
   { id: Ev.Cede, name: '划州', watch: false },
   { id: Ev.HaltEnd, name: '解除禁扩', watch: false },
   { id: Ev.Upheaval, name: '地形大事', watch: false },
+  { id: Ev.Look, name: '多看一眼', watch: false },
   { id: Ev.DiplomacyCheck, name: '看邦交', watch: false },
   { id: Ev.DivergeCheck, name: '看分化', watch: false },
   { id: Ev.Diverge, name: '分化', watch: false },
@@ -294,6 +300,9 @@ function earlyOrder(kind: number, b: number): number {
   if (i === undefined || !(b >= 0 && b < (EARLY_SPAN - 6) / 3 - 1)) return -1;
   return 4 + b * 3 + i;
 }
+
+/** 多看一眼(Ev.Look)用的"第几次"从这里往上数(看邻国、内政、王朝的寻常第几次到不了这么大) */
+export const LOOK_K = 1 << 20;
 
 /** schedule 的 booked:一口气推时在装各层的时候(第 0 年的事件处理之前)就预约了的事件 */
 export const BOOKED_AT_START = -1;

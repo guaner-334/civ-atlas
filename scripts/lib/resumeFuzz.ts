@@ -2,7 +2,7 @@
  * 接着推的随机自查(scripts/stress.ts、tests/civ-resume-fuzz.test.ts 共用;不依赖 vitest):
  * 逐年推演(gen/civ/play.ts)从第 0 年起,每一步推随机的 1–60 年(两成是 1 年;上限可调),每停一下在"现在"随机下 0–4 条命令
  * —— 宣战、结盟、迁都、划州(含永久)、立国(含起名、在没人住的州、在别国国都)、不许扩张、不许灭、禁止分裂、即位(含还没出生的、
- * 给同一刻刚立的新国立君主、等在位的那位下台再即位)、方针、灭国(并入一国 / 散成无主)、让人物去世(君主、将领、名臣)、改君主倾向、
+ * 给同一刻刚立的新国立君主、等在位的那位下台再即位)、方针(含照大纲顺着引的:国力、动荡加减,多看几眼)、灭国(并入一国 / 散成无主)、让人物去世(君主、将领、名臣)、改君主倾向、
  * 天灾(瘟疫、饥荒、地震水旱),对象多半挑在世的国家和它们的人物、城、州,也挑已亡的、对不上的 ——
  * 推到第 to 年,和带着同样的命令从第 0 年一口气推完逐字段比。
  * 作者在推演模式里下的干预(比逐年推演的进度晚才生效的几条,对象按先推一遍的历史挑)也带上:接着推时补上它们的事件。
@@ -18,6 +18,7 @@ import { mulberry32, subSeed } from '../../src/gen/civ/rand';
 import { capitalAt } from '../../src/gen/civ/growth';
 import {
   DEATH_ROLES,
+  GUIDE_LOOKS,
   POLICY_FOCI,
   POLICY_PRESETS_KEYS,
   cleanIntervention,
@@ -154,6 +155,13 @@ export function fuzzOrders(civ: Civ, T: number): Intervention[] {
     v.foes = keys();
     v.friends = keys();
     if (rnd() < 0.4) v.focus = pick(rnd, [...POLICY_FOCI]);
+    // 照大纲顺着引的那种:另加减国力、动荡,在往后几十年里多看几眼邻国 / 内政 / 王朝
+    // (另取一串随机数:别的命令和以前一样)
+    const g = mulberry32(subSeed(civ.seed, `resume-fuzz:guide:${T}:${a}`));
+    if (g() < 0.3) {
+      const years = Array.from({ length: between(g, 1, 6) }, () => T + between(g, 0, 60));
+      Object.assign(v, { plot: 1, guide: true, power: between(g, -50, 100), unrest: between(g, -50, 50), look: { kind: pick(g, [...GUIDE_LOOKS]), years } });
+    }
     return cleanIntervention(v)!;
   };
   for (let i = 0; i < n; i++) {
