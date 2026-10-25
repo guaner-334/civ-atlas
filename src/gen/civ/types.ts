@@ -388,7 +388,7 @@ export type AnnalKind =
  *   collapse:大崩解里自立的那几块(史事 split 的 cause);warlord:割据的地方起兵自立(史事 split 的 cause,control.ts);great:大瘟疫(史事 plague 的 cause);
  *   lapse 盟约渐废 / abandon 坐视不救 / vassal 一方称臣
  */
-export type AnnalCause = 'expand' | 'claim' | 'chaos' | 'prey' | 'betray' | 'punish' | 'ally' | 'rescue' | 'lapse' | 'abandon' | 'vassal' | 'quell' | 'collapse' | 'great' | 'quake' | 'warlord';
+export type AnnalCause = 'expand' | 'claim' | 'chaos' | 'prey' | 'resource' | 'betray' | 'punish' | 'ally' | 'rescue' | 'lapse' | 'abandon' | 'vassal' | 'quell' | 'collapse' | 'great' | 'quake' | 'warlord';
 
 /**
  * 一条史事(阶段 3):推演里各事件处理函数用 CivSim.record 往 Civ.annals 里记,编年史(界面上的事件列表)只读它。
@@ -408,7 +408,7 @@ export interface Annal {
   cause?: AnnalCause;
   /** 结盟(alliance)才有:共御的强邻(−1 = 没有) */
   foe?: number;
-  /** 干预灭国(intervene,灭成了)才有:亡时国土几州 */
+  /** 干预灭国(intervene,灭成了)才有:亡时国土几州;为夺物产的宣战(war,由头 resource)才有:想要的物产(按位,下标见 development.ts 的 RESOURCES) */
   n?: number;
 }
 
