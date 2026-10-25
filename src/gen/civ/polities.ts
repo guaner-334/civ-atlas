@@ -45,7 +45,7 @@ import { namePolities, nameSettlements, type RestoreDirection } from './naming';
 import type { RouteCity } from './routes';
 import type { InterventionModel } from './interventions';
 import { actsFrom, leaningsAt, reignAt, reignBook, reignStart, rulerBase, type LeaningEffect, type Reign, type RulerAct } from './rulers';
-import { POLICY_RESPREAD, policiesFrom, policySeg, segAt, segEffect, type PolicyIv, type PolicySeg } from './policy';
+import { POLICY_RESPREAD, policiesFrom, policySeg, powerScale, segAt, segEffect, unrestShift, type PolicyIv, type PolicySeg } from './policy';
 
 // ---- 调参(以截图效果为准) ----
 /** 州有人定居后,过这么多年建城(随机) */
@@ -446,6 +446,16 @@ export function rulerOf(m: PolityModel, pid: number, t: Year): Reign {
 /** 国家 pid 在 t 这一刻照的方针(policy.ts:t 以前定的最后一条;没有 / 罢了 = null) */
 export function policyAt(m: PolityModel, pid: number, t: Year): PolicyIv | null {
   return segAt(m.policies.get(pid), t)?.v ?? null;
+}
+
+/** 国家 pid 此刻的国力倍数(顺着引的方针加减国力,policy.ts;没有 = 1) */
+export function powerScaleOf(m: PolityModel, pid: number, t: Year): number {
+  return m.policies.size ? powerScale(policyAt(m, pid, t)) : 1;
+}
+
+/** 国家 pid 此刻的动荡加减(顺着引的方针,−1…1,policy.ts;没有 = 0) */
+export function unrestShiftOf(m: PolityModel, pid: number, t: Year): number {
+  return m.policies.size ? unrestShift(policyAt(m, pid, t)) : 0;
 }
 
 /** 君主 r 在国家 pid 此刻(t)的方针下的倍数(没有方针 = 他自己的,r.eff;作者改过他的倾向的按此刻的,见 rulers.ts 的 leaningsAt) */

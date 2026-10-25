@@ -84,6 +84,10 @@
  * 和谈底线再加在"打多久、想拿几州、肯不肯称臣"用的好战上;各自夹回 0–100。仇国先打、不和它结盟;亲国不打、结盟先找它、它挨打时更肯出兵;
  * 发展重点那一样能力长得快一些、别的略慢。推演里从 from 那一刻的下一刻(1/256 年后)起照新方针算,和即位一样(同一刻里先发生的事照旧)。
  * 清理:滑条取整夹到 −50…50,0 去掉;亲、仇去重、去掉格式不对的和 a 自己,同时在两边的只算仇,各留前 3 个,空的去掉;preset、focus 不认识的去掉。
+ * 照大纲顺着引出来的方针(带 plot 和 guide = true)另可带 power 国力加减(百分数,−50…100 的整数,国力乘 1 + power/100)、
+ * unrest 动荡加减(−50…50 的整数,见 civ/policy.ts 的 GUIDE_UNREST);0 去掉。look = { kind, years }:替这国在那几年的年中多看一眼
+ * 邻国(war)/ 内政(politics:大崩解、分裂)/ 王朝(dynasty)—— 寻常二三十年才看一次,窗口里常常一眼都没看;years 是整数年,
+ * 不早于 from,升序去重,最多 GUIDE_LOOK_MAX 个,没有 = 去掉。作者自己定的方针没有这几项(带了也去掉)。
  *
  * 即位(crown)可以带 after: true = 等此刻(from 那一年年初)在位的那位君主下台再即位:他到期驾崩 / 退位、或被作者让他去世时由作者的人物继位
  * (年份到时才定;那位先因改朝换代、亡国、被作者另立的君主取代而下台 = 不生效)。旧存档没有这个字段,照旧。
@@ -206,7 +210,7 @@
  * 从那一年接着推(前面的历史不变);做不到的写明原因。硬改出来的干预记进 WorldEdits.interventions(接在作者自己的干预后面),
  * 存档、分享照"种子 + 干预串"推出同一个世界;改了大纲再照大纲推演时,先去掉带 plot 的那几条再重新算。
  * 照大纲推演时可以先**顺着引**(gen/outline.ts 文件头"顺着引"):硬改之前,在情节前面几十年给相关的国家定几条方针(带 plot 和 guide = true,
- * 引到窗口最后一年年底换回原来的方针),试几版,引成了的标「顺着引了一把」;编年史不写它们,国家卡片上的方针也不算它们。
+ * 可以另加减国力、动荡;引到窗口最后一年年底换回原来的方针),试几版,引成了的标「顺着引了一把」;编年史不写它们,国家卡片上的方针也不算它们。
  *
  * | 字段     | 意思                                                                                                   |
  * |----------|--------------------------------------------------------------------------------------------------------|
@@ -549,13 +553,16 @@ export const POLICY_KNOB_MAX = 50;
 /** 方针的发展重点(发展度的前五种能力,次序同 civ/development.ts 的 CAPS) */
 export const POLICY_FOCI = ['production', 'transport', 'information', 'administration', 'mobilization'] as const;
 export type PolicyFocus = (typeof POLICY_FOCI)[number];
+/** 顺着引的国力加减(百分数)最少、最多 */
+export const GUIDE_POWER_MIN = -50;
+export const GUIDE_POWER_MAX = 100;
 /** 亲、仇各最多几国 */
 export const POLICY_PICK_MAX = 3;
 
 /**
  * 一条干预(字段、年份语义见文件头的表;a、b 是国家的稳定键 `polity:…`,region 是州键 `region:…`,city 是城键 `settlement:…`)。
  * 照大纲推演硬改出来的多一个 plot = 哪一条情节(Plot.id,见文件头"大纲");推演不看它,只管说法和"改了大纲再推时先去掉"。
- * 顺着引出来的(只有方针)再多一个 guide = true:编年史不写,国家卡片上的方针不算它
+ * 顺着引出来的(只有方针)再多一个 guide = true:编年史不写,国家卡片上的方针不算它;只有它能带 power、unrest(国力、动荡加减)
  */
 export type Intervention = (
   | { kind: 'protect'; a: string; from: number; until?: number }
@@ -583,8 +590,22 @@ export type Intervention = (
       foes?: string[];
       friends?: string[];
       focus?: PolicyFocus;
+      power?: number;
+      unrest?: number;
+      look?: GuideLook;
     }
 ) & { plot?: number; guide?: true };
+
+/** 顺着引的方针替这国多看几眼的那一种:war 看邻国(开战)、politics 看内政(大崩解、分裂)、dynasty 看王朝 */
+export const GUIDE_LOOKS = ['war', 'politics', 'dynasty'] as const;
+export type GuideLookKind = (typeof GUIDE_LOOKS)[number];
+/** 最多多看几眼 */
+export const GUIDE_LOOK_MAX = 8;
+/** 顺着引的方针替这国多看几眼:看哪一种、哪几年(各在那年年中,不早于方针的 from;升序、不重复) */
+export interface GuideLook {
+  kind: GuideLookKind;
+  years: number[];
+}
 
 /** 地形修改的种类(见文件头"地形修改"的表) */
 export type TerrainKind =
@@ -1554,6 +1575,38 @@ function cleanPolicy(o: Record<string, unknown>, a: string, from: number): Inter
   return v;
 }
 
+/** 顺着引的方针另带的国力、动荡加减:取整,国力夹到 GUIDE_POWER_MIN…GUIDE_POWER_MAX、动荡夹到 ±POLICY_KNOB_MAX,0 去掉 */
+function guideKnobs(o: Record<string, unknown>, from: number): { power?: number; unrest?: number; look?: GuideLook } {
+  const out: { power?: number; unrest?: number; look?: GuideLook } = {};
+  for (const k of ['power', 'unrest'] as const) {
+    const x = o[k];
+    const [lo, hi] = k === 'power' ? [GUIDE_POWER_MIN, GUIDE_POWER_MAX] : [-POLICY_KNOB_MAX, POLICY_KNOB_MAX];
+    const n = typeof x === 'number' && Number.isFinite(x) ? Math.min(hi, Math.max(lo, Math.round(x))) : 0;
+    if (n !== 0) out[k] = n;
+  }
+  const look = cleanLook(o.look, from);
+  if (look) out.look = look;
+  return out;
+}
+
+/** 多看几眼(见文件头"方针"):种类不认识 / 一年都没有 = undefined;和原来一样时原样返回 */
+function cleanLook(x: unknown, from: number): GuideLook | undefined {
+  if (!x || typeof x !== 'object') return undefined;
+  const o = x as Record<string, unknown>;
+  const kind = o.kind as GuideLookKind;
+  if (!GUIDE_LOOKS.includes(kind) || !Array.isArray(o.years)) return undefined;
+  const years: number[] = [];
+  for (const y of o.years as unknown[]) {
+    const n = yearOf(y);
+    if (n !== null && n >= from && !years.includes(n)) years.push(n);
+  }
+  years.sort((a, b) => a - b);
+  if (years.length > GUIDE_LOOK_MAX) years.length = GUIDE_LOOK_MAX;
+  if (!years.length) return undefined;
+  const same = Object.keys(o).length === 2 && years.length === o.years.length && years.every((y, i) => y === (o.years as unknown[])[i]);
+  return same ? (x as GuideLook) : { kind, years };
+}
+
 /** 键的格式(新旧两种都认:`polity:c4567#0` / 旧的 `polity:r123#0`,见文件头"稳定键") */
 export const isPolityKey = (k: unknown): k is string => typeof k === 'string' && /^polity:(r-?\d{1,7}|c\d{1,7})#\d{1,5}$/.test(k);
 export const isRegionKey = (k: unknown): k is string => typeof k === 'string' && REGION_KEY.test(k);
@@ -1646,7 +1699,7 @@ export function cleanIntervention(x: unknown): Intervention | null {
     }
   }
   // 照大纲硬改出来的:记着哪一条情节(编号不合格 = 当作者自己下的);顺着引的方针多记 guide
-  if (isPlotId(o.plot)) v = o.guide === true && v.kind === 'policy' ? { ...v, plot: o.plot, guide: true } : { ...v, plot: o.plot };
+  if (isPlotId(o.plot)) v = o.guide === true && v.kind === 'policy' ? { ...v, ...guideKnobs(o, v.from), plot: o.plot, guide: true } : { ...v, plot: o.plot };
   const keys = Object.keys(o);
   const w = v as Record<string, unknown>;
   const clean = keys.length === Object.keys(v).length && keys.every((k) => o[k] === w[k]);
@@ -2348,6 +2401,9 @@ export interface GuideNote {
   war: number;
   expand: number;
   peace: number;
+  /** 国力、动荡加减(作者的方针没有这两项,就是引的这条的) */
+  power: number;
+  unrest: number;
   foes: string[];
   friends: string[];
 }
@@ -2368,6 +2424,8 @@ export function guideNotes(list: readonly Intervention[], id: number): GuideNote
         war: (v.war ?? 0) - (b?.war ?? 0),
         expand: (v.expand ?? 0) - (b?.expand ?? 0),
         peace: (v.peace ?? 0) - (b?.peace ?? 0),
+        power: v.power ?? 0,
+        unrest: v.unrest ?? 0,
         foes: (v.foes ?? []).filter((k) => !had(k, b?.foes)),
         friends: (v.friends ?? []).filter((k) => !had(k, b?.friends)),
       };

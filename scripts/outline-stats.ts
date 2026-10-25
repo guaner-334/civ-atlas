@@ -1,24 +1,26 @@
 /**
  * 照大纲推演的统计:几个种子各拼一份随机大纲(scripts/lib/outlineSample.ts),照大纲推演,数照着发生了 / 顺着引了一把 / 硬改的 / 做不到各几成、
  * 做不到的原因、花了多久;最后核对结果和带着同样的干预从第 0 年一口气推完一样。
- *   npx tsx scripts/outline-stats.ts [条数=20] [种子=7,2024,11] [每条最多试几版引法=0]
+ *   npx tsx scripts/outline-stats.ts [条数=20] [种子=7,2024,11] [每条最多试几版引法=0] [plausible]
+ * 第 4 个参数给 plausible:拼"像样的"大纲(照理可能、但没发生的事,见 outlineSample.ts 的 samplePlausible),量顺着引能引成几成
  */
 import { DEFAULT_PARAMS, generateWorld } from '../src/gen/world';
 import { generateCiv } from '../src/gen/civ';
 import { runOutline } from '../src/gen/outline';
 import type { PlotReview } from '../src/gen/edits';
-import { samplePlots } from './lib/outlineSample';
+import { samplePlausible, samplePlots } from './lib/outlineSample';
 
 const n = Number(process.argv[2] ?? 20);
 const seeds = (process.argv[3] ?? '7,2024,11').split(',').map(Number);
 const tries = Number(process.argv[4] ?? 0);
+const plausible = process.argv[5] === 'plausible';
 let total = 0;
 const all: PlotReview[] = [];
 const kinds = new Map<string, Record<string, number>>();
 for (const seed of seeds) {
   const world = generateWorld({ ...DEFAULT_PARAMS, seed });
   const base = generateCiv(world, {});
-  const plots = samplePlots(base, seed, n);
+  const plots = plausible ? samplePlausible(base, seed, n) : samplePlots(base, seed, n);
   const t0 = performance.now();
   const out = (await runOutline(world, {}, { plots, interventions: [], tries }))!;
   const ms = performance.now() - t0;

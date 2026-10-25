@@ -45,7 +45,7 @@ import { resolveKey } from '../edits';
 import { Layer, type Annal, type Civ, type Year } from './types';
 import { fpow, keyed, keyed4, subSeed } from './rand';
 import { bookChain, Ev, quantize, type CivSim } from './sim';
-import { befriends, canCross, effOf, endPolity, hates, picks, policyAt, polityModelOf, type PolityModel } from './polities';
+import { befriends, canCross, effOf, endPolity, hates, picks, policyAt, polityModelOf, powerScaleOf, type PolityModel } from './polities';
 import { FRIEND_JOIN, FRIEND_PACT } from './policy';
 import { polityBorders, warModelOf, type War, type WarModel } from './wars';
 import { capitalAt, polityAlive, populationAt } from './growth';
@@ -336,7 +336,10 @@ export function installDiplomacy(sim: CivSim, pm: PolityModel, dm: DiplomacyMode
       const c = pm.cityOf[r];
       if (c >= 0) sum += lv ? populationAt(pm.settlements[c], t) * lv(r) : populationAt(pm.settlements[c], t);
     }
-    const v = Math.max(1, sum) * (pm.military?.[p] ?? 1);
+    let v = Math.max(1, sum) * (pm.military?.[p] ?? 1);
+    // 顺着引的国力加减(policy.ts,和 wars.ts 一样)
+    const k = powerScaleOf(pm, p, t);
+    if (k !== 1) v *= k;
     powMemo.set(p, v);
     return v;
   };
