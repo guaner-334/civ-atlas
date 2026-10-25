@@ -227,7 +227,7 @@ export class TableEngine {
         code = compileCard(card, env);
         if (card.fallback) {
           const b = compileCard(card.fallback, env);
-          backup = { code: b, kernels: buildKernels(b, this.backend) };
+          backup = { code: b, kernels: buildKernels(b, this.backend, !!card.zeroStays) };
         }
       } catch (e) {
         if (e instanceof RuleError) {

@@ -662,7 +662,8 @@ export interface CardKernels {
   init: CellKernel | null;
 }
 
-export function buildKernels(code: CardCode, backend: Backend): CardKernels {
+/** sparse:这张表按全 0 跳过来算(备份规则跟着主卡,不看自己卡上写没写) */
+export function buildKernels(code: CardCode, backend: Backend, sparse = !!code.card.zeroStays): CardKernels {
   const make = backend === 'js' ? jsKernel : closureKernel;
   const any = code.rule.some((x) => x) || code.rate.some((x) => x);
   // 拼函数时多栏表一次算完所有栏;全 0 跳过的表每栏跳过的格子不一样,还是一栏一栏算
@@ -672,7 +673,7 @@ export function buildKernels(code: CardCode, backend: Backend): CardKernels {
   for (let c = 0; c < code.cols; c++) {
     const r = code.rule[c];
     const q = code.rate[c];
-    if ((!r && !q) || (group && !code.card.zeroStays)) {
+    if ((!r && !q) || (group && !sparse)) {
       cell.push(null);
       continue;
     }

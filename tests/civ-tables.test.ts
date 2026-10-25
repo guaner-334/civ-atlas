@@ -405,6 +405,11 @@ describe('两种跑法逐位一样', () => {
     // 全 0 跳过的格子核没算,下限不是 0 时照样压上来
     const zs: TableCard = { id: 'v', name: '跳过的也压', unit: 'tile', min: 1, max: 9, off: 1, init: 0, rule: 'v + nbsum(nb.v)', zeroStays: true };
     expect(Array.from(run([zs], yearsTo(2), 'js').get('v'))).toEqual(Array.from(run([zs], yearsTo(2), 'closure').get('v')));
+    // 主卡全 0 跳过、备份没写:备份也按跳过算
+    const two: TableCard = { id: 'u', name: '两栏备份', unit: 'tile', cols: ['甲', '乙'], min: 0, max: 1e6, off: 0, init: 1, rule: 'u / 0 * 0', zeroStays: true, fallback: { id: 'u', name: '两栏备份', unit: 'tile', cols: ['甲', '乙'], min: 0, max: 1e6, off: 0, rule: 'u * 2' } };
+    const ua = run([two], yearsTo(3), 'js');
+    expect(Array.from(ua.get('u'))).toEqual(Array.from(run([two], yearsTo(3), 'closure').get('u')));
+    expect(ua.value('u', 5, 1)).toBe(16);
   });
   it('多栏表每栏一条、if 里套邻格函数、after 和 prev 混着读:两种跑法也一样', () => {
     const many: TableCard[] = [
