@@ -54,7 +54,7 @@ import { TableEngine } from './tables';
 import { NEVER } from './devTables';
 import { stateCards, type ControlRuleConsts, type FiscalRuleConsts } from './stateTables';
 import { UNREST_CONSTS, unrestInputs, unrestModelOf } from './unrest';
-import { POP_CONSTS, POP_TABLES, popLayer } from './population';
+import { POP_CONSTS, POP_TABLES, POP_TILE_TABLES, cellsToTiles, popLayer, popTiles, tilesToCells } from './population';
 
 // ---- 调参(以 20 个种子的统计为准,见 scripts/control-stats.ts) ----
 /** 管得到的远近:REACH × (1 + ADMIN_GAIN × 行政能力)(标准路程) */
@@ -293,11 +293,18 @@ function hook(sim: CivSim, seed: number, lords: Warlord[], saved: TablesState | 
 
   const capRegion = (P: Polity, t: number) => pm.settlements[capitalAt(P, t)].region;
 
+  const tiles = popTiles(dev);
+  const N = dev.world.mesh.n;
+  const tileTable = new Set<string>(POP_TILE_TABLES);
   // ---- 政局的数表(管得到几成、离国都多远、动荡;规则见 stateTables.ts):每年年初填好输入、算一步,这一年里的事件读它 ----
   const eng = new TableEngine({
     seed: subSeed(seed, 'civ-state'),
     cards: STATE_CARDS,
-    units: { region: { count: R, adjStart: reg.adjStart, adj: reg.adj, adjKind: reg.adjKind, seat: reg.seat } },
+    units: {
+      // 乡村人口、地力按地块算(population.ts)
+      tile: { count: tiles.count, adjStart: tiles.adjStart, adj: tiles.adj },
+      region: { count: R, adjStart: reg.adjStart, adj: reg.adj, adjKind: reg.adjKind, seat: reg.seat, of: tiles.of, cellStart: tiles.cellStart, cells: tiles.cells },
+    },
     owner: '国',
   });
   /** 上一步算的时候各州归哪国(这一年里换了国家的州,表里的值是原来那国的) */
@@ -624,7 +631,11 @@ function hook(sim: CivSim, seed: number, lords: Warlord[], saved: TablesState | 
     tick(t);
     sim.schedule(t + 1, Ev.TableTick, 0, 0);
   });
-  dev.saveTables = () => ({ last, data: Object.fromEntries(SAVED_TABLES.map((id) => [id, eng.get(id).slice()])) });
+  // 按地块的表按世界上的地块存(地形大事以后哪些块养得了人会变)
+  dev.saveTables = () => ({
+    last,
+    data: Object.fromEntries(SAVED_TABLES.map((id) => [id, tileTable.has(id) ? tilesToCells(tiles, N, eng.get(id), id === '地力' ? 1 : 0) : eng.get(id).slice()])),
+  });
   if (saved === null) sim.schedule(Math.max(0, Math.ceil(sim.now)), Ev.TableTick, 0, 0);
   else if (saved && saved.last > -Infinity) {
     // 接着存档里的状态算(国的个数按存的;地形大事以后多出来的州补上)
@@ -632,7 +643,11 @@ function hook(sim: CivSim, seed: number, lords: Warlord[], saved: TablesState | 
     eng.start(saved.last);
     for (const id of SAVED_TABLES) {
       const v = saved.data[id];
-      if (v) eng.set(id, fit(v, eng.get(id).length, id === '国' ? -1 : 0));
+      if (!v) continue;
+      if (tileTable.has(id)) {
+        const back = cellsToTiles(tiles, N, v);
+        if (back) eng.set(id, back);
+      } else eng.set(id, fit(v, eng.get(id).length, id === '国' ? -1 : 0));
     }
     eng.resume(saved.last);
     started = true;
