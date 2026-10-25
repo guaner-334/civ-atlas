@@ -216,6 +216,16 @@ describe('引擎', () => {
       expect([e.value('a', 1), e.value('b', 1), e.value('c', 1), e.value('d', 1)]).toEqual([2, 21, 23, 0]);
     }
   });
+  it('avg 还没攒的时候(第一步)也读这一步开头的值:after 一张不相干的表不改结果', () => {
+    const a: TableCard = { id: 'a', name: '甲', unit: 'region', min: 0, max: 100, off: 0, init: 1, rule: 'a + 1' };
+    const c: TableCard = { id: 'c', name: '丙', unit: 'region', min: 0, max: 100, off: 0, rule: 'c' };
+    const r: TableCard = { id: 'r', name: '读平均', unit: 'region', min: 0, max: 100, off: 0, rule: 'avg(a)' };
+    const plain = run([a, c, r], [0]);
+    const later = run([a, c, { ...r, after: ['c'] }], [0]);
+    expect(plain.value('r', 0)).toBe(1);
+    expect(later.value('r', 0)).toBe(1);
+    expect(run([a, { ...r, after: ['a'] }], [0]).value('r', 0)).toBe(2);
+  });
   it('after 写错了说得清:绕成圈、没有这张表、写的是输入表', () => {
     const t = (id: string, after: string[]): TableCard => ({ id, name: id, unit: 'region', min: 0, max: 1, off: 0, rule: '0', after });
     expect(() => run([t('a', ['b']), t('b', ['a'])], [0])).toThrow(/绕成了圈/);

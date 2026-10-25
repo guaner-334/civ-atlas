@@ -556,8 +556,8 @@ export class TableEngine {
       const a = this.accs.find((x) => x.reader === t.card.id && x.source === s.table)!;
       const w = a.at - a.from;
       if (s.via === 'avg' && !(w > 0)) {
-        // 还没攒(第一步、或同一年刚算过):平均就是此刻的值
-        B.push(src.cur);
+        // 还没攒(第一步、或同一年刚算过):平均就是此刻的值(和直接读一样:after 一路往上的读新值,别的读这一步开头的值)
+        B.push(src.swapped && !t.anc.has(s.table) ? src.next : src.cur);
         span[i] = 1;
       } else {
         B.push(a.data);
