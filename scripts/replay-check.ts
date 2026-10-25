@@ -4053,12 +4053,21 @@ if (part('AI 释名')) {
   // 国家"更多"里也能讲主体民族的族名由来(和州面板民族一行的同一套),写在面板最下面
   let folkItem = '';
   let folkNote = '';
-  const pol = ((await page.evaluate('window.__wfPickables()')) as Pick[]).find((q) => q.kind === 'polity');
-  if (pol) {
+  // 有主体民族(占一半以上的州)的国家才有这一项:挑前几个国家里第一个有的
+  const pols = ((await page.evaluate('window.__wfPickables()')) as Pick[]).filter((q) => q.kind === 'polity').slice(0, 8);
+  let pol: Pick | undefined;
+  for (const q of pols) {
     await page.keyboard.press('Escape');
-    await page.evaluate((id) => (window as any).__wfSelect('polity', id), pol.id);
+    await page.evaluate((id) => (window as any).__wfSelect('polity', id), q.id);
     await page.waitForTimeout(600);
     await page.click('.inspector [data-act=more]');
+    if (await page.locator('.pm-menu [data-act=culture-explain]').count()) {
+      pol = q;
+      break;
+    }
+  }
+  if (!pol) pol = pols[0];
+  if (pol) {
     folkItem = await page.locator('.pm-menu [data-act=culture-explain]').innerText({ timeout: 3000 }).catch(() => '');
     await page.click('.pm-menu [data-act=culture-explain]', { timeout: 3000 }).catch(() => {});
     await page.waitForSelector('.inspector .cp-ai .ain-note:not(.writing) .ain-text', { timeout: 10000 }).catch(() => null);
