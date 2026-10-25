@@ -110,6 +110,8 @@ export interface OutlineHooks {
   cache?: OutlineCache | null;
   /** 这个世界、这组参数的键(和 cache 对得上才用;不给 = 不用上一次的) */
   key?: string;
+  /** 中途叫停时交出已经定下来的那几步(给了 key 才交;下一次照大纲推演传回 cache,定下来的那几条不重算) */
+  keep?: (cache: OutlineCache) => void;
 }
 
 /** 停下来的一刻:那一刻的历史、推它时带着前几条干预、整理过没有(有人物) */
@@ -149,7 +151,7 @@ interface Ctx {
 
 /**
  * 照大纲推演。params = 推这个世界用的参数(推演年数在 params.endYear;干预不看,用 input.interventions)。
- * 中途叫停 = null
+ * 中途叫停 = null(已经定下来的几步交给 hooks.keep)
  */
 export async function runOutline(world: World, params: Partial<CivParams>, input: OutlineInput, hooks: OutlineHooks = {}): Promise<OutlineResult | null> {
   const stop = hooks.stop ?? (() => false);
@@ -164,6 +166,11 @@ export async function runOutline(world: World, params: Partial<CivParams>, input
   let st: State = { snaps: [], list: own, floor: 0, done: new Map() };
   let reuse = true;
   let reused = 0;
+  /** 叫停:已经定下来的几步交出去留着 */
+  const halt = () => {
+    if (key !== null && steps.length) hooks.keep?.({ key, steps: steps.slice() });
+    return null;
+  };
   if (stop()) return null;
   for (;;) {
     const pick = choose(ctx, st);
@@ -177,13 +184,13 @@ export async function runOutline(world: World, params: Partial<CivParams>, input
       reuse = false;
       hooks.stage?.(pick.plot.id, null);
       const next = await step(ctx, st, pick);
-      if (!next) return null;
+      if (!next) return halt();
       st = next;
     }
     steps.push({ sig, after: st });
     hooks.progress?.(st.done.size, plots.length, [...st.done.values()]);
     if (hooks.pause) await hooks.pause();
-    if (stop()) return null;
+    if (stop()) return halt();
   }
   // 推到最后不记进快照(记着的那几步下一次还要用);交出去的是复制的一份,和记着的快照不共用数组
   // (worker 把结果的数组 transfer 给主线程,共用的话记着的快照就空了)

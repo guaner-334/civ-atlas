@@ -287,6 +287,7 @@ import { getPanel, setSheet, setWorldSheet, usePanel } from './panelStore';
 import { closeOverview, getPeople, openOverview, setPeople, useOverview } from './overviewStore';
 import { setOutlineRun, setOutlineRunner } from './outlineStore';
 import { outlineDoneToast, outlineRunToast } from './OutlineSide';
+import { OutlineRunAsk } from './OutlineRunAsk';
 import { STUDIO_STYLES, Studio } from './studio/Studio';
 import { setFlatGeomSource, useStudioFlat } from './studio/studioStore';
 import { MyWorlds, showMapInWorlds } from './MyWorlds';
@@ -294,7 +295,7 @@ import { GalleryPage, WorkGone, workWho } from './Gallery';
 import { MapWorkView, WorkBar } from './GalleryWork';
 import { fetchWork, galleryHref, galleryOfUrl, isWorkGone, isWorkId, loadGallery, workLink, type GalleryItem, type GalleryWork } from '../account/gallery';
 import { mapBriefOf } from './mapGroups';
-import { NARROW_MAX, useCoarse, useNarrow } from './device';
+import { NARROW_MAX, isNarrow, useCoarse, useNarrow } from './device';
 import { isDoubleTap, pinchStep, type Pt, type Tap } from './gestures';
 import { createPinchGuard, createWheelReader, inGesturePinch, setGesturePinch, wheelSample } from './wheel';
 import { mapTextBoxes, pickLabelAt } from './mapPick';
@@ -2288,13 +2289,13 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
   }, [send]);
 
   /** 照大纲推演查完一条 / 开始查一条 / 开始硬改:侧栏、大纲页的进度,顶上的提示条 */
-  const outlineProgress = (oid: number, done: number, total: number, review: PlotReview[], at?: { id: number; fix: number | null }) => {
+  const outlineProgress = (oid: number, done: number, total: number, review: PlotReview[], at?: { id: number; fix: number | null; trial?: { n: number; of: number } }) => {
     const o = outlineRef.current;
     if (!o || o.oid !== oid) return;
-    const run = { oid, done, total, review, at: at?.id ?? null, fix: at?.fix ?? null };
+    const run = { oid, done, total, review, at: at?.id ?? null, fix: at?.fix ?? null, trial: at?.trial ?? null };
     setOutlineRun(run);
     const c = realCivRef.current;
-    if (c) showToast(outlineRunToast(run, { civ: c, plots: o.plots, review, marks: getEdits().marks, characters: getEdits().characters }, getEdits().era, stopOutlineRun));
+    if (c) showToast(outlineRunToast(run, { civ: c, plots: o.plots, review, marks: getEdits().marks, characters: getEdits().characters }, getEdits().era, stopOutlineRun, isNarrow()));
   };
   const outlineProgressRef = useRef(outlineProgress);
   outlineProgressRef.current = outlineProgress;
@@ -2337,10 +2338,10 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
     // 叫停不算一件活(线程不回音):直接发
     workerRef.current?.postMessage({ type: 'outlineStop', id: reqId.current, oid: o.oid } satisfies WorkerRequest);
   };
-  // 「照大纲推演」:接到后台线程上(大纲页、侧栏调 startOutline / stopOutline)
+  // 「照大纲推演」:接到后台线程上(大纲页、侧栏先问多认真地试(OutlineRunAsk),再调 startOutline / stopOutline)
   useEffect(() => {
     setOutlineRunner({
-      start: () => {
+      start: (tries) => {
         const p = genParams.current;
         const raw = rawRef.current;
         const e = getEdits();
@@ -2363,6 +2364,7 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
           id: reqId.current,
           oid,
           plots,
+          tries,
           params: p,
           terrain: [...genTerrain.current],
           sketch: genSketch.current,
@@ -6284,6 +6286,8 @@ ${s.image.cells}` : null);
       {world && <PreviewBanner busy={worldBusy} phone={narrow} />}
       {/* 顶部居中:提示条(同一时间只有一条) */}
       <ToastBar />
+      {/* 「照大纲推演」先问多认真地试 */}
+      <OutlineRunAsk />
       {/* 逐年推演里演一国:顶上常驻的方针条(提示条出来时让开) */}
       {data && world && civ && <RoleBar civ={civ} phone={narrow} />}
       {/* 右下(时间轴上方):地球 / 平面、放大、缩小。触屏不放 + −(用双指捏合);窄屏整个不放(地球在右上竖排的按钮里) */}
