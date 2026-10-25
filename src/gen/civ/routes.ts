@@ -7,6 +7,7 @@
  *      再做 Urquhart 图 —— 每个"三城两两相邻"的三角里删掉代价最大的那条新连线,
  *      不会有太远的连线,也没有太多三角回路(见 GrowingGraph)。先在大城之间连(大路),再在所有城之间连(小路)。
  *      后来的城只添新连线、不改早先的:推演推得再远,早先修好的路不变。
+ *      新城留下的连线连的全是那年已毁的城时,补一条连最近的、那年还在的城(不然它不通路)。
  *   3. 地块级 A* 寻路。每一步的代价 = 距离 × 坡度 × 海拔 × 群落 × 河流(沿河道本身走、跨河都加价,
  *      所以路走在河谷里、河的旁边);已有路的打五折(后修的路并进先修的路,形成主干道),
  *      不穿城(那时已经有的城)的地块加罚(路愿意穿城而过);不下海、不进湖、不穿冰原。
@@ -941,10 +942,7 @@ class GrowingGraph {
       }
       return true;
     });
-    // 由近到远:两城沿已经留下的连线、经那年还在的城绕过去不超过 DETOUR 倍远的,不再连(早先连上的路还在,新城不必条条都连)
-    kept.sort((x, y) => x.w - y.w || x.a - y.a || x.b - y.b);
-    return kept.filter((e) => {
-      if (this.reach(e.a, e.b, DETOUR * e.w, t)) return false;
+    const keep = (e: Link) => {
       for (const [x, y] of [
         [e.a, e.b],
         [e.b, e.a],
@@ -953,8 +951,61 @@ class GrowingGraph {
         if (!m) this.links.set(x, (m = []));
         m.push([y, e.w]);
       }
+    };
+    // 由近到远:两城沿已经留下的连线、经那年还在的城绕过去不超过 DETOUR 倍远的,不再连(早先连上的路还在,新城不必条条都连)
+    kept.sort((x, y) => x.w - y.w || x.a - y.a || x.b - y.b);
+    const out = kept.filter((e) => {
+      if (this.reach(e.a, e.b, DETOUR * e.w, t)) return false;
+      keep(e);
       return true;
     });
+    // 留下的连线连的全是那年已毁的城(三角里删掉的正是连活城的那条,或者四周只剩废城):
+    // 补一条连那年还在的城 —— 邻城里最近的一座,邻城全废了就穿过废城的地盘找最近的一座;不然新城孤零零地不通路
+    for (const c of ids) {
+      if ((this.links.get(c) ?? []).some(([o]) => this.alive(o, t))) continue;
+      let e: Link | null = null;
+      for (const [o, w] of this.nb.get(c) ?? []) {
+        if (!this.alive(o, t)) continue;
+        const x = { a: Math.min(c, o), b: Math.max(c, o), w };
+        if (!e || longer(e, x)) e = x;
+      }
+      e ??= this.nearestAlive(c, cellOf(c), t);
+      if (!e) continue;
+      nbOf(e.a).set(e.b, e.w);
+      nbOf(e.b).set(e.a, e.w);
+      keep(e);
+      out.push(e);
+    }
+    return out;
+  }
+
+  /** 从城 c(地块 s)往外洇染、不管势力范围,碰到的第一块 t 年还在的城的地盘:连那座城(边权 = 两边到交界的代价之和);碰不到 = null */
+  private nearestAlive(c: number, s: number, t: Year): Link | null {
+    const { mesh, cost, lab, maxD } = this;
+    const { adjStart, adj } = mesh;
+    const dist = new Map<number, number>([[s, 0]]);
+    const heap = new MinHeap(256);
+    heap.push(s, 0);
+    while (heap.size) {
+      const i = heap.pop();
+      const di = heap.lastPri;
+      if (di > dist.get(i)!) continue;
+      const li = lab[i];
+      if (li >= 0 && li !== c && this.alive(li, t)) {
+        const w = di + this.d[i];
+        return w <= maxD ? { a: Math.min(c, li), b: Math.max(c, li), w } : null;
+      }
+      for (let k = adjStart[i]; k < adjStart[i + 1]; k++) {
+        const ck = cost[k];
+        if (ck < 0) continue;
+        const j = adj[k];
+        const nd = di + ck;
+        if (nd > maxD || nd >= (dist.get(j) ?? Infinity)) continue;
+        dist.set(j, nd);
+        heap.push(j, nd);
+      }
+    }
+    return null;
   }
 
   /** 留下的连线:城 → [邻城, 边权] */

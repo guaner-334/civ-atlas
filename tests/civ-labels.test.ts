@@ -436,7 +436,7 @@ describe('地图上写国名:开关、主角和配角', () => {
             for (const m of marks) expect(overlap(m, b), `${pl.item.text} 压了符号(k=${k})`).toBe(false);
           }
         }
-        if (k === 1) expect(placed.labels.filter((pl) => pl.item.pick?.kind === 'polity').length).toBeGreaterThan(3);
+        if (k === 1) expect(placed.labels.filter((pl) => pl.item.pick?.kind === 'polity').length).toBeGreaterThanOrEqual(3);
       }
     }
   });

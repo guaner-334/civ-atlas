@@ -572,22 +572,40 @@ function cityIn(pm: PolityModel, r: number): Settlement | undefined {
   return s.ended === undefined ? s : undefined;
 }
 
+/** 州 r 第 y 年的乡村人口:和第一座城一起按 S 形曲线长(不算洗劫) */
+function ruralOf(d: DevModel, r: number, y: Year): number {
+  const f = d.firstCity[r];
+  const first = f >= 0 ? d.pm.settlements[f] : undefined;
+  return first && y >= first.founded ? (ruralCapacity(d.pm.terrain.regions, r) * d.capF[r]) / (1 + GROWTH_A * fexp(-first.growth * (y - first.founded))) : 0;
+}
+
+/**
+ * 各州第 y 年的乡村人口、城的人口(千人;钱粮用,control.ts),只算 owner[r] ≥ 0 的州(别的填 0)。
+ * 先补看一遍新立的城(只补"各州第一座城",不改发展度)
+ */
+export function populationsAt(d: DevModel, y: Year, owner: ArrayLike<number>, rural: Float64Array, city: Float64Array): void {
+  seeCities(d);
+  for (let r = 0; r < d.R; r++) {
+    if (owner[r] < 0) {
+      city[r] = rural[r] = 0;
+      continue;
+    }
+    const s = cityIn(d.pm, r);
+    city[r] = s ? populationAt(s, y) : 0;
+    rural[r] = ruralOf(d, r, y);
+  }
+}
+
 /** 每 SNAP 年:各州人口、城的规模、有没有路 */
 function refreshRoads(d: DevModel, y: Year, sim: CivSim) {
   const pm = d.pm;
-  const S = pm.settlements;
-  const reg = pm.terrain.regions;
   const ownC = sim.owners[Layer.Culture];
   const ownP = sim.owners[Layer.Polity];
   for (let r = 0; r < d.R; r++) {
     if (ownC[r] < 0) continue;
     const s = cityIn(pm, r);
     const cityPop = s ? populationAt(s, y) : 0;
-    // 乡村:和第一座城一起按 S 形曲线长(不算洗劫;只拿来定动力)
-    const f = d.firstCity[r];
-    const first = f >= 0 ? S[f] : undefined;
-    const rural = first && y >= first.founded ? (ruralCapacity(reg, r) * d.capF[r]) / (1 + GROWTH_A * fexp(-first.growth * (y - first.founded))) : 0;
-    const pop = cityPop + rural;
+    const pop = cityPop + ruralOf(d, r, y);
     d.pop[r] = pop / (pop + POP_HALF);
     d.city[r] = cityPop / (cityPop + CITY_HALF);
     d.road[r] = ownP[r] >= 0 && cityPop >= TOWN ? 1 : 0;
