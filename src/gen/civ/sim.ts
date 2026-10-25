@@ -3,7 +3,7 @@
  *
  * - **事件堆**:按时间排序(复用 util.ts 的 MinHeap)。每个事件是 {时间, 类型, 对象 a, 对象 b, 版本号}。
  *   时间精度 1/256 年;"时间 + 同一刻里的次序"拼成一个整数当优先级,保证确定性:同一时刻最先处理地形大事,
- *   再处理航海时代、发展度、看王朝、新君即位、迁都后重看边地(按国家号,见 earlyOrder),再处理别的事件(按预约先后),最后处理民族、国家的到达
+ *   再处理航海时代、发展度、政局的数表、看王朝、新君即位、迁都后重看边地(按国家号,见 earlyOrder),再处理别的事件(按预约先后),最后处理民族、国家的到达
  *   (按"民族先、国家后,再按州号、民族 / 国家号"排,见 arrivalOrder)。头尾这两类和预约先后无关 —— 接着推时它们是
  *   按日志重新预约 / 重放的,预约先后和一口气推完时不一样,同一刻撞上了也要按同样的次序处理。
  *   中间那一类(看邻国、看内政、下一仗、建城、立国……)接着推时由各层补上,补的时候说明一口气推时它是哪一刻预约的
@@ -21,7 +21,8 @@
  *   分裂、合并、复国、主动迁都的冷却同样(见 politics.ts 的 resumePolitics);王朝更替也一样(dynasty.ts 的 resumeDynasty);
  *   同化与迁徙同样(见 assimilation.ts 的 resumeAssimilation);
  *   城市兴衰(毁城后的重建、旧都衰落)也一样(cities.ts 的 resumeCities)。
- *   发展度是例外:各州能力的全精度状态存在 Civ.development.state 里,接着推时从那里接上(development.ts 的 resumeDevelopment)。
+ *   发展度是例外:各州能力的全精度状态存在 Civ.development.state 里,接着推时从那里接上(development.ts 的 resumeDevelopment);
+ *   政局的数表也存在那里(state.tables,control.ts 的 resumeControl)。
  *   阶段 4 的干预不存进事件堆:fromCiv(world, civ, 干预列表)按列表补上还没到的干预(interventions.ts 的 resumeInterventions)。
  *
  * 纯计算,不碰 DOM。
@@ -174,6 +175,11 @@ export const enum Ev {
    */
   DevTick = 50,
   /**
+   * 政局的数表(control.ts;编号 51):每年一刻,按此刻的归属、国都、行政能力、危机……算各州管得到几成、离国都多远、各国的动荡,
+   * 这一年里的事件读它。同一刻里排在发展度后面(读这一刻刚算的行政能力),别的事件前面(见 earlyOrder)
+   */
+  TableTick = 51,
+  /**
    * 看年景(动荡、饥荒、民变、大崩解,unrest.ts;编号 55–57):a = 第几次看。每隔十来年,世上几处闹灾年(干旱、寒冷的地方多),
    * 人口顶到上限的城闹饥荒、人口掉一截;闹了饥荒又动荡的大国,饥民可能起事(民变)
    */
@@ -229,6 +235,7 @@ export const EVENT_INFO: EventInfo[] = [
   { id: Ev.DivergeCheck, name: '看分化', watch: false },
   { id: Ev.Diverge, name: '分化', watch: false },
   { id: Ev.DevTick, name: '发展度', watch: false },
+  { id: Ev.TableTick, name: '政局', watch: false },
   { id: Ev.FamineCheck, name: '看年景', watch: false },
   { id: Ev.Collapse, name: '散回部落', watch: false },
   { id: Ev.PlagueCheck, name: '看疫情', watch: false },
@@ -266,7 +273,8 @@ function arrivalOrder(kind: number, a: number, b: number): number {
  * - 地形大事 = 0:同一刻的别的事都按大事以后的地形和归属算(一次推演里只有一件,见 index.ts)
  * - 航海时代 = 1:同一刻的别的事都按"已经能走航线"算(polities.ts 的 sailsOcean)
  * - 发展度 = 2:只读这一刻以前的事;它改的人口上限、军力、远洋,同一刻的别的事都按改过的算(接着推时按 Civ 里存的状态接上)
- * - 看王朝、新君即位、迁都后重看边地 = 3 起:按国家号,同一国依次是看王朝、即位、重看。
+ * - 政局的数表 = 3:按发展度刚算的行政能力算;同一刻的别的事都读它算出来的值
+ * - 看王朝、新君即位、迁都后重看边地 = 4 起:按国家号,同一国依次是看王朝、即位、重看。
  *   看王朝在前:同一刻改朝换代了,旧朝原定这一刻即位的那位就不即位了(在位表重排,Ev.Reign 对不上就丢掉);
  *   即位、重看只从现有国土往外预约扩张、不改归属,排在别的事件前面 —— 接着推时 resumePolities 也是在同一刻的日志
  *   (大事改的归属除外)之前重放
@@ -279,11 +287,12 @@ function earlyOrder(kind: number, b: number): number {
   if (kind === Ev.Upheaval) return 0;
   if (kind === Ev.AgeOfSail) return 1;
   if (kind === Ev.DevTick) return 2;
+  if (kind === Ev.TableTick) return 3;
   if (kind === Ev.PlagueCheck) return EARLY_SPAN - 2;
   if (kind === Ev.PlagueStep) return EARLY_SPAN - 1;
   const i = EARLY_KINDS[kind];
-  if (i === undefined || !(b >= 0 && b < (EARLY_SPAN - 5) / 3 - 1)) return -1;
-  return 3 + b * 3 + i;
+  if (i === undefined || !(b >= 0 && b < (EARLY_SPAN - 6) / 3 - 1)) return -1;
+  return 4 + b * 3 + i;
 }
 
 /** schedule 的 booked:一口气推时在装各层的时候(第 0 年的事件处理之前)就预约了的事件 */

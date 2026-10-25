@@ -53,7 +53,7 @@
  * 每一步只读这一刻以前已经发生的事。只用加减乘除(IEEE 精确舍入)和推演里已经舍入过的人口,跨 CPU 逐位一致。
  * 随机数一律 keyed(subSeed(seed, 'civ-development'), 治所地块, …)。
  */
-import type { Civ, DevEvent, DevState, Development, Settlement, Year } from './types';
+import type { Civ, DevEvent, DevState, Development, Settlement, TablesState, Year } from './types';
 import type { World } from '../world';
 import { AdjKind, Layer } from './types';
 import { Biome } from '../biomes';
@@ -338,8 +338,8 @@ export interface DevModel {
   /** 中央管到什么程度的快照(control.ts 每步存一份,见 Development.control) */
   control: Uint8Array[];
   controlYears: Year[];
-  /** 每一步算完以后(control.ts 挂上:存一份管到什么程度的快照) */
-  afterTick?: (y: Year) => void;
+  /** 存档时一并存下的政局数表(control.ts 挂上) */
+  saveTables?: () => TablesState;
   /** 算发展度的数表(挂到推演上时建好,见 devEngine) */
   eng?: TableEngine;
 }
@@ -909,7 +909,6 @@ function tick(sim: CivSim, d: DevModel, y: Year): void {
   }
 
   d.last = y;
-  d.afterTick?.(y);
   if (y % SNAP === 0) {
     const s = makeSnap(d);
     d.snaps.push(s.snap);
@@ -1015,6 +1014,7 @@ export function finishDevelopment(sim: CivSim, endYear: Year): Development | und
     worldEra: d.worldEra,
     invented: d.invented.slice(),
     military: Array.from(d.pm.military ?? [], (m) => m ?? 1),
+    ...(d.saveTables ? { tables: d.saveTables() } : {}),
   };
   const control = d.controlYears.length ? { control: d.control.slice(), controlYears: d.controlYears.slice() } : {};
   return { resources: d.resources.slice(), found: d.found.slice(), avail, snaps, snapYears, events, state, ...control };

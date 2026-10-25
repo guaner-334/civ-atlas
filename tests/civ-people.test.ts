@@ -11,6 +11,7 @@ import type { Person } from '../src/gen/civ/types';
 import { dynastyIndexAt, polityShortTitle, polityTierAt } from '../src/gen/civ/growth';
 import { buildChronicle, filterChronicle, mergeChronicle, polityChronicle, reignEntries, type ChronicleEntry } from '../src/gen/civ/chronicle';
 import { kinOf, rulerRef } from '../src/gen/civ/peopleText';
+import { regionLabel } from '../src/gen/civ/display';
 import { polityKey } from '../src/gen/edits';
 
 const worlds = new Map<number, World>();
@@ -193,6 +194,7 @@ describe.each([7, 2024])('人物 · seed=%i', (seed) => {
     for (const e of decls) expect(e.text).toMatch(/为将|亲征/);
     // 写到的人物都记在 people 上,编号有效
     const P = civ.people!;
+    const regionNames = new Set(Array.from({ length: civ.regions.count }, (_, r) => regionLabel(civ, r)));
     for (const e of flat(list)) {
       for (const id of e.people ?? []) {
         const x = P[id];
@@ -206,6 +208,8 @@ describe.each([7, 2024])('人物 · seed=%i', (seed) => {
           if (x.rise === 'heir' || !e.text.includes(x.name) || Math.abs(x.from! - e.year) > 30) continue;
           // 写到的是同名的另一个人(议和派去的宫相和开国之君同名)
           if ((e.people ?? []).some((id) => id !== x.id && P[id].name === x.name)) continue;
+          // 写到的是同名的州(人名、州名按同一种语感起,偶尔撞上)
+          if (regionNames.has(x.name)) continue;
           expect(e.people ?? [], `${e.text} / ${x.name}`).toContain(x.id);
         }
       }
