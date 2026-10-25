@@ -5,8 +5,10 @@
  *   放大到主图那张贴图不够清楚时会等高清贴图换上再截(最多 30 秒)。
  *   --stage:截整个地图区域(带时间轴、按钮);默认只截地球仪。
  *   --cpu:用 CPU 画法(没有 WebGL2 时的退路)
+ *   写实风默认画云且固定一帧(网址 clouds=1);要看没有云的样子加 clouds=0
  *   --sel=名字:每个视图先选中球上写着这个名字的东西(国家、城、山河……),看选中的描边
  *   --panel:和 --sel 一起用:详情面板留着、截整页(看面板打开时球心左移)
+ *   --device=390x844:按手机截(这么大的视口、触屏、两倍像素密度;手机布局)
  *   --gpu:用本机显卡(macOS 上走 Metal);默认是无头浏览器的软件渲染(SwiftShader),慢很多
  *   --bench:每个视图再量转动时每帧耗时(等显卡画完):"停着"= 每帧都排全部文字(最慢),"拖着"= 只排大字(真拖动时就是这样);
  *           overlay = 球上面那层(矢量线 + 文字)的耗时,place = 其中排文字,verts = 矢量线描了多少个点(中位数)
@@ -17,15 +19,18 @@ import { startDevServer } from './lib/devserver';
 
 const args = process.argv.slice(2).filter((a) => !a.startsWith('--'));
 const flags = new Set(process.argv.slice(2).filter((a) => a.startsWith('--')));
-const query = `${args[0] ?? 'seed=7'}&view=globe${flags.has('--cpu') ? '&globe=cpu' : ''}`;
+const query = `${args[0] ?? 'seed=7'}&view=globe${flags.has('--cpu') ? '&globe=cpu' : ''}${/(^|&)clouds=/.test(args[0] ?? '') ? '' : '&clouds=1'}`;
 const out = args[1] ?? 'snaps/globe.png';
 const views = args.slice(2).map((s) => s.split(',').map(Number));
+const device = /^--device=(\d+)x(\d+)$/.exec([...flags].find((f) => f.startsWith('--device=')) ?? '');
 
 const dev = await startDevServer();
 const browser = await chromium.launch({
   args: flags.has('--gpu') ? ['--use-angle=metal', '--enable-gpu', '--ignore-gpu-blocklist'] : ['--enable-unsafe-swiftshader'],
 });
-const page = await browser.newPage({ viewport: { width: 1500, height: 900 }, deviceScaleFactor: 2 });
+const page = device
+  ? await browser.newPage({ viewport: { width: Number(device[1]), height: Number(device[2]) }, deviceScaleFactor: 2, isMobile: true, hasTouch: true })
+  : await browser.newPage({ viewport: { width: 1500, height: 900 }, deviceScaleFactor: 2 });
 const logs: string[] = [];
 page.on('console', (m) => (m.type() === 'error' || m.type() === 'warning') && logs.push(`[${m.type()}] ${m.text()}`));
 page.on('pageerror', (e) => logs.push(`[pageerror] ${e.message}`));
@@ -35,7 +40,9 @@ await page.waitForFunction(() => (window as any).__wfGlobe?.ready, null, { timeo
 if (/(^|&)civ=/.test(query)) await page.waitForFunction(() => (window as any).__wfCiv?.ready, null, { timeout: 30000 }).catch(() => {});
 // 写实风的地球仪贴图(不打光 + 坡度)在后台画,换上之前是主图那张:等它换上(数据图层、CPU 画法一直是主图那张)
 await page.waitForFunction(() => { const g = (window as any).__wfGlobe; return g.tex === 'globe' || g.style === 'data' || g.renderer === 'cpu'; }, null, { timeout: 30000 }).catch(() => console.log('  地球仪贴图没换上'));
-await page.waitForTimeout(600);
+// 写实风的云图在后台画(约一秒),换上以后再截
+await page.waitForFunction(() => (window as any).__wfGlobe.cloud !== 'baking', null, { timeout: 30000 }).catch(() => console.log('  云图没换上'));
+await page.waitForTimeout(1200);
 console.log('ready after', Date.now() - t0, 'ms', JSON.stringify(await page.evaluate(() => { const g = (window as any).__wfGlobe; return { renderer: g.renderer, gpu: g.gpu, openMs: g.openMs, upload: g.upload }; })));
 const shots = views.length ? views : [null];
 for (let i = 0; i < shots.length; i++) {
@@ -45,14 +52,17 @@ for (let i = 0; i < shots.length; i++) {
     await page.waitForTimeout(300);
     // 放大了:等高清贴图(没触发就不等)
     await page.waitForFunction(() => { const g = (window as any).__wfGlobe; return g.tier === 2 || !g.texPending; }, null, { timeout: 30000 }).catch(() => {});
+    // CPU 画法:后台线程画完、换上了这个视角的全分辨率那张
+    await page.waitForFunction(() => !(window as any).__wfGlobe.cpuPending, null, { timeout: 30000 }).catch(() => {});
     await page.waitForTimeout(300);
   }
   const sel = [...flags].find((f) => f.startsWith('--sel='))?.slice(6);
   if (sel) {
     const ok = await page.evaluate((n) => (window as any).__wfGlobeSelectName(n), sel);
     if (!ok) console.log(`  球上没有「${sel}」这个名字,没选中`);
-    // 等球转过去、球心随面板打开挪过去(约 0.6 秒)
+    // 等球转过去、球心随面板打开挪过去(约 0.6 秒;CPU 画法再等后台线程画完)
     await page.waitForTimeout(900);
+    await page.waitForFunction(() => !(window as any).__wfGlobe.cpuPending, null, { timeout: 30000 }).catch(() => {});
     // 详情面板会盖住一边:截图时藏起来(--panel:留着,截整页,看球心左移)
     if (!flags.has('--panel')) {
       await page.addStyleTag({ content: '.inspector{display:none !important}' });

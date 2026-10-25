@@ -40,9 +40,11 @@ import { DEFAULT_PARAMS } from '../../gen/world';
 import type { Civ } from '../../gen/civ/types';
 import type { Raster } from '../../gen/raster';
 import { TITLE_MAX, worldKey } from '../../gen/savefile';
-import { END_YEAR_DEFAULT, cleanCivSeed, cleanEndYear } from '../../gen/edits';
+import { END_YEAR_DEFAULT, advanceOf, cleanCivSeed, cleanEndYear } from '../../gen/edits';
 import type { DraftBase } from '../stageStore';
-import { getEdits, setCivSeed, setEndYear, setFrontier, setOrigins, useEdits } from '../editsStore';
+import { getEdits, setAdvance, setCivSeed, setEndYear, setFrontier, setOrigins, useEdits } from '../editsStore';
+import { AdvanceFields } from '../StepwiseDialogs';
+import { advanceBrief } from '../Stepwise';
 import { cleanOrigins, frontierBrief, terrainChangedCount, terrainValue, type Origins } from '../../gen/civ/frontier';
 import { EXPAND_SLIDER, SPREAD_SLIDER, TERRAIN_SLIDERS, withSpeed, withTerrain, withoutTerrain } from '../frontierUi';
 import { OriginsPage } from './OriginsPage';
@@ -122,6 +124,7 @@ import { labelSurface } from '../../render/civ/labels';
 import type { LabelView } from '../../render/labels/draw';
 import { LEFT_W, RIGHT_W, appPose, flatRect } from './layout';
 import { flatGeom, getStudioFlat, setStudioFlat } from './studioStore';
+import { holdMark } from '../holdMark';
 import '../worlds.css';
 import './studio.css';
 
@@ -180,14 +183,28 @@ export interface StudioProps {
   onRandomSeed: () => void;
   onParams: (p: WorldParams) => void;
   onTitle: (title: string) => void;
-  /** 确认创建:名字、正中的经度(度,平常的地图从这里接着看);true = 建好了 */
-  onCreate: (title: string, lon: number) => boolean;
+  /**
+   * 确认创建:名字、正中的经度(度,平常的地图从这里接着看);how = 选了「演绎」(step:从第 0 年起逐年推演)/「照大纲」(outline:建好以后先打开大纲);
+   * true = 建好了
+   */
+  onCreate: (title: string, lon: number, how?: 'step' | 'outline') => boolean;
   /** 第 1 步「保存地图」:只存地图、回我的世界;存下了 = true */
   onSaveMap: () => boolean;
   /** 在一张地图上打造文明(地图锁着):那张地图是哪个世界的(名字;只存了地图的、那个世界删掉了 = null)、一句简介;新建世界 = undefined */
   mapFrom?: { title: string | null; brief: string };
   /** 正在生成(换了种子、调了参数、改了地形):创建不了 */
   busy: boolean;
+  /**
+   * 编辑地形以后正在补推历史、起地名(编辑地形时不推历史,收起时补推):按钮照常能点(接着在后台起),
+   * 确认创建以后等它起好再建
+   */
+  naming: boolean;
+  /** 编辑地形时不推历史:正在编辑(还没收起)或正在补推,历史一会儿就有 */
+  later: boolean;
+  /** 补推的地名刚起好(星球上的地名淡入快一点) */
+  namesIn: boolean;
+  /** 照手绘图新建在第 2 步「用笔修改」点了「创建世界」:当作离开这一步(App 补推历史、起地名) */
+  onLeaveTerrain: () => void;
   /** 世界出来了(不在生成) */
   ready: boolean;
   noCiv: boolean;
@@ -302,8 +319,16 @@ export function Studio(p: StudioProps) {
   /** 两步里到了第 2 步「文明」 */
   const [civStep, setCivStep] = useState(false);
   const step2 = locked || (twoStep && civStep);
-  /** 第 2 步里推演年数、拓荒展开着没有 */
+  /** 第 2 步「怎么推」:一口气推完(推演年数)/ 演绎(建好以后从第 0 年起逐年推演,推进设置)/ 照大纲(照常推完,建好以后先打开大纲) */
+  const [how, setHow] = useState<'all' | 'step' | 'outline'>('all');
+  const stepHow = step2 && how === 'step';
+  const outlineHow = step2 && how === 'outline';
+  /** 确认框里的动词;选了演绎时推演年数不算(从第 0 年起一步步往下走) */
+  const verb = stepHow ? '演绎' : '推演';
+  const yearsLocked = !!years && !stepHow;
+  /** 第 2 步里推演年数、推进设置、拓荒展开着没有 */
   const [yearsOpen, setYearsOpen] = useState(false);
+  const [advOpen, setAdvOpen] = useState(false);
   const [frontierOpen, setFrontierOpen] = useState(false);
   /** 一进来用的投影:设过「新建时的默认」就照它(照手绘图的照旧是地球仪) */
   const startProj = useRef<PlanetProjection>((!image && getNewView()?.proj) || 'globe');
@@ -352,6 +377,13 @@ export function Studio(p: StudioProps) {
   const [styOpen, setStyOpen] = useState(false);
   /** 地图摊成平面:改地形的时候;照手绘图的平时也是(切到地球仪才卷起来) */
   const wantFlat = tool.on || (image && imgFlat);
+  /**
+   * 样式列表摊开着没有:电脑上右边一直摊开;手机上点开「样式」、照手绘图点开样式那一栏才摊开。
+   * 编辑地形时列表收着:每停一次笔只重画按钮上那一张(每张缩略图都要先画一整张底图),其余的摊开时再画
+   * (实景那张的整张底图收起平面时星球要用,顺手备好,点「完成」时不用当场画);别的时候照旧几张都做(点开列表时已经做好了)
+   */
+  const listOpen = image ? styOpen : !p.phone || drawer === 'style';
+  const wantThumbs = () => p.requestThumbs(listOpen || !tool.on ? STYLE_IDS : style === 'realistic' ? [style] : [style, 'realistic']);
 
   // ---- 设定(和原来的新建卡片一样) ----
   const [paramsOpen, setParamsOpen] = useState(false);
@@ -642,7 +674,7 @@ export function Studio(p: StudioProps) {
 
   // 没有 WebGL:右边样式的缩略图照样要做
   useEffect(() => {
-    if (glOk === false && p.ready) p.requestThumbs(STYLE_IDS);
+    if (glOk === false && p.ready) wantThumbs();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [glOk, p.ready, p.data]);
 
@@ -656,7 +688,8 @@ export function Studio(p: StudioProps) {
 
   // ---- 世界:贴图;第一颗直接是地球仪,换了一颗、调了参数、改了地形都淡过去 ----
   const tagRef = useRef(0);
-  const shown = useRef<{ data: object; tag: number; seed: number; pkey: string } | null>(null);
+  /** 星球上贴着的是哪一颗(mark = holdMark(世界数据):只记记号不拉住数据,摊平改地形时旧的那颗不白占内存) */
+  const shown = useRef<{ mark: string; tag: number; seed: number; pkey: string } | null>(null);
   const landLon = useRef(0);
   /** 把某样式的整张图放上显卡(App 缓存里有就直接拿;没有就画一张,要等一会儿) */
   const upload = (sc: StudioScene, tag: number, id: MapLayer): boolean => {
@@ -678,22 +711,31 @@ export function Studio(p: StudioProps) {
       sc.spin = first === 'globe';
       sc.setFlatBack(first);
     }
-    p.requestThumbs(STYLE_IDS);
+    wantThumbs();
   };
 
+  /** 摊平着(改地形、照手绘图看平面)换了世界,星球的贴图还没跟着换 */
+  const flatStale = useRef(false);
   useEffect(() => {
     const sc = sceneRef.current;
     const d = p.data;
     if (!glOk || !sc || !d || !p.ready || gone.current) return;
-    if (shown.current?.data === d) return;
+    if (shown.current?.mark === holdMark(d)) return;
     const prev = shown.current;
+    // 摊平着看不见星球:贴图等收起平面时再换(整张底图那时多半已经在缩略图那边分小步备好了,贴上只要一下),
+    // 不在每涂一笔以后都当场整张画一遍;右边的缩略图照样做(编辑地形时停笔一会儿才做,见 LayerPopover.tsx 的 useLayerThumbs)
+    if (prev && wantFlat) {
+      flatStale.current = true;
+      wantThumbs();
+      return;
+    }
     const tag = ++tagRef.current;
     if (!upload(sc, tag, 'realistic')) return;
     if (style !== 'realistic') upload(sc, tag, style);
     const t = d.world.tect;
     const px = plateTexels(d.raster.cell, d.raster.w, d.raster.h, t.plate, d.world.water, t.plateContinental, PLATE_W, PLATE_H);
     const pkey = worldKey({ ...p.params, seed: 0 });
-    shown.current = { data: d, tag, seed: p.params.seed, pkey };
+    shown.current = { mark: holdMark(d), tag, seed: p.params.seed, pkey };
     const latest = () => sc.gl.keepStyles((k) => k.startsWith(`${tagRef.current}:`));
     // 每换一颗都重算陆地最多的那一面(手机建好时转过去)
     landLon.current = landCenterLon(px, PLATE_W, PLATE_H);
@@ -707,11 +749,23 @@ export function Studio(p: StudioProps) {
       settle();
       return;
     }
+    wantThumbs();
+    // 摊平着换的(这会儿收起平面):星球还没露出来,直接换上
+    if (flatStale.current) {
+      flatStale.current = false;
+      sc.showStyle(`${tag}:${style}`);
+      latest();
+      return;
+    }
     // 换了一颗、改了地形慢慢淡入新样子;同一颗调了参数淡得快
     void sc.setStyle(`${tag}:${style}`, prev.seed === p.params.seed && prev.pkey !== pkey ? 450 : 1100).then(latest);
-    p.requestThumbs(STYLE_IDS);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [glOk, p.data, p.ready]);
+  }, [glOk, p.data, p.ready, wantFlat]);
+  // 样式列表摊开了(手机点开「样式」):收着时没做的几张现在做(第一颗星球出来以前不抢在它前面)
+  useEffect(() => {
+    if (listOpen && p.ready && (shown.current || glOk === false)) p.requestThumbs(STYLE_IDS);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listOpen]);
   // 画不了地球仪(只有平面地图)时,看过的星球也照样记
   useEffect(() => {
     if (glOk !== false || !p.data || !p.ready || image || p.base) return;
@@ -845,6 +899,7 @@ export function Studio(p: StudioProps) {
     if (name !== p.title) p.onTitle(name);
   };
   const askCreate = () => {
+    p.onLeaveTerrain();
     commitName();
     mixFlush.current?.();
     setDrawer(null);
@@ -900,6 +955,8 @@ export function Studio(p: StudioProps) {
   };
   const doCreate = async () => {
     setConfirm(false);
+    // 编辑地形以后还在补推历史、起地名(照手绘图新建点「创建世界」时才开始的):等它起好再建(顶上提示条写着进度)
+    while (pRef.current.naming) await new Promise((r) => setTimeout(r, 50));
     const sc = glOk ? sceneRef.current : null;
     // 建好以后平常的地图用哪种投影:这里选的平面投影;选的是地球仪就回到进来之前的平面投影
     const target: MapProjection = proj === 'globe' ? prevFlat.current : proj;
@@ -927,7 +984,7 @@ export function Studio(p: StudioProps) {
     else await new Promise((r) => setTimeout(r, reduce ? 0 : 360));
     const lon = sc ? (((((to * 180) / Math.PI + 180) % 360) + 360) % 360) - 180 : flatLon;
     if (target !== getProjection()) setProjection(target);
-    const ok = p.onCreate(name, lon);
+    const ok = p.onCreate(name, lon, stepHow ? 'step' : outlineHow ? 'outline' : undefined);
     if (!ok) {
       // 没建成(还在生成):回到新建
       gone.current = false;
@@ -975,7 +1032,7 @@ export function Studio(p: StudioProps) {
       : image
         ? '海和陆地照你的图长，山、河、气候由程序补上。'
         : civStep
-          ? '地图定下了。接下来定文明怎么推演，点「开始推演」从第 0 年推起。'
+          ? '地图定下了。接下来定文明怎么推演：一口气推完，或者从第 0 年起演绎。'
           : '按种子随机生成。地图做好了，可以先保存，也可以接着打造文明。';
   const isDefault = (Object.keys(DEFAULT_PARAMS) as (keyof WorldParams)[]).every((k) => k === 'seed' || p.params[k] === DEFAULT_PARAMS[k]) && (twoStep || !edits.frontier);
   const presets = usePresets();
@@ -987,7 +1044,8 @@ export function Studio(p: StudioProps) {
     if (!base && c.seed && c.seed !== p.params.seed) p.onSeed(c.seed, { ...c.params, seed: c.seed });
     else p.onParams({ ...c.params, seed: p.params.seed });
   };
-  const canAsk = p.ready && !!p.civ && !!p.raw;
+  // 编辑地形时还没推的历史(收起编辑地形就补推):照常能点(助手那一栏等历史推好了再出来)
+  const canAsk = p.ready && ((!!p.civ && !!p.raw) || p.later);
   const ico = p.phone ? 18 : 17;
   const peek = !image && p.phone && !sheetFull && !tool.on;
 
@@ -1251,6 +1309,48 @@ export function Studio(p: StudioProps) {
       )}
     </>
   );
+  /** 怎么推:一口气推完 / 演绎 */
+  const howRow = (
+    <div className="sb-row nw-how" data-act="how">
+      <span className="sb-row-main">
+        <b>怎么推</b>
+      </span>
+      <span className="nw-dseg" role="radiogroup" aria-label="怎么推">
+        <button role="radio" aria-checked={!stepHow && !outlineHow} className={stepHow || outlineHow ? '' : 'on'} data-act="how-all" onClick={() => setHow('all')}>
+          一口气推完
+        </button>
+        <button role="radio" aria-checked={stepHow} className={stepHow ? 'on' : ''} data-act="how-step" onClick={() => setHow('step')}>
+          演绎
+        </button>
+        <button role="radio" aria-checked={outlineHow} className={outlineHow ? 'on' : ''} data-act="how-outline" onClick={() => setHow('outline')}>
+          照大纲
+        </button>
+      </span>
+    </div>
+  );
+  /** 选了照大纲:一句说明(放在「怎么推」下面) */
+  const outlineNote = outlineHow && <div className="nw-note nw-how-note">建好以后先打开「大纲」：一条条写下故事里的大事，写完点「照大纲推演」。地形、民族、国家起源照常生成，大纲只决定后面的历史怎么走。</div>;
+  const adv = advanceOf(edits);
+  /** 选了演绎:推进设置(和逐年推演开始之前的设置同一套,点开原地展开) */
+  const advRow = (
+    <>
+      <button className={`sb-row nw-params${advOpen ? ' open' : ''}`} data-act="advance" aria-expanded={advOpen} disabled={!p.ready} onClick={() => setAdvOpen((o) => !o)}>
+        {!p.phone && <Icon name="sliders" size={ico} className="sb-ico" />}
+        <span className="sb-row-main">
+          <b>推进设置</b>
+        </span>
+        <span className="sb-row-side">{advanceBrief(adv)}</span>
+        <Icon name={advOpen ? 'down' : 'chevron'} size={14} className="sb-chev" />
+      </button>
+      {advOpen && (
+        <div className="nw-sliders nw-adv">
+          {/* 左边面板窄:照手机的排法(分段按钮各占一行) */}
+          <AdvanceFields adv={adv} set={setAdvance} phone />
+
+        </div>
+      )}
+    </>
+  );
   const frontierRow = (
     <>
       <button className={`sb-row nw-params${frontierOpen ? ' open' : ''}`} data-act="frontier" aria-expanded={frontierOpen} disabled={!p.ready} onClick={() => setFrontierOpen((o) => !o)}>
@@ -1291,7 +1391,11 @@ export function Studio(p: StudioProps) {
       {p.phone && <Icon name="lock" size={15} className="nw-lock" />}
     </div>
   );
-  const civNote = <div className="nw-note">文明种子决定民族、国家和名字怎么长出来。同一张地图换一个文明种子，就是另一个文明。</div>;
+  const civNote = stepHow ? (
+    <div className="nw-note">演绎：建好以后从第 0 年起一步一步往下推，导播带你看发生了什么。最早几百年还没有国家，会很快带过。</div>
+  ) : (
+    <div className="nw-note">文明种子决定民族、国家和名字怎么长出来。同一张地图换一个文明种子，就是另一个文明。</div>
+  );
   const leftNote = locked && srcName && <div className="nw-note">{srcName}里的国家、人物、你的干预、标记、改过的名字和地形大事都不带过来。</div>;
   const noCivHint = p.noCiv && <div className="nw-note warn">{image ? '这颗星球长不出文明，多画些陆地试试' : '这颗星球长不出文明，换一颗或调大陆地比例'}</div>;
   const baseRows = base && (
@@ -1419,7 +1523,7 @@ export function Studio(p: StudioProps) {
   );
   const createBtn = (
     <button className="nw-create" data-act="create-world" disabled={p.busy || !p.ready || out > 0 || importing || (image && !applied)} onClick={askCreate}>
-      {base ? '创建新世界' : step2 ? '开始推演' : '创建世界'}
+      {base ? '创建新世界' : step2 ? (stepHow ? '开始演绎' : outlineHow ? '建好，先写大纲' : '开始推演') : '创建世界'}
     </button>
   );
   /** 第 1 步底部:「保存地图」「打造文明 ›」 */
@@ -1548,7 +1652,9 @@ export function Studio(p: StudioProps) {
         <div className="sb-group">
           {p.phone && mapRow}
           {civSeedRow}
-          {yearsRow}
+          {howRow}
+          {outlineNote}
+          {stepHow ? advRow : yearsRow}
           {compact ? (
             <button className="sb-row" data-act="civ-more" onClick={() => setSheetFull(true)}>
               <span className="sb-row-main">
@@ -1648,10 +1754,12 @@ export function Studio(p: StudioProps) {
       <i aria-hidden="true" />
     </button>
   );
+  // 属性一直不变的容器(卡片、侧栏、最外层):世界、历史换了就换个记号,免得它记着的旧 props 拉住旧世界(见 holdMark.ts)
+  const hold = holdMark(p.data, p.baseWorld, p.civ, p.raw);
   let left: React.ReactNode;
   if (p.phone && image) {
     left = (
-      <section ref={sheetRef} className="st-sheet nw-sheet nw-card sk-sheet" aria-label={heading} onPointerDown={stop} onClick={stop} onWheel={stop}>
+      <section ref={sheetRef} className="st-sheet nw-sheet nw-card sk-sheet" data-hold={hold} aria-label={heading} onPointerDown={stop} onClick={stop} onWheel={stop}>
         {grip}
         {!pageShown && (
           <div className="sk-phd">
@@ -1675,6 +1783,7 @@ export function Studio(p: StudioProps) {
       <section
         ref={sheetRef}
         className={`st-sheet nw-sheet nw-card${peek && !step2 ? ' peek' : ''}${civPeek ? ' civ-peek' : ''}${tool.on ? ' tools' : ''}`}
+        data-hold={hold}
         aria-label={heading}
         onPointerDown={stop}
         onClick={stop}
@@ -1702,7 +1811,7 @@ export function Studio(p: StudioProps) {
     );
   } else {
     left = (
-      <aside className="st-left nw-card" aria-label={heading} onPointerDown={stop} onDoubleClick={stop} onClick={stop}>
+      <aside className="st-left nw-card" data-hold={hold} aria-label={heading} onPointerDown={stop} onDoubleClick={stop} onClick={stop}>
         <div className={`st-in nw-body${pageShown ? ' nm-page' : image ? ' sk-in' : ''}${ogShown ? ' og-page' : ''}`}>
           {mixPage || (
             <>
@@ -1918,10 +2027,10 @@ export function Studio(p: StudioProps) {
     .filter(Boolean)
     .join(' ');
   return (
-    <div ref={rootRef} className={cls} data-theme="dark" style={p.phone ? ({ '--sheet-h': `${sheetH}px` } as React.CSSProperties) : undefined}>
+    <div ref={rootRef} className={cls} data-theme="dark" data-hold={hold} style={p.phone ? ({ '--sheet-h': `${sheetH}px` } as React.CSSProperties) : undefined}>
       <div ref={glowRef} className="st-glow" aria-hidden="true" />
       <canvas ref={glRef} className="st-gl" aria-label="这颗星球" />
-      <canvas ref={labRef} className={`st-labels${labOn && !tool.on && !out && glOk ? ' on' : ''}`} aria-hidden="true" />
+      <canvas ref={labRef} className={`st-labels${labOn && !tool.on && !out && glOk ? ' on' : ''}${p.namesIn ? ' names-in' : ''}`} aria-hidden="true" />
       <canvas ref={markRef} className={`st-labels st-marks${markOn && astShown && !tool.on && !out && glOk ? ' on' : ''}`} data-marks={markOn && astShown ? marks.length : 0} aria-hidden="true" />
       {pins}
       {(drawer || styOpen) && (
@@ -2015,9 +2124,11 @@ export function Studio(p: StudioProps) {
             <div className="st-dlg-ico">
               <Icon name="lock" size={22} />
             </div>
-            <h2 id="st-dlg-title">{step2 ? (nameNow ? `开始推演「${nameNow}」？` : '开始推演这个文明？') : nameNow ? `创建「${nameNow}」？` : '创建这个世界？'}</h2>
+            <h2 id="st-dlg-title">
+              {step2 ? (nameNow ? `开始${verb}「${nameNow}」？` : `开始${verb}这个文明？`) : nameNow ? `创建「${nameNow}」？` : '创建这个世界？'}
+            </h2>
             <p>
-              {step2 ? '开始推演以后' : '创建以后，这颗星球的样子就定下来了'}，下面{LOCK_COUNT[4 + (step2 ? 1 : 0) + (years ? 1 : 0) + (frontier ? 1 : 0) + (originN ? 1 : 0)]}样不能再改：
+              {step2 ? `开始${verb}以后` : '创建以后，这颗星球的样子就定下来了'}，下面{LOCK_COUNT[4 + (step2 ? 1 : 0) + (yearsLocked ? 1 : 0) + (frontier ? 1 : 0) + (originN ? 1 : 0)]}样不能再改：
             </p>
             <div className="sb-group">
               {image ? (
@@ -2059,7 +2170,7 @@ export function Studio(p: StudioProps) {
                   </span>
                 </div>
               )}
-              {years && (
+              {yearsLocked && (
                 <div className="sb-row static">
                   <Icon name="lock" size={16} className="sb-ico" />
                   <span className="sb-row-main">
@@ -2111,13 +2222,13 @@ export function Studio(p: StudioProps) {
                 </span>
               </div>
             </div>
-            <p className="st-dlg-note">世界名、历史和一个个国名地名，{step2 ? '推演' : '创建'}以后随时能改。</p>
+            <p className="st-dlg-note">世界名、历史和一个个国名地名，{step2 ? verb : '创建'}以后随时能改。</p>
             <div className="st-dlg-btns">
               <button className="st-b2" data-act="confirm-back" onClick={() => setConfirm(false)}>
                 再改改
               </button>
               <button className="st-b1" data-act="confirm-create" autoFocus onClick={() => void doCreate()}>
-                {step2 ? '开始推演' : '确认创建'}
+                {step2 ? `开始${verb}` : '确认创建'}
               </button>
             </div>
           </div>

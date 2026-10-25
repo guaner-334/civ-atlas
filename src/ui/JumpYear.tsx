@@ -71,11 +71,11 @@ function yearParts(y: number, era: Era | undefined): [string, string, string] {
 }
 
 /** 输入框上面(时间轴在顶上时是下面)的提示:平常写回车跳、这个世界从哪年到哪年;填得不对标红 */
-function JumpTip({ why, hint, end, era, below }: { why: string | null; hint: string | null; end: number; era: Era | undefined; below?: boolean }) {
+function JumpTip({ why, hint, end, era, below, future }: { why: string | null; hint: string | null; end: number; era: Era | undefined; below?: boolean; future?: boolean }) {
   return (
     <span className={`jy-tip${why ? ' bad' : ''}${below ? ' below' : ''}`} role="status">
       {why ?? '回车跳到这一年，Esc 取消'}
-      <small>{why ? hint : `这个世界从${yearFull(0, era)}推到${yearFull(end, era)}`}</small>
+      <small>{why ? hint : spanNote(end, era, future)}</small>
     </span>
   );
 }
@@ -96,10 +96,17 @@ export interface TimelineYearProps {
   ghost?: string;
   /** 导出回放视频选了一段时:只在这一段里跳(和拖时间轴一样) */
   range?: { from: number; to: number } | null;
+  /** 逐年推演(end 是"现在"):比"现在"晚的年份写"以后的事还没发生" */
+  future?: boolean;
+}
+
+/** 提示下面的小字:这个世界从哪年推到哪年(逐年推演:已经演绎到哪年) */
+function spanNote(end: number, era: Era | undefined, future?: boolean): string {
+  return future ? `已经演绎到${yearFull(end, era)}` : `这个世界从${yearFull(0, era)}推到${yearFull(end, era)}`;
 }
 
 /** 时间轴左边的年份:平常是字,点了变输入框(手机弹小卡片) */
-export function TimelineYear({ world, year, end, era, narrow, locked, below, ghost, range }: TimelineYearProps) {
+export function TimelineYear({ world, year, end, era, narrow, locked, below, ghost, range, future }: TimelineYearProps) {
   const [edit, setEdit] = useState<{ text: string; pre: boolean } | null>(null);
   const boxRef = useRef<HTMLSpanElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -130,7 +137,7 @@ export function TimelineYear({ world, year, end, era, narrow, locked, below, gho
     setEdit(null);
   }, [locked, world, end, era]);
 
-  const parsed = edit ? parseJump(edit.text, edit.pre, era, end) : null;
+  const parsed = edit ? parseJump(edit.text, edit.pre, era, end, future) : null;
   const go = () => {
     if (!edit || !parsed) return;
     if (parsed.year === null) {
@@ -163,6 +170,7 @@ export function TimelineYear({ world, year, end, era, narrow, locked, below, gho
               pre={edit.pre}
               era={era}
               end={end}
+              future={future}
               onText={(text) => setEdit({ ...edit, text })}
               onFlip={() => setEdit({ ...edit, pre: !edit.pre })}
               onGo={go}
@@ -225,7 +233,7 @@ export function TimelineYear({ world, year, end, era, narrow, locked, below, gho
         style={{ width: `${Math.max(2, edit.text.length) + 0.4}ch` }}
       />
       {' 年'}
-      <JumpTip why={parsed?.why ?? null} hint={parsed?.hint ?? null} end={end} era={era} below={below} />
+      <JumpTip why={parsed?.why ?? null} hint={parsed?.hint ?? null} end={end} era={era} below={below} future={future} />
     </span>
   );
 }
@@ -236,12 +244,13 @@ function JumpCard(p: {
   pre: boolean;
   era: Era | undefined;
   end: number;
+  future?: boolean;
   onText: (s: string) => void;
   onFlip: () => void;
   onGo: () => void;
   onClose: () => void;
 }) {
-  const parsed = parseJump(p.text, p.pre, p.era, p.end);
+  const parsed = parseJump(p.text, p.pre, p.era, p.end, p.future);
   const ref = useRef<HTMLInputElement>(null);
   useEffect(() => {
     ref.current?.focus();
@@ -276,7 +285,7 @@ function JumpCard(p: {
           </button>
         </form>
         <small className={parsed.why ? 'bad' : ''}>
-          {parsed.why ? `${parsed.why}，${parsed.hint ?? ''}`.replace(/，$/, '') : `这个世界从${yearFull(0, p.era)}推到${yearFull(p.end, p.era)}`}
+          {parsed.why ? `${parsed.why}，${parsed.hint ?? ''}`.replace(/，$/, '') : spanNote(p.end, p.era, p.future)}
         </small>
       </div>
     </div>

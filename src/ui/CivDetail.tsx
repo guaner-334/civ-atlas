@@ -19,6 +19,7 @@
  * 备好了和地形细节层一起整张换上(画出来的和一口气画完的逐像素一样)。拖到离画好那一块的边不到半个余量就提前备下一块
  * (往拖的方向多留一些),真拖出去了还没备好,剩下的当下做完。回放 / 拖时间轴(每一年都要马上画)、换了世界或画风
  * (被藏起来的整张图、画好的那几张都是旧的,不能露出来顶着)时当下画完。
+ * 没有显卡加速的机器上,底图画到藏着的那张上也分几下(色块按横带、线各一下,一下一段;detailJobs.ts 的 paintInParts)。
  */
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
@@ -39,11 +40,11 @@ import {
   type DetailPlan,
   type DetailTiming,
 } from '../render/civ/detail';
-import { aheadOf, cancelDetailJob, DetailBuffer, detailAsync, flushDetailJobs, submitDetailJob, type JobStats } from './detailJobs';
+import { aheadOf, cancelDetailJob, DetailBuffer, detailAsync, flushDetailJobs, paintInParts, submitDetailJob, type JobStats, type JobStep } from './detailJobs';
 import { washLayer } from '../render/civ/territory';
 import type { CivDrawParams, CivStyle } from '../render/civ/overlay';
 import type { CivHighlight, SelectionTarget } from '../render/civ/highlight';
-import { mapBoxOf, placeOnScreen, visibleBox, type Visible } from './mapWrap';
+import { mapBoxOf, placeOnScreen, visibleBox, watchMapBox, type Visible } from './mapWrap';
 import { useMapMoving } from './projection';
 
 /** 画好的那一块(地图框 CSS 坐标,缩放前)、画的时候的缩放倍数、画布 → 地图平面的变换 */
@@ -138,6 +139,21 @@ function baseHasContent(p: CivDrawParams | null): boolean {
   return washLayer(p) !== null || (s.polities && p.civ.polities.length > 0) || (s.routes && p.civ.routes.length > 0) || s.regions || s.sites || s.habitat;
 }
 
+/**
+ * 卸下时收拾(给 useEffect 当清理函数用)。清理函数在这里(模块里)建:要是在组件那一次渲染里建,
+ * 它会一直拉住挂上那一刻的世界、主图、历史,换了世界也放不掉
+ */
+function unmountDetail(timer: { current: number }, bufs: { current: { base: DetailBuffer; sel: DetailBuffer } | null }, hide: RefObject<HTMLCanvasElement>[]) {
+  return () => {
+    window.clearTimeout(timer.current);
+    cancelDetailJob(JOB);
+    bufs.current?.base.dispose();
+    bufs.current?.sel.dispose();
+    bufs.current = null;
+    for (const r of hide) if (r.current) r.current.style.visibility = '';
+  };
+}
+
 export interface CivDetailProps {
   world: World;
   raster: Raster;
@@ -183,25 +199,9 @@ export function CivDetail({ world, raster, params, civ, style, sel, selYear, hl,
 
   // 地图框大小变了(窗口缩放)也要重画
   const [tick, setTick] = useState(0);
-  useEffect(() => {
-    const box = mapBoxOf(baseRef.current);
-    if (!box || typeof ResizeObserver === 'undefined') return;
-    const ro = new ResizeObserver(() => setTick((t) => t + 1));
-    ro.observe(box);
-    return () => ro.disconnect();
-  }, [host]);
-  useEffect(
-    () => () => {
-      window.clearTimeout(timer.current);
-      cancelDetailJob(JOB);
-      bufs.current?.base.dispose();
-      bufs.current?.sel.dispose();
-      bufs.current = null;
-      for (const r of hide) if (r.current) r.current.style.visibility = '';
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
-  );
+  useEffect(() => watchMapBox(baseRef.current, setTick), [host]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => unmountDetail(timer, bufs, hide), []);
 
   useLayoutEffect(() => {
     const box = mapBoxOf(baseRef.current);
@@ -423,13 +423,29 @@ export function CivDetail({ world, raster, params, civ, style, sel, selYear, hl,
       const job = pend.current;
       const { cw, ch } = ps.R.view;
       // 最后几步:底图、选中要重画的各一步先画在藏着的那张上,换上时对调
-      const steps = stepsOf(ps);
+      const steps: JobStep[] = stepsOf(ps);
       const { base, sel: s } = ps;
-      if (base && base !== 'keep')
+      if (base && base !== 'keep') {
+        // 没有显卡加速时分几下画(一下一段,见 detailJobs.ts 的 paintInParts),有就一步画完
+        let ctx: CanvasRenderingContext2D | null = null;
+        let split: ReturnType<NonNullable<typeof base.parts>> | null = null;
+        let at = 0;
         steps.push(() => {
-          const ctx = pend.current === job ? bf.base.back(cw, ch) : null;
-          if (ctx) job.ready.base = base.draw(ctx);
+          if (pend.current !== job) return;
+          if (!ctx) {
+            ctx = bf.base.back(cw, ch);
+            if (!ctx) return;
+            if (!base.parts || !paintInParts()) return void (job.ready.base = base.draw(ctx));
+            split = base.parts();
+          }
+          if (!split) return;
+          const { parts, result } = split;
+          if (at < parts.length && parts[at](ctx) !== true) at++;
+          if (at < parts.length) return 'painting';
+          job.ready.base = result();
+          return 'painted';
         });
+      }
       if (s && s !== 'keep')
         steps.push(() => {
           const ctx = pend.current === job ? bf.sel.back(cw, ch) : null;

@@ -16,7 +16,8 @@
  *     包到球上转到两极,一半的地形光从背后来,出现暗块;重新打光以后从哪个角度看都一致,正对着看时和平面主图几乎一样
  *   - 经纬网在着色器里画(按屏幕像素定线宽,放大不变粗)
  *
- * 没有 WebGL2 时 renderGlobeCpu 在 CPU 上按同样的公式逐像素画(慢一些,拖动时降分辨率)。
+ * 没有 WebGL2 时 renderGlobeCpu 在 CPU 上按同样的公式逐像素画(慢一些,拖动时降分辨率;
+ * 平时在几个后台线程里分段画,见 globeCpuWorker.ts、ui/globeCpu.ts)。
  * 这里的数学函数(屏幕 ↔ 经纬度、拖动、缩放)是纯计算,单测在 Node 里跑。
  *
  * 坐标约定(和主图一致,见 ui/mapWrap.ts):经度 −180°…180°,世界 x = 0 是 180° 经线,主图正中是 0°;
@@ -278,7 +279,7 @@ export function reliefShade(c: Vec3, gd: [number, number], gm: [number, number],
   else {
     const a = 1 - Math.exp((s - 1) / wt.shadow);
     f = 1 - wt.shadow * a;
-    cool = 0.4 * a;
+    cool = wt.cool * a;
   }
   const sky: Vec3 = [60, 70, 90];
   return [0, 1, 2].map((i) => c[i] * f + (sky[i] - c[i] * f) * cool) as Vec3;
@@ -307,6 +308,11 @@ export interface GlobeLook {
   hl: number;
   /** 回放帧盖上去的程度 0–1 */
   replay: number;
+  /**
+   * 写实风的云(不给 = 不画):opacity = 浓淡 0–1(放大、盖着政区填色时淡一些);rot = 云层比地面多转的角度(弧度,云在飘);
+   * t = 秒(边缘细碎的形状慢慢变);detail = 边缘细碎程度 0–1(0 = 不加,省一轮噪声:手机上转动时关掉)。云图在槽位 cloud(render/clouds.ts)
+   */
+  clouds?: { opacity: number; rot: number; t: number; detail: number };
 }
 
 /** 背景色(导出、CPU 画法、CSS 共用) */
@@ -348,9 +354,14 @@ uniform sampler2D uHlTex;
 uniform sampler2D uReplayTex;
 uniform sampler2D uWater;
 uniform sampler2D uSlope;
+uniform sampler2D uCloud;
+// 云:x 浓淡(0 = 不画)、y 云层比地面多转的角度、z 秒、w 边缘细碎程度
+uniform vec4 uCloudP;
 uniform float uRelief;
 // 几样晕渲的权重(细节、大尺度、海底)和暗面压暗多少(realistic.ts 的 reliefWeights)
 uniform vec4 uReliefW;
+// 暗面往天空冷色里混多少(realistic.ts 的 reliefWeights)
+uniform float uReliefCool;
 out vec4 outColor;
 
 const float PI = 3.141592653589793;
@@ -378,6 +389,50 @@ float vnoise(vec2 p) {
   float c = hash12(i + vec2(0.0, 1.0));
   float d = hash12(i + vec2(1.0, 1.0));
   return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+
+float hash13(vec3 p3) {
+  p3 = fract(p3 * 0.1031);
+  p3 += dot(p3, p3.zyx + 31.32);
+  return fract((p3.x + p3.y) * p3.z);
+}
+float vnoise3(vec3 p) {
+  vec3 i = floor(p);
+  vec3 f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(mix(hash13(i), hash13(i + vec3(1, 0, 0)), f.x), mix(hash13(i + vec3(0, 1, 0)), hash13(i + vec3(1, 1, 0)), f.x), f.y),
+             mix(mix(hash13(i + vec3(0, 0, 1)), hash13(i + vec3(1, 0, 1)), f.x), mix(hash13(i + vec3(0, 1, 1)), hash13(i + vec3(1, 1, 1)), f.x), f.y), f.z);
+}
+// 云层自己的坐标:比地面多转 uCloudP.y(云在飘)
+vec3 cloudFrame(vec3 p) {
+  float c = cos(uCloudP.y);
+  float s = sin(uCloudP.y);
+  return vec3(c * p.x + s * p.y, -s * p.x + c * p.y, p.z);
+}
+// 云图在这一点的云厚度(大形状),按 lod 取(只用来算云影和云的明暗,不带细碎边缘)
+float cloudMacro(vec3 p, float lod) {
+  vec3 q = cloudFrame(p);
+  vec2 st = vec2((atan(q.y, q.x) + PI) / (2.0 * PI), (0.5 * PI - asin(clamp(q.z, -1.0, 1.0))) / PI);
+  return textureLod(uCloud, st, lod).r;
+}
+// 边缘的细碎:几层噪声,越放大加得越多(fp = 一个像素在单位球上多宽),一直细到两三个像素,放大了也不糊;
+// 只加在云的边缘(云图量很小的地方不加,免得晴空里冒出碎云)
+float cloudEdge(vec3 q, float fp) {
+  // 南北方向花纹更密:云顺着风(东西向)拉长一点
+  vec3 w = q * vec3(56.0, 56.0, 96.0) + vec3(uCloudP.z * 0.04, 0.0, uCloudP.z * 0.025);
+  float f = 56.0;
+  float a = 0.5;
+  float sum = 0.0;
+  for (int i = 0; i < 6; i++) {
+    // 这一层的花纹比三个像素还细就不加了(最后一层渐隐,缩放时不跳)
+    float k = i < 2 ? 1.0 : 1.0 - smoothstep(0.12, 0.3, f * fp);
+    if (k <= 0.0) break;
+    sum += a * k * (vnoise3(w) - 0.5);
+    w = w * 2.1 + vec3(3.7, 1.3, 5.1);
+    f *= 2.1;
+    a *= 0.5;
+  }
+  return 0.5 + sum / 0.875;
 }
 
 // 光在屏幕上固定:左上前方(和主图"光从西北来"一致)
@@ -408,7 +463,7 @@ vec3 relief(vec3 c, vec4 g, float water, vec3 p, float lon, float lat) {
   else {
     float a = 1.0 - exp((s - 1.0) / uReliefW.w);
     f = 1.0 - uReliefW.w * a;
-    cool = 0.4 * a;
+    cool = uReliefCool * a;
   }
   vec3 cf = c * f;
   return cf + (SKY_SHADOW - cf) * cool;
@@ -434,7 +489,7 @@ vec3 background(vec2 px, vec2 d, float r) {
     return bg + vec3(0.10, 0.12, 0.15) * g;
   }
   // 夜空:深蓝,越往四角越暗;星星按 CSS 像素撒(不同像素密度一样稀)
-  vec3 bg = mix(vec3(0.032, 0.048, 0.086), vec3(0.008, 0.012, 0.024), smoothstep(0.1, 0.8, length(m * vec2(1.3, 1.0))));
+  vec3 bg = mix(vec3(0.022, 0.026, 0.034), vec3(0.008, 0.010, 0.014), smoothstep(0.1, 0.8, length(m * vec2(1.3, 1.0))));
   vec2 cell = floor(q / 3.0);
   float h = hash12(cell);
   if (h > 0.9955) {
@@ -443,11 +498,13 @@ vec3 background(vec2 px, vec2 d, float r) {
     float b = (h - 0.9955) / 0.0045;
     bg += vec3(0.85, 0.9, 1.0) * (0.25 + 0.75 * b) * smoothstep(1.1, 0.2, dd);
   }
-  // 大气光晕:朝着光的一侧亮一些
+  // 星空的细颗粒(宇宙尘埃)
+  bg += (hash12(floor(q * 1.3)) - 0.5) * 0.028 + vnoise(q * 0.004) * 0.012;
+  // 大气光晕:只有朝着光的一侧有,窄而亮;背光那边不发光
   if (r > 1.0) {
-    float side = 0.65 + 0.35 * dot(normalize(d), normalize(L.xy));
-    float g = exp(-(r - 1.0) * 11.0) * 0.85 * side;
-    bg += vec3(0.28, 0.52, 1.0) * g;
+    float side = smoothstep(-0.15, 0.85, dot(normalize(d), normalize(L.xy)));
+    float g = exp(-(r - 1.0) * 38.0) * 0.5 * side + exp(-(r - 1.0) * 13.0) * 0.1 * side;
+    bg += vec3(0.28, 0.54, 1.0) * g;
   }
   return bg;
 }
@@ -506,12 +563,37 @@ void main() {
     float diff = max(dot(N, L), 0.0);
     float rim = 1.0 - w;
     if (uStyle == 0) {
-      c *= 0.5 + 0.62 * diff;
+      float ndl = dot(N, L);
+      float lit = smoothstep(0.0, 0.75, ndl);
       float water = textureGrad(uWater, st, gx, gy).r * (1.0 - uReplay);
+      float ca = 0.0;
+      if (uCloudP.x > 0.001) {
+        // 云:云图(大形状)+ 边缘细碎;云厚处纯白,云自己有轻微明暗,云影落在地面,昼夜分界附近带一点暖色
+        vec3 q = cloudFrame(p);
+        float m = textureGrad(uCloud, vec2(st.x - uCloudP.y / (2.0 * PI), st.y), gx, gy).r;
+        float n = uCloudP.w > 0.01 ? cloudEdge(q, max(length(dpu), length(dpv)) / uR) : 0.5;
+        float amp = 0.42 * uCloudP.w * smoothstep(0.02, 0.2, m);
+        float mm = m + (n - 0.5) * amp;
+        float edge = smoothstep(0.10, 0.34, mm);
+        float thick = smoothstep(0.2, 0.95, mm);
+        vec3 Lt = normalize(uN - uE - dot(uN - uE, p) * p);
+        float cs = smoothstep(0.1, 0.45, cloudMacro(normalize(p + Lt * 0.016), 1.5));
+        float cl = cloudMacro(normalize(p + Lt * 0.006), 0.5);
+        c *= 1.0 - 0.34 * cs * (1.0 - 0.7 * edge) * uCloudP.x;
+        float warm = smoothstep(0.0, 0.10, ndl) * (1.0 - smoothstep(0.10, 0.34, ndl));
+        float shade = clamp(0.88 + 0.16 * thick + (m - cl) * 0.5, 0.8, 1.06);
+        vec3 cc = mix(vec3(0.97, 0.98, 1.0) * shade, vec3(1.0, 0.70, 0.48), warm * 0.55);
+        ca = clamp(edge * (0.5 + 0.5 * thick) * (0.92 + 0.08 * rim), 0.0, 0.97) * uCloudP.x;
+        c = mix(c, cc, ca);
+      }
+      // 背光面压暗(最暗约两成),分界线是一条渐变
+      c *= 0.2 + 0.82 * lit;
       vec3 H = normalize(L + vec3(0.0, 0.0, 1.0));
-      // 海面反光:一片柔和的亮光(不是一个刺眼的小白点)
-      c += vec3(1.0, 0.96, 0.88) * pow(max(dot(N, H), 0.0), 26.0) * 0.13 * water;
-      c = mix(c, vec3(0.50, 0.68, 0.96), pow(rim, 2.6) * 0.62);
+      // 海面反光:一片柔和的亮光(不是一个刺眼的小白点);云下面没有
+      c += vec3(1.0, 0.96, 0.88) * pow(max(dot(N, H), 0.0), 26.0) * 0.16 * water * (1.0 - ca);
+      // 大气:只有被照亮的那一侧球边有一圈蓝,背光那边不发光
+      float sideL = smoothstep(-0.05, 0.55, ndl);
+      c = mix(c, vec3(0.42, 0.66, 1.0), pow(rim, 2.6) * 0.62 * sideL);
     } else if (uStyle == 1) {
       c *= 0.84 + 0.22 * diff;
       c = mix(c, c * vec3(0.70, 0.58, 0.44), pow(rim, 2.0) * 0.6);
@@ -552,8 +634,8 @@ void main() {
     col = mix(col, ink, (1.0 - smoothstep(0.9 * uDpr, 1.8 * uDpr, e1)) * 0.9);
     col = mix(col, ink, (1.0 - smoothstep(0.25 * uDpr, 0.95 * uDpr, e2)) * 0.55);
   } else if (uStyle == 0 && cover > 0.0) {
-    // 球的边缘一圈亮一点的大气
-    col = mix(col, vec3(0.62, 0.8, 1.0), (1.0 - smoothstep(0.0, 2.2 * uDpr, abs(r - 1.0) * uR)) * 0.35);
+    // 球的边缘(被照亮的一侧)一条细亮线
+    col = mix(col, vec3(0.7, 0.86, 1.0), (1.0 - smoothstep(0.0, 1.3 * uDpr, abs(r - 1.0) * uR)) * 0.6 * smoothstep(-0.15, 0.85, dot(normalize(d), normalize(L.xy))));
   }
   outColor = vec4(col, 1.0);
 }`;
@@ -566,8 +648,8 @@ void main() {
 const ANISO = 48;
 
 /** 贴图的槽位 */
-export type GlobeSlot = 'terrain' | 'civ' | 'sel' | 'hl' | 'replay' | 'water' | 'slope';
-const SLOTS: GlobeSlot[] = ['terrain', 'civ', 'sel', 'hl', 'replay', 'water', 'slope'];
+export type GlobeSlot = 'terrain' | 'civ' | 'sel' | 'hl' | 'replay' | 'water' | 'slope' | 'cloud';
+const SLOTS: GlobeSlot[] = ['terrain', 'civ', 'sel', 'hl', 'replay', 'water', 'slope', 'cloud'];
 const UNIFORM_OF: Record<GlobeSlot, string> = {
   terrain: 'uTerrain',
   civ: 'uCiv',
@@ -576,6 +658,7 @@ const UNIFORM_OF: Record<GlobeSlot, string> = {
   replay: 'uReplayTex',
   water: 'uWater',
   slope: 'uSlope',
+  cloud: 'uCloud',
 };
 
 /** 原始像素(RGBA、单通道或双通道) */
@@ -583,7 +666,7 @@ export interface PixelSource {
   w: number;
   h: number;
   data: Uint8Array | Uint8ClampedArray;
-  /** 单通道(水面蒙版) */
+  /** 单通道(水面蒙版、云图) */
   gray?: boolean;
   /** 四个通道是数据、不是颜色(写实风的坡度,见 realistic.ts 的 realisticGlobeMaps):上传时不按透明度预乘 */
   raw?: boolean;
@@ -592,11 +675,11 @@ export interface PixelSource {
 export type GlobeTexSource = TexImageSource | PixelSource;
 
 const isPixels = (s: GlobeTexSource): s is PixelSource => 'data' in s && 'w' in s;
-/** 空槽位放的 1×1 贴图:透明;地形是灰色;水面蒙版 = 没有水;坡度 = 平的 */
+/** 空槽位放的 1×1 贴图:透明;地形是灰色;水面蒙版 = 没有水;云图 = 晴;坡度 = 平的 */
 const emptyPixels = (slot: GlobeSlot): PixelSource =>
   slot === 'terrain'
     ? { w: 1, h: 1, data: new Uint8Array([90, 96, 104, 255]) }
-    : slot === 'water'
+    : slot === 'water' || slot === 'cloud'
       ? { w: 1, h: 1, data: new Uint8Array(1), gray: true }
       : slot === 'slope'
         ? { w: 1, h: 1, data: new Uint8Array([128, 128, 128, 128]), raw: true }
@@ -757,6 +840,9 @@ export class GlobeGL {
     gl.uniform1f(this.u('uRelief'), look.relief && look.style === 'realistic' ? 1 : 0);
     const wt = look.weights ?? reliefWeights();
     gl.uniform4f(this.u('uReliefW'), wt.detail, wt.macro, wt.sea, wt.shadow);
+    gl.uniform1f(this.u('uReliefCool'), wt.cool);
+    const cl = look.clouds && look.style === 'realistic' ? look.clouds : null;
+    gl.uniform4f(this.u('uCloudP'), cl ? cl.opacity : 0, cl ? cl.rot : 0, cl ? cl.t : 0, cl ? cl.detail : 1);
     gl.uniform1f(this.u('uAniso'), ANISO);
     const [tw, th] = this.size('terrain');
     gl.uniform2f(this.u('uTexSize'), tw, th);
@@ -792,9 +878,17 @@ export interface CpuSources {
 
 const hexRgb = (h: string): Vec3 => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
 
-/** 在 CPU 上画一帧到 out(画布像素)。经纬网、外框由调用方另画(见 graticuleLines) */
-export function renderGlobeCpu(out: RgbaImage, view: GlobeView, f: GlobeFrame, look: GlobeLook, src: CpuSources): void {
+/**
+ * 在 CPU 上画一帧到 out(画布像素)。经纬网、外框由调用方另画(见 graticuleLines)。
+ * y0 = out 的第一行是整帧的第几行:分几段(几个后台线程)画同一帧时,每段只画 out.h 行,f 照旧是整帧的球;
+ * 每个像素的算法和整帧一次画完完全一样,拼起来逐像素一致。
+ * dpr = 画布像素 / CSS 像素(同 GlobeGl.render;拖动时降分辨率就跟着变小),球边细亮线的宽度按它算
+ */
+export function renderGlobeCpu(out: RgbaImage, view: GlobeView, f: GlobeFrame, dpr: number, look: GlobeLook, src: CpuSources, y0 = 0): void {
   const { w, h, data } = out;
+  const realistic = look.style === 'realistic';
+  /** 球边细亮线的半宽(画布像素):同着色器 1.3 * uDpr */
+  const edgeW = 1.3 * dpr;
   const { c, e, n } = globeBasis(view.lon, view.lat);
   const bg = hexRgb(GLOBE_BG[look.style]);
   const glow: Vec3 = look.style === 'fantasy' ? [0, 0, 0] : look.style === 'realistic' ? [72, 132, 255] : [26, 30, 38];
@@ -802,6 +896,11 @@ export function renderGlobeCpu(out: RgbaImage, view: GlobeView, f: GlobeFrame, l
   const overlays = [src.civ, src.sel].filter((x): x is RgbaImage => !!x && x.w > 1);
   const rp = look.replay > 0 && src.replay && src.replay.w > 1 ? src.replay : null;
   const L: Vec3 = [-0.4575, 0.5083, 0.7295];
+  const LXY = Math.hypot(L[0], L[1]);
+  const smoothstep = (a: number, b: number, x: number): number => {
+    const k = clamp((x - a) / (b - a), 0, 1);
+    return k * k * (3 - 2 * k);
+  };
   const rgb: Vec3 = [0, 0, 0];
   const sample = (img: RgbaImage, s: number, t: number, bilinear: boolean): number => {
     const fx = s * img.w - 0.5;
@@ -833,17 +932,20 @@ export function renderGlobeCpu(out: RgbaImage, view: GlobeView, f: GlobeFrame, l
     }
     return 1;
   };
-  for (let y = 0; y < h; y++) {
+  for (let y = y0; y < y0 + h; y++) {
     for (let x = 0; x < w; x++) {
-      const o = (y * w + x) * 4;
+      const o = ((y - y0) * w + x) * 4;
       const u = (x + 0.5 - f.cx) / f.R;
       const t = (f.cy - y - 0.5) / f.R;
       const r = Math.sqrt(u * u + t * t);
+      // 屏幕上朝光的一侧有多亮(着色器里 smoothstep(-0.15, 0.85, ·));只有写实风的大气光、球边细亮线用它
+      const sideLit = realistic ? smoothstep(-0.15, 0.85, r > 1e-9 ? (u * L[0] + t * L[1]) / (r * LXY) : 0) : 0;
       let br = bg[0];
       let bgG = bg[1];
       let bb = bg[2];
       if (r > 1 && look.style !== 'fantasy') {
-        const g = Math.exp(-(r - 1) * (look.style === 'realistic' ? 11 : 18)) * (look.style === 'realistic' ? 0.85 : 1);
+        // 写实风:大气光晕只在朝光的一侧(同着色器 background)
+        const g = realistic ? (Math.exp(-(r - 1) * 38) * 0.5 + Math.exp(-(r - 1) * 13) * 0.1) * sideLit : Math.exp(-(r - 1) * 18);
         br += glow[0] * g;
         bgG += glow[1] * g;
         bb += glow[2] * g;
@@ -891,21 +993,35 @@ export function renderGlobeCpu(out: RgbaImage, view: GlobeView, f: GlobeFrame, l
       const diff = Math.max(0, uu * L[0] + tt * L[1] + ww * L[2]);
       const rim = 1 - ww;
       let sh: number;
-      if (look.style === 'realistic') sh = 0.5 + 0.62 * diff;
+      // 写实风同着色器:背光面压暗到约两成,分界线是一条渐变(CPU 画法不画云)
+      const ndl = uu * L[0] + tt * L[1] + ww * L[2];
+      if (realistic) sh = 0.2 + 0.82 * smoothstep(0, 0.75, ndl);
       else if (look.style === 'fantasy') sh = (0.84 + 0.22 * diff) * (1 - 0.35 * rim * rim);
       else sh = 0.72 + 0.36 * diff;
       cr *= sh;
       cg *= sh;
       cb *= sh;
-      if (look.style === 'realistic') {
-        const a = Math.pow(rim, 2.6) * 0.62;
-        cr += (128 - cr) * a;
-        cg += (173 - cg) * a;
-        cb += (245 - cb) * a;
+      if (realistic) {
+        // 大气:只有被照亮的那一侧球边有一圈蓝
+        const a = Math.pow(rim, 2.6) * 0.62 * smoothstep(-0.05, 0.55, ndl);
+        cr += (107 - cr) * a;
+        cg += (168 - cg) * a;
+        cb += (255 - cb) * a;
       }
-      data[o] = br + (cr - br) * cover;
-      data[o + 1] = bgG + (cg - bgG) * cover;
-      data[o + 2] = bb + (cb - bb) * cover;
+      let or = br + (cr - br) * cover;
+      let og = bgG + (cg - bgG) * cover;
+      let ob = bb + (cb - bb) * cover;
+      if (realistic) {
+        // 球的边缘(被照亮的一侧)一条细亮线:同着色器,盖在球和背景混好之后(最外那圈半盖着的像素也是整条线的亮度);
+        // 1 − smoothstep(0, edgeW, d) 写成 smoothstep(0, 1, 1 − d / edgeW),两者相等
+        const ea = smoothstep(0, 1, 1 - (Math.abs(r - 1) * f.R) / edgeW) * 0.6 * sideLit;
+        or += (179 - or) * ea;
+        og += (219 - og) * ea;
+        ob += (255 - ob) * ea;
+      }
+      data[o] = or;
+      data[o + 1] = og;
+      data[o + 2] = ob;
       data[o + 3] = 255;
     }
   }

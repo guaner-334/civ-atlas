@@ -1,21 +1,39 @@
 /**
  * 导出回放视频的面板。宽屏:替换左边侧栏的一张卡片(位置、大小和侧栏一样);手机:底部一张小卡片,只放最常用的几样
- * (画面、拍哪里、时长、字幕和片头片尾两个开关),标题用世界名。
+ * (画面、拍哪里、时长、大事字幕 / 片头片尾 / 片尾网址三个开关),标题用世界名。
+ * 片尾网址:片尾卡片上"用「文明与地图」推演生成"和网址那两行(关掉只留标题和架空声明);片头片尾关着时它灰掉。
+ * 拨这个开关时预览换成片尾那一帧,看得出它管哪几行字(拖时间轴回到那一年的样子)。
  *
  * 选项改了,地图上的预览(FilmStage.tsx)、时间轴上的一段(CivTimeline.tsx)跟着变;点「导出视频」一帧一帧画、编码
  * (filmStore.ts 的 runFilm),面板里换成进度和「取消」;做完自动下载(手机上能分享的,提示条上点「存到相册」)。
  * 浏览器做不了视频(没有 WebCodecs / H.264 编码)时说一句,按钮变灰。
  */
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { CivStyle } from '../render/civ/overlay';
 import type { LayerId } from '../render/layers';
 import type { SurfaceLook } from '../render/surface';
 import { useFilmSource } from './filmSource';
 import { filmSupported } from './filmEncode';
-import { closeFilm, cancelFilm, deliverFilm, etaText, filmRangeOf, filmSetup, filmTitleOf, getFilm, holeRegion, runFilm, setFilm, setFilmRangeKind, useFilm } from './filmStore';
-import { FILM_BITRATE, filmClock, filmMegabytes, rangeText, rateText, type FilmSeconds } from './filmPlan';
-import { useEra } from './editsStore';
-import { yearFull } from '../gen/era';
+import {
+  closeFilm,
+  cancelFilm,
+  deliverFilm,
+  etaText,
+  filmPlots,
+  filmRangeOf,
+  filmSetup,
+  filmTitleOf,
+  getFilm,
+  holeRegion,
+  runFilm,
+  setFilm,
+  setFilmCapBy,
+  setFilmRangeKind,
+  useFilm,
+} from './filmStore';
+import { FILM_BITRATE, OUTLINE_PAD, filmClock, filmMegabytes, outlineRange, rangeText, rateText, type FilmSeconds } from './filmPlan';
+import { useEdits, useEra } from './editsStore';
+import { yearFull, yearShort, type Era } from '../gen/era';
 import { showToast } from './toastStore';
 import './film.css';
 
@@ -61,8 +79,9 @@ export function Seg<T extends string | number>({ value, items, onPick, act, off 
   );
 }
 
-function Switch({ on, onFlip, label, act }: { on: boolean; onFlip: () => void; label: string; act: string }) {
-  return <button className={`film-sw${on ? ' on' : ''}`} role="switch" aria-checked={on} aria-label={label} data-act={act} onClick={onFlip} />;
+/** 开关;off = 这时候用不了(灰掉,点了没反应) */
+export function Switch({ on, onFlip, label, act, off }: { on: boolean; onFlip: () => void; label: string; act: string; off?: boolean }) {
+  return <button className={`film-sw${on ? ' on' : ''}`} role="switch" aria-checked={on} aria-label={label} data-act={act} disabled={off} onClick={onFlip} />;
 }
 
 const SHAPES = [
@@ -78,6 +97,17 @@ const LENGTHS = [
   [60, '1 分钟'],
   [120, '2 分钟'],
 ] as const;
+const CAP_BY = [
+  ['events', '大事'],
+  ['outline', '按大纲'],
+] as const;
+
+/** 字幕按大纲时下面那一句(年份:"1358–1960 年";设了纪年照纪年写) */
+function outlineHint(r: { from: number; to: number } | null, era: Era | null | undefined): string {
+  const years = !r ? '' : era ? `（${rangeText(r, era)}）` : `（${yearShort(r.from)}–${yearShort(r.to)} 年）`;
+  return `到一条情节停 2 秒，打出你写的那句；情节之间的大事照常放，放得稀一些。年份从第一条情节前 ${OUTLINE_PAD} 年到最后一条情节后 ${OUTLINE_PAD} 年${years}。`;
+}
+
 const LENGTH_TEXT: Record<FilmSeconds, string> = { 30: '30 秒', 60: '1 分钟', 120: '2 分钟' };
 
 /** 画面、拍哪里下面那一句 */
@@ -106,6 +136,10 @@ export function FilmPanel({ phone, style, layer, look }: FilmPanelProps) {
   const busy = !!run;
   const title = filmTitleOf();
   const era = useEra();
+  // 照大纲推演推过的世界:字幕能选按大纲
+  const outline = useEdits().outline;
+  const plots = useMemo(() => (full && outline?.review?.length ? filmPlots(full) : []), [full, outline]);
+  const byOutline = s.capBy === 'outline' && plots.length > 0;
   // 手机:卡片多高,时间轴就浮在它上面多高(film.css 的 --film-sheet-h)。导出时卡片变矮,时间轴和预览不跟着动
   const sheetRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
@@ -146,7 +180,7 @@ export function FilmPanel({ phone, style, layer, look }: FilmPanelProps) {
   const warn = ok === false && (
     <div className="film-warn">
       <b>这个浏览器导不了视频</b>
-      <span>换新版的 Chrome、Edge 或 Safari 再试。竖版长图不受影响。</span>
+      <span>换新版的 Chrome、Edge 或 Safari 再试。故事长图不受影响。</span>
     </div>
   );
   const stop = (e: { stopPropagation(): void }) => e.stopPropagation();
@@ -179,14 +213,18 @@ export function FilmPanel({ phone, style, layer, look }: FilmPanelProps) {
             <Seg value={s.shape} items={SHAPES} act="film-shape" onPick={(v) => setFilm({ shape: v })} />
             <Seg value={s.area} items={AREAS} act="film-area" onPick={(v) => setFilm({ area: v })} />
             <Seg value={s.seconds} items={LENGTHS} act="film-len" onPick={(v) => setFilm({ seconds: v })} />
-            <div className="film-two">
+            <div className="film-two three">
               <div>
                 大事字幕
                 <Switch on={s.captions} label="大事字幕" act="film-captions" onFlip={() => setFilm({ captions: !s.captions })} />
               </div>
               <div>
                 片头片尾
-                <Switch on={s.cards} label="片头片尾" act="film-cards" onFlip={() => setFilm({ cards: !s.cards })} />
+                <Switch on={s.cards} label="片头片尾" act="film-cards" onFlip={() => setFilm({ cards: !s.cards, peek: false })} />
+              </div>
+              <div className={s.cards ? '' : 'off'}>
+                片尾网址
+                <Switch on={s.url} off={!s.cards} label="片尾网址" act="film-url" onFlip={() => setFilm({ url: !s.url, peek: true })} />
               </div>
             </div>
             {warn}
@@ -248,12 +286,29 @@ export function FilmPanel({ phone, style, layer, look }: FilmPanelProps) {
           <span className="sp" />
           <Switch on={s.captions} label="大事字幕" act="film-captions" onFlip={() => !busy && setFilm({ captions: !s.captions })} />
         </div>
+        {s.captions && plots.length > 0 && (
+          <div className="film-sub" data-testid="film-capby">
+            <div className="film-lbl">
+              <b>字幕用</b>
+              <span className="sp" />
+              <Seg value={byOutline ? 'outline' : 'events'} items={CAP_BY} act="film-capby" onPick={(v) => !busy && setFilmCapBy(v)} />
+            </div>
+            {byOutline && <div className="film-hint">{outlineHint(full ? outlineRange(plots, full.endYear) : null, era)}</div>}
+          </div>
+        )}
         <div className="film-line" />
         <div className="film-lbl">
           <b>片头片尾</b>
           <span className="sp" />
-          <Switch on={s.cards} label="片头片尾" act="film-cards" onFlip={() => !busy && setFilm({ cards: !s.cards })} />
+          <Switch on={s.cards} label="片头片尾" act="film-cards" onFlip={() => !busy && setFilm({ cards: !s.cards, peek: false })} />
         </div>
+        <div className="film-line" />
+        <div className={`film-lbl${s.cards ? '' : ' off'}`}>
+          <b>片尾网址</b>
+          <span className="sp" />
+          <Switch on={s.url} off={!s.cards} label="片尾网址" act="film-url" onFlip={() => !busy && setFilm({ url: !s.url, peek: true })} />
+        </div>
+        <div className="film-line" />
         <div className="film-lbl">
           <b>标题</b>
           <input
@@ -265,7 +320,7 @@ export function FilmPanel({ phone, style, layer, look }: FilmPanelProps) {
             onChange={(e) => setFilm({ title: e.target.value })}
           />
         </div>
-        <div className="film-hint">片头写标题和年份；片尾写「用文明与地图推演生成」和网址</div>
+        <div className="film-hint">片头写标题和年份；片尾写标题、“用「文明与地图」推演生成”和网址。关掉「片尾网址」只留标题和“模拟生成的架空世界”</div>
       </div>
       {!busy && ok !== false && (
         <div className="film-fine">

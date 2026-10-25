@@ -348,21 +348,28 @@ describe('民族扩张', () => {
     expect(seaAcross).toBeGreaterThan(0);
   });
 
-  it('陆上地名按所在州的民族语感起名(读 civ.culture);海名不带民族', () => {
+  it('陆上地名按计划中各民族铺开的疆域起名(自然兴起的民族;推到哪一年都一样);海名不带民族', () => {
     for (const seed of [7, 2024]) {
       const w = world({ ...DEFAULT_PARAMS, seed });
       const civ = generateCiv(w);
       let named = 0;
+      let same = 0;
       for (const p of civ.places) {
         if (p.kind === 'sea') {
           expect(p.culture).toBe(-1);
           continue;
         }
+        if (p.culture < 0) continue;
+        const cu = civ.cultures[p.culture];
+        expect(cu.parent, p.name).toBeUndefined();
+        expect(cu.pioneer, p.name).toBeUndefined();
+        named++;
         const r = p.cell !== undefined ? civ.regions.of[p.cell] : -1;
-        expect(p.culture, p.name).toBe(r >= 0 ? civ.culture[r] : -1);
-        if (p.culture >= 0) named++;
+        if (r >= 0 && civ.culture[r] === p.culture) same++;
       }
       expect(named).toBeGreaterThan(5);
+      // 大多仍是结束时住在那里的民族
+      expect(same).toBeGreaterThan(named * 0.3);
     }
   });
 

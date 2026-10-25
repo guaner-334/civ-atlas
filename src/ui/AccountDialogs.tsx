@@ -6,7 +6,9 @@
  *   账号       云同步、最近删除、AI 积分(「使用 AI 功能」关着时不显示)、分享出去的世界(复制链接、停止分享);左下注销账号,右下退出登录
  *   退出登录   问这台设备上的世界留不留(默认留);选"删掉"先全部同步好再删
  *   注销账号   给自己的邮箱发验证码,填上才注销(账号里的都删掉;这台设备上的不动)
- *   分享       一个开关管开和停;署名(别人另存时写进底稿出处,默认不填);短链接、复制;手机上多一个"发给…"(系统分享)
+ *   分享       一个开关管开和停;署名(别人另存时写进底稿出处,默认不填);勾选「停在这一刻」(和存档菜单同一个,默认勾着:
+ *              短链接后面带上 # 那段,对方打开停在这一年、选中的国家或州、同样的镜头;不经服务器,每次复制的链接各带各的);
+ *              短链接、复制;手机上多一个"发给…"(系统分享)
  *
  *   openLogin() / openAccount() / openShareDialog(id, 名字)   打开它们(「我的世界」右上、AI 设置、存档菜单)
  *   openTrash()   「我的世界」那一页换成最近删除(App 回到我的世界)
@@ -19,6 +21,8 @@ import { createPortal } from 'react-dom';
 import { Icon } from './icons';
 import { PRIVACY_URL, SOURCE_URL, TERMS_URL } from './links';
 import { APP_VERSION } from './version';
+import { BeianLinks } from './BeianLinks';
+import { BEIAN } from './beian';
 import { when } from './worldParts';
 import { copyText } from './clipboard';
 import { currentUnsaved, currentWorld, isStored, keepWorld, listWorlds, loadWorld, notify, useSavesVersion } from './saveStore';
@@ -29,7 +33,8 @@ import { ServerError } from '../account/server';
 import { deleteAccount, displayName, fetchAuthOptions, getSession, login, pendingInvite, sendCode, useSession, type AuthOptions } from '../account/session';
 import { accountDeleted, behindCloud, signOut, syncNow, unsyncedCount, useSyncView } from '../account/sync';
 import { createShare, listShares, listTrash, shortLink, stopShare, type ShareInfo, type TrashEntry } from '../account/cloud';
-import { SIGNATURE_UNITS, cleanSignature } from '../gen/savefile';
+import { SIGNATURE_UNITS, cleanSignature, momentHash } from '../gen/savefile';
+import { MomentCheck, momentNow, useMomentOn } from './shareMoment';
 import { OLD_SITE } from './oldSite';
 import './account.css';
 
@@ -848,7 +853,10 @@ function ShareDialog({ phone, worldId, title, onClose }: { phone: boolean; world
   /** 开着的链接(停分享失败时还开着) */
   const live = st.phase === 'on' || st.phase === 'error' ? st.share : undefined;
   const on = !!live || st.phase === 'prep';
-  const url = live ? shortLink(live.code) : '';
+  // 「停在这一刻」:打开分享窗那一刻的年份、选中的国家或州、镜头(看的就是这个世界时才有)
+  const [at] = useState(() => (currentWorld()?.id === worldId ? momentNow() : null));
+  const [momentOn, setMomentOn] = useMomentOn();
+  const url = live ? shortLink(live.code) + (at && momentOn ? momentHash(at.moment) : '') : '';
   const toggle = async () => {
     if (busyRef.current || st.phase === 'prep') return;
     const token = getSession()?.token;
@@ -997,6 +1005,7 @@ function ShareDialog({ phone, worldId, title, onClose }: { phone: boolean; world
             />
           </div>
         </div>
+        {at && <MomentCheck at={at} on={momentOn} onChange={setMomentOn} className="in-dlg" />}
         {phone ? (
           <>
             <div className="acct-linkbox">{urlBox}</div>
@@ -1102,7 +1111,13 @@ export function ShareGone({ phone, state, onHome, onNew }: { phone: boolean; sta
           <a href={TERMS_URL} target="_blank" rel="noreferrer">
             用户协议
           </a>
+          <BeianLinks className="mw-beian" />
           <span className="mw-ver">版本 {APP_VERSION}</span>
+        </footer>
+      )}
+      {phone && state !== 'loading' && BEIAN.length > 0 && (
+        <footer className="mw-foot solo">
+          <BeianLinks className="mw-beian" />
         </footer>
       )}
     </div>
@@ -1110,28 +1125,63 @@ export function ShareGone({ phone, state, onHome, onNew }: { phone: boolean; sta
 }
 
 /**
- * 地图下的说明。short = 从分享短链接打开的(另存时写明底稿出处);by = 分享的人填的署名。
- * own = 最新版交过来的自己的世界(只在旧网站上出这条说明):换成旧网站的说法
+ * 地图下的说明(手机上在时间轴胶囊上面)。short = 从分享短链接打开的(另存时写明底稿出处);by = 分享的人填的署名。
+ * own = 最新版交过来的自己的世界(只在旧网站上出这条说明):换成旧网站的说法。
+ * at = 链接带着"这一刻"、打开停在了那里("第 1500 年，有桑皇朝"):开头说清停在哪,多一个「从头放」(onReplay;手机上两个按钮放第二排)
  */
-export function SharedHint({ phone, short, by, own, onOk }: { phone: boolean; short: boolean; by: string; own?: boolean; onOk: () => void }) {
+export function SharedHint({ phone, short, by, own, at, onReplay, onOk }: { phone: boolean; short: boolean; by: string; own?: boolean; at?: string | null; onReplay?: () => void; onOk: () => void }) {
   const stop = (e: { stopPropagation(): void }) => e.stopPropagation();
+  const who = short ? by || '别人' : '别人';
+  const keep = short ? '，并写明底稿出处' : phone ? '' : '，原来的不受影响';
+  const text =
+    own && OLD_SITE !== null
+      ? phone
+        ? '你看到的是这个世界原来的样子。改了会另存到旧版的「我的世界」，最新版里的不受影响。'
+        : '你看到的是这个世界原来的样子。改了名字或历史会另存一份到旧版的「我的世界」，最新版里的不受影响。'
+      : at
+        ? null
+        : short
+          ? `${by || '别人'}分享给你的世界，随便看。改了会另存一份到你的「我的世界」，并写明底稿出处。`
+          : phone
+            ? '别人分享给你的世界，随便看。改了会另存一份到你的「我的世界」，原来的不受影响。'
+            : '别人分享给你的世界，随便看。改了名字或历史会另存一份到你的「我的世界」，原来的不受影响。';
+  const replay = at && onReplay && (
+    <button data-act="shared-replay" onClick={onReplay}>
+      <Icon name="again" size={15} />
+      从头放
+    </button>
+  );
+  const ok = (
+    <button data-act="shared-ok" onClick={onOk}>
+      知道了
+    </button>
+  );
   return (
-    <div className="shared-hint" role="status" data-testid="shared-hint" onPointerDown={stop} onClick={stop} onDoubleClick={stop}>
+    <div className={`shared-hint${replay && phone ? ' two' : ''}`} role="status" data-testid="shared-hint" onPointerDown={stop} onClick={stop} onDoubleClick={stop}>
       <Icon name="info" size={18} />
-      <span>
-        {own && OLD_SITE !== null
-          ? phone
-            ? '你看到的是这个世界原来的样子。改了会另存到旧版的「我的世界」，最新版里的不受影响。'
-            : '你看到的是这个世界原来的样子。改了名字或历史会另存一份到旧版的「我的世界」，最新版里的不受影响。'
-          : short
-            ? `${by || '别人'}分享给你的世界，随便看。改了会另存一份到你的「我的世界」，并写明底稿出处。`
-            : phone
-              ? '别人分享给你的世界，随便看。改了会另存一份到你的「我的世界」，原来的不受影响。'
-              : '别人分享给你的世界，随便看。改了名字或历史会另存一份到你的「我的世界」，原来的不受影响。'}
+      <span className="shared-tx">
+        {text ??
+          (phone ? (
+            <>
+              {who}分享的世界，停在对方分享时的<b>{at}</b>。改了会另存到你的「我的世界」{keep}。
+            </>
+          ) : (
+            <>
+              {who}分享给你的世界，停在对方分享时看的那一刻：<b>{at}</b>。随便看，改了{short ? '' : '名字或历史'}会另存一份到你的「我的世界」{keep}。
+            </>
+          ))}
       </span>
-      <button data-act="shared-ok" onClick={onOk}>
-        知道了
-      </button>
+      {replay && phone ? (
+        <span className="shared-acts">
+          {replay}
+          {ok}
+        </span>
+      ) : (
+        <>
+          {replay}
+          {ok}
+        </>
+      )}
     </div>
   );
 }

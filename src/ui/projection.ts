@@ -14,121 +14,24 @@
  *   数据图层、回放帧这样的"面"一直用它。停下来时屏幕上已经是这个中心的整图重投影,按投影重画就在后台分小步备(refine),
  *   备好了一次贴上,不在松手那一下卡住。
  */
-import { useSyncExternalStore } from 'react';
 import type { World } from '../gen/world';
 import type { Raster } from '../gen/raster';
-import { GRATICULE_STEPS, type ContourKind } from '../gen/savefile';
-import { doubleCanvas, drawProjected, isProjectionId, mapProj, pageColor, type MapProj, type ProjectionId } from '../render/projection';
+import { doubleCanvas, drawProjected, mapProj, pageColor, type MapProj, type ProjectionId } from '../render/projection';
 import { drawTerrainProjected, terrainProjWholeSteps, type DetailStyle } from '../render/detail';
 import type { SurfaceLook } from '../render/surface';
 import { releaseFantasyProjCaches } from '../render/fantasy';
 import { releaseWashScratch } from '../render/civ/territory';
 import { cancelDetailJob, detailAsync, detailJobPending, submitDetailJob, type JobStats, type WorkStep } from './detailJobs';
+import { isCurved, type MapProjection } from './projectionStore';
 
 export { pageColor };
-
-/** 主图的投影;'globe' = 3D 地球仪(单独的视图) */
-export type MapProjection = ProjectionId | 'globe';
-
-/** 地球仪视图可用("图层与投影"弹层的投影里列"地球仪";网址、存档里的 globe 照样打开) */
-export const GLOBE_READY = true;
-
-export function isMapProjection(x: unknown): x is MapProjection {
-  return x === 'globe' || isProjectionId(x);
-}
-
-/** 平面地图用哪种投影画:地球仪时底下的平面地图按等距圆柱画 */
-export function flatProjection(p: MapProjection): ProjectionId {
-  return p === 'globe' ? 'equirect' : p;
-}
-
-/** 弯边(非等距圆柱)的平面投影:整图重投影、左右拖动改中心 */
-export function isCurved(p: MapProjection): p is Exclude<ProjectionId, 'equirect'> {
-  return p !== 'equirect' && p !== 'globe';
-}
+// 投影、经纬网、等值线这些界面状态在 projectionStore.ts(存档、首页只用到它们,不用带上画图的代码),这里照旧一起导出
+export * from './projectionStore';
 
 /** 当前投影 + 中心 → 地图平面(弯边投影才有;等距圆柱 = null,照原来的办法画) */
 export function curvedProj(p: MapProjection, lon0: number, W: number, H: number): MapProj | null {
   return isCurved(p) ? mapProj(p, lon0, W, H) : null;
 }
-
-// ---------------------------------------------------------------------------
-// 小 store
-
-function store<T>(init: T) {
-  let v = init;
-  const subs = new Set<() => void>();
-  return {
-    get: () => v,
-    set: (x: T) => {
-      if (Object.is(x, v)) return;
-      v = x;
-      for (const f of subs) f();
-    },
-    use: () =>
-      useSyncExternalStore(
-        (f) => (subs.add(f), () => subs.delete(f)),
-        () => v,
-        () => v,
-      ),
-  };
-}
-
-const projection = store<MapProjection>('equirect');
-export const getProjection = projection.get;
-export const useProjection = projection.use;
-/** 切到地球仪之前用的平面投影(从地球仪切回平面时回到它) */
-let lastFlat: ProjectionId = 'equirect';
-/** flat:连"上一个平面投影"一起指定(换回原来的地球仪时,把它原来的平面投影也还原) */
-export function setProjection(p: MapProjection, flat?: ProjectionId): void {
-  const cur = projection.get();
-  if (cur !== 'globe') lastFlat = cur;
-  if (flat) lastFlat = flat;
-  projection.set(isMapProjection(p) ? p : 'equirect');
-}
-/** 上一个平面投影(现在就是平面的 = 它自己) */
-export function lastFlatProjection(): ProjectionId {
-  const cur = projection.get();
-  return cur === 'globe' ? lastFlat : cur;
-}
-
-/** 经纬网:平面投影和地球仪共用一个开关("图层与投影"弹层、新建世界的"投影"里的"经纬网"改它;网址 grat=1) */
-const graticule = store(false);
-export const getGraticule = graticule.get;
-export const useGraticule = graticule.use;
-export const setGraticule = graticule.set;
-
-/** 经纬网每隔几度一条(开关旁边选;网址 grat=10 / 15,30 = grat=1) */
-export { GRATICULE_STEPS };
-export type GraticuleStep = (typeof GRATICULE_STEPS)[number];
-export function isGraticuleStep(x: unknown): x is GraticuleStep {
-  return GRATICULE_STEPS.includes(x as GraticuleStep);
-}
-const gratStep = store<GraticuleStep>(30);
-export const getGraticuleStep = gratStep.get;
-export const useGraticuleStep = gratStep.use;
-export const setGraticuleStep = gratStep.set;
-
-/** 要画的经纬网:开着 = 每隔几度,关着 = 0(画地图、导出、回放都按它) */
-export function getGraticuleLines(): number {
-  return graticule.get() ? gratStep.get() : 0;
-}
-export function useGraticuleLines(): number {
-  const on = graticule.use();
-  const step = gratStep.use();
-  return on ? step : 0;
-}
-
-/** 等值线:叠哪一种(null = 不画;"图层与投影"弹层里的"等值线"改它;网址 iso=elev / temp / precip) */
-const contours = store<ContourKind | null>(null);
-export const getContourKind = contours.get;
-export const useContourKind = contours.use;
-export const setContourKind = contours.set;
-
-const moving = store(false);
-export const getMapMoving = moving.get;
-export const useMapMoving = moving.use;
-export const setMapMoving = moving.set;
 
 // ---------------------------------------------------------------------------
 // 一层画布按投影铺到屏幕上
@@ -253,6 +156,11 @@ export class ProjLayer {
     return !this.dirty && this.shown === `${mp.key}|${fill}`;
   }
 
+  /** 显示画布上现在是不是按这个投影重画好的那一版(redraw / refine 贴上的,之后没铺过别的) */
+  redrawn(key: string, fill: PageFill = null): boolean {
+    return this.shown === `redraw|${key}|${fill}`;
+  }
+
   /**
    * 同 redraw,只是分小步在后台画(ui/detailJobs.ts,owner = 活名):显示画布上先留着现在那一版,
    * steps(ctx) 依次画在藏着的那张上(ctx() 第一次调时把它设成 w × h、铺好底色;这份作废了 = null),
@@ -356,22 +264,29 @@ export class ProjLayer {
  *   海岸墨线、河逐点投影(线宽处处一致),山、树林符号在投影后的位置上正立、按屏幕大小画;
  * - 数据图层,或者正在左右拖动中心:把等距圆柱的整张地形图(src,符号、河都在里面)整图重投影 ——
  *   拖动时每帧只要几毫秒,停下来再按投影重画。
- * layer = 地形图的 ProjLayer(记着原图和画布上现在是哪一版)。返回用了多少毫秒
+ * layer = 地形图的 ProjLayer(记着原图和画布上现在是哪一版)。返回用了多少毫秒。
+ * pre = 已经按投影重画好的这一版(编辑地形后在后台画好的,见 ui/terrainPatch.ts):直接贴上,不用当下再画。
+ * swap = 同一张图、同一种画法,只换了投影或中心(换投影、地球仪切回来、滑条改中心):先整图重投影铺上(一次几十毫秒),
+ * 按投影重画在后台分小步备,备好了一次贴上 —— 和拖动中心停下来一样,不在换的那一下整张精画(弱一点的电脑上要卡一两秒)
  */
 export function presentTerrain(
   cv: HTMLCanvasElement,
   mp: MapProj,
-  o: { world: World; raster: Raster; style: string; look?: SurfaceLook; src: HTMLCanvasElement; layer: ProjLayer; moving: boolean },
+  o: { world: World; raster: Raster; style: string; look?: SurfaceLook; src: HTMLCanvasElement; layer: ProjLayer; moving: boolean; pre?: HTMLCanvasElement | null; swap?: boolean },
 ): number {
   const { world, raster, style, layer } = o;
   layer.use(o.src);
   layer.onRelease = releaseCurvedCaches;
   if ((style !== 'fantasy' && style !== 'realistic') || o.moving) return layer.present(cv, mp, pageColor(style));
   const fill = pageColor(style);
+  const pre = o.pre;
+  if (pre && pre.width === raster.w && pre.height === raster.h) return layer.redraw(cv, raster.w, raster.h, mp.key, fill, (ctx) => ctx.drawImage(pre, 0, 0), true);
   const draw = (ctx: CanvasRenderingContext2D) => drawTerrainProjected(ctx, world, raster, style as DetailStyle, mp, { s: raster.scale, ox: 0, oy: 0, k: 1 }, o.look);
+  const t0 = performance.now();
+  // 只换了投影或中心:先整图重投影铺上,下面照刚停下来的办法精画
+  if (detailAsync && o.swap && !layer.redrawn(mp.key, fill) && !layer.presenting(mp, fill)) layer.present(cv, mp, fill);
   // 刚停下来(屏幕上是这个中心的整图重投影):按投影重画在后台分小步备,备好了贴上
   if (detailAsync && layer.presenting(mp, fill)) {
-    const t0 = performance.now();
     layer.refine(PROJ_JOB, cv, raster.w, raster.h, mp.key, fill, (ctx) => terrainProjWholeSteps(ctx, world, raster, style as DetailStyle, mp, o.look), draw, (ms, st) => {
       (window as unknown as { __wfProj?: unknown }).__wfProj = { proj: mp.def.id, lon: mp.lon0, ms, prep: st.prep, slices: st.slices };
     });

@@ -206,6 +206,8 @@ export function pointsFocus(world: World, pts: readonly (readonly [number, numbe
 export interface FlyGoal {
   focus: Focus | null;
   kind: MapSelection['kind'] | 'home';
+  /** 放大到正好这么多倍(打开分享链接时照分享的人的镜头);不给 = 按种类定 */
+  zoom?: number;
 }
 
 /** 窄屏(手机)顶上留给提示条的一截(和 phone.css 的 --top-room 一致,刘海另算;右上的按钮竖着排在右边,不占这一截) */
@@ -250,6 +252,7 @@ export function freeArea(b: StageBox, panel: boolean): [number, number, number, 
  * 城至少 2 倍;州、地理实体(海、山、河……)缩放不变;已经放得更大的不缩小
  */
 function goalZoom(goal: FlyGoal, k0: number, fit: number): number {
+  if (goal.zoom !== undefined) return goal.zoom;
   switch (goal.kind) {
     case 'home':
       return 1;
@@ -264,17 +267,17 @@ function goalZoom(goal: FlyGoal, k0: number, fit: number): number {
 }
 
 /** 州、地理实体、作者标记只平移:已经在看得见的地方(不在面板底下、不贴边)就不动 */
-const panOnly = (goal: FlyGoal) => goal.kind === 'region' || goal.kind === 'place' || goal.kind === 'mark';
+const panOnly = (goal: FlyGoal) => goal.zoom === undefined && (goal.kind === 'region' || goal.kind === 'place' || goal.kind === 'mark');
 const inside = (x: number, y: number, [l, t, r, b]: [number, number, number, number]) => x >= l + 60 && x <= r - 60 && y >= t + 30 && y <= b - 30;
 
 /**
  * 等距圆柱:从视图 v0 飞到目标的每一帧(e = 0…1,已经过缓动)。几乎不用动 = null。
- * 目标中心放在"看得见的地方"的正中;中间每一帧是"中心点沿直线走、倍数按比例变"
+ * 目标中心放在"看得见的地方"的正中(area 给了就放在这块的正中:舞台坐标 左、上、右、下);中间每一帧是"中心点沿直线走、倍数按比例变"
  */
-export function flatFly(v0: MapView, b: StageBox, W: number, H: number, goal: FlyGoal): ((e: number) => MapView) | null {
+export function flatFly(v0: MapView, b: StageBox, W: number, H: number, goal: FlyGoal, area?: [number, number, number, number]): ((e: number) => MapView) | null {
   if (!b.sw || !b.bw) return null;
   const home = goal.kind === 'home';
-  const [l, t, r, btm] = home ? [0, 0, b.sw, b.sh] : freeArea(b, true);
+  const [l, t, r, btm] = home ? [0, 0, b.sw, b.sh] : (area ?? freeArea(b, true));
   const ax = (l + r) / 2;
   const ay = (t + btm) / 2;
   const p0 = stageToWorld(ax, ay, v0, b, W, H);
@@ -304,7 +307,7 @@ export function flatFly(v0: MapView, b: StageBox, W: number, H: number, goal: Fl
 
 /**
  * 弯边投影:转中央经线(走短边)+ 上下平移 + 缩放。每一帧给出视图和中央经线。
- * proj(lon0) = 那条中央经线下的地图平面(算目标的上下位置、看全要放多大)
+ * proj(lon0) = 那条中央经线下的地图平面(算目标的上下位置、看全要放多大);area 同 flatFly
  */
 export function curvedFly(
   v0: MapView,
@@ -312,6 +315,7 @@ export function curvedFly(
   m0: MapProj,
   proj: (lon0: number) => MapProj,
   goal: FlyGoal,
+  area?: [number, number, number, number],
 ): ((e: number) => { v: MapView; lon: number }) | null {
   if (!b.sw || !b.bw) return null;
   const { W, H } = m0;
@@ -323,7 +327,7 @@ export function curvedFly(
     return (e) => ({ v: clampCurved({ k: v0.k * (v1.k / v0.k) ** e, x: 0, y: v0.y + (v1.y - v0.y) * e }, b), lon: m0.lon0 });
   }
   const f = goal.focus;
-  const [l, t, r, btm] = freeArea(b, true);
+  const [l, t, r, btm] = area ?? freeArea(b, true);
   const ax = (l + r) / 2;
   const ay = (t + btm) / 2;
   const phi = (f.lat * Math.PI) / 180;

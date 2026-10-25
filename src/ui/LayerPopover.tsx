@@ -2,16 +2,22 @@
  * 图层面板:宽屏是右上按钮条最后的「底图」按钮(小图 + 底图名),手机是右上竖排的图层图标;点开:
  *   底图   四张缩略图(手绘、卫星、地理图、白模);选卫星时下面一行「卫星画法 经典 | 细节」;一行说明
  *   数据底图  生态、高程、板块、气温 / 降水、气候、洋流(选了它,上面四张都不亮)
- *   填色   不填 / 国家 / 民族 / 信仰 / 时代(按钮条前几段也是它);一行说明;民族、信仰下面是色块列表。任何底图都能配任何填色
+ *   填色   不填 / 国家 / 民族 / 信仰 / 时代(按钮条前几段也是它);一行说明;「地图上写」国名、族名、教名、时代名(CivPanel.tsx 的 NameToggles,
+ *          每种填色各记各的);民族、信仰下面是色块列表。任何底图都能配任何填色
  *   叠加   地名、州、城址、道路、战事、宜居度、物产(CivPanel.tsx 的 CivToggles);经纬网(间隔 10° / 15° / 30°);
- *          等值线(等高线 / 等温线 / 等降水线选一种,画在 ContourLayer.tsx)
+ *          等值线(等高线 / 等温线 / 等降水线选一种,画在 ContourLayer.tsx);云层(卫星底图的地球仪上,静止 / 飘动,默认都开)
  *   投影   一行,点开是投影列表和中央经线(ProjectionPanel.tsx 的 ProjectionSection)
  * 点底图、填色都不收起(看着换);点外面(包括旁边的按钮)、Esc 收起。窄屏(手机):弹层是从底部升起的抽屉。
  * 换到还没画过的底图:那张缩略图上转小圈,地图先留着原来的,画好一下子换过去(App 的 pickBase)。
  *
  * 缩略图是当前世界真实画出来的小图:App 给 baseCanvas(画风键)取整张底图(画过的直接从缓存拿,没画过的画一张放进缓存),
  * 政区 / 民族 / 信仰(新建界面用)再叠上文明底图,缩成小图存成 dataURL。当前底图的一张在世界出来后就做;其余的等弹层第一次打开时
- * 一张一张做(每张之间让出主线程),没做好的先显示占位。换世界全部作废;历史重推(干预、改地形)只作废政区、民族、信仰三张。
+ * 一张一张做(每张之间让出主线程),没做好的先显示占位。缓存里还没有的整张底图先分小步画好(ui/thumbPrep.ts,每段十毫秒左右
+ * 就让出主线程;编辑地形后写实、手绘只重画变了的那块),不一口气占住主线程几百毫秒。
+ * 换世界全部作废;历史重推(干预、改地形)只作废政区、民族、信仰三张。
+ * 编辑地形(按新地形重新生成)不作废:缩略图照旧显示涂之前的(小图上一笔几乎看不出来,也不一闪一闪地变成占位),
+ * 新地形换上地图以后停 THUMB_QUIET 毫秒没再涂,才一张张悄悄换成新的;正在涂、正在按新地形重新生成时都先不做(做了也是旧地形的),
+ * 连着涂基本不重画 —— 每张都要先画一整张底图,连着涂时一起画是内存冲高的大头。
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { World } from '../gen/world';
@@ -35,15 +41,37 @@ import {
 import { Icon } from './icons';
 import { GraticuleSteps, ProjectionSection, projectionName } from './ProjectionPanel';
 import { setContourKind, setGraticule, useContourKind, useGraticule, useProjection } from './projection';
+import { setCloudPrefs, useCloudGpu, useCloudPrefs } from './cloudPrefs';
 import type { ContourKind } from '../gen/savefile';
 import { getCivTime } from './civView';
-import { CivToggles, CultureLegend, FaithLegend } from './CivPanel';
+import { CivToggles, CultureLegend, FaithLegend, NameToggles } from './CivPanel';
 import './overview.css';
 import { noteDismiss } from './dismissClick';
+import { terrainPatchPending } from './terrainPatch';
+import { baseReady, dropThumbPrep } from './thumbPrep';
+import { terrainStroking } from './TerrainTools';
 
 /** 缩略图大小(显示时 88×44 左右,按两倍像素做) */
 const TW = 192;
 const TH = 96;
+/** 编辑地形:新地形换上地图以后停多久没再涂,才重画缩略图(毫秒) */
+export const THUMB_QUIET = 1500;
+
+/**
+ * 调试字段(检查脚本量缩略图多久换好用):data = 最近在做 / 做完的是哪个世界的,busy = 还有没做完的。
+ * 世界只弱引用着(读的时候取):调试字段不拉住已经换掉的世界
+ */
+function noteThumbs(data: object | null, busy: boolean): void {
+  (window as unknown as { __wfThumbs: unknown }).__wfThumbs = thumbsNote(data && typeof WeakRef !== 'undefined' ? new WeakRef(data) : data, busy);
+}
+function thumbsNote(d: WeakRef<object> | object | null, busy: boolean) {
+  return {
+    get data() {
+      return typeof WeakRef !== 'undefined' && d instanceof WeakRef ? (d.deref() ?? null) : d;
+    },
+    busy,
+  };
+}
 
 /** 画风键:手绘 / 写实 / data:某数据图层(和 App 的底图缓存同一套键) */
 export function styleKey(id: MapLayer): string {
@@ -62,6 +90,13 @@ export interface ThumbSource {
   civ: Civ | null;
   /** 取某画风的整张底图(等距圆柱,和 raster 一样大);取不到 = null */
   baseCanvas: (key: string) => HTMLCanvasElement | null;
+  /**
+   * 最近一次编辑地形(按新地形重新生成)换上的世界(和 App 的 baseData 同一个对象;之后换了别的世界 = null)。
+   * 换上它时缩略图不作废,留着涂之前的,停一会儿再重画
+   */
+  edited?: object | null;
+  /** 正在按新地形重新生成(先不重画缩略图:画出来也是旧地形的) */
+  busy?: boolean;
 }
 
 /** 缩略图:当前底图的先做,其余的按需排队做 */
@@ -106,22 +141,60 @@ export function useLayerThumbs(src: ThumbSource, current: ThumbId) {
     return url;
   };
 
-  const pump = useCallback(() => {
+  /** 留着的旧图(编辑地形以前的):照旧显示,轮到了再重画 */
+  const stale = useRef(new Set<ThumbId>());
+  /** 编辑地形换上新地形以后,到这一刻(performance.now)之前先不重画 */
+  const quietUntil = useRef(0);
+  /** 正在涂、正在按新地形重新生成:先不做(做了也是旧地形的) */
+  const held = () => terrainStroking() || !!srcRef.current.busy;
+  /** 还要等多少毫秒才接着做(0 = 现在就做) */
+  const waitFor = (): number => {
+    // 编辑地形后新地图正在后台分小步备着(ui/terrainPatch.ts):先让地图换上再做
+    if (terrainPatchPending()) return 100;
+    const now = performance.now();
+    // 停笔多久从停下来那一刻重新算(又开始涂了就重新计时)
+    if (held()) {
+      quietUntil.current = Math.max(quietUntil.current, now + THUMB_QUIET);
+      return 100;
+    }
+    return Math.max(0, quietUntil.current - now);
+  };
+
+  const pump = useCallback((delay = 30) => {
     if (timer.current !== undefined) return;
     const step = () => {
       timer.current = undefined;
-      const id = queue.current.shift();
-      if (!id) return;
-      if (!have.current[id]) {
+      const data = srcRef.current.data;
+      const id = queue.current[0];
+      if (!id) return noteThumbs(data, false);
+      noteThumbs(data, true);
+      const wait = waitFor();
+      if (wait > 0) {
+        timer.current = setTimeout(step, wait);
+        return;
+      }
+      if (data && (!have.current[id] || stale.current.has(id))) {
+        // 整张底图缓存里还没有:先在后台分小步备好(ui/thumbPrep.ts),备好了再来;
+        // 换了世界、又开始涂就不等了(备了一半的不要,轮到时重新备)
+        const ready = baseReady(thumbKey(id), data.world, data.raster, {
+          alive: () => srcRef.current.data === data && !held(),
+          done: () => pump(0),
+          gone: () => pump(0),
+        });
+        if (!ready) return;
         const url = make(id);
         if (url) {
           have.current = { ...have.current, [id]: url };
+          stale.current.delete(id);
           setThumbs(have.current);
         }
+        dropThumbPrep();
       }
-      if (queue.current.length) timer.current = setTimeout(step, 30);
+      if (queue.current[0] === id) queue.current.shift();
+      if (queue.current.length) timer.current = setTimeout(step, 0);
+      else noteThumbs(data, false);
     };
-    timer.current = setTimeout(step, 30);
+    timer.current = setTimeout(step, delay);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -130,41 +203,56 @@ export function useLayerThumbs(src: ThumbSource, current: ThumbId) {
   const reset = useCallback(() => {
     queue.current = [];
     have.current = {};
+    stale.current.clear();
     haveFor.current = srcRef.current.data;
     setThumbs({});
   }, []);
+  /** 已经认过的那一次编辑地形的结果(同一次只认一回:之后同一个地形换段这类还是全部作废) */
+  const editSeen = useRef<object | null>(null);
+  /** 地图上换了世界:编辑地形换上的新地形,做好的留着(记成过时,停够了再重画);别的全部作废 */
+  const renew = useCallback(() => {
+    const { data, edited = null } = srcRef.current;
+    const keep = !!data && !!haveFor.current && !!edited && edited !== editSeen.current;
+    editSeen.current = edited;
+    if (!keep) return reset();
+    queue.current = [];
+    haveFor.current = data;
+    for (const id of Object.keys(have.current) as ThumbId[]) stale.current.add(id);
+    quietUntil.current = performance.now() + THUMB_QUIET;
+  }, [reset]);
 
-  /** 把这几张排进队(已有的、已排着的跳过) */
+  /** 把这几张排进队(已有的、已排着的跳过;留着的旧图照样排) */
   const request = useCallback(
     (ids: ThumbId[]) => {
-      // 子组件的 effect 比下面换世界的 effect 先跑:这时缓存还是上一个世界的,先作废再排
-      if (haveFor.current !== srcRef.current.data) reset();
-      for (const id of ids) if (!have.current[id] && !queue.current.includes(id)) queue.current.push(id);
+      // 子组件的 effect 比下面换世界的 effect 先跑:这时缓存还是上一个世界的,先作废(或记成过时)再排
+      if (haveFor.current !== srcRef.current.data) renew();
+      for (const id of ids) if ((!have.current[id] || stale.current.has(id)) && !queue.current.includes(id)) queue.current.push(id);
       pump();
     },
-    [pump, reset],
+    [pump, renew],
   );
 
-  // 换世界:全部作废(request 已经作废过就不再清,不然刚排上的又没了);文明重推:政区、民族、信仰作废
+  // 换世界:全部作废(request 已经作废过就不再清,不然刚排上的又没了);编辑地形:留着旧的;文明重推:政区、民族、信仰作废
   const { data, civ } = src;
   useEffect(() => {
-    if (haveFor.current !== data) reset();
-  }, [data, reset]);
+    if (haveFor.current !== data) renew();
+  }, [data, renew]);
   const civSeen = useRef<Civ | null>(null);
   useEffect(() => {
     if (civSeen.current && civSeen.current !== civ) {
       const next = { ...have.current };
-      delete next.political;
-      delete next.cultures;
-      delete next.faith;
+      for (const id of ['political', 'cultures', 'faith'] as const) {
+        delete next[id];
+        stale.current.delete(id);
+      }
       have.current = next;
       setThumbs(next);
     }
     civSeen.current = civ;
   }, [civ]);
-  // 当前底图的缩略图(底图按钮上用):世界出来、画好以后过一会儿做
+  // 当前底图的缩略图(底图按钮上用):世界出来、画好以后过一会儿做(编辑地形留着的旧图同样重画,停够了才做)
   useEffect(() => {
-    if (!data || thumbs[current]) return;
+    if (!data || (thumbs[current] && !stale.current.has(current))) return;
     const t = setTimeout(() => request([current]), 700);
     return () => clearTimeout(t);
   }, [data, civ, current, thumbs, request]);
@@ -293,6 +381,7 @@ export function LayerPopover({ base, fill, sat, civ = null, onBase, onFill, onSa
             ))}
           </div>
           <div className="lp-hint">{FILLS.find((f) => f.id === fill)!.hint}</div>
+          <NameToggles />
           {fill === 'cultures' && <CultureLegend civ={civ} />}
           {fill === 'faiths' && <FaithLegend civ={civ} />}
           <div className="lp-line" />
@@ -301,6 +390,7 @@ export function LayerPopover({ base, fill, sat, civ = null, onBase, onFill, onSa
             <CivToggles />
             <GraticuleRow />
             <ContourRow globe={proj === 'globe'} />
+            <CloudRow active={proj === 'globe' && base === 'satellite'} />
           </div>
           <div className="lp-line" />
           <ProjectionRow />
@@ -371,6 +461,34 @@ function ContourRow({ globe }: { globe: boolean }) {
       <span className={`grat-seg${on ? '' : ' off'}`} role="radiogroup" aria-label="等值线种类">
         {CONTOUR_TABS.map((t) => (
           <button key={t.id} className={t.id === shown ? 'on' : undefined} role="radio" aria-checked={t.id === shown} data-iso={t.id} disabled={globe} onClick={() => setContourKind(t.id)}>
+            {t.name}
+          </button>
+        ))}
+      </span>
+    </div>
+  );
+}
+
+/** 云层一行:左边开关,右边 静止 / 飘动(关着时灰掉,点一档顺手打开);只有卫星底图的地球仪上画云,别处整行灰掉 */
+function CloudRow({ active: shown }: { active: boolean }) {
+  const { on, drift } = useCloudPrefs();
+  const gpu = useCloudGpu();
+  const active = shown && gpu;
+  const lit = on && active;
+  return (
+    <div className={`lp-grat lp-iso${active ? '' : ' disabled'}`} title={active ? undefined : shown ? '这台设备上的地球仪是简化画法,画不了云' : '卫星底图的地球仪上才有云'}>
+      <button className={`lp-check lp-tog${lit ? ' on' : ''}`} role="checkbox" aria-checked={lit} data-act="clouds" disabled={!active} onClick={() => setCloudPrefs({ on: !on })}>
+        <span className="lp-box" aria-hidden="true">
+          {lit ? '✓' : ''}
+        </span>
+        云层
+      </button>
+      <span className={`grat-seg${lit ? '' : ' off'}`} role="radiogroup" aria-label="云的动静">
+        {[
+          { v: false, name: '静止' },
+          { v: true, name: '飘动' },
+        ].map((t) => (
+          <button key={t.name} className={t.v === drift ? 'on' : undefined} role="radio" aria-checked={t.v === drift} data-drift={t.v ? 'on' : 'off'} disabled={!active} onClick={() => setCloudPrefs({ on: true, drift: t.v })}>
             {t.name}
           </button>
         ))}

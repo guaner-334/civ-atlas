@@ -50,7 +50,7 @@ import {
   takenNames,
   type NameTarget,
 } from '../ai/prompts/names';
-import type { HistoryLength, HistoryScope, HistoryStyle } from '../ai/prompts/history';
+import { HISTORY_LENGTHS, type HistoryLength, type HistoryScope, type HistoryStyle } from '../ai/prompts/history';
 import { bookHow, getBook, startBook } from './bookStore';
 import { askHistory, commitEdits, getEdits, historyDiffers, revertEdits, setName, subscribeEdits } from './editsStore';
 import { currentWorld } from './saveStore';
@@ -58,6 +58,8 @@ import { setCivTime, setSelection, type MapSelection } from './civView';
 import { requestFly } from './panelStore';
 import { showToast } from './toastStore';
 import { noteRewrite } from './rewriteStore';
+import { namedHistory, prepareChronicle } from './chronicleHandoff';
+import { fullChronicleCached } from '../gen/civ/religionText';
 
 // ---------------------------------------------------------------------------
 // 状态
@@ -513,7 +515,10 @@ function uiTools(ctx: AskContext, turn: number, ui: { book: AsStep['book'] | nul
       const j = getBook().job!;
       ui.book = { id: j.id, key: j.key, title: j.title };
       const how = bookHow(j);
-      return { result: `开始写《${j.title}》(${how})。写好会放进「成书」,作者不用等;现在用一句话告诉作者。`, summary: how };
+      // 史事少的(短命小国、没什么事的年代)篇幅按史事降了:让助手把原因告诉作者,别只报一个变小的字数
+      const want = HISTORY_LENGTHS[length].chars;
+      const short = j.chars < want ? `这段历史的史事不多,篇幅按史事从约 ${want} 字降到了约 ${j.chars} 字(硬写那么长只能凑),告诉作者这个原因;` : '';
+      return { result: `开始写《${j.title}》(${how})。写好会放进「成书」,作者不用等;${short}现在用一句话告诉作者。`, summary: how };
     },
   };
 
@@ -712,7 +717,10 @@ export function previewProposal(id: number, now: { busy?: boolean }): string | n
 
 let previewCtrl: AbortController | null = null;
 
-/** 地图换成这一轮勾着的几条的试推演(确认单附带的那一次就是这一批 = 直接用,否则在后台再推一遍) */
+/**
+ * 地图换成这一轮勾着的几条的试推演(确认单附带的那一次就是这一批 = 直接用,否则在后台再推一遍)。
+ * 换上之前先把试推演的编年史分小块算好(chronicleHandoff.ts;长历史一口气算要好几百毫秒,界面那么久不动),算的时候照旧是"还在推"的样子
+ */
 function showPreview(id: number) {
   const t = state.turns.find((x) => x.id === id);
   if (!t || !runner) return;
@@ -722,18 +730,24 @@ function showPreview(id: number) {
   const sig = ivSig(edits.interventions);
   const names = edits.names;
   const cached = trialRaw.get(id);
-  if (cached && cached.sig === sig) {
-    set({ ...state, preview: { turn: id, raw: cached.raw, names } });
-    return;
-  }
   set({ ...state, preview: { turn: id, raw: null, names } });
   const c = new AbortController();
   previewCtrl = c;
+  const show = (raw: Civ) => {
+    const done = () => {
+      if (!c.signal.aborted && state.preview?.turn === id) set({ ...state, preview: { turn: id, raw, names } });
+    };
+    // 套上作者人物的名字(和 App.tsx 换上试推演时一样):编年史的缓存按套了哪些名字认
+    const full = namedHistory(raw, names, getEdits().characters);
+    if (fullChronicleCached(full)) return done();
+    void prepareChronicle(raw, names, full, c.signal).then((ok) => ok && done());
+  };
+  if (cached && cached.sig === sig) return show(cached.raw);
   runner(edits.interventions as Intervention[], c.signal).then(
     (raw) => {
       if (c.signal.aborted || state.preview?.turn !== id) return;
       trialRaw.set(id, { sig, raw });
-      set({ ...state, preview: { turn: id, raw, names } });
+      show(raw);
     },
     () => {
       if (!c.signal.aborted && state.preview?.turn === id) set({ ...state, preview: null });

@@ -2,8 +2,12 @@
  * 州的面板(和国家面板同一套样子,零件见 panelParts.tsx),按时间轴当前那一年:
  *
  *   顶部  颜色块(当年所属国)、州名(可改)、"州，属 大昌，第 12 州"(没有国家 = "无主之地")、关闭
- *   按钮  在这里立国(主操作)/ 划给… / 改名 / 更多(在这里加标记 / 在这里加人物、设为中心、让 AI 讲名字由来)(每个面板只有一个主操作,和国家面板一样)
- *   概况  主体民族(族名可改)、宜居度、人口(州里的总人口 = 治所的城 + 乡村,growth.ts 的 regionPopulationAt;一州同一时刻最多一座城)、信仰(可点)、州里的城(可点;故城标出来)、地貌、
+ *   按钮  在这里立国(主操作)/ 划给… / 改名 / 更多(天灾… / 在这里加标记 / 在这里加人物、设为中心、让 AI 讲名字由来)(每个面板只有一个主操作,和国家面板一样)
+ *         「天灾…」换成天灾那一页(DisasterPage.tsx,默认这一州)
+ *         演一国时别国的州:在这里立国、划给…、天灾…变灰,按钮下面写一句(和别国的国家卡片一样,RoleBar.tsx 的 RoleLockNote)
+ *   概况  主体民族(族名可改)、宜居度、人口(州里的总人口 = 治所的城 + 乡村,growth.ts 的 regionPopulationAt;一州同一时刻最多一座城;
+ *         作者下的天灾以后还没长回来:"约 45 万人 ~~64 万人~~ 1500 年地震",newIvInfo.ts 的 regionDisasterMark)、
+ *         管辖(中央管得到几成 + 档位,"52% 代管";割据写"割据 名义上属某国,某年起";不在国家里的州没有这一行)、信仰(可点)、州里的城(可点;故城标出来)、地貌、
  *         民族(族名由来 / 起族名)、来历(分化出来的民族:哪年从哪族分出,母族可点;母族已消亡的不可点)
  *   作者的人物  生在这里、经历写在这里的作者人物(没有就不显示)
  *   历任归属 按时长分段的色条,点一段跳到它开始的那年
@@ -20,12 +24,20 @@ import type { Civ } from '../gen/civ/types';
 import { BIOMES } from '../gen/biomes';
 import { HABITABLE_SUIT, KIND_INFO, cultureLabel, regionLabel, regionNamed } from '../gen/civ/display';
 import { SETTLEMENT_RANKS, capitalAt, polityAlive, polityName, populationAt, populationLabel, regionPopulationAt, settlementRank } from '../gen/civ/growth';
+import { CONTROL_TIERS } from '../gen/civ/control';
+import { controlOf, lordOf } from '../render/civ/control';
 import { ownersAt } from '../gen/civ/timeline';
 import { spaced, yearAt, yearSpanAt } from '../gen/era';
 import { faithAt } from '../gen/civ/religion';
 import { cleanName, cultureKey, polityKey, regionKey, type Intervention } from '../gen/edits';
 import { useEdits } from './editsStore';
 import { queueIntervention } from './pendingStore';
+import { nextYear, useStepwise } from './stepwiseStore';
+import { STEP_LOOK_WHY, StepEffectTime, useStepView } from './Stepwise';
+import { useNarrow } from './device';
+import { roleLock } from './policyInfo';
+import { useRole } from './roleStore';
+import { ROLE_LOCK_NOTE, RoleLockNote } from './RoleBar';
 import { habitatScore, habitatWord } from './civDescribe';
 import { MineList, getPolityPick, interventionText, nameAt, regionOrders, setPolityPick } from './Interventions';
 import { NameEdit } from './NameEdit';
@@ -38,6 +50,8 @@ import { newCharacterDraft } from './characterStore';
 import { charactersAt, whereOfRegion } from './characterInfo';
 import { CharacterRefs } from './CharacterPanel';
 import { cultureRegion } from './searchIndex';
+import { DisasterPage } from './DisasterPage';
+import { regionDisasterMark } from './newIvInfo';
 import { entriesUpTo, firstOwned, ownerSpans, ownersOf, regionEntries } from './panelData';
 import {
   Act,
@@ -63,7 +77,7 @@ import {
   useYearInput,
 } from './panelParts';
 
-type Page = 'found' | 'cede';
+type Page = 'found' | 'cede' | 'disaster';
 
 export function RegionPanel(props: DetailProps) {
   const { civ, raw, raster, world, id, year, names } = props;
@@ -74,6 +88,9 @@ export function RegionPanel(props: DetailProps) {
   const po = civ.polities[own.polity[id]];
   const named = regionNamed(civ, id);
   const canAct = civ.viable && civ.polities.length > 0;
+  // 演一国时别国的州:在这里立国、划给…变灰(无主之地、自己的州照常)
+  const role = useRole();
+  const lock = po ? roleLock(civ, role, po.id) : null;
   return (
     <div className="cp" data-region={id} data-page={page ?? 'info'}>
       <PanelHead color={po ? rgb(po.color) : undefined}>
@@ -105,17 +122,19 @@ export function RegionPanel(props: DetailProps) {
           ]}
         />
       </PanelHead>
-      {page && canAct ? (
+      {page === 'disaster' && canAct && !lock ? (
+        <DisasterPage key={id} civ={civ} region={id} year={year} onBack={() => setPage(null)} />
+      ) : page && canAct && !lock ? (
         <RegionOrder civ={civ} id={id} year={year} page={page} back={() => setPage(null)} />
       ) : (
         <>
           <Acts>
             {canAct ? (
               <>
-                <Act icon="flag" primary act="found" onClick={() => (setPage('found'), setSheet('full'))}>
+                <Act icon="flag" primary={!lock} act="found" disabled={!!lock} title={lock ? ROLE_LOCK_NOTE : undefined} onClick={() => (setPage('found'), setSheet('full'))}>
                   在这里立国
                 </Act>
-                <Act icon="map" act="cede" onClick={() => (setPage('cede'), setSheet('full'))}>
+                <Act icon="map" act="cede" disabled={!!lock} title={lock ? ROLE_LOCK_NOTE : undefined} onClick={() => (setPage('cede'), setSheet('full'))}>
                   划给…
                 </Act>
               </>
@@ -126,6 +145,17 @@ export function RegionPanel(props: DetailProps) {
               改名
             </Act>
             <MoreAct>
+              {canAct && (
+                <MenuItem
+                  icon={<Icon name="close" size={16} className="iv-blank" />}
+                  act="region-disaster"
+                  disabled={!!lock}
+                  note={lock ? ROLE_LOCK_NOTE : undefined}
+                  onClick={() => (setPage('disaster'), setSheet('full'))}
+                >
+                  天灾…
+                </MenuItem>
+              )}
               <MenuItem icon={<Icon name="pin" size={16} />} act="add-mark" onClick={() => newMarkDraft({ regions: [regionKey(civ, id)], year })}>
                 在这里加标记
               </MenuItem>
@@ -138,6 +168,7 @@ export function RegionPanel(props: DetailProps) {
               </AiMenuItem>
             </MoreAct>
           </Acts>
+          {lock && canAct && <RoleLockNote civ={civ} me={lock.me} who={polityName(po, year)} year={year} />}
           <RegionInfo {...props} ai={ai} aiRef={aiRef} />
         </>
       )}
@@ -162,12 +193,22 @@ function RegionInfo({ civ, raw, raster, world, id, year, names, ai, aiRef }: Det
   const score = habitatScore(civ.habitat.suitability[civ.regions.seat[id]]);
   const cities = civ.settlements.filter((s) => s.region === id && s.founded <= year);
   const pop = regionPopulationAt(civ, id, year);
+  // 作者下的天灾以后还没长回来:现在的数后面写划掉的原数、哪年什么灾
+  const hurt = useMemo(() => regionDisasterMark(civ, id, year), [civ, id, year]);
   const first = firstOwned(civ, id);
   const spans = useMemo(() => (first === null ? [] : ownerSpans(civ, id, first, civ.endYear)), [civ, id, first]);
   const upTo = entriesUpTo(regionEntries(civ, id), year);
   const mine = regionOrders(civ, id, edits.interventions);
   const elev = civ.regions.elevation[id];
   const faith = civ.religion?.faiths[faithAt(civ, year)[id]];
+  // 管辖:中央管得到几成 + 档位;割据写名义上属哪国、哪年起(只有在国家里的州)
+  const ctl = controlOf(civ, year, id);
+  const lord = ctl?.tier === 3 ? lordOf(civ, year, id) : null;
+  const ctlItem = !ctl
+    ? []
+    : ctl.tier === 3
+      ? [{ k: '管辖', v: '割据', note: lord && civ.polities[lord.p] ? `名义上属${polityName(civ.polities[lord.p], year)}，${yearAt(lord.start, edits.era)}起` : undefined }]
+      : [{ k: '管辖', v: `${Math.round(ctl.share * 100)}%`, note: CONTROL_TIERS[ctl.tier] }];
   return (
     <div className="cp-body">
       <Stats
@@ -190,7 +231,24 @@ function RegionInfo({ civ, raw, raster, world, id, year, names, ai, aiRef }: Det
             ),
           },
           { k: '宜居度', v: score, note: habitatWord(score) },
-          { k: '人口', v: pop > 0 ? populationLabel(pop) : '—' },
+          {
+            k: '人口',
+            v:
+              pop > 0 ? (
+                hurt ? (
+                  <>
+                    {populationLabel(pop)}
+                    <span className="iv-was">{populationLabel(hurt.was).replace(/^约 /, '')}</span>
+                  </>
+                ) : (
+                  populationLabel(pop)
+                )
+              ) : (
+                '—'
+              ),
+            note: pop > 0 && hurt ? `${yearAt(hurt.when, edits.era)}${hurt.word}` : undefined,
+          },
+          ...ctlItem,
         ]}
       >
         {civ.religion && (
@@ -266,8 +324,17 @@ function RegionOrder({ civ, id, year, page, back }: { civ: Civ; id: number; year
   const [msg, setMsg] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [forever, setForever] = useState(false);
-  const yi = useYearInput(year, 0, Math.max(0, civ.endYear - 1), () => setMsg(null));
-  const { y, valid, era } = yi;
+  const yi = useYearInput(year, 0, Math.max(0, Math.ceil(civ.endYear) - 1), () => setMsg(null));
+  const { era } = yi;
+  // 逐年推演:只在"现在"干预,生效年份固定是下一步开始的那一年;这州那时归谁按"现在"看
+  const sw = useStepwise();
+  const step = sw.on;
+  // 往回看以前的一年:只能在"现在"干预
+  const look = useStepView().look;
+  const phone = useNarrow();
+  const y = step ? nextYear(sw) : yi.y;
+  const valid = step || yi.valid;
+  const yv = step ? Math.min(y, civ.endYear) : y;
   // 离开这一页(返回、选了别的东西):在地图上选到一半的收起
   useEffect(
     () => () => {
@@ -279,12 +346,12 @@ function RegionOrder({ civ, id, year, page, back }: { civ: Civ; id: number; year
   const at = useMemo(() => {
     const size = new Map<number, number>();
     const near = new Set<number>();
-    const o = ownersAt(civ, y);
+    const o = ownersAt(civ, yv);
     const reg = civ.regions;
     for (let r = 0; r < reg.count; r++) if (o.polity[r] >= 0) size.set(o.polity[r], (size.get(o.polity[r]) ?? 0) + 1);
     for (let k = reg.adjStart[id]; k < reg.adjStart[id + 1]; k++) if (o.polity[reg.adj[k]] >= 0) near.add(o.polity[reg.adj[k]]);
     return { owner: o.polity[id], peopled: o.culture[id] >= 0, size, near };
-  }, [civ, id, y]);
+  }, [civ, id, yv]);
   const others = useMemo(() => civ.polities.filter((q) => q.id !== at.owner && polityAlive(q, y) && (at.size.get(q.id) ?? 0) > 0).map((q) => q.id), [civ, y, at]);
   const R = regionLabel(civ, id);
   const O = at.owner >= 0 ? civ.polities[at.owner] : undefined;
@@ -293,13 +360,15 @@ function RegionOrder({ civ, id, year, page, back }: { civ: Civ; id: number; year
     ? ''
     : (at.size.get(O.id) ?? 0) <= 1
       ? `,${nameAt(O, y)}只有这一州,会就此亡国`
-      : civ.settlements[capitalAt(O, y)]?.region === id
+      : civ.settlements[capitalAt(O, yv)]?.region === id
         ? `,这里是${nameAt(O, y)}的国都,它会迁都`
         : '';
   // 没人住的州:住得了人的也能立国(一支新的民族来这里落脚),住不了人的立不了
   const livable = civ.habitat.suitability[civ.regions.seat[id]] >= HABITABLE_SUIT;
-  const why = !valid
-    ? `生效年份要在${spaced(yearSpanAt(0, Math.max(0, civ.endYear - 1), era))}之间`
+  const why = step && look !== null
+    ? STEP_LOOK_WHY
+    : !valid
+    ? `生效年份要在${spaced(yearSpanAt(0, Math.max(0, Math.ceil(civ.endYear) - 1), era))}之间`
     : !at.peopled && (page !== 'found' || !livable)
       ? page === 'found'
         ? `这里是${BIOMES[civ.regions.biome[id]]?.name ?? '荒地'}，住不了人，立不了国`
@@ -328,7 +397,7 @@ function RegionOrder({ civ, id, year, page, back }: { civ: Civ; id: number; year
   const pick = () => {
     setMsg(null);
     // 地图停在生效那一年:看到的国界、可选的国家和干预用的是同一年
-    jumpTo(y);
+    jumpTo(step ? Math.min(y, sw.now) : y);
     setPolityPick({
       prompt: `选择${R}要划给的国家`,
       sub: `${yearAt(y, era)}起生效`,
@@ -344,7 +413,7 @@ function RegionOrder({ civ, id, year, page, back }: { civ: Civ; id: number; year
   return (
     <>
       <div className="cp-body">
-        <YearStepper yi={yi} />
+        {step ? <StepEffectTime phone={phone} /> : <YearStepper yi={yi} />}
         <div className="cp-form">
           <span className="cp-form-title">{page === 'found' ? '在这里立国' : '划给…'}</span>
           {page === 'found' ? (

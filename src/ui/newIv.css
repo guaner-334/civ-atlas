@@ -1,0 +1,86 @@
+/* ---- 灭国页(DestroyPage.tsx)、人物卡的让他去世 / 改倾向页(PersonIvPage.tsx)、即位页「什么时候即位」、天灾页(DisasterPage.tsx) ---- */
+/* 推完会怎样:一块灰底,左边名目、右边一句 */
+.iv-sum {
+  margin: 8px 14px 0;
+  padding: 10px 12px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 3px 12px;
+  border-radius: 10px;
+  background: var(--btn);
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--ink);
+  flex: none;
+}
+.iv-sum > span:nth-child(odd) {
+  color: var(--ink-2);
+}
+/* 要当心的一句(只改人物和编年史、和方针叠加):黄底黄字 */
+.iv-warn {
+  margin: 8px 14px 0;
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: rgba(185, 124, 12, 0.1);
+  color: var(--warn);
+  font-size: 12.5px;
+  line-height: 1.5;
+  flex: none;
+}
+/* 正文最后一行小灰字 */
+.iv-tail {
+  margin: 8px 14px 0;
+  flex: none;
+}
+/* 灭国页:并入的那一国(圆点、国名、"41 州，接壤") */
+.iv-pick b {
+  font-weight: 600;
+}
+/* 人物卡「更多」里没图标的两项:字和有图标的对齐 */
+.pm-item .iv-blank {
+  visibility: hidden;
+}
+/* 人物卡倾向右上:"1500 年起改过""改" */
+.iv-head-acts {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+.iv-head-acts button:disabled {
+  color: var(--ink-3, var(--ink-2));
+  opacity: 0.5;
+}
+
+/* ---- 天灾页(DisasterPage.tsx)、州卡片推完的人口 ---- */
+/* "种类"(电脑):小标题 */
+.iv-h {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 12px 14px 6px;
+  padding: 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-2);
+  flex: none;
+}
+/* 种类一种一行:选中的浅蓝底、名字蓝、打勾(同方针的一键选) */
+.cpanel .iv-kinds {
+  margin-top: 2px;
+}
+.cpanel .iv-kinds .cp-cmd {
+  padding: 7px 12px;
+}
+.cpanel .iv-kinds .cp-cmd.on {
+  background: var(--accent-soft);
+}
+.cpanel .iv-kinds .cp-cmd.on .cp-cmd-name {
+  color: var(--accent);
+}
+/* 州卡片的人口:划掉的原数 */
+.iv-was {
+  margin-left: 6px;
+  color: var(--ink-2);
+  font-size: 12px;
+  text-decoration: line-through;
+}

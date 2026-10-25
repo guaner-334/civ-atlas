@@ -246,9 +246,12 @@ export function rulerFateWord(civ: Civ, x: Person): string {
     case 'merged':
       return '国并入他国';
     case 'retired':
-      return '任满';
+      // 作者立的君主到期下台(生死归人物卡管)
+      return x.author !== undefined && p.lineage !== 'republic' ? '退位' : '任满';
     case 'battle':
       return '战死';
+    case 'yielded':
+      return '让位';
   }
 }
 
@@ -267,4 +270,11 @@ export const LEANING_KEYS = Object.keys(LEANING_TEXT) as (keyof RulerLeanings)[]
 /** "开拓 47，好战 69，发展 63，重商 64"(复制生平) */
 export function leaningsText(l: RulerLeanings): string {
   return LEANING_KEYS.map((k) => `${LEANING_TEXT[k].name} ${l[k]}`).join('，');
+}
+
+/** 改过的倾向:"开拓 53→78、好战 50→20"(只写变了的;不知道原来的 = "开拓 78、好战 20";都没变 = 空串) */
+export function leaningsChange(from: RulerLeanings | undefined, to: RulerLeanings): string {
+  return LEANING_KEYS.filter((k) => !from || from[k] !== to[k])
+    .map((k) => `${LEANING_TEXT[k].name} ${from ? `${from[k]}→` : ''}${to[k]}`)
+    .join('、');
 }

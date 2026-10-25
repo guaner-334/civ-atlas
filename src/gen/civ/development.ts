@@ -28,6 +28,8 @@
  *     · 太平和城:进火药以后本州近年少战乱、有长到镇的城;
  *     · 地理:进工业以后要沿海(有港口)、有大河或是平原。
  *   - 动员不单独长:跟着生产和行政走(游牧民族另高一截)。
+ *   - 国家方针的发展重点(policy.ts):定了的国家治下各州,挑中的那一样自己长 × FOCUS_UP,别的 × FOCUS_DOWN;
+ *     挑动员的,动员的目标多 FOCUS_MOB。一步(20 年)里换了方针的按各段管了多久折算。没有方针的国家不变。
  *   - 没人住的州不长;刚有人住的州带着邻居的本事来(取最高邻居的 SETTLE_CARRY)。
  *
  * **时代** = 生产、运输、信息、行政四样的"偏短板"平均(调和平均,见 eraLevel):整数部分是哪个时代,小数部分是走到这个时代的几成。
@@ -56,7 +58,9 @@ import { GROWTH_A, capitalAt, populationAt, ruralCapacity } from './growth';
 import { fexp, keyed, subSeed } from './rand';
 import { Ev, type CivSim } from './sim';
 import { grantSail, polityModelOf, type PolityModel } from './polities';
+import { FOCUS_DOWN, FOCUS_MOB, FOCUS_UP, focusIndex, segAt, type PolicySeg } from './policy';
 import { cultureModelOf } from './cultures';
+import { warModelOf } from './wars';
 
 /** 物产(下标就是 Development.resources 里的第几样) */
 export const RESOURCES = ['粮', '牲畜', '铜锡', '铁', '煤', '木材', '盐', '渔获', '石油', '稀有矿', '金银'] as const;
@@ -278,7 +282,7 @@ export const INVENTIONS: readonly { name: string; cap: number; level: number; ma
 const SETTLED = 1;
 const LEFT = 2;
 
-interface DevModel {
+export interface DevModel {
   seed: number;
   pm: PolityModel;
   /** 州数(地形大事以后按新的州表补齐) */
@@ -325,6 +329,11 @@ interface DevModel {
   snaps: Uint8Array[];
   avail: Uint8Array[];
   snapYears: Year[];
+  /** 中央管到什么程度的快照(control.ts 每步存一份,见 Development.control) */
+  control: Uint8Array[];
+  controlYears: Year[];
+  /** 每一步算完以后(control.ts 挂上:存一份管到什么程度的快照) */
+  afterTick?: (y: Year) => void;
 }
 
 const models = new WeakMap<CivSim, DevModel>();
@@ -376,6 +385,8 @@ function emptyDev(world: World, pm: PolityModel, seed: number, habitat: Civ['hab
     snaps: [],
     avail: [],
     snapYears: [],
+    control: [],
+    controlYears: [],
   };
 }
 
@@ -437,6 +448,10 @@ export function resumeDevelopment(sim: CivSim, world: World, civ: Civ): void {
     d.snaps = dev.snaps.slice(0, keep).map((x) => padTo(x, R * CAP_COUNT));
     d.avail = dev.avail.slice(0, keep).map((x) => padTo(x, R * RESOURCE_COUNT));
     d.snapYears = dev.snapYears.slice(0, keep);
+    if (dev.control && dev.controlYears) {
+      d.control = dev.control.map((x) => padTo(x, R));
+      d.controlYears = dev.controlYears.slice();
+    }
     pm.military = st.military.slice();
   } else {
     // 没存状态:从下一个整 STEP 年起算,史事从现在起读
@@ -470,6 +485,12 @@ function hook(sim: CivSim, d: DevModel): void {
   models.set(sim, d);
   d.pm.capFactor = d.capF;
   d.pm.military ??= [];
+  // 打仗看物产(wars.ts):州里有哪几样;国家缺哪几样
+  const wm = warModelOf(sim);
+  if (wm) {
+    wm.resOf = (r) => resBitsOf(d, r);
+    wm.wantOf = (p) => wantsOf(sim, d, p);
+  }
   sim.onChange(Layer.Culture, (r) => {
     if (r < d.R) d.sinceC[r] = sim.now;
   });
@@ -480,6 +501,49 @@ function hook(sim: CivSim, d: DevModel): void {
     tick(sim, d, t);
     sim.schedule(t + STEP, Ev.DevTick, 0, 0);
   });
+}
+
+/**
+ * 州 r 有的物产(按位;打仗看物产用):地里有、还没采空(矿剩一成以上)、没吃空(林、渔、田、牧剩三成以上)的。
+ * 不管本州发现了没有、采到多少 —— 想要它的国家自己认得就行(见 wantsOf);地形大事以后才有的州 = 0
+ */
+function resBitsOf(d: DevModel, r: number): number {
+  if (r >= d.R) return 0;
+  let b = 0;
+  const o = r * RESOURCE_COUNT;
+  for (let k = 0; k < RESOURCE_COUNT; k++) {
+    const tier = d.resources[o + k];
+    if (!tier) continue;
+    const left = LIFE[k] ? d.stock[o + k] > 0.1 * tier * LIFE[k] : !DEPLETE[k] || d.stock[o + k] > 0.3;
+    if (left) b |= 1 << k;
+  }
+  return b;
+}
+
+/** 国家都想要的物产:盐、牲畜(马) */
+const WANT_ALWAYS = (1 << Res.Salt) | (1 << Res.Livestock);
+
+/**
+ * 国家 p 此刻缺、又想要的物产(按位;打仗看物产用,见 wars.ts):本国一州都没有的盐、牲畜;国都所在州的生产认得金银、铁了(到了 DISCOVER_AT)以后的金银、铁;
+ * 国都所在州的生产快到下一个时代门口(GATE_NEAR 以内)、门槛要的那样本国没有的(gate,单独给)
+ */
+function wantsOf(sim: CivSim, d: DevModel, p: number): { want: number; gate: number } {
+  const pm = d.pm;
+  let has = 0;
+  for (const r of pm.lands[p]) has |= resBitsOf(d, r);
+  const cap = pm.settlements[capitalAt(pm.polities[p], sim.now)];
+  const lv = cap && cap.region < d.R ? d.cur[cap.region * CAP_COUNT + Cap.Production] : 0;
+  let want = WANT_ALWAYS;
+  if (lv >= DISCOVER_AT[Res.Gold]) want |= 1 << Res.Gold;
+  if (lv >= DISCOVER_AT[Res.Iron]) want |= 1 << Res.Iron;
+  const gate = lv > Math.floor(lv) + 1 - GATE_NEAR ? gateNeed(lv) & ~has : 0;
+  return { want: (want | gate) & ~has, gate };
+}
+
+/** 生产能力 lv 进下一个时代要的物产(按位):进青铜要铜锡,进铁器要铁,进工业要煤和铁,进电气要石油,进信息要稀有矿 */
+function gateNeed(lv: number): number {
+  const target = Math.floor(lv) + 1;
+  return target === 1 ? 1 << Res.Copper : target === 2 ? 1 << Res.Iron : target === 5 ? (1 << Res.Coal) | (1 << Res.Iron) : target === 6 ? 1 << Res.Oil : target === 7 ? 1 << Res.Rare : 0;
 }
 
 /** 新建的城:各州第一座城(编号即建城先后) */
@@ -526,6 +590,34 @@ function tierNow(titles: { year: Year; tier: number }[] | undefined): number {
   return titles?.length ? Math.max(0, titles[titles.length - 1].tier) : 0;
 }
 
+/**
+ * 国家方针的发展重点在 (t0, y] 这一步里的折算(各段方针从定下的下一刻起管,见 policy.ts):
+ * 前四样"自己长"的倍数(挑中的 FOCUS_UP、别的 FOCUS_DOWN、没挑 1,按各段管了多久加权平均)、挑动员的时间占几成(第 5 个数)。
+ * 这一步里一直没挑发展重点 = null
+ */
+function focusShare(segs: readonly PolicySeg[], t0: Year, y: Year): number[] | null {
+  const dt = y - t0;
+  const out = [0, 0, 0, 0, 0];
+  let any = false;
+  // 这一步开头照的那一段,再加上这一步里定下的各段(t0 < seg.t < y),各管到下一段定下为止
+  let from = t0;
+  let f = focusIndex(segAt(segs, t0 + 1 / 256));
+  const add = (until: number) => {
+    const w = (until - from) / dt;
+    if (f >= 0) any = true;
+    for (let c = 0; c < 4; c++) out[c] += w * (f < 0 ? 1 : c === f ? FOCUS_UP : FOCUS_DOWN);
+    if (f === Cap.Mobilization) out[4] += w;
+  };
+  for (const s of segs) {
+    if (!(s.t > t0 && s.t < y)) continue;
+    add(s.t);
+    from = s.t;
+    f = focusIndex(segAt(segs, s.t + 1 / 256));
+  }
+  add(y);
+  return any ? out : null;
+}
+
 /** 算一步(第 y 年;见文件头) */
 function tick(sim: CivSim, d: DevModel, y: Year): void {
   const pm = d.pm;
@@ -559,13 +651,20 @@ function tick(sim: CivSim, d: DevModel, y: Year): void {
     const cap = S[capitalAt(q, Infinity)];
     if (cap && cap.region < R && ownP[cap.region] === p) capR[p] = cap.region;
   }
+  // 国家方针的发展重点(policy.ts):这一步(上一步到 y)里各国前四样"自己长"的倍数、挑动员的时间占几成,
+  // 按这段时间里各段方针管了多久折算(年中换了方针的,前后各算各的)。没有方针的世界 = null,什么都不变
+  let focus: Float64Array | null = null;
+  if (dt > 0) {
+    for (const [p, segs] of pm.policies) {
+      const mul = focusShare(segs, d.last, y);
+      if (!mul) continue;
+      focus ??= new Float64Array(P * CAP_COUNT).fill(NaN);
+      focus.set(mul, p * CAP_COUNT);
+    }
+  }
   const { adjStart, adj, adjKind } = reg;
   const drive = new Float64Array(4);
   const learn = new Float64Array(4);
-  const needBits = (lvP: number): number => {
-    const target = Math.floor(lvP) + 1;
-    return target === 1 ? 1 << Res.Copper : target === 2 ? 1 << Res.Iron : target === 5 ? (1 << Res.Coal) | (1 << Res.Iron) : target === 6 ? 1 << Res.Oil : target === 7 ? 1 << Res.Rare : 0;
-  };
 
   if (dt > 0) {
     for (let r = 0; r < R; r++) {
@@ -639,15 +738,17 @@ function tick(sim: CivSim, d: DevModel, y: Year): void {
         return true;
       };
       const e = E[r];
+      const fo = focus && p >= 0 && !Number.isNaN(focus[p * CAP_COUNT]) ? p * CAP_COUNT : -1;
       for (let c = 0; c < 4; c++) {
         const v = cur[o + c];
         const lvl = Math.min(ERA_YEARS.length - 1, Math.floor(v));
         let grow = (drive[c] * peace) / ERA_YEARS[lvl];
+        if (fo >= 0) grow *= focus![fo + c];
         let got = learn[c];
         if (v > e + OVERSHOOT) grow *= OVERSHOOT_SLOW;
         if (v > e + OVERSHOOT_LEARN) got *= OVERSHOOT_SLOW;
         if (v > Math.floor(v) + 1 - GATE_NEAR) {
-          const need = c === Cap.Production ? needBits(v) : 0;
+          const need = c === Cap.Production ? gateNeed(v) : 0;
           if ((need && (near & need) !== need) || !gateOK(Math.floor(v) + 1)) grow *= GATE_SLOW;
         }
         const recover = (best[o + c] - v) * RECOVER;
@@ -657,7 +758,8 @@ function tick(sim: CivSim, d: DevModel, y: Year): void {
       }
       // 动员:跟着生产和行政走
       const nomad = cultures[ownC[r]]?.kind === 'nomad';
-      const target = 0.5 * (next[o + Cap.Production] + next[o + Cap.Administration]) + (nomad ? 0.7 : 0) + (polity ? 0.15 : 0);
+      let target = 0.5 * (next[o + Cap.Production] + next[o + Cap.Administration]) + (nomad ? 0.7 : 0) + (polity ? 0.15 : 0);
+      if (fo >= 0) target += FOCUS_MOB * focus![fo + Cap.Mobilization];
       const m = cur[o + Cap.Mobilization];
       next[o + Cap.Mobilization] = Math.min(LEVEL_MAX, m + (target - m) * Math.min(1, 0.01 * dt));
     }
@@ -807,6 +909,7 @@ function tick(sim: CivSim, d: DevModel, y: Year): void {
   }
 
   d.last = y;
+  d.afterTick?.(y);
   if (y % SNAP === 0) {
     const s = makeSnap(d);
     d.snaps.push(s.snap);
@@ -916,7 +1019,8 @@ export function finishDevelopment(sim: CivSim, endYear: Year): Development | und
     invented: d.invented.slice(),
     military: Array.from(d.pm.military ?? [], (m) => m ?? 1),
   };
-  return { resources: d.resources.slice(), found: d.found.slice(), avail, snaps, snapYears, events, state };
+  const control = d.controlYears.length ? { control: d.control.slice(), controlYears: d.controlYears.slice() } : {};
+  return { resources: d.resources.slice(), found: d.found.slice(), avail, snaps, snapYears, events, state, ...control };
 }
 
 /**

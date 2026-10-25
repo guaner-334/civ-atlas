@@ -19,60 +19,21 @@
 import type { World } from '../../gen/world';
 import type { Raster } from '../../gen/raster';
 import type { Civ, Year } from '../../gen/civ/types';
+import { Layer } from '../../gen/civ/types';
 import { drawHabitat, drawRegionLines, drawSites } from './debug';
-import { drawTerritory } from './territory';
-import { drawBorders } from './borders';
-import { drawRoutes } from './routes';
-import { drawWarHatch } from './warfare';
-import { drawPlague } from './plague';
+import { drawTerritory, territorySteps } from './territory';
+import { borderLines, drawBorders } from './borders';
+import { drawRoutes, routeLines } from './routes';
+import { drawWarHatch, warHatchCanvas, warScene, warsShown, warSpans, warStripesPrep } from './warfare';
+import { drawPlague, plagueCanvas, plagueShown, plagueZone } from './plague';
 import { clipOutline, type Projector } from '../projection';
+import { flushCanvas, type WorkStep } from '../common';
+import type { CivShow } from './show';
 
 export type CivStyle = 'realistic' | 'fantasy' | 'data';
 
-/** 文明层的开关 */
-export interface CivShow {
-  /** 宜居度热力图 */
-  habitat: boolean;
-  /** 州界细线 */
-  regions: boolean;
-  /** 城址圆点 */
-  sites: boolean;
-  /** 道路与航线 */
-  routes: boolean;
-  /** 地名(默认打开) */
-  labels: boolean;
-  /** 民族色块 */
-  cultures: boolean;
-  /** 国家:国土、国界、城镇。和"民族"一起开时只画国界和城镇,色块是民族的 */
-  polities: boolean;
-  /** 信仰色块(信仰图层;开着时铺信仰,不铺民族、国土,国家只画国界和城镇) */
-  faiths: boolean;
-  /** 时代色块(时代图层;开着时按各州所处的时代铺色,画法同信仰,国家只画国界和城镇) */
-  eras: boolean;
-  /** 物产圆章(物产图层;州治上画这一年能用的物产,见 resources.ts) */
-  resources: boolean;
-  /** 战事:正在打的仗(战线、易手的州、交战处的双剑);要开着"国家"才画(默认打开) */
-  wars: boolean;
-  /** 瘟疫:正在闹、疫过不久的州铺墨点(plague.ts);要开着"国家"才画(默认打开) */
-  plague: boolean;
-}
-
-export const CIV_SHOW_OFF: CivShow = {
-  habitat: false,
-  regions: false,
-  sites: false,
-  routes: false,
-  labels: false,
-  cultures: false,
-  polities: false,
-  faiths: false,
-  eras: false,
-  resources: false,
-  wars: false,
-  plague: false,
-};
-/** 打开页面时的默认显示:地名、战事、瘟疫(战事、瘟疫要开着"国家"才画) */
-export const CIV_SHOW_DEFAULT: CivShow = { ...CIV_SHOW_OFF, labels: true, wars: true, plague: true };
+// 文明层的开关和默认值在 show.ts(界面状态只用到它们,不用带上画法),这里照旧一起导出
+export { CIV_SHOW_DEFAULT, CIV_SHOW_OFF, type CivShow } from './show';
 
 /** 视口:缩放倍数 k、平移 x/y(CSS 像素)。文字层随缩放重画时用 */
 export interface CivViewport {
@@ -112,6 +73,11 @@ export interface CivDrawParams {
   cull?: readonly [number, number, number, number];
   /** 信仰图层:选中的信仰(宗教卡片开着),别的信仰变淡;不给 = 都是原色 */
   faithFocus?: number | null;
+  /**
+   * 存档缩略图(App 的 thumbMaker,画结束那一年):色块、国界另存一份,不挤掉主图那一年正在用的;
+   * 色块那张画完就放掉(缩略图一个世界截一次)
+   */
+  thumb?: boolean;
 }
 
 export function drawCivOverlay(ctx: CanvasRenderingContext2D, p: CivDrawParams) {
@@ -128,6 +94,27 @@ export function drawCivOverlay(ctx: CanvasRenderingContext2D, p: CivDrawParams) 
   drawRoutes(ctx, p);
   if (p.show.sites) drawSites(ctx, p);
   ctx.restore();
+}
+
+/**
+ * drawCivOverlay 头一回画一份历史(换上再推、重推、试推演、打开存档推出来的历史)时要现算的东西,拆成一小步一小步:
+ * 色块(territory.ts 的 territorySteps,按行分段)、国界、道路、战事的斜线、瘟疫的墨点各一步(斜线、墨点画好就让浏览器当下画出来)。
+ * 都做完以后 drawCivOverlay 只是把备好的贴上、描线,和当场一口气画逐像素一样;已经备好的步骤什么也不做
+ */
+export function civOverlaySteps(p: CivDrawParams): WorkStep[] {
+  return [
+    ...territorySteps(p),
+    () => void (p.show.polities && p.civ.polities.length && borderLines(p, Layer.Polity)),
+    () => void (p.show.routes && p.civ.routes.length && routeLines(p.world.mesh, p.civ, p.year)),
+    () => void (warsShown(p) && warSpans(p.civ)),
+    () => void (warsShown(p) && warScene(p.civ, p.year)),
+    // 整张斜线底图(每张栅格一张;刚打开的世界还没有)单独一步
+    () => warStripesPrep(p),
+    // 斜线、墨点画好以后当下就让浏览器画出来(不然攒到换上那一下贴的时候才画)
+    () => void flushCanvas(warHatchCanvas(p)),
+    () => void (plagueShown(p) && plagueZone(p.civ, p.year)),
+    () => void flushCanvas(plagueCanvas(p)),
+  ];
 }
 
 /**

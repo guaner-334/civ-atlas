@@ -78,6 +78,11 @@ export interface LabelItem {
   pick?: { kind: 'polity' | 'settlement' | 'place'; id: number };
   /** 弯边投影时 path 已经是地图平面坐标(国名按投影后的国土拟合的),不再投影;等距圆柱时不看 */
   planar?: boolean;
+  /**
+   * 顺着一片地盘排的大字(族名;国名靠 pick 认):地球仪转动、拖时间轴时也排,球上排不下再试横排小一两档
+   * (render/globeLabels.ts)。排版不看它
+   */
+  territory?: boolean;
 }
 
 /**

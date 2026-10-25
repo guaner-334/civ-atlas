@@ -252,6 +252,14 @@ button.ivq-title {
 .toast-mark.ok {
   background: var(--ok);
 }
+/* 地球仪问要不要换高清(小字有两行):圆点对着第一行;小字在逗号处折行 */
+.toast[data-toast='globe-hd-ask'] .toast-mark {
+  align-self: flex-start;
+  margin-top: 8px;
+}
+.toast[data-toast='globe-hd-ask'] .toast-more {
+  word-break: keep-all;
+}
 .toast-text {
   display: flex;
   flex-direction: column;
@@ -900,6 +908,25 @@ button.primary:hover {
   font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
+/* 手机上选了 4096×2048:清晰度下面一行后果(橙字,占满一行) */
+.export-scale:has(.export-warn) {
+  flex-wrap: wrap;
+  row-gap: 6px;
+  padding-bottom: 7px;
+}
+.export-warn {
+  flex-basis: 100%;
+  display: flex;
+  gap: 6px;
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--warn);
+}
+.export-warn .icon {
+  flex: none;
+  margin-top: 2px;
+}
 /* "AI 起的名字:带上 / 换回原名"(世界里有 AI 起的名字时才有)、"作者标记:带上 / 不带"(有标记时才有) */
 .export-ainames,
 .export-marks {
@@ -1047,6 +1074,39 @@ button.primary:hover {
   opacity: 0.45;
   cursor: default;
 }
+/* 「复制分享链接」下面一行勾选「停在这一刻」(shareMoment.tsx 的 MomentCheck;分享窗里也是它) */
+.save-moment {
+  flex: none;
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+  margin: 2px 10px 8px 38px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: inset 0 0 0 0.5px var(--line);
+  line-height: 1.45;
+  cursor: pointer;
+}
+.save-moment input {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin: 1.5px 0 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.save-moment b {
+  display: block;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--ink);
+}
+.save-moment small {
+  display: block;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
 /* 世界名的输入框(改名) */
 .save-title-input {
   width: 100%;
@@ -1135,6 +1195,46 @@ button.primary:hover {
 .stage:active {
   cursor: grabbing;
 }
+/* 经纬网的度数(GratLabels.tsx):和舞台一样大一样位置的一层,框外的字伸到舞台外面 */
+.grat-labels {
+  position: absolute;
+  z-index: 2;
+  pointer-events: none;
+  font-family: var(--font-sans);
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.grat-labels > * {
+  position: absolute;
+}
+.grat-labels > i {
+  background: var(--line-strong);
+}
+.grat-labels > .out {
+  color: var(--ink-2);
+}
+.grat-labels > .out.eq {
+  color: var(--ink);
+}
+.grat-labels > .light {
+  color: rgba(58, 45, 34, 0.86);
+  text-shadow:
+    0 0 2px rgba(247, 242, 231, 1),
+    0 0 2px rgba(247, 242, 231, 1),
+    0 0 6px rgba(247, 242, 231, 0.9);
+}
+.grat-labels > .realistic {
+  color: rgba(242, 246, 250, 0.96);
+  text-shadow:
+    0 0 2px rgba(0, 0, 0, 0.95),
+    0 0 3px rgba(0, 0, 0, 0.8),
+    0 0 8px rgba(0, 0, 0, 0.55);
+}
+.grat-labels > .eq {
+  font-weight: 600;
+}
 .canvas-wrap,
 .canvas-wrap-upper {
   position: absolute;
@@ -1187,6 +1287,20 @@ button.primary:hover {
   left: 0;
   top: 0;
   transform-origin: 0 0;
+}
+/* 编辑地形以后补起的地名(收起编辑地形时才起):淡入 */
+.screen-layer.names-in canvas {
+  animation: names-in 0.2s ease-out;
+}
+@keyframes names-in {
+  from {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .screen-layer.names-in canvas {
+    animation: none;
+  }
 }
 .caption {
   position: absolute;
@@ -1307,6 +1421,61 @@ button.primary:hover {
 }
 .gradient {
   width: 300px;
+}
+/* 地理图的海拔色标:一档一档的层色(手机上缩成一条,只留几个刻度) */
+.legend.atlas.phone {
+  padding: 6px 8px;
+  font-size: 11px;
+}
+.bands {
+  width: 336px;
+}
+.legend.phone .bands {
+  width: 192px;
+}
+.bands .bar {
+  display: flex;
+  height: 10px;
+  border-radius: 3px;
+  overflow: hidden;
+}
+.legend.phone .bands .bar {
+  height: 8px;
+}
+.legend .bands .bar i {
+  flex: 1;
+  width: auto;
+  height: auto;
+  border-radius: 0;
+}
+.bands .ticks {
+  position: relative;
+  height: 16px;
+  font-size: 10px;
+  color: var(--muted);
+}
+.legend.phone .bands .ticks {
+  height: 14px;
+  font-size: 9.5px;
+}
+.bands .ticks span {
+  position: absolute;
+  transform: translateX(-50%);
+  top: 2px;
+  white-space: nowrap;
+}
+.legend .bands .keys {
+  gap: 4px 14px;
+  margin-top: 4px;
+  color: var(--ink-2);
+}
+.legend .bands .keys i {
+  box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.2);
+}
+.legend .bands .keys i.line {
+  height: 3px;
+  border-radius: 1px;
+  box-shadow: none;
 }
 .gradient .bar {
   height: 10px;

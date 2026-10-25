@@ -8,9 +8,41 @@
  * 撤销 / 重做(⌘Z / ⇧⌘Z,见 undo.ts):改名、改旗、干预、地形大事、作者标记、作者的人物、AI 改写每次都记一步(改之前、改之后两份),只记这次打开网页以后、这个世界上的;
  * 读档、换世界(setEdits / clearEdits)、创建世界(clearEditHistory)清空。地形修改、草图、地名风格、推演年数、拓荒、起源不记:只在新建世界时能改,工具有自己的"撤销一笔"。
  * 纪年、月份也不记:只换年份的写法,在世界设定里随时改回来。文明种子、用的哪张地图在新开历史时定,之后不改(只在第一次推完时补上地图的校验)。
+ * 逐年推演的进度、从第几年起、推进设置、导播跟着谁也不记(撤销别的时照现在的留着)。
  */
 import { useSyncExternalStore } from 'react';
-import { EMPTY_EDITS, END_YEAR_DEFAULT, MARKS_MAX, cleanCivSeed, cleanEndYear, MARK_REGIONS_TOTAL, cleanIntervention, cleanMark, markRegionTotal, sameMark, markAiName, nextMarkId, type AuthorMark, type Intervention, type TerrainOp, type Upheaval, type WorldEdits } from '../gen/edits';
+import {
+  EMPTY_EDITS,
+  END_YEAR_DEFAULT,
+  MARKS_MAX,
+  cleanAdvance,
+  cleanFollow,
+  cleanCivSeed,
+  cleanEndYear,
+  MARK_REGIONS_TOTAL,
+  cleanIntervention,
+  cleanMark,
+  OUTLINE_PLOTS_MAX,
+  cleanOutline,
+  markRegionTotal,
+  sameAdvance,
+  sameFollow,
+  sameMark,
+  markAiName,
+  nextMarkId,
+  type Advance,
+  type AdvanceSettings,
+  type AuthorMark,
+  type FollowRef,
+  type Intervention,
+  type Outline,
+  type Plot,
+  type PlotReview,
+  type PlayState,
+  type TerrainOp,
+  type Upheaval,
+  type WorldEdits,
+} from '../gen/edits';
 import { TERRAIN_MAX_OPS, UPHEAVALS_MAX, cleanTerrainOp, cleanUpheaval } from '../gen/terrainEdits';
 import { SKETCH_MAX_STROKES, cleanSketch, cleanSketchImage, cleanSketchStroke, encodeLayer, sketchCoast, sketchFill, type SketchEdit, type SketchFill, type SketchStroke } from '../gen/sketch';
 import { PLATE_MAX_OPS, cleanPlateImage, cleanPlateOp, type PlateImage, type PlateOp } from '../gen/plateEdits';
@@ -155,8 +187,11 @@ export function revertEdits(now: WorldEdits, from: WorldEdits, to: WorldEdits): 
   const marks = moveById(now.marks, from.marks, to.marks);
   const flags = moveMap(now.flags, from.flags, to.flags);
   const characters = moveById(now.characters, from.characters, to.characters);
+  // 大纲:这一步改过大纲、之后没再改过的,换回 to 那样(整份换;之后又改过的不动)
+  const outlineMoved = JSON.stringify(from.outline ?? null) !== JSON.stringify(to.outline ?? null) && JSON.stringify(now.outline ?? null) === JSON.stringify(from.outline ?? null);
+  const outline = outlineMoved ? to.outline : now.outline;
   const sameUps = upheavals === (now.upheavals ?? []) || (!upheavals.length && !now.upheavals);
-  if (names === now.names && aiNames === now.aiNames && interventions === now.interventions && terrain === now.terrain && sameUps && marks === now.marks && flags === now.flags && characters === now.characters)
+  if (names === now.names && aiNames === now.aiNames && interventions === now.interventions && terrain === now.terrain && sameUps && marks === now.marks && flags === now.flags && characters === now.characters && outline === now.outline)
     return now;
   const out: WorldEdits = { names, interventions, terrain };
   // 草图、地名风格、推演年数、拓荒、起源、纪年、月份不记撤销步(见文件头),照现在的留着
@@ -169,11 +204,19 @@ export function revertEdits(now: WorldEdits, from: WorldEdits, to: WorldEdits): 
   if (now.map) out.map = now.map;
   if (now.era) out.era = now.era;
   if (now.months !== undefined) out.months = now.months;
+  // 逐年推演的进度、从第几年起、另开的几支、推进设置也不记撤销步(进度只往前走;设置随时能改回来)
+  if (now.play) out.play = now.play;
+  if (now.playFrom !== undefined) out.playFrom = now.playFrom;
+  if (now.branches) out.branches = now.branches;
+  if (now.advance) out.advance = now.advance;
+  // 导播跟着谁只管看,不记撤销步,照现在的留着
+  if (now.follow) out.follow = now.follow;
   if (upheavals.length) out.upheavals = sameUps ? now.upheavals : upheavals;
   if (aiNames && Object.keys(aiNames).length) out.aiNames = aiNames;
   if (marks?.length) out.marks = marks;
   if (flags && Object.keys(flags).length) out.flags = flags;
   if (characters?.length) out.characters = characters;
+  if (outline) out.outline = outline;
   return out;
 }
 
@@ -293,10 +336,11 @@ export function setEditGate(f: ((keys: string[]) => string | null) | null) {
 export function editBlock(keys: readonly string[]): string | null {
   return gate ? gate(keys.filter(Boolean)) : null;
 }
-/** 一条干预点到的键(国家、对方、城、州) */
+/** 一条干预点到的键(国家、对方、城、州;饥荒选的几州) */
 export function interventionKeys(v: Intervention): string[] {
   const o = v as Partial<Record<'a' | 'b' | 'city' | 'region', string>>;
-  return [o.a, o.b, o.city, o.region].filter((k): k is string => typeof k === 'string');
+  const regions = v.kind === 'disaster' ? (v.regions ?? []) : [];
+  return [o.a, o.b, o.city, o.region, ...regions].filter((k): k is string => typeof k === 'string');
 }
 
 /**
@@ -499,6 +543,46 @@ export function setMapSum(sum: string) {
   const map = state.map;
   if (!map || map.sum) return;
   put({ ...state, map: { ...map, sum } }, false);
+}
+
+/**
+ * 推进设置(逐年推演怎么往下走;随时能改,不记撤销步、不改历史):整个交进来,清理过再放进修改(全是默认 = 去掉这一项)。
+ * 格式见 gen/edits.ts 文件头"推进设置"
+ */
+export function setAdvance(a: Partial<Advance> | AdvanceSettings | undefined) {
+  const next = cleanAdvance(a);
+  if (sameAdvance(next, state.advance)) return;
+  const { advance: _old, ...rest } = state;
+  void _old;
+  put(next ? { ...rest, advance: next } : rest, false);
+}
+
+/**
+ * 导播跟着谁(随时能改,不记撤销步、不改历史):null = 全世界的大事。不合格的(种类不对、键不是对应种类的)当 null。
+ * 格式见 gen/edits.ts 文件头"导播跟着谁"
+ */
+export function setFollow(f: FollowRef | null) {
+  const next = f ? cleanFollow(f) : undefined;
+  if (sameFollow(next, state.follow)) return;
+  const { follow: _old, ...rest } = state;
+  void _old;
+  put(next ? { ...rest, follow: { kind: next.kind, key: next.key } } : rest, false);
+}
+
+/**
+ * 逐年推演走完一步:进度换成 play(推到哪年 + 一路下过的命令)。不记撤销步(进度只往前走);
+ * App 记着这份历史就是按它推的,不会因为进度变了再重推一遍
+ */
+export function putPlay(play: PlayState) {
+  if (state.play === play) return;
+  put({ ...state, play }, false);
+}
+
+/**
+ * 整个换成 next,不记撤销步、不清撤销记录、不问改历史的那一声(新建的世界选了「演绎」:创建以后换成从第 0 年起逐年推演)
+ */
+export function putEditsQuiet(next: WorldEdits) {
+  put(next, false);
 }
 
 /** 纪年(随时能改,不记撤销步):undefined = 按第几年写,去掉这一项。不合格的(名字空、太长,元年超范围)不改 */
@@ -796,10 +880,11 @@ export function restoreMark(m: AuthorMark, at: number): number {
 /** 这次打开以后删掉过的人物编号:新人物不用(放回去时还能用原编号,撤销、亲友都对得上) */
 const retiredCharacterIds = new Set<number>();
 
-/** 把人物换成 list(空 = 去掉这个字段),记一步 */
-function commitCharacters(list: AuthorCharacter[]) {
+/** 把人物换成 list(空 = 去掉这个字段),记一步;ivs = 干预列表一起换(改 / 删人物时他的即位跟着改,只记一步、只重推一次)。返回改没改 */
+function commitCharacters(list: AuthorCharacter[], ivs?: Intervention[]): boolean {
   const { characters: _, ...rest } = state;
-  commitEdits(list.length ? { ...rest, characters: list } : rest);
+  const next = ivs ? { ...rest, interventions: ivs } : rest;
+  return commitEdits(list.length ? { ...next, characters: list } : next);
 }
 
 /** 加一个人物(清理过的;编号按用过的最大的 + 1 重新给,见 nextCharacterId)。返回新人物的编号;不合格、已经有 CHARACTERS_MAX 个 = −1 */
@@ -812,39 +897,81 @@ export function addCharacter(c: Omit<AuthorCharacter, 'id'>): number {
   return id;
 }
 
-/** 改一个人物(整个换成 c,编号不变;找不到、不合格、没变 = 不动)。返回改没改 */
-export function updateCharacter(c: AuthorCharacter): boolean {
+/**
+ * 改一个人物(整个换成 c,编号不变;找不到、不合格、没变 = 不动)。返回改没改。
+ * ivs = 干预列表一起换成这个(他的即位跟着改:crownInfo.ts 的 crownEditAsk);改历史被拦下 = 都不改
+ */
+export function updateCharacter(c: AuthorCharacter, ivs?: Intervention[]): boolean {
   const list = state.characters ?? [];
   const i = list.findIndex((x) => x.id === c.id);
   const x = cleanCharacter(c);
-  if (i < 0 || !x || sameCharacter(x, list[i])) return false;
-  commitCharacters(list.map((y, j) => (j === i ? x : y)));
-  return true;
+  if (i < 0 || !x || (!ivs && sameCharacter(x, list[i]))) return false;
+  return commitCharacters(
+    list.map((y, j) => (j === i ? x : y)),
+    ivs,
+  );
 }
 
-/** 删一个人物(找不到 = 不动;别的人物亲友里的他留着,界面上不列)。返回删掉的那个 */
-export function removeCharacter(id: number): AuthorCharacter | null {
+/** 删一个人物(找不到 = 不动;别的人物亲友里的他留着,界面上不列)。返回删掉的那个;ivs = 干预列表一起换(连他的即位一起去掉) */
+export function removeCharacter(id: number, ivs?: Intervention[]): AuthorCharacter | null {
   const list = state.characters ?? [];
   const c = list.find((x) => x.id === id);
   if (!c) return null;
+  if (!commitCharacters(
+    list.filter((x) => x !== c),
+    ivs,
+  ))
+    return null;
   retiredCharacterIds.add(c.id);
-  commitCharacters(list.filter((x) => x !== c));
   return c;
 }
 
-/** 把删掉的人物放回去(删除提示条上的"撤销"):编号已经被占了 = 换一个新编号;at = 放回列表里的位置。返回编号,放不回去 = −1 */
-export function restoreCharacter(c: AuthorCharacter, at: number): number {
+/**
+ * 把删掉的人物放回去(删除提示条上的"撤销"):编号已经被占了 = 换一个新编号;at = 放回列表里的位置。返回编号,放不回去 = −1。
+ * ivs = 干预列表一起换(连即位一起去掉的,即位放回去)
+ */
+export function restoreCharacter(c: AuthorCharacter, at: number, ivs?: Intervention[]): number {
   const list = state.characters ?? [];
   const same = list.find((x) => x.id === c.id);
-  if (same && sameCharacter(same, c)) return c.id;
+  if (same && sameCharacter(same, c)) return !ivs || commitCharacters(list, ivs) ? c.id : -1;
   if (list.length >= CHARACTERS_MAX) return -1;
   const id = same ? nextCharacterId(list, retiredCharacterIds) : c.id;
   const x = cleanCharacter({ ...c, id });
   if (!x) return -1;
   const next = list.slice();
   next.splice(Math.min(Math.max(0, at), next.length), 0, x);
-  commitCharacters(next);
-  return id;
+  // 换了新编号:即位里记的是原来的编号,对不上了,不放回去
+  return commitCharacters(next, id === c.id ? ivs : undefined) ? id : -1;
+}
+
+// ---- 大纲(格式见 gen/edits.ts 文件头"大纲") ----
+
+/**
+ * 大纲换成 plots(清理过;一条不剩 = 去掉这一项;超过 OUTLINE_PLOTS_MAX 条不收),记一步。上一次照大纲推演的批改跟着去掉(改了大纲,批改对不上了;
+ * 硬改出来的干预留着,下次照大纲推演时重新算)。ivs = 干预列表一起换(删一条情节时连它硬改出来的那几条一起去掉)。
+ * 改历史被拦下 = false
+ */
+export function setOutlinePlots(plots: readonly Plot[], ivs?: Intervention[]): boolean {
+  // 满了还加(加一条、复制):不收,说一声(不然读进来时的清理会悄悄丢掉最后一条)
+  if (plots.length > OUTLINE_PLOTS_MAX) {
+    showToast({ id: 'outline-max', kind: 'warn', text: `大纲最多 ${OUTLINE_PLOTS_MAX} 条`, more: ['删掉几条再加'] });
+    return false;
+  }
+  const { outline: _old, ...rest } = state;
+  void _old;
+  const o = cleanOutline({ plots });
+  const next: WorldEdits = ivs ? { ...rest, interventions: ivs } : rest;
+  return commitEdits(o ? { ...next, outline: { plots: o.plots } } : next);
+}
+
+/**
+ * 照大纲推演好了:干预列表(作者的 + 硬改出来的)、批改一起换,记一步(⌘Z 回到推之前)。
+ * plots = 推的时候那一份大纲(推的时候大纲没改过才会走到这里)
+ */
+export function putOutlineResult(plots: readonly Plot[], review: readonly PlotReview[], ivs: Intervention[]): boolean {
+  const o: Outline | undefined = cleanOutline({ plots, review });
+  if (!o) return false;
+  return commitEdits({ ...state, interventions: ivs, outline: o });
 }
 
 /** 换了新世界:修改一律作废 */

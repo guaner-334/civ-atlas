@@ -14,7 +14,7 @@ import {
   type Frontier,
   type TerrainGroupInfo,
 } from '../gen/civ/frontier';
-import type { SliderLike } from './WorldOverviewGenesis';
+import type { SliderLike } from './genesisSliders';
 import type { FieldSpec } from './ParamField';
 
 /** 右边数值框:倍数写到 0.01;难走程度写到 0.1 */

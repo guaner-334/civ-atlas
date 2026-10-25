@@ -6,6 +6,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { PlanetGL, type PlanetFrame } from './planetGL';
 import { TILT } from './layout';
+import { holdHomeLoad } from '../homeLoad';
 
 const SRC = `${import.meta.env.BASE_URL}home-planet.jpg`;
 /** 自转:弧度 / 毫秒(和新建界面一样,约 1 分钟一圈) */
@@ -49,8 +50,12 @@ export function HomeGlobe({ size }: { size: number }) {
       last = now;
       gl.draw(frame());
     };
+    // 主程序等这张图下好了再在后台下载(homeLoad.ts)
+    const loaded = holdHomeLoad();
     const img = new Image();
+    img.onerror = loaded;
     img.onload = () => {
+      loaded();
       if (!alive || gl.isLost) return;
       gl.setStyle('home', img);
       gl.draw(frame());
@@ -64,6 +69,7 @@ export function HomeGlobe({ size }: { size: number }) {
     };
     return () => {
       alive = false;
+      loaded();
       cancelAnimationFrame(raf);
       gl.dispose();
     };

@@ -19,11 +19,14 @@ import {
   layerParts,
   layerShow,
   mapViewFromUrl,
+  paintLook,
   writeMapView,
+  type FillId,
 } from '../src/ui/mapLayers';
+import { CIV_SHOW_DEFAULT, cultureNamesLead, cultureNamesOn, namesLead, namesOn, polityNamesLead, polityNamesOn, type CivShow } from '../src/render/civ/show';
 import { _resetToasts, clearToast, getToast, peekToast, showToast } from '../src/ui/toastStore';
 import { closeOverview, getOverview, openOverview } from '../src/ui/overviewStore';
-import { clearSelection, getChronicle, getSelection, setChronicle, setSelection } from '../src/ui/civView';
+import { civShowFromQuery, clearSelection, getChronicle, getSelection, namesUrl, setChronicle, setSelection } from '../src/ui/civView';
 import { collapseSide, expandSide, getSide, setSideHold } from '../src/ui/sideStore';
 import { FLY_MS, animProgress, easeOutCubic, flatFly, sideRoom } from '../src/ui/flyTo';
 
@@ -43,8 +46,8 @@ describe('图层换算', () => {
   });
   it('时代、物产是第二行小字按钮:时代留国界(开着国家),物产不叠国家;网址 layer=era / layer=resources', () => {
     expect(MAP_LAYERS.filter((l) => l.dev).map((l) => l.id)).toEqual(['era', 'resources']);
-    expect(layerShow(layerDef('era'))).toEqual({ polities: true, cultures: false, faiths: false, eras: true, resources: false });
-    expect(layerShow(layerDef('resources'))).toEqual({ polities: false, cultures: false, faiths: false, eras: false, resources: true });
+    expect(layerShow(layerDef('era'))).toEqual({ polities: true, cultures: false, faiths: false, eras: true, control: false, resources: false });
+    expect(layerShow(layerDef('resources'))).toEqual({ polities: false, cultures: false, faiths: false, eras: false, control: false, resources: true });
     expect(layerOf('fantasy', 'biomes', { polities: true, cultures: false, eras: true })).toBe('era');
     expect(layerFromUrl(new URLSearchParams('seed=7&layer=era'))).toBe('era');
     expect(layerFromUrl(new URLSearchParams('seed=7&layer=resources'))).toBe('resources');
@@ -79,9 +82,10 @@ describe('底图 × 填色', () => {
     expect(layerParts('resources')).toEqual({ base: 'fantasy', fill: 'none', resources: true });
   });
   it('填色和文明层开关互换:信仰留着国界;任何底图都能配任何填色', () => {
-    for (const f of ['none', 'polities', 'cultures', 'faiths', 'eras'] as const) expect(fillOf(fillShow(f))).toBe(f);
-    expect(fillShow('faiths')).toEqual({ polities: true, cultures: false, faiths: true, eras: false });
-    expect(fillShow('eras')).toEqual({ polities: true, cultures: false, faiths: false, eras: true });
+    for (const f of ['none', 'polities', 'cultures', 'faiths', 'eras', 'control'] as const) expect(fillOf(fillShow(f))).toBe(f);
+    expect(fillShow('faiths')).toEqual({ polities: true, cultures: false, faiths: true, eras: false, control: false });
+    expect(fillShow('eras')).toEqual({ polities: true, cultures: false, faiths: false, eras: true, control: false });
+    expect(fillShow('control')).toEqual({ polities: true, cultures: false, faiths: false, eras: false, control: true });
     // 物产是叠加开关,换填色不碰它
     expect('resources' in fillShow('none')).toBe(false);
     for (const b of ['fantasy', 'satellite', 'geo', 'blank', 'elevation'] as const) {
@@ -91,11 +95,19 @@ describe('底图 × 填色', () => {
     expect(baseLook('satellite', 'classic')).toEqual({ style: 'realistic', look: 'classic' });
     expect(baseLook('geo', 'classic')).toEqual({ style: 'realistic', look: 'geo' });
   });
-  it('名字、深色界面、缩略图:卫星按画法写「经典卫星」或「卫星」;白模浅色,卫星、地理图深色', () => {
+  it('地理图叠了国家 / 民族 / 信仰 / 时代颜色时铺褪色的那一份,不填时全彩;别的底图不管填色', () => {
+    expect(paintLook('geo', 'none')).toBe('geo');
+    for (const f of ['polities', 'cultures', 'faiths', 'eras'] as const) expect(paintLook('geo', f)).toBe('geoMute');
+    expect(paintLook('detail', 'polities')).toBe('detail');
+    expect(paintLook('blank', 'polities')).toBe('blank');
+    // 褪色的那一份在界面上还是地理图
+    expect(baseOf('realistic', 'biomes', 'geoMute')).toBe('geo');
+  });
+  it('名字、深色界面、缩略图:卫星按画法写「经典卫星」或「卫星」;地理图、白模浅色,卫星深色', () => {
     expect(baseName('satellite', 'classic')).toBe('经典卫星');
     expect(baseName('satellite', 'detail')).toBe('卫星');
     expect(baseName('elevation', 'detail')).toBe('高程');
-    expect([baseDark('satellite'), baseDark('geo'), baseDark('blank'), baseDark('fantasy'), baseDark('elevation'), baseDark('plates')]).toEqual([true, true, false, false, true, false]);
+    expect([baseDark('satellite'), baseDark('geo'), baseDark('blank'), baseDark('fantasy'), baseDark('elevation'), baseDark('plates')]).toEqual([true, false, false, false, true, false]);
     expect(baseThumb('satellite', 'classic')).toBe('realistic');
     expect(baseThumb('satellite', 'detail')).toBe('realistic:detail');
     expect(baseName('satellite', 'simple')).toBe('简化卫星');
@@ -112,6 +124,7 @@ describe('底图 × 填色', () => {
     expect(mapViewFromUrl(q('layer=faith'))).toEqual({ base: 'fantasy', fill: 'faiths' });
     expect(mapViewFromUrl(q('layer=resources'))).toEqual({ base: 'fantasy', fill: 'none', resources: true });
     expect(mapViewFromUrl(q('fill=eras'))?.fill).toBe('eras');
+    expect(mapViewFromUrl(q('fill=control'))?.fill).toBe('control');
     expect(mapViewFromUrl(q(''))).toEqual({ base: 'fantasy', fill: 'polities' });
     expect(mapViewFromUrl(q('style=realistic'))).toBeNull();
     expect(mapViewFromUrl(q('civ=cultures'))).toBeNull();
@@ -124,6 +137,7 @@ describe('底图 × 填色', () => {
     expect(w('civ=-labels', { base: 'fantasy', fill: 'polities', sat: 'detail' })).toBe('civ=-labels&fill=polities');
     expect(w('sat=classic', { base: 'elevation', fill: 'faiths', sat: 'classic' })).toBe('map=elevation&fill=faiths');
     expect(w('civ=eras,resources', { base: 'fantasy', fill: 'eras', sat: 'detail' })).toBe('civ=resources&fill=eras');
+    expect(w('civ=control,resources', { base: 'fantasy', fill: 'control', sat: 'detail' })).toBe('civ=resources&fill=control');
     for (const v of [
       { base: 'satellite', fill: 'cultures', sat: 'classic' },
       { base: 'geo', fill: 'none', sat: 'detail' },
@@ -134,6 +148,116 @@ describe('底图 × 填色', () => {
       expect(back?.fill).toBe(v.fill);
       if (v.base === 'satellite') expect(back?.sat).toBe(v.sat);
     }
+  });
+});
+
+describe('地图上写国名(每种填色各记各的)', () => {
+  const q = (s: string) => new URLSearchParams(s);
+  const at = (fill: FillId, names?: CivShow['names']): CivShow => ({ ...CIV_SHOW_DEFAULT, ...fillShow(fill), names });
+  it('没勾过按填色的默认:国家、信仰、时代、管辖写,民族、不填不写;国家填色上是主角,别的是配角', () => {
+    expect((['polities', 'cultures', 'faiths', 'eras', 'control', 'none'] as const).map((f) => polityNamesOn(at(f)))).toEqual([true, false, true, true, true, false]);
+    expect(polityNamesLead(at('control'))).toBe(false);
+    expect(polityNamesLead(at('polities'))).toBe(true);
+    expect(polityNamesLead(at('faiths'))).toBe(false);
+    expect(polityNamesLead(at('eras'))).toBe(false);
+    expect(polityNamesLead(at('cultures'))).toBe(false);
+    // 只开了信仰、没开国家的旧链接照旧不写
+    expect(polityNamesOn({ ...CIV_SHOW_DEFAULT, faiths: true })).toBe(false);
+  });
+  it('勾的记在那种填色上,换到别的填色不跟着变', () => {
+    const names = { polities: { polities: false }, cultures: { polities: true } };
+    expect(polityNamesOn(at('polities', names))).toBe(false);
+    expect(polityNamesOn(at('cultures', names))).toBe(true);
+    expect(polityNamesOn(at('faiths', names))).toBe(true);
+    expect(polityNamesOn(at('none', names))).toBe(false);
+  });
+  it('写进网址 civ=:只写和默认不一样的;没写填色时把现在的填色写上;写完再读回来一样', () => {
+    const w = (s: string, names: CivShow['names'], fill: FillId) => namesUrl(q(s), names, fill).toString();
+    expect(w('seed=7', { polities: { polities: false } }, 'polities')).toBe('seed=7&civ=-polityNames.polities&fill=polities');
+    expect(w('seed=7&fill=cultures', { cultures: { polities: true } }, 'cultures')).toBe('seed=7&fill=cultures&civ=polityNames.cultures');
+    // 勾回默认:civ= 里那一项去掉,别的开关留着
+    expect(w('seed=7&civ=-labels,polityNames.cultures&fill=cultures', { cultures: { polities: false } }, 'cultures')).toBe('seed=7&civ=-labels&fill=cultures');
+    expect(w('seed=7&fill=faiths', { faiths: { polities: true } }, 'faiths')).toBe('seed=7&fill=faiths');
+    const names = { polities: { polities: false }, cultures: { polities: true }, eras: { polities: false } };
+    const url = namesUrl(q('seed=7&map=satellite&fill=eras&civ=-wars'), names, 'eras');
+    const back = civShowFromQuery(url);
+    expect(back.wars).toBe(false);
+    expect(back.names).toEqual(names);
+    expect(mapViewFromUrl(url)?.fill).toBe('eras');
+    // 只带 civ= 的网址按旧链接读:写了填色才不会变成不填
+    expect(mapViewFromUrl(namesUrl(q('seed=7'), { polities: { polities: false } }, 'polities'))?.fill).toBe('polities');
+    // 换填色时 writeMapView 不动这几项
+    expect(civShowFromQuery(writeMapView(url, { base: 'fantasy', fill: 'cultures', sat: 'detail' })).names).toEqual(names);
+  });
+  it('网址里不带填色的 polityNames / -polityNames 算网址里那种填色的', () => {
+    expect(civShowFromQuery(q('fill=cultures&civ=polityNames')).names).toEqual({ cultures: { polities: true } });
+    expect(civShowFromQuery(q('civ=-polityNames')).names).toEqual({ none: { polities: false } });
+    expect(civShowFromQuery(q('civ=polities,-polityNames')).names).toEqual({ polities: { polities: false } });
+    expect(civShowFromQuery(q('civ=polityNames.bogus,names')).names).toBeUndefined();
+  });
+});
+
+describe('地图上写族名(每种填色各记各的)', () => {
+  const q = (s: string) => new URLSearchParams(s);
+  const at = (fill: FillId, names?: CivShow['names']): CivShow => ({ ...CIV_SHOW_DEFAULT, ...fillShow(fill), names });
+  it('没勾过按填色的默认:民族填色写,别的不写;民族填色上是主角', () => {
+    expect((['polities', 'cultures', 'faiths', 'eras', 'none'] as const).map((f) => cultureNamesOn(at(f)))).toEqual([false, true, false, false, false]);
+    expect((['polities', 'cultures', 'faiths', 'eras', 'none'] as const).map((f) => cultureNamesLead(at(f)))).toEqual([false, true, false, false, false]);
+    expect(namesOn(at('cultures'), 'cultures')).toBe(true);
+    expect(namesOn(at('cultures'), 'polities')).toBe(false);
+  });
+  it('国名、族名各记各的,换填色不跟着变', () => {
+    const names = { polities: { cultures: true }, cultures: { cultures: false, polities: true } };
+    expect(cultureNamesOn(at('polities', names))).toBe(true);
+    expect(polityNamesOn(at('polities', names))).toBe(true);
+    expect(cultureNamesOn(at('cultures', names))).toBe(false);
+    expect(polityNamesOn(at('cultures', names))).toBe(true);
+    expect(cultureNamesOn(at('faiths', names))).toBe(false);
+  });
+  it('写进网址 civ=(cultureNames.填色):只写和默认不一样的;写完再读回来一样;不带填色的算网址里那种填色的', () => {
+    const w = (s: string, names: CivShow['names'], fill: FillId) => namesUrl(q(s), names, fill).toString();
+    expect(w('seed=7&fill=cultures', { cultures: { cultures: false } }, 'cultures')).toBe('seed=7&fill=cultures&civ=-cultureNames.cultures');
+    expect(w('seed=7&fill=cultures', { cultures: { cultures: true } }, 'cultures')).toBe('seed=7&fill=cultures');
+    expect(w('seed=7', { polities: { cultures: true } }, 'polities')).toBe('seed=7&civ=cultureNames.polities&fill=polities');
+    const names = { polities: { polities: false, cultures: true }, cultures: { polities: true, cultures: false } };
+    const back = civShowFromQuery(namesUrl(q('seed=7&fill=cultures&civ=-wars'), names, 'cultures'));
+    expect(back.wars).toBe(false);
+    expect(back.names).toEqual(names);
+    expect(civShowFromQuery(q('fill=polities&civ=cultureNames')).names).toEqual({ polities: { cultures: true } });
+    expect(civShowFromQuery(q('fill=cultures&civ=-cultureNames,polityNames')).names).toEqual({ cultures: { cultures: false, polities: true } });
+  });
+});
+
+describe('地图上写教名、时代名(每种填色各记各的)', () => {
+  const q = (s: string) => new URLSearchParams(s);
+  const at = (fill: FillId, names?: CivShow['names']): CivShow => ({ ...CIV_SHOW_DEFAULT, ...fillShow(fill), names });
+  const FILLS = ['polities', 'cultures', 'faiths', 'eras', 'none'] as const;
+  it('没勾过按填色的默认:信仰填色写教名、时代填色写时代名,别的不写;跟着填色的那种是主角', () => {
+    expect(FILLS.map((f) => namesOn(at(f), 'faiths'))).toEqual([false, false, true, false, false]);
+    expect(FILLS.map((f) => namesOn(at(f), 'eras'))).toEqual([false, false, false, true, false]);
+    expect(FILLS.map((f) => namesLead(at(f), 'faiths'))).toEqual([false, false, true, false, false]);
+    expect(FILLS.map((f) => namesLead(at(f), 'eras'))).toEqual([false, false, false, true, false]);
+    // 信仰、时代填色上国名照写(配角)
+    expect(namesOn(at('faiths'), 'polities')).toBe(true);
+    expect(namesLead(at('faiths'), 'polities')).toBe(false);
+  });
+  it('四种名字各记各的,换填色不跟着变', () => {
+    const names = { polities: { faiths: true }, faiths: { faiths: false }, eras: { polities: false } };
+    expect(namesOn(at('polities', names), 'faiths')).toBe(true);
+    expect(namesOn(at('polities', names), 'eras')).toBe(false);
+    expect(namesOn(at('faiths', names), 'faiths')).toBe(false);
+    expect(namesOn(at('faiths', names), 'polities')).toBe(true);
+    expect(namesOn(at('eras', names), 'eras')).toBe(true);
+    expect(namesOn(at('eras', names), 'polities')).toBe(false);
+  });
+  it('写进网址 civ=(faithNames.填色、eraNames.填色):只写和默认不一样的;写完再读回来一样', () => {
+    const w = (s: string, names: CivShow['names'], fill: FillId) => namesUrl(q(s), names, fill).toString();
+    expect(w('seed=7&fill=faiths', { faiths: { faiths: false } }, 'faiths')).toBe('seed=7&fill=faiths&civ=-faithNames.faiths');
+    expect(w('seed=7&fill=eras', { eras: { eras: true } }, 'eras')).toBe('seed=7&fill=eras');
+    expect(w('seed=7&fill=polities', { polities: { eras: true } }, 'polities')).toBe('seed=7&fill=polities&civ=eraNames.polities');
+    const names = { polities: { faiths: true, eras: true }, faiths: { faiths: false, polities: false }, eras: { eras: false } };
+    expect(civShowFromQuery(namesUrl(q('seed=7&fill=eras&civ=-wars'), names, 'eras')).names).toEqual(names);
+    expect(civShowFromQuery(q('fill=faiths&civ=-faithNames,eraNames')).names).toEqual({ faiths: { faiths: false, eras: true } });
   });
 });
 
@@ -296,5 +420,25 @@ describe('地图飞过去的进度', () => {
     const first = at!(easeOutCubic(animProgress(1000 - 1800, 1000, FLY_MS)));
     expect(first.k).toBeCloseTo(3, 6);
     expect(at!(easeOutCubic(animProgress(1000 + FLY_MS, 1000, FLY_MS))).k).toBeCloseTo(1, 6);
+  });
+});
+
+describe('地理图的海拔色标', () => {
+  it('一档一档和地图上的层色一样多,刻度落在档与档的分界上', async () => {
+    const { atlasLegend } = await import('../src/render/dataLegend');
+    const { ATLAS_SEA, HYPSO } = await import('../src/render/atlasColors');
+    const l = atlasLegend();
+    expect(l.colors.length).toBe(ATLAS_SEA.length + HYPSO.length);
+    // 板子上的位置:16 档里 −6000 在第 1 档左边、0 在第 8 档左边、5000 在第 15 档左边
+    expect(l.ticks.map((t) => [t.label, t.at])).toEqual([
+      ['−6000', 1],
+      ['−3000', 4],
+      ['−1000', 6],
+      ['0', 8],
+      ['500', 10],
+      ['2000', 12],
+      ['5000', 15],
+    ]);
+    expect(l.phoneTicks.map((t) => t.label)).toEqual(['−3000', '0', '2000', '5000 米']);
   });
 });

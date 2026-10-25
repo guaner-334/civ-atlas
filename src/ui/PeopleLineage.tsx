@@ -5,20 +5,29 @@
  *   右边  标题"景  2377–2794 年，27 位君主；太祖柳渺玄起兵代衍朝开国"(手机上不写开国那句),下面这一朝的树(排法见 gen/civ/lineageInfo.ts):
  *         白底方框 = 即位的君主(左边灰色数字是这一朝第几位、30 像素的圆头像,两行:称呼、在位年份);虚线框 = 没即位的宗室(生卒);
  *         时间轴那一年在位的标「当前」、蓝框,还没即位(宗室:还没出生)的变淡;从人物卡片进来的那位蓝框圈出。
- *         最后一位下面写这一朝怎么结束("2794 年，渊朝起兵代之");连不上开国那一支的远支另起一小棵。点一位看他的卡片
+ *         最后一位下面写这一朝怎么结束("2794 年，渊朝起兵代之");连不上开国那一支的远支另起一小棵,上面写"宗室远支"。点一位看他的卡片
+ *         作者立的君主(让作者的人物即位):单独一棵,上面写"作者立的君主",头像是作者人物卡上的那张、描一圈他的颜色,点了开作者的人物卡;
+ *         紧跟着接他位的那一棵写"继他之位"
  * 看哪一朝:人物卡片进来 = 他那一朝;别的 = 时间轴那一年的那一朝(还没立国 = 第一朝,亡了 = 最后一朝);打开时滚到圈出的那位或「当前」。
  * 树比右边宽时左右滑,长的上下滑(手机上整页上下滑)。
  */
-import { Fragment, useLayoutEffect, useMemo, useRef } from 'react';
+import { Fragment, useLayoutEffect, useMemo, useRef, type CSSProperties } from 'react';
 import type { Civ, Person } from '../gen/civ/types';
+import type { Raster } from '../gen/raster';
+import type { World } from '../gen/world';
+import type { AuthorCharacter } from '../gen/characters';
+import { resolveKey } from '../gen/edits';
+import { characterPortrait } from '../gen/portrait';
+import { MARK_HEX } from '../render/marks';
+import { characterPolity } from './characterInfo';
 import { rulerAt } from '../gen/civ/peopleInfo';
 import { personName } from '../gen/civ/peopleText';
-import { PersonFace } from './Portrait';
-import { dynastyEnd, dynastyNote, dynastyRowAt, dynastyRows, layoutDynasty, reignOrder, type DynastyRow, type LineageTree } from '../gen/civ/lineageInfo';
+import { PersonFace, PortraitView } from './Portrait';
+import { dynastyEnd, dynastyNote, dynastyRowAt, dynastyRows, layoutDynasty, reignOrder, treeLabel, type DynastyRow, type LineageTree } from '../gen/civ/lineageInfo';
 import { setPeople } from './overviewStore';
 import { selectPerson } from './panelParts';
 import { useNarrow } from './device';
-import { useEra } from './editsStore';
+import { useEdits, useEra } from './editsStore';
 import { yearShort, yearShortAt, yearSpanAt, type Era } from '../gen/era';
 
 
@@ -64,10 +73,47 @@ function inRow(row: DynastyRow, year: number) {
   return row.from <= year && (row.to === undefined || year < row.to);
 }
 
+/** 世界和底图(作者人物的头像按他的国家挑服饰:人物卡上没填国家时看出生地归哪国,要用到) */
+type Place = { world: World; raster: Raster } | null;
+
+/** 作者立的君主的头像:和作者人物卡上的同一张(他的国家定服饰,年龄跟时间轴);底色和别的方框一样按这国的颜色,外面描一圈他的颜色(CSS) */
+function AuthorFace({ civ, x, c, year, place }: { civ: Civ; x: Person; c: AuthorCharacter; year: number; place: Place }) {
+  const pol = useMemo(() => {
+    if (place) return characterPolity(civ, place.world, place.raster, c);
+    const k = c.polity ? resolveKey(civ, c.polity) : null;
+    return k?.kind === 'polity' ? k.id : x.polity;
+  }, [civ, c, x.polity, place]);
+  const age = Math.floor(Math.min(Math.max(year, x.from ?? c.born), c.died ?? Infinity) - c.born);
+  const p = useMemo(() => characterPortrait(civ, c, pol >= 0 ? pol : x.polity, c.born + age), [civ, c, pol, x.polity, age]);
+  if (!p) return null;
+  return <PortraitView p={p} size="mini" color={`rgb(${civ.polities[x.polity].color.join(',')})`} />;
+}
+
 /** 一棵树:方框绝对定位,连线画在底下的 svg 里;tail = 最后一位下面那句话(这一棵里有最后一位才给) */
-function Tree({ civ, row, tree, box, year, cur, focus, tail }: { civ: Civ; row: DynastyRow; tree: LineageTree; box: Box; year: number; cur: Person | null; focus: number | null; tail: string }) {
+function Tree({
+  civ,
+  row,
+  tree,
+  box,
+  year,
+  cur,
+  focus,
+  tail,
+  place,
+}: {
+  civ: Civ;
+  row: DynastyRow;
+  tree: LineageTree;
+  box: Box;
+  year: number;
+  cur: Person | null;
+  focus: number | null;
+  tail: string;
+  place: Place;
+}) {
   const { W, H, GAP, STEP } = box;
   const era = useEra();
+  const chars = useEdits().characters;
   const unit = W + GAP;
   const xs = tree.nodes.map((n) => n.x);
   const minX = Math.min(...xs);
@@ -106,17 +152,19 @@ function Tree({ civ, row, tree, box, year, cur, focus, tail }: { civ: Civ; row: 
         const span = k ? yearSpan(p.from ?? p.born, p.until, era) : yearSpan(p.born, p.died, era);
         // 名字加「当前」放不下:「当前」挪到年份后面
         const low = on && CHROME + nameWidth(civ, p, box) + badgeWidth() > W;
+        // 作者立的君主:头像换成作者人物卡上的那张(人物卡删掉了照旧)
+        const ac = p.author !== undefined ? chars?.find((c) => c.id === p.author) : undefined;
         return (
           <button
             key={p.id}
-            className={cls}
-            style={{ left: cx(x) - W / 2, top: top(depth), width: W, height: H }}
+            className={ac ? `${cls} cr-author` : cls}
+            style={{ left: cx(x) - W / 2, top: top(depth), width: W, height: H, ...(ac ? ({ '--ring': MARK_HEX[ac.color] } as CSSProperties) : {}) }}
             data-person={p.id}
             title={`${name}，${k ? (era && p.until !== undefined ? `${yearSpanAt(p.from ?? p.born, p.until, era)}在位` : `${span} 年在位`) : `未即位，${span}`}`}
             onClick={() => selectPerson(p.id)}
           >
             {k > 0 && <span className="lg-n">{k}</span>}
-            <PersonFace civ={civ} x={p} year={year} size="mini" />
+            {ac ? <AuthorFace civ={civ} x={p} c={ac} year={year} place={place} /> : <PersonFace civ={civ} x={p} year={year} size="mini" />}
             <span className="lg-t">
               <b>
                 <span className="lg-nm">{name}</span>
@@ -139,7 +187,7 @@ function Tree({ civ, row, tree, box, year, cur, focus, tail }: { civ: Civ; row: 
   );
 }
 
-export function PeopleLineage({ civ, polity, dynasty, focus, year }: { civ: Civ; polity: number; dynasty: number | null; focus: number | null; year: number }) {
+export function PeopleLineage({ civ, polity, dynasty, focus, year, place = null }: { civ: Civ; polity: number; dynasty: number | null; focus: number | null; year: number; place?: Place }) {
   const narrow = useNarrow();
   const era = useEra();
   const box0 = narrow ? BOX.narrow : BOX.wide;
@@ -243,8 +291,8 @@ export function PeopleLineage({ civ, polity, dynasty, focus, year }: { civ: Civ;
         <div className="lg-scroll" ref={scrollRef}>
           {trees.map((t, i) => (
             <Fragment key={i}>
-              {t.distant && <div className="lg-distant">宗室远支</div>}
-              <Tree civ={civ} row={row} tree={t} box={box} year={year} cur={cur} focus={focus} tail={i === lastTree ? tail : ''} />
+              {t.distant && <div className="lg-distant">{treeLabel(row, trees, i)}</div>}
+              <Tree civ={civ} row={row} tree={t} box={box} year={year} cur={cur} focus={focus} tail={i === lastTree ? tail : ''} place={place} />
             </Fragment>
           ))}
         </div>

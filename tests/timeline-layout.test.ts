@@ -15,6 +15,7 @@ import {
   PIN_MAX,
   PIN_SHOW_MS,
   addPins,
+  bringsState,
   cardOffset,
   countUpTo,
   crossed,
@@ -24,12 +25,15 @@ import {
   evText,
   evType,
   evYears,
+  hidesFounding,
   hitDiamonds,
   layoutDiamonds,
+  lifeLabels,
   pinOpacity,
   placeCards,
   recentEntries,
   replayStart,
+  textWidth,
 } from '../src/ui/timelineLayout';
 
 let nextId = 0;
@@ -75,6 +79,7 @@ describe('事件类型', () => {
     expect(evLabel(entry(1, 'found', { tag: '?' }))).toBe('纪事');
     expect(['臣', '盟', '绝', '背', '叛'].map((tag) => evLabel(entry(1, 'submit', { tag })))).toEqual(['称臣', '结盟', '盟绝', '背盟', '绝贡']);
     expect(evText(entry(1, 'intervene', { text: '【干预】大昌与索拉特结盟' }))).toBe('大昌与索拉特结盟');
+    expect(evText(entry(1, 'intervene', { text: '【照大纲】大昌向索拉特宣战' }))).toBe('【照大纲】大昌向索拉特宣战');
   });
 
   it('年份:单年 / 跨年 / 还没打完', () => {
@@ -146,6 +151,57 @@ describe('刻度排布', () => {
     // 同一年的"令"和"变"叠在一处:"变"画在上面,认"变"
     const same = layoutDiamonds([entry(1600, 'intervene'), entry(1600, 'upheaval')], 3000, 300);
     expect(hitDiamonds(same, 160)?.lead.kind).toBe('upheaval');
+  });
+});
+
+describe('合并的点里有立国', () => {
+  it('新国家立起来:立国、自立 / 复国、饥民起事;大崩解要有分出来的国;藩属绝贡自立、重建城不算', () => {
+    expect(bringsState(entry(1, 'found'))).toBe(true);
+    expect(bringsState(entry(1, 'split'))).toBe(true);
+    expect(bringsState(entry(1, 'revolt'))).toBe(true);
+    expect(bringsState(entry(1, 'collapse', { children: [entry(1, 'split')] }))).toBe(true);
+    expect(bringsState(entry(1, 'collapse'))).toBe(false);
+    expect(bringsState(entry(1, 'defect'))).toBe(false);
+    expect(bringsState(entry(1, 'rebuild'))).toBe(false);
+    expect(bringsState(entry(1, 'war'))).toBe(false);
+  });
+
+  it('叠绿点:合并进来的有立国、点又不是立国的颜色;本来就是绿的不叠', () => {
+    const war = entry(1000, 'war', { importance: 3 as Importance });
+    const found = entry(1002, 'found', { importance: 2 as Importance });
+    const [d] = layoutDiamonds([war, found], 3000, 300).marks;
+    expect(d.lead).toBe(war);
+    expect(hidesFounding(d)).toBe(true);
+    // 立国分量最重:点就是绿的
+    const [g] = layoutDiamonds([entry(1000, 'found'), entry(1002, 'war', { importance: 2 as Importance })], 3000, 300).marks;
+    expect(hidesFounding(g)).toBe(false);
+    // 单独一件饥民起事(灰色的「民变」)也叠
+    const [r] = layoutDiamonds([entry(2000, 'revolt')], 3000, 300).marks;
+    expect(hidesFounding(r)).toBe(true);
+    // 里面没有新国家:不叠
+    const [n] = layoutDiamonds([entry(1000, 'war'), entry(1002, 'rank'), entry(1003, 'defect')], 3000, 300).marks;
+    expect(hidesFounding(n)).toBe(false);
+  });
+});
+
+describe('选中国家:两头的字', () => {
+  it('平常字的中间对准那一年;出了轨道两头就往里挂', () => {
+    expect(lifeLabels(400, null, 60, 0, 900)).toEqual({ found: { x: 400, align: 'mid' }, end: null });
+    expect(lifeLabels(10, null, 60, 0, 900).found.align).toBe('start');
+    expect(lifeLabels(890, null, 60, 0, 900).found.align).toBe('end');
+    expect(lifeLabels(100, 700, 60, 40, 900)).toEqual({ found: { x: 100, align: 'mid' }, end: { x: 700, align: 'mid' } });
+    expect(lifeLabels(100, 895, 60, 40, 900).end).toEqual({ x: 895, align: 'end' });
+  });
+
+  it('两个字挤在一起:立国的往左挂、亡的往右挂;还放不下就只写立国', () => {
+    expect(lifeLabels(400, 430, 60, 40, 900)).toEqual({ found: { x: 400, align: 'end' }, end: { x: 430, align: 'start' } });
+    expect(lifeLabels(30, 50, 60, 40, 900)).toEqual({ found: { x: 30, align: 'mid' }, end: null });
+    expect(lifeLabels(840, 880, 60, 40, 900)).toEqual({ found: { x: 840, align: 'mid' }, end: null });
+  });
+
+  it('估字宽:数字半个字多一点、汉字一个字、空格三分之一', () => {
+    expect(textWidth('2391 立国', 10)).toBeCloseTo(4 * 6 + 3 + 20);
+    expect(textWidth('亡', 11.5, 8)).toBeCloseTo(19.5);
   });
 });
 

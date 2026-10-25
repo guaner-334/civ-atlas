@@ -10,7 +10,8 @@
  *      等值线开着时,后台线程把地形和上面两层分成两张交回来;排好字、还没画之前,先在地形上画线(drawExportContours,
  *      数字躲开地名),再叠上文明底图和外框。
  *
- * 图例(drawLegend):国家 / 民族列表 + 颜色(和世界概览的国家页一样按当年的州数排;信仰图层再列信仰)、道路和城镇符号,和地图用同一套字体与配色。
+ * 图例(drawLegend):数据图层的色阶 / 色块(和屏幕上同一份内容),或国家 / 民族列表 + 颜色(和世界概览的国家页一样按当年的州数排;信仰图层再列信仰)、道路和城镇符号,和地图用同一套字体与配色。
+ * 数据图层的地图图片左上角还压一条连续色阶(drawMapLegend)。
  *
  * 投影(和屏幕上一样):等距圆柱按当前中心左右转;弯边投影(罗宾森、摩尔威德……)按投影重画(和屏幕上停着时一样:
  * 面按行重投影,海岸、河、国界、道路逐点投影,符号正立,见 drawMapTerrain),外框换成投影轮廓、罗盘在轮廓外的左下角,
@@ -24,9 +25,12 @@ import type { SurfaceLook } from './surface';
 import { drawFrame, drawPaperVignette, renderFantasy } from './fantasy';
 import { bakedView, wrapOf } from './common';
 import { renderLayer, type LayerId } from './layers';
+import { dataLegend, dataLegendText, isGradientLegend, type DataLegend, type GradientLegend } from './dataLegend';
 import { drawCivOverlay, type CivShow, type CivStyle } from './civ/overlay';
 import { RESOURCE_COLORS, drawResourceLayer, resourceTier, type ResourceLook } from './civ/resources';
 import { ERA_COLORS, eraLevelsAt, eraName } from './civ/era';
+import { CONTROL_COLORS, controlTiersAt } from './civ/control';
+import { CONTROL_TIERS } from '../gen/civ/control';
 import { RESOURCES, RESOURCE_COUNT, resourcesAt } from '../gen/civ/development';
 import { civLabelChars, civLabelItems, civMapLayer, labelViewExtras } from './civ/labels';
 import { drawSettlementMarks, SYMBOL_BOX, SYMBOL_GROW, type SettlementKind } from './civ/settlements';
@@ -83,6 +87,8 @@ export interface ExportMapParams {
   graticule?: number;
   /** 物产图层:只看哪一样、画不画还没发现的(和屏幕上一样;不给 = 全部显示) */
   res?: ResourceLook;
+  /** 数据图层在地图角上带不带色阶;不给 = 带(回放、长图用的整图不带) */
+  legend?: boolean;
 }
 
 /** 弯边投影:图片按哪种投影、哪条中央经线画(等距圆柱 = null) */
@@ -180,9 +186,9 @@ export function drawMapCiv(ctx: Ctx2D, p: ExportMapParams, makeCanvas: (w: numbe
   cv.width = cv.height = 0;
 }
 
-/** 经纬网、等值线按哪种底色挑墨色:白模是浅底,和数据底图一样用深色线 */
+/** 经纬网、等值线按哪种底色挑墨色:白模、地理图是浅底,和数据底图一样用深色线 */
 export function inkStyle(p: Pick<ExportMapParams, 'style' | 'look'>): string {
-  return p.style === 'realistic' && p.look === 'blank' ? 'data' : p.style;
+  return p.style === 'realistic' && (p.look === 'blank' || p.look === 'geo' || p.look === 'geoMute') ? 'data' : p.style;
 }
 
 /**
@@ -340,6 +346,86 @@ function drawNeatCompass(ctx: Ctx2D, cx: number, cy: number, S: number, ink: str
   ctx.restore();
 }
 
+/** 地图角上的色阶图例:只在有连续色阶的数据图层上画,位置 / 大小固定(世界单位,2× 时按倍数放大) */
+const MAP_LEGEND = { x: 26, y: 26, w: 400, h: 84, pad: 13 };
+export function mapLegendBox(layer: LayerId): { x: number; y: number; w: number; h: number } | null {
+  if (!isGradientLegend(layer)) return null;
+  return { x: MAP_LEGEND.x, y: MAP_LEGEND.y, w: MAP_LEGEND.w, h: MAP_LEGEND.h };
+}
+
+/** 画地图文字时要让开的图例区域(世界坐标 / 投影后的图片坐标) */
+export function mapLegendReserved(p: Pick<ExportMapParams, 'style' | 'layer' | 'legend'>): [number, number, number, number][] {
+  if (p.style !== 'data' || p.legend === false) return [];
+  const b = mapLegendBox(p.layer);
+  return b ? [[b.x, b.y, b.x + b.w, b.y + b.h]] : [];
+}
+
+/** 色阶在画布上占的地方(画布像素),给标记 / 足迹排名字、年份时让开 */
+export function mapLegendCanvasBoxes(p: Pick<ExportMapParams, 'style' | 'layer' | 'legend'>, S: ExportScale): number[][] {
+  return mapLegendReserved(p).map((b) => b.map((v) => v * S));
+}
+
+/**
+ * 地图图片左上角的色阶:一块半透明纸底 + 标题 + 单位 + 色带 + 刻度。
+ * 只画连续色阶(海拔、气温、降水、洋流);分类图层(板块、生态、气候)的色块图例走单独导出的图例图片。
+ * 压在地名上面、作者标记和人物足迹下面;排地名、标记名字、足迹年份时都让开这块(mapLegendCanvasBoxes),标记和足迹的点本身仍画在最上面,不会被色阶盖住。
+ */
+export async function drawMapLegend(ctx: CanvasRenderingContext2D, p: Pick<ExportMapParams, 'style' | 'layer' | 'legend'>, S: ExportScale): Promise<boolean> {
+  if (p.style !== 'data' || p.legend === false) return false;
+  const box = mapLegendBox(p.layer);
+  if (!box) return false;
+  const spec = dataLegend(p.layer) as GradientLegend;
+  await ensureFonts('data', dataLegendText(p.layer), 15000);
+  const family = familyFor('data');
+  const ink = 'rgb(28,30,34)';
+  const muted = 'rgba(28,30,34,0.62)';
+  const x = box.x * S;
+  const y = box.y * S;
+  const w = box.w * S;
+  const h = box.h * S;
+  const pad = MAP_LEGEND.pad * S;
+  ctx.save();
+  ctx.beginPath();
+  ctx.roundRect(x, y, w, h, 4 * S);
+  ctx.fillStyle = 'rgba(246,244,238,0.94)';
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(30,32,36,0.55)';
+  ctx.lineWidth = Math.max(1, S);
+  ctx.stroke();
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'left';
+  ctx.font = fontCss(family, 700, 16 * S);
+  ctx.fillStyle = ink;
+  ctx.fillText(spec.title, x + pad, y + 21 * S);
+  ctx.textAlign = 'right';
+  ctx.font = fontCss(family, 500, 11.5 * S);
+  ctx.fillStyle = muted;
+  ctx.fillText(spec.unit, x + w - pad, y + 21 * S);
+  const barX = x + pad;
+  const barY = y + 34 * S;
+  const barW = w - pad * 2;
+  const barH = 11 * S;
+  const lo = spec.stops[0][0];
+  const hi = spec.stops[spec.stops.length - 1][0];
+  const grad = ctx.createLinearGradient(barX, 0, barX + barW, 0);
+  for (const [v, c] of spec.stops) grad.addColorStop((v - lo) / (hi - lo), `rgb(${c.join(',')})`);
+  ctx.save();
+  ctx.beginPath();
+  ctx.roundRect(barX, barY, barW, barH, 2 * S);
+  ctx.clip();
+  ctx.fillStyle = grad;
+  ctx.fillRect(barX, barY, barW, barH);
+  ctx.restore();
+  ctx.font = fontCss(family, 500, 11.5 * S);
+  ctx.fillStyle = muted;
+  spec.labels.forEach((v, i) => {
+    ctx.textAlign = i === 0 ? 'left' : i === spec.labels.length - 1 ? 'right' : 'center';
+    ctx.fillText(v.toLocaleString(), barX + ((v - lo) / (hi - lo)) * barW, y + 61 * S);
+  });
+  ctx.restore();
+  return true;
+}
+
 // ---------------------------------------------------------------------------
 // 2. 地图文字(主线程)
 
@@ -363,14 +449,14 @@ export function exportLabelView(p: ExportMapParams, S: ExportScale, px: MapTextS
   if (mp) {
     // 弯边投影:文字按投影排,不出外轮廓(罗盘在轮廓外面)
     const extras = labelViewExtras({ world: p.world, raster: p.raster, civ: p.civ!, style: p.style, year: p.year, show: p.show }, 0);
-    return { ...extras, reserved: [], wrap: 0, frameLeft: 0, proj: labelProjection(mp), scale: s, ox: 0, oy: 0, dpr, k: 1, mapCss, canvasW: W * s, canvasH: H * s };
+    return { ...extras, reserved: mapLegendReserved(p), wrap: 0, frameLeft: 0, proj: labelProjection(mp), scale: s, ox: 0, oy: 0, dpr, k: 1, mapCss, canvasW: W * s, canvasH: H * s };
   }
   // 球面世界:图片左边是 left(展开的世界坐标),外框 = 图片边
   const left = exportLeft(p);
   const extras = labelViewExtras({ world: p.world, raster: p.raster, civ: p.civ!, style: p.style, year: p.year, show: p.show }, left);
   return {
     ...extras,
-    reserved: [...(extras.reserved ?? []), ...exportReserved(p.style, H, left)],
+    reserved: [...(extras.reserved ?? []), ...exportReserved(p.style, H, left), ...mapLegendReserved(p).map(([x0, y0, x1, y1]) => [left + x0, y0, left + x1, y1] as [number, number, number, number])],
     frameLeft: left,
     scale: s,
     ox: -left * s,
@@ -464,13 +550,15 @@ export function drawExportMarks(
   items: readonly MarkItem[],
   placed?: Placement,
   px: MapTextScale = { s: S, dpr: S },
+  /** 别的要让开的地方(画布像素),比如色阶 */
+  extraAvoid: readonly number[][] = [],
 ): number {
   if (!items.length) return 0;
   const { frame, m } = exportMarkFrame(p, px);
   ctx.save();
   ctx.scale(m, m);
   // 文字层的画布像素 = 摆放坐标 × m
-  const avoid = placed ? placedTextBoxes(placed).map((b) => b.map((v) => v / m)) : [];
+  const avoid = [...(placed ? placedTextBoxes(placed) : []), ...extraAvoid].map((b) => b.map((v) => v / m));
   const style = markStyle(p.style);
   const layout = layoutMarks(items, frame, { names: true, measure: canvasMeasure(ctx), avoid, style });
   drawMarks(ctx, layout, m, style);
@@ -479,11 +567,11 @@ export function drawExportMarks(
 }
 
 /** 正选着的作者人物的足迹(和屏幕上一样的线、圆点、年份、头像);年份尽量不压地图上的字。返回画了几个点 */
-export function drawExportTrail(ctx: CanvasRenderingContext2D, p: Pick<ExportMapParams, 'world' | 'center' | 'projection'>, S: ExportScale, trail: TrailInput, placed?: Placement): number {
+export function drawExportTrail(ctx: CanvasRenderingContext2D, p: Pick<ExportMapParams, 'world' | 'center' | 'projection'>, S: ExportScale, trail: TrailInput, placed?: Placement, extraAvoid: readonly number[][] = []): number {
   const { frame, m } = exportMarkFrame(p, { s: S, dpr: S });
   ctx.save();
   ctx.scale(m, m);
-  const avoid = placed ? placedTextBoxes(placed).map((b) => b.map((v) => v / m)) : [];
+  const avoid = [...(placed ? placedTextBoxes(placed) : []), ...extraAvoid].map((b) => b.map((v) => v / m));
   const layout = layoutTrail(trail, frame, { measure: canvasMeasure(ctx), avoid });
   drawTrail(ctx, layout);
   ctx.restore();
@@ -547,6 +635,18 @@ export function eraLegendRows(civ: Civ, year: Year): LegendRow[] {
   return out;
 }
 
+/** 管辖图层的图例:四档的颜色,这一年各几州(一州都没有的档不列) */
+export function controlLegendRows(civ: Civ, year: Year): LegendRow[] {
+  const t = controlTiersAt(civ, Math.floor(year));
+  const n = new Array<number>(CONTROL_TIERS.length).fill(0);
+  for (let r = 0; r < t.length; r++) if (t[r] >= 0) n[t[r]]++;
+  const out: LegendRow[] = [];
+  CONTROL_TIERS.forEach((name, k) => {
+    if (n[k]) out.push({ color: [...CONTROL_COLORS[k]] as [number, number, number], name, note: `${n[k]} 州` });
+  });
+  return out;
+}
+
 /** 物产图层的图例:十一样物产的颜色,这一年几州能用(哪州都还没发现的不列) */
 export function resourceLegendRows(civ: Civ, year: Year): LegendRow[] {
   const dev = civ.development;
@@ -584,6 +684,8 @@ export interface LegendParams {
   year: Year;
   show: CivShow;
   seed: number;
+  /** 数据图层:图例里画哪张图层的色阶 / 色块(style = 'data' 时用) */
+  layer?: LayerId;
   /** 年份照这个纪年写(不给 = "第 N 年") */
   era?: Era;
 }
@@ -598,8 +700,137 @@ const SYMBOL_ROWS: { kind: SettlementKind; name: string }[] = [
   { kind: 5, name: '故城遗址' },
 ];
 
+/** 数据图层的色阶块在导出的图例图片里占多宽:色阶留够一条长带,分类留够三栏色块 */
+function dataBlockWidth(d: DataLegend): number {
+  if (d.kind === 'gradient') return 460;
+  if (d.kind === 'climate') return 560;
+  return 420;
+}
+
+/** 数据图层色阶块的高度(和 drawDataLegendBlock 画出来的一致;气候分类的说明按最多两行留地方) */
+function dataBlockHeight(d: DataLegend): number {
+  if (d.kind === 'gradient') return 78;
+  if (d.kind === 'climate') return 6 + d.groups.length * 28 + 6 + 2 * 16 + 8;
+  const cols = d.keys.length > 8 ? 3 : 2;
+  return 8 + Math.ceil(d.keys.length / cols) * 26 + 8;
+}
+
+/** 一行字最多多宽,按字切开(中文按字符,英文数字也够用) */
+function wrapLegendText(ctx: CanvasRenderingContext2D, s: string, maxW: number): string[] {
+  const out: string[] = [];
+  let line = '';
+  for (const ch of s) {
+    if (line && ctx.measureText(line + ch).width > maxW) {
+      out.push(line);
+      line = ch;
+    } else line += ch;
+  }
+  if (line) out.push(line);
+  return out;
+}
+
 /**
- * 图例图片:标题(第 N 年)、国家(色块 + 当年国号 + 州数、国都)、民族(色块 + 族名 + 类型、州数)或信仰(色块 + 名字 + 类型、州数)、城镇符号、道路。
+ * 图例图片里的数据图层部分:连续色阶画一条长色带 + 刻度 + 单位;分类图层画色块 + 名字;
+ * 气候分类按 A–E 五组排,最后一句说明是估算。返回画了多高(CSS 像素)。
+ */
+function drawDataLegendBlock(
+  ctx: CanvasRenderingContext2D,
+  d: DataLegend,
+  x: number,
+  y: number,
+  w: number,
+  look: LegendLook,
+  family: string,
+): number {
+  const text = (s: string, xx: number, yy: number, px: number, color: string, weight = 500, align: CanvasTextAlign = 'left') => {
+    ctx.font = fontCss(family, weight, px);
+    ctx.fillStyle = color;
+    ctx.textAlign = align;
+    ctx.fillText(s, xx, yy);
+  };
+  const fit = (s: string, px: number, max: number) => {
+    ctx.font = fontCss(family, 500, px);
+    if (ctx.measureText(s).width <= max) return s;
+    let t = s;
+    while (t.length > 1 && ctx.measureText(t + '…').width > max) t = t.slice(0, -1);
+    return t + '…';
+  };
+
+  if (d.kind === 'gradient') {
+    const barY = y + 10;
+    const barH = 14;
+    const lo = d.stops[0][0];
+    const hi = d.stops[d.stops.length - 1][0];
+    const grad = ctx.createLinearGradient(x, 0, x + w, 0);
+    for (const [v, c] of d.stops) grad.addColorStop((v - lo) / (hi - lo), `rgb(${c.join(',')})`);
+    ctx.save();
+    ctx.beginPath();
+    ctx.roundRect(x, barY, w, barH, 3);
+    ctx.clip();
+    ctx.fillStyle = grad;
+    ctx.fillRect(x, barY, w, barH);
+    ctx.restore();
+    ctx.font = fontCss(family, 500, 12);
+    ctx.fillStyle = look.muted;
+    d.labels.forEach((v, i) => {
+      ctx.textAlign = i === 0 ? 'left' : i === d.labels.length - 1 ? 'right' : 'center';
+      ctx.fillText(v.toLocaleString(), x + ((v - lo) / (hi - lo)) * w, y + 44);
+    });
+    text(d.unit, x, y + 66, 12.5, look.muted);
+    return 78;
+  }
+
+  if (d.kind === 'keys') {
+    const cols = d.keys.length > 8 ? 3 : 2;
+    const per = Math.ceil(d.keys.length / cols);
+    const cw = w / cols;
+    d.keys.forEach((k, i) => {
+      const col = Math.floor(i / per);
+      const row = i % per;
+      const xx = x + col * cw;
+      const yy = y + 8 + row * 26 + 7;
+      ctx.fillStyle = `rgb(${k.color.join(',')})`;
+      ctx.strokeStyle = look.rule;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.roundRect(xx, yy - 7, 14, 14, 2);
+      ctx.fill();
+      ctx.stroke();
+      text(fit(k.name, 14, cw - 26), xx + 22, yy + 1, 14, look.ink);
+    });
+    return 8 + per * 26 + 8;
+  }
+
+  let yy = y + 6;
+  for (const g of d.groups) {
+    text(g.name, x, yy + 14, 13, look.muted);
+    let cx = x + 78;
+    for (const c of g.classes) {
+      ctx.fillStyle = `rgb(${c.color.join(',')})`;
+      ctx.strokeStyle = look.rule;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.roundRect(cx, yy + 8, 12, 12, 2);
+      ctx.fill();
+      ctx.stroke();
+      text(c.code, cx + 18, yy + 15, 12.5, look.ink, 700);
+      ctx.font = fontCss(family, 700, 12.5);
+      const codeW = ctx.measureText(c.code).width;
+      if (c.short) text(c.short, cx + 22 + codeW, yy + 15, 12.5, look.ink);
+      ctx.font = fontCss(family, 500, 12.5);
+      cx += 26 + codeW + (c.short ? ctx.measureText(c.short).width + 6 : 0) + 10;
+    }
+    yy += 28;
+  }
+  const noteY = yy + 6;
+  ctx.font = fontCss(family, 500, 12);
+  const lines = wrapLegendText(ctx, d.note, w);
+  lines.forEach((line, i) => text(line, x, noteY + i * 16, 12, look.muted));
+  return noteY - y + lines.length * 16 + 8;
+}
+
+/**
+ * 图例图片:数据图层先画色阶 / 色块,再按需列国家、民族、信仰、时代、物产、城镇符号、道路;非数据图层照旧是标题(第 N 年)+ 国家 / 民族等。
  * 地图上开着"民族"或"信仰"时色块是民族 / 信仰的,国家只画国界 —— 国家的色块就画成空心框。
  * 两个表都没开时两个都列。行多了分两栏。
  */
@@ -611,22 +842,30 @@ export async function drawLegend(p: LegendParams, scale: ExportScale): Promise<H
   const look = LEGEND_LOOK[style];
   const family = familyFor(style);
   const rows = legendRows(civ, y);
+  // 数据图层:图例先画这张图层的色阶 / 色块,不再把国家、民族列在头里(除非地图上确实叠了它们)
+  const data = style === 'data' ? dataLegend(p.layer ?? 'biomes') : null;
   // 信仰图层:地图铺的是信仰(国家只画国界),图例列国家(空心框)和信仰
   const faithOn = show.faiths && !!civ.religion?.faiths.length;
   const faiths = faithOn ? faithLegendRows(civ, y) : [];
   // 时代图层:地图铺的是时代(国家只画国界),图例列国家(空心框)和时代;物产图层:列物产(不列国家、民族)
   const eraOn = !faithOn && show.eras && !!civ.development;
   const eras = eraOn ? eraLegendRows(civ, y) : [];
+  // 管辖图层:地图铺的是四档(国家只画国界),图例列国家(空心框)和四档
+  const ctlOn = !faithOn && !eraOn && show.control && !!civ.development?.controlYears?.length;
+  const ctls = ctlOn ? controlLegendRows(civ, y) : [];
   const resOn = show.resources && !!civ.development;
   const res = resOn ? resourceLegendRows(civ, y) : [];
-  const wantPol = !resOn && (show.polities || (!show.cultures && !faithOn && !eraOn));
-  const wantCul = !resOn && !faithOn && !eraOn && (show.cultures || !show.polities);
-  const outline = show.cultures || faithOn || eraOn;
+  const wantPol = !resOn && (show.polities || (!data && !show.cultures && !faithOn && !eraOn && !ctlOn));
+  const wantCul = !resOn && !faithOn && !eraOn && !ctlOn && (show.cultures || (!data && !show.polities));
+  const outline = show.cultures || faithOn || eraOn || ctlOn;
   const withMarks = show.polities || show.routes;
   const withRoutes = show.routes;
 
   const allText =
-    [...rows.polities, ...rows.cultures, ...faiths, ...eras, ...res].map((r) => r.name + r.note).join('') + '图例第年国家民族信仰教派时代物产城镇道路大路小路航线部落地带种子州都' + yearFull(y, p.era);
+    [...rows.polities, ...rows.cultures, ...faiths, ...eras, ...ctls, ...res].map((r) => r.name + r.note).join('') +
+    '图例第年国家民族信仰教派时代管辖物产城镇道路大路小路航线部落地带种子州都' +
+    yearFull(y, p.era) +
+    (data ? dataLegendText(p.layer ?? 'biomes') : '');
   await ensureFonts(style, allText, 15000);
 
   // ---- 版式(CSS 像素,最后 × S)----
@@ -634,17 +873,20 @@ export async function drawLegend(p: LegendParams, scale: ExportScale): Promise<H
   const COL = 300;
   const ROW = 26;
   const HEAD = 34;
-  type Block = { title: string; rows: LegendRow[]; kind: 'pol' | 'cul' | 'faith' | 'era' | 'res' };
+  type Block = { title: string; rows: LegendRow[]; kind: 'pol' | 'cul' | 'faith' | 'era' | 'ctl' | 'res' };
   const blocks: Block[] = [];
   if (wantPol) blocks.push({ title: '国家', rows: rows.polities, kind: 'pol' });
   if (wantCul) blocks.push({ title: '民族', rows: rows.cultures, kind: 'cul' });
   if (faithOn) blocks.push({ title: '信仰', rows: faiths, kind: 'faith' });
   if (eraOn) blocks.push({ title: '时代', rows: eras, kind: 'era' });
+  if (ctlOn) blocks.push({ title: '管辖', rows: ctls, kind: 'ctl' });
   if (resOn) blocks.push({ title: '物产', rows: res, kind: 'res' });
   const most = Math.max(1, ...blocks.map((b) => b.rows.length));
   const cols = most > 14 ? 2 : 1;
-  const W = PAD * 2 + COL * cols + (cols - 1) * 24;
+  const dataW = data ? dataBlockWidth(data) : 0;
+  const W = Math.max(PAD * 2 + COL * cols + (cols - 1) * 24, dataW + PAD * 2);
   let h = PAD + 58; // 标题
+  if (data) h += dataBlockHeight(data) + 18;
   for (const b of blocks) h += HEAD + Math.max(1, Math.ceil(b.rows.length / cols)) * ROW + 14;
   if (wantPol && rows.tribal) h += 20;
   if (withMarks) h += HEAD + 2 * ROW + 14;
@@ -680,8 +922,14 @@ export async function drawLegend(p: LegendParams, scale: ExportScale): Promise<H
   };
 
   let cy = PAD + 18;
-  text(yearFull(y, p.era), PAD, cy, 26, look.ink, style === 'realistic' || style === 'data' ? 700 : 500);
-  text(`图例 · 种子 ${p.seed}`, W - PAD, cy + 3, 14, look.muted, 500, 'right');
+  text(data ? data.title : yearFull(y, p.era), PAD, cy, 26, look.ink, style === 'realistic' || style === 'data' ? 700 : 500);
+  if (data && data.kind === 'climate') {
+    ctx.font = fontCss(family, 700, 26);
+    const titleW = ctx.measureText(data.title).width;
+    text(data.subtitle, PAD + titleW + 10, cy + 3, 13, look.muted);
+  }
+  const right = data && !blocks.length && !withMarks && !withRoutes ? `图例 · 种子 ${p.seed}` : data ? `${yearFull(y, p.era)} · 图例 · 种子 ${p.seed}` : `图例 · 种子 ${p.seed}`;
+  text(right, W - PAD, cy + 3, 14, look.muted, 500, 'right');
   cy += 40;
 
   const rule = (yy: number) => {
@@ -692,6 +940,13 @@ export async function drawLegend(p: LegendParams, scale: ExportScale): Promise<H
     ctx.lineWidth = 1;
     ctx.stroke();
   };
+
+  if (data) {
+    rule(cy - 6);
+    cy += 6;
+    cy += drawDataLegendBlock(ctx, data, PAD, cy, W - PAD * 2, look, family);
+    cy += 18;
+  }
 
   for (const b of blocks) {
     rule(cy - 6);

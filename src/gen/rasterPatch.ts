@@ -10,6 +10,7 @@
  */
 import type { Raster } from './raster';
 import type { DrainLines } from './pixelDrain';
+import { boxOfCols, boxSpans, type PixelBox } from './pixelBox';
 
 /** 补丁里有的字段(cell 只由网格定,各段一样,不存) */
 const F32 = ['elev', 'temp', 'precip', 'ice', 'gully'] as const;
@@ -69,19 +70,14 @@ export function diffRaster(a: Raster, b: Raster): RasterPatch | null {
     return { W, H, x0: 0, y0: 0, w: 0, h: 0, f32: {}, u8: {}, veins: copyLines(v) };
   }
   // 列:找最长的一段没变的(东西相连,绕一圈),框 = 剩下的那一段
-  let best = 0;
-  let bestEnd = 0;
-  let run = 0;
-  for (let k = 0; k < 2 * W; k++) {
-    if (col[k % W]) run = 0;
-    else if (++run > best && run <= W) {
-      best = run;
-      bestEnd = k;
-    }
-  }
-  const w = W - best;
-  const x0 = best ? (bestEnd + 1) % W : 0;
-  const h = y1 - y0 + 1;
+  return cutPatch(b, boxOfCols(col, y0, y1)!, true);
+}
+
+/** b 上一块框里的各字段拷出来成一块补丁;lines = 连细沟的线一起带上(有的话) */
+function cutPatch(b: Raster, box: PixelBox, lines: boolean): RasterPatch {
+  const W = b.w;
+  const H = b.h;
+  const { x0, y0, w, h } = box;
   const f32: RasterPatch['f32'] = {};
   const u8: RasterPatch['u8'] = {};
   for (const k of F32) {
@@ -92,8 +88,166 @@ export function diffRaster(a: Raster, b: Raster): RasterPatch | null {
     const q = b[k];
     if (q) u8[k] = cut(q, W, x0, y0, w, h, new Uint8Array(w * h));
   }
-  const v = b.veinLines;
+  const v = lines ? b.veinLines : undefined;
   return { W, H, x0, y0, w, h, f32, u8, ...(v ? { veins: copyLines(v) } : {}) };
+}
+
+/**
+ * b 比 a 变了的那一块,逐位比(没有"看不出来"的差别;编辑地形后交给主线程按块换上、按块重画,换上以后和 b 逐位相同)。
+ * win:只在这块里比(调用方保证框外除了细沟都和 a 一样;不给 = 整张比);细沟(vein)整张比,细沟的线变了才带上。
+ * 一个像素、一条线也没变 = null
+ */
+export function exactPatch(a: Raster, b: Raster, win?: PixelBox | null): RasterPatch | null {
+  const d = exactDiff(a, b, win);
+  return d && cutExact(b, d);
+}
+
+/** exactPatch 比出来的:变了的框(只有细沟的线变了 = null)、细沟的线变没变 */
+export interface ExactDiff {
+  box: PixelBox | null;
+  lines: boolean;
+}
+
+/**
+ * exactPatch 的前一半:只比、不拷(参数同 exactPatch;一个像素、一条线也没变 = null)。
+ * 先看框有多大再决定交不交补丁(太大就整张交)时用,不白拷一份几十 MB 的补丁
+ */
+export function exactDiff(a: Raster, b: Raster, win?: PixelBox | null): ExactDiff | null {
+  const W = b.w;
+  const H = b.h;
+  if (a.w !== W || a.h !== H) throw new Error('主图大小不一样');
+  const col = new Uint8Array(W);
+  let y0 = H;
+  let y1 = -1;
+  const scan = (p: ArrayLike<number>, q: ArrayLike<number>, box: PixelBox) => {
+    for (let y = box.y0; y < box.y0 + box.h; y++) {
+      const row = y * W;
+      for (const [s, e] of boxSpans(box, W)) {
+        for (let x = s; x < e; x++) {
+          if (p[row + x] === q[row + x]) continue;
+          col[x] = 1;
+          if (y < y0) y0 = y;
+          if (y > y1) y1 = y;
+        }
+      }
+    }
+  };
+  const all: PixelBox = { x0: 0, y0: 0, w: W, h: H };
+  const box = win === undefined ? all : win;
+  const bits = (x: Float32Array) => new Int32Array(x.buffer, x.byteOffset, x.length);
+  if (box) {
+    for (const k of F32) {
+      const p = a[k];
+      const q = b[k];
+      if (!p && !q) continue;
+      if (!p || !q) throw new Error(`主图的 ${k} 一份有一份没有`);
+      scan(bits(p), bits(q), box);
+    }
+    for (const k of U8) {
+      if (k === 'vein') continue;
+      const p = a[k];
+      const q = b[k];
+      if (!p && !q) continue;
+      if (!p || !q) throw new Error(`主图的 ${k} 一份有一份没有`);
+      scan(p, q, box);
+    }
+  }
+  if (a.vein && b.vein) scan(a.vein, b.vein, all);
+  else if (a.vein || b.vein) throw new Error('主图的 vein 一份有一份没有');
+  const v = b.veinLines;
+  const linesChanged = !!v && !sameLines(a.veinLines, v);
+  if (y1 < 0) return linesChanged ? { box: null, lines: true } : null;
+  return { box: boxOfCols(col, y0, y1)!, lines: linesChanged };
+}
+
+/**
+ * 一张主图就地改之前的样子:框里各字段的原样(cutPatch 的格式;没给框 = 一个像素也不改)、整张的细沟和细沟的线(这两样改的时候换成新数组,
+ * 原来的不动)。编辑地形按块重铺时直接改上一张主图的数组(不另拷一整张,见 gen/rasterEdit.ts 的 rasterizePatch),比补丁时拿它当上一张
+ */
+export interface RasterBefore {
+  W: number;
+  H: number;
+  box: RasterPatch | null;
+  vein?: Uint8Array;
+  veinLines?: DrainLines;
+}
+
+/** r 就地改之前:记下框里的原样、细沟 */
+export function rasterBefore(r: Raster, box: PixelBox | null): RasterBefore {
+  return { W: r.w, H: r.h, box: box && cutPatch(r, box, false), vein: r.vein, veinLines: r.veinLines };
+}
+
+/**
+ * 同 exactDiff,上一张是就地改之前记下的样子(rasterBefore;框得盖住 win):win 里逐位比,细沟整张比、细沟的线比。
+ * 结果和拿改之前的整张主图做 exactDiff 一样
+ */
+export function exactDiffBefore(a: RasterBefore, b: Raster, win: PixelBox | null): ExactDiff | null {
+  const W = b.w;
+  const H = b.h;
+  if (a.W !== W || a.H !== H) throw new Error('主图大小不一样');
+  const col = new Uint8Array(W);
+  let y0 = H;
+  let y1 = -1;
+  if (win) {
+    const p = a.box;
+    // 框盖住 win:行在里面,列从框的左边起算(东西相连)也在里面;框占满整圈就都在
+    const dx = p ? (win.x0 - p.x0 + W) % W : 0;
+    if (!p || win.y0 < p.y0 || win.y0 + win.h > p.y0 + p.h || (p.w < W && dx + win.w > p.w)) throw new Error('改之前记下的那块没盖住要比的框');
+    const spans = boxSpans(win, W);
+    const scan = (s: ArrayLike<number>, q: ArrayLike<number>) => {
+      for (let y = win.y0; y < win.y0 + win.h; y++) {
+        const row = y * W;
+        const prow = (y - p.y0) * p.w;
+        for (const [s0, e0] of spans) {
+          for (let x = s0; x < e0; x++) {
+            const d = x - p.x0;
+            if (s[prow + (d < 0 ? d + W : d)] === q[row + x]) continue;
+            col[x] = 1;
+            if (y < y0) y0 = y;
+            if (y > y1) y1 = y;
+          }
+        }
+      }
+    };
+    const bits = (x: Float32Array) => new Int32Array(x.buffer, x.byteOffset, x.length);
+    for (const k of F32) {
+      const s = p.f32[k];
+      const q = b[k];
+      if (!s && !q) continue;
+      if (!s || !q) throw new Error(`主图的 ${k} 一份有一份没有`);
+      scan(bits(s), bits(q));
+    }
+    for (const k of U8) {
+      if (k === 'vein') continue;
+      const s = p.u8[k];
+      const q = b[k];
+      if (!s && !q) continue;
+      if (!s || !q) throw new Error(`主图的 ${k} 一份有一份没有`);
+      scan(s, q);
+    }
+  }
+  // 细沟整张比(就地改的时候换成了新数组,原来的那份原样留着)
+  if (a.vein && b.vein) {
+    for (let y = 0; y < H; y++) {
+      const row = y * W;
+      for (let x = 0; x < W; x++) {
+        if (a.vein[row + x] === b.vein[row + x]) continue;
+        col[x] = 1;
+        if (y < y0) y0 = y;
+        if (y > y1) y1 = y;
+      }
+    }
+  } else if (a.vein || b.vein) throw new Error('主图的 vein 一份有一份没有');
+  const v = b.veinLines;
+  const linesChanged = !!v && !sameLines(a.veinLines, v);
+  if (y1 < 0) return linesChanged ? { box: null, lines: true } : null;
+  return { box: boxOfCols(col, y0, y1)!, lines: linesChanged };
+}
+
+/** exactPatch 的后一半:照 exactDiff 比出来的,从 b 上拷出补丁 */
+export function cutExact(b: Raster, d: ExactDiff): RasterPatch {
+  if (!d.box) return { W: b.w, H: b.h, x0: 0, y0: 0, w: 0, h: 0, f32: {}, u8: {}, veins: copyLines(b.veinLines!) };
+  return cutPatch(b, d.box, d.lines);
 }
 
 function copyLines(v: DrainLines): DrainLines {
@@ -183,4 +337,38 @@ export function patchTransferables(p: RasterPatch): ArrayBuffer[] {
 /** 补丁占多少字节 */
 export function patchBytes(p: RasterPatch): number {
   return arrays(p).reduce((s, a) => s + a.byteLength, 0);
+}
+
+/** 主图上一块(列从 x0 起往右 w 列,出右边接回左边)拷出来成一张小图(带 win:它在整张图上的位置) */
+export function cutRaster(r: Raster, x0: number, y0: number, w: number, h: number): Raster {
+  const W = r.w;
+  const cut = <T extends Float32Array | Uint8Array>(src: T, out: T): T => {
+    for (let y = 0; y < h; y++) {
+      const row = (y0 + y) * W;
+      const first = Math.min(w, W - x0);
+      out.set(src.subarray(row + x0, row + x0 + first), y * w);
+      if (first < w) out.set(src.subarray(row, row + w - first), y * w + first);
+    }
+    return out;
+  };
+  const N = w * h;
+  return {
+    w,
+    h,
+    scale: r.scale,
+    elev: cut(r.elev, new Float32Array(N)),
+    temp: cut(r.temp, new Float32Array(N)),
+    precip: cut(r.precip, new Float32Array(N)),
+    water: cut(r.water, new Uint8Array(N)),
+    biome: cut(r.biome, new Uint8Array(N)),
+    cell: new Int32Array(0),
+    ice: cut(r.ice, new Float32Array(N)),
+    iceConc: cut(r.iceConc, new Uint8Array(N)),
+    iceTone: cut(r.iceTone, new Uint8Array(N)),
+    gully: r.gully && cut(r.gully, new Float32Array(N)),
+    bank: r.bank && cut(r.bank, new Uint8Array(N)),
+    vein: r.vein && cut(r.vein, new Uint8Array(N)),
+    wrap: true,
+    win: { x0, y0, W, H: r.h },
+  };
 }

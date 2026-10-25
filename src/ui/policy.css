@@ -1,0 +1,422 @@
+/* ---- 国家方针那一页(PolicyPage.tsx)、人物卡倾向加上方针、演一国的常驻条和别国卡片上那一句(RoleBar.tsx、CountryPanel.tsx) ---- */
+
+/* "方针 点一种，旁边一句是后果" */
+.pol-h {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 12px 14px 6px;
+  padding: 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+.pol-h em {
+  font-style: normal;
+  font-weight: 400;
+  font-size: 12px;
+}
+.pol-form .cp-cmds {
+  margin-top: 2px;
+}
+/* 一键选的五种:一种一行,选中的浅蓝底、名字蓝、打勾 */
+.cpanel .pol-presets .cp-cmd {
+  padding: 7px 12px;
+}
+.cpanel .pol-presets .cp-cmd.on {
+  background: var(--accent-soft);
+}
+.cpanel .pol-presets .cp-cmd.on .cp-cmd-name {
+  color: var(--accent);
+}
+.pol-def {
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: rgba(60, 60, 67, 0.12);
+  color: var(--ink-2);
+  font: 400 11px/16px var(--font-sans);
+  font-style: normal;
+  vertical-align: 1px;
+}
+.pol-now {
+  display: block;
+  margin: 8px 14px 0;
+}
+/* 细调五项(收起时一块灰底按钮;展开时一行"细调 收起") */
+.cpanel .pol-more {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  width: calc(100% - 28px);
+  margin: 12px 14px 0;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--btn);
+  text-align: left;
+  font: 400 14px var(--font-sans);
+  color: var(--ink);
+  cursor: pointer;
+  scroll-margin-top: 4px;
+}
+.pol-more span {
+  font-size: 12.5px;
+  font-weight: 400;
+  color: var(--link);
+}
+.cpanel .pol-more.open {
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  background: transparent;
+  padding: 0 2px;
+  margin-bottom: -4px;
+  font-size: 13.5px;
+  font-weight: 400;
+}
+.pol-more.open span {
+  font-size: 13px;
+}
+.pol-knobs {
+  display: flex;
+  flex-direction: column;
+}
+.pol-grp {
+  margin-top: 10px;
+}
+.pol-ttl-em {
+  margin-left: 8px;
+  font: 400 12px var(--font-sans);
+  color: var(--ink-2);
+  font-style: normal;
+}
+/* 旋钮:从中间往两边拧(中间一道竖线 = 照君主,蓝色从中间铺到滑块) */
+.pol-knob {
+  display: flex;
+  flex-direction: column;
+}
+.pol-knob.sub + .pol-knob.sub {
+  margin-top: 6px;
+}
+.pol-k {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 13.5px;
+  color: var(--ink);
+}
+.pol-k .cp-form-title {
+  margin: 0;
+}
+.pol-v {
+  margin-left: auto;
+  font-size: 13.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+  font-weight: 500;
+}
+.pol-v.zero {
+  color: var(--ink-2);
+  font-weight: 400;
+}
+.pol-range {
+  position: relative;
+  height: 24px;
+}
+.pol-range::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  margin-left: -1px;
+  border-radius: 1px;
+  background: rgba(60, 60, 67, 0.38);
+  pointer-events: none;
+}
+.pol-range input::-webkit-slider-runnable-track {
+  background: linear-gradient(
+    to right,
+    rgba(60, 60, 67, 0.22) var(--l),
+    var(--accent) var(--l),
+    var(--accent) var(--r),
+    rgba(60, 60, 67, 0.22) var(--r)
+  );
+}
+.pol-range input::-moz-range-track {
+  background: linear-gradient(
+    to right,
+    rgba(60, 60, 67, 0.22) var(--l),
+    var(--accent) var(--l),
+    var(--accent) var(--r),
+    rgba(60, 60, 67, 0.22) var(--r)
+  );
+}
+.pol-range input::-moz-range-progress {
+  background: transparent;
+}
+.pol-ends {
+  display: flex;
+  justify-content: space-between;
+  margin-top: -3px;
+  font-size: 11.5px;
+  color: var(--ink-2);
+}
+.pol-note {
+  margin-top: 3px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+/* 跟谁亲,跟谁仇:一行国名小块 +「＋ 在地图上点」 */
+.pol-who {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 6px;
+}
+.pol-who-k {
+  flex: none;
+  width: 18px;
+  padding-top: 4px;
+  font-size: 14px;
+  color: var(--ink);
+}
+.pol-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.pol-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 4px 0 9px;
+  border-radius: 14px;
+  background: var(--btn);
+  font-size: 13.5px;
+  color: var(--ink);
+}
+.pol-chip .cr-dot {
+  margin-right: 6px;
+}
+.cpanel .pol-chip button {
+  margin-left: 2px;
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  font: 400 11px var(--font-sans);
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.cpanel .pol-chip button:hover {
+  color: var(--err);
+}
+.cpanel .pol-add {
+  height: 28px;
+  border-radius: 14px;
+}
+.cpanel .pol-seg {
+  display: flex;
+}
+.cpanel .pol-seg button {
+  flex: 1;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+/* 概况里「方针」一行 */
+.pol-row-note {
+  margin-left: 6px;
+}
+
+/* 人物卡「倾向」:方针加的那一截(蓝色,接在他自己的灰条后面;减的那一截淡一些)、"53＋25＝78" */
+.pp-lean-bar.pol-bar {
+  position: relative;
+}
+.pp-lean-bar.pol-bar > i.pol-add-bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: var(--accent);
+  opacity: 0.55;
+  border-radius: 0 2px 2px 0;
+}
+.pp-lean-bar.pol-bar > i.pol-cut-bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: var(--ink-2);
+  opacity: 0.25;
+  border-radius: 0 2px 2px 0;
+}
+.pol-calc {
+  font-size: 12.5px;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.pol-calc b {
+  color: var(--accent);
+  font-weight: 600;
+  font-size: 13.5px;
+}
+.pp-lean-num.pol-wide {
+  width: auto;
+  min-width: 0;
+}
+.pp-lean-top .pol-peace {
+  flex: 1;
+  margin: 0;
+  text-align: right;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+/* 演一国:别国卡片上那一句 */
+.pol-lock {
+  margin: 2px 14px 10px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: var(--btn);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+.cpanel .pol-lock button {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--link);
+  cursor: pointer;
+}
+
+/* 演一国:顶上常驻的方针条(电脑在工具栏下面正中;手机在右边那竖排按钮左边) */
+.role-bar {
+  position: absolute;
+  left: 50%;
+  top: 58px;
+  z-index: 29;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 40px;
+  padding: 0 6px 0 10px;
+  border-radius: 20px;
+  background: var(--panel);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  box-shadow: var(--shadow-toast);
+  font-size: 14px;
+  color: var(--ink);
+  white-space: nowrap;
+}
+.role-flag {
+  display: block;
+  flex: none;
+  width: 24px;
+  height: 16px;
+  border-radius: 3px;
+  overflow: hidden;
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.15);
+}
+.role-flag svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.role-bar b {
+  font-weight: 600;
+}
+.role-sep {
+  width: 0.5px;
+  height: 18px;
+  background: var(--line-strong);
+}
+.role-k {
+  color: var(--ink-2);
+  font-size: 13px;
+}
+.role-bar button {
+  height: 28px;
+  padding: 0 11px;
+  border: 0;
+  border-radius: 14px;
+  background: var(--btn);
+  font: 500 13px var(--font-sans);
+  color: var(--ink);
+  cursor: pointer;
+}
+.role-bar button.pri {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+/* 国名、方针名长了就省略,按钮不缩 */
+.role-bar > span:not(.role-flag):not(.role-sep) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.role-bar > button,
+.role-bar > .role-flag,
+.role-bar > .role-sep {
+  flex: none;
+}
+/* 手机:右边贴着那竖排按钮(左边留出 8px) */
+.role-bar.phone {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) + 12px);
+  left: auto;
+  right: 62px;
+  transform: none;
+  height: 36px;
+  gap: 6px;
+  font-size: 13.5px;
+  padding: 0 4px 0 8px;
+  max-width: calc(100% - 70px);
+}
+.role-bar.phone button {
+  height: 28px;
+  padding: 0 8px;
+  font-size: 12.5px;
+}
+
+/* 开始演绎 / 推进设置:「你是」 */
+.role-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+}
+.role-pick button {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  color: var(--link);
+  cursor: pointer;
+}
+.role-list {
+  max-height: 220px;
+  overflow-y: auto;
+}
+.role-list .sw-r {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.role-list small {
+  margin-left: 6px;
+  color: var(--ink-2);
+  font-size: 12px;
+}

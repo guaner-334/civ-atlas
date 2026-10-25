@@ -6,8 +6,10 @@
  *   下面   三选一 ——
  *          搜索框里有字:搜索结果(点一条 = 选中它,地图飞过去)
  *          地图上选中了东西:它的详情(Inspector:国家 / 城 / 地理实体 / 州的面板);打开了地形大事:它的卡片(UpheavalPanel.tsx)
- *          什么都没选:整个世界(WorldHome:信仰(只在信仰图层)、国家按大小排、最近大事、我的干预(干预和地形大事)、
- *          这颗星球(回放世界形成、地形大事、在这张地图上打造新文明、世界设定;从别人的分享另存来的,最后一行是底稿出处,点了在新标签页打开那个分享链接))
+ *          什么都没选:整个世界(WorldHome:大纲(OutlineSide.tsx;逐年推演里不放)、信仰(只在信仰图层)、国家按大小排、民族按大小排、最近大事、我的干预(干预和地形大事)、
+ *          这颗星球(从这里演绎(逐年推演,从时间轴停的这一年起)、回放世界形成、地形大事、在这张地图上打造新文明、世界设定;
+ *          从别人的分享另存来的,最后一行是底稿出处,点了在新标签页打开那个分享链接))。
+ *          在逐年推演里:副标写"逐年推演,从某某年起演绎"(演一国时"逐年推演,演某国"),"这颗星球"换成"这个故事"(推进设置、存回推演模式,见 Stepwise.tsx)
  * 收起:卡片右上角的侧栏图标 → 卡片往左滑走,左上角留一个小按钮(侧栏图标 + 世界名),点它滑回来;记在浏览器里(sideStore.ts)。
  *       收起时选中了东西,卡片弹出来显示它,取消选中又收回去;收起时搜索框跟着卡片一起收起。
  * 新建世界是另一套界面(studio/Studio.tsx),不用侧栏。
@@ -19,13 +21,18 @@ import type { Civ } from '../gen/civ/types';
 import type { Raster } from '../gen/raster';
 import type { World, WorldParams } from '../gen/world';
 import { capitalAt, polityAlive, polityName } from '../gen/civ/growth';
+import { KIND_INFO, cultureLabel } from '../gen/civ/display';
 import { ownersAt, type Owners } from '../gen/civ/timeline';
 import { filterChronicle } from '../gen/civ/chronicle';
 import { faithRows, fullChronicle } from '../gen/civ/religionText';
 import { getCivTime, pickChronicleEntry, setResourceView, setSelection, subscribeCivTime, useCivShow, useResourceView, useSelection } from './civView';
-import { eraRows, resourceRows } from './devRows';
+import { controlRows, eraRows, resourceRows } from './devRows';
 import { useEdits } from './editsStore';
 import { eraLabel, spaced, yearAt, yearFull, yearShort, type Era } from '../gen/era';
+import { playFromOf } from '../gen/edits';
+import { openStepDialog, useStepwiseOn } from './stepwiseStore';
+import { StepSideGroup } from './Stepwise';
+import { StepBranches } from './StepBranches';
 import { openUpheaval, useUpUi } from './upheavalStore';
 import { currentWorld, listWorlds, useSavesVersion } from './saveStore';
 import { mapMates } from './mapGroups';
@@ -34,20 +41,28 @@ import { SaveMenu } from './SaveMenu';
 import { openAiSettings } from './AiSettings';
 import { openHistoryBook } from './bookStore';
 import { openOverview } from './overviewStore';
-import { searchCiv, searchMarks, type SearchHit } from './searchIndex';
+import { cultureRegion, searchCiv, searchMarks, type SearchHit } from './searchIndex';
+import { cultureAlive } from './WorldOverviewCultures';
 import { countUpTo } from './timelineLayout';
 import { Icon } from './icons';
 import { AiMenuItem, AiSettingsItem, MenuItem, MenuSep, PopMenu } from './PopMenu';
 import { GUIDE_URL, PRIVACY_URL, SOURCE_URL, TERMS_URL } from './links';
 import { ContactMenuItem } from './ContactLink';
 import { VersionMenuFoot } from './VersionNews';
-import { useCoarse } from './device';
+import { PlayQualityItem } from './PlayQualityMenu';
+import { useCoarse, useNarrow } from './device';
+import { CONTROL_COLORS } from '../render/civ/control';
 import { keyLabel } from './shortcuts';
 import { openShortcuts } from './ShortcutsDialog';
 import { openDiag } from './DiagDialog';
 import { EntryText, jumpTo, rgb } from './panelParts';
 import { collapseSide, expandSide, useSide } from './sideStore';
 import { PolityFlag } from './Flag';
+import { useRole } from './roleStore';
+import { rolePolity } from './policyInfo';
+import { nameAt } from './Interventions';
+import { OutlineSide } from './OutlineSide';
+import { interventionRows } from './outlineInfo';
 import './sidebar.css';
 
 export interface SidebarProps {
@@ -64,6 +79,8 @@ export interface SidebarProps {
   onReplay: () => void;
   /** 回到"我的世界" */
   onHome: () => void;
+  /** 返回那一处写什么(不给 = "我的世界";从作品墙打开的作品是"作品墙",onHome 回作品墙) */
+  homeLabel?: string;
   /** 详情面板放进来的空位(面板只挂一份,由 App 挪到这里;见 App 的 inspectorHost) */
   inspectorSlot: (el: HTMLElement | null) => void;
 }
@@ -97,7 +114,7 @@ export function Sidebar(p: SidebarProps) {
         onClick={stop}
       >
         <header className="sb-head">
-          <BackHome onClick={p.onHome} />
+          <BackHome onClick={p.onHome} label={p.homeLabel} />
           <button className="sb-collapse" data-act="side-collapse" aria-label="收起侧栏" data-tip="收起侧栏" data-tip-key="side" data-tip-side="left" onClick={collapseSide}>
             <Icon name="sidebar" size={19} />
           </button>
@@ -214,28 +231,39 @@ export function SearchField({ s, onFocus }: { s: SearchState; onFocus?: () => vo
 // 顶上:回到我的世界、世界名、存档、更多
 
 /** 卡片左上"‹ 我的世界" */
-export function BackHome({ onClick }: { onClick: () => void }) {
+export function BackHome({ onClick, label }: { onClick: () => void; label?: string }) {
   return (
-    <button className="nw-back" data-act="home" onClick={onClick}>
+    <button className="nw-back" data-act={label ? 'gallery-back' : 'home'} onClick={onClick}>
       <Icon name="back" size={18} />
-      我的世界
+      {label ?? '我的世界'}
     </button>
   );
 }
 
 /** 世界名、副标("种子 7,现存 14 国,干预了 2 处") */
-export function useWorldInfo(civ: Civ | null, data: SidebarProps['data']): { title: string; sub: string } {
+export function useWorldInfo(civ: Civ | null, data: SidebarProps['data']): { title: string; sub: string; step: boolean } {
   useSavesVersion();
   const edits = useEdits();
   const year = useYear(civ);
+  const step = useStepwiseOn();
   const alive = civ && civ.viable ? civ.polities.filter((x) => polityAlive(x, year)).length : 0;
-  const n = edits.interventions.length;
+  const n = interventionRows(edits.interventions);
   const seed = data ? data.world.params.seed : null;
-  const sub = seed === null ? '正在生成' : `种子 ${seed}，${civ ? (civ.viable ? `现存 ${alive} 国` : '没有文明') : '正在推演历史'}${n ? `，干预了 ${n} 处` : ''}`;
-  return { title: currentWorld()?.title || '未命名世界', sub };
+  // 逐年推演:"逐年推演，从 2650 年起演绎";演一国时"逐年推演，演大澜王朝"(roleStore.ts)
+  const role = useRole();
+  const me = step && civ ? rolePolity(civ, role) : -1;
+  const sub =
+    seed === null
+      ? '正在生成'
+      : step
+        ? me >= 0 && civ
+          ? `逐年推演，演${nameAt(civ.polities[me], Math.min(civ.endYear, year))}`
+          : `逐年推演，从${spaced(yearAt(playFromOf(edits), edits.era))}起演绎`
+        : `种子 ${seed}，${civ ? (civ.viable ? `现存 ${alive} 国` : '没有文明') : '正在推演历史'}${n ? `，干预了 ${n} 处` : ''}`;
+  return { title: currentWorld()?.title || '未命名世界', sub, step };
 }
 
-/** "更多"菜单:写成史书(「使用 AI 功能」关着时没有)、AI 设置、键盘快捷键(有鼠标时)、问题记录、源代码和两份协议;最底下一行版本号 */
+/** "更多"菜单:写成史书(「使用 AI 功能」关着时没有)、AI 设置、播放画面、键盘快捷键(有鼠标时)、问题记录、源代码和两份协议;最底下一行版本号 */
 export function WorldMoreMenu({
   civ,
   onBook,
@@ -263,6 +291,7 @@ export function WorldMoreMenu({
         把历史写成史书
       </AiMenuItem>
       <AiSettingsItem onClick={() => openAiSettings()} />
+      <PlayQualityItem />
       <MenuSep />
       <MenuItem icon={<Icon name="help" size={16} />} href={GUIDE_URL} act="guide">
         使用教程
@@ -343,7 +372,7 @@ export function SearchResults({ q, hits, active, onActive, onPick }: { q: string
 // ---------------------------------------------------------------------------
 // 什么都没选时:整个世界
 
-/** 国家一栏列几个 */
+/** 国家、民族一栏各列几个 */
 const TOP_N = 5;
 /** 最近大事列几条 */
 const RECENT_N = 3;
@@ -401,7 +430,7 @@ function ResourceList({ civ, year, era }: { civ: Civ; year: number; era?: Era | 
   );
 }
 
-/** 什么都没选时的整个世界:信仰(信仰图层)、国家按大小排、最近大事、我的干预、这颗星球(宽屏侧栏、手机的世界卡片拉到顶时共用) */
+/** 什么都没选时的整个世界:信仰(信仰图层)、国家按大小排、民族按大小排、最近大事、我的干预、这颗星球(宽屏侧栏、手机的世界卡片拉到顶时共用) */
 export function WorldHome(p: Pick<SidebarProps, 'civ' | 'data' | 'params' | 'generating' | 'replay' | 'onReplay'>) {
   const { civ } = p;
   const year = useYear(civ);
@@ -413,18 +442,26 @@ export function WorldHome(p: Pick<SidebarProps, 'civ' | 'data' | 'params' | 'gen
   const now = currentWorld();
   const curId = now?.kind === 'created' ? now.id : null;
   const mates = useMemo(() => (curId ? mapMates(listWorlds(), curId, { map: edits.map }).length : null), [saves, curId, edits.map]);
-  // 现存的国家按当年的州数排
-  const top = useMemo(() => {
-    if (!ok) return { list: [], alive: 0 };
+  // 现存的国家、民族按当年的州数排
+  const { top, folks } = useMemo(() => {
+    if (!ok) return { top: { list: [], alive: 0 }, folks: { list: [], alive: 0 } };
     owners = ownersAt(civ!, year, owners);
     const n = new Map<number, number>();
+    const m = new Map<number, number>();
     for (let r = 0; r < civ!.regions.count; r++) {
       const q = owners.polity[r];
       if (q >= 0) n.set(q, (n.get(q) ?? 0) + 1);
+      const c = owners.culture[r];
+      if (c >= 0) m.set(c, (m.get(c) ?? 0) + 1);
     }
     const alive = civ!.polities.filter((x) => polityAlive(x, year));
     alive.sort((a, b) => (n.get(b.id) ?? 0) - (n.get(a.id) ?? 0));
-    return { list: alive.slice(0, TOP_N).map((x) => ({ p: x, n: n.get(x.id) ?? 0 })), alive: alive.length };
+    const cus = civ!.cultures.filter((x) => cultureAlive(x, year));
+    cus.sort((a, b) => (m.get(b.id) ?? 0) - (m.get(a.id) ?? 0) || a.id - b.id);
+    return {
+      top: { list: alive.slice(0, TOP_N).map((x) => ({ p: x, n: n.get(x.id) ?? 0 })), alive: alive.length },
+      folks: { list: cus.slice(0, TOP_N).map((x) => ({ cu: x, n: m.get(x.id) ?? 0 })), alive: cus.length },
+    };
   }, [ok, civ, year]);
   // 一个国家都没有的年份(多半是早年各族还是部落):说一句,给出之后第一个立国的
   const next = useMemo(() => {
@@ -441,13 +478,19 @@ export function WorldHome(p: Pick<SidebarProps, 'civ' | 'data' | 'params' | 'gen
   const show = useCivShow();
   const eraOn = show.eras && ok && !!civ!.development;
   const eras = useMemo(() => (eraOn ? eraRows(civ!, year, era) : []), [eraOn, civ, year, era]);
+  // 管辖图层:「国家」上面一组「中央管辖」(四档各几州),再一组「现在的割据」(点一行跳过去)
+  const narrow = useNarrow();
+  const ctlOn = show.control && ok;
+  const ctl = useMemo(() => (ctlOn ? controlRows(civ!, year, era, narrow) : null), [ctlOn, civ, year, era, narrow]);
   const resOn = show.resources && ok && !!civ!.development;
   const k = countUpTo(entries, year);
   const recent = entries.slice(Math.max(0, k - RECENT_N), k).reverse();
-  // 我的干预:干预和地形大事一起数(概览"我的干预"页列在一起)
+  // 我的干预:干预和地形大事一起数(概览"我的干预"页列在一起;照大纲硬改的一条情节算一处)
   const nUp = edits.upheavals?.length ?? 0;
-  const nIv = edits.interventions.length + nUp;
+  const nIv = interventionRows(edits.interventions) + nUp;
   const nTerrain = edits.terrain.length;
+  // 逐年推演:「这颗星球」换成「这个故事」(推进设置、存回推演模式);干预都在「下一步生效的干预」单子里
+  const step = useStepwiseOn();
   // 底稿出处:另存进"我的世界"以后才有(打开别人的分享、还只是看看时不显示;地图下的说明讲了是谁的)
   useSavesVersion();
   const cur = currentWorld();
@@ -504,6 +547,47 @@ export function WorldHome(p: Pick<SidebarProps, 'civ' | 'data' | 'params' | 'gen
           <p className="sb-note">颜色是每州此刻所处的时代。拖时间轴看各地一步步往前走；悬停一州看它走了几成。</p>
         </section>
       )}
+      {ctl && (
+        <section className="sb-sec">
+          <div className="sb-sec-head">
+            <span>中央管辖</span>
+          </div>
+          <div className="sb-group" data-testid="control">
+            {ctl.tiers.map((t) => (
+              <div key={t.tier} className="sb-row two static" data-tier={t.tier}>
+                <i className="sb-sw" style={{ background: rgb(t.color) }} />
+                <span className="sb-row-main">
+                  <b>{t.name}</b>
+                  <small>{t.sub}</small>
+                </span>
+                <span className="sb-row-side">{t.n} 州</span>
+              </div>
+            ))}
+          </div>
+          {!narrow && <p className="sb-note">离国都越远、异族、刚打下来的地方越管不住；国都一带的行政越强，管得越远。割据的州国界照旧画在原国里。</p>}
+        </section>
+      )}
+      {ctl && ctl.lords.length > 0 && (
+        <section className="sb-sec">
+          <div className="sb-sec-head">
+            <span>现在的割据</span>
+            <span>{ctl.lords.length} 处</span>
+          </div>
+          <div className="sb-group" data-testid="lords">
+            {ctl.lords.map((w) => (
+              <button key={w.region} className="sb-row two" data-region={w.region} onClick={() => setSelection({ kind: 'region', id: w.region })}>
+                <i className="sb-sw" style={{ background: rgb(CONTROL_COLORS[3]) }} />
+                <span className="sb-row-main">
+                  <b>{w.name}</b>
+                  <small>{w.sub}</small>
+                </span>
+                <span className="sb-row-side">{w.years} 年</span>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+      {ok && !step && <OutlineSide civ={civ} era={era} />}
       {resOn && <ResourceList civ={civ!} year={year} era={era} />}
       {ok && !resOn && (
         <section className="sb-sec">
@@ -553,6 +637,39 @@ export function WorldHome(p: Pick<SidebarProps, 'civ' | 'data' | 'params' | 'gen
           </div>
         </section>
       )}
+      {ok && !resOn && folks.alive > 0 && (
+        <section className="sb-sec">
+          <div className="sb-sec-head">
+            <span>民族</span>
+            <button className="sb-link" data-act="all-cultures" onClick={() => openOverview('cultures')}>
+              全部 {folks.alive} 族
+            </button>
+          </div>
+          <div className="sb-group" data-testid="cultures">
+            {folks.list.map(({ cu, n }) => {
+              const parent = cu.parent !== undefined ? civ!.cultures[cu.parent] : undefined;
+              return (
+                <button
+                  key={cu.id}
+                  className="sb-row two"
+                  data-culture={cu.id}
+                  onClick={() => setSelection({ kind: 'region', id: cultureRegion(civ!, cu.id, year, ownersAt(civ!, year)) })}
+                >
+                  <i className="sb-sw as-flag" style={{ background: rgb(cu.color) }} />
+                  <span className="sb-row-main">
+                    <b>{cultureLabel(cu)}</b>
+                    <small>
+                      {KIND_INFO[cu.kind].name}民族，{yearAt(cu.born, era)}
+                      {parent ? `从${cultureLabel(parent)}分出` : '出现'}
+                    </small>
+                  </span>
+                  <span className="sb-row-side">{n} 州</span>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      )}
       {ok && !resOn && recent.length > 0 && (
         <section className="sb-sec">
           <div className="sb-sec-head">
@@ -573,7 +690,7 @@ export function WorldHome(p: Pick<SidebarProps, 'civ' | 'data' | 'params' | 'gen
           </div>
         </section>
       )}
-      {nIv > 0 && (
+      {nIv > 0 && !step && (
         <section className="sb-sec">
           <div className="sb-group">
             <button className="sb-row" data-act="interventions" onClick={() => openOverview('interventions')}>
@@ -585,64 +702,87 @@ export function WorldHome(p: Pick<SidebarProps, 'civ' | 'data' | 'params' | 'gen
           </div>
         </section>
       )}
-      <section className="sb-sec">
-        <div className="sb-sec-head">
-          <span>这颗星球</span>
-        </div>
-        <div className="sb-group">
-          <button className="sb-row" data-act="replay" disabled={!p.data || p.generating || p.replay.on} onClick={p.onReplay}>
-            <Icon name="replay" size={17} className="sb-ico" />
-            <span className="sb-row-main">
-              <b>{p.replay.on ? (p.replay.ready ? '正在回放' : '正在准备回放') : '回放世界形成'}</b>
-            </span>
-            <Icon name="chevron" size={14} className="sb-chev" />
-          </button>
-          {ok && (
-            <button className="sb-row" data-act="upheaval" disabled={!p.data || p.generating || p.replay.on} onClick={openUpheaval} title="选一年让火山喷发、地震抬升、海水漫进来">
-              <Icon name="terrain" size={17} className="sb-ico" />
+      {step ? (
+        <>
+          <StepSideGroup />
+          <StepBranches civ={civ} />
+        </>
+      ) : (
+        <section className="sb-sec">
+          <div className="sb-sec-head">
+            <span>这颗星球</span>
+          </div>
+          <div className="sb-group">
+            {ok && (
+              <button
+                className="sb-row"
+                data-act="step-from"
+                disabled={!p.data || p.generating || p.replay.on}
+                onClick={() => openStepDialog({ kind: 'start', year })}
+                title="从时间轴现在停的这一年起，世界一步一步自己往下推"
+              >
+                <Icon name="book" size={17} className="sb-ico" />
+                <span className="sb-row-main">
+                  <b>从这里演绎</b>
+                </span>
+                <span className="sb-row-side">{yearFull(year, era)}</span>
+                <Icon name="chevron" size={14} className="sb-chev" />
+              </button>
+            )}
+            <button className="sb-row" data-act="replay" disabled={!p.data || p.generating || p.replay.on} onClick={p.onReplay}>
+              <Icon name="replay" size={17} className="sb-ico" />
               <span className="sb-row-main">
-                <b>地形大事</b>
+                <b>{p.replay.on ? (p.replay.ready ? '正在回放' : '正在准备回放') : '回放世界形成'}</b>
               </span>
-              <span className="sb-row-side">{nUp ? `${nUp} 件` : '还没有'}</span>
               <Icon name="chevron" size={14} className="sb-chev" />
             </button>
-          )}
-          {!!mates && (
-            <button className="sb-row" data-act="side-new-civ" disabled={p.generating || p.replay.on} onClick={() => curId && startNewCiv(curId)} title="用这张地图一开始的样子，换一个文明种子从第 0 年推演">
-              <Icon name="map" size={17} className="sb-ico" />
+            {ok && (
+              <button className="sb-row" data-act="upheaval" disabled={!p.data || p.generating || p.replay.on} onClick={openUpheaval} title="选一年让火山喷发、地震抬升、海水漫进来">
+                <Icon name="terrain" size={17} className="sb-ico" />
+                <span className="sb-row-main">
+                  <b>地形大事</b>
+                </span>
+                <span className="sb-row-side">{nUp ? `${nUp} 件` : '还没有'}</span>
+                <Icon name="chevron" size={14} className="sb-chev" />
+              </button>
+            )}
+            {!!mates && (
+              <button className="sb-row" data-act="side-new-civ" disabled={p.generating || p.replay.on} onClick={() => curId && startNewCiv(curId)} title="用这张地图一开始的样子，换一个文明种子从第 0 年推演">
+                <Icon name="map" size={17} className="sb-ico" />
+                <span className="sb-row-main">
+                  <b>在这张地图上打造新文明</b>
+                </span>
+                <span className="sb-row-side">已有 {mates} 个</span>
+                <Icon name="chevron" size={14} className="sb-chev" />
+              </button>
+            )}
+            <button className="sb-row" data-act="genesis" onClick={() => openOverview('genesis')} title="创建时定下的种子、参数、地形，还有纪年">
+              <Icon name="lock" size={17} className="sb-ico" />
               <span className="sb-row-main">
-                <b>在这张地图上打造新文明</b>
+                <b>世界设定</b>
               </span>
-              <span className="sb-row-side">已有 {mates} 个</span>
+              <span className="sb-row-side">
+                种子 {p.params.seed}
+                {nTerrain ? `，地形改过 ${nTerrain} 处` : ''}
+                {era ? `，${eraLabel(era)}` : ''}
+              </span>
               <Icon name="chevron" size={14} className="sb-chev" />
             </button>
-          )}
-          <button className="sb-row" data-act="genesis" onClick={() => openOverview('genesis')} title="创建时定下的种子、参数、地形，还有纪年">
-            <Icon name="lock" size={17} className="sb-ico" />
-            <span className="sb-row-main">
-              <b>世界设定</b>
-            </span>
-            <span className="sb-row-side">
-              种子 {p.params.seed}
-              {nTerrain ? `，地形改过 ${nTerrain} 处` : ''}
-              {era ? `，${eraLabel(era)}` : ''}
-            </span>
-            <Icon name="chevron" size={14} className="sb-chev" />
-          </button>
-          {origin && (
-            <a className="sb-row" data-act="origin" href={origin.url} target="_blank" rel="noreferrer noopener" title="打开底稿的分享链接">
-              <Icon name="link" size={17} className="sb-ico" />
-              <span className="sb-row-main">
-                <b>底稿来自</b>
-              </span>
-              <span className="sb-row-side sb-origin">
-                {origin.by ? `${origin.by}的` : ''}「{origin.title || '未命名世界'}」
-              </span>
-              <Icon name="chevron" size={14} className="sb-chev" />
-            </a>
-          )}
-        </div>
-      </section>
+            {origin && (
+              <a className="sb-row" data-act="origin" href={origin.url} target="_blank" rel="noreferrer noopener" title={origin.gallery ? '打开作品墙上的这个作品' : '打开底稿的分享链接'}>
+                <Icon name="link" size={17} className="sb-ico" />
+                <span className="sb-row-main">
+                  <b>底稿来自</b>
+                </span>
+                <span className="sb-row-side sb-origin">
+                  {origin.by ? `${origin.by}的` : ''}「{origin.title || '未命名世界'}」
+                </span>
+                <Icon name="chevron" size={14} className="sb-chev" />
+              </a>
+            )}
+          </div>
+        </section>
+      )}
     </div>
   );
 }

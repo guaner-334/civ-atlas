@@ -38,11 +38,11 @@
  */
 import { blurField, type Mesh } from './mesh';
 import { MinHeap, smoothstep, subSeed, mulberry32, clamp, hypot2, keyed } from './util';
-import { geometryOf } from './geometry';
+import { geometryOf, type PlateMotion, type SurfaceNoise } from './geometry';
 import { connectInlandSeas } from './inlandSea';
 import { round24 } from './civ/rand';
 import { SKETCH_HILLS, SKETCH_ISLES, SKETCH_LAND, SKETCH_MOUNTAIN, SKETCH_NONE, SKETCH_PLATEAU, SKETCH_SHELF, decodeLayer, sketchAt, sketchPainted, type Sketch } from './sketch';
-import { PLATE_IMAGE_MAX, applyPlateImage, applyPlateOps, type PlateState } from './plateEdits';
+import { PLATE_IMAGE_MAX, applyPlateImage, applyPlateOps, type PlateEdit, type PlateState } from './plateEdits';
 
 export interface TectonicParams {
   seed: number;
@@ -91,6 +91,12 @@ export interface Tectonics {
    * 随意发挥、没画草图 = 不给
    */
   sketched?: Uint8Array;
+  /**
+   * 草图改过的地块(画了草图才有):涂过的、山地 / 丘陵 / 高原笔晕开到的、海陆被草图改了的。
+   * 值 2 = 草图涂上去以前是陆地,1 = 以前是海,0 = 没改过。world.ts 换算海拔取"最高峰"时跳过它们(和改地形改过的地块一样),
+   * 涂一道山不把全世界别处的山压矮
+   */
+  sketchTouched?: Uint8Array;
   /** 作者关掉了"板块相撞时造山"(world.ts 换算海拔时"最高峰"同样加下限,平地不被拉成高山);开着 = 不给 */
   noOrogeny?: true;
 }
@@ -509,9 +515,51 @@ const SK_ISLES_SCALE = 20;
 const SK_ISLES_T = 0.25;
 
 /**
- * sketch:作者的草图(sketch.ts)。没有 / 全是 0 = 和不给一样(结果逐字节不变)
+ * 第 1–4 步(板块、边界、陆地场)的结果:只由网格、参数、作者改的板块(草图的 plates)定,草图涂的笔在第 4b 步才套上。
+ * 编辑地形时每涂一笔草图都要重新生成,这一段一笔一笔都一样:记着上一次的(frameOf),第 4b 步起在海陆、地壳底色的副本上接着算,
+ * 结果和从头算逐位相同。记着的数组之后只读不写(海陆、地壳底色除外,它们每次拷一份)
  */
-export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | null): Tectonics {
+interface Frame {
+  plate: Int16Array;
+  P: number;
+  vxOut: Float32Array;
+  vyOut: Float32Array;
+  motion: PlateMotion;
+  plateContinental: Uint8Array;
+  convergence: Float32Array;
+  conv: DistanceField;
+  div: DistanceField;
+  sideOf: (i: number) => number;
+  divSources: number[];
+  hot: Float32Array;
+  /** 地壳底色、海陆(第 4 步按目标陆地比例取完阈值):第 4b 步起只在副本上改 */
+  B: Float32Array;
+  land: Uint8Array;
+  rugN: SurfaceNoise;
+  coastF: SurfaceNoise;
+  fs: number;
+  fc: number;
+  ramp: number;
+  thin: (w: number) => number;
+  soft: number;
+  softW: number;
+}
+type DistanceField = ReturnType<typeof distanceField>;
+
+/** 上一次的第 1–4 步(网格对象 + 参数 + 板块改动对得上才用) */
+let frameMemo: { mesh: Mesh; key: string; frame: Frame } | null = null;
+
+function frameOf(mesh: Mesh, p: TectonicParams, pe: PlateEdit | undefined): Frame {
+  const key = JSON.stringify([Object.entries(p).sort(([a], [b]) => (a < b ? -1 : 1)), pe ?? null]);
+  if (frameMemo && frameMemo.mesh === mesh && frameMemo.key === key) return frameMemo.frame;
+  frameMemo = null;
+  const frame = buildFrame(mesh, p, pe);
+  frameMemo = { mesh, key, frame };
+  return frame;
+}
+
+/** 第 1–4 步(见 Frame) */
+function buildFrame(mesh: Mesh, p: TectonicParams, pe: PlateEdit | undefined): Frame {
   const { n, adjStart, adj, width: W, spacing } = mesh;
   const geo = geometryOf(mesh);
   const rng = mulberry32(subSeed(p.seed, 'plates'));
@@ -652,7 +700,6 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
   let vyOut = plateVy;
   let dens = density;
   let motion = motion0;
-  const pe = sketch?.plates;
   const peImage = pe?.image ? decodeLayer(pe.image.cells, PLATE_IMAGE_MAX) : null;
   if (pe && (pe.ops.length || peImage)) {
     const st: PlateState = { plate, count: plateCount, omega: Array.from(motion0.omega), density: Array.from(density), spin: Array.from(spin), crust, touched: new Set() };
@@ -857,6 +904,22 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
   const threshold = sorted[Math.floor((1 - clamp(p.landFraction, 0.02, 0.95)) * (n - 1))];
   const land = new Uint8Array(n);
   for (let i = 0; i < n; i++) land[i] = L[i] > threshold ? 1 : 0;
+  return { plate, P, vxOut, vyOut, motion, plateContinental, convergence, conv, div, sideOf, divSources, hot, B, land, rugN, coastF, fs, fc, ramp, thin, soft, softW };
+}
+
+/**
+ * sketch:作者的草图(sketch.ts)。没有 / 全是 0 = 和不给一样(结果逐字节不变)
+ */
+export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | null): Tectonics {
+  const { n, adjStart, adj, width: W } = mesh;
+  const geo = geometryOf(mesh);
+  const pe = sketch?.plates;
+  const fr = frameOf(mesh, p, pe);
+  const { plate, P, vxOut, vyOut, motion, plateContinental, convergence, conv, div, sideOf, divSources, hot, rugN, coastF, fs, fc, ramp, thin, soft, softW } = fr;
+  // 草图要改海陆、地壳底色:在副本上改(第 1–4 步记着的不动)
+  const land = fr.land.slice();
+  const B = fr.B.slice();
+  const q = [0, 0];
 
   // ---- 4b. 作者的草图 ----
   // 涂过的地块照草图定海陆:离草图边界远的定死,边界附近由同一套海岸噪声决定往哪边弯(海岸不是笔刷的圆边);
@@ -865,7 +928,10 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
   let skHills: Float32Array | null = null;
   let skPlat: Float32Array | null = null;
   let sk: Uint8Array | null = null;
+  /** 草图涂上去以前的海陆(画了草图才记;下面凿通 / 填平封闭内海以后就是不画草图时的海陆) */
+  let landPre: Uint8Array | null = null;
   if (sketchPainted(sketch)) {
+    landPre = land.slice();
     // 每个地块在扭过的位置上取草图的值
     sk = new Uint8Array(n);
     const cp = clamp(sketch.coast, 0, 1);
@@ -964,6 +1030,17 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
   }
   connectInlandSeas(mesh, land, protect, !!sketch?.noNewLand);
   dropDetached();
+  // 草图改过的地块:涂过的、山地 / 丘陵 / 高原晕开到的、海陆和不画草图时不一样的
+  // (不画草图时的海陆 = 草图涂上去以前的海陆照样凿通 / 填平封闭内海;挨着涂过的地方没被填平的内海、不长新陆地时沉回海里的都算)
+  let sketchTouched: Uint8Array | null = null;
+  if (sk && landPre) {
+    connectInlandSeas(mesh, landPre, null, false);
+    sketchTouched = new Uint8Array(n);
+    for (let i = 0; i < n; i++) {
+      const hit = sk[i] !== SKETCH_NONE || land[i] !== landPre[i] || (skMtn !== null && skMtn[i] > 0) || (skHills !== null && skHills[i] > 0) || (skPlat !== null && skPlat[i] > 0);
+      if (hit) sketchTouched[i] = landPre[i] ? 2 : 1;
+    }
+  }
 
   // ---- 5. 海底深度 ----
   const coastSrc: number[] = [];
@@ -1092,6 +1169,7 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
     uplift,
     plateau,
     ...(fixed ? { sketched: fixed } : {}),
+    ...(sketchTouched ? { sketchTouched } : {}),
     ...(orogeny ? {} : { noOrogeny: true as const }),
   };
 }

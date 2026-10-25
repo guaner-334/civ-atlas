@@ -17,9 +17,10 @@ import { ownersAt, type Owners } from '../gen/civ/timeline';
 import { faithRows } from '../gen/civ/religionText';
 import { yearFull } from '../gen/era';
 import { useEra } from './editsStore';
-import { getCivTime, setCivShow, subscribeCivTime, useCivShow } from './civView';
+import { getCivTime, setCivShow, setNamesShown, subscribeCivTime, useCivShow } from './civView';
+import { civFillOf, namesOn, type CivNameKind } from '../render/civ/show';
 
-const TOGGLES: { key: Exclude<keyof CivShow, 'polities' | 'cultures' | 'faiths' | 'eras'>; name: string; hint: string }[] = [
+const TOGGLES: { key: Exclude<keyof CivShow, 'polities' | 'cultures' | 'faiths' | 'eras' | 'control' | 'names'>; name: string; hint: string }[] = [
   { key: 'labels', name: '地名', hint: '海洋、山脉、大河、湖泊、大岛、荒漠的名字;放大地图显示更多' },
   { key: 'regions', name: '州', hint: '按山脊、大河自然划分的地区,是文明扩张的基本单位' },
   { key: 'sites', name: '城址', hint: '每州最宜居的一块地;圆点越大,这一州能养活的人越多' },
@@ -36,6 +37,38 @@ const ROUTE_LEGEND: { name: string; dash?: string; width: number }[] = [
   { name: '小路', dash: '3 2.5', width: 1.3 },
   { name: '航线', dash: '0.1 3.5', width: 2 },
 ];
+
+const NAME_TOGGLES: { kind: CivNameKind; name: string }[] = [
+  { kind: 'polities', name: '国名' },
+  { kind: 'cultures', name: '族名' },
+  { kind: 'faiths', name: '教名' },
+  { kind: 'eras', name: '时代名' },
+];
+
+/**
+ * 「地图上写」:填色说明下面一行,地图上写哪些名字(每种填色各记各的,换填色时按那种填色记着的勾好;
+ * 没勾过的按默认:国家、信仰、时代、管辖写国名,民族写族名,信仰写教名,时代写时代名,不填都不写;管辖填色只有国名可选)
+ */
+export function NameToggles() {
+  const show = useCivShow();
+  const only = civFillOf(show) === 'control' ? NAME_TOGGLES.filter((t) => t.kind === 'polities') : NAME_TOGGLES;
+  return (
+    <div className="lp-names" role="group" aria-label="地图上写">
+      <span className="lp-names-k">地图上写</span>
+      {only.map(({ kind, name }) => {
+        const on = namesOn(show, kind);
+        return (
+          <button key={kind} className={`lp-tog${on ? ' on' : ''}`} role="checkbox" aria-checked={on} data-names={kind} onClick={() => setNamesShown(kind, !on)}>
+            <span className="lp-box" aria-hidden="true">
+              {on ? '✓' : ''}
+            </span>
+            {name}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 export function CivToggles() {
   const show = useCivShow();

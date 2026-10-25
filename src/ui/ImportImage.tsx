@@ -26,7 +26,6 @@ import {
   levelsFrom,
   placeOnLayer,
   placeRect,
-  preparePicture,
   seaFromClicks,
   type ImportWarning,
   type LayerStats,
@@ -37,8 +36,11 @@ import { TERRAIN_H, TERRAIN_W } from '../gen/terrainEdits';
 import { clamp } from '../gen/util';
 import { useEdits } from './editsStore';
 import { Icon } from './icons';
-import { showToast } from './toastStore';
 import { Seg, Slider } from './tpControls';
+import { loadImage, type LoadedImage } from './imageFile';
+
+// 选图、读图(新建弹窗也用)在 imageFile.ts,这里照旧一起导出
+export { isImageFile, loadImage, type LoadedImage } from './imageFile';
 
 // ---------------------------------------------------------------------------
 // 状态
@@ -157,10 +159,6 @@ export const setImportView = (view: ImportState['view']) => patch({ view });
 
 /** 最多点几处 */
 const MAX_CLICKS = 60;
-/** 原图宽或高超过这么多就不认了(太大的图解码很占内存) */
-const MAX_SIDE = 8000;
-/** 认之前先把图缩到长边不超过这么多(找线还用得上细节,又不至于太慢) */
-const DECODE_SIDE = 2560;
 
 /** 选一张图(点「换一张」时) */
 export function pickImage() {
@@ -180,55 +178,10 @@ export function pickImage() {
   input.click();
 }
 
-/** 拖进来的是不是图片 */
-export const isImageFile = (f: File) => f.type.startsWith('image/');
 
 /** 第几次读图:读完发现已经不是最新的一次(又选了一张,或者取消了)就扔掉 */
 let loading = 0;
 
-/** 读好的一张图:文件名、本机的 blob 网址、原图多大、缩小后准备好认的像素 */
-export interface LoadedImage {
-  name: string;
-  url: string;
-  w: number;
-  h: number;
-  pic: Picture;
-}
-
-/** 读一张图、准备好认;读不出来、太大出一条提示,返回 null(新建弹窗选图、「换一张」都走这里) */
-export async function loadImage(file: File): Promise<LoadedImage | null> {
-  const url = URL.createObjectURL(file);
-  const fail = (text: string, more: string) => {
-    URL.revokeObjectURL(url);
-    showToast({ id: 'import', kind: 'error', text, more: [more] });
-    return null;
-  };
-  // 先只读出图有多大(浏览器到画的时候才整张解码),太大的不解码
-  const img = new Image();
-  const ok = await new Promise<boolean>((done) => {
-    img.onload = () => done(true);
-    img.onerror = () => done(false);
-    img.src = url;
-  });
-  const w = img.naturalWidth;
-  const h = img.naturalHeight;
-  if (!ok || !w || !h) return fail('没能读出这张图', `${file.name} 不是能打开的图片`);
-  if (w > MAX_SIDE || h > MAX_SIDE) return fail('这张图太大了', `换一张宽、高都不超过 ${MAX_SIDE} 像素的图`);
-  const k = Math.min(1, DECODE_SIDE / Math.max(w, h));
-  const cw = Math.max(1, Math.round(w * k));
-  const ch = Math.max(1, Math.round(h * k));
-  const cv = document.createElement('canvas');
-  cv.width = cw;
-  cv.height = ch;
-  const ctx = cv.getContext('2d', { willReadFrequently: true });
-  try {
-    if (!ctx) throw new Error('no canvas');
-    ctx.drawImage(img, 0, 0, cw, ch);
-    return { name: file.name, url, w, h, pic: preparePicture(ctx.getImageData(0, 0, cw, ch)) };
-  } catch {
-    return fail('没能读出这张图', `${file.name} 不是能打开的图片`);
-  }
-}
 
 /** 开始认这张图(已经在认的换成这张;留着的那张不动,长出星球时才换掉) */
 export function beginImport(l: LoadedImage) {

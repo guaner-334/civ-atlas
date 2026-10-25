@@ -49,9 +49,6 @@ function rampAt(stops: RGB[], t: number): RGB {
 
 // ---- 缓存 ----
 interface Cache {
-  field?: { raster: Raster; v: Float32Array };
-  heat?: { raster: Raster; key: string; canvas: HTMLCanvasElement | OffscreenCanvas };
-  lines?: Polyline[];
   sites?: { cell: number; r: number }[];
 }
 const caches = new WeakMap<Civ, Cache>();
@@ -61,10 +58,26 @@ const cacheOf = (civ: Civ) => {
   return c;
 };
 
+/**
+ * 宜居分的场、热力图、州界线只看宜居度和州的划分:按州的划分记(换一段新的历史时这两样沿用原来那份,不用再算)。
+ * 宜居度也要是同一份才用
+ */
+interface GeoCache {
+  field?: { raster: Raster; habitat: Civ['habitat']; v: Float32Array };
+  heat?: { raster: Raster; habitat: Civ['habitat']; key: string; canvas: HTMLCanvasElement | OffscreenCanvas };
+  lines?: { mesh: Mesh; lines: Polyline[] };
+}
+const geoCaches = new WeakMap<Civ['regions'], GeoCache>();
+const geoOf = (civ: Civ) => {
+  let c = geoCaches.get(civ.regions);
+  if (!c) geoCaches.set(civ.regions, (c = {}));
+  return c;
+};
+
 /** 每个像素的宜居分:按地块取值再做一次"只在陆地上平均"的模糊,抹掉地块的多边形边 */
 function habitatField(civ: Civ, r: Raster): Float32Array {
-  const c = cacheOf(civ);
-  if (c.field && c.field.raster === r) return c.field.v;
+  const c = geoOf(civ);
+  if (c.field && c.field.raster === r && c.field.habitat === civ.habitat) return c.field.v;
   const { w, h, cell } = r;
   const N = w * h;
   const num = new Float32Array(N);
@@ -84,20 +97,20 @@ function habitatField(civ: Civ, r: Raster): Float32Array {
   boxBlurWrap(den, w, h, rad);
   boxBlurWrap(den, w, h, rad);
   for (let k = 0; k < N; k++) num[k] = den[k] > 0.02 ? num[k] / den[k] : 0;
-  c.field = { raster: r, v: num };
+  c.field = { raster: r, habitat: civ.habitat, v: num };
   return num;
 }
 
 /** 热力图的离屏画布(整图大小;放大后的细节层按视口放大贴上),按画风缓存 */
 export function habitatCanvas(p: CivDrawParams): HTMLCanvasElement | OffscreenCanvas {
-  const c = cacheOf(p.civ);
+  const c = geoOf(p.civ);
   const key = rampKey(p.style);
-  if (c.heat && c.heat.raster === p.raster && c.heat.key === key) return c.heat.canvas;
+  if (c.heat && c.heat.raster === p.raster && c.heat.habitat === p.civ.habitat && c.heat.key === key) return c.heat.canvas;
   const { w, h } = p.raster;
   const canvas = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(w, h) : Object.assign(document.createElement('canvas'), { width: w, height: h });
   (canvas.getContext('2d') as CanvasRenderingContext2D).putImageData(habitatImage(p), 0, 0);
   if (c.heat) c.heat.canvas.width = c.heat.canvas.height = 0;
-  c.heat = { raster: p.raster, key, canvas };
+  c.heat = { raster: p.raster, habitat: p.civ.habitat, key, canvas };
   return canvas;
 }
 
@@ -156,9 +169,9 @@ function habitatImage(p: CivDrawParams): ImageData {
 
 /** 平滑后的州界折线(世界坐标) */
 export function regionLines(mesh: Mesh, civ: Civ): Polyline[] {
-  const c = cacheOf(civ);
-  if (!c.lines) c.lines = traceBoundaries(mesh, civ.regions.of).map((l) => chaikin(l, 3));
-  return c.lines;
+  const c = geoOf(civ);
+  if (c.lines?.mesh !== mesh) c.lines = { mesh, lines: traceBoundaries(mesh, civ.regions.of).map((l) => chaikin(l, 3)) };
+  return c.lines.lines;
 }
 
 export function drawRegionLines(ctx: CanvasRenderingContext2D, p: CivDrawParams) {

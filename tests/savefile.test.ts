@@ -23,6 +23,7 @@ import {
   sameView,
   decodeShare,
   editCount,
+  editedWorld,
   encodeShare,
   fileBaseName,
   makeSave,
@@ -577,6 +578,29 @@ describe('浏览器存储(saveStore)', () => {
     expect(saveStore.duplicateWorld('wnothere001')).toBeNull();
   });
 
+  it('逐年推演:另存时记下从哪个世界来;存回时覆盖原来那个 = 修改换掉、名字照旧,现存几国和缩略图去掉(打开时重算)', () => {
+    const fake = new FakeStorage();
+    useStorage(fake);
+    const a = openWorld(7, { title: '苍澜界', edits: EDITS });
+    fake.setItem(`wenming-ditu:thumb:${a}`, 'data:image/jpeg;base64,AAAA');
+    saveStore.setWorldStats(13);
+    const story: WorldEdits = { ...EMPTY_EDITS, play: { year: 2650, commands: [] }, playFrom: 2650 };
+    const b = saveStore.saveCurrentAs(story, '苍澜界', a)!;
+    expect(b).not.toBe(a);
+    openWorld(7, { id: b });
+    expect(saveStore.stepOrigin(b)).toEqual({ id: a, title: '苍澜界' });
+    // 正在看的那个不在这里改
+    expect(saveStore.overwriteWorld(b, EMPTY_EDITS)).toBe(false);
+    const normal: WorldEdits = { ...EMPTY_EDITS, endYear: 2700 };
+    expect(saveStore.overwriteWorld(a, normal)).toBe(true);
+    const w = saveStore.loadWorld(a)!;
+    expect(w.save.title).toBe('苍澜界');
+    expect(w.save.edits).toEqual(normal);
+    expect(w.alive).toBeUndefined();
+    expect(w.thumb).toBeNull();
+    expect(saveStore.loadWorld(b)?.save.edits).toEqual(story);
+  });
+
   it('在一个世界的地图上新开一段历史:另存一个世界,只带地图和新的文明种子;原来的不动,删掉哪个都不影响另一个', () => {
     const fake = new FakeStorage();
     useStorage(fake);
@@ -811,6 +835,122 @@ describe('浏览器存储(saveStore)', () => {
     openWorld(8, { id, kind: 'draft', pristine: true, edits: EMPTY_EDITS });
     expect(saveStore.loadWorld(id)).toBeNull();
     expect(saveStore.listWorlds()).toEqual([]);
+  });
+
+  it('编辑地形:连着涂不截缩略图,地形停够了才截;收起编辑地形时不再等;flushThumb 当场截', () => {
+    // 计时器、performance 也换成假的(beforeEach 只换了 Date)
+    vi.useRealTimers();
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout', 'performance'] });
+    tick();
+    let n = 0;
+    let m = 0;
+    const nows: boolean[] = [];
+    let civLater = false;
+    // 和 App 一样:缩略图要等补推完历史(civLater),不再等的那一次(now)照样截;地图缩略图不等
+    saveStore.setThumbMaker((_, now) => {
+      if (civLater && !now) return null;
+      nows.push(!!now);
+      return `data:image/jpeg;base64,T${++n}`;
+    });
+    saveStore.setMapThumbMaker(() => `data:image/jpeg;base64,M${++m}`);
+    const thumbs = (id: string) => [saveStore.loadWorld(id)?.thumb, saveStore.loadWorld(id)?.mapThumb];
+    let k = 0;
+    // 涂一笔(修改一变就存),过 ms 毫秒按新地形重新生成完(App 调 updateCheck)
+    const stroke = (ms = 1500) => {
+      k++;
+      setEdits({ ...getEdits(), terrain: [...getEdits().terrain, { kind: 'volcano', pts: [100 + k, 100], r: 28, s: 1 }] as unknown as WorldEdits['terrain'] });
+      vi.advanceTimersByTime(ms);
+      saveStore.updateCheck(`c${k}`);
+    };
+    try {
+      const id = openWorld(7, { kind: 'draft', pristine: true });
+      saveStore.setThumbEditing(true);
+      // 每 3 秒涂一笔:一张都不截
+      for (let i = 0; i < 5; i++) {
+        stroke();
+        vi.advanceTimersByTime(1500);
+      }
+      expect(saveStore.loadWorld(id)).toMatchObject({ draft: true });
+      expect([n, m]).toEqual([0, 0]);
+      expect(thumbs(id)).toEqual([null, null]);
+      // 停笔:最后一次换上新地形以后停够 THUMB_EDIT_QUIET 才截(缩略图、地图缩略图各一张)
+      vi.advanceTimersByTime(saveStore.THUMB_EDIT_QUIET - 1500 - 100);
+      expect([n, m]).toEqual([0, 0]);
+      vi.advanceTimersByTime(200);
+      expect(thumbs(id)).toEqual(['data:image/jpeg;base64,T1', 'data:image/jpeg;base64,M1']);
+      expect(nows).toEqual([false]);
+      // 又涂了一笔,换上以后马上点「完成」:不再等停笔,过一会儿就截
+      stroke();
+      vi.advanceTimersByTime(200);
+      saveStore.setThumbEditing(false);
+      vi.advanceTimersByTime(800);
+      expect(thumbs(id)).toEqual(['data:image/jpeg;base64,T2', 'data:image/jpeg;base64,M2']);
+      // 收起以后不再等停笔:地形又变了(撤销)照常过一会儿就截
+      stroke(0);
+      vi.advanceTimersByTime(800);
+      expect([n, m]).toEqual([3, 3]);
+      // 再打开编辑地形涂一笔:换世界、页面关掉之前 flushThumb 当场截(不再等停笔、要的底图没备好也当场画)
+      saveStore.setThumbEditing(true);
+      stroke();
+      vi.advanceTimersByTime(1000);
+      expect([n, m]).toEqual([3, 3]);
+      saveStore.flushThumb();
+      expect(thumbs(id)).toEqual(['data:image/jpeg;base64,T4', 'data:image/jpeg;base64,M4']);
+      expect(nows.at(-1)).toBe(true);
+      // 截过了:之后不再截,再 flush 也不截
+      vi.advanceTimersByTime(10_000);
+      saveStore.flushThumb();
+      expect([n, m]).toEqual([4, 4]);
+      // 编辑地形时缩略图要等补推完历史(地图缩略图不等):停够了先截地图缩略图,之后再试只差缩略图,不再一遍遍重截地图缩略图
+      civLater = true;
+      stroke();
+      vi.advanceTimersByTime(saveStore.THUMB_EDIT_QUIET + 100);
+      expect([n, m]).toEqual([4, 5]);
+      vi.advanceTimersByTime(30_000);
+      expect([n, m]).toEqual([4, 5]);
+      // 再试了 40 次也截不到(一直开着编辑地形):点「完成」、补推完以后补截(两张一起重截)
+      saveStore.setThumbEditing(false);
+      civLater = false;
+      vi.advanceTimersByTime(800);
+      expect([n, m]).toEqual([5, 6]);
+      expect(thumbs(id)[0]).toBe('data:image/jpeg;base64,T5');
+    } finally {
+      saveStore.setThumbMaker(null);
+      saveStore.setMapThumbMaker(null);
+    }
+  });
+
+  it('编辑地形:地形变了以后缩略图截到了、地图缩略图过一会儿才截到,收起编辑地形时不再重截', () => {
+    vi.useRealTimers();
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout', 'performance'] });
+    tick();
+    let n = 0;
+    let m = 0;
+    let mapBusy = true;
+    saveStore.setThumbMaker(() => `data:image/jpeg;base64,T${++n}`);
+    saveStore.setMapThumbMaker(() => (mapBusy ? null : `data:image/jpeg;base64,M${++m}`));
+    try {
+      const id = openWorld(7, { kind: 'draft', pristine: true });
+      saveStore.setThumbEditing(true);
+      setEdits({ ...getEdits(), terrain: [{ kind: 'volcano', pts: [100, 100], r: 28, s: 1 }] as unknown as WorldEdits['terrain'] });
+      vi.advanceTimersByTime(1500);
+      saveStore.updateCheck('c1');
+      vi.advanceTimersByTime(saveStore.THUMB_EDIT_QUIET + 100);
+      expect([n, m]).toEqual([1, 0]);
+      // 地图缩略图再试时截到了(缩略图不再重截)
+      mapBusy = false;
+      vi.advanceTimersByTime(800);
+      expect([n, m]).toEqual([1, 1]);
+      expect([saveStore.loadWorld(id)?.thumb, saveStore.loadWorld(id)?.mapThumb]).toEqual(['data:image/jpeg;base64,T1', 'data:image/jpeg;base64,M1']);
+      // 两张都是新地形的了:收起编辑地形、flushThumb 都不再截
+      saveStore.setThumbEditing(false);
+      saveStore.flushThumb();
+      vi.advanceTimersByTime(10_000);
+      expect([n, m]).toEqual([1, 1]);
+    } finally {
+      saveStore.setThumbMaker(null);
+      saveStore.setMapThumbMaker(null);
+    }
   });
 
   it('回到我的世界、又点开下面一直开着的那个:记一下最近打开,排到前面', () => {
@@ -1144,6 +1284,20 @@ describe('旧版本的提示:照实说变了什么', () => {
     expect(versionNote(7.5, false)).toBe(versionNote(0, false));
     // 比现在大的也一样,不叫人刷新
     expect(versionNote(GENERATOR_VERSION + 0.5, false)).toBe(versionNote(0, false));
+  });
+  it('第 26 版只动了改过地形、带地形大事的世界:没改地形的一样;带地形大事、没改地形的也按"地形有局部变化"说(大事以后的地形)', () => {
+    // 第 27 版历史重新推演:从第 25 版来的没改地形的世界,就照第 27 版说
+    expect(versionNote(26, false)).toBe('来自旧版本：地形和气候没变，历史重新推演了');
+    expect(versionNote(25, false)).toBe(versionNote(26, false));
+    expect(versionNote(25, { terrain: false, upheavals: false })).toBe(versionNote(26, false));
+    expect(versionNote(25, true)).toBe('来自旧版本：地形有局部变化，历史重新推演了');
+    expect(versionNote(25, { terrain: true, upheavals: true })).toBe('来自旧版本：地形有局部变化，历史重新推演了');
+    expect(versionNote(25, { terrain: false, upheavals: true })).toBe('来自旧版本：地形有局部变化，历史重新推演了');
+    // 第 25 版只动了改过地形的(地名),带地形大事的不算
+    expect(versionNote(24, { terrain: false, upheavals: true })).toBe(versionNote(25, { terrain: false, upheavals: true }));
+    expect(versionNote(24, false)).toBe(versionNote(26, false));
+    expect(editedWorld({ upheavals: [{ year: 10, ops: [] }] })).toEqual({ terrain: false, upheavals: true });
+    expect(editedWorld({ terrain: [], sketch: undefined })).toEqual({ terrain: false, upheavals: false });
   });
   it('同一版、或世界本来就变了时:地形对不上只在同一版时提示', () => {
     const save = makeSave({ ...DEFAULT_PARAMS, seed: 7 }, EMPTY_EDITS, 'aaaaaaaaaaaa');

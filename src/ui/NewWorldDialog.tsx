@@ -11,20 +11,27 @@
  *            随机生成的不列「拓荒」「历史」(先只做地图,这两样在新建界面第 2 步「打造文明」里定)。
  *            底下一句说进去以后这些都还能改
  *
+ * 朋友的预设链接(presetLink.ts)打开的:直接到第 2 步(随机生成),参数照链接填好;第 2 步标题下面那句换成一条浅蓝
+ * "朋友分享的预设「…」，参数已经照它填好",右边「存进我的预设…」(打开「存成预设」小窗,名字先填好;存的是分享来的那一套,
+ * 弹窗里后来改过的不算;不点不存)。
+ *
  * 点「开始」才交给 App(存下没建完的世界、进新建界面;照图的把读好的图交过去,进去直接是第 1 步「认出海陆」)。
+ * 首页上点的「开始」、地图程序还没下完(wait):按钮变成转圈 +「准备中」,旁边一句下了多少,下好就自动开始;
+ * 这时参数先改不了、「上一步」点不了,「取消」照常(不打开了)。
  * 「取消」、Esc、点窗口外面:什么都不留下(读好的图也扔掉)。
  * 电脑上是浮在页面正中的窗口(第 2 步比窗口高时:标题和底部按钮不动,中间一段自己滚,上下各一条细线隔开);
  * 手机上从底部升起、几乎占满屏:顶上一排(取消 / 上一步、标题、第几步),底部一个大按钮。
  */
 import { Fragment, useEffect, useRef, useState } from 'react';
 import type { WorldParams } from '../gen/world';
-import { CONT_SLIDERS, SLIDERS, YEARS_NOTE, YEARS_ON, YEARS_SLIDER, YEARS_SWITCH, contBrief, type SliderLike } from './WorldOverviewGenesis';
+import { CONT_SLIDERS, SLIDERS, YEARS_NOTE, YEARS_ON, YEARS_SLIDER, YEARS_SWITCH, contBrief, type SliderLike } from './genesisSliders';
 import { CONT_RESET, ContinentSeg, ParamField, rangeFill } from './ParamField';
-import { PresetPicker, type PresetPick } from './PresetPicker';
-import { changedKeys, choiceParams, getPresets, usePresets } from './presetStore';
+import { createPortal } from 'react-dom';
+import { PresetPicker, SavePreset, type PresetPick } from './PresetPicker';
+import { changedKeys, choiceParams, getPresets, usePresets, type SharedPreset } from './presetStore';
 import { terrainChangedCount, type Frontier } from '../gen/civ/frontier';
 import { EXPAND_SLIDER, SPREAD_SLIDER, TERRAIN_SLIDERS, terrainValue, withSpeed, withTerrain, withoutTerrain } from './frontierUi';
-import { isImageFile, loadImage, type LoadedImage } from './ImportImage';
+import { isImageFile, loadImage, type LoadedImage } from './imageFile';
 import { Icon } from './icons';
 import './ai.css';
 import './newWorld.css';
@@ -53,14 +60,23 @@ export interface NewWorldInit {
 export interface NewWorldDialogProps {
   phone: boolean;
   init?: NewWorldInit;
+  /** 打开朋友的预设链接来的:分享的那一套(第 2 步顶上一条说明 +「存进我的预设…」) */
+  shared?: SharedPreset;
   /** 随机一个种子 */
   randomSeed: () => number;
   onCancel: () => void;
   onStart: (s: NewWorldStart) => void;
+  /** 点了「开始」、地图程序还没下完:下了百分之几(null = 不知道) */
+  wait?: { pct: number | null };
 }
 
 const PIC_RANDOM = `${import.meta.env.BASE_URL}new-random.jpg`;
 const PIC_SKETCH = `${import.meta.env.BASE_URL}new-sketch.jpg`;
+
+/** 首页出来以后先把第 1 步两张卡片的图下好(点「新建世界」时不用再等图) */
+export function warmNewWorldPictures() {
+  for (const src of [PIC_RANDOM, PIC_SKETCH]) new Image().src = src;
+}
 
 /** 第 1 步的两张卡片 */
 const CARDS: { mode: NewWorldMode; name: string; desc: string }[] = [
@@ -188,6 +204,21 @@ export function NewWorldDialog(p: NewWorldDialogProps) {
   };
   const fileRef = useRef<HTMLInputElement>(null);
   const pick = () => fileRef.current?.click();
+  // 等地图程序时参数先改不了(点「开始」时已经定了)
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const waiting = !!p.wait;
+  useEffect(() => {
+    for (const el of sheetRef.current?.querySelectorAll('.nd-preset, .nd-scroll, .nd-pbody') ?? []) el.toggleAttribute('inert', waiting);
+  }, [waiting]);
+  // 没等到(地图程序下载失败,弹窗回到能改的样子):图还没人接,仍归这个弹窗管,关掉时照常扔掉
+  const waited = useRef(false);
+  useEffect(() => {
+    if (waiting) waited.current = true;
+    else if (waited.current) {
+      waited.current = false;
+      given.current = false;
+    }
+  }, [waiting]);
 
   const commitSeed = () => {
     const n = Math.floor(Number(seedText));
@@ -200,6 +231,9 @@ export function NewWorldDialog(p: NewWorldDialogProps) {
     setSeedText(String(seed));
     setParams((q) => ({ ...q, seed }));
   };
+  /** 朋友分享的预设:「存进我的预设…」的小窗开着没有、存过没有 */
+  const [keepOpen, setKeepOpen] = useState(false);
+  const [kept, setKept] = useState(false);
   const canStart = mode === 'random' || !!picture;
   const start = () => {
     if (!canStart) return;
@@ -230,7 +264,8 @@ export function NewWorldDialog(p: NewWorldDialogProps) {
   }, []);
 
   // 把图拖进窗口:第 2 步照手绘图时收下(别处松手不当成打开存档)
-  const dropOk = step === 2 && mode === 'image';
+  // 点了「开始」在等地图程序的:图已经交出去了,不再换
+  const dropOk = step === 2 && mode === 'image' && !p.wait;
   const onDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -496,6 +531,36 @@ export function NewWorldDialog(p: NewWorldDialogProps) {
       )}
     </>
   );
+  // 朋友分享的预设(第 2 步):一条浅蓝说明 +「存进我的预设…」(存过以后换成一句"已存好")
+  const sharedBar = p.shared && step === 2 && (
+    <div className="nd-shared" data-testid="shared-preset">
+      <Icon name="info" size={17} />
+      <span className="nd-shared-tx">
+        {p.shared.gallery ? `作品墙上${p.shared.gallery.by ? `${p.shared.gallery.by}的` : '的'}「${p.shared.name}」` : `朋友分享的预设「${p.shared.name}」`}
+        {p.phone ? <br /> : '，'}参数已经照它填好
+      </span>
+      {kept ? (
+        <span className="nd-shared-done">已存好</span>
+      ) : (
+        <button className="nd-shared-btn" data-act="shared-preset-keep" onClick={() => setKeepOpen(true)}>
+          存进我的预设…
+        </button>
+      )}
+    </div>
+  );
+  const keepDlg =
+    keepOpen &&
+    p.shared &&
+    createPortal(
+      <SavePreset
+        params={{ ...p.shared.params, seed: p.shared.seed ?? params.seed }}
+        endYear={p.shared.endYear}
+        initial={{ name: p.shared.name, withSeed: p.shared.seed !== undefined }}
+        onSaved={() => setKept(true)}
+        onClose={() => setKeepOpen(false)}
+      />,
+      document.body,
+    );
   const presetRow = (
     <div className="ps-row nd-preset">
       <span className="ps-l">预设</span>
@@ -503,10 +568,21 @@ export function NewWorldDialog(p: NewWorldDialogProps) {
     </div>
   );
 
-  const startBtn = (
+  const startBtn = p.wait ? (
+    <button className="nd-btn b1 wait" data-act="dlg-start" aria-disabled="true">
+      <i className="spin nd-spin" aria-hidden="true" />
+      准备中
+    </button>
+  ) : (
     <button className="nd-btn b1" data-act={step === 1 ? 'dlg-next' : 'dlg-start'} disabled={step === 2 && !canStart} autoFocus onClick={() => (step === 1 ? next() : start())}>
       {step === 1 ? '下一步' : '开始'}
     </button>
+  );
+  /** 等地图程序时按钮旁边那一句 */
+  const waitSay = p.wait && (
+    <span className="nd-wait">
+      {p.wait.pct === null ? '地图程序还在下载，下好就自动开始' : `地图程序还在下载（${p.wait.pct}%），下好就自动开始`}
+    </span>
   );
   const file = (
     <input
@@ -525,14 +601,14 @@ export function NewWorldDialog(p: NewWorldDialogProps) {
   return (
     <div className="nd-scrim" onPointerDown={stop} onClick={p.onCancel} onDragOver={onDragOver} onDragLeave={() => setOver(false)} onDrop={onDrop} onWheel={stop}>
       {p.phone ? (
-        <div className="nd-psheet" role="dialog" aria-modal="true" aria-label={title} data-step={step} data-mode={mode} onClick={stop}>
+        <div ref={sheetRef} className="nd-psheet" role="dialog" aria-modal="true" aria-label={title} data-step={step} data-mode={mode} onClick={stop}>
           <div className="nd-pnav">
             {step === 1 ? (
               <button className="nd-pl" data-act="dlg-cancel" onClick={p.onCancel}>
                 取消
               </button>
             ) : (
-              <button className="nd-pl" data-act="dlg-back" onClick={() => setStep(1)}>
+              <button className="nd-pl" data-act="dlg-back" disabled={waiting} onClick={() => setStep(1)}>
                 <Icon name="back" size={18} />
                 上一步
               </button>
@@ -546,16 +622,22 @@ export function NewWorldDialog(p: NewWorldDialogProps) {
               </button>
             )}
           </div>
+          {sharedBar}
           {step === 2 && presetRow}
           <div className="nd-pbody">
             {step === 1 && <p className="nd-sub">{sub}</p>}
             {step === 1 ? cards : paramsBody}
           </div>
-          <div className="nd-pfoot">{startBtn}</div>
+          <div className="nd-pfoot">
+            {waitSay}
+            {startBtn}
+          </div>
           {file}
+          {keepDlg}
         </div>
       ) : (
         <div
+          ref={sheetRef}
           className={`nd-sheet${step === 2 ? ' tall' : ''}`}
           role="dialog"
           aria-modal="true"
@@ -568,7 +650,7 @@ export function NewWorldDialog(p: NewWorldDialogProps) {
             <h2 id="nd-title">{title}</h2>
             <span className="nd-step">第 {step} 步，共 2 步</span>
           </div>
-          <p className="nd-sub">{sub}</p>
+          {sharedBar || <p className="nd-sub">{sub}</p>}
           {step === 1 ? (
             cards
           ) : (
@@ -582,15 +664,16 @@ export function NewWorldDialog(p: NewWorldDialogProps) {
             <button className="nd-btn b2" data-act="dlg-cancel" onClick={p.onCancel}>
               取消
             </button>
-            <span className="nd-sp" />
+            {waitSay || <span className="nd-sp" />}
             {step === 2 && (
-              <button className="nd-btn b2" data-act="dlg-back" onClick={() => setStep(1)}>
+              <button className="nd-btn b2" data-act="dlg-back" disabled={waiting} onClick={() => setStep(1)}>
                 上一步
               </button>
             )}
             {startBtn}
           </div>
           {file}
+          {keepDlg}
         </div>
       )}
     </div>

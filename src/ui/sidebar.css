@@ -365,6 +365,10 @@ a.sb-row {
   border-radius: 3.5px;
   flex: none;
 }
+/* 民族一组的色块:放在和国旗(21px)一样宽的位置,族名和上面一组的国名对齐 */
+.sb-sw.as-flag {
+  margin: 0 4.5px;
+}
 .sb-ico {
   color: var(--accent);
   flex: none;
@@ -534,6 +538,113 @@ a.sb-row {
   font-size: 11.5px;
   color: var(--ink-3);
   user-select: text;
+}
+/* 版本号下面的备案号(VersionNews.tsx 的 VersionMenuFoot):和版本号一样的小字,一个号一行 */
+.pm-foot.pm-beian {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding-top: 0;
+  padding-bottom: 4px;
+}
+.pm-beian a {
+  color: inherit;
+  text-decoration: none;
+}
+.pm-beian a:hover {
+  color: var(--ink-2);
+  text-decoration: underline;
+}
+
+/* 「更多」菜单里「播放画面」那一行和点开的卡片(PlayQualityMenu.tsx) */
+.pq-row .pq-chev {
+  color: var(--ink-3);
+  margin-left: -4px;
+}
+.pm-item.pq-row:hover .pq-chev {
+  color: inherit;
+  opacity: 0.85;
+}
+.pm-menu.pm-panel:has(> .pq) {
+  width: 304px;
+}
+.psheet .pm-menu.pm-panel:has(> .pq) {
+  width: 318px;
+}
+.pq {
+  padding: 5px;
+  white-space: normal;
+}
+.pq-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 4px 6px;
+}
+.pq-head b {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.pq-back {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink-2);
+}
+.pq-opt {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  width: 100%;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+}
+/* 触屏点过以后不留着悬停的底色 */
+@media (hover: hover) {
+  .pq-back:hover,
+  .pq-opt:hover {
+    background: var(--hover-bg);
+  }
+}
+.pq-opt .icon {
+  flex: none;
+  margin-top: 2px;
+  color: var(--accent);
+  visibility: hidden;
+}
+.pq-opt.on .icon {
+  visibility: visible;
+}
+.pq-opt span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.pq-opt b {
+  font-size: 14px;
+  font-weight: 400;
+}
+.pq-opt small {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--ink-2);
+}
+.pq-foot {
+  padding: 4px 9px 5px 34px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--ink-3);
 }
 
 /* ==== 时代 / 物产图层的列表(Sidebar.tsx 的 WorldHome、ResourceList;手机世界卡片共用) ==== */

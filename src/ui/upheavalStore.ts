@@ -11,6 +11,7 @@ import type { TerrainOp, Upheaval } from '../gen/edits';
 import { TERRAIN_MAX_PTS, UPHEAVAL_OPS_MAX, UPHEAVAL_YEARS, nearLon } from '../gen/terrainEdits';
 import type { UpheavalPreview } from '../gen/civ/upheaval';
 import type { IconName } from './icons';
+import { pausePlayback, playFrom } from './civView';
 
 /** 三种大事 = 三种地形修改(火山、抬起陆地、沉成海),挪到半路发生 */
 export type UpKind = 'volcano' | 'raise' | 'sink';
@@ -117,6 +118,16 @@ export function clearUpOps() {
 function addOp(op: TerrainOp) {
   if (ui.ops.length >= UPHEAVAL_OPS_MAX) return;
   put({ ...ui, ops: [...ui.ops, op] });
+}
+
+/**
+ * 重推好的历史换上去以后时间轴怎么走(App 在干预、地形大事重推完时调,读档等不提示的那种不调):
+ * 卡片关着 = 从生效年份 year 起按 1× 接着放;卡片开着 = 用的人正盯着卡片,时间轴不动、停下播放
+ * (卡片上的年份跟着时间轴,不跳走,已经放好的几笔还算在原来那一年;想看再自己点播放)
+ */
+export function timelineAfterResim(year: number) {
+  if (ui.on) pausePlayback();
+  else playFrom(year);
 }
 
 /** 卡片上的年份:时间轴那一年(取整),夹在 UPHEAVAL_YEARS 和结束年份之前 */
@@ -227,15 +238,18 @@ export function useUpPreview(): UpPreviewState {
   );
 }
 
-/** App 登记的:把一次预览发给后台线程(pid = 第几次;year = 哪一年;ops = 这几笔) */
-type Runner = (pid: number, year: number, ops: TerrainOp[]) => void;
+/**
+ * App 登记的:把一次预览发给后台线程(pid = 第几次;year = 哪一年;ops = 这几笔;
+ * ups = 那一年的地形按哪几件大事算 —— 和预览的键是同一份,结果记在这个键下才对得上)
+ */
+type Runner = (pid: number, year: number, ops: TerrainOp[], ups: readonly Upheaval[] | undefined) => void;
 let runner: Runner | null = null;
 export function setUpRunner(f: Runner | null) {
   runner = f;
 }
 
-/** 要看 sig(几笔 + 那一年在第几段)这一次的结果:已经有了 / 正在算就不再发 */
-export function requestUpPreview(sig: string, year: number, ops: TerrainOp[]) {
+/** 要看 sig(几笔 + 那一年在第几段;按 ups 这几件大事算的)这一次的结果:已经有了 / 正在算就不再发 */
+export function requestUpPreview(sig: string, year: number, ops: TerrainOp[], ups: readonly Upheaval[] | undefined) {
   if (!ops.length) {
     if (pv.sig || pv.result) setPv({ sig: '', busy: false, result: null });
     return;
@@ -243,7 +257,7 @@ export function requestUpPreview(sig: string, year: number, ops: TerrainOp[]) {
   if (sig === pv.sig) return;
   if (pv.result?.sig === sig) return setPv({ ...pv, sig, busy: false });
   setPv({ ...pv, sig, busy: true });
-  runner?.(++pid, year, ops);
+  runner?.(++pid, year, ops, ups);
 }
 
 /** 后台线程算好了:是最新的一次才收 */

@@ -8,6 +8,8 @@
  *   推完:面板留着、回到信息页;选对象时缩回了整张图的,地图飞回这个国家(App 从生效年份接着放,提示"…,已从 X 年起重新推演"带撤销)。
  * - 平时选中国家(或这国的人物):国都画一个直径 24 的主色圆环,旁边写"竹影城（国都）" —— 默认写在圆环下面,压着地图上的字(国名、城名、地名)
  *   就换到上面 / 右边 / 左边……挑一处不压字的(地图停稳了再挑,拖动、飞行时跟着圆环走)。
+ * - 天灾页的预览(地图上涂出受灾的州,civView 的一直亮着的高亮):那一片旁边一块白底橙字的小牌子"翼门之野一带 8 州"。
+ * - 从大纲点一条过来看:那件事在哪立一块小牌子(OutlineMap.tsx 的 PlotPin)。
  * - 名牌、圆环每帧按"世界坐标 → 屏幕坐标"重新摆(平移、缩放、左右无限拖动、弯边投影、地球仪都对;转到球背面的不显示);
  *   名牌互相压着时,小国的先让开或藏起来。
  */
@@ -16,8 +18,8 @@ import type { Civ } from '../gen/civ/types';
 import type { World } from '../gen/world';
 import { capitalAt, polityAlive } from '../gen/civ/growth';
 import { ownersAt } from '../gen/civ/timeline';
-import { getSelection, useCivTime, useSelection } from './civView';
-import { getPolityPick, nameAt, setPickHover, setPolityPick, usePickHover, usePolityPick } from './Interventions';
+import { getSelection, useCivHighlight, useCivTime, useSelection } from './civView';
+import { finishPick, getPolityPick, nameAt, setPickHover, setPolityPick, usePickHover, usePolityPick } from './Interventions';
 import { endRun, getPanel, requestFly, setPanelTab, setSheet, usePanel } from './panelStore';
 import { clearToast, showToast } from './toastStore';
 import { isCoarse } from './device';
@@ -28,6 +30,7 @@ import type { LabelPick } from './mapPick';
 import './countryPanel.css';
 import { spaced, yearSpanAt } from '../gen/era';
 import { currentEra } from './editsStore';
+import { PlotPin } from './OutlineMap';
 
 const rgb = (c: readonly number[]) => `rgb(${c.join(',')})`;
 
@@ -37,8 +40,8 @@ export interface TargetLayerProps {
   /** App 的"世界坐标 → 屏幕坐标"(平面地图 / 地球仪;算不出、在球背面 = null) */
   toClient: MutableRefObject<WorldToClient | null>;
   /** 正在后台重推历史(干预列表变了):从哪一年起 */
-  /** 正在重推:从哪一年起变、推到哪一年(不给 = 这份历史的结束年份) */
-  resim: { year: number; end?: number } | null;
+  /** 正在重推:从哪一年起变、推到哪一年(不给 = 这份历史的结束年份);text = 提示条上换一句话(切支线时写切到哪一支) */
+  resim: { year: number; end?: number; text?: string } | null;
   /** 正在生成世界(它的进度条优先) */
   generating: boolean;
   /** 屏幕上这一点压着地图上的哪个字 / 城镇符号(平面地图:文字层;地球仪:球上的文字);国都旁的字躲开它们 */
@@ -51,6 +54,8 @@ interface Plate {
   id: number;
   text: string;
   note: string;
+  /** 后面多一个小字(方针选亲、仇时的"仇 ✓""亲") */
+  mark?: string;
   color: string;
   /** 本国 / 现在的国都:主色底 */
   self: boolean;
@@ -154,6 +159,9 @@ export function TargetLayer({ civ, world, toClient, resim, generating, labelAt }
   const sel = useMemo(() => mapTarget(civ, picked), [civ, picked]);
   const t = useCivTime();
   const ok = !!civ && civ.viable;
+  // 天灾页的预览:受灾那一片旁边的小牌子
+  const hl = useCivHighlight();
+  const tag = ok && !run && hl?.steady && hl.tag && hl.tag.cell >= 0 && hl.tag.cell < world.mesh.n ? hl.tag : null;
 
   // ---- 名牌:选目标时 = 可选的对象(+ 本国);推演中 = 本国 + 对象 ----
   const plates = useMemo((): Plate[] => {
@@ -184,8 +192,8 @@ export function TargetLayer({ civ, world, toClient, resim, generating, labelAt }
       const p = civ.polities[id];
       const a = anchors.get(id);
       if (!p || !a) return;
-      const note = self ? '本国' : pick?.near?.has(id) ? '相邻' : '';
-      out.push({ key: `p${id}`, kind: 'polity', id, text: nameAt(p, year), note, color: rgb(p.color), self, rank: self ? -1 : -a.n, x: a.x, y: a.y });
+      const note = self ? (pick?.selfNote ?? '本国') : pick?.near?.has(id) ? '相邻' : '';
+      out.push({ key: `p${id}`, kind: 'polity', id, text: nameAt(p, year), note, mark: pick?.marks?.get(id), color: rgb(p.color), self, rank: self ? -1 : -a.n, x: a.x, y: a.y });
     };
     if (pick) {
       if (pick.self !== undefined) add(pick.self, true);
@@ -292,7 +300,7 @@ export function TargetLayer({ civ, world, toClient, resim, generating, labelAt }
     const was = prevPick.current;
     prevPick.current = pick;
     if (!was && pick) {
-      if (pick.target !== 'settlement') requestFly('home');
+      if ((pick.target ?? 'polity') === 'polity') requestFly('home');
     } else if (was && !pick && !getPanel().run && getSelection().sel) requestFly('sel');
   }, [pick]);
 
@@ -304,8 +312,8 @@ export function TargetLayer({ civ, world, toClient, resim, generating, labelAt }
         kind: 'info',
         text: pick.msg ?? pick.prompt,
         more: [pick.msg ? pick.prompt : (pick.sub ?? '')].filter(Boolean),
-        // 触屏上没有 Esc 键
-        action: { label: isCoarse() ? '取消' : '取消 · Esc', onClick: () => setPolityPick(null) },
+        // 触屏上没有 Esc 键;另加的按钮(大纲圈州的「好了」)放在「取消」前面
+        actions: [...(pick.actions ?? []), { label: isCoarse() ? '取消' : '取消 · Esc', onClick: () => setPolityPick(null) }],
       });
     else clearToast('pick');
   }, [pick, resim, generating]);
@@ -323,7 +331,7 @@ export function TargetLayer({ civ, world, toClient, resim, generating, labelAt }
     const show = () => {
       if (!generating) {
         const f = Math.min(0.94, (performance.now() - t0) / expect);
-        showToast({ id: 'resim', kind: 'progress', text: `正在重新推演${spaced(yearSpanAt(Math.max(0, Math.floor(resim.year)), Math.floor(endYear), currentEra()))}`, progress: f });
+        showToast({ id: 'resim', kind: 'progress', text: resim.text ?? `正在重新推演${spaced(yearSpanAt(Math.max(0, Math.floor(resim.year)), Math.floor(endYear), currentEra()))}`, progress: f });
       }
       timer = window.setTimeout(show, 60);
     };
@@ -366,8 +374,7 @@ export function TargetLayer({ civ, world, toClient, resim, generating, labelAt }
   const choose = (id: number) => {
     const pk = getPolityPick();
     if (!pk) return;
-    const err = pk.accept(id);
-    setPolityPick(err ? { ...pk, msg: err } : null);
+    finishPick(pk, pk.accept(id));
   };
 
   const dim = !!pick || !!run;
@@ -384,18 +391,19 @@ export function TargetLayer({ civ, world, toClient, resim, generating, labelAt }
                 if (el) plateEls.current.set(p.key, el);
                 else plateEls.current.delete(p.key);
               }}
-              className={`tp-plate${p.self ? ' self' : ''}${!p.self && (hover === p.id || run?.target?.id === p.id) ? ' on' : ''}`}
+              className={`tp-plate${p.self ? ' self' : ''}${!p.self && (hover === p.id || run?.target?.id === p.id || pick?.on?.has(p.id)) ? ' on' : ''}`}
               data-kind={p.kind}
               data-id={p.id}
               style={{ visibility: 'hidden' }}
-              disabled={!pick || p.self}
-              onPointerEnter={() => pick && !p.self && setPickHover(p.id)}
+              disabled={!pick || (p.self && !pick.selfPick)}
+              onPointerEnter={() => pick && (!p.self || pick.selfPick) && setPickHover(p.id)}
               onPointerLeave={() => pick && setPickHover(-1)}
-              onClick={() => !p.self && choose(p.id)}
+              onClick={() => (!p.self || pick?.selfPick) && choose(p.id)}
             >
               <i className="tp-sw" style={{ background: p.color }} />
               <span className="tp-name">{p.text}</span>
               {p.note && <span className="tp-note">{p.note}</span>}
+              {p.mark && <span className="tp-note">{p.mark}</span>}
             </button>
           ))}
         </div>
@@ -408,7 +416,33 @@ export function TargetLayer({ civ, world, toClient, resim, generating, labelAt }
           </span>
         </div>
       )}
+      {tag && <MapTag text={tag.text} x={world.mesh.x[tag.cell]} y={world.mesh.y[tag.cell]} toClient={toClient} />}
+      {!pick && <PlotPin civ={civ} world={world} toClient={toClient} />}
     </>
+  );
+}
+
+/** 天灾页的预览:受灾那一片旁边的小牌子("翼门之野一带 8 州"),摆在那个地块下面一点,每帧跟着地图走(转到球背面的不显示) */
+function MapTag({ text, x, y, toClient }: { text: string; x: number; y: number; toClient: MutableRefObject<WorldToClient | null> }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    let raf = 0;
+    const tick = () => {
+      const el = ref.current;
+      const at = toClient.current?.(x, y) ?? null;
+      if (el) {
+        el.style.visibility = at ? '' : 'hidden';
+        if (at) el.style.transform = `translate(${Math.round(at[0] - el.offsetWidth / 2)}px, ${Math.round(at[1] + 16)}px)`;
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [x, y, toClient]);
+  return (
+    <div ref={ref} className="tp-tag" style={{ visibility: 'hidden' }} aria-hidden="true">
+      {text}
+    </div>
   );
 }
 

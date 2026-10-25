@@ -96,6 +96,7 @@ export function Act({
   act,
   ain,
   disabled,
+  pressed,
   title,
   onClick,
 }: {
@@ -106,11 +107,13 @@ export function Act({
   /** 名字由来 / AI 起名的按钮(data-ain) */
   ain?: string;
   disabled?: boolean;
+  /** 开关一类的按钮:按下了(人物卡的「关注他 / 不关注」);不给 = 不是开关 */
+  pressed?: boolean;
   title?: string;
   onClick: () => void;
 }) {
   return (
-    <button className={`cp-act${primary ? ' primary' : ''}`} data-act={act} data-ain={ain} disabled={disabled} title={title} onClick={onClick}>
+    <button className={`cp-act${primary ? ' primary' : ''}${pressed ? ' on' : ''}`} data-act={act} data-ain={ain} disabled={disabled} aria-pressed={pressed} title={title} onClick={onClick}>
       <Icon name={icon} size={19} />
       <span>{children}</span>
     </button>
@@ -508,15 +511,17 @@ export function YearStepper({ yi, then }: { yi: YearInput; then?: string }) {
   );
 }
 
-/** 一行年份步进:−100 −10 [年份] +10(wide 再多一个 +100);label = 输入框的无障碍名 */
-export function YearRow({ yi, label, wide }: { yi: YearInput; label: string; wide?: boolean }) {
+/** 一行年份步进:−100 −10 [年份] +10(wide 再多一个 +100;short = 不要 −100);label = 输入框的无障碍名;after = 最后接一句小字 */
+export function YearRow({ yi, label, wide, short, after }: { yi: YearInput; label: string; wide?: boolean; short?: boolean; after?: ReactNode }) {
   const { text, pre, era, setText, flipPre, tidy, y, lo, hi, nudge } = yi;
   const id = useId();
   return (
     <div className="cp-from-row">
-      <button className="cp-step" onClick={() => nudge(-100)} disabled={y <= lo}>
-        −100
-      </button>
+      {!short && (
+        <button className="cp-step" onClick={() => nudge(-100)} disabled={y <= lo}>
+          −100
+        </button>
+      )}
       <button className="cp-step" onClick={() => nudge(-10)} disabled={y <= lo}>
         −10
       </button>
@@ -542,6 +547,7 @@ export function YearRow({ yi, label, wide }: { yi: YearInput; label: string; wid
           +100
         </button>
       )}
+      {after}
     </div>
   );
 }

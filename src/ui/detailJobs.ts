@@ -8,11 +8,23 @@
  * 每一层同一时间最多一份活,新的顶掉旧的;几层的活都备好了才一起画 —— 地形和文明的细节层同时换上,
  * 手绘风文明色块给符号"让位"的遮罩和地形的符号对得上。
  *
+ * 没有显卡加速的机器上(paintInParts),画在藏着的那张上的活也分几下(见 render/common.ts 的 DrawPart):浏览器在一个任务结束时
+ * 才把这个任务里画的真正画出来,没有显卡加速时这一下在主线程上(一大张手绘细节层要几百毫秒),画了一下就结束这一段,
+ * 下一下放到下一段,不让几下攒在一起画。有显卡加速时这一下在显卡上画、不占主线程,照旧一口气画
+ * (分几次交给显卡,个别像素的抗锯齿会差一点,不分)。
+ *
  * 开关:地址里带 detail=sync 就不分帧(和以前一样,当下画完);默认分帧
  */
 import type { WorkStep } from '../render/common';
+import { noGpu } from './device';
 
 export type { WorkStep };
+
+/**
+ * 交给这里的一步:同 WorkStep(返回 true = 还没做完),另外画了一下的一步返回 'painted'(这一步做完了)/
+ * 'painting'(还没画完,下一段接着画):这一段到此为止
+ */
+export type JobStep = (deadline: number) => boolean | void | 'painted' | 'painting';
 
 /** 分帧开着没有(页面打开时读一次地址) */
 export const detailAsync: boolean = (() => {
@@ -22,6 +34,21 @@ export const detailAsync: boolean = (() => {
     return true;
   }
 })();
+
+/**
+ * 细节层画在藏着的那张上时分不分几下画(见文件头):没有显卡加速(device.ts 的 noGpu)就分。页面上第一次要用时试一次;地址带 detail=parts 总是分(测试用)
+ */
+export function paintInParts(): boolean {
+  if (inParts === null) {
+    try {
+      inParts = new URLSearchParams(location.search).get('detail') === 'parts' || noGpu();
+    } catch {
+      inParts = false;
+    }
+  }
+  return inParts;
+}
+let inParts: boolean | null = null;
 
 /** 一段做多少毫秒就让出主线程(一帧 16.7 毫秒,留一半给浏览器画画面、处理输入) */
 const SLICE = 8;
@@ -33,10 +60,12 @@ export interface JobStats {
 }
 
 interface Job {
-  steps: WorkStep[];
+  steps: JobStep[];
   i: number;
   commit: (st: JobStats) => void;
   stats: JobStats;
+  /** 自己备好就交(不等别的层,见 submitDetailJob) */
+  alone: boolean;
 }
 
 const jobs = new Map<string, Job>();
@@ -68,10 +97,12 @@ function kick() {
 
 /**
  * 交一份活:owner 是哪一层(同一层的旧活作废);steps 依次做,做完一步才做下一步;
- * 所有在等的活都备好了,依次调各自的 commit(在同一个任务里)
+ * 所有在等的活都备好了,依次调各自的 commit(在同一个任务里)。
+ * alone = 和细节层换上的时机无关的活(换上新的历史时文明层的备料):和别的活一起分段做,自己备好就交,不等别的层
+ * (拖动、飞过去的时候细节层的活一直在换新的,一起等就要等到停下来)
  */
-export function submitDetailJob(owner: string, steps: WorkStep[], commit: (st: JobStats) => void): void {
-  jobs.set(owner, { steps, i: 0, commit, stats: { prep: 0, slices: 0 } });
+export function submitDetailJob(owner: string, steps: JobStep[], commit: (st: JobStats) => void, o: { alone?: boolean } = {}): void {
+  jobs.set(owner, { steps, i: 0, commit, stats: { prep: 0, slices: 0 }, alone: !!o.alone });
   kick();
 }
 
@@ -121,33 +152,50 @@ function run() {
 }
 
 /** 做到 deadline;都备好了就一起画,没备好就等下一段 */
+/** 这一段先做 alone 的活还是先做细节层的(一段一换:谁都不会因为排在后面一直轮不到) */
+let aloneFirst = false;
+
 function step(deadline: number) {
+  aloneFirst = !aloneFirst;
+  const order = [...jobs.values()].sort((a, b) => (a.alone === b.alone ? 0 : a.alone === aloneFirst ? -1 : 1));
+  let cur: Job | null = null;
+  /** 画了一下:这一段到此为止(当下做完的那种不停) */
+  let painted = false;
   try {
-    for (const job of jobs.values()) {
+    for (const job of order) {
       if (job.i >= job.steps.length) continue;
+      cur = job;
       const t0 = performance.now();
       job.stats.slices++;
       while (job.i < job.steps.length) {
-        if (job.steps[job.i](deadline) !== true) job.i++;
-        if (performance.now() >= deadline) break;
+        const r = job.steps[job.i](deadline);
+        if (r !== true && r !== 'painting') job.i++;
+        painted = (r === 'painted' || r === 'painting') && deadline !== Infinity;
+        if (painted || performance.now() >= deadline) break;
       }
       job.stats.prep += performance.now() - t0;
-      if (performance.now() >= deadline) break;
+      if (painted || performance.now() >= deadline) break;
     }
   } catch (e) {
-    // 备料出错:这一批都不画了(各层下次重画时重新交活),错误照常报出去
-    jobs.clear();
+    // 备料出错:这一批都不画了(各层下次重画时重新交活),错误照常报出去;别的 alone 活和这一批无关,照常接着做
+    for (const [owner, job] of [...jobs]) if (!job.alone || job === cur) jobs.delete(owner);
+    if (jobs.size) kick();
     throw e;
   }
-  for (const job of jobs.values()) {
-    if (job.i < job.steps.length) {
-      kick();
-      return;
-    }
+  // 自己备好就交的
+  for (const [owner, job] of [...jobs]) {
+    if (!job.alone || job.i < job.steps.length) continue;
+    jobs.delete(owner);
+    job.commit(job.stats);
   }
-  const all = [...jobs.values()];
-  jobs.clear();
-  for (const job of all) job.commit(job.stats);
+  // 别的层:都备好了才一起画(还没备好的 alone 活不拦着它们)
+  const layers = [...jobs].filter(([, job]) => !job.alone);
+  const ready = layers.every(([, job]) => job.i >= job.steps.length);
+  if (ready) {
+    for (const [owner] of layers) jobs.delete(owner);
+    for (const [, job] of layers) job.commit(job.stats);
+  }
+  if (jobs.size) kick();
 }
 
 /**
@@ -191,6 +239,8 @@ export class DetailBuffer {
       this.drop();
       return null;
     }
+    // 上回分几下画、画到一半作废的:裁剪之类压在画法状态栈里的撤掉(栈空了 restore 什么也不做)
+    for (let i = 0; i < 8; i++) ctx.restore();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, w, h);
     return ctx;

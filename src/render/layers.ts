@@ -5,7 +5,7 @@ import { BIOMES } from '../gen/biomes';
 import { latitudeAt, windAt } from '../gen/climate';
 import { CLIMATE_CLASSES, CLIMATE_WATER, climateClasses } from '../gen/koppen';
 import { geometryOf } from '../gen/geometry';
-import { bakedView, drawRivers, hexRGB, hillshade, mix, ramp, rowCos, wrapOf, wrapShifts, type RGB } from './common';
+import { bakedView, drawRivers, hexRGB, hillshade, mix, ramp, rowCos, wrapOf, wrapShifts, type RGB, type WorkStep } from './common';
 
 export type LayerId = 'plates' | 'elevation' | 'temperature' | 'precipitation' | 'currents' | 'biomes' | 'climate';
 
@@ -138,20 +138,126 @@ function plateColor(k: number): RGB {
   return [f(0), f(8), f(4)];
 }
 
+/**
+ * 后台分小步画好、还没用上的一张(见 prepareLayer):下一次 renderLayer 画同一张主图、同一个图层到同样大、没有变换的画布上时
+ * 直接贴上(整张不透明,画布贴画布和当场画逐像素一样),贴完就丢。只留一张
+ */
+let prepared: { raster: Raster; layer: LayerId; canvas: HTMLCanvasElement | OffscreenCanvas } | null = null;
+
+/**
+ * 分小步把整张图层画到 canvas 上(和 renderLayer 一口气画逐像素一样),画完留着给下一次 renderLayer 直接贴上
+ * (图层缩略图用:涂一笔以后不在主线程上一口气画一两百毫秒)。换了一张要画的,上一张没用上的就丢掉
+ */
+export function prepareLayer(canvas: HTMLCanvasElement | OffscreenCanvas, world: World, r: Raster, layer: LayerId): WorkStep[] {
+  const ctx = canvas.getContext('2d') as CanvasRenderingContext2D;
+  return [
+    ...renderLayerSteps(ctx, world, r, layer),
+    () => {
+      dropPreparedLayer();
+      prepared = { raster: r, layer, canvas };
+    },
+  ];
+}
+
+/** 这张主图的这个图层有没有准备好、还没用上的一张 */
+export function hasPreparedLayer(r: Raster, layer: LayerId): boolean {
+  return prepared?.raster === r && prepared.layer === layer;
+}
+
+/** 准备好的那张不要了(已经有别的画好的,用不上) */
+export function dropPreparedLayer(): void {
+  if (prepared) prepared.canvas.width = prepared.canvas.height = 0;
+  prepared = null;
+}
+
+/** 逐像素上色一步做多少个像素(十几毫秒的活) */
+const LAYER_BAND_PX = 400000;
+
 export function renderLayer(ctx: CanvasRenderingContext2D, world: World, r: Raster, layer: LayerId) {
-  const { w, h, elev, water, temp, precip, biome, cell } = r;
-  const shade = hillshade(r, 0.01, 0.2);
+  const p = prepared;
+  if (p && p.raster === r && p.layer === layer && ctx.canvas.width === r.w && ctx.canvas.height === r.h && ctx.getTransform().isIdentity) {
+    prepared = null;
+    ctx.drawImage(p.canvas, 0, 0);
+    p.canvas.width = p.canvas.height = 0;
+    return;
+  }
+  for (const s of renderLayerSteps(ctx, world, r, layer)) while (s(Infinity) === true);
+}
+
+/**
+ * 逐像素上色用的整张像素缓冲(主图那么大,8 MB):几张图层接连画(涂一笔以后的图层缩略图)时接着用同一块,
+ * 不是每张都新开一块、等着回收。只弱引用着:浏览器回收内存时照样收走,下次再开。
+ * 每条带子写完马上贴上画布、整张每个像素都会写到,接着用不会带出上一张的颜色
+ */
+let pixelBuf: WeakRef<ImageData> | null = null;
+function pixelImage(ctx: CanvasRenderingContext2D, w: number, h: number): ImageData {
+  const hit = pixelBuf?.deref();
+  if (hit && hit.width === w && hit.height === h) return hit;
   const img = ctx.createImageData(w, h);
-  const d = img.data;
+  pixelBuf = typeof WeakRef === 'undefined' ? null : new WeakRef(img);
+  return img;
+}
+
+/** renderLayer 分成几步:晕渲、逐像素上色(一步一条带子)、叠加的箭头 / 河 / 风 / 洋流 */
+function renderLayerSteps(ctx: CanvasRenderingContext2D, world: World, r: Raster, layer: LayerId): WorkStep[] {
+  const { w, h } = r;
+  let shade: Float32Array | null = null;
+  let img: ImageData | null = null;
+  let sst: Float32Array | null = null;
+  let cls: Uint8Array | null = null;
+  let y = 0;
+  const rows = Math.max(1, Math.floor(LAYER_BAND_PX / w));
+  return [
+    () => {
+      shade = layerShade(r);
+      img = pixelImage(ctx, w, h);
+    },
+    () => {
+      sst = layer === 'currents' ? currentSst(world, r) : null;
+      cls = layer === 'climate' ? climateClassesOf(r) : null;
+    },
+    () => {
+      const y1 = Math.min(h, y + rows);
+      layerPixels(world, r, layer, shade!, sst, cls, img!.data, y * w, y1 * w);
+      ctx.putImageData(img!, 0, 0, 0, y, w, y1 - y);
+      y = y1;
+      return y < h;
+    },
+    () => {
+      if (layer === 'plates') drawPlateOverlay(ctx, world, r.scale);
+      if (layer === 'elevation' || layer === 'precipitation')
+        drawRivers(ctx, world.rivers, { ...bakedView(r.scale), wrap: wrapOf(world) }, world.riverThreshold, {
+          color: 'rgba(30,70,140,0.85)',
+          minW: 0.4,
+          maxW: 2.2,
+          fluxRef: 900,
+        });
+      if (layer === 'precipitation') drawWind(ctx, world, r.scale);
+      if (layer === 'currents') drawCurrents(ctx, world, r.scale);
+    },
+  ];
+}
+
+/** 数据图层共用的晕渲(各图层一样;每张主图算一次,涂一笔以后几个图层接连画不用各算一遍) */
+const shadeCache = new WeakMap<Raster, Float32Array>();
+function layerShade(r: Raster): Float32Array {
+  let s = shadeCache.get(r);
+  if (!s) shadeCache.set(r, (s = hillshade(r, 0.01, 0.2)));
+  return s;
+}
+
+/** 像素 k0 .. k1 − 1 上色,写进 d(RGBA) */
+function layerPixels(world: World, r: Raster, layer: LayerId, shade: Float32Array, sst: Float32Array | null, cls: Uint8Array | null, d: Uint8ClampedArray, k0: number, k1: number): void {
+  const { elev, water, temp, precip, biome, cell } = r;
   const { plate, plateContinental } = world.tect;
-  const sst = layer === 'currents' ? currentSst(world, r) : null;
-  const cls = layer === 'climate' ? climateClassesOf(r) : null;
-  for (let k = 0; k < w * h; k++) {
+  /** 各板块的颜色(每个板块算一次) */
+  const plateRGB: RGB[] = [];
+  for (let k = k0; k < k1; k++) {
     let c: RGB;
     switch (layer) {
       case 'plates': {
         const p = plate[cell[k]];
-        c = plateColor(p);
+        c = plateRGB[p] ??= plateColor(p);
         if (!plateContinental[p]) c = mix(c, [40, 60, 90], 0.45);
         if (water[k] !== 0) c = mix(c, [20, 40, 70], 0.2);
         break;
@@ -184,18 +290,6 @@ export function renderLayer(ctx: CanvasRenderingContext2D, world: World, r: Rast
     d[k * 4 + 2] = c[2] * f;
     d[k * 4 + 3] = 255;
   }
-  ctx.putImageData(img, 0, 0);
-
-  if (layer === 'plates') drawPlateOverlay(ctx, world, r.scale);
-  if (layer === 'elevation' || layer === 'precipitation')
-    drawRivers(ctx, world.rivers, { ...bakedView(r.scale), wrap: wrapOf(world) }, world.riverThreshold, {
-      color: 'rgba(30,70,140,0.85)',
-      minW: 0.4,
-      maxW: 2.2,
-      fluxRef: 900,
-    });
-  if (layer === 'precipitation') drawWind(ctx, world, r.scale);
-  if (layer === 'currents') drawCurrents(ctx, world, r.scale);
 }
 
 /**

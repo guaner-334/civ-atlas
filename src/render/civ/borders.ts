@@ -25,7 +25,7 @@ import type { Civ } from '../../gen/civ/types';
 import { Layer } from '../../gen/civ/types';
 import { logIndexAfter, ownersAt, type Owners } from '../../gen/civ/timeline';
 import { tiedPair, vassalTies } from './vassals';
-import { nearX, valueNoise, wrapShifts } from '../common';
+import { nearX, valueNoise, wrapShifts, type WorkStep } from '../common';
 import { addToPath, chaikin, cullLines, meshWrap, sphereMean, xRange } from './lines';
 import type { CivDrawParams } from './overlay';
 import { projectLinePts, type Projector } from '../projection';
@@ -229,13 +229,15 @@ export function traceChains(mesh: Mesh, label: ArrayLike<number>): RegionChains 
   };
 }
 
-const chainCache = new WeakMap<Civ, RegionChains>();
+const chainCache = new WeakMap<Civ['regions'], { mesh: Mesh; chains: RegionChains }>();
 
-/** 州界的链(按 civ 缓存) */
+/** 州界的链(只看州的划分:按州缓存,换上新的历史时沿用同一份州就不用重算) */
 export function regionChains(mesh: Mesh, civ: Civ): RegionChains {
-  let c = chainCache.get(civ);
-  if (!c) chainCache.set(civ, (c = traceChains(mesh, civ.regions.of)));
-  return c;
+  const hit = chainCache.get(civ.regions);
+  if (hit && hit.mesh === mesh) return hit.chains;
+  const chains = traceChains(mesh, civ.regions.of);
+  chainCache.set(civ.regions, { mesh, chains });
+  return chains;
 }
 
 // ---------------------------------------------------------------------------
@@ -519,10 +521,14 @@ export function borderLines(p: CivDrawParams, layer: Layer): SidedLine[] {
   const ck = `${layer}|${fantasy ? 1 : 0}`;
   const hit = c.byKey.get(ck);
   if (hit && hit.key === key && hit.raster === p.raster) return hit.lines;
+  // 存档缩略图(结束那一年)的另存一份,不挤掉主图那一年的
+  const sk = p.thumb ? `${ck}|thumb` : ck;
+  const own2 = p.thumb ? c.byKey.get(sk) : undefined;
+  if (own2 && own2.key === key && own2.raster === p.raster) return own2.lines;
   const own = ownersAt(civ, p.year, c.owners);
   const owner = layer === Layer.Culture ? own.culture : own.polity;
   const lines = mergeChains(regionChains(world.mesh, civ), owner).map((l) => finish(toCoast(l, world.mesh, p.raster, civ.regions.of, owner), fantasy));
-  c.byKey.set(ck, { key, raster: p.raster, lines });
+  c.byKey.set(sk, { key, raster: p.raster, lines });
   return lines;
 }
 
@@ -535,7 +541,27 @@ interface BandScratch {
   stamp: Int32Array;
   s: number;
 }
+/**
+ * 草稿数组按大小留一份(整图那么大时三个加起来 20 MB):连着画(播放、拖时间轴)时接着用,不每次新开。
+ * 闲了 BAND_IDLE_MS 没再用就放掉,下次用时再开一份(新开的 stamp 全是 0,只读本次打过记号的格子,和接着用的结果一样)
+ */
 const bandScratch = new Map<number, BandScratch>();
+const BAND_IDLE_MS = 5000;
+let bandIdle: ReturnType<typeof setTimeout> | undefined;
+
+function bandScratchOf(N: number): BandScratch {
+  clearTimeout(bandIdle);
+  bandIdle = setTimeout(() => bandScratch.clear(), BAND_IDLE_MS);
+  // Node(单测、压力测试)里不让这个计时器拖住进程
+  (bandIdle as unknown as { unref?: () => void }).unref?.();
+  let sc = bandScratch.get(N);
+  if (!sc) bandScratch.set(N, (sc = newScratch(N)));
+  return sc;
+}
+
+function newScratch(N: number): BandScratch {
+  return { best: new Float32Array(N), lab: new Int16Array(N), stamp: new Int32Array(N), s: 0 };
+}
 
 /** 按原样保留(线的断头外面) */
 const KEEP = -32768;
@@ -559,18 +585,83 @@ export function bandLabels(
   /** 工作分辨率:1 = 这个像素的州是从邻块借来的;海岸断头附近这样的像素按 WEAK_BAND 判 */
   weak: Uint8Array | null = null,
 ): void {
-  const N = W * H;
-  let sc = bandScratch.get(N);
-  if (!sc) bandScratch.set(N, (sc = { best: new Float32Array(N), lab: new Int16Array(N), stamp: new Int32Array(N), s: 0 }));
-  const st = ++sc.s;
-  const { best, lab, stamp } = sc;
+  const r = bandRun(label, W, H, f, scale, wrap, weak);
+  for (const l of lines) bandLine(r, l);
+  bandFinish(r);
+}
+
+/**
+ * 和 bandLabels 一样,分段做(一条线一条线地判,到 deadline 就停,下一次接着判;判完才改写 label)。
+ * 草稿数组是按大小共用的:中途别处用过了这份草稿(同步判了一次,或者另一份分段在判 —— 比如存档缩略图和换上新的历史同时在备),
+ * 就改用自己的一份草稿、从第一条线重新判(两份分段的活轮流抢同一份,会谁都判不完)—— 结果和一口气判完逐位一样
+ */
+export function bandLabelsStep(
+  label: Int16Array,
+  W: number,
+  H: number,
+  f: number,
+  scale: number,
+  lines: () => SidedLine[],
+  wrap: number,
+  weak: () => Uint8Array | null,
+): WorkStep {
+  let r: BandRun | null = null;
+  /** 自己的一份草稿(共用的那份中途被别处用过以后才开) */
+  let own: BandScratch | null = null;
+  let i = 0;
+  return (deadline) => {
+    const ls = lines();
+    if (r && !own && (bandScratchOf(W * H) !== r.sc || r.sc.s !== r.st)) {
+      own = newScratch(W * H);
+      r = null;
+    }
+    if (!r) {
+      r = bandRun(label, W, H, f, scale, wrap, weak(), own ?? bandScratchOf(W * H));
+      i = 0;
+    }
+    while (i < ls.length) {
+      bandLine(r, ls[i++]);
+      if (performance.now() >= deadline) break;
+    }
+    if (i < ls.length) return true;
+    bandFinish(r);
+    return false;
+  };
+}
+
+interface BandRun {
+  label: Int16Array;
+  W: number;
+  H: number;
+  f: number;
+  scale: number;
+  wrap: number;
+  weak: Uint8Array | null;
+  sc: BandScratch;
+  st: number;
+  touched: number[];
+}
+
+function bandRun(label: Int16Array, W: number, H: number, f: number, scale: number, wrap: number, weak: Uint8Array | null, sc = bandScratchOf(W * H)): BandRun {
+  return { label, W, H, f, scale, wrap, weak, sc, st: ++sc.s, touched: [] };
+}
+
+function bandFinish(r: BandRun): void {
+  const { label, touched } = r;
+  const { lab } = r.sc;
+  for (const k of touched) if (lab[k] !== KEEP) label[k] = lab[k];
+}
+
+/** 按一条界线判它两旁 BAND 以内的像素(记进草稿:离哪条线最近、判成哪一侧) */
+function bandLine(r: BandRun, l: SidedLine): void {
+  const { label, W, H, f, scale, wrap, weak, st, touched } = r;
+  const { best, lab, stamp } = r.sc;
   const off = (f >> 1) + 0.5;
   const band = BAND * scale;
   const band2 = band * band;
   const wide = WEAK_BAND * scale;
   const wide2 = wide * wide;
-  const touched: number[] = [];
-  for (const l of lines) {
+  {
     const p = l.pts;
     const m = p.length / 2;
     // 海岸断头附近的几段(沿线离断头 COAST_SPAN 以内):借来州的像素放宽范围 —— 接到岸线上的那一截线旁边,
@@ -668,7 +759,6 @@ export function bandLabels(
       }
     }
   }
-  for (const k of touched) if (lab[k] !== KEEP) label[k] = lab[k];
 }
 
 /** 海岸断头附近放宽范围的那一截:沿线离断头多远以内(世界单位,够盖住接到岸线上的那一截) */

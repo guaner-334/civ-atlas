@@ -8,7 +8,8 @@
  *   挑的时候点地图:城镇符号、城名 = 那座城,陆地 = 那一州,海上 = 那一点(App 按 pickPlace 交过来);顶部提示条能取消(Esc)
  */
 import { useSyncExternalStore } from 'react';
-import { MARK_COLORS, type MarkColor } from '../gen/edits';
+import type { RulerLeanings } from '../gen/civ/types';
+import { MARK_COLORS, type Intervention, type MarkColor } from '../gen/edits';
 import {
   CHARACTERS_MAX,
   CHAR_NAME_DEFAULT,
@@ -64,6 +65,8 @@ export interface CharDraft {
   note: string;
   life: LifeEntry[];
   kin: KinEntry[];
+  /** 性格(没动过 = null:存的时候不写,四项都按 50 算) */
+  leanings: RulerLeanings | null;
   /** 正在填的小表:一段经历 / 一个亲友 */
   sub: { kind: 'life'; d: LifeDraft } | { kind: 'kin'; d: KinDraft } | null;
 }
@@ -114,10 +117,11 @@ export function parseYear(text: string, era = getEdits().era): number | null {
 // ---- 新建 / 编辑 ----
 
 /**
- * 新建一个(还没存):生年先填时间轴当前那年;birthplace = 城、州卡片「在这里加人物」;kin = 推演人物卡片「加一个和他有关的人物」。
+ * 新建一个(还没存):生年先填 year(一般是时间轴当前那年);birthplace = 城、州卡片「在这里加人物」;kin = 推演人物卡片「加一个和他有关的人物」;
+ * polity = 国家干预页「立作者的人物为君主」里没有人、点「新建人物」(国家先填好)。
  * 没有出生地时直接开始挑出生地。选中它,卡片换成填写的样子
  */
-export function newCharacterDraft(init: { birthplace?: Where; kin?: KinEntry[]; year: number }) {
+export function newCharacterDraft(init: { birthplace?: Where; kin?: KinEntry[]; polity?: string; year: number }) {
   const used = new Set((getEdits().characters ?? []).map((c) => c.color));
   const color = MARK_COLORS.find((c) => !used.has(c)) ?? MARK_COLORS[(getEdits().characters?.length ?? 0) % MARK_COLORS.length];
   set({
@@ -128,11 +132,12 @@ export function newCharacterDraft(init: { birthplace?: Where; kin?: KinEntry[]; 
       bornText: yearText(init.year),
       diedText: '',
       birthplace: init.birthplace ?? null,
-      polity: null,
+      polity: init.polity ?? null,
       role: '',
       note: '',
       life: [],
       kin: init.kin ?? [],
+      leanings: null,
       sub: null,
     },
     picking: init.birthplace ? null : 'birth',
@@ -155,6 +160,7 @@ export function editCharacterDraft(c: AuthorCharacter) {
       note: c.note ?? '',
       life: (c.life ?? []).map((e) => ({ ...e })),
       kin: (c.kin ?? []).map((k) => ({ ...k })),
+      leanings: c.leanings ? { ...c.leanings } : null,
       sub: null,
     },
     picking: null,
@@ -193,7 +199,14 @@ export function draftCharacterData(d: CharDraft): Omit<AuthorCharacter, 'id'> | 
   if (d.note.trim()) c.note = d.note;
   if (d.life.length) c.life = d.life.map((e) => ({ ...e }));
   if (d.kin.length) c.kin = d.kin.map((k) => ({ ...k }));
+  if (d.leanings) c.leanings = { ...d.leanings };
   return c;
+}
+
+/** 编辑已有的人物 old:存下去会是什么样(卡片上换过的头像不在填的表里,原样留着);填得不合格 = null */
+export function draftEdited(d: CharDraft, old: AuthorCharacter): AuthorCharacter | null {
+  const c = draftCharacterData(d);
+  return c ? { ...c, id: old.id, ...(old.portrait !== undefined ? { portrait: old.portrait } : {}) } : null;
 }
 
 /** 正在填的画成的样子(地图上的足迹、卡片上的年龄用;年份没填好按 fallback 年算) */
@@ -213,21 +226,23 @@ export function draftAsCharacter(d: CharDraft, fallback: number): AuthorCharacte
     note: d.note,
     life: d.life,
     kin: d.kin,
+    leanings: d.leanings ?? undefined,
   };
   return { ...(cleanCharacter(raw) ?? { id: raw.id, name: raw.name, color: d.color, born: b }), id: d.id };
 }
 
 /** 「完成」:存进修改(新建 = 加一个,编辑 = 换掉原来的),选中它、卡片换回看的样子。返回人物的编号;存不了 = −1 */
-export function finishDraft(): number {
+export function finishDraft(ivs?: Intervention[]): number {
   const d = state.draft;
   const c = d && draftCharacterData(d);
   if (!d || !c) return -1;
   let id = d.id;
   const old = getEdits().characters?.find((x) => x.id === id);
   if (id === 0) id = addCharacter(c);
-  // 卡片上换过的头像(portrait)不在填的表里,原样留着
-  else if (old) updateCharacter({ ...c, id, ...(old.portrait !== undefined ? { portrait: old.portrait } : {}) });
-  else id = addCharacter(c);
+  // 卡片上换过的头像(portrait)不在填的表里,原样留着;ivs = 他的即位跟着改(干预列表一起换,见 crownInfo.ts 的 crownEditAsk)
+  else if (old) {
+    if (!updateCharacter(draftEdited(d, old)!, ivs) && ivs) return -1;
+  } else id = addCharacter(c);
   set({ draft: null, picking: null });
   if (id > 0) setSelection({ kind: 'character', id });
   return id;

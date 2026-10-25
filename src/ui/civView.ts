@@ -3,28 +3,77 @@
  * 放在这里而不是 App.tsx 里,这样以后加开关 / 时间轴时只改文明自己的文件。
  *
  * 网址参数(截图脚本用):
- *   civ=habitat,regions,sites,routes,cultures,polities,faiths,eras,resources,wars,plague   直接打开对应显示;前面加减号是关掉,
- *                                               如 civ=-labels 关掉默认打开的地名、civ=-wars 关掉默认打开的战事
+ *   civ=habitat,regions,sites,routes,cultures,polities,faiths,eras,control,resources,wars,plague   直接打开对应显示;前面加减号是关掉,
+ *                                               如 civ=-labels 关掉默认打开的地名、civ=-wars 关掉默认打开的战事;
+ *                                               「地图上写」国名、族名、教名、时代名按填色各记各的:civ=polityNames.cultures(民族填色上写国名)、
+ *                                               civ=-polityNames.polities(国家填色上不写)、civ=cultureNames.polities(国家填色上写族名)、
+ *                                               civ=-cultureNames.cultures(民族填色上不写族名)、civ=faithNames.polities(国家填色上写教名)、
+ *                                               civ=-eraNames.eras(时代填色上不写时代名);不带填色 = 网址里那种填色的
  *   civYear=1200                                时间轴停在第 1200 年(不给 = 结束年份);给了就不自动播放
  *   chron=1 / chron=all                         打开世界概览的编年史页(1 = 只看大事,all = 全部)
  *   play=0 / play=1                             打开网页时不自动播放 / 自动播放
  *                                               (不给:自动播放;无头浏览器(截图、冒烟检查)里默认不播,画面才固定)
  */
 import { useSyncExternalStore } from 'react';
-import { CIV_SHOW_DEFAULT, type CivShow } from '../render/civ/overlay';
+import { CIV_FILLS, CIV_NAME_KINDS, CIV_SHOW_DEFAULT, civFillOf, namesDefault, type CivFill, type CivNameKind, type CivShow } from '../render/civ/show';
+import { mapViewFromUrl } from './mapLayers';
+import { navUrl } from './nav';
 import type { ChronicleEntry } from '../gen/civ/chronicle';
 
+/** 网址 civ= 里「地图上写」的那几项(国名 polityNames、族名 cultureNames、教名 faithNames、时代名 eraNames),后面可以跟 .填色 */
+const NAME_KEY: Record<CivNameKind, string> = { polities: 'polityNames', cultures: 'cultureNames', faiths: 'faithNames', eras: 'eraNames' };
+const NAME_TOKEN = new RegExp(`^(${CIV_NAME_KINDS.map((k) => NAME_KEY[k]).join('|')})(\\.(${CIV_FILLS.join('|')}))?$`);
+const kindOfKey = (key: string): CivNameKind => CIV_NAME_KINDS.find((k) => NAME_KEY[k] === key) ?? 'polities';
+
 function fromUrl(): CivShow {
+  return typeof location === 'undefined' ? { ...CIV_SHOW_DEFAULT } : civShowFromQuery(new URLSearchParams(location.search));
+}
+
+/** 网址里的 civ=(见文件头)→ 文明层开关;底图 / 填色由 App 按 map=、fill= 另外设 */
+export function civShowFromQuery(q: URLSearchParams): CivShow {
   const s: CivShow = { ...CIV_SHOW_DEFAULT };
-  if (typeof location === 'undefined') return s;
-  const v = new URLSearchParams(location.search).get('civ');
+  const v = q.get('civ');
   if (!v) return s;
+  const names: string[] = [];
   for (const raw of v.split(/[,+ ]/)) {
     const off = raw.startsWith('-');
     const k = off ? raw.slice(1) : raw;
-    if (k in s) s[k as keyof CivShow] = !off;
+    if (NAME_TOKEN.test(k)) names.push(raw);
+    else if (k in s && k !== 'names') (s as unknown as Record<string, boolean>)[k] = !off;
+  }
+  // 「地图上写」:polityNames.cultures = 民族填色上写国名,-polityNames.polities = 国家填色上不写,族名(cultureNames)、教名(faithNames)、时代名(eraNames)同样;
+  // 不带填色的(polityNames / -cultureNames)算网址里那种填色的
+  if (names.length) {
+    const urlFill = mapViewFromUrl(q)?.fill ?? civFillOf(s);
+    const out: NonNullable<CivShow['names']> = {};
+    for (const raw of names) {
+      const off = raw.startsWith('-');
+      const [key, f] = (off ? raw.slice(1) : raw).split('.');
+      const fill: CivFill = f === undefined ? urlFill : (f as CivFill);
+      out[fill] = { ...out[fill], [kindOfKey(key)]: !off };
+    }
+    s.names = out;
   }
   return s;
+}
+
+/**
+ * 「地图上写」写进网址(civ= 里,只写和那种填色默认不一样的);刷新、分享出去看到的一样。
+ * 网址里没写底图、填色(默认的手绘 + 国家)时把现在的填色 fill 也写上:只有 civ= 的网址会按旧链接读(不写填色就成了不填)
+ */
+export function namesUrl(q: URLSearchParams, names: CivShow['names'], fill: CivFill): URLSearchParams {
+  const o = new URLSearchParams(q);
+  const rest = (o.get('civ') ?? '').split(/[,+ ]/).filter((k) => k && !NAME_TOKEN.test(k.replace(/^-/, '')));
+  for (const k of CIV_NAME_KINDS) {
+    for (const f of CIV_FILLS) {
+      const on = names?.[f]?.[k];
+      if (on !== undefined && on !== namesDefault(f)[k]) rest.push(`${on ? '' : '-'}${NAME_KEY[k]}.${f}`);
+    }
+  }
+  if (rest.length) o.set('civ', rest.join(','));
+  else o.delete('civ');
+  if (rest.length && !['map', 'fill', 'style', 'layer'].some((k) => o.has(k))) o.set('fill', fill);
+  return o;
 }
 
 function store<T>(init: T) {
@@ -69,6 +118,17 @@ export function setCivShow(patch: Partial<CivShow>) {
 
 export function useCivShow(): CivShow {
   return show.use();
+}
+
+/** 「地图上写」勾 / 不勾国名、族名、教名、时代名:记在现在这种填色上(每种填色各记各的),写进网址 */
+export function setNamesShown(kind: CivNameKind, on: boolean) {
+  const s = show.get();
+  const fill = civFillOf(s);
+  const names = { ...s.names, [fill]: { ...s.names?.[fill], [kind]: on } };
+  show.set({ names });
+  if (typeof location === 'undefined') return;
+  const next = `?${namesUrl(new URLSearchParams(location.search), names, fill)}`;
+  if (next !== location.search) navUrl(next);
 }
 
 // ---- 物产图层:只看哪一样、显示不显示还没发现的(侧栏列表改,地图上的圆章读) ----
@@ -131,12 +191,29 @@ export function useCivTime(): CivTime {
   return time.use();
 }
 
+/** 只看"这次播放是不是接着回放世界形成放的"(年份每帧都变时不跟着重新渲染) */
+export function useCivStory(): boolean {
+  return useSyncExternalStore(
+    time.subscribe,
+    () => time.get().story,
+    () => time.get().story,
+  );
+}
+
 /** 年份一变就调 f(不经过 React;回放时每帧都会调) */
 export function subscribeCivTime(f: (t: CivTime) => void): () => void {
   return time.subscribe(() => f(time.get()));
 }
 
-/** 从某一年起按 1× 播放(干预重推完,App 从生效年份接着放) */
+/**
+ * 时间一变就把 r.current.ver 加一(按版本号判断要不要重画的图层用),返回取消的函数。回调在这里建:
+ * 组件里建的一直挂着的回调会连带拉住挂上那一刻的世界、主图、历史,换了世界也放不掉
+ */
+export function bumpOnCivTime(r: { current: { ver: number } }): () => void {
+  return time.subscribe(() => void r.current.ver++);
+}
+
+/** 从某一年起按 1× 播放(干预重推完从生效年份接着放,见 upheavalStore.ts 的 timelineAfterResim;自动播放) */
 export function playFrom(year: number) {
   time.set({ year: Math.max(0, year), playing: true, scrubbing: false, story: false, speed: 1 });
 }
@@ -250,12 +327,17 @@ export function toggleChroniclePolity(id: number) {
 /**
  * 地图高亮(点编年史的一条):事发的州(浓)、相关国家那一年的国土(淡),闪约两秒。
  * stamp 每次点都不同 —— 同一条点两次也重新闪、重新把地图平移过去。
+ * steady = 不闪、一直亮着,直到换掉或清掉(天灾页先把受灾的州涂出来,DisasterPage.tsx;天灾推完提示条开着时淡淡涂着,faint);
+ * tag = 地图上那一片旁边的小牌子("翼门之野一带 8 州"),摆在地块 cell 下面(TargetPlates.tsx)
  */
 export interface CivHighlightState {
   regions: number[];
   polities: number[];
   year: number;
   stamp: number;
+  steady?: boolean;
+  faint?: boolean;
+  tag?: { text: string; cell: number };
 }
 
 const highlight = store<{ h: CivHighlightState | null }>({ h: null });
@@ -278,14 +360,15 @@ export function useCivHighlight(): CivHighlightState | null {
 const pick = store<{ entry: ChronicleEntry | null; stamp: number }>({ entry: null, stamp: 0 });
 
 /**
- * 点编年史的一条:时间轴跳到那一年并暂停,填色换成国家(宗教大事:正在信仰填色上就留着;时代的:正在时代填色上就留着;物产等叠加开关不动),地图上闪烁高亮事发地
+ * 点编年史的一条:时间轴跳到那一年并暂停,填色换成国家(宗教大事:正在信仰填色上就留着;时代的:正在时代填色上就留着;割据、收回、抗命:正在管辖填色上就留着;物产等叠加开关不动),地图上闪烁高亮事发地
  * (事发地不在视野里时 App 把地图平移过去);编年史面板里这一条标成选中(战争自动展开,不在视野里就滚过去)。
  */
 export function pickChronicleEntry(e: ChronicleEntry) {
   setCivTime({ year: e.year, playing: false, scrubbing: false, story: false });
   const s = getCivShow();
-  if ((e.kind === 'faith' && s.faiths) || (e.kind === 'era' && s.eras)) setCivShow({ polities: true });
-  else setCivShow({ polities: true, cultures: false, faiths: false, eras: false });
+  if ((e.kind === 'faith' && s.faiths) || (e.kind === 'era' && s.eras) || ((e.kind === 'warlord' || e.kind === 'reclaim' || e.kind === 'defy') && s.control))
+    setCivShow({ polities: true });
+  else setCivShow({ polities: true, cultures: false, faiths: false, eras: false, control: false });
   setCivHighlight({ regions: e.regions, polities: e.polities, year: e.year });
   pick.set({ entry: e, stamp: pick.get().stamp + 1 });
 }
@@ -332,7 +415,14 @@ export function getSelection(): SelectionState {
 }
 
 /** 选中一个东西;side 不给 = 面板留在原来那一边。选中新的东西(看详情)时暂停播放 */
+/** 选中前换一个目标(App.tsx 设:推演里作者的人物当的君主 → 打开作者的人物卡) */
+let redirect: ((sel: MapSelection) => MapSelection) | null = null;
+export function setSelectionRedirect(f: ((sel: MapSelection) => MapSelection) | null) {
+  redirect = f;
+}
+
 export function setSelection(sel: MapSelection | null, side?: 'left' | 'right') {
+  if (sel && redirect) sel = redirect(sel);
   if (sel && !sameSelection(sel, selection.get().sel)) pausePlayback();
   selection.set(side ? { sel, side } : { sel });
 }

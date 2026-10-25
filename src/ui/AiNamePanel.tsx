@@ -28,12 +28,14 @@ import {
   explainNoteKey,
   explainRequest,
   explainScan,
+  explainTooLong,
   isMockReply,
   mockSuggestions,
   nameInfo,
   nameMaterial,
-  nameStamp,
+  noteStale,
   parseSuggestions,
+  shortenRequest,
   suggestRequest,
   suggestionEdit,
   suggestionPreview,
@@ -51,6 +53,8 @@ interface NameNote extends AiNote {
   name?: string;
   shown?: string;
   stamp?: string;
+  /** 写释名时"沿岸的港口"列了哪些城(地块 + 建城年);老笔记没有 */
+  portStamp?: string;
 }
 
 interface Err {
@@ -196,7 +200,7 @@ export function useAiName({ civ, raw, raster, target, compact, lazy, what }: AiN
   const world = worldId(civ);
   const note = getNote(world, explainNoteKey(key)) as NameNote | undefined;
   const renamed = !!note && typeof note.name === 'string' && note.name !== info.name;
-  const rewritten = !!note && typeof note.stamp === 'string' && note.stamp !== nameStamp(civ, target);
+  const rewritten = !!note && noteStale(civ, target, note, raster);
 
   const start = () => {
     ctl.current?.abort();
@@ -216,8 +220,19 @@ export function useAiName({ civ, raw, raster, target, compact, lazy, what }: AiN
       const req = explainRequest(m);
       const r = await aiChat(req, { signal: c.signal, onDelta: (_, full) => patch(k, { live: full }) });
       // 扫一遍现实里的词(真实的语言、典籍、人物……),命中的句子让 AI 改一次
-      const text = await fixRealWords(cleanExplanation(r.text), { ...explainScan(m), feature: req.feature, title: req.title, signal: c.signal });
+      const scan = { ...explainScan(m), feature: req.feature, title: req.title, signal: c.signal };
+      let text = await fixRealWords(cleanExplanation(r.text), scan);
       if (!text) throw new AiError('bad-response', 'AI 没有写出内容,再试一次');
+      // 写超了字数:让 AI 压一次(压不成就留着原文);压出来的再扫一遍现实里的词
+      if (explainTooLong(text)) {
+        try {
+          const short = cleanExplanation((await aiChat(shortenRequest(text, m), { signal: c.signal })).text);
+          const s = short ? await fixRealWords(short, scan) : '';
+          if (s && s.length < text.length) text = s;
+        } catch (e) {
+          if (e instanceof AiError && e.code === 'aborted') throw e;
+        }
+      }
       const saved: NameNote = {
         key: explainNoteKey(k),
         kind: '释名',
@@ -229,6 +244,7 @@ export function useAiName({ civ, raw, raster, target, compact, lazy, what }: AiN
         name: m.info.name,
         shown: m.info.shown,
         stamp: m.stamp,
+        portStamp: m.portStamp,
       };
       putNote(world, saved);
       patch(k, { writing: false, live: '' });

@@ -8,7 +8,7 @@ import type { World } from '../gen/world';
 import type { Raster } from '../gen/raster';
 import { computeContours, drawContours, type ContourKind, type ContourSet } from '../render/contours';
 import type { MapProj } from '../render/projection';
-import { mapBoxOf, placeOnScreen, visibleBox } from './mapWrap';
+import { mapBoxOf, placeOnScreen, visibleBox, watchMapBox } from './mapWrap';
 import { mapTextBoxes } from './mapPick';
 import { useAvoidBoxes } from './uiAvoid';
 
@@ -41,13 +41,7 @@ export function ContourLayer({
   const ui = useAvoidBoxes(ref);
   // 地图框大小变了(窗口缩放)、地名重新排过,都要重画(数字躲地名)
   const [tick, setTick] = useState(0);
-  useEffect(() => {
-    const box = mapBoxOf(ref.current);
-    if (!box || typeof ResizeObserver === 'undefined') return;
-    const ro = new ResizeObserver(() => setTick((t) => t + 1));
-    ro.observe(box);
-    return () => ro.disconnect();
-  }, []);
+  useEffect(() => watchMapBox(ref.current, setTick), []);
   const textVer = useRef(-1);
   useEffect(() => {
     const t = setInterval(() => {

@@ -150,9 +150,10 @@ export interface Settlement {
   capitalSpans?: { from: Year; until?: Year; polity: number }[];
   /**
    * 阶段 3 城市兴衰:被洗劫(按先后)。loss = 当时人口折损的比例(0..1),之后按 SACK_RECOVER 年慢慢恢复(见 growth.ts)。
-   * 饥荒(unrest.ts)、瘟疫(plague.ts)也记在这里(cause = famine / plague):人口一样掉一截、慢慢长回来
+   * 饥荒(unrest.ts)、瘟疫(plague.ts)也记在这里(cause = famine / plague):人口一样掉一截、慢慢长回来;
+   * 作者下的天灾(干预 disaster,disaster.ts)里饥荒记 famine、瘟疫记 plague、地震水旱记 quake
    */
-  sacks?: { year: Year; loss: number; cause?: 'famine' | 'plague' }[];
+  sacks?: { year: Year; loss: number; cause?: 'famine' | 'plague' | 'quake' }[];
   /**
    * 阶段 3 城市兴衰:这座城是在哪座被毁的城(Settlement id)的故址上重建的(同一州、同一地块)。
    * 同族重建沿用旧名;换了民族的另起新名。不是重建的 = 不给
@@ -302,6 +303,9 @@ export interface Place {
  * | revolt    | 民变:饥民起事、立了新势力(紧跟着记原来的国家讨伐它的那场 war,cause = quell) | 起事立的新国家 | 原来的国家 | 起事的州 | 新国都 | −1 |
  * | collapse  | 大崩解:大国一下子散成几块(紧跟着记各块自立的 split,cause = collapse;散回部落的州不另记,日志原因 Ev.Collapse) | 国家 | 怎么崩:0 = 中央崩(各地自立)、1 = 地方崩(诸州残破,发展度掉)、2 = 两样都崩(散回部落) | 国都所在州 | 国都 | **散出去几块**(借用这一列;散回部落 = 散出去的州数) |
  * | plague    | 瘟疫(plague.ts):这一年疫传到一国治下的几州(各城的折损见 Settlement.sacks 里 cause = plague 的那一条;部落地带不记)。同一场瘟疫的第一条是起疫的那城;大瘟疫 cause = great | 国家 | 这一年染疫的州数 | 死得最多的州 | 那州的城 | **第几场瘟疫**(借用这一列) |
+ * | warlord   | 割据(control.ts):中央管不到的地方拥兵自重,名义上仍归这国(国界、归属不变) | 国家 | −1 | 割据的那座城所在的州 | 那座城 | **地盘有几州**(借用这一列) |
+ * | reclaim   | 收回割据(control.ts):中央重新管住了那一带 | 国家 | −1 | 割据的那座城所在的州 | 那座城 | **割据了几年**(借用这一列) |
+ * | defy      | 抗命不出兵(control.ts):开战点兵时,割据的地方拥兵不出 | 国家 | 和它交战的国家 | 割据的那座城所在的州 | 那座城 | 那场战争 |
  *
  * 洗劫、毁城和那一次攻占同一刻,记在那条 conquer **前面**(conquer、被迫迁都、灭亡照旧紧挨着,编年史里排回攻占后面)。
  * 议和割让的州也各记一条 conquer(a = 得到的一方,b = 割出的一方),连着记在那条 peace 前面,条数记在 peace 的 region 列。
@@ -314,11 +318,20 @@ export interface Place {
  *   立国:a = 新国家(**−1 = 州里没人住,没立成**),b = 原主(新国从哪国分出来;−1 = 部落地带),region = 州,settlement = 新国都
  *   迁都:a = 国家,b = 城所在州此刻的主人(**= a 才迁得成**;−1 = 部落地带;−2 = 城已毁),region / settlement = 那座城所在州 / 那座城
  *     (新历史里还没有这座城 = −1 / −1)
+ *   即位:a = 国家,b = −1(**即位了**)/ −2(这个人物那一年还没出生,没即位)/ −3(那一年这国已亡,没即位),
+ *     region / settlement = A 当时的国都所在州 / 国都(作者的君主见 Civ.people 里 author 是那个人物、即位年份是这一年的那位)
  *   宣战的干预打成了,紧跟在它后面(同一刻)记一条 war;没有 = 没打成(两国不接壤 / 已在交战 / 有一方已亡)。
  *   结盟时两国正在交战、不许扩张的国家正在打它挑起的仗,紧跟着记议和(peace)。
  *   立国紧跟着记一条 found(新国家;编年史并进干预那一条),原主的国都在这州就再记原主迁都(capital,war = −1)或亡国(fall,b = 新国家);
  *   划州同样(原主迁都 / 亡国);迁都迁成了紧跟着记一条 capital(war = −1;编年史并进干预那一条)。
- *   国家 A 的键指不到(新历史里没有这国 / 那一刻还没立国)就不记(立国除外:立国一定记)。
+ *   方针:a = 国家,b = −1(定了)/ −3(那一年这国已亡)。
+ *   灭国:a = 国家,b = 并入的国家(−1 = 散成无主;−3 = 那一年这国已亡,没灭成;−7 = 那一刻有后下的"不许灭"护着,没灭成),
+ *     region / settlement = A 当时的国都所在州 / 国都;灭成了紧跟着记 fall(b 同上;散成无主 = −1)
+ *   即位(等此刻在位的那位下台再即位):下令那一年记 b = −6(登记了),真即位的那一刻另记一条 b = −1(同一条干预)
+ *   让人物去世 / 改君主倾向:a = 国家,b = −1(生效了)/ −3(那一年这国已亡)/ −4(此刻在位的不是他)/ −5(将领、名臣:推演里不管,
+ *     生没生效看人物的 killed),region / settlement = A 当时的国都所在州 / 国都
+ *   天灾:见 disaster.ts(b = 受灾的州数,瘟疫 1 = 起了一场新的 / 2 = 并进正在传的那一场,0 = 没生效);紧跟着记它引起的 plague / famine
+ *   国家 A 的键指不到(新历史里没有这国 / 那一刻还没立国)就不记(立国、天灾除外:立国一定记;天灾只有饥荒选的那国指不到时不记)。
  * battle(人物与战役,wars.ts 的战役):每一仗都算过胜负,打下来的记 conquer,没打下来的(攻方败退、守方反攻没夺回)记一条 battle;
  *   攻方从哪种边打过去记在 Annal.via。不改归属,只是让编年史写得出"某某之战"。
  * upheaval 之后紧跟着(同一刻)记这件大事的后果:sunk(没了的城,国都在前)、迁都(capital,war = −1)、亡国(fall,b = −2),
@@ -363,16 +376,19 @@ export type AnnalKind =
   | 'famine'
   | 'revolt'
   | 'collapse'
-  | 'plague';
+  | 'plague'
+  | 'warlord'
+  | 'reclaim'
+  | 'defy';
 
 /**
  * 战争的起因(史事 war 的 cause;阶段 4 干预的强制宣战不给)和盟约怎么断的(unally 的 cause):
  *   expand 争边地(没有别的由头)/ claim 收复故土(对方手里有原属本国的州)/ chaos 乘对方之乱(对方正和别国交兵、刚丢了国都、刚改朝换代)/
  *   prey 吞并小国 / betray 背盟来攻 / punish 讨伐自立的藩属 / ally 应盟国之约 / rescue 宗主救藩属 / quell 讨伐起事的饥民(民变);
- *   collapse:大崩解里自立的那几块(史事 split 的 cause);great:大瘟疫(史事 plague 的 cause);
+ *   collapse:大崩解里自立的那几块(史事 split 的 cause);warlord:割据的地方起兵自立(史事 split 的 cause,control.ts);great:大瘟疫(史事 plague 的 cause);
  *   lapse 盟约渐废 / abandon 坐视不救 / vassal 一方称臣
  */
-export type AnnalCause = 'expand' | 'claim' | 'chaos' | 'prey' | 'betray' | 'punish' | 'ally' | 'rescue' | 'lapse' | 'abandon' | 'vassal' | 'quell' | 'collapse' | 'great';
+export type AnnalCause = 'expand' | 'claim' | 'chaos' | 'prey' | 'resource' | 'betray' | 'punish' | 'ally' | 'rescue' | 'lapse' | 'abandon' | 'vassal' | 'quell' | 'collapse' | 'great' | 'quake' | 'warlord';
 
 /**
  * 一条史事(阶段 3):推演里各事件处理函数用 CivSim.record 往 Civ.annals 里记,编年史(界面上的事件列表)只读它。
@@ -392,6 +408,8 @@ export interface Annal {
   cause?: AnnalCause;
   /** 结盟(alliance)才有:共御的强邻(−1 = 没有) */
   foe?: number;
+  /** 干预灭国(intervene,灭成了)才有:亡时国土几州;为夺物产的宣战(war,由头 resource)才有:想要的物产(按位,下标见 development.ts 的 RESOURCES) */
+  n?: number;
 }
 
 /** 变化日志里的"哪一层" */
@@ -459,6 +477,11 @@ export interface Civ {
    * CivSim.fromCiv 接着推时要用
    */
   polityYears?: number;
+  /**
+   * 国都彼此至少隔几跳(polities.ts 的 capitalSpacing,按 CivParams.polities 定)。CivSim.fromCiv 接着推时要用;
+   * 没有(旧版本的历史)= 按"自动"的国家数重算
+   */
+  capSpacing?: number;
   /** 全世界统一的航海时代从哪一刻起(旧版本的历史;现在各国自己进,见 Polity.sail,这里是 Infinity。polities.ts 的 sailsOcean;接着推时沿用) */
   sailFrom?: Year;
   /** 拓荒设定(CivParams.frontier,清理过的;默认 = 不写)。CivSim.fromCiv 接着推时要用 */
@@ -468,6 +491,11 @@ export interface Civ {
    * 没有干预 = 不给。CivSim.fromCiv 接着推时默认带着它
    */
   interventions?: Intervention[];
+  /**
+   * 作者的人物叫什么(gen/characters.ts 的 applyCharacters 写入:人物编号 → 名字;只有带"即位"干预的历史才有)。
+   * 编年史写"某某即某国君位"、没即位成的原因时用;生成的 Civ 里没有
+   */
+  authorNames?: Record<number, string>;
   /**
    * 用户改过的州名(阶段 4,gen/edits.ts 的 applyNames 写入;下标 = 州编号,空串 = 用 regions.name)。
    * 不改 regions 本身:画国土、国界的缓存按 civ.regions 存,改州名不用重画
@@ -625,6 +653,12 @@ export interface Development {
   snaps: Uint8Array[];
   /** 每份快照的年份(递增;最后一份是结束那年) */
   snapYears: Year[];
+  /**
+   * 中央管到什么程度(control.ts):每 20 年一份,每份 = 州数个字节(0 = 不在国家里;1–101 = 1 + 管得到几成 × 100;200 = 割据)。
+   * 和 controlYears 一一对应;旧版本的历史没有
+   */
+  control?: Uint8Array[];
+  controlYears?: Year[];
   /** 按年份排好 */
   events: DevEvent[];
   /**
@@ -707,8 +741,18 @@ export interface Person {
   dynasty?: number;
   /** 君主:怎么即位的 */
   rise?: RulerRise;
-  /** 君主的倾向(扩张、好战、重商,各 0–100,见 rulers.ts;推演里扩张、议和、称臣、亲征看它);将领、宗室不给 */
+  /** 君主的倾向(扩张、好战、重商,各 0–100,见 rulers.ts;推演里扩张、议和、称臣、亲征看它);将领、宗室不给。作者改过的,这里是他原来的 */
   leanings?: RulerLeanings;
+  /** 作者改过他的倾向(干预"改君主倾向",按先后):year 那一年年初改的,下一刻起照 leanings;iv = 第几条干预。没改过 = 不给 */
+  moods?: { year: Year; leanings: RulerLeanings; iv: number }[];
+  /** 作者让他去世(干预"让人物去世"):第几条干预;卒年 = died。君主改了历史,将领、名臣只改人物(他后来该领的仗、该经手的事换了人) */
+  killed?: number;
+  /**
+   * 作者的人物(干预"即位"立的君主,见 gen/edits.ts):作者人物的编号(AuthorCharacter.id)。
+   * 这样的君主 name 是空串(界面按编号填上人物卡的名字,见 gen/characters.ts 的 applyCharacters)、born 照干预里写的、
+   * 不写 died(生死归人物卡管)、没有称号;别的人物不给
+   */
+  author?: number;
   /**
    * 君主的称号(去世以后才有;还在位 = 空串):东方 = 庙号("太祖""世宗")或谥号 + 爵("穆公""庄王",亡国之君"哀帝");
    * 西幻 = 同名君主的序数("三世")或"大帝"。称呼的写法见 peopleText.ts
@@ -770,10 +814,13 @@ export interface PersonCommand {
 /**
  * 人物的结局:
  * - 君主:died 寿终、murdered 遇弑、deposed 被权臣所废(改朝换代)、overthrown 新朝起兵、死于兵乱、
- *   fell 亡国殉国、surrendered 亡国出降、fled 亡国出奔(国家瓦解也算)、merged 国并入他国(归附)、retired 共和国执政官任满
+ *   fell 亡国殉国、surrendered 亡国出降、fled 亡国出奔(国家瓦解也算)、merged 国并入他国(归附)、retired 共和国执政官任满、
+ *   yielded 让位给作者立的君主(干预"即位")
+ *   作者立的君主(Person.author):到期下台写 retired(退位),在位时改朝换代写 deposed,亡国只写 surrendered / fled,
+ *   被后来作者立的君主取代写 yielded
  * - 统帅:died 寿终、battle 战死
  */
-export type PersonFate = 'died' | 'murdered' | 'deposed' | 'overthrown' | 'fell' | 'surrendered' | 'fled' | 'merged' | 'retired' | 'battle';
+export type PersonFate = 'died' | 'murdered' | 'deposed' | 'overthrown' | 'fell' | 'surrendered' | 'fled' | 'merged' | 'retired' | 'battle' | 'yielded';
 
 /**
  * 君主的倾向(rulers.ts):各 0–100,50 是寻常,越高越容易做对应的事 ——
@@ -787,8 +834,11 @@ export interface RulerLeanings {
   trade: number;
 }
 
-/** 君主怎么即位的:found 立国、rebel 叛离自立(分裂)、restore 复国(故国王室之后)、usurp 权臣篡位、rise 起兵代之(改朝换代)、heir 继位 */
-export type RulerRise = 'found' | 'rebel' | 'restore' | 'usurp' | 'rise' | 'heir';
+/**
+ * 君主怎么即位的:found 立国、rebel 叛离自立(分裂)、restore 复国(故国王室之后)、usurp 权臣篡位、rise 起兵代之(改朝换代)、heir 继位、
+ * crown 作者立的(干预"即位",Person.author 是那个人物)
+ */
+export type RulerRise = 'found' | 'rebel' | 'restore' | 'usurp' | 'rise' | 'heir' | 'crown';
 
 /**
  * 一颗星球(没改地形)定下的、改过地形的世界沿用的两个数(index.ts 的 planetTempo):
@@ -799,6 +849,22 @@ export interface PlanetTempo {
   spread: number;
   /** 城的人口上限按这个数折算(polities.ts 的 capacityNorm) */
   capNorm: number;
+}
+
+/**
+ * 推文明的底子:宜居度和州(index.ts 的 civBase;generateCiv 的头两步)。
+ * 只跟地形(world)、文明种子、每州目标面积有关,和干预、拓荒、起源、地名风格、推演年数……都无关:
+ * 调用方留着一份,改了这些重推时经 CivParams.base 传回去,省得每次重算
+ */
+export interface CivBase {
+  /** 按哪个世界算的(generateCiv 只在传进来的是同一个世界对象时用它) */
+  world: World;
+  /** 划州用的文明种子(CivParams.civSeed;没给 = 地图种子) */
+  seed: number;
+  /** 划州用的每州目标面积(CivParams.regionArea) */
+  regionArea: number;
+  habitat: Habitat;
+  regions: Regions;
 }
 
 export interface CivParams {
@@ -839,6 +905,16 @@ export interface CivParams {
    * 给了的是"在一张地图上新开的一段历史":改过地形的世界,扩张节拍和城的人口折算也按这张地图本身标定(不看 tempo,不另生成没改地形的星球)
    */
   civSeed?: number;
+  /**
+   * 预先算好的宜居度和州(index.ts 的 civBase):世界、文明种子、每州面积都对得上才用(用的是复制的一份,传进来的不改,
+   * 也不会出现在推出来的 Civ 里);对不上 / 不给 = 现算。用不用结果都逐字节一样,只省时间
+   */
+  base?: CivBase;
+  /**
+   * 改过地形的世界,山海湖岛的地名照没改过地形的同一颗星球起(index.ts 的 nameRefOf)。false = 不照着起:
+   * 照原样打开的旧版本世界,按现在的生成器生成的"没改过的星球"不一定是它原来那一颗。不给 = 照着起;没改过地形的世界不看它
+   */
+  placeRef?: false;
 }
 
 /**

@@ -11,6 +11,7 @@
  */
 import type { LayerId as DataLayer } from '../render/layers';
 import type { SurfaceLook } from '../render/surface';
+import { civFillOf, type CivFill } from '../render/civ/show';
 
 export type Style = 'realistic' | 'fantasy' | 'data';
 
@@ -93,8 +94,8 @@ export function layerOf(
 }
 
 /** 图层对应的文明层开关(换图层时整组设上) */
-export function layerShow(d: LayerDef): { polities: boolean; cultures: boolean; faiths: boolean; eras: boolean; resources: boolean } {
-  return { polities: d.polities, cultures: d.cultures, faiths: d.faiths, eras: !!d.eras, resources: !!d.resources };
+export function layerShow(d: LayerDef): { polities: boolean; cultures: boolean; faiths: boolean; eras: boolean; control: boolean; resources: boolean } {
+  return { polities: d.polities, cultures: d.cultures, faiths: d.faiths, eras: !!d.eras, control: false, resources: !!d.resources };
 }
 
 /** 图层用深色界面 */
@@ -122,7 +123,7 @@ export function layerFromUrl(q: URLSearchParams): MapLayer | null {
 //   物产 = 手绘 + 不填 + 物产,实景 = 卫星(经典)+ 不填,生态 / 高程…… = 对应数据底图 + 不填。
 
 /** 写实画法的名字(卫星的两种画法、地理图、白模) */
-export const LOOK_NAMES: Record<SurfaceLook, string> = { classic: '经典卫星', detail: '卫星', geo: '地理图', blank: '白模', simple: '简化卫星' };
+export const LOOK_NAMES: Record<SurfaceLook, string> = { classic: '经典卫星', detail: '卫星', geo: '地理图', geoMute: '地理图', blank: '白模', simple: '简化卫星' };
 
 /** 卫星的两种画法 */
 export type SatLook = 'classic' | 'detail' | 'simple';
@@ -138,7 +139,7 @@ export type BaseId = MainBase | DataLayer;
 export const MAIN_BASES: { id: MainBase; name: string; hint: string }[] = [
   { id: 'fantasy', name: '手绘', hint: '手绘地图的画法' },
   { id: 'satellite', name: '卫星', hint: '像从太空看：海面安静，陆地是自然色' },
-  { id: 'geo', name: '地理图', hint: '地区颜色分明，山脉、河流、海盆好认' },
+  { id: 'geo', name: '地理图', hint: '像地图册：按海拔分层上色，平原、高原、山地、海深一眼看出' },
   { id: 'blank', name: '白模', hint: '海陆平涂、不画起伏，像一张世界地图' },
 ];
 /** 数据底图(两行,四个一行) */
@@ -157,7 +158,13 @@ export function isBaseId(x: unknown): x is BaseId {
 export function baseOf(style: Style, data: DataLayer, look: SurfaceLook): BaseId {
   if (style === 'fantasy') return 'fantasy';
   if (style === 'data') return DATA_BASES.includes(data) ? data : 'biomes';
+  if (look === 'geoMute') return 'geo';
   return look === 'geo' || look === 'blank' ? look : 'satellite';
+}
+
+/** 地图上实际铺哪一份:地理图上叠了国家 / 民族 / 信仰 / 时代颜色时用褪色的那一份(颜色让给填色),别的照旧 */
+export function paintLook(look: SurfaceLook, fill: FillId): SurfaceLook {
+  return look === 'geo' && fill !== 'none' ? 'geoMute' : look;
 }
 
 /** 底图的名字(顶栏底图按钮上写的;卫星按画法写「经典卫星」或「卫星」) */
@@ -175,10 +182,10 @@ export function baseHint(base: BaseId, sat: SatLook): string {
   return m ? m.hint : `看一种数据：${layerDef(base as MapLayer).name}；国家颜色照样能叠上去`;
 }
 
-/** 底图用深色界面:卫星、地理图;数据底图里的高程、降水 */
+/** 底图用深色界面:卫星;数据底图里的高程、降水(地理图、白模、手绘底子浅,用浅色界面) */
 export function baseDark(base: BaseId): boolean {
-  if (base === 'satellite' || base === 'geo') return true;
-  if (base === 'fantasy' || base === 'blank') return false;
+  if (base === 'satellite') return true;
+  if (base === 'fantasy' || base === 'blank' || base === 'geo') return false;
   return layerDef(base as MapLayer).dark;
 }
 
@@ -190,7 +197,7 @@ export function baseLook(base: BaseId, sat: SatLook): { style: Style; data?: Dat
   return { style: 'data', data: base };
 }
 
-export type FillId = 'none' | 'polities' | 'cultures' | 'faiths' | 'eras';
+export type FillId = CivFill;
 
 export const FILLS: { id: FillId; name: string; hint: string }[] = [
   { id: 'none', name: '不填', hint: '只看底图，不铺颜色' },
@@ -198,27 +205,28 @@ export const FILLS: { id: FillId; name: string; hint: string }[] = [
   { id: 'cultures', name: '民族', hint: '各民族的颜色铺在底图上' },
   { id: 'faiths', name: '信仰', hint: '各信仰的颜色铺在底图上，留着国界' },
   { id: 'eras', name: '时代', hint: '各州按所处的时代上色，留着国界' },
+  { id: 'control', name: '管辖', hint: '各州按中央管得到几成上色，留着国界' },
 ];
 
 /** 数字键 1–4 换的填色(和以前的政区、民族、信仰同一个键;4 = 不填) */
 export const FILL_KEYS: FillId[] = ['polities', 'cultures', 'faiths', 'none'];
 
 export function isFillId(x: unknown): x is FillId {
-  return x === 'none' || x === 'polities' || x === 'cultures' || x === 'faiths' || x === 'eras';
+  return x === 'none' || x === 'polities' || x === 'cultures' || x === 'faiths' || x === 'eras' || x === 'control';
 }
 
-/** 文明层开关算哪种填色(先看信仰、时代,再看国家、再看民族) */
-export function fillOf(show: { polities: boolean; cultures: boolean; faiths?: boolean; eras?: boolean }): FillId {
-  if (show.faiths) return 'faiths';
-  if (show.eras) return 'eras';
-  if (show.polities) return 'polities';
-  if (show.cultures) return 'cultures';
-  return 'none';
-}
+/** 文明层开关算哪种填色(先看信仰、时代、管辖,再看国家、再看民族) */
+export const fillOf: (show: { polities: boolean; cultures: boolean; faiths?: boolean; eras?: boolean; control?: boolean }) => FillId = civFillOf;
 
-/** 填色对应的文明层开关(信仰、时代留着国界;不碰物产等叠加开关) */
-export function fillShow(id: FillId): { polities: boolean; cultures: boolean; faiths: boolean; eras: boolean } {
-  return { polities: id === 'polities' || id === 'faiths' || id === 'eras', cultures: id === 'cultures', faiths: id === 'faiths', eras: id === 'eras' };
+/** 填色对应的文明层开关(信仰、时代、管辖留着国界;不碰物产等叠加开关) */
+export function fillShow(id: FillId): { polities: boolean; cultures: boolean; faiths: boolean; eras: boolean; control: boolean } {
+  return {
+    polities: id === 'polities' || id === 'faiths' || id === 'eras' || id === 'control',
+    cultures: id === 'cultures',
+    faiths: id === 'faiths',
+    eras: id === 'eras',
+    control: id === 'control',
+  };
 }
 
 /** 旧图层名 → 底图 + 填色(实景按经典卫星;物产图层 = 手绘 + 不填,再开物产) */
@@ -257,14 +265,14 @@ export function mapViewFromUrl(q: URLSearchParams): MapView | null {
   return l ? layerParts(l) : null;
 }
 
-/** 写网址:map= / fill= / sat=(默认的手绘、国家省掉;卫星才写画法),去掉旧的 style=、layer= 和 civ= 里的国家 / 民族 / 信仰 / 时代 */
+/** 写网址:map= / fill= / sat=(默认的手绘、国家省掉;卫星才写画法),去掉旧的 style=、layer= 和 civ= 里的国家 / 民族 / 信仰 / 时代 / 管辖 */
 export function writeMapView(q: URLSearchParams, v: { base: BaseId; fill: FillId; sat: SatLook }): URLSearchParams {
   const o = new URLSearchParams(q);
   o.delete('style');
   o.delete('layer');
   const civ = o.get('civ');
   if (civ !== null) {
-    const rest = civ.split(/[,+ ]/).filter((k) => k && !/^-?(polities|cultures|faiths|eras)$/.test(k));
+    const rest = civ.split(/[,+ ]/).filter((k) => k && !/^-?(polities|cultures|faiths|eras|control)$/.test(k));
     if (rest.length) o.set('civ', rest.join(','));
     else o.delete('civ');
   }

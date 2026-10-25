@@ -39,7 +39,7 @@
  * - edits.nameMix(可选):整个世界的地名风格,每种语感占几份(edits.ts 文件头"地名风格"),`{ "xianxia": 6, "central": 4 }`;自动时不写。
  *   读档时过 cleanMix:认不出的语感(比如以后的新语感)、不是正数的份数去掉,提示一句;一份都不剩就按自动
  * - edits.endYear(可选):历史推到第几年(edits.ts 文件头"推演年数"),`12000`;3000 年时不写。
- *   读档时过 cleanEndYear:夹在 3000–60000、取整到千年;不是数字的按 3000,提示一句
+ *   读档时过 cleanEndYear:取整到年、夹在 1–60000(逐年推演存回的普通世界可以不到 3000 年;以前只有 3000 起的整千年,照旧读出同一个数);不是数字的按 3000,提示一句
  * - edits.frontier(可选):拓荒(edits.ts 文件头"拓荒与起源"、civ/frontier.ts),`{ "spread": 1.5, "expand": 2, "terrain": { "desert": 6 } }`;
  *   都是默认时不写。读档时过 cleanFrontier:吸到最近的一档,认不出的项去掉,提示一句
  * - edits.origins(可选):自己选的文明起源(同上),`{ "pts": [976, 342, 544, 448], "only": true }`;自动时不写。
@@ -53,18 +53,46 @@
  *   按第几年写时不写。读档时过 cleanEra:名字、元年不合格的按第几年写,提示一句
  * - edits.months(可选):一年几个月(edits.ts 文件头"月份"),`24`;只写年 `0`;一年 12 个月时不写。
  *   读档时过 cleanMonths:认不出的按 12 个月,提示一句
+ * - edits.play(可选):逐年推演的进度(edits.ts 文件头"逐年推演的进度"),`{ "year": 825, "commands": [{ "kind": "declare", "a": "polity:c4567#0", "b": "polity:c8123#0", "from": 825 }] }`;
+ *   没在逐年推演时不写。读档时过 cleanPlay:年份不对的当没在逐年推演、不合格的命令丢掉,提示一句。读回来按"推到哪年 + 命令串"重新推出同一刻(civ/play.ts 的 playCiv)
+ * - edits.playFrom(可选):这次逐年推演从第几年起(edits.ts 文件头"逐年推演的进度"),`2650`;没在逐年推演、从第 0 年起的不写。
+ *   读档时过 cleanPlayFrom:取整、夹到 [0, play.year],没有 play 的去掉(不提示:只是记录)
+ * - edits.branches(可选):逐年推演另开的几支(edits.ts 文件头"支线"),当前这一支照旧在 play、playFrom 里,
+ *   `{ "id": 3, "name": "北伐", "list": [{ "id": 1, "from": 2660, "year": 2700, "commands": [{ "kind": "unity", "a": "polity:c4567#0", "from": 2660 }] }] }`;
+ *   每支只记从哪年起和当前这一支不一样、那以后的命令。只有当前这一支时不写。读档时过 cleanBranches:没有 play 的去掉,
+ *   不合格的那一支去掉,提示一句。只认识 play 的版本读到这一项会跳过,看到的是当前这一支
+ * - edits.advance(可选):推进设置(edits.ts 文件头"推进设置"),`{ "step": 5, "every": 50, "big": true, "countdown": 0 }`;都是默认时不写。
+ *   读档时过 cleanAdvance:认不出的项按默认,提示一句
+ * - edits.follow(可选):导播跟着谁(edits.ts 文件头"导播跟着谁"),`{ "kind": "person", "key": "person:polity:c4567#0|general|燕鸾澈|1470" }`;
+ *   全世界的大事时不写。读档时过 cleanFollow:认不出的当没有,提示一句。不算修改(改了几处、换成别处的存档丢了几处都不数它)
+ * - edits.outline(可选):大纲(edits.ts 文件头"大纲"),`{ "plots": [{ "id": 1, "kind": "war", "year": 1520, "a": "polity:c4567#0", "b": "polity:c8123#0", "text": "北燕伐南梁" }],
+ *   "review": [{ "id": 1, "status": "forced", "year": 1520 }] }`;没写大纲时不写。读档时过 cleanOutline:格式不对的情节跳过,提示一句。
+ *   照大纲硬改出来的干预在 edits.interventions 里(带 plot),和别的干预一样存
  * - view:看这个世界用的投影和中央经线(`{ "projection": "robinson", "center": 120 }`,可选)。
  *   投影名原样存(render/projection.ts 的 ProjectionId,或 "globe"),认不出的由界面当成等距圆柱;
  *   旧存档没有这个字段 = 等距圆柱、中央经线 0°
  * - origin:底稿出处(可选)。打开别人的分享短链接、改了另存进自己的"我的世界"时记下:分享的人填的署名(可以没有)、
  *   那时的世界名、分享链接(`{ "by": "明月", "title": "苍澜界", "url": "https://…/s/k7Qm2xPa" }`)。
+ *   来自作品墙的多一个作品编号,署名、名字是作品的,链接是那个作品的地址
+ *   (`{ "by": "砚山", "title": "金阳洋两岸", "url": "https://…/?gallery=k7qm2xpa", "gallery": "k7qm2xpa" }`;旧存档没有这一项,照常打开)。
  *   跟着世界走(存成文件、同步、再分享都带着);别人再从这一份另存,记的是直接的来源,不往上追
+ * - moment:打开时看哪(可选,只在分享里带;见下面 SaveMoment),
+ *   `{ "year": 1500, "selected": "polity:c32577#0", "camera": { "lon": 112.4, "lat": 31.25, "zoom": 2.5 } }`:
+ *   别人打开分享链接时,时间轴停在第 year 年、选中 selected(国家或州的稳定键,见 edits.ts 文件头"稳定键")、
+ *   画面正中对着经纬度 (lon, lat)、放大 zoom 倍(平面地图按宽度算:1 = 整圈经线正好占满画面的宽,
+ *   同一个倍数在电脑和手机上横着看到的一样宽;地球仪是它自己的倍数)。三样都可以没有,
+ *   没有的那样照平常打开。不改变世界本身(和种子、参数、修改无关),所以不进"我的世界"的自动存档(makeSave 不写它)。
+ *   读档时过 cleanMoment:年份不是 0 到这个世界推到的那年(逐年推演的是"现在"那年)、键的样子不对、经纬度和倍数不是数的,
+ *   那一样去掉,不提示(只是打开时的位置);旧链接没有这个字段 = 照平常打开。键在这个世界里找不到(国家不存在)由
+ *   resolveMoment 按生成好的历史再核对一次,找不到的不选
  *
  * 纯计算,不碰 DOM(Node 里可测)。
  */
-import { DEFAULT_PARAMS, type World, type WorldParams } from './world';
+import type { World } from './world';
+import { DEFAULT_PARAMS, type WorldParams } from './params';
 import { cleanMix, sameMix } from './names/mix';
-import { GENERATOR_CHANGES, GENERATOR_VERSION, MARKS_MAX, MARK_REGIONS_TOTAL, NAME_MAX, aiNameKeys, cleanCivSeed, cleanEndYear, cleanMapRef, cleanMark, freeMarkId, type AiNameMark, type AuthorMark, type GeneratorChange, type Intervention, type TerrainOp, type Upheaval, type WorldEdits } from './edits';
+import { END_YEAR_MAX, GENERATOR_CHANGES, GENERATOR_VERSION, MARKS_MAX, MARK_REGIONS_TOTAL, NAME_MAX, aiNameKeys, cleanCivSeed, cleanEndYear, cleanMapRef, cleanMark, cleanPlay, cleanPlayFrom, cleanBranches, branchPlay, cleanAdvance, advanceOf, sameAdvance, cleanFollow, cleanOutline, endYearOf, freeMarkId, resolveKey, type AdvanceSettings, type AiNameMark, type AuthorMark, type GeneratorChange, type Intervention, type Outline, type PlayBranches, type TerrainOp, type Upheaval, type WorldEdits } from './edits';
+import type { Civ } from './civ/types';
 import { TERRAIN_MAX_OPS, UPHEAVALS_MAX, UPHEAVAL_KINDS, UPHEAVAL_OPS_MAX, cleanTerrainOp, cleanUpheaval } from './terrainEdits';
 import { SKETCH_MAX_STROKES, cleanSketch, cleanSketchStroke, type SketchEdit } from './sketch';
 import type { PlateEdit } from './plateEdits';
@@ -96,18 +124,39 @@ export interface SaveFile {
   view?: SaveView;
   /** 底稿出处:从别人的分享链接另存来的 */
   origin?: SaveOrigin;
+  /** 打开时看哪(只在分享里带;见文件头"moment") */
+  moment?: SaveMoment;
   /** 存档时间(ISO 8601) */
   savedAt: string;
 }
 
+/** 打开时看哪:分享的人那一刻的年份、选中的东西、镜头;三样都可以没有 */
+export interface SaveMoment {
+  /** 时间轴停在第几年(可以带小数,存到千分之一年) */
+  year?: number;
+  /** 选中的国家或州:稳定键(`polity:c32577#0`、`region:c8123`) */
+  selected?: string;
+  /** 镜头 */
+  camera?: SaveCamera;
+}
+
+/** 镜头:画面正中对着的经纬度(度)、放大倍数(平面地图 1 = 整圈经线正好占满画面的宽;地球仪是它自己的倍数) */
+export interface SaveCamera {
+  lon: number;
+  lat: number;
+  zoom: number;
+}
+
 /** 底稿出处 */
 export interface SaveOrigin {
-  /** 分享的人填的署名;没填 = 没有 */
+  /** 分享的人填的署名(来自作品墙的:作品的署名);没填 = 没有 */
   by?: string;
-  /** 另存那时的世界名(没起名 = 空) */
+  /** 另存那时的世界名(没起名 = 空;来自作品墙的:作品名) */
   title: string;
-  /** 分享链接(网站地址/s/<码>) */
+  /** 分享链接(网站地址/s/<码>);来自作品墙的:那个作品的地址(网站地址/?gallery=<编号>) */
   url: string;
+  /** 来自作品墙的哪个作品(作品编号);分享链接来的没有 */
+  gallery?: string;
 }
 
 /** 投影 + 中央经线 + 经纬网 + 等值线(存进存档、分享链接) */
@@ -155,6 +204,9 @@ export function cleanView(raw: unknown): SaveView | null {
 
 /** 署名最长几个字 */
 export const SIGNATURE_MAX = 20;
+/** 来自作品墙的出处:作品名、署名最长几个字(和作品墙上一样长,见 account/gallery.ts;比世界名、分享的署名长) */
+export const GALLERY_TITLE_MAX = 60;
+export const GALLERY_BY_MAX = 40;
 
 /** 看不见、但组合表情和连写离不开的字符:零宽连接(👩‍💻)、零宽不连接、各种变体选择(❤️、蒙古文的)、表情旗帜里的标签 */
 const JOINERS = /[\u200C\u200D\p{Variation_Selector}\u{E0020}-\u{E007F}]/u;
@@ -168,7 +220,7 @@ export const SIGNATURE_UNITS = 320;
  * 署名:去掉控制字符和别的看不见的字符(换行、制表这类算空白;零宽空格、改文字方向的都去掉,组合表情要用的留着)、首尾空白,
  * 开头的组合用字符去掉,连续空白并成一个,超长截断(按看到的字数,另外总长不超过 SIGNATURE_UNITS);空(只剩组合用的字符也算)= 没署名
  */
-export function cleanSignature(raw: unknown): string {
+export function cleanSignature(raw: unknown, max: number = SIGNATURE_MAX): string {
   if (typeof raw !== 'string') return '';
   const s = raw
     .replace(/[\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}]/gu, (c) => (/\s/.test(c) ? ' ' : JOINERS.test(c) ? c : ''))
@@ -179,7 +231,7 @@ export function cleanSignature(raw: unknown): string {
   let n = 0;
   // 只分前面够用的一段(超出总长的反正放不下)
   for (const g of graphemes(s.slice(0, SIGNATURE_UNITS + 1))) {
-    if (n >= SIGNATURE_MAX || t.length + g.length > SIGNATURE_UNITS) break;
+    if (n >= max || t.length + g.length > SIGNATURE_UNITS) break;
     t += g;
     n++;
   }
@@ -209,15 +261,156 @@ function isShareLink(url: string): boolean {
   return (u.protocol === 'https:' || u.protocol === 'http:') && !u.username && !u.password && !u.search && !u.hash && ORIGIN_PATH.test(u.pathname) && u.href === url;
 }
 
-/** 整理底稿出处:链接不像分享短链接的不要(界面上它是一个能点的链接) */
+/** 作品墙的作品编号:8 位小写字母和数字(去掉了容易看错的 i、l、o、0、1) */
+const GALLERY_ID = /^[a-hjkmnp-z2-9]{8}$/;
+
+/** 是不是作品墙上那个作品的地址:http(s)://网站地址/?gallery=<编号>(网站可以在子目录里),不带账号密码、别的参数、# 后的部分 */
+function isGalleryLink(url: string, id: string): boolean {
+  if (url.length > 300 || !ORIGIN_CHARS.test(url)) return false;
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return false;
+  }
+  return (u.protocol === 'https:' || u.protocol === 'http:') && !u.username && !u.password && !u.hash && u.search === `?gallery=${id}` && u.pathname.endsWith('/') && u.href === url;
+}
+
+/**
+ * 整理底稿出处:链接不像分享短链接的不要(界面上它是一个能点的链接);
+ * 来自作品墙的(带作品编号):链接得是那个作品的地址,作品名、署名按作品墙上的长度留(GALLERY_TITLE_MAX、GALLERY_BY_MAX)
+ */
 export function cleanOrigin(raw: unknown): SaveOrigin | null {
   if (!isObj(raw)) return null;
   const url = raw.url;
-  if (typeof url !== 'string' || !isShareLink(url)) return null;
-  const o: SaveOrigin = { title: cleanTitle(raw.title), url };
-  const by = cleanSignature(raw.by);
+  const gallery = raw.gallery;
+  if (typeof url !== 'string') return null;
+  if (gallery !== undefined) {
+    if (typeof gallery !== 'string' || !GALLERY_ID.test(gallery) || !isGalleryLink(url, gallery)) return null;
+  } else if (!isShareLink(url)) return null;
+  const wall = typeof gallery === 'string';
+  const o: SaveOrigin = { title: cleanTitle(raw.title, wall ? GALLERY_TITLE_MAX : TITLE_MAX), url };
+  const by = cleanSignature(raw.by, wall ? GALLERY_BY_MAX : SIGNATURE_MAX);
   if (by) o.by = by;
+  if (wall) o.gallery = gallery;
   return o;
+}
+
+/** 打开时选中的东西:国家、州的稳定键(新旧两种写法都认,见 edits.ts 文件头"稳定键";以后要放开城、人物再加) */
+const MOMENT_KEY = /^(?:polity:(?:r-?\d{1,7}|c\d{1,7})#\d{1,5}|region:[rc]\d{1,7})$/;
+/**
+ * 镜头放大倍数的范围:平面地图按宽度算,手机竖屏放到最大约 50 倍(电脑约 12 倍),地球仪 0.55–8 倍,都在里面;
+ * 界面再按投影、屏幕夹一次
+ */
+export const CAMERA_ZOOM_RANGE: readonly [number, number] = [0.5, 64];
+/** 留到千分之一(年份、经纬度、倍数);同一个数清理两次结果不变 */
+const round3 = (v: number) => Math.round(v * 1000) / 1000;
+
+/** 镜头清理:三个数都得是有限数;经度挪到 [−180, 180)、纬度夹在 ±90、倍数夹在 CAMERA_ZOOM_RANGE,都留到千分之一。不像样的 = null */
+export function cleanCamera(raw: unknown): SaveCamera | null {
+  if (!isObj(raw)) return null;
+  const { lon, lat, zoom } = raw;
+  if (typeof lon !== 'number' || typeof lat !== 'number' || typeof zoom !== 'number') return null;
+  if (!Number.isFinite(lon) || !Number.isFinite(lat) || !Number.isFinite(zoom)) return null;
+  let x = round3(((((lon + 180) % 360) + 360) % 360) - 180);
+  if (x >= 180) x -= 360;
+  const [z0, z1] = CAMERA_ZOOM_RANGE;
+  return { lon: x, lat: round3(Math.min(90, Math.max(-90, lat))), zoom: round3(Math.min(z1, Math.max(z0, zoom))) };
+}
+
+/**
+ * 打开时看哪的清理(见文件头"moment"):年份要在 [0, maxYear](这个世界推到的那年)、选中的要像国家或州的稳定键、镜头过 cleanCamera,
+ * 不合格的那一样去掉;一样都不剩 = null
+ */
+export function cleanMoment(raw: unknown, maxYear: number = END_YEAR_MAX): SaveMoment | null {
+  if (!isObj(raw)) return null;
+  const m: SaveMoment = {};
+  const y = raw.year;
+  if (typeof y === 'number' && Number.isFinite(y) && y >= 0 && y <= maxYear) m.year = round3(y);
+  const s = raw.selected;
+  if (typeof s === 'string' && MOMENT_KEY.test(s)) m.selected = s;
+  const c = cleanCamera(raw.camera);
+  if (c) m.camera = c;
+  return Object.keys(m).length ? m : null;
+}
+
+/** 这个世界的历史推到第几年(逐年推演的 = "现在"那年):打开时看的年份不能超过它 */
+export function momentYearMax(edits: Pick<WorldEdits, 'endYear' | 'play'>): number {
+  return cleanPlay(edits.play)?.year ?? endYearOf(edits);
+}
+
+/** 分享前给存档带上"打开时看哪"(清理过;null 或一样都不剩 = 去掉)。返回新的一份,原来的不动 */
+export function withMoment(save: SaveFile, moment: SaveMoment | null | undefined): SaveFile {
+  const { moment: _old, ...rest } = save;
+  const m = moment ? cleanMoment(moment, momentYearMax(save.edits)) : null;
+  return m ? { ...rest, moment: m } : rest;
+}
+
+/** 按生成好的历史核对过的"打开时看哪":年份夹在历史以内,选中的换成这个世界里的编号(找不到 = 不选) */
+export interface ResolvedMoment {
+  year?: number;
+  selected?: { kind: 'polity' | 'region'; id: number };
+  camera?: SaveCamera;
+}
+
+/**
+ * 打开分享链接、世界生成好以后,把存档里的"打开时看哪"对到这个世界上:
+ * 年份超出这段历史的不要(逐年推演推到"现在"差不到一年的,按"现在"那一刻);选中的键找不到(国家不存在、版本变了)的不选;镜头原样
+ */
+export function resolveMoment(civ: Civ, moment: SaveMoment | null | undefined): ResolvedMoment {
+  const out: ResolvedMoment = {};
+  if (!moment) return out;
+  const y = moment.year;
+  if (y !== undefined && y >= 0 && y <= Math.ceil(civ.endYear)) out.year = Math.min(y, civ.endYear);
+  if (moment.selected) {
+    const r = resolveKey(civ, moment.selected);
+    if (r && (r.kind === 'polity' || r.kind === 'region')) out.selected = { kind: r.kind, id: r.id };
+  }
+  if (moment.camera) out.camera = { ...moment.camera };
+  return out;
+}
+
+/**
+ * 分享短链接(网站/s/<码>,存档在服务器上)后面带的"打开时看哪":和长链接一样放在 # 后面,浏览器不发给服务器,
+ * 每次复制的链接各带各的那一刻。`#at=1500&p=c32577.0&cam=112.4,31.25,2.5`:
+ * at = 年份(可以空着)、p = 选中的国家(稳定键去掉 "polity:",# 换成 .)、r = 选中的州(去掉 "region:")、cam = 经度,纬度,倍数
+ */
+export const MOMENT_HASH_KEY = 'at';
+
+/** "打开时看哪" → 短链接后面的 # 那段(清理过;一样都不剩 = '') */
+export function momentHash(moment: SaveMoment | null | undefined): string {
+  const m = moment ? cleanMoment(moment) : null;
+  if (!m) return '';
+  const parts = [`${MOMENT_HASH_KEY}=${m.year ?? ''}`];
+  if (m.selected) {
+    const p = /^polity:(.+)#(\d+)$/.exec(m.selected);
+    parts.push(p ? `p=${p[1]}.${p[2]}` : `r=${m.selected.slice('region:'.length)}`);
+  }
+  if (m.camera) parts.push(`cam=${m.camera.lon},${m.camera.lat},${m.camera.zoom}`);
+  return `#${parts.join('&')}`;
+}
+
+/** 网址的 # 那段是不是短链接带的"打开时看哪"(#at=…) */
+export function isMomentHash(hash: string): boolean {
+  return typeof hash === 'string' && new RegExp(`^#?${MOMENT_HASH_KEY}=`).test(hash.trim());
+}
+
+/** 短链接后面的 # 那段 → "打开时看哪"(过 cleanMoment;不像样的那一样去掉;不是这种 # 或一样都不剩 = null) */
+export function decodeMomentHash(hash: string, maxYear: number = END_YEAR_MAX): SaveMoment | null {
+  if (!isMomentHash(hash)) return null;
+  const q = new URLSearchParams(hash.trim().replace(/^#/, '').replace(/\s+/g, ''));
+  const raw: Record<string, unknown> = {};
+  const y = q.get(MOMENT_HASH_KEY);
+  if (y) raw.year = Number(y);
+  const p = q.get('p');
+  const r = q.get('r');
+  if (p) {
+    const i = p.lastIndexOf('.');
+    if (i > 0) raw.selected = `polity:${p.slice(0, i)}#${p.slice(i + 1)}`;
+  } else if (r) raw.selected = `region:${r}`;
+  const cam = q.get('cam')?.split(',');
+  if (cam?.length === 3 && cam.every((s) => s.trim() !== '')) raw.camera = { lon: Number(cam[0]), lat: Number(cam[1]), zoom: Number(cam[2]) };
+  return cleanMoment(raw, maxYear);
 }
 
 /** 两份投影设置是不是一样(中央经线差不到 0.01° 算一样;经纬网有一份没记就不比) */
@@ -237,37 +430,56 @@ const CHANGE_TEXT: Record<GeneratorChange, string> = {
   terrain: '地形有局部变化，历史重新推演了',
   climate: '陆地和山没变，气候、河流和历史都重算了',
   history: '地形和气候没变，历史重新推演了',
+  routes: '地形和历史没变，道路和航线有些改动',
   chronicle: '疆域和兴亡没变，编年史写得更细了',
   names: '地形和历史没变，默认的地名换了',
 };
-const CHANGE_RANK: GeneratorChange[] = ['names', 'chronicle', 'history', 'climate', 'terrain', 'planet'];
+const CHANGE_RANK: GeneratorChange[] = ['names', 'chronicle', 'routes', 'history', 'climate', 'terrain', 'planet'];
 
 /** 来自更新的版本(页面是旧的):不知道新版改了什么,只说怎么换到最新版 */
 export const NEWER_NOTE = '来自更新的版本，刷新页面换到最新版再看';
 
 /**
- * 从第 from 版生成器到现在,同样的种子、参数(改没改过地形)生成出来的世界变了什么:跨过的几版里最大的那种改动。
+ * 这个世界改过什么(看哪几版生成器动了它):terrain = 改过地形(地形修改、草图),upheavals = 带地形大事。
+ * 只给一个布尔 = 改没改过地形(没有地形大事)
+ */
+export type EditedWorld = boolean | { terrain: boolean; upheavals: boolean };
+
+/** 世界的修改里改过什么(versionNote 的第二个参数) */
+export function editedWorld(edits: Partial<Pick<WorldEdits, 'terrain' | 'sketch' | 'upheavals'>>): { terrain: boolean; upheavals: boolean } {
+  return { terrain: (edits.terrain?.length ?? 0) > 0 || !!edits.sketch, upheavals: (edits.upheavals?.length ?? 0) > 0 };
+}
+
+/**
+ * 从第 from 版生成器到现在,同样的种子、参数(改没改过地形、有没有地形大事)生成出来的世界变了什么:跨过的几版里最大的那种改动。
  * 一样 = null(比如只动了改过地形的世界的那一版,这个世界没改地形);比现在新 = 'newer';
  * 认不出的旧版本(没记版本号、不是整数、表里没有的)按整颗星球重新生成算
  */
-function changeSince(from: number, terrainEdited: boolean): GeneratorChange | 'newer' | null {
+function changeSince(from: number, edited: EditedWorld): GeneratorChange | 'newer' | null {
   if (from === GENERATOR_VERSION) return null;
   // 不是整数的版本号(手改过、坏了的存档)认不出,不管比现在大还是小,都按整颗星球重新生成算
   if (!Number.isInteger(from)) return 'planet';
   if (from > GENERATOR_VERSION) return 'newer';
+  const terrain = typeof edited === 'boolean' ? edited : edited.terrain;
+  const upheavals = typeof edited === 'boolean' ? false : edited.upheavals;
   let top = -1;
   for (let v = Math.max(1, from) + 1; v <= GENERATOR_VERSION; v++) {
     const c = GENERATOR_CHANGES[v];
-    const rank = c ? CHANGE_RANK.indexOf(c.change) : CHANGE_RANK.length - 1;
-    if (c?.edited && !terrainEdited) continue;
+    let change: GeneratorChange | undefined = c?.change;
+    // 只动了改过地形(或带地形大事)的世界的那一版:这个世界两样都不沾就跳过
+    if (c?.edited && !terrain) {
+      if (!(upheavals && c.upheavals)) continue;
+      change = c.upheavals;
+    }
+    const rank = change ? CHANGE_RANK.indexOf(change) : CHANGE_RANK.length - 1;
     top = Math.max(top, rank);
   }
   return top < 0 ? null : CHANGE_RANK[top];
 }
 
 /** 打开旧存档、旧链接时说清变了什么(见 changeSince);一样 = null;比现在新 = NEWER_NOTE */
-export function versionNote(from: number, terrainEdited: boolean): string | null {
-  const c = changeSince(from, terrainEdited);
+export function versionNote(from: number, edited: EditedWorld): string | null {
+  const c = changeSince(from, edited);
   return c === null ? null : c === 'newer' ? NEWER_NOTE : `来自旧版本：${CHANGE_TEXT[c]}`;
 }
 
@@ -302,7 +514,8 @@ export const PARAM_RANGE: Record<keyof WorldParams, [number, number]> = {
   north: [-1, 1],
 };
 
-const PARAM_NAME: Record<keyof WorldParams, string> = {
+/** 参数在提示里的叫法 */
+export const PARAM_NAME: Record<keyof WorldParams, string> = {
   seed: '种子',
   cells: '精细度',
   landFraction: '陆地比例',
@@ -329,7 +542,7 @@ export function worldKey(params: WorldParams): string {
     .join('&');
 }
 
-/** 改了几处:改名条数 + 干预条数 + 地形修改处数 + 草图(画了算一处)+ 地形大事件数 + 作者标记个数 + 改过的旗面数 + 作者的人物个数 + 地名风格、推演年数、拓荒、起源、文明种子、纪年、月份(各算一处)*/
+/** 改了几处:改名条数 + 干预条数 + 地形修改处数 + 草图(画了算一处)+ 地形大事件数 + 作者标记个数 + 改过的旗面数 + 作者的人物个数 + 地名风格、推演年数、拓荒、起源、文明种子、纪年、月份、逐年推演进度(各算一处)+ 逐年推演另开的几支(每支一处)*/
 export function editCount(edits: WorldEdits): number {
   return (
     Object.keys(edits.names).length +
@@ -346,17 +559,19 @@ export function editCount(edits: WorldEdits): number {
     (cleanOrigins(edits.origins) ? 1 : 0) +
     (cleanCivSeed(edits.civSeed) !== undefined ? 1 : 0) +
     (cleanEra(edits.era) ? 1 : 0) +
-    (cleanMonths(edits.months) !== undefined ? 1 : 0)
+    (cleanMonths(edits.months) !== undefined ? 1 : 0) +
+    (cleanPlay(edits.play) ? 1 : 0) +
+    (cleanBranches(edits.branches, edits.play)?.list.length ?? 0)
   );
 }
 
-/** 世界名:去掉控制字符、首尾空白,超长截断;空 = 没起名 */
-export function cleanTitle(raw: unknown): string {
+/** 世界名:去掉控制字符、首尾空白,超长截断(max 个字,默认 TITLE_MAX);空 = 没起名 */
+export function cleanTitle(raw: unknown, max: number = TITLE_MAX): string {
   if (typeof raw !== 'string') return '';
   // eslint-disable-next-line no-control-regex
   const s = raw.replace(/[\u0000-\u001f\u007f]/g, '').replace(/\s+/g, ' ').trim();
   const cs = [...s];
-  return cs.length > TITLE_MAX ? cs.slice(0, TITLE_MAX).join('') : s;
+  return cs.length > max ? cs.slice(0, max).join('') : s;
 }
 
 /** 生成一份存档(params 按固定顺序复制;修改复制一份,之后改原来的不影响存档)。view = 当前的投影和中央经线;origin = 底稿出处 */
@@ -422,6 +637,18 @@ export function makeSave(
   if (era) save.edits.era = era;
   const months = cleanMonths(edits.months);
   if (months !== undefined) save.edits.months = months;
+  const play = cleanPlay(edits.play);
+  if (play) save.edits.play = { year: play.year, commands: play.commands.map((x) => ({ ...x })) };
+  const playFrom = cleanPlayFrom(edits.playFrom, play);
+  if (playFrom !== undefined) save.edits.playFrom = playFrom;
+  const branches = cleanBranches(edits.branches, play);
+  if (branches) save.edits.branches = copyBranches(branches);
+  const advance = cleanAdvance(edits.advance);
+  if (advance) save.edits.advance = { ...advance };
+  const follow = cleanFollow(edits.follow);
+  if (follow) save.edits.follow = { kind: follow.kind, key: follow.key };
+  const outline = cleanOutline(edits.outline);
+  if (outline) save.edits.outline = JSON.parse(JSON.stringify(outline)) as Outline;
   const t = cleanTitle(title);
   if (t) save.title = t;
   const v = view ? cleanView(view) : null;
@@ -429,6 +656,11 @@ export function makeSave(
   const o = origin ? cleanOrigin(origin) : null;
   if (o) save.origin = o;
   return save;
+}
+
+/** 复制支线(之后改原来的不影响存档) */
+function copyBranches(bs: PlayBranches): PlayBranches {
+  return { ...bs, list: bs.list.map((b) => ({ ...b, commands: b.commands.map((x) => ({ ...x })) })) };
 }
 
 /** 复制一个标记(之后改原来的不影响存档) */
@@ -457,6 +689,13 @@ export function saveFileName(save: Pick<SaveFile, 'title' | 'seed'>): string {
 }
 
 const isObj = (x: unknown): x is Record<string, unknown> => typeof x === 'object' && x !== null && !Array.isArray(x);
+
+/** 读进来的推进设置和清理以后的一样(写明了默认值、big 写了 false 的也算一样;多了认不出的项、值被改了的不算) */
+function sameAdvanceRaw(raw: unknown, clean: AdvanceSettings | undefined): boolean {
+  if (!isObj(raw)) return false;
+  const full = advanceOf({ advance: clean }) as unknown as Record<string, unknown>;
+  return Object.entries(raw).every(([k, v]) => k in full && full[k] === v);
+}
 
 /**
  * 读存档:文件内容 → 存档。读不了(不是 JSON、不是本应用的存档、格式比自己新、没有种子)给中文错误;
@@ -643,7 +882,7 @@ export function parseSave(text: string): ParseResult {
   const rawMix = isObj(E.nameMix) ? E.nameMix : null;
   if (E.nameMix !== undefined && (!rawMix || Object.keys(rawMix).some((k) => nameMix?.[k] !== rawMix[k])))
     warnings.push(nameMix ? '地名风格里有认不出来的语感或份数,已去掉' : '地名风格认不出来,按自动起名');
-  // 推演年数:夹在 3000–60000、取整到千年;认不出的按 3000 年
+  // 推演年数:取整到年、夹在 1–60000;认不出的按 3000 年
   const endYear = cleanEndYear(E.endYear);
   if (E.endYear !== undefined && (typeof E.endYear !== 'number' || !Number.isFinite(E.endYear))) warnings.push('推演年数认不出来,按 3000 年推演');
   // 拓荒:吸到最近的一档,认不出的项去掉
@@ -662,7 +901,34 @@ export function parseSave(text: string): ParseResult {
   // 月份:认不出的按一年 12 个月
   const months = cleanMonths(E.months);
   if (E.months !== undefined && E.months !== 12 && months === undefined) warnings.push('月份设定认不出来,按一年 12 个月写');
-  const note = versionNote(generator, terrain.length > 0 || !!sketch);
+  // 逐年推演的进度:年份不对的当没在逐年推演,不合格的命令丢掉
+  const play = cleanPlay(E.play);
+  if (E.play !== undefined) {
+    const raw = isObj(E.play) && Array.isArray(E.play.commands) ? E.play.commands.length : 0;
+    if (!play) warnings.push('逐年推演的进度认不出来,已跳过');
+    else if (play.commands.length < raw) warnings.push(`逐年推演的进度里有 ${raw - play.commands.length} 条命令格式不对,已跳过`);
+  }
+  const playFrom = cleanPlayFrom(E.playFrom, play);
+  // 支线:跟着进度走(没有进度的不要,不另提示);不合格的那一支去掉
+  const branches = cleanBranches(E.branches, play);
+  if (E.branches !== undefined && play && branches !== E.branches) {
+    const n = isObj(E.branches) && Array.isArray(E.branches.list) ? E.branches.list.length - (branches?.list.length ?? 0) : 0;
+    warnings.push(n > 0 ? `逐年推演的支线里有 ${n} 支认不出来,已跳过` : '逐年推演的支线里有认不出来的地方,已按认得出的读');
+  }
+  // 推进设置:认不出的项按默认
+  const advance = cleanAdvance(E.advance);
+  if (E.advance !== undefined && !sameAdvanceRaw(E.advance, advance)) warnings.push('推进设置里有认不出来的项,已按默认读');
+  // 导播跟着谁:认不出的当没有(镜头跟着全世界的大事)
+  const follow = cleanFollow(E.follow);
+  if (E.follow !== undefined && !follow) warnings.push('导播跟着谁认不出来,已按全世界的大事读');
+  // 大纲:格式不对的情节跳过
+  const outline = cleanOutline(E.outline);
+  if (E.outline !== undefined) {
+    const raw = isObj(E.outline) && Array.isArray(E.outline.plots) ? E.outline.plots.length : 0;
+    if (!outline && raw) warnings.push('大纲认不出来,已跳过');
+    else if (outline && outline.plots.length < raw) warnings.push(`大纲里有 ${raw - outline.plots.length} 条情节格式不对,已跳过`);
+  }
+  const note = versionNote(generator, { terrain: terrain.length > 0 || !!sketch, upheavals: upheavals.length > 0 });
   if (note) warnings.splice(noteAt, 0, note);
 
   const save: SaveFile = {
@@ -689,6 +955,12 @@ export function parseSave(text: string): ParseResult {
       ...(map ? { map } : {}),
       ...(era ? { era } : {}),
       ...(months !== undefined ? { months } : {}),
+      ...(play ? { play } : {}),
+      ...(playFrom !== undefined ? { playFrom } : {}),
+      ...(branches ? { branches } : {}),
+      ...(advance ? { advance } : {}),
+      ...(follow ? { follow: { kind: follow.kind, key: follow.key } } : {}),
+      ...(outline ? { outline } : {}),
     },
     check: typeof raw.check === 'string' ? raw.check.slice(0, 64) : '',
     savedAt: typeof raw.savedAt === 'string' && !Number.isNaN(Date.parse(raw.savedAt)) ? raw.savedAt : '',
@@ -701,11 +973,14 @@ export function parseSave(text: string): ParseResult {
   // 底稿出处:格式不对就当没有
   const origin = cleanOrigin(raw.origin);
   if (origin) save.origin = origin;
+  // 打开时看哪(分享链接里带的):不合格的那一样去掉,不提示
+  const moment = cleanMoment(raw.moment, momentYearMax(save.edits));
+  if (moment) save.moment = moment;
   return { ok: true, save, warnings };
 }
 
-/** 跨过这几种改动,世界(地形、疆域、兴亡)和原来一样:只换了默认的名字、编年史的字 */
-const SAME_WORLD: readonly (GeneratorChange | 'newer' | null)[] = [null, 'names', 'chronicle'];
+/** 跨过这几种改动,世界(地形、疆域、兴亡)和原来一样:只换了默认的名字、编年史的字、道路和航线 */
+const SAME_WORLD: readonly (GeneratorChange | 'newer' | null)[] = [null, 'names', 'chronicle', 'routes'];
 
 /**
  * 按存档的参数生成完以后核对地形:生成器版本相同(或版本不同、但世界应该一样,见 SAME_WORLD)、地形哈希却对不上时给提示
@@ -755,7 +1030,8 @@ export function worldCheck(world: World): string {
 //   https://…/?seed=7&style=fantasy#share=<base64url(deflate-raw(存档的 JSON))>
 //
 // - # 后面的东西浏览器不发给服务器,只在打开链接的人自己的页面里读
-// - 编码的是**整个** SaveFile(JSON.stringify,不挑字段):存档以后加了字段(比如地形修改),链接自动带上
+// - 编码的是**整个** SaveFile(JSON.stringify,不挑字段):存档以后加了字段(比如地形修改),链接自动带上;
+//   "打开时看哪"(moment,withMoment 带上)也在里面,旧版本的页面读到不认识的字段会跳过,照平常打开
 // - 压缩用浏览器自带的 CompressionStream('deflate-raw')(= zlib 的 raw deflate,Node 里 zlib.inflateRawSync 也能解),
 //   再转成 base64url(只有 A–Z a–z 0–9 - _,放进网址不用转义)
 // - 解开以后走和"从文件打开"同一个 parseSave:版本不同、参数超范围这些照样打开并提示
@@ -860,9 +1136,9 @@ async function through(data: Uint8Array, ts: Pipe, limit = Infinity): Promise<Ui
   return out;
 }
 
-/** 这个存档值得做成带数据的链接吗:有任何修改(改名、干预、以后的地形修改……)或者起了名字 */
+/** 这个存档值得做成带数据的链接吗:有任何修改(改名、干预、以后的地形修改……)、起了名字,或者带着"打开时看哪" */
 export function hasShareData(save: SaveFile): boolean {
-  if (save.title) return true;
+  if (save.title || save.moment) return true;
   for (const v of Object.values(save.edits as unknown as Record<string, unknown>)) {
     if (Array.isArray(v) ? v.length > 0 : isObj(v) ? Object.keys(v).length > 0 : v !== undefined && v !== null && v !== false && v !== '') return true;
   }
@@ -929,6 +1205,15 @@ export async function decodeShare(hash: string): Promise<ParseResult> {
   return { ok: false, error: '链接里的数据不是「文明与地图」的世界(可能被改动过),请让对方重新复制一次链接' };
 }
 
+/** 逐年推演的每一支(连当前这一支)完整的进度和起演那年,写成字符串(比较用;名字、编号不算) */
+function branchKeys(edits: WorldEdits): string[] {
+  const cur = cleanPlay(edits.play);
+  if (!cur) return [];
+  const key = (p: { year: number; commands: Intervention[] }, from: number) => JSON.stringify([p.year, p.commands, from]);
+  const list = cleanBranches(edits.branches, cur)?.list ?? [];
+  return [key(cur, cleanPlayFrom(edits.playFrom, cur) ?? 0), ...list.map((b) => key(branchPlay(cur, b), b.playFrom ?? 0))];
+}
+
 /**
  * 换成 incoming 的修改,会丢掉 local 里的几处:改名(同一个键 incoming 没有或名字不同)、干预(incoming 里没有的)、
  * 世界名(两边都起了名、名字不同);以后加的字段(地形修改……)按"数组的项 / 对象的键"逐个比
@@ -936,10 +1221,12 @@ export async function decodeShare(hash: string): Promise<ParseResult> {
 export function editsLost(local: SaveFile, incoming: SaveFile): number {
   const L = local.edits as unknown as Record<string, unknown>;
   const I = incoming.edits as unknown as Record<string, unknown>;
+  // 逐年推演另开过支(哪一边都算):进度和另开的几支一起按"每一支完整的进度"比,不管哪一支是当前的
+  const forked = !!(cleanBranches(local.edits.branches, local.edits.play) || cleanBranches(incoming.edits.branches, incoming.edits.play));
   let n = 0;
   for (const [k, lv] of Object.entries(L)) {
-    // AI 起名的记号跟着改名走,丢没丢已经按改名算过了;用的哪张地图只是记录(第一次推完才补上校验),不算修改
-    if (k === 'aiNames' || k === 'map') continue;
+    // AI 起名的记号跟着改名走,丢没丢已经按改名算过了;用的哪张地图只是记录(第一次推完才补上校验)、导播跟着谁只管看,不算修改
+    if (k === 'aiNames' || k === 'map' || k === 'follow') continue;
     const iv = I[k];
     // 地名风格、拓荒、起源、纪年整个算一处
     if (k === 'nameMix') {
@@ -960,6 +1247,17 @@ export function editsLost(local: SaveFile, incoming: SaveFile): number {
     }
     if (k === 'months') {
       if (cleanMonths(lv) !== cleanMonths(iv)) n++;
+      continue;
+    }
+    // 推进设置整个算一处;逐年推演从第几年起跟着进度走,丢没丢已经按进度算过了
+    if (k === 'advance') {
+      if (!sameAdvance(lv, iv)) n++;
+      continue;
+    }
+    if (k === 'playFrom' || k === 'branches') continue;
+    if (k === 'play' && forked) {
+      const has = new Set(branchKeys(incoming.edits));
+      n += branchKeys(local.edits).filter((x) => !has.has(x)).length;
       continue;
     }
     if (Array.isArray(lv)) {

@@ -11,6 +11,8 @@
  * - 作者标记(地图上点标记、世界概览的「标记」页、搜索;新建、编辑也在这里填):MarkPanel.tsx
  * - 作者的人物(世界概览「人物」页的「我的」、搜索、地图上的头像、别的卡片里「作者的人物」;新建、编辑也在这里填):CharacterPanel.tsx
  *
+ * 从大纲点一条过来的:卡片顶上一条「‹ 大纲 第 N 条」(OutlineMap.tsx)。
+ *
  * 四种面板用同一套零件(panelParts.tsx):顶部、三格数字、色条、小柱图、事件列表、底部按钮。
  * 面板里的名字可以点,点了就选中那个国家 / 城 / 州。在地图上选干预目标、下了令正在推演时,面板先藏起来(状态留着)。
  *
@@ -36,10 +38,11 @@ import { FaithPanel } from './FaithPanel';
 import { MarkPanel } from './MarkPanel';
 import { useMarkUi } from './markStore';
 import { CharacterPanel } from './CharacterPanel';
+import { PlotStrip } from './OutlineMap';
 import { useCharUi } from './characterStore';
 import { useUpUi } from './upheavalStore';
 import { UpheavalPanel } from './UpheavalPanel';
-import { setPanelTab, setSheet, setSheetDrag, usePanel } from './panelStore';
+import { openCmdPage, setPanelTab, setSheet, setSheetDrag, takeCmdPage, usePanel } from './panelStore';
 import { ownersOf } from './panelData';
 import { phoneSheet, selectionKey } from './flyTo';
 import { useNarrow } from './device';
@@ -61,8 +64,11 @@ export function useSelectionReset(raw: Civ | null, onReset?: () => void) {
   useLayoutEffect(() => {
     if (lastShown === stable) return;
     lastShown = stable;
-    setPanelTab('info');
-    setSheet('half');
+    // 点了别处的「改方针」这类入口:换了选中的东西以后直接打开那一页
+    const page = takeCmdPage(stable);
+    if (page) openCmdPage(page);
+    else setPanelTab('info');
+    setSheet(page ? 'full' : 'half');
     onReset?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stable]);
@@ -135,6 +141,7 @@ export function Inspector({ civ, raw, raster, world }: { civ: Civ | null; raw: C
           <i aria-hidden="true" />
         </button>
       )}
+      {!up && <PlotStrip civ={civ} />}
       {body}
     </section>
   );

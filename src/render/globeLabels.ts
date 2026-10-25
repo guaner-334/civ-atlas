@@ -159,6 +159,17 @@ export function globeLabelView(o: GlobeLabelInput): GlobeLabelView {
   };
 }
 
+/**
+ * 球小到等效缩放不到 1 倍时(手机上:半径 = 舞台短边 × GLOBE_FILL,390 宽的屏幕上等效缩放只有 0.8 左右),
+ * 和平面主图一样按"缩放 1 倍、地图显示得窄一些"来排:全图就有的地名、城镇符号照样出现(不然门槛一个都过不去),
+ * 字号、符号大小跟着显示宽度缩小(和主图同一个算法,最小字号照旧托底;国名按世界单位定字号,正好和球上的国土一样大)。
+ * 等效缩放 ≥ 1 时原样返回
+ */
+export function overviewFloor(lv: GlobeLabelView): GlobeLabelView {
+  if (!(lv.k < 1)) return lv;
+  return { ...lv, k: 1, mapCss: lv.mapCss * lv.k };
+}
+
 /** 每个字的不透明度:靠近球边缘(视线擦着球面)的淡出 */
 export function globeGlyphAlpha(lv: GlobeLabelView): (g: Glyph) => number {
   const g0 = lv.globe;
@@ -219,12 +230,12 @@ const UPRIGHT_SIZES = [0.86, 0.74, 0.62];
 const UPRIGHT_AT = [0.5, 0.36, 0.64, 0.22, 0.78];
 
 /**
- * 地球仪上的国名:沿国土拟合的路径排(和主图一样)之外,再多几个"横排、紧一点、小一两档"的摆法 ——
+ * 地球仪上的国名(族名同样):沿国土拟合的路径排(和主图一样)之外,再多几个"横排、紧一点、小一两档"的摆法 ——
  * 国名是按主图(等距圆柱)上的国土拟合的,到了球上高纬度的国家变窄、靠近球边缘的国家被压扁,
  * 原来的字距、字号常常排不下;多给几个摆法,照样要求每个字落在本国国土上(placeMap 按 area 核对)
  */
 export function globePolityItem(it: LabelItem): LabelItem {
-  if (it.pick?.kind !== 'polity' || !it.place) return it;
+  if ((it.pick?.kind !== 'polity' && !it.territory) || !it.place) return it;
   let g = polityItems.get(it);
   if (!g) {
     const orig = it.place;
@@ -262,12 +273,12 @@ function uprightRows(it: LabelItem, px0: number, view: LabelView): Candidate[] {
 }
 
 /**
- * 转动 / 拖时间轴时只排的"大字":国名、大洋和海(总览级的)、国都和大城的名字 ——
+ * 转动 / 拖时间轴时只排的"大字":国名、族名、大洋和海(总览级的)、国都和大城的名字 ——
  * 山名、河名、湖名、岛名、小城名停下来约 0.15 秒后再排(排得多、要查地面,拖动时每帧都排会卡)
  */
 export function isQuickLabel(it: LabelItem): boolean {
   const pk = it.pick?.kind;
-  if (pk === 'polity') return true;
+  if (pk === 'polity' || it.territory) return true;
   if (pk === 'settlement') return it.priority >= 89;
   if (pk === 'place') return it.layout === 'line' && it.on === SURFACE.sea && it.minZoom <= 1;
   return false;

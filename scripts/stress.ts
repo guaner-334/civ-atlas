@@ -1,5 +1,5 @@
 /**
- * 极端参数压力测试:npx tsx scripts/stress.ts(出现 NaN 则退出码 1)
+ * 极端参数压力测试:npx tsx scripts/stress.ts(出现 NaN 则退出码 1;STRESS_PART=1/2 只跑其中一份,见 PART)
  * 每行打印:生成 / 铺像素 / 文明(其中宜居度 + 划州、推演(民族 + 城镇 + 国家 + 战争)、回放一帧、道路)耗时,
  * 州数、民族数、占据率、国家数、城镇数、路段数,战争统计(场数、攻占、灭亡、迁都、飞地、易手频繁的州),
  * 分合统计(分裂、合并、复国、主动迁都),王朝更替(东方改朝换代 / 西幻王室更迭),信仰(大教、教派、宗教大事),
@@ -10,6 +10,7 @@
  * 地形大事:半路整颗星球沉入海中、整片抬成陆地、五件最大最强的火山(有同一年的、第 1 年和第 2999 年的),
  * 各段的州和那时的地形对得上,大事以后的城、国家、信仰、编年史照样合法。
  * 推演年数:推到最久(60000 年,有一组再叠一件地形大事),史事、国都、人口、信仰照样合法,名字里不冒数字。
+ * 接着推:14 组随机自查(逐年推演随机推、随机下命令,和一口气推完逐字段相等,见 scripts/lib/resumeFuzz.ts);\n * 带地形大事的世界 6 组(大事那一刻接着推和一口气推完一样);不一样也退出码 1。
  */
 import { generateWorld, DEFAULT_PARAMS } from '../src/gen/world';
 import { rasterize } from '../src/gen/raster';
@@ -37,6 +38,7 @@ import { upheavalSteps } from '../src/gen/civ/upheaval';
 import { buildChronicle } from '../src/gen/civ/chronicle';
 import { LAYER_W, LAYER_H, encodeLayer, sketchGrid, type SketchEdit, type SketchKind } from '../src/gen/sketch';
 import { PLATE_IMAGE_MAX, type PlateEdit, type PlateOp } from '../src/gen/plateEdits';
+import { fuzzResume, fuzzUpheavalResume, type FuzzCase } from './lib/resumeFuzz';
 
 /** 发展度:有文明就有;快照的年份递增、最后一份是结束那年,没有算坏的能力和物产;物产 0–3 档,眼下能用的不超过底子;大事的年份有序、时代、物产和国家编号在范围内 */
 function devBad(civ: ReturnType<typeof generateCiv>): number {
@@ -147,6 +149,19 @@ const caseName = (c: (typeof cases)[number]) =>
     : c.terrain
       ? `{"改地形":"${c.terrain[0].kind === 'sink' && c.terrain.length === 6 ? '整片沉成海' : c.terrain[0].kind === 'raise' ? '整片抬成陆地' : '大杂烩'} ${c.terrain.length} 处"}`
       : JSON.stringify(c);
+/**
+ * 只跑其中一份:STRESS_PART=1/2 跑第 1 份、2/2 跑第 2 份(PR 检查上分两台机器同时跑);不设就全跑。
+ * 下面每个(参数组合, 种子)按出现的先后轮流分给各份,几份合起来正好是全部
+ */
+const [PART, PARTS] = (process.env.STRESS_PART ?? '1/1').split('/').map(Number);
+if (!(Number.isInteger(PART) && Number.isInteger(PARTS) && PART >= 1 && PART <= PARTS)) {
+  throw new Error(`STRESS_PART 要写成"第几份/共几份",比如 1/2;现在是 ${process.env.STRESS_PART}`);
+}
+if (PARTS > 1) console.log(`只跑第 ${PART} 份(共 ${PARTS} 份)\n`);
+let turn = 0;
+/** 这一组轮到本份跑吗 */
+const mine = () => turn++ % PARTS === PART - 1;
+
 let worstHabReg = 0;
 let worstRoutes = 0;
 let worstTotal = 0;
@@ -155,10 +170,14 @@ let worstFrame = 0;
 let worstLabels = 0;
 for (const c of cases) {
   for (const seed of [3, 99]) {
+    if (!mine()) continue;
     const { terrain, sketch, ...pc } = c;
     const grid = sketchGrid(sketch);
     // 改过地形的世界要原来星球(参数 + 草图)的扩张节拍:和 worker 一样事先记下(新建时先生成的就是没改的星球),不算进耗时
     const tempo = terrain ? (planetTempo({ ...DEFAULT_PARAMS, ...pc, seed }, undefined, grid) ?? null) : undefined;
+    // 改过地形 / 画过草图的世界,山海湖岛的地名照没改过的星球起(gen/civ/index.ts 的 nameRefOf):worker 里新建时先推的就是没改的星球,
+    // 那时已经记下了;这里也先推一遍没改的星球(推到第 0 年就够),不算进耗时
+    if (terrain || grid) generateCiv(generateWorld({ ...DEFAULT_PARAMS, ...pc, seed }), { endYear: 0 });
     const t0 = performance.now();
     const w = generateWorld({ ...DEFAULT_PARAMS, ...pc, seed }, undefined, terrain, grid);
     const t1 = performance.now();
@@ -398,6 +417,7 @@ const UPHEAVAL_CASES: [string, Upheaval[]][] = [
 ];
 for (const [name, list] of UPHEAVAL_CASES) {
   for (const seed of [3, 99]) {
+    if (!mine()) continue;
     const params = { ...DEFAULT_PARAMS, seed };
     const t0 = performance.now();
     const w = generateWorld(params);
@@ -456,6 +476,7 @@ for (const [seed, ups] of [
   [7, []],
   [99, [{ year: 2999, ops: [{ kind: 'volcano', pts: [900, 400], r: 160, s: 2 }] }]],
 ] as [number, Upheaval[]][]) {
+  if (!mine()) continue;
   const params = { ...DEFAULT_PARAMS, seed };
   const w = generateWorld(params);
   const steps = upheavalSteps(params, [], null, ups);
@@ -487,5 +508,38 @@ for (const [seed, ups] of [
     `{"推演年数":${END_YEAR_MAX}}`, 'seed', seed, ups.length ? '带一件地形大事' : '',
     `文明 ${Math.round(ms)}ms 国家 ${civ.polities.length}(在世 ${civ.polities.filter((p) => p.ended === undefined).length})城镇 ${civ.settlements.length} 人物 ${civ.people?.length ?? 0} 纪事 ${ch.length}`,
     cn ? `NaN! ${cn}` : '',
+  );
+}
+
+// ---- 接着推和一口气推完一样(随机自查,scripts/lib/resumeFuzz.ts):逐年推演一步随机推 1–60 年、每停一下随机下各种命令,
+// 推到第 3000 年,和带着同样的命令一口气推完逐字段比(默认参数 10 个种子、自定义参数 2 个、小世界 2 个;单测里另跑 3 个推到第 2000 年) ----
+const FUZZ: FuzzCase[] = [
+  ...[1, 3, 5, 7, 11, 12, 31, 42, 99, 2024].map((seed) => ({ seed, to: 3000 })),
+  ...[6, 23].map((seed) => ({ seed, to: 3000, params: { polities: 12, cultures: 8, pace: 1.3 } })),
+  ...[8, 77].map((seed) => ({ seed, to: 3000, cells: 12000 })),
+];
+for (const c of FUZZ) {
+  if (!mine()) continue;
+  const t0 = performance.now();
+  const r = fuzzResume(c);
+  if (r.diff) process.exitCode = 1;
+  console.log(
+    `{"接着推随机自查":${JSON.stringify({ ...(c.params ?? {}), ...(c.cells ? { cells: c.cells } : {}) })}}`, 'seed', c.seed,
+    `${Math.round(performance.now() - t0)}ms 推了 ${r.steps} 步 命令 ${r.commands} 条 作者的干预 ${r.author} 条`,
+    r.diff ? `和一口气推完不一样!\n${r.diff}` : '逐字段一致',
+  );
+}
+
+// ---- 带地形大事的世界:大事那一刻接着推和一口气推完一样(scripts/lib/resumeFuzz.ts 的 fuzzUpheavalResume):
+// 随机几年各放一件不改海陆的大事,带着作者的干预和随机命令,和没有大事时逐项比(单测里另跑几个种子) ----
+for (const seed of [2, 4, 9, 13, 27, 64]) {
+  if (!mine()) continue;
+  const t0 = performance.now();
+  const r = fuzzUpheavalResume(seed);
+  if (r.diff) process.exitCode = 1;
+  console.log(
+    '{"大事那一刻接着推随机自查":{}}', 'seed', seed,
+    `${Math.round(performance.now() - t0)}ms 大事 ${r.years.join('、')} 年 命令 ${r.commands} 条`,
+    r.diff ? `和一口气推完不一样!\n${r.diff}` : '逐项一致',
   );
 }

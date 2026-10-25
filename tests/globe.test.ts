@@ -221,7 +221,7 @@ describe('地球仪:正射投影', () => {
     const out = { w: 120, h: 100, data: new Uint8ClampedArray(120 * 100 * 4) };
     const v: GlobeView = { lon: 0, lat: 0, k: 1 };
     const f = globeFrame(v, out.w, out.h);
-    renderGlobeCpu(out, v, f, { style: 'data', graticule: 0, hl: 0, replay: 0 }, { terrain: { w: tw, h: th, data: tex } });
+    renderGlobeCpu(out, v, f, 1, { style: 'data', graticule: 0, hl: 0, replay: 0 }, { terrain: { w: tw, h: th, data: tex } });
     const at = (x: number, y: number) => Array.from(out.data.slice((y * out.w + x) * 4, (y * out.w + x) * 4 + 4));
     const west = at(Math.round(f.cx - f.R * 0.5), Math.round(f.cy));
     const east = at(Math.round(f.cx + f.R * 0.5), Math.round(f.cy));
@@ -229,5 +229,73 @@ describe('地球仪:正射投影', () => {
     expect(east[1]).toBeGreaterThan(east[0]);
     expect(at(0, 0)).toEqual([13, 15, 18, 255]);
     for (const v of out.data) expect(Number.isFinite(v)).toBe(true);
+  });
+
+  it('CPU 画法分段画(几个后台线程各画几行)拼起来和整帧一次画完逐像素一致', () => {
+    const tw = 96;
+    const th = 48;
+    const tex = new Uint8ClampedArray(tw * th * 4);
+    const civ = new Uint8ClampedArray(tw * th * 4);
+    for (let i = 0; i < tw * th; i++) {
+      tex[i * 4] = (i * 37) % 251;
+      tex[i * 4 + 1] = (i * 91) % 241;
+      tex[i * 4 + 2] = (i * 13) % 239;
+      tex[i * 4 + 3] = 255;
+      // 文明层:一半透明、一半半透明色块
+      civ[i * 4] = 200;
+      civ[i * 4 + 1] = 40;
+      civ[i * 4 + 2] = 90;
+      civ[i * 4 + 3] = (i % tw) < tw / 2 ? 0 : 140;
+    }
+    const src = { terrain: { w: tw, h: th, data: tex }, civ: { w: tw, h: th, data: civ } };
+    const W = 131;
+    const H = 97;
+    for (const style of ['realistic', 'fantasy', 'data'] as const) {
+      const v: GlobeView = { lon: 0.7, lat: 0.4, k: 1.6 };
+      const f = globeFrame(v, W, H, 9);
+      const look = { style, graticule: 0, hl: 0, replay: 0 };
+      const whole = { w: W, h: H, data: new Uint8ClampedArray(W * H * 4) };
+      renderGlobeCpu(whole, v, f, 1.5, look, src);
+      const joined = new Uint8ClampedArray(W * H * 4);
+      // 段的行数故意不整齐(最后一段只剩几行)
+      for (let y0 = 0; y0 < H; y0 += 23) {
+        const rows = Math.min(23, H - y0);
+        const band = { w: W, h: rows, data: new Uint8ClampedArray(W * rows * 4) };
+        renderGlobeCpu(band, v, f, 1.5, look, src, y0);
+        joined.set(band.data, y0 * W * 4);
+      }
+      expect(joined).toEqual(whole.data);
+    }
+  });
+
+  it('CPU 画法:写实风球边细亮线的宽度按清晰度(dpr)缩放,同着色器;别的画风和 dpr 无关', () => {
+    const tw = 64;
+    const th = 32;
+    const src = { terrain: { w: tw, h: th, data: new Uint8ClampedArray(tw * th * 4).fill(120) } };
+    const W = 160;
+    const H = 140;
+    const v: GlobeView = { lon: 0.3, lat: 0.2, k: 1 };
+    const f = globeFrame(v, W, H);
+    const draw = (style: 'realistic' | 'fantasy' | 'data', dpr: number) => {
+      const out = { w: W, h: H, data: new Uint8ClampedArray(W * H * 4) };
+      renderGlobeCpu(out, v, f, dpr, { style, graticule: 0, hl: 0, replay: 0 }, src);
+      return out.data;
+    };
+    for (const style of ['fantasy', 'data'] as const) expect(draw(style, 2)).toEqual(draw(style, 1));
+    const a = draw('realistic', 1);
+    const b = draw('realistic', 2);
+    // 不一样的只在球边往里 2.6(= 1.3 × 2)像素以内,且 1.3 像素以外也有(dpr = 1 时那里没有亮线)
+    let wider = 0;
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const i = (y * W + x) * 4;
+        if (a[i] === b[i] && a[i + 1] === b[i + 1] && a[i + 2] === b[i + 2]) continue;
+        const inside = f.R - Math.hypot(x + 0.5 - f.cx, f.cy - y - 0.5);
+        expect(inside).toBeGreaterThan(-0.5);
+        expect(inside).toBeLessThan(2.6);
+        if (inside > 1.3) wider++;
+      }
+    }
+    expect(wider).toBeGreaterThan(0);
   });
 });

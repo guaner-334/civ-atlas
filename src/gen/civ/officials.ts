@@ -214,6 +214,10 @@ export interface OfficialsCtx {
   styleOf: (p: Polity) => string;
   /** 带不带姓、起名 */
   namerOf: (p: Polity) => { surnamed: boolean; surname(...k: number[]): string; given(...k: number[]): string };
+  /** 作者让名臣去世(干预 death):身份 m国家:第几朝:slot → 那一刻、第几条干预(people.ts);没有 = 没有 */
+  kills?: ReadonlyMap<string, { t: Year; iv: number }>;
+  /** 排出来的名臣记上身份(同上),people.ts 按它找回作者要让他去世的那位 */
+  ids?: Map<Person, string>;
 }
 
 export interface Officials {
@@ -288,11 +292,17 @@ export function buildOfficials(input: OfficialsInput, ctx: OfficialsCtx, general
         const r = (use: number) => R(slot, use);
         const born = Y - lerp(kind === 'found' ? FOUND_AGE : why === 1 ? ENTER_AGE : CALL_AGE, r(U_AGE));
         const enter = Y;
-        const life = Math.max(born + lerp(LIFE, Math.pow(r(U_LIFE), 0.8)), Y + 2);
+        let life = Math.max(born + lerp(LIFE, Math.pow(r(U_LIFE), 0.8)), Y + 2);
+        // 作者让他去世:到那一刻为止(他后来该经手的事换人;入仕以后才算)
+        const id = `m${p.id}:${i}:${slot}`;
+        const kill = ctx.kills?.get(id);
+        if (kill && kill.t > enter && kill.t < life) life = kill.t;
         const retire = Math.max(born + lerp(RETIRE_AGE, r(U_RETIRE)), Y + 1);
         const leave = Math.min(life, retire, e);
         if (!(leave > enter)) return null;
         const x: Person = { id: -1, role: 'minister', polity: p.id, name: '', born: q(born), dynasty: i };
+        ctx.ids?.set(x, id);
+        if (kill && life === kill.t) x.killed = kill.iv;
         const d: Draft = { x, enter: q(enter), leave: q(leave), life: q(life), slot, anchors: [] };
         drafts.push(d);
         return d;

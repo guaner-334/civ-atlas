@@ -4,7 +4,9 @@
  *   当前世界:缩略图、名字、种子、地形改过几处、"已自动存在这个浏览器里"(打开的链接还没动过 = 还没存)
  *   存成文件:下载 .json(文明与地图-九州大陆.json;格式见 gen/savefile.ts)
  *   复制分享链接:整份存档压缩进网址的 # 后面(gen/savefile.ts 的 encodeShare),复制到剪贴板;
- *     没有修改 = 普通网址(只带种子、参数);剪贴板用不了:菜单留着,里面多一行选中了链接的输入框,让用户自己复制
+ *     没有修改 = 普通网址(只带种子、参数);剪贴板用不了:菜单留着,里面多一行选中了链接的输入框,让用户自己复制。
+ *     下面一行勾选「停在这一刻」(shareMoment.tsx):勾着就带上时间轴那一年、选中的国家或州、地图的位置和大小,
+ *     对方打开停在那里(不自动播放);默认勾着,记住上次的选择
  *   登录了网站账号:当前世界那一行写同步到账号了没有;"复制分享链接"换成"分享…"(短链接,随时能停,AccountDialogs.tsx 的分享窗)
  *   看原样:旧版本建的世界(留着原来那一份,saveStore 的 currentOriginal)到那一版的旧网站里打开,新页面(oldSite.ts)
  *   按新版另存一份:照原样打开的旧世界(没有重新生成,FrozenWorld.tsx)另存一份按新版推演;这时不放「看原样」(看到的就是原样)
@@ -13,19 +15,18 @@
  * ⌘S 打开这个菜单(openSaveMenu;世界本来就自动存着,菜单上写着存没存好)。
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { GEN_KEY, SHARE_WARN_LENGTH, editCount, encodeShare, hasShareData, saveFileName, saveText, type SaveFile } from '../gen/savefile';
-import { GENERATOR_VERSION } from '../gen/edits';
+import { SHARE_WARN_LENGTH, editCount, saveFileName, saveText, type SaveFile } from '../gen/savefile';
 import { useEdits } from './editsStore';
 import { addFileSaver, currentOriginal, currentSave, currentWorld, loadWorld, notify, persistent, storageFullWhy, storageIsFull, useSavesVersion } from './saveStore';
 import { oldSiteFor, openOriginal } from './oldSite';
 import { Icon } from './icons';
 import { noteDismiss } from './dismissClick';
-import { copyText } from './clipboard';
 import { openShareDialog } from './AccountDialogs';
 import { when } from './worldParts';
 import { useSession } from '../account/session';
 import { useSyncView, worldSync } from '../account/sync';
 import { saveAsNew } from './FrozenWorld';
+import { LONG_HINT, MomentCheck, copyShareLink, momentNow, shareCopiedToast, useMomentOn } from './shareMoment';
 
 export interface SaveMenuProps {
   /** 世界生成完了(能存) */
@@ -41,17 +42,6 @@ interface SaveDebug {
   count: number;
 }
 
-/** 调试 / 冒烟测试用:最近一次"复制分享链接" */
-interface ShareDebug {
-  url: string;
-  length: number;
-  /** 带不带修改(没有修改 = 普通网址) */
-  withData: boolean;
-  count: number;
-  copied: boolean;
-}
-
-const LONG_HINT = '链接较长,可能打不开,建议存成文件';
 
 /** 当前世界存成文件(菜单里的"存成文件"、存储满了时提示条上的"存成文件") */
 function saveCurrentFile() {
@@ -82,7 +72,7 @@ function ManualCopy({ url }: { url: string }) {
   }, [url]);
   return (
     <div className="save-manual" data-testid="share-manual">
-      <span>{url.length > SHARE_WARN_LENGTH ? `没能自动复制,请手动复制 · ${LONG_HINT}` : '没能自动复制,请手动复制'}</span>
+      <span>{url.length > SHARE_WARN_LENGTH ? `没能自动复制，请手动复制。${LONG_HINT}` : '没能自动复制，请手动复制'}</span>
       <input ref={ref} readOnly value={url} spellCheck={false} aria-label="分享链接" onFocus={(e) => e.currentTarget.select()} />
     </div>
   );
@@ -90,22 +80,6 @@ function ManualCopy({ url }: { url: string }) {
 
 function Thumb({ src }: { src: string | null }) {
   return src ? <img className="save-thumb" src={src} alt="" draggable={false} /> : <div className="save-thumb empty" />;
-}
-
-/**
- * 分享链接的网址部分:种子、参数、图层……照当前网址,带上生成器版本;去掉只在这个浏览器里有意义的世界编号、
- * 别人的分享短链接的码(那个分享停了,链接就打不开了)。
- * 网址带的版本比这个页面新(页面是旧的,还没刷新)就照留,别人打开还知道是新版本的世界
- */
-function shareBase(): string {
-  const q = new URLSearchParams(location.search);
-  q.delete('w');
-  q.delete('new');
-  q.delete('s');
-  const g = Number(q.get(GEN_KEY));
-  if (!(Number.isInteger(g) && g > GENERATOR_VERSION)) q.set(GEN_KEY, String(GENERATOR_VERSION));
-  const s = q.toString();
-  return location.origin + location.pathname + (s ? `?${s}` : '');
 }
 
 /** 页面上的存档菜单(宽屏侧栏顶上一个;手机在世界卡片里):⌘S 打开看得见的那一个 */
@@ -165,36 +139,19 @@ export function SaveMenu({ ready, icon }: SaveMenuProps) {
     saveCurrentFile();
   };
 
-  // 复制分享链接:网址(种子 + 参数 + 画风……)+ #share=整份存档;没有修改就是普通网址。
+  // 「停在这一刻」:勾着就带上时间轴那一年、选中的国家或州、地图的位置和大小(默认勾着,记住上次的选择)
+  const [momentOn, setMomentOn] = useMomentOn();
+  const at = open && ready ? momentNow() : null;
+  // 复制分享链接:网址(种子 + 参数 + 画风……)+ #share=整份存档(带上这一刻);没有修改、也不带这一刻就是普通网址。
   // 剪贴板用不了:菜单留着,里面多一行选中了链接的输入框(不另开窗口)
   const [manual, setManual] = useState<string | null>(null);
   const shareLink = async () => {
-    const save = currentSave();
-    if (!save) return;
-    const base = shareBase();
-    const withData = hasShareData(save);
-    let url = base;
-    if (withData) {
-      try {
-        url = base + (await encodeShare(save));
-      } catch {
-        setOpen(false);
-        notify({ kind: 'error', text: '做不了分享链接', more: ['浏览器版本太旧,请改用存成文件'] });
-        return;
-      }
-    }
-    const n = url.length;
-    const count = editCount(save.edits);
-    const copied = await copyText(url);
-    (window as unknown as { __wfShare?: ShareDebug }).__wfShare = { url, length: n, withData, count, copied };
-    const long = n > SHARE_WARN_LENGTH;
-    if (!copied) {
-      setManual(url);
-      return;
-    }
+    const m = momentOn ? momentNow() : null;
+    const r = await copyShareLink(m?.moment ?? null);
+    if (!r) return setOpen(false);
+    if (!r.copied) return setManual(r.url);
     setOpen(false);
-    const more = long ? [`${LONG_HINT}(${n} 字)`] : withData ? [] : ['还没有修改,只带种子和参数'];
-    notify({ kind: long ? 'warn' : 'ok', text: `已复制${withData ? '分享' : ''}链接`, more });
+    shareCopiedToast(r, m);
   };
   useEffect(() => {
     if (!open) setManual(null);
@@ -274,13 +231,16 @@ export function SaveMenu({ ready, icon }: SaveMenuProps) {
               </span>
             </button>
           ) : (
-            <button className="save-it" data-act="share-link" disabled={!cur} onClick={shareLink}>
-              <Icon name="link" size={17} />
-              <span>
-                <b>复制分享链接</b>
-                <small>{count || title ? '对方打开看到同一个世界、同样的修改' : '还没有修改，只带种子和参数'}</small>
-              </span>
-            </button>
+            <>
+              <button className="save-it" data-act="share-link" disabled={!cur} onClick={shareLink}>
+                <Icon name="link" size={17} />
+                <span>
+                  <b>复制分享链接</b>
+                  <small>{count || title ? '对方打开看到同一个世界、同样的修改' : momentOn && at ? '对方打开看到同一个世界' : '还没有修改，只带种子和参数'}</small>
+                </span>
+              </button>
+              {at && <MomentCheck at={at} on={momentOn} onChange={setMomentOn} />}
+            </>
           )}
           {frozen && (
             <button

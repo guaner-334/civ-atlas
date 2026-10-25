@@ -2,6 +2,9 @@
  * 名字、稳定键、历史"留在原地"(阶段 4 改地形):
  * - 起名不碰推演:除名字外的世界、历史钉住指纹(推演有意改了就更新,GENERATOR_VERSION 加一);同种子两次(连名字)逐字节相同
  * - 名字按位置取:放一座小火山 / 挖一个湖以后,锚点和语感都没变的地名不变;远处的海名基本不变;挖湖时远处的地名 ≥ 80% 不变
+ * - 改过地形的世界照没改过时的地名(civ/index.ts 的 nameRefOf):涂一笔(加陆地、压成海、抬山)以后,远处同一处地方的名字一个不变、
+ *   也不被新冒出来的海挤掉;再涂第二笔也一样。照着沿用的那一份推到第 0 年就停:地名和推到哪一年无关
+ * - 涂一道又高又宽的山:远处照没改地形的同一颗星球换算海拔(world.ts 的 planetOf),不跟着变矮,山名一个不少
  * - 推演随机数按位置取(gen/civ/rand.ts):改地形后州号、国家编号错开,远处的民族、国家大多照旧
  * - 稳定键按地块定位:改地形以后指回同一块地方,或者找不到;旧 r 格式(州号)照样能读
  * - 干预用新键:改地形以后照样生效,指不到的标"未生效"
@@ -14,6 +17,7 @@ import type { Civ, Place } from '../src/gen/civ/types';
 import { interventionOutcome } from '../src/gen/civ/chronicle';
 import { applyNames, cultureKey, polityKey, regionKey, resolveKey, settlementKey, type Intervention, type TerrainOp } from '../src/gen/edits';
 import { ownersAt } from '../src/gen/civ/timeline';
+import { sketchGrid, type SketchStroke } from '../src/gen/sketch';
 
 // ---------------------------------------------------------------------------
 // 工具
@@ -134,8 +138,8 @@ function historyPrint(world: World, civ: Civ): string {
 
 describe('起名不碰推演', () => {
   it('没有改地形时,除名字外的世界、历史钉住指纹;同种子两次连名字都一样', () => {
-    // 期望值是 GENERATOR_VERSION 20(球面世界 + 人物、战役 + 洋流 + 君主世系 + 邦交 + 君主倾向和扩张算账(好战影响开战;迁都后按新国都重新看边地;同一刻的即位、到达排定次序) + 名臣 + 按养得活多少人算的宜居度和城的人口上限 + 封闭内海、贴海的湖、湖心小块地的处理 + 立国更早、边缘立国、民族分化 + 航线和航海时代 + 发展度反过来影响人口、打仗和远航 + 仗短而狠、乘胜连下、前线拉锯 + 饥荒、民变、大崩解,加上推演后贴上去的信仰)(GENERATOR_VERSION 22 起还有称霸大陆的大国盛极而衰)算的。推演、地形有意改了的话更新它,并把 GENERATOR_VERSION 加一
-    const expected: Record<number, string> = { 7: 'f5c5dbfea470b450', 2024: 'fb23457d41fe8ba3' };
+    // 期望值是 GENERATOR_VERSION 20(球面世界 + 人物、战役 + 洋流 + 君主世系 + 邦交 + 君主倾向和扩张算账(好战影响开战;迁都后按新国都重新看边地;同一刻的即位、到达排定次序) + 名臣 + 按养得活多少人算的宜居度和城的人口上限 + 封闭内海、贴海的湖、湖心小块地的处理 + 立国更早、边缘立国、民族分化 + 航线和航海时代 + 发展度反过来影响人口、打仗和远航 + 仗短而狠、乘胜连下、前线拉锯 + 饥荒、民变、大崩解,加上推演后贴上去的信仰)(GENERATOR_VERSION 22 起还有称霸大陆的大国盛极而衰;24 起走过的航线不通到遗址;27 起中央管到几成、割据)算的。推演、地形有意改了的话更新它,并把 GENERATOR_VERSION 加一
+    const expected: Record<number, string> = { 7: '357aed66823e22b3', 2024: 'aaeb7790db5bb162' };
     for (const seed of [7, 2024]) {
       const P = { ...DEFAULT_PARAMS, cells: 12000, seed };
       const w = generateWorld(P);
@@ -189,6 +193,159 @@ describe.each([7, 2024])('改地形以后名字留在原地 · seed=%i', (seed) 
     // 挖湖以后远处的历史会错开一些,城名跟着换:GENERATOR_VERSION 18 量的是 seed 7 0.92、seed 2024 0.91
     expect(ratio(cities), `seed ${seed} 同一处、语感没变的城名不变的比例`).toBeGreaterThanOrEqual(0.88);
   }, 60_000);
+});
+
+// ---------------------------------------------------------------------------
+// 涂一笔(编辑地形「形状」页的笔,和界面上一样:陆地 / 海 / 山地,半径 40,程序补全"只补细节")
+
+/** 涂了这几笔的世界和历史 */
+function painted(seed: number, strokes: SketchStroke[]): { w: World; c: Civ } {
+  const w = generateWorld({ ...DEFAULT_PARAMS, seed }, undefined, [], sketchGrid({ rest: 'auto', coast: 0.6, fill: 'detail', strokes }));
+  return { w, c: generateCiv(w) };
+}
+
+/** 三笔:最开阔的海里涂一笔陆地、离海最远的陆地上涂一笔海、另一块陆地上(离第二笔 500 以外)涂一道山 */
+function threeStrokes(w: World): { label: string; s: SketchStroke }[] {
+  const sea = farthestFrom(w, false);
+  const land = farthestFrom(w, true);
+  const [sx, sy, lx, ly] = [w.mesh.x[sea], w.mesh.y[sea], w.mesh.x[land], w.mesh.y[land]].map(Math.round);
+  // 另一块陆地:离第二笔 500 以外、离海最远(按邻接步数)的一格
+  const { n, adjStart, adj, x, y } = w.mesh;
+  const step = new Int32Array(n).fill(-1);
+  const q: number[] = [];
+  for (let i = 0; i < n; i++) if (w.water[i] !== 0) (step[i] = 0), q.push(i);
+  for (let h = 0; h < q.length; h++) for (let k = adjStart[q[h]]; k < adjStart[q[h] + 1]; k++) if (step[adj[k]] < 0) (step[adj[k]] = step[q[h]] + 1), q.push(adj[k]);
+  let m = -1;
+  for (let i = 0; i < n; i++) {
+    if (w.water[i] !== 0 || Math.abs(y[i] - MAP_H / 2) > 260 || Math.hypot(x[i] - lx, y[i] - ly) < 500) continue;
+    if (m < 0 || step[i] > step[m]) m = i;
+  }
+  const [mx, my] = [Math.round(x[m]), Math.round(y[m])];
+  return [
+    { label: '加陆地', s: { kind: 'land', r: 40, pts: [sx - 30, sy, sx, sy + 10, sx + 30, sy] } },
+    { label: '压成海', s: { kind: 'sea', r: 40, pts: [lx - 30, ly, lx, ly - 10, lx + 30, ly] } },
+    { label: '抬山', s: { kind: 'mountain', h: 1, r: 40, pts: [mx - 50, my - 20, mx, my, mx + 50, my + 20] } },
+  ];
+}
+
+/** 离这几笔(笔宽以外)都超过 FAR 的地块 */
+const farFromStrokes = (w: World, strokes: SketchStroke[]) => (cell: number) =>
+  strokes.every((s) => {
+    let d = Infinity;
+    for (let k = 0; k + 1 < s.pts.length; k += 2) {
+      let dx = Math.abs(w.mesh.x[cell] - s.pts[k]);
+      if (dx > MAP_W / 2) dx = MAP_W - dx;
+      d = Math.min(d, Math.hypot(dx, w.mesh.y[cell] - s.pts[k + 1]));
+    }
+    return d - s.r > FAR;
+  });
+
+/** a 里远处的每个地名,在 b 里找同一处(同一类、锚点够近,和 places.ts 认同一处的规矩一样;一对一,近的先配):改了名的、找不到的 */
+function farNames(w: World, a: Civ, b: Civ, far: (cell: number) => boolean): { n: number; renamed: string[]; gone: string[]; lowered: string[] } {
+  const { x, y } = w.mesh;
+  const dist = (p: Place, q: Place) => {
+    let dx = Math.abs(x[p.cell!] - x[q.cell!]);
+    if (dx > MAP_W / 2) dx = MAP_W - dx;
+    return Math.hypot(dx, y[p.cell!] - y[q.cell!]);
+  };
+  const pairs: [number, number, number][] = [];
+  a.places.forEach((p, i) =>
+    b.places.forEach((q, j) => {
+      const lim = p.kind === 'mountains' || p.kind === 'river' ? 40 : Math.max(20, 1.2 * Math.max(p.size ?? 0, q.size ?? 0));
+      if (p.kind === q.kind && dist(p, q) <= lim) pairs.push([dist(p, q), i, j]);
+    }),
+  );
+  pairs.sort((s, t) => s[0] - t[0] || s[1] - t[1] || s[2] - t[2]);
+  const to = new Map<number, number>();
+  const taken = new Set<number>();
+  for (const [, i, j] of pairs) if (!to.has(i) && !taken.has(j)) to.set(i, j), taken.add(j);
+  const out = { n: 0, renamed: [] as string[], gone: [] as string[], lowered: [] as string[] };
+  a.places.forEach((p, i) => {
+    if (!far(p.cell!)) return;
+    out.n++;
+    const j = to.get(i);
+    if (j === undefined) out.gone.push(p.name);
+    else if (b.places[j].name !== p.name) out.renamed.push(`${p.name} → ${b.places[j].name}`);
+    if (j !== undefined && b.places[j].rank > p.rank) out.lowered.push(`${p.name} 显示档 ${p.rank} → ${b.places[j].rank}`);
+  });
+  return out;
+}
+
+describe.each([7, 2024])('涂一笔以后远处的地名不变 · seed=%i', (seed) => {
+  it('加陆地、压成海、抬山各涂一笔:远处的地名一个不改、一个不少,显示档不降', () => {
+    const { w: w0, c: c0 } = base(seed);
+    for (const { label, s } of threeStrokes(w0)) {
+      const { w, c } = painted(seed, [s]);
+      expect(w.sketch, `${label}:涂上了`).toBeTruthy();
+      const r = farNames(w0, c0, c, farFromStrokes(w0, [s]));
+      expect(r.n, `seed ${seed} ${label}:远处的地名够多`).toBeGreaterThan(30);
+      expect(r.renamed, `seed ${seed} ${label}:改了名的`).toEqual([]);
+      expect(r.gone, `seed ${seed} ${label}:找不到的`).toEqual([]);
+      expect(r.lowered, `seed ${seed} ${label}:总览里退下去的`).toEqual([]);
+    }
+  }, 120_000);
+
+  it('涂了第一笔再涂第二笔:离两笔都远的地名不变', () => {
+    const { w: w0 } = base(seed);
+    const [a, b] = threeStrokes(w0);
+    const one = painted(seed, [a.s]);
+    const two = painted(seed, [a.s, b.s]);
+    const r = farNames(w0, one.c, two.c, farFromStrokes(w0, [a.s, b.s]));
+    expect(r.n).toBeGreaterThan(30);
+    expect(r.renamed, `seed ${seed}:改了名的`).toEqual([]);
+    expect(r.gone, `seed ${seed}:找不到的`).toEqual([]);
+    expect(r.lowered, `seed ${seed}:总览里退下去的`).toEqual([]);
+  }, 120_000);
+});
+
+describe.each([7, 2024])('涂一道高山以后远处的山不跟着变矮 · seed=%i', (seed) => {
+  it('又高又宽的一道山:远处陆地的海拔 99% 以上不变(差不到 1 米),山名的门槛(最高海拔)不变,远处的地名一个不少、显示档不降;涂的山不高得离谱', () => {
+    const { w: w0, c: c0 } = base(seed);
+    const s: SketchStroke = { ...threeStrokes(w0)[2].s, h: 2, r: 80 };
+    const { w, c } = painted(seed, [s]);
+    const far = farFromStrokes(w0, [s]);
+    let farLand = 0;
+    let moved = 0;
+    /** 笔涂到的地块(离笔画的点不到半径) */
+    const inStroke = (cell: number) => {
+      for (let k = 0; k + 1 < s.pts.length; k += 2) {
+        let dx = Math.abs(w0.mesh.x[cell] - s.pts[k]);
+        if (dx > MAP_W / 2) dx = MAP_W - dx;
+        if (Math.hypot(dx, w0.mesh.y[cell] - s.pts[k + 1]) <= s.r) return true;
+      }
+      return false;
+    };
+    let top = 0;
+    for (let i = 0; i < w0.mesh.n; i++) {
+      if (w.water[i] === 0 && inStroke(i)) top = Math.max(top, w.elevation[i]);
+      if (!far(i) || w0.water[i] !== 0) continue;
+      farLand++;
+      if (w.water[i] !== 0 || Math.abs(w.elevation[i] - w0.elevation[i]) >= 1) moved++;
+    }
+    expect(farLand).toBeGreaterThan(5000);
+    // GENERATOR_VERSION 26 以前:全图按涂上的高山换算,远处 99% 以上的陆地变矮(1500 米以上的中位矮了 10%–46%),远处的山名消失 7–8 个
+    expect(moved / farLand, `seed ${seed} 远处海拔变了的陆地块`).toBeLessThan(0.01);
+    expect(w.maxElevation, `seed ${seed} 最高海拔`).toBe(w0.maxElevation);
+    const r = farNames(w0, c0, c, far);
+    expect(r.n).toBeGreaterThan(30);
+    expect(r.gone, `seed ${seed}:找不到的`).toEqual([]);
+    expect(r.lowered, `seed ${seed}:总览里退下去的`).toEqual([]);
+    // 涂的地方照这个世界自己的"最高峰"换算(和以前一样):最高处几千米,不到万米
+    expect(top, `seed ${seed} 涂的山最高处`).toBeGreaterThan(4000);
+    expect(top, `seed ${seed} 涂的山最高处`).toBeLessThan(7000);
+  }, 120_000);
+});
+
+describe('改过地形的世界照着沿用的地名推到第 0 年就停', () => {
+  it('地名和推到哪一年无关(第 0 年、第 3000 年起的一样)', () => {
+    for (const seed of [7, 2024]) {
+      for (const names of [undefined, { central: 1, hellenic: 2 }]) {
+        const w = generateWorld({ ...DEFAULT_PARAMS, cells: 12000, seed });
+        const sig = (c: Civ) => c.places.map((p) => [p.kind, p.cell, p.name, p.latin, p.culture < 0 ? '' : c.cultures[p.culture].style]);
+        expect(sig(generateCiv(w, { endYear: 0, ...(names ? { names } : {}) })), `seed ${seed}`).toEqual(sig(generateCiv(w, names ? { names } : {})));
+      }
+    }
+  }, 120_000);
 });
 
 describe.each([7, 2024])('改地形以后远处的历史大多照旧 · seed=%i', (seed) => {
@@ -268,7 +425,9 @@ describe('稳定键按地块定位', () => {
       if (b && seat1[b.id] === seat0[r]) sameOld++;
     }
     expect(sameNew / c0.regions.count, '新键指回同一治所的州').toBeGreaterThan(0.9);
-    expect(sameNew).toBeGreaterThan(sameOld * 2);
+    // GENERATOR_VERSION 26 起改过地形的世界远处照没改地形的同一颗星球换算海拔,放一座小火山只动了附近:
+    // 新冒出来的州排在中间,它前面的旧 r 格式还指得对(7 号小火山 488 / 896),新键仍然好得多
+    expect(sameNew).toBeGreaterThan(sameOld * 1.5);
     // 城:找不到,或者是现在包含那块地的州里的城;大多数就是同一地块上的城
     let cityHere = 0;
     for (const s of c0.settlements) {

@@ -3,8 +3,9 @@
  *
  *   头部  世界名;一行"种子 7，当前 2679 年，未干预"(设了纪年:"当前公元前 850 年");一行汇总(现存几国、历来几国、民族、城镇、州,跟着时间轴的当前年份);
  *         关闭。存档、导出、AI 设置、写成史书不放这里:宽屏在侧栏和地图右上,手机在底部世界卡片的按钮和「···」里
- *   页签  国家(WorldOverviewCountries.tsx)/ 编年史(Chronicle.tsx)/ 人物(WorldOverviewPeople.tsx:名人、君主、将领)/
+ *   页签  国家(WorldOverviewCountries.tsx)/ 民族(WorldOverviewCultures.tsx)/ 编年史(Chronicle.tsx)/ 人物(WorldOverviewPeople.tsx:名人、君主、将领)/
  *         标记(WorldOverviewMarks.tsx:作者在地图上放的标记)/
+ *         大纲(OutlinePage.tsx:作者先写下的故事,照大纲推演;手机上不要概览的头和页签,整页是大纲)/
  *         我的干预(WorldOverviewInterventions.tsx)/
  *         世界设定(WorldOverviewGenesis.tsx:创建时定下的种子、参数、地形,只能看;以它为底稿新建、回放世界形成)
  *   世界名旁边"改名"(点了就地变成输入框)
@@ -20,19 +21,24 @@ import { Chronicle } from './Chronicle';
 import { PeoplePage } from './WorldOverviewPeople';
 import { MarksPage } from './WorldOverviewMarks';
 import { CountriesPage } from './WorldOverviewCountries';
+import { CulturesPage } from './WorldOverviewCultures';
 import { InterventionsPage } from './WorldOverviewInterventions';
+import { OutlinePage, OutlinePhone, useOutlinePickReturn } from './OutlinePage';
+import { closeEdit, getOutlineUi } from './outlineStore';
+import { interventionRows } from './outlineInfo';
 import { SettingsPage } from './WorldOverviewGenesis';
 import { getCivTime, subscribeCivTime } from './civView';
 import { useEdits, useEra } from './editsStore';
 import { spaced, yearAt } from '../gen/era';
 import { cleanCivSeed } from '../gen/edits';
 import { currentWorld, renameWorld, useSavesVersion } from './saveStore';
-import { closeOverview, setOverviewTab, useOverview, type OverviewTab } from './overviewStore';
+import { closeOverview, getOverview, setOverviewTab, useOverview, type OverviewTab } from './overviewStore';
 import { PRIVACY_URL, SOURCE_URL, TERMS_URL } from './links';
 import { ContactLink } from './ContactLink';
 import { useNarrow } from './device';
 import { Icon } from './icons';
 import { VersionText } from './VersionNews';
+import { BeianLinks } from './BeianLinks';
 import { TitleInput } from './worldParts';
 import './overview.css';
 
@@ -55,9 +61,11 @@ export interface WorldOverviewProps {
 
 const TABS: { id: OverviewTab; name: string }[] = [
   { id: 'countries', name: '国家' },
+  { id: 'cultures', name: '民族' },
   { id: 'chronicle', name: '编年史' },
   { id: 'people', name: '人物' },
   { id: 'marks', name: '标记' },
+  { id: 'outline', name: '大纲' },
   { id: 'interventions', name: '我的干预' },
   { id: 'genesis', name: '世界设定' },
 ];
@@ -73,6 +81,9 @@ function useYear(civ: Civ | null): number {
 export function WorldOverview(p: WorldOverviewProps) {
   const { open, tab } = useOverview();
   const edits = useEdits();
+  const narrow = useNarrow();
+  // 大纲在地图上点完、取消:回到「大纲」页接着编
+  useOutlinePickReturn();
 
   // Esc 收起(先于页面上别的 Esc:不顺手取消地图上的选中)。输入框里打字时不管;
   // 存档 / 导出菜单、AI 设置开着时先让它们收
@@ -82,17 +93,27 @@ export function WorldOverview(p: WorldOverviewProps) {
       if (e.key !== 'Escape' || e.defaultPrevented) return;
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
-      if (document.querySelector('.ov .save-menu, .ov .export-menu, .ov .era-pick, .ai-dialog-bg')) return;
+      if (document.querySelector('.ov .save-menu, .ov .export-menu, .ov .era-pick, .ov .pm-menu, .ai-dialog-bg')) return;
       e.stopPropagation();
-      closeOverview();
+      // 大纲正在编一条:先收起那一栏
+      if (getOverview().tab === 'outline' && getOutlineUi().edit) closeEdit();
+      else closeOverview();
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
   }, [open]);
 
   const stop = (e: { stopPropagation(): void }) => e.stopPropagation();
-  // 干预和地形大事一起数(同一页列在一起)
-  const nIv = edits.interventions.length + (edits.upheavals?.length ?? 0);
+  // 干预和地形大事一起数(同一页列在一起;照大纲硬改的一条情节算一处)
+  const nIv = interventionRows(edits.interventions) + (edits.upheavals?.length ?? 0);
+  const nPlots = edits.outline?.plots.length ?? 0;
+  if (open && narrow && tab === 'outline')
+    return (
+      <div className="ov-root">
+        <div className="ov-scrim" onClick={closeOverview} />
+        <OutlinePhone civ={p.civ} />
+      </div>
+    );
   return (
     <div className="ov-root" hidden={!open}>
       <div className="ov-scrim" onClick={closeOverview} />
@@ -110,6 +131,7 @@ export function WorldOverview(p: WorldOverviewProps) {
             <button key={t.id} role="tab" aria-selected={tab === t.id} className={`ov-tab${tab === t.id ? ' on' : ''}`} data-tab={t.id} onClick={() => setOverviewTab(t.id)}>
               {t.name}
               {t.id === 'interventions' && ` ${nIv}`}
+              {t.id === 'outline' && ` ${nPlots}`}
             </button>
           ))}
         </nav>
@@ -127,7 +149,8 @@ const ABOUT = [
 ];
 
 /**
- * 底部一行小字:源代码、隐私政策、用户协议(新标签页打开)、联系我们(配了交流群才有;手机上在「更多」菜单里),最右边是版本号
+ * 底部一行小字:源代码、隐私政策、用户协议(新标签页打开)、联系我们(配了交流群才有;手机上在「更多」菜单里),
+ * 正中是备案号(有号码时;手机上那排已经占满,在「更多」菜单里),最右边是版本号
  */
 function AboutLinks() {
   const narrow = useNarrow();
@@ -139,27 +162,37 @@ function AboutLinks() {
         </a>
       ))}
       {!narrow && <ContactLink />}
+      {!narrow && <BeianLinks className="ov-beian" />}
       <VersionText className="ov-ver" />
     </footer>
   );
 }
 
-/** 国家页跟着时间轴的当前年份(一年重新渲染一次);其余几页不用 */
+/** 国家页、民族页跟着时间轴的当前年份(一年重新渲染一次);其余几页不用 */
 function Countries({ civ }: { civ: Civ | null }) {
   const year = useYear(civ);
   return <CountriesPage civ={civ} year={year} />;
+}
+
+function Cultures({ civ }: { civ: Civ | null }) {
+  const year = useYear(civ);
+  return <CulturesPage civ={civ} year={year} />;
 }
 
 function OverviewPage(p: WorldOverviewProps & { tab: OverviewTab }) {
   switch (p.tab) {
     case 'countries':
       return <Countries civ={p.civ} />;
+    case 'cultures':
+      return <Cultures civ={p.civ} />;
     case 'chronicle':
       return <Chronicle civ={p.civ} />;
     case 'people':
       return <PeoplePage civ={p.civ} data={p.data} />;
     case 'marks':
       return <MarksPage civ={p.civ} data={p.data} />;
+    case 'outline':
+      return <OutlinePage civ={p.civ} />;
     case 'interventions':
       return <InterventionsPage civ={p.civ} world={p.data?.world ?? null} busy={p.resimBusy} />;
     case 'genesis':
@@ -192,7 +225,7 @@ function OverviewSummary({ civ, seed }: { civ: Civ | null; seed: number | null }
   const cur = currentWorld();
   const title = cur?.title;
   const [naming, setNaming] = useState(false);
-  const n = edits.interventions.length + (edits.upheavals?.length ?? 0);
+  const n = interventionRows(edits.interventions) + (edits.upheavals?.length ?? 0);
   const stats = useMemo(() => {
     if (!civ || !civ.viable) return null;
     let alive = 0;

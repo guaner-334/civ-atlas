@@ -15,7 +15,7 @@
  * 预计日期:正式网站每周日同步一次测试网站 —— 测试网站发布那天之后的第一个周日;过了还没同步,顺延到下一个周日。
  */
 import { useSyncExternalStore } from 'react';
-import { WHATS_NEW, type NewsItem } from './whatsNew';
+import type { NewsItem } from './newsFiles';
 import { BETA_SITE, OLD_SITE, latestUrl } from './oldSite';
 
 export type { NewsItem };
@@ -130,9 +130,11 @@ export async function loadNews(): Promise<void> {
   if (OLD_SITE !== null) return;
   const main = latestUrl();
   const betaUrl = new URL('beta/', main);
-  const own: NewsFile = { built: BUILD_DAY, news: WHATS_NEW };
+  let own: NewsFile;
   let other: NewsFile | null = null;
   try {
+    // 自己的清单用到时才下载:首页不多背这几十条字
+    own = { built: BUILD_DAY, news: (await import('./whatsNew')).WHATS_NEW };
     // no-cache:每次打开网站都问一下服务器换没换(没换只回一句"没变",不重新下载)
     const res = await fetch(new URL(NEWS_FILE, BETA_SITE ? main : betaUrl), { cache: 'no-cache' });
     if (res.ok) other = parseNews(await res.json().catch(() => null));

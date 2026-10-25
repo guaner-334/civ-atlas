@@ -1,10 +1,20 @@
 import { execSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { readdir, readFile, writeFile } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
+import { promisify } from 'node:util';
+import { brotliCompress, constants as zlibConst, gzip } from 'node:zlib';
+import type { Plugin } from 'vite';
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import { fakeAiMiddleware } from './scripts/lib/fakeAiServer';
+import { inlineIconsPlugin } from './scripts/lib/inlineIcons';
+import { beianPagesPlugin } from './scripts/lib/beian';
+import { loadScreenPlugin } from './scripts/lib/loadScreen';
+import { readWhatsNew } from './scripts/lib/whatsNew';
+import { beianRecords } from './src/ui/beian';
 import { SOURCE_URL } from './src/ui/links';
-import { WHATS_NEW } from './src/ui/whatsNew';
+import { ShardSequencer } from './tests/lib/shardSequencer';
 
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as { version: string; license: string };
 
@@ -21,6 +31,13 @@ function buildCommit(): string {
 const BUILD_DAY = new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10);
 
 /**
+ * 网站备案号:环境变量 ICP_BEIAN(网站的发布流程从仓库变量传进来)。没设 = 哪里都不挂(src/ui/beian.ts):
+ * 页面上的那几处、加载画面、public/ 下的隐私政策、用户协议、使用教程
+ */
+const ICP_BEIAN = process.env.ICP_BEIAN?.trim() ?? '';
+const BEIAN = beianRecords(ICP_BEIAN);
+
+/**
  * 打包出来的每个 JS 文件开头的署名:作品名、版本、版权、许可证、源代码地址(`/*!` 开头的注释压缩时会保留)。
  * 主程序另带代码提交号,对得上是哪一版;后台计算的几个文件、用到时才下载的小文件(二维码)不带,
  * 不然每次发布它们的文件名都会变,浏览器得重新下载没改过的代码
@@ -29,20 +46,85 @@ function banner(commit = ''): string {
   return `/*! 文明与地图 v${pkg.version}${commit ? ` (${commit})` : ''} | Copyright (C) 2026 guaner-334 | ${pkg.license} | ${SOURCE_URL} */`;
 }
 
+/** 预先压好的文件:这几种文本文件(.html 不压:发布流程最后才换页面本身,压好的那份要跟着它一起换) */
+const PACK_EXT = /\.(js|mjs|css|json|svg|txt|md)$/;
+
+/**
+ * 构建完把文本文件各压一份最高等级的 .gz 和 .br 放在旁边(gzip 9 级、brotli 11 级),
+ * 网站服务器打开"有压好的就直接发"(nginx 的 gzip_static / brotli_static)后不用每次现压,下载的也更少。
+ * 每个都压,再小、压了不见小的也压:发布时不删服务器上的旧文件,名字不变的文件(guide.md、whats-new.json……)
+ * 这次不压的话,服务器上还留着上次压的那份旧内容,会被发出去
+ */
+function precompress(): Plugin {
+  let outDir = '';
+  const gz = promisify(gzip);
+  const br = promisify(brotliCompress);
+  const walk = async (dir: string): Promise<string[]> => {
+    const out: string[] = [];
+    for (const e of await readdir(dir, { withFileTypes: true })) {
+      const p = join(dir, e.name);
+      if (e.isDirectory()) out.push(...(await walk(p)));
+      else if (PACK_EXT.test(e.name)) out.push(p);
+    }
+    return out;
+  };
+  return {
+    name: 'precompress',
+    apply: 'build',
+    configResolved(c) {
+      outDir = resolve(c.root, c.build.outDir);
+    },
+    async closeBundle() {
+      const files = await walk(outDir);
+      await Promise.all(
+        files.map(async (f) => {
+          const src = await readFile(f);
+          const [g, b] = await Promise.all([
+            gz(src, { level: 9 }),
+            br(src, { params: { [zlibConst.BROTLI_PARAM_QUALITY]: 11, [zlibConst.BROTLI_PARAM_MODE]: zlibConst.BROTLI_MODE_TEXT, [zlibConst.BROTLI_PARAM_SIZE_HINT]: src.length } }),
+          ]);
+          await Promise.all([writeFile(`${f}.gz`, g), writeFile(`${f}.br`, b)]);
+        }),
+      );
+    },
+  };
+}
+
 export default defineConfig({
   base: './',
-  // 界面上显示的版本号(src/ui/version.ts)、构建那天(src/ui/betaNews.ts)
-  define: { __APP_VERSION__: JSON.stringify(pkg.version), __BUILD_DAY__: JSON.stringify(BUILD_DAY) },
+  // 界面上显示的版本号(src/ui/version.ts)、构建那天(src/ui/betaNews.ts)、备案号(src/ui/beian.ts)
+  define: { __APP_VERSION__: JSON.stringify(pkg.version), __BUILD_DAY__: JSON.stringify(BUILD_DAY), __ICP_BEIAN__: JSON.stringify(ICP_BEIAN) },
   plugins: [
     react(),
+    // 浏览器标签上的图标写进页面(data: 网址):拖地图、换图层改网址时,浏览器不再一遍遍去要图标(scripts/lib/inlineIcons.ts)
+    inlineIconsPlugin(),
     // 新功能清单连同构建那天写成网站上的 whats-new.json:正式网站和测试网站互相读,版本号上列出测试网站多出来的(src/ui/betaNews.ts)
     {
       name: 'whats-new',
       apply: 'build',
       generateBundle() {
-        this.emitFile({ type: 'asset', fileName: 'whats-new.json', source: `${JSON.stringify({ built: BUILD_DAY, news: WHATS_NEW })}\n` });
+        this.emitFile({ type: 'asset', fileName: 'whats-new.json', source: `${JSON.stringify({ built: BUILD_DAY, news: readWhatsNew() })}\n` });
       },
     },
+    precompress(),
+    // 署名放在每个文件的最开头:压缩时 import 和几个小函数会被挪到署名前面(主程序 import 首页那一份的名字很长,署名就落到了几千字以后)
+    {
+      name: 'banner-first',
+      apply: 'build',
+      enforce: 'post',
+      generateBundle(_o, bundle) {
+        for (const c of Object.values(bundle)) {
+          if (c.type !== 'chunk') continue;
+          const m = /\/\*! 文明与地图 [^*]*\*\//.exec(c.code);
+          if (m && m.index > 0) c.code = m[0] + c.code.slice(0, m.index) + c.code.slice(m.index + m[0].length);
+        }
+      },
+    },
+    // 加载画面(scripts/lib/loadScreen.ts):第一次打开时先出网站图标、名字和一条真的进度条,页面的代码、样式表由它数着下好再交给浏览器;
+    // 打开的不是首页时主程序也一起下
+    loadScreenPlugin(BEIAN),
+    // 隐私政策、用户协议、使用教程(public/ 下的静态页)最底下的备案号:构建完写进去(scripts/lib/beian.ts)
+    beianPagesPlugin(BEIAN),
     // 开发时的假网站服务器(账号、云同步、分享、我们的 AI;接口约定见 src/ai/providers/official.ts、src/account/cloud.ts 文件头):
     // 网址加 aiServer=fake 使用;正式构建里没有。分享短链接 /s/<码> 照正式网站的做法转到 /?s=<码>(开发时带上 aiServer=fake)
     {
@@ -70,6 +152,11 @@ export default defineConfig({
   },
   worker: { format: 'es', rollupOptions: { output: { banner: () => banner() } } },
   server: { port: 5188, strictPort: true },
-  // 只跑 tests/ 下的单测;本地工具目录(.claude/)里的不算
-  test: { include: ['tests/**/*.test.ts'], exclude: ['**/node_modules/**', '.claude/**'] },
+  // 只跑 tests/ 下的单测;本地工具目录(.claude/)里的不算。
+  // 先后和分份(PR 检查上分几台机器跑)按各文件大概多久排,见 tests/lib/shardSequencer.ts
+  test: {
+    include: ['tests/**/*.test.ts'],
+    exclude: ['**/node_modules/**', '.claude/**'],
+    sequence: { sequencer: ShardSequencer },
+  },
 });

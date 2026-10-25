@@ -2,6 +2,7 @@
  * 时代图层、物产图层的侧栏列表(宽屏侧栏、手机世界卡片共用):
  * - 时代:这一年有州在的时代,新的在上;每行"某年首见于某地(某国)"和州数(只数有人住的州)。
  * - 物产:十一样,每行"N 州有 / M 州在用(矿:在采)";这一年哪州都还没发现的灰掉,写"都还没发现"。
+ * - 管辖:四档各几州;现在的割据,每行"某州等几州 / 名义上属某国,某年起 / 割据了几年"。
  */
 import type { Civ, Year } from '../gen/civ/types';
 import { ERAS, RESOURCES, RESOURCE_COUNT, resourcesAt } from '../gen/civ/development';
@@ -10,6 +11,9 @@ import { regionLabel } from '../gen/civ/display';
 import { yearAt, type Era } from '../gen/era';
 import { ERA_COLORS, eraLevelsAt, eraName } from '../render/civ/era';
 import { RESOURCE_COLORS, RESOURCE_GLYPHS, resourceTier } from '../render/civ/resources';
+import { CONTROL_TIERS } from '../gen/civ/control';
+import { cnNumber } from '../gen/civ/chronicle';
+import { CONTROL_COLORS, controlTiersAt, lordsAt } from '../render/civ/control';
 
 export interface EraRow {
   era: number;
@@ -101,4 +105,52 @@ export function resourceRows(civ: Civ, year: Year): ResourceRow[] {
     }
     return { k, name, glyph: RESOURCE_GLYPHS[k], color: RESOURCE_COLORS[k], note: RESOURCE_NOTES[k], has, using, found, verb: MINES.has(k) ? '在采' : '在用' };
   });
+}
+
+/** 四档的一行小字(手机上割据那一行短一点) */
+const CONTROL_NOTES: readonly string[] = ['中央派官、收税、征兵都管得到', '交给当地人管，出兵打折扣', '名义上归属，实际自己说了算', '拥兵自重，打仗不出兵，迟早可能自立'];
+const LORD_NOTE_SHORT = '拥兵自重，打仗不出兵';
+
+export interface ControlRow {
+  tier: number;
+  name: string;
+  color: readonly [number, number, number];
+  sub: string;
+  /** 这一年几个州 */
+  n: number;
+}
+
+export interface LordRow {
+  /** 起事的那座城所在的州(点一行跳过去) */
+  region: number;
+  /** 地盘里的州 */
+  regions: number[];
+  name: string;
+  sub: string;
+  /** 割据了几年 */
+  years: number;
+}
+
+let tiers: Int16Array | undefined;
+
+/** 这一年的管辖:四档各几州(都列,没有的写 0 州)、现在的割据(先起的在上);没有快照 = null */
+export function controlRows(civ: Civ, year: Year, era?: Era | null, narrow = false): { tiers: ControlRow[]; lords: LordRow[] } | null {
+  if (!civ.development?.controlYears?.length) return null;
+  tiers = controlTiersAt(civ, year, tiers);
+  const n = new Array<number>(CONTROL_TIERS.length).fill(0);
+  for (let r = 0; r < tiers.length; r++) if (tiers[r] >= 0) n[tiers[r]]++;
+  const rows = CONTROL_TIERS.map((name, k): ControlRow => ({ tier: k, name, color: CONTROL_COLORS[k], sub: narrow && k === 3 ? LORD_NOTE_SHORT : CONTROL_NOTES[k], n: n[k] }));
+  const lords = lordsAt(civ, year).map((w): LordRow => {
+    const k = w.regions.length;
+    const place = regionLabel(civ, w.region);
+    const pol = civ.polities[w.p];
+    return {
+      region: w.region,
+      regions: w.regions,
+      name: k > 1 ? `${place}等${k === 2 ? '两' : cnNumber(k)}州` : place,
+      sub: `名义上属${pol ? polityName(pol, year) : ''}，${yearAt(w.start, era)}起`,
+      years: Math.max(0, Math.floor(year) - Math.floor(w.start)),
+    };
+  });
+  return { tiers: rows, lords };
 }

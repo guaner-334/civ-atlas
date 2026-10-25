@@ -28,9 +28,11 @@ pnpm typecheck             # 类型检查
 pnpm test                  # 单元测试
 pnpm stress                # 极端参数压力测试:出现 NaN 就失败,顺带打印各步耗时
 pnpm smoke                 # 冒烟测试:无头浏览器里加载、回放、悬停、各界面流程
+SMOKE_PART=2/4 pnpm smoke  # 只跑冒烟的第 2 份(PR 检查上分 4 份同时跑)
 pnpm test:visual           # 画面回归:固定种子渲染缩略图,和 tests/visual/baseline/ 里的基准图逐像素比
 pnpm test:visual --update  # 画面是有意改的:用当前画面更新基准图,和代码一起提交
-pnpm build                 # 生产构建(输出到 dist/)
+pnpm build                 # 生产构建(输出到 dist/;文本文件旁边各压一份 .gz、.br)
+pnpm size                  # 首页下载量:build 以后,打开网站时首页要下载的代码 + 样式;超过上限就失败(PR 检查里也跑)
 ```
 
 冒烟测试、画面回归和截图脚本要用无头浏览器,第一次先装:`pnpm exec playwright install chromium`。
@@ -83,8 +85,8 @@ src/
 ├── ai/             AI 接入:唯一入口 aiChat、各家服务商、设置与密钥、本地调用记录、提示词;agent/ 是助手(调用工具、试推演对照)
 ├── account/        网站账号、云同步、短链接(只在配了 VITE_AI_SERVER 时启用)
 ├── ui/             界面(React)
-├── worker.ts / exportWorker.ts / globeWorker.ts   后台线程
-└── main.tsx
+├── worker.ts / exportWorker.ts / globeWorker.ts / globeCpuWorker.ts   后台线程
+└── main.tsx        入口:先出首页(ui/Boot.tsx、ui/HomeShell.tsx),主程序 ui/App.tsx 单独一个文件、同时在后台下载
 scripts/            冒烟测试、压力测试、画面回归、截图、统计、字体裁剪等脚本(lib/ 是它们共用的零件)
 tests/              单元测试(vitest);visual/baseline/ 是画面回归的基准图
 public/fonts/       地图文字用的字体子集和许可证
@@ -96,3 +98,5 @@ public/fonts/       地图文字用的字体子集和许可证
   同一版本下,不同电脑、浏览器生成的地形和历史逐位一致(有单测核对)
 - 改了生成算法、同一个种子得到的世界变了,就把 `src/gen/edits.ts` 里的 `GENERATOR_VERSION` 加一(旧存档靠它提示"来自旧版本")
 - 性能预算:默认 36k 地块,生成 + 铺像素不超过 2 秒
+- **首页先下的那一份要小**:首页(`src/ui/HomeShell.tsx`)用到的文件不要静态 import 只有世界里才用的模块(地图画法、推演、助手、导出……),
+  不然整串都会被拖进首页;`pnpm size` 卡着上限(超了怎么办见 `scripts/first-load.ts` 开头)。新的样式文件要加进 `src/ui/styles.ts`(有单测核对)

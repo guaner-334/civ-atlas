@@ -4,33 +4,58 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld } from '../src/gen/world';
 import { generateCiv } from '../src/gen/civ';
-import { END_YEAR_DEFAULT, END_YEAR_MAX, cleanEndYear, endYearOf, type WorldEdits } from '../src/gen/edits';
+import { END_YEAR_DEFAULT, END_YEAR_MAX, cleanEndYear, endYearOf, extendedEndYear, type WorldEdits } from '../src/gen/edits';
 import { editCount, editsLost, makeSave, parseSave, saveText } from '../src/gen/savefile';
 import { clearEdits, getEdits, revertEdits, setEdits, setEndYear } from '../src/ui/editsStore';
 import { playRate, replayStart, rulerOf } from '../src/ui/timelineLayout';
 
 describe('清理', () => {
-  it('夹在 3000–60000、取整到千年;3000 = 不写', () => {
+  it('取整到年、夹在 1–60000(不到 3000 年的是逐年推演存回来的);3000 = 不写;整千年和以前一样', () => {
     expect(cleanEndYear(undefined)).toBeUndefined();
     expect(cleanEndYear('12000')).toBeUndefined();
     expect(cleanEndYear(Number.NaN)).toBeUndefined();
     expect(cleanEndYear(END_YEAR_DEFAULT)).toBeUndefined();
-    expect(cleanEndYear(1000)).toBeUndefined();
+    expect(cleanEndYear(1000)).toBe(1000);
+    expect(cleanEndYear(2675)).toBe(2675);
+    expect(cleanEndYear(0)).toBe(1);
+    expect(cleanEndYear(-50)).toBe(1);
+    expect(cleanEndYear(3000.4)).toBeUndefined();
+    expect(cleanEndYear(3000.6)).toBe(3001);
+    expect(cleanEndYear(3250)).toBe(3250);
+    expect(cleanEndYear(3500)).toBe(3500);
     expect(cleanEndYear(12000)).toBe(12000);
-    expect(cleanEndYear(12345)).toBe(12000);
+    expect(cleanEndYear(12345)).toBe(12345);
     expect(cleanEndYear(99999)).toBe(END_YEAR_MAX);
+    for (let y = 4000; y <= END_YEAR_MAX; y += 1000) expect(cleanEndYear(y)).toBe(y);
     expect(endYearOf({})).toBe(3000);
+    expect(endYearOf({ endYear: 3500 })).toBe(3500);
     expect(endYearOf({ endYear: 60000 })).toBe(60000);
+  });
+
+  it('再推 N 年推到第几年:至少 1 年,到 60000 为止', () => {
+    expect(extendedEndYear(3000, 500)).toBe(3500);
+    expect(extendedEndYear(3500, 250.4)).toBe(3750);
+    expect(extendedEndYear(3000, 0)).toBe(3001);
+    expect(extendedEndYear(3000, -50)).toBe(3001);
+    expect(extendedEndYear(59900, 1000)).toBe(END_YEAR_MAX);
+    expect(extendedEndYear(END_YEAR_MAX, 100)).toBe(END_YEAR_MAX);
+    expect(extendedEndYear(3000, Number.NaN)).toBe(3000);
+    expect(extendedEndYear(2675, 100)).toBe(2775);
   });
 });
 
 describe('存档', () => {
   const base: WorldEdits = { names: {}, interventions: [], terrain: [] };
 
-  it('原样存、原样读回;3000 年不写', () => {
+  it('原样存、原样读回;3000 年不写;不是整千年的也原样', () => {
     const back = parseSave(saveText(makeSave(DEFAULT_PARAMS, { ...base, endYear: 20000 }, 'abc')));
     expect(back.ok && back.save.edits.endYear).toBe(20000);
     expect(back.ok && back.warnings).toEqual([]);
+    for (const y of [3250, 3500, 12345]) {
+      const b = parseSave(saveText(makeSave(DEFAULT_PARAMS, { ...base, endYear: y }, 'abc')));
+      expect(b.ok && b.save.edits.endYear, `${y}`).toBe(y);
+      expect(b.ok && b.warnings, `${y}`).toEqual([]);
+    }
     expect('endYear' in makeSave(DEFAULT_PARAMS, base, 'abc').edits).toBe(false);
     expect('endYear' in makeSave(DEFAULT_PARAMS, { ...base, endYear: 3000 }, 'abc').edits).toBe(false);
   });

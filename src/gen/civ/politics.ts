@@ -54,10 +54,11 @@ import { MinHeap } from '../util';
 import { geometryOf, type Geometry } from '../geometry';
 import { AdjKind, Layer, type AnnalCause, type Civ, type Polity, type Year } from './types';
 import { fexp, flog, keyed, keyed4, subSeed } from './rand';
-import { Ev, quantize, type CivSim } from './sim';
+import { BOOKED_AT_START, bookChain, Ev, quantize, type CivSim } from './sim';
 import { addPolity, canCross, coreOf, endPolity, foundingYear, moveCapital, polityModelOf, sailsOcean, type PolityModel } from './polities';
 import { warModelOf, type WarModel } from './wars';
 import { capacityAt, capitalAt, populationAt } from './growth';
+import type { ControlModel } from './control';
 
 // ---- 调参(以截图和统计数为准,见 scripts/gen-stats.ts) ----
 /** 立国后多少年开始看内政;之后每隔多少年看一次(每段里 20%–80% 处随机一个时刻) */
@@ -90,6 +91,8 @@ const SPLIT_K = 2;
 const SPLIT_D0 = 1.8;
 /** 挑起事的州时,离心力加一点随机(不总是同一州) */
 const RISE_JITTER = 0.3;
+/** 割据的州(control.ts)起兵的离心力再加这么多:割据久了的地方先自立 */
+const LORD_D = 0.8;
 /** 一起自立的州:离心力不低于起事那州 − GROUP_DROP,也不低于 GROUP_MIN_D */
 const GROUP_DROP = 0.9;
 const GROUP_MIN_D = 1.0;
@@ -211,6 +214,10 @@ export interface PoliticsModel {
   cutOff?: (pid: number, group: number[], t: Year, cap: number) => number[] | null;
   /** 州组里人口最多的城(hook 里填;没有城 = −1) */
   biggestCity?: (group: readonly number[], t: Year) => number;
+  /** 中央管到什么程度(control.ts 挂上;没挂 = 离心力照离国都的路程算) */
+  control?: ControlModel;
+  /** 看内政时分裂没成之后:收回割据、新起割据(control.ts 挂上);出了一件事 = true */
+  lordCheck?: (P: Polity, k: number, t: Year) => boolean;
 }
 
 function newModel(pm: PolityModel, wm: WarModel, world: World): PoliticsModel {
@@ -437,11 +444,15 @@ function hook(sim: CivSim, pol: PoliticsModel): void {
     // 动荡(整个国家;unrest.ts 没挂上时只看危机,新朝初立再加一点)
     const g = pol.unrest ? pol.unrest(P, t) : strain(P, t) + (t - lastDynasty(P) < DYNASTY_YEARS ? CRISIS_DYNASTY : 0);
     // 各州的离心力;挑起事的州
+    const cm = pol.control;
+    const lords = cm ? cm.mark(pid, t) : 0;
     let r0 = -1;
     let s0 = -Infinity;
     for (const r of mine) {
       if (r === capR) continue;
-      let d = Math.min(4, dist[r] / SPLIT_REACH); // 走不到国都(Infinity)的州按 4 算
+      // 离国都远:有"中央管到什么程度"(control.ts)时路程按行政能力折算(行政越强,远处越不算远),割据的州再加一截
+      let d = cm ? cm.remote(pid, r, t) : Math.min(4, dist[r] / SPLIT_REACH); // 走不到国都(Infinity)的州按 4 算
+      if (lords && cm!.inLord(r)) d += LORD_D;
       if (culture[r] !== P.culture) d += FOREIGN_D;
       const age = t - wm.since[r];
       if (wm.prev[r] >= 0 && wm.prev[r] !== pid && age < RECENT) d += RECENT_D * (1 - age / RECENT);
@@ -489,9 +500,10 @@ function hook(sim: CivSim, pol: PoliticsModel): void {
     if (sid < 0) return false;
     const full = withCutOff(pid, group, t, Math.ceil(limit * 1.5) + 2);
     if (!full) return false;
-    // 新国都是某个同族亡国的故都:这一次起兵就是复国
+    // 新国都是某个同族亡国的故都:这一次起兵就是复国;起事的州割据着(control.ts)= 割据多年,终于自立
     const f = heirOf(sid, t);
-    secede(pid, full, sid, r0, t, f ? { restores: f.id, lineage: f.lineage } : {});
+    const lord = !f && lords > 0 && cm!.inLord(r0);
+    secede(pid, full, sid, r0, t, f ? { restores: f.id, lineage: f.lineage } : {}, 'split', lord ? 'warlord' : undefined);
     if (f) pol.restored.add(f.id);
     return true;
   };
@@ -644,9 +656,12 @@ function hook(sim: CivSim, pol: PoliticsModel): void {
     const move = canMove(P, k, t);
     // 大崩解(unrest.ts):动荡到顶的大国一下子散成几块,这一次看内政就到此为止
     if (pol.crisis?.(P, k, t)) return;
-    if (!split && !merge && !move) return;
+    const lord = !!pol.lordCheck;
+    if (!split && !merge && !move && !lord) return;
     const mine = regionsOf(p);
     if (split && trySplit(P, k, t, mine)) return;
+    // 割据(control.ts):收回、新起一处
+    if (lord && pol.lordCheck!(P, k, t)) return;
     if (merge && tryMerge(P, k, t, mine)) return;
     if (move) tryMove(P, k, t, mine);
   });
@@ -819,21 +834,23 @@ export function resumePolitics(sim: CivSim, world: World, civ: Civ): void {
   for (const p of pm.polities) if (p.restores !== undefined) pol.restored.add(p.restores);
   hook(sim, pol);
 
+  // 补上的事件说明一口气推时是哪一刻预约的(上一次看的那一刻;第一次看内政是立国那一刻,第一次看复国是亡国那一刻,第一次看部落地带是开头)
   const now = sim.now;
   for (const p of pm.polities) {
     if (p.ended === undefined) {
       let k = 0;
       while (quantize(checkTime(pol, p.id, k)) <= now) k++;
-      sim.schedule(checkTime(pol, p.id, k), Ev.PoliticsCheck, k, p.id);
+      sim.schedule(checkTime(pol, p.id, k), Ev.PoliticsCheck, k, p.id, bookChain(k, (j) => checkTime(pol, p.id, j), p.founded), k > 0 ? 0 : p.id);
     } else if (restorable(pol, p)) {
       let k = 0;
-      while (k < RESTORE_TRIES && quantize(restoreTime(pol, p.id, p.ended, k)) <= now) k++;
-      if (k < RESTORE_TRIES) sim.schedule(restoreTime(pol, p.id, p.ended, k), Ev.RestoreCheck, k, p.id);
+      const ended = p.ended;
+      while (k < RESTORE_TRIES && quantize(restoreTime(pol, p.id, ended, k)) <= now) k++;
+      if (k < RESTORE_TRIES) sim.schedule(restoreTime(pol, p.id, ended, k), Ev.RestoreCheck, k, p.id, bookChain(k, (j) => restoreTime(pol, p.id, ended, j), ended));
     }
   }
   let k = 0;
   while (quantize(tribalTime(pol, k)) <= now) k++;
-  sim.schedule(tribalTime(pol, k), Ev.TribalCheck, k, 0);
+  sim.schedule(tribalTime(pol, k), Ev.TribalCheck, k, 0, bookChain(k, (j) => tribalTime(pol, j), BOOKED_AT_START));
 }
 
 // ---------------------------------------------------------------------------

@@ -36,6 +36,8 @@ import {
   wrapCells,
   wrapOf,
   wrapShifts,
+  drawParts,
+  type DrawPart,
   type PrepStep,
   type WorkStep,
   type RGB,
@@ -46,6 +48,8 @@ import { keyed, smoothstep, subSeed } from '../gen/util';
 import { geometryOf, sphereSpacing } from '../gen/geometry';
 import { addProjectedLine, clipOutline, glyphMetric, insideProj, outlineOnCanvas, projectLinePts, projector, relShifts, reprojectImage, type GlyphMetric, type MapProj, type Projector, type ProjectionId } from './projection';
 import { FONT_FANTASY, fontCss } from './labels/fonts';
+import { boxOfCols, boxSpans, growBox, inBox, unionBox, type PixelBox } from '../gen/pixelBox';
+import { cutRaster } from '../gen/rasterPatch';
 
 const PAPER = hexRGB('#efe2c2');
 const PAPER_EDGE = hexRGB('#c9ae7c');
@@ -83,6 +87,519 @@ export function glyphScale(k: number): number {
 /** 符号分几级出现:第 t 级的符号从缩放 GLYPH_TIERS[t] 倍起画(第 0 级 = 全图就有) */
 export const GLYPH_TIERS = [1, 2, 3.5, 6];
 
+/** 按块重画的一条带子每步铺多少个像素(约一两帧的活) */
+const PATCH_BAND_PX = 100000;
+/** 按块重画要用的场,一条带子多少个像素算一组 */
+const FIELD_BAND_PX = 150000;
+/**
+ * 整张分步铺(fantasyFullSteps:打开世界换上之前、缩略图)逐像素一步铺多少个像素:比按块重画的带子窄一半,
+ * 手机(慢四倍)上一步也在几十毫秒以内
+ */
+const FULL_BAND_PX = 50000;
+/** 离海岸多远以内,离陆地 / 离海的距离还影响颜色(波纹最远 15 格,浓度到这里已经小到连浮点数的最后一位都改不动) */
+const SHORE_REACH = 22;
+
+/**
+ * 编辑地形后按块重画(手绘):w1、r1 是新世界和它的主图(r0 贴上一块补丁得来的,两张只在 box 里不一样;null = 一个像素也没变)。
+ * r0 的像素层还在缓存里,就复制一份,只重画受影响的那块 —— 受影响的 = box 外扩 4 像素(晕渲、水彩模糊、雪地柔化、冰的背光边看邻居)
+ * ∪ 水陆变了的地方外扩 SHORE_REACH(离岸距离、波纹)∪ 海冰粗网格变了的格子管到的像素 ∪ 山符号底边羽化带变了的像素;
+ * 那块里要用的场(离陆地 / 离海的距离、晕渲、海冰程度、冰缘带、水彩)只在那块附近算,和整张一起算的逐位相同。
+ * 墨线、波纹盖掉的像素原色(InkPatch)、放大后画波纹的场(SeaFields)照原来那张复制,那块里的重新记。
+ * 符号层(林块、河、山……)整张重画(几十毫秒,分三步)。
+ * 分几步做,结果和整张重画逐像素相同。缓存里没有 r0 的像素层 = null(到时候整张画)
+ */
+export function fantasyPatchSteps(w1: World, r1: Raster, w0: World, r0: Raster, box: PixelBox | null): WorkStep[] | null {
+  const b0 = bases.find((b) => b.raster === r0);
+  if (!b0 || r0.win || r1.win || r1.w !== r0.w || r1.h !== r0.h) return null;
+  const W = r1.w;
+  const H = r1.h;
+  let calm1: Uint8Array | null = null;
+  let ice1: IceCoarse | null = null;
+  let region: PixelBox | null = null;
+  let patch: InkPatch | null = null;
+  let sea: SeaFields | null = null;
+  let f: PixelFields | null = null;
+  let cv: AnyCanvas | null = null;
+  let d: Uint8ClampedArray | null = null;
+  let y = 0;
+  let band = 1;
+  const steps: WorkStep[] = [
+    // 原来那张先复制下来(后面几步之间让出主线程,缓存里的那张可能被挤掉、释放)
+    () => {
+      cv = makeCanvas(W, H);
+      (cv.getContext('2d') as CanvasRenderingContext2D).drawImage(b0.canvas, 0, 0);
+    },
+    () => void planOf(w0),
+    () => void planOf(w1),
+    () => void ({ region, calm1, ice1 } = patchRegionOf(w1, r1, w0, r0, box)),
+    () => {
+      const p = b0.patch;
+      patch = { coast: p.coast.without(region, W), lake: p.lake.without(region, W), sea: p.sea.without(region, W), iceW: p.iceW.without(region, W), iceI: p.iceI.without(region, W) };
+      sea = { dist: b0.sea.dist.slice(), fade: b0.sea.fade.slice() };
+      // 波纹浓度只有海面像素才写(整张画的时候是新开的全 0 数组)
+      if (region) forBoxRows(region, W, (a, b) => sea!.fade.fill(0, a, b));
+      y = region ? region.y0 : 0;
+      band = region ? Math.max(8, Math.floor(PATCH_BAND_PX / region.w)) : 1;
+    },
+    later(() => {
+      if (!region) return null;
+      const rf = regionFieldSteps(r1, region, calm1!, ice1!, patch!, sea!);
+      f = rf.fields;
+      return rf.steps;
+    }),
+    () => {
+      if (!region || !f) return;
+      d ??= new Uint8ClampedArray(W * H * 4);
+      const y1 = Math.min(region.y0 + region.h, y + band);
+      paintRegionRows(r1, d, f, region, y, y1);
+      const ctx = cv!.getContext('2d') as CanvasRenderingContext2D;
+      for (const [s, e] of boxSpans(region, W)) {
+        const n = e - s;
+        const img = new ImageData(n, y1 - y);
+        for (let yy = y; yy < y1; yy++) img.data.set(d.subarray((yy * W + s) * 4, (yy * W + e) * 4), (yy - y) * n * 4);
+        ctx.putImageData(img, s, y);
+      }
+      y = y1;
+      return y < region.y0 + region.h;
+    },
+    () => adoptBase({ raster: r1, canvas: cv!, patch: patch!, sea: sea! }),
+    ...symbolLayerSteps(w1, r1),
+  ];
+  return steps;
+}
+
+/**
+ * 分步画好整张(图层缩略图用,涂一笔以后不在主线程上一口气画半秒多):像素层(同 fantasyPatchSteps 那块是整张图,
+ * 和 fantasyBase 一口气画逐像素相同)、符号层,画完放进缓存,之后 renderFantasy 直接拿。都在缓存里的(或放大后现算的一块)= null
+ */
+export function fantasyFullSteps(world: World, r: Raster): WorkStep[] | null {
+  if (r.win || (fantasyBaseCached(r) && sym?.raster === r)) return null;
+  const steps: WorkStep[] = [];
+  if (!fantasyBaseCached(r)) {
+    const W = r.w;
+    let cv: AnyCanvas | null = null;
+    const full = fullPixelSteps(world, r, (d, y0, y1) => {
+      cv ??= makeCanvas(W, r.h);
+      (cv.getContext('2d') as CanvasRenderingContext2D).putImageData(new ImageData(d.slice(y0 * W * 4, y1 * W * 4), W, y1 - y0), 0, y0);
+    });
+    steps.push(...full.steps, () => adoptBase({ raster: r, canvas: cv!, patch: full.out!.patch, sea: full.out!.sea }));
+  }
+  steps.push(...symbolLayerSteps(world, r));
+  return steps;
+}
+
+/** 这张主图的像素层在不在缓存里 */
+export function fantasyBaseCached(r: Raster): boolean {
+  return bases.some((b) => b.raster === r);
+}
+
+/**
+ * 地图换上了一张新的主图(新生成、编辑地形重新生成):缓存里除了 keep 这几张(新的这张;按块换上的另带它是从哪张改来的,
+ * 样式缩略图照那张按块重画)以外的像素层、符号层,连同它们拉着的旧主图,现在就放掉 —— 不等下一次画手绘时才换掉
+ * (那之前旧主图、像素层、波纹的场一直占着)
+ */
+export function dropFantasyBasesExcept(keep: readonly (Raster | null | undefined)[]): void {
+  const kept = bases.filter((b) => keep.includes(b.raster));
+  for (const b of bases) if (!kept.includes(b)) b.canvas.width = b.canvas.height = 0;
+  bases = kept;
+  if (base && !kept.includes(base)) base = null;
+  const other = (x: { raster: Raster } | null) => !!x && !keep.includes(x.raster);
+  for (const c of [sym, noInk, clean, iceFace]) if (other(c)) c!.canvas.width = c!.canvas.height = 0;
+  if (other(sym)) sym = null;
+  if (other(noInk)) noInk = null;
+  if (other(clean)) clean = null;
+  if (other(iceFace)) iceFace = null;
+}
+
+/** 纯计算(单测用):整张像素层按 fantasyFullSteps 的分步办法一口气做完(不碰画布),返回同 fantasyPixels */
+export function fantasyFullPixels(world: World, r: Raster): ReturnType<typeof fantasyPixels> {
+  const full = fullPixelSteps(world, r, () => {});
+  for (const s of full.steps) while (s(Infinity) === true);
+  const { d, patch, sea } = full.out!;
+  return { px: d, patch, sea };
+}
+
+/**
+ * 整张像素层分几步铺:各个场一条带子一组算(regionFieldSteps,那块 = 整张图),逐像素一步一条带子(paintRegionRows),
+ * 每铺完一条带子调 put。out(第一步才有)= 整张图的 RGBA,墨线盖掉的原色、波纹的场
+ */
+function fullPixelSteps(
+  world: World,
+  r: Raster,
+  put: (d: Uint8ClampedArray, y0: number, y1: number) => void,
+): { steps: WorkStep[]; out: { d: Uint8ClampedArray; patch: InkPatch; sea: SeaFields } | null } {
+  const { w: W, h: H } = r;
+  const region: PixelBox = { x0: 0, y0: 0, w: W, h: H };
+  const band = Math.max(8, Math.floor(FULL_BAND_PX / W));
+  const res: { steps: WorkStep[]; out: { d: Uint8ClampedArray; patch: InkPatch; sea: SeaFields } | null } = { steps: [], out: null };
+  let calm: Uint8Array | null = null;
+  let ice: IceCoarse | null = null;
+  let f: PixelFields | null = null;
+  let y = 0;
+  res.steps = [
+    () => {
+      res.out = {
+        d: new Uint8ClampedArray(W * H * 4),
+        patch: { coast: new PixelPatch(), lake: new PixelPatch(), sea: new PixelPatch(), iceW: new PixelPatch(), iceI: new PixelPatch() },
+        sea: { dist: new Uint16Array(W * H), fade: new Uint8Array(W * H) },
+      };
+      planOf(world);
+    },
+    () => void (calm = glyphSkirts(world, planOf(world).glyphs, W, H, r.scale)),
+    () => void (ice = iceCoarse(r)),
+    later(() => {
+      const rf = regionFieldSteps(r, region, calm!, ice!, res.out!.patch, res.out!.sea);
+      f = rf.fields;
+      return rf.steps;
+    }),
+    () => {
+      const y1 = Math.min(H, y + band);
+      paintRegionRows(r, res.out!.d, f!, region, y, y1);
+      put(res.out!.d, y, y1);
+      y = y1;
+      return y < H;
+    },
+  ];
+  return res;
+}
+
+/** 新铺好的一张像素层放进缓存(同 fantasyBase:同一个世界留最近 BASES_KEEP 张);这几步之间别处已经铺过这一张的,用那张 */
+function adoptBase(b: Base): void {
+  if (bases.some((x) => x.raster === b.raster)) return void (b.canvas.width = b.canvas.height = 0);
+  const keep = bases.filter((x) => x.raster.cell === b.raster.cell).slice(0, BASES_KEEP - 1);
+  for (const x of bases) if (!keep.includes(x)) x.canvas.width = x.canvas.height = 0;
+  base = b;
+  bases = [b, ...keep];
+}
+
+/** 按块重画的那块和要用的两样(新世界的山符号羽化带、海冰粗网格);见 fantasyPatchRegion */
+function patchRegionOf(w1: World, r1: Raster, w0: World, r0: Raster, box: PixelBox | null): { region: PixelBox | null; calm1: Uint8Array; ice1: IceCoarse } {
+  const { w: W, h: H, scale: S } = r1;
+  const calm0 = glyphSkirts(w0, planOf(w0).glyphs, W, H, S);
+  const calm1 = glyphSkirts(w1, planOf(w1).glyphs, W, H, S);
+  const ice1 = iceCoarse(r1);
+  return { region: fantasyPatchRegion(r0, r1, box, calm0, calm1, iceCoarse(r0), ice1), calm1, ice1 };
+}
+
+/** region 里 y0..y1 − 1 这几行铺进 d(整张图大小的 RGBA):逐像素(paintPixels)+ 湖岸描边,墨线盖掉的原色记进 f.patch */
+function paintRegionRows(r: Raster, d: Uint8ClampedArray, f: PixelFields, region: PixelBox, y0: number, y1: number): void {
+  const W = r.w;
+  const spans = boxSpans(region, W);
+  for (let yy = y0; yy < y1; yy++) {
+    for (const [s, e] of spans) {
+      paintPixels(r, d, f, yy * W + s, yy * W + e);
+      lakeInk(r, d, f.patch.lake, yy, s, e);
+    }
+  }
+}
+
+/** 纯计算(单测用):整张像素层的像素(和 fantasyBase 一样)、墨线盖掉的原色、放大后画波纹的场 */
+export function fantasyPixels(world: World, r: Raster): { px: Uint8ClampedArray; patch: InkPatch; sea: SeaFields } {
+  let px: Uint8ClampedArray | null = null;
+  const sink = {
+    createImageData: (w: number, h: number) => ({ width: w, height: h, data: new Uint8ClampedArray(w * h * 4) }),
+    putImageData: (img: { data: Uint8ClampedArray }) => {
+      px = img.data;
+    },
+  } as unknown as CanvasRenderingContext2D;
+  const patch: InkPatch = { coast: new PixelPatch(), lake: new PixelPatch(), sea: new PixelPatch(), iceW: new PixelPatch(), iceI: new PixelPatch() };
+  const sea: SeaFields = { dist: new Uint16Array(r.w * r.h), fade: new Uint8Array(r.w * r.h) };
+  paintBase(sink, world, r, patch, sea);
+  return { px: px!, patch, sea };
+}
+
+/**
+ * 纯计算(单测用):按块重画(同 fantasyPatchSteps,只是一口气做完、不碰画布)。prev = r0 整张的结果(fantasyPixels),
+ * 返回 r1 的那一份和重画的那块
+ */
+export function fantasyPatchPixels(
+  w1: World,
+  r1: Raster,
+  w0: World,
+  r0: Raster,
+  box: PixelBox | null,
+  prev: ReturnType<typeof fantasyPixels>,
+): ReturnType<typeof fantasyPixels> & { region: PixelBox | null } {
+  const W = r1.w;
+  const { region, calm1, ice1 } = patchRegionOf(w1, r1, w0, r0, box);
+  const p = prev.patch;
+  const patch: InkPatch = { coast: p.coast.without(region, W), lake: p.lake.without(region, W), sea: p.sea.without(region, W), iceW: p.iceW.without(region, W), iceI: p.iceI.without(region, W) };
+  const sea: SeaFields = { dist: prev.sea.dist.slice(), fade: prev.sea.fade.slice() };
+  const px = prev.px.slice();
+  if (region) {
+    forBoxRows(region, W, (a, b) => sea.fade.fill(0, a, b));
+    const rf = regionFieldSteps(r1, region, calm1, ice1, patch, sea);
+    for (const step of rf.steps) step(Infinity);
+    const d = new Uint8ClampedArray(W * r1.h * 4);
+    paintRegionRows(r1, d, rf.fields, region, region.y0, region.y0 + region.h);
+    forBoxRows(region, W, (a, b) => px.set(d.subarray(a * 4, b * 4), a * 4));
+  }
+  return { px, patch, sea, region };
+}
+
+/** 一组要等前面做完才排得出来的步骤:第一次调的时候才排,之后每调一次做一步(还有没做完的返回 true) */
+function later(make: () => WorkStep[] | null): WorkStep {
+  let list: WorkStep[] | null = null;
+  let i = 0;
+  return (deadline) => {
+    list ??= make() ?? [];
+    if (i < list.length && list[i](deadline) !== true) i++;
+    return i < list.length;
+  };
+}
+
+/** 框里每一行的一两段像素下标 [a, b)(全图下标) */
+function forBoxRows(b: PixelBox, W: number, f: (a: number, b: number) => void): void {
+  const spans = boxSpans(b, W);
+  for (let y = b.y0; y < b.y0 + b.h; y++) for (const [s, e] of spans) f(y * W + s, y * W + e);
+}
+
+/**
+ * 按块重画的那块(见 fantasyPatchSteps):r0、r1 两张主图只在 box 里不一样;calm、ice 是两张的山符号羽化带、海冰粗网格。没有 = null
+ */
+export function fantasyPatchRegion(r0: Raster, r1: Raster, box: PixelBox | null, calm0: Uint8Array, calm1: Uint8Array, ice0: IceCoarse, ice1: IceCoarse): PixelBox | null {
+  const W = r1.w;
+  const H = r1.h;
+  const parts: (PixelBox | null)[] = [];
+  if (box) {
+    parts.push(growBox(box, 4, 4, W, H));
+    // 水陆变了的像素:离陆地 / 离海的距离跟着变,波纹、近岸排线、岸边积色够得着的地方都要重画
+    const col = new Uint8Array(W);
+    let y0 = H;
+    let y1 = -1;
+    forBoxRows(box, W, (a, b) => {
+      for (let k = a; k < b; k++) {
+        if ((r0.water[k] === 1) === (r1.water[k] === 1)) continue;
+        const yy = (k / W) | 0;
+        col[k - yy * W] = 1;
+        if (yy < y0) y0 = yy;
+        if (yy > y1) y1 = yy;
+      }
+    });
+    const wb = boxOfCols(col, y0, y1);
+    if (wb) parts.push(growBox(wb, SHORE_REACH, SHORE_REACH, W, H));
+  }
+  // 山符号底边的羽化带(雪山)
+  {
+    const col = new Uint8Array(W);
+    let y0 = H;
+    let y1 = -1;
+    for (let k = 0; k < calm0.length; k++) {
+      if (calm0[k] === calm1[k]) continue;
+      const yy = (k / W) | 0;
+      col[k - yy * W] = 1;
+      if (yy < y0) y0 = yy;
+      if (yy > y1) y1 = yy;
+    }
+    parts.push(boxOfCols(col, y0, y1));
+  }
+  // 海冰粗网格(模糊过的)变了的格子:用到它的像素(双线性取样、"附近有没有冰"按所在那一格),再外扩冰缘带、邻居
+  {
+    const { G, gw, gh } = ice1;
+    const a = new Int32Array(ice0.gIce.buffer, ice0.gIce.byteOffset, ice0.gIce.length);
+    const b = new Int32Array(ice1.gIce.buffer, ice1.gIce.byteOffset, ice1.gIce.length);
+    const col = new Uint8Array(W);
+    let y0 = H;
+    let y1 = -1;
+    for (let cy = 0; cy < gh; cy++) {
+      for (let cx = 0; cx < gw; cx++) {
+        const j = cy * gw + cx;
+        if (a[j] === b[j]) continue;
+        y0 = Math.min(y0, Math.max(0, G * (cy - 1)));
+        y1 = Math.max(y1, Math.min(H - 1, G * (cy + 2)));
+        for (let x = G * (cx - 1); x < G * (cx + 2); x++) col[((x % W) + W) % W] = 1;
+      }
+    }
+    const ib = boxOfCols(col, y0, y1);
+    parts.push(ib && growBox(ib, 3, 3, W, H));
+  }
+  let out: PixelBox | null = null;
+  for (const p of parts) out = unionBox(out, p, W);
+  return out;
+}
+
+/**
+ * 按块重画的那块里要用的场(和 paintBase 里整张算的逐位相同):数组都和整张图一样大(没算的地方空着,
+ * 只读这块里的;晕渲多算 3 圈,雪地柔化要用)。分几步算(离陆地、离海的距离,晕渲,海冰,水彩各一步),都做完了 fields 才齐
+ */
+function regionFieldSteps(r: Raster, region: PixelBox, calm: Uint8Array, ice: IceCoarse, patch: InkPatch, sea: SeaFields): { steps: WorkStep[]; fields: PixelFields } {
+  const { w: W, h: H, water, biome } = r;
+  const N = W * H;
+  const S = r.scale;
+  const local = (b: PixelBox, x: number, yy: number) => {
+    const dx = x - b.x0;
+    return (yy - b.y0) * b.w + (dx < 0 ? dx + W : dx);
+  };
+  // 离陆地 / 离海的距离:那块外扩 SHORE_REACH 切下来算(这么远以内最近的陆地、海都在切下来的这块里,距离逐位相同;
+  // 更远的颜色已经不受影响)
+  const dLand = new Float32Array(N);
+  const dSea = new Float32Array(N);
+  const dist = (out: Float32Array, toSea: boolean, reg: PixelBox) => () => {
+    const e = growBox(reg, SHORE_REACH, SHORE_REACH, W, H);
+    const m = new Uint8Array(e.w * e.h);
+    forBoxRows(e, W, (a, b) => {
+      for (let k = a; k < b; k++) {
+        if ((water[k] === 1) !== toSea) continue;
+        const yy = (k / W) | 0;
+        m[local(e, k - yy * W, yy)] = 1;
+      }
+    });
+    const dd = distanceTo(m, e.w, e.h, e.w === W);
+    forBoxRows(reg, W, (a, b) => {
+      for (let k = a; k < b; k++) {
+        const yy = (k / W) | 0;
+        out[k] = dd[local(e, k - yy * W, yy)];
+      }
+    });
+  };
+  // 晕渲:那块外扩 3 圈要用(雪地柔化),再多切 1 圈给邻居
+  const shade = new Float32Array(N);
+  const shadeStep = (reg: PixelBox) => () => {
+    const sb = growBox(reg, 4, 4, W, H);
+    const cut = cutRaster(r, sb.x0, sb.y0, sb.w, sb.h);
+    const s = hillshade(cut, 0.008, 0);
+    forBoxRows(growBox(reg, 3, 3, W, H), W, (a, b) => {
+      for (let k = a; k < b; k++) {
+        const yy = (k / W) | 0;
+        shade[k] = s[local(sb, k - yy * W, yy)];
+      }
+    });
+  };
+  // 海冰程度(那块里)、冰缘带(那块外扩 2 圈里的冰缘像素往外标,同 iceBand)
+  const near = new Uint8Array(N);
+  const band = new Uint8Array(N);
+  const iceM = ice.mask;
+  const iceStep = (reg: PixelBox) => () => {
+    forBoxRows(reg, W, (a, b) => {
+      for (let k = a; k < b; k++) {
+        const yy = (k / W) | 0;
+        near[k] = nearAt(ice, k - yy * W, yy);
+      }
+    });
+    forBoxRows(growBox(reg, ICE_BAND, ICE_BAND, W, H), W, (a, b) => {
+      for (let k = a; k < b; k++) {
+        if (water[k] !== 1) continue;
+        const yy = (k / W) | 0;
+        const x = k - yy * W;
+        if (!nearAt(ice, x, yy)) continue;
+        const m = iceM[k];
+        const kl = x > 0 ? k - 1 : k + W - 1;
+        const kr = x < W - 1 ? k + 1 : k - W + 1;
+        if (
+          (water[kl] === 1 && iceM[kl] !== m) ||
+          (water[kr] === 1 && iceM[kr] !== m) ||
+          (yy > 0 && water[k - W] === 1 && iceM[k - W] !== m) ||
+          (yy < H - 1 && water[k + W] === 1 && iceM[k + W] !== m)
+        ) {
+          for (let y2 = Math.max(0, yy - ICE_BAND); y2 <= Math.min(H - 1, yy + ICE_BAND); y2++) {
+            const row = y2 * W;
+            for (let dx = -ICE_BAND; dx <= ICE_BAND; dx++) {
+              const q = row + (x + dx < 0 ? x + dx + W : x + dx >= W ? x + dx - W : x + dx);
+              if (water[q] === 1) band[q] = 1;
+            }
+          }
+        }
+      }
+    });
+  };
+  // 水彩:群落颜色的盒式模糊(同 boxBlurWrap:先横后竖;颜色都是整数,横向的和、竖向的和都是精确的,
+  // 只算这块和整张一起算逐位相同)
+  const pr = new Float32Array(N);
+  const pg = new Float32Array(N);
+  const pb = new Float32Array(N);
+  const washStep = (reg: PixelBox) => () => {
+    const br = Math.min((W - 1) >> 1, Math.round(3 * S));
+    const ry = Math.round(3 * S);
+    const inv = 1 / (2 * br + 1);
+    const iy = 1 / (2 * ry + 1);
+    const ya = Math.max(0, reg.y0 - ry);
+    const yb = Math.min(H - 1, reg.y0 + reg.h - 1 + ry);
+    const rw = reg.w;
+    const tr = new Float32Array((yb - ya + 1) * rw);
+    const tg = new Float32Array((yb - ya + 1) * rw);
+    const tb = new Float32Array((yb - ya + 1) * rw);
+    for (let yy = ya; yy <= yb; yy++) {
+      const row = yy * W;
+      for (let i = 0; i < rw; i++) {
+        const x = (reg.x0 + i) % W;
+        let sr = 0;
+        let sg = 0;
+        let sb = 0;
+        for (let dx = -br; dx <= br; dx++) {
+          const xx = x + dx < 0 ? x + dx + W : x + dx >= W ? x + dx - W : x + dx;
+          const bi = biome[row + xx];
+          const c = bi === Biome.Ice ? SNOW_PAINT : BIOMES[bi].paint;
+          sr += c[0];
+          sg += c[1];
+          sb += c[2];
+        }
+        const t = (yy - ya) * rw + i;
+        tr[t] = sr * inv;
+        tg[t] = sg * inv;
+        tb[t] = sb * inv;
+      }
+    }
+    for (let yy = reg.y0; yy < reg.y0 + reg.h; yy++) {
+      for (let i = 0; i < rw; i++) {
+        let sr = 0;
+        let sg = 0;
+        let sb = 0;
+        for (let dy = -ry; dy <= ry; dy++) {
+          const t = (Math.min(H - 1, Math.max(0, yy + dy)) - ya) * rw + i;
+          sr += tr[t];
+          sg += tg[t];
+          sb += tb[t];
+        }
+        const k = yy * W + ((reg.x0 + i) % W);
+        pr[k] = sr * iy;
+        pg[k] = sg * iy;
+        pb[k] = sb * iy;
+      }
+    }
+  };
+  // 一条带子一组(每步几十毫秒以内;每条带子按自己的余量算,和整块一起算逐位相同)
+  const steps: WorkStep[] = [];
+  const rows = Math.max(8, Math.floor(FIELD_BAND_PX / region.w));
+  for (let y = region.y0; y < region.y0 + region.h; y += rows) {
+    const reg: PixelBox = { x0: region.x0, y0: y, w: region.w, h: Math.min(rows, region.y0 + region.h - y) };
+    steps.push(dist(dLand, false, reg), dist(dSea, true, reg), shadeStep(reg), iceStep(reg), washStep(reg));
+  }
+  return {
+    steps,
+    fields: { dLand, dSea, shade, calm, iceM, iceNear: near, band, pr, pg, pb, patch, sea },
+  };
+}
+
+/** 符号层(缩放 1 倍,见 fantasySymbolLayer)分三步画在一张新画布上,画完换进缓存:和 fantasySymbolLayer 一口气画逐像素一样 */
+function symbolLayerSteps(world: World, r: Raster): WorkStep[] {
+  let cv: AnyCanvas | null = null;
+  let layers: ((ctx: CanvasRenderingContext2D) => void)[] | null = null;
+  const layer =
+    (i: number): WorkStep =>
+    () => {
+      if (sym?.raster === r) return;
+      cv ??= makeCanvas(r.w, r.h);
+      layers ??= fantasyVectorLayers(world, bakedView(r.scale));
+      layers[i](cv.getContext('2d') as CanvasRenderingContext2D);
+    };
+  return [
+    layer(0),
+    layer(1),
+    layer(2),
+    () => {
+      const c = cv;
+      cv = null;
+      if (!c) return;
+      if (sym?.raster === r) {
+        c.width = c.height = 0;
+        return;
+      }
+      if (sym) sym.canvas.width = sym.canvas.height = 0;
+      sym = { raster: r, canvas: c, mask: null };
+    },
+  ];
+}
+
 export function renderFantasy(ctx: CanvasRenderingContext2D, world: World, r: Raster) {
   ctx.drawImage(fantasyBase(world, r), 0, 0);
   ctx.drawImage(fantasySymbolLayer(world, r), 0, 0);
@@ -111,6 +628,28 @@ export class PixelPatch {
     this.c[o + 1] = g;
     this.c[o + 2] = b;
     this.n++;
+  }
+  /** 去掉框里的像素以后的一份(编辑地形后按块重画:框里的重新记) */
+  without(box: PixelBox | null, W: number): PixelPatch {
+    const out = new PixelPatch();
+    const n = this.n;
+    out.k = new Int32Array(Math.max(4096, n));
+    out.c = new Uint8ClampedArray(3 * Math.max(4096, n));
+    let m = 0;
+    for (let i = 0; i < n; i++) {
+      const k = this.k[i];
+      if (box) {
+        const y = (k / W) | 0;
+        if (inBox(box, k - y * W, y, W)) continue;
+      }
+      out.k[m] = k;
+      out.c[m * 3] = this.c[i * 3];
+      out.c[m * 3 + 1] = this.c[i * 3 + 1];
+      out.c[m * 3 + 2] = this.c[i * 3 + 2];
+      m++;
+    }
+    out.n = m;
+    return out;
   }
   /** 把这些像素写进 d(RGBA),不透明 */
   putInto(d: Uint8ClampedArray): void {
@@ -318,27 +857,39 @@ function paintBase(ctx: CanvasRenderingContext2D, world: World, r: Raster, patch
   const img = ctx.createImageData(w, h);
   const d = img.data;
   paintPixels(r, d, { dLand, dSea, shade, calm, iceM, iceNear, band, pr, pg, pb, patch, sea });
-  // 湖岸描边(东西相连,左右两列也描:邻居在另一头)
-  for (let py = 1; py < h - 1; py++) {
-    for (let px = 0; px < w; px++) {
-      const k = py * w + px;
-      if (water[k] !== 2) continue;
-      const lf = px > 0 ? k - 1 : k + w - 1;
-      const rt = px < w - 1 ? k + 1 : k - w + 1;
-      if (water[lf] !== 2 || water[rt] !== 2 || water[k - w] !== 2 || water[k + w] !== 2) {
-        const o = k * 4;
-        patch.lake.push(k, d[o], d[o + 1], d[o + 2]);
-        d[o] = d[o] * 0.35 + INK[0] * 0.65;
-        d[o + 1] = d[o + 1] * 0.35 + INK[1] * 0.65;
-        d[o + 2] = d[o + 2] * 0.35 + INK[2] * 0.65;
-      }
+  for (let py = 1; py < h - 1; py++) lakeInk(r, d, patch.lake, py, 0, w);
+  ctx.putImageData(img, 0, 0);
+}
+
+/** 湖岸描边(第 py 行第 xa ~ xb − 1 列;东西相连,左右两列也描:邻居在另一头;最上、最下一行不描) */
+function lakeInk(r: Raster, d: Uint8ClampedArray, lake: PixelPatch, py: number, xa: number, xb: number) {
+  const { w, h, water } = r;
+  if (py < 1 || py >= h - 1) return;
+  for (let px = xa; px < xb; px++) {
+    const k = py * w + px;
+    if (water[k] !== 2) continue;
+    const lf = px > 0 ? k - 1 : k + w - 1;
+    const rt = px < w - 1 ? k + 1 : k - w + 1;
+    if (water[lf] !== 2 || water[rt] !== 2 || water[k - w] !== 2 || water[k + w] !== 2) {
+      const o = k * 4;
+      lake.push(k, d[o], d[o + 1], d[o + 2]);
+      d[o] = d[o] * 0.35 + INK[0] * 0.65;
+      d[o + 1] = d[o + 1] * 0.35 + INK[1] * 0.65;
+      d[o + 2] = d[o + 2] * 0.35 + INK[2] * 0.65;
     }
   }
-  ctx.putImageData(img, 0, 0);
 }
 
 /** 每个世界的符号规划:像素层、符号层都要用;文明层先要符号层时也不用再算一遍 */
 const plans = new WeakMap<World, Plan>();
+
+/**
+ * 别处(后台线程,见 worker.ts 编辑地形那条路)替这个世界算好的符号规划:直接记下,用到时不用再算
+ * (同一个世界、同一套算法,结果一样;精细度高的世界一次要算一两百毫秒,不在主线程上算)
+ */
+export function adoptPlan(world: World, plan: Plan): void {
+  if (!plans.has(world)) plans.set(world, plan);
+}
 /** 弯边投影各一份(符号间距按投影后的距离留,见 glyphMetric;和中央经线无关) */
 const projPlans = new WeakMap<World, Map<ProjectionId, Plan>>();
 function planOf(world: World, proj?: ProjectionId): Plan {
@@ -366,7 +917,7 @@ function makeCanvas(w: number, h: number): AnyCanvas {
  * v.k 决定细节层级:符号大小按 glyphScale(k),只画出现门槛 ≤ k 的符号;河流按流量分级。
  */
 export function drawFantasyVectors(ctx: CanvasRenderingContext2D, world: World, v: VecView) {
-  for (const layer of fantasyVectorLayers(world, v)) layer(ctx);
+  drawParts(ctx, fantasyVectorParts(world, v));
 }
 
 /**
@@ -374,25 +925,49 @@ export function drawFantasyVectors(ctx: CanvasRenderingContext2D, world: World, 
  * 文明细节层算"让位"遮罩时一样一步画(中间让出主线程)
  */
 export function fantasyVectorLayers(world: World, v: VecView): ((ctx: CanvasRenderingContext2D) => void)[] {
+  // 每次画都现拼一份(林块那一下记着画到哪儿了,不能接着用)
+  return [0, 1, 2].map((i) => (ctx) => void drawParts(ctx, [fantasyVectorParts(world, v)[i]]));
+}
+
+/**
+ * 同 fantasyVectorLayers,林块再分几下画(细节层分几下画完用,见 common.ts 的 DrawPart):
+ * 第一下拼好各格的路径,之后每一下画几格(按估的费事程度凑到 FOREST_PART_COST)
+ */
+export function fantasyVectorParts(world: World, v: VecView): DrawPart[] {
+  let forest: (ctx: CanvasRenderingContext2D) => ForestTiles;
+  let rivers: DrawPart;
+  let symbols: DrawPart;
   if (v.proj) {
     // 弯边投影(按投影重画):这种投影的符号规划;林块、符号在投影后的位置上按屏幕大小画,河逐点投影
     const pj = v.proj;
-    const pp = planOf(world, pj.mp.def.id);
-    return [
-      (ctx) => drawForests(ctx, world, pp.forest, v, v.k > 1 ? 256 : FOREST_TILE, projCells(world, pj)),
-      (ctx) => drawRivers(ctx, world.rivers, v, world.riverThreshold, fantasyRiverStyle(v.k, world.riverThreshold)),
-      (ctx) => drawSymbols(ctx, pp.glyphs, v),
-    ];
+    const pp = () => planOf(world, pj.mp.def.id);
+    forest = (ctx) => forestTiles(ctx.canvas.width, ctx.canvas.height, world, pp().forest, v, v.k > 1 ? 256 : FOREST_TILE, projCells(world, pj));
+    rivers = (ctx) => drawRivers(ctx, world.rivers, v, world.riverThreshold, fantasyRiverStyle(v.k, world.riverThreshold));
+    symbols = (ctx) => drawSymbols(ctx, pp().glyphs, v);
+  } else {
+    // 东西相连:挨着左右边的林块、河、符号在另一边再画一份。图框不画在这里(主图是一整圈星球,不是一页纸;
+    // 纸边、外框画在视窗上,见 ui/MapDecor.tsx、导出)
+    const vw = { ...v, wrap: wrapOf(world) };
+    forest = (ctx) => forestTiles(ctx.canvas.width, ctx.canvas.height, world, planOf(world).forest, vw, v.k > 1 ? 256 : FOREST_TILE);
+    rivers = (ctx) => drawRivers(ctx, world.rivers, vw, world.riverThreshold, fantasyRiverStyle(v.k, world.riverThreshold));
+    symbols = (ctx) => drawSymbols(ctx, planOf(world).glyphs, vw);
   }
-  const plan = planOf(world);
-  // 东西相连:挨着左右边的林块、河、符号在另一边再画一份。图框不画在这里(主图是一整圈星球,不是一页纸;
-  // 纸边、外框画在视窗上,见 ui/MapDecor.tsx、导出)
-  const vw = { ...v, wrap: wrapOf(world) };
-  return [
-    (ctx) => drawForests(ctx, world, plan.forest, vw, v.k > 1 ? 256 : FOREST_TILE),
-    (ctx) => drawRivers(ctx, world.rivers, vw, world.riverThreshold, fantasyRiverStyle(v.k, world.riverThreshold)),
-    (ctx) => drawSymbols(ctx, plan.glyphs, vw),
-  ];
+  let ft: ForestTiles | null = null;
+  let at = 0;
+  const forestPart: DrawPart = (ctx) => {
+    if (!ft) {
+      ft = forest(ctx);
+      return ft.cost.length > 0;
+    }
+    const { cost } = ft;
+    if (at >= cost.length) return false;
+    let b = at + 1;
+    for (let c = cost[at]; b < cost.length && c + cost[b] <= FOREST_PART_COST; b++) c += cost[b];
+    ft.draw(ctx, at, b);
+    at = b;
+    return at < cost.length;
+  };
+  return [forestPart, rivers, symbols];
 }
 
 // ---------------------------------------------------------------------------
@@ -674,12 +1249,17 @@ const LAKE_LW = 1.05;
  *            东西相连,伸出左右边的段在另一边再画一份
  */
 export function drawFantasyCoasts(ctx: CanvasRenderingContext2D, r: Raster, v: VecView): void {
+  drawParts(ctx, fantasyCoastParts(r, v));
+}
+
+/** drawFantasyCoasts 分两下画(湖岸、海岸各一下;依次画完和 drawFantasyCoasts 逐像素一样) */
+export function fantasyCoastParts(r: Raster, v: VecView): DrawPart[] {
   const gs = glyphScale(v.k);
-  let sea: Path2D;
-  let lake: Path2D;
-  const pj = v.proj;
-  if (pj) ({ sea, lake } = coastPathsOf(r, pj));
-  else {
+  let paths: { sea: Path2D; lake: Path2D } | null = null;
+  const pathsOf = (ctx: CanvasRenderingContext2D) => {
+    if (paths) return paths;
+    const pj = v.proj;
+    if (pj) return (paths = coastPathsOf(r, pj));
     // 抽稀到哪一档:偏差不到 COAST_TOL 个画布像素的最粗一档
     const lod = coastLod(v.s);
     // 画布盖住的世界坐标范围(外加一个线宽)
@@ -690,20 +1270,19 @@ export function drawFantasyCoasts(ctx: CanvasRenderingContext2D, r: Raster, v: V
     const y1 = (ctx.canvas.height - v.oy) / v.s + pad;
     const W = r.w / r.scale;
     const fc = flatCoastsOf(r);
-    sea = chunkPath(fc.sea, lod, W, x0, y0, x1, y1);
-    lake = chunkPath(fc.lake, lod, W, x0, y0, x1, y1);
-  }
-  ctx.save();
-  ctx.setTransform(v.s, 0, 0, v.s, v.ox, v.oy);
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
-  ctx.strokeStyle = INK_CSS + '0.65)';
-  ctx.lineWidth = LAKE_LW * gs;
-  ctx.stroke(lake);
-  ctx.strokeStyle = INK_CSS + '0.9)';
-  ctx.lineWidth = COAST_LW * gs;
-  ctx.stroke(sea);
-  ctx.restore();
+    return (paths = { sea: chunkPath(fc.sea, lod, W, x0, y0, x1, y1), lake: chunkPath(fc.lake, lod, W, x0, y0, x1, y1) });
+  };
+  const line = (ctx: CanvasRenderingContext2D, path: Path2D, color: string, lw: number) => {
+    ctx.save();
+    ctx.setTransform(v.s, 0, 0, v.s, v.ox, v.oy);
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = color;
+    ctx.lineWidth = lw;
+    ctx.stroke(path);
+    ctx.restore();
+  };
+  return [(ctx) => line(ctx, pathsOf(ctx).lake, INK_CSS + '0.65)', LAKE_LW * gs), (ctx) => line(ctx, pathsOf(ctx).sea, INK_CSS + '0.9)', COAST_LW * gs)];
 }
 
 /** 弯边投影的海岸、湖岸路径(地图平面;每个投影 + 中心一份,只留最近的一份) */
@@ -1241,57 +1820,84 @@ function seaPathsOf(world: World, r: Raster, pj: Projector): NonNullable<typeof 
  *   等距圆柱:世界坐标;东西相连,伸出左右边的在另一边再画一份,浓度图左右平铺
  */
 export function drawFantasySeaLines(ctx: CanvasRenderingContext2D, world: World, r: Raster, v: VecView): void {
-  const sl = seaLinesOf(world, r);
+  drawParts(ctx, fantasySeaLineParts(world, r, v));
+}
+
+/**
+ * drawFantasySeaLines 分几下画:排线一下、每圈波纹一下(每一下的画法状态都和一口气画时描那一笔时一样;
+ * 依次画完和 drawFantasySeaLines 逐像素一样)
+ */
+export function fantasySeaLineParts(world: World, r: Raster, v: VecView): DrawPart[] {
   const S = r.scale;
   const gs = glyphScale(v.k);
-  let chunks: CoastChunks[];
-  let seg: Float32Array;
-  let W: number;
-  let pats: { ripple: CanvasPattern; hatch: CanvasPattern };
-  const pj = v.proj;
-  if (pj) {
-    const sp = seaPathsOf(world, r, pj);
-    sp.pats ??= fadePatterns(ctx, sp.rippleFade, sp.hatchFade, S, 'no-repeat');
-    ({ rings: chunks, hatch: seg, pats } = sp);
-    W = 0;
-  } else {
-    sl.pats ??= fadePatterns(ctx, sl.rippleFade, sl.hatchFade, S, 'repeat');
-    ({ ringChunks: chunks, hatch: seg, pats } = sl);
-    W = r.w / S;
-  }
-  // 抽稀、范围同 drawFantasyCoasts
-  const lod = coastLod(v.s);
-  const pad = RIPPLE_SIG * gs + COAST_LOD[lod];
-  const x0 = -v.ox / v.s - pad;
-  const y0 = -v.oy / v.s - pad;
-  const x1 = (ctx.canvas.width - v.ox) / v.s + pad;
-  const y1 = (ctx.canvas.height - v.oy) / v.s + pad;
-  const rings = chunks.map((c) => chunkPath(c, lod, W, x0, y0, x1, y1));
-  const hatch = new Path2D();
-  forHatchIn(seg, W, x0, y0, x1, y1, (i, dx) => {
-    hatch.moveTo(seg[i * 3] + dx, seg[i * 3 + 2]);
-    hatch.lineTo(seg[i * 3 + 1] + dx, seg[i * 3 + 2]);
-  });
-  ctx.save();
-  ctx.setTransform(v.s, 0, 0, v.s, v.ox, v.oy);
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = 'low';
-  // 排线:一个像素高(放大后按 glyphScale 收)
-  ctx.strokeStyle = pats.hatch;
-  ctx.globalAlpha = HATCH_A;
-  ctx.lineCap = 'butt';
-  ctx.lineWidth = gs / S;
-  ctx.stroke(hatch);
+  let got: { rings: Path2D[]; hatch: Path2D; pats: { ripple: CanvasPattern; hatch: CanvasPattern } } | null = null;
+  const prep = (ctx: CanvasRenderingContext2D) => {
+    if (got) return got;
+    const sl = seaLinesOf(world, r);
+    let chunks: CoastChunks[];
+    let seg: Float32Array;
+    let W: number;
+    let pats: { ripple: CanvasPattern; hatch: CanvasPattern };
+    const pj = v.proj;
+    if (pj) {
+      const sp = seaPathsOf(world, r, pj);
+      sp.pats ??= fadePatterns(ctx, sp.rippleFade, sp.hatchFade, S, 'no-repeat');
+      ({ rings: chunks, hatch: seg, pats } = sp);
+      W = 0;
+    } else {
+      sl.pats ??= fadePatterns(ctx, sl.rippleFade, sl.hatchFade, S, 'repeat');
+      ({ ringChunks: chunks, hatch: seg, pats } = sl);
+      W = r.w / S;
+    }
+    // 抽稀、范围同 drawFantasyCoasts
+    const lod = coastLod(v.s);
+    const pad = RIPPLE_SIG * gs + COAST_LOD[lod];
+    const x0 = -v.ox / v.s - pad;
+    const y0 = -v.oy / v.s - pad;
+    const x1 = (ctx.canvas.width - v.ox) / v.s + pad;
+    const y1 = (ctx.canvas.height - v.oy) / v.s + pad;
+    const rings = chunks.map((c) => chunkPath(c, lod, W, x0, y0, x1, y1));
+    const hatch = new Path2D();
+    forHatchIn(seg, W, x0, y0, x1, y1, (i, dx) => {
+      hatch.moveTo(seg[i * 3] + dx, seg[i * 3 + 2]);
+      hatch.lineTo(seg[i * 3 + 1] + dx, seg[i * 3 + 2]);
+    });
+    return (got = { rings, hatch, pats });
+  };
+  const begin = (ctx: CanvasRenderingContext2D) => {
+    ctx.save();
+    ctx.setTransform(v.s, 0, 0, v.s, v.ox, v.oy);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'low';
+  };
+  const parts: DrawPart[] = [
+    (ctx) => {
+      const { hatch, pats } = prep(ctx);
+      begin(ctx);
+      // 排线:一个像素高(放大后按 glyphScale 收)
+      ctx.strokeStyle = pats.hatch;
+      ctx.globalAlpha = HATCH_A;
+      ctx.lineCap = 'butt';
+      ctx.lineWidth = gs / S;
+      ctx.stroke(hatch);
+      ctx.restore();
+    },
+  ];
   // 波纹:墨量和像素层的高斯剖面一样的实线
-  ctx.strokeStyle = pats.ripple;
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
-  ctx.lineWidth = RIPPLE_SIG * Math.sqrt(Math.PI) * gs;
-  for (let i = 0; i < rings.length; i++) {
-    ctx.globalAlpha = RIPPLE_A[i];
-    ctx.stroke(rings[i]);
-  }
-  ctx.restore();
+  for (let i = 0; i < RIPPLE_D.length; i++)
+    parts.push((ctx) => {
+      const { rings, pats } = prep(ctx);
+      if (i >= rings.length) return;
+      begin(ctx);
+      ctx.strokeStyle = pats.ripple;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.lineWidth = RIPPLE_SIG * Math.sqrt(Math.PI) * gs;
+      ctx.globalAlpha = RIPPLE_A[i];
+      ctx.stroke(rings[i]);
+      ctx.restore();
+    });
+  return parts;
 }
 
 // ---------------------------------------------------------------------------
@@ -2437,71 +3043,103 @@ export function fantasyProjPrep(world: World, r: Raster, mp: MapProj, v: { s: nu
 }
 
 export function drawFantasyIce(ctx: CanvasRenderingContext2D, world: World, r: Raster, v: VecView): void {
-  const g = iceGeoOf(world, r);
-  if (!g) return;
+  drawParts(ctx, fantasyIceParts(world, r, v));
+}
+
+/**
+ * drawFantasyIce 分三下画:冰面、背光边、冰缘墨线(每一下的画法状态都和一口气画时那一笔一样;
+ * 依次画完和 drawFantasyIce 逐像素一样)。没有冰的世界三下都不画
+ */
+export function fantasyIceParts(world: World, r: Raster, v: VecView): DrawPart[] {
   const S = r.scale;
   const gs = glyphScale(v.k);
-  const pj = v.proj;
   const W = r.w / S;
-  const lod = coastLod(v.s);
-  const pad = ICE_LW * gs + COAST_LOD[lod] + 1;
-  const x0 = -v.ox / v.s - pad;
-  const y0 = -v.oy / v.s - pad;
-  const x1 = (ctx.canvas.width - v.ox) / v.s + pad;
-  const y1 = (ctx.canvas.height - v.oy) / v.s + pad;
-  let fill: Path2D;
-  let shade: () => Path2D;
-  let ink: Path2D;
-  let hatch: Path2D | null;
-  let pats: { face: CanvasPattern; ink: CanvasPattern };
-  if (pj) {
-    const p = iceProjIn(world, r, g, pj, v.s, x0, y0, x1, y1);
-    p.pats ??= {
-      face: fadePattern(ctx, p.face.cv, 1 / S, 'no-repeat', p.face.ox, p.face.oy),
-      ink: fadePattern(ctx, p.inkFade.cv, W / g.inkFade.width, 'no-repeat', p.inkFade.ox, p.inkFade.oy),
-    };
-    ({ fill, ink, hatch, pats } = p);
-    shade = p.shade;
-  } else {
+  type Got = { fill: Path2D; shade: () => Path2D; ink: Path2D; hatch: Path2D | null; pats: { face: CanvasPattern; ink: CanvasPattern }; box: [number, number, number, number] };
+  let got: Got | null | undefined;
+  const prep = (ctx: CanvasRenderingContext2D): Got | null => {
+    if (got !== undefined) return got;
+    const g = iceGeoOf(world, r);
+    if (!g) return (got = null);
+    const pj = v.proj;
+    const lod = coastLod(v.s);
+    const pad = ICE_LW * gs + COAST_LOD[lod] + 1;
+    const x0 = -v.ox / v.s - pad;
+    const y0 = -v.oy / v.s - pad;
+    const x1 = (ctx.canvas.width - v.ox) / v.s + pad;
+    const y1 = (ctx.canvas.height - v.oy) / v.s + pad;
+    const box: Got['box'] = [x0, y0, x1, y1];
+    if (pj) {
+      const p = iceProjIn(world, r, g, pj, v.s, x0, y0, x1, y1);
+      p.pats ??= {
+        face: fadePattern(ctx, p.face.cv, 1 / S, 'no-repeat', p.face.ox, p.face.oy),
+        ink: fadePattern(ctx, p.inkFade.cv, W / g.inkFade.width, 'no-repeat', p.inkFade.ox, p.inkFade.oy),
+      };
+      return (got = { fill: p.fill, ink: p.ink, hatch: p.hatch, pats: p.pats, shade: p.shade, box });
+    }
     g.pats ??= {
       face: fadePattern(ctx, fantasyIceFace(world, r), 1 / S, 'repeat-x'),
       ink: fadePattern(ctx, g.inkFade, W / g.inkFade.width, 'repeat'),
     };
-    pats = g.pats;
-    fill = tilePathIn(g.fillT, lod, x0, y0, x1, y1);
-    shade = () => tilePathIn(g.shadeT, lod, x0, y0, x1, y1);
-    ink = chunkPath(g.ink, lod, W, x0, y0, x1, y1);
-    hatch = hatchPathIn(g.hatch, W, x0, y0, x1, y1);
-  }
-  ctx.save();
-  ctx.setTransform(v.s, 0, 0, v.s, v.ox, v.oy);
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = 'low';
-  // 冰面
-  ctx.fillStyle = pats.face;
-  ctx.fill(fill);
-  if (hatch) {
-    // 背光边:冰面里、减去"往西北挪一个背光边宽的冰 + 附近陆地"
+    return (got = {
+      fill: tilePathIn(g.fillT, lod, x0, y0, x1, y1),
+      shade: () => tilePathIn(g.shadeT, lod, x0, y0, x1, y1),
+      ink: chunkPath(g.ink, lod, W, x0, y0, x1, y1),
+      hatch: hatchPathIn(g.hatch, W, x0, y0, x1, y1),
+      pats: g.pats,
+      box,
+    });
+  };
+  const begin = (ctx: CanvasRenderingContext2D) => {
     ctx.save();
-    ctx.clip(fill);
-    const outside = new Path2D();
-    outside.rect(x0, y0, x1 - x0, y1 - y0);
-    outside.addPath(shade());
-    ctx.clip(outside, 'evenodd');
-    ctx.strokeStyle = `rgba(${ICE_SHADOW[0]},${ICE_SHADOW[1]},${ICE_SHADOW[2]},0.42)`;
-    ctx.lineWidth = (0.6 * gs) / S;
-    ctx.lineCap = 'butt';
-    ctx.stroke(hatch);
-    ctx.restore();
-  }
-  // 冰缘墨线
-  ctx.strokeStyle = pats.ink;
-  ctx.globalAlpha = ICE_INK_A;
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
-  ctx.lineWidth = (ICE_LW * gs) / S;
-  ctx.stroke(ink);
-  ctx.restore();
+    ctx.setTransform(v.s, 0, 0, v.s, v.ox, v.oy);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'low';
+  };
+  return [
+    // 冰面
+    (ctx) => {
+      const p = prep(ctx);
+      if (!p) return;
+      begin(ctx);
+      ctx.fillStyle = p.pats.face;
+      ctx.fill(p.fill);
+      ctx.restore();
+    },
+    // 背光边:冰面里、减去"往西北挪一个背光边宽的冰 + 附近陆地"
+    (ctx) => {
+      const p = prep(ctx);
+      if (!p?.hatch) return;
+      const [x0, y0, x1, y1] = p.box;
+      begin(ctx);
+      ctx.fillStyle = p.pats.face;
+      ctx.save();
+      ctx.clip(p.fill);
+      const outside = new Path2D();
+      outside.rect(x0, y0, x1 - x0, y1 - y0);
+      outside.addPath(p.shade());
+      ctx.clip(outside, 'evenodd');
+      ctx.strokeStyle = `rgba(${ICE_SHADOW[0]},${ICE_SHADOW[1]},${ICE_SHADOW[2]},0.42)`;
+      ctx.lineWidth = (0.6 * gs) / S;
+      ctx.lineCap = 'butt';
+      ctx.stroke(p.hatch);
+      ctx.restore();
+      ctx.restore();
+    },
+    // 冰缘墨线
+    (ctx) => {
+      const p = prep(ctx);
+      if (!p) return;
+      begin(ctx);
+      ctx.fillStyle = p.pats.face;
+      ctx.strokeStyle = p.pats.ink;
+      ctx.globalAlpha = ICE_INK_A;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.lineWidth = (ICE_LW * gs) / S;
+      ctx.stroke(p.ink);
+      ctx.restore();
+    },
+  ];
 }
 
 /** 一张图当填色 / 描线的图案:图的一个像素 = 世界(地图平面)px 个单位,左上角在 (ox, oy) */
@@ -2789,8 +3427,11 @@ const hatchRowOf = (S: number) => Math.max(2, Math.round(3 * S));
 /** 波纹浓度低于这个就算没画(差不到半个色阶) */
 const RIPPLE_EPS = 1e-3;
 
-/** 逐像素铺纸色、水彩、海冰、海岸墨线(单独成函数:热循环单独编译优化,快一些) */
-function paintPixels(r: Raster, d: Uint8ClampedArray, f: PixelFields) {
+/**
+ * 逐像素铺纸色、水彩、海冰、海岸墨线(单独成函数:热循环单独编译优化,快一些)。
+ * 只铺第 k0 ~ k1 − 1 个像素(编辑地形后按块重画时一行一段地铺;默认整张)
+ */
+function paintPixels(r: Raster, d: Uint8ClampedArray, f: PixelFields, k0 = 0, k1 = r.w * r.h) {
   const { w, h, elev, water, temp } = r;
   const N = w * h;
   const S = r.scale;
@@ -2809,9 +3450,9 @@ function paintPixels(r: Raster, d: Uint8ClampedArray, f: PixelFields) {
   const n23 = wrapCells(w, 23);
   const n14 = wrapCells(w, 14);
   // 颜色都用标量 r/g/b 算(不建临时数组);整张图一个平铺循环(嵌套的行 / 列循环会让 V8 每行退出一次优化代码)
-  let px = -1;
-  let py = 0;
-  for (let k = 0; k < N; k++) {
+  let px = (k0 % w) - 1;
+  let py = (k0 - (k0 % w)) / w;
+  for (let k = k0; k < k1; k++) {
     if (++px === w) {
       px = 0;
       py++;
@@ -3084,9 +3725,56 @@ function boxAvg(f: Float32Array, w: number, h: number, px: number, py: number, R
  * near:方圆约 20 像素内结冰的比例,0 = 附近没冰,1–255 对应比例 0–1(平滑,当"冰区程度"用)。
  */
 function seaIceField(r: Raster) {
+  const c = iceCoarse(r);
+  const { w, h } = r;
+  const near = new Uint8Array(w * h);
+  if (!c.any) return { mask: c.mask, near };
+  const { G, gw, gh, gIce, inv, colX0, colX1, colT } = c;
+  for (let by = 0; by < gh; by++) {
+    for (let bx = 0; bx < gw; bx++) {
+      if (gIce[by * gw + bx] < 1e-3) continue; // 附近两块内都没冰
+      const x0 = bx * G;
+      const y0 = by * G;
+      const x1 = Math.min(w, x0 + G);
+      const y1 = Math.min(h, y0 + G);
+      // 同 nearAt,按行先算好纵向的那几样(整张图时热循环)
+      for (let py = y0; py < y1; py++) {
+        // 粗网格双线性插值
+        const fy = Math.min(gh - 1, Math.max(0, (py + 0.5) / G - 0.5));
+        const gy0 = Math.floor(fy);
+        const ty = fy - gy0;
+        const r0 = gy0 * gw;
+        const r1 = Math.min(gh - 1, gy0 + 1) * gw;
+        for (let px = x0; px < x1; px++) {
+          const a = colX0[px];
+          const b = colX1[px];
+          const tx = colT[px];
+          const v = ((gIce[r0 + a] * (1 - tx) + gIce[r0 + b] * tx) * (1 - ty) + (gIce[r1 + a] * (1 - tx) + gIce[r1 + b] * tx) * ty) * inv;
+          near[py * w + px] = 1 + Math.round(Math.min(1, v) * 254);
+        }
+      }
+    }
+  }
+  return { mask: c.mask, near };
+}
+
+/** 海冰的粗网格(seaIceField 的前一半):每块的结冰像素数(模糊过);mask = 海冰像素;any = 有没有冰 */
+interface IceCoarse {
+  mask: Uint8Array;
+  any: boolean;
+  G: number;
+  gw: number;
+  gh: number;
+  gIce: Float32Array;
+  inv: number;
+  colX0: Int32Array;
+  colX1: Int32Array;
+  colT: Float32Array;
+}
+
+function iceCoarse(r: Raster): IceCoarse {
   const { w, h, biome } = r;
   const mask = new Uint8Array(w * h);
-  const near = new Uint8Array(w * h);
   // 粗网格:每块数结冰像素
   const G = Math.max(4, Math.round(8 * r.scale));
   const gw = Math.ceil(w / G);
@@ -3103,8 +3791,7 @@ function seaIceField(r: Raster) {
       any = true;
     }
   }
-  if (!any) return { mask, near };
-  boxBlurWrap(gIce, gw, gh, 2);
+  if (any) boxBlurWrap(gIce, gw, gh, 2);
   // 比例 = 冰像素 / 块面积(陆地也算在分母里,海岸边偏低一点,不影响观感)
   const inv = 1 / (G * G);
   const colX0 = new Int32Array(w);
@@ -3118,33 +3805,24 @@ function seaIceField(r: Raster) {
     colX1[px] = x0 + 1 >= gw ? x0 + 1 - gw : x0 + 1;
     colT[px] = fx - x0;
   }
-  for (let by = 0; by < gh; by++) {
-    for (let bx = 0; bx < gw; bx++) {
-      if (gIce[by * gw + bx] < 1e-3) continue; // 附近两块内都没冰
-      const x0 = bx * G;
-      const y0 = by * G;
-      const x1 = Math.min(w, x0 + G);
-      const y1 = Math.min(h, y0 + G);
-      for (let py = y0; py < y1; py++) {
-        // 粗网格双线性插值
-        const fy = Math.min(gh - 1, Math.max(0, (py + 0.5) / G - 0.5));
-        const gy0 = Math.floor(fy);
-        const ty = fy - gy0;
-        const r0 = gy0 * gw;
-        const r1 = Math.min(gh - 1, gy0 + 1) * gw;
-        for (let px = x0; px < x1; px++) {
-          const a = colX0[px];
-          const b = colX1[px];
-          const tx = colT[px];
-          const v =
-            ((gIce[r0 + a] * (1 - tx) + gIce[r0 + b] * tx) * (1 - ty) + (gIce[r1 + a] * (1 - tx) + gIce[r1 + b] * tx) * ty) *
-            inv;
-          near[py * w + px] = 1 + Math.round(Math.min(1, v) * 254);
-        }
-      }
-    }
-  }
-  return { mask, near };
+  return { mask, any, G, gw, gh, gIce, inv, colX0, colX1, colT };
+}
+
+/** 第 (px, py) 个像素的 near(见 seaIceField;所在那一块粗网格附近没冰 = 0) */
+function nearAt(c: IceCoarse, px: number, py: number): number {
+  const { G, gw, gh, gIce, inv } = c;
+  if (!c.any || gIce[Math.floor(py / G) * gw + Math.floor(px / G)] < 1e-3) return 0;
+  // 粗网格双线性插值
+  const fy = Math.min(gh - 1, Math.max(0, (py + 0.5) / G - 0.5));
+  const gy0 = Math.floor(fy);
+  const ty = fy - gy0;
+  const r0 = gy0 * gw;
+  const r1 = Math.min(gh - 1, gy0 + 1) * gw;
+  const a = c.colX0[px];
+  const b = c.colX1[px];
+  const tx = c.colT[px];
+  const v = ((gIce[r0 + a] * (1 - tx) + gIce[r0 + b] * tx) * (1 - ty) + (gIce[r1 + a] * (1 - tx) + gIce[r1 + b] * tx) * ty) * inv;
+  return 1 + Math.round(Math.min(1, v) * 254);
 }
 
 /** 冰缘带的半宽(像素,切比雪夫距离):冰缘线落在冰 / 水像素之间,放大后双线性取色只碰到线两边各一格,多留一格余量 */
@@ -3743,6 +4421,12 @@ const FOREST_TILE = 128;
 /** 林块的墨线半宽、阴影排线间距(世界单位,缩放 1 倍时;放大后按 glyphScale 收) */
 const FOREST_LW = 0.55;
 const FOREST_HATCH = 1.7;
+/**
+ * 林块分几下画(fantasyVectorParts)时一格估多费事:每种林子 FOREST_KIND_COST(裁剪、铺满一格的阴影和排线)+ 每个圆、树冠 1;
+ * 一下最多画 FOREST_PART_COST 那么多(没有显卡加速的机器上一下约三四十毫秒)
+ */
+const FOREST_KIND_COST = 40;
+const FOREST_PART_COST = 1200;
 
 /**
  * 林块:扇贝边轮廓 + 平涂树冠色 + 东南侧阴影排线 + 内部一片小树冠。
@@ -3755,6 +4439,21 @@ const FOREST_HATCH = 1.7;
  * 包到球上正好是圆 —— 高纬度的林块、树冠在球上不扁(平面主图不用这个)
  */
 function drawForests(ctx: CanvasRenderingContext2D, world: World, forest: Uint8Array, v: VecView, T: number, pc?: ProjCells, sphere = false) {
+  const ft = forestTiles(ctx.canvas.width, ctx.canvas.height, world, forest, v, T, pc, sphere);
+  ft.draw(ctx, 0, ft.cost.length);
+}
+
+/**
+ * drawForests 拆成两半:先按画布(W × H)的方格拼好每一格的路径,再一格一格画。
+ * draw(ctx, a, b) 画第 a 到 b - 1 格(每一格自成一段,依次分几次画完和一次画完逐像素一样);
+ * cost[i] = 第 i 格大约多费事(这一格里有几种林子、拼进去几个圆和树冠),分几下画时按它分
+ */
+interface ForestTiles {
+  cost: number[];
+  draw: (ctx: CanvasRenderingContext2D, a: number, b: number) => void;
+}
+
+function forestTiles(W: number, H: number, world: World, forest: Uint8Array, v: VecView, T: number, pc?: ProjCells, sphere = false): ForestTiles {
   const { mesh, water } = world;
   const { n, x, y, spacing, adjStart, adj } = mesh;
   const seed = subSeed(world.params.seed, 'glyphs');
@@ -3768,8 +4467,6 @@ function drawForests(ctx: CanvasRenderingContext2D, world: World, forest: Uint8A
   /** 每个内部地块画几棵树冠:全图 1 棵(一部分地块),每升一级多一棵 */
   let crownsPer = 1;
   for (let t = 1; t < GLYPH_TIERS.length; t++) if (v.k >= GLYPH_TIERS[t] * 0.95) crownsPer++;
-  const W = ctx.canvas.width;
-  const H = ctx.canvas.height;
   const tw = Math.ceil(W / T);
   const th = Math.ceil(H / T);
   // 一个地块的林子最远画到中心外多远:针叶尖顶(1.55 × 0.94 个间距)、内部的大圆(1.35),
@@ -3778,7 +4475,8 @@ function drawForests(ctx: CanvasRenderingContext2D, world: World, forest: Uint8A
 
   // 每一格、每种林子一组路径:shape = 每个地块一个小圆(边界上的圆大小、位置随机 → 扇贝边;
   // 内部的圆大一些,保证连成一片不漏纸色),crown* = 内部的树冠
-  type Paths = { shape: Path2D; crowns: Path2D; crownShade: Path2D; crownFill: Path2D };
+  // n = 拼进去几个圆、树冠(分几下画时估这一格多费事)
+  type Paths = { shape: Path2D; crowns: Path2D; crownShade: Path2D; crownFill: Path2D; n: number };
   const tiles = new Map<number, (Paths | null)[]>(); // 格子编号 → [无, 阔叶, 针叶, 雨林]
   const hit: Paths[] = [];
   /** (cx, cy) 处的林子会画到的格子(这种林子的路径组,没有就建);横向够得着的范围 rch × ax */
@@ -3794,7 +4492,7 @@ function drawForests(ctx: CanvasRenderingContext2D, world: World, forest: Uint8A
         let t = tiles.get(key);
         if (!t) tiles.set(key, (t = [null, null, null, null]));
         let g = t[kind];
-        if (!g) t[kind] = g = { shape: new Path2D(), crowns: new Path2D(), crownShade: new Path2D(), crownFill: new Path2D() };
+        if (!g) t[kind] = g = { shape: new Path2D(), crowns: new Path2D(), crownShade: new Path2D(), crownFill: new Path2D(), n: 0 };
         hit.push(g);
       }
     return hit;
@@ -3845,6 +4543,7 @@ function drawForests(ctx: CanvasRenderingContext2D, world: World, forest: Uint8A
       const cx = X + (hash2(i, 2, seed) - 0.5) * spacing * 0.6 * S * sg * ax;
       const cy = Y + (hash2(i, 3, seed) - 0.5) * spacing * 0.6 * S * sg;
       for (const g of tilesNear(cx, cy, kind, rch, ax)) {
+        g.n++;
         if (ax !== 1) {
           if (pointy) addPineTopX(g.shape, cx, cy, R, ax);
           else addEllipse(g.shape, cx, cy, R, ax);
@@ -3855,6 +4554,7 @@ function drawForests(ctx: CanvasRenderingContext2D, world: World, forest: Uint8A
     }
     const gs0 = tilesNear(X, Y, kind, rch, ax);
     for (const g of gs0) {
+      g.n++;
       if (ax !== 1) addEllipse(g.shape, X, Y, spacing * 1.35 * S * sg, ax);
       else addCircle(g.shape, X, Y, spacing * 1.35 * S * sg);
     }
@@ -3869,6 +4569,7 @@ function drawForests(ctx: CanvasRenderingContext2D, world: World, forest: Uint8A
       const rr = spacing * (0.3 + 0.14 * (c === 0 ? h1 : hash2(i, 20 + c, seed))) * gs * S;
       const off = rr * 0.32;
       for (const g of gs0) {
+        g.n++;
         if (ax !== 1) {
           if (pointy) {
             addChevronX(g.crownShade, tx + off * ax, ty + off, rr, ax, true);
@@ -3896,64 +4597,72 @@ function drawForests(ctx: CanvasRenderingContext2D, world: World, forest: Uint8A
 
   // 排线的相位跟着世界坐标走(细节层平移后排线不"游动")
   const phase = v.ox + v.oy;
-  ctx.save();
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
-  for (const [key, t] of tiles) {
-    const X0 = (key % tw) * T;
-    const Y0 = Math.floor(key / tw) * T;
-    const X1 = Math.min(W, X0 + T);
-    const Y1 = Math.min(H, Y0 + T);
-    // 地球仪贴图:往西北的阴影平移量也按这一格的纬度横向拉宽(平面 = 1)
-    const tax = sphere ? sphereStretch(((Y0 + Y1) / 2 - v.oy) / S, world.height) : 1;
+  const list = [...tiles];
+  // 一格大约多费事:每种林子一份(裁剪、整格的阴影和排线)+ 拼进去的圆、树冠
+  const cost = list.map(([, t]) => t.reduce((a, g) => a + (g ? FOREST_KIND_COST + g.n : 0), 0));
+  return { cost, draw };
+
+  function draw(ctx: CanvasRenderingContext2D, a: number, b: number) {
     ctx.save();
-    ctx.beginPath();
-    ctx.rect(X0, Y0, X1 - X0, Y1 - Y0);
-    ctx.clip();
-    for (const kind of [F_BROAD, F_JUNGLE, F_PINE]) {
-      const g = t[kind];
-      if (!g) continue;
-      const canopy = CANOPY[kind];
-      // 1. 轮廓:所有小圆先描一道粗墨线,再用树冠色填满 → 内部的线全被盖住,只剩外圈的扇贝边
-      ctx.strokeStyle = INK_CSS + '0.85)';
-      ctx.lineWidth = lw * 2;
-      ctx.stroke(g.shape);
-      ctx.fillStyle = canopy;
-      ctx.fill(g.shape);
-      // 2. 东南侧阴影:林块内部、且往西北平移后盖不到的一圈 → 背光的边
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    for (let ti = a; ti < b; ti++) {
+      const [key, t] = list[ti];
+      const X0 = (key % tw) * T;
+      const Y0 = Math.floor(key / tw) * T;
+      const X1 = Math.min(W, X0 + T);
+      const Y1 = Math.min(H, Y0 + T);
+      // 地球仪贴图:往西北的阴影平移量也按这一格的纬度横向拉宽(平面 = 1)
+      const tax = sphere ? sphereStretch(((Y0 + Y1) / 2 - v.oy) / S, world.height) : 1;
       ctx.save();
-      ctx.clip(g.shape);
-      ctx.fillStyle = INK_CSS + '0.10)';
-      ctx.fillRect(X0, Y0, X1 - X0, Y1 - Y0);
       ctx.beginPath();
-      // 排线:线 x + y = c(方向"/"),c = 第几条 × 间距 + 相位(整张图一套),每条画满这一格
-      for (let q = Math.ceil((X0 + Y0 - phase) / hatchGap), qEnd = (X1 + Y1 - phase) / hatchGap; q < qEnd; q++) {
-        const c = q * hatchGap + phase;
-        const ax = Math.max(X0 - 2, c - Y1 - 2);
-        const bx = Math.min(X1 + 2, c - Y0 + 2);
-        if (ax >= bx) continue;
-        ctx.moveTo(ax, c - ax);
-        ctx.lineTo(bx, c - bx);
+      ctx.rect(X0, Y0, X1 - X0, Y1 - Y0);
+      ctx.clip();
+      for (const kind of [F_BROAD, F_JUNGLE, F_PINE]) {
+        const g = t[kind];
+        if (!g) continue;
+        const canopy = CANOPY[kind];
+        // 1. 轮廓:所有小圆先描一道粗墨线,再用树冠色填满 → 内部的线全被盖住,只剩外圈的扇贝边
+        ctx.strokeStyle = INK_CSS + '0.85)';
+        ctx.lineWidth = lw * 2;
+        ctx.stroke(g.shape);
+        ctx.fillStyle = canopy;
+        ctx.fill(g.shape);
+        // 2. 东南侧阴影:林块内部、且往西北平移后盖不到的一圈 → 背光的边
+        ctx.save();
+        ctx.clip(g.shape);
+        ctx.fillStyle = INK_CSS + '0.10)';
+        ctx.fillRect(X0, Y0, X1 - X0, Y1 - Y0);
+        ctx.beginPath();
+        // 排线:线 x + y = c(方向"/"),c = 第几条 × 间距 + 相位(整张图一套),每条画满这一格
+        for (let q = Math.ceil((X0 + Y0 - phase) / hatchGap), qEnd = (X1 + Y1 - phase) / hatchGap; q < qEnd; q++) {
+          const c = q * hatchGap + phase;
+          const ax = Math.max(X0 - 2, c - Y1 - 2);
+          const bx = Math.min(X1 + 2, c - Y0 + 2);
+          if (ax >= bx) continue;
+          ctx.moveTo(ax, c - ax);
+          ctx.lineTo(bx, c - bx);
+        }
+        ctx.strokeStyle = INK_CSS + '0.42)';
+        ctx.lineWidth = 0.55 * gs * S;
+        ctx.stroke();
+        ctx.translate(-shadeD * tax, -shadeD);
+        ctx.fillStyle = canopy;
+        ctx.fill(g.shape);
+        ctx.restore();
+        // 3. 内部树冠
+        ctx.fillStyle = INK_CSS + '0.22)';
+        ctx.fill(g.crownShade);
+        ctx.fillStyle = canopy;
+        ctx.fill(g.crownFill);
+        ctx.strokeStyle = INK_CSS + '0.6)';
+        ctx.lineWidth = 0.55 * gs * S;
+        ctx.stroke(g.crowns);
       }
-      ctx.strokeStyle = INK_CSS + '0.42)';
-      ctx.lineWidth = 0.55 * gs * S;
-      ctx.stroke();
-      ctx.translate(-shadeD * tax, -shadeD);
-      ctx.fillStyle = canopy;
-      ctx.fill(g.shape);
       ctx.restore();
-      // 3. 内部树冠
-      ctx.fillStyle = INK_CSS + '0.22)';
-      ctx.fill(g.crownShade);
-      ctx.fillStyle = canopy;
-      ctx.fill(g.crownFill);
-      ctx.strokeStyle = INK_CSS + '0.6)';
-      ctx.lineWidth = 0.55 * gs * S;
-      ctx.stroke(g.crowns);
     }
     ctx.restore();
   }
-  ctx.restore();
 }
 
 /** 地球仪贴图横向拉宽多少(世界 y 处的 1 / cos 纬度;两极附近封顶,极点本身是奇点) */

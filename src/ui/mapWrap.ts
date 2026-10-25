@@ -220,6 +220,25 @@ export function mapBoxOf(el: Element | null): HTMLElement | null {
 }
 
 /**
+ * el 所在舞台的地图框大小变了(窗口缩放)就 bump 一下(组件按它重画);fonts = 网页字体下载完也 bump。返回取消的函数。
+ * 回调在这里(模块里)建,不在组件里建:一直挂着的回调要是在组件那一次渲染里建,会连带拉住那一次渲染时的
+ * 世界、主图、历史,换了世界也放不掉(手机上白占几十上百 MB)
+ */
+export function watchMapBox(el: Element | null, bump: (f: (t: number) => number) => void, fonts = false): (() => void) | undefined {
+  const box = mapBoxOf(el);
+  if (!box || typeof ResizeObserver === 'undefined') return;
+  const tick = () => bump((t) => t + 1);
+  const ro = new ResizeObserver(tick);
+  ro.observe(box);
+  const fs = fonts && typeof document !== 'undefined' ? document.fonts : undefined;
+  fs?.addEventListener('loadingdone', tick);
+  return () => {
+    ro.disconnect();
+    fs?.removeEventListener('loadingdone', tick);
+  };
+}
+
+/**
  * 屏幕层里的一张画布(按屏幕像素画的:文字层、细节层、视窗装饰)摆到屏幕上:
  * 它画的是地图框坐标 (x0, y0) 起的一块、画的时候缩放 k0 倍,CSS 宽高 = 画布像素 ÷ 画的时候的像素密度。
  * 现在的缩放倍数和画的时候一样时只平移(对齐到屏幕像素,不糊);不一样时(细节层放大一点点还没重画)再按比例缩放

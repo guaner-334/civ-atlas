@@ -1,0 +1,1157 @@
+/*
+ * 导播(Director.tsx):地图上的圆环 + 名牌、时间轴上面的字幕条、右上「导播略过的」列表、设置弹层;手机的字幕卡、底部卡片。
+ * 事件类型的颜色用 timeline.css 的 [data-ev](设 --c);其余都是 theme.css 的变量。
+ */
+
+/* ---- 地图上:事发地一个圆环(两圈光晕)+ 一行名牌(类型 + 地名) ---- */
+.dr-pins {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+/* 地球仪铺满舞台、排在标签层后面:标记要浮在球上面(和 .ev-pins 一样) */
+.app.globe-on .dr-pins {
+  z-index: 1;
+}
+.dr-pin {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  will-change: transform;
+}
+.dr-ring {
+  position: absolute;
+  left: -11px;
+  top: -11px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2.5px solid var(--c);
+  background: color-mix(in srgb, var(--c) 16%, transparent);
+  box-shadow:
+    0 0 0 7px color-mix(in srgb, var(--c) 22%, transparent),
+    0 0 0 17px color-mix(in srgb, var(--c) 9%, transparent);
+}
+.dr-plate {
+  position: absolute;
+  left: 24px;
+  top: -16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+  padding: 5px 11px 6px 10px;
+  background: var(--panel);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
+}
+.dr-plate b {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--c);
+}
+.dr-plate span {
+  font: 600 15px/1.25 var(--tb-serif, 'Source Han Serif SC', 'Noto Serif CJK SC', 'Songti SC', 'STSong', 'SimSun', serif);
+  color: var(--ink);
+}
+
+/* ---- 字幕条:浮在时间轴上面、和时间轴居中对齐 ---- */
+.dr-capwrap {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 12px);
+  z-index: 4;
+  width: min(760px, 100%);
+  transform: translateX(-50%);
+  pointer-events: auto;
+  text-shadow: none;
+}
+/* 第一次打开的操作提示和字幕条在同一个地方:字幕条出来时先收起 */
+.app:has(.dr-capwrap) .first-hint {
+  visibility: hidden;
+}
+/* 待推演的单子(左边)也开着:字幕条靠右放 */
+.bottom-row:has(.ivq:not(.phone)) .dr-capwrap:not(.phone) {
+  left: auto;
+  right: 0;
+  width: min(760px, calc(100% - 422px));
+  transform: none;
+}
+.dr-cap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px 13px 20px;
+  background: var(--panel);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border-radius: var(--r-panel);
+  box-shadow: var(--shadow-panel);
+  color: var(--ink);
+  font-family: var(--font-sans);
+}
+/* 左边那道颜色、底下的进度线画在这一层里(按圆角裁掉;字幕条本身不裁,手机「⋯」的菜单弹得出来) */
+.dr-deco {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: inherit;
+  pointer-events: none;
+}
+.dr-deco::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: var(--c);
+}
+.dr-cap.held {
+  background: color-mix(in srgb, var(--panel-solid) 90%, transparent);
+}
+.dr-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  font-size: 13px;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+.dr-tag {
+  font-weight: 700;
+  color: var(--c);
+}
+.dr-year {
+  font-variant-numeric: tabular-nums;
+}
+.dr-sp {
+  flex: 1;
+}
+.dr-muted {
+  color: var(--ink-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dr-text {
+  padding-right: 8px;
+  font-size: 17px;
+  line-height: 1.55;
+  font-weight: 500;
+  color: var(--ink);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+/* 底下一道细线:这一件放到哪了 */
+.dr-prog {
+  position: absolute;
+  left: 4px;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: color-mix(in srgb, var(--c) 14%, transparent);
+}
+.dr-prog i {
+  display: block;
+  height: 100%;
+  background: var(--c);
+  transform-origin: left center;
+  transform: scaleX(var(--p, 0));
+}
+
+.dr-btn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--r-btn);
+  background: var(--btn);
+  color: var(--ink);
+  font: 500 13px/1 var(--font-sans);
+  white-space: nowrap;
+  cursor: pointer;
+}
+@media (hover: hover) {
+  .dr-btn:hover:not(:disabled) {
+    filter: brightness(0.94);
+  }
+  .dr-btn.pri:hover {
+    background: var(--accent-hover);
+    filter: none;
+  }
+  .dr-fold:hover,
+  .dr-link:hover,
+  .dr-row:hover {
+    background: var(--hover-bg);
+  }
+}
+.dr-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.dr-btn.only {
+  width: 28px;
+  padding: 0;
+}
+.dr-btn.on {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.dr-btn.pri {
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+
+/* ---- 手机:时间轴胶囊上面一张字幕卡 ---- */
+.dr-capwrap.phone {
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 10px);
+  width: auto;
+  transform: none;
+}
+.dr-capwrap.phone .dr-cap {
+  gap: 3px;
+  padding: 9px 10px 12px 16px;
+  border-radius: 18px;
+}
+.dr-capwrap.phone .dr-head {
+  min-height: 26px;
+  gap: 6px;
+  font-size: 12.5px;
+}
+.dr-capwrap.phone .dr-text {
+  font-size: 15px;
+  line-height: 1.5;
+}
+.dr-capwrap.phone .dr-btn {
+  height: 26px;
+  padding: 0 8px;
+}
+.dr-chip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 24px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--btn);
+  color: var(--ink);
+  font: 500 12.5px/1 var(--font-sans);
+  white-space: nowrap;
+}
+/* 「⋯」:全部跳过、导播设置(菜单往上弹) */
+.dr-more {
+  flex: none;
+}
+.dr-more > .pm-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-btn);
+  background: var(--btn);
+  color: var(--ink);
+}
+.dr-more > .pm-menu {
+  top: auto;
+  bottom: calc(100% + 6px);
+  min-width: 170px;
+}
+
+/* ---- 右上:导播略过的 ---- */
+.dr-list {
+  position: absolute;
+  top: 64px;
+  right: calc(14px + var(--ast-room, 0px));
+  z-index: 4;
+  width: 380px;
+  max-width: calc(100% - 28px);
+  background: var(--panel);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border-radius: var(--r-panel);
+  box-shadow: var(--shadow-float);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  text-shadow: none;
+}
+.dr-list-head,
+.dr-sheet-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px 8px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.dr-list.folded .dr-list-head {
+  padding-bottom: 12px;
+}
+.dr-list-head em,
+.dr-sheet-head em {
+  font-style: normal;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--ink-2);
+}
+.dr-link {
+  height: 28px;
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  color: var(--link);
+  font: 500 13px/1 var(--font-sans);
+}
+.dr-fold {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-btn);
+  background: transparent;
+  color: var(--ink-2);
+}
+.dr-rows {
+  max-height: min(300px, calc(100vh - 420px));
+  min-height: 34px;
+  overflow-y: auto;
+}
+.dr-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 14px;
+  border: 0;
+  border-top: 0.5px solid var(--line);
+  background: transparent;
+  color: var(--ink);
+  font: 400 13px/1.45 var(--font-sans);
+  text-align: left;
+  cursor: pointer;
+}
+.dr-row .y {
+  flex: none;
+  min-width: 34px;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+.dr-row .t {
+  flex: none;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--c);
+}
+.dr-row .x {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dr-row .x.two {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.dr-note {
+  padding: 8px 14px 12px;
+  border-top: 0.5px solid var(--line);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+
+/* ---- 设置:宽屏是字幕条右上的弹层(开着时整个底部一行压在右上的略过列表上面;窗口矮时弹层里能滚) ---- */
+.bottom-row:has(.dr-set) {
+  z-index: 5;
+}
+.dr-set {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  width: 370px;
+  max-width: calc(100vw - 28px);
+  max-height: calc(100vh - 210px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-bottom: 6px;
+  background: var(--panel);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border-radius: var(--r-panel);
+  box-shadow: var(--shadow-float);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  white-space: normal;
+}
+.dr-set-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 16px 6px;
+  font-size: 16px;
+  font-weight: 600;
+}
+.dr-set-lead {
+  padding: 0 16px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+.dr-set-sec {
+  padding: 14px 18px 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+.dr-set-why {
+  padding: 6px 18px 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+.dr-set-why.last {
+  padding-bottom: 10px;
+}
+/* 分段按钮(和 app.css 的 .seg 一个样子) */
+.dr-seg {
+  display: flex;
+  margin: 0 16px;
+  padding: 2px;
+  border-radius: var(--r-btn);
+  background: var(--btn);
+}
+.dr-seg > button,
+.dr-seg > label {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  padding: 5px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink-2);
+  font: 400 13px/1.4 var(--font-sans);
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.dr-seg > .on {
+  background: var(--panel-solid);
+  color: var(--ink);
+  font-weight: 600;
+  box-shadow: 0 0 0 1px var(--line);
+}
+/* "一个国家":整格盖一层看不见的下拉框,点了选国家 */
+.dr-seg > label select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+  font-size: 16px;
+}
+.dr-set-grp {
+  margin: 0 16px;
+  overflow: hidden;
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: 0 0 0 0.5px var(--line);
+}
+.dr-set-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  min-height: 42px;
+  padding: 8px 12px;
+  border: 0;
+  border-bottom: 0.5px solid var(--line);
+  background: transparent;
+  color: var(--ink);
+  font: 400 14.5px/1.4 var(--font-sans);
+  text-align: left;
+  cursor: pointer;
+}
+.dr-set-row:last-child {
+  border-bottom: 0;
+}
+.dr-set-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.dr-set-main small {
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+.dr-radio {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  border-radius: 50%;
+  border: 1.5px solid var(--line-strong);
+}
+.dr-radio.on {
+  border: 5.5px solid var(--accent);
+}
+/* 开关 */
+.dr-sw {
+  flex: none;
+  position: relative;
+  width: 42px;
+  height: 25px;
+  padding: 0;
+  border: 0;
+  border-radius: 13px;
+  background: rgba(120, 120, 128, 0.24);
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+.dr-sw::after {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 2px;
+  width: 21px;
+  height: 21px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  transition: left 0.2s;
+}
+.dr-sw.on {
+  background: var(--ok);
+}
+.dr-sw.on::after {
+  left: 19px;
+}
+
+/* ---- 手机:底部拉起的卡片(略过的列表、设置) ---- */
+.dr-sheet {
+  position: absolute;
+  left: var(--safe-l, 0px);
+  right: var(--safe-r, 0px);
+  bottom: 0;
+  z-index: 30;
+  max-height: 86%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-bottom: calc(14px + var(--safe-b, 0px));
+  background: var(--panel-solid);
+  border-radius: 18px 18px 0 0;
+  box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.14);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  text-shadow: none;
+  animation: dr-up 0.22s cubic-bezier(0.33, 1, 0.68, 1);
+}
+@keyframes dr-up {
+  from {
+    transform: translateY(40px);
+    opacity: 0;
+  }
+}
+.dr-grip {
+  width: 36px;
+  height: 5px;
+  margin: 6px auto 4px;
+  border-radius: 3px;
+  background: var(--ink-3);
+  opacity: 0.7;
+}
+.dr-sheet-head {
+  padding: 8px 16px 10px;
+  font-size: 17px;
+}
+.dr-sheet-head em {
+  font-size: 14px;
+}
+.dr-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--btn);
+  color: var(--ink);
+}
+.dr-sheet-rows {
+  margin: 0 16px;
+  overflow: hidden;
+  border-radius: 12px;
+  background: var(--surface);
+}
+.dr-sheet-rows .dr-row {
+  align-items: flex-start;
+  padding: 10px 14px;
+  font-size: 14.5px;
+}
+.dr-sheet-rows .dr-row:first-child {
+  border-top: 0;
+}
+.dr-sheet-rows .dr-row .t {
+  padding-top: 1px;
+}
+.dr-sheet .dr-note {
+  padding: 10px 20px;
+  border-top: 0;
+}
+/* 手机的设置卡片:内容和宽屏一样,字大一点 */
+.dr-set.dr-sheet {
+  position: absolute;
+  left: var(--safe-l, 0px);
+  right: var(--safe-r, 0px);
+  bottom: 0;
+  width: auto;
+  max-width: none;
+  padding-bottom: calc(14px + var(--safe-b, 0px));
+  background: var(--panel-solid);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  border-radius: 18px 18px 0 0;
+  box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.14);
+}
+.dr-set.phone .dr-set-head {
+  padding: 8px 16px 4px;
+  font-size: 17px;
+}
+.dr-set.phone .dr-set-lead {
+  font-size: 13px;
+}
+.dr-set.phone .dr-set-sec {
+  padding: 14px 20px 6px;
+}
+.dr-set.phone .dr-set-why {
+  padding: 6px 20px 0;
+}
+.dr-set.phone .dr-set-grp {
+  border-radius: 12px;
+  box-shadow: none;
+}
+
+/* ---- 右边的「导播」按钮(宽屏右下一列、手机右上一列) ---- */
+.app .map-controls .mc-dir.on,
+.app.has-side .map-controls .mc-dir.on {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.app.has-side .map-controls .mc-dir.on:hover {
+  background: var(--accent-hover);
+}
+/* 停着等你:空心(像地图应用里拖开以后的"跟随"按钮),点一下回到导播 */
+.app .map-controls .mc-dir.held,
+.app.has-side .map-controls .mc-dir.held {
+  color: var(--accent);
+  box-shadow:
+    inset 0 0 0 1.5px var(--accent),
+    var(--shadow-panel);
+}
+.pb-btn.dr-on {
+  background: var(--accent);
+  color: var(--on-accent);
+  border-radius: 0;
+}
+.pb-btn.dr-held {
+  color: var(--accent);
+}
+
+/* ---- 关注一个人(Follow.tsx):字幕条正上方的名牌(和字幕条左边对齐;没有字幕时在字幕条的位置) ---- */
+.fp {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: max-content;
+  max-width: 100%;
+  height: 44px;
+  margin-bottom: 6px;
+  padding: 0 6px;
+  box-sizing: border-box;
+  background: var(--panel);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border-radius: 12px;
+  box-shadow: var(--shadow-panel);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  white-space: nowrap;
+}
+.fp-face {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--c, var(--btn));
+  box-shadow:
+    0 0 0 1.5px var(--surface),
+    0 0 0 2.5px var(--line);
+}
+.fp-face .pt {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+}
+.fp-name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.25;
+}
+.fp-name b {
+  font-size: 14.5px;
+  font-weight: 600;
+}
+.fp-name small {
+  font-size: 12px;
+  color: var(--ink-2);
+}
+.fp-sep {
+  flex: none;
+  width: 1px;
+  height: 24px;
+  background: var(--line);
+}
+.fp-age {
+  font-size: 13px;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.25;
+}
+.fp-age small {
+  display: block;
+  font-size: 11.5px;
+  color: var(--ink-2);
+}
+/* 生平线:生 → 卒(逐年推演还在世的只画到"现在",后面虚线);在台上那几年浅蓝一截,现在一个点 */
+.fp-life {
+  position: relative;
+  flex: none;
+  width: 150px;
+  height: 30px;
+}
+.fp-life i {
+  position: absolute;
+}
+.fp-life .ln {
+  left: 0;
+  right: 0;
+  top: 11px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--line-strong);
+  opacity: 0.6;
+}
+.fp-life .rg {
+  top: 10px;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--accent);
+  opacity: 0.35;
+}
+.fp-life .past {
+  left: 0;
+  top: 11px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+.fp-life .fut {
+  right: 0;
+  top: 12px;
+  height: 0;
+  border-top: 1.5px dashed var(--ink-3);
+}
+.fp-life .now {
+  top: 7px;
+  width: 11px;
+  height: 11px;
+  margin-left: -5.5px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--surface);
+}
+.fp-life .lb {
+  position: absolute;
+  left: 0;
+  top: 18px;
+  font-size: 10.5px;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+.fp-life .lb.r {
+  left: auto;
+  right: 0;
+}
+.fp-btn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--btn);
+  color: var(--ink);
+  font: 13px var(--font-sans);
+  cursor: pointer;
+}
+.fp-btn.only {
+  width: 28px;
+  padding: 0;
+}
+.fp-btn:hover {
+  background: var(--hover-bg);
+}
+/* 他不在了:两张脸、箭头 */
+.fp-arrow {
+  flex: none;
+  color: var(--ink-3);
+  font-size: 15px;
+}
+.fp-name.gone b {
+  color: var(--ink-2);
+  font-weight: 500;
+}
+.fp-face.fp-pol {
+  box-shadow: 0 0 0 1.5px var(--surface);
+}
+/* 手机:字幕卡上面整宽一条 */
+.fp.phone {
+  width: auto;
+  height: 40px;
+  gap: 8px;
+  border-radius: 14px;
+}
+.fp.phone .fp-face {
+  width: 30px;
+  height: 30px;
+}
+.fp.phone .fp-name {
+  flex: 0 1 auto;
+}
+.fp.phone .fp-name b {
+  font-size: 14px;
+}
+.fp.phone .fp-name b,
+.fp.phone .fp-name small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.fp.phone .fp-life {
+  width: 84px;
+  flex: 0 1 84px;
+  min-width: 40px;
+}
+.fp.phone .fp-life .ln,
+.fp.phone .fp-life .past {
+  top: 13px;
+}
+.fp.phone .fp-life .rg {
+  top: 12px;
+}
+.fp.phone .fp-life .fut {
+  top: 14px;
+}
+.fp.phone .fp-life .now {
+  top: 9px;
+}
+
+/* ---- 导播设置「一个人」:他那一行 ---- */
+.fp-pick {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 16px 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: 0 0 0 0.5px var(--line);
+}
+.fp-pick .fp-face {
+  width: 32px;
+  height: 32px;
+}
+.fp-pick .fp-name {
+  flex: 1;
+}
+.fp-pick .fp-name small {
+  white-space: normal;
+}
+.fp-link {
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--link);
+  font: 13px var(--font-sans);
+  cursor: pointer;
+}
+
+/* ---- 选人列表(导播设置里换成它) ---- */
+.fp-list {
+  display: flex;
+  flex-direction: column;
+  padding: 12px 16px 10px;
+}
+.fp-back {
+  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--link);
+  font: 14px var(--font-sans);
+  cursor: pointer;
+}
+.fp-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  margin: 10px 0 8px;
+  padding: 0 10px;
+  border-radius: 9px;
+  background: var(--field);
+  color: var(--ink-3);
+}
+.fp-search input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--ink);
+  font: 14px var(--font-sans);
+}
+.fp-search input::placeholder {
+  color: var(--ink-3);
+}
+.fp-tabs {
+  display: flex;
+  gap: 2px;
+  margin-bottom: 8px;
+  padding: 2px;
+  border-radius: 9px;
+  background: var(--btn);
+}
+.fp-tabs button {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  padding: 0 2px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ink);
+  font: 12.5px var(--font-sans);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.fp-tabs button.on {
+  background: var(--surface);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+  font-weight: 600;
+}
+.fp-grp-h {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 4px 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+.fp-grp-h i {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+.fp-rows {
+  overflow: hidden;
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: 0 0 0 0.5px var(--line);
+}
+.fp-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  padding: 5px 10px;
+  border: 0;
+  border-bottom: 0.5px solid var(--line);
+  background: transparent;
+  color: var(--ink);
+  font: 14px var(--font-sans);
+  text-align: left;
+  cursor: pointer;
+}
+.fp-row:last-child {
+  border-bottom: 0;
+}
+.fp-row:hover {
+  background: var(--hover-bg);
+}
+.fp-row .fp-face {
+  width: 30px;
+  height: 30px;
+  box-shadow: none;
+}
+.fp-row .fp-name {
+  flex: 1;
+}
+.fp-row .fp-name b {
+  font-size: 14px;
+  font-weight: 500;
+}
+.fp-row.on {
+  background: var(--accent-soft);
+}
+.fp-row .ck {
+  color: var(--accent);
+  font-weight: 700;
+}
+.fp-empty {
+  padding: 14px 4px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.fp-list-why {
+  padding: 8px 4px 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--ink-2);
+}
+/* 逐年推演窗口里原地展开的设置:他那一行、选人列表铺满整宽 */
+.dr-set.inline .fp-pick {
+  margin: 8px 0 0;
+}
+.dr-set.inline .fp-list {
+  padding: 4px 0 6px;
+}
+
+/* ---- 照大纲放:情节的字幕(左边那道、类型名用主色,大字是作者写的那句,小字编年史)、字幕条上面一块 ---- */
+[data-ev='outline'] {
+  --c: var(--accent);
+}
+.dr-cap.plot .dr-text {
+  font-size: 18px;
+}
+.dr-sub {
+  padding-right: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dr-capwrap.phone .dr-cap.plot .dr-text {
+  font-size: 16px;
+}
+.dr-nextplot {
+  flex: none;
+  padding: 3px 8px;
+  border-radius: var(--r-tag);
+  background: var(--btn);
+  color: var(--ink-2);
+  font-size: 12.5px;
+}
+.dr-olplate {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 8px;
+  padding: 7px 8px 7px 14px;
+  border-radius: 12px;
+  background: var(--panel-solid);
+  box-shadow: var(--shadow-label);
+  font-size: 13.5px;
+  color: var(--ink);
+  white-space: nowrap;
+}
+.dr-olplate b {
+  font-weight: 600;
+}
+.dr-olplate small {
+  color: var(--ink-2);
+  font-size: 12.5px;
+}
+.dr-oldots {
+  display: inline-flex;
+  gap: 4px;
+}
+.dr-oldots i {
+  display: block;
+  width: 14px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--line);
+}
+.dr-oldots i.done {
+  background: var(--ink-3);
+}
+.dr-oldots i.now {
+  width: 22px;
+  background: var(--accent);
+}
+.dr-olx {
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--btn);
+  color: var(--ink-2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+/* 手机:情节的"第 3 / 10 条 1644 年"放不下时省略,按钮不挤出去 */
+.dr-year.fit {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

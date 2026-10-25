@@ -28,6 +28,8 @@ import { getPanel } from './panelStore';
 import { currentEra } from './editsStore';
 import { vassalTies } from '../render/civ/vassals';
 import { ERA_COLORS, eraLevelsAt, eraName } from '../render/civ/era';
+import { CONTROL_COLORS, controlOf, lordOf } from '../render/civ/control';
+import { CONTROL_TIERS } from '../gen/civ/control';
 import { eraOf } from '../gen/civ/development';
 
 export interface HoverInfo {
@@ -94,7 +96,7 @@ export function hoverInfo(p: {
   px: number;
   py: number;
   /** 地图上现在的样子:画风、数据底图、填色(国家 / 民族 / 信仰开不开) */
-  layer: Pick<LayerDef, 'style' | 'data' | 'polities' | 'cultures' | 'faiths' | 'eras'>;
+  layer: Pick<LayerDef, 'style' | 'data' | 'polities' | 'cultures' | 'faiths' | 'eras'> & { control?: boolean };
   /** 鼠标下的城镇符号 / 国名 / 地名 */
   label?: LabelPick | null;
   /** 时间轴当前的年份(null = 结束年份) */
@@ -141,9 +143,15 @@ export function hoverInfo(p: {
       const cu = owners.culture[r] >= 0 ? civ.cultures[owners.culture[r]] : undefined;
       const fa = def.faiths && civ.religion ? civ.religion.faiths[faithsAt(civ, year)[r]] : undefined;
       const lv = def.eras && civ.development && cu ? (levels = eraLevelsAt(civ, year, owners, levels))[r] : -1;
+      // 管辖:州名 + 档位(割据写名义上属哪国)
+      const ctl = def.control && po ? controlOf(civ, year, r) : null;
       if (lv >= 0) {
         const { era, progress } = eraOf(lv);
         info = { color: rgb(ERA_COLORS[era]), name: regionLabel(civ, r), sub: `${eraName(era)} ${Math.floor(progress * 100)}%` };
+      } else if (ctl) {
+        const lord = ctl.tier === 3 ? lordOf(civ, year, r) : null;
+        const nominal = lord && civ.polities[lord.p] ? civ.polities[lord.p] : po!;
+        info = { color: rgb(CONTROL_COLORS[ctl.tier]), name: regionLabel(civ, r), sub: ctl.tier === 3 ? `割据，名义上属${polityName(nominal, year)}` : CONTROL_TIERS[ctl.tier] };
       } else if (fa) info = { color: rgb(fa.color), name: fa.name, sub: po ? polityName(po, year) : '部落地带' };
       else if (def.cultures && !def.polities && cu) info = { color: rgb(cu.color), name: cultureLabel(cu), sub: po ? polityName(po, year) : '部落地带' };
       else if (po) info = polityInfo(civ, po, year, owners);
@@ -194,6 +202,8 @@ export function hoverInfo(p: {
 /** 选目标时鼠标下的对象(国家 / 城)和"点击选择 / 不可选 / 本国";鼠标下没有这类对象 = null */
 function pickTarget(civ: Civ, pk: PolityPick, label: LabelPick | null, cell: number, year: number): HoverInfo | null {
   const r = cell < civ.regions.of.length ? civ.regions.of[cell] : -1;
+  // 选州(另立一国):点到哪州算哪州,合不合格点了再说
+  if (pk.target === 'region') return r >= 0 ? { name: regionLabel(civ, r), sub: VERDICT_TEXT.ok, pick: -1 } : null;
   if (pk.target === 'settlement') {
     let sid = label?.kind === 'settlement' ? label.id : -1;
     if (sid < 0 && r >= 0) sid = civ.settlements.find((s) => s.region === r && s.founded <= year && (s.ended === undefined || s.ended > year))?.id ?? -1;

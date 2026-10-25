@@ -235,10 +235,10 @@ describe('地形大事 · 推演', () => {
     const ch = buildChronicle(b).filter((x) => b.annals[x.id]?.year === Y);
     expect(ch.map((x) => x.kind)).toEqual(['upheaval']);
     expect(ch[0].text).toMatch(/亡,.*迁都/);
-    // 龙州第 1047 年被毁、没有重建;第 2800 年城址沉入海中
+    // 青陵第 1047 年被毁、没有重建;第 2800 年城址沉入海中
     const R: Upheaval = { year: 2800, ops: [{ kind: 'sink', pts: [1215, 294], r: 12, s: 1.1 }] };
     const r = civOf([R]);
-    const id = r.settlements.findIndex((s) => s.name === '龙州');
+    const id = r.settlements.findIndex((s) => s.name === '青陵');
     expect(r.settlements[id].ended).toBeLessThan(R.year);
     expect(r.upheavals![0].ruins).toEqual([id]);
     expect(ruinSites(r, R.year - 1).map((s) => s.id)).toContain(id);

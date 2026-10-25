@@ -186,9 +186,10 @@ export function hillshade(r: Raster, exaggeration: number, waterFactor = 0.15): 
 
 /**
  * Felzenszwalb 精确欧氏距离变换:返回每个像素到最近 mask=1 像素的距离(像素)。
- * 东西相连(列下标取模):按行那一遍把这一行左右各接上半行(环上任意两点最多隔半圈),结果和"环形"的精确距离一样
+ * 东西相连(列下标取模):按行那一遍把这一行左右各接上半行(环上任意两点最多隔半圈),结果和"环形"的精确距离一样。
+ * wrap = false:左右不相连(主图上切下来的一块,编辑地形后按块重画用)
  */
-export function distanceTo(mask: Uint8Array, w: number, h: number): Float32Array {
+export function distanceTo(mask: Uint8Array, w: number, h: number, wrap = true): Float32Array {
   const INF = 1e20;
   const d = new Float64Array(w * h);
   for (let i = 0; i < w * h; i++) d[i] = mask[i] ? 0 : INF;
@@ -223,6 +224,17 @@ export function distanceTo(mask: Uint8Array, w: number, h: number): Float32Array
     for (let y = 0; y < h; y++) f[y] = d[y * w + x];
     pass(h);
     for (let y = 0; y < h; y++) d[y * w + x] = g[y];
+  }
+  if (!wrap) {
+    for (let y = 0; y < h; y++) {
+      const row = y * w;
+      for (let x = 0; x < w; x++) f[x] = d[row + x];
+      pass(w);
+      for (let x = 0; x < w; x++) d[row + x] = g[x];
+    }
+    const out = new Float32Array(w * h);
+    for (let i = 0; i < w * h; i++) out[i] = Math.sqrt(d[i]);
+    return out;
   }
   // 第 q 个位置 = 第 (q − H) mod w 列;第 x 列的结果在 q = x + H(左右各有半行,环上最远的点也照顾到)
   const H = w >> 1;
@@ -296,6 +308,27 @@ export type PrepStep = () => void;
  * 返回 true = 还没做完,下一段接着做。PrepStep 也是一种 WorkStep(一次做完)
  */
 export type WorkStep = (deadline: number) => boolean | void;
+
+/**
+ * 分几下画的一层里的一下:依次画在同一张画布上,一下接一下画完和一口气画完逐像素一样
+ * (画法状态在哪一下设、哪一下用,都和一口气画时一样)。返回 true = 这一下只画了一部分,再调一次接着画
+ */
+export type DrawPart = (ctx: CanvasRenderingContext2D) => boolean | void;
+
+/** 一串 DrawPart 当下依次画完 */
+export function drawParts(ctx: CanvasRenderingContext2D, parts: readonly DrawPart[]): void {
+  for (const part of parts) while (part(ctx) === true);
+}
+
+/**
+ * 画布上记着还没真正画出来的笔画(浏览器攒着,第一次拿它当图贴的时候才一口气画):现在就让它画出来
+ * (贴到一个 1×1 的画布上;内容不变)。后台分步备料时用,免得攒到换上那一下才画
+ */
+export function flushCanvas(c: OffscreenCanvas | HTMLCanvasElement | null): void {
+  if (!c) return;
+  const t = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(1, 1) : typeof document !== 'undefined' ? Object.assign(document.createElement('canvas'), { width: 1, height: 1 }) : null;
+  (t?.getContext('2d') as CanvasRenderingContext2D | null | undefined)?.drawImage(c, 0, 0, 1, 1);
+}
 
 /** 铺进地形图(整张图、缩放 1 倍)的矢量层变换 */
 export const bakedView = (scale: number): VecView => ({ s: scale, ox: 0, oy: 0, k: 1 });
@@ -966,15 +999,8 @@ const geomCache = new WeakMap<object, { key: string; lines: DenseRiver[] }>();
 /** 陆地蒙版(每张水陆图一份) */
 const maskCache = new WeakMap<Uint8Array, { canvas: OffscreenCanvas | HTMLCanvasElement }>();
 
-function drawRiverNetwork(
-  ctx: CanvasRenderingContext2D,
-  rivers: { pts: Float32Array }[],
-  v: VecView,
-  threshold: number,
-  style: RiverStyle,
-  opts: RiverOptions,
-) {
-  const { w, h, water } = opts;
+/** 河网几何(按这组河 + 画法参数缓存) */
+function netGeometry(rivers: { pts: Float32Array }[], v: VecView, threshold: number, style: RiverStyle, opts: RiverOptions): DenseRiver[] {
   const flare = opts.mouthFlare ?? 1;
   const power = opts.widthPower ?? 0.5;
   // 画的时候按流量现算河宽(d.f、d.m),几何本身只和门槛、河口、指数有关:换缩放倍数(河宽参数变了)也不用重算
@@ -982,10 +1008,12 @@ function drawRiverNetwork(
   const key = `${threshold}|${flare}|${power}|${wrap}`;
   let geom = geomCache.get(rivers);
   if (!geom || geom.key !== key) geomCache.set(rivers, (geom = { key, lines: riverGeometry(rivers, threshold, style, flare, power, wrap) }));
-  const lines = geom.lines;
-  const widthOf = riverWidth(style, threshold, power);
+  return geom.lines;
+}
 
-  // 陆地蒙版:河道只留在陆地像素上(细节层按视口变换把它放大贴上,边缘是平滑插值的,和放大后的地形图海岸一致)
+/** 陆地蒙版:河道只留在陆地像素上(细节层按视口变换把它放大贴上,边缘是平滑插值的,和放大后的地形图海岸一致) */
+function landMask(opts: RiverOptions): { canvas: OffscreenCanvas | HTMLCanvasElement } {
+  const { w, h, water } = opts;
   let mask = maskCache.get(water);
   if (!mask) {
     const m = makeLayer(w, h);
@@ -995,10 +1023,150 @@ function drawRiverNetwork(
     m.g.putImageData(img, 0, 0);
     maskCache.set(water, (mask = { canvas: m.canvas }));
   }
-  const W = ctx.canvas.width;
-  const H = ctx.canvas.height;
+  return mask;
+}
+
+/**
+ * 河网的一层(河岸或河道)描在 l 上,再按陆地裁掉(pm = 弯边投影铺好的陆地蒙版;不是弯边投影 = null)。
+ * l 是同一张画布时接着上一层用(画法状态每层都重新设)
+ */
+function netLayer(
+  l: ReturnType<typeof makeLayer>,
+  lines: DenseRiver[],
+  v: VecView,
+  style: RiverStyle,
+  widthOf: (f: number) => number,
+  opts: RiverOptions,
+  mask: { canvas: OffscreenCanvas | HTMLCanvasElement },
+  pm: ReturnType<typeof makeLayer> | null,
+  rgb: string,
+  extra: number,
+): void {
+  const W = l.canvas.width;
+  const H = l.canvas.height;
   // 水陆图的像素 → 画布像素(水陆图和世界坐标差一个 raster.scale 倍)
   const ms = v.s / (opts.scale ?? 1);
+  l.g.globalCompositeOperation = 'source-over';
+  l.g.clearRect(0, 0, W, H);
+  l.g.strokeStyle = rgb;
+  strokeRivers(l.g, lines, v, style, widthOf, extra);
+  l.g.globalCompositeOperation = 'destination-in';
+  // 放大时双线性插值就够(和地形图被放大时的海岸一样软)
+  l.g.imageSmoothingEnabled = true;
+  l.g.imageSmoothingQuality = 'low';
+  if (pm) l.g.drawImage(pm.canvas, 0, 0);
+  else l.g.drawImage(mask.canvas, v.ox + (opts.origin?.[0] ?? 0) * v.s, v.oy + (opts.origin?.[1] ?? 0) * v.s, opts.w * ms, opts.h * ms);
+}
+
+/** 河网的各层(河岸、河道):颜色(不带透明度)、透明度、描宽了多少 */
+function netLayers(style: RiverStyle, opts: RiverOptions): { rgb: string; alpha: number; extra: number }[] {
+  const out: { rgb: string; alpha: number; extra: number }[] = [];
+  const add = (color: string, extra: number) => {
+    const [rgb, alpha] = splitAlpha(color);
+    out.push({ rgb, alpha, extra });
+  };
+  if (opts.bank) add(opts.bank.color, opts.bank.width * 2);
+  add(style.color, 0);
+  return out;
+}
+
+/**
+ * 后台先描好的一份河网(见 riverNetworkSteps):各层已描好、按陆地裁好,还没叠上去。下一次 drawRiverNetwork 画同一份
+ * (同一组河、同一张水陆图、同样的画法和画布大小、不是弯边投影)时直接按原来的透明度叠上,用过就放掉
+ */
+let preparedNet: { rivers: object; water: Uint8Array; key: string; layers: { canvas: OffscreenCanvas | HTMLCanvasElement; alpha: number }[] } | null = null;
+
+/**
+ * 后台描好、还没用上的那份河网放掉(各层是整张图大小的画布):water = 只放掉给这张水陆图备的(它已经画过、没用上 —— 比如换上前换了画风);
+ * 不给 = 不管给谁备的都放掉(要换世界了)
+ */
+export function dropPreparedRivers(water?: Uint8Array): void {
+  const pre = preparedNet;
+  if (!pre || (water && pre.water !== water)) return;
+  preparedNet = null;
+  for (const x of pre.layers) x.canvas.width = x.canvas.height = 0;
+}
+
+/** 认"同一份河网"的键(画布大小、视口、画法、水陆图的大小和位置) */
+function netKey(W: number, H: number, v: VecView, threshold: number, style: RiverStyle, opts: RiverOptions): string {
+  return JSON.stringify([W, H, v.s, v.ox, v.oy, v.k ?? null, v.wrap ?? 0, threshold, style, opts.w, opts.h, opts.scale ?? 1, opts.origin ?? null, opts.bank ?? null, opts.mouthFlare ?? 1, opts.widthPower ?? 0.5]);
+}
+
+/**
+ * drawRivers(走河网画法,传了 opts)在 W × H 的画布上要做的,拆成几步先在后台做好(几何、陆地蒙版、每层一步,
+ * 每层描好、裁好就让浏览器当下画出来):之后那一次 drawRivers 直接把备好的几层按原来的透明度叠上,和当场画逐像素一样。
+ * 打开世界时备整张图上的河用(写实 / 卫星画风)。弯边投影的不备(返回空)
+ */
+export function riverNetworkSteps(
+  W: number,
+  H: number,
+  rivers0: { pts: Float32Array; drawn?: Uint8Array }[],
+  at: number | VecView,
+  threshold: number,
+  style: RiverStyle,
+  opts: RiverOptions,
+): WorkStep[] {
+  const v = typeof at === 'number' ? bakedView(at) : at;
+  if (v.proj) return [];
+  let rivers: { pts: Float32Array }[] = [];
+  let lines: DenseRiver[] = [];
+  let key = '';
+  const done: { canvas: OffscreenCanvas | HTMLCanvasElement; alpha: number }[] = [];
+  const kinds = netLayers(style, opts);
+  const widthOf = riverWidth(style, threshold, opts.widthPower ?? 0.5);
+  let skip = false;
+  return [
+    () => {
+      rivers = shownRivers(rivers0, threshold);
+      key = netKey(W, H, v, threshold, style, opts);
+      skip = !!preparedNet && preparedNet.rivers === rivers && preparedNet.water === opts.water && preparedNet.key === key;
+      if (!skip) lines = netGeometry(rivers, v, threshold, style, opts);
+    },
+    () => void (skip || landMask(opts)),
+    ...kinds.map(
+      ({ rgb, alpha, extra }): WorkStep =>
+        () => {
+          if (skip) return;
+          const l = makeLayer(W, H);
+          netLayer(l, lines, v, style, widthOf, opts, landMask(opts), null, rgb, extra);
+          flushCanvas(l.canvas);
+          done.push({ canvas: l.canvas, alpha });
+        },
+    ),
+    () => {
+      if (skip) return;
+      dropPreparedRivers();
+      preparedNet = { rivers, water: opts.water, key, layers: done.slice() };
+    },
+  ];
+}
+
+function drawRiverNetwork(
+  ctx: CanvasRenderingContext2D,
+  rivers: { pts: Float32Array }[],
+  v: VecView,
+  threshold: number,
+  style: RiverStyle,
+  opts: RiverOptions,
+) {
+  const W = ctx.canvas.width;
+  const H = ctx.canvas.height;
+  // 后台备好了这一份:按原来的透明度叠上(用过就放掉)
+  const pre = preparedNet;
+  if (pre && !v.proj && pre.rivers === rivers && pre.water === opts.water && pre.key === netKey(W, H, v, threshold, style, opts)) {
+    preparedNet = null;
+    for (const x of pre.layers) {
+      ctx.save();
+      ctx.globalAlpha = x.alpha;
+      ctx.drawImage(x.canvas, 0, 0);
+      ctx.restore();
+      x.canvas.width = x.canvas.height = 0;
+    }
+    return;
+  }
+  const lines = netGeometry(rivers, v, threshold, style, opts);
+  const widthOf = riverWidth(style, threshold, opts.widthPower ?? 0.5);
+  const mask = landMask(opts);
 
   const l = makeLayer(W, H);
   // 弯边投影:陆地蒙版先按投影铺到一张和画布一样大的透明画布上(一行一行铺,不能直接 destination-in:
@@ -1006,27 +1174,15 @@ function drawRiverNetwork(
   let pm: ReturnType<typeof makeLayer> | null = null;
   if (v.proj) {
     pm = makeLayer(W, H);
-    reprojectImage(pm.g, mask.canvas, w, h, v.proj.mp, v, 'low');
+    reprojectImage(pm.g, mask.canvas, opts.w, opts.h, v.proj.mp, v, 'low');
   }
-  const layer = (color: string, extra: number) => {
-    const [rgb, alpha] = splitAlpha(color);
-    l.g.globalCompositeOperation = 'source-over';
-    l.g.clearRect(0, 0, W, H);
-    l.g.strokeStyle = rgb;
-    strokeRivers(l.g, lines, v, style, widthOf, extra);
-    l.g.globalCompositeOperation = 'destination-in';
-    // 放大时双线性插值就够(和地形图被放大时的海岸一样软)
-    l.g.imageSmoothingEnabled = true;
-    l.g.imageSmoothingQuality = 'low';
-    if (pm) l.g.drawImage(pm.canvas, 0, 0);
-    else l.g.drawImage(mask!.canvas, v.ox + (opts.origin?.[0] ?? 0) * v.s, v.oy + (opts.origin?.[1] ?? 0) * v.s, w * ms, h * ms);
+  for (const { rgb, alpha, extra } of netLayers(style, opts)) {
+    netLayer(l, lines, v, style, widthOf, opts, mask, pm, rgb, extra);
     ctx.save();
     ctx.globalAlpha = alpha;
     ctx.drawImage(l.canvas, 0, 0);
     ctx.restore();
-  };
-  if (opts.bank) layer(opts.bank.color, opts.bank.width * 2);
-  layer(style.color, 0);
+  }
   l.canvas.width = l.canvas.height = 0;
   if (pm) pm.canvas.width = pm.canvas.height = 0;
 }

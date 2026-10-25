@@ -573,6 +573,10 @@ button.acct-gr:hover {
   display: flex;
   gap: 8px;
 }
+/* 分享窗里的「停在这一刻」(样子和存档菜单里的一样,见 app.css 的 .save-moment) */
+.save-moment.in-dlg {
+  margin: 0;
+}
 .acct-linkbox .url {
   flex: 1;
   min-width: 0;
@@ -829,11 +833,17 @@ button.acct-gr:hover {
   flex: none;
   color: var(--accent);
 }
-.shared-hint span {
+.shared-hint .shared-tx {
   flex: 1;
+}
+.shared-hint b {
+  font-weight: 600;
 }
 .shared-hint button {
   flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   height: 28px;
   padding: 0 12px;
   border: 0;
@@ -843,6 +853,7 @@ button.acct-gr:hover {
   font: inherit;
   font-size: 13px;
   font-weight: 500;
+  white-space: nowrap;
   cursor: pointer;
 }
 .shared-hint button:hover {
@@ -851,6 +862,11 @@ button.acct-gr:hover {
 .app.has-side .shared-hint {
   left: var(--map-mid);
 }
+/* 逐年推演的卡片、"在看第 N 年"那一条在同一个地方:和第一次打开的操作提示一样先让开(见 stepwise.css) */
+.app:has(.sw-review, .sw-held, .sw-queue, .sw-sheet, .sw-note) .shared-hint {
+  visibility: hidden;
+}
+/* 手机:贴两边,在时间轴胶囊上面(详情卡片开着时跟着胶囊升到卡片上面,不压住卡片);卡片拉到顶、拖着卡片时和胶囊一起藏起来 */
 .app.phone .shared-hint {
   left: calc(12px + var(--safe-l, 0px));
   right: calc(12px + var(--safe-r, 0px));
@@ -858,10 +874,36 @@ button.acct-gr:hover {
   width: auto;
   transform: none;
   align-items: flex-start;
+  transition:
+    bottom 0.28s var(--sheet-ease),
+    opacity 0.18s,
+    visibility 0.18s;
+}
+.app.phone.panel-open .shared-hint {
+  bottom: calc(100% - var(--sheet-half) + var(--above-sheet));
+}
+.app.phone:is(.world-full, .sheet-full, .sheet-drag, .sheet-away) .shared-hint {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
 }
 .app.phone .shared-hint > .icon {
   margin-top: 1px;
 }
 .app.phone .shared-hint button {
   align-self: center;
+}
+/* 两个按钮(从头放、知道了)放第二排,靠右 */
+.app.phone .shared-hint.two {
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+.app.phone .shared-hint.two .shared-tx {
+  flex: 1 1 280px;
+}
+.shared-acts {
+  flex: 1 0 100%;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }

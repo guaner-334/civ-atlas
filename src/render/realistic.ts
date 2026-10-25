@@ -14,6 +14,7 @@ import {
   boxBlurWrap,
   cylinderNoise,
   drawRivers,
+  riverNetworkSteps,
   hexRGB,
   hillshade,
   mix,
@@ -24,14 +25,21 @@ import {
   hash2,
   wrapOf,
   type PrepStep,
+  type WorkStep,
   type RGB,
+  type RiverOptions,
   type RiverStyle,
   type VecView,
 } from './common';
+import { drawParts, type DrawPart } from './common';
 import { smoothstep } from '../gen/util';
 import { CREEK_FRAC, creeksOf } from '../gen/creeks';
 import { reprojectImage, type Projector } from './projection';
+import { boxOfCols, boxSpans, growBox, unionBox, type PixelBox } from '../gen/pixelBox';
+import { WINDOW_PAD } from '../gen/rasterWindow';
+import { cutRaster } from '../gen/rasterPatch';
 import type { SurfaceLook } from './surface';
+import { ATLAS_RIVER, ATLAS_SEA, ATLAS_SEA_EDGES, HYPSO, HYPSO_ARID, HYPSO_EDGES, HYPSO_SNOW, STIPPLE } from './atlasColors';
 
 /**
  * 海的颜色(按海底深度):0 ~ −200 米是大陆架(浅、亮),过了坡折很快变深;
@@ -50,28 +58,6 @@ const OCEAN_CLASSIC: [number, RGB][] = [
   [-100, hexRGB('#3b8ab3')],
   [0, hexRGB('#4a99ba')],
 ];
-/** 细节卫星:深海连成一片安静的深蓝,只在大陆架那一窄条变浅 */
-const OCEAN_DETAIL: [number, RGB][] = [
-  [-7000, hexRGB('#06173a')],
-  [-3000, hexRGB('#0a2149')],
-  [-1200, hexRGB('#0d2952')],
-  [-400, hexRGB('#123462')],
-  [-200, hexRGB('#123667')],
-  [-60, hexRGB('#1a4a7c')],
-  [-15, hexRGB('#26618f')],
-  [0, hexRGB('#2f6f9a')],
-];
-/** 地理图:海盆、洋中脊、大陆架分得清,整体更亮、对比低 */
-const OCEAN_GEO: [number, RGB][] = [
-  [-7000, hexRGB('#2a5b8a')],
-  [-5000, hexRGB('#2f6291')],
-  [-3800, hexRGB('#336896')],
-  [-2600, hexRGB('#3b74a2')],
-  [-1500, hexRGB('#4881ad')],
-  [-600, hexRGB('#5a91ba')],
-  [-200, hexRGB('#6fa3c7')],
-  [0, hexRGB('#86b5d3')],
-];
 /** 简化卫星:远洋一片深蓝,只在岸边很窄一条变浅 */
 const OCEAN_SIMPLE: [number, RGB][] = [
   [-7000, hexRGB('#0b2350')],
@@ -81,36 +67,6 @@ const OCEAN_SIMPLE: [number, RGB][] = [
   [-40, hexRGB('#1f4c80')],
   [0, hexRGB('#2c6593')],
 ];
-/** 简化卫星的群落底色:比卫星合成图亮、饱和一点的绿和米黄 */
-const SIMPLE_BIOMES: Partial<Record<Biome, string>> = {
-  [Biome.Tundra]: '#8c8a6a',
-  [Biome.Taiga]: '#3f6236',
-  [Biome.ColdDesert]: '#b9a77f',
-  [Biome.TemperateDesert]: '#d6c08f',
-  [Biome.Steppe]: '#a8a465',
-  [Biome.TemperateForest]: '#4f7a37',
-  [Biome.TemperateRainforest]: '#3d6b33',
-  [Biome.HotDesert]: '#e0c891',
-  [Biome.Savanna]: '#a59b55',
-  [Biome.TropicalDryForest]: '#6d8a3c',
-  [Biome.Rainforest]: '#336a2c',
-  [Biome.Wetland]: '#4e7448',
-};
-/** 地理图的群落底色:地图上常用的环境色(森林绿、草原黄绿、荒漠浅褐),没列的照 BIOMES[].real */
-const GEO_BIOMES: Partial<Record<Biome, string>> = {
-  [Biome.Tundra]: '#a9a88c',
-  [Biome.Taiga]: '#557a57',
-  [Biome.ColdDesert]: '#c2b597',
-  [Biome.TemperateDesert]: '#dcc89c',
-  [Biome.Steppe]: '#c2bf84',
-  [Biome.TemperateForest]: '#6d9558',
-  [Biome.TemperateRainforest]: '#4f8257',
-  [Biome.HotDesert]: '#e8d09e',
-  [Biome.Savanna]: '#cbbd78',
-  [Biome.TropicalDryForest]: '#93a65c',
-  [Biome.Rainforest]: '#427a45',
-  [Biome.Wetland]: '#6e8d6a',
-};
 
 /** 一种画法的全部参数(见 surface.ts);各项的意思见用到它的地方 */
 interface Material {
@@ -152,6 +108,22 @@ interface Material {
   veinK?: number;
   /** 白模:海陆平涂的几种颜色(不打光);null = 照常画 */
   flat: { sea: RGB; shelf: RGB; land: RGB; ice: RGB } | null;
+  /** 陆地怎么上色:biome = 群落调色板(默认);photo = 按植被覆盖度连续上色(卫星照片);hypso = 按海拔分层设色(地图册) */
+  model?: 'biome' | 'photo' | 'hypso';
+  /** 暗面往天空冷色里混多少(默认 SHADOW_COOL;地图册的晕渲是中性灰,= 0) */
+  cool?: number;
+  /** 海岸描一圈线(水那一侧):颜色和浓淡 */
+  coast?: [RGB, number];
+  /** 分层设色的层间描一条细线(浓淡,0 = 不描) */
+  bandLine?: number;
+  /** 荒漠画点状符号(地图册的沙漠符号) */
+  stipple?: boolean;
+  /** 浅暖海(珊瑚礁、浅滩)泛青绿 */
+  reef?: boolean;
+  /** 干旱地方的河岸那一窄条按湿润的颜色画:乘这么多(默认 1;0 = 不画) */
+  ripK?: number;
+  /** 分层设色褪色多少(0–1;叠国家等填色时用,留明暗和层次,颜色让给填色) */
+  mute?: number;
 }
 
 const CLASSIC: Material = {
@@ -185,65 +157,142 @@ const CLASSIC: Material = {
   flat: null,
 };
 
+/** 卫星(细节):远洋一片深蓝,大陆架窄窄一条渐浅(浅暖海另外泛青绿,见 Material.reef) */
+const OCEAN_PHOTO: [number, RGB][] = [
+  [-7000, hexRGB('#06183a')],
+  [-3000, hexRGB('#091f45')],
+  [-1000, hexRGB('#0b244d')],
+  [-200, hexRGB('#0f2d5a')],
+  [-80, hexRGB('#153f6e')],
+  [-30, hexRGB('#1d5683')],
+  [-10, hexRGB('#286c93')],
+  [0, hexRGB('#357d9c')],
+];
+/** 浅暖海(珊瑚礁、浅滩)的青绿 */
+const REEF_C = hexRGB('#3fa3ac');
+/** 地理图:海按深度分层设色(每层一个颜色,层与层之间 5 米过渡) */
+const OCEAN_ATLAS: [number, RGB][] = ATLAS_SEA.flatMap((c, i): [number, RGB][] => {
+  const lo = i === 0 ? -7000 : ATLAS_SEA_EDGES[i - 1] + 5;
+  const hi = i < ATLAS_SEA_EDGES.length ? ATLAS_SEA_EDGES[i] : 0;
+  return [
+    [lo, c],
+    [hi, c],
+  ];
+});
+
+/** 卫星照片的几种地面颜色:浓密植被(热带 / 温带 / 寒带)、草地(暖 / 冷)、裸地(沙、红褐岩、寒漠) */
+const PH_FOREST_TROP = hexRGB('#1f3f18');
+const PH_FOREST_TEMP = hexRGB('#2d4821');
+const PH_FOREST_BOREAL = hexRGB('#25362a');
+const PH_GRASS = hexRGB('#76703f');
+const PH_GRASS_COLD = hexRGB('#62604a');
+const PH_SAND = hexRGB('#d3b07e');
+const PH_SAND_RED = hexRGB('#a98761');
+const PH_SOIL_COLD = hexRGB('#8e8169');
+
+/**
+ * 卫星照片的地面颜色:先按 降水 ÷ 蒸发能力(随气温升高)算植被覆盖度(0–1),在 裸地 → 草地 → 森林 之间连续插值,
+ * 群落不再一类一色;冷的地方植被压低(冻原、寒漠);裸地按大片的岩性纹理(rough,约 −1 ~ 1)分出几块红褐岩漠。
+ * b = 0.5 上下的深浅(纹理、凹凸)
+ */
+function photoColor(t: number, p: number, b: number, rough: number, out: RGB) {
+  const pet = Math.max(260, 360 + 55 * t);
+  const fv = smoothstep(0.1, 0.95, p / pet) * smoothstep(-13, 1, t);
+  const kg = smoothstep(0.02, 0.45, fv);
+  const kf = smoothstep(0.4, 0.95, fv);
+  const kt = t > 12 ? smoothstep(14, 23, t) : smoothstep(-3, 9, t);
+  const kc = smoothstep(-6, 10, t);
+  const kr = smoothstep(-0.8, -0.35, rough);
+  const kb = smoothstep(-2, 12, t);
+  const f0 = t > 12 ? PH_FOREST_TEMP : PH_FOREST_BOREAL;
+  const f1 = t > 12 ? PH_FOREST_TROP : PH_FOREST_TEMP;
+  const k = 0.8 + 0.4 * b;
+  for (let i = 0; i < 3; i++) {
+    const forest = f0[i] + (f1[i] - f0[i]) * kt;
+    const grass = PH_GRASS_COLD[i] + (PH_GRASS[i] - PH_GRASS_COLD[i]) * kc;
+    const warm = PH_SAND_RED[i] + (PH_SAND[i] - PH_SAND_RED[i]) * kr;
+    const bare = PH_SOIL_COLD[i] + (warm - PH_SOIL_COLD[i]) * kb;
+    const c = bare + (grass - bare) * kg;
+    out[i] = (c + (forest - c) * kf) * k;
+  }
+}
+/** 分层设色:海拔 e 在第几层(HYPSO_EDGES) */
+function hypsoBand(e: number): number {
+  let i = 0;
+  while (i < HYPSO_EDGES.length && e >= HYPSO_EDGES[i]) i++;
+  return i;
+}
+
+// 地理图:地图册的画法 —— 陆地按海拔分层设色(低处按干湿混沙黄)+ 中性灰晕渲,海按深度分层,海岸描线,荒漠打点,河蓝而多
+const GEO: Material = {
+  ...CLASSIC,
+  model: 'hypso',
+  cool: 0,
+  coast: [hexRGB('#3f6f98'), 0.7],
+  bandLine: 0.1,
+  stipple: true,
+  ocean: OCEAN_ATLAS,
+  rock: hexRGB('#a08a76'),
+  rockE0: 9000,
+  rockE1: 9001,
+  rockEW: 0,
+  lake: hexRGB('#b4daee'),
+  river: { color: ATLAS_RIVER, minW: 0.55, growW: 1.9, bank: 'rgba(0, 0, 0, 0)' },
+  riverFlux: [0.7, 0.9],
+  detailW: 0.8,
+  macroW: 0.55,
+  seaRelief: 0.14,
+  shadowDepth: 0.42,
+  detailFlat: 0.3,
+  soft0: 0.005,
+  soft1: 0.08,
+  snowFlat: 0.8,
+  texAmpWet: 0,
+  texAmpDry: 0,
+  texCav: 0,
+  valleyDark: 0,
+  veinK: 0,
+};
+
 const MATERIALS: Record<SurfaceLook, Material> = {
   classic: CLASSIC,
-  // 细节卫星:细节晕渲加重、大尺度晕渲减轻(山脉背光面不出大暗块),平原的细节不压平,纹理、群落斑块更强,高原不一律刷成灰岩
+  // 卫星(细节):照片的颜色 —— 植被覆盖度连续上色(沙黄 → 草地 → 深林),海面安静、浅暖海泛青绿,起伏轻,只画大河
   detail: {
     ...CLASSIC,
-    ocean: OCEAN_DETAIL,
-    rock: hexRGB('#857868'),
+    model: 'photo',
+    reef: true,
+    ocean: OCEAN_PHOTO,
+    rock: hexRGB('#7b7062'),
     rockE0: 2600,
     rockE1: 4800,
     rockEW: 0.5,
-    lake: hexRGB('#22609a'),
-    river: { ...CLASSIC.river, color: 'rgb(34, 86, 108)', minW: 0.5, growW: 1.8 },
-    detailW: 1.25,
-    macroW: 0.32,
-    seaRelief: 0.12,
-    shadowDepth: 0.4,
-    detailFlat: 0.4,
+    lake: hexRGB('#16426e'),
+    river: { ...CLASSIC.river, color: 'rgb(28, 64, 92)', minW: 0.45, growW: 1.6, bank: 'rgba(22, 40, 30, 0.2)' },
+    riverFlux: [2.4, 1.4],
+    detailW: 1.0,
+    macroW: 0.3,
+    seaRelief: 0.04,
+    shadowDepth: 0.36,
+    detailFlat: 0.35,
     soft0: 0.005,
     soft1: 0.08,
-    snowFlat: 0.55,
-    texAmpWet: 0.3,
-    texAmpDry: 0.44,
-    texGeo: 0.8,
-    texFine: 0.38,
-    texStreak: 0.2,
-    geoSharp: 7,
-    texCav: 0.2,
-    ecoP: 0.22,
-    valleyDark: 0.2,
-  },
-  // 地理图:海底起伏留着(看得出洋中脊),陆地按植被分区、色带压扁,暗面浅,河多一些、粗一些
-  geo: {
-    ...CLASSIC,
-    ocean: OCEAN_GEO,
-    rock: hexRGB('#a99d8b'),
-    rockE0: 2600,
-    rockE1: 4800,
-    rockEW: 0.5,
-    lake: hexRGB('#5b93bf'),
-    river: { ...CLASSIC.river, color: 'rgb(46, 110, 178)', minW: 0.7, growW: 2.4 },
-    riverFlux: [0.8, 1],
-    detailW: 1.15,
-    macroW: 0.42,
-    seaRelief: 0.55,
-    shadowDepth: 0.34,
-    detailFlat: 0.3,
-    soft0: 0.008,
-    soft1: 0.1,
-    snowFlat: 0.55,
-    biomes: GEO_BIOMES,
-    rampSquash: 0.8,
-    texAmpDry: 0.3,
-    texFine: 0.28,
-    texStreak: 0.15,
+    snowFlat: 0.75,
+    cool: 0.3,
+    texAmpWet: 0.26,
+    texAmpDry: 0.4,
+    texGeo: 0.75,
+    texFine: 0.34,
+    texStreak: 0.18,
     geoSharp: 6,
     texCav: 0.16,
     ecoP: 0.2,
-    valleyDark: 0.16,
+    valleyDark: 0.14,
+    veinK: 0.6,
+    ripK: 0.5,
   },
+  geo: GEO,
+  // 地理图叠国家 / 民族 / 信仰 / 时代颜色时:同一套,陆地的层色褪掉七成(留明暗和层次,颜色让给填色)
+  geoMute: { ...GEO, mute: 0.7 },
   // 白模:不打光,只画大河(浅蓝细线)
   blank: {
     ...CLASSIC,
@@ -254,9 +303,11 @@ const MATERIALS: Record<SurfaceLook, Material> = {
     seaRelief: 0,
     flat: { sea: hexRGB('#c6dbea'), shelf: hexRGB('#d6e6f1'), land: hexRGB('#efece4'), ice: hexRGB('#fbfcfd') },
   },
-  // 简化卫星:颜色大片连续过渡(调色板模糊得更宽、色带深浅压扁)、纹理很轻、起伏淡、海面安静、雪平、只画大河
+  // 简化卫星:和细节同一套照片的颜色,纹理很轻、起伏淡、海面安静、雪平、河更少
   simple: {
     ...CLASSIC,
+    model: 'photo',
+    reef: true,
     ocean: OCEAN_SIMPLE,
     rock: hexRGB('#9a8a74'),
     rockE0: 2800,
@@ -266,6 +317,7 @@ const MATERIALS: Record<SurfaceLook, Material> = {
     river: { ...CLASSIC.river, color: 'rgb(38, 82, 120)', minW: 0.45, growW: 1.5 },
     riverFlux: [3, 1.6],
     veinK: 0,
+    ripK: 0.5,
     detailW: 0.5,
     macroW: 0.3,
     seaRelief: 0.05,
@@ -274,9 +326,6 @@ const MATERIALS: Record<SurfaceLook, Material> = {
     soft0: 0.02,
     soft1: 0.14,
     snowFlat: 0.85,
-    biomes: SIMPLE_BIOMES,
-    rampSquash: 0.35,
-    paletteBlur: 4,
     texAmpWet: 0.12,
     texAmpDry: 0.16,
     texGeo: 0.4,
@@ -326,10 +375,12 @@ interface Base {
   look: SurfaceLook;
   canvas: AnyCanvas;
   raw: Uint8ClampedArray | null;
+  /** 大尺度晕渲的粗网格(编辑地形后按块重画时和下一张的比,见 realisticPatchSteps) */
+  grids: MacroGrids | null;
 }
 /**
  * 当前这张地图的像素层(不含河;realisticBase 刚给出的那一份)。
- * raw = 水陆交界抗锯齿之前的像素(放大后的细节层拼水、陆两份要用,见 realisticShoreLayers;拼好就不留了)
+ * raw = 水陆交界抗锯齿之前的像素(放大后的细节层拼水、陆两份要用,见 realisticShoreLayers;编辑地形后按块重画时照它补一块)
  */
 let base: Base | null = null;
 /**
@@ -348,15 +399,206 @@ export function realisticBase(r: Raster, look: SurfaceLook = 'classic'): AnyCanv
     bases = [hit, ...bases.filter((b) => b !== hit)];
     return hit.canvas;
   }
-  const keep = bases.filter((b) => b.raster.cell === r.cell).slice(0, BASES_KEEP - 1);
-  for (const b of bases) if (!keep.includes(b)) b.canvas.width = b.canvas.height = 0;
   const cv = makeCanvas(r.w, r.h);
   const ctx = cv.getContext('2d') as CanvasRenderingContext2D;
-  const raw = paintRealistic(ctx, r, undefined, true, undefined, look);
-  base = { raster: r, look, canvas: cv, raw };
-  bases = [base, ...keep];
+  const grids = r.win ? null : macroGrids(r);
+  const raw = paintRealistic(ctx, r, undefined, true, grids ?? undefined, look);
+  adoptBase({ raster: r, look, canvas: cv, raw, grids });
   return cv;
 }
+
+/** 新铺好的一张像素层放进缓存(最前);同一个世界留最近 BASES_KEEP 张,别的释放 */
+function adoptBase(b: Base): void {
+  const keep = bases.filter((x) => x.raster.cell === b.raster.cell && !(x.raster === b.raster && x.look === b.look)).slice(0, BASES_KEEP - 1);
+  for (const x of bases) if (!keep.includes(x)) x.canvas.width = x.canvas.height = 0;
+  base = b;
+  bases = [b, ...keep];
+}
+
+/**
+ * 地图换上了一张新的主图(新生成、编辑地形重新生成):缓存里除了 keep 这几张(新的这张;按块换上的另带它是从哪张改来的,
+ * 样式缩略图照那张按块重画)以外的像素层,连同它们拉着的旧主图,现在就放掉 —— 不等下一次画写实时才挤掉
+ * (那之前旧主图连同它的像素层一直占着;编辑地形连涂时一笔一张)
+ */
+export function dropRealisticBasesExcept(keep: readonly (Raster | null | undefined)[]): void {
+  const kept = bases.filter((b) => keep.includes(b.raster));
+  for (const b of bases) if (!kept.includes(b)) b.canvas.width = b.canvas.height = 0;
+  bases = kept;
+  if (base && !kept.includes(base)) base = null;
+  if (shoreCache && !keep.includes(shoreCache.raster)) {
+    shoreCache.water.width = shoreCache.water.height = shoreCache.land.width = shoreCache.land.height = 0;
+    shoreCache = null;
+  }
+  if (landPathCache && !keep.includes(landPathCache.raster)) landPathCache = null;
+}
+
+/** 一条带子每步重画多少个像素(约一两帧的活) */
+const PATCH_BAND_PX = 120000;
+/**
+ * 整张分步画(realisticFullSteps:打开世界换上之前、缩略图)一条带子多少个像素:窄一半,手机(慢四倍)上一步也在几十毫秒左右
+ * (每条带子上下各多画 WINDOW_PAD 行,带子窄了多画的比例大一点)
+ */
+const FULL_BAND_PX = 60000;
+
+/**
+ * 编辑地形后按块重画像素层(地形、海、冰、晕渲,不含河):r1 是 r0 贴上一块主图补丁得来的,两张只在 box 里不一样
+ * (gen/rasterPatch.ts 的 exactPatch;null = 一个像素也没变)。r0 这种画法的像素层还在缓存里,就复制一份,
+ * 只重画受影响的那块:box 外扩 3 像素(晕渲、岸线抗锯齿看邻居,湖岸看 ±3)+ 大尺度晕渲粗网格变了的那几格管到的像素。
+ * 每条带子四周再多画 WINDOW_PAD 个像素裁掉(带子边上的邻居不全;过了右边的列按整张图接回左边算)。
+ * 分几步做(每步一条带子),最后一步把新的一张放进缓存:结果和整张重画逐像素相同。缓存里没有 r0 的 = null(到时候整张画)
+ */
+export function realisticPatchSteps(r1: Raster, r0: Raster, look: SurfaceLook, box: PixelBox | null): WorkStep[] | null {
+  const b0 = bases.find((b) => b.raster === r0 && b.look === look);
+  if (!b0 || r0.win || r1.win || r1.w !== r0.w || r1.h !== r0.h || r1.scale !== 1) return null;
+  const W = r1.w;
+  const H = r1.h;
+  let g0 = b0.grids;
+  let g1: MacroGrids | null = null;
+  let region: PixelBox | null = null;
+  let cv: AnyCanvas | null = null;
+  let ctx: CanvasRenderingContext2D | null = null;
+  let raw: Uint8ClampedArray | null = null;
+  let y = 0;
+  let band = 1;
+  return [
+    // 原来那张先复制下来(后面几步之间让出主线程,缓存里的那张可能被别的画法挤掉、释放)
+    () => {
+      cv = makeCanvas(W, H);
+      ctx = cv.getContext('2d') as CanvasRenderingContext2D;
+      ctx.drawImage(b0.canvas, 0, 0);
+      raw = b0.raw ? b0.raw.slice() : null;
+    },
+    () => void (g0 ??= macroGrids(r0)),
+    () => void (g1 = macroGrids(r1)),
+    () => {
+      region = realisticPatchRegion(box, g0!, g1!, W, H);
+      y = region ? region.y0 : 0;
+      band = region ? Math.max(8, Math.floor(PATCH_BAND_PX / region.w)) : 1;
+    },
+    () => {
+      if (!region) return;
+      const y1 = Math.min(region.y0 + region.h, y + band);
+      for (const p of realisticBandPixels(r1, g1!, look, region, y, y1, !!raw)) {
+        ctx!.putImageData(new ImageData(p.px, p.n, y1 - y), p.x, y);
+        if (raw && p.raw) for (let yy = 0; yy < y1 - y; yy++) raw.set(p.raw.subarray(yy * p.n * 4, (yy + 1) * p.n * 4), ((y + yy) * W + p.x) * 4);
+      }
+      y = y1;
+      return y < region.y0 + region.h;
+    },
+    () => adoptBase({ raster: r1, look, canvas: cv!, raw, grids: g1 }),
+  ];
+}
+
+/**
+ * 整张像素层分几步画(每步一条带子,和 realisticBase 一口气画逐像素相同),最后一步放进缓存:之后 realisticBase 直接拿。
+ * 缓存里已经有这一张的(或放大后现算的一块)= null
+ */
+export function realisticFullSteps(r: Raster, look: SurfaceLook): WorkStep[] | null {
+  if (r.win || bases.some((b) => b.raster === r && b.look === look)) return null;
+  const W = r.w;
+  const H = r.h;
+  const region: PixelBox = { x0: 0, y0: 0, w: W, h: H };
+  const band = Math.max(8, Math.floor(FULL_BAND_PX / W));
+  let g: MacroGrids | null = null;
+  let cv: AnyCanvas | null = null;
+  let ctx: CanvasRenderingContext2D | null = null;
+  let raw: Uint8ClampedArray | null = null;
+  let y = 0;
+  return [
+    () => void (g = macroGrids(r)),
+    () => {
+      cv = makeCanvas(W, H);
+      ctx = cv.getContext('2d') as CanvasRenderingContext2D;
+      raw = new Uint8ClampedArray(W * H * 4);
+    },
+    () => {
+      const y1 = Math.min(H, y + band);
+      for (const p of realisticBandPixels(r, g!, look, region, y, y1, true)) {
+        ctx!.putImageData(new ImageData(p.px, p.n, y1 - y), p.x, y);
+        for (let yy = 0; yy < y1 - y; yy++) raw!.set(p.raw!.subarray(yy * p.n * 4, (yy + 1) * p.n * 4), ((y + yy) * W + p.x) * 4);
+      }
+      y = y1;
+      return y < H;
+    },
+    () => {
+      // 这几步之间别处已经整张画过一张(切到了写实):用那张
+      if (bases.some((b) => b.raster === r && b.look === look)) return void (cv!.width = cv!.height = 0);
+      adoptBase({ raster: r, look, canvas: cv!, raw, grids: g });
+    },
+  ];
+}
+
+/** 编辑地形后要重画的那块(见 realisticPatchSteps):r0 → r1 两张主图、两张粗网格比出来;没有要重画的 = null */
+export function realisticPatchRegion(box: PixelBox | null, g0: MacroGrids, g1: MacroGrids, W: number, H: number): PixelBox | null {
+  return unionBox(box && growBox(box, 3, 3, W, H), gridChange(g0, g1, W, H), W);
+}
+
+/** 两张粗网格(同样大)变了的格子管到的像素的框(双线性取样用到这一格的像素,多算一点;没变 = null) */
+function gridChange(a: MacroGrids, b: MacroGrids, W: number, H: number): PixelBox | null {
+  const { F, mw, mh } = b;
+  if (a.mw !== mw || a.mh !== mh) return { x0: 0, y0: 0, w: W, h: H };
+  const col = new Uint8Array(W);
+  let y0 = H;
+  let y1 = -1;
+  const bits = (x: Float32Array) => new Int32Array(x.buffer, x.byteOffset, x.length);
+  const pairs = [
+    [bits(a.SL), bits(b.SL)],
+    [bits(a.SS), bits(b.SS)],
+    [bits(a.P), bits(b.P)],
+  ];
+  const cells = new Uint8Array(mw * mh);
+  for (const [p, q] of pairs) for (let j = 0; j < p.length; j++) if (p[j] !== q[j]) cells[j] = 1;
+  for (let cy = 0; cy < mh; cy++) {
+    for (let cx = 0; cx < mw; cx++) {
+      if (!cells[cy * mw + cx]) continue;
+      y0 = Math.min(y0, Math.max(0, F * cy - 2 * F));
+      y1 = Math.max(y1, Math.min(H - 1, F * cy + 2 * F));
+      for (let x = F * cx - 2 * F; x <= F * cx + 2 * F; x++) col[((x % W) + W) % W] = 1;
+    }
+  }
+  return boxOfCols(col, y0, y1);
+}
+
+/**
+ * 纯计算(单测用):region 里 y0..y1 − 1 这几行的像素(和整张重画的这几行逐像素相同),按 region 的列分成一两段
+ * (x = 这一段从全图第几列起,n 列;px = 抗锯齿以后的 RGBA,raw = 抗锯齿之前的,wantRaw 才给)。
+ * 四周多画 WINDOW_PAD 个像素再裁掉;region 加上余量够一整圈时整圈画(整圈的一块东西相连,和整张图一样)
+ */
+export function realisticBandPixels(r: Raster, g: MacroGrids, look: SurfaceLook, region: PixelBox, y0: number, y1: number, wantRaw: boolean): { x: number; n: number; px: Uint8ClampedArray; raw: Uint8ClampedArray | null }[] {
+  const W = r.w;
+  const H = r.h;
+  const P = WINDOW_PAD;
+  const wy0 = Math.max(0, y0 - P);
+  const wy1 = Math.min(H, y1 + P);
+  const whole = region.w + 2 * P >= W;
+  const wx0 = whole ? 0 : (region.x0 - P + W) % W;
+  const ww = whole ? W : region.w + 2 * P;
+  const win = cutRaster(r, wx0, wy0, ww, wy1 - wy0);
+  let px: Uint8ClampedArray | null = null;
+  const sink = {
+    createImageData: (w: number, h: number) => ({ width: w, height: h, data: new Uint8ClampedArray(w * h * 4) }),
+    putImageData: (img: { data: Uint8ClampedArray }) => {
+      px = img.data;
+    },
+  } as unknown as CanvasRenderingContext2D;
+  const pre = paintRealistic(sink, win, undefined, wantRaw, g, look);
+  const out = px as unknown as Uint8ClampedArray;
+  const rows = y1 - y0;
+  return boxSpans(region, W).map(([s, e]) => {
+    const n = e - s;
+    // 这一段的第一列在这一块里是第几列(整圈画的一块就是全图的列号;不然是余量 + 在 region 里第几列)
+    const wc = whole ? s : P + ((s - region.x0 + W) % W);
+    const o = new Uint8ClampedArray(n * rows * 4);
+    const q = pre ? new Uint8ClampedArray(n * rows * 4) : null;
+    for (let yy = 0; yy < rows; yy++) {
+      const src = ((y0 + yy - wy0) * ww + wc) * 4;
+      o.set(out.subarray(src, src + n * 4), yy * n * 4);
+      if (q) q.set(pre!.subarray(src, src + n * 4), yy * n * 4);
+    }
+    return { x: s, n, px: o, raw: q };
+  });
+}
+
 
 export function renderRealistic(ctx: CanvasRenderingContext2D, world: World, r: Raster, look: SurfaceLook = 'classic') {
   ctx.drawImage(realisticBase(r, look), 0, 0);
@@ -400,7 +642,11 @@ function riversOf(world: World, k: number): World['rivers'] {
  */
 export function drawRealisticRivers(ctx: CanvasRenderingContext2D, world: World, r: Raster, v: VecView, creeks = true, look: SurfaceLook = 'classic') {
   const style = realisticRiverStyle(v.k, world.riverThreshold, look);
-  drawRivers(ctx, creeks ? riversOf(world, v.k) : world.rivers, { ...v, wrap: wrapOf(world) }, world.riverThreshold, style, {
+  drawRivers(ctx, creeks ? riversOf(world, v.k) : world.rivers, { ...v, wrap: wrapOf(world) }, world.riverThreshold, style, riverOpts(r, style, look));
+}
+
+function riverOpts(r: Raster, style: RiverStyle, look: SurfaceLook): RiverOptions {
+  return {
     water: r.water,
     w: r.w,
     h: r.h,
@@ -410,7 +656,17 @@ export function drawRealisticRivers(ctx: CanvasRenderingContext2D, world: World,
     bank: { color: MATERIALS[look].river.bank, width: 0.45 * (style.thin ?? 1) },
     mouthFlare: 1.5,
     widthPower: 0.65,
-  });
+  };
+}
+
+/**
+ * 整张图(renderRealistic)上的河先在后台分几步描好(common.ts 的 riverNetworkSteps):换上时 renderRealistic
+ * 直接把描好的叠上,和当场画逐像素一样。打开世界时和像素层一起备
+ */
+export function realisticRiverSteps(world: World, r: Raster, look: SurfaceLook = 'classic'): WorkStep[] {
+  const v = bakedView(r.scale);
+  const style = realisticRiverStyle(v.k, world.riverThreshold, look);
+  return riverNetworkSteps(r.w, r.h, riversOf(world, v.k), { ...v, wrap: wrapOf(world) }, world.riverThreshold, style, riverOpts(r, style, look));
 }
 
 // ---------------------------------------------------------------------------
@@ -430,7 +686,6 @@ export function realisticShoreLayers(r: Raster, look: SurfaceLook = 'classic'): 
   if (shoreCache) shoreCache.water.width = shoreCache.water.height = shoreCache.land.width = shoreCache.land.height = 0;
   realisticBase(r, look);
   const sides = shoreSides(base!.raw ?? paintRealistic(rawSink, r, undefined, true, undefined, look)!, r);
-  base!.raw = null;
   const layer = (px: Uint8ClampedArray) => {
     const cv = makeCanvas(r.w, r.h);
     (cv.getContext('2d') as CanvasRenderingContext2D).putImageData(new ImageData(px, r.w, r.h), 0, 0);
@@ -728,43 +983,77 @@ function projectedCells(r: Raster, pj: Projector, v: { s: number; ox: number; oy
  * 拼两份(全图几十万个路径点)不划算
  */
 const SHORE_MIN_PS = 2.5;
+/** 放大后按岸线描的海岸线(地图册)有多宽(画布像素;水那一侧露出一半) */
+const COAST_PX = 3;
 
 /**
  * 放大后的实景像素层(细节层):先铺水那一份,再按陆地范围(addLandCells)裁出陆地那一份铺上 —— 岸线按屏幕像素画,不发虚。
  * 等距圆柱:像素层按视口变换放大贴上(双线性);弯边投影(v.proj):按行重投影(reprojectImage)
  */
 export function drawRealisticShores(ctx: CanvasRenderingContext2D, r: Raster, v: VecView, look: SurfaceLook = 'classic'): void {
+  drawParts(ctx, realisticShoreParts(r, v, look));
+}
+
+/** drawRealisticShores 分两下画:水那一份、裁出来的陆地那一份(画法状态和一口气画时一样;依次画完逐像素一样) */
+export function realisticShoreParts(r: Raster, v: VecView, look: SurfaceLook = 'classic'): DrawPart[] {
   const pj = v.proj;
   const ps = v.s / r.scale;
-  const put = (img: AnyCanvas) => {
+  const put = (ctx: CanvasRenderingContext2D, img: AnyCanvas) => {
     if (pj) reprojectImage(ctx, img, r.w, r.h, pj.mp, v, 'low');
     else ctx.drawImage(img, v.ox, v.oy, r.w * ps, r.h * ps);
   };
-  ctx.save();
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = 'low';
-  if (ps < SHORE_MIN_PS) put(realisticBase(r, look));
-  else {
-    const { water, land } = realisticShoreLayers(r, look);
-    put(water);
-    const cw = ctx.canvas.width;
-    const ch = ctx.canvas.height;
-    const cells = pj ? projectedCells(r, pj, v, cw, ch) : flatCells(r, v, cw, ch);
-    const cols = pj ? null : cells.cols(0)!;
-    if (cols && (cols[1] - cols[0]) * (cells.rows[1] - cells.rows[0]) * 8 > r.w * r.h) {
-      // 等距圆柱、视口里的方格多(放大不到三倍左右):用整张图的那一份(缓存的)按视口变换裁剪,省得每次重画重算几十万个点
-      const m = ctx.getTransform();
-      ctx.transform(ps, 0, 0, ps, v.ox, v.oy);
-      ctx.clip(wholeLandPath(r));
-      ctx.setTransform(m);
-    } else {
-      const path = new Path2D();
-      addLandCells(path, r, cells);
-      ctx.clip(path);
-    }
-    put(land);
-  }
-  ctx.restore();
+  const begin = (ctx: CanvasRenderingContext2D) => {
+    ctx.save();
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'low';
+  };
+  if (ps < SHORE_MIN_PS)
+    return [
+      (ctx) => {
+        begin(ctx);
+        put(ctx, realisticBase(r, look));
+        ctx.restore();
+      },
+    ];
+  return [
+    (ctx) => {
+      begin(ctx);
+      put(ctx, realisticShoreLayers(r, look).water);
+      ctx.restore();
+    },
+    (ctx) => {
+      begin(ctx);
+      const cw = ctx.canvas.width;
+      const ch = ctx.canvas.height;
+      const cells = pj ? projectedCells(r, pj, v, cw, ch) : flatCells(r, v, cw, ch);
+      const cols = pj ? null : cells.cols(0)!;
+      // 地图册的海岸线:先沿陆地范围描一道(线宽的一半在水那一侧),再铺陆地那一份盖掉陆上的一半 —— 按屏幕像素描,放大多少倍都是一条细线。
+      // 陆地范围是一格一格拼起来的,格与格之间的边也会描上,都在陆地里面,被陆地那一份盖住
+      const coast = MATERIALS[look].coast;
+      const line = (path: Path2D, k: number) => {
+        if (!coast) return;
+        ctx.strokeStyle = `rgba(${coast[0].join(',')},${coast[1]})`;
+        ctx.lineWidth = COAST_PX / k;
+        ctx.lineJoin = 'round';
+        ctx.stroke(path);
+      };
+      if (cols && (cols[1] - cols[0]) * (cells.rows[1] - cells.rows[0]) * 8 > r.w * r.h) {
+        // 等距圆柱、视口里的方格多(放大不到三倍左右):用整张图的那一份(缓存的)按视口变换裁剪,省得每次重画重算几十万个点
+        const m = ctx.getTransform();
+        ctx.transform(ps, 0, 0, ps, v.ox, v.oy);
+        line(wholeLandPath(r), ps);
+        ctx.clip(wholeLandPath(r));
+        ctx.setTransform(m);
+      } else {
+        const path = new Path2D();
+        addLandCells(path, r, cells);
+        line(path, 1);
+        ctx.clip(path);
+      }
+      put(ctx, realisticShoreLayers(r, look).land);
+      ctx.restore();
+    },
+  ];
 }
 
 /**
@@ -782,10 +1071,10 @@ interface GlobeCapture {
 
 /** 坡度编码到 0–255 的上限(再陡按它算) */
 export const SLOPE_MAX = 12;
-/** 着色器里几样晕渲的权重和暗面压暗多少(和这种画法的平面主图一样) */
-export function reliefWeights(look: SurfaceLook = 'classic'): { detail: number; macro: number; sea: number; shadow: number } {
+/** 着色器里几样晕渲的权重、暗面压暗多少、往天空冷色里混多少(和这种画法的平面主图一样) */
+export function reliefWeights(look: SurfaceLook = 'classic'): { detail: number; macro: number; sea: number; shadow: number; cool: number } {
   const m = MATERIALS[look];
-  return { detail: m.detailW, macro: m.macroW, sea: m.seaRelief, shadow: m.shadowDepth };
+  return { detail: m.detailW, macro: m.macroW, sea: m.seaRelief, shadow: m.shadowDepth, cool: m.cool ?? SHADOW_COOL };
 }
 
 /** 坡度 → 一个字节:128 = 平;按平方根压缩(缓坡的精度高,陡坡粗一点) */
@@ -816,6 +1105,19 @@ export function realisticGlobeMaps(world: World, r: Raster, look: SurfaceLook = 
   ctx.putImageData(new ImageData(px.albedo, r.w, r.h), 0, 0);
   drawRealisticRivers(ctx, world, r, bakedView(r.scale), true, look);
   return { albedo: cv, slope: px.slope };
+}
+
+/** 纯计算(单测用):整张像素层的像素(和 realisticBase 一样)和水陆交界抗锯齿之前的那一份 */
+export function realisticPixels(r: Raster, look: SurfaceLook = 'classic'): { px: Uint8ClampedArray; raw: Uint8ClampedArray } {
+  let px: Uint8ClampedArray | null = null;
+  const sink = {
+    createImageData: (w: number, h: number) => ({ width: w, height: h, data: new Uint8ClampedArray(w * h * 4) }),
+    putImageData: (img: { data: Uint8ClampedArray }) => {
+      px = img.data;
+    },
+  } as unknown as CanvasRenderingContext2D;
+  const raw = paintRealistic(sink, r, undefined, true, r.win ? undefined : macroGrids(r), look)!;
+  return { px: px!, raw };
 }
 
 /**
@@ -863,6 +1165,13 @@ function paintRealistic(ctx: CanvasRenderingContext2D, r: Raster, cap?: GlobeCap
   const { detailFlat: DETAIL_FLAT, soft0: SOFT0, soft1: SOFT1, snowFlat: SNOW_FLAT, flat: FLAT } = m;
   const { texAmpWet: TEX_AMP_WET, texAmpDry: TEX_AMP_DRY, texGeo: TEX_GEO, texFine: TEX_FINE, texStreak: TEX_STREAK, geoSharp: GEO_SHARP } = m;
   const { texCav: TEX_CAV, ecoP: ECO_P, valleyDark: VALLEY_DARK } = m;
+  const MODEL = m.model ?? 'biome';
+  const COOL = m.cool ?? SHADOW_COOL;
+  const BAND_LINE = m.bandLine ?? 0;
+  const STIP = !!m.stipple;
+  const REEF = !!m.reef;
+  const MUTE = m.mute ?? 0;
+  const RIP_K = m.ripK ?? 1;
   // 打光用的地面:海拔 + 山坡上的沟和山脊(只管明暗,见 Raster.gully)
   const relief = reliefOf(r);
   // 细节晕渲(沟壑纹理)+ 大尺度晕渲(整条山脉的明暗面)+ 海底晕渲
@@ -882,17 +1191,19 @@ function paintRealistic(ctx: CanvasRenderingContext2D, r: Raster, cap?: GlobeCap
   const fy = win ? grids!.h / win.H : 1;
   const wx0 = win ? win.x0 : 0;
   const wy0 = win ? win.y0 : 0;
+  // 同样大小的一块(编辑地形后按块重画,见 realisticPatch):过了右边的列按整张图接回左边算,和整张图那一列逐位相同
+  const colOf = win && win.W === W0 ? (px: number) => (wx0 + px >= W0 ? wx0 + px - W0 : wx0 + px) : (px: number) => wx0 + px;
   // 地面纹理、群落交界打散:按世界坐标取(整张图、放大现算的块接得上),细的几层放大后才叠
   const pxW = 1 / r.scale;
   const Ww = (win ? win.W : w) / r.scale;
-  const wxOf = (px: number) => (wx0 + px + 0.5) / r.scale;
+  const wxOf = (px: number) => (colOf(px) + 0.5) / r.scale;
   const bank = r.bank;
   const vein = r.vein;
   const geo = new RowNoise(GEO_OCT, 101, w, wxOf, Ww, pxW);
   const fine = new RowNoise(FINE_OCT, 201, w, wxOf, Ww, pxW, 1, TEX_BIG_PX);
   const streak = new RowNoise(STREAK_OCT, 301, w, wxOf, Ww, pxW, STREAK_SX, TEX_BIG_PX);
   // 雪线的抖动:平滑噪声(高纬度大片地方气温都在雪线附近,值噪声会露出一格一格)
-  const snowN = win ? cylinderNoise(11, W0, 5, Float64Array.from({ length: w }, (_, px) => (wx0 + px + 0.5) * fx)) : cylinderNoise(11, w, 5);
+  const snowN = win ? cylinderNoise(11, W0, 5, Float64Array.from({ length: w }, (_, px) => (colOf(px) + 0.5) * fx)) : cylinderNoise(11, w, 5);
 
   const col: RGB = [0, 0, 0];
   // 陆地像素:颜色写进 col,返回打光的明暗 s;地球仪的细节坡度写进 dg[0..1],积雪上明暗减弱的系数写进 dg[2]。
@@ -912,7 +1223,7 @@ function paintRealistic(ctx: CanvasRenderingContext2D, r: Raster, cap?: GlobeCap
     // 离河多近:谷底压暗;干旱地方的河岸那一窄条按湿润的颜色画(像沙漠里的尼罗河)
     const bk = bank ? bank[k] / 255 : 0;
     // 离河远的(大多数地方)bk = 0,下面几项都是 0,跳过不算
-    const rip = bk > 0 && dry > 0 ? smoothstep(RIP_B0 + RIP_JAG * fn, RIP_B1, bk) * dry : 0;
+    const rip = bk > 0 && dry > 0 && RIP_K > 0 ? smoothstep(RIP_B0 + RIP_JAG * fn, RIP_B1, bk) * dry * RIP_K : 0;
     // 1. 生物群落底色:按 温度 × 降水 查连续调色板,群落之间自然渐变;交界按纹理打散成一片片(亮处当作干一点)
     const ex = -ECO_P * tx;
     let pp = pk * (1 + ex * (1 + ex * (0.5 + ex / 6))); // e^ex(|ex| 不到 0.3,展开到三次就够)
@@ -924,10 +1235,29 @@ function paintRealistic(ctx: CanvasRenderingContext2D, r: Raster, cap?: GlobeCap
     // 2. 在这一格的色带上挑深浅:纹理(干旱地方对比更强),再加上凹处(谷)亮、凸处(脊)暗
     const cav = (relief[kl] + relief[kr] + relief[ku] + relief[kd]) * 0.25 - relief[k];
     const tb = 0.5 + (TEX_AMP_WET + (TEX_AMP_DRY - TEX_AMP_WET) * dry) * tx + TEX_CAV * Math.max(-1, Math.min(1, cav / (CAV_REF * pxW))) + (bk > ALLU_B0 ? ALLU_LIGHT * smoothstep(ALLU_B0, ALLU_B1, bk) : 0) + (vn > 0 ? VEIN_LIGHT * smoothstep(0.02, 0.3, vn) * (1 - vc) : 0);
-    paletteColor(lut, temp[k] + ECO_T * tx, pp, tb, col);
+    if (MODEL === 'hypso') {
+      // 分层设色:按海拔挑层;和右、下邻格不在一层的描一条细线(陆地上)
+      const b = hypsoBand(e);
+      const hc = HYPSO[b];
+      const ln = BAND_LINE > 0 && ((water[kr] === 0 && hypsoBand(elev[kr]) !== b) || (water[kd] === 0 && hypsoBand(elev[kd]) !== b)) ? 1 - BAND_LINE : 1;
+      // 低处按干湿混色(Natural Earth 的 cross-blended hypso):干旱的平原、低高原偏沙黄,湿润的照绿;1000 米以上渐渐只看海拔
+      const ak = 0.85 * smoothstep(0.35, 0.95, dry) * (1 - smoothstep(900, 2200, e));
+      col[0] = (hc[0] + (HYPSO_ARID[0] - hc[0]) * ak) * ln;
+      col[1] = (hc[1] + (HYPSO_ARID[1] - hc[1]) * ak) * ln;
+      col[2] = (hc[2] + (HYPSO_ARID[2] - hc[2]) * ak) * ln;
+      if (MUTE > 0) {
+        // 叠填色时褪色:换成按亮度的暖灰(留明暗和层次,颜色让给填色)
+        const yl = 0.3 * col[0] + 0.59 * col[1] + 0.11 * col[2];
+        const g = 120 + yl * 0.55;
+        col[0] += (g - col[0]) * MUTE;
+        col[1] += (g - col[1]) * MUTE;
+        col[2] += (g * 0.97 - col[2]) * MUTE;
+      }
+    } else if (MODEL === 'photo') photoColor(temp[k] + ECO_T * tx, pp, tb, geo.v[px], col);
+    else paletteColor(lut, temp[k] + ECO_T * tx, pp, tb, col);
     // 降水多更深;谷底压暗
     const low = level[k] - relief[k];
-    const v = (1.03 - Math.min(0.12, pk / 25000)) * (low > VALLEY_E0 ? 1 - VALLEY_DARK * smoothstep(VALLEY_E0, VALLEY_E1, low) : 1) * (1 - VEIN_DARK * (m.veinK ?? 1) * vc);
+    const v = MODEL === 'hypso' ? 1 : (1.03 - Math.min(0.12, pk / 25000)) * (low > VALLEY_E0 ? 1 - VALLEY_DARK * smoothstep(VALLEY_E0, VALLEY_E1, low) : 1) * (1 - VEIN_DARK * (m.veinK ?? 1) * vc);
     let cr = col[0] * v;
     let cg = col[1] * v;
     let cb = col[2] * v;
@@ -936,16 +1266,31 @@ function paintRealistic(ctx: CanvasRenderingContext2D, r: Raster, cap?: GlobeCap
     const gx = (relief[kr] - relief[kl]) * gxk;
     const gy = relief[kd] - relief[ku];
     const steep = Math.sqrt(gx * gx + gy * gy) * slopeZ;
-    const rock = Math.min(0.85, smoothstep(ROCK_E0, ROCK_E1, e) * ROCK_EW + smoothstep(0.9, 2.2, steep) * 0.45);
+    const rock = MODEL === 'hypso' ? 0 : Math.min(0.85, smoothstep(ROCK_E0, ROCK_E1, e) * ROCK_EW + smoothstep(0.9, 2.2, steep) * 0.45);
     cr += (ROCK[0] - cr) * rock;
     cg += (ROCK[1] - cg) * rock;
     cb += (ROCK[2] - cb) * rock;
     // 积雪:按像素温度(已含海拔递减)
     const sn = 0.5 + 0.5 * snowN(px, ty);
     const snow = smoothstep(-2, -7, temp[k] + 3 * (sn - 0.5));
-    cr += (SNOW[0] - cr) * snow;
-    cg += (SNOW[1] - cg) * snow;
-    cb += (SNOW[2] - cb) * snow;
+    const SN = MODEL === 'hypso' ? HYPSO_SNOW : SNOW;
+    cr += (SN[0] - cr) * snow;
+    cg += (SN[1] - cg) * snow;
+    cb += (SN[2] - cb) * snow;
+    // 地图册的沙漠符号:每 5×5 像素一格里随机一个点(按这张图的像素取,放大后点的大小、疏密在屏幕上不变)
+    if (STIP && dry > 0.45 && snow < 0.5) {
+      const gxp = colOf(px);
+      const gyp = wy0 + py;
+      const cx = Math.floor(gxp / 5);
+      const cy = Math.floor(gyp / 5);
+      const ox = gxp - cx * 5 - ((hash2(cx, cy, 77) * 5) | 0);
+      const oy = gyp - cy * 5 - ((hash2(cx, cy, 78) * 5) | 0);
+      if (ox === 0 && oy === 0 && hash2(cx, cy, 79) < smoothstep(0.45, 0.9, dry)) {
+        cr += (STIPPLE[0] - cr) * 0.65;
+        cg += (STIPPLE[1] - cg) * 0.65;
+        cb += (STIPPLE[2] - cb) * 0.65;
+      }
+    }
     col[0] = cr;
     col[1] = cg;
     col[2] = cb;
@@ -1008,6 +1353,13 @@ function paintRealistic(ctx: CanvasRenderingContext2D, r: Raster, cap?: GlobeCap
         col[0] = ocean[oi * 3];
         col[1] = ocean[oi * 3 + 1];
         col[2] = ocean[oi * 3 + 2];
+        // 浅暖海(珊瑚礁、浅滩):不到 40 米深、水暖的地方泛青绿(像巴哈马、大堡礁)
+        if (REEF && e > -40 && temp[k] > 20) {
+          const a = 0.42 * smoothstep(-36, -6, e) * smoothstep(20, 26, temp[k]);
+          col[0] += (REEF_C[0] - col[0]) * a;
+          col[1] += (REEF_C[1] - col[1]) * a;
+          col[2] += (REEF_C[2] - col[2]) * a;
+        }
         c = col;
         // 海底晕渲:只看大尺度(洋中脊、海沟、大陆坡),很淡
         s = 1 + (macro[k] - 1) * SEA_RELIEF;
@@ -1075,7 +1427,7 @@ function paintRealistic(ctx: CanvasRenderingContext2D, r: Raster, cap?: GlobeCap
       } else {
         const a = 1 - Math.exp((s - 1) / SHADOW_DEPTH); // 0..1,软过渡到下限
         f = 1 - SHADOW_DEPTH * a;
-        cool = SHADOW_COOL * a;
+        cool = COOL * a;
       }
       const o = k * 4;
       d[o] = c[0] * f + (SKY_SHADOW[0] - c[0] * f) * cool;
@@ -1084,11 +1436,36 @@ function paintRealistic(ctx: CanvasRenderingContext2D, r: Raster, cap?: GlobeCap
       d[o + 3] = 255;
     }
   }
+  // 抗锯齿之前的那一份不描海岸线:放大后的细节层拿它拼水、陆两份,海岸线另按岸线描(不然放大后是一条发虚的宽带,见 realisticShoreParts)
   const raw = keepRaw ? d.slice() : null;
+  if (m.coast) {
+    coastLine(d, r, m.coast);
+    if (alb) coastLine(alb, r, m.coast);
+  }
   // 3. 水陆交界抗锯齿
   antialiasShores(d, r);
   ctx.putImageData(img, 0, 0);
   return raw;
+}
+
+/** 地图册的海岸线:水那一侧挨着陆地的像素描深一圈(湖也描) */
+function coastLine(d: Uint8ClampedArray, r: Raster, [cc, ca]: [RGB, number]): void {
+  const { w, h, water } = r;
+  for (let py = 0; py < h; py++) {
+    for (let px = 0; px < w; px++) {
+      const k = py * w + px;
+      if (water[k] === 0) continue;
+      const kr = px < w - 1 ? k + 1 : k - w + 1;
+      const kl = px > 0 ? k - 1 : k + w - 1;
+      const kd = py < h - 1 ? k + w : k;
+      const ku = py > 0 ? k - w : k;
+      if (water[kr] !== 0 && water[kl] !== 0 && water[kd] !== 0 && water[ku] !== 0) continue;
+      const o = k * 4;
+      d[o] += (cc[0] - d[o]) * ca;
+      d[o + 1] += (cc[1] - d[o + 1]) * ca;
+      d[o + 2] += (cc[2] - d[o + 2]) * ca;
+    }
+  }
 }
 
 /** 打光用的地面高度:海拔加上沟和山脊(没有就是海拔本身) */
@@ -1504,8 +1881,10 @@ function macroUpsample(g: MacroGrids, r: Raster): { shade: Float32Array; level: 
   const cx0 = new Int32Array(w);
   const cx1 = new Int32Array(w);
   const cax = new Float32Array(w);
+  // 同样大小的一块(编辑地形后按块重画):过了右边的列按整张图接回左边算
+  const same = !!win && win.W === g.w;
   for (let px = 0; px < w; px++) {
-    const fx0 = win ? ((ox + px + 0.5) * fx) / F - 0.5 : (px + 0.5) / F - 0.5;
+    const fx0 = win ? ((same && ox + px >= g.w ? ox + px - g.w : ox + px) + 0.5) * fx / F - 0.5 : (px + 0.5) / F - 0.5;
     // 左右边的像素插在最后一格和第一格之间
     const x0 = Math.floor(fx0);
     cax[px] = fx0 - x0;

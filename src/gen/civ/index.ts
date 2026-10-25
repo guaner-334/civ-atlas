@@ -2,7 +2,7 @@
  * 文明生成总流程:generateWorld() 之后在 worker 里调用。纯计算,不碰 DOM。
  *
  * 步骤顺序固定:
- *   ① 宜居度 + 州          habitat.ts / regions.ts
+ *   ① 宜居度 + 州          habitat.ts / regions.ts(只跟地形、文明种子有关;调用方可以经 params.base 传预先算好的,见 civBase)
  *   ② 民族扩张 + 回放引擎   sim.ts / cultures.ts   → cultures、log、checkpoints、culture
  *   ③ 城市成长 + 国家       polities.ts            → settlements、polities、polity
  *   ④ 道路网               routes.ts              → routes(推演里走过的航线一定画出来,见 usedLanes)
@@ -13,20 +13,21 @@
  *
  * 阶段 4 干预(params.interventions,interventions.ts):带着干预从第 0 年整段重推;干预年份之前和不干预时逐字节一致。
  * 阶段 4 改地形(world.terrain):扩张节拍、城的人口折算按没改地形时的同一颗星球定(planetTempo),只有改动附近的历史跟着地形变。
+ * 改过地形(地形修改或草图)的世界,山海湖岛的地名同一处地方沿用没改过时的(nameRefOf):重推以后远处民族的语感变了,地名也不跟着换。
  *
  * 随机数一律从 subSeed(seed, 'civ-…') 取(见 rand.ts),不用 Math.random。seed 是文明种子(params.civSeed):
  * 没给 = 地图种子(world.params.seed),和加这一项以前逐字节一样;给了 = 同一张地图上另一段历史(州、民族、国家、名字……都另起)。
  */
 import { generateWorld, type Progress, type World, type WorldParams } from '../world';
 import type { Sketch } from '../sketch';
-import type { ChangeLog, Civ, CivParams, Culture, Habitat, PlanetTempo, Place, Polity, Route, Settlement } from './types';
+import type { Annal, ChangeLog, Civ, CivBase, CivParams, Culture, Habitat, PlanetTempo, Place, Polity, Route, Settlement } from './types';
 import { computeHabitat } from './habitat';
 import { buildRegions, emptyRegions, reshapeRegions } from './regions';
-import { CivSim } from './sim';
-import { BIRTH_SPAN, cultureKey, cultureModelOf, finishCultures, installCultures, planCultures, rootsAcross } from './cultures';
+import { CivSim, quantize } from './sim';
+import { BIRTH_SPAN, cultureKey, cultureModelOf, finishCultures, installCultures, planCultures } from './cultures';
 import { buildRoutes, usedLanes } from './routes';
-import { capacityNorm, finishPolities, installPolities, planPolities, polityModelOf, routeCities } from './polities';
-import { findPlaces, keepPlaceNames } from './places';
+import { capacityNorm, finishPolities, installPolities, planPolities, polityModelOf, routeCities, ruinGaps } from './polities';
+import { findPlaces, keepPlaceNames, nameRefs, type NameRef } from './places';
 import { installWars } from './wars';
 import { installPolitics } from './politics';
 import { installDynasty } from './dynasty';
@@ -41,13 +42,14 @@ import type { CultureModel } from './cultures';
 import type { PolityModel } from './polities';
 import type { InterventionModel } from './interventions';
 import type { CivEra, NamePins, Regions, UpheavalFact } from './types';
-import type { TerrainOp } from '../edits';
+import { cleanInterventions, sameInterventions, type Intervention, type TerrainOp } from '../edits';
 import { buildReligion } from './religion';
 import { finishDevelopment, installDevelopment } from './development';
 import { installUnrest } from './unrest';
+import { installControl } from './control';
 import { installPlague } from './plague';
 import { cleanMix, type NameMix } from '../names';
-import { cleanFrontier, cleanOrigins, type Frontier } from './frontier';
+import { cleanFrontier, cleanOrigins, type Frontier, type Origins } from './frontier';
 
 export * from './types';
 
@@ -96,6 +98,91 @@ export function planetTempo(params: WorldParams, civ: Partial<CivParams> = {}, s
   return model ? { spread: model.spreadYears, capNorm: capacityNorm(model.terrain) } : undefined;
 }
 
+/**
+ * 推文明的底子:宜居度和州(generateCiv 的头两步,和它算的一模一样)。只跟地形、文明种子、每州面积有关:
+ * 调用方(worker)按"这个世界 + 文明种子"留着一份,改了干预、拓荒、起源、地名风格、推演年数重推时经 CivParams.base 传回 generateCiv
+ */
+export function civBase(world: World, params: Partial<CivParams> = {}): CivBase {
+  const p: CivParams = { ...DEFAULT_CIV_PARAMS, ...params };
+  const seed = p.civSeed ?? world.params.seed;
+  const habitat = computeHabitat(world);
+  const { land } = viability(world, habitat);
+  const regions = land > 0 ? buildRegions(world, habitat, { regionArea: p.regionArea, seed }) : emptyRegions(world.mesh.n);
+  return { world, seed, regionArea: p.regionArea, habitat, regions };
+}
+
+/** 复制一份(类型化数组、普通数组各复制一份,别的照搬):预先算好的底子不跟着推演改、不随 Civ 交出去 */
+function copyArrays<T extends object>(o: T): T {
+  const out = { ...o } as unknown as Record<string, unknown>;
+  for (const k of Object.keys(out)) {
+    const v = out[k];
+    if (ArrayBuffer.isView(v)) out[k] = (v as Uint8Array).slice();
+    else if (Array.isArray(v)) out[k] = v.slice();
+  }
+  return out as T;
+}
+
+/** 改过地形:带地形修改或草图(草图只改了板块的也算) */
+const edited = (world: World) => !!world.terrain?.length || !!world.sketch;
+
+/** 文明这边定"谁住在哪、按什么语感起名"的几项设定(地名照着沿用的那一份按它们算,见 nameRefOf) */
+interface RefSetup {
+  p: CivParams;
+  mix?: NameMix;
+  frontier?: Frontier;
+  origins?: Origins;
+}
+
+/**
+ * 地名照着沿用的那一份按什么认:世界参数 + 文明种子、地名风格、每州面积、民族数、扩张快慢、诞生跨度、拓荒、起源。
+ * 推演年数、干预、地形大事、国家数不算:地名只看计划中的疆域和各民族的语感(和推到哪一年无关),干预立国来的民族不在计划中的疆域里
+ */
+function refKeyOf(params: WorldParams, s: RefSetup): string {
+  const { p } = s;
+  const entries = Object.entries(params).sort(([a], [b]) => (a < b ? -1 : 1));
+  return JSON.stringify([entries, p.civSeed ?? null, s.mix ?? null, p.regionArea, p.cultures, p.pace, p.birthSpan ?? null, s.frontier ?? null, s.origins ?? null]);
+}
+
+/** 记着的几份(按 refKeyOf;最近用过的在后面) */
+const refMemo = new Map<string, readonly NameRef[]>();
+const REF_KEEP = 4;
+function rememberRef(key: string, ref: readonly NameRef[]): void {
+  refMemo.delete(key);
+  refMemo.set(key, ref);
+  if (refMemo.size > REF_KEEP) refMemo.delete(refMemo.keys().next().value!);
+}
+
+/**
+ * 改过地形的世界里,山海湖岛的地名照着沿用的那一份(places.ts 的 PlaceNaming.ref):没改过地形(不带地形修改、不带草图)的
+ * 同一颗星球、同样的文明设定起出来的地名。改地形以后历史重推,远处民族的分布和语感会变,按当地民族起的地名也会跟着换 ——
+ * 照着它起,没改到的地方名字不变。没改过地形的世界、CivParams.placeRef = false(照原样打开的旧版本世界)= undefined(照常起名)。
+ * 要多生成一遍没改过的星球、推到第 0 年(地名和推到哪一年无关,tests/names-stable.test.ts 钉住);
+ * 按设定记着最近几份,没改过地形的世界推完时顺手记下(新建世界以后头一次改地形就不用再生成)
+ */
+function nameRefOf(world: World, s: RefSetup): readonly NameRef[] | undefined {
+  if (!edited(world) || s.p.placeRef === false) return undefined;
+  const key = refKeyOf(world.params, s);
+  let ref = refMemo.get(key);
+  if (!ref) {
+    const { p, mix, frontier, origins } = s;
+    const w0 = generateWorld(world.params);
+    const c0 = generateCiv(w0, {
+      endYear: 0,
+      regionArea: p.regionArea,
+      cultures: p.cultures,
+      pace: p.pace,
+      ...(p.birthSpan !== undefined ? { birthSpan: p.birthSpan } : {}),
+      ...(p.civSeed !== undefined ? { civSeed: p.civSeed } : {}),
+      ...(mix ? { names: mix } : {}),
+      ...(frontier ? { frontier } : {}),
+      ...(origins ? { origins } : {}),
+    });
+    ref = nameRefs(w0, c0.places, c0.cultures, c0.regions);
+  }
+  rememberRef(key, ref);
+  return ref;
+}
+
 export function generateCiv(world: World, params: Partial<CivParams> = {}, progress: Progress = () => {}): Civ {
   const p: CivParams = { ...DEFAULT_CIV_PARAMS, ...params };
   const n = world.mesh.n;
@@ -106,13 +193,15 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
   const origins = cleanOrigins(p.origins);
   /** 文明种子:没给 = 地图种子 */
   const seed = p.civSeed ?? world.params.seed;
+  /** 预先算好的宜居度和州:同一个世界、同一个文明种子、同样的每州面积才用 */
+  const pre = p.base && p.base.world === world && p.base.seed === seed && p.base.regionArea === p.regionArea ? p.base : undefined;
 
   progress('宜居度', 0);
-  const habitat = computeHabitat(world);
+  const habitat = pre ? copyArrays(pre.habitat) : computeHabitat(world);
   const { land, viable } = viability(world, habitat);
 
   progress('划分州', 0.3);
-  const regions = land > 0 ? buildRegions(world, habitat, { regionArea: p.regionArea, seed }) : emptyRegions(n);
+  const regions = land > 0 ? (pre ? copyArrays(pre.regions) : buildRegions(world, habitat, { regionArea: p.regionArea, seed })) : emptyRegions(n);
 
   progress('文明', 0.8);
   const R = regions.count;
@@ -141,6 +230,7 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
   if (pm) installDiplomacy(sim, pm); // 邦交(diplomacy.ts):称臣纳贡、结盟、背盟、援盟、讨伐叛藩
   if (pm) installDevelopment(sim, world, pm, habitat, seed); // 发展度(development.ts):每 20 年算各州的能力,影响人口上限、军力、远洋
   if (pm) installUnrest(sim, pm, seed); // 动荡(unrest.ts):饥荒、民变、大崩解
+  if (pm) installControl(sim, seed); // 中央管到什么程度(control.ts):割据、抗命不出兵
   if (pm) installPlague(sim, pm, seed); // 瘟疫(plague.ts)
   if (iv) installInterventions(sim, iv); // 阶段 4 干预:不许灭、结盟、宣战、禁止分裂(各机制在决策点查 WarModel.iv)
   progress('民族推演', 0.85);
@@ -151,8 +241,6 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
   const pins: NamePins | undefined = ups.length ? { regionNames: [], polities: new Map(), settlements: new Map() } : undefined;
   const eras: CivEra[] = [];
   const facts: UpheavalFact[] = [];
-  /** 配了地名风格时,各段的起名等推完再做(要按真正推演结束时各民族住的地方凑份数,见下面 nameEra) */
-  const later: ((areas: Int16Array, cultures: readonly Culture[]) => void)[] = [];
   for (let k = 0; k < ups.length; k++) {
     const u = ups[k];
     const before = fin.regions;
@@ -161,20 +249,22 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
     // 名字、配色、这一段的地名和道路:照"没有这件大事、照原样推到底"的那份历史(大事之前和它一模一样,见 NamePins)
     const same = partialCiv(fin.sim, fin.model!, fin.pm!, eraHabitat, before, seed, iv, frontier);
     same.upheavals = facts.slice(); // 早先几件大事的经过:分支里也认得出沉过海的城址(见下面 half.upheavals)
+    // 接着推和一口气推完一样(CivSim.fromCiv):这一支和"没有这件大事、照原样推到底"一模一样
     const branch = CivSim.fromCiv(eraWorld, same, same.interventions ?? []);
     branch.run(p.endYear);
-    // 起名只读这一段的分支,不影响之后的推演。配了地名风格时份数按真正的结局凑(areas = 推演结束时的民族归属):
-    // 照"没有大事"的那份结局凑的话,大事淹掉、改变了大片地方以后,实际的占比会和配的差出一截
-    const nameEra = (areas?: Int16Array, areaCultures?: readonly Culture[]) => {
-      const b = pinNames(pins!, eraWorld, branch, k ? ups[k - 1].year : -Infinity, u.year, k === 0, mix, areas && areaCultures && { owner: areas, cultures: areaCultures });
-      const eraPlaces = findPlaces(eraWorld, before, { cultures: b.cultures, culture: b.culture, names: mix, seed });
-      if (k) keepPlaceNames(eraWorld, eras[k - 1].places, eraPlaces);
-      const eraLanes = usedLanes(before, branch.result().log, b.cultures, k ? ups[k - 1].year : -Infinity);
-      const eraRoutes = buildRoutes(eraWorld, eraHabitat, before, { cities: b.settlements.length ? routeCities(b.settlements, b.polities, p.endYear) : undefined, lanes: eraLanes });
-      eras.push({ until: u.year, habitat: eraHabitat, regions: before, places: eraPlaces, routes: eraRoutes });
-    };
-    if (mix) later.push(nameEra);
-    else nameEra();
+    // 起名只读这一段的分支,不影响之后的推演
+    const b = pinNames(pins!, eraWorld, branch, k ? ups[k - 1].year : -Infinity, u.year, k === 0, mix, iv?.list);
+    // 第一段:改过地形的世界照没改过时的地名(nameRefOf);之后各段沿用前一段的
+    const eraRef = k ? undefined : nameRefOf(eraWorld, { p, mix, frontier, origins });
+    const eraPlaces = findPlaces(eraWorld, before, { cultures: b.cultures, culture: b.planned, names: mix, seed, ...(eraRef ? { ref: eraRef } : {}) });
+    if (k) keepPlaceNames(eraWorld, eras[k - 1].places, eraPlaces);
+    const eraLanes = usedLanes(before, branch.result().log, b.cultures, k ? ups[k - 1].year : -Infinity);
+    const eraRoutes = buildRoutes(eraWorld, eraHabitat, before, {
+      cities: b.settlements.length ? routeCities(b.settlements, b.polities, p.endYear) : undefined,
+      lanes: eraLanes,
+      ruins: ruinGaps(b.settlements),
+    });
+    eras.push({ until: u.year, habitat: eraHabitat, regions: before, places: eraPlaces, routes: eraRoutes });
     // 新地形:州沿用编号,只改变了的地方;比出这件大事改了什么
     const h1 = computeHabitat(u.world);
     const r1 = reshapeRegions(u.world, h1, before, { regionArea: p.regionArea, seed });
@@ -189,10 +279,15 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
     half.upheavals = facts.slice(0, k);
     // 从前一刻接着推:大事那一刻的事件照常补上(同一年下的干预、民族诞生……),排在大事后面;
     // 按新地形重算出来的、本该更早发生的事(新海路上的到达……)一律从大事那一刻起(CivSim.floor)
-    const s1 = CivSim.fromCiv(u.world, half, half.interventions ?? [], (s) => {
-      s.floor = u.year;
-      scheduleUpheaval(s, k, u.year);
-    });
+    const s1 = CivSim.fromCiv(
+      u.world,
+      half,
+      half.interventions ?? [],
+      (s) => {
+        s.floor = u.year;
+        scheduleUpheaval(s, k, u.year);
+      },
+    );
     installUpheaval(s1, k, u, impact, fact, fin.world);
     s1.run(k + 1 < ups.length ? ups[k + 1].year - 1 / 256 : p.endYear);
     const m1 = cultureModelOf(s1)!;
@@ -200,11 +295,130 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
     pm1.cultures = m1.cultures; // 接着推时两层各复制了一份民族表:起城名、国名要用起好名的那份
     fin = { sim: s1, model: m1, pm: pm1, world: u.world, habitat: h1, regions: r1 };
   }
+  return finishCiv({ fin, p, seed, viable, mix, frontier, origins, interventions: iv?.list, model, pm, pins, eras, facts, progress });
+}
+
+/**
+ * 接着往后推:从一份推到 civ.endYear 的历史(可以是存档读回来的)接着推到 params.endYear,和一次推到 params.endYear 的结果完全一样
+ * (归属、日志、史事、检查点,名字、配色、人物、道路、信仰……)。params 要和推出 civ 时的一样(endYear 除外)。
+ * 推演完以后的整理(起名、配色、人物、道路、信仰)只看每样东西出现以前的历史,所以已经发生的不随后来推多远而变。
+ * 有地形大事的世界、要推的年份不比 civ 晚的,照常从第 0 年整段重推(结果一样,只是不省时间)。
+ * params.interventions(不给 = civ 推出来时带着的):可以是 civ 的干预后面接上几条比 civ.endYear 晚才生效的(逐年推演时下的新命令,play.ts),
+ * 接着推的结果和带着它们一口气推完一样;不是这样接上的(改了、删了早先的干预)照常整段重推。
+ * 返回的是生成出来的名字:用户改过的名字(gen/edits.ts 的 applyNames)不在 Civ 里随推演走,照常在结果上再套一遍。
+ * 传进来的 civ 不改(worker 留着它,下次再推还从它接着推)
+ */
+export function continueCiv(world: World, civ: Civ, params: Partial<CivParams> = {}, progress: Progress = () => {}): Civ {
+  const run = startContinue(world, civ, params, progress);
+  return run ? run.finish() : generateCiv(world, params, progress);
+}
+
+/** 分段接着推(startContinue):推到哪一刻了、再推一段、推完整理 */
+export interface Continuation {
+  /** 从哪一刻接着推(传进来的 civ.endYear) */
+  readonly from: number;
+  /** 推到哪一刻为止(params.endYear) */
+  readonly to: number;
+  /** 已经推到哪一刻 */
+  readonly year: number;
+  /** 再推到 untilYear(超过 to 的按 to);分几段推和一口气推结果逐字节一样(推演只按事件的时刻走,不看在哪儿停过) */
+  advance(untilYear: number): void;
+  /** 推到 to(还没推到的接着推完),整理成 Civ(起名、配色、人物、道路、信仰);只调一次 */
+  finish(): Civ;
+  /**
+   * 推到 to,不整理:只够查史事、归属和再接着推的一份历史(还没起名;地名、道路、人物、信仰是空的)。
+   * 从它接着推(continueCiv / startContinue)和从整理过的同一刻接着推结果一样。和 finish 二选一,只调一次
+   */
+  partial(): Civ;
+}
+
+/**
+ * continueCiv 拆成几段推(worker 再推 N 年时用:每段之间报进度、看有没有新的请求要停下)。参数和规矩同 continueCiv;
+ * 接不上(有地形大事、要推的年份不比 civ 晚、改了早先的干预、civ 停在第 0 年以前:第 0 年那一刻的事还没发生,没有能接着用的……)
+ * = null,照常从第 0 年整段重推(generateCiv)。
+ * 推演那一步拆开推,推完以后的整理照旧一次做完;不改传进来的 civ
+ */
+export function startContinue(world: World, civ: Civ, params: Partial<CivParams> = {}, progress: Progress = () => {}): Continuation | null {
+  const p: CivParams = { ...DEFAULT_CIV_PARAMS, ...params };
+  const had = civ.interventions ?? [];
+  const list = params.interventions === undefined ? had : cleanInterventions(params.interventions);
+  if (!civ.viable || !civ.cultures.length || !(civ.endYear >= 0) || civ.upheavals?.length || p.upheavals?.length || !(p.endYear > civ.endYear) || !extends_(had, list, civ.endYear))
+    return null;
+  const seed = p.civSeed ?? world.params.seed;
+  progress('民族推演', 0.85);
+  // 起名会写州名(regions.name):换一份州,不改传进来的 civ
+  const sim = CivSim.fromCiv(world, { ...civ, regions: { ...civ.regions } }, list);
+  const to = p.endYear;
+  let done = false;
+  return {
+    from: civ.endYear,
+    to,
+    get year() {
+      return sim.now;
+    },
+    advance(untilYear: number) {
+      if (done) throw new Error('startContinue:已经整理完了');
+      if (untilYear > sim.now) sim.run(Math.min(to, untilYear));
+    },
+    finish() {
+      if (done) throw new Error('startContinue:已经整理完了');
+      if (to > sim.now) sim.run(to);
+      done = true;
+      const model = cultureModelOf(sim)!;
+      const pm = polityModelOf(sim)!;
+      pm.cultures = model.cultures; // 接着推时两层各复制了一份民族表:起城名、国名要用起好名的那份
+      const fin = { sim, model, pm, world, habitat: civ.habitat, regions: model.terrain.regions };
+      return finishCiv({ fin, p, seed, viable: true, mix: civ.names, frontier: civ.frontier, origins: cleanOrigins(p.origins), interventions: list.length ? list : undefined, model, pm, eras: [], facts: [], progress });
+    },
+    partial() {
+      if (done) throw new Error('startContinue:已经整理完了');
+      if (to > sim.now) sim.run(to);
+      done = true;
+      const model = cultureModelOf(sim)!;
+      const pm = polityModelOf(sim)!;
+      pm.cultures = model.cultures;
+      const out = partialCiv(sim, model, pm, civ.habitat, model.terrain.regions, seed, null, civ.frontier);
+      if (list.length) out.interventions = list.slice();
+      if (civ.names) out.names = civ.names;
+      return out;
+    },
+  };
+}
+
+/** 干预列表 next 是 had 后面接上几条、接上的都在 endYear 以后才生效(接着推得出和从第 0 年重推一样的结果) */
+function extends_(had: readonly Intervention[], next: readonly Intervention[], endYear: number): boolean {
+  if (next.length < had.length || !sameInterventions(had, next.slice(0, had.length))) return false;
+  return next.slice(had.length).every((v) => quantize(v.from) > endYear);
+}
+
+/** 推完以后整理成 Civ 要的东西(generateCiv、continueCiv 共用) */
+interface Finish {
+  /** 推到最后的那一段:引擎、两层模型、这一段的地形 */
+  fin: { sim: CivSim; model: CultureModel | null; pm: PolityModel | null; world: World; habitat: Habitat; regions: Regions };
+  p: CivParams;
+  seed: number;
+  viable: boolean;
+  mix?: NameMix;
+  frontier?: Frontier;
+  /** 自选的起源(清理过;地名照着沿用的那一份按它算,见 nameRefOf) */
+  origins?: Origins;
+  interventions?: readonly Intervention[];
+  /** 第一段的两层模型(标定的扩张节拍、人口折算、国家的节拍按它记) */
+  model: CultureModel | null;
+  pm: PolityModel | null;
+  pins?: NamePins;
+  eras: CivEra[];
+  facts: UpheavalFact[];
+  progress: Progress;
+}
+
+function finishCiv(x: Finish): Civ {
+  const { fin, p, seed, viable, mix, frontier, model, pm, pins, eras, facts, progress } = x;
   const { log, checkpoints, culture, polity, annals } = fin.sim.result();
   progress('起名', 0.92);
-  for (const f of later) f(culture, fin.model?.cultures ?? []);
-  if (fin.model) finishCultures(fin.world, fin.model, culture, checkpoints, pins, mix);
-  if (fin.pm) finishPolities(fin.world, fin.pm, polity, pins);
+  // 计划中的疆域:山河湖海的地名按它的语感起(推得再远地名也不变,见 cultures.ts 的 plannedOwners)
+  const planned = fin.model ? finishCultures(fin.world, fin.model, log, pins, mix) : undefined;
+  if (fin.pm) finishPolities(fin.world, fin.pm, log, pins, authoredNames(annals, x.interventions));
   const cultures: Culture[] = fin.model?.cultures ?? [];
   const settlements: Settlement[] = fin.pm?.settlements ?? []; // ③ polities.ts
   const polities: Polity[] = fin.pm?.polities ?? []; // ③ polities.ts
@@ -214,11 +428,17 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
         progress,
         cities: settlements.length ? routeCities(settlements, polities, p.endYear) : undefined,
         lanes: usedLanes(fin.regions, log, cultures, facts.length ? facts[facts.length - 1].year : -Infinity),
+        ruins: ruinGaps(settlements),
       })
     : [];
-  const places: Place[] = findPlaces(fin.world, fin.regions, { cultures, culture, names: mix, seed }); // ⑤ places.ts(山海湖岛是地理,不看 viable)
+  // ⑤ places.ts(山海湖岛是地理,不看 viable):改过地形的世界同一处地方照没改过时的地名(nameRefOf)
+  const setup: RefSetup = { p, mix, frontier, origins: x.origins };
+  const ref = eras.length ? undefined : nameRefOf(fin.world, setup);
+  const places: Place[] = findPlaces(fin.world, fin.regions, { cultures, culture: planned, names: mix, seed, ...(ref ? { ref } : {}) });
   // 地形大事以后:同一处地方沿用大事以前的地名
   if (eras.length) keepPlaceNames(fin.world, eras[eras.length - 1].places, places);
+  // 没改过地形、没有干预和地形大事的:这就是改地形以后要照着沿用的那一份,记下(nameRefOf)
+  if (!edited(fin.world) && !x.interventions?.length && !eras.length) rememberRef(refKeyOf(fin.world.params, setup), nameRefs(fin.world, places, cultures, fin.regions));
   const people = buildPeople({
     seed,
     endYear: p.endYear,
@@ -229,6 +449,8 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
     log,
     regionCount: fin.regions.count,
     ...(facts.length ? { upheavals: facts } : {}),
+    // 生效了的即位(作者立的君主)、作者下令的仗由史事 intervene + 干预列表认(和推演里同一份在位表)
+    ...(x.interventions ? { interventions: x.interventions } : {}),
   }); // ⑥ people.ts(君主、统帅、宗室、名臣)
 
   const civ: Civ = {
@@ -250,9 +472,10 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
     spreadYears: model?.spreadYears,
     capNorm: pm?.capNorm,
     polityYears: pm?.years,
+    ...(pm ? { capSpacing: pm.spacing } : {}),
     ...(pm ? { sailFrom: pm.sailFrom } : {}),
     ...(frontier ? { frontier } : {}),
-    ...(iv ? { interventions: iv.list.slice() } : {}),
+    ...(x.interventions ? { interventions: x.interventions.slice() } : {}),
     people,
     ...(facts.length ? { upheavals: facts, eras } : {}),
     ...(mix ? { names: mix } : {}),
@@ -267,6 +490,18 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
   return civ;
 }
 
+/** 作者在干预"立国"时起好的国名:国家编号 → 国名(史事 intervene 的 a = 新国,war = 第几条干预) */
+function authoredNames(annals: readonly Annal[], interventions?: readonly Intervention[]): Map<number, string> {
+  const out = new Map<number, string>();
+  if (!interventions?.length) return out;
+  for (const e of annals) {
+    if (e.kind !== 'intervene' || e.a < 0) continue;
+    const v = interventions[e.war];
+    if (v?.kind === 'found' && v.name) out.set(e.a, v.name);
+  }
+  return out;
+}
+
 /** 一件地形大事里有哪几种修改(按第一次出现的先后) */
 function kindsOf(ops: readonly TerrainOp[]): UpheavalFact['kinds'] {
   const out: UpheavalFact['kinds'] = [];
@@ -277,17 +512,15 @@ function kindsOf(ops: readonly TerrainOp[]): UpheavalFact['kinds'] {
 /**
  * 一段推演(到第 k 件大事的前一刻)不套这件大事、照原样推到底(branch)以后起的名字、配色:
  * 年份在 [from, to) 里出现的国家、城、王朝,和这一段里新划出来的州,钉住(第一段还钉住民族)。
- * 返回 branch 起好名的民族、城、国家和推到底的民族归属(这一段的地名、道路照它定)。
- * areas = 配了地名风格时按份数凑占比看的民族归属(真正推演结束时的,连同那份历史的民族表;只在第一段用)
+ * 返回 branch 起好名的民族、城、国家和计划中的疆域(这一段的地名、道路照它定)
  */
-function pinNames(pins: NamePins, world: World, branch: CivSim, from: number, to: number, first: boolean, mix?: NameMix, areas?: { owner: Int16Array; cultures: readonly Culture[] }) {
+function pinNames(pins: NamePins, world: World, branch: CivSim, from: number, to: number, first: boolean, mix?: NameMix, interventions?: readonly Intervention[]) {
   const res = branch.result();
   const bm = cultureModelOf(branch)!;
   const bpm = polityModelOf(branch)!;
   bpm.cultures = bm.cultures; // 接着推时两层各复制了一份民族表:起城名、国名要用起好名的那份
-  // 真正的结局里分化出的民族和这份分支的未必一样,编号换成分支里的始祖民族再凑份数
-  finishCultures(world, bm, res.culture, res.checkpoints, first ? undefined : pins, mix, areas && rootsAcross(areas.owner, areas.cultures, bm.cultures));
-  finishPolities(world, bpm, res.polity, pins);
+  const planned = finishCultures(world, bm, res.log, first ? undefined : pins, mix);
+  finishPolities(world, bpm, res.log, pins, authoredNames(res.annals, interventions));
   // 推演中分化出来的民族:大事以前就有的才钉住(大事以后的那份历史里未必还会这样分化);
   // 每一段都补上这一段大事以前新分出来的(前面几段钉过的照旧)
   pins.cultures ??= new Map();
@@ -310,7 +543,7 @@ function pinNames(pins: NamePins, world: World, branch: CivSim, from: number, to
     });
   }
   for (const c of bpm.settlements) if (c.founded >= from && c.founded < to) pins.settlements.set(c.id, c.name);
-  return { cultures: bm.cultures, culture: res.culture, settlements: bpm.settlements, polities: bpm.polities };
+  return { cultures: bm.cultures, planned, settlements: bpm.settlements, polities: bpm.polities };
 }
 
 /** 推到一半的历史(地形大事前一刻)拼成 CivSim.fromCiv 要的 Civ(州、宜居度按给的);归属数组、检查点按州数补齐(新州 = 没人) */
@@ -342,6 +575,7 @@ function partialCiv(sim: CivSim, model: CultureModel, pm: PolityModel, habitat: 
     spreadYears: model.spreadYears,
     capNorm: pm.capNorm,
     polityYears: pm.years,
+    capSpacing: pm.spacing,
     sailFrom: pm.sailFrom,
     ...(frontier ? { frontier } : {}),
     ...(iv ? { interventions: iv.list.slice() } : {}),

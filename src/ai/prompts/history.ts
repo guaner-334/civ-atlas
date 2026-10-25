@@ -14,11 +14,13 @@
  * - 历史指纹(historyFingerprint):这个范围里的纪事、国号、地名的摘要。改名 / 干预 / 改地形重推以后变了,
  *   界面就给旧史书标"写于历史改变之前"
  */
-import type { Civ, Polity, Year } from '../../gen/civ/types';
+import type { Civ, Person, Polity, Year } from '../../gen/civ/types';
 import { buildChronicle, cnNumber, entryInvolves, entryYearLabel, yearText, type ChronicleEntry } from '../../gen/civ/chronicle';
 import { capitalAt, dynastyTitle, polityName, polityShortTitle, polityTierAt, polityTitleChain } from '../../gen/civ/growth';
 import { KIND_INFO, cultureLabel, regionLabel, regionNamed } from '../../gen/civ/display';
-import { rulerShort } from '../../gen/civ/peopleText';
+import { generalRole, ministerRole, personName, rulerShort } from '../../gen/civ/peopleText';
+import { generalTally, peopleIndex } from '../../gen/civ/peopleInfo';
+import { deedsShort } from '../../gen/civ/officialText';
 import { ownersAt, type Owners } from '../../gen/civ/timeline';
 import { polityKey, resolveKey } from '../../gen/edits';
 import type { AiMessage } from '../types';
@@ -49,6 +51,12 @@ export interface HistoryStyleSpec {
   unit?: '章' | '卷';
 }
 
+/**
+ * "史臣曰"的禁句:模型几乎每段都写成"某之兴,非恃甲兵之利,实赖民志之凝"(编年体是"非唯……亦在……"),
+ * 只说"句式和前面不同"管不住,点名禁掉这种对句
+ */
+const VERDICT_RULE = '"史臣曰"不要写成"某之兴,非恃……实赖……""非唯……亦在……"这种先否定、再肯定的对句,每段换一种说法。';
+
 export const HISTORY_STYLES: Record<HistoryStyle, HistoryStyleSpec> = {
   classic: {
     label: '史书体',
@@ -56,7 +64,7 @@ export const HISTORY_STYLES: Record<HistoryStyle, HistoryStyleSpec> = {
     temperature: 0.7,
     rule:
       '用浅近的文言写(半文半白,读者不查字典也能读懂),仿正史笔法,纪传与编年相参:以时间为纲,关键人物可以有简短的传记式描写' +
-      '(名、字、出身、性情、结局);行文简练庄重,少用形容词。每章末尾可以有一段"史臣曰",一两句,说这一章特有的得失,不要空谈"合久必分"之类的套话。',
+      '(名、字、出身、性情、结局);行文简练庄重,少用形容词。每章末尾可以有一段"史臣曰",一两句,说这一章特有的得失,不要空谈"合久必分"之类的套话。' + VERDICT_RULE,
   },
   plain: {
     label: '白话讲述',
@@ -82,7 +90,7 @@ export const HISTORY_STYLES: Record<HistoryStyle, HistoryStyleSpec> = {
     rule:
       '严格按年份先后记事,每一年(或几件事同在的一年)另起一段,以"第 N 年,"开头;用浅近的文言,记事为主,简洁准确,' +
       '写清谁、在哪里、做了什么、结果如何,战事写出攻守、得失的城和州;人物只在事件里出现,不单独立传;' +
-      '少数关键的事后面可以加一段"史臣曰"评论(全书三五处即可,不要每段都评)。',
+      '少数关键的事后面可以加一段"史臣曰"评论(全书三五处即可,不要每段都评)。' + VERDICT_RULE,
   },
   biography: {
     label: '纪传体',
@@ -91,7 +99,7 @@ export const HISTORY_STYLES: Record<HistoryStyle, HistoryStyleSpec> = {
     rule:
       '以人和国为纲,不以年为纲。用浅近的文言。"本纪"写一国(或一朝)的兴衰,按年叙它的立国、升格、战争、迁都、改朝换代与存亡;' +
       '"列传"每篇写一个人(君主以外的将相、使臣、谋士、叛将、遗民……,材料里写到的统帅可以立传,也可以另补人物),从出身写到结局,他经历的战事、兴亡要和材料对得上;' +
-      '篇末可以有"太史公曰"式的一两句评论,写成"史臣曰"。',
+      '篇末可以有"太史公曰"式的一两句评论,写成"史臣曰"。' + VERDICT_RULE,
   },
 };
 
@@ -530,9 +538,16 @@ function sectionsFor(civ: Civ, opts: HistoryOptions, info: ScopeInfo, L: History
   return splitByWeight(info.entries, info.from, info.to, n);
 }
 
-/** 这些史事最多值得写多少字:按分量(大事 3、小事 1.5、琐事 0.5)每一分一百二十字,至少写短篇 */
+/** 战争里的战事细节(一场仗、一次攻占)在篇幅上算多少分:和琐事一样 */
+const CHILD_WEIGHT = 0.5;
+
+/**
+ * 这些史事最多值得写多少字:按分量(大事 3、小事 1.5、琐事 0.5,战争里的每一仗 0.5)每一分一百二十字,至少写短篇。
+ * 战事细节也算:只算条目时,一段打了六场大仗的断代史要一万字只给到五千多字
+ */
 export function charCap(entries: readonly ChronicleEntry[]): number {
-  return Math.max(HISTORY_LENGTHS.short.chars, Math.round((weightOf(entries) * 120) / 100) * 100);
+  const w = weightOf(entries) + entries.reduce((t, e) => t + (e.children?.length ?? 0) * CHILD_WEIGHT, 0);
+  return Math.max(HISTORY_LENGTHS.short.chars, Math.round((w * 120) / 100) * 100);
 }
 
 /** 第几章的叫法:"第一章" / "卷一" */
@@ -541,7 +556,7 @@ function chapterName(i: number, unit: '章' | '卷' = '章'): string {
 }
 
 /** 纪传体的篇名:"本纪·大衍" / "世家·萨布斯坦王国" / "列传" */
-function partName(s: HistorySection): string {
+export function partName(s: HistorySection): string {
   if (s.part === 'lives') return s.name ? `列传·${s.name}` : '列传';
   return `${s.part === 'house' ? '世家' : '本纪'}·${s.name ?? ''}`;
 }
@@ -953,6 +968,224 @@ function chronicleBlock(entries: readonly ChronicleEntry[], picked: Set<Chronicl
 }
 
 // ---------------------------------------------------------------------------
+// 列传的人物材料:生卒年、逐仗的攻守和结果
+//
+// 列传最容易和材料对不上:攻守写反、没打下的城写成劝降打下、一个人做官一百多年。编年史里的仗是一句话
+// ("某城之战,甲将某某攻至城下,乙坚守,不克"),模型常读反;这里把列传可用的人(统帅、名臣)单列出来,
+// 生卒年照推演里的人物写,每一仗拆成"谁攻、谁守、结果"
+
+/** 列传材料最多列几个人 / 每人最多列几仗 */
+export const LIVES_PEOPLE = 6;
+export const LIVES_BATTLES = 6;
+/** 几岁以前不出仕、不领兵(给 AI 的"能写的年份"从这一岁算起) */
+export const SERVE_AGE = 16;
+
+/** 计数:2 → 两,其余照 cnNumber("两州""三次") */
+const count = (n: number) => (n === 2 ? '两' : cnNumber(n));
+
+interface WarCmd {
+  person: Person;
+  side: number;
+  first: number;
+  last: number;
+}
+const cmdCache = new WeakMap<object, Map<number, WarCmd[]>>();
+/** 每场战争的统帅(按 civ.people 缓存) */
+function warCommands(civ: Civ): Map<number, WarCmd[]> {
+  const key = civ.people ?? civ.annals;
+  const hit = cmdCache.get(key);
+  if (hit) return hit;
+  const m = new Map<number, WarCmd[]>();
+  for (const x of civ.people ?? []) {
+    for (const c of x.commands ?? []) {
+      let l = m.get(c.war);
+      if (!l) m.set(c.war, (l = []));
+      l.push({ person: x, side: c.side, first: c.first, last: c.last });
+    }
+  }
+  cmdCache.set(key, m);
+  return m;
+}
+/** 某场战争某一方(0 = 宣战方)打第 i 条史事的统帅 */
+function commanderAt(civ: Civ, war: number, side: number, i: number): Person | null {
+  for (const c of warCommands(civ).get(war) ?? []) if (c.side === side && c.first <= i && i <= c.last) return c.person;
+  return null;
+}
+
+/**
+ * 一个人领兵打过的仗,一行一段:"第 1538 年 尼索尼亚之战:大定(郭继泰)攻,奥利亚王国(某某)守 → 大定攻下尼索尼亚"。
+ * 同一场战争里两边统帅不变、接连攻下的几州并成一行("→ 大定攻下甲、乙等五州");同一处接连没打下来的几仗并成一行("(三次)… 皆不克")
+ */
+export function battleLines(civ: Civ, x: Person, from: Year = -Infinity, to: Year = Infinity): string[] {
+  const A = civ.annals;
+  const wars = peopleIndex(civ).wars;
+  const pn = (q: number, y: Year) => (civ.polities[q] ? nameAt(civ, civ.polities[q], y) : '');
+  const cmds = x.commands ?? [];
+  const lastIdx = cmds.length ? Math.max(...cmds.map((c) => c.last)) : -1;
+  interface Row {
+    key: string;
+    from: Year;
+    to: Year;
+    /** 攻下的地方(攻占)/ 没打下来的次数(战役) */
+    places: string[];
+    n: number;
+    took: boolean;
+    head: string;
+    atk: number;
+    def: number;
+    place: string;
+    dead: string;
+  }
+  const rows: Row[] = [];
+  for (const c of cmds) {
+    const decl = wars.get(c.war);
+    if (!decl) continue;
+    // 议和时划界割让的州也记成攻占(紧挨在议和前面),不是打下来的,不算
+    const ceded = new Set<number>();
+    for (let i = Math.max(0, c.first); i <= Math.min(A.length - 1, c.last + 64); i++) {
+      const e = A[i];
+      if (e.kind === 'peace' && e.war === c.war && e.region > 0) for (let j = Math.max(0, i - e.region); j < i; j++) ceded.add(j);
+    }
+    for (let i = Math.max(0, c.first); i <= c.last && i < A.length; i++) {
+      const e = A[i];
+      if (e.war !== c.war || (e.kind !== 'conquer' && e.kind !== 'battle') || ceded.has(i)) continue;
+      if (Y(e.year) < from || Y(e.year) > to) continue;
+      const as = e.a === decl.a ? 0 : e.a === decl.b ? 1 : -1;
+      if (as < 0 || e.b < 0) continue;
+      const y = e.year;
+      const ca = as === c.side ? x : commanderAt(civ, c.war, as, i);
+      const cd = as === c.side ? commanderAt(civ, c.war, 1 - as, i) : x;
+      const who = (q: number, p: Person | null) => `${pn(q, y)}${p ? `(${personName(civ, p)})` : ''}`;
+      const took = e.kind === 'conquer';
+      const place = cityName(civ, e.settlement) || regionName(civ, e.region) || '边境';
+      const dead = x.fate === 'battle' && i === lastIdx ? `,${x.name}战死` : '';
+      const key = `${c.war}|${e.kind}|${took ? '' : e.region}|${e.a}|${e.b}|${ca?.id ?? -1}|${cd?.id ?? -1}`;
+      const prev = rows[rows.length - 1];
+      if (prev && prev.key === key && !prev.dead) {
+        prev.to = y;
+        prev.n++;
+        if (took && !prev.places.includes(place)) prev.places.push(place);
+        prev.dead = dead;
+        continue;
+      }
+      rows.push({ key, from: y, to: y, places: took ? [place] : [], n: 1, took, head: `${who(e.a, ca)}攻,${who(e.b, cd)}守`, atk: e.a, def: e.b, place, dead });
+    }
+  }
+  return rows.map((r) => {
+    const years = span(r.from, r.to);
+    const a = pn(r.atk, r.from);
+    if (r.took) {
+      const k = r.places.length;
+      if (k === 1) return `${years} ${r.place}之战:${r.head} → ${a}攻下${r.place}${r.dead}`;
+      const what = `${k <= 4 ? r.places.join('、') : `${r.places.slice(0, 4).join('、')}等`}${count(k)}州`;
+      return `${years}:${r.head} → ${a}攻下${what}${r.dead}`;
+    }
+    return `${years} ${r.place}之战${r.n > 1 ? `(${count(r.n)}次)` : ''}:${r.head} → ${pn(r.def, r.from)}守住,${a}${r.n > 1 ? '皆' : ''}不克${r.dead}`;
+  });
+}
+
+/** 人物的一行:"郭继泰(大定将领,字子昭,凤州人):生于第 1503 年,卒于第 1561 年(寿终);第 1519 年以后才能出仕、领兵" */
+function personHead(civ: Civ, x: Person): string {
+  const role = x.role === 'minister' ? ministerRole(civ, x) : x.role === 'general' ? generalRole(civ, x) : '';
+  const extra = [role, x.courtesy ? `字${x.courtesy}` : '', x.home !== undefined && cityName(civ, x.home) ? `${cityName(civ, x.home)}人` : ''].filter(Boolean).join(',');
+  const born = Y(x.born);
+  const died = x.died !== undefined ? `卒于第 ${Y(x.died)} 年(${x.fate === 'battle' ? '战死' : '寿终'})` : `到第 ${Y(civ.endYear)} 年还在世`;
+  return `- ${x.name}(${extra}):生于第 ${born} 年,${died};第 ${born + SERVE_AGE} 年以后才能出仕、领兵`;
+}
+
+/**
+ * 列传可用的人物(from—to 间在世的统帅、名臣),按分量挑 max 个,按出生先后排:
+ * 统帅 = 攻下的州、守住的仗、战死;名臣 = 经手的大事;编年史里(mentioned)写到的再加分。
+ * 通史、断代史一国最多两人(免得全是同一国攻城最多的几个将领);国史只挑这一国的人和纪事里写到的
+ */
+function livesPeople(civ: Civ, from: Year, to: Year, mentioned: Map<number, number>, subject: number, max: number): Person[] {
+  const end = civ.endYear;
+  const scored: { x: Person; score: number }[] = [];
+  for (const x of civ.people ?? []) {
+    if (x.role !== 'general' && x.role !== 'minister') continue;
+    if (x.author !== undefined || !civ.polities[x.polity]) continue;
+    if (Y(x.born) > to || Y(x.died ?? end) < from) continue;
+    // 分段的列传只看这一段里的事:这一段里没领过兵(没经手过大事)的不挑
+    if (x.role === 'general' && x.commands?.length && !x.commands.some((c) => Y(civ.annals[c.last]?.year ?? -1) >= from && Y(civ.annals[c.first]?.year ?? Infinity) <= to)) continue;
+    if (x.role === 'minister' && x.deeds?.length && !x.deeds.some((d) => Y(d.year) >= from && Y(d.year) <= to)) continue;
+    const m = mentioned.get(x.id) ?? 0;
+    if (subject >= 0 && x.polity !== subject && !m) continue;
+    let score = 4 * m;
+    if (x.role === 'general') {
+      const { took, held } = generalTally(civ, x);
+      score += 2 * took + 2 * held + (x.fate === 'battle' ? 3 : 0);
+    } else score += 5 * (x.deeds?.length ?? 0);
+    if (score > 0) scored.push({ x, score });
+  }
+  scored.sort((a, b) => b.score - a.score || a.x.id - b.x.id);
+  const out: Person[] = [];
+  const per = new Map<number, number>();
+  for (const { x } of scored) {
+    if (out.length >= max) break;
+    const k = per.get(x.polity) ?? 0;
+    if (subject < 0 && k >= 2) continue;
+    per.set(x.polity, k + 1);
+    out.push(x);
+  }
+  return out.sort((a, b) => a.born - b.born || a.id - b.id);
+}
+
+/** 〔人物〕那一节的文字;没有可列的人 = '' */
+function livesPeopleText(civ: Civ, from: Year, to: Year, picked: Set<ChronicleEntry>, subject: number, max = LIVES_PEOPLE): string {
+  const mentioned = new Map<number, number>();
+  for (const e of picked) for (const id of e.people ?? []) mentioned.set(id, (mentioned.get(id) ?? 0) + 1);
+  const out: string[] = [];
+  for (const x of livesPeople(civ, from, to, mentioned, subject, max)) {
+    out.push(personHead(civ, x));
+    if (x.role === 'minister') {
+      const deeds = deedsShort(civ, { ...x, deeds: x.deeds?.filter((d) => Y(d.year) >= from && Y(d.year) <= to) });
+      out.push(`  - 在朝第 ${Y(x.from ?? x.born)}—${Y(x.until ?? civ.endYear)} 年${deeds ? `;${deeds}` : ''}`);
+      continue;
+    }
+    const bs = battleLines(civ, x, from, to);
+    for (const b of bs.slice(0, LIVES_BATTLES)) out.push(`  - ${b}`);
+    if (bs.length > LIVES_BATTLES) out.push(`  - (另有${count(bs.length - LIVES_BATTLES)}仗从略)`);
+  }
+  return out.join('\n');
+}
+
+/** 写作要求里列传的"人物"一条 */
+const LIVES_RULE =
+  `- 人物:优先给〔人物〕里的人立传。他们的生卒年和打过的仗照〔人物〕写:谁攻、谁守、谁胜都不能改 —— 守住的不能写成攻下,攻城不能写成劝降、出降;` +
+  `一生的事只写在生卒年之间,${cnNumber(SERVE_AGE)}岁以前不出仕、不领兵,出仕、领兵的年份不要早于〔人物〕里写的那一年;另补的人物也要合情理,一生不超过八九十年`;
+
+// ---------------------------------------------------------------------------
+// 各篇的开头和"史臣曰":轮着给不同的写法
+//
+// 只要求"开头、'史臣曰'的句式和前面几篇不同"时,模型照旧每篇"某族,肇兴于……,地多……,民尚……"开头、
+// 每段"非恃……实赖……"收尾。这里给每一篇(章)指定一种开头和一个评论的角度,再把前文实际用过的开头和
+// "史臣曰"摘出来,明说别再用(见 usedPhrases、historyMessages)
+
+const OPENINGS = [
+  '从一个人写起(开国之君、一位将相或使者的一件事)',
+  '从一场仗或一次危机写起',
+  '从山川、城池、要道这些地理形势写起',
+  '从一道诏令、一次迁都或一件改变格局的大事写起',
+  '从百姓的生计、风俗或一座城的兴衰写起',
+  '开门见山,直接从这一段最早的一件事写起',
+];
+const VERDICTS = [
+  '评一个人(君主或将相)的得失',
+  '说这一国(这一段)做对或做错的一件具体的事',
+  '拿它和一个邻国比一比',
+  '从百姓、民生说',
+  '说一个后人可以记取的具体教训',
+  '点出这一段最关键的一个转折',
+];
+/** 有"史臣曰"的文体 */
+const VERDICT_STYLES: readonly HistoryStyle[] = ['classic', 'annals', 'biography'];
+
+/** 从哪一种写法轮起(按书名和文体定,同一部书每次一样,不同的书不一样) */
+function angleOffset(title: string, style: HistoryStyle): number {
+  return parseInt(hash(`${title}|${style}`).slice(0, 6), 16);
+}
+
+// ---------------------------------------------------------------------------
 // 提示词
 
 export interface HistoryCall {
@@ -1145,7 +1378,7 @@ function contextParts(civ: Civ, info: ScopeInfo, book: ScopeInfo, picked: Set<Ch
   return { overview, geography, cultures: cuLines.join('\n'), polities: polLines.join('\n'), situation };
 }
 
-function materialText(parts: Parts, chron: string, dropped: number, chapter = '', clipTo?: Year): string {
+function materialText(parts: Parts, chron: string, dropped: number, chapter = '', clipTo?: Year, people = ''): string {
   const out = [
     `【材料】(推演生成的史实,以此为准。★ = 大事;战争下面缩进的是战事细节${dropped > 0 ? `;篇幅所限,略去了${cnNumber(dropped)}条(多是小事和战事细节)` : ''})`,
     '',
@@ -1159,6 +1392,7 @@ function materialText(parts: Parts, chron: string, dropped: number, chapter = ''
     out.push('', `〔国家〕(括号里是起名和行文的风格提示,不要写进正文;国号随年份变化,写到哪一年就用那一年的国号${until})`, parts.polities);
   }
   if (parts.situation) out.push('', '〔格局〕(当时各国的大小和国都)', parts.situation);
+  if (people) out.push('', '〔人物〕(列传可用的统帅、名臣:生卒年照这里写;每一仗写的是"攻方、守方 → 结果",攻守和结果不能改)', people);
   out.push('', `〔编年史〕${chapter}`, chron || '- (这段时间没有记下什么事)');
   return out.join('\n');
 }
@@ -1176,12 +1410,14 @@ function styleLine(opts: HistoryOptions): string {
 }
 
 /**
- * 篇幅一条:约 N 字,只给上限。模型普遍写超(qwen-plus 要 800 字常写到 1000 字);
- * 实测给了下限("不少于……")反而写得更长,所以只说上限和"宁可略短"
+ * 篇幅一条。短的(一千字以下)只给上限:模型写短文普遍写超(qwen-plus 要 800 字常写到 1000 字)。
+ * 一千字以上给一个区间:只说上限和"宁可略短"时,一次两三千字的章实测只写到八成多(要一万字的书写成 8,349 字);
+ * 给了下限会写得长些
  */
 function lengthLine(chars: number, what = ''): string {
   const r = (x: number) => Math.round(x / 50) * 50;
-  return `- 篇幅:${what}约 ${chars} 字(正文的中文字数;最多不超过 ${r(chars * 1.1)} 字,宁可略短)`;
+  if (chars < 1000) return `- 篇幅:${what}约 ${chars} 字(正文的中文字数;最多不超过 ${r(chars * 1.1)} 字,宁可略短)`;
+  return `- 篇幅:${what}约 ${chars} 字(正文的中文字数,写到 ${r(chars * 0.9)}—${r(chars * 1.1)} 字之间;材料少的地方多写人物的言行、场面和前因后果,但不要编造史事)`;
 }
 
 /** 各章字数的说法:"每章约 600 字" / "各章约 第一章 700 字、第二章 500 字……" */
@@ -1215,15 +1451,21 @@ export function buildHistoryPrompts(civ: Civ, opts: HistoryOptions): HistoryProm
   const label = (i: number) => (i < 0 ? (bio ? '篇' : unit) : bio ? partName(sections[i]) : chapterName(i, unit));
   const whole: Clip = { from: info.from, to: info.to };
   const clipped = opts.scope.kind === 'era';
+  const subjectId = info.subject?.id ?? -1;
+  const verdict = VERDICT_STYLES.includes(opts.style);
+  const off = angleOffset(title, opts.style);
 
   if (!perCall) {
     // 一次写完:材料按预算裁剪,纪事先占六成,余下给国家、民族等;国家、民族没用完的再还给纪事
     const trial = pickEntries(info.entries, Math.round(L.budget * 0.6));
+    // 纪传体带列传:列传可用的人物先占一份(一次写完的列传只写一到四人,少列几个)
+    const people = bio ? livesPeopleText(civ, info.from, info.to, trial.picked, subjectId, 4) : '';
+    const budget = L.budget - people.length;
     // 格局:通史写推演结束时,断代史写这一时代开始和结束时;国史不写(别国的大小和它关系不大)
     const snaps = opts.scope.kind === 'world' ? [civ.endYear] : opts.scope.kind === 'era' ? [info.from, info.to] : [];
-    const parts = contextParts(civ, info, info, trial.picked, Math.round(L.budget * 0.4), snaps, whole);
+    const parts = contextParts(civ, info, info, trial.picked, Math.round(budget * 0.4), snaps, whole);
     const ctxLen = Object.values(parts).reduce((t, x) => t + x.length, 0);
-    const { picked, dropped, total } = pickEntries(info.entries, Math.max(Math.round(L.budget * 0.5), L.budget - ctxLen));
+    const { picked, dropped, total } = pickEntries(info.entries, Math.max(Math.round(budget * 0.5), budget - ctxLen));
     const chron = chronicleBlock(info.entries, picked, sections, unit);
     let structure: string;
     if (bio && n > 1) {
@@ -1239,7 +1481,18 @@ export function buildHistoryPrompts(civ: Civ, opts: HistoryOptions): HistoryProm
     } else {
       structure = `- 结构:不分${unit},${L.chars <= 1000 ? '三到五段' : '分若干段'};开头交代地理和民族的背景,结尾收束全篇`;
     }
-    const head = [`请根据下面的材料,写「${title}」。`, '', '【写作要求】', `- 写什么:${subject}`, styleLine(opts), lengthLine(L.chars), structure, CHOOSE, TONE].join('\n');
+    const lines = [`请根据下面的材料,写「${title}」。`, '', '【写作要求】', `- 写什么:${subject}`, styleLine(opts), lengthLine(L.chars), structure];
+    if (n > 1) {
+      // 分了几章(篇)一次写完:各章的开头、"史臣曰"换着写
+      const u = bio ? '篇' : unit;
+      lines.push(
+        `- 开头和评语:各${u}的开头换着写法(比如有的从人物写起,有的从一场仗、一处山川或一道诏令写起),不要每${u}一个句式` +
+          (verdict ? `;每段"史臣曰"换一个角度(评人、评事、比较邻国、说民生)` : ''),
+      );
+    }
+    if (people) lines.push(LIVES_RULE);
+    lines.push(CHOOSE, TONE);
+    const head = lines.join('\n');
     calls.push({
       title,
       chapter: null,
@@ -1247,7 +1500,7 @@ export function buildHistoryPrompts(civ: Civ, opts: HistoryOptions): HistoryProm
       maxTokens: L.maxTokens,
       temperature: style.temperature,
       head,
-      body: materialText(parts, chron, dropped, '', clipped ? info.to : undefined),
+      body: materialText(parts, chron, dropped, '', clipped ? info.to : undefined, people),
       used: picked.size,
       total,
     });
@@ -1261,15 +1514,18 @@ export function buildHistoryPrompts(civ: Civ, opts: HistoryOptions): HistoryProm
       const sliced = s.part !== 'lives' || !!s.name;
       const clip: Clip = sliced ? { from: s.from, to: s.to } : whole;
       const trial = pickEntries(inSec, Math.round(L.budget * 0.6));
+      // 列传:列传可用的人物(生卒年、逐仗的攻守和结果)先占一份
+      const people = s.part === 'lives' ? livesPeopleText(civ, s.from, s.to, trial.picked, subjectId) : '';
+      const budget = L.budget - people.length;
       // 格局:按时间分章的通史 / 断代史每章写这一章开始时(第 0 年还没有国家,不写)、最后一章再写结束时;国史、纪传体不写
       const snaps: Year[] = [];
       if (opts.scope.kind !== 'polity' && !s.part) {
         if (i > 0 || opts.scope.kind === 'era') snaps.push(s.from);
         if (last) snaps.push(s.to);
       }
-      const parts = contextParts(civ, secInfo, info, trial.picked, Math.round(L.budget * 0.4), snaps, clip);
+      const parts = contextParts(civ, secInfo, info, trial.picked, Math.round(budget * 0.4), snaps, clip);
       const ctxLen = Object.values(parts).reduce((t, x) => t + x.length, 0);
-      const { picked, dropped, total } = pickEntries(inSec, Math.max(Math.round(L.budget * 0.5), L.budget - ctxLen));
+      const { picked, dropped, total } = pickEntries(inSec, Math.max(Math.round(budget * 0.5), budget - ctxLen));
       const chron = chronicleBlock(inSec, picked, s.part ? null : [s], unit);
       const tocLine = (x: HistorySection, k: number) =>
         `${label(k)}${x.part === 'lives' && !x.name ? '' : ` ${span(x.from, x.to)}`}${!x.part && x.reign ? `(${x.reign})` : ''}` +
@@ -1298,6 +1554,18 @@ export function buildHistoryPrompts(civ: Civ, opts: HistoryOptions): HistoryProm
       if (i === 0) lines.push(`- 衔接:这是第一${uw},开头交代地理和民族的背景;不要提前写后面${uw === '篇' ? '各篇' : `的${uw}`}的事,也不要写全书的结语`);
       else if (s.part) lines.push(`- 衔接:〔前文〕是已经写好的几篇;前文写过的事这一篇只一笔带过;${keep}${last ? ';这是最后一篇,末尾可以有一段总结全书的"史臣曰"' : ''}`);
       else lines.push(`- 衔接:接着〔前文〕往下写,不重复前文写过的事;${keep};${last ? `这是最后一${uw},末尾可以有一段总结全书的结语` : `不要提前写后面${uw}的事,也不要写全书的结语`}`);
+      // 开头和评语:每一篇(章)指定一种开头、一个评论的角度(第一篇的开头由"衔接"那条管;列传按"某某,字某,某地人"的体例开头)
+      const angle: string[] = [];
+      if (i > 0 && s.part !== 'lives') {
+        angle.push(
+          opts.style === 'annals'
+            ? `这一${uw}开头直接从这一${uw}的第一件事写起,不要先把天下各国的疆域、国都罗列一遍(〔格局〕只供你参考)`
+            : `这一${uw}开头${OPENINGS[(off + i) % OPENINGS.length]}`,
+        );
+      }
+      if (verdict) angle.push(`"史臣曰"${opts.style === 'annals' ? '(如果有)' : ''}${VERDICTS[((off >> 3) + i) % VERDICTS.length]}`);
+      if (angle.length) lines.push(`- 开头和评语:${angle.join(';')}`);
+      if (people) lines.push(LIVES_RULE);
       lines.push(CHOOSE, TONE);
       calls.push({
         title: `${title} · ${label(i)}`,
@@ -1306,7 +1574,7 @@ export function buildHistoryPrompts(civ: Civ, opts: HistoryOptions): HistoryProm
         maxTokens: L.maxTokens,
         temperature: style.temperature,
         head: lines.join('\n'),
-        body: materialText(parts, chron, dropped, `(本${uw}:${label(i)}${sliced ? ` ${span(s.from, s.to)}` : ''})`, clip.to < civ.endYear ? clip.to : undefined),
+        body: materialText(parts, chron, dropped, `(本${uw}:${label(i)}${sliced ? ` ${span(s.from, s.to)}` : ''})`, clip.to < civ.endYear ? clip.to : undefined, people),
         used: picked.size,
         total,
       });
@@ -1317,7 +1585,8 @@ export function buildHistoryPrompts(civ: Civ, opts: HistoryOptions): HistoryProm
   let prev = 0;
   let prevSum = 0;
   calls.forEach((c, i) => {
-    const ctx = i > 0 ? Math.min(PREV_CONTEXT, prevSum) + 30 : 0;
+    // 前文 + 摘出来的开头和"史臣曰"(约三百字)
+    const ctx = i > 0 ? Math.min(PREV_CONTEXT, prevSum) + 330 : 0;
     inputChars += SYSTEM_PROMPT.length + c.head.length + c.body.length + ctx;
     prev += ctx;
     prevSum += c.chars;
@@ -1338,6 +1607,66 @@ export function buildHistoryPrompts(civ: Civ, opts: HistoryOptions): HistoryProm
   };
 }
 
+/** 摘出来的开头、"史臣曰"每句最多几个字 / 最多摘几句(取最近的) */
+const USED_CHARS = 60;
+const USED_MAX = 8;
+/** "史臣曰"一类评语的开头("**史臣曰**:""### 史臣曰""太史公曰") */
+const VERDICT_HEAD = /^(?:#{1,6}\s*)?[*_]*\s*(?:史臣曰|太史公曰|论曰|赞曰)\s*[*_]*\s*[:,：，、]?\s*[*_]*\s*/;
+
+/** 去掉 Markdown 记号,取第一句(到句号、问号、叹号为止),太长截断 */
+function firstSentence(line: string, max = USED_CHARS): string {
+  const t = line.replace(/[*_`>]/g, '').replace(/^\s*[-+]\s+/, '').trim();
+  const m = /^.*?[。!?！？]/.exec(t);
+  const s = (m ? m[0] : t).trim();
+  return [...s].length > max ? `${[...s].slice(0, max).join('')}……` : s;
+}
+
+/**
+ * 前文里各篇(章)的开头一句和"史臣曰":"## 本纪·某国"这样的二级标题后面第一段的第一句,
+ * 以"史臣曰""太史公曰"起头的段落(标题单独一行的,取下面那一段)。下一篇把它们原样列出来,明说别再用
+ */
+export function usedPhrases(text: string): { openings: string[]; verdicts: string[] } {
+  const lines = text.split('\n').map((l) => l.trim());
+  const openings: string[] = [];
+  const verdicts: string[] = [];
+  const add = (xs: string[], s: string) => {
+    if (s && !xs.includes(s)) xs.push(s);
+  };
+  for (let k = 0; k < lines.length; k++) {
+    const l = lines[k];
+    if (!l) continue;
+    if (VERDICT_HEAD.test(l)) {
+      let rest = l.replace(VERDICT_HEAD, '').trim();
+      // 标题单独一行("### 史臣曰"、"**史臣曰**"):评语在下面那一段
+      if (!rest.replace(/[*_:：]/g, '').trim()) {
+        let j = k + 1;
+        while (j < lines.length && !lines[j]) j++;
+        rest = j < lines.length && !lines[j].startsWith('#') ? lines[j] : '';
+      }
+      add(verdicts, firstSentence(rest));
+      continue;
+    }
+    // 列传按"某某,字某,某地人"的体例开头,不算
+    if (/^##\s/.test(l) && !l.includes('列传')) {
+      let j = k + 1;
+      while (j < lines.length && (!lines[j] || lines[j].startsWith('#'))) {
+        if (/^##\s/.test(lines[j])) break;
+        j++;
+      }
+      if (j < lines.length && !lines[j].startsWith('#') && !VERDICT_HEAD.test(lines[j])) add(openings, firstSentence(lines[j]));
+    }
+  }
+  return { openings: openings.slice(-USED_MAX), verdicts: verdicts.slice(-USED_MAX) };
+}
+
+/** 〔前文用过的开头和"史臣曰"〕那一段;前文里摘不出来 = '' */
+function usedBlock(prev: string, unit: string): string {
+  const { openings, verdicts } = usedPhrases(prev);
+  if (!openings.length && !verdicts.length) return '';
+  const rows = [...openings.map((s) => `- 开头:「${s}」`), ...verdicts.map((s) => `- 史臣曰:「${s}」`)];
+  return `\n\n〔前文用过的开头和"史臣曰"〕(这一${unit}不要再用这些句式和说法,也不要只换几个字照着套)\n${rows.join('\n')}`;
+}
+
 /**
  * 第 i 次调用发给 AI 的消息。分章写的从第二章起,prevText = 已经写好的前文(整篇给,太长取最后 PREV_CONTEXT 字),
  * 让 AI 接着写、不重复用过的人名和评语
@@ -1349,6 +1678,7 @@ export function historyMessages(p: HistoryPrompts, i: number, prevText = ''): Ai
     const t = prevText.trim();
     const cut = t.length > PREV_CONTEXT;
     ctx = `\n\n〔前文〕(已经写好的${cut ? '最后一部分' : '部分'};接着它往下写,不要重复)\n${cut ? '……' + t.slice(-PREV_CONTEXT) : t}`;
+    ctx += usedBlock(t, p.options.style === 'biography' ? '篇' : HISTORY_STYLES[p.options.style].unit ?? '章');
   }
   return [
     { role: 'system', content: p.system },

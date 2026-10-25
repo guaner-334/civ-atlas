@@ -3,7 +3,7 @@
  * 数值按成片的像素写(横屏 1920×1080、竖屏 1080×1920);面板里的预览是把整帧缩小画。
  *
  *   横屏:地图铺满(整张地图是 2:1,上下各留一条和地图纸边同色的边);左上角一张小卡写标题和年份,
- *        下方正中一条字幕,一次一条。
+ *        下方正中一条字幕,一次一条;字幕按大纲时,情节那条大字居中写作者写的那句、下面小字写年份。
  *   竖屏:浅色底,上一栏标题和年份,中间地图(整张地图:满宽一条 1080×540;一块:正方形),下一栏最近几条大事(新的在上)。
  *        上下右留出短视频平台的标签栏、按钮、标题会盖住的地方。
  *   片头:第一年的地图压暗一点,中间一张卡片写标题和年份范围,最后半秒淡出;片尾:最后一年,卡片淡入,写怎么来的和网址。
@@ -48,6 +48,8 @@ export interface FilmLook {
   range: string;
   captions: boolean;
   cards: boolean;
+  /** 片尾卡片上带不带"用「文明与地图」推演生成"和网址(关掉只留标题和架空声明) */
+  url: boolean;
   /** 横屏字幕(captionSlots 排好的)、竖屏下一栏用的全部大事 */
   slots: readonly CaptionSlot[];
   events: readonly FilmEvent[];
@@ -233,6 +235,7 @@ function drawLand(ctx: Ctx, look: FilmLook, f: number, year: number, alpha: numb
 }
 
 function drawCaption(ctx: Ctx, look: FilmLook, s: CaptionSlot) {
+  if (s.ev.plot) return drawPlotCaption(ctx, look, s);
   const size = 38;
   ctx.font = font(look, size, 700);
   const em = ctx.measureText(s.label).width;
@@ -251,6 +254,32 @@ function drawCaption(ctx: Ctx, look: FilmLook, s: CaptionSlot) {
   line(ctx, s.label, x + 34, y + 18, size, 1.4);
   ctx.font = font(look, size);
   line(ctx, text, x + 34 + em + 22, y + 18, size, 1.4);
+}
+
+/** 大纲里的一条情节:大字居中写作者写的那句(最多两行),下面一行小字写年份 */
+function drawPlotCaption(ctx: Ctx, look: FilmLook, s: CaptionSlot) {
+  const size = 42;
+  const small = 26;
+  const padX = 64;
+  ctx.font = font(look, size, 700);
+  const lines = wrapText((t) => ctx.measureText(t).width, s.text, 1500 - padX * 2, 2);
+  let tw = 0;
+  for (const l of lines) tw = Math.max(tw, ctx.measureText(l).width);
+  const w = Math.max(900, tw + padX * 2);
+  const h = 30 + lines.length * size * 1.35 + 6 + small * 1.4 + 24;
+  const x = (1920 - w) / 2;
+  const y = 1080 - 56 - h;
+  card(ctx, x, y, w, h, 20, CARD, { y: 4, blur: 20, a: 0.18 });
+  ctx.textAlign = 'center';
+  ctx.fillStyle = INK;
+  let top = y + 30;
+  for (const l of lines) {
+    line(ctx, l, 960, top, size, 1.35);
+    top += size * 1.35;
+  }
+  ctx.fillStyle = INK2;
+  ctx.font = font(look, small);
+  line(ctx, s.label, 960, top + 6, small, 1.4);
 }
 
 /** 竖屏:上一栏标题和年份,下一栏最近几条大事 */
@@ -323,11 +352,11 @@ function drawTitleCard(ctx: Ctx, look: FilmLook, which: 'intro' | 'outro', W: nu
   const rows: { text: string; size: number; weight: number; color: string; top: number }[] = [];
   if (look.title) rows.push({ text: look.title, size: S.b, weight: 700, color: INK, top: 0 });
   if (which === 'intro') rows.push({ text: look.range, size: look.title ? S.span : S.b * 0.6, weight: look.title ? 400 : 700, color: look.title ? INK2 : INK, top: look.title ? S.spanTop : 0 });
-  else {
+  else if (look.url) {
     rows.push({ text: OUTRO_MADE, size: S.span, weight: 400, color: INK2, top: look.title ? S.spanTop : 0 });
     rows.push({ text: OUTRO_URL, size: S.url, weight: 600, color: INK, top: S.urlTop });
     rows.push({ text: OUTRO_NOTE, size: S.note, weight: 400, color: INK3, top: S.noteTop });
-  }
+  } else rows.push({ text: OUTRO_NOTE, size: S.note, weight: 400, color: INK3, top: look.title ? S.spanTop : 0 });
   // 标题太长(最多 40 个字):字号缩小到放得下,再小就截断加"…",卡片不超出画面
   const maxW = land ? 1920 - 2 * 120 - 2 * S.padX : 1080 - 2 * 60 - 2 * S.padX;
   for (const r of rows) {

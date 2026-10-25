@@ -9,6 +9,9 @@
  *   --runs=3(放大那一组重复几轮,默认 3)  --out=snaps/perf.json(逐次原始记录)  --headed(开窗口跑)
  *   --case=4倍降速                                             只跑名字里带这几个字的情况
  *   npx tsx scripts/perf-map.ts curved                         弯边投影(罗宾森、摩尔威德):拖动转中央经线,停下再精画
+ *   npx tsx scripts/perf-map.ts globe                          地球仪:显卡画法、CPU 兼容画法(网址加 globe=cpu,没有 WebGL2 时走的那条路)
+ *   npx tsx scripts/perf-map.ts click --op=点国家              点国家:平面、罗宾森、地球仪(电脑、手机 4 倍降速),只量点选
+ *   --op=放大,点国家                                            只跑名字里带这几个字的操作(逗号分开)
  *   --profile=snaps/prof                                       每次操作另录一份 CPU profile,摘要里打印最耗时的几个函数
  *
  * 每种情况开一个新页面,世界画好后依次:1 倍拖动 → 放大到 4 倍(第 1 轮 = 这一页第一次放大,之后几轮是第二、三次)→
@@ -20,7 +23,9 @@
  *   阻塞合计   各次 Long Task 超出 50 ms 的部分加起来
  *   最长帧距   两帧之间最长隔了多久(requestAnimationFrame;16.7 = 一帧没掉)
  *   操作中 p95 操作进行中帧距的 95 分位
- *   补画       松手后到细节层最后一次画完(画面变清楚)多久
+ *   补画       松手后到细节层最后一次画完(画面变清楚)多久(地球仪 CPU 画法:最后一次换上底图)
+ *   面板       点国家:从按下到面板出现在屏幕上的那一帧画完
+ *   底图p95   地球仪 CPU 画法:操作中底图两次换上之间的 95 分位(主线程不卡时球面本身多久更新一次)
  *   地形 / 文明 细节层画一次最久多少毫秒(主线程上的,后台分帧做的部分另算在"分帧"里)
  * 数字只在同一台机器、同一个浏览器上前后对比有意义;没有显卡的机器上画图比真机慢得多,只看趋势。
  */
@@ -42,8 +47,10 @@ interface Case {
   layer: 'political' | 'terrain' | 'realistic';
   civ?: string;
   cells?: number;
-  /** 投影(不给 = 等距圆柱) */
+  /** 投影(不给 = 等距圆柱;globe = 地球仪) */
   proj?: string;
+  /** 网址另加的参数(globe=cpu:地球仪走 CPU 兼容画法) */
+  extra?: string;
 }
 
 const DESKTOP = { w: 1440, h: 900, dpr: 2, cpu: 1, touch: false };
@@ -74,13 +81,31 @@ const PRESETS: Record<string, Case[]> = {
     { id: '手机4倍降速-罗宾森-7', ...PHONE, cpu: 4, seed: 7, layer: 'political', proj: 'robinson' },
   ],
 };
+PRESETS.globe = [
+  { id: '电脑-地球仪CPU-7', ...DESKTOP, seed: 7, layer: 'political', proj: 'globe', extra: 'globe=cpu' },
+  { id: '电脑-地球仪-7', ...DESKTOP, seed: 7, layer: 'political', proj: 'globe' },
+  { id: '手机4倍降速-地球仪CPU-7', ...PHONE, cpu: 4, seed: 7, layer: 'political', proj: 'globe', extra: 'globe=cpu' },
+  { id: '手机4倍降速-地球仪-7', ...PHONE, cpu: 4, seed: 7, layer: 'political', proj: 'globe' },
+];
+PRESETS.click = [
+  PRESETS.desktop[0],
+  PRESETS.curved[0],
+  PRESETS.globe[1],
+  PRESETS.globe[0],
+  PRESETS.mobile[1],
+  PRESETS.curved[3],
+  PRESETS.globe[3],
+  PRESETS.globe[2],
+];
 PRESETS.default = [...PRESETS.desktop, ...PRESETS.mobile];
-PRESETS.all = [...PRESETS.desktop, ...PRESETS.mobile, ...PRESETS.extra, ...PRESETS.curved];
+PRESETS.all = [...PRESETS.desktop, ...PRESETS.mobile, ...PRESETS.extra, ...PRESETS.curved, ...PRESETS.globe];
 
 const args = process.argv.slice(2);
 const opt = (k: string) => args.find((a) => a.startsWith(`--${k}=`))?.slice(k.length + 3);
 const preset = args.find((a) => !a.startsWith('--')) ?? 'default';
 const ONLY = opt('case');
+const OPS = opt('op')?.split(',').filter(Boolean);
+const runOp = (op: string) => !OPS || OPS.some((o) => op.includes(o));
 const cases = PRESETS[preset]?.filter((c) => !ONLY || c.id.includes(ONLY));
 if (!cases) throw new Error(`没有「${preset}」这一组;可选:${Object.keys(PRESETS).join(' / ')}`);
 const RUNS = Number(opt('runs') ?? 3);
@@ -96,30 +121,43 @@ const PROFILE = opt('profile');
 const RECORDER = `(() => {
   if (window.__perf) return;
   const P = (window.__perf = { cur: null });
-  for (const key of ['__wfDetail', '__wfCivDetail', '__wfView', '__wfProj', '__wfCivProj']) {
+  for (const key of ['__wfDetail', '__wfCivDetail', '__wfView', '__wfProj', '__wfCivProj', '__wfGlobe']) {
     let v = window[key];
     Object.defineProperty(window, key, {
       configurable: true,
       get: () => v,
       set: (n) => {
+        const prev = v;
         v = n;
         const a = P.cur;
         if (!a || !n) return;
         const t = performance.now();
         if (key === '__wfView') { a.views.push({ t, k: n.k, x: n.x, y: n.y, lon: n.lon }); return; }
+        if (key === '__wfGlobe') {
+          // 地球仪每一帧都会重写一遍:视角变了才算一次视角变化;CPU 画法每换上一张底图记一次(旧版每帧当场画,没有 cpuSeq)
+          if (!prev || prev.lon !== n.lon || prev.lat !== n.lat || prev.k !== n.k || prev.shift !== n.shift) a.views.push({ t, k: n.k, x: n.lon, y: n.lat, lon: n.lon });
+          if (n.renderer === 'cpu' && (n.cpuSeq === undefined || !prev || prev.cpuSeq !== n.cpuSeq)) a.shows.push({ t });
+          return;
+        }
         if (n.ms === undefined || (key === '__wfCivDetail' && n.drew !== true)) return;
         a.draws.push({ t, key, ms: n.ms, exact: !!n.exact, k: n.k, prep: n.prep || 0, slices: n.slices || 0 });
       },
     });
   }
+  // 按下的时刻(点国家:从这里算到面板出现)
+  window.addEventListener('pointerdown', (e) => { const a = P.cur; if (a && !a.downAt) a.downAt = e.timeStamp; }, true);
+  const ch = new MessageChannel();
+  ch.port1.onmessage = () => { const a = P.cur; if (a && a.panelSeen && !a.panelAt) a.panelAt = performance.now(); };
   P.begin = () => {
-    const a = { start: performance.now(), inputEnd: 0, frames: [], tasks: [], draws: [], views: [], running: true, obs: null };
+    const a = { start: performance.now(), inputEnd: 0, frames: [], tasks: [], draws: [], views: [], shows: [], running: true, obs: null, downAt: 0, panelSeen: 0, panelAt: 0 };
     P.cur = a;
     let last = null;
     const tick = (t) => {
       if (!a.running) return;
       if (last !== null) a.frames.push({ t, dt: t - last });
       last = t;
+      // 面板第一次出现在这一帧:这一帧画完(紧跟着的消息)记为"面板出来"
+      if (a.downAt && !a.panelSeen && document.querySelector('.inspector:not(.hidden)')) { a.panelSeen = t; ch.port2.postMessage(0); }
       requestAnimationFrame(tick);
     };
     requestAnimationFrame(tick);
@@ -134,8 +172,8 @@ const RECORDER = `(() => {
     // 等画面稳下来:松手后至少 0.6 秒,且 0.4 秒里没有新的视角变化、细节层没有再画(最多等 6 秒)
     const quiet = () => {
       const t = Math.max(a.views.length ? a.views[a.views.length - 1].t : 0, a.draws.length ? a.draws[a.draws.length - 1].t : 0);
-      const d = window.__wfDetail, c = window.__wfCivDetail;
-      return performance.now() - t > 400 && !(d && d.pending) && !(c && c.pending);
+      const d = window.__wfDetail, c = window.__wfCivDetail, g = window.__wfGlobe;
+      return performance.now() - t > 400 && !(d && d.pending) && !(c && c.pending) && !(g && g.cpuPending);
     };
     while (performance.now() - a.inputEnd < 6000) {
       await new Promise((r) => setTimeout(r, 50));
@@ -145,7 +183,8 @@ const RECORDER = `(() => {
     if (a.obs) { for (const e of a.obs.takeRecords()) a.tasks.push({ t: e.startTime, ms: e.duration }); a.obs.disconnect(); }
     a.running = false;
     a.end = performance.now();
-    a.final = window.__wfView ? { k: window.__wfView.k, x: window.__wfView.x, y: window.__wfView.y, lon: window.__wfView.lon } : null;
+    const g = window.__wfGlobe;
+    a.final = g ? { k: g.k, x: g.lon, y: g.lat, lon: g.lon } : window.__wfView ? { k: window.__wfView.k, x: window.__wfView.x, y: window.__wfView.y, lon: window.__wfView.lon } : null;
     a.panel = [...document.querySelectorAll('.inspector')].some((e) => e.getBoundingClientRect().width > 0);
     a.canvasMiB = [...document.querySelectorAll('canvas')].reduce((s, c) => s + c.width * c.height * 4, 0) / 1048576;
     delete a.obs;
@@ -162,6 +201,10 @@ interface Raw {
   tasks: { t: number; ms: number }[];
   draws: { t: number; key: string; ms: number; exact: boolean; k: number; prep: number; slices: number }[];
   views: { t: number; k: number; x: number; y: number; lon?: number }[];
+  /** 地球仪 CPU 画法:每次换上底图的时刻 */
+  shows: { t: number }[];
+  downAt: number;
+  panelAt: number;
   final: { k: number; x: number; y: number; lon?: number } | null;
   panel: boolean;
   canvasMiB: number;
@@ -183,6 +226,10 @@ interface Row {
   prepMax: number;
   /** 弯边投影:地形 / 文明重投影一次最久多少毫秒 */
   projMax: number;
+  /** 点国家:按下到面板出现 */
+  panelMs: number;
+  /** 地球仪 CPU 画法:操作中底图换上间隔的 95 分位 */
+  imgP95: number;
   k: number;
 }
 
@@ -198,6 +245,10 @@ function summarize(c: Case, op: string, run: number, raw: Raw, valid: boolean): 
   const active = raw.frames.filter((f) => f.t <= raw.inputEnd).map((f) => f.dt);
   const after = raw.draws.filter((d) => d.t > raw.inputEnd);
   const of = (key: string) => Math.max(0, ...raw.draws.filter((d) => d.key === key).map((d) => d.ms));
+  const shows = raw.shows ?? [];
+  const showGaps: number[] = [];
+  for (let i = 1; i < shows.length; i++) if (shows[i].t <= raw.inputEnd + 100) showGaps.push(shows[i].t - shows[i - 1].t);
+  const lastShow = shows.filter((d) => d.t > raw.inputEnd).pop();
   return {
     case: c.id,
     op,
@@ -207,11 +258,13 @@ function summarize(c: Case, op: string, run: number, raw: Raw, valid: boolean): 
     blocking: r1(tasks.reduce((s, t) => s + Math.max(0, t.ms - 50), 0)),
     frameMax: r1(Math.max(0, ...raw.frames.map((f) => f.dt))),
     activeP95: r1(pct(active, 0.95)),
-    settle: after.length ? r1(after[after.length - 1].t - raw.inputEnd) : 0,
+    settle: after.length ? r1(after[after.length - 1].t - raw.inputEnd) : lastShow ? r1(lastShow.t - raw.inputEnd) : 0,
     terrainMax: r1(of('__wfDetail')),
     civMax: r1(of('__wfCivDetail')),
     prepMax: r1(Math.max(0, ...raw.draws.map((d) => d.prep))),
     projMax: r1(Math.max(of('__wfProj'), of('__wfCivProj'))),
+    panelMs: raw.downAt && raw.panelAt ? r1(raw.panelAt - raw.downAt) : 0,
+    imgP95: r1(pct(showGaps, 0.95)),
     k: Math.round((raw.final?.k ?? 0) * 1000) / 1000,
   };
 }
@@ -309,10 +362,51 @@ function topSelf(p: CpuProfile, n = 6): string {
   return [...byName].sort((a, b) => b[1] - a[1]).slice(0, n).map(([k, v]) => `${k} ${r1(v)}`).join('  ');
 }
 
-async function reset(page: Page) {
+async function reset(page: Page, c: Case) {
   await page.keyboard.press('Escape');
-  await page.evaluate('window.__wfSetView({ k: 1, x: 0, y: 0 }); window.__wfSetCenter(0);');
+  await page.evaluate(c.proj === 'globe' ? 'window.__wfGlobeSet(0, 18, 1)' : 'window.__wfSetView({ k: 1, x: 0, y: 0 }); window.__wfSetCenter(0);');
   await page.waitForTimeout(600);
+  if (c.proj === 'globe') await page.waitForFunction('!(window.__wfGlobe && window.__wfGlobe.cpuPending)', null, { timeout: 30000 }).catch(() => {});
+}
+
+/**
+ * 地球仪上找一个点了会打开国家面板的地方(球上没有公开的地名位置):从球心往外按固定顺序试,
+ * 找到就关掉面板、转回来。改前改后试的顺序一样,点到的是同一个国家
+ */
+async function globePolityPoint(page: Page, c: Case): Promise<{ x: number; y: number } | null> {
+  const offs: [number, number][] = [
+    [0, 0],
+    [0.3, 0],
+    [-0.3, 0],
+    [0, 0.3],
+    [0, -0.3],
+    [0.3, 0.3],
+    [-0.3, 0.3],
+    [0.3, -0.3],
+    [-0.3, -0.3],
+    [0.55, 0],
+    [-0.55, 0],
+    [0, 0.55],
+    [0, -0.55],
+  ];
+  for (const [ox, oy] of offs) {
+    await reset(page, c);
+    const g = (await page.evaluate(
+      `(() => { const b = document.querySelector('.globe').getBoundingClientRect(); const g = window.__wfGlobe; return { x: b.left, y: b.top, w: b.width, h: b.height, k: g.k, shift: g.shift }; })()`,
+    )) as { x: number; y: number; w: number; h: number; k: number; shift: number };
+    const R = 0.43 * Math.min(Math.max(1, g.w - 2 * Math.abs(g.shift)), g.h) * g.k;
+    const pt = { x: g.x + g.w / 2 + g.shift + ox * R, y: g.y + g.h * 0.48 + oy * R };
+    if (c.touch) await page.touchscreen.tap(pt.x, pt.y);
+    else await page.mouse.click(pt.x, pt.y);
+    await page.waitForTimeout(800);
+    const kind = await page.evaluate(`(() => { const e = document.querySelector('.inspector:not(.hidden)'); return e ? e.className : ''; })()`);
+    if (String(kind).includes('k-polity')) {
+      await reset(page, c);
+      return pt;
+    }
+  }
+  await reset(page, c);
+  return null;
 }
 
 async function runCase(browser: Browser, base: string, c: Case, rows: Row[], raws: unknown[]) {
@@ -322,6 +416,7 @@ async function runCase(browser: Browser, base: string, c: Case, rows: Row[], raw
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   const q = new URLSearchParams({
+    ...(c.extra ? Object.fromEntries(new URLSearchParams(c.extra)) : {}),
     seed: String(c.seed),
     play: '0',
     layer: c.layer,
@@ -331,16 +426,23 @@ async function runCase(browser: Browser, base: string, c: Case, rows: Row[], raw
   });
   const url = `${base}?${q}${EXTRA_QUERY ? `&${EXTRA_QUERY}` : ''}`;
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
-  await page.waitForFunction('window.__wfLabels && window.__wfLabels.ready', null, { timeout: 180000 });
+  // 地球仪:球画出来了(平面主图的文字层不挂;地名排上要等历史推完,再等一会儿)
+  await page.waitForFunction(c.proj === 'globe' ? 'window.__wfGlobe && window.__wfGlobe.ready' : 'window.__wfLabels && window.__wfLabels.ready', null, { timeout: 180000 });
+  if (c.proj === 'globe') await page.waitForFunction('window.__wfGlobe.labels > 0', null, { timeout: 8000 }).catch(() => {});
   await page.keyboard.press('Escape');
   await page.waitForTimeout(1500);
   await page.evaluate(RECORDER);
   const cdp = await context.newCDPSession(page);
   if (c.cpu > 1) await cdp.send('Emulation.setCPUThrottlingRate', { rate: c.cpu });
   const view = () =>
-    page.evaluate('window.__wfView ? { k: window.__wfView.k, x: window.__wfView.x, y: window.__wfView.y, lon: window.__wfView.lon } : null') as Promise<Raw['final']>;
+    page.evaluate(
+      'window.__wfGlobe ? { k: window.__wfGlobe.k, x: window.__wfGlobe.lon, y: window.__wfGlobe.lat, lon: window.__wfGlobe.lon } : window.__wfView ? { k: window.__wfView.k, x: window.__wfView.x, y: window.__wfView.y, lon: window.__wfView.lon } : null',
+    ) as Promise<Raw['final']>;
+  // 地球仪:等后台贴图、降速后的第一帧稳下来
+  if (c.proj === 'globe') await page.waitForTimeout(1000);
   if (PROFILE) await cdp.send('Profiler.enable');
   const measure = async (op: string, run: number, act: () => Promise<void>, ok: (a: Raw) => boolean) => {
+    if (!runOp(op)) return;
     const initial = await view();
     await page.evaluate('window.__perf.begin()');
     if (PROFILE) await cdp.send('Profiler.start');
@@ -361,18 +463,22 @@ async function runCase(browser: Browser, base: string, c: Case, rows: Row[], raw
   // 弯边投影里横向拖动转的是中央经线,不是平移
   const moved = (a: Raw) => !!a.initial && !!a.final && (Math.abs(a.final.x - a.initial.x) > 5 || Math.abs((a.final.lon ?? 0) - (a.initial.lon ?? 0)) > 1);
   const at4 = (a: Raw) => (a.final?.k ?? 0) >= 3.8 && (a.final?.k ?? 0) <= 4.3;
+  const globePick = c.proj === 'globe' && c.layer === 'political' && runOp('点国家') ? await globePolityPoint(page, c) : null;
   await measure('1倍拖动', 0, () => drag(page, c, cdp, true), moved);
   for (let r = 0; r < RUNS; r++) {
-    await reset(page);
+    await reset(page, c);
     await measure('放大到4倍', r, () => zoom(page, c, cdp), at4);
     await measure('4倍短拖', r, () => drag(page, c, cdp, false), (a) => at4(a) && moved(a));
     await measure('4倍长拖', r, () => drag(page, c, cdp, true), (a) => at4(a) && moved(a));
-    if (c.layer !== 'political') continue;
-    await reset(page);
-    // 点一个看得见的国家(国名所在处),地图会飞过去、放大
-    const pick = (await page.evaluate(`(window.__wfPickables ? window.__wfPickables() : [])
+    if (c.layer !== 'political' || !runOp('点国家')) continue;
+    await reset(page, c);
+    // 点一个看得见的国家(国名所在处),地图会飞过去、放大(地球仪:转过去)
+    const pick =
+      c.proj === 'globe'
+        ? globePick
+        : ((await page.evaluate(`(window.__wfPickables ? window.__wfPickables() : [])
       .filter((p) => p.kind === 'polity' && p.x > ${c.touch ? 30 : 370} && p.x < ${c.w - 30} && p.y > 120 && p.y < ${c.h - 230})
-      .sort((a, b) => a.id - b.id)[0] || null`)) as { x: number; y: number } | null;
+      .sort((a, b) => a.id - b.id)[0] || null`)) as { x: number; y: number } | null);
     if (!pick) continue;
     await measure(
       '点国家',
@@ -399,6 +505,8 @@ const COLS: [keyof Row, string][] = [
   ['civMax', '文明'],
   ['prepMax', '分帧'],
   ['projMax', '投影'],
+  ['panelMs', '面板'],
+  ['imgP95', '底图p95'],
 ];
 const fmt = (r: Row) =>
   `${r.case.padEnd(14)} ${`${r.op}#${r.run}`.padEnd(8)} ${COLS.map(([k, n]) => `${n} ${String(r[k]).padStart(6)}`).join('  ')}  k=${r.k}${r.valid ? '' : '  (轨迹不对,不算)'}`;
@@ -416,14 +524,15 @@ try {
   await srv.close();
 }
 // 汇总:每种情况、每种操作取有效的几轮里最差的(第一次放大单列)
-console.log('\n== 汇总(每格 = 有效几轮里最长任务的最大值 / 最长帧距的最大值)');
+console.log('\n== 汇总(每格 = 有效几轮里最长任务的最大值 / 最长帧距的最大值;点国家另加按下到面板出现的最大值)');
 const ops = ['1倍拖动', '放大到4倍#0', '放大到4倍#1+', '4倍短拖', '4倍长拖', '点国家'];
 console.log(`${'情况'.padEnd(14)} ${ops.map((o) => o.padStart(14)).join('')}`);
 for (const c of cases) {
   const cells = ops.map((o) => {
     const sel = rows.filter((r) => r.case === c.id && r.valid && (o === '放大到4倍#0' ? r.op === '放大到4倍' && r.run === 0 : o === '放大到4倍#1+' ? r.op === '放大到4倍' && r.run > 0 : r.op === o));
     if (!sel.length) return '—'.padStart(14);
-    return `${Math.max(...sel.map((r) => r.longMax))} / ${Math.max(...sel.map((r) => r.frameMax))}`.padStart(14);
+    const panel = o === '点国家' ? ` / ${Math.max(...sel.map((r) => r.panelMs))}` : '';
+    return `${Math.max(...sel.map((r) => r.longMax))} / ${Math.max(...sel.map((r) => r.frameMax))}${panel}`.padStart(o === '点国家' ? 20 : 14);
   });
   console.log(`${c.id.padEnd(14)} ${cells.join('')}`);
 }

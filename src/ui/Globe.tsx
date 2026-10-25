@@ -7,7 +7,9 @@
  *     着色器按"光从屏幕左上方来"重新打光,两极不会光从背后来 —— 这张要重算整张图的明暗,后台线程画(globeWorker.ts),
  *     画好之前先用主图那张;数据图层直接用主图那张。
  *     放大到 1.5 倍以上、贴图不够清楚时,后台线程按两倍像素重铺一张换上。缩放 1 倍、换画风、换世界都不会自己去铺高清的;
- *     铺好的缩回去以后留着,换画风再换回来直接用,换世界才扔
+ *     铺好的缩回去以后留着,换画风再换回来直接用,换世界才扔。
+ *     手机布局下不自己去铺(铺的那一下要多占三四百 MB 内存,内存小的手机上网页会被系统关掉重开):放大到要铺的时候顶上问一句,
+ *     点「换高清」才铺,这次打开网页一直记着(之后和电脑上一样自己铺);点 ✕ 就算了。每次打开地球仪最多问一次
  *   - 文明贴图:国土 / 民族色块(还有宜居度、州界细线、城址这几个调试图层),这里自己画一张(drawCivFill,不含国界和道路),
  *     时间轴一动就重画、重新上传(手绘风停着时水彩按地球仪贴图的林块让位);选中的国家 / 州的罩染也是自己画的一张(不含描边)
  *   - 高亮层(编年史闪烁):罩染自己画一张,描边、圆圈每帧画成矢量(见下)
@@ -25,11 +27,12 @@
  *
  * 交互:拖动旋转(松手有惯性)、滚轮 / 双指缩放、双击回正(北在上、赤道居中、整个球);球上不放按钮 ——
  * 经纬网在图层与投影弹层里开关,"导出地球仪这一面"在导出菜单里(exportGlobeView);
- * 状态(没有 WebGL2、高清贴图加载得慢)用顶部提示条。
+ * 状态(没有 WebGL2、高清贴图加载得慢、手机上问要不要换高清)用顶部提示条。
  * 单击由 App 统一处理(和主图同一套选中逻辑),这里提供"屏幕点 → 主图像素""点到了哪个符号 / 字""世界坐标 → 屏幕"(GlobeApi)。
  * 右侧的国家面板打开时球心往左挪半个面板宽(0.6 秒过渡),转到的国家落在去掉面板后的可见区域正中。
  *
- * 没有 WebGL2(或网址加 globe=cpu)时退回 CPU 画:同样的公式逐像素算,拖动时降一半分辨率。
+ * 没有 WebGL2(或网址加 globe=cpu)时退回 CPU 画:同样的公式逐像素算,拖动时降一半分辨率;
+ * 在几个后台线程里分段画(ui/globeCpu.ts),画好整张换上,球上面那层跟着那张的视角画 —— 主线程不再一画几百毫秒。
  *
  * 开关就是"投影"切换里的 globe(ui/projection.ts;"图层与投影"弹层的投影、地图右下角的"地球仪 / 平面地图"按钮都改它,网址 proj=globe,旧的 view=globe 也认);
  * 经纬网和平面投影共用一个开关;中心经度和 mapWrap.ts 的中心互通(打开时从当前中心转起,停下来就记下正对着的经度)。
@@ -58,6 +61,7 @@ import {
   screenToPixel,
   worldToLonLat,
   zoomAt,
+  type CpuSources,
   type GlobeLook,
   type GlobeTexSource,
   type GlobeView,
@@ -68,6 +72,10 @@ import {
 import { getCivFeed, subscribeCivFeed } from './CivLayer';
 import { getProjection, lastFlatProjection, setProjection, useGraticuleLines, useProjection } from './projection';
 import { clearToast, showToast } from './toastStore';
+import { isNarrow } from './device';
+import { getCloudPrefs, setCloudGpu, useCloudPrefs } from './cloudPrefs';
+import { CLOUD_H, CLOUD_W, wetFromPrecip } from '../render/clouds';
+import type { CloudResponse } from '../cloudWorker';
 import { getMapCenter, publishMapCenter } from './mapWrap';
 import { animProgress } from './flyTo';
 import { drawSettlementMarks, type SettlementMarkInfo } from '../render/civ/settlements';
@@ -108,13 +116,15 @@ import {
   type GlobeLineStroke,
   type GlobeProjector,
 } from '../render/globeLines';
-import { MARK_MIN_D, globeGlyphAlpha, globeLabelView, globePolityItem, globeToCanvas, isQuickLabel, visibleMarks, type GlobeLabelView } from '../render/globeLabels';
+import { MARK_MIN_D, globeGlyphAlpha, globeLabelView, globePolityItem, globeToCanvas, isQuickLabel, overviewFloor, visibleMarks, type GlobeLabelView } from '../render/globeLabels';
 import { ALL_FIGHTS_K, drawSwords, swordHalf, warFront, warMarkPoints, warsShown } from '../render/civ/warfare';
 import { drawGlobeGlyphs, globeGlyphSet, placeGlobeGlyphs, type GlobeGlyphSet, type GlobeGlyphView, type PlacedGlobeGlyph } from '../render/globeGlyphs';
 import { fantasyGlobeBase, releaseFantasyGlobeBase } from '../render/fantasy';
+import { cancelDetailJob, detailAsync, submitDetailJob } from './detailJobs';
 import type { LabelPick } from './mapPick';
 import { AVOID_MS, measureAvoid, type Box } from './uiAvoid';
 import type { GlobeTexRequest, GlobeTexResponse } from '../globeWorker';
+import { GlobeCpuPool, cpuWorkerCount, type CpuFrame } from './globeCpu';
 import { reliefWeights } from '../render/realistic';
 import type { SurfaceLook } from '../render/surface';
 import { LOOK_NAMES } from './mapLayers';
@@ -182,13 +192,17 @@ export interface GlobeApi {
   labelAt(cx: number, cy: number): LabelPick | null;
   /** 刚才那一下按下以后拖动过(拖过就不算单击) */
   dragged(): boolean;
+  /** 第一帧换上了(之前屏幕上还是平面图,点选、悬停都不算) */
+  ready(): boolean;
   /**
-   * 转到某经纬度(度;纬度不给 = 不变),约 0.6 秒。转到的地方落在球心 —— 宽屏上球心在侧栏卡片右边那一块的正中
+   * 转到某经纬度(度;纬度不给 = 不变;放大倍数 k 不给 = 不变),约 0.6 秒。转到的地方落在球心 —— 宽屏上球心在侧栏卡片右边那一块的正中
    * (见 GlobeProps.leftRoom)
    */
-  flyTo(lon: number, lat?: number): void;
+  flyTo(lon: number, lat?: number, k?: number): void;
   /** 视图中心的经度(度) */
   centerLon(): number;
+  /** 镜头:球心对着的经纬度(度)、放大倍数(地球仪自己的倍数;分享链接带上"这一刻"时用) */
+  camera(): { lon: number; lat: number; k: number };
   /** 回正:北在上、赤道居中、整个球(和双击一样;手指点两下时 App 调它) */
   reset(): void;
   /**
@@ -228,11 +242,16 @@ export interface GlobeProps {
   apiRef: MutableRefObject<GlobeApi | null>;
   /** 悬停在球上的主图像素(离开 = null) */
   onHover: (p: [number, number] | null) => void;
+  /** 第一帧画好、地球仪露出来了(在这之前平面地图照旧显示着) */
+  onOpened?: () => void;
   /** 左边被侧栏卡片挡住多宽(CSS 像素;没有 = 0):球心往右挪一半,落在剩下那一块的正中(宽度变了约 0.6 秒过渡) */
   leftRoom?: number;
   /** 右边被助手面板挡住多宽(同上,球心往左挪一半) */
   rightRoom?: number;
 }
+
+/** 打开地球仪时的备料(warmSteps)在 detailJobs 里的活名 */
+const WARM_JOB = 'globe-warm';
 
 /** 调试 / 冒烟检查用 */
 interface GlobeDebug {
@@ -295,6 +314,40 @@ interface GlobeDebug {
   texMs?: number;
   /** 起过几次画"主图那么大的写实地球仪贴图"的后台线程 */
   globeTexStarted: number;
+  /**
+   * CPU 画法:分段画的后台线程几个(0 = 显卡画法,或当场画)、换上过几张底图、屏幕上这张是不是全分辨率、
+   * 还有没画完 / 没换上的、最近一张从请求到画好多少毫秒
+   */
+  cpuWorkers: number;
+  cpuSeq: number;
+  cpuFull: boolean;
+  cpuPending: boolean;
+  cpuMs: number;
+  /** 云(卫星底图):off = 没开 / 不是卫星底图 / 没有显卡画法,baking = 后台在画云图或正在淡入,ready = 这个世界的云已全部显出来;画云图用了多少毫秒 */
+  cloud: 'off' | 'baking' | 'ready';
+  cloudMs: number;
+}
+
+/** CPU 画法的贴图槽位 */
+type CpuSlot = 'terrain' | 'civ' | 'sel' | 'replay';
+const CPU_SLOTS: CpuSlot[] = ['terrain', 'civ', 'sel', 'replay'];
+/**
+ * CPU 画法的一帧底图按什么画的(视角、球心挪动、全分辨率与否、当时的舞台大小 w × h 和像素密度;
+ * key = 这些加上分辨率、画风、贴图版本)
+ */
+interface CpuTag {
+  key: string;
+  view: GlobeView;
+  shift: number;
+  full: boolean;
+  w: number;
+  h: number;
+  dpr: number;
+}
+/** 球上面那层按哪个视角画 */
+interface ViewAt {
+  view: GlobeView;
+  shift: number;
 }
 
 /** 转动 / 拖时间轴停下来这么久(毫秒)以后,文字从"只排大字"换成排全部 */
@@ -322,6 +375,8 @@ const FLASH: [number, number][] = [
 const FLASH_MS = 2200;
 /** 高清贴图最多留几张(每张 4096×2048,约 32 MB;换画风再换回来不用重铺) */
 const HD_CACHE = 3;
+/** 手机布局下点过「换高清」(这次打开网页一直记着:之后放大就和电脑上一样自己铺) */
+let hdOnPhone = false;
 
 function flashAt(t: number): number {
   for (let i = 1; i < FLASH.length; i++) {
@@ -459,7 +514,8 @@ function onFront(it: LabelItem, lv: GlobeLabelView): boolean {
  */
 function placeGlobeLabels(o: PlaceInput): GlobePlacement {
   const t0 = performance.now();
-  const lv = globeLabelView({ view: o.view, w: o.w, h: o.h, dpr: o.dpr, worldW: o.world.width, worldH: o.world.height, surface: o.surface, reserved: o.reserved, shift: o.shift });
+  // 手机上球小、等效缩放不到 1 倍:按缩放 1 倍、地图显示得窄一些排(overviewFloor)
+  const lv = overviewFloor(globeLabelView({ view: o.view, w: o.w, h: o.h, dpr: o.dpr, worldW: o.world.width, worldH: o.world.height, surface: o.surface, reserved: o.reserved, shift: o.shift }));
   const vm = visibleMarks(o.marks, lv);
   const items = o.items.filter((it) => lv.k >= it.minZoom * 0.92 && (!o.quick || isQuickLabel(it)) && onFront(it, lv)).map(globePolityItem);
   const placed = placeMap(items, vm.marks, lv);
@@ -684,7 +740,9 @@ const sameKey = (a: readonly unknown[] | null, b: readonly unknown[]) => !!a && 
 
 // ---------------------------------------------------------------------------
 
-export function Globe({ world, raster, civ, geo, style, layer, look = 'classic', terrain, terrainKey, replay, startLon, apiRef, onHover, leftRoom = 0, rightRoom = 0 }: GlobeProps) {
+export function Globe({ world, raster, civ, geo, style, layer, look = 'classic', terrain, terrainKey, replay, startLon, apiRef, onHover, onOpened, leftRoom = 0, rightRoom = 0 }: GlobeProps) {
+  /** 第一帧画好了:之前地球仪藏着(屏幕上还是平面地图,见 warmSteps) */
+  const [shown, setShown] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const glRef = useRef<HTMLCanvasElement>(null);
   const ovRef = useRef<HTMLCanvasElement>(null);
@@ -710,6 +768,8 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
     raf: 0,
     frames: 0,
     opened: false,
+    /** 打开时的备料(warmSteps):'' = 还没开始,'run' = 在后台备,'done' = 备好了(或不用备) */
+    warm: (detailAsync ? '' : 'done') as '' | 'run' | 'done',
     fly: null as { from: GlobeView; to: GlobeView; t0: number; dur: number } | null,
     inertia: null as { vx: number; vy: number; t: number } | null,
     flash: null as { t0: number } | null,
@@ -752,12 +812,28 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
      * 高清贴图:这个世界里已经铺好的(按画风 / 图层存,缩回去、换画风再换回来都留着,换世界才扔)、
      * 正在铺的是哪一张、铺失败过的、一共起过几次后台线程
      */
-    hd: { world: null as World | null, cache: new Map<string, HdTexture>(), pending: null as string | null, failed: new Set<string>(), started: 0 },
+    hd: { world: null as World | null, cache: new Map<string, HdTexture>(), pending: null as string | null, failed: new Set<string>(), started: 0, asked: false },
     /** 后台画好的、主图那么大的地球仪贴图(写实风;按画风存,换世界才扔)、画失败过的 */
     lo: { cache: new Map<string, HdTexture>(), failed: new Set<string>(), started: 0 },
     cpuSrc: { terrain: null as RgbaImage | null, civ: null as RgbaImage | null, sel: null as RgbaImage | null, replay: null as RgbaImage | null },
     cpuImg: null as ImageData | null,
     cpuIdle: 0,
+    /**
+     * CPU 画法在后台线程里分段画(ui/globeCpu.ts):线程(起不来 / 出错过 = cpuFailed,改回当场画)、
+     * 哪几张贴图还没交给线程、哪几张还没从画布读回像素、贴图换过几次、画好等着换上的那张、屏幕上这张按什么画的、最近一次请求画的是什么、
+     * 换上过几张、最近一张从请求到画好多少毫秒;cpuSync = 当场画(量每帧耗时用)
+     */
+    cpuPool: null as GlobeCpuPool<CpuTag> | null,
+    cpuFailed: false,
+    cpuDirty: { terrain: true, civ: true, sel: true, replay: true } as Record<CpuSlot, boolean>,
+    cpuLazy: {} as Partial<Record<CpuSlot, HTMLCanvasElement>>,
+    cpuSrcVer: 0,
+    cpuReady: null as CpuFrame<CpuTag> | null,
+    cpuShown: null as CpuTag | null,
+    cpuWant: '',
+    cpuSeq: 0,
+    cpuMs: 0,
+    cpuSync: false,
     /** 滚轮 / 触控板(转动、缩放、捏合)最后一下的时刻:之后 SETTLE_MS 以内也算在动;停下后补画一帧的定时器 */
     wheelAt: -Infinity,
     wheelIdle: 0,
@@ -782,11 +858,40 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
     glyphMs: 0,
     /** 这一帧编年史高亮闪到多亮(0–1) */
     hlA: 0,
+    /** 下一帧先不画(选中刚换,让面板先上屏) */
+    hold: false,
+    /**
+     * 云(卫星底图,见 render/clouds.ts):key = 正在画 / 画过的云图对应的降水图(换了世界重画)、pending = 后台正在画、
+     * data / dataKey = 画好等着上传的云图和它的降水图、uploaded / upKey = 已传上显卡的那份和它的降水图(换了世界先淡出旧云,淡完再换上新的)、
+     * mix = 浓淡渐入(0–1)、rot = 云层比地面多转的角度、t = 边缘花纹变形用的秒数(只在飘的时候走,静止的云一帧帧完全一样)、
+     * at = 上一次推进的时刻(毫秒)、failedKey = 画失败的那份降水图(只对那个世界不再重试)
+     */
+    cloud: {
+      key: null as unknown,
+      pending: false,
+      data: null as Uint8Array | null,
+      dataKey: null as unknown,
+      uploaded: null as Uint8Array | null,
+      upKey: null as unknown,
+      mix: 0,
+      rot: 0,
+      t: 0,
+      at: 0,
+      failedKey: null as unknown,
+      ms: 0,
+      /** 正在画云图的后台线程(地球仪关掉时停掉它) */
+      worker: null as Worker | null,
+    },
+    /** 云飘动时只重画显卡那一层(不动文字和矢量线):上一帧的画法参数、下一次重画的时刻、最后一次有人操作的时刻、重画的定时循环 */
+    lastGl: null as { cw: number; ch: number; dpr: number; look: GlobeLook } | null,
+    driftAt: 0,
+    lastInput: 0,
+    driftRaf: 0,
   }).current;
 
   // 最新的 props(帧回调里读)
-  const props = useRef({ world, raster, civ, geo, style, layer, look, terrain, terrainKey, replay, graticule, sel, show, leftRoom, rightRoom, hl, faithFocus, resView });
-  props.current = { world, raster, civ, geo, style, layer, look, terrain, terrainKey, replay, graticule, sel, show, leftRoom, rightRoom, hl, faithFocus, resView };
+  const props = useRef({ world, raster, civ, geo, style, layer, look, terrain, terrainKey, replay, graticule, sel, show, leftRoom, rightRoom, hl, faithFocus, resView, onOpened });
+  props.current = { world, raster, civ, geo, style, layer, look, terrain, terrainKey, replay, graticule, sel, show, leftRoom, rightRoom, hl, faithFocus, resView, onOpened };
 
   /** 左边被侧栏卡片挡住的宽度(画布太窄就不让) */
   const leftOf = () => (s.size.w > 2 * props.current.leftRoom ? props.current.leftRoom : 0);
@@ -799,7 +904,255 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
     if (!s.raf) s.raf = requestAnimationFrame(tick);
   };
 
+  // ---- 云(写实风) ----
+  /** 云层比地面多转的速度:一圈约 25 分钟,肉眼看是缓缓漂移 */
+  const CLOUD_SPIN = (2 * Math.PI) / 1500;
+  /** 久没人操作(三分钟)就不再重画,省电;一动又接上 */
+  const DRIFT_IDLE_MS = 180000;
+  /** 这会儿该不该有云:显卡画法、卫星底图(经典 / 细节 / 简化;地理图、白模不画)、图层里开着 */
+  const cloudWanted = () => {
+    const p = props.current;
+    return !!s.gl && p.style === 'realistic' && p.look !== 'geo' && p.look !== 'geoMute' && p.look !== 'blank' && getCloudPrefs().on;
+  };
+  /**
+   * 推进云的状态:浓淡渐入渐出、云层转角。返回还要不要接着画(渐变没完、或者在飘)。
+   * 云图要后台画(约一秒):换了世界、云图还没有时在这里开线程,画好下一帧传上显卡
+   */
+  const cloudStep = (now: number, busy: boolean): boolean => {
+    const p = props.current;
+    const c = s.cloud;
+    const pr = getCloudPrefs();
+    const want = cloudWanted();
+    if (want && !busy && c.failedKey !== p.world.precipitation && c.key !== p.world.precipitation && !c.pending) {
+      c.key = p.world.precipitation;
+      c.pending = true;
+      const key = c.key;
+      try {
+        const wk = new Worker(new URL('../cloudWorker.ts', import.meta.url), { type: 'module' });
+        c.worker = wk;
+        const done = () => {
+          wk.terminate();
+          if (c.worker === wk) c.worker = null;
+          c.pending = false;
+        };
+        wk.onmessage = (e: MessageEvent<CloudResponse>) => {
+          done();
+          const r = e.data;
+          // 画的这段时间里换了世界:作废(下一帧按新世界重画),成败都不算
+          if (props.current.world.precipitation !== key) {
+            c.key = null;
+            invalidate();
+            return;
+          }
+          if (!r.ok) {
+            c.failedKey = key;
+            console.warn('地球仪的云图没画出来:', r.error);
+            return;
+          }
+          c.data = r.data;
+          c.dataKey = key;
+          c.ms = r.ms;
+          invalidate();
+        };
+        wk.onerror = () => {
+          done();
+          if (props.current.world.precipitation === key) c.failedKey = key;
+          else c.key = null;
+        };
+        const r = p.raster;
+        wk.postMessage({ seed: p.world.params.seed, wet: wetFromPrecip(r.precip, r.w, r.h) });
+      } catch {
+        c.pending = false;
+        c.failedKey = key;
+      }
+    }
+    // 旧世界的云还看得见时先淡出,淡完再换上新云图
+    if (c.data && s.gl && c.uploaded !== c.data && (!c.uploaded || c.mix <= 0)) {
+      s.debug.upload.cloud = s.gl.upload('cloud', { w: CLOUD_W, h: CLOUD_H, data: c.data, gray: true });
+      c.uploaded = c.data;
+      c.upKey = c.dataKey;
+    }
+    const target = want && c.uploaded && c.upKey === p.world.precipitation ? 1 : 0;
+    let more = false;
+    if (c.mix !== target) {
+      c.mix = target > c.mix ? Math.min(1, c.mix + 0.04) : Math.max(0, c.mix - 0.06);
+      more = true;
+    }
+    const dt = c.at ? Math.min(0.1, Math.max(0, (now - c.at) / 1000)) : 0;
+    c.at = now;
+    if (pr.drift && c.mix > 0) {
+      c.rot += dt * CLOUD_SPIN;
+      if (c.rot > 2 * Math.PI) c.rot -= 2 * Math.PI;
+      c.t += dt;
+    }
+    return more;
+  };
+  /** 这一帧云的画法(没有云 = undefined);放大了、铺着国家 / 民族 / 信仰 / 时代色块时淡一些 */
+  const cloudLook = (busy = false): GlobeLook['clouds'] => {
+    const c = s.cloud;
+    const p = props.current;
+    if (!s.gl || p.style !== 'realistic' || c.mix <= 0 || !c.uploaded) return undefined;
+    const kz = Math.min(1, Math.max(0, (s.view.k - 1.4) / 2.1));
+    const zoomFade = 1 - 0.6 * kz * kz * (3 - 2 * kz);
+    const fill = p.show.polities || p.show.cultures || p.show.faiths || p.show.eras ? 0.5 : 1;
+    return { opacity: c.mix * zoomFade * fill, rot: c.rot, t: c.t, detail: busy && isNarrow() ? 0 : 1 };
+  };
+  /** 云在飘、而且这会儿值得重画 */
+  const drifting = (now: number) => {
+    return cloudWanted() && getCloudPrefs().drift && s.cloud.mix > 0 && !document.hidden && now - s.lastInput < DRIFT_IDLE_MS;
+  };
+  /** 飘动的重画循环:只重画显卡那一层(球上的字和线不动),最多每秒 30 帧;转动、飞行时由 tick 自己画 */
+  const driftTick = (now: number) => {
+    s.driftRaf = 0;
+    if (!drifting(now)) return;
+    s.driftRaf = requestAnimationFrame(driftTick);
+    if (s.raf || !s.gl || !s.lastGl || now - s.driftAt < 32) return;
+    s.driftAt = now;
+    cloudStep(now, true);
+    const g = s.lastGl;
+    s.gl.render(s.view, frameOf(s.view, g.cw, g.ch, g.dpr), g.dpr, { ...g.look, clouds: cloudLook() });
+  };
+  const startDrift = () => {
+    s.lastInput = performance.now();
+    if (!s.driftRaf && drifting(s.lastInput)) s.driftRaf = requestAnimationFrame(driftTick);
+  };
+
+  // ---- CPU 画法(没有 WebGL2):后台线程分段画,画好整张换上 ----
+  /** 换一张 CPU 画法的贴图(下次请求画的时候交给后台线程) */
+  const setCpuSrc = (slot: CpuSlot, img: RgbaImage | null) => {
+    s.cpuSrc[slot] = img;
+    delete s.cpuLazy[slot];
+    s.cpuDirty[slot] = true;
+    s.cpuSrcVer++;
+  };
+  /**
+   * 换成一张画布上的像素:先记下画布,真要用时(交给后台线程、当场画、导出)才读回像素 ——
+   * 时间轴放着时文明贴图每帧都重画,后台还没画完上一张时不用每帧都读一遍、拷给每个线程
+   */
+  const setCpuCanvas = (slot: CpuSlot, cv: HTMLCanvasElement | null) => {
+    if (!cv) return setCpuSrc(slot, null);
+    s.cpuLazy[slot] = cv;
+    s.cpuDirty[slot] = true;
+    s.cpuSrcVer++;
+  };
+  /** CPU 画法现在的贴图像素(记着画布的这时读回) */
+  const cpuSrcNow = (): CpuSources => {
+    for (const k of CPU_SLOTS) {
+      const cv = s.cpuLazy[k];
+      if (!cv) continue;
+      s.cpuSrc[k] = readPixels(cv);
+      delete s.cpuLazy[k];
+    }
+    return s.cpuSrc;
+  };
+  /** 后台线程(第一次用时起;起不来 / 出错过 = null,改回当场画) */
+  const cpuPool = (): GlobeCpuPool<CpuTag> | null => {
+    if (s.cpuFailed) return null;
+    if (!s.cpuPool) {
+      const pool = new GlobeCpuPool<CpuTag>(
+        cpuWorkerCount(),
+        (fr) => {
+          if (s.cpuReady) s.cpuPool?.recycle(s.cpuReady);
+          s.cpuReady = fr;
+          invalidate();
+        },
+        () => {
+          console.warn('地球仪:CPU 画法的后台线程用不了,改在主线程上画');
+          s.cpuFailed = true;
+          s.cpuPool = null;
+          s.cpuReady = null;
+          s.cpuShown = null;
+          s.cpuWant = '';
+          invalidate();
+        },
+      );
+      if (pool.failed) return null;
+      s.cpuPool = pool;
+      s.cpuDirty = { terrain: true, civ: true, sel: true, replay: true };
+    }
+    return s.cpuPool;
+  };
+  /** 变了的贴图交给后台线程 */
+  const pushCpuSources = (pool: GlobeCpuPool<CpuTag>) => {
+    cpuSrcNow();
+    const part: Partial<CpuSources> = {};
+    let any = false;
+    for (const k of CPU_SLOTS) {
+      if (!s.cpuDirty[k]) continue;
+      part[k] = s.cpuSrc[k];
+      s.cpuDirty[k] = false;
+      any = true;
+    }
+    if (any) pool.setSources(part);
+  };
+  /** 后台画好的那张整张换上(画布大小跟着换);没有 = false */
+  const presentCpu = (cvs: HTMLCanvasElement): boolean => {
+    const fr = s.cpuReady;
+    if (!fr) return false;
+    s.cpuReady = null;
+    // 画的这段时间里窗口大小变了:这张的比例不对,不换上(新大小的那张接着就画)
+    if (fr.tag.w !== s.size.w || fr.tag.h !== s.size.h || fr.tag.dpr !== s.size.dpr) {
+      s.cpuPool?.recycle(fr);
+      return false;
+    }
+    if (cvs.width !== fr.w || cvs.height !== fr.h) {
+      cvs.width = fr.w;
+      cvs.height = fr.h;
+    }
+    const ctx = cvs.getContext('2d');
+    if (ctx) for (const b of fr.bands) ctx.putImageData(new ImageData(new Uint8ClampedArray(b.buf), fr.w, b.rows), 0, b.y0);
+    s.cpuPool?.recycle(fr);
+    s.cpuShown = fr.tag;
+    s.cpuSeq++;
+    s.cpuMs = fr.ms;
+    return true;
+  };
+
   // ---- 贴图 ----
+  /**
+   * 文明贴图:国土色块(不含国界、道路,那两样画成矢量线);年份、开关、画风变了才重画。
+   * 手绘:停着的时候水彩按地球仪贴图的符号让位(林块按纬度拉宽过,山丘不在贴图里;globeTex = 地形用的是地球仪专用的那张);
+   * 回放 / 拖时间轴时和主图共用同一年算好的那份(省一次计算,高纬度林块上的让位略有错位,动着看不出)
+   */
+  const prepCivTex = (globeTex: boolean) => {
+    const p = props.current;
+    const cp = civParamsOf(p);
+    const globeInk = !!cp && !cp.fast && globeTex;
+    const ck = cp ? [cp.world, cp.raster, cp.civ, cp.style, cp.year, cp.show, cp.fast, globeInk, cp.faithFocus] : [p.world];
+    if (!sameKey(s.civTex.key, ck)) {
+      s.civTex.key = ck;
+      const t0 = performance.now();
+      let cv = s.civTex.canvas;
+      if (cp) {
+        if (!cv) cv = s.civTex.canvas = document.createElement('canvas');
+        if (cv.width !== p.raster.w || cv.height !== p.raster.h) {
+          cv.width = p.raster.w;
+          cv.height = p.raster.h;
+        }
+        drawCivFill(cv.getContext('2d')!, { ...cp, globeInk });
+      }
+      s.civTex.ms = performance.now() - t0;
+      s.civTex.ver++;
+    }
+    return cp;
+  };
+
+  /**
+   * 打开地球仪时先备料:地球仪专用的地形贴图、手绘符号、文明贴图在后台分几步画好(ui/detailJobs.ts),都好了再画第一帧 ——
+   * 不在第一帧里一口气画完(弱一点的电脑上要卡一两秒)。备的时候地球仪藏着,屏幕上还是平面地图,照常能拖能点。
+   * 和第一帧当场画的是同一份(都是按键缓存的),猜错了(比如高清贴图的缓存是别的世界的)第一帧照常重画
+   */
+  const warmSteps = (): (() => void)[] => {
+    const p = props.current;
+    const tex = s.hd.world === p.world ? (s.hd.cache.get(hdKey(p)) ?? s.lo.cache.get(hdKey(p))) : undefined;
+    const own = s.gl ? (tex ? p.style !== 'data' : p.style === 'fantasy') : false;
+    const steps: (() => void)[] = [];
+    if (s.gl && !tex && p.style === 'fantasy') steps.push(() => void fantasyGlobeBase(props.current.world, props.current.raster));
+    if (p.style === 'fantasy' && own) steps.push(() => void globeGlyphSet(props.current.world));
+    steps.push(() => void prepCivTex(own));
+    return steps;
+  };
+
   const uploadAll = () => {
     const p = props.current;
     const gl = s.gl;
@@ -841,37 +1194,17 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
         up.terrain = gl.upload('terrain', src);
         up.slope = gl.upload('slope', slope);
       } else {
-        s.cpuSrc.terrain = readPixels(p.terrain);
+        setCpuSrc('terrain', readPixels(p.terrain));
         s.tex = 'main';
         s.relief = false;
       }
     }
-    // 文明贴图:国土色块(不含国界、道路,那两样画成矢量线);年份、开关、画风变了才重画。
-    // 手绘:停着的时候水彩按地球仪贴图的符号让位(林块按纬度拉宽过,山丘不在贴图里);
-    // 回放 / 拖时间轴时和主图共用同一年算好的那份(省一次计算,高纬度林块上的让位略有错位,动着看不出)
-    const cp = civParamsOf(p);
-    const globeInk = !!cp && !cp.fast && s.tex === 'globe';
-    const ck = cp ? [cp.world, cp.raster, cp.civ, cp.style, cp.year, cp.show, cp.fast, globeInk, cp.faithFocus] : [p.world];
-    if (!sameKey(s.civTex.key, ck)) {
-      s.civTex.key = ck;
-      const t0 = performance.now();
-      let cv = s.civTex.canvas;
-      if (cp) {
-        if (!cv) cv = s.civTex.canvas = document.createElement('canvas');
-        if (cv.width !== p.raster.w || cv.height !== p.raster.h) {
-          cv.width = p.raster.w;
-          cv.height = p.raster.h;
-        }
-        drawCivFill(cv.getContext('2d')!, { ...cp, globeInk });
-      }
-      s.civTex.ms = performance.now() - t0;
-      s.civTex.ver++;
-    }
+    const cp = prepCivTex(s.tex === 'globe');
     if (s.uploaded.civ !== s.civTex.ver) {
       s.uploaded.civ = s.civTex.ver;
       const src = cp ? s.civTex.canvas : null;
       if (gl) up.civ = gl.upload('civ', src);
-      else s.cpuSrc.civ = src ? readPixels(src) : null;
+      else setCpuCanvas('civ', src);
     }
     // 选中的国家 / 州:罩染画在贴图里(回放 / 拖时间轴时国家的国土每 5 年才重画一次,和主图一样),描边是矢量线
     const sl = p.sel;
@@ -896,7 +1229,7 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
       s.selTex.ver++;
       const src = lit && cv ? cv : null;
       if (gl) up.sel = gl.upload('sel', src);
-      else s.cpuSrc.sel = src ? readPixels(src) : null;
+      else setCpuCanvas('sel', src);
     }
     // 编年史高亮:罩染画进贴图,描边、圆圈每帧按投影画成矢量(放大后锐利、两极不扁);点一次闪一次
     const hl = p.hl;
@@ -934,7 +1267,7 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
     if (rp && s.uploaded.replay !== rp.frame) {
       s.uploaded.replay = rp.frame;
       if (gl) up.replay = gl.upload('replay', { w: rp.w, h: rp.h, data: rp.frame });
-      else s.cpuSrc.replay = { w: rp.w, h: rp.h, data: rp.frame };
+      else setCpuSrc('replay', { w: rp.w, h: rp.h, data: rp.frame });
     }
     if (gl && s.uploaded.water !== p.raster) {
       s.uploaded.water = p.raster;
@@ -1028,7 +1361,31 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
       maxTexture: gl.maxTextureSize,
       hdWidth: p.terrain.width * 2,
     });
-    if (want) texWorker(2);
+    if (!want) return;
+    // 手机布局:先问一句(每次打开地球仪最多问一次),点了「换高清」才铺
+    if (isNarrow() && !hdOnPhone) return askHd();
+    texWorker(2);
+  };
+  /** 手机上问要不要换高清贴图:点「换高清」= 这次打开网页都照常铺;点 ✕ 这次打开地球仪不再问 */
+  const askHd = () => {
+    if (s.hd.asked) return;
+    s.hd.asked = true;
+    showToast({
+      id: 'globe-hd-ask',
+      kind: 'info',
+      text: '放大以后贴图不够清楚',
+      more: ['要多占三四百 MB 内存，手机上可能闪退'],
+      dismissible: true,
+      action: {
+        label: '换高清',
+        act: 'globe-hd',
+        onClick: () => {
+          hdOnPhone = true;
+          clearToast('globe-hd-ask');
+          invalidate();
+        },
+      },
+    });
   };
   /** 写实风:还在用主图那张(烤好了明暗)时,后台画地球仪用的那张(不打光 + 坡度) */
   const maybeGlobeTex = () => {
@@ -1051,12 +1408,12 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
     return s.extras.surface;
   };
   /** 选中的国家 / 州的描边、大河 / 山脉的淡光(和主图选中层同样的颜色,线宽按屏幕) */
-  const selStrokes = (w: number, h: number): GlobeLineStroke[] => {
+  const selStrokes = (w: number, h: number, at: ViewAt): GlobeLineStroke[] => {
     const L = s.selTex.lines;
     if (!L) return [];
     const look = selectionLook(props.current.style);
-    const kEq = equivalentZoom(frameOf(s.view, w, h).R, REF_MAP_CSS);
-    const kEq1 = equivalentZoom(frameOf({ ...s.view, k: 1 }, w, h).R, REF_MAP_CSS);
+    const kEq = equivalentZoom(globeFrame(at.view, w, h, at.shift).R, REF_MAP_CSS);
+    const kEq1 = equivalentZoom(globeFrame({ ...at.view, k: 1 }, w, h, at.shift).R, REF_MAP_CSS);
     const thin = 1 / Math.sqrt(Math.max(1, Math.min(kEq, kEq1)));
     if (L.kind === 'band') return [{ sets: [L.set], color: look.band, width: L.width * thin, blur: 8 * thin }];
     return [
@@ -1066,9 +1423,10 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
   };
   /**
    * 这一帧球上面那层画什么:矢量线(国界、道路、选中的描边)+ 文字排版。
-   * cache = true:视图、文字数据都没变时用上次排好的(停着不动时的重画、闪烁高亮时不重排)
+   * cache = true:视图、文字数据都没变时用上次排好的(停着不动时的重画、闪烁高亮时不重排)。
+   * at = 按哪个视角画(默认现在的;CPU 画法跟着屏幕上那张底图的视角,见 tick)
    */
-  const overlayInput = (w: number, h: number, dpr: number, quick: boolean, reserved: Box[], cache: boolean): OverlayInput => {
+  const overlayInput = (w: number, h: number, dpr: number, quick: boolean, reserved: Box[], cache: boolean, at: ViewAt = { view: s.view, shift: s.shift }): OverlayInput => {
     const p = props.current;
     const cp = civParamsOf(p);
     const feed = getCivFeed();
@@ -1076,10 +1434,10 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
     const marks = feed.layer?.marks ?? [];
     let pl: GlobePlacement | null = null;
     if (p.civ && (items.length || marks.length)) {
-      const key = [s.view.lon, s.view.lat, s.view.k, s.shift, w, h, dpr, feed.layer, feed.places, feed.fontsOk, p.style, p.world, quick, reserved.join(',')];
+      const key = [at.view.lon, at.view.lat, at.view.k, at.shift, w, h, dpr, feed.layer, feed.places, feed.fontsOk, p.style, p.world, quick, reserved.join(',')];
       if (cache && sameKey(s.place.key, key)) pl = s.place.pl;
       else {
-        pl = placeGlobeLabels({ view: s.view, w, h, dpr, world: p.world, items, marks, surface: surfaceOf(), reserved, quick, shift: s.shift });
+        pl = placeGlobeLabels({ view: at.view, w, h, dpr, world: p.world, items, marks, surface: surfaceOf(), reserved, quick, shift: at.shift });
         if (cache) {
           s.place.key = key;
           s.place.pl = pl;
@@ -1091,10 +1449,11 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
     if (s.tex === 'globe' && p.style === 'fantasy') {
       const t0 = performance.now();
       const set = globeGlyphSet(p.world);
-      const f = frameOf(s.view, w, h);
+      const f = globeFrame(at.view, w, h, at.shift);
       const gv: GlobeGlyphView = {
-        P: globeProjector(s.view, frameOf(s.view, w * dpr, h * dpr, dpr)),
-        kEq: equivalentZoom(f.R, REF_MAP_CSS),
+        P: globeProjector(at.view, globeFrame(at.view, w * dpr, h * dpr, at.shift * dpr)),
+        // 分级出现的门槛不低于 1 倍(手机上球小,等效缩放不到 1;全图就有的那一级照样画,大小本来就按 unit 跟着球缩小)
+        kEq: Math.max(1, equivalentZoom(f.R, REF_MAP_CSS)),
         unit: (2 * Math.PI * f.R * dpr) / p.world.width,
         quick: quick && GLYPH_QUICK,
       };
@@ -1104,7 +1463,7 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
     const sl = p.sel;
     const st = sl?.kind === 'settlement' ? p.civ?.settlements[sl.id] : undefined;
     return {
-      view: s.view,
+      view: at.view,
       w,
       h,
       dpr,
@@ -1114,13 +1473,13 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
       selWorld: st ? [p.world.mesh.x[st.cell], p.world.mesh.y[st.cell]] : null,
       cpuDecor: !s.gl,
       graticule: p.graticule,
-      lines: civLineStrokes(cp).concat(selStrokes(w, h)),
-      unit: lineUnit(s.view, w, h, p.world.width, s.shift),
+      lines: civLineStrokes(cp).concat(selStrokes(w, h, at)),
+      unit: lineUnit(at.view, w, h, p.world.width, at.shift),
       lineAlpha: 1 - s.replayMix,
       war: cp && warsShown(cp) ? cp : null,
       hl: s.hlA > 0.001 && (s.hlTex.strokes.length || s.hlTex.ring) ? { strokes: s.hlTex.strokes, ring: s.hlTex.ring, alpha: s.hlA } : null,
       placement: pl,
-      shift: s.shift,
+      shift: at.shift,
       glyphs,
       holy:
         cp && cp.show.faiths
@@ -1149,6 +1508,24 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
     const cvs = glRef.current;
     const ov = ovRef.current;
     if (!cvs || !ov || !s.size.w) return;
+    // 选中的东西刚换(点选、搜索……):这一帧先不画,让刚打开的面板先上屏(反馈不等球重画),下一帧接着画、转过去
+    if (s.hold) {
+      s.hold = false;
+      if (s.fly) s.fly.t0 = Math.max(s.fly.t0, now);
+      s.raf = requestAnimationFrame(tick);
+      return;
+    }
+    // 第一帧之前先在后台把贴图备好(warmSteps),备好了再接着画
+    if (s.warm !== 'done') {
+      if (s.warm === '') {
+        s.warm = 'run';
+        submitDetailJob(WARM_JOB, warmSteps(), () => {
+          s.warm = 'done';
+          invalidate();
+        }, { alone: true });
+      }
+      return;
+    }
     const t0 = performance.now();
     let more = false;
     if (s.fly) {
@@ -1203,6 +1580,11 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
     const look: GlobeLook = { style: p.style, relief: s.relief, weights: reliefWeights(p.look), graticule: p.graticule, hl: hlA, replay: s.replayMix };
     const { w, h, dpr } = s.size;
     const busy = !!(s.drag || s.fly || s.inertia || s.pinch || s.shiftAnim) || now - s.wheelAt < SETTLE_MS;
+    if (cloudStep(now, busy)) more = true;
+    look.clouds = cloudLook(busy);
+    /** CPU 画法:这一帧换上了后台画好的底图;还在等后台画现在这个视角的(上面那层先不动,和屏幕上的底图对齐) */
+    let presented = false;
+    let cpuWait = false;
     // 中心经度和弹层里的"中央经线"、平面地图互通:停下来时记下正对着的经度(转动中不记,免得整页跟着重排)
     if (!busy) {
       const lon = (((s.view.lon / D + 180) % 360) + 360) % 360 - 180;
@@ -1224,26 +1606,51 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
         cvs.height = ch;
       }
       s.gl.render(s.view, frameOf(s.view, cw, ch, dpr * q), dpr * q, look);
+      s.lastGl = { cw, ch, dpr: dpr * q, look };
     } else {
-      // CPU:动着的时候降一半分辨率,停下来再画一遍全分辨率
+      // CPU:动着的时候降一半分辨率,停下来再画一遍全分辨率。平时交给后台线程分段画,画好整张换上
+      // (主线程不再被逐像素计算占住;球上面那层跟着换上的那张的视角画,不和底图错开);后台线程用不了时当场画
       const q = busy ? 0.5 : 1;
       const cw = Math.max(1, Math.round(w * dpr * q));
       const ch = Math.max(1, Math.round(h * dpr * q));
-      if (cvs.width !== cw || cvs.height !== ch) {
-        cvs.width = cw;
-        cvs.height = ch;
-      }
-      const ctx = cvs.getContext('2d');
-      if (ctx) {
-        if (!s.cpuImg || s.cpuImg.width !== cw || s.cpuImg.height !== ch) s.cpuImg = ctx.createImageData(cw, ch);
-        const img = s.cpuImg;
-        renderGlobeCpu({ w: cw, h: ch, data: img.data }, s.view, frameOf(s.view, cw, ch, dpr * q), look, {
-          terrain: s.cpuSrc.terrain,
-          civ: s.cpuSrc.civ,
-          sel: s.cpuSrc.sel,
-          replay: s.replayMix > 0 ? s.cpuSrc.replay : null,
-        });
-        ctx.putImageData(img, 0, 0);
+      const f = frameOf(s.view, cw, ch, dpr * q);
+      const pool = s.cpuSync ? null : cpuPool();
+      if (pool) {
+        presented = presentCpu(cvs);
+        // 底图只和视角、球心挪动、分辨率、清晰度、画风、回放帧淡入、贴图有关(高亮闪烁、经纬网在上面那层画)。
+        // 清晰度单算:浏览器缩放时画布像素可能不变而清晰度变了,球边细亮线的宽度、球心挪动的像素数跟着变
+        const key = [s.view.lon, s.view.lat, s.view.k, s.shift, cw, ch, dpr * q, p.style, s.replayMix, s.cpuSrcVer].join();
+        // 贴图换了(时间轴放着、回放)而后台还在画上一张:等它画完再把最新的贴图交过去,不每帧都拷一遍
+        const srcWait = pool.busy && CPU_SLOTS.some((k) => s.cpuDirty[k]);
+        if (key !== s.cpuWant && !srcWait) {
+          s.cpuWant = key;
+          if (s.cpuShown?.key !== key) {
+            pushCpuSources(pool);
+            pool.request({ view: s.view, f, dpr: dpr * q, look, w: cw, h: ch, idle: !busy, tag: { key, view: s.view, shift: s.shift, full: q === 1, w, h, dpr } });
+          }
+        }
+        cpuWait = s.cpuShown?.key !== key;
+      } else {
+        if (cvs.width !== cw || cvs.height !== ch) {
+          cvs.width = cw;
+          cvs.height = ch;
+        }
+        const ctx = cvs.getContext('2d');
+        if (ctx) {
+          if (!s.cpuImg || s.cpuImg.width !== cw || s.cpuImg.height !== ch) s.cpuImg = ctx.createImageData(cw, ch);
+          const img = s.cpuImg;
+          const src = cpuSrcNow();
+          renderGlobeCpu({ w: cw, h: ch, data: img.data }, s.view, f, dpr * q, look, {
+            terrain: src.terrain,
+            civ: src.civ,
+            sel: src.sel,
+            replay: s.replayMix > 0 ? src.replay : null,
+          });
+          ctx.putImageData(img, 0, 0);
+        }
+        s.cpuShown = { key: '', view: s.view, shift: s.shift, full: q === 1, w, h, dpr };
+        s.cpuWant = '';
+        s.cpuSeq++;
       }
       window.clearTimeout(s.cpuIdle);
       if (busy) s.cpuIdle = window.setTimeout(invalidate, 180);
@@ -1267,15 +1674,22 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
     const quick = now - s.lastMove < SETTLE_MS;
     window.clearTimeout(s.settle);
     if (quick && !moving) s.settle = window.setTimeout(invalidate, SETTLE_MS - (now - s.lastMove) + 8);
-    const oi = overlayInput(w, h, dpr, quick, reserved, true);
-    s.placed = drawOverlay(octx, oi);
-    s.lineVerts = s.placed.verts;
-    s.glyphs = oi.glyphs;
+    // CPU 画法换上了一张(可能还不是最新视角的):按那张的视角画;还在等、这一帧没换上:上面那层不动
+    const at: ViewAt | null = presented && s.cpuShown ? { view: s.cpuShown.view, shift: s.cpuShown.shift } : cpuWait ? null : { view: s.view, shift: s.shift };
+    if (at) {
+      const oi = overlayInput(w, h, dpr, quick, reserved, true, at);
+      s.placed = drawOverlay(octx, oi);
+      s.lineVerts = s.placed.verts;
+      s.glyphs = oi.glyphs;
+    }
     const t2 = performance.now();
     s.frames++;
-    if (!s.opened && s.uploaded.terrainKey !== undefined) {
+    // CPU 画法:第一张底图换上了才算打开
+    if (!s.opened && s.uploaded.terrainKey !== undefined && (s.gl || s.cpuShown)) {
       s.opened = true;
       (s as { openMs?: number }).openMs = t2 - s.t0;
+      setShown(true);
+      p.onOpened?.();
     }
     const places: Record<string, number> = {};
     const civNow = p.civ;
@@ -1323,6 +1737,13 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
       glyphMs: s.glyphMs + s.placed.glyphMs,
       shift: s.shift,
       texMs: s.texMs,
+      cpuWorkers: s.gl ? 0 : (s.cpuPool?.size ?? 0),
+      cpuSeq: s.cpuSeq,
+      cpuFull: !!s.cpuShown?.full,
+      cpuPending: !s.gl && (cpuWait || !!s.cpuReady || !!s.cpuPool?.busy),
+      cpuMs: s.cpuMs,
+      cloud: s.cloud.uploaded && s.cloud.upKey === p.world.precipitation && s.cloud.mix >= 1 ? 'ready' : cloudWanted() && s.cloud.failedKey !== p.world.precipitation ? 'baking' : 'off',
+      cloudMs: s.cloud.ms,
     };
     (window as unknown as { __wfGlobe: GlobeDebug }).__wfGlobe = dbg;
     if (!busy) {
@@ -1330,6 +1751,8 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
       maybeGlobeTex();
     }
     if (more) invalidate();
+    // 云在飘:停下来以后由飘动循环只重画显卡那一层
+    if (!s.driftRaf && drifting(now)) s.driftRaf = requestAnimationFrame(driftTick);
   };
 
   // ---- 建立画法、画布大小 ----
@@ -1352,6 +1775,8 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
         // 显卡重置:重新建一个(贴图全部重新上传)
         s.gl = GlobeGL.create(cvs);
         s.uploaded = { terrainKey: undefined, civ: -1, sel: -1, hl: -1, replay: null, water: null };
+        s.cloud.uploaded = null;
+        s.cloud.upKey = null;
         s.selTex.key = null;
         s.hlTex.key = null;
         setCpu(!s.gl);
@@ -1380,8 +1805,17 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
       ro.disconnect();
       cancelAnimationFrame(s.raf);
       s.raf = 0;
+      cancelDetailJob(WARM_JOB);
       window.clearTimeout(s.cpuIdle);
       window.clearTimeout(s.wheelIdle);
+      s.cpuPool?.dispose();
+      s.cpuPool = null;
+      s.cpuReady = null;
+      cancelAnimationFrame(s.driftRaf);
+      s.driftRaf = 0;
+      s.cloud.worker?.terminate();
+      s.cloud.worker = null;
+      s.cloud.pending = false;
       s.gl?.dispose();
       for (const c of [s.hd.cache, s.lo.cache]) {
         for (const b of c.values()) b.bitmap.close();
@@ -1397,7 +1831,37 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
   }, []);
 
   // 贴图来源、开关变了:下一帧上传、重画
+  // 选中的东西换了:下一帧先让面板上屏,地球仪隔一帧再画(见 tick 开头)
+  useEffect(() => {
+    if (s.frames) s.hold = true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sel]);
   useEffect(invalidate, [terrain, terrainKey, replay, raster, graticule, style, look, civ, geo, sel, show, leftRoom, rightRoom, hl, faithFocus, resView]);
+  // 云的开关、飘不飘变了:重画,飘动循环接上
+  const cloudPrefs = useCloudPrefs();
+  // CPU 画法画不了云:图层面板的「云层」跟着变灰;地球仪关掉后恢复
+  useEffect(() => {
+    setCloudGpu(!cpu);
+    return () => setCloudGpu(true);
+  }, [cpu]);
+  useEffect(() => {
+    invalidate();
+    startDrift();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cloudPrefs]);
+  // 有人操作:飘动循环接着跑(三分钟没人动就停,见 DRIFT_IDLE_MS)
+  useEffect(() => {
+    const on = () => startDrift();
+    const evs = ['pointerdown', 'pointermove', 'wheel', 'keydown', 'touchstart'] as const;
+    for (const e of evs) window.addEventListener(e, on, { passive: true });
+    document.addEventListener('visibilitychange', on);
+    startDrift();
+    return () => {
+      for (const e of evs) window.removeEventListener(e, on);
+      document.removeEventListener('visibilitychange', on);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   useEffect(() => subscribeCivFeed(invalidate), []);
   // 时间轴一动:文明贴图、国界道路的矢量线换成那一年的
   useEffect(() => subscribeCivTime(invalidate), []);
@@ -1422,6 +1886,7 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
 
   // ---- App 用的接口 ----
   const local = (cx: number, cy: number): [number, number] | null => {
+    if (!s.opened) return null;
     const r = rootRef.current?.getBoundingClientRect();
     return r ? [cx - r.left, cy - r.top] : null;
   };
@@ -1447,17 +1912,24 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
     }
     return best;
   };
+  /**
+   * 屏幕上现在是按哪个视角画的:CPU 画法后台还没画好新视角那张时,是换上的那张的(点选、悬停、钉在球上的东西都按它算,
+   * 和看到的对得上);显卡画法、当场画 = 现在的视角
+   */
+  const shownAt = (): ViewAt => (!s.gl && s.cpuPool && s.cpuShown?.key ? { view: s.cpuShown.view, shift: s.cpuShown.shift } : { view: s.view, shift: s.shift });
   const pixelAt = (cx: number, cy: number): [number, number] | null => {
     const q = local(cx, cy);
     if (!q) return null;
     const r = props.current.raster;
-    return screenToPixel(s.view, frameOf(s.view, s.size.w, s.size.h), q[0], q[1], r.w, r.h);
+    const a = shownAt();
+    return screenToPixel(a.view, globeFrame(a.view, s.size.w, s.size.h, a.shift), q[0], q[1], r.w, r.h);
   };
   /** 经纬度(弧度)→ 屏幕坐标(clientX / clientY);背面、贴着球的边缘(朝向不到 EDGE_D)= null */
   const llToClient = (lon: number, lat: number): [number, number] | null => {
     const r = rootRef.current?.getBoundingClientRect();
     if (!r || !s.size.w) return null;
-    const [x, y, d] = lonLatToScreen(s.view, frameOf(s.view, s.size.w, s.size.h), lon, lat);
+    const a = shownAt();
+    const [x, y, d] = lonLatToScreen(a.view, globeFrame(a.view, s.size.w, s.size.h, a.shift), lon, lat);
     return d > EDGE_D ? [r.left + x, r.top + y] : null;
   };
   const worldToClient = (wx: number, wy: number): [number, number] | null => {
@@ -1479,16 +1951,19 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
     pixelAt,
     labelAt,
     dragged: () => s.moved,
-    flyTo: (lon, lat) => flyTo(lon, lat),
+    ready: () => s.opened,
+    flyTo: (lon, lat, k) => flyTo(lon, lat, k),
     centerLon: () => s.view.lon / D,
+    camera: () => ({ lon: s.view.lon / D, lat: s.view.lat / D, k: s.view.k }),
     reset: () => reset(),
     zoomBy: (f, cx, cy, live) => zoomBy(f, cx, cy, live),
     worldToClient,
     lonLatToClient: (lon, lat) => llToClient(lon * D, lat * D),
     viewSig: () => {
       if (!s.size.w) return null;
-      const f = frameOf(s.view, s.size.w, s.size.h);
-      return { sig: `${s.view.lon},${s.view.lat},${f.cx},${f.cy},${f.R}`, k: equivalentZoom(f.R, REF_MAP_CSS) };
+      const a = shownAt();
+      const f = globeFrame(a.view, s.size.w, s.size.h, a.shift);
+      return { sig: `${a.view.lon},${a.view.lat},${f.cx},${f.cy},${f.R}`, k: equivalentZoom(f.R, REF_MAP_CSS) };
     },
   };
   useEffect(
@@ -1542,6 +2017,7 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
       const v0 = s.view;
       const px = new Uint8Array(4);
       s.benchDrag = drag;
+      s.cpuSync = true;
       for (let i = 0; i < n; i++) {
         s.view = clampView({ ...v0, lon: v0.lon + i * 0.02 });
         const t = performance.now();
@@ -1555,6 +2031,7 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
         lv.push(d.lineVerts);
       }
       s.benchDrag = false;
+      s.cpuSync = false;
       s.lastMove = -1e9;
       s.view = v0;
       invalidate();
@@ -1637,7 +2114,8 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
     if (s.pointers.size) return;
     // 悬停:主图像素交给 App 写悬停信息;在符号 / 字上显示手指
     const r = props.current.raster;
-    onHover(screenToPixel(s.view, frameOf(s.view, s.size.w, s.size.h), x, y, r.w, r.h));
+    const a = shownAt();
+    onHover(screenToPixel(a.view, globeFrame(a.view, s.size.w, s.size.h, a.shift), x, y, r.w, r.h));
     if (rootRef.current) rootRef.current.style.cursor = labelAt(e.clientX, e.clientY) ? 'pointer' : '';
   };
   const onPointerUp = (e: React.PointerEvent) => {
@@ -1729,7 +2207,7 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
       out.width = W;
       out.height = H;
       const octx = out.getContext('2d')!;
-      const look: GlobeLook = { style: p.style, relief: s.relief, weights: reliefWeights(p.look), graticule: p.graticule, hl: 0, replay: s.replayMix };
+      const look: GlobeLook = { style: p.style, relief: s.relief, weights: reliefWeights(p.look), graticule: p.graticule, hl: 0, replay: s.replayMix, clouds: cloudLook() };
       if (s.gl) {
         const ow = cvs.width;
         const oh = cvs.height;
@@ -1741,7 +2219,8 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
         cvs.height = oh;
       } else {
         const img = octx.createImageData(W, H);
-        renderGlobeCpu({ w: W, h: H, data: img.data }, s.view, frameOf(s.view, W, H, sc), look, { ...s.cpuSrc, replay: s.replayMix > 0 ? s.cpuSrc.replay : null });
+        const src = cpuSrcNow();
+        renderGlobeCpu({ w: W, h: H, data: img.data }, s.view, frameOf(s.view, W, H, sc), sc, look, { ...src, replay: s.replayMix > 0 ? src.replay : null });
         octx.putImageData(img, 0, 0);
       }
       const ov = document.createElement('canvas');
@@ -1806,12 +2285,14 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
       clearToast('globe-hd');
     };
   }, [hiLoading]);
+  // 关了地球仪:问要不要换高清的那条跟着收起
+  useEffect(() => () => clearToast('globe-hd-ask'), []);
 
   return (
     <div
       ref={rootRef}
       className={`globe globe-${style}`}
-      style={{ background: GLOBE_BG[style], ['--globe-bg' as string]: GLOBE_BG[style] }}
+      style={{ background: GLOBE_BG[style], ['--globe-bg' as string]: GLOBE_BG[style], visibility: shown ? undefined : 'hidden' }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}

@@ -101,6 +101,62 @@
   line-height: 1.55;
   color: var(--ink-2);
 }
+/* 打开朋友的预设链接:第 2 步标题下面那句换成一条浅蓝说明(颜色照底部的 .nd-info),右边「存进我的预设…」 */
+.nd-shared {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 34px;
+  box-sizing: border-box;
+  margin: 4px 0 1px;
+  padding: 3px 4px 3px 14px;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+.nd-shared > .icon {
+  flex: none;
+  color: var(--accent);
+}
+.nd-shared-tx {
+  flex: 1;
+  min-width: 0;
+}
+.nd-scrim .nd-shared-btn {
+  flex: none;
+  height: 26px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 0 0 0.5px var(--line);
+  color: var(--link);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.nd-scrim .nd-shared-btn:hover {
+  background: var(--hover-bg);
+}
+.nd-shared-done {
+  flex: none;
+  padding: 0 10px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+/* 手机:顶上那一排下面一条,字折成两行,按钮高一点 */
+.nd-psheet > .nd-shared {
+  margin: 10px 16px 4px;
+  min-height: 58px;
+  padding: 0 10px 0 14px;
+  line-height: 1.45;
+}
+.nd-psheet .nd-shared-btn {
+  height: 28px;
+}
 
 /* ---- 第 1 步:两张带图的卡片 ---- */
 .nd-cards {
@@ -527,6 +583,28 @@
 .nd-sp {
   flex: 1;
 }
+/* 首页上点了「开始」、地图程序还没下完:按钮转圈 +“准备中”,旁边一句下了多少(手机上在大按钮上面一行) */
+.nd-wait {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+.nd-scrim .nd-btn.wait {
+  gap: 8px;
+  cursor: default;
+}
+.nd-scrim .nd-btn.b1.wait:hover {
+  background: var(--accent);
+}
+.nd-btn .nd-spin {
+  width: 14px;
+  height: 14px;
+  border-color: rgba(255, 255, 255, 0.4);
+  border-top-color: #fff;
+}
 .nd-scrim .nd-btn {
   display: flex;
   align-items: center;
@@ -709,6 +787,24 @@
   height: 48px;
   border-radius: 12px;
   font-size: 16.5px;
+}
+.nd-pfoot .nd-wait {
+  display: block;
+  margin: -3px 0 5px;
+  text-align: center;
+  font-size: 13px;
+  line-height: 18px;
+}
+.nd-scrim .nd-pfoot .nd-btn.wait {
+  gap: 10px;
+}
+.nd-pfoot .nd-spin {
+  width: 16px;
+  height: 16px;
+}
+.nd-scrim .nd-pl:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 @media (prefers-reduced-motion: reduce) {

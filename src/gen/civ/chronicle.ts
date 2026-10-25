@@ -51,6 +51,8 @@
  *   划州"【干预】瑞州自大渭划归大昌,永为大昌之土";立国"【干预】瑞州脱大渭自立,号瑞国,都于瑞城"(紧跟着的 found 并进这一条);
  *   迁都"【干预】大昌自汾城迁都瑞城"(紧跟着的 capital 并进这一条);不许扩张"【干预】大昌自此止戈息兵,不再开疆拓土"。
  *   没生效的写原因("…,然其地无人居住""…,然瑞城属大渭");界面上的干预列表也用它(interventionOutcome)。标签"干",一律是大事。
+ *   照大纲硬改出来的(干预带 plot,gen/edits.ts 文件头"大纲")前面标【照大纲】,别的写法一样:"【照大纲】大昌向索拉特宣战";
+ *   同一条情节同一刻划给同一国的几州并成一条:"【照大纲】瑞州、汾州、雪西三州划归大昌"。
  *   援盟参战的战争(史事 war 的 settlement 列 = 盟国)写"索拉特应大昌之约伐某国"。
  * - **名臣**(Person.deeds):经手的事写上他(官职按那一年):议和"大景王朝遣礼部尚书百里青与萨尔斯坦帝国议和"
  *   (对方的使臣写在对方国名后面);称王称帝"…,丞相某某劝进"(西幻"…,首相某某力主其事");幼主即位"…,时年 11 岁,丞相某某辅政"
@@ -83,8 +85,12 @@ import {
 import { HABITABLE_SUIT, cultureLabel, regionLabel } from './display';
 import { ownersAt } from './timeline';
 import { plagueSpans } from './plagueSpans';
-import { ageAt, generalRef, kinOf, rulerBare, rulerRef, rulerShort } from './peopleText';
+import { ageAt, generalRef, kinOf, ministerRole, rulerBare, rulerRef, rulerShort } from './peopleText';
 import { eraText, monthTail, type Era } from '../era';
+import { parsePersonKey, resolveKey, resolvePersonKey, type Intervention } from '../edits';
+import { emptyPolicy, policyName, type PolicyIv } from './policy';
+import { IV_NOT_HIM, IV_PEOPLE, IV_PROTECTED, IV_WAIT } from './rulers';
+import { IV_TOLL, PLAGUE_IV, quakeWord } from './calamity';
 
 /** 重要度:3 最重要 */
 export type Importance = 1 | 2 | 3;
@@ -552,6 +558,9 @@ const TAG: Record<AnnalKind, string> = {
   revolt: '起',
   collapse: '崩',
   plague: '疫',
+  warlord: '据',
+  reclaim: '收',
+  defy: '抗',
 };
 
 function base(
@@ -783,8 +792,10 @@ function interveneStory(civ: Civ, e: Annal, id: number): IvStory {
     const q = polityOf(civ, p);
     return !!q && q.ended !== undefined && q.ended <= y;
   };
-  const fail = (text: string, why: string): IvStory => ({ text: `【干预】${text}`, ok: false, why });
-  const done = (text: string): IvStory => ({ text: `【干预】${text}`, ok: true });
+  // 照大纲硬改出来的(gen/edits.ts 文件头"大纲")标【照大纲】
+  const tag = v?.plot !== undefined ? '【照大纲】' : '【干预】';
+  const fail = (text: string, why: string): IvStory => ({ text: `${tag}${text}`, ok: false, why });
+  const done = (text: string): IvStory => ({ text: `${tag}${text}`, ok: true });
   /** 紧跟在这条干预后面(同一刻)的史事 */
   const next = (k = 1) => {
     const n = civ.annals[id + k];
@@ -850,6 +861,35 @@ function interveneStory(civ: Civ, e: Annal, id: number): IvStory {
       if (cu && cu.pioneer === e.war && cu.hearth === e.region && cu.born === y) return done(`${R}本无人居,${cu.name}人徙居于此,立国,号${A}${seat}`);
       return done(e.b >= 0 ? `${R}脱${B}自立,号${A}${seat}` : `${R}立国,号${A}${seat}`);
     }
+    case 'crown': {
+      const who = authorName(civ, v.char);
+      if (e.b === -3) return fail(`欲立${who}为${A}之主,然${A}已亡`, `那一年${A}已亡`);
+      if (e.b === -2) return fail(`欲立${who}为${A}之主,然其人尚未出生`, `他第 ${v.born} 年才出生`);
+      // 等在位的那位下台再即位:登记的这一条(真即位另记一条 b = −1,interventionOutcome 先找它)
+      if (e.b === IV_WAIT) return waitStory(civ, e, who, A, fail, done);
+      // 同一刻后面又给这国立了作者的人物(哪怕是同一个人):后立的顶替先立的(rulers.ts),先立的那条算没即位
+      for (let k = id + 1; k < civ.annals.length && civ.annals[k].year === y; k++) {
+        const n = civ.annals[k];
+        if (n.kind === 'intervene' && n.a === e.a && n.b === -1 && civ.interventions?.[n.war]?.kind === 'crown') return fail(`欲立${who}为${A}之主,然同时又另立他人`, '同一年又给这国立了别的人物');
+      }
+      return done(`${who}即${A}君位`);
+    }
+    case 'policy': {
+      if (e.b === -3) return fail(`欲定${A}方针,然${A}已亡`, `那一年${A}已亡`);
+      if (emptyPolicy(v)) return done(`${A}罢方针,凡事听君主`);
+      return done(`${A}${hadPolicy(civ, e, id) ? '改定' : '定'}方针${policyTail(civ, v, y)}`);
+    }
+    case 'destroy': {
+      if (e.b === -3) return fail(`欲灭${A},然${A}已亡`, `那一年${A}已亡`);
+      if (e.b === IV_PROTECTED) return fail(`欲灭${A},然又有令保${A}不亡`, `那一年${A}受后下的「保护」护着`);
+      const n = e.n ? `${cnNumber(e.n)}州` : '其地';
+      return done(e.b >= 0 ? `${A}亡,${n}并入${B}` : `${A}亡,${n}散为无主之地`);
+    }
+    case 'death':
+    case 'temper':
+      return personStory(civ, e, v, A, fail, done);
+    case 'disaster':
+      return disasterStory(civ, e, v, A, R, fail, done);
     case 'move': {
       const city = cityName(civ, e.settlement);
       if (!city) return fail(`${A}欲迁都,然其城尚未建起`, '那一年还没有这座城');
@@ -871,13 +911,180 @@ function interveneStory(civ: Civ, e: Annal, id: number): IvStory {
   }
 }
 
-/** 这条史事(立国的 found、迁都的 capital)是紧跟在干预后面、由它引起的:编年史并进干预那一条,不另列 */
+type Say = (text: string, why: string) => IvStory;
+type Done = (text: string) => IvStory;
+
+/** 作者让他去世 / 改过倾向的那个人(人物里按 killed、moods 记着第几条干预) */
+function personOfIv(civ: Civ, iv: number, kind: 'death' | 'temper'): Person | undefined {
+  return civ.people?.find((x) => (kind === 'death' ? x.killed === iv : x.moods?.some((m) => m.iv === iv)));
+}
+
+/** 被作者让他去世的君主"卒"怎么写:"暴崩""暴薨""暴卒""猝然驾崩"(同君主继位那一条的崩 / 薨 / 卒 / 驾崩) */
+function suddenDeath(civ: Civ, x: Person, y: Year): string {
+  const p = polityOf(civ, x.polity);
+  if (!p) return '暴卒';
+  const [died] = deathWord(p, Math.max(0, polityTierAt(p, y - 1 / 512)));
+  return died.length > 1 ? `猝然${died}` : `暴${died}`;
+}
+
+/** 改过的倾向里变得最多的那一样(差 10 以上):",自此厌兵"",自此好开边"……;都没怎么变 = 空串 */
+function temperWord(from: Person['leanings'], to: NonNullable<Person['leanings']>): string {
+  if (!from) return '';
+  const words = { war: ['厌兵', '喜兵'], expand: ['安于守土', '好开边'], trade: ['轻商贾', '重商贾'], develop: ['怠于政事', '勤于政事'] } as const;
+  let best: keyof typeof words | null = null;
+  let most = 9;
+  for (const k of ['war', 'expand', 'trade', 'develop'] as const) {
+    const d = Math.abs(to[k] - from[k]);
+    if (d > most) {
+      most = d;
+      best = k;
+    }
+  }
+  return best ? `,自此${words[best][to[best] > from[best] ? 1 : 0]}` : '';
+}
+
+/**
+ * 让人物去世 / 改君主倾向:"【干预】大澜皇帝燕溟暴崩,在位十一年""【干预】大澜将燕鸾澈卒""【干预】有桑丞相鸿丘卒"
+ * "【干预】大澜皇帝燕溟性情大变,自此厌兵";没生效的写原因
+ */
+function personStory(civ: Civ, e: Annal, v: Extract<Intervention, { kind: 'death' | 'temper' }>, A: string, fail: Say, done: Done): IvStory {
+  const y = e.year;
+  const die = v.kind === 'death';
+  const verb = die ? '令其卒' : '改其性情';
+  const want = parsePersonKey(v.person)?.name || '其人';
+  if (e.b === -3) return fail(`欲${verb},然${A}已亡`, `那一年${A}已亡`);
+  const x = personOfIv(civ, e.war, v.kind);
+  if (x && (e.b === -1 || e.b === IV_PEOPLE)) {
+    if (!die) return done(`${rulerRef(civ, x, y)}性情大变${temperWord(x.leanings, v.leanings)}`);
+    if (x.role === 'ruler') {
+      const years = Math.floor(y) - Math.floor(x.from ?? y);
+      return done(`${rulerRef(civ, x, y)}${suddenDeath(civ, x, y)}${years >= 1 ? `,在位${cnNumber(years)}年` : ',即位当年'}`);
+    }
+    return done(`${x.role === 'general' ? generalRef(civ, x, y) : `${ministerRole(civ, x)}${x.name}`}卒`);
+  }
+  // 没生效:按人物键找回这个人,说他那时在不在
+  const id = resolvePersonKey(civ, v.person);
+  const who = id >= 0 ? civ.people![id] : undefined;
+  if (!who) return fail(`欲${verb}于${want},然新史无此人`, '新历史里没有这个人');
+  if (who.died !== undefined && who.died <= y) return fail(`欲${verb}于${who.name},然其人已卒`, `第 ${Math.floor(who.died)} 年他已卒`);
+  if (who.role === 'ruler' || e.b === IV_NOT_HIM) {
+    if ((who.from ?? Infinity) > y) return fail(`欲${verb}于${who.name},然其人尚未即位`, who.from !== undefined ? `他第 ${Math.floor(who.from)} 年才即位` : '他没有即位');
+    if (who.until !== undefined && who.until <= y) return fail(`欲${verb}于${who.name},然其人已不在位`, `第 ${Math.floor(who.until)} 年他已不在位`);
+    return fail(`欲${verb}于${who.name},然其时在位者非其人`, '那一年在位的不是他');
+  }
+  const from = who.role === 'general' ? who.commands?.[0]?.from : who.from;
+  const step = who.role === 'general' ? '领兵' : '入仕';
+  if (who.role === 'minister' && who.until !== undefined && who.until <= y) return fail(`欲${verb}于${who.name},然其人已去职`, `第 ${Math.floor(who.until)} 年他已去职`);
+  if (from === undefined || from >= y) return fail(`欲${verb}于${who.name},然其人尚未出仕`, from !== undefined ? `他第 ${Math.floor(from)} 年才${step}` : `他那时还没${step}`);
+  return fail(`欲${verb}于${who.name},未成`, '没有生效');
+}
+
+/** 即位(等在位的那位下台)登记的那一条:还在等 = 照登记写;落空(没等到他下台就改朝换代、亡国、另立了别人)= 写原因 */
+function waitStory(civ: Civ, e: Annal, who: string, A: string, fail: Say, done: Done): IvStory {
+  const y = e.year;
+  const cur = civ.people?.find((x) => x.role === 'ruler' && x.polity === e.a && (x.from ?? Infinity) <= y && (x.until === undefined || x.until > y));
+  const curName = cur ? rulerShort(civ, cur) : '在位之君';
+  if (!cur || cur.until === undefined) return done(`${who}待${curName}之后即${A}君位`);
+  const p = polityOf(civ, e.a);
+  if (p?.ended !== undefined && p.ended <= cur.until) return fail(`欲立${who}继${curName}为${A}之主,然${A}已亡`, `那一年${A}已亡`);
+  const how = cur.fate === 'deposed' || cur.fate === 'overthrown' ? '被废(改朝换代)' : cur.fate === 'yielded' ? '让位' : '下台';
+  return fail(`欲立${who}继${curName}为${A}之主,然${curName}${how},未及即位`, `${curName} ${Math.floor(cur.until)} 年${how},没等到他下台`);
+}
+
+/** 天灾:"【干预】星邑大疫,死者十之五""【干预】有桑皇朝大饥,民多饿死,死者十之三""【干预】翼门之野一带地震,城郭多圮,死者十之三" */
+function disasterStory(civ: Civ, e: Annal, v: Extract<Intervention, { kind: 'disaster' }>, A: string, R: string, fail: Say, done: Done): IvStory {
+  const toll = IV_TOLL[v.level];
+  if (v.type === 'plague') {
+    const city = cityName(civ, e.settlement) || R;
+    if (e.b <= 0) return fail(`欲降疫于${city},然其城已不在`, `那一年${city}已毁`);
+    if (e.b === 2) return done(`${city}疫势转烈,死者${toll}`);
+    return done(`${A}${city}大疫,死者${toll}`);
+  }
+  if (v.type === 'famine') {
+    if (e.b <= 0) return v.a && A ? fail(`欲令${A}大饥,然${A}已亡`, `那一年${A}已亡`) : fail('欲降饥荒,然其地无人居住', '那一带那年没人住');
+    if (v.a) return done(`${A}大饥,民多饿死,死者${toll}`);
+    const where = e.b > 1 ? `${R}等${cnNumber(e.b)}州` : R;
+    return done(`${where}大饥,民多饿死,死者${toll}`);
+  }
+  const word = e.region >= 0 ? quakeWord(civ.regions, e.region) : '地震';
+  const what = word === '大水' ? '大水,漂没城郭' : word === '大旱' ? '大旱,赤地千里' : '地震,城郭多圮';
+  if (e.b <= 0) return fail(`欲令${R}一带${word},然其地无人居住`, '那一带那年没人住');
+  return done(`${R}一带${what}${e.b > 1 ? `,${cnNumber(e.b)}州受灾` : ''},死者${toll}`);
+}
+
+/** 这条方针之前这国已经照着别的方针(生效了、不是罢方针的):编年史写"改定方针" */
+function hadPolicy(civ: Civ, e: Annal, id: number): boolean {
+  for (let k = id - 1; k >= 0; k--) {
+    const n = civ.annals[k];
+    if (n.kind !== 'intervene' || n.a !== e.a || n.b !== -1) continue;
+    const v = civ.interventions?.[n.war];
+    if (v?.kind === 'policy') return !emptyPolicy(v);
+  }
+  return false;
+}
+
+/** 方针在编年史里的后半句:":扩张(细调过),仇莱尼多尔王国,亲温兹汗国"(没定名字、只挑了亲仇的不写名字;旋钮的数不写) */
+function policyTail(civ: Civ, v: PolicyIv, y: Year): string {
+  const name = policyName(v);
+  const who = (keys: readonly string[] | undefined) =>
+    (keys ?? [])
+      .map((k) => {
+        const r = resolveKey(civ, k);
+        return r?.kind === 'polity' ? pn(civ, r.id, y) : '';
+      })
+      .filter(Boolean)
+      .join('、');
+  const parts = [name, who(v.foes) && `仇${who(v.foes)}`, who(v.friends) && `亲${who(v.friends)}`].filter(Boolean);
+  return parts.length ? `:${parts.join(',')}` : '';
+}
+
+/**
+ * 作者的人物叫什么:套过人物卡的历史(gen/characters.ts 的 applyCharacters)里有名字(Civ.authorNames,或他即位后的人物);
+ * 没套过 = "作者的人物"
+ */
+function authorName(civ: Civ, char: number): string {
+  return civ.authorNames?.[char] || civ.people?.find((x) => x.author === char && x.name)?.name || '作者的人物';
+}
+
+/** 干预"即位"立的那位君主(作者的人物;第 e 条史事那一刻在国家 e.a 即位的) */
+function crownedAt(ix: PeopleIndex | null, e: Annal, char: number): Person | null {
+  // 前一位被作者让他去世、等着的作者人物接位的:即位那一刻的下一刻才记史事
+  return ix?.rulers[e.a]?.find((x) => x.author === char && x.from !== undefined && e.year - x.from >= 0 && e.year - x.from <= 1 / 256) ?? null;
+}
+
+/** 第 i 条史事是照大纲硬改的划州、生效了:同一条情节、同一刻、划给同一国的并成一条用的键(不是 = '') */
+function plotCedeKey(civ: Civ, i: number): string {
+  const e = civ.annals[i];
+  if (!e || e.kind !== 'intervene') return '';
+  const v = civ.interventions?.[e.war];
+  if (v?.kind !== 'cede' || v.plot === undefined || !interveneStory(civ, e, i).ok) return '';
+  return `${v.plot}|${e.a}|${e.year}`;
+}
+
+/** 从第 i 条起接连几条照大纲划给同一国的州(第 i 条不是 = []) */
+function plotCedeRun(civ: Civ, i: number): number[] {
+  const k = plotCedeKey(civ, i);
+  if (!k) return [];
+  const out = [i];
+  while (plotCedeKey(civ, out[out.length - 1] + 1) === k) out.push(out[out.length - 1] + 1);
+  return out;
+}
+
+/**
+ * 这条史事(立国的 found、迁都的 capital、灭国的 fall、天灾引起的饥荒 famine)是紧跟在干预后面、由它引起的:
+ * 编年史并进干预那一条,不另列(天灾的饥荒一国一条,接连几条都算)
+ */
 function foldedIntoIntervene(civ: Civ, i: number): boolean {
   const e = civ.annals[i];
-  const d = civ.annals[i - 1];
-  if (!d || d.kind !== 'intervene' || d.year !== e.year || d.a !== e.a) return false;
-  const kind = civ.interventions?.[d.war]?.kind;
-  return (e.kind === 'found' && kind === 'found') || (e.kind === 'capital' && e.war < 0 && kind === 'move');
+  let j = i - 1;
+  if (e.kind === 'famine') while (j >= 0 && civ.annals[j].kind === 'famine' && civ.annals[j].year === e.year) j--;
+  const d = civ.annals[j];
+  if (!d || d.kind !== 'intervene' || d.year !== e.year) return false;
+  const v = civ.interventions?.[d.war];
+  if (e.kind === 'famine') return v?.kind === 'disaster' && v.type !== 'plague';
+  if (d.a !== e.a) return false;
+  const kind = v?.kind;
+  return (e.kind === 'found' && kind === 'found') || (e.kind === 'capital' && e.war < 0 && kind === 'move') || (e.kind === 'fall' && kind === 'destroy');
 }
 
 /**
@@ -888,6 +1095,10 @@ export function interventionOutcome(civ: Civ, i: number): { annal: number; ok: b
   const A = civ.annals;
   for (let k = 0; k < A.length; k++) {
     if (A[k].kind !== 'intervene' || A[k].war !== i) continue;
+    // 等在位的那位下台再即位:真即位了看即位那一条(同一条干预后记的 b = −1)
+    if (A[k].b === IV_WAIT) {
+      for (let j = k + 1; j < A.length; j++) if (A[j].kind === 'intervene' && A[j].war === i && A[j].b === -1) return { annal: j, ok: true };
+    }
     const r = interveneStory(civ, A[k], k);
     return { annal: k, ok: r.ok, why: r.why };
   }
@@ -916,6 +1127,8 @@ function warHead(civ: Civ, e: Annal, id: number, general: string): string {
       const why = troubleOf(civ, e.b, id, e.a);
       return `${A}乘${B}${why || '之乱'},${go('之')}`;
     }
+    case 'resource':
+      return `${A}${covetText(civ, e)},${general ? `遣${general}伐之` : '起兵伐之'}`;
     case 'prey':
       return `${A}欲并${B},${general ? `遣${general}伐之` : '举兵伐之'}`;
     case 'expand':
@@ -951,6 +1164,8 @@ function warReason(civ: Civ, e: Annal, id: number): string {
       const why = troubleOf(civ, e.b, id, e.a);
       return why ? `乘${B}${why},` : `乘${B}之乱,`;
     }
+    case 'resource':
+      return `${covetText(civ, e)},`;
     case 'prey':
       return `欲并${B},`;
     case 'expand':
@@ -966,16 +1181,84 @@ function warReason(civ: Civ, e: Annal, id: number): string {
 }
 
 /**
- * 收复故土的战争想夺回哪几州:开战前(第 id 条史事之前)最近一次易手是"守方从攻方手里拿去"的州
- * (攻占、议和割让都记成 conquer),开战那一年还在守方手里(后来分裂、被并、划走的不算),按人口上限从大到小
+ * 史事数组的索引:"第 id 条史事之前"的几种查询(收复故土想夺回哪几州、某国此刻在和谁交战)不用每次从头翻一遍史事。
+ * 从头翻的话,历史越长、要查的战争越多,两样一乘,几万年的历史要算好几秒。
+ * 按史事数组记(套改名、沿用州出来的新对象共用同一个数组);数组长度变了就重建
  */
-function claimsOf(civ: Civ, atk: number, def: number, id: number, year: Year): number[] {
-  const last = new Map<number, Annal>();
+interface AnnalIndex {
+  n: number;
+  /** 有州的攻占(conquer):史事的 a(拿去的一方)→ b(丢掉的一方)→ 下标(从小到大) */
+  conquer: Map<number, Map<number, number[]>>;
+  /** 有州的攻占:下标 → 同一州下一次攻占的下标(没有 = Infinity) */
+  nextConquer: Map<number, number>;
+  /** 每国(含 −1)相关的开战、议和,按下标从小到大:[下标, 战争编号, 对手(议和 = NaN)] 三个一组 */
+  wars: Map<number, number[]>;
+}
+
+const annalIndexCache = new WeakMap<readonly Annal[], AnnalIndex>();
+
+function annalIndex(A: readonly Annal[]): AnnalIndex {
+  const hit = annalIndexCache.get(A);
+  if (hit && hit.n === A.length) return hit;
+  const conquer = new Map<number, Map<number, number[]>>();
+  const nextConquer = new Map<number, number>();
+  const lastAt = new Map<number, number>();
+  const wars = new Map<number, number[]>();
+  /** 战争编号 → 打过这场仗的国(到这一条为止) */
+  const sides = new Map<number, number[]>();
+  const push = (p: number, i: number, war: number, foe: number) => {
+    let l = wars.get(p);
+    if (!l) wars.set(p, (l = []));
+    l.push(i, war, foe);
+  };
+  for (let i = 0; i < A.length; i++) {
+    const e = A[i];
+    if (e.kind === 'conquer' && e.region >= 0) {
+      let byB = conquer.get(e.a);
+      if (!byB) conquer.set(e.a, (byB = new Map()));
+      let l = byB.get(e.b);
+      if (!l) byB.set(e.b, (l = []));
+      l.push(i);
+      const prev = lastAt.get(e.region);
+      if (prev !== undefined) nextConquer.set(prev, i);
+      nextConquer.set(i, Infinity);
+      lastAt.set(e.region, i);
+    } else if (e.kind === 'war') {
+      push(e.a, i, e.war, e.b);
+      if (e.b !== e.a) push(e.b, i, e.war, e.a);
+      let s = sides.get(e.war);
+      if (!s) sides.set(e.war, (s = []));
+      if (!s.includes(e.a)) s.push(e.a);
+      if (!s.includes(e.b)) s.push(e.b);
+    } else if (e.kind === 'peace') {
+      for (const p of sides.get(e.war) ?? []) push(p, i, e.war, NaN);
+    }
+  }
+  const ix = { n: A.length, conquer, nextConquer, wars };
+  annalIndexCache.set(A, ix);
+  return ix;
+}
+
+/**
+ * 收复故土的战争想夺回哪几州:开战前(第 id 条史事之前)最近一次易手是"守方从攻方手里拿去"的州
+ * (攻占、议和割让都记成 conquer),开战那一年还在守方手里(后来分裂、被并、划走的不算),按人口上限从大到小。导出给测试核对索引
+ */
+export function claimsOf(civ: Civ, atk: number, def: number, id: number, year: Year): number[] {
   const A = civ.annals;
-  for (let i = 0; i < id && i < A.length; i++) if (A[i].kind === 'conquer' && A[i].region >= 0) last.set(A[i].region, A[i]);
-  const own = ownersAt(civ, year).polity;
+  const ix = annalIndex(A);
+  const end = Math.min(id, A.length);
   const out: number[] = [];
-  for (const [r, e] of last) if (e.a === def && e.b === atk && own[r] === def) out.push(r);
+  // 守方从攻方手里拿去的那几次里,是那一州在开战前最后一次易手的
+  const list = ix.conquer.get(def)?.get(atk);
+  if (list) {
+    let own: Int16Array | null = null;
+    for (const i of list) {
+      if (i >= end) break;
+      if (ix.nextConquer.get(i)! < end) continue;
+      own ??= ownersAt(civ, year).polity;
+      if (own[A[i].region] === def) out.push(A[i].region);
+    }
+  }
   const cap = civ.regions.capacity;
   return out.sort((a, b) => cap[b] - cap[a] || a - b);
 }
@@ -992,7 +1275,20 @@ function claimText(civ: Civ, e: Annal, id: number): string {
 const warVerb = (e: Annal) => (e.cause === 'punish' || e.cause === 'quell' ? '讨' : '伐');
 
 /** 由头里点了守方的名("以昌国绝贡,"、"乘昌国与索拉特交兵,"、"欲并昌国,"、"与昌国争边,"),后面写"伐之" */
-const NAMES_FOE: ReadonlySet<AnnalCause> = new Set<AnnalCause>(['punish', 'chaos', 'prey', 'expand']);
+const NAMES_FOE: ReadonlySet<AnnalCause> = new Set<AnnalCause>(['punish', 'chaos', 'prey', 'expand', 'resource']);
+
+/** 为夺物产开战时写的字(下标同 development.ts 的 RESOURCES:粮、牲畜、铜锡、铁、煤、木材、盐、渔获、石油、稀有矿、金银),先后照这里 */
+const COVET_WORD = ['粮', '马', '铜', '铁', '煤', '木', '盐', '渔', '油', '矿', '金'];
+const COVET_ORDER = [6, 3, 2, 1, 4, 8, 9, 10, 0, 5, 7];
+
+/** 为夺物产的由头:"欲夺昌国瑞州之铁""欲夺昌国瑞州之盐铁""欲夺昌国瑞州之铜与马";州名查不到写"欲得昌国之铁" */
+function covetText(civ: Civ, e: Annal): string {
+  const B = pn(civ, e.b, e.year);
+  const ks = COVET_ORDER.filter((k) => (e.n ?? 0) & (1 << k));
+  const what = ks.length === 2 && ks[0] === 6 && ks[1] === 3 ? '盐铁' : ks.length ? ks.map((k) => COVET_WORD[k]).join('与') : '地';
+  const r = regionName(civ, e.region);
+  return r ? `欲夺${B}${r}之${what}` : `欲得${B}之${what}`;
+}
 
 function declareEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
   const { civ, ix } = ctx;
@@ -1076,8 +1372,10 @@ function simpleEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
         const head = `故${(fallen.name && polityRootAt(fallen, fallen.ended ?? y)) || '国'}${folk}${r ? `据${r}` : ''}`;
         t = e.b >= 0 ? `${head}起兵,脱${pn(civ, e.b, y)}复国,号${A}` : `${head}复国,号${A}`;
       } else {
-        // "瑞州守将李昭叛大渭自立,号瑞国"
-        const lord = who && r ? `${r}${P?.eastern ? '守将' : '领主'}${who.name}` : r;
+        // "瑞州守将李昭叛大渭自立,号瑞国";割据多年以后自立的(control.ts):"割据瑞州的守将李昭叛大渭自立"
+        const title = P?.eastern ? '守将' : '领主';
+        const lord =
+          e.cause === 'warlord' && r ? `割据${r}的${title}${who?.name ?? ''}` : who && r ? `${r}${title}${who.name}` : r;
         if (e.b >= 0) t = r ? `${lord}叛${pn(civ, e.b, y)}自立,号${A}` : `${A}脱离${pn(civ, e.b, y)}自立`;
         else t = r ? `${lord}自立,号${A}` : `${A}自立`;
       }
@@ -1090,6 +1388,10 @@ function simpleEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
     }
     case 'famine':
       return base(e, id, famineText(civ, e), 2, [e.a], [e.region]);
+    case 'warlord':
+    case 'reclaim':
+    case 'defy':
+      return base(e, id, lordText(civ, e), 2, e.kind === 'defy' ? [e.a, e.b] : [e.a], [e.region]);
     case 'merge': {
       // 并掉的是大国才是大事
       // 藩属纳土归附宗主(diplomacy.ts)
@@ -1151,12 +1453,22 @@ function simpleEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
     case 'defect':
       return diplomacyEntry(ctx, e, id);
     case 'intervene': {
+      // 照大纲同一刻划给同一国的几州:并成一条
+      const run = plotCedeRun(civ, id);
+      if (run.length > 1) {
+        const rs = run.map((j) => civ.annals[j].region);
+        return base(e, id, `【照大纲】${regionNames(civ, rs)}划归${pn(civ, e.a, y)}`, 3, [e.a, ...run.map((j) => civ.annals[j].b)], rs);
+      }
       const story = interveneStory(civ, e, id);
       const x = base(e, id, story.text, 3, [e.a, e.b], [e.region]);
       // 干预立的国:立国那条并进了这一条,开国之君也写在这里
-      const who = story.ok && civ.interventions?.[e.war]?.kind === 'found' && e.a >= 0 ? founderOf(ctx.ix, e.a, 0) : null;
-      if (who) x.text += `,奉${who.name}为主`;
-      return withPeople(x, who);
+      const v = civ.interventions?.[e.war];
+      const who = story.ok && v?.kind === 'found' && e.a >= 0 ? founderOf(ctx.ix, e.a, 0) : null;
+      // 同一刻接着立了作者的人物为君的,开国之君就是他(写在即位那一条)
+      if (who && who.author === undefined) x.text += `,奉${who.name}为主`;
+      // 即位:记上作者立的那位君主
+      const crowned = story.ok && v?.kind === 'crown' ? crownedAt(ctx.ix, e, v.char) : null;
+      return withPeople(x, who && who.author === undefined ? who : null, crowned);
     }
     default:
       return base(e, id, `${pn(civ, e.a, y)}有事`, 1, [e.a], []);
@@ -1191,17 +1503,25 @@ function minTier(civ: Civ, a: number, b: number, y: Year): number {
   return A && B ? Math.min(polityTierAt(A, y), polityTierAt(B, y)) : -1;
 }
 
+/**
+ * 第 id 条史事之前,p 打过的仗里还没议和的那几场的对手,按开战先后(同一场仗又记了一次开战的,对手换成后来那个、次序不变)。
+ * 只翻这国相关的开战、议和(annalIndex)。导出给测试核对索引
+ */
+export function openFoes(civ: Civ, p: number, id: number): number[] {
+  const open = new Map<number, number>();
+  const list = annalIndex(civ.annals).wars.get(p) ?? [];
+  for (let k = 0; k < list.length && list[k] < id; k += 3) {
+    if (Number.isNaN(list[k + 2])) open.delete(list[k + 1]);
+    else open.set(list[k + 1], list[k + 2]);
+  }
+  return [...open.values()];
+}
+
 /** 某国此刻(第 id 条史事之前)的乱象:"与索拉特交兵" / "易代之乱" / "新失国都";没有 = 空串 */
 function troubleOf(civ: Civ, p: number, id: number, except = -1): string {
   const A = civ.annals;
   const y = id < A.length ? A[id].year : civ.endYear;
-  const open = new Map<number, number>();
-  for (let i = 0; i < id && i < A.length; i++) {
-    const e = A[i];
-    if (e.kind === 'war' && (e.a === p || e.b === p)) open.set(e.war, e.a === p ? e.b : e.a);
-    else if (e.kind === 'peace') open.delete(e.war);
-  }
-  const foes = [...open.values()].filter((q) => q !== except);
+  const foes = openFoes(civ, p, id).filter((q) => q !== except);
   if (foes.length) return `与${pn(civ, foes[foes.length - 1], y)}交兵`;
   const P = polityOf(civ, p);
   const d = P?.dynasties;
@@ -1665,6 +1985,19 @@ function warEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
 // ---------------------------------------------------------------------------
 // 饥荒、民变、大崩解(unrest.ts)
 
+/**
+ * 割据、收回、抗命(control.ts):"瑞州守将拥兵自重,割据瑞州等三州,名义上仍奉大渭" /
+ * "大渭收回割据二十六年的瑞州" / "大渭与昌国交兵,瑞州守将拥兵不出"(西幻:守将 → 领主)
+ */
+function lordText(civ: Civ, e: Annal): string {
+  const A = pn(civ, e.a, e.year);
+  const r = regionName(civ, e.region) || cityName(civ, e.settlement) || '一方';
+  const lord = `${r}${polityOf(civ, e.a)?.eastern ? '守将' : '领主'}`;
+  if (e.kind === 'warlord') return `${lord}拥兵自重,割据${e.war > 1 ? `${r}等${e.war === 2 ? '两' : cnNumber(e.war)}州` : r},名义上仍奉${A}`;
+  if (e.kind === 'reclaim') return e.war >= 1 ? `${A}收回割据${cnNumber(e.war)}年的${r}` : `${A}收回${r}`;
+  return `${A}与${pn(civ, e.b, e.year)}交兵,${lord}拥兵不出`;
+}
+
 /** 一州闹饥荒时城里的人口折损(Settlement.sacks 里 cause = famine、同一年的那一条;找不到 = 0) */
 function famineLoss(civ: Civ, e: Annal): number {
   const s = e.settlement >= 0 ? civ.settlements[e.settlement] : undefined;
@@ -2107,16 +2440,18 @@ function firstMention(text: string, mine: string[], others: string[]): { at: num
  * 只看"大事"也读得懂:按先后翻大事,每个国家第一次出现、它的来历(立国 / 分裂 / 复国)不在大事里的,名字后面带一句来历:
  * "艾莱斯国(第 1850 年立国)"、"塔提特汗国(第 2082 年叛哈尔提亚王国自立)"、"新塔提特汗国(第 2455 年脱哈尔提亚帝国复国)";
  * 改朝换代换了国号(东方小一些的国家改朝换代不是大事)、新国号在大事里第一次出现的:"伊罗汗国(原居兰汗国)"。
- * 只改大事的正文(全部里也是这一条,多一句来历不碍事)
+ * 只改大事的正文(全部里也是这一条,多一句来历不碍事)。分成小步(同 chronicleSteps)
  */
-function introduce(civ: Civ, list: ChronicleEntry[], told: ReadonlyMap<ChronicleEntry, number>): void {
+function* introduce(civ: Civ, list: ChronicleEntry[], told: ReadonlyMap<ChronicleEntry, number>): Generator<void, void> {
   const A = civ.annals;
   // 每个国家的来历(立国 / 分裂 / 复国那条史事)
   const origin = new Map<number, Annal>();
   for (const e of A) if ((e.kind === 'found' || e.kind === 'split' || e.kind === 'revolt') && e.a >= 0 && !origin.has(e.a)) origin.set(e.a, e);
   /** 国家 → 大事里最近一次出现时的国号词根 */
   const shown = new Map<number, string>();
+  let n = 0;
   for (const e of list) {
+    if (++n % 512 === 0) yield;
     if (e.importance < MAJOR) continue;
     const y = e.year;
     const pids = e.polities.filter((id) => polityOf(civ, id));
@@ -2173,8 +2508,37 @@ function introduce(civ: Civ, list: ChronicleEntry[], told: ReadonlyMap<Chronicle
 
 const cache = new WeakMap<Civ, ChronicleEntry[]>();
 
+/**
+ * 别处已经替这份 civ 算好的编年史(后台线程按同样的历史、同样的改名算的,和 buildChronicle(civ) 逐条一样):记进缓存,不再重算。
+ * 已经算过的不换
+ */
+export function primeChronicle(civ: Civ, entries: ChronicleEntry[]) {
+  if (!cache.has(civ)) cache.set(civ, entries);
+}
+
+/** 这份 civ 的编年史已经算过(或别处替它算好了) */
+export function chronicleCached(civ: Civ): boolean {
+  return cache.has(civ);
+}
+
+/** 一步一步走完(同步) */
+export function runSteps<T>(g: Generator<void, T>): T {
+  for (;;) {
+    const r = g.next();
+    if (r.done) return r.value;
+  }
+}
+
 /** civ.annals → 编年史条目(按年份排好;同一年按发生先后)。按 civ 缓存 */
 export function buildChronicle(civ: Civ): ChronicleEntry[] {
+  return cache.get(civ) ?? runSteps(chronicleSteps(civ));
+}
+
+/**
+ * 同 buildChronicle,分成许多小步(每一步不到一毫秒):界面可以一块一块地算,块与块之间让出主线程(src/ui/chronicleHandoff.ts)。
+ * 走完和 buildChronicle 的结果逐条一样,记进同一个缓存;走的中途别处已经算好了的,用先算好的那份
+ */
+export function* chronicleSteps(civ: Civ): Generator<void, ChronicleEntry[]> {
   const hit = cache.get(civ);
   if (hit) return hit;
   const A = civ.annals ?? [];
@@ -2182,7 +2546,10 @@ export function buildChronicle(civ: Civ): ChronicleEntry[] {
   for (const e of A) if (e.kind === 'split' && e.a >= 0 && e.b >= 0) splitFrom.set(e.a, e.b);
   const quell = new Map<number, number>();
   for (const e of A) if (e.kind === 'war' && e.cause === 'quell') quell.set(e.war, e.b);
-  const ctx: Ctx = { civ, titleUsed: new Map(), retake: retakes(A), splitFrom, flight: new Map(), ix: peopleOf(civ), quell };
+  const retake = retakes(A);
+  yield;
+  const ctx: Ctx = { civ, titleUsed: new Map(), retake, splitFrom, flight: new Map(), ix: peopleOf(civ), quell };
+  yield;
   const out: ChronicleEntry[] = [];
   const wars = new Map<number, number[]>();
   const plagues = new Map<number, number[]>();
@@ -2197,7 +2564,11 @@ export function buildChronicle(civ: Civ): ChronicleEntry[] {
     if (e.kind === 'split' && e.a >= 0) splitOf.add(e.a);
     if (e.kind === 'merge' && e.b >= 0) mergedAt.add(`${e.b}|${e.year}`);
   }
+  yield;
+  /** 走了几条:每走一段停一步 */
+  let n = 0;
   for (let i = 0; i < A.length; i++) {
+    if (++n % 128 === 0) yield;
     const e = A[i];
     // 地形大事:那一刻的后果(城没了、迁都、亡于天灾)并进大事那一条
     if (e.kind === 'upheaval') {
@@ -2251,7 +2622,13 @@ export function buildChronicle(civ: Civ): ChronicleEntry[] {
     }
     if (e.kind === 'found' && splitOf.has(e.a)) continue;
     // 干预引起的立国、迁都并进干预那一条
-    if ((e.kind === 'found' || e.kind === 'capital') && foldedIntoIntervene(civ, i)) continue;
+    if ((e.kind === 'found' || e.kind === 'capital' || e.kind === 'fall' || e.kind === 'famine') && foldedIntoIntervene(civ, i)) continue;
+    // 照大纲划给同一国的几州并进头一条
+    if (e.kind === 'intervene' && i > 0 && plotCedeKey(civ, i) && plotCedeKey(civ, i - 1) === plotCedeKey(civ, i)) continue;
+    // 照大纲顺着引的方针(gen/outline.ts)不写进编年史,只在大纲的批改里写
+    if (e.kind === 'intervene' && civ.interventions?.[e.war]?.guide) continue;
+    // 即位(等在位的那位下台):登记的那一条不列,真即位时另有一条
+    if (e.kind === 'intervene' && e.b === IV_WAIT && civ.interventions?.[e.war]?.kind === 'crown') continue;
     if (e.kind === 'fall' && e.b < 0 && mergedAt.has(`${e.a}|${e.year}`)) continue;
     if (e.kind === 'conquer' && e.b < 0 && e.a >= 0) {
       let g = tribal.get(e.a);
@@ -2269,14 +2646,34 @@ export function buildChronicle(civ: Civ): ChronicleEntry[] {
     }
     out.push(simpleEntry(ctx, e, i));
   }
-  for (const ids of wars.values()) out.push(A[ids[0]].kind === 'revolt' ? revoltEntry(ctx, ids) : warEntry(ctx, ids));
-  for (const ids of plagues.values()) out.push(plagueEntry(ctx, ids));
+  for (const ids of wars.values()) {
+    if (++n % 8 === 0) yield;
+    out.push(A[ids[0]].kind === 'revolt' ? revoltEntry(ctx, ids) : warEntry(ctx, ids));
+  }
+  for (const ids of plagues.values()) {
+    if (++n % 32 === 0) yield;
+    // 作者下的瘟疫没传开(只有起疫那一条):干预那一条已经写了
+    if (ids.length === 1 && A[ids[0]].war >= PLAGUE_IV) continue;
+    out.push(plagueEntry(ctx, ids));
+  }
+  yield;
   tribalEntries(ctx, tribal, out);
+  yield;
   const dirUsed = new Map<number, number>();
-  for (const ids of waves.values()) out.push(migrationEntry(ctx, ids, dirUsed));
+  for (const ids of waves.values()) {
+    if (++n % 32 === 0) yield;
+    out.push(migrationEntry(ctx, ids, dirUsed));
+  }
+  yield;
   assimEntries(ctx, assim, out);
+  yield;
   out.sort((a, b) => a.year - b.year || a.id - b.id);
-  introduce(civ, out, combine(ctx, out));
+  yield;
+  const told = combine(ctx, out);
+  yield;
+  yield* introduce(civ, out, told);
+  const again = cache.get(civ);
+  if (again) return again;
   cache.set(civ, out);
   return out;
 }
@@ -2323,7 +2720,11 @@ export function reignEntries(civ: Civ): ChronicleEntry[] {
       const minis: Person[] = [];
       let text: string;
       if (p.lineage === 'republic') text = `${ref}任满,${x.name}继任`;
-      else {
+      else if (prev.author !== undefined) {
+        // 作者立的君主到期退位(生死归人物卡管),继他之位的不连成他的儿子
+        const then = p.eastern && (p.lineage === 'khanate' || tier <= 0) ? `${x.name}继为${p.lineage === 'khanate' && tier > 0 ? '可汗' : '首领'}` : p.eastern ? `${x.name}即位${x.title ? `,是为${x.title}` : ''}` : `${rulerShort(civ, x)}即位`;
+        text = `${ref}退位${span};${then}`;
+      } else {
         const [died, killed] = deathWord(p, tier);
         const k = kinOf(civ, prev, x);
         const kin = !k ? '宗室' : k !== '子' ? `其${k}` : p.eastern && p.lineage !== 'khanate' && tier >= 3 ? '太子' : p.eastern && p.lineage !== 'khanate' && tier === 2 ? '世子' : '其子';
@@ -2340,7 +2741,8 @@ export function reignEntries(civ: Civ): ChronicleEntry[] {
         else if (p.eastern) then = `${lead}${kin}${x.name}${by ? '' : '即位'}${x.title ? `,是为${x.title}` : ''}`;
         else then = `${lead}${kin}${rulerShort(civ, x)}即位`;
         const aid = !regent ? '' : regent === by ? (east ? ',遂辅政' : ',并摄政') : `,${ministerRef(regent, y)}${east ? '辅政' : '摄政'}`;
-        text = `${ref}${prev.fate === 'murdered' ? killed : died}${span};${then}${young}${aid}`;
+        // 作者让他去世的:那一年的干预那一条已经写了"暴崩,在位几年"
+        text = prev.killed !== undefined ? `${ref}既${died};${then}${young}${aid}` : `${ref}${prev.fate === 'murdered' ? killed : died}${span};${then}${young}${aid}`;
         if (by) minis.push(by);
         if (regent && regent !== by) minis.push(regent);
       }

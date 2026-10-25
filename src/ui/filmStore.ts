@@ -1,6 +1,6 @@
 /**
- * 回放导出(视频、竖版长图)的面板状态:开着哪一个、选项、正在导出到哪一帧。
- * 导出菜单里点「回放视频」「竖版长图」打开,左边面板(手机:底部卡片)换成导出的选项,地图上压暗、出预览或框。
+ * 回放导出(视频、故事长图)的面板状态:开着哪一个、选项、正在导出到哪一帧。
+ * 导出菜单里点「回放视频」「故事长图」打开,左边面板(手机:底部卡片)换成导出的选项,地图上压暗、出预览或框。
  * 视频导出本身(一帧一帧画、编码、下载)也在这里跑:面板、地图上的预览、时间轴都读同一份状态。
  */
 import { useSyncExternalStore } from 'react';
@@ -24,7 +24,8 @@ import { openLong } from './longStore';
 import { getFilmSource, getFilmViewport, whenFilmReady, type FilmSource } from './filmSource';
 import { FilmRenderer, type FilmRegion, type FilmSetup } from './filmRun';
 import { FilmCancelled, encodeFilm } from './filmEncode';
-import { clampRange, filmClock, filmFileName, filmRanges, filmSize, frameYear, type FilmArea, type FilmRange, type FilmSeconds, type FilmShape } from './filmPlan';
+import { clampRange, filmClock, filmFileName, filmRanges, filmSize, frameYear, outlineRange, type FilmArea, type FilmPlot, type FilmRange, type FilmSeconds, type FilmShape } from './filmPlan';
+import { directorPlots, type OutlineCtx } from './outlineInfo';
 
 export type FilmMode = 'video' | 'long';
 
@@ -48,7 +49,13 @@ export interface FilmUi {
   range: FilmRange | null;
   seconds: FilmSeconds;
   captions: boolean;
+  /** 字幕用:大事 / 按大纲(照大纲推演推过的世界才能选) */
+  capBy: 'events' | 'outline';
   cards: boolean;
+  /** 片尾卡片上带不带"用「文明与地图」推演生成"和网址(片头片尾关着时不管用) */
+  url: boolean;
+  /** 预览停在片尾那一帧(刚拨了片尾网址的开关;拖时间轴、改别的选项回到那一年的样子) */
+  peek: boolean;
   /** 标题:null = 用世界名 */
   title: string | null;
   /** 上面的标题、拖出来的年份是哪个世界的(换了世界再打开回到默认) */
@@ -67,7 +74,10 @@ const INIT: FilmUi = {
   range: null,
   seconds: 60,
   captions: true,
+  capBy: 'events',
   cards: true,
+  url: true,
+  peek: false,
   title: null,
   world: null,
   run: null,
@@ -80,8 +90,12 @@ const emit = () => subs.forEach((f) => f());
 
 export const getFilm = () => state;
 
+/** 改了这几样以外的选项(画面、时长、标题……):预览不再停在片尾那一帧 */
+const PEEK_KEEP: ReadonlySet<string> = new Set(['peek', 'url', 'sheetH', 'run', 'world', 'phone', 'mode']);
+
 export function setFilm(patch: Partial<FilmUi>) {
-  state = { ...state, ...patch };
+  const unpeek = state.peek && !('peek' in patch) && Object.keys(patch).some((k) => !PEEK_KEEP.has(k));
+  state = { ...state, ...patch, ...(unpeek ? { peek: false } : {}) };
   emit();
 }
 
@@ -105,8 +119,8 @@ export function openFilm(mode: FilmMode, phone: boolean) {
   clearSelection();
   if (mode === 'video' && getGlobeOn()) setGlobeOn(false);
   const world = currentWorld()?.id ?? null;
-  const fresh = world !== state.world ? { world, title: null, rangeKind: 'polities' as const, range: null } : {};
-  state = { ...state, ...fresh, mode, phone, shape: phone ? 'port' : 'land', run: null };
+  const fresh = world !== state.world ? { world, title: null, rangeKind: 'polities' as const, range: null, capBy: 'events' as const } : {};
+  state = { ...state, ...fresh, mode, phone, shape: phone ? 'port' : 'land', run: null, peek: false };
   emit();
   // 时间轴移到选的那一段里
   const src = getFilmSource();
@@ -153,6 +167,27 @@ function keepYearInRange() {
   if (y < r.from || y > r.to) setCivTime({ year: Math.min(r.to, Math.max(r.from, y)) });
 }
 
+/** 字幕用大事 / 按大纲。按大纲:年份换成第一条情节前 20 年到最后一条情节后 20 年;换回大事:年份回到"有国家以后" */
+export function setFilmCapBy(capBy: FilmUi['capBy']) {
+  const src = getFilmSource();
+  if (capBy === 'outline') {
+    const r = src ? outlineRange(filmPlots(src.full), src.full.endYear) : null;
+    setFilm({ capBy, ...(r ? { rangeKind: 'custom' as const, range: r } : {}) });
+  } else setFilm({ capBy, rangeKind: 'polities', range: null });
+  keepYearInRange();
+}
+
+/** 一条情节都没有(大纲改过、批改作废了)= 照常写大事 */
+const nonEmpty = <T>(a: T[]): T[] | undefined => (a.length ? a : undefined);
+
+/** 字幕按大纲用的情节:照大纲推演推过的、不是做不到的(没大纲、没推过 = 空) */
+export function filmPlots(full: Civ): FilmPlot[] {
+  const { outline, marks, characters } = getEdits();
+  if (!outline?.plots.length || !outline.review?.length) return [];
+  const o: OutlineCtx = { civ: full, plots: outline.plots, review: outline.review, marks, characters };
+  return directorPlots(o, fullChronicle(full)).map((p) => ({ id: p.id, year: p.year, text: p.text, entry: p.entry, cell: p.cell }));
+}
+
 /** 标题:没改过 = 世界名 */
 export function filmTitleOf(): string {
   return state.title ?? currentWorld()?.title?.trim() ?? '';
@@ -184,7 +219,9 @@ export function filmSetup(src: FilmSource, look: { style: CivStyle; layer: Layer
     range: filmRangeOf(src.full),
     seconds: s.seconds,
     captions: s.captions,
+    plots: s.capBy === 'outline' && !s.phone ? nonEmpty(filmPlots(src.full)) : undefined,
     cards: s.cards,
+    url: s.url,
     title: filmTitleOf(),
     style: look.style,
     layer: look.layer,

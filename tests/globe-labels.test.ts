@@ -5,11 +5,14 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { rasterize, type Raster } from '../src/gen/raster';
 import { generateCiv, type Civ } from '../src/gen/civ';
-import { civLabelItems, civMapLayer, labelSurface } from '../src/render/civ/labels';
+import { civLabelItems, civMapLayer, labelSurface, placeLabelItems } from '../src/render/civ/labels';
 import { CIV_SHOW_DEFAULT, type CivDrawParams } from '../src/render/civ/overlay';
 import { placeMap, placedMarkBox, pathToCanvas } from '../src/render/labels/draw';
 import { Polyline, glyphBox } from '../src/render/labels/layout';
-import { GLYPH_MIN_D, MARK_MIN_D, globeLabelView, globeToCanvas, isQuickLabel, visibleMarks } from '../src/render/globeLabels';
+import { GLYPH_MIN_D, MARK_MIN_D, globeLabelView, globeToCanvas, isQuickLabel, overviewFloor, visibleMarks } from '../src/render/globeLabels';
+import { LEFT_W, RIGHT_W, TILT, fitPose } from '../src/ui/studio/layout';
+import { planetGlobeLabelView } from '../src/ui/studio/planetLabels';
+import type { StillPose } from '../src/ui/studio/scene';
 
 let world: World;
 let raster: Raster;
@@ -161,5 +164,109 @@ describe('地球仪文字:排版', () => {
       if (pk.kind === 'place') expect(civ.places[pk.id].kind).toBe('sea');
     }
     expect(quick.some((it) => it.pick?.kind === 'polity')).toBe(true);
+  });
+});
+
+describe('地球仪文字:手机上球小', () => {
+  // 手机竖屏:球的半径 = 屏幕宽 × 0.43,等效缩放不到 1 倍
+  const PW = 390;
+  const PH = 844;
+  const phone = (lon: number, lat: number, k: number) => {
+    const p: CivDrawParams = { world, raster, civ, style: 'fantasy', year: civ.endYear, show: { ...CIV_SHOW_DEFAULT, polities: true, routes: true } };
+    const raw = globeLabelView({ view: { lon: lon * D, lat: lat * D, k }, w: PW, h: PH, dpr: DPR, worldW: world.width, worldH: world.height, surface: labelSurface(world, raster, 1) });
+    const layer = civMapLayer(p);
+    return { raw, lv: overviewFloor(raw), layer, items: civLabelItems(p).concat(layer.items) };
+  };
+
+  it('等效缩放不到 1 倍时按缩放 1 倍、地图显示得窄一些排;够 1 倍时原样', () => {
+    const { raw, lv } = phone(115, 15, 1);
+    expect(raw.k).toBeLessThan(0.92);
+    expect(lv.k).toBe(1);
+    expect(lv.mapCss).toBeCloseTo(raw.mapCss * raw.k, 9);
+    // 投影、球的位置不变
+    expect(lv.proj).toBe(raw.proj);
+    expect(lv.globe).toBe(raw.globe);
+    const big = globeLabelView({ view: { lon: 0, lat: 0, k: 1 }, w: W, h: H, dpr: DPR, worldW: world.width, worldH: world.height });
+    expect(big.k).toBeGreaterThan(1);
+    expect(overviewFloor(big)).toBe(big);
+  });
+
+  for (const [lon, lat] of [
+    [0, 18],
+    [115, 15],
+    [-60, 10],
+  ] as [number, number][]) {
+    it(`视图 ${lon},${lat}(缩放 1 倍):有地名、城镇符号,不重叠,字号不比电脑上的大`, () => {
+      const { raw, lv, layer, items } = phone(lon, lat, 1);
+      // 不托底:门槛一个都过不去(这就是手机上球上什么都没有的原因)
+      expect(placeMap(items, visibleMarks(layer.marks, raw).marks, raw).labels.length).toBe(0);
+      const placed = placeMap(items, visibleMarks(layer.marks, lv).marks, lv);
+      expect(placed.labels.length).toBeGreaterThan(3);
+      expect(placed.marks.length).toBeGreaterThan(3);
+      const boxes: { text: string; b: number[] }[] = [];
+      for (const l of placed.labels) for (const g of l.glyphs) boxes.push({ text: l.item.text, b: glyphBox(g, l.px, 0) });
+      for (let i = 0; i < boxes.length; i++)
+        for (let j = i + 1; j < boxes.length; j++)
+          if (boxes[i].text !== boxes[j].text) expect(overlap(boxes[i].b, boxes[j].b), `${boxes[i].text} × ${boxes[j].text}`).toBe(false);
+      // 字号:同一条在电脑上(大球)排出来的不比这里小
+      const desk = setup(lon, lat, 1);
+      const deskPx = new Map(placeMap(desk.items, visibleMarks(desk.layer.marks, desk.lv).marks, desk.lv).labels.map((l) => [l.item.text, l.px]));
+      for (const l of placed.labels) {
+        const d = deskPx.get(l.item.text);
+        if (d !== undefined) expect(l.px, l.item.text).toBeLessThanOrEqual(d + 1e-6);
+      }
+    });
+  }
+});
+
+describe('新建界面的星球:手机上球小', () => {
+  // 手机竖屏 390 × 844,底部卡片让出 244:星球半径 = 宽 × 0.42,等效缩放不到 1 倍。电脑 1600 × 900,两边面板让出 LEFT_W、RIGHT_W
+  const PW = 390;
+  const PH = 844;
+  const pose = (lon: number, phone: boolean): StillPose => {
+    const box = phone ? { x: 0, y: 0, w: PW, h: PH - 244 } : { x: LEFT_W, y: 0, w: 1600 - LEFT_W - RIGHT_W, h: 900 };
+    const f = fitPose('globe', box, { phone });
+    return { proj: 'globe', lon: lon * D, lat: TILT, k: f.k, cx: f.cx, cy: f.cy, w: phone ? PW : 1600, h: phone ? PH : 900 };
+  };
+  /** 不托底的视图(原来的排法) */
+  const raw = (p: StillPose) =>
+    globeLabelView({ view: { lon: p.lon, lat: p.lat, k: 1 }, w: p.w, h: p.h, dpr: DPR, worldW: world.width, worldH: world.height, surface: labelSurface(world, raster, 1), frame: { cx: p.cx, cy: p.cy, R: p.k } });
+
+  for (const lon of [0, 115, -60]) {
+    it(`正中经度 ${lon}:手机上有地名、不重叠(不托底时一个都没有),字号不比电脑上的大`, () => {
+      const surf = labelSurface(world, raster, 1);
+      const items = placeLabelItems(civ.places, 'realistic');
+      const p = pose(lon, true);
+      const r = raw(p);
+      expect(r.k).toBeLessThan(0.92);
+      expect(placeMap(items, [], r).labels.length).toBe(0);
+      const lv = planetGlobeLabelView(p, DPR, world.width, world.height, surf);
+      expect(lv.k).toBe(1);
+      expect(lv.mapCss).toBeCloseTo(r.mapCss * r.k, 9);
+      const placed = placeMap(items, [], lv);
+      expect(placed.labels.length).toBeGreaterThan(3);
+      const boxes: { text: string; b: number[] }[] = [];
+      for (const l of placed.labels) for (const g of l.glyphs) boxes.push({ text: l.item.text, b: glyphBox(g, l.px, 0) });
+      for (let i = 0; i < boxes.length; i++)
+        for (let j = i + 1; j < boxes.length; j++)
+          if (boxes[i].text !== boxes[j].text) expect(overlap(boxes[i].b, boxes[j].b), `${boxes[i].text} × ${boxes[j].text}`).toBe(false);
+      // 字号:同一条在电脑上(大球)排出来的不比这里小
+      const desk = planetGlobeLabelView(pose(lon, false), DPR, world.width, world.height, surf);
+      const deskPx = new Map(placeMap(items, [], desk).labels.map((l) => [l.item.text, l.px]));
+      for (const l of placed.labels) {
+        const d = deskPx.get(l.item.text);
+        if (d !== undefined) expect(l.px, l.item.text).toBeLessThanOrEqual(d + 1e-6);
+      }
+    });
+  }
+
+  it('电脑上星球大(等效缩放 ≥ 1 倍):和原来一样排', () => {
+    const p = pose(115, false);
+    const r = raw(p);
+    expect(r.k).toBeGreaterThan(1);
+    const lv = planetGlobeLabelView(p, DPR, world.width, world.height, r.surface);
+    expect(lv.k).toBe(r.k);
+    expect(lv.mapCss).toBe(r.mapCss);
+    expect(lv.globe).toEqual(r.globe);
   });
 });

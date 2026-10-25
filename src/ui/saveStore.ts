@@ -14,6 +14,9 @@
  * - 缩略图(480×240 JPEG dataURL)单独存一个键,第一次存这个世界时由 App 给的 thumbMaker 截一张(截不到就过一会儿再试);
  *   新建中的世界地形变了、刚创建完,App 调 refreshThumb 重截。另有一张"地图缩略图"(实景、第 0 年的地形、不带国界和地名,
  *   「我的世界」的「地图」页签用;mapThumbMaker 给),和缩略图一起截;只在这台设备上,不同步(没有的就用缩略图)。
+ *   编辑地形时(App 调 setThumbEditing)连着涂不截:地形停了 THUMB_EDIT_QUIET 毫秒没再变才截(每截一张要先画一整张底图,
+ *   连涂时跟着每一笔画是内存冲高的一大块);收起编辑地形时不再等停笔;换世界、全部存成文件、页面藏起来 / 关掉之前
+ *   (flushThumb)当场截,存下的不会是旧地形的。
  * - 只存了地图、还没有文明的(新建时点「保存地图」,saveCurrentAsMap):本地信息记 map,存档里只有参数和地形修改。
  *   它不当世界打开,只在「我的世界」的「地图」页签里,点「打造文明」在它上面新建(见 mapGroups.ts)。
  * - 存储有上限:最多存 MAX_WORLDS 个世界;存满了(个数到上限、或浏览器配额满了)这一次就存不下,**绝不自动删别的世界**:
@@ -51,7 +54,7 @@ import {
 } from '../gen/savefile';
 import { getEdits, subscribeEdits } from './editsStore';
 import type { DraftBase } from './stageStore';
-import { getContourKind, getGraticuleLines, getProjection } from './projection';
+import { getContourKind, getGraticuleLines, getProjection } from './projectionStore';
 import { getMapCenter } from './mapWrap';
 import { clearToast, showToast, type ToastAction } from './toastStore';
 
@@ -458,6 +461,8 @@ interface Meta {
   base?: DraftBase;
   /** 只存了地图、还没有文明(见文件头) */
   map?: boolean;
+  /** 逐年推演:从哪个世界的哪一年开始的(存回推演模式时能选"覆盖原来的";只在这台设备上) */
+  from?: string;
 }
 
 export interface StoredWorld {
@@ -503,6 +508,7 @@ function parseMeta(text: string): Meta {
     const b = v.base as Record<string, unknown> | undefined;
     if (b && typeof b === 'object' && typeof b.id === 'string' && typeof b.title === 'string')
       m.base = { id: b.id, title: cleanTitle(b.title) || '未命名世界', names: Math.max(0, Math.floor(Number(b.names) || 0)), interventions: Math.max(0, Math.floor(Number(b.interventions) || 0)) };
+    if (typeof v.from === 'string' && v.from) m.from = v.from;
     return m;
   } catch {
     return {};
@@ -557,6 +563,7 @@ function writeMeta(id: string, m: Meta): boolean {
   if (m.alive !== undefined) v.alive = m.alive;
   if (m.draft && m.base) v.base = m.base;
   if (m.map && !m.draft) v.map = true;
+  if (m.from) v.from = m.from;
   return put(META + id, JSON.stringify(v));
 }
 
@@ -779,6 +786,53 @@ export function newHistoryWorld(id: string, o: Omit<NewHistoryOptions, 'from'> &
   return nid;
 }
 
+/**
+ * 照正在看的世界另存一个(参数、地形校验、投影、底稿出处照旧;算建好的),修改换成 edits,名字 title。
+ * 逐年推演用:从某一年开始演绎(from = 原来那个世界,存回推演模式时能选覆盖它)、存回推演模式存成新世界(from 不给)。
+ * 原来的不动。返回新编号(没有正在看的世界、存不下、满了 = null)
+ */
+export function saveCurrentAs(edits: WorldEdits, title: string, from?: string): string | null {
+  const c = current;
+  if (!c) return null;
+  if (storedCount() >= MAX_WORLDS) {
+    fullWhy = 'count';
+    return null;
+  }
+  // 照原样打开的旧世界另存出来的:按现在的版本打开、推演(地形校验留空,打开后按生成出来的记上)
+  const save = makeSave(c.params, edits, c.frozen !== undefined ? '' : c.check, cleanTitle(title) || undefined, undefined, currentView(), c.origin);
+  const nid = newWorldId();
+  if (!writeSave(nid, save, { opened: save.savedAt, ...(from && isStored(from) ? { from } : {}) })) return null;
+  changed();
+  return nid;
+}
+
+/** 逐年推演的世界是从哪个世界开始的(那个世界还在、建好了才算;没有 = null) */
+export function stepOrigin(id: string): { id: string; title: string } | null {
+  const from = readMeta(id).from;
+  if (!from || from === id) return null;
+  const w = loadWorld(from);
+  if (!w || w.draft || w.map) return null;
+  return { id: from, title: w.save.title || '未命名世界' };
+}
+
+/**
+ * 盖掉一个存着的世界的修改(存回推演模式时"覆盖原来的"):名字、参数、投影照旧,修改换成 edits。
+ * 正在看的就是它 = 不在这里改(返回 false)。写进去了 = true
+ */
+export function overwriteWorld(id: string, edits: WorldEdits): boolean {
+  if (current?.id === id) return false;
+  const w = loadWorld(id);
+  if (!w || w.draft || w.map) return false;
+  const save = makeSave(w.save.params, edits, w.save.check, w.save.title, undefined, w.save.view, w.save.origin);
+  // 结束那一年现存几国、缩略图都是原来那段历史的:去掉,打开时重新数、重截
+  const meta: Meta = { ...readMeta(id), opened: save.savedAt };
+  delete meta.alive;
+  if (!writeSave(id, save, meta)) return false;
+  store().remove(THUMB + id);
+  changed();
+  return true;
+}
+
 /** 两份存档是不是同一个世界的同一个样子(参数、修改、名字、底稿出处都相同;投影、存档时间不算) */
 export function sameSave(a: SaveFile, b: SaveFile): boolean {
   return worldKey(a.params) === worldKey(b.params) && (a.title ?? '') === (b.title ?? '') && JSON.stringify(a.edits) === JSON.stringify(b.edits) && sameOrigin(a.origin, b.origin);
@@ -787,7 +841,7 @@ export function sameSave(a: SaveFile, b: SaveFile): boolean {
 /** 两个底稿出处是不是一样(都没有也算) */
 export function sameOrigin(a: SaveFile['origin'], b: SaveFile['origin']): boolean {
   if (!a || !b) return !a && !b;
-  return (a.by ?? '') === (b.by ?? '') && a.title === b.title && a.url === b.url;
+  return (a.by ?? '') === (b.by ?? '') && a.title === b.title && a.url === b.url && (a.gallery ?? '') === (b.gallery ?? '');
 }
 
 /**
@@ -876,32 +930,71 @@ function saveOf(c: Current, edits: WorldEdits, view: SaveView | null | undefined
   if (c.frozen !== undefined) save.generator = c.frozen;
   return save;
 }
-/** 截缩略图(App 给):画布还没画好这个世界 = null */
-let thumbMaker: ((id: string) => string | null) | null = null;
+/**
+ * 截缩略图(App 给):画布还没画好这个世界 = null(过一会儿再来要)。
+ * now = 只截这一次、不会再来要(要的整张底图还没在后台备好也当场画);没给 = 底图还在后台备着就先 null
+ */
+type ThumbMaker = (id: string, now?: boolean) => string | null;
+let thumbMaker: ThumbMaker | null = null;
 let thumbTimer: ReturnType<typeof setTimeout> | undefined;
-/** 等着的那一张是要重截的(已经有了也截):这个世界的编号 */
-let thumbForce: string | null = null;
+/**
+ * 等着截的那一张:哪个世界、force = 要重截(已经有了也截)、第几次试;
+ * thumbDone / mapDone = 缩略图 / 地图缩略图这一轮已经截好了,再试时只截还差的那张
+ */
+let pending: ({ id: string; force: boolean; tries: number } & Done) | null = null;
+type Done = { thumbDone?: boolean; mapDone?: boolean };
+/** 截一张之前至少等多久(毫秒;画布这时可能还没画好) */
+const THUMB_DELAY = 700;
+/** 编辑地形:地形停了多久没再变(涂了一笔、按新地形重新生成完)才截(毫秒) */
+export const THUMB_EDIT_QUIET = 4000;
+/** 正在编辑地形(App 给) */
+let thumbEditing = false;
+/** 编辑地形:到这一刻(performance.now)之前先不截 */
+let quietUntil = 0;
+/** 地形变了、还没截到新缩略图的世界编号(收起编辑地形、flushThumb 时要补截) */
+let thumbOld: string | null = null;
 
 /** 不截了(换世界、删掉) */
 function stopThumb() {
   if (thumbTimer !== undefined) clearTimeout(thumbTimer);
   thumbTimer = undefined;
-  thumbForce = null;
+  pending = null;
 }
 
-export function setThumbMaker(f: ((id: string) => string | null) | null) {
+/** 编辑地形时还要等多少毫秒才截(没在编辑 = 0) */
+const quietLeft = () => (thumbEditing ? quietUntil - performance.now() : 0);
+
+/** 地形变了(涂了一笔、按新地形重新生成完):编辑地形时从这一刻重新算停了多久 */
+function noteTerrainChange() {
+  quietUntil = performance.now() + THUMB_EDIT_QUIET;
+}
+
+/**
+ * 编辑地形开着没有(App 在它开关时调):开着时连着涂不截缩略图,停够 THUMB_EDIT_QUIET 才截;
+ * 收起时等着的那一张不再等停笔,这次编辑里地形变过、还没截到的补截一张
+ */
+export function setThumbEditing(on: boolean) {
+  if (thumbEditing === on) return;
+  thumbEditing = on;
+  if (on) return;
+  const c = current;
+  if (c && thumbOld === c.id) scheduleThumb(c.id, true, 0, pending?.id === c.id ? { thumbDone: pending.thumbDone, mapDone: pending.mapDone } : {});
+  else if (pending) armThumb();
+}
+
+export function setThumbMaker(f: ThumbMaker | null) {
   thumbMaker = f;
 }
 
-/** 截地图缩略图(App 给;见文件头):画布还没画好 = null */
-let mapThumbMaker: ((id: string) => string | null) | null = null;
-export function setMapThumbMaker(f: ((id: string) => string | null) | null) {
+/** 截地图缩略图(App 给;见文件头):画布还没画好 = null;now 同 thumbMaker */
+let mapThumbMaker: ThumbMaker | null = null;
+export function setMapThumbMaker(f: ThumbMaker | null) {
   mapThumbMaker = f;
 }
 
-const take = (f: ((id: string) => string | null) | null, id: string): string | null => {
+const take = (f: ThumbMaker | null, id: string, now = false): string | null => {
   try {
-    return f?.(id) ?? null;
+    return f?.(id, now) ?? null;
   } catch {
     return null;
   }
@@ -925,33 +1018,71 @@ export function currentSave(): SaveFile | null {
   return saveOf(current, getEdits(), currentView());
 }
 
-/** 过一会儿截一张缩略图(画布这时可能还没画好这个世界,截不到就再等等);force = 已经有了也重截 */
-function scheduleThumb(id: string, force = false, tries = 0) {
+/**
+ * 过一会儿截一张缩略图(画布这时可能还没画好这个世界,截不到就再等等);force = 已经有了也重截。
+ * tries、done 是再试时带着的(第几次、这一轮哪张已经截好了)
+ */
+function scheduleThumb(id: string, force = false, tries = 0, done: Done = {}) {
   // 等着重截的不被随后一次普通的盖掉
-  if (thumbForce === id) force = true;
+  if (pending?.id === id && pending.force) force = true;
   stopThumb();
   if (tries > 40) return;
-  if (force) thumbForce = id;
-  thumbTimer = setTimeout(() => {
-    thumbTimer = undefined;
-    thumbForce = null;
-    const kv = store();
-    if (current?.id !== id || !kv.get(PREFIX + id)) return;
-    const wantThumb = force || !kv.get(THUMB + id);
-    const wantMap = !!mapThumbMaker && (force || !kv.get(MAPTHUMB + id));
-    if (!wantThumb && !wantMap) return;
-    const url = wantThumb ? take(thumbMaker, id) : null;
-    const map = wantMap ? take(mapThumbMaker, id) : null;
-    const a = !!url && put(THUMB + id, url);
-    const b = !!map && put(MAPTHUMB + id, map);
-    if (a || b) changed();
-    if (wantThumb && !url) return scheduleThumb(id, force, tries + 1);
-    if (wantMap && !map) {
-      // 只差地图缩略图:旧的那张(地形变了以前的)不留,下一次补上
-      kv.remove(MAPTHUMB + id);
-      scheduleThumb(id, false, tries + 1);
-    }
-  }, 700);
+  pending = { id, force, tries, ...done };
+  armThumb();
+}
+
+/** 按等着的那一张排上:至少等 THUMB_DELAY;编辑地形时等到地形停够了 */
+function armThumb() {
+  if (thumbTimer !== undefined) clearTimeout(thumbTimer);
+  thumbTimer = setTimeout(
+    () => {
+      thumbTimer = undefined;
+      // 等的时候又涂了一笔(停了多久重新算)
+      if (quietLeft() > 0) return armThumb();
+      shootThumb(false);
+    },
+    Math.max(THUMB_DELAY, quietLeft()),
+  );
+}
+
+/** 截等着的那一张;now = 不再等了(要的整张底图还没在后台备好也当场画)。截不到的照旧过一会儿再试 */
+function shootThumb(now: boolean) {
+  const p = pending;
+  stopThumb();
+  if (!p) return;
+  const { id, force, tries } = p;
+  const kv = store();
+  if (current?.id !== id || !kv.get(PREFIX + id)) return;
+  const wantThumb = !p.thumbDone && (force || !kv.get(THUMB + id));
+  const wantMap = !!mapThumbMaker && !p.mapDone && (force || !kv.get(MAPTHUMB + id));
+  if (!wantThumb && !wantMap) return;
+  const url = wantThumb ? take(thumbMaker, id, now) : null;
+  const map = wantMap ? take(mapThumbMaker, id, now) : null;
+  const a = !!url && put(THUMB + id, url);
+  const b = !!map && put(MAPTHUMB + id, map);
+  if (a || b) changed();
+  const done = { thumbDone: !!p.thumbDone || a, mapDone: !!p.mapDone || b };
+  // 地形变了以后的两张都截到了
+  if (force && thumbOld === id && done.thumbDone && (done.mapDone || !mapThumbMaker)) thumbOld = null;
+  // 再试时只截还差的那张
+  if (wantThumb && !url) return scheduleThumb(id, force, tries + 1, done);
+  if (wantMap && !map) {
+    // 只差地图缩略图:旧的那张(地形变了以前的)不留,下一次补上
+    kv.remove(MAPTHUMB + id);
+    scheduleThumb(id, force, tries + 1, done);
+  }
+}
+
+/**
+ * 等着截的缩略图(还有地形变了、还没截到的)不再等,当场截:换世界之前、全部存成文件、页面藏起来 / 关掉之前调。
+ * 当场也截不到的(正在按新地形重新生成……)照旧过一会儿再试
+ */
+export function flushThumb() {
+  const c = current;
+  if (!c || (pending?.id !== c.id && thumbOld !== c.id)) return;
+  if (pending?.id !== c.id) pending = { id: c.id, force: true, tries: 0 };
+  else if (thumbOld === c.id) pending.force = true;
+  shootThumb(true);
 }
 
 /** 当前世界的样子变了(新建中改了地形、刚创建完):缩略图重截 */
@@ -961,7 +1092,7 @@ export function refreshThumb() {
 
 function metaOf(c: Current, opened?: string): Meta {
   const m = readMeta(c.id);
-  return { draft: c.kind === 'draft', opened: opened ?? m.opened, alive: c.alive ?? m.alive, base: c.kind === 'draft' ? c.base : undefined };
+  return { draft: c.kind === 'draft', opened: opened ?? m.opened, alive: c.alive ?? m.alive, base: c.kind === 'draft' ? c.base : undefined, from: m.from };
 }
 
 /** 把当前世界存下来(修改没变就不存;force = 起名、换了投影、刚创建……) */
@@ -976,6 +1107,8 @@ function saveCurrent(force = false): boolean {
   const was = c.saved;
   const differs = (a: unknown, b: unknown) => a !== b && JSON.stringify(a ?? []) !== JSON.stringify(b ?? []);
   const redraw = !!was?.interventions && (differs(edits.interventions, was.interventions) || differs(edits.upheavals, was.upheavals));
+  // 编辑地形涂了一笔:停了多久从这一刻重新算
+  if (was && (edits.terrain !== was.terrain || edits.sketch !== was.sketch)) noteTerrainChange();
   c.saved = edits;
   // 新建中:走到这里就是作者动了(改了地形、起了名、调了参数);只换投影的走不到这里(没存过的不为它存)
   if (c.kind === 'draft') c.pristine = false;
@@ -1067,8 +1200,9 @@ export function attachWorld(spec: AttachSpec) {
     base: spec.kind === 'draft' ? (spec.base ?? undefined) : undefined,
     saved: spec.saved,
     savedView: withGraticule(spec.view ?? prev?.view ?? DEFAULT_VIEW),
-    // 新建中的没有底稿出处;在别的世界的地图上打造的文明例外:地图出自那里,出处跟着(建好以后侧栏照样写)
-    origin: spec.kind === 'draft' && !spec.saved?.map?.from ? undefined : (cleanOrigin(spec.origin) ?? undefined),
+    // 新建中的没有底稿出处;两种例外,出处跟着(建好以后侧栏照样写):在别的世界的地图上打造的文明(地图出自那里)、
+    // 照作品墙上的新建参数作品新建的(参数出自那里)
+    origin: spec.kind === 'draft' && !spec.saved?.map?.from && !spec.origin?.gallery ? undefined : (cleanOrigin(spec.origin) ?? undefined),
     original: spec.kind === 'draft' || !spec.original || spec.original.generator >= GENERATOR_VERSION ? undefined : spec.original,
     frozen: spec.kind === 'created' && spec.frozen !== undefined && spec.frozen < GENERATOR_VERSION ? spec.frozen : undefined,
   };
@@ -1132,7 +1266,8 @@ export function saveCurrentAsMap(): boolean {
   if (!c || c.kind !== 'draft' || c.gone) return false;
   const e = getEdits();
   const edits: WorldEdits = { names: {}, interventions: [], terrain: e.terrain, ...(e.sketch ? { sketch: e.sketch } : {}) };
-  const save = makeSave(c.params, edits, c.check, undefined, undefined, currentView());
+  // 出处跟着(照作品墙上的新建参数作品新建的:地图出自那套参数)
+  const save = makeSave(c.params, edits, c.check, undefined, undefined, currentView(), c.origin);
   const prev = store().get(PREFIX + c.id);
   if (!writeSave(c.id, save, { map: true, opened: save.savedAt })) {
     // 存档换成了只有地图的、本地信息却没写上:放回原来那份(还是没建完的,名字、文明的设定都在)
@@ -1140,8 +1275,8 @@ export function saveCurrentAsMap(): boolean {
     changed();
     return false;
   }
-  const url = take(thumbMaker, c.id);
-  const map = take(mapThumbMaker, c.id);
+  const url = take(thumbMaker, c.id, true);
+  const map = take(mapThumbMaker, c.id, true);
   if (url) put(THUMB + c.id, url);
   if (map) put(MAPTHUMB + c.id, map);
   current = null;
@@ -1168,6 +1303,9 @@ export function updateCheck(check: string) {
   c.check = check;
   if (store().get(PREFIX + c.id) === null) return;
   saveCurrent(true);
+  // 编辑地形时:停够了才截(连着涂不截)
+  noteTerrainChange();
+  thumbOld = c.id;
   scheduleThumb(c.id, true);
 }
 
@@ -1175,12 +1313,24 @@ export function updateCheck(check: string) {
 export function detachWorld() {
   current = null;
   stopThumb();
+  thumbOld = null;
   changed();
 }
 
-/** 开始自动存(App 挂载时调一次;返回取消函数) */
+/** 开始自动存(App 挂载时调一次;返回取消函数)。页面藏起来、关掉之前,等着的缩略图当场截 */
 export function startAutoSave(): () => void {
-  return subscribeEdits(() => saveCurrent());
+  const off = subscribeEdits(() => saveCurrent());
+  if (typeof window === 'undefined' || typeof document === 'undefined') return off;
+  const hide = () => {
+    if (document.visibilityState === 'hidden') flushThumb();
+  };
+  window.addEventListener('pagehide', flushThumb);
+  document.addEventListener('visibilitychange', hide);
+  return () => {
+    off();
+    window.removeEventListener('pagehide', flushThumb);
+    document.removeEventListener('visibilitychange', hide);
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -1428,6 +1578,9 @@ export function _resetForTest() {
   memoryWarned = false;
   mem.clear();
   stopThumb();
+  thumbOld = null;
+  thumbEditing = false;
+  quietUntil = 0;
 }
 
 /**

@@ -20,6 +20,7 @@ import type { Polyline } from './lines';
 import type { CivDrawParams, CivStyle } from './overlay';
 import { toCanvas, type LabelView } from '../labels/draw';
 import { clipOutline, projectLinePts, reprojectImage, type Projector } from '../projection';
+import { flushCanvas } from '../common';
 
 // ---------------------------------------------------------------------------
 // 1. 数据:按史事整理每一场战争
@@ -447,10 +448,47 @@ export function drawWarfare(ctx: CanvasRenderingContext2D, p: CivDrawParams, lv:
 // 3. 易手的州:斜线(画在文明底图 / 地球仪的文明贴图上)
 
 type AnyCanvas = OffscreenCanvas | HTMLCanvasElement;
-const hatchCache = new WeakMap<Civ, { raster: unknown; key: string; canvas: AnyCanvas }>();
+/** box = 斜线图上不透明的像素都在这个框里(画布像素 [x0, x1) × [y0, y1));没有不透明的 = null */
+const hatchCache = new WeakMap<Civ, { raster: unknown; key: string; canvas: AnyCanvas; box: [number, number, number, number] | null }>();
+/** 半分辨率的范围放大到全分辨率时(平滑插值)往外渗的像素,框四周留这么宽 */
+const HATCH_BOX_PAD = 8;
 
 function makeCanvas(w: number, h: number): AnyCanvas {
   return typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(w, h) : Object.assign(document.createElement('canvas'), { width: w, height: h });
+}
+
+/**
+ * 铺满整张图的斜线(还没按州裁):只看栅格和画风,每张栅格、每种画风画一次;每一年的斜线图从它原样贴过来再按州裁,
+ * 和每次重描一遍逐像素一样(整张斜线是这张图里最费时的一步)
+ */
+const stripesCache = new WeakMap<object, { style: CivDrawParams['style']; canvas: AnyCanvas }>();
+function stripesOf(raster: CivDrawParams['raster'], style: CivDrawParams['style']): AnyCanvas {
+  const hit = stripesCache.get(raster);
+  if (hit && hit.style === style) return hit.canvas;
+  const { w, h, scale: S } = raster;
+  const canvas = hit ? hit.canvas : makeCanvas(w, h);
+  const sx = canvas.getContext('2d') as CanvasRenderingContext2D;
+  sx.clearRect(0, 0, w, h);
+  sx.strokeStyle = warLook(style).hatch;
+  sx.lineWidth = WAR_SIZE.hatch * S;
+  const gap = WAR_SIZE.hatchGap * S;
+  sx.beginPath();
+  for (let x = -h; x < w; x += gap) {
+    sx.moveTo(x, h);
+    sx.lineTo(x + h, 0);
+  }
+  sx.stroke();
+  stripesCache.set(raster, { style, canvas });
+  return canvas;
+}
+
+/**
+ * 整张斜线(stripesOf)单独一步备好、当下让浏览器描出来(这一年有易手的州、斜线开着才描;已经有了就什么也不做):
+ * 刚打开的世界还没有这一张,不单独备的话,它和这一年的斜线图挤在同一步里描(没有显卡加速的机器上合起来几十毫秒)。
+ * 整张一次描(分块描,抗锯齿的边会差一点点)
+ */
+export function warStripesPrep(p: CivDrawParams): void {
+  if (warsShown(p) && warScene(p.civ, p.year).taken.length) flushCanvas(stripesOf(p.raster, p.style));
 }
 
 /**
@@ -458,11 +496,26 @@ function makeCanvas(w: number, h: number): AnyCanvas {
  * 范围按半分辨率的像素算(和编年史高亮一样),斜线按全分辨率画;州没变就用上次画好的
  */
 export function drawWarHatch(ctx: CanvasRenderingContext2D, p: CivDrawParams): void {
-  if (!warsShown(p)) return;
+  const canvas = warHatchCanvas(p);
+  if (!canvas) return;
+  const { w, h, scale: S } = p.raster;
+  if (p.proj) return reprojectImage(ctx, canvas, w, h, p.proj.mp, { s: S, ox: 0, oy: 0 });
+  // 只贴有斜线的那一框(框外全透明,贴上去什么也不变):回放时每帧都贴,整张图那么大的一次贴图在没有显卡加速的机器上很慢
+  const box = hatchCache.get(p.civ)?.box;
+  if (box === null) return;
+  if (box && ctx.getTransform().isIdentity) {
+    const [x0, y0, x1, y1] = box;
+    ctx.drawImage(canvas, x0, y0, x1 - x0, y1 - y0, x0, y0, x1 - x0, y1 - y0);
+  } else ctx.drawImage(canvas, 0, 0);
+}
+
+/** 易手的州的斜线画好的那张(raster.w × raster.h,按 civ 缓存;州没变就用上次画好的);不画 = null */
+export function warHatchCanvas(p: CivDrawParams): AnyCanvas | null {
+  if (!warsShown(p)) return null;
   const { taken } = warScene(p.civ, p.year);
-  if (!taken.length) return;
+  if (!taken.length) return null;
   const { raster, civ, world } = p;
-  const { w, h, scale: S } = raster;
+  const { w, h } = raster;
   const key = `${p.style}|${taken.join(',')}`;
   let hit = hatchCache.get(civ);
   if (!hit || hit.raster !== raster || hit.key !== key) {
@@ -474,35 +527,40 @@ export function drawWarHatch(ctx: CanvasRenderingContext2D, p: CivDrawParams): v
     const H = Math.ceil(h / f);
     const img = new ImageData(W, H);
     const d = img.data;
+    let bx0 = W;
+    let by0 = H;
+    let bx1 = -1;
+    let by1 = -1;
     for (let y = 0; y < H; y++) {
       const row = Math.min(h - 1, y * f + 1) * w;
       for (let x = 0; x < W; x++) {
         const r = pix[row + Math.min(w - 1, x * f + 1)];
-        if (r >= 0 && set[r]) d[(y * W + x) * 4 + 3] = 255;
+        if (r >= 0 && set[r]) {
+          d[(y * W + x) * 4 + 3] = 255;
+          if (x < bx0) bx0 = x;
+          if (x > bx1) bx1 = x;
+          if (y < by0) by0 = y;
+          by1 = y;
+        }
       }
     }
+    const box: [number, number, number, number] | null =
+      bx1 < 0
+        ? null
+        : [Math.max(0, bx0 * f - HATCH_BOX_PAD), Math.max(0, by0 * f - HATCH_BOX_PAD), Math.min(w, (bx1 + 1) * f + HATCH_BOX_PAD), Math.min(h, (by1 + 1) * f + HATCH_BOX_PAD)];
     const mask = makeCanvas(W, H);
     (mask.getContext('2d') as CanvasRenderingContext2D).putImageData(img, 0, 0);
     const canvas = hit && hit.raster === raster ? hit.canvas : makeCanvas(w, h);
     const hx = canvas.getContext('2d') as CanvasRenderingContext2D;
     hx.globalCompositeOperation = 'source-over';
     hx.clearRect(0, 0, w, h);
-    hx.strokeStyle = warLook(p.style).hatch;
-    hx.lineWidth = WAR_SIZE.hatch * S;
-    const gap = WAR_SIZE.hatchGap * S;
-    hx.beginPath();
-    for (let x = -h; x < w; x += gap) {
-      hx.moveTo(x, h);
-      hx.lineTo(x + h, 0);
-    }
-    hx.stroke();
+    hx.drawImage(stripesOf(raster, p.style), 0, 0);
     hx.globalCompositeOperation = 'destination-in';
     hx.imageSmoothingEnabled = true;
     hx.drawImage(mask, 0, 0, w, h);
     hx.globalCompositeOperation = 'source-over';
-    hit = { raster, key, canvas };
+    hit = { raster, key, canvas, box };
     hatchCache.set(civ, hit);
   }
-  if (p.proj) reprojectImage(ctx, hit.canvas, w, h, p.proj.mp, { s: S, ox: 0, oy: 0 });
-  else ctx.drawImage(hit.canvas, 0, 0);
+  return hit.canvas;
 }

@@ -3,22 +3,24 @@
  *
  *   1. 定城:有城镇列表时用城镇(见 RouteCity);没有时每个州的治所就是一座城(不可居的除外),
  *      人口上限最大、彼此隔得开的一批当"大城",代替国都。
- *   2. 定连哪些城(只走邻接,每片陆地各算各的):从所有城同时洇染,两城的势力范围相接就是"邻城";
- *      再做 Urquhart 图 —— 每个"三城两两相邻"的三角里删掉代价最大的那条连线,
- *      不会有太远的连线,也没有太多三角回路。先在大城之间连(大路),再在所有城之间连(小路)。
+ *   2. 定连哪些城(只走邻接,每片陆地各算各的):城按够格的年份一批批加进来,从新城洇染,两城的势力范围相接就是"邻城";
+ *      再做 Urquhart 图 —— 每个"三城两两相邻"的三角里删掉代价最大的那条新连线,
+ *      不会有太远的连线,也没有太多三角回路(见 GrowingGraph)。先在大城之间连(大路),再在所有城之间连(小路)。
+ *      后来的城只添新连线、不改早先的:推演推得再远,早先修好的路不变。
  *   3. 地块级 A* 寻路。每一步的代价 = 距离 × 坡度 × 海拔 × 群落 × 河流(沿河道本身走、跨河都加价,
  *      所以路走在河谷里、河的旁边);已有路的打五折(后修的路并进先修的路,形成主干道),
- *      不穿城的地块加罚(路愿意穿城而过);不下海、不进湖、不穿冰原。
+ *      不穿城(那时已经有的城)的地块加罚(路愿意穿城而过);不下海、不进湖、不穿冰原。
  *      和已有路重合的部分切掉,只留新修的段落。
  *      大路走到早先修的小路上,那一段从大路的修建年份起升级成大路(小路记 abandoned)。
- *   4. 平行的冗余小路:一段小路两端之间沿路网另有一条差不多长、又紧挨着它的路,就删掉它(并进主干道)。
+ *   4. 平行的冗余小路:修一段小路时,两端之间沿那时的路网另有一条差不多长、又紧挨着它的路,就不修(并进主干道)。
  *   5. 航线:同一片海的港口之间,同样用"势力范围相接 + Urquhart"定连哪些港,在海上 A* 寻路;
  *      近岸便宜、远洋贵;结冰的海(海冰 ≥ 0.5 或海冰群落)不能走。
- *      同一片陆地上、陆路本来就连着的两港,只有海路比陆路近得多时才开航线(省得沿海岸画两道线)。
- *   6. 阶段 3 城市兴衰:城被毁(RouteCity.ended)后,只通往它的路那一年起荒废(Route.abandoned)。
+ *      同一片陆地上、陆路本来就连着的两港,只有海路比陆路(只比地形)近得多时才开航线(省得沿海岸画两道线)。
+ *   6. 阶段 3 城市兴衰:城被毁(RouteCity.lives 一段结束)后,只通往它的路那一年起荒废(Route.abandoned);原址重建的城够格以后重新通路。
  *      每一步路记下"用它的连线里最晚结束的那一年"(两端都还在的连线 = 永不结束),全都结束了才荒废;
- *      废城的邻城之间另加"绕行"连线(寻路时几乎全走原来经过废城的路),所以路过废城的干道照常在,只有岔进废城的那一截荒废。
- *      被删掉的冗余小路,它的连线改记在替代它的那条路上。
+ *      废城的邻城之间另加"绕行"连线(城被毁那年起;寻路时几乎全走原来经过废城的路),所以路过废城的干道照常在,只有岔进废城的那一截荒废。
+ *      没修的冗余小路,它的连线改记在替代它的那条路上。停用以后又有新连线走上来的路段,从那年起重新开一段。
+ *      推演里走过的航线(opts.lanes)登岸处是故址的(城被毁、还没在原址重建,见 polities.ts 的 ruinGaps),那些年也不画,重建以后照原路重新画。
  *
  * 距离和启发函数一律来自几何层(geo.ts / gen/geometry.ts),只沿 mesh 邻接走,不用 x、y 直接算间距。
  * 没有随机数:结果只由世界决定;并列时按地块 / 城的编号定先后。
@@ -48,6 +50,11 @@ export interface RouteCity {
    * 路过它、还连着别的城的路照常用(它的邻城之间另算一条"绕行"连线,见 buildRoutes)
    */
   ended?: Year;
+  /**
+   * 在世的年份段 [够格修路, 被毁)(同一处城址毁了又重建的有好几段;不给 = [founded, ended ?? Infinity) 一段):
+   * 通往它的路在两段之间荒废,重建的城够格以后重新通路
+   */
+  lives?: [Year, Year][];
 }
 
 /** 推演里走过的一条海峡 / 航线(州图上的边):两头的海岸地块 a、b(Regions.adjCoast),从 built 那年起画 */
@@ -62,6 +69,8 @@ export interface RouteOptions {
   cities?: RouteCity[];
   /** 推演里走过的海峡、航线(usedLanes):两头的海岸之间一定画一条航线,从 built 那年起(和港口之间的航线一起修,重合的并成一条) */
   lanes?: UsedLane[];
+  /** 城址空着的年份段(polities.ts 的 ruinGaps):走过的航线登岸处是故址的,这些年不画,原址重建以后照原路重新画 */
+  ruins?: ReadonlyMap<number, readonly (readonly [Year, Year])[]>;
   progress?: Progress;
 }
 
@@ -91,7 +100,7 @@ const SEA_DEPTH = [1, 1, 1.4, 2, 3];
 const SEA_MAX_STEPS = 45;
 /** 同陆地两港:陆路代价 > 海路代价 × 这个倍数才开航线 */
 const SEA_VS_LAND = 2.5;
-/** 冗余小路:另一条路不超过它长度的这个倍数,而且它的每一块都挨着那条路,就删掉 */
+/** 冗余小路:另一条路不超过它长度的这个倍数,而且它的每一块都挨着那条路,就不修 */
 const PARALLEL_RATIO = 1.6;
 
 /** 路段类别在 slot 数组里的编号(0 = 没有路) */
@@ -364,8 +373,9 @@ export function buildRoutes(world: World, habitat: Habitat, regions: Regions, op
   }
 
   // ---- 城 ----
-  const cityAt = new Int32Array(n).fill(-1);
-  for (let c = 0; c < cities.length; c++) if (cityAt[cities[c].cell] < 0) cityAt[cities[c].cell] = c;
+  /** 地块上的城从哪年起有(够格修路那年;没有城 = Infinity):修路时只把那时已经有的城当城 */
+  const cityFrom = new Float64Array(n).fill(Infinity);
+  for (const c of cities) cityFrom[c.cell] = Math.min(cityFrom[c.cell], c.founded);
   /** 陆地连通块(可走的陆地),给航线判断"同一片陆地" */
   const comp = new Int32Array(n).fill(-1);
   {
@@ -395,41 +405,37 @@ export function buildRoutes(world: World, habitat: Habitat, regions: Regions, op
   /** 地块上已有路(大路、小路都算) / 已有航线 */
   const onRoad = new Uint8Array(n);
   const onSea = new Uint8Array(n);
-  /** 邻接槽位上已经修过的路段(两个方向都记):陆路记 KIND_CODE,航线记 1 */
-  const roadSlot = new Uint8Array(adj.length);
-  const seaSlot = new Uint8Array(adj.length);
-  /** 陆路段的修建年份(两个方向都记),并路时只并进那时已经有的路 */
-  const roadYear = new Float64Array(adj.length);
 
-  /** 陆路 A*:返回地块序列(起点 → 终点),走不通返回 null */
-  const findLand = (start: number, goal: number): number[] | null => {
+  /** 陆路 A*(year 那年修):返回地块序列(起点 → 终点),走不通返回 null。reuse = false:不看已有的路(只比地形) */
+  const findLand = (start: number, goal: number, year: Year, reuse = true): number[] | null => {
     const { g, prev, seen, done, heap } = F;
     const st = ++F.stamp;
+    const hf = reuse ? REUSE : 1;
     seen[start] = st;
     g[start] = 0;
     prev[start] = -1;
     heap.size = 0;
-    heap.push(start, REUSE * heuristic(start, goal));
+    heap.push(start, hf * heuristic(start, goal));
     while (heap.size) {
       const i = heap.pop();
       if (done[i] === st) continue;
       done[i] = st;
       if (i === goal) break;
       const gi = g[i];
-      const ri = onRoad[i];
+      const ri = reuse && onRoad[i];
       for (let k = adjStart[i]; k < adjStart[i + 1]; k++) {
         let c = landCost[k];
         if (c < 0) continue;
         const j = adj[k];
         if (done[j] === st) continue;
         if (ri && onRoad[j]) c *= REUSE;
-        if (cityAt[j] < 0) c *= NO_CITY;
+        if (!(cityFrom[j] <= year)) c *= NO_CITY;
         const ng = gi + c;
         if (seen[j] !== st || ng < g[j]) {
           seen[j] = st;
           g[j] = ng;
           prev[j] = i;
-          heap.push(j, ng + REUSE * heuristic(j, goal));
+          heap.push(j, ng + hf * heuristic(j, goal));
         }
       }
     }
@@ -487,134 +493,218 @@ export function buildRoutes(world: World, habitat: Habitat, regions: Regions, op
     kind: Route['kind'];
     cells: number[];
     built: Year;
-    /** 航线:停用以后又有新航线走上来、重新开的那几段,这一段自己的停用年份(段号 → 年份;没有的看 seaEnd) */
-    stop?: Map<number, Year>;
+    /**
+     * 每一步(邻接槽位,两个方向都记)画到哪一年为止:用它的连线里最晚结束的那一年(两端都还在 = Infinity);
+     * 小路被大路升级的 = 升级那年(之后由大路接着画)
+     */
+    stop: Map<number, Year>;
   }
   const pieces: Piece[] = [];
-  /** 航线上重新开过的段 → 最近一次重新开的那一段路 */
-  const reopened = new Map<number, Piece>();
-  /** 小路被大路"升级"的年份(两个方向都记;−1 = 没升级) */
-  const upgrade = new Float64Array(adj.length).fill(-1);
-  /**
-   * 阶段 3 城市兴衰:每一步路(两个方向都记)用它的连线里最晚结束的那一年(连线两端有一座城被毁 = 结束;
-   * 两端都还在 = Infinity;没有路 = −Infinity)。陆路、航线各一份
-   */
-  const roadEnd = new Float64Array(adj.length).fill(-Infinity);
-  const seaEnd = new Float64Array(adj.length).fill(-Infinity);
-  /**
-   * 把一条路径记进路网:和已有路段重合的部分切掉,剩下的每一段新路成为一条 Route。
-   * 大路走到早先修的小路上时,那一段从这一年起"升级"成大路(小路记 abandoned,大路接着画),
-   * 所以国都之间的大路是一整条,回放时先有小路、立都之后才变成大路。
-   */
-  const lay = (path: number[], kind: Route['kind'], built: Year, end: Year = Infinity) => {
-    const slots = kind === 'sea' ? seaSlot : roadSlot;
-    const cellsOn = kind === 'sea' ? onSea : onRoad;
-    const ends = kind === 'sea' ? seaEnd : roadEnd;
-    let cur: number[] | null = null;
-    let curStop: Map<number, Year> | null = null;
-    const push = () => {
-      if (!cur) return;
-      const piece: Piece = { kind, cells: cur, built };
-      if (curStop) {
-        piece.stop = curStop;
-        for (const k of curStop.keys()) reopened.set(k, piece);
-      }
-      pieces.push(piece);
-      cur = null;
-      curStop = null;
-    };
-    for (let t = 1; t < path.length; t++) {
-      const a = path[t - 1];
-      const b = path[t];
-      const k = slotOf(mesh, a, b);
-      const back = slotOf(mesh, b, a);
-      if (slots[k] && kind === 'sea') {
-        const re = reopened.get(k);
-        const last = re ? re.stop!.get(k)! : ends[k];
-        if (last <= built) {
-          // 这一段早先的航线到 built 以前已经停用(一头的港口毁了):从 built 起重新开,新起一段,停用年份单记
-          (curStop ??= new Map()).set(k, end).set(back, end);
-          if (!cur) cur = [a];
-          cur.push(b);
-          continue;
-        }
-        if (end > last) {
-          if (re) re.stop!.set(k, end).set(back, end);
-          else ends[k] = ends[back] = end;
-        }
-      } else if (end > ends[k]) ends[k] = ends[back] = end;
-      if (slots[k]) {
-        if (kind === 'road' && slots[k] === KIND_CODE.trail) {
-          slots[k] = slots[back] = KIND_CODE.road;
-          upgrade[k] = upgrade[back] = built;
-          if (!cur) cur = [a];
-          cur.push(b);
-          continue;
-        }
-        push();
-        continue;
-      }
-      slots[k] = slots[back] = KIND_CODE[kind];
-      if (kind !== 'sea') roadYear[k] = roadYear[back] = built;
-      if (!cur) cur = [a];
-      cur.push(b);
-    }
-    push();
-    for (const c of path) cellsOn[c] = 1;
+  /** 邻接槽位上最近一次修的路段(pieces 的下标;−1 = 没修过):陆路、航线各一份 */
+  const roadOwner = new Int32Array(adj.length).fill(-1);
+  const seaOwner = new Int32Array(adj.length).fill(-1);
+  /** 邻接槽位 k 上 t 那年还在用的路段(停用了 / 没修过 = undefined) */
+  const liveAt = (own: Int32Array, k: number, t: Year): Piece | undefined => {
+    const o = own[k];
+    return o >= 0 && pieces[o].stop.get(k)! > t ? pieces[o] : undefined;
   };
 
-  const builtOf = (a: number, b: number) => Math.max(cities[a].founded, cities[b].founded);
+  // ---- 冗余的平行小路 ----
+  const dist = new Float64Array(n);
+  const prevOf = new Int32Array(n);
+  const seenAt = new Int32Array(n);
+  const near = new Int32Array(n);
+  let stamp = 0;
+  const pheap = new MinHeap(256);
+  /**
+   * 一段新修的小路(cells,中间没有城、不碰已有的路):两端之间沿那时还在用的路有没有另一条不超过 PARALLEL_RATIO 倍长、
+   * 而且处处紧挨着它(它的每一块都在那条路上或和那条路相邻)的路。有就不修,车马改走那条路:那条路至少用到 end 那年
+   */
+  const parallel = (cells: number[], built: Year, end: Year): boolean => {
+    let length = 0;
+    for (let t = 1; t < cells.length; t++) length += len[slotOf(mesh, cells[t - 1], cells[t])];
+    const u = cells[0];
+    const v = cells[cells.length - 1];
+    if (u === v) return false;
+    const limit = PARALLEL_RATIO * length;
+    const st = ++stamp;
+    seenAt[u] = st;
+    dist[u] = 0;
+    prevOf[u] = -1;
+    pheap.size = 0;
+    pheap.push(u, 0);
+    let found = false;
+    while (pheap.size) {
+      const i = pheap.pop();
+      const d = pheap.lastPri;
+      if (d > dist[i]) continue;
+      if (i === v) {
+        found = true;
+        break;
+      }
+      for (let k = adjStart[i]; k < adjStart[i + 1]; k++) {
+        if (!liveAt(roadOwner, k, built)) continue;
+        const j = adj[k];
+        const nd = d + len[k];
+        if (nd > limit) continue;
+        if (seenAt[j] !== st || nd < dist[j]) {
+          seenAt[j] = st;
+          dist[j] = nd;
+          prevOf[j] = i;
+          pheap.push(j, nd);
+        }
+      }
+    }
+    if (!found) return false;
+    for (let i = v; i >= 0; i = prevOf[i]) {
+      near[i] = st;
+      for (let k = adjStart[i]; k < adjStart[i + 1]; k++) near[adj[k]] = st;
+    }
+    for (let t = 1; t < cells.length - 1; t++) if (near[cells[t]] !== st) return false;
+    for (let i = v; prevOf[i] >= 0; i = prevOf[i]) {
+      const k = slotOf(mesh, prevOf[i], i);
+      const back = slotOf(mesh, i, prevOf[i]);
+      const p = liveAt(roadOwner, k, built)!;
+      if (end > p.stop.get(k)!) p.stop.set(k, end).set(back, end);
+    }
+    return true;
+  };
+
+  /**
+   * 把一条路径记进路网(built 那年修,用到 end 那年):和那时还在用的路段重合的部分并进去(那几步至少用到 end),
+   * 剩下的每一段新路成为一条 Route。早先修过、到 built 已经停用的路段从 built 起重新开一段(停用的那段照旧停在停用那年)。
+   * 大路走到还在用的小路上,那一段从这一年起"升级"成大路(小路那年停用,大路接着画),
+   * 所以国都之间的大路是一整条,回放时先有小路、立都之后才变成大路。
+   * 小路新修的那几段在城、岔口处断开,紧挨着一条那时已经有的路、长度差不多的不修(见 parallel)。
+   * 只看那时已经有的路:后来修的路不改早先修的路
+   */
+  const lay = (path: number[], kind: Route['kind'], built: Year, end: Year) => {
+    const own = kind === 'sea' ? seaOwner : roadOwner;
+    const cellsOn = kind === 'sea' ? onSea : onRoad;
+    const T = path.length - 1;
+    const ks = new Int32Array(T);
+    const backs = new Int32Array(T);
+    /** 每一步:0 = 新修(或重新开),1 = 并进还在用的路,2 = 大路升级还在用的小路,3 = 冗余的平行小路,不修 */
+    const how = new Uint8Array(T);
+    for (let t = 0; t < T; t++) {
+      ks[t] = slotOf(mesh, path[t], path[t + 1]);
+      backs[t] = slotOf(mesh, path[t + 1], path[t]);
+      const o = liveAt(own, ks[t], built);
+      how[t] = !o ? 0 : kind === 'road' && o.kind === 'trail' ? 2 : 1;
+    }
+    if (kind === 'trail') {
+      for (let t = 0; t < T; ) {
+        if (how[t] !== 0) {
+          t++;
+          continue;
+        }
+        let u = t + 1;
+        while (u < T && how[u] === 0 && !(cityFrom[path[u]] <= built) && !onRoad[path[u]]) u++;
+        if (u - t >= 2 && parallel(path.slice(t, u + 1), built, end)) how.fill(3, t, u);
+        t = u;
+      }
+    }
+    let cur: Piece | null = null;
+    let at = -1;
+    for (let t = 0; t < T; t++) {
+      const k = ks[t];
+      const back = backs[t];
+      if (how[t] === 3) {
+        cur = null;
+        continue;
+      }
+      if (how[t] === 1) {
+        const o = pieces[own[k]];
+        if (end > o.stop.get(k)!) o.stop.set(k, end).set(back, end);
+        cur = null;
+        continue;
+      }
+      let stop = end;
+      if (how[t] === 2) {
+        const o = pieces[own[k]];
+        stop = Math.max(end, o.stop.get(k)!);
+        o.stop.set(k, built).set(back, built);
+      }
+      if (!cur) {
+        cur = { kind, cells: [path[t]], built, stop: new Map() };
+        at = pieces.push(cur) - 1;
+      }
+      cur.cells.push(path[t + 1]);
+      cur.stop.set(k, stop).set(back, stop);
+      own[k] = own[back] = at;
+      cellsOn[path[t]] = cellsOn[path[t + 1]] = 1;
+    }
+  };
+
+  // ---- 定连哪些城 ----
+  const all = cities.map((_, i) => i).filter((c) => pass[cities[c].cell]);
+  const cellOf = (c: number) => cities[c].cell;
+  const livesOf = (c: number): readonly (readonly [Year, Year])[] => cities[c].lives ?? [[cities[c].founded, cities[c].ended ?? Infinity]];
   const majorOf = (c: number) => Math.max(cities[c].founded, cities[c].majorFrom ?? cities[c].founded);
-  const builtMajor = (a: number, b: number) => Math.max(majorOf(a), majorOf(b));
   const portOf = (c: number) => Math.max(cities[c].founded, cities[c].portFrom ?? cities[c].founded);
-  const builtSea = (a: number, b: number) => Math.max(portOf(a), portOf(b));
-  /** 连线结束的年份:两端有一座被毁的那一年(都还在 = Infinity) */
-  const endOf = (a: number, b: number) => Math.min(cities[a].ended ?? Infinity, cities[b].ended ?? Infinity);
-  /** 一组城的连线:邻城图 → Urquhart */
-  const linksOf = (ids: number[], cost: Float32Array, maxD?: number): Link[] =>
-    ids.length < 2
-      ? []
-      : urquhart(
-          ids.length,
-          neighborGraph(
-            mesh,
-            ids.map((c) => cities[c].cell),
-            cost,
-            maxD,
-          ),
-        ).map((e) => ({ a: ids[e.a], b: ids[e.b], w: e.w }));
+  /** a–b 两端的城都在、又不早于 from 的年份段:每段修一次(一端毁了那年荒废,原址重建以后重新通路) */
+  const spans = (a: number, b: number, from: Year): [Year, Year][] => {
+    const out: [Year, Year][] = [];
+    for (const [sa, ea] of livesOf(a)) {
+      for (const [sb, eb] of livesOf(b)) {
+        const s = Math.max(sa, sb, from);
+        const e = Math.min(ea, eb);
+        if (s < e) out.push([s, e]);
+      }
+    }
+    return out;
+  };
+  /** 一组城按够格的年份(at)一批批加进邻城图(GrowingGraph):新城和别的城的连线,t = 连上的那年 */
+  const alive = (c: number, t: Year) => livesOf(c).some(([s, e]) => s <= t && t < e);
+  const linksOf = (ids: number[], at: (c: number) => Year, cost: Float32Array, maxD?: number): TimedLink[] => {
+    const graph = new GrowingGraph(mesh, cost, alive, maxD);
+    const order = ids.filter((c) => at(c) < Infinity).sort((x, y) => at(x) - at(y) || x - y);
+    const out: TimedLink[] = [];
+    for (let i = 0; i < order.length; ) {
+      const t = at(order[i]);
+      let j = i;
+      while (j < order.length && at(order[j]) === t) j++;
+      for (const e of graph.add(order.slice(i, j), cellOf, t)) out.push({ ...e, t });
+      i = j;
+    }
+    return out;
+  };
 
   // ---- 陆路:大城之间的大路 + 所有城之间的小路 ----
-  // 修路顺序:先按修建年份(有城镇列表时才有差别),同年先大路后小路,再先近后远 ——
-  // 局部路网先成形,远的连线、后来的路再并进去
-  const all = cities.map((_, i) => i).filter((c) => pass[cities[c].cell]);
-  const jobs = [
-    ...linksOf(
-      all.filter((c) => cities[c].major),
-      landCost,
-    ).map((e) => ({ ...e, kind: 'road' as const, built: builtMajor(e.a, e.b) })),
-    ...linksOf(all, landCost).map((e) => ({ ...e, kind: 'trail' as const, built: builtOf(e.a, e.b) })),
-  ];
-  jobs.push(...bypassLinks(jobs, cities));
+  // 修路顺序:先按修建年份,同年先大路后小路,再先近后远 —— 局部路网先成形,远的连线、后来的路再并进去
+  interface Job {
+    a: number;
+    b: number;
+    w: number;
+    kind: 'road' | 'trail';
+    built: Year;
+    end: Year;
+  }
+  const roadLinks = linksOf(
+    all.filter((c) => cities[c].major),
+    majorOf,
+    landCost,
+  );
+  const trailLinks = linksOf(all, (c) => cities[c].founded, landCost);
+  const jobs: Job[] = [];
+  const addJobs = (a: number, b: number, w: number, kind: Job['kind'], from: Year) => {
+    for (const [built, end] of spans(a, b, from)) jobs.push({ a, b, w, kind, built, end });
+  };
+  for (const e of roadLinks) addJobs(e.a, e.b, e.w, 'road', e.t);
+  for (const e of trailLinks) addJobs(e.a, e.b, e.w, 'trail', e.t);
+  for (const e of bypassLinks([...roadLinks, ...trailLinks], livesOf)) addJobs(e.a, e.b, e.w, 'trail', e.t);
   const tier = { road: 0, trail: 1 } as const;
   jobs.sort((p, q) => p.built - q.built || tier[p.kind] - tier[q.kind] || p.w - q.w || p.a - q.a || p.b - q.b);
   for (let t = 0; t < jobs.length; t++) {
     const e = jobs[t];
-    const end = endOf(e.a, e.b);
-    // 修路之前一端已经被毁(阶段 3 城市兴衰):这条路从来没修过
-    if (!(e.built < end)) continue;
-    const path = findLand(cities[e.a].cell, cities[e.b].cell);
-    if (path) lay(path, e.kind, e.built, end);
+    const path = findLand(cities[e.a].cell, cities[e.b].cell, e.built);
+    if (path) lay(path, e.kind, e.built, e.end);
     if (t === jobs.length >> 1) progress('道路', 0.88);
   }
-
-  // ---- 冗余的平行小路并进主干道 ----
-  const kept = dropParallelTrails(mesh, pieces, roadSlot, roadYear, cityAt, len, roadEnd);
 
   // ---- 航线 ----
   progress('航线', 0.9);
   const ports = all.filter((c) => cities[c].port);
-  const seaPieces: Piece[] = [];
   // 港口之间的航线 + 推演里走过的航线(出海口之间,opts.lanes):一起按修建年份修,早修的先占海面,后修的重合的那几段并进去
   interface SeaJob {
     ca: number;
@@ -625,40 +715,53 @@ export function buildRoutes(world: World, habitat: Habitat, regions: Regions, op
     w: number;
   }
   const seaJobs: SeaJob[] = [];
-  for (const e of linksOf(ports, seaCost, SEA_MAX_STEPS * step)) {
-    const end = endOf(e.a, e.b);
-    if (builtSea(e.a, e.b) < end) seaJobs.push({ ca: cities[e.a].cell, cb: cities[e.b].cell, built: builtSea(e.a, e.b), end, w: e.w });
+  for (const e of linksOf(ports, portOf, seaCost, SEA_MAX_STEPS * step)) {
+    for (const [built, end] of spans(e.a, e.b, e.t)) seaJobs.push({ ca: cities[e.a].cell, cb: cities[e.b].cell, built, end, w: e.w });
   }
-  for (const e of opts.lanes ?? []) if (e.a !== e.b) seaJobs.push({ ca: e.a, cb: e.b, built: e.built, end: Infinity, w: -1 });
+  /** 走过的航线:从 from 起、两头登岸处都不是故址(opts.ruins)的年份段 */
+  const landed = (a: number, b: number, from: Year): [Year, Year][] => {
+    const gaps = [...(opts.ruins?.get(a) ?? []), ...(opts.ruins?.get(b) ?? [])].sort((p, q) => p[0] - q[0]);
+    const out: [Year, Year][] = [];
+    let s = from;
+    for (const [g0, g1] of gaps) {
+      if (g0 > s) out.push([s, g0]);
+      s = Math.max(s, g1);
+    }
+    if (s < Infinity) out.push([s, Infinity]);
+    return out;
+  };
+  for (const e of opts.lanes ?? []) {
+    if (e.a !== e.b) for (const [built, end] of landed(e.a, e.b, e.built)) seaJobs.push({ ca: e.a, cb: e.b, built, end, w: -1 });
+  }
   seaJobs.sort((p, q) => p.built - q.built || (p.w < 0 ? 1 : 0) - (q.w < 0 ? 1 : 0) || p.w - q.w || p.ca - q.ca || p.cb - q.cb);
+  /** 走过的航线隔着故址断成几段的:后几段照第一段的路走(不重新寻路,别的航线也就不跟着挪) */
+  const lanePaths = new Map<number, number[] | null>();
   for (const e of seaJobs) {
     const { ca, cb } = e;
     if (e.w >= 0 && comp[ca] === comp[cb]) {
       // 同一片陆地:陆路本来就连着。海路要比陆路近得多才开
-      const land = findLand(ca, cb);
+      // (只比地形,不看已有的路:后来修的路不改早先开的航线)
+      const land = findLand(ca, cb, e.built, false);
       if (land) {
         let lc = 0;
         for (let t = 1; t < land.length; t++) lc += landCost[slotOf(mesh, land[t - 1], land[t])];
         if (lc <= SEA_VS_LAND * e.w) continue;
       }
     }
-    const path = findSea(ca, cb);
-    if (!path) continue;
-    const before = pieces.length;
-    lay(path, 'sea', e.built, e.end);
-    seaPieces.push(...pieces.splice(before));
+    let path: number[] | null;
+    if (e.w < 0) {
+      const key = ca * mesh.n + cb;
+      path = lanePaths.has(key) ? lanePaths.get(key)! : findSea(ca, cb);
+      lanePaths.set(key, path);
+    } else path = findSea(ca, cb);
+    if (path) lay(path, 'sea', e.built, e.end);
   }
 
   const out: Route[] = [];
-  for (const p of [...kept, ...seaPieces]) {
+  for (const p of pieces) {
     if (p.cells.length < 2) continue;
     // 按"停用年份"切段:小路升级过的那几段到升级那年为止(之后由大路接着画);
     // 通往废城的那几段到城被毁那年为止(阶段 3 城市兴衰)。修好当年就停用的不留
-    const ends = p.kind === 'sea' ? seaEnd : roadEnd;
-    const stopOf = (k: number) => {
-      const u = p.kind === 'trail' && upgrade[k] >= 0 ? upgrade[k] : Infinity;
-      return Math.min(u, p.stop?.get(k) ?? ends[k]);
-    };
     let run: number[] = [p.cells[0]];
     let runU = NaN;
     const flush = () => {
@@ -669,7 +772,7 @@ export function buildRoutes(world: World, habitat: Habitat, regions: Regions, op
       }
     };
     for (let t = 1; t < p.cells.length; t++) {
-      const u = stopOf(slotOf(mesh, p.cells[t - 1], p.cells[t]));
+      const u = p.stop.get(slotOf(mesh, p.cells[t - 1], p.cells[t]))!;
       if (t > 1 && u !== runU) {
         flush();
         run = [p.cells[t - 1]];
@@ -735,243 +838,206 @@ export function usedLanes(regions: Regions, log: ChangeLog, cultures: readonly C
     .map(([, [built, a, b]]) => ({ a, b, built }));
 }
 
-/** 废城邻城之间的绕行连线:一座废城的邻城不超过这么多座时两两相连,多了每座连代价最接近的两座 */
-const BYPASS_ALL = 4;
+/** 新城和别的城:沿已经连上的城绕过去不超过这个倍数远,就不另连一条 */
+const DETOUR = 1.6;
 
-/**
- * 废城的绕行连线(阶段 3 城市兴衰):被毁的城(RouteCity.ended)在陆路连线图里的邻城,两两之间另加一条小路连线,
- * 修建年份 = 两条经过废城的连线都修好的那年、代价 = 两段之和(同一年排在后面修:寻路时几乎全走经过废城的原路,
- * 这些路段因此"还有人用",不随废城荒废)。邻城也在这之前被毁了的不连(它自己的绕行另算)。
- * 废城毁了以后才长起来的邻城(和废城之间的路从来没修过)也算:不然它的邻城全是废城时,它就孤零零地不通路
- */
-function bypassLinks<L extends { a: number; b: number; w: number; kind: Route['kind']; built: Year }>(jobs: L[], cities: RouteCity[]): L[] {
-  const out: L[] = [];
-  const nb = new Map<number, Map<number, L>>();
-  const add = (c: number, o: number, e: L) => {
-    let m = nb.get(c);
-    if (!m) nb.set(c, (m = new Map()));
-    const old = m.get(o);
-    if (!old || e.built < old.built || (e.built === old.built && e.w < old.w)) m.set(o, e);
-  };
-  for (const e of jobs) {
-    if (cities[e.a].ended !== undefined) add(e.a, e.b, e);
-    if (cities[e.b].ended !== undefined) add(e.b, e.a, e);
-  }
-  const seen = new Set<number>();
-  for (const c of [...nb.keys()].sort((x, y) => x - y)) {
-    const end = cities[c].ended!;
-    const spokes = [...nb.get(c)!]
-      .filter(([o]) => (cities[o].ended ?? Infinity) > end)
-      .sort((x, y) => x[1].w - y[1].w || x[0] - y[0]);
-    const pairs: [number, number][] = [];
-    for (let i = 0; i < spokes.length; i++) {
-      if (spokes.length <= BYPASS_ALL) {
-        for (let j = i + 1; j < spokes.length; j++) pairs.push([i, j]);
-        continue;
-      }
-      const near = spokes
-        .map((sp, j) => [j, Math.abs(sp[1].w - spokes[i][1].w)] as const)
-        .filter(([j]) => j !== i)
-        .sort((x, y) => x[1] - y[1] || x[0] - y[0])
-        .slice(0, 2);
-      for (const [j] of near) pairs.push([i, j]);
-    }
-    for (const [i, j] of pairs) {
-      const [oa, ea] = spokes[i];
-      const [ob, eb] = spokes[j];
-      const a = Math.min(oa, ob);
-      const b = Math.max(oa, ob);
-      const key = a * cities.length + b;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      out.push({ ...ea, a, b, w: ea.w + eb.w, kind: 'trail', built: Math.max(ea.built, eb.built) });
-    }
-  }
-  return out;
+/** 邻城图里的一条连线,t = 连上的那年(两端里较晚够格的那座加进图的那年) */
+interface TimedLink extends Link {
+  t: Year;
 }
 
 /**
- * 删掉冗余的平行小路:把陆路网在"城 / 岔口 / 端点 / 大小路交界"处断成一段段,
- * 对每段小路(从长到短),看它两端之间沿其余路网有没有另一条不超过 PARALLEL_RATIO 倍长、
- * 而且处处紧挨着它(它的每一块都在那条路上或和那条路相邻)的路;有就删掉它,车马改走那条路。删掉以后重新切段再查,直到删不动。
- * 段的中间没有城(城是断点),两端又仍然连着,所以删掉不会把任何城孤立。
- * 只并进"那时已经有"的路(修建年份不晚于它),回放时不会出现一段时间没路可走。
- * slot 就地改写(删掉的路段清零),返回切好的路段。
+ * 按年份一批批加城的邻城图(neighborGraph + urquhart 的增量版)。先加的城的势力范围只会被后加的城切走,
+ * 所以新的"邻城"只出现在新城和别的城之间:每加一批,只从新城洇染、只看新城势力范围的边上。
+ * 三角(三城两两连过)里删掉代价最大的那条也只删新连线(早先连上的路已经修了)。
+ * 结果只取决于到那一年为止加进来的城 —— 推演推得再远,早先的连线不变
  */
-function dropParallelTrails<P extends { kind: Route['kind']; cells: number[]; built: Year }>(
-  mesh: World['mesh'],
-  pieces: P[],
-  slot: Uint8Array,
-  year: Float64Array,
-  cityAt: Int32Array,
-  len: Float32Array,
-  ends?: Float64Array,
-): P[] {
-  const { n, adjStart, adj } = mesh;
-  const TRAIL = KIND_CODE.trail;
-  const kindAt = (i: number) => {
-    // 这个地块连着几段路、是不是大小路都有:度数 ≠ 2 或两类都有 → 断点
-    let deg = 0;
-    let kinds = 0;
-    for (let k = adjStart[i]; k < adjStart[i + 1]; k++) {
-      if (!slot[k]) continue;
-      deg++;
-      kinds |= 1 << slot[k];
-    }
-    return { deg, mixed: (kinds & (kinds - 1)) !== 0 };
-  };
-  const isStop = (i: number) => {
-    if (cityAt[i] >= 0) return true;
-    const { deg, mixed } = kindAt(i);
-    return deg !== 2 || mixed;
-  };
-
-  // ---- 串成段 ----
-  interface Chain {
-    cells: number[];
-    slots: number[];
-    len: number;
-    /** 这段路里最晚修的那一截的年份 */
-    year: number;
-  }
-  const nodes: number[] = [];
-  {
-    const seen = new Uint8Array(n);
-    for (const p of pieces) {
-      if (p.kind === 'sea') continue;
-      for (const c of p.cells) if (!seen[c]) (seen[c] = 1), nodes.push(c);
-    }
-    nodes.sort((a, b) => a - b);
-  }
-  // ---- 逐段检查 ----
-  const dist = new Float64Array(n);
-  const prevOf = new Int32Array(n);
-  const seen = new Int32Array(n);
-  const near = new Int32Array(n);
-  let stamp = 0;
-  const heap = new MinHeap(256);
-  const setSlots = (ch: Chain, v: number) => {
-    for (let t = 0; t < ch.slots.length; t++) {
-      slot[ch.slots[t]] = v;
-      slot[slotOf(mesh, ch.cells[t + 1], ch.cells[t])] = v;
-    }
-  };
-  // 删掉一段以后,两头的岔口可能不再是岔口,相邻的几段连成一段、又成了平行的冗余小路:再切一遍、再查,直到删不动
-  for (let dropped = true; dropped; ) {
-    dropped = false;
-    const used = new Uint8Array(adj.length);
-    const chains: Chain[] = [];
-    for (const a of nodes) {
-      if (!isStop(a)) continue;
-      for (let k0 = adjStart[a]; k0 < adjStart[a + 1]; k0++) {
-        if (slot[k0] !== TRAIL || used[k0]) continue;
-        const ch: Chain = { cells: [a], slots: [], len: 0, year: -Infinity };
-        let k = k0;
-        let prev = a;
-        for (;;) {
-          const b = adj[k];
-          used[k] = 1;
-          used[slotOf(mesh, b, prev)] = 1;
-          ch.cells.push(b);
-          ch.slots.push(k);
-          ch.len += len[k];
-          ch.year = Math.max(ch.year, year[k]);
-          if (isStop(b)) break;
-          let nk = -1;
-          for (let q = adjStart[b]; q < adjStart[b + 1]; q++) if (slot[q] && adj[q] !== prev) nk = q;
-          if (nk < 0 || used[nk] || slot[nk] !== TRAIL) break;
-          prev = b;
-          k = nk;
-        }
-        if (ch.cells.length >= 3) chains.push(ch);
-      }
-    }
-    chains.sort((p, q) => q.len - p.len || p.cells[0] - q.cells[0]);
-
-    for (const ch of chains) {
-      const u = ch.cells[0];
-      const v = ch.cells[ch.cells.length - 1];
-      if (u === v) continue;
-      setSlots(ch, 0);
-      // 沿其余路网从 u 到 v 的最短路(限长;只走那时已经修好的路)
-      const limit = PARALLEL_RATIO * ch.len;
-      const st = ++stamp;
-      seen[u] = st;
-      dist[u] = 0;
-      prevOf[u] = -1;
-      heap.size = 0;
-      heap.push(u, 0);
-      let found = false;
-      while (heap.size) {
-        const i = heap.pop();
-        const d = heap.lastPri;
-        if (d > dist[i]) continue;
-        if (i === v) {
-          found = true;
-          break;
-        }
-        for (let k = adjStart[i]; k < adjStart[i + 1]; k++) {
-          if (!slot[k] || year[k] > ch.year) continue;
-          const j = adj[k];
-          const nd = d + len[k];
-          if (nd > limit) continue;
-          if (seen[j] !== st || nd < dist[j]) {
-            seen[j] = st;
-            dist[j] = nd;
-            prevOf[j] = i;
-            heap.push(j, nd);
-          }
-        }
-      }
-      let redundant = false;
-      if (found) {
-        // 那条路上的地块和它们的邻居
-        for (let i = v; i >= 0; i = prevOf[i]) {
-          near[i] = st;
-          for (let k = adjStart[i]; k < adjStart[i + 1]; k++) near[adj[k]] = st;
-        }
-        redundant = true;
-        for (let t = 1; t < ch.cells.length - 1; t++) {
-          if (near[ch.cells[t]] !== st) {
-            redundant = false;
-            break;
-          }
-        }
-      }
-      if (!redundant) setSlots(ch, TRAIL);
-      else dropped = true;
-      if (redundant && ends) {
-        // 删掉的小路上走的连线改走替代它的那条路:那条路至少用到它的连线结束那年(阶段 3 城市兴衰)
-        let e = -Infinity;
-        for (const k of ch.slots) e = Math.max(e, ends[k]);
-        for (let i = v; prevOf[i] >= 0; i = prevOf[i]) {
-          const k = slotOf(mesh, prevOf[i], i);
-          if (e > ends[k]) ends[k] = ends[slotOf(mesh, i, prevOf[i])] = e;
-        }
-      }
-    }
+class GrowingGraph {
+  private readonly d: Float64Array;
+  private readonly lab: Int32Array;
+  private readonly heap = new MinHeap(1024);
+  /** 连过的邻城(含三角里删掉的):城 → (邻城 → 边权) */
+  private readonly nb = new Map<number, Map<number, number>>();
+  constructor(
+    private readonly mesh: World['mesh'],
+    private readonly cost: Float32Array,
+    /** 城 c 在 t 年在世吗(绕路只走那年还在的城) */
+    private readonly alive: (c: number, t: Year) => boolean,
+    private readonly maxD = Infinity,
+  ) {
+    this.d = new Float64Array(mesh.n).fill(Infinity);
+    this.lab = new Int32Array(mesh.n).fill(-1);
   }
 
-  // ---- 按删剩的路段重新切 ----
-  const out: P[] = [];
-  for (const p of pieces) {
-    if (p.kind === 'sea') {
-      out.push(p);
-      continue;
+  /** t 年加一批城(ids = 城的编号),返回留下的新连线(a < b) */
+  add(ids: readonly number[], cellOf: (c: number) => number, t: Year): Link[] {
+    const { mesh, d, lab, heap, cost, maxD } = this;
+    const { adjStart, adj } = mesh;
+    const got: number[] = [];
+    heap.size = 0;
+    for (const c of ids) {
+      const s = cellOf(c);
+      d[s] = 0;
+      lab[s] = c;
+      heap.push(s, 0);
+      got.push(s);
     }
-    let cur: number[] | null = null;
-    for (let t = 1; t < p.cells.length; t++) {
-      const a = p.cells[t - 1];
-      const b = p.cells[t];
-      if (!slot[slotOf(mesh, a, b)]) {
-        if (cur && cur.length >= 2) out.push({ ...p, cells: cur });
-        cur = null;
-        continue;
+    while (heap.size) {
+      const i = heap.pop();
+      const di = heap.lastPri;
+      if (di > d[i]) continue;
+      for (let k = adjStart[i]; k < adjStart[i + 1]; k++) {
+        const c = cost[k];
+        if (c < 0) continue;
+        const j = adj[k];
+        const nd = di + c;
+        if (nd < d[j] && nd <= maxD) {
+          d[j] = nd;
+          lab[j] = lab[i];
+          heap.push(j, nd);
+          got.push(j);
+        }
       }
-      if (!cur) cur = [a];
-      cur.push(b);
     }
-    if (cur && cur.length >= 2) out.push({ ...p, cells: cur });
+    // 新城势力范围的边上:两边到交界的代价之和(两个方向取小)
+    const best = new Map<number, Link>();
+    const key = (a: number, b: number) => a * 0x100000 + b;
+    for (const i of got) {
+      const li = lab[i];
+      for (let k = adjStart[i]; k < adjStart[i + 1]; k++) {
+        const j = adj[k];
+        const lj = lab[j];
+        if (lj < 0 || lj === li) continue;
+        let w = cost[k] >= 0 ? d[i] + cost[k] + d[j] : Infinity;
+        const back = slotOf(mesh, j, i);
+        if (cost[back] >= 0) w = Math.min(w, d[j] + cost[back] + d[i]);
+        if (!(w <= maxD)) continue;
+        const a = Math.min(li, lj);
+        const b = Math.max(li, lj);
+        const cur = best.get(key(a, b));
+        if (!cur || w < cur.w) best.set(key(a, b), { a, b, w });
+      }
+    }
+    const fresh = [...best.values()].sort((x, y) => x.a - y.a || x.b - y.b);
+    const nbOf = (c: number) => {
+      let m = this.nb.get(c);
+      if (!m) this.nb.set(c, (m = new Map()));
+      return m;
+    };
+    for (const e of fresh) {
+      nbOf(e.a).set(e.b, e.w);
+      nbOf(e.b).set(e.a, e.w);
+    }
+    const longer = (x: Link, y: Link) => x.w > y.w || (x.w === y.w && (x.a > y.a || (x.a === y.a && x.b > y.b)));
+    const kept = fresh.filter((e) => {
+      const nbB = nbOf(e.b);
+      for (const [c, wac] of nbOf(e.a)) {
+        if (c === e.b) continue;
+        const wbc = nbB.get(c);
+        if (wbc === undefined) continue;
+        const ac = { a: Math.min(e.a, c), b: Math.max(e.a, c), w: wac };
+        const bc = { a: Math.min(e.b, c), b: Math.max(e.b, c), w: wbc };
+        if (longer(e, ac) && longer(e, bc)) return false;
+      }
+      return true;
+    });
+    // 由近到远:两城沿已经留下的连线、经那年还在的城绕过去不超过 DETOUR 倍远的,不再连(早先连上的路还在,新城不必条条都连)
+    kept.sort((x, y) => x.w - y.w || x.a - y.a || x.b - y.b);
+    return kept.filter((e) => {
+      if (this.reach(e.a, e.b, DETOUR * e.w, t)) return false;
+      for (const [x, y] of [
+        [e.a, e.b],
+        [e.b, e.a],
+      ]) {
+        let m = this.links.get(x);
+        if (!m) this.links.set(x, (m = []));
+        m.push([y, e.w]);
+      }
+      return true;
+    });
   }
-  return out;
+
+  /** 留下的连线:城 → [邻城, 边权] */
+  private readonly links = new Map<number, [number, number][]>();
+  private readonly cityHeap = new MinHeap(64);
+  /** t 年沿留下的连线、只经过那年还在的城,从 a 走到 b,路程不超过 limit 吗 */
+  private reach(a: number, b: number, limit: number, t: Year): boolean {
+    const dist = new Map<number, number>([[a, 0]]);
+    const heap = this.cityHeap;
+    heap.size = 0;
+    heap.push(a, 0);
+    while (heap.size) {
+      const i = heap.pop();
+      const d = heap.lastPri;
+      if (d > dist.get(i)!) continue;
+      if (i === b) return true;
+      for (const [j, w] of this.links.get(i) ?? []) {
+        const nd = d + w;
+        if (nd > limit || nd >= (dist.get(j) ?? Infinity) || (j !== b && !this.alive(j, t))) continue;
+        dist.set(j, nd);
+        heap.push(j, nd);
+      }
+    }
+    return false;
+  }
+}
+
+/** 废城邻城之间的绕行连线:一座废城的邻城不超过这么多座时两两相连,多了后来的每座连代价最接近的两座 */
+const BYPASS_ALL = 4;
+
+/**
+ * 废城的绕行连线(阶段 3 城市兴衰):城被毁时(在世的一段结束),它在陆路连线图里的邻城两两之间另加一条小路连线,
+ * 从城被毁那年起、代价 = 两段之和(寻路时几乎全走经过废城的原路,这些路段因此"还有人用",不随废城荒废)。
+ * 邻城那时已经被毁、之后也没重建的不连;废城毁了以后才长起来(或重建)的邻城从它够格那年起也算:
+ * 不然它的邻城全是废城时,它就孤零零地不通路。
+ * 邻城按能连的先后排:前 BYPASS_ALL 座两两相连,之后的每座连先前的邻城里代价最接近的两座 —— 只看先前的,推得更远也不改早先的连线
+ */
+function bypassLinks(links: readonly TimedLink[], livesOf: (c: number) => readonly (readonly [Year, Year])[]): TimedLink[] {
+  /** 城 → (邻城 → 最早的连线) */
+  const nb = new Map<number, Map<number, TimedLink>>();
+  const add = (c: number, o: number, e: TimedLink) => {
+    let m = nb.get(c);
+    if (!m) nb.set(c, (m = new Map()));
+    const old = m.get(o);
+    if (!old || e.t < old.t || (e.t === old.t && e.w < old.w)) m.set(o, e);
+  };
+  for (const e of links) {
+    add(e.a, e.b, e);
+    add(e.b, e.a, e);
+  }
+  /** 两座邻城之间的绕行连线:几座废城都连到它们的,取最早能连的那条 */
+  const best = new Map<number, TimedLink>();
+  for (const c of nb.keys()) {
+    for (const [, end] of livesOf(c)) {
+      if (!(end < Infinity)) continue;
+      // 每座邻城从哪年起能连:城被毁、连线连上、邻城(重建后)够格,三者里晚的那个
+      const spokes: { o: number; e: TimedLink; t: Year }[] = [];
+      for (const [o, e] of nb.get(c)!) {
+        const life = livesOf(o).find(([, x]) => x > end);
+        if (life) spokes.push({ o, e, t: Math.max(end, e.t, life[0]) });
+      }
+      spokes.sort((x, y) => x.t - y.t || x.e.w - y.e.w || x.o - y.o);
+      for (let i = 1; i < spokes.length; i++) {
+        let mates = spokes.slice(0, i);
+        if (i >= BYPASS_ALL) {
+          const wi = spokes[i].e.w;
+          mates = mates
+            .map((s, j) => ({ s, j, d: Math.abs(s.e.w - wi) }))
+            .sort((x, y) => x.d - y.d || x.j - y.j)
+            .slice(0, 2)
+            .map((x) => x.s);
+        }
+        for (const m of mates) {
+          const s = spokes[i];
+          const a = Math.min(m.o, s.o);
+          const b = Math.max(m.o, s.o);
+          const key = a * 0x100000 + b;
+          const w = m.e.w + s.e.w;
+          const old = best.get(key);
+          if (!old || s.t < old.t || (s.t === old.t && w < old.w)) best.set(key, { a, b, w, t: s.t });
+        }
+      }
+    }
+  }
+  return [...best.values()].sort((x, y) => x.a - y.a || x.b - y.b);
 }

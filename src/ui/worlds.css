@@ -212,6 +212,89 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* 刚打开网站、地图程序还没下完时点了打开:缩略图蒙一层浅白,正中一个下载进度圈(像应用商店下载时的圈) */
+.mw-thumb.wait::after,
+.mw-civ-th.wait::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(245, 245, 247, 0.45);
+}
+.mw-ring {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 1;
+  width: 44px;
+  height: 44px;
+  margin: -22px 0 0 -22px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+}
+.mw-ring svg {
+  position: absolute;
+  inset: 6px;
+  width: 32px;
+  height: 32px;
+  transform: rotate(-90deg);
+}
+.mw-ring circle {
+  fill: none;
+  stroke-width: 3.5;
+}
+.mw-ring .bg {
+  stroke: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+.mw-ring .fg {
+  stroke: var(--accent);
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.3s;
+}
+/* 不知道下了多少:四分之一圈一直转 */
+.mw-ring.busy svg {
+  animation: mw-ring 0.9s linear infinite;
+}
+@keyframes mw-ring {
+  from {
+    transform: rotate(-90deg);
+  }
+  to {
+    transform: rotate(270deg);
+  }
+}
+.mw-civ-th.wait {
+  position: relative;
+  overflow: hidden;
+}
+.mw-civ-th .mw-ring {
+  width: 34px;
+  height: 34px;
+  margin: -17px 0 0 -17px;
+}
+.mw-civ-th .mw-ring svg {
+  inset: 5px;
+  width: 24px;
+  height: 24px;
+}
+/* 「打造新文明」按钮等地图程序时:转圈 +「准备中」 */
+.mw .mw-btn.wait {
+  cursor: default;
+}
+.mw .mw-btn.blue.wait:hover {
+  background: var(--accent);
+}
+.mw-btn .mw-spin {
+  width: 14px;
+  height: 14px;
+  border-color: rgba(255, 255, 255, 0.4);
+  border-top-color: #fff;
+}
+@media (prefers-reduced-motion: reduce) {
+  .mw-ring .fg {
+    transition: none;
+  }
+}
 /* 改名:输入框盖在名字那一行(缩略图下面) */
 .mw-rename {
   position: absolute;
@@ -299,6 +382,43 @@
 }
 .mw-ver {
   margin-left: auto;
+}
+/* 备案号(没有号码时不出现,见 beian.ts):那排小字的正中,左右的链接、版本号不动,页脚不加高;
+   窗口窄到快碰上左边的链接时挪到下一行居中(再并排一个备案号的话这个宽度约 950)。
+   手机上最底下单独一行(.solo),只有备案号 */
+.mw-foot {
+  position: relative;
+}
+.mw-beian {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 18px;
+  white-space: nowrap;
+}
+.mw-foot.solo {
+  justify-content: center;
+}
+.mw-foot.solo .mw-beian {
+  position: static;
+  transform: none;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px 16px;
+}
+@media (max-width: 750px) {
+  .mw-foot {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+  .mw-foot .mw-beian {
+    position: static;
+    order: 9;
+    flex-basis: 100%;
+    justify-content: center;
+    transform: none;
+  }
 }
 
 /* ---- 一个都没有:中间一颗慢慢转的星球、一段话、「新建世界」大按钮 ---- */

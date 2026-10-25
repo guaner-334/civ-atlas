@@ -356,7 +356,7 @@ describe('助手', () => {
     expect(seen[0].messages[0]).toEqual({ role: 'system', content: ASSISTANT_SYSTEM });
     expect(seen[0].messages[1].content).toContain('# 这个世界');
     expect(seen[0].messages[1].content).toMatch(new RegExp(`# 作者这次说\\n让${vName}撑到最后$`));
-    expect(seen[0].tools!.map((t) => t.name)).toEqual(['country', 'chronicle', 'situation', 'try_edits', 'propose_edits']);
+    expect(seen[0].tools!.map((t) => t.name)).toEqual(['country', 'chronicle', 'situation', 'people', 'land', 'try_edits', 'propose_edits']);
     // 查国家的结果交回去了
     expect(seen[1].messages[seen[1].messages.length - 1]).toMatchObject({ role: 'tool', toolCallId: 'call_0_0' });
     expect(seen[1].messages[seen[1].messages.length - 1].content).toContain(`P${victim} `);
@@ -653,7 +653,7 @@ describe('助手', () => {
 
   it('还在新建(只能改地形):不给试推演', () => {
     const names = (c: AssistantContext) => assistantTools(c, { trials: [], proposal: null }).map((t) => t.def.name);
-    expect(names(ctx({ lock: 'history' }))).toEqual(['country', 'chronicle', 'situation', 'propose_edits']);
+    expect(names(ctx({ lock: 'history' }))).toEqual(['country', 'chronicle', 'situation', 'people', 'land', 'propose_edits']);
     expect(names(ctx())).toContain('try_edits');
   });
 

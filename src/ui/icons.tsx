@@ -92,6 +92,13 @@ const PATHS = {
       <path d="M10 8.5l5 3.5-5 3.5z" />
     </>
   ),
+  /** 从头再来(分享的世界「从头放」) */
+  again: (
+    <>
+      <path d="M4 12a8 8 0 1 0 2.4-5.7L4 8.5" />
+      <path d="M4 4v4.5h4.5" />
+    </>
+  ),
   sliders: (
     <>
       <path d="M4 7h10M18 7h2M4 17h4M12 17h8" />
@@ -102,6 +109,7 @@ const PATHS = {
   close: <path d="M6 6l12 12M18 6L6 18" />,
   chevron: <path d="M9 6l6 6-6 6" />,
   flag: <path d="M6 21V4M6 4h11l-2 4 2 4H6" />,
+  crown: <path d="M4 19h16M5 16 4 7l4.5 3.5L12 5l3.5 5.5L20 7l-1 9z" />,
   city: <path d="M4 20V10l5-3v13M9 20V5l6 3v12M15 20v-8l5 2v6M3 20h18" />,
   sparkle: <path d="M12 4l1.8 4.6L18.5 10l-4.7 1.6L12 16l-1.8-4.4L5.5 10l4.7-1.4z" />,
   scroll: (
@@ -262,6 +270,54 @@ const PATHS = {
     </>
   ),
   warn: <path d="M12 3.5l9.5 16.5h-19zM12 10v4.5M12 17.2v.3" />,
+  camera: (
+    <>
+      <rect x="3" y="7" width="12.5" height="10" rx="2" />
+      <path d="M15.5 10.5 21 7.5v9l-5.5-3" />
+    </>
+  ),
+  /** 逐年推演停着(倒计时停住) */
+  timer: (
+    <>
+      <circle cx="12" cy="13" r="7.5" />
+      <path d="M12 9v4l2.5 1.5M9.5 3h5" />
+    </>
+  ),
+  gear: (
+    <>
+      <circle cx="12" cy="12" r="3" />
+      <path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7" />
+    </>
+  ),
+  list: <path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01" />,
+  play: <path d="M8 5.5l10 6.5-10 6.5z" />,
+  up: <path d="M6 15l6-6 6 6" />,
+  /** 大纲的批改:硬改的(一支笔)、只讲故事(几行字)、还没推(一个圈) */
+  pen: <path d="M14.5 5.5l4 4L9 19H5v-4z" />,
+  lines: <path d="M6 7h12M6 12h12M6 17h7" />,
+  ring: <circle cx="12" cy="12" r="6" />,
+  /** 拖动排序的把手 */
+  grip: (
+    <>
+      <circle cx="9" cy="6" r="1.2" />
+      <circle cx="15" cy="6" r="1.2" />
+      <circle cx="9" cy="12" r="1.2" />
+      <circle cx="15" cy="12" r="1.2" />
+      <circle cx="9" cy="18" r="1.2" />
+      <circle cx="15" cy="18" r="1.2" />
+    </>
+  ),
+  /** 支线:一条主干分出一支 */
+  branch: (
+    <>
+      <circle cx="6.5" cy="5.5" r="2" />
+      <circle cx="6.5" cy="18.5" r="2" />
+      <circle cx="17.5" cy="6.5" r="2" />
+      <path d="M6.5 7.5v9M17.5 8.5c0 4.5-11 3.5-11 8" />
+    </>
+  ),
+  /** 切到另一支:来回两个箭头 */
+  swap: <path d="M7 7h11l-3-3M17 17H6l3 3" />,
 } satisfies Record<string, ReactNode>;
 
 export type IconName = keyof typeof PATHS;

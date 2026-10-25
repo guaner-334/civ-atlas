@@ -10,6 +10,8 @@
  * 重画时分帧(ui/detailJobs.ts):整张图的缓存(第一次放大时最慢的那部分)在后台一小段一小段地备,
  * 这期间画好的那张接着顶着(按比例拉一点),还没画过就露着底下的地形图;备好了和文明细节层一起整张换上。
  * 拖到离画好那一块的边不到半个余量就提前备下一块(往拖的方向多留一些,不多画);真拖出去了还没备好,剩下的当下做完。
+ * 没有显卡加速的机器上画也分几下(海岸、波纹、林块几格……各一下,见 render/detail.ts 的 terrainDetailParts;detailJobs.ts 的 paintInParts),
+ * 一下一段,不在一个任务里一口气画完;画到一半又拖动、缩放了,画了一半的那张作废,从新的视野重新备。
  * 画出来的和当下一口气画完的逐像素一样;地址带 detail=sync 就关掉分帧。
  * 没盖到的地方(拖得太快)露出底下的地形图(缩放 1 倍的那一份),不会出现空白。
  *
@@ -31,11 +33,12 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { World } from '../gen/world';
 import type { Raster } from '../gen/raster';
-import { DETAIL_K, drawTerrainDetail, drawTerrainProjected, terrainDetailPrep, terrainProjPrep, type DetailStyle } from '../render/detail';
-import { aheadOf, cancelDetailJob, DetailBuffer, detailAsync, flushDetailJobs, submitDetailJob, type JobStats, type WorkStep } from './detailJobs';
+import { DETAIL_K, terrainDetailParts, terrainDetailPrep, terrainProjectedParts, terrainProjPrep, type DetailStyle } from '../render/detail';
+import { drawParts, type DrawPart } from '../render/common';
+import { aheadOf, cancelDetailJob, DetailBuffer, detailAsync, flushDetailJobs, paintInParts, submitDetailJob, type JobStats, type JobStep, type WorkStep } from './detailJobs';
 import { TILE, tileCanvas, tileKey, tilesAvailable, tileStats, tilesWorld, wantTiles } from './terrainTiles';
 import { centerShift, type MapProj } from '../render/projection';
-import { mapBoxOf, placeOnScreen, visibleBox, type Visible } from './mapWrap';
+import { mapBoxOf, placeOnScreen, visibleBox, watchMapBox, type Visible } from './mapWrap';
 import { useMapMoving } from './projection';
 import type { SurfaceLook } from '../render/surface';
 
@@ -71,6 +74,19 @@ const HOLD_ERR = 3 * SLIDE_ERR;
 
 /** 分帧备料时这一层的名字(见 detailJobs.ts) */
 const JOB = 'terrain';
+
+/**
+ * 卸下时收拾(给 useEffect 当清理函数用)。清理函数在这里(模块里)建:要是在组件那一次渲染里建,
+ * 它会一直拉住挂上那一刻的世界、主图,换了世界也放不掉
+ */
+function unmountDetail(timer: { current: number }, buf: { current: DetailBuffer | null }) {
+  return () => {
+    window.clearTimeout(timer.current);
+    cancelDetailJob(JOB);
+    buf.current?.dispose();
+    buf.current = null;
+  };
+}
 
 /** 现算的块:S 像素 / 世界单位,按屏幕像素取最近的 2 的幂;不到 TILE_MIN_S 不现算(拉大的像素层不太糊),最多 TILE_MAX_S */
 const TILE_MIN_S = 2;
@@ -137,22 +153,8 @@ export function TerrainDetail({
 
   // 地图框大小变了(窗口缩放)也要重画
   const [tick, setTick] = useState(0);
-  useEffect(() => {
-    const box = mapBoxOf(ref.current);
-    if (!box || typeof ResizeObserver === 'undefined') return;
-    const ro = new ResizeObserver(() => setTick((t) => t + 1));
-    ro.observe(box);
-    return () => ro.disconnect();
-  }, []);
-  useEffect(
-    () => () => {
-      window.clearTimeout(timer.current);
-      cancelDetailJob(JOB);
-      buf.current?.dispose();
-      buf.current = null;
-    },
-    [],
-  );
+  useEffect(() => watchMapBox(ref.current, setTick), []);
+  useEffect(() => unmountDetail(timer, buf), []);
 
   useLayoutEffect(() => {
     const el = ref.current;
@@ -361,38 +363,50 @@ export function TerrainDetail({
     /** r 这一块的画布多大(画布像素) */
     const sizeOf = (r: Drawn) => [Math.max(1, Math.round((r.x1 - r.x0) * r.k * r.dpr)), Math.max(1, Math.round((r.y1 - r.y0) * r.k * r.dpr))];
 
-    /** 把 r 这一块画到 ctx 上(画布 W × H,先清空;bw = 地图框宽,creeks = 连小溪画) */
-    const drawRegion = (ctx: CanvasRenderingContext2D, r: Drawn, bw: number, W: number, H: number, creeks: boolean) => {
+    /**
+     * 把 r 这一块画到画布 W × H 上要画的那几下(依次画完 = 一口气画完;bw = 地图框宽,creeks = 连小溪画;
+     * split = 要分在几个任务里画,大块的贴图再切细些)。画之前的清空见 drawRegion(藏着的那张 DetailBuffer.back 拿出来就是空的)
+     */
+    const regionParts = (r: Drawn, bw: number, W: number, H: number, creeks: boolean, split = false): DrawPart[] => {
       const { x0, y0, x1, k, dpr } = r;
       const s = (bw / world.width) * k * dpr; // 画布像素 / 世界单位
       const v = { s, ox: -x0 * k * dpr, oy: -y0 * k * dpr, k };
-      if (r.mp) {
-        // 弯边投影:按投影直接在画布上重画(面按行重投影,线逐点投影、符号正立按屏幕大小画),不是把像素拉大
-        ctx.setTransform(1, 0, 0, 1, 0, 0);
-        ctx.clearRect(0, 0, W, H);
-        // 地图平面和世界一样大:画布像素 / 地图平面单位 = s,偏移同等距圆柱
-        drawTerrainProjected(ctx, world, raster, style as DetailStyle, r.mp, v, look);
-      } else if (x0 < bw && x1 > bw) {
+      // 弯边投影:按投影直接在画布上重画(面按行重投影,线逐点投影、符号正立按屏幕大小画),不是把像素拉大;
+      // 地图平面和世界一样大:画布像素 / 地图平面单位 = s,偏移同等距圆柱
+      if (r.mp) return terrainProjectedParts(world, raster, style as DetailStyle, r.mp, v, look, false, split);
+      if (x0 < bw && x1 > bw) {
         // 这一块跨过主图的右边(180° 经线):左右两段各画一遍(右段 = 挪一整圈),各自裁在自己那一段里,
         // 接缝处的符号、河不会画两遍叠深
         const seam = (bw - x0) * k * dpr;
-        ctx.clearRect(0, 0, W, H);
+        const parts: DrawPart[] = [];
         for (const [c0, c1, shift] of [
           [0, seam, 0],
           [seam, W, world.width * s],
         ]) {
-          ctx.save();
-          ctx.beginPath();
-          ctx.rect(c0, 0, c1 - c0, H);
-          ctx.clip();
-          drawTerrainDetail(ctx, world, raster, style as DetailStyle, { ...v, ox: v.ox + shift }, creeks, look);
-          ctx.restore();
+          parts.push((ctx) => {
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(c0, 0, c1 - c0, H);
+            ctx.clip();
+          });
+          parts.push(...terrainDetailParts(world, raster, style as DetailStyle, { ...v, ox: v.ox + shift }, creeks, look, split));
+          parts.push((ctx) => ctx.restore());
         }
-      } else {
-        // 整块都在右边接的那一份里:挪回一整圈画
-        const shift = x0 >= bw ? world.width * s : 0;
-        drawTerrainDetail(ctx, world, raster, style as DetailStyle, { ...v, ox: v.ox + shift }, creeks, look);
+        return parts;
       }
+      // 整块都在右边接的那一份里:挪回一整圈画
+      const shift = x0 >= bw ? world.width * s : 0;
+      return terrainDetailParts(world, raster, style as DetailStyle, { ...v, ox: v.ox + shift }, creeks, look, split);
+    };
+
+    /**
+     * 把 r 这一块当下画到 ctx 上(画布 W × H;bw = 地图框宽,creeks = 连小溪画)。
+     * 弯边投影、跨 180° 经线的先清空(外轮廓外、两段之间不是每处都画到);别的情形像素层铺满整张,不用清
+     */
+    const drawRegion = (ctx: CanvasRenderingContext2D, r: Drawn, bw: number, W: number, H: number, creeks: boolean) => {
+      if (r.mp) ctx.setTransform(1, 0, 0, 1, 0, 0);
+      if (r.mp || (r.x0 < bw && r.x1 > bw)) ctx.clearRect(0, 0, W, H);
+      drawParts(ctx, regionParts(r, bw, W, H, creeks));
     };
 
     /**
@@ -425,6 +439,8 @@ export function TerrainDetail({
         slide,
         // 分帧备料:备了多久、分几段(当下画完的没有)
         prep: st?.prep ?? 0,
+        // 画也分几下画了没有(没有显卡加速时分)
+        parts: !!st && paintInParts(),
         slices: st?.slices ?? 0,
       };
       reportTiles();
@@ -438,18 +454,31 @@ export function TerrainDetail({
       const creeks = !tileView.current;
       // 画布大小、变换同 paint
       const [W, H] = sizeOf(r);
-      let steps: WorkStep[];
-      if (r.mp) steps = terrainProjPrep(world, raster, style as DetailStyle, r.mp, { s, ox: -r.x0 * r.k * r.dpr, oy: -r.y0 * r.k * r.dpr, k: r.k }, W, H, look);
-      else steps = terrainDetailPrep(world, raster, style as DetailStyle, s, creeks, look);
-      // 最后一步:先画在藏着的那张上,换上时对调
-      steps = [
-        ...steps,
+      let prep: WorkStep[];
+      if (r.mp) prep = terrainProjPrep(world, raster, style as DetailStyle, r.mp, { s, ox: -r.x0 * r.k * r.dpr, oy: -r.y0 * r.k * r.dpr, k: r.k }, W, H, look);
+      else prep = terrainDetailPrep(world, raster, style as DetailStyle, s, creeks, look);
+      // 最后几步:先画在藏着的那张上(没有显卡加速时一下一段,有就一步画完),换上时对调
+      let back: CanvasRenderingContext2D | null = null;
+      let parts: DrawPart[] | null = null;
+      let split = false;
+      let at = 0;
+      const steps: JobStep[] = [
+        ...prep,
         () => {
           if (pend.current !== r) return;
-          const ctx = bf.back(W, H);
-          if (!ctx) return;
-          drawRegion(ctx, r, bw, W, H, creeks);
-          ready.current = r;
+          if (!parts) {
+            back = bf.back(W, H);
+            if (!back) return;
+            split = paintInParts();
+            parts = regionParts(r, bw, W, H, creeks, split);
+          }
+          if (!back) return;
+          if (!split) return void drawParts(back, parts);
+          if (at < parts.length && parts[at](back) !== true) at++;
+          return at < parts.length ? 'painting' : 'painted';
+        },
+        () => {
+          if (pend.current === r && back) ready.current = r;
         },
       ];
       submitDetailJob(JOB, steps, (st) => {

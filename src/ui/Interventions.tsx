@@ -13,13 +13,32 @@
  * 国家、州、城一律按稳定键记(gen/edits.ts);显示的名字按当前这份历史解析。
  */
 import { useSyncExternalStore } from 'react';
+import type { ToastAction } from './toastStore';
 import type { Civ, Polity } from '../gen/civ/types';
 import { canCross } from '../gen/civ/polities';
 import { polityAlive, polityName } from '../gen/civ/growth';
 import { regionLabel } from '../gen/civ/display';
 import { ownersAt, type Owners } from '../gen/civ/timeline';
-import { cleanIntervention, keyCells, polityKey, regionKey, regionOfKey, resolveKey, type Intervention } from '../gen/edits';
-import { removeIntervention, useEra } from './editsStore';
+import {
+  DISASTER_LEVEL_NAMES,
+  DISASTER_NAMES,
+  cleanIntervention,
+  keyCells,
+  parsePersonKey,
+  polityKey,
+  regionKey,
+  regionOfKey,
+  resolveKey,
+  resolvePersonKey,
+  type Intervention,
+} from '../gen/edits';
+import { quakeWord } from '../gen/civ/calamity';
+import { rulerAt } from '../gen/civ/peopleInfo';
+import { leaningsChange, personName } from '../gen/civ/peopleText';
+import { getEdits, removeIntervention, useEra } from './editsStore';
+import { crownLine } from './crownInfo';
+import { POLICY_PRESET_NAMES, emptyPolicy, policyName, type PolicyIv } from '../gen/civ/policy';
+import { policyKnobsText } from './policyInfo';
 import { eraText, yearShort } from '../gen/era';
 
 // ---------------------------------------------------------------------------
@@ -32,20 +51,35 @@ export interface PolityPick {
   sub?: string;
   /** 从哪里发起(`polity:3` / `region:12`;面板换了对象时据此收起) */
   source: string;
-  /** 要点的是国家(默认)还是城 */
-  target?: 'polity' | 'settlement';
+  /** 要点的是国家(默认)、城还是州(州:地图上不浮名牌,点到哪州算哪州) */
+  target?: 'polity' | 'settlement' | 'region';
   /** 点到了国家 / 城 id:合格 = 下令、返回 null;不合格 = 返回原因(如"两国不接壤,无法宣战") */
   accept: (id: number) => string | null;
   /** 上一次点的不合格的原因 */
   msg?: string;
   /** 本国(名牌、悬停写"本国") */
   self?: number;
+  /** 本国名牌上的小字(默认"本国";让作者的人物即位时写"他的国家") */
+  selfNote?: string;
+  /** 本国也能点(让作者的人物即位:他自己的国家也能选) */
+  selfPick?: boolean;
   /** 可选的对象(国家 / 城的编号):地图上浮出它们的名牌,悬停写"点击选择" */
   eligible?: ReadonlySet<number>;
   /** 相邻的国家(名牌上写"相邻") */
   near?: ReadonlySet<number>;
   /** 按哪一年的国土摆名牌 */
   year?: number;
+  /**
+   * 一次点好几个(方针的亲、仇):点了合格的不收起,接着点(accept 自己换上新的一份 pick:提示、已选的);
+   * 收起要点「取消」/ Esc
+   */
+  keep?: boolean;
+  /** 已经选上的(名牌反色) */
+  on?: ReadonlySet<number>;
+  /** 名牌后面多一个小字("仇 ✓""亲") */
+  marks?: ReadonlyMap<number, string>;
+  /** 提示条上「取消」前面另加的按钮(大纲圈州:「存成作者标记」「好了」) */
+  actions?: ToastAction[];
 }
 
 let pick: PolityPick | null = null;
@@ -73,9 +107,18 @@ export function usePolityPick(): PolityPick | null {
   );
 }
 
+/**
+ * 点了一个对象以后(名牌、地图上):不合格 = 提示条换成原因;合格 = 收起(keep 的不收起,accept 已经换上了新的一份)。
+ * pk = 点的时候的那一份,err = accept 的结果
+ */
+export function finishPick(pk: PolityPick, err: string | null) {
+  if (err) setPolityPick({ ...(getPolityPick() ?? pk), msg: err });
+  else if (!pk.keep) setPolityPick(null);
+}
+
 /** 选目标时鼠标下的对象对不对:'ok' 可选 / 'self' 本国 / 'no' 不可选 */
 export function pickVerdict(p: PolityPick, id: number): 'ok' | 'self' | 'no' {
-  if (id >= 0 && p.self === id && (p.target ?? 'polity') === 'polity') return 'self';
+  if (id >= 0 && p.self === id && (p.target ?? 'polity') === 'polity') return p.selfPick ? 'ok' : 'self';
   if (id >= 0 && p.eligible?.has(id)) return 'ok';
   return 'no';
 }
@@ -140,6 +183,36 @@ const cityKeyName = (civ: Civ, key: string): string => {
   return id >= 0 ? civ.settlements[id].name || '某城' : '(新历史里没有的城)';
 };
 
+/** 人物键 → 这份历史里的人物(没有 = undefined) */
+const personOfKey = (civ: Civ, key: string) => {
+  const id = resolvePersonKey(civ, key);
+  return id >= 0 ? civ.people?.[id] : undefined;
+};
+
+/** 人物键 → 名字(这份历史里没有这个人 = 键里记的名字) */
+const personKeyName = (civ: Civ, key: string): string => {
+  const x = personOfKey(civ, key);
+  return x ? personName(civ, x) : parsePersonKey(key)?.name || '(新历史里没有的人物)';
+};
+
+/** 第 i 条干预在这份历史里的史事 intervene(没有 = undefined) */
+const ivAnnal = (civ: Civ, i: number) => (i >= 0 ? civ.annals.find((x) => x.kind === 'intervene' && x.war === i) : undefined);
+
+/** 天灾的说法:"星邑:瘟疫（重）""有桑皇朝:饥荒（轻）""翼门之野等 4 州:饥荒（轻）""翼门之野一带:地震（中），8 州受灾"(地震写大水 / 大旱看那一处的地形) */
+function disasterText(civ: Civ, v: Extract<Intervention, { kind: 'disaster' }>, i: number, a?: string): string {
+  const lv = `（${DISASTER_LEVEL_NAMES[v.level]}）`;
+  if (v.type === 'plague') return `${cityKeyName(civ, v.city ?? '')}:${DISASTER_NAMES.plague}${lv}`;
+  if (v.type === 'famine') {
+    if (v.a) return `${a ?? keyName(civ, v.a, v.from)}:${DISASTER_NAMES.famine}${lv}`;
+    const rs = v.regions ?? [];
+    return `${rs.length ? regionKeyName(civ, rs[0]) : '(没有的州)'}${rs.length > 1 ? `等 ${rs.length} 州` : ''}:${DISASTER_NAMES.famine}${lv}`;
+  }
+  const r = regionOfKey(v.region ?? '', keyCells(civ.regions));
+  const e = ivAnnal(civ, i);
+  const word = r >= 0 && r < civ.regions.count ? quakeWord(civ.regions, r) : '地震';
+  return `${regionKeyName(civ, v.region ?? '')}一带:${word}${lv}${e && e.b > 0 ? `，${e.b} 州受灾` : ''}`;
+}
+
 /** 第 i 条干预(Civ.interventions 的下标)是"立国"、在这份历史里立成了:立出来的国家(没有 = −1) */
 function foundedBy(civ: Civ, i: number): number {
   if (i < 0 || civ.interventions?.[i]?.kind !== 'found') return -1;
@@ -174,6 +247,7 @@ export function interventionText(civ: Civ, v: Intervention, i = -1, a?: string):
     const shown = made >= 0 ? `,即${nameAt(civ.polities[made], v.from)}` : v.name ? `(号${v.name})` : '';
     return `在${regionKeyName(civ, v.region)}立国${shown}`;
   }
+  if (v.kind === 'disaster') return disasterText(civ, v, i, a);
   const A = a ?? keyName(civ, v.a, v.from);
   switch (v.kind) {
     case 'protect':
@@ -190,7 +264,43 @@ export function interventionText(civ: Civ, v: Intervention, i = -1, a?: string):
       return `${A}迁都${cityKeyName(civ, v.city)}`;
     case 'halt':
       return `${A}:禁止扩张${v.until !== undefined ? `(至第 ${v.until} 年)` : ''}`;
+    case 'crown': {
+      if (v.after) {
+        // "顾长安即有桑皇朝君位,等高宗鸿喾下台"
+        const pid = polityIdOf(civ, v.a);
+        const cur = pid >= 0 ? rulerAt(civ, pid, v.from) : null;
+        return `${authorName(civ, v.char)}即${A}君位，等${cur ? personName(civ, cur) : '在位的君主'}下台`;
+      }
+      // "林小满即有桑皇朝君位，1530 年退位" / "……，到 1541 年卒"(下台年份就是人物卡上的卒年)
+      return crownLine(authorName(civ, v.char), A, v, getEdits().characters?.find((c) => c.id === v.char)?.died, getEdits().era);
+    }
+    case 'policy': {
+      // "大澜王朝:方针「扩张」";细调过 / 自定的带上拧过的几项("「我的干预」里看得到旋钮的数")
+      if (emptyPolicy(v)) return `${A}:不再定方针(照君主性格)`;
+      const name = policyName(v);
+      return `${A}:方针「${name || '只定亲仇'}」${name && tweakedOrCustom(v) ? `（${policyKnobsText(v)}）` : ''}`;
+    }
+    case 'destroy': {
+      if (!v.b) return `${A}:灭国，散成无主`;
+      const n = ivAnnal(civ, i)?.n;
+      return `${A}:灭国，${n ? `${n} 州` : ''}并入${keyName(civ, v.b, v.from)}`;
+    }
+    case 'death':
+      return `${personKeyName(civ, v.person)}:去世${parsePersonKey(v.person)?.role === 'ruler' ? '' : '（只改人物和编年史）'}`;
+    case 'temper': {
+      const x = personOfKey(civ, v.person);
+      const change = leaningsChange(x?.leanings, v.leanings);
+      return `${personKeyName(civ, v.person)}:改倾向${change ? `，${change}` : ''}，到他下台`;
+    }
   }
+}
+
+/** 方针拧过旋钮(一键选的细调过,或者没从一键选起) */
+const tweakedOrCustom = (v: PolicyIv) => policyName(v) !== (v.preset ? POLICY_PRESET_NAMES[v.preset] : '');
+
+/** 作者的人物在这份历史里叫什么(套过 applyCharacters 的历史里有名字,没即位成的也有;没套过 = "作者的人物") */
+function authorName(civ: Civ, char: number): string {
+  return civ.authorNames?.[char] || civ.people?.find((x) => x.author === char && x.name)?.name || '作者的人物';
 }
 
 /**
@@ -199,7 +309,7 @@ export function interventionText(civ: Civ, v: Intervention, i = -1, a?: string):
  * a = 下令的国家怎么称呼:国家面板下的令用面板标题上的名字(用户点的那个),不给 = 生效那年的名字
  */
 export function interventionDoneText(civ: Civ, v: Intervention, i = -1, a?: string): string {
-  if (v.kind === 'found') return interventionText(civ, v, i);
+  if (v.kind === 'found' || v.kind === 'disaster') return interventionText(civ, v, i, a);
   const A = a ?? keyName(civ, v.a, v.from);
   switch (v.kind) {
     case 'protect':
@@ -215,7 +325,7 @@ export function interventionDoneText(civ: Civ, v: Intervention, i = -1, a?: stri
 
 /** 下令的国家在生效那一年叫什么(立国没有下令的国家 = null) */
 export function interventionActorThen(civ: Civ, v: Intervention): string | null {
-  return v.kind === 'found' ? null : keyName(civ, v.a, v.from);
+  return v.kind === 'found' || !v.a ? null : keyName(civ, v.a, v.from);
 }
 
 let owners: Owners | undefined;
