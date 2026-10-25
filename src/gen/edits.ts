@@ -450,6 +450,9 @@
  *      管不到的州出兵少(打仗、结盟比的军力跟着变),远州更容易自立;动荡的国家里管得最差的大城,守将可能拥兵自重、割据附近几州
  *      (名义上仍归这国),割据的州出兵为零、更容易叛离自立,朝廷强了能收回;打仗时割据的守将可能拥兵不出。
  *      编年史多了割据、收回、抗命三种事。地形不变,历史重新推演。
+ *  28:打仗看物产(civ/wars.ts、development.ts):本国缺盐、缺牲畜,认得金银、铁以后缺金银、铁,快进下一个时代缺那道门槛要的矿,
+ *      边境对面正好有的,更容易对它开战(由头"欲夺某州之铁"),攻方也先打有这些物产的州;
+ *      统帅按所有战争的史事先后一起排(civ/people.ts):让一位将领去世,不再连带改掉同一国别的仗在那以前的统帅。历史重新推演
  */
 import type { Civ, Culture, Faith, Person, Place, Polity, Regions, RulerLeanings, Settlement } from './civ/types';
 import type { AuthorCharacter } from './characters';
@@ -461,7 +464,7 @@ import type { Era } from './era';
 import type { Frontier, Origins } from './civ/frontier';
 
 /** 生成器版本:生成算法有改动、同种子会得到不同世界时加一(存档读档时核对);加一时在 GENERATOR_CHANGES 里补一条 */
-export const GENERATOR_VERSION = 27;
+export const GENERATOR_VERSION = 28;
 
 /**
  * 一版生成器的改动有多大(从小到大):打开旧存档、旧链接时,按跨过的几版里最大的那一种说清变了什么(savefile.ts 的 versionNote)
@@ -506,6 +509,7 @@ export const GENERATOR_CHANGES: Readonly<Record<number, { change: GeneratorChang
   25: { change: 'names', edited: true },
   26: { change: 'terrain', edited: true, upheavals: 'terrain' },
   27: { change: 'history' },
+  28: { change: 'history' },
 };
 
 /** 干预的种类(见文件头的表) */
