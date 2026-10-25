@@ -52,7 +52,8 @@
  *                   门槛放低了的,下一刻从现有国土往外重新看一遍(和定方针一样)
  *   天灾   disaster  瘟疫、饥荒、地震水旱:受灾的城人口掉一截,国内更动荡,不改地形(disaster.ts)
  *   多看一眼 照大纲顺着引的方针带 look:look.years 每年的年中(Ev.Look,装各层时预约,同一刻里排在干预事件后面)替 a 多看一眼
- *                   邻国(wars.ts)/ 内政(politics.ts:大崩解、分裂)/ 王朝(dynasty.ts),和寻常那一次一样定,只是不接着预约下一次
+ *                   邻国(wars.ts)/ 内政(politics.ts:大崩解、分裂)/ 王朝(dynasty.ts),和寻常那一次一样定,只是不接着预约下一次;
+ *                   那时 a 照的已经不是这条方针(被作者的、别的方针换掉了)= 不看
  *
  * 每条干预在 from 那一刻记一条史事 intervene(字段见 types.ts 的 AnnalKind;A 的键指不到就不记),编年史写"【干预】……"。
  * 紧跟着记它引起的事:宣战的 war(盟国、宗藩之间开战,war 前面先记盟约 / 宗藩之分断了的 unally / defect,见 diplomacy.ts)、结盟 / 不许扩张引起的 peace、立国的 found、迁都的 capital、原主国迁都的 capital / 亡国的 fall。
@@ -70,6 +71,7 @@ import { Ev, LOOK_K, quantize, type CivSim } from './sim';
 import { addPolity, endPolity, foundCity, moveCapital, polityModelOf, reopen, respread, rulerAct, rulerOf, setPolicy, type PolityModel } from './polities';
 import { IV_NOT_HIM, IV_PEOPLE, IV_PROTECTED, IV_WAIT, crownOf, reignBorn } from './rulers';
 import { strikeDisaster } from './disaster';
+import { segAt } from './policy';
 import { bestCapital, polityBorders, warModelOf } from './wars';
 import { politicsModelOf } from './politics';
 import { dynastyModelOf } from './dynasty';
@@ -547,12 +549,12 @@ export function installInterventions(sim: CivSim, iv: InterventionModel): void {
   });
 
   // 不许扩张到期:从现有国土重新预约扩张(禁令期间的"国家到达"都丢掉了)
-  // 多看一眼:那一刻替那国(键此刻指得到、还在)看一眼邻国 / 内政 / 王朝;随机数按 LOOK_K 往上的"第几次"取
+  // 多看一眼:那一刻替那国(键此刻指得到、还在,照的还是这条方针)看一眼邻国 / 内政 / 王朝;随机数按 LOOK_K 往上的"第几次"取
   sim.on(Ev.Look, (i, j, t) => {
     const v = iv.list[i];
     if (v?.kind !== 'policy' || !v.look) return;
     const p = iv.resolve(v.a);
-    if (p < 0 || !alive(p)) return;
+    if (p < 0 || !alive(p) || segAt(pm.policies.get(p), t)?.iv !== i) return;
     const k = LOOK_K + i * GUIDE_LOOK_MAX + j;
     if (v.look.kind === 'war') wm.look?.(p, k, t);
     else if (v.look.kind === 'politics') politicsModelOf(sim)?.look?.(p, k, t);

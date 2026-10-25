@@ -129,7 +129,8 @@ export function samplePlausible(civ: Civ, seed: number, n: number): Plot[] {
     const near = (pred: (e: Civ['annals'][number]) => boolean) => civ.annals.some((e) => Math.abs(e.year - year) <= 15 && pred(e));
     const any = <T>(xs: readonly T[]) => xs[Math.floor(rnd() * xs.length)];
     if (kind === 'war' || kind === 'submit') {
-      const c = ps.filter(([a, b]) => !near((e) => e.kind === kind && e.a === a && e.b === b));
+      // 称臣写成 b 向 a 称臣:查的方向跟着反过来
+      const c = ps.filter(([a, b]) => !near((e) => e.kind === kind && (kind === 'war' ? e.a === a && e.b === b : e.a === b && e.b === a)));
       if (!c.length) continue;
       const [a, b] = any(c);
       plots.push(kind === 'war' ? { id, kind, year, a: polityKey(civ, a), b: polityKey(civ, b), text } : { id, kind, year, a: polityKey(civ, b), b: polityKey(civ, a), text });
