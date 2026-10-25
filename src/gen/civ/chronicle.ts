@@ -2608,6 +2608,8 @@ export function* chronicleSteps(civ: Civ): Generator<void, ChronicleEntry[]> {
     if ((e.kind === 'found' || e.kind === 'capital' || e.kind === 'fall' || e.kind === 'famine') && foldedIntoIntervene(civ, i)) continue;
     // 照大纲划给同一国的几州并进头一条
     if (e.kind === 'intervene' && i > 0 && plotCedeKey(civ, i) && plotCedeKey(civ, i - 1) === plotCedeKey(civ, i)) continue;
+    // 照大纲顺着引的方针(gen/outline.ts)不写进编年史,只在大纲的批改里写
+    if (e.kind === 'intervene' && civ.interventions?.[e.war]?.guide) continue;
     // 即位(等在位的那位下台):登记的那一条不列,真即位时另有一条
     if (e.kind === 'intervene' && e.b === IV_WAIT && civ.interventions?.[e.war]?.kind === 'crown') continue;
     if (e.kind === 'fall' && e.b < 0 && mergedAt.has(`${e.a}|${e.year}`)) continue;
