@@ -303,6 +303,9 @@ export interface Place {
  * | revolt    | 民变:饥民起事、立了新势力(紧跟着记原来的国家讨伐它的那场 war,cause = quell) | 起事立的新国家 | 原来的国家 | 起事的州 | 新国都 | −1 |
  * | collapse  | 大崩解:大国一下子散成几块(紧跟着记各块自立的 split,cause = collapse;散回部落的州不另记,日志原因 Ev.Collapse) | 国家 | 怎么崩:0 = 中央崩(各地自立)、1 = 地方崩(诸州残破,发展度掉)、2 = 两样都崩(散回部落) | 国都所在州 | 国都 | **散出去几块**(借用这一列;散回部落 = 散出去的州数) |
  * | plague    | 瘟疫(plague.ts):这一年疫传到一国治下的几州(各城的折损见 Settlement.sacks 里 cause = plague 的那一条;部落地带不记)。同一场瘟疫的第一条是起疫的那城;大瘟疫 cause = great | 国家 | 这一年染疫的州数 | 死得最多的州 | 那州的城 | **第几场瘟疫**(借用这一列) |
+ * | warlord   | 割据(control.ts):中央管不到的地方拥兵自重,名义上仍归这国(国界、归属不变) | 国家 | −1 | 割据的那座城所在的州 | 那座城 | **地盘有几州**(借用这一列) |
+ * | reclaim   | 收回割据(control.ts):中央重新管住了那一带 | 国家 | −1 | 割据的那座城所在的州 | 那座城 | **割据了几年**(借用这一列) |
+ * | defy      | 抗命不出兵(control.ts):开战点兵时,割据的地方拥兵不出 | 国家 | 和它交战的国家 | 割据的那座城所在的州 | 那座城 | 那场战争 |
  *
  * 洗劫、毁城和那一次攻占同一刻,记在那条 conquer **前面**(conquer、被迫迁都、灭亡照旧紧挨着,编年史里排回攻占后面)。
  * 议和割让的州也各记一条 conquer(a = 得到的一方,b = 割出的一方),连着记在那条 peace 前面,条数记在 peace 的 region 列。
@@ -373,16 +376,19 @@ export type AnnalKind =
   | 'famine'
   | 'revolt'
   | 'collapse'
-  | 'plague';
+  | 'plague'
+  | 'warlord'
+  | 'reclaim'
+  | 'defy';
 
 /**
  * 战争的起因(史事 war 的 cause;阶段 4 干预的强制宣战不给)和盟约怎么断的(unally 的 cause):
  *   expand 争边地(没有别的由头)/ claim 收复故土(对方手里有原属本国的州)/ chaos 乘对方之乱(对方正和别国交兵、刚丢了国都、刚改朝换代)/
  *   prey 吞并小国 / betray 背盟来攻 / punish 讨伐自立的藩属 / ally 应盟国之约 / rescue 宗主救藩属 / quell 讨伐起事的饥民(民变);
- *   collapse:大崩解里自立的那几块(史事 split 的 cause);great:大瘟疫(史事 plague 的 cause);
+ *   collapse:大崩解里自立的那几块(史事 split 的 cause);warlord:割据的地方起兵自立(史事 split 的 cause,control.ts);great:大瘟疫(史事 plague 的 cause);
  *   lapse 盟约渐废 / abandon 坐视不救 / vassal 一方称臣
  */
-export type AnnalCause = 'expand' | 'claim' | 'chaos' | 'prey' | 'betray' | 'punish' | 'ally' | 'rescue' | 'lapse' | 'abandon' | 'vassal' | 'quell' | 'collapse' | 'great' | 'quake';
+export type AnnalCause = 'expand' | 'claim' | 'chaos' | 'prey' | 'betray' | 'punish' | 'ally' | 'rescue' | 'lapse' | 'abandon' | 'vassal' | 'quell' | 'collapse' | 'great' | 'quake' | 'warlord';
 
 /**
  * 一条史事(阶段 3):推演里各事件处理函数用 CivSim.record 往 Civ.annals 里记,编年史(界面上的事件列表)只读它。
@@ -647,6 +653,12 @@ export interface Development {
   snaps: Uint8Array[];
   /** 每份快照的年份(递增;最后一份是结束那年) */
   snapYears: Year[];
+  /**
+   * 中央管到什么程度(control.ts):每 20 年一份,每份 = 州数个字节(0 = 不在国家里;1–101 = 1 + 管得到几成 × 100;200 = 割据)。
+   * 和 controlYears 一一对应;旧版本的历史没有
+   */
+  control?: Uint8Array[];
+  controlYears?: Year[];
   /** 按年份排好 */
   events: DevEvent[];
   /**

@@ -1286,14 +1286,16 @@ describe('旧版本的提示:照实说变了什么', () => {
     expect(versionNote(GENERATOR_VERSION + 0.5, false)).toBe(versionNote(0, false));
   });
   it('第 26 版只动了改过地形、带地形大事的世界:没改地形的一样;带地形大事、没改地形的也按"地形有局部变化"说(大事以后的地形)', () => {
-    expect(versionNote(25, false)).toBeNull();
-    expect(versionNote(25, { terrain: false, upheavals: false })).toBeNull();
+    // 第 27 版历史重新推演:从第 25 版来的没改地形的世界,就照第 27 版说
+    expect(versionNote(26, false)).toBe('来自旧版本：地形和气候没变，历史重新推演了');
+    expect(versionNote(25, false)).toBe(versionNote(26, false));
+    expect(versionNote(25, { terrain: false, upheavals: false })).toBe(versionNote(26, false));
     expect(versionNote(25, true)).toBe('来自旧版本：地形有局部变化，历史重新推演了');
     expect(versionNote(25, { terrain: true, upheavals: true })).toBe('来自旧版本：地形有局部变化，历史重新推演了');
     expect(versionNote(25, { terrain: false, upheavals: true })).toBe('来自旧版本：地形有局部变化，历史重新推演了');
     // 第 25 版只动了改过地形的(地名),带地形大事的不算
     expect(versionNote(24, { terrain: false, upheavals: true })).toBe(versionNote(25, { terrain: false, upheavals: true }));
-    expect(versionNote(24, false)).toBeNull();
+    expect(versionNote(24, false)).toBe(versionNote(26, false));
     expect(editedWorld({ upheavals: [{ year: 10, ops: [] }] })).toEqual({ terrain: false, upheavals: true });
     expect(editedWorld({ terrain: [], sketch: undefined })).toEqual({ terrain: false, upheavals: false });
   });

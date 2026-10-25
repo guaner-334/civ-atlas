@@ -604,8 +604,8 @@ if (part('键盘快捷键')) {
 // 君主有「倾向」一组四行,复制生平里也有一行,将领、宗室没有;
 // 「出征那年」跳时间轴;「编年史」打开这国的编年史;「复制生平」);编年史里的人名是蓝字,点了收起概览、打开这个人,不跳年份;
 // 世界概览的「人物」页(名人 / 君主 / 将领,「全部 N 位」进来停在这国的君主);搜名字第一个是这个人。
-// 例子:种子 7 的第 2740 年,天灵(6 号国)霄朝的钦宗沈昀(前任是他的父亲太宗沈曦翎,
-// 继任是他的孙子顺宗沈冥;在位时有将领景昀泠领兵)
+// 例子:种子 7 的第 2740 年,天灵(6 号国)霄朝的宣宗沈昀(前任是他的父亲太宗沈曦翎,
+// 继任是他的孙子顺宗沈冥;在位时有将领风昀月领兵)
 if (part('人物')) {
   await page.goto(`${dev.url}/?seed=7&civYear=2740`);
   await page.waitForFunction(() => (window as any).__wfLabels?.polities > 0, null, { timeout: 60000 });
@@ -628,7 +628,7 @@ if (part('人物')) {
   await page.waitForTimeout(200);
   const copied = (await page.evaluate(() => (window as any).__wfPersonText as string)) ?? '';
   // 将领一行的名字 → 将领的卡片;出征那年
-  await page.locator('.inspector .cp.pp .cp-stats .ins-link', { hasText: '景昀泠' }).first().click();
+  await page.locator('.inspector .cp.pp .cp-stats .ins-link', { hasText: '风昀月' }).first().click();
   await page.waitForTimeout(400);
   const card2 = await text('.inspector .cp.pp');
   const genLeans = await page.locator('.inspector .cp.pp [data-sec=leanings]').count();
@@ -681,7 +681,7 @@ if (part('人物')) {
   const lgFocus = await page.locator(`.lg-node.focus[data-person="${princeId}"]`).count();
   await closeOverview();
   // 搜索
-  await page.fill('.sidebar .search-input', '钦宗沈昀');
+  await page.fill('.sidebar .search-input', '宣宗沈昀');
   await page.waitForTimeout(300);
   const hit = await text('.search-row');
   const hitKind = await page.locator('.search-row').first().getAttribute('data-kind');
@@ -692,19 +692,19 @@ if (part('人物')) {
     `人物:国家卡片「${stats.slice(0, 40)}…」,历代君主 ${rulers} 行、当前「${cur}」、「${all}」;卡片「${card1.slice(0, 50)}…」,倾向 ${leanRows} 行「${leans.slice(0, 30)}…」,复制 ${copied.length} 字;` +
       `将领卡片「${card2.slice(0, 30)}…」、出征那年 → ${y1};编年史开 ${chronOpen}、蓝字 ${names} 个,点「${pickName}」→ 收起 ${closed}、卡片 ${card3Id}/${pickId}、年份 ${y1} → ${y2};` +
       `人物页名人 ${famousOn}/${famous} 行「${famousFirst.slice(0, 30)}」→ 卡片「${card4.slice(0, 20)}」;全部 N 位 → 君主 ${rulersOn}、只看 ${polityPick}、${groups} 组 ${rows} 行;` +
-      `世系图「${lgHead.slice(0, 40)}」${lgNodes} 人、当前「${lgOn}」,宗室卡片「${princeCard.slice(0, 30)}」→ 圈出 ${lgFocus};搜"钦宗沈昀"「${hit}」(${hitKind})→「${card5}」`,
+      `世系图「${lgHead.slice(0, 40)}」${lgNodes} 人、当前「${lgOn}」,宗室卡片「${princeCard.slice(0, 30)}」→ 圈出 ${lgFocus};搜"宣宗沈昀"「${hit}」(${hitKind})→「${card5}」`,
   );
-  if (!/君主\s*钦宗沈昀\s*2723 年即位/.test(stats)) errs.push(`人物:国家卡片没有「君主」行(${stats.slice(0, 80)})`);
-  if (rulers !== 5 || !/钦宗沈昀\s*当前/.test(cur) || !/全部 \d+ 位/.test(all)) errs.push(`人物:国家卡片的历代君主不对(${rulers} 行;${cur};${all})`);
+  if (!/君主\s*宣宗沈昀\s*2723 年即位/.test(stats)) errs.push(`人物:国家卡片没有「君主」行(${stats.slice(0, 80)})`);
+  if (rulers !== 5 || !/宣宗沈昀\s*当前/.test(cur) || !/全部 \d+ 位/.test(all)) errs.push(`人物:国家卡片的历代君主不对(${rulers} 行;${cur};${all})`);
   // 前任、继任的小字写亲属(父、孙)
   if (
-    !/钦宗沈昀/.test(card1) ||
+    !/宣宗沈昀/.test(card1) ||
     !/大霄皇帝，2723–2768 年在位/.test(card1) ||
     !/前任\s*太宗沈曦翎\s*父/.test(deed) ||
     !/继任\s*顺宗沈冥\s*孙/.test(deed)
   )
     errs.push(`人物:君主卡片不对(${card1.slice(0, 160)})`);
-  if (!copied.startsWith('钦宗沈昀\n大霄皇帝') || !copied.includes('在位时：')) errs.push(`人物:复制生平不对(${copied.slice(0, 60)})`);
+  if (!copied.startsWith('宣宗沈昀\n大霄皇帝') || !copied.includes('在位时：')) errs.push(`人物:复制生平不对(${copied.slice(0, 60)})`);
   if (
     leanRows !== 4 ||
     // 那年在位的君主:倾向右上多一个「改」
@@ -713,13 +713,13 @@ if (part('人物')) {
   )
     errs.push(`人物:君主卡片的倾向不对(${leanRows} 行;${leans.slice(0, 80)};复制里 ${/倾向：.*/.exec(copied)?.[0]})`);
   if (genLeans || princeLeans) errs.push(`人物:将领 / 宗室的卡片上不该有倾向(${genLeans};${princeLeans})`);
-  if (!/景昀泠\s*大霄将领，2731–2733 年领兵/.test(card2) || y1 !== 2731) errs.push(`人物:将领卡片 / 出征那年不对(${card2.slice(0, 60)};${y1})`);
+  if (!/风昀月\s*大霄将领，2731–2734 年领兵/.test(card2) || y1 !== 2731) errs.push(`人物:将领卡片 / 出征那年不对(${card2.slice(0, 60)};${y1})`);
   if (!chronOpen || names < 3 || !closed || pickId < 0 || card3Id !== pickId || y2 !== y1) errs.push(`人物:编年史里的人名点不开,或点了跳了年份(${chronOpen};${names};${closed};${card3Id}/${pickId};${y1} → ${y2})`);
   if (!famousOn || famous < 20 || !card4) errs.push(`人物:人物页的名人不对,或点一行没打开卡片(${famousOn};${famous};${card4.slice(0, 30)})`);
   if (!rulersOn || polityPick !== '6' || groups < 1 || rows !== 101) errs.push(`人物:「全部 N 位」没有打开这国的君主(${rulersOn};${polityPick};${groups};${rows})`);
-  if (!/^霄 2655 年起，14 位君主/.test(lgHead) || lgNodes < 8 || !/钦宗沈昀.*当前/.test(lgOn)) errs.push(`人物:世系图不对(${lgHead};${lgNodes};${lgOn})`);
+  if (!/^霄 2655 年起，14 位君主/.test(lgHead) || lgNodes < 8 || !/宣宗沈昀.*当前/.test(lgOn)) errs.push(`人物:世系图不对(${lgHead};${lgNodes};${lgOn})`);
   if (!/霄宗室，\d+–\d+/.test(princeCard) || !princeCard.includes('子嗣') || lgFocus !== 1) errs.push(`人物:宗室卡片 / 从卡片回到世系图不对(${princeCard.slice(0, 60)};${lgFocus})`);
-  if (!/^钦宗沈昀 大霄皇帝，2723–2768$/.test(hit) || hitKind !== 'person' || card5 !== '钦宗沈昀') errs.push(`人物:搜"钦宗沈昀"不对(${hit};${hitKind};${card5})`);
+  if (!/^宣宗沈昀 大霄皇帝，2723–2768$/.test(hit) || hitKind !== 'person' || card5 !== '宣宗沈昀') errs.push(`人物:搜"宣宗沈昀"不对(${hit};${hitKind};${card5})`);
   await page.fill('.sidebar .search-input', '');
   await page.keyboard.press('Escape');
   await page.evaluate(() => localStorage.clear());
@@ -2920,16 +2920,22 @@ if (part('国家面板')) {
     kPick = await page.evaluate(() => (window as any).__wfView.k);
     pickToast = await toastText(page, 'pick');
     hiddenWhilePicking = (await insHidden(page));
-    const tgt = allyPlates.filter((p) => !p.self).sort((a, b) => Math.abs(a.x - vp.width / 2) - Math.abs(b.x - vp.width / 2))[0];
-    if (tgt) {
-      // 悬停在这国的国土上(名牌四周绕几圈找):悬停卡片写"点击选择",名牌反色
-      search: for (const r of [30, 50, 80, 120])
+    // 悬停在目标国的国土上(名牌四周绕几圈找):悬停卡片写"点击选择",名牌反色。
+    // 离屏幕正中近的先试;名牌离国土远的小岛国找不着,就换下一个
+    const cands = allyPlates.filter((p) => !p.self).sort((a, b) => Math.abs(a.x - vp.width / 2) - Math.abs(b.x - vp.width / 2));
+    let tgt = cands[0];
+    search: for (const c of cands.slice(0, 4))
+      for (const r of [12, 20, 30, 50, 80, 120])
         for (let a = 0; a < 8; a++) {
-          await page.mouse.move(tgt.x + r * Math.cos((a * Math.PI) / 4), tgt.y + r * Math.sin((a * Math.PI) / 4));
+          await page.mouse.move(c.x + r * Math.cos((a * Math.PI) / 4), c.y + r * Math.sin((a * Math.PI) / 4));
           await page.waitForTimeout(80);
           hoverVerdict = (await page.locator('.hover-card').innerText().catch(() => '')).replace(/\n/g, ' ');
-          if (hoverVerdict.includes(tgt.text)) break search;
+          if (hoverVerdict.includes(c.text)) {
+            tgt = c;
+            break search;
+          }
         }
+    if (tgt) {
       await page.mouse.move(tgt.x, tgt.y);
       await page.waitForTimeout(150);
       plateOn = (await plates()).some((p) => p.id === tgt.id && p.on);

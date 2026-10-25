@@ -558,6 +558,9 @@ const TAG: Record<AnnalKind, string> = {
   revolt: '起',
   collapse: '崩',
   plague: '疫',
+  warlord: '据',
+  reclaim: '收',
+  defy: '抗',
 };
 
 function base(
@@ -1352,8 +1355,10 @@ function simpleEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
         const head = `故${(fallen.name && polityRootAt(fallen, fallen.ended ?? y)) || '国'}${folk}${r ? `据${r}` : ''}`;
         t = e.b >= 0 ? `${head}起兵,脱${pn(civ, e.b, y)}复国,号${A}` : `${head}复国,号${A}`;
       } else {
-        // "瑞州守将李昭叛大渭自立,号瑞国"
-        const lord = who && r ? `${r}${P?.eastern ? '守将' : '领主'}${who.name}` : r;
+        // "瑞州守将李昭叛大渭自立,号瑞国";割据多年以后自立的(control.ts):"割据瑞州的守将李昭叛大渭自立"
+        const title = P?.eastern ? '守将' : '领主';
+        const lord =
+          e.cause === 'warlord' && r ? `割据${r}的${title}${who?.name ?? ''}` : who && r ? `${r}${title}${who.name}` : r;
         if (e.b >= 0) t = r ? `${lord}叛${pn(civ, e.b, y)}自立,号${A}` : `${A}脱离${pn(civ, e.b, y)}自立`;
         else t = r ? `${lord}自立,号${A}` : `${A}自立`;
       }
@@ -1366,6 +1371,10 @@ function simpleEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
     }
     case 'famine':
       return base(e, id, famineText(civ, e), 2, [e.a], [e.region]);
+    case 'warlord':
+    case 'reclaim':
+    case 'defy':
+      return base(e, id, lordText(civ, e), 2, e.kind === 'defy' ? [e.a, e.b] : [e.a], [e.region]);
     case 'merge': {
       // 并掉的是大国才是大事
       // 藩属纳土归附宗主(diplomacy.ts)
@@ -1958,6 +1967,19 @@ function warEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
 
 // ---------------------------------------------------------------------------
 // 饥荒、民变、大崩解(unrest.ts)
+
+/**
+ * 割据、收回、抗命(control.ts):"瑞州守将拥兵自重,割据瑞州等三州,名义上仍奉大渭" /
+ * "大渭收回割据二十六年的瑞州" / "大渭与昌国交兵,瑞州守将拥兵不出"(西幻:守将 → 领主)
+ */
+function lordText(civ: Civ, e: Annal): string {
+  const A = pn(civ, e.a, e.year);
+  const r = regionName(civ, e.region) || cityName(civ, e.settlement) || '一方';
+  const lord = `${r}${polityOf(civ, e.a)?.eastern ? '守将' : '领主'}`;
+  if (e.kind === 'warlord') return `${lord}拥兵自重,割据${e.war > 1 ? `${r}等${e.war === 2 ? '两' : cnNumber(e.war)}州` : r},名义上仍奉${A}`;
+  if (e.kind === 'reclaim') return e.war >= 1 ? `${A}收回割据${cnNumber(e.war)}年的${r}` : `${A}收回${r}`;
+  return `${A}与${pn(civ, e.b, e.year)}交兵,${lord}拥兵不出`;
+}
 
 /** 一州闹饥荒时城里的人口折损(Settlement.sacks 里 cause = famine、同一年的那一条;找不到 = 0) */
 function famineLoss(civ: Civ, e: Annal): number {

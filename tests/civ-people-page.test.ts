@@ -171,23 +171,23 @@ describe('人物页 · 几处写法', () => {
     expect(kinOf(civ, 辛, 壬)).toBe('从伯父');
   });
 
-  it('seed=2024:大渊宪宗(楚溟)是名人,继祖父即位;搜"宪宗"排在前面(名人在前)', () => {
+  it('seed=2024:大渊太宗(楚岚璃)是名人,继祖父即位;搜"太宗"排在前面(名人在前)', () => {
     const civ = civOf(2024);
-    const x = civ.people!.find((p) => p.name === '楚溟' && p.role === 'ruler');
+    const x = civ.people!.find((p) => p.name === '楚岚璃' && p.role === 'ruler');
     expect(x).toBeTruthy();
-    expect(personName(civ, x!)).toBe('宪宗楚溟');
+    expect(personName(civ, x!)).toBe('太宗楚岚璃');
     expect(rulerRole(civ, x!)).toBe('大渊皇帝');
     expect(riseText(civ, x!)).toMatch(/^继祖父/);
     expect(famousPeople(civ).some((f) => f.id === x!.id)).toBe(true);
-    const hits = searchCiv(civ, '宪宗', 2600);
+    const hits = searchCiv(civ, '太宗', 2600);
     const k = hits.findIndex((h) => h.kind === 'person' && h.id === x!.id);
     expect(k).toBeGreaterThanOrEqual(0);
     expect(k).toBeLessThan(3);
-    expect(hits[k]).toMatchObject({ kind: 'person', id: x!.id, name: '宪宗楚溟', sub: '大渊皇帝，2281–2328' });
+    expect(hits[k]).toMatchObject({ kind: 'person', id: x!.id, name: '太宗楚岚璃', sub: '大渊皇帝，2179–2220' });
     for (const h of hits.slice(0, k)) expect(famousPeople(civ).some((f) => h.kind === 'person' && f.id === h.id)).toBe(true);
-    // 编年史里写他即位的那条:"大渊明宗崩……其孙楚溟即位,是为宪宗,时年 10 岁,丞相裴夜羽辅政" —— 前一位连国名一起切、他和辅政的丞相切名字
+    // 编年史里写他即位的那条:"大渊太祖崩……其孙楚岚璃即位,是为太宗,时年 10 岁,丞相萧霁辅政" —— 前一位连国名一起切、他和辅政的丞相切名字
     const e = reignEntries(civ).find((r) => r.people?.[1] === x!.id)!;
     const ms = personMentions(civ, e.text, e.people, -1, e.year).filter((m) => m.person !== undefined);
-    expect(ms.map((m) => m.text)).toEqual(['大渊明宗', '楚溟', '裴夜羽']);
+    expect(ms.map((m) => m.text)).toEqual(['大渊太祖', '楚岚璃', '萧霁']);
   });
 });

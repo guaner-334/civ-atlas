@@ -216,6 +216,12 @@ export interface WarModel {
   revolt?: (w: War) => boolean;
   /** 民变(unrest.ts 挂上):战争 w 里 x 打下了 y 的国都,y 就此亡国、余下的州一并归 x(起事的饥民攻破都城) */
   overthrow?: (w: War, x: number, y: number, t: Year) => boolean;
+  /**
+   * 中央管到什么程度(control.ts 挂上):国家 p 此刻各州出兵的几成(0–1;割据的州 0)。返回的函数要马上用完(下一次调 levy 前)
+   */
+  levy?: (p: number, t: Year) => (r: number) => number;
+  /** 中央管到什么程度(control.ts 挂上):战争 w 的第一仗之前(点兵),割据的地方抗命不出兵时记一条 defy */
+  onMuster?: (w: War, t: Year) => void;
 }
 
 const pairKey = (a: number, b: number) => Math.min(a, b) * 32768 + Math.max(a, b);
@@ -301,9 +307,11 @@ export function installWars(sim: CivSim, pm: PolityModel, wm: WarModel = newMode
     for (const p of who) {
       if (pow[p] > 0) continue; // 重复的
       let sum = 0;
+      // 管不到的州出兵打折、割据的州不出兵(control.ts;没挂 = 都出)
+      const lv = wm.levy?.(p, t);
       for (const r of pm.lands[p]) {
         const c = pm.cityOf[r];
-        if (c >= 0) sum += popAt(pm.settlements[c], t);
+        if (c >= 0) sum += lv ? popAt(pm.settlements[c], t) * lv(r) : popAt(pm.settlements[c], t);
       }
       // 军力系数(发展度按国都所在州的动员能力定,见 development.ts;没有 = 1)
       pow[p] = Math.max(1, sum) * (pm.military?.[p] ?? 1);
@@ -667,6 +675,7 @@ export function installWars(sim: CivSim, pm: PolityModel, wm: WarModel = newMode
   sim.on(Ev.Campaign, (i, id, t) => {
     const w = wm.wars[id];
     if (!w || w.end !== undefined) return;
+    if (i === 0) wm.onMuster?.(w, t);
     const pow = powers(t, [w.a, w.b]);
     let capitalFell = false;
     /** 丢了国都的是守方(攻方打下的) */
