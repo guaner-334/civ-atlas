@@ -3,7 +3,10 @@
  */
 import { describe, expect, it } from 'vitest';
 import { NEWS_MAX, aheadOf, beijingDay, dayText, linkText, makeNews, nextSync, parseNews, type NewsItem } from '../src/ui/betaNews';
+import { readdirSync, readFileSync } from 'node:fs';
+import { newsFromFiles } from '../src/ui/newsFiles';
 import { WHATS_NEW } from '../src/ui/whatsNew';
+import { readWhatsNew } from '../scripts/lib/whatsNew';
 
 const item = (pr: number): NewsItem => ({ pr, title: `功能 ${pr}`, text: `第 ${pr} 号改动` });
 
@@ -61,6 +64,24 @@ describe('测试版新功能', () => {
     expect(n?.more).toBe(3);
     expect(linkText('https://atlas.gerdor.top/beta/')).toBe('atlas.gerdor.top/beta');
     expect(linkText('https://atlas.gerdor.top/')).toBe('atlas.gerdor.top');
+  });
+
+  it('小文件拼成清单:PR 号就是文件名,大的在前;文件名不对的跳过', () => {
+    const e = (t: string) => ({ title: t, text: `${t}的说明` });
+    expect(newsFromFiles({ './news/75.json': e('乙'), './news/247.json': e('甲'), './news/x.json': e('丙'), './news/9.json.bak': e('丁') })).toEqual([
+      { pr: 247, ...e('甲') },
+      { pr: 75, ...e('乙') },
+    ]);
+  });
+
+  it('src/ui/news 里每个文件都是「PR 号.json」,只写标题和一句话;网页打包的和脚本从硬盘读的一样', () => {
+    const dir = new URL('../src/ui/news/', import.meta.url);
+    for (const name of readdirSync(dir)) {
+      expect(name).toMatch(/^[1-9]\d*\.json$/);
+      expect(Object.keys(JSON.parse(readFileSync(new URL(name, dir), 'utf8'))).sort()).toEqual(['text', 'title']);
+    }
+    expect(WHATS_NEW.length).toBeGreaterThan(0);
+    expect(WHATS_NEW).toEqual(readWhatsNew());
   });
 
   it('自己的清单:PR 号不重复,标题和说明都写了、不太长', () => {

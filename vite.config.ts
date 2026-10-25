@@ -11,9 +11,9 @@ import { fakeAiMiddleware } from './scripts/lib/fakeAiServer';
 import { inlineIconsPlugin } from './scripts/lib/inlineIcons';
 import { beianPagesPlugin } from './scripts/lib/beian';
 import { loadScreenPlugin } from './scripts/lib/loadScreen';
+import { readWhatsNew } from './scripts/lib/whatsNew';
 import { beianRecords } from './src/ui/beian';
 import { SOURCE_URL } from './src/ui/links';
-import { WHATS_NEW } from './src/ui/whatsNew';
 import { ShardSequencer } from './tests/lib/shardSequencer';
 
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as { version: string; license: string };
@@ -103,7 +103,7 @@ export default defineConfig({
       name: 'whats-new',
       apply: 'build',
       generateBundle() {
-        this.emitFile({ type: 'asset', fileName: 'whats-new.json', source: `${JSON.stringify({ built: BUILD_DAY, news: WHATS_NEW })}\n` });
+        this.emitFile({ type: 'asset', fileName: 'whats-new.json', source: `${JSON.stringify({ built: BUILD_DAY, news: readWhatsNew() })}\n` });
       },
     },
     precompress(),
