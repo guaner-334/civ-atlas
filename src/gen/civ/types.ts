@@ -694,6 +694,14 @@ export interface DevState {
   invented: Uint8Array;
   /** 各国的军力系数(PolityModel.military) */
   military: number[];
+  /** 政局的数表(control.ts:管得到几成、离国都多远、动荡;旧版本存的没有,接着推时现算一次) */
+  tables?: TablesState;
+}
+
+/** 一组数表存下来的状态:最后算的是哪一年;各张表的值(表名 → 格 × 栏) */
+export interface TablesState {
+  last: Year;
+  data: Record<string, Float64Array>;
 }
 
 /**

@@ -453,6 +453,8 @@
  *  28:打仗看物产(civ/wars.ts、development.ts):本国缺盐、缺牲畜,认得金银、铁以后缺金银、铁,快进下一个时代缺那道门槛要的矿,
  *      边境对面正好有的,更容易对它开战(由头"欲夺某州之铁"),攻方也先打有这些物产的州;
  *      统帅按所有战争的史事先后一起排(civ/people.ts):让一位将领去世,不再连带改掉同一国别的仗在那以前的统帅。历史重新推演
+ *  29:中央管得到几成、离国都多远、各国的动荡改成每年年初算一次(civ/control.ts、stateTables.ts;原来是用到的那一刻现算),
+ *      公式不变,年里出的事(打下一州、迁都、开战)下一年才算进去。历史重新推演
  */
 import type { Civ, Culture, Faith, Person, Place, Polity, Regions, RulerLeanings, Settlement } from './civ/types';
 import type { AuthorCharacter } from './characters';
@@ -464,7 +466,7 @@ import type { Era } from './era';
 import type { Frontier, Origins } from './civ/frontier';
 
 /** 生成器版本:生成算法有改动、同种子会得到不同世界时加一(存档读档时核对);加一时在 GENERATOR_CHANGES 里补一条 */
-export const GENERATOR_VERSION = 28;
+export const GENERATOR_VERSION = 29;
 
 /**
  * 一版生成器的改动有多大(从小到大):打开旧存档、旧链接时,按跨过的几版里最大的那一种说清变了什么(savefile.ts 的 versionNote)
@@ -510,6 +512,7 @@ export const GENERATOR_CHANGES: Readonly<Record<number, { change: GeneratorChang
   26: { change: 'terrain', edited: true, upheavals: 'terrain' },
   27: { change: 'history' },
   28: { change: 'history' },
+  29: { change: 'history' },
 };
 
 /** 干预的种类(见文件头的表) */
