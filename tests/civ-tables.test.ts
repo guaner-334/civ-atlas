@@ -391,7 +391,7 @@ describe('两种跑法逐位一样', () => {
       for (const c of cards) expect(Array.from(a.get(c.id))).toEqual(Array.from(b.get(c.id)));
     }
   });
-  it('中间量在邻格循环里头一次用到、几栏合走一遍邻格时取随机数、备份规则的上下限不一样:两种跑法也一样', () => {
+  it('中间量在邻格循环里头一次用到、几栏合走一遍邻格时取随机数、备份规则的上下限不一样、全 0 跳过的格子:两种跑法也一样', () => {
     const cards: TableCard[] = [
       { id: 'x', name: '往低处搬', unit: 'tile', min: 0, max: 1e6, off: 0, init: 'hab', rule: 'x', move: 'let 那边 = nb.x\nnbsum(max(0, nb.x - 那边)) * 0.01' },
       { id: 'z', name: '两栏随机', unit: 'region', cols: ['甲', '乙'], min: -1e6, max: 1e6, off: 0, rule: 'let s = nbsum(rand())\ns' },
@@ -402,6 +402,9 @@ describe('两种跑法逐位一样', () => {
     for (const c of cards) expect(Array.from(a.get(c.id))).toEqual(Array.from(b.get(c.id)));
     expect(a.value('z', 0, 0)).not.toBe(a.value('z', 0, 1));
     expect(a.value('w', 0)).toBe(10);
+    // 全 0 跳过的格子核没算,下限不是 0 时照样压上来
+    const zs: TableCard = { id: 'v', name: '跳过的也压', unit: 'tile', min: 1, max: 9, off: 1, init: 0, rule: 'v + nbsum(nb.v)', zeroStays: true };
+    expect(Array.from(run([zs], yearsTo(2), 'js').get('v'))).toEqual(Array.from(run([zs], yearsTo(2), 'closure').get('v')));
   });
   it('多栏表每栏一条、if 里套邻格函数、after 和 prev 混着读:两种跑法也一样', () => {
     const many: TableCard[] = [
