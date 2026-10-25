@@ -46,8 +46,8 @@ describe('图层换算', () => {
   });
   it('时代、物产是第二行小字按钮:时代留国界(开着国家),物产不叠国家;网址 layer=era / layer=resources', () => {
     expect(MAP_LAYERS.filter((l) => l.dev).map((l) => l.id)).toEqual(['era', 'resources']);
-    expect(layerShow(layerDef('era'))).toEqual({ polities: true, cultures: false, faiths: false, eras: true, resources: false });
-    expect(layerShow(layerDef('resources'))).toEqual({ polities: false, cultures: false, faiths: false, eras: false, resources: true });
+    expect(layerShow(layerDef('era'))).toEqual({ polities: true, cultures: false, faiths: false, eras: true, control: false, resources: false });
+    expect(layerShow(layerDef('resources'))).toEqual({ polities: false, cultures: false, faiths: false, eras: false, control: false, resources: true });
     expect(layerOf('fantasy', 'biomes', { polities: true, cultures: false, eras: true })).toBe('era');
     expect(layerFromUrl(new URLSearchParams('seed=7&layer=era'))).toBe('era');
     expect(layerFromUrl(new URLSearchParams('seed=7&layer=resources'))).toBe('resources');
@@ -82,9 +82,10 @@ describe('底图 × 填色', () => {
     expect(layerParts('resources')).toEqual({ base: 'fantasy', fill: 'none', resources: true });
   });
   it('填色和文明层开关互换:信仰留着国界;任何底图都能配任何填色', () => {
-    for (const f of ['none', 'polities', 'cultures', 'faiths', 'eras'] as const) expect(fillOf(fillShow(f))).toBe(f);
-    expect(fillShow('faiths')).toEqual({ polities: true, cultures: false, faiths: true, eras: false });
-    expect(fillShow('eras')).toEqual({ polities: true, cultures: false, faiths: false, eras: true });
+    for (const f of ['none', 'polities', 'cultures', 'faiths', 'eras', 'control'] as const) expect(fillOf(fillShow(f))).toBe(f);
+    expect(fillShow('faiths')).toEqual({ polities: true, cultures: false, faiths: true, eras: false, control: false });
+    expect(fillShow('eras')).toEqual({ polities: true, cultures: false, faiths: false, eras: true, control: false });
+    expect(fillShow('control')).toEqual({ polities: true, cultures: false, faiths: false, eras: false, control: true });
     // 物产是叠加开关,换填色不碰它
     expect('resources' in fillShow('none')).toBe(false);
     for (const b of ['fantasy', 'satellite', 'geo', 'blank', 'elevation'] as const) {
@@ -123,6 +124,7 @@ describe('底图 × 填色', () => {
     expect(mapViewFromUrl(q('layer=faith'))).toEqual({ base: 'fantasy', fill: 'faiths' });
     expect(mapViewFromUrl(q('layer=resources'))).toEqual({ base: 'fantasy', fill: 'none', resources: true });
     expect(mapViewFromUrl(q('fill=eras'))?.fill).toBe('eras');
+    expect(mapViewFromUrl(q('fill=control'))?.fill).toBe('control');
     expect(mapViewFromUrl(q(''))).toEqual({ base: 'fantasy', fill: 'polities' });
     expect(mapViewFromUrl(q('style=realistic'))).toBeNull();
     expect(mapViewFromUrl(q('civ=cultures'))).toBeNull();
@@ -135,6 +137,7 @@ describe('底图 × 填色', () => {
     expect(w('civ=-labels', { base: 'fantasy', fill: 'polities', sat: 'detail' })).toBe('civ=-labels&fill=polities');
     expect(w('sat=classic', { base: 'elevation', fill: 'faiths', sat: 'classic' })).toBe('map=elevation&fill=faiths');
     expect(w('civ=eras,resources', { base: 'fantasy', fill: 'eras', sat: 'detail' })).toBe('civ=resources&fill=eras');
+    expect(w('civ=control,resources', { base: 'fantasy', fill: 'control', sat: 'detail' })).toBe('civ=resources&fill=control');
     for (const v of [
       { base: 'satellite', fill: 'cultures', sat: 'classic' },
       { base: 'geo', fill: 'none', sat: 'detail' },
@@ -151,8 +154,9 @@ describe('底图 × 填色', () => {
 describe('地图上写国名(每种填色各记各的)', () => {
   const q = (s: string) => new URLSearchParams(s);
   const at = (fill: FillId, names?: CivShow['names']): CivShow => ({ ...CIV_SHOW_DEFAULT, ...fillShow(fill), names });
-  it('没勾过按填色的默认:国家、信仰、时代写,民族、不填不写;国家填色上是主角,别的是配角', () => {
-    expect((['polities', 'cultures', 'faiths', 'eras', 'none'] as const).map((f) => polityNamesOn(at(f)))).toEqual([true, false, true, true, false]);
+  it('没勾过按填色的默认:国家、信仰、时代、管辖写,民族、不填不写;国家填色上是主角,别的是配角', () => {
+    expect((['polities', 'cultures', 'faiths', 'eras', 'control', 'none'] as const).map((f) => polityNamesOn(at(f)))).toEqual([true, false, true, true, true, false]);
+    expect(polityNamesLead(at('control'))).toBe(false);
     expect(polityNamesLead(at('polities'))).toBe(true);
     expect(polityNamesLead(at('faiths'))).toBe(false);
     expect(polityNamesLead(at('eras'))).toBe(false);

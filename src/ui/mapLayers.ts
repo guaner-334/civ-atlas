@@ -94,8 +94,8 @@ export function layerOf(
 }
 
 /** 图层对应的文明层开关(换图层时整组设上) */
-export function layerShow(d: LayerDef): { polities: boolean; cultures: boolean; faiths: boolean; eras: boolean; resources: boolean } {
-  return { polities: d.polities, cultures: d.cultures, faiths: d.faiths, eras: !!d.eras, resources: !!d.resources };
+export function layerShow(d: LayerDef): { polities: boolean; cultures: boolean; faiths: boolean; eras: boolean; control: boolean; resources: boolean } {
+  return { polities: d.polities, cultures: d.cultures, faiths: d.faiths, eras: !!d.eras, control: false, resources: !!d.resources };
 }
 
 /** 图层用深色界面 */
@@ -205,21 +205,28 @@ export const FILLS: { id: FillId; name: string; hint: string }[] = [
   { id: 'cultures', name: '民族', hint: '各民族的颜色铺在底图上' },
   { id: 'faiths', name: '信仰', hint: '各信仰的颜色铺在底图上，留着国界' },
   { id: 'eras', name: '时代', hint: '各州按所处的时代上色，留着国界' },
+  { id: 'control', name: '管辖', hint: '各州按中央管得到几成上色，留着国界' },
 ];
 
 /** 数字键 1–4 换的填色(和以前的政区、民族、信仰同一个键;4 = 不填) */
 export const FILL_KEYS: FillId[] = ['polities', 'cultures', 'faiths', 'none'];
 
 export function isFillId(x: unknown): x is FillId {
-  return x === 'none' || x === 'polities' || x === 'cultures' || x === 'faiths' || x === 'eras';
+  return x === 'none' || x === 'polities' || x === 'cultures' || x === 'faiths' || x === 'eras' || x === 'control';
 }
 
-/** 文明层开关算哪种填色(先看信仰、时代,再看国家、再看民族) */
-export const fillOf: (show: { polities: boolean; cultures: boolean; faiths?: boolean; eras?: boolean }) => FillId = civFillOf;
+/** 文明层开关算哪种填色(先看信仰、时代、管辖,再看国家、再看民族) */
+export const fillOf: (show: { polities: boolean; cultures: boolean; faiths?: boolean; eras?: boolean; control?: boolean }) => FillId = civFillOf;
 
-/** 填色对应的文明层开关(信仰、时代留着国界;不碰物产等叠加开关) */
-export function fillShow(id: FillId): { polities: boolean; cultures: boolean; faiths: boolean; eras: boolean } {
-  return { polities: id === 'polities' || id === 'faiths' || id === 'eras', cultures: id === 'cultures', faiths: id === 'faiths', eras: id === 'eras' };
+/** 填色对应的文明层开关(信仰、时代、管辖留着国界;不碰物产等叠加开关) */
+export function fillShow(id: FillId): { polities: boolean; cultures: boolean; faiths: boolean; eras: boolean; control: boolean } {
+  return {
+    polities: id === 'polities' || id === 'faiths' || id === 'eras' || id === 'control',
+    cultures: id === 'cultures',
+    faiths: id === 'faiths',
+    eras: id === 'eras',
+    control: id === 'control',
+  };
 }
 
 /** 旧图层名 → 底图 + 填色(实景按经典卫星;物产图层 = 手绘 + 不填,再开物产) */
@@ -258,14 +265,14 @@ export function mapViewFromUrl(q: URLSearchParams): MapView | null {
   return l ? layerParts(l) : null;
 }
 
-/** 写网址:map= / fill= / sat=(默认的手绘、国家省掉;卫星才写画法),去掉旧的 style=、layer= 和 civ= 里的国家 / 民族 / 信仰 / 时代 */
+/** 写网址:map= / fill= / sat=(默认的手绘、国家省掉;卫星才写画法),去掉旧的 style=、layer= 和 civ= 里的国家 / 民族 / 信仰 / 时代 / 管辖 */
 export function writeMapView(q: URLSearchParams, v: { base: BaseId; fill: FillId; sat: SatLook }): URLSearchParams {
   const o = new URLSearchParams(q);
   o.delete('style');
   o.delete('layer');
   const civ = o.get('civ');
   if (civ !== null) {
-    const rest = civ.split(/[,+ ]/).filter((k) => k && !/^-?(polities|cultures|faiths|eras)$/.test(k));
+    const rest = civ.split(/[,+ ]/).filter((k) => k && !/^-?(polities|cultures|faiths|eras|control)$/.test(k));
     if (rest.length) o.set('civ', rest.join(','));
     else o.delete('civ');
   }

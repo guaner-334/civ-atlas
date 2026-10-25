@@ -74,20 +74,37 @@ export function eraCiv(civ: Civ): Civ {
   const hit = views.get(civ);
   if (hit) return hit;
   const R = civ.regions.count;
+  let own: Owners | undefined;
+  let level: Float32Array | undefined;
+  const view = swapCiv(civ, ERA_STEP, ERA_COLORS.map((c, id) => [eraName(id), c] as const), (y, into) => {
+    own = ownersAt(civ, y, own);
+    level = eraLevelsAt(civ, y, own, level);
+    for (let r = 0; r < R; r++) into[r] = level[r] < 0 ? -1 : Math.min(ERAS.length - 1, Math.floor(level[r]));
+  });
+  views.set(civ, view);
+  bases.set(view, civ);
+  return view;
+}
+
+/**
+ * 把每州的一个"类别"换进"民族"那一层的 Civ(时代图层、管辖图层用):民族列表换成 kinds(名字、颜色),
+ * 日志和检查点里民族那一层换成各州的类别(从第 0 年起每 step 年取一次,最后一次在结束年份;at 写进 into,−1 = 不上色);
+ * 国家那一层、州、城一样不变
+ */
+export function swapCiv(
+  civ: Civ,
+  step: number,
+  kinds: readonly (readonly [string, readonly [number, number, number]])[],
+  at: (y: Year, into: Int16Array) => void,
+): Civ {
+  const R = civ.regions.count;
   const L = civ.log;
   const cur = new Int16Array(R).fill(-1);
   const ys: number[] = [];
   const rs: number[] = [];
   const vs: number[] = [];
-  let own: Owners | undefined;
-  let level: Float32Array | undefined;
-  const at = (y: Year, into: Int16Array) => {
-    own = ownersAt(civ, y, own);
-    level = eraLevelsAt(civ, y, own, level);
-    for (let r = 0; r < R; r++) into[r] = level[r] < 0 ? -1 : Math.min(ERAS.length - 1, Math.floor(level[r]));
-  };
   const next = new Int16Array(R);
-  for (let y = 0; ; y = Math.min(civ.endYear, y + ERA_STEP)) {
+  for (let y = 0; ; y = Math.min(civ.endYear, y + step)) {
     at(y, next);
     for (let r = 0; r < R; r++) {
       if (next[r] === cur[r]) continue;
@@ -98,7 +115,7 @@ export function eraCiv(civ: Civ): Civ {
     }
     if (y >= civ.endYear) break;
   }
-  // 国家那一层的条目和时代的条目按年份并成一本(同一年国家的在前)
+  // 国家那一层的条目和换进来的条目按年份并成一本(同一年国家的在前)
   let n = 0;
   for (let i = 0; i < L.size; i++) if (L.layer[i] !== Layer.Culture) n++;
   const size = n + ys.length;
@@ -128,18 +145,15 @@ export function eraCiv(civ: Civ): Civ {
       j++;
     }
   }
-  // 检查点:那一年(含)以前最后一次取到的时代
+  // 检查点:那一年(含)以前最后一次取到的类别
   const checkpoints = civ.checkpoints.map((cp) => {
     const c = new Int16Array(R).fill(-1);
     for (let q = 0; q < ys.length && ys[q] <= cp.year; q++) c[rs[q]] = vs[q];
     return { year: cp.year, culture: c, polity: cp.polity };
   });
   const base = civ.cultures[0];
-  const cultures = ERA_COLORS.map((color, id): Culture => ({ ...base, id, name: eraName(id), color: [color[0], color[1], color[2]] }));
-  const view: Civ = { ...civ, cultures, log, checkpoints, culture: cur.slice() };
-  views.set(civ, view);
-  bases.set(view, civ);
-  return view;
+  const cultures = kinds.map(([name, color], id): Culture => ({ ...base, id, name, color: [color[0], color[1], color[2]] }));
+  return { ...civ, cultures, log, checkpoints, culture: cur.slice() };
 }
 
 /** eraCiv 换出来的 Civ → 原来的 Civ(不是换出来的 = null) */
