@@ -288,6 +288,44 @@ describe.each([7, 2024])('新干预 · seed=%i', (seed) => {
     }
   }, 240_000);
 
+  it('让将领去世:那一刻以前各场仗的统帅都不变(同一国同时打着别的仗也一样),同一个人不会同时领两场仗', () => {
+    const w = world(seed);
+    const base = baseOf(seed);
+    /** 那一刻以前开始领兵的每一段:战争 + 哪一方 + 从哪年起 → 谁 */
+    const before = (civ: Civ, Y: number) => {
+      const out = new Map<string, string>();
+      for (const x of civ.people ?? []) for (const c of x.commands ?? []) if (c.from < Y) out.set(`${c.war}:${c.side}:${c.from}`, `${x.name}|${x.born}`);
+      return out;
+    };
+    // 正领着一场仗、本国同时还在打另一场仗的将领(找不到就退回随便一位在世的将领)
+    let pick: [Person, number] | undefined;
+    for (let Y = 1300; Y < base.endYear && !pick; Y += 25) {
+      for (const x of base.people ?? []) {
+        if (x.role !== 'general' || (x.died !== undefined && x.died <= Y)) continue;
+        const now = (x.commands ?? []).find((c) => c.from < Y && c.until > Y);
+        if (!now) continue;
+        const busy = (base.people ?? []).some((o) => o !== x && o.polity === x.polity && (o.commands ?? []).some((c) => c.war !== now.war && c.side === now.side && c.from < Y && c.until > Y));
+        if (busy) {
+          pick = [x, Y];
+          break;
+        }
+      }
+    }
+    if (!pick) {
+      const Y = 1500;
+      pick = [officerAt(base, 'general', Y)!, Y];
+    }
+    const [x, Y] = pick;
+    const civ = generateCiv(w, { interventions: [{ kind: 'death', a: polityKey(base, x.polity), person: personKey(base, x.id), from: Y }] });
+    expect(before(civ, Y)).toEqual(before(base, Y));
+    for (const c of [base, civ]) {
+      for (const p of c.people ?? []) {
+        const cs = p.commands ?? [];
+        for (let i = 0; i < cs.length; i++) for (let j = i + 1; j < cs.length; j++) expect(cs[i].from < cs[j].until && cs[j].from < cs[i].until, p.name).toBe(false);
+      }
+    }
+  }, 240_000);
+
   it('改君主倾向:那一刻照旧,下一刻起照新的倾向到他下台;人物记着改过的;编年史写"性情大变"', () => {
     const w = world(seed);
     const base = baseOf(seed);

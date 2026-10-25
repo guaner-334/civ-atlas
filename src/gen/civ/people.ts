@@ -15,7 +15,7 @@
  *   - 称号(Person.title)去世以后才定,还在位的没有:东方按去世那年的国号档位 —— 帝国(王朝)用庙号(开国之君太祖,
  *     这一朝中途才称帝的第一位世祖;太宗、世宗……,末代"哀帝""末帝""废帝""少帝"),王国、国用谥号 + 王 / 公(按在位时开疆还是失地挑字),部落首领、可汗没有称号;
  *     西幻:同一国里同名的国王按先后编序数("阿尔德里克三世"),帝国里开疆最多的一位称"大帝";共和国执政官、汗不编序数
- * **统帅**(按战争先后):开战时两边各有一位 —— 作者立的君主在位时作者下令打的仗(强制宣战)由他亲征;
+ * **统帅**(所有战争按史事先后一起排):开战时两边各有一位 —— 作者立的君主在位时作者下令打的仗(强制宣战)由他亲征;
  *   好战的君主有时亲征(好战越高越常亲征),否则派一位将领(本国在世、正闲着的将领先用,没有就新起一位);
  *   每一仗输的一方统帅有机会战死,下一仗换人;将领到年纪卸甲、去世也换人。君主亲征不会战死。
  *   将领、名臣按出道先后起名,尽量不和此前即位的君主、先出道的将领名臣重名;名字少的语感至少和本国君主、前后几百年的同名人物错开
@@ -428,6 +428,9 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
   const busyRuler = new Map<Person, number>();
   const wars = warsOf(civ);
   const warBase = subSeed(civ.seed, 'civ-people-war');
+  // 所有战争按史事先后一起排(宣战、每一仗、议和):同一国同时打几场仗时,哪位将领此刻闲着按此刻算,
+  // 一场仗里换了统帅(作者让他去世、战死),不会连带改掉另一场仗在那以前的统帅
+  const steps: { idx: number; run: () => void }[] = [];
   for (const w of wars) {
     const sides = [w.a, w.b];
     const wr = (x: number, use: number) => keyed4((warBase ^ Math.imul(Math.round(w.start * TICK), 0x27d4eb2d)) >>> 0, tag[w.a] ?? 0, tag[w.b] ?? 0, x, use);
@@ -503,10 +506,18 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
       g.busy = Infinity;
       cur[s] = { p: g.p, careerEnd: g.careerEnd, cmd: command(g.p), general: true };
     };
-    appoint(0, w.start, 0, w.decl);
-    appoint(1, w.start, 0, w.decl);
+    steps.push({
+      idx: w.decl,
+      run: () => {
+        appoint(0, w.start, 0, w.decl);
+        appoint(1, w.start, 0, w.decl);
+      },
+    });
     for (let n = 0; n < w.events.length; n++) {
       const idx = w.events[n];
+      steps.push({ idx, run: () => step(n, idx) });
+    }
+    const step = (n: number, idx: number) => {
       const e = civ.annals[idx];
       const t = e.year;
       for (let s = 0; s < 2; s++) {
@@ -528,12 +539,19 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
         if (g) g.careerEnd = t;
         close(s, t);
       }
-    }
-    for (let s = 0; s < 2; s++) {
-      const c = cur[s];
-      if (c) close(s, Math.min(w.end, c.careerEnd));
-    }
+    };
+    steps.push({
+      idx: w.endIdx,
+      run: () => {
+        for (let s = 0; s < 2; s++) {
+          const c = cur[s];
+          if (c) close(s, Math.min(w.end, c.careerEnd));
+        }
+      },
+    });
   }
+  steps.sort((u, v) => u.idx - v.idx);
+  for (const x of steps) x.run();
 
   // ---- 名臣(编号排在宗室后面,君主、将领、宗室的编号不变),顺带给将领填籍贯、号、官职(officials.ts)----
   const { ministers, fixups, nameAt, finish } = civ.log
@@ -767,6 +785,8 @@ interface WarFacts {
   end: Year;
   decl: number;
   events: number[];
+  /** 议和那一条史事的下标(还在打的 = 史事条数 + 战争编号,排在最后) */
+  endIdx: number;
 }
 
 /**
@@ -805,13 +825,16 @@ function warsOf(civ: PeopleInput): WarFacts[] {
   });
   A.forEach((e, i) => {
     if (e.kind === 'war' && e.war >= 0 && !byId.has(e.war)) {
-      const w: WarFacts = { id: e.war, a: e.a, b: e.b, start: e.year, end: civ.endYear, decl: i, events: [] };
+      const w: WarFacts = { id: e.war, a: e.a, b: e.b, start: e.year, end: civ.endYear, decl: i, events: [], endIdx: A.length + e.war };
       byId.set(e.war, w);
       wars.push(w);
     } else if (e.war >= 0 && (e.kind === 'battle' || (e.kind === 'conquer' && !skip.has(i)))) byId.get(e.war)?.events.push(i);
     else if (e.kind === 'peace' && e.war >= 0) {
       const w = byId.get(e.war);
-      if (w) w.end = e.year;
+      if (w) {
+        w.end = e.year;
+        w.endIdx = i;
+      }
     }
   });
   return wars;

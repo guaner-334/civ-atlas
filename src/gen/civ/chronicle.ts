@@ -1127,6 +1127,8 @@ function warHead(civ: Civ, e: Annal, id: number, general: string): string {
       const why = troubleOf(civ, e.b, id, e.a);
       return `${A}乘${B}${why || '之乱'},${go('之')}`;
     }
+    case 'resource':
+      return `${A}${covetText(civ, e)},${general ? `遣${general}伐之` : '起兵伐之'}`;
     case 'prey':
       return `${A}欲并${B},${general ? `遣${general}伐之` : '举兵伐之'}`;
     case 'expand':
@@ -1162,6 +1164,8 @@ function warReason(civ: Civ, e: Annal, id: number): string {
       const why = troubleOf(civ, e.b, id, e.a);
       return why ? `乘${B}${why},` : `乘${B}之乱,`;
     }
+    case 'resource':
+      return `${covetText(civ, e)},`;
     case 'prey':
       return `欲并${B},`;
     case 'expand':
@@ -1271,7 +1275,20 @@ function claimText(civ: Civ, e: Annal, id: number): string {
 const warVerb = (e: Annal) => (e.cause === 'punish' || e.cause === 'quell' ? '讨' : '伐');
 
 /** 由头里点了守方的名("以昌国绝贡,"、"乘昌国与索拉特交兵,"、"欲并昌国,"、"与昌国争边,"),后面写"伐之" */
-const NAMES_FOE: ReadonlySet<AnnalCause> = new Set<AnnalCause>(['punish', 'chaos', 'prey', 'expand']);
+const NAMES_FOE: ReadonlySet<AnnalCause> = new Set<AnnalCause>(['punish', 'chaos', 'prey', 'expand', 'resource']);
+
+/** 为夺物产开战时写的字(下标同 development.ts 的 RESOURCES:粮、牲畜、铜锡、铁、煤、木材、盐、渔获、石油、稀有矿、金银),先后照这里 */
+const COVET_WORD = ['粮', '马', '铜', '铁', '煤', '木', '盐', '渔', '油', '矿', '金'];
+const COVET_ORDER = [6, 3, 2, 1, 4, 8, 9, 10, 0, 5, 7];
+
+/** 为夺物产的由头:"欲夺昌国瑞州之铁""欲夺昌国瑞州之盐铁""欲夺昌国瑞州之铜与马";州名查不到写"欲得昌国之铁" */
+function covetText(civ: Civ, e: Annal): string {
+  const B = pn(civ, e.b, e.year);
+  const ks = COVET_ORDER.filter((k) => (e.n ?? 0) & (1 << k));
+  const what = ks.length === 2 && ks[0] === 6 && ks[1] === 3 ? '盐铁' : ks.length ? ks.map((k) => COVET_WORD[k]).join('与') : '地';
+  const r = regionName(civ, e.region);
+  return r ? `欲夺${B}${r}之${what}` : `欲得${B}之${what}`;
+}
 
 function declareEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
   const { civ, ix } = ctx;
