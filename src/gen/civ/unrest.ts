@@ -18,7 +18,7 @@
  *
  *   **饥荒**(Ev.FamineCheck,每 FAMINE_EVERY 年看一次年景,每段里随机一个时刻):
  *     世上闹几处灾年(有城的州每 CLUSTER_PER 个一处;干旱、寒冷的地方更容易,见 CLIMATE),每处从一州往外 1–3 州。
- *     灾区里人口离上限越近的城越容易闹饥荒(赔率 ∝ 灾情 × 气候 × (P_BASE + P_FULL × 人口顶到上限的几成⁴)):
+ *     灾区里人口离上限越近、地越薄的城越容易闹饥荒(赔率 ∝ 灾情 × 气候 × (P_BASE + P_FULL × 人口顶到上限的几成⁴) × (1 + SOIL_W × (1 − 地力))):
  *     城的人口掉一截(LOSS 里随机,记进 Settlement.sacks,cause = famine,和洗劫一样几十年慢慢长回来);
  *     FAMINE_REST 年内闹过饥荒的城不再闹。一国治下同一处灾年里闹饥荒的几州记一条史事 famine(部落地带不记)。
  *
@@ -97,6 +97,8 @@ const HOP_FADE = 0.2;
 /** 闹饥荒的赔率 = 灾情 × 气候 × (P_BASE + P_FULL × 人口顶到上限的几成⁴) */
 const P_BASE = 0.02;
 const P_FULL = 0.6;
+/** 地薄的州更容易闹饥荒:赔率再乘 1 + SOIL_W × (1 − 地力)(地力见 population.ts) */
+const SOIL_W = 2;
 /** 人口掉几成(按赔率在里面取,再加一点随机) */
 const LOSS: readonly [number, number] = [0.08, 0.3];
 /** 闹过饥荒的城这么多年内不再闹 */
@@ -276,6 +278,7 @@ function hook(sim: CivSim, um: UnrestModel): void {
       if (keyed4(um.base, k, reg.seat[r], 0, U_CENTER) < (CLIMATE[reg.biome[r]] ?? 1) / CLUSTER_PER) centres.push(r);
     }
     if (!centres.length) return;
+    const soil = devModelOf(sim)?.soilNow?.();
     /** 这一次闹了饥荒的州:国家 → [州, 折损] */
     const hits = new Map<number, [number, number][]>();
     for (const c0 of centres) {
@@ -312,7 +315,7 @@ function hook(sim: CivSim, um: UnrestModel): void {
         if (rest) continue;
         const full = 1 / (1 + GROWTH_A * fexp(-s.growth * (t - s.founded)));
         const f2 = full * full;
-        const odds = sev * (1 - HOP_FADE * hop[r]) * (CLIMATE[reg.biome[r]] ?? 1) * (P_BASE + P_FULL * f2 * f2);
+        const odds = sev * (1 - HOP_FADE * hop[r]) * (CLIMATE[reg.biome[r]] ?? 1) * (P_BASE + P_FULL * f2 * f2) * (soil ? 1 + SOIL_W * (1 - soil[r]) : 1);
         const tag = reg.seat[r];
         if (keyed4(um.base, k, tag, c, U_HIT) >= odds) continue;
         const loss = LOSS[0] + (LOSS[1] - LOSS[0]) * Math.min(1, 0.5 * odds + 0.5 * keyed4(um.base, k, tag, c, U_LOSS));
