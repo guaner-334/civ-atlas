@@ -58,6 +58,16 @@ export interface TableCard {
    * 规则在"自己和邻格全 0"时一定得 0,而且不会凭空冒出来(凭空冒出要写成单独的事件)
    */
   zeroStays?: boolean;
+  /**
+   * 同一年要算时,排在这几张表之后算,直接写它们的名字读到的是它们这一步刚算完的新值(要这一步开头的值写 prev(表))。
+   * 引擎按这个排先后(有环算写错),和登记的先后无关;两张表之间事件层可以插一手(TableEngine.step 的 between)
+   */
+  after?: string[];
+  /**
+   * 自带的规则(和推演一起写好、验过的):护栏只拦不是数,不查来回震荡、越滚越大。那两样是给自己写、改过的规则用的;
+   * 自带的表有的本来就一涨一落(打仗一下扣下去、再慢慢长回来),查了白花时间还会误拦
+   */
+  builtin?: boolean;
   /** 自带规则的备份:这张卡的规则被拦下时退回它;没有 = 关掉(等于 off) */
   fallback?: TableCard;
 }
@@ -85,6 +95,7 @@ export function cardProblems(card: TableCard): string[] {
   } else if (!card.rule && !card.rate && !card.move) say('没写规则(rule、rate、move 至少要有一样)');
   if (card.move && (card.unit === 'polity' || card.unit === 'world')) say('按国或全世界记,没有邻格,不能写 move');
   if (card.zeroStays && card.unit !== 'tile' && card.unit !== 'region') say('的"全 0 跳过"只对地块、州有用');
+  if (card.after && (card.after.includes(card.id) || new Set(card.after).size !== card.after.length)) say('的 after 不能写自己、不能重复');
   if (card.flowEvery !== undefined && (!card.move || !FREQUENCIES.includes(card.flowEvery) || card.flowEvery < every || card.flowEvery % every)) {
     say('的流向要有 move,间隔从频率菜单里挑、是这张表频率的整数倍');
   }
