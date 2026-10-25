@@ -387,9 +387,9 @@ describe('加载画面:深色跟着接下来打开的页面', () => {
     '?civ=polities&layer=elevation',
   ];
 
-  it('深色底图(卫星、地理图、高程、降水)、新建界面用深色;别的浅色', () => {
+  it('深色底图(卫星、高程、降水)、新建界面用深色;别的(地理图、白模……)浅色', () => {
     expect(urlDark('?map=satellite')).toBe(true);
-    expect(urlDark('?map=geo')).toBe(true);
+    expect(urlDark('?map=geo')).toBe(false);
     expect(urlDark('?new=1')).toBe(true);
     expect(urlDark('?style=realistic')).toBe(true);
     expect(urlDark('?layer=elevation')).toBe(true);
@@ -459,7 +459,7 @@ describe('构建时改写页面', () => {
     expect(p.tags()).toEqual(['modulepreload ./assets/index-a.js', 'stylesheet ./assets/index-a.css']);
     p.head[1].onload!();
     expect(p.tags()).toContain('script ./assets/index-a.js');
-    const q = boot({ script, search: '?map=geo&seed=7' });
+    const q = boot({ script, search: '?map=satellite&seed=7' });
     expect(q.dark()).toBe(true);
     expect(q.fetched).toContain('./assets/App-a.js');
   });

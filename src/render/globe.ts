@@ -279,7 +279,7 @@ export function reliefShade(c: Vec3, gd: [number, number], gm: [number, number],
   else {
     const a = 1 - Math.exp((s - 1) / wt.shadow);
     f = 1 - wt.shadow * a;
-    cool = 0.4 * a;
+    cool = wt.cool * a;
   }
   const sky: Vec3 = [60, 70, 90];
   return [0, 1, 2].map((i) => c[i] * f + (sky[i] - c[i] * f) * cool) as Vec3;
@@ -360,6 +360,8 @@ uniform vec4 uCloudP;
 uniform float uRelief;
 // 几样晕渲的权重(细节、大尺度、海底)和暗面压暗多少(realistic.ts 的 reliefWeights)
 uniform vec4 uReliefW;
+// 暗面往天空冷色里混多少(realistic.ts 的 reliefWeights)
+uniform float uReliefCool;
 out vec4 outColor;
 
 const float PI = 3.141592653589793;
@@ -461,7 +463,7 @@ vec3 relief(vec3 c, vec4 g, float water, vec3 p, float lon, float lat) {
   else {
     float a = 1.0 - exp((s - 1.0) / uReliefW.w);
     f = 1.0 - uReliefW.w * a;
-    cool = 0.4 * a;
+    cool = uReliefCool * a;
   }
   vec3 cf = c * f;
   return cf + (SKY_SHADOW - cf) * cool;
@@ -838,6 +840,7 @@ export class GlobeGL {
     gl.uniform1f(this.u('uRelief'), look.relief && look.style === 'realistic' ? 1 : 0);
     const wt = look.weights ?? reliefWeights();
     gl.uniform4f(this.u('uReliefW'), wt.detail, wt.macro, wt.sea, wt.shadow);
+    gl.uniform1f(this.u('uReliefCool'), wt.cool);
     const cl = look.clouds && look.style === 'realistic' ? look.clouds : null;
     gl.uniform4f(this.u('uCloudP'), cl ? cl.opacity : 0, cl ? cl.rot : 0, cl ? cl.t : 0, cl ? cl.detail : 1);
     gl.uniform1f(this.u('uAniso'), ANISO);
