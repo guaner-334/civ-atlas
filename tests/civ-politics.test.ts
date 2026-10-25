@@ -254,11 +254,12 @@ describe('分与合', () => {
       expect(ws.flippy, tag).toBeGreaterThan(0);
       // GENERATOR_VERSION 17(各国自己进航海时代)以后,20 个种子里飞地占比最多 1.1%(种子 7)
       expect(ws.exclaveShare, tag).toBeLessThan(0.015);
-      // 分出来的国家不是一出生就没了(民变起事的可能旋即被讨平,不算);和原国颜色不同(回放时看得出裂出了一块)
+      // 分出来的国家不是一出生就没了(民变起事的可能旋即被讨平、自己先开战打输了的,不算);和原国颜色不同(回放时看得出裂出了一块)
       const born = civ.polities.filter((p) => p.parent !== undefined);
       for (const p of born) expect(p.color, `${tag} ${p.name}`).not.toEqual(civ.polities[p.parent!].color);
       const rebels = new Set(civ.annals.filter((x) => x.kind === 'revolt').map((x) => x.a));
-      expect(born.filter((p) => !rebels.has(p.id) && p.ended !== undefined && p.ended - p.founded < NEWBORN)).toEqual([]);
+      const attacked = new Set(civ.annals.filter((x) => x.kind === 'war').map((x) => x.a));
+      expect(born.filter((p) => !rebels.has(p.id) && !attacked.has(p.id) && p.ended !== undefined && p.ended - p.founded < NEWBORN)).toEqual([]);
       // 大帝国不会一夜碎成十几块:同一国同一年最多分裂一次(大崩解一次散成 2–4 国,算一次)
       const once = new Set<string>();
       for (const e of civ.annals.filter((x) => x.kind === 'split' && x.cause !== 'collapse')) {

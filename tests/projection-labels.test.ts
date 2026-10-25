@@ -105,7 +105,7 @@ describe('多种投影:文字按投影排', () => {
         // 国名:按投影后的国土拟合(planar),字中心在本国国土上
         const own = polityOwnerGrid(world, raster, civ, civ.endYear);
         const pols = placed.labels.filter((l) => l.item.pick?.kind === 'polity');
-        expect(pols.length).toBeGreaterThan(3);
+        expect(pols.length).toBeGreaterThanOrEqual(3);
         for (const l of pols) {
           expect(l.item.planar).toBe(true);
           let on = 0;

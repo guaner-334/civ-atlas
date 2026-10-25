@@ -293,6 +293,7 @@ describe('城市成长 + 国家', () => {
           'warlord',
           'reclaim',
           'defy',
+          'fiscal',
         ]).toContain(e.kind);
       }
     }
