@@ -60,6 +60,7 @@ import { Ev, type CivSim } from './sim';
 import { grantSail, polityModelOf, type PolityModel } from './polities';
 import { FOCUS_DOWN, FOCUS_MOB, FOCUS_UP, focusIndex, segAt, type PolicySeg } from './policy';
 import { cultureModelOf } from './cultures';
+import { warModelOf } from './wars';
 
 /** 物产(下标就是 Development.resources 里的第几样) */
 export const RESOURCES = ['粮', '牲畜', '铜锡', '铁', '煤', '木材', '盐', '渔获', '石油', '稀有矿', '金银'] as const;
@@ -484,6 +485,12 @@ function hook(sim: CivSim, d: DevModel): void {
   models.set(sim, d);
   d.pm.capFactor = d.capF;
   d.pm.military ??= [];
+  // 打仗看物产(wars.ts):州里有哪几样;国家缺哪几样
+  const wm = warModelOf(sim);
+  if (wm) {
+    wm.resOf = (r) => resBitsOf(d, r);
+    wm.wantOf = (p) => wantsOf(sim, d, p);
+  }
   sim.onChange(Layer.Culture, (r) => {
     if (r < d.R) d.sinceC[r] = sim.now;
   });
@@ -494,6 +501,49 @@ function hook(sim: CivSim, d: DevModel): void {
     tick(sim, d, t);
     sim.schedule(t + STEP, Ev.DevTick, 0, 0);
   });
+}
+
+/**
+ * 州 r 有的物产(按位;打仗看物产用):地里有、还没采空(矿剩一成以上)、没吃空(林、渔、田、牧剩三成以上)的。
+ * 不管本州发现了没有、采到多少 —— 想要它的国家自己认得就行(见 wantsOf);地形大事以后才有的州 = 0
+ */
+function resBitsOf(d: DevModel, r: number): number {
+  if (r >= d.R) return 0;
+  let b = 0;
+  const o = r * RESOURCE_COUNT;
+  for (let k = 0; k < RESOURCE_COUNT; k++) {
+    const tier = d.resources[o + k];
+    if (!tier) continue;
+    const left = LIFE[k] ? d.stock[o + k] > 0.1 * tier * LIFE[k] : !DEPLETE[k] || d.stock[o + k] > 0.3;
+    if (left) b |= 1 << k;
+  }
+  return b;
+}
+
+/** 国家都想要的物产:盐、牲畜(马) */
+const WANT_ALWAYS = (1 << Res.Salt) | (1 << Res.Livestock);
+
+/**
+ * 国家 p 此刻缺、又想要的物产(按位;打仗看物产用,见 wars.ts):本国一州都没有的盐、牲畜;国都所在州的生产认得金银、铁了(到了 DISCOVER_AT)以后的金银、铁;
+ * 国都所在州的生产快到下一个时代门口(GATE_NEAR 以内)、门槛要的那样本国没有的(gate,单独给)
+ */
+function wantsOf(sim: CivSim, d: DevModel, p: number): { want: number; gate: number } {
+  const pm = d.pm;
+  let has = 0;
+  for (const r of pm.lands[p]) has |= resBitsOf(d, r);
+  const cap = pm.settlements[capitalAt(pm.polities[p], sim.now)];
+  const lv = cap && cap.region < d.R ? d.cur[cap.region * CAP_COUNT + Cap.Production] : 0;
+  let want = WANT_ALWAYS;
+  if (lv >= DISCOVER_AT[Res.Gold]) want |= 1 << Res.Gold;
+  if (lv >= DISCOVER_AT[Res.Iron]) want |= 1 << Res.Iron;
+  const gate = lv > Math.floor(lv) + 1 - GATE_NEAR ? gateNeed(lv) & ~has : 0;
+  return { want: (want | gate) & ~has, gate };
+}
+
+/** 生产能力 lv 进下一个时代要的物产(按位):进青铜要铜锡,进铁器要铁,进工业要煤和铁,进电气要石油,进信息要稀有矿 */
+function gateNeed(lv: number): number {
+  const target = Math.floor(lv) + 1;
+  return target === 1 ? 1 << Res.Copper : target === 2 ? 1 << Res.Iron : target === 5 ? (1 << Res.Coal) | (1 << Res.Iron) : target === 6 ? 1 << Res.Oil : target === 7 ? 1 << Res.Rare : 0;
 }
 
 /** 新建的城:各州第一座城(编号即建城先后) */
@@ -615,10 +665,6 @@ function tick(sim: CivSim, d: DevModel, y: Year): void {
   const { adjStart, adj, adjKind } = reg;
   const drive = new Float64Array(4);
   const learn = new Float64Array(4);
-  const needBits = (lvP: number): number => {
-    const target = Math.floor(lvP) + 1;
-    return target === 1 ? 1 << Res.Copper : target === 2 ? 1 << Res.Iron : target === 5 ? (1 << Res.Coal) | (1 << Res.Iron) : target === 6 ? 1 << Res.Oil : target === 7 ? 1 << Res.Rare : 0;
-  };
 
   if (dt > 0) {
     for (let r = 0; r < R; r++) {
@@ -702,7 +748,7 @@ function tick(sim: CivSim, d: DevModel, y: Year): void {
         if (v > e + OVERSHOOT) grow *= OVERSHOOT_SLOW;
         if (v > e + OVERSHOOT_LEARN) got *= OVERSHOOT_SLOW;
         if (v > Math.floor(v) + 1 - GATE_NEAR) {
-          const need = c === Cap.Production ? needBits(v) : 0;
+          const need = c === Cap.Production ? gateNeed(v) : 0;
           if ((need && (near & need) !== need) || !gateOK(Math.floor(v) + 1)) grow *= GATE_SLOW;
         }
         const recover = (best[o + c] - v) * RECOVER;
