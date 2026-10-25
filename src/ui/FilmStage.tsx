@@ -89,7 +89,10 @@ export function FilmStage({ phone, style, layer, look }: FilmStageProps) {
   const proj = useProjection();
   const grat = useGraticuleLines();
   const center = useMapCenter();
-  const { marks, era } = useEdits();
+  const { marks, era, outline, characters } = useEdits();
+  // 字幕按大纲:大纲、批改、人物变了预览跟着换(没在按大纲时不管)
+  const olKey = s.capBy === 'outline' ? outline : null;
+  const chKey = s.capBy === 'outline' ? characters : null;
   const [room, setRoom] = useState<Room | null>(null);
   const [vkey, setVkey] = useState('');
   const pvRef = useRef<HTMLCanvasElement>(null);
@@ -151,7 +154,7 @@ export function FilmStage({ phone, style, layer, look }: FilmStageProps) {
     const region = whole ? undefined : holeRegion();
     return new FilmRenderer(src, filmSetup(src, { style, layer, surface: look }, region), filmMajors(src.full));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [src, s.mode, s.shape, s.area, s.rangeKind, s.range, s.seconds, s.captions, s.cards, s.url, s.title, style, layer, look, show, resView, proj, grat, center, marks, era, whole ? '' : vkey, box?.w]);
+  }, [src, s.mode, s.shape, s.area, s.rangeKind, s.range, s.seconds, s.captions, s.capBy, s.cards, s.url, s.title, style, layer, look, show, resView, proj, grat, center, marks, era, olKey, chKey, whole ? '' : vkey, box?.w]);
   useEffect(() => () => renderer?.dispose(), [renderer]);
 
   // 整张地图:预览按年份重画(一帧要 0.1 秒多;拖时间轴时只画最新的那一年,选项改了用新的画法)

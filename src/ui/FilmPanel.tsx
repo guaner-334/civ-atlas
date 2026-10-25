@@ -8,16 +8,32 @@
  * (filmStore.ts 的 runFilm),面板里换成进度和「取消」;做完自动下载(手机上能分享的,提示条上点「存到相册」)。
  * 浏览器做不了视频(没有 WebCodecs / H.264 编码)时说一句,按钮变灰。
  */
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { CivStyle } from '../render/civ/overlay';
 import type { LayerId } from '../render/layers';
 import type { SurfaceLook } from '../render/surface';
 import { useFilmSource } from './filmSource';
 import { filmSupported } from './filmEncode';
-import { closeFilm, cancelFilm, deliverFilm, etaText, filmRangeOf, filmSetup, filmTitleOf, getFilm, holeRegion, runFilm, setFilm, setFilmRangeKind, useFilm } from './filmStore';
-import { FILM_BITRATE, filmClock, filmMegabytes, rangeText, rateText, type FilmSeconds } from './filmPlan';
-import { useEra } from './editsStore';
-import { yearFull } from '../gen/era';
+import {
+  closeFilm,
+  cancelFilm,
+  deliverFilm,
+  etaText,
+  filmPlots,
+  filmRangeOf,
+  filmSetup,
+  filmTitleOf,
+  getFilm,
+  holeRegion,
+  runFilm,
+  setFilm,
+  setFilmCapBy,
+  setFilmRangeKind,
+  useFilm,
+} from './filmStore';
+import { FILM_BITRATE, OUTLINE_PAD, filmClock, filmMegabytes, outlineRange, rangeText, rateText, type FilmSeconds } from './filmPlan';
+import { useEdits, useEra } from './editsStore';
+import { yearFull, yearShort, type Era } from '../gen/era';
 import { showToast } from './toastStore';
 import './film.css';
 
@@ -81,6 +97,17 @@ const LENGTHS = [
   [60, '1 分钟'],
   [120, '2 分钟'],
 ] as const;
+const CAP_BY = [
+  ['events', '大事'],
+  ['outline', '按大纲'],
+] as const;
+
+/** 字幕按大纲时下面那一句(年份:"1358–1960 年";设了纪年照纪年写) */
+function outlineHint(r: { from: number; to: number } | null, era: Era | null | undefined): string {
+  const years = !r ? '' : era ? `（${rangeText(r, era)}）` : `（${yearShort(r.from)}–${yearShort(r.to)} 年）`;
+  return `到一条情节停 2 秒，打出你写的那句；情节之间的大事照常放，放得稀一些。年份从第一条情节前 ${OUTLINE_PAD} 年到最后一条情节后 ${OUTLINE_PAD} 年${years}。`;
+}
+
 const LENGTH_TEXT: Record<FilmSeconds, string> = { 30: '30 秒', 60: '1 分钟', 120: '2 分钟' };
 
 /** 画面、拍哪里下面那一句 */
@@ -109,6 +136,10 @@ export function FilmPanel({ phone, style, layer, look }: FilmPanelProps) {
   const busy = !!run;
   const title = filmTitleOf();
   const era = useEra();
+  // 照大纲推演推过的世界:字幕能选按大纲
+  const outline = useEdits().outline;
+  const plots = useMemo(() => (full && outline?.review?.length ? filmPlots(full) : []), [full, outline]);
+  const byOutline = s.capBy === 'outline' && plots.length > 0;
   // 手机:卡片多高,时间轴就浮在它上面多高(film.css 的 --film-sheet-h)。导出时卡片变矮,时间轴和预览不跟着动
   const sheetRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
@@ -255,6 +286,16 @@ export function FilmPanel({ phone, style, layer, look }: FilmPanelProps) {
           <span className="sp" />
           <Switch on={s.captions} label="大事字幕" act="film-captions" onFlip={() => !busy && setFilm({ captions: !s.captions })} />
         </div>
+        {s.captions && plots.length > 0 && (
+          <div className="film-sub" data-testid="film-capby">
+            <div className="film-lbl">
+              <b>字幕用</b>
+              <span className="sp" />
+              <Seg value={byOutline ? 'outline' : 'events'} items={CAP_BY} act="film-capby" onPick={(v) => !busy && setFilmCapBy(v)} />
+            </div>
+            {byOutline && <div className="film-hint">{outlineHint(full ? outlineRange(plots, full.endYear) : null, era)}</div>}
+          </div>
+        )}
         <div className="film-line" />
         <div className="film-lbl">
           <b>片头片尾</b>

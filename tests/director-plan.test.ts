@@ -10,6 +10,7 @@ import { generateCiv } from '../src/gen/civ';
 import { DEFAULT_PARAMS, generateWorld } from '../src/gen/world';
 import type { Era } from '../src/gen/era';
 import { FLY_MS } from '../src/ui/flyTo';
+import { filmEvents } from '../src/ui/filmPlan';
 import { entryAnchor, entrySpot, entryWeight } from '../src/ui/timelineLayout';
 import {
   CROWD_MAX,
@@ -20,6 +21,7 @@ import {
   MERGE_MAX,
   MERGE_REACH,
   MERGE_YEARS,
+  PLOT_WEIGHT,
   directorAt,
   directorNext,
   directorPlan,
@@ -27,6 +29,7 @@ import {
   directorYear,
   type DirectorInput,
   type DirectorPlan,
+  type DirectorPlot,
 } from '../src/ui/directorPlan';
 
 const world = generateWorld({ ...DEFAULT_PARAMS, seed: 7 });
@@ -334,6 +337,75 @@ describe('关注对象', () => {
       const ownBig = e.importance >= MAJOR && e.year >= a && e.year <= b && (e.polities.includes(person.polity) || !!e.children?.some((c) => c.polities.includes(person.polity)));
       expect(mentions || ownBig || entryWeight(e) >= 35).toBe(true);
     }
+  });
+});
+
+describe('照大纲放', () => {
+  const plot = (id: number, year: number, m: ChronicleEntry | null, more: Partial<DirectorPlot> = {}): DirectorPlot => ({
+    id,
+    n: id,
+    total: 3,
+    year,
+    text: `作者写的第 ${id} 条`,
+    entry: m,
+    cell: civ.settlements[C].cell,
+    ...more,
+  });
+  it('每条情节单独一段:大字是作者写的那句、小字是编年史里对上的那件,对上的那件不另放;停得和头等大事一样久', () => {
+    const m = mid(1300);
+    const p = plan([big(1200, { settlement: C }), m, big(1700, { settlement: C })], { plots: [plot(1, 1300, m)] });
+    const caps = p.segments.flatMap((s) => s.items);
+    const pc = caps.find((c) => c.plot);
+    expect(pc).toBeDefined();
+    expect(pc!.type).toBe('outline');
+    expect(pc!.typeName).toBe('大纲');
+    expect(pc!.text).toBe('作者写的第 1 条');
+    expect(pc!.plot).toEqual({ id: 1, n: 1, total: 3, sub: '第 1300 年升格' });
+    expect(pc!.weight).toBe(PLOT_WEIGHT);
+    expect(pc!.hold).toBeCloseTo(DIRECTOR_HOLD.big, 9);
+    // 对上的那件不另放;字幕挂在编号为负的条目上
+    expect(caps.some((c) => c.entry.id === m.id)).toBe(false);
+    expect(pc!.entry.id).toBeLessThan(0);
+    // 情节不和别的合成一段
+    const seg = p.segments.find((s) => s.items.some((c) => c.plot))!;
+    expect(seg.items).toHaveLength(1);
+  });
+  it('情节之间只放头等大事,其余大事进"略过的";对不上编年史的(只讲故事)镜头去情节说的地方', () => {
+    const b = big(1200, { settlement: C });
+    const o = mid(1500, { settlement: C });
+    const p = plan([b, o], { plots: [plot(2, 1800, null)] });
+    const ids = told(p).map((e) => e.id);
+    expect(ids).toContain(b.id);
+    expect(ids).not.toContain(o.id);
+    expect(p.skipped.some((x) => x.entry.id === o.id && x.why === 'crowd')).toBe(true);
+    const pc = p.segments.flatMap((s) => s.items).find((c) => c.plot)!;
+    expect(pc.plot!.sub).toBe('');
+    const cell = civ.settlements[C].cell;
+    expect(pc.pin).toEqual([MX[cell], MY[cell]]);
+  });
+  it('同一年的几条照大纲的先后放(不看情节编号)', () => {
+    const p = plan([big(1200, { settlement: C })], { plots: [plot(9, 1300, null, { n: 1 }), plot(4, 1300, null, { n: 2 }), plot(6, 1300, null, { n: 3 })] });
+    const caps = p.segments.flatMap((s) => s.items).filter((c) => c.plot);
+    expect(caps.map((c) => c.plot!.n)).toEqual([1, 2, 3]);
+  });
+  it('固定速度:同一年的几条情节一条不丢,给了时长也不丢', () => {
+    const plots = [plot(1, 1999, null, { n: 1 }), plot(2, 1999, null, { n: 2 }), plot(3, 1999, null, { n: 3 })];
+    for (const pace of [{ mode: 'fixed', rate: 20 }, { mode: 'fixed', rate: 20, seconds: 50 }] as const) {
+      const caps = plan([big(1200, { settlement: C })], { plots, pace }).segments.flatMap((s) => s.items).filter((c) => c.plot);
+      expect(caps.map((c) => c.plot!.n)).toEqual([1, 2, 3]);
+    }
+  });
+  it('讲和对上一场打了几年的仗:小字写打完的那句,不是开打那句', () => {
+    const w = entry('war', 1300, '第 1300 年开战,第 1305 年讲和', { end: 1305, tag: '战', head: '第 1300 年开战' });
+    const f = filmEvents([w], { from: 0, to: 3000 })[0];
+    expect(f.text).not.toBe(f.head);
+    const pc = plan([big(1200, { settlement: C })], { plots: [plot(1, 1305, w)] }).segments.flatMap((s) => s.items).find((c) => c.plot)!;
+    expect(pc.plot!.sub).toBe(f.text);
+  });
+  it('范围外的情节不排;没给情节和原来一样', () => {
+    const es = [big(1200), mid(1500, { settlement: C })];
+    expect(plan(es, { plots: [plot(1, 2500, null)] }).segments.some((s) => s.items.some((c) => c.plot))).toBe(false);
+    expect(told(plan(es, { plots: [] }))).toEqual(told(plan(es)));
   });
 });
 

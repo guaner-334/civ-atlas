@@ -9,6 +9,8 @@
  *   多年的战争出字幕时还没打完,写"第 2562 年起"和开头一句(由头和出兵),不写得失。
  * - 竖屏下面那一栏:放到的那一年为止最近的几条大事,新的在上;战争打完以前写"2562 起"和开头一句,打完了写"2478—2514"和全文。
  * - 设了纪年(gen/era.ts)的世界,年份、字幕正文里的"第 N 年"都照纪年写("公元前 850 年""前 850 起")。
+ * - 字幕按大纲(outlineEvents):照大纲推演推过的每条情节一条字幕,写作者写的那句,比哪件大事都先排;
+ *   编年史里对上情节的那件不再另放,情节之间只放头等大事(和导播照大纲放一样稀)。
  */
 import type { ChronicleEntry } from '../gen/civ/chronicle';
 import type { Civ } from '../gen/civ/types';
@@ -131,6 +133,8 @@ export interface FilmEvent {
   text: string;
   head: string;
   weight: number;
+  /** 大纲里的一条情节(text = 作者写的那句) */
+  plot?: boolean;
 }
 
 /**
@@ -156,6 +160,50 @@ export function filmEvents(majors: readonly ChronicleEntry[], range: FilmRange, 
     });
   }
   return out.sort((a, b) => a.year - b.year || a.id - b.id);
+}
+
+/** 字幕按大纲时的一条情节:落在哪一年、作者写的那句、编年史里对上的那件(对不上 = null)、在哪个地块(说不出 = −1) */
+export interface FilmPlot {
+  id: number;
+  year: number;
+  text: string;
+  entry: ChronicleEntry | null;
+  cell: number;
+}
+
+/** 情节的分量:比哪件大事都重(字幕先排它) */
+export const FILM_PLOT_WEIGHT = 1000;
+/** 字幕按大纲时,情节之间留哪些大事:分量够得上头等大事的(和导播的头等大事一个门槛) */
+export const OUTLINE_KEEP_WEIGHT = 35;
+
+/**
+ * 字幕按大纲:这一段年份里的情节(plots 按大纲的先后;编号是负的,不和编年史撞,按大纲的先后从小到大:同一年的几条照大纲的先后放)+ 情节之间的头等大事(对上情节的那件不另放),按年份排
+ */
+export function outlineEvents(events: readonly FilmEvent[], plots: readonly FilmPlot[], range: FilmRange): FilmEvent[] {
+  const inRange = (p: FilmPlot) => Math.floor(p.year) >= range.from && Math.floor(p.year) <= range.to;
+  // 对上情节的那件不另放(只看这一段里放得出的情节)
+  const told = new Set(plots.flatMap((p) => (p.entry && inRange(p) ? [p.entry.id] : [])));
+  const out = events.filter((e) => !told.has(e.id) && e.weight >= OUTLINE_KEEP_WEIGHT);
+  plots.forEach((p, i) => {
+    const year = Math.floor(p.year);
+    if (!inRange(p)) return;
+    const text = cnPunct(p.text);
+    out.push({ id: i - plots.length, type: 'order', year, end: year, ongoing: false, text, head: text, weight: FILM_PLOT_WEIGHT, plot: true });
+  });
+  return out.sort((a, b) => a.year - b.year || a.id - b.id);
+}
+
+/** 字幕按大纲时的年份:第一条情节前 20 年到最后一条情节后 20 年(夹在世界的年份里;没有情节 = null) */
+export const OUTLINE_PAD = 20;
+export function outlineRange(plots: readonly Pick<FilmPlot, 'year'>[], end: number): FilmRange | null {
+  if (!plots.length) return null;
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (const p of plots) {
+    lo = Math.min(lo, Math.floor(p.year));
+    hi = Math.max(hi, Math.floor(p.year));
+  }
+  return clampRange({ from: lo - OUTLINE_PAD, to: hi + OUTLINE_PAD }, end);
 }
 
 /** 到第 year 年这件事打完了没有(一年里的事 = 打完了) */
@@ -185,11 +233,13 @@ export function captionSlots(events: readonly FilmEvent[], c: FilmClock, era?: E
   const free = (f0: number) => taken.every((s) => f0 + hold <= s.f0 || f0 >= s.f1);
   for (const ev of order) {
     const at = yearFrame(c, ev.year);
+    // 大纲的情节一条不丢:撞了一直往后挪到放得下(放到最后才发生的往前挪多少都行)
+    const reach = ev.plot ? hi : shift;
     // 放到最后才发生的:往前挪到放得下(也最多挪 0.6 秒)
     const first = Math.min(at, hi - hold);
-    if (at - first > shift) continue;
+    if (at - first > reach) continue;
     let f0 = -1;
-    for (let d = 0; d <= shift; d++) {
+    for (let d = 0; d <= reach; d++) {
       const f = first + d;
       if (f + hold > hi) break;
       if (free(f)) {
