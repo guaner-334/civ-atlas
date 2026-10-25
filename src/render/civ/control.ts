@@ -112,12 +112,13 @@ export function lordsAt(civ: Civ, year: Year): LordNow[] {
   const snap = controlAt(civ, y)!;
   own = ownersAt(civ, y, own);
   const owner = own.polity;
-  // 每州最近一次割据(同一国、同一州以后又割据的,前一处早已了结)
+  // 每州最近一次割据(同一国、同一州以后又割据的,前一处早已了结);收回了的去掉
+  // (不去掉的话,起事的州后来落进邻近另一处割据的地盘,快照里还是割据,会被当成还在)
   const latest = new Map<number, LordNow>();
   for (const e of civ.annals) {
     if (e.year > y) break;
-    if (e.kind !== 'warlord') continue;
-    latest.set(e.region, { p: e.a, region: e.region, city: e.settlement, start: e.year, regions: [e.region] });
+    if (e.kind === 'warlord') latest.set(e.region, { p: e.a, region: e.region, city: e.settlement, start: e.year, regions: [e.region] });
+    else if (e.kind === 'reclaim' && latest.get(e.region)?.p === e.a) latest.delete(e.region);
   }
   const list: LordNow[] = [];
   for (const w of latest.values()) if (snap[w.region] === LORD_BYTE && owner[w.region] === w.p) list.push(w);

@@ -38,6 +38,8 @@ describe('管辖图层', () => {
       for (const w of lords) {
         expect(w.regions[0]).toBe(w.region);
         expect(w.start).toBeLessThanOrEqual(y);
+        // 割据之后到这一年没有收回过
+        expect(civ.annals.some((e) => e.kind === 'reclaim' && e.a === w.p && e.region === w.region && e.year >= w.start && e.year <= y)).toBe(false);
         for (const r of w.regions) {
           expect(snap[r]).toBe(LORD_BYTE);
           expect(own.polity[r]).toBe(w.p);
