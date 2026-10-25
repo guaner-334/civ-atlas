@@ -561,6 +561,7 @@ const TAG: Record<AnnalKind, string> = {
   warlord: '据',
   reclaim: '收',
   defy: '抗',
+  fiscal: '匮',
 };
 
 function base(
@@ -2621,6 +2622,8 @@ export function* chronicleSteps(civ: Civ): Generator<void, ChronicleEntry[]> {
       if (e.kind !== 'fall' && e.kind !== 'ruin') continue;
     }
     if (e.kind === 'found' && splitOf.has(e.a)) continue;
+    // 国用不足先只记在史事里,编年史暂不写
+    if (e.kind === 'fiscal') continue;
     // 干预引起的立国、迁都并进干预那一条
     if ((e.kind === 'found' || e.kind === 'capital' || e.kind === 'fall' || e.kind === 'famine') && foldedIntoIntervene(civ, i)) continue;
     // 照大纲划给同一国的几州并进头一条

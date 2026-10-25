@@ -306,6 +306,7 @@ export interface Place {
  * | warlord   | 割据(control.ts):中央管不到的地方拥兵自重,名义上仍归这国(国界、归属不变) | 国家 | −1 | 割据的那座城所在的州 | 那座城 | **地盘有几州**(借用这一列) |
  * | reclaim   | 收回割据(control.ts):中央重新管住了那一带 | 国家 | −1 | 割据的那座城所在的州 | 那座城 | **割据了几年**(借用这一列) |
  * | defy      | 抗命不出兵(control.ts):开战点兵时,割据的地方拥兵不出 | 国家 | 和它交战的国家 | 割据的那座城所在的州 | 那座城 | 那场战争 |
+ * | fiscal    | 国用不足(control.ts 的钱粮):国库空了、入不敷出(编年史暂不写) | 国家 | −1 | 国都所在州 | 国都 | **主要因为什么**(借用这一列):0 = 连年用兵,1 = 地方拖欠 |
  *
  * 洗劫、毁城和那一次攻占同一刻,记在那条 conquer **前面**(conquer、被迫迁都、灭亡照旧紧挨着,编年史里排回攻占后面)。
  * 议和割让的州也各记一条 conquer(a = 得到的一方,b = 割出的一方),连着记在那条 peace 前面,条数记在 peace 的 region 列。
@@ -379,7 +380,8 @@ export type AnnalKind =
   | 'plague'
   | 'warlord'
   | 'reclaim'
-  | 'defy';
+  | 'defy'
+  | 'fiscal';
 
 /**
  * 战争的起因(史事 war 的 cause;阶段 4 干预的强制宣战不给)和盟约怎么断的(unally 的 cause):
@@ -659,6 +661,12 @@ export interface Development {
    */
   control?: Uint8Array[];
   controlYears?: Year[];
+  /**
+   * 各州的乡村人口(千人;population.ts 的数表):每 RURAL_SNAP(10)年一份,每份 = 州数个数;和 ruralYears 一一对应。
+   * 最后一份是最后算的那一年的(不在整 10 年上时是补的,接着推时去掉);旧版本的历史没有(界面照 S 形曲线现算)
+   */
+  rural?: Float32Array[];
+  ruralYears?: Year[];
   /** 按年份排好 */
   events: DevEvent[];
   /**

@@ -1,6 +1,6 @@
 /**
  * 中央管到什么程度(control.ts)前后的多种子统计:npx tsx scripts/control-stats.ts [个数=20] [from=1] [cells=…]
- * 每个种子一行:推演耗时、分裂 / 复国 / 大崩解 / 同化 / 割据 / 收回 / 抗命的次数、每百年同时在世的国家数(平均、最多)、
+ * 每个种子一行:推演耗时、分裂 / 复国 / 大崩解 / 同化 / 割据 / 收回 / 抗命 / 国用不足(因为打仗、因为拖欠)的次数、每百年同时在世的国家数(平均、最多)、
  * 大国(到过 30 州以上的)寿命的中位数、第 1500 年和结束那年中央管得到几成的四档各几州。最后一行是最小 / 中位 / 最大
  */
 import { generateWorld, type WorldParams } from '../src/gen/world';
@@ -64,6 +64,8 @@ for (let seed = from; seed < from + N; seed++) {
     warlord: count('warlord'),
     reclaim: count('reclaim'),
     defy: count('defy'),
+    fiscalWar: civ.annals.filter((a) => a.kind === 'fiscal' && a.war === 0).length,
+    fiscalOwe: civ.annals.filter((a) => a.kind === 'fiscal' && a.war === 1).length,
     alive: Math.round((10 * aliveSum) / Math.max(1, samples)) / 10,
     aliveMax,
     big: lives.length,

@@ -10,6 +10,7 @@
  *       挑好了打谁,开不开战再乘此刻在位君主的好战倍数(rulers.ts:越好战越容易开战)
  *       国家方针(policy.ts):倍数是君主倾向加上方针的;亲国不打,仇国的赔率 × FOE_ODDS(先打它)
  *       动荡(unrest.ts):邻国大乱的格外招人(趁虚而入),自己国内乱也更想对外开战(转移矛盾)
+ *       钱粮(control.ts):国用不足(窘迫 0–1)的赔率 × (1 − BROKE_CUT × 窘迫),国库没攒满的再打折(PURSE_0)
  *       物产(development.ts 挂上):本国缺盐、缺牲畜(马),认得金银、铁以后缺金银、铁,快到下一个时代门口缺那道门槛要的矿,
  *       边境对面的州正好有,赔率 × (1 + RES_WANT × 缺的样数,最多算 RES_MAX 样);开战的由头写"欲夺某州之铁"
  *       (收复故土、乘乱的照旧写那两样)
@@ -33,7 +34,7 @@
  *     只剩不到 MIN_STATE 州的撑不下去,残部归攻方、亡国;
  *     一州不剩就灭亡(Polity.ended),它的所有战争随之结束。
  *   议和:打满这场战争的年限(厌战,LENGTH 里随机)、连着 STALL 年没打下一州(僵持)、
- *     攻方达成战争目标(拿下 GOAL 里随机的几州)、拿下国都、或守方丢了过半国土 → 议和,占领的州归攻方;
+ *     攻方达成战争目标(拿下 GOAL 里随机的几州)、拿下国都、或守方丢了过半国土、攻方国用不足(窘迫到 BROKE_PEACE,仗已打过年限的 BROKE_LENGTH)→ 议和,占领的州归攻方;
  *     年限、目标看攻方此刻在位的君主(rulers.ts):越好战打得越久、想多拿几州,好战低的早早罢兵;
  *     议和时两国各自被切出去、挨着对方的飞地割给对方(划清边界;割让的州数记在史事 peace 的 region 列)。
  *     攻方国力是守方 CRUSH 倍以上时是灭国之战:拿下国都、对方丢了过半国土、达成战争目标都不停,直到厌战、僵持或对方亡国。
@@ -138,6 +139,14 @@ const CHAOS_YEARS = 20;
  * 自己动荡每一点 × (1 + DIVERT)(对外开战转移矛盾)
  */
 const PREY_CALM = 1;
+/**
+ * 钱粮(control.ts):国用不足(0–1)时宣战的赔率 × (1 − BROKE_CUT × 窘迫);攻方窘迫到 BROKE_PEACE 以上、仗打过了年限的 BROKE_LENGTH 就罢兵(讨伐民变除外);
+ * 国库没攒满的,赔率再 × (PURSE_0 + (1 − PURSE_0) × 国库攒到几成)(刚因没钱罢兵的不会转头又开战)
+ */
+const BROKE_CUT = 1;
+const BROKE_PEACE = 0.8;
+const BROKE_LENGTH = 0.5;
+const PURSE_0 = 0.4;
 /** 讨伐民变的战争最多打几倍的年限(见 WarModel.revolt):打不完就议和,起事的一方割据一方 */
 const REVOLT_LENGTH = 1.5;
 const PREY_UNREST = 0.35;
@@ -227,6 +236,10 @@ export interface WarModel {
    * 中央管到什么程度(control.ts 挂上):国家 p 此刻各州出兵的几成(0–1;割据的州 0)。返回的函数要马上用完(下一次调 levy 前)
    */
   levy?: (p: number, t: Year) => (r: number) => number;
+  /** 钱粮(control.ts 挂上):国家 p 此刻国用不足到什么程度(0–1):宣战少、打着的仗早罢 */
+  broke?: (p: number, t: Year) => number;
+  /** 钱粮(control.ts 挂上):国家 p 的国库攒到几成(0–1;满 = 攒够了几年的用度) */
+  purse?: (p: number, t: Year) => number;
   /** 中央管到什么程度(control.ts 挂上):战争 w 的第一仗之前(点兵),割据的地方抗命不出兵时记一条 defy */
   onMuster?: (w: War, t: Year) => void;
   /** 物产(development.ts 挂上):州 r 有的物产(按位;地里有、没采空吃空的) */
@@ -685,6 +698,9 @@ export function installWars(sim: CivSim, pm: PolityModel, wm: WarModel = newMode
     // 越好战的君主越容易开战(加上方针的打仗胆量);国内越乱越想对外开战转移矛盾
     odds *= effOf(pm, p, t).declare;
     if (wm.unrest) odds *= 1 + DIVERT * wm.unrest(p, t);
+    // 国用不足:没钱打仗
+    if (wm.broke) odds *= 1 - BROKE_CUT * wm.broke(p, t);
+    if (wm.purse) odds *= PURSE_0 + (1 - PURSE_0) * wm.purse(p, t);
     if (keyed(wm.base, pm.ptag[p], k, U_DECLARE) >= odds / (1 + odds)) return;
     if (traitor) {
       // 背盟:先记盟约断了(war 列 = 紧跟着的这场战争),再宣战
@@ -757,9 +773,11 @@ export function installWars(sim: CivSim, pm: PolityModel, wm: WarModel = newMode
     const last = w.takes.length ? w.takes[w.takes.length - 1].year : w.start;
     // 攻方此刻在位的君主:越好战越不轻易罢兵、想多拿几州,好战低的打不了多久就想议和(rulers.ts;加上方针的胆量、和谈底线)
     const eff = effOf(pm, w.a, t);
-    let peace = t - w.start >= lengthOf(wm, w) * eff.war || t - last >= STALL;
+    const length = lengthOf(wm, w) * eff.war;
+    // 攻方国用不足到 BROKE_PEACE 以上、仗打过了年限的 BROKE_LENGTH:罢兵
+    let peace = t - w.start >= length || t - last >= STALL || (t - w.start >= BROKE_LENGTH * length && (wm.broke?.(w.a, t) ?? 0) >= BROKE_PEACE);
     // 讨伐民变:不到厌战(REVOLT_LENGTH 倍的年限)不罢兵,直到一方亡(讨平,或攻破都城)
-    if (wm.revolt?.(w)) peace = t - w.start >= REVOLT_LENGTH * lengthOf(wm, w) * eff.war;
+    if (wm.revolt?.(w)) peace = t - w.start >= REVOLT_LENGTH * length;
     else if (!peace) {
       let held = 0;
       for (const e of w.takes) if (e.by === w.a && owner[e.region] === w.a) held++;

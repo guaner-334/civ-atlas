@@ -25,7 +25,8 @@ describe('管辖图层', () => {
 
   it('侧栏:四档的州数加起来是在国家里的州;现在的割据,地盘里的州在快照里都是割据、归名义上的那国', () => {
     let seen = 0;
-    for (const y of [1500, 2000, 2500, civ.endYear]) {
+    // 这个世界(12k 地块)第 1900、2600 年有割据
+    for (const y of [1500, 1900, 2600, civ.endYear]) {
       const rows = controlRows(civ, y)!;
       const snap = controlAt(civ, y)!;
       let inside = 0;
