@@ -873,9 +873,25 @@ function jsKernel(code: CardCode, parts: Parts): CellKernel {
   /** 栏号定下来时(一次算完所有栏)正在算第几栏 */
   let fixedCol: number | null = null;
   const ensured = new WeakMap<string[], Set<number>>();
+  /**
+   * 正在拼一个邻格、汇总的循环时,循环外面那一层的语句(循环里 j、k 指的是循环到的邻格,不是中间量定义处的):
+   * 循环里第一次用到的中间量放到这里算,读到的还是定义它的那一格(搬家时是那条邻边)
+   */
+  let outer: string[] | null = null;
+  /** 拼循环体:循环里用到的中间量提到循环外面(见 outer) */
+  const loopBody = <T>(pre: string[], build: () => T): T => {
+    const keep = outer;
+    outer ??= pre;
+    try {
+      return build();
+    } finally {
+      outer = keep;
+    }
+  };
   /** 一次算完所有栏时,几栏各走一遍邻格的中间量:合成走一遍(中间量 → 用到它的几栏) */
   const fused = new Map<number, number[]>();
-  const ensure = (slot: number, pre: string[]) => {
+  const ensure = (slot: number, at: string[]) => {
+    const pre = outer ?? at;
     let done = ensured.get(pre);
     if (!done) ensured.set(pre, (done = new Set()));
     const key = fused.has(slot) ? -1 - slot : slot;
@@ -884,7 +900,10 @@ function jsKernel(code: CardCode, parts: Parts): CellKernel {
     if (fused.has(slot)) return ensureFused(slot, pre);
     const ir = letIR.get(slot)!;
     const inner: string[] = [];
+    const keep = outer;
+    outer = null;
     const v = emit(fixedCol === null ? ir : foldCol(ir, fixedCol, code.carrs), inner);
+    outer = keep;
     pre.push(`if (!h${slot}) {`, ...inner, `l${slot} = ${v};`, `h${slot} = true;`, '}');
   };
   const declare = (slots: Iterable<number>): string[] => Array.from(slots, (x) => `let l${x} = 0, h${x} = false;`);
@@ -892,6 +911,8 @@ function jsKernel(code: CardCode, parts: Parts): CellKernel {
   const ensureFused = (slot: number, pre: string[]) => {
     const cols = fused.get(slot)!;
     const keep = fixedCol;
+    const keepOuter = outer;
+    outer = null;
     const g: string[] = [];
     const parts = cols.map((c) => {
       fixedCol = c;
@@ -907,16 +928,19 @@ function jsKernel(code: CardCode, parts: Parts): CellKernel {
     need(`AS${UNIT_KEY[u]}`, `f.adjStart.${u}`);
     need(`AJ${UNIT_KEY[u]}`, `f.adj.${u}`);
     const loop: string[] = [];
-    for (const p of parts) {
-      fixedCol = p.c;
-      loop.push(...gather(p.ir.fn, p.ir.body, p.ir.cond, p.acc, p.cnt, loop));
-    }
+    loopBody(g, () => {
+      for (const p of parts) {
+        fixedCol = p.c;
+        loop.push(...gather(p.ir.fn, p.ir.body, p.ir.cond, p.acc, p.cnt, loop));
+      }
+    });
     g.push(`for (let k = AS${UNIT_KEY[u]}[i], ke = AS${UNIT_KEY[u]}[i + 1]; k < ke; k++) {`, `const j = AJ${UNIT_KEY[u]}[k];`, ...loop, '}');
     for (const p of parts) {
       const v = p.ir.fn === 'mean' ? `(${p.cnt} > 0 ? ${p.acc} / ${p.cnt} : 0)` : p.cnt ? `(${p.cnt} > 0 ? ${p.acc} : 0)` : p.acc;
       g.push(`lF${slot}_${p.c} = ${v};`);
     }
     fixedCol = keep;
+    outer = keepOuter;
     pre.push(`if (!hF${slot}) {`, ...g, `hF${slot} = true;`, '}');
   };
 
@@ -1088,7 +1112,8 @@ function jsKernel(code: CardCode, parts: Parts): CellKernel {
         need('YK', 'f.yearKey');
         const u = ir.scope.unit;
         const an = u === 'tile' ? ir.scope.v : u === 'world' ? '0' : (need(`AN${UNIT_KEY[u]}`, `f.anchor.${u}`), `AN${UNIT_KEY[u]}[${ir.scope.v}]`);
-        return `keyed(SEED, ${an}, YK, col * 4096 + ${ir.salt})`;
+        // 一次算完所有栏时,几栏合走一遍的邻格循环在头一栏的块里,栏号要用正在算的那一栏
+        return `keyed(SEED, ${an}, YK, ${fixedCol ?? 'col'} * 4096 + ${ir.salt})`;
       }
       case 'nb': {
         const u = ir.scope.unit;
@@ -1101,7 +1126,7 @@ function jsKernel(code: CardCode, parts: Parts): CellKernel {
         pre.push(`let ${acc} = ${init};`);
         if (ir.fn === 'mean' || ((ir.fn === 'max' || ir.fn === 'min') && !start)) pre.push(`let ${cnt} = 0;`);
         const loop: string[] = [];
-        loop.push(...gather(ir.fn, ir.body, ir.cond, acc, ir.fn === 'mean' || ((ir.fn === 'max' || ir.fn === 'min') && !start) ? cnt : null, loop));
+        loopBody(pre, () => loop.push(...gather(ir.fn, ir.body, ir.cond, acc, ir.fn === 'mean' || ((ir.fn === 'max' || ir.fn === 'min') && !start) ? cnt : null, loop)));
         pre.push(`for (let k = AS${UNIT_KEY[u]}[${ir.scope.v}], ke = AS${UNIT_KEY[u]}[${ir.scope.v} + 1]; k < ke; k++) {`, `const j = AJ${UNIT_KEY[u]}[k];`, ...loop, '}');
         if (ir.fn === 'mean') return `(${cnt} > 0 ? ${acc} / ${cnt} : 0)`;
         if ((ir.fn === 'max' || ir.fn === 'min') && !start) return `(${cnt} > 0 ? ${acc} : 0)`;
@@ -1113,7 +1138,7 @@ function jsKernel(code: CardCode, parts: Parts): CellKernel {
         const init = ir.fn === 'max' ? '-Infinity' : ir.fn === 'min' ? 'Infinity' : '0';
         pre.push(`let ${acc} = ${init};`, `let ${cnt} = 0;`);
         const step: string[] = [];
-        step.push(...gather(ir.fn, ir.body, ir.cond, acc, cnt, step));
+        loopBody(pre, () => step.push(...gather(ir.fn, ir.body, ir.cond, acc, cnt, step)));
         pre.push(...memberLoop(ir.scope, ir.m.unit, step, need));
         if (ir.fn === 'mean') return `(${cnt} > 0 ? ${acc} / ${cnt} : 0)`;
         if (ir.fn === 'max' || ir.fn === 'min') return `(${cnt} > 0 ? ${acc} : 0)`;

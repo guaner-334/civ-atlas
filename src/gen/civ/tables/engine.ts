@@ -630,7 +630,8 @@ export class TableEngine {
       }
     const moved = !!k.move && dt > 0;
     if (moved) for (let c = 0; c < C; c++) this.move(t, f, k, c, dt, year, sparse ? this.activeMask(t, c) : null);
-    const done = k.clamps && !moved && t.card.maxRate === undefined && code.rule.every((r, c) => r || code.rate[c]);
+    // 核压的是它那张卡的上下限:换成备份规则、上下限和这张表不一样时还要护栏再压一遍
+    const done = k.clamps && !moved && t.card.maxRate === undefined && code.card.min === t.card.min && code.card.max === t.card.max && code.rule.every((r, c) => r || code.rate[c]);
     return this.guard(t, dt, year, done ? bad : null);
   }
 
