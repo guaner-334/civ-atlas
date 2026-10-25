@@ -54,6 +54,7 @@ import { TableEngine } from './tables';
 import { NEVER } from './devTables';
 import { stateCards, type ControlRuleConsts, type FiscalRuleConsts } from './stateTables';
 import { UNREST_CONSTS, unrestInputs, unrestModelOf } from './unrest';
+import { BOOK_WIDTH } from './fiscalBook';
 import { POP_CONSTS, POP_TABLES, POP_TILE_TABLES, cellsToTiles, popLayer, popTiles, spreadRural, tilesToCells } from './population';
 
 // ---- 调参(以 20 个种子的统计为准,见 scripts/control-stats.ts) ----
@@ -598,7 +599,40 @@ function hook(sim: CivSim, seed: number, lords: Warlord[], saved: TablesState | 
     pop.done(t);
     refresh();
     note(t);
+    book(t);
     if (dev.last === t) snapshot(t);
+  };
+  /** 记账(给界面看,见 fiscalBook.ts):按这一步算账时的归属,把各州的三样收入、截留按国家加起来 */
+  let sums = new Float64Array(0);
+  const row = new Float64Array(BOOK_WIDTH);
+  const book = (t: number): void => {
+    const NP = tBroke.length;
+    if (sums.length < NP * 7) sums = new Float64Array(NP * 7);
+    else sums.fill(0, 0, NP * 7);
+    const [land, craft, trade, tax, lord] = ['田赋', '工商', '市税', '税', '割据州'].map((id) => eng.get(id));
+    for (let r = 0; r < R; r++) {
+      const p = tOwn[r];
+      if (p < 0 || p >= NP) continue;
+      const o = p * 7;
+      sums[o] += land[r];
+      sums[o + 1] += craft[r];
+      sums[o + 2] += trade[r];
+      const c = tCtl[r];
+      const tier = lord[r] ? 3 : c >= TIER_DIRECT ? 0 : c >= TIER_PROXY ? 1 : 2;
+      sums[o + 3 + tier] += tax[r] * (lord[r] ? 1 : 1 - (REMIT_0 + (1 - REMIT_0) * c));
+    }
+    dev.book.trim(t);
+    for (let p = 0; p < NP; p++) {
+      if (!(pm.size[p] > 0)) {
+        dev.book.forget(p);
+        continue;
+      }
+      const o = p * 7;
+      row.set([sums[o], sums[o + 1], sums[o + 2]], 0);
+      ['应缴', '实收', '收贡', '纳贡', '战事', '岁出', '国库', '窘迫'].forEach((id, i) => (row[3 + i] = eng.value(id, p)));
+      row.set([sums[o + 3], sums[o + 4], sums[o + 5], sums[o + 6]], 11);
+      dev.book.offer(t, p, row);
+    }
   };
   /** 国用不足:窘迫这一年到了 NOTE 以上(上一年还不到),记一条 fiscal;war 列记主要是因为打仗(0)还是地方拖欠(1) */
   const note = (t: number): void => {

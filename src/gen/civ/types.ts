@@ -642,6 +642,16 @@ export interface Religion {
   checkpoints: { year: Year; faith: Int16Array }[];
 }
 
+/**
+ * 各国的账本(fiscalBook.ts):size 行,第 i 行是 polity[i] 国第 year[i] 年的账,data 里 BOOK_COLS 个数一行(千石);行按年份不减排
+ */
+export interface FiscalBook {
+  size: number;
+  year: Int32Array;
+  polity: Int32Array;
+  data: Float32Array;
+}
+
 /** 发展度(development.ts) */
 export interface Development {
   /** 各州物产的底子(储量):州 × RESOURCE_COUNT 样(见 development.ts 的 RESOURCES),0 没有 / 1 少 / 2 中 / 3 多;开局按地形定,不变
@@ -667,6 +677,8 @@ export interface Development {
    */
   rural?: Float32Array[];
   ruralYears?: Year[];
+  /** 各国的账本(钱粮;fiscalBook.ts 记、读);旧版本的历史没有 */
+  fiscal?: FiscalBook;
   /** 按年份排好 */
   events: DevEvent[];
   /**

@@ -59,6 +59,7 @@ import { AdjKind, Layer } from './types';
 import { Biome } from '../biomes';
 import { MAJOR_RIVER } from './habitat';
 import { capitalAt, populationAt, ruralCapacity } from './growth';
+import { BookWriter } from './fiscalBook';
 import { keyed, subSeed } from './rand';
 import { Ev, type CivSim } from './sim';
 import { grantSail, polityModelOf, type PolityModel } from './polities';
@@ -343,6 +344,8 @@ export interface DevModel {
   /** 乡村人口的快照(population.ts 每 RURAL_SNAP 年存一份,见 Development.rural) */
   rural: Float32Array[];
   ruralYears: Year[];
+  /** 各国的账本(control.ts 每年记;见 fiscalBook.ts) */
+  book: BookWriter;
   /** 乡村人口此刻的表、上一步算到哪一年(population.ts 挂上) */
   ruralNow?: () => { year: Year; data: Float64Array };
   /** 世界、地块的宜居度(乡村人口按地块算,population.ts 读) */
@@ -412,6 +415,7 @@ function emptyDev(world: World, pm: PolityModel, seed: number, habitat: Civ['hab
     ruralBase: null,
     rural: [],
     ruralYears: [],
+    book: new BookWriter(),
   };
 }
 
@@ -485,6 +489,7 @@ export function resumeDevelopment(sim: CivSim, world: World, civ: Civ): void {
         d.ruralYears.push(y);
       });
     }
+    d.book = new BookWriter(dev.fiscal);
     pm.military = st.military.slice();
   } else {
     // 没存状态:从下一个整 STEP 年起算,史事从现在起读
@@ -1088,7 +1093,8 @@ export function finishDevelopment(sim: CivSim, endYear: Year): Development | und
     ruralYears.push(now.year);
   }
   const pop = ruralYears.length ? { rural, ruralYears } : {};
-  return { resources: d.resources.slice(), found: d.found.slice(), avail, snaps, snapYears, events, state, ...control, ...pop };
+  const fiscal = d.book.book();
+  return { resources: d.resources.slice(), found: d.found.slice(), avail, snaps, snapYears, events, state, ...control, ...pop, ...(fiscal ? { fiscal } : {}) };
 }
 
 /**
