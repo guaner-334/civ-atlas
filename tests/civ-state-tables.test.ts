@@ -1,5 +1,5 @@
 /**
- * 政局的数表(gen/civ/stateTables.ts):管得到几成、离国都多远、乡村人口(连同搬家)、钱粮、动荡(连同压到 0 以上之前的值),
+ * 政局的数表(gen/civ/stateTables.ts):管得到几成、离国都多远、乡村人口(连同搬家)、钱粮、动荡(连同压到 0 以上之前的值)、国力,
  * 数表算出来的和照公式直接算的一样(两种跑法都是)。
  * 用一串连着的州(邻边的类型轮着来;每州 TPR 个地块,也连成一串)、随机填的输入,不用生成世界。
  */
@@ -100,6 +100,9 @@ function inputs(k: number) {
     wars: Math.floor(4 * u(100 + p, 10)),
     paid: u(100 + p, 11) < 0.3 ? 5 * u(100 + p, 12) : 0,
     got: u(100 + p, 13) < 0.3 ? 5 * u(100 + p, 14) : 0,
+    // 军力系数、方针给的国力倍数
+    mil: 1 + 2 * u(100 + p, 15),
+    scale: u(100 + p, 16) < 0.3 ? 0.5 + u(100 + p, 17) : 1,
   }));
   return { reg, pol };
 }
@@ -267,12 +270,20 @@ function reference(x: ReturnType<typeof inputs>, k: number, led: Ledger) {
     return u;
   });
   const unrest = base.map((u, p) => Math.max(0, u) + Math.min(C.LORD_U_MAX, C.LORD_U * x.pol[p].lords));
-  return { ctl, far, base, unrest, broke, treasury: led.treasury.slice(), rural: led.rural.slice(), ruralR, farm: led.farm.slice(), soil: led.soil.slice(), soilR };
+  // 国力:城的人口 × 出兵的几成(割据的州 0),至少 1,再乘军力系数、国力倍数
+  const power = x.pol.map((q, p) => {
+    let sum = 0;
+    x.reg.forEach((g, r) => {
+      if (g.p === p) sum += g.city * (g.lord ? 0 : Math.min(1, ctl[r] + C.LEVY_0));
+    });
+    return Math.max(1, sum) * q.mil * q.scale;
+  });
+  return { ctl, power, far, base, unrest, broke, treasury: led.treasury.slice(), rural: led.rural.slice(), ruralR, farm: led.farm.slice(), soil: led.soil.slice(), soilR };
 }
 
 describe('政局的数表', () => {
   for (const backend of ['js', 'closure'] as Backend[]) {
-    it(`管得到几成、离国都多远、乡村人口、钱粮、动荡和照公式直接算的一样(${backend})`, () => {
+    it(`管得到几成、离国都多远、乡村人口、钱粮、动荡、国力和照公式直接算的一样(${backend})`, () => {
       const eng = new TableEngine({ seed: 1, cards: stateCards(C, U, F, H), units: { region: chain(), tile: tileChain() }, owner: '国', backend });
       eng.setPolities(NP);
       let negative = 0;
@@ -310,9 +321,12 @@ describe('政局的数表', () => {
         set('新荒', (r) => x.reg[r].blight);
         set('份', (t) => SHARE[t]);
         set('脆', (t) => FRAGILE[t]);
+        set('军力', (p) => x.pol[p].mil);
+        set('国力倍数', (p) => x.pol[p].scale);
+        // 城的人口每年填(国力要;三样收入只在算它们的年份读)
+        set('城民', (r) => x.reg[r].city);
         set('有人邻块', (t) => [t - 1, t + 1].filter((q) => q >= 0 && q < NT && x.reg[Math.floor(q / TPR)].ruralCap > 0).length);
         if (k % F.FISCAL_EVERY === 0) {
-          set('城民', (r) => x.reg[r].city);
           set('生产', (r) => x.reg[r].prod);
           set('运输', (r) => x.reg[r].move);
           set('港口', (r) => x.reg[r].port);
@@ -333,11 +347,12 @@ describe('政局的数表', () => {
           farm: [...eng.get('垦')],
           soil: [...eng.get('地力')],
           soilR: [...eng.get('州地力')],
+          power: [...eng.get('国力')],
         };
         if (want.base.some((u) => u < 0)) negative++;
         if (want.broke.some((b) => b > 0)) broke++;
         if (want.treasury.some((t) => t > 0)) rich++;
-        for (const key of ['ctl', 'far', 'base', 'unrest', 'broke', 'treasury', 'farm', 'soil', 'soilR'] as const) {
+        for (const key of ['ctl', 'far', 'base', 'unrest', 'broke', 'treasury', 'farm', 'soil', 'soilR', 'power'] as const) {
           want[key].forEach((v, i) => expect(got[key][i], `第 ${k} 组 ${key} ${i}`).toBeCloseTo(v, 12));
         }
         want.rural.forEach((v, i) => expect(Math.abs(got.rural[i] - v), `第 ${k} 组 乡民 ${i}`).toBeLessThan(1e-9 * (1 + Math.abs(v))));

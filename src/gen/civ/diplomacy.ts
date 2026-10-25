@@ -329,6 +329,12 @@ export function installDiplomacy(sim: CivSim, pm: PolityModel, dm: DiplomacyMode
   const powerOf = (p: number, t: number): number => {
     const hit = powMemo.get(p);
     if (hit !== undefined) return hit;
+    // 国力的数表(control.ts;这一年里才立的国家现算)
+    const tab = wm.power ? wm.power(p) : -1;
+    if (tab >= 0) {
+      powMemo.set(p, tab);
+      return tab;
+    }
     let sum = 0;
     // 管不到的州出兵打折、割据的州不出兵(control.ts,和 wars.ts 一样)
     const lv = wm.levy?.(p, t);
