@@ -124,7 +124,7 @@ function AskDialog() {
   );
   const note = '时间是默认大小的世界、10 条情节估的；算的时候地图照样能拖，随时能取消，已经定下来的几条留着。';
   const node = phone ? (
-    <div className="ol-ph ol-ask-ph" role="dialog" aria-label="照大纲推演" data-testid="outline-ask">
+    <div className="ol-ph ol-ask-ph" role="dialog" aria-modal="true" aria-label="照大纲推演" data-testid="outline-ask">
       <div className="grab" />
       <div className="ol-ph-hd">
         <button className="back" data-act="outline-ask-back" onClick={closeOutlineAsk}>
@@ -148,7 +148,7 @@ function AskDialog() {
     <>
       <div className="ol-ask-scrim" onClick={closeOutlineAsk} />
       <div className="ol-ask-wrap">
-        <div className="ol-ask" role="dialog" aria-label="照大纲推演" data-testid="outline-ask" onPointerDown={stop} onClick={stop}>
+        <div className="ol-ask" role="dialog" aria-modal="true" aria-label="照大纲推演" data-testid="outline-ask" onPointerDown={stop} onClick={stop}>
           <h3>照大纲推演</h3>
           <p className="lead">
             {n} 条情节。先照常推完，再按年份一条条查：没自然发生的，先在它前面几十年悄悄引一把（让相关的国家更好战、国力更强），后台多试几版挑最贴的；实在引不过去，才在那一年直接改过来，并标出来。

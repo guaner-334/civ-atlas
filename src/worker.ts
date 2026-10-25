@@ -33,7 +33,7 @@
  * 只把推演年数调大的重推(resim)也从记着的历史接着推。结果都和从第 0 年一口气推到那一年一样。
  *
  * 照大纲推演(outline,gen/outline.ts):照常推、逐条查情节,没发生的硬改,每查完一条报进度(outlineProgress)、先让新到的消息排进来;
- * 来了新的推演请求或叫停(outlineStop)就不推了(outlineStopped)。推完交整段历史和新的干预串(outlined),结果和带着这串干预从第 0 年推完一样。
+ * 来了新的推演请求或叫停(outlineStop)就不推了(outlineStopped),已经定下来的几条记着(outlineCache)。推完交整段历史和新的干预串(outlined),结果和带着这串干预从第 0 年推完一样。
  * 每一步的样子记在线程里(outlineCache),改了后面几条情节再推时,前面没改的不重算;换世界时放掉。
  */
 import { generateWorld, generateWorldSteps, type BaseCache, type World, type WorldParams } from './gen/world';
@@ -1049,6 +1049,8 @@ async function handle(m: Queued): Promise<void> {
         stop,
         cache: outlineCache,
         key,
+        // 叫停了:已经定下来的几条留着,再照大纲推演时不重算
+        keep: (c) => (outlineCache = c),
       },
     );
     if (!out) {

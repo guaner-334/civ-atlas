@@ -14,7 +14,7 @@ import { generateCiv, type Civ } from '../src/gen/civ';
 import { polityAlive } from '../src/gen/civ/growth';
 import { ownersAt } from '../src/gen/civ/timeline';
 import { buildChronicle } from '../src/gen/civ/chronicle';
-import { runOutline } from '../src/gen/outline';
+import { runOutline, type OutlineCache } from '../src/gen/outline';
 import {
   cleanIntervention,
   cleanOutline,
@@ -210,6 +210,23 @@ describe('改了一条再推', () => {
     expect(out).toBeNull();
     expect(n).toBe(2);
   }, 60_000);
+
+  it('叫停时已经定下来的几条留着:再推接着用,结果和从头算一样', async () => {
+    const seed = 2024;
+    const w = world(seed);
+    const plots = samplePlots(baseCiv(seed), seed, 6);
+    let n = 0;
+    let kept: OutlineCache | null = null;
+    const out = await runOutline(w, {}, { plots, interventions: [] }, { key: 'w', progress: () => n++, stop: () => n >= 2, keep: (c) => (kept = c) });
+    expect(out).toBeNull();
+    expect(kept!.steps).toHaveLength(2);
+    const again = (await runOutline(w, {}, { plots, interventions: [] }, { key: 'w', cache: kept }))!;
+    expect(again.reused).toBe(2);
+    const fresh = (await runOutline(w, {}, { plots, interventions: [] }))!;
+    expect(again.review).toEqual(fresh.review);
+    expect(again.interventions).toEqual(fresh.interventions);
+    same(again.civ, fresh.civ, '叫停以后接着算 = 从头算');
+  }, 180_000);
 });
 
 describe('存档和配方', () => {
