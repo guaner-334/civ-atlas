@@ -6,9 +6,9 @@
  *   档位取推演里每 20 年存的一份快照(gen/civ/control.ts 的 controlAt),只有在国家里的州上色。
  * - 现在的割据(lordsAt):快照里割据的州,按离哪处割据的那座城近分给它(同一国里、相邻的割据州连着走)。
  */
-import type { Civ, Year } from '../../gen/civ/types';
+import { Layer, type Civ, type Year } from '../../gen/civ/types';
 import { CONTROL_TIERS, LORD_BYTE, controlAt, controlShare, controlTier } from '../../gen/civ/control';
-import { ownersAt, type Owners } from '../../gen/civ/timeline';
+import { logIndexAfter, ownersAt, type Owners } from '../../gen/civ/timeline';
 import { swapCiv } from './era';
 
 /** 四档的颜色(直辖、代管、自治、割据) */
@@ -119,6 +119,18 @@ export function lordsAt(civ: Civ, year: Year): LordNow[] {
     if (e.year > y) break;
     if (e.kind === 'warlord') latest.set(e.region, { p: e.a, region: e.region, city: e.settlement, start: e.year, regions: [e.region] });
     else if (e.kind === 'reclaim' && latest.get(e.region)?.p === e.a) latest.delete(e.region);
+  }
+  // 起事的州割据以后换过国家(哪怕后来又打回来)的,那处割据也了结了
+  if (latest.size) {
+    const log = civ.log;
+    let from = Infinity;
+    for (const w of latest.values()) from = Math.min(from, w.start);
+    const end = logIndexAfter(log, y);
+    for (let i = logIndexAfter(log, from); i < end; i++) {
+      if (log.layer[i] !== Layer.Polity) continue;
+      const w = latest.get(log.region[i]);
+      if (w && log.year[i] > Math.fround(w.start)) latest.delete(w.region);
+    }
   }
   const list: LordNow[] = [];
   for (const w of latest.values()) if (snap[w.region] === LORD_BYTE && owner[w.region] === w.p) list.push(w);

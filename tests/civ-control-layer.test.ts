@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { generateWorld, DEFAULT_PARAMS } from '../src/gen/world';
 import { generateCiv } from '../src/gen/civ';
 import { ownersAt } from '../src/gen/civ/timeline';
+import { Layer } from '../src/gen/civ/types';
 import { LORD_BYTE, controlAt } from '../src/gen/civ/control';
 import { controlCiv, controlBase, controlTiersAt, lordsAt, lordOf } from '../src/render/civ/control';
 import { controlRows } from '../src/ui/devRows';
@@ -40,6 +41,9 @@ describe('管辖图层', () => {
         expect(w.start).toBeLessThanOrEqual(y);
         // 割据之后到这一年没有收回过
         expect(civ.annals.some((e) => e.kind === 'reclaim' && e.a === w.p && e.region === w.region && e.year >= w.start && e.year <= y)).toBe(false);
+        // 起事的州割据以后没换过国家
+        for (let i = 0; i < civ.log.size; i++)
+          if (civ.log.layer[i] === Layer.Polity && civ.log.region[i] === w.region && civ.log.year[i] <= y) expect(civ.log.year[i]).toBeLessThanOrEqual(Math.fround(w.start));
         for (const r of w.regions) {
           expect(snap[r]).toBe(LORD_BYTE);
           expect(own.polity[r]).toBe(w.p);
