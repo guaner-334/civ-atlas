@@ -54,6 +54,9 @@ function inputs(k: number) {
     ruralCap: r >= 5 && r < 10 ? 0 : 50 + 250 * u(r, 15),
     ruralRate: 0.002 + 0.03 * u(r, 16),
     strife: u(r, 17) < 0.3 ? Math.floor(3 * u(r, 18)) : 0,
+    // 地经不经得住种、饥荒水旱几件
+    fragile: u(r, 19),
+    blight: u(r, 20) < 0.2 ? 1 : 0,
   }));
   const pol = Array.from({ length: NP }, (_, p) => ({
     admin: 9 * u(100 + p, 1) - 1,
@@ -73,12 +76,13 @@ function inputs(k: number) {
   return { reg, pol };
 }
 
-/** 接着上一步的:三样收入(几年算一次)、国库;开垦了几成、兵祸、乡村人口(每 POP_EVERY 年算一次) */
+/** 接着上一步的:三样收入(几年算一次)、国库;开垦了几成、兵祸、地力、乡村人口(每 POP_EVERY 年算一次) */
 interface Ledger {
   income: number[][];
   treasury: number[];
   farm: number[];
   strife: number[];
+  soil: number[];
   rural: number[];
   /** 乡村人口上一次算是哪一步;一共搬了多少 */
   popAt: number;
@@ -93,8 +97,14 @@ function ruralStep(x: ReturnType<typeof inputs>, dt: number, led: Ledger): numbe
     return Math.min(1, Math.max(0, f <= 0 ? 1 / (1 + H.GROWTH_A) : f + dt * g.ruralRate * f * (1 - f)));
   });
   const strife = x.reg.map((g, r) => Math.min(1, Math.max(0, Math.min(1, led.strife[r] * fpow(H.FADE, dt) + H.HIT * g.strife))));
+  const soil = x.reg.map((g, r) => {
+    if (g.ruralCap <= 0) return 1;
+    const d = led.soil[r];
+    const v = Math.max(H.LAND_FLOOR, Math.min(1, d + dt * (H.LAND_REST * (1 - d) - H.WEAR * farm[r] * g.fragile - H.SCORCH * strife[r]) - H.BLIGHT * g.blight));
+    return Math.min(1, Math.max(0, v));
+  });
   const P = led.rural;
-  const due = x.reg.map((g, r) => g.ruralCap * farm[r]);
+  const due = x.reg.map((g, r) => g.ruralCap * farm[r] * soil[r]);
   const next = x.reg.map((_g, r) => {
     const v = due[r] <= 0 ? 0 : P[r] <= 0 ? due[r] : P[r] + (dt * (due[r] - P[r])) / H.RECOVER;
     return Math.min(1e9, Math.max(0, v));
@@ -110,8 +120,8 @@ function ruralStep(x: ReturnType<typeof inputs>, dt: number, led: Ledger): numbe
         if (q < 0 || q >= R) return;
         const n = x.reg[q];
         const kind = kindOf(Math.min(r, q));
-        const crowd = P[r] / Math.max(g.ruralCap * farm[r], 1e-9);
-        const there = P[q] / Math.max(n.ruralCap * farm[q], 1e-9);
+        const crowd = P[r] / Math.max(g.ruralCap * farm[r] * soil[r], 1e-9);
+        const there = P[q] / Math.max(n.ruralCap * farm[q] * soil[q], 1e-9);
         const road = (n.ruralCap <= 0 || kind === 4 ? 0 : kind === 3 ? H.STRAIT_W : kind === 2 ? H.MOUNTAIN_W : 1) * (n.p === g.p ? 1 : H.ABROAD);
         const v = road * P[r] * (H.MIG * Math.max(0, crowd - there) + (H.FLEE * Math.max(0, strife[r] - strife[q])) / Math.max(1, nbs[r]));
         out[r][side] = v > 0 ? v * dt : 0;
@@ -129,6 +139,7 @@ function ruralStep(x: ReturnType<typeof inputs>, dt: number, led: Ledger): numbe
   });
   led.farm = farm;
   led.strife = strife;
+  led.soil = soil;
   led.rural = moved;
   // 搬家前后总人口不变
   const sum = (a: number[]) => a.reduce((t, v) => t + v, 0);
@@ -163,7 +174,7 @@ function reference(x: ReturnType<typeof inputs>, k: number, led: Ledger) {
       g.p < 0
         ? [0, 0, 0]
         : [
-            led.rural[r] * F.LAND * (1 + F.LAND_PROD * g.prod),
+            led.rural[r] * led.soil[r] * F.LAND * (1 + F.LAND_PROD * g.prod),
             g.city * F.CRAFT * (1 + F.CRAFT_PROD * g.prod),
             g.city * F.TRADE * (1 + F.TRADE_MOVE * g.move) * (1 + F.PORT_W * g.port + F.RIVER_W * g.river),
           ],
@@ -205,7 +216,7 @@ function reference(x: ReturnType<typeof inputs>, k: number, led: Ledger) {
     return u;
   });
   const unrest = base.map((u, p) => Math.max(0, u) + Math.min(C.LORD_U_MAX, C.LORD_U * x.pol[p].lords));
-  return { ctl, far, base, unrest, broke, treasury: led.treasury.slice(), rural: led.rural.slice(), farm: led.farm.slice() };
+  return { ctl, far, base, unrest, broke, treasury: led.treasury.slice(), rural: led.rural.slice(), farm: led.farm.slice(), soil: led.soil.slice() };
 }
 
 describe('政局的数表', () => {
@@ -217,7 +228,7 @@ describe('政局的数表', () => {
       let broke = 0;
       let rich = 0;
       const zero = () => new Array(R).fill(0);
-      const led: Ledger = { income: [], treasury: new Array(NP).fill(0), farm: zero(), strife: zero(), rural: zero(), popAt: 0, moved: 0 };
+      const led: Ledger = { income: [], treasury: new Array(NP).fill(0), farm: zero(), strife: zero(), soil: zero().map(() => 1), rural: zero(), popAt: 0, moved: 0 };
       for (let k = 0; k < 12; k++) {
         const x = inputs(k);
         const set = (id: string, f: (i: number) => number) => {
@@ -245,6 +256,8 @@ describe('政局的数表', () => {
         set('乡容', (r) => x.reg[r].ruralCap);
         set('乡速', (r) => x.reg[r].ruralRate);
         set('新祸', (r) => x.reg[r].strife);
+        set('脆', (r) => x.reg[r].fragile);
+        set('新荒', (r) => x.reg[r].blight);
         set('有人邻州', (r) => [r - 1, r + 1].filter((q) => q >= 0 && q < R && x.reg[q].ruralCap > 0).length);
         if (k % F.FISCAL_EVERY === 0) {
           set('城民', (r) => x.reg[r].city);
@@ -265,11 +278,12 @@ describe('政局的数表', () => {
           treasury: [...eng.get('国库')],
           rural: [...eng.get('乡口')],
           farm: [...eng.get('垦')],
+          soil: [...eng.get('地力')],
         };
         if (want.base.some((u) => u < 0)) negative++;
         if (want.broke.some((b) => b > 0)) broke++;
         if (want.treasury.some((t) => t > 0)) rich++;
-        for (const key of ['ctl', 'far', 'base', 'unrest', 'broke', 'treasury', 'farm'] as const) {
+        for (const key of ['ctl', 'far', 'base', 'unrest', 'broke', 'treasury', 'farm', 'soil'] as const) {
           want[key].forEach((v, i) => expect(got[key][i], `第 ${k} 组 ${key} ${i}`).toBeCloseTo(v, 12));
         }
         want.rural.forEach((v, i) => expect(Math.abs(got.rural[i] - v), `第 ${k} 组 乡口 ${i}`).toBeLessThan(1e-9 * (1 + Math.abs(v))));

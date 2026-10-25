@@ -92,8 +92,8 @@ describe('seed 7 演绎到第 2700 年,倒回第 2675 年重新演绎', () => {
   it('弹窗里"不要了的历史"列这一段分量最重的几件,一件几个字,按先后', () => {
     const f = first!;
     const brief = rewindBrief(f.civ, 2667, 2700, fullChronicle(f.civ));
-    // 大霄王朝灭新莱米斯国(亡国那条又单列,只算一件)、埃维里亚帝国王室更迭、有鹰代有桂
-    expect(brief).toEqual(['大霄灭新莱米斯', '埃维里亚帝国王室更迭', '有鹰代有桂']);
+    // 大霄王朝灭新莱米斯国(亡国那条又单列,只算一件)、埃维里亚帝国灭诺尔兰、有鹰代有桂
+    expect(brief).toEqual(['大霄灭新莱米斯', '埃维里亚灭诺尔兰', '有鹰代有桂']);
     // 一件也没有:空
     expect(rewindBrief(f.civ, 2699.9, 2700, fullChronicle(f.civ))).toEqual([]);
   });

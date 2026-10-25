@@ -96,7 +96,8 @@ export function strikeDisaster(sim: CivSim, iv: InterventionModel, v: DisasterIv
   const per = new Map<number, number[]>();
   for (const r of hit) {
     const sid = pm.cityOf[r];
-    (S[sid].sacks ??= []).push({ year: t, loss, cause });
+    // 地震一类的记下震中:是大水、大旱还是地震按震中那州定,波及的邻州一样
+    (S[sid].sacks ??= []).push(cause === 'quake' ? { year: t, loss, cause, from: center } : { year: t, loss, cause });
     const p = owner[r];
     if (p < 0) continue;
     let l = per.get(p);

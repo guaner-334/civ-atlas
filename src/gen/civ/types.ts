@@ -151,9 +151,9 @@ export interface Settlement {
   /**
    * 阶段 3 城市兴衰:被洗劫(按先后)。loss = 当时人口折损的比例(0..1),之后按 SACK_RECOVER 年慢慢恢复(见 growth.ts)。
    * 饥荒(unrest.ts)、瘟疫(plague.ts)也记在这里(cause = famine / plague):人口一样掉一截、慢慢长回来;
-   * 作者下的天灾(干预 disaster,disaster.ts)里饥荒记 famine、瘟疫记 plague、地震水旱记 quake
+   * 作者下的天灾(干预 disaster,disaster.ts)里饥荒记 famine、瘟疫记 plague、地震水旱记 quake(from = 震中那州:是地震、大水还是大旱按它定)
    */
-  sacks?: { year: Year; loss: number; cause?: 'famine' | 'plague' | 'quake' }[];
+  sacks?: { year: Year; loss: number; cause?: 'famine' | 'plague' | 'quake'; from?: number }[];
   /**
    * 阶段 3 城市兴衰:这座城是在哪座被毁的城(Settlement id)的故址上重建的(同一州、同一地块)。
    * 同族重建沿用旧名;换了民族的另起新名。不是重建的 = 不给

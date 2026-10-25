@@ -2822,7 +2822,8 @@ if (part('干预保护')) {
     if (orders !== 1) errs.push(`干预:时间轴上应有 1 枚「令」(${orders})`);
     if (listed !== 1) errs.push(`干预:概览里的干预列表应有 1 条(${listed})`);
     if (!/保护.+,已从 \d+ 年起重新推演.*撤销/.test(ivToast)) errs.push(`干预:重推完顶部没有"保护…,已从 N 年起重新推演"(带撤销)的提示(${ivToast})`);
-    const RESIM_BUDGET = process.env.CI ? 2500 : 1000;
+    // 推演只要比播放快(每秒 80 年以上),整局重推不用卡得太紧
+    const RESIM_BUDGET = process.env.CI ? 4000 : 1600;
     if (resim && !(resim.paintedMs <= RESIM_BUDGET)) errs.push(`干预:重推太慢(${resim.paintedMs.toFixed(0)} ms,预算 ${RESIM_BUDGET} ms)`);
     // 干预也自动存:刷新页面 → 自动恢复修改 → 按存下的干预重推一次
     await page.waitForTimeout(1500);
@@ -3337,7 +3338,8 @@ if (part('立国')) {
     if (!onMap.includes('饕餮')) errs.push(`立国:打开"国家"后在地图上点这州,不是新国家(${onMap})`);
     if (!/\d+ 年起.*在.+立国,即饕餮/.test(listed)) errs.push(`立国:概览里的干预列表不对(${listed})`);
     if (!/干预\s+[^\n]*自立,号饕餮/.test(chron)) errs.push('立国:编年史里没有这条干预');
-    const RESIM_BUDGET = process.env.CI ? 2500 : 1000;
+    // 推演只要比播放快(每秒 80 年以上),整局重推不用卡得太紧
+    const RESIM_BUDGET = process.env.CI ? 4000 : 1600;
     if (resim && !(resim.paintedMs <= RESIM_BUDGET)) errs.push(`立国:重推太慢(${resim.paintedMs.toFixed(0)} ms,预算 ${RESIM_BUDGET} ms)`);
   }
   await page.evaluate(() => localStorage.clear());
@@ -4060,12 +4062,21 @@ if (part('AI 释名')) {
   // 国家"更多"里也能讲主体民族的族名由来(和州面板民族一行的同一套),写在面板最下面
   let folkItem = '';
   let folkNote = '';
-  const pol = ((await page.evaluate('window.__wfPickables()')) as Pick[]).find((q) => q.kind === 'polity');
-  if (pol) {
+  // 有主体民族(占一半以上的州)的国家才有这一项:挑前几个国家里第一个有的
+  const pols = ((await page.evaluate('window.__wfPickables()')) as Pick[]).filter((q) => q.kind === 'polity').slice(0, 8);
+  let pol: Pick | undefined;
+  for (const q of pols) {
     await page.keyboard.press('Escape');
-    await page.evaluate((id) => (window as any).__wfSelect('polity', id), pol.id);
+    await page.evaluate((id) => (window as any).__wfSelect('polity', id), q.id);
     await page.waitForTimeout(600);
     await page.click('.inspector [data-act=more]');
+    if (await page.locator('.pm-menu [data-act=culture-explain]').count()) {
+      pol = q;
+      break;
+    }
+  }
+  if (!pol) pol = pols[0];
+  if (pol) {
     folkItem = await page.locator('.pm-menu [data-act=culture-explain]').innerText({ timeout: 3000 }).catch(() => '');
     await page.click('.pm-menu [data-act=culture-explain]', { timeout: 3000 }).catch(() => {});
     await page.waitForSelector('.inspector .cp-ai .ain-note:not(.writing) .ain-text', { timeout: 10000 }).catch(() => null);

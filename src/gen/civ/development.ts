@@ -345,6 +345,8 @@ export interface DevModel {
   ruralYears: Year[];
   /** 乡村人口此刻的表、上一步算到哪一年(population.ts 挂上) */
   ruralNow?: () => { year: Year; data: Float64Array };
+  /** 各州此刻的地力(0–1,population.ts 挂上;饥荒的赔率读它) */
+  soilNow?: () => Float64Array;
   /** 存档时一并存下的政局数表(control.ts 挂上) */
   saveTables?: () => TablesState;
   /** 算发展度的数表(挂到推演上时建好,见 devEngine) */
