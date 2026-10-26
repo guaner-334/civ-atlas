@@ -159,9 +159,9 @@ describe('改写 · 材料与提示词(seed 7)', () => {
     expect(rewriteMaterial(world, civ, deadYear, EMPTY, ['x']).text).toMatch(
       new RegExp(`^P${dead.id} .+\\n  第 ${deadYear} 年:已亡\\(第 ${Math.floor(dead.ended!)} 年(并入|被|瓦解).*\\);最后的国都 C\\d+ `, 'm'),
     );
-    // 没做过修改:不列"已经做过的修改";一个世界的材料不太长
+    // 没做过修改:不列"已经做过的修改";一个世界的材料不太长(GENERATOR_VERSION 36 多了宗室据地自立的国家,两万字出头)
     expect(t).not.toContain('## 已经做过的修改');
-    expect(t.length).toBeLessThan(20000);
+    expect(t.length).toBeLessThan(23000);
     // 同样的输入同样的材料
     expect(rewriteMaterial(world, civ, Y, EMPTY, ['随便说一句']).text).toBe(t);
   });

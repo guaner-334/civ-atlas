@@ -212,9 +212,10 @@ export interface PoliticsModel {
   look?: (p: number, k: number, t: Year) => void;
   /**
    * 州组从 parent 分出去,立新国(国都 sid,起事的州 rising;hook 里填):记一条 kind(split / revolt;split 带 cause),
-   * 新国都是某个同族亡国的故都时算复国。州组不用连着国都以外的碎块(要的先用 cutOff 补上)
+   * 新国都是某个同族亡国的故都时算复国(宗室据地争位 cause = heir 的不算)。州组不用连着国都以外的碎块(要的先用 cutOff 补上);
+   * extra = 新国家另带的字段(不是复国时;如宗室争位的 Polity.prince)
    */
-  secede?: (parent: number, group: number[], sid: number, rising: number, t: Year, kind: 'split' | 'revolt', cause?: AnnalCause) => Polity;
+  secede?: (parent: number, group: number[], sid: number, rising: number, t: Year, kind: 'split' | 'revolt', cause?: AnnalCause, extra?: Partial<Polity>) => Polity;
   /** 州组(升序)从 pid 分出去以后,pid 和国都断开的碎块也并进来(hook 里填;碎块太大、有刚换过国家的州 = null) */
   cutOff?: (pid: number, group: number[], t: Year, cap: number) => number[] | null;
   /** 州组里人口最多的城(hook 里填;没有城 = −1) */
@@ -259,9 +260,9 @@ function tribalTime(pol: PoliticsModel, k: number): number {
   return TRIBAL_FIRST + TRIBAL_EVERY * (k + 0.2 + 0.6 * keyed(pol.base, k, 0, U_TRIBAL_T));
 }
 
-/** 亡国 f 还能不能复国:没被并掉(并掉的不算亡国)、没复过国、自己不是复国出来的(不一复再复) */
+/** 亡国 f 还能不能复国:没被并掉(并掉的不算亡国)、没复过国、自己不是复国出来的(不一复再复)、不是宗室据地争位立的(一时的内乱) */
 function restorable(pol: PoliticsModel, f: Polity): boolean {
-  return f.restores === undefined && !pol.merged.has(f.id) && !pol.restored.has(f.id);
+  return f.restores === undefined && f.prince === undefined && !pol.merged.has(f.id) && !pol.restored.has(f.id);
 }
 
 const models = new WeakMap<CivSim, PoliticsModel>();
@@ -424,10 +425,10 @@ function hook(sim: CivSim, pol: PoliticsModel): void {
     if (kind === 'split') pol.lastSplit.set(parent, t);
     return p;
   };
-  pol.secede = (parent, group, sid, rising, t, kind, cause) => {
-    // 新国都是某个同族亡国的故都:这一次起兵就是复国
-    const f = kind === 'split' ? heirOf(sid, t) : null;
-    const p = secede(parent, group, sid, rising, t, f ? { restores: f.id, lineage: f.lineage } : {}, kind, cause);
+  pol.secede = (parent, group, sid, rising, t, kind, cause, extra) => {
+    // 新国都是某个同族亡国的故都:这一次起兵就是复国(宗室据地争位的不算)
+    const f = kind === 'split' && cause !== 'heir' ? heirOf(sid, t) : null;
+    const p = secede(parent, group, sid, rising, t, f ? { restores: f.id, lineage: f.lineage } : (extra ?? {}), kind, cause);
     if (f) pol.restored.add(f.id);
     return p;
   };
@@ -875,8 +876,10 @@ export function resumePolitics(sim: CivSim, world: World, civ: Civ): void {
 export interface PoliticsStats {
   /** 先后立过的国家(含分裂 / 复国出来的) */
   polities: number;
-  /** 分裂 / 独立(不含复国)、复国、合并、主动迁都(国都失守的迁都不算)的次数 */
+  /** 分裂 / 独立(不含复国、宗室据地争位)、复国、合并、主动迁都(国都失守的迁都不算)的次数 */
   splits: number;
+  /** 宗室据地争位(unrest.ts;史事 split 的 cause = heir)的次数 */
+  claims: number;
   restorations: number;
   merges: number;
   capitalMoves: number;
@@ -887,12 +890,14 @@ export interface PoliticsStats {
 export function politicsStats(civ: Civ): PoliticsStats {
   const A = civ.annals;
   let splits = 0;
+  let claims = 0;
   let restorations = 0;
   let merges = 0;
   let capitalMoves = 0;
   A.forEach((e, i) => {
     if (e.kind === 'split') {
       if (civ.polities[e.a]?.restores !== undefined) restorations++;
+      else if (e.cause === 'heir') claims++;
       else splits++;
     } else if (e.kind === 'merge') merges++;
     else if (e.kind === 'capital') {
@@ -902,5 +907,5 @@ export function politicsStats(civ: Civ): PoliticsStats {
     }
   });
   const shortLived = civ.polities.filter((p) => p.parent !== undefined && p.ended !== undefined && p.ended - p.founded < 100).length;
-  return { polities: civ.polities.length, splits, restorations, merges, capitalMoves, shortLived };
+  return { polities: civ.polities.length, splits, claims, restorations, merges, capitalMoves, shortLived };
 }

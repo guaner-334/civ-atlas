@@ -74,6 +74,8 @@ export interface LabelItem {
   space?: number;
   /** 放这条时给另一条文字留好位置(国名给自家国都名):只挑放完以后它还放得下的摆法 */
   keepRoomFor?: LabelItem;
+  /** 压在这条文字底下的别国国都名:能留就留,一个摆法都留不出来时照只给 keepRoomFor 留 */
+  keepRoomNear?: LabelItem[];
   /** 点选用(阶段 4):这条文字写的是哪个东西(国家 / 城 / 地理实体的编号)。排版不看它 */
   pick?: { kind: 'polity' | 'settlement' | 'place'; id: number };
   /** 弯边投影时 path 已经是地图平面坐标(国名按投影后的国土拟合的),不再投影;等距圆柱时不看 */
@@ -349,7 +351,7 @@ export function placeMap(items: LabelItem[], marks: LabelMark[], view: LabelView
     }
     const it = e.it!;
     if (it.mark !== undefined && !markOk.has(it.mark)) continue;
-    const ch = tryPlace(it, null, true);
+    const ch = (it.keepRoomNear?.length ? tryPlace(it, null, true, true) : null) ?? tryPlace(it, null, true);
     if (!ch) continue;
     for (const g of ch.c.glyphs) grid.add(glyphBox(g, ch.px, ch.pad + ch.space), -1);
     const fade = it.minZoom <= 1 ? 1 : Math.min(1, Math.max(0, (view.k - it.minZoom * 0.92) / (it.minZoom * 0.1)));
@@ -366,9 +368,10 @@ export function placeMap(items: LabelItem[], marks: LabelMark[], view: LabelView
   /**
    * 给一条文字挑摆法:按候选顺序,第一个"不出框、不压已放的东西(和 extra 里的框)、地面合要求"的;
    * 地面不全合要求的,在允许的比例(tolerance)以内挑最好的。
-   * room = true 且这条文字要给伙伴留位置(keepRoomFor,国名给国都名)时,只挑放完以后伙伴还放得下的摆法
+   * room = true 且这条文字要给伙伴留位置(keepRoomFor,国名给国都名)时,只挑放完以后伙伴还放得下的摆法;
+   * near = true 时连 keepRoomNear(底下的别国国都名)一起留
    */
-  function tryPlace(it: LabelItem, extra: number[][] | null, room: boolean): Choice | null {
+  function tryPlace(it: LabelItem, extra: number[][] | null, room: boolean, near = false): Choice | null {
     const own = it.mark ?? -1;
     // 东西相连:这条文字挪到离画布中心最近的那一圈(不相连时就是 view)
     const iv = viewOf(itemX(it));
@@ -377,13 +380,14 @@ export function placeMap(items: LabelItem[], marks: LabelMark[], view: LabelView
     const cands = it.place ? it.place(px0, iv) : candidates(it, iv, px0);
     const checks = !!(it.on || it.area);
     // 伙伴本来就放得下,才要求给它留位置(伙伴自己就放不下时,不连累这一条)
-    const mate = room ? it.keepRoomFor : undefined;
-    const mateOn =
-      !!mate &&
-      view.k >= mate.minZoom * 0.92 &&
-      mate.text.length > 0 &&
-      (mate.mark === undefined || markOk.has(mate.mark)) &&
-      tryPlace(mate, null, false) !== null;
+    const mates = (room ? [it.keepRoomFor, ...(near ? (it.keepRoomNear ?? []) : [])] : []).filter(
+      (mate): mate is LabelItem =>
+        !!mate &&
+        view.k >= mate.minZoom * 0.92 &&
+        mate.text.length > 0 &&
+        (mate.mark === undefined || markOk.has(mate.mark)) &&
+        tryPlace(mate, null, false) !== null,
+    );
     let best: Choice | null = null;
     for (const c of cands) {
       const px = c.px ?? px0;
@@ -398,7 +402,7 @@ export function placeMap(items: LabelItem[], marks: LabelMark[], view: LabelView
       if (bad > (it.tolerance ?? 0)) continue;
       const ch: Choice = { c, px, pad, space, bad };
       // 放了这条伙伴就没地方了:换下一个摆法;都不行就这次不放(小国的国名放大地图后再出现,国都名总在)
-      if (mateOn && !tryPlace(mate!, mine, false)) continue;
+      if (mates.some((mate) => !tryPlace(mate, mine, false))) continue;
       if (bad === 0) return ch;
       if (!best || bad < best.bad) best = ch;
     }

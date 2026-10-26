@@ -3,6 +3,7 @@
  * (library.ts,kind = "史书",按世界存)。界面(ui/HistoryBook.tsx)只管显示和按钮;这里不碰 DOM,单测用假 AI 跑完整流程。
  *
  * - 同一个"写什么 + 文体 + 篇幅"= 同一部史书(笔记的键见 historyNoteKey):重写就覆盖,写完才存,停下 / 出错不动旧的
+ *   (分章写到一半出错时,写好的几章由调用方留在内存里,重试交回 written 从断的那章接着写)
  * - 笔记里除了正文,还记着 book(HistoryBookMeta):写什么(国家按稳定键记)、文体、篇幅、书名、历史指纹……
  *   (AiNote 的扩展字段;library.ts 原样存取整个对象)
  * - 历史指纹对不上(改名 / 干预 / 改地形重推之后)= 旧史书"写于历史改变之前,可能对不上"
@@ -106,11 +107,30 @@ export interface WriteProgress {
   calls: number;
 }
 
+/** 分章写时已经写好的一章(篇):写到一半出错后重试,交回来就从下一章接着写 */
+export interface WrittenCall {
+  text: string;
+  provider: AiProviderKind | '';
+  model: string;
+}
+
+/** 写好的几章接成全文(各章之间空一行) */
+export function joinWritten(written: readonly WrittenCall[]): string {
+  return written.reduce((s, w) => (s ? `${s}\n\n${w.text}` : w.text), '');
+}
+
 export interface WriteHistoryOptions {
   /** 存到哪个世界(saveStore 的世界编号) */
   world: string;
   signal?: AbortSignal;
   onProgress?: (p: WriteProgress) => void;
+  /**
+   * 上次写到一半出错时已经写好的前几章(篇,按顺序):这几章不再写,从下一章接着写;前文、用过的开头和"史臣曰"照常从它们取。
+   * 必须是同一部书、同一份材料写出来的(调用方核对,见 ui/bookStore.ts)
+   */
+  written?: readonly WrittenCall[];
+  /** 每写好一章(篇)回调一次:到目前为止写好的全部(出错时调用方留着,重试交回 written) */
+  onWritten?: (written: WrittenCall[]) => void;
   /** 写完存笔记用的时间(测试用);不给 = 现在 */
   now?: () => Date;
 }
@@ -118,31 +138,47 @@ export interface WriteHistoryOptions {
 /**
  * 写一部史书:一次(短、中篇)或一章一次(长篇)地调 AI,边写边回调 onProgress;写完存进本地笔记并返回。
  * 每章写完扫一遍现实里的词(realWords.ts),命中的句子重写一次。
+ * 分章写时某一章被服务商的内容审核拦下(AiError 'content-filter';网络、额度之类的错不算):
+ * 这一章带上"战争、杀伐写得克制"(restrainedLine)自动再写一次,还被拦才抛错。
  * 没设置 AI / 失败 / 取消都抛 AiError(取消 = code 'aborted');这时不存,旧的那部(同一个键)不动
  */
 export async function writeHistory(civ: Civ, opts: HistoryOptions, o: WriteHistoryOptions): Promise<HistoryNote> {
   const prompts = buildHistoryPrompts(civ, opts);
   if (prompts.empty || !prompts.calls.length) throw new AiError('other', '这段历史里没有史事可写');
   const n = prompts.calls.length;
-  let done = '';
-  let provider: AiProviderKind | '' = '';
-  let model = '';
+  const written: WrittenCall[] = (o.written ?? []).slice(0, n);
+  let done = joinWritten(written);
   // 扫现实词时,整部书的材料里出现过的词都不算(后面几章会提到前面材料里的名字)
   const material = prompts.calls.map((c) => `${c.head}\n${c.body}`).join('\n');
-  for (let i = 0; i < n; i++) {
+  for (let i = written.length; i < n; i++) {
     if (o.signal?.aborted) throw new AiError('aborted', '已取消');
     const c = prompts.calls[i];
     const prefix = done ? `${done}\n\n` : '';
-    o.onProgress?.({ text: done, call: i, calls: n });
-    const r = await aiChat(
-      { feature: HISTORY_KIND, title: c.title, messages: historyMessages(prompts, i, done), temperature: c.temperature, maxTokens: c.maxTokens },
-      { signal: o.signal, onDelta: (_, full) => o.onProgress?.({ text: prefix + full, call: i, calls: n }) },
-    );
+    const ask = (restrained: boolean) => {
+      o.onProgress?.({ text: done, call: i, calls: n });
+      return aiChat(
+        { feature: HISTORY_KIND, title: c.title, messages: historyMessages(prompts, i, done, restrained), temperature: c.temperature, maxTokens: c.maxTokens },
+        { signal: o.signal, onDelta: (_, full) => o.onProgress?.({ text: prefix + full, call: i, calls: n }) },
+      );
+    };
+    let r: Awaited<ReturnType<typeof aiChat>>;
+    try {
+      r = await ask(false);
+    } catch (e) {
+      // 一次写完的(不分章)照旧直接报错
+      if (n === 1 || !(e instanceof AiError) || e.code !== 'content-filter') throw e;
+      if (o.signal?.aborted) throw new AiError('aborted', '已取消');
+      r = await ask(true);
+    }
     // 每章写完扫一遍现实里的词,命中的句子让 AI 改一次
-    done = prefix + (await fixRealWords(r.text.trim(), { material, feature: HISTORY_KIND, title: c.title, signal: o.signal }));
-    provider = r.provider;
-    model = r.model;
+    const text = await fixRealWords(r.text.trim(), { material, feature: HISTORY_KIND, title: c.title, signal: o.signal });
+    done = prefix + text;
+    written.push({ text, provider: r.provider, model: r.model });
+    o.onWritten?.(written.slice());
   }
+  const last = written[written.length - 1];
+  const provider = last?.provider ?? '';
+  const model = last?.model ?? '';
   o.onProgress?.({ text: done, call: n - 1, calls: n });
   const stored = storeScope(civ, opts.scope);
   const note: HistoryNote = {
