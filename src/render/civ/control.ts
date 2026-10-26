@@ -8,7 +8,7 @@
  */
 import { Layer, type Civ, type Year } from '../../gen/civ/types';
 import { CONTROL_TIERS, LORD_BYTE, controlAt, controlShare, controlTier } from '../../gen/civ/control';
-import { cutDone } from '../../gen/civ/council';
+import { cutDone } from '../../gen/civ/councilRules';
 import { logIndexAfter, ownersAt, type Owners } from '../../gen/civ/timeline';
 import { swapCiv } from './era';
 
