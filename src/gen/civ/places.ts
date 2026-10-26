@@ -8,6 +8,9 @@
  *   湖泊   连通的湖面;锚点是离湖岸最远的一点
  *   岛屿   不算大陆的陆块;锚点是离海最远的一点
  *   荒漠   连通的荒漠群落;锚点是离荒漠边缘最远的一点
+ *   关隘   地图上画的关口(passSites.ts 挑好的名关和打过守关战的口子,PlaceNaming.passes 传进来);锚点是口子那一块地块。
+ *          最后起名(按画上地图的先后)、只挑没用过的名字(别的地名一个不变),也不和关出现以前就有的城重名(PlaceNaming.avoid);
+ *          起名的随机数另起一个根(subSeed(seed, 'civ-pass-names')),东方语感"某某关",西方语感"某某山口"(拉丁原形 "… Pass")
  *
  * 纯计算,不碰 DOM。输出的标注路径是世界坐标(和 mesh.x / mesh.y 一样)。
  * 主轴、标注路径、射线、聚类这些 2D 几何在"局部平面"(geometry.ts 的 Chart)里算;距离、最近地块都问几何层(gen/geometry.ts)。
@@ -33,6 +36,7 @@ import { MinHeap, hypot2, mulberry32, subSeed } from '../util';
 import { geometryOf, type Chart, type Geometry } from '../geometry';
 import { createNamer, NAME_STYLES, pickStyle, type GeneratedName, type NameMix, type Namer } from '../names';
 import type { Culture, Place, Regions } from './types';
+import { passSince, type PassSite } from './passSites';
 import { adjLengths, cellAreas, refCellArea, refSpacing } from './geo';
 import { keyed, round24 } from './rand';
 
@@ -50,6 +54,13 @@ export interface PlaceNaming {
    * 同一处地方(同一类、锚点离得够近,和 keepPlaceNames 一样认)直接用它的名字,其余的照常起名、不和它们撞。不给 = 都照常起名
    */
   ref?: readonly NameRef[];
+  /** 上地图的关隘(passSites.ts;只取画得出来的:名关、打过守关战的)。不给 = 没有关隘 */
+  passes?: readonly PassSite[];
+  /**
+   * 关名不许用的名字:城名(中原、边塞语感的城本来就有叫"某某关"的),from = 建城那年;
+   * 只躲开关画上地图以前就有的城(往后推得再远,早先的关名也不变)
+   */
+  avoid?: readonly { name: string; from: number }[];
 }
 
 /**
@@ -71,10 +82,13 @@ export interface NameRef {
   hearth: number;
 }
 
-/** 一份起好的地名(world 是起名时的世界,civ 的 places、cultures、regions)→ 留给照着用的 NameRef */
+/**
+ * 一份起好的地名(world 是起名时的世界,civ 的 places、cultures、regions)→ 留给照着用的 NameRef。
+ * 关隘不留:关跟着大路(历史)走,改过地形的世界里照常起名(不随"有没有先看过没改的那一份"而变)
+ */
 export function nameRefs(world: World, places: readonly Place[], cultures: readonly Culture[], regions: Regions): NameRef[] {
   const { x, y } = world.mesh;
-  return places.map((p) => {
+  return places.filter((p) => p.kind !== 'pass').map((p) => {
     const cu = p.culture >= 0 ? cultures[p.culture] : undefined;
     const r: NameRef = {
       kind: p.kind,
@@ -153,6 +167,7 @@ export function findPlaces(world: World, regions: Regions, naming: PlaceNaming =
   const ctx = makeContext(world);
   if (naming.ref?.length) ctx.ref = naming.ref;
   const namers = makeNamers(naming.seed ?? world.params.seed, regions, naming);
+  if (naming.avoid) for (const { name, from } of naming.avoid) if (name && !(namers.avoid.get(name)! <= from)) namers.avoid.set(name, from);
 
   const out: Place[] = [];
   // 先找齐(顺序固定:海 → 山 → 河 → 湖 → 岛 → 荒漠),再统一起名(nameAll:名字按位置取,和找的先后无关)
@@ -162,6 +177,7 @@ export function findPlaces(world: World, regions: Regions, naming: PlaceNaming =
   out.push(...findLakes(world, ctx, namers));
   out.push(...findIslands(world, ctx, namers));
   out.push(...findDeserts(world, ctx, namers));
+  if (naming.passes?.length) out.push(...passPlaces(world, namers, naming.passes));
   if (naming.ref?.length) inherit(world, regions, naming, namers, naming.ref);
   nameAll(namers);
   // 跨 180° 经线的标注路径整条挪到中点落在地图里
@@ -427,7 +443,11 @@ interface Namers {
   at: (cell: number) => { namer: Namer; culture: number; family: 'western' | 'eastern' };
   /** 海名的 keyed 随机数的根 */
   seaBase: number;
+  /** 关名的 keyed 随机数用的起名器(按语感;另起一个根,不和别的地名共用候选流) */
+  passNamer: (style: string) => Namer;
   used: Set<string>;
+  /** 关名另外不许用的:城名 → 最早建城的那年(别的地名照旧不看它) */
+  avoid: Map<string, number>;
   /** 找到了、还没起名的地理实体(nameAll 统一起名) */
   pending: { p: Place; req: NameReq }[];
 }
@@ -436,10 +456,11 @@ interface Namers {
 type NameReq =
   | { t: 'sea'; kind: 'ocean' | 'sea' | 'bay'; climate: 'cold' | 'warm' | 'mild'; dir: string | null }
   | { t: 'direct'; from: 'mountain' | 'river' }
-  | { t: 'derived'; from: 'sea' | 'mountain' | 'region'; suffix: string; keep: string[]; shortest?: boolean };
+  | { t: 'derived'; from: 'sea' | 'mountain' | 'region'; suffix: string; keep: string[]; shortest?: boolean }
+  | { t: 'pass' };
 
-/** 先占名字的先后:按种类(海 → 山 → 河 → 湖 → 岛 → 荒漠),同种类按锚点地块编号从小到大 —— 和找的先后、个头排名无关 */
-const KIND_ORDER: Record<Kind, number> = { sea: 0, mountains: 1, river: 2, lake: 3, island: 4, desert: 5 };
+/** 先占名字的先后:按种类(海 → 山 → 河 → 湖 → 岛 → 荒漠 → 关隘),同种类按锚点地块编号从小到大 —— 和找的先后、个头排名无关 */
+const KIND_ORDER: Record<Kind, number> = { sea: 0, mountains: 1, river: 2, lake: 3, island: 4, desert: 5, pass: 6 };
 
 /** 记下一个待起名的地理实体(名字先空着,nameAll 统一起) */
 function later(ns: Namers, p: Place, req: NameReq): Place {
@@ -453,16 +474,20 @@ function later(ns: Namers, p: Place, req: NameReq): Place {
  */
 function nameAll(ns: Namers): void {
   const list = ns.pending.map((x, i) => ({ ...x, i }));
-  list.sort((a, b) => KIND_ORDER[a.p.kind] - KIND_ORDER[b.p.kind] || (a.p.cell ?? -1) - (b.p.cell ?? -1) || a.i - b.i);
+  // 关隘按画上地图的先后(往后推多出来的关排在后面,不抢早先的关的名字)
+  const since = (p: Place) => p.pass?.since ?? 0;
+  list.sort((a, b) => KIND_ORDER[a.p.kind] - KIND_ORDER[b.p.kind] || since(a.p) - since(b.p) || (a.p.cell ?? -1) - (b.p.cell ?? -1) || a.i - b.i);
   for (const { p, req } of list) {
     const cell = p.cell ?? -1;
     const salt = KIND_ORDER[p.kind];
     const nm =
       req.t === 'sea'
         ? { zh: seaName(ns, cell, req.kind, req.climate, req.dir), culture: -1 }
-        : req.t === 'direct'
+        : req.t === 'pass'
+          ? passName(ns, cell, since(p))
+          : req.t === 'direct'
           ? directName(ns, cell, req.from, salt)
-          : derivedName(ns, cell, req.from, req.suffix, req.keep, salt, !!req.shortest);
+            : derivedName(ns, cell, req.from, req.suffix, req.keep, salt, !!req.shortest);
     p.name = nm.zh;
     p.culture = nm.culture;
     if (nm.latin) p.latin = nm.latin;
@@ -516,6 +541,13 @@ function makeNamers(seed: number, regions: Regions, naming: PlaceNaming): Namers
     if (!nm) cache.set(style, (nm = createNamer(base, style)));
     return nm;
   };
+  const passBase = subSeed(seed, 'civ-pass-names');
+  const passCache = new Map<string, Namer>();
+  const passNamer = (style: string) => {
+    let nm = passCache.get(style);
+    if (!nm) passCache.set(style, (nm = createNamer(passBase, style)));
+    return nm;
+  };
   const fallback = worldNameStyle(seed, naming.names);
   const valid = new Set(NAME_STYLES.map((s) => s.id));
   const family = new Map(NAME_STYLES.map((s) => [s.id, s.family]));
@@ -535,7 +567,9 @@ function makeNamers(seed: number, regions: Regions, naming: PlaceNaming): Namers
       return { namer: get(style), culture: cu, family: family.get(style)! };
     },
     seaBase: subSeed(seed, 'civ-places-sea'),
+    passNamer,
     used: new Set(),
+    avoid: new Map(),
     pending: [],
   };
 }
@@ -581,6 +615,45 @@ function derivedName(ns: Namers, cell: number, from: 'sea' | 'mountain' | 'regio
   }
   ns.used.add(last);
   return { zh: last, culture };
+}
+
+/** 关名的专名最多几个字(东方"雁门""萧",西方"赛利昂") */
+const PASS_CORE_MAX = 4;
+
+/**
+ * 关名:借山名的专名(按锚点地块取候选,和山名另起一个根),东方语感 + "关",西方语感 + "山口"(拉丁原形 "… Pass";
+ * 拆不出专名的 —— 草原风的"某某塔格"、意译的"巨人之脊" —— 不写拉丁原形)。
+ * 专名带"之"、太长的不要;和别的地名、关画上地图以前就有的城撞了换下一个候选
+ */
+function passName(ns: Namers, cell: number, since: number): { zh: string; latin?: string; culture: number } {
+  const { namer, culture, family } = ns.at(cell);
+  const next = ns.passNamer(namer.style.id).keyed('mountain', cell);
+  const west = family === 'western';
+  let last = '';
+  for (let t = 0; t < MAX_PICKS; t++) {
+    const g = next();
+    let core = coreOf(g);
+    // 不带通名的意译山名("雷霆山"):去掉末尾的"山"
+    if (!g.generic && core.endsWith('山') && [...core].length >= 3) core = core.slice(0, -1);
+    const zh = core + (west ? '山口' : '关');
+    const taken = ns.used.has(zh) || ns.avoid.get(zh)! <= since;
+    if (!taken) last = zh;
+    const n = [...core].length;
+    if (taken || core.includes('之') || n < 1 || n > PASS_CORE_MAX) continue;
+    const root = west ? latinRoot(g.latin) : undefined;
+    ns.used.add(zh);
+    return root ? { zh, latin: `${root} Pass`, culture } : { zh, culture };
+  }
+  ns.used.add(last);
+  return { zh: last, culture };
+}
+
+/** 山名拉丁原形里的专名:"Aldor Mountains" → "Aldor","Mount Aldor" → "Aldor";别的写法(意译的"Giant’s Spine"……)拆不出 = 不给 */
+function latinRoot(latin: string | undefined): string | undefined {
+  if (!latin) return undefined;
+  if (latin.endsWith(' Mountains')) return latin.slice(0, -' Mountains'.length);
+  if (latin.startsWith('Mount ') && !latin.includes(' of ')) return latin.slice('Mount '.length);
+  return undefined;
 }
 
 function directName(ns: Namers, cell: number, kind: 'mountain' | 'river', salt: number): { zh: string; latin?: string; culture: number } {
@@ -1143,6 +1216,26 @@ function findIslands(world: World, ctx: Ctx, ns: Namers): Place[] {
     const path = axisPath(ctx, dist, a, ax, r, world.mesh);
     return later(ns, place('island', UNNAMED, path, rank, r, a), { t: 'derived', from: 'mountain', suffix: '岛', keep: [], shortest: true });
   });
+}
+
+/**
+ * 关隘:画得出来的口子(名关、打过守关战的)各一处,锚点 = 口子那一块地块;名关显示档 2,只因打过守关战才画的 3
+ * (地图上什么时候出现见 render/civ/passes.ts)
+ */
+function passPlaces(world: World, ns: Namers, sites: readonly PassSite[]): Place[] {
+  const { x, y } = world.mesh;
+  const out: Place[] = [];
+  for (const s of sites) {
+    const since = passSince(s);
+    if (!(since < Infinity)) continue;
+    const p = later(ns, place('pass', UNNAMED, new Float32Array([x[s.cell], y[s.cell]]), s.named ? 2 : 3, 0, s.cell), { t: 'pass' });
+    p.pass = { height: s.height, ridge: s.ridge, regions: s.pairs.slice(), named: s.named, since };
+    if (s.detour !== undefined) p.pass.detour = s.detour;
+    if (s.road !== undefined) p.pass.road = s.road;
+    if (s.stand !== undefined) p.pass.stand = s.stand;
+    out.push(p);
+  }
+  return out;
 }
 
 function findDeserts(world: World, ctx: Ctx, ns: Namers): Place[] {

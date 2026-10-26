@@ -45,6 +45,7 @@ const PLACE_KIND: Record<Place['kind'], string> = {
   lake: '湖泊',
   island: '岛屿',
   desert: '荒漠',
+  pass: '关隘',
 };
 /** 山河湖海没有国家颜色:按类别给一个素净的颜色 */
 const PLACE_COLOR: Record<Place['kind'], string> = {
@@ -54,6 +55,7 @@ const PLACE_COLOR: Record<Place['kind'], string> = {
   mountains: '#8c7b63',
   island: '#9a9270',
   desert: '#c2a878',
+  pass: '#8c7b63',
 };
 
 const rgb = (c: readonly number[]) => `rgb(${c[0]},${c[1]},${c[2]})`;

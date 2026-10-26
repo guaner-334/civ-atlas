@@ -6,7 +6,7 @@
  *   ② 民族扩张 + 回放引擎   sim.ts / cultures.ts   → cultures、log、checkpoints、culture
  *   ③ 城市成长 + 国家       polities.ts            → settlements、polities、polity
  *   ④ 道路网               routes.ts              → routes(推演里走过的航线一定画出来,见 usedLanes)
- *   ⑤ 地理名称             places.ts              → places
+ *   ⑤ 地理名称             places.ts              → places(地图上画的关隘也在里面:passSites.ts 按地形、大路、守关战挑,起名排在最后)
  *   ⑥ 人物                 people.ts              → people(历代君主、战争里的统帅;按推出来的历史排,不改历史)
  *   ⑦ 信仰                 religion.ts            → religion(民间信仰、大教、国教、教派;照推出来的历史贴上去,不改历史)
  *   发展度(物产、五种能力、时代)在推演里每 20 年算一步,反过来影响人口上限、军力、远洋(development.ts → development)
@@ -28,6 +28,7 @@ import { BIRTH_SPAN, cultureKey, cultureModelOf, finishCultures, installCultures
 import { buildRoutes, usedLanes } from './routes';
 import { capacityNorm, finishPolities, installPolities, planPolities, polityModelOf, routeCities, ruinGaps } from './polities';
 import { findPlaces, keepPlaceNames, nameRefs, type NameRef } from './places';
+import { passSites } from './passSites';
 import { installWars } from './wars';
 import { installPolitics } from './politics';
 import { installDynasty } from './dynasty';
@@ -264,14 +265,18 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
     const b = pinNames(pins!, eraWorld, branch, k ? ups[k - 1].year : -Infinity, u.year, k === 0, mix, iv?.list);
     // 第一段:改过地形的世界照没改过时的地名(nameRefOf);之后各段沿用前一段的
     const eraRef = k ? undefined : nameRefOf(eraWorld, { p, mix, frontier, origins });
-    const eraPlaces = findPlaces(eraWorld, before, { cultures: b.cultures, culture: b.planned, names: mix, seed, ...(eraRef ? { ref: eraRef } : {}) });
-    if (k) keepPlaceNames(eraWorld, eras[k - 1].places, eraPlaces);
-    const eraLanes = usedLanes(before, branch.result().log, b.cultures, k ? ups[k - 1].year : -Infinity);
+    const br = branch.result();
+    const eraLanes = usedLanes(before, br.log, b.cultures, k ? ups[k - 1].year : -Infinity);
     const eraRoutes = buildRoutes(eraWorld, eraHabitat, before, {
       cities: b.settlements.length ? routeCities(b.settlements, b.polities, p.endYear) : undefined,
       lanes: eraLanes,
       ruins: ruinGaps(b.settlements),
     });
+    // 关隘也照这一支(和没有这件大事时一样;passSites.ts)
+    const eraPasses = passSites(eraWorld, before, eraRoutes, { regions: before, checkpoints: br.checkpoints, log: br.log, annals: br.annals });
+    const eraAvoid = b.settlements.map((s) => ({ name: s.name, from: s.founded }));
+    const eraPlaces = findPlaces(eraWorld, before, { cultures: b.cultures, culture: b.planned, names: mix, seed, passes: eraPasses, avoid: eraAvoid, ...(eraRef ? { ref: eraRef } : {}) });
+    if (k) keepPlaceNames(eraWorld, eras[k - 1].places, eraPlaces);
     eras.push({ until: u.year, habitat: eraHabitat, regions: before, places: eraPlaces, routes: eraRoutes });
     // 新地形:州沿用编号,只改变了的地方;比出这件大事改了什么
     const h1 = computeHabitat(u.world);
@@ -446,7 +451,11 @@ function finishCiv(x: Finish): Civ {
   // ⑤ places.ts(山海湖岛是地理,不看 viable):改过地形的世界同一处地方照没改过时的地名(nameRefOf)
   const setup: RefSetup = { p, mix, frontier, origins: x.origins };
   const ref = eras.length ? undefined : nameRefOf(fin.world, setup);
-  const places: Place[] = findPlaces(fin.world, fin.regions, { cultures, culture: planned, names: mix, seed, ...(ref ? { ref } : {}) });
+  // 关隘(passSites.ts):大路翻过去的名关、推演里据险断后守过的口子;只读地形、道路、史事,不改历史。
+  // 起名排在山海湖岛之后、只挑没用过的名字,也不和关画上地图以前就有的城重名:别的地名一个不变
+  const passes = viable ? passSites(fin.world, fin.regions, routes, { regions: fin.regions, checkpoints, log, annals }) : [];
+  const avoid = settlements.map((s) => ({ name: s.name, from: s.founded }));
+  const places: Place[] = findPlaces(fin.world, fin.regions, { cultures, culture: planned, names: mix, seed, passes, avoid, ...(ref ? { ref } : {}) });
   // 地形大事以后:同一处地方沿用大事以前的地名
   if (eras.length) keepPlaceNames(fin.world, eras[eras.length - 1].places, places);
   // 没改过地形、没有干预和地形大事的:这就是改地形以后要照着沿用的那一份,记下(nameRefOf)

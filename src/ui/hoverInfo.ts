@@ -52,6 +52,7 @@ const PLACE_KIND: Record<Place['kind'], string> = {
   lake: '湖泊',
   island: '岛屿',
   desert: '荒漠',
+  pass: '关隘',
 };
 
 const rgb = (c: readonly number[]) => `rgb(${c.join(',')})`;

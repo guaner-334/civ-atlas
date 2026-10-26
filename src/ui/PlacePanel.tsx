@@ -1,10 +1,11 @@
 /**
- * 地理实体(山脉、河流、湖泊、岛屿、荒漠、海 / 大洋 / 海湾)的面板(和国家面板同一套样子,零件见 panelParts.tsx):
+ * 地理实体(山脉、河流、湖泊、岛屿、荒漠、海 / 大洋 / 海湾、关隘)的面板(和国家面板同一套样子,零件见 panelParts.tsx):
  *
  *   顶部  名字(可改);一行"山脉，拉丁原形 Aldor Mountains，按某族语感"(东方风只写按哪族语感)、关闭
  *   按钮  设为中心 / 改名 / 更多(让 AI 讲名字由来、让 AI 起名:按当地语感起几个,点一个就改名)
  *   概况  按种类挑拿得到的数(panelData.ts 的 placeFacts):山脉 最高峰 / 长度 / 跨州;河 长度 / 流经州 / 源头海拔;
  *         湖 面积 / 湖面海拔;岛 面积 / 最高峰;荒漠 面积 / 年降水;海 离岸最远 / 最深处;
+ *         关隘 关口海拔 / 两旁山脊 / 绕开它要翻多高 / 大路哪年修通(Place.pass);
  *         当年在哪些国家境内(海:沿岸有哪些国家;色块 + 国名,可点;河按流经的先后,其余按占的多少)
  */
 import { useMemo, useState } from 'react';
@@ -26,6 +27,7 @@ const PLACE_KIND: Record<Place['kind'], string> = {
   lake: '湖泊',
   island: '岛屿',
   desert: '荒漠',
+  pass: '关隘',
 };
 
 /** 种类的叫法(海按生成时的名字分海 / 大洋 / 海湾) */
@@ -71,6 +73,16 @@ export function PlacePanel({ civ, raw, raster, world, id, year, names }: DetailP
   } else if (p.kind === 'sea') {
     num('离岸最远', f.shoreKm, '公里', kmText);
     num('最深', f.depth, '米');
+  } else if (p.kind === 'pass') {
+    // 关隘:口子、两旁山脊、绕开它要翻多高(米数照实写,不取整到十),大路哪年修通
+    const s = p.pass;
+    const exact = (x: number) => `${Math.round(x)}`;
+    if (s) {
+      num('关口海拔', s.height, '米', exact);
+      num('两旁山脊', s.ridge, '米', exact);
+      stats.push(s.detour !== undefined ? { k: '绕开它要翻', v: exact(s.detour), note: '米' } : { k: '绕开它要翻', v: '附近绕不过去' });
+      if (s.road !== undefined) stats.push({ k: '大路', v: Math.floor(s.road), note: '年修通' });
+    }
   } else {
     num('面积', f.areaKm2, '平方公里', areaText);
     if (p.kind === 'lake') num('湖面海拔', f.lakeLevel, '米');

@@ -93,6 +93,7 @@ const PLACE_KIND: Record<Place['kind'], string> = {
   lake: '湖泊',
   island: '岛屿',
   desert: '荒漠',
+  pass: '关隘',
 };
 
 /** 民族那一年还在(兴起了、还没消亡) */
