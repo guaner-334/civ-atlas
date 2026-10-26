@@ -2,7 +2,7 @@
  * 助手:工具调用的循环、试推演的对照、查资料 / 试推演 / 列确认单这几个工具,和一次完整的对话。
  * 全程用测试用假 AI(按剧本一轮一轮回),不联网;试推演在 Node 里真的重推历史(种子 7)。
  */
-import { afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld } from '../src/gen/world';
 import { generateCiv } from '../src/gen/civ';
 import type { Civ } from '../src/gen/civ/types';
@@ -30,6 +30,10 @@ import {
   type AssistantTrial,
 } from '../src/ai/agent/assistant';
 import { REWRITE_OPS, REWRITE_SYSTEM, bordersAt, nameAt, nearestLand, parseRewrite, plainIds } from '../src/ai/prompts/rewrite';
+
+// 这里不少条要在 Node 里真的重推历史,平常两三秒;机器忙(几份测试同时跑)时会超过默认的 5 秒,时限放宽到 15 秒
+// (只管这个文件;已经单独写了时限的照旧)
+vi.setConfig({ testTimeout: 15_000 });
 
 const world = generateWorld({ ...DEFAULT_PARAMS, seed: 7 });
 const civ = generateCiv(world);

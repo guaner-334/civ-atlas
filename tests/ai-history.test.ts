@@ -603,18 +603,61 @@ describe('AI 写史书:分篇写到一半被内容审核拦下', () => {
     setActiveProvider(null);
   });
 
-  it('一次写完的(不分篇)被拦:照旧直接报错,不自动重试', async () => {
-    setActiveProvider('mock');
+  describe('一次写完的(不分篇)', () => {
     const one: HistoryOptions = { scope: { kind: 'era', from: 1200, to: 1500 }, style: 'biography', length: 'k3' };
-    expect(buildHistoryPrompts(civ, one).calls).toHaveLength(1);
-    let n = 0;
-    setMockResponder(() => {
-      n++;
-      throw FILTERED();
+    const p1 = buildHistoryPrompts(civ, one);
+    const LINE = restrainedLine('部');
+    /** 假 AI:记下每次请求带没带"克制";fail(第几次请求) 返回要抛的错 */
+    function fakeOne(fail: (nth: number) => AiError | null) {
+      const sent: { restrained: boolean; user: string }[] = [];
+      setMockResponder((req) => {
+        const user = req.messages.find((m) => m.role === 'user')!.content;
+        sent.push({ restrained: user.includes(LINE), user });
+        const e = fail(sent.length);
+        if (e) throw e;
+        return '一次写完的正文。';
+      });
+      return sent;
+    }
+
+    it('被拦:带上"战争、杀伐写得克制"自动再写一次,成了照常出书', async () => {
+      expect(p1.calls).toHaveLength(1);
+      expect(p1.calls[0].chapter).toBe(null);
+      setActiveProvider('mock');
+      const w = 'w-filter-4';
+      const sent = fakeOne((nth) => (nth === 1 ? FILTERED() : null));
+      const note = await writeHistory(civ, one, { world: w });
+      expect(sent.map((s) => s.restrained)).toEqual([false, true]);
+      // "克制"那条加在写作要求末尾(材料前面),其余和第一次一字不差
+      expect(sent[1].user).toBe(historyMessages(p1, 0, '', true)[1].content);
+      expect(sent[1].user.replace(`\n${LINE}`, '')).toBe(sent[0].user);
+      expect(sent[1].user.indexOf(LINE)).toBeLessThan(sent[1].user.indexOf(p1.calls[0].body));
+      expect(note.text).toBe('一次写完的正文。');
+      expect(listHistoryNotes(w)).toHaveLength(1);
+      setMockResponder(null);
+      setActiveProvider(null);
     });
-    await expect(writeHistory(civ, one, { world: 'w-filter-4' })).rejects.toMatchObject({ code: 'content-filter' });
-    expect(n).toBe(1);
-    setMockResponder(null);
-    setActiveProvider(null);
+
+    it('还被拦:停下报错、不存,只多请求一次', async () => {
+      setActiveProvider('mock');
+      const w = 'w-filter-5';
+      const sent = fakeOne(() => FILTERED());
+      await expect(writeHistory(civ, one, { world: w })).rejects.toMatchObject({ code: 'content-filter' });
+      expect(sent.map((s) => s.restrained)).toEqual([false, true]);
+      expect(listHistoryNotes(w)).toHaveLength(0);
+      setMockResponder(null);
+      setActiveProvider(null);
+    });
+
+    it('网络不通、额度不够、限流:不带"克制"重试,直接报错', async () => {
+      setActiveProvider('mock');
+      for (const code of ['network', 'quota', 'rate-limit'] as const) {
+        const sent = fakeOne(() => new AiError(code, '出错了'));
+        await expect(writeHistory(civ, one, { world: 'w-filter-6' })).rejects.toMatchObject({ code });
+        expect(sent.map((s) => s.restrained)).toEqual([false]);
+      }
+      setMockResponder(null);
+      setActiveProvider(null);
+    });
   });
 });
