@@ -138,8 +138,8 @@ export interface WriteHistoryOptions {
 /**
  * 写一部史书:一次(短、中篇)或一章一次(长篇)地调 AI,边写边回调 onProgress;写完存进本地笔记并返回。
  * 每章写完扫一遍现实里的词(realWords.ts),命中的句子重写一次。
- * 分章写时某一章被服务商的内容审核拦下(AiError 'content-filter';网络、额度之类的错不算):
- * 这一章带上"战争、杀伐写得克制"(restrainedLine)自动再写一次,还被拦才抛错。
+ * 某一次调用(分章写的一章;一次写完的就是整部)被服务商的内容审核拦下(AiError 'content-filter';网络、额度之类的错不算):
+ * 这一次带上"战争、杀伐写得克制"(restrainedLine)自动再写一次,还被拦才抛错。
  * 没设置 AI / 失败 / 取消都抛 AiError(取消 = code 'aborted');这时不存,旧的那部(同一个键)不动
  */
 export async function writeHistory(civ: Civ, opts: HistoryOptions, o: WriteHistoryOptions): Promise<HistoryNote> {
@@ -165,8 +165,8 @@ export async function writeHistory(civ: Civ, opts: HistoryOptions, o: WriteHisto
     try {
       r = await ask(false);
     } catch (e) {
-      // 一次写完的(不分章)照旧直接报错
-      if (n === 1 || !(e instanceof AiError) || e.code !== 'content-filter') throw e;
+      // 只有内容审核拦下才带"克制"重写一次(分章、一次写完的都一样);别的错直接报
+      if (!(e instanceof AiError) || e.code !== 'content-filter') throw e;
       if (o.signal?.aborted) throw new AiError('aborted', '已取消');
       r = await ask(true);
     }
