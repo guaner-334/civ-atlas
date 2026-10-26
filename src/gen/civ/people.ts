@@ -18,6 +18,8 @@
  * **统帅**(所有战争按史事先后一起排):开战时两边各有一位 —— 作者立的君主在位时作者下令打的仗(强制宣战)由他亲征;
  *   好战的君主有时亲征(好战越高越常亲征),否则派一位将领(本国在世、正闲着的将领先用,没有就新起一位);
  *   每一仗输的一方统帅有机会战死,下一仗换人;将领到年纪卸甲、去世也换人。君主亲征不会战死。
+ *   据险断后(史事 stand):败退的一方另起一位将领(部将)守山口,只经手这一条(PersonCommand.rear,不算统帅);
+ *   结局照史事 —— 力战而死的当场战死,力竭被擒的不再领兵,全师而退的照常是本国的将领。
  *   将领、名臣按出道先后起名,尽量不和此前即位的君主、先出道的将领名臣重名;名字少的语感至少和本国君主、前后几百年的同名人物错开
  *   (同一国几百年后再出一位同名的将领,读起来像同一个人死了两次)。
  * **世系**(lineage.ts):按年纪给继位的君主连上父亲(子、孙、兄弟、侄、叔伯……),对不上的地方补一位没即位的宗室。
@@ -431,6 +433,32 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
   // 所有战争按史事先后一起排(宣战、每一仗、议和):同一国同时打几场仗时,哪位将领此刻闲着按此刻算,
   // 一场仗里换了统帅(作者让他去世、战死),不会连带改掉另一场仗在那以前的统帅
   const steps: { idx: number; run: () => void }[] = [];
+  /** 国家 pid 在 t 这一刻新起一位将领(本国第几位将领 + 用途取随机数;名字等名臣排出来以后一起起) */
+  const raise = (pid: number, t: Year) => {
+    const list = genOf[pid];
+    const gi = list.length;
+    const G = (use: number) => keyed4(base, tag[pid], gi, use, K_GENERAL);
+    const born = q(t - lerp(GENERAL_AGE, G(U_AGE)));
+    let life = q(born + lerp(GENERAL_LIFE, Math.pow(G(U_LIFE), 0.8)));
+    // 作者让他去世:到那一刻为止(他后来该领的仗换人)
+    const id = `g${pid}:${gi}`;
+    const kill = kills.get(id);
+    if (kill && kill.t < life) life = kill.t;
+    const careerEnd = Math.min(life, q(born + lerp(RETIRE, G(U_RETIRE))));
+    const namer = namerOf(styleOf(polities[pid]));
+    const person: Person = { id: -1, role: 'general', polity: pid, name: '', born };
+    ids.set(person, id);
+    if (kill && life === kill.t) person.killed = kill.iv;
+    genName.set(person, (a) => namer.surname(tag[pid], 1, gi, a) + namer.given(tag[pid], 1, gi, a));
+    if (life <= endYear) {
+      person.died = life;
+      person.fate = 'died';
+    }
+    generals.push(person);
+    const g = { p: person, careerEnd, busy: -Infinity };
+    list.push(g);
+    return g;
+  };
   for (const w of wars) {
     const sides = [w.a, w.b];
     const wr = (x: number, use: number) => keyed4((warBase ^ Math.imul(Math.round(w.start * TICK), 0x27d4eb2d)) >>> 0, tag[w.a] ?? 0, tag[w.b] ?? 0, x, use);
@@ -477,32 +505,8 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
           return;
         }
       }
-      // 本国在世、正闲着的将领
-      const list = genOf[pid];
-      let g = list.find((c) => c.busy <= t && c.careerEnd > t && c.p.born + GENERAL_AGE[0] <= t);
-      if (!g) {
-        const gi = list.length;
-        const G = (use: number) => keyed4(base, tag[pid], gi, use, K_GENERAL);
-        const born = q(t - lerp(GENERAL_AGE, G(U_AGE)));
-        let life = q(born + lerp(GENERAL_LIFE, Math.pow(G(U_LIFE), 0.8)));
-        // 作者让他去世:到那一刻为止(他后来该领的仗换人)
-        const id = `g${pid}:${gi}`;
-        const kill = kills.get(id);
-        if (kill && kill.t < life) life = kill.t;
-        const careerEnd = Math.min(life, q(born + lerp(RETIRE, G(U_RETIRE))));
-        const namer = namerOf(styleOf(P));
-        const person: Person = { id: -1, role: 'general', polity: pid, name: '', born };
-        ids.set(person, id);
-        if (kill && life === kill.t) person.killed = kill.iv;
-        genName.set(person, (a) => namer.surname(tag[pid], 1, gi, a) + namer.given(tag[pid], 1, gi, a));
-        if (life <= endYear) {
-          person.died = life;
-          person.fate = 'died';
-        }
-        generals.push(person);
-        g = { p: person, careerEnd, busy: -Infinity };
-        list.push(g);
-      }
+      // 本国在世、正闲着的将领;没有就新起一位
+      const g = genOf[pid].find((c) => c.busy <= t && c.careerEnd > t && c.p.born + GENERAL_AGE[0] <= t) ?? raise(pid, t);
       g.busy = Infinity;
       cur[s] = { p: g.p, careerEnd: g.careerEnd, cmd: command(g.p), general: true };
     };
@@ -528,6 +532,12 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
         const cs = cur[s];
         if (cs) cs.cmd.last = idx;
       }
+      // 据险断后(wars.ts 的 stand):不是统帅打的,另起一位部将守山口,结局照史事
+      if (e.kind === 'stand') {
+        const s = e.a === w.a ? 0 : e.a === w.b ? 1 : -1;
+        if (s >= 0) rearGuard(s, t, idx, e.cause);
+        return;
+      }
       // 输的一方:攻方没打下来(battle 的 a)/ 丢了州(conquer 的 b)
       const loser = e.kind === 'battle' ? e.a : e.b;
       const s = loser === w.a ? 0 : loser === w.b ? 1 : -1;
@@ -539,6 +549,23 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
         if (g) g.careerEnd = t;
         close(s, t);
       }
+    };
+    /**
+     * 据险断后的守将:本国新起一位将领(部将),这一回只经手这一条史事(PersonCommand.rear)。
+     * 力战而死 = 当场战死;力竭被擒 = 不再领兵(生死照常);全师而退 = 照常是本国的将领,日后还能领兵
+     */
+    const rearGuard = (s: number, t: Year, idx: number, how: Annal['cause']) => {
+      const pid = sides[s];
+      const P = polities[pid];
+      if (!P || !(t >= P.founded) || (P.ended !== undefined && t > P.ended)) return;
+      const g = raise(pid, t);
+      (g.p.commands ??= []).push({ war: w.id, side: s as 0 | 1, from: t, until: t, first: idx, last: idx, rear: true });
+      g.busy = t;
+      if (how === 'withdrew') return;
+      g.careerEnd = Math.min(g.careerEnd, t);
+      if (how === 'captured' || (g.p.died !== undefined && g.p.died < t)) return;
+      g.p.died = t;
+      g.p.fate = 'battle';
     };
     steps.push({
       idx: w.endIdx,
@@ -774,7 +801,7 @@ function titleRulers(p: Polity, list: Person[], f: PolityFacts, base: number, ta
 }
 
 /**
- * 一场战争:双方、起止、宣战那条史事的下标、要排统帅的每一仗(没打下来的战役、战役里打下来的州;
+ * 一场战争:双方、起止、宣战那条史事的下标、要排统帅的每一仗(没打下来的战役、战役里打下来的州、据险断后;
  * 议和割让、亡国时残部归攻方的不算;史事下标)
  */
 interface WarFacts {
@@ -828,7 +855,7 @@ function warsOf(civ: PeopleInput): WarFacts[] {
       const w: WarFacts = { id: e.war, a: e.a, b: e.b, start: e.year, end: civ.endYear, decl: i, events: [], endIdx: A.length + e.war };
       byId.set(e.war, w);
       wars.push(w);
-    } else if (e.war >= 0 && (e.kind === 'battle' || (e.kind === 'conquer' && !skip.has(i)))) byId.get(e.war)?.events.push(i);
+    } else if (e.war >= 0 && (e.kind === 'battle' || e.kind === 'stand' || (e.kind === 'conquer' && !skip.has(i)))) byId.get(e.war)?.events.push(i);
     else if (e.kind === 'peace' && e.war >= 0) {
       const w = byId.get(e.war);
       if (w) {

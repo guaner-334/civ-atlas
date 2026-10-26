@@ -113,8 +113,10 @@ describe.each([7, 2024])('人物 · seed=%i', (seed) => {
         expect(c.from).toBeLessThanOrEqual(c.until);
         for (const i of [c.first, c.last]) {
           expect(A[i].war).toBe(c.war);
-          expect(['war', 'battle', 'conquer']).toContain(A[i].kind);
+          // 据险断后的守将只经手那一条 stand(不算统帅,不和统帅的任期排在一起)
+          expect(c.rear ? ['stand'] : ['war', 'battle', 'conquer', 'stand']).toContain(A[i].kind);
         }
+        if (c.rear) expect(c.first).toBe(c.last);
         expect(A[c.first].year).toBeGreaterThanOrEqual(c.from - 1e-9);
         // 经手的最后一件事时人还在:将领没过卒年(战死的死在那一件事上);君主没下台(亡国那一刻除外)
         if (x.role === 'general' && x.died !== undefined && x.fate !== 'battle') expect(A[c.last].year).toBeLessThan(x.died);
@@ -123,7 +125,7 @@ describe.each([7, 2024])('人物 · seed=%i', (seed) => {
           else expect(A[c.last].year).toBeLessThan(x.until);
         }
         const key = `${c.war}|${c.side}`;
-        bySide.set(key, [...(bySide.get(key) ?? []), { first: c.first, last: c.last, x }]);
+        if (!c.rear) bySide.set(key, [...(bySide.get(key) ?? []), { first: c.first, last: c.last, x }]);
       }
       if (x.fate === 'battle') {
         expect(x.role).toBe('general');

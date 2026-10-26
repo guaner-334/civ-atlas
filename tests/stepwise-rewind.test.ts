@@ -92,8 +92,8 @@ describe('seed 7 演绎到第 2700 年,倒回第 2675 年重新演绎', () => {
   it('弹窗里"不要了的历史"列这一段分量最重的几件,一件几个字,按先后', () => {
     const f = first!;
     const brief = rewindBrief(f.civ, 2667, 2700, fullChronicle(f.civ));
-    // 哈兹斯坦帝国伐新佩里亚、大定王朝灭后北洛国(亡国那条又单列,只算一件)、有鹰代有桂
-    expect(brief).toEqual(['哈兹斯坦伐新佩里亚', '大定灭后北洛', '有鹰代有桂']);
+    // 巴绝灭新卡萨斯坦(亡国那条又单列,只算一件)、埃维里亚伐巴绝、有鹰代有桂
+    expect(brief).toEqual(['巴绝灭新卡萨斯坦', '埃维里亚伐巴绝', '有鹰代有桂']);
     // 一件也没有:空
     expect(rewindBrief(f.civ, 2699.9, 2700, fullChronicle(f.civ))).toEqual([]);
   });

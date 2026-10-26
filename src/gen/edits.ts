@@ -470,6 +470,8 @@
  *      人在相邻的块之间搬,地力按各块的地形耗、养;州、国家的人口和田赋读按州汇总的数。历史重新推演
  *  34:打仗、看邦交时比的国力改成每年年初算一次(civ/stateTables.ts 的国力表),不再在用到的那一刻现算;公式不变。历史重新推演
  *  35:各国会议事(civ/council.ts):议直征、罢直征、分封边地、改土归流、削藩,结果改征收之法和分封,谈崩的地方割据或起兵自立。历史重新推演
+ *  36:据险断后(civ/wars.ts、civ/passes.ts):追兵只能从关隘打进、或败兵只能经关隘退回时,可能留一支兵守住关隘,追兵本来能再打下的那一州打不下来;
+ *      守关隘的将领另起一位(人物跟着变)。历史重新推演
  */
 import type { Civ, Culture, Faith, Person, Place, Polity, Regions, RulerLeanings, Settlement } from './civ/types';
 import type { AuthorCharacter } from './characters';
@@ -481,7 +483,7 @@ import type { Era } from './era';
 import type { Frontier, Origins } from './civ/frontier';
 
 /** 生成器版本:生成算法有改动、同种子会得到不同世界时加一(存档读档时核对);加一时在 GENERATOR_CHANGES 里补一条 */
-export const GENERATOR_VERSION = 35;
+export const GENERATOR_VERSION = 36;
 
 /**
  * 一版生成器的改动有多大(从小到大):打开旧存档、旧链接时,按跨过的几版里最大的那一种说清变了什么(savefile.ts 的 versionNote)
@@ -534,6 +536,7 @@ export const GENERATOR_CHANGES: Readonly<Record<number, { change: GeneratorChang
   33: { change: 'history' },
   34: { change: 'history' },
   35: { change: 'history' },
+  36: { change: 'history' },
 };
 
 /** 干预的种类(见文件头的表) */
