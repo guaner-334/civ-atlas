@@ -33,7 +33,7 @@
  *     结局照打仗的规矩:被讨平(起事的国家亡)、割据一方(议和)、或者打进都城 —— 原来的国家余下的州一并归起事的一方,亡国
  *     (wars.ts 的 overthrow,像农民起义攻破京城、建立新朝)。
  *
- *   **宗室争位、据地自立**(新君即位那一刻,polities.ts 的 onReign):先君寿终(不是遇弑、不是作者让他去世)、同一朝的下一位即位,
+ *   **宗室争位、据地自立**(新君即位那一刻,polities.ts 的 onReign):先君寿终(不是遇弑、不是作者让他去世;先君晚年新君没有引兵入朝,regents.ts)、同一朝的下一位即位,
  *     先君还有 20–60 岁、在世的儿子(不算即位的那位;royals.ts 的 claimants),至少 CLAIM_STATE 州的国家有机会起内乱:
  *     赔率 = CLAIM_ODDS × (1 + CLAIM_MORE × (这样的儿子数 − 1)) × e^(CLAIM_K × (动荡 − CLAIM_U0))。
  *     起兵的是其中最年长的那位(人物里就是他,做新国家的开国之君;生年记在 Polity.prince):以离国都远、有城的一州为起事的州,
@@ -303,6 +303,8 @@ function hook(sim: CivSim, um: UnrestModel): void {
     // 先君寿终、同一朝里交接(遇弑的由名臣迎立新君;作者立的、作者让他去世的不算)
     if (R.crown || X.crown || R.death || R.cut !== undefined || R.natural !== t || R.dynasty !== X.dynasty || X.j === 0) return;
     if (murderedAt(pm.rbase, pm.rtag[pid], R.k)) return;
+    // 先君晚年新君已引兵入朝、杀过一轮兄弟(regency.ts):不再起兵争位
+    if (pm.regents.get(pid)?.some((g) => g.kind === 'march' && g.k === R.k)) return;
     if (rebelNow(pid) || quelling(pid) || wm.iv?.unites(pid, t)) return;
     const sons = claimants(pm.rbase, pm.rtag[pid], R, P, t);
     if (!sons.length) return;

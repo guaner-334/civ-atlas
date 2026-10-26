@@ -114,6 +114,11 @@ function deedText(civ: Civ, x: Person, d: PersonDeed, east: boolean): string {
       if (east) return `${whoName}即位，年方 ${age} 岁，受遗命辅政${years ? ` ${years} 年` : ''}`;
       return `${whoName}年幼即位（${age} 岁），受命摄政${years ? ` ${years} 年` : ''}`;
     }
+    case 'power': {
+      const years = d.until !== undefined ? Math.max(1, F(d.until) - F(d.year)) : 0;
+      if (east) return `${whoName}在位时专擅朝政${years ? ` ${years} 年` : ''}，政出其门`;
+      return `${whoName}在位时独揽朝政${years ? ` ${years} 年` : ''}`;
+    }
     case 'enthrone': {
       const prev = who ? prevRuler(civ, who) : undefined;
       const prevName = prev ? personName(civ, prev) : '先君';
@@ -162,6 +167,8 @@ function deedShort(civ: Civ, x: Person, d: PersonDeed, east: boolean): string {
       return east ? `佐${short}开国` : `随${short}建国`;
     case 'regent':
       return east ? `辅幼主${short}` : `为${short}摄政`;
+    case 'power':
+      return east ? '专擅朝政' : '独揽朝政';
     case 'enthrone':
       return east ? `迎立${short}` : `拥立${short}`;
     case 'rank':

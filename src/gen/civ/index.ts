@@ -48,6 +48,8 @@ import { finishDevelopment, installDevelopment } from './development';
 import { installUnrest } from './unrest';
 import { installControl } from './control';
 import { installCouncil } from './council';
+import { installRegency } from './regency';
+import { installMarriage } from './marriage';
 import { installPlague } from './plague';
 import { cleanMix, type NameMix } from '../names';
 import { cleanFrontier, cleanOrigins, type Frontier, type Origins } from './frontier';
@@ -233,6 +235,8 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
   if (pm) installUnrest(sim, pm, seed); // 动荡(unrest.ts):饥荒、民变、大崩解
   if (pm) installControl(sim, seed); // 中央管到什么程度(control.ts):割据、抗命不出兵
   if (pm) installCouncil(sim, seed); // 议事(council.ts):直征、分封、削藩
+  if (pm) installRegency(sim, pm); // 掌实权(regency.ts):引兵入朝、太子监国、宗室摄政、名臣辅政、大臣大将专权
+  if (pm) installMarriage(sim, pm); // 联姻(marriage.ts):两国宗室结亲,少开战、易结盟
   if (pm) installPlague(sim, pm, seed); // 瘟疫(plague.ts)
   if (iv) installInterventions(sim, iv); // 阶段 4 干预:不许灭、结盟、宣战、禁止分裂(各机制在决策点查 WarModel.iv)
   progress('民族推演', 0.85);

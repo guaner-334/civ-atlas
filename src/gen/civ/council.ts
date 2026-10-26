@@ -8,7 +8,7 @@
  *     国家至少 MIN_SIZE 州、立国满 MIN_AGE 年、不在打仗;同一种议题 REST 年内不再议。
  *     依次看下面五种议题,第一种议得起来的就议它(一次只议一件)。
  *
- *   **掂量**:朝廷的底气 = 国都行政能力(af = min(1, 行政 ÷ ADMIN_FULL))、君主的倾向(发展、好战;rulers.ts)、国用不足(窘迫)、
+ *   **掂量**:朝廷的底气 = 国都行政能力(af = min(1, 行政 ÷ ADMIN_FULL))、君主的倾向(发展、好战;rulers.ts;有人掌着实权 = 掌权的人的,regents.ts)、国用不足(窘迫)、
  *     国库攒到几成;地方的阻力 = 要丢的钱占应缴几成(各州的税 × 多交的几成)、割据几处、动荡。
  *     一件议题的分 x = 底气 − 阻力 + 一点随机(± JITTER / 2);x 越过各档门槛就是办成 / 妥协 / 搁置,再低就谈崩。
  *     **有好处不等于能办成,办成了不等于能落实**:朝廷估直征多收多少时按行政能力高估一档(行政 + 1),
@@ -35,10 +35,9 @@
 import type { Annal, Civ, Polity, Year } from './types';
 import { keyed4, subSeed } from './rand';
 import type { CivSim } from './sim';
-import { polityModelOf, rulerOf, type PolityModel } from './polities';
+import { polityModelOf, rulingLeanings, type PolityModel } from './polities';
 import { politicsModelOf, type PoliticsModel } from './politics';
 import { warModelOf, type WarModel } from './wars';
-import { leaningsAt } from './rulers';
 import { capitalAt } from './growth';
 import { Cap, CAP_COUNT, devModelOf, type DevModel } from './development';
 import type { ControlModel, Warlord } from './control';
@@ -263,7 +262,8 @@ function check(sim: CivSim, pm: PolityModel, pol: PoliticsModel, wm: WarModel, c
   // 国都所在州的行政能力(发展度;不读数表的输入表:接着推时它要到下一年年初才填)
   const admin = dev.cur[capR * CAP_COUNT + Cap.Administration] || 0;
   const a = af(admin);
-  const ruler = leaningsAt(rulerOf(pm, p, t), t).leanings;
+  // 说了算的人的倾向:在位的君主,有人掌着实权就是掌权的人(regents.ts)
+  const ruler = rulingLeanings(pm, p, t);
   const keen = (ruler.develop - 50) / 50;
   const war = (ruler.war - 50) / 50;
   const tax = eng.get('税');

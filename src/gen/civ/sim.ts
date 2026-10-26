@@ -42,6 +42,8 @@ import { resumeDevelopment } from './development';
 import { resumeUnrest } from './unrest';
 import { resumeControl } from './control';
 import { resumeCouncil } from './council';
+import { resumeRegency } from './regency';
+import { resumeMarriage } from './marriage';
 import { resumePlague } from './plague';
 import { resumeInterventions, scheduleInterventions } from './interventions';
 import type { Intervention } from '../edits';
@@ -186,6 +188,12 @@ export const enum Ev {
    */
   TableTick = 51,
   /**
+   * 掌实权(regency.ts;编号 52):b = 国家。到那一刻办这国的事:掌着权的人到期了办结局(还政、伏诛、篡位、卒),
+   * 君主晚年该有的引兵入朝、太子监国看成不成。重复预约、预约了却对不上的什么都不做。
+   * 同一刻里排在看王朝、新君即位、迁都后重看边地后面(同一国),别的事件前面(见 earlyOrder)
+   */
+  Regency = 52,
+  /**
    * 看年景(动荡、饥荒、民变、大崩解,unrest.ts;编号 55–57):a = 第几次看。每隔十来年,世上几处闹灾年(干旱、寒冷的地方多),
    * 人口顶到上限的城闹饥荒、人口掉一截;闹了饥荒又动荡的大国,饥民可能起事(民变)
    */
@@ -243,6 +251,7 @@ export const EVENT_INFO: EventInfo[] = [
   { id: Ev.Diverge, name: '分化', watch: false },
   { id: Ev.DevTick, name: '发展度', watch: false },
   { id: Ev.TableTick, name: '政局', watch: false },
+  { id: Ev.Regency, name: '掌实权', watch: false },
   { id: Ev.FamineCheck, name: '看年景', watch: false },
   { id: Ev.Collapse, name: '散回部落', watch: false },
   { id: Ev.PlagueCheck, name: '看疫情', watch: false },
@@ -259,7 +268,7 @@ const TICKS_PER_YEAR = 256;
  * 别的事件 = EARLY_SPAN + 编号(预约先后,< SEQ_SPAN);民族、国家到达 = SEQ_SPAN + arrivalOrder(排在最后)。
  * 都是整数,拼起来不超过 2^53 − 1,Float64 里精确
  */
-const EARLY_SPAN = 2 ** 14;
+const EARLY_SPAN = 2 ** 15;
 const SEQ_SPAN = 2 ** 28;
 const TICK_SPAN = 2 ** 29;
 /** 能预约的最远时刻:65536 年(Float32 的变化日志在这个范围内也能精确存下 1/256 年) */
@@ -281,15 +290,15 @@ function arrivalOrder(kind: number, a: number, b: number): number {
  * - 航海时代 = 1:同一刻的别的事都按"已经能走航线"算(polities.ts 的 sailsOcean)
  * - 发展度 = 2:只读这一刻以前的事;它改的人口上限、军力、远洋,同一刻的别的事都按改过的算(接着推时按 Civ 里存的状态接上)
  * - 政局的数表 = 3:按发展度刚算的行政能力算;同一刻的别的事都读它算出来的值
- * - 看王朝、新君即位、迁都后重看边地 = 4 起:按国家号,同一国依次是看王朝、即位、重看。
+ * - 看王朝、新君即位、迁都后重看边地、掌实权 = 4 起:按国家号,同一国依次是看王朝、即位、重看、掌实权。
  *   看王朝在前:同一刻改朝换代了,旧朝原定这一刻即位的那位就不即位了(在位表重排,Ev.Reign 对不上就丢掉);
  *   即位、重看只从现有国土往外预约扩张、不改归属,排在别的事件前面 —— 接着推时 resumePolities 也是在同一刻的日志
- *   (大事改的归属除外)之前重放
+ *   (大事改的归属除外)之前重放。掌实权的事从下一刻起才算数(regents.ts),同一国同一刻预约几次也只办一回
  * - 看疫情、疫情传开 = EARLY_SPAN − 2、− 1(这几类之后、别的事件之前):接着推时它们最后才补进引擎,
  *   排在固定的位置,同一刻的别的事件(攻占、毁城)在它前还是在它后,和一口气推完一样
  * 不是这几类、或国家号超出能编的范围,返回 −1(按预约先后)
  */
-const EARLY_KINDS: Partial<Record<number, number>> = { [Ev.DynastyCheck]: 0, [Ev.Reign]: 1, [Ev.Respread]: 2 };
+const EARLY_KINDS: Partial<Record<number, number>> = { [Ev.DynastyCheck]: 0, [Ev.Reign]: 1, [Ev.Respread]: 2, [Ev.Regency]: 3 };
 function earlyOrder(kind: number, b: number): number {
   if (kind === Ev.Upheaval) return 0;
   if (kind === Ev.AgeOfSail) return 1;
@@ -298,8 +307,8 @@ function earlyOrder(kind: number, b: number): number {
   if (kind === Ev.PlagueCheck) return EARLY_SPAN - 2;
   if (kind === Ev.PlagueStep) return EARLY_SPAN - 1;
   const i = EARLY_KINDS[kind];
-  if (i === undefined || !(b >= 0 && b < (EARLY_SPAN - 6) / 3 - 1)) return -1;
-  return 4 + b * 3 + i;
+  if (i === undefined || !(b >= 0 && b < (EARLY_SPAN - 6) / 4 - 1)) return -1;
+  return 4 + b * 4 + i;
 }
 
 /** 多看一眼(Ev.Look)用的"第几次"从这里往上数(看邻国、内政、王朝的寻常第几次到不了这么大) */
@@ -510,6 +519,8 @@ export class CivSim {
       resumeUnrest(sim, world, civ);
       resumeControl(sim, civ);
       resumeCouncil(sim, civ);
+      resumeRegency(sim, civ);
+      resumeMarriage(sim, civ);
       resumePlague(sim, world, civ, iv?.list);
       if (iv) resumeInterventions(sim, iv);
       sim.releaseHeld();

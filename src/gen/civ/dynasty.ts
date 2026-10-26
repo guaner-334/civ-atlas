@@ -21,6 +21,8 @@
  *     就迁都根据地("定都青阳");否则入主旧都。新朝的国号档位照旧(国号只升不降)。
  *   动荡:迁都会让分合(politics.ts)的"动荡"加上迁都那一项,改朝换代本身再加一项(见 politics.ts 的 CRISIS_DYNASTY):
  *     改朝换代之后几十年里,边远之地更容易割据自立。
+ *   没改朝换代的那一次:看会不会出一位专权的大臣、大将(DynastyModel.strong,regency.ts 挂上)。
+ *   掌实权的名臣、大臣到期篡位的改朝换代不在这里(regency.ts,新朝起于国都,先记 regent 再记 dynasty)。
  *
  * 东方 / 西幻(Polity.eastern)要等推演结束、按民族最终的语感起名时才定(naming.ts),推演里分不出来:
  * 两边的赔率一样(欧洲的王室也是两三百年一换),起名后东方写"改朝换代"(换国号、地图上的国名跟着变),
@@ -105,6 +107,8 @@ export interface DynastyModel {
   base: number;
   /** 照大纲顺着引时替国家 p 多看一眼王朝(hook 里填;k ≥ LOOK_K,随机数按它取,不接着预约) */
   look?: (p: number, k: number, t: Year) => void;
+  /** 看王朝时没改朝换代:看会不会出一位专权的大臣、大将(regency.ts 挂上) */
+  strong?: (p: number, t: Year) => void;
 }
 
 const models = new WeakMap<CivSim, DynastyModel>();
@@ -243,13 +247,17 @@ function hook(sim: CivSim, dm: DynastyModel): void {
     if (!P || P.ended !== undefined) return;
     if (k < LOOK_K) sim.schedule(checkTime(dm, p, k + 1), Ev.DynastyCheck, k + 1, p);
     if (P.lineage === 'republic') return; // 海洋城邦共和一系没有王室
+    // 没改朝换代:看会不会出一位专权的大臣、大将(regency.ts;照大纲多看的一眼不算)
+    const strong = () => {
+      if (k < LOOK_K) dm.strong?.(p, t);
+    };
     // 东方 / 西幻(Polity.eastern)推演结束起名时才定,这里一视同仁:同一件事,起名后东方写"改朝换代",西幻写"王室更迭"
     const age = t - dynastyStart(P);
-    if (age < MIN_AGE || !eligible(pm, p, age)) return;
+    if (age < MIN_AGE || !eligible(pm, p, age)) return strong();
     const odds = ODDS * fexp((age - AGE_REF) / AGE_SCALE) * unrest(P, t);
-    if (keyed(dm.base, pm.ptag[p], k, U_ROLL) >= odds / (1 + odds)) return;
+    if (keyed(dm.base, pm.ptag[p], k, U_ROLL) >= odds / (1 + odds)) return strong();
     const r = pickBase(P, k, t);
-    if (r < 0) return;
+    if (r < 0) return strong();
     const seat = pm.cityOf[r];
     let sid = capitalAt(P, t);
     const capR = pm.settlements[sid].region;

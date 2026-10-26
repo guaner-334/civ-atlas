@@ -102,6 +102,8 @@ function pairAt(civ: Civ, T: number): [number, number] {
 function officerAt(civ: Civ, role: 'general' | 'minister', T: number): Person | undefined {
   const live = (civ.people ?? []).filter((x) => {
     if (x.role !== role || (x.died !== undefined && x.died <= T)) return false;
+    // 名臣还要在朝(已经致仕、随故朝去职的,让他去世不生效)
+    if (role === 'minister' && x.until !== undefined && x.until <= T) return false;
     const from = role === 'general' ? x.commands?.[0]?.from : x.from;
     return from !== undefined && from < T;
   });

@@ -20,6 +20,8 @@
  *     不来就是坐视不救,盟约就此断了(unally,cause = abandon);守方的宗主(和攻方接壤)有 RESCUE 的机会发兵来救。
  *     盟国的方针把守方当亲国的,援盟的机会是 FRIEND_JOIN;当仇国的不救(盟约断了);把攻方当亲国的不出兵(policy.ts)。
  *     援盟、救藩参战的不再连锁。
+ *   联姻(marriage.ts):看邦交时先看要不要结亲(不占"一次最多出一件事");结着亲的两国挑盟友时分数 × KIN_PACT、援盟的机会 × KIN_JOIN
+ *     (都随结亲的年数淡回,见 marriages.ts 的 bond)。
  *   - 每一仗之后(WarModel.sue):守方打得很惨(丢了国都,或丢了 SUE_FRAC 以上国土)、攻方国力是它 SUE_RATIO 倍以上
  *     (守方在位的君主好战越低越肯称臣、越高越宁可打下去,rulers.ts),
  *     守方可能奉表称臣、攻方受降罢兵:当即议和(占了的州照旧归攻方),紧跟着记 submit(守方正和攻方的藩属交兵时不受降)。异族、攻方另有战事、离攻方国都远,攻方更肯受降。
@@ -47,6 +49,7 @@ import { fpow, keyed, keyed4, subSeed } from './rand';
 import { bookChain, Ev, quantize, type CivSim } from './sim';
 import { befriends, canCross, effOf, endPolity, hates, picks, policyAt, polityModelOf, powerScaleOf, type PolityModel } from './polities';
 import { FRIEND_JOIN, FRIEND_PACT } from './policy';
+import { KIN_JOIN, KIN_PACT } from './marriages';
 import { polityBorders, warModelOf, type War, type WarModel } from './wars';
 import { capitalAt, polityAlive, populationAt } from './growth';
 import { politicsModelOf } from './politics';
@@ -186,6 +189,12 @@ export class DiplomacyModel {
    * 自然开战都先避开了这些(背盟先记了 unally),只有作者下令的宣战会走到这里
    */
   sever?: (x: number, y: number, t: Year, war: number) => void;
+  /** 接壤的在世邻国(installDiplomacy 挂上;联姻挑亲家用) */
+  neighborsOf?: (p: number) => number[];
+  /** 看邦交时(第 k 次)先看要不要和别国结亲(marriage.ts 挂上) */
+  marry?: (p: number, k: number, t: Year) => void;
+  /** 两国结着亲的分量(marriage.ts 挂上;0 = 没有 / 断了,1 = 刚结亲,KIN_FADE 年里淡到 0):挑盟友、援盟照它加 */
+  bond?: (p: number, q: number, t: Year) => number;
 
   constructor(pm: PolityModel) {
     this.pm = pm;
@@ -361,6 +370,7 @@ export function installDiplomacy(sim: CivSim, pm: PolityModel, dm: DiplomacyMode
     }
     return [...out].sort((x, y) => x - y);
   };
+  dm.neighborsOf = neighbors;
   /** 和作者下令的结盟一起算:两国此刻不会互相宣战 */
   const friendly = (p: number, q: number, t: number) => dm.friendly(p, q) || !!wm.iv?.allied(p, q, t);
   /** p 正在和 L 的某个藩属交兵(这时不向 L 称臣:称了臣就和那个藩属同是 L 的藩属,不该还在打) */
@@ -492,6 +502,8 @@ export function installDiplomacy(sim: CivSim, pm: PolityModel, dm: DiplomacyMode
       if (pz < PACT_MIN_POWER * pf || (!war && pf < PACT_FEAR * pz)) continue;
       let score = Math.min(1, pz / pf) * (war ? PACT_COWAR : 1) * (borders(p, z) ? 1.5 : 1);
       if (pol && picks(pm, pol.friends, z)) score *= FRIEND_PACT;
+      // 结着亲的先找(marriage.ts)
+      if (dm.bond) score *= 1 + (KIN_PACT - 1) * dm.bond(p, z, t);
       if (score > bestScore) {
         bestScore = score;
         best = z;
@@ -511,6 +523,8 @@ export function installDiplomacy(sim: CivSim, pm: PolityModel, dm: DiplomacyMode
     const P = pm.polities[p];
     if (!P || P.ended !== undefined) return;
     sim.schedule(checkTime(dm, p, k + 1), Ev.DiplomacyCheck, k + 1, p);
+    // 结亲(marriage.ts):不占"一次最多出一件事"
+    dm.marry?.(p, k, t);
     const L = dm.liegeOf(p);
     if (L >= 0) {
       tryDefect(p, L, k, t);
@@ -540,7 +554,9 @@ export function installDiplomacy(sim: CivSim, pm: PolityModel, dm: DiplomacyMode
     for (const z of dm.alliesOf(y)) {
       // 国家方针(policy.ts):z 把攻方当亲国的不出兵(盟约不断);把守方当亲国的更肯出兵,当仇国的不救(盟约就此断了)
       if (z === x || !alive(z) || friendly(z, x, t) || befriends(pm, z, x, t) || fighting(z, x) || halted(z, t) || busy(z) || !borders(z, x)) continue;
-      const join = hates(pm, z, y, t) ? 0 : befriends(pm, z, y, t) ? FRIEND_JOIN : PACT_JOIN;
+      let join = hates(pm, z, y, t) ? 0 : befriends(pm, z, y, t) ? FRIEND_JOIN : PACT_JOIN;
+      // 结着亲的更肯出兵(marriage.ts)
+      if (join > 0 && dm.bond) join *= 1 + (KIN_JOIN - 1) * dm.bond(z, y, t);
       if (keyed4(dm.base, pm.ptag[z], pm.ptag[x], Math.round(t * 256), U_JOIN) < join) wm.declare!(z, x, t, y, 'ally');
       else record('unally', { a: z, b: y, war: w.id, cause: 'abandon' });
     }

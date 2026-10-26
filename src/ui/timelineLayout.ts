@@ -69,6 +69,8 @@ const KIND_TYPE: Readonly<Record<string, EvType>> = {
   reclaim: 'dynasty',
   fiscal: 'calamity',
   council: 'dynasty',
+  regent: 'dynasty',
+  marry: 'empire',
 };
 
 /** 这条纪事归哪一类(不认识的种类算"改朝":蓝色,和普通链接一样不抢眼) */
@@ -184,6 +186,8 @@ const KIND_WEIGHT: Readonly<Record<string, number>> = {
   defy: 1,
   fiscal: 1,
   council: 2,
+  regent: 3,
+  marry: 1,
   submit: 4,
   defect: 4,
   alliance: 2,

@@ -156,7 +156,7 @@ export function rulerTags(polities: readonly Pick<Polity, 'capital'>[], cellOf: 
 }
 
 /** 一国的君主要用到的国家字段 */
-export type ReignPolity = Pick<Polity, 'founded' | 'dynasties' | 'lineage' | 'kind' | 'prince'>;
+export type ReignPolity = Pick<Polity, 'founded' | 'dynasties' | 'lineage' | 'kind' | 'prince' | 'seizes'>;
 
 /**
  * 第 k 位君主(这一朝第 j 位)从 from 年即位:即位的年纪、不被打断时在位到哪年、倾向。
@@ -184,13 +184,21 @@ export function reignStep(
     L = 1 + REIGN_MAX * fpow(R(U_REIGN), REIGN_EXP);
   }
   if (A + L > MAX_AGE) L = Math.max(1, MAX_AGE - A);
-  const bias = LEANING_BIAS[republic ? 'republic' : kind === 'nomad' ? 'nomad' : kind === 'sea' ? 'sea' : 'default'];
+  return { age: A, natural: q(from + L), leanings: drawLeanings(R, lineage, kind) };
+}
+
+/**
+ * 按随机数 R(用途)取一份倾向(君主、掌实权的叔伯、名臣、大将同一种取法,见 regency.ts):每项两个均匀数取平均,
+ * 加上这类国家的偏移(LEANING_BIAS),再加 shift(大将好战偏高),夹到 0–100
+ */
+export function drawLeanings(R: (use: number) => number, lineage: PolityLineage | undefined, kind: CultureKind, shift?: Partial<RulerLeanings>): RulerLeanings {
+  const bias = LEANING_BIAS[lineage === 'republic' ? 'republic' : kind === 'nomad' ? 'nomad' : kind === 'sea' ? 'sea' : 'default'];
   const leanings = {} as RulerLeanings;
   LEANINGS.forEach((key) => {
     const u = (R(LEANING_USE[key]) + R(LEANING_USE[key] + 1)) / 2;
-    leanings[key] = Math.min(100, Math.max(0, Math.round(100 * u + bias[key])));
+    leanings[key] = Math.min(100, Math.max(0, Math.round(100 * u + bias[key] + (shift?.[key] ?? 0))));
   });
-  return { age: A, natural: q(from + L), leanings };
+  return leanings;
 }
 
 /** 作者立的君主(干预"即位"生效了的一条;推演里登记在 PolityModel.acts,接着推、排人物时由 actsFrom 推出来) */
@@ -223,6 +231,19 @@ export interface RulerTemper {
   kind: 'temper';
   t: Year;
   iv: number;
+  leanings: RulerLeanings;
+}
+
+/**
+ * 宗室摄政篡位(regency.ts;不是干预,存在 Polity.seizes,在位表排的时候并进来):t 那一刻在位表第 k 位(幼主)下台,
+ * 摄政的叔父接着在位(第 k + 1 位,同一朝),生年、倾向照摄政时的,在位到 until。那一刻在位的不是第 k 位就不起作用
+ */
+export interface RulerSeize {
+  kind: 'seize';
+  t: Year;
+  k: number;
+  born: Year;
+  until: Year;
   leanings: RulerLeanings;
 }
 
@@ -317,8 +338,10 @@ export interface Reign {
   moods?: Mood[];
   /** 等他下台再即位的作者人物(干预"即位"带 after;他到期下台、被作者让他去世时由这位继位) */
   heir?: Crown;
-  /** 从即位的下一刻起才算在位(前一位被作者让他去世:同一刻里先发生的事照前一位算) */
+  /** 从即位的下一刻起才算在位(前一位被作者让他去世、被摄政的叔父废了:同一刻里先发生的事照前一位算) */
   late?: true;
+  /** 摄政的叔父废了幼主自立(Polity.seizes 的那一条;regency.ts);别的不给 */
+  seize?: RulerSeize;
 }
 
 /** 改过的倾向 */
@@ -345,6 +368,10 @@ interface Book {
   dyn: number;
   /** 排的时候有哪几条改在位表的干预(按先后;和传进来的逐个比,不一样就重排) */
   acts: readonly RulerAct[];
+  /** 排的时候 Polity.seizes 有几条(多了就重排) */
+  sz: number;
+  /** 干预和宗室篡位并在一起(按时刻;同一刻宗室篡位在前:它在那一刻最先的几类事件里办,干预在后) */
+  all: readonly (RulerAct | RulerSeize)[];
   reigns: Reign[];
   /** 下一位:第几朝、这一朝第几位、即位年份;等前一位下台再即位的作者人物 */
   i: number;
@@ -373,18 +400,40 @@ const sameActs = (a: readonly RulerAct[], b: readonly RulerAct[]) => a.length ==
 export function reignBook(base: number, tag: number, p: ReignPolity, t: Year, acts: readonly RulerAct[] = NO_ACTS): readonly Reign[] {
   const segs = p.dynasties?.length ? p.dynasties : null;
   const dyn = segs ? segs.length : 1;
+  const sz = p.seizes?.length ?? 0;
   let b = books.get(p);
-  if (!b || b.dyn !== dyn || b.tag !== tag || !sameActs(b.acts, acts)) {
-    b = { tag, dyn, acts: acts.length ? acts.slice() : NO_ACTS, reigns: [], i: 0, j: 0, from: p.founded, heir: null, ci: 0 };
+  if (!b || b.dyn !== dyn || b.tag !== tag || b.sz !== sz || !sameActs(b.acts, acts)) {
+    const own = acts.length ? acts.slice() : NO_ACTS;
+    let all: (RulerAct | RulerSeize)[] = own as RulerAct[];
+    if (sz) {
+      // 并在一起:按时刻,同一刻宗室篡位在前(稳定排序,各自原来的先后不变)
+      const seizes: RulerSeize[] = p.seizes!.map((x) => ({ kind: 'seize', t: x.year, k: x.k, born: x.born, until: x.until, leanings: x.leanings }));
+      all = [...seizes, ...own].map((c, i) => ({ c, i })).sort((u, v) => u.c.t - v.c.t || (u.c.kind === 'seize' ? 0 : 1) - (v.c.kind === 'seize' ? 0 : 1) || u.i - v.i).map((x) => x.c);
+    }
+    b = { tag, dyn, acts: own, sz, all, reigns: [], i: 0, j: 0, from: p.founded, heir: null, ci: 0 };
     books.set(p, b);
   }
   /** 第 i 朝到哪一刻为止(最后一朝 = 不断) */
   const segEnd = (i: number) => (i + 1 < dyn ? segs![i + 1].year : Infinity);
-  /** 寻常的第 k 位(这一朝第 j 位)从 from 即位 */
+  /** 寻常的第 k 位(这一朝第 j 位)从 from 即位;掌实权的名臣、大臣篡位开的朝(Polity.dynasties 的 usurper),第一位照他的生年、倾向 */
   const regular = (k: number, dynasty: number, j: number, from: Year): Reign => {
-    const s = reignStep(base, tag, k, j, from, p.lineage, p.kind, k === 0 ? p.prince : undefined);
-    return { k, dynasty, j, from, age: s.age, natural: s.natural, leanings: s.leanings, eff: leaningEffect(s.leanings) };
+    const u = j === 0 && dynasty > 0 ? segs?.[dynasty]?.usurper : undefined;
+    const s = reignStep(base, tag, k, j, from, p.lineage, p.kind, u ? u.born : k === 0 ? p.prince : undefined);
+    const leanings = u ? { ...u.leanings } : s.leanings;
+    return { k, dynasty, j, from, age: s.age, natural: s.natural, leanings, eff: leaningEffect(leanings) };
   };
+  /** 摄政的叔父(c)废了幼主,做第 k 位(这一朝第 j 位),从 from 即位 */
+  const seizer = (c: RulerSeize, k: number, dynasty: number, j: number, from: Year): Reign => ({
+    k,
+    dynasty,
+    j,
+    from,
+    age: from - c.born,
+    natural: Math.max(c.until, q(from + 1 / TICK)),
+    leanings: { ...c.leanings },
+    eff: leaningEffect(c.leanings),
+    seize: c,
+  });
   /** 作者的人物(c)做第 k 位(这一朝第 j 位),从 from 即位 */
   const author = (c: Crown, k: number, dynasty: number, j: number, from: Year): Reign => ({
     k,
@@ -406,7 +455,7 @@ export function reignBook(base: number, tag: number, p: ReignPolity, t: Year, ac
     L.push(b.heir ? author(b.heir, k, b.i, b.j, b.from) : regular(k, b.i, b.j, b.from));
     b.heir = null;
     // 改在位表的干预(见上)
-    for (let c = b.acts[b.ci]; c; c = b.acts[b.ci]) {
+    for (let c = b.all[b.ci]; c; c = b.all[b.ci]) {
       const cur = L[L.length - 1];
       if (c.t < cur.from) {
         b.ci++; // 不该发生(立国以前、排过了头):不管它
@@ -414,7 +463,15 @@ export function reignBook(base: number, tag: number, p: ReignPolity, t: Year, ac
       }
       const early = c.t === cur.from && reignStart(cur) > cur.from;
       if (!early && c.t >= Math.min(cur.natural, segEnd(cur.dynasty))) break;
-      if (c.kind === 'crown' && !c.after) {
+      if (c.kind === 'seize') {
+        // 宗室摄政篡位:那一刻在位的是那位幼主才算(他先去世、被废、改朝换代了 = 落空)
+        if (!early && cur.k === c.k) {
+          cur.cut = c.t;
+          const next = seizer(c, cur.k + 1, cur.dynasty, cur.j + 1, c.t);
+          next.late = true;
+          L.push(next);
+        }
+      } else if (c.kind === 'crown' && !c.after) {
         if (early) L[L.length - 1] = author(c, cur.k, cur.dynasty, cur.j, c.t);
         else {
           cur.cut = c.t;

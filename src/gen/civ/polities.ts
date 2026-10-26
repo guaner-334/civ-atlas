@@ -33,7 +33,7 @@ import { Biome } from '../biomes';
 import type { World } from '../world';
 import { MinHeap } from '../util';
 import { geometryOf } from '../geometry';
-import { AdjKind, Layer, type ChangeLog, type Civ, type Culture, type NamePins, type Polity, type PolityLineage, type Regions, type Settlement, type Year } from './types';
+import { AdjKind, Layer, type ChangeLog, type Civ, type Culture, type NamePins, type Polity, type PolityLineage, type Regions, type RulerLeanings, type Settlement, type Year } from './types';
 import { BIOME_COST } from './habitat';
 import { anchorTag, fexp, fpow, keyed, subSeed } from './rand';
 import { WORTH_EXP } from './frontier';
@@ -46,6 +46,7 @@ import type { RouteCity } from './routes';
 import type { InterventionModel } from './interventions';
 import { actsFrom, leaningsAt, reignAt, reignBook, reignStart, rulerBase, type LeaningEffect, type Reign, type RulerAct } from './rulers';
 import { POLICY_RESPREAD, policiesFrom, policySeg, powerScale, segAt, segEffect, unrestShift, type PolicyIv, type PolicySeg } from './policy';
+import { regencyBase, regentAt, regentsFrom, type Regency, type RegencyCtx } from './regents';
 
 // ---- 调参(以截图效果为准) ----
 /** 州有人定居后,过这么多年建城(随机) */
@@ -212,6 +213,11 @@ export interface PolityModel {
    * 接着推时由史事推出来(policy.ts 的 policiesFrom),不存进 Civ
    */
   policies: Map<number, PolicySeg[]>;
+  /**
+   * 国家 → 掌实权的几段(regency.ts 的 Regency,按掌权先后;同一国同一时刻至多一段在掌权)。在掌权的那段,扩张算账、打仗、议和、邦交、议事
+   * 照掌权的人的倾向(effOf);接着推时由史事 regent 推出来(regency.ts 的 regentsFrom),不存进 Civ
+   */
+  regents: Map<number, Regency[]>;
 }
 
 /** 升序数组里的位置(第一个 ≥ r 的下标) */
@@ -467,9 +473,26 @@ export function effFor(m: PolityModel, pid: number, r: Reign, t: Year): LeaningE
   return segEffect(segAt(m.policies.get(pid), t), r.moods ? leaningsAt(r, t) : r);
 }
 
-/** 国家 pid 在 t 这一刻做决定用的倍数:在位君主的倾向加上方针(policy.ts;没有方针 = 君主的) */
+/**
+ * 国家 pid 在 t 这一刻做决定用的倍数:在位君主的倾向加上方针(policy.ts;没有方针 = 君主的)。
+ * 有人掌着实权(regency.ts)的那几年照掌权的人的倾向(方针照旧加在上面)
+ */
 export function effOf(m: PolityModel, pid: number, t: Year): LeaningEffect {
-  return effFor(m, pid, rulerOf(m, pid, t), t);
+  const r = rulerOf(m, pid, t);
+  const g = m.regents.size ? regentAt(m.polities[pid], m.regents.get(pid), t, r) : null;
+  return g ? segEffect(segAt(m.policies.get(pid), t), g) : effFor(m, pid, r, t);
+}
+
+/** 国家 pid 在 t 这一刻说了算的人的倾向:有人掌着实权 = 掌权的人的,不然 = 在位君主此刻的(作者改过的按改过的) */
+export function rulingLeanings(m: PolityModel, pid: number, t: Year): RulerLeanings {
+  const r = rulerOf(m, pid, t);
+  const g = m.regents.size ? regentAt(m.polities[pid], m.regents.get(pid), t, r) : null;
+  return g ? g.leanings : leaningsAt(r, t).leanings;
+}
+
+/** 掌实权推算要用的那几样(regents.ts):在位表照这国此刻的(带干预、宗室篡位) */
+export function regencyCtx(m: PolityModel): RegencyCtx {
+  return { rbase: m.rbase, base: regencyBase(m.seed), tag: m.rtag, polities: m.polities, book: (pid, t) => bookOf(m, pid, t) };
 }
 
 /** 方针里的国家键(亲、仇)有没有指着 q(键要用时才解析,见 interventions.ts 的 resolve) */
@@ -893,6 +916,7 @@ function emptyModel(T: CultureTerrain, cultures: Culture[], seed: number, port: 
     acts: new Map(),
     retune: new Map(),
     policies: new Map(),
+    regents: new Map(),
   };
 }
 
@@ -1275,6 +1299,7 @@ export function resumePolities(sim: CivSim, world: World, civ: Civ, iv?: Interve
     titles: (p.titles ?? []).map((t) => ({ ...t })),
     capitals: (p.capitals ?? [{ year: p.founded, settlement: p.capital }]).map((c) => ({ ...c })),
     ...(p.dynasties ? { dynasties: p.dynasties.map((d) => ({ ...d })) } : {}),
+    ...(p.seizes ? { seizes: p.seizes.map((x) => ({ ...x })) } : {}),
   }));
   // 作者立的君主、让君主去世、改君主倾向:生效了的由史事推出来,在位表照它排(和推演时一样)
   m.acts = actsFrom(civ.annals, iv?.list);
@@ -1290,6 +1315,8 @@ export function resumePolities(sim: CivSim, world: World, civ: Civ, iv?: Interve
     m.rtag.push(nextTag(m.rAt, m.settlements[p.capital].cell));
     m.reigned.push(true);
   }
+  // 掌实权的几段:由史事推出来(regency.ts;下面重放扩张算账时就要照掌权的人的倾向算,和推演时一样)
+  m.regents = regentsFrom(regencyCtx(m), civ.annals);
   // 各国历任国都的路程表(按国都所在州缓存)
   const distCache = new Map<number, Float32Array>();
   // t = 用这张表的时刻(渡海的一档按它定,见 voyageOf)

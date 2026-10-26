@@ -300,7 +300,8 @@ describe('真实世界', () => {
       for (let i = 1; i < marks.length; i++) expect(marks[i].x - marks[i - 1].x).toBeGreaterThanOrEqual(DIAMOND_GAP - 1e-9);
       for (const d of marks) expect(d.x >= 0 && d.x <= width).toBe(true);
     }
-    expect(layoutDiamonds(majors, civ.endYear, 900).marks.length).toBeGreaterThan(majors.length / 2);
+    // 一个菱形平均不到两件多(GENERATOR_VERSION 37 多了帝国的掌实权,后几百年的大事挤一些)
+    expect(layoutDiamonds(majors, civ.endYear, 900).marks.length).toBeGreaterThan(majors.length * 0.45);
   });
 
   it('seed 7:每条大事都找得到事发地,在陆地上', () => {

@@ -96,21 +96,21 @@ describe.each([7, 2024])('世系图 · seed=%i', (seed) => {
 });
 
 describe('世系图 · seed=7 的卢梅亚、埃维里亚', () => {
-  // GENERATOR_VERSION 23 时的世界(以前用的桑在新的历史里没有了)
+  // GENERATOR_VERSION 37 时的世界(以前用的桑在新的历史里没有了)
   it('维斯佩拉朝:标题、结尾、篡位的开国之君是树根;威尔贝尔特二世的父亲是没即位的特里斯贝尔特;受旧朝之后才兴的王室,开国之君的父亲算本朝宗室', () => {
     const civ = civOf(7);
     const id = civ.polities.findIndex((p) => p.name === '卢梅亚');
     const rows = dynastyRows(civ, id);
-    expect(rows.map((r) => r.name)).toEqual(['法博纳', '奥斯提卡', '维斯佩拉', '卡波纳', '维卡伦纳', '科伦纳', '索利卡']);
+    expect(rows.map((r) => r.name)).toEqual(['法博纳', '奥斯提卡', '维斯佩拉', '拉沃罗纳', '法洛纳', '克拉罗拉', '维拉里亚', '索利卡']);
     const i = rows.findIndex((r) => r.name === '维斯佩拉');
-    expect(dynastyNote(civ, rows, i)).toBe('1226–1584 年，16 位君主；朱利尼乌斯一世篡位');
-    expect(dynastyEnd(civ, rows, i)).toBe('1584 年，王室更迭，卡波纳兴');
-    expect(dynastyEnd(civ, rows, i - 1)).toBe('1226 年，朱利尼乌斯一世篡位');
+    expect(dynastyNote(civ, rows, i)).toBe('1016–1346 年，12 位君主；奥克提乌斯一世篡位');
+    expect(dynastyEnd(civ, rows, i)).toBe('1346 年，王室更迭，拉沃罗纳兴');
+    expect(dynastyEnd(civ, rows, i - 1)).toBe('1016 年，奥克提乌斯一世篡位');
     expect(dynastyEnd(civ, rows, rows.length - 1)).toBe('');
     expect(dynastyNote(civ, rows, 0)).toMatch(/；.+立国$/);
-    expect(dynastyRowAt(rows, 1400)).toBe(i);
+    expect(dynastyRowAt(rows, 1200)).toBe(i);
     // 篡位的权臣没有连上父亲:这一朝的树从他起
-    expect(layoutDynasty(civ, rows[i])[0].nodes[0].p).toMatchObject({ role: 'ruler', name: '朱利尼乌斯' });
+    expect(layoutDynasty(civ, rows[i])[0].nodes[0].p).toMatchObject({ role: 'ruler', name: '奥克提乌斯' });
     const ev = civ.polities.findIndex((p) => p.name === '埃维里亚');
     const xw = civ.people!.find((x) => x.name === '威尔贝尔特' && x.role === 'ruler' && x.polity === ev && fatherOf(civ, x)?.role === 'prince')!;
     const f = fatherOf(civ, xw) as Person;
@@ -126,14 +126,17 @@ describe('世系图 · seed=7 的卢梅亚、埃维里亚', () => {
     expect(root).toMatchObject({ role: 'prince', name: '慕容风墨' });
     expect(root.died!).toBeLessThan(cr[h].from);
     expect(princeRole(civ, root)).toBe('大岳宗室');
-    // 哈兹斯坦的萨拉巴德王室:开国之君的父亲死在新朝之前,不写成上一朝(塔拉尼亚)的宗室
-    const w = civ.polities.findIndex((p) => p.name === '哈兹斯坦');
-    const wr = dynastyRows(civ, w);
-    const k = wr.findIndex((r) => r.name === '萨拉巴德');
-    const wroot = layoutDynasty(civ, wr[k])[0].nodes[0].p;
-    expect(wroot).toMatchObject({ role: 'prince' });
-    expect(wroot.died!).toBeLessThan(wr[k].from);
-    expect(wr[k - 1].name).toBe('塔拉尼亚');
-    expect(princeRole(civ, wroot)).not.toContain('塔拉尼亚');
+    // 凡是开国之君的父亲死在新朝之前的(树根是没即位的宗室),都不写成上一朝的宗室
+    let roots = 0;
+    for (const p of civ.polities) {
+      const pr = dynastyRows(civ, p.id);
+      pr.forEach((r, k) => {
+        const top = k > 0 ? layoutDynasty(civ, r)[0]?.nodes[0]?.p : undefined;
+        if (top?.role !== 'prince' || !(top.died! < r.from)) return;
+        roots++;
+        expect(princeRole(civ, top), `${p.name} ${r.name}`).not.toContain(pr[k - 1].name);
+      });
+    }
+    expect(roots).toBeGreaterThan(0);
   });
 });

@@ -41,7 +41,7 @@ describe('中央管到什么程度', () => {
       dev.controlYears!.forEach((y, i) => i && expect(y - dev.controlYears![i - 1]).toBe(20));
       const R = civ.regions.count;
       const seen = [0, 0, 0, 0];
-      for (const y of [1000, 2000, 3000]) {
+      for (const y of [1000, 1500, 2000, 2500, 3000]) {
         const snap = controlAt(civ, y)!;
         expect(snap.length).toBe(R);
         const own = ownersAt(civ, y);
