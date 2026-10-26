@@ -4,11 +4,12 @@
  * 事件层(打仗、分裂、割据、民变、大崩解……)读的是最近一次算出来的值(每年年初算一次,年里的事下一年才算进去)。
  *
  * 一步里的先后(after):管得到几成、离国都多远、开垦了几成、兵祸 → 地力 → 挤不挤 → 乡村人口(按地块)→ 按州汇总 → 钱粮(应缴、实收 → 岁入、岁出 → 国库 → 窘迫)
- * → 动荡底(读这一步刚算完的离国都多远、窘迫)→ 动荡(压到 0 以上、加上割据)。
+ * → 动荡底(读这一步刚算完的离国都多远、窘迫)→ 动荡(压到 0 以上、加上割据);国力(读管得到几成)。
  * 输入表(事件层每年填好):国(编号表,州 → 国);各州离国都的路程、是不是国都、是不是异族、被征服了几年、有没有大城、是不是割据的地盘、
  * 乡村人口上限、长得多快、上一步以来的兵灾几件、上一步以来的饥荒水旱几件;按地块的:分到一州上限的几成、有几个邻块有人住过、地经不经得住种;
  * 各国国都所在州的行政能力、危机、当朝几年、近年闹饥荒 / 染疫的州数、在讨伐的民变、割据几处、有几州、在打几场仗、纳贡收贡。
- * 每 FISCAL_EVERY 年填一次(只给按州的三样收入用):各州城的人口、生产和运输能力、有没有港口、大河。
+ * 各州城的人口(每年填);每 FISCAL_EVERY 年填一次(只给按州的三样收入用):生产和运输能力、有没有港口、大河。
+ * 各国的军力系数、方针给的国力倍数(每年填)。
  *
  * **乡村人口**(每 POP_EVERY 年算一次,千人;population.ts):
  *   按州的:开垦了几成(垦,0–1):这州建了第一座城起从 1 / (1 + GROWTH_A) 按 S 形曲线长(速度 = 那座城的增长速度),是"太平年景该有多少人"的底子;
@@ -34,6 +35,10 @@
  *   国库 = 上一年的 + 岁入 − 岁出,压在 0 到 RESERVE 年的应缴之间。
  *   窘迫(0–1):国库空了还入不敷出时 = 缺口占岁出的几成 × GAIN(最多 1);新朝初立 GRACE 年内不算。
  *   窘迫加进动荡(FISCAL_W × 窘迫),也让宣战少、战事早罢(wars.ts 读)。
+ *
+ * **国力**(一年一算,按国;打仗的胜率、看邦交时比强弱读它,wars.ts、diplomacy.ts):
+ *   国力 = 各州城的人口 × 出兵的几成之和(至少 1)× 军力系数 × 方针给的国力倍数;
+ *   出兵的几成 = 管得到几成 + LEVY_0(最多 1),割据的地盘 0(抗命不出兵)。
  */
 import type { TableCard } from './tables';
 import { NEVER } from './devTables';
@@ -51,6 +56,7 @@ export interface ControlRuleConsts {
   REMOTE_MAX: number;
   LORD_U: number;
   LORD_U_MAX: number;
+  LEVY_0: number;
 }
 
 /** 动荡的常数(unrest.ts 给;名字和那边一样) */
@@ -137,7 +143,7 @@ export function stateCards(c: ControlRuleConsts, u: UnrestRuleConsts, f: FiscalR
     cell('有人邻块', '有几个邻块有人住过(所在州建过城、养得了人)'),
     cell('脆', '地力经不经得住种(荒漠 1,草原 0.7……;挨着大河减半)'),
     num('新荒', '上一步以来本州的饥荒、大水、大旱有几件'),
-    num('城民', '城的人口(千人;每 FISCAL_EVERY 年填一次)'),
+    num('城民', '城的人口(千人)'),
     num('生产', '生产能力(同上)'),
     num('运输', '运输能力(同上)'),
     num('港口', '有没有港口(同上)'),
@@ -153,6 +159,8 @@ export function stateCards(c: ControlRuleConsts, u: UnrestRuleConsts, f: FiscalR
     pol('战事', '在打几场仗'),
     pol('纳贡', '交给宗主的贡赋'),
     pol('收贡', '藩属交来的贡赋'),
+    pol('军力', '军力系数(国都所在州的动员能力定)'),
+    pol('国力倍数', '顺着引的方针加减国力(没有 = 1)'),
   ];
 
   /** 行政越强,远处的州也管得住:管得到的远近、离国都远近的折算都乘它 */
@@ -276,5 +284,19 @@ export function stateCards(c: ControlRuleConsts, u: UnrestRuleConsts, f: FiscalR
     // 不到 0 按 0 算;每有一处割据再加一点
     rule: 'max(0, 动荡底) + min(LORD_U_MAX, LORD_U * 割据)',
   };
-  return [...inputs, control, remote, settle, strife, soil, crowd, rural, ruralSum, soilMean, ...fiscal, base, unrest];
+  // ---- 国力:打仗、看邦交时比的 ----
+  const power: TableCard = {
+    id: '国力',
+    name: '国力(各州城的人口 × 出兵的几成,再乘军力系数)',
+    unit: 'polity',
+    min: 0,
+    max: BIG,
+    off: 0,
+    builtin: true,
+    after: ['管辖'],
+    consts,
+    // 管不到的州出兵打折(管得到几成 + LEVY_0,最多 1),割据的州不出兵
+    rule: 'max(1, sumof(城民 * if(割据州, 0, min(1, 管辖 + LEVY_0)))) * 军力 * 国力倍数',
+  };
+  return [...inputs, control, remote, settle, strife, soil, crowd, rural, ruralSum, soilMean, ...fiscal, base, unrest, power];
 }

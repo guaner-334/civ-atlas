@@ -18,8 +18,9 @@
  *       强国的边远处照样可能打不过近处的小国 —— 被夺去的州过些年又被夺回来,前线有来有回
  *     同一对国家议和后 TRUCE 年内不再开战;对方已经同时在打 MAX_WARS 场仗的不去凑;
  *     分裂 / 复国出来的国家(politics.ts)立国 NEWBORN 年内没人对它宣战(站稳期)。
- *     国力 = 本国城镇人口之和(growth.ts 的 populationAt 现算;城的人口上限随生产能力变)× 军力系数(PolityModel.military,
+ *     国力 = 本国城镇人口之和(growth.ts 的 populationAt;城的人口上限随生产能力变)× 军力系数(PolityModel.military,
  *     发展度按国都所在州的动员能力定,有上下限);照大纲顺着引的方针再乘它的国力倍数(policy.ts 的 powerScale)。
+ *     挂了政局数表(control.ts)时读表里每年年初算的国力;这一年里才立的国家照这里现算。
  *   宣战 → 每隔 GAP 年打一仗(Ev.Campaign):
  *     攻方挑一个**和自己国土接壤**的敌州打(国土保持成片):被自己围得越多的州越先打(前线齐整,不打出飞地),
  *       其次是离敌国国都近的(直取国都)、好走的(翻山、跨河难打)、有本国缺的物产的(RES_TARGET);打下来会把敌国切出一大块(> MAX_CUT 州)的先不打。
@@ -238,6 +239,11 @@ export interface WarModel {
    * 中央管到什么程度(control.ts 挂上):国家 p 此刻各州出兵的几成(0–1;割据的州 0)。返回的函数要马上用完(下一次调 levy 前)
    */
   levy?: (p: number, t: Year) => (r: number) => number;
+  /**
+   * 国力的数表(control.ts 挂上;stateTables.ts):国家 p 最近一步算的国力(城的人口 × 出兵的几成 × 军力系数 × 方针给的倍数)。
+   * 那一步还没有这国(这一年里才立国)、还没算过 = −1,照下面 powers 现算
+   */
+  power?: (p: number) => number;
   /** 钱粮(control.ts 挂上):国家 p 此刻国用不足到什么程度(0–1):宣战少、打着的仗早罢 */
   broke?: (p: number, t: Year) => number;
   /** 钱粮(control.ts 挂上):国家 p 的国库攒到几成(0–1;满 = 攒够了几年的用度) */
@@ -339,6 +345,11 @@ export function installWars(sim: CivSim, pm: PolityModel, wm: WarModel = newMode
     const pow = new Float64Array(pm.polities.length);
     for (const p of who) {
       if (pow[p] > 0) continue; // 重复的
+      const tab = wm.power ? wm.power(p) : -1;
+      if (tab >= 0) {
+        pow[p] = tab;
+        continue;
+      }
       let sum = 0;
       // 管不到的州出兵打折、割据的州不出兵(control.ts;没挂 = 都出)
       const lv = wm.levy?.(p, t);
