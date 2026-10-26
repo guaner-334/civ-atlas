@@ -194,24 +194,18 @@ describe('seed 7 从第 2650 年演绎到第 2700 年', () => {
     const entries = fullChronicle(civ);
     const items = reviewItems(world, civ, 2650, 2675, entries);
     expect(items.map((it) => [Math.floor(it.cap.entry.year), it.cap.typeName])).toEqual([
-      [2653, '战争'],
-      [2654, '灭亡'],
       [2655, '改朝'],
       [2662, '战争'],
+      [2662, '战争'],
       [2664, '改朝'],
-      [2666, '战争'],
-      [2666, '灭亡'],
-      [2666, '升格'],
-      [2666, '战争'],
-      [2671, '灭亡'],
     ]);
     for (const it of items) {
       expect(entryWeight(it.cap.entry)).toBeGreaterThanOrEqual(REVIEW_WEIGHT);
       expect(it.cap.text.length).toBeGreaterThan(4);
       expect(it.cap.pin).not.toBeNull();
     }
-    // 打了几年的仗(大定伐大承,第 2662–2666 年):字幕只写开头一句,年份写"起"
-    const war = items[3].cap;
+    // 打了几年的仗(大定伐后北洛,第 2662–2666 年):字幕只写开头一句,年份写"起"
+    const war = items[1].cap;
     expect(war.entry.end).toBeGreaterThan(2666);
     expect(war.label).toBe('第 2662 年起');
     // 这一段里分量没到的几件(重要度 2 的灾异、迁都……)不列

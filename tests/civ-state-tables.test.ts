@@ -1,5 +1,5 @@
 /**
- * 政局的数表(gen/civ/stateTables.ts):管得到几成、离国都多远、乡村人口(连同搬家)、钱粮、动荡(连同压到 0 以上之前的值)、国力,
+ * 政局的数表(gen/civ/stateTables.ts):管得到几成、离国都多远、乡村人口(连同搬家)、钱粮(连同议事改的征收之法、分封)、动荡(连同压到 0 以上之前的值)、国力,
  * 数表算出来的和照公式直接算的一样(两种跑法都是)。
  * 用一串连着的州(邻边的类型轮着来;每州 TPR 个地块,也连成一串)、随机填的输入,不用生成世界。
  */
@@ -10,6 +10,7 @@ import { NEVER } from '../src/gen/civ/devTables';
 import { CONTROL_CONSTS as C, FISCAL_CONSTS as F } from '../src/gen/civ/control';
 import { UNREST_CONSTS as U } from '../src/gen/civ/unrest';
 import { POP_CONSTS as H } from '../src/gen/civ/population';
+import { COUNCIL_CONSTS as K } from '../src/gen/civ/council';
 import { fpow, keyed } from '../src/gen/civ/rand';
 
 const R = 40;
@@ -103,6 +104,11 @@ function inputs(k: number) {
     // 军力系数、方针给的国力倍数
     mil: 1 + 2 * u(100 + p, 15),
     scale: u(100 + p, 16) < 0.3 ? 0.5 + u(100 + p, 17) : 1,
+    // 议事定下的:直征多收的几成、直征的开销、分封了边地没有、改制的余波
+    lift: u(100 + p, 18) < 0.4 ? 0.4 * u(100 + p, 19) : 0,
+    cost: u(100 + p, 18) < 0.4 ? 0.07 * u(100 + p, 20) : 0,
+    fief: u(100 + p, 21) < 0.4 ? 1 : 0,
+    shock: u(100 + p, 22) < 0.3 ? 0.15 * u(100 + p, 23) : 0,
   }));
   return { reg, pol };
 }
@@ -242,10 +248,10 @@ function reference(x: ReturnType<typeof inputs>, k: number, led: Ledger) {
       if (g.p !== p) return;
       const sum = led.income[r][0] + led.income[r][1] + led.income[r][2];
       owed += sum;
-      rev += sum * (g.lord ? 0 : F.REMIT_0 + (1 - F.REMIT_0) * ctl[r]);
+      rev += sum * (g.lord ? 0 : q.fief && ctl[r] < K.FIEF_C ? K.FIEF_REMIT : F.REMIT_0 + (1 - F.REMIT_0) * Math.min(1, ctl[r] + q.lift));
     });
     const inc = rev + q.got;
-    const out = owed * (F.OFFICE + F.ARMY * q.wars) + q.paid;
+    const out = owed * (F.OFFICE + q.cost + F.ARMY * q.wars) + q.paid;
     const t = Math.max(0, Math.min(F.RESERVE * owed, led.treasury[p] + dt * (inc - out)));
     led.treasury[p] = t;
     if (t > 0 || out <= 0 || q.age < F.GRACE) return 0;
@@ -261,12 +267,12 @@ function reference(x: ReturnType<typeof inputs>, k: number, led: Ledger) {
       sumFar += far[r];
       foreign += g.foreign;
     });
-    let u = q.crisis + U.FAR_W * Math.max(0, sumFar / N - U.FAR_0) + (U.FOREIGN_W * foreign) / N;
+    let u = q.crisis + U.FAR_W * (q.fief ? K.FIEF_FAR : 1) * Math.max(0, sumFar / N - U.FAR_0) + (U.FOREIGN_W * foreign) / N;
     if (q.age < U.NEW_YEARS) u -= U.NEW_W;
     else u += U.AGE_W * Math.min(1, Math.max(0, (q.age - U.AGE_0) / U.AGE_SPAN));
     if (q.famine) u += U.FAMINE_W * Math.min(1, q.famine / Math.max(U.FAMINE_FULL_MIN, U.FAMINE_FULL * N));
     if (q.plague) u += U.PLAGUE_W * Math.min(1, q.plague / Math.max(U.FAMINE_FULL_MIN, U.PLAGUE_FULL * N));
-    u += U.REVOLT_W * q.quell + F.FISCAL_W * broke[p];
+    u += U.REVOLT_W * q.quell + F.FISCAL_W * broke[p] + q.shock;
     return u;
   });
   const unrest = base.map((u, p) => Math.max(0, u) + Math.min(C.LORD_U_MAX, C.LORD_U * x.pol[p].lords));
@@ -284,7 +290,7 @@ function reference(x: ReturnType<typeof inputs>, k: number, led: Ledger) {
 describe('政局的数表', () => {
   for (const backend of ['js', 'closure'] as Backend[]) {
     it(`管得到几成、离国都多远、乡村人口、钱粮、动荡、国力和照公式直接算的一样(${backend})`, () => {
-      const eng = new TableEngine({ seed: 1, cards: stateCards(C, U, F, H), units: { region: chain(), tile: tileChain() }, owner: '国', backend });
+      const eng = new TableEngine({ seed: 1, cards: stateCards(C, U, F, H, K), units: { region: chain(), tile: tileChain() }, owner: '国', backend });
       eng.setPolities(NP);
       let negative = 0;
       let broke = 0;
@@ -323,6 +329,10 @@ describe('政局的数表', () => {
         set('脆', (t) => FRAGILE[t]);
         set('军力', (p) => x.pol[p].mil);
         set('国力倍数', (p) => x.pol[p].scale);
+        set('征升', (p) => x.pol[p].lift);
+        set('征费', (p) => x.pol[p].cost);
+        set('分封', (p) => x.pol[p].fief);
+        set('改制', (p) => x.pol[p].shock);
         // 城的人口每年填(国力要;三样收入只在算它们的年份读)
         set('城民', (r) => x.reg[r].city);
         set('有人邻块', (t) => [t - 1, t + 1].filter((q) => q >= 0 && q < NT && x.reg[Math.floor(q / TPR)].ruralCap > 0).length);
