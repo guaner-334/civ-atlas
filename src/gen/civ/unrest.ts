@@ -33,6 +33,14 @@
  *     结局照打仗的规矩:被讨平(起事的国家亡)、割据一方(议和)、或者打进都城 —— 原来的国家余下的州一并归起事的一方,亡国
  *     (wars.ts 的 overthrow,像农民起义攻破京城、建立新朝)。
  *
+ *   **宗室争位、据地自立**(新君即位那一刻,polities.ts 的 onReign):先君寿终(不是遇弑、不是作者让他去世)、同一朝的下一位即位,
+ *     先君还有 20–60 岁、在世的儿子(不算即位的那位;royals.ts 的 claimants),至少 CLAIM_STATE 州的国家有机会起内乱:
+ *     赔率 = CLAIM_ODDS × (1 + CLAIM_MORE × (这样的儿子数 − 1)) × e^(CLAIM_K × (动荡 − CLAIM_U0))。
+ *     起兵的是其中最年长的那位(人物里就是他,做新国家的开国之君;生年记在 Polity.prince):以离国都远、有城的一州为起事的州,
+ *     连同周围几州(国土的 CLAIM_FRAC,CLAIM_MIN–CLAIM_MAX 州)据地自立(记 split,cause = heir),原来的国家当即发兵讨伐
+ *     (记 war,cause = heir)。这一仗和讨伐民变一样打到一方亡(或厌战议和、割据一方);宗室初起时国力 × CLAIM_MORALE、
+ *     CLAIM_FADE 年里淡去,朝廷一方 × CLAIM_COURT;打进都城的,原来的国家余下的州一并归他(夺了大位)。
+ *
  *   **大崩解**(看内政时最先看,politics.ts 的 crisis):国土至少 COLLAPSE_MIN 州、立国满 COLLAPSE_AGE 年的大国,
  *     赔率 = COLLAPSE_ODDS × e^(COLLAPSE_K × (动荡 − COLLAPSE_U0));同一国崩过 COLLAPSE_REST 年内不再崩。
  *     盛极而衰:只看占了所在大陆(国土最多的那块陆地)有人住的州 HEG_GATE 以上的大国;占的越多动荡越高
@@ -60,6 +68,7 @@ import { devModelOf } from './development';
 import { GROWTH_A, capitalAt, populationAt } from './growth';
 import { calamityRates } from './calamity';
 import type { UnrestRuleConsts } from './stateTables';
+import { claimants, murderedAt } from './royals';
 
 // ---- 调参(以 20 个种子的统计为准) ----
 /** 动荡:各州离国都的路程 ÷ REACH(最多 4)的平均,超过 FAR_0 的部分 × FAR_W */
@@ -119,6 +128,20 @@ const REBEL_MORALE = 8;
 const REBEL_FADE = 12;
 const COURT_MORALE = 0.6;
 
+/** 宗室争位:国家至少几州;赔率;起兵的州组占国土的几成、最多 / 最少几州 */
+const CLAIM_STATE = 10;
+const CLAIM_ODDS = 0.08;
+const CLAIM_MORE = 0.5;
+const CLAIM_K = 1.2;
+const CLAIM_U0 = 1;
+const CLAIM_FRAC = 0.25;
+const CLAIM_MAX = 10;
+const CLAIM_MIN = 3;
+/** 讨伐争位的宗室:宗室一方国力 × (1 + (CLAIM_MORALE − 1) × e^(−年数 ÷ CLAIM_FADE)),朝廷一方 × CLAIM_COURT */
+const CLAIM_MORALE = 3;
+const CLAIM_FADE = 15;
+const CLAIM_COURT = 0.85;
+
 /** 大崩解:国土至少几州、立国满几年;同一国这么多年内不再崩 */
 const COLLAPSE_MIN = 30;
 const COLLAPSE_AGE = 150;
@@ -161,6 +184,8 @@ const U_KIND = 10;
 const U_KEEP = 11;
 const U_PIECES = 12;
 const U_SEED = 13;
+const U_CLAIM = 14;
+const U_CLAIM_R = 15;
 
 // ---------------------------------------------------------------------------
 // 模型
@@ -176,12 +201,14 @@ export interface UnrestModel {
   plagues: Map<number, { year: Year; n: number }[]>;
   /** 讨伐民变的战争 → 起事的国家 */
   quell: Map<number, number>;
+  /** 讨伐争位宗室的战争 → 他据地自立的国家 */
+  claims: Map<number, number>;
   /** 国家 → 最近一次大崩解的年份 */
   collapsed: Map<number, Year>;
 }
 
 function newModel(pm: PolityModel, wm: WarModel, pol: PoliticsModel, seed: number): UnrestModel {
-  return { pm, wm, pol, base: subSeed(seed, 'civ-unrest'), famines: new Map(), plagues: new Map(), quell: new Map(), collapsed: new Map() };
+  return { pm, wm, pol, base: subSeed(seed, 'civ-unrest'), famines: new Map(), plagues: new Map(), quell: new Map(), claims: new Map(), collapsed: new Map() };
 }
 
 const models = new WeakMap<CivSim, UnrestModel>();
@@ -214,7 +241,7 @@ export function unrestInputs(um: UnrestModel, P: Polity, t: Year): { age: number
     return n;
   };
   let quell = 0;
-  for (const w of um.wm.active) if (w.a === pid && um.quell.has(w.id)) quell++;
+  for (const w of um.wm.active) if (w.a === pid && (um.quell.has(w.id) || um.claims.has(w.id))) quell++;
   return { age: t - dynastyStart(P), famine: recent(um.famines.get(pid), FAMINE_YEARS), plague: recent(um.plagues.get(pid), PLAGUE_YEARS), quell };
 }
 
@@ -244,7 +271,8 @@ function hook(sim: CivSim, um: UnrestModel): void {
 
   // ---- 讨伐民变:士气、攻破都城 ----
   wm.morale = (w: War, x: number, t: number) => {
-    const rebel = um.quell.get(w.id);
+    const claim = um.claims.get(w.id);
+    const rebel = claim ?? um.quell.get(w.id);
     if (rebel === undefined) return 1;
     if (x === rebel) {
       // 声势从起事(或最近一次攻下一州)那年起淡去:势如破竹时一直很盛
@@ -255,15 +283,59 @@ function hook(sim: CivSim, um: UnrestModel): void {
           break;
         }
       }
-      return 1 + (REBEL_MORALE - 1) * fexp(-(t - since) / REBEL_FADE);
+      return claim !== undefined ? 1 + (CLAIM_MORALE - 1) * fexp(-(t - since) / CLAIM_FADE) : 1 + (REBEL_MORALE - 1) * fexp(-(t - since) / REBEL_FADE);
     }
-    return COURT_MORALE;
+    return claim !== undefined ? CLAIM_COURT : COURT_MORALE;
   };
-  wm.overthrow = (w, x) => um.quell.get(w.id) === x;
-  wm.revolt = (w) => um.quell.has(w.id);
+  wm.overthrow = (w, x) => um.quell.get(w.id) === x || um.claims.get(w.id) === x;
+  wm.revolt = (w) => um.quell.has(w.id) || um.claims.has(w.id);
 
   /** 国家 p 此刻是不是还在被讨伐的民变(起事的一方) */
   const rebelNow = (p: number) => wm.active.some((w) => w.b === p && um.quell.get(w.id) === p);
+  /** 国家 p 此刻是不是正在讨伐民变、争位的宗室 */
+  const quelling = (p: number) => wm.active.some((w) => w.a === p && (um.quell.has(w.id) || um.claims.has(w.id)));
+
+  // ---- 宗室争位、据地自立(新君即位那一刻) ----
+  pm.onReign = (pid, k, list, t) => {
+    const P = pm.polities[pid];
+    const R = list[k - 1];
+    const X = list[k];
+    if (P.ended !== undefined || P.lineage === 'republic' || pm.size[pid] < CLAIM_STATE) return;
+    // 先君寿终、同一朝里交接(遇弑的由名臣迎立新君;作者立的、作者让他去世的不算)
+    if (R.crown || X.crown || R.death || R.cut !== undefined || R.natural !== t || R.dynasty !== X.dynasty || X.j === 0) return;
+    if (murderedAt(pm.rbase, pm.rtag[pid], R.k)) return;
+    if (rebelNow(pid) || quelling(pid) || wm.iv?.unites(pid, t)) return;
+    const sons = claimants(pm.rbase, pm.rtag[pid], R, P, t);
+    if (!sons.length) return;
+    const u = pol.unrest?.(P, t) ?? 0;
+    const odds = CLAIM_ODDS * (1 + CLAIM_MORE * (sons.length - 1)) * fexp(CLAIM_K * (u - CLAIM_U0));
+    const tag = pm.ptag[pid];
+    if (keyed(um.base, tag, k, U_CLAIM) >= odds / (1 + odds)) return;
+    // 起事的州:离国都远、有城、不是国都、不是永久划给它的州(加一点随机)
+    const capR = pm.settlements[capitalAt(P, t)].region;
+    const dist = pm.capDist[pid];
+    let r0 = -1;
+    let best = -Infinity;
+    for (const r of pm.lands[pid]) {
+      if (r === capR || pm.cityOf[r] < 0 || wm.iv?.locked(r, t)) continue;
+      const v = (dist[r] < Infinity ? Math.min(4, dist[r] / REACH) : 4) + keyed4(um.base, tag, reg.seat[r], k, U_CLAIM_R);
+      if (v > best) {
+        best = v;
+        r0 = r;
+      }
+    }
+    if (r0 < 0) return;
+    const limit = Math.min(CLAIM_MAX, Math.max(CLAIM_MIN, Math.floor(pm.size[pid] * CLAIM_FRAC)));
+    const group = grow(pid, r0, limit, t, () => 0, capR);
+    if (group.length < CLAIM_MIN) return;
+    const sid = pol.biggestCity!(group, t);
+    if (sid < 0) return;
+    const full = pol.cutOff!(pid, group.slice().sort((a, b) => a - b), t, limit * 2 + 2);
+    if (!full) return;
+    const rival = pol.secede!(pid, full, sid, r0, t, 'split', 'heir', { prince: sons[0], lineage: P.lineage });
+    const w = wm.declare!(pid, rival.id, t, -1, 'heir');
+    um.claims.set(w.id, rival.id);
+  };
 
   // ---- 饥荒 ----
   const queue = new Int32Array(R);
@@ -585,7 +657,8 @@ export function resumeUnrest(sim: CivSim, _world: World, civ: Civ): void {
     } else if (e.kind === 'revolt') {
       const w = A[i + 1];
       if (w && w.kind === 'war' && w.cause === 'quell' && w.b === e.a) um.quell.set(w.war, e.a);
-    } else if (e.kind === 'collapse') um.collapsed.set(e.a, e.year);
+    } else if (e.kind === 'war' && e.cause === 'heir') um.claims.set(e.war, e.b);
+    else if (e.kind === 'collapse') um.collapsed.set(e.a, e.year);
   }
   hook(sim, um);
   let k = 0;

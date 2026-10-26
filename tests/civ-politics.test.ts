@@ -206,8 +206,8 @@ describe('分与合', () => {
       for (const e of civ.annals) {
         if (e.kind !== 'war') continue;
         const Q = civ.polities[e.b];
-        // 援盟、救藩不算:是它先动的手(打了别国的盟国 / 藩属);讨伐民变不算:起事当即发兵
-        if (e.cause === 'ally' || e.cause === 'rescue' || e.cause === 'quell') continue;
+        // 援盟、救藩不算:是它先动的手(打了别国的盟国 / 藩属);讨伐民变、据地争位的宗室不算:起事当即发兵
+        if (e.cause === 'ally' || e.cause === 'rescue' || e.cause === 'quell' || e.cause === 'heir') continue;
         if (Q.parent !== undefined) expect(e.year - Q.founded, `seed ${seed} 战争 ${e.war}`).toBeGreaterThanOrEqual(NEWBORN);
       }
       const restored = civ.polities.filter((p) => p.restores !== undefined).map((p) => p.restores!);
@@ -257,20 +257,20 @@ describe('分与合', () => {
       // 分出来的国家不是一出生就没了(民变起事的可能旋即被讨平、自己先开战打输了的,不算);和原国颜色不同(回放时看得出裂出了一块)
       const born = civ.polities.filter((p) => p.parent !== undefined);
       for (const p of born) expect(p.color, `${tag} ${p.name}`).not.toEqual(civ.polities[p.parent!].color);
-      const rebels = new Set(civ.annals.filter((x) => x.kind === 'revolt').map((x) => x.a));
+      const rebels = new Set(civ.annals.filter((x) => x.kind === 'revolt' || (x.kind === 'split' && x.cause === 'heir')).map((x) => x.a));
       const attacked = new Set(civ.annals.filter((x) => x.kind === 'war').map((x) => x.a));
       expect(born.filter((p) => !rebels.has(p.id) && !attacked.has(p.id) && p.ended !== undefined && p.ended - p.founded < NEWBORN)).toEqual([]);
       // 大帝国不会一夜碎成十几块:同一国同一年最多分裂一次(大崩解一次散成 2–4 国,算一次)
       const once = new Set<string>();
-      for (const e of civ.annals.filter((x) => x.kind === 'split' && x.cause !== 'collapse')) {
+      for (const e of civ.annals.filter((x) => x.kind === 'split' && x.cause !== 'collapse' && x.cause !== 'heir')) {
         const k = `${e.b}|${Math.floor(e.year)}`;
         expect(once.has(k), `${tag} ${k}`).toBe(false);
         once.add(k);
       }
-      // 新国家都不小:分裂至少 5 州(复国至少 2 州;大崩解散出来的至少 3 州)
+      // 新国家都不小:分裂至少 5 州(复国至少 2 州;大崩解散出来的、宗室据地争位的至少 3 州)
       for (const e of civ.annals.filter((x) => x.kind === 'split')) {
         const n = sizesAt(civ, e.year).get(e.a) ?? 0;
-        const min = e.cause === 'collapse' ? 3 : civ.polities[e.a].restores === undefined ? 5 : 2;
+        const min = e.cause === 'collapse' || e.cause === 'heir' ? 3 : civ.polities[e.a].restores === undefined ? 5 : 2;
         expect(n, `${tag} ${civ.polities[e.a].name}`).toBeGreaterThanOrEqual(min);
       }
     }

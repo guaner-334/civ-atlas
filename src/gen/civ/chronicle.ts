@@ -90,7 +90,7 @@ import { pandemicsOf } from './pandemicInfo';
 import { HABITABLE_SUIT, cultureLabel, regionLabel } from './display';
 import { ownersAt } from './timeline';
 import { plagueSpans } from './plagueSpans';
-import { ageAt, generalRef, kinOf, ministerRole, rulerBare, rulerRef, rulerShort } from './peopleText';
+import { ageAt, generalRef, kinOf, leaderName, ministerRole, princeTitle, reigningAt, rulerBare, rulerRef, rulerShort } from './peopleText';
 import { eraText, monthTail, type Era } from '../era';
 import { parsePersonKey, resolveKey, resolvePersonKey, type Intervention } from '../edits';
 import { emptyPolicy, policyName, type PolicyIv } from './policy';
@@ -332,6 +332,8 @@ interface PeopleIndex {
   /** 新君(Person.id)→ 辅政 / 迎立他的名臣 */
   regent: Map<number, Person>;
   enthrone: Map<number, Person>;
+  /** 人物编号 → 儿子(按出生先后;争储写"三子某某"用) */
+  kids: Map<number, Person[]>;
 }
 
 const peopleCache = new WeakMap<object, PeopleIndex>();
@@ -341,8 +343,13 @@ function peopleOf(civ: Civ): PeopleIndex | null {
   if (!list || !list.length) return null;
   let ix = peopleCache.get(list);
   if (ix) return ix;
-  ix = { rulers: civ.polities.map(() => []), commands: new Map(), envoys: new Map(), regent: new Map(), enthrone: new Map() };
+  ix = { rulers: civ.polities.map(() => []), commands: new Map(), envoys: new Map(), regent: new Map(), enthrone: new Map(), kids: new Map() };
   for (const x of list) {
+    if (x.parent !== undefined) {
+      const ks = ix.kids.get(x.parent);
+      if (ks) ks.push(x);
+      else ix.kids.set(x.parent, [x]);
+    }
     if (x.role === 'ruler' && x.polity >= 0 && x.polity < ix.rulers.length) ix.rulers[x.polity].push(x);
     for (const d of x.role === 'minister' ? (x.deeds ?? []) : []) {
       if ((d.kind === 'peace' || d.kind === 'rank') && d.annal !== undefined) {
@@ -358,6 +365,7 @@ function peopleOf(civ: Civ): PeopleIndex | null {
     }
   }
   for (const rs of ix.rulers) rs.sort((a, b) => (a.from ?? 0) - (b.from ?? 0) || a.id - b.id);
+  for (const ks of ix.kids.values()) ks.sort((a, b) => a.born - b.born || a.id - b.id);
   for (const m of ix.commands.values()) m.sort((a, b) => a.first - b.first || a.person.id - b.person.id);
   peopleCache.set(list, ix);
   return ix;
@@ -443,7 +451,7 @@ interface Ctx {
   flight: Map<number, string>;
   /** 人物索引(没有人物 = null,照旧不写人名) */
   ix: PeopleIndex | null;
-  /** 讨伐民变的战争(war 的 cause = quell)→ 起事的国家 */
+  /** 讨伐民变、据地争位的宗室的战争(war 的 cause = quell / heir)→ 起事的国家 */
   quell: Map<number, number>;
 }
 
@@ -1154,6 +1162,7 @@ function warHead(civ: Civ, e: Annal, id: number, general: string): string {
     case 'punish':
       return `${A}以${B}绝贡,${general ? `遣${general}讨之` : '兴兵讨之'}`;
     case 'quell':
+    case 'heir':
       return general ? `${A}遣${general}讨${B}` : `${A}发兵讨${B}`;
     case 'rescue':
       return ally ? `${A}救其藩属${ally},${go(B)}` : `${A}${go(B)}`;
@@ -1288,7 +1297,7 @@ function claimText(civ: Civ, e: Annal, id: number): string {
 }
 
 /** 宣战的动词:讨伐自立的藩属、起事的饥民写"讨",别的写"伐" */
-const warVerb = (e: Annal) => (e.cause === 'punish' || e.cause === 'quell' ? '讨' : '伐');
+const warVerb = (e: Annal) => (e.cause === 'punish' || e.cause === 'quell' || e.cause === 'heir' ? '讨' : '伐');
 
 /** 由头里点了守方的名("以昌国绝贡,"、"乘昌国与索拉特交兵,"、"欲并昌国,"、"与昌国争边,"),后面写"伐之" */
 const NAMES_FOE: ReadonlySet<AnnalCause> = new Set<AnnalCause>(['punish', 'chaos', 'prey', 'expand', 'resource']);
@@ -1319,11 +1328,11 @@ function declareEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
   const cd = commander(ix, e.war, 1, id);
   const to = e.cause && NAMES_FOE.has(e.cause) ? '之' : B;
   let t: string;
-  if (ca?.role === 'ruler') t = `${rulerRef(civ, ca, y)}${pact}亲征${to}`;
-  else if (ca) t = `${A}${pact}以${ca.name}为将,起兵${v}${to}`;
+  if (ca && reigningAt(ca, y)) t = `${rulerRef(civ, ca, y)}${pact}亲征${to}`;
+  else if (ca) t = `${A}${pact}以${leaderName(civ, ca, y)}为将,起兵${v}${to}`;
   else t = `${A}${pact}起兵${v}${to}`;
-  if (cd?.role === 'ruler') t += `;${rulerRef(civ, cd, y)}亲自领兵拒之`;
-  else if (cd) t += `;${B}遣${cd.name}拒之`;
+  if (cd && reigningAt(cd, y)) t += `;${rulerRef(civ, cd, y)}亲自领兵拒之`;
+  else if (cd) t += `;${B}遣${leaderName(civ, cd, y)}拒之`;
   const x = base(e, id, t, 2, ally >= 0 ? [e.a, e.b, ally] : [e.a, e.b], []);
   if (ally >= 0) x.settlement = -1;
   return withPeople(x, ca, cd);
@@ -1381,7 +1390,14 @@ function simpleEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
       const lead = founderOf(ctx.ix, e.a, 0);
       const who = lead && (lead.rise === 'rebel' || lead.rise === 'restore') ? lead : null;
       let t: string;
-      if (fallen) {
+      const X = e.cause === 'heir' && who?.claim?.how === 'secede' ? civ.people?.[who.claim.rivals[0]] : undefined;
+      if (e.cause === 'heir') {
+        // 宗室争位、据地自立:"大昌先君之子李昭不服其弟李恒即位,据瑞州起兵自立,号昭国"(先君的儿子没对上的:"大昌宗室李昭不服新君李恒即位,…")
+        const kin = who && X && who.parent !== undefined ? kinOf(civ, who, X) : '';
+        const head = who ? `${pn(civ, e.b, y)}${who.parent !== undefined ? '先君之子' : '宗室'}${who.name}` : `${pn(civ, e.b, y)}宗室`;
+        const rival = X ? `${kin ? `其${kin}` : '新君'}${X.name}` : '新君';
+        t = `${head}不服${rival}即位,${r ? `据${r}` : ''}起兵自立,号${A}`;
+      } else if (fallen) {
         // 复国:"故昌遗民据瑞州起兵,脱大渭复国,号后昌国"("故昌宗室李昭据瑞州起兵,…")
         // 故国改朝换代过的,称它亡国时那一朝的国号("故景遗民")
         const folk = who ? `${fallen.lineage === 'republic' ? '旧臣' : P?.eastern ? '宗室' : '王室之后'}${who.name}` : '遗民';
@@ -1400,7 +1416,7 @@ function simpleEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
       // 分出来(复国)以后长成大国的、复的是大国的是大事;小国分分合合只在"全部"里
       // (日后在"大事"里出现时,名字后面带一句来历,见 introduce)
       const imp = isGreat(polityOf(civ, e.a)) ? 3 : 2;
-      return withPeople(base(e, id, t, imp, [e.a, e.b], [e.region], fallen ? '复' : '分'), r || fallen ? who : null);
+      return withPeople(base(e, id, t, imp, [e.a, e.b], [e.region], fallen ? '复' : '分'), r || fallen || e.cause === 'heir' ? who : null, X ?? null);
     }
     case 'famine':
       return base(e, id, famineText(civ, e), 2, [e.a], [e.region]);
@@ -1836,9 +1852,9 @@ function warEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
       const fresh = c && !named.has(c.id) ? c : null;
       if (fresh) named.add(fresh.id);
       let t = conquerText(civ, e, [atk, def], retake, fresh ? generalRef(civ, fresh, e.year) : undefined);
-      // 守方统帅战死:"…,守将王翦战死"
+      // 守方统帅战死:"…,守将王翦战死"(领兵的宗室:"…,公子胡翔战死")
       const lost = s >= 0 ? fallenAt(ix, e.war, 1 - s, i) : null;
-      if (lost) t += `,守将${lost.name}战死`;
+      if (lost) t += `,${lost.role === 'prince' ? princeTitle(civ, lost, e.year) : '守将'}${lost.name}战死`;
       return withPeople(base(e, i, t, e.b >= 0 ? 2 : 1, [e.a, e.b], [e.region]), fresh, lost);
     }
     if (e.kind === 'unally') {
@@ -1903,7 +1919,7 @@ function warEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
     if (city) {
       const owner = polityOf(civ, e.b);
       const capital = !!owner && owner.founded <= y && capitalBefore(owner, y) === e.settlement;
-      const guard = cd ? (named.has(cd.id) && cd.role === 'general' ? cd.name : generalRef(civ, cd, y)) : '';
+      const guard = cd ? (named.has(cd.id) && !reigningAt(cd, y) ? cd.name : generalRef(civ, cd, y)) : '';
       const v = n >= 2 || capital ? 0 : (Math.max(0, e.settlement) * 7 + Math.floor(y)) % 3;
       const attack = capital
         ? `${counter ? '反攻' : '围攻'}${pn(civ, e.b, y)}国都`
@@ -1968,8 +1984,8 @@ function warEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
   // 有人物的写开战时攻方的统帅:"大渭遣李牧伐昌国,…";君主亲征:"大渭伐昌国,太宗亲征,…"
   // (君主写在国名后面会把"大事"里国名后的来历隔开,所以放到逗号后面)
   const lead = decl.kind === 'war' ? commander(ix, decl.war, 0, ids[list.indexOf(decl)]) : null;
-  if (lead && lead.role !== 'general') parts.unshift(`${rulerBare(civ, lead, start)}亲征`);
-  const head = warHead(civ, decl, ids[list.indexOf(decl)], lead?.role === 'general' ? lead.name : '');
+  if (lead && reigningAt(lead, start)) parts.unshift(`${rulerBare(civ, lead, start)}亲征`);
+  const head = warHead(civ, decl, ids[list.indexOf(decl)], lead && !reigningAt(lead, start) ? leaderName(civ, lead, start) : '');
   const text = `${head},${parts.join(',')}`;
   // 改变格局的战争是大事:灭了大国(或吞并一个像样的国家)、易手很多州、攻下做了很久的国都、两个帝国交兵且有得失
   const A0 = polityOf(civ, atk);
@@ -2786,7 +2802,7 @@ export function* chronicleSteps(civ: Civ): Generator<void, ChronicleEntry[]> {
   const splitFrom = new Map<number, number>();
   for (const e of A) if (e.kind === 'split' && e.a >= 0 && e.b >= 0) splitFrom.set(e.a, e.b);
   const quell = new Map<number, number>();
-  for (const e of A) if (e.kind === 'war' && e.cause === 'quell') quell.set(e.war, e.b);
+  for (const e of A) if (e.kind === 'war' && (e.cause === 'quell' || e.cause === 'heir')) quell.set(e.war, e.b);
   const retake = retakes(A);
   yield;
   const ctx: Ctx = { civ, titleUsed: new Map(), retake, splitFrom, flight: new Map(), ix: peopleOf(civ), quell };
@@ -2959,6 +2975,8 @@ function deathWord(p: Polity, tier: number): [string, string] {
  * 西幻 "索拉特国王阿尔德里克二世驾崩,在位 31 年;其子阿尔德里克三世即位";共和国 "提布里亚执政官卡西乌斯任满,马库斯继任"。
  * 新君是先君的什么人按世系说(peopleText.ts 的 kinOf:子、孙、弟、兄、侄、叔父……;连不上的写"宗室")。
  * 名臣迎立、辅政的写上他:"…;丞相某某迎立其兄柳清瑶,是为睿宗""…,时年 11 岁,丞相某某辅政"。
+ * 诸子争储(Person.claim,royals.ts):"…;三子李昭以军功即位""…;诸子争立,三子李昭举兵杀其兄李明,即位"
+ * "…;诸子争立,三子李昭谮杀其兄李明,即位""…;太子李昭即位,…;其兄李明拥兵争位,兵败被杀""…;其弟李昭杀太子李明,即位"(西幻平实些)。
  * 标签"嗣",重要度 1;id = civ.annals.length + 新君的 Person.id。没有人物 = 空数组。
  * 不在 buildChronicle 里(那里只有史事,AI 材料、地点的纪事都用它);要列继位的地方自己并进去(mergeChronicle)。按 civ 缓存
  */
@@ -2989,22 +3007,51 @@ export function reignEntries(civ: Civ): ChronicleEntry[] {
       } else {
         const [died, killed] = deathWord(p, tier);
         const k = kinOf(civ, prev, x);
-        const kin = !k ? '宗室' : k !== '子' ? `其${k}` : p.eastern && p.lineage !== 'khanate' && tier >= 3 ? '太子' : p.eastern && p.lineage !== 'khanate' && tier === 2 ? '世子' : '其子';
+        const heirWord = p.eastern && p.lineage !== 'khanate' && tier >= 3 ? '太子' : p.eastern && p.lineage !== 'khanate' && tier === 2 ? '世子' : '';
+        let kin = !k ? '宗室' : k !== '子' ? `其${k}` : heirWord || '其子';
         const age = ageAt(x, y);
         const young = age < 15 ? `,时年 ${age} 岁` : '';
-        // 名臣迎立(先君遇弑)、辅政(幼主)
-        const by = prev.fate === 'murdered' ? ix?.enthrone.get(x.id) : undefined;
-        const regent = ix?.regent.get(x.id);
         const east = classical(p);
+        // 诸子争储:换掉"太子某某"那一截(前面加"诸子争立,"、后面接"兵败被杀"的写在最后)
+        let fight = '';
+        let tail = '';
+        const claim = x.claim;
+        if (claim && ix) {
+          const rivals = claim.rivals.map((id) => civ.people![id]).filter(Boolean);
+          // "其兄李明、李晖、弟李曜":和前一个同辈分的不再写
+          const kins = rivals.map((r) => kinOf(civ, x, r) || '兄');
+          const list = rivals.map((r, i) => `${i ? '' : '其'}${i && kins[i] === kins[i - 1] ? '' : kins[i]}${r.name}`).join('、');
+          // 第几个儿子:长子、次子、三子……(养子写养子)
+          const sons = ix.kids.get(prev.id) ?? [];
+          const n = sons.filter((o) => !o.adopted).indexOf(x);
+          const ord = k === '养子' ? '养子' : k !== '子' ? kin : n === 0 ? '长子' : n === 1 ? '次子' : n > 1 ? `${cnNumber(n + 1)}子` : kin;
+          if (claim.how === 'merit') kin = `${ord}${x.name}以${east ? '军功' : '战功'}越${list}`;
+          else if (claim.how === 'coup') {
+            fight = east ? '诸子争立,' : '诸子争位,';
+            kin = `${ord}${x.name}${east ? '举兵' : '起兵入宫,'}杀${list},`;
+          } else if (claim.how === 'intrigue') {
+            fight = east ? '诸子争立,' : '诸子争位,';
+            kin = east ? `${ord}${x.name}谮杀${list},` : `${ord}${x.name}构陷${list}致死,`;
+          } else if (claim.how === 'usurp') {
+            const r = rivals[0];
+            kin = `${kin}${x.name}杀${heirWord || `其${(r && kinOf(civ, x, r)) || '族人'}`}${r?.name ?? ''},`;
+          } else if (claim.how === 'revolt' && rivals.length) tail = `;${list}${east ? '拥兵争位,兵败被杀' : '起兵争位,兵败被杀'}`;
+        }
+        // 名臣迎立(先君遇弑)、辅政(幼主);争储的不写迎立
+        const by = prev.fate === 'murdered' && !fight && claim?.how !== 'usurp' ? ix?.enthrone.get(x.id) : undefined;
+        const regent = ix?.regent.get(x.id);
         const lead = by ? `${ministerRef(by, y)}${east ? '迎立' : '拥立'}` : '';
         let then: string;
-        if (p.eastern && p.lineage === 'khanate') then = by ? `${lead}${kin}${x.name}为${tier <= 0 ? '首领' : '可汗'}` : `${kin}${x.name}继为${tier <= 0 ? '首领' : '可汗'}`;
-        else if (p.eastern && tier <= 0) then = by ? `${lead}${kin}${x.name}为首领` : `${kin}${x.name}继为首领`;
-        else if (p.eastern) then = `${lead}${kin}${x.name}${by ? '' : '即位'}${x.title ? `,是为${x.title}` : ''}`;
-        else then = `${lead}${kin}${rulerShort(civ, x)}即位`;
+        // 争储换掉了"太子某某"那一截的,名字已经在 kin 里
+        const nm = (s: string) => (claim && claim.how !== 'revolt' ? '' : s);
+        if (p.eastern && p.lineage === 'khanate') then = by ? `${lead}${kin}${x.name}为${tier <= 0 ? '首领' : '可汗'}` : `${kin}${nm(x.name)}继为${tier <= 0 ? '首领' : '可汗'}`;
+        else if (p.eastern && tier <= 0) then = by ? `${lead}${kin}${x.name}为首领` : `${kin}${nm(x.name)}继为首领`;
+        else if (p.eastern) then = `${lead}${kin}${nm(x.name)}${by ? '' : '即位'}${x.title ? `,是为${x.title}` : ''}`;
+        else then = claim && claim.how !== 'revolt' ? `${kin}即位${x.title ? `,是为${rulerShort(civ, x)}` : ''}` : `${lead}${kin}${rulerShort(civ, x)}即位`;
+        then = fight + then;
         const aid = !regent ? '' : regent === by ? (east ? ',遂辅政' : ',并摄政') : `,${ministerRef(regent, y)}${east ? '辅政' : '摄政'}`;
         // 作者让他去世的:那一年的干预那一条已经写了"暴崩,在位几年"
-        text = prev.killed !== undefined ? `${ref}既${died};${then}${young}${aid}` : `${ref}${prev.fate === 'murdered' ? killed : died}${span};${then}${young}${aid}`;
+        text = prev.killed !== undefined ? `${ref}既${died};${then}${young}${aid}${tail}` : `${ref}${prev.fate === 'murdered' ? killed : died}${span};${then}${young}${aid}${tail}`;
         if (by) minis.push(by);
         if (regent && regent !== by) minis.push(regent);
       }
@@ -3019,7 +3066,7 @@ export function reignEntries(civ: Civ): ChronicleEntry[] {
         polities: [p.id],
         regions: [],
         settlement: -1,
-        people: [prev.id, x.id, ...minis.map((m) => m.id)],
+        people: [prev.id, x.id, ...minis.map((m) => m.id), ...(x.claim?.rivals ?? [])],
       });
     }
   }

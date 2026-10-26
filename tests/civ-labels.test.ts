@@ -314,9 +314,18 @@ describe('国名、城名标注与城镇符号(视口文字层)', () => {
           expect(Math.hypot(dx, dy), `${l.item.text}(k=${k})`).toBeLessThanOrEqual(l.px * 1.5 + 3);
         }
         if (k === 1) {
-          const capitals = c.civ.polities.filter((p) => polityAlive(p, c.civ.endYear)).map((p) => capitalAt(p, c.civ.endYear));
+          const alive = c.civ.polities.filter((p) => polityAlive(p, c.civ.endYear));
           const named = new Set(placed.labels.filter((l) => l.item.mark !== undefined).map((l) => l.item.mark));
-          for (const id of capitals) expect(named.has(id), c.civ.settlements[id].name).toBe(true);
+          for (const p of alive) {
+            const id = capitalAt(p, c.civ.endYear);
+            if (named.has(id)) continue;
+            // 例外:夹在大国里的小国,国都正压在大国国名底下,大国国名怎么摆都留不出地方(国名挑位置时能留就留,见 draw.ts 的 keepRoomNear)
+            const m = markOf.get(id)!;
+            const under = placed.labels.some(
+              (l) => l.item.pick?.kind === 'polity' && l.item.pick.id !== p.id && l.glyphs.some((g) => Math.hypot(g.x - m.x, g.y - m.y) < l.px * 5),
+            );
+            expect(under, c.civ.settlements[id].name).toBe(true);
+          }
         }
       }
     }

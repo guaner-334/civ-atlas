@@ -1,0 +1,187 @@
+/* ---- 国家的朝政(CourtPage.tsx):概况「朝政」一行、朝政页(一块一块照钱粮页 fiscal.css 的底) ---- */
+
+/* 概况那一行:三格小柱(和「时代」的小梯子一样大,灰色和钱粮小柱一样)+ 法子 + 小字 */
+.cp-v.ct-row {
+  gap: 8px;
+}
+.ct-row > * {
+  white-space: nowrap;
+}
+.ct-pips {
+  display: flex;
+  gap: 2px;
+  flex: none;
+}
+.ct-pips i {
+  width: 7px;
+  height: 12px;
+  border-radius: 1.5px;
+  background: var(--line);
+}
+.ct-pips i.on {
+  background: #8e8e93;
+}
+/* 割据 N 州:前面一个橙色小方块(管辖填色里割据的颜色) */
+.ct-lord {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.ct-lord::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: rgb(232, 112, 32);
+}
+
+/* 征税:三档分段条,现在那档亮着;两头一行小字 */
+.ct-h {
+  margin: 8px 0 5px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+.ct-seg {
+  display: flex;
+  padding: 2px;
+  border-radius: 8px;
+  background: rgba(118, 118, 128, 0.12);
+}
+.ct-seg span {
+  flex: 1;
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 26px;
+  text-align: center;
+  color: var(--ink-2);
+}
+.ct-seg span.on {
+  background: #fff;
+  color: var(--ink);
+  font-weight: 600;
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.12),
+    0 0 0 0.5px rgba(0, 0, 0, 0.04);
+}
+[data-theme='dark'] .ct-seg {
+  background: rgba(118, 118, 128, 0.24);
+}
+[data-theme='dark'] .ct-seg span.on {
+  background: rgba(255, 255, 255, 0.18);
+  box-shadow: none;
+}
+.ct-axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 3px;
+  padding: 0 2px;
+  font-size: 11px;
+  color: var(--ink-3);
+}
+.ct-page .fs-say {
+  margin-top: 8px;
+}
+
+/* 分封的州名;一节底下的一句说明 */
+.ct-names {
+  padding: 8px 12px 9px;
+  border-top: 0.5px solid var(--line);
+  font-size: 13.5px;
+  line-height: 1.6;
+}
+.cpanel .ct-names .ins-link {
+  font-size: 13.5px;
+}
+.ct-more {
+  color: var(--ink-2);
+}
+.ct-foot {
+  padding: 6px 4px 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--ink-2);
+}
+.ct-none {
+  color: var(--ink-2);
+}
+
+/* 历次议事:一条 = 年份 | 议题 + 结果标签;下面编年史那一句、"从此……" */
+.cpanel .ct-ev {
+  display: grid;
+  grid-template-columns: minmax(34px, max-content) 1fr;
+  column-gap: 8px;
+  align-items: center;
+  width: 100%;
+  padding: 8px 12px 9px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.cpanel .ct-ev + .ct-ev {
+  border-top: 0.5px solid var(--line);
+}
+.cpanel .ct-ev:hover {
+  background: var(--hover-bg);
+}
+.ct-y {
+  font-size: 13px;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.ct-ev-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ct-issue {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.ct-chip {
+  margin-left: auto;
+  padding: 1px 7px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 18px;
+}
+.ct-chip.done {
+  color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 12%, transparent);
+}
+.ct-chip.half {
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 13%, transparent);
+}
+.ct-chip.shelve {
+  color: var(--ink-2);
+  background: rgba(118, 118, 128, 0.13);
+}
+.ct-chip.break {
+  color: var(--err);
+  background: color-mix(in srgb, var(--err) 12%, transparent);
+}
+.ct-ev-text,
+.ct-ev-then {
+  grid-column: 2;
+}
+.ct-ev-text {
+  margin-top: 3px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink);
+}
+.ct-ev-then {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+.ct-empty {
+  padding: 12px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--ink-2);
+}

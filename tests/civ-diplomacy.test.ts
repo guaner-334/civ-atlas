@@ -235,7 +235,7 @@ describe('邦交和作者下令', () => {
       });
     // 同一个宗主的两个藩属(称臣那一年之后,和别的藩属配对;依次在几个种子的小世界里找)
     const coVassals = (): Try[] =>
-      [9, 2024, 3, 5].flatMap((seed) => {
+      [9, 2024, 3, 5, 13].flatMap((seed) => {
         const { w, civ } = at(seed);
         return civ.annals
           .filter((e) => e.kind === 'submit')
