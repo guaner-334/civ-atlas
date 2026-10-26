@@ -9,7 +9,7 @@ import { DETAIL_K } from '../render/detail';
 import { TerrainDetail } from './TerrainDetail';
 import { MapDecor } from './MapDecor';
 import { GratLabels } from './GratLabels';
-import type { GratSpec } from './gratLabels';
+import type { GratSpec } from './graticuleLabels';
 import { ContourLayer } from './ContourLayer';
 import { contourInk } from '../render/contours';
 import { dropPreparedRivers, nearX, wrapOf } from '../render/common';

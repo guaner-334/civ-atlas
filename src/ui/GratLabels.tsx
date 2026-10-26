@@ -1,5 +1,5 @@
 /**
- * 经纬网的度数:"图层与投影"里的经纬网开着时,把看得见的经线、纬线标上度数(算法见 gratLabels.ts)。
+ * 经纬网的度数:"图层与投影"里的经纬网开着时,把看得见的经线、纬线标上度数(算法见 graticuleLabels.ts)。
  *
  * 放在舞台(.stage)外面、和它一样大一样位置的一层里,不接鼠标:
  *   - 新建世界摊平改地形(frame):地图在中间一个固定的框里,度数写在框外的深色空边上 ——
@@ -8,7 +8,7 @@
  * 写在地图里的字衬底:手绘、数据图层深字浅光晕,写实白字暗影。
  */
 import type { MapProj } from '../render/projection';
-import { layoutGratLabels, type GratSpec } from './gratLabels';
+import { layoutGratLabels, type GratSpec } from './graticuleLabels';
 import type { MapView, StageBox } from './mapWrap';
 
 export function GratLabels({
