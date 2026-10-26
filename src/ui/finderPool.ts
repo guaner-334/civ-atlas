@@ -30,10 +30,10 @@ export function finderThreads(cores: number, phone: boolean): number {
 }
 
 /**
- * 一个线程推一个种子大约多久(毫秒):电脑实测(本机 Chrome,别的程序同时在跑)一个约 5–7 秒;
- * 手机按单核约电脑的三分之一算。开搜前估"约几分钟"用,推完几个以后按实测改(FinderProgress.etaMs)
+ * 一个线程推一个种子大约多久(毫秒):电脑实测(Chrome,4 个线程同时推,别的程序也在跑)一个约 3–3.5 秒;
+ * 手机按慢 4 倍算。开搜前估"约几分钟"用,推完几个以后按实测改(FinderProgress.etaMs)
  */
-export const PER_SEED_MS = { desktop: 6000, phone: 18000 } as const;
+export const PER_SEED_MS = { desktop: 3500, phone: 14000 } as const;
 
 /** 开搜前估要多久(毫秒) */
 export function estimateMs(count: number, threads: number, phone: boolean): number {
@@ -130,7 +130,7 @@ export class FinderSearch {
     const total = this.opt.seeds.length;
     const left = total - done;
     const active = this.active + (this.state === 'running' ? clock() - this.since : 0);
-    const per = this.opt.perSeedMs ?? 6000;
+    const per = this.opt.perSeedMs ?? PER_SEED_MS.desktop;
     const etaMs = left <= 0 || this.state === 'stopped' ? 0 : done ? (active / done) * left : Math.ceil(left / Math.max(1, this.slots.length)) * per;
     return { done, total, full: this.full, near: this.near, etaMs: Math.round(etaMs), state: this.state, ...(this.error ? { error: this.error } : {}) };
   }
