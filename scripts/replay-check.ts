@@ -2386,6 +2386,62 @@ if (part('分享链接')) {
   await ctxB.close();
 }
 
+// 带干预的世界里给人物改名:打开分享链接时地图上先出来的是没带干预的历史,改名的那个人要等后台重推完才有 ——
+// 打开时不说"没对上",推完以后按推好的历史核对:那个人对上了(搜得到新名字),确实不存在的那一处照旧说"1 处改名没对上";
+// 不带干预的世界不用等重推,打开时就说
+if (part('改名等推完')) {
+  const { encodeShare } = await import('../src/gen/savefile');
+  const { DEFAULT_PARAMS, generateWorld } = await import('../src/gen/world');
+  const { generateCiv } = await import('../src/gen/civ');
+  const { personKey, polityKey, resolveKey } = await import('../src/gen/edits');
+  const params = { ...DEFAULT_PARAMS, seed: 7 };
+  const w = generateWorld(params);
+  const plain = generateCiv(w);
+  // 保住第 1000 年还在的一国:往后的历史都变了,找一位只有带着这条干预才有的人
+  const keep = plain.polities.findIndex((x) => x.founded <= 1000 && (x.ended ?? Infinity) > 1000);
+  const iv = { kind: 'protect' as const, a: polityKey(plain, keep), from: 1000 };
+  const withIv = generateCiv(w, { interventions: [iv] });
+  let who = '';
+  for (let i = 0; i < (withIv.people?.length ?? 0) && !who; i++) {
+    const k = personKey(withIv, i);
+    if (k && !resolveKey(plain, k)) who = k;
+  }
+  const nobody = 'person:polity:c1#0|general|乌有|2000';
+  const share = (names: Record<string, string>, interventions: unknown[]) =>
+    encodeShare({ app: '文明与地图', format: 1, generator: GENERATOR_VERSION, seed: 7, params, edits: { names, interventions, terrain: [] }, check: '', title: '改名核对', savedAt: '2026-10-26T08:00:00.000Z' } as never);
+  const open = async (hash: string, wait: boolean) => {
+    const ctx = await browser.newContext({ viewport: { width: 1400, height: 820 } });
+    const p = await ctx.newPage();
+    p.on('pageerror', (e) => errs.push(`改名等推完:${e.message}`));
+    await p.goto(`${dev.url}/?seed=7&style=fantasy&civ=polities${hash}`);
+    await p.waitForFunction(() => (window as any).__wfLabels?.polities > 0, null, { timeout: 60000 });
+    const early = (await p.locator('.toast').allInnerTexts().catch(() => [] as string[])).join(' ').replace(/\n/g, ' ');
+    // 重推完、画到地图上(__wfResim)以后再看提示
+    if (wait) await p.waitForFunction(() => (window as any).__wfResim, null, { timeout: 120000 }).catch(() => {});
+    await p.waitForTimeout(500);
+    const done = await toastText(p, 'save', 2000);
+    let found: string[] = [];
+    if (wait) {
+      await p.click('[data-act=search]');
+      await p.fill('.sidebar .search-input', '阎溟');
+      await p.waitForTimeout(300);
+      found = await p.locator('.search-row .search-name').allInnerTexts().catch(() => [] as string[]);
+    }
+    await ctx.close();
+    return { early, done, found };
+  };
+  const a = who ? await open(await share({ [who]: '阎溟', [nobody]: '子虚' }, [iv]), true) : null;
+  const b = await open(await share({ [nobody]: '子虚' }, []), false);
+  console.log(`改名等推完:改名的人 ${who || '没找到'};带干预:刚打开「${a?.early}」→ 推完「${a?.done}」、搜到 ${JSON.stringify(a?.found)};不带干预:打开就说「${b.done}」`);
+  if (!who || !a) errs.push('改名等推完:没找到只有带着干预才有的人物');
+  else {
+    if (a.early.includes('没对上')) errs.push(`改名等推完:历史还没重推完就说改名没对上(${a.early})`);
+    if (!a.done.includes('1 处改名没对上')) errs.push(`改名等推完:重推完应只有确实不存在的那 1 处没对上(${a.done})`);
+    if (!a.found.some((t) => t.startsWith('阎溟'))) errs.push(`改名等推完:重推完搜不到改的新名字(${JSON.stringify(a.found)})`);
+  }
+  if (!b.done.includes('1 处改名没对上')) errs.push(`改名等推完:不带干预的世界打开时没说改名没对上(${b.done})`);
+}
+
 // 没改过的世界:复制出来的普通链接、地址栏都带生成器版本(gen=);打开旧版本时的普通链接,提示条说清变了什么;版本一样不提示
 if (part('生成器版本')) {
   const ctx = await browser.newContext({ viewport: { width: 1400, height: 820 }, permissions: ['clipboard-read', 'clipboard-write'] });
