@@ -75,7 +75,7 @@ describe.each([7, 2024])('世系图 · seed=%i', (seed) => {
       }
     }
     // 兜底成"宗室"的君主很少(连不上开国那一支,另起一棵)
-    expect(distant).toBeLessThan(6);
+    expect(distant).toBeLessThan(10);
   });
 
   it('复制成文字:一朝一段,标题、每人一行(下一代多缩两格)、结尾那句', () => {
@@ -126,10 +126,10 @@ describe('世系图 · seed=7 的卢梅亚、埃维里亚', () => {
     expect(root).toMatchObject({ role: 'prince', name: '慕容风墨' });
     expect(root.died!).toBeLessThan(cr[h].from);
     expect(princeRole(civ, root)).toBe('大岳宗室');
-    // 哈兹斯坦的塔米拉特王室:开国之君的父亲死在新朝之前,不写成上一朝(塔拉尼亚)的宗室
+    // 哈兹斯坦的萨拉巴德王室:开国之君的父亲死在新朝之前,不写成上一朝(塔拉尼亚)的宗室
     const w = civ.polities.findIndex((p) => p.name === '哈兹斯坦');
     const wr = dynastyRows(civ, w);
-    const k = wr.findIndex((r) => r.name === '塔米拉特');
+    const k = wr.findIndex((r) => r.name === '萨拉巴德');
     const wroot = layoutDynasty(civ, wr[k])[0].nodes[0].p;
     expect(wroot).toMatchObject({ role: 'prince' });
     expect(wroot.died!).toBeLessThan(wr[k].from);

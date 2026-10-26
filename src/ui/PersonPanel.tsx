@@ -11,17 +11,21 @@
  *         演一国时别国的人这两项变灰,写"切回造物主才能改别国"
  *   概况  君主:事迹(名人才有)、国家、生卒、在位、前任、继任(后面的小字是亲属,和编年史的"其子 / 其侄"同一个算法:按世系;
  *         作者立的君主:名字前面是作者人物的圆头像,小字写「作者的人物」,点了开作者的人物卡;让位给他的,结局写"让位 给某某")、
- *         父亲、子嗣(世系图里有的人,没即位的写"未即位")、结局、亲征、将领(在位时本国领兵的)、名臣(在位时在朝的);
+ *         父亲(收养的写「养父」;父亲在别国的,小字写那一国)、子嗣(世系图里有的人,没即位的写"未即位")、
+ *         争储(即位时诸子争储怎么得的位:以军功越过兄长、举兵、谮杀……,对手能点)/ 争位(据地自立的:不服谁即位、据哪里自立)、
+ *         结局、即位前领兵(做王子时领的兵)、亲征(在位时)、将领(在位时本国领兵的)、名臣(在位时在朝的);
  *         右上「世系图」打开这国的世系图,停在他那一朝、圈出他。共和国写"在任""执政",没有父亲、子嗣、世系图
  *         将领:事迹、国家、字号、籍贯、生卒、官职、历任、领兵(伐谁 / 抗谁)、效力(那几年在位的君主)、对手(同一场仗对面的统帅)、结局
  *         名臣:事迹(经手的事)、国家、字号、籍贯、生卒、官职(做到最高的那个官和任期)、历任(之前的官和年份)、效力、结局
- *         宗室:国家、生卒、父亲、子嗣
+ *         宗室:国家、生卒、父亲、子嗣、领兵(替父兄出征打的仗)、效力(派他出征的君主,小字写父 / 兄)、结局(战死、争储被杀)、
+ *         对手(杀他的那位新君,小字写亲属和怎么回事)
  *         (字号:西幻、汗国这类名字没有姓的不起字号,这一行不出)
  *   倾向  君主、执政官才有:开拓、好战、发展、重商一项一行(名字、灰色细条、0–100 的数值),下面一句说明;
  *         那年在位的君主右上多一个「改」(同「更多」里的改他的倾向);改过倾向的右上写"1500 年起改过",点了看原来的
  *   生平  将领、名臣的一段生平(officialText.ts 的 personBio);写到的君主是蓝字
  *   作者的人物  亲友里有他、经历里勾了他的作者人物(characterInfo.ts 的 charactersOfPerson),没有就不显示
- *   在位时 / 领兵时 / 在朝时  他在台上那几年本国的事(将领 = 他经手的那几仗),新的在上;点一条跳到那一年
+ *   在位时 / 领兵时 / 在朝时  他在台上那几年本国的事(将领 = 他经手的那几仗),新的在上;点一条跳到那一年。
+ *         宗室:领兵时(他经手的那几仗)/ 争储(杀他的那位新君即位那一条),都没有就不显示
  */
 import { Fragment, useMemo, useState, type ReactNode } from 'react';
 import type { Civ, Person, RulerLeanings } from '../gen/civ/types';
@@ -29,6 +33,7 @@ import { polityName } from '../gen/civ/growth';
 import { buildChronicle, filterChronicle, reignEntries, type ChronicleEntry } from '../gen/civ/chronicle';
 import { commandFoes, peopleIndex, personFame, personSpan, rulerNeighbors, type Foe } from '../gen/civ/peopleInfo';
 import { LEANING_KEYS, LEANING_TEXT, ageAt, generalRole, isConsul, kinOf, leaningsText, ministerRole, personName, princeRole, rulerFateWord, rulerRole } from '../gen/civ/peopleText';
+import { regionLabel } from '../gen/civ/display';
 import { deedsShort, ministerFate, personArt, personBio } from '../gen/civ/officialText';
 import { fatherOf, hasLineage, kidsOf } from '../gen/civ/lineageInfo';
 import { personKey } from '../gen/characters';
@@ -189,7 +194,7 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
   const fallbackName = x.defaultName ?? x.name;
   const lead = name.endsWith(x.name) ? name.slice(0, name.length - x.name.length) : '';
   const nameHint = `${lead ? `只改名字，${/[宗祖]$/.test(lead) ? '庙号' : '称号'}「${lead}」不变；` : '只改名字；'}留空 = 换回「${fallbackName}」。`;
-  const head = ruler ? (consul ? '在任时' : '在位时') : minister ? '在朝时' : '领兵时';
+  const head = ruler ? (consul ? '在任时' : '在位时') : minister ? '在朝时' : prince ? princeHead(x) : '领兵时';
   const lineage = () => openLineage(x.polity, { dynasty: x.dynasty ?? 0, focus: x.id });
 
   const copy = async () => {
@@ -319,7 +324,7 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
           </section>
         )}
         <CharacterRefs refs={refs} />
-        {!prince && (
+        {(!prince || events.length > 0) && (
         <EventList
           civ={civ}
           self={id}
@@ -451,6 +456,7 @@ function personLines(civ: Civ, x: Person, era: Era | undefined): Line[] {
   } else out.push({ k: '生卒', node: `${yearAt(x.born, era)}生`, text: `${yearAt(x.born, era)}生` });
   if (x.role === 'prince') {
     kinLines(civ, x, out);
+    princeLines(civ, x, out, era);
     return out;
   }
   if (x.role === 'minister') {
@@ -533,10 +539,13 @@ function bioPeople(civ: Civ, x: Person): number[] {
   return [...new Set(out)];
 }
 
-/** 父亲、子嗣(世系图里有的人;没即位的小字"未即位") */
+/** 父亲(收养的写「养父」;在别国的小字写那一国)、子嗣(世系图里有的人;没即位的小字"未即位") */
 function kinLines(civ: Civ, x: Person, out: Line[]) {
   const f = fatherOf(civ, x);
-  if (f) out.push(personRow('父亲', civ, f, f.role === 'prince' ? '未即位' : ''));
+  if (f) {
+    const away = f.polity !== x.polity ? polityName(civ.polities[f.polity], Math.min(x.from ?? x.born, f.until ?? Infinity) - 1 / 512) : '';
+    out.push(personRow(x.adopted ? '养父' : '父亲', civ, f, [f.role === 'prince' ? '未即位' : '', away].filter(Boolean).join('，')));
+  }
   const ks = kidsOf(civ, x);
   if (ks.length) out.push({ k: '子嗣', ...kidsLine(civ, ks) });
 }
@@ -575,6 +584,8 @@ function rulerLines(civ: Civ, x: Person, out: Line[], foes: Foe[], era: Era | un
     out.push(personRow('继任', civ, next, note, ac));
   }
   if (!consul) kinLines(civ, x, out);
+  const claim = claimLine(civ, x);
+  if (claim) out.push(claim);
   const fate = rulerFateWord(civ, x);
   if (x.killed !== undefined && x.died !== undefined) {
     const t = `${yearAt(x.died, era)}去世（干预）`;
@@ -588,7 +599,14 @@ function rulerLines(civ: Civ, x: Person, out: Line[], foes: Foe[], era: Era | un
     const later = x.died !== undefined && x.until !== undefined && x.died - x.until >= 1 ? `，${yearAt(x.died, era)}卒` : '';
     out.push({ k: '结局', node: fate + later, text: fate + later });
   }
-  if (foes.length) out.push({ k: consul ? '领兵' : '亲征', ...foesLine(civ, foes, era) });
+  // 即位以前(做王子时)领的兵单列,和在位时的亲征分开
+  const early = (x.commands ?? []).filter((c) => c.from < from);
+  if (early.length && !consul) {
+    const before = commandFoes(civ, { ...x, commands: early });
+    const later = commandFoes(civ, { ...x, commands: (x.commands ?? []).filter((c) => c.from >= from) });
+    if (before.length) out.push({ k: '即位前领兵', ...foesLine(civ, before, era) });
+    if (later.length) out.push({ k: '亲征', ...foesLine(civ, later, era) });
+  } else if (foes.length) out.push({ k: consul ? '领兵' : '亲征', ...foesLine(civ, foes, era) });
   // 在位时本国领兵的将领
   const until = x.until ?? civ.endYear;
   const gens = peopleIndex(civ).generals[x.polity].filter((g) => (g.commands ?? []).some((c) => c.until > from && c.from < until));
@@ -596,6 +614,79 @@ function rulerLines(civ: Civ, x: Person, out: Line[], foes: Foe[], era: Era | un
   // 在位时在朝的名臣
   const mins = peopleIndex(civ).ministers[x.polity].filter((m) => m.from! < until && (m.until ?? Infinity) > from);
   if (mins.length) out.push({ k: '名臣', ...peopleLine(civ, mins) });
+}
+
+/** 宗室:领兵、效力(派他出征的君主,小字写父 / 兄)、结局(战死、争储被杀)、对手(杀他的那位新君) */
+function princeLines(civ: Civ, x: Person, out: Line[], era: Era | undefined) {
+  const cs = x.commands ?? [];
+  const foes = commandFoes(civ, x);
+  if (foes.length) out.push({ k: '领兵', ...foesLine(civ, foes, era) });
+  if (cs.length) {
+    const served = peopleIndex(civ).rulers[x.polity].filter((r) => cs.some((c) => (r.from ?? Infinity) < c.until && (r.until ?? Infinity) > c.from));
+    if (served.length === 1) out.push(personRow('效力', civ, served[0], kinOf(civ, x, served[0])));
+    else if (served.length) out.push({ k: '效力', ...peopleLine(civ, served) });
+  }
+  const died = x.died !== undefined ? `，${yearAt(x.died, era)}` : '';
+  if (x.fate === 'battle') out.push({ k: '结局', node: `战死${died}`, text: `战死${died}` });
+  else if (x.fate === 'purged') out.push({ k: '结局', node: `争储被杀${died}`, text: `争储被杀${died}` });
+  const r = x.fate === 'purged' && x.rival !== undefined ? civ.people?.[x.rival] : undefined;
+  if (r) {
+    const how = { coup: '杀他即位', intrigue: '谮杀他得立', usurp: '杀他自立', revolt: '他拥兵争位，兵败被杀' }[r.claim?.how as string] ?? '杀他即位';
+    out.push(personRow('对手', civ, r, [kinOf(civ, x, r), how].filter(Boolean).join('，')));
+  }
+}
+
+/** 宗室卡片下面那一段的标题:领过兵 = 领兵时;争储被杀 = 争储;两样都有 = 领兵、争储 */
+function princeHead(x: Person): string {
+  const led = !!x.commands?.length;
+  const purged = x.fate === 'purged';
+  return led && purged ? '领兵、争储' : purged ? '争储' : '领兵时';
+}
+
+/**
+ * 君主即位时争储怎么得的位(Person.claim):「争储  举兵杀其兄 李瑜，即位」;据地自立的开国之君:「争位  不服其侄 李晔 即位，据云西郡自立」。
+ * 对手的名字能点
+ */
+function claimLine(civ: Civ, x: Person): Line | null {
+  const c = x.claim;
+  if (!c) return null;
+  const rs = c.rivals.map((id) => civ.people?.[id]).filter((r): r is Person => !!r);
+  if (!rs.length) return null;
+  const east = !!civ.polities[x.polity]?.eastern;
+  const kin = (r: Person) => kinOf(civ, x, r);
+  const list = (lead: boolean) => ({
+    node: rs.map((r, i) => (
+      <Fragment key={r.id}>
+        {i > 0 && '、'}
+        {lead && kin(r) ? `其${kin(r)}` : ''}
+        <Link to={{ kind: 'person', id: r.id }}>{r.name}</Link>
+      </Fragment>
+    )),
+    text: rs.map((r) => `${lead && kin(r) ? `其${kin(r)}` : ''}${r.name}`).join('、'),
+  });
+  let pre = '';
+  let post = '';
+  if (c.how === 'secede') {
+    const a = civ.annals.find((e) => e.kind === 'split' && e.cause === 'heir' && e.a === x.polity);
+    const place = a && a.region >= 0 && a.region < civ.regions.count ? regionLabel(civ, a.region) : '';
+    pre = '不服';
+    post = `即位，${place ? `据${place}` : ''}自立`;
+  } else if (c.how === 'merit') {
+    pre = `以${east ? '军功' : '战功'}越过`;
+    post = '得立';
+  } else if (c.how === 'coup') {
+    pre = east ? '举兵杀' : '起兵入宫，杀';
+    post = '，即位';
+  } else if (c.how === 'intrigue') {
+    pre = east ? '谮杀' : '构陷';
+    post = east ? '得立' : '致死，得立';
+  } else if (c.how === 'usurp') {
+    pre = '杀';
+    post = '自立';
+  } else post = '拥兵争位，兵败被杀';
+  const l = list(true);
+  const k = c.how === 'secede' ? '争位' : '争储';
+  return { k, node: <>{pre}{l.node}{post}</>, text: pre + l.text + post };
 }
 
 function generalLines(civ: Civ, x: Person, out: Line[], foes: Foe[], era: Era | undefined) {
@@ -649,6 +740,15 @@ export function personEvents(civ: Civ, x: Person): ChronicleEntry[] {
     const from = x.from ?? x.born;
     const until = x.until ?? civ.endYear;
     return all.filter((e) => e.year >= from - eps && e.year <= until + eps);
+  }
+  // 宗室:他经手的那几仗 + 争储被杀的,杀他的那位即位那一条
+  if (x.role === 'prince') {
+    const cs = x.commands ?? [];
+    return all.filter(
+      (e) =>
+        (e.kind !== 'reign' && cs.some((c) => e.id >= c.first && e.id <= c.last && civ.annals[e.id]?.war === c.war)) ||
+        (x.fate === 'purged' && e.kind === 'reign' && !!e.people?.includes(x.id)),
+    );
   }
   // 将领:他经手的那几件(宣战、战役、攻占:史事下标在他任期的第一件到最后一件之间)
   const cs = x.commands ?? [];

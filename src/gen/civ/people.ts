@@ -713,9 +713,9 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
   if (merged.size) {
     for (const [x, f] of parentOf) if (merged.has(f)) parentOf.set(x, merged.get(f)!);
     for (let i = princes.length - 1; i >= 0; i--) if (merged.has(princes[i])) princes.splice(i, 1);
-    // 他立的国的将领、名臣(都在他即位以后出道)起名时还不知道他叫什么:撞了名的换一个本国没人用的
+    // 他立的国的将领、名臣(都在他即位以后出道)起名时还不知道他叫什么:撞了名的换一个本国没人用的(连同宗室)
     for (const F of merged.values()) {
-      const taken = new Set([...rulers[F.polity], ...generals, ...ministers].filter((o) => o.polity === F.polity).map((o) => o.name));
+      const taken = new Set([...rulers[F.polity], ...generals, ...ministers, ...princes].filter((o) => o.polity === F.polity).map((o) => o.name));
       for (const g of [...generals, ...ministers]) {
         if (g.polity !== F.polity || g.name !== F.name) continue;
         const at = genName.get(g) ?? nameAt.get(g);

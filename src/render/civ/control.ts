@@ -8,6 +8,7 @@
  */
 import { Layer, type Civ, type Year } from '../../gen/civ/types';
 import { CONTROL_TIERS, LORD_BYTE, controlAt, controlShare, controlTier } from '../../gen/civ/control';
+import { cutDone } from '../../gen/civ/council';
 import { logIndexAfter, ownersAt, type Owners } from '../../gen/civ/timeline';
 import { swapCiv } from './era';
 
@@ -112,13 +113,13 @@ export function lordsAt(civ: Civ, year: Year): LordNow[] {
   const snap = controlAt(civ, y)!;
   own = ownersAt(civ, y, own);
   const owner = own.polity;
-  // 每州最近一次割据(同一国、同一州以后又割据的,前一处早已了结);收回了的去掉
+  // 每州最近一次割据(同一国、同一州以后又割据的,前一处早已了结);收回了的、削藩办成的去掉
   // (不去掉的话,起事的州后来落进邻近另一处割据的地盘,快照里还是割据,会被当成还在)
   const latest = new Map<number, LordNow>();
   for (const e of civ.annals) {
     if (e.year > y) break;
     if (e.kind === 'warlord') latest.set(e.region, { p: e.a, region: e.region, city: e.settlement, start: e.year, regions: [e.region] });
-    else if (e.kind === 'reclaim' && latest.get(e.region)?.p === e.a) latest.delete(e.region);
+    else if ((e.kind === 'reclaim' || cutDone(e)) && latest.get(e.region)?.p === e.a) latest.delete(e.region);
   }
   // 起事的州割据以后换过国家(哪怕后来又打回来)的,那处割据也了结了
   if (latest.size) {

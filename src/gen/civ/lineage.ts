@@ -186,15 +186,21 @@ export function buildLineage(
     for (const r of list) for (const s of opts.sons?.get(r) ?? []) if (s.p.role === 'ruler') heirs.push([s.debut, s.p.name, s.p.born]);
     heirs.sort((a, b) => a[0] - b[0]);
     let hi = 0;
+    /** 将领、名臣用过的名字 → 生年 */
+    const staff = new Map<string, Year[]>();
     mine.forEach((n, i) => (n.order = i));
     mine.sort((a, b) => a.debut! - b.debut! || a.order! - b.order!);
     let named = 0;
     mine.forEach((n) => {
       const t = n.debut!;
       for (; ri < list.length && (list[ri].from ?? list[ri].born) <= t; ri++) use(list[ri].name, list[ri].born);
-      for (; gi < others.length && others[gi][0] <= t; gi++) use(others[gi][1], others[gi][2]);
+      for (; gi < others.length && others[gi][0] <= t; gi++) {
+        use(others[gi][1], others[gi][2]);
+        staff.set(others[gi][1], [...(staff.get(others[gi][1]) ?? []), others[gi][2]]);
+      }
       for (; hi < heirs.length && heirs[hi][0] <= t; hi++) use(heirs[hi][1], heirs[hi][2]);
-      if (n.p.name) {
+      // 预定的继承人没即位的:名字照君主起(可以和先君同名),和那以前出道的将领、名臣撞了就另起一个
+      if (n.p.name && !staff.get(n.p.name)?.some((y) => Math.abs(y - n.born) < NAME_GAP)) {
         use(n.p.name, n.born);
         if (Number.isFinite(n.died)) n.p.died = q(n.died);
         debut.set(n.p, t);

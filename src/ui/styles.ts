@@ -22,6 +22,7 @@ import './tips.css';
 import './portrait.css';
 import './characters.css';
 import './policy.css';
+import './fiscal.css';
 import './newIv.css';
 import './upheaval.css';
 import './marks.css';

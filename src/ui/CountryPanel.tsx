@@ -11,7 +11,7 @@
  *         有主体民族时还有讲它的族名由来、给它起族名)
  *   概况  国都、君主(这一年在位的那位,点了看他;共和国写"执政")、方针(这一年照的方针,"某年起";写进待推演单子的标"待推演";
  *         点了开方针页)、疆域(历年州数的小柱图,和概览"国家"表同一份)、
- *         人口(境内各州的总人口:城 + 乡村)、主体民族、国教(可点,"某年起";没有写"没有")、
+ *         人口(境内各州的总人口:城 + 乡村)、钱粮(近几百年国库小柱 + 国库怎么样 + 岁入;点了换成钱粮页 FiscalPage.tsx)、主体民族、国教(可点,"某年起";没有写"没有")、
  *         宗主("某年起称臣")/ 藩属 / 盟国(可点,名字后面是哪年称臣、结盟;有才写)、邻国(可点),来历 / 结局 / 历任国都(有才写)
  *   历代君主  当前这位和前后各两位(新的在上;遇弑、被废这类结局写在名字后面),点一行看这个人;
  *             作者立的君主(让作者的人物即位):名字前面是他的圆头像,后面写「作者的人物」,点了开作者的人物卡;
@@ -50,6 +50,7 @@ import { polityTies } from '../gen/civ/diplomacy';
 import { CommandPage } from './CommandPage';
 import { openCmdPage, setPanelTab, setSheet, usePanel } from './panelStore';
 import { PolicyPage } from './PolicyPage';
+import { FiscalPage, FiscalRow } from './FiscalPage';
 import { DestroyPage } from './DestroyPage';
 import { DisasterPage } from './DisasterPage';
 import { policyRow, roleLock } from './policyInfo';
@@ -103,7 +104,7 @@ export interface CountryPanelProps {
 }
 
 export function CountryPanel(props: CountryPanelProps) {
-  const { tab, page } = usePanel();
+  const { tab, page, sub } = usePanel();
   const { civ, raw, raster, id, year } = props;
   const p = civ.polities[id];
   // 演一国时别国:干预入口变灰,只看信息页
@@ -128,6 +129,8 @@ export function CountryPanel(props: CountryPanelProps) {
         ) : (
           <CommandPage civ={civ} raster={raster} world={props.world} id={id} year={year} />
         )
+      ) : sub === 'fiscal' ? (
+        <FiscalPage key={id} civ={civ} id={id} year={shownYearOf(p, year, civ.endYear)} />
       ) : (
         <InfoPage {...props} p={p} shared={shared} lock={lock?.me ?? -1} />
       )}
@@ -349,6 +352,7 @@ function InfoPage({ civ, raw, raster, world, id, year, p, shared, lock }: Countr
             <span data-stat="州">{n} 个州</span>
           </Row>
           <Row k="人口">{popText}</Row>
+          <FiscalRow civ={civ} id={id} year={shownYear} />
           {eraNow && (
             <Row k="时代" className="cp-era">
               <EraLadder era={eraNow.era} progress={eraNow.progress} />

@@ -611,7 +611,7 @@ if (part('键盘快捷键')) {
 // 「出征那年」跳时间轴;「编年史」打开这国的编年史;「复制生平」);编年史里的人名是蓝字,点了收起概览、打开这个人,不跳年份;
 // 世界概览的「人物」页(名人 / 君主 / 将领,「全部 N 位」进来停在这国的君主);搜名字第一个是这个人。
 // 例子:种子 7 的第 2900 年,天灵(6 号国)霄朝的孝宗沈羽(前任是他的父亲高宗沈岚尘,
-// 继任是他的孙子宪宗沈玄;在位时有将领谢清尧领兵)
+// 继任是他的孙子宣宗沈玄;在位时有将领司玄领兵)
 if (part('人物')) {
   await page.goto(`${dev.url}/?seed=7&civYear=2900`);
   await page.waitForFunction(() => (window as any).__wfLabels?.polities > 0, null, { timeout: 60000 });
@@ -634,7 +634,7 @@ if (part('人物')) {
   await page.waitForTimeout(200);
   const copied = (await page.evaluate(() => (window as any).__wfPersonText as string)) ?? '';
   // 将领一行的名字 → 将领的卡片;出征那年
-  await page.locator('.inspector .cp.pp .cp-stats .ins-link', { hasText: '谢清尧' }).first().click();
+  await page.locator('.inspector .cp.pp .cp-stats .ins-link', { hasText: '司玄' }).first().click();
   await page.waitForTimeout(400);
   const card2 = await text('.inspector .cp.pp');
   const genLeans = await page.locator('.inspector .cp.pp [data-sec=leanings]').count();
@@ -707,7 +707,7 @@ if (part('人物')) {
     !/孝宗沈羽/.test(card1) ||
     !/大霄皇帝，2887–2915 年在位/.test(card1) ||
     !/前任\s*高宗沈岚尘\s*父/.test(deed) ||
-    !/继任\s*宪宗沈玄\s*孙/.test(deed)
+    !/继任\s*宣宗沈玄\s*孙/.test(deed)
   )
     errs.push(`人物:君主卡片不对(${card1.slice(0, 160)})`);
   if (!copied.startsWith('孝宗沈羽\n大霄皇帝') || !copied.includes('在位时：')) errs.push(`人物:复制生平不对(${copied.slice(0, 60)})`);
@@ -719,7 +719,7 @@ if (part('人物')) {
   )
     errs.push(`人物:君主卡片的倾向不对(${leanRows} 行;${leans.slice(0, 80)};复制里 ${/倾向：.*/.exec(copied)?.[0]})`);
   if (genLeans || princeLeans) errs.push(`人物:将领 / 宗室的卡片上不该有倾向(${genLeans};${princeLeans})`);
-  if (!/谢清尧\s*大霄将领，2892–2900 年领兵/.test(card2) || y1 !== 2892) errs.push(`人物:将领卡片 / 出征那年不对(${card2.slice(0, 60)};${y1})`);
+  if (!/司玄\s*大霄将领，2892–2899 年领兵/.test(card2) || y1 !== 2892) errs.push(`人物:将领卡片 / 出征那年不对(${card2.slice(0, 60)};${y1})`);
   if (!chronOpen || names < 3 || !closed || pickId < 0 || card3Id !== pickId || y2 !== y1) errs.push(`人物:编年史里的人名点不开,或点了跳了年份(${chronOpen};${names};${closed};${card3Id}/${pickId};${y1} → ${y2})`);
   if (!famousOn || famous < 20 || !card4) errs.push(`人物:人物页的名人不对,或点一行没打开卡片(${famousOn};${famous};${card4.slice(0, 30)})`);
   if (!rulersOn || polityPick !== '6' || groups < 1 || rows !== 102) errs.push(`人物:「全部 N 位」没有打开这国的君主(${rulersOn};${polityPick};${groups};${rows})`);

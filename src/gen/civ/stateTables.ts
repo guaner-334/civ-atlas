@@ -10,6 +10,7 @@
  * 各国国都所在州的行政能力、危机、当朝几年、近年闹饥荒 / 染疫的州数、在讨伐的民变、割据几处、有几州、在打几场仗、纳贡收贡。
  * 各州城的人口(每年填);每 FISCAL_EVERY 年填一次(只给按州的三样收入用):生产和运输能力、有没有港口、大河。
  * 各国的军力系数、方针给的国力倍数(每年填)。
+ * 各国议事定下的(council.ts,每年填):直征多收的几成、直征的开销、分封了边地没有、改制以后的余波(动荡加多少)。
  *
  * **乡村人口**(每 POP_EVERY 年算一次,千人;population.ts):
  *   按州的:开垦了几成(垦,0–1):这州建了第一座城起从 1 / (1 + GROWTH_A) 按 S 形曲线长(速度 = 那座城的增长速度),是"太平年景该有多少人"的底子;
@@ -30,8 +31,10 @@
  *     工商 = 城的人口 × CRAFT × (1 + CRAFT_PROD × 生产能力)
  *     市税 = 城的人口 × TRADE × (1 + TRADE_MOVE × 运输能力) × (1 + PORT_W × 港口 + RIVER_W × 大河)
  *   应缴 = 全国三样之和;实收 = 各州 × 交上来几成(REMIT_0 + (1 − REMIT_0) × 管得到几成;割据的地盘一文不交),其余地方截留(拖欠)。
+ *     议事改了征收之法的(council.ts):管得到几成先加上"直征多收的几成"(征升,最多到 1);分封了边地的,管得到几成不到 FIEF_C 的州
+ *     只交 FIEF_REMIT(岁贡,不再按管得到几成算)。
  *   第四样贡赋:藩属每年把实收的 TRIBUTE 交给宗主(纳贡算岁出,收贡算岁入)。
- *   岁入 = 实收 + 收贡;岁出 = 养官 OFFICE × 应缴 + 军费 ARMY × 应缴 × 在打几场仗 + 纳贡。
+ *   岁入 = 实收 + 收贡;岁出 = 养官 OFFICE × 应缴 + 直征的开销(征费,占应缴几成)× 应缴 + 军费 ARMY × 应缴 × 在打几场仗 + 纳贡。
  *   国库 = 上一年的 + 岁入 − 岁出,压在 0 到 RESERVE 年的应缴之间。
  *   窘迫(0–1):国库空了还入不敷出时 = 缺口占岁出的几成 × GAIN(最多 1);新朝初立 GRACE 年内不算。
  *   窘迫加进动荡(FISCAL_W × 窘迫),也让宣战少、战事早罢(wars.ts 读)。
@@ -98,6 +101,14 @@ export interface FiscalRuleConsts {
   FISCAL_EVERY: number;
 }
 
+/** 议事改的征收之法、分封的常数(council.ts 给;名字和那边一样) */
+export interface CouncilRuleConsts {
+  /** 分封了边地的国家:管得到几成不到 FIEF_C 的州只交 FIEF_REMIT,"离国都远"那一项动荡乘 FIEF_FAR */
+  FIEF_C: number;
+  FIEF_REMIT: number;
+  FIEF_FAR: number;
+}
+
 /** 乡村人口的常数(population.ts 给;名字和那边一样) */
 export interface PopRuleConsts {
   GROWTH_A: number;
@@ -122,11 +133,11 @@ export interface PopRuleConsts {
 const BIG = 1e15;
 
 /** 政局的全部表(输入表在前) */
-export function stateCards(c: ControlRuleConsts, u: UnrestRuleConsts, f: FiscalRuleConsts, h: PopRuleConsts): TableCard[] {
+export function stateCards(c: ControlRuleConsts, u: UnrestRuleConsts, f: FiscalRuleConsts, h: PopRuleConsts, k: CouncilRuleConsts): TableCard[] {
   const num = (id: string, name: string): TableCard => ({ id, name, unit: 'region', input: true, min: -BIG, max: BIG, off: 0 });
   const pol = (id: string, name: string): TableCard => ({ ...num(id, name), unit: 'polity' });
   const cell = (id: string, name: string): TableCard => ({ ...num(id, name), unit: 'tile' });
-  const consts = { ...c, ...u, ...f, ...h, NEVER };
+  const consts = { ...c, ...u, ...f, ...h, ...k, NEVER };
 
   const inputs: TableCard[] = [
     { id: '国', name: '归哪国', unit: 'region', kind: 'id', min: -1, max: 1e9, off: -1 },
@@ -161,6 +172,10 @@ export function stateCards(c: ControlRuleConsts, u: UnrestRuleConsts, f: FiscalR
     pol('收贡', '藩属交来的贡赋'),
     pol('军力', '军力系数(国都所在州的动员能力定)'),
     pol('国力倍数', '顺着引的方针加减国力(没有 = 1)'),
+    pol('征升', '直征多收的几成(加在管得到几成上;没直征 = 0)'),
+    pol('征费', '直征的开销(占应缴几成)'),
+    pol('分封', '分封了边地没有'),
+    pol('改制', '改制以后的余波(动荡加多少)'),
   ];
 
   /** 行政越强,远处的州也管得住:管得到的远近、离国都远近的折算都乘它 */
@@ -242,10 +257,10 @@ export function stateCards(c: ControlRuleConsts, u: UnrestRuleConsts, f: FiscalR
     income('市税', '市税', 'if(not has(国), 0, 城民 * TRADE * (1 + TRADE_MOVE * 运输) * (1 + PORT_W * 港口 + RIVER_W * 大河))'),
     { ...income('税', '三样收入之和', '田赋 + 工商 + 市税'), after: sources },
     ledger('应缴', '应缴(全国三样收入之和)', ['税'], 'sumof(税)'),
-    // 交上来几成跟着管得到几成;割据的地盘一文不交
-    ledger('实收', '实收(各州交上来的)', ['税', '管辖'], 'sumof(税 * if(割据州, 0, REMIT_0 + (1 - REMIT_0) * 管辖))'),
+    // 交上来几成跟着管得到几成(直征的再加征升);割据的地盘一文不交;分封了的边地只交岁贡
+    ledger('实收', '实收(各州交上来的)', ['税', '管辖'], 'sumof(税 * if(割据州, 0, if(分封 and 管辖 < FIEF_C, FIEF_REMIT, REMIT_0 + (1 - REMIT_0) * min(1, 管辖 + 征升))))'),
     ledger('岁入', '岁入', ['实收'], '实收 + 收贡'),
-    ledger('岁出', '岁出', ['应缴'], '应缴 * (OFFICE + ARMY * 战事) + 纳贡'),
+    ledger('岁出', '岁出', ['应缴'], '应缴 * (OFFICE + 征费 + ARMY * 战事) + 纳贡'),
     ledger('国库', '国库', ['岁入', '岁出'], 'max(0, min(RESERVE * 应缴, 国库 + dt * (岁入 - 岁出)))'),
     ledger('窘迫', '国用不足(0–1)', ['国库'], 'if(国库 > 0 or 岁出 <= 0 or 当朝 < GRACE, 0, min(1, GAIN * max(0, 岁出 - 岁入) / 岁出))', 1),
   ];
@@ -262,12 +277,12 @@ export function stateCards(c: ControlRuleConsts, u: UnrestRuleConsts, f: FiscalR
     consts,
     rule: [
       'let N = 州数',
-      // 危机 + 边远的州多 + 异族多;王朝老了渐涨,新朝初立反倒减;近年闹了饥荒、瘟疫;民变还没平;国用不足
-      'let u = 危机 + FAR_W * max(0, sumof(边远) / N - FAR_0) + FOREIGN_W * sumof(异族) / N +',
+      // 危机 + 边远的州多(分封了边地的打折)+ 异族多;王朝老了渐涨,新朝初立反倒减;近年闹了饥荒、瘟疫;民变还没平;国用不足;改制的余波
+      'let u = 危机 + FAR_W * if(分封, FIEF_FAR, 1) * max(0, sumof(边远) / N - FAR_0) + FOREIGN_W * sumof(异族) / N +',
       '  if(当朝 < NEW_YEARS, -NEW_W, AGE_W * min(1, max(0, (当朝 - AGE_0) / AGE_SPAN))) +',
       '  if(饥荒 > 0, FAMINE_W * min(1, 饥荒 / max(FAMINE_FULL_MIN, FAMINE_FULL * N)), 0) +',
       '  if(疫病 > 0, PLAGUE_W * min(1, 疫病 / max(FAMINE_FULL_MIN, PLAGUE_FULL * N)), 0) +',
-      '  REVOLT_W * 平叛 + FISCAL_W * 窘迫',
+      '  REVOLT_W * 平叛 + FISCAL_W * 窘迫 + 改制',
       'if(N > 0, u, 0)',
     ].join('\n'),
   };
