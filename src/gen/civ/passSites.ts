@@ -214,9 +214,11 @@ function detourFinder(world: World, regions: Regions, sp: number): (s: PassSite)
 
 /**
  * 推演里据险断后(史事 stand)守的是哪个口子:返回 [{ 史事下标, 口子地块, 年份 }],按史事的先后。
- * 史事记了口子所在的州(region)和大军退保的那一州(foe):口子在 foe 和它的一个邻州的交界上;
- * region ≠ foe 时那个邻州就是 region,否则在 foe 的邻州里找当时归追兵(b)的、口子落在 foe 这边的
- * (几条都是时取共享边界最长的、一样长取治所地块小的,和推演里挑关隘的先后一样)
+ * 史事记了口子所在的州(region)和大军退保的那一州(foe):口子在 foe 和它的一个邻州的交界上(史事不记地块:推演的结果一个字不改)。
+ * region ≠ foe 时那个邻州就是 region;否则是 foe 的邻州里当时归追兵(b)、口子落在 foe 这边的那一个:
+ * 只有一个就是它(默认参数 20 个种子 125 次守关战里 123 次是这两种,认得准);
+ * 几个都是时,先看这一仗紧挨着的上一件事(同一场仗里攻下 / 打的那一州:败兵是从那里退的)在不在里面,
+ * 不在再取共享边界最长的、一样长取治所地块小的(和推演里挑关隘的先后一样)
  */
 export function standCells(world: World, hist: PassHistory): { annal: number; cell: number; year: number }[] {
   const reg = hist.regions;
@@ -226,17 +228,18 @@ export function standCells(world: World, hist: PassHistory): { annal: number; ce
   for (let i = 0; i < annals.length; i++) {
     const an = annals[i];
     if (an.kind !== 'stand' || an.foe === undefined || an.foe < 0) continue;
-    const cell = standCell(hist, an, gate);
+    const cell = standCell(hist, i, gate);
     if (cell >= 0) out.push({ annal: i, cell, year: an.year });
   }
   return out;
 }
 
-function standCell(hist: PassHistory, an: Annal, gate: Int32Array): number {
+function standCell(hist: PassHistory, i: number, gate: Int32Array): number {
   const reg = hist.regions;
+  const an = hist.annals[i];
   const foe = an.foe!;
   let owner: Int16Array | null = null;
-  let best = -1;
+  const cand: number[] = [];
   for (let k = reg.adjStart[foe]; k < reg.adjStart[foe + 1]; k++) {
     const g = gate[k];
     if (g < 0 || reg.of[g] !== an.region) continue;
@@ -246,8 +249,18 @@ function standCell(hist: PassHistory, an: Annal, gate: Int32Array): number {
       continue;
     }
     owner ??= ownersAt(hist as Civ, an.year).polity;
-    if (owner[j] !== an.b) continue;
-    if (best < 0 || reg.adjBorder[k] > reg.adjBorder[best] || (reg.adjBorder[k] === reg.adjBorder[best] && reg.seat[j] < reg.seat[reg.adj[best]])) best = k;
+    if (owner[j] === an.b) cand.push(k);
   }
-  return best >= 0 ? gate[best] : -1;
+  if (cand.length <= 1) return cand.length ? gate[cand[0]] : -1;
+  // 几个都是:这一场仗紧挨着的上一件攻下 / 打的那一州
+  for (let j = i - 1; j >= 0; j--) {
+    const p = hist.annals[j];
+    if (p.war !== an.war || (p.kind !== 'conquer' && p.kind !== 'battle')) continue;
+    const hit = cand.find((k) => reg.adj[k] === p.region);
+    if (hit !== undefined) return gate[hit];
+    break;
+  }
+  let best = cand[0];
+  for (const k of cand) if (reg.adjBorder[k] > reg.adjBorder[best] || (reg.adjBorder[k] === reg.adjBorder[best] && reg.seat[reg.adj[k]] < reg.seat[reg.adj[best]])) best = k;
+  return gate[best];
 }
