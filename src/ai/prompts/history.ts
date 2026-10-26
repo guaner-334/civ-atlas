@@ -1667,7 +1667,7 @@ function usedBlock(prev: string, unit: string): string {
   return `\n\n〔前文用过的开头和"史臣曰"〕(这一${unit}不要再用这些句式和说法,也不要只换几个字照着套)\n${rows.join('\n')}`;
 }
 
-/** 这一章(篇)被服务商的内容审核拦下、重写一次时,写作要求末尾加的一条 */
+/** 这一章(篇;一次写完的是这一部)被服务商的内容审核拦下、重写一次时,写作要求末尾加的一条 */
 export function restrainedLine(unit: string): string {
   return `- 克制:这一${unit}上一次写出来被服务商的内容审核拦下了;这次战争、杀伐写得克制,只写攻守、胜负和后果,不写血腥细节、伤亡惨状和屠戮、刑罚的场面`;
 }
@@ -1675,7 +1675,7 @@ export function restrainedLine(unit: string): string {
 /**
  * 第 i 次调用发给 AI 的消息。分章写的从第二章起,prevText = 已经写好的前文(整篇给,太长取最后 PREV_CONTEXT 字),
  * 让 AI 接着写、不重复用过的人名和评语。
- * restrained:这一章刚被内容审核拦下,重写时在写作要求末尾加一条"战争、杀伐写得克制"(restrainedLine)
+ * restrained:这一章(一次写完的是整部)刚被内容审核拦下,重写时在写作要求末尾加一条"战争、杀伐写得克制"(restrainedLine)
  */
 export function historyMessages(p: HistoryPrompts, i: number, prevText = '', restrained = false): AiMessage[] {
   const c = p.calls[i];
@@ -1687,7 +1687,7 @@ export function historyMessages(p: HistoryPrompts, i: number, prevText = '', res
     ctx = `\n\n〔前文〕(已经写好的${cut ? '最后一部分' : '部分'};接着它往下写,不要重复)\n${cut ? '……' + t.slice(-PREV_CONTEXT) : t}`;
     ctx += usedBlock(t, unit);
   }
-  const head = restrained ? `${c.head}\n${restrainedLine(unit)}` : c.head;
+  const head = restrained ? `${c.head}\n${restrainedLine(c.chapter === null ? '部' : unit)}` : c.head;
   return [
     { role: 'system', content: p.system },
     { role: 'user', content: `${head}${ctx}\n\n${c.body}` },
