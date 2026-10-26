@@ -848,7 +848,7 @@ export function planHighlightDetail(
   let st: ReturnType<typeof highlightStrokes> | null = null;
   const out: { g: DetailGrid | null; img: ImageData | null } = { g: null, img: null };
   // 罩染:按标记(1 相关国家、2 事发州)逐格上色,边按标记之间的界线
-  const fill = fillSteps(cache, 'hl', v, step, world, raster, civ, () => marks!, [null, ...highlightFill(style)], () => lines, out);
+  const fill = fillSteps(cache, 'hl', v, step, world, raster, civ, () => marks!, [null, ...highlightFill(style, !!(hl.steady && hl.blue))], () => lines, out);
   const steps: WorkStep[] = [
     () => {
       marks = highlightMarks(civ, hl);

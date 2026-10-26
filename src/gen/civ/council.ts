@@ -53,7 +53,7 @@
  * **不存内存状态**:各国的征法、分封、军制、官制、各议题上次议的年份都由史事 council 重建(resumeCouncil)。
  * 随机数:keyed4(subSeed(seed, 'civ-council'), 国家锚, 第几次看内政, 议题),和处理顺序无关。纯计算,不碰 DOM。
  */
-import { AdjKind, Layer, type Civ, type Polity } from './types';
+import { AdjKind, Layer, type Civ, type Polity, type Year } from './types';
 import { flog, keyed4, subSeed } from './rand';
 import { Ev, type CivSim } from './sim';
 import { polityModelOf, rulerOf, type PolityModel } from './polities';
@@ -246,7 +246,7 @@ const LEAVE_KEEP = 0;
 const LEAVE_BREAK = -0.9;
 
 // 议题、结果的编号,定下的规矩怎么随史事改(Rules、applyRule),分封、边镇、分镇的几个常数在 councilRules.ts
-export { cutDone, reorgCap, councilBefore } from './councilRules';
+export { COUNCIL_CONSTS, cutDone, reorgCap, councilBefore } from './councilRules';
 
 export interface CouncilModel {
   /** 国家 p 此刻的规矩(没议过 = 原样) */
@@ -276,6 +276,58 @@ function rulesOf(book: Map<number, Rules>, p: number): Rules {
   let r = book.get(p);
   if (!r) book.set(p, (r = newRules()));
   return r;
+}
+
+/** 议得起来的国家:至少几州、立国满几年;割据满几年才议削藩(界面上说明用) */
+export const COUNCIL_GATE = { size: MIN_SIZE, age: MIN_AGE, cutAge: CUT_AGE } as const;
+
+/** 国家 p 在 year 这一年够不够格议事(州数 n;不看打不打仗) */
+export function councilAble(P: Pick<Polity, 'founded'>, n: number, year: Year): boolean {
+  return n >= MIN_SIZE && year - P.founded >= MIN_AGE;
+}
+
+/** 一国到某一年为止议定的规矩(界面用,只读) */
+export interface CourtRules {
+  /** 征法:0 代收、1 分成、2 直征 */
+  tax: number;
+  /** 定下现在这个征法的那次议事(史事下标;立国以来一直代收 = −1)、那次以前的征法 */
+  taxBy: number;
+  taxFrom: number;
+  /** 现在分封着边地:分封的那次议事(史事下标;没分封 = −1) */
+  fiefBy: number;
+  /** 军制(−1 边镇、0 原样、0.5 监军、1 禁军)、官制(−1 自辟、0 原样、0.5 参半、1 铨选) */
+  army: number;
+  office: number;
+  /** 这一国到那一年为止议过的事(史事下标,按先后) */
+  events: number[];
+}
+
+/**
+ * 国家 p 到 year 这一年为止的规矩:由史事 council 重建(和接着推时 resumeCouncil 同一个算法),不改历史。
+ * 史事按年份排好,year 以后的不看
+ */
+export function courtRulesAt(civ: Pick<Civ, 'annals'>, p: number, year: Year): CourtRules {
+  const r = newRules();
+  const out: CourtRules = { tax: 0, taxBy: -1, taxFrom: 0, fiefBy: -1, army: 0, office: 0, events: [] };
+  const A = civ.annals;
+  for (let i = 0; i < A.length; i++) {
+    const e = A[i];
+    if (e.year > year) break;
+    if (e.kind !== 'council' || e.a !== p) continue;
+    const tax = r.tax;
+    const fief = r.fief;
+    applyRule(r, e.war, e.n ?? Outcome.Shelve, e.year);
+    out.events.push(i);
+    if (r.tax !== tax) {
+      out.taxBy = i;
+      out.taxFrom = tax;
+    }
+    if (r.fief !== fief) out.fiefBy = r.fief === undefined ? -1 : i;
+  }
+  out.tax = r.tax;
+  out.army = r.army;
+  out.office = r.office;
+  return out;
 }
 
 function hook(sim: CivSim, seed: number, book: Map<number, Rules>): CouncilModel | undefined {
