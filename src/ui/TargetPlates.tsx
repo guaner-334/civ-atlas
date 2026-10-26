@@ -416,14 +416,17 @@ export function TargetLayer({ civ, world, toClient, resim, generating, labelAt }
           </span>
         </div>
       )}
-      {tag && <MapTag text={tag.text} x={world.mesh.x[tag.cell]} y={world.mesh.y[tag.cell]} toClient={toClient} />}
+      {tag && <MapTag text={tag.text} x={world.mesh.x[tag.cell]} y={world.mesh.y[tag.cell]} blue={!!hl?.blue} toClient={toClient} />}
       {!pick && <PlotPin civ={civ} world={world} toClient={toClient} />}
     </>
   );
 }
 
-/** 天灾页的预览:受灾那一片旁边的小牌子("翼门之野一带 8 州"),摆在那个地块下面一点,每帧跟着地图走(转到球背面的不显示) */
-function MapTag({ text, x, y, toClient }: { text: string; x: number; y: number; toClient: MutableRefObject<WorldToClient | null> }) {
+/**
+ * 天灾页的预览:受灾那一片旁边的小牌子("翼门之野一带 8 州"),摆在那个地块下面一点,每帧跟着地图走(转到球背面的不显示)。
+ * blue = 圈亮是蓝色的(管辖填色下),字跟着变蓝
+ */
+function MapTag({ text, x, y, blue, toClient }: { text: string; x: number; y: number; blue: boolean; toClient: MutableRefObject<WorldToClient | null> }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     let raf = 0;
@@ -440,7 +443,7 @@ function MapTag({ text, x, y, toClient }: { text: string; x: number; y: number; 
     return () => cancelAnimationFrame(raf);
   }, [x, y, toClient]);
   return (
-    <div ref={ref} className="tp-tag" style={{ visibility: 'hidden' }} aria-hidden="true">
+    <div ref={ref} className={`tp-tag${blue ? ' blue' : ''}`} style={{ visibility: 'hidden' }} aria-hidden="true">
       {text}
     </div>
   );
