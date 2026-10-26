@@ -60,7 +60,12 @@ function samePast(a: Civ, b: Civ, T: number, label: string) {
   // 州名:推到 T 时已经起了名的州
   const named = [...(a.regions.name ?? [])].map((n, r) => [r, n]).filter(([, n]) => n);
   expect(named.map(([r]) => [r, b.regions.name![r as number]]), `${label} 州名`).toEqual(named);
-  expect(b.places.map((p) => [p.kind, p.name, p.culture]), `${label} 地名`).toEqual(a.places.map((p) => [p.kind, p.name, p.culture]));
+  expect(b.places.filter((p) => p.kind !== 'pass').map((p) => [p.kind, p.name, p.culture]), `${label} 地名`).toEqual(a.places.filter((p) => p.kind !== 'pass').map((p) => [p.kind, p.name, p.culture]));
+  // 关隘:推到 T 时地图上已经有的(画上地图不晚于 T),位置、名字、哪年画上去、T 以前的守关战一样
+  const pass = (c: Civ) =>
+    c.places.filter((p) => p.kind === 'pass' && p.pass!.since <= T).map((p) => [p.cell, p.name, p.culture, p.pass!.since, p.pass!.stand !== undefined && p.pass!.stand <= T ? p.pass!.stand : null]);
+  expect(pass(a).length, `${label} 关隘`).toBe(a.places.filter((p) => p.kind === 'pass').length);
+  expect(pass(b), `${label} 关隘`).toEqual(pass(a));
   expect(routeSteps(b, T), `${label} 道路`).toEqual(routeSteps(a, T));
   const ra = a.religion!;
   const rb = b.religion!;

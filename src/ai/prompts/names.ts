@@ -481,6 +481,7 @@ const PLACE_KIND: Record<Place['kind'], string> = {
   lake: '湖泊',
   island: '岛屿',
   desert: '荒漠',
+  pass: '关隘',
 };
 
 /** 地理实体的种类名:"山脉""河流""大洋""海湾"…… */
@@ -776,10 +777,12 @@ function nearLimit(p: Place): number {
       return s + 4;
     case 'desert':
       return s + 20;
+    case 'pass':
+      return 12;
   }
 }
 
-const NEAR_WORD: Record<Place['kind'], string> = { river: '临', mountains: '近', lake: '濒', sea: '濒', island: '在', desert: '邻' };
+const NEAR_WORD: Record<Place['kind'], string> = { river: '临', mountains: '近', lake: '濒', sea: '濒', island: '在', desert: '邻', pass: '近' };
 
 /** 临近的山川:"临碧溪河、近苍岭山脉、濒寒雾海"(海只在海边的地方算;每种最多一两个) */
 function nearbyText(g: Geo, x: number, y: number, coastal: boolean, skip = -1): string {
@@ -1386,6 +1389,8 @@ function formatRule(civ: Civ, t: NameTarget, info: NameInfo): string {
       return '岛名,带通名"岛""屿"或"洲",两到五个字';
     case 'desert':
       return '荒漠名,带通名"漠""沙海""戈壁"或"荒原",两到五个字';
+    case 'pass':
+      return '关名,东方语感带通名"关"(如 X关),西幻语感带"山口"(如 X山口),两到六个字';
   }
 }
 

@@ -71,14 +71,16 @@ describe('地理实体(places.ts)', () => {
 
   it('同一个种子两次结果一样;没有民族数据时整个世界一种语感', () => {
     // 按各州民族的语感起名:同样的民族数据算两遍完全一样;地名的位置和 civ.places 一样(civ.places 按计划中的疆域起名)
+    // 关隘要道路、史事(PlaceNaming.passes),这里不给:和 civ.places 里的山海湖岛比
+    const geo = civ.places.filter((p) => p.kind !== 'pass');
     const again = findPlaces(world, civ.regions, { cultures: civ.cultures, culture: civ.culture });
     expect(findPlaces(world, civ.regions, { cultures: civ.cultures, culture: civ.culture }).map((p) => p.name)).toEqual(again.map((p) => p.name));
-    for (let i = 0; i < again.length; i++) expect(Array.from(again[i].path)).toEqual(Array.from(civ.places[i].path));
+    for (let i = 0; i < again.length; i++) expect(Array.from(again[i].path)).toEqual(Array.from(geo[i].path));
     // 不给民族数据:两次一样,地名的位置和给了民族数据时一样(只是名字的语感不同)
     const plain = findPlaces(world, civ.regions);
     expect(findPlaces(world, civ.regions).map((p) => p.name)).toEqual(plain.map((p) => p.name));
-    expect(plain.length).toBe(civ.places.length);
-    for (let i = 0; i < plain.length; i++) expect(Array.from(plain[i].path)).toEqual(Array.from(civ.places[i].path));
+    expect(plain.length).toBe(geo.length);
+    for (let i = 0; i < plain.length; i++) expect(Array.from(plain[i].path)).toEqual(Array.from(geo[i].path));
     for (const p of plain) expect(p.culture).toBe(-1);
     expect(NAME_STYLES.map((s) => s.id)).toContain(worldNameStyle(7));
   });

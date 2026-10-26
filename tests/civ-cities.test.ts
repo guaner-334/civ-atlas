@@ -14,7 +14,7 @@ import { buildChronicle, filterChronicle, MAJOR } from '../src/gen/civ/chronicle
 import { routeCities, ruinGaps } from '../src/gen/civ/polities';
 import { rasterize } from '../src/gen/raster';
 import { civMapLayer } from '../src/render/civ/labels';
-import { RUIN, ruinsAt } from '../src/render/civ/settlements';
+import { PASS, RUIN, ruinsAt } from '../src/render/civ/settlements';
 import { CIV_SHOW_OFF } from '../src/render/civ/overlay';
 import { describeCiv, nearestSettlement } from '../src/ui/civDescribe';
 import { setCivTime } from '../src/ui/civView';
@@ -323,7 +323,7 @@ describe('城市兴衰 · 地图、悬停、编年史', () => {
     const marks = end.marks.filter((m) => m.kind === RUIN);
     expect(marks.length).toBe(ruinsAt(civ, civ.endYear).length);
     expect(marks.length).toBeGreaterThan(0);
-    const cells = new Set(end.marks.filter((m) => m.kind !== RUIN).map((m) => civ.settlements[m.id].cell));
+    const cells = new Set(end.marks.filter((m) => m.kind !== RUIN && m.kind !== PASS).map((m) => civ.settlements[m.id].cell));
     for (const m of marks) expect(cells.has(civ.settlements[m.id].cell)).toBe(false);
     expect(end.items.some((it) => it.text.startsWith('古'))).toBe(true);
     // 毁城那一刻之前没有这处遗址,之后有
