@@ -159,8 +159,8 @@ describe.each([7, 2024])('方针 · seed=%i', (seed) => {
 
 });
 
-// 这两个种子第 1200–1500 年大国之间仗打得多(scripts/policy-stats.ts;种子 7 那几百年几乎不打仗)
-describe.each([4, 14])('方针 · 亲仇和发展重点 seed=%i', (seed) => {
+// 这两个种子第 1200–1500 年大国之间仗打得多(scripts/policy-stats.ts;种子 7 那几百年几乎不打仗;GENERATOR_VERSION 38 以后 14 号的大国定了仇国也没打起来,换成 10 号)
+describe.each([4, 10])('方针 · 亲仇和发展重点 seed=%i', (seed) => {
   const T = 1200;
 
   it('亲国不打、仇国先打;发展重点那一样长得快', () => {

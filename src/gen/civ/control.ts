@@ -38,10 +38,11 @@
  *     这处割据 DEFY_REST 年内没抗过命,就记一条 defy(拥兵不出)。国力里本来就不算它(见上),这一条只是让编年史写得出来。
  *
  *   **议事**(council.ts,挂在 ControlModel 上):削藩办成 = 收回(只记一条 council,不另记 reclaim)、削藩谈崩 = 那处割据起兵自立;
- *     议直征 / 改土归流谈崩 = 地方新起一处割据(raise,照常记 warlord);分封了边地的国家新起割据的赔率乘 FIEF_LORD。
- *     议事定下的征收之法、分封由 council.ts 每年填进数表的输入(征升、征费、分封、改制)。
+ *     议直征 / 改土归流 / 收兵权 / 收任免谈崩 = 地方新起一处割据(raise,照常记 warlord);分封了边地的国家新起割据的赔率乘 FIEF_LORD,
+ *     军制再乘 lordOdds(边镇多、禁军少);改组(分镇)办成 / 妥协 = 那处割据的地盘从此最多几州(Warlord.cap);脱离转投 = 那处割据连地盘改归邻国(就此了结)。
+ *     议事定下的征收之法、分封、军制、官制由 council.ts 每年填进数表的输入(征升、征费、分封、改制、兵升、兵费、边镇、官升、官费)。
  *
- * **割据不存内存状态**:由史事重建(resumeControl):warlord 开始;reclaim、削藩办成(council)了结;那州 SETTLE……换过国家的(wm.since 晚于割据那年)也了结。
+ * **割据不存内存状态**:由史事重建(resumeControl):warlord 开始;reclaim、削藩办成(council)了结;改组(council)定地盘最多几州;那州 SETTLE……换过国家的(wm.since 晚于割据那年)也了结。
  * 各州管得到几成每 20 年(发展度那一步之后的那一次数表)存一份快照进 Civ.development.control(给图层用),推演里不读快照。
  * 随机数:keyed(subSeed(seed, 'civ-control'), 国家锚, 第几次看内政, 用途),和处理顺序无关。纯计算,不碰 DOM。
  */
@@ -60,7 +61,7 @@ import { stateCards, type ControlRuleConsts, type FiscalRuleConsts } from './sta
 import { UNREST_CONSTS, unrestInputs, unrestModelOf } from './unrest';
 import { BOOK_WIDTH } from './fiscalBook';
 import { POP_CONSTS, POP_TABLES, POP_TILE_TABLES, cellsToTiles, popLayer, popTiles, spreadRural, tilesToCells } from './population';
-import { COUNCIL_CONSTS, cutDone } from './council';
+import { COUNCIL_CONSTS, cutDone, reorgCap } from './councilRules';
 
 // ---- 调参(以 20 个种子的统计为准,见 scripts/control-stats.ts) ----
 /** 管得到的远近:REACH × (1 + ADMIN_GAIN × 行政能力)(标准路程) */
@@ -199,6 +200,8 @@ export interface Warlord {
   end?: Year;
   /** 最近一次抗命 */
   defied: Year;
+  /** 改组(council.ts 的分镇)以后地盘最多几州;没改过 = undefined(DOMAIN_MAX) */
+  cap?: number;
 }
 
 export interface ControlModel {
@@ -228,6 +231,8 @@ export interface ControlModel {
   /** 议事(council.ts 挂上):每年填数表前填它那几张输入;国家 p 此刻分封了边地没有 */
   councilFill?: (t: Year) => void;
   fiefOf?: (p: number, t: Year) => boolean;
+  /** 议事(council.ts 挂上):国家 p 的军制让新起割据的赔率乘多少(边镇多、禁军少) */
+  lordOdds?: (p: number, t: Year) => number;
 }
 
 const models = new WeakMap<CivSim, ControlModel>();
@@ -258,6 +263,10 @@ export function resumeControl(sim: CivSim, civ: Civ): void {
       // 削藩办成:那一处割据了结
       const w = latest(e.a, e.region);
       if (w) w.end = e.year;
+    } else if (e.kind === 'council' && reorgCap(e) !== undefined) {
+      // 改组(分镇):那一处割据的地盘从此最多几州
+      const w = latest(e.a, e.region);
+      if (w) w.cap = reorgCap(e);
     } else if (e.kind === 'warlord') lords.push({ p: e.a, region: e.region, city: e.settlement, start: e.year, defied: -Infinity });
     else if (e.kind === 'reclaim') {
       const w = latest(e.a, e.region);
@@ -476,7 +485,7 @@ function hook(sim: CivSim, seed: number, lords: Warlord[], saved: TablesState | 
         const j = reg.adj[e];
         const kind = reg.adjKind[e];
         if (kind === AdjKind.Strait || kind === AdjKind.SeaRoute) continue;
-        if (qt >= DOMAIN_MAX) return;
+        if (qt >= (w.cap ?? DOMAIN_MAX)) return;
         if (mk[j] === stamp || owner[j] !== w.p || j === capR || raw(w.p, j, t) >= HOLD) continue;
         mk[j] = stamp;
         hop[j] = hop[r] + 1;
@@ -587,7 +596,7 @@ function hook(sim: CivSim, seed: number, lords: Warlord[], saved: TablesState | 
       }
     }
     if (r0 < 0) return false;
-    const odds = ODDS * fexp(K * (u + (WARLORD_C - c0) * GAP_W - U0)) * (cm.fiefOf?.(p, t) ? FIEF_LORD : 1);
+    const odds = ODDS * fexp(K * (u + (WARLORD_C - c0) * GAP_W - U0)) * (cm.fiefOf?.(p, t) ? FIEF_LORD : 1) * (cm.lordOdds?.(p, t) ?? 1);
     if (keyed(cm.base, pm.ptag[p], k, U_RISE) >= odds / (1 + odds)) return false;
     rise(p, r0, t);
     return true;

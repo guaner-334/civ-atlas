@@ -2,7 +2,8 @@
  * 掌实权、联姻(regents.ts、marriages.ts)前后的多种子统计:npx tsx scripts/regency-stats.ts [个数=20] [from=1] [cells=…] [json=输出文件]
  * 每个种子一行:推演耗时;掌权各种几段(引兵入朝 / 太子监国 / 宗室摄政 / 名臣辅政 / 大臣专权 / 大将专权)、平均几年、
  * 怎么结束的(即位 / 还政 / 伏诛 / 篡位 / 卒 / 名义君主先没了 / 改朝换代亡国 / 推到最后还在);结亲几门(互嫁、和亲);
- * 战争、大崩解、分裂、复国、改朝换代的次数,大国(到过 30 州以上的)寿命的中位数,每百年同时在世的国家数(平均)。
+ * 战争、大崩解、分裂、复国、改朝换代的次数,大国(到过 30 州以上的)寿命的中位数,每百年同时在世的国家数(平均),
+ * 割据、收回、抗命、议事的次数。
  * 最后几行是合计 / 最小 / 中位 / 最大,再各种掌权怎么了结的各占几成;没有掌权、联姻的版本(旧版)那几列是 0
  */
 import { writeFileSync } from 'node:fs';
@@ -10,6 +11,7 @@ import { generateWorld, type WorldParams } from '../src/gen/world';
 import { generateCiv } from '../src/gen/civ';
 import { ownersAt } from '../src/gen/civ/timeline';
 import { politicsStats } from '../src/gen/civ/politics';
+import { controlStats } from '../src/gen/civ/control';
 
 const args = process.argv.slice(2);
 const opt = (k: string) => args.find((a) => a.startsWith(`${k}=`))?.slice(k.length + 1);
@@ -30,6 +32,7 @@ for (let seed = from; seed < from + N; seed++) {
   const ms = performance.now() - t0;
   const count = (k: string) => civ.annals.filter((a) => (a.kind as string) === k).length;
   const ps = politicsStats(civ);
+  const cs = controlStats(civ);
   const R = civ.regions.count;
   let aliveSum = 0;
   let samples = 0;
@@ -52,10 +55,16 @@ for (let seed = from; seed < from + N; seed++) {
     war: count('war'),
     collapse: count('collapse'),
     split: ps.splits,
+    claim: ps.claims,
+    splitLord: civ.annals.filter((a) => a.kind === 'split' && a.cause === 'warlord').length,
     restore: ps.restorations,
     dynasty: count('dynasty'),
     bigLife: lives.length ? lives[lives.length >> 1] : 0,
     alive: samples ? Math.round((10 * aliveSum) / samples) / 10 : 0,
+    warlord: cs.warlords,
+    reclaim: cs.reclaims,
+    defy: cs.defies,
+    council: count('council'),
   };
   // 掌权:按人物上记的段(people.ts)
   type Seg = { kind: string; from: number; until?: number; end?: string };

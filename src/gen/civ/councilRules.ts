@@ -1,0 +1,129 @@
+/**
+ * 议事定下的规矩(council.ts 议,这里记):一国的征法、分封、军制、官制怎么随一条条议事史事改,
+ * 以及数表(stateTables.ts)、割据(control.ts)要用的几个常数。
+ * 只依赖类型,不挂推演引擎:编年史(chronicle.ts)、割据(control.ts)读它,不会绕回推演那一圈模块(先后加载不出岔子)。
+ * 纯计算,不碰 DOM。
+ */
+import type { Annal, Year } from './types';
+import type { CouncilRuleConsts } from './stateTables';
+
+// ---- 调参(以 20 个种子的统计为准,见 scripts/control-stats.ts) ----
+/** 分封:管得到几成不到 FIEF_C 的州只交 FIEF_REMIT;"离国都远"那一项动荡乘 FIEF_FAR */
+export const FIEF_C = 0.35;
+export const FIEF_REMIT = 0.2;
+const FIEF_FAR = 0.4;
+/** 边镇(军制 −1):管得到几成不到 BORDER_C 的州全数出兵,打仗的军费乘 BORDER_ARMY(边将自筹军饷) */
+export const BORDER_C = 0.35;
+const BORDER_ARMY = 0.6;
+/** 改组(分镇)妥协时,那处割据的地盘留几州(办成只留起事那一州) */
+export const REORG_HALF = 2;
+
+/** 议题(Annal.war) */
+export const enum Issue {
+  Untax = 0,
+  Cut = 1,
+  Tax = 2,
+  Unfief = 3,
+  Fief = 4,
+  /** 收兵权(改军制,集权) */
+  ArmyIn = 5,
+  /** 放兵权(改军制,让权):罢禁军、设边镇 */
+  ArmyOut = 6,
+  /** 收任免(改官制,集权) */
+  OfficeIn = 7,
+  /** 放任免(改官制,让权):罢铨选、许自辟 */
+  OfficeOut = 8,
+  /** 改组(分镇) */
+  Reorg = 9,
+  /** 脱离(地方提的:转投邻国,或起兵自立) */
+  Leave = 10,
+}
+/** 结果(Annal.n) */
+export const enum Outcome {
+  Done = 0,
+  Half = 1,
+  Shelve = 2,
+  Break = 3,
+}
+/** 议题有几种 */
+export const ISSUES = 11;
+
+/** 政局数表里归议事管的常数(stateTables.ts) */
+export const COUNCIL_CONSTS: CouncilRuleConsts = { FIEF_C, FIEF_REMIT, FIEF_FAR, BORDER_C, BORDER_ARMY };
+
+/** 史事 council 是不是"削藩办成"(那一处割据了结;control.ts 重建割据时用) */
+export function cutDone(e: Annal): boolean {
+  return e.kind === 'council' && e.war === Issue.Cut && e.n === Outcome.Done;
+}
+
+/** 史事 council 是"改组办成 / 妥协"时,那一处割据的地盘从此最多几州(control.ts 重建割据时用);不是 = undefined */
+export function reorgCap(e: Annal): number | undefined {
+  if (e.kind !== 'council' || e.war !== Issue.Reorg) return undefined;
+  return e.n === Outcome.Done ? 1 : e.n === Outcome.Half ? REORG_HALF : undefined;
+}
+
+/** 一国议定的规矩 */
+export interface Rules {
+  /** 征法:0 代收、1 分成、2 直征 */
+  tax: number;
+  /** 分封了边地(那年;没有 = undefined) */
+  fief?: Year;
+  /** 军制:−1 边镇、0 原样(州郡征发)、0.5 监军、1 禁军 */
+  army: number;
+  /** 官制:−1 自辟(豪族世守)、0 原样(荐举)、0.5 参半、1 铨选 */
+  office: number;
+  /** 最近一次集权的改制办成(余波从这年算) */
+  shock: Year;
+  /** 各议题上次议的年份、上次搁置了没有 */
+  last: Year[];
+  shelved: boolean[];
+}
+
+/** 没议过事的国家:原样 */
+export function newRules(): Rules {
+  return { tax: 0, army: 0, office: 0, shock: -Infinity, last: new Array<Year>(ISSUES).fill(-Infinity), shelved: new Array<boolean>(ISSUES).fill(false) };
+}
+
+/**
+ * 议了一件事以后规矩怎么变(收兵权、收任免:从让了权的 −1 收回到 0,不然办成到 1、妥协到 0.5;
+ * 放兵权、放任免:收着权的(> 0)放回 0,不然办成到 −1)
+ */
+export function applyRule(r: Rules, issue: number, out: number, t: Year): void {
+  r.last[issue] = t;
+  r.shelved[issue] = out === Outcome.Shelve;
+  const done = out === Outcome.Done;
+  const half = out === Outcome.Half;
+  if (issue === Issue.Untax && done) r.tax = 0;
+  else if (issue === Issue.Tax && (done || half)) {
+    r.tax = done ? 2 : 1;
+    r.shock = t;
+  } else if (issue === Issue.Unfief && done) {
+    r.fief = undefined;
+    r.shock = t;
+  } else if (issue === Issue.Fief && done) r.fief = t;
+  else if (issue === Issue.ArmyIn && (done || half)) {
+    r.army = r.army < 0 ? 0 : done ? 1 : 0.5;
+    r.shock = t;
+  } else if (issue === Issue.ArmyOut && done) r.army = r.army > 0 ? 0 : -1;
+  else if (issue === Issue.OfficeIn && (done || half)) {
+    r.office = r.office < 0 ? 0 : done ? 1 : 0.5;
+    r.shock = t;
+  } else if (issue === Issue.OfficeOut && done) r.office = r.office > 0 ? 0 : -1;
+}
+
+/**
+ * 各条议事史事议之前,那国的征法、军制、官制(编年史用:同一种议题从哪一档改起,写法不同)。
+ * 返回和 annals 一样长的数组,不是议事的那几格是 undefined
+ */
+export function councilBefore(annals: readonly Annal[]): ({ army: number; office: number; tax: number } | undefined)[] {
+  const book = new Map<number, Rules>();
+  const out: ({ army: number; office: number; tax: number } | undefined)[] = new Array(annals.length);
+  annals.forEach((e, i) => {
+    if (e.kind !== 'council') return;
+    let r = book.get(e.a);
+    if (!r) book.set(e.a, (r = newRules()));
+    out[i] = { army: r.army, office: r.office, tax: r.tax };
+    applyRule(r, e.war, e.n ?? Outcome.Shelve, e.year);
+  });
+  return out;
+}

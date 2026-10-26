@@ -9,6 +9,7 @@
  */
 import type { Annal, Civ, Year } from '../gen/civ/types';
 import { COUNCIL_CONSTS, COUNCIL_GATE, councilAble, courtRulesAt, type CourtRules } from '../gen/civ/council';
+import { councilBefore } from '../gen/civ/councilRules';
 import { LORD_BYTE, controlAt, controlShare } from '../gen/civ/control';
 import { ownersAt, type Owners } from '../gen/civ/timeline';
 import { regionLabel } from '../gen/civ/display';
@@ -23,8 +24,19 @@ import { wan } from './fiscalInfo';
 
 /** 征税的三种法子(征法 0、1、2) */
 export const LEVY_NAMES = ['地方代收', '与地方分成', '朝廷直征'] as const;
-/** 议题(史事的 war 列) */
-export const ISSUE_NAMES = ['罢直征', '削藩', '直征', '改土归流', '分封边地'] as const;
+/** 议题(史事的 war 列;5–8 按议之前的军制、官制分两种叫法,见 issueName) */
+export const ISSUE_NAMES = ['罢直征', '削藩', '直征', '改土归流', '分封边地', '收兵权', '设边镇', '行铨选', '许自辟', '分镇', '脱离'] as const;
+
+/** 一条议事的议题名:收兵权 / 罢边镇、设边镇 / 罢禁军、行铨选 / 收回辟署、许自辟 / 罢铨选(b = 议之前那国的军制、官制) */
+function issueName(e: Annal, b: { army: number; office: number } | undefined): string {
+  const army = b?.army ?? 0;
+  const office = b?.office ?? 0;
+  if (e.war === 5 && army < 0) return '罢边镇';
+  if (e.war === 6 && army > 0) return '罢禁军';
+  if (e.war === 7 && office < 0) return '收回辟署';
+  if (e.war === 8 && office > 0) return '罢铨选';
+  return ISSUE_NAMES[e.war] ?? '议事';
+}
 /** 结果(史事的 n 列)和标签的样子 */
 export const OUTCOME_NAMES = ['办成', '妥协', '搁置', '谈崩'] as const;
 export const OUTCOME_KEYS = ['done', 'half', 'shelve', 'break'] as const;
@@ -183,16 +195,19 @@ export interface CourtEvent {
 
 /** 历次议事(新的在上) */
 export function courtEvents(civ: Civ, v: CourtView): CourtEvent[] {
+  // 改军制、改官制的叫法和结果看议之前是哪一档(只有议过这几种时才翻一遍史事)
+  const before = v.rules.events.some((id) => v.annals[id].war >= 5 && v.annals[id].war <= 8) ? councilBefore(v.annals) : [];
   return v.rules.events
     .map((id) => {
       const e = v.annals[id];
       const out = e.n ?? 2;
-      return { id, year: e.year, issue: ISSUE_NAMES[e.war] ?? '议事', out, then: thenText(civ, e, out) };
+      const name = issueName(e, before[id]);
+      return { id, year: e.year, issue: name, out, then: thenText(civ, e, out, name) };
     })
     .reverse();
 }
 
-function thenText(civ: Civ, e: Annal, out: number): string | null {
+function thenText(civ: Civ, e: Annal, out: number, name: string): string | null {
   const r = regionLabel(civ, e.region);
   switch (e.war) {
     case 0:
@@ -203,8 +218,28 @@ function thenText(civ: Civ, e: Annal, out: number): string | null {
       return out === 0 ? '从此朝廷直征' : out === 1 ? '从此和地方分成' : out === 3 ? `从此${r}割据` : null;
     case 3:
       return out === 0 ? '从此边州收归朝廷' : out === 3 ? `从此${r}割据` : null;
-    default:
+    case 4:
       return out === 0 ? '从此管不到的边州成了封地' : null;
+    case 5:
+      if (out === 3) return `从此${r}割据`;
+      if (name === '罢边镇') return out === 0 ? '从此兵马复归朝廷' : null;
+      return out === 0 ? '从此兵权归朝廷' : out === 1 ? '从此派监军' : null;
+    case 6:
+      if (name === '罢禁军') return out === 0 ? '从此复由州郡征兵' : null;
+      return out === 0 ? '从此边将专兵' : null;
+    case 7:
+      if (out === 3) return `从此${r}割据`;
+      if (name === '收回辟署') return out === 0 ? '从此长吏复由朝廷选派' : null;
+      return out === 0 ? '从此长吏由朝廷选派' : out === 1 ? '从此铨选、荐举各半' : null;
+    case 8:
+      if (name === '罢铨选') return out === 0 ? '从此复由地方荐举' : null;
+      return out === 0 ? '从此豪族世守其地' : null;
+    case 9:
+      return out === 0 ? `${r}割据只留一州` : out === 1 ? `${r}割据的地盘收回一半` : out === 3 ? `${r}起兵自立` : null;
+    case 10:
+      return out === 0 ? `${r}等地归${civ.polities[e.b] ? polityName(civ.polities[e.b], e.year) : '邻国'}` : out === 3 ? `${r}起兵自立` : null;
+    default:
+      return null;
   }
 }
 

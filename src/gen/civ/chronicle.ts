@@ -95,6 +95,7 @@ import { pandemicsOf } from './pandemicInfo';
 import { HABITABLE_SUIT, cultureLabel, regionLabel } from './display';
 import { ownersAt } from './timeline';
 import { plagueSpans } from './plagueSpans';
+import { councilBefore } from './councilRules';
 import { ageAt, generalRef, kinOf, leaderName, ministerRole, princeRef, princeTitle, reigningAt, rulerBare, rulerRef, rulerShort } from './peopleText';
 import { eraText, monthTail, type Era } from '../era';
 import { parsePersonKey, resolveKey, resolvePersonKey, type Intervention } from '../edits';
@@ -1473,13 +1474,15 @@ function simpleEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
       return base(e, id, fiscalText(civ, e, foes), 2, e.war !== 0 && foes.length ? [e.a, foes[0]] : [e.a], [e.region]);
     }
     case 'council': {
-      // 大国办成的改制是大事;搁置、谈崩(后面紧跟着割据、自立那一条)和小国的只在"全部"里
+      // 大国办成的改制是大事;搁置、谈崩(后面紧跟着割据、自立那一条)和小国的只在"全部"里。
+      // 第二批里只有脱离转投(国土易手)算大事;改军制、改官制、分镇只在"全部"里(大国一个种子十来次,放进大事时间轴就挤了)
       const who = reigning(ctx.ix, e.a, y);
-      const imp = e.n === 0 && isGreat(polityOf(civ, e.a)) ? 3 : 2;
+      const imp = e.n === 0 && (e.war <= 4 || e.war === 10) && isGreat(polityOf(civ, e.a)) ? 3 : 2;
       const t = councilText(civ, e, id, who);
       // 搁置的几种写法不写君主
       const named = who && (t.includes(who.name) || (!!who.title && t.includes(who.title)));
-      return withPeople(base(e, id, t, imp, [e.a], [e.region]), named ? who : null);
+      // 脱离:b = 想转投的邻国
+      return withPeople(base(e, id, t, imp, e.b >= 0 ? [e.a, e.b] : [e.a], [e.region]), named ? who : null);
     }
     case 'merge': {
       // 并掉的是大国才是大事
@@ -2313,7 +2316,9 @@ function fiscalText(civ: Civ, e: Annal, foes: number[]): string {
 /**
  * 议事(council.ts;议题在 war 列,结果在 n 列:0 办成、1 妥协、2 搁置、3 谈崩):写谁推、谁拦、成没成。who = 当时在位的君主(没有人物 = null)。
  * "大渭国用不足,太宗行直征之法,遣官至瑞州等地自收赋税" / "大渭议行直征,瑞州等地豪族力阻,改与地方分成" /
- * "大渭太宗削藩,收回割据四十年的瑞州" / "大渭边地难制,群臣请分封瑞州等边州,太宗不许"(西幻:贵族、领主,写得平实些)
+ * "大渭太宗削藩,收回割据四十年的瑞州" / "大渭边地难制,群臣请分封瑞州等边州,太宗不许"(西幻:贵族、领主,写得平实些);
+ * 第二批:"大渭太宗收诸将兵权,精兵尽隶禁军" / "大渭议行铨选,瑞州等地豪族力阻,改为铨选、荐举各半" /
+ * "大渭太宗分瑞州之镇,守将所领诸州尽归朝廷,只留瑞州一州" / "大渭瑞州守将举所领诸州归附大燕,朝廷不能制"
  */
 function councilText(civ: Civ, e: Annal, id: number, who: Person | null): string {
   const y = e.year;
@@ -2373,12 +2378,76 @@ function councilText(civ: Civ, e: Annal, id: number, who: Person | null): string
       if (out === 3) return east ? `${ref}改土归流,${r}${lord}拒不奉诏` : `${ref}收回边地封授,${r}${lord}拒不从命`;
       return east ? `${A}议改土归流,${r}等地土官力阻,事寝` : `${A}议收回边地封授,${r}等地领主力阻,作罢`;
     }
-    default: {
+    case 4: {
       // 分封边地
       if (out === 0) return east ? `${A}边地难制,${bare}分封${r}等边州,许其自治,岁纳贡赋` : `${A}边地难治,${bare}将${r}等边地封给当地领主自治,岁纳贡赋`;
       return east ? `${A}边地难制,群臣请分封${r}等边州,${court}不许` : `${A}边地难治,有人请将${r}等边地封给当地领主,${court}不许`;
     }
+    case 5: {
+      // 收兵权:设了边镇的是罢边镇
+      if (before(civ, id).army < 0) {
+        if (out === 0) return east ? `${ref}罢边镇,${r}等地兵马归朝廷节制` : `${ref}撤销边境军镇,${r}等地兵马重归王室调遣`;
+        if (out === 3) return east ? `${ref}罢边镇,${r}${lord}拥兵不受代` : `${ref}撤销边境军镇,${r}${lord}拥兵抗命`;
+        return east ? `${A}议罢边镇,${r}等地边将力阻,事寝` : `${A}议撤销边境军镇,${r}等地将领力阻,作罢`;
+      }
+      if (out === 0) return east ? `${ref}收诸将兵权,精兵尽隶禁军` : `${ref}收回各地领主的兵权,组建王室常备军`;
+      if (out === 1) return east ? `${A}议收兵权,${r}等地守将力阻,改遣监军` : `${A}议收回各地兵权,${r}等地领主力阻,改为派员监军`;
+      if (out === 3) return east ? `${ref}欲收兵权,${r}${lord}拥兵抗命` : `${ref}要收回兵权,${r}${lord}举兵抗命`;
+      return east ? `${A}议收兵权,${r}等地守将力阻,事寝` : `${A}议收回各地兵权,${r}等地领主力阻,作罢`;
+    }
+    case 6: {
+      // 放兵权:收着兵权的是罢禁军,不然是设边镇
+      if (before(civ, id).army > 0) {
+        if (out === 0) return east ? `${A}禁军所费不赀,罢之,复由州郡征发` : `${A}常备军开销太大,就此裁撤,复由各地征兵`;
+        return east ? `${A}群臣请罢禁军,${court}不许` : `${A}有人请裁撤常备军,${court}不许`;
+      }
+      if (out === 0) return east ? `${A}边事日繁,${bare}置边镇于${r}等地,许边将专兵、自筹军饷` : `${A}边境多事,${bare}在${r}等地设立军镇,由边将自行募兵筹饷`;
+      return east ? `${A}群臣请置边镇于${r}等地,${court}不许` : `${A}有人请在${r}等地设立军镇,${court}不许`;
+    }
+    case 7: {
+      // 收任免:许了自辟的是收回辟署
+      if (before(civ, id).office < 0) {
+        if (out === 0) return east ? `${ref}收回州郡辟署之权,${r}等地长吏复由朝廷选派` : `${ref}收回地方自选官员之权,${r}等地官员复由王室任命`;
+        if (out === 3) return east ? `${ref}收辟署之权,${r}豪族据城抗命` : `${ref}收回地方自选官员之权,${r}贵族据城抗命`;
+        return east ? `${A}议收辟署之权,${r}等地豪族力阻,事寝` : `${A}议收回地方自选官员之权,${r}等地贵族力阻,作罢`;
+      }
+      if (out === 0) return east ? `${ref}行铨选之法,${r}等地长吏皆由朝廷选派` : `${ref}改由王室任命各地官员,${r}等地不再由贵族把持`;
+      if (out === 1) return east ? `${A}议行铨选,${r}等地豪族力阻,改为铨选、荐举各半` : `${A}议由王室任命各地官员,${r}等地贵族力阻,改为王室和贵族各任一半`;
+      if (out === 3) return east ? `${ref}强行铨选,${r}豪族据城抗命` : `${ref}强行任命地方官员,${r}贵族据城抗命`;
+      return east ? `${A}议行铨选,${r}等地豪族力阻,事寝` : `${A}议由王室任命各地官员,${r}等地贵族力阻,不了了之`;
+    }
+    case 8: {
+      // 放任免:铨选着的是罢铨选,不然是许自辟
+      if (before(civ, id).office > 0) {
+        if (out === 0) return east ? `${A}冗官所费不赀,罢铨选之法,复许州郡荐举` : `${A}官员开销太大,不再由王室任命,复由地方推举`;
+        return east ? `${A}群臣请罢铨选,${court}不许` : `${A}有人请废除王室任命官员之制,${court}不许`;
+      }
+      if (out === 0) return east ? `${A}国用不足,地方多事,${bare}许${r}等州郡自辟僚属,豪族世守其地` : `${A}国库空虚,地方不宁,${bare}准许${r}等地贵族自选官员、世袭其职`;
+      return east ? `${A}群臣请许州郡自辟僚属,${court}不许` : `${A}有人请准许地方贵族自选官员,${court}不许`;
+    }
+    case 9: {
+      // 改组(分镇)
+      if (out === 0) return east ? `${ref}分${r}之镇,${lord}所领诸州尽归朝廷,只留${r}一州` : `${ref}拆分${r}领主的领地,只给他留下${r}一地`;
+      if (out === 1) return east ? `${ref}议分${r}之镇,${lord}力争,析其半归朝廷` : `${ref}议拆分${r}领主的领地,领主力争,只收回一半`;
+      if (out === 3) return east ? `${ref}议分${r}之镇,${r}${lord}不受命` : `${ref}拆分${r}领主的领地,${lord}举兵抗命`;
+      return east ? `${A}议分${r}之镇,恐其生变,事寝` : `${A}议拆分${r}领主的领地,恐其生变,作罢`;
+    }
+    default: {
+      // 脱离:地方提的(b = 想转投的邻国);谈崩的后面紧跟着自立那一条
+      const B = pn(civ, e.b, y);
+      if (out === 0) return east ? `${A}${r}${lord}举所领诸州归附${B},朝廷不能制` : `${A}的${r}${lord}率领地改投${B},${court}无力阻止`;
+      if (out === 3) return east ? `${A}${r}${lord}欲以所领诸州归附${B},${court}不许,遂举兵` : `${A}的${r}${lord}想改投${B},${court}不准,${lord}举兵抗命`;
+      return east ? `${A}${r}${lord}欲以所领诸州归附${B},朝廷遣使抚谕,事寝` : `${A}的${r}${lord}想改投${B},王室派人安抚,作罢`;
+    }
   }
+}
+
+/** 各条议事议之前那国的军制、官制(council.ts 的 councilBefore;按史事数组缓存,接着推长了就重算) */
+const beforeCache = new WeakMap<readonly Annal[], ReturnType<typeof councilBefore>>();
+function before(civ: Civ, id: number): { army: number; office: number } {
+  let b = beforeCache.get(civ.annals);
+  if (!b || b.length !== civ.annals.length) beforeCache.set(civ.annals, (b = councilBefore(civ.annals)));
+  return b[id] ?? { army: 0, office: 0 };
 }
 
 /** 一州闹饥荒(地震水旱:cause = quake)时城里的人口折损(Settlement.sacks 里同一种、同一年的那一条;找不到 = 0) */
