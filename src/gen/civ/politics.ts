@@ -21,6 +21,7 @@
  *      藩属只会并入自己的宗主,史事 merge 记 cause = vassal(和邦交里的纳土归附一样,编年史写"纳土归附")。
  *   ③ 主动迁都:国都离国土重心太远(各州离国都的平均距离是离"国土中部人口多的那座城"的 ECC_RATIO 倍以上),
  *      或国都已经成了前线(挨着正在交战的敌国),就迁到国土中部人口多的城。迁都后 CAPMOVE_REST 年内不再主动迁。
+ *   ④ 议事(council.ts 挂上 councilCheck):割据(control.ts)和前三样都没出事时,议一件改征收之法、分封、削藩的事。
  *
  *   看复国(Ev.RestoreCheck)国家亡于战争以后,每 RESTORE_EVERY 年看一次(看 RESTORE_TRIES 次,约五百年):
  *      故国的国都(历任国都)一带仍是同族人住、现在的宗主又弱(在打仗、刚分裂、刚迁都)、而且是异族统治时机会更大,
@@ -222,6 +223,8 @@ export interface PoliticsModel {
   control?: ControlModel;
   /** 看内政时分裂没成之后:收回割据、新起割据(control.ts 挂上);出了一件事 = true */
   lordCheck?: (P: Polity, k: number, t: Year) => boolean;
+  /** 看内政最后(分裂、割据、合并、迁都都没出事):议一件事(council.ts 挂上) */
+  councilCheck?: (P: Polity, k: number, t: Year) => void;
 }
 
 function newModel(pm: PolityModel, wm: WarModel, world: World): PoliticsModel {
@@ -674,7 +677,9 @@ function hook(sim: CivSim, pol: PoliticsModel): void {
     // 割据(control.ts):收回、新起一处
     if (lord && pol.lordCheck!(P, k, t)) return;
     if (merge && tryMerge(P, k, t, mine)) return;
-    if (move) tryMove(P, k, t, mine);
+    if (move && tryMove(P, k, t, mine)) return;
+    // 议事(council.ts):这一次看内政没出别的事,就议一件
+    pol.councilCheck?.(P, k, t);
   });
 
   // ---- 复国 ----
