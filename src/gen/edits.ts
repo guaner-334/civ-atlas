@@ -476,6 +476,9 @@
  *      打成内战:兵败国亡、割据一方,或攻进都城夺了大位。历史重新推演
  *  37:据险断后(civ/wars.ts、civ/passes.ts):追兵只能从关隘打进、或败兵只能经关隘退回时,可能留一支兵守住关隘,追兵本来能再打下的那一州打不下来;
  *      守关隘的将领另起一位(人物跟着变)。历史重新推演
+ *  38:立约与中立地(civ/treaties.ts):打成僵持议和、或几国都怕同一个强邻时立互不侵犯 / 有限竞争之约,约期内互不开战,
+ *      满期续约或约废,也会背约开战;几国共建、议和时划出中立地(那一州不归任何一国),失势的宗室、被废的君主徙居那里,
+ *      亡国之君出奔那里。历史重新推演
  */
 import type { Civ, Culture, Faith, Person, Place, Polity, Regions, RulerLeanings, Settlement } from './civ/types';
 import type { AuthorCharacter } from './characters';
@@ -487,7 +490,7 @@ import type { Era } from './era';
 import type { Frontier, Origins } from './civ/frontier';
 
 /** 生成器版本:生成算法有改动、同种子会得到不同世界时加一(存档读档时核对);加一时在 GENERATOR_CHANGES 里补一条 */
-export const GENERATOR_VERSION = 37;
+export const GENERATOR_VERSION = 38;
 
 /**
  * 一版生成器的改动有多大(从小到大):打开旧存档、旧链接时,按跨过的几版里最大的那一种说清变了什么(savefile.ts 的 versionNote)
@@ -542,6 +545,7 @@ export const GENERATOR_CHANGES: Readonly<Record<number, { change: GeneratorChang
   35: { change: 'history' },
   36: { change: 'history' },
   37: { change: 'history' },
+  38: { change: 'history' },
 };
 
 /** 干预的种类(见文件头的表) */

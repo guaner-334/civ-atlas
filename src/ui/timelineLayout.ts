@@ -51,6 +51,11 @@ const KIND_TYPE: Readonly<Record<string, EvType>> = {
   submit: 'empire',
   alliance: 'empire',
   unally: 'empire',
+  treaty: 'empire',
+  expire: 'empire',
+  neutral: 'empire',
+  breach: 'war',
+  exile: 'dynasty',
   defect: 'found',
   assimilate: 'assim',
   migrate: 'assim',
@@ -126,6 +131,13 @@ const TAG_LABEL: Readonly<Record<string, string>> = {
   抗: '抗命',
   匮: '匮乏',
   议: '议事',
+  约: '立约',
+  续: '续约',
+  满: '约满',
+  违: '背约',
+  中: '中立',
+  逐: '放逐',
+  奔: '出奔',
 };
 
 /** 卡片 / 最近事件 / 提示里的类型名:"战争""改朝""称帝"…… */

@@ -201,6 +201,11 @@ export interface PolityModel {
    */
   onReign?: (pid: number, k: number, list: readonly Reign[], t: Year) => void;
   /**
+   * 立约与中立地(treaties.ts 挂上):无主的州 r 此刻进不去 —— 是中立地(谁都不扩张进去、不在那里立国;pid = −1 = 立国),
+   * 或者 pid 和邻国立了"有限竞争"之约,r 挨着约国的国土(各守今疆)
+   */
+  closed?: (r: number, pid: number, t: Year) => boolean;
+  /**
    * 国家 → 改在位表的干预(即位、让君主去世、改君主倾向生效了的,按先后;rulers.ts 的 RulerAct)。在位表按它排(bookOf);
    * 接着推时由史事推出来(rulers.ts 的 actsFrom),不存进 Civ
    */
@@ -980,7 +985,7 @@ export function installPolities(sim: CivSim, m: PolityModel): void {
   sim.on(Ev.PolityFound, (r, sid, t) => {
     const s = m.settlements[sid];
     // 阶段 3 城市兴衰:城已经被毁了(cities.ts)就立不成
-    if (!s || s.region !== r || s.ended !== undefined || polity[r] >= 0 || m.near[r] > 0 || culture[r] < 0) return;
+    if (!s || s.region !== r || s.ended !== undefined || polity[r] >= 0 || m.near[r] > 0 || culture[r] < 0 || m.closed?.(r, -1, t)) return;
     const p = addPolity(m, sid, culture[r], t);
     sim.setOwner(Layer.Polity, r, p.id, Ev.PolityFound);
     sim.record('found', { a: p.id, region: r, settlement: sid });
@@ -990,6 +995,8 @@ export function installPolities(sim: CivSim, m: PolityModel): void {
     if (polity[r] >= 0 || culture[r] < 0) return;
     // 阶段 4 干预"不许扩张":不进无主的州(禁令到期时 respread 从现有国土重新预约)
     if (m.iv?.halted(pid, t)) return;
+    // 中立地、有限竞争之约(treaties.ts):不进
+    if (m.closed?.(r, pid, t)) return;
     // 战争里丢了出发的那一州(或者已经灭亡),又没有和国都连成一片的州挨着这一州:不去了(不长出、不扩大飞地)
     if (m.polities[pid].ended !== undefined || !bordersCore(m, polity, pid, r, t)) return;
     sim.setOwner(Layer.Polity, r, pid, Ev.PolityArrive);
