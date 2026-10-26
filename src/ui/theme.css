@@ -12,6 +12,7 @@
  *   --accent 主色(主按钮、开关、当前选中)/ --accent-hover 主色悬停 / --accent-soft 主色的浅底 / --void 投影外空白
  *   --map-mark 地图上的标记(选中国家国都的圆环)
  *   --ev-war 战争 / --ev-dynasty 改朝 / --ev-found 立国 / --ev-empire 称帝 / --ev-assim 同化 / --ev-faith 宗教 / --ev-era 时代 / --ev-calamity 灾异
+ *   --ev-pandemic 全球大疫的大点 / --slump 疫后凋敝的短条 / --slump-bg、--slump-ink「疫后凋敝」小牌子的底和字
  *   --halo 地图上文字的描边(text-shadow 的值)
  * 另有几项辅助值(--hover-bg 文字按钮悬停底、--field 输入框底、阴影、字体)。
  *
@@ -43,6 +44,10 @@
   --ev-faith: #1b97a6;
   --ev-era: #a2652d;
   --ev-calamity: #66707c;
+  --ev-pandemic: #5f5546;
+  --slump: #8a7c64;
+  --slump-bg: #efe9df;
+  --slump-ink: #6d6252;
   --map-mark: #d4392b;
   --halo: 0 0 2px rgba(247, 242, 231, 1), 0 0 8px rgba(247, 242, 231, 0.9);
 
@@ -76,6 +81,10 @@
   --ev-faith: #45c6d4;
   --ev-era: #d6995e;
   --ev-calamity: #9aa4b0;
+  --ev-pandemic: #c9bba3;
+  --slump: #a89a80;
+  --slump-bg: rgba(168, 154, 128, 0.22);
+  --slump-ink: #d4c8b3;
   --map-mark: #ff5a4c;
   --halo: 0 0 3px rgba(0, 0, 0, 0.9), 0 0 10px rgba(0, 0, 0, 0.6);
 

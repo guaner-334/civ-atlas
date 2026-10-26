@@ -1,6 +1,6 @@
 /**
  * 世界概览的"世界设定"页:这个世界创建时定下的根,都只能看,不能再改(一改几千年的历史就要整个重来)。分两页:
- * 「文明」—— 文明种子、地名风格、推演年数、拓荒(民族扩散、国家扩张、地形难走程度)、文明起源;想换个样子:"以它为底稿新建…"
+ * 「文明」—— 文明种子、地名风格、推演年数、天灾、拓荒(民族扩散、国家扩张、地形难走程度)、文明起源;想换个样子:"以它为底稿新建…"
  * (回到新建这一步,设定照原样带过去,存成另一个世界);右栏是随时能改的「纪年」(EraSettings.tsx)和「月份」(MonthSettings.tsx;窄屏放在最上面)。
  * 「地图」—— 种子、世界参数、改过的地形;右栏是这张地图上的几个文明(点了打开)、"在这张地图上打造新文明…"、"回放世界形成"。
  *
@@ -9,6 +9,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { World, WorldParams } from '../gen/world';
 import { speedText, terrainBrief as terrainCostBrief } from '../gen/civ/frontier';
+import { CALAMITY_NAMES, cleanCalamity } from '../gen/civ/calamity';
 import { originCiv, originSpots } from './studio/origins';
 import type { Civ } from '../gen/civ/types';
 import { END_YEAR_DEFAULT, civSeedOf, cleanEndYear, endYearOf, type TerrainKind } from '../gen/edits';
@@ -126,6 +127,12 @@ export interface SettingsProps {
 }
 
 /** 文明起源:"自己选的 3 处：甲、乙、丙"(住不了人、推演时跳过的不列);没选 = "自动" */
+/** 「天灾」那一行:平常 / 多 / 很多 */
+const calamityText = (c: unknown) => {
+  const k = cleanCalamity(c);
+  return k ? CALAMITY_NAMES[k] : '平常';
+};
+
 function originsBrief(pts: readonly number[] | undefined, world: World | null, civ: Civ | null): string {
   if (!pts?.length) return '自动';
   const n = pts.length >> 1;
@@ -240,6 +247,10 @@ export function SettingsPage(p: SettingsProps) {
           <div className="ov-kv-row" data-param="end-year">
             <span>推演年数</span>
             <b>{end} 年</b>
+          </div>
+          <div className="ov-kv-row" data-param="calamity">
+            <span>天灾</span>
+            <b>{calamityText(edits.calamity)}</b>
           </div>
           <div className="ov-kv-row" data-param="spread">
             <span>民族扩散</span>

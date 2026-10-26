@@ -23,11 +23,12 @@ import {
   resolveKey,
   resolvePersonKey,
   type DisasterLevel,
+  type DisasterType,
   type Intervention,
 } from '../gen/edits';
 import { eraText, spaced, yearAt, type Era } from '../gen/era';
-import { RURAL_PLAGUE, RURAL_WAR, SACK_RECOVER, populationAt, regionCityAt, regionPopulationAt, ruralPopulationAt } from '../gen/civ/growth';
-import { PLAGUE_IV, quakeRing, quakeWord } from '../gen/civ/calamity';
+import { RURAL_PLAGUE, RURAL_WAR, SACK_RECOVER, populationAt, portAt, regionCityAt, regionPopulationAt, ruralPopulationAt } from '../gen/civ/growth';
+import { PLAGUE_IV, SLUMP_DEFAULT, quakeRing, quakeWord } from '../gen/civ/calamity';
 import { plagueSpans } from '../gen/civ/plagueSpans';
 import { regionLabel } from '../gen/civ/display';
 import { ownersAt, type Owners } from '../gen/civ/timeline';
@@ -144,7 +145,8 @@ const LOSS_WORD = ['', '一成半', '三成', '五成'] as const;
  * 轻重下面那一句:电脑 "中：城里约死三成（轻一成半、重五成），几十年长回来，其间国内更易动荡。不改地形。";
  * 手机只写 "重：城里约死五成。"
  */
-export function disasterLevelNote(level: DisasterLevel, phone: boolean): string {
+export function disasterLevelNote(level: DisasterLevel, phone: boolean, type?: DisasterType): string {
+  if (type === 'pandemic') return pandemicLevelNote(level, phone);
   const at = `${DISASTER_LEVEL_NAMES[level]}：城里约死${LOSS_WORD[level]}`;
   if (phone) return `${at}。`;
   const others = ([1, 2, 3] as const)
@@ -152,6 +154,25 @@ export function disasterLevelNote(level: DisasterLevel, phone: boolean): string 
     .map((l) => `${DISASTER_LEVEL_NAMES[l]}${LOSS_WORD[l]}`)
     .join('、');
   return `${at}（${others}），几十年长回来，其间国内更易动荡。不改地形。`;
+}
+
+/** 全球大疫染上的城约死几成、天下人口约十去其几(下标 = 轻重;同推演的 PAN_LOSS 两成 / 三四成 / 五成) */
+const PAN_LOSS_WORD = ['', '两成', '三到四成', '五成'] as const;
+const PAN_SHORT_WORD = ['', '两成', '三四成', '五成'] as const;
+const PAN_WORLD_WORD = ['', '一二', '二三', '三四'] as const;
+
+/**
+ * 全球大疫「死几成」下面那一句:电脑 "中：染疫的城约死三到四成（轻两成、重五成），乡下少一些；全世界人口约十去其二三。";
+ * 手机 "中：染疫的城约死三到四成，天下人口十去其二三。"
+ */
+function pandemicLevelNote(level: DisasterLevel, phone: boolean): string {
+  const at = `${DISASTER_LEVEL_NAMES[level]}：染疫的城约死${PAN_LOSS_WORD[level]}`;
+  if (phone) return `${at}，天下人口十去其${PAN_WORLD_WORD[level]}。`;
+  const others = ([1, 2, 3] as const)
+    .filter((l) => l !== level)
+    .map((l) => `${DISASTER_LEVEL_NAMES[l]}${PAN_SHORT_WORD[l]}`)
+    .join('、');
+  return `${at}（${others}），乡下少一些；全世界人口约十去其${PAN_WORLD_WORD[level]}。`;
 }
 
 /** y 年州 r 有人烟的城(天灾只落在这样的城上,同推演;没有 = −1) */
@@ -163,19 +184,42 @@ export function livingCity(civ: Civ, r: number, y: number): number {
   return owners.culture[r] >= 0 ? s.id : -1;
 }
 
+/**
+ * 全球大疫默认从哪座城起:y 年这国境内人最多的港口(住人的城;没有港口 = −1,天灾页再用国都)。
+ * own = 那年各州的主人
+ */
+export function biggestPort(civ: Civ, polity: number, own: ArrayLike<number>, y: number): number {
+  let best = -1;
+  let most = -Infinity;
+  for (let r = 0; r < civ.regions.count; r++) {
+    if (own[r] !== polity) continue;
+    const c = livingCity(civ, r, y);
+    if (c < 0) continue;
+    const s = civ.settlements[c];
+    if (!portAt(s, y)) continue;
+    const pop = populationAt(s, y);
+    if (pop > most) {
+      most = pop;
+      best = c;
+    }
+  }
+  return best;
+}
+
 /** 天灾页上选好的范围(这份历史里的编号) */
 export type DisasterSpot =
   | { type: 'plague'; city: number }
+  | { type: 'pandemic'; city: number }
   | { type: 'famine'; polity: number }
   | { type: 'famine'; regions: readonly number[] }
   | { type: 'quake'; region: number };
 
 /**
- * 受灾的州(天灾页地图上涂出来的预览;州号升序):瘟疫 = 起疫那城的州(传到哪推演了才知道);饥荒 = 那国 y 年的国土 / 选的几州;
+ * 受灾的州(天灾页地图上涂出来的预览;州号升序):瘟疫、全球大疫 = 起疫那城的州(传到哪推演了才知道);饥荒 = 那国 y 年的国土 / 选的几州;
  * 地震水旱 = 那一处连同陆上接壤的一圈(quakeRing)
  */
 export function disasterArea(civ: Civ, s: DisasterSpot, y: number): number[] {
-  if (s.type === 'plague') {
+  if (s.type === 'plague' || s.type === 'pandemic') {
     const r = civ.settlements[s.city]?.region ?? -1;
     return r >= 0 ? [r] : [];
   }
@@ -212,9 +256,9 @@ const regionOf = (civ: Civ, key: string | undefined): number => {
 
 /** 推完的天灾落在哪几州(提示条开着时地图上淡淡涂着):照下令时的范围在生效那年算(同 disasterArea;对象这份历史里没有 = 空) */
 export function disasterDoneArea(civ: Civ, v: DisasterIv): number[] {
-  if (v.type === 'plague') {
+  if (v.type === 'plague' || v.type === 'pandemic') {
     const k = v.city ? resolveKey(civ, v.city) : null;
-    return k?.kind === 'settlement' ? disasterArea(civ, { type: 'plague', city: k.id }, v.from) : [];
+    return k?.kind === 'settlement' ? disasterArea(civ, { type: v.type, city: k.id }, v.from) : [];
   }
   if (v.type === 'quake') {
     const r = regionOf(civ, v.region);
@@ -229,7 +273,7 @@ export function disasterDoneArea(civ: Civ, v: DisasterIv): number[] {
 
 /** 天灾落在哪:"星邑""有桑皇朝""翼门之野等 4 州""翼门之野一带"(A = 饥荒那国怎么称呼;e = 它那条史事) */
 function disasterPlace(civ: Civ, v: DisasterIv, A: string, e: Annal | null): string {
-  if (v.type === 'plague') {
+  if (v.type === 'plague' || v.type === 'pandemic') {
     const k = v.city ? resolveKey(civ, v.city) : null;
     const sid = e && e.settlement >= 0 ? e.settlement : k?.kind === 'settlement' ? k.id : -1;
     return civ.settlements[sid]?.name || '那座城';
@@ -261,6 +305,8 @@ function disasterDoneText(civ: Civ, v: DisasterIv, i: number, A: string, era: Er
     return { ok: false, text: `${place}的${DISASTER_NAMES[v.type]}没生效：${eraText(why, era)}` };
   }
   const lv = `（${DISASTER_LEVEL_NAMES[v.level]}）`;
+  // 全球大疫:"克尔顿大疫（中），疫后无人收拾 30 年"
+  if (v.type === 'pandemic') return { ok: true, text: `${place}大疫${lv}，疫后无人收拾 ${v.slump ?? SLUMP_DEFAULT} 年` };
   if (v.type === 'plague') {
     // 那年已经在闹瘟疫:并进那一场(那一刻以前最后起的一场)
     let merged = '';
@@ -296,6 +342,8 @@ function ivDisasters(civ: Civ): { v: DisasterIv; e: Annal }[] {
 /** 城里这一次折损是不是作者下的天灾落在州 r 上的(是 = 叫什么灾:瘟疫 / 饥荒 / 地震 / 大水 / 大旱;不是 = null) */
 function sackWord(civ: Civ, r: number, x: { year: Year; cause?: string }): string | null {
   for (const { v, e } of ivDisasters(civ)) {
+    // 全球大疫的折损另有说法(国家卡片的"大疫前",州卡片不写)
+    if (v.type === 'pandemic') continue;
     if (v.type === 'plague') {
       if (x.cause !== 'plague') continue;
       if (v.from === x.year && e.region === r) return DISASTER_NAMES.plague;

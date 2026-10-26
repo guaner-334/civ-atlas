@@ -3,17 +3,20 @@
  * pendingStore.ts;推演规则见 gen/edits.ts 的干预"天灾")。
  *
  *   哪一年    −100 −10 [年份] +10,默认干预页的生效年份 / 时间轴那一年(逐年推演:固定"第 N 年年初(下一步)",不能加减)
- *   种类      瘟疫 / 饥荒 / 地震水旱:电脑一种一行(下面一句怎么闹)、选中的浅蓝底打勾;手机一排三格
+ *   种类      瘟疫 / 饥荒 / 地震水旱 / 全球大疫:电脑一种一行(下面一句怎么闹)、选中的浅蓝底打勾;手机一排四格
  *   范围      瘟疫 = 从哪座城起:默认这州的城 / 这国的国都,「换一座」在地图上点一州(那州的城);照瘟疫的规矩传开,传到哪推演了才知道
+ *             全球大疫 = 从哪座城起:同瘟疫,只是从国家进来默认这国人最多的港口(没有港口 = 国都)
  *             饥荒 = 一国 | 几州:一国默认这州的主人 / 这国,「换一国」在地图上点;几州在地图上点,点一下加进来、再点去掉,最多 64 州
  *             地震水旱 = 点一处,连同陆上接壤的一圈州(quakeRing),「在地图上换一处」
- *   轻重      轻 / 中 / 重,下面一句后果(城里约死一成半 / 三成 / 五成;手机只写死几成)
+ *   轻重      轻 / 中 / 重,下面一句后果(城里约死一成半 / 三成 / 五成;手机只写死几成);全球大疫这一格叫「死几成」
+ *   疫后无人收拾  只有全球大疫:10 / 30 / 60 年(默认 30),下面一句这些年会怎样
  *   地图      受灾的州先涂出来(civView 一直亮着的高亮),旁边小牌子"翼门之野一带 8 州";离开这一页收起
  *   底部      返回 / 加入待推演(逐年推演写「加入」)
  */
 import { useEffect, useMemo, useState, type KeyboardEvent } from 'react';
 import type { Civ } from '../gen/civ/types';
-import { capitalAt, polityAlive, populationLabel } from '../gen/civ/growth';
+import { capitalAt, polityAlive, populationLabel, portAt } from '../gen/civ/growth';
+import { SLUMP_CHOICES, SLUMP_DEFAULT } from '../gen/civ/calamity';
 import { regionLabel } from '../gen/civ/display';
 import { ownersAt } from '../gen/civ/timeline';
 import {
@@ -38,7 +41,7 @@ import { YearRow, jumpTo, rgb, useYearInput } from './panelParts';
 import { closeCmdPage } from './panelStore';
 import { getCivHighlight, setCivHighlight } from './civView';
 import { alivePolities } from './crownInfo';
-import { disasterArea, disasterLevelNote, disasterQueueText, disasterToll, livingCity, type DisasterSpot } from './newIvInfo';
+import { biggestPort, disasterArea, disasterLevelNote, disasterQueueText, disasterToll, livingCity, type DisasterSpot } from './newIvInfo';
 import './newIv.css';
 
 /** 电脑上种类一行一种:下面那一句 */
@@ -46,6 +49,7 @@ const KIND_DESC: Record<DisasterType, string> = {
   plague: '从一座城起，照瘟疫的规矩沿路传开',
   famine: '选一国或几州，乡下饿死一片',
   quake: '点一处，连同附近一圈州',
+  pandemic: '从一座城起，循商路航线传遍各洲；之后几十年文明倒退',
 };
 const LEVELS: { l: DisasterLevel; name: string }[] = [
   { l: 1, name: '轻' },
@@ -80,6 +84,9 @@ export function DisasterPage({ civ, year, from, polity, region, onBack }: { civ:
 
   const [type, setType] = useState<DisasterType>('plague');
   const [level, setLevel] = useState<DisasterLevel>(2);
+  const [slump, setSlump] = useState(SLUMP_DEFAULT);
+  /** 起疫的城(瘟疫、全球大疫) */
+  const cityType = type === 'plague' || type === 'pandemic';
   // 换过的范围(没换过 = 默认)
   const [city, setCity] = useState<number | null>(null);
   const [fmode, setFmode] = useState<'polity' | 'regions'>(p ? 'polity' : 'regions');
@@ -94,13 +101,15 @@ export function DisasterPage({ civ, year, from, polity, region, onBack }: { civ:
     const c = p && polityAlive(p, yv) ? capitalAt(p, yv) : -1;
     return { region: c >= 0 ? civ.settlements[c].region : -1, city: c, owner: polity ?? -1 };
   }, [civ, region, polity, p, yv, own]);
-  const cityId = city ?? home.city;
+  // 全球大疫从国家进来:默认这国人最多的港口(没有港口 = 国都)
+  const port = useMemo(() => (region === undefined && polity !== undefined && p && polityAlive(p, yv) ? biggestPort(civ, polity, own, yv) : -1), [civ, region, polity, p, yv, own]);
+  const cityId = city ?? (type === 'pandemic' && port >= 0 ? port : home.city);
   const fp = fpol ?? home.owner;
   const regs = fregs ?? (home.region >= 0 ? [home.region] : []);
   const qc = center ?? home.region;
 
   const spot: DisasterSpot | null =
-    type === 'plague'
+    type === 'plague' || type === 'pandemic'
       ? cityId >= 0
         ? { type, city: cityId }
         : null
@@ -133,7 +142,7 @@ export function DisasterPage({ civ, year, from, polity, region, onBack }: { civ:
   // 地图上的小牌子
   const tag = (() => {
     if (!spot || !area.length) return null;
-    if (spot.type === 'plague') return S ? { text: `从${S.name || '那座城'}起`, cell: S.cell } : null;
+    if (spot.type === 'plague' || spot.type === 'pandemic') return S ? { text: `从${S.name || '那座城'}起`, cell: S.cell } : null;
     if (spot.type === 'quake') return { text: `${R}一带 ${area.length} 州`, cell: cellOf(qc) };
     if ('polity' in spot) {
       const c = F && polityAlive(F, yv) ? capitalAt(F, yv) : -1;
@@ -176,7 +185,7 @@ export function DisasterPage({ civ, year, from, polity, region, onBack }: { civ:
     setPolityPick({ prompt, sub, source, target: 'region', year: yv, accept });
   };
   const pickCity = () =>
-    pickRegion('点一州，瘟疫从那州的城起', `${when}起疫，照瘟疫的规矩传开`, (r) => {
+    pickRegion(type === 'pandemic' ? '点一州，全球大疫从那州的城起' : '点一州，瘟疫从那州的城起', type === 'pandemic' ? `${when}起疫，传遍各洲` : `${when}起疫，照瘟疫的规矩传开`, (r) => {
       const c = livingCity(civ, r, yv);
       if (c < 0) return `${when}这州没有住人的城`;
       setCity(c);
@@ -229,7 +238,7 @@ export function DisasterPage({ civ, year, from, polity, region, onBack }: { civ:
   const why = (() => {
     if (step && look !== null) return STEP_LOOK_WHY;
     if (!step && !yi.valid) return `年份要在${spaced(yearSpanAt(lo, hi, era))}之间`;
-    if (type === 'plague') {
+    if (cityType) {
       if (!S) return p ? '那年这国没有国都，换一座' : '这州那年没有住人的城，换一座';
       return cityOk ? null : `${when}${S.name || '那座城'}已不在`;
     }
@@ -248,7 +257,9 @@ export function DisasterPage({ civ, year, from, polity, region, onBack }: { civ:
     const v: Intervention =
       spot.type === 'plague'
         ? { ...base, city: settlementKey(civ, spot.city) }
-        : spot.type === 'quake'
+        : spot.type === 'pandemic'
+          ? { ...base, city: settlementKey(civ, spot.city), ...(slump !== SLUMP_DEFAULT ? { slump } : {}) }
+          : spot.type === 'quake'
           ? { ...base, region: regionKey(civ, spot.region) }
           : 'polity' in spot
             ? { ...base, a: polityKey(civ, spot.polity) }
@@ -285,7 +296,7 @@ export function DisasterPage({ civ, year, from, polity, region, onBack }: { civ:
   );
 
   const scope = (() => {
-    if (type === 'plague')
+    if (cityType)
       return (
         <>
           {picking ? (
@@ -295,7 +306,7 @@ export function DisasterPage({ civ, year, from, polity, region, onBack }: { civ:
               {S ? (
                 <span className="oc-pick-name">
                   <b>{S.name || '某城'}</b>
-                  <span className="cr-after">{cityAfter(civ, cityId, own, yv, y)}</span>
+                  <span className="cr-after">{cityAfter(civ, cityId, own, yv, y, type === 'pandemic')}</span>
                 </span>
               ) : (
                 <span className="oc-pick-empty">{p ? '那年没有国都，换一座' : '这州那年没有住人的城，换一座'}</span>
@@ -307,7 +318,11 @@ export function DisasterPage({ civ, year, from, polity, region, onBack }: { civ:
               </span>
             </div>
           )}
-          <span className="cp-note">照瘟疫的规矩沿路、沿河传开，传到哪推演了才知道。那年已经在闹瘟疫时并进那一场。</span>
+          <span className="cp-note">
+            {type === 'pandemic'
+              ? '沿陆路、河道、海峡和有人走的航线传开，六到九年传遍各洲；孤岛、深山、部落地带有的能躲过。'
+              : '照瘟疫的规矩沿路、沿河传开，传到哪推演了才知道。那年已经在闹瘟疫时并进那一场。'}
+          </span>
         </>
       );
     if (type === 'quake')
@@ -435,20 +450,35 @@ export function DisasterPage({ civ, year, from, polity, region, onBack }: { civ:
           </>
         )}
         <div className="cp-form" data-disaster="scope">
-          <span className="cp-form-title">{type === 'plague' ? '从哪座城起' : '范围'}</span>
+          <span className="cp-form-title">{cityType ? '从哪座城起' : '范围'}</span>
           {scope}
         </div>
         <div className="cp-form" data-disaster="level">
-          <span className="cp-form-title">轻重</span>
-          <div className="cp-dur" role="radiogroup" aria-label="轻重">
+          <span className="cp-form-title">{type === 'pandemic' ? '死几成' : '轻重'}</span>
+          <div className="cp-dur" role="radiogroup" aria-label={type === 'pandemic' ? '死几成' : '轻重'}>
             {LEVELS.map((x) => (
               <button key={x.l} role="radio" aria-checked={level === x.l} className={level === x.l ? 'on' : ''} data-level={x.l} onClick={() => (clear(), setLevel(x.l))}>
                 {x.name}
               </button>
             ))}
           </div>
-          <span className="cp-note">{disasterLevelNote(level, phone)}</span>
+          <span className="cp-note">{disasterLevelNote(level, phone, type)}</span>
         </div>
+        {type === 'pandemic' && (
+          <div className="cp-form" data-disaster="slump">
+            <span className="cp-form-title">疫后无人收拾</span>
+            <div className="cp-dur" role="radiogroup" aria-label="疫后无人收拾">
+              {SLUMP_CHOICES.map((n) => (
+                <button key={n} role="radio" aria-checked={slump === n} className={slump === n ? 'on' : ''} data-slump={n} onClick={() => (clear(), setSlump(n))}>
+                  {n} 年
+                </button>
+              ))}
+            </div>
+            <span className="cp-note">
+              {phone ? '这些年人口不回升，村镇荒废、道路失修，发展度往回掉。' : '这些年里人口不回升，村镇荒废、道路失修，发展度和时代往回掉；之后六七十年慢慢长回来。'}
+            </span>
+          </div>
+        )}
         {(msg || why) && <div className="cp-msg">{msg ?? why}</div>}
       </div>
       <div className="cp-foot mk-foot">
@@ -463,12 +493,16 @@ export function DisasterPage({ civ, year, from, polity, region, onBack }: { civ:
   );
 }
 
-/** 城后面那一句:"翼门之野，有桑皇朝国都" / "翼门之野，属有桑皇朝" / 部落地带只写州名 */
-function cityAfter(civ: Civ, sid: number, own: ArrayLike<number>, yv: number, y: number): string {
+/**
+ * 城后面那一句:"翼门之野，有桑皇朝国都" / "翼门之野，属有桑皇朝" / 部落地带只写州名;
+ * 全球大疫(port)的港口写 "贝林马克，埃维里亚帝国的港口"
+ */
+function cityAfter(civ: Civ, sid: number, own: ArrayLike<number>, yv: number, y: number, port = false): string {
   const s = civ.settlements[sid];
   if (!s) return '';
   const R = regionLabel(civ, s.region);
   const P = civ.polities[own[s.region]];
   if (!P) return R;
-  return capitalAt(P, yv) === sid ? `${R}，${nameAt(P, y)}国都` : `${R}，属${nameAt(P, y)}`;
+  if (capitalAt(P, yv) === sid) return `${R}，${nameAt(P, y)}国都`;
+  return port && portAt(s, yv) ? `${R}，${nameAt(P, y)}的港口` : `${R}，属${nameAt(P, y)}`;
 }
