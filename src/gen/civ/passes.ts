@@ -1,6 +1,6 @@
 /**
  * 关隘:两片地方的交界上隔着一道山脊,山脊上有一个又低又窄的口子 —— 别处都得翻高山,只有这里走得过去。
- * 推演里据险断后(wars.ts)按它挑地方;以后关隘起名、地图上画关口、镜头定位到关隘也照它找。
+ * 推演里据险断后(wars.ts)按它挑地方,照故事找世界(gen/finder)按它量两国之间的隘口;以后关隘起名、地图上画关口、镜头定位到关隘也照它找。
  *
  * 找法(地块一级):交界上逐对相邻地块(一块在这边、一块在那边)取"翻过去要爬多高" = 两块里高的那块的海拔(海平面以下按 0);
  *   交界的山脊 = 这些高度的中位数,山脊至少 PASS_RIDGE 米;
@@ -18,11 +18,11 @@ import type { Regions } from './types';
 /** 交界的山脊(各对地块翻过去要爬的高度的中位数)至少这么高(米)才算隔着山 */
 export const PASS_RIDGE = 900;
 /** 口子比山脊低这么多(米)以上,而且不高于山脊的这么多倍 */
-const PASS_GAP = 500;
+export const PASS_GAP = 500;
 const PASS_DEPTH = 0.6;
-/** 和口子差不多低:不比口子高出 (山脊 − 口子) × LOW_BAND;这样的地块对只有 NARROW 对以内才算窄口 */
+/** 和口子差不多低:不比口子高出 (山脊 − 口子) × LOW_BAND;这样的地块对只有 PASS_NARROW 对以内才算窄口 */
 const LOW_BAND = 0.25;
-const NARROW = 2;
+export const PASS_NARROW = 2;
 /** 交界至少这么多对地块 */
 const MIN_PAIRS = 4;
 
@@ -38,13 +38,23 @@ export interface Pass {
   pairs: number;
 }
 
+/** 交界上量出来的数(还没判算不算关隘;门槛见 isPass) */
+export interface PassMeasure extends Pass {
+  /** 和口子差不多低(不比口子高出 (山脊 − 口子) × LOW_BAND)的地块对有几对(含口子那一对) */
+  narrow: number;
+}
+
+/** 一段交界上逐对相邻地块"翻过去要爬多高":hs = 各对的高度(不排序),low / cell = 最低的那一对的高度、里面低的那一块(没有 = Infinity / −1) */
+export interface Crossings {
+  hs: number[];
+  low: number;
+  cell: number;
+}
+
 const climb = (e: Float32Array, i: number, j: number) => Math.max(0, e[i], e[j]);
 
-/**
- * 两片地方交界上的关隘:cellsA = 这一边的地块,inB(地块)= 那一块在不在那一边。没有关隘 = null。
- * 两国之间、两州之间都照它找(两国:cellsA 是一国的地块,inB 看那一块所在的州归不归另一国)
- */
-export function findPass(world: World, cellsA: Iterable<number>, inB: (cell: number) => boolean): Pass | null {
+/** 一段交界上的各对地块:cellsA = 这一边的地块,inB(地块)= 那一块在不在那一边 */
+export function crossings(world: World, cellsA: Iterable<number>, inB: (cell: number) => boolean): Crossings {
   const { adjStart, adj } = world.mesh;
   const e = world.elevation;
   const hs: number[] = [];
@@ -64,14 +74,51 @@ export function findPass(world: World, cellsA: Iterable<number>, inB: (cell: num
       }
     }
   }
-  if (hs.length < MIN_PAIRS) return null;
-  hs.sort((a, b) => a - b);
+  return { hs, low, cell };
+}
+
+/** 几段交界并成一段(例如两国之间的交界 = 两边各州之间的那几段):和一次量整段一样(口子取最低的,一样低取编号小的) */
+export function mergeCrossings(parts: readonly Crossings[]): Crossings {
+  const hs: number[] = [];
+  let low = Infinity;
+  let cell = -1;
+  for (const p of parts) {
+    for (const h of p.hs) hs.push(h);
+    if (p.low < low || (p.low === low && p.cell < cell)) {
+      low = p.low;
+      cell = p.cell;
+    }
+  }
+  return { hs, low, cell };
+}
+
+/** 量一段交界:山脊 = 各对高度的中位数;交界太短(不到 MIN_PAIRS 对地块)看不出山脊 = null */
+export function measureCrossings(c: Crossings): PassMeasure | null {
+  if (c.hs.length < MIN_PAIRS) return null;
+  const hs = c.hs.slice().sort((a, b) => a - b);
+  const low = c.low;
   const ridge = hs[hs.length >> 1];
-  if (ridge < PASS_RIDGE || ridge - low < PASS_GAP || low > PASS_DEPTH * ridge) return null;
-  // 窄口:差不多低的地块对(排好序的前几个)只有 NARROW 对以内
   const band = low + (ridge - low) * LOW_BAND;
-  if (hs.length > NARROW && hs[NARROW] <= band) return null;
-  return { cell, height: low, ridge, pairs: hs.length };
+  let narrow = 0;
+  while (narrow < hs.length && hs[narrow] <= band) narrow++;
+  return { cell: c.cell, height: low, ridge, pairs: hs.length, narrow };
+}
+
+/**
+ * 量出来的交界算不算关隘:山脊至少 PASS_RIDGE 米,口子比山脊低 gap 米以上、不高于山脊的 PASS_DEPTH 倍,
+ * 和口子差不多低的地块对不超过 narrow 对。推演(findPass)用默认的门槛;照故事找世界时作者可以改 gap、narrow
+ */
+export function isPass(m: PassMeasure, gap = PASS_GAP, narrow = PASS_NARROW): boolean {
+  return m.ridge >= PASS_RIDGE && m.ridge - m.height >= gap && m.height <= PASS_DEPTH * m.ridge && m.narrow <= narrow;
+}
+
+/**
+ * 两片地方交界上的关隘:cellsA = 这一边的地块,inB(地块)= 那一块在不在那一边。没有关隘 = null。
+ * 两国之间、两州之间都照它找(两国:cellsA 是一国的地块,inB 看那一块所在的州归不归另一国)
+ */
+export function findPass(world: World, cellsA: Iterable<number>, inB: (cell: number) => boolean): Pass | null {
+  const m = measureCrossings(crossings(world, cellsA, inB));
+  return m && isPass(m) ? { cell: m.cell, height: m.height, ridge: m.ridge, pairs: m.pairs } : null;
 }
 
 const cache = new WeakMap<Regions, WeakMap<World, Int32Array>>();
