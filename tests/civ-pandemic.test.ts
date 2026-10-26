@@ -173,6 +173,21 @@ describe('全球大疫', () => {
     }
   }, 600_000);
 
+  it('同一年下两场全球大疫(凋敝一样长):各场的州认得清,凋敝里切开接着推和一口气推完一样', () => {
+    const seed = 7;
+    const w = world(seed);
+    const base = plainCiv(seed);
+    const ports = base.settlements.filter((x) => x.port && x.founded <= Y && !(x.ended !== undefined && x.ended <= Y)).sort((a, b) => populationAt(b, Y) - populationAt(a, Y));
+    const iv: Intervention[] = [0, 5].map((i) => ({ kind: 'disaster', type: 'pandemic', level: 2, from: Y, city: settlementKey(base, ports[i].id) }));
+    const whole = generateCiv(w, { interventions: iv, endYear: 2560 });
+    const ps = pandemicsOf(whole);
+    expect(ps.length).toBe(2);
+    expect(ps[0].hits.length).toBeGreaterThanOrEqual(1);
+    expect(ps[1].hits.length).toBeGreaterThan(ps[0].hits.length);
+    const half = unpackValue(packValue(generateCiv(w, { interventions: iv, endYear: Y + 15 }))) as Civ;
+    sameCiv(continueCiv(w, half, { interventions: iv, endYear: 2560 }), whole, '同一年两场');
+  }, 300_000);
+
   it('疫后无人收拾 10 / 60 年:凋敝长短跟着变,60 年的荒废、退得更多', () => {
     const w = world(7);
     const a = generateCiv(w, { interventions: [pandemicIv(7, Y, 10)], endYear: 2650 });

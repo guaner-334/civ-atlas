@@ -1,5 +1,5 @@
 /**
- * 全球大疫(pandemic.ts)的整理:只读 Civ(史事 pandemic / plague / desolate、城镇表里带 until 的折损、乡村人口和发展度的快照),
+ * 全球大疫(pandemic.ts)的整理:只读 Civ(史事 pandemic / plague / desolate、城镇表里带 pan 的折损、乡村人口和发展度的快照),
  * 不碰推演引擎。界面(国家卡片、时间轴)、地图(荒地、疫区)、编年史、统计都用它;推完以后断路(breakRoads)也在这里。纯计算,不碰 DOM。
  *
  * 给界面和地图的数据:
@@ -68,12 +68,12 @@ export function pandemicsOf(civ: Civ): PandemicInfo[] {
     }
   });
   if (out.length) {
-    const all: { region: number; settlement: number; year: Year; loss: number; until: Year }[] = [];
-    for (const s of civ.settlements) for (const x of s.sacks ?? []) if (x.cause === 'plague' && x.until !== undefined) all.push({ region: s.region, settlement: s.id, year: x.year, loss: x.loss, until: x.until });
+    const all: { region: number; settlement: number; year: Year; loss: number; pan: number }[] = [];
+    for (const s of civ.settlements) for (const x of s.sacks ?? []) if (x.cause === 'plague' && x.pan !== undefined) all.push({ region: s.region, settlement: s.id, year: x.year, loss: x.loss, pan: x.pan });
     all.sort((a, b) => a.year - b.year || a.region - b.region);
     for (const h of all) {
       let p: PandemicInfo | undefined;
-      for (let i = out.length - 1; i >= 0 && !p; i--) if (out[i].end === h.until && h.year >= out[i].year) p = out[i];
+      for (let i = out.length - 1; i >= 0 && !p; i--) if (out[i].id === h.pan) p = out[i];
       if (!p) continue;
       const had = p.hits.find((x) => x.region === h.region);
       if (had) had.loss = Math.max(had.loss, h.loss);
@@ -184,7 +184,8 @@ export function breakRoads(civ: Pick<Civ, 'seed' | 'annals' | 'settlements'> & {
       if (rt.kind === 'sea' || rt.built > p.year || (rt.abandoned ?? Infinity) <= p.year || rt.cells.length < 2) continue;
       const tag = rt.cells[0] * 7919 + rt.cells[rt.cells.length - 1];
       const cut = p.year + BREAK_FROM + Math.floor(span * keyed(base, p.id, tag, U_CUT));
-      if (cut >= p.end) continue;
+      // 那时已经荒废了的(通往废城、被大路取代的)不动,早先的荒废年份不往后推
+      if (cut >= p.end || (rt.abandoned ?? Infinity) <= cut) continue;
       let n = 0;
       let sev = 0;
       for (const c of rt.cells) {

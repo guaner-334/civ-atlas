@@ -22,7 +22,7 @@
  * **地震水旱**(「天灾」多 / 很多,Ev.QuakeCheck,每 QUAKE_CHECK 年看一次):各国按 QUAKE_CHECK ÷ CalamityRates.quakeYears 掷,
  *   掷中的在国土里挑一处有城的州当震中,照作者下的地震水旱那样受灾(disaster.ts 的 afflict;轻重按 QUAKE_LEVELS 掷)。
  *
- * **不存内存状态**:全球大疫由史事 pandemic 和城镇表里带 until 的折损重建(resumePandemic);看全球大疫、看地震水旱、复作的时刻都由
+ * **不存内存状态**:全球大疫由史事 pandemic 和城镇表里带 pan(第几场)的折损重建(resumePandemic);看全球大疫、看地震水旱、复作的时刻都由
  *   "第几次 / 起疫的时刻"算出来。随机数:keyed(subSeed(seed, 'civ-pandemic'), 第几次 / 第几场, 州的治所 / 城…, 用途)。
  */
 import type { Civ, Year } from './types';
@@ -280,7 +280,7 @@ function hook(run: Runner): void {
 
 /**
  * 由 Civ 重建全球大疫这一层(CivSim.fromCiv 调用,在 resumePlague 之后):史事 pandemic 是起过的几场,
- * 城镇表里 cause = plague、带 until(= 那场的凋敝结束)的折损是各场染上的州;再补上还没到的复作、看全球大疫、看地震水旱
+ * 城镇表里 cause = plague、带 pan(= 第几场)的折损是各场染上的州;再补上还没到的复作、看全球大疫、看地震水旱
  */
 export function resumePandemic(sim: CivSim, civ: Civ, list: readonly Intervention[] = civ.interventions ?? []): void {
   const pm = polityModelOf(sim);
@@ -294,15 +294,15 @@ export function resumePandemic(sim: CivSim, civ: Civ, list: readonly Interventio
     run.state.list.push(newPandemic(R, e.war, e.year, e.year + e.b, level, e.n ?? 0));
   }
   if (run.state.list.length) {
-    const hits: { r: number; sid: number; year: Year; loss: number; until: Year }[] = [];
+    const hits: { r: number; sid: number; year: Year; loss: number; pan: number }[] = [];
     for (const s of pm.settlements) {
-      for (const x of s.sacks ?? []) if (x.cause === 'plague' && x.until !== undefined && x.year <= sim.now) hits.push({ r: s.region, sid: s.id, year: x.year, loss: x.loss, until: x.until });
+      for (const x of s.sacks ?? []) if (x.cause === 'plague' && x.pan !== undefined && x.year <= sim.now) hits.push({ r: s.region, sid: s.id, year: x.year, loss: x.loss, pan: x.pan });
     }
     hits.sort((a, b) => a.year - b.year || a.r - b.r);
     for (const h of hits) {
       for (let i = run.state.list.length - 1; i >= 0; i--) {
         const p = run.state.list[i];
-        if (p.end !== h.until || h.year < p.t0) continue;
+        if (p.k !== h.pan) continue;
         notePandemicHit(p, h.r, h.sid, h.year, h.loss);
         break;
       }

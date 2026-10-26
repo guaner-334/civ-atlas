@@ -962,7 +962,10 @@ function tick(sim: CivSim, d: DevModel, y: Year): void {
       const e0 = eraOf(Eprev[r]).era;
       if (e >= e0 || !slumpIn(pan, r, d.last, y)) continue;
       const f = Eprev[r] > E[r] ? Math.min(1, Math.max(0, (Eprev[r] - e0) / (Eprev[r] - E[r]))) : 1;
-      push({ year: Math.min(y, Math.max(sinceOf(r), t0 + (y - t0) * f)), kind: 'regress', era: e, region: r });
+      // 不早于这州染上疫(这一步里才染上的,按线性估会估到染疫以前)
+      let hit = Infinity;
+      for (const q of pan!.list) if (q.at[r] < y && q.end > d.last && q.at[r] < hit) hit = q.at[r];
+      push({ year: Math.min(y, Math.max(sinceOf(r), hit < Infinity ? hit : -Infinity, t0 + (y - t0) * f)), kind: 'regress', era: e, region: r });
     }
   }
   // 发明:世上第一次有州的那样能力到了那一档(同一步里有几州都到了,记估出的那一刻最早的)

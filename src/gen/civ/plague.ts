@@ -247,7 +247,7 @@ function hook(sim: CivSim, pl: PlagueModel): void {
       if (ob.pan !== undefined) {
         // 全球大疫:折损带凋敝结束那年(无人收拾,之前不长回来),记进全球大疫的状态
         const loss = fixed ?? panLossOf(base, ob.k, reg.seat[r], ob.level, populationAt(s, t), !!pm.port[r], Math.round(t - ob.t0));
-        (s.sacks ??= []).push({ year: t, loss, cause: 'plague', until: ob.pan });
+        (s.sacks ??= []).push({ year: t, loss, cause: 'plague', until: ob.pan, pan: ob.k });
         pl.onPandemicHit?.(ob.k, r, sid, t, loss);
         const p = owner[r];
         if (p < 0) continue;

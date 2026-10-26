@@ -153,9 +153,9 @@ export interface Settlement {
    * 饥荒(unrest.ts)、瘟疫(plague.ts)也记在这里(cause = famine / plague):人口一样掉一截、慢慢长回来;
    * 作者下的天灾(干预 disaster,disaster.ts)里饥荒记 famine、瘟疫记 plague、地震水旱记 quake(from = 震中那州:是地震、大水还是大旱按它定)。
    * 全球大疫(pandemic.ts):染疫记 plague、疫后凋敝里"疫气复作、流亡"记 slump,都带 until = 那场的凋敝结束那年:
-   * 无人收拾,凋敝结束以前不长回来,之后照常按 SACK_RECOVER 淡去(growth.ts 的 populationAt)
+   * 无人收拾,凋敝结束以前不长回来,之后照常按 SACK_RECOVER 淡去(growth.ts 的 populationAt);染疫的那条另带 pan = 第几场瘟疫(史事 pandemic 的 war 列)
    */
-  sacks?: { year: Year; loss: number; cause?: 'famine' | 'plague' | 'quake' | 'slump'; from?: number; until?: Year }[];
+  sacks?: { year: Year; loss: number; cause?: 'famine' | 'plague' | 'quake' | 'slump'; from?: number; until?: Year; pan?: number }[];
   /**
    * 阶段 3 城市兴衰:这座城是在哪座被毁的城(Settlement id)的故址上重建的(同一州、同一地块)。
    * 同族重建沿用旧名;换了民族的另起新名。不是重建的 = 不给
