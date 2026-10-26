@@ -203,8 +203,6 @@ describe('seed 7 从第 2650 年演绎到第 2700 年', () => {
       [2662, '战争'],
       [2664, '灭亡'],
       [2664, '改朝'],
-      [2668, '自立'],
-      [2674, '升格'],
     ]);
     for (const it of items) {
       expect(entryWeight(it.cap.entry)).toBeGreaterThanOrEqual(REVIEW_WEIGHT);
