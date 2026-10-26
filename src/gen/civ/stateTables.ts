@@ -10,7 +10,8 @@
  * 各国国都所在州的行政能力、危机、当朝几年、近年闹饥荒 / 染疫的州数、在讨伐的民变、割据几处、有几州、在打几场仗、纳贡收贡。
  * 各州城的人口(每年填);每 FISCAL_EVERY 年填一次(只给按州的三样收入用):生产和运输能力、有没有港口、大河。
  * 各国的军力系数、方针给的国力倍数(每年填)。
- * 各国议事定下的(council.ts,每年填):直征多收的几成、直征的开销、分封了边地没有、改制以后的余波(动荡加多少)。
+ * 各国议事定下的(council.ts,每年填):直征多收的几成、直征的开销、分封了边地没有、改制以后的余波(动荡加多少)、
+ * 禁军多出兵的几成和开销、设了边镇没有、铨选多管的几档行政能力和开销。
  *
  * **乡村人口**(每 POP_EVERY 年算一次,千人;population.ts):
  *   按州的:开垦了几成(垦,0–1):这州建了第一座城起从 1 / (1 + GROWTH_A) 按 S 形曲线长(速度 = 那座城的增长速度),是"太平年景该有多少人"的底子;
@@ -34,14 +35,17 @@
  *     议事改了征收之法的(council.ts):管得到几成先加上"直征多收的几成"(征升,最多到 1);分封了边地的,管得到几成不到 FIEF_C 的州
  *     只交 FIEF_REMIT(岁贡,不再按管得到几成算)。
  *   第四样贡赋:藩属每年把实收的 TRIBUTE 交给宗主(纳贡算岁出,收贡算岁入)。
- *   岁入 = 实收 + 收贡;岁出 = 养官 OFFICE × 应缴 + 直征的开销(征费,占应缴几成)× 应缴 + 军费 ARMY × 应缴 × 在打几场仗 + 纳贡。
+ *   岁入 = 实收 + 收贡;岁出 = (养官 OFFICE + 铨选的开销(官费)+ 直征的开销(征费)+ 禁军的开销(兵费))× 应缴
+ *     + 军费 ARMY × 应缴 × 在打几场仗(设了边镇的再乘 BORDER_ARMY:边将自筹军饷)+ 纳贡。
  *   国库 = 上一年的 + 岁入 − 岁出,压在 0 到 RESERVE 年的应缴之间。
  *   窘迫(0–1):国库空了还入不敷出时 = 缺口占岁出的几成 × GAIN(最多 1);新朝初立 GRACE 年内不算。
  *   窘迫加进动荡(FISCAL_W × 窘迫),也让宣战少、战事早罢(wars.ts 读)。
  *
  * **国力**(一年一算,按国;打仗的胜率、看邦交时比强弱读它,wars.ts、diplomacy.ts):
  *   国力 = 各州城的人口 × 出兵的几成之和(至少 1)× 军力系数 × 方针给的国力倍数;
- *   出兵的几成 = 管得到几成 + LEVY_0(最多 1),割据的地盘 0(抗命不出兵)。
+ *   出兵的几成 = 管得到几成 + LEVY_0 + 收了兵权多出的(兵升)(最多 1),割据的地盘 0(抗命不出兵);
+ *   设了边镇的国家,管得到几成不到 BORDER_C 的州全数出兵(边将自募)。
+ * 管得到几成里的行政能力加上铨选多管的几档(官升;许了自辟是负的),离国都远近不加。
  */
 import type { TableCard } from './tables';
 import { NEVER } from './devTables';
@@ -107,6 +111,9 @@ export interface CouncilRuleConsts {
   FIEF_C: number;
   FIEF_REMIT: number;
   FIEF_FAR: number;
+  /** 设了边镇的国家:管得到几成不到 BORDER_C 的州全数出兵,打仗的军费乘 BORDER_ARMY */
+  BORDER_C: number;
+  BORDER_ARMY: number;
 }
 
 /** 乡村人口的常数(population.ts 给;名字和那边一样) */
@@ -176,6 +183,11 @@ export function stateCards(c: ControlRuleConsts, u: UnrestRuleConsts, f: FiscalR
     pol('征费', '直征的开销(占应缴几成)'),
     pol('分封', '分封了边地没有'),
     pol('改制', '改制以后的余波(动荡加多少)'),
+    pol('兵升', '禁军、监军多出兵的几成(加在出兵的几成上;没收兵权 = 0)'),
+    pol('兵费', '禁军、监军的开销(占应缴几成)'),
+    pol('边镇', '设了边镇没有'),
+    pol('官升', '铨选多管的几档行政能力(只算管得到几成;许了自辟是负的)'),
+    pol('官费', '铨选的开销(占应缴几成;许了自辟是负的)'),
   ];
 
   /** 行政越强,远处的州也管得住:管得到的远近、离国都远近的折算都乘它 */
@@ -190,7 +202,8 @@ export function stateCards(c: ControlRuleConsts, u: UnrestRuleConsts, f: FiscalR
     builtin: true,
     consts,
     rule: [
-      admin,
+      // 铨选的多管一截(官升;许了自辟少管一截)只算在这里,不算进离国都远近
+      'let 行政 = 1 + ADMIN_GAIN * max(0, 国都行政 + 官升)',
       'let x = if(路程 >= NEVER, 4, 路程 / (REACH * 行政))',
       // 异族、刚被征服(随年数淡去)、当地有大城都打折
       'let c = 1 / (1 + x * x) * if(异族, FOREIGN, 1) * if(新征 < RECENT, 1 - RECENT_CUT * (1 - 新征 / RECENT), 1) * if(大城, BIG_CITY, 1)',
@@ -260,7 +273,7 @@ export function stateCards(c: ControlRuleConsts, u: UnrestRuleConsts, f: FiscalR
     // 交上来几成跟着管得到几成(直征的再加征升);割据的地盘一文不交;分封了的边地只交岁贡
     ledger('实收', '实收(各州交上来的)', ['税', '管辖'], 'sumof(税 * if(割据州, 0, if(分封 and 管辖 < FIEF_C, FIEF_REMIT, REMIT_0 + (1 - REMIT_0) * min(1, 管辖 + 征升))))'),
     ledger('岁入', '岁入', ['实收'], '实收 + 收贡'),
-    ledger('岁出', '岁出', ['应缴'], '应缴 * (OFFICE + 征费 + ARMY * 战事) + 纳贡'),
+    ledger('岁出', '岁出', ['应缴'], '应缴 * (OFFICE + 官费 + 征费 + 兵费 + ARMY * 战事 * if(边镇, BORDER_ARMY, 1)) + 纳贡'),
     ledger('国库', '国库', ['岁入', '岁出'], 'max(0, min(RESERVE * 应缴, 国库 + dt * (岁入 - 岁出)))'),
     ledger('窘迫', '国用不足(0–1)', ['国库'], 'if(国库 > 0 or 岁出 <= 0 or 当朝 < GRACE, 0, min(1, GAIN * max(0, 岁出 - 岁入) / 岁出))', 1),
   ];
@@ -310,8 +323,8 @@ export function stateCards(c: ControlRuleConsts, u: UnrestRuleConsts, f: FiscalR
     builtin: true,
     after: ['管辖'],
     consts,
-    // 管不到的州出兵打折(管得到几成 + LEVY_0,最多 1),割据的州不出兵
-    rule: 'max(1, sumof(城民 * if(割据州, 0, min(1, 管辖 + LEVY_0)))) * 军力 * 国力倍数',
+    // 管不到的州出兵打折(管得到几成 + LEVY_0,收了兵权的再加兵升,最多 1),割据的州不出兵;设了边镇的,边地全数出兵
+    rule: 'max(1, sumof(城民 * if(割据州, 0, if(边镇 and 管辖 < BORDER_C, 1, min(1, 管辖 + LEVY_0 + 兵升))))) * 军力 * 国力倍数',
   };
   return [...inputs, control, remote, settle, strife, soil, crowd, rural, ruralSum, soilMean, ...fiscal, base, unrest, power];
 }

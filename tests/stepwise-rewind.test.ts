@@ -92,8 +92,8 @@ describe('seed 7 演绎到第 2700 年,倒回第 2675 年重新演绎', () => {
   it('弹窗里"不要了的历史"列这一段分量最重的几件,一件几个字,按先后', () => {
     const f = first!;
     const brief = rewindBrief(f.civ, 2667, 2700, fullChronicle(f.civ));
-    // 北哈兹斯坦王国讨平塔比德部、奥利亚帝国灭新卡萨斯坦(亡国那条又单列,只算一件)、有鹰代有桂
-    expect(brief).toEqual(['北哈兹斯坦王国讨平塔比德部', '奥利亚灭新卡萨斯坦', '有鹰代有桂']);
+    // 大霄王朝伐克拉尔汗国、东奥利亚族消亡、大定王朝伐塔米亚(GENERATOR_VERSION 37 的历史)
+    expect(brief).toEqual(['大霄伐克拉尔', '东奥利亚族亡', '大定伐塔米亚']);
     // 一件也没有:空
     expect(rewindBrief(f.civ, 2699.9, 2700, fullChronicle(f.civ))).toEqual([]);
   });

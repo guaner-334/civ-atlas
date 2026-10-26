@@ -105,13 +105,13 @@ describe('AI 写史书:材料', () => {
     }
     // 短篇的通史:先放大事;大事多到放不全时(seed 7 有七十多条)按时间均匀地挑,七成以上都在,小事一条不放
     // (GENERATOR_VERSION 22 崩解、亡国多了,大事从五十多条涨到七十多条,短篇放不下的从两成以内涨到两成多;
-    // 36 多了宗室据地自立,大事八十条上下,放不下的三成多)
+    // 36 多了宗室据地自立,大事八十条上下,放不下的三成多;37 大国收兵权、收任免、地方转投邻国也算大事,大事近九十条,放不下的三成半到四成)
     const short = buildHistoryPrompts(civ, { scope: { kind: 'world' }, style: 'plain', length: 'short' });
     const user = historyMessages(short, 0)[1].content;
     const all = buildChronicle(civ);
     const major = filterChronicle(all, { major: true });
     const missing = major.filter((e) => !user.includes(e.text)).length;
-    expect(missing).toBeLessThanOrEqual(major.length * 0.36);
+    expect(missing).toBeLessThanOrEqual(major.length * 0.4);
     if (missing) for (const e of all) if (e.importance === 2) expect(user).not.toContain(e.text);
     expect(short.calls[0].used).toBeLessThan(short.calls[0].total);
   });

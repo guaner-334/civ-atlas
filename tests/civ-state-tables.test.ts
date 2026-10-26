@@ -1,5 +1,5 @@
 /**
- * 政局的数表(gen/civ/stateTables.ts):管得到几成、离国都多远、乡村人口(连同搬家)、钱粮(连同议事改的征收之法、分封)、动荡(连同压到 0 以上之前的值)、国力,
+ * 政局的数表(gen/civ/stateTables.ts):管得到几成、离国都多远、乡村人口(连同搬家)、钱粮(连同议事改的征收之法、分封、军制、官制)、动荡(连同压到 0 以上之前的值)、国力,
  * 数表算出来的和照公式直接算的一样(两种跑法都是)。
  * 用一串连着的州(邻边的类型轮着来;每州 TPR 个地块,也连成一串)、随机填的输入,不用生成世界。
  */
@@ -10,7 +10,7 @@ import { NEVER } from '../src/gen/civ/devTables';
 import { CONTROL_CONSTS as C, FISCAL_CONSTS as F } from '../src/gen/civ/control';
 import { UNREST_CONSTS as U } from '../src/gen/civ/unrest';
 import { POP_CONSTS as H } from '../src/gen/civ/population';
-import { COUNCIL_CONSTS as K } from '../src/gen/civ/council';
+import { COUNCIL_CONSTS as K } from '../src/gen/civ/councilRules';
 import { fpow, keyed } from '../src/gen/civ/rand';
 
 const R = 40;
@@ -109,6 +109,12 @@ function inputs(k: number) {
     cost: u(100 + p, 18) < 0.4 ? 0.07 * u(100 + p, 20) : 0,
     fief: u(100 + p, 21) < 0.4 ? 1 : 0,
     shock: u(100 + p, 22) < 0.3 ? 0.15 * u(100 + p, 23) : 0,
+    // 军制(禁军多出兵的几成和开销、边镇)、官制(铨选多管的几档行政能力和开销;自辟是负的)
+    armyLift: u(100 + p, 24) < 0.3 ? 0.2 * u(100 + p, 25) : 0,
+    armyCost: u(100 + p, 24) < 0.3 ? 0.05 * u(100 + p, 25) : 0,
+    border: u(100 + p, 24) > 0.8 ? 1 : 0,
+    officeLift: u(100 + p, 26) < 0.4 ? 2 * u(100 + p, 27) - 1 : 0,
+    officeCost: u(100 + p, 26) < 0.4 ? 0.04 * (2 * u(100 + p, 27) - 1) : 0,
   }));
   return { reg, pol };
 }
@@ -208,10 +214,12 @@ function regionSoil(x: ReturnType<typeof inputs>, soil: number[]): number[] {
 /** 照公式直接算(原来事件层现算的写法;钱粮照 stateTables.ts 文件头的公式) */
 function reference(x: ReturnType<typeof inputs>, k: number, led: Ledger) {
   const scale = (p: number) => 1 + C.ADMIN_GAIN * Math.max(0, x.pol[p].admin);
+  // 管得到几成里的行政能力再加铨选多管的几档(离国都远近不加)
+  const reach = (p: number) => 1 + C.ADMIN_GAIN * Math.max(0, x.pol[p].admin + x.pol[p].officeLift);
   const ctl = x.reg.map((g) => {
     if (g.p < 0) return 0;
     if (g.seat) return 1;
-    const xx = g.dist >= NEVER ? 4 : g.dist / (C.REACH * scale(g.p));
+    const xx = g.dist >= NEVER ? 4 : g.dist / (C.REACH * reach(g.p));
     let c = 1 / (1 + xx * xx);
     if (g.foreign) c *= C.FOREIGN;
     if (g.recent < C.RECENT) c *= 1 - C.RECENT_CUT * (1 - g.recent / C.RECENT);
@@ -251,7 +259,7 @@ function reference(x: ReturnType<typeof inputs>, k: number, led: Ledger) {
       rev += sum * (g.lord ? 0 : q.fief && ctl[r] < K.FIEF_C ? K.FIEF_REMIT : F.REMIT_0 + (1 - F.REMIT_0) * Math.min(1, ctl[r] + q.lift));
     });
     const inc = rev + q.got;
-    const out = owed * (F.OFFICE + q.cost + F.ARMY * q.wars) + q.paid;
+    const out = owed * (F.OFFICE + q.officeCost + q.cost + q.armyCost + F.ARMY * q.wars * (q.border ? K.BORDER_ARMY : 1)) + q.paid;
     const t = Math.max(0, Math.min(F.RESERVE * owed, led.treasury[p] + dt * (inc - out)));
     led.treasury[p] = t;
     if (t > 0 || out <= 0 || q.age < F.GRACE) return 0;
@@ -276,11 +284,11 @@ function reference(x: ReturnType<typeof inputs>, k: number, led: Ledger) {
     return u;
   });
   const unrest = base.map((u, p) => Math.max(0, u) + Math.min(C.LORD_U_MAX, C.LORD_U * x.pol[p].lords));
-  // 国力:城的人口 × 出兵的几成(割据的州 0),至少 1,再乘军力系数、国力倍数
+  // 国力:城的人口 × 出兵的几成(割据的州 0;收了兵权的加兵升;设了边镇的边地全出),至少 1,再乘军力系数、国力倍数
   const power = x.pol.map((q, p) => {
     let sum = 0;
     x.reg.forEach((g, r) => {
-      if (g.p === p) sum += g.city * (g.lord ? 0 : Math.min(1, ctl[r] + C.LEVY_0));
+      if (g.p === p) sum += g.city * (g.lord ? 0 : q.border && ctl[r] < K.BORDER_C ? 1 : Math.min(1, ctl[r] + C.LEVY_0 + q.armyLift));
     });
     return Math.max(1, sum) * q.mil * q.scale;
   });
@@ -333,6 +341,11 @@ describe('政局的数表', () => {
         set('征费', (p) => x.pol[p].cost);
         set('分封', (p) => x.pol[p].fief);
         set('改制', (p) => x.pol[p].shock);
+        set('兵升', (p) => x.pol[p].armyLift);
+        set('兵费', (p) => x.pol[p].armyCost);
+        set('边镇', (p) => x.pol[p].border);
+        set('官升', (p) => x.pol[p].officeLift);
+        set('官费', (p) => x.pol[p].officeCost);
         // 城的人口每年填(国力要;三样收入只在算它们的年份读)
         set('城民', (r) => x.reg[r].city);
         set('有人邻块', (t) => [t - 1, t + 1].filter((q) => q >= 0 && q < NT && x.reg[Math.floor(q / TPR)].ruralCap > 0).length);

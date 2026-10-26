@@ -1,54 +1,76 @@
 /**
- * 议事:朝廷想改一改规矩(怎么收税、边地归谁管、割据的地方怎么办),地方算自己要丢多少钱和权,两边讨价还价,
- * 结果有办成、妥协、搁置、谈崩四种。挂在同一个推演引擎(sim.ts)上,发生了什么记进史事 council(编年史写谁推、谁拦、为什么)。
+ * 议事:朝廷想改一改规矩(怎么收税、边地归谁管、兵权和官员任免归谁、割据的地方怎么办),地方算自己要丢多少钱和权,两边讨价还价,
+ * 结果有办成、妥协、搁置、谈崩四种;割据久了的地方也会自己提出脱离(转投邻国)。
+ * 挂在同一个推演引擎(sim.ts)上,发生了什么记进史事 council(编年史写谁推、谁拦、为什么)。
  *
  * 流程(index.ts 在 installControl 之后调用 installCouncil):
  *
  *   **什么时候议**:看内政时(politics.ts,约 POL_EVERY 年一回)分裂、割据、合并、迁都都没出事,就议一件(councilCheck)。
- *     国家至少 MIN_SIZE 州、立国满 MIN_AGE 年、不在打仗;同一种议题 REST 年内不再议。
- *     依次看下面五种议题,第一种议得起来的就议它(一次只议一件)。
+ *     国家至少 MIN_SIZE 州、立国满 MIN_AGE 年、不在打仗;同一种议题 REST 年内不再议(上一回搁置了的,REST_SHELVED 年内不再议)。
+ *     依次看下面十一种议题(先看要省钱的、地方逼上门的,再看朝廷想收的权,最后看让权),第一种议得起来的就议它(一次只议一件)。
  *
- *   **掂量**:朝廷的底气 = 国都行政能力(af = min(1, 行政 ÷ ADMIN_FULL))、君主的倾向(发展、好战;rulers.ts)、国用不足(窘迫)、
- *     国库攒到几成;地方的阻力 = 要丢的钱占应缴几成(各州的税 × 多交的几成)、割据几处、动荡。
+ *   **掂量**:朝廷的底气 = 国都行政能力(af = min(1, 行政 ÷ ADMIN_FULL))、君主的倾向(发展、好战、开拓;rulers.ts)、国用不足(窘迫)、
+ *     国库攒到几成;地方的阻力 = 要丢的钱、兵、官位占全国几成、割据几处、动荡。
  *     一件议题的分 x = 底气 − 阻力 + 一点随机(± JITTER / 2);x 越过各档门槛就是办成 / 妥协 / 搁置,再低就谈崩。
  *     **有好处不等于能办成,办成了不等于能落实**:朝廷估直征多收多少时按行政能力高估一档(行政 + 1),
  *     实际多收的按真的行政能力算,所以行政弱的国家也会去直征,多收的抵不上开销,过些年再罢掉。
  *
- *   **五种议题**(Annal.war;结果在 Annal.n:0 办成、1 妥协、2 搁置、3 谈崩):
+ *   **十一种议题**(Annal.war;结果在 Annal.n:0 办成、1 妥协、2 搁置、3 谈崩):
  *     ① UNTAX 罢直征:直征(或分成)着、多收的抵不上开销(按实际的行政能力算)、国用不足或国库不到 PURSE_LOW → 办成(复由地方代收)或搁置。
- *     ② CUT 削藩:有割据了 CUT_AGE 年以上的、国库攒到 PURSE_CUT 以上、动荡不到 CUT_U → 办成(收回那一处)、搁置、
+ *     ② ARMY_OUT 放兵权(改军制,让权)之一,罢禁军:禁军(或监军)着、国用不足或国库不到 PURSE_LOW → 办成(复由州郡征发,军制 0)或搁置。
+ *     ③ OFFICE_OUT 放任免(改官制,让权)之一,罢铨选:铨选(或参半)着、国用不足或国库不到 PURSE_LOW → 办成(复由地方荐举,官制 0)或搁置。
+ *     ④ LEAVE 脱离(地方提的):割据满 LEAVE_AGE 年、地盘挨着一个肯收它的邻国(和那州同族而本国不是,或国力比本国强),
+ *        不在和本国打仗、和本国没有盟约宗藩 → 朝廷留得住 = 搁置;留不住 = 办成(那处割据连同被切断的碎块转投邻国,改归属走合并,
+ *        记 council 的 b = 邻国);地方强到能自立的 = 谈崩(起兵自立,和削藩谈崩一样记 split,cause = warlord)。
+ *     ⑤ REORG 改组(分镇):地盘有 REORG_MIN 州以上、割据满 REORG_AGE 年的那一处,动荡不到 REORG_U →
+ *        办成(地盘只留起事那一州)、妥协(只留 REORG_HALF 州)、搁置、谈崩(起兵自立,同削藩)。
+ *     ⑥ CUT 削藩:有割据了 CUT_AGE 年以上的、国库攒到 PURSE_CUT 以上、动荡不到 CUT_U → 办成(收回那一处)、搁置、
  *        谈崩(那处割据当场起兵自立:地盘连同被它切断的碎块立新国,至少 REBEL_MIN 州,记 split,cause = warlord;不够就算搁置)。
- *     ③ TAX 直征(集权,试点议题):还没直征、按高估的行政能力算多收的扣掉开销占应缴 GAIN_MIN 以上、
+ *     ⑦ ARMY_IN 收兵权(改军制,集权):军制还没到禁军、国库攒到 PURSE_ARMY 以上、不缺钱,而且割据有 LORDS_ARMY 处以上(设了边镇的有一处就议)或君主好战到 WAR_ARMY →
+ *        办成(禁军,军制 1;设了边镇的先罢边镇,回到 0)、妥协(监军,军制 0.5)、搁置、谈崩(边地兵最多的那州守将拥兵抗命,当场割据)。
+ *     ⑧ TAX 直征(集权,试点议题):还没直征、按高估的行政能力算多收的扣掉开销占应缴 GAIN_MIN 以上、
  *        而且国用不足、国库不到 PURSE_TAX 或君主发展倾向到 DEV_TAX → 办成(直征)、妥协(和地方分成,征法 1)、搁置、
  *        谈崩(要丢钱最多的那州守将拒不奉诏,当场割据,control.ts 的 raise)。
- *     ④ UNFIEF 改土归流(集权):分封了 UNFIEF_AGE 年以上、af 到 AF_UNFIEF、动荡不到 UNFIEF_U、国库攒到 PURSE_UNFIEF → 办成、搁置、谈崩(那片边地割据)。
- *     ⑤ FIEF 分封边地(让权):动荡到 FIEF_U、管得到几成不到 FIEF_C 的州占 FIEF_SHARE 以上、至少 FIEF_SIZE 州 → 办成或搁置。
+ *     ⑨ OFFICE_IN 收任免(改官制,集权):官制还没到铨选、af 到 AF_OFFICE、国库攒到 PURSE_OFFICE、不缺钱,
+ *        而且君主发展倾向到 DEV_OFFICE、许了自辟,或豪族把持的州(管得到几成不到 OFFICE_C)的税占应缴 OFFICE_SHARE 以上 →
+ *        办成(铨选,官制 1;许了自辟的先收回,回到 0)、妥协(铨选、荐举参半,官制 0.5)、搁置、谈崩(豪族最强的那州据城抗命,当场割据)。
+ *     ⑩ UNFIEF 改土归流(集权):分封了 UNFIEF_AGE 年以上、af 到 AF_UNFIEF、动荡不到 UNFIEF_U、国库攒到 PURSE_UNFIEF → 办成、搁置、谈崩(那片边地割据)。
+ *     ⑪ 让权的几种(谁先议得起来议谁):
+ *        ARMY_OUT 放兵权之二,设边镇:军制 0、至少 BORDER_SIZE 州、管得到几成不到 BORDER_C 的州占 BORDER_SHARE 以上、缺钱(国用不足或国库不到 PURSE_BORDER)→ 办成(军制 −1)或搁置;
+ *        OFFICE_OUT 放任免之二,许自辟:官制 0、国用不足、动荡到 HERED_U、af 不到 AF_HERED → 办成(官制 −1)或搁置;
+ *        FIEF 分封边地:动荡到 FIEF_U、管得到几成不到 FIEF_C 的州占 FIEF_SHARE 以上、至少 FIEF_SIZE 州 → 办成或搁置。
  *
  *   **定下来以后怎么样**(每年填进政局数表的输入,公式见 stateTables.ts):
  *     征法 0 代收(原样)、1 分成、2 直征:实收里各州管得到几成先加 LIFT[征法] × af(征升,最多到 1),岁出多 COST[征法] × 应缴(征费)。
  *     分封:管得到几成不到 FIEF_C 的州只交 FIEF_REMIT 的岁贡,"离国都远"那一项动荡乘 FIEF_FAR,新起割据的赔率减半(control.ts)。
- *     直征、分成、改土归流办成以后 SHOCK_YEARS 年里有余波:动荡多 SHOCK,随年数淡去(改制).
+ *     军制 −1 边镇、0 原样(州郡征发)、0.5 监军、1 禁军:禁军、监军各州出兵的几成多 ARMY_LIFT × 军制(兵升)、岁出多 ARMY_COST × 军制 × 应缴(兵费),
+ *       新起割据的赔率乘 1 − ARMY_LORD × 军制;边镇:管得到几成不到 BORDER_C 的州全数出兵、打仗的军费乘 BORDER_ARMY,新起割据的赔率乘 BORDER_LORD。
+ *     官制 −1 自辟、0 原样(荐举)、0.5 参半、1 铨选:算管得到几成时国都行政能力多 OFFICE_ADMIN × 官制(官升,只算管得到几成,不算离国都远近),
+ *       岁出多 OFFICE_COST × 官制 × 应缴(官费;自辟省下这一截)。
+ *     改组:那处割据的地盘最多几州(control.ts 的 Warlord.cap,由史事重建)。脱离:改归属,不改规矩。
+ *     直征、分成、改土归流、收兵权、收任免办成或妥协以后 SHOCK_YEARS 年里有余波:动荡多 SHOCK,随年数淡去(改制).
  *
- * **不存内存状态**:各国的征法、分封、各议题上次议的年份都由史事 council 重建(resumeCouncil)。
+ * **不存内存状态**:各国的征法、分封、军制、官制、各议题上次议的年份都由史事 council 重建(resumeCouncil)。
  * 随机数:keyed4(subSeed(seed, 'civ-council'), 国家锚, 第几次看内政, 议题),和处理顺序无关。纯计算,不碰 DOM。
  */
-import type { Annal, Civ, Polity, Year } from './types';
-import { keyed4, subSeed } from './rand';
-import type { CivSim } from './sim';
+import { AdjKind, Layer, type Civ, type Polity } from './types';
+import { flog, keyed4, subSeed } from './rand';
+import { Ev, type CivSim } from './sim';
 import { polityModelOf, rulerOf, type PolityModel } from './polities';
 import { politicsModelOf, type PoliticsModel } from './politics';
 import { warModelOf, type WarModel } from './wars';
 import { leaningsAt } from './rulers';
-import { capitalAt } from './growth';
+import { capitalAt, populationAt } from './growth';
 import { Cap, CAP_COUNT, devModelOf, type DevModel } from './development';
 import type { ControlModel, Warlord } from './control';
-import type { CouncilRuleConsts } from './stateTables';
+import { BORDER_C, FIEF_C, FIEF_REMIT, ISSUES, Issue, Outcome, REORG_HALF, applyRule, newRules, type Rules } from './councilRules';
 
 // ---- 调参(以 20 个种子的统计为准,见 scripts/control-stats.ts) ----
-/** 议得起来的国家:至少几州、立国满几年;同一种议题几年内不再议 */
+/** 议得起来的国家:至少几州、立国满几年;同一种议题几年内不再议(上一回搁置了的隔 REST_SHELVED 年) */
 const MIN_SIZE = 8;
 const MIN_AGE = 60;
 const REST = 100;
+const REST_SHELVED = 200;
 /** 行政能力到 ADMIN_FULL 算管得满(af = 1) */
 const ADMIN_FULL = 4;
 /** 征法 0 代收、1 分成、2 直征:管得到几成加 LIFT × af,岁出多 COST × 应缴 */
@@ -56,10 +78,6 @@ const LIFT = [0, 0.15, 0.35];
 const COST = [0, 0.03, 0.07];
 /** 交上来几成的底(和 control.ts 的 REMIT_0 一样) */
 const REMIT_0 = 0.3;
-/** 分封:管得到几成不到 FIEF_C 的州只交 FIEF_REMIT;"离国都远"那一项动荡乘 FIEF_FAR */
-const FIEF_C = 0.35;
-const FIEF_REMIT = 0.2;
-const FIEF_FAR = 0.4;
 /** 改制的余波:动荡多 SHOCK,SHOCK_YEARS 年淡去 */
 const SHOCK = 0.15;
 const SHOCK_YEARS = 30;
@@ -123,46 +141,116 @@ const FIEF_UW = 0.5;
 const FIEF_WAR = 0.4;
 const FIEF_LOSS = 2;
 
-/** 议题(Annal.war) */
-export const enum Issue {
-  Untax = 0,
-  Cut = 1,
-  Tax = 2,
-  Unfief = 3,
-  Fief = 4,
-}
-/** 结果(Annal.n) */
-export const enum Outcome {
-  Done = 0,
-  Half = 1,
-  Shelve = 2,
-  Break = 3,
-}
-const ISSUES = 5;
+// ---- 改军制 ----
+/** 禁军、监军:各州出兵的几成多 ARMY_LIFT × 军制,岁出多 ARMY_COST × 军制 × 应缴;新起割据的赔率乘 1 − ARMY_LORD × 军制 */
+const ARMY_LIFT = 0.2;
+const ARMY_COST = 0.05;
+const ARMY_LORD = 0.3;
+/** 边镇:新起割据的赔率乘 BORDER_LORD(管得到几成不到 BORDER_C 的州全数出兵、军费打折,见 councilRules.ts) */
+const BORDER_LORD = 1.6;
+/** 收兵权:国库攒到几成才议;割据有 LORDS_ARMY 处以上(设了边镇的有一处就议),或君主好战到 WAR_ARMY */
+const PURSE_ARMY = 0.4;
+const WAR_ARMY = 85;
+const LORDS_ARMY = 2;
+/** 收兵权的分:x = ARMYIN_0 + ARMYIN_ADMIN × af + ARMYIN_WAR × (好战 − 50) / 50 − ARMYIN_U × 动荡 − ARMYIN_STAKE × 边地(管得到几成不到 BORDER_C)的城民占几成 − ARMYIN_LORD × 割据几处 − ARMYIN_BORDER × 设了边镇 */
+const ARMYIN_0 = 0.1;
+const ARMYIN_ADMIN = 0.5;
+const ARMYIN_WAR = 0.3;
+const ARMYIN_U = 0.3;
+const ARMYIN_STAKE = 0.8;
+const ARMYIN_LORD = 0.1;
+const ARMYIN_BORDER = 0.2;
+/** 收兵权的门槛:办成、妥协、搁置(再低谈崩) */
+const ARMYIN_DONE = 0.3;
+const ARMYIN_HALF = -0.1;
+const ARMYIN_SHELVE = -0.7;
+/** 罢禁军、罢铨选:国用不足或国库不到 PURSE_SPARE 才议 */
+const PURSE_SPARE = 0.25;
+/** 罢禁军:x = DISBAND_0 + DISBAND_BROKE × 窘迫 − DISBAND_WAR × (好战 − 50) / 50 */
+const DISBAND_0 = 0.3;
+const DISBAND_BROKE = 0.6;
+const DISBAND_WAR = 0.3;
+/** 设边镇:至少几州、边地占几成、国库不到几成(或国用不足)才议;x = BORDER_0 + BORDER_BROKE × 窘迫 + BORDER_KEEN × (开拓、好战取大的 − 50) / 50 − BORDER_ADMIN × af */
+const BORDER_SIZE = 12;
+const BORDER_SHARE = 0.3;
+const PURSE_BORDER = 0.5;
+const BORDER_0 = 0.1;
+const BORDER_BROKE = 0.4;
+const BORDER_KEEN = 0.4;
+const BORDER_ADMIN = 0.4;
 
-/** 政局数表里归议事管的常数(stateTables.ts) */
-export const COUNCIL_CONSTS: CouncilRuleConsts = { FIEF_C, FIEF_REMIT, FIEF_FAR };
+// ---- 改官制 ----
+/** 铨选、参半:算管得到几成时国都行政能力多 OFFICE_ADMIN × 官制,岁出多 OFFICE_COST × 官制 × 应缴(自辟 = −1:少管一档、省一截) */
+const OFFICE_ADMIN = 1;
+const OFFICE_COST = 0.04;
+/** 收任免:af、国库攒到几成才议;君主发展倾向到 DEV_OFFICE,或豪族把持的州(管得到几成不到 OFFICE_C)的税占应缴 OFFICE_SHARE 以上 */
+const AF_OFFICE = 0.4;
+const PURSE_OFFICE = 0.3;
+const DEV_OFFICE = 75;
+const OFFICE_C = 0.6;
+const OFFICE_SHARE = 0.5;
+/** 收任免的分:x = OFFICEIN_0 + OFFICEIN_ADMIN × af + OFFICEIN_DEV × (发展 − 50) / 50 − OFFICEIN_U × 动荡 − OFFICEIN_STAKE × 豪族把持的州的税占几成 − OFFICEIN_LORD × 割据几处 − OFFICEIN_HERED × 许了自辟 */
+const OFFICEIN_0 = 0.3;
+const OFFICEIN_ADMIN = 0.5;
+const OFFICEIN_DEV = 0.3;
+const OFFICEIN_U = 0.3;
+const OFFICEIN_STAKE = 0.8;
+const OFFICEIN_LORD = 0.1;
+const OFFICEIN_HERED = 0.3;
+/** 收任免的门槛:办成、妥协、搁置(再低谈崩) */
+const OFFICEIN_DONE = 0.25;
+const OFFICEIN_HALF = -0.15;
+const OFFICEIN_SHELVE = -0.8;
+/** 罢铨选:x = UNOFFICE_0 + UNOFFICE_BROKE × 窘迫 − UNOFFICE_DEV × (发展 − 50) / 50 */
+const UNOFFICE_0 = 0.3;
+const UNOFFICE_BROKE = 0.6;
+const UNOFFICE_DEV = 0.3;
+/** 许自辟:动荡到多少、af 不到多少才议;x = HERED_0 + HERED_UW × (动荡 − HERED_U) + HERED_BROKE × 窘迫 − HERED_DEV × (发展 − 50) / 50 */
+const HERED_U = 1;
+const AF_HERED = 0.5;
+const HERED_0 = -0.1;
+const HERED_UW = 0.5;
+const HERED_BROKE = 0.4;
+const HERED_DEV = 0.3;
 
-/** 史事 council 是不是"削藩办成"(那一处割据了结;control.ts 重建割据时用) */
-export function cutDone(e: Annal): boolean {
-  return e.kind === 'council' && e.war === Issue.Cut && e.n === Outcome.Done;
-}
+// ---- 改组(分镇)----
+/** 地盘至少几州、割据满几年、动荡不到多少才议(妥协时地盘留几州见 councilRules.ts 的 REORG_HALF) */
+const REORG_MIN = 3;
+const REORG_AGE = 20;
+const REORG_U = 1.2;
+/** x = REORG_0 + REORG_ADMIN × af + REORG_WAR × (好战 − 50) / 50 − REORG_U_W × 动荡 − REORG_SHARE × 地盘的税占应缴几成 */
+const REORG_0 = 0.2;
+const REORG_ADMIN = 0.5;
+const REORG_WAR = 0.2;
+const REORG_U_W = 0.4;
+const REORG_SHARE = 1.5;
+/** 门槛:办成、妥协、搁置(再低谈崩) */
+const REORG_DONE = 0.2;
+const REORG_HALF_X = -0.1;
+const REORG_SHELVE = -0.8;
 
-/** 一国议定的规矩 */
-interface Rules {
-  /** 征法:0 代收、1 分成、2 直征 */
-  tax: number;
-  /** 分封了边地(那年;没有 = undefined) */
-  fief?: Year;
-  /** 最近一次集权的改制办成(余波从这年算) */
-  shock: Year;
-  /** 各议题上次议的年份 */
-  last: Year[];
-}
+// ---- 脱离 ----
+/** 割据满几年才提;肯收它的邻国至少几州 */
+const LEAVE_AGE = 30;
+const LEAVE_Q_MIN = 5;
+/** 朝廷留不留得住:x = LEAVE_0 + LEAVE_ADMIN × af + LEAVE_PURSE × 国库几成 − LEAVE_U × 动荡 − LEAVE_SHARE × 地盘的税占应缴几成 − LEAVE_KIN × 同族 − LEAVE_POW × ln(邻国国力 ÷ 本国国力)(不到 0 按 0) */
+const LEAVE_0 = 0.3;
+const LEAVE_ADMIN = 0.4;
+const LEAVE_PURSE = 0.3;
+const LEAVE_U = 0.4;
+const LEAVE_SHARE = 2;
+const LEAVE_KIN = 0.3;
+const LEAVE_POW = 0.2;
+/** 门槛:留得住(搁置);留不住转投(办成);再低起兵自立(谈崩) */
+const LEAVE_KEEP = 0;
+const LEAVE_BREAK = -0.9;
+
+// 议题、结果的编号,定下的规矩怎么随史事改(Rules、applyRule),分封、边镇、分镇的几个常数在 councilRules.ts
+export { cutDone, reorgCap, councilBefore } from './councilRules';
 
 export interface CouncilModel {
   /** 国家 p 此刻的规矩(没议过 = 原样) */
-  rules: (p: number) => { tax: number; fief: boolean };
+  rules: (p: number) => { tax: number; fief: boolean; army: number; office: number };
 }
 
 const models = new WeakMap<CivSim, CouncilModel>();
@@ -180,27 +268,14 @@ export function installCouncil(sim: CivSim, seed: number): CouncilModel | undefi
 /** 接着推(CivSim.fromCiv,在 resumeControl 之后):各国的规矩由史事重建 */
 export function resumeCouncil(sim: CivSim, civ: Civ): void {
   const book = new Map<number, Rules>();
-  for (const e of civ.annals) if (e.kind === 'council') apply(rulesOf(book, e.a), e.war, e.n ?? Outcome.Shelve, e.year);
+  for (const e of civ.annals) if (e.kind === 'council') applyRule(rulesOf(book, e.a), e.war, e.n ?? Outcome.Shelve, e.year);
   hook(sim, civ.seed, book);
 }
 
 function rulesOf(book: Map<number, Rules>, p: number): Rules {
   let r = book.get(p);
-  if (!r) book.set(p, (r = { tax: 0, shock: -Infinity, last: new Array<Year>(ISSUES).fill(-Infinity) }));
+  if (!r) book.set(p, (r = newRules()));
   return r;
-}
-
-/** 议了一件事以后规矩怎么变 */
-function apply(r: Rules, issue: number, out: number, t: Year): void {
-  r.last[issue] = t;
-  if (issue === Issue.Untax && out === Outcome.Done) r.tax = 0;
-  else if (issue === Issue.Tax && (out === Outcome.Done || out === Outcome.Half)) {
-    r.tax = out === Outcome.Done ? 2 : 1;
-    r.shock = t;
-  } else if (issue === Issue.Unfief && out === Outcome.Done) {
-    r.fief = undefined;
-    r.shock = t;
-  } else if (issue === Issue.Fief && out === Outcome.Done) r.fief = t;
 }
 
 function hook(sim: CivSim, seed: number, book: Map<number, Rules>): CouncilModel | undefined {
@@ -216,15 +291,17 @@ function hook(sim: CivSim, seed: number, book: Map<number, Rules>): CouncilModel
   const model: CouncilModel = {
     rules: (p) => {
       const r = book.get(p);
-      return { tax: r?.tax ?? 0, fief: r?.fief !== undefined };
+      return { tax: r?.tax ?? 0, fief: r?.fief !== undefined, army: r?.army ?? 0, office: r?.office ?? 0 };
     },
   };
   models.set(sim, model);
 
-  // ---- 每年填数表的输入:征升、征费、分封、改制 ----
+  // ---- 每年填数表的输入:征升、征费、分封、改制;兵升、兵费、边镇;官升、官费 ----
   cm.councilFill = (t) => {
     const NP = pm.polities.length;
-    const [lift, cost, fief, shock] = ['征升', '征费', '分封', '改制'].map((id) => eng.input(id).fill(0));
+    const [lift, cost, fief, shock, armyLift, armyCost, border, officeLift, officeCost] = ['征升', '征费', '分封', '改制', '兵升', '兵费', '边镇', '官升', '官费'].map((id) =>
+      eng.input(id).fill(0),
+    );
     if (!book.size) return;
     const admin = eng.input('国都行政');
     for (const [p, r] of book) {
@@ -234,9 +311,19 @@ function hook(sim: CivSim, seed: number, book: Map<number, Rules>): CouncilModel
       fief[p] = r.fief !== undefined ? 1 : 0;
       const age = t - r.shock;
       shock[p] = age < SHOCK_YEARS ? SHOCK * (1 - age / SHOCK_YEARS) : 0;
+      armyLift[p] = ARMY_LIFT * Math.max(0, r.army);
+      armyCost[p] = ARMY_COST * Math.max(0, r.army);
+      border[p] = r.army < 0 ? 1 : 0;
+      officeLift[p] = OFFICE_ADMIN * r.office;
+      officeCost[p] = OFFICE_COST * r.office;
     }
   };
   cm.fiefOf = (p) => book.get(p)?.fief !== undefined;
+  // 新起割据的赔率:边镇多、禁军少(分封的那一半 control.ts 自己乘)
+  cm.lordOdds = (p) => {
+    const a = book.get(p)?.army ?? 0;
+    return a < 0 ? BORDER_LORD : 1 - ARMY_LORD * a;
+  };
 
   pol.councilCheck = (P, k, t) => check(sim, pm, pol, wm, cm, dev, base, book, P, k, t);
   return model;
@@ -255,7 +342,7 @@ function check(sim: CivSim, pm: PolityModel, pol: PoliticsModel, wm: WarModel, c
   const owed = eng.value('应缴', p);
   if (!(owed > 0)) return;
   const r = rulesOf(book, p);
-  const ready = (i: Issue) => t - r.last[i] >= REST;
+  const ready = (i: Issue) => t - r.last[i] >= (r.shelved[i] ? REST_SHELVED : REST);
   const u = pol.unrest ? pol.unrest(P, t) : 0;
   const broke = wm.broke ? wm.broke(p, t) : 0;
   const purse = wm.purse ? wm.purse(p, t) : 1;
@@ -267,14 +354,59 @@ function check(sim: CivSim, pm: PolityModel, pol: PoliticsModel, wm: WarModel, c
   const keen = (ruler.develop - 50) / 50;
   const war = (ruler.war - 50) / 50;
   const tax = eng.get('税');
-  const lordsN = cm.mark(p, t);
+  const owner = sim.owners[Layer.Polity];
+  const culture = sim.owners[Layer.Culture];
+  const reg = pm.terrain.regions;
+  let lordsN = cm.mark(p, t);
+  /** domainOf 换了地盘的标记:往下看 inLord 之前重新标一遍 */
+  const remark = () => {
+    if (lordsN) lordsN = cm.mark(p, t);
+  };
   const fief = r.fief !== undefined;
   /** 随机的一截(每种议题各取一个) */
   const jit = (i: Issue) => JITTER * (keyed4(base, pm.ptag[p], k, i, 0) - 0.5);
-  /** broke:直征是因为国用不足才议的(记 cause = broke;不然是君主锐意兴革) */
-  const record = (i: Issue, out: Outcome, region: number, broke = false) => {
-    apply(r, i, out, t);
-    sim.record('council', { a: p, region, settlement: pm.cityOf[region], war: i, n: out, ...(broke ? { cause: 'broke' as const } : {}) });
+  /** broke:直征是因为国用不足才议的(记 cause = broke;不然是君主锐意兴革);b:脱离时想转投的邻国 */
+  const record = (i: Issue, out: Outcome, region: number, broke = false, b = -1) => {
+    applyRule(r, i, out, t);
+    sim.record('council', { a: p, ...(b >= 0 ? { b } : {}), region, settlement: pm.cityOf[region], war: i, n: out, ...(broke ? { cause: 'broke' as const } : {}) });
+  };
+  /** 边地(管得到几成不到 BORDER_C;国都、割据的地盘不算):几州、城民占全国几成、城民最多的那州(有城;没有 = −1) */
+  const borderland = () => {
+    let n = 0;
+    let pop = 0;
+    let all = 0;
+    let top = -1;
+    let best = 0;
+    for (const q of pm.lands[p]) {
+      const s = pm.cityOf[q];
+      const h = s >= 0 ? populationAt(pm.settlements[s], t) : 0;
+      all += h;
+      if (q === capR || (lordsN && cm.inLord(q)) || cm.raw(p, q, t) >= BORDER_C) continue;
+      n++;
+      pop += h;
+      if (s >= 0 && h > best) {
+        best = h;
+        top = q;
+      }
+    }
+    return { n, share: all > 0 ? pop / all : 0, top };
+  };
+  /** 豪族把持的州(管得到几成不到 OFFICE_C;国都、割据的地盘、分封了的边地不算):税占应缴几成、税最多的那州(有城;没有 = −1) */
+  const gentry = () => {
+    let sum = 0;
+    let top = -1;
+    let best = 0;
+    for (const q of pm.lands[p]) {
+      if (q === capR || (lordsN && cm.inLord(q))) continue;
+      const c = cm.raw(p, q, t);
+      if (c >= OFFICE_C || (fief && c < FIEF_C)) continue;
+      sum += tax[q];
+      if (pm.cityOf[q] >= 0 && tax[q] > best) {
+        best = tax[q];
+        top = q;
+      }
+    }
+    return { share: sum / owed, top };
   };
 
   /**
@@ -310,7 +442,92 @@ function check(sim: CivSim, pm: PolityModel, pol: PoliticsModel, wm: WarModel, c
     }
   }
 
-  // ② 削藩:最老的那一处割据
+  // ② 罢禁军、③ 罢铨选:缺钱时先省下收权的开销
+  if (r.army > 0 && ready(Issue.ArmyOut) && (broke > 0 || purse < PURSE_SPARE)) {
+    const x = DISBAND_0 + DISBAND_BROKE * broke - DISBAND_WAR * war + jit(Issue.ArmyOut);
+    record(Issue.ArmyOut, x > 0 ? Outcome.Done : Outcome.Shelve, capR);
+    return;
+  }
+  if (r.office > 0 && ready(Issue.OfficeOut) && (broke > 0 || purse < PURSE_SPARE)) {
+    const x = UNOFFICE_0 + UNOFFICE_BROKE * broke - UNOFFICE_DEV * keen + jit(Issue.OfficeOut);
+    record(Issue.OfficeOut, x > 0 ? Outcome.Done : Outcome.Shelve, capR);
+    return;
+  }
+
+  // ④ 脱离:割据久了的地方要转投邻国(肯收它的:和那州同族而本国不是,或国力比本国强)
+  if (lordsN && ready(Issue.Leave) && !wm.iv?.unites(p, t)) {
+    const powP = wm.power ? wm.power(p) : -1;
+    let pick: { w: Warlord; dom: number[]; q: number; pull: number } | null = null;
+    for (const w of cm.lordsOf(p, t)) {
+      if (t - w.start < LEAVE_AGE) continue;
+      const dom = cm.domainOf(w, t);
+      const cu = culture[w.region];
+      for (const x of dom) {
+        for (let e = reg.adjStart[x]; e < reg.adjStart[x + 1]; e++) {
+          const kind = reg.adjKind[e];
+          if (kind === AdjKind.Strait || kind === AdjKind.SeaRoute) continue;
+          const o = owner[reg.adj[e]];
+          if (o < 0 || o === p || pm.size[o] < LEAVE_Q_MIN || pm.polities[o].ended !== undefined) continue;
+          const kin = pm.polities[o].culture === cu && P.culture !== cu ? 1 : 0;
+          const powQ = wm.power ? wm.power(o) : -1;
+          const ratio = powP > 0 && powQ > 0 ? powQ / powP : 0;
+          if (!kin && !(ratio > 1)) continue;
+          if (wm.dm?.friendly(p, o) || wm.iv?.allied(p, o, t) || wm.iv?.halted(o, t)) continue;
+          const pull = LEAVE_KIN * kin + (ratio > 1 ? LEAVE_POW * flog(ratio) : 0);
+          if (!pick || pull > pick.pull) pick = { w, dom, q: o, pull };
+        }
+      }
+    }
+    if (pick) {
+      const { w, dom, q } = pick;
+      let share = 0;
+      for (const x of dom) share += tax[x];
+      share /= owed;
+      const x = LEAVE_0 + LEAVE_ADMIN * a + LEAVE_PURSE * purse - LEAVE_U * u - LEAVE_SHARE * share - pick.pull + jit(Issue.Leave);
+      let out = x > LEAVE_KEEP ? Outcome.Shelve : x > LEAVE_BREAK ? Outcome.Done : Outcome.Break;
+      // 强到能自立的起兵自立;自立不成(地盘不够 REBEL_MIN 州……)就转投;转投也不成(地盘里刚换过国家……)就算搁置
+      const plan = out === Outcome.Break ? rebelPlan(pol, wm, w, dom, t) : null;
+      if (out === Outcome.Break && !plan) out = Outcome.Done;
+      const move = out === Outcome.Done ? leaveGroup(pol, wm, reg, owner, w, dom, q, t) : null;
+      if (out === Outcome.Done && !move) out = Outcome.Shelve;
+      record(Issue.Leave, out, w.region, false, q);
+      if (plan) pol.secede!(w.p, plan.group, plan.sid, w.region, t, 'split', 'warlord');
+      if (move) for (const x of move) sim.setOwner(Layer.Polity, x, q, Ev.Merge);
+      return;
+    }
+    remark();
+  }
+
+  // ⑤ 改组(分镇):地盘最大的那一处割据
+  if (lordsN && ready(Issue.Reorg) && u < REORG_U) {
+    let w: Warlord | undefined;
+    let dom: number[] = [];
+    for (const l of cm.lordsOf(p, t)) {
+      if (t - l.start < REORG_AGE) continue;
+      const d = cm.domainOf(l, t);
+      if (d.length >= REORG_MIN && d.length > dom.length) {
+        w = l;
+        dom = d;
+      }
+    }
+    if (w) {
+      let share = 0;
+      for (const x of dom) share += tax[x];
+      share /= owed;
+      const x = REORG_0 + REORG_ADMIN * a + REORG_WAR * war - REORG_U_W * u - REORG_SHARE * share + jit(Issue.Reorg);
+      let out = x > REORG_DONE ? Outcome.Done : x > REORG_HALF_X ? Outcome.Half : x > REORG_SHELVE ? Outcome.Shelve : Outcome.Break;
+      const plan = out === Outcome.Break ? rebelPlan(pol, wm, w, dom, t) : null;
+      if (out === Outcome.Break && !plan) out = Outcome.Shelve;
+      if (out === Outcome.Done) w.cap = 1;
+      else if (out === Outcome.Half) w.cap = REORG_HALF;
+      record(Issue.Reorg, out, w.region);
+      if (plan) pol.secede!(w.p, plan.group, plan.sid, w.region, t, 'split', 'warlord');
+      return;
+    }
+    remark();
+  }
+
+  // ⑥ 削藩:最老的那一处割据
   if (lordsN && ready(Issue.Cut) && purse >= PURSE_CUT && u < CUT_U) {
     let w: Warlord | undefined;
     for (const l of cm.lordsOf(p, t)) if (t - l.start >= CUT_AGE && (!w || l.start < w.start)) w = l;
@@ -331,7 +548,20 @@ function check(sim: CivSim, pm: PolityModel, pol: PoliticsModel, wm: WarModel, c
     }
   }
 
-  // ③ 直征
+  // ⑦ 收兵权:割据多了(设了边镇的有一处就议),或君主好战
+  if (r.army < 1 && ready(Issue.ArmyIn) && purse >= PURSE_ARMY && !(broke > 0) && (lordsN >= (r.army < 0 ? 1 : LORDS_ARMY) || ruler.war >= WAR_ARMY)) {
+    const b = borderland();
+    const x = ARMYIN_0 + ARMYIN_ADMIN * a + ARMYIN_WAR * war - ARMYIN_U * u - ARMYIN_STAKE * b.share - ARMYIN_LORD * lordsN - (r.army < 0 ? ARMYIN_BORDER : 0) + jit(Issue.ArmyIn);
+    let out = x > ARMYIN_DONE ? Outcome.Done : x > ARMYIN_HALF ? Outcome.Half : x > ARMYIN_SHELVE ? Outcome.Shelve : Outcome.Break;
+    // 已经监军了的、设了边镇的,妥协就是维持现状
+    if (out === Outcome.Half && r.army !== 0) out = Outcome.Shelve;
+    if (out === Outcome.Break && !canRise(wm, cm, p, b.top, t)) out = Outcome.Shelve;
+    record(Issue.ArmyIn, out, b.top >= 0 ? b.top : capR);
+    if (out === Outcome.Break) cm.raise(p, b.top, t);
+    return;
+  }
+
+  // ⑧ 直征
   if (r.tax < 2 && ready(Issue.Tax) && (broke > 0 || purse < PURSE_TAX || ruler.develop >= DEV_TAX)) {
     // 朝廷按行政能力高估一档来算
     const guess = shift(r.tax, 2, af(admin + 1)) - (COST[2] - COST[r.tax]) * owed;
@@ -349,7 +579,21 @@ function check(sim: CivSim, pm: PolityModel, pol: PoliticsModel, wm: WarModel, c
     }
   }
 
-  // ④ 改土归流
+  // ⑨ 收任免:君主重发展、许了自辟,或豪族把持的州多
+  if (r.office < 1 && ready(Issue.OfficeIn) && a >= AF_OFFICE && purse >= PURSE_OFFICE && !(broke > 0)) {
+    const g = gentry();
+    if (ruler.develop >= DEV_OFFICE || r.office < 0 || g.share >= OFFICE_SHARE) {
+      const x = OFFICEIN_0 + OFFICEIN_ADMIN * a + OFFICEIN_DEV * keen - OFFICEIN_U * u - OFFICEIN_STAKE * g.share - OFFICEIN_LORD * lordsN - (r.office < 0 ? OFFICEIN_HERED : 0) + jit(Issue.OfficeIn);
+      let out = x > OFFICEIN_DONE ? Outcome.Done : x > OFFICEIN_HALF ? Outcome.Half : x > OFFICEIN_SHELVE ? Outcome.Shelve : Outcome.Break;
+      if (out === Outcome.Half && r.office !== 0) out = Outcome.Shelve;
+      if (out === Outcome.Break && !canRise(wm, cm, p, g.top, t)) out = Outcome.Shelve;
+      record(Issue.OfficeIn, out, g.top >= 0 ? g.top : capR);
+      if (out === Outcome.Break) cm.raise(p, g.top, t);
+      return;
+    }
+  }
+
+  // ⑩ 改土归流
   if (fief && ready(Issue.Unfief) && t - r.fief! >= UNFIEF_AGE && a >= AF_UNFIEF && u < UNFIEF_U && purse >= PURSE_UNFIEF) {
     // 最大的那片边地(有城、管得最松)
     let foe = -1;
@@ -370,7 +614,24 @@ function check(sim: CivSim, pm: PolityModel, pol: PoliticsModel, wm: WarModel, c
     return;
   }
 
-  // ⑤ 分封边地
+  // ⑪ 让权:设边镇(缺钱、边地多,君主想开拓或好战时更肯)
+  if (r.army === 0 && ready(Issue.ArmyOut) && pm.size[p] >= BORDER_SIZE && (broke > 0 || purse < PURSE_BORDER)) {
+    const b = borderland();
+    if (b.top >= 0 && b.n >= BORDER_SHARE * pm.size[p]) {
+      const keenB = (Math.max(ruler.expand, ruler.war) - 50) / 50;
+      const x = BORDER_0 + BORDER_BROKE * broke + BORDER_KEEN * keenB - BORDER_ADMIN * a + jit(Issue.ArmyOut);
+      record(Issue.ArmyOut, x > 0 ? Outcome.Done : Outcome.Shelve, b.top);
+      return;
+    }
+  }
+  // 许自辟(国用不足、动荡大、朝廷行政弱)
+  if (r.office === 0 && ready(Issue.OfficeOut) && broke > 0 && u >= HERED_U && a < AF_HERED) {
+    const g = gentry();
+    const x = HERED_0 + HERED_UW * (u - HERED_U) + HERED_BROKE * broke - HERED_DEV * keen + jit(Issue.OfficeOut);
+    record(Issue.OfficeOut, x > 0 ? Outcome.Done : Outcome.Shelve, g.top >= 0 ? g.top : capR);
+    return;
+  }
+  // 分封边地
   if (!fief && ready(Issue.Fief) && u >= FIEF_U && pm.size[p] >= FIEF_SIZE) {
     let far = 0;
     let loss = 0;
@@ -412,16 +673,37 @@ function rebelPlan(pol: PoliticsModel, wm: WarModel, w: Warlord, dom: number[], 
   return full && full.length >= REBEL_MIN ? { group: full, sid } : null;
 }
 
+/**
+ * 脱离转投:割据 w 的地盘(SETTLE 年内换过国家的、干预永久划给这国的州不跟着走)连同被切断的碎块(升序);
+ * 走不成(起事的州不在里面、碎块里有刚换过国家的州、剩下的州已经不挨着邻国 q)= null
+ */
+function leaveGroup(pol: PoliticsModel, wm: WarModel, reg: PolityModel['terrain']['regions'], owner: ArrayLike<number>, w: Warlord, dom: number[], q: number, t: number): number[] | null {
+  if (!pol.cutOff) return null;
+  const group = dom.filter((x) => t - wm.since[x] >= SETTLE && !wm.iv?.locked(x, t)).sort((x, y) => x - y);
+  if (!group.includes(w.region)) return null;
+  let touches = false;
+  for (const x of group) {
+    for (let e = reg.adjStart[x]; e < reg.adjStart[x + 1] && !touches; e++) {
+      const kind = reg.adjKind[e];
+      if (kind !== AdjKind.Strait && kind !== AdjKind.SeaRoute && owner[reg.adj[e]] === q) touches = true;
+    }
+  }
+  return touches ? pol.cutOff(w.p, group, t, group.length * 2 + 4) : null;
+}
+
 /** 统计(scripts、测试用):各议题、各结果的次数 */
-export function councilStats(civ: Civ): { issues: number[]; outcomes: number[]; total: number } {
+export function councilStats(civ: Civ): { issues: number[]; outcomes: number[]; total: number; byIssue: number[][] } {
   const issues = new Array<number>(ISSUES).fill(0);
   const outcomes = [0, 0, 0, 0];
+  /** 议题 × 结果 */
+  const byIssue = issues.map(() => [0, 0, 0, 0]);
   let total = 0;
   for (const e of civ.annals) {
     if (e.kind !== 'council') continue;
     total++;
     issues[e.war]++;
     outcomes[e.n ?? Outcome.Shelve]++;
+    byIssue[e.war][e.n ?? Outcome.Shelve]++;
   }
-  return { issues, outcomes, total };
+  return { issues, outcomes, total, byIssue };
 }
