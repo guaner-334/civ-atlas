@@ -2,7 +2,7 @@
  * 界面显示用的小工具:民族类型的中文名、族名、州名。
  * 单独放一个文件,不引入起名器和推演代码 —— 主线程(面板、悬停信息)只用得到这些,打包时不用把地名词库带上。
  */
-import type { Civ, Culture, CultureKind } from './types';
+import type { Civ, Culture, CultureKind, Place } from './types';
 
 /** 治所宜居分 ≥ 这个值的州才算可居(民族只在这样的州定居;和"城址"显示的门槛一致) */
 export const HABITABLE_SUIT = 1;
@@ -31,4 +31,35 @@ export function regionLabel(civ: Civ, r: number): string {
 /** 这个州有没有名字(用户起的或生成时起的;没有的界面上叫"第 N 州") */
 export function regionNamed(civ: Civ, r: number): boolean {
   return !!(civ.regionNames?.[r] || civ.regions.name?.[r]);
+}
+
+/** 地名表 → { 据险断后的史事下标 → 守的那处关的下标 }(同一份地名表只建一次) */
+const standIndex = new WeakMap<readonly Place[], Map<number, number>>();
+
+/** 第 annal 条史事(据险断后)守的是这份地名表里的哪一处关(下标,Place.pass.stands 记着);没对上 = −1 */
+export function standPass(places: readonly Place[], annal: number): number {
+  let m = standIndex.get(places);
+  if (!m) {
+    const idx = new Map<number, number>();
+    places.forEach((p, i) => {
+      for (const a of p.pass?.stands ?? []) idx.set(a, i);
+    });
+    standIndex.set(places, (m = idx));
+  }
+  return m.get(annal) ?? -1;
+}
+
+/**
+ * 第 annal 条史事(据险断后)守的那处关叫什么(地图上画的那处,用户改过名的照改的);没对上关 = 空。
+ * 改过地形的世界:用那一年所在那一段的地名(和时间轴停在那一年时地图上画的一样,见 ui/eras.ts 的 civAtEra)
+ */
+export function standPassName(civ: Civ, annal: number): string {
+  const y = civ.annals[annal]?.year;
+  const ups = civ.upheavals ?? [];
+  let k = 0;
+  if (y !== undefined) while (k < ups.length && ups[k].year <= y) k++;
+  const places = civ.eras && k < civ.eras.length ? civ.eras[k].places : civ.places;
+  if (!places) return '';
+  const i = standPass(places, annal);
+  return i >= 0 ? places[i].name : '';
 }

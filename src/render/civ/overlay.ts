@@ -6,7 +6,7 @@
  *   宜居度热力图(debug.ts)
  *   → 国土 / 民族 / 信仰 / 时代色块(territory.ts;两层都开时铺民族;开着信仰就铺信仰,见 faith.ts;开着时代就铺时代,见 era.ts)
  *   → 战事:正在打的仗里易手的州画斜线(warfare.ts)
- *   → 瘟疫:正在闹、疫过不久的州铺墨点(plague.ts)
+ *   → 瘟疫:全球大疫以后的荒地褪色、枯草,正在闹、疫过不久的州铺墨点(plague.ts)
  *   → 州界细线(debug.ts)
  *   → 国界(borders.ts)
  *   → 道路(routes.ts;按修建年份出现)
@@ -25,7 +25,7 @@ import { drawTerritory, territorySteps } from './territory';
 import { borderLines, drawBorders } from './borders';
 import { drawRoutes, routeLines } from './routes';
 import { drawWarHatch, warHatchCanvas, warScene, warsShown, warSpans, warStripesPrep } from './warfare';
-import { drawPlague, plagueCanvas, plagueShown, plagueZone } from './plague';
+import { drawPlague, plagueCanvas, plagueShown, plagueZone, washCanvas } from './plague';
 import { drawNeutral, neutralCanvas } from './neutral';
 import { clipOutline, type Projector } from '../projection';
 import { flushCanvas, type WorkStep } from '../common';
@@ -115,6 +115,7 @@ export function civOverlaySteps(p: CivDrawParams): WorkStep[] {
     // 斜线、墨点画好以后当下就让浏览器画出来(不然攒到换上那一下贴的时候才画)
     () => void flushCanvas(warHatchCanvas(p)),
     () => void (plagueShown(p) && plagueZone(p.civ, p.year)),
+    () => void flushCanvas(washCanvas(p)),
     () => void flushCanvas(plagueCanvas(p)),
     () => void flushCanvas(neutralCanvas(p)),
   ];

@@ -75,7 +75,8 @@ import { useAiOn } from '../ai/client';
 import { FlagIcon } from './Flag';
 import { FlagPanel } from './FlagPanel';
 import { flagOf, useFlags } from './flagStore';
-import { developmentAt, eraLevel, eraOf } from '../gen/civ/development';
+import { ERAS, developmentAt, eraLevel, eraOf } from '../gen/civ/development';
+import { pandemicsOf, peakEraAt, slumpAt } from '../gen/civ/pandemicInfo';
 import { ERA_COLORS, eraName } from '../render/civ/era';
 import './countryPanel.css';
 
@@ -89,6 +90,27 @@ function withRoot(p: Polity, root: string): Polity {
 }
 
 let owners: Owners | undefined;
+let preOwners: Owners | undefined;
+
+/**
+ * 第 year 年 id 这国在不在全球大疫的凋敝里(它境内有染了疫、凋敝还没结束的州):那一场哪年起、无人收拾几年、
+ * 大疫前这国多少人(起疫前一刻它的国土上各州人口相加,千人);不在 = null
+ */
+function pandemicNow(civ: Civ, id: number, year: number): { year: number; slump: number; pre: number } | null {
+  const list = pandemicsOf(civ);
+  if (!list.length || !slumpAt(civ, year)) return null;
+  // 凋敝还没结束、这国境内(这一年的国土)已经染上的那几场里最近起的一场
+  preOwners = ownersAt(civ, year, preOwners);
+  const own = preOwners.polity;
+  let q = null as (typeof list)[number] | null;
+  for (const x of list) if (x.year <= year && year < x.end && x.hits.some((h) => h.year <= year && own[h.region] === id)) q = x;
+  if (!q) return null;
+  const y0 = q.year - 1 / 64;
+  preOwners = ownersAt(civ, y0, preOwners);
+  let pre = 0;
+  for (let r = 0; r < civ.regions.count; r++) if (preOwners.polity[r] === id) pre += regionPopulationAt(civ, r, y0);
+  return { year: q.year, slump: q.slump, pre };
+}
 
 /** 历朝(东方每一朝的国号 / 西幻的王室);没改朝换代过 = 一段 */
 function dynastySegments(civ: Civ, p: Polity): { name: string; from: number; to: number }[] {
@@ -298,6 +320,13 @@ function InfoPage({ civ, raw, raster, world, id, year, p, shared, lock }: Countr
   const other = (q: number, y: number) => (civ.polities[q] ? <Link to={{ kind: 'polity', id: q }}>{polityName(civ.polities[q], y)}</Link> : null);
   const capitals = p.capitals?.length ? p.capitals : [{ year: p.founded, settlement: p.capital }];
   const popText = pop > 0 ? populationLabel(pop) : '—';
+  // 全球大疫:这一年这国在凋敝里(第几年、共几年)、大疫前这国多少人;时代到过更高的写"曾到某某"
+  const plague = useMemo(() => pandemicNow(civ, id, shownYear), [civ, id, shownYear]);
+  const eraPeak = useMemo(() => {
+    if (!eraNow || !capSeat || !pandemicsOf(civ).some((q) => q.year <= shownYear)) return null;
+    const e = eraOf(peakEraAt(civ, capSeat.region, shownYear)).era;
+    return e > eraNow.era ? e : null;
+  }, [civ, capSeat, eraNow, shownYear]);
   const cap = civ.settlements[capitalAt(p, shownYear)];
   const ruler = rulerAt(civ, id, shownYear);
   const consul = p.lineage === 'republic';
@@ -362,7 +391,10 @@ function InfoPage({ civ, raw, raster, world, id, year, p, shared, lock }: Countr
             />
             <span data-stat="州">{n} 个州</span>
           </Row>
-          <Row k="人口">{popText}</Row>
+          <Row k="人口">
+            {popText}
+            {plague && plague.pre > pop && <em className="cp-num-note">大疫前约 {populationLabel(plague.pre).replace(/^约\s*/, '').replace(/人$/, '')}</em>}
+          </Row>
           <FiscalRow civ={civ} id={id} year={shownYear} />
           <CourtRow civ={civ} id={id} year={shownYear} />
           {eraNow && (
@@ -371,7 +403,18 @@ function InfoPage({ civ, raw, raster, world, id, year, p, shared, lock }: Countr
               <span data-stat="时代">
                 {eraName(eraNow.era)}
                 <em className="cp-num-note">{Math.floor(eraNow.progress * 100)}%</em>
+                {eraPeak !== null && <em className="cp-num-note">曾到{ERAS[eraPeak]}</em>}
               </span>
+            </Row>
+          )}
+          {plague && (
+            <Row k="近况">
+              <button className="ins-link" data-act="slump-chronicle" onClick={() => openOverview('chronicle', { polity: null, major: true, at: Math.floor(plague.year) })}>
+                疫后凋敝
+              </button>
+              <em className="cp-num-note">
+                第 {Math.max(1, Math.floor(shownYear) - Math.floor(plague.year))} 年，共 {plague.slump} 年
+              </em>
             </Row>
           )}
           <Row k="主体民族">

@@ -730,7 +730,8 @@ export function layoutMarks(
     const plain = !!p.m.plain;
     const h = (w * 4) / 3;
     const pin: PlacedPin = { id: p.m.id, x: p.x, y: p.y, w, hex, alpha: p.m.dim ? DIM_ALPHA : 1, label: null, plain };
-    if (withName) {
+    // 名字空着 = 只画图钉(钉在关上、关名地图上已经写着,见 ui/MarkLayer.tsx)
+    if (withName && p.m.title) {
       const size = nameSize(p.m);
       const tw = measure(p.m.title, size, plain ? look : null);
       const th = size * LINE;

@@ -96,6 +96,56 @@ export function pickLabelAt(clientX: number, clientY: number): LabelPick | null 
   return best;
 }
 
+/** 放标记时点偏一点也算点到关口符号(屏幕像素) */
+const PASS_SNAP = 10;
+
+/**
+ * 放标记时点到的关:关口符号(放宽到 PASS_SNAP 像素)或关名;返回 civ.places 的下标,没点到 = −1。
+ * 几处都点到时取离符号中心最近的
+ */
+export function passAt(clientX: number, clientY: number): number {
+  if (!last || !last.canvas.isConnected) return -1;
+  const { canvas, placed } = last;
+  const r = canvas.getBoundingClientRect();
+  if (!r.width || !r.height || !canvas.width) return -1;
+  const f = canvas.width / r.width;
+  const x = (clientX - r.left) * f;
+  const y = (clientY - r.top) * f;
+  let best = -1;
+  let bestD = Infinity;
+  const shown = new Set<number>();
+  for (const m of placed.marks) {
+    const p = passOfMark(m.mark.id);
+    if (p < 0) continue;
+    shown.add(p);
+    const b = placedMarkBox(m);
+    const hw = (b[2] - b[0]) / 2 + PASS_SNAP * f;
+    const hh = (b[3] - b[1]) / 2 + PASS_SNAP * f;
+    const dx = Math.abs(x - (b[0] + b[2]) / 2);
+    const dy = Math.abs(y - (b[1] + b[3]) / 2);
+    if (dx > hw || dy > hh) continue;
+    const d = Math.hypot(dx, dy);
+    if (d < bestD) [best, bestD] = [p, d];
+  }
+  if (best >= 0) return best;
+  // 关名(符号画出来了的那几处)
+  for (const l of placed.labels) {
+    const pk = l.item.pick;
+    if (!pk || pk.kind !== 'place' || !shown.has(pk.id) || l.alpha < 0.3) continue;
+    for (const g of l.glyphs) {
+      const b = glyphBox(g, l.px, SLOP * f);
+      if (x >= b[0] && x <= b[2] && y >= b[1] && y <= b[3]) return pk.id;
+    }
+  }
+  return -1;
+}
+
+/** 这一处地名(civ.places 的下标)的名字现在写在地图上没有(文字层排好的;地球仪、还没画字 = 没有) */
+export function placeNameShown(id: number): boolean {
+  if (!last || !last.canvas.isConnected) return false;
+  return last.placed.labels.some((l) => l.item.pick?.kind === 'place' && l.item.pick.id === id && l.alpha >= 0.3);
+}
+
 /**
  * 冒烟检查用:文字层上现在能点的东西(城镇符号 + 文字),屏幕坐标。
  * window.__wfPickables() 返回 [{ kind, id, text, x, y }](符号的 text 为空;城镇符号 kind = 'mark'、id = 城,
