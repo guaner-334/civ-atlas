@@ -58,6 +58,7 @@ import { warModelOf, type War, type WarModel } from './wars';
 import { politicsModelOf, type PoliticsModel } from './politics';
 import { devModelOf } from './development';
 import { GROWTH_A, capitalAt, populationAt } from './growth';
+import { calamityRates } from './calamity';
 import type { UnrestRuleConsts } from './stateTables';
 
 // ---- 调参(以 20 个种子的统计为准) ----
@@ -272,11 +273,14 @@ function hook(sim: CivSim, um: UnrestModel): void {
   /** 第 k 次看年景:挑几处灾年,闹饥荒;闹了饥荒的国家看会不会民变 */
   sim.on(Ev.FamineCheck, (k, _b, t) => {
     sim.schedule(famineTime(um, k + 1), Ev.FamineCheck, k + 1, 0);
-    // 灾年的中心:有城、有人住的州各自掷(按州的治所取随机数,改了别处的地形这里照旧);干旱、寒冷的地方更容易
+    // 灾年的中心:有城、有人住的州各自掷(按州的治所取随机数,改了别处的地形这里照旧);干旱、寒冷的地方更容易;
+    // 「天灾」多 / 很多时几率 × CalamityRates.famine(平常照旧)
     const centres: number[] = [];
+    const more = calamityRates(sim.calamity)?.famine;
     for (let r = 0; r < R; r++) {
       if (pm.cityOf[r] < 0 || culture[r] < 0) continue;
-      if (keyed4(um.base, k, reg.seat[r], 0, U_CENTER) < (CLIMATE[reg.biome[r]] ?? 1) / CLUSTER_PER) centres.push(r);
+      const odds = more ? ((CLIMATE[reg.biome[r]] ?? 1) * more) / CLUSTER_PER : (CLIMATE[reg.biome[r]] ?? 1) / CLUSTER_PER;
+      if (keyed4(um.base, k, reg.seat[r], 0, U_CENTER) < odds) centres.push(r);
     }
     if (!centres.length) return;
     const soil = devModelOf(sim)?.soilNow?.();

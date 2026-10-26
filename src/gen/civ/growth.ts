@@ -184,11 +184,28 @@ export const populationAt: PopulationAt = (s: Settlement, year: Year): number =>
     for (let i = sackFrom(sacks, year); i < sacks.length; i++) {
       const k = sacks[i];
       if (!(year >= k.year)) break;
-      cap *= 1 - k.loss * fexp(-(year - k.year) / SACK_RECOVER);
+      cap *= 1 - k.loss * fexp(-sackAge(k, year) / SACK_RECOVER);
     }
   }
   return cap / (1 + GROWTH_A * fexp(-s.growth * (year - s.founded)));
 };
+
+/**
+ * 一次折损到第 year 年恢复了多少年:一般 = year − 折损那年;全球大疫的(带 until,pandemic.ts)凋敝结束以前不恢复(= 0),
+ * 之后从凋敝结束那年(比折损那年早的从折损那年)算起
+ */
+export function sackAge(k: { year: Year; until?: Year }, year: Year): number {
+  if (k.until === undefined) return year - k.year;
+  return Math.max(0, year - Math.max(k.year, k.until));
+}
+
+/** 全球大疫的凋敝里"疫气复作、流亡"(Settlement.sacks 里 cause = slump):乡下折损城里那一成的这么多(城乡一样掉) */
+export const RURAL_SLUMP = 1;
+
+/** 城里折损一成时乡下跟着折损几成:瘟疫 RURAL_PLAGUE、疫后凋敝 RURAL_SLUMP,别的(洗劫、饥荒、地震水旱)RURAL_WAR */
+export function ruralShare(cause: string | undefined): number {
+  return cause === 'plague' ? RURAL_PLAGUE : cause === 'slump' ? RURAL_SLUMP : RURAL_WAR;
+}
 
 /**
  * 不算国都加成、洗劫,但算上随生产能力变的倍数(Settlement.devCap)时,人口越过 level(千人)的年份;上限不够 = Infinity。
@@ -376,7 +393,7 @@ function ruralFormula(civ: Pick<Civ, 'regions' | 'eras' | 'settlements'>, r: num
       for (let i = sackFrom(s.sacks, year); i < s.sacks.length; i++) {
         const k = s.sacks[i];
         if (!(year >= k.year)) break;
-        cap *= 1 - (k.cause === 'plague' ? RURAL_PLAGUE : RURAL_WAR) * k.loss * fexp(-(year - k.year) / SACK_RECOVER);
+        cap *= 1 - ruralShare(k.cause) * k.loss * fexp(-sackAge(k, year) / SACK_RECOVER);
       }
     }
     if (s.ended !== undefined && year >= s.ended) cap *= 1 - RURAL_WAR * fexp(-(year - s.ended) / SACK_RECOVER);

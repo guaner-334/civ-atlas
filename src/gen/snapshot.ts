@@ -25,6 +25,7 @@ import { cleanCivSeed, cleanEndYear, cleanPlay, type Intervention, type PlayStat
 import type { SketchEdit } from './sketch';
 import type { NameMix } from './names';
 import { cleanFrontier, cleanOrigins, type Frontier, type Origins } from './civ/frontier';
+import { cleanCalamity, type Calamity } from './civ/calamity';
 import type { SaveFile } from './savefile';
 import type { WorldParams } from './world';
 
@@ -70,6 +71,8 @@ export interface Recipe {
   endYear?: number;
   frontier?: Frontier;
   origins?: Origins;
+  /** 「天灾」(平常 = 不给,和加这一项以前的指纹一样) */
+  calamity?: Calamity;
   /** 文明种子(没给 = 地图种子;不给时和加这一项以前的指纹一样) */
   civSeed?: number;
   /** 逐年推演的进度(推到哪年 + 命令串;没在逐年推演 = 不给,和加这一项以前的指纹一样) */
@@ -115,6 +118,7 @@ export function recipeOfSave(save: SaveFile): Recipe {
     endYear: cleanEndYear(e.endYear),
     frontier: cleanFrontier(e.frontier),
     origins: cleanOrigins(e.origins),
+    calamity: cleanCalamity(e.calamity),
     civSeed: cleanCivSeed(e.civSeed),
     play: cleanPlay(e.play),
   };

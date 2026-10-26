@@ -44,6 +44,8 @@
  *   都是默认时不写。读档时过 cleanFrontier:吸到最近的一档,认不出的项去掉,提示一句
  * - edits.origins(可选):自己选的文明起源(同上),`{ "pts": [976, 342, 544, 448], "only": true }`;自动时不写。
  *   读档时过 cleanOrigins:坐标取整、去重,最多 16 处;认不出的按自动,提示一句
+ * - edits.calamity(可选):「天灾」(edits.ts 文件头"天灾"、civ/calamity.ts),`"more"` 多 / `"many"` 很多;平常时不写。
+ *   读档时过 cleanCalamity:认不出的按平常,提示一句
  * - edits.civSeed(可选):文明种子(edits.ts 文件头"文明种子"),`52817`;等于地图种子时不写(加这一项以前的存档都没写)。
  *   读档时过 cleanCivSeed:不是整数的去掉(按地图种子推),提示一句
  * - edits.map(可选):在别的世界的地图上新开的历史,用的是哪张地图(edits.ts 文件头"文明种子"),
@@ -100,6 +102,7 @@ import { decodeFlag } from './civ/flags';
 import { CHARACTERS_MAX, cleanCharacters, type AuthorCharacter } from './characters';
 import { cleanEra, cleanMonths, sameEra } from './era';
 import { cleanFrontier, cleanOrigins, sameFrontier, sameOrigins } from './civ/frontier';
+import { cleanCalamity } from './civ/calamity';
 
 export const SAVE_APP = '文明与地图';
 /**
@@ -557,6 +560,7 @@ export function editCount(edits: WorldEdits): number {
     (cleanEndYear(edits.endYear) ? 1 : 0) +
     (cleanFrontier(edits.frontier) ? 1 : 0) +
     (cleanOrigins(edits.origins) ? 1 : 0) +
+    (cleanCalamity(edits.calamity) ? 1 : 0) +
     (cleanCivSeed(edits.civSeed) !== undefined ? 1 : 0) +
     (cleanEra(edits.era) ? 1 : 0) +
     (cleanMonths(edits.months) !== undefined ? 1 : 0) +
@@ -629,6 +633,8 @@ export function makeSave(
   if (frontier) save.edits.frontier = frontier;
   const origins = cleanOrigins(edits.origins);
   if (origins) save.edits.origins = origins;
+  const calamity = cleanCalamity(edits.calamity);
+  if (calamity) save.edits.calamity = calamity;
   const civSeed = cleanCivSeed(edits.civSeed);
   if (civSeed !== undefined) save.edits.civSeed = civSeed;
   const map = cleanMapRef(edits.map);
@@ -891,6 +897,9 @@ export function parseSave(text: string): ParseResult {
   // 起源:坐标取整、去重,最多 16 处
   const origins = cleanOrigins(E.origins);
   if (E.origins !== undefined && !origins) warnings.push('文明起源认不出来,按自动推演');
+  // 天灾:多 / 很多,认不出的按平常
+  const calamity = cleanCalamity(E.calamity);
+  if (E.calamity !== undefined && !calamity) warnings.push('天灾设定认不出来,按平常推演');
   // 文明种子:不是整数的按地图种子推
   const civSeed = cleanCivSeed(E.civSeed);
   if (E.civSeed !== undefined && civSeed === undefined) warnings.push('文明种子认不出来,按地图种子推演');
@@ -951,6 +960,7 @@ export function parseSave(text: string): ParseResult {
       ...(endYear ? { endYear } : {}),
       ...(frontier ? { frontier } : {}),
       ...(origins ? { origins } : {}),
+      ...(calamity ? { calamity } : {}),
       ...(civSeed !== undefined ? { civSeed } : {}),
       ...(map ? { map } : {}),
       ...(era ? { era } : {}),
@@ -1243,6 +1253,10 @@ export function editsLost(local: SaveFile, incoming: SaveFile): number {
     }
     if (k === 'origins') {
       if (!sameOrigins(cleanOrigins(lv), cleanOrigins(iv))) n++;
+      continue;
+    }
+    if (k === 'calamity') {
+      if (cleanCalamity(lv) !== cleanCalamity(iv)) n++;
       continue;
     }
     if (k === 'months') {

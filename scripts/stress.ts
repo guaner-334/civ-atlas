@@ -22,7 +22,8 @@ import { labelImage, pixelRegions, washPixels } from '../src/render/civ/territor
 import { borderLines } from '../src/render/civ/borders';
 import { CIV_SHOW_OFF } from '../src/render/civ/overlay';
 import { warFront, warMarkPoints, warSpans } from '../src/render/civ/warfare';
-import { capitalAt, populationAt } from '../src/gen/civ/growth';
+import { capitalAt, populationAt, regionPopulationAt } from '../src/gen/civ/growth';
+import { pandemicsOf } from '../src/gen/civ/pandemicInfo';
 import { warStats } from '../src/gen/civ/wars';
 import { politicsStats } from '../src/gen/civ/politics';
 import { dynastyStats } from '../src/gen/civ/dynasty';
@@ -33,7 +34,7 @@ import { faithAt, faithFromScratch } from '../src/gen/civ/religion';
 import { AVAIL_SCALE, BAD_LEVEL, CAP_COUNT, ERAS, INVENTIONS, RESOURCE_COUNT } from '../src/gen/civ/development';
 import { civLabelItems, civMapLayer, labelViewExtras } from '../src/render/civ/labels';
 import { placeMap } from '../src/render/labels/draw';
-import { END_YEAR_MAX, type TerrainOp, type Upheaval } from '../src/gen/edits';
+import { END_YEAR_MAX, settlementKey, type Intervention, type TerrainOp, type Upheaval } from '../src/gen/edits';
 import { upheavalSteps } from '../src/gen/civ/upheaval';
 import { buildChronicle } from '../src/gen/civ/chronicle';
 import { LAYER_W, LAYER_H, encodeLayer, sketchGrid, type SketchEdit, type SketchKind } from '../src/gen/sketch';
@@ -63,7 +64,9 @@ function devBad(civ: ReturnType<typeof generateCiv>): number {
   dev.events.forEach((e, i) => {
     const res = e.kind === 'discover' || e.kind === 'deplete';
     const inv = e.kind === 'invent';
-    if (!Number.isFinite(e.year) || (i && e.year < dev.events[i - 1].year) || !(e.era >= (res || inv ? 0 : 1) && e.era < ERAS.length) || e.polity >= civ.polities.length || !(e.region >= 0 && e.region < R)) cn++;
+    // 退回(全球大疫的凋敝里,regress)可以退到石器时代(第 0 个)
+    const back = e.kind === 'regress';
+    if (!Number.isFinite(e.year) || (i && e.year < dev.events[i - 1].year) || !(e.era >= (res || inv || back ? 0 : 1) && e.era < ERAS.length) || e.polity >= civ.polities.length || !(e.region >= 0 && e.region < R)) cn++;
     if (res && !(e.resource! >= 0 && e.resource! < RESOURCE_COUNT)) cn++;
     if (inv && !(e.invention! >= 0 && e.invention! < INVENTIONS.length)) cn++;
   });
@@ -511,12 +514,46 @@ for (const [seed, ups] of [
   );
 }
 
+// ---- 「天灾 很多」推 12000 年,第 600 年再下一场最重、无人收拾 60 年的全球大疫:史事有序、人口和发展度不是 NaN、
+// 全球大疫里一城最多死六成、天下人口不低于疫前一半、还有国家在、纪事里不冒 undefined / NaN ----
+for (const seed of [7, 99]) {
+  if (!mine()) continue;
+  const w = generateWorld({ ...DEFAULT_PARAMS, seed });
+  const probe = generateCiv(w, { endYear: 600 });
+  const town = probe.settlements.filter((s) => s.ended === undefined).sort((a, b) => populationAt(b, 600) - populationAt(a, 600))[0];
+  const iv: Intervention[] = town ? [{ kind: 'disaster', type: 'pandemic', level: 3, from: 600, city: settlementKey(probe, town.id), slump: 60 }] : [];
+  const t0 = performance.now();
+  const civ = generateCiv(w, { endYear: 12000, calamity: 'many', interventions: iv });
+  const ms = performance.now() - t0;
+  let cn = 0;
+  for (let i = 1; i < civ.annals.length; i++) if (civ.annals[i].year < civ.annals[i - 1].year) cn++;
+  for (const st of civ.settlements) for (const y of [civ.endYear * 0.3, civ.endYear]) if (!Number.isFinite(populationAt(st, y))) cn++;
+  cn += devBad(civ);
+  const list = pandemicsOf(civ);
+  for (const p of list) {
+    for (const h of p.hits) if (!(h.loss > 0 && h.loss <= 0.6)) cn++;
+    let pop = 0;
+    for (let r = 0; r < civ.regions.count; r++) pop += regionPopulationAt(civ, r, Math.min(civ.endYear, p.end));
+    if (!(pop > 0.5 * p.pre)) cn++;
+  }
+  if (!civ.polities.some((q) => q.ended === undefined)) cn++;
+  const ch = buildChronicle(civ);
+  for (const e of ch) if (!e.text || /undefined|NaN/.test(e.text)) cn++;
+  if (cn) process.exitCode = 1;
+  console.log(
+    '{"天灾":"很多","推演年数":12000}', 'seed', seed, iv.length ? '第 600 年最重的全球大疫' : '',
+    `文明 ${Math.round(ms)}ms(每秒 ${Math.round(civ.endYear / (ms / 1000))} 年)全球大疫 ${list.length} 场 国家在世 ${civ.polities.filter((p) => p.ended === undefined).length} 纪事 ${ch.length}`,
+    cn ? `NaN! ${cn}` : '',
+  );
+}
+
 // ---- 接着推和一口气推完一样(随机自查,scripts/lib/resumeFuzz.ts):逐年推演一步随机推 1–60 年、每停一下随机下各种命令,
-// 推到第 3000 年,和带着同样的命令一口气推完逐字段比(默认参数 10 个种子、自定义参数 2 个、小世界 2 个;单测里另跑 3 个推到第 2000 年) ----
+// 推到第 3000 年,和带着同样的命令一口气推完逐字段比(默认参数 10 个种子、自定义参数 2 个、小世界 2 个、「天灾 很多」2 个;单测里另跑 3 个推到第 2000 年) ----
 const FUZZ: FuzzCase[] = [
   ...[1, 3, 5, 7, 11, 12, 31, 42, 99, 2024].map((seed) => ({ seed, to: 3000 })),
   ...[6, 23].map((seed) => ({ seed, to: 3000, params: { polities: 12, cultures: 8, pace: 1.3 } })),
   ...[8, 77].map((seed) => ({ seed, to: 3000, cells: 12000 })),
+  ...[13, 2025].map((seed) => ({ seed, to: 3000, params: { calamity: 'many' as const } })),
 ];
 for (const c of FUZZ) {
   if (!mine()) continue;
