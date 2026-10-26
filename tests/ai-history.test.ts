@@ -25,13 +25,15 @@ import {
   historyFingerprint,
   historyMessages,
   historyNoteKey,
+  restrainedLine,
   loadScope,
   storeScope,
   type HistoryLength,
   type HistoryOptions,
   type HistoryScope,
 } from '../src/ai/prompts/history';
-import { HISTORY_KIND, historyFileName, historyMarkdown, historyNoteStatus, listHistoryNotes, writeHistory } from '../src/ai/history';
+import { HISTORY_KIND, historyFileName, historyMarkdown, historyNoteStatus, listHistoryNotes, writeHistory, type WrittenCall } from '../src/ai/history';
+import { AiError } from '../src/ai/types';
 
 const world = generateWorld({ ...DEFAULT_PARAMS, seed: 7 });
 const civ = generateCiv(world);
@@ -518,6 +520,100 @@ describe('AI 写史书:用假 AI 跑完整流程', () => {
     const job = writeHistory(civ, o, { world: w, signal: ac.signal, onProgress: (x) => x.text && ac.abort() });
     await expect(job).rejects.toMatchObject({ code: 'aborted' });
     expect(listHistoryNotes(w)[0].text).toBe(old);
+    setActiveProvider(null);
+  });
+});
+
+describe('AI 写史书:分篇写到一半被内容审核拦下', () => {
+  // 纪传体通史(中篇)分五篇写;第 4 篇(下标 3)被拦
+  const BIO: HistoryOptions = { scope: { kind: 'world' }, style: 'biography', length: 'k10' };
+  const p = buildHistoryPrompts(civ, BIO);
+  const FILTERED = () => new AiError('content-filter', '阿里云的内容安全审核拦下了 AI 写出来的内容');
+  const body = (i: number) => `## 第${i + 1}篇\n\n第${i + 1}篇的正文。`;
+  /** 假 AI:记下每次请求是第几篇、带没带"克制";fail(i, 第几次请求这一篇) 返回要抛的错 */
+  function fake(fail: (i: number, nth: number) => AiError | null) {
+    const sent: { i: number; restrained: boolean; user: string }[] = [];
+    setMockResponder((req) => {
+      const i = p.calls.findIndex((c) => c.title === req.title);
+      const user = req.messages.find((m) => m.role === 'user')!.content;
+      sent.push({ i, restrained: user.includes(restrainedLine('篇')), user });
+      const e = fail(i, sent.filter((s) => s.i === i).length);
+      if (e) throw e;
+      return body(i);
+    });
+    return sent;
+  }
+
+  it('被拦的那一篇带上"战争、杀伐写得克制"自动再写一次,成了就接着写完', async () => {
+    expect(p.calls.length).toBeGreaterThanOrEqual(5);
+    setActiveProvider('mock');
+    const sent = fake((i, nth) => (i === 3 && nth === 1 ? FILTERED() : null));
+    const note = await writeHistory(civ, BIO, { world: 'w-filter-1' });
+    expect(sent.map((s) => s.i)).toEqual([0, 1, 2, 3, 3, ...p.calls.slice(4).map((_, k) => 4 + k)]);
+    expect(sent.map((s) => s.restrained)).toEqual(sent.map((_, k) => k === 4));
+    // "克制"那条加在写作要求里(材料前面),前文照常带
+    const again = sent[4].user;
+    expect(again.indexOf(restrainedLine('篇'))).toBeGreaterThan(0);
+    expect(again.indexOf(restrainedLine('篇'))).toBeLessThan(again.indexOf('〔前文〕(已经写好的'));
+    expect(again).toContain('第3篇的正文');
+    expect(note.text).toBe(p.calls.map((_, i) => body(i)).join('\n\n'));
+    setActiveProvider(null);
+  });
+
+  it('还被拦:停下报错、不存,写好的前 3 篇交出来;交回去从第 4 篇接着写,前 3 篇不再请求,前文照用', async () => {
+    setActiveProvider('mock');
+    const w = 'w-filter-2';
+    let sent = fake((i) => (i === 3 ? FILTERED() : null));
+    let kept: WrittenCall[] = [];
+    await expect(writeHistory(civ, BIO, { world: w, onWritten: (x) => (kept = x) })).rejects.toMatchObject({ code: 'content-filter' });
+    expect(sent.map((s) => [s.i, s.restrained])).toEqual([
+      [0, false],
+      [1, false],
+      [2, false],
+      [3, false],
+      [3, true],
+    ]);
+    expect(listHistoryNotes(w)).toHaveLength(0);
+    expect(kept.map((x) => x.text)).toEqual([0, 1, 2].map(body));
+    expect(kept.every((x) => x.provider === 'mock' && x.model === 'mock')).toBe(true);
+    // 接着写:从第 4 篇开始,进度一开始就带着前 3 篇
+    sent = fake(() => null);
+    const first: { text: string; call: number }[] = [];
+    const note = await writeHistory(civ, BIO, { world: w, written: kept, onProgress: (x) => first.push(x) });
+    expect(sent.map((s) => s.i)).toEqual(p.calls.slice(3).map((_, k) => 3 + k));
+    expect(first[0]).toMatchObject({ call: 3, text: [0, 1, 2].map(body).join('\n\n') });
+    // 第 4 篇的请求和一口气写下来时一样:前文、用过的开头都从写好的 3 篇取
+    expect(sent[0].user).toBe(historyMessages(p, 3, [0, 1, 2].map(body).join('\n\n'))[1].content);
+    expect(sent[0].restrained).toBe(false);
+    expect(note.text).toBe(p.calls.map((_, i) => body(i)).join('\n\n'));
+    expect(note.provider).toBe('mock');
+    expect(listHistoryNotes(w)).toHaveLength(1);
+    setActiveProvider(null);
+  });
+
+  it('网络不通、额度不够之类的错:不带"克制"重试,直接报错', async () => {
+    setActiveProvider('mock');
+    for (const code of ['network', 'quota', 'rate-limit'] as const) {
+      const sent = fake((i) => (i === 3 ? new AiError(code, '出错了') : null));
+      await expect(writeHistory(civ, BIO, { world: 'w-filter-3' })).rejects.toMatchObject({ code });
+      expect(sent.map((s) => s.i)).toEqual([0, 1, 2, 3]);
+      expect(sent.some((s) => s.restrained)).toBe(false);
+    }
+    setActiveProvider(null);
+  });
+
+  it('一次写完的(不分篇)被拦:照旧直接报错,不自动重试', async () => {
+    setActiveProvider('mock');
+    const one: HistoryOptions = { scope: { kind: 'era', from: 1200, to: 1500 }, style: 'biography', length: 'k3' };
+    expect(buildHistoryPrompts(civ, one).calls).toHaveLength(1);
+    let n = 0;
+    setMockResponder(() => {
+      n++;
+      throw FILTERED();
+    });
+    await expect(writeHistory(civ, one, { world: 'w-filter-4' })).rejects.toMatchObject({ code: 'content-filter' });
+    expect(n).toBe(1);
+    setMockResponder(null);
     setActiveProvider(null);
   });
 });

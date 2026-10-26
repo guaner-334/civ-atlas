@@ -4,6 +4,7 @@
  *   openHistoryBook({ polity? })  打开"生成史书"窗口(给了国家就默认写那一国;国家面板的"写国史"用)
  *   startBook(opts)               开始写:窗口关上,写作在后台进行(可以接着看地图、拖时间轴);同一时间只写一部
  *                                 没设置 AI → 提示条"还没有设置 AI · 去设置";失败 → 提示条报错 + 重试
+ *                                 (分章写到一半出错的:写好的几章留着,重试从断的那章接着写,见 kept)
  *   stopBook()                    停下正在写的(写到一半的不存)
  *   openBookReader(key | null)    阅读:已写好的那部(笔记的键)/ null = 正在写(或刚写完)的那部
  *   useBook()                     React:整个状态(窗口、阅读、正在写的那部、上次选的文体篇幅)
@@ -16,7 +17,7 @@ import { useSyncExternalStore } from 'react';
 import type { Civ } from '../gen/civ/types';
 import { getAiStatus, openAiSettings } from '../ai/client';
 import { AiError } from '../ai/types';
-import { writeHistory } from '../ai/history';
+import { joinWritten, writeHistory, type WrittenCall } from '../ai/history';
 import {
   BOOK_LENGTHS,
   BOOK_STYLES,
@@ -160,6 +161,17 @@ let seq = 0;
 let abort: AbortController | null = null;
 const TOAST = 'book';
 
+/**
+ * 分章写到一半出错时已经写好的几章(篇):重试同一部书(同一个世界、同一个键、材料一字不差)时交给 writeHistory,
+ * 从断的那章接着写,前面的不再写。只留最近一部、只在内存里(刷新页面就没了);写完、停下、换世界、开始写别的就丢掉
+ */
+let kept: { world: string; key: string; material: string; written: WrittenCall[] } | null = null;
+
+/** 这一部的材料(核对重试时历史有没有变:改名、干预、改地形重推之后对不上,就从头写) */
+function materialOf(pr: ReturnType<typeof buildHistoryPrompts>): string {
+  return [pr.system, ...pr.calls.map((c) => `${c.title}\n${c.head}\n${c.body}`)].join('\n');
+}
+
 /** 书名加书名号;世界起了名字时,通史写成"某某通史" */
 export function bookTitleText(title: string, scope: { kind: string }, worldTitle?: string | null, era: Era | undefined = currentEra()): string {
   const t = scope.kind === 'world' && worldTitle && title === '世界通史' ? `${worldTitle}通史` : title;
@@ -207,7 +219,8 @@ function notConfigured(text = '还没有设置 AI') {
 
 /**
  * 开始写一部(窗口关上,后台写)。返回是否开始了:
- * 没设置 AI(提示条 + "去设置")、已经在写别的、这个范围里没有史事 = false
+ * 没设置 AI(提示条 + "去设置")、已经在写别的、这个范围里没有史事 = false。
+ * 同一部上次分章写到一半出错、历史没变:从断的那章接着写(提示条、阅读页的"重试"都走这里)
  */
 export function startBook(opts: HistoryOptions): boolean {
   const c = ctx;
@@ -225,17 +238,22 @@ export function startBook(opts: HistoryOptions): boolean {
   }
   clearToast(TOAST);
   const id = ++seq;
+  const key = historyNoteKey(storeScope(c.civ, opts.scope), opts.style, opts.length);
+  // 这一部上次分章写到一半出错(材料没变):写好的几章留着,从断的那章接着写
+  const material = materialOf(pr);
+  const resume = kept && kept.world === c.world && kept.key === key && kept.material === material ? kept.written : [];
+  kept = { world: c.world, key, material, written: resume };
   const job: BookJob = {
     id,
     status: 'writing',
     world: c.world,
     opts,
-    key: historyNoteKey(storeScope(c.civ, opts.scope), opts.style, opts.length),
+    key,
     title: pr.title,
     range: pr.range,
     chars: pr.chars,
-    text: '',
-    call: 0,
+    text: joinWritten(resume),
+    call: Math.min(resume.length, pr.calls.length - 1),
     calls: pr.calls.length,
   };
   const ac = new AbortController();
@@ -265,21 +283,30 @@ export function startBook(opts: HistoryOptions): boolean {
   writeHistory(c.civ, opts, {
     world: c.world,
     signal: ac.signal,
+    written: resume,
     onProgress: (p) => {
       pending = p;
       if (!timer) timer = setTimeout(flush, 120);
+    },
+    onWritten: (w) => {
+      if (kept && state.job?.id === id) kept = { ...kept, written: w };
     },
   }).then(
     (note) => {
       // 正在读这一部(边写边看):写完接着看存好的那部
       const reading = state.reader.open && state.reader.key === null;
-      finish({ status: 'done', text: note.text, key: note.key, call: job.calls - 1, seen: reading });
+      if (finish({ status: 'done', text: note.text, key: note.key, call: job.calls - 1, seen: reading })) kept = null;
       if (reading) set({ reader: { ...state.reader, key: note.key } });
     },
     (e) => {
       const err = e instanceof AiError ? e : new AiError('other', `写史书失败:${e instanceof Error ? e.message : String(e)}`);
       const done = finish({ status: err.code === 'aborted' ? 'stopped' : 'error', error: err, text: pending?.text ?? state.job?.text ?? '' });
-      if (!done || err.code === 'aborted') return;
+      if (!done) return;
+      // 停下 = 写到一半的不要了;出错 = 写好的几章留着(kept),重试接着写
+      if (err.code === 'aborted') {
+        kept = null;
+        return;
+      }
       reportError(done, err);
     },
   );
@@ -319,6 +346,7 @@ export function stopBook() {
 export function resetBookForWorld() {
   abort?.abort();
   abort = null;
+  kept = null;
   set({ job: null, reader: { ...state.reader, open: false }, dialog: { ...state.dialog, open: false } });
 }
 
@@ -327,6 +355,7 @@ export function _resetBook() {
   abort?.abort();
   abort = null;
   ctx = null;
+  kept = null;
   state = {
     dialog: { open: false, polity: null, stamp: 0 },
     reader: { open: false, key: null, stamp: 0 },
