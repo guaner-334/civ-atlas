@@ -23,6 +23,7 @@
  *     有限竞争的还不进约国旁边的无主之地(PolityModel.closed)、不收约国的藩属(DiplomacyModel.limits)。不互相出兵相救(那是结盟)。
  *   **背约**(看邻国时;WarModel.treaty):立约(或续约)满 BREACH_AGE 年以后才可能,还要有由头 —— 自己国力已是对方 BREACH_PREY 倍以上、
  *     对方正乱(在和别国打仗、CHAOS_YEARS 年内迁过都 / 改朝换代)、或者共同的强邻已经亡了;宣战赔率 × BREACH_ODDS。
+ *     国家方针(policy.ts)把对方当仇国的不和它立约;立了约以后才定的仇国,约拦不住,不等满年就可能背约。
  *     宣战那一刻(DiplomacyModel.sever)先记 breach:背约的一方退出这份约,约的中立地当即撤销、州还给原主,剩下两国以上的约照旧。
  *     作者下令约国之间开战也一样记背约。
  *   **到期**(Ev.TreatyEnd):还在约里的几国国力差不到 RENEW_RATIO 倍 → RENEW_P 的机会续约(共同的强邻还在 × RENEW_FOE,最多 RENEW_MAX;
@@ -48,7 +49,7 @@ import type { World } from '../world';
 import { AdjKind, Layer, type Annal, type AnnalCause, type Civ, type Year } from './types';
 import { keyed, keyed4, subSeed } from './rand';
 import { Ev, quantize, type CivSim } from './sim';
-import { polityModelOf, policyAt, powerScaleOf, type PolityModel } from './polities';
+import { REOPEN, hates, polityModelOf, policyAt, powerScaleOf, reopenedBy, type PolityModel } from './polities';
 import { warModelOf, type War, type WarModel } from './wars';
 import { diplomacyModelOf, type DiplomacyModel } from './diplomacy';
 import { capitalAt, populationAt } from './growth';
@@ -132,6 +133,8 @@ export interface Treaty {
   term: number;
   /** 三国以上立的:有限竞争 */
   multi: boolean;
+  /** 立约时几国 */
+  size: number;
   /** 共同的强邻(−1 = 没有) */
   foe: number;
   /** 续过几次约 */
@@ -204,8 +207,10 @@ export class TreatyModel {
 
   /** q 和 L 同在一份有限竞争之约里 */
   limits(q: number, L: number): boolean {
-    const x = this.bound(q, L);
-    return !!x && x.multi;
+    // 两国可能同在几份约里(先立了两国之约,又一起入了三国之约):哪一份是有限竞争都算
+    if (q === L) return false;
+    for (const x of this.live) if (x.multi && this.member(x, q) && this.member(x, L)) return true;
+    return false;
   }
 
   /** 中立地 z 此刻还住着几人(EXILE_STAY 年内徙来的) */
@@ -229,7 +234,7 @@ export class TreatyModel {
           x.renewals++;
           return;
         }
-        const x: Treaty = { id: e.war, parties: ps, start: e.year, since: e.year, term: e.n ?? TERM_PAIR, multi: ps.length >= 3, foe: e.foe ?? -1, renewals: 0, out: [], zone: -1 };
+        const x: Treaty = { id: e.war, parties: ps, start: e.year, since: e.year, term: e.n ?? TERM_PAIR, multi: ps.length >= 3, size: ps.length, foe: e.foe ?? -1, renewals: 0, out: [], zone: -1 };
         this.treaties[e.war] = x;
         this.live.push(x);
         return;
@@ -353,6 +358,8 @@ export function installTreaties(sim: CivSim, pm: PolityModel, world: World, tm?:
     return v?.preset === 'hold' || v?.preset === 'peace';
   };
   const friendly = (p: number, q: number, t: Year) => dm.friendly(p, q) || !!wm.iv?.allied(p, q, t);
+  /** 国家方针(policy.ts)里哪一方把对方当仇国:不和它立约 */
+  const enemies = (p: number, q: number, t: Year) => hates(pm, p, q, t) || hates(pm, q, p, t);
 
   /** 近 STALE_YEARS 年里 p、q 打过一场谁也没占到便宜的仗 */
   const stalemate = (p: number, q: number, t: Year): boolean => {
@@ -430,7 +437,8 @@ export function installTreaties(sim: CivSim, pm: PolityModel, world: World, tm?:
   /** 州 r 能不能做中立地:有人住、不是谁的国都、不是中立地、没被作者永久划给谁;原主(约国)划出去以后还剩不止一两州 */
   const zoneable = (r: number, parties: readonly number[], t: Year): boolean => {
     const o = owner[r];
-    if (culture[r] < 0 || m.zoneAt[r] >= 0 || wm.iv?.locked(r, t)) return false;
+    // 这一刻刚易手的州不划(攻下来的那一刻就成了中立地,说不通)
+    if (culture[r] < 0 || m.zoneAt[r] >= 0 || wm.since[r] >= t || wm.iv?.locked(r, t)) return false;
     if (o >= 0 && (!parties.includes(o) || pm.size[o] <= 2 || isCapital(r))) return false;
     return true;
   };
@@ -516,13 +524,15 @@ export function installTreaties(sim: CivSim, pm: PolityModel, world: World, tm?:
     const give = owner[r] < 0 && back >= 0;
     note('neutral', { a: back, region: r, settlement: pm.cityOf[r], war: z.id, n: z.treaty, cause: 'lapse' });
     if (give) sim.setOwner(Layer.Polity, r, back, Ev.Neutral);
-    void t;
+    // 没还给谁、成了无主之地:下一刻四周的国家重新往这里扩张(中立的时候进这里的都丢掉了)
+    else if (owner[r] < 0) sim.schedule(t + 1 / 256, Ev.Respread, REOPEN + sim.annalCount - 1, 0);
   };
 
-  /** 约废:记 expire(cause = lapse:剩不到两国;没有 = 约满不续),中立地撤销 */
+  /** 约废:记 expire(cause = lapse:剩不到两国;没有 = 约满不续;n = 立约时几国),中立地撤销;有限竞争之约废了,下一刻约国旁边的无主之地解禁 */
   const endTreaty = (x: Treaty, t: Year, cause?: AnnalCause) => {
     const act = m.members(x);
-    note('expire', { a: act[0] ?? -1, b: act[1] ?? -1, ps: act, war: x.id, ...(cause ? { cause } : {}) });
+    note('expire', { a: act[0] ?? -1, b: act[1] ?? -1, ps: act, war: x.id, n: x.size, ...(cause ? { cause } : {}) });
+    if (x.multi) sim.schedule(t + 1 / 256, Ev.Respread, REOPEN + sim.annalCount - 1, 0);
     if (x.zone >= 0) dropZone(m.zones[x.zone], t);
   };
 
@@ -568,7 +578,7 @@ export function installTreaties(sim: CivSim, pm: PolityModel, world: World, tm?:
     let bestScore = 0;
     const nb = new Map<number, number[]>();
     for (const c of np) {
-      if (dm.liegeOf(c) >= 0 || atWar(c) || friendly(p, c, t) || t - (m.rest.get(pairKey(p, c)) ?? -Infinity) < TREATY_REST) continue;
+      if (dm.liegeOf(c) >= 0 || atWar(c) || friendly(p, c, t) || enemies(p, c, t) || t - (m.rest.get(pairKey(p, c)) ?? -Infinity) < TREATY_REST) continue;
       if (!close(p, c, t, TREATY_RATIO)) continue;
       const s = stalemate(p, c, t);
       const nc = landNeighbors(c);
@@ -595,7 +605,7 @@ export function installTreaties(sim: CivSim, pm: PolityModel, world: World, tm?:
     const nf = foe >= 0 ? landNeighbors(foe) : [];
     for (const z of [...new Set([...np, ...nq])].sort((a, b) => a - b)) {
       if (parties.length >= MAX_PARTIES) break;
-      if (parties.includes(z) || z === foe || dm.liegeOf(z) >= 0 || parties.some((x) => fighting(z, x)) || wm.iv?.halted(z, t)) continue;
+      if (parties.includes(z) || z === foe || dm.liegeOf(z) >= 0 || parties.some((x) => fighting(z, x) || enemies(z, x, t)) || wm.iv?.halted(z, t)) continue;
       if (!(np.includes(z) && nq.includes(z)) && !nf.includes(z)) continue;
       if ((!close(z, p, t, JOIN_RATIO) && !close(z, q, t, JOIN_RATIO)) || (foe >= 0 && friendly(z, foe, t))) continue;
       if (parties.some((x) => t - (m.rest.get(pairKey(x, z)) ?? -Infinity) < TREATY_REST)) continue;
@@ -623,21 +633,23 @@ export function installTreaties(sim: CivSim, pm: PolityModel, world: World, tm?:
     if (!m.live.length) return -1;
     const x = m.bound(p, q);
     if (!x) return -1;
-    if (t - x.since < BREACH_AGE) return 0;
+    // 国家方针(policy.ts)把对方当仇国:约拦不住,不等满年就可能背约
+    const grudge = hates(pm, p, q, t);
+    if (!grudge && t - x.since < BREACH_AGE) return 0;
     const Q = pm.polities[q];
     const d = Q.dynasties;
     const strong = pow[p] >= BREACH_PREY * pow[q];
     const chaos =
       wm.active.some((w) => (w.a === q || w.b === q) && w.a !== p && w.b !== p) || t - pm.capMoved[q] < CHAOS_YEARS || (!!d && d.length > 1 && t - d[d.length - 1].year < CHAOS_YEARS);
     const gone = x.foe >= 0 && !alive(x.foe);
-    return strong || chaos || gone ? BREACH_ODDS : 0;
+    return grudge || strong || chaos || gone ? BREACH_ODDS : 0;
   };
 
   // ---- 议和顺带立约 ----
   wm.onTruce = (w, t) => {
     const a = w.a;
     const b = w.b;
-    if (!alive(a) || !alive(b) || dm.liegeOf(a) >= 0 || dm.liegeOf(b) >= 0 || fighting(a, b) || friendly(a, b, t)) return;
+    if (!alive(a) || !alive(b) || dm.liegeOf(a) >= 0 || dm.liegeOf(b) >= 0 || fighting(a, b) || friendly(a, b, t) || enemies(a, b, t)) return;
     if (!landNeighbors(a).includes(b) || !close(a, b, t, TREATY_RATIO) || t - (m.rest.get(pairKey(a, b)) ?? -Infinity) < TREATY_REST) return;
     const at = Math.round(t * 256);
     if (keyed4(base, pm.ptag[a], pm.ptag[b], at, U_PEACE) >= PEACE_TREATY) return;
@@ -761,6 +773,12 @@ export function resumeTreaties(sim: CivSim, world: World, civ: Civ): void {
     const at = x.since + x.term;
     if (quantize(at) > sim.now) sim.schedule(at, Ev.TreatyEnd, x.id, 0, x.since);
   }
+  // 解禁几州的下一刻还没到的(此刻正好撤了中立地、废了有限竞争之约):补上;已经过了的由 resumePolities 重放
+  civ.annals.forEach((e, i) => {
+    if (((e.kind === 'neutral' && e.cause === 'lapse' && e.a < 0) || (e.kind === 'expire' && (e.n ?? 0) >= 3)) && quantize(e.year + 1 / 256) > sim.now) {
+      sim.schedule(e.year + 1 / 256, Ev.Respread, REOPEN + i, 0);
+    }
+  });
 }
 
 // ---------------------------------------------------------------------------

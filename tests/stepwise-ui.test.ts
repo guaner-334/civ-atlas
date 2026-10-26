@@ -194,25 +194,23 @@ describe('seed 7 从第 2650 年演绎到第 2700 年', () => {
     const entries = fullChronicle(civ);
     const items = reviewItems(world, civ, 2650, 2675, entries);
     expect(items.map((it) => [Math.floor(it.cap.entry.year), it.cap.typeName])).toEqual([
-      [2650, '教派'],
-      [2651, '战争'],
       [2652, '战争'],
-      [2655, '战争'],
       [2655, '改朝'],
-      [2658, '灭亡'],
-      [2662, '战争'],
+      [2661, '复国'],
       [2664, '灭亡'],
       [2664, '改朝'],
+      [2666, '战争'],
+      [2669, '灭亡'],
     ]);
     for (const it of items) {
       expect(entryWeight(it.cap.entry)).toBeGreaterThanOrEqual(REVIEW_WEIGHT);
       expect(it.cap.text.length).toBeGreaterThan(4);
       expect(it.cap.pin).not.toBeNull();
     }
-    // 打了几年的仗(大定伐奥利亚帝国,第 2662–2674 年):字幕只写开头一句,年份写"起"
-    const war = items[6].cap;
-    expect(war.entry.end).toBeGreaterThan(2670);
-    expect(war.label).toBe('第 2662 年起');
+    // 打了几年的仗(维利亚国伐博戈维纳王国,第 2652–2664 年):字幕只写开头一句,年份写"起"
+    const war = items[0].cap;
+    expect(war.entry.end).toBeGreaterThan(2660);
+    expect(war.label).toBe('第 2652 年起');
     // 这一段里分量没到的几件(重要度 2 的灾异、迁都……)不列
     const light = entries.filter((e) => e.year >= 2650 && e.year < 2675 && e.importance >= 2 && entryWeight(e) < REVIEW_WEIGHT);
     expect(light.length).toBeGreaterThan(0);

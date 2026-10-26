@@ -139,7 +139,7 @@ function historyPrint(world: World, civ: Civ): string {
 describe('起名不碰推演', () => {
   it('没有改地形时,除名字外的世界、历史钉住指纹;同种子两次连名字都一样', () => {
     // 期望值是 GENERATOR_VERSION 20(球面世界 + 人物、战役 + 洋流 + 君主世系 + 邦交 + 君主倾向和扩张算账(好战影响开战;迁都后按新国都重新看边地;同一刻的即位、到达排定次序) + 名臣 + 按养得活多少人算的宜居度和城的人口上限 + 封闭内海、贴海的湖、湖心小块地的处理 + 立国更早、边缘立国、民族分化 + 航线和航海时代 + 发展度反过来影响人口、打仗和远航 + 仗短而狠、乘胜连下、前线拉锯 + 饥荒、民变、大崩解,加上推演后贴上去的信仰)(GENERATOR_VERSION 22 起还有称霸大陆的大国盛极而衰;24 起走过的航线不通到遗址;27 起中央管到几成、割据;29 起管到几成和动荡每年算一次;35 起议事;36 起君主有了诸子、王子领兵、争储,宗室据地自立;37 起据险断后)算的。推演、地形有意改了的话更新它,并把 GENERATOR_VERSION 加一
-    const expected: Record<number, string> = { 7: 'fe33e1c24735fea1', 2024: 'b27902379f75ce55' };
+    const expected: Record<number, string> = { 7: '43ff49d916461ff8', 2024: 'd7cce5b9d9b682d2' };
     for (const seed of [7, 2024]) {
       const P = { ...DEFAULT_PARAMS, cells: 12000, seed };
       const w = generateWorld(P);
@@ -381,7 +381,8 @@ describe.each([7, 2024])('改地形以后远处的历史大多照旧 · seed=%i'
     // GENERATOR_VERSION 20(饥荒、民变、大崩解:一处的变故波及更远)以后种子 1、2、3、7、2024 的民族 / 国家没变 75–98% / 75–98%
     // (2024 号 75% / 75%,以前 80% / 87%;7 号 88% / 92%,以前 86% / 82%):下限放到 74% / 72%
     // GENERATOR_VERSION 22(称霸大陆的大国盛极而衰,崩了又被重新统一)以后 2024 号的国家没变 71.7%:国家的下限放到 70%
-    expect(r.culture, `seed ${seed} 民族`).toBeGreaterThanOrEqual(0.74);
+    // GENERATOR_VERSION 38(立约与中立地:约国之间不打、中立地那州归属空出来)以后 2024 号的民族没变 73.8%:民族的下限放到 73%
+    expect(r.culture, `seed ${seed} 民族`).toBeGreaterThanOrEqual(0.73);
     expect(r.polity, `seed ${seed} 国家`).toBeGreaterThanOrEqual(0.7);
   }, 60_000);
 

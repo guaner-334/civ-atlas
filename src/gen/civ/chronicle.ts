@@ -1797,10 +1797,13 @@ function treatyEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
       if (e.cause === 'fled') t = who ? `${P}亡,${rulerRef(civ, who, y - 1 / 512)}出奔${z}` : `${P}亡,其君出奔${z}`;
       else if (e.cause === 'deposed') t = who ? `${rulerRef(civ, who, y)}既废,徙居${z}` : `${P}废君徙居${z}`;
       else {
-        by = who?.exile?.by !== undefined ? (civ.people?.[who.exile.by] ?? null) : reigning(ix, e.a, y);
+        by = who ? (who.exile?.by !== undefined ? (civ.people?.[who.exile.by] ?? null) : reigning(ix, e.a, y)) : null;
         const kin = who && by ? kinOf(civ, by, who) : '';
         if (who && by) t = kin === '兄' || kin === '弟' ? `${rulerRef(civ, by, y)}疏其${kin}${who.name},徙居${z}` : `${rulerRef(civ, by, y)}徙宗室${who.name}居${z}`;
-        else t = `${P}徙宗室于${z}`;
+        else {
+          t = `${P}徙宗室于${z}`;
+          by = null;
+        }
       }
       return withPeople(base(e, id, t, 2, [e.a], [e.region], e.cause === 'fled' ? '奔' : '逐'), who, by);
     }

@@ -159,6 +159,9 @@ describe.each([7, 2024])('方针 · seed=%i', (seed) => {
 
 });
 
+/** 两个种子各自:[不定方针时打仇国的仗, 定了仇国以后打它的仗](见"仇国先打"那一条) */
+const foeWars: [number, number][] = [];
+
 // 这两个种子第 1200–1500 年大国之间仗打得多(scripts/policy-stats.ts;种子 7 那几百年几乎不打仗)
 describe.each([4, 14])('方针 · 亲仇和发展重点 seed=%i', (seed) => {
   const T = 1200;
@@ -196,7 +199,8 @@ describe.each([4, 14])('方针 · 亲仇和发展重点 seed=%i', (seed) => {
       }
     }
     expect(hitFriends, '不定方针时打过亲国').toBeGreaterThan(0);
-    expect(foeAfter, '定了仇国以后打它').toBeGreaterThan(foeBefore);
+    // 仇国:两个种子合起来比(一个种子里够格的"接壤、没打过"的邻国常只有一两个,打不打看运气),见下面那一条
+    foeWars.push([foeBefore, foeAfter]);
     const pid = big[0];
     // 发展重点:运输(第 T 年它的国土上平均)比不定方针时高
     const mine: number[] = [];
@@ -208,6 +212,15 @@ describe.each([4, 14])('方针 · 亲仇和发展重点 seed=%i', (seed) => {
     };
     expect(mean(tc)).toBeGreaterThan(mean(plain));
   }, 300_000);
+});
+
+describe('方针 · 仇国先打', () => {
+  it('上面两个种子合起来:定了仇国以后,打它的仗比不定方针时多', () => {
+    expect(foeWars.length).toBe(2);
+    const before = foeWars.reduce((s, x) => s + x[0], 0);
+    const after = foeWars.reduce((s, x) => s + x[1], 0);
+    expect(after, '定了仇国以后打它').toBeGreaterThan(before);
+  });
 });
 
 describe.each([7, 2024, 11])('方针 · 逐年推演 seed=%i', (seed) => {
