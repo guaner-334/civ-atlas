@@ -45,7 +45,9 @@ describe.each([7, 2024])('人物 · seed=%i', (seed) => {
       expect(x.polity).toBeLessThan(civ.polities.length);
     });
     // 宗室出道(为哪位君主补的)不存:只比君主即位、统帅第一次领兵、名臣入仕的年份
-    const debut = P.filter((x) => x.role !== 'prince').map((x) => (x.role === 'general' ? x.commands![0].from : x.from!));
+    // (接先君之位的儿子按做儿子出道的那一刻排,也不比)
+    const son = (x: Person) => x.role === 'ruler' && x.parent !== undefined && P[x.parent].role === 'ruler' && P[x.parent].until === x.from;
+    const debut = P.filter((x) => x.role !== 'prince' && !son(x)).map((x) => (x.role === 'general' ? x.commands![0].from : x.from!));
     for (let i = 1; i < debut.length; i++) expect(debut[i]).toBeGreaterThanOrEqual(debut[i - 1]);
     expect(new Set(P.map((x) => x.role)).size).toBeGreaterThanOrEqual(3);
   });
@@ -119,7 +121,7 @@ describe.each([7, 2024])('人物 · seed=%i', (seed) => {
         if (c.rear) expect(c.first).toBe(c.last);
         expect(A[c.first].year).toBeGreaterThanOrEqual(c.from - 1e-9);
         // 经手的最后一件事时人还在:将领没过卒年(战死的死在那一件事上);君主没下台(亡国那一刻除外)
-        if (x.role === 'general' && x.died !== undefined && x.fate !== 'battle') expect(A[c.last].year).toBeLessThan(x.died);
+        if ((x.role === 'general' || x.role === 'prince') && x.died !== undefined && x.fate !== 'battle') expect(A[c.last].year).toBeLessThan(x.died);
         if (x.role === 'ruler' && x.until !== undefined) {
           if (x.until === civ.polities[x.polity].ended) expect(A[c.last].year).toBeLessThanOrEqual(x.until);
           else expect(A[c.last].year).toBeLessThan(x.until);
@@ -128,7 +130,8 @@ describe.each([7, 2024])('人物 · seed=%i', (seed) => {
         if (!c.rear) bySide.set(key, [...(bySide.get(key) ?? []), { first: c.first, last: c.last, x }]);
       }
       if (x.fate === 'battle') {
-        expect(x.role).toBe('general');
+        // 战死的是将领、领兵的宗室(君主亲征不战死)
+        expect(['general', 'prince']).toContain(x.role);
         const last = x.commands![x.commands!.length - 1];
         expect(x.died).toBe(A[last.last].year);
       }
@@ -269,8 +272,17 @@ describe.each([7, 2024])('世系 · seed=%i', (seed) => {
       expect(f, x.name).toBeTruthy();
       expect(f.role === 'ruler' || f.role === 'prince').toBe(true);
       expect(x.role === 'ruler' || x.role === 'prince').toBe(true);
-      expect(f.polity).toBe(x.polity);
-      expect(f.dynasty ?? 0).toBe(x.dynasty ?? 0);
+      // 宗室据地争位、自立为君的(推演里 split 的 cause = heir):父亲是原来那一国的先君;他的儿子也可能留在原来那一国
+      if (f.polity !== x.polity) {
+        if (x.claim?.how === 'secede') expect(civ.polities[x.polity].parent).toBe(f.polity);
+        else {
+          expect(f.claim?.how).toBe('secede');
+          expect(civ.polities[f.polity].parent).toBe(x.polity);
+        }
+      } else {
+        expect(f.polity).toBe(x.polity);
+        expect(f.dynasty ?? 0).toBe(x.dynasty ?? 0);
+      }
       const age = x.born - f.born;
       expect(age, `${f.name} → ${x.name}`).toBeGreaterThanOrEqual(14 - 1 / 128);
       expect(age, `${f.name} → ${x.name}`).toBeLessThanOrEqual(55 + 1 / 128);
@@ -289,22 +301,30 @@ describe.each([7, 2024])('世系 · seed=%i', (seed) => {
     for (const x of P) if (x.role === 'general' || (x.role === 'ruler' && civ.polities[x.polity].lineage === 'republic')) expect(x.parent).toBeUndefined();
   });
 
-  it('补出来的宗室:有名字、有儿子,在儿子即位前去世;不和本国先出道的君主、将领同名', () => {
+  it('宗室:有名字;不和本国先出道的君主、将领同名;补出来的(为了接上即位的子孙)有儿子,在儿子即位前去世', () => {
     const civ = civOf(seed);
     const P = civ.people!;
     const princes = P.filter((x) => x.role === 'prince');
     expect(princes.length).toBeGreaterThan(20);
     const kids = new Map<number, Person[]>();
     for (const x of P) if (x.parent !== undefined) kids.set(x.parent, [...(kids.get(x.parent) ?? []), x]);
+    let bridges = 0;
     for (const x of princes) {
-      expect(x.died, x.name).toBeDefined();
-      expect(x.died!).toBeLessThanOrEqual(civ.endYear);
-      expect(x.fate).toBe('died');
-      expect(x.commands).toBeUndefined();
-      expect(kids.get(x.id)?.length, x.name).toBeGreaterThan(0);
-      const names = P.filter((o) => o.polity === x.polity && o.id < x.id && o.role !== 'prince').map((o) => o.name);
-      expect(names, x.name).not.toContain(x.name);
+      // 宗室多、名字少的语感用满了以后,只和前后 300 年里出生的错开
+      // 西幻的预定继承人照君主起名(沿用先王的名字),可以和先君同名
+      const west = !civ.polities[x.polity].eastern;
+      // 西幻沿用王室名字的(和本国某位君主同名),也可以和早先的将领同名
+      const royal = west && P.some((o) => o.polity === x.polity && o.role === 'ruler' && o.name === x.name);
+      const names = P.filter((o) => o.polity === x.polity && o.id < x.id && o.role !== 'prince' && !(west && o.role === 'ruler') && Math.abs(o.born - x.born) < 300).map((o) => o.name);
+      if (!royal) expect(names, x.name).not.toContain(x.name);
+      if (x.died !== undefined) expect(x.died).toBeLessThanOrEqual(civ.endYear);
+      // 补出来的:子孙里有即位的君主,他自己在那以前去世、没领过兵
+      const heirs = (kids.get(x.id) ?? []).filter((k) => k.role === 'ruler');
+      if (!heirs.length || x.commands) continue;
+      bridges++;
+      for (const k of heirs) if (x.died !== undefined && k.from! > x.died) expect(['died', 'battle', 'purged']).toContain(x.fate);
     }
+    expect(bridges).toBeGreaterThan(5);
   });
 
   it('继位的说法照世系写:编年史"其侄某某即位"、人物页"继叔父某某即位"说的是同一层亲属;连不上的写"宗室"', () => {
@@ -323,7 +343,8 @@ describe.each([7, 2024])('世系 · seed=%i', (seed) => {
       if (!k) {
         none++;
         expect(e.text).toMatch(after('宗室'));
-      } else if (k === '子') expect(e.text).toMatch(after('太子|世子|其子'));
+      } else if (k === '子') expect(e.text).toMatch(after('(诸子争(立|位),)?(太子|世子|其子|长子|次子|[三四五六七八九十]+子)'));
+      else if (k === '养子') expect(e.text).toMatch(after('(诸子争(立|位),)?(其养子|养子)'));
       else expect(e.text).toMatch(after(`其${k}`));
       n++;
     }

@@ -798,6 +798,15 @@
   box-shadow: none;
   border: 1px dashed var(--line-strong);
 }
+.lg-key-line {
+  flex: none;
+}
+.lg-key-line path {
+  fill: none;
+  stroke: var(--line-strong);
+  stroke-width: 1.2;
+  stroke-dasharray: 3 2;
+}
 .lg-main {
   flex: 1;
   min-width: 0;
@@ -851,6 +860,10 @@
 }
 .lg-tree path.fut {
   opacity: 0.45;
+}
+/* 养子连到父亲的那一截 */
+.lg-tree path.dash {
+  stroke-dasharray: 4 3;
 }
 .lg-node {
   position: absolute;
@@ -913,6 +926,13 @@
 }
 .lg-t b .cp-badge {
   flex: none;
+}
+/* 名字后面的小灰字:结局、养子、自立 */
+.lg-tag {
+  flex: none;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--ink-3);
 }
 .lg-t > em {
   display: flex;

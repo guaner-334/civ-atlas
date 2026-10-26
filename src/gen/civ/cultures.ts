@@ -1162,7 +1162,7 @@ export function finishCultures(world: World, m: CultureModel, log: Readonly<Chan
   }
   nameCultures(seed, m.cultures, reg.seat);
   if (pinned) m.cultures.forEach((cu, i) => pinned[i] && (cu.name = pinned[i]!.name));
-  nameKin(m.cultures, isPinned);
+  nameKin(m.cultures, isPinned, seed, reg.seat);
   reg.name = nameRegions(seed, m.cultures, settlers(log, reg.count), reg.seat);
   if (pins) pins.regionNames.forEach((x, r) => x !== undefined && r < reg.count && (reg.name![r] = x));
   return planned;

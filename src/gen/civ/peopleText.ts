@@ -7,7 +7,7 @@
  *   (汗国:汗 / 大汗;部落:酋长 / 首领)。
  * - 君主(不带国名,国名前文已经写了):rulerBare 带君号 —— 东方 "太宗""庄王""咄苾可汗""皇帝李昭",西幻 "国王阿尔德里克三世";
  *   rulerShort 不带君号 —— 东方 "太宗""李昭",西幻 "阿尔德里克三世"。
- * - 统帅:"大渭将李牧"(国名用当年的简称)。名臣:"大景丞相"(ministerRole)。
+ * - 统帅:"大渭将李牧"(国名用当年的简称);领兵的宗室 "大渭皇子李昭"(princeRef)。名臣:"大景丞相"(ministerRole)。
  * 国名一律按年份现查(growth.ts),作者改了国名,称呼跟着变。
  * - 君主的倾向:名字和一句说明(LEANING_TEXT),复制生平的一行(leaningsText)
  */
@@ -25,6 +25,14 @@ const EAST_RANK = ['首领', '公', '王', '皇帝'] as const;
 
 function polityOfPerson(civ: Civ, x: Person): Polity | null {
   return x.polity >= 0 && x.polity < civ.polities.length ? civ.polities[x.polity] : null;
+}
+
+/** 宗室那一刻是哪国的人:据地自立的宗室(新国家的开国之君)在立国以前还是父亲那国的 */
+function princePolityAt(civ: Civ, x: Person, year: Year): Polity | null {
+  const p = polityOfPerson(civ, x);
+  if (!p || year >= p.founded || x.parent === undefined) return p;
+  const f = civ.people?.[x.parent];
+  return (f && polityOfPerson(civ, f)) ?? p;
 }
 
 const clampTier = (t: number) => Math.min(3, Math.max(0, t));
@@ -84,9 +92,42 @@ function refOf(civ: Civ, x: Person, year: Year, realm: boolean): string {
   return `${realm ? polityRootAt(p, at) : ''}${rank}${x.name}${x.title ?? ''}`;
 }
 
-/** 统帅的称呼:"大渭将李牧";君主亲征的用 rulerRef */
+/** 这一刻领兵的是不是在位的君主本人(即位以前就领兵的不算亲征) */
+export function reigningAt(x: Person, year: Year): boolean {
+  return x.role === 'ruler' && (x.from ?? Infinity) <= year;
+}
+
+/**
+ * 宗室(没即位的,或即位以前的君主)那一刻的身份词:父亲正在位 —— 东方帝国"皇子"、王国"王子"、国和部落"公子",汗国、西幻"王子";
+ * 父亲不在位(先君的儿子、君主的兄弟)= "宗室"
+ */
+export function princeTitle(civ: Civ, x: Person, year: Year): string {
+  const p = princePolityAt(civ, x, year);
+  const f = x.parent !== undefined ? civ.people?.[x.parent] : undefined;
+  if (!p || !f || f.role !== 'ruler' || (f.from ?? Infinity) > year || (f.until !== undefined && f.until <= year)) return '宗室';
+  if (!p.eastern || p.lineage === 'khanate') return '王子';
+  const tier = clampTier(polityTierAt(p, year));
+  return tier >= 3 ? '皇子' : tier === 2 ? '王子' : '公子';
+}
+
+/** 宗室的称呼:"大渭皇子李昭""索拉特王子阿尔德里克" */
+export function princeRef(civ: Civ, x: Person, year: Year): string {
+  const p = princePolityAt(civ, x, year);
+  if (!p) return x.name;
+  return `${polityShortTitle(p, clampTier(polityTierAt(p, year)), year)}${princeTitle(civ, x, year)}${x.name}`;
+}
+
+/** 统帅不带国名:将领写名字,宗室 "皇子李昭"(君主亲征的用 rulerBare) */
+export function leaderName(civ: Civ, x: Person, year: Year): string {
+  if (x.role === 'general') return x.name;
+  if (reigningAt(x, year)) return rulerBare(civ, x, year);
+  return `${princeTitle(civ, x, year)}${x.name}`;
+}
+
+/** 统帅的称呼:"大渭将李牧";君主亲征的用 rulerRef,宗室领兵的用 princeRef */
 export function generalRef(civ: Civ, x: Person, year: Year): string {
-  if (x.role === 'ruler') return rulerRef(civ, x, year);
+  if (reigningAt(x, year)) return rulerRef(civ, x, year);
+  if (x.role === 'ruler' || x.role === 'prince') return princeRef(civ, x, year);
   const p = polityOfPerson(civ, x);
   if (!p) return x.name;
   const tier = clampTier(polityTierAt(p, year));
@@ -192,7 +233,7 @@ function ancestors(civ: Civ, x: Person, max: number): Person[] {
 }
 
 /**
- * b 是 a 的什么人,按世系(Person.parent,lineage.ts)说:子、孙、父、兄、弟、侄、伯父、叔父、从兄、从弟……;
+ * b 是 a 的什么人,按世系(Person.parent,lineage.ts)说:子、养子、孙、父、养父、兄、弟、侄、伯父、叔父、从兄、从弟……;
  * 往上三代都找不到同一位祖先 = 空串(同一朝的宗室远支,或者根本不是一家)。
  * 编年史的"其子 / 其侄"(kinOf(先君, 新君))、人物页的"继叔父某某即位"(kinOf(新君, 先君))、人物卡片前任继任后面的小字都用它
  */
@@ -206,8 +247,9 @@ export function kinOf(civ: Civ, a: Person, b: Person): string {
       if (as[i] === undefined || bs[j] === undefined || as[i] !== bs[j]) continue;
       // a 往上 i 代、b 往上 j 代是同一位
       const elder = b.born < a.born;
-      if (i === 0) return ['', '子', '孙', '曾孙'][j];
-      if (j === 0) return ['', '父', '祖父', '曾祖父'][i];
+      // 收养的(Person.adopted)只在父子这一层写明:养子、养父
+      if (i === 0) return j === 1 && b.adopted ? '养子' : ['', '子', '孙', '曾孙'][j];
+      if (j === 0) return i === 1 && a.adopted ? '养父' : ['', '父', '祖父', '曾祖父'][i];
       if (i === 1 && j === 1) return elder ? '兄' : '弟';
       if (i === 1 && j === 2) return '侄';
       if (i === 1 && j === 3) return '侄孙';
@@ -252,6 +294,8 @@ export function rulerFateWord(civ: Civ, x: Person): string {
       return '战死';
     case 'yielded':
       return '让位';
+    case 'purged':
+      return '争储被杀';
   }
 }
 

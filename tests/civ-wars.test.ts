@@ -131,8 +131,8 @@ describe('战争与攻占', () => {
           case 'war': {
             expect(e.war).toBe(war.size); // 按宣战先后编号
             expect(polityAlive(P[e.a], e.year) && polityAlive(P[e.b], e.year)).toBe(true);
-            // 宣战时两国接壤(经攻方能走的边);讨伐民变紧跟在起事后面,看起事以后的国土
-            const own = e.cause === 'quell' ? after : before;
+            // 宣战时两国接壤(经攻方能走的边);讨伐民变、据地争位的宗室紧跟在起事后面,看起事以后的国土
+            const own = e.cause === 'quell' || e.cause === 'heir' ? after : before;
             let touch = false;
             for (let r = 0; r < reg.count && !touch; r++) {
               if (own[r] !== e.a) continue;
@@ -224,8 +224,8 @@ describe('战争与攻占', () => {
       // 按日志顺序重放国家层的归属:每条"攻占"之前,攻方的国土要挨着这一州(同一时刻先攻下的州也算:丢了国都撑不下去的小国,残部挨着国都)。
       // 例外:丢了国都撑不下去、残部一并归攻方(wars.ts 的 annex)时,和国都不连着的残部(隔海的、被别国围住的飞地)最后一并归攻方
       const fellAt = new Set(civ.annals.filter((e) => e.kind === 'fall').map((e) => `${e.year}|${e.a}`));
-      // 讨伐民变的仗不看 HOLD(起事的州刚换主,官军、义军你来我往)
-      const quell = new Set(civ.annals.filter((e) => e.kind === 'war' && e.cause === 'quell').map((e) => e.war));
+      // 讨伐民变、据地争位的宗室的仗不看 HOLD(起事的州刚换主,官军、义军你来我往)
+      const quell = new Set(civ.annals.filter((e) => e.kind === 'war' && (e.cause === 'quell' || e.cause === 'heir')).map((e) => e.war));
       const quellAt = new Set(civ.annals.filter((e) => e.kind === 'conquer' && quell.has(e.war)).map((e) => `${e.year}|${e.region}`));
       const own = new Int16Array(reg.count).fill(-1);
       for (let i = 0; i < L.size; i++) {

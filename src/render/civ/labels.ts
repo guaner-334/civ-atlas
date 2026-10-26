@@ -470,6 +470,8 @@ export function civMapLayer(p: CivDrawParams, opt: { fast?: boolean; proj?: MapP
   const family = style === 'fantasy' ? FONT_FANTASY : FONT_REALISTIC;
   // 国都 → 国名那一条(国名给自家国都名留位置)
   const polityItemOfCapital = new Map<number, LabelItem>();
+  /** 主角国名大致占的地方(世界坐标:路径连同备选路径的外框,四边放出一个字高);弯边投影时路径不是世界坐标,不记 */
+  const polityBoxes = new Map<LabelItem, number[]>();
   const lead = polityNamesLead(p.show);
   if (polityNamesOn(p.show) && civ.polities.length && (lead || sidesOn)) {
     // 回放 / 拖时间轴时国名每 FAST_STEP 年才重新拟合一次:国土几乎每帧都在变,每帧重排国名会一直抖。
@@ -531,6 +533,17 @@ export function civMapLayer(p: CivDrawParams, opt: { fast?: boolean; proj?: MapP
       items.push(item);
       if (!lead) sides.add(item);
       polityItemOfCapital.set(capitalAt(pol, p.year), item);
+      if (lead && !l.planar) {
+        const b = [Infinity, Infinity, -Infinity, -Infinity];
+        for (const path of [l.path, l.alt?.path ?? []])
+          for (let i = 0; i + 1 < path.length; i += 2) {
+            b[0] = Math.min(b[0], path[i]);
+            b[1] = Math.min(b[1], path[i + 1]);
+            b[2] = Math.max(b[2], path[i]);
+            b[3] = Math.max(b[3], path[i + 1]);
+          }
+        polityBoxes.set(item, [b[0] - l.size, b[1] - l.size, b[2] + l.size, b[3] + l.size]);
+      }
     }
   }
   for (const kind of GROUP_NAME_KINDS) {
@@ -642,6 +655,10 @@ export function civMapLayer(p: CivDrawParams, opt: { fast?: boolean; proj?: MapP
       items.push(name);
       const pi = k === 4 ? polityItemOfCapital.get(e.s.id) : undefined;
       if (pi) pi.keepRoomFor = name;
+      // 别国的国名压在这座国都上面(大国里夹着的小国):国名挑位置时能留就给它的名字留出地方
+      if (k === 4)
+        for (const [q, b] of polityBoxes)
+          if (q !== pi && mark.x >= b[0] && mark.x <= b[2] && mark.y >= b[1] && mark.y <= b[3]) (q.keepRoomNear ??= []).push(name);
     }
     // 故城遗址:淡淡的记号,放大后写"古某城"
     const ruinLook =

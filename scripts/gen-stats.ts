@@ -126,7 +126,7 @@ const ps = politicsStats(civ);
 const ds = dynastyStats(civ);
 console.log(`文明 ${Math.round(performance.now() - t2)}ms:州 ${civ.regions.count},先后立国 ${civ.polities.length} 个(含分裂 / 复国出来的)`);
 console.log(
-  `分裂 ${ps.splits} 次 · 合并 ${ps.merges} 次 · 复国 ${ps.restorations} 次 · 主动迁都 ${ps.capitalMoves} 次 · 分出来不到百年就亡的 ${ps.shortLived} 国`,
+  `分裂 ${ps.splits} 次 · 宗室据地争位 ${ps.claims} 次 · 合并 ${ps.merges} 次 · 复国 ${ps.restorations} 次 · 主动迁都 ${ps.capitalMoves} 次 · 分出来不到百年就亡的 ${ps.shortLived} 国`,
 );
 console.log(
   `战争 ${s.wars} 场 · 攻占 ${s.conquests} 次 · 灭亡 ${s.falls} 国 · 迁都 ${s.capitalMoves} 次 · 结束时在世 ${s.alive} 国\n` +
