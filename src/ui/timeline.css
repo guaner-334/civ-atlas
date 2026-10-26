@@ -572,6 +572,8 @@
   border-radius: 2px;
   background: var(--slump, #8a7c64);
   pointer-events: none;
+  /* 播放头停在凋敝那几年时也看得见 */
+  z-index: 1;
 }
 .tb-pan-lab {
   position: absolute;
