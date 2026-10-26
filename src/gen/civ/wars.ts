@@ -235,6 +235,15 @@ export interface WarModel {
    * ally = 援的是哪国(援盟、救藩宣战时给,不再连锁);cause = 为什么打(史事 war 的 cause;干预的强制宣战不给)
    */
   declare?: (x: number, y: number, t: Year, ally?: number, cause?: AnnalCause) => War;
+  /**
+   * 立约(treaties.ts 挂上):p 看邻国时和 q 有没有约:−1 = 没有;0 = 约期内,不打;大于 0 = 可以背约去打,宣战赔率乘这个数
+   * (背约先记 breach:宣战时 DiplomacyModel.sever 那一步记)
+   */
+  treaty?: (p: number, q: number, t: Year, pow: Float64Array) => number;
+  /** 立约(treaties.ts 挂上):厌战、僵持罢兵(攻方没达成目标)、议和之后:两国可能顺带立约、划缓冲中立地 */
+  onTruce?: (w: War, t: Year) => void;
+  /** 立约(treaties.ts 挂上):y 亡于 x(记了 fall、它的仗都议和了)之后:亡国之君出奔中立地 */
+  onFall?: (w: War, x: number, y: number, t: Year) => void;
   /** 邦交(diplomacy.ts 挂上):x 向 y 宣战(不是援盟)之后,y 的盟国援盟 / 坐视不救,y 的宗主来救 */
   onDeclare?: (w: War, x: number, y: number, t: Year) => void;
   /** 邦交(diplomacy.ts 挂上):第 i 仗之后守方奉表称臣、攻方受降罢兵(已经议和 = true;capitalFell = 这一仗攻方打下了守方的国都) */
@@ -544,6 +553,7 @@ export function installWars(sim: CivSim, pm: PolityModel, world: World, wm: WarM
     endPolity(pm, y, t);
     sim.record('fall', { a: y, b: x, region: r, war: w.id });
     for (const v of warsOf(y)) makePeace(v, t);
+    wm.onFall?.(w, x, y, t);
   };
 
   /**
@@ -683,6 +693,7 @@ export function installWars(sim: CivSim, pm: PolityModel, world: World, wm: WarM
     let target = -1;
     let odds = 0;
     let traitor = false;
+    let breaker = false;
     /** 挑中的那一国:边境上有本国缺的哪几样物产 */
     let covet = 0;
     for (const [q, n] of [...border].sort((u, v) => u[0] - v[0])) {
@@ -706,6 +717,9 @@ export function installWars(sim: CivSim, pm: PolityModel, world: World, wm: WarM
           betray = true;
         } else if (dm.vassalTie(p, q)) continue;
       }
+      // 立约(treaties.ts):约期内不打立约国;立约满几年、有由头的才可能背约去打
+      const oath = wm.treaty ? wm.treaty(p, q, t, pow) : -1;
+      if (oath === 0) continue;
       // 边境上的胜算(和打仗时一样按局部国力算,远征打折):强国的边远处打得过,就会有弱国来收复失地
       let sum = 0;
       for (const [y, def] of front.get(q)!) sum += chance(p, q, y, def, t, pow);
@@ -716,6 +730,7 @@ export function installWars(sim: CivSim, pm: PolityModel, world: World, wm: WarM
       // 小国(一场仗就能吞下)格外招人
       if (pm.size[q] <= PREY) o *= PREY_ODDS;
       if (betray) o *= dm!.betrayOdds;
+      if (oath > 0) o *= oath;
       // 邻国大乱:趁虚而入
       if (wm.unrest) o *= 1 + PREY_UNREST * Math.max(0, wm.unrest(q, t) - PREY_CALM);
       if (pol && picks(pm, pol.foes, q)) o *= FOE_ODDS;
@@ -730,6 +745,7 @@ export function installWars(sim: CivSim, pm: PolityModel, world: World, wm: WarM
         odds = o;
         target = q;
         traitor = betray;
+        breaker = oath > 0;
         covet = got;
       }
     }
@@ -745,6 +761,11 @@ export function installWars(sim: CivSim, pm: PolityModel, world: World, wm: WarM
       // 背盟:先记盟约断了(war 列 = 紧跟着的这场战争),再宣战
       dm!.note!('unally', { a: p, b: target, war: wm.wars.length, cause: 'betray' });
       declare(p, target, t, -1, 'betray');
+      return;
+    }
+    // 背约(treaties.ts;背约那一条在宣战时记,见 DiplomacyModel.sever)
+    if (breaker) {
+      declare(p, target, t, -1, 'breach');
       return;
     }
     const cause = causeOf(p, target, t, claims(target), covet);
@@ -866,17 +887,23 @@ export function installWars(sim: CivSim, pm: PolityModel, world: World, wm: WarM
     const length = lengthOf(wm, w) * eff.war;
     // 攻方国用不足到 BROKE_PEACE 以上、仗打过了年限的 BROKE_LENGTH:罢兵
     let peace = t - w.start >= length || t - last >= STALL || (t - w.start >= BROKE_LENGTH * length && (wm.broke?.(w.a, t) ?? 0) >= BROKE_PEACE);
+    /** 厌战、僵持、国用不足罢兵(攻方没达成目标):议和后两国可能顺带立约(treaties.ts) */
+    let weary = peace;
     // 讨伐民变:不到厌战(REVOLT_LENGTH 倍的年限)不罢兵,直到一方亡(讨平,或攻破都城)
-    if (wm.revolt?.(w)) peace = t - w.start >= REVOLT_LENGTH * length;
-    else if (!peace) {
+    if (wm.revolt?.(w)) {
+      peace = t - w.start >= REVOLT_LENGTH * length;
+      weary = false;
+    } else if (!peace) {
       let held = 0;
       for (const e of w.takes) if (e.by === w.a && owner[e.region] === w.a) held++;
       // 灭国之战:拿下国都、对方丢了过半国土都不停(不设目标,见 CRUSH_GOAL;君主的倾向只管打多久,算在上面的年限里)
       if (pow[w.a] >= CRUSH * pow[w.b]) peace = held >= CRUSH_GOAL * goalOf(wm, w);
       else peace = capitalFell || held >= pm.size[w.b] || held >= Math.max(1, goalOf(wm, w) + eff.goal);
     }
-    if (peace) makePeace(w, t);
-    else sim.schedule(t + gapOf(wm, w, i + 1), Ev.Campaign, i + 1, id);
+    if (peace) {
+      makePeace(w, t);
+      if (weary) wm.onTruce?.(w, t);
+    } else sim.schedule(t + gapOf(wm, w, i + 1), Ev.Campaign, i + 1, id);
   });
 
   return wm;

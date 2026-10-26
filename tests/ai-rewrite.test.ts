@@ -155,8 +155,8 @@ describe('改写 · 材料与提示词(seed 7)', () => {
     expect(t).toMatch(new RegExp(`^C${capital} ${civ.settlements[capital].name} · `, 'm'));
     expect(t).toMatch(/^E0 .+族 · /m);
     expect(t).toMatch(/^M\d+ .+\(.+\)· /m);
-    // 亡了的国家写怎么亡的、最后的国都
-    expect(rewriteMaterial(world, civ, deadYear, EMPTY, ['x']).text).toMatch(
+    // 亡了的国家写怎么亡的、最后的国都(作者点了它的名:那一年在世、还没立的国家多,排在 80 个以后的也列上)
+    expect(rewriteMaterial(world, civ, deadYear, EMPTY, [polityTitleChain(dead)]).text).toMatch(
       new RegExp(`^P${dead.id} .+\\n  第 ${deadYear} 年:已亡\\(第 ${Math.floor(dead.ended!)} 年(并入|被|瓦解).*\\);最后的国都 C\\d+ `, 'm'),
     );
     // 没做过修改:不列"已经做过的修改";一个世界的材料不太长(GENERATOR_VERSION 36 多了宗室据地自立的国家,两万字出头)
