@@ -11,7 +11,7 @@ import { ownersAt } from '../src/gen/civ/timeline';
 import { setActiveProvider, setMockResponder } from '../src/ai/client';
 import { AiError } from '../src/ai/types';
 import { listHistoryNotes } from '../src/ai/history';
-import { HISTORY_LENGTHS, buildHistoryPrompts } from '../src/ai/prompts/history';
+import { HISTORY_LENGTHS, buildHistoryPrompts, restrainedLine } from '../src/ai/prompts/history';
 import {
   _resetBook,
   bookProgress,
@@ -19,6 +19,7 @@ import {
   getBook,
   openBookReader,
   openHistoryBook,
+  resetBookForWorld,
   setBookContext,
   startBook,
   stopBook,
@@ -137,6 +138,120 @@ describe('成书:后台写作', () => {
     t!.action!.onClick();
     expect((await settle()).status).toBe('done');
     expect(listHistoryNotes('w-book-4')).toHaveLength(1);
+  });
+
+  it('分篇写到第 4 篇被审核拦下:自动带"克制"再写一次,还被拦就停下;重试从第 4 篇接着写,前 3 篇不再请求', async () => {
+    setActiveProvider('mock');
+    setBookContext(civ, 'w-book-6');
+    const opts = { scope: { kind: 'world' as const }, style: 'biography' as const, length: 'k10' as const };
+    const pr = buildHistoryPrompts(civ, opts);
+    expect(pr.calls.length).toBeGreaterThanOrEqual(5);
+    const body = (i: number) => `## 第${i + 1}篇\n\n第${i + 1}篇的正文。`;
+    let sent: { i: number; restrained: boolean }[] = [];
+    let block = true;
+    setMockResponder((req) => {
+      const i = pr.calls.findIndex((c) => c.title === req.title);
+      sent.push({ i, restrained: req.messages.some((m) => m.content.includes(restrainedLine('篇'))) });
+      if (i === 3 && block) throw new AiError('content-filter', '阿里云的内容安全审核拦下了 AI 写出来的内容');
+      return body(i);
+    });
+    startBook(opts);
+    let j = await settle();
+    expect(j.status).toBe('error');
+    expect(sent).toEqual([
+      { i: 0, restrained: false },
+      { i: 1, restrained: false },
+      { i: 2, restrained: false },
+      { i: 3, restrained: false },
+      { i: 3, restrained: true },
+    ]);
+    expect(listHistoryNotes('w-book-6')).toHaveLength(0);
+    const t = getToast();
+    expect(t?.more?.[0]).toContain('审核拦下了');
+    // 重试:从第 4 篇接着写,一开始就带着写好的前 3 篇
+    sent = [];
+    block = false;
+    t!.action!.onClick();
+    expect(getBook().job).toMatchObject({ status: 'writing', call: 3, text: [0, 1, 2].map(body).join('\n\n') });
+    j = await settle();
+    expect(j.status).toBe('done');
+    expect(sent.map((s) => s.i)).toEqual(pr.calls.slice(3).map((_, k) => 3 + k));
+    expect(sent.some((s) => s.restrained)).toBe(false);
+    const notes = listHistoryNotes('w-book-6');
+    expect(notes).toHaveLength(1);
+    expect(notes[0].text).toBe(pr.calls.map((_, i) => body(i)).join('\n\n'));
+    // 写完就不留了:再写同一部从第 1 篇写
+    sent = [];
+    startBook(opts);
+    await settle();
+    expect(sent.map((s) => s.i)).toEqual(pr.calls.map((_, i) => i));
+  });
+
+  it('分章写到一半出错(网络不通也算):重试只写剩下的;历史变了(改名)、停下、换了世界就从第 1 章重写', async () => {
+    setActiveProvider('mock');
+    const w = 'w-book-7';
+    setBookContext(civ, w);
+    const opts = { scope: { kind: 'world' as const }, style: 'plain' as const, length: 'k10' as const };
+    const n = buildHistoryPrompts(civ, opts).calls.length;
+    let calls = 0;
+    let failAt = 2;
+    setMockResponder(() => {
+      if (++calls === failAt + 1) throw new AiError('network', '连不上');
+      return '一段正文。';
+    });
+    const fail = async () => {
+      calls = 0;
+      startBook(opts);
+      expect((await settle()).status).toBe('error');
+    };
+    // 网络错也留着写好的:同一份历史重试,只写剩下的
+    await fail();
+    calls = 0;
+    failAt = 99;
+    startBook(opts);
+    expect((await settle()).status).toBe('done');
+    expect(calls).toBe(n - 2);
+    // 改名之后材料变了:从头写
+    failAt = 2;
+    await fail();
+    const p = civ.polities.find((x) => polityAlive(x, END))!;
+    setBookContext(applyNames(civ, { [polityKey(civ, p.id)]: '饕' }), w);
+    calls = 0;
+    failAt = 99;
+    startBook(opts);
+    await settle();
+    expect(calls).toBe(n);
+    // 停下:写到一半的不要了
+    setBookContext(civ, w);
+    failAt = 2;
+    await fail();
+    setMockResponder(() => '一段很长的正文。'.repeat(40));
+    startBook(opts);
+    stopBook();
+    expect((await settle()).status).toBe('stopped');
+    calls = 0;
+    failAt = 99;
+    setMockResponder(() => {
+      calls++;
+      return '一段正文。';
+    });
+    startBook(opts);
+    await settle();
+    expect(calls).toBe(n);
+    // 换了世界:丢掉
+    failAt = 2;
+    setMockResponder(() => {
+      if (++calls === failAt + 1) throw new AiError('network', '连不上');
+      return '一段正文。';
+    });
+    await fail();
+    resetBookForWorld();
+    setBookContext(civ, w);
+    calls = 0;
+    failAt = 99;
+    startBook(opts);
+    await settle();
+    expect(calls).toBe(n);
   });
 
   it('停止:写到一半的不存', async () => {
