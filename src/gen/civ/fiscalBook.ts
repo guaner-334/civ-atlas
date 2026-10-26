@@ -145,3 +145,52 @@ export function fiscalSeries(civ: Pick<Civ, 'development'>, p: number): { year: 
   }
   return out;
 }
+
+/** 一场仗打的年份(宣战 … 议和,或有一方亡了;到现在还在打 = Infinity) */
+export interface WarSpan {
+  a: number;
+  b: number;
+  from: Year;
+  to: Year;
+}
+const spanCache = new WeakMap<object, Map<number, WarSpan[]>>();
+
+/** 各国打过的仗(按史事 war / peace 配对;同一份历史只算一次) */
+export function warSpans(civ: Pick<Civ, 'annals' | 'polities'>): Map<number, WarSpan[]> {
+  let m = spanCache.get(civ.annals);
+  if (m) return m;
+  m = new Map();
+  const open = new Map<number, WarSpan>();
+  for (const e of civ.annals) {
+    if (e.kind === 'war') {
+      const end = Math.min(civ.polities[e.a]?.ended ?? Infinity, civ.polities[e.b]?.ended ?? Infinity);
+      const w: WarSpan = { a: e.a, b: e.b, from: e.year, to: end };
+      open.set(e.war, w);
+      for (const p of [e.a, e.b]) {
+        if (p < 0) continue;
+        let l = m.get(p);
+        if (!l) m.set(p, (l = []));
+        l.push(w);
+      }
+    } else if (e.kind === 'peace') {
+      const w = open.get(e.war);
+      if (w) {
+        w.to = Math.min(w.to, e.year);
+        open.delete(e.war);
+      }
+    }
+  }
+  spanCache.set(civ.annals, m);
+  return m;
+}
+
+/** 国家 p 第 year 年在和哪几国打仗(先宣战的在前;同一国只列一次) */
+export function foesAt(civ: Pick<Civ, 'annals' | 'polities'>, p: number, year: Year): number[] {
+  const out: number[] = [];
+  for (const w of warSpans(civ).get(p) ?? []) {
+    if (w.from > year || w.to <= year) continue;
+    const q = w.a === p ? w.b : w.a;
+    if (q >= 0 && !out.includes(q)) out.push(q);
+  }
+  return out;
+}

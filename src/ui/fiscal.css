@@ -1,0 +1,212 @@
+/* ---- 国家的钱粮(FiscalPage.tsx):概况「钱粮」一行、钱粮页 ---- */
+
+/* 小柱:灰;不到五成黄;见底红一道 */
+.fs-spark i {
+  background: #8e8e93;
+}
+.fs-spark i.low {
+  background: var(--warn);
+}
+.fs-spark i.zero {
+  background: var(--err);
+}
+.cpanel .fs-open.bad {
+  color: var(--err);
+}
+.cpanel .fs-open.bad:hover {
+  color: var(--err);
+}
+
+/* 国库块:照「生效年份」那一块的底 */
+.fs-top {
+  gap: 4px;
+}
+.fs-lbl {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+.fs-big {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.fs-big b {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  font-variant-numeric: tabular-nums;
+}
+.fs-u {
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.fs-chip {
+  margin-left: auto;
+  align-self: center;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink-2);
+  background: var(--btn);
+}
+.fs-chip.ok {
+  color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 12%, transparent);
+}
+.fs-chip.bad {
+  color: var(--err);
+  background: color-mix(in srgb, var(--err) 12%, transparent);
+}
+.fs-say {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+.fs-say.bad {
+  color: var(--err);
+}
+
+/* 历年国库攒到几成 */
+.fs-hist {
+  margin-top: 4px;
+}
+.fs-chart {
+  position: relative;
+  height: 38px;
+}
+.fs-chart svg {
+  display: block;
+  width: 100%;
+  height: 30px;
+}
+.fs-past {
+  fill: rgba(142, 142, 147, 0.35);
+  stroke: #8e8e93;
+  stroke-width: 1;
+}
+.fs-later {
+  fill: rgba(142, 142, 147, 0.12);
+}
+.fs-now {
+  position: absolute;
+  top: 0;
+  width: 1.5px;
+  height: 30px;
+  margin-left: -0.75px;
+  background: var(--accent);
+}
+.fs-alarm,
+.fs-alarm-key {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--err);
+}
+.fs-alarm {
+  position: absolute;
+  top: 32px;
+  margin-left: -2.5px;
+}
+.fs-alarm-key {
+  vertical-align: 1px;
+}
+.fs-axis {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+
+/* 进项、开销、截留在哪 */
+.fs-sum {
+  font-weight: 400;
+  font-size: 12.5px;
+}
+.fs-sum b {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--ink);
+}
+.cpanel .fs-map {
+  font-weight: 400;
+  font-size: 12.5px;
+}
+.fs-li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 33px;
+  padding: 0 12px;
+  font-size: 14px;
+}
+.fs-li + .fs-li {
+  border-top: 0.5px solid var(--line);
+}
+.fs-k {
+  white-space: nowrap;
+}
+.fs-k small,
+.fs-n small {
+  margin-left: 4px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+.fs-n small {
+  margin-left: 2px;
+}
+.fs-bar {
+  flex: 1;
+  display: flex;
+  justify-content: flex-end;
+  height: 6px;
+}
+.fs-bar i {
+  display: block;
+  height: 6px;
+  border-radius: 3px;
+  background: #b4b4ba;
+}
+.fs-n {
+  margin-left: auto;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.fs-bar + .fs-n {
+  margin-left: 0;
+  min-width: 62px;
+  text-align: right;
+}
+.fs-n.minus {
+  color: var(--ink-2);
+}
+.fs-dot {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.18);
+}
+.cp-foot .cp-btn:only-child {
+  width: 100%;
+}
+.cp-v.fs-row {
+  gap: 8px;
+}
+.fs-row > * {
+  white-space: nowrap;
+}
+/* 钱粮页一节挨一节紧一些,电脑上一屏放得下 */
+.fs-page .cp-body {
+  gap: 12px;
+  padding-top: 8px;
+}
+.fs-page .cp-sec {
+  gap: 5px;
+}
