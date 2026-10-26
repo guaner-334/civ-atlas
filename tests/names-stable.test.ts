@@ -87,7 +87,7 @@ function counterpart(k: Case, p: Place): Place | null {
   const sp = Math.sqrt((MAP_W * MAP_H * 0.66) / DEFAULT_PARAMS.cells);
   let best: Place | null = null;
   let bd = Infinity;
-  for (const q of k.c1.places) {
+  for (const q of geoPlaces(k.c1)) {
     if (q.kind !== p.kind) continue;
     const d = Math.hypot(x[p.cell!] - x[q.cell!], y[p.cell!] - y[q.cell!]);
     if (d < bd) (bd = d), (best = q);
@@ -96,6 +96,8 @@ function counterpart(k: Case, p: Place): Place | null {
 }
 
 const styleOf = (civ: Civ, p: Place) => (p.culture >= 0 ? civ.cultures[p.culture].style : '');
+/** 山海湖岛这些地理名(关隘跟着大路、守关战走,是历史的一部分,不在"改地形以后地名留在原地"里比) */
+const geoPlaces = (c: Civ) => c.places.filter((p) => p.kind !== 'pass');
 const ratio = (xs: boolean[]) => xs.filter(Boolean).length / Math.max(1, xs.length);
 
 /** 除名字以外的世界 + 历史的指纹(名字、语感、东方 / 西幻、拉丁原形、改名前的名字不算;小数按 64 位原样) */
@@ -129,8 +131,9 @@ function historyPrint(world: World, civ: Civ): string {
   };
   feed({ elevation: world.elevation, water: world.water, flux: world.flux });
   // 发展度(推演后算的,不改历史)由 determinism.test.ts 钉住;这里不算它,期望值和加它以前一样
+  // 地图上画的关隘(civ.places 里的 pass)是后加的,加它时别的一个没变:不算它,期望值和加它以前一样
   const { development: _dev, ...history } = civ;
-  feed(history);
+  feed({ ...history, places: geoPlaces(civ) });
   return h.digest('hex').slice(0, 16);
 }
 
@@ -160,7 +163,7 @@ describe.each([7, 2024])('改地形以后名字留在原地 · seed=%i', (seed) 
     const far = farFrom(k);
     const kept: boolean[] = [];
     const seas: boolean[] = [];
-    for (const p of k.c0.places) {
+    for (const p of geoPlaces(k.c0)) {
       if (!far(p.cell!)) continue;
       const q = counterpart(k, p);
       if (p.kind === 'sea') seas.push(q?.name === p.name);
@@ -175,7 +178,7 @@ describe.each([7, 2024])('改地形以后名字留在原地 · seed=%i', (seed) 
   it('挖一个湖:远处的地名(海、山、河、湖、岛、荒漠)不变 ≥ 80%;同一处的城锚点、语感都没变的,城名不变', () => {
     const k = edited(seed, 'lake');
     const far = farFrom(k);
-    const same = k.c0.places.filter((p) => far(p.cell!)).map((p) => counterpart(k, p)?.name === p.name);
+    const same = geoPlaces(k.c0).filter((p) => far(p.cell!)).map((p) => counterpart(k, p)?.name === p.name);
     expect(same.length).toBeGreaterThan(20);
     expect(ratio(same), `seed ${seed} 远处地名不变的比例`).toBeGreaterThanOrEqual(0.8);
     // 城:同一地块上的第一座城,民族的语感也没变的,名字不变
@@ -249,8 +252,10 @@ function farNames(w: World, a: Civ, b: Civ, far: (cell: number) => boolean): { n
     return Math.hypot(dx, y[p.cell!] - y[q.cell!]);
   };
   const pairs: [number, number, number][] = [];
-  a.places.forEach((p, i) =>
-    b.places.forEach((q, j) => {
+  const A = geoPlaces(a);
+  const B = geoPlaces(b);
+  A.forEach((p, i) =>
+    B.forEach((q, j) => {
       const lim = p.kind === 'mountains' || p.kind === 'river' ? 40 : Math.max(20, 1.2 * Math.max(p.size ?? 0, q.size ?? 0));
       if (p.kind === q.kind && dist(p, q) <= lim) pairs.push([dist(p, q), i, j]);
     }),
@@ -260,13 +265,13 @@ function farNames(w: World, a: Civ, b: Civ, far: (cell: number) => boolean): { n
   const taken = new Set<number>();
   for (const [, i, j] of pairs) if (!to.has(i) && !taken.has(j)) to.set(i, j), taken.add(j);
   const out = { n: 0, renamed: [] as string[], gone: [] as string[], lowered: [] as string[] };
-  a.places.forEach((p, i) => {
+  A.forEach((p, i) => {
     if (!far(p.cell!)) return;
     out.n++;
     const j = to.get(i);
     if (j === undefined) out.gone.push(p.name);
-    else if (b.places[j].name !== p.name) out.renamed.push(`${p.name} → ${b.places[j].name}`);
-    if (j !== undefined && b.places[j].rank > p.rank) out.lowered.push(`${p.name} 显示档 ${p.rank} → ${b.places[j].rank}`);
+    else if (B[j].name !== p.name) out.renamed.push(`${p.name} → ${B[j].name}`);
+    if (j !== undefined && B[j].rank > p.rank) out.lowered.push(`${p.name} 显示档 ${p.rank} → ${B[j].rank}`);
   });
   return out;
 }
@@ -341,7 +346,7 @@ describe('改过地形的世界照着沿用的地名推到第 0 年就停', () =
     for (const seed of [7, 2024]) {
       for (const names of [undefined, { central: 1, hellenic: 2 }]) {
         const w = generateWorld({ ...DEFAULT_PARAMS, cells: 12000, seed });
-        const sig = (c: Civ) => c.places.map((p) => [p.kind, p.cell, p.name, p.latin, p.culture < 0 ? '' : c.cultures[p.culture].style]);
+        const sig = (c: Civ) => geoPlaces(c).map((p) => [p.kind, p.cell, p.name, p.latin, p.culture < 0 ? '' : c.cultures[p.culture].style]);
         expect(sig(generateCiv(w, { endYear: 0, ...(names ? { names } : {}) })), `seed ${seed}`).toEqual(sig(generateCiv(w, names ? { names } : {})));
       }
     }

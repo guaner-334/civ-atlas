@@ -42,7 +42,8 @@ import type { Raster } from '../../gen/raster';
 import { TITLE_MAX, worldKey } from '../../gen/savefile';
 import { END_YEAR_DEFAULT, advanceOf, cleanCivSeed, cleanEndYear } from '../../gen/edits';
 import type { DraftBase } from '../stageStore';
-import { getEdits, setAdvance, setCivSeed, setEndYear, setFrontier, setOrigins, useEdits } from '../editsStore';
+import { getEdits, setAdvance, setCalamity, setCivSeed, setEndYear, setFrontier, setOrigins, useEdits } from '../editsStore';
+import { CALAMITIES, CALAMITY_NAMES, cleanCalamity, type Calamity } from '../../gen/civ/calamity';
 import { AdvanceFields } from '../StepwiseDialogs';
 import { advanceBrief } from '../Stepwise';
 import { cleanOrigins, frontierBrief, terrainChangedCount, terrainValue, type Origins } from '../../gen/civ/frontier';
@@ -155,7 +156,14 @@ const AST_SHEET = 0.58;
 /** 手机上照手绘图那一页的底部卡片占屏幕多高(和 studio.css 的 .sk-sheet 一致;拉到最高时盖住地图,地图不跟着挪) */
 const SK_SHEET = 0.642;
 /** 确认框里"下面几样不能再改" */
-const LOCK_COUNT = ['', '一', '两', '三', '四', '五', '六', '七'];
+const LOCK_COUNT = ['', '一', '两', '三', '四', '五', '六', '七', '八', '九'];
+
+/** 「天灾」选了多 / 很多:下面那一句(手机短一些) */
+function calamityNote(c: Calamity, phone: boolean): string {
+  if (c === 'many')
+    return phone ? '很多：瘟疫、饥荒、水旱约是平常的三倍，几百年里有一两场全球大疫。' : '很多：瘟疫、饥荒、地震水旱约是平常的三倍，几百年里会有一两场全球大疫，疫后几十年文明倒退；文明不会断绝。';
+  return phone ? '多：瘟疫、饥荒约是平常的两倍，约六百年有一场全球大疫。' : '多：瘟疫、饥荒约是平常的两倍，各国会闹地震水旱，约六百年有一场全球大疫，疫后几十年文明倒退；文明不会断绝。';
+}
 /** 选起源时点错了的那句提示留几毫秒 */
 const ORIGIN_MSG_MS = 2600;
 /** 放下一处起源后这么久里,圆点上的 click 不算拿掉(手机补发的 click) */
@@ -1120,6 +1128,8 @@ export function Studio(p: StudioProps) {
   );
   // 「拓荒」三样(世界参数里精细度下面):民族扩散、国家扩张,「地形难走程度」点开原地展开八样
   const frontier = edits.frontier;
+  /** 「天灾」(平常 = undefined) */
+  const calamity = cleanCalamity(edits.calamity);
   const terrN = terrainChangedCount(frontier);
   const frontierRows = (
     <>
@@ -1327,6 +1337,24 @@ export function Studio(p: StudioProps) {
         </button>
       </span>
     </div>
+  );
+  /** 「天灾」平常 / 多 / 很多(选了多、很多:下面一句会怎样) */
+  const calamityRow = (
+    <>
+      <div className="sb-row nw-how" data-act="calamity">
+        <span className="sb-row-main">
+          <b>天灾</b>
+        </span>
+        <span className="nw-dseg" role="radiogroup" aria-label="天灾">
+          {([undefined, ...CALAMITIES] as const).map((c) => (
+            <button key={c ?? 'usual'} role="radio" aria-checked={calamity === c} className={calamity === c ? 'on' : ''} data-act={`calamity-${c ?? 'usual'}`} disabled={!p.ready} onClick={() => setCalamity(c)}>
+              {c ? CALAMITY_NAMES[c] : '平常'}
+            </button>
+          ))}
+        </span>
+      </div>
+      {calamity && <div className="nw-note nw-how-note">{calamityNote(calamity, p.phone)}</div>}
+    </>
   );
   /** 选了照大纲:一句说明(放在「怎么推」下面) */
   const outlineNote = outlineHow && <div className="nw-note nw-how-note">建好以后先打开「大纲」：一条条写下故事里的大事，写完点「照大纲推演」。地形、民族、国家起源照常生成，大纲只决定后面的历史怎么走。</div>;
@@ -1655,6 +1683,7 @@ export function Studio(p: StudioProps) {
           {howRow}
           {outlineNote}
           {stepHow ? advRow : yearsRow}
+          {calamityRow}
           {compact ? (
             <button className="sb-row" data-act="civ-more" onClick={() => setSheetFull(true)}>
               <span className="sb-row-main">
@@ -1721,7 +1750,10 @@ export function Studio(p: StudioProps) {
             <span>文明</span>
             <small>可选</small>
           </div>
-          <div className="sb-group">{originsRow}</div>
+          <div className="sb-group">
+            {calamityRow}
+            {originsRow}
+          </div>
         </section>
       )}
       {!peek && carriedSec}
@@ -2128,7 +2160,7 @@ export function Studio(p: StudioProps) {
               {step2 ? (nameNow ? `开始${verb}「${nameNow}」？` : `开始${verb}这个文明？`) : nameNow ? `创建「${nameNow}」？` : '创建这个世界？'}
             </h2>
             <p>
-              {step2 ? `开始${verb}以后` : '创建以后，这颗星球的样子就定下来了'}，下面{LOCK_COUNT[4 + (step2 ? 1 : 0) + (yearsLocked ? 1 : 0) + (frontier ? 1 : 0) + (originN ? 1 : 0)]}样不能再改：
+              {step2 ? `开始${verb}以后` : '创建以后，这颗星球的样子就定下来了'}，下面{LOCK_COUNT[4 + (step2 ? 1 : 0) + (yearsLocked ? 1 : 0) + (frontier ? 1 : 0) + (calamity ? 1 : 0) + (originN ? 1 : 0)]}样不能再改：
             </p>
             <div className="sb-group">
               {image ? (
@@ -2189,6 +2221,17 @@ export function Studio(p: StudioProps) {
                   </span>
                   <span className="sb-row-side" data-confirm="frontier">
                     {frontierBrief(frontier)}
+                  </span>
+                </div>
+              )}
+              {calamity && (
+                <div className="sb-row static">
+                  <Icon name="lock" size={16} className="sb-ico" />
+                  <span className="sb-row-main">
+                    <b>天灾</b>
+                  </span>
+                  <span className="sb-row-side" data-confirm="calamity">
+                    {CALAMITY_NAMES[calamity]}
                   </span>
                 </div>
               )}

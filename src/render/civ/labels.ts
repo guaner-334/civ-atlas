@@ -2,7 +2,8 @@
  * 文明叠加层 · 地图文字的数据来源:把 civ 里的东西变成一条条 LabelItem(和城镇符号 LabelMark),
  * 交给 render/labels/draw.ts 排版、避让、画。
  *
- *   地理名 —— 海洋、山脉、大河、湖泊、大岛、荒漠(civ.places;civLabelItems,不随年份变)
+ *   地理名 —— 海洋、山脉、大河、湖泊、大岛、荒漠(civ.places;civLabelItems,不随年份变)。关隘也在 civ.places 里,
+ *            但跟着大路修通的年份出现、画法同城镇(符号 + 旁边写名字):在 civMapLayer 里和城镇一起排(render/civ/passes.ts)
  *   国名、城名、城镇符号(civMapLayer,随年份变)—— 国名的摆法见 labels/polity.ts,
  *         城名的门槛、优先级、8 个方位见 labels/settlements.ts,符号画法见 civ/settlements.ts
  *   阶段 3 城市兴衰:故城遗址(毁了、还没重建的城)的记号和名字("古某城"),排在所有城镇之后、放大才出现
@@ -34,10 +35,12 @@ import { namesLead, namesOn, polityNamesLead, polityNamesOn, type CivNameKind } 
 import { logIndexAfter, ownersAt, type Owners } from '../../gen/civ/timeline';
 import { faithAt } from '../../gen/civ/religion';
 import { ERA_COLORS, eraName, eraSampleYear, erasAt } from './era';
+import { passLabels } from './passes';
 
 const MIN_ZOOM = [1, 1, 1.8, 3];
 
-type Kind = Place['kind'] | 'ocean' | 'bay';
+/** 顺着路径写名字的地理名(关隘不在里面:画法同城镇,见 render/civ/passes.ts) */
+type Kind = Exclude<Place['kind'], 'pass'> | 'ocean' | 'bay';
 
 interface Look {
   color: string;
@@ -97,19 +100,27 @@ const TYPE: Record<Kind, { size: [number, number, number]; tracking: [number, nu
   lake: { size: [11.5, 11, 10.5], tracking: [0.05, 0.05], grow: 0.35, priority: 72 },
 };
 
-function kindOf(p: Place): Kind {
+function kindOf(p: Place & { kind: Exclude<Place['kind'], 'pass'> }): Kind {
   // 用户改过名的(阶段 4)按原来的名字分:改了名的大洋照旧按大洋写
   const name = p.defaultName ?? p.name;
   if (p.kind === 'sea') return name.endsWith('洋') ? 'ocean' : name.endsWith('湾') ? 'bay' : 'sea';
   return p.kind;
 }
 
-/** 地理名 → 标注 */
+/** 关隘的名字用的颜色(手绘:山名的褐墨;写实、数据图层:和山名一样深色带白边),字重一律 500 */
+export function passLook(style: CivStyle): { color: string; weight: number; halo?: { color: string; width: number } } {
+  const m = LOOKS[style].mountains;
+  return { color: m.color, weight: 500, halo: m.halo };
+}
+
+/** 地理名 → 标注(关隘除外;pick.id = civ.places 的下标) */
 export function placeLabelItems(places: Place[], style: CivStyle): LabelItem[] {
   const looks = LOOKS[style];
   const family = style === 'fantasy' ? FONT_FANTASY : FONT_REALISTIC;
-  return places.map((p, id) => {
-    const kind = kindOf(p);
+  const out: LabelItem[] = [];
+  places.forEach((p, id) => {
+    if (p.kind === 'pass') return;
+    const kind = kindOf(p as Place & { kind: Exclude<Place['kind'], 'pass'> });
     const t = TYPE[kind];
     const look = looks[kind];
     const rank = Math.max(1, Math.min(3, Math.round(p.rank)));
@@ -166,8 +177,9 @@ export function placeLabelItems(places: Place[], style: CivStyle): LabelItem[] {
         item.tolerance = 0.04;
         break;
     }
-    return item;
+    out.push(item);
   });
+  return out;
 }
 
 /** 地理名:不随年份变。"地名"关掉时为空;打开了「州」时加上州名 */
@@ -697,6 +709,10 @@ export function civMapLayer(p: CivDrawParams, opt: { fast?: boolean; proj?: MapP
       name.pick = { kind: 'settlement', id: s.id };
       items.push(name);
     }
+    // 关隘:符号 + 关名(render/civ/passes.ts;和城镇一起排,挤的时候村镇让关)
+    const pl = passLabels(civ, world, p.year, style, passLook(style), family, opt.fast);
+    marks.push(...pl.marks);
+    items.push(...pl.items);
   }
   return { items, marks, sides };
 }

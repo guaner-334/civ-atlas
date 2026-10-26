@@ -53,12 +53,18 @@ function fingerprint(seed: number): Record<string, string> {
   const civ = generateCiv(w);
   const out: Record<string, string> = {};
   for (const k of Object.keys(w).sort()) out[`world.${k}`] = print((w as unknown as Record<string, unknown>)[k]);
-  for (const k of Object.keys(civ).sort()) out[`civ.${k}`] = print((civ as unknown as Record<string, unknown>)[k]);
+  for (const k of Object.keys(civ).sort()) {
+    // 地图上画的关隘(Place.kind = 'pass')是后加的:别的地名单算一份(加关隘时它一个字没变),关隘另算一份
+    if (k === 'places') {
+      out['civ.places'] = print(civ.places.filter((p) => p.kind !== 'pass'));
+      out['civ.places.pass'] = print(civ.places.filter((p) => p.kind === 'pass'));
+    } else out[`civ.${k}`] = print((civ as unknown as Record<string, unknown>)[k]);
+  }
   return out;
 }
 
 /**
- * 期望值是 GENERATOR_VERSION 24 算的(civ.religion 是后加的字段,加它时别的字段一个没变;10 加了邦交、11 加了君主性格和扩张算账,历史都重排;12 只改了 civ.people:多了名臣,将领有了字号、籍贯、官职,撞名的将领换了名字;13 改了宜居度和城的人口上限,地形一个字段没变,历史重排;多了 civ.capNorm;14 处理了封闭内海、贴着海的湖、湖心小块地,地形局部变了、历史重排;15 立国更早、多了边缘立国和民族分化,历史重排;civ.development 是后加的字段,加它时别的字段一个没变;16 有了航海时代,历史重排;17 发展度反过来影响人口、打仗和远航,各国自己进航海时代,历史重排;18 降水分夏冬两半年算、河多了,地形不变,气候、河流、历史重排;19 仗短而狠、乘胜连下、前线拉锯,历史重排;20 有了饥荒、民变、大崩解,历史重排;23 推完以后的整理只看每样东西出现以前的历史,归属、日志、史事、检查点一个没变,民族、州、城、国家、人物、地名、道路、信仰重排,多了 civ.capSpacing;24 推演里走过的航线不通到遗址,只有 civ.routes 变了;36 君主有了诸子、王子领兵、争储,宗室据地自立,历史重排)。经纬度换算、沿大圆走、球面三角形面积这些三角函数都舍入到 24 位,
+ * 期望值是 GENERATOR_VERSION 24 算的(civ.religion 是后加的字段,加它时别的字段一个没变;地图上画的关隘(civ.places 里的 pass,算在 civ.places.pass)也是后加的,加它时别的字段、别的地名一个没变;10 加了邦交、11 加了君主性格和扩张算账,历史都重排;12 只改了 civ.people:多了名臣,将领有了字号、籍贯、官职,撞名的将领换了名字;13 改了宜居度和城的人口上限,地形一个字段没变,历史重排;多了 civ.capNorm;14 处理了封闭内海、贴着海的湖、湖心小块地,地形局部变了、历史重排;15 立国更早、多了边缘立国和民族分化,历史重排;civ.development 是后加的字段,加它时别的字段一个没变;16 有了航海时代,历史重排;17 发展度反过来影响人口、打仗和远航,各国自己进航海时代,历史重排;18 降水分夏冬两半年算、河多了,地形不变,气候、河流、历史重排;19 仗短而狠、乘胜连下、前线拉锯,历史重排;20 有了饥荒、民变、大崩解,历史重排;23 推完以后的整理只看每样东西出现以前的历史,归属、日志、史事、检查点一个没变,民族、州、城、国家、人物、地名、道路、信仰重排,多了 civ.capSpacing;24 推演里走过的航线不通到遗址,只有 civ.routes 变了;36 君主有了诸子、王子领兵、争储,宗室据地自立,历史重排)。经纬度换算、沿大圆走、球面三角形面积这些三角函数都舍入到 24 位,
  * 推演里的超越函数也一样,所以各 CPU、各浏览器逐位一致
  */
 const EXPECTED: Record<number, Record<string, string>> = {
@@ -83,27 +89,28 @@ const EXPECTED: Record<number, Record<string, string>> = {
     'world.water': '78ebae4644e5',
     'world.waterLevel': 'eb3f3f7cdd31',
     'world.width': '2fd8ac4eb585',
-    'civ.annals': '9c53ccefc8b6',
+    'civ.annals': '660010a126e1',
     'civ.capNorm': '9b2058f28291',
     'civ.capSpacing': '8fda3225da8f',
-    'civ.checkpoints': '34b59f2cd8f7',
-    'civ.culture': '2060b9524b73',
-    'civ.cultures': '6a18e54274cc',
-    'civ.development': 'a394c5160adc',
+    'civ.checkpoints': '2aa33452187b',
+    'civ.culture': '0c18b11edcf9',
+    'civ.cultures': 'ab0b4dc443ee',
+    'civ.development': '9d65aa04c8bc',
     'civ.endYear': 'c1d83dcab0a1',
     'civ.habitat': '35d8ad95d249',
-    'civ.log': 'aa8ef7dd1383',
-    'civ.people': '93d7124c6cb2',
+    'civ.log': 'f3e2bfa7cbcf',
+    'civ.people': 'acd2b5e161c8',
     'civ.places': 'e82d872374d7',
-    'civ.polities': '18261dd1e3c2',
-    'civ.polity': '01897c55217f',
+    'civ.places.pass': '6fa0b96bba14',
+    'civ.polities': 'e028438dbe99',
+    'civ.polity': '13e1d9aca06d',
     'civ.polityYears': 'e5d380617183',
-    'civ.regions': '830c0ec643d2',
-    'civ.religion': 'fd74408ff9d1',
-    'civ.routes': 'c8f4f86930de',
+    'civ.regions': 'ca08e0cb34ca',
+    'civ.religion': '485fb84b9aa4',
+    'civ.routes': 'c6721bbe423f',
     'civ.sailFrom': '5bd9534e2395',
     'civ.seed': '3ff6de7b7854',
-    'civ.settlements': '362295d2ab9f',
+    'civ.settlements': '8d91678f592e',
     'civ.spreadYears': '61c69775ebc4',
     'civ.viable': '139cfad50334',
   },
@@ -128,34 +135,81 @@ const EXPECTED: Record<number, Record<string, string>> = {
     'world.water': '3b5ac6e5ff00',
     'world.waterLevel': '35508e445f12',
     'world.width': '2fd8ac4eb585',
-    'civ.annals': 'be99466a0aed',
+    'civ.annals': '5c1ecadbb68a',
     'civ.capNorm': '993fb8af314c',
     'civ.capSpacing': '8fda3225da8f',
-    'civ.checkpoints': '0ecb128703a4',
+    'civ.checkpoints': 'eb1b9d3e8bef',
     'civ.culture': 'f1e82d68e1a2',
     'civ.cultures': '8821902587d9',
-    'civ.development': '6ae0ee851859',
+    'civ.development': '580f6eb95043',
     'civ.endYear': 'c1d83dcab0a1',
     'civ.habitat': '1268425e378a',
-    'civ.log': 'd574ad8f3ebd',
-    'civ.people': '928f066276f1',
+    'civ.log': '0b2bc69b2d51',
+    'civ.people': 'e0ede81091fe',
     'civ.places': '1648605488de',
+    'civ.places.pass': 'b8b85d4c733f',
     'civ.polities': 'b0467e82af08',
     'civ.polity': 'a0bfc226607c',
     'civ.polityYears': 'e5d380617183',
     'civ.regions': 'e6173acad374',
-    'civ.religion': '6162ccf66a59',
+    'civ.religion': 'f882a444cf7a',
     'civ.routes': '207e18c17b2e',
     'civ.sailFrom': '5bd9534e2395',
     'civ.seed': '0096064c9137',
-    'civ.settlements': 'ffa12fdd4b31',
+    'civ.settlements': 'd579876ebbe9',
     'civ.spreadYears': '3f4246767d58',
+    'civ.viable': '139cfad50334',
+  },
+  555: {
+    'world.biome': 'cca45da35de5',
+    'world.climate': '80fc89f4397e',
+    'world.currents': 'a72b7b25c092',
+    'world.elevation': 'c7fce070eac0',
+    'world.flux': '2a85dab2ca5d',
+    'world.height': 'fd7f315bb385',
+    'world.history': '0062cb3dd341',
+    'world.maxElevation': '1f608fcaeec9',
+    'world.mesh': '078ef2351116',
+    'world.params': '812ced2cd033',
+    'world.precipitation': '50516b576134',
+    'world.riverThreshold': '4d0838ba97f9',
+    'world.rivers': 'bf362e700894',
+    'world.seaIce': '348ee892db40',
+    'world.tect': '1067700095d3',
+    'world.temperature': '53ea8de0446e',
+    'world.volcanoes': '1184f5b8d4b6',
+    'world.water': '050e7112dd1c',
+    'world.waterLevel': '52d96cb0744c',
+    'world.width': '2fd8ac4eb585',
+    'civ.annals': 'a1138c45cd61',
+    'civ.capNorm': '92c2a5c30ea1',
+    'civ.capSpacing': '8fda3225da8f',
+    'civ.checkpoints': '5e5f76e9fbe0',
+    'civ.culture': 'f72d4f700cc4',
+    'civ.cultures': '6fe475dbe750',
+    'civ.development': '134a1cee63aa',
+    'civ.endYear': 'c1d83dcab0a1',
+    'civ.habitat': '91e9fb0abefb',
+    'civ.log': '14ea98a7d7e8',
+    'civ.people': '020d588392f2',
+    'civ.places': '4f5c7e90ec98',
+    'civ.places.pass': '43d36fd41b23',
+    'civ.polities': 'bd8f1dd1e11d',
+    'civ.polity': 'fa9e31f145a0',
+    'civ.polityYears': 'e5d380617183',
+    'civ.regions': 'd6d1a9bd328a',
+    'civ.religion': '7df6e5a0d585',
+    'civ.routes': '6179fa7e350a',
+    'civ.sailFrom': '5bd9534e2395',
+    'civ.seed': '6b5deaaf6a3b',
+    'civ.settlements': '5321b263a52a',
+    'civ.spreadYears': 'cd11167707e7',
     'civ.viable': '139cfad50334',
   },
 };
 
 describe('同一个种子在任何电脑上都是同一个世界', () => {
-  it.each([2024, 7])('seed %i(12k 地块):地形、文明全部数据的指纹逐字段对得上', (seed) => {
+  it.each([2024, 7, 555])('seed %i(12k 地块):地形、文明全部数据的指纹逐字段对得上', (seed) => {
     const fp = fingerprint(seed);
     if (process.env.PRINT_FINGERPRINT) console.log(`${seed}: ${JSON.stringify(fp, null, 2)}`);
     expect(fp).toEqual(EXPECTED[seed]);

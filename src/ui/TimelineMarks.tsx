@@ -17,6 +17,7 @@
  * - 键盘:← → 前后 10 年(按住 Shift 100 年),Home / End 到头 / 到尾。
  * - 只在换世界 / 换筛选 / 轨道宽度变了时重排。
  * - 大纲的情节(OutlineMap.tsx 的 PlotTicks):基线上每条一颗小菱形,颜色按批改的章;悬停出小卡,点一下 = 在大纲里点那一条。
+ * - 全球大疫(pandemics):起疫那一条的点画成深色大点,宽屏底下写"克尔顿大疫";疫后凋敝那几十年基线底下一道灰褐短条。
  * - 再推 N 年(ExtendYears.tsx):推的时候(grow)轨道按推完的长度排,新的一段推好了的浅蓝、没推到的虚线,上面一行字;
  *   这时只能拖到推之前的结束年份(limit)。推完以后刚推的那段(fresh)底下垫一道浅蓝、起点一条细线。
  */
@@ -101,7 +102,20 @@ export interface TimelineMarksProps {
   life?: TimelineLife;
   /** 大纲的情节:压在基线上的记号(不给 = 没有大纲) */
   plots?: readonly PlotTick[];
+  /** 起过的全球大疫:起疫那年的点画成深色大点,底下写名字;凋敝的那几十年基线底下一道灰褐短条(不给 = 没有) */
+  pandemics?: readonly TimelinePandemic[];
 }
+
+/** 一场全球大疫:哪年起、凋敝到哪年、叫什么("克尔顿大疫") */
+export interface TimelinePandemic {
+  year: number;
+  end: number;
+  name: string;
+}
+
+/** 全球大疫名字的字号(像素);离刻度的字至少这么远(像素)才写 */
+const PAN_FONT = 11;
+const PAN_GAP = 6;
 
 /** 选中的国家:哪一国、哪年立国、哪年亡(还在 = null)、国色 */
 export interface TimelineLife {
@@ -116,7 +130,7 @@ const NOTE_PAD = 2;
 
 type Tip = Diamond & { pinned?: boolean };
 
-export const TimelineMarks = memo(function TimelineMarks({ entries, end, dock, year, era, range, small, limit, grow, fresh, life, plots }: TimelineMarksProps) {
+export const TimelineMarks = memo(function TimelineMarks({ entries, end, dock, year, era, range, small, limit, grow, fresh, life, plots, pandemics }: TimelineMarksProps) {
   const ref = useRef<HTMLDivElement>(null);
   const months = useMonths();
   const tipRef = useRef<HTMLDivElement>(null);
@@ -432,6 +446,33 @@ export const TimelineMarks = memo(function TimelineMarks({ entries, end, dock, y
     };
   }, [life, range, width, end, top, small, era]);
 
+  // 全球大疫:凋敝那几十年基线底下一道灰褐短条(太短的至少 6 像素),宽屏在起疫那年底下写名字(和刻度的字、前一场的名字挤着就不写)
+  const panEls = useMemo(() => {
+    if (!pandemics?.length || range || !(width > 0) || !(end > 0)) return null;
+    const X = (y: number) => (Math.min(end, Math.max(0, y)) / end) * width;
+    const rulers = small ? [] : rulerOf(end, era, width).labels.map((y) => ({ x: X(y), w: rulerLabel(y, era).length * 6.2 }));
+    let last = -Infinity;
+    return pandemics.map((p, i) => {
+      const a = X(p.year);
+      const b = X(p.end);
+      const w = textWidth(p.name, PAN_FONT);
+      const free = !small && a - w / 2 > last + PAN_GAP && rulers.every((r) => Math.abs(r.x - a) > (r.w + w) / 2 + PAN_GAP);
+      if (free) last = a + w / 2;
+      return (
+        <Fragment key={`p${i}`}>
+          <i className="tb-slump" data-year={Math.floor(p.year)} style={{ left: a, width: Math.max(6, b - a) }} />
+          {free && (
+            <span className="tb-pan-lab" style={{ left: a }}>
+              {p.name}
+            </span>
+          )}
+        </Fragment>
+      );
+    });
+  }, [pandemics, range, width, end, small, era]);
+  /** 起疫那一刻(大点:编年史里那一条标签"疠"、年份对得上) */
+  const panStarts = useMemo(() => new Set((pandemics ?? []).map((p) => p.year)), [pandemics]);
+
   const lifeId = life && !range ? life.polity : null;
   const marks = useMemo(
     () => (
@@ -441,9 +482,11 @@ export const TimelineMarks = memo(function TimelineMarks({ entries, end, dock, y
           const state = `${hot === d.lead ? ' on' : ''}${range && (d.lead.year < range.from || d.lead.year > range.to + 1) ? ' out' : ''}${dim ? ' dim' : ''}`;
           // 里面有新国家立起来、颜色又不是立国的:上面叠一颗绿点(选中了国家时不叠:它的立国另有一颗大绿点,别的点里叠的是别国的立国)
           const up = lifeId === null && hidesFounding(d);
+          // 里面有全球大疫起疫的那一条:深色大点
+          const pan = panStarts.size > 0 && d.items.some((e) => e.tag === '疠' && panStarts.has(e.year));
           return (
             <Fragment key={`m${d.lead.id}`}>
-              <i className={`tb-mark${d.items.length > 1 ? ' many' : ''}${state}`} data-ev={evType(d.lead)} data-year={Math.floor(d.lead.year)} data-n={d.items.length} style={{ left: d.x }} />
+              <i className={`tb-mark${d.items.length > 1 ? ' many' : ''}${pan ? ' pan' : ''}${state}`} data-ev={evType(d.lead)} data-year={Math.floor(d.lead.year)} data-n={d.items.length} style={{ left: d.x }} />
               {up && <i className={`tb-mark-up${state}`} data-ev="found" data-year={Math.floor(d.lead.year)} style={{ left: d.x }} />}
             </Fragment>
           );
@@ -472,7 +515,7 @@ export const TimelineMarks = memo(function TimelineMarks({ entries, end, dock, y
         ))}
       </>
     ),
-    [layout, hot, width, range?.from, range?.to, lifeId],
+    [layout, hot, width, range?.from, range?.to, lifeId, panStarts],
   );
 
   /** 提示、卡片里一条纪事底下列的:大崩解分出来的每一国(编年史里那一条展开的几行) */
@@ -506,6 +549,7 @@ export const TimelineMarks = memo(function TimelineMarks({ entries, end, dock, y
       {growFrom !== null && width > 0 && <GrowTrack from={growFrom} at={grow!.at} end={end} width={width} />}
       <i className="tb-prog" />
       {plots && growFrom === null && <PlotTicks ticks={plots} end={end} width={width} below={dock === 'top'} />}
+      {panEls}
       {lifeEls?.band}
       {marks}
       {lifeEls?.top}

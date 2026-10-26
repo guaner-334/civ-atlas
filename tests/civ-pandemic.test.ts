@@ -211,12 +211,14 @@ describe('全球大疫', () => {
     expect(main).toBeDefined();
     expect(main.text).toMatch(/^.+大疫:起于.+,至.+州,\d+ 年乃息。城中死者十之.+,天下人口十去其.$/);
     expect(main.importance).toBe(3);
+    expect(main.tag).toBe('疠');
     expect(main.children!.length).toBeGreaterThan(3);
     const des = list.filter((e) => e.text.includes('疫后城邑荒废'));
     expect(des.reduce((s, e) => s + (e.children?.length ?? 1), 0)).toBe(p.desolated.length);
-    for (const e of des) expect(e.tag).toBe('疫');
+    for (const e of des) expect(e.tag).toBe('疠');
     const end = list.find((e) => e.year === Y + 30 && e.text.startsWith('疫后凋敝三十年,至是始复'));
     expect(end).toBeDefined();
+    expect(end!.tag).toBe('疠');
     const iv = list.find((e) => e.kind === 'intervene' && e.year === Y)!;
     expect(iv.text).toMatch(/起大疫,疫后无人收拾三十年$/);
     const back = developmentEntries(civ).filter((e) => e.text.includes('退入'));
