@@ -1233,6 +1233,7 @@ function passPlaces(world: World, ns: Namers, sites: readonly PassSite[]): Place
     if (s.detour !== undefined) p.pass.detour = s.detour;
     if (s.road !== undefined) p.pass.road = s.road;
     if (s.stand !== undefined) p.pass.stand = s.stand;
+    if (s.stands?.length) p.pass.stands = s.stands.slice();
     out.push(p);
   }
   return out;

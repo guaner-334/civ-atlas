@@ -22,7 +22,7 @@ import { clipOutline, projector, reprojectImage, relShifts } from '../projection
 import { drawParts, nearX, type DrawPart, type WorkStep } from '../common';
 import { drawBorders, mergeChains, regionChains, BAND, type SidedLine } from './borders';
 import { drawRoutes } from './routes';
-import { drawPlagueDetail } from './plague';
+import { drawPlagueDetail, washCanvas } from './plague';
 import { drawRegionLines, drawSites, habitatCanvas } from './debug';
 import { addToPath, chaikin, meshWrap } from './lines';
 import { DETAIL_EDGE_D, inkFromSymbols, regionPixels, washDetail, washFields, type WashFields } from './territory';
@@ -497,9 +497,17 @@ export function planCivDetail(p: CivDrawParams, v: CivDetailView, step: number, 
         t.wash += performance.now() - t1;
         return row < ch;
       },
-      // 3. 州界、国界、道路、城址(矢量线,线宽 × pen)
+      // 3. 荒地褪色(整张图那一层放大贴上)、州界、国界、道路、城址(矢量线,线宽 × pen)
       (ctx) => {
         const t2 = performance.now();
+        const wash = washCanvas(p);
+        if (wash) {
+          ctx.save();
+          ctx.imageSmoothingEnabled = true;
+          if (v.mp) reprojectImage(ctx, wash, raster.w, raster.h, v.mp, v, 'low');
+          else eachPart(ctx, v, world, S, () => ctx.drawImage(wash, 0, 0, raster.w, raster.h));
+          ctx.restore();
+        }
         const pj = v.mp ? projector(v.mp) : null;
         eachPart(ctx, v, world, S, (cull) => {
           const q: CivDrawParams = { ...p, proj: pj, pen, cull };

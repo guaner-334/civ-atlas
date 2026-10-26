@@ -2,7 +2,7 @@
  * 图层弹层(LayerPopover.tsx)里的文明开关和图例:
  *
  *   CivToggles     图层面板「叠加」的开关(三个一行):地名、州、城址、道路、战事、宜居度、物产、瘟疫(可以同时开几个,再点一次关闭);
- *                  开着宜居度 / 道路 / 战事 / 瘟疫时下面一行小图例(贫瘠 → 富饶的色带;大路 / 小路 / 航线;战线 / 战时易手 / 交战处 / 疫区)
+ *                  开着宜居度 / 道路 / 战事 / 瘟疫时下面一行小图例(贫瘠 → 富饶的色带;大路 / 小路 / 航线;战线 / 战时易手 / 交战处 / 疫区 / 荒地)
  *   CultureLegend  选中"民族"图层时:这一年还在的民族,按地盘大小排的紧凑色块列表(族名 + 州数)
  *   FaithLegend    选中"信仰"图层时:这一年的信仰,和侧栏「信仰」一组同样的顺序(大教、跟着它的教派、最后民间信仰)
  *
@@ -28,7 +28,7 @@ const TOGGLES: { key: Exclude<keyof CivShow, 'polities' | 'cultures' | 'faiths' 
   { key: 'wars', name: '战事', hint: '正在打的仗(开着国家时画):红线是战线,斜线是这场仗里易手的州,双剑是打过仗的地方' },
   { key: 'habitat', name: '宜居度', hint: '哪里适合住人:颜色越深越宜居;不上色的是冰原等不可居之地' },
   { key: 'resources', name: '物产', hint: '州治上的圆章:这一州出什么、这一年能用多少;侧栏里能只看一样' },
-  { key: 'plague', name: '瘟疫', hint: '正在闹瘟疫的地方(开着国家时画):墨点越密死的人越多,疫过几年淡掉' },
+  { key: 'plague', name: '瘟疫', hint: '正在闹瘟疫的地方(开着国家时画):墨点越密死的人越多,疫过几年淡掉;全球大疫以后人少了的地方地色褪灰(荒地)' },
 ];
 
 /** "道路"图例:实线大路、虚线小路、点线航线 */
@@ -151,13 +151,22 @@ export function CivToggles() {
   );
 }
 
-/** "瘟疫"图例:和地图上一样的墨点 */
+/** "瘟疫"图例:和地图上一样的墨点;全球大疫以后的荒地:褪成灰褐的一块,上面一簇枯草 */
 function PlagueKey() {
   return (
-    <span className="lp-route lp-plague">
-      <b aria-hidden="true" />
-      疫区
-    </span>
+    <>
+      <span className="lp-route lp-plague">
+        <b aria-hidden="true" />
+        疫区
+      </span>
+      <span className="lp-route lp-plague lp-waste">
+        <svg width="14" height="10" aria-hidden="true">
+          <rect x="0" y="0" width="14" height="10" rx="2" fill="rgb(136, 126, 104)" fillOpacity={0.34} />
+          <path d="M4.4 3.2L5.9 6.6M7 2.6L7 6.6M9.6 3.2L8.1 6.6" stroke="rgb(104, 86, 62)" strokeOpacity={0.8} strokeWidth={0.9} strokeLinecap="round" />
+        </svg>
+        荒地
+      </span>
+    </>
   );
 }
 

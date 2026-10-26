@@ -312,9 +312,12 @@ describe('战争与攻占', () => {
         const c = kids.get(i);
         expect(c, tag).toBeDefined();
         expect(c!.text).toMatch(/军败退,/);
-        expect(c!.text).toContain(`${civ.regions.name![e.region]}${/之隘/.test(c!.text) ? '之隘' : ''}`);
+        // 守的口子画在地图上(Place.pass.stands 记着这一条)写关名,没对上的写"某州之隘"
+        const gatePlace = civ.places.find((p) => p.pass?.stands?.includes(i));
+        if (gatePlace) expect(c!.text).toMatch(new RegExp(`守${gatePlace.name},`));
+        else expect(c!.text).toContain(`${civ.regions.name![e.region]}${/之隘/.test(c!.text) ? '之隘' : ''}`);
         expect(c!.text).toContain(civ.regions.name![hold]);
-        expect(c!.text).toMatch(/之隘|隘口|山口/);
+        expect(c!.text).toMatch(/之隘|隘口|关|山口/);
         expect(c!.text).toMatch(/[两三四五六七]日|[两三四五六七]天/);
         expect(c!.text).toMatch(/退保|撤回/);
         expect(c!.text).not.toMatch(/某国|undefined|NaN/);

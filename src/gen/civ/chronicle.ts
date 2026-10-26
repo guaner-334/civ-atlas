@@ -93,7 +93,7 @@ import {
   settlementRank,
 } from './growth';
 import { pandemicsOf } from './pandemicInfo';
-import { HABITABLE_SUIT, cultureLabel, regionLabel } from './display';
+import { HABITABLE_SUIT, cultureLabel, regionLabel, standPassName } from './display';
 import { ownersAt } from './timeline';
 import { plagueSpans } from './plagueSpans';
 import { councilBefore } from './councilRules';
@@ -2354,8 +2354,10 @@ function warEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
     // 大军退保关隘后面的哪州(Annal.foe;没记 = 关隘所在的州)
     const hold = e.foe ?? e.region;
     const back = regionName(civ, hold);
-    // 州名里已经带"之"的("羊涂之野")不再叠一个"之":写"羊涂之野隘口"
-    const pass = r ? (east ? (r.includes('之') ? `${r}隘口` : `${r}之隘`) : khan ? `${r}山口` : `${r}的山口`) : east ? '险隘' : '山口';
+    // 守的口子画在地图上(名关、打过守关战的口子,Place.pass.stands 记着这一条)= 直接写关名("守银竹关");
+    // 没对上的照旧用州名称呼。州名里已经带"之"的("羊涂之野")不再叠一个"之":写"羊涂之野隘口"
+    const onMap = standPassName(civ, i);
+    const pass = onMap || (r ? (east ? (r.includes('之') ? `${r}隘口` : `${r}之隘`) : khan ? `${r}山口` : `${r}的山口`) : east ? '险隘' : '山口');
     const s = sideOf(e.a);
     const rear = ix?.rear.get(i) ?? null;
     // 掩护的是这一方的统帅:这一刻以前就在领兵的才写名字(这一刻才换上来的写"大军")
