@@ -262,7 +262,7 @@ export function CivDetail({ world, raster, params, civ, style, sel, selYear, hl,
     // 分帧备料(见 detailJobs.ts):不在回放 / 拖时间轴时才分(回放每一年都要马上画);关掉开关时当下画完
     const async = detailAsync && !fast;
     const selKey = wantSel ? `${sel!.kind}|${sel!.id}|${selYear}|${style}` : null;
-    const hlKey = wantHl ? `${hl!.stamp}|${style}` : null;
+    const hlKey = wantHl ? `${hl!.stamp}|${style}|${hl!.blue ? 1 : 0}` : null;
 
     /** r 这一块(整体左右挪 dx)盖住 [x0, x1] × [y0, y1] 没有 */
     const covers = (r: Region, x0: number, y0: number, x1: number, y1: number, dx = 0) =>

@@ -4,7 +4,8 @@
  * - 事发州(浓):暖橙色罩染 + 亮金色描边;事发地在屏幕上很小时外面再套一个金色圆圈;
  *   相关国家的国土(淡):写实风一层米白 + 白色描边,手绘风朱砂描边;两国相接处也描一道(看得出谁是谁)。
  *   描边外面垫一道反差色,在浅色羊皮纸、深色森林上都看得清。
- *   一直亮着的(steady:天灾页先把受灾的州涂出来):罩染同事发州,外框只描一道细橙线,不垫深色、不发光。
+ *   一直亮着的(steady:天灾页先把受灾的州涂出来):罩染同事发州,外框只描一道细橙线,不垫深色、不发光;
+ *   管辖填色下(blue)罩染和外框改用蓝色:割据的州在那里是橙色,橙色的圈亮会和它撞色。
  * - 罩染按像素(Raster.cell → 州),半分辨率再放大,边缘略柔;描边沿州界(borders.ts 的链,平滑后)。
  *   州界的链只描"陆地 — 陆地"之间,海岸那一侧靠罩染看出来。
  * - 画在单独一张和地图一样大的画布上(CivLayer 的 canvas.civ-hl),闪烁用 CSS 动画(改不透明度),不重画。
@@ -29,10 +30,20 @@ export interface CivHighlight {
   year: Year;
   /** 一直亮着的预览(不闪):事发州的外框只描一道细橙线(STEADY_LINE) */
   steady?: boolean;
+  /** 一直亮着的预览改用蓝色(管辖填色下;ui/civView.ts 的 useCivHighlight 按现在的填色给) */
+  blue?: boolean;
 }
 
 /** 一直亮着的预览,事发州外框:颜色、线宽(世界单位) */
 const STEADY_LINE = { color: 'rgba(255,122,0,0.95)', width: 2.2 };
+/** 同上,蓝色(管辖填色下;界面上可点的蓝 --link):外框、罩染(RGBA 0–255,淡一些,底下的管辖颜色还看得出) */
+const BLUE_LINE = { color: 'rgba(10,108,220,0.95)', width: 2.2 };
+const BLUE_FILL: RGBA = [10, 108, 220, 64];
+
+/** 一直亮着的预览外框用哪种颜色 */
+function steadyLine(hl: CivHighlight): { color: string; width: number } {
+  return hl.blue ? BLUE_LINE : STEADY_LINE;
+}
 
 /** 每州的标记:2 = 事发州,1 = 相关国家的国土,0 = 不亮 */
 export function highlightMarks(civ: Civ, h: CivHighlight): Uint8Array {
@@ -122,9 +133,10 @@ const LOOK: Record<'light' | 'ink', { fill: [RGBA, RGBA]; polLine: [string, stri
 /** 事发地在屏幕上很小(外框 × 缩放倍数不到地图宽的这么多)时,外面再画一个圆圈,整张地图上也一眼找得到 */
 export const RING_BELOW = 0.05;
 
-/** 高亮罩染的颜色 [相关国家, 事发州](RGBA 0–255;放大后的细节层用) */
-export function highlightFill(style: CivStyle): [RGBA, RGBA] {
-  return LOOK[style === 'fantasy' ? 'ink' : 'light'].fill;
+/** 高亮罩染的颜色 [相关国家, 事发州](RGBA 0–255;放大后的细节层也用);blue = 事发州用蓝色(管辖填色下一直亮着的预览) */
+export function highlightFill(style: CivStyle, blue = false): [RGBA, RGBA] {
+  const fill = LOOK[style === 'fantasy' ? 'ink' : 'light'].fill;
+  return blue ? [fill[0], BLUE_FILL] : fill;
 }
 
 /**
@@ -146,7 +158,7 @@ export function drawHighlight(
 ): Uint8Array {
   const { marks, group } = marksAndGroups(civ, hl);
   const look = LOOK[style === 'fantasy' ? 'ink' : 'light'];
-  const FILL = look.fill;
+  const FILL = highlightFill(style, !!(hl.steady && hl.blue));
   const { w, h, scale: S } = raster;
   ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
   let lit = 0;
@@ -226,8 +238,9 @@ export function drawHighlight(
     for (let r = 0; r < R; r++) strong[r] = marks[r] === 2 ? 1 : 0;
     const pa = path(mergeChains(rc, strong));
     if (hl.steady) {
-      ctx.strokeStyle = STEADY_LINE.color;
-      ctx.lineWidth = STEADY_LINE.width * S;
+      const line = steadyLine(hl);
+      ctx.strokeStyle = line.color;
+      ctx.lineWidth = line.width * S;
       ctx.stroke(pa);
     } else {
       ctx.strokeStyle = 'rgba(40,12,0,0.7)';
@@ -314,7 +327,7 @@ export function highlightStrokes(world: World, civ: Civ, hl: CivHighlight, style
     const strong = new Int32Array(marks.length);
     for (let r = 0; r < marks.length; r++) strong[r] = marks[r] === 2 ? 1 : 0;
     const lines = smooth(mergeChains(rc, strong));
-    if (hl.steady) out.push({ lines, ...STEADY_LINE });
+    if (hl.steady) out.push({ lines, ...steadyLine(hl) });
     else out.push({ lines, color: 'rgba(40,12,0,0.7)', width: 8 }, { lines, color: 'rgba(255,200,70,1)', width: 3.8, blur: 8, glow: 'rgba(255,190,60,0.95)' });
   }
   return { strokes: out, ring };

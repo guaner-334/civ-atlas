@@ -1393,6 +1393,13 @@
   background: rgba(36, 32, 28, 0.92);
   color: #ffa45c;
 }
+/* 管辖填色下圈亮是蓝色(橙色和割据撞色):牌子上的字也是蓝的 */
+.tp-tag.blue {
+  color: #0a5cc0;
+}
+[data-theme='dark'] .tp-tag.blue {
+  color: #6cb4ff;
+}
 
 /* ---- 窄屏(手机):面板是从屏幕底升起的卡片(Inspector.tsx),时间轴胶囊浮在它上面;半屏 / 拉到顶的位置见 phone.css 的 --sheet-half / --sheet-full ---- */
 .sheet-grip {

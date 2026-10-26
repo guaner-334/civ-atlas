@@ -186,8 +186,59 @@ export function resumeCouncil(sim: CivSim, civ: Civ): void {
 
 function rulesOf(book: Map<number, Rules>, p: number): Rules {
   let r = book.get(p);
-  if (!r) book.set(p, (r = { tax: 0, shock: -Infinity, last: new Array<Year>(ISSUES).fill(-Infinity) }));
+  if (!r) book.set(p, (r = newRules()));
   return r;
+}
+
+function newRules(): Rules {
+  return { tax: 0, shock: -Infinity, last: new Array<Year>(ISSUES).fill(-Infinity) };
+}
+
+/** 议得起来的国家:至少几州、立国满几年;割据满几年才议削藩(界面上说明用) */
+export const COUNCIL_GATE = { size: MIN_SIZE, age: MIN_AGE, cutAge: CUT_AGE } as const;
+
+/** 国家 p 在 year 这一年够不够格议事(州数 n;不看打不打仗) */
+export function councilAble(P: Pick<Polity, 'founded'>, n: number, year: Year): boolean {
+  return n >= MIN_SIZE && year - P.founded >= MIN_AGE;
+}
+
+/** 一国到某一年为止议定的规矩(界面用,只读) */
+export interface CourtRules {
+  /** 征法:0 代收、1 分成、2 直征 */
+  tax: number;
+  /** 定下现在这个征法的那次议事(史事下标;立国以来一直代收 = −1)、那次以前的征法 */
+  taxBy: number;
+  taxFrom: number;
+  /** 现在分封着边地:分封的那次议事(史事下标;没分封 = −1) */
+  fiefBy: number;
+  /** 这一国到那一年为止议过的事(史事下标,按先后) */
+  events: number[];
+}
+
+/**
+ * 国家 p 到 year 这一年为止的规矩:由史事 council 重建(和接着推时 resumeCouncil 同一个算法),不改历史。
+ * 史事按年份排好,year 以后的不看
+ */
+export function courtRulesAt(civ: Pick<Civ, 'annals'>, p: number, year: Year): CourtRules {
+  const r = newRules();
+  const out: CourtRules = { tax: 0, taxBy: -1, taxFrom: 0, fiefBy: -1, events: [] };
+  const A = civ.annals;
+  for (let i = 0; i < A.length; i++) {
+    const e = A[i];
+    if (e.year > year) break;
+    if (e.kind !== 'council' || e.a !== p) continue;
+    const tax = r.tax;
+    const fief = r.fief;
+    apply(r, e.war, e.n ?? Outcome.Shelve, e.year);
+    out.events.push(i);
+    if (r.tax !== tax) {
+      out.taxBy = i;
+      out.taxFrom = tax;
+    }
+    if (r.fief !== fief) out.fiefBy = r.fief === undefined ? -1 : i;
+  }
+  out.tax = r.tax;
+  return out;
 }
 
 /** 议了一件事以后规矩怎么变 */
