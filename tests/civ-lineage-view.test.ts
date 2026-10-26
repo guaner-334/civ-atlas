@@ -127,7 +127,7 @@ describe('世系图 · seed=7 的卢梅亚、埃维里亚', () => {
     expect(root.died!).toBeLessThan(cr[h].from);
     expect(princeRole(civ, root)).toBe('大岳宗室');
     // 西幻的王室:开国之君的父亲死在新朝之前,不写成上一朝的宗室
-    // (GENERATOR_VERSION 37 以后 seed 7 的哈兹斯坦没有了萨拉巴德王室,换成 seed 2024 卢纳维亚的提罗纳王室,上一朝是德鲁萨洛拉)
+    // (GENERATOR_VERSION 38 以后 seed 7 的哈兹斯坦没有了萨拉巴德王室,换成 seed 2024 卢纳维亚的提罗纳王室,上一朝是德鲁萨洛拉)
     const civ2 = civOf(2024);
     const w = civ2.polities.findIndex((p) => p.name === '卢纳维亚');
     const wr = dynastyRows(civ2, w);
