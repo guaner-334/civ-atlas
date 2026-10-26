@@ -177,6 +177,8 @@ export const enum Ev {
   TreatyEnd = 41,
   /** 中立地(treaties.ts):不单独预约,是一州划为中立地(归属 → −1)、中立地撤销还给原主时变化日志记的原因 */
   Neutral = 42,
+  /** 中立地到期(treaties.ts):a = 中立地的编号。作者下令划的中立地选了"到某一年",划的那一刻预约在那一年:撤销 */
+  ZoneEnd = 43,
   /**
    * 看分化(民族分化,assimilation.ts;编号 45–49):a = 第几次看。每隔一百年看一眼各民族:被海峡、山脉隔开,
    * 或分属不同国家几百年的一支,有机会分化成新民族(亲缘民族,族名带母族的名字)
@@ -259,6 +261,7 @@ export const EVENT_INFO: EventInfo[] = [
   { id: Ev.DiplomacyCheck, name: '看邦交', watch: false },
   { id: Ev.TreatyEnd, name: '约满', watch: false },
   { id: Ev.Neutral, name: '中立地', watch: false },
+  { id: Ev.ZoneEnd, name: '中立地到期', watch: false },
   { id: Ev.DivergeCheck, name: '看分化', watch: false },
   { id: Ev.Diverge, name: '分化', watch: false },
   { id: Ev.DevTick, name: '发展度', watch: false },
@@ -661,6 +664,8 @@ export class CivSim {
     if (f.n !== undefined) e.n = f.n;
     if (f.ps !== undefined) e.ps = f.ps.slice();
     if (f.by !== undefined) e.by = f.by;
+    if (f.opt !== undefined) e.opt = f.opt;
+    if (f.until !== undefined) e.until = f.until;
     this.annals.push(e);
   }
 

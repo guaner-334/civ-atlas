@@ -345,10 +345,10 @@ export interface Place {
  * | fiscal    | 国用不足(control.ts 的钱粮):国库空了、入不敷出 | 国家 | −1 | 国都所在州 | 国都 | **主要因为什么**(借用这一列):0 = 连年用兵,1 = 地方拖欠 |
  * | council   | 议事(council.ts):朝廷议改征收之法、分封、削藩、军制、官制、分镇,地方提脱离;**结果在 Annal.n**:0 办成、1 妥协、2 搁置、3 谈崩(削藩、改组、脱离谈崩紧跟着记那处割据自立的 split,cause = warlord;直征、改土归流、收兵权、收任免谈崩紧跟着记 warlord) | 国家 | 脱离:想转投的邻国;别的 −1 | 罢直征、罢禁军、罢铨选:国都所在州;削藩、改组、脱离:割据的那州;直征、改土归流:最吃亏的那州(没有 = 国都所在州);收兵权、设边镇:边地城民最多的那州;收任免、许自辟:豪族把持的州里税最多的那州(没有 = 国都所在州);分封:最远的那州 | 那州的城 | **议题**(借用这一列):0 罢直征、1 削藩、2 直征、3 改土归流、4 分封边地、5 收兵权(设了边镇的是罢边镇)、6 放兵权(收着兵权的是罢禁军,不然是设边镇)、7 收任免(许了自辟的是收回辟署)、8 放任免(铨选着的是罢铨选,不然是许自辟)、9 改组(分镇)、10 脱离。直征因为国用不足才议的,cause = broke(不然是君主锐意兴革) |
  * | stand     | 据险断后(wars.ts):败退的一方留一支兵守住关隘(见 passes.ts),挡住追兵(追兵本来能再打下的那一州没打下来),大军退保关隘后面那州(**Annal.foe**);**守了几日在 Annal.n**,守将的结局在 cause:slain 力战而死、captured 力竭被擒、withdrew 全师而退 | 断后的一方 | 追兵的一方 | 关隘所在的州(口子那块地所在的州;可能是刚丢给追兵的那州) | −1 | 战争编号 |
- * | treaty    | 立约 / 续约(treaties.ts):几国约定若干年互不侵犯(三国以上的是"有限竞争":再加各守今疆)。**立约各国在 Annal.ps**(按入约先后;续约 = 续约的几国),**期限(年)在 Annal.n**,共同的强邻在 Annal.foe(−1 = 没有),**居间的国家在 Annal.by**(−1 = 没有);cause:peace 议和时顺带立的、renew 约满续约(war 列是原来那份约的编号)、没有 = 自己立的 | 立约各国的第一国 | 第二国 | 会盟的城所在州(−1 = 没有) | 会盟的城 | **约的编号**(借用这一列;0 起,按立约先后) |
+ * | treaty    | 立约 / 续约(treaties.ts):几国约定若干年互不侵犯(三国以上的是"有限竞争":再加各守今疆)。**立约各国在 Annal.ps**(按入约先后;续约 = 续约的几国),**期限(年)在 Annal.n**,共同的强邻在 Annal.foe(−1 = 没有),**居间的国家在 Annal.by**(−1 = 没有);cause:peace 议和时顺带立的、renew 约满续约(war 列是原来那份约的编号)、decree 作者下令立的(干预「立约」「划中立地」;**期限 0 = 一直有效**,**Annal.opt** 的位:1 有限竞争、2 约期内不许背约)、没有 = 自己立的 | 立约各国的第一国 | 第二国 | 会盟的城所在州(−1 = 没有) | 会盟的城 | **约的编号**(借用这一列;0 起,按立约先后) |
  * | breach    | 背约:立约国向约里的另一国开战(紧跟着记那场 war,cause = breach)。背约的一方就此退出这份约;**约的编号在 Annal.n** | 背约的一方 | 被打的一方 | −1 | −1 | 紧跟着的那场战争 |
  * | expire    | 约满不续 / 约废:cause 没有 = 约满、几国不续;lapse = 约里剩不到两国(亡了、被并、称臣、背约退出),约就此作废。**还在约里的几国在 Annal.ps**,**立约时几国在 Annal.n**(三国以上的有限竞争之约废了,下一刻约国旁边的无主之地解禁,见 polities.ts 的 REOPEN) | ps 的第一国 | ps 的第二国(没有 = −1) | −1 | −1 | **约的编号** |
- * | neutral   | 设中立地 / 中立地撤销:一州不归任何一国(归属记成无主,变化日志原因 Ev.Neutral),几国都不进兵、不扩张进去。设的那条:**共建的几国在 Annal.ps**,cause:peace 议和时划的缓冲中立地、没有 = 立约时几国共建;**约的编号在 Annal.n**。撤销那条 cause = lapse,a = 州还给了哪国(−1 = 没还,成了无主之地) | 设:让出那州的国家(−1 = 原是无主之地);撤:州还给的国家 | −1 | 中立地那州 | 州里的城(没有 = −1) | **中立地的编号**(借用这一列;0 起,按设立先后) |
+ * | neutral   | 设中立地 / 中立地撤销:一州不归任何一国(归属记成无主,变化日志原因 Ev.Neutral),几国都不进兵、不扩张进去。设的那条:**共建的几国在 Annal.ps**,cause:peace 议和时划的缓冲中立地、decree 作者下令划的(**Annal.opt** 的位:4 不送人去、8 一直留着,约废了也不撤;**到哪年撤在 Annal.until**)、没有 = 立约时几国共建;**约的编号在 Annal.n**。撤销那条 cause = lapse,a = 州还给了哪国(−1 = 没还,成了无主之地) | 设:让出那州的国家(−1 = 原是无主之地);撤:州还给的国家 | −1 | 中立地那州 | 州里的城(没有 = −1) | **中立地的编号**(借用这一列;0 起,按设立先后) |
  * | exile     | 放逐到中立地 / 出奔:cause:heir 新君即位时把争储失势的宗室徙到中立地(**那位宗室的生年在 Annal.n**,他是先君之子;推演里他不再据地自立)、deposed 改朝换代时被废的末代之君徙到中立地(**被废的年份在 Annal.n**)、fled 国亡、亡国之君出奔中立地。人物里写在 Person.exile | 那位人物是哪国的 | −1 | 中立地那州 | 州里的城 | **中立地的编号** |
  *
  * 洗劫、毁城和那一次攻占同一刻,记在那条 conquer **前面**(conquer、被迫迁都、灭亡照旧紧挨着,编年史里排回攻占后面)。
@@ -445,9 +445,10 @@ export type AnnalKind =
  *   slain / captured / withdrew:据险断后的守将力战而死 / 力竭被擒 / 全师而退(史事 stand 的 cause);
  *   立约与中立地(treaties.ts):breach 背约来攻(war 的 cause);peace 议和时顺带立约 / 划缓冲中立地(treaty、neutral 的 cause);
  *   renew 约满续约(treaty 的 cause);lapse 约里剩不到两国、约废(expire)/ 中立地撤销(neutral);
- *   heir / deposed / fled 放逐到中立地的是争储失势的宗室 / 被废的末代之君 / 出奔的亡国之君(exile 的 cause)
+ *   heir / deposed / fled 放逐到中立地的是争储失势的宗室 / 被废的末代之君 / 出奔的亡国之君(exile 的 cause);
+ *   decree 作者下令立的约、划的中立地(干预「立约」「划中立地」;treaty、neutral 的 cause)
  */
-export type AnnalCause = 'expand' | 'claim' | 'chaos' | 'prey' | 'resource' | 'betray' | 'punish' | 'ally' | 'rescue' | 'lapse' | 'abandon' | 'vassal' | 'quell' | 'collapse' | 'great' | 'quake' | 'warlord' | 'broke' | 'heir' | 'slain' | 'captured' | 'withdrew' | 'pandemic' | 'breach' | 'peace' | 'renew' | 'deposed' | 'fled';
+export type AnnalCause = 'expand' | 'claim' | 'chaos' | 'prey' | 'resource' | 'betray' | 'punish' | 'ally' | 'rescue' | 'lapse' | 'abandon' | 'vassal' | 'quell' | 'collapse' | 'great' | 'quake' | 'warlord' | 'broke' | 'heir' | 'slain' | 'captured' | 'withdrew' | 'pandemic' | 'breach' | 'peace' | 'renew' | 'deposed' | 'fled' | 'decree';
 
 /**
  * 一条史事(阶段 3):推演里各事件处理函数用 CivSim.record 往 Civ.annals 里记,编年史(界面上的事件列表)只读它。
@@ -473,6 +474,10 @@ export interface Annal {
   ps?: number[];
   /** 立约(treaty)才有:居间的国家(−1 = 没有;它当时在朝的名臣出使,见 treatyInfo.ts 的 envoyOf) */
   by?: number;
+  /** 作者下令立的约、划的中立地(cause = decree)才有:几样选项按位(见 AnnalKind 的表;treaties.ts 的 OPT_*) */
+  opt?: number;
+  /** 作者下令划的中立地(neutral,cause = decree)选了"到某一年":那一年撤销 */
+  until?: number;
 }
 
 /** 变化日志里的"哪一层" */

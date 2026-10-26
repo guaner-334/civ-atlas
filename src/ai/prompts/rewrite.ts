@@ -620,6 +620,10 @@ function ivText(civ: Civ, v: Intervention): string {
       if (v.type === 'quake') return `${reg(v.region ?? '')} 一带地震水旱(${lv})`;
       return `${v.a ? id(v.a, 'polity', 'P') : (v.regions ?? []).map(reg).join('、')} 饥荒(${lv})`;
     }
+    case 'treaty':
+      return `${id(v.a, 'polity', 'P')} 与 ${v.ps.map((k) => id(k, 'polity', 'P')).join('、')} 立约${v.term ? `,以 ${v.term} 年为期` : ''}${v.zone ? `,以 ${reg(v.zone)} 为中立地` : ''}`;
+    case 'neutral':
+      return `${id(v.a, 'polity', 'P')} 与 ${v.ps.map((k) => id(k, 'polity', 'P')).join('、')} 以 ${reg(v.region)} 为中立地${until(v.until)}`;
   }
 }
 
@@ -1440,6 +1444,8 @@ const KIND_LABEL: Record<Intervention['kind'], string> = {
   death: '让人物去世',
   temper: '改君主倾向',
   disaster: '降天灾',
+  treaty: '立约',
+  neutral: '划中立地',
 };
 
 // ---------------------------------------------------------------------------

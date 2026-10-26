@@ -78,6 +78,7 @@ import { dynastyModelOf } from './dynasty';
 import { capitalAt } from './growth';
 import { REBUILD_GROWTH } from './cities';
 import { pioneerArrives } from './cultures';
+import { treatyModelOf } from './treaties';
 
 type Ally = Extract<Intervention, { kind: 'ally' }>;
 type Halt = Extract<Intervention, { kind: 'halt' }>;
@@ -525,6 +526,11 @@ export function installInterventions(sim: CivSim, iv: InterventionModel): void {
     }
     if (v.kind === 'death' || v.kind === 'temper') {
       person(v, i, a, t);
+      return;
+    }
+    if (v.kind === 'treaty' || v.kind === 'neutral') {
+      // 立约、划中立地:照立约的规矩办(treaties.ts 的 decree;史事 intervene 也在那里记)
+      treatyModelOf(sim)?.decree?.(v, i, a, t, iv);
       return;
     }
     const b = v.kind === 'ally' || v.kind === 'declare' ? iv.resolve(v.b) : -1;
