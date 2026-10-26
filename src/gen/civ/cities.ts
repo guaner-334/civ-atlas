@@ -35,6 +35,7 @@ import { bookChain, Ev, quantize, type CivSim } from './sim';
 import { foundCity, onCapitalLost, polityModelOf, type PolityModel } from './polities';
 import { warModelOf, type War, type WarModel } from './wars';
 import { SETTLEMENT_RANKS, capacityAt, populationAt, ruinRank, ruinSites, settlementRank } from './growth';
+import { inSlump, pandemicModelOf } from './pandemicState';
 
 // ---- 调参(以统计数和截图为准,见 scripts/gen-stats.ts) ----
 /** 攻下一州时城被洗劫、被毁的基础机会 */
@@ -192,7 +193,8 @@ export function installCities(sim: CivSim, pm: PolityModel, wm: WarModel, cm: Ci
       if (k + 1 < rebuildTries(cm, s)) sim.schedule(rebuildTime(cm, s, k + 1), Ev.CityRebuild, k + 1, sid);
     };
     const site = Math.min(1.5, Math.max(0.5, Math.sqrt(capacityAt(s, s.ended) / SITE_REF)));
-    if (culture[r] < 0 || t - wm.since[r] < REBUILD_SETTLE || keyed(base, pm.stag[sid], k, U_REBUILD) >= REBUILD_P * site) {
+    // 全球大疫的凋敝里无人收拾,不重建(pandemic.ts;没有全球大疫时不看)
+    if (culture[r] < 0 || t - wm.since[r] < REBUILD_SETTLE || inSlump(pandemicModelOf(sim), r, t) || keyed(base, pm.stag[sid], k, U_REBUILD) >= REBUILD_P * site) {
       next();
       return;
     }

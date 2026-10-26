@@ -9,7 +9,8 @@
  * 能力读到的时代、到过的最高值、眼下能用的物产都是这一步开头的(上一步算完的)。
  *
  * 输入表(事件层每步填好):民族、国(编号表;国 = 州 → 国);人口、城的规模、有没有路、港口、大河、平原、是不是国都、游牧、
- * 归了现在的民族 / 国家是哪一年;物产的底子、物产从哪一年起有;各国的国号档位、有几州、立国的年份、发展重点的倍数。
+ * 归了现在的民族 / 国家是哪一年;物产的底子、物产从哪一年起有;各国的国号档位、有几州、立国的年份、发展重点的倍数;
+ * 这一步里全球大疫的凋敝占几成(pandemic.ts;没有全球大疫时全是 0,规则走平常那一支)。
  */
 import type { TableCard } from './tables';
 
@@ -37,6 +38,8 @@ export interface DevRuleConsts {
   GATE_NEAR: number;
   GATE_SLOW: number;
   RECOVER: number;
+  /** 全球大疫的凋敝里向邻居学只剩几成(自己长、恢复都停下) */
+  SLUMP_LEARN: number;
   WAR_KEEP: number;
   SETTLE_CARRY: number;
   ABANDON_KEEP: number;
@@ -88,6 +91,7 @@ export function devCards(k: DevRuleConsts, step: number): TableCard[] {
     pol('立国', '立国的年份', 0),
     pol('重点', '发展重点:自己长的倍数', 1, [生产, 运输, 信息, 行政]),
     pol('重点动员', '发展重点:挑动员的时间占几成', 0),
+    num('凋敝', '这一步里全球大疫的凋敝占了几成(0–1;没有 = 0)'),
   ];
 
   // 有人住的邻州(动力、学、带着本事来,都只看有人住的邻居)
@@ -126,7 +130,9 @@ export function devCards(k: DevRuleConsts, step: number): TableCard[] {
     'let 得 = 学 * if(能力 > 时代 + OVERSHOOT_LEARN, OVERSHOOT_SLOW, 1)',
     // 跌下去的按到过的最高值较快地恢复
     'let 复 = (最高[col] - 能力) * RECOVER',
-    'let 新 = 能力 + dt * (长 + 得 + if(复 > 0, 复, 0))',
+    'let 平常 = 能力 + dt * (长 + 得 + if(复 > 0, 复, 0))',
+    // 全球大疫的凋敝里(占这一步的几成):不自己长、不恢复,向邻居学只剩 SLUMP_LEARN(没有凋敝的照平常算,逐位一样)
+    'let 新 = if(凋敝 > 0, 能力 + dt * ((1 - 凋敝) * (长 + 得 + if(复 > 0, 复, 0)) + 凋敝 * SLUMP_LEARN * 得), 平常)',
     'let 封顶 = if(col == 3 and not 有国 and 新 > TRIBAL_ADMIN_MAX, max(能力, TRIBAL_ADMIN_MAX), 新)',
     settled('能力', 'min(LEVEL_MAX, 封顶)'),
   ].join('\n');
@@ -189,6 +195,7 @@ export function devCards(k: DevRuleConsts, step: number): TableCard[] {
     GATE_NEAR: k.GATE_NEAR,
     GATE_SLOW: k.GATE_SLOW,
     RECOVER: k.RECOVER,
+    SLUMP_LEARN: k.SLUMP_LEARN,
     WAR_KEEP: k.WAR_KEEP,
     SETTLE_CARRY: k.SETTLE_CARRY,
     ABANDON_KEEP: k.ABANDON_KEEP,

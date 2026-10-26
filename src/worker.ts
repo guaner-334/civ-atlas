@@ -55,6 +55,7 @@ import { rasterizePatch, type RasterKeep } from './gen/rasterEdit';
 import { planGlyphs, type Plan } from './render/fantasy';
 import type { NameMix } from './gen/names';
 import type { Frontier, Origins } from './gen/civ/frontier';
+import type { Calamity } from './gen/civ/calamity';
 import { SNAPSHOT_FORMAT, makePart, readPart, recipeKey, recipeText, type Recipe, type Snapshot, type SnapshotPart } from './gen/snapshot';
 import { playStop, playTurn } from './gen/civ/play';
 import { chronicleParts, type ChroniclePart } from './chronicleParts';
@@ -93,6 +94,8 @@ interface CivInput {
   frontier?: Frontier;
   /** 自己选的文明起源(gen/edits.ts 的 WorldEdits.origins;不给 = 自动) */
   origins?: Origins;
+  /** 「天灾」(gen/edits.ts 的 WorldEdits.calamity;不给 = 平常) */
+  calamity?: Calamity;
   /** 文明种子(gen/edits.ts 的 WorldEdits.civSeed;不给 = 地图种子) */
   civSeed?: number;
   /** 逐年推演的进度(gen/edits.ts 的 WorldEdits.play;不给 = 没在逐年推演):推到 play.year 年初,命令接在干预后面 */
@@ -461,11 +464,12 @@ const namesOpt = (names: NameMix | undefined) => (names ? { names } : {});
 /** 推文明时带的推演年数(3000 = 不带) */
 const yearsOpt = (endYear: number | undefined) => (endYear ? { endYear } : {});
 
-/** 推文明时带的拓荒、起源(默认 = 不带) */
-const setupOpt = (m: Pick<CivInput, 'frontier' | 'origins' | 'civSeed'>) => ({
+/** 推文明时带的拓荒、起源、天灾(默认 = 不带) */
+const setupOpt = (m: Pick<CivInput, 'frontier' | 'origins' | 'civSeed' | 'calamity'>) => ({
   ...(m.frontier ? { frontier: m.frontier } : {}),
   ...(m.origins ? { origins: m.origins } : {}),
   ...(m.civSeed !== undefined ? { civSeed: m.civSeed } : {}),
+  ...(m.calamity ? { calamity: m.calamity } : {}),
 });
 
 /** 推文明时带的逐年推演进度(没在逐年推演 = 不带):推到 play.year 年初,命令接在干预后面(放在最后,盖过干预、推演年数) */
@@ -485,7 +489,7 @@ let held: { key: string; civ?: Civ; part?: SnapshotPart } | null = null;
 /** 上一次照大纲推演每一步的样子(gen/outline.ts 的 OutlineCache):改了几条情节再推时,前面没改的直接用 */
 let outlineCache: OutlineCache | null = null;
 function heldKey(m: CivRecipe, play: PlayState | undefined): string {
-  const r: Recipe = { params: m.params, terrain: m.terrain, sketch: m.sketch, interventions: m.interventions, upheavals: m.upheavals, names: m.names, frontier: m.frontier, origins: m.origins, civSeed: m.civSeed, play };
+  const r: Recipe = { params: m.params, terrain: m.terrain, sketch: m.sketch, interventions: m.interventions, upheavals: m.upheavals, names: m.names, frontier: m.frontier, origins: m.origins, calamity: m.calamity, civSeed: m.civSeed, play };
   return `${frozen?.key === keyOf(m.params, m.terrain, m.sketch) ? 'frozen:' : ''}${recipeText(r)}`;
 }
 /** 推好了一份历史(复制的那一份,交给主线程之前调用;没复制成 = null):记下来 */
@@ -652,7 +656,7 @@ function queueSnapshot(id: number, m: CivInput & { interventions?: Intervention[
     let eras: SnapshotPart;
     let civPart: SnapshotPart;
     try {
-      const recipe = await recipeKey({ params: m.params, terrain: m.terrain, sketch: m.sketch, interventions: m.interventions, upheavals: m.upheavals, names: m.names, endYear: m.endYear, frontier: m.frontier, origins: m.origins, civSeed: m.civSeed, play: m.play });
+      const recipe = await recipeKey({ params: m.params, terrain: m.terrain, sketch: m.sketch, interventions: m.interventions, upheavals: m.upheavals, names: m.names, endYear: m.endYear, frontier: m.frontier, origins: m.origins, calamity: m.calamity, civSeed: m.civSeed, play: m.play });
       const map = await mapPart(baseKey, world);
       eras = await makePart('eras', { baseKey, eras: eraWorlds(steps) ?? [] });
       civPart = await makePart('civ', civ);
