@@ -1144,13 +1144,15 @@ export function dynastyKey(civ: Civ, polity: number, index: number): string {
 
 /** 州的键:`region:c{治所地块}`(改地形、州重新划分以后,指"现在包含这块地的那一州") */
 /**
- * 约的稳定键:立约头一国的稳定键 + 立约那年(`treaty:c4567#0@1605`)。重推历史后同一国、同一年立的约还是它;
- * 推演变了、对不上就算了(和人物一样)。没有这份约 = 空串
+ * 约的稳定键:立约头两国的稳定键 + 立约那一刻(1/256 年为单位)(`treaty:c4567#0+c890#1@410907`)。
+ * 重推历史后同样两国、同一刻立的约还是它;推演变了、对不上就算了(和人物一样)。没有这份约 = 空串
  */
 export function treatyKey(civ: Civ, id: number): string {
   const x = treatyBook(civ).treaties[id];
-  const p = x ? polityKey(civ, x.parties[0]) : undefined;
-  return x && p ? `treaty:${p.slice(p.indexOf(':') + 1)}@${Math.floor(x.start)}` : '';
+  if (!x) return '';
+  const ps = x.parties.slice(0, 2).map((p) => polityKey(civ, p));
+  if (ps.some((k) => !k)) return '';
+  return `treaty:${ps.map((k) => k.slice(k.indexOf(':') + 1)).join('+')}@${Math.round(x.start * 256)}`;
 }
 
 export function regionKey(civ: Civ, region: number): string {

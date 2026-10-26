@@ -11,10 +11,10 @@
  *
  * 只在开着"国家"时画。
  */
-import type { Civ, Year } from '../../gen/civ/types';
+import { Layer, type Civ, type Year } from '../../gen/civ/types';
 import { zonesAt } from '../../gen/civ/treatyInfo';
 import { pixOf } from './highlight';
-import { inkOf, stripeAt } from './territory';
+import { inkOf, stripeAt, washLayer } from './territory';
 import type { CivDrawParams } from './overlay';
 import { reprojectImage } from '../projection';
 
@@ -34,8 +34,9 @@ const SOFT_GIVE = 0.4;
 /** 框四周多留几个像素(抗锯齿的边) */
 const BOX_PAD = 2;
 
+/** 填色是"国家"时才画(民族、信仰、时代、管辖填色上不画;整张图、放大后的细节层、名字都一样) */
 export function neutralShown(p: Pick<CivDrawParams, 'show' | 'civ'>): boolean {
-  return !!p.show.polities && p.civ.polities.length > 0;
+  return washLayer(p as CivDrawParams) === Layer.Polity;
 }
 
 /** 这一年的中立地:州 → 第几处(−1 = 不是),每处共建几国的颜色(RGB 连着放) */
