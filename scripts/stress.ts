@@ -1,5 +1,5 @@
 /**
- * 极端参数压力测试:npx tsx scripts/stress.ts(出现 NaN 则退出码 1;STRESS_PART=1/2 只跑其中一份,见 PART)
+ * 极端参数压力测试:npx tsx scripts/stress.ts(出现 NaN 则退出码 1;STRESS_PART=1/3 只跑其中一份,见 PART)
  * 每行打印:生成 / 铺像素 / 文明(其中宜居度 + 划州、推演(民族 + 城镇 + 国家 + 战争)、回放一帧、道路)耗时,
  * 州数、民族数、占据率、国家数、城镇数、路段数,战争统计(场数、攻占、灭亡、迁都、飞地、易手频繁的州),
  * 分合统计(分裂、合并、复国、主动迁都),王朝更替(东方改朝换代 / 西幻王室更迭),信仰(大教、教派、宗教大事),
@@ -153,17 +153,25 @@ const caseName = (c: (typeof cases)[number]) =>
       ? `{"改地形":"${c.terrain[0].kind === 'sink' && c.terrain.length === 6 ? '整片沉成海' : c.terrain[0].kind === 'raise' ? '整片抬成陆地' : '大杂烩'} ${c.terrain.length} 处"}`
       : JSON.stringify(c);
 /**
- * 只跑其中一份:STRESS_PART=1/2 跑第 1 份、2/2 跑第 2 份(PR 检查上分两台机器同时跑);不设就全跑。
- * 下面每个(参数组合, 种子)按出现的先后轮流分给各份,几份合起来正好是全部
+ * 只跑其中一份:STRESS_PART=1/3 跑第 1 份、2/3 跑第 2 份、3/3 跑第 3 份(PR 检查上分三台机器同时跑);不设就全跑。
+ * 下面每个(参数组合, 种子)按出现的先后,各带一个估的耗时(秒,照 CI 上的实测),
+ * 谁当前累计最少就分给谁(各份跑同一段代码,分得一样),三份合起来正好是全部,而且长短差不多
  */
 const [PART, PARTS] = (process.env.STRESS_PART ?? '1/1').split('/').map(Number);
 if (!(Number.isInteger(PART) && Number.isInteger(PARTS) && PART >= 1 && PART <= PARTS)) {
-  throw new Error(`STRESS_PART 要写成"第几份/共几份",比如 1/2;现在是 ${process.env.STRESS_PART}`);
+  throw new Error(`STRESS_PART 要写成"第几份/共几份",比如 1/3;现在是 ${process.env.STRESS_PART}`);
 }
-if (PARTS > 1) console.log(`只跑第 ${PART} 份(共 ${PARTS} 份)\n`);
-let turn = 0;
-/** 这一组轮到本份跑吗 */
-const mine = () => turn++ % PARTS === PART - 1;
+if (PARTS > 1) console.log(`只跑第 ${PART} 份(共 ${PARTS} 份)
+`);
+/** 各份已分到的估计耗时(秒) */
+const load: number[] = new Array(PARTS).fill(0);
+/** 这一组(估计 sec 秒)轮到本份跑吗 */
+const mine = (sec = 1) => {
+  let k = 0;
+  for (let i = 1; i < PARTS; i++) if (load[i] < load[k]) k = i;
+  load[k] += sec;
+  return k === PART - 1;
+};
 
 /**
  * 速度预算:只报告(超了在汇总那行写"超预算"),不改退出码 —— 同一段代码在 CI 的虚拟机上快慢能差三成以上,
@@ -202,7 +210,9 @@ const noteRate = (years: number, ms: number, name: string) => {
 };
 for (const c of cases) {
   for (const seed of [3, 99]) {
-    if (!mine()) continue;
+    // 估的耗时(秒):20 万地块和推到 6 成陆地、整片抬成陆地的最慢,画草图没有陆地的几乎不推演
+    const sec = c.cells === 200000 ? 19 : c.landFraction === 0.6 || c.terrain?.[0]?.kind === 'raise' ? 9 : c.sketch?.rest === 'sea' && !c.sketch.strokes.length && !c.sketch.plates ? 3 : 6;
+    if (!mine(sec)) continue;
     const { terrain, sketch, ...pc } = c;
     const grid = sketchGrid(sketch);
     // 改过地形的世界要原来星球(参数 + 草图)的扩张节拍:和 worker 一样事先记下(新建时先生成的就是没改的星球),不算进耗时
@@ -439,7 +449,7 @@ const UPHEAVAL_CASES: [string, Upheaval[]][] = [
 ];
 for (const [name, list] of UPHEAVAL_CASES) {
   for (const seed of [3, 99]) {
-    if (!mine()) continue;
+    if (!mine(9)) continue;
     const params = { ...DEFAULT_PARAMS, seed };
     const t0 = performance.now();
     const w = generateWorld(params);
@@ -499,7 +509,7 @@ for (const [seed, ups] of [
   [7, []],
   [99, [{ year: 2999, ops: [{ kind: 'volcano', pts: [900, 400], r: 160, s: 2 }] }]],
 ] as [number, Upheaval[]][]) {
-  if (!mine()) continue;
+  if (!mine(seed === 7 ? 150 : 220)) continue;
   const params = { ...DEFAULT_PARAMS, seed };
   const w = generateWorld(params);
   const steps = upheavalSteps(params, [], null, ups);
@@ -538,7 +548,7 @@ for (const [seed, ups] of [
 // ---- 「天灾 很多」推 12000 年,第 600 年再下一场最重、无人收拾 60 年的全球大疫:史事有序、人口和发展度不是 NaN、
 // 全球大疫里一城最多死六成、天下人口不低于疫前一半、还有国家在、纪事里不冒 undefined / NaN ----
 for (const seed of [7, 99]) {
-  if (!mine()) continue;
+  if (!mine(20)) continue;
   const w = generateWorld({ ...DEFAULT_PARAMS, seed });
   const probe = generateCiv(w, { endYear: 600 });
   const town = probe.settlements.filter((s) => s.ended === undefined).sort((a, b) => populationAt(b, 600) - populationAt(a, 600))[0];
@@ -577,7 +587,7 @@ const FUZZ: FuzzCase[] = [
   ...[13, 2025].map((seed) => ({ seed, to: 3000, params: { calamity: 'many' as const } })),
 ];
 for (const c of FUZZ) {
-  if (!mine()) continue;
+  if (!mine(c.cells ? 25 : c.params?.calamity ? 50 : 42)) continue;
   const t0 = performance.now();
   const r = fuzzResume(c);
   if (r.diff) process.exitCode = 1;
@@ -591,7 +601,7 @@ for (const c of FUZZ) {
 // ---- 带地形大事的世界:大事那一刻接着推和一口气推完一样(scripts/lib/resumeFuzz.ts 的 fuzzUpheavalResume):
 // 随机几年各放一件不改海陆的大事,带着作者的干预和随机命令,和没有大事时逐项比(单测里另跑几个种子) ----
 for (const seed of [2, 4, 9, 13, 27, 64]) {
-  if (!mine()) continue;
+  if (!mine(25)) continue;
   const t0 = performance.now();
   const r = fuzzUpheavalResume(seed);
   if (r.diff) process.exitCode = 1;
