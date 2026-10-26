@@ -67,6 +67,7 @@ const KIND_TYPE: Readonly<Record<string, EvType>> = {
   warlord: 'calamity',
   defy: 'calamity',
   reclaim: 'dynasty',
+  fiscal: 'calamity',
   council: 'dynasty',
 };
 
@@ -123,6 +124,7 @@ const TAG_LABEL: Readonly<Record<string, string>> = {
   据: '割据',
   收: '收回',
   抗: '抗命',
+  匮: '匮乏',
   议: '议事',
 };
 
@@ -180,6 +182,7 @@ const KIND_WEIGHT: Readonly<Record<string, number>> = {
   warlord: 4,
   reclaim: 3,
   defy: 1,
+  fiscal: 1,
   council: 2,
   submit: 4,
   defect: 4,

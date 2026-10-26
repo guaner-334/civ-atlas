@@ -306,7 +306,7 @@ export interface Place {
  * | warlord   | 割据(control.ts):中央管不到的地方拥兵自重,名义上仍归这国(国界、归属不变) | 国家 | −1 | 割据的那座城所在的州 | 那座城 | **地盘有几州**(借用这一列) |
  * | reclaim   | 收回割据(control.ts):中央重新管住了那一带 | 国家 | −1 | 割据的那座城所在的州 | 那座城 | **割据了几年**(借用这一列) |
  * | defy      | 抗命不出兵(control.ts):开战点兵时,割据的地方拥兵不出 | 国家 | 和它交战的国家 | 割据的那座城所在的州 | 那座城 | 那场战争 |
- * | fiscal    | 国用不足(control.ts 的钱粮):国库空了、入不敷出(编年史暂不写) | 国家 | −1 | 国都所在州 | 国都 | **主要因为什么**(借用这一列):0 = 连年用兵,1 = 地方拖欠 |
+ * | fiscal    | 国用不足(control.ts 的钱粮):国库空了、入不敷出 | 国家 | −1 | 国都所在州 | 国都 | **主要因为什么**(借用这一列):0 = 连年用兵,1 = 地方拖欠 |
  * | council   | 议事(council.ts):朝廷议改征收之法、分封、削藩;**结果在 Annal.n**:0 办成、1 妥协、2 搁置、3 谈崩(削藩谈崩紧跟着记那处割据自立的 split,cause = warlord;直征、改土归流谈崩紧跟着记 warlord) | 国家 | −1 | 罢直征:国都所在州;削藩:割据的那州;直征、改土归流:最吃亏的那州(没有 = 国都所在州);分封:最远的那州 | 那州的城 | **议题**(借用这一列):0 罢直征、1 削藩、2 直征、3 改土归流、4 分封边地。直征因为国用不足才议的,cause = broke(不然是君主锐意兴革) |
  *
  * 洗劫、毁城和那一次攻占同一刻,记在那条 conquer **前面**(conquer、被迫迁都、灭亡照旧紧挨着,编年史里排回攻占后面)。
@@ -644,6 +644,16 @@ export interface Religion {
   checkpoints: { year: Year; faith: Int16Array }[];
 }
 
+/**
+ * 各国的账本(fiscalBook.ts):size 行,第 i 行是 polity[i] 国第 year[i] 年的账,data 里 BOOK_COLS 个数一行(千石);行按年份不减排
+ */
+export interface FiscalBook {
+  size: number;
+  year: Int32Array;
+  polity: Int32Array;
+  data: Float32Array;
+}
+
 /** 发展度(development.ts) */
 export interface Development {
   /** 各州物产的底子(储量):州 × RESOURCE_COUNT 样(见 development.ts 的 RESOURCES),0 没有 / 1 少 / 2 中 / 3 多;开局按地形定,不变
@@ -669,6 +679,8 @@ export interface Development {
    */
   rural?: Float32Array[];
   ruralYears?: Year[];
+  /** 各国的账本(钱粮;fiscalBook.ts 记、读);旧版本的历史没有 */
+  fiscal?: FiscalBook;
   /** 按年份排好 */
   events: DevEvent[];
   /**

@@ -91,6 +91,7 @@ import { parsePersonKey, resolveKey, resolvePersonKey, type Intervention } from 
 import { emptyPolicy, policyName, type PolicyIv } from './policy';
 import { IV_NOT_HIM, IV_PEOPLE, IV_PROTECTED, IV_WAIT } from './rulers';
 import { IV_TOLL, PLAGUE_IV, quakeWord } from './calamity';
+import { foesAt } from './fiscalBook';
 
 /** 重要度:3 最重要 */
 export type Importance = 1 | 2 | 3;
@@ -1394,6 +1395,11 @@ function simpleEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
     case 'reclaim':
     case 'defy':
       return base(e, id, lordText(civ, e), 2, e.kind === 'defy' ? [e.a, e.b] : [e.a], [e.region]);
+    case 'fiscal': {
+      const foes = foesAt(civ, e.a, y);
+      // 说法里点了名的交战国才算这条也和它有关
+      return base(e, id, fiscalText(civ, e, foes), 2, e.war !== 0 && foes.length ? [e.a, foes[0]] : [e.a], [e.region]);
+    }
     case 'council': {
       // 大国办成的改制是大事;搁置、谈崩(后面紧跟着割据、自立那一条)和小国的只在"全部"里
       const who = reigning(ctx.ix, e.a, y);
@@ -2007,6 +2013,17 @@ function lordText(civ: Civ, e: Annal): string {
   if (e.kind === 'warlord') return `${lord}拥兵自重,割据${e.war > 1 ? `${r}等${e.war === 2 ? '两' : cnNumber(e.war)}州` : r},名义上仍奉${A}`;
   if (e.kind === 'reclaim') return e.war >= 1 ? `${A}收回割据${cnNumber(e.war)}年的${r}` : `${A}收回${r}`;
   return `${A}与${pn(civ, e.b, e.year)}交兵,${lord}拥兵不出`;
+}
+
+/**
+ * 国用不足(control.ts 的钱粮):史事记了主要是因为打仗(war = 0)还是地方拖欠(1);拖欠的那年还在打仗就两样都写。
+ * "大霄连年用兵,府库空竭" / "大霄诸州多截留赋税,府库空竭" / "大霄用兵于奥利亚,诸州又多截留赋税,府库空竭"
+ */
+function fiscalText(civ: Civ, e: Annal, foes: number[]): string {
+  const A = pn(civ, e.a, e.year);
+  if (e.war === 0) return `${A}连年用兵,府库空竭`;
+  if (foes.length) return `${A}用兵于${pn(civ, foes[0], e.year)},诸州又多截留赋税,府库空竭`;
+  return `${A}诸州多截留赋税,府库空竭`;
 }
 
 /**
@@ -2703,8 +2720,6 @@ export function* chronicleSteps(civ: Civ): Generator<void, ChronicleEntry[]> {
       if (e.kind !== 'fall' && e.kind !== 'ruin') continue;
     }
     if (e.kind === 'found' && splitOf.has(e.a)) continue;
-    // 国用不足先只记在史事里,编年史暂不写
-    if (e.kind === 'fiscal') continue;
     // 干预引起的立国、迁都并进干预那一条
     if ((e.kind === 'found' || e.kind === 'capital' || e.kind === 'fall' || e.kind === 'famine') && foldedIntoIntervene(civ, i)) continue;
     // 照大纲划给同一国的几州并进头一条

@@ -4,6 +4,7 @@
  *   tab     面板在信息页还是干预页(换了选中的东西回到信息页;选目标取消后回到干预页)
  *   page    干预页换上的填写页(卡片换页,不弹窗):方针页(PolicyPage.tsx)、灭国页(DestroyPage.tsx)、天灾页(DisasterPage.tsx)。
  *           back = 「返回」回到哪一页(从信息页「方针」一行进来的回信息页,从干预页进来的回干预页)
+ *   sub     信息页换上的看的页:钱粮页(FiscalPage.tsx,概况「钱粮」一行点进来;只看不改,演一国时别国也能看)
  *   run     从面板下的令正在推演:面板先藏起,地图压暗、只留本国和对象的名牌,不接受点击;推演完面板回到信息页,App 从生效年份接着放
  *   fly     让 App 把地图飞到选中的东西('sel')或缩回整张图('home');stamp 每次都不同
  *   sheet   窄屏(手机)上面板是底部卡片:半高('half',默认)还是展开('full');换了选中的东西回到半高
@@ -19,6 +20,9 @@ export type PanelTab = 'info' | 'cmd';
 
 /** 干预页换上的填写页;year = 打开时的生效年份(没有 = 时间轴那一年) */
 export type CmdPage = { kind: 'policy' | 'destroy' | 'disaster'; back: PanelTab; year?: number };
+
+/** 信息页换上的看的页 */
+export type InfoPage = 'fiscal';
 
 export interface IvRun {
   /** 下令的国家(这份历史里的编号) */
@@ -41,6 +45,7 @@ export interface FlyRequest {
 interface PanelState {
   tab: PanelTab;
   page: CmdPage | null;
+  sub: InfoPage | null;
   run: IvRun | null;
   fly: FlyRequest | null;
   sheet: SheetSnap;
@@ -48,7 +53,7 @@ interface PanelState {
   drag: boolean;
 }
 
-let state: PanelState = { tab: 'info', page: null, run: null, fly: null, sheet: 'half', world: 'peek', drag: false };
+let state: PanelState = { tab: 'info', page: null, sub: null, run: null, fly: null, sheet: 'half', world: 'peek', drag: false };
 let stamp = 0;
 const subs = new Set<() => void>();
 const set = (patch: Partial<PanelState>) => {
@@ -69,12 +74,17 @@ export function usePanel(): PanelState {
 }
 
 export function setPanelTab(tab: PanelTab) {
-  if (state.tab !== tab || state.page) set({ tab, page: null });
+  if (state.tab !== tab || state.page || state.sub) set({ tab, page: null, sub: null });
+}
+
+/** 信息页换上一页看的(钱粮页);null = 回到信息页 */
+export function openInfoPage(sub: InfoPage | null) {
+  if (state.tab !== 'info' || state.page || state.sub !== sub) set({ tab: 'info', page: null, sub });
 }
 
 /** 换上一张填写页(在干预页里) */
 export function openCmdPage(page: CmdPage) {
-  set({ tab: 'cmd', page });
+  set({ tab: 'cmd', page, sub: null });
 }
 
 /** 填写页的「返回」:回到进来的那一页 */
