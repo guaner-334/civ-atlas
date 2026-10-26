@@ -1698,7 +1698,8 @@ function regentEntry(ctx: Ctx, i: number): ChronicleEntry | null {
         ? `${P}${who}${front ? '自前线' : ''}引兵还朝,${kins ? `杀${kins},` : ''}尽易宫中宿卫;${bare}虽在位,政出于${name}`
         : `${P}${who}${front ? '自前线' : ''}率军回到都城,${kins ? `处死${kins.replace(/^其/, '')},` : ''}撤换王宫卫队;${bare}虽仍在位,大权已归${name}`;
       // 那时还在外领兵的兄弟:粮饷为他所制(推演里那场仗本国国力打折,regents.ts 的 MARCH_SUPPLY)
-      const away = x ? (civ.people ?? []).find((o) => o !== x && o.parent === x.parent && o.role === 'prince' && !rivals.includes(o) && o.commands?.some((c) => c.from <= y && c.until > y)) : undefined;
+      const sibs = x && x.parent !== undefined ? (ctx.ix?.kids.get(x.parent) ?? []) : [];
+      const away = sibs.find((o) => o !== x && o.role === 'prince' && !rivals.includes(o) && o.commands?.some((c) => c.from <= y && c.until > y));
       if (away) {
         rivals.push(away);
         text += east ? `;其${kinOf(civ, x!, away) || '弟'}${away.name}在外领兵,粮饷为${name}所制,无功而还` : `;${away.name}在外领兵,粮饷被${name}卡住,无功而返`;

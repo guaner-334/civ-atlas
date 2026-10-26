@@ -485,22 +485,30 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
 
   // ---- 掌实权的几段(regents.ts):从哪年到哪年、怎么了结的(按史事和排好的君主定;人等下面挂) ----
   const spans: Span[] = [];
+  /** 掌实权的一条史事(下标)→ 同一国的下一条 */
+  const nextRegent = new Map<number, number>();
+  {
+    const last = new Map<number, number>();
+    civ.annals.forEach((e, i) => {
+      if (e.kind !== 'regent') return;
+      const p = last.get(e.a);
+      if (p !== undefined) nextRegent.set(p, i);
+      last.set(e.a, i);
+    });
+  }
   for (const [pid, list] of regs) {
     const P = polities[pid];
     for (const g of list) {
       const N = byK[pid].get(g.k);
       if (!N) continue;
       const s: Span = { g, pid, N, from: g.start };
-      // 还政、伏诛、篡位、卒那一条
-      for (let j = g.annal + 1; j < civ.annals.length; j++) {
-        const e = civ.annals[j];
-        if (e.kind !== 'regent' || e.a !== pid) continue;
-        if (e.n !== RG_START) {
-          s.until = e.year;
-          s.end = e.n === RG_RETURN ? 'return' : e.n === RG_PURGE ? 'purged' : e.n === RG_USURP ? 'usurp' : e.n === RG_DIED ? 'died' : undefined;
-          s.endAnnal = j;
-        }
-        break;
+      // 还政、伏诛、篡位、卒那一条:这国下一条掌实权的史事(是下一段的掌权 = 这一段没办结局)
+      const j = nextRegent.get(g.annal);
+      const e = j !== undefined ? civ.annals[j] : undefined;
+      if (e && e.n !== RG_START) {
+        s.until = e.year;
+        s.end = e.n === RG_RETURN ? 'return' : e.n === RG_PURGE ? 'purged' : e.n === RG_USURP ? 'usurp' : e.n === RG_DIED ? 'died' : undefined;
+        s.endAnnal = j;
       }
       if (s.endAnnal === undefined) {
         // 没办结局就了结了:名义君主先没了(引兵入朝、太子监国:他去世、太子即位)、改朝换代、亡国、作者立了君主
@@ -529,7 +537,15 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
     }
   }
   /** 国家 pid 在 t 这一刻有人掌着实权(名义君主不再亲征) */
-  const held = (pid: number, t: Year) => spans.some((s) => s.pid === pid && s.from < t && t < (s.until ?? Infinity));
+  const spansOf = new Map<number, Span[]>();
+  for (const s of spans) {
+    const l = spansOf.get(s.pid);
+    if (l) l.push(s);
+    else spansOf.set(s.pid, [s]);
+  }
+  /** 在位表第几位在位时有过引兵入朝(国家:位次) */
+  const marchedAt = new Set(spans.filter((s) => s.g.kind === 'march').map((s) => `${s.pid}:${s.g.k}`));
+  const held = (pid: number, t: Year) => !!spansOf.get(pid)?.some((s) => s.from < t && t < (s.until ?? Infinity));
   /** 不战死、不卷进争储(到这一刻为止):日后要摄政的叔父、要结亲的宗室(推演里还要用到他)、掌着权的大将 */
   const spare = new Map<Person, Year>();
   const keep = (x: Person | undefined, t: Year) => x && spare.set(x, Math.max(spare.get(x) ?? -Infinity, t));
@@ -776,7 +792,7 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
       // 这一刻有宗室据地争位(推演里的内乱,见上):不另争储;摄政的叔父废了幼主的、先君晚年新君已引兵入朝的(regents.ts)也不争
       if (secededAt.get(p.id)?.has(X.from) || r.seize) continue;
       const rk = reignOf.get(R)?.k;
-      if (spans.some((s) => s.pid === p.id && s.g.kind === 'march' && s.g.k === rk)) continue;
+      if (marchedAt.has(`${p.id}:${rk}`)) continue;
       const T = X.from;
       steps.push({
         idx: annalAt(T),
@@ -969,6 +985,8 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
   // 掌实权的名臣、大臣篡位(改朝换代):和新朝的第一位并成一人 —— 名字、字号、籍贯、官职、经手的事都是做名臣时的,
   // 编号排在他做名臣时的位置(推到他篡位以前,他已经以名臣的身份在了;起名时就照新朝的姓起的)
   const usurpers = new Map<Person, Person>();
+  /** 篡位的名臣 → 新朝第一位(并成的那一个) */
+  const usurperOf = new Map<Person, Person>();
   for (const s of spans) {
     if (s.end !== 'usurp' || (s.g.kind !== 'minister' && s.g.kind !== 'chancellor')) continue;
     const f = forcedOf.get(s);
@@ -982,6 +1000,7 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
     if (S.posts) F.posts = S.posts;
     if (S.deeds) F.deeds = S.deeds;
     usurpers.set(F, S);
+    usurperOf.set(S, F);
     titleRulers(polities[F.polity], rulers[F.polity], facts[F.polity], base, tag[F.polity]);
   }
   if (usurpers.size) {
@@ -1005,7 +1024,7 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
       if (!holder) {
         const f = forcedOf.get(s);
         const S = f && forcedPeople.get(f);
-        holder = S && [...usurpers].find(([, m]) => m === S)?.[0];
+        holder = S && usurperOf.get(S);
         holder ??= S;
         if (kind === 'general') kind = 'chancellor';
       }
