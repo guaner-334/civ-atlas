@@ -319,6 +319,13 @@ const PATHS = {
   ),
   /** 切到另一支:来回两个箭头 */
   swap: <path d="M7 7h11l-3-3M17 17H6l3 3" />,
+  /** 约:一页折角的文书,三行字(条约卡片的图标) */
+  treaty: (
+    <>
+      <path d="M7 3h7l4 4v14H7z" />
+      <path d="M14 3v4h4M9.5 11h6M9.5 14.5h6M9.5 18h3.5" />
+    </>
+  ),
 } satisfies Record<string, ReactNode>;
 
 export type IconName = keyof typeof PATHS;

@@ -154,6 +154,7 @@ import {
   resolveKey,
   sameInterventions,
   settlementKey,
+  treatyKey,
   upgradeLegacyKeys,
   type Intervention,
   type PlayState,
@@ -1892,7 +1893,9 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
             ? settlementKey(old, sel.id)
             : sel.kind === 'faith' && old.religion?.faiths[sel.id]
               ? faithKey(old, sel.id)
-              : null;
+              : sel.kind === 'treaty'
+                ? treatyKey(old, sel.id) || null
+                : null;
       if (key) {
         const r = resolveKey(civ, key);
         if (r && r.kind === sel.kind) setSelection({ kind: sel.kind, id: r.id } as MapSelection);

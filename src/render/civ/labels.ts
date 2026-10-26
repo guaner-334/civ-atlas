@@ -36,6 +36,7 @@ import { logIndexAfter, ownersAt, type Owners } from '../../gen/civ/timeline';
 import { faithAt } from '../../gen/civ/religion';
 import { ERA_COLORS, eraName, eraSampleYear, erasAt } from './era';
 import { passLabels } from './passes';
+import { treatyBook, zonesAt } from '../../gen/civ/treatyInfo';
 
 const MIN_ZOOM = [1, 1, 1.8, 3];
 
@@ -269,6 +270,67 @@ function regionLabelItems(p: CivDrawParams): LabelItem[] {
       tolerance: 0.15,
       space: 0.3,
       place: (px, view) => polityCandidates(text, fit.path, px, REGION_TRACKING, view, fit.vertical, MIN_LABEL_PX * view.dpr),
+    });
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// 中立地的名字(随年份变;开着「国家」时)
+
+/** 中立地的名字:"星河域中立地"。字号(CSS 像素,参照宽度、缩放 1 倍)、放大时字号增长幂、从几倍出现、优先级(大城名之后、城名之前)、字距(疏排) */
+export const ZONE_SUFFIX = '中立地';
+const ZONE_NAME = { size: 12, grow: 0.22, minZoom: 1.6, priority: 72 };
+const ZONE_TRACKING: [number, number] = [0.45, 1.2];
+const ZONE_LOOK: Record<'fantasy' | 'realistic' | 'data', Look> = {
+  fantasy: { color: 'rgba(52,40,30,0.95)', weight: 600, halo: { color: 'rgba(246,238,220,0.95)', width: 2.6 } },
+  realistic: { color: 'rgba(40,34,30,0.95)', weight: 600, halo: { color: 'rgba(255,255,255,0.75)', width: 2.4 } },
+  data: { color: 'rgba(30,30,30,0.95)', weight: 600, halo: { color: 'rgba(255,255,255,0.8)', width: 2.4 } },
+};
+
+/**
+ * 这一年的中立地:名字先试顺着那一州的形状排(同州名),放不下(中立地多半只是一小州)再横排在治所上、上下挪开一两个字高;
+ * 疏排、深墨色,放大到 ZONE_NAME.minZoom 倍出现。每个字要落在那一州或紧挨着它的州里(名字比州长时可以伸出去一点)
+ */
+function zoneLabelItems(p: CivDrawParams): LabelItem[] {
+  const { civ, world, raster } = p;
+  const zones = zonesAt(civ, p.year);
+  if (!zones.length) return [];
+  const look = ZONE_LOOK[p.style === 'fantasy' ? 'fantasy' : p.style === 'realistic' ? 'realistic' : 'data'];
+  const family = p.style === 'fantasy' ? FONT_FANTASY : FONT_REALISTIC;
+  const grid = territoryGrid(world, raster, civ);
+  const owner = { grid, owner: grid.region };
+  const R = civ.regions;
+  const out: LabelItem[] = [];
+  for (const z of zones) {
+    const r = z.region;
+    if (r < 0 || r >= R.count) continue;
+    const text = regionLabel(civ, r) + ZONE_SUFFIX;
+    const fit = regionFit(world, civ, r, [...text].length);
+    const seat: [number, number] = [world.mesh.x[R.seat[r]], world.mesh.y[R.seat[r]]];
+    const near = new Set<number>([r]);
+    for (let k = R.adjStart[r]; k < R.adjStart[r + 1]; k++) near.add(R.adj[k]);
+    out.push({
+      text,
+      path: fit?.path ?? seat,
+      layout: 'curve',
+      size: ZONE_NAME.size,
+      grow: ZONE_NAME.grow,
+      tracking: ZONE_TRACKING,
+      minZoom: ZONE_NAME.minZoom,
+      priority: ZONE_NAME.priority,
+      family,
+      weight: look.weight,
+      color: look.color,
+      halo: look.halo,
+      area: (wx, wy) => near.has(ownerAtPoint(owner, wx, wy)),
+      tolerance: 0.25,
+      space: 0.3,
+      place: function* (px, view) {
+        const min = MIN_LABEL_PX * view.dpr;
+        if (fit) yield* polityCandidates(text, fit.path, px, ZONE_TRACKING, view, fit.vertical, min);
+        yield* sideShift(() => polityCandidates(text, seat, px, ZONE_TRACKING, view, false, min), px);
+      },
     });
   }
   return out;
@@ -623,6 +685,7 @@ export function civMapLayer(p: CivDrawParams, opt: { fast?: boolean; proj?: MapP
       if (!lead) sides.add(item);
     }
   }
+  if (p.show.polities && civ.polities.length) items.push(...zoneLabelItems(p));
   if ((p.show.polities || p.show.routes) && civ.settlements.length) {
     const { x: mx, y: my } = world.mesh;
     const boxes = SYMBOL_BOX[style === 'fantasy' ? 'fantasy' : 'realistic'];
@@ -731,6 +794,9 @@ export function civLabelChars(civ: Civ): string {
   for (let i = 0; i < ERA_COLORS.length; i++) add(eraName(i));
   for (const s of civ.settlements) add(s.name);
   add(RUIN_PREFIX);
+  add(ZONE_SUFFIX);
+  // 中立地的名字(没起名的州写"第 N 州")
+  for (const z of treatyBook(civ).zones) if (z) add(regionLabel(civ, z.region));
   return [...set].sort().join('');
 }
 

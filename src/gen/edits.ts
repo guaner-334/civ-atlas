@@ -492,6 +492,7 @@
 import type { Civ, Culture, Faith, Person, Place, Polity, Regions, RulerLeanings, Settlement } from './civ/types';
 import type { AuthorCharacter } from './characters';
 import { polityRootAt } from './civ/growth';
+import { treatyBook } from './civ/treatyInfo';
 import { TERRAIN_H, TERRAIN_W } from './terrainEdits';
 import type { SketchEdit } from './sketch';
 import type { NameMix } from './names/mix';
@@ -944,7 +945,7 @@ export const EMPTY_EDITS: WorldEdits = Object.freeze({
   terrain: Object.freeze([]) as unknown as TerrainOp[],
 });
 
-export type KeyKind = 'polity' | 'settlement' | 'place' | 'culture' | 'dynasty' | 'region' | 'faith' | 'person';
+export type KeyKind = 'polity' | 'settlement' | 'place' | 'culture' | 'dynasty' | 'region' | 'faith' | 'person' | 'treaty';
 
 export interface ResolvedKey {
   kind: KeyKind;
@@ -1138,6 +1139,16 @@ export function dynastyKey(civ: Civ, polity: number, index: number): string {
 }
 
 /** 州的键:`region:c{治所地块}`(改地形、州重新划分以后,指"现在包含这块地的那一州") */
+/**
+ * 约的稳定键:立约头一国的稳定键 + 立约那年(`treaty:c4567#0@1605`)。重推历史后同一国、同一年立的约还是它;
+ * 推演变了、对不上就算了(和人物一样)。没有这份约 = 空串
+ */
+export function treatyKey(civ: Civ, id: number): string {
+  const x = treatyBook(civ).treaties[id];
+  const p = x ? polityKey(civ, x.parties[0]) : undefined;
+  return x && p ? `treaty:${p.slice(p.indexOf(':') + 1)}@${Math.floor(x.start)}` : '';
+}
+
 export function regionKey(civ: Civ, region: number): string {
   const seat = keySeats(civ.regions);
   return region >= 0 && region < seat.length ? `region:c${seat[region]}` : `region:r${region}`;
@@ -1196,6 +1207,10 @@ export function resolveKey(civ: Civ, key: string): ResolvedKey | null {
   if (key.startsWith('person:')) {
     const id = resolvePersonKey(civ, key);
     return id >= 0 ? { kind: 'person', id } : null;
+  }
+  if (key.startsWith('treaty:')) {
+    const x = treatyBook(civ).treaties.find((t) => t && treatyKey(civ, t.id) === key);
+    return x ? { kind: 'treaty', id: x.id } : null;
   }
   if (key.startsWith('dynasty:')) {
     const cut = key.lastIndexOf('/');
@@ -1376,6 +1391,7 @@ export function applyNames(civ: Civ, names: Record<string, string>): Civ {
   const region = new Map<number, string>();
   const faith = new Map<number, string>();
   const person = new Map<number, string>();
+  const treaty = new Map<number, string>();
   for (const key in names) {
     const name = names[key];
     if (typeof name !== 'string' || !name) continue;
@@ -1388,13 +1404,14 @@ export function applyNames(civ: Civ, names: Record<string, string>): Civ {
     else if (r.kind === 'region') region.set(r.id, name);
     else if (r.kind === 'faith') faith.set(r.id, name);
     else if (r.kind === 'person') person.set(r.id, name);
+    else if (r.kind === 'treaty') treaty.set(r.id, name);
     else {
       let m = dynasty.get(r.id);
       if (!m) dynasty.set(r.id, (m = new Map()));
       m.set(r.index!, name);
     }
   }
-  if (!polityRoot.size && !dynasty.size && !settlement.size && !place.size && !culture.size && !region.size && !faith.size && !person.size) return civ;
+  if (!polityRoot.size && !dynasty.size && !settlement.size && !place.size && !culture.size && !region.size && !faith.size && !person.size && !treaty.size) return civ;
 
   let changed = false;
   // 州名:另起一份 regionNames(civ.regions 不动,见文件头)
@@ -1509,8 +1526,16 @@ export function applyNames(civ: Civ, names: Record<string, string>): Civ {
       changed = true;
     }
   }
+  // 约名:另起一份 treatyNames(史事不动)
+  let treatyNames = civ.treatyNames;
+  if (treaty.size) {
+    treatyNames = { ...civ.treatyNames };
+    for (const [id, name] of treaty) treatyNames[id] = name;
+    changed = true;
+  }
   if (!changed) return civ;
   const out: Civ = { ...civ, cultures, places, settlements, polities };
+  if (treatyNames) out.treatyNames = treatyNames;
   if (people) out.people = people;
   if (regionNames) out.regionNames = regionNames;
   if (religion) out.religion = religion;

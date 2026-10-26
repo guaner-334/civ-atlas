@@ -13,7 +13,9 @@
  *         点了开方针页)、疆域(历年州数的小柱图,和概览"国家"表同一份)、
  *         人口(境内各州的总人口:城 + 乡村)、钱粮(近几百年国库小柱 + 国库怎么样 + 岁入;点了换成钱粮页 FiscalPage.tsx)、
  *         朝政(征税的法子 + 分封、割据几州;够格议事或议过事的国家才有;点了换成朝政页 CourtPage.tsx)、主体民族、国教(可点,"某年起";没有写"没有")、
- *         宗主("某年起称臣")/ 藩属 / 盟国(可点,名字后面是哪年称臣、结盟;有才写)、邻国(可点),来历 / 结局 / 历任国都(有才写)
+ *         宗主("某年起称臣")/ 藩属 / 盟国(可点,名字后面是哪年称臣、结盟;有才写)、
+ *         立约(这一年还在的约:约名可点、开条约卡片,"到哪年",下面一句和哪几国互不侵犯)/ 中立地(参与共建的,州名可点;有才写)、
+ *         邻国(可点),来历 / 结局 / 历任国都(有才写)
  *   历代君主  当前这位和前后各两位(新的在上;遇弑、被废这类结局写在名字后面),点一行看这个人;
  *             作者立的君主(让作者的人物即位):名字前面是他的圆头像,后面写「作者的人物」,点了开作者的人物卡;
  *         "全部 N 位"打开概览的人物页、只看这国的君主;"世系图"(不是共和国才有)打开这国的世系图,停在时间轴那一年的那一朝
@@ -26,11 +28,13 @@
  * 顶部、按钮、概况、小柱图、大事这些零件在 panelParts.tsx,城 / 地理实体 / 州的面板(CityPanel、PlacePanel、RegionPanel)
  * 用的是同一套。
  */
-import { useMemo, useRef, useState, type RefObject } from 'react';
+import { Fragment, useMemo, useRef, useState, type RefObject } from 'react';
 import type { Civ, Polity } from '../gen/civ/types';
 import type { Raster } from '../gen/raster';
 import type { World } from '../gen/world';
-import { cultureLabel } from '../gen/civ/display';
+import { cultureLabel, regionLabel } from '../gen/civ/display';
+import { treatiesOfAt, treatyMembersAt, treatyTitle } from '../gen/civ/treatyInfo';
+import { nationsWord, treatyPeriod, zonesOfAt } from './treatyRows';
 import { capitalAt, dynastyIndexAt, polityAlive, polityName, polityTitleChain, populationLabel, regionPopulationAt } from '../gen/civ/growth';
 import { ownersAt, type Owners } from '../gen/civ/timeline';
 import { filterChronicle, polityChronicle } from '../gen/civ/chronicle';
@@ -264,6 +268,9 @@ function InfoPage({ civ, raw, raster, world, id, year, p, shared, lock }: Countr
   const near = useMemo(() => [...neighborsAt(civ, id, shownYear).near], [civ, id, shownYear]);
   // 邦交:宗主、藩属(哪年称臣)、盟国(哪年结盟、共御谁;作者下令的结盟也算)
   const ties = useMemo(() => polityTies(civ, id, shownYear), [civ, id, shownYear]);
+  // 立约:这一年还在的约(约名可点,"到哪年",下面一句和哪几国互不侵犯);中立地:这一年参与共建的(州名可点)
+  const pacts = useMemo(() => treatiesOfAt(civ, id, shownYear), [civ, id, shownYear]);
+  const zones = useMemo(() => zonesOfAt(civ, id, shownYear), [civ, id, shownYear]);
   // 疆域小柱图:和概览"国家"表里的同一份(0 年到结束年份均匀取样的州数),按这国最多时的州数定高
   const hist = polityHistory(civ);
   const spark = hist.years.map((y, i) => ({ year: y, n: hist.spark[id * SPARK_N + i] }));
@@ -406,6 +413,34 @@ function InfoPage({ civ, raw, raster, world, id, year, p, shared, lock }: Countr
                   {other(v.id, shownYear)}
                   <em>{yearShort(v.since, era)}</em>
                 </span>
+              ))}
+            </Row>
+          )}
+          {pacts.length > 0 && (
+            <Row k="立约">
+              {pacts.map((t) => {
+                const others = treatyMembersAt(civ, t, shownYear).filter((q) => q !== id && civ.polities[q]);
+                return (
+                  <Fragment key={t.id}>
+                    <Link to={{ kind: 'treaty', id: t.id }}>{treatyTitle(civ, t.id)}</Link>
+                    <em className="cp-num-note">到 {yearAt(treatyPeriod(t, shownYear).until, era)}</em>
+                    {others.length > 0 && <span className="cp-vsub">与{others.map((q) => polityName(civ.polities[q], shownYear)).join('、')}互不侵犯</span>}
+                  </Fragment>
+                );
+              })}
+            </Row>
+          )}
+          {zones.length > 0 && (
+            <Row k="中立地">
+              {zones.map((z, i) => (
+                <Fragment key={z.id}>
+                  {i > 0 && <span className="cp-vsub" />}
+                  <Link to={{ kind: 'region', id: z.region }}>{regionLabel(civ, z.region)}</Link>
+                  <em className="cp-num-note">
+                    {yearAt(z.from, era)}
+                    {z.how === 'peace' ? '议和划出' : `${nationsWord(z.founders.length)}共建`}
+                  </em>
+                </Fragment>
               ))}
             </Row>
           )}

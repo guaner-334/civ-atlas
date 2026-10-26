@@ -90,6 +90,31 @@
 .cp-head > .cp-sw {
   margin-top: 9px;
 }
+/* 条约卡片顶部的图标:一页文书,浅灰圆角底 */
+.cp-ico {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: var(--btn);
+  color: var(--ink-2);
+}
+.cp-ico svg {
+  stroke-width: 1.7;
+}
+/* 概况里一行数值下面的一句灰字(立约"与某国、某国互不侵犯"、约定的细则、续约、背约) */
+.cp-v .cp-vsub {
+  display: block;
+  flex-basis: 100%;
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ink-2);
+  white-space: normal;
+  text-align: right;
+}
 .cp-title {
   flex: 1;
   min-width: 0;
@@ -839,6 +864,10 @@
 /* 历任归属:无主的一段留空 */
 .cpanel .cp-seg.blank {
   cursor: default;
+}
+/* 历任归属:中立地的一段(几国颜色的细横纹,淡一点) */
+.cpanel .cp-seg.zone {
+  opacity: 0.8;
 }
 .cpanel .cp-seg.blank:hover {
   filter: none;
