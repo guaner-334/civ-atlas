@@ -26,6 +26,7 @@ import {
   sortRows,
   type Fact,
   type FinderCand,
+  type FinderCond,
   type FinderQuery,
   type SeedReport,
 } from '../src/gen/finder/query';
@@ -80,7 +81,7 @@ describe('照故事找世界:条件', () => {
     expect(judgeCond({ kind: 'size', size: 'top' }, [10, 0, 12]).ok).toBe(false);
     expect(judgeCond({ kind: 'size', min: 5, max: 9 }, [7, 0, 0])).toMatchObject({ ok: true, quality: 1 });
     // 合的条件放宽以后照样合(拿一串数挨个看)
-    const conds = [
+    const conds: FinderCond[] = [
       { kind: 'size', size: 'small' },
       { kind: 'size', size: 'large' },
       { kind: 'size', size: 'medium' },
@@ -90,12 +91,18 @@ describe('照故事找世界:条件', () => {
       { kind: 'span', years: 130 },
       { kind: 'eraEnter', era: 2, min: 15, max: 50 },
       { kind: 'start', from: 1000, to: 1200 },
-    ] as const;
+      { kind: 'age', min: 7 },
+      { kind: 'age', max: 3 },
+      { kind: 'fate', within: 11, what: ['fall'] },
+      { kind: 'war', other: 1, within: 11 },
+      { kind: 'span', years: 13 },
+      { kind: 'pass', other: 0, gap: 70, narrow: 2 },
+    ];
     for (const c of conds) {
       const r = relaxCond(c)!;
       expect(r).not.toBeNull();
       for (let v = 0; v <= 200; v += 0.5) {
-        const f: Fact = c.kind === 'size' ? [v, 40, 10] : c.kind === 'mountain' ? [v / 200] : c.kind === 'start' ? [v * 10] : [v];
+        const f: Fact = c.kind === 'size' ? [v, 40, 10] : c.kind === 'mountain' ? [v / 200] : c.kind === 'start' ? [v * 10] : c.kind === 'pass' ? [1000 - v, 1000, 1, 10, 0] : [v];
         if (judgeCond(c, f).ok) expect(judgeCond(r, f).ok).toBe(true);
       }
     }
@@ -119,9 +126,11 @@ describe('照故事找世界:条件', () => {
 
   it('推到够用就停:开场最晚那年加上条件要看的年数(放宽以后也够看),不超过推演年数', () => {
     expect(finderPlan(MOUNTAIN)).toEqual({ from: 500, to: 2500, needEnd: 2500 + 130 });
+    // 推演年数不够时,开场最晚按放宽以后的条件算(讲 130 年放宽成 100 年:开场最晚第 1900 年;原来的门槛照样判它们不合)
     const short = finderPlan(MOUNTAIN, 2000);
-    expect(short.to).toBe(2000 - 130);
-    expect(short.needEnd).toBeLessThanOrEqual(2000);
+    expect(short.to).toBe(2000 - 100);
+    expect(short.needEnd).toBe(2000);
+    expect(finderPlan({ roles: [{ name: '甲', conds: [] }], together: [{ kind: 'span', years: 200 }] }, 2000).to).toBe(1850);
     const late: FinderQuery = { roles: [{ name: '甲', conds: [{ kind: 'eraEnter', era: 2, min: 0, max: 200 }] }], together: [{ kind: 'start', from: 1000, to: 1400 }] };
     const p = finderPlan(late);
     // 放宽以后开场能到 1500、进时代看到开场后 250 年
@@ -173,6 +182,19 @@ describe('照故事找世界:汇总', () => {
     expect(hints.map((h) => h.which.join())).toEqual(['2', '0', '0,2']);
     // 放宽以后的结果直接从留着的数里出
     expect(summarize(q, reports, both.variant).full.map((r) => r.seed).sort()).toEqual([1, 2, 3, 4, 6, 7]);
+  });
+
+  it('交界标哪一州跟着门槛走:要无主的标无主的那州,放宽成不要无主的标挨着最多国的那州', () => {
+    const q2: FinderQuery = { roles: [], together: [{ kind: 'junction', min: 3, unowned: true }] };
+    // [挨着最多几国, 那州, 无主的州里最多几国, 那州]
+    const rep = reportOf(q2, 1, [{ year: 1000, roles: [], facts: [[3, 0, 1, 3]] }]);
+    rep.cands[0].places = [
+      { cond: 0, kind: 'junction', cell: 10, region: 0, polities: [1, 2, 3], free: false },
+      { cond: 0, kind: 'junction', cell: 13, region: 3, polities: [1], free: true },
+    ];
+    expect(summarize(q2, [rep]).near[0].places.map((p) => p.region)).toEqual([3]);
+    const relaxed = summarize(q2, [rep], relaxCounts(q2, [rep])[0].variant);
+    expect(relaxed.full[0].places.map((p) => p.region)).toEqual([0]);
   });
 
   it('接着搜:停下时没推完的先补上,再往后;线程数、估时', () => {
@@ -270,6 +292,16 @@ describe('照故事找世界:后台线程池', () => {
     expect(once.log).toEqual(seeds);
   });
 
+  it('出错之间推完了别的不算接连出错,照样推完;接连出错才停', async () => {
+    const a = run([1, 2, 3, 4, 5, 6, 7, 8, 9], 1, { fail: [1, 3, 5, 7] });
+    expect(await a.s.finished).toMatchObject({ state: 'done', done: 9 });
+    expect(a.s.reports.filter((r) => r.error).map((r) => r.seed)).toEqual([1, 3, 5, 7]);
+    const b = run([1, 2, 3, 4, 5, 6], 1, { fail: [1, 2, 3, 4, 5] });
+    const p = await b.s.finished;
+    expect(p.state).toBe('stopped');
+    expect(p.error).toBeTruthy();
+  });
+
   it('暂停时不派新的,接着以后推完;线程出错的种子记一份出错的、换一个线程接着推', async () => {
     const { s, log } = run([1, 2, 3, 4, 5, 6], 2, { fail: [3] });
     s.pause();
@@ -358,6 +390,21 @@ describe('照故事找世界:真实世界', () => {
     for (const i of rep.alts) {
       expect(rep.cands[i].roles.join()).not.toBe(top.roles.join());
       expect(judge(q, rep.cands[i].facts).misses).toBeLessThanOrEqual(1);
+    }
+    // 占地:同一州丢了又夺回来只算一次(和编年史逐条数的一样)
+    const q2: FinderQuery = {
+      roles: [{ name: '甲', conds: [{ kind: 'size', size: 'large' }] }, { name: '乙', conds: [{ kind: 'conquer', other: 0, dir: 'lost', within: 300, min: 2 }] }],
+      together: [],
+    };
+    const rep2 = searchCiv(q2, w, civ, finderPlan(q2));
+    expect(rep2.cands.length).toBeGreaterThan(0);
+    for (const cd of rep2.cands) {
+      const [a, b] = cd.roles;
+      const caps = civ.annals.filter((e) => e.kind === 'conquer' && e.a === a && e.b === b && e.year >= cd.year).sort((x, y) => x.year - y.year);
+      const seen = new Set<number>();
+      const want: number[] = [];
+      for (const e of caps) if (!seen.has(e.region)) seen.add(e.region), want.push(e.year - cd.year);
+      expect(cd.facts[1]).toEqual(want);
     }
     // 同一个推完的世界再量一遍,一模一样
     expect(JSON.stringify(searchCiv(q, w, civ, plan))).toBe(JSON.stringify(rep));

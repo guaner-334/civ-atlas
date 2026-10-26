@@ -7,6 +7,7 @@
  */
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
+import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DEFAULT_PARAMS } from '../src/gen/params';
 import { searchSeed } from '../src/gen/finder/measure';
@@ -39,6 +40,7 @@ if (file) {
 } else {
   const jobs = Math.max(1, Number(opt('jobs') ?? 4));
   const out = opt('out') ?? 'snaps/finder.jsonl';
+  fs.mkdirSync(path.dirname(out), { recursive: true });
   fs.writeFileSync(out, '');
   const t0 = performance.now();
   const self = fileURLToPath(import.meta.url);
@@ -60,9 +62,11 @@ if (file) {
           if (reports.length % 20 === 0) console.log(`  推完 ${reports.length} / ${to - from + 1}(${Math.round((performance.now() - t0) / 1000)} 秒)`);
         }
       });
-      return new Promise<void>((res) => child.on('close', () => res()));
+      return new Promise<void>((res, rej) => child.on('close', (code, sig) => (code === 0 ? res() : rej(new Error(`第 ${i} 个进程出错退出(${sig ?? code})`)))));
     }),
   );
+  const want = to - from + 1;
+  if (reports.length !== want) throw new Error(`只交回 ${reports.length} 个,应该 ${want} 个`);
   console.log(`${jobs} 个进程推完 ${reports.length} 个,用了 ${Math.round((performance.now() - t0) / 1000)} 秒;结果在 ${out}`);
 }
 reports.sort((a, b) => a.seed - b.seed);

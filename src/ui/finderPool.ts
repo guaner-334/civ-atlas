@@ -72,7 +72,7 @@ export interface FinderRunOptions {
   perSeedMs?: number;
 }
 
-/** 线程接连出错这么多次就不再重开 */
+/** 线程接连出错(中间一个都没推完)这么多次就不再重开 */
 const MAX_RESPAWN = 3;
 
 const clock = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
@@ -93,7 +93,8 @@ export class FinderSearch {
   private state: FinderState = 'running';
   private error?: string;
   private seq = 0;
-  private respawned = 0;
+  /** 接连出错几次了(推完一个就清零) */
+  private crashes = 0;
   private full = 0;
   private near = 0;
   /** 在跑的时间(毫秒;暂停的不算):算还要多久用 */
@@ -177,6 +178,7 @@ export class FinderSearch {
   private receive(s: Slot, d: FinderDone): void {
     if (!s.job || d.id !== s.job.id || this.state === 'stopped' || this.state === 'done') return;
     s.job = null;
+    this.crashes = 0;
     this.take(d.report);
     this.feed(s);
     this.emit();
@@ -192,7 +194,7 @@ export class FinderSearch {
       const msg = (e as { message?: string } | null)?.message || '后台线程出错';
       this.take({ seed: job.seed, ms: 0, viable: false, error: msg, tried: 0, cands: [], best: [-1], alts: [] });
     }
-    if (++this.respawned > MAX_RESPAWN) {
+    if (++this.crashes > MAX_RESPAWN) {
       this.fail('后台线程接连出错');
       return;
     }

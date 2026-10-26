@@ -143,7 +143,7 @@ export function condList(q: FinderQuery): CondRef[] {
  * - neighbors / ports:[个数];age:[立国几年];era:[时代];elevation:[米];mountain:[翻山的边界占几成 0–1];higher:[比另一国高几米]
  * - eraEnter / fate / war:[开场后几年(没有 = null)];border:[共同边界长(世界单位;不接壤 = 0)]
  * - pass:[口子高, 山脊高, 和口子差不多低的有几对, 交界上几对地块, 口子那一块地块];交界太短、不接壤 = null
- * - conquer:[开场后每占一州是第几年……](按先后)
+ * - conquer:[开场后占的每一州是第几年占下的……](按先后;同一州丢了又夺回来只算第一次)
  * - junction(每国):[挨着几国, 那州];junction(一起):[挨着几国, 那州, 无主的州里最多挨着几国, 那州](没有 = −1)
  * - span:[故事里的国家从开场起最短撑了几年](故事里没有国家 = null,不用判)
  * - start:直接写年份的 [开场年份];跟着一国走的 [那国开场时的时代, 开场后几年进 enter 那个时代(没有 = null)]
@@ -321,57 +321,61 @@ export function rankCompare(a: Ranked, b: Ranked): number {
 // 放宽一点
 
 const round = (x: number, step: number) => Math.round(x / step) * step;
+/** 下限放宽:取个整,但不比原来的高(原来的数很小时取整可能反而变严) */
+const lower = (orig: number, x: number, step: number) => Math.min(orig, round(x, step));
+/** 上限放宽:取个整,但不比原来的低 */
+const upper = (orig: number, x: number, step: number) => Math.max(orig, round(x, step));
 
 /** 一条条件松一档(合这一条的只多不少,量什么不变);松不了(时代、接壤、只要一座港口……)= null */
 export function relaxCond(c: FinderCond): FinderCond | null {
   switch (c.kind) {
     case 'size':
-      if (c.size === 'small') return { ...c, ratio: round((c.ratio ?? SMALL_RATIO) * 4 / 3, 0.01) };
-      if (c.size === 'large') return { kind: 'size', min: round(LARGE * 0.75, 1) };
-      if (c.size === 'medium') return { kind: 'size', min: Math.floor(MEDIUM_MIN * 0.75), max: Math.ceil((LARGE - 1) * 1.25) };
+      if (c.size === 'small') return { ...c, ratio: upper(c.ratio ?? SMALL_RATIO, ((c.ratio ?? SMALL_RATIO) * 4) / 3, 0.01) };
+      if (c.size === 'large') return { kind: 'size', min: lower(LARGE, LARGE * 0.75, 1) };
+      if (c.size === 'medium') return { kind: 'size', min: lower(MEDIUM_MIN, MEDIUM_MIN * 0.75, 1), max: upper(LARGE - 1, (LARGE - 1) * 1.25, 1) };
       if (c.size === 'top') return null;
       if (c.min === undefined && c.max === undefined) return null;
       return { kind: 'size', ...(c.min !== undefined ? { min: Math.floor(c.min * 0.75) } : {}), ...(c.max !== undefined ? { max: Math.ceil(c.max * 1.25) } : {}) };
     case 'neighbors':
       if ((c.min ?? 0) <= 1 && c.max === undefined) return null;
-      return { kind: 'neighbors', ...(c.min !== undefined ? { min: Math.max(1, c.min - 1) } : {}), ...(c.max !== undefined ? { max: c.max + 1 } : {}) };
+      return { kind: 'neighbors', ...(c.min !== undefined ? { min: Math.min(c.min, Math.max(1, c.min - 1)) } : {}), ...(c.max !== undefined ? { max: c.max + 1 } : {}) };
     case 'ports':
       return c.min > 1 ? { ...c, min: c.min - 1 } : null;
     case 'age':
       if (c.min === undefined && c.max === undefined) return null;
-      return { kind: 'age', ...(c.min !== undefined ? { min: round(c.min * 0.75, 10) } : {}), ...(c.max !== undefined ? { max: round(c.max * 1.25, 10) } : {}) };
+      return { kind: 'age', ...(c.min !== undefined ? { min: lower(c.min, c.min * 0.75, 10) } : {}), ...(c.max !== undefined ? { max: upper(c.max, c.max * 1.25, 10) } : {}) };
     case 'era':
     case 'border':
       return null;
     case 'eraEnter': {
       const pad = Math.max(5, round((c.max - c.min) / 4, 5));
-      return { ...c, min: Math.max(0, c.min - pad), max: c.max + pad };
+      return { ...c, min: Math.min(c.min, Math.max(0, c.min - pad)), max: c.max + pad };
     }
     case 'fate':
     case 'war':
-      return { ...c, within: round(c.within * 1.25, 10) };
+      return { ...c, within: upper(c.within, c.within * 1.25, 10) };
     case 'mountain':
-      return c.min > 0.05 ? { ...c, min: Math.max(0.05, round(c.min / 2, 0.05)) } : null;
+      return c.min > 0.05 ? { ...c, min: lower(c.min, Math.max(0.05, c.min / 2), 0.05) } : null;
     case 'elevation':
-      return c.min > 0 ? { ...c, min: round(c.min * 0.75, 50) } : null;
+      return c.min > 0 ? { ...c, min: lower(c.min, c.min * 0.75, 50) } : null;
     case 'higher':
-      return c.by > 0 ? { ...c, by: round(c.by / 2, 50) } : null;
+      return c.by > 0 ? { ...c, by: lower(c.by, c.by / 2, 50) } : null;
     case 'pass':
-      return { ...c, gap: round((c.gap * 2) / 3, 50), narrow: c.narrow + 1 };
+      return { ...c, gap: lower(c.gap, (c.gap * 2) / 3, 50), narrow: c.narrow + 1 };
     case 'conquer':
-      return { ...c, within: round(c.within * 1.25, 10), min: Math.max(1, c.min - 1) };
+      return { ...c, within: upper(c.within, c.within * 1.25, 10), min: Math.min(c.min, Math.max(1, c.min - 1)) };
     case 'junction':
       if ('unowned' in c && c.unowned) return { ...c, unowned: false };
       return c.min > 2 ? { ...c, min: c.min - 1 } : null;
     case 'span':
-      return c.years > 10 ? { ...c, years: round(c.years * 0.75, 10) } : null;
+      return c.years > 10 ? { ...c, years: lower(c.years, c.years * 0.75, 10) } : null;
     case 'start': {
       if ('from' in c) {
         const pad = Math.max(50, round((c.to - c.from) / 4, 10));
-        return { ...c, from: Math.max(0, c.from - pad), to: c.to + pad };
+        return { ...c, from: Math.min(c.from, Math.max(0, c.from - pad)), to: c.to + pad };
       }
       const pad = Math.max(5, round((c.max - c.min) / 4, 5));
-      return { ...c, min: Math.max(0, c.min - pad), max: c.max + pad };
+      return { ...c, min: Math.min(c.min, Math.max(0, c.min - pad)), max: c.max + pad };
     }
   }
 }
@@ -422,6 +426,11 @@ export interface FinderPlace {
   settlement?: number;
   /** 牵涉的国家:隘口两边;交界那州碰到的几家;港口所属的那国 */
   polities: number[];
+  /**
+   * 「一起」的交界两处都给:false = 挨着最多国的州,true = 无主的州里挨着最多国的。
+   * 用哪一处看那条条件(放宽以后)要不要无主:界面用 FinderRow.places(placesFor 挑好的),别直接用 FinderCand.places
+   */
+  free?: boolean;
 }
 
 /** 后来怎样:从编年史里挑的一条 */
@@ -484,8 +493,20 @@ export interface FinderRow {
   seed: number;
   cand: FinderCand;
   verdict: Verdict;
+  /** 地图上标的地方(按这一种门槛挑好的,见 placesFor) */
+  places: FinderPlace[];
   /** 换一种配法(只在作者写的门槛下给) */
-  alts: { cand: FinderCand; verdict: Verdict }[];
+  alts: { cand: FinderCand; verdict: Verdict; places: FinderPlace[] }[];
+}
+
+/** 一种配法在某一种门槛(q)下要标的地方:「一起」的交界,条件要无主的用无主的那州,不要的用挨着最多国的那州 */
+export function placesFor(q: FinderQuery, cand: Pick<FinderCand, 'places'>): FinderPlace[] {
+  const list = condList(q);
+  return cand.places.filter((p) => {
+    if (p.free === undefined) return true;
+    const c = list[p.cond]?.cond;
+    return p.free === !!(c && c.kind === 'junction' && 'unowned' in c && c.unowned);
+  });
 }
 
 /** 第 variant 种门槛(relaxVariants 的下标)的条件 */
@@ -497,8 +518,8 @@ function rowOf(q: FinderQuery, vq: FinderQuery, report: SeedReport, variant: num
   const k = report.best[variant] ?? -1;
   if (k < 0 || !report.cands[k]) return null;
   const cand = report.cands[k];
-  const alts = variant ? [] : report.alts.map((i) => ({ cand: report.cands[i], verdict: judge(q, report.cands[i].facts) }));
-  return { seed: report.seed, cand, verdict: judge(vq, cand.facts), alts };
+  const alts = variant ? [] : report.alts.map((i) => ({ cand: report.cands[i], verdict: judge(q, report.cands[i].facts), places: placesFor(q, report.cands[i]) }));
+  return { seed: report.seed, cand, verdict: judge(vq, cand.facts), places: placesFor(vq, cand), alts };
 }
 
 /** 一个种子在第 variant 种门槛(relaxVariants 的下标)下最合的配法;一种配法都没有 = null */

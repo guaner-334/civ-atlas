@@ -24,6 +24,7 @@ import {
   YEAR_STEP,
   condList,
   judgeCond,
+  placesFor,
   relaxCond,
   relaxQuery,
   relaxVariants,
@@ -72,17 +73,35 @@ export interface FinderPlan {
   needEnd: number;
 }
 
-/** 推到够用就停:开场最晚 to 年、条件最多要看开场后 h 年,就只推到 to + h(放宽以后的条件也够看) */
+/** 这条条件至少要看到开场后第几年才可能合(撑多少年、进时代的最早那年) */
+function needs(c: FinderCond): number {
+  switch (c.kind) {
+    case 'eraEnter':
+      return Math.max(0, c.min);
+    case 'span':
+      return c.years;
+    case 'junction':
+      return 'lasting' in c ? (c.lasting ?? 0) : 0;
+    case 'start':
+      return 'from' in c ? 0 : Math.max(0, c.min);
+    default:
+      return 0;
+  }
+}
+
+/**
+ * 推到够用就停:开场最晚 to 年、条件最多要看开场后 h 年,就只推到 to + h。
+ * 开场年份的范围、要看的年数都按放宽以后的条件算(推演年数不够时,放宽以后才合得上的开场年份也要量到;原来的门槛照样判它不合)
+ */
 export function finderPlan(q: FinderQuery, endYear: number = DEFAULT_CIV_PARAMS.endYear): FinderPlan {
   const all = condList(q);
   const loose = condList(relaxQuery(q, all.map((_, i) => i)));
-  const hBase = Math.max(0, ...all.map((r) => reach(r.cond)));
-  const hLoose = Math.max(hBase, ...loose.map((r) => reach(r.cond)));
+  const h = Math.max(0, ...all.map((r) => reach(r.cond)), ...loose.map((r) => reach(r.cond)));
   let win: { from: number; to: number } = DEFAULT_START;
   for (const r of loose) if (r.cond.kind === 'start' && 'from' in r.cond) win = r.cond;
   const from = Math.max(0, Math.ceil(win.from));
-  const to = Math.min(Math.floor(win.to), endYear - hBase);
-  return { from, to, needEnd: Math.max(0, Math.min(endYear, to + hLoose)) };
+  const to = Math.min(Math.floor(win.to), endYear - Math.max(0, ...loose.map((r) => needs(r.cond))));
+  return { from, to, needEnd: Math.max(0, Math.min(endYear, to + h)) };
 }
 
 // ---------------------------------------------------------------------------
@@ -228,7 +247,8 @@ export function searchCiv(
 
   // 编年史里的事:两国之间打仗、攻占;一国亡、分裂、改朝
   const wars = new Map<number, number[]>();
-  const takes = new Map<number, number[]>();
+  /** 攻占:攻方 × P + 守方 → [年份, 州] 按年份 */
+  const takes = new Map<number, [number, number][]>();
   const fates = { fall: new Map<number, number[]>(), split: new Map<number, number[]>(), dynasty: new Map<number, number[]>() };
   const push = (m: Map<number, number[]>, k: number, y: number) => {
     const l = m.get(k);
@@ -237,7 +257,12 @@ export function searchCiv(
   };
   for (const e of civ.annals ?? []) {
     if ((e.kind === 'war' || e.kind === 'battle') && e.a >= 0 && e.b >= 0 && e.a !== e.b) push(wars, Math.min(e.a, e.b) * P + Math.max(e.a, e.b), e.year);
-    else if (e.kind === 'conquer' && e.a >= 0 && e.b >= 0) push(takes, e.a * P + e.b, e.year);
+    else if (e.kind === 'conquer' && e.a >= 0 && e.b >= 0) {
+      const k = e.a * P + e.b;
+      const l = takes.get(k);
+      if (l) l.push([e.year, e.region]);
+      else takes.set(k, [[e.year, e.region]]);
+    }
     else if ((e.kind === 'split' || e.kind === 'revolt') && e.b >= 0) push(fates.split, e.b, e.year);
     else if (e.kind === 'collapse' && e.a >= 0) push(fates.split, e.a, e.year);
     else if (e.kind === 'dynasty' && e.a >= 0) push(fates.dynasty, e.a, e.year);
@@ -245,7 +270,8 @@ export function searchCiv(
   civ.polities.forEach((p, i) => {
     if (p.ended !== undefined) push(fates.fall, i, p.ended);
   });
-  for (const m of [wars, takes, fates.fall, fates.split, fates.dynasty]) for (const l of m.values()) l.sort((a, b) => a - b);
+  for (const m of [wars, fates.fall, fates.split, fates.dynasty]) for (const l of m.values()) l.sort((a, b) => a - b);
+  for (const l of takes.values()) l.sort((a, b) => a[0] - b[0]);
   /** 开场(含)以后第一件的年数;没有 = null */
   const firstAfter = (l: number[] | undefined, Y: number): number | null => {
     if (!l) return null;
@@ -489,8 +515,15 @@ export function searchCiv(
         return other < 0 ? null : [firstAfter(wars.get(Math.min(p, other) * P + Math.max(p, other)), Y)];
       case 'conquer': {
         if (other < 0) return null;
-        const l = takes.get(c.dir === 'took' ? p * P + other : other * P + p) ?? [];
-        return l.filter((t) => t >= Y && t <= needEnd).map((t) => t - Y);
+        // 每州只算开场以后第一次被占(同一州丢了又夺回来不重复算)
+        const seenR = new Set<number>();
+        const out: number[] = [];
+        for (const [t, r] of takes.get(c.dir === 'took' ? p * P + other : other * P + p) ?? []) {
+          if (t < Y || t > needEnd || seenR.has(r)) continue;
+          seenR.add(r);
+          out.push(t - Y);
+        }
+        return out;
       }
       case 'junction': {
         // 同样多的,挑离隘口近的(没有隘口条件 = 离第一国的国都近的)
@@ -715,13 +748,15 @@ export function searchCiv(
         const cell = f[4] ?? -1;
         if (cell >= 0) places.push({ cond: i, kind: 'pass', cell, region: reg.of[cell], polities: [cd.roles[ref.role], cd.roles[c.other]] });
       } else if (c.kind === 'junction' && f) {
-        const region = f.length >= 4 && 'unowned' in c && c.unowned && (f[3] ?? -1) >= 0 ? f[3]! : (f[1] ?? -1);
-        if (region >= 0) {
+        // 「一起」的交界两处都给:挨着最多国的州、无主的州里挨着最多国的(要不要无主看哪种门槛,query.ts 的 placesFor 挑)
+        const spots: [number, boolean | undefined][] = f.length >= 4 ? [[f[1] ?? -1, false], [f[3] ?? -1, true]] : [[f[1] ?? -1, undefined]];
+        for (const [region, free] of spots) {
+          if (region < 0) continue;
           const ps: number[] = [];
           const add = (x: number) => x >= 0 && !ps.includes(x) && ps.push(x);
           add(st!.own[region]);
           for (let k = landStart[region]; k < landStart[region + 1]; k++) add(st!.own[landAdj[k]]);
-          places.push({ cond: i, kind: 'junction', cell: reg.seat[region], region, polities: ps });
+          places.push({ cond: i, kind: 'junction', cell: reg.seat[region], region, polities: ps, ...(free === undefined ? {} : { free }) });
         }
       } else if (c.kind === 'ports' && ref.role >= 0) {
         // 离国都最近的一座连着航线的港口
@@ -743,7 +778,7 @@ export function searchCiv(
     cd.places = places;
     if (nearIdx.has(ci)) {
       chronicle ??= buildChronicle(civ);
-      const who = cd.roles.length ? cd.roles : (places.find((x) => x.kind === 'junction')?.polities ?? []);
+      const who = cd.roles.length ? cd.roles : (placesFor(q, cd).find((x) => x.kind === 'junction')?.polities ?? []);
       cd.story = storyOf(chronicle, who, Y, Math.min(Y + storyYears, needEnd));
     }
   });
