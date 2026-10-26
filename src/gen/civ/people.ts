@@ -909,11 +909,13 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
    * 和他同国同名、或前后 NAME_GAP 年里出生的同名的,换一个(本国没人用的)
    */
   const renameClashes = (F: Person) => {
+    const start = (o: Person) => (o.role === 'general' ? o.commands![0].from : o.role === 'prince' ? (debut.get(o) ?? o.born) : o.from!);
     for (const g of [...generals, ...ministers]) {
-      if (g === F || g.name !== F.name || (g.role === 'general' ? g.commands![0].from : g.from!) < F.from!) continue;
+      if (g === F || g.name !== F.name || start(g) < F.from!) continue;
       if (g.polity !== F.polity && Math.abs(g.born - F.born) >= NAME_GAP) continue;
-      // 换一个他那一国没人用的
-      const taken = new Set([...rulers[g.polity], ...generals, ...ministers, ...princes].filter((o) => o.polity === g.polity && o !== g).map((o) => o.name));
+      // 换一个他出道时他那一国还没人用的(只看那以前出道的:往后推不改他的名字)
+      const T = start(g);
+      const taken = new Set([...rulers[g.polity], ...generals, ...ministers, ...princes].filter((o) => o.polity === g.polity && o !== g && start(o) <= T).map((o) => o.name));
       taken.add(F.name);
       const at = genName.get(g) ?? nameAt.get(g);
       for (let a = 1; at && a < NAME_TRIES && taken.has(g.name); a++) g.name = at(a);
