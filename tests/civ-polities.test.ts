@@ -295,6 +295,7 @@ describe('城市成长 + 国家', () => {
           'defy',
           'fiscal',
           'council',
+          'stand',
         ]).toContain(e.kind);
       }
     }

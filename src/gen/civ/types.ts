@@ -313,6 +313,7 @@ export interface Place {
  * | defy      | 抗命不出兵(control.ts):开战点兵时,割据的地方拥兵不出 | 国家 | 和它交战的国家 | 割据的那座城所在的州 | 那座城 | 那场战争 |
  * | fiscal    | 国用不足(control.ts 的钱粮):国库空了、入不敷出 | 国家 | −1 | 国都所在州 | 国都 | **主要因为什么**(借用这一列):0 = 连年用兵,1 = 地方拖欠 |
  * | council   | 议事(council.ts):朝廷议改征收之法、分封、削藩;**结果在 Annal.n**:0 办成、1 妥协、2 搁置、3 谈崩(削藩谈崩紧跟着记那处割据自立的 split,cause = warlord;直征、改土归流谈崩紧跟着记 warlord) | 国家 | −1 | 罢直征:国都所在州;削藩:割据的那州;直征、改土归流:最吃亏的那州(没有 = 国都所在州);分封:最远的那州 | 那州的城 | **议题**(借用这一列):0 罢直征、1 削藩、2 直征、3 改土归流、4 分封边地。直征因为国用不足才议的,cause = broke(不然是君主锐意兴革) |
+ * | stand     | 据险断后(wars.ts):败退的一方留一支兵守住关隘(见 passes.ts),挡住追兵(追兵本来能再打下的那一州没打下来),大军退保关隘后面那州(**Annal.foe**);**守了几日在 Annal.n**,守将的结局在 cause:slain 力战而死、captured 力竭被擒、withdrew 全师而退 | 断后的一方 | 追兵的一方 | 关隘所在的州(口子那块地所在的州;可能是刚丢给追兵的那州) | −1 | 战争编号 |
  *
  * 洗劫、毁城和那一次攻占同一刻,记在那条 conquer **前面**(conquer、被迫迁都、灭亡照旧紧挨着,编年史里排回攻占后面)。
  * 议和割让的州也各记一条 conquer(a = 得到的一方,b = 割出的一方),连着记在那条 peace 前面,条数记在 peace 的 region 列。
@@ -388,16 +389,18 @@ export type AnnalKind =
   | 'reclaim'
   | 'defy'
   | 'fiscal'
-  | 'council';
+  | 'council'
+  | 'stand';
 
 /**
  * 战争的起因(史事 war 的 cause;阶段 4 干预的强制宣战不给)和盟约怎么断的(unally 的 cause):
  *   expand 争边地(没有别的由头)/ claim 收复故土(对方手里有原属本国的州)/ chaos 乘对方之乱(对方正和别国交兵、刚丢了国都、刚改朝换代)/
  *   prey 吞并小国 / betray 背盟来攻 / punish 讨伐自立的藩属 / ally 应盟国之约 / rescue 宗主救藩属 / quell 讨伐起事的饥民(民变);
  *   collapse:大崩解里自立的那几块(史事 split 的 cause);heir:宗室争位、据地自立(史事 split 的 cause)和讨伐他的那场仗(war 的 cause);broke:国用不足才议直征(史事 council 的 cause);warlord:割据的地方起兵自立(史事 split 的 cause,control.ts);great:大瘟疫(史事 plague 的 cause);
- *   lapse 盟约渐废 / abandon 坐视不救 / vassal 一方称臣
+ *   lapse 盟约渐废 / abandon 坐视不救 / vassal 一方称臣;
+ *   slain / captured / withdrew:据险断后的守将力战而死 / 力竭被擒 / 全师而退(史事 stand 的 cause)
  */
-export type AnnalCause = 'expand' | 'claim' | 'chaos' | 'prey' | 'resource' | 'betray' | 'punish' | 'ally' | 'rescue' | 'lapse' | 'abandon' | 'vassal' | 'quell' | 'collapse' | 'great' | 'quake' | 'warlord' | 'broke' | 'heir';
+export type AnnalCause = 'expand' | 'claim' | 'chaos' | 'prey' | 'resource' | 'betray' | 'punish' | 'ally' | 'rescue' | 'lapse' | 'abandon' | 'vassal' | 'quell' | 'collapse' | 'great' | 'quake' | 'warlord' | 'broke' | 'heir' | 'slain' | 'captured' | 'withdrew';
 
 /**
  * 一条史事(阶段 3):推演里各事件处理函数用 CivSim.record 往 Civ.annals 里记,编年史(界面上的事件列表)只读它。
@@ -415,7 +418,7 @@ export interface Annal {
   via?: AdjKind;
   /** 宣战(war)为什么打、盟约(unally)怎么断的(见 AnnalCause);自立(defect)的 betray = 宗主先动的兵;合并(merge)的 vassal = 藩属纳土归附 */
   cause?: AnnalCause;
-  /** 结盟(alliance)才有:共御的强邻(−1 = 没有) */
+  /** 结盟(alliance)才有:共御的强邻(−1 = 没有);据险断后(stand)借用:大军退保的那一州 */
   foe?: number;
   /** 干预灭国(intervene,灭成了)才有:亡时国土几州;为夺物产的宣战(war,由头 resource)才有:想要的物产(按位,下标见 development.ts 的 RESOURCES);议事(council)才有:结果 */
   n?: number;
@@ -855,6 +858,11 @@ export interface PersonCommand {
    */
   first: number;
   last: number;
+  /**
+   * 据险断后(史事 stand,first = last = 那一条):这一回不是统帅,是败退时留下守关隘的那支兵的守将。
+   * 编年史找统帅时不算它;不是 = 不给
+   */
+  rear?: true;
 }
 
 /**
