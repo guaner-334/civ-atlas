@@ -525,7 +525,15 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
         const before = rs[rs.indexOf(ruler) - 1];
         const kin = before && (before.dynasty ?? 0) === (ruler.dynasty ?? 0) ? [...(sonsOf.get(ruler) ?? []), ...(sonsOf.get(before) ?? [])] : (sonsOf.get(ruler) ?? []);
         const ok = kin.filter(
-          (k) => k.p !== ruler && k.debut <= t && t >= k.p.born + PRINCE_AGE[0] && t <= k.p.born + PRINCE_AGE[1] && k.end > t && (busyRuler.get(k.p) ?? -Infinity) <= t,
+          (k) =>
+            k.p !== ruler &&
+            k.debut <= t &&
+            t >= k.p.born + PRINCE_AGE[0] &&
+            t <= k.p.born + PRINCE_AGE[1] &&
+            k.end > t &&
+            (busyRuler.get(k.p) ?? -Infinity) <= t &&
+            // 做过君主、已经下台的不再领兵
+            (k.p.role !== 'ruler' || (k.p.until ?? Infinity) > t),
         );
         if (ok.length && wr(x * 2 + s, U_PRINCE) < 1 - Math.pow(1 - PRINCE_LEAD, ok.length)) {
           // 预定的继承人(太子)更常领兵:按 HEIR_WEIGHT 份算
@@ -536,7 +544,9 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
             k = o;
             break;
           }
-          cur[s] = { p: k.p, careerEnd: Math.min(k.end, k.p.born + PRINCE_AGE[1]), cmd: command(k.p), general: false, son: k };
+          // 后来即位的(预定的继承人):他下台(被废、让位)那一刻也就不再领兵,换人
+          const reignEnd = k.p.role === 'ruler' ? (k.p.until ?? Infinity) : Infinity;
+          cur[s] = { p: k.p, careerEnd: Math.min(k.end, k.p.born + PRINCE_AGE[1], reignEnd), cmd: command(k.p), general: false, son: k };
           busyRuler.set(k.p, Infinity);
           leading.set(k.p, (u) => close(s, u));
           return;

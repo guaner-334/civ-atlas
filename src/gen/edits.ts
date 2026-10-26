@@ -1090,6 +1090,10 @@ export function resolvePersonKey(civ: Civ, key: string): number {
   const ix = personIndex(civ);
   const hit = ix.byKey.get(key);
   if (hit !== undefined) return hit;
+  // 预定的继承人:推到他即位以前记下的是宗室(prince),接着推过了即位那年他是君主(ruler);往回推反过来
+  const swap = key.includes('|prince|') ? key.replace('|prince|', '|ruler|') : key.includes('|ruler|') ? key.replace('|ruler|', '|prince|') : '';
+  const heir = swap ? ix.byKey.get(swap) : undefined;
+  if (heir !== undefined) return heir;
   // 将领后来按不重名的规则改过名(旧存档里记的是原来的名字):同一国、同年生的将领只有一位,就是他
   const m = /^(person:.+\|general)\|[^|]+\|(-?\d+)(?:#\d+)?$/.exec(key);
   if (!m) return -1;

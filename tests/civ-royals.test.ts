@@ -8,7 +8,8 @@ import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
 import type { Person } from '../src/gen/civ/types';
 import { buildChronicle, reignEntries } from '../src/gen/civ/chronicle';
-import { polityKey } from '../src/gen/edits';
+import { personKey, polityKey, resolvePersonKey } from '../src/gen/edits';
+import { princeRef, princeTitle } from '../src/gen/civ/peopleText';
 
 const worlds = new Map<number, World>();
 function world(seed: number): World {
@@ -103,6 +104,19 @@ describe.each([7, 2024])('诸子 · seed=%i', (seed) => {
       expect(f.until).toBe(x.from);
     }
     expect(n).toBeGreaterThan(5);
+    // 下台(被废、让位、亡国)以后不再领兵,即位以前就出征的那一仗也一样
+    for (const x of P) if (x.role === 'ruler' && x.until !== undefined) for (const c of x.commands ?? []) expect(c.until, x.name).toBeLessThanOrEqual(x.until);
+  });
+
+  it('预定的继承人:推到他即位以前记下的宗室键,即位以后还找得到他(往回推也一样)', () => {
+    const civ = civOf(seed);
+    const heirs = civ.people!.filter((x) => x.role === 'ruler' && x.rise === 'heir' && x.parent !== undefined);
+    expect(heirs.length).toBeGreaterThan(10);
+    for (const x of heirs.slice(0, 20)) {
+      const key = personKey(civ, x.id);
+      expect(key).toContain('|ruler|');
+      expect(resolvePersonKey(civ, key.replace('|ruler|', '|prince|'))).toBe(x.id);
+    }
   });
 
   it('争储:杀掉的宗室卒于新君即位那一刻;以军功得立的越过的是还在世的兄长;编年史那一句写上对手', () => {
@@ -185,6 +199,12 @@ describe.each([7, 2024])('据地争位 · seed=%i', (seed) => {
         expect(R.polity).toBe(e.b);
         expect(R.until).toBe(e.year);
         expect(e.year - F.born).toBeGreaterThanOrEqual(20);
+        // 立国以前替父亲出征时,称呼照父亲那国("大昌皇子李昭",不写后来自立的国号)
+        for (const c of F.commands ?? []) {
+          if (c.from >= e.year) continue;
+          expect(princeRef(civ, F, c.from)).toBe(princeRef(civ, { ...F, polity: e.b }, c.from));
+          expect(princeTitle(civ, F, c.from)).not.toBe('宗室');
+        }
       }
       const t = entries.find((x) => x.kind === 'split' && x.year === e.year && x.polities.includes(e.a));
       expect(t?.text).toContain(F.name);

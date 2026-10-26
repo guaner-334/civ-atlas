@@ -27,6 +27,14 @@ function polityOfPerson(civ: Civ, x: Person): Polity | null {
   return x.polity >= 0 && x.polity < civ.polities.length ? civ.polities[x.polity] : null;
 }
 
+/** 宗室那一刻是哪国的人:据地自立的宗室(新国家的开国之君)在立国以前还是父亲那国的 */
+function princePolityAt(civ: Civ, x: Person, year: Year): Polity | null {
+  const p = polityOfPerson(civ, x);
+  if (!p || year >= p.founded || x.parent === undefined) return p;
+  const f = civ.people?.[x.parent];
+  return (f && polityOfPerson(civ, f)) ?? p;
+}
+
 const clampTier = (t: number) => Math.min(3, Math.max(0, t));
 
 /** 东方单字国名去掉"大":"大昌" → "昌"(王、公、帝的称号前用) */
@@ -94,7 +102,7 @@ export function reigningAt(x: Person, year: Year): boolean {
  * 父亲不在位(先君的儿子、君主的兄弟)= "宗室"
  */
 export function princeTitle(civ: Civ, x: Person, year: Year): string {
-  const p = polityOfPerson(civ, x);
+  const p = princePolityAt(civ, x, year);
   const f = x.parent !== undefined ? civ.people?.[x.parent] : undefined;
   if (!p || !f || f.role !== 'ruler' || (f.from ?? Infinity) > year || (f.until !== undefined && f.until <= year)) return '宗室';
   if (!p.eastern || p.lineage === 'khanate') return '王子';
@@ -104,7 +112,7 @@ export function princeTitle(civ: Civ, x: Person, year: Year): string {
 
 /** 宗室的称呼:"大渭皇子李昭""索拉特王子阿尔德里克" */
 export function princeRef(civ: Civ, x: Person, year: Year): string {
-  const p = polityOfPerson(civ, x);
+  const p = princePolityAt(civ, x, year);
   if (!p) return x.name;
   return `${polityShortTitle(p, clampTier(polityTierAt(p, year)), year)}${princeTitle(civ, x, year)}${x.name}`;
 }
