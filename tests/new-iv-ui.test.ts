@@ -16,6 +16,7 @@ import { regionLabel } from '../src/gen/civ/display';
 import { personKey, polityKey, regionKey, settlementKey, type Intervention } from '../src/gen/edits';
 import type { Person } from '../src/gen/civ/types';
 import {
+  biggestPort,
   deathNote,
   destroyDefault,
   destroyQueueText,
@@ -183,6 +184,26 @@ describe('天灾', () => {
     expect(disasterLevelNote(2, false)).toBe('中：城里约死三成（轻一成半、重五成），几十年长回来，其间国内更易动荡。不改地形。');
     expect(disasterLevelNote(1, false)).toBe('轻：城里约死一成半（中三成、重五成），几十年长回来，其间国内更易动荡。不改地形。');
     expect(disasterLevelNote(3, true)).toBe('重：城里约死五成。');
+  });
+
+  it('全球大疫:「死几成」下面那一句、默认从这国人最多的港口起、单子上的一行写疫后无人收拾几年', () => {
+    expect(disasterLevelNote(2, false, 'pandemic')).toBe('中：染疫的城约死三到四成（轻两成、重五成），乡下少一些；全世界人口约十去其二三。');
+    expect(disasterLevelNote(2, true, 'pandemic')).toBe('中：染疫的城约死三到四成，天下人口十去其二三。');
+    const civ = base();
+    const { id } = capital(civ);
+    const own = ownersAt(civ, T).polity;
+    const port = biggestPort(civ, id, own, T);
+    if (port >= 0) {
+      const s = civ.settlements[port];
+      expect(own[s.region]).toBe(id);
+      expect(s.port).toBe(true);
+      expect(disasterArea(civ, { type: 'pandemic', city: port }, T)).toEqual([s.region]);
+      const v: Intervention = { kind: 'disaster', type: 'pandemic', level: 2, from: T, city: settlementKey(civ, port) };
+      expect(interventionText(civ, v)).toBe(`${s.name}:全球大疫（中），疫后无人收拾 30 年`);
+      expect(interventionText(civ, { ...v, slump: 60 })).toBe(`${s.name}:全球大疫（中），疫后无人收拾 60 年`);
+    }
+    // 没有这国的城 = −1
+    expect(biggestPort(civ, -5, own, T)).toBe(-1);
   });
 
   it('受灾的州:地震水旱 = 那一处连同一圈,饥荒一国 = 那年的国土,瘟疫 = 起疫那城的州;人口、有人烟的州数', () => {

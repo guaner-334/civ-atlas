@@ -32,7 +32,7 @@ import {
   resolvePersonKey,
   type Intervention,
 } from '../gen/edits';
-import { quakeWord } from '../gen/civ/calamity';
+import { SLUMP_DEFAULT, quakeWord } from '../gen/civ/calamity';
 import { rulerAt } from '../gen/civ/peopleInfo';
 import { leaningsChange, personName } from '../gen/civ/peopleText';
 import { getEdits, removeIntervention, useEra } from './editsStore';
@@ -198,10 +198,14 @@ const personKeyName = (civ: Civ, key: string): string => {
 /** 第 i 条干预在这份历史里的史事 intervene(没有 = undefined) */
 const ivAnnal = (civ: Civ, i: number) => (i >= 0 ? civ.annals.find((x) => x.kind === 'intervene' && x.war === i) : undefined);
 
-/** 天灾的说法:"星邑:瘟疫（重）""有桑皇朝:饥荒（轻）""翼门之野等 4 州:饥荒（轻）""翼门之野一带:地震（中），8 州受灾"(地震写大水 / 大旱看那一处的地形) */
+/**
+ * 天灾的说法:"星邑:瘟疫（重）""克尔顿:全球大疫（中），疫后无人收拾 30 年""有桑皇朝:饥荒（轻）""翼门之野等 4 州:饥荒（轻）"
+ * "翼门之野一带:地震（中），8 州受灾"(地震写大水 / 大旱看那一处的地形)
+ */
 function disasterText(civ: Civ, v: Extract<Intervention, { kind: 'disaster' }>, i: number, a?: string): string {
   const lv = `（${DISASTER_LEVEL_NAMES[v.level]}）`;
   if (v.type === 'plague') return `${cityKeyName(civ, v.city ?? '')}:${DISASTER_NAMES.plague}${lv}`;
+  if (v.type === 'pandemic') return `${cityKeyName(civ, v.city ?? '')}:${DISASTER_NAMES.pandemic}${lv}，疫后无人收拾 ${v.slump ?? SLUMP_DEFAULT} 年`;
   if (v.type === 'famine') {
     if (v.a) return `${a ?? keyName(civ, v.a, v.from)}:${DISASTER_NAMES.famine}${lv}`;
     const rs = v.regions ?? [];

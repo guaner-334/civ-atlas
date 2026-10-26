@@ -121,6 +121,7 @@ const TAG_LABEL: Readonly<Record<string, string>> = {
   崩: '崩解',
   平: '平定',
   疫: '瘟疫',
+  疠: '大疫',
   据: '割据',
   收: '收回',
   抗: '抗命',

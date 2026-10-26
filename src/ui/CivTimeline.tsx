@@ -15,6 +15,7 @@
  * - 刻度、菱形、"令"、悬停提示、拖动 / 点击在 TimelineMarks.tsx;播放头和进度按 CSS 变量 --p 画,播放时刻度不重新渲染。
  *   刻度用的纪事和编年史列出的一致:默认"大事",编年史切到"全部"或只看某国时,刻度跟着变。
  *   选中了国家(详情面板开着):时间轴上标出它从立国到亡的一道国色,立国那头一颗绿点(它的立国不在大事里也画);关掉面板就恢复。
+ *   起过全球大疫的:起疫那点深色大一圈、底下写名字,凋敝那几十年一道灰褐短条;这一年在凋敝里,年份旁边一枚「疫后凋敝」。
  * - 放哪:dock="bottom"(默认)浮在地图底部一整行;"top" 浮在顶部;
  *   "inline" 不定位,填满父元素(放进别的布局的一行里时用;App 就是这样放进底部那一行的)。
  * - 颜色用主题变量(--ink、--line-strong、--ev-war……,见 timeline.css),没有主题时用浅色默认值。
@@ -39,7 +40,9 @@ import {
   useCivTime,
   useSelection,
 } from './civView';
-import { TimelineMarks, type TimelineLife } from './TimelineMarks';
+import { TimelineMarks, type TimelineLife, type TimelinePandemic } from './TimelineMarks';
+import { pandemicsOf } from '../gen/civ/pandemicInfo';
+import { regionLabel } from '../gen/civ/display';
 import { usePlotTicks } from './OutlineMap';
 import { TimelineYear } from './JumpYear';
 import { baseRegions } from './eras';
@@ -119,6 +122,11 @@ export function CivTimeline({ civ, hidden, dock = 'bottom', directorOff, extendO
     const p = lifeOf !== null && has ? civ?.polities[lifeOf] : undefined;
     return p && lifeOf !== null ? { polity: lifeOf, founded: p.founded, ended: p.ended ?? null, color: p.color } : undefined;
   }, [civ, has, lifeOf]);
+  // 起过的全球大疫:时间轴上的大点、名字、凋敝那几十年的短条;这一年在凋敝里:年份旁边一枚「疫后凋敝」
+  const pans = useMemo<TimelinePandemic[] | undefined>(() => {
+    const list = has && civ ? pandemicsOf(civ) : [];
+    return list.length ? list.map((p) => ({ year: p.year, end: p.end, name: `${civ!.settlements[p.settlement]?.name || (p.region >= 0 ? regionLabel(civ!, p.region) : '') || '一城'}大疫` })) : undefined;
+  }, [civ, has]);
 
   // 播放:每帧按真实流逝的时间推进年份(导出视频的时长、片头片尾、年份变了,关掉面板,都按新的速度和终点接着放)
   useEffect(() => {
@@ -207,6 +215,7 @@ export function CivTimeline({ civ, hidden, dock = 'bottom', directorOff, extendO
         </button>
         {/* 点一下输入年份跳过去(JumpYear.tsx);纪年的字长短不一("公元元年""公元前 2500 年"):按最长的那个占位,播放时滑条不跟着伸缩 */}
         <TimelineYear world={world} range={span} year={n} end={end} era={era} narrow={narrow} locked={locked} below={dock === 'top'} ghost={era ? longestYear(end, era) : undefined} />
+        {!span && pans?.some((p) => p.year <= n && n < p.end) && <span className="tb-slump-pill">疫后凋敝</span>}
         {span ? (
           !narrow && (
             <span className="tb-film-len">
@@ -262,6 +271,7 @@ export function CivTimeline({ civ, hidden, dock = 'bottom', directorOff, extendO
           fresh={span ? undefined : fresh}
           life={life}
           plots={span || narrow ? undefined : plotTicks}
+          pandemics={pans}
         />
       </div>
     </>

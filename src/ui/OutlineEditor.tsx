@@ -13,6 +13,7 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import type { Civ } from '../gen/civ/types';
 import { populationAt } from '../gen/civ/growth';
+import { SLUMP_CHOICES, SLUMP_DEFAULT } from '../gen/civ/calamity';
 import { ownersAt } from '../gen/civ/timeline';
 import { rulerAt } from '../gen/civ/peopleInfo';
 import {
@@ -73,7 +74,7 @@ function missingText(d: PlotDraft): string {
   if (k === 'death' && !has('person')) need.push('哪一位');
   if (k === 'crown' && !has('char')) need.push('作者的人物');
   if (k === 'disaster') {
-    if (d.type === 'plague' && !has('city')) need.push('从哪座城起');
+    if ((d.type === 'plague' || d.type === 'pandemic') && !has('city')) need.push('从哪座城起');
     if (d.type === 'quake' && !has('region')) need.push('哪一处');
     if (d.type === 'famine' && !has('a') && !d.regions?.length) need.push('哪国闹饥荒');
   }
@@ -83,7 +84,7 @@ function missingText(d: PlotDraft): string {
 
 /** 去掉草稿里这种情节用不上的字段(换了种类时) */
 function draftFor(d: PlotDraft, kind: PlotKind): PlotDraft {
-  const keep: (keyof PlotDraft)[] = ['id', 'year', 'span', 'after', 'text', 'a', 'b', 'region', 'regions', 'mark', 'city', 'person', 'how', 'char', 'name', 'type', 'level'];
+  const keep: (keyof PlotDraft)[] = ['id', 'year', 'span', 'after', 'text', 'a', 'b', 'region', 'regions', 'mark', 'city', 'person', 'how', 'char', 'name', 'type', 'level', 'slump'];
   const out = { kind } as PlotDraft;
   for (const k of keep) if (d[k] !== undefined) (out as unknown as Record<string, unknown>)[k] = d[k];
   if (kind === 'disaster' && !out.type) out.type = 'famine';
@@ -557,7 +558,7 @@ export function OutlineEditor({ civ, phone }: { civ: Civ; phone?: boolean }) {
               ))}
             </span>
           </Line>
-          <Line k="轻重">
+          <Line k={type === 'pandemic' ? '死几成' : '轻重'}>
             <span className="ol-seg" role="radiogroup">
               {([1, 2, 3] as DisasterLevel[]).map((l) => (
                 <button key={l} className={(d.level ?? 2) === l ? 'on' : ''} onClick={() => patchDraft({ level: l === 2 ? undefined : l })}>
@@ -567,6 +568,18 @@ export function OutlineEditor({ civ, phone }: { civ: Civ; phone?: boolean }) {
             </span>
           </Line>
           {type === 'plague' && cityLine('从哪座城起', '瘟疫从哪座城起')}
+          {type === 'pandemic' && cityLine('从哪座城起', '全球大疫从哪座城起')}
+          {type === 'pandemic' && (
+            <Line k="无人收拾">
+              <span className="ol-seg" role="radiogroup">
+                {SLUMP_CHOICES.map((n) => (
+                  <button key={n} className={(d.slump ?? SLUMP_DEFAULT) === n ? 'on' : ''} onClick={() => patchDraft({ slump: n === SLUMP_DEFAULT ? undefined : n })}>
+                    {n} 年
+                  </button>
+                ))}
+              </span>
+            </Line>
+          )}
           {type === 'quake' && regionLine('哪一处', '地震水旱的那一处（连同附近一圈州）')}
           {type === 'famine' && polityLine('哪国', 'a', '闹饥荒的国家')}
         </>

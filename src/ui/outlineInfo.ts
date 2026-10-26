@@ -8,6 +8,7 @@ import type { Civ } from '../gen/civ/types';
 import { regionLabel } from '../gen/civ/display';
 import { personName } from '../gen/civ/peopleText';
 import { capitalAt } from '../gen/civ/growth';
+import { SLUMP_DEFAULT } from '../gen/civ/calamity';
 import {
   DISASTER_LEVEL_NAMES,
   DISASTER_NAMES,
@@ -45,7 +46,7 @@ export const PLOT_KIND_INFO: Record<PlotKind, { name: string; desc: string }> = 
   death: { name: '君主去世', desc: '推演里的君主去世' },
   crown: { name: '作者的人物即位', desc: '你捏的人物即某国君位' },
   split: { name: '分裂、独立', desc: '某地从某国分出去' },
-  disaster: { name: '天灾', desc: '瘟疫、饥荒、地震水旱' },
+  disaster: { name: '天灾', desc: '瘟疫、饥荒、地震水旱、全球大疫' },
   submit: { name: '称臣', desc: '' },
   peace: { name: '议和', desc: '' },
   dynasty: { name: '改朝换代', desc: '' },
@@ -202,7 +203,7 @@ export function whoCell(o: OutlineCtx, p: Plot): { parts: WhoPart[]; sep?: strin
     case 'split':
       return { parts: [{ text: regionName(o.civ, p.region) }], small: p.a ? `从${plotPolityName(o, p.a, y)}分出` : undefined };
     case 'disaster':
-      if (p.type === 'plague') return { parts: [{ text: cityName(o.civ, p.city) }] };
+      if (p.type === 'plague' || p.type === 'pandemic') return { parts: [{ text: cityName(o.civ, p.city) }] };
       if (p.type === 'quake') return { parts: [{ text: `${regionName(o.civ, p.region)}一带` }] };
       if (p.a) return { parts: [pol(p.a)] };
       return { parts: [{ text: p.regions?.length ? `${regionName(o.civ, p.regions[0])}${p.regions.length > 1 ? `等 ${p.regions.length} 州` : ''}` : '' }] };
@@ -247,7 +248,7 @@ export function whatCell(o: OutlineCtx, p: Plot): [string, string] {
     case 'death':
       return [name, p.how === 'murdered' ? '遇弑' : p.how === 'battle' ? '战死' : ''];
     case 'disaster':
-      return [name, `${DISASTER_NAMES[p.type!]}（${DISASTER_LEVEL_NAMES[p.level ?? 2]}）`];
+      return [name, `${DISASTER_NAMES[p.type!]}（${DISASTER_LEVEL_NAMES[p.level ?? 2]}）${p.type === 'pandemic' ? `，无人收拾 ${p.slump ?? SLUMP_DEFAULT} 年` : ''}`];
     default:
       return [name, ''];
   }
@@ -295,6 +296,10 @@ export function checkText(o: OutlineCtx, p: Plot): string {
     }
     case 'disaster': {
       const what = DISASTER_NAMES[p.type ?? 'famine'];
+      if (p.type === 'pandemic') {
+        const C = cityName(o.civ, p.city) || '那座城';
+        return `看${win}${C}有没有起全球大疫。没有，就在${at}直接从${C}起一场（${DISASTER_LEVEL_NAMES[p.level ?? 2]}），疫后无人收拾 ${p.slump ?? SLUMP_DEFAULT} 年${tail}`;
+      }
       return `看${win}那里有没有闹${what}。没有，就在${at}直接降一场${what}（${DISASTER_LEVEL_NAMES[p.level ?? 2]}）${tail}`;
     }
     case 'story':

@@ -555,12 +555,12 @@ export const GENERATOR_CHANGES: Readonly<Record<number, { change: GeneratorChang
 /** 干预的种类(见文件头的表) */
 export type InterventionKind = 'protect' | 'ally' | 'declare' | 'unity' | 'cede' | 'found' | 'move' | 'halt' | 'crown' | 'policy' | 'destroy' | 'death' | 'temper' | 'disaster';
 
-/** 天灾的种类:瘟疫、饥荒、地震水旱(干预页、大纲里列的这几种) */
-export const DISASTER_TYPES = ['plague', 'famine', 'quake'] as const;
+/** 天灾的种类:瘟疫、饥荒、地震水旱、全球大疫(干预页、大纲里列的这几种) */
+export const DISASTER_TYPES = ['plague', 'famine', 'quake', 'pandemic'] as const;
 export type DisasterType = (typeof DISASTER_TYPES)[number];
-/** 天灾的全部种类:再加全球大疫(pandemic;推演、存档认得,界面还没列) */
-export const DISASTER_KINDS = [...DISASTER_TYPES, 'pandemic'] as const;
-export type DisasterKind = (typeof DISASTER_KINDS)[number];
+/** 天灾的全部种类(同 DISASTER_TYPES) */
+export const DISASTER_KINDS = DISASTER_TYPES;
+export type DisasterKind = DisasterType;
 /** 天灾的种类怎么叫 */
 export const DISASTER_NAMES: Record<DisasterKind, string> = { plague: '瘟疫', famine: '饥荒', quake: '地震水旱', pandemic: '全球大疫' };
 /** 天灾的轻重:1 轻 / 2 中 / 3 重 */

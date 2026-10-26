@@ -555,6 +555,44 @@
 .tb-mark.dim {
   opacity: 0.28;
 }
+/* ---- 全球大疫:起疫那一点大一圈、深色;凋敝那几十年基线底下一道灰褐短条;宽屏底下写名字 ---- */
+.tb-mark.pan {
+  top: 7px;
+  width: 9px;
+  height: 9px;
+  margin-left: -4.5px;
+  background: var(--ev-pandemic, #5f5546);
+  box-shadow: 0 0 0 2px var(--surface, #fff);
+  /* 播放头停在附近时也看得见(压在播放头上面) */
+  z-index: 1;
+}
+.tb-slump {
+  top: 27px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--slump, #8a7c64);
+  pointer-events: none;
+}
+.tb-pan-lab {
+  position: absolute;
+  top: 31px;
+  font: 500 11px/14px var(--tb-sans);
+  color: var(--slump-ink, #6d6252);
+  white-space: nowrap;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+/* 年份旁边一枚小牌子:这一年在疫后凋敝里 */
+.tb-slump-pill {
+  flex: none;
+  margin-left: -4px;
+  padding: 1px 7px;
+  border-radius: 9px;
+  background: var(--slump-bg, #efe9df);
+  color: var(--slump-ink, #6d6252);
+  font: 500 12px/18px var(--tb-sans);
+  white-space: nowrap;
+}
 
 /* ---- 选中的国家:从立国到亡一道它的国色(基线底下;颜色在行内给)、立国那头一颗绿点、两头写年份(手机不写) ---- */
 .tb-life {
