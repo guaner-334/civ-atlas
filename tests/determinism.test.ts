@@ -58,7 +58,7 @@ function fingerprint(seed: number): Record<string, string> {
 }
 
 /**
- * 期望值是 GENERATOR_VERSION 24 算的(civ.religion 是后加的字段,加它时别的字段一个没变;10 加了邦交、11 加了君主性格和扩张算账,历史都重排;12 只改了 civ.people:多了名臣,将领有了字号、籍贯、官职,撞名的将领换了名字;13 改了宜居度和城的人口上限,地形一个字段没变,历史重排;多了 civ.capNorm;14 处理了封闭内海、贴着海的湖、湖心小块地,地形局部变了、历史重排;15 立国更早、多了边缘立国和民族分化,历史重排;civ.development 是后加的字段,加它时别的字段一个没变;16 有了航海时代,历史重排;17 发展度反过来影响人口、打仗和远航,各国自己进航海时代,历史重排;18 降水分夏冬两半年算、河多了,地形不变,气候、河流、历史重排;19 仗短而狠、乘胜连下、前线拉锯,历史重排;20 有了饥荒、民变、大崩解,历史重排;23 推完以后的整理只看每样东西出现以前的历史,归属、日志、史事、检查点一个没变,民族、州、城、国家、人物、地名、道路、信仰重排,多了 civ.capSpacing;24 推演里走过的航线不通到遗址,只有 civ.routes 变了)。经纬度换算、沿大圆走、球面三角形面积这些三角函数都舍入到 24 位,
+ * 期望值是 GENERATOR_VERSION 24 算的(civ.religion 是后加的字段,加它时别的字段一个没变;10 加了邦交、11 加了君主性格和扩张算账,历史都重排;12 只改了 civ.people:多了名臣,将领有了字号、籍贯、官职,撞名的将领换了名字;13 改了宜居度和城的人口上限,地形一个字段没变,历史重排;多了 civ.capNorm;14 处理了封闭内海、贴着海的湖、湖心小块地,地形局部变了、历史重排;15 立国更早、多了边缘立国和民族分化,历史重排;civ.development 是后加的字段,加它时别的字段一个没变;16 有了航海时代,历史重排;17 发展度反过来影响人口、打仗和远航,各国自己进航海时代,历史重排;18 降水分夏冬两半年算、河多了,地形不变,气候、河流、历史重排;19 仗短而狠、乘胜连下、前线拉锯,历史重排;20 有了饥荒、民变、大崩解,历史重排;23 推完以后的整理只看每样东西出现以前的历史,归属、日志、史事、检查点一个没变,民族、州、城、国家、人物、地名、道路、信仰重排,多了 civ.capSpacing;24 推演里走过的航线不通到遗址,只有 civ.routes 变了;35 君主有了诸子、王子领兵、争储,civ.people 变了,civ.religion 里记的君主编号跟着变)。经纬度换算、沿大圆走、球面三角形面积这些三角函数都舍入到 24 位,
  * 推演里的超越函数也一样,所以各 CPU、各浏览器逐位一致
  */
 const EXPECTED: Record<number, Record<string, string>> = {
@@ -93,13 +93,13 @@ const EXPECTED: Record<number, Record<string, string>> = {
     'civ.endYear': 'c1d83dcab0a1',
     'civ.habitat': '35d8ad95d249',
     'civ.log': 'ec03ab045820',
-    'civ.people': '45515a05ebb0',
+    'civ.people': '2a811c39801a',
     'civ.places': 'e82d872374d7',
     'civ.polities': '499ddaba1bdf',
     'civ.polity': '73f9d446f886',
     'civ.polityYears': 'e5d380617183',
     'civ.regions': 'a0764a3a2782',
-    'civ.religion': 'adfef5b686de',
+    'civ.religion': 'a7e2f1de6dd4',
     'civ.routes': '7833b3c14dd4',
     'civ.sailFrom': '5bd9534e2395',
     'civ.seed': '3ff6de7b7854',
@@ -138,13 +138,13 @@ const EXPECTED: Record<number, Record<string, string>> = {
     'civ.endYear': 'c1d83dcab0a1',
     'civ.habitat': '1268425e378a',
     'civ.log': '06ba9d80ea03',
-    'civ.people': '23831ad26e46',
+    'civ.people': '96efe4e11507',
     'civ.places': '1648605488de',
     'civ.polities': '31d414d94314',
     'civ.polity': '40aa7550ed8d',
     'civ.polityYears': 'e5d380617183',
     'civ.regions': 'a4bbc1e8c655',
-    'civ.religion': '0446701dc635',
+    'civ.religion': '828c18da666d',
     'civ.routes': '41f4e3550881',
     'civ.sailFrom': '5bd9534e2395',
     'civ.seed': '0096064c9137',

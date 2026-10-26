@@ -4,6 +4,7 @@
  *
  * **在位表**:每个国家从立国起一朝接一朝(Polity.dynasties;没改朝换代过 = 立国那一朝),每一朝里一位接一位:
  *   即位的年纪、在位多少年按"国家的位置锚 + 第几位"随机取(keyed4),一生不超过 MAX_AGE 岁;共和国的执政官任期短。
+ *   宗室争位、据地自立的国家(Polity.prince),开国之君就是起兵的那位宗室:即位的年纪按他的生年算。
  *   一位在位到"不被打断时的年份"(natural),这一朝先结束(改朝换代)就在那一刻让位给新朝的第一位。
  *   第几位(k)按全国从 0 编起、跨朝连续 —— 和 people.ts 排人物的编号一样,随机数也就一样。
  *   全是由"立国年份 + 改朝换代的年份"算出来的,不存进 Civ,接着推(CivSim.fromCiv)时照样算得出。
@@ -155,9 +156,12 @@ export function rulerTags(polities: readonly Pick<Polity, 'capital'>[], cellOf: 
 }
 
 /** 一国的君主要用到的国家字段 */
-export type ReignPolity = Pick<Polity, 'founded' | 'dynasties' | 'lineage' | 'kind'>;
+export type ReignPolity = Pick<Polity, 'founded' | 'dynasties' | 'lineage' | 'kind' | 'prince'>;
 
-/** 第 k 位君主(这一朝第 j 位)从 from 年即位:即位的年纪、不被打断时在位到哪年、倾向 */
+/**
+ * 第 k 位君主(这一朝第 j 位)从 from 年即位:即位的年纪、不被打断时在位到哪年、倾向。
+ * born = 生年已经定了的开国之君(宗室争位、据地自立的那位,Polity.prince):即位的年纪照它算
+ */
 export function reignStep(
   base: number,
   tag: number,
@@ -166,6 +170,7 @@ export function reignStep(
   from: Year,
   lineage: PolityLineage | undefined,
   kind: CultureKind,
+  born?: Year,
 ): { age: number; natural: Year; leanings: RulerLeanings } {
   const R = (use: number) => keyed4(base, tag, k, use, K_RULER);
   const republic = lineage === 'republic';
@@ -175,7 +180,7 @@ export function reignStep(
     A = lerp(CONSUL_AGE, R(U_AGE));
     L = lerp(TERM, R(U_REIGN));
   } else {
-    A = j === 0 ? lerp(FOUNDER_AGE, R(U_AGE)) : HEIR_AGE[0] + (HEIR_AGE[1] - HEIR_AGE[0]) * fpow(R(U_AGE), HEIR_EXP);
+    A = born !== undefined ? from - born : j === 0 ? lerp(FOUNDER_AGE, R(U_AGE)) : HEIR_AGE[0] + (HEIR_AGE[1] - HEIR_AGE[0]) * fpow(R(U_AGE), HEIR_EXP);
     L = 1 + REIGN_MAX * fpow(R(U_REIGN), REIGN_EXP);
   }
   if (A + L > MAX_AGE) L = Math.max(1, MAX_AGE - A);
@@ -377,7 +382,7 @@ export function reignBook(base: number, tag: number, p: ReignPolity, t: Year, ac
   const segEnd = (i: number) => (i + 1 < dyn ? segs![i + 1].year : Infinity);
   /** 寻常的第 k 位(这一朝第 j 位)从 from 即位 */
   const regular = (k: number, dynasty: number, j: number, from: Year): Reign => {
-    const s = reignStep(base, tag, k, j, from, p.lineage, p.kind);
+    const s = reignStep(base, tag, k, j, from, p.lineage, p.kind, k === 0 ? p.prince : undefined);
     return { k, dynasty, j, from, age: s.age, natural: s.natural, leanings: s.leanings, eff: leaningEffect(s.leanings) };
   };
   /** 作者的人物(c)做第 k 位(这一朝第 j 位),从 from 即位 */
