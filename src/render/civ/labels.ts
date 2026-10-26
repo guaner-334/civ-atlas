@@ -37,6 +37,7 @@ import { faithAt } from '../../gen/civ/religion';
 import { ERA_COLORS, eraName, eraSampleYear, erasAt } from './era';
 import { passLabels } from './passes';
 import { treatyBook, zonesAt } from '../../gen/civ/treatyInfo';
+import { neutralShown } from './neutral';
 
 const MIN_ZOOM = [1, 1, 1.8, 3];
 
@@ -685,7 +686,7 @@ export function civMapLayer(p: CivDrawParams, opt: { fast?: boolean; proj?: MapP
       if (!lead) sides.add(item);
     }
   }
-  if (p.show.polities && civ.polities.length) items.push(...zoneLabelItems(p));
+  if (neutralShown(p)) items.push(...zoneLabelItems(p));
   if ((p.show.polities || p.show.routes) && civ.settlements.length) {
     const { x: mx, y: my } = world.mesh;
     const boxes = SYMBOL_BOX[style === 'fantasy' ? 'fantasy' : 'realistic'];

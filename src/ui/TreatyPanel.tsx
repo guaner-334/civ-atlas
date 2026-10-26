@@ -50,8 +50,8 @@ export function TreatyPanel({ civ, raw, id, year, names }: DetailProps) {
   if (!x) return null;
   const ended = x.ended !== undefined && year >= x.ended;
   const title = treatyTitle(civ, id);
-  // 编年史停在这份约那几年:约废了停在废的那年,还在就停在时间轴这一年
-  const chronicle = () => openOverview('chronicle', { polity: x.parties[0], major: false, at: Math.min(civ.endYear, ended ? x.ended! : Math.max(year, x.start)) });
+  // 编年史(全部国家、全部纪事:约里的事牵涉几国,只看一国会漏)停在这份约那几年:约废了停在废的那年,还在就停在时间轴这一年
+  const chronicle = () => openOverview('chronicle', { polity: null, major: false, at: Math.min(civ.endYear, ended ? x.ended! : Math.max(year, x.start)) });
   const upTo = entries.filter((e) => e.year <= year + 1e-6);
   return (
     <div className="cp" data-treaty={id}>
