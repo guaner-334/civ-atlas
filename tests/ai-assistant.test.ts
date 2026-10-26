@@ -46,6 +46,10 @@ import {
   type AsTurn,
 } from '../src/ui/assistantStore';
 
+// 这里不少条要在 Node 里真的重推历史,平常两三秒;机器忙(几份测试同时跑)时会超过默认的 5 秒,时限放宽到 15 秒
+// (只管这个文件;已经单独写了时限的照旧)
+vi.setConfig({ testTimeout: 15_000 });
+
 const world = generateWorld({ ...DEFAULT_PARAMS, seed: 7 });
 const civ = generateCiv(world);
 const END = Math.floor(civ.endYear);

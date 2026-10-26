@@ -2,20 +2,27 @@ name: CI
 
 # 什么时候跑:
 # - PR:改了代码就全查;只改文档(*.md)的不跑
-# - 合并进 main 后不重跑(PR 合并前已经在最新的 main 上查过);改成每天在 main 上跑一次兜底,
-#   前一天 main 上没有代码改动就跳过
+# - 合并进 main 后马上再全查一轮(合并就发测试网站;PR 查的是合并前那一刻的 main,
+#   几个 PR 前后脚合进去时,合起来的样子只有这一轮查得到);同样只改文档的不跑
+# - 每天在 main 上跑一次兜底,前一天 main 上没有代码改动就跳过
 # - 需要时可以在 Actions 页面手动跑
 on:
   pull_request:
+    paths-ignore:
+      - '**/*.md'
+  push:
+    branches: [main]
     paths-ignore:
       - '**/*.md'
   schedule:
     - cron: '0 18 * * *' # 每天 UTC 18:00(北京时间 02:00)
   workflow_dispatch:
 
+# PR 上有新推送就取消还在跑的旧一轮;合进 main 的每个提交各占一组、互不取消
+# (连着合几个 PR 时每个提交都有结果;同一组里排队的会被后来的顶掉,所以按提交分组)
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.event_name == 'push' && github.sha || github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'push' }}
 
 # 几项检查在几台机器上同时跑,总时长 ≈ 最慢的那项。
 # 类型检查、单测、压力、构建原来挤在一项里要 17–21 分钟,现在分开:单测分 4 份、压力测试分 2 份,每项几分钟;
