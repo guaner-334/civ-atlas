@@ -117,8 +117,10 @@ describe.each([7, 2024])('人物 · seed=%i', (seed) => {
         expect(c.from).toBeLessThanOrEqual(c.until);
         for (const i of [c.first, c.last]) {
           expect(A[i].war).toBe(c.war);
-          expect(['war', 'battle', 'conquer']).toContain(A[i].kind);
+          // 据险断后的守将只经手那一条 stand(不算统帅,不和统帅的任期排在一起)
+          expect(c.rear ? ['stand'] : ['war', 'battle', 'conquer', 'stand']).toContain(A[i].kind);
         }
+        if (c.rear) expect(c.first).toBe(c.last);
         expect(A[c.first].year).toBeGreaterThanOrEqual(c.from - 1e-9);
         // 经手的最后一件事时人还在:将领没过卒年(战死的死在那一件事上);君主没下台(亡国那一刻除外)
         if ((x.role === 'general' || x.role === 'prince') && x.died !== undefined && x.fate !== 'battle') expect(A[c.last].year).toBeLessThan(x.died);
@@ -127,7 +129,7 @@ describe.each([7, 2024])('人物 · seed=%i', (seed) => {
           else expect(A[c.last].year).toBeLessThan(x.until);
         }
         const key = `${c.war}|${c.side}`;
-        bySide.set(key, [...(bySide.get(key) ?? []), { first: c.first, last: c.last, x }]);
+        if (!c.rear) bySide.set(key, [...(bySide.get(key) ?? []), { first: c.first, last: c.last, x }]);
       }
       if (x.fate === 'battle') {
         // 战死的是将领、领兵的宗室(君主亲征不战死)
@@ -211,8 +213,8 @@ describe.each([7, 2024])('人物 · seed=%i', (seed) => {
       for (const pid of e.polities) {
         for (const x of rulersOf(civ, pid)) {
           if (x.rise === 'heir' || !e.text.includes(x.name) || Math.abs(x.from! - e.year) > 30) continue;
-          // 写到的是同名的另一个人(议和派去的宫相和开国之君同名)
-          if ((e.people ?? []).some((id) => id !== x.id && P[id].name === x.name)) continue;
+          // 写到的是同名的另一个人(议和派去的宫相和开国之君同名),或名字里含着它的另一个人("吉莱弗里德"里有"莱弗里德")
+          if ((e.people ?? []).some((id) => id !== x.id && P[id].name.includes(x.name))) continue;
           // 写到的是同名的州(人名、州名按同一种语感起,偶尔撞上)
           if (regionNames.has(x.name)) continue;
           expect(e.people ?? [], `${e.text} / ${x.name}`).toContain(x.id);

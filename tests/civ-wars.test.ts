@@ -8,6 +8,7 @@ import { canCross, polityModelOf } from '../src/gen/civ/polities';
 import { CAPITAL_GRACE, HOLD, exclaveMask, warModelOf, warStats } from '../src/gen/civ/wars';
 import { annexedRemnants, capitalAt, polityAlive } from '../src/gen/civ/growth';
 import { buildChronicle } from '../src/gen/civ/chronicle';
+import { regionPasses } from '../src/gen/civ/passes';
 
 /**
  * 州 r 是不是国家 pid 灭国时一并收下的残部(wars.ts 的 annex:"隔海的残部最后一并归 x"):
@@ -275,6 +276,60 @@ describe('战争与攻占', () => {
     // 两个世界里都有:先乘胜连下、再打下国都的,打下国都以后并掉残部的
     expect(before).toBeGreaterThan(0);
     expect(remnants).toBeGreaterThan(0);
+  }, 60_000);
+
+  it('据险断后:败退的一方守住关隘,大军退保关隘后面那州;编年史挂在那场战争下,写守将、人数、哪州之隘、拒敌几日、结局、退保何处;守将的结局照史事', () => {
+    let stands = 0;
+    for (const seed of [7, 2024]) {
+      const civ = civOf({ ...DEFAULT_PARAMS, seed });
+      const A = civ.annals;
+      const reg = civ.regions;
+      const decl = new Map(A.filter((e) => e.kind === 'war').map((e) => [e.war, e]));
+      const kids = new Map(buildChronicle(civ).flatMap((e) => (e.kind === 'war' ? (e.children ?? []) : [])).map((c) => [c.id, c]));
+      A.forEach((e, i) => {
+        if (e.kind !== 'stand') return;
+        stands++;
+        const tag = `seed ${seed} 第 ${i} 条`;
+        // 断后、追兵是这场战争的两方,战争还没打完
+        const w = decl.get(e.war)!;
+        expect([w.a, w.b].sort(), tag).toEqual([e.a, e.b].sort());
+        const peace = A.find((x) => x.kind === 'peace' && x.war === e.war);
+        expect(!peace || peace.year >= e.year, tag).toBe(true);
+        // 大军退保的那一州(foe)这一刻还在断后的一方手里,和追兵的国土之间隔着关隘;关隘的口子在 region 那一州
+        const own = ownersAt(civ, e.year).polity;
+        const hold = e.foe!;
+        expect(own[hold], tag).toBe(e.a);
+        const gate = regionPasses(world({ ...DEFAULT_PARAMS, seed }), reg);
+        let pass = false;
+        for (let k = reg.adjStart[hold]; k < reg.adjStart[hold + 1]; k++) if (own[reg.adj[k]] === e.b && gate[k] >= 0 && reg.of[gate[k]] === e.region) pass = true;
+        expect(pass, tag).toBe(true);
+        expect(e.n! >= 2 && e.n! <= 7, tag).toBe(true);
+        expect(['slain', 'captured', 'withdrew']).toContain(e.cause);
+        // 编年史:挂在战争下,一条一条写出来
+        const c = kids.get(i);
+        expect(c, tag).toBeDefined();
+        expect(c!.text).toMatch(/军败退,/);
+        expect(c!.text).toContain(`${civ.regions.name![e.region]}${/之隘/.test(c!.text) ? '之隘' : ''}`);
+        expect(c!.text).toContain(civ.regions.name![hold]);
+        expect(c!.text).toMatch(/之隘|隘口|山口/);
+        expect(c!.text).toMatch(/[两三四五六七]日|[两三四五六七]天/);
+        expect(c!.text).toMatch(/退保|撤回/);
+        expect(c!.text).not.toMatch(/某国|undefined|NaN/);
+        // 守将:断后一方的一位将领,只经手这一条;力战而死的当场战死,被擒的不再领兵
+        const rear = civ.people!.filter((x) => x.commands?.some((k) => k.rear && k.first === i && k.last === i));
+        expect(rear, tag).toHaveLength(1);
+        const x = rear[0];
+        expect(x.polity).toBe(e.a);
+        expect(c!.text).toContain(x.name);
+        expect(c!.people).toContain(x.id);
+        if (e.cause === 'slain') {
+          expect(x.fate, tag).toBe('battle');
+          expect(x.died).toBe(e.year);
+        } else expect(x.died === undefined || x.died > e.year, tag).toBe(true);
+        if (e.cause !== 'withdrew') expect(x.commands!.every((k) => k.from <= e.year), tag).toBe(true);
+      });
+    }
+    expect(stands, 'seed 7、2024 合起来').toBeGreaterThan(0);
   }, 60_000);
 
   it('默认参数 seed 7 / 2024:有战争、有迁都,两个世界里有亡国;在世国家 8–20 个;第 3000 年的政区图成片(飞地 < 3%)', () => {

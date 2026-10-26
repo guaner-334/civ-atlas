@@ -29,6 +29,12 @@
  *     打下来了还能乘胜:接着挑下一州,机会 = BREAK × 那一州的胜率,最多再连下 BREAK_MAX 州(打下国都、一方亡国就停)。
  *     打不下来,守方有 COUNTER 的机会反攻,夺回被攻方占去的州(这场战争里丢的、以前丢的;同样按局部国力)。
  *     没打下来的这一仗(攻方的、守方反攻的)记一条史事 battle(从哪种边打过去记在 via),不改归属,编年史写成"某某之战"。
+ *     据险断后:一方败退、另一方追来(攻方乘胜连下的下一州、守方反攻要夺回的那州,本来能打下来),
+ *       追兵只能从关隘打进那州,或者败兵只能经关隘退回本国(刚丢的那州、攻过来的那州和本国之间,能走的边里没有不带关隘的平地、渡河;
+ *       关隘 = 交界的山脊上又低又窄的口子,在地块一级找,见 passes.ts):
+ *       败退的一方有 STAND 的机会留一支兵守住关隘、挡住追兵,掩护大军退保关隘后面那州 —— 追兵本来能打下的那一州就此打不下来,
+ *       乘胜追击到此为止(仗照常往下打)。记一条史事 stand(关隘在哪州、大军退保哪州、守了几日、守将的结局见 STAND_DAYS、STAND_SLAIN),
+ *       编年史写成"某某以数百人守某州之隘,拒敌三日,力战而死";守将是谁由人物(people.ts)按它排。讨伐民变的仗不算。
  *     一州易手后 HOLD 年内不会再易手:前线有来有回,但不会闪烁。
  *   攻占 → 州归攻方(民族不变,只换国家;城可能被洗劫、被毁,见 cities.ts)。丢的是国都:还有别的州就迁都到剩下人口最多的城
  *     (剩下的国土被切成几块时,在人口最多的那一块里挑),新国都 CAPITAL_GRACE 年内攻不下;
@@ -65,6 +71,7 @@ import { bookChain, Ev, LOOK_K, quantize, type CivSim } from './sim';
 import { befriends, canCross, coreOf, effOf, endPolity, moveCapital, picks, policyAt, polityModelOf, powerScaleOf, type PolityModel } from './polities';
 import { FOE_ODDS, FRIEND_JOIN } from './policy';
 import { capitalAt, populationAt } from './growth';
+import { regionPasses } from './passes';
 import type { InterventionModel } from './interventions';
 import type { DiplomacyModel } from './diplomacy';
 
@@ -156,6 +163,14 @@ const DIVERT = 0.15;
 const RES_WANT = 1.5;
 const RES_MAX = 2;
 const RES_TARGET = 1.5;
+/**
+ * 据险断后:追兵只能从关隘打进那州、或者败兵只能经关隘退回时,败退的一方守住关隘的机会;
+ * 守了几日(随机挑一个);守将力战而死、力竭被擒的机会(其余全师而退)
+ */
+const STAND = 0.35;
+const STAND_DAYS = [2, 2, 3, 3, 3, 4, 4, 5, 6, 7];
+const STAND_SLAIN = 0.6;
+const STAND_TAKEN = 0.15;
 
 // 随机数用途编号
 const U_CHECK_T = 1;
@@ -169,6 +184,9 @@ const U_TARGET = 8;
 const U_GOAL = 9;
 const U_ALLY = 10;
 const U_BREAK = 11;
+const U_STAND = 12;
+const U_STAND_DAYS = 13;
+const U_STAND_END = 14;
 
 // ---------------------------------------------------------------------------
 // 模型
@@ -329,10 +347,12 @@ export function warModelOf(sim: CivSim): WarModel | undefined {
 // 挂到推演引擎上
 
 /** 登记战争的事件处理和监听(installPolities 之后调用) */
-export function installWars(sim: CivSim, pm: PolityModel, wm: WarModel = newModel(pm)): WarModel {
+export function installWars(sim: CivSim, pm: PolityModel, world: World, wm: WarModel = newModel(pm)): WarModel {
   models.set(sim, wm);
   const T = pm.terrain;
   const reg = T.regions;
+  // 州与州之间的关隘(据险断后在这些地方):只看地形,按州的邻接边
+  const gate = regionPasses(world, reg);
   const R = T.R;
   const culture = sim.owners[Layer.Culture];
   const owner = sim.owners[Layer.Polity];
@@ -773,6 +793,49 @@ export function installWars(sim: CivSim, pm: PolityModel, wm: WarModel = newMode
     return 'expand';
   };
 
+  /**
+   * 州 r 和 x 的国土之间只有关隘可走(x 能走的边里没有不带关隘的平地、渡河,至少有一条带关隘的边):
+   * 返回那条带关隘的边(Regions.adj 的下标;几条里取共享边界最长的,一样长取对面治所地块小的);不是 = −1。
+   * 追兵 y 要打的州 q 只能从关隘进去 = gateOf(q, y);败兵 x 从州 r 退回本国只能走关隘 = gateOf(r, x)
+   */
+  const gateOf = (r: number, x: number, t: number): number => {
+    const X = pm.polities[x];
+    let best = -1;
+    for (let k = reg.adjStart[r]; k < reg.adjStart[r + 1]; k++) {
+      const j = reg.adj[k];
+      const kind = reg.adjKind[k];
+      if (owner[j] !== x || !canCross(pm, X, kind, t)) continue;
+      if (gate[k] < 0) {
+        if (kind === AdjKind.Flat || kind === AdjKind.River) return -1;
+        continue;
+      }
+      if (best < 0 || reg.adjBorder[k] > reg.adjBorder[best] || (reg.adjBorder[k] === reg.adjBorder[best] && reg.seat[j] < reg.seat[reg.adj[best]])) best = k;
+    }
+    return best;
+  };
+
+  /**
+   * 据险断后:x 的兵从州 from 败退(−1 = 不是败退下来的),追兵 y 本来能再打下 x 的州 q。
+   * 追兵只能从关隘打进 q(守在 q),或者败兵从 from 只能经关隘退回(守在关隘后面那州):
+   * x 有 STAND 的机会守住关隘,追兵到此为止(记一条 stand)。返回 true = 守住了。u = 这一仗里的第几下(取随机数用)
+   */
+  const holdPass = (w: War, x: number, y: number, q: number, from: number, u: number, t: number): boolean => {
+    if (from < 0 || wm.revolt?.(w)) return false;
+    let k = gateOf(q, y, t);
+    let hold = q;
+    if (k < 0) {
+      k = gateOf(from, x, t);
+      if (k < 0) return false;
+      hold = reg.adj[k];
+    }
+    if (warRand(wm, w, u, U_STAND) >= STAND) return false;
+    const days = STAND_DAYS[Math.floor(STAND_DAYS.length * warRand(wm, w, u, U_STAND_DAYS))];
+    const v = warRand(wm, w, u, U_STAND_END);
+    const cause: AnnalCause = v < STAND_SLAIN ? 'slain' : v < STAND_SLAIN + STAND_TAKEN ? 'captured' : 'withdrew';
+    sim.record('stand', { a: x, b: y, region: reg.of[gate[k]], foe: hold, war: w.id, n: days, cause });
+    return true;
+  };
+
   sim.on(Ev.Campaign, (i, id, t) => {
     const w = wm.wars[id];
     if (!w || w.end !== undefined) return;
@@ -784,21 +847,27 @@ export function installWars(sim: CivSim, pm: PolityModel, wm: WarModel = newMode
     const [r, def] = pickTarget(w, i, w.a, w.b, t, false);
     if (r >= 0 && warRand(wm, w, i, U_ATTACK) < chance(w.a, w.b, r, def, t, pow, w)) {
       capitalFell = defCapital = take(w, w.a, w.b, r, t, true);
-      // 乘胜连下几州(打下国都、一方亡国就停)
+      // 乘胜连下几州(打下国都、一方亡国就停)。追兵只能从关隘打进下一州、或者守方败兵从刚丢的那州只能经关隘退回:
+      // 守方可能据险断后,追到这里为止
+      let lost = r;
       for (let j = 1; j <= BREAK_MAX && !capitalFell && w.end === undefined; j++) {
         const [q, qdef] = pickTarget(w, i * 8 + j, w.a, w.b, t, false);
         if (q < 0 || warRand(wm, w, i * 8 + j, U_BREAK) >= BREAK * chance(w.a, w.b, q, qdef, t, pow, w)) break;
+        if (holdPass(w, w.b, w.a, q, lost, i * 8 + j, t)) break;
         capitalFell = defCapital = take(w, w.a, w.b, q, t, true);
+        lost = q;
       }
     } else {
       // 没打下来:记一条战役(不改归属;编年史写成"某某之战")
       if (r >= 0) sim.record('battle', { a: w.a, b: w.b, region: r, settlement: pm.cityOf[r], war: w.id, via: DEFENSE.indexOf(def) });
       if (warRand(wm, w, i, U_COUNTER) < COUNTER) {
-        // 守方反攻:夺回被攻方占去的州
+        // 守方反攻:夺回被攻方占去的州。守方只能从关隘打进那州、或者攻方是经关隘打过来的(败兵只能经关隘退回):
+        // 败退的攻方可能据险断后,夺不回
         const [q, qdef] = pickTarget(w, i, w.b, w.a, t, !wm.revolt?.(w));
         if (q >= 0) {
-          if (warRand(wm, w, i, U_RETAKE) < chance(w.b, w.a, q, qdef, t, pow, w)) capitalFell = take(w, w.b, w.a, q, t, true);
-          else sim.record('battle', { a: w.b, b: w.a, region: q, settlement: pm.cityOf[q], war: w.id, via: DEFENSE.indexOf(qdef) });
+          if (warRand(wm, w, i, U_RETAKE) < chance(w.b, w.a, q, qdef, t, pow, w)) {
+            if (!holdPass(w, w.a, w.b, q, r, i * 8, t)) capitalFell = take(w, w.b, w.a, q, t, true);
+          } else sim.record('battle', { a: w.b, b: w.a, region: q, settlement: pm.cityOf[q], war: w.id, via: DEFENSE.indexOf(qdef) });
         }
       }
     }
@@ -835,7 +904,7 @@ export function installWars(sim: CivSim, pm: PolityModel, wm: WarModel = newMode
  * 战争、每场战争攻占的州、议和(冷却)都从史事里读;一州多久没易手从变化日志里读;
  * 再按"国家 + 第几次""战争 + 第几仗"算出还没到的看邻国、下一仗,补进引擎。
  */
-export function resumeWars(sim: CivSim, _world: World, civ: Civ): void {
+export function resumeWars(sim: CivSim, world: World, civ: Civ): void {
   const pm = polityModelOf(sim);
   if (!pm) return;
   const wm = newModel(pm);
@@ -862,7 +931,7 @@ export function resumeWars(sim: CivSim, _world: World, civ: Civ): void {
     }
   }
   for (const w of wm.wars) if (w && w.end === undefined) wm.active.push(w);
-  installWars(sim, pm, wm);
+  installWars(sim, pm, world, wm);
 
   const now = sim.now;
   // 在世的国家:下一次看邻国(上一次看的那一刻预约的;第一次是立国那一刻)
