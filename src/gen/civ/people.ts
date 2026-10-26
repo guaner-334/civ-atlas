@@ -304,6 +304,9 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
   }
   /** 先君(在 T 那一刻寿终的那一位) */
   const fatherAt = (pid: number, T: Year) => rulers[pid].find((x) => x.until === T && (x.fate === 'died' || x.fate === 'murdered'));
+  /** 放逐到中立地、出奔中立地(treaties.ts 的史事 exile,下标);亡国之君出奔中立地的国家(他的结局写出奔) */
+  const exiles = civ.annals.flatMap((e, i) => (e.kind === 'exile' ? [i] : []));
+  const fledTo = new Set(exiles.filter((i) => civ.annals[i].cause === 'fled').map((i) => civ.annals[i].a));
   /** 寻常君主在在位表里的那一项、他预定的继承人叫什么(排诸子用) */
   const reignOf = new Map<Person, Reign>();
   const heirNames = new Map<Person, string>();
@@ -374,7 +377,7 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
           person.until = segEnd;
           if (!last) person.fate = 'deposed';
           else if (f.merge && (!f.fall || f.merge.year <= f.fall.year)) person.fate = 'merged';
-          else person.fate = f.fall && f.fall.b >= 0 && R(k, U_FATE) < AUTHOR_SURRENDER ? 'surrendered' : 'fled';
+          else person.fate = f.fall && f.fall.b >= 0 && !fledTo.has(p.id) && R(k, U_FATE) < AUTHOR_SURRENDER ? 'surrendered' : 'fled';
           break;
         }
         const born = q(from - r.age);
@@ -418,7 +421,7 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
           const old = settlements[capitalAt(p, segEnd - 1 / (2 * TICK))];
           fate = d && old && d.region === old.region ? 'deposed' : 'overthrown';
         } else if (f.merge && (!f.fall || f.merge.year <= f.fall.year)) fate = 'merged';
-        else if (f.fall && f.fall.b >= 0) {
+        else if (f.fall && f.fall.b >= 0 && !fledTo.has(p.id)) {
           const u = R(k, U_FATE);
           fate = u < FELL ? 'fell' : u < FELL + SURRENDER ? 'surrendered' : 'fled';
         } else fate = 'fled';
@@ -459,6 +462,24 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
     son.end = Math.min(son.end, c.T);
     claimed.push({ son, F, X: rulers[c.from].find((x) => x.from === c.T) });
   }
+  // 被新君徙到中立地的宗室(treaties.ts:先君之子,按生年认):那一刻起不再领兵、不卷进争储
+  const banished = new Map<Person, Year>();
+  /** 史事 exile 的下标 → 放逐 / 出奔的那位、徙他的君主 */
+  const exiled = new Map<number, { x: Person; by?: Person }>();
+  for (const i of exiles) {
+    const e = civ.annals[i];
+    if (e.cause === 'heir') {
+      const R = fatherAt(e.a, e.year);
+      const son = R && sonsOf.get(R)?.find((s) => s.p.role === 'prince' && !s.adopted && s.heirAt === undefined && s.p.born === e.n);
+      if (!son) continue;
+      banished.set(son.p, e.year);
+      exiled.set(i, { x: son.p, by: rulers[e.a].find((x) => x.from === e.year) });
+    } else {
+      const x = rulers[e.a].find((r) => (e.cause === 'deposed' ? r.fate === 'deposed' && r.until === e.n : r.fate === 'fled' && r.until === e.year));
+      if (x) exiled.set(i, { x });
+    }
+  }
+  const away = (p: Person, t: Year) => (banished.get(p) ?? Infinity) <= t;
   /** 战功:领兵打赢的仗减打输的(争储时比) */
   const merit = new Map<Person, number>();
   /** 正领着兵的宗室 → 卸下这一任(争储被杀时用) */
@@ -559,6 +580,7 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
             t >= k.p.born + PRINCE_AGE[0] &&
             t <= k.p.born + PRINCE_AGE[1] &&
             k.end > t &&
+            !away(k.p, t) &&
             (busyRuler.get(k.p) ?? -Infinity) <= t &&
             // 做过君主、已经下台的不再领兵
             (k.p.role !== 'ruler' || (k.p.until ?? Infinity) > t),
@@ -574,7 +596,7 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
           }
           // 后来即位的(预定的继承人):他下台(被废、让位)那一刻也就不再领兵,换人
           const reignEnd = k.p.role === 'ruler' ? (k.p.until ?? Infinity) : Infinity;
-          cur[s] = { p: k.p, careerEnd: Math.min(k.end, k.p.born + PRINCE_AGE[1], reignEnd), cmd: command(k.p), general: false, son: k };
+          cur[s] = { p: k.p, careerEnd: Math.min(k.end, k.p.born + PRINCE_AGE[1], reignEnd, banished.get(k.p) ?? Infinity), cmd: command(k.p), general: false, son: k };
           busyRuler.set(k.p, Infinity);
           leading.set(k.p, (u) => close(s, u));
           return;
@@ -690,7 +712,7 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
       steps.push({
         idx: annalAt(T),
         run: () => {
-          const res = contest(X, R, T, sons, r.k, { base, tag: tag[p.id], merit: (x) => merit.get(x) ?? 0, armed: (x) => !!x.commands?.some((c) => c.from < T) });
+          const res = contest(X, R, T, banished.size ? sons.filter((s) => !away(s.p, T)) : sons, r.k, { base, tag: tag[p.id], merit: (x) => merit.get(x) ?? 0, armed: (x) => !!x.commands?.some((c) => c.from < T) });
           if (!res) return;
           claims.set(X, { how: res.how, rivals: res.rivals.map((s) => s.p) });
           for (const s of res.killed) {
@@ -783,6 +805,13 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
   for (const [x, c] of claims) x.claim = { how: c.how, rivals: c.rivals.map((r) => r.id) };
   for (const [x, by] of rivalOf) x.rival = by.id;
   for (const [d, x] of fixups) d.person = x.id;
+  // 放逐到中立地、出奔中立地(那以前就死了的宗室不算);中立地撤销的年份
+  for (const [i, { x, by }] of exiled) {
+    const e = civ.annals[i];
+    if ((x.died ?? Infinity) < e.year) continue;
+    const end = civ.annals.find((a) => a.kind === 'neutral' && a.cause === 'lapse' && a.war === e.war);
+    x.exile = { how: e.cause === 'heir' ? 'heir' : e.cause === 'deposed' ? 'deposed' : 'fled', annal: i, zone: e.war, region: e.region, year: e.year, ...(by ? { by: by.id } : {}), ...(end ? { until: end.year } : {}) };
+  }
   return { people: out, ids };
 }
 
