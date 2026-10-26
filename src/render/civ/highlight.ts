@@ -20,6 +20,7 @@ import { addToPath, chaikin, meshWrap, unwrapLine, type Polyline } from './lines
 import { nearX, wrapShifts } from '../common';
 import type { CivStyle } from './overlay';
 import type { LabelView, Placement } from '../labels/draw';
+import { PASS_MARK_BASE } from './passes';
 import { clipOutline, relShifts, reprojectImage, type Projector } from '../projection';
 
 export interface CivHighlight {
@@ -483,7 +484,7 @@ export function drawSelection(
 
 /**
  * 文字层上的选中记号(画在城镇符号、文字之前,字压在上面):
- * 选中的东西的名字 —— 每个字底下一团淡淡的光晕;选中的城 —— 符号外一圈细环
+ * 选中的东西的名字 —— 每个字底下一团淡淡的光晕;选中的城、关隘 —— 符号外一圈细环
  * (符号这时没画出来,比如缩放不够、被别的字挤掉,就画在 at 处:它在画布上的位置)。
  * 名字旁边不画线:国名字距拉得很开(竖排时从北到南跨过整片国土),旁边的一道细线看上去像一条画错的国界
  */
@@ -519,20 +520,21 @@ export function drawSelectionLabels(
     ctx.shadowBlur = 0;
   }
   ctx.globalAlpha = 1;
-  // 城:符号外一圈细环
-  if (sel.kind === 'settlement') {
+  // 城、关隘:符号外一圈细环
+  if (sel.kind === 'settlement' || sel.kind === 'place') {
+    const id = sel.kind === 'settlement' ? sel.id : PASS_MARK_BASE + sel.id;
     let cx = NaN;
     let cy = NaN;
     let rad = 0;
     for (const m of placed.marks) {
-      if (m.mark.id !== sel.id) continue;
+      if (m.mark.id !== id) continue;
       const b = m.mark.box;
       cx = m.x;
       cy = m.y;
       rad = Math.max(b[0], b[1], b[2], b[3]) * m.s;
       break;
     }
-    if (!(cx === cx) && at) {
+    if (!(cx === cx) && at && sel.kind === 'settlement') {
       [cx, cy] = at;
       rad = 3 * view.dpr;
     }

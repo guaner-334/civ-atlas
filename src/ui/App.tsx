@@ -167,6 +167,7 @@ import { sameTerrain, sameUpheavals } from '../gen/terrainEdits';
 import { multisetDiff } from '../gen/util';
 import { sameMix, type NameMix } from '../gen/names/mix';
 import { cleanFrontier, cleanOrigins, sameFrontier, sameOrigins, type Frontier, type Origins } from '../gen/civ/frontier';
+import { cleanCalamity, type Calamity } from '../gen/civ/calamity';
 import type { RasterPatch } from '../gen/rasterPatch';
 import { cancelTerrainPatch, patchSourceOf, startTerrainFull, startTerrainPatch, type PatchStats, type PatchView, type PreProjected } from './terrainPatch';
 import { baseReady, later, overlayReady, thumbPrepSteps } from './thumbPrep';
@@ -772,25 +773,30 @@ const yearsOpt = (endYear: number | undefined) => (endYear ? { endYear } : {});
  * 创建以后再按世界自己的推演年数接着推(见下面重推的那段)
  */
 const yearsFor = (draft: boolean, edits: Pick<WorldEdits, 'endYear'>) => (draft ? undefined : cleanEndYear(edits.endYear));
-/** 推文明时带的拓荒、起源、文明种子(默认 = undefined) */
-type CivSetup = { frontier?: Frontier; origins?: Origins; civSeed?: number };
+/** 推文明时带的拓荒、起源、文明种子、「天灾」(默认 = undefined) */
+type CivSetup = { frontier?: Frontier; origins?: Origins; civSeed?: number; calamity?: Calamity };
 const setupOpt = (s: CivSetup | undefined) => ({
   ...(s?.frontier ? { frontier: s.frontier } : {}),
   ...(s?.origins ? { origins: s.origins } : {}),
   ...(s?.civSeed !== undefined ? { civSeed: s.civSeed } : {}),
+  ...(s?.calamity ? { calamity: s.calamity } : {}),
 });
 /**
- * 这一步带的拓荒、起源、文明种子:拓荒、起源和推演年数一样,新建界面里只看星球、一律按默认推,创建以后按世界自己的;
+ * 这一步带的拓荒、起源、文明种子、「天灾」:拓荒、起源、天灾和推演年数一样,新建界面里只看星球、一律按默认推,创建以后按世界自己的;
  * 文明种子新建界面里就带着(星球上的地名、选起源时的州名照它长)
  */
-function setupFor(draft: boolean, edits: Pick<WorldEdits, 'frontier' | 'origins' | 'civSeed'>): CivSetup | undefined {
+function setupFor(draft: boolean, edits: Pick<WorldEdits, 'frontier' | 'origins' | 'civSeed' | 'calamity'>): CivSetup | undefined {
   const civSeed = cleanCivSeed(edits.civSeed);
   if (draft) return civSeed !== undefined ? { civSeed } : undefined;
   const frontier = cleanFrontier(edits.frontier);
   const origins = cleanOrigins(edits.origins);
-  return frontier || origins || civSeed !== undefined ? { ...(frontier ? { frontier } : {}), ...(origins ? { origins } : {}), ...(civSeed !== undefined ? { civSeed } : {}) } : undefined;
+  const calamity = cleanCalamity(edits.calamity);
+  return frontier || origins || civSeed !== undefined || calamity
+    ? { ...(frontier ? { frontier } : {}), ...(origins ? { origins } : {}), ...(civSeed !== undefined ? { civSeed } : {}), ...(calamity ? { calamity } : {}) }
+    : undefined;
 }
-const sameSetup = (a: CivSetup | undefined, b: CivSetup | undefined) => sameFrontier(a?.frontier, b?.frontier) && sameOrigins(a?.origins, b?.origins) && a?.civSeed === b?.civSeed;
+const sameSetup = (a: CivSetup | undefined, b: CivSetup | undefined) =>
+  sameFrontier(a?.frontier, b?.frontier) && sameOrigins(a?.origins, b?.origins) && a?.civSeed === b?.civSeed && a?.calamity === b?.calamity;
 
 /** 改名里有几处在这份历史里找不到(找不到的先保留着) */
 const lostRenames = (civ: Civ, names: Record<string, string>) => Object.keys(names).filter((k) => !resolveKey(civ, k)).length;
@@ -2785,7 +2791,7 @@ ${s.image.cells}` : null);
       ...(play ? { play } : {}),
       have: [...eraPatches.current.keys()],
     });
-  }, [edits.interventions, edits.upheavals, edits.nameMix, edits.endYear, edits.frontier, edits.origins, edits.civSeed, edits.play, draft, baseData, send]);
+  }, [edits.interventions, edits.upheavals, edits.nameMix, edits.endYear, edits.frontier, edits.origins, edits.civSeed, edits.calamity, edits.play, draft, baseData, send]);
   // 地图上这份历史的摘要(检查脚本对比逐年推演、存回推演模式以后是不是同一段历史用):before 年以前的史事条数和指纹、立过几国
   useEffect(() => {
     const c = rawCiv;
@@ -3413,6 +3419,7 @@ ${s.image.cells}` : null);
       !st.edits.nameMix &&
       !st.edits.endYear &&
       !st.edits.frontier &&
+      !st.edits.calamity &&
       !st.edits.origins &&
       st.edits.civSeed === undefined &&
       !st.edits.era &&
@@ -3420,13 +3427,14 @@ ${s.image.cells}` : null);
       worldKey({ ...base, seed: 0 }) === worldKey({ ...DEFAULT_PARAMS, seed: 0 });
     // 地名风格、推演年数、拓荒和参数一样是这一类星球的设定,换一颗照旧;选的起源按位置照旧(新星球上那里住不了人的,推演时跳过);
     // 纪年、月份(年份的写法)也照旧,按一件事定的换成按年份(那件事是原来那颗星球上的)
-    const { nameMix, endYear, frontier, origins, civSeed, era, months } = st.edits;
+    const { nameMix, endYear, frontier, calamity, origins, civSeed, era, months } = st.edits;
     const kept: WorldEdits = sketch ? { ...EMPTY_EDITS, sketch, terrain: st.edits.terrain } : EMPTY_EDITS;
     const edits = {
       ...kept,
       ...(nameMix ? { nameMix } : {}),
       ...(endYear ? { endYear } : {}),
       ...(frontier ? { frontier } : {}),
+      ...(calamity ? { calamity } : {}),
       ...(origins ? { origins } : {}),
       ...(civSeed !== undefined ? { civSeed } : {}),
       ...(era ? { era: { name: era.name, epoch: era.epoch } } : {}),

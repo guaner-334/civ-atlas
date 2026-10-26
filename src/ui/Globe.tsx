@@ -121,7 +121,7 @@ import { ALL_FIGHTS_K, drawSwords, swordHalf, warFront, warMarkPoints, warsShown
 import { drawGlobeGlyphs, globeGlyphSet, placeGlobeGlyphs, type GlobeGlyphSet, type GlobeGlyphView, type PlacedGlobeGlyph } from '../render/globeGlyphs';
 import { fantasyGlobeBase, releaseFantasyGlobeBase } from '../render/fantasy';
 import { cancelDetailJob, detailAsync, submitDetailJob } from './detailJobs';
-import type { LabelPick } from './mapPick';
+import { markPick, type LabelPick } from './mapPick';
 import { AVOID_MS, measureAvoid, type Box } from './uiAvoid';
 import type { GlobeTexRequest, GlobeTexResponse } from '../globeWorker';
 import { GlobeCpuPool, cpuWorkerCount, type CpuFrame } from './globeCpu';
@@ -1898,7 +1898,7 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
     let best: LabelPick | null = null;
     let bestD = Infinity;
     if (m >= 0) {
-      best = { kind: 'settlement', id: s.placed.marks[m].id };
+      best = markPick(s.placed.marks[m].id);
       bestD = Math.hypot(s.placed.marks[m].x - x, s.placed.marks[m].y - y);
     }
     for (const l of s.placed.labels) {

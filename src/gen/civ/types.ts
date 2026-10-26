@@ -250,9 +250,32 @@ export interface Route {
   abandoned?: Year;
 }
 
-/** 地理实体:山脉 / 海域 / 大河 / 湖泊 / 岛屿 / 荒漠…… */
+/**
+ * 关隘(Place.kind = 'pass')的地形和来历(passSites.ts):口子多高、两旁山脊、绕开要翻多高、哪几对州之间、
+ * 大路哪年修通、哪年在这里据险断后。从哪年起画在地图上见 since
+ */
+export interface PassInfo {
+  /** 翻过口子要爬多高(米) */
+  height: number;
+  /** 交界的山脊(米,中位数) */
+  ridge: number;
+  /** 口子附近绕开它最低要翻多高(米);附近根本绕不过去 = 不给 */
+  detour?: number;
+  /** 两边的州 [a0, b0, a1, b1, …](同一处被几对州认出来的都记上) */
+  regions: number[];
+  /** 大路最早哪年修过这个口子 */
+  road?: number;
+  /** 第一次在这里据险断后的年份 */
+  stand?: number;
+  /** 名关(挑进名额、大路修通起就画的那些);不是 = 只因为打过守关战才画 */
+  named: boolean;
+  /** 从哪年起画在地图上(名关:大路修通那年;打过守关战的:那一仗那年;取早的) */
+  since: number;
+}
+
+/** 地理实体:山脉 / 海域 / 大河 / 湖泊 / 岛屿 / 荒漠 / 关隘…… */
 export interface Place {
-  kind: 'sea' | 'mountains' | 'river' | 'lake' | 'island' | 'desert';
+  kind: 'sea' | 'mountains' | 'river' | 'lake' | 'island' | 'desert' | 'pass';
   name: string;
   /** 按哪个民族的语感起名(海洋为 -1) */
   culture: number;
@@ -274,6 +297,8 @@ export interface Place {
   keyCell?: number;
   /** 西幻风地名的拉丁原形(如 "Aldor Mountains");湖、岛、荒漠借用的是别的名字的原形,仅供参考 */
   latin?: string;
+  /** 关隘(kind = 'pass')才有 */
+  pass?: PassInfo;
   /**
    * 阶段 4 改名(gen/edits.ts 的 applyNames 填):用户改过名时,原来的名字。生成出来的没有这一项。
    * 画风按它分大洋 / 海 / 海湾的字号("北大洋"改成"饕餮海",字照旧按大洋写)

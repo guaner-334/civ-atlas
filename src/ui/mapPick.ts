@@ -1,11 +1,12 @@
 /**
  * 点选(阶段 4)· 文字层上点到了什么:CivLayer 每次排完地图文字就把结果(放上去的城镇符号、每个字的位置)记在这里,
- * App 单击地图时按屏幕坐标查 —— 城镇符号、城名、国名、地名(海、山、河、湖、岛、荒漠)。
+ * App 单击地图时按屏幕坐标查 —— 城镇符号、城名、国名、地名(海、山、河、湖、岛、荒漠、关隘;关隘的符号也算)。
  * 都没点到时 App 再按地块查国土 / 州。
  */
 import { placedMarkBox, type LabelView, type Placement } from '../render/labels/draw';
 import { glyphBox } from '../render/labels/layout';
 import { placedTextBoxes } from '../render/marks';
+import { passOfMark } from '../render/civ/passes';
 
 export interface LabelPick {
   kind: 'polity' | 'settlement' | 'place';
@@ -44,6 +45,12 @@ export function mapTextBoxes(): { ver: number; list: number[][] } {
   return { ver, list: boxes.list.map((b) => [r.left + b[0] * f, r.top + b[1] * f, r.left + b[2] * f, r.top + b[3] * f]) };
 }
 
+/** 符号编号 → 点到的是什么:关隘的符号 = 那一处地名,别的 = 城(含故城遗址) */
+export function markPick(id: number): LabelPick {
+  const p = passOfMark(id);
+  return p >= 0 ? { kind: 'place', id: p } : { kind: 'settlement', id };
+}
+
 /** 点到符号 / 字的容差(屏幕像素):小符号、细字也好点 */
 const SLOP = 4;
 /** 城镇符号的点选框至少这么大(屏幕像素,见方) */
@@ -79,7 +86,7 @@ export function pickLabelAt(clientX: number, clientY: number): LabelPick | null 
     const cy = (b[1] + b[3]) / 2;
     const hw = Math.max((b[2] - b[0]) / 2 + SLOP * f, (MIN_MARK / 2) * f);
     const hh = Math.max((b[3] - b[1]) / 2 + SLOP * f, (MIN_MARK / 2) * f);
-    consider({ kind: 'settlement', id: m.mark.id }, [cx - hw, cy - hh, cx + hw, cy + hh]);
+    consider(markPick(m.mark.id), [cx - hw, cy - hh, cx + hw, cy + hh]);
   }
   for (const l of placed.labels) {
     const pk = l.item.pick;
@@ -91,7 +98,8 @@ export function pickLabelAt(clientX: number, clientY: number): LabelPick | null 
 
 /**
  * 冒烟检查用:文字层上现在能点的东西(城镇符号 + 文字),屏幕坐标。
- * window.__wfPickables() 返回 [{ kind, id, text, x, y }](符号的 text 为空)
+ * window.__wfPickables() 返回 [{ kind, id, text, x, y }](符号的 text 为空;城镇符号 kind = 'mark'、id = 城,
+ * 关隘的符号 kind = 'pass'、id = civ.places 的下标)
  */
 export function pickables(): { kind: string; id: number; text: string; x: number; y: number }[] {
   if (!last || !last.canvas.isConnected) return [];
@@ -101,7 +109,8 @@ export function pickables(): { kind: string; id: number; text: string; x: number
   const out: { kind: string; id: number; text: string; x: number; y: number }[] = [];
   for (const m of placed.marks) {
     const b = placedMarkBox(m);
-    out.push({ kind: 'mark', id: m.mark.id, text: '', x: r.left + ((b[0] + b[2]) / 2) * f, y: r.top + ((b[1] + b[3]) / 2) * f });
+    const pass = passOfMark(m.mark.id);
+    out.push({ kind: pass >= 0 ? 'pass' : 'mark', id: pass >= 0 ? pass : m.mark.id, text: '', x: r.left + ((b[0] + b[2]) / 2) * f, y: r.top + ((b[1] + b[3]) / 2) * f });
   }
   for (const l of placed.labels) {
     const pk = l.item.pick;

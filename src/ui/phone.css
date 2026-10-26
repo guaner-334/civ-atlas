@@ -323,6 +323,11 @@
   min-width: 0;
   font-size: 17px;
 }
+.app.phone .tb-slump-pill {
+  padding: 1px 6px;
+  font-size: 11px;
+  line-height: 16px;
+}
 .app.phone .tb-track {
   order: 0;
   flex: 1;

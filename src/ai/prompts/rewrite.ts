@@ -616,6 +616,7 @@ function ivText(civ: Civ, v: Intervention): string {
     case 'disaster': {
       const lv = DISASTER_LEVEL_NAMES[v.level];
       if (v.type === 'plague') return `从 ${id(v.city ?? '', 'settlement', 'C')} 起瘟疫(${lv})`;
+      if (v.type === 'pandemic') return `从 ${id(v.city ?? '', 'settlement', 'C')} 起全球大疫(${lv}),疫后无人收拾 ${v.slump ?? 30} 年`;
       if (v.type === 'quake') return `${reg(v.region ?? '')} 一带地震水旱(${lv})`;
       return `${v.a ? id(v.a, 'polity', 'P') : (v.regions ?? []).map(reg).join('、')} 饥荒(${lv})`;
     }

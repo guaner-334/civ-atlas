@@ -51,6 +51,7 @@ import { showToast } from './toastStore';
 import { cleanMix, sameMix, type NameMix } from '../gen/names/mix';
 import { cleanEra, cleanMonths, monthsOf, sameEra, type Era } from '../gen/era';
 import { cleanFrontier, cleanOrigins, sameFrontier, sameOrigins, type Frontier, type Origins } from '../gen/civ/frontier';
+import { cleanCalamity, type Calamity } from '../gen/civ/calamity';
 
 let state: WorldEdits = EMPTY_EDITS;
 const subs = new Set<() => void>();
@@ -101,7 +102,7 @@ let historyGate: ((next: WorldEdits) => boolean) | null = null;
 export function setHistoryGate(f: ((next: WorldEdits) => boolean) | null) {
   historyGate = f;
 }
-const HISTORY_KEYS = ['interventions', 'upheavals', 'terrain', 'sketch', 'nameMix', 'endYear', 'frontier', 'origins', 'civSeed'] as const;
+const HISTORY_KEYS = ['interventions', 'upheavals', 'terrain', 'sketch', 'nameMix', 'endYear', 'frontier', 'origins', 'civSeed', 'calamity'] as const;
 /** 两份修改里,推演用到的部分不一样 */
 export function historyDiffers(a: WorldEdits, b: WorldEdits): boolean {
   return HISTORY_KEYS.some((k) => a[k] !== b[k] && JSON.stringify(a[k] ?? null) !== JSON.stringify(b[k] ?? null));
@@ -199,6 +200,7 @@ export function revertEdits(now: WorldEdits, from: WorldEdits, to: WorldEdits): 
   if (now.nameMix) out.nameMix = now.nameMix;
   if (now.endYear) out.endYear = now.endYear;
   if (now.frontier) out.frontier = now.frontier;
+  if (now.calamity) out.calamity = now.calamity;
   if (now.origins) out.origins = now.origins;
   if (now.civSeed !== undefined) out.civSeed = now.civSeed;
   if (now.map) out.map = now.map;
@@ -513,6 +515,15 @@ export function setFrontier(f: Frontier | undefined) {
   const { frontier: _old, ...rest } = state;
   void _old;
   put(next ? { ...rest, frontier: next } : rest);
+}
+
+/** 「天灾」(新建世界时定,不记撤销步):多 / 很多;undefined = 平常,去掉这一项 */
+export function setCalamity(c: Calamity | undefined) {
+  const next = cleanCalamity(c);
+  if (next === state.calamity) return;
+  const { calamity: _old, ...rest } = state;
+  void _old;
+  put(next ? { ...rest, calamity: next } : rest);
 }
 
 /** 自己选的文明起源(新建世界时定,不记撤销步);undefined / 一处也没有 = 自动,去掉这一项 */

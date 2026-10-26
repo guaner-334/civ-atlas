@@ -4,6 +4,8 @@
  *   写实:大小分级的圆点 —— 村是小暗点,镇 / 城是白心黑圈(越大越粗),大城是双圈;国都画带框的星
  *   手绘:国都是城堡(塔楼 + 城墙 + 小旗:放大到看得清时插本国的国旗,远看是本国颜色的小三角),大城 / 城是屋群,镇是单屋,村是墨点
  *   故城遗址(阶段 3 城市兴衰:毁了、还没重建的城):手绘是淡墨的塌城门(断柱 + 断门楣 + 碎石),写实是一圈淡淡的虚线小圈 —— 低调,不抢眼
+ *   关隘(render/civ/passes.ts 排):手绘是一段带垛口的城墙 + 门楼、门洞涂黑(照明代《九边图》画关城的样子,和故城遗址一个笔法但完整);
+ *   写实是白底小城门(三个垛口、门洞涂黑),和城镇的白底圆圈一套
  *
  * 符号画在和视口一样大的文字层画布上(CivLayer),按屏幕像素 × devicePixelRatio 画,放大地图后依然清晰;
  * 放大时符号只按 k^GROW 变大(不跟地图一起放大 k 倍)。
@@ -19,10 +21,12 @@ import type { CivStyle } from './overlay';
 import type { Shape } from '../../gen/civ/flags';
 import { shapePath } from '../flag/flagSvg';
 
-/** 符号类别:0 村 / 1 镇 / 2 城 / 3 大城 / 4 国都 / 5 故城遗址(RUIN) */
-export type SettlementKind = 0 | 1 | 2 | 3 | 4 | 5;
+/** 符号类别:0 村 / 1 镇 / 2 城 / 3 大城 / 4 国都 / 5 故城遗址(RUIN)/ 6 关隘(PASS) */
+export type SettlementKind = 0 | 1 | 2 | 3 | 4 | 5 | 6;
 /** 故城遗址的符号类别 */
 export const RUIN: SettlementKind = 5;
+/** 关隘的符号类别(不是城镇;符号表和城镇共用一套) */
+export const PASS: SettlementKind = 6;
 
 /** 放大地图时符号跟着长的幂:放大 4 倍时符号大 2 倍 */
 export const SYMBOL_GROW = 0.5;
@@ -39,6 +43,7 @@ export const SYMBOL_BOX: Record<'fantasy' | 'realistic', [number, number, number
     [4.4, 4.1, 4.4, 3.0],
     [5.0, 9.0, 5.0, 3.1],
     [3.2, 2.4, 3.2, 1.8],
+    [7.6, 4.0, 7.6, 2.3],
   ],
   realistic: [
     [1.3, 1.3, 1.3, 1.3],
@@ -47,6 +52,7 @@ export const SYMBOL_BOX: Record<'fantasy' | 'realistic', [number, number, number
     [3.1, 3.1, 3.1, 3.1],
     [5.0, 5.0, 5.0, 5.0],
     [2.2, 2.2, 2.2, 2.2],
+    [3.0, 3.0, 3.0, 3.0],
   ],
 };
 
@@ -93,6 +99,8 @@ export interface SettlementMarkInfo {
   kind: SettlementKind;
   color?: [number, number, number];
   polity?: number;
+  /** 关隘(kind = PASS):civ.places 的下标 */
+  place?: number;
 }
 
 /** 手绘国都插的国旗:某国的旗(还没有 = null,画本国颜色的小三角);旗宽不到 minPx(画布像素)时也画小三角 */
@@ -222,6 +230,116 @@ function ruinStones(pa: CanvasPath, x: number, y: number, u: number) {
 }
 
 /**
+ * 关楼(手绘):一段带垛口的城墙横过去,中间一座带屋顶的门楼,门洞涂黑;底下垫一团淡淡的纸色。
+ * 单位 u = 1.4 符号单位;城墙底边在 y = +1.3u,屋脊在 y = −2.45u
+ */
+function passGate(ctx: CanvasRenderingContext2D, x: number, y: number, S: number, ink: string, paper: string) {
+  const u = 1.4 * S;
+  ctx.beginPath();
+  ctx.ellipse(x, y - 0.4 * u, 5.7 * u, 3.3 * u, 0, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(244,234,210,0.62)';
+  ctx.fill();
+  ctx.lineWidth = 0.55 * S;
+  ctx.strokeStyle = ink;
+  // 一段城墙:顶上一高一低的垛口
+  const wall = (x0: number, x1: number) => {
+    const top = y - 0.15 * u;
+    const bot = y + 1.3 * u;
+    const m = 0.62 * u;
+    ctx.beginPath();
+    ctx.moveTo(x0, bot);
+    ctx.lineTo(x0, top - 0.5 * u);
+    let cx = x0;
+    let up = true;
+    while (cx < x1 - 0.01) {
+      const nx = Math.min(x1, cx + m);
+      ctx.lineTo(nx, up ? top - 0.5 * u : top);
+      if (nx < x1) ctx.lineTo(nx, up ? top : top - 0.5 * u);
+      cx = nx;
+      up = !up;
+    }
+    ctx.lineTo(x1, bot);
+    ctx.closePath();
+    ctx.fillStyle = paper;
+    ctx.fill();
+    ctx.stroke();
+  };
+  wall(x - 5.0 * u, x - 1.9 * u);
+  wall(x + 1.9 * u, x + 5.0 * u);
+  // 门楼
+  ctx.beginPath();
+  ctx.rect(x - 2.0 * u, y - 1.25 * u, 4.0 * u, 2.55 * u);
+  ctx.fillStyle = paper;
+  ctx.fill();
+  ctx.stroke();
+  // 屋顶(两头翘一点)
+  ctx.beginPath();
+  ctx.moveTo(x - 2.85 * u, y - 1.05 * u);
+  ctx.quadraticCurveTo(x - 2.2 * u, y - 1.35 * u, x - 1.55 * u, y - 2.45 * u);
+  ctx.lineTo(x + 1.55 * u, y - 2.45 * u);
+  ctx.quadraticCurveTo(x + 2.2 * u, y - 1.35 * u, x + 2.85 * u, y - 1.05 * u);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(132,92,62,0.95)';
+  ctx.fill();
+  ctx.stroke();
+  // 门洞
+  ctx.beginPath();
+  ctx.moveTo(x - 0.75 * u, y + 1.3 * u);
+  ctx.lineTo(x - 0.75 * u, y + 0.35 * u);
+  ctx.arc(x, y + 0.35 * u, 0.75 * u, Math.PI, 0);
+  ctx.lineTo(x + 0.75 * u, y + 1.3 * u);
+  ctx.closePath();
+  ctx.fillStyle = ink;
+  ctx.fill();
+}
+
+/** 写实风的关口:白底小城门(顶上三个垛口),门洞涂黑;外面一圈半透明的白边,和城镇的白底圆圈一套。单位 = 符号单位 S */
+function passFlat(ctx: CanvasRenderingContext2D, x: number, y: number, S: number) {
+  const w = 2.5 * S;
+  const top = y - 1.0 * S;
+  const bot = y + 1.55 * S;
+  const mh = 0.75 * S;
+  const pts: [number, number][] = [
+    [x - w, bot],
+    [x - w, top - mh],
+  ];
+  const n = 5;
+  for (let i = 0; i < n; i++) {
+    const x0 = x - w + ((2 * w) / n) * i;
+    const x1 = x - w + ((2 * w) / n) * (i + 1);
+    const up = i % 2 === 0;
+    pts.push([x0, up ? top - mh : top], [x1, up ? top - mh : top]);
+  }
+  pts.push([x + w, top - mh], [x + w, bot]);
+  const path = () => {
+    ctx.beginPath();
+    ctx.moveTo(pts[0][0], pts[0][1]);
+    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+    ctx.closePath();
+  };
+  path();
+  ctx.strokeStyle = 'rgba(255,253,248,0.75)';
+  ctx.lineWidth = 2.1 * S;
+  ctx.lineJoin = 'round';
+  ctx.stroke();
+  path();
+  ctx.fillStyle = 'rgba(255,253,248,0.97)';
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(30,22,20,0.92)';
+  ctx.lineWidth = 0.75 * S;
+  ctx.stroke();
+  ctx.beginPath();
+  const r = 0.72 * S;
+  ctx.moveTo(x - r, bot);
+  ctx.lineTo(x - r, y + 0.35 * S);
+  ctx.arc(x, y + 0.35 * S, r, Math.PI, 0);
+  ctx.lineTo(x + r, bot);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(30,22,20,0.92)';
+  ctx.fill();
+}
+
+/**
  * 画放好的城镇符号(视口文字层,画布像素)。placed[i].mark 是 settlementMarks 给的符号(带 kind / color / polity);
  * placed[i].s = 符号单位 → 画布像素。flags = 手绘国都插的国旗(不给 = 都画小三角)
  */
@@ -233,8 +351,8 @@ export function drawSettlementMarks(ctx: CanvasRenderingContext2D, placed: Place
   ctx.globalAlpha = 1;
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
-  // 先画遗址,再画小的,大的压在上面
-  const layer = (k: SettlementKind) => (k === RUIN ? -1 : k);
+  // 先画遗址,再画小的,大的压在上面(关隘排在镇和城之间)
+  const layer = (k: SettlementKind) => (k === RUIN ? -1 : k === PASS ? 1.5 : k);
   const order = [...placed].sort((a, b) => layer(info(a).kind) - layer(info(b).kind));
   if (style === 'fantasy') {
     // 符号底下先垫一层淡淡的纸色,穿过树林、山峰时也看得清
@@ -244,7 +362,8 @@ export function drawSettlementMarks(ctx: CanvasRenderingContext2D, placed: Place
     for (const e of order) {
       const S = e.s;
       const k = info(e).kind;
-      if (k === RUIN) continue;
+      // 遗址、关楼自己垫底
+      if (k === RUIN || k === PASS) continue;
       if (k === 0) {
         circle(dotHalo, e.x, e.y, 1.5 * S);
         circle(dots, e.x, e.y, 0.95 * S);
@@ -273,6 +392,9 @@ export function drawSettlementMarks(ctx: CanvasRenderingContext2D, placed: Place
       const { kind, color, polity } = info(e);
       ctx.lineWidth = 0.62 * S;
       switch (kind) {
+        case PASS:
+          passGate(ctx, x, y, S, INK, PAPER);
+          break;
         case RUIN: {
           // 淡墨的塌城门:纸色垫底、半透明的墨线,地上一道短地平线、两块碎石
           const u = 1.1 * S;
@@ -381,6 +503,9 @@ export function drawSettlementMarks(ctx: CanvasRenderingContext2D, placed: Place
       const S = e.s;
       const { kind } = info(e);
       switch (kind) {
+        case PASS:
+          passFlat(ctx, x, y, S);
+          break;
         case RUIN:
           // 一圈淡淡的虚线小圈(城没了,只剩一个轮廓)+ 中间一个小点
           ctx.beginPath();

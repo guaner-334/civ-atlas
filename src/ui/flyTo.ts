@@ -125,6 +125,8 @@ export function selectionFocus(world: World, civ: Civ, selIn: MapSelection, year
   if (sel.kind === 'place') {
     const path = civ.places[sel.id]?.path;
     if (!path || path.length < 2) return null;
+    // 关隘是一个点:和城一样
+    if (civ.places[sel.id].kind === 'pass') return focusOf(W, H, null, path[0], path[1]);
     // 路径的 x 是展开的:按相邻两点接着走
     let x0 = Infinity;
     let y0 = Infinity;
