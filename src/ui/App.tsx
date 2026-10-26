@@ -174,8 +174,9 @@ import { baseReady, later, overlayReady, thumbPrepSteps } from './thumbPrep';
 import { cancelDetailJob, submitDetailJob, type WorkStep } from './detailJobs';
 import { baseRegions, civAtEra, composedOf, dropComposed, eraData, peekEraData, eraIndex, eraMapsOf, eraReady, eraShown, patchKey, reuseRegions, useEraIndex, withHistory, type EraMaps } from './eras';
 import { adoptChronicle, dropChronicleParts, namedHistory, takeChroniclePart, useNamedHistory } from './chronicleHandoff';
-import { sameSketch, type SketchEdit } from '../gen/sketch';
-import { askHistory, clearEditHistory, clearEdits, getEdits, putEditsQuiet, putOutlineResult, putPlay, removeEditsBatch, removeIntervention, removeUpheaval, setEditGate, setEdits, setEndYear, setHistoryGate, undoTerrainOp, useEdits } from './editsStore';
+import { sameSketch, sketchGrid, type SketchEdit } from '../gen/sketch';
+import { condList, summarize } from '../gen/finder/query';
+import { addMark, askHistory, clearEditHistory, clearEdits, getEdits, putEditsQuiet, putOutlineResult, putPlay, removeEditsBatch, removeIntervention, removeUpheaval, setEditGate, setEdits, setEndYear, setHistoryGate, undoTerrainOp, useEdits } from './editsStore';
 import { eraText, spaced, yearAt, yearFull } from '../gen/era';
 import { redoLastEdit, undoLastEdit } from './undo';
 import { useShortcuts } from './useShortcuts';
@@ -289,6 +290,14 @@ import { closeOverview, getPeople, openOverview, setPeople, useOverview } from '
 import { setOutlineRun, setOutlineRunner } from './outlineStore';
 import { outlineDoneToast, outlineRunToast } from './OutlineSide';
 import { OutlineRunAsk } from './OutlineRunAsk';
+import { FinderPage } from './FinderPage';
+import { FinderOverlay, FinderPins } from './FinderMap';
+import { pickedOf, type FinderFlyTo, type FinderPreview } from './FinderResults';
+import { closeFinder, getFinder, openFinder, resetFinder, selectFinder, setFinderMap, setQuery, useFinder, type FinderBase } from './finderStore';
+import { foundDetail, foundPoints } from './finderInfo';
+import { foundPickOf, putFound, setFindAgainHandler, type FoundPick } from './foundStore';
+import type { StudioFound } from './studio/Studio';
+import { carryStudioView, takeStudioView } from './studio/studioStore';
 import { STUDIO_STYLES, Studio } from './studio/Studio';
 import { setFlatGeomSource, useStudioFlat } from './studio/studioStore';
 import { MyWorlds, showMapInWorlds } from './MyWorlds';
@@ -516,6 +525,11 @@ interface Target {
    * 在旧版本建的世界的地图上打造文明:那个世界存的地形校验。生成出来的地图和它对不上(现在的版本算出来不一样了)就不让打造
    */
   mapCheck?: string;
+  /**
+   * 照故事找世界选中的一个结果(新建中的世界换成它):推文明带上拓荒、起源、「天灾」(新建界面平时一律按默认推),
+   * 和搜的时候推的一模一样
+   */
+  fullCiv?: true;
 }
 
 /** 新建中的世界是哪一种:照手绘图(选的就是它,或者草图里有照着长的图;旧的没建完的世界也这样认)/ 随机 */
@@ -895,8 +909,11 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
   const home = stage === 'home';
   /** 新建界面(Studio)创建以后还没走完:1 = 星球展开成平常的地图,2 = 新建界面淡出(底下平常的地图露出来) */
   const [studioOut, setStudioOut] = useState<0 | 1 | 2>(0);
+  /** 照故事找世界那一页开着(新建中,FinderPage.tsx):新建界面先收起,平常的地图露出来 */
+  const finder = useFinder();
+  const finderOn = draft && finder.open;
   /** 新建界面盖着整页:深色、太空底,平常的地图藏起来(摊平改地形时铺在中间那块) */
-  const studioOn = draft || studioOut === 1;
+  const studioOn = (draft && !finderOn) || studioOut === 1;
   const studioFlat = useStudioFlat();
   // 宽屏左边的卡片收起了(sideStore.ts):新建世界那一步左边是新建世界的卡片,不算收起(sideRoom 照常让出它)
   const sideUi = useSide();
@@ -2438,7 +2455,7 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
       civNames.current = t.edits.nameMix;
       // 推演年数同样直接带着(新建中的世界先推 3000 年)
       civYears.current = yearsFor(t.kind === 'draft', t.edits);
-      civSetup.current = setupFor(t.kind === 'draft', t.edits);
+      civSetup.current = setupFor(t.kind === 'draft' && !t.fullCiv, t.edits);
       storyAfterYears.current = null;
       // 新建的世界能编辑地形:线程留着整张主图,第一笔就能只重铺变了的那块
       const req: WorkerRequest = { type: 'generate', id, params: p, scale: 1, terrain: [...terrain], sketch: t.edits.sketch, ...namesOpt(t.edits.nameMix), ...yearsOpt(civYears.current), ...setupOpt(civSetup.current), ...(t.kind === 'draft' ? { keep: true } : {}), renames: t.edits.names };
@@ -3467,7 +3484,7 @@ ${s.image.cells}` : null);
    * 创建世界:从此种子、参数、地形锁住;一直存着。从第 0 年起放一遍历史;how = 新建时选了「演绎」(step):从第 0 年起逐年推演、马上往下走;
    * 选了「照大纲」(outline):不放历史,打开概览的「大纲」页先写大纲。建成了 = true
    */
-  const createWorld = (title: string, how?: 'step' | 'outline'): boolean => {
+  const createWorld = (title: string, how?: 'step' | 'outline', stopAt?: number): boolean => {
     const t = draftNow();
     const cur = currentWorld();
     // 还在生成、在重推带过来的干预、在放这颗星球的形成:等它完
@@ -3513,6 +3530,13 @@ ${s.image.cells}` : null);
       return true;
     }
     const later = cleanEndYear(getEdits().endYear) !== civYears.current || !sameSetup(setupFor(false, getEdits()), civSetup.current);
+    // 照故事找的:停在开场那年,不从第 0 年放(推得更久的接着推完也不放);选了照大纲的照样先打开大纲
+    if (stopAt !== undefined) {
+      storyAfterYears.current = null;
+      setCivTime({ year: stopAt, playing: false, scrubbing: false, story: false });
+      if (how === 'outline') openOverview('outline');
+      return true;
+    }
     if (how === 'outline') {
       openOverview('outline');
       if (getCivTime().year === 0) resetCivTime();
@@ -3734,6 +3758,242 @@ ${s.image.cells}` : null);
       },
     };
   })();
+  // ---- 照故事找世界(FinderPage.tsx;条件、结果在 finderStore.ts) ----
+  // 新建世界第 1 步点「照故事找世界」进去:新建界面收起,平常的地图露出来(手绘、国家);选中一个结果,新建中的世界换成那个世界
+  // (地图、文明种子照搜的时候的),停在开场那年,两国描边、交界那州圈出来;「用这个世界」回到新建第 2 步(那几样设定锁着);
+  // 「‹ 新建世界」离开时新建中的世界换回原来的样子
+  /** 打开找世界那一页时:新建中的世界原来的样子、地图原来的样式(新建界面的)、搜的时候照它生成的设定 */
+  const finderBack = useRef<{ target: Target; view: { base: BaseId; fill: FillId }; base: FinderBase; moved: boolean } | null>(null);
+  /** 「用这个世界」以后:新建第 2 步锁着的那几样、建好以后停在哪年、加哪几个标记 */
+  const [found, setFound] = useState<(StudioFound & { pick: FoundPick }) | null>(null);
+  /** 新建中的世界 → 搜的时候照它生成的设定(世界参数、地形和草图(都用这张地图时)、推演年数、拓荒、起源、天灾、地名风格) */
+  const finderBaseOf = (t: Target, e: WorldEdits): FinderBase => {
+    const endYear = cleanEndYear(e.endYear);
+    const frontier = cleanFrontier(e.frontier);
+    const origins = cleanOrigins(e.origins);
+    const calamity = cleanCalamity(e.calamity);
+    const civ = { ...(endYear ? { endYear } : {}), ...(frontier ? { frontier } : {}), ...(origins ? { origins } : {}), ...(calamity ? { calamity } : {}), ...(e.nameMix ? { names: e.nameMix } : {}) };
+    const sketch = sketchGrid(e.sketch);
+    return {
+      key: JSON.stringify([worldKey(t.params), e.terrain, e.sketch ?? null, civ]),
+      setup: { world: t.params, ...(Object.keys(civ).length ? { civ } : {}), ...(e.terrain.length ? { terrain: [...e.terrain] } : {}), ...(sketch ? { sketch } : {}) },
+    };
+  };
+  /** 新建第 1 步点「照故事找世界」(again:「用这个世界」以后点「回去换一个」,回到上次的结果) */
+  const openFinderPage = (again = false) => {
+    // 新建中的世界还在生成也能进(「再找」新建的那一个):地图生成好了再露出来
+    const t = draftNow();
+    if (!t) return;
+    if (!again || !finderBack.current) {
+      const st = draftState(t);
+      const back: Target = { ...t, edits: st.edits, title: st.title, pristine: st.pristine, saved: undefined, view: undefined, from: undefined, save: undefined };
+      finderBack.current = { target: back, view: { base: mapViewRef.current.base, fill: mapViewRef.current.fill }, base: finderBaseOf(t, st.edits), moved: false };
+    }
+    setTerrainTool({ on: false });
+    closeAssistant();
+    // 新建界面收起时,投影、经纬网先留着(回来接着用;离开新建时再换回进新建之前的)
+    carryStudioView();
+    applyMapView({ base: 'fantasy', fill: 'polities' });
+    if (!again) setCivTime({ year: null, playing: false, scrubbing: false, story: false });
+    openFinder(finderBack.current.base, narrowRef.current);
+  };
+  /** 选中的一个结果:新建中的世界换成它(地图种子 = 它,或者都用这张地图、只换文明种子);已经是它就不动 */
+  const finderPreview = (seed: number) => {
+    const back = finderBack.current;
+    const t = draftNow();
+    const run = getFinder().run;
+    if (!back || !t || !run) return;
+    const fixed = run.setup.map === 'fixed';
+    const be = back.target.edits;
+    const params = fixed ? back.target.params : { ...back.target.params, seed };
+    const { nameMix, endYear, frontier, origins, calamity, era, months } = be;
+    const keep: Partial<WorldEdits> = {
+      ...(nameMix ? { nameMix } : {}),
+      ...(endYear ? { endYear } : {}),
+      ...(frontier ? { frontier } : {}),
+      ...(origins ? { origins } : {}),
+      ...(calamity ? { calamity } : {}),
+      ...(era ? { era } : {}),
+      ...(months !== undefined ? { months } : {}),
+    };
+    const edits: WorldEdits = fixed ? { ...be, civSeed: seed === params.seed ? undefined : seed } : { ...EMPTY_EDITS, ...keep };
+    const cur = targetRef.current;
+    if (cur?.fullCiv && genParams.current && worldKey(genParams.current) === worldKey(params) && cleanCivSeed(cur.edits.civSeed) === cleanCivSeed(edits.civSeed)) return;
+    back.moved = true;
+    generate({ ...t, params, edits, saved: undefined, title: back.target.title, pristine: back.target.pristine, view: undefined, from: undefined, save: undefined, fullCiv: true });
+  };
+  /** 「‹ 新建世界」:新建中的世界换回原来的样子,地图换回新建界面的样式 */
+  const exitFinder = () => {
+    const back = finderBack.current;
+    finderBack.current = null;
+    closeFinder();
+    selectFinder(null);
+    setCivHighlight(null);
+    setFound(null);
+    if (!back) return;
+    applyMapView(back.view);
+    if (back.moved && draftNow()) generate({ ...back.target });
+  };
+  /** 找世界那一页上选中的结果、那种配法 */
+  const finderSum = useMemo(
+    () => (finderOn && finder.run ? summarize(finder.run.query, finder.run.reports, finder.variant, finder.sort) : null),
+    [finderOn, finder.run?.query, finder.run?.reports, finder.variant, finder.sort], // eslint-disable-line react-hooks/exhaustive-deps
+  );
+  const finderPick = useMemo(() => (finderSum ? pickedOf([...finderSum.full, ...finderSum.near], finder.sel) : null), [finderSum, finder.sel]);
+  /** 选中的那个世界生成好了(地图和文明种子对得上):地图上贴小牌子、写名字用 */
+  const finderPreviewData: FinderPreview | null = (() => {
+    const back = finderBack.current;
+    if (!finderOn || !finderPick || !back || !data || !rawCiv || !realCiv || progress || !targetRef.current?.fullCiv) return null;
+    const seed = finderPick.row.seed;
+    const fixed = finder.run?.setup.map === 'fixed';
+    if (rawCiv.seed !== seed || data.world.params.seed !== (fixed ? back.target.params.seed : seed)) return null;
+    return { seed, world: data.world, civ: realCiv };
+  })();
+  // 选中了就换过去(还在生成上一个也换:后台只认最新的)
+  useEffect(() => {
+    if (finderOn && finder.sel) finderPreview(finder.sel.seed);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [finderOn, finder.sel?.seed]);
+  // 搜完了还没选:选上最合的那个(没有全合的选差一条里最近的)
+  const finderDone = finder.run?.progress?.state === 'done';
+  useEffect(() => {
+    const first = finderSum?.full[0] ?? finderSum?.near[0];
+    if (!finderOn || !finderDone || getFinder().sel || !first) return;
+    selectFinder({ seed: first.seed, alt: -1 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [finderOn, finderDone]);
+  /** 生成好了:停在开场那年,两国描边、交界那州圈出来,地图飞过去看全两国(同一个结果只飞一次) */
+  const finderShown = useRef('');
+  const finderPreviewKey = finderPreviewData && finderPick ? `${finderPick.row.seed}:${finderPick.cand.year}:${finderPick.cand.roles.join(',')}:${finder.variant}` : '';
+  useEffect(() => {
+    if (!finderPreviewKey || !finderPreviewData || !finderPick) return;
+    const { cand, places } = finderPick;
+    setCivTime({ year: cand.year, playing: false, scrubbing: false, story: false });
+    setCivShow({ polities: true });
+    const junction = places.filter((p) => p.kind === 'junction').map((p) => p.region);
+    setCivHighlight({ regions: junction, polities: cand.roles, year: cand.year, steady: true });
+    if (finderShown.current === finderPreviewKey) return;
+    finderShown.current = finderPreviewKey;
+    flyToPoints(foundPoints(finderPreviewData.world, finderPreviewData.civ, cand, places), 'finder');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [finderPreviewKey]);
+  // 点开一个结果的细节:地图再放大到故事里最小的那一国和隘口、交界(两国里多半是要守的那一个)
+  const finderDetail = finderOn && finder.page === 'detail';
+  useEffect(() => {
+    if (!finderDetail || !finderPreviewData || !finderPick) return;
+    const { cand, places } = finderPick;
+    const near = places.filter((p) => p.kind !== 'port');
+    let small = 0;
+    cand.sizes.forEach((s, i) => s < cand.sizes[small] && (small = i));
+    const one = cand.roles.length ? { ...cand, roles: [cand.roles[small]] } : cand;
+    flyToPoints(foundPoints(finderPreviewData.world, finderPreviewData.civ, one, near), 'finder');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [finderDetail, finderPreviewKey]);
+  // 离开新建(回我的世界、打开别的世界):找世界那一页收起,结果不要了
+  useEffect(() => {
+    if (draft) return;
+    finderBack.current = null;
+    setFound(null);
+    if (getFinder().open || getFinder().run) resetFinder();
+    // 新建界面收起着(在找世界那一页)就离开了新建:进新建之前的投影、经纬网换回来(平常是新建界面卸下时自己换)
+    const c = takeStudioView();
+    if (c) {
+      if (c.proj !== 'equirect' && getProjection() === 'equirect') setProjection(c.proj, c.flat);
+      setGraticule(c.grat.on);
+      setGraticuleStep(c.grat.step);
+    }
+  }, [draft]);
+  /** 「谁是谁」点一行:地图飞到那一国 / 那一处 */
+  const finderFly = (to: FinderFlyTo) => {
+    const pv = finderPreviewData;
+    if (!pv || !finderPick) return;
+    const { cand, places } = finderPick;
+    if ('role' in to) {
+      const one = { ...cand, roles: [cand.roles[to.role]] };
+      flyToPoints(foundPoints(pv.world, pv.civ, one, []), 'finder');
+    } else {
+      const d = foundDetail(pv.world, pv.civ, cand, places).places[to.place];
+      if (d) flyToPoints([[d.x, d.y]], 'finder', 4);
+    }
+  };
+  /** 「用这个世界」:新建中的世界就是它(还没生成好就接着生成),回到新建第 2 步,种子和推演设定锁着 */
+  const takeFinderPick = () => {
+    const back = finderBack.current;
+    const pick = finderPick;
+    const run = getFinder().run;
+    if (!back || !pick || !run) return;
+    finderPreview(pick.row.seed);
+    const q = run.query;
+    const { cand, places } = pick;
+    const pv = finderPreviewData;
+    const fixed = run.setup.map === 'fixed';
+    const fp = foundPickOf(q, cand, places, pv ? foundDetail(pv.world, pv.civ, cand, places) : null, { map: fixed ? 'fixed' : 'each', params: back.target.params });
+    setFound({
+      mapSeed: fixed ? back.target.params.seed : pick.row.seed,
+      civSeed: pick.row.seed,
+      year: cand.year,
+      roles: fp.roles.map((r) => ({ role: r.role, name: r.name })),
+      places: [...new Set(fp.places.map((p) => p.title))],
+      pick: fp,
+    });
+    closeFinder();
+    setCivHighlight(null);
+    applyMapView(back.view);
+  };
+  /**
+   * 照故事找的世界建好了:隘口、交界加成作者标记,侧栏顶上记一组「照故事找的」(foundStore.ts),提示一次;
+   * 新建界面淡出以后地图飞到故事里的几国
+   */
+  const foundCreated = (f: NonNullable<typeof found>) => {
+    const id = targetRef.current?.id;
+    const w = data?.world;
+    if (!id || !w) return;
+    const spots = f.pick.places.map((p) => {
+      const mark = addMark({ title: p.title, color: p.kind === 'pass' ? 'orange' : 'purple', from: f.year, at: [w.mesh.x[p.cell], w.mesh.y[p.cell]], note: `照故事找的：${p.note}` });
+      return { ...p, mark };
+    });
+    putFound(id, { ...f.pick, places: spots });
+    setFound(null);
+    if (isStored(id))
+      showToast({
+        id: 'created',
+        kind: 'ok',
+        dot: true,
+        text: `建好了，停在第 ${f.year} 年`,
+        more: f.places.length ? [`${f.places.join('、')}加成了地图上的标记，不要了在「标记」里删`] : [],
+        ttl: 7000,
+      });
+    foundFly.current = { id, polities: f.pick.roles.map((r) => r.polity), year: f.year };
+  };
+  /** 侧栏「照故事找的」点「再找」:照搜的时候的世界参数新建一个世界,打开找世界那一页,条件照这次的(还没走的那批结果接着用) */
+  const findAgainNow = (p: FoundPick) => {
+    openTarget(draftTarget(p.params));
+    if (!draftNow()) return;
+    setQuery(p.query);
+    setFinderMap(p.map);
+    openFinderPage();
+  };
+  const findAgainRef = useRef(findAgainNow);
+  findAgainRef.current = findAgainNow;
+  useEffect(() => {
+    setFindAgainHandler((p) => findAgainRef.current(p));
+    return () => setFindAgainHandler(null);
+  }, []);
+  /** 照故事找的世界建好、新建界面淡出以后:地图飞到故事里的几国 */
+  const foundFly = useRef<{ id: string; polities: number[]; year: number } | null>(null);
+  useEffect(() => {
+    const ff = foundFly.current;
+    if (!ff || studioOut !== 0 || draft || !data || !realCiv || currentWorld()?.id !== ff.id) return;
+    foundFly.current = null;
+    const own = ownersAt(realCiv, ff.year).polity;
+    const seat = realCiv.regions.seat;
+    const pts: [number, number][] = [];
+    for (let r = 0; r < own.length; r++) if (ff.polities.includes(own[r])) pts.push([data.world.mesh.x[seat[r]], data.world.mesh.y[seat[r]]]);
+    flyToPoints(pts, 'world');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [studioOut, draft, data, realCiv]);
+  /** 「用这个世界」以后、新建中的世界还是找到的那个(换了种子、文明种子就不算了) */
+  const foundNow = found && draft && !finderOn && params.seed === found.mapSeed && (cleanCivSeed(edits.civSeed) ?? params.seed) === found.civSeed ? found : null;
   // ---- 浏览器的后退、前进(nav.ts):换到记着的那一步 ----
   /** 离开时还没存着的世界(只是看看的、别人分享的):退回来时照原样打开(只记在这一页里,刷新就没了) */
   const navTargets = useRef(new Map<string, Target>());
@@ -4832,6 +5092,29 @@ ${s.image.cells}` : null);
   };
   const flyCameraRef = useRef(flyCamera);
   flyCameraRef.current = flyCamera;
+  /**
+   * 照故事找世界:地图飞过去看全这几个点(故事里两国的州、隘口、交界)。where = 'finder' 让开找世界的卡片(电脑左边、手机底部卡片),
+   * 'world' 照平常的侧栏让;zoom = 只飞到一个点时放大几倍
+   */
+  const flyToPoints = (pts: readonly (readonly [number, number])[], where: 'finder' | 'world', zoom?: number) => {
+    stopFly();
+    const el = stageRef.current;
+    if (!data || !el || !box.w || replayOn) return;
+    const focus = pointsFocus(data.world, pts);
+    if (!focus) return;
+    if (getGlobeOn()) return globeApi.current?.flyTo(focus.lon, focus.lat);
+    const b: StageBox = { sw: el.clientWidth, sh: el.clientHeight, bw: box.w, bh: box.h, padB: geo.current.padB };
+    const W = data.world.width;
+    const H = data.world.height;
+    const phoneNow = b.sw <= NARROW_MAX;
+    const area: [number, number, number, number] =
+      where === 'world' ? freeArea(b, false) : phoneNow ? [12, 56, b.sw - 12, Math.round(b.sh * 0.5) - 10] : [448, 64, b.sw - 24, b.sh - 24];
+    const goal: FlyGoal = { focus, kind: 'polity', ...(zoom ? { zoom } : {}) };
+    const m = mpRef.current;
+    const flat = m ? null : flatFly(viewRef.current, b, W, H, goal, area);
+    const step = m ? curvedFly(viewRef.current, b, m, (lon) => curvedProj(getProjection(), lon, W, H) ?? m, goal, area) : flat && ((e: number) => ({ v: flat(e), lon: null }));
+    if (step) runFly(step, !!m);
+  };
   const panelOpenRef = useRef(panelOpen);
   panelOpenRef.current = panelOpen;
   /** 打开带"这一刻"的分享链接:要停到的那一刻(画面出来、历史重推完以后用掉) */
@@ -5736,7 +6019,8 @@ ${s.image.cells}` : null);
   // ---- 顶部提示条:生成进度、重推历史、选目标、改地形的结果(同一时间只显示最近的一条) ----
   // 生成世界(首次打开、换种子、调参数、读档)/ 按新地形重新生成:一行"正在…",小字是种子和这一步在做什么
   useEffect(() => {
-    if (progress)
+    // 照故事找世界打开一个结果:地图顶上那一条写着"正在打开",不另出提示条
+    if (progress && !finderOn)
       showToast({
         id: 'progress',
         kind: 'progress',
@@ -5745,7 +6029,7 @@ ${s.image.cells}` : null);
         progress: progress.pct,
       });
     else clearToast('progress');
-  }, [progress]);
+  }, [progress, finderOn]);
   // 回放世界形成:后台算各个年代的地形那一两秒(算好以后是地图上的字幕)
   const replayWait = replayOn && !replay;
   useEffect(() => {
@@ -5982,10 +6266,12 @@ ${s.image.cells}` : null);
   const studioCreate = (title: string, lon: number, how?: 'step' | 'outline'): boolean => {
     // 先立刻标上"新建界面正在退场"再清掉草稿:不然新建界面会被拆掉又重装一次,重装时照手绘图的笔又被打开
     flushSync(() => setStudioOut(1));
-    if (!createWorld(title, how)) {
+    const f = foundNow;
+    if (!createWorld(title, how, how === 'step' ? undefined : f?.year)) {
       setStudioOut(0);
       return false;
     }
+    if (f && how !== 'step') foundCreated(f);
     stopFly();
     publishMapCenter(wrapLon(lon));
     const el = stageRef.current;
@@ -6014,8 +6300,11 @@ ${s.image.cells}` : null);
     return { title: (w && !w.map && w.save.title) || null, brief: `种子 ${t.params.seed}，${mapBriefOf(t.params, t.edits)}` };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draftMap, v]);
-  const studio = (draft || studioOut > 0) && (
+  const studio = ((draft && !finderOn) || studioOut > 0) && (
     <Studio
+      onFinder={() => openFinderPage()}
+      found={foundNow}
+      onFoundBack={() => openFinderPage(true)}
       phone={narrow}
       mode={draftModeOf(targetRef.current)}
       params={params}
@@ -6176,6 +6465,8 @@ ${s.image.cells}` : null);
         )}
         {/* 地图上钉在事发地的事件标签;导播开着时播放经过的大事换成导播的圆环 + 名牌(Director.tsx),点编年史跳过去的照旧 */}
         {data && world && <EventPins civ={civ} world={data.world} toClient={globeOn ? globeToClient : worldToClient} hidden={replayOn || filmOn} quiet={directing} />}
+        {/* 照故事找世界:选中的那个世界上故事里各国、隘口、交界的小牌子 */}
+        {finderOn && <FinderPins ui={finder} phone={narrow} preview={finderPreviewData} toClient={globeOn ? globeToClient : worldToClient} />}
         {data && world && <DirectorPin toClient={globeOn ? globeToClient : worldToClient} hidden={directorOff || stepQuiet} />}
         {/* 逐年推演停一下:地图上按先后标出这一段的大事 */}
         {data && world && stepCard && <StepPins toClient={globeOn ? globeToClient : worldToClient} phone={narrow} />}
@@ -6321,6 +6612,13 @@ ${s.image.cells}` : null);
       )}
       {/* 新建世界:和平常页面分开的一套深色界面,盖在地图上面(创建以后展开成平常的地图、淡出) */}
       {studio}
+      {/* 照故事找世界:新建界面收起,左边找世界的卡片(手机:整页 / 底部卡片),地图上顶上一条、条件页淡着 */}
+      {finderOn && (
+        <>
+          <FinderOverlay ui={finder} phone={narrow} preview={finderPreviewData} loading={!!progress} onUse={takeFinderPick} />
+          <FinderPage phone={narrow} seed={finderBack.current?.target.params.seed ?? params.seed} preview={finderPreviewData} onExit={exitFinder} onUse={takeFinderPick} onFly={finderFly} />
+        </>
+      )}
       {/* 助手面板(宽屏右边一张卡片,手机是拉到顶的底部卡片;窗口跨过窄屏断点时不重新挂,没发出去的话留着)、在地图上看试推演时的提示条 */}
       {astOpen && aiOn && !home && !studioOn && data && realCiv && rawCiv && (
         <AssistantPanel phone={narrow} world={data.world} raster={data.raster} civ={realCiv} raw={rawCiv} lock={draft ? 'history' : 'terrain'} busy={worldBusy} />

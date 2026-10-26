@@ -62,6 +62,7 @@ import { useRole } from './roleStore';
 import { rolePolity } from './policyInfo';
 import { nameAt } from './Interventions';
 import { OutlineSide } from './OutlineSide';
+import { FoundSide } from './FoundSide';
 import { interventionRows } from './outlineInfo';
 import './sidebar.css';
 
@@ -587,6 +588,7 @@ export function WorldHome(p: Pick<SidebarProps, 'civ' | 'data' | 'params' | 'gen
           </div>
         </section>
       )}
+      {ok && !step && <FoundSide id={now?.id} />}
       {ok && !step && <OutlineSide civ={civ} era={era} />}
       {resOn && <ResourceList civ={civ!} year={year} era={era} />}
       {ok && !resOn && (

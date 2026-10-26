@@ -98,7 +98,7 @@ export interface FinderQuery {
  */
 export interface FinderSetup {
   world: WorldParams;
-  civ?: Partial<Pick<CivParams, 'endYear' | 'cultures' | 'polities' | 'regionArea' | 'pace' | 'birthSpan' | 'names' | 'frontier' | 'origins'>>;
+  civ?: Partial<Pick<CivParams, 'endYear' | 'cultures' | 'polities' | 'regionArea' | 'pace' | 'birthSpan' | 'names' | 'frontier' | 'origins' | 'calamity'>>;
   map?: 'each' | 'fixed';
   terrain?: readonly TerrainOp[];
   sketch?: Sketch | null;
@@ -462,6 +462,21 @@ export interface FinderCand {
   places: FinderPlace[];
   /** 开场以后故事里的国家发生了什么(编年史挑几条,按年份;差两条以上的不挑 = 空) */
   story: FinderStoryLine[];
+  /** 列表里的小图(各种门槛下最合、差一条以内的才有;measure.ts 的 thumbOf) */
+  thumb?: FinderThumb;
+}
+
+/**
+ * 列表里的小图:开场那年的国家图,w × h 个像素,每个像素是调色板 pal 的下标(0 海、1 没有国家的陆地、2 起各国,pal 里是 0xRRGGBB);
+ * ter = 每个像素的地形(打底用:0 海、1 平地、2 干地、3 丘陵、4 高山、5 冰雪);dots = 故事里各国国都在图上的位置(x, y 一对一对,下标同 roles)
+ */
+export interface FinderThumb {
+  w: number;
+  h: number;
+  pal: number[];
+  px: Uint8Array;
+  ter: Uint8Array;
+  dots: number[];
 }
 
 /** 一个种子推完、量完交回来的 */

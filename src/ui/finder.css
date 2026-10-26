@@ -1,0 +1,1075 @@
+/*
+ * 照故事找世界(FinderPage.tsx、FinderConds.tsx、FinderResults.tsx、FinderMap.tsx)。
+ * 行、分组、按钮照侧栏和大纲的零件(sidebar.css、outline.css)的数值;颜色全用 theme.css 的变量。
+ * 故事里的国家一国一种颜色(蓝、橙、紫),隘口、交界、港口各一种,条件页、结果、地图上的小牌子、建好以后的侧栏同一套。
+ */
+:root {
+  --fd-r0: #2f6fd6;
+  --fd-r1: #d9822b;
+  --fd-r2: #8a5cc2;
+  --fd-pass: #1d1d1f;
+  --fd-junc: #6e4fa3;
+  --fd-port: #1f6f8b;
+}
+
+/* ---- 左边的卡片(电脑;和侧栏一样浮在地图上,宽一点) ---- */
+.fd-panel {
+  position: absolute;
+  left: 14px;
+  top: 14px;
+  bottom: 14px;
+  width: 420px;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel-solid);
+  border-radius: var(--r-panel);
+  box-shadow: var(--shadow-panel);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.45;
+  overflow: hidden;
+}
+:where(.fd-panel, .fd-phone-page, .fd-sheet, .fd-menu, .fd-pill) button,
+:where(.fd-round-back) {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+.fd-top {
+  flex: none;
+  padding: 12px 16px 10px;
+}
+.fd-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  color: var(--link) !important;
+  font-size: 13.5px !important;
+  font-weight: 500;
+}
+.fd-title {
+  margin: 4px 0 1px;
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+.fd-title-fit {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.fd-title .fit {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ok);
+}
+.fd-title .fit.miss {
+  color: var(--warn);
+}
+.fd-lead {
+  font-size: 12.5px;
+  color: var(--ink-2);
+  line-height: 1.5;
+}
+.fd-lead.strong {
+  font-size: 13.5px;
+  color: var(--ink);
+}
+.fd-lead.roles {
+  line-height: 1.75;
+  color: var(--ink);
+}
+.fd-lead .g,
+.fd-panel .g,
+.fd-sheet .g,
+.fd-pill .g {
+  color: var(--ink-2);
+}
+.fd-more {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  align-items: center;
+}
+.fd-more-note {
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+.fd-flex {
+  flex: 1;
+}
+.fd-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 2px 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  position: relative;
+  overscroll-behavior: contain;
+}
+/* 搜完的列表:底下淡出(还有往下的) */
+.fd-body.fade {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 36px), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 36px), transparent);
+}
+.fd-body[data-page='detail'] {
+  gap: 10px;
+  padding-top: 6px;
+}
+.fd-foot {
+  flex: none;
+  padding: 10px 14px 12px;
+  border-top: 0.5px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 9px;
+}
+.fd-foot-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.fd-foot-line .fd-val {
+  color: var(--ink);
+}
+/* 搜几个那一行:字连着排(手机上那一句长,折行时数字框和字在一行里) */
+.fd-foot-line.count {
+  display: block;
+  line-height: 1.9;
+}
+.fd-phone-page .fd-foot-line.count {
+  font-size: 13.5px;
+  line-height: 1.75;
+}
+
+.fd-sec-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 0 4px 5px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+.fd-sec-head em {
+  font-style: normal;
+  font-weight: 400;
+  margin-left: 6px;
+  color: var(--ink-3);
+}
+.fd-sec-note {
+  font-weight: 400;
+  color: var(--ink-3);
+}
+.fd-link {
+  color: var(--link) !important;
+  font-size: 13px !important;
+  font-weight: 500;
+}
+.fd-link.sm {
+  font-size: 12px !important;
+}
+.fd-grps {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.fd-grp {
+  display: flex;
+  flex-direction: column;
+  border-radius: 10px;
+  background: var(--btn);
+  overflow: hidden;
+}
+.fd-empty {
+  padding: 10px 12px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.fd-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 7px 12px;
+  border-bottom: 0.5px solid var(--line);
+  font-size: 14px;
+  line-height: 1.4;
+  text-align: left;
+  width: 100%;
+  box-sizing: border-box;
+}
+.fd-row:last-child {
+  border-bottom: 0;
+}
+.fd-row.top {
+  align-items: flex-start;
+  padding-top: 9px;
+}
+.fd-row.top .fd-k {
+  padding-top: 2px;
+}
+.fd-row.g {
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.fd-row.head {
+  min-height: 38px;
+  background: rgba(118, 118, 128, 0.06);
+}
+.fd-k {
+  flex: none;
+  width: 58px;
+  color: var(--ink-2);
+  font-size: 13px;
+}
+.fd-v {
+  flex: 1;
+  min-width: 0;
+}
+.fd-v small,
+.fd-sub {
+  display: block;
+  font-size: 12px;
+  color: var(--ink-2);
+  margin-top: 2px;
+}
+.fd-lines {
+  margin-top: 6px;
+  line-height: 2.1;
+}
+.fd-hint {
+  color: var(--ink-2);
+  font-size: 12.5px;
+}
+.fd-v > .fd-hint {
+  margin-left: 1em;
+}
+.fd-row.head > .fd-hint {
+  margin-left: 0;
+}
+.fd-side {
+  flex: none;
+  color: var(--ink-2);
+  font-size: 13px;
+}
+.fd-side.link {
+  color: var(--link);
+  font-weight: 500;
+}
+.fd-side.ok {
+  color: var(--ok);
+}
+.fd-side.warn {
+  color: var(--warn);
+}
+button.fd-row {
+  cursor: pointer;
+}
+button.fd-row:hover {
+  background: rgba(118, 118, 128, 0.08);
+}
+.fd-relax.on {
+  background: var(--accent-soft);
+}
+
+/* 能点开改的值:像下拉、像数字框 */
+.fd-val {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 7px;
+  height: 24px;
+  border-radius: 6px;
+  background: var(--surface);
+  box-shadow: 0 0 0 0.5px var(--line-strong);
+  font: 500 13.5px var(--font-sans);
+  color: var(--ink);
+  vertical-align: 0;
+  white-space: nowrap;
+  border: 0;
+  box-sizing: border-box;
+}
+.fd-val.num {
+  min-width: 34px;
+  width: auto;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  outline: none;
+}
+.fd-val.num:focus {
+  box-shadow: 0 0 0 1.5px var(--accent);
+}
+input.fd-val.num {
+  field-sizing: content;
+}
+.fd-val.pick {
+  position: relative;
+  cursor: pointer;
+}
+.fd-val.pick .icon {
+  color: var(--ink-3);
+  margin-right: -2px;
+}
+.fd-val.pick select {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+  font-size: 16px;
+}
+.fd-val.plain {
+  background: transparent;
+  box-shadow: none;
+  color: var(--ink-2);
+  font-weight: 400;
+  font-size: 13px;
+}
+.fd-checkline {
+  display: inline-flex;
+  align-items: center;
+}
+.fd-chk {
+  display: inline-flex !important;
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  background: var(--accent) !important;
+  color: #fff !important;
+  align-items: center;
+  justify-content: center;
+  margin-right: 6px;
+}
+
+/* 分段(和新建世界「怎么推」一样) */
+.fd-seg {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--btn);
+  gap: 2px;
+  margin-left: 2px;
+}
+.fd-seg button {
+  padding: 2px 10px !important;
+  border-radius: 6px;
+  font-size: 13px !important;
+  color: var(--ink);
+}
+.fd-seg button.on {
+  background: var(--surface);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.14);
+  font-weight: 500;
+}
+
+/* 例子 */
+.fd-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.fd-chips-lab {
+  font-size: 12.5px;
+  color: var(--ink-2);
+  margin-right: 2px;
+}
+.fd-chip {
+  padding: 2px 9px !important;
+  border-radius: 14px;
+  background: var(--btn) !important;
+  font-size: 12.5px !important;
+  color: var(--ink);
+}
+.fd-chip.on {
+  background: var(--accent-soft) !important;
+  color: var(--accent) !important;
+  font-weight: 500;
+}
+
+/* 角色色块 */
+.fd-role {
+  display: inline-block;
+  flex: none;
+  padding: 0 6px !important;
+  border-radius: var(--r-tag);
+  color: #fff !important;
+  font-size: 12px !important;
+  font-weight: 600;
+  line-height: 19px;
+  vertical-align: 1px;
+  white-space: nowrap;
+}
+.fd-role.r0 {
+  background: var(--fd-r0) !important;
+}
+.fd-role.r1 {
+  background: var(--fd-r1) !important;
+}
+.fd-role.r2 {
+  background: var(--fd-r2) !important;
+}
+.fd-role.sm {
+  font-size: 11px !important;
+  line-height: 16px;
+  padding: 0 4px !important;
+  margin-right: 4px;
+  vertical-align: 0;
+}
+input.fd-role.fd-name {
+  width: 6em;
+  border: 0;
+  outline: none;
+}
+
+/* 隘口、交界、港口的小图标 */
+.fd-ic {
+  display: inline-flex;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  vertical-align: -5px;
+}
+.fd-ic.pass {
+  background: var(--fd-pass);
+}
+.fd-ic.junction {
+  background: var(--fd-junc);
+}
+.fd-ic.port {
+  background: var(--fd-port);
+}
+.fd-ic.sm {
+  width: 16px;
+  height: 16px;
+  margin-right: 4px;
+  vertical-align: -3px;
+}
+.fd-glyph {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.1;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.fd-row.who .fd-ic {
+  margin: 0 7px;
+}
+
+/* 按钮(照大纲的按钮) */
+.fd-btn {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 14px !important;
+  border-radius: var(--r-btn);
+  background: var(--btn) !important;
+  color: var(--ink);
+  font: 500 13.5px var(--font-sans) !important;
+  white-space: nowrap;
+}
+.fd-btn.primary {
+  background: var(--accent) !important;
+  color: #fff !important;
+}
+.fd-btn.big {
+  height: 40px;
+  font-size: 15px !important;
+  font-weight: 600 !important;
+  width: 100%;
+}
+.fd-btn.small {
+  height: 28px;
+  padding: 0 10px !important;
+  font-size: 13px !important;
+}
+.fd-btn.grow {
+  flex: 1;
+}
+.fd-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.fd-btn .g {
+  color: var(--ink-2);
+}
+.fd-stop {
+  width: 9px;
+  height: 9px;
+  border: 1.6px solid currentColor;
+  border-radius: 2px;
+  box-sizing: border-box;
+}
+.fd-acts {
+  display: flex;
+  gap: 6px;
+  margin-top: 7px;
+}
+.fd-acts.top {
+  gap: 8px;
+  margin-top: 8px;
+}
+
+/* 进度 */
+.fd-prog {
+  padding: 10px 12px 11px;
+}
+.fd-prog .l1 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 500;
+}
+.fd-bar {
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(118, 118, 128, 0.2);
+  margin: 8px 0 7px;
+  overflow: hidden;
+}
+.fd-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
+.fd-prog .l3 {
+  font-size: 12.5px;
+  color: var(--ink-2);
+  line-height: 1.5;
+}
+
+/* 结果一行 */
+.fd-res {
+  display: flex;
+  gap: 10px;
+  padding: 9px 10px;
+  border-bottom: 0.5px solid var(--line);
+  align-items: flex-start;
+  cursor: pointer;
+}
+.fd-res:last-child {
+  border-bottom: 0;
+}
+.fd-res.on {
+  background: var(--accent-soft);
+}
+.fd-thumb {
+  flex: none;
+  width: 92px;
+  height: 69px;
+  object-fit: cover;
+  border-radius: 6px;
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.18);
+  background: #c4d3cf;
+}
+.fd-res-m {
+  flex: 1;
+  min-width: 0;
+}
+.fd-res-t {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.fd-res-t .fit {
+  flex: none;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ok);
+}
+.fd-ln {
+  font-size: 12.5px;
+  color: var(--ink);
+  line-height: 1.55;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.fd-ln-part + .fd-ln-part {
+  margin-left: 0.9em;
+}
+.fd-miss {
+  font-size: 12.5px;
+  color: var(--warn);
+  line-height: 1.5;
+}
+
+/* 条件逐条 */
+.fd-checks {
+  padding: 4px 0;
+}
+.fd-ck {
+  display: flex;
+  gap: 8px;
+  padding: 3px 12px;
+  font-size: 13px;
+  line-height: 1.45;
+  align-items: baseline;
+}
+.fd-ck .y,
+.fd-ck .n {
+  flex: none;
+}
+.fd-ck .y {
+  color: var(--ok);
+}
+.fd-ck .n {
+  color: var(--warn);
+}
+.fd-ck .icon {
+  vertical-align: -2px;
+}
+.fd-ck .c {
+  flex: 1;
+  min-width: 0;
+  color: var(--ink);
+}
+.fd-ck .a {
+  flex: none;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 卡在哪几条 */
+.fd-cnt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border-bottom: 0.5px solid var(--line);
+  font-size: 13px;
+}
+.fd-cnt:last-child {
+  border-bottom: 0;
+}
+.fd-cnt .c {
+  flex: 1;
+  min-width: 0;
+}
+.fd-cnt .c.g {
+  color: var(--ink-2);
+}
+.fd-hb {
+  flex: none;
+  width: 70px;
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(118, 118, 128, 0.2);
+  overflow: hidden;
+}
+.fd-hb i {
+  display: block;
+  height: 100%;
+  background: var(--ink-3);
+}
+.fd-cnt.hot .fd-hb i {
+  background: var(--warn);
+}
+.fd-cnt .a {
+  flex: none;
+  min-width: 48px;
+  white-space: nowrap;
+  text-align: right;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+.fd-cnt.hot .c,
+.fd-cnt.hot .a {
+  color: var(--warn);
+  font-weight: 500;
+}
+
+/* 后来 */
+.fd-later {
+  padding: 6px 12px 8px;
+  font-size: 13px;
+  line-height: 1.55;
+}
+.fd-later .yr {
+  display: inline-block;
+  width: 40px;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+.fd-later p {
+  margin: 4px 0 0;
+  color: var(--ink-2);
+  font-size: 12.5px;
+}
+
+/* 「＋ 加一条」的菜单 */
+.fd-menu {
+  position: fixed;
+  z-index: 60;
+  width: 300px;
+  padding: 6px;
+  border-radius: 12px;
+  background: var(--panel-solid);
+  box-shadow: var(--shadow-panel), 0 0 0 0.5px var(--line);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  color: var(--ink);
+}
+.fd-menu.phone {
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: auto;
+  max-height: 72%;
+  overflow: auto;
+  border-radius: 14px 14px 0 0;
+  padding: 8px 10px 22px;
+}
+.fd-menu-head {
+  padding: 6px 10px 4px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+.fd-menu-grp + .fd-menu-grp {
+  border-top: 0.5px solid var(--line);
+  margin-top: 4px;
+  padding-top: 4px;
+}
+.fd-menu-title {
+  padding: 4px 10px 2px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+.fd-menu-item {
+  display: flex !important;
+  align-items: center;
+  width: 100%;
+  min-height: 31px;
+  padding: 0 10px !important;
+  border-radius: 7px;
+  text-align: left;
+  font-size: 14px !important;
+}
+.fd-menu-item:hover {
+  background: var(--accent);
+  color: #fff !important;
+}
+.fd-menu-ck {
+  flex: none;
+  width: 24px;
+  color: var(--accent);
+  display: inline-flex;
+}
+.fd-menu-item:hover .fd-menu-ck {
+  color: #fff;
+}
+
+/* ---- 地图上的:条件页淡着、说明卡片、顶上一条、小牌子 ---- */
+.fd-dim {
+  position: absolute;
+  inset: 0;
+  z-index: 25;
+  background: rgba(245, 245, 247, 0.55);
+  pointer-events: none;
+}
+.fd-hintcard,
+.fd-pill {
+  position: absolute;
+  z-index: 31;
+  display: flex;
+  border-radius: 10px;
+  background: var(--panel);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  box-shadow: var(--shadow-panel);
+  color: var(--ink);
+  font-family: var(--font-sans);
+}
+.fd-hintcard {
+  left: calc(434px + (100% - 434px) / 2);
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 470px;
+  box-sizing: border-box;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 18px;
+  pointer-events: none;
+}
+.fd-hintcard b {
+  font-size: 15px;
+  font-weight: 600;
+}
+.fd-hintcard span {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--ink-2);
+}
+.fd-pill {
+  left: calc(434px + (100% - 434px) / 2);
+  top: 16px;
+  transform: translateX(-50%);
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  font-size: 13.5px;
+  white-space: nowrap;
+}
+.fd-pill b {
+  font-weight: 600;
+}
+.fd-pill .warn {
+  color: var(--warn);
+  font-weight: 500;
+}
+.fd-pill .fd-btn {
+  margin-left: 4px;
+}
+.fd-pill.phone {
+  left: 58px;
+  top: 12px;
+  transform: none;
+  padding: 5px 11px;
+  font-size: 13px;
+  max-width: calc(100% - 70px);
+  overflow: hidden;
+}
+.fd-round-back {
+  position: absolute;
+  z-index: 31;
+  left: 12px;
+  top: 12px;
+  width: 36px;
+  height: 36px;
+  border-radius: 18px;
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel) !important;
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  box-shadow: var(--shadow-panel);
+  color: var(--ink) !important;
+}
+
+.fd-pins {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  pointer-events: none;
+  overflow: hidden;
+}
+.fd-pin {
+  position: absolute;
+  left: 0;
+  top: 0;
+  visibility: hidden;
+}
+.fd-pin-in {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform: translate(-50%, -100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.fd-pin.below .fd-pin-in {
+  transform: translate(-50%, 12px);
+}
+.fd-pin-lb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px 3px 5px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.28);
+  font: 500 13px/19px var(--font-sans);
+  color: #1d1d1f;
+  white-space: nowrap;
+}
+.fd-pin-lb .fd-role.sm {
+  margin-right: 0;
+  font-size: 12px !important;
+  line-height: 19px;
+  padding: 0 6px !important;
+}
+.fd-pin-lb .g {
+  color: #6e6e73;
+  font-size: 12px;
+}
+.fd-pin-lb.warn {
+  color: var(--warn);
+  padding: 3px 9px;
+}
+.fd-pin-stem {
+  width: 2px;
+  height: 9px;
+  background: rgba(29, 29, 31, 0.55);
+}
+.fd-pin-ic {
+  display: flex;
+  padding: 2px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.28);
+}
+.fd-pin-ic .fd-ic {
+  width: 26px;
+  height: 26px;
+}
+
+/* ---- 建好以后侧栏顶上「照故事找的」一组(FoundSide.tsx) ---- */
+.fd-side-tag {
+  margin: 0 2px;
+  font-size: 11.5px !important;
+  line-height: 20px;
+  padding: 0 5px !important;
+}
+.fd-side-ic {
+  flex: none;
+  width: 34px;
+  display: inline-flex;
+  justify-content: center;
+  color: var(--ink-2);
+}
+.fd-side-ic .fd-glyph {
+  stroke-width: 1.9;
+}
+.fd-side-note {
+  margin: 0;
+  padding: 8px 12px 10px;
+  border-top: 0.5px solid var(--line);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--ink-2);
+}
+
+/* ---- 手机 ---- */
+.fd-phone-page {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel-solid);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.45;
+}
+.fd-phone-page .fd-top {
+  padding: 14px 16px 8px;
+  padding-top: calc(14px + env(safe-area-inset-top, 0px));
+}
+.fd-phone-page .fd-title {
+  font-size: 21px;
+}
+.fd-phone-page .fd-body {
+  padding: 4px 12px 10px;
+  gap: 10px;
+}
+.fd-phone-page .fd-k {
+  width: 50px;
+}
+.fd-phone-page .fd-chips {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.fd-phone-page .fd-chip {
+  flex: none;
+}
+.fd-phone-page .fd-foot,
+.fd-sheet .fd-foot {
+  padding: 10px 14px calc(16px + env(safe-area-inset-bottom, 0px));
+  background: var(--panel-solid);
+}
+.fd-sheet {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 47%;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel-solid);
+  border-radius: 14px 14px 0 0;
+  box-shadow: 0 -4px 18px rgba(0, 0, 0, 0.14);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.45;
+  overflow: hidden;
+  transition: height 0.25s ease;
+}
+.fd-sheet[data-page='detail'] {
+  height: 49%;
+}
+.fd-sheet.full {
+  height: 88%;
+}
+.fd-grip {
+  flex: none;
+  display: flex !important;
+  justify-content: center;
+  padding: 7px 0 4px !important;
+}
+.fd-grip i {
+  width: 36px;
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(60, 60, 67, 0.3);
+}
+.fd-sheet-hd {
+  flex: none;
+  padding: 2px 16px 8px;
+}
+.fd-sheet-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.fd-sheet-row b {
+  font-size: 18px;
+  font-weight: 600;
+}
+.fd-sheet .fd-title {
+  font-size: 18px;
+  margin-top: 2px;
+}
+.fd-sheet .fd-body {
+  padding: 0 12px 10px;
+  gap: 10px;
+}
+.fd-sheet .fd-thumb {
+  width: 80px;
+  height: 60px;
+}
+.fd-v small.one {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

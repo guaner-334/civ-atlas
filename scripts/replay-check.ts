@@ -1313,6 +1313,51 @@ if (part('新建界面')) {
   if (!imgNote || (await page.locator('.imp-step').count())) errs.push(`随机生成的新建:拖进图片应不导入、提示条说一句(${imgNote})`);
 }
 
+// 照故事找世界:新建第 1 步「照故事找世界 ›」→ 条件页(地图露出来、浅色);选例子「海上强国」、搜 6 个(真推,后台线程)→
+// 搜的时候有进度、搜完有全合的;点一个 → 地图换成那个世界、顶上一条写种子和开场年份;「用这个世界」→ 回到新建第 2 步(文明种子锁着、
+// 一句说明、按钮「建好，停在第 N 年」)→ 建好以后时间停在那一年、侧栏顶上「照故事找的」一组
+if (part('照故事找世界')) {
+  await page.goto(`${dev.url}/?new=1&seed=7&play=0`);
+  await studioReady();
+  await page.locator('.studio [data-act=story-finder]:not([disabled])').click({ timeout: 30000 });
+  await page.locator('.fd-panel [data-page=conds]').waitFor({ timeout: 10000 });
+  const theme = await page.locator('.app').getAttribute('data-theme');
+  await page.click('.fd-panel [data-preset=sea-power]');
+  const count = page.locator('.fd-panel input[aria-label="搜几个世界"]');
+  await count.fill('6');
+  await count.blur();
+  const t0 = Date.now();
+  await page.click('.fd-panel [data-act=finder-start]');
+  const prog = await page.locator('[data-testid=finder-progress]').innerText({ timeout: 10000 }).catch(() => '');
+  await page.waitForFunction(() => !document.querySelector('[data-testid=finder-progress]'), null, { timeout: 240000 }).catch(() => {});
+  const searchMs = Date.now() - t0;
+  const full = await page.locator('.fd-panel .fd-res:not(.near)').count();
+  const lead = await page.locator('.fd-panel .fd-lead').first().innerText().catch(() => '');
+  // 搜完会选上最合的那个:等它生成好(顶上一条不再写"正在打开")
+  await page.waitForFunction(() => /种子 \d+，第 \d+ 年/.test(document.querySelector('[data-testid=finder-pill]')?.textContent ?? '') && !document.querySelector('[data-testid=finder-pill]')?.textContent?.includes('正在打开'), null, { timeout: 60000 }).catch(() => {});
+  const pill = await page.locator('[data-testid=finder-pill]').innerText().catch(() => '');
+  const year = Number(/第 (\d+) 年/.exec(pill)?.[1] ?? NaN);
+  await page.locator('.fd-panel [data-act=finder-use]').first().click({ timeout: 10000 }).catch(() => {});
+  const note = await page.locator('.studio [data-testid=found-note]').innerText({ timeout: 30000 }).catch(() => '');
+  const btn = await page.locator('.studio [data-act=create-world]').innerText().catch(() => '');
+  const civSeed = await page.locator('.studio [data-act=civ-seed-found]').innerText().catch(() => '');
+  await createNow().catch(() => {});
+  await page.locator('[data-testid=found-side]').waitFor({ timeout: 30000 }).catch(() => {});
+  const side = await page.locator('[data-testid=found-side]').innerText().catch(() => '');
+  const tl = await page.locator('.bottom-row').innerText().catch(() => '');
+  console.log(
+    `照故事找世界:条件页主题 ${theme};进度「${prog.split('\n')[0]}」,搜 6 个 ${Math.round(searchMs / 1000)} 秒、全合 ${full} 个(${lead.replace(/\n/g, ' ')});` +
+      `选中「${pill.replace(/\n/g, ' ')}」→ 第 2 步「${civSeed.replace(/\n/g, ' ')}」「${btn}」;建好以后侧栏「${side.split('\n').slice(0, 3).join(' ')}」、时间轴「${tl.split('\n')[0]}」`,
+  );
+  if (theme !== 'light') errs.push(`照故事找世界:条件页不是浅色(${theme})`);
+  if (!prog.includes('正在推第')) errs.push(`照故事找世界:搜的时候没有进度(${prog})`);
+  if (!full) errs.push(`照故事找世界:海上强国搜 6 个一个全合都没有(${lead})`);
+  if (!Number.isFinite(year)) errs.push(`照故事找世界:选中以后地图顶上那一条不对(${pill})`);
+  if (!note.includes(`建好以后停在第 ${year} 年`) || btn !== `建好，停在第 ${year} 年` || !civSeed.includes('照故事找的')) errs.push(`照故事找世界:「用这个世界」以后第 2 步不对(${note} / ${btn} / ${civSeed})`);
+  if (!side.includes('照故事找的') || !side.includes(`第 ${year} 年开场`)) errs.push(`照故事找世界:建好以后侧栏没有「照故事找的」一组(${side})`);
+  if (!tl.includes(`第 ${year} 年`)) errs.push(`照故事找世界:建好以后时间轴没停在开场那年(${tl.split('\n')[0]})`);
+}
+
 // 第一次来(什么都没存):先到「我的世界」,中间一颗星球、一段话、「新建世界」;点了先弹窗(第 1 步两种、默认随机生成,
 // 第 2 步种子和参数、说进去还能改;Esc 关掉什么都不留下),「开始」才进新建界面;
 // 「创建世界」先弹确认框(列出种子、世界参数、地形、地名风格四样不能再改),「再改改」关掉、「确认创建」才建好,回到平常的世界页面(浅色、政区)
