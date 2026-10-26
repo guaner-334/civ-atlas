@@ -47,10 +47,16 @@ function samePast(a: Civ, b: Civ, T: number, label: string) {
   );
   // 朝代:推到 T 时已经改朝换代过的,每一朝的年份、名号、都城一样
   for (const p of a.polities) if (p.dynasties) expect(b.polities[p.id].dynasties!.slice(0, p.dynasties.length), `${label} ${p.name} 朝代`).toEqual(p.dynasties);
-  // 人物:编号按出道先后排,推到 T 时已经有的人编号、名字、身世一样(谥号、"一世"这类后来才定的称呼,T 以后才领的兵、还在打的仗打到哪年不比)
-  const who = (x: NonNullable<Civ['people']>[number]) => [x.id, x.role, x.polity, x.name, x.born, x.from, x.dynasty, x.parent, x.courtesy, (x.commands ?? []).filter((c) => c.from <= T).map((c) => [c.war, c.side, c.from])];
+  // 人物:编号按出道先后排,推到 T 时已经有的人编号、名字、身世一样(谥号、"一世"这类后来才定的称呼,T 以后才领的兵、还在打的仗打到哪年不比;
+  // T 以后才即位的先君之子、据地自立的先君之子,推到 T 时还是父亲那一国、那一朝的宗室)
+  const who = (P: NonNullable<Civ['people']>) => (x: (typeof P)[number]) => {
+    const later = x.role === 'ruler' && x.from! > T;
+    const home = later && x.parent !== undefined ? P[x.parent] : x;
+    return [x.id, later ? 'prince' : x.role, home.polity, x.name, x.born, later ? undefined : x.from, home.dynasty, x.parent, x.courtesy, (x.commands ?? []).filter((c) => c.from <= T).map((c) => [c.war, c.side, c.from])];
+  };
   const pa = a.people ?? [];
-  expect((b.people ?? []).slice(0, pa.length).map(who), `${label} 人物`).toEqual(pa.map(who));
+  const pb = b.people ?? [];
+  expect(pb.slice(0, pa.length).map(who(pb)), `${label} 人物`).toEqual(pa.map(who(pa)));
   // 州名:推到 T 时已经起了名的州
   const named = [...(a.regions.name ?? [])].map((n, r) => [r, n]).filter(([, n]) => n);
   expect(named.map(([r]) => [r, b.regions.name![r as number]]), `${label} 州名`).toEqual(named);

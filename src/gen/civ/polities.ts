@@ -197,6 +197,10 @@ export interface PolityModel {
   /** 国家 → 已经预约过君主交接(Ev.Reign)了 */
   reigned: boolean[];
   /**
+   * 新君即位那一刻(Ev.Reign;k = 他在在位表 list 里第几位,k ≥ 1)、处理完扩张以后调(unrest.ts 挂上:先君的儿子据地争位)
+   */
+  onReign?: (pid: number, k: number, list: readonly Reign[], t: Year) => void;
+  /**
    * 国家 → 改在位表的干预(即位、让君主去世、改君主倾向生效了的,按先后;rulers.ts 的 RulerAct)。在位表按它排(bookOf);
    * 接着推时由史事推出来(rulers.ts 的 actsFrom),不存进 Civ
    */
@@ -1025,6 +1029,7 @@ export function installPolities(sim: CivSim, m: PolityModel): void {
       // 和方针一起算:上一位在上一刻的方针下 → 这一位在此刻的方针下(同一刻刚定了方针的,比的是原来的方针;没有方针 = 两位君主自己的倍数)
       const prev = effFor(m, pid, list[k - 1], t - 1 / 256);
       if (widens(prev, effFor(m, pid, list[k], t))) respread(sim, m, pid, prev);
+      m.onReign?.(pid, k, list, t);
     }
   });
 

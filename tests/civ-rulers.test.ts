@@ -63,7 +63,8 @@ describe.each([7, 2024])('君主 · seed=%i', (seed) => {
       return v.reduce((a, b) => a + b, 0) / v.length;
     };
     if (rulers.some((x) => civ.polities[x.polity].kind === 'nomad')) expect(warOf(true)).toBeGreaterThan(warOf(false));
-    const led = rulers.filter((x) => x.commands?.length);
+    // 亲征 = 即位以后领兵(即位以前作为王子领过兵的不算)
+    const led = rulers.filter((x) => x.commands?.some((c) => c.from >= x.from!));
     expect(led.length).toBeGreaterThan(0);
     for (const x of led) expect(x.leanings!.war, x.name).toBeGreaterThan(50);
     // 越好战越常亲征:亲征过的君主,好战的平均值比好战过 50 的君主(能亲征的那些)高。

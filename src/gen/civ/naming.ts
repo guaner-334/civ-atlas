@@ -382,22 +382,42 @@ const KIN_MORE = ['新', '小'];
 
 /**
  * 分化出来的民族(Culture.parent)起族名:母族那一系最初的族名前面加方位 —— "居兰" 分出 "北居兰",
- * 北居兰再往西分出一支叫 "西居兰";方位都被占了就用 "新 / 小" 加母族的名字。
+ * 北居兰再往西分出一支叫 "西居兰";方位都被占了就用 "新 / 小" 加母族的名字,再往上加祖辈民族的名字;
+ * 这些都被占了(推得很久、同一系分化出很多支时)按这个民族的语感另起族名(seed、seat 不给就退回带编号的名字)。
  * skip(i) = true 的不起(钉住了名字的,见 NamePins)。按编号(= 分化先后)起,母族一定先起好
  */
-export function nameKin(cultures: Culture[], skip: (i: number) => boolean = () => false): void {
+export function nameKin(cultures: Culture[], skip: (i: number) => boolean = () => false, seed?: number, seat?: ArrayLike<number>): void {
   const taken = new Set<string>();
   cultures.forEach((cu, i) => {
     if (cu.parent === undefined || skip(i)) taken.add(cu.name);
   });
+  const namer = seed !== undefined ? namerCache(subSeed(seed, 'civ-names-kin')) : null;
+  /** 另起族名:按发源州治所地块 + 民族编号取候选,挑法同 nameCultures;名字里不带数字 */
+  const fresh = (cu: Culture): string => {
+    if (!namer) return '';
+    const next = namer(cu.style).keyed('state', seat?.[cu.hearth] ?? -1, cu.id);
+    let pick = '';
+    for (let t = 0; t < MAX_PICKS && (t < 6 || !pick); t++) {
+      const g = next();
+      const e = ethnonym(g.zh, g.generic, cu.style);
+      if (!e || taken.has(e) || AWKWARD.has(e) || /\d/.test(e)) continue;
+      if (!pick || e.length < pick.length) pick = e;
+      if (e.length <= 4) {
+        pick = e;
+        break;
+      }
+    }
+    return pick;
+  };
   for (const cu of cultures) {
     if (cu.parent === undefined || skip(cu.id)) continue;
     const parent = cultures[cu.parent];
-    let root = parent;
-    while (root.parent !== undefined) root = cultures[root.parent];
+    const line = [parent];
+    while (line[line.length - 1].parent !== undefined) line.push(cultures[line[line.length - 1].parent!]);
+    const root = line[line.length - 1];
     const dirs = cu.branch ? [cu.branch, ...KIN_DIRS.filter((d) => d !== cu.branch)] : KIN_DIRS;
-    const cand = [...dirs.map((d) => d + root.name), ...KIN_MORE.map((x) => x + parent.name)];
-    cu.name = cand.find((n) => !taken.has(n)) ?? `${parent.name}${cu.id + 1}`;
+    const cand = [...dirs.map((d) => d + root.name), ...line.flatMap((a) => KIN_MORE.map((x) => x + a.name))];
+    cu.name = cand.find((n) => !taken.has(n)) ?? (fresh(cu) || `${parent.name}${cu.id + 1}`);
     taken.add(cu.name);
   }
 }
