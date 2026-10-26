@@ -359,10 +359,16 @@ export function aroundEvents(civ: Civ, world: World, raster: Raster | null, c: A
   const to = c.died ?? civ.endYear;
   const ix = eventIndex(civ);
   const out: ChronicleEntry[] = [];
+  // 亡国、毁城既是那场战争里的一件,又单列一条(同一条史事):只列一次
+  const seen = new Set<string>();
   ix.list.forEach((x) => {
     const y = F(x.year);
     if (y < from || y > to) return;
-    if ((p >= 0 && x.polities.includes(p)) || x.regions.some((r) => regs.has(r))) out.push(x);
+    if (!((p >= 0 && x.polities.includes(p)) || x.regions.some((r) => regs.has(r)))) return;
+    const k = `${x.kind}:${x.id}`;
+    if (seen.has(k)) return;
+    seen.add(k);
+    out.push(x);
   });
   const order = new Map(ix.list.map((x, i) => [x, i]));
   return out.sort((a, b) => a.year - b.year || order.get(a)! - order.get(b)!);

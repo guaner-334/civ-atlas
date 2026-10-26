@@ -33,7 +33,7 @@ import { Biome } from '../biomes';
 import type { World } from '../world';
 import { MinHeap } from '../util';
 import { geometryOf } from '../geometry';
-import { AdjKind, Layer, type ChangeLog, type Civ, type Culture, type NamePins, type Polity, type PolityLineage, type Regions, type Settlement, type Year } from './types';
+import { AdjKind, Layer, type Annal, type ChangeLog, type Civ, type Culture, type NamePins, type Polity, type PolityLineage, type Regions, type Settlement, type Year } from './types';
 import { BIOME_COST } from './habitat';
 import { anchorTag, fexp, fpow, keyed, subSeed } from './rand';
 import { WORTH_EXP } from './frontier';
@@ -200,6 +200,11 @@ export interface PolityModel {
    * 新君即位那一刻(Ev.Reign;k = 他在在位表 list 里第几位,k ≥ 1)、处理完扩张以后调(unrest.ts 挂上:先君的儿子据地争位)
    */
   onReign?: (pid: number, k: number, list: readonly Reign[], t: Year) => void;
+  /**
+   * 立约与中立地(treaties.ts 挂上):无主的州 r 此刻进不去 —— 是中立地(谁都不扩张进去、不在那里立国;pid = −1 = 立国),
+   * 或者 pid 和邻国立了"有限竞争"之约,r 挨着约国的国土(各守今疆)
+   */
+  closed?: (r: number, pid: number, t: Year) => boolean;
   /**
    * 国家 → 改在位表的干预(即位、让君主去世、改君主倾向生效了的,按先后;rulers.ts 的 RulerAct)。在位表按它排(bookOf);
    * 接着推时由史事推出来(rulers.ts 的 actsFrom),不存进 Civ
@@ -980,7 +985,7 @@ export function installPolities(sim: CivSim, m: PolityModel): void {
   sim.on(Ev.PolityFound, (r, sid, t) => {
     const s = m.settlements[sid];
     // 阶段 3 城市兴衰:城已经被毁了(cities.ts)就立不成
-    if (!s || s.region !== r || s.ended !== undefined || polity[r] >= 0 || m.near[r] > 0 || culture[r] < 0) return;
+    if (!s || s.region !== r || s.ended !== undefined || polity[r] >= 0 || m.near[r] > 0 || culture[r] < 0 || m.closed?.(r, -1, t)) return;
     const p = addPolity(m, sid, culture[r], t);
     sim.setOwner(Layer.Polity, r, p.id, Ev.PolityFound);
     sim.record('found', { a: p.id, region: r, settlement: sid });
@@ -990,6 +995,8 @@ export function installPolities(sim: CivSim, m: PolityModel): void {
     if (polity[r] >= 0 || culture[r] < 0) return;
     // 阶段 4 干预"不许扩张":不进无主的州(禁令到期时 respread 从现有国土重新预约)
     if (m.iv?.halted(pid, t)) return;
+    // 中立地、有限竞争之约(treaties.ts):不进
+    if (m.closed?.(r, pid, t)) return;
     // 战争里丢了出发的那一州(或者已经灭亡),又没有和国都连成一片的州挨着这一州:不去了(不长出、不扩大飞地)
     if (m.polities[pid].ended !== undefined || !bordersCore(m, polity, pid, r, t)) return;
     sim.setOwner(Layer.Polity, r, pid, Ev.PolityArrive);
@@ -1034,8 +1041,13 @@ export function installPolities(sim: CivSim, m: PolityModel): void {
   });
 
   // 迁都的下一刻(见 moveCapital):按新国都的路程从现有国土往外重新预约;
-  // 定了方针的下一刻(a = POLICY_RESPREAD,见 setPolicy):门槛放低了才重新预约(只补新方针才肯去的州)
+  // 定了方针的下一刻(a = POLICY_RESPREAD,见 setPolicy):门槛放低了才重新预约(只补新方针才肯去的州);
+  // 立约与中立地解禁了几州的下一刻(a ≥ REOPEN,见 reopenedBy):四周的国家重新往那几州预约
   sim.on(Ev.Respread, (a, pid, t) => {
+    if (a >= REOPEN) {
+      reopen(sim, m, reopenedBy(sim.annal(a - REOPEN), reg, polity, culture));
+      return;
+    }
     const p = m.polities[pid];
     if (!p || p.ended !== undefined) return;
     if (a === POLICY_RESPREAD) {
@@ -1103,6 +1115,33 @@ export function reopen(sim: CivSim, m: PolityModel, rs: readonly number[]): void
       if (dt < Infinity) sim.schedule(sim.now + dt, Ev.PolityArrive, r, pid);
     }
   }
+}
+
+/**
+ * Ev.Respread 的 a 从这里往上 = 立约与中立地(treaties.ts)解禁了几州:a − REOPEN = 那条史事的下标(见 reopenedBy)。
+ * 那一刻的下一刻(b = 0)四周的国家重新往那几州预约扩张(reopen);中立地、有限竞争之约在的时候进那里的"国家到达"都丢掉了(PolityModel.closed)。
+ * 接着推时 resumePolities 按史事在同一刻重放
+ */
+export const REOPEN = 1 << 24;
+
+/**
+ * 史事 e 解禁了哪几州(此刻无主、有人住;owner / culture = 那一刻的归属;州号升序):
+ * 中立地撤销、没还给哪国(neutral,cause = lapse,a = −1)= 那一州;有限竞争之约废了(expire,n = 立约时的国数,三国以上)= 约里几国陆上挨着的无主之地
+ */
+export function reopenedBy(e: Readonly<Annal>, reg: Regions, owner: ArrayLike<number>, culture: ArrayLike<number>): number[] {
+  if (e.kind === 'neutral' && e.cause === 'lapse' && e.a < 0) return e.region >= 0 && culture[e.region] >= 0 && owner[e.region] < 0 ? [e.region] : [];
+  if (e.kind !== 'expire' || (e.n ?? 0) < 3 || !e.ps?.length) return [];
+  const ps = e.ps;
+  const out = new Set<number>();
+  for (let r = 0; r < reg.count; r++) {
+    if (owner[r] < 0 || !ps.includes(owner[r])) continue;
+    for (let k = reg.adjStart[r]; k < reg.adjStart[r + 1]; k++) {
+      const j = reg.adj[k];
+      const kind = reg.adjKind[k];
+      if ((kind === AdjKind.Flat || kind === AdjKind.River || kind === AdjKind.Mountain) && owner[j] < 0 && culture[j] >= 0) out.add(j);
+    }
+  }
+  return [...out].sort((a, b) => a - b);
 }
 
 /**
@@ -1395,7 +1434,11 @@ export function resumePolities(sim: CivSim, world: World, civ: Civ, iv?: Interve
   // 后两种在引擎里排在同一刻别的事件前面,只在地形大事、看王朝后面(sim.ts 的 earlyOrder;看王朝不改归属),所以这里在同一刻的日志之前重放,
   // 同一刻有地形大事的,在大事改归属的那几条日志之后
   if (iv) iv.pm = m;
-  const ends: { t: number; key?: string; pid: number; prev?: LeaningEffect }[] = iv ? iv.haltEndsUpTo(now).map((e) => ({ t: e.t, key: e.key, pid: -1 })) : [];
+  const ends: { t: number; key?: string; pid: number; prev?: LeaningEffect; annal?: number }[] = iv ? iv.haltEndsUpTo(now).map((e) => ({ t: e.t, key: e.key, pid: -1 })) : [];
+  // 立约与中立地解禁了几州的下一刻(见 REOPEN):四周的国家往那几州预约(和 reopen 一样)
+  civ.annals.forEach((e, i) => {
+    if (((e.kind === 'neutral' && e.cause === 'lapse' && e.a < 0) || (e.kind === 'expire' && (e.n ?? 0) >= 3)) && e.year + 1 / 256 <= now) ends.push({ t: e.year + 1 / 256, pid: -1, annal: i });
+  });
   for (const p of m.polities) {
     const until = Math.min(p.ended ?? Infinity, now);
     const list = bookOf(m, p.id, until);
@@ -1426,6 +1469,15 @@ export function resumePolities(sim: CivSim, world: World, civ: Civ, iv?: Interve
   const retrigger = (i: number, y: number) => {
     for (; ei < ends.length && ends[ei].t <= y; ei++) {
       const e = ends[ei];
+      if (e.annal !== undefined) {
+        for (const r of reopenedBy(civ.annals[e.annal], reg, po, cu)) {
+          for (let q = reg.adjStart[r]; q < reg.adjStart[r + 1]; q++) {
+            const j = reg.adj[q];
+            if (po[j] >= 0) add(i, po[j], edgeTo(reg, j, r), r, e.t);
+          }
+        }
+        continue;
+      }
       const pid = e.key !== undefined ? iv!.resolveBefore(e.key, e.t) : e.pid;
       if (pid < 0) continue;
       for (let r = 0; r < R; r++) {
