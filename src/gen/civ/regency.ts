@@ -106,7 +106,7 @@ function hook(sim: CivSim, pm: PolityModel): RegencyModel {
     const list = listOf(P.id);
     const g = list?.[list.length - 1];
     if (!g) return false;
-    return g.start === t || (g.start < t && t < g.stop && holds(P, g, t, r));
+    return g.start === t || (g.start < t && t < g.stop && holds(P, g, t, r, bookOf(pm, P.id, t)));
   };
   /** 国家 pid 正在打仗,或 MARCH_WAR 年内打过仗(继承人还在军中;战争按宣战先后排) */
   const campaigning = (pid: number, t: Year): boolean => {
@@ -165,7 +165,7 @@ function hook(sim: CivSim, pm: PolityModel): RegencyModel {
     // 到期的结局:还掌着权、这一刻没别人改朝换代才办
     const list = listOf(pid);
     const g = list?.[list.length - 1];
-    if (g && !g.closed && g.stop === t && g.start < t && holds(P, g, t, r) && (P.dynasties?.length ?? 1) - 1 === g.dyn) {
+    if (g && !g.closed && g.stop === t && g.start < t && holds(P, g, t, r, bookOf(pm, pid, t)) && (P.dynasties?.length ?? 1) - 1 === g.dyn) {
       close(P, g, t);
       return;
     }

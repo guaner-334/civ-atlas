@@ -479,15 +479,21 @@ export function effFor(m: PolityModel, pid: number, r: Reign, t: Year): LeaningE
  */
 export function effOf(m: PolityModel, pid: number, t: Year): LeaningEffect {
   const r = rulerOf(m, pid, t);
-  const g = m.regents.size ? regentAt(m.polities[pid], m.regents.get(pid), t, r) : null;
+  const g = regentOf(m, pid, t, r);
   return g ? segEffect(segAt(m.policies.get(pid), t), g) : effFor(m, pid, r, t);
 }
 
 /** 国家 pid 在 t 这一刻说了算的人的倾向:有人掌着实权 = 掌权的人的,不然 = 在位君主此刻的(作者改过的按改过的) */
 export function rulingLeanings(m: PolityModel, pid: number, t: Year): RulerLeanings {
   const r = rulerOf(m, pid, t);
-  const g = m.regents.size ? regentAt(m.polities[pid], m.regents.get(pid), t, r) : null;
+  const g = regentOf(m, pid, t, r);
   return g ? g.leanings : leaningsAt(r, t).leanings;
+}
+
+/** 国家 pid 在 t 这一刻掌着实权的那一段(r = 此刻在位的;没有 = null) */
+function regentOf(m: PolityModel, pid: number, t: Year, r: Reign): Regency | null {
+  const list = m.regents.size ? m.regents.get(pid) : undefined;
+  return list ? regentAt(m.polities[pid], list, t, r, bookOf(m, pid, t)) : null;
 }
 
 /** 掌实权推算要用的那几样(regents.ts):在位表照这国此刻的(带干预、宗室篡位) */

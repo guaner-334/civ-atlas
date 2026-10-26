@@ -21,14 +21,14 @@
  * **某一刻谁在掌权**(regentAt):掌权那一刻的下一刻起,到结局那一刻为止(不含),而且 ——
  *   还是那一朝(改朝换代就了结;和在位表一样,同一刻改朝换代还算旧朝)、
  *   名义君主还在位(引兵入朝、太子监国、宗室摄政、名臣辅政:先君去世、被废、被作者立的君主取代就了结)/
- *   此刻在位的不是作者立的君主(大臣、大将专权跨几位君主也照旧)。
+ *   掌权以来没有作者立的君主即过位(大臣、大将专权跨几位君主也照旧;作者的君主一即位就此了结,他下台以后也不再回来)。
  * 随机数:keyed4(subSeed(seed, 'civ-regency'), 国家的位置锚(rulers.ts 的 rulerTags), 键, 用途, 种类),
  *   键 = 名义君主的位次 × 16(+ 1 幼主)/ 掌权那一刻 × 256(大臣、大将);诸子的生年、寿数、日后即位的倾向用 royals.ts、rulers.ts 那一份。纯计算。
  */
 import type { Annal, Polity, RulerLeanings, Year } from './types';
 import { fpow, keyed4, subSeed } from './rand';
 import { MAX_AGE, drawLeanings, leaningEffect, reignBorn, reignStart, reignStep, type LeaningEffect, type Reign } from './rulers';
-import { broodOf } from './royals';
+import { POSTHUMOUS, broodOf } from './royals';
 import { polityTierAt } from './growth';
 
 // ---- 调参(推荐值,按 20 个种子的统计调,见 scripts/gen-stats.ts) ----
@@ -180,21 +180,26 @@ function dynastyAtTick(P: Polity, t: Year): number {
   return i;
 }
 
-/** g 在 t 这一刻还掌着权(不看结局那一刻):还是那一朝;名义君主还在位 / 在位的不是作者立的君主。r = t 那一刻在位的 */
-export function holds(P: Polity, g: Regency, t: Year, r: Reign): boolean {
+/**
+ * g 在 t 这一刻还掌着权(不看结局那一刻):还是那一朝;名义君主还在位 / 掌权以来没有作者立的君主即过位(大臣、大将专权;
+ * 作者的君主一即位,专权就此了结,他下台以后也不再回来)。r = t 那一刻在位的;book = 这国的在位表(排到 r)
+ */
+export function holds(P: Polity, g: Regency, t: Year, r: Reign, book: readonly Reign[]): boolean {
   if (dynastyBefore(P, t) !== g.dyn) return false;
-  return strongKind(g.kind) ? !r.crown : r.k === g.k;
+  if (!strongKind(g.kind)) return r.k === g.k;
+  for (let k = r.k; k > g.k; k--) if (book[k]?.crown) return false;
+  return !r.crown;
 }
 
-/** 国家 P 在 t 这一刻谁在掌权(list = 这国的几段,按掌权先后;r = 此刻在位的);没有 = null */
-export function regentAt(P: Polity, list: readonly Regency[] | undefined, t: Year, r: Reign): Regency | null {
+/** 国家 P 在 t 这一刻谁在掌权(list = 这国的几段,按掌权先后;r = 此刻在位的,book = 在位表);没有 = null */
+export function regentAt(P: Polity, list: readonly Regency[] | undefined, t: Year, r: Reign, book: readonly Reign[]): Regency | null {
   if (!list || !list.length) return null;
   // 同一国的几段不重叠(后一段掌权时前一段已经了结):看掌权那一刻早于此刻的最后一段
   let i = list.length - 1;
   while (i >= 0 && !(list[i].start < t)) i--;
   if (i < 0) return null;
   const g = list[i];
-  return t < g.stop && holds(P, g, t, r) ? g : null;
+  return t < g.stop && holds(P, g, t, r, book) ? g : null;
 }
 
 /** 引兵入朝、太子监国的候选(还没看有没有人掌着权、在不在打仗) */
@@ -280,7 +285,8 @@ export function childPlan(cx: RegencyCtx, pid: number, r: Reign, marched: (k: nu
     const br = broodOf(cx.rbase, cx.tag[pid], f, P);
     if (br.heir === reignBorn(prev)) {
       for (const x of br.extra) {
-        if (x.born + GROWN > t || x.life <= t || (uncle && uncle.born <= x.born)) continue;
+        // 父亲去世以后(遗腹子除外)才生的不算(和 royals.ts 的 buildSons 一样:人物里没有这个儿子)
+        if (x.born > f.natural + POSTHUMOUS || x.born + GROWN > t || x.life <= t || (uncle && uncle.born <= x.born)) continue;
         if (cx.polities.some((Q) => Q.parent === pid && Q.prince === x.born)) continue;
         uncle = x;
       }

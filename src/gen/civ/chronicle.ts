@@ -1658,9 +1658,11 @@ function regentEntry(ctx: Ctx, i: number): ChronicleEntry | null {
   const n = e.n ?? RG_START;
   if (n === RG_START && (kind === 'uncle' || kind === 'minister')) return null;
   if (n === RG_USURP && kind !== 'uncle') return null;
-  const N = g ? civ.people?.[g.ruler] : undefined;
-  const p = polityOf(civ, e.a);
   const y = e.year;
+  // 名义君主:掌权那一刻在位的那位;大臣、大将专权跨了几位君主的,了结那一条写那时在位的
+  const strong = kind === 'chancellor' || kind === 'general';
+  const N = (n !== RG_START && strong ? reigning(ctx.ix, e.a, y) : null) ?? (g ? civ.people?.[g.ruler] : undefined);
+  const p = polityOf(civ, e.a);
   const east = classical(p);
   const P = pn(civ, e.a, y);
   const ruler = N ? rulerRef(civ, N, y) : P;

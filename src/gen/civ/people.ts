@@ -1030,6 +1030,11 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
       holder.fate = s.end === 'purged' ? 'purged' : 'died';
       if (s.end === 'purged') rivalOf.set(holder, s.N);
     } else if (s.until !== undefined && holder.died !== undefined && holder.died < s.until && holder.role !== 'ruler') holder.died = s.until;
+    else if (s.until === undefined && holder.died !== undefined && (holder.role === 'general' || holder.role === 'prince')) {
+      // 推到最后还掌着权:推演里他还活着(寿数照推演里原定的了结那一刻往后算,人物这里先不写卒年)
+      delete holder.died;
+      delete holder.fate;
+    }
   }
   // 编号按出道先后排(同一年:君主、将领、宗室、名臣),接着往后推时先出道的人编号不变
   // 即位以前就是先君诸子之一的君主(royals.ts 预定的继承人、据地争位的宗室、摄政篡位的叔父):按做儿子出道的那一刻、在父亲那一国排;

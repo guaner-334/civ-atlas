@@ -38,7 +38,7 @@ const SON_LIFE: [number, number] = [24, 78];
 /** 预定的继承人没接上君位的:预定即位那年以后至少再活这么多年 */
 const HEIR_AFTER = 1;
 /** 遗腹子:父亲去世以后最多这么久出生(同 lineage.ts) */
-const POSTHUMOUS = 0.75;
+export const POSTHUMOUS = 0.75;
 /** 一个亲生儿子也没有的君主收养子的机会;收养时养子几岁、父亲比养子大多少岁 */
 const ADOPT = 0.6;
 const ADOPT_AT: [number, number] = [4, 16];

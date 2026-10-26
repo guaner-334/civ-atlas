@@ -611,7 +611,7 @@ if (part('键盘快捷键')) {
 // 「出征那年」跳时间轴;「编年史」打开这国的编年史;「复制生平」);编年史里的人名是蓝字,点了收起概览、打开这个人,不跳年份;
 // 世界概览的「人物」页(名人 / 君主 / 将领,「全部 N 位」进来停在这国的君主);搜名字第一个是这个人。
 // 例子:种子 7 的第 2940 年,天灵(6 号国)霄朝的圣宗沈羽(前任是他的父亲世宗沈岚尘,
-// 继任是他的孙子宪宗沈玄;在位时有将领君冥领兵,君冥头一回出征在 2908 年,那时在位的是世宗沈岚尘)
+// 继任是他的孙子宪宗沈玄;在位时有将领君冥领兵,君冥头一回出征在 2930 年,也是圣宗在位)
 if (part('人物')) {
   await page.goto(`${dev.url}/?seed=7&civYear=2940`);
   await page.waitForFunction(() => (window as any).__wfLabels?.polities > 0, null, { timeout: 60000 });
@@ -719,11 +719,11 @@ if (part('人物')) {
   )
     errs.push(`人物:君主卡片的倾向不对(${leanRows} 行;${leans.slice(0, 80)};复制里 ${/倾向：.*/.exec(copied)?.[0]})`);
   if (genLeans || princeLeans) errs.push(`人物:将领 / 宗室的卡片上不该有倾向(${genLeans};${princeLeans})`);
-  if (!/君冥\s*大霄将领，2908–2935 年领兵/.test(card2) || y1 !== 2908) errs.push(`人物:将领卡片 / 出征那年不对(${card2.slice(0, 60)};${y1})`);
+  if (!/君冥\s*大霄将领，2930–2945 年领兵/.test(card2) || y1 !== 2930) errs.push(`人物:将领卡片 / 出征那年不对(${card2.slice(0, 60)};${y1})`);
   if (!chronOpen || names < 3 || !closed || pickId < 0 || card3Id !== pickId || y2 !== y1) errs.push(`人物:编年史里的人名点不开,或点了跳了年份(${chronOpen};${names};${closed};${card3Id}/${pickId};${y1} → ${y2})`);
   if (!famousOn || famous < 20 || !card4) errs.push(`人物:人物页的名人不对,或点一行没打开卡片(${famousOn};${famous};${card4.slice(0, 30)})`);
   if (!rulersOn || polityPick !== '6' || groups < 1 || rows !== 101) errs.push(`人物:「全部 N 位」没有打开这国的君主(${rulersOn};${polityPick};${groups};${rows})`);
-  if (!/^霄 2655 年起，14 位君主/.test(lgHead) || lgNodes < 8 || !/世宗沈岚尘.*当前/.test(lgOn)) errs.push(`人物:世系图不对(${lgHead};${lgNodes};${lgOn})`);
+  if (!/^霄 2655 年起，14 位君主/.test(lgHead) || lgNodes < 8 || !/圣宗沈羽.*当前/.test(lgOn)) errs.push(`人物:世系图不对(${lgHead};${lgNodes};${lgOn})`);
   if (!/霄宗室，\d+–\d+/.test(princeCard) || !princeCard.includes('子嗣') || lgFocus !== 1) errs.push(`人物:宗室卡片 / 从卡片回到世系图不对(${princeCard.slice(0, 60)};${lgFocus})`);
   if (!/^圣宗沈羽 大霄皇帝，2923–2950$/.test(hit) || hitKind !== 'person' || card5 !== '圣宗沈羽') errs.push(`人物:搜"圣宗沈羽"不对(${hit};${hitKind};${card5})`);
   await page.fill('.sidebar .search-input', '');

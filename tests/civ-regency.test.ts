@@ -131,10 +131,11 @@ describe.each([7, 2024])('掌实权、联姻 · seed=%i', (seed) => {
         n++;
         const at = (t: number): Reign => cx.at(pid, t);
         // 掌权那一刻还不算,下一刻起算
-        expect(regentAt(p, list, g.start, at(g.start))).not.toBe(g);
+        const bk = (t: number) => cx.book(pid, t);
+        expect(regentAt(p, list, g.start, at(g.start), bk(g.start))).not.toBe(g);
         const t1 = g.start + 1 / 256;
-        if (t1 < g.stop && holds(p, g, t1, at(t1))) expect(regentAt(p, list, t1, at(t1))).toBe(g);
-        if (g.stop < Infinity) expect(regentAt(p, list, g.stop, at(g.stop))).not.toBe(g);
+        if (t1 < g.stop && holds(p, g, t1, at(t1), bk(t1))) expect(regentAt(p, list, t1, at(t1), bk(t1))).toBe(g);
+        if (g.stop < Infinity) expect(regentAt(p, list, g.stop, at(g.stop), bk(g.stop))).not.toBe(g);
         expect(g.eff).toEqual(leaningEffect(g.leanings));
       }
     }
@@ -169,6 +170,19 @@ describe.each([7, 2024])('掌实权、联姻 · seed=%i', (seed) => {
     }
     expect(P.filter((x) => x.spouses?.length).length).toBeGreaterThan(0);
     expect(mothers).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe('专权遇上作者立的君主', () => {
+  it('作者的君主一即位,大臣专权就此了结;他下台以后接着即位的那位在位时也不再回来', () => {
+    const P = { dynasties: undefined } as unknown as Polity;
+    const reign = (k: number, crown?: boolean) => ({ k, crown: crown ? {} : undefined }) as unknown as Reign;
+    const book = [reign(0), reign(1, true), reign(2)];
+    const g = { pid: 0, kind: 'chancellor', k: 0, start: 5, dyn: 0, stop: 27, closed: false, annal: 0 } as unknown as Parameters<typeof holds>[1];
+    expect(holds(P, g, 8, book[0], book)).toBe(true);
+    expect(holds(P, g, 11, book[1], book)).toBe(false);
+    expect(holds(P, g, 13, book[2], book)).toBe(false);
+    expect(regentAt(P, [g], 13, book[2], book)).toBeNull();
   });
 });
 
