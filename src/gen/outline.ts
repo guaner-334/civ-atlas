@@ -501,6 +501,8 @@ function happened(ctx: Ctx, civ: Civ, p: Plot, R: Refs, lo: number, hi: number):
 
 /** 这条史事是不是情节说的那场天灾:瘟疫传到那座城所在的州的主人 / 起在那州;饥荒在那国 / 那几州;地震水旱在那一处 */
 function disasterHit(civ: Civ, p: Plot, R: Refs, e: Annal): boolean {
+  // 全球大疫:那座城起了一场(自己发生的、作者下的都记一条 pandemic)
+  if (p.type === 'pandemic') return R.city >= 0 && e.kind === 'pandemic' && e.settlement === R.city;
   if (p.type === 'plague') {
     if (R.city < 0) return false;
     // 作者下的瘟疫:下令那条记着那座城、起了疫(城在无主之地时不另记 plague)
@@ -606,6 +608,12 @@ function planFix(ctx: Ctx, S: Civ, C: Civ, p: Plot, R: Refs, Y: number): Interve
     }
     case 'disaster': {
       const level = p.level ?? 2;
+      if (p.type === 'pandemic') {
+        if (R.city < 0) return { reason: 'missing' };
+        const s = S.settlements[R.city];
+        if (s.ended !== undefined && s.ended <= Y) return { reason: 'ruined' };
+        return [{ kind: 'disaster', type: 'pandemic', level, from: Y, city: p.city!, ...(p.slump !== undefined ? { slump: p.slump } : {}) }];
+      }
       if (p.type === 'plague') {
         if (R.city < 0) return { reason: 'missing' };
         const s = S.settlements[R.city];
