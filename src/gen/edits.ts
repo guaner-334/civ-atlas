@@ -72,7 +72,7 @@
  * | `destroy` | 灭国     | a = 国家                          | 这一年年初这国亡:国土并入 b,或散成无主的部落地带(邻国照规矩慢慢扩进去);它打着的仗全部结束(这国那年已亡 = 不生效) | b:并入哪一国(不给 = 散成无主;b 那年已亡 = 改成散成无主) |
  * | `death`   | 让人物去世 | a = 国家,person = 人物键(君主、将领、名臣) | 这一年年初他去世。君主:此刻在位的是他才生效,下一位从下一刻起照常继位(他之后的君主全换一批);将领、名臣:只改人物和编年史,不改历史(他那年已不在世、还没出道,名臣已去职 = 不生效) | — |
  * | `temper`  | 改君主倾向 | a = 国家,person = 人物键(君主),leanings = 新的倾向 | 这一年年初起此刻在位的这位君主照新的倾向,到他下台为止(此刻在位的不是他 = 不生效) | — |
- * | `disaster`| 天灾     | type = plague 瘟疫(city = 从哪座城起)/ famine 饥荒(a = 一国,或 regions = 几州)/ quake 地震水旱(region = 哪一处,连同附近一圈州);level = 1 轻 / 2 中 / 3 重 | 这一年年初受灾的城人口掉一截(城里约死一成半 / 三成 / 五成),几十年慢慢长回来,其间国内更动荡;瘟疫照瘟疫的规矩往外传(那年已在闹瘟疫 = 并进那一场)。不改地形 | — |
+ * | `disaster`| 天灾     | type = plague 瘟疫(city = 从哪座城起)/ famine 饥荒(a = 一国,或 regions = 几州)/ quake 地震水旱(region = 哪一处,连同附近一圈州)/ pandemic 全球大疫(city = 从哪座城起);level = 1 轻 / 2 中 / 3 重 | 这一年年初受灾的城人口掉一截(城里约死一成半 / 三成 / 五成),几十年慢慢长回来,其间国内更动荡;瘟疫照瘟疫的规矩往外传(那年已在闹瘟疫 = 并进那一场)。全球大疫传遍各洲(城里死两成 / 三四成 / 五成),之后疫后无人收拾那些年人口接着掉、发展度和时代往回掉、村镇荒废(civ/pandemic.ts)。不改地形 | slump:全球大疫疫后无人收拾几年(10 / 30 / 60,不给 = 30) |
  *
  * 即位(crown)的几样字段都抄进干预,不在推演时去读人物卡:"种子 + 干预串"自己就推得出同一个世界(读档、换设备都一样)。
  * char 是作者人物的编号(AuthorCharacter.id,1–1e9 的整数);born、until 是年份(同 from 的清理);
@@ -93,7 +93,8 @@
  * (年份到时才定;那位先因改朝换代、亡国、被作者另立的君主取代而下台 = 不生效)。旧存档没有这个字段,照旧。
  * 让人物去世(death)、改君主倾向(temper)用人物键(personKey)认人,键里的国家要是 a;推演里按"国家 + 生年 + 此刻在位"认君主
  * (作者立的君主不在此列:他的生死、性格归人物卡管)。同一年同一位君主又去世又改倾向:去世为准。
- * 天灾(disaster)只给它那一种用的字段(瘟疫 city、饥荒 a 或 regions(最多 DISASTER_REGIONS_MAX 州,去重)、地震水旱 region),别的去掉。
+ * 天灾(disaster)只给它那一种用的字段(瘟疫 city、饥荒 a 或 regions(最多 DISASTER_REGIONS_MAX 州,去重)、地震水旱 region、
+ * 全球大疫 city 和 slump(吸到最近的一档,30 不写)),别的去掉。
  *
  * 立国出来的新国家也有稳定键:`polity:c{州的治所地块}#{n}`(n = 新历史里这州之前立过几国;干预年份之前的历史不变,所以 n 是定的),
  * 和别的国家一样能改名、能被别的干预引用。
@@ -237,7 +238,7 @@
  * | `death`    | 去世           | person(how 可选:murdered 遇弑 / battle 战死) | 他死在那几年(遇弑、战死看结局) | 让人物去世 death(只能写成"去世")   |
  * | `crown`    | 作者的人物即位 | a,char                     | 他即 a 的君位                                        | 即位 crown                           |
  * | `split`    | 分裂 / 独立    | region(a 可选:从哪国分出) | 那州起事自立(从 a 分出)                             | 立国 found(那州要在 a 手里)         |
- * | `disaster` | 天灾           | type、level(1–3,不给 = 2);瘟疫 city / 饥荒 a 或 regions / 地震水旱 region | 那里闹了那种灾 | 天灾 disaster            |
+ * | `disaster` | 天灾           | type、level(1–3,不给 = 2);瘟疫、全球大疫 city / 饥荒 a 或 regions / 地震水旱 region;全球大疫可带 slump(疫后无人收拾几年) | 那里闹了那种灾 | 天灾 disaster            |
  * | `submit`   | 称臣           | a 向 b 称臣                | a 称臣于 b,或那几年 a 是 b 的藩属                   | 推演里还不能直接让它发生(只查)     |
  * | `peace`    | 议和           | a,b                        | 两国议和                                             | 同上                                 |
  * | `dynasty`  | 改朝换代       | a                          | a 改朝换代                                           | 同上                                 |
@@ -277,6 +278,12 @@
  * WorldEdits.origins(可选,没有 = 自动):自己选的文明起源,第一批民族从这几处出发、第 0 年出现(世界坐标的点,同地形修改;见 civ/frontier.ts)。
  * 两样都改变历史:新建世界时定,创建以后不再改;新建界面里先按默认推(只看星球),创建以后才按它们推。
  * 默认的不写,不写时推演和没有这两项逐字节一样。
+ *
+ * ## 天灾
+ *
+ * WorldEdits.calamity(可选,没有 = 平常):'more' 多 / 'many' 很多(civ/calamity.ts):瘟疫、饥荒更多更重,各国会自己闹地震水旱,
+ * 世上有国家能远洋以后会自己起全球大疫(多约每 600 年、很多约每 300 年一场;保底文明不断绝,见 civ/pandemic.ts)。
+ * 和拓荒一样新建世界时定,创建以后不再改;平常的不写,不写时推演和没有这一项逐字节一样。
  *
  * ## 文明种子
  *
@@ -485,6 +492,7 @@ import type { SketchEdit } from './sketch';
 import type { NameMix } from './names/mix';
 import type { Era } from './era';
 import type { Frontier, Origins } from './civ/frontier';
+import { SLUMP_CHOICES, SLUMP_DEFAULT, type Calamity } from './civ/calamity';
 
 /** 生成器版本:生成算法有改动、同种子会得到不同世界时加一(存档读档时核对);加一时在 GENERATOR_CHANGES 里补一条 */
 export const GENERATOR_VERSION = 37;
@@ -547,11 +555,14 @@ export const GENERATOR_CHANGES: Readonly<Record<number, { change: GeneratorChang
 /** 干预的种类(见文件头的表) */
 export type InterventionKind = 'protect' | 'ally' | 'declare' | 'unity' | 'cede' | 'found' | 'move' | 'halt' | 'crown' | 'policy' | 'destroy' | 'death' | 'temper' | 'disaster';
 
-/** 天灾的种类:瘟疫、饥荒、地震水旱 */
+/** 天灾的种类:瘟疫、饥荒、地震水旱(干预页、大纲里列的这几种) */
 export const DISASTER_TYPES = ['plague', 'famine', 'quake'] as const;
 export type DisasterType = (typeof DISASTER_TYPES)[number];
+/** 天灾的全部种类:再加全球大疫(pandemic;推演、存档认得,界面还没列) */
+export const DISASTER_KINDS = [...DISASTER_TYPES, 'pandemic'] as const;
+export type DisasterKind = (typeof DISASTER_KINDS)[number];
 /** 天灾的种类怎么叫 */
-export const DISASTER_NAMES: Record<DisasterType, string> = { plague: '瘟疫', famine: '饥荒', quake: '地震水旱' };
+export const DISASTER_NAMES: Record<DisasterKind, string> = { plague: '瘟疫', famine: '饥荒', quake: '地震水旱', pandemic: '全球大疫' };
 /** 天灾的轻重:1 轻 / 2 中 / 3 重 */
 export type DisasterLevel = 1 | 2 | 3;
 /** 轻重怎么叫(下标 = DisasterLevel) */
@@ -595,7 +606,7 @@ export type Intervention = (
   | { kind: 'destroy'; a: string; from: number; b?: string }
   | { kind: 'death'; a: string; person: string; from: number }
   | { kind: 'temper'; a: string; person: string; from: number; leanings: RulerLeanings }
-  | { kind: 'disaster'; type: DisasterType; level: DisasterLevel; from: number; city?: string; a?: string; regions?: string[]; region?: string }
+  | { kind: 'disaster'; type: DisasterKind; level: DisasterLevel; from: number; city?: string; a?: string; regions?: string[]; region?: string; slump?: number }
   | {
       kind: 'policy';
       a: string;
@@ -698,6 +709,8 @@ export interface WorldEdits {
   frontier?: Frontier;
   /** 自己选的文明起源(见文件头"拓荒与起源");没有 = 自动 */
   origins?: Origins;
+  /** 「天灾」多 / 很多(见文件头"天灾");没有 = 平常 */
+  calamity?: Calamity;
   /** 文明种子(见文件头"文明种子");没有 = 等于地图种子 */
   civSeed?: number;
   /** 这段历史用的是哪张地图(见文件头"文明种子");没有 = 不是在别的世界的地图上新开的 */
@@ -1534,12 +1547,24 @@ export function parsePersonKey(key: unknown): PersonKeyParts | null {
 
 /** 天灾的轻重:1–3 的整数(别的 = null) */
 const levelOf = (x: unknown): DisasterLevel | null => (x === 1 || x === 2 || x === 3 ? x : null);
+/** 全球大疫的疫后无人收拾几年:吸到最近的一档(civ/calamity.ts 的 SLUMP_CHOICES);和默认一样、认不出 = undefined(不写) */
+function slumpOf(x: unknown): number | undefined {
+  if (typeof x !== 'number' || !Number.isFinite(x)) return undefined;
+  let best = SLUMP_CHOICES[0];
+  for (const y of SLUMP_CHOICES) if (Math.abs(y - x) < Math.abs(best - x)) best = y;
+  return best === SLUMP_DEFAULT ? undefined : best;
+}
 
 /** 天灾(disaster):只留那一种用的字段;饥荒给了国家就不要州(州去重、去掉格式不对的、最多 DISASTER_REGIONS_MAX 个,一个都没有 = 不合格) */
 function cleanDisaster(o: Record<string, unknown>, from: number): Intervention | null {
-  const type = o.type as DisasterType;
+  const type = o.type as DisasterKind;
   const level = levelOf(o.level);
-  if (!(DISASTER_TYPES as readonly unknown[]).includes(type) || level === null) return null;
+  if (!(DISASTER_KINDS as readonly unknown[]).includes(type) || level === null) return null;
+  if (type === 'pandemic') {
+    if (!isCityKey(o.city)) return null;
+    const slump = slumpOf(o.slump);
+    return slump === undefined ? { kind: 'disaster', type, level, from, city: o.city } : { kind: 'disaster', type, level, from, city: o.city, slump };
+  }
   if (type === 'plague') return isCityKey(o.city) ? { kind: 'disaster', type, level, from, city: o.city } : null;
   if (type === 'quake') return isRegionKey(o.region) ? { kind: 'disaster', type, level, from, region: o.region } : null;
   if (isPolityKey(o.a)) return { kind: 'disaster', type, level, from, a: o.a };
@@ -2160,8 +2185,10 @@ export interface Plot {
   how?: 'murdered' | 'battle';
   char?: number;
   name?: string;
-  type?: DisasterType;
+  type?: DisasterKind;
   level?: DisasterLevel;
+  /** 全球大疫:疫后无人收拾几年(不给 = 30) */
+  slump?: number;
 }
 
 /** 批改的章:照着发生了 / 顺着引了一把 / 硬改的 / 做不到 / 只讲故事 */
@@ -2247,7 +2274,7 @@ const PLOT_OPTIONAL: Record<PlotKind, readonly (keyof Plot)[]> = {
   death: ['how'],
   crown: [],
   split: ['a'],
-  disaster: ['level', 'city', 'a', 'regions', 'region'],
+  disaster: ['level', 'city', 'a', 'regions', 'region', 'slump'],
   submit: [],
   peace: [],
   dynasty: [],
@@ -2279,9 +2306,11 @@ function plotField(k: keyof Plot, v: unknown): unknown {
       return n || undefined;
     }
     case 'type':
-      return (DISASTER_TYPES as readonly unknown[]).includes(v) ? v : undefined;
+      return (DISASTER_KINDS as readonly unknown[]).includes(v) ? v : undefined;
     case 'level':
       return levelOf(v) ?? undefined;
+    case 'slump':
+      return slumpOf(v);
     case 'regions': {
       if (!Array.isArray(v)) return undefined;
       const out: string[] = [];
@@ -2332,8 +2361,9 @@ export function cleanPlot(x: unknown): Plot | null {
     else return null;
   }
   if (kind === 'disaster') {
-    const keep = v.type === 'plague' ? ['city'] : v.type === 'quake' ? ['region'] : v.a ? ['a'] : ['regions'];
+    const keep = v.type === 'plague' || v.type === 'pandemic' ? ['city'] : v.type === 'quake' ? ['region'] : v.a ? ['a'] : ['regions'];
     for (const k of ['city', 'a', 'regions', 'region'] as const) if (!keep.includes(k)) delete v[k];
+    if (v.type !== 'pandemic') delete v.slump;
     if (!keep.every((k) => w[k] !== undefined)) return null;
   }
   const keys = Object.keys(o);

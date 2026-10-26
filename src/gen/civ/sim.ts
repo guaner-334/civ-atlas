@@ -43,6 +43,8 @@ import { resumeUnrest } from './unrest';
 import { resumeControl } from './control';
 import { resumeCouncil } from './council';
 import { resumePlague } from './plague';
+import { resumePandemic } from './pandemic';
+import type { Calamity } from './calamity';
 import { resumeInterventions, scheduleInterventions } from './interventions';
 import type { Intervention } from '../edits';
 
@@ -198,6 +200,15 @@ export const enum Ev {
   PlagueCheck = 58,
   /** 疫情传开(plague.ts):a = 第几场瘟疫(起疫那次看疫情的编号),b = 起疫后第几年。染疫的州往外传一圈,预约下一年 */
   PlagueStep = 59,
+  /**
+   * 看全球大疫(pandemic.ts;编号 60–62):a = 第几次看。只有「天灾」设成多、很多的世界才有:世上有国家能远洋以后,
+   * 隔几十年看一次,偶尔从一座大港起一场全球大疫
+   */
+  PandemicCheck = 60,
+  /** 疫后凋敝(pandemic.ts):这一刻有全球大疫"疫气复作"(人口再掉一截、村镇荒废)。同一刻几场一起处理 */
+  SlumpStep = 61,
+  /** 看地震水旱(pandemic.ts):a = 第几次看。只有「天灾」设成多、很多的世界才有:各国偶尔闹一场地震、大水、大旱 */
+  QuakeCheck = 62,
 }
 
 export interface EventInfo {
@@ -247,6 +258,9 @@ export const EVENT_INFO: EventInfo[] = [
   { id: Ev.Collapse, name: '散回部落', watch: false },
   { id: Ev.PlagueCheck, name: '看疫情', watch: false },
   { id: Ev.PlagueStep, name: '疫情传开', watch: false },
+  { id: Ev.PandemicCheck, name: '看全球大疫', watch: false },
+  { id: Ev.SlumpStep, name: '疫后凋敝', watch: false },
+  { id: Ev.QuakeCheck, name: '看地震水旱', watch: false },
 ];
 
 /** 检查点间隔(年) */
@@ -285,8 +299,8 @@ function arrivalOrder(kind: number, a: number, b: number): number {
  *   看王朝在前:同一刻改朝换代了,旧朝原定这一刻即位的那位就不即位了(在位表重排,Ev.Reign 对不上就丢掉);
  *   即位、重看只从现有国土往外预约扩张、不改归属,排在别的事件前面 —— 接着推时 resumePolities 也是在同一刻的日志
  *   (大事改的归属除外)之前重放
- * - 看疫情、疫情传开 = EARLY_SPAN − 2、− 1(这几类之后、别的事件之前):接着推时它们最后才补进引擎,
- *   排在固定的位置,同一刻的别的事件(攻占、毁城)在它前还是在它后,和一口气推完一样
+ * - 看地震水旱、看全球大疫、疫后凋敝、看疫情、疫情传开 = EARLY_SPAN − 5 … − 1(这几类之后、别的事件之前):接着推时它们最后才补进引擎,
+ *   排在固定的位置,同一刻的别的事件(攻占、毁城)在它前还是在它后,和一口气推完一样(同一刻每类至多一件)
  * 不是这几类、或国家号超出能编的范围,返回 −1(按预约先后)
  */
 const EARLY_KINDS: Partial<Record<number, number>> = { [Ev.DynastyCheck]: 0, [Ev.Reign]: 1, [Ev.Respread]: 2 };
@@ -295,10 +309,13 @@ function earlyOrder(kind: number, b: number): number {
   if (kind === Ev.AgeOfSail) return 1;
   if (kind === Ev.DevTick) return 2;
   if (kind === Ev.TableTick) return 3;
+  if (kind === Ev.QuakeCheck) return EARLY_SPAN - 5;
+  if (kind === Ev.PandemicCheck) return EARLY_SPAN - 4;
+  if (kind === Ev.SlumpStep) return EARLY_SPAN - 3;
   if (kind === Ev.PlagueCheck) return EARLY_SPAN - 2;
   if (kind === Ev.PlagueStep) return EARLY_SPAN - 1;
   const i = EARLY_KINDS[kind];
-  if (i === undefined || !(b >= 0 && b < (EARLY_SPAN - 6) / 3 - 1)) return -1;
+  if (i === undefined || !(b >= 0 && b < (EARLY_SPAN - 12) / 3 - 1)) return -1;
   return 4 + b * 3 + i;
 }
 
@@ -432,6 +449,8 @@ export class CivSim {
    * 一律从大事那一刻起,排在大事后面(gen/civ/index.ts)
    */
   floor: Year = -Infinity;
+  /** 「天灾」设定(calamity.ts;平常 = undefined):瘟疫、饥荒更多,会自己闹地震水旱、全球大疫。装各层之前定下 */
+  calamity: Calamity | undefined = undefined;
   /** 各层的当前归属(按 Layer 下标);只读,改归属一律走 setOwner */
   readonly owners: [Int16Array, Int16Array];
   /** 各州的版本号:归属(任何一层)每变一次 +1 */
@@ -485,6 +504,7 @@ export class CivSim {
     for (let i = 0; i < civ.log.size; i++) sim.version[civ.log.region[i]]++;
     sim.checkpoints = civ.checkpoints.slice();
     sim.now = civ.endYear;
+    sim.calamity = civ.calamity;
     // 下一个检查点:最后一个检查点之后的那个整百年(推到整百年的前一刻切开时,那个整百年的检查点还没存,接着推时补上)
     const cps = civ.checkpoints;
     sim.nextCheckpoint = cps.length ? cps[cps.length - 1].year + CHECKPOINT_EVERY : CHECKPOINT_EVERY;
@@ -511,6 +531,7 @@ export class CivSim {
       resumeControl(sim, civ);
       resumeCouncil(sim, civ);
       resumePlague(sim, world, civ, iv?.list);
+      resumePandemic(sim, civ, iv?.list);
       if (iv) resumeInterventions(sim, iv);
       sim.releaseHeld();
     }

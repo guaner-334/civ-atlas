@@ -5,9 +5,11 @@
  *   瘟疫:从那座城起疫,照瘟疫的规矩往外传(plague.ts 的 PlagueModel.strike;那年已有一场在传 = 并进那一场)
  *   饥荒:一国(那一刻的国土)或选的几州里有城的(折损 cause = famine)
  *   地震水旱:那一处连同陆上接壤的一圈州(calamity.ts 的 quakeRing;折损 cause = quake)。叫"地震""大水"还是"大旱"只管说法,看那一处的地形(quakeWord)
+ *   全球大疫:从那座城起一场全球大疫(pandemic.ts 的 startPandemic;轻重是死几成,slump = 疫后无人收拾几年,不给 = SLUMP_DEFAULT),
+ *     是第 PLAGUE_IV + 干预下标 场;那年已有一场在传 = 并进全球大疫(那一场到此为止)
  *
  * 史事:先记一条 intervene(a = 受灾的国家:饥荒选的那国;别的 = 起疫那城 / 受灾那一带此刻的主人,部落地带 = −1;
- *   b = 受灾的州数(瘟疫:1 = 起了一场新的,2 = 并进了正在传的那一场);0 = 没生效(那座城不在了 / 那一带没人住 / 那国已亡);
+ *   b = 受灾的州数(瘟疫:1 = 起了一场新的,2 = 并进了正在传的那一场;全球大疫:1 = 起了);0 = 没生效(那座城不在了 / 那一带没人住 / 那国已亡);
  *   region、settlement = 起疫的城 / 地震水旱那一处 / 饥荒里城最大的那一州,和它的城),
  *   紧跟着记它引起的:瘟疫的 plague(plague.ts);饥荒、地震水旱的 famine(一国一条,部落地带不记;地震水旱的 cause = quake)。
  * 不存内存状态:折损在城镇表里、动荡由史事 famine / plague 重建(unrest.ts、plague.ts 的 resume),接着推和一口气推完一样。纯计算,不碰 DOM。
@@ -16,10 +18,12 @@ import { regionOfKey, type Intervention } from '../edits';
 import { Layer, type Year } from './types';
 import type { CivSim } from './sim';
 import type { InterventionModel } from './interventions';
+import type { PolityModel } from './polities';
 import { plagueModelOf } from './plague';
-import { IV_LOSS, quakeRing } from './calamity';
+import { IV_LOSS, PLAGUE_IV, SLUMP_DEFAULT, quakeRing } from './calamity';
 import { unrestModelOf } from './unrest';
 import { populationAt } from './growth';
+import { startPandemic } from './pandemic';
 
 export type DisasterIv = Extract<Intervention, { kind: 'disaster' }>;
 
@@ -38,6 +42,20 @@ export function strikeDisaster(sim: CivSim, iv: InterventionModel, v: DisasterIv
     const s = S[sid];
     return s.ended === undefined && t >= s.founded ? sid : -1;
   };
+
+  if (v.type === 'pandemic') {
+    // 全球大疫(pandemic.ts):从那座城起,正在传的那一场并进来;第 PLAGUE_IV + i 场
+    const sid = iv.resolveCity(v.city ?? '');
+    const r = sid >= 0 ? S[sid].region : -1;
+    const pl = plagueModelOf(sim);
+    if (r < 0 || cityNow(r) !== sid || !pl?.pandemic) {
+      sim.record('intervene', { a: r >= 0 ? owner[r] : -1, b: 0, region: r, settlement: sid, war: i });
+      return;
+    }
+    sim.record('intervene', { a: owner[r], b: 1, region: r, settlement: sid, war: i });
+    startPandemic(sim, r, v.level, PLAGUE_IV + i, v.slump ?? SLUMP_DEFAULT, t);
+    return;
+  }
 
   if (v.type === 'plague') {
     const sid = iv.resolveCity(v.city ?? '');
@@ -90,8 +108,17 @@ export function strikeDisaster(sim: CivSim, iv: InterventionModel, v: DisasterIv
   const who = a >= 0 ? a : at >= 0 ? owner[at] : worst >= 0 ? owner[worst] : -1;
   sim.record('intervene', { a: who, b: hit.length, region: at, settlement: at >= 0 ? pm.cityOf[at] : -1, war: i });
   if (!hit.length) return;
-  const loss = IV_LOSS[v.level];
-  const cause = v.type === 'quake' ? 'quake' : 'famine';
+  afflict(sim, pm, hit, pop, t, IV_LOSS[v.level], v.type === 'quake' ? 'quake' : 'famine', center);
+}
+
+/**
+ * 受灾的几州(有城、有人烟,州号升序;pop = 各州城的人口)城里死 loss:记进城镇表(地震水旱记下震中 center),
+ * 一国一条 famine(地震水旱 cause = quake;部落地带不记),国内更动荡(unrest.ts 照饥荒算)。
+ * 作者下的饥荒、地震水旱和「天灾」多 / 很多时自己发生的地震水旱(pandemic.ts)共用
+ */
+export function afflict(sim: CivSim, pm: PolityModel, hit: readonly number[], pop: ReadonlyMap<number, number>, t: Year, loss: number, cause: 'quake' | 'famine', center: number): void {
+  const owner = sim.owners[Layer.Polity];
+  const S = pm.settlements;
   /** 国家 → 受灾的州(城最大的在前) */
   const per = new Map<number, number[]>();
   for (const r of hit) {

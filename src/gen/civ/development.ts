@@ -68,6 +68,7 @@ import { cultureModelOf } from './cultures';
 import { TableEngine } from './tables';
 import { NEVER, devCards } from './devTables';
 import { warModelOf } from './wars';
+import { pandemicModelOf, slumpIn, type PandemicModel } from './pandemicState';
 
 /** 物产(下标就是 Development.resources 里的第几样) */
 export const RESOURCES = ['粮', '牲畜', '铜锡', '铁', '煤', '木材', '盐', '渔获', '石油', '稀有矿', '金银'] as const;
@@ -157,6 +158,18 @@ const HIT_RUIN: readonly number[] = [0.2, 0.1, 0.15, 0.08];
 /** 大崩解(unrest.ts):地方崩(毁城断路)、两样都崩(散回部落)时,散出去的每一州扣多少(生产、运输、信息、行政) */
 const HIT_COLLAPSE: readonly number[] = [0.3, 0.35, 0.25, 0.5];
 const HIT_TRIBAL: readonly number[] = [0.45, 0.5, 0.4, 0.9];
+/**
+ * 全球大疫(pandemic.ts):染上那一刻扣多少、凋敝里每年再掉多少(生产、运输、信息、行政、动员;× 轻重,死四成 = 1):
+ * 路没人修、官府散了,运输、行政掉得最多,其次信息,生产、动员最少。重灾州凋敝三十年合计约 0.9 / 1.6 / 1.4 / 1.6 / 0.9 档
+ */
+const PAN_HIT: readonly number[] = [0.35, 0.6, 0.5, 0.6, 0.35];
+const SLUMP_DROP: readonly number[] = [0.018, 0.033, 0.03, 0.033, 0.018];
+/** 凋敝里向邻居学只剩几成(自己长、恢复都停下) */
+const SLUMP_LEARN = 0.1;
+/** 保底:时代比到过的最高值退了这么多的,凋敝里不再往下掉 */
+const SLUMP_ERA_MAX = 1.5;
+/** 全球大疫起疫以后、凋敝结束后这么多年以内,每步(STEP 年)存一份快照(平常每 SNAP 年一份),时代图层看得出先退后复 */
+const PAN_SNAP_AFTER = 120;
 /** 刚有人住的州:取邻居最高值的几成 */
 const SETTLE_CARRY = 0.85;
 /** 没人住了:每步剩几成 */
@@ -713,6 +726,7 @@ const DEV_CARDS = devCards(
     GATE_NEAR,
     GATE_SLOW,
     RECOVER,
+    SLUMP_LEARN,
     WAR_KEEP,
     SETTLE_CARRY,
     ABANDON_KEEP,
@@ -842,6 +856,17 @@ function tick(sim: CivSim, d: DevModel, y: Year): void {
     }
   }
 
+  // 全球大疫(pandemic.ts):这一步里各州凋敝占了几成(没有全球大疫的世界全是 0)
+  const pan = pandemicModelOf(sim);
+  const panOn = !!pan?.list.length && dt > 0;
+  const iSlump = eng.input('凋敝').fill(0);
+  if (panOn) {
+    for (let r = 0; r < R; r++) {
+      const s = slumpIn(pan, r, d.last, y);
+      if (s) iSlump[r] = Math.min(1, s.years / dt);
+    }
+  }
+
   // 算这一步;四样能力和动员算完时扣战乱折损(上一步到这一步的攻占、战役、洗劫、毁城、大崩解),后面的表读到扣过的
   eng.step(y, (done) => {
     if (!done.includes('动员')) return;
@@ -859,6 +884,7 @@ function tick(sim: CivSim, d: DevModel, y: Year): void {
       if (!hit || !(a.region >= 0 && a.region < R)) continue;
       hitAt(a.region, hit);
     }
+    if (panOn) pandemicHits(eng, pan!, d.last, y, R);
   });
   // 表的副本(别处读、存档用)
   const capT = eng.get('能力');
@@ -927,6 +953,21 @@ function tick(sim: CivSim, d: DevModel, y: Year): void {
       d.polityEra[p] = e;
     }
   }
+  // 全球大疫的凋敝里国都所在的州退回上一个时代:记一条 regress(只看凋敝里的;到过的时代 polityEra 不降,长回来不再记"始入")
+  if (panOn) {
+    for (let p = 0; p < P; p++) {
+      const r = capR[p];
+      if (r < 0) continue;
+      const e = eraOf(E[r]).era;
+      const e0 = eraOf(Eprev[r]).era;
+      if (e >= e0 || !slumpIn(pan, r, d.last, y)) continue;
+      const f = Eprev[r] > E[r] ? Math.min(1, Math.max(0, (Eprev[r] - e0) / (Eprev[r] - E[r]))) : 1;
+      // 不早于这州染上疫(这一步里才染上的,按线性估会估到染疫以前)
+      let hit = Infinity;
+      for (const q of pan!.list) if (q.at[r] < y && q.end > d.last && q.at[r] < hit) hit = q.at[r];
+      push({ year: Math.min(y, Math.max(sinceOf(r), hit < Infinity ? hit : -Infinity, t0 + (y - t0) * f)), kind: 'regress', era: e, region: r });
+    }
+  }
   // 发明:世上第一次有州的那样能力到了那一档(同一步里有几州都到了,记估出的那一刻最早的)
   INVENTIONS.forEach((inv, i) => {
     if (d.invented[i]) return;
@@ -975,8 +1016,24 @@ function tick(sim: CivSim, d: DevModel, y: Year): void {
     if (cur[o + Cap.Transport] >= SAIL_LEVEL) grantSail(sim, pm, p);
   }
 
+  const lastSnap = d.snapYears.length ? d.snapYears[d.snapYears.length - 1] : -Infinity;
   d.last = y;
-  if (y % SNAP === 0) {
+  // 全球大疫起疫以后、凋敝结束后 PAN_SNAP_AFTER 年以内每步存一份;起疫的那一刻按上一步的状态补一份(时代图层不在起疫以前就往下掉)
+  let panSnap = false;
+  if (panOn) {
+    let start = Infinity;
+    for (const q of pan!.list) {
+      if (q.t0 <= y && y <= q.end + PAN_SNAP_AFTER) panSnap = true;
+      if (q.t0 > lastSnap && q.t0 < y && q.t0 < start) start = q.t0;
+    }
+    if (start < Infinity) {
+      const s = makeSnapOf(R, prev, availPrev);
+      d.snaps.push(s.snap);
+      d.avail.push(s.avail);
+      d.snapYears.push(start);
+    }
+  }
+  if (y % SNAP === 0 || panSnap) {
     const s = makeSnap(d);
     d.snaps.push(s.snap);
     d.avail.push(s.avail);
@@ -986,13 +1043,45 @@ function tick(sim: CivSim, d: DevModel, y: Year): void {
 
 /** 此刻的一份快照(能力、眼下能用的物产) */
 function makeSnap(d: DevModel): { snap: Uint8Array; avail: Uint8Array } {
-  const RK = d.R * RESOURCE_COUNT;
+  return makeSnapOf(d.R, d.cur, d.availNow);
+}
+
+/** 一份快照:各州能力 cur(R × CAP_COUNT)、眼下能用的物产 availNow(R × RESOURCE_COUNT) */
+function makeSnapOf(R: number, cur: Float64Array, availNow: Float64Array): { snap: Uint8Array; avail: Uint8Array } {
+  const RK = R * RESOURCE_COUNT;
   const av = new Uint8Array(RK);
-  for (let i = 0; i < RK; i++) av[i] = d.availNow[i] >= 0 ? Math.min(3 * AVAIL_SCALE, Math.round(d.availNow[i] * AVAIL_SCALE)) : BAD_LEVEL;
-  const snap = new Uint8Array(d.R * CAP_COUNT);
+  for (let i = 0; i < RK; i++) av[i] = availNow[i] >= 0 ? Math.min(3 * AVAIL_SCALE, Math.round(availNow[i] * AVAIL_SCALE)) : BAD_LEVEL;
+  const snap = new Uint8Array(R * CAP_COUNT);
   // 算坏了(NaN)存成 BAD_LEVEL,压力测试查得出来;正常最多 LEVEL_MAX × LEVEL_SCALE
-  for (let i = 0; i < snap.length; i++) snap[i] = d.cur[i] >= 0 ? Math.min(LEVEL_MAX * LEVEL_SCALE, Math.round(d.cur[i] * LEVEL_SCALE)) : BAD_LEVEL;
+  for (let i = 0; i < snap.length; i++) snap[i] = cur[i] >= 0 ? Math.min(LEVEL_MAX * LEVEL_SCALE, Math.round(cur[i] * LEVEL_SCALE)) : BAD_LEVEL;
   return { snap, avail: av };
+}
+
+/**
+ * 全球大疫扣能力(算这一步、四样能力和动员算完时;只看 [a, b) 这一段):这一段里染上的州扣 PAN_HIT × 轻重,
+ * 凋敝的年数每年再掉 SLUMP_DROP × 轻重;时代已比到过的最高值退了 SLUMP_ERA_MAX 的不再往下掉(保底)
+ */
+function pandemicHits(eng: TableEngine, pan: PandemicModel, a: Year, b: Year, R: number): void {
+  const w = ERA_WEIGHT;
+  const eraOfRow = (id: '能力' | '最高', r: number) => {
+    let s = 0;
+    for (let c = 0; c < 4; c++) s += w[c] / (eng.value(id, r, c) + 1);
+    return 1 / s - 1;
+  };
+  for (const q of pan.list) {
+    if (!(q.t0 < b)) continue;
+    for (let r = 0; r < R; r++) {
+      const t = q.at[r];
+      if (!(t < b)) continue;
+      const first = t >= a ? 1 : 0;
+      const years = Math.max(0, Math.min(b, q.end) - Math.max(a, t));
+      if (!first && !(years > 0)) continue;
+      if (eraOfRow('能力', r) <= eraOfRow('最高', r) - SLUMP_ERA_MAX) continue;
+      const sev = q.sev[r];
+      for (let c = 0; c < 4; c++) eng.write('能力', r, c, Math.max(0, eng.value('能力', r, c) - sev * (first * PAN_HIT[c] + years * SLUMP_DROP[c])));
+      eng.write('动员', r, 0, Math.max(0, eng.value('动员', r) - sev * (first * PAN_HIT[Cap.Mobilization] + years * SLUMP_DROP[Cap.Mobilization])));
+    }
+  }
 }
 
 /**
