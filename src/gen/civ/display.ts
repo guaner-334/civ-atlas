@@ -51,14 +51,15 @@ export function standPass(places: readonly Place[], annal: number): number {
 
 /**
  * 第 annal 条史事(据险断后)守的那处关叫什么(地图上画的那处,用户改过名的照改的);没对上关 = 空。
- * 改过地形的世界:先找最后一段的地名,再从后往前找各段的
+ * 改过地形的世界:用那一年所在那一段的地名(和时间轴停在那一年时地图上画的一样,见 ui/eras.ts 的 civAtEra)
  */
 export function standPassName(civ: Civ, annal: number): string {
-  const lists = [civ.places, ...(civ.eras ?? []).map((e) => e.places).reverse()];
-  for (const places of lists) {
-    if (!places) continue;
-    const i = standPass(places, annal);
-    if (i >= 0) return places[i].name;
-  }
-  return '';
+  const y = civ.annals[annal]?.year;
+  const ups = civ.upheavals ?? [];
+  let k = 0;
+  if (y !== undefined) while (k < ups.length && ups[k].year <= y) k++;
+  const places = civ.eras && k < civ.eras.length ? civ.eras[k].places : civ.places;
+  if (!places) return '';
+  const i = standPass(places, annal);
+  return i >= 0 ? places[i].name : '';
 }

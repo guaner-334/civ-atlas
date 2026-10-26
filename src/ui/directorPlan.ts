@@ -10,7 +10,8 @@
  *   关注一人 = 写到他的事 + 他那一国在他在台上(君主在位、将领领兵、名臣在朝)时的大事 + 别国的头等大事;
  *     接着跟(relay)= 他不在了以后接着跟下一位(followInfo.ts:君主跟继任的,将领、名臣回到他的国家),每一段照那一段跟的排。
  *   因为关注对象没排进来的别国大事进"略过的"(focus)。
- *   排进来的仗里据险断后的那几下(编年史挂在战争下的条目)各自再放一段,按"其余大事"停:镜头落在守的那处关上,名牌写关名。
+ *   排进来的仗里据险断后的那几下(编年史挂在战争下的条目)各自再放一段,按"其余大事"停、分量同那场仗:
+ *   镜头落在守的那处关上,名牌写关名(守的口子画在地图上的不和别的合成一段)。
  * - 停多久:头等大事(亡国、改朝换代、大战、分裂、大崩解、民变、民族消亡、干预、地形大事 —— 分量 ≥ 35)字幕停 3 秒,
  *   其余大事 2 秒,小事 1.2 秒,再乘"一件事停多久"的系数(短 0.5、标准 1、长 2)。每一段开头镜头先飞 0.6 秒(和选中东西时一样)。
  * - 合成一段:同一个地方(事发地相距不到 3 个州)接连的几件(和前一件相隔不到 10 年,一段最多 3 件)合成一段,
@@ -631,7 +632,9 @@ function mergeGroups(ctx: ShotCtx, items: readonly Cand[]): Cand[][] {
   const groups: Cand[][] = [];
   for (const c of items) {
     const g = groups[groups.length - 1];
-    if (g && g.length < MERGE_MAX && !c.plot && !g[0].plot && c.entry.year - g[g.length - 1].entry.year <= MERGE_YEARS && samePlace(g[0], c, reach, ctx.W)) g.push(c);
+    // 情节、守在关上的那一下(镜头要落在关口上)各自单独一段
+    const alone = (x: Cand) => !!x.plot || x.spot?.kind === 'pass';
+    if (g && g.length < MERGE_MAX && !alone(c) && !alone(g[0]) && c.entry.year - g[g.length - 1].entry.year <= MERGE_YEARS && samePlace(g[0], c, reach, ctx.W)) g.push(c);
     else groups.push([c]);
   }
   return groups;

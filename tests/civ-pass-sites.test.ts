@@ -142,6 +142,12 @@ describe.each([555, 207])('关隘上地图 · seed %i', (seed) => {
       expect(cap!.place).toBe(p.name);
       expect(cap!.pin).toEqual([w.mesh.x[p.cell!], w.mesh.y[p.cell!]]);
       expect(cap!.type).toBe('war');
+      // 讲了的:单独一段,镜头对着那处关
+      const seg = plan.segments.find((s) => s.items.some((it) => it.entry.id === annal && it.entry.kind === 'stand'));
+      if (seg) {
+        expect(seg.items).toHaveLength(1);
+        expect(seg.shot?.target).toEqual({ kind: 'pass', id: at });
+      }
     }
     // 关两边:第一对州,西边那州的治所在东边那州的西边(按近的那一圈)
     for (const p of c.places) {
@@ -166,4 +172,16 @@ describe.each([555, 207])('关隘上地图 · seed %i', (seed) => {
     expect(pinnedPass(c, w, pin, y - 1)).toBe(-1);
     expect(pinnedPass(c, w, [pin[0] + w.mesh.spacing * 0.3, pin[1]], y)).toBe(-1);
   });
+});
+
+it('改过地形的世界:守关那一句用那一年所在那一段地图上的关名', () => {
+  const gate = (name: string, stands: number[]) => ({ kind: 'pass', name, pass: { stands } }) as unknown as Civ['places'][number];
+  const civ = {
+    annals: [{ year: 100 }, { year: 900 }],
+    upheavals: [{ year: 500 }],
+    eras: [{ places: [gate('旧关', [0, 1])] }],
+    places: [gate('新关', [0, 1])],
+  } as unknown as Civ;
+  expect(standPassName(civ, 0)).toBe('旧关');
+  expect(standPassName(civ, 1)).toBe('新关');
 });
