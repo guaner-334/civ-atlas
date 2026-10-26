@@ -298,6 +298,11 @@ describe('城市成长 + 国家', () => {
           'stand',
           'regent',
           'marry',
+          'treaty',
+          'breach',
+          'expire',
+          'neutral',
+          'exile',
         ]).toContain(e.kind);
       }
     }

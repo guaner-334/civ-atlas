@@ -14,6 +14,7 @@
  *        小国、弱国先看要不要遣使称臣(国力差 SUBMIT_RATIO 倍以上,强邻越好战越可能;正和强邻的藩属交兵的不称臣);
  *        不称臣就找也受它威胁的国家结盟(和强邻接壤、没在和自己打、各自盟国不到 MAX_PACTS 个),正同在和它交兵的最容易结成。
  *        国家方针(policy.ts):不和仇国结盟(哪一方把对方当仇都不结),亲国的分数 × FRIEND_PACT(先找它)。
+ *   ⑤ 称臣、结盟都没成(或者没有强邻):看要不要和邻国立约(treaties.ts 挂上的 onCheck;约国之间也算友好,见 friendly)。
  *
  *   战争里(wars.ts 调这里挂上的回调):
  *   - 宣战时(WarModel.onDeclare):守方的盟国(和攻方接壤、没在和攻方打、手上的仗没打满)有 PACT_JOIN 的机会援盟参战,
@@ -195,6 +196,12 @@ export class DiplomacyModel {
   marry?: (p: number, k: number, t: Year) => void;
   /** 两国结着亲的分量(marriage.ts 挂上;0 = 没有 / 断了,1 = 刚结亲,KIN_FADE 年里淡到 0):挑盟友、援盟照它加 */
   bond?: (p: number, q: number, t: Year) => number;
+  /** 立约(treaties.ts 挂上):两国此刻在同一份约里(约期内互不宣战,和结盟一样算友好) */
+  bound?: (p: number, q: number) => boolean;
+  /** 立约(treaties.ts 挂上):q 和 L 立了有限竞争之约,不收 L 的藩属(刚脱离 L 的国家来称臣也不收) */
+  limits?: (q: number, L: number) => boolean;
+  /** 立约(treaties.ts 挂上):看邦交时称臣、结盟都没成,接着看要不要和邻国立约(threat = 最怕的强邻,−1 = 没有) */
+  onCheck?: (p: number, k: number, t: Year, threat: number) => void;
 
   constructor(pm: PolityModel) {
     this.pm = pm;
@@ -247,9 +254,9 @@ export class DiplomacyModel {
     return lp === q || lq === p || (lp >= 0 && lp === lq);
   }
 
-  /** 两国此刻不会互相宣战:结着盟、有宗藩之分、同是一国的藩属 */
+  /** 两国此刻不会互相宣战:结着盟、有宗藩之分、同是一国的藩属、在同一份约里(treaties.ts) */
   friendly(p: number, q: number): boolean {
-    return !!this.pactOf(p, q) || this.vassalTie(p, q);
+    return !!this.pactOf(p, q) || this.vassalTie(p, q) || !!this.bound?.(p, q);
   }
 
   /**
@@ -476,6 +483,8 @@ export function installDiplomacy(sim: CivSim, pm: PolityModel, dm: DiplomacyMode
     if (ratio < SUBMIT_RATIO || pm.size[p] > SUBMIT_MAX || fighting(p, q) || dm.vassalsOf(p).length || fightsBloc(p, q)) return false;
     const d = dm.defected.get(p);
     if (d && d.liege === q && t - d.year < RESUBMIT_REST) return false;
+    // 有限竞争之约(treaties.ts):不收约国的藩属
+    if (d && dm.limits?.(q, d.liege)) return false;
     // 有够分量的盟国撑腰就不称臣
     const pq = powerOf(q, t);
     for (const z of dm.alliesOf(p)) if (powerOf(z, t) >= 0.5 * pq) return false;
@@ -534,9 +543,9 @@ export function installDiplomacy(sim: CivSim, pm: PolityModel, dm: DiplomacyMode
     for (const x of dm.pactsOf(p)) if (tryLapse(x, p, k, t)) return;
     const pp = powerOf(p, t);
     const [f, ratio] = mainThreat(p, t, pp);
-    if (f < 0) return;
-    if (trySubmit(p, f, ratio, k, t)) return;
-    tryPact(p, f, ratio, k, t);
+    if (f >= 0 && (trySubmit(p, f, ratio, k, t) || tryPact(p, f, ratio, k, t))) return;
+    // 立约(treaties.ts)
+    dm.onCheck?.(p, k, t, f);
   });
 
   // ---- 战争里 ----

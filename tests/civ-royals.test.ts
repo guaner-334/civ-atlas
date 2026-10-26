@@ -57,7 +57,7 @@ describe.each([7, 2024])('诸子 · seed=%i', (seed) => {
       for (let i = 1; i < bs.length; i++) if (bs[i] - bs[i - 1] < 1) twins++;
       pairs += bs.length - 1;
     }
-    // 20 个种子(12000 个地块)里同年生的兄弟占 3%–6%(GENERATOR_VERSION 38 前后一样,种子 7 在 5.5% 上下)
+    // 20 个种子(12000 个地块)里同年生的兄弟占 3%–6%(种子 7 在 5.5% 上下;GENERATOR_VERSION 39 以后种子 2024 在 5.2% 上下)
     expect(twins).toBeLessThan(pairs * 0.06);
     expect(many).toBeGreaterThan(50);
     expect(adopted).toBeGreaterThan(5);

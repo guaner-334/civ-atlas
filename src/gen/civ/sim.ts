@@ -47,6 +47,7 @@ import { resumeMarriage } from './marriage';
 import { resumePlague } from './plague';
 import { resumePandemic } from './pandemic';
 import type { Calamity } from './calamity';
+import { resumeTreaties } from './treaties';
 import { resumeInterventions, scheduleInterventions } from './interventions';
 import type { Intervention } from '../edits';
 
@@ -173,6 +174,12 @@ export const enum Ev {
    */
   DiplomacyCheck = 40,
   /**
+   * 约满(立约,treaties.ts):a = 约的编号。立约 / 续约那一刻预约在期满那一刻:看几国续不续约,不续就约废、中立地撤销
+   */
+  TreatyEnd = 41,
+  /** 中立地(treaties.ts):不单独预约,是一州划为中立地(归属 → −1)、中立地撤销还给原主时变化日志记的原因 */
+  Neutral = 42,
+  /**
    * 看分化(民族分化,assimilation.ts;编号 45–49):a = 第几次看。每隔一百年看一眼各民族:被海峡、山脉隔开,
    * 或分属不同国家几百年的一支,有机会分化成新民族(亲缘民族,族名带母族的名字)
    */
@@ -258,6 +265,8 @@ export const EVENT_INFO: EventInfo[] = [
   { id: Ev.Upheaval, name: '地形大事', watch: false },
   { id: Ev.Look, name: '多看一眼', watch: false },
   { id: Ev.DiplomacyCheck, name: '看邦交', watch: false },
+  { id: Ev.TreatyEnd, name: '约满', watch: false },
+  { id: Ev.Neutral, name: '中立地', watch: false },
   { id: Ev.DivergeCheck, name: '看分化', watch: false },
   { id: Ev.Diverge, name: '分化', watch: false },
   { id: Ev.DevTick, name: '发展度', watch: false },
@@ -543,6 +552,7 @@ export class CivSim {
       resumeMarriage(sim, civ);
       resumePlague(sim, world, civ, iv?.list);
       resumePandemic(sim, civ, iv?.list);
+      resumeTreaties(sim, world, civ);
       if (iv) resumeInterventions(sim, iv);
       sim.releaseHeld();
     }
@@ -660,6 +670,8 @@ export class CivSim {
     if (f.cause !== undefined) e.cause = f.cause;
     if (f.foe !== undefined) e.foe = f.foe;
     if (f.n !== undefined) e.n = f.n;
+    if (f.ps !== undefined) e.ps = f.ps.slice();
+    if (f.by !== undefined) e.by = f.by;
     this.annals.push(e);
   }
 

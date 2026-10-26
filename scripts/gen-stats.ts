@@ -19,6 +19,7 @@ import { buildChronicle, filterChronicle } from '../src/gen/civ/chronicle';
 import { polityName } from '../src/gen/civ/growth';
 import { assimStats } from '../src/gen/civ/assimilation';
 import { diplomacyStats } from '../src/gen/civ/diplomacy';
+import { treatyStats } from '../src/gen/civ/treaties';
 const args = process.argv.slice(2);
 const opt = (k: string) => args.find((a) => a.startsWith(`${k}=`))?.slice(k.length + 1);
 
@@ -137,6 +138,12 @@ console.log(
   `邦交:结盟 ${dp.pacts} 次(渐废 ${dp.lapses} · 坐视不救 ${dp.abandons} · 背盟 ${dp.betrayals})· 援盟参战 ${dp.allyJoins} 次 · ` +
     `称臣 ${dp.submits} 次(战败称臣 ${dp.warSubmits})· 藩属自立 ${dp.defects} 次(宗主讨伐 ${dp.punishments})· 救藩 ${dp.rescues} 次 · ` +
     `纳土归附 ${dp.absorbs} 次 · 结束时藩属 ${dp.vassalsAtEnd} 个、盟约 ${dp.pactsAtEnd} 个`,
+);
+const ts = treatyStats(civ);
+console.log(
+  `立约:${ts.treaties} 份(议和顺带 ${ts.peaceTreaties} · 三国以上 ${ts.multi})· 续约 ${ts.renewals} 次 · 背约 ${ts.breaches} 次 · 约满不续 ${ts.expiries} · ` +
+    `剩不到两国约废 ${ts.lapses} · 平均 ${ts.treaties ? Math.round(ts.years / ts.treaties) : 0} 年 · 中立地 ${ts.zones} 处(平均 ${ts.zones ? Math.round(ts.zoneYears / ts.zones) : 0} 年)· ` +
+    `放逐 ${ts.exiles} 人 · 出奔 ${ts.fled} 人`,
 );
 // 王朝更替:东方改朝换代(换国号)、西幻王室更迭(国名不变)分开数;每国几朝;已经结束的朝代平均立了多少年
 const perPolity = [...ds.perPolity]

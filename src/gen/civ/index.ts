@@ -55,6 +55,7 @@ import { installPlague } from './plague';
 import { installPandemic } from './pandemic';
 import { breakRoads } from './pandemicInfo';
 import { cleanCalamity } from './calamity';
+import { installTreaties } from './treaties';
 import { cleanMix, type NameMix } from '../names';
 import { cleanFrontier, cleanOrigins, type Frontier, type Origins } from './frontier';
 
@@ -245,6 +246,7 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
   if (pm) installMarriage(sim, pm); // 联姻(marriage.ts):两国宗室结亲,少开战、易结盟
   if (pm) installPlague(sim, pm, seed); // 瘟疫(plague.ts)
   if (pm) installPandemic(sim, pm, seed); // 全球大疫、疫后凋敝;「天灾」多 / 很多时自己发生的全球大疫、地震水旱(pandemic.ts)
+  if (pm) installTreaties(sim, pm, world); // 立约与中立地(treaties.ts):互不侵犯 / 有限竞争之约、背约、续约,共建中立地、放逐
   if (iv) installInterventions(sim, iv); // 阶段 4 干预:不许灭、结盟、宣战、禁止分裂(各机制在决策点查 WarModel.iv)
   progress('民族推演', 0.85);
   // 地形大事:推到第一件的前一刻,之后每件套上新地形接着推(upheaval.ts)
