@@ -19,6 +19,7 @@ import { wasteAt } from '../../gen/civ/pandemicInfo';
 import { pixOf } from './highlight';
 import type { CivDrawParams, CivStyle } from './overlay';
 import { reprojectImage } from '../projection';
+import { civFillOf } from './show';
 
 /** 染上以后照画几年,再过几年淡完 */
 const HOLD = 2;
@@ -179,7 +180,7 @@ export function drawPlague(ctx: CanvasRenderingContext2D, p: CivDrawParams): voi
 export function plagueCanvas(p: CivDrawParams): AnyCanvas | null {
   if (!plagueShown(p)) return null;
   const z = plagueZone(p.civ, p.year);
-  const waste = p.style === 'fantasy' ? wasteZone(p.civ, wasteYear(p)) : null;
+  const waste = p.style === 'fantasy' && wasteShown(p) ? wasteZone(p.civ, wasteYear(p)) : null;
   if (!z && !waste) return null;
   const { raster, civ, world } = p;
   const { w, h, scale: S } = raster;
@@ -217,7 +218,7 @@ export function drawPlagueDetail(ctx: CanvasRenderingContext2D, p: CivDrawParams
   const S = p.raster.scale;
   const pen = p.pen ?? 1;
   const pj = p.proj;
-  if (p.style === 'fantasy') {
+  if (p.style === 'fantasy' && wasteShown(p)) {
     const waste = wasteZone(p.civ, wasteYear(p));
     if (waste) drawTufts(ctx, p.world, p.raster, p.civ, waste, pen, p.cull, pj ?? null);
   }
@@ -249,6 +250,11 @@ const TUFT_STEP = 12;
 const TUFT_FROM = 0.3;
 const TUFT_COLOR = 'rgba(104,86,62,0.62)';
 
+/** 荒地画不画:开着"瘟疫"、填色是"国家"时(信仰、时代、管辖填色上不盖这层灰,免得看不清它们的颜色) */
+export function wasteShown(p: Pick<CivDrawParams, 'show' | 'civ'>): boolean {
+  return plagueShown(p) && civFillOf(p.show) === 'polities';
+}
+
 /**
  * 荒地按哪一年画:回放、拖时间轴时(fast)按 FAST_STEP 年一档(荒地几十年才变,一档里用同一张,每帧不重算褪色那层);停下来按那一年
  */
@@ -272,7 +278,7 @@ const washCache = new WeakMap<Civ, { raster: unknown; key: string; canvas: AnyCa
 
 /** 荒地褪色那一层画好的那张(raster.w × raster.h,按 civ 缓存;荒的州和浓淡一样就用上次画好的);不画 = null */
 export function washCanvas(p: CivDrawParams): AnyCanvas | null {
-  if (!plagueShown(p)) return null;
+  if (!wasteShown(p)) return null;
   const waste = wasteZone(p.civ, wasteYear(p));
   if (!waste) return null;
   const { raster, civ, world } = p;

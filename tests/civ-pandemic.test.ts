@@ -15,7 +15,8 @@ import { populationAt, regionPopulationAt, ruinSites } from '../src/gen/civ/grow
 import { developmentAt, eraLevel } from '../src/gen/civ/development';
 import { ownersAt } from '../src/gen/civ/timeline';
 import { pandemicsOf, peakEraAt, slumpAt, wasteAt } from '../src/gen/civ/pandemicInfo';
-import { wasteZone } from '../src/render/civ/plague';
+import { wasteShown, wasteZone } from '../src/render/civ/plague';
+import { CIV_SHOW_DEFAULT } from '../src/render/civ/show';
 import { plagueSpans } from '../src/gen/civ/plagueSpans';
 import { buildChronicle } from '../src/gen/civ/chronicle';
 import { developmentEntries } from '../src/gen/civ/developmentText';
@@ -170,6 +171,12 @@ describe('全球大疫', () => {
     }
     const late = wasteZone(civ, p.end + 150);
     expect(late === null || [...late].filter((v) => v > 0).length < 20).toBe(true);
+    // 只在"国家"填色、开着瘟疫时画;信仰、时代填色上不盖
+    const show = { ...CIV_SHOW_DEFAULT, polities: true };
+    expect(wasteShown({ civ, show })).toBe(true);
+    expect(wasteShown({ civ, show: { ...show, eras: true } })).toBe(false);
+    expect(wasteShown({ civ, show: { ...show, faiths: true } })).toBe(false);
+    expect(wasteShown({ civ, show: { ...show, plague: false } })).toBe(false);
   });
 
   it('瘟疫那一层认得出全球大疫:一场,史事 plague 的 cause = pandemic,疫区照常', () => {

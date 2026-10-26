@@ -94,16 +94,12 @@ let preOwners: Owners | undefined;
  */
 function pandemicNow(civ: Civ, id: number, year: number): { year: number; slump: number; pre: number } | null {
   const list = pandemicsOf(civ);
-  if (!list.length) return null;
-  const slump = slumpAt(civ, year);
-  if (!slump) return null;
+  if (!list.length || !slumpAt(civ, year)) return null;
+  // 凋敝还没结束、这国境内(这一年的国土)已经染上的那几场里最近起的一场
   preOwners = ownersAt(civ, year, preOwners);
-  let hit = false;
-  for (let r = 0; r < civ.regions.count && !hit; r++) hit = preOwners.polity[r] === id && slump[r] > 0;
-  if (!hit) return null;
-  // 凋敝还没结束的那几场里最近起的一场
+  const own = preOwners.polity;
   let q = null as (typeof list)[number] | null;
-  for (const x of list) if (x.year <= year && year < x.end) q = x;
+  for (const x of list) if (x.year <= year && year < x.end && x.hits.some((h) => h.year <= year && own[h.region] === id)) q = x;
   if (!q) return null;
   const y0 = q.year - 1 / 64;
   preOwners = ownersAt(civ, y0, preOwners);
