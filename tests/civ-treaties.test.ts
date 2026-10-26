@@ -106,18 +106,22 @@ describe('立约与中立地', () => {
   }, 120_000);
 
   it('约和中立地还在的时候停下、存档读回、接着推到第 3000 年:和一口气推完逐项一样', () => {
-    // 种子 3:第 2017 年议和划了缓冲中立地(第 2036 年背约撤销);种子 1:第 2175 年起的中立地上第 2193、2207 年有宗室被徙去
-    for (const [seed, cut] of [
-      [3, 2030],
-      [1, 2200],
-    ]) {
+    // 每个种子挑一处撑得最久的中立地,在它中间那年停下(约、中立地都还在,中立地上可能已经住了人)
+    let tried = 0;
+    for (const seed of SEEDS) {
       const w = world(seed);
       const whole = civOf(seed);
+      const zs = treatyBook(whole).zones.filter((z) => z && (z.ended ?? whole.endYear) - z.from >= 4);
+      if (!zs.length) continue;
+      const z = zs.reduce((a, b) => ((b.ended ?? whole.endYear) - b.from > (a.ended ?? whole.endYear) - a.from ? b : a));
+      const cut = Math.floor((z.from + (z.ended ?? whole.endYear)) / 2);
+      tried++;
       const mid = generateCiv(w, { endYear: cut });
       expect(zonesAt(mid, cut).length, `seed ${seed} 第 ${cut} 年还有中立地`).toBeGreaterThan(0);
       const saved = unpackValue(packValue(mid)) as Civ;
       const cont = continueCiv(w, saved, { endYear: 3000 });
       for (const k of ['annals', 'log', 'polity', 'people'] as const) expect(cont[k], `seed ${seed} ${k}`).toEqual(whole[k]);
     }
+    expect(tried).toBeGreaterThanOrEqual(2);
   }, 240_000);
 });
