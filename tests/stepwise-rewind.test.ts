@@ -92,8 +92,8 @@ describe('seed 7 演绎到第 2700 年,倒回第 2675 年重新演绎', () => {
   it('弹窗里"不要了的历史"列这一段分量最重的几件,一件几个字,按先后', () => {
     const f = first!;
     const brief = rewindBrief(f.civ, 2667, 2700, fullChronicle(f.civ));
-    // 大霄王朝伐克拉尔汗国、有鹰代有桂、纳西亚王国讨平苏尔斯坦国(GENERATOR_VERSION 39 的历史)
-    expect(brief).toEqual(['大霄伐克拉尔', '有鹰代有桂', '纳西亚王国讨平苏尔斯坦国']);
+    // 埃维里亚王国王室更迭、大霄王朝伐克拉尔汗国、有鹰代有桂(GENERATOR_VERSION 40 的历史)
+    expect(brief).toEqual(['埃维里亚王国王室更迭', '大霄伐克拉尔', '有鹰代有桂']);
     // 一件也没有:空
     expect(rewindBrief(f.civ, 2699.9, 2700, fullChronicle(f.civ))).toEqual([]);
   });

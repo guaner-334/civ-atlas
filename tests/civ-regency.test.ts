@@ -100,8 +100,10 @@ describe.each([7, 2024])('掌实权、联姻 · seed=%i', (seed) => {
       expect(x, `第 ${i} 条`).toBeDefined();
       const g = x.regencies!.find((r) => r.endAnnal === i)!;
       expect(g.end).toBe('usurp');
-      const N = P[g.ruler];
-      expect(N.until).toBe(e.year);
+      // 被废的是那一刻在位的君主:幼主就是掌权时的名义君主;大臣专权跨了几位君主的是后来的那位
+      const N = P.find((p) => p.role === 'ruler' && p.polity === e.a && p !== x && p.until === e.year)!;
+      expect(N, `第 ${i} 条`).toBeDefined();
+      if (REGENCY_KINDS[e.b] !== 'chancellor') expect(N.id).toBe(g.ruler);
       expect(N.fate).toBe('deposed');
       expect(x.role).toBe('ruler');
       expect(x.from).toBe(e.year);

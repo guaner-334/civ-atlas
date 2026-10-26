@@ -3,7 +3,7 @@
  * 每个种子一行:推演耗时;掌权各种几段(引兵入朝 / 太子监国 / 宗室摄政 / 名臣辅政 / 大臣专权 / 大将专权)、平均几年、
  * 怎么结束的(即位 / 还政 / 伏诛 / 篡位 / 卒 / 名义君主先没了 / 改朝换代亡国 / 推到最后还在);结亲几门(互嫁、和亲);
  * 战争、大崩解、分裂、复国、改朝换代的次数,大国(到过 30 州以上的)寿命的中位数,每百年同时在世的国家数(平均),
- * 割据、收回、抗命、议事的次数。
+ * 割据、收回、抗命、议事、立约、背约、放逐的次数。
  * 最后几行是合计 / 最小 / 中位 / 最大,再各种掌权怎么了结的各占几成;没有掌权、联姻的版本(旧版)那几列是 0
  */
 import { writeFileSync } from 'node:fs';
@@ -65,6 +65,9 @@ for (let seed = from; seed < from + N; seed++) {
     reclaim: cs.reclaims,
     defy: cs.defies,
     council: count('council'),
+    treaty: count('treaty'),
+    breach: count('breach'),
+    exile: count('exile'),
   };
   // 掌权:按人物上记的段(people.ts)
   type Seg = { kind: string; from: number; until?: number; end?: string };

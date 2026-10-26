@@ -74,6 +74,8 @@ const STRONG_LEN: [number, number] = [5, 25];
 const STRONG_AGE: [number, number] = [35, 55];
 /** 大臣专权到期:篡位、伏诛的机会(其余卒于位);大将专权到期:伏诛的机会(其余卒于位) */
 const CHANCELLOR_END: [number, number] = [0.35, 0.3];
+/** 篡位的人即位时最多这么大(和别的君主一样即位不过 62 岁):幼主成年时摄政的人已过这个年纪的还政,大臣专权要篡位的到这个年纪就动手 */
+const USURP_AGE = 62;
 const GENERAL_PURGE = 0.3;
 /** 大将的好战比照常取法高这么多 */
 const GENERAL_WAR = 15;
@@ -251,7 +253,9 @@ export interface ChildPlan {
   uncle?: { k: number; s: number };
 }
 
-const childEnd = (u: number): RegencyOutcome => (u < CHILD_END[0] ? 'return' : u < CHILD_END[0] + CHILD_END[1] ? 'purge' : 'usurp');
+/** 幼主成年时的结局;到那时摄政的人已过 USURP_AGE 岁的不篡位(还政) */
+const childEnd = (u: number, born: Year, stop: Year): RegencyOutcome =>
+  u < CHILD_END[0] ? 'return' : u < CHILD_END[0] + CHILD_END[1] ? 'purge' : stop - born > USURP_AGE ? 'return' : 'usurp';
 
 /**
  * 第 k 位君主 r(国家 pid)是继位的幼主:谁摄政 / 辅政(见文件头);不是幼主、没人可用 = null。
@@ -294,11 +298,12 @@ export function childPlan(cx: RegencyCtx, pid: number, r: Reign, marched: (k: nu
   }
   if (uncle && R(U_UNCLE) < UNCLE_P) {
     const died = uncle.life < adult;
-    return { kind: 'uncle', born: uncle.born, stop: died ? uncle.life : adult, outcome: died ? 'died' : childEnd(R(U_END)), leanings: leanings(), uncle: { k: f!.k, s: uncle.s } };
+    return { kind: 'uncle', born: uncle.born, stop: died ? uncle.life : adult, outcome: died ? 'died' : childEnd(R(U_END), uncle.born, adult), leanings: leanings(), uncle: { k: f!.k, s: uncle.s } };
   }
   // 部落没有大臣(按这一刻以前的国号:同一刻稍后才升格的不算,接着推时看到的也一样)
   if (polityTierAt(P, t - 1 / (2 * TICK)) < 1) return null;
-  return { kind: 'minister', born: q(t - lerp(MINISTER_AGE, R(U_AGE))), stop: adult, outcome: childEnd(R(U_END)), leanings: leanings() };
+  const born = q(t - lerp(MINISTER_AGE, R(U_AGE)));
+  return { kind: 'minister', born, stop: adult, outcome: childEnd(R(U_END), born, adult), leanings: leanings() };
 }
 
 /** 看王朝那一刻(t)出不出权臣:机会、大臣还是大将(都是 0–1 的随机数) */
@@ -315,10 +320,13 @@ export function strongPlan(cx: RegencyCtx, pid: number, kind: 'chancellor' | 'ge
   const u = R(U_END);
   const outcome: RegencyOutcome =
     kind === 'general' ? (u < GENERAL_PURGE ? 'purge' : 'died') : u < CHANCELLOR_END[0] ? 'usurp' : u < CHANCELLOR_END[0] + CHANCELLOR_END[1] ? 'purge' : 'died';
+  const born = q(t - lerp(STRONG_AGE, R(U_AGE)));
+  const stop = q(t + lerp(STRONG_LEN, R(U_LEN)));
   return {
-    stop: q(t + lerp(STRONG_LEN, R(U_LEN))),
+    // 篡位的不等过 USURP_AGE 岁(掌权时最多 STRONG_AGE[1] 岁,到那时至少还有几年)
+    stop: outcome === 'usurp' ? Math.min(stop, born + USURP_AGE) : stop,
     outcome,
-    born: q(t - lerp(STRONG_AGE, R(U_AGE))),
+    born,
     leanings: drawLeanings((use) => rnd(cx, pid, key, use, K_STRONG_LEAN), P.lineage, P.kind, kind === 'general' ? { war: GENERAL_WAR } : undefined),
   };
 }

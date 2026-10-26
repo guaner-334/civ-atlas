@@ -195,20 +195,21 @@ describe('seed 7 从第 2650 年演绎到第 2700 年', () => {
     const items = reviewItems(world, civ, 2650, 2675, entries);
     expect(items.map((it) => [Math.floor(it.cap.entry.year), it.cap.typeName])).toEqual([
       [2652, '战争'],
-      [2652, '议事'],
       [2655, '改朝'],
+      [2662, '战争'],
       [2664, '灭亡'],
       [2664, '改朝'],
+      [2666, '民变'],
     ]);
     for (const it of items) {
       expect(entryWeight(it.cap.entry)).toBeGreaterThanOrEqual(REVIEW_WEIGHT);
       expect(it.cap.text.length).toBeGreaterThan(4);
       expect(it.cap.pin).not.toBeNull();
     }
-    // 打了几年的仗(第 2652 年起的那场):字幕只写开头一句,年份写"起"
-    const war = items[0].cap;
-    expect(war.entry.end).toBeGreaterThan(2655);
-    expect(war.label).toBe('第 2652 年起');
+    // 打了几年的仗(第 2662 年起,打到第 2669 年):字幕只写开头一句,年份写"起"
+    const war = items[2].cap;
+    expect(war.entry.end).toBeGreaterThan(2665);
+    expect(war.label).toBe('第 2662 年起');
     // 这一段里分量没到的几件(重要度 2 的灾异、迁都……)不列
     const light = entries.filter((e) => e.year >= 2650 && e.year < 2675 && e.importance >= 2 && entryWeight(e) < REVIEW_WEIGHT);
     expect(light.length).toBeGreaterThan(0);
