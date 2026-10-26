@@ -1,6 +1,7 @@
 /**
  * 中央管到什么程度(control.ts)前后的多种子统计:npx tsx scripts/control-stats.ts [个数=20] [from=1] [cells=…]
- * 每个种子一行:推演耗时、分裂 / 复国 / 大崩解 / 同化 / 割据 / 收回 / 抗命 / 国用不足(因为打仗、因为拖欠)的次数、每百年同时在世的国家数(平均、最多)、
+ * 每个种子一行:推演耗时、分裂 / 复国 / 大崩解 / 同化 / 割据 / 收回 / 抗命 / 国用不足(因为打仗、因为拖欠)的次数、
+ * 议事(council.ts)的次数:合计、各议题(罢直征 / 削藩 / 直征 / 改土归流 / 分封)、各结果(办成 / 妥协 / 搁置 / 谈崩)、削藩谈崩起兵自立的次数、每百年同时在世的国家数(平均、最多)、
  * 大国(到过 30 州以上的)寿命的中位数、第 1500 年和结束那年中央管得到几成的四档各几州。最后一行是最小 / 中位 / 最大
  */
 import { generateWorld, type WorldParams } from '../src/gen/world';
@@ -8,6 +9,7 @@ import { generateCiv } from '../src/gen/civ';
 import { ownersAt } from '../src/gen/civ/timeline';
 import { politicsStats } from '../src/gen/civ/politics';
 import { controlAt, controlTier } from '../src/gen/civ/control';
+import { councilStats } from '../src/gen/civ/council';
 
 const args = process.argv.slice(2);
 const opt = (k: string) => args.find((a) => a.startsWith(`${k}=`))?.slice(k.length + 1);
@@ -51,6 +53,7 @@ for (let seed = from; seed < from + N; seed++) {
     return t;
   };
   const mid = tiersAt(1500);
+  const cs = councilStats(civ);
   const tiers = tiersAt(civ.endYear);
   rows.push({
     seed,
@@ -66,6 +69,16 @@ for (let seed = from; seed < from + N; seed++) {
     defy: count('defy'),
     fiscalWar: civ.annals.filter((a) => a.kind === 'fiscal' && a.war === 0).length,
     fiscalOwe: civ.annals.filter((a) => a.kind === 'fiscal' && a.war === 1).length,
+    council: cs.total,
+    untax: cs.issues[0],
+    cut: cs.issues[1],
+    tax: cs.issues[2],
+    unfief: cs.issues[3],
+    fief: cs.issues[4],
+    done: cs.outcomes[0],
+    half: cs.outcomes[1],
+    shelve: cs.outcomes[2],
+    broken: cs.outcomes[3],
     alive: Math.round((10 * aliveSum) / Math.max(1, samples)) / 10,
     aliveMax,
     big: lives.length,

@@ -563,6 +563,7 @@ const TAG: Record<AnnalKind, string> = {
   reclaim: '收',
   defy: '抗',
   fiscal: '匮',
+  council: '议',
 };
 
 function base(
@@ -1399,6 +1400,15 @@ function simpleEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
       // 说法里点了名的交战国才算这条也和它有关
       return base(e, id, fiscalText(civ, e, foes), 2, e.war !== 0 && foes.length ? [e.a, foes[0]] : [e.a], [e.region]);
     }
+    case 'council': {
+      // 大国办成的改制是大事;搁置、谈崩(后面紧跟着割据、自立那一条)和小国的只在"全部"里
+      const who = reigning(ctx.ix, e.a, y);
+      const imp = e.n === 0 && isGreat(polityOf(civ, e.a)) ? 3 : 2;
+      const t = councilText(civ, e, id, who);
+      // 搁置的几种写法不写君主
+      const named = who && (t.includes(who.name) || (!!who.title && t.includes(who.title)));
+      return withPeople(base(e, id, t, imp, [e.a], [e.region]), named ? who : null);
+    }
     case 'merge': {
       // 并掉的是大国才是大事
       // 藩属纳土归附宗主(diplomacy.ts)
@@ -2014,6 +2024,77 @@ function fiscalText(civ: Civ, e: Annal, foes: number[]): string {
   if (e.war === 0) return `${A}连年用兵,府库空竭`;
   if (foes.length) return `${A}用兵于${pn(civ, foes[0], e.year)},诸州又多截留赋税,府库空竭`;
   return `${A}诸州多截留赋税,府库空竭`;
+}
+
+/**
+ * 议事(council.ts;议题在 war 列,结果在 n 列:0 办成、1 妥协、2 搁置、3 谈崩):写谁推、谁拦、成没成。who = 当时在位的君主(没有人物 = null)。
+ * "大渭国用不足,太宗行直征之法,遣官至瑞州等地自收赋税" / "大渭议行直征,瑞州等地豪族力阻,改与地方分成" /
+ * "大渭太宗削藩,收回割据四十年的瑞州" / "大渭边地难制,群臣请分封瑞州等边州,太宗不许"(西幻:贵族、领主,写得平实些)
+ */
+function councilText(civ: Civ, e: Annal, id: number, who: Person | null): string {
+  const y = e.year;
+  const A = pn(civ, e.a, y);
+  const P = polityOf(civ, e.a);
+  const east = !!P?.eastern;
+  const r = regionName(civ, e.region) || cityName(civ, e.settlement) || (east ? '边地' : '边境');
+  /** "大渭太宗"(没有人物 = 国名)、"太宗"(没有人物 = 空)、"太宗"(没有人物 = "朝廷") */
+  const ref = who ? rulerRef(civ, who, y) : A;
+  const bare = who ? rulerBare(civ, who, y) : '';
+  const court = bare || (east ? '朝廷' : '王室');
+  const lord = east ? '守将' : '领主';
+  const out = e.n ?? 2;
+  switch (e.war) {
+    case 0: {
+      // 罢直征:原来是直征还是分成(这国上一次办成 / 妥协的直征)
+      let half = false;
+      for (let i = id - 1; i >= 0; i--) {
+        const x = civ.annals[i];
+        if (x.kind === 'council' && x.a === e.a && x.war === 2 && (x.n === 0 || x.n === 1)) {
+          half = x.n === 1;
+          break;
+        }
+      }
+      const old = half ? (east ? '分成之法' : '分成征税') : east ? '直征' : '直接征税';
+      if (out === 0) return east ? `${A}${old}所得不抵所费,复由地方代收` : `${A}${old}入不敷出,复由地方代收`;
+      return east ? `${A}群臣请罢${old},${court}不许` : `${A}有人请废除${old},${court}不许`;
+    }
+    case 1: {
+      // 削藩:那处割据起了几年(这国在那州最近一次割据)
+      let since = NaN;
+      for (let i = id - 1; i >= 0; i--) {
+        const x = civ.annals[i];
+        if (x.kind === 'warlord' && x.a === e.a && x.region === e.region) {
+          since = x.year;
+          break;
+        }
+      }
+      const n = Math.round(y - since);
+      const years = n >= 1 ? `割据${cnNumber(n)}年的` : '';
+      if (out === 0) return east ? `${ref}削藩,收回${years}${r}` : `${ref}削夺${r}${lord}之权,收回${years}${r}`;
+      if (out === 3) return east ? `${ref}削藩,${r}${lord}不受命` : `${ref}削夺${r}${lord}之权,${lord}举兵抗命`;
+      return east ? `${A}议削${r}之藩,恐其生变,事寝` : `${A}议削夺${r}${lord}之权,恐其生变,作罢`;
+    }
+    case 2: {
+      // 直征:国用不足才议的(cause = broke),不然是君主锐意兴革
+      const head = e.cause === 'broke' ? `${A}${east ? '国用不足' : '国库空虚'},${bare}` : who ? `${ref}${east ? '锐意兴革,' : '有意革新,'}` : A;
+      const foes = `${r}等地${east ? '豪族' : '贵族'}力阻`;
+      if (out === 0) return east ? `${head}行直征之法,遣官至${r}等地自收赋税` : `${head}改由王室官吏直接征税,派员前往${r}等地`;
+      if (out === 1) return east ? `${head}议行直征,${foes},改与地方分成` : `${head}议由王室直接征税,${foes},改为与地方分成`;
+      if (out === 3) return east ? `${head}强行直征,${r}${lord}拒不奉诏` : `${head}强推直接征税,${r}${lord}拒不从命`;
+      return east ? `${head}议行直征,${foes},事寝` : `${head}议由王室直接征税,${foes},不了了之`;
+    }
+    case 3: {
+      // 改土归流
+      if (out === 0) return east ? `${ref}改土归流,${r}等边州归朝廷直辖` : `${ref}收回边地封授,${r}等地归王室直辖`;
+      if (out === 3) return east ? `${ref}改土归流,${r}${lord}拒不奉诏` : `${ref}收回边地封授,${r}${lord}拒不从命`;
+      return east ? `${A}议改土归流,${r}等地土官力阻,事寝` : `${A}议收回边地封授,${r}等地领主力阻,作罢`;
+    }
+    default: {
+      // 分封边地
+      if (out === 0) return east ? `${A}边地难制,${bare}分封${r}等边州,许其自治,岁纳贡赋` : `${A}边地难治,${bare}将${r}等边地封给当地领主自治,岁纳贡赋`;
+      return east ? `${A}边地难制,群臣请分封${r}等边州,${court}不许` : `${A}边地难治,有人请将${r}等边地封给当地领主,${court}不许`;
+    }
+  }
 }
 
 /** 一州闹饥荒时城里的人口折损(Settlement.sacks 里 cause = famine、同一年的那一条;找不到 = 0) */

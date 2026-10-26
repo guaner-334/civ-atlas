@@ -14,8 +14,8 @@ import type { Civ, FiscalBook, Year } from './types';
 /** 每几年各国记一行 */
 export const BOOK_EVERY = 20;
 
-/** 一行里的列(截留按那一州中央管得到几成分四档:直辖、代管、自治、割据) */
-export const BOOK_COLS = ['田赋', '工商', '市税', '应缴', '实收', '收贡', '纳贡', '战事', '岁出', '国库', '窘迫', '截留直辖', '截留代管', '截留自治', '截留割据'] as const;
+/** 一行里的列(截留按那一州中央管得到几成分四档:直辖、代管、自治、割据;征费 = 直征的开销占应缴几成,见 council.ts) */
+export const BOOK_COLS = ['田赋', '工商', '市税', '应缴', '实收', '收贡', '纳贡', '战事', '岁出', '国库', '窘迫', '截留直辖', '截留代管', '截留自治', '截留割据', '征费'] as const;
 export type BookCol = (typeof BOOK_COLS)[number];
 export const BOOK_WIDTH = BOOK_COLS.length;
 const COL = Object.fromEntries(BOOK_COLS.map((c, i) => [c, i])) as Record<BookCol, number>;

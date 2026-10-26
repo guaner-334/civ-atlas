@@ -63,7 +63,8 @@ export function fiscalView(civ: Civ, p: number, year: Year): FiscalView | null {
   const row = fiscalAt(civ, p, year);
   if (!row) return null;
   const v = row.values;
-  const office = FISCAL_CONSTS.OFFICE * v.应缴;
+  // 直征多派的官吏(征费)算在养官里
+  const office = (FISCAL_CONSTS.OFFICE + v.征费) * v.应缴;
   const income = v.实收 + v.收贡;
   const fill = fillOf(v.国库, v.应缴);
   return {

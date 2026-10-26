@@ -37,7 +37,11 @@
  *   **抗命**(defy):每场战争的第一仗之前(点兵,wars.ts 调 onMuster),交战的一方有割据的地方、地盘里的城人口占全国 DEFY_SHARE 以上,
  *     这处割据 DEFY_REST 年内没抗过命,就记一条 defy(拥兵不出)。国力里本来就不算它(见上),这一条只是让编年史写得出来。
  *
- * **割据不存内存状态**:由史事重建(resumeControl):warlord 开始;reclaim 了结;那州 SETTLE……换过国家的(wm.since 晚于割据那年)也了结。
+ *   **议事**(council.ts,挂在 ControlModel 上):削藩办成 = 收回(只记一条 council,不另记 reclaim)、削藩谈崩 = 那处割据起兵自立;
+ *     议直征 / 改土归流谈崩 = 地方新起一处割据(raise,照常记 warlord);分封了边地的国家新起割据的赔率乘 FIEF_LORD。
+ *     议事定下的征收之法、分封由 council.ts 每年填进数表的输入(征升、征费、分封、改制)。
+ *
+ * **割据不存内存状态**:由史事重建(resumeControl):warlord 开始;reclaim、削藩办成(council)了结;那州 SETTLE……换过国家的(wm.since 晚于割据那年)也了结。
  * 各州管得到几成每 20 年(发展度那一步之后的那一次数表)存一份快照进 Civ.development.control(给图层用),推演里不读快照。
  * 随机数:keyed(subSeed(seed, 'civ-control'), 国家锚, 第几次看内政, 用途),和处理顺序无关。纯计算,不碰 DOM。
  */
@@ -56,6 +60,7 @@ import { stateCards, type ControlRuleConsts, type FiscalRuleConsts } from './sta
 import { UNREST_CONSTS, unrestInputs, unrestModelOf } from './unrest';
 import { BOOK_WIDTH } from './fiscalBook';
 import { POP_CONSTS, POP_TABLES, POP_TILE_TABLES, cellsToTiles, popLayer, popTiles, spreadRural, tilesToCells } from './population';
+import { COUNCIL_CONSTS, cutDone } from './council';
 
 // ---- 调参(以 20 个种子的统计为准,见 scripts/control-stats.ts) ----
 /** 管得到的远近:REACH × (1 + ADMIN_GAIN × 行政能力)(标准路程) */
@@ -136,6 +141,8 @@ const DOMAIN_MAX = 8;
 /** 收回:那州的 c 回到 HOLD 以上就收回;不然每次看内政按 RECLAIM_P ÷ (1 + 动荡) 的机会收回;割据满 RECLAIM_AGE 年以前不收 */
 const RECLAIM_P = 0.15;
 const RECLAIM_AGE = 20;
+/** 分封了边地的国家(council.ts):新起割据的赔率乘这么多(地方已经名正言顺地自治了) */
+const FIEF_LORD = 0.5;
 /** 抗命:地盘里的城人口占全国几成以上才记;同一处这么多年内只记一次 */
 const DEFY_SHARE = 0.06;
 const DEFY_REST = 100;
@@ -210,6 +217,17 @@ export interface ControlModel {
   /** 标出国家 p 此刻割据的地盘(inLord(r) 为真);返回有几处 */
   mark: (p: number, t: Year) => number;
   inLord: (r: number) => boolean;
+  /** 割据 w 此刻的地盘(那州在前,近的先) */
+  domainOf: (w: Warlord, t: Year) => number[];
+  /** 政局的数表(议事读钱粮、管得到几成) */
+  eng: TableEngine;
+  /** 地方能不能在 r 州新起一处割据(议事谈崩用):那州有城、是这国的、不是国都、国家还不到 MAX_LORDS 处 */
+  canRaise: (p: number, r: number, t: Year) => boolean;
+  /** 地方在 r 州新起一处割据(先问过 canRaise;照常记 warlord) */
+  raise: (p: number, r: number, t: Year) => void;
+  /** 议事(council.ts 挂上):每年填数表前填它那几张输入;国家 p 此刻分封了边地没有 */
+  councilFill?: (t: Year) => void;
+  fiefOf?: (p: number, t: Year) => boolean;
 }
 
 const models = new WeakMap<CivSim, ControlModel>();
@@ -236,7 +254,11 @@ export function resumeControl(sim: CivSim, civ: Civ): void {
   const noted = new Map<number, Year>();
   for (const e of civ.annals) {
     if (e.kind === 'fiscal') noted.set(e.a, e.year);
-    else if (e.kind === 'warlord') lords.push({ p: e.a, region: e.region, city: e.settlement, start: e.year, defied: -Infinity });
+    else if (e.kind === 'council' && cutDone(e)) {
+      // 削藩办成:那一处割据了结
+      const w = latest(e.a, e.region);
+      if (w) w.end = e.year;
+    } else if (e.kind === 'warlord') lords.push({ p: e.a, region: e.region, city: e.settlement, start: e.year, defied: -Infinity });
     else if (e.kind === 'reclaim') {
       const w = latest(e.a, e.region);
       if (w) w.end = e.year;
@@ -270,7 +292,7 @@ export const FISCAL_CONSTS: FiscalRuleConsts = {
   FISCAL_W,
   FISCAL_EVERY,
 };
-const STATE_CARDS = stateCards(CONTROL_CONSTS, UNREST_CONSTS, FISCAL_CONSTS, POP_CONSTS);
+const STATE_CARDS = stateCards(CONTROL_CONSTS, UNREST_CONSTS, FISCAL_CONSTS, POP_CONSTS, COUNCIL_CONSTS);
 /**
  * 存下来的表(接着推时填回):算出来的几张(三样收入几年才算一次、国库和乡村人口接着上一年的,都得存),和事件层还要读的几张输入表。
  * 岁入、岁出每年重算,不用存(应缴要存:看邻国时读国库攒到几成)
@@ -387,6 +409,8 @@ function hook(sim: CivSim, seed: number, lords: Warlord[], saved: TablesState | 
     }
     // 各州城的人口每年填(国力要);三样收入要的能力、港口大河几年填一次(只在那几张表要算的年份填,接着推时也一样;乡村人口读表)
     cityPopulationsAt(dev, t, owner, eng.input('城民'));
+    // 议事定下的征收之法、分封(council.ts;没挂 = 都是 0)
+    if (cm.councilFill) cm.councilFill(t);
     if (t % FISCAL_EVERY === 0) {
       const [iProd, iMove, iPort, iRiver] = ['生产', '运输', '港口', '大河'].map((id) => eng.input(id));
       for (let r = 0; r < R; r++) {
@@ -469,7 +493,22 @@ function hook(sim: CivSim, seed: number, lords: Warlord[], saved: TablesState | 
   };
   const inLord = (r: number) => mk[r] === stamp;
 
-  const cm: ControlModel = { pm, wm, pol, base: subSeed(seed, 'civ-control'), lords, raw, remote, lordsOf, mark, inLord };
+  const domainOf = (w: Warlord, t: number): number[] => {
+    const rs: number[] = [];
+    stamp++;
+    domain(w, t, rs);
+    return rs;
+  };
+  /** 新起一处割据,记 warlord(地盘有几州借用 war 列) */
+  const rise = (p: number, r: number, t: number): void => {
+    lords.push({ p, region: r, city: pm.cityOf[r], start: t, defied: -Infinity });
+    sim.record('warlord', { a: p, region: r, settlement: pm.cityOf[r], war: domainOf(lords[lords.length - 1], t).length });
+  };
+  const canRaise = (p: number, r: number, t: number): boolean => {
+    const s = pm.cityOf[r];
+    return s >= 0 && pm.settlements[s].ended === undefined && owner[r] === p && r !== capRegion(pm.polities[p], t) && lordsOf(p, t).length < MAX_LORDS;
+  };
+  const cm: ControlModel = { pm, wm, pol, base: subSeed(seed, 'civ-control'), lords, raw, remote, lordsOf, mark, inLord, domainOf, eng, canRaise, raise: rise };
   models.set(sim, cm);
 
   // ---- 挂到分裂(离心力)、动荡、看内政 ----
@@ -548,14 +587,9 @@ function hook(sim: CivSim, seed: number, lords: Warlord[], saved: TablesState | 
       }
     }
     if (r0 < 0) return false;
-    const odds = ODDS * fexp(K * (u + (WARLORD_C - c0) * GAP_W - U0));
+    const odds = ODDS * fexp(K * (u + (WARLORD_C - c0) * GAP_W - U0)) * (cm.fiefOf?.(p, t) ? FIEF_LORD : 1);
     if (keyed(cm.base, pm.ptag[p], k, U_RISE) >= odds / (1 + odds)) return false;
-    lords.push({ p, region: r0, city: pm.cityOf[r0], start: t, defied: -Infinity });
-    // 地盘有几州(借用 war 列)
-    const rs: number[] = [];
-    stamp++;
-    domain(lords[lords.length - 1], t, rs);
-    sim.record('warlord', { a: p, region: r0, settlement: pm.cityOf[r0], war: rs.length });
+    rise(p, r0, t);
     return true;
   };
 
@@ -619,6 +653,8 @@ function hook(sim: CivSim, seed: number, lords: Warlord[], saved: TablesState | 
     if (sums.length < NP * 7) sums = new Float64Array(NP * 7);
     else sums.fill(0, 0, NP * 7);
     const [land, craft, trade, tax, lord] = ['田赋', '工商', '市税', '税', '割据州'].map((id) => eng.get(id));
+    // 议事定下的征收之法、分封(和「实收」那张表同一个算法)
+    const [lift, fief] = ['征升', '分封'].map((id) => eng.get(id));
     for (let r = 0; r < R; r++) {
       const p = tOwn[r];
       if (p < 0 || p >= NP) continue;
@@ -628,7 +664,8 @@ function hook(sim: CivSim, seed: number, lords: Warlord[], saved: TablesState | 
       sums[o + 2] += trade[r];
       const c = tCtl[r];
       const tier = lord[r] ? 3 : c >= TIER_DIRECT ? 0 : c >= TIER_PROXY ? 1 : 2;
-      sums[o + 3 + tier] += tax[r] * (lord[r] ? 1 : 1 - (REMIT_0 + (1 - REMIT_0) * c));
+      const remit = lord[r] ? 0 : fief[p] && c < COUNCIL_CONSTS.FIEF_C ? COUNCIL_CONSTS.FIEF_REMIT : REMIT_0 + (1 - REMIT_0) * Math.min(1, c + lift[p]);
+      sums[o + 3 + tier] += tax[r] * (1 - remit);
     }
     dev.book.trim(t);
     for (let p = 0; p < NP; p++) {
@@ -639,7 +676,7 @@ function hook(sim: CivSim, seed: number, lords: Warlord[], saved: TablesState | 
       const o = p * 7;
       row.set([sums[o], sums[o + 1], sums[o + 2]], 0);
       ['应缴', '实收', '收贡', '纳贡', '战事', '岁出', '国库', '窘迫'].forEach((id, i) => (row[3 + i] = eng.value(id, p)));
-      row.set([sums[o + 3], sums[o + 4], sums[o + 5], sums[o + 6]], 11);
+      row.set([sums[o + 3], sums[o + 4], sums[o + 5], sums[o + 6], eng.value('征费', p)], 11);
       dev.book.offer(t, p, row);
     }
   };

@@ -132,7 +132,8 @@ describe('王朝更替', () => {
         expect(own[e.region], tag).toBe(e.a);
         expect(civ.culture[e.region] >= 0).toBe(true);
         expect(e.settlement, tag).toBe(capitalAt(p, e.year));
-        const seat = civ.settlements.find((s) => s.region === e.region)!;
+        // 那一年根据地里还在的城(一州前后可能有过几座:早先的毁了、后来另建)
+        const seat = civ.settlements.find((s) => s.region === e.region && s.founded <= e.year && !(s.ended !== undefined && s.ended <= e.year))!;
         expect(seat, tag).toBeDefined();
         const moved = capitalAt(p, e.year - EPS) !== e.settlement;
         if (moved) {
