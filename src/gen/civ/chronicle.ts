@@ -1396,7 +1396,8 @@ function simpleEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
       return base(e, id, lordText(civ, e), 2, e.kind === 'defy' ? [e.a, e.b] : [e.a], [e.region]);
     case 'fiscal': {
       const foes = foesAt(civ, e.a, y);
-      return base(e, id, fiscalText(civ, e, foes), 2, [e.a, ...foes.slice(0, 1)], [e.region]);
+      // 说法里点了名的交战国才算这条也和它有关
+      return base(e, id, fiscalText(civ, e, foes), 2, e.war !== 0 && foes.length ? [e.a, foes[0]] : [e.a], [e.region]);
     }
     case 'merge': {
       // 并掉的是大国才是大事
