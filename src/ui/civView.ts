@@ -328,7 +328,8 @@ export function toggleChroniclePolity(id: number) {
  * 地图高亮(点编年史的一条):事发的州(浓)、相关国家那一年的国土(淡),闪约两秒。
  * stamp 每次点都不同 —— 同一条点两次也重新闪、重新把地图平移过去。
  * steady = 不闪、一直亮着,直到换掉或清掉(天灾页先把受灾的州涂出来,DisasterPage.tsx;天灾推完提示条开着时淡淡涂着,faint);
- * tag = 地图上那一片旁边的小牌子("翼门之野一带 8 州"),摆在地块 cell 下面(TargetPlates.tsx)
+ * tag = 地图上那一片旁边的小牌子("翼门之野一带 8 州"),摆在地块 cell 下面(TargetPlates.tsx);
+ * blue = 一直亮着的改用蓝色:不由打开它的那一页给,useCivHighlight 看现在是不是管辖填色(割据在那里是橙色,橙色的圈亮会撞色)
  */
 export interface CivHighlightState {
   regions: number[];
@@ -338,6 +339,7 @@ export interface CivHighlightState {
   steady?: boolean;
   faint?: boolean;
   tag?: { text: string; cell: number };
+  blue?: boolean;
 }
 
 const highlight = store<{ h: CivHighlightState | null }>({ h: null });
@@ -351,8 +353,18 @@ export function getCivHighlight(): CivHighlightState | null {
   return highlight.get().h;
 }
 
+/** 地图上画的高亮:管辖填色下一直亮着的改用蓝色(同一份高亮、同样的填色给同一个对象) */
 export function useCivHighlight(): CivHighlightState | null {
-  return highlight.use().h;
+  const h = highlight.use().h;
+  const control = show.use().control;
+  return toned(h, control);
+}
+
+let tonedLast: { h: CivHighlightState; out: CivHighlightState } | null = null;
+function toned(h: CivHighlightState | null, control: boolean): CivHighlightState | null {
+  if (!h || !h.steady || !control) return h;
+  if (tonedLast?.h !== h) tonedLast = { h, out: { ...h, blue: true } };
+  return tonedLast.out;
 }
 
 // ---- 点编年史的一条(编年史面板里的一行、时间轴上的大事刻度共用) ----
