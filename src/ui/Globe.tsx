@@ -1233,7 +1233,7 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
     }
     // 编年史高亮:罩染画进贴图,描边、圆圈每帧按投影画成矢量(放大后锐利、两极不扁);点一次闪一次
     const hl = p.hl;
-    const hk = cp && hl ? [hl.stamp, cp.civ, cp.style, cp.raster] : [null];
+    const hk = cp && hl ? [hl.stamp, !!hl.blue, cp.civ, cp.style, cp.raster] : [null];
     if (!sameKey(s.hlTex.key, hk)) {
       s.hlTex.key = hk;
       let src: HTMLCanvasElement | null = null;
