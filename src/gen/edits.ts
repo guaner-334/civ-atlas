@@ -474,7 +474,9 @@
  *      比战功争储(以军功得立、举兵夺位、谮杀兄长、拥兵争位兵败、杀太子自立),编年史的继位那一句写上;连不上的继位者算先君的养子。
  *      推演里老君主寿终时,成年的王子可能不服新君、据地自立(civ/unrest.ts 的宗室争位;史事 split / war 的 cause = heir),
  *      打成内战:兵败国亡、割据一方,或攻进都城夺了大位。历史重新推演
- *  37:议事多了第二批议题(civ/council.ts):收兵权 / 放兵权(禁军、监军、边镇)、收任免 / 放任免(铨选、自辟)、改组(分镇)、
+ *  37:据险断后(civ/wars.ts、civ/passes.ts):追兵只能从关隘打进、或败兵只能经关隘退回时,可能留一支兵守住关隘,追兵本来能再打下的那一州打不下来;
+ *      守关隘的将领另起一位(人物跟着变)。历史重新推演
+ *  38:议事多了第二批议题(civ/council.ts):收兵权 / 放兵权(禁军、监军、边镇)、收任免 / 放任免(铨选、自辟)、改组(分镇)、
  *      地方提的脱离(割据转投邻国,或起兵自立);定下的军制改出兵和军费、官制改中央管得到几成和养官的开销。历史重新推演
  */
 import type { Civ, Culture, Faith, Person, Place, Polity, Regions, RulerLeanings, Settlement } from './civ/types';
@@ -487,7 +489,7 @@ import type { Era } from './era';
 import type { Frontier, Origins } from './civ/frontier';
 
 /** 生成器版本:生成算法有改动、同种子会得到不同世界时加一(存档读档时核对);加一时在 GENERATOR_CHANGES 里补一条 */
-export const GENERATOR_VERSION = 37;
+export const GENERATOR_VERSION = 38;
 
 /**
  * 一版生成器的改动有多大(从小到大):打开旧存档、旧链接时,按跨过的几版里最大的那一种说清变了什么(savefile.ts 的 versionNote)
@@ -542,6 +544,7 @@ export const GENERATOR_CHANGES: Readonly<Record<number, { change: GeneratorChang
   35: { change: 'history' },
   36: { change: 'history' },
   37: { change: 'history' },
+  38: { change: 'history' },
 };
 
 /** 干预的种类(见文件头的表) */

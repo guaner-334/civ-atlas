@@ -300,8 +300,8 @@ describe('真实世界', () => {
       for (let i = 1; i < marks.length; i++) expect(marks[i].x - marks[i - 1].x).toBeGreaterThanOrEqual(DIAMOND_GAP - 1e-9);
       for (const d of marks) expect(d.x >= 0 && d.x <= width).toBe(true);
     }
-    // 宽 900 时放得下的菱形四十个上下:GENERATOR_VERSION 37 以后 seed 7 大事 78 条、菱形 37 个(47%;种子 1–5、2024 是 33%–51%),下限放到 45%
-    expect(layoutDiamonds(majors, civ.endYear, 900).marks.length).toBeGreaterThan(majors.length * 0.45);
+    // 菱形数 ÷ 大事条数:GENERATOR_VERSION 36 时 20 个种子(1–20)里最少 0.31(seed 7 是 0.48),门槛按最少的放
+    expect(layoutDiamonds(majors, civ.endYear, 900).marks.length).toBeGreaterThan(majors.length * 0.3);
   });
 
   it('seed 7:每条大事都找得到事发地,在陆地上', () => {

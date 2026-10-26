@@ -235,7 +235,7 @@ describe('邦交和作者下令', () => {
       });
     // 同一个宗主的两个藩属(称臣那一年之后,和别的藩属配对;依次在几个种子的小世界里找)
     const coVassals = (): Try[] =>
-      [9, 2024, 3, 5, 13].flatMap((seed) => {
+      [9, 2024, 3, 5, 11, 13].flatMap((seed) => {
         const { w, civ } = at(seed);
         return civ.annals
           .filter((e) => e.kind === 'submit')
@@ -281,13 +281,19 @@ describe('邦交和作者下令', () => {
   }, 300_000);
 
   it('纳土归附:藩属并入宗主(邦交里的、内政里的合并都算)记 cause = vassal;编年史写"纳土归附"', () => {
-    const civ = civOf(small(9));
-    // 记 cause = vassal 的,正是并之前是宗主和藩属的那些
-    for (const e of civ.annals.filter((x) => x.kind === 'merge')) {
-      expect(e.cause === 'vassal', `第 ${e.year} 年 ${e.b} 并入 ${e.a}`).toBe(relationsAt(civ, e.year - 1 / 256).liege.get(e.b)?.liege === e.a);
+    // 纳土归附不常见:依次在几个种子的小世界里找(上面几条测试也用这几个;GENERATOR_VERSION 37 起种子 9 没有了)
+    let civ = civOf(small(9));
+    let absorbs: (readonly [Annal, number])[] = [];
+    for (const seed of [9, 2024, 5, 3, 13, 11]) {
+      civ = civOf(small(seed));
+      // 记 cause = vassal 的,正是并之前是宗主和藩属的那些
+      for (const e of civ.annals.filter((x) => x.kind === 'merge')) {
+        expect(e.cause === 'vassal', `种子 ${seed} 第 ${e.year} 年 ${e.b} 并入 ${e.a}`).toBe(relationsAt(civ, e.year - 1 / 256).liege.get(e.b)?.liege === e.a);
+      }
+      absorbs = civ.annals.map((e, i) => [e, i] as const).filter(([e]) => e.kind === 'merge' && e.cause === 'vassal');
+      if (absorbs.length) break;
     }
-    const absorbs = civ.annals.map((e, i) => [e, i] as const).filter(([e]) => e.kind === 'merge' && e.cause === 'vassal');
-    expect(absorbs.length, '种子 9 小世界有纳土归附').toBeGreaterThan(0);
+    expect(absorbs.length, '几个小世界里有纳土归附').toBeGreaterThan(0);
     expect(diplomacyStats(civ).absorbs).toBe(absorbs.length);
     const chron = buildChronicle(civ);
     for (const [e, i] of absorbs) {

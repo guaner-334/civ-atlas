@@ -330,6 +330,8 @@ interface PeopleIndex {
   enthrone: Map<number, Person>;
   /** 人物编号 → 儿子(按出生先后;争储写"三子某某"用) */
   kids: Map<number, Person[]>;
+  /** 据险断后(史事 stand 的下标)→ 守关隘的守将(不算统帅,不在 commands 里) */
+  rear: Map<number, Person>;
 }
 
 const peopleCache = new WeakMap<object, PeopleIndex>();
@@ -339,7 +341,7 @@ function peopleOf(civ: Civ): PeopleIndex | null {
   if (!list || !list.length) return null;
   let ix = peopleCache.get(list);
   if (ix) return ix;
-  ix = { rulers: civ.polities.map(() => []), commands: new Map(), envoys: new Map(), regent: new Map(), enthrone: new Map(), kids: new Map() };
+  ix = { rulers: civ.polities.map(() => []), commands: new Map(), envoys: new Map(), regent: new Map(), enthrone: new Map(), kids: new Map(), rear: new Map() };
   for (const x of list) {
     if (x.parent !== undefined) {
       const ks = ix.kids.get(x.parent);
@@ -355,6 +357,10 @@ function peopleOf(civ: Civ): PeopleIndex | null {
       } else if ((d.kind === 'regent' || d.kind === 'enthrone') && d.person !== undefined && !ix[d.kind].has(d.person)) ix[d.kind].set(d.person, x);
     }
     for (const c of x.commands ?? []) {
+      if (c.rear) {
+        ix.rear.set(c.first, x);
+        continue;
+      }
       let m = ix.commands.get(c.war);
       if (!m) ix.commands.set(c.war, (m = []));
       m.push({ side: c.side, first: c.first, last: c.last, person: x });
@@ -573,6 +579,7 @@ const TAG: Record<AnnalKind, string> = {
   defy: '抗',
   fiscal: '匮',
   council: '议',
+  stand: '役',
 };
 
 function base(
@@ -1834,6 +1841,7 @@ function warEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
       return x;
     }
     if (e.kind === 'battle') return battleChild(battles.get(i) ?? [i]);
+    if (e.kind === 'stand') return standChild(i);
     if (e.kind === 'conquer') {
       // 这场战争里被夺走又打回来的,或者以前就是攻方的(议和割让、分裂出去、上一场战争丢掉的)
       const retake = (e.region >= 0 && firstOwner.get(e.region) === e.a) || ctx.retake.has(i);
@@ -1925,6 +1933,51 @@ function warEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
     if (dead) t += `,${dead.name}战死`;
     for (const x of [ca, cd]) if (x) named.add(x.id);
     return withPeople({ ...base(e, ids[0], t, 2, [e.a, e.b], [e.region]), end: last.year }, ca, cd);
+  }
+  /**
+   * 据险断后(wars.ts 的 stand):败退的一方留一支兵守住山口,挡住追兵,掩护大军撤走。
+   * 东方 "昌国军败退,部将李信以八百人守汾州之隘,拒大渭军三日,力战而死;王翦得以收兵退保汾州";
+   * 汗国 "…,李信率八百骑扼守汾州山口,挡住大渭军三日,战死;…";
+   * 西幻 "…,李信率八百人扼守汾州的山口,挡住大渭大军三天,力战阵亡;王翦得以率主力撤回汾州"。
+   * 守将的结局(Annal.cause):力战而死 / 力竭被擒 / 全师而退;没有人物时不写人名。带多少人按这一条随手挑一个说法
+   */
+  function standChild(i: number): ChronicleEntry {
+    const e = A[i];
+    const y = e.year;
+    const P = polityOf(civ, e.a);
+    const east = classical(P);
+    const khan = !!P?.eastern && !east;
+    const r = regionName(civ, e.region);
+    // 大军退保关隘后面的哪州(Annal.foe;没记 = 关隘所在的州)
+    const hold = e.foe ?? e.region;
+    const back = regionName(civ, hold);
+    // 州名里已经带"之"的("羊涂之野")不再叠一个"之":写"羊涂之野隘口"
+    const pass = r ? (east ? (r.includes('之') ? `${r}隘口` : `${r}之隘`) : khan ? `${r}山口` : `${r}的山口`) : east ? '险隘' : '山口';
+    const s = sideOf(e.a);
+    const rear = ix?.rear.get(i) ?? null;
+    // 掩护的是这一方的统帅:这一刻以前就在领兵的才写名字(这一刻才换上来的写"大军")
+    const lc = s >= 0 ? (ix?.commands.get(e.war)?.find((c) => c.side === s && c.first < i && i <= c.last) ?? null) : null;
+    const lead = lc ? (named.has(lc.person.id) && lc.person.role === 'general' ? lc.person.name : generalRef(civ, lc.person, y)) : '';
+    const men = STAND_MEN[((Math.imul(Math.max(0, e.region) + 1, 0x9e3779b1) ^ Math.imul(Math.floor(y) + 7 * Math.max(0, e.war), 0x85ebca6b)) >>> 0) % STAND_MEN.length];
+    const days = e.n ?? 3;
+    const d = `${days === 2 ? '两' : cnNumber(days)}${east || khan ? '日' : '天'}`;
+    const how = e.cause === 'captured' ? 1 : e.cause === 'withdrew' ? 2 : 0;
+    let t = `${pn(civ, e.a, y)}军败退,`;
+    if (east) t += `${rear ? `部将${rear.name}以${men}人` : `留${men}人`}守${pass},拒${pn(civ, e.b, y)}军${d}`;
+    else t += `${rear ? `${rear.name}率${men}${khan ? '骑' : '人'}` : `留下${men}${khan ? '骑' : '人'}`}扼守${pass},挡住${pn(civ, e.b, y)}${khan ? '军' : '大军'}${d}`;
+    const ends = rear
+      ? east
+        ? ['力战而死', '力竭被执', '全师而还']
+        : khan
+          ? ['战死', '力竭被擒', '全师而还']
+          : ['力战阵亡', '力竭被俘', '随后全身而退']
+      : east
+        ? ['守者尽殁', '守者力竭被执', '全师而还']
+        : ['守军全部战死', '守军力竭被俘', '守军随后全身而退'];
+    t += `,${ends[how]}`;
+    t += east || khan ? `;${lead ? `${lead}得以收兵` : '大军得以'}退保${back || '后方'}` : `;${lead ? `${lead}得以率主力` : '主力得以'}撤回${back || '后方'}`;
+    for (const x of [rear, lc?.person]) if (x) named.add(x.id);
+    return withPeople(base(e, i, t, 2, [e.a, e.b], [e.region, hold]), rear, lc?.person);
   }
 
   // 标题:"大渭伐昌,得瑞州等五州";攻方先得后失:"得瑞州等三州而失雪西"(只有攻方的得失不带主语,别的一律点名)
@@ -2362,6 +2415,8 @@ function plagueEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
 
 /** 战役里攻方从哪种边打过去(AdjKind:平地、跨河、翻山、海峡、航线) */
 const VIA = ['', '渡河', '翻山', '渡海', '浮海'];
+/** 据险断后的那支兵有多少人(编年史随手挑一个说法) */
+const STAND_MEN = ['三百', '五百', '七百', '八百', '数百', '千余'];
 
 // ---------------------------------------------------------------------------
 // 同化与迁徙(阶段 3):史事的 a、b 是民族,war 列借来记国家
@@ -2796,7 +2851,8 @@ export function* chronicleSteps(civ: Civ): Generator<void, ChronicleEntry[]> {
         e.kind === 'sack' ||
         e.kind === 'ruin' ||
         e.kind === 'submit' ||
-        e.kind === 'unally');
+        e.kind === 'unally' ||
+        e.kind === 'stand');
     if (inWar) {
       let g = wars.get(e.war);
       if (!g) wars.set(e.war, (g = []));

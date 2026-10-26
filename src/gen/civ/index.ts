@@ -223,7 +223,7 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
   const iv = pm ? scheduleInterventions(sim, seed, p.interventions) : null;
   if (model) installCultures(sim, model);
   if (pm) installPolities(sim, pm);
-  if (pm) installWars(sim, pm); // 阶段 3 战争与攻占(wars.ts):宣战、攻占、迁都、灭亡、议和
+  if (pm) installWars(sim, pm, world); // 阶段 3 战争与攻占(wars.ts):宣战、攻占、迁都、灭亡、议和
   if (pm) installPolitics(sim, pm, world); // 阶段 3 分与合(politics.ts):分裂、合并、复国、主动迁都、部落地带补立国
   if (pm) installDynasty(sim, pm); // 阶段 3 王朝更替(dynasty.ts):改朝换代、王室更迭,新朝定都根据地
   if (pm) installAssimilation(sim, pm, world); // 阶段 3 同化与迁徙(assimilation.ts):同化、随征服而来的移民、避兵外迁、民族消亡
