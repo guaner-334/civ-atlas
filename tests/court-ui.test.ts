@@ -32,7 +32,7 @@ describe('朝政', () => {
     for (const P of civ.polities) {
       if (!polityAlive(P, Y)) continue;
       const r = courtRulesAt(civ, P.id, Y);
-      expect({ tax: r.tax, fief: r.fiefBy >= 0 }, `国家 ${P.id}`).toEqual(cm.rules(P.id));
+      expect({ tax: r.tax, fief: r.fiefBy >= 0, army: r.army, office: r.office }, `国家 ${P.id}`).toEqual(cm.rules(P.id));
       if (r.events.length) checked++;
       // 定下征法、分封的那次议事都在这一国议过的事里,按先后排
       if (r.taxBy >= 0) expect(r.events).toContain(r.taxBy);
@@ -88,6 +88,11 @@ describe('朝政', () => {
       expect(evs.length).toBe(v.rules.events.length);
       for (let i = 1; i < evs.length; i++) expect(evs[i - 1].year).toBeGreaterThanOrEqual(evs[i].year);
       if (v.rules.taxBy >= 0) expect(evs.find((e) => e.id === v.rules.taxBy)?.then).toMatch(/^从此/);
+      // 每种议题都有名字(第二批:收兵权 / 罢边镇、设边镇 / 罢禁军、行铨选 / 收回辟署、许自辟 / 罢铨选、分镇、脱离);办成的都写出后来怎样
+      for (const ev of evs) {
+        expect(ev.issue).not.toBe('议事');
+        if (ev.out === 0) expect(ev.then, `${ev.issue} ${ev.year}`).toBeTruthy();
+      }
     }
     expect(fiefs).toBeGreaterThan(0);
     expect(lords).toBeGreaterThan(0);
