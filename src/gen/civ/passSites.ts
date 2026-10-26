@@ -57,6 +57,8 @@ export interface PassSite {
   road?: number;
   /** 第一次在这里据险断后的年份(没有 = 不给) */
   stand?: number;
+  /** 在这里据险断后的史事(civ.annals 的下标,按先后;没有 = 不给):编年史、导播按它把那一仗对到这处关 */
+  stands?: number[];
   /** 名关(挑进名额的) */
   named: boolean;
 }
@@ -114,9 +116,11 @@ export function passSites(world: World, regions: Regions, routes: readonly Route
   }
   // 守关战
   if (hist) {
-    for (const { cell, year } of standCells(world, hist)) {
+    for (const { annal, cell, year } of standCells(world, hist)) {
       const s = sites.find((o) => o.cell === cell) ?? sites.find((o) => geo.dist(o.cell, cell) <= MERGE * sp);
-      if (s && (s.stand === undefined || year < s.stand)) s.stand = year;
+      if (!s) continue;
+      if (s.stand === undefined || year < s.stand) s.stand = year;
+      (s.stands ??= []).push(annal);
     }
   }
   // 绕路(大路翻过去的、打过守关战的才算)

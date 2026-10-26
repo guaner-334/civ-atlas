@@ -299,7 +299,7 @@ import { mapBriefOf } from './mapGroups';
 import { NARROW_MAX, isNarrow, useCoarse, useNarrow } from './device';
 import { isDoubleTap, pinchStep, type Pt, type Tap } from './gestures';
 import { createPinchGuard, createWheelReader, inGesturePinch, setGesturePinch, wheelSample } from './wheel';
-import { mapTextBoxes, pickLabelAt } from './mapPick';
+import { mapTextBoxes, passAt, pickLabelAt } from './mapPick';
 import { ownersAt } from '../gen/civ/timeline';
 import { faithAt } from '../gen/civ/religion';
 import { filterChronicle, interventionOutcome } from '../gen/civ/chronicle';
@@ -5433,8 +5433,12 @@ ${s.image.cells}` : null);
         if (r >= 0) toggleDraftRegion(regionKey(civ, r));
         return;
       }
-      const w = markWorldAt(e.clientX, e.clientY);
-      if (!w) return;
+      const w0 = markWorldAt(e.clientX, e.clientY);
+      if (!w0) return;
+      // 点在关口符号(或关名)上:图钉吸到关口正中(钉在关上);拖图钉不吸,拖开就是普通的一个点
+      const pass = passAt(e.clientX, e.clientY);
+      const cell = pass >= 0 && civ.places[pass]?.kind === 'pass' ? civ.places[pass].cell : undefined;
+      const w: [number, number] = cell !== undefined && data ? [data.world.mesh.x[cell], data.world.mesh.y[cell]] : w0;
       if (mk.placing) {
         newMarkDraft({ at: w, year: markYear() });
         setHover(null);

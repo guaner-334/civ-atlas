@@ -13,7 +13,7 @@
 import { useEffect, useRef, type MutableRefObject } from 'react';
 import type { Civ } from '../gen/civ/types';
 import type { World } from '../gen/world';
-import { markShownAt, regionKey, type AuthorMark } from '../gen/edits';
+import { MARK_TITLE_DEFAULT, markShownAt, regionKey, type AuthorMark } from '../gen/edits';
 import {
   MARK_HEX,
   canvasMeasure,
@@ -35,7 +35,8 @@ import { ensureFonts } from '../render/labels/fonts';
 import { useEdits } from './editsStore';
 import { bumpOnCivTime, getCivTime, useSelection } from './civView';
 import { useMarkUi, type MarkDraft } from './markStore';
-import { markRegionIds, markShapeOf } from './markInfo';
+import { markRegionIds, markShapeOf, pinnedPass } from './markInfo';
+import { placeNameShown } from './mapPick';
 import { useAvoidBoxes } from './uiAvoid';
 import { whenDone } from './holdMark';
 import './marks.css';
@@ -90,7 +91,8 @@ function debugNone() {
 function draftAsMark(d: MarkDraft): AuthorMark | null {
   const from = Number(d.fromText);
   const to = d.toText.trim() ? Number(d.toText) : undefined;
-  const base = { id: d.id, title: d.title.trim() || '新标记', color: d.color, size: d.size, from: Number.isFinite(from) ? from : 0, to: Number.isFinite(to) ? to : undefined };
+  // 名字空着:画的时候再定(钉在关上 = 关名,别的 = "新标记")
+  const base = { id: d.id, title: d.title.trim(), color: d.color, size: d.size, from: Number.isFinite(from) ? from : 0, to: Number.isFinite(to) ? to : undefined };
   if (d.scope === 'regions') return { ...base, regions: d.regions };
   return d.at ? { ...base, at: d.at } : null;
 }
@@ -113,10 +115,20 @@ export function MarkLayer({ civ, world, api, hidden, style = 'fantasy' }: { civ:
   // 按钮、面板(名字尽量不写到它们下面)
   const panels = useAvoidBoxes(cvRef);
   const look = markStyle(style);
-  const deps = { marks, draft, selId, placing: ui.placing, civ, panels, look };
+  const deps = { marks, draft, selId, placing: ui.placing, civ, world, panels, look };
   const depsRef = useRef(deps);
   const was = depsRef.current;
-  if (was.marks !== marks || was.draft !== draft || was.selId !== selId || was.placing !== ui.placing || was.civ !== civ || was.panels !== panels || was.look !== look) state.current.ver++;
+  if (
+    was.marks !== marks ||
+    was.draft !== draft ||
+    was.selId !== selId ||
+    was.placing !== ui.placing ||
+    was.civ !== civ ||
+    was.world !== world ||
+    was.panels !== panels ||
+    was.look !== look
+  )
+    state.current.ver++;
   depsRef.current = deps;
   const shapeRef = useRef(shapeOf);
   shapeRef.current = shapeOf;
@@ -193,13 +205,21 @@ export function MarkLayer({ civ, world, api, hidden, style = 'fantasy' }: { civ:
       ctx.clearRect(0, 0, W, H);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       measure ??= canvasMeasure(ctx);
-      const { marks, draft, selId, placing, civ, panels, look } = depsRef.current;
+      const { marks, draft, selId, placing, civ, world, panels, look } = depsRef.current;
       if (!civ) return;
       const year = Math.floor(Math.min(civ.endYear, Math.max(0, getCivTime().year ?? civ.endYear)));
       const items: MarkItem[] = [];
+      // 钉在关上、名字就是关名(或正在填、名字空着)的:关名在地图上写着时图钉旁边不再写一遍;关名没写出来(放大不够、被挤掉)时照写
+      const titleOf = (mk: AuthorMark): string => {
+        const pass = mk.at ? pinnedPass(civ, world, mk.at, year) : -1;
+        if (pass < 0) return mk.title || MARK_TITLE_DEFAULT;
+        const name = civ.places[pass].name;
+        const title = mk.title || name;
+        return title === name && placeNameShown(pass) ? '' : title;
+      };
       const toItem = (mk: AuthorMark, selected: boolean, dim: boolean, draft = false): MarkItem => ({
         id: mk.id,
-        title: mk.title,
+        title: titleOf(mk),
         color: mk.color,
         at: mk.at,
         shape: mk.regions ? shapeRef.current(markRegionIds(civ, mk), draft) : undefined,

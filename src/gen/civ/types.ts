@@ -261,6 +261,8 @@ export interface PassInfo {
   road?: number;
   /** 第一次在这里据险断后的年份 */
   stand?: number;
+  /** 在这里据险断后的史事(civ.annals 的下标,按先后):编年史写关名、导播的圆环落在关口按它认 */
+  stands?: number[];
   /** 名关(挑进名额、大路修通起就画的那些);不是 = 只因为打过守关战才画 */
   named: boolean;
   /** 从哪年起画在地图上(名关:大路修通那年;打过守关战的:那一仗那年;取早的) */

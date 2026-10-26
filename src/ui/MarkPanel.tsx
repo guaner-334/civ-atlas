@@ -12,8 +12,10 @@
  *
  * 填的时候(新建、编辑)
  *   顶部  名字输入框(空着 = "新标记")、"作者标记，在大景王朝的紫月洲"(几个州:年份)
+ *         钉在关上的(点地图时点在关口符号 / 关名上,或从关隘卡片点「放标记」):"作者标记，钉在银竹关上（大武王朝的幽湖洲）",
+ *         名字空着 = 就叫关名(地图上关名已经写着,图钉旁边不再写一遍,见 MarkLayer.tsx)
  *   年份  从 / 到(各带"用第 N 年"= 时间轴当前那年;"到"空着 = 一直都在)
- *   范围  一个点 | 几个州;一个点:拖地图上的图钉挪位置(点地图也行),几个州:点地图上的州加进来 / 去掉
+ *   范围  一个点 | 几个州;一个点:拖地图上的图钉挪位置(点地图也行;拖开关口就是普通的一个点),几个州:点地图上的州加进来 / 去掉
  *   颜色  六种,或「无色」(不画底色和图钉,名字照地图上的地名写);字号  小 / 中 / 大 / 特大;说明  随便写
  *   底部  取消 / 完成(填得不对时点不了,提示一句)
  */
@@ -38,6 +40,7 @@ import {
   markSpot,
   markYears,
   ownerName,
+  pinnedPass,
   regionsText,
 } from './markInfo';
 import { markFocus } from './flyTo';
@@ -258,14 +261,18 @@ function MarkEdit({ civ, raster, world, year, draft: d }: MarkPanelProps & { dra
     const to = d.toText.trim() ? Number(d.toText) : undefined;
     return Number.isFinite(from) && d.fromText.trim() ? markYears({ from, to: Number.isFinite(to) ? to : undefined }) : '';
   })();
-  // 小字:一个点 = 在哪国的哪州(海上 = 哪片海);几个州 = 年份
+  // 钉在关上的(放标记时点了关口符号,或从关隘卡片点「放标记」):名字空着 = 就叫关名(地图上不重复写)
+  const pass = d.scope === 'point' && d.at ? pinnedPass(civ, world, d.at, year) : -1;
+  const passName = pass >= 0 ? civ.places[pass].name : '';
+  // 小字:一个点 = 在哪国的哪州(海上 = 哪片海;钉在关上 = "钉在某关上(某国的某州)");几个州 = 年份
   let sub = '作者标记';
   if (d.scope === 'point' && d.at) {
     const c = cellAtWorld(world, raster, d.at[0], d.at[1]);
     const r = c >= 0 && c < civ.regions.of.length ? civ.regions.of[c] : -1;
     if (r >= 0) {
       const own = markOwners(civ, [r], year)[0];
-      sub = own ? `作者标记，在${ownerName(civ, own.polity, year)}的${regionLabel(civ, r)}` : `作者标记，在${regionLabel(civ, r)}`;
+      const where = own ? `${ownerName(civ, own.polity, year)}的${regionLabel(civ, r)}` : regionLabel(civ, r);
+      sub = passName ? `作者标记，钉在${passName}上（${where}）` : `作者标记，在${where}`;
     } else sub = `作者标记，在${markSpot(civ, world, raster, d.at, year).sea ?? '海上'}`;
   } else if (yearsShown) sub = `作者标记，${yearsShown}`;
 
@@ -288,7 +295,9 @@ function MarkEdit({ civ, raster, world, year, draft: d }: MarkPanelProps & { dra
     patchDraft({ scope });
   };
   const done = () => {
-    if (!problem) finishDraft();
+    if (problem) return;
+    if (passName && !d.title.trim()) patchDraft({ title: passName });
+    finishDraft();
   };
   const ids = d.scope === 'regions' ? markRegionIds(civ, { regions: d.regions }) : [];
   const yearRow = (k: string, key: 'fromText' | 'toText', placeholder?: string) => (
@@ -327,7 +336,7 @@ function MarkEdit({ civ, raster, world, year, draft: d }: MarkPanelProps & { dra
             ref={titleRef}
             value={d.title}
             maxLength={MARK_TITLE_MAX}
-            placeholder={MARK_TITLE_DEFAULT}
+            placeholder={passName || MARK_TITLE_DEFAULT}
             aria-label="标记的名字"
             data-mk="title"
             onChange={(e) => patchDraft({ title: e.target.value })}
@@ -368,7 +377,9 @@ function MarkEdit({ civ, raster, world, year, draft: d }: MarkPanelProps & { dra
               <div className="cp-note">点地图上的州加进来，再点一下去掉。已选 {ids.length} 个州。</div>
             </>
           ) : (
-            <div className="cp-note">{d.at ? '拖动地图上的图钉可以挪位置。' : '在地图上点一下放图钉。'}</div>
+            <div className="cp-note">
+              {passName ? '点在关口上，图钉就钉在关口上，放大缩小都对得准。拖动图钉可以挪开。' : d.at ? '拖动地图上的图钉可以挪位置。' : '在地图上点一下放图钉。'}
+            </div>
           )}
         </section>
         <section className="cp-sec">

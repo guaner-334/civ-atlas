@@ -21,6 +21,7 @@ import type { ChronicleEntry } from '../gen/civ/chronicle';
 import type { Civ } from '../gen/civ/types';
 import type { World } from '../gen/world';
 import { capitalAt } from '../gen/civ/growth';
+import { standPass } from '../gen/civ/display';
 import { nearX, wrapOf } from '../render/common';
 import { END_YEAR_DEFAULT } from '../gen/edits';
 import { yearShort, yearSpanAt, yearAt, yearMonthAt, type Era } from '../gen/era';
@@ -34,6 +35,7 @@ export type EvType = 'war' | 'dynasty' | 'found' | 'empire' | 'assim' | 'faith' 
 const KIND_TYPE: Readonly<Record<string, EvType>> = {
   war: 'war',
   battle: 'war',
+  stand: 'war',
   conquer: 'war',
   peace: 'war',
   sack: 'war',
@@ -556,12 +558,12 @@ export function placeCards(pins: readonly PinBox[], bw: number, bh: number, pad 
 // 事发地
 
 /**
- * 事发地是哪一处:圆环画在哪块地(cell),那块地是哪座城 / 哪一州的治所 / 哪一国那一年的国都
- * (kind + id;导播的镜头拿它当飞过去的目标)
+ * 事发地是哪一处:圆环画在哪块地(cell),那块地是哪座城 / 哪一州的治所 / 哪一国那一年的国都 / 哪一处关隘的口子
+ * (kind + id;关隘的 id = civ.places 的下标;导播的镜头拿它当飞过去的目标)
  */
 export interface EntrySpot {
   cell: number;
-  kind: 'settlement' | 'region' | 'polity';
+  kind: 'settlement' | 'region' | 'polity' | 'pass';
   id: number;
 }
 
@@ -580,6 +582,7 @@ function spotOf(world: World, civ: Civ, e: ChronicleEntry): { spot: EntrySpot | 
 
 /**
  * 纪事的事发地(世界坐标;标签的圆环画在这里):
+ * 据险断后守的口子画在地图上(Place.pass.stands 记着这一条)就是那处关的口子;
  * 有相关的城(立国 / 迁都的国都、改朝入主的城)就是那座城;否则是事发各州(攻占的州、同化的州……)
  * 里离它们中心最近的那一州的治所;都没有就是第一个相关国家那一年的国都。找不到 = null
  */
@@ -596,6 +599,11 @@ function findSpot(world: World, civ: Civ, e: ChronicleEntry): EntrySpot | null {
   const { x, y } = world.mesh;
   const n = world.mesh.n;
   const ok = (c: number) => c >= 0 && c < n;
+  if (e.kind === 'stand' && civ.places) {
+    const p = standPass(civ.places, e.id);
+    const c = p >= 0 ? (civ.places[p].cell ?? -1) : -1;
+    if (ok(c)) return { cell: c, kind: 'pass', id: p };
+  }
   const s = e.settlement;
   if (s >= 0 && s < civ.settlements.length) {
     const c = civ.settlements[s].cell;
