@@ -3,7 +3,7 @@
  * 每行打印:生成 / 铺像素 / 文明(其中宜居度 + 划州、推演(民族 + 城镇 + 国家 + 战争)、回放一帧、道路)耗时,
  * 州数、民族数、占据率、国家数、城镇数、路段数,战争统计(场数、攻占、灭亡、迁都、飞地、易手频繁的州),
  * 分合统计(分裂、合并、复国、主动迁都),王朝更替(东方改朝换代 / 西幻王室更迭),信仰(大教、教派、宗教大事),
- * 以及 36k 默认精细度下的生成总时长。
+ * 最后汇总各项速度和预算(见 SPEED_BUDGET:只报告,超了写"超预算",不改退出码)。
  * 改地形(阶段 4):几组极端的地形修改(最大最强的火山 / 山脉铺满全图、两极的湖、跨 180° 经线的笔画、整片沉成海 / 抬成陆地)。
  * 草图:一片陆地也没画的"都是海"(整颗星球是海)、满图涂成山地、跨 180° 经线和两极的大杂烩(再叠上地形修改)。
  * 板块:满图横竖切开、改成最快 / 不动、陆壳洋壳来回换、四处合并;照图分到上限(60 条窄条再横切);全成陆壳又关掉造山("都是海"、再叠上地形修改)。
@@ -22,7 +22,8 @@ import { labelImage, pixelRegions, washPixels } from '../src/render/civ/territor
 import { borderLines } from '../src/render/civ/borders';
 import { CIV_SHOW_OFF } from '../src/render/civ/overlay';
 import { warFront, warMarkPoints, warSpans } from '../src/render/civ/warfare';
-import { capitalAt, populationAt } from '../src/gen/civ/growth';
+import { capitalAt, populationAt, regionPopulationAt } from '../src/gen/civ/growth';
+import { pandemicsOf } from '../src/gen/civ/pandemicInfo';
 import { warStats } from '../src/gen/civ/wars';
 import { politicsStats } from '../src/gen/civ/politics';
 import { dynastyStats } from '../src/gen/civ/dynasty';
@@ -33,7 +34,7 @@ import { faithAt, faithFromScratch } from '../src/gen/civ/religion';
 import { AVAIL_SCALE, BAD_LEVEL, CAP_COUNT, ERAS, INVENTIONS, RESOURCE_COUNT } from '../src/gen/civ/development';
 import { civLabelItems, civMapLayer, labelViewExtras } from '../src/render/civ/labels';
 import { placeMap } from '../src/render/labels/draw';
-import { END_YEAR_MAX, type TerrainOp, type Upheaval } from '../src/gen/edits';
+import { END_YEAR_MAX, settlementKey, type Intervention, type TerrainOp, type Upheaval } from '../src/gen/edits';
 import { upheavalSteps } from '../src/gen/civ/upheaval';
 import { buildChronicle } from '../src/gen/civ/chronicle';
 import { LAYER_W, LAYER_H, encodeLayer, sketchGrid, type SketchEdit, type SketchKind } from '../src/gen/sketch';
@@ -63,7 +64,9 @@ function devBad(civ: ReturnType<typeof generateCiv>): number {
   dev.events.forEach((e, i) => {
     const res = e.kind === 'discover' || e.kind === 'deplete';
     const inv = e.kind === 'invent';
-    if (!Number.isFinite(e.year) || (i && e.year < dev.events[i - 1].year) || !(e.era >= (res || inv ? 0 : 1) && e.era < ERAS.length) || e.polity >= civ.polities.length || !(e.region >= 0 && e.region < R)) cn++;
+    // 退回(全球大疫的凋敝里,regress)可以退到石器时代(第 0 个)
+    const back = e.kind === 'regress';
+    if (!Number.isFinite(e.year) || (i && e.year < dev.events[i - 1].year) || !(e.era >= (res || inv || back ? 0 : 1) && e.era < ERAS.length) || e.polity >= civ.polities.length || !(e.region >= 0 && e.region < R)) cn++;
     if (res && !(e.resource! >= 0 && e.resource! < RESOURCE_COUNT)) cn++;
     if (inv && !(e.invention! >= 0 && e.invention! < INVENTIONS.length)) cn++;
   });
@@ -162,12 +165,41 @@ let turn = 0;
 /** 这一组轮到本份跑吗 */
 const mine = () => turn++ % PARTS === PART - 1;
 
+/**
+ * 速度预算:只报告(超了在汇总那行写"超预算"),不改退出码 —— 同一段代码在 CI 的虚拟机上快慢能差三成以上,
+ * 拿计时卡合并误报多;NaN、和一口气推完对不上这类功能检查照旧退出码 1。
+ * 产品的标准(用的人的电脑、浏览器里):默认精细度(36k 地块)的地图 2 秒内先出来;历史只要算得比播放快,
+ * 每秒至少推 80 年(时间轴 4 倍速,3000 年约 40 秒内推完)。
+ * 下面的数是 CI 机器(GitHub 的 ubuntu-latest)上的预算:照 2026 年 10 月下旬 CI 上 10 轮压力测试量出的基线(每轮两份里最慢的),
+ * 在最慢的那轮之上留约两成五的余量:
+ * - map:默认精细度下 生成 + 铺像素。Node 里一个线程从头铺到尾(含沟壑;浏览器里沟壑分给几个帮手线程同时算),
+ *   CI 上每轮最慢 3.4–4.4 秒(陆地 60% 的世界最慢,铺像素 3.3 秒),开发用的电脑上同样几组约 2.0–2.6 秒。
+ *   CI 上量不出浏览器里的 2 秒,这里只看有没有比现在明显变慢 → 5500ms
+ * - yearsPerSec:推到的年数 ÷ 文明这一步的耗时(宜居度、划州、推演、起名、道路都算上),所有参数、地形大事、推到 60000 年的都算,
+ *   取最慢的。CI 上最慢约 250 年/秒(推到 60000 年的那组;200k 地块推 3000 年约 280 年/秒),比标准快三倍 → 就用标准 80 年/秒
+ * - habReg:默认精细度下 宜居度 + 划州,CI 上每轮最慢 144–201ms → 250ms
+ * - routes:默认精细度下 道路(含航线),CI 上每轮最慢 624–880ms → 1100ms
+ * - frame:回放一帧(归属 + 国界 + 半分辨率色块,Node 里),所有参数下 CI 上每轮最慢 42–59ms → 75ms
+ */
+const SPEED_BUDGET = { map: 5500, yearsPerSec: 80, habReg: 250, routes: 1100, frame: 75 };
+
 let worstHabReg = 0;
 let worstRoutes = 0;
-let worstTotal = 0;
-let worstSim = 0;
+let worstMap = 0;
 let worstFrame = 0;
 let worstLabels = 0;
+/** 推演最慢的那组:每秒推几年、是哪组 */
+let slowestRate = Infinity;
+let slowestRateCase = '';
+/** 记下推演速度:years 年用了 ms 毫秒 */
+const noteRate = (years: number, ms: number, name: string) => {
+  if (!(years > 0 && ms > 0)) return;
+  const rate = years / (ms / 1000);
+  if (rate < slowestRate) {
+    slowestRate = rate;
+    slowestRateCase = `${name} 推 ${years} 年用 ${Math.round(ms)}ms`;
+  }
+};
 for (const c of cases) {
   for (const seed of [3, 99]) {
     if (!mine()) continue;
@@ -377,9 +409,9 @@ for (const c of cases) {
     if (isDefaultCells) {
       worstHabReg = Math.max(worstHabReg, habReg);
       worstRoutes = Math.max(worstRoutes, routesMs);
-      worstTotal = Math.max(worstTotal, t3 - t0);
+      worstMap = Math.max(worstMap, t2 - t0);
     }
-    worstSim = Math.max(worstSim, simMs);
+    if (civ.viable) noteRate(civ.endYear, civMs, `${caseName(c)} seed ${seed}`);
     worstFrame = Math.max(worstFrame, frameMs);
     console.log(
       caseName(c), 'seed', seed,
@@ -396,16 +428,6 @@ for (const c of cases) {
     );
   }
 }
-console.log(`\n默认精细度下:宜居度+划州最慢 ${Math.round(worstHabReg)}ms(预算 60ms);道路最慢 ${Math.round(worstRoutes)}ms(预算 150ms);生成+铺像素+文明最慢 ${Math.round(worstTotal)}ms(预算 2000ms)`);
-// 推演预算从 40ms 放宽到 60ms(加入战争时):战争每次看邻国、每一仗都要现算各国国力(全部城镇的人口)、
-// 边境胜算、扫一遍前线,推演最慢从约 25ms 涨到约 35ms;修好"离国都的路程"以后国家更大、接壤更多、仗更多,
-// 最慢约 45ms(陆地 60% 的世界,约 1500 州、70 多场仗)
-// 之后的王朝更替、同化与迁徙等推演机制合计允许放宽到 100ms;同化与迁徙这一项自身约多 5ms(看孤地、看民族),
-// 世界的历史跟着变(仗、分裂的多少),默认精细度下推演最慢约 55ms → 60–75ms(机器忙时单次测量很不稳)
-// 城市兴衰(洗劫、毁城、重建、旧都衰落)自身只多几毫秒(攻城时掷两次骰子、看重建 / 看旧都每个世界几十次),人口多算两段
-console.log(`所有参数下:推演(民族 + 城镇 + 国家 + 战争 + 分合 + 王朝 + 同化迁徙 + 城市兴衰)最慢 ${worstSim.toFixed(1)}ms(预算 100ms);回放一帧(归属 + 国界 + 半分辨率色块,Node 里)最慢 ${worstFrame.toFixed(1)}ms(预算 30ms)`);
-console.log(`国名、城名、城镇符号排版 + 避让(缩放 1 倍,含国土栅格首次计算)最慢 ${worstLabels.toFixed(1)}ms`);
-
 // ---- 地形大事:极端的几种(整颗星球沉入海中、整片抬成陆地、五件最大最强的火山) ----
 const UPHEAVAL_CASES: [string, Upheaval[]][] = [
   ['整颗星球沉入海中', [{ year: 1500, ops: rows('sink') }]],
@@ -425,6 +447,7 @@ for (const [name, list] of UPHEAVAL_CASES) {
     const t1 = performance.now();
     const civ = generateCiv(w, { upheavals: steps });
     const t2 = performance.now();
+    if (civ.viable) noteRate(civ.endYear, t2 - t1, `{"地形大事":"${name}"} seed ${seed}`);
     let cn = 0;
     const worlds = [w, ...steps.map((s) => s.world)];
     for (const x of worlds) for (let i = 0; i < x.mesh.n; i++) if (!Number.isFinite(x.elevation[i]) || !Number.isFinite(x.precipitation[i])) cn++;
@@ -483,8 +506,9 @@ for (const [seed, ups] of [
   const t0 = performance.now();
   const civ = generateCiv(w, { endYear: END_YEAR_MAX, ...(steps.length ? { upheavals: steps } : {}) });
   const ms = performance.now() - t0;
+  if (civ.viable) noteRate(civ.endYear, ms, `{"推演年数":${END_YEAR_MAX}} seed ${seed}`);
   let cn = 0;
-  const bad = (s: string | undefined) => !!s && /\d|undefined|NaN/.test(s);
+  const bad =(s: string | undefined) => !!s && /\d|undefined|NaN/.test(s);
   for (let i = 1; i < civ.annals.length; i++) if (civ.annals[i].year < civ.annals[i - 1].year) cn++;
   for (const st of civ.settlements) if (!Number.isFinite(populationAt(st, civ.endYear)) || !st.name || bad(st.name)) cn++;
   for (const po of civ.polities) {
@@ -511,12 +535,46 @@ for (const [seed, ups] of [
   );
 }
 
+// ---- 「天灾 很多」推 12000 年,第 600 年再下一场最重、无人收拾 60 年的全球大疫:史事有序、人口和发展度不是 NaN、
+// 全球大疫里一城最多死六成、天下人口不低于疫前一半、还有国家在、纪事里不冒 undefined / NaN ----
+for (const seed of [7, 99]) {
+  if (!mine()) continue;
+  const w = generateWorld({ ...DEFAULT_PARAMS, seed });
+  const probe = generateCiv(w, { endYear: 600 });
+  const town = probe.settlements.filter((s) => s.ended === undefined).sort((a, b) => populationAt(b, 600) - populationAt(a, 600))[0];
+  const iv: Intervention[] = town ? [{ kind: 'disaster', type: 'pandemic', level: 3, from: 600, city: settlementKey(probe, town.id), slump: 60 }] : [];
+  const t0 = performance.now();
+  const civ = generateCiv(w, { endYear: 12000, calamity: 'many', interventions: iv });
+  const ms = performance.now() - t0;
+  let cn = 0;
+  for (let i = 1; i < civ.annals.length; i++) if (civ.annals[i].year < civ.annals[i - 1].year) cn++;
+  for (const st of civ.settlements) for (const y of [civ.endYear * 0.3, civ.endYear]) if (!Number.isFinite(populationAt(st, y))) cn++;
+  cn += devBad(civ);
+  const list = pandemicsOf(civ);
+  for (const p of list) {
+    for (const h of p.hits) if (!(h.loss > 0 && h.loss <= 0.6)) cn++;
+    let pop = 0;
+    for (let r = 0; r < civ.regions.count; r++) pop += regionPopulationAt(civ, r, Math.min(civ.endYear, p.end));
+    if (!(pop > 0.5 * p.pre)) cn++;
+  }
+  if (!civ.polities.some((q) => q.ended === undefined)) cn++;
+  const ch = buildChronicle(civ);
+  for (const e of ch) if (!e.text || /undefined|NaN/.test(e.text)) cn++;
+  if (cn) process.exitCode = 1;
+  console.log(
+    '{"天灾":"很多","推演年数":12000}', 'seed', seed, iv.length ? '第 600 年最重的全球大疫' : '',
+    `文明 ${Math.round(ms)}ms(每秒 ${Math.round(civ.endYear / (ms / 1000))} 年)全球大疫 ${list.length} 场 国家在世 ${civ.polities.filter((p) => p.ended === undefined).length} 纪事 ${ch.length}`,
+    cn ? `NaN! ${cn}` : '',
+  );
+}
+
 // ---- 接着推和一口气推完一样(随机自查,scripts/lib/resumeFuzz.ts):逐年推演一步随机推 1–60 年、每停一下随机下各种命令,
-// 推到第 3000 年,和带着同样的命令一口气推完逐字段比(默认参数 10 个种子、自定义参数 2 个、小世界 2 个;单测里另跑 3 个推到第 2000 年) ----
+// 推到第 3000 年,和带着同样的命令一口气推完逐字段比(默认参数 10 个种子、自定义参数 2 个、小世界 2 个、「天灾 很多」2 个;单测里另跑 3 个推到第 2000 年) ----
 const FUZZ: FuzzCase[] = [
   ...[1, 3, 5, 7, 11, 12, 31, 42, 99, 2024].map((seed) => ({ seed, to: 3000 })),
   ...[6, 23].map((seed) => ({ seed, to: 3000, params: { polities: 12, cultures: 8, pace: 1.3 } })),
   ...[8, 77].map((seed) => ({ seed, to: 3000, cells: 12000 })),
+  ...[13, 2025].map((seed) => ({ seed, to: 3000, params: { calamity: 'many' as const } })),
 ];
 for (const c of FUZZ) {
   if (!mine()) continue;
@@ -542,4 +600,31 @@ for (const seed of [2, 4, 9, 13, 27, 64]) {
     `${Math.round(performance.now() - t0)}ms 大事 ${r.years.join('、')} 年 命令 ${r.commands} 条`,
     r.diff ? `和一口气推完不一样!\n${r.diff}` : '逐项一致',
   );
+}
+
+// ---- 速度汇总:只报告,不改退出码(预算和来历见 SPEED_BUDGET) ----
+const over: string[] = [];
+/** 一项最慢的耗时和预算;超了记下,后面写"超预算" */
+const vsBudget = (label: string, ms: number, budget: number, digits = 0) => {
+  if (ms > budget) over.push(label);
+  return `${label}最慢 ${ms.toFixed(digits)}ms(预算 ${budget}ms${ms > budget ? ',超预算' : ''})`;
+};
+console.log('\n速度(只报告,超预算不影响检查结果):');
+console.log(
+  `默认精细度下:${vsBudget('地图(生成 + 铺像素)', worstMap, SPEED_BUDGET.map)};${vsBudget('宜居度+划州', worstHabReg, SPEED_BUDGET.habReg)};${vsBudget('道路', worstRoutes, SPEED_BUDGET.routes)}`,
+);
+if (Number.isFinite(slowestRate)) {
+  const slow = slowestRate < SPEED_BUDGET.yearsPerSec;
+  if (slow) over.push('推演速度');
+  console.log(
+    `推演速度(推到的年数 ÷ 文明这一步的耗时)最慢 ${Math.round(slowestRate)} 年/秒(预算至少 ${SPEED_BUDGET.yearsPerSec} 年/秒${slow ? ',超预算' : ''}),是 ${slowestRateCase}`,
+  );
+}
+console.log(
+  `所有参数下:${vsBudget('回放一帧(归属 + 国界 + 半分辨率色块,Node 里)', worstFrame, SPEED_BUDGET.frame, 1)};国名、城名、城镇符号排版 + 避让(缩放 1 倍,含国土栅格首次计算)最慢 ${worstLabels.toFixed(1)}ms`,
+);
+if (over.length) {
+  console.log(`${over.length} 项超预算:${over.join('、')}`);
+  // GitHub 的检查页上挂一条提醒(不算失败)
+  if (process.env.GITHUB_ACTIONS) console.log(`::warning title=压力测试速度::${over.join('、')} 超预算(只报告,不影响检查结果)`);
 }

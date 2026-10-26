@@ -15,8 +15,10 @@
  *     跨国打 ABROAD 折,没人住过的州不去;块之间挨着才搬(隔着海、不毛之地过不去)。
  *   乡口(按州):各块之和。
  *
- * **事件写回**(每一步算之前,上一步以来的):洗劫、饥荒、地震时一州各块折损城里那一成的 RURAL_WAR,瘟疫 RURAL_PLAGUE(growth.ts),
- *   毁城当作折损全部;按城表(Settlement.sacks、ended)和史事(battle、conquer)一件件看,只看这一刻以前的,接着推时按存的那一年接上。
+ * **事件写回**(每一步算之前,上一步以来的):洗劫、饥荒、地震时一州各块折损城里那一成的 RURAL_WAR,瘟疫 RURAL_PLAGUE、
+ *   全球大疫凋敝里的复作 RURAL_SLUMP(growth.ts 的 ruralShare),毁城当作折损全部;按城表(Settlement.sacks、ended)和史事(battle、conquer)
+ *   一件件看,只看这一刻以前的,接着推时按存的那一年接上。
+ *   全球大疫的凋敝里(pandemic.ts)乡民不往"该有的"长回去(输入表"凋敝" = 这一步里凋敝占几成;没有全球大疫时全是 0)。
  *
  * **快照**:每 RURAL_SNAP 年存一份按州的进 Civ.development.rural(界面上州、国家的人口按前后两份线性插值,growth.ts 的 ruralPopulationAt)。
  * 随机数:不用。纯计算,不碰 DOM。
@@ -28,7 +30,8 @@ import { quakeWord } from './calamity';
 import type { CivSim } from './sim';
 import type { PolityModel } from './polities';
 import { RURAL_SNAP, ruralTargets, type DevModel } from './development';
-import { GROWTH_A, RURAL_PLAGUE, RURAL_WAR, SACK_RECOVER } from './growth';
+import { GROWTH_A, RURAL_WAR, SACK_RECOVER, ruralShare } from './growth';
+import { pandemicModelOf, slumpIn } from './pandemicState';
 import type { TableEngine } from './tables';
 import type { PopRuleConsts } from './stateTables';
 import { fpow } from './rand';
@@ -55,6 +58,8 @@ const WEAR = 0.0035;
 const SCORCH = 0.01;
 const BLIGHT = 0.05;
 const LAND_FLOOR = 0.5;
+/** 全球大疫的凋敝里乡民往"该有的"长回去的少几成(无人收拾,几乎不长;复作的折损见 pandemic.ts) */
+const SLUMP_HOLD = 0.7;
 /** 地经不经得住种(按地块的生物群落;没写的 FRAGILE_ELSE);流着、挨着大河的有淤泥补,乘 RIVER_SILT */
 const FRAGILE: readonly number[] = (() => {
   const c = new Array<number>(16).fill(0.2);
@@ -267,6 +272,15 @@ export function popLayer(sim: CivSim, pm: PolityModel, dev: DevModel, eng: Table
     }
     const hit = eng.input('新祸').fill(0);
     const blight = eng.input('新荒').fill(0);
+    // 全球大疫(pandemic.ts):上一步以来各州凋敝占了几成(没有全球大疫的世界全是 0)
+    const slump = eng.input('凋敝').fill(0);
+    const pan = pandemicModelOf(sim);
+    if (pan?.list.length) {
+      for (let r = 0; r < R; r++) {
+        const s = slumpIn(pan, r, t - POP_EVERY, t);
+        if (s) slump[r] = SLUMP_HOLD * Math.min(1, s.years / POP_EVERY);
+      }
+    }
     const S = pm.settlements;
     grow(S.length);
     // 折损一州:州里各块一样折
@@ -284,9 +298,9 @@ export function popLayer(sim: CivSim, pm: PolityModel, dev: DevModel, eng: Table
         for (; seen[i] < sk.length && sk[seen[i]].year < t; seen[i]++) {
           const k = sk[seen[i]];
           if (r >= R) continue;
-          cut(r, (k.cause === 'plague' ? RURAL_PLAGUE : RURAL_WAR) * k.loss);
-          // 瘟疫、地震水旱不算兵灾(不逃);饥荒、大水、大旱伤地力
-          if (k.cause !== 'plague' && k.cause !== 'quake') hit[r]++;
+          cut(r, ruralShare(k.cause) * k.loss);
+          // 瘟疫、疫后凋敝、地震水旱不算兵灾(不逃);饥荒、大水、大旱伤地力
+          if (k.cause !== 'plague' && k.cause !== 'quake' && k.cause !== 'slump') hit[r]++;
           if (k.cause === 'famine' || (k.cause === 'quake' && quakeWord(reg, k.from ?? r) !== '地震')) blight[r]++;
         }
       }

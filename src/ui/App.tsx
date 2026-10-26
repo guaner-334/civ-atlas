@@ -792,6 +792,11 @@ function setupFor(draft: boolean, edits: Pick<WorldEdits, 'frontier' | 'origins'
 }
 const sameSetup = (a: CivSetup | undefined, b: CivSetup | undefined) => sameFrontier(a?.frontier, b?.frontier) && sameOrigins(a?.origins, b?.origins) && a?.civSeed === b?.civSeed;
 
+/** 改名里有几处在这份历史里找不到(找不到的先保留着) */
+const lostRenames = (civ: Civ, names: Record<string, string>) => Object.keys(names).filter((k) => !resolveKey(civ, k)).length;
+/** 打开世界时提示条上说改名对不上的那一句 */
+const lostRenamesNote = (n: number) => `${n} 处改名没对上,先保留`;
+
 /** 结束那一年现存几国(我的世界的卡片上写;没长出文明 = 0) */
 function aliveAtEnd(civ: Civ): number {
   return civ.viable ? civ.polities.filter((x) => polityAlive(x, civ.endYear)).length : 0;
@@ -1170,6 +1175,11 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
   const genReq = useRef<WorkerRequest | null>(null);
   /** 刚另存的新版:打开它以后提示"已另存为…"(from = 原来那一份的名字) */
   const savedCopy = useRef<{ id: string; from: string; more: string[] } | null>(null);
+  /**
+   * 打开世界时还没核对的改名:地图上先出来的历史还没带上存档里的干预等(要在后台重推),改名的人物这时还没长出来,
+   * 等重推完按推好的历史再核对(applyResim);对不上的用 show 补进打开时那条提示。terrain = 打开时的地形(改了地形就作废)
+   */
+  const renameCheck = useRef<{ id: string; terrain: readonly TerrainOp[]; show: (line: string) => void } | null>(null);
   // ---- 阶段 4 干预:带着干预在后台重推文明 ----
   /** 最近一次请求的文明是带着哪些干预推的(生成新世界时 = 没有) */
   const civEdits = useRef<readonly Intervention[]>(EMPTY_EDITS.interventions);
@@ -2075,6 +2085,13 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
     }
     setRawCiv(civ);
     setResim(null);
+    // 打开世界时等着重推完再核对的改名:按推好的历史数对不上的,有就补进打开时那条提示(换了世界、改了地形的不算了)
+    const rn = renameCheck.current;
+    renameCheck.current = null;
+    if (rn && rn.id === currentWorld()?.id && rn.terrain === genTerrain.current) {
+      const lost = lostRenames(civ, getEdits().names);
+      if (lost) rn.show(lostRenamesNote(lost));
+    }
     // 逐年推演的世界推到"现在"了:时间轴只放这一段,播放头停在"现在";刚点了「开始演绎」的接着就往下走
     const play = civPlay.current;
     const rw = rewindNote.current;
@@ -2663,6 +2680,17 @@ ${s.image.cells}` : null);
   const namesDoneRef = useRef(namesDone);
   namesDoneRef.current = namesDone;
 
+  /**
+   * 地图上这份历史推的时候带的(干预、地形大事、地名风格、推演年数、拓荒起源、逐年推演的进度)和这份修改不一样 = 下面那段要在后台重推。
+   * 和下面那段开头的判断一样(新建中的世界不看年数、拓荒起源、进度);读档时用:要重推的,改名等推完再核对
+   */
+  const historyBehind = (e: WorldEdits, isDraft: boolean) =>
+    !sameInterventions(e.interventions, civEdits.current) ||
+    !sameUpheavals(e.upheavals, civUps.current) ||
+    !sameMix(e.nameMix, civNames.current) ||
+    (!isDraft && cleanEndYear(e.endYear) !== civYears.current) ||
+    !sameSetup(setupFor(isDraft, e), civSetup.current) ||
+    JSON.stringify((isDraft ? undefined : cleanPlay(e.play)) ?? null) !== JSON.stringify(civPlay.current ?? null);
   // ---- 干预(阶段 4)、地形大事:干预列表或地形大事一变,就在后台带着新的重推文明(地形不动;变了的那一年以前和原来一样) ----
   useEffect(() => {
     const list = edits.interventions;
@@ -2945,6 +2973,7 @@ ${s.image.cells}` : null);
     lastReady.current = { world, civ: rc };
     const t = targetRef.current;
     if (!t || currentWorld()?.id === t.id) return;
+    renameCheck.current = null;
     // 打不开的分享链接(世界还在生成时解开的):现在提示(单独一条,"已恢复"之类的排在它下面,关掉它再露出来)
     const err = shareErr.current;
     shareErr.current = null;
@@ -3029,25 +3058,30 @@ ${s.image.cells}` : null);
     // 地形校验只在"生成时带的地形修改就是存档里的"时才核对
     const cw = sameT ? checkWarning(save, check) : null;
     if (cw) more.push(cw);
-    const lost = Object.keys(edits.names).filter((k) => !resolveKey(rc, k)).length;
-    if (lost) more.push(`${lost} 处改名没对上,先保留`);
+    // 改名对不上的:这份历史还要按存档里的干预、地形大事、逐年推演的进度等在后台重推时(地图上先出来的是没带它们的),
+    // 改名的人物(和别的重推以后才有的)这会儿还没长出来,不在这里数,重推完按推好的历史再核对(renameCheck)
+    const later = sameT && Object.keys(edits.names).length > 0 && historyBehind(edits, getStage().stage === 'draft');
+    const lost = later ? 0 : lostRenames(rc, edits.names);
+    if (lost) more.push(lostRenamesNote(lost));
     // 文明种子是打造文明时定的,不算"修改"
     const n = editCount(save.edits) - (cleanCivSeed(save.edits.civSeed) !== undefined ? 1 : 0);
     const name = save.title || `种子 ${world.params.seed}`;
-    // 没建完的世界接着建:不用提示
-    if (t.kind === 'draft') return more.length ? say({ kind: 'warn', text: `已打开「${name}」`, more }) : undefined;
-    let text: string;
-    if (t.from === 'file') text = `已打开存档「${name}」${n ? `(改了 ${n} 处)` : ''}`;
-    // 分享的世界:地图下面那条说明已经讲了,没有要说的就不提示
-    else if (t.from === 'link') {
-      if (!more.length) return;
-      text = `已打开分享的世界「${name}」`;
-    }
-    // 从我的世界点开的:看到的就是它,没有要说的就不提示
-    else if (t.from === 'stored' || told) return more.length ? say({ kind: 'warn', text: `已打开「${name}」`, more }) : undefined;
-    else if (n) text = `已恢复上次的修改(${n} 处)`;
-    else return more.length ? say({ kind: 'warn', text: `已打开「${name}」`, more }) : undefined;
-    say({ kind: more.length ? 'warn' : 'ok', text, more });
+    // 提示条第一行。没有要说的就不提示的:没建完的世界接着建、分享的世界(地图下面那条说明已经讲了)、
+    // 从我的世界点开的(看到的就是它)、没改过的;从文件打开的、恢复了上次修改的照样说一声
+    const text =
+      t.kind === 'draft'
+        ? `已打开「${name}」`
+        : t.from === 'file'
+          ? `已打开存档「${name}」${n ? `(改了 ${n} 处)` : ''}`
+          : t.from === 'link'
+            ? `已打开分享的世界「${name}」`
+            : t.from === 'stored' || told || !n
+              ? `已打开「${name}」`
+              : `已恢复上次的修改(${n} 处)`;
+    const always = t.kind !== 'draft' && (t.from === 'file' || (t.from !== 'link' && t.from !== 'stored' && !told && n > 0));
+    // 重推完核对出对不上的:同一条提示补上那一句(打开时没提示的,这时提示)
+    if (later) renameCheck.current = { id: t.id, terrain: genTerrain.current, show: (line) => say({ kind: 'warn', text, more: [...more, line] }) };
+    if (more.length || always) say({ kind: more.length ? 'warn' : 'ok', text, more });
   };
   /** 换成存档里的投影和中央经线(没有 = 等距圆柱、0°;认不出的投影、还没做好的地球仪 = 等距圆柱);存档记了经纬网就换成它的 */
   const applyView = (v: SaveView | undefined) => {
