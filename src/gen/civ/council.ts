@@ -400,10 +400,11 @@ function canRise(wm: WarModel, cm: ControlModel, p: number, r: number, t: number
   return r >= 0 && t - wm.since[r] >= SETTLE && !wm.iv?.locked(r, t) && !wm.iv?.unites(p, t) && cm.canRaise(p, r, t);
 }
 
-/** 削藩谈崩:割据 w 带着地盘(连同被切断的碎块)起兵自立的州组(升序)和国都;起不了兵 = null */
+/** 削藩谈崩:割据 w 带着地盘(连同被切断的碎块)起兵自立的州组(升序)和国都;起不了兵(起事的州或碎块里有刚换过国家的州……)= null */
 function rebelPlan(pol: PoliticsModel, wm: WarModel, w: Warlord, dom: number[], t: number): { group: number[]; sid: number } | null {
   if (!pol.secede || !pol.cutOff || !pol.biggestCity || wm.iv?.unites(w.p, t)) return null;
-  const group = dom.filter((q) => !wm.iv?.locked(q, t)).sort((x, y) => x - y);
+  // 和分裂一样:SETTLE 年内换过国家的州、干预永久划给这国的州不跟着起兵
+  const group = dom.filter((q) => t - wm.since[q] >= SETTLE && !wm.iv?.locked(q, t)).sort((x, y) => x - y);
   if (!group.includes(w.region)) return null;
   const sid = pol.biggestCity(group, t);
   if (sid < 0) return null;
