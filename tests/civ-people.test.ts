@@ -221,9 +221,9 @@ describe.each([7, 2024])('人物 · seed=%i', (seed) => {
         }
       }
     }
-    // 君主继位:每一位"继位"的君主一条,只有选了国家时并进去
+    // 君主继位:每一位"继位"的君主一条,只有选了国家时并进去(废了幼主自立的摄政叔父不另列:掌实权那一条写了篡位)
     const reigns = reignEntries(civ);
-    expect(reigns.length).toBe(P.filter((x) => x.role === 'ruler' && x.rise === 'heir').length);
+    expect(reigns.length).toBe(P.filter((x) => x.role === 'ruler' && x.rise === 'heir' && x.claim?.how !== 'seize').length);
     expect(list.some((e) => e.kind === 'reign')).toBe(false);
     const ids = new Set(list.map((e) => e.id));
     for (const e of reigns) {

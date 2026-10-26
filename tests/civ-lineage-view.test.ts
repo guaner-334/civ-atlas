@@ -96,7 +96,7 @@ describe.each([7, 2024])('世系图 · seed=%i', (seed) => {
 });
 
 describe('世系图 · seed=7 的卢梅亚、埃维里亚', () => {
-  // GENERATOR_VERSION 37 时的世界(以前用的桑在新的历史里没有了)
+  // GENERATOR_VERSION 38 时的世界(以前用的桑在新的历史里没有了)
   it('维斯佩拉朝:标题、结尾、篡位的开国之君是树根;威尔贝尔特二世的父亲是没即位的特里斯贝尔特;受旧朝之后才兴的王室,开国之君的父亲算本朝宗室', () => {
     const civ = civOf(7);
     const id = civ.polities.findIndex((p) => p.name === '卢梅亚');

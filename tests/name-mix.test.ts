@@ -157,9 +157,10 @@ describe('按份数起名(seed 7、2024)', () => {
     // GENERATOR_VERSION 19 再量:6.0、5.0、12.6(还是种子 2024)
     // GENERATOR_VERSION 31 再量:7.2、12.3、10.4(种子 2024)
     // GENERATOR_VERSION 37 再量:11.6、14.8、15.1(都是种子 2024;36 时是 8.5、8.1、12.0)
+    // GENERATOR_VERSION 38 再量:11.0、15.3、15.0(种子 2024;种子 7 是 1.9、3.0、1.8)
     const cases: [NameMix, number, number][] = [
       [{ central: 2, xianxia: 2, frontier: 1, mythic: 2, imperial: 1, kingdom: 1, nordic: 1 }, 70, 12],
-      [{ central: 2, xianxia: 2, frontier: 2, mythic: 2, imperial: 1, kingdom: 1, nordic: 1, slavic: 1, hellenic: 1, desert: 1, steppe: 1, elven: 1 }, 50, 15],
+      [{ central: 2, xianxia: 2, frontier: 2, mythic: 2, imperial: 1, kingdom: 1, nordic: 1, slavic: 1, hellenic: 1, desert: 1, steppe: 1, elven: 1 }, 50, 16],
       [{ nordic: 8, xianxia: 2 }, 20, 16],
     ];
     for (const seed of [7, 2024])
