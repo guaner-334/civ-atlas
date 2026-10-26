@@ -806,7 +806,7 @@ function hook(sim: CivSim, pol: PoliticsModel): void {
     let caps: Uint8Array | null = null;
     for (const s of pm.settlements) {
       const r = s.region;
-      if (s.capitalFrom !== undefined || s.ended !== undefined || owner[r] >= 0 || culture[r] < 0) continue;
+      if (s.capitalFrom !== undefined || s.ended !== undefined || owner[r] >= 0 || culture[r] < 0 || pm.closed?.(r, -1, t)) continue;
       // 自己的"立国"事件已经处理过(当时没立成);同一刻的还在排队,不重复预约
       if (pm.near[r] === 0 && quantize(foundingYear(s)) < t) {
         sim.schedule(t, Ev.PolityFound, r, s.id);

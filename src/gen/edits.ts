@@ -485,6 +485,9 @@
  *      守关隘的将领另起一位(人物跟着变)。历史重新推演
  *  38:议事多了第二批议题(civ/council.ts):收兵权 / 放兵权(禁军、监军、边镇)、收任免 / 放任免(铨选、自辟)、改组(分镇)、
  *      地方提的脱离(割据转投邻国,或起兵自立);定下的军制改出兵和军费、官制改中央管得到几成和养官的开销。历史重新推演
+ *  39:立约与中立地(civ/treaties.ts):打成僵持议和、或几国都怕同一个强邻时立互不侵犯 / 有限竞争之约,约期内互不开战,
+ *      满期续约或约废,也会背约开战;几国共建、议和时划出中立地(那一州不归任何一国),失势的宗室、被废的君主徙居那里,
+ *      亡国之君出奔那里。历史重新推演
  */
 import type { Civ, Culture, Faith, Person, Place, Polity, Regions, RulerLeanings, Settlement } from './civ/types';
 import type { AuthorCharacter } from './characters';
@@ -497,7 +500,7 @@ import type { Frontier, Origins } from './civ/frontier';
 import { SLUMP_CHOICES, SLUMP_DEFAULT, type Calamity } from './civ/calamity';
 
 /** 生成器版本:生成算法有改动、同种子会得到不同世界时加一(存档读档时核对);加一时在 GENERATOR_CHANGES 里补一条 */
-export const GENERATOR_VERSION = 38;
+export const GENERATOR_VERSION = 39;
 
 /**
  * 一版生成器的改动有多大(从小到大):打开旧存档、旧链接时,按跨过的几版里最大的那一种说清变了什么(savefile.ts 的 versionNote)
@@ -553,6 +556,7 @@ export const GENERATOR_CHANGES: Readonly<Record<number, { change: GeneratorChang
   36: { change: 'history' },
   37: { change: 'history' },
   38: { change: 'history' },
+  39: { change: 'history' },
 };
 
 /** 干预的种类(见文件头的表) */

@@ -88,7 +88,7 @@ import {
   settlementRank,
 } from './growth';
 import { pandemicsOf } from './pandemicInfo';
-import { HABITABLE_SUIT, cultureLabel, regionLabel } from './display';
+import { HABITABLE_SUIT, cultureLabel, regionLabel, standPassName } from './display';
 import { ownersAt } from './timeline';
 import { plagueSpans } from './plagueSpans';
 import { councilBefore } from './councilRules';
@@ -99,6 +99,7 @@ import { emptyPolicy, policyName, type PolicyIv } from './policy';
 import { IV_NOT_HIM, IV_PEOPLE, IV_PROTECTED, IV_WAIT } from './rulers';
 import { IV_TOLL, PLAGUE_IV, SLUMP_DEFAULT, quakeWord } from './calamity';
 import { foesAt } from './fiscalBook';
+import { envoyOf, treatyBook, treatyLine, treatyName } from './treatyInfo';
 
 /** 重要度:3 最重要 */
 export type Importance = 1 | 2 | 3;
@@ -148,7 +149,7 @@ export interface ChronicleEntry {
   end: Year;
   /** 纪事正文(不带年份) */
   text: string;
-  /** 一个字的标签(界面上的小印章):立 升 降 战 占 征 和 割 亡 迁 分 复 合 朝 徙 化 湮 掠 毁 建 衰 干 役 变 没 嗣 饥 起 崩 平 疫;信仰:创 皈 传 派 圣;时代:代 */
+  /** 一个字的标签(界面上的小印章):立 升 降 战 占 征 和 割 亡 迁 分 复 合 朝 徙 化 湮 掠 毁 建 衰 干 役 变 没 嗣 饥 起 崩 平 疫;立约:约 续 满 违 中 逐 奔;信仰:创 皈 传 派 圣;时代:代 */
   tag: string;
   importance: Importance;
   /** 相关国家(按国家筛选、地图高亮用;先主后次,不含 −1) */
@@ -588,6 +589,11 @@ const TAG: Record<AnnalKind, string> = {
   stand: '役',
   pandemic: '疠',
   desolate: '疠',
+  treaty: '约',
+  breach: '违',
+  expire: '满',
+  neutral: '中',
+  exile: '逐',
 };
 
 function base(
@@ -1168,6 +1174,10 @@ function warHead(civ: Civ, e: Annal, id: number, general: string): string {
       return `${A}与${B}争边,${general ? `遣${general}伐之` : '起兵伐之'}`;
     case 'betray':
       return general ? `${A}背盟,遣${general}伐${B}` : `${A}背盟伐${B}`;
+    case 'breach': {
+      const name = breachRef(civ, e, id);
+      return name ? `${A}背${name},${go(B)}` : `${A}背与${B}之约,${general ? `遣${general}伐之` : '举兵伐之'}`;
+    }
     case 'punish':
       return `${A}以${B}绝贡,${general ? `遣${general}讨之` : '兴兵讨之'}`;
     case 'quell':
@@ -1206,6 +1216,10 @@ function warReason(civ: Civ, e: Annal, id: number): string {
       return `与${B}争边,`;
     case 'betray':
       return '背盟,';
+    case 'breach': {
+      const name = breachRef(civ, e, id);
+      return name ? `背${name},` : '背约,';
+    }
     case 'rescue':
       return ally ? `救其藩属${ally},` : '';
     default:
@@ -1509,6 +1523,12 @@ function simpleEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
     case 'submit':
     case 'defect':
       return diplomacyEntry(ctx, e, id);
+    case 'treaty':
+    case 'breach':
+    case 'expire':
+    case 'neutral':
+    case 'exile':
+      return treatyEntry(ctx, [id]);
     case 'intervene': {
       // 照大纲同一刻划给同一国的几州:并成一条
       const run = plotCedeRun(civ, id);
@@ -1639,6 +1659,173 @@ function diplomacyEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
     }
     default:
       return base(e, id, `${A}有事`, 1, [e.a], []);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 立约与中立地(treaties.ts):立约、续约、背约、约满、中立地、放逐、出奔
+
+/** 几国并列:"大羽王朝、渭国、后乾衍国" */
+function polityList(civ: Civ, ps: readonly number[], y: Year): string {
+  return ps.map((p) => pn(civ, p, y)).join('、');
+}
+
+/** 约的称呼:"丹枫关之约";议和顺带立的、没有会盟的城:"甲与乙之约" */
+function treatyRef(civ: Civ, id: number, ps: readonly number[], y: Year): string {
+  const name = treatyBook(civ).treaties[id]?.how === 'peace' ? '' : treatyName(civ, id);
+  if (name) return name;
+  return ps.length >= 2 ? `${pn(civ, ps[0], y)}与${pn(civ, ps[1], y)}之约` : '前约';
+}
+
+/** 背的约有名字(会盟的城)= "丹枫关之约";没有(议和顺带立的)= 空串,写"背与某国之约" */
+function breachName(civ: Civ, n: number | undefined): string {
+  return treatyBook(civ).treaties[n ?? -1]?.how === 'peace' ? '' : treatyName(civ, n ?? -1);
+}
+
+/** 背约来攻的那场战争(war 的 cause = breach)背的是哪份约的名字(宣战前一刻记的那条 breach;没名字 / 找不到 = 空串) */
+function breachRef(civ: Civ, e: Annal, id: number): string {
+  for (let i = id - 1; i >= 0 && civ.annals[i].year === e.year; i--) {
+    const b = civ.annals[i];
+    if (b.kind === 'breach' && b.war === e.war) return breachName(civ, b.n);
+  }
+  return '';
+}
+
+/** 中立地那一州的名字 */
+function zoneName(civ: Civ, e: Annal): string {
+  return regionName(civ, e.region) || cityName(civ, e.settlement) || '某地';
+}
+
+/** 几国:"两国""三国" */
+function nations(n: number): string {
+  return `${n === 2 ? '两' : cnNumber(n)}国`;
+}
+
+/**
+ * 紧跟在背约 / 约满后面、同一刻的中立地撤销、约废(剩不到两国):并进那一条。
+ * 议和顺带立的约紧跟着划了缓冲中立地:立约那一条并进中立地那一条(见 treatyEntry)
+ */
+function treatyTail(e: Annal, head: Annal): boolean {
+  if (e.year !== head.year) return false;
+  const tid = head.kind === 'breach' ? head.n : head.war;
+  if (e.kind === 'neutral' && e.cause === 'lapse' && e.n === tid) return head.kind === 'breach' || head.kind === 'expire';
+  return head.kind === 'breach' && e.kind === 'expire' && e.cause === 'lapse' && e.war === tid;
+}
+
+/** 中立地撤销那一句:"星河域中立地废,还归渭国" */
+function zoneLapseText(civ: Civ, e: Annal): string {
+  return `${zoneName(civ, e)}中立地废${e.a >= 0 ? `,还归${pn(civ, e.a, e.year)}` : ''}`;
+}
+
+/**
+ * 立约 "渭国与大羽王朝、后乾衍国会于丹枫关,立约互不侵犯,各守今疆,以三十年为期;拉文海姆王国首相贡纳瓦尔居间"
+ * (两国之约国界上有山河的写"以云隐山为界");议和顺带立约 "大岳王朝与大渭议和,约二十年互不侵犯";
+ * 续约 "丹枫关之约满三十年,大羽王朝、大渭续约二十年;后乾衍国不在约中";
+ * 背约 "大渭背丹枫关之约,伐后乾衍国,兵出星河域;星河域中立地废"(标签"违");约满 "大岳王朝与大渭之约满二十年,不续;德和郡中立地废,还归大岳王朝";
+ * 中立地 "大羽王朝、渭国、后乾衍国以星河域为中立地,渭国让出丹枫关,三国皆不驻兵" / 议和划缓冲 "大岳王朝与大渭议和,以德和郡为缓冲中立地,约二十年互不侵犯";
+ * 放逐 "渭桓王疏其弟阎晋显,徙居星河域" / "昌哀帝既废,徙居星河域";出奔 "后乾衍国亡,哀公司霄泠出奔星河域"(标签"奔")。
+ * ids[0] = 这一条,后面是并进来的(treatyTail)
+ */
+function treatyEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
+  const { civ, ix } = ctx;
+  const A = civ.annals;
+  const id = ids[0];
+  const e = A[id];
+  const y = e.year;
+  const book = treatyBook(civ);
+  const tails = ids.slice(1).map((i) => A[i]);
+  const zoneTail = tails.filter((x) => x.kind === 'neutral').map((x) => `;${zoneLapseText(civ, x)}`).join('');
+  const ps = e.ps ?? [e.a, e.b].filter((p) => p >= 0);
+  switch (e.kind) {
+    case 'treaty': {
+      const x = book.treaties[e.war];
+      const term = e.n ?? x?.term ?? 20;
+      if (e.cause === 'renew') {
+        const k = x ? x.renewals.findIndex((r) => r.annal === id) : -1;
+        const prev = x ? (k > 0 ? x.renewals[k - 1] : null) : null;
+        const before = prev ? prev.parties : (x?.parties ?? ps);
+        const was = prev ? prev.term : (x?.term ?? term);
+        const gone = before.filter((p) => !ps.includes(p) && !(x?.breaches.some((b) => b.by === p) ?? false) && polityOf(civ, p)?.ended === undefined);
+        const same = ps.length === before.length && ps.every((p) => before.includes(p));
+        const t = `${treatyRef(civ, e.war, before, y)}满${cnNumber(was)}年,${same ? nations(ps.length) : polityList(civ, ps, y)}续约${cnNumber(term)}年${gone.length ? `;${polityList(civ, gone, y)}不在约中` : ''}`;
+        return { ...base(e, id, t, 2, ps, [], '续'), settlement: -1 };
+      }
+      const by = e.by ?? -1;
+      const envoy = by >= 0 ? envoyOf(civ, by, y) : null;
+      const mid = by >= 0 ? `;${pn(civ, by, y)}${envoy ? ministerRef(envoy, y) : ''}居间` : '';
+      const city = cityName(civ, e.settlement);
+      let t: string;
+      if (e.cause === 'peace') t = `${pn(civ, ps[0], y)}与${pn(civ, ps[1], y)}议和,约${cnNumber(term)}年互不侵犯${mid}`;
+      else {
+        const line = x ? treatyLine(civ, x) : -1;
+        const what = ps.length < 3 && line >= 0 ? `立约互不侵犯,以${civ.places[line].name}为界` : '立约互不侵犯,各守今疆';
+        t = `${pn(civ, ps[0], y)}与${polityList(civ, ps.slice(1), y)}${city ? `会于${city},` : ''}${what},以${cnNumber(term)}年为期${mid}`;
+      }
+      // 三国以上的有限竞争之约是大事;两国之约只在"全部"里(一个世界几份到十几份,大多约满就散)
+      const out = base(e, id, t, ps.length >= 3 ? 3 : 2, by >= 0 ? [...ps, by] : ps, e.region >= 0 ? [e.region] : [], '约');
+      return withPeople(out, envoy);
+    }
+    case 'breach': {
+      const name = breachName(civ, e.n);
+      // 兵出中立地:背约这一仗头一回打的就是刚撤销的中立地那州
+      const zone = tails.find((z) => z.kind === 'neutral');
+      let out = '';
+      if (zone) {
+        for (let i = id + 1; i < A.length; i++) {
+          const w = A[i];
+          if (w.war !== e.war || (w.kind !== 'conquer' && w.kind !== 'battle')) continue;
+          if (w.region === zone.region) out = `,兵出${zoneName(civ, zone)}`;
+          break;
+        }
+      }
+      const B = pn(civ, e.b, y);
+      const t = `${pn(civ, e.a, y)}${name ? `背${name},伐${B}` : `背与${B}之约,举兵伐之`}${out}${zoneTail}`;
+      return { ...base(e, id, t, 2, [e.a, e.b], zone ? [zone.region] : [], '违'), settlement: -1 };
+    }
+    case 'expire': {
+      const x = book.treaties[e.war];
+      const all = x?.parties ?? ps;
+      const ref = treatyRef(civ, e.war, all, y);
+      const last = x?.renewals.filter((r) => r.year < y).pop();
+      const term = last ? last.term : (x?.term ?? 20);
+      const t = e.cause === 'lapse' ? `${ref}遂废${zoneTail}` : `${ref}满${cnNumber(term)}年,不续${zoneTail}`;
+      return { ...base(e, id, t, e.cause === 'lapse' ? 1 : 2, all, [], '满'), settlement: -1 };
+    }
+    case 'neutral': {
+      const z = zoneName(civ, e);
+      if (e.cause === 'lapse') return base(e, id, zoneLapseText(civ, e), 2, e.a >= 0 ? [e.a] : [], [e.region], '中');
+      const fs = e.ps ?? [];
+      const x = book.treaties[e.n ?? -1];
+      let t: string;
+      if (e.cause === 'peace') t = `${pn(civ, fs[0], y)}与${pn(civ, fs[1], y)}议和,以${z}为缓冲中立地,约${cnNumber(x?.term ?? 20)}年互不侵犯`;
+      else {
+        const city = cityName(civ, e.settlement);
+        const give = e.a >= 0 ? `${pn(civ, e.a, y)}让出${city || z},` : '';
+        t = `${polityList(civ, fs, y)}以${z}为中立地,${give}${nations(fs.length)}皆不驻兵`;
+      }
+      return base(e, id, t, fs.length >= 3 ? 3 : 2, fs, [e.region], '中');
+    }
+    case 'exile': {
+      const z = zoneName(civ, e);
+      const who = civ.people?.find((p) => p.exile?.annal === id) ?? null;
+      const P = pn(civ, e.a, e.cause === 'fled' ? y - 1 / 512 : y);
+      let t: string;
+      let by: Person | null = null;
+      if (e.cause === 'fled') t = who ? `${P}亡,${rulerRef(civ, who, y - 1 / 512)}出奔${z}` : `${P}亡,其君出奔${z}`;
+      else if (e.cause === 'deposed') t = who ? `${rulerRef(civ, who, y)}既废,徙居${z}` : `${P}废君徙居${z}`;
+      else {
+        by = who ? (who.exile?.by !== undefined ? (civ.people?.[who.exile.by] ?? null) : reigning(ix, e.a, y)) : null;
+        const kin = who && by ? kinOf(civ, by, who) : '';
+        if (who && by) t = kin === '兄' || kin === '弟' ? `${rulerRef(civ, by, y)}疏其${kin}${who.name},徙居${z}` : `${rulerRef(civ, by, y)}徙宗室${who.name}居${z}`;
+        else {
+          t = `${P}徙宗室于${z}`;
+          by = null;
+        }
+      }
+      return withPeople(base(e, id, t, 2, [e.a], [e.region], e.cause === 'fled' ? '奔' : '逐'), who, by);
+    }
+    default:
+      return base(e, id, `${pn(civ, e.a, y)}有事`, 1, [e.a], []);
   }
 }
 
@@ -1965,8 +2152,10 @@ function warEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
     // 大军退保关隘后面的哪州(Annal.foe;没记 = 关隘所在的州)
     const hold = e.foe ?? e.region;
     const back = regionName(civ, hold);
-    // 州名里已经带"之"的("羊涂之野")不再叠一个"之":写"羊涂之野隘口"
-    const pass = r ? (east ? (r.includes('之') ? `${r}隘口` : `${r}之隘`) : khan ? `${r}山口` : `${r}的山口`) : east ? '险隘' : '山口';
+    // 守的口子画在地图上(名关、打过守关战的口子,Place.pass.stands 记着这一条)= 直接写关名("守银竹关");
+    // 没对上的照旧用州名称呼。州名里已经带"之"的("羊涂之野")不再叠一个"之":写"羊涂之野隘口"
+    const onMap = standPassName(civ, i);
+    const pass = onMap || (r ? (east ? (r.includes('之') ? `${r}隘口` : `${r}之隘`) : khan ? `${r}山口` : `${r}的山口`) : east ? '险隘' : '山口');
     const s = sideOf(e.a);
     const rear = ix?.rear.get(i) ?? null;
     // 掩护的是这一方的统帅:这一刻以前就在领兵的才写名字(这一刻才换上来的写"大军")
@@ -2995,6 +3184,14 @@ export function* chronicleSteps(civ: Civ): Generator<void, ChronicleEntry[]> {
         continue;
       }
     }
+    // 立约与中立地:背约、约满后面同一刻的中立地撤销、约废并进那一条;议和顺带立的约紧跟着划了缓冲中立地的,立约那条并进中立地那条
+    if (e.kind === 'breach' || e.kind === 'expire') {
+      const ids = [i];
+      while (i + 1 < A.length && treatyTail(A[i + 1], e)) ids.push(++i);
+      out.push(treatyEntry(ctx, ids));
+      continue;
+    }
+    if (e.kind === 'treaty' && e.cause === 'peace' && A[i + 1]?.kind === 'neutral' && A[i + 1].cause === 'peace' && A[i + 1].n === e.war) continue;
     // 被迫迁都(capital 带战争编号)、洗劫、毁城(阶段 3 城市兴衰)也折进那场战争
     // 邦交:战败称臣(submit 带战争编号)、背盟来攻、坐视不救(unally 带战争编号)也折进那场战争
     const inWar =

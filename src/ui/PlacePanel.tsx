@@ -5,17 +5,21 @@
  *   按钮  设为中心 / 改名 / 更多(让 AI 讲名字由来、让 AI 起名:按当地语感起几个,点一个就改名)
  *   概况  按种类挑拿得到的数(panelData.ts 的 placeFacts):山脉 最高峰 / 长度 / 跨州;河 长度 / 流经州 / 源头海拔;
  *         湖 面积 / 湖面海拔;岛 面积 / 最高峰;荒漠 面积 / 年降水;海 离岸最远 / 最深处;
- *         关隘 关口海拔 / 两旁山脊 / 绕开它要翻多高 / 大路哪年修通(Place.pass);
- *         当年在哪些国家境内(海:沿岸有哪些国家;色块 + 国名,可点;河按流经的先后,其余按占的多少)
+ *         关隘 关口海拔 / 两旁山脊 / 绕开它要翻多高 / 大路哪年修通(Place.pass),西边 / 东边各是哪一州、
+ *         这一年归谁(色块 + 州名 +(国名,可点));
+ *         别的:当年在哪些国家境内(海:沿岸有哪些国家;色块 + 国名,可点;河按流经的先后,其余按占的多少)
+ *   关隘还有:按钮多一个「放标记」(图钉钉在关口上,见 MarkPanel.tsx);「这一带打过的仗」列两边那几州到这一年的交战、守关、攻占,
+ *         新的在上,点一条跳到那一年
  */
 import { useMemo, useState } from 'react';
 import type { Place } from '../gen/civ/types';
-import { cultureLabel } from '../gen/civ/display';
+import { cultureLabel, regionLabel } from '../gen/civ/display';
 import { polityName } from '../gen/civ/growth';
 import { placeKeyOf } from '../gen/edits';
 import { NameEdit } from './NameEdit';
-import { areaText, kmText, metersText, ownersOf, placeFacts } from './panelData';
-import { Act, Acts, AiBox, CenterAct, Link, MoreAct, PanelHead, Row, Stats, SubLine, rgb, type DetailProps, type Stat, useRevealAi } from './panelParts';
+import { areaText, entriesUpTo, fightEntries, kmText, metersText, ownersOf, passSides, placeFacts } from './panelData';
+import { Act, Acts, AiBox, CenterAct, EventList, Link, MoreAct, PanelHead, Row, Stats, SubLine, rgb, type DetailProps, type Stat, useRevealAi } from './panelParts';
+import { newMarkDraft } from './markStore';
 import { AiMenuItem, MenuItem } from './PopMenu';
 import { Icon } from './icons';
 import { useAiOn } from '../ai/client';
@@ -90,7 +94,28 @@ export function PlacePanel({ civ, raw, raster, world, id, year, names }: DetailP
     if (p.kind === 'desert') num('年降水', f.rain, '毫米', (x) => `${Math.round(x)}`);
   }
 
-  const where = f.regions.length > 0 && (p.kind !== 'sea' || pols.length > 0);
+  // 关隘:两边各是哪州、这一年归谁(代替通用的"所在");这一带打过的仗
+  const pass = p.kind === 'pass' ? p.pass : undefined;
+  const sides = pass ? passSides(world, civ, pass.regions) : [];
+  const near = useMemo(() => (pass ? [...new Set(pass.regions)] : []), [pass]);
+  const fights = useMemo(() => (near.length ? fightEntries(civ, near) : []), [civ, near]);
+  const sideRows = sides.map(({ k, r }) => {
+    const q = own.polity[r];
+    const P = q >= 0 ? civ.polities[q] : undefined;
+    return (
+      <Row key={k} k={k} className="cp-links cp-chips">
+        <span className="cp-chip">
+          {P && <i className="cp-sw" style={{ background: rgb(P.color) }} />}
+          <span>{regionLabel(civ, r)}</span>
+          <span>（</span>
+          {P ? <Link to={{ kind: 'polity', id: P.id }}>{polityName(P, year)}</Link> : <span>{own.culture[r] >= 0 ? '部落地带' : '无人居住'}</span>}
+          <span>）</span>
+        </span>
+      </Row>
+    );
+  });
+
+  const where = p.kind !== 'pass' && f.regions.length > 0 && (p.kind !== 'sea' || pols.length > 0);
   return (
     <div className="cp" data-place={id}>
       <PanelHead>
@@ -123,6 +148,12 @@ export function PlacePanel({ civ, raw, raster, world, id, year, names }: DetailP
         <Act icon="rename" act="rename" onClick={() => setRenaming(true)}>
           改名
         </Act>
+        {/* 关隘:放一个作者标记,图钉钉在关口正中 */}
+        {pass && p.cell !== undefined && (
+          <Act icon="pin" act="add-mark" onClick={() => newMarkDraft({ at: [world.mesh.x[p.cell!], world.mesh.y[p.cell!]], year })}>
+            放标记
+          </Act>
+        )}
         {/* 「更多」里只有 AI 的两项:「使用 AI 功能」关着时整个不放 */}
         {aiOn && (
           <MoreAct>
@@ -136,8 +167,9 @@ export function PlacePanel({ civ, raw, raster, world, id, year, names }: DetailP
         )}
       </Acts>
       <div className="cp-body">
-        {(stats.length > 0 || where) && (
+        {(stats.length > 0 || where || sideRows.length > 0) && (
           <Stats items={stats}>
+            {sideRows}
             {where && (
               <Row k={p.kind === 'river' ? '流经' : p.kind === 'sea' ? '沿岸' : '所在'} className="cp-links cp-chips">
                 {pols.length
@@ -154,6 +186,7 @@ export function PlacePanel({ civ, raw, raster, world, id, year, names }: DetailP
             )}
           </Stats>
         )}
+        {pass && <EventList civ={civ} title="这一带打过的仗" upTo={entriesUpTo(fights, year)} />}
         <AiBox ai={ai} aiRef={aiRef} />
       </div>
     </div>

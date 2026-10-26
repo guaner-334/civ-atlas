@@ -10,6 +10,8 @@
  *   关注一人 = 写到他的事 + 他那一国在他在台上(君主在位、将领领兵、名臣在朝)时的大事 + 别国的头等大事;
  *     接着跟(relay)= 他不在了以后接着跟下一位(followInfo.ts:君主跟继任的,将领、名臣回到他的国家),每一段照那一段跟的排。
  *   因为关注对象没排进来的别国大事进"略过的"(focus)。
+ *   排进来的仗里据险断后的那几下(编年史挂在战争下的条目)各自再放一段,按"其余大事"停、分量同那场仗:
+ *   镜头落在守的那处关上,名牌写关名(守的口子画在地图上的不和别的合成一段)。
  * - 停多久:头等大事(亡国、改朝换代、大战、分裂、大崩解、民变、民族消亡、干预、地形大事 —— 分量 ≥ 35)字幕停 3 秒,
  *   其余大事 2 秒,小事 1.2 秒,再乘"一件事停多久"的系数(短 0.5、标准 1、长 2)。每一段开头镜头先飞 0.6 秒(和选中东西时一样)。
  * - 合成一段:同一个地方(事发地相距不到 3 个州)接连的几件(和前一件相隔不到 10 年,一段最多 3 件)合成一段,
@@ -47,6 +49,8 @@ import { followLegs } from './followInfo';
 export const BIG_WEIGHT = 35;
 /** 字幕停几秒(系数 1 时):头等大事 / 其余大事 / 小事 */
 export const DIRECTOR_HOLD: Readonly<Record<DirectorTier, number>> = { big: 3, major: 2, minor: 1.2 };
+/** 仗里据险断后的那一下(编年史挂在战争下的一条)单独一段时按哪一档停 */
+const STAND_TIER: DirectorTier = 'major';
 /** "一件事停多久"的系数夹在这里面 */
 export const HOLD_FACTOR_MIN = 0.25;
 export const HOLD_FACTOR_MAX = 4;
@@ -230,6 +234,7 @@ interface Cand extends DirectorCaption {
 }
 
 const ALL_YEARS = { from: -Infinity, to: Infinity };
+const NO_ENTRIES: readonly ChronicleEntry[] = [];
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 /** 先后:年份、编号 */
 const byTime = (a: { entry: ChronicleEntry }, b: { entry: ChronicleEntry }) => a.entry.year - b.entry.year || a.entry.id - b.entry.id;
@@ -257,16 +262,23 @@ export function directorPlan(world: World, civ: Civ, input: DirectorInput): Dire
   const outline = !!input.plots?.length;
   // 照大纲放:对上情节的那几条不另放
   const told = new Set(plots.flatMap((p) => (p.entry ? [p.entry.id] : [])));
-  const take: { e: ChronicleEntry; tier: DirectorTier; skip: boolean }[] = [];
+  const take: { e: ChronicleEntry; tier: DirectorTier; skip: boolean; weight?: number }[] = [];
   for (const e of input.entries) {
-    if (!inRange(e.year) || told.has(e.id)) continue;
+    if (told.has(e.id)) continue;
+    const here = inRange(e.year);
+    // 仗里据险断后的那几下(仗开打在这段年份以前的也算)
+    const stands = e.kind === 'war' && e.children?.some((c) => c.kind === 'stand') ? e.children.filter((c) => c.kind === 'stand' && inRange(c.year)) : NO_ENTRIES;
+    if (!here && !stands.length) continue;
     const major = e.importance >= MAJOR;
-    if (!focus) {
-      if (major) take.push({ e, tier: tierOf(e), skip: false });
-      continue;
-    }
-    if (focus.related(e)) take.push({ e, tier: tierOf(e), skip: false });
-    else if (major) take.push({ e, tier: tierOf(e), skip: !(focus.others === 'big' && tierOf(e) === 'big') });
+    let pick: { tier: DirectorTier; skip: boolean } | null = null;
+    if (!focus) pick = major ? { tier: tierOf(e), skip: false } : null;
+    else if (focus.related(e)) pick = { tier: tierOf(e), skip: false };
+    else if (major) pick = { tier: tierOf(e), skip: !(focus.others === 'big' && tierOf(e) === 'big') };
+    if (!pick) continue;
+    if (here) take.push({ e, ...pick });
+    // 排得进来的仗:据险断后的那几下各自单独一段(镜头落在守的那处关上,见 timelineLayout.ts 的 entrySpot);
+    // 分量同那场仗(不然事多的年份总被别的大事挤掉)
+    if (!pick.skip) for (const c of stands) take.push({ e: c, tier: STAND_TIER, skip: false, weight: Math.max(entryWeight(c), entryWeight(e)) });
   }
   const texts = new Map<number, FilmEvent>();
   for (const f of filmEvents(take.map((x) => x.e), ALL_YEARS, undefined, era)) texts.set(f.id, f);
@@ -275,6 +287,7 @@ export function directorPlan(world: World, civ: Civ, input: DirectorInput): Dire
   let items: Cand[] = [];
   for (const x of take) {
     const c = candOf(ctx, x.e, texts.get(x.e.id)!, x.tier, factor, era);
+    if (x.weight !== undefined) c.weight = x.weight;
     if (x.skip) skip(c, 'focus');
     // 照大纲放:情节之间只放头等大事
     else if (outline && x.tier !== 'big') skip(c, 'crowd');
@@ -493,10 +506,11 @@ function plotCand(ctx: ShotCtx, p: DirectorPlot, factor: number, era: Era | null
   };
 }
 
-/** 地名:城名 / 州名 / 那一国那一年的国都名 */
+/** 地名:城名 / 州名 / 关名 / 那一国那一年的国都名 */
 function placeName(civ: Civ, spot: EntrySpot, year: number): string {
   if (spot.kind === 'settlement') return civ.settlements[spot.id]?.name ?? '';
   if (spot.kind === 'region') return regionLabel(civ, spot.id);
+  if (spot.kind === 'pass') return civ.places[spot.id]?.name ?? '';
   const p = civ.polities[spot.id];
   return p ? (civ.settlements[capitalAt(p, year)]?.name ?? '') : '';
 }
@@ -618,7 +632,9 @@ function mergeGroups(ctx: ShotCtx, items: readonly Cand[]): Cand[][] {
   const groups: Cand[][] = [];
   for (const c of items) {
     const g = groups[groups.length - 1];
-    if (g && g.length < MERGE_MAX && !c.plot && !g[0].plot && c.entry.year - g[g.length - 1].entry.year <= MERGE_YEARS && samePlace(g[0], c, reach, ctx.W)) g.push(c);
+    // 情节、守在关上的那一下(镜头要落在关口上)各自单独一段
+    const alone = (x: Cand) => !!x.plot || x.spot?.kind === 'pass';
+    if (g && g.length < MERGE_MAX && !alone(c) && !alone(g[0]) && c.entry.year - g[g.length - 1].entry.year <= MERGE_YEARS && samePlace(g[0], c, reach, ctx.W)) g.push(c);
     else groups.push([c]);
   }
   return groups;
