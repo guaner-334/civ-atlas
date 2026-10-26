@@ -189,6 +189,53 @@ export function regionEntries(civ: Civ, r: number): ChronicleEntry[] {
   return entriesOf(civ, `r${r}`, (e) => e.regions.includes(r));
 }
 
+/** 算"打过的仗"的几种:交战、据险断后、攻占(议和割让、征服部落不算) */
+const isFight = (e: ChronicleEntry) => e.kind === 'battle' || e.kind === 'stand' || (e.kind === 'conquer' && e.tag === '占');
+
+/**
+ * 这几州(关隘两边的州)打过的仗:编年史里折叠在战争下的拆成一件一件(交战、据险断后、攻占),事发地在这几州的,按年份从早到晚
+ * (EventList 显示最近的几条,新的在上)
+ */
+export function fightEntries(civ: Civ, regions: readonly number[]): ChronicleEntry[] {
+  const all = fullChronicle(civ);
+  let m = entryCache.get(all);
+  if (!m) entryCache.set(all, (m = new Map()));
+  const key = `f${regions.join(',')}`;
+  let hit = m.get(key);
+  if (!hit) {
+    const set = new Set(regions);
+    const seen = new Set<string>();
+    hit = [];
+    for (const e of all) {
+      for (const x of e.children?.length ? e.children : [e]) {
+        if (!isFight(x) || !x.regions.some((r) => set.has(r))) continue;
+        const k = `${x.kind}:${x.id}`;
+        if (seen.has(k)) continue;
+        seen.add(k);
+        hit.push(x);
+      }
+    }
+    hit.sort((a, b) => a.year - b.year || a.id - b.id);
+    m.set(key, hit);
+  }
+  return hit;
+}
+
+/**
+ * 关口两边的州(关隘卡片的"西边 / 东边"):第一对州(口子最低的那一对)按治所的东西分西 / 东(跨左右接缝的按近的那一圈算)
+ */
+export function passSides(world: World, civ: Civ, regions: readonly number[]): { k: string; r: number }[] {
+  if (regions.length < 2) return [];
+  const [a, b] = regions;
+  const x = world.mesh.x;
+  const sa = civ.regions.seat[a];
+  const sb = civ.regions.seat[b];
+  if (!(sa >= 0 && sb >= 0)) return [];
+  const W = world.width;
+  const dx = W ? x[sb] - x[sa] - W * Math.round((x[sb] - x[sa]) / W) : x[sb] - x[sa];
+  return dx >= 0 ? [{ k: '西边', r: a }, { k: '东边', r: b }] : [{ k: '西边', r: b }, { k: '东边', r: a }];
+}
+
 /** 到 year 为止的(条目按年份排好) */
 export function entriesUpTo(list: readonly ChronicleEntry[], year: number): ChronicleEntry[] {
   let n = 0;

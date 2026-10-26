@@ -418,6 +418,9 @@ describe('真实编年史(seed 7、2024)', () => {
 
   for (const { seed, world: w, civ: c, all } of worlds) {
     const majors = all.filter((e) => e.importance >= MAJOR);
+    // 大战里据险断后的那几下各自单独一段(镜头落在关上)
+    const stands = majors.flatMap((e) => (e.kind === 'war' ? (e.children ?? []).filter((x) => x.kind === 'stand') : []));
+    const shown = [...majors, ...stands].map((e) => e.id).sort((a, b) => a - b);
     const end = c.endYear;
     const run = (from: number, to: number, pace: DirectorInput['pace'], focus: DirectorInput['focus'] = null) =>
       directorPlan(w, c, { from, to, entries: all, pace, focus });
@@ -442,7 +445,7 @@ describe('真实编年史(seed 7、2024)', () => {
       const ids = told(auto).map((e) => e.id);
       const seenAuto = [...ids, ...auto.skipped.map((s) => s.entry.id)];
       expect(new Set(seenAuto).size).toBe(seenAuto.length);
-      expect(seenAuto.sort((a, b) => a - b)).toEqual(majors.map((e) => e.id).sort((a, b) => a - b));
+      expect(seenAuto.sort((a, b) => a - b)).toEqual(shown);
       // 没给可用时长、没有关注对象:略过的只会是事太多时分量轻的,不会是头等大事
       for (const s of auto.skipped) expect([s.why, s.tier]).toEqual(['crowd', 'major']);
       const heads = majors.filter((e) => e.kind === 'fall' || e.kind === 'dynasty' || e.kind === 'war');
@@ -452,7 +455,7 @@ describe('真实编年史(seed 7、2024)', () => {
         const f = run(0, end, { mode: 'fixed', rate });
         const seen = [...told(f), ...f.skipped.map((s) => s.entry)].map((e) => e.id);
         expect(new Set(seen).size).toBe(seen.length);
-        expect(seen.sort((a, b) => a - b)).toEqual(majors.map((e) => e.id).sort((a, b) => a - b));
+        expect(seen.sort((a, b) => a - b)).toEqual(shown);
         expect(f.skipped.every((s) => s.why === 'time')).toBe(true);
       }
     });
@@ -522,12 +525,13 @@ describe('真实编年史(seed 7、2024)', () => {
       const count = c.polities.map((q) => all.filter((e) => e.importance >= 2 && entryInvolves(e, q.id)).length);
       const busiest = c.polities[count.indexOf(Math.max(...count))].id;
       const p = run(0, end, { mode: 'auto' }, { kind: 'polity', id: busiest });
-      const kept = told(p);
+      // 讲了的那几件和它们排的时候的分量(守关那一下按那场仗的分量排)
+      const kept = p.segments.flatMap((s) => s.items);
       const crowd = p.skipped.filter((s) => s.why === 'crowd');
       expect(crowd.length).toBeGreaterThan(0);
       for (const s of crowd) {
         const y = s.entry.year;
-        const heavier = kept.filter((e) => entryWeight(e) >= s.weight).map((e) => e.year);
+        const heavier = kept.filter((it) => it.weight >= s.weight).map((it) => it.entry.year);
         const full = heavier.some((a) => a > y - CROWD_YEARS && a <= y && heavier.filter((b) => b >= a && b < a + CROWD_YEARS).length >= CROWD_MAX) ||
           heavier.filter((b) => b >= y && b < y + CROWD_YEARS).length >= CROWD_MAX;
         expect(full).toBe(true);

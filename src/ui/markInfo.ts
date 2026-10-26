@@ -41,7 +41,7 @@ export function markRegionIds(civ: Civ, m: Pick<AuthorMark, 'regions'>): number[
   return out;
 }
 
-/** 一个点落在哪:城(离那一点不到一个半地块的城,挑最近的)、有名字的山 / 岛 / 荒漠(没挨着城时)、州、海(都没有 = 不给) */
+/** 一个点落在哪:钉在关上的 = 那处关;城(离那一点不到一个半地块的城,挑最近的)、有名字的山 / 岛 / 荒漠(没挨着城时)、州、海(都没有 = 不给) */
 export interface MarkSpot {
   city?: number;
   /** civ.places 里的号 */
@@ -73,11 +73,35 @@ function pathDist2(path: Float32Array, at: readonly [number, number], W: number)
   return best;
 }
 
+/**
+ * 钉在关上的图钉:正好落在这一年地图上有的一处关的口子上(放标记时点关口符号、从关隘卡片点「放标记」都吸到口子正中;
+ * 拖开了就不是)。返回 civ.places 的下标;不是 = −1
+ */
+export function pinnedPass(civ: Civ, world: World, at: readonly [number, number], year: number): number {
+  const { x, y, spacing } = world.mesh;
+  const eps = spacing * 0.01;
+  const W = world.width;
+  for (let i = 0; i < civ.places.length; i++) {
+    const p = civ.places[i];
+    if (p.kind !== 'pass' || p.cell === undefined || !p.pass || p.pass.since > year) continue;
+    const dx = Math.abs(x[p.cell] - at[0]);
+    if (Math.min(dx, Math.abs(W - dx)) <= eps && Math.abs(y[p.cell] - at[1]) <= eps) return i;
+  }
+  return -1;
+}
+
 export function markSpot(civ: Civ, world: World, raster: Raster | null, at: readonly [number, number], year: number): MarkSpot {
   const c = cellAtWorld(world, raster, at[0], at[1]);
   const r = c >= 0 && c < civ.regions.of.length ? civ.regions.of[c] : -1;
   const out: MarkSpot = {};
   const W = world.width;
+  // 钉在关上:就是那处关(不看旁边的城)
+  const pass = pinnedPass(civ, world, at, year);
+  if (pass >= 0) {
+    out.place = pass;
+    if (r >= 0) out.region = r;
+    return out;
+  }
   const near = (world.mesh.spacing * 1.5) ** 2;
   // 旁边的城:这一年还在的优先(毁了又重建的,同一处有新旧两座,认新的),再按远近
   let bd = Infinity;
