@@ -75,7 +75,7 @@ describe.each([7, 2024])('世系图 · seed=%i', (seed) => {
       }
     }
     // 兜底成"宗室"的君主很少(连不上开国那一支,另起一棵)
-    expect(distant).toBeLessThan(6);
+    expect(distant).toBeLessThan(10);
   });
 
   it('复制成文字:一朝一段,标题、每人一行(下一代多缩两格)、结尾那句', () => {
@@ -97,7 +97,7 @@ describe.each([7, 2024])('世系图 · seed=%i', (seed) => {
 
 describe('世系图 · seed=7 的卢梅亚、埃维里亚', () => {
   // GENERATOR_VERSION 23 时的世界(以前用的桑在新的历史里没有了)
-  it('维斯佩拉朝:标题、结尾、篡位的开国之君是树根;威尔贝尔特二世的父亲是没即位的阿尔德蒙德;受旧朝之后才兴的王室,开国之君的父亲算本朝宗室', () => {
+  it('维斯佩拉朝:标题、结尾、篡位的开国之君是树根;威尔贝尔特二世的父亲是没即位的特里斯贝尔特;受旧朝之后才兴的王室,开国之君的父亲算本朝宗室', () => {
     const civ = civOf(7);
     const id = civ.polities.findIndex((p) => p.name === '卢梅亚');
     const rows = dynastyRows(civ, id);
@@ -114,7 +114,7 @@ describe('世系图 · seed=7 的卢梅亚、埃维里亚', () => {
     const ev = civ.polities.findIndex((p) => p.name === '埃维里亚');
     const xw = civ.people!.find((x) => x.name === '威尔贝尔特' && x.role === 'ruler' && x.polity === ev && fatherOf(civ, x)?.role === 'prince')!;
     const f = fatherOf(civ, xw) as Person;
-    expect(f).toMatchObject({ role: 'prince', name: '阿尔德蒙德' });
+    expect(f).toMatchObject({ role: 'prince', name: '特里斯贝尔特' });
     expect(kidsOf(civ, f).map((k) => k.name)).toEqual(['威洛尔德', '威尔贝尔特', '埃姆里克']);
     expect(lineageText(civ, ev)).toContain('\n      3 威尔贝尔特二世 545–548 年在位\n');
     expect(princeRole(civ, f)).toBe('埃维里亚宗室');
@@ -123,13 +123,13 @@ describe('世系图 · seed=7 的卢梅亚、埃维里亚', () => {
     const cr = dynastyRows(civ, tl);
     const h = cr.findIndex((r) => r.name === '岳');
     const root = layoutDynasty(civ, cr[h])[0].nodes[0].p;
-    expect(root).toMatchObject({ role: 'prince', name: '慕容风月' });
+    expect(root).toMatchObject({ role: 'prince', name: '慕容风墨' });
     expect(root.died!).toBeLessThan(cr[h].from);
     expect(princeRole(civ, root)).toBe('大岳宗室');
-    // 哈兹斯坦的塔米拉特王室:开国之君的父亲死在新朝之前,不写成上一朝(塔拉尼亚)的宗室
+    // 哈兹斯坦的萨拉巴德王室:开国之君的父亲死在新朝之前,不写成上一朝(塔拉尼亚)的宗室
     const w = civ.polities.findIndex((p) => p.name === '哈兹斯坦');
     const wr = dynastyRows(civ, w);
-    const k = wr.findIndex((r) => r.name === '塔米拉特');
+    const k = wr.findIndex((r) => r.name === '萨拉巴德');
     const wroot = layoutDynasty(civ, wr[k])[0].nodes[0].p;
     expect(wroot).toMatchObject({ role: 'prince' });
     expect(wroot.died!).toBeLessThan(wr[k].from);

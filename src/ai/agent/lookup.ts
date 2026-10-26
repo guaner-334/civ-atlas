@@ -423,9 +423,9 @@ export function lookupPeople(ctx: LookupContext, a: Record<string, unknown>): Lo
    * 宗室按生卒,卒年那一年还算在世(和"那一年在世的宗室"一样)
    */
   const activeIn = (x: Person) => {
-    if (x.role === 'prince') return F(x.born) <= to && (x.died ?? Infinity) >= from;
-    // 将领一次次领兵之间可能隔着好些年:要有一次领兵落在这几年里
-    if (x.role === 'general') return (x.commands ?? []).some((c) => F(c.from) <= to && c.until > from);
+    if (x.role === 'prince' && role !== 'general') return F(x.born) <= to && (x.died ?? Infinity) >= from;
+    // 将领一次次领兵之间可能隔着好些年:要有一次领兵落在这几年里(领过兵的宗室列进将领时也这样算)
+    if (x.role === 'general' || x.role === 'prince') return (x.commands ?? []).some((c) => F(c.from) <= to && c.until > from);
     const s = personSpan(x);
     return F(s.from) <= to && (s.until ?? Infinity) > from;
   };

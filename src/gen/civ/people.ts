@@ -33,14 +33,13 @@ import { keyed4, subSeed } from './rand';
 import { personNamers } from './naming';
 import { annexedRemnants, capitalAt, polityTierAt } from './growth';
 import { buildLineage } from './lineage';
+import { HEIR_WEIGHT, PRINCE_AGE, PRINCE_LEAD, buildSons, contest, murderedAt, type Son } from './royals';
 import { buildOfficials } from './officials';
 import { IV_PEOPLE, K_RULER, MAX_AGE, U_AGE, actsFrom, leaningEffect, reignBook, rulerBase, rulerTags, type Crown, type Reign } from './rulers';
 import { policiesFrom, policyEffect, segAt } from './policy';
 
 // ---- 调参 ----
 // 即位的年纪、在位年数、执政官任期、一生最多多少岁在 rulers.ts(推演里也要知道谁在位)
-/** 在位时遇弑的机会 */
-const MURDER = 0.07;
 /** 被废、出降、出奔、归附、卸任以后最多再活这么多年 */
 const AFTERLIFE = 15;
 /** 亡国之君:殉国、出降的机会(其余出奔) */
@@ -67,7 +66,7 @@ const NAME_TRIES = 40;
 const NAME_GAP = 300;
 
 // 随机数用途(1、2、14–19 是年纪、在位年数、倾向,在 rulers.ts)
-const U_MURDER = 3;
+// 3 = 遇弑(royals.ts 的 murderedAt)
 const U_FATE = 4;
 const U_AFTER = 5;
 const U_REUSE = 7;
@@ -77,6 +76,9 @@ const U_LIFE = 10;
 const U_RETIRE = 11;
 const U_LEAD = 12;
 const U_FALL = 13;
+/** 宗室领兵:替不替父出征、派哪个儿子(14–21 是倾向,在 rulers.ts) */
+const U_PRINCE = 22;
+const U_PRINCE_PICK = 23;
 /** keyed4 最后一位:君主(K_RULER = 0,在 rulers.ts)/ 将领 / 战争 */
 const K_GENERAL = 1;
 
@@ -287,6 +289,22 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
   const marks: [Person, Reign][] = [];
   /** 每国每一朝君主用过的名字(西幻:继位的君主沿用) */
   const pools: string[][][] = polities.map(() => []);
+  /** 宗室争位、据地自立(推演里的史事 split,cause = heir):新国家 → 从哪国、哪一刻(先君寿终、新君即位那一刻) */
+  const seceded = new Map<number, { from: number; T: Year }>();
+  /** 国家 → 那几刻有宗室据地争位(这几次交接不另争储) */
+  const secededAt = new Map<number, Set<Year>>();
+  for (const e of civ.annals) {
+    if (e.kind !== 'split' || e.cause !== 'heir' || polities[e.a]?.prince === undefined) continue;
+    seceded.set(e.a, { from: e.b, T: e.year });
+    let ts = secededAt.get(e.b);
+    if (!ts) secededAt.set(e.b, (ts = new Set()));
+    ts.add(e.year);
+  }
+  /** 先君(在 T 那一刻寿终的那一位) */
+  const fatherAt = (pid: number, T: Year) => rulers[pid].find((x) => x.until === T && (x.fate === 'died' || x.fate === 'murdered'));
+  /** 寻常君主在在位表里的那一项、他预定的继承人叫什么(排诸子用) */
+  const reignOf = new Map<Person, Reign>();
+  const heirNames = new Map<Person, string>();
 
   for (const p of polities) {
     const f = facts[p.id];
@@ -316,10 +334,13 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
       pools[p.id][i] = pool;
       const fallen = rise === 'restore' ? polities[p.restores!] : undefined;
       const heirOf = fallen ? rulers[fallen.id][rulers[fallen.id].length - 1] : undefined;
+      // 宗室据地争位立的国:开国之君是先君之子,随父姓
+      const sire = i === 0 && seceded.has(p.id) ? fatherAt(seceded.get(p.id)!.from, p.founded) : undefined;
       if (namer.surnamed) {
         const prev = surname;
         surname = '';
         if (heirOf && namerOf(styleOf(fallen!)).surnamed) surname = splitSurname(heirOf.name);
+        if (sire && namerOf(styleOf(polities[sire.polity])).surnamed) surname = splitSurname(sire.name);
         for (let t = 0; !surname || (surname === prev && t < 20); t++) surname = namer.surname(tag[p.id], 0, i, t);
       }
       const usedGiven = new Set<string>();
@@ -359,6 +380,9 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
         // 名字
         person.name = rulerName(namer, tag[p.id], k, j, surname, usedGiven, pool, R, republic, heirOf && pools[fallen!.id], list[list.length - 1]?.name);
         list.push(person);
+        reignOf.set(person, r);
+        // 预定的继承人(在位表里的下一位,royals.ts)的名字:和他真的接着即位时起的一样(即位以前就以这个名字领兵)
+        if (!republic) heirNames.set(person, rulerName(namer, tag[p.id], k + 1, j + 1, surname, new Set(usedGiven), pool.slice(), R, false, undefined, person.name));
         if (r.death || r.moods) marks.push([person, r]);
         if (r.cut !== undefined) {
           // 让位给作者立的君主
@@ -377,7 +401,7 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
             const died = q(Math.min(born + MAX_AGE, natural + AFTERLIFE * R(k, U_AFTER)));
             if (died <= endYear) person.died = died;
           } else {
-            person.fate = R(k, U_MURDER) < MURDER ? 'murdered' : 'died';
+            person.fate = murderedAt(base, tag[p.id], k) ? 'murdered' : 'died';
             person.died = natural;
           }
           continue;
@@ -420,6 +444,24 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
     titleRulers(p, list, f, base, tag[p.id]);
   }
 
+  // ---- 诸子(royals.ts):排统帅以前定好,成年的替父出征 ----
+  const sonsOf = buildSons(polities, rulers, reignOf, { base, tag, endYear, heirName: (r) => heirNames.get(r) ?? '' });
+  // 据地争位的宗室:先君诸子里那一刻成年、在世的最年长的那位(royals.ts 的 claimants,生年记在 Polity.prince)。
+  // 那以前照常替父兄领兵,那一刻起是新国家的开国之君(没在那以前战死的,排完世系以后和开国之君并成一人,见下)
+  const claimed: { son: Son; F: Person; X: Person | undefined }[] = [];
+  for (const [a, c] of seceded) {
+    const F = rulers[a][0];
+    const R = fatherAt(c.from, c.T);
+    const son = R && sonsOf.get(R)?.find((s) => s.p.role === 'prince' && !s.adopted && s.heirAt === undefined && s.p.born === polities[a].prince);
+    if (!F || !son) continue;
+    son.end = Math.min(son.end, c.T);
+    claimed.push({ son, F, X: rulers[c.from].find((x) => x.from === c.T) });
+  }
+  /** 战功:领兵打赢的仗减打输的(争储时比) */
+  const merit = new Map<Person, number>();
+  /** 正领着兵的宗室 → 卸下这一任(争储被杀时用) */
+  const leading = new Map<Person, (t: Year) => void>();
+
   // ---- 统帅 ----
   const generals: Person[] = [];
   /** 将领第 a 次试的名字(名字等名臣排出来以后一起起,见 NameBook) */
@@ -435,10 +477,12 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
     const sides = [w.a, w.b];
     const wr = (x: number, use: number) => keyed4((warBase ^ Math.imul(Math.round(w.start * TICK), 0x27d4eb2d)) >>> 0, tag[w.a] ?? 0, tag[w.b] ?? 0, x, use);
     /** keep = 君主亲征之前已经领兵到哪一年(作者立的君主强制亲征时,先前那场仗还没打完) */
-    const cur: ({ p: Person; careerEnd: number; cmd: PersonCommand; general: boolean; keep?: number } | null)[] = [null, null];
+    /** son = 领兵的是君主的儿子(没即位的宗室,或即位以前的君主) */
+    const cur: ({ p: Person; careerEnd: number; cmd: PersonCommand; general: boolean; keep?: number; son?: Son } | null)[] = [null, null];
     const close = (s: number, until: Year) => {
       const c = cur[s];
       if (!c) return;
+      if (c.son) leading.delete(c.p);
       c.cmd.until = Math.max(c.cmd.from, until);
       if (c.general) {
         const g = genOf[sides[s]].find((x) => x.p === c.p);
@@ -474,6 +518,37 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
         if (free && P.lineage !== 'republic' && age >= LEAD_AGE[0] && age <= LEAD_AGE[1] && wr(x * 2 + s, U_LEAD) < LEAD * lead) {
           cur[s] = { p: ruler, careerEnd: ruler.until ?? Infinity, cmd: command(ruler), general: false };
           busyRuler.set(ruler, Infinity);
+          return;
+        }
+        // 成年、在世、闲着的儿子替父出征(儿子越多越常领兵);先君的儿子(君主的兄弟)也领兵
+        const rs = rulers[pid];
+        const before = rs[rs.indexOf(ruler) - 1];
+        const kin = before && (before.dynasty ?? 0) === (ruler.dynasty ?? 0) ? [...(sonsOf.get(ruler) ?? []), ...(sonsOf.get(before) ?? [])] : (sonsOf.get(ruler) ?? []);
+        const ok = kin.filter(
+          (k) =>
+            k.p !== ruler &&
+            k.debut <= t &&
+            t >= k.p.born + PRINCE_AGE[0] &&
+            t <= k.p.born + PRINCE_AGE[1] &&
+            k.end > t &&
+            (busyRuler.get(k.p) ?? -Infinity) <= t &&
+            // 做过君主、已经下台的不再领兵
+            (k.p.role !== 'ruler' || (k.p.until ?? Infinity) > t),
+        );
+        if (ok.length && wr(x * 2 + s, U_PRINCE) < 1 - Math.pow(1 - PRINCE_LEAD, ok.length)) {
+          // 预定的继承人(太子)更常领兵:按 HEIR_WEIGHT 份算
+          const wt = (k: Son) => (k.heirAt !== undefined && t <= k.heirAt ? HEIR_WEIGHT : 1);
+          let u = wr(x * 2 + s, U_PRINCE_PICK) * ok.reduce((n, k) => n + wt(k), 0);
+          let k = ok[ok.length - 1];
+          for (const o of ok) if ((u -= wt(o)) < 0) {
+            k = o;
+            break;
+          }
+          // 后来即位的(预定的继承人):他下台(被废、让位)那一刻也就不再领兵,换人
+          const reignEnd = k.p.role === 'ruler' ? (k.p.until ?? Infinity) : Infinity;
+          cur[s] = { p: k.p, careerEnd: Math.min(k.end, k.p.born + PRINCE_AGE[1], reignEnd), cmd: command(k.p), general: false, son: k };
+          busyRuler.set(k.p, Infinity);
+          leading.set(k.p, (u) => close(s, u));
           return;
         }
       }
@@ -532,11 +607,19 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
       const loser = e.kind === 'battle' ? e.a : e.b;
       const s = loser === w.a ? 0 : loser === w.b ? 1 : -1;
       const c = s >= 0 ? cur[s] : null;
-      if (c && c.general && wr(n + 1, U_FALL) < (e.kind === 'battle' ? FALL_ATTACK : FALL_DEFEND)) {
+      // 战功:两边的统帅各记一笔
+      if (s >= 0) {
+        if (c) merit.set(c.p, (merit.get(c.p) ?? 0) - 1);
+        const v = cur[1 - s];
+        if (v) merit.set(v.p, (merit.get(v.p) ?? 0) + 1);
+      }
+      // 将领、没即位的宗室会战死(君主亲征、预定即位以前的继承人不会)
+      if (c && (c.general || (c.son && c.p.role === 'prince' && !(c.son.heirAt !== undefined && t <= c.son.heirAt))) && wr(n + 1, U_FALL) < (e.kind === 'battle' ? FALL_ATTACK : FALL_DEFEND)) {
         c.p.died = t;
         c.p.fate = 'battle';
         const g = genOf[sides[s]].find((x) => x.p === c.p);
         if (g) g.careerEnd = t;
+        if (c.son) c.son.end = t;
         close(s, t);
       }
     };
@@ -549,6 +632,50 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
         }
       },
     });
+  }
+  // 争储:继位的君主即位那一刻(那年以前的仗都打完了、战功记好了,那一刻以后的事还没排)
+  const annalAt = (t: Year) => {
+    let lo = 0;
+    let hi = civ.annals.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (civ.annals[mid].year < t) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo - 0.5;
+  };
+  /** 新君 → 争储的结果(编号排好以后写进 Person.claim) */
+  const claims = new Map<Person, { how: NonNullable<Person['claim']>['how']; rivals: Person[] }>();
+  const rivalOf = new Map<Person, Person>();
+  for (const p of polities) {
+    if (p.lineage === 'republic') continue;
+    const list = rulers[p.id];
+    for (let k = 1; k < list.length; k++) {
+      const X = list[k];
+      const R = list[k - 1];
+      const sons = sonsOf.get(R);
+      const r = reignOf.get(X);
+      // 先君遇弑的不争(名臣迎立新君,officials.ts)
+      if (!sons || !r || X.rise !== 'heir' || R.author !== undefined || R.fate === 'murdered' || (R.dynasty ?? 0) !== (X.dynasty ?? 0) || X.from === undefined) continue;
+      // 这一刻有宗室据地争位(推演里的内乱,见上):不另争储
+      if (secededAt.get(p.id)?.has(X.from)) continue;
+      const T = X.from;
+      steps.push({
+        idx: annalAt(T),
+        run: () => {
+          const res = contest(X, R, T, sons, r.k, { base, tag: tag[p.id], merit: (x) => merit.get(x) ?? 0, armed: (x) => !!x.commands?.some((c) => c.from < T) });
+          if (!res) return;
+          claims.set(X, { how: res.how, rivals: res.rivals.map((s) => s.p) });
+          for (const s of res.killed) {
+            s.p.died = T;
+            s.p.fate = 'purged';
+            s.end = T;
+            rivalOf.set(s.p, X);
+            leading.get(s.p)?.(T);
+          }
+        },
+      });
+    }
   }
   steps.sort((u, v) => u.idx - v.idx);
   for (const x of steps) x.run();
@@ -572,18 +699,62 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
   finish();
 
   // ---- 世系:谁是谁的父亲,补上没即位的宗室(不和本国的君主、将领、名臣重名)----
-  const { princes, parentOf, debut } = buildLineage(polities, rulers, [...generals, ...ministers], { tag, namerOf: (p) => namerOf(styleOf(p)), surnameOf: (r) => splitSurname(r.name) });
+  const { princes, parentOf, debut } = buildLineage(polities, rulers, [...generals, ...ministers], { tag, namerOf: (p) => namerOf(styleOf(p)), surnameOf: (r) => splitSurname(r.name), sons: sonsOf });
+  // 据地争位的宗室和他立的国的开国之君并成一人:名字、父亲、早先领的兵都是做宗室时的(推到那一刻以前,他已经以宗室的身份在了)
+  const merged = new Map<Person, Person>();
+  for (const { son, F, X } of claimed) {
+    const S = son.p;
+    if (S.fate === 'battle') {
+      // 那以前就战死了:开国之君另是一位宗室(连不上父亲)
+      if (X) claims.set(F, { how: 'secede', rivals: [X] });
+      continue;
+    }
+    F.name = S.name;
+    if (S.commands) F.commands = [...S.commands, ...(F.commands ?? [])];
+    const f = parentOf.get(S);
+    parentOf.delete(S);
+    if (f) parentOf.set(F, f);
+    if (S.adopted) F.adopted = true;
+    merged.set(S, F);
+    son.p = F;
+    if (X) claims.set(F, { how: 'secede', rivals: [X] });
+    titleRulers(polities[F.polity], rulers[F.polity], facts[F.polity], base, tag[F.polity]);
+  }
+  if (merged.size) {
+    for (const [x, f] of parentOf) if (merged.has(f)) parentOf.set(x, merged.get(f)!);
+    for (let i = princes.length - 1; i >= 0; i--) if (merged.has(princes[i])) princes.splice(i, 1);
+    // 他立的国的将领、名臣(都在他即位以后出道)起名时还不知道他叫什么:撞了名的换一个本国没人用的(连同宗室)
+    for (const F of merged.values()) {
+      const taken = new Set([...rulers[F.polity], ...generals, ...ministers, ...princes].filter((o) => o.polity === F.polity).map((o) => o.name));
+      for (const g of [...generals, ...ministers]) {
+        if (g.polity !== F.polity || g.name !== F.name) continue;
+        const at = genName.get(g) ?? nameAt.get(g);
+        for (let a = 1; at && a < NAME_TRIES && taken.has(g.name); a++) g.name = at(a);
+        taken.add(g.name);
+      }
+    }
+  }
   // 编号按出道先后排(同一年:君主、将领、宗室、名臣),接着往后推时先出道的人编号不变
+  // 即位以前就是先君诸子之一的君主(royals.ts 预定的继承人、据地争位的宗室):按做儿子出道的那一刻、在父亲那一国排
+  // (推到他即位以前,他已经以宗室的身份在了)
+  const asSon = new Map<Person, Son>();
+  for (const ss of sonsOf.values()) for (const s of ss) if (s.p.role === 'ruler') asSon.set(s.p, s);
   const all = [
-    ...rulers.flat().map((x) => ({ x, T: x.from!, r: 0 })),
-    ...generals.map((x) => ({ x, T: x.commands![0].from, r: 1 })),
-    ...princes.map((x) => ({ x, T: debut.get(x)!, r: 2 })),
-    ...ministers.map((x) => ({ x, T: x.from!, r: 3 })),
+    ...rulers.flat().map((x) => {
+      const s = asSon.get(x);
+      return s ? { x, T: s.debut, r: 2, pid: s.father.polity } : { x, T: x.from!, r: 0, pid: x.polity };
+    }),
+    ...generals.map((x) => ({ x, T: x.commands![0].from, r: 1, pid: x.polity })),
+    ...princes.map((x) => ({ x, T: debut.get(x)!, r: 2, pid: x.polity })),
+    ...ministers.map((x) => ({ x, T: x.from!, r: 3, pid: x.polity })),
   ].map((e, k) => ({ ...e, k }));
-  all.sort((a, b) => a.T - b.T || a.r - b.r || a.x.polity - b.x.polity || a.k - b.k);
+  // 同一刻出道的宗室(一位君主即位时已经出生的几个儿子)按长幼
+  all.sort((a, b) => a.T - b.T || a.r - b.r || a.pid - b.pid || (a.r === 2 ? a.x.born - b.x.born : 0) || a.k - b.k);
   const out = all.map((e) => e.x);
   out.forEach((p, i) => (p.id = i));
   for (const [x, f] of parentOf) x.parent = f.id;
+  for (const [x, c] of claims) x.claim = { how: c.how, rivals: c.rivals.map((r) => r.id) };
+  for (const [x, by] of rivalOf) x.rival = by.id;
   for (const [d, x] of fixups) d.person = x.id;
   return { people: out, ids };
 }

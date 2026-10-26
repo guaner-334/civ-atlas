@@ -210,6 +210,11 @@ export interface Polity {
   /** 阶段 3 分合:复的是哪个亡国(国名沿用故国国名加"后 / 南 / 北…"前缀,编年史写"复国")。不是复国 = 不给 */
   restores?: number;
   /**
+   * 宗室争位、据地自立的国家(unrest.ts 的争位;史事 split 的 cause = heir):起兵的那位先君之子的生年。
+   * 他就是这国的开国之君(在位表照这个生年算即位的年纪,rulers.ts);别的国家不给
+   */
+  prince?: Year;
+  /**
    * 边缘立国(politics.ts 的看部落地带):受哪国影响立的国(挨着它的部落地带里提早立国的次生国家)。
    * 国号一系(政体)沿用它的,旗沿用它的样式;史事 found 的 b 也记它。自己立国的、分出来的不给
    */
@@ -280,7 +285,7 @@ export interface Place {
  * | peace     | 议和 / 战争结束 | 攻方    | 守方                    | **割让的州数** n(议和时划清边界,两国互割飞地:紧挨在这条 peace 前面的 n 条 conquer 就是割让的,不是打下来的;没割让 = −1) | −1 | 战争编号 |
  * | fall      | 灭亡       | 灭亡的国家   | 灭它的国家(−1 = 自己瓦解 / 并入见 merge;−2 = 亡于天灾:国土在地形大事里全沉入海中、或国都毁了无处可迁) | 最后失去的州 | −1 | 战争编号 / −1 |
  * | capital   | 迁都(国都失守 / 主动迁都) | 国家 | −1(−2 = 地形大事里国都沉了、毁了,迁都) | 新国都所在州 | 新国都 | 战争编号(被迫迁都,战争里国都失守)/ −1(主动迁都) |
- * | split     | 分裂 / 独立 / 复国 | 新国家 | 原来的国家(复国:从哪国手里起兵;复的是哪国见新国家的 Polity.restores) | 起事的州 | 新国都 | −1 |
+ * | split     | 分裂 / 独立 / 复国 / 宗室争位、据地自立(cause = heir,紧跟着记原来的国家讨伐它的那场 war,cause = heir;起兵的宗室生年见新国家的 Polity.prince) | 新国家 | 原来的国家(复国:从哪国手里起兵;复的是哪国见新国家的 Polity.restores) | 起事的州 | 新国都 | −1 |
  * | merge     | 合并       | 并入的一方(继续存在) | 被并掉的国家(它的 ended = 这一年,不另记 fall) | −1 | −1 | −1 |
  * | dynasty   | 改朝换代 / 王室更迭 | 国家(同一个国家编号;新朝见 Polity.dynasties 的最后一条) | −1 | 新朝的根据地(兴起的州) | 新国都(新朝定都根据地时 ≠ 原国都,Polity.capitals 同一刻加一条,不另记 capital) | −1 |
  * | migrate   | 迁徙:一波迁徙迁入的一州(同一波的几州同一刻、连着记;方位记在 Culture.migrations) | **民族**:迁徙的民族 | **民族**:迁入地原来的民族(−1 = 无人之地) | 迁入的州 | 州里的城(没有 = −1) | **国家**(借用这一列):起因 —— 逃避它的兵锋(它的民族 ≠ a),或随它的征服而来(它的民族 = a) |
@@ -389,10 +394,10 @@ export type AnnalKind =
  * 战争的起因(史事 war 的 cause;阶段 4 干预的强制宣战不给)和盟约怎么断的(unally 的 cause):
  *   expand 争边地(没有别的由头)/ claim 收复故土(对方手里有原属本国的州)/ chaos 乘对方之乱(对方正和别国交兵、刚丢了国都、刚改朝换代)/
  *   prey 吞并小国 / betray 背盟来攻 / punish 讨伐自立的藩属 / ally 应盟国之约 / rescue 宗主救藩属 / quell 讨伐起事的饥民(民变);
- *   collapse:大崩解里自立的那几块(史事 split 的 cause);broke:国用不足才议直征(史事 council 的 cause);warlord:割据的地方起兵自立(史事 split 的 cause,control.ts);great:大瘟疫(史事 plague 的 cause);
+ *   collapse:大崩解里自立的那几块(史事 split 的 cause);heir:宗室争位、据地自立(史事 split 的 cause)和讨伐他的那场仗(war 的 cause);broke:国用不足才议直征(史事 council 的 cause);warlord:割据的地方起兵自立(史事 split 的 cause,control.ts);great:大瘟疫(史事 plague 的 cause);
  *   lapse 盟约渐废 / abandon 坐视不救 / vassal 一方称臣
  */
-export type AnnalCause = 'expand' | 'claim' | 'chaos' | 'prey' | 'resource' | 'betray' | 'punish' | 'ally' | 'rescue' | 'lapse' | 'abandon' | 'vassal' | 'quell' | 'collapse' | 'great' | 'quake' | 'warlord' | 'broke';
+export type AnnalCause = 'expand' | 'claim' | 'chaos' | 'prey' | 'resource' | 'betray' | 'punish' | 'ally' | 'rescue' | 'lapse' | 'abandon' | 'vassal' | 'quell' | 'collapse' | 'great' | 'quake' | 'warlord' | 'broke' | 'heir';
 
 /**
  * 一条史事(阶段 3):推演里各事件处理函数用 CivSim.record 往 Civ.annals 里记,编年史(界面上的事件列表)只读它。
@@ -752,7 +757,7 @@ export interface DevEvent {
  */
 export interface Person {
   id: number;
-  /** ruler 君主、general 将领、prince 没即位的宗室(世系里补出来的,见 lineage.ts)、minister 名臣(文臣,见 officials.ts) */
+  /** ruler 君主、general 将领、prince 没即位的宗室(君主的诸子、养子见 royals.ts,世系里补出来的见 lineage.ts)、minister 名臣(文臣,见 officials.ts) */
   role: 'ruler' | 'general' | 'prince' | 'minister';
   /** 哪国的人 */
   polity: number;
@@ -792,6 +797,17 @@ export interface Person {
   commands?: PersonCommand[];
   /** 父亲(Person.id;君主和宗室才有;一朝的第一位、共和国执政官、将领没有) */
   parent?: number;
+  /** parent 是养父(这人是收养的 / 过继的养子,见 royals.ts、lineage.ts);亲生的不给 */
+  adopted?: true;
+  /** 宗室在争储里被杀(fate purged):杀他的那位新君(Person.id) */
+  rival?: number;
+  /**
+   * 君主:即位时诸子争储怎么了的(见 royals.ts),没争的不给。how:merit 以战功越过兄长得立、coup 举兵夺位杀了对手、
+   * revolt 对手拥兵争位、兵败被杀,intrigue 谮杀对手得立、usurp 先君的儿子还在、他(兄弟、叔侄)杀了太子自立;
+   * 宗室争位、据地自立的开国之君:secede(rivals = 即位的那位)。
+   * rivals = 越过的兄长 / 杀掉的对手 / 争位的对手(Person.id)
+   */
+  claim?: { how: 'merit' | 'coup' | 'revolt' | 'intrigue' | 'usurp' | 'secede'; rivals: number[] };
   /** 作者改过名时,生成时的名字(稳定键按它算,见 gen/edits.ts 的 personKey);没改过 = 不给 */
   defaultName?: string;
   /** 字(名臣、将领;东方带姓的语感才有,见 officials.ts) */
@@ -849,8 +865,9 @@ export interface PersonCommand {
  *   作者立的君主(Person.author):到期下台写 retired(退位),在位时改朝换代写 deposed,亡国只写 surrendered / fled,
  *   被后来作者立的君主取代写 yielded
  * - 统帅:died 寿终、battle 战死
+ * - 宗室:died 寿终、battle 领兵战死、purged 争储被杀(Person.rival 是杀他的新君)
  */
-export type PersonFate = 'died' | 'murdered' | 'deposed' | 'overthrown' | 'fell' | 'surrendered' | 'fled' | 'merged' | 'retired' | 'battle' | 'yielded';
+export type PersonFate = 'died' | 'murdered' | 'deposed' | 'overthrown' | 'fell' | 'surrendered' | 'fled' | 'merged' | 'retired' | 'battle' | 'yielded' | 'purged';
 
 /**
  * 君主的倾向(rulers.ts):各 0–100,50 是寻常,越高越容易做对应的事 ——
