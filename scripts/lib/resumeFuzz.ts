@@ -110,13 +110,14 @@ export function fuzzOrders(civ: Civ, T: number): Intervention[] {
     const L = () => between(rnd, 0, 100);
     return cleanIntervention(kind === 'death' ? { kind, a, person, from: T } : { kind, a, person, from: T, leanings: { expand: L(), war: L(), develop: L(), trade: L() } });
   };
-  /** 天灾:瘟疫(多半挑还在的城)、饥荒(一国 / 几州)、地震水旱(多半在这国境内) */
+  /** 天灾:瘟疫(多半挑还在的城;两成是全球大疫,疫后无人收拾 10 / 30 / 60 年)、饥荒(一国 / 几州)、地震水旱(多半在这国境内) */
   const disaster = (A: number, a: string): Intervention | null => {
     const level = between(rnd, 1, 3) as DisasterLevel;
     const u = rnd();
     if (u < 0.35) {
       const cs = civ.settlements.filter((s) => s.ended === undefined);
       const c = cs.length && rnd() < 0.9 ? pick(rnd, cs) : civ.settlements.length ? pick(rnd, civ.settlements) : undefined;
+      if (c && rnd() < 0.2) return cleanIntervention({ kind: 'disaster', type: 'pandemic', level, from: T, city: settlementKey(civ, c.id), slump: pick(rnd, [10, 30, 60]) });
       return c ? cleanIntervention({ kind: 'disaster', type: 'plague', level, from: T, city: settlementKey(civ, c.id) }) : null;
     }
     const ls = lands(A);

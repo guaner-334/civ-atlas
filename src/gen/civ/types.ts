@@ -151,9 +151,11 @@ export interface Settlement {
   /**
    * 阶段 3 城市兴衰:被洗劫(按先后)。loss = 当时人口折损的比例(0..1),之后按 SACK_RECOVER 年慢慢恢复(见 growth.ts)。
    * 饥荒(unrest.ts)、瘟疫(plague.ts)也记在这里(cause = famine / plague):人口一样掉一截、慢慢长回来;
-   * 作者下的天灾(干预 disaster,disaster.ts)里饥荒记 famine、瘟疫记 plague、地震水旱记 quake(from = 震中那州:是地震、大水还是大旱按它定)
+   * 作者下的天灾(干预 disaster,disaster.ts)里饥荒记 famine、瘟疫记 plague、地震水旱记 quake(from = 震中那州:是地震、大水还是大旱按它定)。
+   * 全球大疫(pandemic.ts):染疫记 plague、疫后凋敝里"疫气复作、流亡"记 slump,都带 until = 那场的凋敝结束那年:
+   * 无人收拾,凋敝结束以前不长回来,之后照常按 SACK_RECOVER 淡去(growth.ts 的 populationAt);染疫的那条另带 pan = 第几场瘟疫(史事 pandemic 的 war 列)
    */
-  sacks?: { year: Year; loss: number; cause?: 'famine' | 'plague' | 'quake'; from?: number }[];
+  sacks?: { year: Year; loss: number; cause?: 'famine' | 'plague' | 'quake' | 'slump'; from?: number; until?: Year; pan?: number }[];
   /**
    * 阶段 3 城市兴衰:这座城是在哪座被毁的城(Settlement id)的故址上重建的(同一州、同一地块)。
    * 同族重建沿用旧名;换了民族的另起新名。不是重建的 = 不给
@@ -307,12 +309,14 @@ export interface Place {
  * | famine    | 饥荒(unrest.ts):一国治下同一年景里闹饥荒的几州(各城的折损见 Settlement.sacks 里 cause = famine 的那一条) | 国家 | 闹饥荒的州数 | 灾最重的州 | 那州的城 | −1 |
  * | revolt    | 民变:饥民起事、立了新势力(紧跟着记原来的国家讨伐它的那场 war,cause = quell) | 起事立的新国家 | 原来的国家 | 起事的州 | 新国都 | −1 |
  * | collapse  | 大崩解:大国一下子散成几块(紧跟着记各块自立的 split,cause = collapse;散回部落的州不另记,日志原因 Ev.Collapse) | 国家 | 怎么崩:0 = 中央崩(各地自立)、1 = 地方崩(诸州残破,发展度掉)、2 = 两样都崩(散回部落) | 国都所在州 | 国都 | **散出去几块**(借用这一列;散回部落 = 散出去的州数) |
- * | plague    | 瘟疫(plague.ts):这一年疫传到一国治下的几州(各城的折损见 Settlement.sacks 里 cause = plague 的那一条;部落地带不记)。同一场瘟疫的第一条是起疫的那城;大瘟疫 cause = great | 国家 | 这一年染疫的州数 | 死得最多的州 | 那州的城 | **第几场瘟疫**(借用这一列) |
+ * | plague    | 瘟疫(plague.ts):这一年疫传到一国治下的几州(各城的折损见 Settlement.sacks 里 cause = plague 的那一条;部落地带不记)。同一场瘟疫的第一条是起疫的那城;大瘟疫 cause = great,全球大疫 cause = pandemic | 国家 | 这一年染疫的州数 | 死得最多的州 | 那州的城 | **第几场瘟疫**(借用这一列) |
+ * | pandemic  | 全球大疫起疫(pandemic.ts;紧跟着记起疫那城的 plague)。**疫前天下人口在 Annal.n**(千人,取整) | 起疫那城此刻的主人(−1 = 部落地带) | **疫后无人收拾几年**(凋敝到 year + b 那年为止) | 起疫的州 | 起疫的城 | **第几场瘟疫**(借用这一列) |
+ * | desolate  | 疫后城邑荒废(pandemic.ts:全球大疫的凋敝里村镇荒废;它的 ended = 这一年,之后照毁城的规矩看重建) | 当时的国家(−1 = 部落地带) | −1 | 州 | 那座城 | **第几场瘟疫**(借用这一列) |
  * | warlord   | 割据(control.ts):中央管不到的地方拥兵自重,名义上仍归这国(国界、归属不变) | 国家 | −1 | 割据的那座城所在的州 | 那座城 | **地盘有几州**(借用这一列) |
  * | reclaim   | 收回割据(control.ts):中央重新管住了那一带 | 国家 | −1 | 割据的那座城所在的州 | 那座城 | **割据了几年**(借用这一列) |
  * | defy      | 抗命不出兵(control.ts):开战点兵时,割据的地方拥兵不出 | 国家 | 和它交战的国家 | 割据的那座城所在的州 | 那座城 | 那场战争 |
  * | fiscal    | 国用不足(control.ts 的钱粮):国库空了、入不敷出 | 国家 | −1 | 国都所在州 | 国都 | **主要因为什么**(借用这一列):0 = 连年用兵,1 = 地方拖欠 |
- * | council   | 议事(council.ts):朝廷议改征收之法、分封、削藩;**结果在 Annal.n**:0 办成、1 妥协、2 搁置、3 谈崩(削藩谈崩紧跟着记那处割据自立的 split,cause = warlord;直征、改土归流谈崩紧跟着记 warlord) | 国家 | −1 | 罢直征:国都所在州;削藩:割据的那州;直征、改土归流:最吃亏的那州(没有 = 国都所在州);分封:最远的那州 | 那州的城 | **议题**(借用这一列):0 罢直征、1 削藩、2 直征、3 改土归流、4 分封边地。直征因为国用不足才议的,cause = broke(不然是君主锐意兴革) |
+ * | council   | 议事(council.ts):朝廷议改征收之法、分封、削藩、军制、官制、分镇,地方提脱离;**结果在 Annal.n**:0 办成、1 妥协、2 搁置、3 谈崩(削藩、改组、脱离谈崩紧跟着记那处割据自立的 split,cause = warlord;直征、改土归流、收兵权、收任免谈崩紧跟着记 warlord) | 国家 | 脱离:想转投的邻国;别的 −1 | 罢直征、罢禁军、罢铨选:国都所在州;削藩、改组、脱离:割据的那州;直征、改土归流:最吃亏的那州(没有 = 国都所在州);收兵权、设边镇:边地城民最多的那州;收任免、许自辟:豪族把持的州里税最多的那州(没有 = 国都所在州);分封:最远的那州 | 那州的城 | **议题**(借用这一列):0 罢直征、1 削藩、2 直征、3 改土归流、4 分封边地、5 收兵权(设了边镇的是罢边镇)、6 放兵权(收着兵权的是罢禁军,不然是设边镇)、7 收任免(许了自辟的是收回辟署)、8 放任免(铨选着的是罢铨选,不然是许自辟)、9 改组(分镇)、10 脱离。直征因为国用不足才议的,cause = broke(不然是君主锐意兴革) |
  * | stand     | 据险断后(wars.ts):败退的一方留一支兵守住关隘(见 passes.ts),挡住追兵(追兵本来能再打下的那一州没打下来),大军退保关隘后面那州(**Annal.foe**);**守了几日在 Annal.n**,守将的结局在 cause:slain 力战而死、captured 力竭被擒、withdrew 全师而退 | 断后的一方 | 追兵的一方 | 关隘所在的州(口子那块地所在的州;可能是刚丢给追兵的那州) | −1 | 战争编号 |
  * | treaty    | 立约 / 续约(treaties.ts):几国约定若干年互不侵犯(三国以上的是"有限竞争":再加各守今疆)。**立约各国在 Annal.ps**(按入约先后;续约 = 续约的几国),**期限(年)在 Annal.n**,共同的强邻在 Annal.foe(−1 = 没有),**居间的国家在 Annal.by**(−1 = 没有);cause:peace 议和时顺带立的、renew 约满续约(war 列是原来那份约的编号)、没有 = 自己立的 | 立约各国的第一国 | 第二国 | 会盟的城所在州(−1 = 没有) | 会盟的城 | **约的编号**(借用这一列;0 起,按立约先后) |
  * | breach    | 背约:立约国向约里的另一国开战(紧跟着记那场 war,cause = breach)。背约的一方就此退出这份约;**约的编号在 Annal.n** | 背约的一方 | 被打的一方 | −1 | −1 | 紧跟着的那场战争 |
@@ -396,6 +400,8 @@ export type AnnalKind =
   | 'fiscal'
   | 'council'
   | 'stand'
+  | 'pandemic'
+  | 'desolate'
   | 'treaty'
   | 'breach'
   | 'expire'
@@ -407,13 +413,14 @@ export type AnnalKind =
  *   expand 争边地(没有别的由头)/ claim 收复故土(对方手里有原属本国的州)/ chaos 乘对方之乱(对方正和别国交兵、刚丢了国都、刚改朝换代)/
  *   prey 吞并小国 / betray 背盟来攻 / punish 讨伐自立的藩属 / ally 应盟国之约 / rescue 宗主救藩属 / quell 讨伐起事的饥民(民变);
  *   collapse:大崩解里自立的那几块(史事 split 的 cause);heir:宗室争位、据地自立(史事 split 的 cause)和讨伐他的那场仗(war 的 cause);broke:国用不足才议直征(史事 council 的 cause);warlord:割据的地方起兵自立(史事 split 的 cause,control.ts);great:大瘟疫(史事 plague 的 cause);
+ *   pandemic:全球大疫(史事 plague 的 cause,pandemic.ts);
  *   lapse 盟约渐废 / abandon 坐视不救 / vassal 一方称臣;
  *   slain / captured / withdrew:据险断后的守将力战而死 / 力竭被擒 / 全师而退(史事 stand 的 cause);
  *   立约与中立地(treaties.ts):breach 背约来攻(war 的 cause);peace 议和时顺带立约 / 划缓冲中立地(treaty、neutral 的 cause);
  *   renew 约满续约(treaty 的 cause);lapse 约里剩不到两国、约废(expire)/ 中立地撤销(neutral);
  *   heir / deposed / fled 放逐到中立地的是争储失势的宗室 / 被废的末代之君 / 出奔的亡国之君(exile 的 cause)
  */
-export type AnnalCause = 'expand' | 'claim' | 'chaos' | 'prey' | 'resource' | 'betray' | 'punish' | 'ally' | 'rescue' | 'lapse' | 'abandon' | 'vassal' | 'quell' | 'collapse' | 'great' | 'quake' | 'warlord' | 'broke' | 'heir' | 'slain' | 'captured' | 'withdrew' | 'breach' | 'peace' | 'renew' | 'deposed' | 'fled';
+export type AnnalCause = 'expand' | 'claim' | 'chaos' | 'prey' | 'resource' | 'betray' | 'punish' | 'ally' | 'rescue' | 'lapse' | 'abandon' | 'vassal' | 'quell' | 'collapse' | 'great' | 'quake' | 'warlord' | 'broke' | 'heir' | 'slain' | 'captured' | 'withdrew' | 'pandemic' | 'breach' | 'peace' | 'renew' | 'deposed' | 'fled';
 
 /**
  * 一条史事(阶段 3):推演里各事件处理函数用 CivSim.record 往 Civ.annals 里记,编年史(界面上的事件列表)只读它。
@@ -515,6 +522,8 @@ export interface Civ {
   sailFrom?: Year;
   /** 拓荒设定(CivParams.frontier,清理过的;默认 = 不写)。CivSim.fromCiv 接着推时要用 */
   frontier?: import('./frontier').Frontier;
+  /** 「天灾」设定(CivParams.calamity;平常 = 不写)。CivSim.fromCiv 接着推时要用 */
+  calamity?: import('./calamity').Calamity;
   /**
    * 阶段 4 干预:这份历史是带着哪些干预推出来的(清理过的列表,见 gen/edits.ts;史事 intervene 的 war 列是它的下标)。
    * 没有干预 = 不给。CivSim.fromCiv 接着推时默认带着它
@@ -754,12 +763,13 @@ export interface TablesState {
 /**
  * 发展度的大事:first = 世界上第一次有州进入这个时代;enter = 这个国家的国都所在的州第一次进入这个时代(立国时已在的不记);
  * discover = 储量多的州第一次发现这样矿;deplete = 储量多的州这样物产采空(矿:能用的跌到两成以下)、吃空(林、渔、田、牧:跌到四成以下);
- * invent = 世界上第一次有州的某样能力到了某样发明那一档(文字、冶铁、印刷……)。
+ * invent = 世界上第一次有州的某样能力到了某样发明那一档(文字、冶铁、印刷……);
+ * regress = 全球大疫的凋敝里,这个国家的国都所在的州退回这个时代(从上一个时代跌下来;只有全球大疫会记,见 pandemic.ts)。
  * era = 那一刻那州在第几个时代(见 development.ts 的 ERAS);culture、polity、settlement = 那一刻那州的民族、国家、城(−1 = 没有)
  */
 export interface DevEvent {
   year: Year;
-  kind: 'first' | 'enter' | 'discover' | 'deplete' | 'invent';
+  kind: 'first' | 'enter' | 'discover' | 'deplete' | 'invent' | 'regress';
   era: number;
   /** invent:哪样发明(见 development.ts 的 INVENTIONS) */
   invention?: number;
@@ -990,6 +1000,11 @@ export interface CivParams {
   frontier?: import('./frontier').Frontier;
   /** 自选的文明起源(frontier.ts 的 Origins;推演前先清理)。不给 = 自动挑发源地(和没有这一项逐字节一样) */
   origins?: import('./frontier').Origins;
+  /**
+   * 「天灾」:多 / 很多(calamity.ts):瘟疫、饥荒更多更重,各国会自己闹地震水旱,世上有国家能远洋以后会自己起全球大疫(pandemic.ts)。
+   * 不给 = 平常(和没有这一项逐字节一样)
+   */
+  calamity?: import('./calamity').Calamity;
   /**
    * 文明种子:推演里的随机数(州、民族、国家、人物、名字、旗……)都从它取,地图的随机数照旧从 world.params.seed 取。
    * 不给 = 等于地图种子(和没有这一项逐字节一样)。

@@ -610,10 +610,10 @@ if (part('键盘快捷键')) {
 // 君主有「倾向」一组四行,复制生平里也有一行,将领、宗室没有;
 // 「出征那年」跳时间轴;「编年史」打开这国的编年史;「复制生平」);编年史里的人名是蓝字,点了收起概览、打开这个人,不跳年份;
 // 世界概览的「人物」页(名人 / 君主 / 将领,「全部 N 位」进来停在这国的君主);搜名字第一个是这个人。
-// 例子:种子 7 的第 2940 年,天灵(6 号国)霄朝的圣宗沈羽(前任是他的父亲世宗沈岚尘,
-// 继任是他的孙子宪宗沈玄;在位时有将领君冥领兵,君冥头一回出征在 2908 年,那时在位的是世宗沈岚尘)
+// 例子:种子 7 的第 2900 年,天灵(6 号国)霄朝的高宗沈岚尘(前任是他的祖父仁宗沈瑶,
+// 继任是他的儿子孝宗沈羽;在位时有将领晏霜珏领兵,晏霜珏头一回出征在 2892 年,那时在位的也是高宗沈岚尘)
 if (part('人物')) {
-  await page.goto(`${dev.url}/?seed=7&civYear=2940`);
+  await page.goto(`${dev.url}/?seed=7&civYear=2900`);
   await page.waitForFunction(() => (window as any).__wfLabels?.polities > 0, null, { timeout: 60000 });
   await page.waitForTimeout(300);
   const year = async () => Number((await page.locator('.timebar .tb-year').innerText()).replace(/[^\d]/g, ''));
@@ -634,7 +634,7 @@ if (part('人物')) {
   await page.waitForTimeout(200);
   const copied = (await page.evaluate(() => (window as any).__wfPersonText as string)) ?? '';
   // 将领一行的名字 → 将领的卡片;出征那年
-  await page.locator('.inspector .cp.pp .cp-stats .ins-link', { hasText: '君冥' }).first().click();
+  await page.locator('.inspector .cp.pp .cp-stats .ins-link', { hasText: '晏霜珏' }).first().click();
   await page.waitForTimeout(400);
   const card2 = await text('.inspector .cp.pp');
   const genLeans = await page.locator('.inspector .cp.pp [data-sec=leanings]').count();
@@ -687,7 +687,7 @@ if (part('人物')) {
   const lgFocus = await page.locator(`.lg-node.focus[data-person="${princeId}"]`).count();
   await closeOverview();
   // 搜索
-  await page.fill('.sidebar .search-input', '圣宗沈羽');
+  await page.fill('.sidebar .search-input', '高宗沈岚尘');
   await page.waitForTimeout(300);
   const hit = await text('.search-row');
   const hitKind = await page.locator('.search-row').first().getAttribute('data-kind');
@@ -698,19 +698,19 @@ if (part('人物')) {
     `人物:国家卡片「${stats.slice(0, 40)}…」,历代君主 ${rulers} 行、当前「${cur}」、「${all}」;卡片「${card1.slice(0, 50)}…」,倾向 ${leanRows} 行「${leans.slice(0, 30)}…」,复制 ${copied.length} 字;` +
       `将领卡片「${card2.slice(0, 30)}…」、出征那年 → ${y1};编年史开 ${chronOpen}、蓝字 ${names} 个,点「${pickName}」→ 收起 ${closed}、卡片 ${card3Id}/${pickId}、年份 ${y1} → ${y2};` +
       `人物页名人 ${famousOn}/${famous} 行「${famousFirst.slice(0, 30)}」→ 卡片「${card4.slice(0, 20)}」;全部 N 位 → 君主 ${rulersOn}、只看 ${polityPick}、${groups} 组 ${rows} 行;` +
-      `世系图「${lgHead.slice(0, 40)}」${lgNodes} 人、当前「${lgOn}」,宗室卡片「${princeCard.slice(0, 30)}」→ 圈出 ${lgFocus};搜"圣宗沈羽"「${hit}」(${hitKind})→「${card5}」`,
+      `世系图「${lgHead.slice(0, 40)}」${lgNodes} 人、当前「${lgOn}」,宗室卡片「${princeCard.slice(0, 30)}」→ 圈出 ${lgFocus};搜"高宗沈岚尘"「${hit}」(${hitKind})→「${card5}」`,
   );
-  if (!/君主\s*圣宗沈羽\s*2923 年即位/.test(stats)) errs.push(`人物:国家卡片没有「君主」行(${stats.slice(0, 80)})`);
-  if (rulers !== 5 || !/圣宗沈羽\s*当前/.test(cur) || !/全部 \d+ 位/.test(all)) errs.push(`人物:国家卡片的历代君主不对(${rulers} 行;${cur};${all})`);
-  // 前任、继任的小字写亲属(父、孙)
+  if (!/君主\s*高宗沈岚尘\s*2884 年即位/.test(stats)) errs.push(`人物:国家卡片没有「君主」行(${stats.slice(0, 80)})`);
+  if (rulers !== 5 || !/高宗沈岚尘\s*当前/.test(cur) || !/全部 \d+ 位/.test(all)) errs.push(`人物:国家卡片的历代君主不对(${rulers} 行;${cur};${all})`);
+  // 前任、继任的小字写亲属(祖父、子)
   if (
-    !/圣宗沈羽/.test(card1) ||
-    !/大霄皇帝，2923–2950 年在位/.test(card1) ||
-    !/前任\s*世宗沈岚尘\s*父/.test(deed) ||
-    !/继任\s*宪宗沈玄\s*孙/.test(deed)
+    !/高宗沈岚尘/.test(card1) ||
+    !/大霄皇帝，2884–2923 年在位/.test(card1) ||
+    !/前任\s*仁宗沈瑶\s*祖父/.test(deed) ||
+    !/继任\s*孝宗沈羽\s*子/.test(deed)
   )
     errs.push(`人物:君主卡片不对(${card1.slice(0, 160)})`);
-  if (!copied.startsWith('圣宗沈羽\n大霄皇帝') || !copied.includes('在位时：')) errs.push(`人物:复制生平不对(${copied.slice(0, 60)})`);
+  if (!copied.startsWith('高宗沈岚尘\n大霄皇帝') || !copied.includes('在位时：')) errs.push(`人物:复制生平不对(${copied.slice(0, 60)})`);
   if (
     leanRows !== 4 ||
     // 那年在位的君主:倾向右上多一个「改」
@@ -719,13 +719,13 @@ if (part('人物')) {
   )
     errs.push(`人物:君主卡片的倾向不对(${leanRows} 行;${leans.slice(0, 80)};复制里 ${/倾向：.*/.exec(copied)?.[0]})`);
   if (genLeans || princeLeans) errs.push(`人物:将领 / 宗室的卡片上不该有倾向(${genLeans};${princeLeans})`);
-  if (!/君冥\s*大霄将领，2908–2935 年领兵/.test(card2) || y1 !== 2908) errs.push(`人物:将领卡片 / 出征那年不对(${card2.slice(0, 60)};${y1})`);
+  if (!/晏霜珏\s*大霄将领，2892–2900 年领兵/.test(card2) || y1 !== 2892) errs.push(`人物:将领卡片 / 出征那年不对(${card2.slice(0, 60)};${y1})`);
   if (!chronOpen || names < 3 || !closed || pickId < 0 || card3Id !== pickId || y2 !== y1) errs.push(`人物:编年史里的人名点不开,或点了跳了年份(${chronOpen};${names};${closed};${card3Id}/${pickId};${y1} → ${y2})`);
   if (!famousOn || famous < 20 || !card4) errs.push(`人物:人物页的名人不对,或点一行没打开卡片(${famousOn};${famous};${card4.slice(0, 30)})`);
   if (!rulersOn || polityPick !== '6' || groups < 1 || rows !== 101) errs.push(`人物:「全部 N 位」没有打开这国的君主(${rulersOn};${polityPick};${groups};${rows})`);
-  if (!/^霄 2655 年起，14 位君主/.test(lgHead) || lgNodes < 8 || !/世宗沈岚尘.*当前/.test(lgOn)) errs.push(`人物:世系图不对(${lgHead};${lgNodes};${lgOn})`);
+  if (!/^霄 2655 年起，14 位君主/.test(lgHead) || lgNodes < 8 || !/高宗沈岚尘.*当前/.test(lgOn)) errs.push(`人物:世系图不对(${lgHead};${lgNodes};${lgOn})`);
   if (!/霄宗室，\d+–\d+/.test(princeCard) || !princeCard.includes('子嗣') || lgFocus !== 1) errs.push(`人物:宗室卡片 / 从卡片回到世系图不对(${princeCard.slice(0, 60)};${lgFocus})`);
-  if (!/^圣宗沈羽 大霄皇帝，2923–2950$/.test(hit) || hitKind !== 'person' || card5 !== '圣宗沈羽') errs.push(`人物:搜"圣宗沈羽"不对(${hit};${hitKind};${card5})`);
+  if (!/^高宗沈岚尘 大霄皇帝，2884–2923$/.test(hit) || hitKind !== 'person' || card5 !== '高宗沈岚尘') errs.push(`人物:搜"高宗沈岚尘"不对(${hit};${hitKind};${card5})`);
   await page.fill('.sidebar .search-input', '');
   await page.keyboard.press('Escape');
   await page.evaluate(() => localStorage.clear());
@@ -2384,6 +2384,62 @@ if (part('分享链接')) {
   }
   await ctxA.close();
   await ctxB.close();
+}
+
+// 带干预的世界里给人物改名:打开分享链接时地图上先出来的是没带干预的历史,改名的那个人要等后台重推完才有 ——
+// 打开时不说"没对上",推完以后按推好的历史核对:那个人对上了(搜得到新名字),确实不存在的那一处照旧说"1 处改名没对上";
+// 不带干预的世界不用等重推,打开时就说
+if (part('改名等推完')) {
+  const { encodeShare } = await import('../src/gen/savefile');
+  const { DEFAULT_PARAMS, generateWorld } = await import('../src/gen/world');
+  const { generateCiv } = await import('../src/gen/civ');
+  const { personKey, polityKey, resolveKey } = await import('../src/gen/edits');
+  const params = { ...DEFAULT_PARAMS, seed: 7 };
+  const w = generateWorld(params);
+  const plain = generateCiv(w);
+  // 保住第 1000 年还在的一国:往后的历史都变了,找一位只有带着这条干预才有的人
+  const keep = plain.polities.findIndex((x) => x.founded <= 1000 && (x.ended ?? Infinity) > 1000);
+  const iv = { kind: 'protect' as const, a: polityKey(plain, keep), from: 1000 };
+  const withIv = generateCiv(w, { interventions: [iv] });
+  let who = '';
+  for (let i = 0; i < (withIv.people?.length ?? 0) && !who; i++) {
+    const k = personKey(withIv, i);
+    if (k && !resolveKey(plain, k)) who = k;
+  }
+  const nobody = 'person:polity:c1#0|general|乌有|2000';
+  const share = (names: Record<string, string>, interventions: unknown[]) =>
+    encodeShare({ app: '文明与地图', format: 1, generator: GENERATOR_VERSION, seed: 7, params, edits: { names, interventions, terrain: [] }, check: '', title: '改名核对', savedAt: '2026-10-26T08:00:00.000Z' } as never);
+  const open = async (hash: string, wait: boolean) => {
+    const ctx = await browser.newContext({ viewport: { width: 1400, height: 820 } });
+    const p = await ctx.newPage();
+    p.on('pageerror', (e) => errs.push(`改名等推完:${e.message}`));
+    await p.goto(`${dev.url}/?seed=7&style=fantasy&civ=polities${hash}`);
+    await p.waitForFunction(() => (window as any).__wfLabels?.polities > 0, null, { timeout: 60000 });
+    const early = (await p.locator('.toast').allInnerTexts().catch(() => [] as string[])).join(' ').replace(/\n/g, ' ');
+    // 重推完、画到地图上(__wfResim)以后再看提示
+    if (wait) await p.waitForFunction(() => (window as any).__wfResim, null, { timeout: 120000 }).catch(() => {});
+    await p.waitForTimeout(500);
+    const done = await toastText(p, 'save', 2000);
+    let found: string[] = [];
+    if (wait) {
+      await p.click('[data-act=search]');
+      await p.fill('.sidebar .search-input', '阎溟');
+      await p.waitForTimeout(300);
+      found = await p.locator('.search-row .search-name').allInnerTexts().catch(() => [] as string[]);
+    }
+    await ctx.close();
+    return { early, done, found };
+  };
+  const a = who ? await open(await share({ [who]: '阎溟', [nobody]: '子虚' }, [iv]), true) : null;
+  const b = await open(await share({ [nobody]: '子虚' }, []), false);
+  console.log(`改名等推完:改名的人 ${who || '没找到'};带干预:刚打开「${a?.early}」→ 推完「${a?.done}」、搜到 ${JSON.stringify(a?.found)};不带干预:打开就说「${b.done}」`);
+  if (!who || !a) errs.push('改名等推完:没找到只有带着干预才有的人物');
+  else {
+    if (a.early.includes('没对上')) errs.push(`改名等推完:历史还没重推完就说改名没对上(${a.early})`);
+    if (!a.done.includes('1 处改名没对上')) errs.push(`改名等推完:重推完应只有确实不存在的那 1 处没对上(${a.done})`);
+    if (!a.found.some((t) => t.startsWith('阎溟'))) errs.push(`改名等推完:重推完搜不到改的新名字(${JSON.stringify(a.found)})`);
+  }
+  if (!b.done.includes('1 处改名没对上')) errs.push(`改名等推完:不带干预的世界打开时没说改名没对上(${b.done})`);
 }
 
 // 没改过的世界:复制出来的普通链接、地址栏都带生成器版本(gen=);打开旧版本时的普通链接,提示条说清变了什么;版本一样不提示

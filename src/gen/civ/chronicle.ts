@@ -62,8 +62,11 @@
  *   ("旋为大渭所平""攻破汾城,大渭亡""得汾州,与大渭议和,割据一方";标签"起",攻破都城、亡了原来国家的是大事);
  *   民变被讨平的那条灭亡写"大渭讨平瑞国"(标签"平");大崩解写"大渭大乱,瑞州、汾州各自立国,大渭仅保汾城一隅"
  *   (地方崩加"诸州残破",散回部落"…土崩瓦解,二十三州散为部落…";标签"崩",一律是大事),紧跟着自立的几块是它的子条目。
- *   瘟疫(plague.ts)同一场折成一条"大疫起于维罗拉,传至特罗纳、哈尔兰,5 年间诸国死者十之二"(大瘟疫"天下大疫,起于…";标签"疫";
+ *   瘟疫(plague.ts)同一场折成一条"大疫起于维罗拉,传至特罗纳、哈尔兰,5 年间诸国死者十之二"(大瘟疫"大疫,起于…";标签"疫";
  *   大瘟疫、传到三国以上、死者十之二以上的是大事),子条目是逐年传到哪。
+ *   全球大疫(pandemic.ts)写"克尔顿大疫:起于克尔顿,循航线传遍四洲,至五百六十一州,9 年乃息。城中死者十之四五,天下人口十去其二"
+ *   ("天下"只给全球大疫);疫后荒废的城一国一条"某国疫后城邑荒废:甲、乙、丙等十三处,道路断绝"(子条目是每一处);
+ *   凋敝结束一条"疫后凋敝三十年,至是始复。天下城邑荒废者六十余处,道路断绝近半"。都归"疫"(界面上同瘟疫)。
  * - 年份写法和时间轴一致:"第 N 年"(N = 年份取整)。州数等计数用中文数字("得瑞州等五州"),年数用阿拉伯数字。
  *
  * buildChronicle 按 civ 缓存(同一个 civ 只算一次)。
@@ -80,17 +83,20 @@ import {
   polityTierAt,
   polityTitles,
   populationAt,
+  regionPopulationAt,
   settlementRank,
 } from './growth';
+import { pandemicsOf } from './pandemicInfo';
 import { HABITABLE_SUIT, cultureLabel, regionLabel } from './display';
 import { ownersAt } from './timeline';
 import { plagueSpans } from './plagueSpans';
+import { councilBefore } from './councilRules';
 import { ageAt, generalRef, kinOf, leaderName, ministerRole, princeTitle, reigningAt, rulerBare, rulerRef, rulerShort } from './peopleText';
 import { eraText, monthTail, type Era } from '../era';
 import { parsePersonKey, resolveKey, resolvePersonKey, type Intervention } from '../edits';
 import { emptyPolicy, policyName, type PolicyIv } from './policy';
 import { IV_NOT_HIM, IV_PEOPLE, IV_PROTECTED, IV_WAIT } from './rulers';
-import { IV_TOLL, PLAGUE_IV, quakeWord } from './calamity';
+import { IV_TOLL, PLAGUE_IV, SLUMP_DEFAULT, quakeWord } from './calamity';
 import { foesAt } from './fiscalBook';
 import { envoyOf, treatyBook, treatyLine, treatyName } from './treatyInfo';
 
@@ -580,6 +586,8 @@ const TAG: Record<AnnalKind, string> = {
   fiscal: '匮',
   council: '议',
   stand: '役',
+  pandemic: '疫',
+  desolate: '疫',
   treaty: '约',
   breach: '违',
   expire: '满',
@@ -1018,6 +1026,12 @@ function waitStory(civ: Civ, e: Annal, who: string, A: string, fail: Say, done: 
 /** 天灾:"【干预】星邑大疫,死者十之五""【干预】有桑皇朝大饥,民多饿死,死者十之三""【干预】翼门之野一带地震,城郭多圮,死者十之三" */
 function disasterStory(civ: Civ, e: Annal, v: Extract<Intervention, { kind: 'disaster' }>, A: string, R: string, fail: Say, done: Done): IvStory {
   const toll = IV_TOLL[v.level];
+  if (v.type === 'pandemic') {
+    // 全球大疫:传到哪、死多少另有一条(pandemicEntries)
+    const city = cityName(civ, e.settlement) || R;
+    if (e.b <= 0) return fail(`欲令${city}起大疫,然其城已不在`, `那一年${city}已毁`);
+    return done(`${A}${city}起大疫,疫后无人收拾${cnNumber(v.slump ?? SLUMP_DEFAULT)}年`);
+  }
   if (v.type === 'plague') {
     const city = cityName(civ, e.settlement) || R;
     if (e.b <= 0) return fail(`欲降疫于${city},然其城已不在`, `那一年${city}已毁`);
@@ -1438,13 +1452,15 @@ function simpleEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
       return base(e, id, fiscalText(civ, e, foes), 2, e.war !== 0 && foes.length ? [e.a, foes[0]] : [e.a], [e.region]);
     }
     case 'council': {
-      // 大国办成的改制是大事;搁置、谈崩(后面紧跟着割据、自立那一条)和小国的只在"全部"里
+      // 大国办成的改制是大事;搁置、谈崩(后面紧跟着割据、自立那一条)和小国的只在"全部"里。
+      // 第二批里只有脱离转投(国土易手)算大事;改军制、改官制、分镇只在"全部"里(大国一个种子十来次,放进大事时间轴就挤了)
       const who = reigning(ctx.ix, e.a, y);
-      const imp = e.n === 0 && isGreat(polityOf(civ, e.a)) ? 3 : 2;
+      const imp = e.n === 0 && (e.war <= 4 || e.war === 10) && isGreat(polityOf(civ, e.a)) ? 3 : 2;
       const t = councilText(civ, e, id, who);
       // 搁置的几种写法不写君主
       const named = who && (t.includes(who.name) || (!!who.title && t.includes(who.title)));
-      return withPeople(base(e, id, t, imp, [e.a], [e.region]), named ? who : null);
+      // 脱离:b = 想转投的邻国
+      return withPeople(base(e, id, t, imp, e.b >= 0 ? [e.a, e.b] : [e.a], [e.region]), named ? who : null);
     }
     case 'merge': {
       // 并掉的是大国才是大事
@@ -2285,7 +2301,9 @@ function fiscalText(civ: Civ, e: Annal, foes: number[]): string {
 /**
  * 议事(council.ts;议题在 war 列,结果在 n 列:0 办成、1 妥协、2 搁置、3 谈崩):写谁推、谁拦、成没成。who = 当时在位的君主(没有人物 = null)。
  * "大渭国用不足,太宗行直征之法,遣官至瑞州等地自收赋税" / "大渭议行直征,瑞州等地豪族力阻,改与地方分成" /
- * "大渭太宗削藩,收回割据四十年的瑞州" / "大渭边地难制,群臣请分封瑞州等边州,太宗不许"(西幻:贵族、领主,写得平实些)
+ * "大渭太宗削藩,收回割据四十年的瑞州" / "大渭边地难制,群臣请分封瑞州等边州,太宗不许"(西幻:贵族、领主,写得平实些);
+ * 第二批:"大渭太宗收诸将兵权,精兵尽隶禁军" / "大渭议行铨选,瑞州等地豪族力阻,改为铨选、荐举各半" /
+ * "大渭太宗分瑞州之镇,守将所领诸州尽归朝廷,只留瑞州一州" / "大渭瑞州守将举所领诸州归附大燕,朝廷不能制"
  */
 function councilText(civ: Civ, e: Annal, id: number, who: Person | null): string {
   const y = e.year;
@@ -2345,18 +2363,83 @@ function councilText(civ: Civ, e: Annal, id: number, who: Person | null): string
       if (out === 3) return east ? `${ref}改土归流,${r}${lord}拒不奉诏` : `${ref}收回边地封授,${r}${lord}拒不从命`;
       return east ? `${A}议改土归流,${r}等地土官力阻,事寝` : `${A}议收回边地封授,${r}等地领主力阻,作罢`;
     }
-    default: {
+    case 4: {
       // 分封边地
       if (out === 0) return east ? `${A}边地难制,${bare}分封${r}等边州,许其自治,岁纳贡赋` : `${A}边地难治,${bare}将${r}等边地封给当地领主自治,岁纳贡赋`;
       return east ? `${A}边地难制,群臣请分封${r}等边州,${court}不许` : `${A}边地难治,有人请将${r}等边地封给当地领主,${court}不许`;
     }
+    case 5: {
+      // 收兵权:设了边镇的是罢边镇
+      if (before(civ, id).army < 0) {
+        if (out === 0) return east ? `${ref}罢边镇,${r}等地兵马归朝廷节制` : `${ref}撤销边境军镇,${r}等地兵马重归王室调遣`;
+        if (out === 3) return east ? `${ref}罢边镇,${r}${lord}拥兵不受代` : `${ref}撤销边境军镇,${r}${lord}拥兵抗命`;
+        return east ? `${A}议罢边镇,${r}等地边将力阻,事寝` : `${A}议撤销边境军镇,${r}等地将领力阻,作罢`;
+      }
+      if (out === 0) return east ? `${ref}收诸将兵权,精兵尽隶禁军` : `${ref}收回各地领主的兵权,组建王室常备军`;
+      if (out === 1) return east ? `${A}议收兵权,${r}等地守将力阻,改遣监军` : `${A}议收回各地兵权,${r}等地领主力阻,改为派员监军`;
+      if (out === 3) return east ? `${ref}欲收兵权,${r}${lord}拥兵抗命` : `${ref}要收回兵权,${r}${lord}举兵抗命`;
+      return east ? `${A}议收兵权,${r}等地守将力阻,事寝` : `${A}议收回各地兵权,${r}等地领主力阻,作罢`;
+    }
+    case 6: {
+      // 放兵权:收着兵权的是罢禁军,不然是设边镇
+      if (before(civ, id).army > 0) {
+        if (out === 0) return east ? `${A}禁军所费不赀,罢之,复由州郡征发` : `${A}常备军开销太大,就此裁撤,复由各地征兵`;
+        return east ? `${A}群臣请罢禁军,${court}不许` : `${A}有人请裁撤常备军,${court}不许`;
+      }
+      if (out === 0) return east ? `${A}边事日繁,${bare}置边镇于${r}等地,许边将专兵、自筹军饷` : `${A}边境多事,${bare}在${r}等地设立军镇,由边将自行募兵筹饷`;
+      return east ? `${A}群臣请置边镇于${r}等地,${court}不许` : `${A}有人请在${r}等地设立军镇,${court}不许`;
+    }
+    case 7: {
+      // 收任免:许了自辟的是收回辟署
+      if (before(civ, id).office < 0) {
+        if (out === 0) return east ? `${ref}收回州郡辟署之权,${r}等地长吏复由朝廷选派` : `${ref}收回地方自选官员之权,${r}等地官员复由王室任命`;
+        if (out === 3) return east ? `${ref}收辟署之权,${r}豪族据城抗命` : `${ref}收回地方自选官员之权,${r}贵族据城抗命`;
+        return east ? `${A}议收辟署之权,${r}等地豪族力阻,事寝` : `${A}议收回地方自选官员之权,${r}等地贵族力阻,作罢`;
+      }
+      if (out === 0) return east ? `${ref}行铨选之法,${r}等地长吏皆由朝廷选派` : `${ref}改由王室任命各地官员,${r}等地不再由贵族把持`;
+      if (out === 1) return east ? `${A}议行铨选,${r}等地豪族力阻,改为铨选、荐举各半` : `${A}议由王室任命各地官员,${r}等地贵族力阻,改为王室和贵族各任一半`;
+      if (out === 3) return east ? `${ref}强行铨选,${r}豪族据城抗命` : `${ref}强行任命地方官员,${r}贵族据城抗命`;
+      return east ? `${A}议行铨选,${r}等地豪族力阻,事寝` : `${A}议由王室任命各地官员,${r}等地贵族力阻,不了了之`;
+    }
+    case 8: {
+      // 放任免:铨选着的是罢铨选,不然是许自辟
+      if (before(civ, id).office > 0) {
+        if (out === 0) return east ? `${A}冗官所费不赀,罢铨选之法,复许州郡荐举` : `${A}官员开销太大,不再由王室任命,复由地方推举`;
+        return east ? `${A}群臣请罢铨选,${court}不许` : `${A}有人请废除王室任命官员之制,${court}不许`;
+      }
+      if (out === 0) return east ? `${A}国用不足,地方多事,${bare}许${r}等州郡自辟僚属,豪族世守其地` : `${A}国库空虚,地方不宁,${bare}准许${r}等地贵族自选官员、世袭其职`;
+      return east ? `${A}群臣请许州郡自辟僚属,${court}不许` : `${A}有人请准许地方贵族自选官员,${court}不许`;
+    }
+    case 9: {
+      // 改组(分镇)
+      if (out === 0) return east ? `${ref}分${r}之镇,${lord}所领诸州尽归朝廷,只留${r}一州` : `${ref}拆分${r}领主的领地,只给他留下${r}一地`;
+      if (out === 1) return east ? `${ref}议分${r}之镇,${lord}力争,析其半归朝廷` : `${ref}议拆分${r}领主的领地,领主力争,只收回一半`;
+      if (out === 3) return east ? `${ref}议分${r}之镇,${r}${lord}不受命` : `${ref}拆分${r}领主的领地,${lord}举兵抗命`;
+      return east ? `${A}议分${r}之镇,恐其生变,事寝` : `${A}议拆分${r}领主的领地,恐其生变,作罢`;
+    }
+    default: {
+      // 脱离:地方提的(b = 想转投的邻国);谈崩的后面紧跟着自立那一条
+      const B = pn(civ, e.b, y);
+      if (out === 0) return east ? `${A}${r}${lord}举所领诸州归附${B},朝廷不能制` : `${A}的${r}${lord}率领地改投${B},${court}无力阻止`;
+      if (out === 3) return east ? `${A}${r}${lord}欲以所领诸州归附${B},${court}不许,遂举兵` : `${A}的${r}${lord}想改投${B},${court}不准,${lord}举兵抗命`;
+      return east ? `${A}${r}${lord}欲以所领诸州归附${B},朝廷遣使抚谕,事寝` : `${A}的${r}${lord}想改投${B},王室派人安抚,作罢`;
+    }
   }
 }
 
-/** 一州闹饥荒时城里的人口折损(Settlement.sacks 里 cause = famine、同一年的那一条;找不到 = 0) */
+/** 各条议事议之前那国的军制、官制(council.ts 的 councilBefore;按史事数组缓存,接着推长了就重算) */
+const beforeCache = new WeakMap<readonly Annal[], ReturnType<typeof councilBefore>>();
+function before(civ: Civ, id: number): { army: number; office: number } {
+  let b = beforeCache.get(civ.annals);
+  if (!b || b.length !== civ.annals.length) beforeCache.set(civ.annals, (b = councilBefore(civ.annals)));
+  return b[id] ?? { army: 0, office: 0 };
+}
+
+/** 一州闹饥荒(地震水旱:cause = quake)时城里的人口折损(Settlement.sacks 里同一种、同一年的那一条;找不到 = 0) */
 function famineLoss(civ: Civ, e: Annal): number {
   const s = e.settlement >= 0 ? civ.settlements[e.settlement] : undefined;
-  return s?.sacks?.find((k) => k.cause === 'famine' && k.year === e.year)?.loss ?? 0;
+  const cause = e.cause === 'quake' ? 'quake' : 'famine';
+  return s?.sacks?.find((k) => k.cause === cause && k.year === e.year)?.loss ?? 0;
 }
 
 /** "死者十之二"(按灾最重那州城里的折损;一成以下的不写);三成以上的加"人相食" */
@@ -2366,9 +2449,20 @@ function famineToll(loss: number): string {
   return `${k >= 3 ? ',人相食' : ''},死者十之${cnNumber(k)}`;
 }
 
-/** 饥荒:"大渭瑞州等三州大饥,死者十之二"(标签"饥") */
+/**
+ * 饥荒:"大渭瑞州等三州大饥,死者十之二"(标签"饥")。
+ * 「天灾」多 / 很多时自己发生的地震水旱(cause = quake,没有干预那一条可并):"大渭瑞州一带地震,城郭多圮,死者十之二"
+ */
 function famineText(civ: Civ, e: Annal): string {
   const r = regionName(civ, e.region) || cityName(civ, e.settlement);
+  if (e.cause === 'quake') {
+    const s = e.settlement >= 0 ? civ.settlements[e.settlement] : undefined;
+    const from = s?.sacks?.find((k) => k.cause === 'quake' && k.year === e.year)?.from ?? e.region;
+    const word = from >= 0 ? quakeWord(civ.regions, from) : '地震';
+    const what = word === '大水' ? '大水,漂没城郭' : word === '大旱' ? '大旱,赤地千里' : '地震,城郭多圮';
+    const k = Math.round(famineLoss(civ, e) * 10);
+    return `${e.a >= 0 ? pn(civ, e.a, e.year) : ''}${r || '境内'}一带${what}${e.b > 1 ? `,${cnNumber(e.b)}州受灾` : ''}${k >= 1 ? `,死者十之${cnNumber(k)}` : ''}`;
+  }
   const where = e.b > 1 ? `${r || '诸州'}等${cnNumber(e.b)}州` : r || '境内';
   return `${e.a >= 0 ? pn(civ, e.a, e.year) : ''}${where}大饥${famineToll(famineLoss(civ, e))}`;
 }
@@ -2506,8 +2600,9 @@ function plagueEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
   const years = Math.floor(end) - Math.floor(e.year) + 1;
   let text: string;
   if (great) {
+    // "天下"留给全球大疫(pandemicEntries):大瘟疫只传一片
     const where = shown ? `,传至${shown}等${polities.length > 1 ? `${cnNumber(polities.length)}国` : ''}${cnNumber(hits.length)}州` : '';
-    text = `天下大疫,起于${origin}${where}${years >= 2 ? `,${years} 年乃息` : ''}${toll ? `,${toll}` : ''}`;
+    text = `大疫,起于${origin}${where}${years >= 2 ? `,${years} 年乃息` : ''}${toll ? `,${toll}` : ''}`;
   } else if (!shown) text = `${pn(civ, e.a, e.year)}${origin}大疫${toll ? `,${toll}` : ''}`;
   else {
     const who = polities.length > 1 ? '诸国' : pn(civ, e.a, e.year);
@@ -2528,6 +2623,122 @@ function plagueEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
     ...base(e, ids[0], text, big ? 3 : 2, polities, uniq([...list.map((x) => x.region), ...hits.map((h) => h.region)])),
     end,
     ...(children ? { children } : {}),
+  };
+}
+
+/** 全球大疫:一块陆地上有这么多州才算一"洲"(传遍几洲只数这样的) */
+const CONTINENT_REGIONS = 12;
+
+/** 第 year 年天下人口(千人;各州的城 + 乡村) */
+function worldPopulationAt(civ: Civ, year: Year): number {
+  let sum = 0;
+  for (let r = 0; r < civ.regions.count; r++) sum += regionPopulationAt(civ, r, year);
+  return sum;
+}
+
+/** "六十余处"(二十以上按十取整;整十的不写"余")、"十三处" */
+function placeCount(n: number): string {
+  if (n < 20) return `${cnNumber(n)}处`;
+  const tens = Math.floor(n / 10) * 10;
+  return `${cnNumber(tens)}${n > tens ? '余' : ''}处`;
+}
+
+/**
+ * 全球大疫(pandemic.ts;史事 pandemic 和同一场的几条 plague):
+ * "克尔顿大疫:起于克尔顿,循航线传遍四洲,至五百六十一州,9 年乃息。城中死者十之四五,天下人口十去其二"(大事,标签"疫";
+ * 子条目是逐年传到哪,同瘟疫);凋敝结束(推到了那年)另一条"疫后凋敝三十年,至是始复。天下城邑荒废者六十余处,道路断绝近半"(大事)。
+ * 天下人口按起疫时记下的疫前人口(史事 pandemic 的 n)和传完下一年的比
+ */
+function pandemicEntries(ctx: Ctx, at: number, ids: number[]): ChronicleEntry[] {
+  const { civ } = ctx;
+  const A = civ.annals;
+  const e = A[at];
+  const info = pandemicsOf(civ).find((p) => p.annal === at);
+  const hits = info?.hits ?? [];
+  const origin = cityName(civ, e.settlement) || regionName(civ, e.region) || '一城';
+  const list = ids.map((i) => A[i]);
+  const polities = uniq(list.map((x) => x.a).filter((p) => p >= 0));
+  const last = Math.max(e.year, ...hits.map((h) => h.year), ...list.map((x) => x.year));
+  const years = Math.floor(last) - Math.floor(e.year) + 1;
+  // 传遍几洲:染了疫的大陆(一块陆地上有 CONTINENT_REGIONS 州以上)
+  const lm = civ.regions.landmass;
+  const size = new Map<number, number>();
+  for (let r = 0; r < civ.regions.count; r++) size.set(lm[r], (size.get(lm[r]) ?? 0) + 1);
+  const lands = new Set<number>();
+  for (const h of hits) if ((size.get(lm[h.region]) ?? 0) >= CONTINENT_REGIONS) lands.add(lm[h.region]);
+  const reach = lands.size >= 2 ? `,循航线传遍${cnNumber(lands.size)}洲` : '';
+  const mean = hits.length ? hits.reduce((s, h) => s + h.loss, 0) / hits.length : 0;
+  const k = Math.round(mean * 10);
+  const cityToll = k >= 1 ? `城中死者十之${cnNumber(k)}${k < 9 ? cnNumber(k + 1) : ''}` : '';
+  // 天下人口:疫前(史事里记的)和传完的下一年
+  const after = Math.min(civ.endYear, Math.floor(last) + 1);
+  const drop = e.n && e.n > 0 ? 1 - worldPopulationAt(civ, after) / e.n : 0;
+  const d = Math.round(drop * 10);
+  const popToll = d >= 1 ? `天下人口十去其${cnNumber(d)}` : '';
+  const tolls = [cityToll, popToll].filter(Boolean).join(',');
+  const text = `${origin}大疫:起于${origin}${reach}${hits.length > 1 ? `,至${cnNumber(hits.length)}州` : ''}${years >= 2 ? `,${years} 年乃息` : ''}${tolls ? `。${tolls}` : ''}`;
+  const children =
+    ids.length > 1
+      ? ids.map((i, n) => {
+          const x = A[i];
+          const r = regionName(civ, x.region) || cityName(civ, x.settlement) || '一州';
+          const where = x.b > 1 ? `${r}等${cnNumber(x.b)}州` : r;
+          return { ...base(x, i, n === 0 ? `${pn(civ, x.a, x.year)}${origin}起疫` : `疫传至${pn(civ, x.a, x.year)}${where}`, 1, [x.a], [x.region]), kind: 'plague' as const };
+        })
+      : undefined;
+  const out: ChronicleEntry[] = [
+    {
+      ...base(e, ids[0] ?? at, text, 3, polities.length ? polities : e.a >= 0 ? [e.a] : [], uniq([e.region, ...hits.map((h) => h.region)].filter((r) => r >= 0))),
+      kind: 'plague',
+      end: last,
+      ...(children ? { children } : {}),
+    },
+  ];
+  // 凋敝结束(推到了那年;没传开的不写)
+  if (info && ids.length && info.end <= civ.endYear) {
+    const parts = [`疫后凋敝${cnNumber(info.slump)}年,至是始复`];
+    const n = info.desolated.length;
+    const roads = brokenRoads(civ, info.year, info.end);
+    const roadText = roads >= 0.4 ? '道路断绝近半' : roads >= 0.2 ? '道路多有断绝' : roads >= 0.05 ? '道路间有断绝' : '';
+    const tail = [n ? `天下城邑荒废者${placeCount(n)}` : '', roadText].filter(Boolean).join(',');
+    if (tail) parts.push(tail);
+    out.push({
+      ...base({ ...e, year: info.end }, at, parts.join('。'), 3, [], uniq(hits.map((h) => h.region))),
+      kind: 'plague',
+    });
+  }
+  return out;
+}
+
+/** 起疫时通着的陆路里,到凋敝结束断了几成(推完以后的路表;荒废的城、失修的路都算) */
+function brokenRoads(civ: Civ, from: Year, to: Year): number {
+  let all = 0;
+  let cut = 0;
+  for (const r of civ.routes) {
+    if (r.kind === 'sea' || r.built > from || (r.abandoned ?? Infinity) <= from) continue;
+    all++;
+    if ((r.abandoned ?? Infinity) <= to) cut++;
+  }
+  return all ? cut / all : 0;
+}
+
+/** 疫后城邑荒废(史事 desolate,同一场、同一国折成一条):"埃维里亚帝国疫后城邑荒废:塞尔维尔、伦盖特、阿斯特顿等十三处,道路断绝" */
+function desolateEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
+  const { civ } = ctx;
+  const A = civ.annals;
+  const e = A[ids[0]];
+  const list = ids.map((i) => A[i]);
+  const names = [...new Set(list.map((x) => cityName(civ, x.settlement) || regionName(civ, x.region)).filter(Boolean))];
+  const shown = names.slice(0, 3).join('、');
+  const who = e.a >= 0 ? pn(civ, e.a, e.year) : '诸部';
+  const n = list.length;
+  const what = shown ? `:${shown}${n > 3 || names.length < n ? `等${cnNumber(n)}处` : ''}` : `${cnNumber(n)}处`;
+  const children = list.map((x, j) => ({ ...base(x, ids[j], `${cityName(civ, x.settlement) || regionName(civ, x.region) || '一城'}荒废`, 1, x.a >= 0 ? [x.a] : [], [x.region]), kind: 'plague' as const }));
+  return {
+    ...base(e, ids[0], `${who}疫后城邑荒废${what},道路断绝`, n >= 5 ? 3 : 2, e.a >= 0 ? [e.a] : [], uniq(list.map((x) => x.region))),
+    kind: 'plague',
+    end: list[list.length - 1].year,
+    ...(n > 1 ? { children } : {}),
   };
 }
 
@@ -2911,6 +3122,9 @@ export function* chronicleSteps(civ: Civ): Generator<void, ChronicleEntry[]> {
   const wars = new Map<number, number[]>();
   const plagues = new Map<number, number[]>();
   const tribal = new Map<number, number[]>();
+  // 全球大疫(pandemic.ts):起疫那条(第几场 → 下标);疫后荒废的城按"第几场 + 国家"折成一条
+  const pandemics = new Map<number, number>();
+  const desolate = new Map<string, number[]>();
   // 同化与迁徙:一波迁徙(同一刻、同一民族、同一起因);同一国治下同一对民族的同化
   const waves = new Map<string, number[]>();
   const assim = new Map<string, number[]>();
@@ -2945,6 +3159,17 @@ export function* chronicleSteps(civ: Civ): Generator<void, ChronicleEntry[]> {
     if (e.kind === 'plague') {
       let g = plagues.get(e.war);
       if (!g) plagues.set(e.war, (g = []));
+      g.push(i);
+      continue;
+    }
+    if (e.kind === 'pandemic') {
+      pandemics.set(e.war, i);
+      continue;
+    }
+    if (e.kind === 'desolate') {
+      const key = `${e.war}|${e.a}`;
+      let g = desolate.get(key);
+      if (!g) desolate.set(key, (g = []));
       g.push(i);
       continue;
     }
@@ -3018,10 +3243,17 @@ export function* chronicleSteps(civ: Civ): Generator<void, ChronicleEntry[]> {
   }
   for (const ids of plagues.values()) {
     if (++n % 32 === 0) yield;
+    if (pandemics.has(A[ids[0]].war)) continue;
     // 作者下的瘟疫没传开(只有起疫那一条):干预那一条已经写了
     if (ids.length === 1 && A[ids[0]].war >= PLAGUE_IV) continue;
     out.push(plagueEntry(ctx, ids));
   }
+  // 全球大疫:一场一条(子条目是逐年传到哪),凋敝结束另一条;疫后荒废的城一国一条
+  for (const [k, at] of pandemics) {
+    yield;
+    out.push(...pandemicEntries(ctx, at, plagues.get(k) ?? []));
+  }
+  for (const ids of desolate.values()) out.push(desolateEntry(ctx, ids));
   yield;
   tribalEntries(ctx, tribal, out);
   yield;

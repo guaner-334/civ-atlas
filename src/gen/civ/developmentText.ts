@@ -3,6 +3,7 @@
  * - 世上第一次有州进入某时代:大事(重要度 3),"米里多尔共和国执政官某某时,伊洛里恩始入火药时代,为天下之先"(有国家、当时有君主的写上君主)。
  * - 世上第一次有发明(文字、马镫、印刷术……,见 development.ts 的 INVENTIONS):写法同上,"始创印刷术";要紧的几样是大事,别的重要度 2;
  *   同一处同一年的几样并成一句("始创文字、车轮")。
+ * - 全球大疫的凋敝里国都退回上一个时代(regress):大事,"埃维里亚帝国退入铁器时代(疫后凋敝,中古之业渐废)"。
  * - 各国国都进入新时代(重要度 2)、储量多的州发现大矿、物产采空 / 吃空(重要度 1):只在"全部"里;
  *   发现、采空一国(没有国家的按民族)每样只记头一回;同一国同一年的几件并成一句:"内里尼亚王国始入中古时代,特罗纳发现大铁矿"。
  * 国名用事发当年的国号,地方先写城名、没有城写州名;没有国家的写"某某人"。
@@ -108,6 +109,12 @@ export function developmentEntries(civ: Civ): ChronicleEntry[] {
     const seen = new Set<string>();
     dev.events.forEach((e, i) => {
       if (e.kind === 'first' || e.kind === 'invent') return;
+      // 全球大疫的凋敝里国都退回上一个时代:"埃维里亚帝国退入铁器时代(疫后凋敝,中古之业渐废)"(大事)
+      if (e.kind === 'regress') {
+        const lost = ERAS[e.era + 1];
+        out.push(base(e, i, `${who(civ, e)}退入${ERAS[e.era]}时代${lost ? `(疫后凋敝,${lost}之业渐废)` : ''}`, 3));
+        return;
+      }
       if (e.kind === 'enter' && firsts.has(`${e.polity}:${Math.floor(e.year)}:${e.era}`)) return;
       if (e.kind !== 'enter') {
         const once = `${e.kind}:${e.polity >= 0 ? e.polity : `c${e.culture}`}:${e.resource}`;
@@ -123,7 +130,7 @@ export function developmentEntries(civ: Civ): ChronicleEntry[] {
       }
       g.list.push(e);
     });
-    const rank = { enter: 0, discover: 1, deplete: 2, first: 0, invent: 0 } as const;
+    const rank = { enter: 0, discover: 1, deplete: 2, first: 0, invent: 0, regress: 0 } as const;
     for (const g of order) {
       const list = g.list.slice().sort((a, b) => rank[a.kind] - rank[b.kind]);
       const head = list[0];

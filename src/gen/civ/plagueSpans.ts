@@ -10,6 +10,8 @@ export interface PlagueSpan {
   /** 第几场(史事 plague 的 war 列;作者下的 = PLAGUE_IV + 干预下标) */
   id: number;
   great: boolean;
+  /** 全球大疫(pandemic.ts;史事 pandemic 起的那一场);不是 = 不给 */
+  pandemic?: true;
   /** 起疫、最后一年染上的时刻 */
   start: Year;
   end: Year;
@@ -34,6 +36,15 @@ export function plagueSpans(civ: Civ): PlagueSpan[] {
       const v = civ.interventions?.[e.war];
       if (v?.kind === 'disaster' && v.type === 'plague' && !byId.has(PLAGUE_IV + e.war)) {
         const s: PlagueSpan = { id: PLAGUE_IV + e.war, great: false, start: e.year, end: e.year, annals: [], hits: [] };
+        byId.set(s.id, s);
+        out.push(s);
+      }
+      return;
+    }
+    // 全球大疫:起疫那条(起疫的城在部落地带时没有 plague 那一条)起这一场
+    if (e.kind === 'pandemic') {
+      if (!byId.has(e.war)) {
+        const s: PlagueSpan = { id: e.war, great: false, pandemic: true, start: e.year, end: e.year, annals: [], hits: [] };
         byId.set(s.id, s);
         out.push(s);
       }
@@ -67,9 +78,10 @@ export function plagueSpans(civ: Civ): PlagueSpan[] {
 }
 
 export interface PlagueStats {
-  /** 几场;其中大瘟疫几场 */
+  /** 几场;其中大瘟疫几场、全球大疫几场 */
   plagues: number;
   great: number;
+  pandemic: number;
   /** 每场染疫的州数(按先后) */
   sizes: number[];
   /** 每场传了几年 */
@@ -81,6 +93,7 @@ export function plagueStats(civ: Civ): PlagueStats {
   return {
     plagues: sp.length,
     great: sp.filter((s) => s.great).length,
+    pandemic: sp.filter((s) => s.pandemic).length,
     sizes: sp.map((s) => s.hits.length),
     years: sp.map((s) => Math.round(s.end - s.start) + 1),
   };

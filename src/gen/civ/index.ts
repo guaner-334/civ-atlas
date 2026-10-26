@@ -49,6 +49,9 @@ import { installUnrest } from './unrest';
 import { installControl } from './control';
 import { installCouncil } from './council';
 import { installPlague } from './plague';
+import { installPandemic } from './pandemic';
+import { breakRoads } from './pandemicInfo';
+import { cleanCalamity } from './calamity';
 import { installTreaties } from './treaties';
 import { cleanMix, type NameMix } from '../names';
 import { cleanFrontier, cleanOrigins, type Frontier, type Origins } from './frontier';
@@ -212,6 +215,8 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
   // ③ 城市成长 + 国家(polities.ts):在 sim.run 之前装上自己的事件(建城、立国、国家到达、升格),
   //    同一个引擎、同一本日志
   const sim = new CivSim(R);
+  // 「天灾」(calamity.ts):平常 = undefined,和没有这一项逐字节一样
+  sim.calamity = cleanCalamity(p.calamity);
   const birthSpan = p.birthSpan ?? BIRTH_SPAN;
   // 改过地形:扩张节拍、城的人口折算沿用没改地形时的同一颗星球(planetTempo);没改 = 按这个世界自己标定。
   // 给了文明种子的(一张地图上新开的历史)一律按这张地图本身标定:地图是定下来的那一张,不另按现在的生成器长一颗没改地形的星球
@@ -235,6 +240,7 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
   if (pm) installControl(sim, seed); // 中央管到什么程度(control.ts):割据、抗命不出兵
   if (pm) installCouncil(sim, seed); // 议事(council.ts):直征、分封、削藩
   if (pm) installPlague(sim, pm, seed); // 瘟疫(plague.ts)
+  if (pm) installPandemic(sim, pm, seed); // 全球大疫、疫后凋敝;「天灾」多 / 很多时自己发生的全球大疫、地震水旱(pandemic.ts)
   if (pm) installTreaties(sim, pm, world); // 立约与中立地(treaties.ts):互不侵犯 / 有限竞争之约、背约、续约,共建中立地、放逐
   if (iv) installInterventions(sim, iv); // 阶段 4 干预:不许灭、结盟、宣战、禁止分裂(各机制在决策点查 WarModel.iv)
   progress('民族推演', 0.85);
@@ -427,13 +433,17 @@ function finishCiv(x: Finish): Civ {
   const settlements: Settlement[] = fin.pm?.settlements ?? []; // ③ polities.ts
   const polities: Polity[] = fin.pm?.polities ?? []; // ③ polities.ts
   // ④ routes.ts:城镇列表交给道路(国都之间修大路,路的修建年份取两端较晚者);推演里走过的航线一定画(usedLanes)
+  // 全球大疫的凋敝里失修断掉、后来修回的路(pandemicInfo.ts 的 breakRoads;没有全球大疫 = 原样)
   const routes: Route[] = viable
-    ? buildRoutes(fin.world, fin.habitat, fin.regions, {
-        progress,
-        cities: settlements.length ? routeCities(settlements, polities, p.endYear) : undefined,
-        lanes: usedLanes(fin.regions, log, cultures, facts.length ? facts[facts.length - 1].year : -Infinity),
-        ruins: ruinGaps(settlements),
-      })
+    ? breakRoads(
+        { seed, annals, settlements, regions: fin.regions },
+        buildRoutes(fin.world, fin.habitat, fin.regions, {
+          progress,
+          cities: settlements.length ? routeCities(settlements, polities, p.endYear) : undefined,
+          lanes: usedLanes(fin.regions, log, cultures, facts.length ? facts[facts.length - 1].year : -Infinity),
+          ruins: ruinGaps(settlements),
+        }),
+      )
     : [];
   // ⑤ places.ts(山海湖岛是地理,不看 viable):改过地形的世界同一处地方照没改过时的地名(nameRefOf)
   const setup: RefSetup = { p, mix, frontier, origins: x.origins };
@@ -479,6 +489,7 @@ function finishCiv(x: Finish): Civ {
     ...(pm ? { capSpacing: pm.spacing } : {}),
     ...(pm ? { sailFrom: pm.sailFrom } : {}),
     ...(frontier ? { frontier } : {}),
+    ...(fin.sim.calamity ? { calamity: fin.sim.calamity } : {}),
     ...(x.interventions ? { interventions: x.interventions.slice() } : {}),
     people,
     ...(facts.length ? { upheavals: facts, eras } : {}),
@@ -582,6 +593,7 @@ function partialCiv(sim: CivSim, model: CultureModel, pm: PolityModel, habitat: 
     capSpacing: pm.spacing,
     sailFrom: pm.sailFrom,
     ...(frontier ? { frontier } : {}),
+    ...(sim.calamity ? { calamity: sim.calamity } : {}),
     ...(iv ? { interventions: iv.list.slice() } : {}),
     people: [],
     ...(dev ? { development: dev } : {}),
