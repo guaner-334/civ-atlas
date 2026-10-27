@@ -111,6 +111,7 @@ import { setSheet } from './panelStore';
 import { getPending, queueIntervention, removePending, usePending, type Pending } from './pendingStore';
 import { useStepwise } from './stepwiseStore';
 import { characterCrowns, crownDeleteAsk, crownEditAsk, crownToDeath, newReignName, noteCrownResim, type CrownAsk, type CrownState } from './crownInfo';
+import { KEEP_CROWN, keepReignNote } from './keepInfo';
 import { CrownAskDialog } from './CrownAsk';
 import { CrownPage, LeanSliders } from './CrownPage';
 import { foesLine, personEvents } from './PersonPanel';
@@ -638,11 +639,33 @@ function CrownSec({ civ, c, st, era }: { civ: Civ; c: AuthorCharacter; st: Crown
         </div>
       </section>
     );
-  return <ReignSec civ={civ} c={c} x={st.x} until={st.v.until} toDeath={crownToDeath(st.v, c.died)} era={era} />;
+  const toDeath = crownToDeath(st.v, c.died);
+  // 在位期间保住王室:挡下了几回(这条即位在这份历史的干预列表里第几条)
+  const kept = st.v.keep ? keepReignNote(civ, st.x, (civ.interventions ?? []).indexOf(st.v), toDeath, era) : undefined;
+  return <ReignSec civ={civ} c={c} x={st.x} until={st.v.until} toDeath={toDeath} era={era} kept={kept} />;
 }
 
-/** 生效了:在位、前任、继任、下台、亲征(学维基百科君主信息框的"在位 / 前任 / 继任");下台比原定早时黄字、下面一段说清楚 */
-function ReignSec({ civ, c, x, until: planned, toDeath, era }: { civ: Civ; c: AuthorCharacter; x: Person; until: number | undefined; toDeath: boolean; era: Era | undefined }) {
+/**
+ * 生效了:在位、前任、继任、下台、王室、亲征(学维基百科君主信息框的"在位 / 前任 / 继任");下台比原定早时黄字、下面一段说清楚。
+ * kept = 在位期间保住王室的那一段(keepInfo.ts 的 keepReignNote;没勾 = 不给):多一行「王室」,下面写挡下了几回
+ */
+function ReignSec({
+  civ,
+  c,
+  x,
+  until: planned,
+  toDeath,
+  era,
+  kept,
+}: {
+  civ: Civ;
+  c: AuthorCharacter;
+  x: Person;
+  until: number | undefined;
+  toDeath: boolean;
+  era: Era | undefined;
+  kept?: string;
+}) {
   const p = civ.polities[x.polity];
   const from = x.from ?? x.born;
   const u = x.until;
@@ -733,8 +756,15 @@ function ReignSec({ civ, c, x, until: planned, toDeath, era }: { civ: Civ; c: Au
             <em className="cp-num-note">{down.note}</em>
           </Row>
         )}
+        {kept && (
+          <Row k="王室">
+            {KEEP_CROWN}
+            <em className="cp-num-note">干预</em>
+          </Row>
+        )}
         {foes.length > 0 && <Row k="亲征">{foesLine(civ, foes, era).node}</Row>}
         {warn && <div className="cr-note">{warn}</div>}
+        {kept && <div className="cr-note">{kept}</div>}
       </div>
     </section>
   );

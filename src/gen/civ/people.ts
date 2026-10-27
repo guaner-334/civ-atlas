@@ -46,6 +46,7 @@ import { RG_DIED, RG_PURGE, RG_RETURN, RG_START, RG_USURP, regencyBase, regentsF
 import { GROOM_SELF, matchesFrom } from './marriages';
 import { IV_PEOPLE, K_RULER, MAX_AGE, U_AGE, actsFrom, leaningEffect, reignBook, rulerBase, rulerTags, type Crown, type Reign } from './rulers';
 import { policiesFrom, policyEffect, segAt } from './policy';
+import { splitSurname } from './peopleText';
 
 // ---- 调参 ----
 // 即位的年纪、在位年数、执政官任期、一生最多多少岁在 rulers.ts(推演里也要知道谁在位)
@@ -1220,13 +1221,6 @@ export function brideNameOf(civ: Civ, pid: number, father: Person | undefined): 
   if (!Q || !father || father.author !== undefined) return '';
   return personNamers(civ.seed)(civ.cultures[Q.culture]?.style || 'kingdom').surnamed ? `${splitSurname(father.name)}氏` : '';
 }
-
-/** 东方中式的全名拆出姓(复姓两个字) */
-function splitSurname(full: string): string {
-  const two = full.slice(0, 2);
-  return COMPOUND.has(two) && full.length > 2 ? two : full.slice(0, 1);
-}
-const COMPOUND = new Set(['司马', '欧阳', '上官', '慕容', '宇文', '长孙', '独孤', '皇甫', '令狐', '尉迟', '南宫', '司空', '东方', '端木', '百里']);
 
 /**
  * 第 k 位君主(这一朝第 j 位)的名字:
