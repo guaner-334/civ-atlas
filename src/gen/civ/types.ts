@@ -455,9 +455,11 @@ export type AnnalKind =
  *   slain / captured / withdrew:据险断后的守将力战而死 / 力竭被擒 / 全师而退(史事 stand 的 cause);
  *   立约与中立地(treaties.ts):breach 背约来攻(war 的 cause);peace 议和时顺带立约 / 划缓冲中立地(treaty、neutral 的 cause);
  *   renew 约满续约(treaty 的 cause);lapse 约里剩不到两国、约废(expire)/ 中立地撤销(neutral);
- *   heir / deposed / fled 放逐到中立地的是争储失势的宗室 / 被废的末代之君 / 出奔的亡国之君(exile 的 cause)
+ *   heir / deposed / fled 放逐到中立地的是争储失势的宗室 / 被废的末代之君 / 出奔的亡国之君(exile 的 cause);
+ *   开战看内政(wars.ts,war 的 cause):divert 国中动荡、对外开战以安内(转移矛盾)/ unrest 乘对方内乱(动荡高或有割据;region 列 = 割据的那州,没有 = −1)/
+ *   plagued 乘对方大疫之后 / minor 乘对方幼主在位 / regent 乘对方权臣当政 / plunder 国库空竭、为掠夺而战(region 列 = 边境上最富的那州)
  */
-export type AnnalCause = 'expand' | 'claim' | 'chaos' | 'prey' | 'resource' | 'betray' | 'punish' | 'ally' | 'rescue' | 'lapse' | 'abandon' | 'vassal' | 'quell' | 'collapse' | 'great' | 'quake' | 'warlord' | 'broke' | 'heir' | 'slain' | 'captured' | 'withdrew' | 'pandemic' | 'breach' | 'peace' | 'renew' | 'deposed' | 'fled';
+export type AnnalCause = 'expand' | 'claim' | 'chaos' | 'prey' | 'resource' | 'betray' | 'punish' | 'ally' | 'rescue' | 'lapse' | 'abandon' | 'vassal' | 'quell' | 'collapse' | 'great' | 'quake' | 'warlord' | 'broke' | 'heir' | 'slain' | 'captured' | 'withdrew' | 'pandemic' | 'breach' | 'peace' | 'renew' | 'deposed' | 'fled' | 'divert' | 'unrest' | 'plagued' | 'minor' | 'regent' | 'plunder';
 
 /**
  * 一条史事(阶段 3):推演里各事件处理函数用 CivSim.record 往 Civ.annals 里记,编年史(界面上的事件列表)只读它。
