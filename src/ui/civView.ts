@@ -412,7 +412,8 @@ export type MapSelection =
   | { kind: 'faith'; id: number }
   | { kind: 'person'; id: number }
   | { kind: 'mark'; id: number }
-  | { kind: 'character'; id: number };
+  | { kind: 'character'; id: number }
+  | { kind: 'treaty'; id: number };
 
 export interface SelectionState {
   sel: MapSelection | null;

@@ -37,6 +37,7 @@ import { faithBase, faithCiv, faithColors } from './faith';
 import { eraBase, eraCiv, eraColors } from './era';
 import { controlBase, controlCiv, controlColors } from './control';
 import { vassalColors, vassalTies } from './vassals';
+import type { WashZones } from './neutral';
 
 /** 刚被占的州用多少年渐入 */
 export const FADE_YEARS = 30;
@@ -484,6 +485,17 @@ const DETAIL_RIM_D = 1.25;
 const DETAIL_LINE_PEAK = 0.5;
 const DETAIL_LINE_D = 0.9;
 
+/**
+ * 中立地的细横纹(neutral.ts):世界 y 处落在第几道(颜色按它轮着来)、盖住几成(0..1,边缘抗锯齿)。
+ * gap、line = 横纹间距、线宽,px = 一个像素(一格)多少世界单位
+ */
+export function stripeAt(y: number, gap: number, line: number, px: number): { k: number; cover: number } {
+  const t = y / gap;
+  const k = Math.round(t);
+  const d = Math.abs(t - k) * gap;
+  return { k, cover: Math.min(1, Math.max(0, (line / 2 - d) / px + 0.5)) };
+}
+
 /** 细节层的水痕 / 描边离界线最远多少(全分辨率像素,pen = 1 时) */
 export const DETAIL_EDGE_D = Math.max(DETAIL_RIM_D, DETAIL_LINE_D);
 
@@ -514,6 +526,7 @@ export function washDetail(
   pen: number,
   j0 = 0,
   j1 = g.gh,
+  zones: WashZones | null = null,
 ): void {
   const { w, h, scale: S } = r;
   const W = w / S;
@@ -571,6 +584,8 @@ export function washDetail(
     const scy = segs ? Math.floor((wy - segs.oy) / segs.cs) : -1;
     const segRow = segs && scy >= 0 && scy < segs.ny ? scy * segs.nx : -1;
     const rpp = g.u[j] * S;
+    // 中立地的横纹:这一行落在第几道、盖住几成(一行是同一个世界 y)
+    const zs = zones ? stripeAt(wy, zones.gap, zones.line, g.u[j]) : null;
     const b0 = g.b[j];
     const drx = b0 * S;
     const lat = Math.PI / 2 - (wy / H) * Math.PI;
@@ -647,7 +662,26 @@ export function washDetail(
         }
       }
       if (c < 0) {
-        out[o + 3] = 0;
+        // 中立地(不归任何一国):共建几国颜色的细横纹,同样给符号让位
+        const zr = zs && zs.cover > 0 ? pix[row0 + x0] : -1;
+        const zi = zr >= 0 ? zones!.of[zr] : -1;
+        if (zi < 0) {
+          out[o + 3] = 0;
+          continue;
+        }
+        const zc = zones!.colors[zi];
+        const zn = zc.length / 3;
+        const ci = (((zs!.k % zn) + zn) % zn) * 3;
+        let a = zones!.alpha * zs!.cover * cov;
+        if (hard && soft) {
+          const q = j * gw + i;
+          const give = (hard[q] + soft[q] * zones!.soft) / 255;
+          a *= give >= 1 ? 0 : 1 - give;
+        }
+        out[o] = zc[ci];
+        out[o + 1] = zc[ci + 1];
+        out[o + 2] = zc[ci + 2];
+        out[o + 3] = a * 255;
         continue;
       }
       // 离边界的距离(粗网格双线性 → 全分辨率像素)
@@ -1230,8 +1264,8 @@ export function territorySteps(p0: CivDrawParams): WorkStep[] {
   ];
 }
 
-/** 手绘风:符号"让位"遮罩(每张地图算一次,之后每帧直接用) */
-function inkOf(p: CivDrawParams): InkMask | null {
+/** 手绘风:符号"让位"遮罩(每张地图算一次,之后每帧直接用;中立地的横纹也按它让位,见 neutral.ts) */
+export function inkOf(p: CivDrawParams): InkMask | null {
   return p.style === 'fantasy' ? fantasyInkMask(p.world, p.raster, SYM_FOREST, SYM_PAPER) : null;
 }
 

@@ -8,6 +8,7 @@
  * - 州(没点到别的东西时):RegionPanel.tsx(主体民族 / 宜居度 / 人口、历任归属、州里的城、相关事件;在这里立国、划给…)
  * - 人物(点人名):PersonPanel.tsx(生卒、在位 / 领兵、前任继任、结局、他在台上那几年的事)
  * - 信仰(信仰图层上点陆地、侧栏的信仰组、国家卡片的「国教」):FaithPanel.tsx(类型、创立、圣城、信众、国教、教派、大事)
+ * - 约(国家卡片「立约」、中立地卡片「来历」里点约名):TreatyPanel.tsx(几国、居间、会于、约定、期限、中立地、背约、大事)
  * - 作者标记(地图上点标记、世界概览的「标记」页、搜索;新建、编辑也在这里填):MarkPanel.tsx
  * - 作者的人物(世界概览「人物」页的「我的」、搜索、地图上的头像、别的卡片里「作者的人物」;新建、编辑也在这里填):CharacterPanel.tsx
  *
@@ -35,6 +36,8 @@ import { PlacePanel } from './PlacePanel';
 import { RegionPanel } from './RegionPanel';
 import { PersonPanel } from './PersonPanel';
 import { FaithPanel } from './FaithPanel';
+import { TreatyPanel } from './TreatyPanel';
+import { treatyBook } from '../gen/civ/treatyInfo';
 import { MarkPanel } from './MarkPanel';
 import { useMarkUi } from './markStore';
 import { CharacterPanel } from './CharacterPanel';
@@ -102,6 +105,7 @@ export function Inspector({ civ, raw, raster, world }: { civ: Civ | null; raw: C
   else if (sel.kind === 'region' && sel.id >= 0 && sel.id < civ.regions.count) body = <RegionPanel key={stable} {...common} id={sel.id} />;
   else if (sel.kind === 'person' && civ.people?.[sel.id]) body = <PersonPanel key={stable} {...common} id={sel.id} />;
   else if (sel.kind === 'faith' && civ.religion?.faiths[sel.id]) body = <FaithPanel key={stable} {...common} id={sel.id} />;
+  else if (sel.kind === 'treaty' && treatyBook(civ).treaties[sel.id]) body = <TreatyPanel key={stable} {...common} id={sel.id} />;
   else if (sel.kind === 'mark' && (markDraft?.id === sel.id || edits.marks?.some((m) => m.id === sel.id))) body = <MarkPanel key={stable} civ={civ} raster={raster} world={world} year={year} id={sel.id} />;
   else if (sel.kind === 'character' && (charDraft?.id === sel.id || edits.characters?.some((c) => c.id === sel.id)))
     body = <CharacterPanel key={stable} civ={civ} raster={raster} world={world} year={year} id={sel.id} />;

@@ -9,6 +9,9 @@
  *         作者下的天灾以后还没长回来:"约 45 万人 ~~64 万人~~ 1500 年地震",newIvInfo.ts 的 regionDisasterMark)、
  *         管辖(中央管得到几成 + 档位,"52% 代管";分封出去的边州 "11% 自治,封地";割据写"割据 名义上属某国,某年起";不在国家里的州没有这一行)、信仰(可点)、州里的城(可点;故城标出来)、地貌、
  *         民族(族名由来 / 起族名)、来历(分化出来的民族:哪年从哪族分出,母族可点;母族已消亡的不可点)
+ *   中立地(几国共建、议和划出,不归任何一国;gen/civ/treatyInfo.ts):色块换成共建几国颜色的细横纹,名字下面写"中立地，某国、某国 2301 年共建"
+ *         (手机上写"三国");概况最前面多「共建」「来历」(依哪份约设,约名可点开条约卡片)「期限」(手机上不写)「住着」(徙居、出奔来的人),
+ *         管辖写"几国都不驻兵";历任归属里中立地那几年画细横纹
  *   作者的人物  生在这里、经历写在这里的作者人物(没有就不显示)
  *   历任归属 按时长分段的色条,点一段跳到它开始的那年
  *   大事  最近 5 条(可点)、这一州的干预(可撤销)
@@ -19,7 +22,7 @@
  * "划给…"在地图上选国家(地图压暗、可选的国家浮出名牌,见 TargetPlates.tsx)。下的干预先进待推演的单子(pendingStore.ts)、回到信息页;
  * 点「全部推演」后 App 在后台重推,顶部提示"…划给…,已从 X 年起重新推演"带撤销。
  */
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import type { Civ } from '../gen/civ/types';
 import { BIOMES } from '../gen/biomes';
 import { HABITABLE_SUIT, KIND_INFO, cultureLabel, regionLabel, regionNamed } from '../gen/civ/display';
@@ -31,7 +34,7 @@ import { ownersAt } from '../gen/civ/timeline';
 import { spaced, yearAt, yearSpanAt } from '../gen/era';
 import { faithAt } from '../gen/civ/religion';
 import { cleanName, cultureKey, polityKey, regionKey, type Intervention } from '../gen/edits';
-import { useEdits } from './editsStore';
+import { useEdits, useEra } from './editsStore';
 import { queueIntervention } from './pendingStore';
 import { nextYear, useStepwise } from './stepwiseStore';
 import { STEP_LOOK_WHY, StepEffectTime, useStepView } from './Stepwise';
@@ -53,6 +56,10 @@ import { CharacterRefs } from './CharacterPanel';
 import { cultureRegion } from './searchIndex';
 import { DisasterPage } from './DisasterPage';
 import { regionDisasterMark } from './newIvInfo';
+import { treatyBook, treatyTitle, type ZoneInfo } from '../gen/civ/treatyInfo';
+import { personName } from '../gen/civ/peopleText';
+import { nationsWord, treatyPeriod, zoneColors, zoneOfRegionAt, zoneResidentsAt, zoneStripeCss, zonesOfRegion } from './treatyRows';
+import { shownYearOf } from './flyTo';
 import { entriesUpTo, firstOwned, ownerSpans, ownersOf, regionEntries } from './panelData';
 import {
   Act,
@@ -92,9 +99,14 @@ export function RegionPanel(props: DetailProps) {
   // 演一国时别国的州:在这里立国、划给…变灰(无主之地、自己的州照常)
   const role = useRole();
   const lock = po ? roleLock(civ, role, po.id) : null;
+  // 中立地:色块换成共建几国颜色的细横纹,名字下面写"中立地，某国、某国 2301 年共建"(手机上写"三国")
+  const era = useEra();
+  const narrow = useNarrow();
+  const zone = zoneOfRegionAt(civ, id, year);
+  const zoneBy = zone ? (narrow ? nationsWord(zone.founders.length) : zone.founders.map((p) => (civ.polities[p] ? polityName(civ.polities[p], year) : '')).filter(Boolean).join('、')) : '';
   return (
     <div className="cp" data-region={id} data-page={page ?? 'info'}>
-      <PanelHead color={po ? rgb(po.color) : undefined}>
+      <PanelHead color={po ? rgb(po.color) : undefined} icon={zone ? <i className="cp-sw" style={{ background: zoneStripeCss(zoneColors(civ, zone)) }} /> : undefined}>
         <NameEdit
           k={regionKey(civ, id)}
           kind="region"
@@ -110,7 +122,7 @@ export function RegionPanel(props: DetailProps) {
         />
         <SubLine
           className="ins-status"
-          parts={[
+          parts={zone ? ['中立地', `${zoneBy} ${yearAt(zone.from, era)}${zone.how === 'peace' ? '议和划出' : '共建'}`] : [
             '州',
             po ? (
               <>
@@ -205,14 +217,23 @@ function RegionInfo({ civ, raw, raster, world, id, year, names, ai, aiRef }: Det
   // 管辖:中央管得到几成 + 档位(分封出去的边州加"封地");割据写名义上属哪国、哪年起(只有在国家里的州)
   const ctl = controlOf(civ, year, id);
   const lord = ctl?.tier === 3 ? lordOf(civ, year, id) : null;
-  const ctlItem = !ctl
-    ? []
-    : ctl.tier === 3
-      ? [{ k: '管辖', v: '割据', note: lord && civ.polities[lord.p] ? `名义上属${polityName(civ.polities[lord.p], year)}，${yearAt(lord.start, edits.era)}起` : undefined }]
-      : [{ k: '管辖', v: `${Math.round(ctl.share * 100)}%`, note: `${CONTROL_TIERS[ctl.tier]}${isFiefRegion(civ, own.polity[id], id, year) ? ',封地' : ''}` }];
+  // 中立地:概况最前面多「共建」「来历」「期限」「住着」,管辖写"几国都不驻兵";历任归属里那几年画细横纹
+  const zone = zoneOfRegionAt(civ, id, year);
+  const zoneSpans = useMemo(
+    () => zonesOfRegion(civ, id).map((z) => ({ from: z.from, to: z.ended ?? civ.endYear, background: zoneStripeCss(zoneColors(civ, z)) })),
+    [civ, id],
+  );
+  const ctlItem = zone
+    ? [{ k: '管辖', v: <span className="cp-none">{nationsWord(zone.founders.length)}都不驻兵</span> }]
+    : !ctl
+      ? []
+      : ctl.tier === 3
+        ? [{ k: '管辖', v: '割据', note: lord && civ.polities[lord.p] ? `名义上属${polityName(civ.polities[lord.p], year)}，${yearAt(lord.start, edits.era)}起` : undefined }]
+        : [{ k: '管辖', v: `${Math.round(ctl.share * 100)}%`, note: `${CONTROL_TIERS[ctl.tier]}${isFiefRegion(civ, own.polity[id], id, year) ? ',封地' : ''}` }];
   return (
     <div className="cp-body">
       <Stats
+        lead={zone && <ZoneRows civ={civ} zone={zone} year={year} />}
         items={[
           {
             k: '主体民族',
@@ -301,7 +322,7 @@ function RegionInfo({ civ, raw, raster, world, id, year, names, ai, aiRef }: Det
         )}
       </Stats>
       <CharacterRefs refs={refs} />
-      <OwnerBar civ={civ} spans={spans} year={year} />
+      <OwnerBar civ={civ} spans={spans} year={year} zones={zoneSpans} />
       <EventList upTo={upTo} civ={civ} />
       {mine.length > 0 && (
         <section className="cp-sec cp-mine">
@@ -312,6 +333,64 @@ function RegionInfo({ civ, raw, raster, world, id, year, names, ai, aiRef }: Det
       <AiBox ai={culture.ai} aiRef={culture.aiRef} />
       <AiBox ai={ai} aiRef={aiRef} />
     </div>
+  );
+}
+
+/**
+ * 中立地那一州概况最前面的几行:共建(几国,可点)、来历(依哪份约设,小字写原属哪国)、期限(跟着约,到哪年;手机上不写)、
+ * 住着(徙居、出奔来的人,小字写身份和哪年来的;手机上只写身份;没人不写)
+ */
+function ZoneRows({ civ, zone, year }: { civ: Civ; zone: ZoneInfo; year: number }) {
+  const era = useEra();
+  const narrow = useNarrow();
+  const pn = (p: number, y = year) => {
+    const P = civ.polities[p];
+    return P ? polityName(P, shownYearOf(P, y, civ.endYear)) : '';
+  };
+  const x = treatyBook(civ).treaties[zone.treaty];
+  const people = zoneResidentsAt(civ, zone, year);
+  const role = (who: (typeof people)[number]) => {
+    const how = who.exile!.how;
+    const home = pn(who.polity, who.exile!.year - (how === 'fled' ? 1 / 512 : 0));
+    return `${home}${how === 'heir' ? '宗室' : how === 'deposed' ? '废君' : '亡国之君'}`;
+  };
+  return (
+    <>
+      <Row k="共建" className="cp-links">
+        {zone.founders.map((p) =>
+          civ.polities[p] ? (
+            <Link key={p} to={{ kind: 'polity', id: p }}>
+              {pn(p)}
+            </Link>
+          ) : null,
+        )}
+      </Row>
+      {x && (
+        <Row k="来历">
+          依<Link to={{ kind: 'treaty', id: x.id }}>{treatyTitle(civ, x.id)}</Link>设
+          <em className="cp-num-note">{zone.owner >= 0 ? `原属${pn(zone.owner, zone.from - 1 / 512)}` : '原是无主之地'}</em>
+        </Row>
+      )}
+      {x && !narrow && (
+        <Row k="期限">
+          跟着约<em className="cp-num-note">到 {yearAt(treatyPeriod(x, year).until, era)}</em>
+        </Row>
+      )}
+      {people.length > 0 && (
+        <Row k="住着">
+          {people.map((who, i) => (
+            <Fragment key={who.id}>
+              {i > 0 && <span className="cp-vsub" />}
+              <Link to={{ kind: 'person', id: who.id }}>{personName(civ, who)}</Link>
+              <em className="cp-num-note">
+                {role(who)}
+                {!narrow && `，${yearAt(who.exile!.year, era)}${who.exile!.how === 'fled' ? '来奔' : '徙来'}`}
+              </em>
+            </Fragment>
+          ))}
+        </Row>
+      )}
+    </>
   );
 }
 

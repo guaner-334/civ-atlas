@@ -20,6 +20,9 @@
  *         宗室:国家、生卒、父亲、子嗣、领兵(替父兄出征打的仗)、效力(派他出征的君主,小字写父 / 兄)、结局(战死、争储被杀)、
  *         对手(杀他的那位新君,小字写亲属和怎么回事)
  *         (字号:西幻、汗国这类名字没有姓的不起字号,这一行不出)
+ *         放逐到中立地的(争储失势的宗室、被废的君主)多「放逐」一行("星河域 2303 年起，桓王所徙"),亡国出奔的写「出奔」;
+ *         卒于中立地的结局写"卒于星河域"(宗室的「放逐」「结局」排在子嗣前面)
+ *   放逐 / 出奔  徙居(出奔)那一条、卒于中立地(或中立地撤销、回了本国那一条),新的在上
  *   倾向  君主、执政官才有:开拓、好战、发展、重商一项一行(名字、灰色细条、0–100 的数值),下面一句说明;
  *         那年在位的君主右上多一个「改」(同「更多」里的改他的倾向);改过倾向的右上写"1500 年起改过",点了看原来的
  *   生平  将领、名臣的一段生平(officialText.ts 的 personBio);写到的君主是蓝字
@@ -32,7 +35,11 @@ import type { Civ, Person, RulerLeanings } from '../gen/civ/types';
 import { polityName } from '../gen/civ/growth';
 import { buildChronicle, filterChronicle, reignEntries, type ChronicleEntry } from '../gen/civ/chronicle';
 import { commandFoes, peopleIndex, personFame, personSpan, rulerNeighbors, type Foe } from '../gen/civ/peopleInfo';
-import { LEANING_KEYS, LEANING_TEXT, ageAt, generalRole, isConsul, kinOf, leaningsText, ministerRole, personName, princeRole, rulerFateWord, rulerRole } from '../gen/civ/peopleText';
+import { LEANING_KEYS, LEANING_TEXT, ageAt, generalRole, isConsul, kinOf, leaningsText, ministerRole, personName, princeRef, princeRole, rulerFateWord, rulerRef, rulerRole, rulerShort } from '../gen/civ/peopleText';
+import { treatyBook } from '../gen/civ/treatyInfo';
+import { fullChronicle } from '../gen/civ/religionText';
+import { diedInExile, treatyEntries } from './treatyRows';
+import { evType } from './timelineLayout';
 import { regionLabel } from '../gen/civ/display';
 import { deedsShort, ministerFate, personArt, personBio } from '../gen/civ/officialText';
 import { fatherOf, hasLineage, kidsOf } from '../gen/civ/lineageInfo';
@@ -56,7 +63,7 @@ import { openPolicyPage } from './PolicyPage';
 import { nameAt } from './Interventions';
 import { useRole } from './roleStore';
 import { ROLE_LOCK_NOTE } from './RoleBar';
-import { setSelection } from './civView';
+import { pickChronicleEntry, setSelection } from './civView';
 import { PersonIvPage, type PersonIvKind } from './PersonIvPage';
 import { leaningsThen, moodSince, personIvRange, rulerOnThrone } from './newIvInfo';
 import './policy.css';
@@ -314,6 +321,7 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
             </Row>
           ))}
         </Stats>
+        {x.exile && <ExileEvents civ={civ} x={x} />}
         {ruler && x.leanings && <Leanings civ={civ} x={x} l={x.leanings} year={year} onEdit={onThrone ? () => setIvPage({ id, kind: 'temper' }) : undefined} locked={locked} />}
         {bio && (
           <section className="cp-sec">
@@ -457,6 +465,18 @@ function personLines(civ: Civ, x: Person, era: Era | undefined): Line[] {
   if (x.role === 'prince') {
     kinLines(civ, x, out);
     princeLines(civ, x, out, era);
+    // 放逐到中立地的宗室:「放逐」「结局」(卒于中立地)排在子嗣前面
+    const ex = exileLine(civ, x, era);
+    if (ex) {
+      const rows = [ex];
+      if (diedInExile(x) && !out.some((l) => l.k === '结局')) {
+        const zone = regionLabel(civ, x.exile!.region);
+        const when = yearAt(x.died!, era);
+        rows.push({ k: '结局', node: <>卒于{zone}<em className="cp-num-note">{when}</em></>, text: `卒于${zone}，${when}` });
+      }
+      const at = out.findIndex((l) => l.k === '子嗣');
+      out.splice(at >= 0 ? at : out.length, 0, ...rows);
+    }
     return out;
   }
   if (x.role === 'minister') {
@@ -587,6 +607,10 @@ function rulerLines(civ: Civ, x: Person, out: Line[], foes: Foe[], era: Era | un
   const claim = claimLine(civ, x);
   if (claim) out.push(claim);
   const fate = rulerFateWord(civ, x);
+  // 被废徙居、亡国出奔到中立地的:「放逐」/「出奔」一行排在结局前面,结局写"卒于某地"
+  const ex = exileLine(civ, x, era);
+  if (ex) out.push(ex);
+  const diedAt = diedInExile(x) ? `卒于${regionLabel(civ, x.exile!.region)}` : '卒';
   if (x.killed !== undefined && x.died !== undefined) {
     const t = `${yearAt(x.died, era)}去世（干预）`;
     out.push({ k: '结局', node: t, text: t });
@@ -596,7 +620,7 @@ function rulerLines(civ: Civ, x: Person, out: Line[], foes: Foe[], era: Era | un
     out.push({ k: '结局', node: <>{fate}<em className="cp-num-note">{to}</em></>, text: fate + to });
   } else if (fate) {
     // 失位以后又活了些年(被废、出奔……)的,写上卒年
-    const later = x.died !== undefined && x.until !== undefined && x.died - x.until >= 1 ? `，${yearAt(x.died, era)}卒` : '';
+    const later = x.died !== undefined && x.until !== undefined && x.died - x.until >= 1 ? `，${yearAt(x.died, era)}${diedAt}` : '';
     out.push({ k: '结局', node: fate + later, text: fate + later });
   }
   // 即位以前(做王子时)领的兵单列,和在位时的亲征分开
@@ -634,6 +658,75 @@ function princeLines(civ: Civ, x: Person, out: Line[], era: Era | undefined) {
     const how = { coup: '杀他即位', intrigue: '谮杀他得立', usurp: '杀他自立', revolt: '他拥兵争位，兵败被杀' }[r.claim?.how as string] ?? '杀他即位';
     out.push(personRow('对手', civ, r, [kinOf(civ, x, r), how].filter(Boolean).join('，')));
   }
+}
+
+/**
+ * 放逐到中立地(争储失势的宗室、被废的君主)/ 出奔(亡国之君):「放逐  星河域 2303 年起，桓王所徙」;
+ * 中立地撤销时还活着、回了本国的写"2303–2320 年";没有 = null
+ */
+function exileLine(civ: Civ, x: Person, era: Era | undefined): Line | null {
+  const e = x.exile;
+  if (!e) return null;
+  const zone = regionLabel(civ, e.region);
+  const by = e.by !== undefined && e.how !== 'fled' ? civ.people?.[e.by] : undefined;
+  const back = e.until !== undefined && !diedInExile(x) && (x.died === undefined || x.died > e.until);
+  const when = back ? yearSpanAt(e.year, e.until!, era) : `${yearAt(e.year, era)}起`;
+  const note = by ? `${when}，${rulerShort(civ, by)}所徙` : when;
+  return {
+    k: e.how === 'fled' ? '出奔' : '放逐',
+    node: (
+      <>
+        <Link to={{ kind: 'region', id: e.region }}>{zone}</Link>
+        <em className="cp-num-note">{note}</em>
+      </>
+    ),
+    text: `${zone}（${note}）`,
+  };
+}
+
+/**
+ * 人物卡「放逐」/「出奔」一段(概况下面):徙居(出奔)那一条、卒于中立地(编年史里没有,这里写一句)、
+ * 中立地撤销时还活着的,撤销那一条;新的在上
+ */
+function ExileEvents({ civ, x }: { civ: Civ; x: Person }) {
+  const era = useEra();
+  const all = useMemo(() => fullChronicle(civ), [civ]);
+  const e = x.exile!;
+  const rows: { key: string; year: number; ev: string; node: ReactNode; go: () => void }[] = [];
+  const come = all.find((c) => c.kind === 'exile' && c.id === e.annal);
+  if (come) rows.push({ key: 'come', year: come.year, ev: evType(come), node: <EntryText civ={civ} e={come} />, go: () => pickChronicleEntry(come) });
+  const zone = treatyBook(civ).zones[e.zone];
+  const pact = zone ? treatyBook(civ).treaties[zone.treaty] : undefined;
+  if (diedInExile(x)) {
+    const who = x.role === 'prince' ? princeRef(civ, x, x.died!) : rulerRef(civ, x, x.died!);
+    const died = x.died!;
+    rows.push({ key: 'died', year: died, ev: 'dynasty', node: <EntryText civ={civ} e={{ text: `${who}卒于${regionLabel(civ, e.region)}`, people: [x.id], year: died }} />, go: () => jumpTo(died) });
+  } else if (e.until !== undefined && pact) {
+    const end = treatyEntries(civ, pact, all).find((c) => Math.abs(c.year - e.until!) < 1e-6);
+    if (end) rows.push({ key: 'end', year: end.year, ev: evType(end), node: <EntryText civ={civ} e={end} />, go: () => pickChronicleEntry(end) });
+  }
+  if (!rows.length) return null;
+  return (
+    <section className="cp-sec cp-events" data-exile>
+      <div className="cp-sec-head cp-events-head">
+        <span>{e.how === 'fled' ? '出奔' : '放逐'}</span>
+        <button className="ins-link cp-more" data-act="exile-chronicle" onClick={() => openOverview('chronicle', { polity: x.polity, major: false, at: e.year })}>
+          在编年史中查看
+        </button>
+      </div>
+      <div className="cp-group">
+        {rows
+          .slice()
+          .reverse()
+          .map((r) => (
+            <button key={r.key} className="cp-ev" data-ev={r.ev} onClick={r.go}>
+              <span className={`cp-ev-year${era ? ' era' : ''}`}>{yearShort(r.year, era)}</span>
+              <span className="cp-ev-text">{r.node}</span>
+            </button>
+          ))}
+      </div>
+    </section>
+  );
 }
 
 /** 宗室卡片下面那一段的标题:领过兵 = 领兵时;争储被杀 = 争储;两样都有 = 领兵、争储 */

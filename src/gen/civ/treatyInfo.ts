@@ -8,7 +8,7 @@
  * 按 civ 缓存(同一份史事只整理一次)。
  */
 import type { Annal, Civ, Person, Year } from './types';
-import { polityAlive } from './growth';
+import { polityAlive, polityName } from './growth';
 import { ownersAt } from './timeline';
 
 /** 一份约 */
@@ -158,11 +158,31 @@ export function treatyBook(civ: Civ): TreatyBook {
   return out;
 }
 
-/** 约名:"丹枫关之约"(会盟的城;没有城 = 空串) */
+/** 约名:用户改过的名字;没改过 = "丹枫关之约"(会盟的城;没有城 = 空串) */
 export function treatyName(civ: Civ, id: number): string {
+  const own = civ.treatyNames?.[id];
+  if (own) return own;
   const x = treatyBook(civ).treaties[id];
   const s = x && x.settlement >= 0 ? civ.settlements[x.settlement] : undefined;
   return s?.name ? `${s.name}之约` : '';
+}
+
+/**
+ * 编年史里称呼这份约的名字:议和时顺带立的约不起名(用户改过名的除外)= 空串,编年史照"甲与乙之约"称呼;
+ * 其余同 treatyName
+ */
+export function treatyCallName(civ: Civ, id: number): string {
+  return treatyBook(civ).treaties[id]?.how === 'peace' && !civ.treatyNames?.[id] ? '' : treatyName(civ, id);
+}
+
+/** 条约卡片、国家卡片上的约名:有名字用名字,没有(议和顺带立的、没有会盟的城)= "甲与乙之约"(按立约那年的国名) */
+export function treatyTitle(civ: Civ, id: number): string {
+  const name = treatyCallName(civ, id);
+  if (name) return name;
+  const x = treatyBook(civ).treaties[id];
+  if (!x) return '';
+  const n = (p: number) => (civ.polities[p] ? polityName(civ.polities[p], x.start) : '');
+  return x.parties.length >= 2 ? `${n(x.parties[0])}与${n(x.parties[1])}之约` : '前约';
 }
 
 /** 约 x 在 year 那一刻还在约里的几国:约没废、没背约、国还在、立约(续约)以后没向别国称臣过(和推演里 treaties.ts 的 member 一样) */

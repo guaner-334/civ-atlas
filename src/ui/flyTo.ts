@@ -9,7 +9,7 @@ import type { World } from '../gen/world';
 import type { Civ } from '../gen/civ/types';
 import { capitalAt } from '../gen/civ/growth';
 import { ownersAt, type Owners } from '../gen/civ/timeline';
-import { faithKey, keyCells, placeKeyOf, polityKey, regionKey, regionOfKey, settlementKey, type AuthorMark } from '../gen/edits';
+import { faithKey, keyCells, placeKeyOf, polityKey, regionKey, regionOfKey, settlementKey, treatyKey, type AuthorMark } from '../gen/edits';
 import { personKey, resolvePersonKey } from '../gen/characters';
 import { projectWorld, projectWorldNear, type MapProj } from '../render/projection';
 import { clampCurved, clampSphere, stageToWorld, type MapView, type StageBox } from './mapWrap';
@@ -53,8 +53,8 @@ export interface Focus {
 export { personKey, resolvePersonKey };
 
 /** 地图上按什么画、往哪飞:人物 = 他的国家;作者标记、作者的人物 = 不按历史里的东西画(它们自己画,见 MarkLayer.tsx、CharacterLayer.tsx);其余照旧 */
-export function mapTarget(civ: Civ | null, sel: MapSelection | null): Exclude<MapSelection, { kind: 'person' | 'mark' | 'character' }> | null {
-  if (!sel || sel.kind === 'mark' || sel.kind === 'character') return null;
+export function mapTarget(civ: Civ | null, sel: MapSelection | null): Exclude<MapSelection, { kind: 'person' | 'mark' | 'character' | 'treaty' }> | null {
+  if (!sel || sel.kind === 'mark' || sel.kind === 'character' || sel.kind === 'treaty') return null;
   if (sel.kind !== 'person') return sel;
   const x = civ?.people?.[sel.id];
   return x && civ!.polities[x.polity] ? { kind: 'polity', id: x.polity } : null;
@@ -69,6 +69,7 @@ export function selectionKey(civ: Civ, sel: MapSelection): string {
   if (sel.kind === 'faith') return civ.religion?.faiths[sel.id] ? faithKey(civ, sel.id) : '';
   if (sel.kind === 'mark') return `mark:${sel.id}`;
   if (sel.kind === 'character') return `character:${sel.id}`;
+  if (sel.kind === 'treaty') return treatyKey(civ, sel.id);
   return sel.id >= 0 && sel.id < civ.regions.count ? regionKey(civ, sel.id) : '';
 }
 
