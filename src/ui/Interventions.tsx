@@ -31,6 +31,8 @@ import {
   resolveKey,
   resolvePersonKey,
   type Intervention,
+  type RegentEnd,
+  type RegentHow,
 } from '../gen/edits';
 import { SLUMP_DEFAULT, quakeWord } from '../gen/civ/calamity';
 import { rulerAt } from '../gen/civ/peopleInfo';
@@ -315,7 +317,23 @@ export function interventionText(civ: Civ, v: Intervention, i = -1, a?: string):
       const until = v.lasting ? '（一直）' : v.until !== undefined ? `（至第 ${v.until} 年）` : '';
       return `${A}与${ps}以${regionKeyName(civ, v.region)}为中立地${until}`;
     }
+    case 'regent':
+      // "彭继桓:引兵入朝掌权，到君主去世即位""孙嵩曜:专权，5 年后还政"
+      return `${personKeyName(civ, v.person)}:${REGENT_HOW_WORD[v.how]}掌权，${regentEndWord(v.end, v.years)}`;
+    case 'marry': {
+      // "胡炜:娶大澜王朝宗室女""胡炜:本国宗室女嫁大澜王朝""胡炜:与大澜王朝互嫁"
+      const B = keyName(civ, v.b, v.from) || '对方';
+      return `${personKeyName(civ, v.person)}:${v.how === 'give' ? `本国宗室女嫁${B}` : v.how === 'mutual' ? `与${B}互嫁` : `娶${B}宗室女`}`;
+    }
   }
+}
+
+/** 让他掌权的几种怎么叫 */
+export const REGENT_HOW_WORD: Record<RegentHow, string> = { march: '引兵入朝', heir: '太子监国', uncle: '摄政', chancellor: '专权', general: '专权' };
+
+/** 让他掌权到什么时候:"到君主去世即位""5 年后还政""5 年后篡位" */
+export function regentEndWord(end: RegentEnd, years?: number): string {
+  return end === 'succeed' ? '到君主去世即位' : `${years ?? 1} 年后${end === 'return' ? '还政' : '篡位'}`;
 }
 
 /** 方针拧过旋钮(一键选的细调过,或者没从一键选起) */

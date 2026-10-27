@@ -41,8 +41,11 @@ import {
   STRONG_TIER,
   STRONG_YEARS,
   YOUNG,
+  IV_HELD,
+  IV_NO_THRONE,
   childPlan,
   holds,
+  ivRegency,
   latePlans,
   makeRegency,
   seizeUntil,
@@ -50,11 +53,18 @@ import {
   type Regency,
   type RegencyCtx,
   type RegencyKind,
+  type RegentIv,
 } from './regents';
+import { IV_NOT_HIM } from './rulers';
 
 export interface RegencyModel {
   pm: PolityModel;
   cx: RegencyCtx;
+  /**
+   * 作者下令"让他掌权"(干预第 i 条,interventions.ts 在那一刻调):先查这一刻能不能(note 记史事 intervene,b 列见 regents.ts 的 IV_HELD 等),
+   * 能就掌权(记 regent,foe 列 = i)、预约到期的那一刻
+   */
+  intervene?: (v: RegentIv, i: number, pid: number, t: Year, note: (b: number) => void) => void;
 }
 
 const models = new WeakMap<CivSim, RegencyModel>();
@@ -144,15 +154,17 @@ function hook(sim: CivSim, pm: PolityModel): RegencyModel {
       note(g.outcome === 'return' ? RG_RETURN : g.outcome === 'purge' ? RG_PURGE : RG_DIED);
       return;
     }
-    // 保住王室(干预):篡位挡下 —— 先记一句未遂,紧跟着记结局:叔父到期还政,名臣、大臣事泄伏诛
-    const kept = pm.iv ? pm.iv.keeps(P.id, t) : -1;
+    // 保住王室(干预):篡位挡下 —— 先记一句未遂,紧跟着记结局:宗室(叔父、太子)到期还政,名臣、大臣事泄伏诛。
+    // 作者下令"让他掌权"到期篡位的,和保住王室撞上:后下的为准(保住王室排在那条后面才挡)
+    const kept = pm.iv ? pm.iv.keeps(P.id, t, g.iv ?? -1) : -1;
     if (kept >= 0) {
       sim.record('keep', { a: P.id, b: KEEP_REGENT, ...cap, war: kept, n: 0 });
-      note(g.kind === 'uncle' ? RG_RETURN : RG_PURGE);
+      note(g.kind === 'uncle' || g.kind === 'march' || g.kind === 'heir' ? RG_RETURN : RG_PURGE);
       return;
     }
-    if (g.kind === 'uncle') {
+    if (g.kind === 'uncle' || g.kind === 'march' || g.kind === 'heir') {
       // 叔父废了幼主,接着在位(同一朝):在位表跟着重排,预约他的即位(下一刻起在位;幼主原定的交接到时对不上,丢掉)
+      // (作者下令"让他掌权"的太子到期篡位,同样废了父亲接着在位)
       (P.seizes ??= []).push({ year: t, k: g.k, born: g.born, until: seizeUntil(cx, g, t), leanings: { ...g.leanings } });
       note(RG_USURP);
       const nx = bookOf(pm, P.id, t + 1 / 256)[g.k + 1];
@@ -231,6 +243,24 @@ function hook(sim: CivSim, pm: PolityModel): RegencyModel {
       if (u.u >= STRONG_P) return;
       start(P, glory && (!crisis || u.kind < 0.5) ? 'general' : 'chancellor', r.k, t);
     };
+
+  // 作者下令"让他掌权":这国此刻在、不是共和国、在位的不是作者立的君主、没人掌着权、他对得上(regents.ts 的 ivRegency)才掌权
+  rm.intervene = (v, i, pid, t, noteIv) => {
+    const P = pm.polities[pid];
+    if (!P || P.ended !== undefined || !(P.founded <= t)) return noteIv(-3);
+    const r = rulerOf(pm, pid, t);
+    if (P.lineage === 'republic' || r.crown) return noteIv(IV_NO_THRONE);
+    if (busy(P, t, r)) return noteIv(IV_HELD);
+    const g = ivRegency(cx, pid, v, i, r, t, -1);
+    if (!g) return noteIv(IV_NOT_HIM);
+    noteIv(-1);
+    g.annal = sim.annalCount;
+    const list = listOf(pid);
+    if (list) list.push(g);
+    else pm.regents.set(pid, [g]);
+    sim.record('regent', { a: pid, b: REGENCY_KINDS.indexOf(g.kind), n: RG_START, ...capital(P, t), war: r.k, foe: i });
+    if (g.stop < Infinity) sim.schedule(g.stop, Ev.Regency, 0, pid);
+  };
 
   // 引兵入朝那一刻正在打的仗:粮饷为掌权的人所制
   wm.supply = (w: War, x: number, t: Year): number => {

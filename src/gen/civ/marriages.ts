@@ -41,6 +41,16 @@ export const BRIDE_FATHER = 30;
 /** n 列里"君主本人" */
 export const GROOM_SELF = 15;
 
+/**
+ * 为他联姻(干预)没生效时史事 intervene 的 b 列(别的同 rulers.ts:−3 那一年这国已亡、−4 他不是能娶亲的宗室;
+ * regents.ts:−12 有一国是共和国):−13 对方那一年没有 / 已亡;−14 两国正在交战;−15 嫁女的那国在位的君主不到 BRIDE_FATHER 岁(没有成年的女儿);
+ * −16 本国宗室女嫁过去、对方没有能娶亲的人
+ */
+export const IV_NO_PARTNER = -13;
+export const IV_AT_WAR = -14;
+export const IV_NO_BRIDE = -15;
+export const IV_NO_GROOM = -16;
+
 /** 一门亲 */
 export interface Match {
   t: Year;

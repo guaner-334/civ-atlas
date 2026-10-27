@@ -233,7 +233,7 @@ export function fuzzOrders(civ: Civ, T: number): Intervention[] {
         if (free.length) r = pick(rnd, free);
       } else r = between(rnd, 0, civ.regions.count - 1);
       if (r >= 0) out.push(rnd() < 0.3 ? { kind, a, region: regionKey(civ, r), from: T, permanent: true } : { kind, a, region: regionKey(civ, r), from: T });
-    } else {
+    } else if (kind === 'found') {
       // 立国:多半在有城、不是国都的州;也有别国的国都、没人住的州(先来一支新民族)
       const u = rnd();
       let r = -1;
