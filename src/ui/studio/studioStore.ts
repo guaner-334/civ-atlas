@@ -8,6 +8,8 @@
 import { useSyncExternalStore } from 'react';
 import type { Box } from './layout';
 import type { FlatGeom } from './scene';
+import type { GraticuleStep, MapProjection } from '../projectionStore';
+import type { ProjectionId } from '../../render/projection';
 
 export interface StudioFlat {
   rect: Box;
@@ -42,6 +44,38 @@ export function useStudioFlat(): StudioFlat | null {
     () => flat,
     () => flat,
   );
+}
+
+/**
+ * 新建界面暂时收起(照故事找世界那一页开着,回来再挂上):进新建之前的投影、经纬网留着,不在收起时换回去,
+ * 回来挂上时接着用(离开新建时再换回去)。App 收起之前叫 carryStudioView;新建界面卸下时把那几样交给 keepStudioView
+ */
+export interface StudioCarry {
+  proj: MapProjection;
+  flat: ProjectionId;
+  grat: { on: boolean; step: GraticuleStep };
+}
+let carrying = false;
+let carried: StudioCarry | null = null;
+
+export function carryStudioView(): void {
+  carrying = true;
+}
+
+/** 新建界面卸下时:正在收起 = 记下那几样、返回 true(不换回去);不然 false */
+export function keepStudioView(c: StudioCarry): boolean {
+  if (!carrying) return false;
+  carrying = false;
+  carried = c;
+  return true;
+}
+
+/** 新建界面挂上时:收起之前记下的那几样(只取一次;没有 = null) */
+export function takeStudioView(): StudioCarry | null {
+  const c = carried;
+  carried = null;
+  carrying = false;
+  return c;
 }
 
 let geomSource: (() => FlatGeom | null) | null = null;

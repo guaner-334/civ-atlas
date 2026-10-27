@@ -7,8 +7,8 @@ import { DEFAULT_PARAMS, generateWorld } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
 import type { Person } from '../src/gen/civ/types';
 import { peopleIndex } from '../src/gen/civ/peopleInfo';
-import { princeRole } from '../src/gen/civ/peopleText';
-import { dynastyEnd, dynastyMembers, dynastyNote, dynastyRowAt, dynastyRows, fatherOf, hasLineage, kidsOf, layoutDynasty, lineageText } from '../src/gen/civ/lineageInfo';
+import { personName, princeRole, rulerShort } from '../src/gen/civ/peopleText';
+import { dynastyEnd, dynastyMembers, dynastyNote, dynastyRowAt, dynastyRows, fatherOf, hasLineage, kidsOf, layoutDynasty, lineageText, reignOrder } from '../src/gen/civ/lineageInfo';
 
 const civs = new Map<number, Civ>();
 function civOf(seed: number): Civ {
@@ -95,37 +95,103 @@ describe.each([7, 2024])('世系图 · seed=%i', (seed) => {
   });
 });
 
-describe('世系图 · seed=7 的卢梅亚、埃维里亚', () => {
-  // GENERATOR_VERSION 39 时的世界(以前用的桑在新的历史里没有了)
-  it('维斯佩拉朝:标题、结尾、篡位的开国之君是树根;威尔贝尔特二世的父亲是没即位的特里斯贝尔特;受旧朝之后才兴的王室,开国之君的父亲算本朝宗室', () => {
-    const civ = civOf(7);
-    const id = civ.polities.findIndex((p) => p.name === '卢梅亚');
-    const rows = dynastyRows(civ, id);
-    expect(rows.map((r) => r.name)).toEqual(['法博纳', '奥斯提卡', '维斯佩拉', '拉沃罗纳', '法洛纳', '克拉罗拉', '维拉里亚', '索利卡']);
-    const i = rows.findIndex((r) => r.name === '维斯佩拉');
-    expect(dynastyNote(civ, rows, i)).toBe('1016–1346 年，12 位君主；奥克提乌斯一世篡位');
-    expect(dynastyEnd(civ, rows, i)).toBe('1346 年，王室更迭，拉沃罗纳兴');
-    expect(dynastyEnd(civ, rows, i - 1)).toBe('1016 年，奥克提乌斯一世篡位');
+describe('世系图 · seed=7 的几处写法(例子按条件现找)', () => {
+  // 例子按条件现找,历史变了不用跟着改朝名、人名(GENERATOR_VERSION 40 时找到的写在各段的注释里;种子 7 里找不到就换种子 2024)
+  const seeds = [7, 2024];
+  /** 西幻(不是汗国、共和国)、到结束还在、第一朝是立国的国家里,篡位开出的一朝(不是第一朝、也不是最后一朝,下一朝不是篡位来的) */
+  const usurped = () => {
+    for (const seed of seeds) {
+      const civ = civOf(seed);
+      for (const p of civ.polities) {
+        if (p.eastern || p.lineage === 'khanate' || p.lineage === 'republic' || p.ended !== undefined) continue;
+        const rows = dynastyRows(civ, p.id);
+        if (rows[0]?.rulers[0].rise !== 'found') continue;
+        const i = rows.findIndex((r, k) => k > 0 && k < rows.length - 1 && r.rulers[0].rise === 'usurp' && rows[k + 1].rulers[0].rise !== 'usurp');
+        if (i > 0) return { civ, rows, i };
+      }
+    }
+    return null;
+  };
+  /** 西幻君主,父亲是没即位的宗室 */
+  const princeSon = () => {
+    for (const seed of seeds) {
+      const civ = civOf(seed);
+      // 父亲在他那一朝的树上(世系图、复制出来的世系里排在他上面)
+      const inTree = (x: Person) => {
+        const row = dynastyRows(civ, x.polity).find((r) => r.rulers.includes(x));
+        return !!row && layoutDynasty(civ, row).some((t) => t.nodes.some((n) => n.p === fatherOf(civ, x)));
+      };
+      const xw = civ.people!.find((x) => x.role === 'ruler' && !civ.polities[x.polity].eastern && fatherOf(civ, x)?.role === 'prince' && x.until !== undefined && inTree(x));
+      if (xw) return { civ, xw };
+    }
+    return null;
+  };
+  /** 东方的国家里,开国之君的父亲死在这一朝之前的一朝(树根是没即位的宗室) */
+  const lateRoot = () => {
+    for (const seed of seeds) {
+      const civ = civOf(seed);
+      for (const p of civ.polities) {
+        if (!p.eastern) continue;
+        const rows = dynastyRows(civ, p.id);
+        const h = rows.findIndex((r, k) => {
+          const top = k > 0 ? layoutDynasty(civ, r)[0]?.nodes[0]?.p : undefined;
+          return top?.role === 'prince' && top.died !== undefined && top.died < r.from;
+        });
+        if (h > 0) return { civ, rows, h };
+      }
+    }
+    return null;
+  };
+
+  it('篡位开出的一朝:标题、结尾、篡位的开国之君是树根;父亲没即位的君主:父亲是宗室,世系里排在父亲下面;受旧朝之后才兴的一朝,开国之君的父亲算本朝宗室', () => {
+    // 1. 篡位开出的一朝(GENERATOR_VERSION 40 时是卢梅亚的维斯佩拉朝,1016–1346 年,奥克提乌斯一世篡位,后来王室更迭、拉沃罗纳兴)
+    const u = usurped();
+    expect(u, '要有篡位开出的一朝').toBeTruthy();
+    const { rows, i } = u!;
+    const civ = u!.civ;
+    const row = rows[i];
+    const founder = row.rulers[0];
+    const span = `${Math.floor(row.from)}–${Math.floor(row.to!)} 年`;
+    expect(dynastyNote(civ, rows, i)).toBe(`${span}，${row.rulers.length} 位君主；${rulerShort(civ, founder)}篡位`);
+    expect(dynastyEnd(civ, rows, i)).toBe(`${Math.floor(row.to!)} 年，王室更迭，${rows[i + 1].name}兴`);
+    expect(dynastyEnd(civ, rows, i - 1)).toBe(`${Math.floor(row.from)} 年，${rulerShort(civ, founder)}篡位`);
     expect(dynastyEnd(civ, rows, rows.length - 1)).toBe('');
     expect(dynastyNote(civ, rows, 0)).toMatch(/；.+立国$/);
-    expect(dynastyRowAt(rows, 1200)).toBe(i);
+    expect(dynastyRowAt(rows, (row.from + row.to!) / 2)).toBe(i);
     // 篡位的权臣没有连上父亲:这一朝的树从他起
-    expect(layoutDynasty(civ, rows[i])[0].nodes[0].p).toMatchObject({ role: 'ruler', name: '奥克提乌斯' });
-    const ev = civ.polities.findIndex((p) => p.name === '埃维里亚');
-    const xw = civ.people!.find((x) => x.name === '威尔贝尔特' && x.role === 'ruler' && x.polity === ev && fatherOf(civ, x)?.role === 'prince')!;
-    const f = fatherOf(civ, xw) as Person;
-    expect(f).toMatchObject({ role: 'prince', name: '特里斯贝尔特' });
-    expect(kidsOf(civ, f).map((k) => k.name)).toEqual(['威洛尔德', '威尔贝尔特', '埃姆里克']);
-    expect(lineageText(civ, ev)).toContain('\n      3 威尔贝尔特二世 545–548 年在位\n');
-    expect(princeRole(civ, f)).toBe('埃维里亚宗室');
-    // 天灵的岳朝开国之君的父亲死在岳朝之前,也算岳的宗室(不写成"天灵宗室")
-    const tl = civ.polities.findIndex((p) => p.name === '天灵');
-    const cr = dynastyRows(civ, tl);
-    const h = cr.findIndex((r) => r.name === '岳');
-    const root = layoutDynasty(civ, cr[h])[0].nodes[0].p;
-    expect(root).toMatchObject({ role: 'prince', name: '慕容风墨' });
-    expect(root.died!).toBeLessThan(cr[h].from);
-    expect(princeRole(civ, root)).toBe('大岳宗室');
+    expect(fatherOf(civ, founder)).toBeUndefined();
+    expect(layoutDynasty(civ, row)[0].nodes[0].p).toBe(founder);
+
+    // 2. 父亲没即位的西幻君主(GENERATOR_VERSION 40 时是埃维里亚的威尔贝尔特二世,父亲特里斯贝尔特,兄弟威洛尔德、埃姆里克)
+    const s = princeSon();
+    expect(s, '要有父亲没即位的君主').toBeTruthy();
+    const { xw } = s!;
+    const c2 = s!.civ;
+    const f = fatherOf(c2, xw) as Person;
+    expect(f.role).toBe('prince');
+    expect(f.polity).toBe(xw.polity);
+    expect(kidsOf(c2, f)).toContain(xw);
+    for (const k of kidsOf(c2, f)) expect(k.parent).toBe(f.id);
+    // 复制出来的世系:他那一行("3 威尔贝尔特二世 545–548 年在位")往上最近的、少缩进一层的那行是父亲("特里斯贝尔特 未即位 …")
+    const r2 = dynastyRows(c2, xw.polity).find((r) => r.rulers.includes(xw))!;
+    const text = lineageText(c2, xw.polity).split('\n');
+    const pad = (l: string) => l.length - l.trimStart().length;
+    const mine = `${reignOrder(r2, xw)} ${personName(c2, xw)} ${Math.floor(xw.from!)}–${Math.floor(xw.until!)} 年在位`;
+    const xi = text.findIndex((l) => l.trimStart() === mine);
+    expect(xi, mine).toBeGreaterThan(0);
+    expect(pad(text[xi])).toBeGreaterThan(0);
+    let fi = xi - 1;
+    while (fi > 0 && pad(text[fi]) !== pad(text[xi]) - 2) fi--;
+    expect(text[fi].trimStart().startsWith(`${personName(c2, f)} 未即位`), text[fi]).toBe(true);
+    expect(princeRole(c2, f)).toMatch(/^\S+宗室$/);
+
+    // 3. 开国之君的父亲死在这一朝之前,也算这一朝的宗室(GENERATOR_VERSION 40 时是天灵的岳朝,树根慕容风墨是"大岳宗室",不写成"天灵宗室")
+    const l = lateRoot();
+    expect(l, '要有树根是没即位宗室的一朝').toBeTruthy();
+    const root = layoutDynasty(l!.civ, l!.rows[l!.h])[0].nodes[0].p;
+    expect(root.role).toBe('prince');
+    expect(root.died!).toBeLessThan(l!.rows[l!.h].from);
+    expect(princeRole(l!.civ, root)).toContain(l!.rows[l!.h].name);
     // 凡是开国之君的父亲死在新朝之前的(树根是没即位的宗室),都不写成上一朝的宗室
     let roots = 0;
     for (const p of civ.polities) {

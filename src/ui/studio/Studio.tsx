@@ -124,7 +124,7 @@ import { getCivFeed, subscribeCivFeed } from '../CivLayer';
 import { labelSurface } from '../../render/civ/labels';
 import type { LabelView } from '../../render/labels/draw';
 import { LEFT_W, RIGHT_W, appPose, flatRect } from './layout';
-import { flatGeom, getStudioFlat, setStudioFlat } from './studioStore';
+import { flatGeom, getStudioFlat, keepStudioView, setStudioFlat, takeStudioView } from './studioStore';
 import { holdMark } from '../holdMark';
 import '../worlds.css';
 import './studio.css';
@@ -235,6 +235,25 @@ export interface StudioProps {
   onFade: () => void;
   /** 淡出完了(App 卸掉新建界面) */
   onGone: () => void;
+  /** 第 1 步「照故事找世界 ›」(新建世界分两步时才有) */
+  onFinder?: () => void;
+  /** 照故事找世界「用这个世界」回来的:第 2 步种子和推演设定锁着,建好停在开场那年(换了种子 = null) */
+  found?: StudioFound | null;
+  /** 「回去换一个」:回到找世界的结果 */
+  onFoundBack?: () => void;
+}
+
+/** 照故事找世界找到、要用的那个世界(第 2 步那一句说明、底部按钮用) */
+export interface StudioFound {
+  /** 地图种子、文明种子 */
+  mapSeed: number;
+  civSeed: number;
+  /** 开场那年(建好以后停在这一年) */
+  year: number;
+  /** 故事里每国的叫法、对上的国名 */
+  roles: { role: string; name: string }[];
+  /** 加成标记的几处("隘口""三国交界") */
+  places: string[];
 }
 
 /** 「看过的星球」里的一条:那颗星球的参数(连种子)、当时的小图、什么时候看的 */
@@ -324,8 +343,10 @@ export function Studio(p: StudioProps) {
   const locked = !image && !!p.mapFrom;
   /** 新建世界分两步(以别的世界为底稿的还是一页) */
   const twoStep = !image && !p.base && !locked;
-  /** 两步里到了第 2 步「文明」 */
-  const [civStep, setCivStep] = useState(false);
+  /** 两步里到了第 2 步「文明」(照故事找世界「用这个世界」回来的直接在第 2 步) */
+  const [civStep, setCivStep] = useState(() => !!p.found);
+  /** 照故事找的:种子、推演年数、拓荒、起源、天灾锁着(改了历史就不是找到的那样) */
+  const found = twoStep ? (p.found ?? null) : null;
   const step2 = locked || (twoStep && civStep);
   /** 第 2 步「怎么推」:一口气推完(推演年数)/ 演绎(建好以后从第 0 年起逐年推演,推进设置)/ 照大纲(照常推完,建好以后先打开大纲) */
   const [how, setHow] = useState<'all' | 'step' | 'outline'>('all');
@@ -438,12 +459,14 @@ export function Studio(p: StudioProps) {
   const prevFlat = useRef<ProjectionId>('equirect');
   const created = useRef(false);
   useLayoutEffect(() => {
-    prevProj.current = getProjection();
-    prevFlat.current = lastFlatProjection();
+    // 照故事找世界那一页回来:进新建之前的投影、经纬网是收起前记下的(那时已经换成了新建用的)
+    const carried = takeStudioView();
+    prevProj.current = carried?.proj ?? getProjection();
+    prevFlat.current = carried?.flat ?? lastFlatProjection();
     // 设过「新建时的默认」:经纬网照它
     const nv = getNewView();
-    const prevGrat = { on: getGraticule(), step: getGraticuleStep() };
-    if (nv && !image) {
+    const prevGrat = carried?.grat ?? { on: getGraticule(), step: getGraticuleStep() };
+    if (nv && !image && !carried) {
       setGraticule(nv.grat);
       setGraticuleStep(nv.step);
     }
@@ -455,6 +478,8 @@ export function Studio(p: StudioProps) {
     return () => {
       closeAssistant();
       setStudioFlat(null);
+      // 收起去照故事找世界:投影、经纬网先不换回去(回来接着用)
+      if (keepStudioView({ proj: prevProj.current, flat: prevFlat.current, grat: prevGrat })) return;
       // 正在认的、留着的那张图只属于这一次新建
       dropSource();
       if (!created.current && prevProj.current !== 'equirect' && getProjection() === 'equirect') setProjection(prevProj.current, prevFlat.current);
@@ -1225,6 +1250,17 @@ export function Studio(p: StudioProps) {
       )}
     </>
   );
+  /** 第 1 步「照故事找世界 ›」:按故事里的条件把一批种子各推一遍,挑最合的(新建世界分两步时才有) */
+  const finderRow = twoStep && p.onFinder && (
+    <button className="sb-row" data-act="story-finder" disabled={!p.ready || p.busy} onClick={p.onFinder} title="按故事里的国家和地方，把一批世界各推一遍，挑出最合的">
+      <Icon name="search" size={ico} className="sb-ico" />
+      <span className="sb-row-main">
+        <b>照故事找世界</b>
+      </span>
+      <span className="sb-row-side">按条件挑</span>
+      <Icon name="chevron" size={14} className="sb-chev" />
+    </button>
+  );
   const terrainRow = (
     <button className="sb-row terrain-toggle" data-act="terrain" disabled={!p.ready} onClick={() => setTerrainTool({ on: true })} title="涂大陆、山和海，放火山、湖和河">
       <Icon name="sketch" size={ico} className="sb-ico" />
@@ -1269,7 +1305,24 @@ export function Studio(p: StudioProps) {
     if (n > 0 && n !== civSeedNow) putCivSeed(n);
     else setCivText(String(civSeedNow));
   };
-  const civSeedRow = (
+  /** 照故事找的:锁着的一行(左边一把锁,右边写"和找的时候一样") */
+  const lockedRow = (act: string, label: string, side: string) => (
+    <div className="sb-row static nw-found-lock" data-act={act}>
+      <Icon name="lock" size={15} className="sb-ico" />
+      <span className="sb-row-main">
+        <b>{label}</b>
+      </span>
+      <span className="sb-row-side">{side}</span>
+    </div>
+  );
+  const civSeedRow = found ? (
+    <div className="sb-row static nw-seed nw-civ-seed" data-act="civ-seed-found">
+      <span className="sb-row-main">
+        <b>文明种子</b>
+      </span>
+      <span className="sb-row-side">{civSeedNow}(照故事找的)</span>
+    </div>
+  ) : (
     <div className="sb-row nw-seed nw-civ-seed">
       <span className="sb-row-main">
         <b>文明种子</b>
@@ -1419,6 +1472,19 @@ export function Studio(p: StudioProps) {
       {p.phone && <Icon name="lock" size={15} className="nw-lock" />}
     </div>
   );
+  /** 照故事找的:那一句说明(谁是故事里的哪一国、加成标记的几处、为什么锁着)和「回去换一个」 */
+  const foundNote = found && (
+    <div className="nw-note nw-found-note" data-testid="found-note">
+      照故事找的世界：建好以后停在第 {found.year} 年
+      {found.roles.length ? `，${found.roles.map((r, i) => `${r.name}是${i ? '' : '你的'}「${r.role}」`).join('、')}` : ''}
+      {found.places.length ? `；${found.places.join('和')}加成地图上的标记` : ''}。种子和这几样设定改了，历史就不是找到的那样了，所以先锁着。
+      {p.onFoundBack && (
+        <button className="sb-link nw-found-back" data-act="found-back" onClick={p.onFoundBack}>
+          回去换一个
+        </button>
+      )}
+    </div>
+  );
   const civNote = stepHow ? (
     <div className="nw-note">演绎：建好以后从第 0 年起一步一步往下推，导播带你看发生了什么。最早几百年还没有国家，会很快带过。</div>
   ) : (
@@ -1551,7 +1617,7 @@ export function Studio(p: StudioProps) {
   );
   const createBtn = (
     <button className="nw-create" data-act="create-world" disabled={p.busy || !p.ready || out > 0 || importing || (image && !applied)} onClick={askCreate}>
-      {base ? '创建新世界' : step2 ? (stepHow ? '开始演绎' : outlineHow ? '建好，先写大纲' : '开始推演') : '创建世界'}
+      {base ? '创建新世界' : step2 ? (stepHow ? '开始演绎' : outlineHow ? '建好，先写大纲' : found ? `建好，停在第 ${found.year} 年` : '开始推演') : '创建世界'}
     </button>
   );
   /** 第 1 步底部:「保存地图」「打造文明 ›」 */
@@ -1682,9 +1748,20 @@ export function Studio(p: StudioProps) {
           {civSeedRow}
           {howRow}
           {outlineNote}
-          {stepHow ? advRow : yearsRow}
-          {calamityRow}
-          {compact ? (
+          {found ? (
+            <>
+              {stepHow ? advRow : lockedRow('years-found', '推演年数', `${endYear} 年`)}
+              {lockedRow('frontier-found', '拓荒', '和找的时候一样')}
+              {lockedRow('origins-found', '文明起源', '和找的时候一样')}
+              {lockedRow('calamity-found', '天灾', '和找的时候一样')}
+            </>
+          ) : (
+            <>
+              {stepHow ? advRow : yearsRow}
+              {calamityRow}
+            </>
+          )}
+          {found ? null : compact ? (
             <button className="sb-row" data-act="civ-more" onClick={() => setSheetFull(true)}>
               <span className="sb-row-main">
                 <b>更多设定</b>
@@ -1699,7 +1776,7 @@ export function Studio(p: StudioProps) {
             </>
           )}
         </div>
-        {!p.phone && civNote}
+        {found ? foundNote : !p.phone && civNote}
         {noCivHint}
       </section>
       <section className="sb-sec">
@@ -1729,6 +1806,7 @@ export function Studio(p: StudioProps) {
         <div className="sb-group">
           {seedRow}
           {!peek && paramsRow}
+          {finderRow}
         </div>
         {!peek && noCivHint}
       </section>
