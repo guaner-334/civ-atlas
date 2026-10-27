@@ -243,9 +243,9 @@ function thenText(civ: Civ, e: Annal, out: number, name: string): string | null 
   }
 }
 
-/** 没议过事时那一块写什么 */
+/** 没议过事时那一块写什么(列的是会议的几类事,和 ISSUE_NAMES 对得上:征税、分封 / 改土归流、削藩、兵权、任免、分镇、脱离) */
 export function courtEmpty(): string {
-  return `还没议过事。国家到 ${COUNCIL_GATE.size} 个州、立国满 ${COUNCIL_GATE.age} 年,不打仗的年份里朝廷隔些年会议一件事:改征税的法子、分封或收回边地、削藩。`;
+  return `还没议过事。国家到 ${COUNCIL_GATE.size} 个州、立国满 ${COUNCIL_GATE.age} 年,不打仗的年份里朝廷隔些年会议一件事:改征税的法子、分封或收回边地、削藩、收放兵权、收放任免、分镇、脱离。`;
 }
 
 /** 地图上圈亮时的小牌子:"关右等 31 州封地"、"崇门之野等 7 州割据" */

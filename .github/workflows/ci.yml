@@ -4,7 +4,6 @@ name: CI
 # - PR:改了代码就全查;只改文档(*.md)的不跑
 # - 合并进 main 后马上再全查一轮(合并就发测试网站;PR 查的是合并前那一刻的 main,
 #   几个 PR 前后脚合进去时,合起来的样子只有这一轮查得到);同样只改文档的不跑
-# - 每天在 main 上跑一次兜底,前一天 main 上没有代码改动就跳过
 # - 需要时可以在 Actions 页面手动跑
 on:
   pull_request:
@@ -14,8 +13,6 @@ on:
     branches: [main]
     paths-ignore:
       - '**/*.md'
-  schedule:
-    - cron: '0 18 * * *' # 每天 UTC 18:00(北京时间 02:00)
   workflow_dispatch:
 
 # PR 上有新推送就取消还在跑的旧一轮;合进 main 的每个提交各占一组、互不取消
@@ -28,27 +25,8 @@ concurrency:
 # 类型检查、单测、压力、构建原来挤在一项里要 17–21 分钟,现在分开:单测分 4 份、压力测试分 3 份,每项几分钟;
 # 冒烟从头跑到尾要 25–36 分钟,分 4 份同时跑
 jobs:
-  # 每天的兜底:最近一天 main 上有没有代码改动(文档不算)
-  changed:
-    name: 最近一天有没有代码改动
-    if: github.event_name == 'schedule'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    outputs:
-      any: ${{ steps.c.outputs.any }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 100
-      - id: c
-        run: |
-          n=$(git log --since='25 hours ago' --format=%H -- . ':!*.md' | wc -l)
-          echo "any=$([ "$n" -gt 0 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
-
   build:
     name: 类型检查 / 构建
-    needs: changed
-    if: ${{ !cancelled() && (github.event_name != 'schedule' || needs.changed.outputs.any == 'true') }}
     runs-on: ubuntu-latest
     # 平常一分半左右
     timeout-minutes: 10
@@ -71,8 +49,6 @@ jobs:
   # 单测分 4 份同时跑;怎么分(按各文件大概多久,几份差不多快)见 tests/lib/shardSequencer.ts
   test:
     name: 单测 ${{ matrix.shard }}
-    needs: changed
-    if: ${{ !cancelled() && (github.event_name != 'schedule' || needs.changed.outputs.any == 'true') }}
     runs-on: ubuntu-latest
     # 平常每份四分钟上下
     timeout-minutes: 15
@@ -95,8 +71,6 @@ jobs:
   # 压力测试分 3 份同时跑(各组参数按估的耗时均匀分,见 scripts/stress.ts 的 STRESS_PART)
   stress:
     name: 压力测试 ${{ matrix.part }}
-    needs: changed
-    if: ${{ !cancelled() && (github.event_name != 'schedule' || needs.changed.outputs.any == 'true') }}
     runs-on: ubuntu-latest
     # 三份各约 10 分钟以内,留足余量
     timeout-minutes: 20
@@ -120,8 +94,6 @@ jobs:
   # 冒烟分 4 份同时跑(各段按先后归份,见 scripts/replay-check.ts 的 PART_STARTS)
   smoke:
     name: 冒烟 ${{ matrix.part }}
-    needs: changed
-    if: ${{ !cancelled() && (github.event_name != 'schedule' || needs.changed.outputs.any == 'true') }}
     runs-on: ubuntu-latest
     # 平常每份六七分钟(从头跑到尾要二十五分钟以上),留足余量
     timeout-minutes: 25
@@ -157,8 +129,6 @@ jobs:
 
   visual:
     name: 画面回归
-    needs: changed
-    if: ${{ !cancelled() && (github.event_name != 'schedule' || needs.changed.outputs.any == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

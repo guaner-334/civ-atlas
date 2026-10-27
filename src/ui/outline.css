@@ -794,6 +794,14 @@ select.ol-in {
   display: inline-flex;
   align-items: center;
 }
+/* 「找更合的世界」放大镜:和「+」隔 22(两个图标挨太近手指容易点错) */
+.ol-ph-hd .ol-link.find {
+  margin-right: 14px;
+}
+.ol-ph-hd .ol-link.find:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
 .ol-ph-body {
   flex: 1;
   overflow-y: auto;

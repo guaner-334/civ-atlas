@@ -3,7 +3,7 @@
  *
  *   搜的时候   顶上是这次的条件;进度(推到第几个、找到几个全合几个差一条、还要多久、「停下」);全合的一行行加上;
  *              差一条的收着,写差在哪几类(点「展开」列出来)
- *   搜完       「推完 200 个世界：6 个全合，18 个差一条」、「再搜 200 个」(接着往后)、排序;选中的一行带「用这个世界」「为什么合、后来怎样」
+ *   搜完       「推完 200 个世界：6 个全合，18 个差一条」、「再搜 200 个」(接着往后)、排序;选中的一行带「用这个世界」「为什么合、后来怎样」(差一条的写「差在哪、后来怎样」)
  *   没找到     卡在哪几条(每条几个世界合,最少的标黄)、放宽一点试试(点了马上换,不用重推;再点换回来)、差一条的列出来(差在哪)
  *   一个结果   谁是谁(点一行地图飞过去)、条件逐条(打勾带实数)、后来怎样;「用这个世界」「换一种配法」
  *
@@ -41,7 +41,7 @@ import {
   toggleFinderNear,
   type FinderUi,
 } from './finderStore';
-import { checkLines, condBrief, hintText, missText, nations, nearSummary, querySummary, stuckLines, type PlaceNames } from './finderText';
+import { checkLines, checksTally, condBrief, hintText, missText, nations, nearSummary, querySummary, stuckLines, type PlaceNames } from './finderText';
 import { foundDetail, laterSummary, storyYears, type FoundDetail } from './finderInfo';
 import { thumbUrl } from './finderThumb';
 import { RoleTag, aboutMinutes } from './FinderConds';
@@ -194,7 +194,8 @@ function ResultRow({ q, row, on, near, phone, actions }: { q: FinderQuery; row: 
             )}
           </>
         )}
-        {on && !near && actions}
+        {/* 选中的一行带「用这个世界」和「为什么合、后来怎样」(差一条的写「差在哪、后来怎样」) */}
+        {on && actions}
       </div>
     </div>
   );
@@ -381,7 +382,7 @@ export function FinderResults({ ui, phone, onUse }: { ui: FinderUi; phone: boole
   }, [hints, ui.variant, q, run.reports]);
   const none = !busy && !base.full.length && run.reports.length > 0;
   const selSeed = ui.sel?.seed ?? null;
-  const actions = !busy && !phone && (
+  const actions = (near: boolean) => !busy && !phone && (
     <div className="fd-acts">
       <button
         className="fd-btn primary small"
@@ -401,14 +402,14 @@ export function FinderResults({ ui, phone, onUse }: { ui: FinderUi; phone: boole
           setFinderPage('detail');
         }}
       >
-        为什么合、后来怎样
+        {near ? '差在哪、后来怎样' : '为什么合、后来怎样'}
       </button>
     </div>
   );
   const rows = (list: readonly FinderRow[], near: boolean) => (
     <div className="fd-grp fd-list">
       {list.map((r) => (
-        <ResultRow key={r.seed} q={vq} row={r} on={r.seed === selSeed} near={near} phone={phone} actions={actions} />
+        <ResultRow key={r.seed} q={vq} row={r} on={r.seed === selSeed} near={near} phone={phone} actions={actions(near)} />
       ))}
     </div>
   );
@@ -582,7 +583,7 @@ export function FinderDetail({ ui, phone, preview, onUse, onFly }: { ui: FinderU
           <div className="fd-grp">
             <button className="fd-row" data-act="finder-checks" onClick={() => setOpen(open === 'checks' ? null : 'checks')}>
               <span className="fd-v">条件逐条</span>
-              <span className={`fd-side ${okAll ? 'ok' : 'warn'}`}>{okAll ? `${lines.length} 条都合` : `差 ${lines.filter((l) => !l.ok).length} 条`}</span>
+              <span className={`fd-side ${okAll ? 'ok' : 'warn'}`}>{checksTally(lines)}</span>
               <Icon name={open === 'checks' ? 'down' : 'chevron'} size={14} />
             </button>
             {open === 'checks' && checks}

@@ -326,7 +326,7 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
   const reignOf = new Map<Person, Reign>();
   const heirNames = new Map<Person, string>();
   // 掌实权的几段、结过的亲(regents.ts、marriages.ts):和推演里同一份,由史事推出来
-  const rcx: RegencyCtx = { rbase: base, base: regencyBase(civ.seed), tag, polities, book: (pid, t) => reignBook(base, tag[pid], polities[pid], t, acts.get(pid)) };
+  const rcx: RegencyCtx = { rbase: base, base: regencyBase(civ.seed), tag, polities, book: (pid, t) => reignBook(base, tag[pid], polities[pid], t, acts.get(pid)), ivs: civ.interventions };
   const regs = regentsFrom(rcx, civ.annals);
   const matches = matchesFrom(rcx, civ.annals);
   /** 国家 → 在位表第几位 → 那位君主 */
@@ -890,6 +890,9 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
         },
       });
     } else if (g.kind === 'general') {
+      // 作者下令"让他掌权"的将领:就是人物键里的那位(按生年认;名字这时还没起);推演里自己出的:本国战功最多的那位
+      const iv = g.iv !== undefined ? civ.interventions?.[g.iv] : undefined;
+      const who = iv?.kind === 'regent' ? parsePersonKey(iv.person) : null;
       steps.push({
         idx: g.annal,
         run: () => {
@@ -897,7 +900,7 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
           let best: (typeof genOf)[number][number] | undefined;
           for (const c of genOf[pid]) {
             if (!c.p.commands?.length || c.p.born + GENERAL_AGE[0] > t || c.careerEnd <= t || (c.p.died !== undefined && c.p.died <= t)) continue;
-            if (!best || (merit.get(c.p) ?? 0) > (merit.get(best.p) ?? 0)) best = c;
+            if (g.iv !== undefined ? who && Math.round(c.p.born) === who.born && !best : !best || (merit.get(c.p) ?? 0) > (merit.get(best.p) ?? 0)) best = c;
           }
           if (!best) return;
           // 入朝秉政:正领着的兵就此交出、不再挂帅出征;掌着权的那几年不会战死
@@ -918,6 +921,8 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
   const forcedOf = new Map<Span, ForcedRegent>();
   for (const s of spans) {
     const { g, pid, N } = s;
+    // 作者下令"让他掌权"的名臣、将领:就是他本人(下面按人物键认),不另起
+    if (g.iv !== undefined) continue;
     if (!(g.kind === 'minister' || g.kind === 'chancellor' || (g.kind === 'general' && !strongGenerals.has(s)))) continue;
     const P = polities[pid];
     const f: ForcedRegent = { dyn: g.dyn, year: g.start, born: g.born, stay: g.stop, kind: g.kind === 'minister' ? 'regent' : 'power', who: N };
@@ -956,10 +961,16 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
   // 摄政的叔父废了幼主自立(regents.ts):排世系时他还当宗室(在他父亲名下、照宗室起名),排完再和即位的那一位并成一人
   const seizes: { son: Son; F: Person; N: Person }[] = [];
   for (const s of spans) {
-    if (s.g.kind !== 'uncle' || s.end !== 'usurp' || !s.g.uncle) continue;
+    if (s.end !== 'usurp') continue;
     const F = byK[s.pid].get(s.g.k + 1);
-    const Fa = byK[s.pid].get(s.g.uncle.k);
-    const son = Fa && sonsOf.get(Fa)?.find((x) => x.p.role === 'prince' && x.heirAt === undefined && x.p.born === s.g.born);
+    let son: Son | undefined;
+    if (s.g.kind === 'uncle' && s.g.uncle) {
+      const Fa = byK[s.pid].get(s.g.uncle.k);
+      son = Fa && sonsOf.get(Fa)?.find((x) => x.p.role === 'prince' && x.heirAt === undefined && x.p.born === s.g.born);
+    } else if (s.g.kind === 'march' || s.g.kind === 'heir') {
+      // 作者下令"让他掌权"的太子到期篡位:废了父亲接着在位(同一朝),和预定的继承人并成一人
+      son = sonsOf.get(s.N)?.find((x) => x.p.role === 'prince' && x.heirAt !== undefined && x.p.born === s.g.born);
+    }
     if (!F || !son || !reignOf.get(F)?.seize) continue;
     seizes.push({ son, F, N: s.N });
     // 排世系时不按年纪给他另找父亲(并成一人时接上做宗室时的父亲)
@@ -1073,7 +1084,12 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
     let kind: PersonRegency['kind'] = g.kind;
     let holder: Person | undefined;
     if (g.kind === 'march' || g.kind === 'heir') holder = sonsOf.get(s.N)?.find((x) => x.heirAt !== undefined)?.p;
-    else if (g.kind === 'uncle') {
+    else if (g.iv !== undefined && (g.kind === 'chancellor' || g.kind === 'general')) {
+      // 作者下令"让他掌权"的名臣、将领:按人物键认(国家、生年、名字;名字对不上的按生年)
+      const who = parsePersonKey(civ.interventions?.[g.iv]?.kind === 'regent' ? (civ.interventions[g.iv] as { person: string }).person : '');
+      const pool = (g.kind === 'general' ? generals : ministers).filter((x) => x.polity === s.pid && who && Math.round(x.born) === who.born);
+      holder = strongGenerals.get(s) ?? pool.find((x) => (x.defaultName ?? x.name) === who?.name) ?? pool[0];
+    } else if (g.kind === 'uncle') {
       const Fa = g.uncle && byK[s.pid].get(g.uncle.k);
       holder = Fa ? sonsOf.get(Fa)?.find((x) => x.heirAt === undefined && x.p.born === g.born)?.p : undefined;
     } else {
@@ -1222,6 +1238,16 @@ export function rulerAt(list: readonly Person[], t: Year): Person | undefined {
     if (r.from! <= t) return r.until === undefined || t < r.until ? r : undefined;
   }
   return undefined;
+}
+
+/**
+ * 国家 pid 的君主 father 嫁出去的女儿叫什么(和上面排人物时记"配偶"的一样;为他联姻的填写页先写给作者看):
+ * 东方带姓的语感 = 他的姓 + 氏("风氏");别的语感、作者立的君主 = 空串
+ */
+export function brideNameOf(civ: Civ, pid: number, father: Person | undefined): string {
+  const Q = civ.polities[pid];
+  if (!Q || !father || father.author !== undefined) return '';
+  return personNamers(civ.seed)(civ.cultures[Q.culture]?.style || 'kingdom').surnamed ? `${splitSurname(father.name)}氏` : '';
 }
 
 /** 东方中式的全名拆出姓(复姓两个字) */
