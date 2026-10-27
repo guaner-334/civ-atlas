@@ -176,8 +176,9 @@ function TreatyRows({ civ, x, year, era }: { civ: Civ; x: TreatyInfo; year: numb
         {x.kind === 'limited' && !ended && sub('不占对方旁边的无主之地，不收对方的藩属')}
       </Row>
       <Row k="期限">
-        {termWord(x.term)}
-        <em className="cp-num-note">{termNote}</em>
+        {/* 作者下令立的一直有效的约(期限 0):不满期 */}
+        {x.term > 0 ? termWord(x.term) : '一直'}
+        {x.term > 0 && <em className="cp-num-note">{termNote}</em>}
         {renewals.map((r, i) => {
           const until = r.year + r.term;
           const last = i === renewals.length - 1;

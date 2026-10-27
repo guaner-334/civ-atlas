@@ -34,7 +34,7 @@ import type { Raster } from '../gen/raster';
 import type { World } from '../gen/world';
 import { cultureLabel, regionLabel } from '../gen/civ/display';
 import { treatiesOfAt, treatyMembersAt, treatyTitle } from '../gen/civ/treatyInfo';
-import { nationsWord, treatyPeriod, zonesOfAt } from './treatyRows';
+import { nationsWord, treatyPeriod, untilText, zonesOfAt } from './treatyRows';
 import { capitalAt, dynastyIndexAt, polityAlive, polityName, polityTitleChain, populationLabel, regionPopulationAt } from '../gen/civ/growth';
 import { ownersAt, type Owners } from '../gen/civ/timeline';
 import { filterChronicle, polityChronicle } from '../gen/civ/chronicle';
@@ -471,7 +471,7 @@ function InfoPage({ civ, raw, raster, world, id, year, p, shared, lock }: Countr
                 return (
                   <Fragment key={t.id}>
                     <Link to={{ kind: 'treaty', id: t.id }}>{treatyTitle(civ, t.id)}</Link>
-                    <em className="cp-num-note">到 {yearAt(treatyPeriod(t, shownYear).until, era)}</em>
+                    <em className="cp-num-note">{untilText(treatyPeriod(t, shownYear).until, era)}</em>
                     {others.length > 0 && <span className="cp-vsub">与{others.map((q) => polityName(civ.polities[q], shownYear)).join('、')}互不侵犯</span>}
                   </Fragment>
                 );

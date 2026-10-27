@@ -626,6 +626,12 @@ export function installTreaties(sim: CivSim, pm: PolityModel, world: World, tm?:
       }
       if (m.members(x).length < 2) endTreaty(x, t, 'lapse');
     }
+    // 作者下令划的、一直留着的中立地:约废了也还在,那州被谁占了(作者划州、立国)照样撤
+    for (const z of m.zones) {
+      if (!z || !z.lasting || z.ended !== undefined || owner[z.region] < 0) continue;
+      const x = m.treaties[z.treaty];
+      if (!x || x.ended !== undefined) dropZone(z, t);
+    }
   };
 
   /** p 和约里的 q 一起背约开战(宣战那一刻):记 breach,p 退出,约的中立地当即撤销;剩不到两国的约废 */
@@ -939,12 +945,23 @@ export function resumeTreaties(sim: CivSim, world: World, civ: Civ): void {
   const tm = new TreatyModel(pm, dm);
   for (const e of civ.annals) tm.apply(e);
   installTreaties(sim, pm, world, tm);
+  // 还没到期的约(期满)、作者下令划的还没到撤的那年的中立地(到期):按预约它们的那条史事的先后补上 ——
+  // 同一刻预约、又撞在同一刻的,先后和一口气推完一样(那时是记完立约 / 续约 / 设中立地当下预约的)
+  const booked = new Map<string, number>();
+  civ.annals.forEach((e, i) => {
+    if (e.kind === 'treaty') booked.set(`t${e.war}`, i);
+    else if (e.kind === 'neutral' && e.cause === 'decree' && e.until !== undefined) booked.set(`z${e.war}`, i);
+  });
+  const due: { i: number; go: () => void }[] = [];
   for (const x of tm.live) {
     const at = x.since + x.term;
-    if (x.term > 0 && quantize(at) > sim.now) sim.schedule(at, Ev.TreatyEnd, x.id, 0, x.since);
+    if (x.term > 0 && quantize(at) > sim.now) due.push({ i: booked.get(`t${x.id}`) ?? -1, go: () => sim.schedule(at, Ev.TreatyEnd, x.id, 0, x.since) });
   }
-  // 作者下令划的中立地还没到撤的那年:补上
-  for (const z of tm.zones) if (z && z.ended === undefined && z.until !== undefined && quantize(z.until) > sim.now) sim.schedule(z.until, Ev.ZoneEnd, z.id, 0, z.from);
+  for (const z of tm.zones) {
+    if (z && z.ended === undefined && z.until !== undefined && quantize(z.until) > sim.now) due.push({ i: booked.get(`z${z.id}`) ?? -1, go: () => sim.schedule(z.until!, Ev.ZoneEnd, z.id, 0, z.from) });
+  }
+  due.sort((a, b) => a.i - b.i);
+  for (const d of due) d.go();
   // 解禁几州的下一刻还没到的(此刻正好撤了中立地、废了有限竞争之约):补上;已经过了的由 resumePolities 重放
   civ.annals.forEach((e, i) => {
     if (((e.kind === 'neutral' && e.cause === 'lapse' && e.a < 0) || limitedEnd(e)) && quantize(e.year + 1 / 256) > sim.now) {

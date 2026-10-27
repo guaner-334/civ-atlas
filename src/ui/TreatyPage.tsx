@@ -434,7 +434,7 @@ export function ZonePage({ civ, world, id, year, from }: PageProps) {
   };
 
   const shared = c && founders.length >= 2 ? sharedTreaty(civ, founders, yv) : null;
-  const why = f.base ?? (!c ? '附近没有能做中立地的州' : founders.length < 2 ? '至少要两国共建' : owner >= 0 && !founders.includes(owner) ? `这州属${nameAt(civ.polities[owner], y)}，它得在共建的国家里` : end === 'until' && !ui.valid ? `撤的年份要在${spaced(yearSpanAt(ui.lo, ui.hi, era))}之间` : null);
+  const why = f.base ?? (!c ? '附近没有能做中立地的州' : founders.length < 2 ? '至少要两国共建' : founders.length - 1 > TREATY_OTHERS_MAX ? `最多 ${TREATY_OTHERS_MAX + 1} 国共建，去掉几国` : owner >= 0 && !founders.includes(owner) ? `这州属${nameAt(civ.polities[owner], y)}，它得在共建的国家里` : end === 'until' && !ui.valid ? `撤的年份要在${spaced(yearSpanAt(ui.lo, ui.hi, era))}之间` : null);
   const v: Intervention | null = c
     ? {
         kind: 'neutral',

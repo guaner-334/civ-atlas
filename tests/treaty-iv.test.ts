@@ -13,6 +13,8 @@ import { buildChronicle, interventionOutcome } from '../src/gen/civ/chronicle';
 import { cleanIntervention, polityKey, regionKey, type Intervention } from '../src/gen/edits';
 import { packValue, unpackValue } from '../src/gen/snapshot';
 import { zoneChoices } from '../src/ui/treatyIv';
+import { treatyEntries, treatyPeriod, zoneEntries } from '../src/ui/treatyRows';
+import { fullChronicle } from '../src/gen/civ/religionText';
 
 const world = generateWorld({ ...DEFAULT_PARAMS, seed: 14 });
 const base = generateCiv(world);
@@ -111,6 +113,41 @@ describe('干预:立约、划中立地', () => {
     }
     for (let i = 1; i < cs.length; i++) expect(cs[i].touch.length).toBeLessThanOrEqual(cs[i - 1].touch.length);
   });
+
+  it('卡片、大事:一直有效的约这一期到 Infinity;干预那一条算在约和中立地的大事里;一直留着的中立地那州被划走了照样撤', () => {
+    const civ = run([{ kind: 'treaty', a: polityKey(base, A), ps: [polityKey(base, B)], from: Y, zone: regionKey(base, Z) }], Y + 10);
+    const i = decreeAt(civ);
+    const x = treatyBook(civ).treaties[civ.annals[i + 1].war];
+    expect(treatyPeriod(x, Y + 5).until).toBe(Infinity);
+    const all = fullChronicle(civ);
+    expect(treatyEntries(civ, x, all).map((e) => e.id)).toContain(i);
+    const z = treatyBook(civ).zones[x.zone];
+    expect(zoneEntries(civ, z, all).map((e) => e.id)).toContain(i);
+    // 一直留着的中立地:立约的一国亡了、约废了,中立地还在;那州后来被划给下令的那国,中立地撤
+    const ivs: Intervention[] = [
+      { kind: 'neutral', a: polityKey(base, A), region: regionKey(base, Z), ps: [polityKey(base, B)], from: Y, lasting: true },
+      { kind: 'destroy', a: polityKey(base, B), from: Y + 1 },
+      { kind: 'cede', a: polityKey(base, A), region: regionKey(base, Z), from: Y + 3 },
+    ];
+    const c2 = run(ivs, 1900);
+    const z2 = treatyBook(c2).zones.find((q) => q && q.from === Y)!;
+    const x2 = treatyBook(c2).treaties[z2.treaty];
+    expect(x2.ended).toBeDefined();
+    expect(z2.ended).toBeDefined();
+    expect(z2.ended!).toBeGreaterThanOrEqual(Y + 3);
+    expect(zonesAt(c2, 1899).some((q) => q.id === z2.id)).toBe(false);
+  }, 120_000);
+
+  it('同一刻预约、撞在同一刻的中立地到期和约满:停下接着推,先后和一口气推完一样', () => {
+    const ivs: Intervention[] = [
+      { kind: 'neutral', a: polityKey(base, A), region: regionKey(base, Z), ps: [polityKey(base, B)], from: Y, until: Y + 20 },
+      { kind: 'treaty', a: polityKey(base, A), ps: [polityKey(base, B)], from: Y, term: 20 },
+    ];
+    const whole = run(ivs, Y + 40);
+    const mid = run(ivs, Y + 10);
+    const cont = continueCiv(world, unpackValue(packValue(mid)) as Civ, { endYear: Y + 40, interventions: ivs.map((v) => cleanIntervention(v)!) });
+    for (const k of ['annals', 'log', 'polity'] as const) expect(cont[k], k).toEqual(whole[k]);
+  }, 120_000);
 
   it('约和中立地还在的时候停下、存档读回、接着推:和一口气推完一样', () => {
     const ivs: Intervention[] = [
