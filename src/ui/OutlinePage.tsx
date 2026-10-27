@@ -6,7 +6,8 @@
  *              正在推:「停下」);推过了多一排按结果筛。大纲从别的世界搬过来、有对不上的几项:那几项写原来叫什么(橙色),结果一格「要重新指」
  *              一张表:把手(拖动排序)、第几条、时间、谁、发生什么、你写的那句、结果(推过了写明怎么样)、「⋯」(在上面 / 下面加一条、复制、删除)
  *              还没推过:点一行 = 编这一行(右边滑出一栏,OutlineEditor.tsx);推过了:点一行 = 到地图上那一年、那个地方看(「⋯」里改这一条)
- * 手机(OutlinePhone):不要概览的头和页签,整页是大纲 ——「‹ 世界」「大纲 N 条」「+」,一条一张卡片,底下「照大纲推演」;编一条换成整页。
+ * 手机(OutlinePhone):不要概览的头和页签,整页是大纲 ——「‹ 世界」「大纲 N 条」放大镜(找更合的世界,有大纲才有)「+」,
+ *              一条一张卡片,底下「照大纲推演」;编一条换成整页。
  *              推过了点一张卡片到地图上看,卡片右边一支笔改这一条。
  * 在地图上点东西(编一行时)的那一会儿概览收起,点完、取消回到这一页(useOutlinePickReturn)。
  */
@@ -427,6 +428,12 @@ export function OutlinePhone({ civ }: { civ: Civ | null }) {
           世界
         </button>
         <b>大纲 {plots.length} 条</b>
+        {/* 找更合的世界(电脑大纲页右上那个):大纲至少一条才有,照大纲推演的时候按不了 */}
+        {plots.length > 0 && o && (
+          <button className="ol-link find" data-act="outline-find-world" aria-label="找更合的世界" title="找更合的世界" disabled={!!run} onClick={findForOutline}>
+            <Icon name="search" size={18} />
+          </button>
+        )}
         <button className="ol-link" data-act="outline-add" aria-label="加一条情节" disabled={!civ} onClick={add}>
           <Icon name="plus" size={18} />
         </button>
