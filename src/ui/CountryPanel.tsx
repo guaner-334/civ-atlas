@@ -9,11 +9,13 @@
  *   按钮  干预历史(主操作;窄屏点了底部抽屉展开)/ 设为中心 / 改名 / 更多(复制分享链接(停在这一年、选中这国、地图照现在的样子;
  *         手机上去「存档」要先关掉这张卡片,所以放在这里)、在编年史中查看、让 AI 写国史、让 AI 讲名字由来;
  *         有主体民族时还有讲它的族名由来、给它起族名)
- *   概况  国都、君主(这一年在位的那位,点了看他;共和国写"执政")、方针(这一年照的方针,"某年起";写进待推演单子的标"待推演";
+ *   概况  国都、君主(这一年在位的那位,点了看他;共和国写"执政")、实权(这一年有人掌着实权才有:"彭继桓  君主之子，2585 年起",
+ *         见 gen/civ/regentInfo.ts)、方针(这一年照的方针,"某年起";没定方针、有人掌着实权的写"照彭继桓性格";写进待推演单子的标"待推演";
  *         点了开方针页)、疆域(历年州数的小柱图,和概览"国家"表同一份)、
  *         人口(境内各州的总人口:城 + 乡村)、钱粮(近几百年国库小柱 + 国库怎么样 + 岁入;点了换成钱粮页 FiscalPage.tsx)、
  *         朝政(征税的法子 + 分封、割据几州;够格议事或议过事的国家才有;点了换成朝政页 CourtPage.tsx)、主体民族、国教(可点,"某年起";没有写"没有")、
  *         宗主("某年起称臣")/ 藩属 / 盟国(可点,名字后面是哪年称臣、结盟;有才写)、
+ *         姻亲(最近一门亲 40 年内、那以后没开过战的国家,可点,名字后面是哪年结亲;有才写)、
  *         立约(这一年还在的约:约名可点、开条约卡片,"到哪年",下面一句和哪几国互不侵犯)/ 中立地(参与共建的,州名可点;有才写)、
  *         邻国(可点),来历 / 结局 / 历任国都(有才写)
  *   历代君主  当前这位和前后各两位(新的在上;遇弑、被废这类结局写在名字后面),点一行看这个人;
@@ -29,7 +31,7 @@
  * 用的是同一套。
  */
 import { Fragment, useMemo, useRef, useState, type RefObject } from 'react';
-import type { Civ, Polity } from '../gen/civ/types';
+import type { Civ, Person, Polity } from '../gen/civ/types';
 import type { Raster } from '../gen/raster';
 import type { World } from '../gen/world';
 import { cultureLabel, regionLabel } from '../gen/civ/display';
@@ -46,7 +48,8 @@ import { useEdits, useEra } from './editsStore';
 import { CharAvatar } from './CharacterPanel';
 import { setCivTime, setSelection } from './civView';
 import { peopleIndex, rulerAt } from '../gen/civ/peopleInfo';
-import { isConsul, personName, rulerFateWord } from '../gen/civ/peopleText';
+import { isConsul, kinOf, personName, rulerFateWord } from '../gen/civ/peopleText';
+import { REGENCY_VERB, holderAt, inLawsAt, type Held } from '../gen/civ/regentInfo';
 import type { AiName } from './AiNamePanel';
 import { openHistoryBook } from './HistoryBook';
 import { NameEdit } from './NameEdit';
@@ -335,6 +338,9 @@ function InfoPage({ civ, raw, raster, world, id, year, p, shared, lock }: Countr
   const cap = civ.settlements[capitalAt(p, shownYear)];
   const ruler = rulerAt(civ, id, shownYear);
   const consul = p.lineage === 'republic';
+  // 这一年谁掌着实权(名义君主照旧在位)、姻亲(最近一门亲 40 年内、那以后没开过战)
+  const held = ruler && !consul ? holderAt(civ, id, shownYear) : null;
+  const inLaws = useMemo(() => inLawsAt(civ, id, shownYear), [civ, id, shownYear]);
   return (
     <>
       <Acts>
@@ -384,7 +390,15 @@ function InfoPage({ civ, raw, raster, world, id, year, p, shared, lock }: Countr
               </em>
             </Row>
           )}
-          {alive && <PolicyRow civ={civ} id={id} year={shownYear} pending={pending} step={step} locked={lock >= 0} />}
+          {held && ruler && (
+            <Row k="实权">
+              <Link to={{ kind: 'person', id: held.x.id }}>{held.x.name}</Link>
+              <em className="cp-num-note">
+                {heldWho(civ, ruler, held)}，{yearAt(held.g.from, era)}起
+              </em>
+            </Row>
+          )}
+          {alive && <PolicyRow civ={civ} id={id} year={shownYear} pending={pending} step={step} locked={lock >= 0} holder={held?.x.name} />}
           <Row k="疆域" className="cp-terr">
             <Spark
               title={`历年州数(最多时 ${maxN} 州)`}
@@ -460,6 +474,16 @@ function InfoPage({ civ, raw, raster, world, id, year, p, shared, lock }: Countr
                 <span key={v.id} title={`${yearAt(v.since, era)}结盟${civ.polities[v.foe] ? `，共御${polityName(civ.polities[v.foe], shownYear)}` : ''}`}>
                   {other(v.id, shownYear)}
                   <em>{yearShort(v.since, era)}</em>
+                </span>
+              ))}
+            </Row>
+          )}
+          {inLaws.length > 0 && (
+            <Row k="姻亲" className="cp-links">
+              {inLaws.map((v) => (
+                <span key={v.polity} title={`${yearAt(v.year, era)}结亲`}>
+                  {other(v.polity, shownYear)}
+                  <em>{yearShort(v.year, era)}</em>
                 </span>
               ))}
             </Row>
@@ -583,13 +607,23 @@ function InfoPage({ civ, raw, raster, world, id, year, p, shared, lock }: Countr
   );
 }
 
+/** 「实权」一行的小字:宗室 "君主之子""君主之叔父";名臣、大臣 "丞相辅政""丞相专权";大将 "大将军专权" */
+function heldWho(civ: Civ, ruler: Person, h: Held): string {
+  const { x, g } = h;
+  if (g.kind === 'march' || g.kind === 'heir' || g.kind === 'uncle') return `君主之${kinOf(civ, ruler, x) || '宗室'}`;
+  const post = (x.posts ?? []).filter((v) => v.from <= g.from).pop()?.title ?? '';
+  return `${post}${REGENCY_VERB[g.kind]}`;
+}
+
 /**
  * 概况「方针」一行(君主下面):"照君主性格 没定方针" / "扩张 1500 年起" / 单子里的"扩张 待推演"(逐年推演"下一步生效");
  * 点了进方针页(演一国时的别国:只写不点)
  */
-function PolicyRow({ civ, id, year, pending, step, locked }: { civ: Civ; id: number; year: number; pending: readonly Pending[]; step: boolean; locked: boolean }) {
+function PolicyRow({ civ, id, year, pending, step, locked, holder }: { civ: Civ; id: number; year: number; pending: readonly Pending[]; step: boolean; locked: boolean; holder?: string }) {
   const era = useEra();
-  const r = policyRow(civ, id, year, pending, step, era);
+  const r0 = policyRow(civ, id, year, pending, step, era);
+  // 有人掌着实权:推演照他的性格
+  const r = holder && r0.name === '照君主性格' ? { ...r0, name: `照${holder}性格` } : r0;
   return (
     <Row k="方针">
       {locked ? (
