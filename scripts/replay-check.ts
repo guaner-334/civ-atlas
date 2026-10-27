@@ -1317,10 +1317,13 @@ if (part('新建界面')) {
   const replayRow = await page.locator('.studio [data-act=replay]').count();
   const intro = await page.locator('.st-left .nw-intro').innerText().catch(() => '');
   await markWf();
+  const genT0 = Date.now();
   await page.click('.studio [data-act=new-seed]');
   // 生成新世界时顶部提示条上有进度
   const genToast = await page.locator('.toast[data-toast=progress]').innerText({ timeout: 5000 }).catch(() => '');
   await waitRedraw();
+  // 默认大小(3.6 万地块)的新世界,从点下去到地图第一次画出来;须知要求 2 秒内。Node 里单线程量不准,在浏览器里量;只记数不卡合并
+  timing('新建默认世界到地图画出来', Date.now() - genT0, 2000);
   const seed2 = await page.locator('.nw-seed-input').inputValue();
   const imgNote = await page
     .evaluate(() => {
