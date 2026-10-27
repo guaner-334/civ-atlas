@@ -115,6 +115,11 @@ const now = () => (typeof performance !== 'undefined' ? performance.now() : Date
 
 /** 推一个种子、量完。出错不往外抛:交回一份带 error 的(这个种子算没找到) */
 export function searchSeed(q: FinderQuery, setup: FinderSetup, seed: number): SeedReport {
+  return searchSeedWith(q, setup, seed).report;
+}
+
+/** 同 searchSeed,另外交出推好的世界和历史(后台线程拿来把列表里的小图画成手绘地图;出错了 = 没有) */
+export function searchSeedWith(q: FinderQuery, setup: FinderSetup, seed: number): { report: SeedReport; world?: World; civ?: Civ } {
   const t0 = now();
   try {
     const plan = finderPlan(q, setup.civ?.endYear ?? DEFAULT_CIV_PARAMS.endYear);
@@ -127,9 +132,9 @@ export function searchSeed(q: FinderQuery, setup: FinderSetup, seed: number): Se
       world = generateWorld({ ...DEFAULT_PARAMS, ...setup.world, seed });
     }
     const civ = generateCiv(world, { ...setup.civ, endYear: plan.needEnd, ...(setup.map === 'fixed' ? { civSeed: seed } : {}) });
-    return { seed, ...searchCiv(q, world, civ, plan), ms: Math.round(now() - t0) };
+    return { report: { seed, ...searchCiv(q, world, civ, plan), ms: Math.round(now() - t0) }, world, civ };
   } catch (e) {
-    return { ...emptyReport(q, seed), ms: Math.round(now() - t0), error: e instanceof Error ? e.message : String(e) };
+    return { report: { ...emptyReport(q, seed), ms: Math.round(now() - t0), error: e instanceof Error ? e.message : String(e) } };
   }
 }
 
@@ -934,7 +939,8 @@ function thumbOf(world: World, civ: Civ, own: Int16Array, capitals: readonly { c
   }
   const dots: number[] = [];
   for (const c of capitals) dots.push(Math.round((at(X[c.cell]) / ww) * TW * 10) / 10, Math.round(((Y[c.cell] - y0) / wh) * TH * 10) / 10);
-  return { w: TW, h: TH, pal, px, ter, dots };
+  const r1 = (v: number) => Math.round(v * 10) / 10;
+  return { w: TW, h: TH, pal, px, ter, dots, win: [r1(x0), r1(y0), r1(ww), r1(wh)] };
 }
 
 /** 后来怎样:开场到 until 年里,故事里两国以上一起出现的事优先,其次各国自己的大事,再次各国别的事;最多 STORY_KEEP 条,按年份 */

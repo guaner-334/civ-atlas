@@ -1,6 +1,7 @@
 /**
- * 照故事找世界结果列表里的小图:后台线程交来的是调色板下标(gen/finder/measure.ts 的 thumbOf),这里上色成手绘地图的样子
- * (浅青灰的海、米色的陆地、各国的颜色淡淡铺在上面、故事里各国的国都一个小圆点),画成图片地址。同一张只画一次。
+ * 照故事找世界结果列表里的小图:后台线程一般已经画成了手绘地图的样子(finderThumbDraw.ts,JPEG),直接用;
+ * 线程里画不了图的浏览器交来的是调色板下标(gen/finder/measure.ts 的 thumbOf),这里按地形打底、各国颜色铺在上面、
+ * 国界海岸描深一点、故事里各国的国都一个小圆点,画成图片地址。同一张只做一次。
  */
 import type { FinderThumb } from '../gen/finder/query';
 
@@ -28,7 +29,13 @@ const cache = new WeakMap<FinderThumb, string>();
 export function thumbUrl(t: FinderThumb): string | null {
   const hit = cache.get(t);
   if (hit) return hit;
-  if (typeof document === 'undefined') return null;
+  // 后台线程已经画成了手绘地图的样子:直接用那张
+  if (t.img && t.img.byteLength && typeof URL !== 'undefined' && typeof Blob !== 'undefined') {
+    const url = URL.createObjectURL(new Blob([t.img], { type: 'image/jpeg' }));
+    cache.set(t, url);
+    return url;
+  }
+  if (typeof document === 'undefined' || !t.px.length) return null;
   const c = document.createElement('canvas');
   c.width = t.w;
   c.height = t.h;
