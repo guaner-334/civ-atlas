@@ -147,7 +147,8 @@ export function RegentIvPage({ civ, x, year, onBack }: { civ: Civ; x: Person; ye
   const why = (() => {
     if (step && look !== null) return STEP_LOOK_WHY;
     if (!pkey) return '推演里认不出这个人，下不了';
-    if (!open || span.lo > span.hi) return '那一年他不是太子、君主的兄弟叔伯、在朝的名臣或领兵的将领，或者已不在世、不满 16 岁';
+    // 逐年推演:下在下一步开头(已经推过的历史后面),只看他那时是不是那样的人,不按历史推到哪年卡
+    if (!open || (!step && span.lo > span.hi)) return '那一年他不是太子、君主的兄弟叔伯、在朝的名臣或领兵的将领，或者已不在世、不满 16 岁';
     if (!step && !yi.valid) return `掌权的年份要在${spaced(yearSpanAt(span.lo, span.hi, era))}之间`;
     return null;
   })();

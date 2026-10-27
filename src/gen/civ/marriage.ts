@@ -220,7 +220,9 @@ function hook(sim: CivSim, mm: MarriageModel): void {
     for (let k = r.k; k >= 0 && book[k] && book[k].dynasty === r.dynasty; k--) {
       if (book[k].crown) continue;
       const br = broodOf(pm.rbase, pm.rtag[p], book[k], P);
-      if (k === r.k && br.heir !== undefined && Math.round(br.heir) === who.born) return { code: k * 16, born: br.heir };
+      // 预定的继承人:在位君主的;先前几位的(父亲被作者让他去世、让位,他没即位)也算,接着即了位的不算(他就是后来的君主)
+      const hb = br.heir;
+      if (hb !== undefined && Math.round(hb) === who.born && (k === r.k || Math.round(reignBorn(book[k + 1])) !== who.born)) return { code: k * 16, born: hb };
       const x = br.extra.find((e) => Math.round(e.born) === who.born);
       if (x) return x.life > t ? { code: k * 16 + x.s, born: x.born } : null;
     }
