@@ -206,7 +206,7 @@ function giveUpThenNext(seed: number, strokes: (w: World) => [TerrainOp, Terrain
     if (at === 'after') finish(t1);
     if (t1.before?.box) applyPatch(r0, t1.before.box);
     expect(rasterDiff(r0, shown), '改回原样').toBe('');
-    keep = { raster: r0, inputs: t1.inputs, dirty: t1.before?.box ?? null };
+    keep = { raster: r0, inputs: t1.inputs, dirty: t1.changed };
   }
   const w2 = generateWorld(params, undefined, [a, b], null, cache);
   const full = finish(rasterizeDeferred(w2, 1));
@@ -251,6 +251,48 @@ describe('编辑地形 · 上一笔改回原样以后接着按块重铺', () => 
     giveUpThenNext(2024, far, 'after');
     giveUpThenNext(2024, near, 'whole');
   });
+});
+
+/**
+ * 连涂:前 k 笔都按块重铺完就被下一笔顶掉、改回原样(dirty 记输入变了的框,同 worker.ts 的 giveUp),最后一笔按块重铺到底:
+ * 和整张重铺逐位相同,补丁贴到主线程手里那张(连涂之前的)上也逐位相同;中间每一笔、最后一笔都还是按块重铺
+ * (dirty 记往外扩过的重铺范围的话,一圈圈扩大,两三笔以后就超过半张图、改成整张铺了)
+ */
+function giveUpRun(seed: number, ops: (w: World) => TerrainOp[], at: 'before' | 'after') {
+  const params = { ...DEFAULT_PARAMS, seed };
+  const cache: BaseCache = { base: null };
+  const w0 = generateWorld(params, undefined, [], null, cache);
+  const d0 = rasterizeDeferred(w0, 1);
+  const r0 = finish(d0);
+  const shown = structuredClone(r0);
+  const all = ops(w0);
+  let keep: RasterKeep = { raster: r0, inputs: d0.inputs };
+  for (let i = 0; i < all.length; i++) {
+    const w = generateWorld(params, undefined, all.slice(0, i + 1), null, cache);
+    const t = rasterizePatch(w, keep, undefined, true);
+    if (!t || !('job' in t)) throw new Error(`第 ${i + 1} 笔没按块重铺`);
+    if (i < all.length - 1) {
+      if (at === 'after') finish(t);
+      if (t.before?.box) applyPatch(r0, t.before.box);
+      expect(rasterDiff(r0, shown), `第 ${i + 1} 笔改回原样`).toBe('');
+      keep = { raster: r0, inputs: t.inputs, dirty: t.changed };
+      continue;
+    }
+    const got = finish(t);
+    const full = finish(rasterizeDeferred(w, 1));
+    expect(rasterDiff(got, full), '按块重铺').toBe('');
+    const d = exactDiffBefore(t.before!, got, t.win);
+    expect(rasterDiff(composeRaster(shown, d ? [cutExact(got, d)] : []), full), '补丁贴上').toBe('');
+  }
+}
+
+describe('编辑地形 · 连涂几笔都被顶掉以后接着按块重铺', () => {
+  const run = (w: World): TerrainOp[] => {
+    const [x, y] = landAt(w, 200, 900);
+    return [0, 1, 2, 3, 4].map((i) => ({ kind: 'lift', pts: [x + 6 * i, y, x + 6 * i + 10, y], r: 30, s: 0.6 }));
+  };
+  it('种子 7:连 5 笔,前 4 笔沟壑算完才改回去', { timeout: 300000 }, () => giveUpRun(7, run, 'after'));
+  it('种子 2024:连 5 笔,前 4 笔沟壑还没算就改回去', { timeout: 300000 }, () => giveUpRun(2024, run, 'before'));
 });
 
 describe('编辑地形 · 先比出框、再决定拷不拷补丁', () => {
