@@ -945,6 +945,22 @@
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
+/* 第二行的"妻大澜""母大澜":小方块是那一国的颜色 */
+.lg-kin {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  margin-left: 5px;
+  font-size: 11px;
+  color: var(--ink-2);
+}
+.lg-kin i {
+  width: 8px;
+  height: 8px;
+  margin-right: 3px;
+  border-radius: 2px;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.1);
+}
 .lg-prince {
   padding-left: 10px;
   background: transparent;

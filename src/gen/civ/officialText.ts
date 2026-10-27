@@ -277,6 +277,9 @@ function ministerEnd(civ: Civ, x: Person, east: boolean, era?: Era): string {
       const m = merger !== undefined && merger >= 0 ? polityName(civ.polities[merger], until) : '';
       return after(east ? `${yearAt(until, era)}${oldName}并入${m}，随之归附` : `${yearAt(until, era)}${oldName}并入${m}`);
     }
+    case 'purged':
+      // 掌实权时被君主诛杀(regents.ts)
+      return east ? `${yearAt(until, era)}伏诛` : `${yearAt(until, era)}被处死`;
     default:
       return after(east ? `${yearAt(until, era)}去职` : `${yearAt(until, era)}离任`);
   }
@@ -311,6 +314,8 @@ export function ministerFate(civ: Civ, x: Person, era?: Era): string {
       const to = m !== undefined && m >= 0 && civ.polities[m] ? polityName(civ.polities[m], until) : '';
       return (to ? `随国并入${to}` : '随国归附') + later;
     }
+    case 'purged':
+      return east ? `${yearAt(until, era)}伏诛` : `${yearAt(until, era)}被处死`;
     default:
       return (east ? '去职' : '离任') + later;
   }
