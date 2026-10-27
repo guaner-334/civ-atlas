@@ -80,7 +80,7 @@
  */
 import type { Annal, AnnalCause, AnnalKind, Civ, Culture, MigrationDir, Person, PersonRegency, PersonSpouse, Polity, Year } from './types';
 import { REGENCY_KINDS, RG_DIED, RG_PURGE, RG_RETURN, RG_START, RG_USURP } from './regents';
-import { kinAt } from './regentInfo';
+import { holderAt, kinAt, strongHeld } from './regentInfo';
 import {
   TIER_REGIONS,
   annexedRemnants,
@@ -1402,8 +1402,8 @@ function woeText(civ: Civ, e: Annal): string {
     case 'minor':
       return classical(polityOf(civ, e.b)) ? `乘${B}主少国疑` : `乘${B}幼主在位`;
     case 'regent': {
-      const s = strongmanAt(civ, e.b, y);
-      return s ? `乘${B}${holderRef(civ, s.x, s.g.kind, y)}专权` : `乘${B}权臣当国`;
+      const s = holderAt(civ, e.b, y);
+      return s && strongHeld(s.g) ? `乘${B}${holderRef(civ, s.x, s.g.kind, y)}专权` : `乘${B}权臣当国`;
     }
     case 'plunder': {
       const r = regionName(civ, e.region);
@@ -1412,17 +1412,6 @@ function woeText(civ: Civ, e: Annal): string {
     default:
       return '';
   }
-}
-
-/** 国家 p 在 y 那年专权的大臣、大将(人物里排的那一段,Person.regencies);没有人物、查不到 = null */
-function strongmanAt(civ: Civ, p: number, y: Year): { x: Person; g: PersonRegency } | null {
-  const ix = peopleOf(civ);
-  if (!ix) return null;
-  for (const v of ix.power.values()) {
-    const g = v.g;
-    if (v.x.polity === p && (g.kind === 'chancellor' || g.kind === 'general') && g.from <= y && (g.until === undefined || y < g.until)) return v;
-  }
-  return null;
 }
 
 /** 为夺物产开战时写的字(下标同 development.ts 的 RESOURCES:粮、牲畜、铜锡、铁、煤、木材、盐、渔获、石油、稀有矿、金银),先后照这里 */
