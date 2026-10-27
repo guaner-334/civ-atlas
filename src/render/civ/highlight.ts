@@ -14,7 +14,7 @@ import type { World } from '../../gen/world';
 import type { Raster } from '../../gen/raster';
 import type { Civ, Year } from '../../gen/civ/types';
 import { ownersAt } from '../../gen/civ/timeline';
-import { regionPixels } from './territory';
+import { STRIPE_ALPHA, STRIPE_GAP, STRIPE_LINE, regionPixels, stripeAt } from './territory';
 import { mergeChains, regionChains, type SidedLine } from './borders';
 import { addToPath, chaikin, meshWrap, unwrapLine, type Polyline } from './lines';
 import { nearX, wrapShifts } from '../common';
@@ -33,6 +33,11 @@ export interface CivHighlight {
   steady?: boolean;
   /** 一直亮着的预览改用蓝色(管辖填色下;ui/civView.ts 的 useCivHighlight 按现在的填色给) */
   blue?: boolean;
+  /**
+   * 一直亮着的预览画成几国颜色相间的细横纹(划中立地那一页预览选中的那一处:和地图上的中立地一个画法,见 neutral.ts):
+   * 事发州不罩橙色,铺这几种颜色(RGB)的横纹;外框照旧
+   */
+  stripes?: readonly (readonly number[])[];
 }
 
 /** 一直亮着的预览,事发州外框:颜色、线宽(世界单位) */
@@ -173,14 +178,26 @@ export function drawHighlight(
   const H = Math.ceil(h / f);
   const img = new ImageData(W, H);
   const d = img.data;
+  const stripes = hl.steady && hl.stripes?.length ? hl.stripes : null;
   for (let y = 0; y < H; y++) {
     const row = Math.min(h - 1, y * f + 1) * w;
+    // 预览中立地:这一行落在第几道横纹、盖住几成(和地图上的中立地同一把尺)
+    const s = stripes ? stripeAt((y * f + f / 2) / S, STRIPE_GAP, STRIPE_LINE, f / S) : null;
     for (let x = 0; x < W; x++) {
       const r = pix[row + Math.min(w - 1, x * f + 1)];
       const m = r >= 0 ? marks[r] : 0;
       if (!m) continue;
-      const c = FILL[m - 1];
       const o = (y * W + x) * 4;
+      if (m === 2 && stripes) {
+        if (!s || s.cover <= 0) continue;
+        const c = stripes[((s.k % stripes.length) + stripes.length) % stripes.length];
+        d[o] = c[0];
+        d[o + 1] = c[1];
+        d[o + 2] = c[2];
+        d[o + 3] = 255 * STRIPE_ALPHA * s.cover;
+        continue;
+      }
+      const c = FILL[m - 1];
       d[o] = c[0];
       d[o + 1] = c[1];
       d[o + 2] = c[2];
@@ -255,10 +272,10 @@ export function drawHighlight(
       ctx.shadowBlur = 0;
     }
   }
-  // 事发地(没有事发州就是相关国家)在屏幕上很小:外面套一个圆圈。圆圈按屏幕大小定,放大后不会大得离谱
+  // 事发地(没有事发州就是相关国家)在屏幕上很小:外面套一个圆圈。圆圈按屏幕大小定,放大后不会大得离谱(预览中立地不套:旁边有带序号的名牌)
   const b = highlightBox(world, civ, marks);
   const k = Math.max(1, zoom);
-  if (b && Math.max(b[2] - b[0], b[3] - b[1]) * k < RING_BELOW * world.width) {
+  if (b && !stripes && Math.max(b[2] - b[0], b[3] - b[1]) * k < RING_BELOW * world.width) {
     const dx = b[2] - b[0];
     const dy = b[3] - b[1];
     const rad = Math.max(48 / k, Math.sqrt(dx * dx + dy * dy) / 2 + 24 / k) * S;

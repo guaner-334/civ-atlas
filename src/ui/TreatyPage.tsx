@@ -391,15 +391,17 @@ export function ZonePage({ civ, world, id, year, from }: PageProps) {
     });
   }, [civ, list, c?.region]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => () => setZonePlates(null), []);
-  // 选中的那一处在地图上涂出来(一直亮着,换了一处跟着换;同天灾页的预览);离开这一页收起
+  // 选中的那一处在地图上先画成中立地的样子(共建几国颜色的细横纹,一直亮着,换了一处、去掉一国跟着换;同天灾页的预览);离开这一页收起
   const chosen = c?.region ?? -1;
+  const who = founders.join(',');
   useEffect(() => {
     if (chosen < 0) {
       if (getCivHighlight()?.steady) setCivHighlight(null);
       return;
     }
-    setCivHighlight({ regions: [chosen], polities: [], year: yv, steady: true });
-  }, [chosen, yv]);
+    const stripes = founders.map((q) => civ.polities[q]?.color).filter((x): x is [number, number, number] => !!x);
+    setCivHighlight({ regions: [chosen], polities: [], year: yv, steady: true, stripes });
+  }, [chosen, yv, who]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(
     () => () => {
       if (getCivHighlight()?.steady) setCivHighlight(null);

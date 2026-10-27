@@ -489,6 +489,11 @@ const DETAIL_LINE_D = 0.9;
  * 中立地的细横纹(neutral.ts):世界 y 处落在第几道(颜色按它轮着来)、盖住几成(0..1,边缘抗锯齿)。
  * gap、line = 横纹间距、线宽,px = 一个像素(一格)多少世界单位
  */
+/** 整张图上中立地的横纹:间距、线宽(世界单位)、浓淡(地图上的中立地、划中立地那一页的预览共用) */
+export const STRIPE_GAP = 3.4;
+export const STRIPE_LINE = 1.6;
+export const STRIPE_ALPHA = 0.62;
+
 export function stripeAt(y: number, gap: number, line: number, px: number): { k: number; cover: number } {
   const t = y / gap;
   const k = Math.round(t);
