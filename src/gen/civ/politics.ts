@@ -138,8 +138,11 @@ const CAPMOVE_P = 0.35;
 const RESTORE_FIRST = 30;
 const RESTORE_EVERY = 40;
 const RESTORE_TRIES = 12;
-/** 复国的赔率 = RESTORE_ODDS × 宗主的虚弱 × 异族统治 × 离宗主国都远近 */
-const RESTORE_ODDS = 0.025;
+/**
+ * 复国的赔率 = RESTORE_ODDS × 宗主的虚弱 × 异族统治 × 离宗主国都远近
+ * (GENERATOR_VERSION 43 仗打得密以后亡国多了两成多,这里从 0.025 调低一些,复国不至于跟着多出三四成)
+ */
+const RESTORE_ODDS = 0.022;
 const RESTORE_FOREIGN = 2;
 /** 宗主的虚弱 = 1 + 在打仗 W_WAR + RECENT_SPLIT 年内分裂过 W_SPLIT + CRISIS_YEARS 年内迁过都 W_CAP + 接连丢州 W_LOSS */
 const W_WAR = 1.5;
@@ -319,12 +322,33 @@ function hook(sim: CivSim, pol: PoliticsModel): void {
     const d = p.dynasties;
     return d && d.length > 1 ? d[d.length - 1].year : -Infinity;
   };
-  /** CRISIS_YEARS 年内在战争里丢了几州 */
+  /**
+   * CRISIS_YEARS 年内在战争里丢了、到现在还没夺回来的几州(一州丢了几次只算一次;拉锯里丢了又夺回的不算)。
+   * wm.wars 里 oldWars 以前的仗都在 CRISIS_YEARS 年以前议和了,不用再翻
+   * (推演的时刻只往后走,这个下标只往前挪;万一往回问就从头翻,结果和全翻一遍一样)
+   */
+  let oldWars = 0;
+  let askedAt = -Infinity;
+  const lostMark = new Int32Array(pm.terrain.R);
+  let lostStamp = 0;
   const lostRecently = (p: number, t: number) => {
+    const ws = wm.wars;
+    if (t < askedAt) oldWars = 0;
+    askedAt = t;
+    for (; oldWars < ws.length; oldWars++) {
+      const w = ws[oldWars];
+      if (w && (w.end === undefined || t - w.end < CRISIS_YEARS)) break;
+    }
     let n = 0;
-    for (const w of wm.wars) {
+    lostStamp++;
+    for (let i = oldWars; i < ws.length; i++) {
+      const w = ws[i];
       if (!w || (w.a !== p && w.b !== p) || (w.end !== undefined && t - w.end >= CRISIS_YEARS)) continue;
-      for (const e of w.takes) if (e.by !== p && t - e.year < CRISIS_YEARS) n++;
+      for (const e of w.takes) {
+        if (e.by === p || t - e.year >= CRISIS_YEARS || owner[e.region] === p || lostMark[e.region] === lostStamp) continue;
+        lostMark[e.region] = lostStamp;
+        n++;
+      }
     }
     return n;
   };

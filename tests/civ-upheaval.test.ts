@@ -218,8 +218,9 @@ describe('地形大事 · 推演', () => {
   }, 300_000);
 
   it('后果都并进大事那一条:亡了的国家打着的仗,议和记在后果之后;早先的遗址城址沉了,从那年起不再画', () => {
-    // 第 1491 年:尼索斯城邦(正和奥利亚王国打仗)的州全沉,奥利亚的国都也沉了(州还在,迁都)
-    const Y = 1491;
+    // 第 1508 年:尼索斯城邦(正和奥利亚王国打仗)的州全沉,奥利亚的国都也沉了(州还在,迁都)
+    // (GENERATOR_VERSION 43 战争节奏以后历史重排,以前是第 1491 年;这一年先迁都、后亡国)
+    const Y = 1508;
     const W: Upheaval = {
       year: Y,
       ops: [
@@ -230,15 +231,26 @@ describe('地形大事 · 推演', () => {
     const b = civOf([W]);
     const at = b.annals.filter((e) => e.year === Y).map((e) => e.kind);
     expect(at).toContain('fall');
-    expect(at.lastIndexOf('capital')).toBeGreaterThan(at.indexOf('fall'));
-    expect(at.indexOf('peace')).toBeGreaterThan(at.lastIndexOf('capital'));
+    expect(at).toContain('capital');
+    expect(at.indexOf('peace')).toBeGreaterThan(Math.max(at.indexOf('fall'), at.lastIndexOf('capital')));
     const ch = buildChronicle(b).filter((x) => b.annals[x.id]?.year === Y);
     expect(ch.map((x) => x.kind)).toEqual(['upheaval']);
-    expect(ch[0].text).toMatch(/亡,.*迁都/);
-    // 青陵第 1047 年被毁、没有重建;第 2800 年城址沉入海中
-    const R: Upheaval = { year: 2800, ops: [{ kind: 'sink', pts: [1215, 294], r: 12, s: 1.1 }] };
+    expect(ch[0].text).toMatch(/迁都.+亡$/);
+    // 早先被毁、没有重建的一座城(按条件现找:第 2799 年还是遗址、四周 60 以内没有别的遗址;GENERATOR_VERSION 43 以前是青陵),
+    // 第 2800 年城址沉入海中
+    const a = base();
+    const Wd = world();
+    const near = (c: number, d: number) => {
+      const dx = Math.abs(Wd.mesh.x[c] - Wd.mesh.x[d]);
+      return Math.hypot(Math.min(dx, Wd.width - dx), Wd.mesh.y[c] - Wd.mesh.y[d]) < 60;
+    };
+    const sites = ruinSites(a, 2799);
+    const pick = sites.find((s) => sites.every((o) => o.id === s.id || !near(a.settlements[o.id].cell, a.settlements[s.id].cell)))!;
+    expect(pick, '有一处孤零零的遗址').toBeDefined();
+    const cell = a.settlements[pick.id].cell;
+    const R: Upheaval = { year: 2800, ops: [{ kind: 'sink', pts: [Wd.mesh.x[cell], Wd.mesh.y[cell]], r: 12, s: 1.1 }] };
     const r = civOf([R]);
-    const id = r.settlements.findIndex((s) => s.name === '青陵');
+    const id = r.settlements.findIndex((s) => s.cell === cell && s.ended !== undefined && s.ended < R.year);
     expect(r.settlements[id].ended).toBeLessThan(R.year);
     expect(r.upheavals![0].ruins).toEqual([id]);
     expect(ruinSites(r, R.year - 1).map((s) => s.id)).toContain(id);

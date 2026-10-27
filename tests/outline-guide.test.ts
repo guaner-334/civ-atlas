@@ -35,9 +35,9 @@ function same(a: Civ, b: Civ, label: string) {
   for (const k of Object.keys(b) as (keyof Civ)[]) expect(a[k], `${label} ${k}`).toEqual(b[k]);
 }
 
-/** seed 7 的随机大纲里第 1574 年那条开战(和它前面的几条):照常推没发生,引几版能引成 */
-const GUIDED_SEED = 7;
-const GUIDED_YEAR = 1574;
+/** seed 1 的随机大纲里第 1554 年那条开战(和它前面的几条):照常推没发生,引几版能引成(GENERATOR_VERSION 43 仗打得密以后 seed 7 第 1574 年那条照常推就打起来了,换成这条) */
+const GUIDED_SEED = 1;
+const GUIDED_YEAR = 1554;
 const guidedCase = () => samplePlots(baseCiv(GUIDED_SEED), GUIDED_SEED, 20).filter((p) => p.year <= GUIDED_YEAR && p.kind !== 'peace' && p.kind !== 'submit');
 
 describe('不引 = 和以前一样', () => {
@@ -135,10 +135,10 @@ describe('顺着引了一把', () => {
   }, 120_000);
 });
 
-/** seed 7 第 1500 年:c6045 本来不打 c16152;引它更好战、国力更强、主攻 c16152,窗口里多看几眼邻国就打了,不多看就不打 */
+/** seed 7 第 1500 年:c16152 本来不打 c6760;引它更好战、国力更强、主攻 c6760,窗口里多看几眼邻国就打了,不多看就不打(GENERATOR_VERSION 43 以前是 c6045 打 c16152) */
 const LOOK_SEED = 7;
-const LOOK_A = 'polity:c6045#0';
-const LOOK_B = 'polity:c16152#0';
+const LOOK_A = 'polity:c16152#0';
+const LOOK_B = 'polity:c6760#0';
 const lookList = (look: boolean): Intervention[] => [
   { kind: 'policy', a: LOOK_A, from: 1500, war: 35, power: 70, foes: [LOOK_B], ...(look ? { look: { kind: 'war' as const, years: [1500, 1505, 1510, 1515, 1520] } } : {}), plot: 1, guide: true },
   { kind: 'policy', a: LOOK_A, from: 1521, plot: 1, guide: true },

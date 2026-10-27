@@ -222,7 +222,8 @@ function detourFinder(world: World, regions: Regions, sp: number): (s: PassSite)
  * region ≠ foe 时那个邻州就是 region;否则是 foe 的邻州里当时归追兵(b)、口子落在 foe 这边的那一个:
  * 只有一个就是它(默认参数 20 个种子 125 次守关战里 123 次是这两种,认得准);
  * 几个都是时,先看这一仗紧挨着的上一件事(同一场仗里攻下 / 打的那一州:败兵是从那里退的)在不在里面,
- * 不在再取共享边界最长的、一样长取治所地块小的(和推演里挑关隘的先后一样)
+ * 不在再取共享边界最长的、一样长取治所地块小的(和推演里挑关隘的先后一样)。
+ * "当时"= 守关那一刻:同一刻这场仗随即议和、割让的州(史事里排在它后面的攻占)退回去再看
  */
 export function standCells(world: World, hist: PassHistory): { annal: number; cell: number; year: number }[] {
   const reg = hist.regions;
@@ -236,6 +237,17 @@ export function standCells(world: World, hist: PassHistory): { annal: number; ce
     if (cell >= 0) out.push({ annal: i, cell, year: an.year });
   }
   return out;
+}
+
+/** 第 i 条史事(据险断后)那一刻的国家归属:这一刻末了的归属,退回同一刻排在它后面、同一场仗的攻占(随即议和时割让的州) */
+function ownersAtStand(hist: PassHistory, i: number): Int16Array {
+  const A = hist.annals;
+  const an = A[i];
+  const own = ownersAt(hist as Civ, an.year).polity;
+  let last = i;
+  while (last + 1 < A.length && A[last + 1].year === an.year) last++;
+  for (let j = last; j > i; j--) if (A[j].kind === 'conquer' && A[j].war === an.war) own[A[j].region] = A[j].b;
+  return own;
 }
 
 function standCell(hist: PassHistory, i: number, gate: Int32Array): number {
@@ -252,7 +264,7 @@ function standCell(hist: PassHistory, i: number, gate: Int32Array): number {
       if (j === an.region) return g;
       continue;
     }
-    owner ??= ownersAt(hist as Civ, an.year).polity;
+    owner ??= ownersAtStand(hist, i);
     if (owner[j] === an.b) cand.push(k);
   }
   if (cand.length <= 1) return cand.length ? gate[cand[0]] : -1;
