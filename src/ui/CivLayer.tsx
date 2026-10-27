@@ -57,7 +57,7 @@ import {
 } from './civView';
 import { primePolityField, territoryGrid } from '../render/labels/polity';
 import { polityNamesOn } from '../render/civ/show';
-import { faithKey, personKey, placeKeyOf, polityKey, resolveKey, resolvePersonKey, settlementKey } from '../gen/edits';
+import { faithKey, personKey, placeKeyOf, polityKey, resolveKey, resolvePersonKey, settlementKey, treatyKey } from '../gen/edits';
 import { setMapPlacement } from './mapPick';
 import { mapBoxOf, mirrorCanvas, placeOnScreen, visibleBox, watchMapBox } from './mapWrap';
 import { whenDone } from './holdMark';
@@ -237,7 +237,9 @@ function selectionIn(sel: MapSelection | null, civ: Civ, base: Civ, was: Civ, wa
           ? faithKey(civ, sel.id)
           : sel.kind === 'place' && base.places[sel.id]
             ? placeKeyOf(base, sel.id)
-            : null;
+            : sel.kind === 'treaty'
+              ? treatyKey(civ, sel.id) || null
+              : null;
   // 州(两份历史的州是同一份)、作者的标记和人物:编号不变
   if (key === null) return sel.kind === 'region' || sel.kind === 'mark' || sel.kind === 'character' ? sel : null;
   const r = resolveKey(sel.kind === 'place' ? wasBase : was, key);
