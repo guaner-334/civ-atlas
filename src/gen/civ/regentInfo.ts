@@ -10,6 +10,8 @@
 import type { Annal, Civ, Person, PersonRegency, PersonSpouse, Year } from './types';
 import { polityName, polityShortTitle, polityTierAt } from './growth';
 import { KIN_FADE, kinKey } from './marriages';
+import { actsFrom, reignBook, rulerBase, rulerTags, type RulerAct } from './rulers';
+import { broodOf } from './royals';
 
 /** 掌权的一段连同掌权的人 */
 export interface Held {
@@ -78,6 +80,34 @@ export function heldOver(civ: Civ, r: Person): Held[] {
   return holdersOf(civ, r.polity).filter(
     (h) => h.x !== r && (h.g.ruler === r.id || (strongHeld(h.g) && h.g.from < until && (h.g.until ?? Infinity) > from)),
   );
+}
+
+// ---------------------------------------------------------------------------
+// 预定的继承人
+
+interface BookCtx {
+  base: number;
+  tag: number[];
+  acts: Map<number, RulerAct[]>;
+}
+const bookCache = new WeakMap<readonly Annal[], BookCtx>();
+
+/**
+ * 君主 N 预定的继承人的生年(royals.ts 的 heir:在位表里下一位不被打断时即位、年纪合得上他的儿子;和推演里认人的一样;没有 = undefined)。
+ * 推演还没推到 N 下台(逐年推演、推到最后还在位)时,继承人在人物里还是宗室,这样才认得出
+ */
+export function heirBornOf(civ: Civ, N: Person): Year | undefined {
+  const P = civ.polities[N.polity];
+  if (!P || N.role !== 'ruler' || N.author !== undefined || N.from === undefined) return undefined;
+  let cx = bookCache.get(civ.annals);
+  if (!cx) {
+    cx = { base: rulerBase(civ.seed), tag: rulerTags(civ.polities, (sid) => civ.settlements[sid]?.cell ?? -1), acts: actsFrom(civ.annals, civ.interventions) };
+    bookCache.set(civ.annals, cx);
+  }
+  const at = N.from + 1 / 512;
+  const book = reignBook(cx.base, cx.tag[N.polity], P, at, cx.acts.get(N.polity));
+  const r = book.find((x) => Math.abs(x.from - N.from!) < 1e-6 && !x.crown);
+  return r ? broodOf(cx.base, cx.tag[N.polity], r, P).heir : undefined;
 }
 
 // ---------------------------------------------------------------------------

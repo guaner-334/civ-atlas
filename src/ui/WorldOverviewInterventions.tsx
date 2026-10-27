@@ -70,8 +70,8 @@ function targetOf(civ: Civ, v: Intervention, i: number): MapSelection | null {
     return r >= 0 && r < civ.regions.count ? { kind: 'region', id: r } : null;
   }
   if (!v.a) return null;
-  // 让人物去世、改君主倾向:那个人(新历史里没有他 = 他的国家)
-  if (v.kind === 'death' || v.kind === 'temper') {
+  // 让人物去世、改君主倾向、让他掌权、为他联姻:那个人(新历史里没有他 = 他的国家)
+  if (v.kind === 'death' || v.kind === 'temper' || v.kind === 'regent' || v.kind === 'marry') {
     const x = resolvePersonKey(civ, v.person);
     if (x >= 0) return { kind: 'person', id: x };
   }
