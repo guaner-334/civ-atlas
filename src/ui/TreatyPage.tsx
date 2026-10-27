@@ -38,6 +38,7 @@ import { STEP_LOOK_WHY, StepEffectTime, useStepView } from './Stepwise';
 import { defaultYear, getPolityPick, interventionText, nameAt, setPolityPick, usePolityPick, type PolityPick } from './Interventions';
 import { YearRow, jumpTo, rgb, useYearInput } from './panelParts';
 import { closeCmdPage } from './panelStore';
+import { getCivHighlight, setCivHighlight } from './civView';
 import { alivePolities } from './crownInfo';
 import { useRole } from './roleStore';
 import { rolePolity } from './policyInfo';
@@ -390,6 +391,21 @@ export function ZonePage({ civ, world, id, year, from }: PageProps) {
     });
   }, [civ, list, c?.region]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => () => setZonePlates(null), []);
+  // 选中的那一处在地图上涂出来(一直亮着,换了一处跟着换;同天灾页的预览);离开这一页收起
+  const chosen = c?.region ?? -1;
+  useEffect(() => {
+    if (chosen < 0) {
+      if (getCivHighlight()?.steady) setCivHighlight(null);
+      return;
+    }
+    setCivHighlight({ regions: [chosen], polities: [], year: yv, steady: true });
+  }, [chosen, yv]);
+  useEffect(
+    () => () => {
+      if (getCivHighlight()?.steady) setCivHighlight(null);
+    },
+    [],
+  );
 
   const source = `neutral:${id}`;
   const pk = usePolityPick();
