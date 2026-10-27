@@ -62,10 +62,10 @@ export function zoneStripeCss(colors: readonly (readonly number[])[]): string {
   return `repeating-linear-gradient(180deg, ${stops})`;
 }
 
-/** 放逐 / 出奔到中立地的人是不是死在那里(中立地撤销以前去世的) */
+/** 放逐 / 出奔到中立地的人是不是死在那里(中立地撤销以前去世的;出奔邻国的不算) */
 export function diedInExile(x: Person): boolean {
   const e = x.exile;
-  return !!e && x.died !== undefined && x.died >= e.year && (e.until === undefined || x.died <= e.until);
+  return !!e && e.to === undefined && x.died !== undefined && x.died >= e.year && (e.until === undefined || x.died <= e.until);
 }
 
 /** year 那一刻住在中立地 z 的人:已经徙来、还活着(中立地还在,这一刻才算) */

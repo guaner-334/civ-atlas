@@ -87,6 +87,7 @@ import {
   annexedRemnants,
   dynastyIndexAt,
   dynastyTitle,
+  polityAlive,
   polityName,
   polityRootAt,
   polityShortTitle,
@@ -698,6 +699,16 @@ function fallText(civ: Civ, e: Annal, last: Person | null = null): string {
   const how = last?.fate === 'fled' && e.b < 0 ? '不知所终' : last?.fate ? LAST_FATE[last.fate] : undefined;
   if (last && how) t += `,${rulerBare(civ, last, e.year)}${how}`;
   return t;
+}
+
+/** 复国时还提故国末代之君出奔去的国家:亡国以后这么多年以内 */
+const EXILE_RECALL = 100;
+
+/** 国家 fallen 的末代之君出奔去的邻国(史事 exile,exile.ts),那国到 year 还在、亡国不到 EXILE_RECALL 年;不然 −1 */
+function exiledTo(civ: Civ, fallen: number, year: Year): number {
+  const e = civ.annals.find((a) => a.kind === 'exile' && a.cause === 'fled' && a.war < 0 && a.a === fallen && a.b >= 0);
+  const H = e ? polityOf(civ, e.b) : null;
+  return e && H && year - e.year <= EXILE_RECALL && polityAlive(H, year) ? e.b : -1;
 }
 
 /** 某年那一朝从哪年起(没改朝换代过 = 立国那年) */
@@ -1686,7 +1697,10 @@ function simpleEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
         // 复国:"故昌遗民据瑞州起兵,脱大渭复国,号后昌国"("故昌宗室李昭据瑞州起兵,…")
         // 故国改朝换代过的,称它亡国时那一朝的国号("故景遗民")
         const folk = who ? `${fallen.lineage === 'republic' ? '旧臣' : P?.eastern ? '宗室' : '王室之后'}${who.name}` : '遗民';
-        const head = `故${(fallen.name && polityRootAt(fallen, fallen.ended ?? y)) || '国'}${folk}${r ? `据${r}` : ''}`;
+        // 故国末代之君出奔了邻国、那国还在、亡国以后不太久:起事的人写"自那国还"("故昌宗室李昭自大渭还,据瑞州起兵,…")
+        const host = who ? exiledTo(civ, fallen.id, y) : -1;
+        const back = host >= 0 && host !== e.b ? `自${pn(civ, host, y)}还,` : '';
+        const head = `故${(fallen.name && polityRootAt(fallen, fallen.ended ?? y)) || '国'}${folk}${back}${r ? `据${r}` : ''}`;
         t = e.b >= 0 ? `${head}起兵,脱${pn(civ, e.b, y)}复国,号${A}` : `${head}复国,号${A}`;
       } else {
         // "瑞州守将李昭叛大渭自立,号瑞国";割据多年以后自立的(control.ts):"割据瑞州的守将李昭叛大渭自立"
@@ -2230,7 +2244,7 @@ function zoneLapseText(civ: Civ, e: Annal): string {
  * 续约 "丹枫关之约满三十年,大羽王朝、大渭续约二十年;后乾衍国不在约中";
  * 背约 "大渭背丹枫关之约,伐后乾衍国,兵出星河域;星河域中立地废"(标签"违");约满 "大岳王朝与大渭之约满二十年,不续;德和郡中立地废,还归大岳王朝";
  * 中立地 "大羽王朝、渭国、后乾衍国以星河域为中立地,渭国让出丹枫关,三国皆不驻兵" / 议和划缓冲 "大岳王朝与大渭议和,以德和郡为缓冲中立地,约二十年互不侵犯";
- * 放逐 "渭桓王疏其弟阎晋显,徙居星河域" / "昌哀帝既废,徙居星河域";出奔 "后乾衍国亡,哀公司霄泠出奔星河域"(标签"奔")。
+ * 放逐 "渭桓王疏其弟阎晋显,徙居星河域" / "昌哀帝既废,徙居星河域";出奔 "后乾衍国亡,哀公司霄泠出奔星河域"、出奔邻国 "后乾衍国亡,哀公司霄泠出奔大渭"(标签"奔")。
  * ids[0] = 这一条,后面是并进来的(treatyTail)
  */
 function treatyEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
@@ -2325,9 +2339,15 @@ function treatyEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
       return base(e, id, t, fs.length >= 3 ? 3 : 2, fs, [e.region], '中');
     }
     case 'exile': {
-      const z = zoneName(civ, e);
       const who = civ.people?.find((p) => p.exile?.annal === id) ?? null;
       const P = pn(civ, e.a, e.cause === 'fled' ? y - 1 / 512 : y);
+      if (e.cause === 'fled' && e.war < 0 && e.b >= 0) {
+        // 出奔邻国(exile.ts):"塔布斯坦国亡,塔布斯坦国王卡拉尔出奔乌里特国";去的国家也算这一条有关的国家
+        const H = pn(civ, e.b, y);
+        const t = who ? `${P}亡,${rulerRef(civ, who, y - 1 / 512)}出奔${H}` : `${P}亡,其君出奔${H}`;
+        return withPeople(base(e, id, t, 2, [e.a, e.b], [e.region], '奔'), who);
+      }
+      const z = zoneName(civ, e);
       let t: string;
       let by: Person | null = null;
       if (e.cause === 'fled') t = who ? `${P}亡,${rulerRef(civ, who, y - 1 / 512)}出奔${z}` : `${P}亡,其君出奔${z}`;

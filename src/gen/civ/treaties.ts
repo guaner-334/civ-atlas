@@ -41,6 +41,7 @@
  *     改朝换代、旧朝末代之君被废(新朝的根据地就是原来的国都,和 people.ts 判"被废"同一个判据):EXILE_P 的机会徙去(cause = deposed);
  *     立约国亡于战争(WarModel.onFall):亡以前它还在约里、约里还有别国、约的中立地还在(没被谁占了、没住满、不是"不送人去"的),
  *     亡国之君先出奔中立地(cause = fled),再照常查一遍约 —— 两国之约剩一国就废、中立地跟着撤(他这一刻就离开中立地,人物照 Person.exile 的规矩写)。
+ *     没有中立地可去的(不是约国也一样):末代之君的下场是出奔的,奔一个邻国(exile.ts;记 exile,cause = fled,war = −1,b = 那国)。
  *     人物(people.ts)照这几条史事填 Person.exile。
  *
  *   **作者下令**(干预「立约」「划中立地」,interventions.ts 在干预那一刻调 TreatyModel.decree):记史事 intervene,
@@ -65,6 +66,7 @@ import { diplomacyModelOf, type DiplomacyModel } from './diplomacy';
 import { capitalAt, populationAt } from './growth';
 import { regionPasses } from './passes';
 import { claimants, murderedAt } from './royals';
+import { refugeFinder } from './exile';
 import type { Reign } from './rulers';
 import { regionOfKey, type Intervention } from '../edits';
 import type { InterventionModel } from './interventions';
@@ -798,12 +800,16 @@ export function installTreaties(sim: CivSim, pm: PolityModel, world: World, tm?:
   const exile = (p: number, z: Zone, cause: AnnalCause, n: number) =>
     note('exile', { a: p, region: z.region, settlement: pm.cityOf[z.region], war: z.id, n, cause });
 
-  // ---- 亡国之君出奔:先出奔,再查一遍约(两国之约剩一国就废、中立地跟着撤)----
-  wm.onFall = (_w, _x, y, t) => {
-    if (!m.live.length) return;
-    const z = zoneFor(y, t, true);
+  // ---- 亡国之君出奔:有中立地可去的先奔中立地,不然末代之君出奔的奔邻国(exile.ts);再查一遍约(两国之约剩一国就废、中立地跟着撤)----
+  const refuge = refugeFinder(pm, wm, dm, owner, (y, q) => m.live.some((x) => m.held(x, y) && m.member(x, q)));
+  wm.onFall = (_w, x, y, t) => {
+    const z = m.live.length ? zoneFor(y, t, true) : undefined;
     if (z) exile(y, z, 'fled', -1);
-    sweep(t);
+    else {
+      const f = refuge(x, y, t);
+      if (f) note('exile', { a: y, b: f.host, region: f.region, settlement: f.settlement, war: -1, n: f.tie, cause: 'fled' });
+    }
+    if (m.live.length) sweep(t);
   };
 
   // ---- 新君即位:失势的宗室、被废的末代之君徙到中立地(在宗室据地争位之前看)----
@@ -997,15 +1003,16 @@ export interface TreatyStats {
   lapses: number;
   /** 每份约从立约到约废的年数(到结束还在的算到结束)之和 */
   years: number;
-  /** 中立地几处、撑的年数之和、放逐(宗室、被废的君主)几人、出奔几人 */
+  /** 中立地几处、撑的年数之和、放逐(宗室、被废的君主)几人、出奔中立地几人;出奔邻国几人(exile.ts) */
   zones: number;
   zoneYears: number;
   exiles: number;
   fled: number;
+  abroad: number;
 }
 
 export function treatyStats(civ: Civ): TreatyStats {
-  const out: TreatyStats = { treaties: 0, peaceTreaties: 0, multi: 0, renewals: 0, breaches: 0, expiries: 0, lapses: 0, years: 0, zones: 0, zoneYears: 0, exiles: 0, fled: 0 };
+  const out: TreatyStats = { treaties: 0, peaceTreaties: 0, multi: 0, renewals: 0, breaches: 0, expiries: 0, lapses: 0, years: 0, zones: 0, zoneYears: 0, exiles: 0, fled: 0, abroad: 0 };
   const start = new Map<number, Year>();
   const end = new Map<number, Year>();
   const zFrom = new Map<number, Year>();
@@ -1031,7 +1038,8 @@ export function treatyStats(civ: Civ): TreatyStats {
         zFrom.set(e.war, e.year);
       }
     } else if (e.kind === 'exile') {
-      if (e.cause === 'fled') out.fled++;
+      if (e.cause === 'fled' && e.war < 0) out.abroad++;
+      else if (e.cause === 'fled') out.fled++;
       else out.exiles++;
     }
   }

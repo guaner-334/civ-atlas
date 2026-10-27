@@ -531,6 +531,31 @@ export function reignBorn(r: Reign): Year {
   return r.crown ? r.crown.born : q(r.from - r.age);
 }
 
+// ---- 亡国之君的下场(people.ts 排人物、推演里亡国之君出奔邻国(treaties.ts)共用同一个判据)----
+/** 亡于战争:殉国、出降的机会(其余出奔) */
+const FALL_FELL = 0.35;
+const FALL_SURRENDER = 0.4;
+/** 作者立的君主亡国时出降的机会(其余出奔;推演不写他的生死,不殉国) */
+const FALL_AUTHOR_SURRENDER = 0.5;
+/** 随机数用途:亡国之君的下场(和 people.ts 共用一套编号) */
+const U_FATE = 4;
+
+/** 亡于战争那一刻在位的 r(在位表的一项)的下场:殉国 / 出降 / 出奔(作者立的君主只出降 / 出奔) */
+export function fallFate(base: number, tag: number, r: Pick<Reign, 'k' | 'crown'>): 'fell' | 'surrendered' | 'fled' {
+  const u = keyed4(base, tag, r.k, U_FATE, K_RULER);
+  if (r.crown) return u < FALL_AUTHOR_SURRENDER ? 'surrendered' : 'fled';
+  return u < FALL_FELL ? 'fell' : u < FALL_FELL + FALL_SURRENDER ? 'surrendered' : 'fled';
+}
+
+/**
+ * 国家在 end 那一刻亡了(最后一朝是第 dynasty 朝):亡国时下场归他的那一位 —— 最后一朝里第一位没被取代(让位、被作者让他去世、
+ * 被摄政的叔父废了)、不被打断时在位到 end 或更晚的(people.ts 排人物同一个判据)。book = 排到 end 的在位表;没有 = undefined
+ */
+export function lastReign(book: readonly Reign[], dynasty: number, end: Year): Reign | undefined {
+  for (const r of book) if (r.dynasty === dynasty && r.cut === undefined && r.natural >= end) return r;
+  return undefined;
+}
+
 /** 推演里 t 这一刻在位的君主(下标 = Reign.k);t 早于立国 = 第一位 */
 export function reignAt(base: number, tag: number, p: ReignPolity, t: Year, crowns: readonly RulerAct[] = NO_ACTS): Reign {
   const list = reignBook(base, tag, p, t, crowns);
