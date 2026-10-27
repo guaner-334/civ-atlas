@@ -73,12 +73,12 @@ function personExampleIn(civ: Civ, seed: number): PersonExample[] {
       const name = personName(civ, R);
       // 搜他的称呼:头一个就是他(重名的不挑)
       if (nameCount.get(name) !== 1) continue;
-      // 卡片「将领」一行(在位时本国领兵的,列前 6 位):头一回出征在他在位那几年、名字没有重的
+      // 卡片「将领」一行(在位时本国领兵的,列前 6 位;领兵的王子也列在这里):挑一位将领(不是王子),头一回出征在他在位那几年、名字没有重的
       const gens = (ix.generals[polity] ?? []).filter((g) => (g.commands ?? []).some((c) => c.until > R.from! && c.from < R.until!)).slice(0, 6);
       for (const G of gens) {
         const gs = personSpan(G);
         const g1 = Math.floor(gs.from);
-        if (!(g1 > from && g1 < until) || nameCount.get(G.name) !== 1) continue;
+        if (G.role !== 'general' || !(g1 > from && g1 < until) || nameCount.get(G.name) !== 1) continue;
         if (rulerAt(civ, polity, g1) !== R) continue;
         // 打开时停的年份:他在位、和出征那年差几年
         const year = [g1 + 6, g1 - 6, g1 + 3, g1 - 3].find((y) => y > from && y < until && rulerAt(civ, polity, y) === R);
