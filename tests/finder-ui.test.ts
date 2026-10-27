@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS } from '../src/gen/params';
 import { FINDER_PRESETS, condList, judge, type Fact, type FinderCand, type FinderQuery, type SeedReport } from '../src/gen/finder/query';
-import { checkLines, checksTally, condLine, hintText, missText, nearSummary, querySummary, relaxText, tenths } from '../src/ui/finderText';
+import { checkLines, checksTally, condLine, eraName, hintText, missText, nearSummary, querySummary, relaxText, tenths, yearsText } from '../src/ui/finderText';
 import { addRole, dropRole } from '../src/ui/FinderConds';
 import {
   closeFinder,
@@ -121,6 +121,43 @@ describe('照故事找世界:条件写成的话', () => {
     expect(missText(MOUNTAIN, r3)).toBe('山国边界只有 6% 是翻山');
     const near = [row, r2, r3, { ...row }].map((r, k) => ({ seed: k + 1, places: [], alts: [], ...r }));
     expect(nearSummary(MOUNTAIN, near)).toBe('隘口不够险 2 个、进铁器太早或太晚 1 个、山国翻山不够 1 个');
+  });
+
+  it('离开场多少年:正、零、负都说得通(进时代可能早在开场以前,量出来是负数)', () => {
+    expect(yearsText(47)).toBe('47 年后');
+    expect(yearsText(0)).toBe('开场那年');
+    expect(yearsText(-0.4)).toBe('开场那年');
+    expect(yearsText(-207)).toBe('开场前 207 年');
+    // 山国守隘口的开场那条:差一条那一行、条件逐条右边
+    const start = (enter: number) => {
+      const facts = FACTS.map((f, i) => (i === 8 ? [1, enter] : f));
+      const verdict = judge(MOUNTAIN, facts);
+      const value = checkLines(MOUNTAIN, verdict.checks, facts, 1755).find((l) => l.text === '帝国在青铜时代，15–50 年后进铁器')?.value;
+      return { miss: missText(MOUNTAIN, { cand: cand(facts), verdict }), value };
+    };
+    expect(start(-207)).toEqual({ miss: '帝国开场前 207 年就进了铁器', value: '开场前 207 年' });
+    expect(start(0)).toEqual({ miss: '帝国开场那年就进了铁器', value: '开场那年' });
+    expect(start(5)).toEqual({ miss: '帝国 5 年后就进了铁器', value: '5 年后' });
+    expect(start(105)).toEqual({ miss: '帝国 105 年后才进铁器', value: '105 年后' });
+    // 一国进时代、亡国、两国开战:同样的说法
+    const q: FinderQuery = {
+      roles: [
+        { name: '甲', conds: [{ kind: 'eraEnter', era: 2, min: 10, max: 40 }, { kind: 'fate', within: 50, what: ['fall'] }] },
+        { name: '乙', conds: [{ kind: 'war', other: 0, within: 30 }] },
+      ],
+      together: [],
+    };
+    const one = (facts: number[][]) => {
+      const verdict = judge(q, facts);
+      const c: FinderCand = { ...cand(facts), roles: [3, 8] };
+      return { miss: missText(q, { cand: c, verdict }), values: checkLines(q, verdict.checks, facts, 1755).map((l) => l.value) };
+    };
+    const era = eraName(2);
+    expect(one([[-30], [20], [10]])).toEqual({ miss: `甲开场前 30 年就进了${era}`, values: ['开场前 30 年', '20 年后', '10 年后开战'] });
+    expect(one([[0], [20], [10]]).miss).toBe(`甲开场那年就进了${era}`);
+    expect(one([[60], [20], [10]]).miss).toBe(`甲 60 年后才进${era}`);
+    expect(one([[20], [80], [0]])).toEqual({ miss: '甲 80 年后才亡', values: ['20 年后', '80 年后', '开场那年开战'] });
+    expect(one([[20], [20], [45]]).miss).toBe('乙和甲 45 年后才打仗');
   });
 
   it('放宽一点怎么说', () => {
