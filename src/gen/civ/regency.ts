@@ -3,7 +3,7 @@
  * 记史事 regent(掌权、还政、伏诛、篡位、卒),登记进 PolityModel.regents(扩张算账、打仗、议和、邦交、议事照掌权的人的倾向,见 polities.ts 的 effOf)。
  *
  * 流程(index.ts 在 installCouncil 之后调用 installRegency):
- *   - 君主即位那一刻(polities.ts 的 onReign;开国之君在立国拿到第一州那一刻):他晚年的引兵入朝、太子监国的候选(regents.ts 的 latePlans)
+ *   - 君主即位那一刻(polities.ts 的 afterReign;开国之君在立国拿到第一州那一刻):他晚年的引兵入朝、太子监国的候选(regents.ts 的 latePlans)
  *     各预约一次 Ev.Regency;继位的幼主当即定摄政 / 辅政(childPlan),掌权、预约结局那一刻
  *   - Ev.Regency(到了那一刻,b = 国家):先办到期的结局(还掌着权才办):
  *       还政 / 伏诛 / 卒:记一条 regent;
@@ -186,10 +186,8 @@ function hook(sim: CivSim, pm: PolityModel): RegencyModel {
     }
   });
 
-  // 新君即位(unrest.ts 的宗室争位之后):预约他晚年的候选;继位的幼主当即定摄政 / 辅政
-  const prevReign = pm.onReign;
-  pm.onReign = (pid, k, list, t) => {
-    prevReign?.(pid, k, list, t);
+  // 新君即位(unrest.ts 的宗室争位、treaties.ts 的放逐之后,那边截住了也照样看):预约他晚年的候选;继位的幼主当即定摄政 / 辅政
+  pm.afterReign = (pid, k, list, t) => {
     const P = pm.polities[pid];
     if (P.ended !== undefined) return;
     const r = list[k];

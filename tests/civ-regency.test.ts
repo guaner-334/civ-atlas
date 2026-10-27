@@ -13,6 +13,7 @@ import { buildChronicle, reignEntries } from '../src/gen/civ/chronicle';
 import { REGENCY_KINDS, RG_START, RG_USURP, holds, regencyBase, regentAt, regentsFrom } from '../src/gen/civ/regents';
 import { matchesFrom } from '../src/gen/civ/marriages';
 import { actsFrom, leaningEffect, reignAt, reignBook, rulerBase, rulerTags, type Reign } from '../src/gen/civ/rulers';
+import { personKey, polityKey, type Intervention } from '../src/gen/edits';
 
 const worlds = new Map<number, World>();
 function world(seed: number): World {
@@ -120,6 +121,43 @@ describe.each([7, 2024])('掌实权、联姻 · seed=%i', (seed) => {
         expect(civ.polities[e.a].dynasties![x.dynasty!].usurper?.born).toBe(x.born);
       }
     }
+  });
+
+  it('大将专权:入朝那一刻交出正领着的兵,掌着权的那几年不再领兵', () => {
+    const civ = civOf(seed);
+    let n = 0;
+    for (const x of civ.people!) {
+      for (const g of x.regencies ?? []) {
+        if (g.kind !== 'general') continue;
+        n++;
+        const end = g.until ?? civ.endYear;
+        for (const c of x.commands ?? []) expect(c.until <= g.from || c.from >= end, `${x.name} ${c.from}–${c.until}`).toBe(true);
+      }
+    }
+    expect(n).toBeGreaterThan(0);
+  });
+
+  it('作者让后来篡位的名臣在篡位以前去世:他是去世的名臣(那一段到他去世为止),新朝的第一位另是一人', () => {
+    const civ = civOf(seed);
+    const i = civ.annals.findIndex((e) => e.kind === 'regent' && e.n === RG_USURP && REGENCY_KINDS[e.b] !== 'uncle');
+    expect(i).toBeGreaterThan(0);
+    const e = civ.annals[i];
+    const F = civ.people!.find((p) => p.regencies?.some((g) => g.endAnnal === i))!;
+    const g = F.regencies!.find((r) => r.endAnnal === i)!;
+    const at = Math.floor(g.from + (e.year - g.from) / 2);
+    expect(at > g.from && at < e.year).toBe(true);
+    const person = personKey(civ, F.id).replace('|ruler|', '|minister|');
+    const iv: Intervention = { kind: 'death', a: polityKey(civ, e.a), person, from: at };
+    const res = generateCiv(world(seed), { interventions: [iv] });
+    const S = res.people!.find((p) => p.role === 'minister' && p.polity === e.a && p.name === F.name && p.killed !== undefined)!;
+    expect(S, person).toBeDefined();
+    expect(S.died).toBe(at);
+    const seg = S.regencies!.find((r) => r.from === g.from)!;
+    expect(seg).toMatchObject({ until: at, end: 'died' });
+    // 推演里不管名臣:照旧篡位改朝,新朝的第一位另起名字
+    const N = res.people!.find((p) => p.role === 'ruler' && p.polity === e.a && p.rise === 'usurp' && p.from === e.year)!;
+    expect(N).toBeDefined();
+    expect(N.name).not.toBe(F.name);
   });
 
   it('掌权的几段由史事推得回来;某一刻谁在掌权:掌权那一刻的下一刻起、名义君主还在位、到结局那一刻为止', () => {

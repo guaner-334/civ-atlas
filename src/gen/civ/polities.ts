@@ -202,6 +202,11 @@ export interface PolityModel {
    */
   onReign?: (pid: number, k: number, list: readonly Reign[], t: Year) => void;
   /**
+   * 新君即位那一刻、onReign(宗室争位、放逐失势的宗室)之后调,不管那边有没有截住(regency.ts 挂上:
+   * 预约他晚年的引兵入朝、太子监国;继位的幼主当即定摄政 / 辅政)
+   */
+  afterReign?: (pid: number, k: number, list: readonly Reign[], t: Year) => void;
+  /**
    * 立约与中立地(treaties.ts 挂上):无主的州 r 此刻进不去 —— 是中立地(谁都不扩张进去、不在那里立国;pid = −1 = 立国),
    * 或者 pid 和邻国立了"有限竞争"之约,r 挨着约国的国土(各守今疆)
    */
@@ -1067,6 +1072,7 @@ export function installPolities(sim: CivSim, m: PolityModel): void {
       const prev = effFor(m, pid, list[k - 1], t - 1 / 256);
       if (widens(prev, effFor(m, pid, list[k], t))) respread(sim, m, pid, prev);
       m.onReign?.(pid, k, list, t);
+      m.afterReign?.(pid, k, list, t);
     }
   });
 

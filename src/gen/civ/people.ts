@@ -213,7 +213,8 @@ export function buildPeople(civ: PeopleInput): Person[] {
   let kills: Kills = new Map();
   let r = peopleOnce(civ, kills);
   for (const k of asks) {
-    const x = findPerson(r.people, k);
+    // 后来篡位、和新朝第一位并成一人的名臣:按做名臣时的那一份找(让他在篡位以前去世,就不再并)
+    const x = findPerson([...r.people, ...r.usurped], k);
     const id = x && r.ids.get(x);
     if (!x || !id || kills.has(id)) continue;
     const from = x.role === 'general' ? x.commands?.[0]?.from : x.from;
@@ -273,10 +274,11 @@ function leaningsOf(x: Person, t: Year): RulerLeanings {
   return x.leanings!;
 }
 
-function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Map<Person, string> } {
+/** usurped = 篡位以后和新朝第一位并成一人的名臣(做名臣时的那一份,不在 people 里;作者让名臣去世时还按名臣找他) */
+function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Map<Person, string>; usurped: Person[] } {
   const { polities, settlements, cultures, endYear } = civ;
   const ids = new Map<Person, string>();
-  if (!polities.length) return { people: [], ids };
+  if (!polities.length) return { people: [], ids, usurped: [] };
   const base = rulerBase(civ.seed);
   // 位置锚和推演里一样(rulers.ts):推演按它定"哪一位在位、倾向是多少"
   const tag = rulerTags(polities, (sid) => settlements[sid]?.cell ?? -1);
@@ -501,7 +503,7 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
   const away = (p: Person, t: Year) => (banished.get(p) ?? Infinity) <= t;
   /** 战功:领兵打赢的仗减打输的(争储时比) */
   const merit = new Map<Person, number>();
-  /** 正领着兵的宗室 → 卸下这一任(争储被杀时用) */
+  /** 正领着兵的宗室、将领 → 卸下这一任(争储被杀、大将入朝秉政时用) */
   const leading = new Map<Person, (t: Year) => void>();
 
   // ---- 掌实权的几段(regents.ts):从哪年到哪年、怎么了结的(按史事和排好的君主定;人等下面挂) ----
@@ -630,7 +632,7 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
     const close = (s: number, until: Year) => {
       const c = cur[s];
       if (!c) return;
-      if (c.son) leading.delete(c.p);
+      if (c.son || c.general) leading.delete(c.p);
       c.cmd.until = Math.max(c.cmd.from, until);
       if (c.general) {
         const g = genOf[sides[s]].find((x) => x.p === c.p);
@@ -706,6 +708,8 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
       const g = genOf[pid].find((c) => c.busy <= t && c.careerEnd > t && c.p.born + GENERAL_AGE[0] <= t) ?? raise(pid, t);
       g.busy = Infinity;
       cur[s] = { p: g.p, careerEnd: g.careerEnd, cmd: command(g.p), general: true };
+      // 他入朝秉政(大将专权)那一刻卸下这一任
+      leading.set(g.p, (u) => cur[s]?.p === g.p && close(s, u));
     };
     steps.push({
       idx: w.decl,
@@ -867,7 +871,8 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
             if (!best || (merit.get(c.p) ?? 0) > (merit.get(best.p) ?? 0)) best = c;
           }
           if (!best) return;
-          // 入朝秉政:不再挂帅出征;掌着权的那几年不会战死
+          // 入朝秉政:正领着的兵就此交出、不再挂帅出征;掌着权的那几年不会战死
+          leading.get(best.p)?.(t);
           best.careerEnd = Math.min(best.careerEnd, t);
           keep(best.p, s.until ?? g.stop);
           strongGenerals.set(s, best.p);
@@ -1014,7 +1019,8 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
     const f = forcedOf.get(s);
     const S = f && forcedPeople.get(f);
     const F = rulers[s.pid].find((x) => (x.dynasty ?? 0) === s.g.dyn + 1);
-    if (!S || !F || F.rise !== 'usurp') continue;
+    // 作者让他在篡位以前去世的(干预;推演里不管名臣):不并,他照旧是去世的名臣,新朝的第一位另是一人
+    if (!S || !F || F.rise !== 'usurp' || S.killed !== undefined) continue;
     F.name = S.name;
     if (S.courtesy) F.courtesy = S.courtesy;
     if (S.art) F.art = S.art;
@@ -1130,7 +1136,7 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
     const end = civ.annals.find((a) => a.kind === 'neutral' && a.cause === 'lapse' && a.war === e.war);
     x.exile = { how: e.cause === 'heir' ? 'heir' : e.cause === 'deposed' ? 'deposed' : 'fled', annal: i, zone: e.war, region: e.region, year: e.year, ...(by ? { by: by.id } : {}), ...(end ? { until: end.year } : {}) };
   }
-  return { people: out, ids };
+  return { people: out, ids, usurped: [...usurpers.values()] };
 }
 
 /** 掌实权的一段(人物这一层):regents.ts 的那一段、名义君主、实际从哪年到哪年、怎么了结的 */
