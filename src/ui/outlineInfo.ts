@@ -24,6 +24,7 @@ import {
   type Intervention,
   type Plot,
   type PlotKind,
+  type PlotRedoField,
   type PlotReview,
   type PlotStatus,
   guideNotes,
@@ -165,63 +166,106 @@ export function timeCell(o: Pick<OutlineCtx, 'plots'>, p: Pick<Plot, 'kind' | 'y
 }
 
 // ---------------------------------------------------------------------------
+// 要重新指(大纲搬到别的世界以后对不上的几项,gen/edits.ts 文件头"要重新指")
+
+/** 要重新指的那一项写成"原来的奥利亚王国"(原来叫什么说不出 = "原来那一项") */
+export const redoName = (was: string | undefined) => (was ? `原来的${was}` : '原来那一项');
+/**
+ * 这一条的这一项要重新指:表里写原来的名字(界面上用橙色、结果一格「要重新指」标出来;说不出 = "要重新指");不用 = null
+ */
+export function redoOf(p: Pick<Plot, 'redo'>, f: PlotRedoField): string | null {
+  return p.redo && f in p.redo ? p.redo[f] || '要重新指' : null;
+}
+/** 编一条时那一项叫什么(要重新指的几项) */
+export const REDO_FIELD_NAMES: Record<PlotRedoField, string> = { a: '国家', b: '另一国', region: '那一州', regions: '那片地方', city: '那座城', person: '那一位', char: '作者的人物', mark: '那片地方' };
+/** 这一条要重新指的几项,写成一行:"国家（原来的奥利亚王国）、那座城（原来的东定城）" */
+export function redoLine(redo: Plot['redo']): string {
+  if (!redo) return '';
+  return (Object.keys(redo) as PlotRedoField[]).map((f) => `${REDO_FIELD_NAMES[f]}（${redoName(redo[f])}）`).join('、');
+}
+
+// ---------------------------------------------------------------------------
 // 谁、发生什么
 
-/** 谁那一格的一段:名字、颜色(国家) */
+/** 谁那一格的一段:名字、颜色(国家);redo = 搬过来以后对不上、要重新指的那一项(写原来叫什么) */
 export interface WhoPart {
   text: string;
   color?: readonly number[] | null;
+  redo?: boolean;
 }
 
-/** 谁那一格:一两段(两段之间 sep:"→" 有方向 / "与");小字;没有 = 空 */
-export function whoCell(o: OutlineCtx, p: Plot): { parts: WhoPart[]; sep?: string; small?: string } {
+/** 谁那一格:一两段(两段之间 sep:"→" 有方向 / "与");小字(smallRedo = 小字里有要重新指的);没有 = 空 */
+export function whoCell(o: OutlineCtx, p: Plot): { parts: WhoPart[]; sep?: string; small?: string; smallRedo?: boolean } {
   const y = p.year;
-  const pol = (k: string | undefined): WhoPart => ({ text: plotPolityName(o, k, y), color: plotPolityColor(o, k) });
+  const redo = (f: PlotRedoField): WhoPart | null => {
+    const r = redoOf(p, f);
+    return r ? { text: r, redo: true } : null;
+  };
+  const pol = (f: 'a' | 'b'): WhoPart => redo(f) ?? { text: plotPolityName(o, p[f], y), color: plotPolityColor(o, p[f]) };
+  const reg = (pre = '', post = ''): WhoPart => redo('region') ?? { text: `${pre}${regionName(o.civ, p.region)}${post}` };
   switch (p.kind) {
     case 'war':
     case 'submit':
-      return { parts: [pol(p.a), pol(p.b)], sep: '→' };
+      return { parts: [pol('a'), pol('b')], sep: '→' };
     case 'ally':
     case 'peace':
-      return { parts: [pol(p.a), pol(p.b)], sep: '与' };
-    case 'fall':
-      return { parts: [pol(p.a)], small: p.b ? `亡于${plotPolityName(o, p.b, y)}` : undefined };
+      return { parts: [pol('a'), pol('b')], sep: '与' };
+    case 'fall': {
+      const b = redoOf(p, 'b');
+      return { parts: [pol('a')], small: b ? `亡于${b}` : p.b ? `亡于${plotPolityName(o, p.b, y)}` : undefined, smallRedo: !!b };
+    }
     case 'hold':
     case 'capital':
     case 'dynasty':
     case 'revolt':
     case 'collapse':
-      return { parts: [pol(p.a)] };
+      return { parts: [pol('a')] };
     case 'crown':
-      return { parts: [{ text: charName(o, p.char) }], small: '作者的人物' };
+      return { parts: [redo('char') ?? { text: charName(o, p.char) }], small: '作者的人物' };
     case 'death': {
+      const was = redo('person');
+      if (was) return { parts: [was] };
       const owner = parsePersonKey(p.person)?.polity;
       return { parts: [{ text: personKeyName(o.civ, p.person) }], small: owner ? `${plotPolityName(o, owner, y)}君主` : undefined };
     }
     case 'found':
-      return { parts: [{ text: regionName(o.civ, p.region) }] };
-    case 'split':
-      return { parts: [{ text: regionName(o.civ, p.region) }], small: p.a ? `从${plotPolityName(o, p.a, y)}分出` : undefined };
+      return { parts: [reg()] };
+    case 'split': {
+      const a = redoOf(p, 'a');
+      return { parts: [reg()], small: a ? `从${a}分出` : p.a ? `从${plotPolityName(o, p.a, y)}分出` : undefined, smallRedo: !!a };
+    }
     case 'disaster':
-      if (p.type === 'plague' || p.type === 'pandemic') return { parts: [{ text: cityName(o.civ, p.city) }] };
-      if (p.type === 'quake') return { parts: [{ text: `${regionName(o.civ, p.region)}一带` }] };
-      if (p.a) return { parts: [pol(p.a)] };
-      return { parts: [{ text: p.regions?.length ? `${regionName(o.civ, p.regions[0])}${p.regions.length > 1 ? `等 ${p.regions.length} 州` : ''}` : '' }] };
+      if (p.type === 'plague' || p.type === 'pandemic') return { parts: [redo('city') ?? { text: cityName(o.civ, p.city) }] };
+      if (p.type === 'quake') return { parts: [reg('', '一带')] };
+      if (p.a || p.redo?.a !== undefined) return { parts: [pol('a')] };
+      return { parts: [redo('regions') ?? { text: p.regions?.length ? `${regionName(o.civ, p.regions[0])}${p.regions.length > 1 ? `等 ${p.regions.length} 州` : ''}` : '' }] };
     case 'story': {
-      const where = storyWhere(o, p);
-      return { parts: where ? [{ text: where }] : [] };
+      const where = storyPlace(o, p);
+      return { parts: where.text ? [{ text: where.text, ...(where.redo ? { redo: true } : {}) }] : [] };
     }
   }
 }
 
+/** 只讲故事的"在哪"(没填 = 空;redo = 写的是要重新指的那一项) */
+function storyPlace(o: OutlineCtx, p: Pick<Plot, 'a' | 'region' | 'city' | 'person' | 'mark' | 'year' | 'redo'>): { text: string; redo: boolean } {
+  const order: ['city' | 'region' | 'a' | 'person' | 'mark', () => string][] = [
+    ['city', () => cityName(o.civ, p.city)],
+    ['region', () => regionName(o.civ, p.region)],
+    ['a', () => plotPolityName(o, p.a, p.year)],
+    ['person', () => personKeyName(o.civ, p.person)],
+    ['mark', () => areaText(o, { mark: p.mark }).name],
+  ];
+  for (const [f, name] of order) {
+    if (p[f] !== undefined && p[f] !== '') return { text: name(), redo: false };
+    const r = redoOf(p, f);
+    if (r) return { text: r, redo: true };
+  }
+  return { text: '', redo: false };
+}
+
 /** 只讲故事的"在哪"(没填 = 空) */
-export function storyWhere(o: OutlineCtx, p: Pick<Plot, 'a' | 'region' | 'city' | 'person' | 'mark' | 'year'>): string {
-  if (p.city) return cityName(o.civ, p.city);
-  if (p.region) return regionName(o.civ, p.region);
-  if (p.a) return plotPolityName(o, p.a, p.year);
-  if (p.person) return personKeyName(o.civ, p.person);
-  if (p.mark !== undefined) return areaText(o, { mark: p.mark }).name;
-  return '';
+export function storyWhere(o: OutlineCtx, p: Pick<Plot, 'a' | 'region' | 'city' | 'person' | 'mark' | 'year' | 'redo'>): string {
+  return storyPlace(o, p).text;
 }
 
 /** 谁那一格写成一行字(手机、侧栏用):"大定 → 奥利亚王国" */
@@ -230,19 +274,25 @@ export function whoLine(o: OutlineCtx, p: Plot): string {
   return w.parts.map((x) => x.text).join(w.sep === '与' ? '、' : ` ${w.sep ?? ''} `) || '—';
 }
 
-/** 发生什么那一格:种类、小字(只查不改 / 那片地方 / 迁到哪 / 即哪国君位 / 灾的轻重) */
-export function whatCell(o: OutlineCtx, p: Plot): [string, string] {
+/** 发生什么那一格:种类、小字(只查不改 / 那片地方 / 迁到哪 / 即哪国君位 / 灾的轻重);第三项 = 小字里有要重新指的那一项 */
+export function whatCell(o: OutlineCtx, p: Plot): [string, string, boolean?] {
   const name = PLOT_KIND_INFO[p.kind].name;
   if (checkOnly(p.kind)) return [name, '只查不改'];
   switch (p.kind) {
     case 'hold': {
+      const r = p.regions || p.mark !== undefined ? null : (redoOf(p, 'regions') ?? redoOf(p, 'mark'));
+      if (r) return [name, r, true];
       const a = areaText(o, p);
       return [name, a.mark ? `${a.name}（作者标记，${a.n} 州）` : a.name];
     }
-    case 'capital':
-      return [name, `迁到${cityName(o.civ, p.city)}`];
-    case 'crown':
-      return [name, `即${plotPolityName(o, p.a, p.year)}君位`];
+    case 'capital': {
+      const r = redoOf(p, 'city');
+      return r ? [name, `迁到${r}`, true] : [name, `迁到${cityName(o.civ, p.city)}`];
+    }
+    case 'crown': {
+      const r = redoOf(p, 'a');
+      return r ? [name, `即${r}君位`, true] : [name, `即${plotPolityName(o, p.a, p.year)}君位`];
+    }
     case 'found':
       return [name, p.name ? `国号${p.name}` : ''];
     case 'death':
@@ -467,6 +517,8 @@ function failText(o: OutlineCtx, p: Plot, r: PlotReview, A: string, B: string): 
       return '年份超出了推演的年数';
     case 'refFailed':
       return `它跟着的那一条没立起国家`;
+    case 'redo':
+      return '大纲搬过来以后对不上，还没重新指';
     case 'noEffect':
     default:
       return '硬改了也没成';

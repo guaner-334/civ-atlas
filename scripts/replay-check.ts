@@ -1387,6 +1387,81 @@ if (part('照故事找世界')) {
   if (!tl.includes(`第 ${year} 年`)) errs.push(`照故事找世界:建好以后时间轴没停在开场那年(${tl.split('\n')[0]})`);
 }
 
+// 大纲找更合的世界:存一个写了大纲的世界(种子 7,4 条:甲攻乙、甲迁都、某州立国、只讲故事;按这个种子的历史现写,见 smokeExamples.ts)→
+// 概览「大纲」页右上「找更合的世界」→ 找世界那一页「‹ 大纲」、大纲里的两国列成故事里的国家(叫法是国名);「‹ 大纲」回原来那个世界的大纲 →
+// 再点进来,选例子「海上强国」(套到甲上;乙没加条件,找的时候不管它)、搜 6 个 →「用这个世界」(第 2 步那句写大纲带过去)→ 建好以后
+// 大纲还是 4 条:甲换成找到的那一国,乙、迁都的城、立国的州对不上,写原来的名字、标「要重新指」
+if (part('大纲找更合的世界')) {
+  const { findOutlineExample } = await import('./lib/smokeExamples');
+  const { DEFAULT_PARAMS } = await import('../src/gen/world');
+  const ex = findOutlineExample(7);
+  if (!ex) errs.push('大纲找更合的世界:种子 7 里找不到两国接壤的例子');
+  else {
+    const id = 'woutlinefind01';
+    const save = {
+      app: '文明与地图',
+      format: 1,
+      generator: GENERATOR_VERSION,
+      seed: 7,
+      params: { ...DEFAULT_PARAMS, seed: 7 },
+      edits: { names: {}, interventions: [], terrain: [], outline: { plots: ex.plots } },
+      savedAt: '2026-10-26T12:00:00.000Z',
+    };
+    await page.goto(`${dev.url}/?play=0`);
+    await page.evaluate(([k, v]) => localStorage.setItem(k, v), [`wenming-ditu:world:${id}`, JSON.stringify(save)]);
+    const openOutline = async () => {
+      await page.goto(`${dev.url}/?w=${id}&play=0`);
+      await page.waitForFunction(() => (window as any).__wfLabels?.polities > 0, null, { timeout: 60000 });
+      await openOverview(page, 'outline');
+    };
+    await openOutline();
+    const rows0 = await page.locator('[data-testid=outline-table] tr.ol-tr').count();
+    await page.click('[data-act=outline-find-world]');
+    await page.locator('.fd-panel [data-page=conds]').waitFor({ timeout: 30000 });
+    const back = await page.locator('.fd-panel [data-act=finder-exit]').innerText();
+    const roles = await page.locator('.fd-panel [data-act=role-name]').allInnerTexts();
+    const free = await page.locator('.fd-panel [data-testid=finder-role-empty]').count();
+    // 「‹ 大纲」:回原来那个世界,概览开在「大纲」页
+    await page.click('.fd-panel [data-act=finder-exit]');
+    const backOk = await page
+      .waitForFunction((w) => new URL(location.href).searchParams.get('w') === w && !!document.querySelector('.ov-root:not([hidden]) [data-act=outline-find-world]'), id, { timeout: 60000 })
+      .then(() => true, () => false);
+    await openOutline();
+    await page.click('[data-act=outline-find-world]');
+    await page.locator('.fd-panel [data-page=conds]').waitFor({ timeout: 30000 });
+    await page.click('.fd-panel [data-preset=sea-power]');
+    const roles2 = await page.locator('.fd-panel [data-act=role-name]').allInnerTexts();
+    const count = page.locator('.fd-panel input[aria-label="搜几个世界"]');
+    await count.fill('6');
+    await count.blur();
+    await page.click('.fd-panel [data-act=finder-start]');
+    await page.waitForFunction(() => !document.querySelector('[data-testid=finder-progress]'), null, { timeout: 240000 }).catch(() => {});
+    await page.waitForFunction(() => /种子 \d+，第 \d+ 年/.test(document.querySelector('[data-testid=finder-pill]')?.textContent ?? '') && !document.querySelector('[data-testid=finder-pill]')?.textContent?.includes('正在打开'), null, { timeout: 60000 }).catch(() => {});
+    await page.locator('.fd-panel [data-act=finder-use]').first().click({ timeout: 10000 }).catch(() => {});
+    const note = await page.locator('.studio [data-testid=found-note]').innerText({ timeout: 30000 }).catch(() => '');
+    await createNow().catch(() => {});
+    await page.locator('[data-testid=found-side]').waitFor({ timeout: 30000 }).catch(() => {});
+    await openOverview(page, 'outline').catch(() => {});
+    const lead = await page.locator('.ol-top .ol-lead').innerText().catch(() => '');
+    const rows = page.locator('[data-testid=outline-table] tr.ol-tr');
+    const n = await rows.count();
+    const who1 = await rows.nth(0).locator('td.who').innerText().catch(() => '');
+    const redoWho1 = await rows.nth(0).locator('td.who .ol-redo').innerText().catch(() => '');
+    const tags = await page.locator('[data-testid=outline-table] .ol-st.redo').count();
+    console.log(
+      `大纲找更合的世界:大纲 ${rows0} 条 → 「‹ ${back.trim()}」、故事里的国家「${roles.join('、')}」(没条件的 ${free} 国);回原来的大纲 ${backOk};` +
+        `套上海上强国「${roles2.join('、')}」→ 第 2 步「${note.replace(/\n/g, ' ').slice(0, 80)}」;建好以后大纲 ${n} 条,第 1 条谁「${who1.replace(/\n/g, ' ')}」,要重新指 ${tags} 条`,
+    );
+    if (rows0 !== 4 || back.trim() !== '大纲' || roles.length !== 2 || !ex.a.name.startsWith(roles[0]) || free !== 2) errs.push(`大纲找更合的世界:进来以后不是「‹ 大纲」、大纲里的两国没列成故事里的国家(${back} / ${roles.join('、')} / ${free})`);
+    if (!backOk) errs.push('大纲找更合的世界:「‹ 大纲」没回到原来那个世界的大纲');
+    if (roles2.join('、') !== roles.join('、')) errs.push(`大纲找更合的世界:套上例子以后叫法不是大纲里的国名了(${roles2.join('、')})`);
+    if (!note.includes('大纲 4 条一起带过去')) errs.push(`大纲找更合的世界:第 2 步那句没写大纲带过去(${note})`);
+    if (n !== 4 || !lead.includes('大纲从原来的世界搬过来了')) errs.push(`大纲找更合的世界:建好以后大纲没搬过来(${n} 条,${lead})`);
+    if (who1.startsWith(ex.a.name) || redoWho1 !== ex.b.name) errs.push(`大纲找更合的世界:第 1 条的国家没换成找到的、或乙国没标要重新指(${who1} / ${redoWho1})`);
+    if (tags !== 3) errs.push(`大纲找更合的世界:要重新指的应是 3 条(乙国、迁都的城、立国的州),现在 ${tags} 条`);
+  }
+}
+
 // 第一次来(什么都没存):先到「我的世界」,中间一颗星球、一段话、「新建世界」;点了先弹窗(第 1 步两种、默认随机生成,
 // 第 2 步种子和参数、说进去还能改;Esc 关掉什么都不留下),「开始」才进新建界面;
 // 「创建世界」先弹确认框(列出种子、世界参数、地形、地名风格四样不能再改),「再改改」关掉、「确认创建」才建好,回到平常的世界页面(浅色、政区)

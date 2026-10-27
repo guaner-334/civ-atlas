@@ -46,7 +46,7 @@ import { cityStands, setPolityPick, type PolityPick } from './Interventions';
 import { alivePolities } from './crownInfo';
 import { Icon } from './icons';
 import { rgb } from './panelParts';
-import { PLOT_KIND_GROUPS, PLOT_KIND_INFO, areaText, charName, checkText, cityName, personKeyName, plotNo, plotPolityColor, plotPolityName, plotWindow, regionName, type OutlineCtx } from './outlineInfo';
+import { PLOT_KIND_GROUPS, PLOT_KIND_INFO, areaText, charName, checkText, cityName, personKeyName, plotNo, plotPolityColor, plotPolityName, plotWindow, redoLine, regionName, type OutlineCtx } from './outlineInfo';
 import { plotLine } from './OutlineSide';
 
 /** 在地图上点的时候提示条的来源(点完、取消以后概览回到「大纲」页) */
@@ -55,8 +55,9 @@ export const OUTLINE_PICK = 'outline';
 /** 草稿 → 情节(缺要填的 = null) */
 function draftPlot(d: PlotDraft): Plot | null {
   if (!d.kind) return null;
-  const { pickA: _p, ...rest } = d;
+  const { pickA: _p, was: _w, ...rest } = d;
   void _p;
+  void _w;
   return cleanPlot(rest);
 }
 
@@ -84,7 +85,7 @@ function missingText(d: PlotDraft): string {
 
 /** 去掉草稿里这种情节用不上的字段(换了种类时) */
 function draftFor(d: PlotDraft, kind: PlotKind): PlotDraft {
-  const keep: (keyof PlotDraft)[] = ['id', 'year', 'span', 'after', 'text', 'a', 'b', 'region', 'regions', 'mark', 'city', 'person', 'how', 'char', 'name', 'type', 'level', 'slump'];
+  const keep: (keyof PlotDraft)[] = ['id', 'year', 'span', 'after', 'text', 'a', 'b', 'region', 'regions', 'mark', 'city', 'person', 'how', 'char', 'name', 'type', 'level', 'slump', 'was'];
   const out = { kind } as PlotDraft;
   for (const k of keep) if (d[k] !== undefined) (out as unknown as Record<string, unknown>)[k] = d[k];
   if (kind === 'disaster' && !out.type) out.type = 'famine';
@@ -188,6 +189,9 @@ export function OutlineEditor({ civ, phone }: { civ: Civ; phone?: boolean }) {
   const changed = fresh || !plot || JSON.stringify(plot) !== JSON.stringify(plots[idx]);
   const asPlot = { ...d, kind: d.kind ?? 'story' } as Plot;
   const w = plotWindow(o, asPlot);
+  /** 搬过来以后对不上、还空着的几项(重新指了的不再写) */
+  const filled = (f: string) => (f === 'regions' || f === 'mark' ? !!d.regions?.length || d.mark !== undefined : d[f as keyof PlotDraft] !== undefined);
+  const redoNote = d.was ? redoLine(Object.fromEntries(Object.entries(d.was).filter(([f]) => !filled(f)))) : '';
   /** 在地图上点用哪一年(没发生时硬改的那一年,夹进推演年数) */
   const at = Math.min(civ.endYear, Math.max(0, w.at));
 
@@ -695,6 +699,11 @@ export function OutlineEditor({ civ, phone }: { civ: Civ; phone?: boolean }) {
       </>
     ) : (
       <>
+        {redoNote && (
+          <div className="ol-note warn" data-testid="outline-redo-note">
+            大纲搬过来以后对不上，要重新指：{redoNote}
+          </div>
+        )}
         <div className="ol-f">
           <label>发生什么</label>
           <div className="ol-box">

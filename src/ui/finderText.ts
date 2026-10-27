@@ -20,6 +20,7 @@ import {
   type RelaxHint,
   type RoleCond,
   type TogetherCond,
+  searchQuery,
 } from '../gen/finder/query';
 
 /** 时代名(青铜、铁器……);认不出 = "第 N 个" */
@@ -121,8 +122,10 @@ export function querySummary(q: FinderQuery): { roles: string[]; together: strin
 
 /** 「故事讲多少年」里撑下来的是谁:"两国都""帝国" */
 export function spanWho(q: FinderQuery): string {
-  const n = q.roles.length;
-  return n === 1 ? roleName(q, 0) : n === 2 ? '两国都' : n === 3 ? '三国都' : '';
+  // 找的时候不管的那几国(从大纲页来、没加条件的)不算
+  const s = searchQuery(q);
+  const n = s.roles.length;
+  return n === 1 ? roleName(s, 0) : n === 2 ? '两国都' : n === 3 ? '三国都' : '';
 }
 
 /** 一条条件的完整说法(条件逐条、卡在哪几条):"帝国是大国（40 州以上）""隘口比山脊低 800 米以上" */

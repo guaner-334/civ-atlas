@@ -177,7 +177,7 @@ import { baseRegions, civAtEra, composedOf, dropComposed, eraData, peekEraData, 
 import { adoptChronicle, dropChronicleParts, namedHistory, takeChroniclePart, useNamedHistory } from './chronicleHandoff';
 import { sameSketch, sketchGrid, type SketchEdit } from '../gen/sketch';
 import { condList, summarize } from '../gen/finder/query';
-import { addMark, askHistory, clearEditHistory, clearEdits, getEdits, putEditsQuiet, putOutlineResult, putPlay, removeEditsBatch, removeIntervention, removeUpheaval, setEditGate, setEdits, setEndYear, setHistoryGate, undoTerrainOp, useEdits } from './editsStore';
+import { addMark, askHistory, clearEditHistory, clearEdits, getEdits, putEditsQuiet, putOutlineResult, putPlay, removeEditsBatch, removeIntervention, removeUpheaval, setEditGate, setEdits, setEndYear, setHistoryGate, setOutlinePlots, undoTerrainOp, useEdits } from './editsStore';
 import { eraText, spaced, yearAt, yearFull } from '../gen/era';
 import { redoLastEdit, undoLastEdit } from './undo';
 import { useShortcuts } from './useShortcuts';
@@ -288,7 +288,8 @@ import { NAME_ZOOM } from '../render/marks';
 import { collapseSide, expandSide, getSide, setSideHold, useSide } from './sideStore';
 import { getPanel, setSheet, setWorldSheet, usePanel } from './panelStore';
 import { closeOverview, getPeople, openOverview, setPeople, useOverview } from './overviewStore';
-import { setOutlineRun, setOutlineRunner } from './outlineStore';
+import { setOutlineFinder, setOutlineRun, setOutlineRunner } from './outlineStore';
+import { moveOutline, outlineFrom, outlineRoles, type OutlineFrom } from './outlineMove';
 import { outlineDoneToast, outlineRunToast } from './OutlineSide';
 import { OutlineRunAsk } from './OutlineRunAsk';
 import { FinderPage } from './FinderPage';
@@ -3779,8 +3780,15 @@ ${s.image.cells}` : null);
   // 「‹ 新建世界」离开时新建中的世界换回原来的样子
   /** 打开找世界那一页时:新建中的世界原来的样子、地图原来的样式(新建界面的)、搜的时候照它生成的设定 */
   const finderBack = useRef<{ target: Target; view: { base: BaseId; fill: FillId }; base: FinderBase; moved: boolean } | null>(null);
-  /** 「用这个世界」以后:新建第 2 步锁着的那几样、建好以后停在哪年、加哪几个标记 */
-  const [found, setFound] = useState<(StudioFound & { pick: FoundPick; pts: [number, number][]; gen: string }) | null>(null);
+  /** 「用这个世界」以后:新建第 2 步锁着的那几样、建好以后停在哪年、加哪几个标记(从大纲页来的:搬哪份大纲) */
+  const [found, setFound] = useState<(StudioFound & { pick: FoundPick; pts: [number, number][]; gen: string; from?: OutlineFrom }) | null>(null);
+  /**
+   * 从大纲页「找更合的世界」进来的:原来那个世界的大纲(建好以后搬过去,outlineMove.ts)、点之前地图的样式;
+   * 找世界那一页的「‹ 大纲」回原来那个世界的大纲
+   */
+  const [outlineSrc, setOutlineSrc] = useState<{ from: OutlineFrom; view: { base: BaseId; fill: FillId } } | null>(null);
+  /** 一张地图认是不是同一张:参数、地形、草图、在哪张地图上打造的 */
+  const mapKeyOf = (p: WorldParams, e: WorldEdits) => JSON.stringify([worldKey(p), e.terrain, e.sketch ?? null, e.map ?? null]);
   /** 新建中的世界 → 搜的时候照它生成的设定(世界参数、地形和草图(都用这张地图时)、推演年数、拓荒、起源、天灾、地名风格) */
   const finderBaseOf = (t: Target, e: WorldEdits): FinderBase => {
     const endYear = cleanEndYear(e.endYear);
@@ -3838,14 +3846,22 @@ ${s.image.cells}` : null);
     back.moved = true;
     generate({ ...t, params, edits, saved: undefined, title: back.target.title, pristine: back.target.pristine, view: undefined, from: undefined, save: undefined, fullCiv: true });
   };
-  /** 「‹ 新建世界」:新建中的世界换回原来的样子,地图换回新建界面的样式 */
+  /** 「‹ 新建世界」:新建中的世界换回原来的样子,地图换回新建界面的样式;从大纲页来的「‹ 大纲」回原来那个世界的大纲 */
   const exitFinder = () => {
     const back = finderBack.current;
+    const src = outlineSrc;
     finderBack.current = null;
     closeFinder();
     selectFinder(null);
     setCivHighlight(null);
     setFound(null);
+    setOutlineSrc(null);
+    if (src && isStored(src.from.world)) {
+      applyMapView(src.view);
+      openStored(src.from.world);
+      openOverview('outline');
+      return;
+    }
     if (!back) return;
     applyMapView(back.view);
     if (back.moved && draftNow()) generate({ ...back.target });
@@ -3910,6 +3926,7 @@ ${s.image.cells}` : null);
     if (draft) return;
     finderBack.current = null;
     setFound(null);
+    setOutlineSrc(null);
     if (getFinder().open || getFinder().run) resetFinder();
     // 新建界面收起着(在找世界那一页)就离开了新建:进新建之前的投影、经纬网换回来(平常是新建界面卸下时自己换)
     const c = takeStudioView();
@@ -3954,6 +3971,7 @@ ${s.image.cells}` : null);
       pick: fp,
       pts: pv ? storyPoints(pv.world, pv.civ, cand, places) : [],
       gen: genSigOf(targetRef.current!.params, targetRef.current!.edits),
+      ...(outlineSrc ? { from: outlineSrc.from, outline: outlineSrc.from.plots.length } : {}),
     });
     closeFinder();
     setCivHighlight(null);
@@ -3972,6 +3990,10 @@ ${s.image.cells}` : null);
       return { ...p, mark };
     });
     putFound(id, { ...f.pick, places: spots });
+    // 从大纲页来的:大纲搬过来,国家换成找到的那几国,对不上的标「要重新指」
+    const civNow = realCivRef.current;
+    const moved = f.from && civNow && civNow.seed === f.civSeed ? moveOutline(f.from, f.pick.query, f.pick.roles.map((r) => r.polity), civNow, f.pick.map === 'fixed' && f.from.mapKey === mapKeyOf(targetRef.current!.params, getEdits())) : null;
+    if (moved?.plots.length) setOutlinePlots(moved.plots);
     setFound(null);
     if (isStored(id))
       showToast({
@@ -3979,7 +4001,10 @@ ${s.image.cells}` : null);
         kind: 'ok',
         dot: true,
         text: `建好了，停在第 ${f.year} 年`,
-        more: f.places.length ? [`${f.places.join('、')}加成了地图上的标记，不要了在「标记」里删`] : [],
+        more: [
+          ...(f.places.length ? [`${f.places.join('、')}加成了地图上的标记，不要了在「标记」里删`] : []),
+          ...(moved?.plots.length ? [`大纲带过来了${moved.redo ? `，${moved.redo} 条有对不上的，在「大纲」里标着「要重新指」` : ''}`] : []),
+        ],
         ttl: 7000,
       });
     foundFly.current = { id, polities: f.pick.roles.map((r) => r.polity), year: f.year, pts: f.pts };
@@ -3997,6 +4022,45 @@ ${s.image.cells}` : null);
   useEffect(() => {
     setFindAgainHandler((p) => findAgainRef.current(p));
     return () => setFindAgainHandler(null);
+  }, []);
+  /**
+   * 大纲页「找更合的世界」:照这个世界新建一个(世界参数、地形、推演年数、拓荒、起源、天灾、地名风格、纪年照原来的),打开找世界那一页;
+   * 大纲里写到最多的几国先列成故事里的国家(叫法用大纲里的国名,条件空着让作者加)。建好以后大纲搬过去(foundCreated)
+   */
+  const findForOutlineNow = () => {
+    const cur = currentWorld();
+    const t = targetRef.current;
+    const civNow = realCivRef.current;
+    const e = getEdits();
+    if (!cur || !t || t.kind === 'draft' || !civNow || !e.outline?.plots.length) return;
+    const from = outlineFrom({ civ: civNow, plots: e.outline.plots, marks: e.marks, characters: e.characters }, cur.id, mapKeyOf(t.params, e));
+    const view = { base: mapViewRef.current.base, fill: mapViewRef.current.fill };
+    const { endYear, frontier, origins, calamity, nameMix, era, months, sketch } = e;
+    const keep: WorldEdits = {
+      ...EMPTY_EDITS,
+      terrain: [...e.terrain],
+      ...(sketch ? { sketch } : {}),
+      ...(nameMix ? { nameMix } : {}),
+      ...(endYear ? { endYear } : {}),
+      ...(frontier ? { frontier } : {}),
+      ...(origins ? { origins } : {}),
+      ...(calamity ? { calamity } : {}),
+      ...(era ? { era } : {}),
+      ...(months !== undefined ? { months } : {}),
+    };
+    closeOverview();
+    openTarget(draftTarget(t.params, null, keep));
+    if (!draftNow()) return;
+    setQuery({ roles: outlineRoles(from), together: [] });
+    setFinderMap('each');
+    setOutlineSrc({ from, view });
+    openFinderPage();
+  };
+  const findOutlineRef = useRef(findForOutlineNow);
+  findOutlineRef.current = findForOutlineNow;
+  useEffect(() => {
+    setOutlineFinder(() => findOutlineRef.current());
+    return () => setOutlineFinder(null);
   }, []);
   /** 照故事找的世界建好、新建界面淡出以后:地图飞到故事里的几国 */
   const foundFly = useRef<{ id: string; polities: number[]; year: number; pts: [number, number][] } | null>(null);
@@ -6647,7 +6711,15 @@ ${s.image.cells}` : null);
       {finderOn && (
         <>
           <FinderOverlay ui={finder} phone={narrow} preview={finderPreviewData} loading={!!progress} onUse={takeFinderPick} />
-          <FinderPage phone={narrow} seed={finderBack.current?.target.params.seed ?? params.seed} preview={finderPreviewData} onExit={exitFinder} onUse={takeFinderPick} onFly={finderFly} />
+          <FinderPage
+            phone={narrow}
+            seed={finderBack.current?.target.params.seed ?? params.seed}
+            preview={finderPreviewData}
+            onExit={exitFinder}
+            back={outlineSrc ? '大纲' : undefined}
+            onUse={takeFinderPick}
+            onFly={finderFly}
+          />
         </>
       )}
       {/* 助手面板(宽屏右边一张卡片,手机是拉到顶的底部卡片;窗口跨过窄屏断点时不重新挂,没发出去的话留着)、在地图上看试推演时的提示条 */}

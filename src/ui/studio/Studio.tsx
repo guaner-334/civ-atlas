@@ -254,6 +254,8 @@ export interface StudioFound {
   roles: { role: string; name: string }[];
   /** 加成标记的几处("隘口""三国交界") */
   places: string[];
+  /** 从大纲页来的:带过去的大纲几条(不是 = 不给) */
+  outline?: number;
 }
 
 /** 「看过的星球」里的一条:那颗星球的参数(连种子)、当时的小图、什么时候看的 */
@@ -1477,7 +1479,8 @@ export function Studio(p: StudioProps) {
     <div className="nw-note nw-found-note" data-testid="found-note">
       照故事找的世界：建好以后停在第 {found.year} 年
       {found.roles.length ? `，${found.roles.map((r, i) => `${r.name}是${i ? '' : '你的'}「${r.role}」`).join('、')}` : ''}
-      {found.places.length ? `；${found.places.join('和')}加成地图上的标记` : ''}。种子和这几样设定改了，历史就不是找到的那样了，所以先锁着。
+      {found.places.length ? `；${found.places.join('和')}加成地图上的标记` : ''}
+      {found.outline ? `；大纲 ${found.outline} 条一起带过去，对不上的标出来让你重新指` : ''}。种子和这几样设定改了，历史就不是找到的那样了，所以先锁着。
       {p.onFoundBack && (
         <button className="sb-link nw-found-back" data-act="found-back" onClick={p.onFoundBack}>
           回去换一个
