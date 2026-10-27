@@ -26,6 +26,7 @@
  *   键 = 名义君主的位次 × 16(+ 1 幼主)/ 掌权那一刻 × 256(大臣、大将);诸子的生年、寿数、日后即位的倾向用 royals.ts、rulers.ts 那一份。纯计算。
  */
 import type { Annal, Polity, RulerLeanings, Year } from './types';
+import { parsePersonKey, type Intervention } from '../edits';
 import { fpow, keyed4, subSeed } from './rand';
 import { MAX_AGE, drawLeanings, leaningEffect, reignBorn, reignStart, reignStep, type LeaningEffect, type Reign } from './rulers';
 import { POSTHUMOUS, broodOf } from './royals';
@@ -146,6 +147,8 @@ export interface Regency {
   closed: boolean;
   /** 掌权那一条史事的下标 */
   annal: number;
+  /** 作者下令"让他掌权"(干预)来的:第几条干预(史事 regent 的 foe 列记着);推演里自己出的不给 */
+  iv?: number;
 }
 
 /** 推算要用的那几样:君主随机数的根(rulers.ts 的 rulerBase)、掌实权自己的根、各国的位置锚、国家表、在位表 */
@@ -156,6 +159,8 @@ export interface RegencyCtx {
   polities: readonly Polity[];
   /** 国家 pid 的在位表(带干预、宗室篡位),保证排到 t */
   book: (pid: number, t: Year) => readonly Reign[];
+  /** 干预列表(作者下令"让他掌权"的那几段按它推出来;没有 = 不给) */
+  ivs?: readonly Intervention[];
 }
 
 export function regencyBase(seed: number): number {
@@ -364,6 +369,55 @@ export function makeRegency(cx: RegencyCtx, pid: number, kind: RegencyKind, k: n
   return { ...base, stop: c.stop, outcome: c.outcome, born: c.born, leanings: c.leanings, eff: leaningEffect(c.leanings) };
 }
 
+/** 作者下令"让他掌权"的一条 */
+export type RegentIv = Extract<Intervention, { kind: 'regent' }>;
+/**
+ * 让他掌权没生效时史事 intervene 的 b 列(别的同 rulers.ts:−3 那一年这国已亡、−4 他不是那样的人):
+ * −11 那一刻已有人掌着权;−12 共和国、在位的是作者立的君主(不会被架空)
+ */
+export const IV_HELD = -11;
+export const IV_NO_THRONE = -12;
+/** 让他掌权:宗室要到这么多岁 */
+export const IV_REGENT_AGE = 16;
+
+/**
+ * 作者下令"让他掌权"(干预第 iv 条)t 那一刻、名义君主 r(此刻在位的)的这一段;他对不上 = null:
+ *   引兵入朝、太子监国:他得是 r 的预定继承人(royals.ts 的 heir,按人物键里的生年认),倾向照他日后即位时的(和推演里自己出的一样);
+ *   摄政:他得是同一朝先前几位君主的儿子(不是预定继承人的那几个,royals.ts 的 extra),在世;
+ *   专权:名臣、将领的生年照人物键。摄政、专权的倾向照干预里写的。都要年过 IV_REGENT_AGE 岁。
+ * 到期(还政、篡位)= t + years;到君主去世即位 = 不到期(跟着名义君主了结)
+ */
+export function ivRegency(cx: RegencyCtx, pid: number, v: RegentIv, iv: number, r: Reign, t: Year, annal: number): Regency | null {
+  const P = cx.polities[pid];
+  const who = parsePersonKey(v.person);
+  if (!P || !who) return null;
+  const base = { pid, kind: v.how, k: r.k, start: t, dyn: dynastyAtTick(P, t), closed: false, annal, iv };
+  const stop = v.end === 'succeed' ? Infinity : q(t + (v.years ?? 1));
+  const outcome: RegencyOutcome | undefined = v.end === 'succeed' ? undefined : v.end === 'return' ? 'return' : 'usurp';
+  const tail = (born: Year, leanings: RulerLeanings) => (t - born < IV_REGENT_AGE ? null : { stop, ...(outcome ? { outcome } : {}), born, leanings, eff: leaningEffect(leanings) });
+  if (v.how === 'march' || v.how === 'heir') {
+    const hb = broodOf(cx.rbase, cx.tag[pid], r, P).heir;
+    if (hb === undefined || Math.round(hb) !== who.born) return null;
+    const rest = tail(hb, reignStep(cx.rbase, cx.tag[pid], r.k + 1, r.j + 1, r.natural, P.lineage, P.kind).leanings);
+    return rest && { ...base, ...rest };
+  }
+  const lean = v.leanings ?? { expand: 50, war: 50, develop: 50, trade: 50 };
+  if (v.how === 'uncle') {
+    // 君主的兄弟叔伯:同一朝先前几位君主没即位的儿子
+    const book = cx.book(pid, t);
+    for (let k = r.k - 1; k >= 0 && book[k] && book[k].dynasty === r.dynasty; k--) {
+      if (book[k].crown) continue;
+      const x = broodOf(cx.rbase, cx.tag[pid], book[k], P).extra.find((e) => Math.round(e.born) === who.born);
+      if (!x) continue;
+      const rest = x.life > t ? tail(x.born, lean) : null;
+      return rest && { ...base, ...rest, uncle: { k, s: x.s } };
+    }
+    return null;
+  }
+  const rest = tail(who.born, lean);
+  return rest && { ...base, ...rest };
+}
+
 /** 史事里掌实权的几段(regent)→ 国家 → 按掌权先后(接着推、排人物时用;和推演时登记的一样) */
 export function regentsFrom(cx: RegencyCtx, annals: readonly Annal[]): Map<number, Regency[]> {
   const out = new Map<number, Regency[]>();
@@ -377,7 +431,15 @@ export function regentsFrom(cx: RegencyCtx, annals: readonly Annal[]): Map<numbe
     }
     const kind = REGENCY_KINDS[e.b];
     if (!kind) return;
-    const g = makeRegency(cx, e.a, kind, e.war, e.year, (k) => !!list?.some((x) => x.kind === 'march' && x.k === k), idx);
+    // 作者下令"让他掌权"的(foe 列记着第几条干预)
+    const v = e.foe !== undefined ? cx.ivs?.[e.foe] : undefined;
+    const r = v?.kind === 'regent' ? cx.book(e.a, e.year)[e.war] : undefined;
+    const g =
+      v?.kind === 'regent'
+        ? r
+          ? ivRegency(cx, e.a, v, e.foe!, r, e.year, idx)
+          : null
+        : makeRegency(cx, e.a, kind, e.war, e.year, (k) => !!list?.some((x) => x.kind === 'march' && x.k === k), idx);
     if (!g) return;
     if (list) list.push(g);
     else out.set(e.a, [g]);

@@ -13,6 +13,9 @@
  */
 import type { Civ, Year } from './types';
 import { Layer } from './types';
+import { parsePersonKey, type Intervention } from '../edits';
+import { IV_NOT_HIM } from './rulers';
+import { IV_NO_THRONE } from './regents';
 import { keyed4, subSeed } from './rand';
 import type { CivSim } from './sim';
 import { bookOf, polityModelOf, rulerOf, type PolityModel } from './polities';
@@ -25,6 +28,10 @@ import {
   BRIDE_FATHER,
   GROOM_AGE,
   GROOM_SELF,
+  IV_AT_WAR,
+  IV_NO_BRIDE,
+  IV_NO_GROOM,
+  IV_NO_PARTNER,
   KIN_BETRAY,
   KIN_DECLARE,
   MARRY_ALLY,
@@ -58,7 +65,15 @@ export interface MarriageModel {
   pair: Map<number, Match[]>;
   /** 娶过亲的人(国家:生年)→ 他结的几门亲 */
   groom: Map<string, Match[]>;
+  /**
+   * 作者下令"为他联姻"(干预第 i 条,interventions.ts 在那一刻调;q = 对方国家,没有 = −1):先查能不能(note 记史事 intervene,
+   * b 列见 marriages.ts 的 IV_NO_PARTNER 等),能就结亲(记 marry;互嫁记两条)
+   */
+  intervene?: (v: MarryIv, i: number, pid: number, q: number, t: Year, note: (b: number) => void) => void;
 }
+
+/** 作者下令"为他联姻"的一条 */
+export type MarryIv = Extract<Intervention, { kind: 'marry' }>;
 
 const models = new WeakMap<CivSim, MarriageModel>();
 
@@ -191,6 +206,44 @@ function hook(sim: CivSim, mm: MarriageModel): void {
       }
     };
   }
+
+  // ---- 作者下令"为他联姻" ----
+  /** 人物键对上的那位宗室(国家 p、t 那一刻):在位的君主本人,或同一朝先前各位君主的儿子(在世、成年;已经即过位的不算);对不上 = null */
+  const ivGroom = (p: number, key: string, t: Year): { code: number; born: Year } | null => {
+    const who = parsePersonKey(key);
+    const P = pm.polities[p];
+    if (!who || !P) return null;
+    const r = rulerOf(pm, p, t);
+    if (r.crown || t - who.born < GROOM_AGE[0]) return null;
+    if (Math.round(reignBorn(r)) === who.born) return { code: r.k * 16 + GROOM_SELF, born: reignBorn(r) };
+    const book = bookOf(pm, p, t);
+    for (let k = r.k; k >= 0 && book[k] && book[k].dynasty === r.dynasty; k--) {
+      if (book[k].crown) continue;
+      const br = broodOf(pm.rbase, pm.rtag[p], book[k], P);
+      // 预定的继承人:在位君主的;先前几位的(父亲被作者让他去世、让位,他没即位)也算,接着即了位的不算(他就是后来的君主)
+      const hb = br.heir;
+      if (hb !== undefined && Math.round(hb) === who.born && (k === r.k || Math.round(reignBorn(book[k + 1])) !== who.born)) return { code: k * 16, born: hb };
+      const x = br.extra.find((e) => Math.round(e.born) === who.born);
+      if (x) return x.life > t ? { code: k * 16 + x.s, born: x.born } : null;
+    }
+    return null;
+  };
+  mm.intervene = (v, _i, p, q, t, noteIv) => {
+    if (!alive(p)) return noteIv(-3);
+    if (q < 0 || q === p || !alive(q)) return noteIv(IV_NO_PARTNER);
+    if (pm.polities[p].lineage === 'republic' || pm.polities[q].lineage === 'republic') return noteIv(IV_NO_THRONE);
+    if (fighting(p, q)) return noteIv(IV_AT_WAR);
+    const me = ivGroom(p, v.person, t);
+    if (!me) return noteIv(IV_NOT_HIM);
+    const take = v.how !== 'give';
+    const give = v.how === 'give' || v.how === 'mutual';
+    if ((take && !brideOk(q, t)) || (give && !brideOk(p, t))) return noteIv(IV_NO_BRIDE);
+    const other = give ? groomOf(q, t) : null;
+    if (give && !other) return noteIv(IV_NO_GROOM);
+    noteIv(-1);
+    if (take) note(p, q, me, t);
+    if (other) note(q, p, other, t);
+  };
 
   // ---- 议和时以和亲作结 ----
   wm.onPeace = (w: War, t: Year) => {

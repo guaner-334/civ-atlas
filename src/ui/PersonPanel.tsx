@@ -8,7 +8,8 @@
  *         复制生平(纯文字,写设定用;带上「生平」那一段)、关注他(导播只讲他这一辈子,镜头跟着他;正跟着他时是「不关注」;宗室没有,
  *         见 Follow.tsx)、更多(加一个和他有关的作者人物:亲友里先填上他)。
  *         「更多」最上面:让他去世…(那年在位的君主、将领、名臣)、改他的倾向…(那年在位的君主),点了卡片换成那一页(PersonIvPage.tsx);
- *         演一国时别国的人这两项变灰,写"切回造物主才能改别国"
+ *         接着让他掌权…(那年在世、成年、没在位的太子、君主的兄弟叔伯、在朝的名臣、领过兵的将领)、为他联姻…(那年在位的君主、
+ *         在世成年的宗室),点了换成那一页(RegentIvPage.tsx);演一国时别国的人这几项变灰,写"切回造物主才能改别国"
  *   概况  君主:事迹(名人才有)、国家、生卒、在位、前任、继任(后面的小字是亲属,和编年史的"其子 / 其侄"同一个算法:按世系;
  *         作者立的君主:名字前面是作者人物的圆头像,小字写「作者的人物」,点了开作者的人物卡;让位给他的,结局写"让位 给某某")、
  *         父亲(收养的写「养父」;父亲在别国的,小字写那一国)、子嗣(世系图里有的人,没即位的写"未即位")、
@@ -72,7 +73,8 @@ import { useRole } from './roleStore';
 import { ROLE_LOCK_NOTE } from './RoleBar';
 import { pickChronicleEntry, setSelection } from './civView';
 import { PersonIvPage, type PersonIvKind } from './PersonIvPage';
-import { leaningsThen, moodSince, personIvRange, rulerOnThrone } from './newIvInfo';
+import { leaningsThen, marryChoice, moodSince, personIvRange, regentChoice, rulerOnThrone } from './newIvInfo';
+import { MarryIvPage, RegentIvPage } from './RegentIvPage';
 import './policy.css';
 import './newIv.css';
 
@@ -178,8 +180,8 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
   const age = x ? Math.floor((x.died !== undefined ? Math.min(year, x.died) : year) - x.born) : 0;
   const portrait = useMemo(() => (x ? personPortrait(civ, x.id, x.born + age) : null), [civ, x, age]);
   const mood = useMemo(() => (x ? portraitMood(civ, x, year) : undefined), [civ, x, year]);
-  // 卡片换上的填写页(让他去世 / 改他的倾向);换了人就回到卡片
-  const [ivPage, setIvPage] = useState<{ id: number; kind: PersonIvKind } | null>(null);
+  // 卡片换上的填写页(让他去世 / 改他的倾向 / 让他掌权 / 为他联姻);换了人就回到卡片
+  const [ivPage, setIvPage] = useState<{ id: number; kind: PersonIvKind | 'regent' | 'marry' } | null>(null);
   const role = useRole();
   if (!x || !p) return null;
   const page = ivPage?.id === id ? ivPage.kind : null;
@@ -189,6 +191,9 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
   const onThrone = rulerOnThrone(x, year);
   const range = personIvRange(civ, x);
   const canDie = x.killed === undefined && (x.role === 'ruler' ? onThrone : (x.role === 'general' || x.role === 'minister') && range.lo <= range.hi);
+  // 让他掌权:那年在世、成年、没在位的太子、叔伯、名臣、将领;为他联姻:那年在位的君主、在世成年的宗室
+  const canRule = !!regentChoice(civ, x, year);
+  const canWed = marryChoice(civ, x, year);
   const ruler = x.role === 'ruler';
   const prince = x.role === 'prince';
   const minister = x.role === 'minister';
@@ -269,7 +274,13 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
     return (
       <div className="cp pp" data-person={id} data-pp-page={page}>
         {headEl}
-        <PersonIvPage key={`${id}-${page}`} civ={civ} x={x} year={year} kind={page} onBack={() => setIvPage(null)} />
+        {page === 'regent' ? (
+          <RegentIvPage key={`${id}-${page}`} civ={civ} x={x} year={year} onBack={() => setIvPage(null)} />
+        ) : page === 'marry' ? (
+          <MarryIvPage key={`${id}-${page}`} civ={civ} x={x} year={year} onBack={() => setIvPage(null)} />
+        ) : (
+          <PersonIvPage key={`${id}-${page}`} civ={civ} x={x} year={year} kind={page} onBack={() => setIvPage(null)} />
+        )}
       </div>
     );
 
@@ -302,6 +313,16 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
           {onThrone && (
             <MenuItem icon={<Icon name="close" size={16} className="iv-blank" />} act="person-temper" disabled={locked} note={locked ? ROLE_LOCK_NOTE : undefined} onClick={() => setIvPage({ id, kind: 'temper' })}>
               改他的倾向…
+            </MenuItem>
+          )}
+          {canRule && (
+            <MenuItem icon={<Icon name="close" size={16} className="iv-blank" />} act="person-regent" disabled={locked} note={locked ? ROLE_LOCK_NOTE : undefined} onClick={() => setIvPage({ id, kind: 'regent' })}>
+              让他掌权…
+            </MenuItem>
+          )}
+          {canWed && (
+            <MenuItem icon={<Icon name="close" size={16} className="iv-blank" />} act="person-marry" disabled={locked} note={locked ? ROLE_LOCK_NOTE : undefined} onClick={() => setIvPage({ id, kind: 'marry' })}>
+              为他联姻…
             </MenuItem>
           )}
           {nameKey && (
