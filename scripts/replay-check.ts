@@ -4,7 +4,9 @@
  * 存档读档分享、导出、干预、改地形、AI、键盘快捷键、人物(人物卡片、历代君主、编年史里的人名、人物页、世系图、搜人名)、作者标记、作者的人物、信仰图层与宗教卡片、东西相连、多种投影、地球仪、宽屏侧栏收起、浏览器的后退和前进;手机布局(390×844 触屏:底部的世界 / 详情卡片、时间轴胶囊、双指捏合)。
  * 宽屏:存档在侧栏顶上,成书、AI 设置在侧栏右上的"更多"里,导出在地图右上;创建时定下的种子、参数、地形在世界概览的"世界设定"页(只能看)
  * (点侧栏顶上的世界名打开);某一点的完整读数用 window.__wfProbe(悬停卡片只露一两行)。
+ * 快慢(每帧、重推、重画的耗时)只记数、不算失败,跑完汇总(见 timing);要用到推演里某位人物、某国的段,例子按条件现找(scripts/lib/smokeExamples.ts)。
  */
+import { appendFileSync } from 'node:fs';
 import { chromium, type Page } from 'playwright';
 import { startDevServer } from './lib/devserver';
 import { GENERATOR_VERSION } from '../src/gen/edits';
@@ -241,6 +243,17 @@ const toastText = (p: Page, id: string, timeout = 3000) =>
 const wf = () => page.evaluate(() => (window as any).__wf);
 const markWf = () => page.evaluate(() => ((window as any).__wf.mark = 1));
 const waitRedraw = () => page.waitForFunction(() => !(window as any).__wf.mark, null, { timeout: 30000 });
+/**
+ * 快慢只记数、不卡合并:同一段代码在 CI 的虚拟机上快慢能差三成以上(整局重推在没动过推演的分支上也常跑到预算边上),
+ * 卡合并只会误报。每一项照旧量、照旧打印,记进 timings;跑完汇总成一段(日志里,和检查页摘要里的一张表),
+ * 超了写"超预算"、在检查页挂一条 warning,不算失败。功能对不对(元素在不在、文字对不对、点了有没有反应)照旧记进 errs
+ */
+const timings: { label: string; ms: number; budget: number }[] = [];
+const fmtMs = (ms: number) => (Number.isFinite(ms) ? `${ms < 100 ? ms.toFixed(1) : ms.toFixed(0)} ms` : '没量到');
+const timing = (label: string, ms: number, budget: number) => {
+  timings.push({ label, ms, budget });
+  if (!(ms <= budget)) console.log(`超预算(只记数,不算失败):${label} ${fmtMs(ms)},预算 ${budget} ms`);
+};
 // 回放每帧耗时的预算:本机约 10–20 ms;CI 的虚拟机慢两三倍,同一段回放在 CI 上 16–40 ms 来回跳,预算放宽到 2 倍
 const REPLAY_BUDGET = process.env.CI ? 60 : 30;
 
@@ -610,15 +623,28 @@ if (part('键盘快捷键')) {
 // 君主有「倾向」一组四行,复制生平里也有一行,将领、宗室没有;
 // 「出征那年」跳时间轴;「编年史」打开这国的编年史;「复制生平」);编年史里的人名是蓝字,点了收起概览、打开这个人,不跳年份;
 // 世界概览的「人物」页(名人 / 君主 / 将领,「全部 N 位」进来停在这国的君主);搜名字第一个是这个人。
-// 例子:种子 7 的第 2900 年,天灵(6 号国)霄朝的高宗沈岚尘(前任是他的祖父仁宗沈瑶,
-// 继任是他的儿子孝宗沈羽;在位时有将领晏昀领兵,晏昀头一回出征在 2892 年,那时在位的也是高宗沈岚尘)
-if (part('人物')) {
-  await page.goto(`${dev.url}/?seed=7&civYear=2900`);
+// 例子按条件现找(scripts/lib/smokeExamples.ts 的 findPersonExample;历史变了不用跟着改人名、年份):继位来的一位君主
+// (前任、继任和他同一朝,卡片上写得出亲属;本国至少 5 位君主),他在位时本国有将领头一回出征(跳到出征那年,在位的还是他)。
+// GENERATOR_VERSION 40 时找到的是种子 7 天灵(6 号国)霄朝的高宗沈岚尘(前任祖父仁宗沈瑶、继任儿子孝宗沈羽,将领晏昀 2892 年头一回出征)
+if (part('人物')) person: {
+  const { findPersonExample, reEsc } = await import('./lib/smokeExamples');
+  const ex = findPersonExample();
+  if (!ex) {
+    errs.push('人物:几个种子里都找不到够格的例子(继位来的君主,前任、继任写得出亲属,在位时有将领头一回出征)');
+    break person;
+  }
+  const { ruler: R, general: G, lineage: L } = ex;
+  const nm = reEsc(R.name);
+  console.log(
+    `人物:例子是种子 ${ex.seed} 第 ${ex.year} 年 ${ex.polity} 号国的${R.name}(${R.from}–${R.until} 年在位,前任${R.prev.kin}${R.prev.name}、继任${R.next.kin}${R.next.name}),` +
+      `将领${G.name}(${G.from}–${G.until} 年领兵)`,
+  );
+  await page.goto(`${dev.url}/?seed=${ex.seed}&civYear=${ex.year}`);
   await page.waitForFunction(() => (window as any).__wfLabels?.polities > 0, null, { timeout: 60000 });
   await page.waitForTimeout(300);
   const year = async () => Number((await page.locator('.timebar .tb-year').innerText()).replace(/[^\d]/g, ''));
   const text = (sel: string) => page.locator(sel).first().innerText().then((t) => t.replace(/\s+/g, ' ')).catch(() => '');
-  await page.evaluate(() => (window as any).__wfSelect('polity', 6));
+  await page.evaluate((id) => (window as any).__wfSelect('polity', id), ex.polity);
   await page.waitForTimeout(600);
   const stats = await text('.inspector .cp-stats');
   const rulers = await page.locator('.inspector .cp-rulers .cp-dyn-row').count();
@@ -634,7 +660,7 @@ if (part('人物')) {
   await page.waitForTimeout(200);
   const copied = (await page.evaluate(() => (window as any).__wfPersonText as string)) ?? '';
   // 将领一行的名字 → 将领的卡片;出征那年
-  await page.locator('.inspector .cp.pp .cp-stats .ins-link', { hasText: '晏昀' }).first().click();
+  await page.locator('.inspector .cp.pp .cp-stats .ins-link', { hasText: new RegExp(`^${reEsc(G.name)}$`) }).first().click();
   await page.waitForTimeout(400);
   const card2 = await text('.inspector .cp.pp');
   const genLeans = await page.locator('.inspector .cp.pp [data-sec=leanings]').count();
@@ -663,7 +689,7 @@ if (part('人物')) {
   await page.locator('.chronicle.people .pp-row').first().click();
   await page.waitForTimeout(500);
   const card4 = await text('.inspector .cp.pp');
-  await page.evaluate(() => (window as any).__wfSelect('polity', 6));
+  await page.evaluate((id) => (window as any).__wfSelect('polity', id), ex.polity);
   await page.waitForTimeout(400);
   await page.click('.inspector [data-act=all-rulers]');
   await page.waitForTimeout(500);
@@ -687,7 +713,7 @@ if (part('人物')) {
   const lgFocus = await page.locator(`.lg-node.focus[data-person="${princeId}"]`).count();
   await closeOverview();
   // 搜索
-  await page.fill('.sidebar .search-input', '高宗沈岚尘');
+  await page.fill('.sidebar .search-input', R.name);
   await page.waitForTimeout(300);
   const hit = await text('.search-row');
   const hitKind = await page.locator('.search-row').first().getAttribute('data-kind');
@@ -698,19 +724,19 @@ if (part('人物')) {
     `人物:国家卡片「${stats.slice(0, 40)}…」,历代君主 ${rulers} 行、当前「${cur}」、「${all}」;卡片「${card1.slice(0, 50)}…」,倾向 ${leanRows} 行「${leans.slice(0, 30)}…」,复制 ${copied.length} 字;` +
       `将领卡片「${card2.slice(0, 30)}…」、出征那年 → ${y1};编年史开 ${chronOpen}、蓝字 ${names} 个,点「${pickName}」→ 收起 ${closed}、卡片 ${card3Id}/${pickId}、年份 ${y1} → ${y2};` +
       `人物页名人 ${famousOn}/${famous} 行「${famousFirst.slice(0, 30)}」→ 卡片「${card4.slice(0, 20)}」;全部 N 位 → 君主 ${rulersOn}、只看 ${polityPick}、${groups} 组 ${rows} 行;` +
-      `世系图「${lgHead.slice(0, 40)}」${lgNodes} 人、当前「${lgOn}」,宗室卡片「${princeCard.slice(0, 30)}」→ 圈出 ${lgFocus};搜"高宗沈岚尘"「${hit}」(${hitKind})→「${card5}」`,
+      `世系图「${lgHead.slice(0, 40)}」${lgNodes} 人、当前「${lgOn}」,宗室卡片「${princeCard.slice(0, 30)}」→ 圈出 ${lgFocus};搜"${R.name}"「${hit}」(${hitKind})→「${card5}」`,
   );
-  if (!/君主\s*高宗沈岚尘\s*2884 年即位/.test(stats)) errs.push(`人物:国家卡片没有「君主」行(${stats.slice(0, 80)})`);
-  if (rulers !== 5 || !/高宗沈岚尘\s*当前/.test(cur) || !/全部 \d+ 位/.test(all)) errs.push(`人物:国家卡片的历代君主不对(${rulers} 行;${cur};${all})`);
-  // 前任、继任的小字写亲属(祖父、子)
+  if (!new RegExp(`君主\\s*${nm}\\s*${R.from} 年即位`).test(stats)) errs.push(`人物:国家卡片没有「君主」行(${stats.slice(0, 80)})`);
+  if (rulers !== 5 || !new RegExp(`${nm}\\s*当前`).test(cur) || !all.includes(`全部 ${ex.rulers} 位`)) errs.push(`人物:国家卡片的历代君主不对(${rulers} 行;${cur};${all})`);
+  // 前任、继任的小字写亲属(祖父、子……)
   if (
-    !/高宗沈岚尘/.test(card1) ||
-    !/霄\S*，2884–2923 年在位/.test(card1) ||
-    !/前任\s*仁宗沈瑶\s*祖父/.test(deed) ||
-    !/继任\s*孝宗沈羽\s*子/.test(deed)
+    !card1.includes(R.name) ||
+    !card1.includes(`${R.role}，${R.from}–${R.until} 年在位`) ||
+    !new RegExp(`前任\\s*${reEsc(R.prev.name)}\\s*${R.prev.kin}`).test(deed) ||
+    !new RegExp(`继任\\s*${reEsc(R.next.name)}\\s*${R.next.kin}`).test(deed)
   )
     errs.push(`人物:君主卡片不对(${card1.slice(0, 160)})`);
-  if (!/^高宗沈岚尘\n\S*霄\S*，/.test(copied) || !copied.includes('在位时：')) errs.push(`人物:复制生平不对(${copied.slice(0, 60)})`);
+  if (!copied.startsWith(`${R.name}\n${R.role}，`) || !copied.includes('在位时：')) errs.push(`人物:复制生平不对(${copied.slice(0, 60)})`);
   if (
     leanRows !== 4 ||
     // 那年在位的君主:倾向右上多一个「改」
@@ -719,13 +745,16 @@ if (part('人物')) {
   )
     errs.push(`人物:君主卡片的倾向不对(${leanRows} 行;${leans.slice(0, 80)};复制里 ${/倾向：.*/.exec(copied)?.[0]})`);
   if (genLeans || princeLeans) errs.push(`人物:将领 / 宗室的卡片上不该有倾向(${genLeans};${princeLeans})`);
-  if (!/晏昀\s*\S*霄将领，2892–2894 年领兵/.test(card2) || y1 !== 2892) errs.push(`人物:将领卡片 / 出征那年不对(${card2.slice(0, 60)};${y1})`);
+  if (!new RegExp(`${reEsc(G.name)}\\s*${reEsc(G.role)}，${G.from}–${G.until} 年领兵`).test(card2) || y1 !== G.from)
+    errs.push(`人物:将领卡片 / 出征那年不对(${card2.slice(0, 60)};${y1})`);
   if (!chronOpen || names < 3 || !closed || pickId < 0 || card3Id !== pickId || y2 !== y1) errs.push(`人物:编年史里的人名点不开,或点了跳了年份(${chronOpen};${names};${closed};${card3Id}/${pickId};${y1} → ${y2})`);
   if (!famousOn || famous < 20 || !card4) errs.push(`人物:人物页的名人不对,或点一行没打开卡片(${famousOn};${famous};${card4.slice(0, 30)})`);
-  if (!rulersOn || polityPick !== '6' || groups < 1 || rows !== 101) errs.push(`人物:「全部 N 位」没有打开这国的君主(${rulersOn};${polityPick};${groups};${rows})`);
-  if (!/^霄 2655 年起，14 位君主/.test(lgHead) || lgNodes < 8 || !/高宗沈岚尘.*当前/.test(lgOn)) errs.push(`人物:世系图不对(${lgHead};${lgNodes};${lgOn})`);
-  if (!/霄宗室，\d+–\d+/.test(princeCard) || !princeCard.includes('子嗣') || lgFocus !== 1) errs.push(`人物:宗室卡片 / 从卡片回到世系图不对(${princeCard.slice(0, 60)};${lgFocus})`);
-  if (!/^高宗沈岚尘 \S*霄\S*，2884–2923$/.test(hit) || hitKind !== 'person' || card5 !== '高宗沈岚尘') errs.push(`人物:搜"高宗沈岚尘"不对(${hit};${hitKind};${card5})`);
+  if (!rulersOn || polityPick !== String(ex.polity) || groups < 1 || rows !== ex.rulers) errs.push(`人物:「全部 N 位」没有打开这国的君主(${rulersOn};${polityPick};${groups};${rows})`);
+  if (!new RegExp(`^${reEsc(L.dynasty)}\\s*${reEsc(L.note)}`).test(lgHead) || lgNodes < 8 || !new RegExp(`${nm}.*当前`).test(lgOn))
+    errs.push(`人物:世系图不对(${lgHead};${lgNodes};${lgOn})`);
+  if (!new RegExp(`${reEsc(L.princeRole)}，\\d+–\\d+`).test(princeCard) || !princeCard.includes('子嗣') || lgFocus !== 1)
+    errs.push(`人物:宗室卡片 / 从卡片回到世系图不对(${princeCard.slice(0, 60)};${lgFocus})`);
+  if (hit !== `${R.name} ${R.role}，${R.from}–${R.until}` || hitKind !== 'person' || card5 !== R.name) errs.push(`人物:搜"${R.name}"不对(${hit};${hitKind};${card5})`);
   await page.fill('.sidebar .search-input', '');
   await page.keyboard.press('Escape');
   await page.evaluate(() => localStorage.clear());
@@ -1123,7 +1152,7 @@ if (part('写实风回放')) {
   // 回放按钮在概览"世界设定"页(点了概览收起);地质放完时字幕从"约 N 百万年前 / 今天"换成文明回放的"第 N 年"
   await page.waitForFunction(() => /第 \d+ 年/.test(document.querySelector('.caption .big')?.textContent ?? ''), null, { timeout: 20000 });
 
-  // 地质放完接着放文明:时间轴从第 0 年往后走,色块用半分辨率,每帧耗时(底图 + 国名、城镇符号的文字层)要在预算内
+  // 地质放完接着放文明:时间轴从第 0 年往后走,色块用半分辨率,量每帧耗时(底图 + 国名、城镇符号的文字层;只记数,见 timing)
   const civFrames = await page.evaluate(async () => {
     const w = window as any;
     const ms: number[] = [];
@@ -1150,7 +1179,7 @@ if (part('写实风回放')) {
   );
   if (civFrames.ms.length < 5 || !(civFrames.years.at(-1)! > civFrames.years[0])) errs.push('地质回放放完后文明回放没有接着放');
   if (!civFrames.bar || !/第 \d+ 年/.test(civFrames.caption)) errs.push('文明回放时没有时间轴 / "第 N 年"字幕');
-  if (!(median <= REPLAY_BUDGET)) errs.push(`文明回放每帧太慢(中位数 ${median.toFixed(1)} ms,预算 ${REPLAY_BUDGET} ms)`);
+  timing('文明回放每帧(中位数)', median, REPLAY_BUDGET);
   // 悬停时显示民族名
   await page.mouse.move(1150, 330);
   await page.waitForTimeout(300);
@@ -1311,6 +1340,51 @@ if (part('新建界面')) {
   if (!genToast) errs.push('生成新世界时顶部提示条上没有进度');
   if (seed2 === '7' || !new RegExp(`[?&]seed=${seed2}(&|$)`).test(page.url())) errs.push(`点"换一颗"后种子 / 网址没变(${seed2},${page.url()})`);
   if (!imgNote || (await page.locator('.imp-step').count())) errs.push(`随机生成的新建:拖进图片应不导入、提示条说一句(${imgNote})`);
+}
+
+// 照故事找世界:新建第 1 步「照故事找世界 ›」→ 条件页(地图露出来、浅色);选例子「海上强国」、搜 6 个(真推,后台线程)→
+// 搜的时候有进度、搜完有全合的;点一个 → 地图换成那个世界、顶上一条写种子和开场年份;「用这个世界」→ 回到新建第 2 步(文明种子锁着、
+// 一句说明、按钮「建好，停在第 N 年」)→ 建好以后时间停在那一年、侧栏顶上「照故事找的」一组
+if (part('照故事找世界')) {
+  await page.goto(`${dev.url}/?new=1&seed=7&play=0`);
+  await studioReady();
+  await page.locator('.studio [data-act=story-finder]:not([disabled])').click({ timeout: 30000 });
+  await page.locator('.fd-panel [data-page=conds]').waitFor({ timeout: 10000 });
+  const theme = await page.locator('.app').getAttribute('data-theme');
+  await page.click('.fd-panel [data-preset=sea-power]');
+  const count = page.locator('.fd-panel input[aria-label="搜几个世界"]');
+  await count.fill('6');
+  await count.blur();
+  const t0 = Date.now();
+  await page.click('.fd-panel [data-act=finder-start]');
+  const prog = await page.locator('[data-testid=finder-progress]').innerText({ timeout: 10000 }).catch(() => '');
+  await page.waitForFunction(() => !document.querySelector('[data-testid=finder-progress]'), null, { timeout: 240000 }).catch(() => {});
+  const searchMs = Date.now() - t0;
+  const full = await page.locator('.fd-panel .fd-res:not(.near)').count();
+  const lead = await page.locator('.fd-panel .fd-lead').first().innerText().catch(() => '');
+  // 搜完会选上最合的那个:等它生成好(顶上一条不再写"正在打开")
+  await page.waitForFunction(() => /种子 \d+，第 \d+ 年/.test(document.querySelector('[data-testid=finder-pill]')?.textContent ?? '') && !document.querySelector('[data-testid=finder-pill]')?.textContent?.includes('正在打开'), null, { timeout: 60000 }).catch(() => {});
+  const pill = await page.locator('[data-testid=finder-pill]').innerText().catch(() => '');
+  const year = Number(/第 (\d+) 年/.exec(pill)?.[1] ?? NaN);
+  await page.locator('.fd-panel [data-act=finder-use]').first().click({ timeout: 10000 }).catch(() => {});
+  const note = await page.locator('.studio [data-testid=found-note]').innerText({ timeout: 30000 }).catch(() => '');
+  const btn = await page.locator('.studio [data-act=create-world]').innerText().catch(() => '');
+  const civSeed = await page.locator('.studio [data-act=civ-seed-found]').innerText().catch(() => '');
+  await createNow().catch(() => {});
+  await page.locator('[data-testid=found-side]').waitFor({ timeout: 30000 }).catch(() => {});
+  const side = await page.locator('[data-testid=found-side]').innerText().catch(() => '');
+  const tl = await page.locator('.bottom-row').innerText().catch(() => '');
+  console.log(
+    `照故事找世界:条件页主题 ${theme};进度「${prog.split('\n')[0]}」,搜 6 个 ${Math.round(searchMs / 1000)} 秒、全合 ${full} 个(${lead.replace(/\n/g, ' ')});` +
+      `选中「${pill.replace(/\n/g, ' ')}」→ 第 2 步「${civSeed.replace(/\n/g, ' ')}」「${btn}」;建好以后侧栏「${side.split('\n').slice(0, 3).join(' ')}」、时间轴「${tl.split('\n')[0]}」`,
+  );
+  if (theme !== 'light') errs.push(`照故事找世界:条件页不是浅色(${theme})`);
+  if (!prog.includes('正在推第')) errs.push(`照故事找世界:搜的时候没有进度(${prog})`);
+  if (!full) errs.push(`照故事找世界:海上强国搜 6 个一个全合都没有(${lead})`);
+  if (!Number.isFinite(year)) errs.push(`照故事找世界:选中以后地图顶上那一条不对(${pill})`);
+  if (!note.includes(`建好以后停在第 ${year} 年`) || btn !== `建好，停在第 ${year} 年` || !civSeed.includes('照故事找的')) errs.push(`照故事找世界:「用这个世界」以后第 2 步不对(${note} / ${btn} / ${civSeed})`);
+  if (!side.includes('照故事找的') || !side.includes(`第 ${year} 年开场`)) errs.push(`照故事找世界:建好以后侧栏没有「照故事找的」一组(${side})`);
+  if (!tl.includes(`第 ${year} 年`)) errs.push(`照故事找世界:建好以后时间轴没停在开场那年(${tl.split('\n')[0]})`);
 }
 
 // 第一次来(什么都没存):先到「我的世界」,中间一颗星球、一段话、「新建世界」;点了先弹窗(第 1 步两种、默认随机生成,
@@ -1556,8 +1630,8 @@ if (part('民族和国家视图')) {
   if (!people) errs.push('民族视图下悬停没有显示"XX族"');
   if (!(await page.locator('.civ-timeline').isVisible())) errs.push('打开"民族"后没有时间轴');
 
-  // 打开"国家"视图:首次绘制文明层(底图 + 国名、城名、城镇符号的文字层)≤ 150 ms;概览的国家页列出这一年的国家;
-  // 悬停显示"某国 · 最近城市 某城";从第 1500 年按 4× 接着放,国家、城市随年份变化时每帧(底图 + 文字层)≤ 30 ms。
+  // 打开"国家"视图:首次绘制文明层(底图 + 国名、城名、城镇符号的文字层;预算 150 ms,只记数);概览的国家页列出这一年的国家;
+  // 悬停显示"某国 · 最近城市 某城";从第 1500 年按 4× 接着放,国家、城市随年份变化时每帧(底图 + 文字层;预算 30 ms,只记数)。
   // CI 的虚拟机比一般电脑慢两三倍(同一段回放每帧耗时约是本机的 2.5 倍),首次绘制的预算在 CI 上放宽到 2 倍
   const DRAW_BUDGET = process.env.CI ? 300 : 150;
   for (const style of ['realistic', 'fantasy']) {
@@ -1575,7 +1649,7 @@ if (part('民族和国家视图')) {
       `国家视图(${style}):首次绘制 ${first.toFixed(1)} ms(底图 ${civMs.toFixed(1)} + 文字层 ${(lab?.ms ?? NaN).toFixed(1)}),` +
         `国名 ${lab?.polities} 个、城镇符号 ${lab?.marks} 个、文字 ${lab?.drawn} 条,图例 ${nations} 行`,
     );
-    if (!(first <= DRAW_BUDGET)) errs.push(`国家视图首次绘制太慢(${first.toFixed(1)} ms,预算 ${DRAW_BUDGET} ms)`);
+    timing(`国家视图首次绘制(${style})`, first, DRAW_BUDGET);
     if (!(lab?.polities > 0) || !(lab?.marks > 0)) errs.push('国家视图没有画出国名 / 城镇符号');
     if (nations < 2) errs.push('国家视图的图例没有列出国家');
     if (style === 'realistic') {
@@ -1634,7 +1708,7 @@ if (part('民族和国家视图')) {
         `每帧(底图 + 文字层)中位数 ${med.toFixed(1)} ms、最慢 ${(fs.at(-1) ?? NaN).toFixed(1)} ms;其中文字层中位数 ${(ts[ts.length >> 1] ?? NaN).toFixed(1)} ms`,
     );
     if (fs.length < 5) errs.push('国家视图点播放后没有接着放');
-    if (!(med <= REPLAY_BUDGET)) errs.push(`国家视图回放每帧太慢(中位数 ${med.toFixed(1)} ms,预算 ${REPLAY_BUDGET} ms)`);
+    timing(`国家视图回放每帧(${style},中位数)`, med, REPLAY_BUDGET);
   }
 }
 
@@ -1996,7 +2070,7 @@ if (part('点选改名')) {
   if (!reset) errs.push('恢复默认后地图上的城名没有变回来');
   if (!closed) errs.push('按 Esc 没有关掉详情面板');
   const RENAME_BUDGET = process.env.CI ? 250 : 100;
-  if (!(renameMs <= RENAME_BUDGET)) errs.push(`改名太慢(${renameMs.toFixed(1)} ms,预算 ${RENAME_BUDGET} ms)`);
+  timing('改名到地图上的字变了', renameMs, RENAME_BUDGET);
 }
 // 存档(阶段 4):打开一个种子(只是看看,不存)→ 改一个名字 → 存进"我的世界"、网址换成 w=编号 → 刷新页面 → 名字还在(自动恢复);
 // 存档菜单写着"已自动存";存成文件;回到"我的世界"有这张卡片 → 换一个世界、清掉浏览器里的存档 → 从文件打开 → 名字回来
@@ -2880,7 +2954,7 @@ if (part('干预保护')) {
     if (!/保护.+,已从 \d+ 年起重新推演.*撤销/.test(ivToast)) errs.push(`干预:重推完顶部没有"保护…,已从 N 年起重新推演"(带撤销)的提示(${ivToast})`);
     // 推演只要比播放快(每秒 80 年以上),整局重推不用卡得太紧
     const RESIM_BUDGET = process.env.CI ? 4000 : 1600;
-    if (resim && !(resim.paintedMs <= RESIM_BUDGET)) errs.push(`干预:重推太慢(${resim.paintedMs.toFixed(0)} ms,预算 ${RESIM_BUDGET} ms)`);
+    if (resim) timing('干预保护:重推到画完', resim.paintedMs, RESIM_BUDGET);
     // 干预也自动存:刷新页面 → 自动恢复修改 → 按存下的干预重推一次
     await page.waitForTimeout(1500);
     await page.reload();
@@ -3217,7 +3291,7 @@ if (part('改地形')) {
     // 从点下去到新地图画好(线程里生成 + 文明 + 铺像素约 0.8–1 秒,主线程画手绘底图、文字约 0.6 秒);
     // 机器负载高时单次能慢到 2.5 秒,CI 虚拟机再慢两倍
     const BUDGET = process.env.CI ? 6000 : 3000;
-    if (!(t.paintedMs <= BUDGET)) errs.push(`改地形:重新生成太慢(${t.paintedMs.toFixed(0)} ms,预算 ${BUDGET} ms)`);
+    timing('改地形:重新生成到画完', t.paintedMs, BUDGET);
     // 撤销:又变回海;再放一次
     const u = await regen(() => page.click('.tp [data-act=terrain-undo]'));
     const undone = await probeSea();
@@ -3396,7 +3470,7 @@ if (part('立国')) {
     if (!/干预\s+[^\n]*自立,号饕餮/.test(chron)) errs.push('立国:编年史里没有这条干预');
     // 推演只要比播放快(每秒 80 年以上),整局重推不用卡得太紧
     const RESIM_BUDGET = process.env.CI ? 4000 : 1600;
-    if (resim && !(resim.paintedMs <= RESIM_BUDGET)) errs.push(`立国:重推太慢(${resim.paintedMs.toFixed(0)} ms,预算 ${RESIM_BUDGET} ms)`);
+    if (resim) timing('立国:重推到画完', resim.paintedMs, RESIM_BUDGET);
   }
   await page.evaluate(() => localStorage.clear());
 }
@@ -4200,7 +4274,7 @@ if (part('东西相连')) {
   if (!(Math.abs(v1.lon - v0.lon) > 30)) errs.push('东西相连:缩放 1 倍时左右拖不动');
   // 预算一帧 16 ms(60 帧 / 秒);CI 的虚拟机比一般电脑慢两三倍(同一段文字层重排约是本机的 3 倍),放宽到 2.5 倍
   const PAN_BUDGET = process.env.CI ? 40 : 16;
-  if (!(panMed <= PAN_BUDGET)) errs.push(`东西相连:拖动每帧太慢(中位数 ${panMed.toFixed(1)} ms,预算 ${PAN_BUDGET} ms)`);
+  timing('东西相连:拖动每帧(中位数)', panMed, PAN_BUDGET);
 
   // 2. 拖一整圈(一圈 = 缩放倍数 × 地图框宽)回到原处:画面一模一样
   await setCenter(0);
@@ -4487,7 +4561,7 @@ if (part('文明细节层')) {
       `停下来后格宽 ${dEnd?.step?.toFixed(1)}`,
   );
   if (fs.length < 5) errs.push('文明细节层:放大后回放没有跟着年份重画');
-  if (!(med <= REPLAY_BUDGET)) errs.push(`文明细节层:放大后回放每帧太慢(中位数 ${med.toFixed(1)} ms,预算 ${REPLAY_BUDGET} ms)`);
+  timing('文明细节层:放大后回放每帧(中位数)', med, REPLAY_BUDGET);
   if (!(dEnd?.step <= 1.01) || dEnd?.fast) errs.push('文明细节层:回放停下来后没有按细格补画');
   // 缩回 1 倍:细节层关掉,被放大的底图回来
   await page.evaluate(() => (window as any).__wfSetView({ k: 1, x: 0, y: 0 }));
@@ -4667,7 +4741,7 @@ if (part('多种投影')) {
   // 地图铺满全屏后地图框约是原来的两倍大(1400×820 的窗口里 1640×820,原来约 1126×563),重画跟着慢一倍;
   // CI 的虚拟机又比本机慢两三倍、偶尔一次卡到 1 秒多,上限放宽到 2 倍。本机仍按 900 ms
   const REDRAW_LIMIT = process.env.CI ? 1800 : 900;
-  if (worstRedraw > REDRAW_LIMIT) errs.push(`投影:换中心 / 换投影重画太慢(${worstRedraw.toFixed(0)} ms,上限 ${REDRAW_LIMIT} ms)`);
+  timing('投影:换中心 / 换投影重画(最慢一次)', worstRedraw, REDRAW_LIMIT);
   // 7. 导出罗宾森图片:尺寸对,四角在外轮廓外(底色),正中有图(和底色不同、颜色有变化)
   await closeOverview();
   await page.click('.export-btn');
@@ -4806,7 +4880,7 @@ if (part('地球仪')) {
   // 这里只防"慢了一个数量级"的退步;转动时还会按帧间隔自动降分辨率
   const bench = await gp.evaluate(() => (window as any).__wfGlobeBench(20));
   console.log(`地球仪每帧(${bench.renderer},${bench.w}×${bench.h}):中位数 ${bench.median.toFixed(1)} ms、p90 ${bench.p90.toFixed(1)} ms、最慢 ${bench.max.toFixed(1)} ms`);
-  if (bench.renderer === 'webgl2' && !(bench.median < 1000)) errs.push(`地球仪每帧太慢(中位数 ${bench.median.toFixed(1)} ms)`);
+  if (bench.renderer === 'webgl2') timing('地球仪每帧(中位数)', bench.median, 1000);
 
   // 拖动:经度变了;拖动不算单击
   const gb = (await gp.locator('.globe').boundingBox())!;
@@ -6159,6 +6233,21 @@ if (part('手机大图')) {
 const lostStarts = PART_STARTS.filter((n) => !partNames.has(n));
 if (lostStarts.length) errs.push(`分份:PART_STARTS 里的段「${lostStarts.join('、')}」找不到了(改了段名要跟着改)`);
 if (PARTS > 1) console.log(`第 ${PART}/${PARTS} 份跑了 ${partRan.length} 段:${partRan.join('、')}`);
+// 快慢汇总(只记数,见 timing):日志里一段;在 GitHub 上再写进检查页的摘要(一张表),超了的挂一条 warning
+if (timings.length) {
+  const over = timings.filter((t) => !(t.ms <= t.budget));
+  const which = PARTS > 1 ? `第 ${PART}/${PARTS} 份` : '';
+  console.log(`\n速度(${which ? `${which},` : ''}只记数,超预算不影响检查结果):`);
+  for (const t of timings) console.log(`  ${t.label}:${fmtMs(t.ms)}(预算 ${t.budget} ms${t.ms <= t.budget ? '' : ',超预算'})`);
+  if (process.env.GITHUB_STEP_SUMMARY) {
+    const rows = timings.map((t) => `| ${t.label} | ${fmtMs(t.ms)} | ${t.budget} ms | ${t.ms <= t.budget ? '' : '超预算'} |`);
+    const md = [`### 冒烟速度${which ? `(${which})` : ''}`, '', '只记数,超预算不影响检查结果。', '', '| 项 | 这次 | 预算 | |', '| --- | ---: | ---: | --- |', ...rows, ''];
+    appendFileSync(process.env.GITHUB_STEP_SUMMARY, md.join('\n') + '\n');
+  }
+  if (over.length && process.env.GITHUB_ACTIONS) {
+    console.log(`::warning title=冒烟速度${which ? `(${which})` : ''}::${over.map((t) => `${t.label} ${fmtMs(t.ms)}(预算 ${t.budget} ms)`).join(';')} 超预算(只记数,不影响检查结果)`);
+  }
+}
 console.log('errors:', errs);
 await browser.close();
 await dev.close();
